@@ -1,6 +1,8 @@
-[gd_resource type="Resource" script_class="AircraftParams" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/default_combat.tres" id="3"]
 
 [resource]
 script = ExtResource("1")
@@ -11,13 +13,21 @@ max_speed = 2100.0
 cruise_speed = 900.0
 stall_speed_base = 220.0
 acceleration = 50.0
+deceleration = 80.0
+g_drag_factor = 3.0
 max_g = 9.0
 roll_rate = 4.0
 max_altitude = 15000.0
 climb_rate_max = 250.0
 thrust_to_weight = 1.1
 drag_coefficient = 0.02
+afterburner_thrust_mult = 1.5
+fuel_capacity = 3000.0
+fuel_rate_normal = 1.5
+fuel_rate_afterburner = 8.0
 radar_range = 350.0
 radar_half_angle = 30.0
 lock_time = 2.5
+gun = ExtResource("2")
+combat = ExtResource("3")
 icon_color = Color(0.15, 0.35, 0.85, 1)

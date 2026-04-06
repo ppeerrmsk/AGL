@@ -30,6 +30,7 @@ var _noise: FastNoiseLite
 var _cloud_noise: FastNoiseLite
 
 @onready var camera: Camera2D = $Camera2D
+@onready var bullet_manager: BulletManager = $BulletManager
 
 var selected_aircraft: Array[Aircraft] = []
 var is_dragging: bool = false
@@ -61,10 +62,11 @@ func _init_noise() -> void:
 
 func _auto_select_player_aircraft() -> void:
 	for child in get_children():
-		if child is Aircraft and child.team == 0:
-			child.selected = true
-			selected_aircraft.append(child)
-			break
+		if child is Aircraft:
+			child.bullet_manager = bullet_manager
+			if child.team == 0 and selected_aircraft.is_empty():
+				child.selected = true
+				selected_aircraft.append(child)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
@@ -99,14 +101,38 @@ func _handle_mouse_motion(event: InputEventMouseMotion) -> void:
 
 func _on_left_click(screen_pos: Vector2) -> void:
 	var world_pos := _screen_to_world(screen_pos)
+
+	# 优先检测点击附近是否有敌方飞机
+	var enemy := _find_enemy_near(world_pos)
+	if enemy:
+		for ac in selected_aircraft:
+			if is_instance_valid(ac) and not ac.is_destroyed:
+				ac.set_combat_target(enemy)
+		return
+
+	# 无敌机：普通移动指令，清除战斗目标
 	for ac in selected_aircraft:
-		if is_instance_valid(ac):
+		if is_instance_valid(ac) and not ac.is_destroyed:
+			ac.clear_combat_target()
 			ac.target_position = world_pos
 
 func _on_right_click() -> void:
 	for ac in selected_aircraft:
 		if is_instance_valid(ac):
+			ac.clear_combat_target()
 			ac.target_position = Vector2.INF
+
+## 查找世界坐标附近的敌方飞机
+func _find_enemy_near(world_pos: Vector2) -> Aircraft:
+	var best_dist := HOVER_RADIUS
+	var best: Aircraft = null
+	for child in get_children():
+		if child is Aircraft and child.team != 0 and not child.is_destroyed:
+			var d := world_pos.distance_to(child.global_position)
+			if d < best_dist:
+				best_dist = d
+				best = child
+	return best
 
 func _screen_to_world(screen_pos: Vector2) -> Vector2:
 	var viewport := get_viewport()
@@ -117,8 +143,21 @@ func _process(delta: float) -> void:
 	var current_zoom := camera.zoom.x
 	var new_zoom := lerpf(current_zoom, target_zoom, delta * 10.0)
 	camera.zoom = Vector2(new_zoom, new_zoom)
+	_cleanup_references()
+	_update_aircraft_list()
 	_update_radar_locks(delta)
 	queue_redraw()
+
+func _cleanup_references() -> void:
+	selected_aircraft = selected_aircraft.filter(func(ac: Aircraft) -> bool:
+		return is_instance_valid(ac))
+
+func _update_aircraft_list() -> void:
+	var all: Array[Aircraft] = []
+	for child in get_children():
+		if child is Aircraft:
+			all.append(child)
+	bullet_manager.aircraft_list = all
 
 func _update_hover(screen_pos: Vector2) -> void:
 	var world_pos := _screen_to_world(screen_pos)

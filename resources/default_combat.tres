@@ -1,0 +1,35 @@
+[gd_resource type="Resource" script_class="CombatParams" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/combat_params.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+intercept_range_mult = 2.5
+intercept_lead_max = 8.0
+closing_rate_threshold = 0.15
+six_oclock_offset_ratio = 0.3
+pure_pursuit_lead_factor = 0.4
+opportunity_cone_mult = 2.5
+opportunity_range_mult = 0.4
+combat_bank_aggression = 1.0
+combat_full_bank_diff = 0.1
+combat_half_bank_diff = 0.02
+turn_slow_angle = 45.0
+turn_slow_max_angle = 120.0
+turn_slow_speed_mult = 0.85
+ab_cooldown = 2.0
+approach_speed_mult = 1.4
+maneuver_speed_mult = 1.0
+closing_speed_mult = 1.25
+overshoot_speed_margin = 1.12
+overshoot_decel_range = 2.0
+overshoot_ab_range = 3.0
+dive_speed_ratio = 0.85
+dive_min_altitude = 2000.0
+dive_depth = 1000.0
+dive_floor = 1500.0
+climb_brake_overspeed = 1.15
+climb_brake_height = 800.0
+climb_brake_ceiling = 12000.0
+climb_speed_ratio = 1.15
+climb_max_altitude = 8000.0

@@ -16,7 +16,7 @@ func _ready() -> void:
 		_set_next_waypoint()
 
 func _physics_process(_delta: float) -> void:
-	if not aircraft or waypoints.is_empty():
+	if not aircraft or waypoints.is_empty() or aircraft.is_destroyed:
 		return
 
 	var target := waypoints[current_waypoint_index]

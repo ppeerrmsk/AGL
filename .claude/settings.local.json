@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(grep -E \"\\\\.\\(godot|tscn|gd|tres|res\\)$\")"
+      "Bash(grep -E \"\\\\.\\(godot|tscn|gd|tres|res\\)$\")",
+      "Bash(grep -E \"\\\\.\\(cfg|json|md|txt\\)$\")"
     ]
   }
 }
