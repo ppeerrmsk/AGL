@@ -1,4 +1,4 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1"]
 [ext_resource type="PackedScene" path="res://scenes/aircraft.tscn" id="2"]
@@ -7,6 +7,7 @@
 [ext_resource type="Resource" path="res://resources/default_fighter.tres" id="6"]
 [ext_resource type="Script" path="res://scripts/bullet_manager.gd" id="7"]
 [ext_resource type="Script" path="res://scripts/missile_manager.gd" id="8"]
+[ext_resource type="Script" path="res://scripts/debug_panel.gd" id="9"]
 
 [node name="Main" type="Node2D"]
 script = ExtResource("1")
@@ -96,3 +97,6 @@ aircraft = NodePath("..")
 patrol_altitude = 7000.0
 arrival_distance = 200.0
 waypoints = PackedVector2Array(100, -1100, 700, -500, 1300, -1100, 700, -1700)
+
+[node name="DebugPanel" type="CanvasLayer" parent="."]
+script = ExtResource("9")
