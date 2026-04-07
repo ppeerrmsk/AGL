@@ -39,6 +39,7 @@ var ammo: int = 500
 var _fire_cooldown: float = 0.0
 var _gun_lead_heading: float = 0.0  ## 前置射击方向（由 _update_combat 计算）
 var _in_rear_hemisphere: bool = false  ## 是否处于敌机后半球（由 _update_combat 计算）
+var ai_override_pursuit: bool = false  ## AI 战术机动时跳过自动追踪，由 AI 直接控制 target_position
 var bullet_manager: Node2D = null   ## 由 main.gd 注入
 var missile_manager: Node2D = null  ## 由 main.gd 注入
 
@@ -62,6 +63,11 @@ var radar_targets: Dictionary = {}       ## { Aircraft: float } 累计照射时�
 var is_locked: bool = false              ## 被至少一架敌机锁定
 var locked_by: Array[Aircraft] = []      ## 锁定自己的敌机列表
 
+# --- 热诱弹 ---
+var flares_remaining: int = 0
+var _flare_cooldown: float = 0.0
+var _flare_particles: Array[Dictionary] = []  ## { pos: Vector2, vel: Vector2, life: float }
+
 var _trail_ribbon: TrailRibbon
 
 func _ready() -> void:
@@ -76,6 +82,8 @@ func _ready() -> void:
 			ammo = params.gun.max_ammo
 		if params.missile:
 			missiles_remaining = params.missile.max_count
+		if params.flare:
+			flares_remaining = params.flare.max_flares
 		pilot_stamina = params.pilot_stamina
 	# 轨迹丝带
 	_trail_ribbon = TrailRibbon.new()
@@ -102,10 +110,12 @@ func _physics_process(delta: float) -> void:
 	_update_altitude(delta)
 	_update_fuel(delta)
 	_update_stall()
+	_check_ground_crash()
 	_update_g_load()
 	_apply_movement(delta)
 	_update_gun(delta)
 	_update_missile(delta)
+	_update_flares(delta)
 	_update_visuals()
 	queue_redraw()
 
@@ -193,8 +203,19 @@ func _update_bank(delta: float) -> void:
 			target_bank = sign(heading_diff) * max_bank
 		target_bank *= _proximity_damping
 
+	# 失速时：强制回正（机翼失去升力，无法维持侧倾）
+	if is_stalled:
+		target_bank = 0.0
+
 	# 滚转速率限制
 	var roll_rate_val := params.roll_rate if params else 4.0
+
+	# 低速时滚转速率也下降
+	var stall_ms := _stall_speed() / 3.6
+	if speed < stall_ms:
+		var ctrl := clampf(speed / maxf(stall_ms, 1.0), 0.1, 1.0)
+		roll_rate_val *= ctrl
+
 	var bank_diff := target_bank - bank_angle
 	var max_roll := roll_rate_val * delta
 	bank_angle += clampf(bank_diff, -max_roll, max_roll)
@@ -203,8 +224,16 @@ func _update_heading(delta: float) -> void:
 	if abs(bank_angle) < 0.001:
 		return
 	# 转弯率 ω = g × tan(bank_angle) / speed
-	var speed_ms := maxf(speed, 10.0)  # 防止除零
+	var speed_ms := maxf(speed, 1.0)  # 防止除零
 	var turn_rate := GRAVITY * tan(bank_angle) / speed_ms
+
+	# 低速时操控性急剧下降：速度低于失速速度时，转向能力线性衰减
+	var stall_ms := _stall_speed() / 3.6
+	if speed < stall_ms:
+		var control_ratio := clampf(speed / maxf(stall_ms, 1.0), 0.0, 1.0)
+		# 平方衰减：速度越低，操控越差
+		turn_rate *= control_ratio * control_ratio
+
 	heading += turn_rate * delta
 	# 归一化到 [-PI, PI]
 	heading = fmod(heading + PI, TAU) - PI
@@ -213,6 +242,11 @@ func _update_speed(delta: float) -> void:
 	var target_ms := target_speed_kmh / 3.6
 	var max_speed_ms := _max_speed_at_altitude() / 3.6
 	target_ms = minf(target_ms, max_speed_ms)
+
+	# 安全速度下限：永远不主动减速到失速速度以下
+	var stall_base_ms := (params.stall_speed_base if params else 220.0) / 3.6
+	var min_safe_ms := stall_base_ms * 1.3  # 130% 失速速度作为安全余量
+	target_ms = maxf(target_ms, min_safe_ms)
 
 	var accel_rate := params.acceleration if params else 50.0
 	var decel_rate := params.deceleration if params else 80.0
@@ -259,10 +293,17 @@ func _update_stall() -> void:
 	var stall_speed_ms := _stall_speed() / 3.6
 	is_stalled = speed < stall_speed_ms
 	if is_stalled:
-		# 失速：丢高度，逐渐恢复速度
-		altitude -= 50.0 * get_physics_process_delta_time()
-		speed += 5.0 * get_physics_process_delta_time()
-		altitude = maxf(altitude, 0.0)
+		var delta := get_physics_process_delta_time()
+		# 失速严重程度（0=刚失速, 1=完全停止）
+		var severity := 1.0 - clampf(speed / maxf(stall_speed_ms, 1.0), 0.0, 1.0)
+
+		# 强制机头下压俯冲（设置 vertical_speed，让重力耦合把高度转成速度）
+		# 不直接修改 altitude —— _update_altitude 已经处理了
+		var dive_rate := lerpf(-100.0, -250.0, severity)
+		vertical_speed = minf(vertical_speed, dive_rate)
+
+		# 失速时侧倾不稳定
+		bank_angle += randf_range(-1.0, 1.0) * severity * 2.0 * delta
 
 func _update_g_load() -> void:
 	if abs(bank_angle) < 0.001:
@@ -296,7 +337,18 @@ func _apply_movement(delta: float) -> void:
 func _max_bank_angle() -> float:
 	var max_g_val := _effective_max_g()
 	# G = 1/cos(bank) => bank = acos(1/G)
-	return acos(1.0 / max_g_val)
+	var g_limited_bank := acos(1.0 / max_g_val)
+
+	# 速度限制：不允许拉到会导致失速的G力
+	# 失速速度 V_stall = V_base * sqrt(G)，所以允许的最大G = (V_current / V_base)²
+	var stall_base := (params.stall_speed_base if params else 220.0) / 3.6  # m/s
+	if speed > stall_base * 1.1:  # 留10%安全余量
+		var max_g_for_speed := (speed / stall_base) * (speed / stall_base)
+		var speed_limited_bank := acos(1.0 / maxf(max_g_for_speed, 1.01))
+		return minf(g_limited_bank, speed_limited_bank)
+	else:
+		# 速度已经接近/低于失速，几乎不能拉G
+		return 0.2  # 约11度，仅温和转弯
 
 func _effective_max_g() -> float:
 	## 根据飞行员耐力在 sustained G 与 structural G 之间插值
@@ -530,48 +582,46 @@ func _update_combat(_delta: float) -> void:
 	var in_rear_hemisphere := aspect_angle < deg_to_rad(90.0)
 	_in_rear_hemisphere = in_rear_hemisphere
 
-	var gun_range := _gun_range_px()
-	var eff_range := _effective_range_px()
 	var is_missile_mode := weapon_mode == WeaponMode.MISSILE
-	var pursuit_pos: Vector2
-	var six_offset := maxf(80.0, eff_range * cb.six_oclock_offset_ratio)
 
-	if is_missile_mode:
-		# ---- 导弹模式（分阶段追踪） ----
-		var msl_phase := _get_missile_phase()
+	# AI 战术机动模式：跳过自动追踪，AI 直接控制 target_position
+	if not ai_override_pursuit:
+		var gun_range := _gun_range_px()
+		var eff_range := _effective_range_px()
+		var pursuit_pos: Vector2
+		var six_offset := maxf(80.0, eff_range * cb.six_oclock_offset_ratio)
 
-		if msl_phase == 0:
-			# 接近阶段：积极拦截，与机炮模式类似但目标是机头对准敌机
-			# 前置拦截：飞向敌机未来位置
-			var intercept_lead := clampf(dist / maxf(my_speed_px, 50.0), 0.5, cb.intercept_lead_max)
-			pursuit_pos = tgt_pos + tgt_fwd * tgt_speed_px * intercept_lead
-		elif msl_phase == 1:
-			# 照射阶段：目标在雷达锥内，平滑跟踪
-			var lead_time := clampf(dist / maxf(my_speed_px + tgt_speed_px, 100.0), 0.2, 1.5)
-			pursuit_pos = tgt_pos + tgt_fwd * tgt_speed_px * lead_time
+		if is_missile_mode:
+			# ---- 导弹模式（分阶段追踪） ----
+			var msl_phase := _get_missile_phase()
+
+			if msl_phase == 0:
+				var intercept_lead := clampf(dist / maxf(my_speed_px, 50.0), 0.5, cb.intercept_lead_max)
+				pursuit_pos = tgt_pos + tgt_fwd * tgt_speed_px * intercept_lead
+			elif msl_phase == 1:
+				var lead_time := clampf(dist / maxf(my_speed_px + tgt_speed_px, 100.0), 0.2, 1.5)
+				pursuit_pos = tgt_pos + tgt_fwd * tgt_speed_px * lead_time
+			else:
+				pursuit_pos = tgt_pos
+
+			var min_range_px := params.missile.min_range * PIXELS_PER_METER if params and params.missile else 250.0
+			if dist < min_range_px:
+				pursuit_pos = tgt_pos - tgt_fwd * maxf(80.0, _gun_range_px() * cb.six_oclock_offset_ratio)
 		else:
-			# 保持阶段（已锁定/crank）：直追目标，极少改航向
-			pursuit_pos = tgt_pos
-
-		# 太近了（< min_range）：切换为近距追踪
-		var min_range_px := params.missile.min_range * PIXELS_PER_METER if params and params.missile else 250.0
-		if dist < min_range_px:
-			pursuit_pos = tgt_pos - tgt_fwd * maxf(80.0, gun_range * cb.six_oclock_offset_ratio)
-	else:
-		# ---- 机炮模式追踪（原有逻辑） ----
-		six_offset = maxf(80.0, gun_range * cb.six_oclock_offset_ratio)
-		if dist > gun_range * cb.intercept_range_mult:
-			if in_rear_hemisphere:
-				var t := clampf(dist / maxf(my_speed_px, 50.0), 0.5, cb.intercept_lead_max)
-				pursuit_pos = tgt_pos + tgt_fwd * tgt_speed_px * t
+			# ---- 机炮模式追踪（原有逻辑） ----
+			six_offset = maxf(80.0, _gun_range_px() * cb.six_oclock_offset_ratio)
+			if dist > _gun_range_px() * cb.intercept_range_mult:
+				if in_rear_hemisphere:
+					var t := clampf(dist / maxf(my_speed_px, 50.0), 0.5, cb.intercept_lead_max)
+					pursuit_pos = tgt_pos + tgt_fwd * tgt_speed_px * t
+				else:
+					pursuit_pos = tgt_pos - tgt_fwd * six_offset
+			elif in_rear_hemisphere:
+				pursuit_pos = tgt_pos - tgt_fwd * six_offset
 			else:
 				pursuit_pos = tgt_pos - tgt_fwd * six_offset
-		elif in_rear_hemisphere:
-			pursuit_pos = tgt_pos - tgt_fwd * six_offset
-		else:
-			pursuit_pos = tgt_pos - tgt_fwd * six_offset
 
-	target_position = pursuit_pos
+		target_position = pursuit_pos
 
 	# ---- 开火判定（对前置点）—— 仅机炮模式 ----
 	var gun := params.gun if params else null
@@ -757,6 +807,10 @@ func _update_missile(delta: float) -> void:
 	if not _is_in_missile_envelope(combat_target, msl):
 		return
 
+	# 机头必须大致朝向目标（雷达锥内）才允许发射——防止背对目标乱射
+	if not is_in_radar_cone(combat_target.global_position):
+		return
+
 	# 交战目标必须被雷达锁定足够时间
 	var lock_progress: float = radar_targets.get(combat_target, 0.0)
 	if lock_progress < params.lock_time + LOCK_STABLE_BUFFER:
@@ -860,6 +914,12 @@ func take_damage(amount: float) -> void:
 		hp = 0.0
 		_start_destroy()
 
+func _check_ground_crash() -> void:
+	# 高度为 0 且非起飞状态 → 坠地
+	if altitude <= 0.0 and not is_destroyed:
+		altitude = 0.0
+		_start_destroy()
+
 func _start_destroy() -> void:
 	is_destroyed = true
 	is_firing = false
@@ -919,6 +979,7 @@ func _draw() -> void:
 		_draw_muzzle_flash()
 	if is_afterburner:
 		_draw_afterburner_glow()
+	_draw_flare_particles()
 	_draw_data_label()
 
 func _draw_radar_cone() -> void:
@@ -1007,6 +1068,16 @@ func _draw_afterburner_glow() -> void:
 	])
 	draw_colored_polygon(inner, core_color)
 
+func _draw_flare_particles() -> void:
+	for p in _flare_particles:
+		var pos: Vector2 = p["pos"]
+		var life: float = p["life"]
+		var local_pos := to_local(pos)
+		var alpha := clampf(life / 1.0, 0.0, 1.0)
+		var size := lerpf(1.5, 3.0, alpha)
+		var color := Color(1.0, 0.9, 0.4, alpha * 0.9)
+		draw_circle(local_pos, size, color)
+
 func _draw_aircraft_icon_destroyed() -> void:
 	# 灰色闪烁图标
 	var blink := absf(sin(Time.get_ticks_msec() * 0.008))
@@ -1024,10 +1095,18 @@ func _draw_aircraft_icon() -> void:
 
 	var size := 16.0
 
-	# 高度缩放
+	# 高度缩放：以 5000m 为基准（scale=1.0），低空缩小、高空放大
+	# 使用 sqrt 曲线让中低空的变化更明显
+	var ref_alt := 5000.0
 	var max_alt := params.max_altitude if params else 15000.0
-	var alt_factor := clampf(altitude / max_alt, 0.0, 1.0)
-	var base_scale := lerpf(0.7, 1.3, alt_factor)
+	var alt_ratio := clampf(altitude / max_alt, 0.0, 1.0)
+	var ref_ratio := ref_alt / max_alt
+	# 基准以下：0.65~1.0，基准以上：1.0~1.4
+	var base_scale: float
+	if alt_ratio <= ref_ratio:
+		base_scale = lerpf(0.65, 1.0, sqrt(alt_ratio / ref_ratio))
+	else:
+		base_scale = lerpf(1.0, 1.4, (alt_ratio - ref_ratio) / (1.0 - ref_ratio))
 
 	# 滚转变形
 	var bank_compress := cos(bank_angle)
@@ -1122,6 +1201,8 @@ func _draw_data_label() -> void:
 		lines.append("MSL %d" % missiles_remaining)
 	if params and params.gun:
 		lines.append("AMM %d" % ammo)
+	if params and params.flare:
+		lines.append("FLR %d" % flares_remaining)
 	lines.append("FUEL %d" % roundi(fuel))
 	if is_afterburner:
 		lines.append("AB")
@@ -1193,6 +1274,128 @@ func _draw_target_line() -> void:
 	draw_colored_polygon(diamond, Color(color, 0.6))
 	for i in range(4):
 		draw_line(diamond[i], diamond[(i + 1) % 4], color, 1.0)
+
+# ========== 热诱弹系统 ==========
+
+func _update_flares(delta: float) -> void:
+	# 更新粒子
+	_update_flare_particles(delta)
+
+	# 冷却
+	_flare_cooldown = maxf(_flare_cooldown - delta, 0.0)
+
+	if not params or not params.flare:
+		return
+	if flares_remaining <= 0:
+		return
+	if _flare_cooldown > 0.0:
+		return
+	if not missile_manager:
+		return
+
+	# 检测来袭导弹
+	var nearest_missile: Missile = null
+	var nearest_dist := 99999.0
+	for child in missile_manager.get_children():
+		if not child is Missile:
+			continue
+		var m: Missile = child
+		if not m.is_active or m.is_flare_jammed:
+			continue
+		if m.target != self:
+			continue
+		var dist_px := m.global_position.distance_to(global_position)
+		if dist_px < nearest_dist:
+			nearest_dist = dist_px
+			nearest_missile = m
+
+	if not nearest_missile:
+		return
+
+	# 根据飞行员性格计算释放距离（米）
+	var fp := params.flare
+	var release_dist_m := lerpf(fp.calm_distance, fp.panic_distance, fp.nervousness)
+	var release_dist_px := release_dist_m * PIXELS_PER_METER
+
+	if nearest_dist > release_dist_px:
+		return
+
+	# 释放！
+	_release_flares()
+
+func _release_flares() -> void:
+	var fp := params.flare
+	var count := mini(fp.burst_count, flares_remaining)
+	flares_remaining -= count
+	_flare_cooldown = fp.cooldown
+
+	# 生成视觉粒子
+	var back_dir := Vector2(-sin(heading), cos(heading))  # 飞机后方
+	for i in range(count):
+		var spread := randf_range(-0.5, 0.5)
+		var perp := Vector2(back_dir.y, -back_dir.x)
+		var vel := (back_dir + perp * spread) * randf_range(80.0, 150.0)
+		_flare_particles.append({
+			"pos": global_position + back_dir * 10.0,
+			"vel": vel,
+			"life": 1.5,
+		})
+
+	# 对每枚来袭导弹判定干扰
+	if not missile_manager:
+		return
+	for child in missile_manager.get_children():
+		if not child is Missile:
+			continue
+		var m: Missile = child
+		if not m.is_active or m.is_flare_jammed:
+			continue
+		if m.target != self:
+			continue
+
+		var jam_chance := _calc_jam_chance(m)
+		if randf() < jam_chance:
+			m.is_flare_jammed = true
+
+func _calc_jam_chance(m: Missile) -> float:
+	var fp := params.flare
+	var chance := fp.base_jam_chance
+
+	# 导弹来袭角度：从侧/后方追来更容易被干扰
+	var missile_to_me := (global_position - m.global_position).normalized()
+	var my_fwd := Vector2(sin(heading), -cos(heading))
+	var dot := my_fwd.dot(missile_to_me)
+	# dot > 0 = 导弹从前方来（正面迎击，难干扰）
+	# dot < 0 = 导弹从后方追（尾追，容易干扰）
+	if dot < 0.0:
+		chance += fp.aspect_bonus
+
+	# 正在大幅机动增加干扰率
+	if g_load > 4.0:
+		chance += fp.maneuvering_bonus
+
+	# 极近距离惩罚
+	var dist_m := m.global_position.distance_to(global_position) / PIXELS_PER_METER
+	if dist_m < 150.0:
+		chance -= fp.close_range_penalty
+
+	# 导弹低能量（发动机熄火后）更容易被干扰
+	if m.age > m.params.motor_burn_time:
+		chance += fp.low_energy_bonus
+
+	return clampf(chance, 0.05, 0.95)
+
+func _update_flare_particles(delta: float) -> void:
+	var kept: Array[Dictionary] = []
+	for p in _flare_particles:
+		p["life"] -= delta
+		if float(p["life"]) <= 0.0:
+			continue
+		p["pos"] = (p["pos"] as Vector2) + (p["vel"] as Vector2) * delta
+		# 减速
+		p["vel"] = (p["vel"] as Vector2) * 0.95
+		kept.append(p)
+	_flare_particles = kept
 
 func _update_visuals() -> void:
 	rotation = heading

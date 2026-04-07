@@ -15,6 +15,7 @@ var altitude: float = 5000.0 ## 米
 var age: float = 0.0         ## 存活时间
 var is_active: bool = true
 var has_guidance: bool = true
+var is_flare_jammed: bool = false  ## 被热诱弹干扰，永久失去制导
 
 var _prev_los_angle: float = 0.0  ## 上一帧 LOS 角（有限差分算角速率）
 var _prev_heading: float = 0.0   ## 上一帧航向（用于计算模拟 bank）
@@ -53,8 +54,10 @@ func _physics_process(delta: float) -> void:
 		is_active = false
 		return
 
-	# 4) SARH 照射检查
-	if target == null or not is_instance_valid(target) or target.is_destroyed:
+	# 4) SARH 照射检查 + 热诱弹干扰
+	if is_flare_jammed:
+		has_guidance = false
+	elif target == null or not is_instance_valid(target) or target.is_destroyed:
 		has_guidance = false
 	elif source == null or not is_instance_valid(source) or source.is_destroyed:
 		has_guidance = false

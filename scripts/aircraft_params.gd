@@ -51,6 +51,9 @@ extends Resource
 @export_group("导弹")
 @export var missile: MissileParams
 
+@export_group("热诱弹")
+@export var flare: FlareParams
+
 @export_group("战斗风格")
 @export var combat: CombatParams
 

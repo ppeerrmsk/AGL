@@ -1,4 +1,4 @@
-[gd_scene load_steps=9 format=3]
+[gd_scene load_steps=10 format=3]
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1"]
 [ext_resource type="PackedScene" path="res://scenes/aircraft.tscn" id="2"]
@@ -8,7 +8,6 @@
 [ext_resource type="Script" path="res://scripts/bullet_manager.gd" id="7"]
 [ext_resource type="Script" path="res://scripts/missile_manager.gd" id="8"]
 [ext_resource type="Script" path="res://scripts/debug_panel.gd" id="9"]
-
 [node name="Main" type="Node2D"]
 script = ExtResource("1")
 
@@ -23,80 +22,6 @@ script = ExtResource("8")
 [node name="PlayerAircraft" parent="." instance=ExtResource("2")]
 position = Vector2(0, 200)
 params = ExtResource("6")
-
-[node name="EnemyHeadOn" parent="." instance=ExtResource("2")]
-position = Vector2(0, -1500)
-params = ExtResource("4")
-team = 1
-initial_heading_deg = 180.0
-
-[node name="AIHeadOn" type="Node" parent="EnemyHeadOn"]
-script = ExtResource("5")
-aircraft = NodePath("..")
-patrol_altitude = 5000.0
-waypoints = PackedVector2Array(0, 2000, 0, -2000)
-
-[node name="EnemyFlyAway" parent="." instance=ExtResource("2")]
-position = Vector2(500, -200)
-params = ExtResource("4")
-team = 1
-initial_heading_deg = 0.0
-
-[node name="AIFlyAway" type="Node" parent="EnemyFlyAway"]
-script = ExtResource("5")
-aircraft = NodePath("..")
-patrol_altitude = 5000.0
-waypoints = PackedVector2Array(500, -5000, 500, -8000)
-
-[node name="EnemyCrossLeft" parent="." instance=ExtResource("2")]
-position = Vector2(-1200, -500)
-params = ExtResource("4")
-team = 1
-initial_heading_deg = 90.0
-
-[node name="AICrossLeft" type="Node" parent="EnemyCrossLeft"]
-script = ExtResource("5")
-aircraft = NodePath("..")
-patrol_altitude = 6000.0
-waypoints = PackedVector2Array(3000, -500, -3000, -500)
-
-[node name="EnemyCrossRight" parent="." instance=ExtResource("2")]
-position = Vector2(1200, -800)
-params = ExtResource("4")
-team = 1
-initial_heading_deg = 270.0
-
-[node name="AICrossRight" type="Node" parent="EnemyCrossRight"]
-script = ExtResource("5")
-aircraft = NodePath("..")
-patrol_altitude = 4000.0
-waypoints = PackedVector2Array(-3000, -800, 3000, -800)
-
-[node name="EnemyOrbit1" parent="." instance=ExtResource("2")]
-position = Vector2(-600, -1000)
-params = ExtResource("4")
-team = 1
-initial_heading_deg = 90.0
-
-[node name="AIOrbit1" type="Node" parent="EnemyOrbit1"]
-script = ExtResource("5")
-aircraft = NodePath("..")
-patrol_altitude = 5500.0
-arrival_distance = 200.0
-waypoints = PackedVector2Array(0, -1000, -600, -400, -1200, -1000, -600, -1600)
-
-[node name="EnemyOrbit2" parent="." instance=ExtResource("2")]
-position = Vector2(700, -1100)
-params = ExtResource("4")
-team = 1
-initial_heading_deg = 270.0
-
-[node name="AIOrbit2" type="Node" parent="EnemyOrbit2"]
-script = ExtResource("5")
-aircraft = NodePath("..")
-patrol_altitude = 7000.0
-arrival_distance = 200.0
-waypoints = PackedVector2Array(100, -1100, 700, -500, 1300, -1100, 700, -1700)
 
 [node name="DebugPanel" type="CanvasLayer" parent="."]
 script = ExtResource("9")

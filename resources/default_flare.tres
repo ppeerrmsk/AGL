@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="FlareParams" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/flare_params.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+max_flares = 30
+burst_count = 2
+cooldown = 1.5
+base_jam_chance = 0.55
+aspect_bonus = 0.2
+maneuvering_bonus = 0.15
+close_range_penalty = 0.35
+low_energy_bonus = 0.2
+nervousness = 0.5
+panic_distance = 800.0
+calm_distance = 250.0

@@ -71,6 +71,9 @@ func _auto_select_player_aircraft() -> void:
 				selected_aircraft.append(child)
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+		get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+		return
 	if event is InputEventMouseButton:
 		_handle_mouse_button(event)
 	elif event is InputEventMouseMotion:
@@ -151,8 +154,11 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 func _cleanup_references() -> void:
-	selected_aircraft = selected_aircraft.filter(func(ac: Aircraft) -> bool:
-		return is_instance_valid(ac))
+	var valid: Array[Aircraft] = []
+	for ac in selected_aircraft:
+		if is_instance_valid(ac):
+			valid.append(ac)
+	selected_aircraft = valid
 
 func _update_aircraft_list() -> void:
 	var all: Array[Aircraft] = []
@@ -211,8 +217,15 @@ func _update_radar_locks(delta: float) -> void:
 				var prev: float = ac.radar_targets.get(other, 0.0)
 				ac.radar_targets[other] = prev + delta
 			else:
-				# 不在锥内：清零
-				ac.radar_targets.erase(other)
+				# 不在锥内：逐渐衰减（1.5秒记忆窗口），而非瞬间清零
+				# 防止目标在雷达锥边缘反复进出导致锁定震荡
+				var prev: float = ac.radar_targets.get(other, 0.0)
+				if prev > 0.0:
+					ac.radar_targets[other] = prev - delta / 1.5  # 衰减速率 = 累积速率的 2/3
+					if ac.radar_targets[other] <= 0.0:
+						ac.radar_targets.erase(other)
+				else:
+					ac.radar_targets.erase(other)
 
 	# 根据累计时间判定锁定
 	for ac in all_aircraft:
