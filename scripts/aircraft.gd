@@ -39,6 +39,16 @@ var _fire_cooldown: float = 0.0
 var _gun_lead_heading: float = 0.0  ## 前置射击方向（由 _update_combat 计算）
 var _in_rear_hemisphere: bool = false  ## 是否处于敌机后半球（由 _update_combat 计算）
 var bullet_manager: Node2D = null   ## 由 main.gd 注入
+var missile_manager: Node2D = null  ## 由 main.gd 注入
+
+# --- 导弹 ---
+enum WeaponMode { MISSILE, GUN }
+var weapon_mode: int = WeaponMode.GUN
+var missiles_remaining: int = 0
+var _missile_cooldown: float = 0.0
+var _crank_timer: float = 0.0          ## 发射后保持照射计时（秒），> 0 时飞机维持稳定航向
+const CRANK_DURATION: float = 8.0      ## 发射后保持照射的时长
+const LOCK_STABLE_BUFFER: float = 1.0  ## 锁定后额外稳定时间才允许发射
 
 # --- 击毁 ---
 var is_destroyed: bool = false
@@ -61,12 +71,15 @@ func _ready() -> void:
 		fuel = params.fuel_capacity
 		if params.gun:
 			ammo = params.gun.max_ammo
+		if params.missile:
+			missiles_remaining = params.missile.max_count
 
 func _physics_process(delta: float) -> void:
 	if is_destroyed:
 		_update_destroy(delta)
 		queue_redraw()
 		return
+	_update_weapon_mode()
 	_update_combat(delta)
 	_update_energy_management()
 	_update_target_heading()
@@ -79,6 +92,7 @@ func _physics_process(delta: float) -> void:
 	_update_g_load()
 	_apply_movement(delta)
 	_update_gun(delta)
+	_update_missile(delta)
 	_update_visuals()
 	queue_redraw()
 
@@ -120,16 +134,42 @@ func _update_bank(delta: float) -> void:
 
 	if in_combat:
 		var cb := _combat_params()
-		# 战斗模式：根据激进度参数决定转弯力度
 		var full_diff := cb.combat_full_bank_diff / cb.combat_bank_aggression
 		var half_diff := cb.combat_half_bank_diff / cb.combat_bank_aggression
-		if abs(heading_diff) < half_diff:
-			target_bank = 0.0
-		elif abs(heading_diff) < full_diff:
-			var ratio: float = (abs(heading_diff) - half_diff) / (full_diff - half_diff)
-			target_bank = sign(heading_diff) * max_bank * lerpf(0.4, 1.0, ratio)
+
+		if weapon_mode == WeaponMode.MISSILE:
+			# 导弹模式分三阶段：接近→照射→保持
+			var msl_phase := _get_missile_phase()
+			if msl_phase == 0:
+				# 接近阶段：积极机动（与机炮模式相同）
+				if abs(heading_diff) < half_diff:
+					target_bank = 0.0
+				elif abs(heading_diff) < full_diff:
+					var bank_ratio: float = (abs(heading_diff) - half_diff) / (full_diff - half_diff)
+					target_bank = sign(heading_diff) * max_bank * lerpf(0.4, 1.0, bank_ratio)
+				else:
+					target_bank = sign(heading_diff) * max_bank
+			elif msl_phase == 1:
+				# 照射阶段：目标在锥内累积锁定，适度稳定
+				if abs(heading_diff) < 0.03:
+					target_bank = 0.0
+				else:
+					target_bank = sign(heading_diff) * max_bank * clampf(abs(heading_diff) * 3.0, 0.2, 0.6)
+			else:
+				# 保持阶段（已锁定/crank）：极稳定
+				if abs(heading_diff) < 0.02:
+					target_bank = 0.0
+				else:
+					target_bank = sign(heading_diff) * max_bank * clampf(abs(heading_diff) * 2.0, 0.1, 0.35)
 		else:
-			target_bank = sign(heading_diff) * max_bank
+			# 机炮模式：激进转弯
+			if abs(heading_diff) < half_diff:
+				target_bank = 0.0
+			elif abs(heading_diff) < full_diff:
+				var gun_bank_ratio: float = (abs(heading_diff) - half_diff) / (full_diff - half_diff)
+				target_bank = sign(heading_diff) * max_bank * lerpf(0.4, 1.0, gun_bank_ratio)
+			else:
+				target_bank = sign(heading_diff) * max_bank
 	else:
 		# 巡航模式：温和修正
 		if abs(heading_diff) < 0.05:
@@ -290,13 +330,7 @@ func _update_energy_management() -> void:
 		var tgt_speed_ms := combat_target.speed
 		var tgt_speed_kmh := tgt_speed_ms * 3.6
 
-		var approach_speed := cruise * cb.approach_speed_mult
-		var maneuver_speed := cruise * cb.maneuver_speed_mult
-		var closing_speed := cruise * cb.closing_speed_mult
-		# 防冲过速度上限：近距离时绝不能比敌机快太多
-		var overshoot_cap := tgt_speed_kmh * cb.overshoot_speed_margin
-		var decel_zone := gun_range * cb.overshoot_decel_range
-		var ab_cutoff := gun_range * cb.overshoot_ab_range
+		var is_missile_mode := weapon_mode == WeaponMode.MISSILE
 
 		# 预估到达射程所需时间
 		var my_speed_px := speed * PIXELS_PER_METER
@@ -305,92 +339,111 @@ func _update_energy_management() -> void:
 		var to_tgt := (combat_target.global_position - global_position).normalized()
 		var closure_px := Vector2(sin(heading), -cos(heading)).dot(to_tgt) * my_speed_px \
 			- tgt_fwd.dot(to_tgt) * tgt_speed_px
-		var time_to_range := (dist - gun_range) / maxf(closure_px, 1.0) if dist > gun_range else 0.0
 
 		# ---- 计算朝目标的航向偏差 ----
 		var heading_to_tgt := atan2(to_tgt.x, -to_tgt.y)
 		var heading_diff_deg := absf(rad_to_deg(_angle_diff(heading_to_tgt, heading)))
 
-		# ---- 转向减速：偏差大时减速收紧转弯 ----
-		var turn_slow_min := deg_to_rad(cb.turn_slow_angle)
-		var turn_slow_max := deg_to_rad(cb.turn_slow_max_angle)
+		var my_kmh := speed * 3.6
 		var turn_speed := cruise * cb.turn_slow_speed_mult
 		var needs_big_turn := heading_diff_deg > cb.turn_slow_angle
 
-		# ---- 距离相关的速度上限：远距离放宽，近距离收紧防冲过 ----
-		var dist_ratio := clampf(dist / gun_range, 0.0, 3.0)
-		var speed_limit: float
-		if dist_ratio > 2.0:
-			speed_limit = approach_speed
-		elif dist_ratio > 1.0:
-			var t := (dist_ratio - 1.0)
-			speed_limit = lerpf(overshoot_cap, approach_speed, t)
-		else:
-			speed_limit = overshoot_cap
+		var approach_speed := cruise * cb.approach_speed_mult
 
-		# ---- 加速策略：击坠优先 ----
-		var my_kmh := speed * 3.6
-		# 冲过判定：近距离且不在后半球（敌机在我后方或侧后方）
-		var has_overshot := not _in_rear_hemisphere and dist < gun_range * 1.5
-		# 冲过恢复速度：降到敌机速度的 85%，让敌机"追上来"
-		var recover_speed := tgt_speed_kmh * 0.85
+		if is_missile_mode:
+			# ======== 导弹模式能量管理（分阶段） ========
+			var msl_phase := _get_missile_phase()
 
-		if is_firing:
-			target_speed_kmh = maneuver_speed
-			_set_afterburner(false)
-		elif has_overshot:
-			# 已冲过敌机：急刹 + 爬升减速，尽快落后于敌机
-			target_speed_kmh = recover_speed
-			_set_afterburner(false)
-		elif needs_big_turn:
-			# 需要大角度转向：减速换转弯率
-			var turn_ratio := clampf(
-				(heading_diff_deg - cb.turn_slow_angle) / (cb.turn_slow_max_angle - cb.turn_slow_angle),
-				0.0, 1.0)
-			target_speed_kmh = lerpf(maneuver_speed, turn_speed, turn_ratio)
-			_set_afterburner(false)
-		elif _in_rear_hemisphere:
-			# 后半球优势：全力逼近
-			target_speed_kmh = speed_limit
-			_set_afterburner(my_kmh < speed_limit and fuel > 0.0)
-		elif dist > gun_range:
-			# 不在后半球，还没进射程：拦截接近
-			if time_to_range > 4.0 or closure_px < 5.0:
-				target_speed_kmh = approach_speed
-				_set_afterburner(true)
-			else:
-				target_speed_kmh = speed_limit
+			if msl_phase == 0:
+				# 接近阶段：积极接近，可以用加力
+				if needs_big_turn:
+					var msl_turn_ratio := clampf(
+						(heading_diff_deg - cb.turn_slow_angle) / (cb.turn_slow_max_angle - cb.turn_slow_angle),
+						0.0, 1.0)
+					target_speed_kmh = lerpf(cruise, turn_speed, msl_turn_ratio)
+					_set_afterburner(false)
+				elif dist > 3000.0:
+					# 远距离：加力接近
+					target_speed_kmh = approach_speed
+					_set_afterburner(my_kmh < approach_speed and fuel > 0.0)
+				else:
+					target_speed_kmh = cruise
+					_set_afterburner(false)
+			elif msl_phase == 1:
+				# 照射阶段：巡航速度，不加力，保持平稳
+				target_speed_kmh = cruise
 				_set_afterburner(false)
+			else:
+				# 保持阶段（已锁定/crank）：略低于巡航，极稳定
+				target_speed_kmh = cruise * 0.95
+				_set_afterburner(false)
+
+			# 高度匹配敌机
+			target_altitude = combat_target.altitude
 		else:
-			# 远距离且不在后半球：机动调整位置
-			target_speed_kmh = maneuver_speed
-			_set_afterburner(false)
+			# ======== 机炮模式能量管理（原有逻辑） ========
+			var maneuver_speed := cruise * cb.maneuver_speed_mult
+			var overshoot_cap := tgt_speed_kmh * cb.overshoot_speed_margin
 
-		# ---- 高度⇌速度 能量转换 ----
-		var my_kmh_now := speed * 3.6
-		var desired_kmh := target_speed_kmh
+			# 距离相关的速度上限
+			var dist_ratio := clampf(dist / gun_range, 0.0, 3.0)
+			var speed_limit: float
+			if dist_ratio > 2.0:
+				speed_limit = approach_speed
+			elif dist_ratio > 1.0:
+				var t := (dist_ratio - 1.0)
+				speed_limit = lerpf(overshoot_cap, approach_speed, t)
+			else:
+				speed_limit = overshoot_cap
 
-		# 战斗高度基准：默认匹配敌机高度，能量转换可临时偏离
-		var combat_alt := combat_target.altitude
-		var alt_ceiling := combat_alt + cb.climb_brake_height * 2.0
-		# 每帧先重置到敌机高度，确保不会卡在错误高度
-		target_altitude = combat_alt
+			var has_overshot := not _in_rear_hemisphere and dist < gun_range * 1.5
+			var recover_speed := tgt_speed_kmh * 0.85
 
-		# 能量转换：仅在需要时临时偏离战斗高度
-		if has_overshot and my_kmh_now > desired_kmh:
-			# 冲过 + 速度偏高：爬升消耗动能
-			target_altitude = minf(combat_alt + cb.climb_brake_height * 1.5, alt_ceiling)
-		elif my_kmh_now > desired_kmh * cb.climb_brake_overspeed:
-			# 速度过高：爬升消耗动能
-			var excess_ratio := (my_kmh_now - desired_kmh) / maxf(desired_kmh, 100.0)
-			var climb_amount := cb.climb_brake_height * clampf(excess_ratio * 3.0, 0.3, 1.0)
-			target_altitude = minf(combat_alt + climb_amount, alt_ceiling)
-		elif my_kmh_now < tgt_speed_kmh * cb.dive_speed_ratio and altitude > cb.dive_min_altitude:
-			# 速度过低：俯冲获取动能
-			target_altitude = maxf(combat_alt - cb.dive_depth, cb.dive_floor)
-		elif needs_big_turn and my_kmh_now > desired_kmh * 1.1:
-			# 大角度转向且速度偏高：小幅爬升辅助减速
-			target_altitude = minf(combat_alt + cb.climb_brake_height * 0.5, alt_ceiling)
+			if is_firing:
+				target_speed_kmh = maneuver_speed
+				_set_afterburner(false)
+			elif has_overshot:
+				target_speed_kmh = recover_speed
+				_set_afterburner(false)
+			elif needs_big_turn:
+				var turn_ratio := clampf(
+					(heading_diff_deg - cb.turn_slow_angle) / (cb.turn_slow_max_angle - cb.turn_slow_angle),
+					0.0, 1.0)
+				target_speed_kmh = lerpf(maneuver_speed, turn_speed, turn_ratio)
+				_set_afterburner(false)
+			elif _in_rear_hemisphere:
+				var max_kmh := params.max_speed if params else 2100.0
+				if dist > gun_range * 0.5:
+					target_speed_kmh = max_kmh
+					_set_afterburner(fuel > 0.0)
+				else:
+					target_speed_kmh = overshoot_cap
+					_set_afterburner(false)
+			elif dist > gun_range * cb.intercept_range_mult:
+				target_speed_kmh = approach_speed
+				_set_afterburner(my_kmh < approach_speed and fuel > 0.0)
+			else:
+				target_speed_kmh = maneuver_speed
+				_set_afterburner(false)
+
+			# ---- 高度⇌速度 能量转换（仅机炮模式） ----
+			var my_kmh_now := speed * 3.6
+			var desired_kmh := target_speed_kmh
+
+			var combat_alt := combat_target.altitude
+			var alt_ceiling := combat_alt + cb.climb_brake_height * 2.0
+			target_altitude = combat_alt
+
+			if has_overshot and my_kmh_now > desired_kmh:
+				target_altitude = minf(combat_alt + cb.climb_brake_height * 1.5, alt_ceiling)
+			elif my_kmh_now > desired_kmh * cb.climb_brake_overspeed:
+				var excess_ratio := (my_kmh_now - desired_kmh) / maxf(desired_kmh, 100.0)
+				var climb_amount := cb.climb_brake_height * clampf(excess_ratio * 3.0, 0.3, 1.0)
+				target_altitude = minf(combat_alt + climb_amount, alt_ceiling)
+			elif my_kmh_now < tgt_speed_kmh * cb.dive_speed_ratio and altitude > cb.dive_min_altitude:
+				target_altitude = maxf(combat_alt - cb.dive_depth, cb.dive_floor)
+			elif needs_big_turn and my_kmh_now > desired_kmh * 1.1:
+				target_altitude = minf(combat_alt + cb.climb_brake_height * 0.5, alt_ceiling)
 	else:
 		# ---- 巡航模式 ----
 		_set_afterburner(false)
@@ -443,26 +496,51 @@ func _update_combat(_delta: float) -> void:
 	_in_rear_hemisphere = in_rear_hemisphere
 
 	var gun_range := _gun_range_px()
+	var eff_range := _effective_range_px()
+	var is_missile_mode := weapon_mode == WeaponMode.MISSILE
 	var pursuit_pos: Vector2
+	var six_offset := maxf(80.0, eff_range * cb.six_oclock_offset_ratio)
 
-	if dist > gun_range * cb.intercept_range_mult:
-		# ---- 远距离：前置拦截 ----
-		var t := clampf(dist / maxf(my_speed_px, 50.0), 0.5, cb.intercept_lead_max)
-		pursuit_pos = tgt_pos + tgt_fwd * tgt_speed_px * t
-	elif closing_rate > my_speed_px * cb.closing_rate_threshold:
-		# ---- 接近中且闭合率充裕：咬六点钟 ----
-		var six_offset := maxf(80.0, gun_range * cb.six_oclock_offset_ratio)
-		pursuit_pos = tgt_pos - tgt_fwd * six_offset
+	if is_missile_mode:
+		# ---- 导弹模式（分阶段追踪） ----
+		var msl_phase := _get_missile_phase()
+
+		if msl_phase == 0:
+			# 接近阶段：积极拦截，与机炮模式类似但目标是机头对准敌机
+			# 前置拦截：飞向敌机未来位置
+			var intercept_lead := clampf(dist / maxf(my_speed_px, 50.0), 0.5, cb.intercept_lead_max)
+			pursuit_pos = tgt_pos + tgt_fwd * tgt_speed_px * intercept_lead
+		elif msl_phase == 1:
+			# 照射阶段：目标在雷达锥内，平滑跟踪
+			var lead_time := clampf(dist / maxf(my_speed_px + tgt_speed_px, 100.0), 0.2, 1.5)
+			pursuit_pos = tgt_pos + tgt_fwd * tgt_speed_px * lead_time
+		else:
+			# 保持阶段（已锁定/crank）：直追目标，极少改航向
+			pursuit_pos = tgt_pos
+
+		# 太近了（< min_range）：切换为近距追踪
+		var min_range_px := params.missile.min_range * PIXELS_PER_METER if params and params.missile else 250.0
+		if dist < min_range_px:
+			pursuit_pos = tgt_pos - tgt_fwd * maxf(80.0, gun_range * cb.six_oclock_offset_ratio)
 	else:
-		# ---- 追不上 / 速度相近：纯追击 ----
-		var lead_t := clampf(dist / maxf(my_speed_px, 50.0), 0.0, 2.0) * cb.pure_pursuit_lead_factor
-		pursuit_pos = tgt_pos + tgt_fwd * tgt_speed_px * lead_t
+		# ---- 机炮模式追踪（原有逻辑） ----
+		six_offset = maxf(80.0, gun_range * cb.six_oclock_offset_ratio)
+		if dist > gun_range * cb.intercept_range_mult:
+			if in_rear_hemisphere:
+				var t := clampf(dist / maxf(my_speed_px, 50.0), 0.5, cb.intercept_lead_max)
+				pursuit_pos = tgt_pos + tgt_fwd * tgt_speed_px * t
+			else:
+				pursuit_pos = tgt_pos - tgt_fwd * six_offset
+		elif in_rear_hemisphere:
+			pursuit_pos = tgt_pos - tgt_fwd * six_offset
+		else:
+			pursuit_pos = tgt_pos - tgt_fwd * six_offset
 
 	target_position = pursuit_pos
 
-	# ---- 开火判定（对前置点） ----
+	# ---- 开火判定（对前置点）—— 仅机炮模式 ----
 	var gun := params.gun if params else null
-	if gun and ammo > 0:
+	if gun and ammo > 0 and not is_missile_mode:
 		var range_px := gun.max_range * PIXELS_PER_METER
 		var base_cone := deg_to_rad(gun.fire_cone_half_angle)
 
@@ -538,6 +616,204 @@ func _update_gun(delta: float) -> void:
 		bullet_manager.spawn_bullet(muzzle_pos, bullet_dir, gun.muzzle_velocity, self, gun.bullet_damage)
 
 	ammo -= 1
+
+## 导弹射程（像素）
+func _missile_range_px() -> float:
+	if params and params.missile:
+		# 使用后半球射程的 60% 作为理想交战距离参考
+		return params.missile.max_range_rear * 0.6 * PIXELS_PER_METER
+	return 500.0
+
+## 当前武器有效交战距离（像素）
+func _effective_range_px() -> float:
+	if weapon_mode == WeaponMode.MISSILE:
+		return _missile_range_px()
+	return _gun_range_px()
+
+## 导弹交战阶段：0=接近（积极机动），1=照射（目标在锥内），2=保持（已锁定/crank）
+func _get_missile_phase() -> int:
+	if is_cranking():
+		return 2
+	if combat_target == null or not is_instance_valid(combat_target):
+		return 0
+	var lock_progress: float = radar_targets.get(combat_target, 0.0)
+	var lock_time_val: float = params.lock_time if params else 3.0
+	if lock_progress >= lock_time_val:
+		# 已锁定
+		return 2
+	if lock_progress > 0.0:
+		# 目标在锥内，正在累积
+		return 1
+	# 目标不在锥内
+	return 0
+
+## 判断是否已经近到应该用机炮（非常严格，防止模式震荡）
+func _should_use_gun() -> bool:
+	if combat_target == null or not is_instance_valid(combat_target):
+		return false
+	if combat_target.is_destroyed:
+		return false
+	var dist := global_position.distance_to(combat_target.global_position)
+	var gun_range := _gun_range_px()
+	# 只有在机炮射程内才考虑（不是 1.2 倍，是 0.8 倍——必须非常近）
+	return dist < gun_range * 0.8
+
+## 武器模式判定（每帧最先执行，确保 combat 和 energy 读到正确模式）
+## 原则：有导弹就贯彻导弹策略，只有非常近才切机炮
+func _update_weapon_mode() -> void:
+	if not params or not params.missile or missiles_remaining <= 0:
+		# 没导弹了：只能用机炮
+		weapon_mode = WeaponMode.GUN
+		return
+
+	if _crank_timer > 0.0:
+		# 发射后保持照射阶段：绝不切换
+		weapon_mode = WeaponMode.MISSILE
+		return
+
+	if weapon_mode == WeaponMode.GUN and missiles_remaining > 0:
+		# 当前是机炮模式，但还有导弹：只有拉远了才切回导弹
+		# 滞后阈值：必须远于机炮射程 2 倍才切回导弹，防止震荡
+		if combat_target and is_instance_valid(combat_target) and not combat_target.is_destroyed:
+			var dist := global_position.distance_to(combat_target.global_position)
+			var gun_range := _gun_range_px()
+			if dist > gun_range * 2.0:
+				weapon_mode = WeaponMode.MISSILE
+		else:
+			weapon_mode = WeaponMode.MISSILE
+		return
+
+	# 当前是导弹模式：只有非常近才切机炮
+	if _should_use_gun():
+		weapon_mode = WeaponMode.GUN
+	else:
+		weapon_mode = WeaponMode.MISSILE
+
+## 是否正在保持照射（发射后维持锁定阶段）
+func is_cranking() -> bool:
+	return _crank_timer > 0.0
+
+## 导弹更新（发射逻辑）
+## SARH 导弹：一次只锁定一个目标，选最容易命中的
+func _update_missile(delta: float) -> void:
+	_missile_cooldown = maxf(_missile_cooldown - delta, 0.0)
+	_crank_timer = maxf(_crank_timer - delta, 0.0)
+
+	if weapon_mode != WeaponMode.MISSILE:
+		return
+	if _missile_cooldown > 0.0:
+		return
+	if missiles_remaining <= 0:
+		return
+	if not missile_manager:
+		return
+	if not params or not params.missile:
+		return
+
+	# 该目标已有在飞导弹 → 等结果，不发第二枚
+	var best_target := _select_best_missile_target()
+	if best_target == null:
+		return
+	if missile_manager.has_active_missile_at(self, best_target):
+		return
+
+	var msl := params.missile
+	if not _is_in_missile_envelope(best_target, msl):
+		return
+
+	# 锁定时间检查
+	var lock_progress: float = radar_targets.get(best_target, 0.0)
+	if lock_progress < params.lock_time + LOCK_STABLE_BUFFER:
+		return
+
+	# 发射！
+	missile_manager.spawn_missile(self, best_target, msl)
+	missiles_remaining -= 1
+	_missile_cooldown = msl.cooldown
+	_crank_timer = CRANK_DURATION
+
+## 从雷达锁定的目标中选出最优的一个（命中概率最高）
+## 评分标准：距离近 + 机头偏差小 + 锁定时间长 = 分高
+func _select_best_missile_target() -> Aircraft:
+	var best: Aircraft = null
+	var best_score: float = -1.0
+	var my_fwd := Vector2(sin(heading), -cos(heading))
+
+	for target_key in radar_targets:
+		if not is_instance_valid(target_key):
+			continue
+		var target_ac: Aircraft = target_key as Aircraft
+		if target_ac == null or target_ac.is_destroyed:
+			continue
+		if target_ac.team == team:
+			continue
+		# 必须有一定锁定累积（至少在锥内待过一会儿）
+		var lock_progress: float = radar_targets[target_key]
+		if lock_progress < 0.5:
+			continue
+
+		var to_tgt := (target_ac.global_position - global_position)
+		var dist := to_tgt.length()
+		if dist < 1.0:
+			continue
+
+		# 机头偏差（越小越好）
+		var angle_to_tgt := atan2(to_tgt.x, -to_tgt.y)
+		var nose_diff := absf(_angle_diff(angle_to_tgt, heading))
+
+		# 闭合率（正值=接近，越高越好命中）
+		var tgt_fwd := Vector2(sin(target_ac.heading), -cos(target_ac.heading))
+		var tgt_speed_px := target_ac.speed * PIXELS_PER_METER
+		var my_speed_px := speed * PIXELS_PER_METER
+		var to_tgt_dir := to_tgt.normalized()
+		var closing := my_fwd.dot(to_tgt_dir) * my_speed_px - tgt_fwd.dot(to_tgt_dir) * tgt_speed_px
+
+		# 评分：距离近（归一化）+ 偏差小 + 闭合率高 + 锁定时间长
+		var dist_score := clampf(1.0 - dist / 10000.0, 0.0, 1.0)        # 近=高分
+		var angle_score := clampf(1.0 - nose_diff / deg_to_rad(60.0), 0.0, 1.0)  # 正前方=高分
+		var closing_score := clampf(closing / 500.0, -0.5, 1.0)          # 接近=高分
+		var lock_score := clampf(lock_progress / 5.0, 0.0, 1.0)          # 锁定久=高分
+
+		var score := dist_score * 0.25 + angle_score * 0.35 + closing_score * 0.25 + lock_score * 0.15
+
+		if score > best_score:
+			best_score = score
+			best = target_ac
+
+	return best
+
+## 检查目标是否在导弹射程包线内
+func _is_in_missile_envelope(target_ac: Aircraft, msl: MissileParams) -> bool:
+	var dist_px := global_position.distance_to(target_ac.global_position)
+	var dist_m := dist_px / PIXELS_PER_METER
+
+	if dist_m < msl.min_range:
+		return false
+
+	# TAA（目标纵横角）
+	var tgt_fwd := Vector2(sin(target_ac.heading), -cos(target_ac.heading))
+	var to_me := (global_position - target_ac.global_position).normalized()
+	var taa_rad := acos(clampf(-tgt_fwd.dot(to_me), -1.0, 1.0))
+	var taa_deg := rad_to_deg(taa_rad)
+
+	# 最大射程
+	var max_range: float
+	if taa_deg <= 90.0:
+		var t := taa_deg / 90.0
+		max_range = msl.max_range_rear * msl.front_rear_ratio * (1.0 - t) + msl.max_range_rear * t
+	else:
+		max_range = msl.max_range_rear
+
+	var alt_factor := clampf(1.0 + (altitude / 12000.0) * 1.5, 1.0, 3.0)
+	max_range *= alt_factor
+
+	if dist_m > max_range:
+		return false
+
+	if absf(altitude - target_ac.altitude) > 3000.0:
+		return false
+
+	return true
 
 ## 受到伤害
 func take_damage(amount: float) -> void:
@@ -804,6 +1080,8 @@ func _draw_data_label() -> void:
 	lines.append("M%.2f" % mach)
 	lines.append("ALT %dm" % roundi(altitude))
 	lines.append("G %.1f" % g_load)
+	if params and params.missile:
+		lines.append("MSL %d" % missiles_remaining)
 	if params and params.gun:
 		lines.append("AMM %d" % ammo)
 	lines.append("FUEL %d" % roundi(fuel))

@@ -1,8 +1,9 @@
-[gd_resource type="Resource" script_class="AircraftParams" load_steps=4 format=3]
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
 [ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
 [ext_resource type="Resource" path="res://resources/default_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/default_missile.tres" id="4"]
 
 [resource]
 script = ExtResource("1")
@@ -25,9 +26,10 @@ afterburner_thrust_mult = 1.5
 fuel_capacity = 3000.0
 fuel_rate_normal = 1.5
 fuel_rate_afterburner = 8.0
-radar_range = 350.0
+radar_range = 5000.0
 radar_half_angle = 30.0
 lock_time = 2.5
 gun = ExtResource("2")
+missile = ExtResource("4")
 combat = ExtResource("3")
 icon_color = Color(0.15, 0.35, 0.85, 1)

@@ -31,14 +31,20 @@
 
 ```
 _physics_process(delta)
+  ├── _update_weapon_mode()      判定武器模式（MISSILE/GUN），最先执行
+  ├── _update_combat(delta)      追踪逻辑（根据武器模式分导弹/机炮策略）
+  ├── _update_energy_management() 速度/高度/加力管理（根据武器模式分阶段）
   ├── _update_target_heading()   根据 target_position 计算目标航向
-  ├── _update_bank(delta)        滚转角趋近目标 bank（受 roll_rate 限制）
+  ├── _update_bank(delta)        滚转角趋近目标 bank（导弹模式三阶段坡度限制）
   ├── _update_heading(delta)     由 bank_angle 算转弯率，更新 heading
   ├── _update_speed(delta)       速度趋近目标速度（受 acceleration 限制）
   ├── _update_altitude(delta)    高度趋近目标高度（受 climb_rate_max 限制）
+  ├── _update_fuel(delta)        燃油消耗
   ├── _update_stall()            检查是否失速
   ├── _update_g_load()           计算当前 G 载荷
   ├── _apply_movement(delta)     根据 heading + speed 更新 position
+  ├── _update_gun(delta)         机炮射击
+  ├── _update_missile(delta)     导弹发射（目标选择 + 包线检查 + crank 计时）
   └── _update_visuals()          rotation = heading
 ```
 

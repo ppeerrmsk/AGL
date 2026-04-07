@@ -42,6 +42,9 @@ extends Resource
 @export_group("机炮")
 @export var gun: GunParams
 
+@export_group("导弹")
+@export var missile: MissileParams
+
 @export_group("战斗风格")
 @export var combat: CombatParams
 

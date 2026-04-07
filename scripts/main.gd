@@ -31,6 +31,7 @@ var _cloud_noise: FastNoiseLite
 
 @onready var camera: Camera2D = $Camera2D
 @onready var bullet_manager: BulletManager = $BulletManager
+@onready var missile_manager: MissileManager = $MissileManager
 
 var selected_aircraft: Array[Aircraft] = []
 var is_dragging: bool = false
@@ -64,6 +65,7 @@ func _auto_select_player_aircraft() -> void:
 	for child in get_children():
 		if child is Aircraft:
 			child.bullet_manager = bullet_manager
+			child.missile_manager = missile_manager
 			if child.team == 0 and selected_aircraft.is_empty():
 				child.selected = true
 				selected_aircraft.append(child)
@@ -158,6 +160,7 @@ func _update_aircraft_list() -> void:
 		if child is Aircraft:
 			all.append(child)
 	bullet_manager.aircraft_list = all
+	missile_manager.aircraft_list = all
 
 func _update_hover(screen_pos: Vector2) -> void:
 	var world_pos := _screen_to_world(screen_pos)
