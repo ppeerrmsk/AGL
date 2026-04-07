@@ -17,8 +17,19 @@ var is_active: bool = true
 var has_guidance: bool = true
 
 var _prev_los_angle: float = 0.0  ## 上一帧 LOS 角（有限差分算角速率）
-var _trail_points: Array[Vector2] = []  ## 烟迹全局坐标
-const MAX_TRAIL_POINTS: int = 50
+var _prev_heading: float = 0.0   ## 上一帧航向（用于计算模拟 bank）
+var bank_angle: float = 0.0      ## 模拟 bank（由航向变化率推算）
+var _trail_ribbon: TrailRibbon
+
+func _ready() -> void:
+	_trail_ribbon = TrailRibbon.new()
+	_trail_ribbon.ribbon_width = 3.0
+	_trail_ribbon.max_points = 80
+	_trail_ribbon.sample_interval = 0.03
+	var trail_color := Color(0.3, 0.5, 1.0, 0.4) if team == 0 else Color(1.0, 0.25, 0.25, 0.4)
+	_trail_ribbon.ribbon_color = trail_color
+	add_child(_trail_ribbon)
+	_prev_heading = heading
 
 func _physics_process(delta: float) -> void:
 	if not is_active:
@@ -99,31 +110,20 @@ func _physics_process(delta: float) -> void:
 	global_position += vel_dir * speed * PIXELS_PER_METER * delta
 	rotation = heading
 
-	# 8) 烟迹
-	_trail_points.append(global_position)
-	if _trail_points.size() > MAX_TRAIL_POINTS:
-		_trail_points.remove_at(0)
+	# 8) 模拟 bank（航向变化率 → 侧倾感）
+	var hdg_diff := _angle_diff(heading, _prev_heading)
+	var turn_rate_now := hdg_diff / maxf(delta, 0.001)
+	bank_angle = clampf(turn_rate_now * 0.5, -1.0, 1.0)  # 轻微扭转
+	_prev_heading = heading
 
 	queue_redraw()
 
 func _draw() -> void:
 	if not is_active:
 		return
-	_draw_trail()
 	_draw_body()
 	if age < params.motor_burn_time:
 		_draw_motor_flame()
-
-func _draw_trail() -> void:
-	if _trail_points.size() < 2:
-		return
-	var count := _trail_points.size()
-	for i in range(count - 1):
-		var alpha := float(i) / float(count) * 0.4
-		var color := Color(0.7, 0.7, 0.7, alpha)
-		var from := to_local(_trail_points[i])
-		var to := to_local(_trail_points[i + 1])
-		draw_line(from, to, color, 1.5)
 
 func _draw_body() -> void:
 	var color := Color(1.0, 0.5, 0.1) if team == 0 else Color(1.0, 0.2, 0.2)
