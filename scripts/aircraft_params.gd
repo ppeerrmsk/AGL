@@ -17,8 +17,14 @@ extends Resource
 @export var g_drag_factor: float = 3.0      ## m/s² 每G额外阻力减速
 
 @export_group("机动性")
-@export var max_g: float = 9.0
+@export var max_g: float = 9.0              ## 飞行员持续耐受G力（可长期维持）
+@export var max_g_structural: float = 12.0  ## 机体结构极限G力（短时可超越max_g）
 @export var roll_rate: float = 4.0          ## rad/s 滚转速率
+
+@export_group("飞行员")
+@export var pilot_stamina: float = 100.0           ## 飞行员耐力上限
+@export var stamina_drain_rate: float = 25.0       ## 超过 max_g 时每秒消耗耐力
+@export var stamina_recovery_rate: float = 10.0    ## G力低于 max_g 时每秒恢复耐力
 
 @export_group("高度")
 @export var max_altitude: float = 15000.0   ## 米 实用升限

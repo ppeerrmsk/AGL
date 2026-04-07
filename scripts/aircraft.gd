@@ -17,6 +17,7 @@ var bank_angle: float = 0.0         ## 弧度
 var g_load: float = 1.0
 var hp: float = 100.0
 var is_stalled: bool = false
+var pilot_stamina: float = 100.0  ## 飞行员当前耐力
 
 # --- 目标 ---
 var target_position: Vector2 = Vector2.INF  ## 世界坐标, INF=无目标
@@ -61,6 +62,8 @@ var radar_targets: Dictionary = {}       ## { Aircraft: float } 累计照射时�
 var is_locked: bool = false              ## 被至少一架敌机锁定
 var locked_by: Array[Aircraft] = []      ## 锁定自己的敌机列表
 
+var _trail_ribbon: TrailRibbon
+
 func _ready() -> void:
 	heading = deg_to_rad(initial_heading_deg)
 	rotation = heading
@@ -73,6 +76,16 @@ func _ready() -> void:
 			ammo = params.gun.max_ammo
 		if params.missile:
 			missiles_remaining = params.missile.max_count
+		pilot_stamina = params.pilot_stamina
+	# 轨迹丝带
+	_trail_ribbon = TrailRibbon.new()
+	_trail_ribbon.ribbon_width = 8.0
+	_trail_ribbon.max_points = 150
+	if team == 0:
+		_trail_ribbon.ribbon_color = Color(0.3, 0.5, 1.0, 0.6)  # 蓝色
+	else:
+		_trail_ribbon.ribbon_color = Color(1.0, 0.25, 0.25, 0.6)  # 红色
+	add_child(_trail_ribbon)
 
 func _physics_process(delta: float) -> void:
 	if is_destroyed:
@@ -257,6 +270,20 @@ func _update_g_load() -> void:
 	else:
 		g_load = 1.0 / cos(bank_angle)
 		g_load = absf(g_load)
+	_update_pilot_stamina(get_physics_process_delta_time())
+
+func _update_pilot_stamina(delta: float) -> void:
+	var sustained_g := params.max_g if params else 9.0
+	var max_stam := params.pilot_stamina if params else 100.0
+	if g_load > sustained_g:
+		# 超过持续耐受G时消耗耐力，G力越高消耗越快
+		var excess_ratio := (g_load - sustained_g) / maxf(_effective_max_g() - sustained_g, 0.1)
+		var drain := (params.stamina_drain_rate if params else 25.0) * excess_ratio
+		pilot_stamina = maxf(pilot_stamina - drain * delta, 0.0)
+	else:
+		# 低于持续耐受G时恢复耐力
+		var recovery := params.stamina_recovery_rate if params else 10.0
+		pilot_stamina = minf(pilot_stamina + recovery * delta, max_stam)
 
 func _apply_movement(delta: float) -> void:
 	# heading: 0=上(北), 顺时针为正
@@ -267,9 +294,17 @@ func _apply_movement(delta: float) -> void:
 # ========== 辅助计算 ==========
 
 func _max_bank_angle() -> float:
-	var max_g_val := params.max_g if params else 9.0
+	var max_g_val := _effective_max_g()
 	# G = 1/cos(bank) => bank = acos(1/G)
 	return acos(1.0 / max_g_val)
+
+func _effective_max_g() -> float:
+	## 根据飞行员耐力在 sustained G 与 structural G 之间插值
+	var sustained := params.max_g if params else 9.0
+	var structural := params.max_g_structural if params else 12.0
+	var max_stam := params.pilot_stamina if params else 100.0
+	var ratio := pilot_stamina / maxf(max_stam, 0.01)
+	return sustained + (structural - sustained) * ratio
 
 func _stall_speed() -> float:
 	# V_stall = V_base * sqrt(G)
@@ -710,24 +745,25 @@ func _update_missile(delta: float) -> void:
 	if not params or not params.missile:
 		return
 
-	# 该目标已有在飞导弹 → 等结果，不发第二枚
-	var best_target := _select_best_missile_target()
-	if best_target == null:
+	# 必须有明确的交战目标才允许发射导弹（锁定 ≠ 开火授权）
+	if combat_target == null or not is_instance_valid(combat_target) or combat_target.is_destroyed:
 		return
-	if missile_manager.has_active_missile_at(self, best_target):
+
+	# 只对交战目标发射，不选其他目标
+	if missile_manager.has_active_missile_at(self, combat_target):
 		return
 
 	var msl := params.missile
-	if not _is_in_missile_envelope(best_target, msl):
+	if not _is_in_missile_envelope(combat_target, msl):
 		return
 
-	# 锁定时间检查
-	var lock_progress: float = radar_targets.get(best_target, 0.0)
+	# 交战目标必须被雷达锁定足够时间
+	var lock_progress: float = radar_targets.get(combat_target, 0.0)
 	if lock_progress < params.lock_time + LOCK_STABLE_BUFFER:
 		return
 
 	# 发射！
-	missile_manager.spawn_missile(self, best_target, msl)
+	missile_manager.spawn_missile(self, combat_target, msl)
 	missiles_remaining -= 1
 	_missile_cooldown = msl.cooldown
 	_crank_timer = CRANK_DURATION
@@ -1079,7 +1115,9 @@ func _draw_data_label() -> void:
 	lines.append("%d kt" % roundi(speed_kmh * 0.5399))
 	lines.append("M%.2f" % mach)
 	lines.append("ALT %dm" % roundi(altitude))
-	lines.append("G %.1f" % g_load)
+	lines.append("G %.1f/%.0f" % [g_load, _effective_max_g()])
+	var max_stam := params.pilot_stamina if params else 100.0
+	lines.append("STA %d%%" % roundi(pilot_stamina / maxf(max_stam, 0.01) * 100.0))
 	if params and params.missile:
 		lines.append("MSL %d" % missiles_remaining)
 	if params and params.gun:

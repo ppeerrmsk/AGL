@@ -13,8 +13,12 @@
 | cruise_speed | float | 900.0 | 850.0 | km/h 巡航速度（也是初始速度） |
 | stall_speed_base | float | 220.0 | 200.0 | km/h 1G 海平面失速速度 |
 | acceleration | float | 50.0 | 45.0 | m/s² 加速/减速能力 |
-| max_g | float | 9.0 | 8.0 | 最大过载，决定最大转弯力度 |
+| max_g | float | 9.0 | 8.0 | 飞行员持续耐受G力（可长期维持） |
+| max_g_structural | float | 12.0 | 11.0 | 机体结构极限G力（短时可超越max_g） |
 | roll_rate | float | 4.0 | 3.5 | rad/s 滚转速率，影响进入转弯的快慢 |
+| pilot_stamina | float | 100.0 | 80.0 | 飞行员耐力上限 |
+| stamina_drain_rate | float | 25.0 | 30.0 | 超过 max_g 时每秒消耗耐力 |
+| stamina_recovery_rate | float | 10.0 | 8.0 | G力低于 max_g 时每秒恢复耐力 |
 | max_altitude | float | 15000.0 | 14000.0 | 米 实用升限 |
 | climb_rate_max | float | 250.0 | 230.0 | m/s 最大爬升率 |
 | thrust_to_weight | float | 1.1 | 1.0 | 推重比（预留） |
@@ -23,7 +27,7 @@
 
 ## 参数如何影响飞行行为
 
-- **max_g** → 最大 bank 角 = `acos(1/max_g)` → 决定最急转弯的弧度和G力
+- **max_g / max_g_structural / pilot_stamina** → 有效最大G = `max_g + (max_g_structural - max_g) × (stamina / max_stamina)`。耐力充足时可拉到结构极限，耐力耗尽时退回持续耐受值。最大 bank 角 = `acos(1/effective_max_g)`
 - **roll_rate** → bank 角变化速度 → 影响从直飞到满 bank 转弯需要多久
 - **max_speed / cruise_speed** → 速度越快，同 bank 角下转弯半径越大
 - **stall_speed_base** → 高 G 转弯时失速速度升高（`V_stall × √G`），限制低速急转
