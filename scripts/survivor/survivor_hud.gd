@@ -1,56 +1,49 @@
 class_name SurvivorHUD
 extends CanvasLayer
 
-## 生存模式 HUD：血量、经验条、时间、击杀数
+## 生存模式 HUD：右下角状态面板 + 顶部时间/击杀 + 底部经验条
 
 var survivor_player: SurvivorPlayer
 var game_time: float = 0.0
 var kill_count: int = 0
+var game_scene: Node2D
 
-# ── UI 元素 ──
-var _hp_bar_bg: ColorRect
-var _hp_bar_fill: ColorRect
-var _hp_label: Label
+# ── 顶部 ──
+var _time_label: Label
+var _kill_label: Label
+
+# ── 底部经验条 ──
 var _xp_bar_bg: ColorRect
 var _xp_bar_fill: ColorRect
 var _xp_label: Label
-var _time_label: Label
-var _kill_label: Label
+
+# ── 右下角状态面板 ──
+var _status_panel: PanelContainer
+var _status_label: RichTextLabel
+
+# ── 雷达小地图 ──
+var _radar: Control
+
+# ── 其他 ──
 var _game_over_panel: PanelContainer
 var _game_over_label: RichTextLabel
+var _threat_overlay: Control
 
-const HP_BAR_WIDTH := 200.0
-const HP_BAR_HEIGHT := 16.0
+# Debug 性能面板
+var _debug_panel: PanelContainer
+var _debug_label: Label
+var _debug_visible: bool = false
+var _debug_update_timer: float = 0.0
+
 const XP_BAR_WIDTH := 400.0
 const XP_BAR_HEIGHT := 20.0
+const STATUS_PANEL_WIDTH := 220.0
 
 func _ready() -> void:
 	layer = 10
 	_build_ui()
 
 func _build_ui() -> void:
-	# ── HP 条（左上角）──
-	_hp_bar_bg = ColorRect.new()
-	_hp_bar_bg.color = Color(0.1, 0.1, 0.1, 0.7)
-	_hp_bar_bg.size = Vector2(HP_BAR_WIDTH, HP_BAR_HEIGHT)
-	_hp_bar_bg.position = Vector2(20, 20)
-	add_child(_hp_bar_bg)
-
-	_hp_bar_fill = ColorRect.new()
-	_hp_bar_fill.color = Color(0.3, 1.0, 0.3)
-	_hp_bar_fill.size = Vector2(HP_BAR_WIDTH, HP_BAR_HEIGHT)
-	_hp_bar_fill.position = Vector2(20, 20)
-	add_child(_hp_bar_fill)
-
-	_hp_label = Label.new()
-	_hp_label.position = Vector2(20, 20)
-	_hp_label.size = Vector2(HP_BAR_WIDTH, HP_BAR_HEIGHT)
-	_hp_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_hp_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_hp_label.add_theme_font_size_override("font_size", 11)
-	_hp_label.add_theme_color_override("font_color", Color(1, 1, 1))
-	add_child(_hp_label)
-
 	# ── 时间（顶部中央）──
 	_time_label = Label.new()
 	_time_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -84,18 +77,48 @@ func _build_ui() -> void:
 	_xp_label.add_theme_color_override("font_color", Color(1, 1, 1))
 	add_child(_xp_label)
 
-	# ── Game Over 面板（隐藏）──
+	# ── 右下角状态面板 ──
+	_status_panel = PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.02, 0.04, 0.02, 0.75)
+	style.border_color = Color(0.25, 0.5, 0.25, 0.35)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(3)
+	style.content_margin_left = 10
+	style.content_margin_right = 10
+	style.content_margin_top = 8
+	style.content_margin_bottom = 8
+	_status_panel.add_theme_stylebox_override("panel", style)
+	_status_panel.custom_minimum_size = Vector2(STATUS_PANEL_WIDTH, 0)
+	add_child(_status_panel)
+
+	_status_label = RichTextLabel.new()
+	_status_label.bbcode_enabled = true
+	_status_label.fit_content = true
+	_status_label.scroll_active = false
+	_status_label.custom_minimum_size = Vector2(STATUS_PANEL_WIDTH - 20, 0)
+	_status_label.add_theme_font_size_override("normal_font_size", 12)
+	_status_label.add_theme_font_size_override("bold_font_size", 12)
+	_status_label.add_theme_color_override("default_color", Color(0.8, 0.9, 0.8))
+	_status_panel.add_child(_status_label)
+
+	# ── 雷达小地图（左下角）──
+	_radar = RadarDisplay.new()
+	_radar.hud = self
+	add_child(_radar)
+
+	# ── Game Over 面板 ──
 	_game_over_panel = PanelContainer.new()
 	_game_over_panel.visible = false
 	add_child(_game_over_panel)
 
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.02, 0.03, 0.02, 0.92)
-	style.border_color = Color(1.0, 0.3, 0.3, 0.6)
-	style.set_border_width_all(2)
-	style.set_corner_radius_all(4)
-	style.set_content_margin_all(30)
-	_game_over_panel.add_theme_stylebox_override("panel", style)
+	var go_style := StyleBoxFlat.new()
+	go_style.bg_color = Color(0.02, 0.03, 0.02, 0.92)
+	go_style.border_color = Color(1.0, 0.3, 0.3, 0.6)
+	go_style.set_border_width_all(2)
+	go_style.set_corner_radius_all(4)
+	go_style.set_content_margin_all(30)
+	_game_over_panel.add_theme_stylebox_override("panel", go_style)
 
 	_game_over_label = RichTextLabel.new()
 	_game_over_label.bbcode_enabled = true
@@ -105,9 +128,39 @@ func _build_ui() -> void:
 	_game_over_label.add_theme_color_override("default_color", Color(0.85, 0.9, 0.85))
 	_game_over_panel.add_child(_game_over_label)
 
-func _process(_delta: float) -> void:
+	# ── 屏幕外威胁方位指示 ──
+	_threat_overlay = ThreatOverlay.new()
+	_threat_overlay.hud = self
+	add_child(_threat_overlay)
+
+	# ── Debug 性能面板（F3）──
+	_debug_panel = PanelContainer.new()
+	_debug_panel.visible = false
+	var dbg_style := StyleBoxFlat.new()
+	dbg_style.bg_color = Color(0.0, 0.0, 0.0, 0.7)
+	dbg_style.set_corner_radius_all(3)
+	dbg_style.set_content_margin_all(8)
+	_debug_panel.add_theme_stylebox_override("panel", dbg_style)
+	add_child(_debug_panel)
+
+	_debug_label = Label.new()
+	_debug_label.add_theme_font_size_override("font_size", 11)
+	_debug_label.add_theme_color_override("font_color", Color(0.0, 1.0, 0.4))
+	_debug_panel.add_child(_debug_label)
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and event.keycode == KEY_F3:
+		_debug_visible = not _debug_visible
+		_debug_panel.visible = _debug_visible
+
+func _process(delta: float) -> void:
 	_layout_ui()
 	_update_display()
+	if _debug_visible:
+		_debug_update_timer -= delta
+		if _debug_update_timer <= 0.0:
+			_debug_update_timer = 0.25
+			_update_debug_panel()
 
 func _layout_ui() -> void:
 	var vp := get_viewport().get_visible_rect().size
@@ -125,6 +178,15 @@ func _layout_ui() -> void:
 	_xp_label.position = Vector2(xp_x, xp_y)
 	_xp_label.size = Vector2(XP_BAR_WIDTH, XP_BAR_HEIGHT)
 
+	# 状态面板：右下角，经验条上方
+	_status_panel.position = Vector2(
+		vp.x - _status_panel.size.x - 16,
+		vp.y - _status_panel.size.y - XP_BAR_HEIGHT - 36
+	)
+
+	if _debug_panel.visible:
+		_debug_panel.position = Vector2(vp.x - _debug_panel.size.x - 16, 16)
+
 	if _game_over_panel.visible:
 		_game_over_panel.position = Vector2(
 			(vp.x - _game_over_panel.size.x) * 0.5,
@@ -134,19 +196,6 @@ func _layout_ui() -> void:
 func _update_display() -> void:
 	if not survivor_player:
 		return
-
-	# HP
-	var current_hp := survivor_player.get_hp()
-	var max_hp := survivor_player.get_max_hp()
-	var hp_ratio := current_hp / maxf(max_hp, 1.0)
-	_hp_bar_fill.size.x = HP_BAR_WIDTH * hp_ratio
-	if hp_ratio > 0.5:
-		_hp_bar_fill.color = Color(0.3, 1.0, 0.3)
-	elif hp_ratio > 0.25:
-		_hp_bar_fill.color = Color(1.0, 0.8, 0.2)
-	else:
-		_hp_bar_fill.color = Color(1.0, 0.3, 0.3)
-	_hp_label.text = "HP  %d / %d" % [ceili(current_hp), ceili(max_hp)]
 
 	# 时间
 	var mins := int(game_time) / 60
@@ -161,6 +210,117 @@ func _update_display() -> void:
 	_xp_bar_fill.size.x = XP_BAR_WIDTH * clampf(xp_ratio, 0.0, 1.0)
 	_xp_label.text = "LV %d    %d / %d" % [survivor_player.level, survivor_player.xp, survivor_player.xp_to_next]
 
+	# 右下角状态面板
+	_update_status_panel()
+
+func _update_status_panel() -> void:
+	var ac := survivor_player.aircraft
+	if not ac or ac.is_destroyed:
+		_status_label.text = ""
+		return
+
+	var text := ""
+
+	# ── HP ──
+	var current_hp := survivor_player.get_hp()
+	var max_hp := survivor_player.get_max_hp()
+	var hp_ratio := current_hp / maxf(max_hp, 1.0)
+	var hp_color := "66ff66" if hp_ratio > 0.5 else ("ffcc33" if hp_ratio > 0.25 else "ff4444")
+	text += "[color=#%s]HP %d / %d[/color]\n" % [hp_color, ceili(current_hp), ceili(max_hp)]
+
+	# ── 导弹 ──
+	var max_msl := ac.params.missile.max_count if ac.params and ac.params.missile else 0
+	if max_msl > 0:
+		if ac._missile_reload_active:
+			var pct := int(ac.missile_reload_progress * 100)
+			text += "[color=#5599ff]MSL  RELOAD %d%%[/color]\n" % pct
+		else:
+			var msl_color := "88bbff" if ac.missiles_remaining > 0 else "666666"
+			text += "[color=#%s]MSL  %d / %d[/color]\n" % [msl_color, ac.missiles_remaining, max_msl]
+
+	# ── 机炮 ──
+	if ac.params and ac.params.gun:
+		var ammo_color := "ccddaa" if ac.ammo > 100 else ("ffaa44" if ac.ammo > 0 else "666666")
+		text += "[color=#%s]GUN  %d[/color]\n" % [ammo_color, ac.ammo]
+
+	# ── 热诱弹 ──
+	if ac.params and ac.params.flare:
+		var max_flr := ac.params.flare.max_flares
+		var cd_ratio := ac.get_flare_cooldown_ratio()
+		var flr_color := "ffdd66"
+		if cd_ratio > 0.01:
+			flr_color = "aa8833"
+		elif ac.flares_remaining <= 0:
+			flr_color = "666666"
+		var cd_text := "  CD" if cd_ratio > 0.01 else ""
+		text += "[color=#%s]FLR  %d / %d%s[/color]\n" % [flr_color, ac.flares_remaining, max_flr, cd_text]
+
+	# ── 分隔线 ──
+	if game_scene and not game_scene.upgrade_stacks.is_empty():
+		text += "[color=#445544]────────────[/color]\n"
+
+		# ── 已激活技能 ──
+		var stacks: Dictionary = game_scene.upgrade_stacks
+		for u in SurvivorData.UPGRADES:
+			var uid: String = u["id"]
+			var count: int = stacks.get(uid, 0)
+			if count <= 0:
+				continue
+			var is_evolved: bool = u.get("evolved", false)
+			var cat: String = u.get("category", "")
+			var tag_color: String
+			if is_evolved:
+				tag_color = "ffcc44"  # 金色：进化技能
+			elif cat == "combat":
+				tag_color = "cc6655"
+			else:
+				tag_color = "55aa66"
+			var max_s := int(u["max_stacks"])
+			var level_dots := ""
+			if is_evolved:
+				level_dots = "[color=#ffcc44]★[/color]"
+			else:
+				for i in range(max_s):
+					if i < count:
+						level_dots += "[color=#aaddaa]|[/color]"
+					else:
+						level_dots += "[color=#333]|[/color]"
+			text += "[color=#%s]%s[/color] %s\n" % [tag_color, u["name"], level_dots]
+
+	_status_label.text = text
+
+func _update_debug_panel() -> void:
+	if not game_scene:
+		return
+	var fps := Engine.get_frames_per_second()
+	var frame_time := 1000.0 / maxf(fps, 1.0)
+	var node_count := _count_nodes(get_tree().root)
+	var enemy_count := 0
+	var aircraft_count := 0
+	var missile_count := 0
+	for child in game_scene.get_children():
+		if child is Aircraft:
+			aircraft_count += 1
+			if child.team != 0 and not child.is_destroyed:
+				enemy_count += 1
+	if game_scene.missile_manager:
+		missile_count = game_scene.missile_manager.get_child_count()
+	var mem := OS.get_static_memory_usage() / 1048576.0
+
+	var text := "FPS: %d (%.1f ms)\n" % [fps, frame_time]
+	text += "Enemies: %d\n" % enemy_count
+	text += "Aircraft: %d\n" % aircraft_count
+	text += "Missiles: %d\n" % missile_count
+	text += "Nodes: %d\n" % node_count
+	text += "Memory: %.1f MB" % mem
+	_debug_label.text = text
+
+func _count_nodes(node: Node) -> int:
+	var count := 1
+	for child in node.get_children():
+		count += _count_nodes(child)
+	return count
+
 func show_game_over(level: int, time: float, kills: int) -> void:
 	var mins := int(time) / 60
 	var secs := int(time) % 60
@@ -171,3 +331,288 @@ func show_game_over(level: int, time: float, kills: int) -> void:
 	text += "[color=#888888]按 ESC 返回主菜单[/color][/center]"
 	_game_over_label.text = text
 	_game_over_panel.visible = true
+
+# ══════════════════════════════════════════════
+#  雷达小地图
+# ══════════════════════════════════════════════
+
+class RadarDisplay extends Control:
+	var hud: SurvivorHUD
+
+	const RADAR_RADIUS := 80.0        ## 雷达圆半径（像素）
+	const RADAR_MARGIN := 20.0        ## 距屏幕左下角边距
+	const RADAR_RANGE := 5000.0       ## 雷达显示的世界范围（像素）
+	const SWEEP_SPEED := 2.5          ## 扫描线旋转速度（rad/s）
+	const RING_COUNT := 3             ## 同心圆数量
+	const BG_COLOR := Color(0.02, 0.06, 0.02, 0.8)
+	const RING_COLOR := Color(0.15, 0.35, 0.15, 0.5)
+	const SWEEP_COLOR := Color(0.2, 0.8, 0.2, 0.5)
+	const PLAYER_COLOR := Color(0.3, 0.7, 1.0, 0.9)
+	const ENEMY_COLOR := Color(1.0, 0.3, 0.2, 0.85)
+	const LOCKED_COLOR := Color(1.0, 0.8, 0.2, 0.95)
+	const MISSILE_WARNING_COLOR := Color(1.0, 0.15, 0.1, 0.95)
+
+	var _sweep_angle: float = 0.0
+	var _blip_ages: Dictionary = {}  ## { Aircraft instance_id : float } 扫描到的时间
+
+	func _ready() -> void:
+		mouse_filter = MOUSE_FILTER_IGNORE
+
+	func _process(delta: float) -> void:
+		_sweep_angle += SWEEP_SPEED * delta
+		if _sweep_angle > TAU:
+			_sweep_angle -= TAU
+
+		# 衰减 blip 亮度
+		var keys_to_remove: Array = []
+		for key in _blip_ages:
+			_blip_ages[key] += delta
+			if float(_blip_ages[key]) > 4.0:
+				keys_to_remove.append(key)
+		for key in keys_to_remove:
+			_blip_ages.erase(key)
+
+		queue_redraw()
+
+	func _draw() -> void:
+		if not hud or not hud.game_scene or not hud.survivor_player:
+			return
+		var player_ac: Aircraft = hud.survivor_player.aircraft
+		if not player_ac or player_ac.is_destroyed:
+			return
+
+		var vp := get_viewport_rect().size
+		var center := Vector2(RADAR_MARGIN + RADAR_RADIUS, vp.y - RADAR_MARGIN - RADAR_RADIUS - 50)
+
+		# 背景圆
+		draw_circle(center, RADAR_RADIUS, BG_COLOR)
+
+		# 同心圆
+		for i in range(1, RING_COUNT + 1):
+			var r := RADAR_RADIUS * float(i) / float(RING_COUNT)
+			draw_arc(center, r, 0, TAU, 64, RING_COLOR, 1.0)
+
+		# 十字线
+		draw_line(center - Vector2(RADAR_RADIUS, 0), center + Vector2(RADAR_RADIUS, 0), RING_COLOR, 1.0)
+		draw_line(center - Vector2(0, RADAR_RADIUS), center + Vector2(0, RADAR_RADIUS), RING_COLOR, 1.0)
+
+		# 扫描线 + 尾迹
+		var sweep_world := _sweep_angle
+		var sweep_end := center + Vector2(cos(sweep_world - PI / 2.0), sin(sweep_world - PI / 2.0)) * RADAR_RADIUS
+		draw_line(center, sweep_end, SWEEP_COLOR, 1.5)
+
+		# 扫描尾迹
+		var trail_steps := 15
+		for i in range(trail_steps):
+			var t := float(i) / float(trail_steps)
+			var a := sweep_world - t * 0.6
+			var trail_end := center + Vector2(cos(a - PI / 2.0), sin(a - PI / 2.0)) * RADAR_RADIUS
+			var alpha := 0.25 * (1.0 - t)
+			draw_line(center, trail_end, Color(0.2, 0.7, 0.2, alpha), 1.0)
+
+		# 更新 blip 并绘制敌机
+		var scene: Node2D = hud.game_scene
+		var player_pos := player_ac.global_position
+
+		for child in scene.get_children():
+			if not child is Aircraft:
+				continue
+			var ac: Aircraft = child
+			if ac == player_ac:
+				continue
+			if ac.is_destroyed:
+				continue
+
+			var rel := ac.global_position - player_pos
+			var dist := rel.length()
+			if dist > RADAR_RANGE:
+				continue
+
+			# 旋转到玩家航向为上的坐标系
+			var angle := atan2(rel.x, -rel.y)
+			var radar_dist := (dist / RADAR_RANGE) * RADAR_RADIUS
+			var blip_pos := center + Vector2(sin(angle), -cos(angle)) * radar_dist
+
+			# 检查是否被扫描线扫过（角度接近）
+			var blip_angle := fmod(angle + TAU, TAU)
+			var sweep_norm := fmod(_sweep_angle + TAU, TAU)
+			var angle_diff := fmod(sweep_norm - blip_angle + TAU, TAU)
+			if angle_diff < 0.3:
+				_blip_ages[ac.get_instance_id()] = 0.0
+
+			# 绘制 blip
+			var age: float = _blip_ages.get(ac.get_instance_id(), 99.0)
+			if age > 3.5:
+				continue  # 太久没扫描到，不显示
+
+			var fade := clampf(1.0 - age / 3.5, 0.0, 1.0)
+
+			# 颜色：锁定目标=黄色，普通敌机=红色，友方=蓝色
+			var blip_color: Color
+			if ac.team == 0:
+				blip_color = PLAYER_COLOR
+			elif player_ac.combat_target == ac:
+				blip_color = LOCKED_COLOR
+			else:
+				blip_color = ENEMY_COLOR
+
+			blip_color.a *= fade
+			draw_circle(blip_pos, 2.5, blip_color)
+
+			# 锁定目标加方框
+			if player_ac.combat_target == ac:
+				var d := 5.0
+				draw_rect(Rect2(blip_pos - Vector2(d, d), Vector2(d * 2, d * 2)), Color(blip_color, fade * 0.5), false, 1.0)
+
+		# 玩家标记（中心，始终朝上的小三角）
+		var p_size := 4.0
+		var p_verts := PackedVector2Array([
+			center + Vector2(0, -p_size),
+			center + Vector2(p_size * 0.7, p_size * 0.5),
+			center + Vector2(-p_size * 0.7, p_size * 0.5),
+		])
+		draw_colored_polygon(p_verts, PLAYER_COLOR)
+
+		# 来袭导弹警告
+		var has_incoming := false
+		var missile_mgr = hud.game_scene.get_node_or_null("MissileManager")
+		if missile_mgr:
+			var blink := fmod(hud.game_time * 3.33, 1.0) > 0.5
+			for child in missile_mgr.get_children():
+				if not child is Missile:
+					continue
+				var m: Missile = child
+				if not m.is_active or m.target != player_ac:
+					continue
+				has_incoming = true
+				var rel_m := m.global_position - player_pos
+				var dist_m := rel_m.length()
+				if dist_m > RADAR_RANGE:
+					continue
+				var angle_m := atan2(rel_m.x, -rel_m.y)
+				var radar_dist_m := (dist_m / RADAR_RANGE) * RADAR_RADIUS
+				var msl_pos := center + Vector2(sin(angle_m), -cos(angle_m)) * radar_dist_m
+				if blink:
+					# 小菱形标记
+					var s := 4.0
+					var diamond := PackedVector2Array([
+						msl_pos + Vector2(0, -s),
+						msl_pos + Vector2(s, 0),
+						msl_pos + Vector2(0, s),
+						msl_pos + Vector2(-s, 0),
+					])
+					draw_colored_polygon(diamond, MISSILE_WARNING_COLOR)
+
+		# "MISSILE" 文字警告
+		if has_incoming:
+			var blink_txt := fmod(hud.game_time * 2.5, 1.0) > 0.3
+			if blink_txt:
+				var warn_pos := Vector2(center.x, center.y - RADAR_RADIUS - 12)
+				var font := ThemeDB.fallback_font
+				var text := "MISSILE"
+				var text_size := font.get_string_size(text, HORIZONTAL_ALIGNMENT_CENTER, -1, 11)
+				draw_string(font, warn_pos - Vector2(text_size.x * 0.5, 0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, MISSILE_WARNING_COLOR)
+
+		# 外圈边框
+		draw_arc(center, RADAR_RADIUS, 0, TAU, 64, Color(0.2, 0.5, 0.2, 0.6), 1.5)
+
+# ══════════════════════════════════════════════
+#  屏幕外威胁方位指示器
+# ══════════════════════════════════════════════
+
+class ThreatOverlay extends Control:
+	var hud: SurvivorHUD
+
+	const ARROW_SIZE := 12.0
+	const EDGE_MARGIN := 30.0
+	const THREAT_COLOR := Color(1.0, 0.3, 0.2, 0.8)
+	const LOCK_COLOR := Color(1.0, 0.15, 0.1, 0.95)
+
+	func _ready() -> void:
+		set_anchors_and_offsets_preset(PRESET_FULL_RECT)
+		mouse_filter = MOUSE_FILTER_IGNORE
+
+	func _process(_delta: float) -> void:
+		queue_redraw()
+
+	func _draw() -> void:
+		if not hud or not hud.game_scene or not hud.survivor_player:
+			return
+		var player_ac: Aircraft = hud.survivor_player.aircraft
+		if not player_ac or player_ac.is_destroyed:
+			return
+
+		var scene: Node2D = hud.game_scene
+		var camera: Camera2D = scene.get_node("Camera2D")
+		if not camera:
+			return
+
+		var vp_size := get_viewport_rect().size
+		var cam_pos := camera.global_position
+		var zoom := camera.zoom
+		var half_vp := vp_size / (2.0 * zoom)
+
+		var screen_left := cam_pos.x - half_vp.x
+		var screen_right := cam_pos.x + half_vp.x
+		var screen_top := cam_pos.y - half_vp.y
+		var screen_bottom := cam_pos.y + half_vp.y
+
+		for child in scene.get_children():
+			if not child is Aircraft:
+				continue
+			var ac: Aircraft = child
+			if ac.team == 0 or ac.is_destroyed:
+				continue
+
+			var is_threat := false
+			if ac.combat_target == player_ac:
+				is_threat = true
+			if not is_threat:
+				var lock_val: float = ac.radar_targets.get(player_ac, 0.0)
+				if lock_val > 0.5:
+					is_threat = true
+			if not is_threat:
+				continue
+
+			var epos := ac.global_position
+			if epos.x >= screen_left and epos.x <= screen_right and epos.y >= screen_top and epos.y <= screen_bottom:
+				continue
+
+			var dir := (epos - cam_pos).normalized()
+			var screen_center := vp_size * 0.5
+			var screen_dir := Vector2(dir.x, dir.y).normalized()
+			var arrow_pos := _edge_intersect(screen_center, screen_dir, vp_size)
+
+			var lock_progress: float = ac.radar_targets.get(player_ac, 0.0)
+			var lock_time_val: float = ac.params.lock_time if ac.params else 3.0
+			var color := LOCK_COLOR if lock_progress >= lock_time_val else THREAT_COLOR
+
+			_draw_threat_arrow(arrow_pos, screen_dir, color)
+
+	func _edge_intersect(center: Vector2, dir: Vector2, vp: Vector2) -> Vector2:
+		var margin := EDGE_MARGIN
+		var half := vp * 0.5 - Vector2(margin, margin)
+
+		var t: float = 99999.0
+		if abs(dir.x) > 0.001:
+			var tx: float = half.x / abs(dir.x)
+			t = minf(t, tx)
+		if abs(dir.y) > 0.001:
+			var ty: float = half.y / abs(dir.y)
+			t = minf(t, ty)
+
+		return center + dir * t
+
+	func _draw_threat_arrow(pos: Vector2, dir: Vector2, color: Color) -> void:
+		var s := ARROW_SIZE
+		var tip := pos + dir * s
+		var perp := Vector2(-dir.y, dir.x)
+		var base_l := pos - dir * s * 0.5 + perp * s * 0.6
+		var base_r := pos - dir * s * 0.5 - perp * s * 0.6
+
+		var verts := PackedVector2Array([tip, base_l, base_r])
+		draw_colored_polygon(verts, color)
+		var outline := Color(color.r, color.g, color.b, color.a * 0.5)
+		draw_line(tip, base_l, outline, 1.0)
+		draw_line(base_l, base_r, outline, 1.0)
+		draw_line(base_r, tip, outline, 1.0)

@@ -1,0 +1,24 @@
+[gd_resource type="Resource" script_class="MissileParams" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/missile_params.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+display_name = "UAV-SAM"
+max_speed = 800.0
+motor_burn_time = 3.0
+motor_acceleration = 120.0
+drag_deceleration = 40.0
+max_g = 15.0
+nav_constant = 3.0
+max_range_rear = 5000.0
+front_rear_ratio = 2.0
+min_range = 300.0
+max_lifetime = 15.0
+damage = 30.0
+proximity_fuse_radius = 15.0
+proximity_fuse_alt = 200.0
+seeker_fov = 40.0
+guidance_delay = 0.8
+max_count = 2
+cooldown = 8.0

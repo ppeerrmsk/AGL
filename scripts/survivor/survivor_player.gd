@@ -36,16 +36,29 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 			var add: float = upgrade["value"]
 			p.max_hp += add
 			aircraft.hp += add  # 升级时也恢复
+			aircraft.bullet_dodge_chance = minf(aircraft.bullet_dodge_chance + 0.08, 0.40)  # 每层+8%，上限40%
 		"missile_count":
 			if p.missile:
 				p.missile.max_count += int(upgrade["value"])
 				aircraft.missiles_remaining += int(upgrade["value"])
-		"missile_damage":
+		"missile_tracking":
+			# 制导升级：导弹过载 +30%，导引常数 +0.5
 			if p.missile:
-				p.missile.damage *= (1.0 + float(upgrade["value"]))
+				p.missile.max_g *= (1.0 + float(upgrade["value"]))
+				p.missile.nav_constant += 0.5
+		"missile_bounce":
+			# 进化：连锁弹头，导弹命中后弹跳
+			aircraft.missile_bounce_count = int(upgrade["value"])
+		"missile_reload":
+			aircraft.missile_reload_duration *= (1.0 - float(upgrade["value"]))
+		"multi_lock":
+			aircraft.max_simultaneous_locks += int(upgrade["value"])
 		"gun_damage":
 			if p.gun:
 				p.gun.bullet_damage *= (1.0 + float(upgrade["value"]))
+		"gun_multishot":
+			# 进化：多管齐射，额外射出左右两道子弹
+			aircraft.gun_extra_barrels = int(upgrade["value"])
 		"gun_ammo":
 			if p.gun:
 				p.gun.max_ammo += int(upgrade["value"])
@@ -58,9 +71,38 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 			var mult := 1.0 + float(upgrade["value"])
 			p.max_speed *= mult
 			p.cruise_speed *= mult
+			p.acceleration *= (1.0 + float(upgrade["value"]) * 0.5)  # 加速也跟着涨一半
 		"maneuver":
 			p.roll_rate *= (1.0 + float(upgrade["value"]))
-			p.max_g += 0.5
+			p.max_g += 1.0
+			p.max_g_structural += 0.5  # 结构极限也提升
+		"flare_cooldown":
+			if p.flare:
+				p.flare.cooldown *= (1.0 - float(upgrade["value"]))
+		"flare_shield":
+			# 电子对抗套件：每层增加锁定免疫时间
+			aircraft.flare_lock_immunity += float(upgrade["value"])
+			# 额外赠送热诱弹
+			if p.flare:
+				p.flare.max_flares += 2
+				aircraft.flares_remaining += 2
+		"pilot_stamina":
+			# 体能强化：耐力上限×2，恢复速率×2
+			p.pilot_stamina *= 2.0
+			aircraft.pilot_stamina = p.pilot_stamina  # 立即充满
+			p.stamina_recovery_rate *= 2.0
+		"kill_heal":
+			# 战场急救：击杀回血，叠加层数记录在 aircraft 上
+			aircraft.kill_heal_amount += float(upgrade["value"])
+		"dogfight":
+			# 格斗大师：降低失速速度、增强减速、改善低速追踪
+			p.stall_speed_base *= 0.88       # -12% 失速速度 → 更紧的低速转弯
+			p.deceleration *= 1.3            # +30% 减速能力 → 更快刹车防冲过
+			p.g_drag_factor *= 1.2           # +20% G力阻力 → 转弯时自然减速更多
+			if p.combat:
+				p.combat = p.combat.duplicate()
+				p.combat.overshoot_speed_margin *= 0.97  # 更精确速度匹配
+				p.combat.turn_slow_speed_mult *= 0.9     # 大角度转向时减速更多
 
 func get_hp() -> float:
 	if aircraft:

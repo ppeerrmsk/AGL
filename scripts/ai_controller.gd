@@ -16,6 +16,17 @@ enum EngageTactic {
 	SCISSORS,        ## 剪刀机动：近距反复交叉
 }
 
+const TACTIC_DISPLAY_NAME: Dictionary = {
+	EngageTactic.LEAD_PURSUIT: "前置追踪",
+	EngageTactic.LAG_PURSUIT: "滞后追踪",
+	EngageTactic.LEAD_TURN: "提前转弯",
+	EngageTactic.HIGH_YOYO: "高悠悠",
+	EngageTactic.LOW_YOYO: "低悠悠",
+	EngageTactic.BREAK_TURN: "急转防御",
+	EngageTactic.EXTENSION: "加速脱离",
+	EngageTactic.SCISSORS: "剪刀机动",
+}
+
 # ── 基础巡逻 ──
 @export var aircraft: Aircraft
 @export var waypoints: PackedVector2Array = PackedVector2Array()
@@ -28,6 +39,7 @@ enum EngageTactic {
 @export var engage_cooldown: float = 15.0     ## 两次交战间隔（秒）
 @export var engage_duration: float = 20.0     ## 单次交战最长时间（秒）
 @export var evade_missiles: bool = false      ## 是否规避来袭导弹
+@export var simple_ai: bool = false           ## 简化 AI：只用前置追踪，跳过 BFM 决策树/SA/压力系统
 
 # ── 飞行员能力 ──
 @export var skill_level: float = 0.7          ## 战术水平 (0=菜鸟, 1=王牌)
@@ -36,6 +48,7 @@ enum EngageTactic {
 # ── 飞行员性格 ──
 @export var focus: float = 0.6               ## 目标专注度 (0=容易分心, 1=死盯不放)
 @export var self_preservation: float = 0.5   ## 自保意识 (0=不怕死, 1=保命优先)
+@export var situational_awareness: float = 0.6 ## 态势感知 (0=隧道视野, 1=全局洞察)
 
 # ── 内部状态 ──
 var current_waypoint_index: int = 0
@@ -70,10 +83,25 @@ var _speed_error: float = 0.0           ## 当前速度误差系数
 var _speed_error_timer: float = 0.0     ## 速度误差重采样计时器
 var _alt_error: float = 0.0             ## 高度判断误差（米）
 
+# ── 态势感知内部状态 ──
+var _sa_check_timer: float = 0.0        ## 下次"检查六点钟"计时
+var _rear_threat_aware: bool = false     ## 当前是否意识到后方威胁
+var _lock_aware: bool = false            ## 当前是否意识到被锁定
+var _sa_lock_delay: float = 0.0         ## 锁定告警意识延迟剩余
+var _missile_aware: bool = false         ## 当前是否意识到来袭导弹
+var _sa_missile_delay: float = 0.0      ## 导弹来袭意识延迟剩余
+var _sa_threats_known: int = 0           ## 感知到的威胁数量（不一定等于实际数量）
+
+# ── 拉弗伯雷圆圈（mutual orbit）检测 ──
+var _lufberry_timer: float = 0.0         ## 处于互相绕圈状态的累计时间
+var _lufberry_cooldown: float = 0.0      ## 脱出后冷却，避免反复触发
+
 ## 当前战术名称（供 DebugPanel 读取）
 var current_tactic_name: String = ""
 ## 当前压力值（供 DebugPanel 读取）
 var current_stress: float = 0.0
+## 当前态势感知等级（供 DebugPanel 读取）
+var current_sa_level: float = 0.0
 
 func _ready() -> void:
 	if waypoints.is_empty():
@@ -87,8 +115,13 @@ func _physics_process(delta: float) -> void:
 	if not aircraft or aircraft.is_destroyed:
 		return
 
+	if simple_ai:
+		_process_simple(delta)
+		return
+
 	_update_stress(delta)
 	_update_drift(delta)
+	_update_situational_awareness(delta)
 
 	match _state:
 		AIState.PATROL:
@@ -114,6 +147,76 @@ func _effective_self_preservation() -> float:
 	var stress_push := _stress * (1.0 - composure) * 0.6
 	return clampf(self_preservation + stress_push, 0.0, 1.0)
 
+## 有效态势感知 = 基础SA × 压力衰减 × 疲劳衰减
+## 压力大、耐力低的飞行员视野变窄
+func _effective_sa() -> float:
+	var stress_penalty := _stress * (1.0 - composure) * 0.4
+	var stamina_penalty := 0.0
+	if aircraft and aircraft.pilot_stamina < 50.0:
+		stamina_penalty = (1.0 - aircraft.pilot_stamina / 50.0) * 0.2
+	var sa := situational_awareness * (1.0 - stress_penalty - stamina_penalty)
+	current_sa_level = clampf(sa, 0.05, 1.0)
+	return current_sa_level
+
+## 态势感知更新：周期性"检查六点钟"
+## 高SA飞行员频繁扫视四周，低SA飞行员只盯着前方
+func _update_situational_awareness(delta: float) -> void:
+	var esa := _effective_sa()
+
+	# ── 后方威胁感知（"检查六点钟"周期） ──
+	_sa_check_timer -= delta
+	if _sa_check_timer <= 0.0:
+		# 检查间隔：王牌1.5秒一次，菜鸟5秒一次
+		_sa_check_timer = lerpf(5.0, 1.5, esa)
+		# 检查成功率：高SA几乎不会遗漏，低SA经常检查失败
+		var check_success_chance := 0.3 + esa * 0.7  # 最低30%，最高100%
+		if _state == AIState.ENGAGE and _tactic in [EngageTactic.LEAD_PURSUIT, EngageTactic.LEAD_TURN]:
+			# 专注追踪时更容易忽略后方
+			check_success_chance *= 0.7
+		_rear_threat_aware = randf() < check_success_chance
+
+	# ── 锁定告警感知 ──
+	if aircraft and aircraft.is_locked:
+		if not _lock_aware:
+			_sa_lock_delay -= delta
+			if _sa_lock_delay <= 0.0:
+				_lock_aware = true
+		# 锁定告警反应延迟：高SA几乎立即反应，低SA需要1~3秒
+	else:
+		_lock_aware = false
+		_sa_lock_delay = lerpf(3.0, 0.2, esa)
+
+	# ── 导弹来袭感知 ──
+	var actual_missile := _find_nearest_incoming_missile()
+	if actual_missile:
+		if not _missile_aware:
+			_sa_missile_delay -= delta
+			if _sa_missile_delay <= 0.0:
+				_missile_aware = true
+			# 导弹从后方来时更难察觉
+			elif actual_missile.global_position.distance_to(aircraft.global_position) < _missile_aware_range():
+				_missile_aware = true  # 足够近时任何人都能察觉
+	else:
+		_missile_aware = false
+		_sa_missile_delay = lerpf(2.5, 0.3, esa)
+
+	# ── 感知到的威胁数量（低SA飞行员可能漏数） ──
+	var actual_threats := 0
+	if aircraft:
+		for target_key in aircraft.radar_targets:
+			if is_instance_valid(target_key):
+				var t: Aircraft = target_key
+				if not t.is_destroyed and t.team != aircraft.team:
+					actual_threats += 1
+	# 高SA感知全部，低SA可能少算（只关注眼前那个）
+	var perceive_ratio := 0.5 + esa * 0.5
+	_sa_threats_known = ceili(actual_threats * perceive_ratio)
+
+## 导弹感知距离：低SA飞行员只有导弹非常近时才注意到
+func _missile_aware_range() -> float:
+	var esa := _effective_sa()
+	return lerpf(300.0, 1200.0, esa)  # 300px（近身才发现） ~ 1200px（远距离就察觉）
+
 ## 压力更新：根据战场态势累积/恢复
 func _update_stress(delta: float) -> void:
 	if _prev_hp < 0.0 and aircraft:
@@ -123,21 +226,26 @@ func _update_stress(delta: float) -> void:
 	var under_threat := false
 
 	if aircraft:
-		# 被雷达锁定
-		if aircraft.is_locked:
+		# 被雷达锁定（需要飞行员意识到才产生压力）
+		if _lock_aware:
 			stress_delta += 0.04 * delta
 			under_threat = true
 
-		# 有来袭导弹
-		if evade_missiles and _check_incoming_missile():
+		# 有来袭导弹（需要飞行员察觉到才产生压力）
+		if evade_missiles and _missile_aware:
 			stress_delta += 0.1 * delta
 			under_threat = true
 
 		# 受到伤害（HP 下降）——按损失比例施压，而非固定值
+		# 挨打是最直接的态势感知来源——再迟钝的飞行员也会因疼痛惊醒
 		if _prev_hp > 0.0 and aircraft.hp < _prev_hp:
 			var damage_ratio := (_prev_hp - aircraft.hp) / aircraft.params.max_hp if aircraft.params else 0.1
 			stress_delta += clampf(damage_ratio * 0.5, 0.02, 0.15)
 			under_threat = true
+			# 受伤强制唤醒态势感知
+			_rear_threat_aware = true
+			_lock_aware = aircraft.is_locked
+			_missile_aware = _check_incoming_missile()
 		_prev_hp = aircraft.hp
 
 		# 高G持续（>7G）
@@ -195,6 +303,64 @@ func _apply_altitude_error(alt: float) -> float:
 	return alt + _alt_error
 
 # ══════════════════════════════════════════════
+#  SIMPLE AI — 轻量化逻辑（UAV 等低级敌人）
+#  跳过压力/SA/BFM 决策树，只做巡逻+直线追踪
+# ══════════════════════════════════════════════
+
+func _process_simple(delta: float) -> void:
+	# 巡逻：走航点
+	if not _current_target or not is_instance_valid(_current_target) or _current_target.is_destroyed:
+		_current_target = null
+		if not waypoints.is_empty():
+			var target_wp := waypoints[current_waypoint_index]
+			if aircraft.global_position.distance_to(target_wp) < arrival_distance:
+				current_waypoint_index = (current_waypoint_index + 1) % waypoints.size()
+			aircraft.target_position = waypoints[current_waypoint_index]
+
+		# 简单扫描：定期寻找最近的敌人
+		_scan_timer -= delta
+		if _scan_timer <= 0.0 and enable_combat:
+			_scan_timer = 3.0
+			_try_engage_simple()
+		return
+
+	# 交战：直线前置追踪，不做任何花哨战术
+	var dist := aircraft.global_position.distance_to(_current_target.global_position)
+
+	# 超出范围或超时脱离
+	var max_range := (aircraft.params.radar_range * 1.5) if aircraft.params else 3000.0
+	_engage_timer += delta
+	if dist > max_range or _engage_timer > engage_duration:
+		aircraft.clear_combat_target()
+		aircraft.ai_override_pursuit = false
+		_current_target = null
+		_engage_timer = 0.0
+		return
+
+	# 简单前置追踪
+	aircraft.set_combat_target(_current_target)
+	aircraft.ai_override_pursuit = true
+	var tgt_fwd := Vector2(sin(_current_target.heading), -cos(_current_target.heading))
+	var lead_time := dist / maxf(aircraft.speed * Aircraft.PIXELS_PER_METER, 1.0)
+	var lead_pos := _current_target.global_position + tgt_fwd * _current_target.speed * Aircraft.PIXELS_PER_METER * lead_time * 0.5
+	aircraft.target_position = lead_pos
+	aircraft.target_speed_kmh = aircraft.params.max_speed * 0.7 if aircraft.params else 800.0
+
+func _try_engage_simple() -> void:
+	var best: Aircraft = null
+	var best_dist := 99999.0
+	for child in aircraft.get_parent().get_children():
+		if child is Aircraft and child.team != aircraft.team and not child.is_destroyed:
+			var d := aircraft.global_position.distance_to(child.global_position)
+			if d < best_dist:
+				best_dist = d
+				best = child
+	var detect_range := (aircraft.params.radar_range * 1.2) if aircraft.params else 2500.0
+	if best and best_dist < detect_range:
+		_current_target = best
+		_engage_timer = 0.0
+
+# ══════════════════════════════════════════════
 #  PATROL — 巡逻（保持原有逻辑）
 # ══════════════════════════════════════════════
 
@@ -214,7 +380,7 @@ func _process_patrol(delta: float) -> void:
 	if _cooldown_timer > 0.0:
 		_cooldown_timer -= delta
 
-	if evade_missiles and _check_incoming_missile():
+	if evade_missiles and _missile_aware:
 		_enter_evade()
 		return
 
@@ -241,8 +407,8 @@ func _process_engage(delta: float) -> void:
 	else:
 		_defensive_time = maxf(_defensive_time - delta * 0.5, 0.0)
 
-	# ── 导弹规避（受 self_preservation 影响） ──
-	if evade_missiles and _check_incoming_missile():
+	# ── 导弹规避（需要飞行员察觉 + 受 self_preservation 影响） ──
+	if evade_missiles and _missile_aware:
 		# 低自保飞行员可能忽略来袭导弹继续攻击
 		var evade_chance := lerpf(0.3, 1.0, _effective_self_preservation())
 		if randf() < evade_chance or _state != AIState.ENGAGE:
@@ -250,10 +416,10 @@ func _process_engage(delta: float) -> void:
 			_enter_evade()
 			return
 
-	# ── 被锁定警觉（高自保飞行员主动脱离） ──
+	# ── 被锁定警觉（需要飞行员意识到 + 高自保飞行员主动脱离） ──
 	var _esp := _effective_self_preservation()
-	if aircraft and aircraft.is_locked and _esp > 0.7:
-		# 高自保 + 被锁定 → 如果不在防御战术中，立即切防御
+	if _lock_aware and _esp > 0.7:
+		# 高自保 + 意识到被锁定 → 如果不在防御战术中，立即切防御
 		if _tactic not in [EngageTactic.BREAK_TURN, EngageTactic.EXTENSION, EngageTactic.SCISSORS]:
 			var defense_chance := (_esp - 0.5) * 0.1
 			if randf() < defense_chance:
@@ -285,6 +451,9 @@ func _process_engage(delta: float) -> void:
 
 	# ── 态势评估 ──
 	var sit := _assess_situation()
+
+	# ── 拉弗伯雷圆圈检测（每帧更新，不受战术切换防抖限制） ──
+	_update_lufberry_detection(sit, delta)
 
 	# ── 战术选择（带最小持续时间防抖） ──
 	if _tactic_timer >= _tactic_min_duration:
@@ -382,6 +551,36 @@ func _assess_situation() -> SituationData:
 	return s
 
 # ══════════════════════════════════════════════
+#  拉弗伯雷圆圈（mutual orbit）检测与脱出
+# ══════════════════════════════════════════════
+
+## 每帧更新拉弗伯雷检测：双方近距互绕超时则强制切换战术脱出
+func _update_lufberry_detection(s: SituationData, delta: float) -> void:
+	if _lufberry_cooldown > 0.0:
+		_lufberry_cooldown -= delta
+
+	var close_range := s.gun_range_px * 2.0
+	# 条件：近距 + 双方都不在对方后半球 + 都有一定偏置角 → 互绕中
+	if s.dist_px < close_range and not s.in_rear_hemi and not s.enemy_in_my_rear \
+			and s.my_aot > deg_to_rad(30.0) and s.aspect_angle > deg_to_rad(30.0) \
+			and _lufberry_cooldown <= 0.0:
+		_lufberry_timer += delta
+	else:
+		_lufberry_timer = maxf(_lufberry_timer - delta * 2.0, 0.0)
+
+	var lufberry_threshold := lerpf(2.5, 4.0, 1.0 - _effective_skill())
+	if _lufberry_timer > lufberry_threshold:
+		_lufberry_timer = 0.0
+		_lufberry_cooldown = 6.0
+		var new_tactic: EngageTactic
+		if aggression > 0.5 or _effective_self_preservation() < 0.4:
+			new_tactic = EngageTactic.HIGH_YOYO
+		else:
+			new_tactic = EngageTactic.EXTENSION
+		if new_tactic != _tactic:
+			_apply_new_tactic(new_tactic)
+
+# ══════════════════════════════════════════════
 #  战术选择决策树
 # ══════════════════════════════════════════════
 
@@ -393,15 +592,16 @@ func _choose_tactic(s: SituationData) -> void:
 
 	var esp := _effective_self_preservation()
 
-	# ── 0. 高自保 + 被锁定：即使没被咬尾也可能切防御 ──
-	if aircraft.is_locked and esp > 0.6 and not s.enemy_in_my_rear:
+	# ── 0. 高自保 + 意识到被锁定：即使没被咬尾也可能切防御 ──
+	if _lock_aware and esp > 0.6 and not s.enemy_in_my_rear:
 		if esp > 0.85:
 			new_tactic = EngageTactic.EXTENSION
 		elif esp > 0.7:
 			new_tactic = EngageTactic.BREAK_TURN
 
-	# ── 1. 被咬尾检测（敌机在我后半球 + 距离近） ──
-	elif s.enemy_in_my_rear and s.dist_px < mid_range:
+	# ── 1. 被咬尾检测（需要态势感知"看到"后方威胁） ──
+	# 如果飞行员没有意识到后方威胁，会继续当前战术（致命失误）
+	elif s.enemy_in_my_rear and s.dist_px < mid_range and _rear_threat_aware:
 		# 低自保飞行员被咬尾也可能反转迎头
 		if esp < 0.3 and s.dist_px > close_range:
 			new_tactic = EngageTactic.LEAD_TURN
@@ -461,41 +661,45 @@ func _choose_tactic(s: SituationData) -> void:
 	if randf() < mistake_chance and new_tactic != _tactic:
 		new_tactic = _make_mistake(new_tactic)
 
-	# 只在战术实际变化时重置
 	if new_tactic != _tactic:
-		_prev_tactic = _tactic
-		_tactic = new_tactic
-		_tactic_timer = 0.0
-		_yoyo_phase = 0
+		_apply_new_tactic(new_tactic)
 
-		# 设置最小持续时间（低技能 = 反应迟钝，持续时间更长）
-		var reaction_mult := 1.0 + (1.0 - eff) * 1.0  # 菜鸟 ×2.0, 王牌 ×1.05
-		match _tactic:
-			EngageTactic.LEAD_PURSUIT:
-				_tactic_min_duration = 0.5 * reaction_mult
-			EngageTactic.LAG_PURSUIT:
-				_tactic_min_duration = 1.0 * reaction_mult
-			EngageTactic.LEAD_TURN:
-				_tactic_min_duration = 1.5 * reaction_mult
-			EngageTactic.HIGH_YOYO:
-				_tactic_min_duration = 2.0 * reaction_mult
-				_yoyo_base_alt = aircraft.altitude
-			EngageTactic.LOW_YOYO:
-				_tactic_min_duration = 2.0 * reaction_mult
-				_yoyo_base_alt = aircraft.altitude
-			EngageTactic.BREAK_TURN:
-				_tactic_min_duration = 1.5 * reaction_mult
-				_break_phase = 0
-			EngageTactic.EXTENSION:
-				_tactic_min_duration = 3.0 * reaction_mult
-				_extension_start_pos = aircraft.global_position
-			EngageTactic.SCISSORS:
-				_tactic_min_duration = 1.0 * reaction_mult
-				_scissors_side = 1.0
-				_scissors_reverse_timer = 0.0
+## 应用新战术并重置相关状态
+func _apply_new_tactic(new_tactic: EngageTactic) -> void:
+	var eff := _effective_skill()
+	_prev_tactic = _tactic
+	_tactic = new_tactic
+	_tactic_timer = 0.0
+	_yoyo_phase = 0
+	if aircraft:
+		aircraft.show_tactic_popup(TACTIC_DISPLAY_NAME.get(_tactic, ""))
 
-		# 每次切换战术时重新采样高度误差
-		_alt_error = randf_range(-1.0, 1.0) * (1.0 - eff) * 500.0
+	var reaction_mult := 1.0 + (1.0 - eff) * 1.0
+	match _tactic:
+		EngageTactic.LEAD_PURSUIT:
+			_tactic_min_duration = 0.5 * reaction_mult
+		EngageTactic.LAG_PURSUIT:
+			_tactic_min_duration = 1.0 * reaction_mult
+		EngageTactic.LEAD_TURN:
+			_tactic_min_duration = 1.5 * reaction_mult
+		EngageTactic.HIGH_YOYO:
+			_tactic_min_duration = 2.0 * reaction_mult
+			_yoyo_base_alt = aircraft.altitude
+		EngageTactic.LOW_YOYO:
+			_tactic_min_duration = 2.0 * reaction_mult
+			_yoyo_base_alt = aircraft.altitude
+		EngageTactic.BREAK_TURN:
+			_tactic_min_duration = 1.5 * reaction_mult
+			_break_phase = 0
+		EngageTactic.EXTENSION:
+			_tactic_min_duration = 3.0 * reaction_mult
+			_extension_start_pos = aircraft.global_position
+		EngageTactic.SCISSORS:
+			_tactic_min_duration = 1.0 * reaction_mult
+			_scissors_side = 1.0
+			_scissors_reverse_timer = 0.0
+
+	_alt_error = randf_range(-1.0, 1.0) * (1.0 - eff) * 500.0
 
 ## 决策失误：返回一个"次优"战术替代正确选择
 func _make_mistake(correct: EngageTactic) -> EngageTactic:

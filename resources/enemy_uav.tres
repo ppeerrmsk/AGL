@@ -1,0 +1,37 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/uav_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/default_combat.tres" id="3"]
+
+[resource]
+script = ExtResource("1")
+display_name = "UAV"
+max_hp = 40.0
+armor = 0.0
+max_speed = 800.0
+cruise_speed = 500.0
+stall_speed_base = 160.0
+acceleration = 25.0
+deceleration = 40.0
+g_drag_factor = 2.0
+max_g = 4.0
+max_g_structural = 5.0
+roll_rate = 1.8
+pilot_stamina = 100.0
+stamina_drain_rate = 50.0
+stamina_recovery_rate = 10.0
+max_altitude = 8000.0
+climb_rate_max = 80.0
+thrust_to_weight = 0.5
+drag_coefficient = 0.035
+afterburner_thrust_mult = 1.0
+fuel_capacity = 800.0
+fuel_rate_normal = 0.8
+fuel_rate_afterburner = 0.8
+radar_range = 800.0
+radar_half_angle = 15.0
+lock_time = 5.0
+gun = ExtResource("2")
+combat = ExtResource("3")
+icon_color = Color(0.8, 0.6, 0.2, 1)

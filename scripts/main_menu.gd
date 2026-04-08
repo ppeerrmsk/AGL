@@ -255,4 +255,4 @@ func _on_sandbox_pressed() -> void:
 	get_tree().change_scene_to_file("res://scenes/main.tscn")
 
 func _on_survivor_pressed() -> void:
-	get_tree().change_scene_to_file("res://scenes/survivor_mode.tscn")
+	get_tree().change_scene_to_file("res://scenes/survivor_select.tscn")

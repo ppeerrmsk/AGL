@@ -16,11 +16,13 @@ var age: float = 0.0         ## 存活时间
 var is_active: bool = true
 var has_guidance: bool = true
 var is_flare_jammed: bool = false  ## 被热诱弹干扰，永久失去制导
+var bounces_remaining: int = 0     ## 剩余弹跳次数（连锁弹头进化）
 
 var _prev_los_angle: float = 0.0  ## 上一帧 LOS 角（有限差分算角速率）
 var _prev_heading: float = 0.0   ## 上一帧航向（用于计算模拟 bank）
 var bank_angle: float = 0.0      ## 模拟 bank（由航向变化率推算）
 var _trail_ribbon: TrailRibbon
+var _font: Font
 
 func _ready() -> void:
 	_trail_ribbon = TrailRibbon.new()
@@ -127,6 +129,7 @@ func _draw() -> void:
 	_draw_body()
 	if age < params.motor_burn_time:
 		_draw_motor_flame()
+	_draw_data_label()
 
 func _draw_body() -> void:
 	var color := Color(1.0, 0.5, 0.1) if team == 0 else Color(1.0, 0.2, 0.2)
@@ -150,6 +153,64 @@ func _draw_motor_flame() -> void:
 		tail + Vector2(0, flame_len),
 	])
 	draw_colored_polygon(flame, glow)
+
+func _draw_data_label() -> void:
+	if not _font:
+		_font = ThemeDB.fallback_font
+	var display_name: String = params.display_name if params else "MSL"
+	var speed_kmh := speed * 3.6
+	var mach := speed_kmh / 1225.0
+	var heading_deg := rad_to_deg(heading)
+	if heading_deg < 0:
+		heading_deg += 360.0
+	var time_left := params.max_lifetime - age if params else 0.0
+
+	var lines: PackedStringArray = PackedStringArray()
+	lines.append(display_name)
+	lines.append("HDG %03d" % roundi(heading_deg))
+	lines.append("M%.2f" % mach)
+	lines.append("ALT %dm" % roundi(altitude))
+	if has_guidance:
+		lines.append("GUIDE")
+	elif is_flare_jammed:
+		lines.append("JAMMED")
+	else:
+		lines.append("NO GDE")
+	if age < params.motor_burn_time:
+		lines.append("MOTOR")
+	else:
+		lines.append("COAST")
+	lines.append("T-%.1fs" % maxf(time_left, 0.0))
+
+	var inv_rot := -rotation
+	var font_size := 10
+	var line_height := 12.0
+	var label_offset := Vector2(14, -8).rotated(inv_rot)
+
+	var max_w := 0.0
+	for line in lines:
+		var w := _font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+		max_w = maxf(max_w, w)
+	var box_w := max_w + 8.0
+	var box_h := lines.size() * line_height + 4.0
+
+	var bg_color: Color
+	var text_color: Color
+	if team == 0:
+		bg_color = Color(0.1, 0.2, 0.3, 0.75)
+		text_color = Color(0.7, 0.85, 1.0)
+	else:
+		bg_color = Color(0.3, 0.08, 0.08, 0.75)
+		text_color = Color(1.0, 0.8, 0.8)
+
+	draw_set_transform(label_offset, inv_rot, Vector2.ONE)
+	draw_rect(Rect2(0, 0, box_w, box_h), bg_color)
+	draw_rect(Rect2(0, 0, box_w, box_h), text_color * Color(1, 1, 1, 0.3), false, 1.0)
+
+	for i in range(lines.size()):
+		draw_string(_font, Vector2(4, 10 + i * line_height), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
+
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 ## 角度差（-PI 到 PI）
 static func _angle_diff(a: float, b: float) -> float:

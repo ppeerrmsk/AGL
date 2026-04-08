@@ -211,6 +211,9 @@ func _update_radar_locks(delta: float) -> void:
 		for other in all_aircraft:
 			if other == ac or other.team == ac.team:
 				continue
+			if other.is_lock_immune():
+				ac.radar_targets.erase(other)
+				continue
 
 			if ac.is_in_radar_cone(other.global_position):
 				# 在锥内：累加照射时间

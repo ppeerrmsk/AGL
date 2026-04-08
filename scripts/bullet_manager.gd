@@ -6,6 +6,11 @@ const HIT_RADIUS: float = 12.0   ## 2D命中判定半径（像素）
 const ALT_TOLERANCE: float = 500.0  ## 米 高度差容差
 const TRACER_LENGTH: float = 8.0  ## 曳光弹绘制长度（像素）
 
+## 友方（team 0）弹丸覆盖参数，由生存模式设置
+var friendly_hit_radius: float = HIT_RADIUS
+var friendly_dmg_full_ratio: float = 0.3   ## 满伤害飞行比例
+var friendly_dmg_min_mult: float = 0.2     ## 最远端伤害倍率
+
 ## 弹丸数据：{ pos: Vector2, vel: Vector2, owner: Aircraft, damage: float, life: float }
 var _bullets: Array[Dictionary] = []
 
@@ -50,16 +55,18 @@ func _physics_process(delta: float) -> void:
 			# 命中判定：2D 距离 + 高度容差（分别检查）
 			var dist_2d: float = b["pos"].distance_to(ac.global_position)
 			var alt_diff: float = absf(float(b["altitude"]) - ac.altitude)
-			if dist_2d < HIT_RADIUS and alt_diff < ALT_TOLERANCE:
-				# 距离衰减：飞行时间越长伤害越低
-				# 前 30% 射程满伤害，之后线性衰减到 20%
-				var flight_ratio: float = 1.0 - float(b["life"]) / float(b["max_life"])  # 0→1
+			var is_friendly := source_team == 0
+			var hit_r: float = friendly_hit_radius if is_friendly else HIT_RADIUS
+			if dist_2d < hit_r and alt_diff < ALT_TOLERANCE:
+				var full_r: float = friendly_dmg_full_ratio if is_friendly else 0.3
+				var min_m: float = friendly_dmg_min_mult if is_friendly else 0.2
+				var flight_ratio: float = 1.0 - float(b["life"]) / float(b["max_life"])
 				var dmg_mult: float
-				if flight_ratio < 0.3:
+				if flight_ratio < full_r:
 					dmg_mult = 1.0
 				else:
-					dmg_mult = lerpf(1.0, 0.2, (flight_ratio - 0.3) / 0.7)
-				ac.take_damage(b["damage"] * dmg_mult)
+					dmg_mult = lerpf(1.0, min_m, (flight_ratio - full_r) / (1.0 - full_r))
+				ac.take_bullet_damage(b["damage"] * dmg_mult)
 				hit = true
 				break
 

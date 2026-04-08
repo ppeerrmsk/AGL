@@ -1,0 +1,37 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/uav_missile.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/default_combat.tres" id="3"]
+
+[resource]
+script = ExtResource("1")
+display_name = "UCAV"
+max_hp = 35.0
+armor = 0.0
+max_speed = 700.0
+cruise_speed = 450.0
+stall_speed_base = 150.0
+acceleration = 20.0
+deceleration = 35.0
+g_drag_factor = 2.0
+max_g = 3.5
+max_g_structural = 4.5
+roll_rate = 1.5
+pilot_stamina = 100.0
+stamina_drain_rate = 50.0
+stamina_recovery_rate = 10.0
+max_altitude = 7000.0
+climb_rate_max = 60.0
+thrust_to_weight = 0.45
+drag_coefficient = 0.035
+afterburner_thrust_mult = 1.0
+fuel_capacity = 600.0
+fuel_rate_normal = 0.6
+fuel_rate_afterburner = 0.6
+radar_range = 1500.0
+radar_half_angle = 20.0
+lock_time = 4.0
+missile = ExtResource("2")
+combat = ExtResource("3")
+icon_color = Color(0.9, 0.5, 0.2, 1)

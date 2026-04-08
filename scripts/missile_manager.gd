@@ -26,6 +26,9 @@ func spawn_missile(source: Aircraft, target: Aircraft, missile_params: MissilePa
 	var los := target.global_position - missile.global_position
 	missile._prev_los_angle = atan2(los.x, -los.y)
 
+	# 连锁弹头进化：继承发射机的弹跳次数
+	missile.bounces_remaining = source.missile_bounce_count
+
 	add_child(missile)
 
 ## 检查某目标是否已有在飞的导弹（由指定发射机发射）
@@ -63,6 +66,33 @@ func _physics_process(_delta: float) -> void:
 			var alt_diff := absf(missile.altitude - ac.altitude)
 			if dist_2d < fuse_radius_px and alt_diff < missile.params.proximity_fuse_alt:
 				ac.take_damage(missile.params.damage)
+				# 连锁弹头：弹跳至最近的其他敌机
+				if missile.bounces_remaining > 0:
+					var next_target := _find_bounce_target(missile, ac)
+					if next_target:
+						missile.bounces_remaining -= 1
+						missile.target = next_target
+						missile.is_flare_jammed = false
+						missile.has_guidance = true
+						# 重置 LOS 角避免 PN 尖峰
+						var los := next_target.global_position - missile.global_position
+						missile._prev_los_angle = atan2(los.x, -los.y)
+						break
 				missile.is_active = false
 				missile.queue_free()
 				break
+
+## 寻找弹跳目标：最近的存活敌机（排除刚命中的）
+func _find_bounce_target(missile: Missile, just_hit: Aircraft) -> Aircraft:
+	var best: Aircraft = null
+	var best_dist := INF
+	for ac in aircraft_list:
+		if not is_instance_valid(ac) or ac.is_destroyed:
+			continue
+		if ac == just_hit or ac.team == missile.team:
+			continue
+		var dist := missile.global_position.distance_to(ac.global_position)
+		if dist < best_dist:
+			best_dist = dist
+			best = ac
+	return best

@@ -96,7 +96,24 @@ func show_choices(choices: Array[Dictionary]) -> void:
 	for i in range(3):
 		if i < choices.size():
 			_buttons[i].visible = true
-			_buttons[i].text = "%s\n\n%s" % [choices[i]["name"], choices[i]["desc"]]
+			var cat: String = choices[i].get("category", "")
+			var cat_prefix := ""
+			if cat == "combat":
+				cat_prefix = "[战斗] "
+			elif cat == "survival":
+				cat_prefix = "[生存] "
+			_buttons[i].text = "%s%s\n\n%s" % [cat_prefix, choices[i]["name"], choices[i]["desc"]]
+			# 根据类别调整边框颜色
+			var style_normal: StyleBoxFlat = _buttons[i].get_theme_stylebox("normal").duplicate()
+			var style_hover: StyleBoxFlat = _buttons[i].get_theme_stylebox("hover").duplicate()
+			if cat == "combat":
+				style_normal.border_color = Color(0.8, 0.4, 0.3, 0.5)
+				style_hover.border_color = Color(1.0, 0.5, 0.3, 0.8)
+			else:
+				style_normal.border_color = Color(0.3, 0.6, 0.3, 0.5)
+				style_hover.border_color = Color(0.3, 1.0, 0.5, 0.8)
+			_buttons[i].add_theme_stylebox_override("normal", style_normal)
+			_buttons[i].add_theme_stylebox_override("hover", style_hover)
 		else:
 			_buttons[i].visible = false
 	visible = true
