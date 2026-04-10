@@ -4,7 +4,7 @@ extends Node
 ## AI 控制器：巡逻 / 交战（战术机动） / 导弹规避 状态机
 ## 交战时基于 Shaw《Fighter Combat》BFM 决策树选择战术机动
 
-enum AIState { PATROL, ENGAGE, EVADE_MISSILE }
+enum AIState { PATROL, ENGAGE, EVADE_MISSILE, SQUAD_FOLLOW }
 enum EngageTactic {
 	LEAD_PURSUIT,    ## 前置追踪：积极闭合
 	LAG_PURSUIT,     ## 滞后追踪：保持后半球不冲过
@@ -50,6 +50,26 @@ const TACTIC_DISPLAY_NAME: Dictionary = {
 @export var self_preservation: float = 0.5   ## 自保意识 (0=不怕死, 1=保命优先)
 @export var situational_awareness: float = 0.6 ## 态势感知 (0=隧道视野, 1=全局洞察)
 
+# ── 高度偏好（预留） ──
+@export var preferred_altitude_tier: int = -99  ## -99=无偏好，否则为 CombatUnit.AltitudeTier 值
+
+# ── 编队 ──
+var squad: Squad = null              ## 所属编队
+var squad_index: int = -1            ## 在编队中的序号（0=长机，1+=僚机）
+
+const COVER_SCAN_RANGE := 2500.0     ## 掩护扫描范围（像素）≈5000m
+const COVER_SCAN_INTERVAL := 0.5     ## 掩护扫描间隔（秒）
+const COVER_DISENGAGE_RANGE := 3500.0 ## 掩护脱离距离（威胁远离后回归）
+var _cover_scan_timer: float = 0.0
+var _cover_target: Aircraft = null   ## 掩护交战目标（后半球威胁）
+var _rejoining: bool = false       ## 交战/规避后正在全速归队
+var _squad_attacking_leader_target: bool = false  ## 正在协同攻击长机指定的目标
+var _prev_formation_offset_local: Vector2 = Vector2.INF  ## 上一帧相对长机本地坐标系的阵型偏移
+var _formation_react_timer: float = 0.0  ## 阵型变换反应延迟（每架飞机个体化）
+var _formation_blend: float = 1.0  ## 编队托管混合度（0=自主飞行, 1=完全托管）
+var _engage_delay: float = 0.0     ## 进入交战前的反应延迟
+var _formation_jitter_phase: float = 0.0  ## 个体扰动相位（随机初始化）
+
 # ── 内部状态 ──
 var current_waypoint_index: int = 0
 var _state: AIState = AIState.PATROL
@@ -57,7 +77,7 @@ var _engage_timer: float = 0.0           ## 当前交战已持续时间
 var _cooldown_timer: float = 0.0         ## 交战冷却剩余
 var _scan_timer: float = 0.0            ## 扫描计时器
 var _evade_target_pos: Vector2 = Vector2.INF  ## 规避目标位置
-var _current_target: Aircraft = null     ## 当前交战目标
+var _current_target: CombatUnit = null   ## 当前交战目标（飞机或地面单位）
 
 # ── 战术机动状态 ──
 var _tactic: EngageTactic = EngageTactic.LEAD_PURSUIT
@@ -96,6 +116,13 @@ var _sa_threats_known: int = 0           ## 感知到的威胁数量（不一定
 var _lufberry_timer: float = 0.0         ## 处于互相绕圈状态的累计时间
 var _lufberry_cooldown: float = 0.0      ## 脱出后冷却，避免反复触发
 
+# ── Simple AI 近距绕圈疲劳（UAV 狗斗削弱） ──
+var _simple_orbit_time: float = 0.0      ## 近距持续绕圈累计时间
+var _simple_orbit_threshold: float = 10.0 ## 本次绕圈疲劳触发阈值
+var _simple_confused: bool = false        ## 是否进入"发呆"状态
+var _simple_confused_timer: float = 0.0   ## 发呆剩余时间
+var _simple_confused_heading: Vector2 = Vector2.ZERO ## 发呆时的固定飞行方向
+
 ## 当前战术名称（供 DebugPanel 读取）
 var current_tactic_name: String = ""
 ## 当前压力值（供 DebugPanel 读取）
@@ -104,12 +131,35 @@ var current_stress: float = 0.0
 var current_sa_level: float = 0.0
 
 func _ready() -> void:
+	_formation_jitter_phase = randf() * TAU  # 每架飞机不同的扰动相位
 	if waypoints.is_empty():
 		_generate_default_waypoints()
 	if aircraft:
-		aircraft.target_altitude = patrol_altitude
+		if aircraft.flat_altitude:
+			aircraft.set_target_tier(aircraft.target_altitude_tier)
+		else:
+			aircraft.target_altitude = patrol_altitude
 		_set_next_waypoint()
 	_scan_timer = randf_range(1.0, 3.0)
+
+## 获取日志用名称
+func _log_name() -> String:
+	if not aircraft:
+		return "???"
+	var side := "Friend" if aircraft.team == 0 else "Enemy"
+	var dn: String = aircraft.params.display_name if aircraft.params else "???"
+	return "%s/%s[%s]" % [side, dn, aircraft.callsign]
+
+## 获取目标日志名称
+func _log_target_name(target: CombatUnit) -> String:
+	if not target or not is_instance_valid(target):
+		return "None"
+	if target is Aircraft:
+		var ac: Aircraft = target
+		var side := "Friend" if ac.team == 0 else "Enemy"
+		var dn: String = ac.params.display_name if ac.params else "???"
+		return "%s/%s[%s]" % [side, dn, ac.callsign]
+	return target.callsign if target.callsign != "" else target.name
 
 func _physics_process(delta: float) -> void:
 	if not aircraft or aircraft.is_destroyed:
@@ -118,6 +168,9 @@ func _physics_process(delta: float) -> void:
 	if simple_ai:
 		_process_simple(delta)
 		return
+
+	if _cooldown_timer > 0.0:
+		_cooldown_timer -= delta
 
 	_update_stress(delta)
 	_update_drift(delta)
@@ -130,6 +183,8 @@ func _physics_process(delta: float) -> void:
 			_process_engage(delta)
 		AIState.EVADE_MISSILE:
 			_process_evade(delta)
+		AIState.SQUAD_FOLLOW:
+			_process_squad_follow(delta)
 
 # ══════════════════════════════════════════════
 #  飞行员能力系统
@@ -205,7 +260,7 @@ func _update_situational_awareness(delta: float) -> void:
 	if aircraft:
 		for target_key in aircraft.radar_targets:
 			if is_instance_valid(target_key):
-				var t: Aircraft = target_key
+				var t: CombatUnit = target_key
 				if not t.is_destroyed and t.team != aircraft.team:
 					actual_threats += 1
 	# 高SA感知全部，低SA可能少算（只关注眼前那个）
@@ -257,9 +312,9 @@ func _update_stress(delta: float) -> void:
 			stress_delta += 0.005 * delta
 			under_threat = true
 
-	# 脱离威胁后恢复（比累积快，让飞行员能喘口气）
+	# 脱离威胁后恢复
 	if not under_threat:
-		stress_delta -= 0.15 * delta
+		stress_delta -= 0.25 * delta
 
 	_stress = clampf(_stress + stress_delta, 0.0, 1.0)
 	current_stress = _stress
@@ -308,6 +363,7 @@ func _apply_altitude_error(alt: float) -> float:
 # ══════════════════════════════════════════════
 
 func _process_simple(delta: float) -> void:
+	aircraft.keep_target_on_arrival = false
 	# 巡逻：走航点
 	if not _current_target or not is_instance_valid(_current_target) or _current_target.is_destroyed:
 		_current_target = null
@@ -325,7 +381,7 @@ func _process_simple(delta: float) -> void:
 		return
 
 	# 交战：直线前置追踪，不做任何花哨战术
-	var dist := aircraft.global_position.distance_to(_current_target.global_position)
+	var dist := Aircraft.effective_distance_px(aircraft.global_position, aircraft.altitude, _current_target.global_position, _current_target.altitude)
 
 	# 超出范围或超时脱离
 	var max_range := (aircraft.params.radar_range * 1.5) if aircraft.params else 3000.0
@@ -335,27 +391,79 @@ func _process_simple(delta: float) -> void:
 		aircraft.ai_override_pursuit = false
 		_current_target = null
 		_engage_timer = 0.0
+		_simple_orbit_time = 0.0
+		_simple_confused = false
+		_simple_orbit_threshold = randf_range(8.0, 14.0)
 		return
 
-	# 简单前置追踪
 	aircraft.set_combat_target(_current_target)
 	aircraft.ai_override_pursuit = true
+
+	# ── 近距绕圈疲劳检测 ──
+	# 近距离 + 双方偏置角大（互相绕圈）→ 累计疲劳
+	var close_threshold := 400.0  # 像素，约800m
+	if dist < close_threshold:
+		var to_tgt := (_current_target.global_position - aircraft.global_position).normalized()
+		var my_fwd := Vector2(sin(aircraft.heading), -cos(aircraft.heading))
+		var aot := absf(my_fwd.angle_to(to_tgt))
+		if aot > deg_to_rad(40.0):
+			_simple_orbit_time += delta
+		else:
+			_simple_orbit_time = maxf(_simple_orbit_time - delta * 0.5, 0.0)
+	else:
+		_simple_orbit_time = maxf(_simple_orbit_time - delta * 2.0, 0.0)
+
+	# 绕圈超过阈值 → 触发发呆
+	if not _simple_confused and _simple_orbit_time > _simple_orbit_threshold:
+		_simple_confused = true
+		_simple_confused_timer = randf_range(1.5, 3.0)
+		# 记住当前朝向，发呆时就直飞这个方向
+		_simple_confused_heading = Vector2(sin(aircraft.heading), -cos(aircraft.heading))
+		_simple_orbit_time = 0.0
+		_simple_orbit_threshold = randf_range(8.0, 14.0)
+
+	# ── 发呆状态：直飞不追踪 ──
+	if _simple_confused:
+		_simple_confused_timer -= delta
+		if _simple_confused_timer <= 0.0:
+			_simple_confused = false
+			_simple_orbit_time = 0.0
+			_simple_orbit_threshold = randf_range(8.0, 14.0)
+		else:
+			# 直飞当前方向，不追踪目标
+			aircraft.target_position = aircraft.global_position + _simple_confused_heading * 1000.0
+			aircraft.target_altitude = aircraft.altitude
+			aircraft.target_speed_kmh = aircraft.params.max_speed * 0.5 if aircraft.params else 600.0
+			return
+
+	# 简单前置追踪
 	var tgt_fwd := Vector2(sin(_current_target.heading), -cos(_current_target.heading))
 	var lead_time := dist / maxf(aircraft.speed * Aircraft.PIXELS_PER_METER, 1.0)
 	var lead_pos := _current_target.global_position + tgt_fwd * _current_target.speed * Aircraft.PIXELS_PER_METER * lead_time * 0.5
 	aircraft.target_position = lead_pos
+	if aircraft.flat_altitude:
+		aircraft.set_target_tier(_current_target.get_altitude_tier())
+	else:
+		aircraft.target_altitude = _current_target.altitude
 	aircraft.target_speed_kmh = aircraft.params.max_speed * 0.7 if aircraft.params else 800.0
 
 func _try_engage_simple() -> void:
-	var best: Aircraft = null
+	var best: CombatUnit = null
 	var best_dist := 99999.0
 	for child in aircraft.get_parent().get_children():
-		if child is Aircraft and child.team != aircraft.team and not child.is_destroyed:
+		if child is CombatUnit and child.team != aircraft.team and not child.is_destroyed:
 			var d := aircraft.global_position.distance_to(child.global_position)
 			if d < best_dist:
 				best_dist = d
 				best = child
 	var detect_range := (aircraft.params.radar_range * 1.2) if aircraft.params else 2500.0
+	# 低空目标更难被发现
+	if best:
+		var tgt_tier := best.get_altitude_tier()
+		if tgt_tier == CombatUnit.AltitudeTier.LOW:
+			detect_range *= 0.75
+		elif tgt_tier == CombatUnit.AltitudeTier.GROUND:
+			detect_range *= 0.6
 	if best and best_dist < detect_range:
 		_current_target = best
 		_engage_timer = 0.0
@@ -365,6 +473,7 @@ func _try_engage_simple() -> void:
 # ══════════════════════════════════════════════
 
 func _process_patrol(delta: float) -> void:
+	aircraft.keep_target_on_arrival = false
 	if waypoints.is_empty():
 		return
 
@@ -377,9 +486,6 @@ func _process_patrol(delta: float) -> void:
 	else:
 		aircraft.target_position = target_wp
 
-	if _cooldown_timer > 0.0:
-		_cooldown_timer -= delta
-
 	if evade_missiles and _missile_aware:
 		_enter_evade()
 		return
@@ -391,6 +497,143 @@ func _process_patrol(delta: float) -> void:
 	if _scan_timer <= 0.0:
 		_scan_timer = lerpf(3.0, 1.0, aggression)
 		_try_engage()
+
+# ══════════════════════════════════════════════
+#  SQUAD_FOLLOW — 编队跟随 + 掩护长机
+# ══════════════════════════════════════════════
+
+func _process_squad_follow(delta: float) -> void:
+	if not squad or not squad.leader or not is_instance_valid(squad.leader) or squad.leader.is_destroyed:
+		# 编队无效，回退到巡逻
+		_state = AIState.PATROL
+		squad = null
+		aircraft.formation_mode = false
+		aircraft._formation_leader = null
+		return
+
+	var leader := squad.leader
+
+	# ── 导弹规避优先 ──
+	if evade_missiles and _missile_aware:
+		_enter_evade()
+		return
+
+	# ── 正常编队跟随 ──
+	# 防御性清除：确保编队中无残留战斗目标干扰
+	if aircraft.combat_target != null:
+		aircraft.clear_combat_target()
+		aircraft.ai_override_pursuit = false
+	_cover_target = null
+	aircraft.lod_level = 1  # 编队托管运算
+	aircraft.keep_target_on_arrival = true
+	aircraft.formation_mode = true
+	aircraft._formation_leader = leader
+	current_tactic_name = "编队跟随"
+
+	# 回归编队时渐变混合度（从自主飞行平滑过渡到完全托管）
+	if _formation_blend < 1.0:
+		_formation_blend = minf(_formation_blend + delta * 0.5, 1.0)  # ~2秒过渡
+		current_tactic_name = "归队"
+	else:
+		_rejoining = false  # 完全融入编队，结束归队状态
+	aircraft._formation_blend = _formation_blend
+
+	# 传递个体扰动相位
+	aircraft._formation_jitter_phase = _formation_jitter_phase
+
+	# 计算阵型槽位
+	var slot_pos := squad.get_wingman_target(squad_index)
+
+	# 检测阵型变换：对比相对长机本地坐标系的偏移
+	# （消除长机移动/转向带来的影响，只检测阵型 offset 本身的变化）
+	if slot_pos != Vector2.INF:
+		var new_offset_local := (slot_pos - leader.global_position).rotated(-leader.heading)
+		if _prev_formation_offset_local != Vector2.INF:
+			var offset_change := _prev_formation_offset_local.distance_to(new_offset_local)
+			if offset_change > 30.0:
+				# 阵型切换了：设置个体化反应延迟（0.3~1.3秒）
+				# 用个体扰动相位让每架飞机反应略有差异（风格一致）
+				var base_delay := 0.3 + (sin(_formation_jitter_phase) * 0.5 + 0.5) * 1.0
+				_formation_react_timer = base_delay + randf_range(-0.15, 0.15)
+		_prev_formation_offset_local = new_offset_local
+
+	# 反应延迟期间：不更新 target_position（飞机继续向旧槽位飞行）
+	# 延迟过后突然更新 slot_pos，会触发 aircraft 编队代码的中距追击分支 → 自然曲线转弯
+	if _formation_react_timer > 0.0:
+		_formation_react_timer -= delta
+		current_tactic_name = "阵型调整中"
+	else:
+		if slot_pos != Vector2.INF:
+			aircraft.target_position = slot_pos
+
+	# 跟随长机的交战目标（长机锁定敌机时僚机也进入交战）
+	if leader.combat_target and is_instance_valid(leader.combat_target) and not leader.combat_target.is_destroyed:
+		# 反应延迟：每架僚机有不同的反应时间（0.3~1.5秒）
+		if _engage_delay <= 0.0:
+			_engage_delay = randf_range(0.3, 1.5)
+		_engage_delay -= delta
+		if _engage_delay <= 0.0:
+			_engage_delay = 0.0
+			aircraft.keep_target_on_arrival = false
+			aircraft.formation_mode = false
+			aircraft._formation_leader = null
+			aircraft._formation_blend = 0.0
+			_formation_blend = 0.0  # 下次回归编队时从0开始混合
+			aircraft.set_combat_target(leader.combat_target)
+			aircraft.lod_level = 0
+			_state = AIState.ENGAGE
+			_engage_timer = 0.0
+			_tactic = EngageTactic.LEAD_PURSUIT
+			_tactic_timer = 0.0
+			_tactic_min_duration = 0.5
+			_current_target = leader.combat_target
+			aircraft.ai_override_pursuit = true
+			_squad_attacking_leader_target = true
+			current_tactic_name = "协同攻击"
+	else:
+		_engage_delay = 0.0  # 长机无目标时重置延迟
+
+## 扫描长机后半球威胁
+func _scan_leader_rear() -> Aircraft:
+	if not squad or not squad.leader:
+		return null
+	var leader := squad.leader
+	var leader_fwd := Vector2(sin(leader.heading), -cos(leader.heading))
+
+	var best_threat: Aircraft = null
+	var best_dist := COVER_SCAN_RANGE
+
+	var root := aircraft.get_parent()
+	if not root:
+		return null
+
+	for child in root.get_children():
+		if not child is Aircraft:
+			continue
+		var ac: Aircraft = child
+		if ac.team == aircraft.team or ac.is_destroyed:
+			continue
+
+		var to_enemy := ac.global_position - leader.global_position
+		var dist := to_enemy.length()
+		if dist > COVER_SCAN_RANGE or dist >= best_dist:
+			continue
+
+		# 检查是否在长机后半球（与长机航向的夹角 > 90°）
+		var angle := leader_fwd.angle_to(to_enemy.normalized())
+		if absf(angle) > PI * 0.5:
+			best_dist = dist
+			best_threat = ac
+
+	return best_threat
+
+## 结束掩护交战，回归编队
+func _end_cover_engagement() -> void:
+	_cover_target = null
+	aircraft.clear_combat_target()
+	aircraft.ai_override_pursuit = false
+	aircraft.lod_level = 1
+	current_tactic_name = "回归编队"
 
 # ══════════════════════════════════════════════
 #  ENGAGE — 交战（战术机动决策树）
@@ -430,10 +673,16 @@ func _process_engage(delta: float) -> void:
 		_disengage()
 		return
 
+	# 编队僚机：长机取消目标时僚机也脱离
+	if squad and squad.leader and is_instance_valid(squad.leader):
+		if not squad.leader.combat_target:
+			_disengage()
+			return
+
 	# 超出范围脱离
 	if aircraft.params:
 		var max_range := aircraft.params.radar_range * 1.5
-		var dist := aircraft.global_position.distance_to(_current_target.global_position)
+		var dist := Aircraft.effective_distance_px(aircraft.global_position, aircraft.altitude, _current_target.global_position, _current_target.altitude)
 		if dist > max_range:
 			_disengage()
 			return
@@ -451,6 +700,10 @@ func _process_engage(delta: float) -> void:
 
 	# ── 态势评估 ──
 	var sit := _assess_situation()
+
+	# ── 交战中提前高度趋近：高度差过大时优先调整高度 ──
+	if absf(sit.alt_diff) > 500.0:
+		_match_target_altitude()
 
 	# ── 拉弗伯雷圆圈检测（每帧更新，不受战术切换防抖限制） ──
 	_update_lufberry_detection(sit, delta)
@@ -509,7 +762,11 @@ func _assess_situation() -> SituationData:
 	var s := SituationData.new()
 	s.my_pos = aircraft.global_position
 	s.tgt_pos = _current_target.global_position
-	s.dist_px = s.my_pos.distance_to(s.tgt_pos)
+	# 扁平模式：纯2D距离（战斗不受高度限制）；否则含高度的有效距离
+	if aircraft.flat_altitude:
+		s.dist_px = s.my_pos.distance_to(s.tgt_pos)
+	else:
+		s.dist_px = Aircraft.effective_distance_px(s.my_pos, aircraft.altitude, s.tgt_pos, _current_target.altitude)
 	s.to_target = (s.tgt_pos - s.my_pos).normalized()
 
 	s.tgt_fwd = Vector2(sin(_current_target.heading), -cos(_current_target.heading))
@@ -667,12 +924,19 @@ func _choose_tactic(s: SituationData) -> void:
 ## 应用新战术并重置相关状态
 func _apply_new_tactic(new_tactic: EngageTactic) -> void:
 	var eff := _effective_skill()
+	var old_tactic := _tactic
 	_prev_tactic = _tactic
 	_tactic = new_tactic
 	_tactic_timer = 0.0
 	_yoyo_phase = 0
 	if aircraft:
 		aircraft.show_tactic_popup(TACTIC_DISPLAY_NAME.get(_tactic, ""))
+	EventLogger.log_event("TACTIC", _log_name(),
+		"%s → %s (target=%s, stress=%.2f, skill_eff=%.2f)" % [
+			TACTIC_DISPLAY_NAME.get(old_tactic, "?"),
+			TACTIC_DISPLAY_NAME.get(_tactic, "?"),
+			_log_target_name(_current_target),
+			_stress, eff])
 
 	var reaction_mult := 1.0 + (1.0 - eff) * 1.0
 	match _tactic:
@@ -742,7 +1006,7 @@ func _execute_lead_pursuit(s: SituationData) -> void:
 	var pursuit_pos := s.tgt_pos + s.tgt_fwd * tgt_speed_px * lead_time
 
 	aircraft.target_position = _apply_position_error(pursuit_pos)
-	aircraft.target_altitude = _current_target.altitude
+	_match_target_altitude()
 	_set_engage_speed(s, 1.2)
 
 ## 滞后追踪：瞄准敌机后方，防止冲过，保持后半球位置
@@ -751,7 +1015,7 @@ func _execute_lag_pursuit(s: SituationData) -> void:
 	var pursuit_pos := s.tgt_pos - s.tgt_fwd * lag_offset
 
 	aircraft.target_position = _apply_position_error(pursuit_pos)
-	aircraft.target_altitude = _current_target.altitude
+	_match_target_altitude()
 
 	# 匹配敌机速度，略低以防冲过
 	var target_speed_kmh := _current_target.speed * 3.6 * 0.95
@@ -766,45 +1030,62 @@ func _execute_lead_turn(s: SituationData) -> void:
 	var six_pos := future_tgt_pos - s.tgt_fwd * maxf(100.0, s.gun_range_px * 0.5)
 
 	aircraft.target_position = _apply_position_error(six_pos)
-	aircraft.target_altitude = _current_target.altitude
+	_match_target_altitude()
 	_set_engage_speed(s, 1.0)
 
 ## 高悠悠：拉高减速防止冲过，然后俯冲回来继续追踪
 func _execute_high_yoyo(s: SituationData, delta: float) -> void:
 	if _yoyo_phase == 0:
-		# 阶段0：拉高（高度受技能影响：菜鸟可能拉太高或太低）
-		var climb_target := _yoyo_base_alt + _apply_altitude_error(1000.0)
-		if aircraft.params:
-			climb_target = clampf(climb_target, _yoyo_base_alt + 300.0, aircraft.params.max_altitude - 500.0)
-		aircraft.target_altitude = climb_target
+		# 阶段0：拉高
+		if aircraft.flat_altitude:
+			# 扁平模式：切到上一档
+			aircraft.set_target_tier(aircraft.tier_above())
+		else:
+			var climb_target := _yoyo_base_alt + _apply_altitude_error(1000.0)
+			if aircraft.params:
+				climb_target = clampf(climb_target, _yoyo_base_alt + 300.0, aircraft.params.max_altitude - 500.0)
+			aircraft.target_altitude = climb_target
 
 		var lag_pos := s.tgt_pos - s.tgt_fwd * s.gun_range_px * 0.6
 		aircraft.target_position = _apply_position_error(lag_pos)
 
 		aircraft.target_speed_kmh = _apply_speed_error(_current_target.speed * 3.6 * 0.85)
 
-		if aircraft.altitude >= climb_target - 100.0 or _tactic_timer > 4.0:
-			_yoyo_phase = 1
+		if aircraft.flat_altitude:
+			# 扁平模式：到达目标档位即切阶段
+			if aircraft.get_altitude_tier() >= aircraft.target_altitude_tier or _tactic_timer > 4.0:
+				_yoyo_phase = 1
+		else:
+			if aircraft.altitude >= aircraft.target_altitude - 100.0 or _tactic_timer > 4.0:
+				_yoyo_phase = 1
 	else:
 		# 阶段1：俯冲回来
-		aircraft.target_altitude = _current_target.altitude
+		_match_target_altitude()
 		var my_speed_px := s.my_speed * Aircraft.PIXELS_PER_METER
 		var tgt_speed_px := s.tgt_speed * Aircraft.PIXELS_PER_METER
 		var lead_time := clampf(s.dist_px / maxf(my_speed_px, 50.0), 0.3, 2.0)
 		aircraft.target_position = _apply_position_error(s.tgt_pos + s.tgt_fwd * tgt_speed_px * lead_time)
 		_set_engage_speed(s, 1.1)
 
-		if absf(aircraft.altitude - _current_target.altitude) < 200.0:
-			_tactic_timer = _tactic_min_duration
+		if aircraft.flat_altitude:
+			if aircraft.get_altitude_tier() == _current_target.get_altitude_tier():
+				_tactic_timer = _tactic_min_duration
+		else:
+			if absf(aircraft.altitude - _current_target.altitude) < 200.0:
+				_tactic_timer = _tactic_min_duration
 
 ## 低悠悠：俯冲加速缩短距离，再拉高攻击
 func _execute_low_yoyo(s: SituationData, delta: float) -> void:
 	if _yoyo_phase == 0:
-		# 阶段0：俯冲加速（深度受技能影响）
-		var dive_target := _yoyo_base_alt - _apply_altitude_error(800.0)
-		if aircraft.params:
-			dive_target = clampf(dive_target, 1500.0, _yoyo_base_alt - 200.0)
-		aircraft.target_altitude = dive_target
+		# 阶段0：俯冲加速
+		if aircraft.flat_altitude:
+			# 扁平模式：切到下一档
+			aircraft.set_target_tier(aircraft.tier_below())
+		else:
+			var dive_target := _yoyo_base_alt - _apply_altitude_error(800.0)
+			if aircraft.params:
+				dive_target = clampf(dive_target, 1500.0, _yoyo_base_alt - 200.0)
+			aircraft.target_altitude = dive_target
 
 		var my_speed_px := s.my_speed * Aircraft.PIXELS_PER_METER
 		var tgt_speed_px := s.tgt_speed * Aircraft.PIXELS_PER_METER
@@ -813,19 +1094,27 @@ func _execute_low_yoyo(s: SituationData, delta: float) -> void:
 
 		_set_engage_speed(s, 1.4)
 
-		if aircraft.altitude <= dive_target + 100.0 or _tactic_timer > 4.0:
-			_yoyo_phase = 1
+		if aircraft.flat_altitude:
+			if aircraft.get_altitude_tier() <= aircraft.target_altitude_tier or _tactic_timer > 4.0:
+				_yoyo_phase = 1
+		else:
+			if aircraft.altitude <= aircraft.target_altitude + 100.0 or _tactic_timer > 4.0:
+				_yoyo_phase = 1
 	else:
 		# 阶段1：拉高回到敌机高度
-		aircraft.target_altitude = _current_target.altitude
+		_match_target_altitude()
 		var my_speed_px := s.my_speed * Aircraft.PIXELS_PER_METER
 		var tgt_speed_px := s.tgt_speed * Aircraft.PIXELS_PER_METER
 		var lead_time := clampf(s.dist_px / maxf(my_speed_px, 50.0), 0.3, 2.0)
 		aircraft.target_position = _apply_position_error(s.tgt_pos + s.tgt_fwd * tgt_speed_px * lead_time)
 		_set_engage_speed(s, 1.1)
 
-		if absf(aircraft.altitude - _current_target.altitude) < 200.0:
-			_tactic_timer = _tactic_min_duration
+		if aircraft.flat_altitude:
+			if aircraft.get_altitude_tier() == _current_target.get_altitude_tier():
+				_tactic_timer = _tactic_min_duration
+		else:
+			if absf(aircraft.altitude - _current_target.altitude) < 200.0:
+				_tactic_timer = _tactic_min_duration
 
 ## 急转脱离：被咬尾时急转增大偏置角，然后反转迎头
 ## Shaw 原则：Break Turn 是初始防御，之后必须反转或脱离，不能一直平转
@@ -844,7 +1133,9 @@ func _execute_break_turn(s: SituationData) -> void:
 
 		aircraft.target_position = _apply_position_error(aircraft.global_position + chosen_dir * 1500.0)
 
-		if aircraft.altitude > 3000.0:
+		if aircraft.flat_altitude:
+			pass  # 扁平模式：急转时保持当前档位
+		elif aircraft.altitude > 3000.0:
 			aircraft.target_altitude = aircraft.altitude - 300.0
 		else:
 			aircraft.target_altitude = aircraft.altitude
@@ -855,7 +1146,7 @@ func _execute_break_turn(s: SituationData) -> void:
 		_break_phase = 1
 		var tgt_speed_px := s.tgt_speed * Aircraft.PIXELS_PER_METER
 		aircraft.target_position = _apply_position_error(s.tgt_pos + s.tgt_fwd * tgt_speed_px * 0.5)
-		aircraft.target_altitude = _current_target.altitude
+		_match_target_altitude()
 		_set_engage_speed(s, 1.3)
 
 ## 加速脱离：远离敌机拉开距离
@@ -869,7 +1160,11 @@ func _execute_extension(s: SituationData) -> void:
 	else:
 		aircraft.target_speed_kmh = _apply_speed_error(1800.0)
 
-	aircraft.target_altitude = aircraft.altitude + 200.0
+	# 脱离时爬升保能
+	if aircraft.flat_altitude:
+		aircraft.set_target_tier(aircraft.tier_above())
+	else:
+		aircraft.target_altitude = aircraft.altitude + 200.0
 
 	var separation := aircraft.global_position.distance_to(_extension_start_pos)
 	if separation > 800.0 and s.dist_px > s.gun_range_px * 4.0:
@@ -901,11 +1196,27 @@ func _execute_scissors(s: SituationData, delta: float) -> void:
 	else:
 		aircraft.target_speed_kmh = _apply_speed_error(400.0)
 
-	aircraft.target_altitude = _current_target.altitude
+	_match_target_altitude()
 
 # ══════════════════════════════════════════════
 #  速度管理辅助
 # ══════════════════════════════════════════════
+
+## 高度匹配敌机（自动适配扁平/连续模式）
+func _match_target_altitude() -> void:
+	if not _current_target:
+		return
+	if aircraft.flat_altitude:
+		aircraft.set_target_tier(_current_target.get_altitude_tier())
+	else:
+		aircraft.target_altitude = _current_target.altitude
+
+## 设置巡逻高度（自动适配扁平/连续模式）
+func _set_patrol_altitude() -> void:
+	if aircraft.flat_altitude:
+		aircraft.set_target_tier(Aircraft.AltitudeTier.MID)
+	else:
+		aircraft.target_altitude = patrol_altitude
 
 func _set_engage_speed(s: SituationData, mult: float) -> void:
 	if not aircraft.params:
@@ -940,24 +1251,45 @@ func _process_evade(delta: float) -> void:
 	if aircraft.combat_target:
 		aircraft.clear_combat_target()
 
-	var alt_change := 1500.0 if aircraft.altitude < 6000.0 else -1500.0
-	aircraft.target_altitude = aircraft.altitude + alt_change
+	if aircraft.flat_altitude:
+		# 扁平模式：规避时切换档位（低→中/高，高→中/低）
+		if aircraft.get_altitude_tier() == Aircraft.AltitudeTier.LOW:
+			aircraft.set_target_tier(Aircraft.AltitudeTier.HIGH)
+		else:
+			aircraft.set_target_tier(Aircraft.AltitudeTier.LOW)
+	else:
+		var alt_change := 1500.0 if aircraft.altitude < 6000.0 else -1500.0
+		aircraft.target_altitude = aircraft.altitude + alt_change
 
 func _enter_evade() -> void:
+	EventLogger.log_event("EVADE", _log_name(),
+		"entering missile evasion (was %s, target=%s)" % [
+			AIState.keys()[_state], _log_target_name(_current_target)])
 	_state = AIState.EVADE_MISSILE
 	aircraft.ai_override_pursuit = false
+	_squad_attacking_leader_target = false
 	if aircraft.combat_target:
 		aircraft.clear_combat_target()
 
 func _exit_evade() -> void:
-	aircraft.target_altitude = patrol_altitude
+	EventLogger.log_event("EVADE", _log_name(), "exiting missile evasion")
 	if _current_target and is_instance_valid(_current_target) and not _current_target.is_destroyed:
 		aircraft.set_combat_target(_current_target)
+		_set_patrol_altitude()
 		_state = AIState.ENGAGE
 		_tactic_timer = 0.0
+	elif squad and is_instance_valid(squad.leader) and not squad.leader.is_destroyed:
+		_state = AIState.SQUAD_FOLLOW
+		_cover_target = null
+		_rejoining = true
+		_formation_blend = 0.0  # 从0开始渐变回编队托管
+		aircraft.clear_combat_target()
+		aircraft.ai_override_pursuit = false
+		aircraft.lod_level = 1
 	else:
 		_current_target = null
 		_state = AIState.PATROL
+		_set_patrol_altitude()
 		aircraft.ai_override_pursuit = false
 		_set_next_waypoint()
 
@@ -969,14 +1301,14 @@ func _try_engage() -> void:
 	if _cooldown_timer > 0.0:
 		return
 
-	var best_target: Aircraft = null
+	var best_target: CombatUnit = null
 	var best_score := -1.0
 	var current_target_score := -1.0
 
 	for target_key in aircraft.radar_targets:
 		if not is_instance_valid(target_key):
 			continue
-		var target_ac: Aircraft = target_key
+		var target_ac: CombatUnit = target_key
 		if target_ac.is_destroyed or target_ac.team == aircraft.team:
 			continue
 
@@ -987,6 +1319,17 @@ func _try_engage() -> void:
 		var dist_score := 1.0 / maxf(dist, 100.0) * 1000.0
 		var lock_score := lock_progress / lock_time
 		var score := lock_score * 2.0 + dist_score
+
+		# 低空目标攻击欲望降低
+		var tgt_tier := target_ac.get_altitude_tier()
+		if tgt_tier == CombatUnit.AltitudeTier.LOW:
+			score *= 0.65
+		elif tgt_tier == CombatUnit.AltitudeTier.GROUND:
+			score *= 0.5
+
+		# 偏好高度加成
+		if preferred_altitude_tier != -99 and tgt_tier == preferred_altitude_tier:
+			score *= 1.3
 
 		# 目标粘性：当前目标获得专注度加成
 		if target_ac == _current_target:
@@ -1009,6 +1352,7 @@ func _try_engage() -> void:
 				if best_score < current_target_score + switch_threshold:
 					return  # 新目标不够优，维持当前目标
 
+		var prev_state := _state
 		_current_target = best_target
 		aircraft.set_combat_target(best_target)
 		_state = AIState.ENGAGE
@@ -1018,17 +1362,22 @@ func _try_engage() -> void:
 		_tactic_min_duration = 0.5
 		_target_eval_timer = 0.0
 		aircraft.ai_override_pursuit = true
+		_squad_attacking_leader_target = false  # 独立交战
+		var dist_m := aircraft.global_position.distance_to(best_target.global_position) / CombatUnit.PIXELS_PER_METER
+		EventLogger.log_event("AI_STATE", _log_name(),
+			"%s → ENGAGE (target=%s, dist=%.0fm, score=%.2f)" % [
+				AIState.keys()[prev_state], _log_target_name(best_target), dist_m, best_score])
 
 ## 交战中重评估目标（受 focus 影响）
 func _reevaluate_target() -> void:
-	var best_target: Aircraft = null
+	var best_target: CombatUnit = null
 	var best_score := -1.0
 	var current_score := -1.0
 
 	for target_key in aircraft.radar_targets:
 		if not is_instance_valid(target_key):
 			continue
-		var target_ac: Aircraft = target_key
+		var target_ac: CombatUnit = target_key
 		if target_ac.is_destroyed or target_ac.team == aircraft.team:
 			continue
 
@@ -1058,20 +1407,38 @@ func _reevaluate_target() -> void:
 		return
 
 	# 切换目标
+	var old_target := _current_target
 	_current_target = best_target
 	aircraft.set_combat_target(best_target)
 	_tactic_timer = 0.0
 	_yoyo_phase = 0
+	EventLogger.log_event("TARGET", _log_name(),
+		"switched target: %s → %s (old_score=%.2f, new_score=%.2f)" % [
+			_log_target_name(old_target), _log_target_name(best_target),
+			current_score, best_score])
 
 func _disengage() -> void:
+	EventLogger.log_event("AI_STATE", _log_name(),
+		"DISENGAGE (was fighting %s, engaged %.1fs)" % [
+			_log_target_name(_current_target), _engage_timer])
 	aircraft.clear_combat_target()
 	aircraft.ai_override_pursuit = false
+	aircraft.keep_target_on_arrival = false
 	_current_target = null
-	_state = AIState.PATROL
 	_cooldown_timer = engage_cooldown
-	aircraft.target_altitude = patrol_altitude
 	current_tactic_name = ""
-	_set_next_waypoint()
+	_squad_attacking_leader_target = false
+	# 有编队则回归编队，否则回巡逻
+	if squad and is_instance_valid(squad.leader) and not squad.leader.is_destroyed:
+		_state = AIState.SQUAD_FOLLOW
+		_cover_target = null
+		_rejoining = true
+		_formation_blend = 0.0  # 从0开始渐变回编队托管
+		aircraft.lod_level = 1
+	else:
+		_state = AIState.PATROL
+		_set_patrol_altitude()
+		_set_next_waypoint()
 
 # ══════════════════════════════════════════════
 #  导弹威胁检测

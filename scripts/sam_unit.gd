@@ -1,0 +1,171 @@
+class_name SAMUnit
+extends GroundUnit
+
+## 防空导弹车：360° 圆形雷达覆盖，范围内锁定即发射
+
+var missiles_remaining: int = 4
+var _missile_cooldown: float = 0.0
+
+func _ready() -> void:
+	super._ready()
+	if params and params.missile:
+		missiles_remaining = params.missile.max_count
+
+func _physics_process(delta: float) -> void:
+	if is_destroyed:
+		_update_destroy(delta)
+		queue_redraw()
+		return
+
+	_update_movement(delta)
+	_update_target_selection()
+	_update_sam_missile(delta)
+	queue_redraw()
+
+## SAM 导弹发射
+func _update_sam_missile(delta: float) -> void:
+	_missile_cooldown = maxf(_missile_cooldown - delta, 0.0)
+
+	if not missile_manager or not params or not params.missile:
+		return
+	if missiles_remaining <= 0:
+		return
+	if _missile_cooldown > 0.0:
+		return
+	if combat_target == null or not is_instance_valid(combat_target) or combat_target.is_destroyed:
+		return
+
+	# 检查锁定
+	var lock_time_val := params.lock_time if params else 3.0
+	var lock_progress: float = radar_targets.get(combat_target, 0.0)
+	if lock_progress < lock_time_val:
+		return
+
+	# 检查是否已有在飞导弹
+	if missile_manager.has_active_missile_at(self, combat_target):
+		return
+
+	# 发射
+	missile_manager.spawn_missile(self, combat_target, params.missile)
+	missiles_remaining -= 1
+	_missile_cooldown = params.missile.cooldown
+
+## SAM 360° 圆形雷达：只检查距离，不检查角度
+func is_in_radar_cone(target_global_pos: Vector2) -> bool:
+	var radar_r := params.radar_range if params else 5000.0
+	var dist := global_position.distance_to(target_global_pos)
+	return dist <= radar_r and dist > 1.0
+
+## SAM 不用机炮
+func _update_combat(_delta: float) -> void:
+	pass
+
+func _update_gun(_delta: float) -> void:
+	pass
+
+# ========== 绘制 ==========
+
+func _draw() -> void:
+	if is_destroyed:
+		_draw_destroyed()
+		return
+	if is_hovered:
+		_draw_radar_circle()
+	_draw_sam_icon()
+	_draw_data_label()
+
+## 圆形雷达范围（替代扇形）
+func _draw_radar_circle() -> void:
+	if not params:
+		return
+	var radar_r := params.radar_range
+	if radar_r <= 0.0:
+		return
+
+	var color: Color
+	if team == 0:
+		color = Color(0.2, 0.7, 0.8, 0.08)
+	else:
+		color = Color(0.8, 0.2, 0.2, 0.08)
+
+	# 填充圆
+	var segments := 48
+	var points := PackedVector2Array()
+	for i in range(segments):
+		var angle := float(i) / segments * TAU
+		# 抵消节点旋转
+		points.append(Vector2(cos(angle), sin(angle)).rotated(-rotation) * radar_r)
+	draw_colored_polygon(points, color)
+
+	# 边线
+	var edge_color := Color(color.r, color.g, color.b, 0.25)
+	for i in range(segments):
+		var a0 := float(i) / segments * TAU
+		var a1 := float(i + 1) / segments * TAU
+		var p0 := Vector2(cos(a0), sin(a0)).rotated(-rotation) * radar_r
+		var p1 := Vector2(cos(a1), sin(a1)).rotated(-rotation) * radar_r
+		draw_line(p0, p1, edge_color, 1.0)
+
+func _draw_sam_icon() -> void:
+	var color: Color = params.icon_color if params else Color.RED
+	var size := 10.0
+
+	# 底盘方块
+	var half := size * 0.5
+	var body := PackedVector2Array([
+		Vector2(-half, -half),
+		Vector2(half, -half),
+		Vector2(half, half),
+		Vector2(-half, half),
+	])
+	draw_colored_polygon(body, color.darkened(0.2))
+
+	# 中心菱形标记（表示导弹发射器）
+	var d := size * 0.3
+	var diamond := PackedVector2Array([
+		Vector2(0, -d),
+		Vector2(d, 0),
+		Vector2(0, d),
+		Vector2(-d, 0),
+	])
+	draw_colored_polygon(diamond, color.lightened(0.3))
+
+func _draw_data_label() -> void:
+	if not _font:
+		_font = ThemeDB.fallback_font
+
+	var display_name: String = params.display_name if params else "SAM"
+	var font_size := 10
+	var line_height := 12.0
+	var label_offset := Vector2(14, -8)
+
+	var lines: PackedStringArray = PackedStringArray()
+	lines.append(display_name)
+	lines.append("HP %d" % roundi(hp))
+	lines.append("MSL %d" % missiles_remaining)
+	if combat_target:
+		lines.append("LOCK")
+
+	var inv_rot := -rotation
+	var max_w := 0.0
+	for line in lines:
+		var w := _font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+		max_w = maxf(max_w, w)
+	var box_w := max_w + 6.0
+	var box_h := lines.size() * line_height + 4.0
+
+	var text_color: Color
+	var bg_color: Color
+	if team == 0:
+		text_color = Color(0.5, 0.8, 1.0)
+		bg_color = Color(0.0, 0.1, 0.2, 0.6)
+	else:
+		text_color = Color(1.0, 0.6, 0.4)
+		bg_color = Color(0.2, 0.05, 0.0, 0.6)
+
+	var rotated_offset := label_offset.rotated(inv_rot)
+	draw_set_transform(rotated_offset, inv_rot)
+	draw_rect(Rect2(-1, -1, box_w, box_h), bg_color)
+	for i in lines.size():
+		draw_string(_font, Vector2(2, 10 + i * line_height), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
+	draw_set_transform(Vector2.ZERO, 0.0)

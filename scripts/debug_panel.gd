@@ -16,12 +16,26 @@ var _enemy_params: Resource
 var _drone_params: Resource
 var _ally_params: Resource
 
+# 地面单位
+var _sam_scene: PackedScene
+var _sam_params: Resource
+var _aa_scene: PackedScene
+var _aa_params: Resource
+var _radar_scene: PackedScene
+var _radar_params: Resource
+
 func _ready() -> void:
 	layer = 100
 	_enemy_scene = preload("res://scenes/aircraft.tscn")
 	_enemy_params = preload("res://resources/enemy_fighter.tres")
 	_drone_params = preload("res://resources/drone_probe.tres")
 	_ally_params = preload("res://resources/default_fighter.tres")
+	_sam_scene = preload("res://scenes/sam_unit.tscn")
+	_sam_params = preload("res://resources/sam_params.tres")
+	_aa_scene = preload("res://scenes/aa_gun_unit.tscn")
+	_aa_params = preload("res://resources/aa_gun_params.tres")
+	_radar_scene = preload("res://scenes/radar_station.tscn")
+	_radar_params = preload("res://resources/radar_station_params.tres")
 	_build_ui()
 
 func _build_ui() -> void:
@@ -62,11 +76,27 @@ func _build_ui() -> void:
 
 	# 生成按钮
 	var btn_data := [
+		["F1: 4机小队", _on_spawn_squad_4],
+		["F2: 2机小队", _on_spawn_squad_2],
+		["F3: 2架敌机", _on_spawn_enemies_2],
+		["F4: 4架敌机", _on_spawn_enemies_4],
+		["F5: 切换阵型", _on_cycle_formation],
+		["──────────", null],
 		["生成 MiG", _on_spawn_enemy],
 		["生成 Probe", _on_spawn_probe],
 		["生成友军", _on_spawn_ally],
+		["──────────", null],
+		["SAM (敌)", _on_spawn_enemy_sam],
+		["SAM (友)", _on_spawn_friendly_sam],
+		["AA炮 (敌)", _on_spawn_enemy_aa],
+		["AA炮 (友)", _on_spawn_friendly_aa],
+		["雷达站 (敌)", _on_spawn_enemy_radar],
+		["雷达站 (友)", _on_spawn_friendly_radar],
 	]
 	for bd in btn_data:
+		if bd[1] == null:
+			left_vbox.add_child(HSeparator.new())
+			continue
 		var btn := Button.new()
 		btn.text = bd[0]
 		btn.custom_minimum_size = Vector2(120, 30)
@@ -173,6 +203,31 @@ func _update_content() -> void:
 			enemy_count += 1
 
 	text += "[b]存活飞机[/b]  友军: %d  敌军: %d\n" % [friendly_count, enemy_count]
+
+	# 编队信息
+	if "active_squad" in main and main.active_squad != null:
+		var sq: Squad = main.active_squad
+		if sq and sq.leader:
+			text += "[color=#66aaff][b]编队[/b] %s  成员: %d[/color]\n" % [sq.get_formation_name(), sq.members.size()]
+			for i in range(sq.members.size()):
+				var m: Aircraft = sq.members[i]
+				if not is_instance_valid(m) or m.is_destroyed:
+					continue
+				var role := "长机" if i == 0 else "僚机%d" % i
+				var lod_names: Array[String] = ["完整", "简化", "屏外"]
+				var lod_str: String = lod_names[clampi(m.lod_level, 0, 2)]
+				# 计算与阵型位置的偏差
+				var deviation := 0.0
+				if i > 0:
+					var slot_pos := sq.get_wingman_target(i)
+					if slot_pos != Vector2.INF:
+						deviation = m.global_position.distance_to(slot_pos)
+				var dev_str := "  偏差%.0fpx" % deviation if i > 0 else ""
+				text += "  [color=#88bbff]%s[/color] %s  LOD=%s%s\n" % [role, m.callsign, lod_str, dev_str]
+			text += "\n"
+
+	text += "[color=#555555]─────────────────────────[/color]\n"
+	text += "[color=#666666]F1:4机队 F2:2机队 F3:2敌 F4:4敌 F5:阵型[/color]\n"
 	text += "[color=#555555]─────────────────────────[/color]\n"
 
 	for ac: Aircraft in aircraft_list:
@@ -186,9 +241,13 @@ func _update_content() -> void:
 		var speed_kmh := ac.speed * 3.6
 		var alt := ac.altitude
 
-		text += "[color=%s][b][%s] %s[/b][/color]\n" % [team_color, team_tag, display_name]
+		text += "[color=%s][b][%s] %s [%s][/b][/color]\n" % [team_color, team_tag, ac.callsign, display_name]
 		text += "  HDG %03d  SPD %.0f km/h  ALT %.0fm\n" % [roundi(hdg_deg), speed_kmh, alt]
-		text += "  HP %.0f  MSL %d  AMM %d  FLR %d\n" % [ac.hp, ac.missiles_remaining, ac.ammo, ac.flares_remaining]
+		# 弹药：AGM 仅在机型装备副导弹时显示
+		if ac.params and ac.params.secondary_missile:
+			text += "  HP %.0f  MSL %d  AGM %d  AMM %d  FLR %d\n" % [ac.hp, ac.missiles_remaining, ac.secondary_missiles_remaining, ac.ammo, ac.flares_remaining]
+		else:
+			text += "  HP %.0f  MSL %d  AMM %d  FLR %d\n" % [ac.hp, ac.missiles_remaining, ac.ammo, ac.flares_remaining]
 
 		# AI 策略
 		var strategy := _get_strategy_text(ac)
@@ -205,8 +264,15 @@ func _update_content() -> void:
 	_content_label.text = text
 
 func _get_strategy_text(ac: Aircraft) -> String:
-	# 玩家飞机
-	if ac.team == 0:
+	# 找 AIController
+	var ctrl: AIController = null
+	for child in ac.get_children():
+		if child is AIController:
+			ctrl = child
+			break
+
+	# 无 AI（玩家）飞机
+	if ctrl == null:
 		if ac.combat_target and is_instance_valid(ac.combat_target) and not ac.combat_target.is_destroyed:
 			return _get_combat_strategy(ac)
 		elif ac.target_position != Vector2.INF:
@@ -214,34 +280,75 @@ func _get_strategy_text(ac: Aircraft) -> String:
 		else:
 			return "待命"
 
-	# AI 飞机
+	# 有 AI 的飞机：优先按 AI 状态判定
+
+	# 交战中
 	if ac.combat_target and is_instance_valid(ac.combat_target) and not ac.combat_target.is_destroyed:
+		# 协同攻击长机指定的目标
+		if ctrl._squad_attacking_leader_target:
+			var tgt_name := ""
+			if ac.combat_target.callsign != "":
+				tgt_name = ac.combat_target.callsign
+			else:
+				tgt_name = ac.combat_target.name
+			var mode_str := ""
+			if ac.weapon_mode == Aircraft.WeaponMode.MISSILE:
+				var phase := ac._get_missile_phase()
+				var phase_names := ["接近", "照射", "保持"]
+				mode_str = "导弹[%s]" % phase_names[phase]
+			else:
+				mode_str = "机炮"
+				if ac.is_firing:
+					mode_str += " (开火中)"
+			return "[color=#ffaa33]协同攻击[/color] → %s  模式: %s" % [tgt_name, mode_str]
 		return _get_combat_strategy(ac)
 
-	# 检查 AIController
-	for child in ac.get_children():
-		if child is AIController:
-			var ctrl: AIController = child
-			match ctrl._state:
-				AIController.AIState.PATROL:
-					if ctrl.waypoints.size() > 0:
-						var extra := ""
-						if ctrl.enable_combat and ctrl._cooldown_timer > 0.0:
-							extra = " (冷却 %.0fs)" % ctrl._cooldown_timer
-						return "巡逻 (航点 %d/%d)%s" % [ctrl.current_waypoint_index + 1, ctrl.waypoints.size(), extra]
-					else:
-						return "无航点"
-				AIController.AIState.ENGAGE:
-					var tactic_str := ctrl.current_tactic_name if ctrl.current_tactic_name != "" else "---"
-					return "交战 [%s] (%.0fs)" % [tactic_str, ctrl._engage_timer]
-				AIController.AIState.EVADE_MISSILE:
-					return "[color=#ff6655]规避导弹[/color]"
+	# 无战斗目标：按 AI 状态
+	match ctrl._state:
+		AIController.AIState.PATROL:
+			if ctrl.waypoints.size() > 0:
+				var extra := ""
+				if ctrl.enable_combat and ctrl._cooldown_timer > 0.0:
+					extra = " (冷却 %.0fs)" % ctrl._cooldown_timer
+				return "巡逻 (航点 %d/%d)%s" % [ctrl.current_waypoint_index + 1, ctrl.waypoints.size(), extra]
+			else:
+				return "无航点"
+		AIController.AIState.ENGAGE:
+			var tactic_str := ctrl.current_tactic_name if ctrl.current_tactic_name != "" else "---"
+			return "交战 [%s] (%.0fs)" % [tactic_str, ctrl._engage_timer]
+		AIController.AIState.EVADE_MISSILE:
+			return "[color=#ff6655]规避导弹[/color]"
+		AIController.AIState.SQUAD_FOLLOW:
+			# 阵型调整 > 归队 > 正常跟随
+			if ctrl._formation_react_timer > 0.0:
+				return "[color=#ffcc33]阵型调整[/color]"
+			if ctrl._rejoining or ctrl._formation_blend < 0.95:
+				return "[color=#ffaa66]归队[/color]"
+			return "[color=#66aaff]编队跟随[/color]"
 	return "空闲"
 
 func _get_combat_strategy(ac: Aircraft) -> String:
 	var target_name := ""
 	if ac.combat_target and is_instance_valid(ac.combat_target):
-		target_name = ac.combat_target.name
+		target_name = ac.combat_target.callsign if ac.combat_target.callsign != "" else ac.combat_target.name
+
+	# 对地攻击（Strafing Run）独立展示
+	if ac.combat_target is GroundUnit:
+		var strafe_names := ["进入", "攻击", "脱离", "掉头"]
+		var strafe_idx: int = clampi(ac._strafe_state, 0, strafe_names.size() - 1)
+		var gnd_mode: String
+		if ac.weapon_mode == Aircraft.WeaponMode.MISSILE:
+			var msl_name := ""
+			if ac.params and ac.params.secondary_missile:
+				msl_name = ac.params.secondary_missile.display_name
+			if msl_name == "":
+				msl_name = "AGM"
+			gnd_mode = "%s导弹" % msl_name
+		else:
+			gnd_mode = "机炮"
+			if ac.is_firing:
+				gnd_mode += " (开火中)"
+		return "[color=#ffaa55]对地 → %s  %s [%s][/color]" % [target_name, gnd_mode, strafe_names[strafe_idx]]
 
 	var mode_str := ""
 	if ac.weapon_mode == Aircraft.WeaponMode.MISSILE:
@@ -368,6 +475,8 @@ func _on_reload_ammo() -> void:
 					child.ammo = child.params.gun.max_ammo
 				if child.params.missile:
 					child.missiles_remaining = child.params.missile.max_count
+				if child.params.secondary_missile:
+					child.secondary_missiles_remaining = child.params.secondary_missile.max_count
 				if child.params.flare:
 					child.flares_remaining = child.params.flare.max_flares
 
@@ -473,6 +582,31 @@ func _on_spawn_probe() -> void:
 	ai.evade_missiles = false
 	drone.add_child(ai)
 
+func _on_spawn_squad_4() -> void:
+	var main := get_parent()
+	if main and main.has_method("_spawn_friendly_squad"):
+		main._spawn_friendly_squad(4)
+
+func _on_spawn_squad_2() -> void:
+	var main := get_parent()
+	if main and main.has_method("_spawn_friendly_squad"):
+		main._spawn_friendly_squad(2)
+
+func _on_spawn_enemies_2() -> void:
+	var main := get_parent()
+	if main and main.has_method("_spawn_enemies"):
+		main._spawn_enemies(2)
+
+func _on_spawn_enemies_4() -> void:
+	var main := get_parent()
+	if main and main.has_method("_spawn_enemies"):
+		main._spawn_enemies(4)
+
+func _on_cycle_formation() -> void:
+	var main := get_parent()
+	if main and main.has_method("_cycle_formation"):
+		main._cycle_formation()
+
 func _on_spawn_ally() -> void:
 	var main := get_parent()
 	if not main:
@@ -527,7 +661,7 @@ func _on_spawn_ally() -> void:
 
 	# 如果没有可操控的玩家飞机，接管这架友军
 	var has_player := false
-	if main.has_method("_screen_to_world"):  # 确认是 main.gd 场景
+	if main.has_method("_screen_to_world"):
 		for ac in main.selected_aircraft:
 			if is_instance_valid(ac) and not ac.is_destroyed:
 				has_player = true
@@ -535,5 +669,62 @@ func _on_spawn_ally() -> void:
 		if not has_player:
 			ally.selected = true
 			main.selected_aircraft.append(ally)
-			# 移除AI控制器，改为玩家操控
 			ai.queue_free()
+
+# ══════════════════════════════════════════════
+#  地面单位生成
+# ══════════════════════════════════════════════
+
+func _get_player_pos() -> Vector2:
+	var main := get_parent()
+	if not main:
+		return Vector2.ZERO
+	for child in main.get_children():
+		if child is Aircraft and child.team == 0 and not child.is_destroyed:
+			return child.global_position
+	return Vector2.ZERO
+
+func _inject_managers(unit: GroundUnit) -> void:
+	var main := get_parent()
+	if not main:
+		return
+	for child in main.get_children():
+		if child is BulletManager:
+			unit.bullet_manager = child
+		elif child is MissileManager:
+			unit.missile_manager = child
+
+func _spawn_ground_unit(scene: PackedScene, params_res: Resource, team_id: int, distance: float = 800.0) -> void:
+	var main := get_parent()
+	if not main:
+		return
+	var player_pos := _get_player_pos()
+	var angle := randf() * TAU
+	var spawn_pos := player_pos + Vector2(cos(angle), sin(angle)) * distance
+	var unit: GroundUnit = scene.instantiate()
+	unit.params = params_res
+	unit.team = team_id
+	unit.position = spawn_pos
+	# 朝向玩家
+	var to_player := (player_pos - spawn_pos).normalized()
+	unit.initial_heading_deg = rad_to_deg(atan2(to_player.x, -to_player.y))
+	main.add_child(unit)
+	_inject_managers(unit)
+
+func _on_spawn_enemy_sam() -> void:
+	_spawn_ground_unit(_sam_scene, _sam_params, 1, 1500.0)
+
+func _on_spawn_friendly_sam() -> void:
+	_spawn_ground_unit(_sam_scene, _sam_params, 0, 500.0)
+
+func _on_spawn_enemy_aa() -> void:
+	_spawn_ground_unit(_aa_scene, _aa_params, 1, 800.0)
+
+func _on_spawn_friendly_aa() -> void:
+	_spawn_ground_unit(_aa_scene, _aa_params, 0, 300.0)
+
+func _on_spawn_enemy_radar() -> void:
+	_spawn_ground_unit(_radar_scene, _radar_params, 1, 2000.0)
+
+func _on_spawn_friendly_radar() -> void:
+	_spawn_ground_unit(_radar_scene, _radar_params, 0, 600.0)

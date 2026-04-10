@@ -21,6 +21,15 @@ var _xp_label: Label
 var _status_panel: PanelContainer
 var _status_label: RichTextLabel
 
+# ── 右侧战术面板 ──
+var _tactical_panel: PanelContainer
+var _btn_weapon: Button
+var _btn_altitude: Button
+var _btn_evasion: Button
+var _tooltip_panel: PanelContainer
+var _tooltip_label: RichTextLabel
+var _tooltip_key: String = ""  # 当前悬停的按钮标识
+
 # ── 雷达小地图 ──
 var _radar: Control
 
@@ -102,6 +111,76 @@ func _build_ui() -> void:
 	_status_label.add_theme_color_override("default_color", Color(0.8, 0.9, 0.8))
 	_status_panel.add_child(_status_label)
 
+	# ── 右侧战术面板 ──
+	_tactical_panel = PanelContainer.new()
+	var tac_style := StyleBoxFlat.new()
+	tac_style.bg_color = Color(0.02, 0.04, 0.02, 0.75)
+	tac_style.border_color = Color(0.3, 0.6, 0.3, 0.4)
+	tac_style.set_border_width_all(1)
+	tac_style.set_corner_radius_all(3)
+	tac_style.content_margin_left = 8
+	tac_style.content_margin_right = 8
+	tac_style.content_margin_top = 6
+	tac_style.content_margin_bottom = 6
+	_tactical_panel.add_theme_stylebox_override("panel", tac_style)
+
+	var tac_vbox := VBoxContainer.new()
+	tac_vbox.add_theme_constant_override("separation", 4)
+	_tactical_panel.add_child(tac_vbox)
+
+	var tac_title := Label.new()
+	tac_title.text = "[ 战术 ]"
+	tac_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	tac_title.add_theme_font_size_override("font_size", 11)
+	tac_title.add_theme_color_override("font_color", Color(0.8, 0.7, 0.3))
+	tac_vbox.add_child(tac_title)
+
+	_btn_weapon = _create_tac_button("1 导弹优先")
+	_btn_weapon.pressed.connect(_on_weapon_pressed)
+	_btn_weapon.mouse_entered.connect(_on_tac_hover.bind("weapon"))
+	_btn_weapon.mouse_exited.connect(_on_tac_hover_exit)
+	tac_vbox.add_child(_btn_weapon)
+
+	_btn_altitude = _create_tac_button("3 爬升优先")
+	_btn_altitude.pressed.connect(_on_altitude_pressed)
+	_btn_altitude.mouse_entered.connect(_on_tac_hover.bind("altitude"))
+	_btn_altitude.mouse_exited.connect(_on_tac_hover_exit)
+	tac_vbox.add_child(_btn_altitude)
+
+	_btn_evasion = _create_tac_button("E 规避: 关")
+	_btn_evasion.pressed.connect(_on_evasion_pressed)
+	_btn_evasion.mouse_entered.connect(_on_tac_hover.bind("evasion"))
+	_btn_evasion.mouse_exited.connect(_on_tac_hover_exit)
+	tac_vbox.add_child(_btn_evasion)
+
+	add_child(_tactical_panel)
+
+	# ── 战术提示面板 ──
+	_tooltip_panel = PanelContainer.new()
+	_tooltip_panel.visible = false
+	var tip_style := StyleBoxFlat.new()
+	tip_style.bg_color = Color(0.03, 0.05, 0.03, 0.9)
+	tip_style.border_color = Color(0.4, 0.6, 0.3, 0.5)
+	tip_style.set_border_width_all(1)
+	tip_style.set_corner_radius_all(3)
+	tip_style.content_margin_left = 10
+	tip_style.content_margin_right = 10
+	tip_style.content_margin_top = 8
+	tip_style.content_margin_bottom = 8
+	_tooltip_panel.add_theme_stylebox_override("panel", tip_style)
+	_tooltip_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	_tooltip_label = RichTextLabel.new()
+	_tooltip_label.bbcode_enabled = true
+	_tooltip_label.fit_content = true
+	_tooltip_label.scroll_active = false
+	_tooltip_label.custom_minimum_size = Vector2(220, 0)
+	_tooltip_label.add_theme_font_size_override("normal_font_size", 11)
+	_tooltip_label.add_theme_color_override("default_color", Color(0.75, 0.85, 0.75))
+	_tooltip_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_tooltip_panel.add_child(_tooltip_label)
+	add_child(_tooltip_panel)
+
 	# ── 雷达小地图（左下角）──
 	_radar = RadarDisplay.new()
 	_radar.hud = self
@@ -156,6 +235,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _process(delta: float) -> void:
 	_layout_ui()
 	_update_display()
+	_update_tactical_buttons()
 	if _debug_visible:
 		_debug_update_timer -= delta
 		if _debug_update_timer <= 0.0:
@@ -183,6 +263,19 @@ func _layout_ui() -> void:
 		vp.x - _status_panel.size.x - 16,
 		vp.y - _status_panel.size.y - XP_BAR_HEIGHT - 36
 	)
+
+	# 战术面板：状态面板正上方
+	_tactical_panel.position = Vector2(
+		vp.x - _tactical_panel.size.x - 16,
+		_status_panel.position.y - _tactical_panel.size.y - 8
+	)
+
+	# 提示面板：战术面板左侧
+	if _tooltip_panel.visible:
+		_tooltip_panel.position = Vector2(
+			_tactical_panel.position.x - _tooltip_panel.size.x - 8,
+			_tactical_panel.position.y
+		)
 
 	if _debug_panel.visible:
 		_debug_panel.position = Vector2(vp.x - _debug_panel.size.x - 16, 16)
@@ -228,6 +321,16 @@ func _update_status_panel() -> void:
 	var hp_color := "66ff66" if hp_ratio > 0.5 else ("ffcc33" if hp_ratio > 0.25 else "ff4444")
 	text += "[color=#%s]HP %d / %d[/color]\n" % [hp_color, ceili(current_hp), ceili(max_hp)]
 
+	# ── 高度档位 ──
+	if ac.flat_altitude:
+		var tier_name: String = Aircraft.TIER_NAMES[ac.get_altitude_tier()]
+		var target_tier_name: String = Aircraft.TIER_NAMES[ac.target_altitude_tier]
+		var transitioning := ac.get_altitude_tier() != ac.target_altitude_tier
+		if transitioning:
+			text += "[color=#ffcc44]ALT  %s → %s[/color]\n" % [tier_name, target_tier_name]
+		else:
+			text += "[color=#aaccff]ALT  %s[/color]\n" % tier_name
+
 	# ── 导弹 ──
 	var max_msl := ac.params.missile.max_count if ac.params and ac.params.missile else 0
 	if max_msl > 0:
@@ -240,20 +343,28 @@ func _update_status_panel() -> void:
 
 	# ── 机炮 ──
 	if ac.params and ac.params.gun:
+		var max_ammo := ac.params.gun.max_ammo
+		var regen_tag := ""
+		if ac.enable_gun_reload and ac.ammo < max_ammo:
+			regen_tag = " +"
 		var ammo_color := "ccddaa" if ac.ammo > 100 else ("ffaa44" if ac.ammo > 0 else "666666")
-		text += "[color=#%s]GUN  %d[/color]\n" % [ammo_color, ac.ammo]
+		text += "[color=#%s]GUN  %d%s[/color]\n" % [ammo_color, ac.ammo, regen_tag]
 
 	# ── 热诱弹 ──
 	if ac.params and ac.params.flare:
 		var max_flr := ac.params.flare.max_flares
-		var cd_ratio := ac.get_flare_cooldown_ratio()
-		var flr_color := "ffdd66"
-		if cd_ratio > 0.01:
-			flr_color = "aa8833"
-		elif ac.flares_remaining <= 0:
-			flr_color = "666666"
-		var cd_text := "  CD" if cd_ratio > 0.01 else ""
-		text += "[color=#%s]FLR  %d / %d%s[/color]\n" % [flr_color, ac.flares_remaining, max_flr, cd_text]
+		if ac.enable_flare_reload and ac.flares_remaining <= 0 and ac.flare_reload_progress > 0.01:
+			var pct := int(ac.flare_reload_progress * 100)
+			text += "[color=#aa8833]FLR  RELOAD %d%%[/color]\n" % pct
+		else:
+			var cd_ratio := ac.get_flare_cooldown_ratio()
+			var flr_color := "ffdd66"
+			if cd_ratio > 0.01:
+				flr_color = "aa8833"
+			elif ac.flares_remaining <= 0:
+				flr_color = "666666"
+			var cd_text := "  CD" if cd_ratio > 0.01 else ""
+			text += "[color=#%s]FLR  %d / %d%s[/color]\n" % [flr_color, ac.flares_remaining, max_flr, cd_text]
 
 	# ── 分隔线 ──
 	if game_scene and not game_scene.upgrade_stacks.is_empty():
@@ -288,6 +399,158 @@ func _update_status_panel() -> void:
 			text += "[color=#%s]%s[/color] %s\n" % [tag_color, u["name"], level_dots]
 
 	_status_label.text = text
+
+func _create_tac_button(label_text: String) -> Button:
+	var btn := Button.new()
+	btn.text = label_text
+	btn.custom_minimum_size = Vector2(STATUS_PANEL_WIDTH - 16, 26)
+	btn.add_theme_font_size_override("font_size", 11)
+
+	var normal := StyleBoxFlat.new()
+	normal.bg_color = Color(0.06, 0.1, 0.06)
+	normal.border_color = Color(0.3, 0.6, 0.3, 0.5)
+	normal.set_border_width_all(1)
+	normal.set_corner_radius_all(2)
+	normal.content_margin_left = 6
+	normal.content_margin_right = 6
+	normal.content_margin_top = 3
+	normal.content_margin_bottom = 3
+	btn.add_theme_stylebox_override("normal", normal)
+
+	var hover := StyleBoxFlat.new()
+	hover.bg_color = Color(0.1, 0.18, 0.1)
+	hover.border_color = Color(1.0, 0.8, 0.3, 0.6)
+	hover.set_border_width_all(1)
+	hover.set_corner_radius_all(2)
+	hover.content_margin_left = 6
+	hover.content_margin_right = 6
+	hover.content_margin_top = 3
+	hover.content_margin_bottom = 3
+	btn.add_theme_stylebox_override("hover", hover)
+
+	var pressed := StyleBoxFlat.new()
+	pressed.bg_color = Color(0.15, 0.25, 0.15)
+	pressed.border_color = Color(1.0, 0.9, 0.4, 0.7)
+	pressed.set_border_width_all(1)
+	pressed.set_corner_radius_all(2)
+	pressed.content_margin_left = 6
+	pressed.content_margin_right = 6
+	pressed.content_margin_top = 3
+	pressed.content_margin_bottom = 3
+	btn.add_theme_stylebox_override("pressed", pressed)
+
+	btn.add_theme_color_override("font_color", Color(0.7, 0.9, 0.7))
+	btn.add_theme_color_override("font_hover_color", Color(1.0, 0.9, 0.5))
+	btn.add_theme_color_override("font_pressed_color", Color(1.0, 1.0, 0.6))
+
+	return btn
+
+func _on_weapon_pressed() -> void:
+	if not survivor_player or not survivor_player.aircraft:
+		return
+	var ac := survivor_player.aircraft
+	if ac.weapon_preference == Aircraft.WeaponPreference.PREFER_MISSILE:
+		ac.weapon_preference = Aircraft.WeaponPreference.PREFER_GUN
+	else:
+		ac.weapon_preference = Aircraft.WeaponPreference.PREFER_MISSILE
+	_update_tactical_buttons()
+	if _tooltip_panel.visible:
+		_update_tooltip()
+
+func _on_altitude_pressed() -> void:
+	if not survivor_player or not survivor_player.aircraft:
+		return
+	var ac := survivor_player.aircraft
+	if ac.altitude_preference == Aircraft.AltitudePreference.PREFER_CLIMB:
+		ac.altitude_preference = Aircraft.AltitudePreference.PREFER_LOW
+	else:
+		ac.altitude_preference = Aircraft.AltitudePreference.PREFER_CLIMB
+	_update_tactical_buttons()
+	if _tooltip_panel.visible:
+		_update_tooltip()
+
+func _on_evasion_pressed() -> void:
+	if not survivor_player or not survivor_player.aircraft:
+		return
+	var ac := survivor_player.aircraft
+	ac.evasion_mode = not ac.evasion_mode
+	_update_tactical_buttons()
+	if _tooltip_panel.visible:
+		_update_tooltip()
+
+func _on_tac_hover(key: String) -> void:
+	_tooltip_key = key
+	_update_tooltip()
+	_tooltip_panel.visible = true
+
+func _on_tac_hover_exit() -> void:
+	_tooltip_key = ""
+	_tooltip_panel.visible = false
+
+func _update_tooltip() -> void:
+	if not survivor_player or not survivor_player.aircraft:
+		return
+	var ac := survivor_player.aircraft
+	var text := ""
+
+	match _tooltip_key:
+		"weapon":
+			if ac.weapon_preference == Aircraft.WeaponPreference.PREFER_MISSILE:
+				text = "[color=#ffcc44][b]导弹优先[/b][/color]\n"
+				text += "[color=#aabbaa]点击敌机后自动锁定并发射导弹\n"
+				text += "导弹耗尽时自动切换机炮\n"
+				text += "装填完毕后恢复导弹模式[/color]\n\n"
+				text += "[color=#888888]按 [color=#ffdd66]2[/color] 切换到机炮优先[/color]"
+			else:
+				text = "[color=#ffcc44][b]机炮优先[/b][/color]\n"
+				text += "[color=#aabbaa]始终使用机炮进行攻击\n"
+				text += "不会自动发射导弹[/color]\n\n"
+				text += "[color=#888888]按 [color=#ffdd66]1[/color] 切换到导弹优先[/color]"
+		"altitude":
+			if ac.altitude_preference == Aircraft.AltitudePreference.PREFER_CLIMB:
+				text = "[color=#ffcc44][b]爬升优先[/b][/color]\n"
+				text += "[color=#aabbaa]巡航时自动爬升至高空\n"
+				text += "高空有利于积蓄能量\n"
+				text += "[color=#66ccff]导弹射程更远[/color]\n"
+				text += "交战时仍会自动匹配目标高度[/color]\n\n"
+				text += "[color=#888888]按 [color=#ffdd66]4[/color] 切换到低空优先[/color]"
+			else:
+				text = "[color=#ffcc44][b]低空优先[/b][/color]\n"
+				text += "[color=#aabbaa]巡航时自动降至低空\n"
+				text += "[color=#66ff66]更难被雷达锁定（锁定时间+43%）[/color]\n"
+				text += "[color=#66ff66]敌方导弹追踪能力下降[/color]\n"
+				text += "[color=#66ff66]AI攻击意愿降低[/color]\n"
+				text += "交战时仍会自动匹配目标高度[/color]\n\n"
+				text += "[color=#888888]按 [color=#ffdd66]3[/color] 切换到爬升优先[/color]"
+		"evasion":
+			if ac.evasion_mode:
+				text = "[color=#ffcc44][b]规避模式: 开[/b][/color]\n"
+				text += "[color=#aabbaa]检测到来袭导弹时自动规避\n"
+				text += "垂直于导弹轨迹急转+变换高度\n"
+				text += "无导弹威胁时做S型机动\n"
+				text += "点击地面可临时覆盖规避路径[/color]\n\n"
+				text += "[color=#888888]按 [color=#ffdd66]E[/color] 关闭规避[/color]"
+			else:
+				text = "[color=#ffcc44][b]规避模式: 关[/b][/color]\n"
+				text += "[color=#aabbaa]飞机不会主动进行规避机动\n"
+				text += "完全听从玩家的移动指令[/color]\n\n"
+				text += "[color=#888888]按 [color=#ffdd66]E[/color] 开启规避[/color]"
+
+	_tooltip_label.text = text
+
+func _update_tactical_buttons() -> void:
+	if not survivor_player or not survivor_player.aircraft:
+		return
+	var ac := survivor_player.aircraft
+	if ac.weapon_preference == Aircraft.WeaponPreference.PREFER_MISSILE:
+		_btn_weapon.text = "1 导弹优先"
+	else:
+		_btn_weapon.text = "2 机炮优先"
+	if ac.altitude_preference == Aircraft.AltitudePreference.PREFER_CLIMB:
+		_btn_altitude.text = "3 爬升优先"
+	else:
+		_btn_altitude.text = "4 低空优先"
+	_btn_evasion.text = "E 规避: %s" % ("开" if ac.evasion_mode else "关")
 
 func _update_debug_panel() -> void:
 	if not game_scene:

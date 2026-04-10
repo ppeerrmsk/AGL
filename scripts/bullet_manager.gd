@@ -10,14 +10,15 @@ const TRACER_LENGTH: float = 8.0  ## 曳光弹绘制长度（像素）
 var friendly_hit_radius: float = HIT_RADIUS
 var friendly_dmg_full_ratio: float = 0.3   ## 满伤害飞行比例
 var friendly_dmg_min_mult: float = 0.2     ## 最远端伤害倍率
+var flat_altitude_mode: bool = false       ## 扁平高度模式：跳过高度容差检查
 
-## 弹丸数据：{ pos: Vector2, vel: Vector2, owner: Aircraft, damage: float, life: float }
+## 弹丸数据：{ pos: Vector2, vel: Vector2, owner: CombatUnit, damage: float, life: float }
 var _bullets: Array[Dictionary] = []
 
-## 场景中所有飞机的缓存引用，由 main.gd 每帧更新
-var aircraft_list: Array[Aircraft] = []
+## 场景中所有战斗单位的缓存引用，由 main.gd 每帧更新
+var combat_unit_list: Array[CombatUnit] = []
 
-func spawn_bullet(origin: Vector2, direction: float, speed_ms: float, source: Aircraft, damage: float) -> void:
+func spawn_bullet(origin: Vector2, direction: float, speed_ms: float, source: CombatUnit, damage: float) -> void:
 	var speed_px := speed_ms * PIXELS_PER_METER
 	var vel := Vector2(sin(direction), -cos(direction)) * speed_px
 	_bullets.append({
@@ -45,9 +46,9 @@ func _physics_process(delta: float) -> void:
 
 		# 命中检测
 		var hit := false
-		var source: Aircraft = b["source"]
+		var source: CombatUnit = b["source"]
 		var source_team: int = source.team if is_instance_valid(source) else -1
-		for ac in aircraft_list:
+		for ac in combat_unit_list:
 			if not is_instance_valid(ac) or ac.is_destroyed:
 				continue
 			if ac == source or ac.team == source_team:
@@ -57,7 +58,10 @@ func _physics_process(delta: float) -> void:
 			var alt_diff: float = absf(float(b["altitude"]) - ac.altitude)
 			var is_friendly := source_team == 0
 			var hit_r: float = friendly_hit_radius if is_friendly else HIT_RADIUS
-			if dist_2d < hit_r and alt_diff < ALT_TOLERANCE:
+			# 涉及地面单位时跳过高度检查（地面↔空中交火，俯视视角用2D判定）
+			var source_is_ground := is_instance_valid(source) and source is GroundUnit
+			var alt_ok := flat_altitude_mode or alt_diff < ALT_TOLERANCE or ac is GroundUnit or source_is_ground
+			if dist_2d < hit_r and alt_ok:
 				var full_r: float = friendly_dmg_full_ratio if is_friendly else 0.3
 				var min_m: float = friendly_dmg_min_mult if is_friendly else 0.2
 				var flight_ratio: float = 1.0 - float(b["life"]) / float(b["max_life"])
@@ -66,7 +70,25 @@ func _physics_process(delta: float) -> void:
 					dmg_mult = 1.0
 				else:
 					dmg_mult = lerpf(1.0, min_m, (flight_ratio - full_r) / (1.0 - full_r))
-				ac.take_bullet_damage(b["damage"] * dmg_mult)
+				var actual_dmg: float = float(b["damage"]) * dmg_mult
+				var src_name := "???"
+				if is_instance_valid(source):
+					if source is Aircraft and source.params:
+						var side := "Friend" if source.team == 0 else "Enemy"
+						src_name = "%s/%s[%s]" % [side, source.params.display_name, source.callsign]
+					else:
+						src_name = source.callsign if source.callsign != "" else source.name
+				var tgt_unit: CombatUnit = ac as CombatUnit
+				var tgt_name: String = tgt_unit.callsign if tgt_unit.callsign != "" else tgt_unit.name
+				if ac is Aircraft and ac.params:
+					var side2 := "Friend" if ac.team == 0 else "Enemy"
+					tgt_name = "%s/%s[%s]" % [side2, ac.params.display_name, ac.callsign]
+				EventLogger.log_event("GUN", src_name,
+					"hit %s (dmg=%.1f)" % [tgt_name, actual_dmg])
+				if ac is Aircraft:
+					ac.take_bullet_damage(b["damage"] * dmg_mult)
+				else:
+					ac.take_damage(b["damage"] * dmg_mult)
 				hit = true
 				break
 

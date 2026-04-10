@@ -5,8 +5,8 @@ const PIXELS_PER_METER: float = 0.5
 const GRAVITY: float = 9.81
 
 var params: MissileParams
-var source: Aircraft          ## 发射机（SARH 需要持续照射）
-var target: Aircraft          ## 目标
+var source: CombatUnit        ## 发射单位（SARH 需要持续照射）
+var target: CombatUnit        ## 目标
 var team: int = 0
 
 var heading: float = 0.0     ## 弧度, 0=北
@@ -51,21 +51,34 @@ func _physics_process(delta: float) -> void:
 	else:
 		speed = maxf(speed - params.drag_deceleration * delta, 0.0)
 
-	# 3) 能量耗尽
-	if speed < 80.0:
+	# 3) 能量耗尽（发动机燃烧阶段跳过，允许地面发射的低初速导弹加速）
+	if speed < 80.0 and age >= params.motor_burn_time:
 		is_active = false
 		return
 
-	# 4) SARH 照射检查 + 热诱弹干扰
-	if is_flare_jammed:
-		has_guidance = false
-	elif target == null or not is_instance_valid(target) or target.is_destroyed:
-		has_guidance = false
-	elif source == null or not is_instance_valid(source) or source.is_destroyed:
-		has_guidance = false
+	# 4) 制导模式判定
+	if params.fire_and_forget:
+		# 发射后不管（AGM 等）：不需要持续照射，不受热诱弹干扰
+		if target == null or not is_instance_valid(target) or target.is_destroyed:
+			has_guidance = false
+		else:
+			has_guidance = true
 	else:
-		var lock_progress: float = source.radar_targets.get(target, 0.0)
-		has_guidance = lock_progress >= source.params.lock_time
+		# SARH 照射检查 + 热诱弹干扰
+		if is_flare_jammed:
+			has_guidance = false
+		elif target == null or not is_instance_valid(target) or target.is_destroyed:
+			has_guidance = false
+		elif source == null or not is_instance_valid(source) or source.is_destroyed:
+			has_guidance = false
+		else:
+			var lock_progress: float = source.radar_targets.get(target, 0.0)
+			var lock_time_val: float = 3.0
+			if source is Aircraft and source.params:
+				lock_time_val = source.params.lock_time
+			elif source is GroundUnit and source.params:
+				lock_time_val = source.params.lock_time
+			has_guidance = lock_progress >= lock_time_val
 
 	# 5) 制导
 	if has_guidance and is_instance_valid(target) and age > params.guidance_delay:
@@ -73,38 +86,46 @@ func _physics_process(delta: float) -> void:
 		var dist_px := los.length()
 		var dist_m := dist_px / PIXELS_PER_METER
 
-		if dist_m < 200.0:
-			# 近距纯追踪，避免 PN 振荡
+		# 发射后不管 + 目标静止/慢速 → 纯追踪（最精确）
+		var target_is_slow := target.speed < 10.0
+		if params.fire_and_forget and target_is_slow:
+			# 对静止目标直接纯追踪，不用 PN（避免数值误差）
 			var pure_heading := atan2(los.x, -los.y)
 			var diff := _angle_diff(pure_heading, heading)
 			var max_turn := params.max_g * GRAVITY / maxf(speed, 50.0) * delta
 			heading += clampf(diff, -max_turn, max_turn)
 		else:
-			# 比例导引 (PN)
-			var los_angle := atan2(los.x, -los.y)
-			var omega := _angle_diff(los_angle, _prev_los_angle) / delta  # LOS 角速率
+			# 低空目标：地面杂波干扰导引头，降低追踪过载
+			var effective_max_g := params.max_g * _guidance_degradation()
 
-			# 闭合速度
-			var los_dir := los.normalized()
-			var my_vel := Vector2(sin(heading), -cos(heading)) * speed * PIXELS_PER_METER
-			var tgt_vel := Vector2(sin(target.heading), -cos(target.heading)) * target.speed * PIXELS_PER_METER
-			var rel_vel := tgt_vel - my_vel
-			var v_closure := -rel_vel.dot(los_dir)
+			if dist_m < 200.0:
+				# 近距纯追踪，避免 PN 振荡
+				var pure_heading := atan2(los.x, -los.y)
+				var diff := _angle_diff(pure_heading, heading)
+				var max_turn := effective_max_g * GRAVITY / maxf(speed, 50.0) * delta
+				heading += clampf(diff, -max_turn, max_turn)
+			else:
+				# 比例导引 (PN)
+				var los_angle := atan2(los.x, -los.y)
+				var omega := _angle_diff(los_angle, _prev_los_angle) / delta  # LOS 角速率
 
-			# 指令加速度
-			var a_cmd := params.nav_constant * v_closure * omega / maxf(dist_px, 1.0) * dist_px
-			# 上面简化：a_cmd = N * V_closure * omega (omega 已经是 rad/s)
-			a_cmd = params.nav_constant * v_closure * omega
+				# 闭合速度
+				var los_dir := los.normalized()
+				var my_vel := Vector2(sin(heading), -cos(heading)) * speed * PIXELS_PER_METER
+				var tgt_vel := Vector2(sin(target.heading), -cos(target.heading)) * target.speed * PIXELS_PER_METER
+				var rel_vel := tgt_vel - my_vel
+				var v_closure := -rel_vel.dot(los_dir)
 
-			# 限幅
-			var max_accel := params.max_g * GRAVITY
-			a_cmd = clampf(a_cmd, -max_accel, max_accel)
+				# 指令加速度
+				var a_cmd := params.nav_constant * v_closure * omega
+				var max_accel := effective_max_g * GRAVITY
+				a_cmd = clampf(a_cmd, -max_accel, max_accel)
 
-			# 转弯率 = a / v
-			var turn_rate := a_cmd / maxf(speed, 50.0)
-			heading += turn_rate * delta
+				# 转弯率 = a / v
+				var turn_rate := a_cmd / maxf(speed, 50.0)
+				heading += turn_rate * delta
 
-			_prev_los_angle = los_angle
+				_prev_los_angle = los_angle
 
 	# 6) 高度趋近
 	if has_guidance and target != null and is_instance_valid(target):
@@ -211,6 +232,20 @@ func _draw_data_label() -> void:
 		draw_string(_font, Vector2(4, 10 + i * line_height), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
 
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+## 低空目标导引头性能衰减（地面杂波干扰）
+## 仅在扁平高度模式（生存模式）下生效
+func _guidance_degradation() -> float:
+	if not is_instance_valid(target) or not target.flat_altitude:
+		return 1.0
+	var tier := target.get_altitude_tier()
+	match tier:
+		CombatUnit.AltitudeTier.GROUND:
+			return 0.5  # 地面目标：严重杂波
+		CombatUnit.AltitudeTier.LOW:
+			return 0.7  # 低空目标：中等杂波
+		_:
+			return 1.0
 
 ## 角度差（-PI 到 PI）
 static func _angle_diff(a: float, b: float) -> float:

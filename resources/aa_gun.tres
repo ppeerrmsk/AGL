@@ -4,11 +4,11 @@
 
 [resource]
 script = ExtResource("1")
-display_name = "M61A1"
-fire_rate = 3000.0
-bullet_damage = 8.0
-muzzle_velocity = 1050.0
-max_range = 1000.0
-spread_angle = 1.5
-fire_cone_half_angle = 5.0
-max_ammo = 200
+display_name = "ZU-23"
+fire_rate = 1200.0
+bullet_damage = 4.0
+muzzle_velocity = 700.0
+max_range = 600.0
+spread_angle = 6.0
+fire_cone_half_angle = 15.0
+max_ammo = 2000

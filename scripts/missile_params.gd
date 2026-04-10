@@ -41,6 +41,8 @@ extends Resource
 @export var seeker_fov: float = 60.0
 ## 发射后制导启动延迟 (秒)
 @export var guidance_delay: float = 0.5
+## 发射后不管模式（不需要持续照射，不受热诱弹干扰）
+@export var fire_and_forget: bool = false
 
 @export_group("装载")
 ## 挂载数量

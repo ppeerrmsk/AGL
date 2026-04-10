@@ -49,7 +49,8 @@ extends Resource
 @export var gun: GunParams
 
 @export_group("导弹")
-@export var missile: MissileParams
+@export var missile: MissileParams           ## 主导弹（空对空）
+@export var secondary_missile: MissileParams ## 副导弹（空对地）
 
 @export_group("热诱弹")
 @export var flare: FlareParams

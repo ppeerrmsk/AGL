@@ -2,7 +2,37 @@
   "permissions": {
     "allow": [
       "Bash(grep -E \"\\\\.\\(godot|tscn|gd|tres|res\\)$\")",
-      "Bash(grep -E \"\\\\.\\(cfg|json|md|txt\\)$\")"
+      "Bash(grep -E \"\\\\.\\(cfg|json|md|txt\\)$\")",
+      "Bash(wc -l /c/Users/noelu/Documents/AGL/scripts/*.gd)",
+      "Bash(python3 -c \":*)",
+      "Bash(python3:*)",
+      "Bash(where godot:*)",
+      "Read(//c/Users/noelu/AppData/Local/Godot//**)",
+      "Read(//c//**)",
+      "Read(//c/Users/noelu/**)",
+      "Bash(find /c/Users/noelu -maxdepth 4 -name Godot*.exe -type f)",
+      "Bash(\"/c/Users/noelu/Downloads/Godot_v4.4.1-stable_win64.exe/Godot_v4.4.1-stable_win64_console.exe\" --headless --script-check scripts/aircraft.gd)",
+      "Bash(\"/c/Users/noelu/Downloads/Godot_v4.4.1-stable_win64.exe/Godot_v4.4.1-stable_win64_console.exe\" --path \"C:/Users/noelu/Documents/AGL\" --check-only)",
+      "Bash(\"/c/Users/noelu/Downloads/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64_console.exe\" --path \"C:/Users/noelu/Documents/AGL\" --check-only)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(grep -r \"sandbox\\\\|menu\\\\|mode\\\\|scene\" /c/Users/noelu/Documents/AGL/scripts/*.gd)",
+      "Bash(python -c \":*)",
+      "Bash(for f:*)",
+      "Bash(do echo:*)",
+      "Read(//c/Users/noelu/Documents/AGL/**)",
+      "Bash(done)",
+      "Bash(grep -E \"\\\\.gd$\")",
+      "Bash(xxd)",
+      "Bash(grep -E \"\\\\.\\(gd|tres\\)$\")",
+      "Bash(pip install:*)",
+      "Bash(PYTHONIOENCODING=utf-8 python3)",
+      "Bash(python -c \"import pypdf; print\\('pypdf available'\\)\")",
+      "Bash(xargs grep:*)",
+      "Bash(grep -n \"is Aircraft\" \"C:\\\\Users\\\\noelu\\\\Documents\\\\AGL\\\\scripts\"/*.gd)",
+      "WebSearch",
+      "WebFetch(domain:codex.uoaf.net)"
     ]
   }
 }

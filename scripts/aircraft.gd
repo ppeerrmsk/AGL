@@ -1,30 +1,28 @@
 class_name Aircraft
-extends Node2D
-
-const GRAVITY: float = 9.81
-const PIXELS_PER_METER: float = 0.5  ## 1米 = 0.5像素
+extends CombatUnit
 
 @export var params: AircraftParams
-@export var team: int = 0  ## 0=友方, 1=敌方
 @export var initial_heading_deg: float = 0.0  ## 度 初始航向（0=北, 90=东, 180=南）
 
 # --- 状态 ---
-var altitude: float = 5000.0        ## 米
-var heading: float = 0.0            ## 弧度, 0=上(北)
-var speed: float = 250.0            ## m/s (内部全部用m/s)
 var vertical_speed: float = 0.0     ## m/s
 var bank_angle: float = 0.0         ## 弧度
 var _committed_turn_sign: float = 0.0  ## 转弯方向锁定：0=未锁定, +1/-1=锁定方向
 var g_load: float = 1.0
-var hp: float = 100.0
 var is_stalled: bool = false
 var _stall_recovery_timer: float = 0.0  ## 失速恢复冷却（防止反复失速抽搐）
 var pilot_stamina: float = 100.0  ## 飞行员当前耐力
 
 # --- 目标 ---
 var target_position: Vector2 = Vector2.INF  ## 世界坐标, INF=无目标
+var keep_target_on_arrival: bool = false    ## true=外部管理target_position，到达时不清除
+var formation_mode: bool = false            ## true=编队托管模式，直接复制长机状态
+var _formation_leader: Aircraft = null      ## 编队长机引用（formation_mode时使用）
+var _formation_blend: float = 1.0           ## 编队混合度（0=自主, 1=完全托管，用于过渡）
+var _formation_jitter_phase: float = 0.0    ## 个体扰动相位
 var target_altitude: float = 5000.0
 var target_speed_kmh: float = 900.0  ## km/h, 玩家/AI设定
+var target_altitude_tier: int = AltitudeTier.MID   ## 目标高度档位（flat_altitude时使用）
 
 # --- 选择 ---
 var selected: bool = false
@@ -35,7 +33,7 @@ var is_afterburner: bool = false
 var _ab_cooldown: float = 0.0        ## 加力状态切换冷却
 
 # --- 战斗 ---
-var combat_target: Aircraft = null  ## 锁定追踪的敌机
+var combat_target: CombatUnit = null  ## 锁定追踪的敌机/地面单位
 var is_firing: bool = false
 var ammo: int = 500
 var _fire_cooldown: float = 0.0
@@ -49,6 +47,7 @@ var missile_manager: Node2D = null  ## 由 main.gd 注入
 enum WeaponMode { MISSILE, GUN }
 var weapon_mode: int = WeaponMode.GUN
 var missiles_remaining: int = 0
+var secondary_missiles_remaining: int = 0  ## 副导弹（空对地等）剩余数
 var _missile_cooldown: float = 0.0
 var _crank_timer: float = 0.0          ## 发射后保持照射计时（秒），> 0 时飞机维持稳定航向
 const CRANK_DURATION: float = 8.0      ## 发射后保持照射的时长
@@ -58,28 +57,29 @@ const LOCK_STABLE_BUFFER: float = 1.0  ## 锁定后额外稳定时间才允许�
 var enable_missile_reload: bool = false     ## 生存模式启用自动装填
 var _missile_reload_active: bool = false
 var _missile_reload_timer: float = 0.0
-var missile_reload_duration: float = 10.0   ## 装填总时间（可通过升级缩短）
+var missile_reload_duration: float = 20.0   ## 装填总时间（可通过升级缩短）
 var missile_reload_progress: float = 0.0    ## 0.0-1.0, HUD 读取用
 
 # --- 多目标锁定（生存模式升级）---
 var max_simultaneous_locks: int = 1
 
 # --- 击毁 ---
-var is_destroyed: bool = false
 var _destroy_timer: float = 0.0
 var _destroy_spin: float = 0.0      ## 坠落旋转速度
 
 # --- 雷达 ---
-var is_hovered: bool = false             ## 鼠标悬停时为 true，显示雷达锥
-var radar_targets: Dictionary = {}       ## { Aircraft: float } 累计照射时间
-var is_locked: bool = false              ## 被至少一架敌机锁定
-var locked_by: Array[Aircraft] = []      ## 锁定自己的敌机列表
 
 # --- 热诱弹 ---
 var flares_remaining: int = 0
 var _flare_cooldown: float = 0.0
-var _flare_particles: Array[Dictionary] = []  ## { pos: Vector2, vel: Vector2, life: float }
+var _flare_particles: Array[Dictionary] = []  ## { pos: Vector2, vel: Vector2, life: float, bright: bool }
+var _flare_spawn_queue: Array[Dictionary] = []  ## 待释放粒子队列 { delay: float, heading: float, pos: Vector2 }
 var flares_guaranteed: bool = false  ## 生存模式：玩家热诱弹 100% 干扰
+var enable_flare_reload: bool = false  ## 生存模式：热诱弹用完后自动装填
+var flare_reload_progress: float = 0.0  ## 0.0-1.0, HUD 读取用
+var enable_gun_reload: bool = false      ## 生存模式：机炮弹药持续恢复
+var gun_regen_rate: float = 2.0          ## 每秒恢复弹药数
+var _gun_regen_accum: float = 0.0        ## 恢复累计（不足1发时累积）
 var infinite_fuel: bool = false      ## 生存模式：无限燃油
 var bullet_dodge_chance: float = 0.0  ## 机炮弹丸闪避概率（装甲强化升级）
 var flare_lock_immunity: float = 0.0  ## 释放热诱弹后的锁定免疫时间（秒）
@@ -92,6 +92,21 @@ var survivor_missile_damage_cap: float = 0.0  ## 生存模式：导弹伤害上�
 var survivor_bullet_damage_cap: float = 0.0   ## 生存模式：机炮伤害上限（0=不限制）
 var hide_data_label: bool = false    ## 隐藏飞机旁的数据标签（HUD 替代显示）
 
+# --- 战术偏好（生存模式玩家手动控制）---
+enum WeaponPreference { PREFER_MISSILE, PREFER_GUN }
+enum AltitudePreference { PREFER_CLIMB, PREFER_LOW }
+
+var use_tactical_preference: bool = false       ## 启用战术偏好系统（仅玩家飞机）
+var weapon_preference: int = WeaponPreference.PREFER_MISSILE
+var altitude_preference: int = AltitudePreference.PREFER_CLIMB
+var evasion_mode: bool = false
+var _evasion_override: bool = false             ## 玩家手动点击临时覆盖规避
+var _evasion_sway_timer: float = 0.0            ## S型机动计时器
+
+# --- LOD ---
+var lod_level: int = 0  ## 0=完整, 1=简化（编队僚机巡航）, 2=最小化（屏幕外）
+var _lod_frame: int = 0  ## LOD 帧计数器
+
 # --- 战术提示弹窗 ---
 var _tactic_popup_text: String = ""
 var _tactic_popup_timer: float = 0.0
@@ -100,6 +115,12 @@ const TACTIC_POPUP_DURATION: float = 2.0  ## 提示显示时长（秒）
 var _trail_ribbon: TrailRibbon
 
 func _ready() -> void:
+	# 分配唯一 callsign
+	if callsign == "":
+		callsign = CallsignDB.allocate()
+	speed = 250.0  # 默认速度 m/s（会被 params 覆盖）
+	altitude = 5000.0  # 默认高度
+	hp = 100.0
 	heading = deg_to_rad(initial_heading_deg)
 	rotation = heading
 	if params:
@@ -111,6 +132,8 @@ func _ready() -> void:
 			ammo = params.gun.max_ammo
 		if params.missile:
 			missiles_remaining = params.missile.max_count
+		if params.secondary_missile:
+			secondary_missiles_remaining = params.secondary_missile.max_count
 		if params.flare:
 			flares_remaining = params.flare.max_flares
 		pilot_stamina = params.pilot_stamina
@@ -129,13 +152,173 @@ func show_tactic_popup(text: String) -> void:
 	_tactic_popup_timer = TACTIC_POPUP_DURATION
 
 func _physics_process(delta: float) -> void:
+	_lod_frame += 1
 	if _tactic_popup_timer > 0.0:
 		_tactic_popup_timer -= delta
 	if is_destroyed:
 		_update_destroy(delta)
 		queue_redraw()
 		return
+
+	# LOD 2（屏幕外）：每3帧完整处理，其余帧仅位移
+	if lod_level >= 2:
+		if _lod_frame % 3 != 0:
+			_apply_movement(delta)
+			# 玩家飞机即使屏幕外也要画锁定线
+			if selected and combat_target != null:
+				queue_redraw()
+			return
+		# 每3帧做一次完整更新（但跳过视觉和扫描）
+		_update_weapon_mode()
+		_update_combat(delta)
+		_update_energy_management()
+		_update_target_heading()
+		_update_bank(delta)
+		_update_heading(delta)
+		_update_speed(delta)
+		_update_altitude(delta)
+		_update_fuel(delta)
+		_update_stall()
+		_check_ground_crash()
+		_update_g_load()
+		_apply_movement(delta)
+		if combat_target != null:
+			_update_gun(delta)
+			_update_missile(delta)
+		_update_flares(delta)
+		# 玩家飞机即使屏幕外也要画锁定线
+		if selected and combat_target != null:
+			queue_redraw()
+		return
+
+	# LOD 1（编队僚机巡航）
+	if lod_level == 1:
+		var every3 := _lod_frame % 3 == 0
+
+		if formation_mode and _formation_leader:
+			# ── 编队托管模式 ──
+			# 三段式：
+			#   >REJOIN_DIST   → 纯追击归队
+			#   CLOSE~REJOIN   → 航向追踪 + 自然银行转弯（中距机动）
+			#   <CLOSE_DIST    → 航向同步长机 + 微量漂移修正
+			var ldr: Aircraft = _formation_leader
+			var b := _formation_blend  # 0=自主飞行过渡, 1=正常编队
+
+			# 计算离阵型槽位的距离
+			var slot_dist := 0.0
+			if target_position != Vector2.INF:
+				slot_dist = global_position.distance_to(target_position)
+
+			# 微扰动：基于个体相位的缓慢正弦波
+			var t := float(_lod_frame) * 0.02
+			var jitter_heading := sin(t + _formation_jitter_phase) * 0.008
+			var jitter_bank := sin(t * 0.7 + _formation_jitter_phase + 1.0) * 0.015
+
+			const CLOSE_DIST := 50.0    # 以内纯航向同步
+			const REJOIN_DIST := 800.0  # 以外纯追击归队
+
+			if b < 0.05 or slot_dist > REJOIN_DIST:
+				# 极远或过渡初期：纯追击归队
+				if target_position != Vector2.INF and slot_dist > 10.0:
+					var to_slot := (target_position - global_position).normalized()
+					var slot_heading := atan2(to_slot.x, -to_slot.y)
+					heading = lerp_angle(heading, slot_heading, 4.0 * delta)
+					var hdiff := _angle_diff(slot_heading, heading)
+					var max_bank_val := _max_bank_angle()
+					var desired_bank := signf(hdiff) * max_bank_val * clampf(absf(hdiff) * 2.0, 0.0, 0.7)
+					bank_angle = lerpf(bank_angle, desired_bank, 4.0 * delta)
+			elif slot_dist > CLOSE_DIST:
+				# 中距离：航向追踪槽位（航向 + 自然银行转弯，模拟真实飞机机动）
+				var to_slot := (target_position - global_position).normalized()
+				var slot_heading := atan2(to_slot.x, -to_slot.y)
+				var ldr_heading := ldr.heading + jitter_heading
+				# 距离越远越偏向槽位航向，越近越偏向长机航向
+				var proximity := clampf((slot_dist - CLOSE_DIST) / (REJOIN_DIST - CLOSE_DIST), 0.0, 1.0)
+				var blend_ratio := clampf(proximity * 1.2, 0.15, 0.85)
+				var blended_heading := lerp_angle(ldr_heading, slot_heading, blend_ratio)
+				heading = lerp_angle(heading, blended_heading, 5.0 * delta)
+
+				# 坡度根据目标航向与当前航向的差值自然响应
+				var hdiff := _angle_diff(blended_heading, heading)
+				var max_bank_val := _max_bank_angle()
+				var desired_bank := signf(hdiff) * max_bank_val * clampf(absf(hdiff) * 2.5, 0.0, 0.75)
+				bank_angle = lerpf(bank_angle, desired_bank, 4.0 * delta)
+			else:
+				# 近距离：航向直接同步长机
+				var target_hdg := ldr.heading + jitter_heading
+				var target_bnk := ldr.bank_angle + jitter_bank
+				var rate := minf(b * 8.0 * delta, 1.0)
+				heading = lerp_angle(heading, target_hdg, rate)
+				bank_angle = lerpf(bank_angle, target_bnk, rate)
+
+			# 速度：根据槽位距离分档
+			var jitter_speed := sin(t * 0.5 + _formation_jitter_phase + 2.0) * ldr.speed * 0.005
+			if slot_dist > REJOIN_DIST:
+				# 归队：大幅加速
+				var max_spd := (params.max_speed if params else 2100.0) / 3.6
+				var chase_speed := minf(ldr.speed * 1.4, max_spd)
+				speed = lerpf(speed, chase_speed, 4.0 * delta)
+			elif slot_dist > 200.0:
+				# 远追赶
+				speed = lerpf(speed, ldr.speed * 1.15 + jitter_speed, 4.0 * delta)
+			elif slot_dist > CLOSE_DIST:
+				# 中距追赶
+				speed = lerpf(speed, ldr.speed * 1.05 + jitter_speed, 3.0 * delta)
+			else:
+				# 近距：匹配长机速度
+				speed = lerpf(speed, ldr.speed + jitter_speed, (3.0 + b * 3.0) * delta)
+
+			# 高度同步
+			altitude = lerpf(altitude, ldr.altitude, (2.0 + b * 2.0) * delta)
+
+			# 正常位移（全部位移通过 _apply_movement 走飞行物理）
+			_apply_movement(delta)
+
+			# 近距离微漂移：仅最后 50px 内做细微槽位对齐（很弱，避免平移感）
+			if target_position != Vector2.INF and slot_dist > 3.0 and slot_dist < CLOSE_DIST and b > 0.05:
+				var correction_dir := (target_position - global_position).normalized()
+				var strength := clampf(slot_dist / CLOSE_DIST, 0.1, 1.0) * b * 0.4
+				var correction_speed := speed * PIXELS_PER_METER * 0.15 * strength
+				var move_px := minf(correction_speed * delta, slot_dist)
+				global_position += correction_dir * move_px
+
+			if every3:
+				_update_fuel(delta)
+				_update_g_load()
+			_update_visuals()
+			queue_redraw()
+			return
+
+		# ── 非编队 LOD 1（降低运算频率） ──
+		_update_weapon_mode()
+		if combat_target != null:
+			_update_combat(delta)
+		if every3:
+			_update_energy_management()
+		_update_target_heading()
+		_update_bank(delta)
+		_update_heading(delta)
+		_update_speed(delta)
+		if every3:
+			_update_altitude(delta)
+			_update_fuel(delta)
+			_update_stall()
+			_check_ground_crash()
+			_update_g_load()
+		_apply_movement(delta)
+		if combat_target != null:
+			_auto_gun_scan()
+			_update_gun(delta)
+			_update_missile(delta)
+		if every3:
+			_update_flares(delta)
+		_update_visuals()
+		queue_redraw()
+		return
+
+	# LOD 0（完整）：玩家 / 交战中
 	_update_weapon_mode()
+	_update_evasion(delta)
 	_update_combat(delta)
 	_update_energy_management()
 	_update_target_heading()
@@ -165,8 +348,9 @@ func _update_target_heading() -> void:
 	# 到达判定：至少150px，或当前速度下2秒的飞行距离
 	# 追踪战斗目标时跳过到达清除（由 _update_combat 持续更新）
 	var arrival_dist := maxf(150.0, speed * PIXELS_PER_METER * 2.0)
-	if dist < arrival_dist and combat_target == null:
+	if dist < arrival_dist and combat_target == null and not keep_target_on_arrival:
 		target_position = Vector2.INF
+		_evasion_override = false  # 到达目标后恢复规避
 		return
 	var _target_heading := atan2(diff.x, -diff.y)
 	_cached_target_heading = _target_heading
@@ -215,7 +399,16 @@ func _update_bank(delta: float) -> void:
 		var full_diff := cb.combat_full_bank_diff / cb.combat_bank_aggression
 		var half_diff := cb.combat_half_bank_diff / cb.combat_bank_aggression
 
-		if weapon_mode == WeaponMode.MISSILE:
+		if use_tactical_preference:
+			# 战术偏好模式（玩家控制）：始终使用激进转弯，不受导弹阶段影响
+			if abs(heading_diff) < half_diff:
+				target_bank = 0.0
+			elif abs(heading_diff) < full_diff:
+				var bank_ratio: float = (abs(heading_diff) - half_diff) / (full_diff - half_diff)
+				target_bank = sign(heading_diff) * max_bank * lerpf(0.4, 1.0, bank_ratio)
+			else:
+				target_bank = sign(heading_diff) * max_bank
+		elif weapon_mode == WeaponMode.MISSILE:
 			# 导弹模式分三阶段：接近→照射→保持
 			var msl_phase := _get_missile_phase()
 			if msl_phase == 0:
@@ -248,6 +441,14 @@ func _update_bank(delta: float) -> void:
 				target_bank = sign(heading_diff) * max_bank * lerpf(0.4, 1.0, gun_bank_ratio)
 			else:
 				target_bank = sign(heading_diff) * max_bank
+	elif formation_mode:
+		# 编队跟随模式：积极转弯追赶阵型位置
+		if abs(heading_diff) < 0.03:
+			target_bank = 0.0
+		elif abs(heading_diff) < 0.2:
+			target_bank = sign(heading_diff) * max_bank * lerpf(0.3, 0.8, abs(heading_diff) / 0.2)
+		else:
+			target_bank = sign(heading_diff) * max_bank * 0.9
 	else:
 		# 巡航模式：温和修正
 		if abs(heading_diff) < 0.05:
@@ -263,8 +464,8 @@ func _update_bank(delta: float) -> void:
 		target_bank = 0.0
 	elif _stall_recovery_timer > 0.0:
 		# 失速恢复期：逐渐恢复机动能力，防止立即拉G再次失速
-		var recovery_ratio := 1.0 - clampf(_stall_recovery_timer / 2.0, 0.0, 1.0)
-		target_bank *= recovery_ratio * recovery_ratio  # 平方曲线：初期极温和，后期快速恢复
+		var recovery_ratio := 1.0 - clampf(_stall_recovery_timer / 1.0, 0.0, 1.0)
+		target_bank *= recovery_ratio  # 线性恢复，更快回复机动能力
 
 	# 滚转速率限制
 	var roll_rate_val := params.roll_rate if params else 4.0
@@ -365,7 +566,7 @@ func _update_stall() -> void:
 		# 失速时侧倾不稳定
 		bank_angle += randf_range(-1.0, 1.0) * severity * 2.0 * delta
 
-		_stall_recovery_timer = 2.0  # 脱离失速后 2 秒内限制机动
+		_stall_recovery_timer = 1.0  # 脱离失速后 1 秒内限制机动
 	elif _stall_recovery_timer > 0.0:
 		_stall_recovery_timer -= get_physics_process_delta_time()
 
@@ -445,6 +646,19 @@ static func _angle_diff(target: float, current: float) -> float:
 	var diff := fmod(target - current + PI, TAU) - PI
 	return diff
 
+## 设置目标高度档位（同步 target_altitude 到档位对应值）
+func set_target_tier(tier: int) -> void:
+	target_altitude_tier = clampi(tier, AltitudeTier.LOW, AltitudeTier.HIGH)
+	target_altitude = TIER_ALTITUDE[target_altitude_tier]
+
+## 获取比当前档位高一档（上限 HIGH）
+func tier_above() -> int:
+	return mini(get_altitude_tier() + 1, AltitudeTier.HIGH)
+
+## 获取比当前档位低一档（下限 LOW）
+func tier_below() -> int:
+	return maxi(get_altitude_tier() - 1, AltitudeTier.LOW)
+
 # ========== 燃油 / 能量管理 ==========
 
 ## 带冷却的加力切换
@@ -482,8 +696,19 @@ func _update_energy_management() -> void:
 	var cruise := params.cruise_speed if params else 900.0
 
 	if combat_target != null and is_instance_valid(combat_target) and not combat_target.is_destroyed:
+		# 地面攻击模式：保持中等速度，不做复杂能量管理
+		if combat_target is GroundUnit:
+			var cruise_ms := cruise / 3.6
+			target_speed_kmh = cruise * 0.7  # 攻击速度 = 巡航 70%
+			_set_afterburner(false)
+			return
+		# AI 战术机动模式：AI 控制器已设定速度，仅管理加力燃烧器
+		if ai_override_pursuit:
+			var my_kmh := speed * 3.6
+			_set_afterburner(my_kmh < target_speed_kmh - 50.0 and fuel > 0.0)
+			return
 		# ---- 战斗模式 ----
-		var dist := global_position.distance_to(combat_target.global_position)
+		var dist := Aircraft.effective_distance_px(global_position, altitude, combat_target.global_position, combat_target.altitude)
 		var gun_range := _gun_range_px()
 		var tgt_speed_ms := combat_target.speed
 		var tgt_speed_kmh := tgt_speed_ms * 3.6
@@ -512,8 +737,21 @@ func _update_energy_management() -> void:
 
 		var approach_speed := cruise * cb.approach_speed_mult
 
-		if is_missile_mode:
-			# ======== 导弹模式能量管理（分阶段） ========
+		if use_tactical_preference and is_missile_mode:
+			# ======== 战术偏好：导弹模式简化能量管理 ========
+			# 不区分导弹阶段，保持巡航速度，大转弯时减速
+			if needs_big_turn:
+				var msl_turn_ratio := clampf(
+					(heading_diff_deg - cb.turn_slow_angle) / (cb.turn_slow_max_angle - cb.turn_slow_angle),
+					0.0, 1.0)
+				target_speed_kmh = lerpf(cruise, turn_speed, msl_turn_ratio)
+				_set_afterburner(false)
+			else:
+				target_speed_kmh = cruise
+				_set_afterburner(false)
+			target_speed_kmh = maxf(target_speed_kmh, combat_min_kmh)
+		elif is_missile_mode:
+			# ======== AI 导弹模式能量管理（分阶段） ========
 			var msl_phase := _get_missile_phase()
 
 			if msl_phase == 0:
@@ -552,7 +790,10 @@ func _update_energy_management() -> void:
 			# 导弹模式也保底战斗最低速度
 			target_speed_kmh = maxf(target_speed_kmh, combat_min_kmh)
 			# 高度匹配敌机
-			target_altitude = combat_target.altitude
+			if flat_altitude:
+				set_target_tier(combat_target.get_altitude_tier())
+			else:
+				target_altitude = combat_target.altitude
 		else:
 			# ======== 机炮模式能量管理（原有逻辑） ========
 			var maneuver_speed := cruise * cb.maneuver_speed_mult
@@ -606,41 +847,88 @@ func _update_energy_management() -> void:
 			var my_kmh_now := speed * 3.6
 			var desired_kmh := target_speed_kmh
 
-			var combat_alt := combat_target.altitude
-			var alt_ceiling := combat_alt + cb.climb_brake_height * 2.0
-			target_altitude = combat_alt
+			if flat_altitude:
+				# 扁平模式：用档位切换实现能量转换
+				var tgt_tier := combat_target.get_altitude_tier()
+				set_target_tier(tgt_tier)
+				if has_overshot and my_kmh_now > desired_kmh:
+					set_target_tier(tier_above())  # 爬升减速
+				elif my_kmh_now > desired_kmh * cb.climb_brake_overspeed:
+					set_target_tier(tier_above())  # 爬升刹车
+				elif my_kmh_now < tgt_speed_kmh * cb.dive_speed_ratio:
+					set_target_tier(tier_below())  # 俯冲换速
+				elif needs_big_turn and my_kmh_now > desired_kmh * 1.1:
+					set_target_tier(tier_above())  # 转弯前爬升
+			else:
+				var combat_alt := combat_target.altitude
+				var alt_ceiling := combat_alt + cb.climb_brake_height * 2.0
+				target_altitude = combat_alt
 
-			if has_overshot and my_kmh_now > desired_kmh:
-				target_altitude = minf(combat_alt + cb.climb_brake_height * 1.5, alt_ceiling)
-			elif my_kmh_now > desired_kmh * cb.climb_brake_overspeed:
-				var excess_ratio := (my_kmh_now - desired_kmh) / maxf(desired_kmh, 100.0)
-				var climb_amount := cb.climb_brake_height * clampf(excess_ratio * 3.0, 0.3, 1.0)
-				target_altitude = minf(combat_alt + climb_amount, alt_ceiling)
-			elif my_kmh_now < tgt_speed_kmh * cb.dive_speed_ratio and altitude > cb.dive_min_altitude:
-				target_altitude = maxf(combat_alt - cb.dive_depth, cb.dive_floor)
-			elif needs_big_turn and my_kmh_now > desired_kmh * 1.1:
-				target_altitude = minf(combat_alt + cb.climb_brake_height * 0.5, alt_ceiling)
+				if has_overshot and my_kmh_now > desired_kmh:
+					target_altitude = minf(combat_alt + cb.climb_brake_height * 1.5, alt_ceiling)
+				elif my_kmh_now > desired_kmh * cb.climb_brake_overspeed:
+					var excess_ratio := (my_kmh_now - desired_kmh) / maxf(desired_kmh, 100.0)
+					var climb_amount := cb.climb_brake_height * clampf(excess_ratio * 3.0, 0.3, 1.0)
+					target_altitude = minf(combat_alt + climb_amount, alt_ceiling)
+				elif my_kmh_now < tgt_speed_kmh * cb.dive_speed_ratio and altitude > cb.dive_min_altitude:
+					target_altitude = maxf(combat_alt - cb.dive_depth, cb.dive_floor)
+				elif needs_big_turn and my_kmh_now > desired_kmh * 1.1:
+					target_altitude = minf(combat_alt + cb.climb_brake_height * 0.5, alt_ceiling)
 	else:
 		# ---- 巡航模式 ----
+		# 编队跟随时由AI控制器管理速度和高度，跳过自主能量管理
+		if formation_mode:
+			return
 		_set_afterburner(false)
 		target_speed_kmh = cruise
 
-		var cruise_ms := cruise / 3.6
-		if speed > cruise_ms * 1.1 and altitude < target_altitude - 100.0:
-			pass
-		elif speed > cruise_ms * cb.climb_speed_ratio and altitude < cb.climb_max_altitude:
-			target_altitude = minf(altitude + 500.0, cb.climb_max_altitude)
+		if flat_altitude:
+			if use_tactical_preference:
+				# 战术偏好：按玩家设定调整巡航高度
+				match altitude_preference:
+					AltitudePreference.PREFER_CLIMB:
+						set_target_tier(AltitudeTier.HIGH)
+					AltitudePreference.PREFER_LOW:
+						set_target_tier(AltitudeTier.LOW)
+			else:
+				# 扁平模式：富余速度时升档蓄能
+				var cruise_ms := cruise / 3.6
+				if speed > cruise_ms * cb.climb_speed_ratio and get_altitude_tier() < AltitudeTier.HIGH:
+					set_target_tier(tier_above())
+		else:
+			var cruise_ms := cruise / 3.6
+			if speed > cruise_ms * 1.1 and altitude < target_altitude - 100.0:
+				pass
+			elif speed > cruise_ms * cb.climb_speed_ratio and altitude < cb.climb_max_altitude:
+				target_altitude = minf(altitude + 500.0, cb.climb_max_altitude)
 
 # ========== 战斗 ==========
 
-func set_combat_target(target: Aircraft) -> void:
+func _log_name() -> String:
+	var side := "Friend" if team == 0 else "Enemy"
+	var dn: String = params.display_name if params else "???"
+	return "%s/%s[%s]" % [side, dn, callsign]
+
+func _log_unit_name(unit: CombatUnit) -> String:
+	if not unit or not is_instance_valid(unit):
+		return "None"
+	if unit is Aircraft:
+		var ac: Aircraft = unit
+		var side := "Friend" if ac.team == 0 else "Enemy"
+		var dn: String = ac.params.display_name if ac.params else "???"
+		return "%s/%s[%s]" % [side, dn, ac.callsign]
+	return unit.name
+
+func set_combat_target(target: CombatUnit) -> void:
 	combat_target = target
 	is_firing = false
+	_strafe_state = 0  # 重置舔地状态机
 
 func clear_combat_target() -> void:
 	combat_target = null
 	_committed_turn_sign = 0.0
 	is_firing = false
+	_strafe_state = 0
 
 ## 追踪逻辑：三阶段 —— 拦截 / 咬尾 / 纯追击+机会射击
 func _update_combat(_delta: float) -> void:
@@ -648,6 +936,12 @@ func _update_combat(_delta: float) -> void:
 		return
 	if not is_instance_valid(combat_target) or combat_target.is_destroyed:
 		clear_combat_target()
+		target_position = Vector2.INF  # 目标被击毁，停止直飞
+		return
+
+	# 地面目标 → 舔地攻击（strafing run）
+	if combat_target is GroundUnit:
+		_update_combat_ground_attack()
 		return
 
 	var cb := _combat_params()
@@ -674,8 +968,11 @@ func _update_combat(_delta: float) -> void:
 
 	var is_missile_mode := weapon_mode == WeaponMode.MISSILE
 
-	# AI 战术机动模式：跳过自动追踪，AI 直接控制 target_position
-	if not ai_override_pursuit:
+	# 战术偏好模式（玩家手动控制）：简化直追，不做 crank 侧飞
+	if use_tactical_preference:
+		var lead_time := clampf(dist / maxf(my_speed_px, 50.0), 0.3, 2.0)
+		target_position = tgt_pos + tgt_fwd * tgt_speed_px * lead_time
+	elif not ai_override_pursuit:
 		var gun_range := _gun_range_px()
 		var eff_range := _effective_range_px()
 		var pursuit_pos: Vector2
@@ -763,14 +1060,97 @@ func _update_combat(_delta: float) -> void:
 			fire_cone = base_cone * cb.opportunity_cone_mult
 			fire_range = range_px * cb.opportunity_range_mult
 
-		# 高度差检查（米），超过 500m 不开火
+		# 高度差检查（米），超过 500m 不开火（扁平高度模式下忽略）
 		var alt_diff := absf(altitude - combat_target.altitude)
-		is_firing = lead_dist <= fire_range and angle_diff <= fire_cone and alt_diff < 500.0
+		is_firing = lead_dist <= fire_range and angle_diff <= fire_cone and (flat_altitude or alt_diff < 500.0)
 		# 缓存前置点供 _update_gun 使用
 		_gun_lead_heading = angle_to_lead
 	else:
 		is_firing = false
 		_gun_lead_heading = heading
+
+## ========== 地面攻击（Strafing Run） ==========
+## 飞机对地面静止/慢速目标的攻击模式：
+## 1. 从远处直线飞向目标（进入跑道）
+## 2. 飞越目标上空，途中开火
+## 3. 越过后直线延伸脱离
+## 4. 掉头回来进行下一轮
+
+var _strafe_state: int = 0       ## 0=进入, 1=攻击, 2=脱离, 3=掉头
+var _strafe_extend_dist: float = 0.0  ## 脱离时已飞距离
+const STRAFE_ATTACK_RANGE := 1500.0   ## 像素，开始攻击判定距离
+const STRAFE_EXTEND_RANGE := 800.0    ## 像素，越过后继续直飞距离
+const STRAFE_APPROACH_RANGE := 3000.0 ## 像素，进入跑道对准距离
+
+func _update_combat_ground_attack() -> void:
+	var my_pos := global_position
+	var tgt_pos := combat_target.global_position
+	var dist := my_pos.distance_to(tgt_pos)
+	var my_fwd := Vector2(sin(heading), -cos(heading))
+	var to_target := (tgt_pos - my_pos).normalized()
+	var is_missile_mode := weapon_mode == WeaponMode.MISSILE
+
+	# 目标是否在前方（点积 > 0 = 前方）
+	var dot_fwd := my_fwd.dot(to_target)
+	var heading_to_tgt := atan2(to_target.x, -to_target.y)
+	var heading_diff := absf(_angle_diff(heading_to_tgt, heading))
+
+	# 状态机
+	match _strafe_state:
+		0:  # 进入：远距离对准目标
+			if dist < STRAFE_ATTACK_RANGE and heading_diff < deg_to_rad(30.0):
+				_strafe_state = 1  # 进入攻击阶段
+			else:
+				# 对准目标直飞
+				target_position = tgt_pos
+		1:  # 攻击：直线飞向/飞越目标
+			target_position = tgt_pos
+			# 检查是否已经飞过目标（目标在身后）
+			if dot_fwd < -0.2 and dist > 50.0:
+				_strafe_state = 2
+				_strafe_extend_dist = 0.0
+		2:  # 脱离：越过后继续直飞一段距离
+			# 保持当前方向直飞
+			target_position = my_pos + my_fwd * 1000.0
+			_strafe_extend_dist += speed * PIXELS_PER_METER * get_physics_process_delta_time()
+			if _strafe_extend_dist > STRAFE_EXTEND_RANGE:
+				_strafe_state = 3
+		3:  # 掉头：转向目标准备下一轮
+			target_position = tgt_pos
+			if heading_diff < deg_to_rad(45.0) and dist > STRAFE_ATTACK_RANGE * 0.8:
+				_strafe_state = 0  # 回到进入阶段
+
+	# ---- 高度管理：攻击时降低高度 ----
+	if flat_altitude:
+		if _strafe_state <= 1:
+			set_target_tier(AltitudeTier.LOW)  # 攻击时降到低空
+		else:
+			# 脱离/掉头时根据偏好恢复
+			if altitude_preference == AltitudePreference.PREFER_CLIMB:
+				set_target_tier(AltitudeTier.MID)
+	else:
+		if _strafe_state <= 1:
+			target_altitude = 1500.0  # 低空进入
+		else:
+			target_altitude = 3000.0  # 脱离时爬升
+
+	# ---- 开火判定 ----
+	is_firing = false
+	_gun_lead_heading = heading
+
+	# 导弹模式：远距离锁定发射
+	if is_missile_mode:
+		# 导弹发射由 _update_missile 处理，这里不设 is_firing
+		pass
+	else:
+		# 机炮：攻击阶段 + 在范围内 + 机头对准 → 开火
+		var gun := params.gun if params else null
+		if gun and ammo > 0 and _strafe_state <= 1:
+			var range_px := gun.max_range * PIXELS_PER_METER
+			var fire_cone := deg_to_rad(gun.fire_cone_half_angle * 1.5)  # 对地放宽火控角
+			if dist < range_px and heading_diff < fire_cone:
+				is_firing = true
+				_gun_lead_heading = heading_to_tgt  # 地面目标静止，直接瞄
 
 ## 战斗参数（带懒加载默认值）
 var _default_combat: CombatParams
@@ -829,8 +1209,8 @@ func _auto_gun_scan() -> void:
 		if dist > range_px or dist < 10.0:
 			continue
 
-		# 高度差检查
-		if absf(altitude - ac.altitude) > 500.0:
+		# 高度差检查（扁平高度模式下忽略）
+		if not flat_altitude and absf(altitude - ac.altitude) > 500.0:
 			continue
 
 		# 前置点计算
@@ -852,6 +1232,13 @@ func _auto_gun_scan() -> void:
 
 func _update_gun(delta: float) -> void:
 	_fire_cooldown = maxf(_fire_cooldown - delta, 0.0)
+	# 弹药持续恢复
+	if enable_gun_reload and params and params.gun and ammo < params.gun.max_ammo:
+		_gun_regen_accum += gun_regen_rate * delta
+		var add := int(_gun_regen_accum)
+		if add > 0:
+			ammo = mini(ammo + add, params.gun.max_ammo)
+			_gun_regen_accum -= float(add)
 	if not is_firing:
 		return
 	if not params or not params.gun:
@@ -883,6 +1270,7 @@ func _update_gun(delta: float) -> void:
 	ammo -= 1
 	if gun_extra_barrels >= 2:
 		ammo -= 2
+	ammo = maxi(ammo, 0)
 
 ## 导弹射程（像素）
 func _missile_range_px() -> float:
@@ -926,21 +1314,29 @@ func _should_use_gun() -> bool:
 	return dist < gun_range * 0.8
 
 ## 武器模式判定（每帧最先执行，确保 combat 和 energy 读到正确模式）
-## 原则：有导弹就贯彻导弹策略，只有非常近才切机炮
 func _update_weapon_mode() -> void:
-	if not params or not params.missile or missiles_remaining <= 0:
-		# 没导弹了：只能用机炮
+	# 战术偏好模式（生存模式玩家）
+	if use_tactical_preference:
+		_update_weapon_mode_tactical()
+		return
+
+	# AI / 沙盒模式：原有自动切换逻辑
+	# 根据目标类型判断"可用导弹数"：空中目标只能用 AAM（主），地面目标两种皆可
+	var target_is_ground: bool = combat_target != null and is_instance_valid(combat_target) and combat_target is GroundUnit
+	var usable_missiles: int = 0
+	if params:
+		if target_is_ground:
+			usable_missiles = missiles_remaining + secondary_missiles_remaining
+		else:
+			# 空中目标（或无目标）：仅 AAM 算数，AGM 不能打飞机
+			usable_missiles = missiles_remaining
+	if (not params or (not params.missile and not params.secondary_missile)) or usable_missiles <= 0:
 		weapon_mode = WeaponMode.GUN
 		return
-
 	if _crank_timer > 0.0:
-		# 发射后保持照射阶段：绝不切换
 		weapon_mode = WeaponMode.MISSILE
 		return
-
-	if weapon_mode == WeaponMode.GUN and missiles_remaining > 0:
-		# 当前是机炮模式，但还有导弹：只有拉远了才切回导弹
-		# 滞后阈值：必须远于机炮射程 2 倍才切回导弹，防止震荡
+	if weapon_mode == WeaponMode.GUN and usable_missiles > 0:
 		if combat_target and is_instance_valid(combat_target) and not combat_target.is_destroyed:
 			var dist := global_position.distance_to(combat_target.global_position)
 			var gun_range := _gun_range_px()
@@ -949,16 +1345,69 @@ func _update_weapon_mode() -> void:
 		else:
 			weapon_mode = WeaponMode.MISSILE
 		return
-
-	# 当前是导弹模式：只有非常近才切机炮
 	if _should_use_gun():
 		weapon_mode = WeaponMode.GUN
 	else:
 		weapon_mode = WeaponMode.MISSILE
 
+## 战术偏好武器模式：玩家手动控制，简洁明确
+func _update_weapon_mode_tactical() -> void:
+	match weapon_preference:
+		WeaponPreference.PREFER_MISSILE:
+			if (missiles_remaining + secondary_missiles_remaining) > 0 or _crank_timer > 0.0:
+				weapon_mode = WeaponMode.MISSILE
+			else:
+				weapon_mode = WeaponMode.GUN  # 导弹打完临时用机炮
+		WeaponPreference.PREFER_GUN:
+			weapon_mode = WeaponMode.GUN
+
 ## 是否正在保持照射（发射后维持锁定阶段）
 func is_cranking() -> bool:
 	return _crank_timer > 0.0
+
+## 规避模式更新（生存模式玩家）
+func _update_evasion(delta: float) -> void:
+	if not use_tactical_preference or not evasion_mode:
+		return
+
+	# 检测来袭导弹
+	var incoming_missile: Node2D = null
+	var closest_dist := INF
+	if missile_manager:
+		for child in missile_manager.get_children():
+			if child is Missile:
+				var m: Missile = child as Missile
+				if m.is_active and m.target == self:
+					var d := global_position.distance_squared_to(m.global_position)
+					if d < closest_dist:
+						closest_dist = d
+						incoming_missile = m
+
+	if incoming_missile:
+		# 有来袭导弹：垂直于导弹轨迹方向规避
+		_evasion_override = false  # 导弹来袭时强制规避
+		var missile_dir := (global_position - incoming_missile.global_position).normalized()
+		var evade_dir := Vector2(missile_dir.y, -missile_dir.x)
+		# 选择与当前航向最近的规避方向
+		var evade_heading_a := atan2(evade_dir.x, -evade_dir.y)
+		var evade_heading_b := atan2(-evade_dir.x, evade_dir.y)
+		var diff_a := absf(angle_difference(heading, evade_heading_a))
+		var diff_b := absf(angle_difference(heading, evade_heading_b))
+		var chosen_dir := evade_dir if diff_a < diff_b else -evade_dir
+		target_position = global_position + chosen_dir * 2000.0
+		# 高度规避：切换档位
+		if flat_altitude:
+			if get_altitude_tier() == AltitudeTier.LOW:
+				set_target_tier(AltitudeTier.HIGH)
+			else:
+				set_target_tier(AltitudeTier.LOW)
+	elif not _evasion_override:
+		# 无来袭导弹、无玩家手动覆盖：S 型机动
+		_evasion_sway_timer += delta
+		var sway_period := 3.0  # 每3秒切换方向
+		var sway_angle := sin(_evasion_sway_timer * TAU / sway_period) * 0.8  # ±0.8弧度偏转
+		var sway_heading := heading + sway_angle
+		target_position = global_position + Vector2(sin(sway_heading), -cos(sway_heading)) * 1500.0
 
 ## 导弹更新（发射逻辑）
 ## SARH 导弹：一次只锁定一个目标，选最容易命中的
@@ -977,51 +1426,72 @@ func _update_missile(delta: float) -> void:
 			missile_reload_progress = 0.0
 		return
 
+	# 机炮优先模式下不自动发射导弹
+	if use_tactical_preference and weapon_preference == WeaponPreference.PREFER_GUN:
+		return
 	if weapon_mode != WeaponMode.MISSILE:
 		return
 	if _missile_cooldown > 0.0:
 		return
-	if missiles_remaining <= 0:
-		return
 	if not missile_manager:
 		return
-	if not params or not params.missile:
+
+	# 选择导弹类型：地面目标用副导弹（AGM），空中目标用主导弹（AAM）
+	var msl: MissileParams = null
+	var use_secondary := false
+	if combat_target and is_instance_valid(combat_target) and combat_target is GroundUnit:
+		# 目标是地面单位 → 优先用副导弹
+		if params and params.secondary_missile and secondary_missiles_remaining > 0:
+			msl = params.secondary_missile
+			use_secondary = true
+		elif params and params.missile and missiles_remaining > 0:
+			msl = params.missile  # 无副导弹时 fallback 到主导弹
+	else:
+		# 空中目标 → 只能用主导弹（AAM）。AGM 等副导弹是对地武器，不 fallback
+		if params and params.missile and missiles_remaining > 0:
+			msl = params.missile
+
+	if msl == null:
 		return
 
-	var msl := params.missile
-
 	# 多目标齐射（max_simultaneous_locks > 1 时）
-	if max_simultaneous_locks > 1:
+	# 战术偏好模式下跳过齐射，只对 combat_target 发射（玩家手动指定目标）
+	if max_simultaneous_locks > 1 and not use_tactical_preference:
 		_fire_multi_lock_salvo(msl)
 		return
 
-	# 必须有明确的交战目标才允许发射导弹（锁定 ≠ 开火授权）
+	# 必须有明确的交战目标才允许发射导弹（玩家点击敌机设定）
 	if combat_target == null or not is_instance_valid(combat_target) or combat_target.is_destroyed:
 		return
 
-	# 只对交战目标发射，不选其他目标
 	if missile_manager.has_active_missile_at(self, combat_target):
 		return
 
 	if not _is_in_missile_envelope(combat_target, msl):
 		return
 
-	# 机头必须大致朝向目标（雷达锥内）才允许发射——防止背对目标乱射
 	if not is_in_radar_cone(combat_target.global_position):
 		return
 
-	# 交战目标必须被雷达锁定足够时间
 	var lock_progress: float = radar_targets.get(combat_target, 0.0)
 	if lock_progress < params.lock_time + LOCK_STABLE_BUFFER:
 		return
 
-	# 发射！
-	_fire_missile_at(combat_target, msl)
+	_fire_missile_at(combat_target, msl, use_secondary)
 
 ## 对指定目标发射一枚导弹
-func _fire_missile_at(target_ac: Aircraft, msl: MissileParams) -> void:
-	missile_manager.spawn_missile(self, target_ac, msl)
-	missiles_remaining -= 1
+func _fire_missile_at(target_unit: CombatUnit, msl: MissileParams, is_secondary: bool = false) -> void:
+	var dist_m := global_position.distance_to(target_unit.global_position) / PIXELS_PER_METER
+	var remaining := (secondary_missiles_remaining - 1) if is_secondary else (missiles_remaining - 1)
+	EventLogger.log_event("MISSILE", _log_name(),
+		"fired %s → %s (range=%.0fm, remaining=%d)" % [
+			msl.display_name if msl.display_name else "missile",
+			_log_unit_name(target_unit), dist_m, remaining])
+	missile_manager.spawn_missile(self, target_unit, msl)
+	if is_secondary:
+		secondary_missiles_remaining -= 1
+	else:
+		missiles_remaining -= 1
 	_missile_cooldown = msl.cooldown
 	_crank_timer = CRANK_DURATION
 	# 装填触发
@@ -1030,34 +1500,35 @@ func _fire_missile_at(target_ac: Aircraft, msl: MissileParams) -> void:
 		_missile_reload_timer = 0.0
 		missile_reload_progress = 0.0
 
+
 ## 多目标齐射：选出多个已锁定目标，每个目标发射一枚
 func _fire_multi_lock_salvo(msl: MissileParams) -> void:
-	var locked_targets: Array[Aircraft] = []
+	var locked_targets: Array[CombatUnit] = []
 	var lock_threshold := params.lock_time + LOCK_STABLE_BUFFER
 
 	for target_key in radar_targets:
 		if not is_instance_valid(target_key):
 			continue
-		var target_ac: Aircraft = target_key as Aircraft
-		if target_ac == null or target_ac.is_destroyed:
+		var target_unit: CombatUnit = target_key as CombatUnit
+		if target_unit == null or target_unit.is_destroyed:
 			continue
-		if target_ac.team == team:
+		if target_unit.team == team:
 			continue
 		if radar_targets[target_key] < lock_threshold:
 			continue
-		if not is_in_radar_cone(target_ac.global_position):
+		if not is_in_radar_cone(target_unit.global_position):
 			continue
-		if not _is_in_missile_envelope(target_ac, msl):
+		if not _is_in_missile_envelope(target_unit, msl):
 			continue
-		if missile_manager.has_active_missile_at(self, target_ac):
+		if missile_manager.has_active_missile_at(self, target_unit):
 			continue
-		locked_targets.append(target_ac)
+		locked_targets.append(target_unit)
 
 	if locked_targets.is_empty():
 		return
 
 	# 按距离排序，优先打近的
-	locked_targets.sort_custom(func(a: Aircraft, b: Aircraft) -> bool:
+	locked_targets.sort_custom(func(a: CombatUnit, b: CombatUnit) -> bool:
 		return global_position.distance_squared_to(a.global_position) < global_position.distance_squared_to(b.global_position)
 	)
 
@@ -1077,25 +1548,25 @@ func _fire_multi_lock_salvo(msl: MissileParams) -> void:
 
 ## 从雷达锁定的目标中选出最优的一个（命中概率最高）
 ## 评分标准：距离近 + 机头偏差小 + 锁定时间长 = 分高
-func _select_best_missile_target() -> Aircraft:
-	var best: Aircraft = null
+func _select_best_missile_target() -> CombatUnit:
+	var best: CombatUnit = null
 	var best_score: float = -1.0
 	var my_fwd := Vector2(sin(heading), -cos(heading))
 
 	for target_key in radar_targets:
 		if not is_instance_valid(target_key):
 			continue
-		var target_ac: Aircraft = target_key as Aircraft
-		if target_ac == null or target_ac.is_destroyed:
+		var target_unit: CombatUnit = target_key as CombatUnit
+		if target_unit == null or target_unit.is_destroyed:
 			continue
-		if target_ac.team == team:
+		if target_unit.team == team:
 			continue
 		# 必须有一定锁定累积（至少在锥内待过一会儿）
 		var lock_progress: float = radar_targets[target_key]
 		if lock_progress < 0.5:
 			continue
 
-		var to_tgt := (target_ac.global_position - global_position)
+		var to_tgt := (target_unit.global_position - global_position)
 		var dist := to_tgt.length()
 		if dist < 1.0:
 			continue
@@ -1105,37 +1576,37 @@ func _select_best_missile_target() -> Aircraft:
 		var nose_diff := absf(_angle_diff(angle_to_tgt, heading))
 
 		# 闭合率（正值=接近，越高越好命中）
-		var tgt_fwd := Vector2(sin(target_ac.heading), -cos(target_ac.heading))
-		var tgt_speed_px := target_ac.speed * PIXELS_PER_METER
+		var tgt_fwd := Vector2(sin(target_unit.heading), -cos(target_unit.heading))
+		var tgt_speed_px := target_unit.speed * PIXELS_PER_METER
 		var my_speed_px := speed * PIXELS_PER_METER
 		var to_tgt_dir := to_tgt.normalized()
 		var closing := my_fwd.dot(to_tgt_dir) * my_speed_px - tgt_fwd.dot(to_tgt_dir) * tgt_speed_px
 
 		# 评分：距离近（归一化）+ 偏差小 + 闭合率高 + 锁定时间长
-		var dist_score := clampf(1.0 - dist / 10000.0, 0.0, 1.0)        # 近=高分
-		var angle_score := clampf(1.0 - nose_diff / deg_to_rad(60.0), 0.0, 1.0)  # 正前方=高分
-		var closing_score := clampf(closing / 500.0, -0.5, 1.0)          # 接近=高分
-		var lock_score := clampf(lock_progress / 5.0, 0.0, 1.0)          # 锁定久=高分
+		var dist_score := clampf(1.0 - dist / 10000.0, 0.0, 1.0)
+		var angle_score := clampf(1.0 - nose_diff / deg_to_rad(60.0), 0.0, 1.0)
+		var closing_score := clampf(closing / 500.0, -0.5, 1.0)
+		var lock_score := clampf(lock_progress / 5.0, 0.0, 1.0)
 
 		var score := dist_score * 0.25 + angle_score * 0.35 + closing_score * 0.25 + lock_score * 0.15
 
 		if score > best_score:
 			best_score = score
-			best = target_ac
+			best = target_unit
 
 	return best
 
 ## 检查目标是否在导弹射程包线内
-func _is_in_missile_envelope(target_ac: Aircraft, msl: MissileParams) -> bool:
-	var dist_px := global_position.distance_to(target_ac.global_position)
+func _is_in_missile_envelope(target_unit: CombatUnit, msl: MissileParams) -> bool:
+	var dist_px := global_position.distance_to(target_unit.global_position)
 	var dist_m := dist_px / PIXELS_PER_METER
 
 	if dist_m < msl.min_range:
 		return false
 
 	# TAA（目标纵横角）
-	var tgt_fwd := Vector2(sin(target_ac.heading), -cos(target_ac.heading))
-	var to_me := (global_position - target_ac.global_position).normalized()
+	var tgt_fwd := Vector2(sin(target_unit.heading), -cos(target_unit.heading))
+	var to_me := (global_position - target_unit.global_position).normalized()
 	var taa_rad := acos(clampf(-tgt_fwd.dot(to_me), -1.0, 1.0))
 	var taa_deg := rad_to_deg(taa_rad)
 
@@ -1147,13 +1618,19 @@ func _is_in_missile_envelope(target_ac: Aircraft, msl: MissileParams) -> bool:
 	else:
 		max_range = msl.max_range_rear
 
-	var alt_factor := clampf(1.0 + (altitude / 12000.0) * 1.5, 1.0, 3.0)
+	# 高度射程加成（扁平模式下固定中档基准）
+	var alt_factor: float
+	if flat_altitude:
+		alt_factor = 1.5
+	else:
+		alt_factor = clampf(1.0 + (altitude / 12000.0) * 1.5, 1.0, 3.0)
 	max_range *= alt_factor
 
 	if dist_m > max_range:
 		return false
 
-	if absf(altitude - target_ac.altitude) > 3000.0:
+	# 高度差限制（扁平模式下忽略）
+	if not flat_altitude and absf(altitude - target_unit.altitude) > 3000.0:
 		return false
 
 	return true
@@ -1177,7 +1654,10 @@ func take_bullet_damage(amount: float) -> void:
 	_apply_damage(amount)
 
 func _apply_damage(amount: float) -> void:
+	var old_hp := hp
 	hp -= amount
+	EventLogger.log_event("DAMAGE", _log_name(),
+		"took %.0f damage (hp=%.0f→%.0f)" % [amount, old_hp, hp])
 	if hp <= 0.0:
 		hp = 0.0
 		_start_destroy()
@@ -1189,6 +1669,10 @@ func _check_ground_crash() -> void:
 		_start_destroy()
 
 func _start_destroy() -> void:
+	EventLogger.log_event("DESTROY", _log_name(),
+		"destroyed (alt=%.0fm, spd=%.0fm/s)" % [altitude, speed])
+	# 回收 callsign
+	CallsignDB.recycle(callsign)
 	is_destroyed = true
 	is_firing = false
 	combat_target = null
@@ -1344,11 +1828,22 @@ func _draw_flare_particles() -> void:
 	for p in _flare_particles:
 		var pos: Vector2 = p["pos"]
 		var life: float = p["life"]
+		var is_bright: bool = p.get("bright", false)
 		var local_pos := to_local(pos)
-		var alpha := clampf(life / 1.0, 0.0, 1.0)
-		var size := lerpf(1.5, 3.0, alpha)
-		var color := Color(1.0, 0.9, 0.4, alpha * 0.9)
-		draw_circle(local_pos, size, color)
+		var alpha := clampf(life / 1.5, 0.0, 1.0)
+		if is_bright:
+			# 核心亮点：大且白亮
+			var size := lerpf(2.0, 5.0, alpha)
+			var core := Color(1.0, 1.0, 0.9, alpha * 0.95)
+			draw_circle(local_pos, size, core)
+			# 外发光
+			var glow := Color(1.0, 0.7, 0.2, alpha * 0.3)
+			draw_circle(local_pos, size * 2.5, glow)
+		else:
+			# 拖尾：橙黄色，较小
+			var size := lerpf(1.0, 3.0, alpha)
+			var color := Color(1.0, 0.8, 0.3, alpha * 0.7)
+			draw_circle(local_pos, size, color)
 
 func _draw_aircraft_icon_destroyed() -> void:
 	# 灰色闪烁图标
@@ -1387,6 +1882,12 @@ func _draw_aircraft_icon() -> void:
 
 	var xform := Transform2D(0.0, Vector2.ZERO)
 	xform = xform.scaled(Vector2(sx, sy))
+
+	# 指挥 UAV（哨兵）使用独立的飞翼外观
+	var is_commander: bool = has_meta("enemy_type") and get_meta("enemy_type") == "uav_commander"
+	if is_commander:
+		_draw_commander_icon(color, outline_color, size, base_scale, xform)
+		return
 
 	# 机身主体（填充多边形）
 	var body: PackedVector2Array = PackedVector2Array([
@@ -1449,6 +1950,57 @@ func _draw_aircraft_icon() -> void:
 		ring_color.a = 0.5
 		draw_arc(Vector2.ZERO, size * 1.8 * base_scale, 0, TAU, 48, ring_color, 1.5)
 
+## 指挥 UAV "哨兵" 专用飞翼外观
+func _draw_commander_icon(color: Color, outline_color: Color, size: float, base_scale: float, xform: Transform2D) -> void:
+	var s := size  # 简写
+
+	# ── 飞翼主体：宽扁的 V 形无尾翼体 ──
+	# 从机头到两侧翼尖再收回，一体化飞翼造型
+	var wing_body: PackedVector2Array = PackedVector2Array([
+		Vector2(0, -s * 0.7),              # 机头（钝头）
+		Vector2(s * 0.2, -s * 0.5),        # 机头右侧
+		Vector2(s * 1.3, s * 0.1),         # 右翼前缘尖端（宽展）
+		Vector2(s * 1.2, s * 0.25),        # 右翼后缘
+		Vector2(s * 0.5, s * 0.2),         # 右翼根部后缘
+		Vector2(s * 0.15, s * 0.5),        # 右侧尾部
+		Vector2(0, s * 0.4),               # 尾部中心（浅 V 形凹口）
+		Vector2(-s * 0.15, s * 0.5),       # 左侧尾部
+		Vector2(-s * 0.5, s * 0.2),        # 左翼根部后缘
+		Vector2(-s * 1.2, s * 0.25),       # 左翼后缘
+		Vector2(-s * 1.3, s * 0.1),        # 左翼前缘尖端
+		Vector2(-s * 0.2, -s * 0.5),       # 机头左侧
+	])
+
+	# 应用缩放变换并绘制
+	var transformed: PackedVector2Array = PackedVector2Array()
+	for p in wing_body:
+		transformed.append(xform * p)
+	draw_colored_polygon(transformed, color)
+	# 轮廓线
+	for i in range(transformed.size()):
+		var from := transformed[i]
+		var to := transformed[(i + 1) % transformed.size()]
+		draw_line(from, to, outline_color, 1.0, true)
+
+	# ── 机背中线标记（传感器/天线阵列） ──
+	var accent := color.lightened(0.3)
+	accent.a = 0.6
+	var line_from := xform * Vector2(0, -s * 0.4)
+	var line_to := xform * Vector2(0, s * 0.25)
+	draw_line(line_from, line_to, accent, 1.5, true)
+
+	# ── 天线顶点标记 ──
+	var antenna_base := xform * Vector2(0, -s * 0.7)
+	var antenna_tip := xform * Vector2(0, -s * 1.1)
+	draw_line(antenna_base, antenna_tip, accent, 1.0, true)
+	draw_circle(antenna_tip, 2.5 * base_scale, accent)
+
+	# 选中指示
+	if selected:
+		var ring_color := color
+		ring_color.a = 0.5
+		draw_arc(Vector2.ZERO, s * 1.8 * base_scale, 0, TAU, 48, ring_color, 1.5)
+
 ## 在飞机旁边绘制数据标签框（逐行列出所有参数）
 ## 是否使用精简标签（无导弹/无热诱弹的简单单位）
 func _is_minimal_label() -> bool:
@@ -1464,9 +2016,13 @@ func _draw_data_label_minimal() -> void:
 		heading_deg += 360.0
 
 	var lines := PackedStringArray()
+	lines.append(callsign)
 	lines.append("HDG %03d" % roundi(heading_deg))
 	lines.append("%d kt" % roundi(speed_kmh * 0.5399))
-	lines.append("ALT %dm" % roundi(altitude))
+	if flat_altitude:
+		lines.append("ALT %s" % TIER_NAMES[get_altitude_tier()])
+	else:
+		lines.append("ALT %dm" % roundi(altitude))
 	lines.append("G %.1f" % g_load)
 	var max_stam := params.pilot_stamina if params else 100.0
 	lines.append("STA %d%%" % roundi(pilot_stamina / maxf(max_stam, 0.01) * 100.0))
@@ -1474,22 +2030,24 @@ func _draw_data_label_minimal() -> void:
 	var inv_rot := -rotation
 	var font_size := 11
 	var line_height := 14.0
-	var label_offset := Vector2(24, -12).rotated(inv_rot)
+	# 缩放补偿
+	var zoom_scale := get_viewport_transform().get_scale()
+	var inv_zoom := 1.0 / maxf(zoom_scale.x, 0.01)
+	var label_offset := Vector2(24 * inv_zoom, -12 * inv_zoom).rotated(inv_rot)
 
 	var max_w := 0.0
 	for line in lines:
 		var w := _font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 		max_w = maxf(max_w, w)
 
-	var bg_rect := Rect2(label_offset.x - 2, label_offset.y - 2, max_w + 6, lines.size() * line_height + 4)
+	var scale_v := Vector2(inv_zoom, inv_zoom)
 	var team_color: Color = params.icon_color if params else Color.GREEN
 	var bg_color := Color(team_color.r * 0.15, team_color.g * 0.15, team_color.b * 0.2, 0.7)
 
-	draw_set_transform(Vector2.ZERO, inv_rot, Vector2.ONE)
-	draw_rect(bg_rect, bg_color)
+	draw_set_transform(label_offset, inv_rot, scale_v)
+	draw_rect(Rect2(-2, -2, max_w + 6, lines.size() * line_height + 4), bg_color)
 	for i in range(lines.size()):
-		var y_off := label_offset.y + i * line_height + 11
-		draw_string(_font, Vector2(label_offset.x, y_off), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.85, 0.9, 0.85, 0.9))
+		draw_string(_font, Vector2(0, i * line_height + 11), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.85, 0.9, 0.85, 0.9))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 func _draw_data_label() -> void:
@@ -1503,13 +2061,16 @@ func _draw_data_label() -> void:
 
 	# 逐行数据
 	var lines: PackedStringArray = PackedStringArray()
-	lines.append(display_name)
+	lines.append("%s [%s]" % [callsign, display_name])
 	if not _is_minimal_label():
 		lines.append("HDG %03d" % roundi(heading_deg))
 	lines.append("%d kt" % roundi(speed_kmh * 0.5399))
 	if not _is_minimal_label():
 		lines.append("M%.2f" % mach)
-	lines.append("ALT %dm" % roundi(altitude))
+	if flat_altitude:
+		lines.append("ALT %s" % TIER_NAMES[get_altitude_tier()])
+	else:
+		lines.append("ALT %dm" % roundi(altitude))
 	lines.append("G %.1f/%.0f" % [g_load, _effective_max_g()])
 	if not _is_minimal_label() and not no_stamina:
 		var max_stam := params.pilot_stamina if params else 100.0
@@ -1530,7 +2091,10 @@ func _draw_data_label() -> void:
 	var inv_rot := -rotation
 	var font_size := 11
 	var line_height := 14.0
-	var label_offset := Vector2(24, -12).rotated(inv_rot)
+	# 缩放补偿：标签大小不随摄像机缩放变化
+	var zoom_scale := get_viewport_transform().get_scale()
+	var inv_zoom := 1.0 / maxf(zoom_scale.x, 0.01)
+	var label_offset := Vector2(24 * inv_zoom, -12 * inv_zoom).rotated(inv_rot)
 
 	# 测量最大宽度
 	var max_w := 0.0
@@ -1550,7 +2114,8 @@ func _draw_data_label() -> void:
 		bg_color = Color(0.35, 0.08, 0.08, 0.85)
 		text_color = Color(1.0, 0.85, 0.85)
 
-	draw_set_transform(label_offset, inv_rot, Vector2.ONE)
+	var scale_v := Vector2(inv_zoom, inv_zoom)
+	draw_set_transform(label_offset, inv_rot, scale_v)
 	draw_rect(Rect2(0, 0, box_w, box_h), bg_color)
 	draw_rect(Rect2(0, 0, box_w, box_h), text_color * Color(1, 1, 1, 0.4), false, 1.0)
 
@@ -1600,6 +2165,10 @@ func _draw_target_line() -> void:
 	if team != 0:
 		return
 
+	# 编队僚机不显示预测线/航点：它们跟随长机指令，target_position 只是阵型槽位
+	if formation_mode:
+		return
+
 	var color: Color = params.icon_color if params else Color.GREEN
 
 	var local_target := to_local(target_position)
@@ -1616,48 +2185,78 @@ func _draw_target_line() -> void:
 	draw_line(local_target + Vector2(0, -d * 1.3), local_target + Vector2(0, d * 1.3), marker_color, 1.0)
 
 ## 绘制预测飞行路径：模拟转弯弧线 + 直线段
+## 模拟真实物理：滚转速率、速度衰减、G力限制
 func _draw_predicted_path(local_target: Vector2, base_color: Color) -> void:
 	var path_color := Color(base_color.r, base_color.g, base_color.b, 0.35)
 
-	# 模拟参数
+	# 模拟参数（从当前飞机状态初始化）
 	var sim_heading := heading
 	var sim_pos := global_position
 	var sim_speed := maxf(speed, 50.0)  # m/s
-	var max_bank := _max_bank_angle()
-	var max_turn_rate := GRAVITY * tan(max_bank) / maxf(sim_speed, 1.0)
-	var step := 0.15  # 模拟步长（秒）
-	var max_steps := 120
-	var target_heading := atan2(
-		target_position.x - global_position.x,
-		-(target_position.y - global_position.y)
-	)
+	var sim_bank := bank_angle          # 当前坡度
+	var roll_rate_val := params.roll_rate if params else 4.0
+	var accel_rate := params.acceleration if params else 50.0
+	var decel_rate := params.deceleration if params else 80.0
+	var cruise_ms := (params.cruise_speed if params else 900.0) / 3.6
+	var stall_base_ms := (params.stall_speed_base if params else 220.0) / 3.6
+
+	var step := 0.08  # 更细的模拟步长
+	var max_steps := 180
+	var record_interval := 3  # 每3步记录一个点
 
 	var points := PackedVector2Array()
-	points.append(Vector2.ZERO)  # 起点（本地坐标）
+	points.append(Vector2.ZERO)
 
 	for i in range(max_steps):
-		# 是否已到达目标附近
 		var to_tgt := target_position - sim_pos
-		if to_tgt.length() < sim_speed * PIXELS_PER_METER * step * 2.0:
+		var dist_to_tgt := to_tgt.length()
+		if dist_to_tgt < sim_speed * PIXELS_PER_METER * step * 2.0:
 			points.append(to_local(sim_pos))
 			break
 
-		# 更新目标航向（始终指向目标点）
-		target_heading = atan2(to_tgt.x, -to_tgt.y)
-		var hdiff := _angle_diff(target_heading, sim_heading)
+		# 目标航向
+		var tgt_heading := atan2(to_tgt.x, -to_tgt.y)
+		var hdiff := _angle_diff(tgt_heading, sim_heading)
 
-		# 模拟转弯
-		if abs(hdiff) > 0.02:
-			var turn := clampf(hdiff, -max_turn_rate * step, max_turn_rate * step)
-			sim_heading += turn
+		# 模拟目标坡度（与实际 _update_bank 逻辑一致）
+		var max_bank_sim := _max_bank_angle_at_speed(sim_speed, stall_base_ms)
+		var target_bank: float
+		if abs(hdiff) < 0.05:
+			target_bank = 0.0
+		elif abs(hdiff) < 0.4:
+			target_bank = sign(hdiff) * max_bank_sim * 0.3
+		else:
+			target_bank = sign(hdiff) * max_bank_sim
+		# 接近目标时衰减坡度
+		var prox := clampf((dist_to_tgt - 150.0) / 300.0, 0.0, 1.0)
+		target_bank *= prox
+
+		# 滚转速率限制
+		var bank_diff := target_bank - sim_bank
+		var max_roll := roll_rate_val * step
+		sim_bank += clampf(bank_diff, -max_roll, max_roll)
+
+		# 转弯（基于当前坡度）
+		if abs(sim_bank) > 0.001:
+			var turn_rate := GRAVITY * tan(sim_bank) / maxf(sim_speed, 1.0)
+			sim_heading += turn_rate * step
 			sim_heading = fmod(sim_heading + PI, TAU) - PI
 
-		# 模拟前进
+		# 速度模拟：转弯时减速（G力阻力），直飞时恢复巡航速度
+		var current_g := 1.0 / maxf(cos(sim_bank), 0.01)
+		var drag_decel := (current_g - 1.0) * 8.0  # G力越大减速越快
+		var target_speed := cruise_ms
+		if sim_speed > target_speed:
+			sim_speed -= (decel_rate * 0.5 + drag_decel) * step
+		else:
+			sim_speed += accel_rate * 0.3 * step
+		sim_speed = maxf(sim_speed, stall_base_ms * 1.3)
+
+		# 前进
 		var vel := Vector2(sin(sim_heading), -cos(sim_heading)) * sim_speed * PIXELS_PER_METER
 		sim_pos += vel * step
 
-		# 每隔几步记录一个点（避免过密）
-		if i % 2 == 0:
+		if i % record_interval == 0:
 			points.append(to_local(sim_pos))
 
 	# 绘制路径（虚线效果：交替绘制段）
@@ -1667,6 +2266,20 @@ func _draw_predicted_path(local_target: Vector2, base_color: Color) -> void:
 				var alpha := lerpf(0.4, 0.1, float(i) / float(points.size()))
 				var seg_color := Color(path_color.r, path_color.g, path_color.b, alpha)
 				draw_line(points[i], points[i + 1], seg_color, 1.5)
+
+## 计算指定速度下的最大坡度角（预测线用）
+func _max_bank_angle_at_speed(spd: float, stall_base_ms: float) -> float:
+	var max_g_val := _effective_max_g()
+	var g_limited_bank := acos(1.0 / max_g_val)
+	var safe_margin := 1.2
+	if spd > stall_base_ms * safe_margin:
+		var effective_speed := spd / safe_margin
+		var max_g_for_speed := (effective_speed / stall_base_ms) * (effective_speed / stall_base_ms)
+		var speed_limited_bank := acos(1.0 / maxf(max_g_for_speed, 1.01))
+		return minf(g_limited_bank, speed_limited_bank)
+	else:
+		var ratio := clampf(spd / (stall_base_ms * safe_margin), 0.0, 1.0)
+		return 0.1 + ratio * 0.2
 
 # ========== 热诱弹系统 ==========
 
@@ -1686,6 +2299,17 @@ func _update_flares(delta: float) -> void:
 
 	if not params or not params.flare:
 		return
+
+	# 热诱弹装填（生存模式）：用完后等冷却结束自动补满
+	if enable_flare_reload and flares_remaining <= 0:
+		if _flare_cooldown > 0.0:
+			flare_reload_progress = 1.0 - (_flare_cooldown / params.flare.cooldown)
+		else:
+			flares_remaining = params.flare.max_flares
+			flare_reload_progress = 0.0
+		return
+
+	flare_reload_progress = 0.0
 	if flares_remaining <= 0:
 		return
 	if _flare_cooldown > 0.0:
@@ -1728,6 +2352,8 @@ func _release_flares() -> void:
 	var count := mini(fp.burst_count, flares_remaining)
 	flares_remaining -= count
 	_flare_cooldown = fp.cooldown
+	EventLogger.log_event("FLARE", _log_name(),
+		"deployed %d flares (remaining=%d)" % [count, flares_remaining])
 
 	# 电子对抗升级：释放热诱弹时清除所有雷达锁定 + 启动锁定免疫
 	if flare_lock_immunity > 0.0:
@@ -1739,16 +2365,14 @@ func _release_flares() -> void:
 		locked_by.clear()
 		is_locked = false
 
-	# 生成视觉粒子
-	var back_dir := Vector2(-sin(heading), cos(heading))  # 飞机后方
-	for i in range(count):
-		var spread := randf_range(-0.5, 0.5)
-		var perp := Vector2(back_dir.y, -back_dir.x)
-		var vel := (back_dir + perp * spread) * randf_range(80.0, 150.0)
-		_flare_particles.append({
-			"pos": global_position + back_dir * 10.0,
-			"vel": vel,
-			"life": 1.5,
+	# 分批释放视觉粒子（模拟热诱弹逐颗弹出）
+	var burst_waves := 6  # 分6波释放
+	var wave_interval := 0.12  # 每波间隔0.12秒
+	for w in range(burst_waves):
+		_flare_spawn_queue.append({
+			"delay": float(w) * wave_interval,
+			"heading": heading,  # 记录释放时的航向
+			"pos": global_position,  # 记录释放时的位置（会被更新）
 		})
 
 	# 对每枚来袭导弹判定干扰
@@ -1763,9 +2387,25 @@ func _release_flares() -> void:
 		if m.target != self:
 			continue
 
-		var jam_chance := 1.0 if flares_guaranteed else _calc_jam_chance(m)
+		var jam_chance: float
+		if flares_guaranteed:
+			# 后侧方来袭导弹100%干扰，正面不保证
+			var missile_to_me := (global_position - m.global_position).normalized()
+			var my_fwd := Vector2(sin(heading), -cos(heading))
+			var dot := my_fwd.dot(missile_to_me)
+			# dot > 0 = 导弹从正面来，dot < 0 = 导弹从后方追
+			if dot <= 0.3:  # 后方 + 侧方（约±70°后半球）
+				jam_chance = 1.0
+			else:
+				jam_chance = _calc_jam_chance(m)  # 正面用普通概率
+		else:
+			jam_chance = _calc_jam_chance(m)
 		if randf() < jam_chance:
 			m.is_flare_jammed = true
+			var msl_name: String = m.params.display_name if m.params else "MSL"
+			EventLogger.log_event("MISSILE", msl_name,
+				"flare jammed (target was %s, jam_chance=%.0f%%)" % [
+					_log_name(), jam_chance * 100.0])
 
 func _calc_jam_chance(m: Missile) -> float:
 	var fp := params.flare
@@ -1802,16 +2442,49 @@ func get_flare_cooldown_ratio() -> float:
 	return clampf(_flare_cooldown / params.flare.cooldown, 0.0, 1.0)
 
 func _update_flare_particles(delta: float) -> void:
+	# 处理延迟释放队列
+	var remaining_queue: Array[Dictionary] = []
+	for q in _flare_spawn_queue:
+		q["delay"] -= delta
+		q["pos"] = global_position  # 每帧更新为飞机当前位置（跟随飞机）
+		q["heading"] = heading       # 更新为当前航向
+		if float(q["delay"]) <= 0.0:
+			_spawn_flare_wave(q["pos"] as Vector2, float(q["heading"]))
+		else:
+			remaining_queue.append(q)
+	_flare_spawn_queue = remaining_queue
+
+	# 更新已有粒子
 	var kept: Array[Dictionary] = []
 	for p in _flare_particles:
 		p["life"] -= delta
 		if float(p["life"]) <= 0.0:
 			continue
 		p["pos"] = (p["pos"] as Vector2) + (p["vel"] as Vector2) * delta
-		# 减速
-		p["vel"] = (p["vel"] as Vector2) * 0.95
+		# 减速 + 轻微随机漂移
+		var vel: Vector2 = p["vel"] as Vector2
+		vel *= 0.96
+		vel += Vector2(randf_range(-3.0, 3.0), randf_range(-3.0, 3.0))
+		p["vel"] = vel
 		kept.append(p)
 	_flare_particles = kept
+
+## 生成一波热诱弹粒子（从飞机当前位置向后方喷射）
+func _spawn_flare_wave(spawn_pos: Vector2, spawn_heading: float) -> void:
+	var back_dir := Vector2(-sin(spawn_heading), cos(spawn_heading))
+	var perp := Vector2(back_dir.y, -back_dir.x)
+	# 每波 2-3 颗粒子
+	var wave_count := randi_range(2, 3)
+	for k in range(wave_count):
+		var spread := randf_range(-0.6, 0.6)
+		var vel := (back_dir + perp * spread) * randf_range(70.0, 130.0)
+		var is_bright := k == 0  # 每波第一颗最亮
+		_flare_particles.append({
+			"pos": spawn_pos + back_dir * randf_range(8.0, 15.0) + perp * randf_range(-4.0, 4.0),
+			"vel": vel,
+			"life": randf_range(2.0, 3.5),
+			"bright": is_bright,
+		})
 
 func _update_visuals() -> void:
 	rotation = heading

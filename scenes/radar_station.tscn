@@ -1,0 +1,8 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/radar_station.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/radar_station_params.tres" id="2"]
+
+[node name="RadarStation" type="Node2D"]
+script = ExtResource("1")
+params = ExtResource("2")

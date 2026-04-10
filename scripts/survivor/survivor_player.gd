@@ -23,6 +23,8 @@ func add_xp(amount: int) -> void:
 		xp -= xp_to_next
 		level += 1
 		xp_to_next = SurvivorData.xp_for_level(level + 1)
+		EventLogger.log_event("LEVEL", "Player",
+			"level up → %d (next=%d xp)" % [level, xp_to_next])
 		leveled_up.emit(level)
 
 func apply_upgrade(upgrade: Dictionary) -> void:
@@ -63,6 +65,11 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 			if p.gun:
 				p.gun.max_ammo += int(upgrade["value"])
 				aircraft.ammo += int(upgrade["value"])
+		"gun_regen":
+			aircraft.gun_regen_rate *= (1.0 + float(upgrade["value"]))
+		"gun_firerate":
+			if p.gun:
+				p.gun.fire_rate *= (1.0 + float(upgrade["value"]))
 		"radar_range":
 			p.radar_range *= (1.0 + float(upgrade["value"]))
 		"lock_time":

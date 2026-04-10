@@ -20,6 +20,8 @@ var _mode_container: VBoxContainer
 
 func _ready() -> void:
 	RenderingServer.set_default_clear_color(BG_COLOR)
+	CombatUnit.reset_id_allocator()
+	CallsignDB.reset()
 	_build_ui()
 
 func _process(delta: float) -> void:

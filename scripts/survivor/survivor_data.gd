@@ -147,10 +147,28 @@ const UPGRADES: Array[Dictionary] = [
 	{
 		"id": "gun_ammo",
 		"name": "弹药扩容",
-		"desc": "机炮弹药 +200",
+		"desc": "机炮弹药上限 +100",
 		"stat": "gun_ammo",
-		"value": 200,
-		"max_stacks": 3,
+		"value": 100,
+		"max_stacks": 5,
+		"category": "combat",
+	},
+	{
+		"id": "gun_regen",
+		"name": "自动装弹机",
+		"desc": "机炮弹药恢复速度 +40%",
+		"stat": "gun_regen",
+		"value": 0.40,
+		"max_stacks": 4,
+		"category": "combat",
+	},
+	{
+		"id": "gun_firerate",
+		"name": "射速强化",
+		"desc": "机炮射速 +25%",
+		"stat": "gun_firerate",
+		"value": 0.25,
+		"max_stacks": 4,
 		"category": "combat",
 	},
 	{
@@ -207,6 +225,14 @@ const MIG_CHANCE_MAX := 0.5         ## MiG 最大出现概率
 const INTERCEPTOR_UNLOCK_LEVEL := 5  ## 截击机（J-7）解锁等级
 const INTERCEPTOR_CHANCE_PER_LEVEL := 0.12  ## 每超过解锁等级，截击机出现概率增加
 const INTERCEPTOR_CHANCE_MAX := 0.35 ## 截击机最大出现概率
+const COMMANDER_UNLOCK_LEVEL := 4    ## 指挥 UAV 解锁等级
+const COMMANDER_CHANCE_BASE := 0.12  ## 解锁时的基础出现概率
+const COMMANDER_CHANCE_PER_LEVEL := 0.06  ## 每超过解锁等级，指挥 UAV 出现概率增加
+const COMMANDER_CHANCE_MAX := 0.25   ## 指挥 UAV 最大出现概率
+const COMMANDER_SQUAD_MIN := 2       ## 指挥 UAV 自带僚机最少数
+const COMMANDER_SQUAD_MAX := 3       ## 指挥 UAV 自带僚机最多数
+const COMMANDER_MAX_SQUAD := 6       ## 指挥 UAV 分队招募上限（含自己）
+const XP_PER_KILL_COMMANDER := 50    ## 指挥 UAV 击杀经验
 
 # ── 敌人缩放 ─────────────────────────────────────────────
 
@@ -224,4 +250,12 @@ static func uav_scale_for_level(level: int) -> Dictionary:
 		"hp_mult": 1.0 + (level - 1) * 0.08,
 		"missile_add": 0,
 		"gun_damage_mult": 1.0 + (level - 1) * 0.05,
+	}
+
+## 指挥 UAV 的属性缩放（仅 HP 缩放，无武装）
+static func commander_scale_for_level(level: int) -> Dictionary:
+	return {
+		"hp_mult": 1.0 + (level - 1) * 0.10,
+		"missile_add": 0,
+		"gun_damage_mult": 1.0,
 	}
