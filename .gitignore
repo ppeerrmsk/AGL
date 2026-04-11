@@ -4,3 +4,7 @@
 
 # 编辑器模式下 F9 导出的战斗日志（见 scripts/event_logger.gd:dump_to_file）
 /logs/
+
+# Godot 导出产物（AGL.exe / AGL.console.exe / .pck 等）
+/AGL*.exe
+/AGL*.pck
