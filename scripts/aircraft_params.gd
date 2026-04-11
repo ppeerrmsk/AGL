@@ -48,6 +48,9 @@ extends Resource
 @export_group("机炮")
 @export var gun: GunParams
 
+@export_group("火箭弹")
+@export var rocket: RocketParams             ## 无制导火箭弹（低命中率副武器，可选）
+
 @export_group("导弹")
 @export var missile: MissileParams           ## 主导弹（空对空）
 @export var secondary_missile: MissileParams ## 副导弹（空对地）

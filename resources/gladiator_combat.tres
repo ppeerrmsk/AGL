@@ -1,0 +1,38 @@
+[gd_resource type="Resource" script_class="CombatParams" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/combat_params.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+; ── Gladiator（斗士型）──
+; 积极拉近距离、不怕近战狗斗、保持压迫式咬尾。
+; 相对默认：拦截距离更近 / 六点钟偏移更小 / 转弯更激进 / 近战速度略低求最小转弯半径
+intercept_range_mult = 1.6
+intercept_lead_max = 6.0
+closing_rate_threshold = 0.05
+six_oclock_offset_ratio = 0.18
+pure_pursuit_lead_factor = 0.35
+opportunity_cone_mult = 3.0
+opportunity_range_mult = 0.55
+combat_bank_aggression = 1.4
+combat_full_bank_diff = 0.07
+combat_half_bank_diff = 0.015
+turn_slow_angle = 60.0
+turn_slow_max_angle = 140.0
+turn_slow_speed_mult = 0.75
+ab_cooldown = 1.5
+approach_speed_mult = 1.55
+maneuver_speed_mult = 0.9
+closing_speed_mult = 1.15
+overshoot_speed_margin = 1.0
+overshoot_decel_range = 2.5
+overshoot_ab_range = 3.5
+dive_speed_ratio = 0.80
+dive_min_altitude = 1500.0
+dive_depth = 1500.0
+dive_floor = 1000.0
+climb_brake_overspeed = 1.2
+climb_brake_height = 600.0
+climb_brake_ceiling = 10000.0
+climb_speed_ratio = 1.2
+climb_max_altitude = 7000.0

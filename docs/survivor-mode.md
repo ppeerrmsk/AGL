@@ -95,7 +95,7 @@ static func xp_for_level(level: int) -> int:
 | gun_damage | 穿甲弹药 | 机炮伤害+20% | 5 | → gun_multishot |
 | gun_multishot | ★多管齐射 | 同时射出三道机炮 | 1 | (进化技能) |
 | gun_ammo | 弹药扩容 | 弹药+100 | 5 | - |
-| gun_regen | 自动装弹机 | 弹药恢复+40% | 4 | - |
+| gun_reload | 快速装弹机 | 机炮装填时间-15% | 3 | - |
 | gun_firerate | 射速强化 | 射速+25% | 4 | - |
 | radar_range | 雷达升级 | 探测距离+20% | 3 | - |
 | lock_time | 火控优化 | 锁定时间-0.5s | 3 | - |

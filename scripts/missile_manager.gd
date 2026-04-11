@@ -64,6 +64,9 @@ func _physics_process(_delta: float) -> void:
 				continue
 			if unit.team == missile.team:
 				continue
+			# 导弹穿透窗口：flare 释放后 1 秒内所有导弹从此单位穿过
+			if unit is Aircraft and unit.missile_phase_timer > 0.0:
+				continue
 			# 2D 距离 + 高度容差（地面单位跳过高度检查）
 			var dist_2d := missile.global_position.distance_to(unit.global_position)
 			var alt_diff := absf(missile.altitude - unit.altitude)

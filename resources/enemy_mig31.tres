@@ -1,0 +1,48 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/lancer_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/default_missile.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/default_flare.tres" id="5"]
+
+[resource]
+script = ExtResource("1")
+display_name = "MiG-31"
+; ── Lancer 顶级型：最快、最高、最远射 ──
+; 对应真实 MiG-31 Foxhound（Mach 2.83 高空截击机，Zaslon 相控阵雷达 + R-33）
+; 生存模式下单机出现，稀有但威胁极高
+max_hp = 65.0
+armor = 0.0
+; ── 速度：极限速度碾压所有机型 ──
+max_speed = 3200.0
+cruise_speed = 1500.0
+stall_speed_base = 280.0
+acceleration = 72.0
+deceleration = 48.0
+g_drag_factor = 3.0
+; ── 机动（高速截击取向，非狗斗）──
+max_g = 7.5
+max_g_structural = 10.0
+roll_rate = 3.2
+pilot_stamina = 90.0
+stamina_drain_rate = 30.0
+stamina_recovery_rate = 10.0
+; ── 高度：飞最高 ──
+max_altitude = 20000.0
+climb_rate_max = 340.0
+thrust_to_weight = 1.2
+drag_coefficient = 0.019
+afterburner_thrust_mult = 1.75
+fuel_capacity = 3500.0
+fuel_rate_normal = 2.2
+fuel_rate_afterburner = 14.0
+; ── 雷达：全场最强 ──
+radar_range = 6000.0
+radar_half_angle = 35.0
+lock_time = 2.5
+gun = ExtResource("2")
+missile = ExtResource("4")
+flare = ExtResource("5")
+combat = ExtResource("3")
+icon_color = Color(0.65, 0.4, 0.95, 1)

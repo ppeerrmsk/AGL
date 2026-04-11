@@ -1,0 +1,48 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/lancer_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/default_missile.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/default_flare.tres" id="5"]
+
+[resource]
+script = ExtResource("1")
+display_name = "F-100"
+; ── Lancer（骑士型）追加款：F-86 的进阶，会使用雷达弹 ──
+; 对应真实 F-100 Super Sabre（首款超音速量产战斗机 / AIM-7 载机）
+; 生存模式下以编队出现，速度快于 F-86，行为走 Lancer 打带跑（不缠斗）
+max_hp = 42.0
+armor = 0.0
+; ── 速度：明显快于 F-86 ──
+max_speed = 2100.0
+cruise_speed = 920.0
+stall_speed_base = 215.0
+acceleration = 50.0
+deceleration = 56.0
+g_drag_factor = 2.9
+; ── 机动（Lancer：牺牲转弯换高速突击）──
+max_g = 7.0
+max_g_structural = 9.0
+roll_rate = 3.5
+pilot_stamina = 80.0
+stamina_drain_rate = 30.0
+stamina_recovery_rate = 9.0
+; ── 高度 ──
+max_altitude = 15000.0
+climb_rate_max = 255.0
+thrust_to_weight = 1.0
+drag_coefficient = 0.022
+afterburner_thrust_mult = 1.6
+fuel_capacity = 2200.0
+fuel_rate_normal = 1.8
+fuel_rate_afterburner = 9.5
+; ── 雷达（发射 AIM-7M 雷达弹需要稳定照射）──
+radar_range = 4200.0
+radar_half_angle = 28.0
+lock_time = 3.0
+gun = ExtResource("2")
+missile = ExtResource("4")
+flare = ExtResource("5")
+combat = ExtResource("3")
+icon_color = Color(0.3, 0.6, 0.95, 1)

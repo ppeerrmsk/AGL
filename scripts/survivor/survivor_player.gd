@@ -65,8 +65,8 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 			if p.gun:
 				p.gun.max_ammo += int(upgrade["value"])
 				aircraft.ammo += int(upgrade["value"])
-		"gun_regen":
-			aircraft.gun_regen_rate *= (1.0 + float(upgrade["value"]))
+		"gun_reload":
+			aircraft.gun_reload_duration *= (1.0 - float(upgrade["value"]))
 		"gun_firerate":
 			if p.gun:
 				p.gun.fire_rate *= (1.0 + float(upgrade["value"]))

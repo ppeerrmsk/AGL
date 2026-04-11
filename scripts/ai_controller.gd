@@ -56,6 +56,17 @@ const TACTIC_DISPLAY_NAME: Dictionary = {
 # ── 编队 ──
 var squad: Squad = null              ## 所属编队
 var squad_index: int = -1            ## 在编队中的序号（0=长机，1+=僚机）
+@export var orbit_squad_leader: bool = false  ## simple_ai 专用：巡逻时围绕长机旋转（指挥 UAV 招募的僚机用）
+
+# ── 绕长机飞行常量（orbit_squad_leader 模式）──
+## 设计约束：
+## 1. 切向速度 (ORBIT_RADIUS × ORBIT_ANGULAR_SPEED) 必须 < UAV 实际速度，否则轨道点永远追不上
+## 2. UAV 物理转弯半径必须 ≤ ORBIT_RADIUS 才能在轨道上贴合飞行
+## 3. ORBIT_TETHER_RADIUS < AURA_RADIUS=600 保证僚机始终在增益圈内
+const ORBIT_RADIUS := 400.0          ## 绕长机半径（像素，~800m），留在 AURA_RADIUS=600 内
+const ORBIT_ANGULAR_SPEED := 0.22    ## 轨道角速度（rad/s），切向速度 ~88 px/s，28秒/圈
+const ORBIT_SPEED_RATIO := 0.85      ## 目标速度 = max_speed × 0.85
+const ORBIT_TETHER_RADIUS := 550.0   ## 护驾半径：僚机不得超过此距离长机，也不会追击超出此范围的敌方
 
 const COVER_SCAN_RANGE := 2500.0     ## 掩护扫描范围（像素）≈5000m
 const COVER_SCAN_INTERVAL := 0.5     ## 掩护扫描间隔（秒）
@@ -64,6 +75,10 @@ var _cover_scan_timer: float = 0.0
 var _cover_target: Aircraft = null   ## 掩护交战目标（后半球威胁）
 var _rejoining: bool = false       ## 交战/规避后正在全速归队
 var _squad_attacking_leader_target: bool = false  ## 正在协同攻击长机指定的目标
+var _leader_target_lost_timer: float = 0.0  ## 长机目标丢失后的宽限计时（防止单帧抖动触发脱离）
+const LEADER_TARGET_LOST_GRACE := 1.5  ## 长机目标丢失后的宽限时长（秒）
+var _squad_range_grace_timer: float = 0.0  ## 长机指定目标超出僚机射程的宽限计时
+const SQUAD_RANGE_GRACE := 2.0  ## 超出射程宽限时长（秒）— 允许僚机继续追击长机指定的目标一段时间
 var _prev_formation_offset_local: Vector2 = Vector2.INF  ## 上一帧相对长机本地坐标系的阵型偏移
 var _formation_react_timer: float = 0.0  ## 阵型变换反应延迟（每架飞机个体化）
 var _formation_blend: float = 1.0  ## 编队托管混合度（0=自主飞行, 1=完全托管）
@@ -166,6 +181,8 @@ func _physics_process(delta: float) -> void:
 		return
 
 	if simple_ai:
+		# simple AI 只承袭固定 aggression，不受压力/SA 影响
+		aircraft.tactical_aggression = clampf(aggression, 0.0, 1.0)
 		_process_simple(delta)
 		return
 
@@ -175,6 +192,11 @@ func _physics_process(delta: float) -> void:
 	_update_stress(delta)
 	_update_drift(delta)
 	_update_situational_awareness(delta)
+
+	# 写入 Aircraft 的战术激进度：由 effective_skill × aggression 驱动
+	# 高技能高攻击性 → 接近 1（像 survivor 玩家一样拉满结构 G）
+	# 低技能或高压力 → 接近 0（保守 70% 持续 G 限制 + turn_speed）
+	aircraft.tactical_aggression = clampf(_effective_skill() * aggression, 0.0, 1.0)
 
 	match _state:
 		AIState.PATROL:
@@ -364,24 +386,71 @@ func _apply_altitude_error(alt: float) -> float:
 
 func _process_simple(delta: float) -> void:
 	aircraft.keep_target_on_arrival = false
-	# 巡逻：走航点
+
+	# ── 护驾长机失效检测（Sentinel 被击坠）──
+	# 一旦长机不再有效，立即清除 orbit flag 和 squad 引用，回退为独立 simple AI
+	# survivor_mode._update_enemy_waypoints 会在 8 秒内为其补充新航点
+	if orbit_squad_leader:
+		if not squad or not squad.leader or not is_instance_valid(squad.leader) or squad.leader.is_destroyed:
+			orbit_squad_leader = false
+			squad = null
+			squad_index = -1
+
+	# 巡逻：走航点 or 绕长机飞行
 	if not _current_target or not is_instance_valid(_current_target) or _current_target.is_destroyed:
 		_current_target = null
-		if not waypoints.is_empty():
+
+		# ── 绕长机飞行（指挥 UAV 招募的僚机）──
+		if orbit_squad_leader and squad and squad.leader and is_instance_valid(squad.leader) \
+				and squad.leader != aircraft and not squad.leader.is_destroyed:
+			var leader := squad.leader
+			var center := leader.global_position
+			# 按 squad_index 错开相位，避免多架僚机贴在一起
+			var t := Time.get_ticks_msec() / 1000.0
+			var phase := float(maxi(squad_index, 1)) * (TAU / 6.0)
+			var angle := t * ORBIT_ANGULAR_SPEED + phase
+			aircraft.target_position = center + Vector2(cos(angle), sin(angle)) * ORBIT_RADIUS
+			# 目标速度：接近最大，让僚机感觉灵活迅捷
+			if aircraft.params:
+				aircraft.target_speed_kmh = aircraft.params.max_speed * ORBIT_SPEED_RATIO
+			# 高度匹配长机
+			if aircraft.flat_altitude:
+				aircraft.set_target_tier(leader.get_altitude_tier())
+			else:
+				aircraft.target_altitude = leader.altitude
+		elif not waypoints.is_empty():
 			var target_wp := waypoints[current_waypoint_index]
 			if aircraft.global_position.distance_to(target_wp) < arrival_distance:
 				current_waypoint_index = (current_waypoint_index + 1) % waypoints.size()
 			aircraft.target_position = waypoints[current_waypoint_index]
 
-		# 简单扫描：定期寻找最近的敌人
+		# 简单扫描：定期寻找最近的敌人（绕长机模式下更高频，便于快速反应来袭目标）
 		_scan_timer -= delta
 		if _scan_timer <= 0.0 and enable_combat:
-			_scan_timer = 3.0
+			_scan_timer = 1.0 if orbit_squad_leader else 3.0
 			_try_engage_simple()
 		return
 
 	# 交战：直线前置追踪，不做任何花哨战术
 	var dist := Aircraft.effective_distance_px(aircraft.global_position, aircraft.altitude, _current_target.global_position, _current_target.altitude)
+
+	# ── 护驾系统（orbit_squad_leader 专用）──
+	# 如果僚机被长机吸引在身边（Sentinel 小队），它不得超出护驾半径追击目标
+	# 也不得追击已远离护驾半径的目标
+	if orbit_squad_leader and squad and squad.leader and is_instance_valid(squad.leader) \
+			and not squad.leader.is_destroyed:
+		var leader_pos := squad.leader.global_position
+		var self_to_leader := aircraft.global_position.distance_to(leader_pos)
+		var tgt_to_leader := _current_target.global_position.distance_to(leader_pos)
+		if self_to_leader > ORBIT_TETHER_RADIUS or tgt_to_leader > ORBIT_TETHER_RADIUS:
+			# 超出护驾范围：立即放弃目标，返回绕长机飞行
+			aircraft.clear_combat_target()
+			aircraft.ai_override_pursuit = false
+			_current_target = null
+			_engage_timer = 0.0
+			_simple_orbit_time = 0.0
+			_simple_confused = false
+			return
 
 	# 超出范围或超时脱离
 	var max_range := (aircraft.params.radar_range * 1.5) if aircraft.params else 3000.0
@@ -464,6 +533,15 @@ func _try_engage_simple() -> void:
 			detect_range *= 0.75
 		elif tgt_tier == CombatUnit.AltitudeTier.GROUND:
 			detect_range *= 0.6
+
+	# ── 护驾过滤（orbit_squad_leader 专用）──
+	# 只攻击进入长机护驾范围内的目标，远处的敌人不管
+	if orbit_squad_leader and squad and squad.leader and is_instance_valid(squad.leader) \
+			and not squad.leader.is_destroyed and best:
+		var tgt_to_leader := best.global_position.distance_to(squad.leader.global_position)
+		if tgt_to_leader > ORBIT_TETHER_RADIUS:
+			return  # 目标不在护驾范围内，不交战
+
 	if best and best_dist < detect_range:
 		_current_target = best
 		_engage_timer = 0.0
@@ -512,6 +590,20 @@ func _process_squad_follow(delta: float) -> void:
 		return
 
 	var leader := squad.leader
+
+	# 安全网：若自己就是长机（例如中途原长机阵亡自动晋升）
+	# 不能进入跟随分支，否则 get_wingman_target(squad_index≠0) 会算出
+	# 一个相对于自身旋转的槽位，飞机陷入追自己尾巴的原地自转死循环
+	if leader == aircraft:
+		squad_index = 0
+		aircraft.formation_mode = false
+		aircraft._formation_leader = null
+		_formation_blend = 0.0
+		_rejoining = false
+		_state = AIState.PATROL
+		_set_patrol_altitude()
+		_set_next_waypoint()
+		return
 
 	# ── 导弹规避优先 ──
 	if evade_missiles and _missile_aware:
@@ -589,6 +681,8 @@ func _process_squad_follow(delta: float) -> void:
 			_current_target = leader.combat_target
 			aircraft.ai_override_pursuit = true
 			_squad_attacking_leader_target = true
+			_leader_target_lost_timer = 0.0
+			_squad_range_grace_timer = 0.0
 			current_tactic_name = "协同攻击"
 	else:
 		_engage_delay = 0.0  # 长机无目标时重置延迟
@@ -673,19 +767,33 @@ func _process_engage(delta: float) -> void:
 		_disengage()
 		return
 
-	# 编队僚机：长机取消目标时僚机也脱离
+	# 编队僚机：长机取消目标时僚机也脱离（带宽限防止单帧抖动）
 	if squad and squad.leader and is_instance_valid(squad.leader):
 		if not squad.leader.combat_target:
-			_disengage()
-			return
+			_leader_target_lost_timer += delta
+			if _leader_target_lost_timer >= LEADER_TARGET_LOST_GRACE:
+				_leader_target_lost_timer = 0.0
+				_disengage()
+				return
+		else:
+			_leader_target_lost_timer = 0.0
 
-	# 超出范围脱离
+	# 超出范围脱离（协同攻击长机目标时带宽限：允许短暂越界继续追）
 	if aircraft.params:
 		var max_range := aircraft.params.radar_range * 1.5
 		var dist := Aircraft.effective_distance_px(aircraft.global_position, aircraft.altitude, _current_target.global_position, _current_target.altitude)
 		if dist > max_range:
-			_disengage()
-			return
+			if _squad_attacking_leader_target:
+				_squad_range_grace_timer += delta
+				if _squad_range_grace_timer >= SQUAD_RANGE_GRACE:
+					_squad_range_grace_timer = 0.0
+					_disengage()
+					return
+			else:
+				_disengage()
+				return
+		else:
+			_squad_range_grace_timer = 0.0
 
 	# 交战时间限制
 	if _engage_timer > engage_duration:
@@ -1270,6 +1378,16 @@ func _enter_evade() -> void:
 	_squad_attacking_leader_target = false
 	if aircraft.combat_target:
 		aircraft.clear_combat_target()
+	# 退出编队托管，规避机动必须走正常飞行物理（LOD 0）
+	# 否则 lod_level==1 + formation_mode 会让规避航向变化走
+	# aircraft.gd:261 的纯 lerp_angle 分支，绕过 G 限/bank 速率/corner speed，
+	# 导致 ~360°/s 的瞬间机头扭转（见 2026-04-11 Jinx 规避 bug）。
+	aircraft.formation_mode = false
+	aircraft._formation_leader = null
+	aircraft._formation_blend = 0.0
+	_formation_blend = 0.0  # 规避结束后从 0 开始重新融入编队
+	aircraft.lod_level = 0
+	aircraft.keep_target_on_arrival = false
 
 func _exit_evade() -> void:
 	EventLogger.log_event("EVADE", _log_name(), "exiting missile evasion")
@@ -1428,14 +1546,23 @@ func _disengage() -> void:
 	_cooldown_timer = engage_cooldown
 	current_tactic_name = ""
 	_squad_attacking_leader_target = false
-	# 有编队则回归编队，否则回巡逻
-	if squad and is_instance_valid(squad.leader) and not squad.leader.is_destroyed:
+	_leader_target_lost_timer = 0.0
+	_squad_range_grace_timer = 0.0
+	# 有编队且长机不是自己 → 回归编队；否则（独行或自己就是长机）回巡逻
+	# 不能让单机长机/新晋升长机进 SQUAD_FOLLOW，否则会对着自己算槽位原地自转
+	if squad and is_instance_valid(squad.leader) and not squad.leader.is_destroyed \
+			and squad.leader != aircraft:
 		_state = AIState.SQUAD_FOLLOW
 		_cover_target = null
 		_rejoining = true
 		_formation_blend = 0.0  # 从0开始渐变回编队托管
 		aircraft.lod_level = 1
 	else:
+		# 独自存活的长机走巡逻，顺便把 squad_index 归零（以防 squad 尚在但已是孤雁）
+		if squad and squad.leader == aircraft:
+			squad_index = 0
+		aircraft.formation_mode = false
+		aircraft._formation_leader = null
 		_state = AIState.PATROL
 		_set_patrol_altitude()
 		_set_next_waypoint()

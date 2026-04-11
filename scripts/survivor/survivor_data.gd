@@ -118,10 +118,10 @@ const UPGRADES: Array[Dictionary] = [
 	{
 		"id": "multi_lock",
 		"name": "多目标追踪",
-		"desc": "同时锁定并发射目标数 +1",
+		"desc": "自动对所有锁定目标同时发射导弹",
 		"stat": "multi_lock",
 		"value": 1,
-		"max_stacks": 2,
+		"max_stacks": 1,
 		"category": "combat",
 	},
 	{
@@ -154,12 +154,12 @@ const UPGRADES: Array[Dictionary] = [
 		"category": "combat",
 	},
 	{
-		"id": "gun_regen",
-		"name": "自动装弹机",
-		"desc": "机炮弹药恢复速度 +40%",
-		"stat": "gun_regen",
-		"value": 0.40,
-		"max_stacks": 4,
+		"id": "gun_reload",
+		"name": "快速装弹机",
+		"desc": "机炮装填时间 -15%",
+		"stat": "gun_reload",
+		"value": 0.15,
+		"max_stacks": 3,
 		"category": "combat",
 	},
 	{
@@ -216,23 +216,84 @@ const MAX_ENEMIES_HARD := 40          ## 绝对上限
 const MAX_ENEMIES_DEFAULT := 30       ## 默认上限
 const MIN_ENEMIES_CAP := 8            ## 动态下限（至少允许这么多敌人）
 const TARGET_FPS := 30                ## 目标最低帧率
-const UCAV_UNLOCK_LEVEL := 3        ## 导弹无人机解锁等级
-const UCAV_CHANCE_PER_LEVEL := 0.10 ## 每超过解锁等级，UCAV 出现概率增加
-const UCAV_CHANCE_MAX := 0.4        ## UCAV 最大出现概率
+## UAV 与 UCAV 是等权重的杂鱼 adds，从 1 级一起出现，无解锁门槛/概率曲线
 const MIG_UNLOCK_LEVEL := 7         ## MiG 解锁等级
 const MIG_CHANCE_PER_LEVEL := 0.08  ## 每超过解锁等级，MiG 出现概率增加
 const MIG_CHANCE_MAX := 0.5         ## MiG 最大出现概率
 const INTERCEPTOR_UNLOCK_LEVEL := 5  ## 截击机（J-7）解锁等级
 const INTERCEPTOR_CHANCE_PER_LEVEL := 0.12  ## 每超过解锁等级，截击机出现概率增加
 const INTERCEPTOR_CHANCE_MAX := 0.35 ## 截击机最大出现概率
+const F86_UNLOCK_LEVEL := 2          ## F-86（Gladiator）解锁等级
+const F86_CHANCE_PER_LEVEL := 0.14   ## 每超过解锁等级，F-86 出现概率增加
+const F86_CHANCE_MAX := 0.45         ## F-86 最大出现概率
+const MIG23_UNLOCK_LEVEL := 4        ## MiG-23（Gladiator，带导弹编队）解锁等级
+const MIG23_CHANCE_PER_LEVEL := 0.10 ## 每超过解锁等级，MiG-23 出现概率增加
+const MIG23_CHANCE_MAX := 0.35       ## MiG-23 最大出现概率
+const F100_UNLOCK_LEVEL := 6         ## F-100（Lancer 编队，雷达弹）解锁等级
+const F100_CHANCE_PER_LEVEL := 0.10  ## 每超过解锁等级，F-100 出现概率增加
+const F100_CHANCE_MAX := 0.30        ## F-100 最大出现概率
+const MIG31_UNLOCK_LEVEL := 9        ## MiG-31（最强 Lancer，单机）解锁等级
+const MIG31_CHANCE_PER_LEVEL := 0.08 ## 每超过解锁等级，MiG-31 出现概率增加
+const MIG31_CHANCE_MAX := 0.25       ## MiG-31 最大出现概率
 const COMMANDER_UNLOCK_LEVEL := 4    ## 指挥 UAV 解锁等级
 const COMMANDER_CHANCE_BASE := 0.12  ## 解锁时的基础出现概率
 const COMMANDER_CHANCE_PER_LEVEL := 0.06  ## 每超过解锁等级，指挥 UAV 出现概率增加
 const COMMANDER_CHANCE_MAX := 0.25   ## 指挥 UAV 最大出现概率
 const COMMANDER_SQUAD_MIN := 2       ## 指挥 UAV 自带僚机最少数
 const COMMANDER_SQUAD_MAX := 3       ## 指挥 UAV 自带僚机最多数
-const COMMANDER_MAX_SQUAD := 6       ## 指挥 UAV 分队招募上限（含自己）
+const COMMANDER_MAX_SQUAD := 9       ## 指挥 UAV 分队总上限（含自己；实际招募限制在 CommanderAura.MAX_WINGMEN=8）
 const XP_PER_KILL_COMMANDER := 50    ## 指挥 UAV 击杀经验
+
+# ── Token 烈度预算 ─────────────────────────────────────────
+# Token 系统用于精细控制同屏战斗烈度：
+# - 每种敌人消耗不同 Token 值（杂鱼 1~2，精英 4~6）
+# - 全局 Token 上限随等级增长
+# - 部分敌人设独立实例上限（即使预算够也不再刷）
+# - 远距清理飞出战区的敌机，释放 Token
+
+const TOKEN_BUDGET_BASE := 5           ## 1 级时的 Token 预算
+const TOKEN_BUDGET_PER_LEVEL := 1.5    ## 每级 Token 预算增量
+const TOKEN_BUDGET_MAX := 45           ## Token 预算绝对上限
+
+## 每种敌人的 Token 消耗
+## key 是 survivor_mode.gd::EnemyType 的 int 值
+## UAV=0, UCAV=1, MIG=2, INTERCEPTOR=3, UAV_COMMANDER=4, F86=5, MIG31=6, MIG23=7, F100=8
+const TOKEN_COST := {
+	0: 1,  ## UAV        — 最便宜的杂鱼
+	1: 2,  ## UCAV       — 导弹杂鱼
+	2: 4,  ## MiG-29     — 主力威胁
+	3: 5,  ## J-7        — Lancer 打带跑，单次冲锋威胁高
+	4: 6,  ## Sentinel   — Schemer 带光环+buff 僚机
+	5: 3,  ## F-86       — Gladiator 缠斗
+	6: 8,  ## MiG-31     — Lancer 顶级（速度 3200，雷达弹，单机出现）
+	7: 4,  ## MiG-23     — Gladiator 综合型（导弹+机炮编队）
+	8: 5,  ## F-100      — Lancer 编队型（雷达弹打带跑）
+}
+
+## 每种敌人的同时存在上限（-1 = 无限制）
+## 即使 Token 够也不会超过此数；保证 schemer/lancer 稀有度
+## 注意：J-7 后期会改走编队（LATE_GAME_LEVEL+），故不再限制实例数
+const TOKEN_INSTANCE_CAP := {
+	0: -1,  ## UAV
+	1: -1,  ## UCAV
+	2: -1,  ## MiG
+	3: -1,  ## J-7 截击机（早期单机/后期编队，无硬上限）
+	4: 1,   ## Sentinel 指挥机：唯一单位
+	5: -1,  ## F-86
+	6: 2,   ## MiG-31：最强 Lancer，单机稀有，一次最多 2 台
+	7: -1,  ## MiG-23
+	8: 3,   ## F-100 编队：一次最多 3 台维持稀有感
+}
+
+## 远距清理
+const FAR_CLEANUP_DISTANCE := 7000.0   ## 超过此像素距离的敌机被静默移除
+const FAR_CLEANUP_INTERVAL := 4.0      ## 清理检查间隔（秒）
+
+## 后期分水岭：达到此等级后，杂鱼/低级飞机统一以编队形式出现，单机精英才允许单架
+## - UAV / UCAV / F-86 / J-7 等不再有"落单 1 架"的尾巴
+## - J-7 截击机由单机出现改为 2-3 编队
+## - MiG-31 / Sentinel 不受影响（设计上保留单机出场）
+const LATE_GAME_LEVEL := 10
 
 # ── 敌人缩放 ─────────────────────────────────────────────
 

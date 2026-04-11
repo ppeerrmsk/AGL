@@ -12,25 +12,42 @@ const RING_COLOR := Color(0.3, 0.8, 0.9, 0.2)      ## 范围边缘
 const LINK_COLOR := Color(0.3, 0.8, 0.9, 0.35)     ## 数据链线
 const DIAMOND_COLOR := Color(0.3, 0.8, 0.9, 0.5)   ## 端点菱形
 
+const DESTROY_FADE_DURATION := 3.0  ## 与 Aircraft._destroy_timer 初值一致
+
 func _ready() -> void:
 	_commander = get_parent() as Aircraft
 	_aura = _commander.get_node_or_null("CommanderAura") as CommanderAura
 
 func _process(_delta: float) -> void:
-	if _commander and not _commander.is_destroyed:
-		queue_redraw()
+	if _commander:
+		queue_redraw()  # 坠落期间也持续重绘以实现淡出动画
 
 func _draw() -> void:
-	if not _commander or _commander.is_destroyed:
+	if not _commander:
 		return
 
+	# 坠落淡出：基于 commander._destroy_timer（3→0）计算 alpha 倍率
+	var alpha_mult := 1.0
+	if _commander.is_destroyed:
+		alpha_mult = clampf(_commander._destroy_timer / DESTROY_FADE_DURATION, 0.0, 1.0)
+		if alpha_mult <= 0.01:
+			return
+
 	# ── 影响范围圈 ──
-	draw_circle(Vector2.ZERO, CommanderAura.AURA_RADIUS, FILL_COLOR)
-	draw_arc(Vector2.ZERO, CommanderAura.AURA_RADIUS, 0, TAU, 64, RING_COLOR, 1.0)
+	var fill := FILL_COLOR
+	fill.a *= alpha_mult
+	draw_circle(Vector2.ZERO, CommanderAura.AURA_RADIUS, fill)
+	var ring := RING_COLOR
+	ring.a *= alpha_mult
+	draw_arc(Vector2.ZERO, CommanderAura.AURA_RADIUS, 0, TAU, 64, ring, 1.0)
 
 	# ── 数据链连接线 ──
 	if not _aura:
 		return
+	var link_col := LINK_COLOR
+	link_col.a *= alpha_mult
+	var diamond_col := DIAMOND_COLOR
+	diamond_col.a *= alpha_mult
 	for ac in _aura.buffed_aircraft:
 		if not is_instance_valid(ac) or ac.is_destroyed:
 			continue
@@ -50,7 +67,7 @@ func _draw() -> void:
 			if is_seg:
 				var from := dir * drawn
 				var to := dir * (drawn + step)
-				draw_line(from, to, LINK_COLOR, 1.0, true)
+				draw_line(from, to, link_col, 1.0, true)
 			drawn += step
 			is_seg = not is_seg
 
@@ -62,4 +79,4 @@ func _draw() -> void:
 			local_pos + Vector2(0, d),
 			local_pos + Vector2(-d, 0),
 		])
-		draw_colored_polygon(diamond, DIAMOND_COLOR)
+		draw_colored_polygon(diamond, diamond_col)

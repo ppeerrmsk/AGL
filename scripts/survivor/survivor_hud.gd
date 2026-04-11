@@ -26,6 +26,7 @@ var _tactical_panel: PanelContainer
 var _btn_weapon: Button
 var _btn_altitude: Button
 var _btn_evasion: Button
+var _btn_auto_fire: Button
 var _tooltip_panel: PanelContainer
 var _tooltip_label: RichTextLabel
 var _tooltip_key: String = ""  # 当前悬停的按钮标识
@@ -152,6 +153,12 @@ func _build_ui() -> void:
 	_btn_evasion.mouse_entered.connect(_on_tac_hover.bind("evasion"))
 	_btn_evasion.mouse_exited.connect(_on_tac_hover_exit)
 	tac_vbox.add_child(_btn_evasion)
+
+	_btn_auto_fire = _create_tac_button("F 自动发射: 开")
+	_btn_auto_fire.pressed.connect(_on_auto_fire_pressed)
+	_btn_auto_fire.mouse_entered.connect(_on_tac_hover.bind("auto_fire"))
+	_btn_auto_fire.mouse_exited.connect(_on_tac_hover_exit)
+	tac_vbox.add_child(_btn_auto_fire)
 
 	add_child(_tactical_panel)
 
@@ -321,6 +328,12 @@ func _update_status_panel() -> void:
 	var hp_color := "66ff66" if hp_ratio > 0.5 else ("ffcc33" if hp_ratio > 0.25 else "ff4444")
 	text += "[color=#%s]HP %d / %d[/color]\n" % [hp_color, ceili(current_hp), ceili(max_hp)]
 
+	# ── G 力 / 结构极限 ──
+	var g_cur: float = ac.g_load
+	var g_max: float = ac._effective_max_g()
+	var g_color := "ffaa33" if g_cur > g_max * 0.85 else "ccddee"
+	text += "[color=#%s]G   %.1f / %.1f[/color]\n" % [g_color, g_cur, g_max]
+
 	# ── 高度档位 ──
 	if ac.flat_altitude:
 		var tier_name: String = Aircraft.TIER_NAMES[ac.get_altitude_tier()]
@@ -344,11 +357,12 @@ func _update_status_panel() -> void:
 	# ── 机炮 ──
 	if ac.params and ac.params.gun:
 		var max_ammo := ac.params.gun.max_ammo
-		var regen_tag := ""
-		if ac.enable_gun_reload and ac.ammo < max_ammo:
-			regen_tag = " +"
-		var ammo_color := "ccddaa" if ac.ammo > 100 else ("ffaa44" if ac.ammo > 0 else "666666")
-		text += "[color=#%s]GUN  %d%s[/color]\n" % [ammo_color, ac.ammo, regen_tag]
+		if ac.enable_gun_reload and ac._gun_reload_active:
+			var pct := int(ac.gun_reload_progress * 100)
+			text += "[color=#aa7733]GUN  RELOAD %d%%[/color]\n" % pct
+		else:
+			var ammo_color := "ccddaa" if ac.ammo > 100 else ("ffaa44" if ac.ammo > 0 else "666666")
+			text += "[color=#%s]GUN  %d / %d[/color]\n" % [ammo_color, ac.ammo, max_ammo]
 
 	# ── 热诱弹 ──
 	if ac.params and ac.params.flare:
@@ -473,7 +487,16 @@ func _on_evasion_pressed() -> void:
 	if not survivor_player or not survivor_player.aircraft:
 		return
 	var ac := survivor_player.aircraft
-	ac.evasion_mode = not ac.evasion_mode
+	ac.set_evasion_mode(not ac.evasion_mode)
+	_update_tactical_buttons()
+	if _tooltip_panel.visible:
+		_update_tooltip()
+
+func _on_auto_fire_pressed() -> void:
+	if not survivor_player or not survivor_player.aircraft:
+		return
+	var ac := survivor_player.aircraft
+	ac.missile_auto_fire = not ac.missile_auto_fire
 	_update_tactical_buttons()
 	if _tooltip_panel.visible:
 		_update_tooltip()
@@ -535,6 +558,19 @@ func _update_tooltip() -> void:
 				text += "[color=#aabbaa]飞机不会主动进行规避机动\n"
 				text += "完全听从玩家的移动指令[/color]\n\n"
 				text += "[color=#888888]按 [color=#ffdd66]E[/color] 开启规避[/color]"
+		"auto_fire":
+			if ac.missile_auto_fire:
+				text = "[color=#ffcc44][b]自动发射: 开[/b][/color]\n"
+				text += "[color=#aabbaa]飞机自动选择最佳角度发射导弹\n"
+				text += "锁定任意敌机即自动开火\n"
+				text += "[color=#66ccff]多目标追踪升级下一次发多枚[/color]\n"
+				text += "无需玩家手动点击目标[/color]\n\n"
+				text += "[color=#888888]按 [color=#ffdd66]F[/color] 关闭自动发射[/color]"
+			else:
+				text = "[color=#ffcc44][b]自动发射: 关[/b][/color]\n"
+				text += "[color=#aabbaa]只在玩家点击敌机指定攻击时开火\n"
+				text += "节省弹药 / 精准打击[/color]\n\n"
+				text += "[color=#888888]按 [color=#ffdd66]F[/color] 开启自动发射[/color]"
 
 	_tooltip_label.text = text
 
@@ -551,6 +587,7 @@ func _update_tactical_buttons() -> void:
 	else:
 		_btn_altitude.text = "4 低空优先"
 	_btn_evasion.text = "E 规避: %s" % ("开" if ac.evasion_mode else "关")
+	_btn_auto_fire.text = "F 自动发射: %s" % ("开" if ac.missile_auto_fire else "关")
 
 func _update_debug_panel() -> void:
 	if not game_scene:

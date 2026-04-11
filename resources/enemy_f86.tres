@@ -1,0 +1,48 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/f86_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/gladiator_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/rocket_ffar.tres" id="4"]
+
+[resource]
+script = ExtResource("1")
+display_name = "F-86"
+; ── 生存性 ──
+max_hp = 42.0
+armor = 0.0
+; ── 速度（亚音速早期喷气） ──
+max_speed = 1100.0
+cruise_speed = 700.0
+stall_speed_base = 190.0
+acceleration = 28.0
+deceleration = 55.0
+g_drag_factor = 2.8
+; ── 机动（Gladiator 强项：高 G 近战） ──
+max_g = 7.5
+max_g_structural = 10.0
+roll_rate = 3.8
+pilot_stamina = 85.0
+stamina_drain_rate = 25.0
+stamina_recovery_rate = 9.0
+; ── 高度 ──
+max_altitude = 13000.0
+climb_rate_max = 180.0
+; ── 引擎 ──
+thrust_to_weight = 0.85
+drag_coefficient = 0.028
+afterburner_thrust_mult = 1.0
+; ── 燃油（生存模式会被 infinite_fuel 覆盖） ──
+fuel_capacity = 1600.0
+fuel_rate_normal = 1.8
+fuel_rate_afterburner = 6.0
+; ── 雷达（无雷达制导武器，仅做视线判定） ──
+radar_range = 2200.0
+radar_half_angle = 28.0
+lock_time = 3.0
+; ── 武器 ──
+gun = ExtResource("2")
+rocket = ExtResource("4")
+; 无导弹 —— 依赖机炮+火箭弹
+combat = ExtResource("3")
+icon_color = Color(0.95, 0.55, 0.2, 1)

@@ -1,0 +1,38 @@
+[gd_resource type="Resource" script_class="CombatParams" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/combat_params.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+; ── Lancer（骑士型 / 打带跑）──
+; 高速突击一次然后脱离；不追求缠斗，闭合率不够就放弃；
+; 相对默认：拦截距离更远 / 六点钟偏移更大 / 转弯较保守 / 接近段油门拉满。
+intercept_range_mult = 3.5
+intercept_lead_max = 10.0
+closing_rate_threshold = 0.20
+six_oclock_offset_ratio = 0.45
+pure_pursuit_lead_factor = 0.55
+opportunity_cone_mult = 2.0
+opportunity_range_mult = 0.35
+combat_bank_aggression = 0.85
+combat_full_bank_diff = 0.15
+combat_half_bank_diff = 0.04
+turn_slow_angle = 35.0
+turn_slow_max_angle = 110.0
+turn_slow_speed_mult = 0.92
+ab_cooldown = 2.5
+approach_speed_mult = 1.75
+maneuver_speed_mult = 1.15
+closing_speed_mult = 1.4
+overshoot_speed_margin = 1.2
+overshoot_decel_range = 1.2
+overshoot_ab_range = 1.5
+dive_speed_ratio = 0.90
+dive_min_altitude = 2500.0
+dive_depth = 800.0
+dive_floor = 2000.0
+climb_brake_overspeed = 1.25
+climb_brake_height = 1000.0
+climb_brake_ceiling = 14000.0
+climb_speed_ratio = 1.1
+climb_max_altitude = 11000.0

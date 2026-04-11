@@ -1,0 +1,48 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/gladiator_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/default_missile.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/default_flare.tres" id="5"]
+
+[resource]
+script = ExtResource("1")
+display_name = "MiG-23"
+; ── Gladiator（斗士型）追加款：综合型近身狗斗 ──
+; 对应真实 MiG-23 Flogger（变后掠翼 / Mach 2.35 / R-23 空空弹 + 23mm 机炮）
+; 与 F-86 同属 Gladiator，但带导弹可中距威胁，并以编队出现
+max_hp = 48.0
+armor = 0.0
+; ── 速度 ──
+max_speed = 2200.0
+cruise_speed = 900.0
+stall_speed_base = 220.0
+acceleration = 44.0
+deceleration = 62.0
+g_drag_factor = 3.2
+; ── 机动（斗士型：中等 G，侧重持续缠斗）──
+max_g = 6.8
+max_g_structural = 9.0
+roll_rate = 2.8
+pilot_stamina = 78.0
+stamina_drain_rate = 30.0
+stamina_recovery_rate = 8.0
+; ── 高度 ──
+max_altitude = 14500.0
+climb_rate_max = 230.0
+thrust_to_weight = 0.95
+drag_coefficient = 0.026
+afterburner_thrust_mult = 1.5
+fuel_capacity = 2400.0
+fuel_rate_normal = 1.9
+fuel_rate_afterburner = 10.0
+; ── 雷达 ──
+radar_range = 3600.0
+radar_half_angle = 25.0
+lock_time = 3.4
+gun = ExtResource("2")
+missile = ExtResource("4")
+flare = ExtResource("5")
+combat = ExtResource("3")
+icon_color = Color(0.9, 0.35, 0.45, 1)

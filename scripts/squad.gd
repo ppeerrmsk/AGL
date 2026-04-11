@@ -31,6 +31,7 @@ func remove_member(ac: Aircraft) -> void:
 	members.erase(ac)
 	if ac == leader and members.size() > 0:
 		leader = members[0]
+		_sync_leader_squad_index(leader)
 
 ## 清理无效成员
 func cleanup() -> void:
@@ -41,6 +42,19 @@ func cleanup() -> void:
 	members = valid
 	if leader and (not is_instance_valid(leader) or leader.is_destroyed):
 		leader = members[0] if members.size() > 0 else null
+		if leader:
+			_sync_leader_squad_index(leader)
+
+## 晋升长机后，同步其 AIController.squad_index 到 0
+## 防止原僚机带着旧 index (1/2/3) 进入 SQUAD_FOLLOW 时，
+## get_wingman_target 计算出相对于自身的 slot → 飞机追自己尾巴原地自转
+static func _sync_leader_squad_index(ac: Aircraft) -> void:
+	if not ac:
+		return
+	for child in ac.get_children():
+		if child is AIController:
+			(child as AIController).squad_index = 0
+			return
 
 ## 获取成员在编队中的序号（0=长机）
 func get_index(ac: Aircraft) -> int:
