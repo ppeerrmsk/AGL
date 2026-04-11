@@ -1,0 +1,41 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/f14_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/default_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/f14_missile.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/f14_flare.tres" id="5"]
+
+[resource]
+script = ExtResource("1")
+display_name = "F-14"
+max_hp = 110.0
+armor = 0.0
+max_speed = 2000.0
+cruise_speed = 850.0
+stall_speed_base = 240.0
+acceleration = 42.0
+deceleration = 70.0
+g_drag_factor = 3.5
+max_g = 7.5
+max_g_structural = 10.0
+roll_rate = 3.0
+pilot_stamina = 100.0
+stamina_drain_rate = 25.0
+stamina_recovery_rate = 10.0
+max_altitude = 16500.0
+climb_rate_max = 230.0
+thrust_to_weight = 0.95
+drag_coefficient = 0.022
+afterburner_thrust_mult = 1.55
+fuel_capacity = 7000.0
+fuel_rate_normal = 2.0
+fuel_rate_afterburner = 10.0
+radar_range = 3500.0
+radar_half_angle = 35.0
+lock_time = 3.0
+gun = ExtResource("2")
+missile = ExtResource("4")
+flare = ExtResource("5")
+combat = ExtResource("3")
+icon_color = Color(0.20, 0.65, 0.85, 1)

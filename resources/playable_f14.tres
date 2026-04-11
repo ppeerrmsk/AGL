@@ -1,0 +1,33 @@
+[gd_resource type="Resource" script_class="PlayableAircraft" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/playable_aircraft.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/playable_f14_base.tres" id="2"]
+
+[resource]
+script = ExtResource("1")
+id = &"f14"
+display_name = "F-14A Tomcat"
+codename = "TopGun"
+card_tags = PackedStringArray("小队主控", "重型截击", "AIM-54")
+card_desc = "「Anytime, baby!」舰载重型截击机。三机僚机编队入场支援，但单机性能弱于 F-16：导弹/热诱弹/机炮均缩水，机动性较差，需依赖小队配合。"
+base_params = ExtResource("2")
+radar_range_mult = 0.333333
+max_speed_mult = 1.0
+cruise_speed_mult = 1.0
+acceleration_mult = 1.0
+roll_rate_mult = 1.0
+lock_time_mult = 1.0
+max_g_bonus = 0.0
+missile_count_override = 1
+gun_damage_mult = 1.0
+gun_range_override = 0.0
+gun_cone_override = 0.0
+flares_guaranteed = true
+enable_missile_reload = true
+enable_flare_reload = true
+enable_gun_reload = true
+infinite_fuel = true
+missile_damage_cap = 30.0
+bullet_damage_cap = 5.0
+bullet_dodge_chance = 0.10
+wingman_count = 3

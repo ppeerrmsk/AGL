@@ -5,9 +5,23 @@ extends RefCounted
 
 # ── 升级定义 ─────────────────────────────────────────────
 # 每种升级直接修改 Aircraft 的 params（AircraftParams / GunParams / MissileParams）
+#
+# 必填字段：
+#   id / name / desc / stat / value / max_stacks / category
 # category: "combat" = 战斗轴, "survival" = 生存轴
-# evolved: true = 进化技能，不出现在随机池中，由基础技能满级自动触发
-# evolves_to: "xxx" = 满级后自动进化为指定技能
+#
+# 可选字段：
+#   evolved: true = 进化技能，不出现在随机池中，由基础技能满级自动触发
+#   evolves_to: "xxx" = 满级后自动进化为指定技能
+#   requires: 数组 — 飞机必须具备的硬件标签才能获得此升级
+#               可选值: "gun" / "missile" / "flare" / "rocket"
+#               例：["gun"] 表示无机炮的飞机不会出现该升级
+#               留空 = 无硬件要求
+#   exclusive_to: 数组 — 仅允许指定的 PlayableAircraft.id 获得（专属升级）
+#               例：["f14"] 表示只有 F-14 主角能 roll 到
+#               留空 = 通用升级，所有飞机可获取
+#
+# 技能可用性判定见 SurvivorData.is_upgrade_available_for()
 
 const UPGRADES: Array[Dictionary] = [
 	# ── 生存轴 ──
@@ -47,6 +61,7 @@ const UPGRADES: Array[Dictionary] = [
 		"max_stacks": 3,
 		"category": "survival",
 		"evolves_to": "flare_shield",
+		"requires": ["flare"],
 	},
 	{
 		"id": "flare_shield",
@@ -57,6 +72,7 @@ const UPGRADES: Array[Dictionary] = [
 		"max_stacks": 1,
 		"category": "survival",
 		"evolved": true,
+		"requires": ["flare"],
 	},
 	{
 		"id": "pilot_stamina",
@@ -85,6 +101,7 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 1,
 		"max_stacks": 4,
 		"category": "combat",
+		"requires": ["missile"],
 	},
 	{
 		"id": "missile_tracking",
@@ -95,6 +112,7 @@ const UPGRADES: Array[Dictionary] = [
 		"max_stacks": 4,
 		"category": "combat",
 		"evolves_to": "missile_bounce",
+		"requires": ["missile"],
 	},
 	{
 		"id": "missile_bounce",
@@ -105,6 +123,7 @@ const UPGRADES: Array[Dictionary] = [
 		"max_stacks": 1,
 		"category": "combat",
 		"evolved": true,
+		"requires": ["missile"],
 	},
 	{
 		"id": "missile_reload",
@@ -114,6 +133,7 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 0.15,
 		"max_stacks": 3,
 		"category": "combat",
+		"requires": ["missile"],
 	},
 	{
 		"id": "multi_lock",
@@ -123,6 +143,7 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 1,
 		"max_stacks": 1,
 		"category": "combat",
+		"requires": ["missile"],
 	},
 	{
 		"id": "gun_damage",
@@ -133,6 +154,7 @@ const UPGRADES: Array[Dictionary] = [
 		"max_stacks": 5,
 		"category": "combat",
 		"evolves_to": "gun_multishot",
+		"requires": ["gun"],
 	},
 	{
 		"id": "gun_multishot",
@@ -143,6 +165,7 @@ const UPGRADES: Array[Dictionary] = [
 		"max_stacks": 1,
 		"category": "combat",
 		"evolved": true,
+		"requires": ["gun"],
 	},
 	{
 		"id": "gun_ammo",
@@ -152,6 +175,7 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 100,
 		"max_stacks": 5,
 		"category": "combat",
+		"requires": ["gun"],
 	},
 	{
 		"id": "gun_reload",
@@ -161,6 +185,7 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 0.15,
 		"max_stacks": 3,
 		"category": "combat",
+		"requires": ["gun"],
 	},
 	{
 		"id": "gun_firerate",
@@ -170,6 +195,7 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 0.25,
 		"max_stacks": 4,
 		"category": "combat",
+		"requires": ["gun"],
 	},
 	{
 		"id": "radar_range",
@@ -199,6 +225,48 @@ const UPGRADES: Array[Dictionary] = [
 		"category": "combat",
 	},
 ]
+
+# ── 升级筛选 ─────────────────────────────────────────────
+
+## 判断某个升级是否适用于指定主角
+##   upgrade: UPGRADES 表中的一条
+##   aircraft_id: PlayableAircraft.id（如 &"f16" / &"f14"）
+##   p: 主角飞机当前的 AircraftParams（用于检测硬件存在性）
+##
+## 拒绝条件：
+##   - upgrade.requires 中列出的硬件，主角缺失任意一项
+##   - upgrade.exclusive_to 非空，且 aircraft_id 不在其中
+static func is_upgrade_available_for(upgrade: Dictionary, aircraft_id: StringName, p: AircraftParams) -> bool:
+	# ── 硬件要求 ──
+	var reqs: Variant = upgrade.get("requires", null)
+	if reqs != null:
+		for req in reqs:
+			match str(req):
+				"gun":
+					if p == null or p.gun == null:
+						return false
+				"missile":
+					if p == null or p.missile == null:
+						return false
+				"flare":
+					if p == null or p.flare == null:
+						return false
+				"rocket":
+					if p == null or p.rocket == null:
+						return false
+
+	# ── 专属机型限制 ──
+	var excl: Variant = upgrade.get("exclusive_to", null)
+	if excl != null and excl.size() > 0:
+		var matched := false
+		for id_str in excl:
+			if StringName(id_str) == aircraft_id:
+				matched = true
+				break
+		if not matched:
+			return false
+
+	return true
 
 # ── 经验曲线 ─────────────────────────────────────────────
 

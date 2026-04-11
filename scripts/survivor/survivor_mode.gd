@@ -63,6 +63,8 @@ var _cloud_noise: FastNoiseLite
 
 # ── 生存模式状态 ──
 var player_aircraft: Aircraft
+var _player_profile_id: StringName = &""  ## 当前主角的 PlayableAircraft.id（用于专属技能筛选）
+var _wingman_formation_debug: bool = false  ## F11 切换：友方僚机编队调试覆盖层
 var survivor_player: SurvivorPlayer
 var game_time: float = 0.0
 var kill_count: int = 0
@@ -111,12 +113,28 @@ func _ready() -> void:
 	_mig23_params_base = preload("res://resources/enemy_mig23.tres")
 	_f100_params_base = preload("res://resources/enemy_f100.tres")
 
-	# 读取选择的机型（从选择界面传入），缺省用 F-16
-	var selected_res: String = "res://resources/default_fighter.tres"
+	# 读取选择的机型档案（PlayableAircraft），缺省用 F-16
+	var profile_path: String = "res://resources/playable_f16.tres"
 	if get_tree().has_meta("survivor_aircraft_resource"):
-		selected_res = get_tree().get_meta("survivor_aircraft_resource")
+		profile_path = get_tree().get_meta("survivor_aircraft_resource")
 		get_tree().remove_meta("survivor_aircraft_resource")
-	_player_params_base = load(selected_res)
+	var profile: PlayableAircraft = load(profile_path)
+	if profile == null or profile.base_params == null:
+		push_error("survivor_mode: 无效的 PlayableAircraft：%s" % profile_path)
+		return
+	_player_params_base = profile.base_params
+	_player_profile_id = profile.id  # 用于专属技能筛选
+
+	# 读取选择的地图（占位：当前仅 default 一张实装，其它为预留位）
+	# 后续在此根据 map_id 切换噪声 seed/frequency/地形配色
+	if get_tree().has_meta("survivor_map_id"):
+		get_tree().remove_meta("survivor_map_id")
+
+	# 友方子弹命中判定增强（生存模式全局，不依赖具体机型）
+	bullet_manager.friendly_hit_radius = 20.0   # 命中半径 12→20px
+	bullet_manager.friendly_dmg_full_ratio = 0.5  # 满伤害区间 30%→50%
+	bullet_manager.friendly_dmg_min_mult = 0.4    # 最远衰减 20%→40%
+	bullet_manager.flat_altitude_mode = true       # 扁平高度：无高度容差限制
 
 	# 生成玩家飞机
 	player_aircraft = _aircraft_scene.instantiate()
@@ -124,66 +142,11 @@ func _ready() -> void:
 	CallsignDB.reserve("Ultra")
 	player_aircraft.params = _player_params_base.duplicate(true)  # 深拷贝，升级修改不影响原资源
 	# 手动 duplicate 外部子资源，避免多实例共享同一 Resource
-	var p := player_aircraft.params
-	if p.missile:
-		p.missile = p.missile.duplicate()
-	if p.gun:
-		p.gun = p.gun.duplicate()
-	if p.flare:
-		p.flare = p.flare.duplicate()
-	# 生存模式专属强化
-	p.display_name = "F-16 SmartFalcon"  # 智慧隼
-	p.radar_range /= 3.0         # 雷达范围缩减至 1/3
-	p.max_speed *= 1.15          # +15% 最大速度
-	p.cruise_speed *= 1.15
-	p.acceleration *= 1.3        # +30% 加速
-	p.roll_rate *= 1.2           # +20% 滚转
-	p.lock_time *= 0.7           # 锁定时间缩短 30%
-	p.max_g += 1.0               # +1G 持续过载
-	if p.missile:
-		p.missile.max_count = 2  # 初始 2 发导弹
-	if p.gun:
-		p.gun.bullet_damage *= 1.25  # +25% 机炮伤害
-		p.gun.max_range = 1200.0     # 射程 1000→1200m
-		p.gun.fire_cone_half_angle = 8.0  # 开火偏斜容差 5°→8°
-	# 战斗行为：精通所有战术，完美执行
-	if p.combat:
-		p.combat = p.combat.duplicate()
-	else:
-		p.combat = CombatParams.new()
-	var cb := p.combat
-	cb.combat_bank_aggression = 1.5    # 极限转弯激进度
-	cb.combat_full_bank_diff = 0.06    # 更小偏差就压满坡度
-	cb.combat_half_bank_diff = 0.01    # 几乎无死区
-	cb.intercept_lead_max = 10.0       # 更大预判窗口
-	cb.opportunity_cone_mult = 3.0     # 更宽机会射击角
-	cb.opportunity_range_mult = 0.6    # 更远机会射击距离
-	cb.approach_speed_mult = 1.6       # 接近阶段更快
-	cb.overshoot_speed_margin = 1.02   # 更精确速度匹配防冲过
-	# 热诱弹释放：冷静老练
-	if p.flare:
-		p.flare = p.flare.duplicate()
-		p.flare.nervousness = 0.0      # 完全冷静，关键时刻才释放
-		p.flare.max_flares = 2         # 携带2枚
-		p.flare.burst_count = 1        # 每次释放1枚，可躲2次导弹
-		p.flare.cooldown = 1.5         # 两次释放间隔1.5秒
-		p.flare.base_jam_chance = 0.90 # 主角基础干扰率 55%→90%（配合 flares_guaranteed 对正面概率分支大幅 buff）
-		p.flare.aspect_bonus = 0.3     # 侧/后向加成 20%→30%
-		p.flare.maneuvering_bonus = 0.25 # 大机动加成 15%→25%
-		p.flare.close_range_penalty = 0.15 # 近距惩罚 35%→15%（不至于被近距逆袭）
-	# 友方子弹命中判定增强
-	bullet_manager.friendly_hit_radius = 20.0   # 命中半径 12→20px
-	bullet_manager.friendly_dmg_full_ratio = 0.5  # 满伤害区间 30%→50%
-	bullet_manager.friendly_dmg_min_mult = 0.4    # 最远衰减 20%→40%
-	bullet_manager.flat_altitude_mode = true       # 扁平高度：无高度容差限制
-	player_aircraft.enable_missile_reload = true   # 导弹耗尽后自动装填
-	player_aircraft.flares_guaranteed = true        # 热诱弹 100% 干扰
-	player_aircraft.enable_flare_reload = true      # 热诱弹用完后自动装填
-	player_aircraft.enable_gun_reload = true        # 机炮弹药耗尽后自动装填
-	player_aircraft.infinite_fuel = true            # 无限燃油
-	player_aircraft.survivor_missile_damage_cap = 30.0  # 导弹伤害上限
-	player_aircraft.survivor_bullet_damage_cap = 5.0    # 机炮伤害上限
-	player_aircraft.bullet_dodge_chance = 0.10          # 基础机炮闪避 10%（所有主角机体通用）
+	SurvivorPlayableSetup.deep_dup_weapons(player_aircraft.params)
+	# 应用机型档案的全部生存模式强化（数据驱动，逻辑见 survivor_playable_setup.gd）
+	SurvivorPlayableSetup.apply(player_aircraft, profile)
+
+	# 通用主角实例配置（与机型无关）
 	player_aircraft.hide_data_label = true          # HUD 替代显示
 	player_aircraft.flat_altitude = true            # 三档高度模式
 	player_aircraft.use_tactical_preference = true  # 启用战术偏好面板
@@ -195,6 +158,10 @@ func _ready() -> void:
 	player_aircraft.selected = true
 	add_child(player_aircraft)
 	selected_aircraft.append(player_aircraft)
+
+	# 起始僚机（小队主控）：仅当档案声明 wingman_count > 0 时生成
+	if profile.wingman_count > 0:
+		_spawn_starting_wingmen(profile)
 
 	# 生存模式状态
 	survivor_player = SurvivorPlayer.new()
@@ -225,6 +192,164 @@ func _ready() -> void:
 	add_child(debug_spawn)
 
 # ══════════════════════════════════════════════
+#  起始僚机（"小队主控"型主角专用）
+# ══════════════════════════════════════════════
+
+## 根据 PlayableAircraft 档案在玩家旁边生成 N 架友方僚机，
+## 并把它们和玩家组成一个 Squad（玩家为长机）。
+## 仅当 profile.wingman_count > 0 时由 _ready 调用。
+func _spawn_starting_wingmen(profile: PlayableAircraft) -> void:
+	if not profile or profile.wingman_count <= 0 or not player_aircraft:
+		return
+	var wing_base: AircraftParams = profile.wingman_params
+	if wing_base == null:
+		wing_base = profile.base_params  # 缺省：与主角同型
+	if wing_base == null:
+		return
+
+	var sq := Squad.new()
+	sq.leader = player_aircraft
+	sq.add_member(player_aircraft)
+
+	for i in range(1, profile.wingman_count + 1):
+		var ac: Aircraft = _aircraft_scene.instantiate()
+		ac.params = wing_base.duplicate(true)
+		SurvivorPlayableSetup.deep_dup_weapons(ac.params)
+		# 僚机走与长机完全相同的档案应用，确保起始属性（雷达/速度/G/武器/装填/伤害上限/
+		# 闪避/无限燃油 等）完全一致；is_wingman=true 仅跳过 codename 后缀。
+		# 升级仍然只作用于长机，所以僚机不会随玩家成长。
+		SurvivorPlayableSetup.apply(ac, profile, true)
+		ac.team = 0
+
+		# 阵型槽位
+		var offset := sq.get_formation_offset(i)
+		var rotated := offset.rotated(player_aircraft.heading)
+		ac.position = player_aircraft.global_position + rotated
+		ac.initial_heading_deg = rad_to_deg(player_aircraft.heading)
+		ac.altitude = player_aircraft.altitude
+		ac.target_altitude = player_aircraft.altitude
+		ac.bullet_manager = bullet_manager
+		ac.missile_manager = missile_manager
+		# 生存模式全局规则 + 与长机一致的显示/战术设置
+		ac.flat_altitude = true
+		ac.hide_data_label = true  # 用与长机一致的精简 HUD 标签（无 MSL/AMM/FLR 细节，详情走小队面板）
+		ac.set_target_tier(Aircraft.AltitudeTier.MID)
+		add_child(ac)
+
+		var ai := AIController.new()
+		ai.name = "AI_Wing%d" % i
+		ai.aircraft = ac
+		ai.squad = sq
+		ai.squad_index = i
+		ai.enable_combat = true
+		ai.evade_missiles = true
+		# ── 完美飞行员：所有僚机都完美执行战术，不受压力/技能退化影响 ──
+		# skill_level=1 + composure=1 → effective_skill 永远是 1（见 _effective_skill 公式）
+		# focus=1 → 永不分心，目标重评不会频繁切换
+		# situational_awareness=1 → 态势感知满值
+		# self_preservation 保留 0.5 以保证导弹来袭会做规避
+		ai.aggression = 1.0
+		ai.skill_level = 1.0
+		ai.composure = 1.0
+		ai.focus = 1.0
+		ai.situational_awareness = 1.0
+		ai.self_preservation = 0.5
+		ai.patrol_altitude = player_aircraft.altitude
+		ai._state = AIController.AIState.SQUAD_FOLLOW
+		ac.add_child(ai)
+
+		# 预置编队托管态：避免 frame 1 上 lod_level=0 + formation_mode=false 的默认值
+		# 让飞机走 LOD 0 全模拟分支（target_position=INF 直行漂移）。
+		# 直接把 aircraft 设置成"已经在编队里"的状态，让 frame 1 就走 LOD 1 编队分支。
+		ac.lod_level = 1
+		ac.formation_mode = true
+		ac._formation_leader = player_aircraft
+		ac._formation_blend = 1.0
+		ac._formation_jitter_phase = ai._formation_jitter_phase
+		ac.keep_target_on_arrival = true
+		var initial_slot := sq.get_wingman_target(i)
+		if initial_slot != Vector2.INF:
+			ac.target_position = initial_slot
+		# 若 F11 编队调试已开启，新生成的僚机也跟着开
+		if _wingman_formation_debug:
+			ac.formation_debug = true
+
+		sq.add_member(ac)
+
+	_squads.append(sq)
+
+# ══════════════════════════════════════════════
+#  编队调试（F11 切换覆盖层 / F12 状态快照）
+# ══════════════════════════════════════════════
+
+## F11：在所有友方僚机（team==0 且不是 player_aircraft）上切换 formation_debug 标志。
+## 打开后每架僚机会绘制：
+##   - 橙色 X 与连线 → 阵型槽位
+##   - 蓝色射线 → 当前 heading
+##   - 黄色射线 → 编队代码计算的目标 heading
+##   - 文本 [BRANCH] slot_d hdg→Δ° bank→ blend spd
+##   - 50px CLOSE_DIST 阈值圆
+## 同时每架僚机每秒一次写入 EventLogger（F9 导出查看历史）。
+func _toggle_wingman_formation_debug() -> void:
+	_wingman_formation_debug = not _wingman_formation_debug
+	var count := 0
+	for child in get_children():
+		if not child is Aircraft:
+			continue
+		var ac: Aircraft = child
+		if ac == player_aircraft or ac.team != 0 or ac.is_destroyed:
+			continue
+		ac.formation_debug = _wingman_formation_debug
+		ac._dbg_log_timer = 0.0  # 让下一帧立刻打一行
+		count += 1
+	var status := "ON" if _wingman_formation_debug else "OFF"
+	print("[WingmanDebug] formation_debug=%s applied to %d wingmen" % [status, count])
+	EventLogger.log_event("FORM_DBG", "Survivor", "F11 toggled formation_debug=%s on %d wingmen" % [status, count])
+
+## F12：立即抓一帧友方僚机的编队状态快照，打印到控制台 + EventLogger。
+## 不需要先按 F11；这是单次状态读取。
+func _dump_wingman_formation_state() -> void:
+	var lines := PackedStringArray()
+	lines.append("=== Wingman Formation Snapshot @ %.1fs ===" % game_time)
+	if player_aircraft and not player_aircraft.is_destroyed:
+		lines.append("LEADER %s: pos=(%d,%d) hdg=%d bank=%+.0f° G=%.1f spd=%d alt=%d" % [
+			player_aircraft.callsign,
+			int(player_aircraft.global_position.x), int(player_aircraft.global_position.y),
+			int(rad_to_deg(player_aircraft.heading)),
+			rad_to_deg(player_aircraft.bank_angle),
+			player_aircraft.g_load,
+			int(player_aircraft.speed * 3.6),
+			int(player_aircraft.altitude),
+		])
+	for child in get_children():
+		if not child is Aircraft:
+			continue
+		var ac: Aircraft = child
+		if ac == player_aircraft or ac.team != 0 or ac.is_destroyed:
+			continue
+		var slot_dist_str := "?"
+		if ac._dbg_slot_pos != Vector2.INF:
+			slot_dist_str = str(int(ac._dbg_slot_dist))
+		lines.append("  %s: lod=%d fmode=%s branch=%s slot_d=%s hdg=%d→%d Δ%+.1f° bank=%+.0f°→%+.0f° spd=%d/%d G=%.1f" % [
+			ac.callsign,
+			ac.lod_level,
+			"Y" if ac.formation_mode else "n",
+			ac._dbg_branch if ac._dbg_branch != "" else "?",
+			slot_dist_str,
+			int(rad_to_deg(ac.heading)),
+			int(rad_to_deg(ac._dbg_target_heading)),
+			rad_to_deg(ac._dbg_hdiff),
+			rad_to_deg(ac.bank_angle),
+			rad_to_deg(ac._dbg_desired_bank),
+			int(ac.speed * 3.6),
+			int(ac._dbg_chase_target_kmh),
+			ac.g_load,
+		])
+	for line in lines:
+		print(line)
+		EventLogger.log_event("FORM_DBG", "Snapshot", line)
+
+# ══════════════════════════════════════════════
 #  输入处理（与 main.gd 一致）
 # ══════════════════════════════════════════════
 
@@ -242,6 +367,16 @@ func _unhandled_input(event: InputEvent) -> void:
 		var path := EventLogger.dump_to_file()
 		if path != "":
 			print("Combat log saved: %s" % path)
+		return
+	# F11：切换友方僚机的编队调试覆盖层
+	if event is InputEventKey and event.pressed and event.keycode == KEY_F11:
+		get_viewport().set_input_as_handled()
+		_toggle_wingman_formation_debug()
+		return
+	# F12：把当前所有友方僚机的编队状态打印到控制台 + EventLogger
+	if event is InputEventKey and event.pressed and event.keycode == KEY_F12:
+		get_viewport().set_input_as_handled()
+		_dump_wingman_formation_state()
 		return
 	if is_game_over or is_paused_for_upgrade:
 		return
@@ -266,6 +401,21 @@ func _unhandled_input(event: InputEvent) -> void:
 				return
 			KEY_F:
 				player_aircraft.missile_auto_fire = not player_aircraft.missile_auto_fire
+				return
+			KEY_5:
+				# 小队阵型切换（等同点击小队面板的"阵型"按钮）
+				if hud:
+					hud._on_squad_formation_pressed()
+				return
+			KEY_6:
+				# 小队交战模式（护航 ↔ 自由）
+				if hud:
+					hud._on_squad_engage_pressed()
+				return
+			KEY_7:
+				# 小队武器偏好（导弹 ↔ 机炮）
+				if hud:
+					hud._on_squad_weapon_pressed()
 				return
 	if event is InputEventMouseButton:
 		_handle_mouse_button(event)
@@ -379,6 +529,7 @@ func _physics_process(delta: float) -> void:
 	# 动态性能控制
 	_update_fps_sampling(delta)
 	_update_offscreen_lod()
+	_update_friendly_squad_lod()
 
 	# 检查玩家是否死亡
 	if player_aircraft and player_aircraft.is_destroyed and not is_game_over:
@@ -554,6 +705,10 @@ func _update_offscreen_lod() -> void:
 		var ac: Aircraft = child
 		if ac.is_destroyed:
 			continue
+		# 友方僚机不走 set_physics_process 节流（数量极少且必须每帧维持编队同步），
+		# 它们的 LOD 由 _update_friendly_squad_lod 单独管理。
+		if ac.team == 0:
+			continue
 
 		var rel := ac.global_position - cam_pos
 		var offscreen := absf(rel.x) > half.x or absf(rel.y) > half.y
@@ -576,6 +731,43 @@ func _update_offscreen_lod() -> void:
 			ac.set_physics_process(true)
 			if ai_node:
 				ai_node.set_physics_process(true)
+			ac.visible = true
+
+## 友方编队 LOD：明确把僚机置入正确的 lod_level（防止 AI 与物理跑步序错位时
+## 落到 LOD 0 全模拟分支，引起编队抖动）。
+##   - player_aircraft → 永远 LOD 0
+##   - 友方僚机交战中 → LOD 0
+##   - 友方僚机巡航中 → LOD 1（编队托管）
+##   - 友方僚机离屏 → LOD 2（自我节流）
+func _update_friendly_squad_lod() -> void:
+	if not player_aircraft or player_aircraft.is_destroyed:
+		return
+	# 玩家长机始终 LOD 0
+	player_aircraft.lod_level = 0
+	player_aircraft.visible = true
+
+	var cam_pos := camera.global_position
+	var vp_size := get_viewport_rect().size / camera.zoom
+	var half := vp_size / 2.0 + Vector2(OFFSCREEN_MARGIN, OFFSCREEN_MARGIN)
+
+	for child in get_children():
+		if not child is Aircraft:
+			continue
+		var ac: Aircraft = child
+		if ac == player_aircraft or ac.team != 0 or ac.is_destroyed:
+			continue
+
+		var rel := ac.global_position - cam_pos
+		var offscreen := absf(rel.x) > half.x or absf(rel.y) > half.y
+
+		if offscreen:
+			ac.lod_level = 2
+			ac.visible = false
+		elif ac.combat_target != null:
+			ac.lod_level = 0
+			ac.visible = true
+		else:
+			ac.lod_level = 1
 			ac.visible = true
 
 func _cleanup_destroyed_enemies() -> void:
@@ -1291,9 +1483,13 @@ func _on_player_leveled_up(_new_level: int) -> void:
 	get_tree().paused = true
 
 	var available: Array[Dictionary] = []
+	var p: AircraftParams = player_aircraft.params if player_aircraft else null
 	for u in SurvivorData.UPGRADES:
 		# 进化技能不进入随机池
 		if u.get("evolved", false):
+			continue
+		# 硬件 / 专属机型筛选
+		if not SurvivorData.is_upgrade_available_for(u, _player_profile_id, p):
 			continue
 		var stacks: int = upgrade_stacks.get(u["id"], 0)
 		if stacks < int(u["max_stacks"]):

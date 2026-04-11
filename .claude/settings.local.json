@@ -32,7 +32,43 @@
       "Bash(xargs grep:*)",
       "Bash(grep -n \"is Aircraft\" \"C:\\\\Users\\\\noelu\\\\Documents\\\\AGL\\\\scripts\"/*.gd)",
       "WebSearch",
-      "WebFetch(domain:codex.uoaf.net)"
+      "WebFetch(domain:codex.uoaf.net)",
+      "Bash(wc -l C:/Users/noelu/Documents/AGL/scripts/survivor/*.gd)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(curl -sL \"https://api.github.com/repos/samuelsuntree/Capti/contents/CLAUDE.md\")",
+      "Bash(curl -sL \"https://api.github.com/repos/samuelsuntree/Capti\")",
+      "Bash(grep -l \"PlayerAircraft\" scenes/*.tscn)",
+      "Bash(ls -t /c/Users/noelu/AppData/Roaming/Godot/app_userdata/AGL/combat_log_2026041*.txt)",
+      "Bash(ls -t /c/Users/noelu/AppData/Roaming/Godot/app_userdata/AGL/combat_log_*.txt)",
+      "Bash(ls -lt /c/Users/noelu/AppData/Roaming/Godot/app_userdata/AGL/combat_log_*.txt)",
+      "Bash(git -C C:/Users/noelu/Documents/AGL status --short)",
+      "Read(//tmp/**)",
+      "Bash(mkdir -p docs/planning docs/changelogs docs/systems docs/reference)",
+      "Bash(mv docs/changelog-2026-04-07.md docs/changelogs/2026-04-07.md)",
+      "Bash(mv docs/changelog-2026-04-08.md docs/changelogs/2026-04-08.md)",
+      "Bash(mv docs/changelog-2026-04-10.md docs/changelogs/2026-04-10.md)",
+      "Bash(mv docs/changelog-2026-04-11.md docs/changelogs/2026-04-11.md)",
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "Bash(python -c ':*)",
+      "Bash(mkdir -p logs)",
+      "Bash(rm -f ~/.claude/agl_last_log.txt)",
+      "Bash(bash .claude/hooks/open-latest-log.sh)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(sed -n '30,50p' scripts/event_logger.gd)"
+    ]
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/open-latest-log.sh"
+          }
+        ]
+      }
     ]
   }
 }

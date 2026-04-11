@@ -157,6 +157,22 @@ const _EVADE_ROLL_TRIGGER_PX: float = 700.0     ## 来袭导弹接近到此距�
 var lod_level: int = 0  ## 0=完整, 1=简化（编队僚机巡航）, 2=最小化（屏幕外）
 var _lod_frame: int = 0  ## LOD 帧计数器
 
+# --- 编队调试（survivor_mode F11 切换）---
+## 打开后会缓存 LOD 1 编队分支的中间状态并在 _draw 中渲染调试覆盖层。
+## 仅用于排查"机头乱扭"类问题，正常游戏请保持 false。
+var formation_debug: bool = false
+var _dbg_branch: String = ""        ## CLOSE / MID / FAR / OFF
+var _dbg_slot_pos: Vector2 = Vector2.INF
+var _dbg_slot_dist: float = 0.0
+var _dbg_slot_heading: float = 0.0  ## 槽位方位角
+var _dbg_blended_heading: float = 0.0  ## 中距分支的混合目标航向
+var _dbg_target_heading: float = 0.0  ## 实际写入 lerp_angle 的目标航向
+var _dbg_hdiff: float = 0.0
+var _dbg_desired_bank: float = 0.0
+var _dbg_blend_ratio: float = 0.0
+var _dbg_chase_target_kmh: float = 0.0
+var _dbg_log_timer: float = 0.0    ## 控制台限频打印计时器
+
 # --- 战术提示弹窗 ---
 var _tactic_popup_text: String = ""
 var _tactic_popup_timer: float = 0.0
@@ -251,8 +267,8 @@ func _physics_process(delta: float) -> void:
 		if formation_mode and _formation_leader:
 			# ── 编队托管模式 ──
 			# 三段式：
-			#   >REJOIN_DIST   → 纯追击归队
-			#   CLOSE~REJOIN   → 航向追踪 + 自然银行转弯（中距机动）
+			#   >REJOIN_DIST   → 纯追击归队（仅 b<0.05 的脱离重融合用）
+			#   CLOSE~REJOIN   → 长机航向 + 横向偏置（leader-local frame，避免 bearing flip）
 			#   <CLOSE_DIST    → 航向同步长机 + 微量漂移修正
 			var ldr: Aircraft = _formation_leader
 			var b := _formation_blend  # 0=自主飞行过渡, 1=正常编队
@@ -262,6 +278,16 @@ func _physics_process(delta: float) -> void:
 			if target_position != Vector2.INF:
 				slot_dist = global_position.distance_to(target_position)
 
+			# 槽位在长机本地坐标系下的偏移（相对僚机）
+			# slot_local.x > 0 → 槽位在僚机右侧（leader frame），需向右偏置
+			# slot_local.y > 0 → 槽位在僚机后方，僚机需减速让槽位追上
+			# slot_local.y < 0 → 槽位在僚机前方，僚机需加速追上
+			# 关键：用"长机本地坐标"而不是"飞机→槽位的世界方位角"
+			# 后者在长机转弯时 slot 绕长机切向移动 → 方位角剧烈摆动 → 旧 MID 分支机头乱扭
+			var slot_local := Vector2.ZERO
+			if target_position != Vector2.INF:
+				slot_local = (target_position - global_position).rotated(-ldr.heading)
+
 			# 微扰动：基于个体相位的缓慢正弦波
 			var t := float(_lod_frame) * 0.02
 			var jitter_heading := sin(t + _formation_jitter_phase) * 0.008
@@ -269,63 +295,116 @@ func _physics_process(delta: float) -> void:
 
 			const CLOSE_DIST := 50.0    # 以内纯航向同步
 			const REJOIN_DIST := 800.0  # 以外纯追击归队
+			const LEAD_BIAS_DIST := 250.0  # 横向偏置的虚拟前视距离（越大→偏置越温和）
+			const MAX_BIAS := PI / 3.0     # 横向偏置最大角度（60°）
 
-			if b < 0.05 or slot_dist > REJOIN_DIST:
-				# 极远或过渡初期：纯追击归队
+			# 调试：永远缓存槽位/分支等中间状态（开销可忽略，让 F12 快照不依赖 F11）
+			_dbg_slot_pos = target_position
+			_dbg_slot_dist = slot_dist
+			_dbg_blend_ratio = 0.0
+			_dbg_blended_heading = 0.0
+			_dbg_slot_heading = 0.0
+
+			# ── 先算好目标航向（由分支决定），然后用统一的"物理层 rate-limit"落位 ──
+			# 这样无论走哪个分支，bank/heading 都受 roll_rate / max_g / 协同转弯公式约束，
+			# 绝对不会发生瞬间 ±60° bank 或 ±180° 航向跳的情况。
+			# 对刚出战的僚机尤其关键——之前 combat 离开时 bank 可能还在 ±80°，
+			# 如果用 lerp(bank, 0, 4*delta) 会在几帧内抽回到 0，超过结构 G 极限。
+			var target_heading: float = heading  # 默认不变
+			var max_bank_ratio := 0.75           # 由分支调整
+
+			if slot_dist > REJOIN_DIST:
+				# 真正远距离：纯追击归队
+				_dbg_branch = "FAR"
 				if target_position != Vector2.INF and slot_dist > 10.0:
 					var to_slot := (target_position - global_position).normalized()
-					var slot_heading := atan2(to_slot.x, -to_slot.y)
-					heading = lerp_angle(heading, slot_heading, 4.0 * delta)
-					var hdiff := _angle_diff(slot_heading, heading)
-					var max_bank_val := _max_bank_angle()
-					var desired_bank := signf(hdiff) * max_bank_val * clampf(absf(hdiff) * 2.0, 0.0, 0.7)
-					bank_angle = lerpf(bank_angle, desired_bank, 4.0 * delta)
+					target_heading = atan2(to_slot.x, -to_slot.y)
+					max_bank_ratio = 0.7
+					_dbg_slot_heading = target_heading
 			elif slot_dist > CLOSE_DIST:
-				# 中距离：航向追踪槽位（航向 + 自然银行转弯，模拟真实飞机机动）
-				var to_slot := (target_position - global_position).normalized()
-				var slot_heading := atan2(to_slot.x, -to_slot.y)
-				var ldr_heading := ldr.heading + jitter_heading
-				# 距离越远越偏向槽位航向，越近越偏向长机航向
-				var proximity := clampf((slot_dist - CLOSE_DIST) / (REJOIN_DIST - CLOSE_DIST), 0.0, 1.0)
-				var blend_ratio := clampf(proximity * 1.2, 0.15, 0.85)
-				var blended_heading := lerp_angle(ldr_heading, slot_heading, blend_ratio)
-				heading = lerp_angle(heading, blended_heading, 5.0 * delta)
-
-				# 坡度根据目标航向与当前航向的差值自然响应
-				var hdiff := _angle_diff(blended_heading, heading)
-				var max_bank_val := _max_bank_angle()
-				var desired_bank := signf(hdiff) * max_bank_val * clampf(absf(hdiff) * 2.5, 0.0, 0.75)
-				bank_angle = lerpf(bank_angle, desired_bank, 4.0 * delta)
+				# 中距离：长机航向 + 横向偏置（leader-local frame）
+				_dbg_branch = "MID"
+				var bias_angle := atan2(slot_local.x, LEAD_BIAS_DIST)
+				bias_angle = clampf(bias_angle, -MAX_BIAS, MAX_BIAS)
+				target_heading = ldr.heading + jitter_heading + bias_angle
+				max_bank_ratio = 0.75
+				_dbg_slot_heading = bias_angle      # 复用字段：横向偏置角
+				_dbg_blend_ratio = bias_angle / MAX_BIAS
+				_dbg_blended_heading = target_heading
 			else:
-				# 近距离：航向直接同步长机
-				var target_hdg := ldr.heading + jitter_heading
-				var target_bnk := ldr.bank_angle + jitter_bank
-				var rate := minf(b * 8.0 * delta, 1.0)
-				heading = lerp_angle(heading, target_hdg, rate)
-				bank_angle = lerpf(bank_angle, target_bnk, rate)
+				# 近距离：直接跟长机航向
+				_dbg_branch = "CLOSE"
+				target_heading = ldr.heading + jitter_heading
+				max_bank_ratio = 0.6
 
-			# 速度：根据槽位距离分档
+			_dbg_target_heading = target_heading
+
+			# ── 统一"平滑且有物理限制"的落位 ──
+			# 设计权衡：
+			#   - 纯物理公式 (g·tan(bank)/TAS) 在编队中过慢：F-14 在 84° bank 也只有 ~21°/s，
+			#     180° 归队要 9 秒，期间僚机会漂得很远。
+			#   - 纯 lerp 没有上限，combat 刚结束从 ±80° bank 一瞬间归零，非物理突兀。
+			# 折中：
+			#   - heading 用 lerp 追目标，但角速度被 FORMATION_MAX_TURN_RATE (1.5 rad/s ≈ 86°/s) 硬夹。
+			#     即使大 hdiff 也能在 2 秒左右 180° 翻转，够快但不突兀。
+			#   - bank 由当前的 hdiff 自然推出（视觉），并按 params.roll_rate 严格限制滚转速率。
+			#     保证 bank 过渡"真实飞机能做到"的那种感觉。
+			var hdiff := _angle_diff(target_heading, heading)
+			var max_bank_val := _max_bank_angle()
+			var roll_rate_limit := params.roll_rate if params else 3.0
+
+			const FORMATION_MAX_TURN_RATE := 1.5   # rad/s，编队归队的角速度硬上限
+			const FORMATION_LERP_K := 5.0          # hdiff lerp 增益
+			var desired_step := hdiff * FORMATION_LERP_K * delta
+			var max_step := FORMATION_MAX_TURN_RATE * delta
+			if absf(desired_step) > max_step:
+				desired_step = signf(desired_step) * max_step
+			heading = wrapf(heading + desired_step, -PI, PI)
+
+			# 用更新后的 hdiff 推 desired_bank（和航向变化匹配，视觉一致）
+			var hdiff_after := _angle_diff(target_heading, heading)
+			var desired_bank := signf(hdiff_after) * max_bank_val * clampf(absf(hdiff_after) * 2.5, 0.0, max_bank_ratio)
+			if _dbg_branch == "CLOSE":
+				# 近距离让 bank 额外向长机 bank 靠拢，编队视觉更统一
+				var ldr_target_bnk := ldr.bank_angle + jitter_bank
+				desired_bank = lerpf(desired_bank, ldr_target_bnk, 0.6)
+			_dbg_hdiff = hdiff
+			_dbg_desired_bank = desired_bank
+
+			# Bank 变化 rate-limit：严格 ≤ roll_rate
+			# 这保留了用户要求的"不能超过物理极限"——bank 的变化速率永远 ≤ 飞机结构允许的滚转速率。
+			var bank_step := clampf(desired_bank - bank_angle, -roll_rate_limit * delta, roll_rate_limit * delta)
+			bank_angle += bank_step
+
+			# 速度：根据 leader-local 纵向偏移调档
+			# fwd_offset > 0 → 槽位在僚机前方（leader frame）→ 加速追
+			# fwd_offset < 0 → 僚机已经超前于槽位 → 必须能减速（旧版只会加速）
 			# 重要：所有目标速度都必须 clamp 到 _max_speed_at_altitude，
 			# 否则在"长机阵亡 → 僚机(带 1.15x 超速)晋升为新长机"的循环中
 			# 速度会被不断放大，后期出现 Mach 8+ 的暴走（见 2026-04-11 修复）
 			var max_ms := _max_speed_at_altitude() / 3.6
 			var jitter_speed := sin(t * 0.5 + _formation_jitter_phase + 2.0) * ldr.speed * 0.005
+			var fwd_offset := -slot_local.y  # >0 = 槽位在前
 			var chase_target: float
 			var chase_rate: float
 			if slot_dist > REJOIN_DIST:
 				# 归队：大幅加速
 				chase_target = ldr.speed * 1.4
 				chase_rate = 4.0
-			elif slot_dist > 200.0:
-				# 远追赶
+			elif fwd_offset > 200.0:
+				# 槽位远在前方
 				chase_target = ldr.speed * 1.15 + jitter_speed
 				chase_rate = 4.0
-			elif slot_dist > CLOSE_DIST:
-				# 中距追赶
+			elif fwd_offset > 50.0:
+				# 槽位前方
 				chase_target = ldr.speed * 1.05 + jitter_speed
 				chase_rate = 3.0
+			elif fwd_offset < -50.0:
+				# 僚机超前于槽位 → 减速等槽位追上
+				chase_target = ldr.speed * 0.92 + jitter_speed
+				chase_rate = 3.0
 			else:
-				# 近距：匹配长机速度
+				# 纵向基本对齐：匹配长机速度
 				chase_target = ldr.speed + jitter_speed
 				chase_rate = 3.0 + b * 3.0
 			chase_target = clampf(chase_target, 0.0, max_ms)
@@ -333,6 +412,28 @@ func _physics_process(delta: float) -> void:
 			# 同步 target_speed_kmh，避免 LOD 切换回 0 时残留的过期目标速度
 			# 让 _update_speed 能无缝接管，而不是慢慢 decel 追老目标
 			target_speed_kmh = speed * 3.6
+
+			_dbg_chase_target_kmh = chase_target * 3.6
+
+			# 调试：每秒一次把核心数值打到 EventLogger（仅在 formation_debug=true 时）
+			if formation_debug:
+				_dbg_log_timer -= delta
+				if _dbg_log_timer <= 0.0:
+					_dbg_log_timer = 1.0
+					EventLogger.log_event("FORM_DBG", callsign,
+						"branch=%s slot_d=%.0f b=%.2f hdg=%d→%d Δ=%+.1f° dbank=%+.0f° bank=%+.0f° spd=%d/%d ldrG=%.1f" % [
+							_dbg_branch,
+							_dbg_slot_dist,
+							b,
+							int(rad_to_deg(heading)),
+							int(rad_to_deg(_dbg_target_heading)),
+							rad_to_deg(_dbg_hdiff),
+							rad_to_deg(_dbg_desired_bank),
+							rad_to_deg(bank_angle),
+							int(speed * 3.6),
+							int(_max_speed_at_altitude()),
+							ldr.g_load if is_instance_valid(ldr) else 0.0,
+						])
 
 			# 高度同步
 			altitude = lerpf(altitude, ldr.altitude, (2.0 + b * 2.0) * delta)
@@ -2369,6 +2470,71 @@ func _draw() -> void:
 	else:
 		_draw_data_label()
 	_draw_tactic_popup()
+	if formation_debug:
+		_draw_formation_debug()
+
+## 编队调试覆盖层（仅 formation_debug=true 时绘制）
+## 显示：当前分支、阵型槽位、当前/目标航向射线、bank 差异
+##
+## 注：_draw 已在飞机的 local space（rotation=heading）下运行。
+## 想要绘制"机头朝上"的本地几何（航向射线/槽位连线），直接使用 local 坐标即可：
+##   - 当前 heading 在 local 中始终是 (0, -L)
+##   - 槽位 local = (slot_world - global_position).rotated(-rotation)
+## 想要文本不跟随机身旋转，用 draw_set_transform 反旋转回世界对齐。
+func _draw_formation_debug() -> void:
+	# ── 1. 阵型槽位标记 + 连线（local space）──
+	if _dbg_slot_pos != Vector2.INF and _dbg_slot_dist > 0.0:
+		var slot_local := (_dbg_slot_pos - global_position).rotated(-rotation)
+		var slot_color := Color(1.0, 0.4, 0.0, 0.7)  # 橙色
+		draw_line(Vector2.ZERO, slot_local, slot_color, 1.5)
+		# 槽位 X 标记
+		var sx := 8.0
+		draw_line(slot_local + Vector2(-sx, -sx), slot_local + Vector2(sx, sx), slot_color, 2.0)
+		draw_line(slot_local + Vector2(-sx, sx), slot_local + Vector2(sx, -sx), slot_color, 2.0)
+		# CLOSE_DIST 阈值圆
+		draw_arc(slot_local, 50.0, 0, TAU, 32, Color(0.2, 1.0, 0.5, 0.4), 1.0)
+
+	# ── 2. 当前/目标 heading 射线（local space，机头朝 -Y）──
+	var ray_len := 80.0
+	# 当前 heading 在 local 中始终朝上
+	draw_line(Vector2.ZERO, Vector2(0, -ray_len), Color(0.4, 0.7, 1.0, 0.85), 2.0)
+	# 目标 heading 相对当前的角度差
+	var rel := _dbg_target_heading - heading
+	var tgt_dir := Vector2(sin(rel), -cos(rel)) * ray_len
+	draw_line(Vector2.ZERO, tgt_dir, Color(1.0, 0.9, 0.2, 0.85), 2.0)
+
+	# ── 3. 文本面板（用 transform 反旋转 + 缩放补偿，保持世界对齐 + 同屏字号）──
+	var inv_rot := -rotation
+	var zoom_scale := get_viewport_transform().get_scale()
+	var inv_zoom := 1.0 / maxf(zoom_scale.x, 0.01)
+	var label_offset := Vector2(-110 * inv_zoom, 36 * inv_zoom).rotated(inv_rot)
+	draw_set_transform(label_offset, inv_rot, Vector2(inv_zoom, inv_zoom))
+
+	var lines := PackedStringArray()
+	lines.append("[%s]" % _dbg_branch)
+	lines.append("slot_d=%d" % int(_dbg_slot_dist))
+	lines.append("hdg→%d Δ%+.1f°" % [int(rad_to_deg(_dbg_target_heading)), rad_to_deg(_dbg_hdiff)])
+	lines.append("bank %+.0f→%+.0f" % [rad_to_deg(bank_angle), rad_to_deg(_dbg_desired_bank)])
+	if _dbg_branch == "MID":
+		# 复用 _dbg_slot_heading 字段：现在是横向偏置角度（不再是世界方位角）
+		lines.append("bias=%+.0f°" % rad_to_deg(_dbg_slot_heading))
+	lines.append("spd→%d/%d" % [int(_dbg_chase_target_kmh), int(speed * 3.6)])
+
+	var line_h := 12.0
+	var max_w := 110.0
+	draw_rect(Rect2(Vector2(-2, -2), Vector2(max_w + 4, lines.size() * line_h + 4)),
+		Color(0.0, 0.0, 0.0, 0.65))
+	for i in range(lines.size()):
+		var color := Color(1.0, 0.9, 0.5, 1.0)
+		if i == 0:
+			match _dbg_branch:
+				"CLOSE": color = Color(0.4, 1.0, 0.5, 1.0)
+				"MID":   color = Color(1.0, 0.9, 0.3, 1.0)
+				"FAR":   color = Color(1.0, 0.5, 0.3, 1.0)
+		draw_string(_font, Vector2(0, i * line_h + 9), lines[i],
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 10, color)
+
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 func _draw_radar_cone() -> void:
 	var radar_r := params.radar_range if params else 300.0

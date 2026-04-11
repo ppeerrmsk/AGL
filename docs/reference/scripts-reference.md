@@ -347,7 +347,7 @@ FLUID_FOUR     流体四机（两对战斗翼）
 **文件**: `scripts/event_logger.gd`  
 **类型**: 自动加载单例 (Autoload)
 
-环形缓冲区，保留最近 60 秒事件。F9 导出到 `user://combat_log_*.txt`。
+环形缓冲区，保留最近 60 秒事件。F9 导出：编辑器模式写 `<project>/logs/combat_log_*.txt`，导出包写 `user://combat_log_*.txt`（路径策略见 `dump_to_file` 注释）。
 
 ```gdscript
 EventLogger.log_event("MISSILE", "Player", "hit Enemy#3 (dmg=80)")

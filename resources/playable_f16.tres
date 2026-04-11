@@ -1,0 +1,37 @@
+[gd_resource type="Resource" script_class="PlayableAircraft" load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/playable_aircraft.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_fighter.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/playable_f16_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/playable_f16_flare.tres" id="4"]
+
+[resource]
+script = ExtResource("1")
+id = &"f16"
+display_name = "F-16C Block 50"
+codename = "SmartFalcon"
+card_tags = PackedStringArray("热诱弹", "均衡机动", "SARH 导弹")
+card_desc = "多用途战斗机。携带热诱弹可 100% 规避来袭导弹，攻守兼备的入门之选。"
+base_params = ExtResource("2")
+radar_range_mult = 0.3333333
+max_speed_mult = 1.15
+cruise_speed_mult = 1.15
+acceleration_mult = 1.3
+roll_rate_mult = 1.2
+lock_time_mult = 0.7
+max_g_bonus = 1.0
+missile_count_override = 2
+gun_damage_mult = 1.25
+gun_range_override = 1200.0
+gun_cone_override = 8.0
+combat_override = ExtResource("3")
+flare_override = ExtResource("4")
+flares_guaranteed = true
+enable_missile_reload = true
+enable_flare_reload = true
+enable_gun_reload = true
+infinite_fuel = true
+missile_damage_cap = 30.0
+bullet_damage_cap = 5.0
+bullet_dodge_chance = 0.10
+wingman_count = 0

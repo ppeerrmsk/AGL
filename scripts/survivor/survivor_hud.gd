@@ -31,6 +31,16 @@ var _tooltip_panel: PanelContainer
 var _tooltip_label: RichTextLabel
 var _tooltip_key: String = ""  # 当前悬停的按钮标识
 
+# ── 小队指挥面板（仅主角有僚机时显示）──
+var _squad_panel: PanelContainer
+var _squad_status_label: RichTextLabel
+var _btn_squad_formation: Button
+var _btn_squad_engage: Button
+var _btn_squad_weapon: Button
+## 小队交战模式：FREE=独立扫描+协同 / FOLLOW_LEADER=只打长机目标
+var _squad_engage_mode: int = 0          # AIController.SquadEngageMode.FREE
+var _squad_weapon_pref: int = 0          # 0 = 导弹优先, 1 = 机炮优先 (Aircraft.WeaponPreference)
+
 # ── 雷达小地图 ──
 var _radar: Control
 
@@ -162,6 +172,9 @@ func _build_ui() -> void:
 
 	add_child(_tactical_panel)
 
+	# ── 小队指挥面板（仅当主角有僚机时显示）──
+	_build_squad_panel()
+
 	# ── 战术提示面板 ──
 	_tooltip_panel = PanelContainer.new()
 	_tooltip_panel.visible = false
@@ -243,6 +256,7 @@ func _process(delta: float) -> void:
 	_layout_ui()
 	_update_display()
 	_update_tactical_buttons()
+	_update_squad_panel()
 	if _debug_visible:
 		_debug_update_timer -= delta
 		if _debug_update_timer <= 0.0:
@@ -276,6 +290,13 @@ func _layout_ui() -> void:
 		vp.x - _tactical_panel.size.x - 16,
 		_status_panel.position.y - _tactical_panel.size.y - 8
 	)
+
+	# 小队指挥面板：战术面板正上方（只在有僚机时可见）
+	if _squad_panel and _squad_panel.visible:
+		_squad_panel.position = Vector2(
+			vp.x - _squad_panel.size.x - 16,
+			_tactical_panel.position.y - _squad_panel.size.y - 8
+		)
 
 	# 提示面板：战术面板左侧
 	if _tooltip_panel.visible:
@@ -588,6 +609,218 @@ func _update_tactical_buttons() -> void:
 		_btn_altitude.text = "4 低空优先"
 	_btn_evasion.text = "E 规避: %s" % ("开" if ac.evasion_mode else "关")
 	_btn_auto_fire.text = "F 自动发射: %s" % ("开" if ac.missile_auto_fire else "关")
+
+# ══════════════════════════════════════════════
+#  小队指挥面板（仅主角有僚机时存在）
+# ══════════════════════════════════════════════
+
+const SQUAD_PANEL_WIDTH := 240.0
+
+func _build_squad_panel() -> void:
+	_squad_panel = PanelContainer.new()
+	_squad_panel.visible = false  # 默认隐藏，发现僚机时再显示
+	var sp_style := StyleBoxFlat.new()
+	sp_style.bg_color = Color(0.02, 0.04, 0.02, 0.78)
+	sp_style.border_color = Color(0.35, 0.55, 0.75, 0.45)
+	sp_style.set_border_width_all(1)
+	sp_style.set_corner_radius_all(3)
+	sp_style.content_margin_left = 10
+	sp_style.content_margin_right = 10
+	sp_style.content_margin_top = 6
+	sp_style.content_margin_bottom = 6
+	_squad_panel.add_theme_stylebox_override("panel", sp_style)
+	_squad_panel.custom_minimum_size = Vector2(SQUAD_PANEL_WIDTH, 0)
+
+	var sp_vbox := VBoxContainer.new()
+	sp_vbox.add_theme_constant_override("separation", 4)
+	_squad_panel.add_child(sp_vbox)
+
+	var sp_title := Label.new()
+	sp_title.text = "[ 小队指挥 ]"
+	sp_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sp_title.add_theme_font_size_override("font_size", 11)
+	sp_title.add_theme_color_override("font_color", Color(0.5, 0.75, 1.0))
+	sp_vbox.add_child(sp_title)
+
+	# 状态区（每帧重新生成 bbcode）
+	_squad_status_label = RichTextLabel.new()
+	_squad_status_label.bbcode_enabled = true
+	_squad_status_label.fit_content = true
+	_squad_status_label.scroll_active = false
+	_squad_status_label.custom_minimum_size = Vector2(SQUAD_PANEL_WIDTH - 22, 0)
+	_squad_status_label.add_theme_font_size_override("normal_font_size", 11)
+	_squad_status_label.add_theme_font_size_override("bold_font_size", 11)
+	_squad_status_label.add_theme_color_override("default_color", Color(0.82, 0.9, 0.85))
+	sp_vbox.add_child(_squad_status_label)
+
+	# 分隔线
+	var sep := ColorRect.new()
+	sep.color = Color(0.3, 0.5, 0.7, 0.35)
+	sep.custom_minimum_size = Vector2(0, 1)
+	sp_vbox.add_child(sep)
+
+	# 指令按钮
+	_btn_squad_formation = _create_tac_button("5 阵型: 指尖四点")
+	_btn_squad_formation.pressed.connect(_on_squad_formation_pressed)
+	sp_vbox.add_child(_btn_squad_formation)
+
+	_btn_squad_engage = _create_tac_button("6 交战: 自由交战")
+	_btn_squad_engage.pressed.connect(_on_squad_engage_pressed)
+	sp_vbox.add_child(_btn_squad_engage)
+
+	_btn_squad_weapon = _create_tac_button("7 武器: 导弹优先")
+	_btn_squad_weapon.pressed.connect(_on_squad_weapon_pressed)
+	sp_vbox.add_child(_btn_squad_weapon)
+
+	add_child(_squad_panel)
+
+## 返回玩家所在的小队（以玩家为长机的那个 Squad）
+func _get_player_squad() -> Squad:
+	if not game_scene or not game_scene.player_aircraft:
+		return null
+	# game_scene 在生存模式下一定是 survivor_mode 且拥有 _squads 成员
+	var squads = game_scene._squads
+	if squads == null:
+		return null
+	for sq in squads:
+		if sq and sq.leader == game_scene.player_aircraft:
+			return sq
+	return null
+
+## 返回玩家当前活着的僚机列表
+func _get_wingmen() -> Array:
+	var result: Array = []
+	var sq := _get_player_squad()
+	if sq == null:
+		return result
+	for member in sq.members:
+		if member != sq.leader and is_instance_valid(member) and not member.is_destroyed:
+			result.append(member)
+	return result
+
+## 读某架飞机上的 AIController
+func _get_ai(ac: Aircraft) -> AIController:
+	if not ac:
+		return null
+	for child in ac.get_children():
+		if child is AIController:
+			return child
+	return null
+
+## 把 AI 当前状态/战术翻译成中文动作名
+func _wingman_action_text(ac: Aircraft) -> String:
+	var ai := _get_ai(ac)
+	if ai == null:
+		return "?"
+	if ac.evasion_mode:
+		return "规避机动"
+	match ai._state:
+		AIController.AIState.PATROL:
+			return "巡逻"
+		AIController.AIState.ENGAGE:
+			if ai.current_tactic_name != "":
+				return ai.current_tactic_name
+			return "交战"
+		AIController.AIState.EVADE_MISSILE:
+			return "导弹规避"
+		AIController.AIState.SQUAD_FOLLOW:
+			if ai.current_tactic_name != "":
+				return ai.current_tactic_name
+			return "编队跟随"
+	return "?"
+
+## 每帧刷新小队面板内容（状态行 + 按钮文本 + 可见性）
+func _update_squad_panel() -> void:
+	if _squad_panel == null:
+		return
+	var wingmen := _get_wingmen()
+	if wingmen.is_empty():
+		_squad_panel.visible = false
+		return
+	_squad_panel.visible = true
+
+	var bbcode := ""
+	for i in range(wingmen.size()):
+		var wm: Aircraft = wingmen[i]
+		var max_hp: float = wm.params.max_hp if wm.params else 100.0
+		var hp_ratio: float = clampf(wm.hp / maxf(max_hp, 0.01), 0.0, 1.0)
+		var hp_color: String = "66ff66" if hp_ratio > 0.6 else ("ffcc44" if hp_ratio > 0.3 else "ff5555")
+		var bar_cells := 10
+		var filled := int(round(hp_ratio * bar_cells))
+		var bar_str := ""
+		for c in range(bar_cells):
+			bar_str += "█" if c < filled else "░"
+
+		bbcode += "[b]%s[/b]  [color=#%s]HP %3d%%[/color]\n" % [wm.callsign, hp_color, int(hp_ratio * 100)]
+		bbcode += "  [color=#%s]%s[/color]\n" % [hp_color, bar_str]
+		var msl_n: int = wm.missiles_remaining if wm.params and wm.params.missile else 0
+		var amm_n: int = wm.ammo if wm.params and wm.params.gun else 0
+		var flr_n: int = wm.flares_remaining if wm.params and wm.params.flare else 0
+		bbcode += "  [color=#aabbaa]MSL %d  AMM %d  FLR %d[/color]\n" % [msl_n, amm_n, flr_n]
+		bbcode += "  [color=#6ab4e8]• %s[/color]" % _wingman_action_text(wm)
+		if i < wingmen.size() - 1:
+			bbcode += "\n\n"
+	_squad_status_label.text = bbcode
+
+	# 按钮文本
+	var sq := _get_player_squad()
+	if sq:
+		_btn_squad_formation.text = "5 阵型: %s" % sq.get_formation_name()
+	var mode_str := "自由交战" if _squad_engage_mode == AIController.SquadEngageMode.FREE else "跟随长机"
+	_btn_squad_engage.text = "6 交战: %s" % mode_str
+	_btn_squad_weapon.text = "7 武器: %s" % ("导弹优先" if _squad_weapon_pref == Aircraft.WeaponPreference.PREFER_MISSILE else "机炮优先")
+
+## 切换阵型（命令所有僚机按新槽位归队）
+func _on_squad_formation_pressed() -> void:
+	var sq := _get_player_squad()
+	if sq == null:
+		return
+	sq.cycle_formation()
+	EventLogger.log_event("SQUAD_CMD", "Player", "formation → %s" % sq.get_formation_name())
+
+## 切换交战模式（自由交战 ↔ 跟随长机）
+## 切换时强制所有僚机立即脱离当前 ENGAGE 并回到 SQUAD_FOLLOW，
+## 这样模式切换能马上生效，不会有"模式改了但僚机还在打老目标"的感觉。
+func _on_squad_engage_pressed() -> void:
+	if _squad_engage_mode == AIController.SquadEngageMode.FREE:
+		_squad_engage_mode = AIController.SquadEngageMode.FOLLOW_LEADER
+	else:
+		_squad_engage_mode = AIController.SquadEngageMode.FREE
+	for wm in _get_wingmen():
+		var ai := _get_ai(wm)
+		if ai == null:
+			continue
+		ai.squad_engage_mode = _squad_engage_mode
+		# 若僚机正在交战，强制脱离并回到编队，保证"切模式=立刻生效"
+		if ai._state == AIController.AIState.ENGAGE:
+			wm.clear_combat_target()
+			wm.ai_override_pursuit = false
+			wm.keep_target_on_arrival = true
+			wm.formation_mode = true
+			wm._formation_leader = game_scene.player_aircraft
+			wm._formation_blend = 1.0  # 直接落位完整编队托管，不走慢吞吞的 rejoin
+			wm.lod_level = 1
+			ai._state = AIController.AIState.SQUAD_FOLLOW
+			ai._formation_blend = 1.0
+			ai._rejoining = false
+			ai._current_target = null
+			ai._squad_attacking_leader_target = false
+			ai._engage_timer = 0.0
+			ai._cooldown_timer = 0.0
+			ai.current_tactic_name = ""
+	var mode_str := "FREE" if _squad_engage_mode == AIController.SquadEngageMode.FREE else "FOLLOW_LEADER"
+	EventLogger.log_event("SQUAD_CMD", "Player", "engage mode → %s" % mode_str)
+
+## 切换武器偏好（导弹优先 ↔ 机炮优先）
+func _on_squad_weapon_pressed() -> void:
+	if _squad_weapon_pref == Aircraft.WeaponPreference.PREFER_MISSILE:
+		_squad_weapon_pref = Aircraft.WeaponPreference.PREFER_GUN
+	else:
+		_squad_weapon_pref = Aircraft.WeaponPreference.PREFER_MISSILE
+	for wm in _get_wingmen():
+		wm.weapon_preference = _squad_weapon_pref
+	EventLogger.log_event("SQUAD_CMD", "Player",
+		"wingman weapon pref → %s" % ("MISSILE" if _squad_weapon_pref == Aircraft.WeaponPreference.PREFER_MISSILE else "GUN"))
 
 func _update_debug_panel() -> void:
 	if not game_scene:

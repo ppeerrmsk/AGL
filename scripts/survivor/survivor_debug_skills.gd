@@ -184,11 +184,15 @@ func _refresh() -> void:
 
 		var cat: String = u.get("category", "")
 		var is_evolved: bool = u.get("evolved", false)
+		var is_exclusive: bool = (u.get("exclusive_to", null) != null) and (u["exclusive_to"].size() > 0)
 		var cat_color: Color
 		var tag_text: String
 		if is_evolved:
 			cat_color = Color(1.0, 0.8, 0.2)
 			tag_text = "[★]"
+		elif is_exclusive:
+			cat_color = Color(0.4, 0.8, 1.0)
+			tag_text = "[专]"
 		elif cat == "combat":
 			cat_color = Color(0.8, 0.4, 0.3)
 			tag_text = "[战]"
@@ -229,12 +233,17 @@ func _refresh() -> void:
 		remove_btn.pressed.connect(func(): _on_remove_skill(uid_capture))
 		row.add_child(remove_btn)
 
-	# 填充可添加的技能下拉
+	# 填充可添加的技能下拉（仅显示当前主角实际可获取的）
 	_add_option.clear()
+	var pid: StringName = game_scene._player_profile_id if game_scene else &""
+	var p: AircraftParams = survivor_player.aircraft.params if survivor_player and survivor_player.aircraft else null
 	for u in SurvivorData.UPGRADES:
 		var uid: String = u["id"]
 		var count: int = stacks.get(uid, 0)
 		if count >= int(u["max_stacks"]):
+			continue
+		# 应用与正式升级池相同的硬件 / 专属筛选
+		if not SurvivorData.is_upgrade_available_for(u, pid, p):
 			continue
 		_add_option.add_item("%s (%s)" % [u["name"], u["desc"]], _add_option.item_count)
 		_add_option.set_item_metadata(_add_option.item_count - 1, uid)

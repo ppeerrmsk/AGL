@@ -28,13 +28,25 @@ func log_event(category: String, subject: String, message: String) -> void:
 	})
 
 ## 导出日志到文件，返回文件路径
+##
+## 路径策略：
+## - 编辑器运行（F5 调试）：写到项目根 `logs/combat_log_*.txt`
+##   好处是 log 与代码在一起，Claude Code / hook 能直接看到，`logs/` 由 .gitignore 排除
+## - 导出版本（正式发布包）：写到 `user://`（Godot 的 OS 用户数据目录）
+##   因为 res:// 在导出包里是 .pck 只读的，不能写
 func dump_to_file() -> String:
 	var now := Time.get_datetime_dict_from_system()
 	var filename := "combat_log_%04d%02d%02d_%02d%02d%02d.txt" % [
 		now["year"], now["month"], now["day"],
 		now["hour"], now["minute"], now["second"],
 	]
-	var path := "user://" + filename
+	var path: String
+	if OS.has_feature("editor"):
+		var log_dir := ProjectSettings.globalize_path("res://logs/")
+		DirAccess.make_dir_recursive_absolute(log_dir)
+		path = log_dir + filename
+	else:
+		path = "user://" + filename
 
 	var file := FileAccess.open(path, FileAccess.WRITE)
 	if not file:

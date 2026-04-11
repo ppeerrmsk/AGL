@@ -15,7 +15,8 @@
 - 在 Godot 4.6+ 打开 `project.godot`
 - F5 运行，入口场景 `scenes/main_menu.tscn`
 - 调试面板在沙盒模式内置
-- F9 导出战斗日志到 `user://combat_log_*.txt`
+- F9 导出战斗日志。**编辑器模式**写到项目内 `logs/combat_log_*.txt`（`/logs/` 被 .gitignore 排除）；**导出包**写到 `user://combat_log_*.txt`。路径切换逻辑在 `event_logger.gd:dump_to_file`。配合 `.claude/hooks/open-latest-log.sh`（UserPromptSubmit hook）在下次消息时自动打开最新 log
+- 生存模式 F11 切换友方僚机编队调试覆盖层（橙线 → 阵型槽位 / 蓝射线 → 当前 hdg / 黄射线 → 目标 hdg / 文本: branch + slot_d + bank delta）；F12 抓一帧编队状态快照到控制台 + EventLogger
 
 无正式测试框架，通过运行时观察 + EventLogger 日志调试。
 
@@ -28,7 +29,8 @@ AGL/
 │   ├── main.tscn              # 沙盒主场景（Main + BulletManager + MissileManager + Camera2D）
 │   ├── main_menu.tscn         # 主菜单（入口场景）
 │   ├── survivor_mode.tscn     # 生存模式
-│   ├── survivor_select.tscn   # 生存模式选择界面
+│   ├── survivor_map_select.tscn # 生存模式地图选择（先于机型选择）
+│   ├── survivor_select.tscn   # 生存模式机型选择界面
 │   ├── aircraft.tscn          # 飞机模板（通用）
 │   ├── missile.tscn           # 导弹模板
 │   ├── sam_unit.tscn          # 防空导弹车
@@ -49,6 +51,7 @@ AGL/
 │   ├── rocket_params.gd       # RocketParams Resource（无制导火箭弹）
 │   ├── combat_params.gd       # CombatParams Resource（AI 行为风格）
 │   ├── flare_params.gd        # FlareParams Resource
+│   ├── playable_aircraft.gd   # PlayableAircraft Resource（主角档案，UI+生存调味）
 │   ├── squad.gd               # 编队数据结构 + 6 种阵型计算
 │   ├── ground_unit.gd         # 地面单位基类
 │   ├── sam_unit.gd            # SAM（防空导弹车，360° 雷达）
@@ -67,7 +70,9 @@ AGL/
 │       ├── survivor_data.gd       # 升级定义 + 波次参数 + 经验曲线（静态）
 │       ├── survivor_hud.gd        # HUD（HP/经验/战术按钮）
 │       ├── survivor_upgrade_ui.gd # 升级选择界面
-│       ├── survivor_select.gd     # 模式选择
+│       ├── survivor_map_select.gd # 地图选择（生存流程第一步）
+│       ├── survivor_select.gd     # 机型选择（PlayableAircraft 卡片，4 槽）
+│       ├── survivor_playable_setup.gd # PlayableAircraft → Aircraft 实例的应用器
 │       ├── survivor_debug_skills.gd # 调试技能面板
 │       ├── commander_aura.gd      # Sentinel 指挥 UAV 光环 buff + 招募
 │       └── commander_overlay.gd   # 指挥机可视化覆盖层
@@ -169,35 +174,41 @@ Resource
 9. **在 `survivor_mode.gd:722 _update_spawner` 的 "载人战机编队列表" 判定里追加**（`:808-812`）
 10. **更新 `survivor_debug_spawn.gd:_build_ui` 的类型下拉列表**（让调试面板能手动刷这个敌人）
 11. **更新本文件（CLAUDE.md）"敌人索引" 表追加一行**
-12. **更新 `docs/code-index.md` 对应段落**（如新文件/新函数）
+12. **更新 `docs/reference/code-index.md` 对应段落**（如新文件/新函数）
 
 操作时用 Read 的 offset/limit 精确定位，不要通读整个 survivor_mode.gd（1450 行）。每一步改完就 commit 或至少 git diff 看一眼，防止漏 case 导致 NullRef 崩溃。
 
 ### 关键文件职责（Script Index）
 
+**模式归属图例**：`[共享]` = 沙盒/生存都使用，改动必须两个模式都测；`[沙盒]` = 只在沙盒模式；`[生存]` = 只在生存模式。**禁止**在共享层代码里写 `if in_survivor_mode` / `if in_sandbox`，模式隔离必须走参数资源 `duplicate(true)` 或 PlayableAircraft 档案注入。详见 [docs/planning/roadmap.md](docs/planning/roadmap.md) 第 0 段。
+
 | 文件 | 类/类型 | 职责 | 关键入口 |
 |------|---------|------|----------|
-| `aircraft.gd` | `Aircraft extends CombatUnit` | 飞机物理+战斗+武器+视觉（最核心，~2930 行） | `_physics_process:194` `_update_combat:1107` `_update_gun:1422` `_update_rocket:1468` `_update_weapon_mode:1599` `_update_missile:1811` `_effective_missile_range_px` `_missile_cannot_hit_but_gun_can` `_should_commit_gun_pass` `_is_gun_pass_finished` `_release_flares(target_missile)` `set_evasion_mode` `_corner_speed_kmh` |
-| `rocket_params.gd` | `RocketParams extends Resource` | 无制导火箭弹参数（齐射数/散布/冷却） | — |
-| `ai_controller.gd` | `AIController extends Node` | AI 状态机 + BFM 战术决策树（~1620 行） | `_process_patrol:553` `_process_squad_follow:583` `_process_engage:736` `_choose_tactic:952` `_process_evade:1341` |
-| `combat_unit.gd` | `CombatUnit extends Node2D` | 战斗单位基类（通用接口） | `take_damage:81` `is_in_radar_cone:94` `get_altitude_tier:65` |
-| `missile.gd` | `Missile extends Node2D` | 导弹飞行物理（PN 制导/SARH） | `_physics_process:37` `_guidance_degradation:238` |
-| `missile_manager.gd` | `MissileManager extends Node2D` | 导弹生成+命中+连锁弹头 | `spawn_missile:11` `_physics_process:46` `_find_bounce_target:101` |
-| `bullet_manager.gd` | `BulletManager extends Node2D` | 子弹/火箭物理+命中+伤害衰减（162 行） | `spawn_bullet:23` `spawn_rocket:38` `_physics_process` |
-| `main.gd` | `Main extends Node2D` | 沙盒主控：相机/输入/锁定循环/编队/LOD/地形 | `_update_radar_locks:226` `_spawn_friendly_squad:313` `_update_lod:455` |
-| `squad.gd` | `Squad extends RefCounted` | 6 种阵型偏移计算 | `get_formation_offset:51` `get_wingman_target:114` `cycle_formation:128` |
-| `ground_unit.gd` | `GroundUnit extends CombatUnit` | 地面单位基类（机炮+雷达+移动） | `_update_movement:63` `_update_combat:131` `_update_gun:164` |
-| `sam_unit.gd` | `SAMUnit extends GroundUnit` | SAM：360° 雷达 + HQ-7 导弹 | `_update_sam_missile:26` `is_in_radar_cone:54`（覆写圆形） |
-| `aa_gun_unit.gd` | `AAGunUnit extends GroundUnit` | AAA：独立炮塔 + ZU-23 | `_update_turret:69` `_update_aa_target_selection:30` |
-| `radar_station.gd` | `RadarStation extends GroundUnit` | 雷达站：20km 雷达 + 数据链共享 | `_update_datalink:35` `_update_dish:29` |
-| `survivor/survivor_mode.gd` | 生存模式主控（~1450 行） | 波次/刷怪/猎手/升级/Token 预算/远距清理 | `_update_spawner:722` `_pick_enemy_type:874` `_recalc_token_usage:851` `_can_spawn_type:863` `_get_token_budget:846` `_update_far_cleanup:586` `_update_hunters:610` `_spawn_single:934` `_spawn_squad:942` `_spawn_commander_squad:982` `_create_enemy:1038` `_detect_kills:1261` — **EnemyType enum:843** |
-| `survivor/survivor_debug_spawn.gd` | `SurvivorDebugSpawn extends CanvasLayer` | F5 刷怪调试面板（279 行） | `_build_ui:60` `_on_type_changed:226` `_on_spawn_pressed:236` `_on_clear_pressed:264` `_on_dump_pressed:276` |
-| `survivor/survivor_player.gd` | `SurvivorPlayer extends Node` | 经验/等级/升级应用 | `add_xp:20` `apply_upgrade:30` |
-| `survivor/survivor_data.gd` | `SurvivorData extends RefCounted` | 升级表/波次常量/Token 预算/经验曲线 | `UPGRADES:12` `TOKEN_COST:261` `TOKEN_INSTANCE_CAP:276` `TOKEN_BUDGET_*:254` `FAR_CLEANUP_DISTANCE:289` `LATE_GAME_LEVEL:296` `xp_for_level` `enemy_scale_for_level` |
-| `survivor/commander_aura.gd` | `CommanderAura extends Node` | Sentinel 光环 buff + 招募 UAV | `_apply_buff:93` `_try_recruit:155` |
-| `debug_panel.gd` | 调试面板 | 状态文本/飞行员信息/生成按钮 | `_get_strategy_text:266` `_get_combat_strategy:303` `_get_pilot_info:318` |
-| `event_logger.gd` | EventLogger (AutoLoad) | 全局事件环形日志 | `log_event:22` `dump_to_file:31` |
-| `callsign_db.gd` | CallsignDB (AutoLoad) | 呼号分配+回收 | `allocate` / `release` |
+| `aircraft.gd` | `Aircraft extends CombatUnit` | [共享] 飞机物理+战斗+武器+视觉（最核心，~2930 行） | `_physics_process:194` `_update_combat:1107` `_update_gun:1422` `_update_rocket:1468` `_update_weapon_mode:1599` `_update_missile:1811` `_effective_missile_range_px` `_missile_cannot_hit_but_gun_can` `_should_commit_gun_pass` `_is_gun_pass_finished` `_release_flares(target_missile)` `set_evasion_mode` `_corner_speed_kmh` |
+| `rocket_params.gd` | `RocketParams extends Resource` | [共享] 无制导火箭弹参数（齐射数/散布/冷却） | — |
+| `ai_controller.gd` | `AIController extends Node` | [共享] AI 状态机 + BFM 战术决策树（~1620 行） | `_process_patrol:553` `_process_squad_follow:583` `_process_engage:736` `_choose_tactic:952` `_process_evade:1341` |
+| `combat_unit.gd` | `CombatUnit extends Node2D` | [共享] 战斗单位基类（通用接口） | `take_damage:81` `is_in_radar_cone:94` `get_altitude_tier:65` |
+| `missile.gd` | `Missile extends Node2D` | [共享] 导弹飞行物理（PN 制导/SARH） | `_physics_process:37` `_guidance_degradation:238` |
+| `missile_manager.gd` | `MissileManager extends Node2D` | [共享] 导弹生成+命中+连锁弹头 | `spawn_missile:11` `_physics_process:46` `_find_bounce_target:101` |
+| `bullet_manager.gd` | `BulletManager extends Node2D` | [共享] 子弹/火箭物理+命中+伤害衰减（162 行） | `spawn_bullet:23` `spawn_rocket:38` `_physics_process` |
+| `main.gd` | `Main extends Node2D` | [沙盒] 沙盒主控：相机/输入/锁定循环/编队/LOD/地形 | `_update_radar_locks:226` `_spawn_friendly_squad:313` `_update_lod:455` |
+| `squad.gd` | `Squad extends RefCounted` | [共享] 6 种阵型偏移计算 | `get_formation_offset:51` `get_wingman_target:114` `cycle_formation:128` |
+| `ground_unit.gd` | `GroundUnit extends CombatUnit` | [共享] 地面单位基类（机炮+雷达+移动） | `_update_movement:63` `_update_combat:131` `_update_gun:164` |
+| `sam_unit.gd` | `SAMUnit extends GroundUnit` | [共享] SAM：360° 雷达 + HQ-7 导弹 | `_update_sam_missile:26` `is_in_radar_cone:54`（覆写圆形） |
+| `aa_gun_unit.gd` | `AAGunUnit extends GroundUnit` | [共享] AAA：独立炮塔 + ZU-23 | `_update_turret:69` `_update_aa_target_selection:30` |
+| `radar_station.gd` | `RadarStation extends GroundUnit` | [共享] 雷达站：20km 雷达 + 数据链共享 | `_update_datalink:35` `_update_dish:29` |
+| `survivor/survivor_mode.gd` | 生存模式主控（~1450 行） | [生存] 波次/刷怪/猎手/升级/Token 预算/远距清理 | `_update_spawner:722` `_pick_enemy_type:874` `_recalc_token_usage:851` `_can_spawn_type:863` `_get_token_budget:846` `_update_far_cleanup:586` `_update_hunters:610` `_spawn_single:934` `_spawn_squad:942` `_spawn_commander_squad:982` `_create_enemy:1038` `_detect_kills:1261` — **EnemyType enum:843** |
+| `survivor/survivor_debug_spawn.gd` | `SurvivorDebugSpawn extends CanvasLayer` | [生存] F5 刷怪调试面板（279 行） | `_build_ui:60` `_on_type_changed:226` `_on_spawn_pressed:236` `_on_clear_pressed:264` `_on_dump_pressed:276` |
+| `survivor/survivor_player.gd` | `SurvivorPlayer extends Node` | [生存] 经验/等级/升级应用 | `add_xp:20` `apply_upgrade:30` |
+| `survivor/survivor_data.gd` | `SurvivorData extends RefCounted` | [生存] 升级表/波次常量/Token 预算/经验曲线 | `UPGRADES:12`（含 `requires`/`exclusive_to` 字段说明） `is_upgrade_available_for(upgrade, aircraft_id, params)` `TOKEN_COST` `TOKEN_INSTANCE_CAP` `TOKEN_BUDGET_*` `FAR_CLEANUP_DISTANCE` `LATE_GAME_LEVEL` `xp_for_level` `enemy_scale_for_level` |
+| `survivor/commander_aura.gd` | `CommanderAura extends Node` | [生存] Sentinel 光环 buff + 招募 UAV | `_apply_buff:93` `_try_recruit:155` |
+| `playable_aircraft.gd` | `PlayableAircraft extends Resource` | [生存] 主角档案：UI 元数据 + base_params 引用 + 生存模式调味（属性/武器/战斗/热诱弹覆盖）+ 起始僚机配置 | 全部 `@export` 字段；详见 docs/reference/playable-aircraft-workflow.md |
+| `survivor/survivor_playable_setup.gd` | `SurvivorPlayableSetup extends RefCounted` | [生存] 把 PlayableAircraft 应用到 Aircraft 实例（替代旧的 survivor_mode 内联 buff 块） | `apply(aircraft, profile)` `deep_dup_weapons(params)` |
+| `survivor/survivor_select.gd` | 生存模式机型选择界面 | [生存] 4 槽 PlayableAircraft 卡片（F-16/F-14 解锁 + 2 占位） | `PLAYABLE_LIST:21` `_build_aircraft_card:157` `_on_aircraft_selected` |
+| `survivor/survivor_map_select.gd` | 生存模式地图选择界面 | [生存] 5 槽地图卡片（1 解锁 + 4 占位）；ESC→主菜单 | `MAP_LIST:18` `_build_map_card` `_on_map_selected` |
+| `debug_panel.gd` | 调试面板 | [沙盒] 状态文本/飞行员信息/生成按钮 | `_get_strategy_text:266` `_get_combat_strategy:303` `_get_pilot_info:318` |
+| `event_logger.gd` | EventLogger (AutoLoad) | [共享] 全局事件环形日志 | `log_event:22` `dump_to_file:31` |
+| `callsign_db.gd` | CallsignDB (AutoLoad) | [共享] 呼号分配+回收 | `allocate` / `release` |
 
 ### 核心设计决策
 
@@ -277,12 +288,12 @@ Resource
 - 验证符号是否仍然存在（索引可能过时）
 - 跨文件的引用关系
 
-更细粒度的索引（按功能主题而非按文件）见 `docs/code-index.md`。
+更细粒度的索引（按功能主题而非按文件）见 `docs/reference/code-index.md`。
 
 ### 索引维护
 
 修改代码时必须同步：
-- **新增/删除函数** → 更新 CLAUDE.md 的 Script Index 表 + `docs/code-index.md`
+- **新增/删除函数** → 更新 CLAUDE.md 的 Script Index 表 + `docs/reference/code-index.md`
 - **大幅移位**（> 50 行）→ 更新受影响的行号
 - **重大重构** → 重新扫描对应文件生成新索引
 - **commit 前** 检查索引与代码一致性
@@ -304,13 +315,32 @@ Resource
 
 ## 相关文档
 
-按需加载，不是每次都读：
+按需加载，不是每次都读。`docs/` 已按职能分目录：
 
-- [docs/code-index.md](docs/code-index.md) — 更细的功能主题索引（武器/物理/AI/视觉等分类）
-- [docs/scripts-reference.md](docs/scripts-reference.md) — 脚本 API 参考（所有变量/方法说明）
-- [docs/ai-system.md](docs/ai-system.md) — AI 状态机/战术/压力系统详解
-- [docs/survivor-mode.md](docs/survivor-mode.md) — 生存模式波次/升级表
-- [docs/ground-units.md](docs/ground-units.md) — 地面单位设计
-- [docs/resources-catalog.md](docs/resources-catalog.md) — 所有 .tres 参数总表
+**入口 / 概述**（docs 根级）
+- [docs/project-overview.md](docs/project-overview.md) — 项目概述
 - [docs/architecture.md](docs/architecture.md) — 物理公式与架构决策
-- [docs/changelog-2026-04-10.md](docs/changelog-2026-04-10.md) — 最新更新日志
+
+**规划**（docs/planning/）
+- [docs/planning/roadmap-overview.md](docs/planning/roadmap-overview.md) — 规划概览（阶段 / 玩家视角，用于排期决策）
+- [docs/planning/roadmap.md](docs/planning/roadmap.md) — 技术向 roadmap（模式边界 / 反馈修复 / 带文件路径）
+
+**子系统设计**（docs/systems/）
+- [docs/systems/ai-system.md](docs/systems/ai-system.md) — AI 状态机/战术/压力系统详解
+- [docs/systems/survivor-mode.md](docs/systems/survivor-mode.md) — 生存模式波次/升级表
+- [docs/systems/ground-units.md](docs/systems/ground-units.md) — 地面单位设计
+- [docs/systems/missile-system.md](docs/systems/missile-system.md) — 导弹系统
+- [docs/systems/radar-system.md](docs/systems/radar-system.md) — 雷达系统
+- [docs/systems/squad-tactics-design.md](docs/systems/squad-tactics-design.md) — 编队战术设计
+- [docs/systems/aircraft-params.md](docs/systems/aircraft-params.md) — 飞机参数字段说明
+
+**查询手册**（docs/reference/）
+- [docs/reference/code-index.md](docs/reference/code-index.md) — 功能主题索引（武器/物理/AI/视觉等分类）
+- [docs/reference/scripts-reference.md](docs/reference/scripts-reference.md) — 脚本 API 参考（所有变量/方法说明）
+- [docs/reference/resources-catalog.md](docs/reference/resources-catalog.md) — 所有 .tres 参数总表
+- [docs/reference/playable-aircraft-workflow.md](docs/reference/playable-aircraft-workflow.md) — 加新主角飞机的完整流程
+- [docs/reference/features.md](docs/reference/features.md) — 已实现功能清单
+
+**历史 / 变更日志**（docs/changelogs/，按日期命名）
+- [docs/changelogs/2026-04-11.md](docs/changelogs/2026-04-11.md) — 最近一次更新
+- 更早的在 `docs/changelogs/` 下，按日期排序

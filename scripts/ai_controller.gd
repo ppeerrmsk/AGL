@@ -39,6 +39,13 @@ const TACTIC_DISPLAY_NAME: Dictionary = {
 @export var engage_cooldown: float = 15.0     ## 两次交战间隔（秒）
 @export var engage_duration: float = 20.0     ## 单次交战最长时间（秒）
 @export var evade_missiles: bool = false      ## 是否规避来袭导弹
+
+## 小队交战模式（僚机 SQUAD_FOLLOW 时使用）
+## FREE (0)          : 自由交战——僚机会独立扫描敌机并主动交战（保留编队飞行），
+##                     长机锁定目标时仍然协同攻击
+## FOLLOW_LEADER (1) : 跟随长机——僚机只会打长机当前锁定的目标，不做独立扫描
+enum SquadEngageMode { FREE = 0, FOLLOW_LEADER = 1 }
+@export var squad_engage_mode: int = SquadEngageMode.FREE
 @export var simple_ai: bool = false           ## 简化 AI：只用前置追踪，跳过 BFM 决策树/SA/压力系统
 
 # ── 飞行员能力 ──
@@ -75,6 +82,7 @@ var _cover_scan_timer: float = 0.0
 var _cover_target: Aircraft = null   ## 掩护交战目标（后半球威胁）
 var _rejoining: bool = false       ## 交战/规避后正在全速归队
 var _squad_attacking_leader_target: bool = false  ## 正在协同攻击长机指定的目标
+var _squad_free_engaging: bool = false  ## 正在自由交战模式下独立交战（同样享有 range grace）
 var _leader_target_lost_timer: float = 0.0  ## 长机目标丢失后的宽限计时（防止单帧抖动触发脱离）
 const LEADER_TARGET_LOST_GRACE := 1.5  ## 长机目标丢失后的宽限时长（秒）
 var _squad_range_grace_timer: float = 0.0  ## 长机指定目标超出僚机射程的宽限计时
@@ -432,7 +440,12 @@ func _process_simple(delta: float) -> void:
 		return
 
 	# 交战：直线前置追踪，不做任何花哨战术
-	var dist := Aircraft.effective_distance_px(aircraft.global_position, aircraft.altitude, _current_target.global_position, _current_target.altitude)
+	# flat_altitude（生存模式）下忽略高度差
+	var dist: float
+	if aircraft.flat_altitude:
+		dist = aircraft.global_position.distance_to(_current_target.global_position)
+	else:
+		dist = Aircraft.effective_distance_px(aircraft.global_position, aircraft.altitude, _current_target.global_position, _current_target.altitude)
 
 	# ── 护驾系统（orbit_squad_leader 专用）──
 	# 如果僚机被长机吸引在身边（Sentinel 小队），它不得超出护驾半径追击目标
@@ -658,7 +671,49 @@ func _process_squad_follow(delta: float) -> void:
 		if slot_pos != Vector2.INF:
 			aircraft.target_position = slot_pos
 
-	# 跟随长机的交战目标（长机锁定敌机时僚机也进入交战）
+	# ── 自由模式：独立扫描附近敌机，优先级低于长机协同 ──
+	# 长机无目标时才独立找目标；长机一旦锁定会走下面的协同攻击入口。
+	# 跟随长机模式不做独立扫描。
+	#
+	# 注：这里用的是距离扫描（_scan_squad_nearby_enemy）而不是 _try_engage(雷达锥扫描)。
+	# 原因：_try_engage 只能看到"雷达锥内 + 已经锁定 30% 以上"的敌机；玩家平飞飞过
+	# 一架敌机时，该敌机会在僚机的雷达锥外或只短暂进入，永远达不到锁定门槛——
+	# 结果就是"我明明飞过一架敌机，僚机一动不动"。
+	# 距离扫描绕开雷达锥和锁定门槛，让僚机拥有真正的"小队态势感知"。
+	if squad_engage_mode == SquadEngageMode.FREE and enable_combat \
+			and (leader.combat_target == null or not is_instance_valid(leader.combat_target) or leader.combat_target.is_destroyed):
+		_scan_timer -= delta
+		if _scan_timer <= 0.0:
+			_scan_timer = 1.0  # 每秒一次扫描，flyby 不容易漏
+			if _cooldown_timer <= 0.0:
+				var tgt := _scan_squad_nearby_enemy()
+				if tgt:
+					# 进 ENGAGE：与协同攻击走一样的过渡，只是 target 是自己找的
+					_current_target = tgt
+					aircraft.set_combat_target(tgt)
+					aircraft.ai_override_pursuit = true
+					aircraft.keep_target_on_arrival = false
+					aircraft.formation_mode = false
+					aircraft._formation_leader = null
+					aircraft._formation_blend = 0.0
+					_formation_blend = 0.0
+					aircraft.lod_level = 0
+					_state = AIState.ENGAGE
+					_engage_timer = 0.0
+					_tactic = EngageTactic.LEAD_PURSUIT
+					_tactic_timer = 0.0
+					_tactic_min_duration = 0.5
+					_squad_attacking_leader_target = false
+					_squad_free_engaging = true  # 享有 range grace，避免刚进就被踢出
+					_leader_target_lost_timer = 0.0
+					_squad_range_grace_timer = 0.0
+					current_tactic_name = "自由交战"
+					EventLogger.log_event("AI_STATE", _log_name(),
+						"SQUAD FREE engage → %s" % _log_target_name(tgt))
+					return
+
+	# 跟随长机的交战目标（长机锁定敌机时僚机协同攻击）
+	# FREE / FOLLOW_LEADER 都进这里——这是"跟随长机打谁"的入口
 	if leader.combat_target and is_instance_valid(leader.combat_target) and not leader.combat_target.is_destroyed:
 		# 反应延迟：每架僚机有不同的反应时间（0.3~1.5秒）
 		if _engage_delay <= 0.0:
@@ -681,6 +736,7 @@ func _process_squad_follow(delta: float) -> void:
 			_current_target = leader.combat_target
 			aircraft.ai_override_pursuit = true
 			_squad_attacking_leader_target = true
+			_squad_free_engaging = false  # 协同攻击路径互斥
 			_leader_target_lost_timer = 0.0
 			_squad_range_grace_timer = 0.0
 			current_tactic_name = "协同攻击"
@@ -720,6 +776,62 @@ func _scan_leader_rear() -> Aircraft:
 			best_threat = ac
 
 	return best_threat
+
+## 小队自由交战：距离扫描最近的敌机（绕开雷达锥 + 锁定门槛）
+## 设计理念：把"小队整体的感知"与"单机雷达"解耦——
+## 即使敌机在僚机身后或侧面、没触发自身雷达锁定，只要在合理距离内就能被发现。
+##
+## 距离计算：
+##   - flat_altitude=true（生存模式）：用 2D 距离，完全忽略高度差
+##     —— 生存模式设计上是"任何高度都能到"，不应让高度差影响目标选择
+##   - 否则（沙盒模式）：用 effective_distance_px 3D
+const SQUAD_FREE_SCAN_RANGE := 2000.0   ## 像素（上限）
+const SQUAD_FREE_MIN_DIST := 80.0         ## 防止把刚打下来的尸体拿去当目标
+func _scan_squad_nearby_enemy() -> Aircraft:
+	var root := aircraft.get_parent()
+	if not root:
+		return null
+	# max_range_px 必须严格小于 _process_engage 的脱战阈值 (radar_range * 1.5)。
+	var max_range_px := SQUAD_FREE_SCAN_RANGE
+	if aircraft.params:
+		max_range_px = minf(max_range_px, aircraft.params.radar_range * 1.3)
+	var best: Aircraft = null
+	var best_dist := max_range_px
+	var use_2d := aircraft.flat_altitude  # 生存模式走 2D
+	for child in root.get_children():
+		if not child is Aircraft:
+			continue
+		var ac: Aircraft = child
+		if ac.team == aircraft.team or ac.is_destroyed:
+			continue
+		var d: float
+		if use_2d:
+			d = aircraft.global_position.distance_to(ac.global_position)
+		else:
+			d = Aircraft.effective_distance_px(
+				aircraft.global_position, aircraft.altitude,
+				ac.global_position, ac.altitude
+			)
+		if d < SQUAD_FREE_MIN_DIST or d >= best_dist:
+			continue
+		# 不追刚被别的僚机盯上的目标：避免 3 架同时扑一个
+		if _is_target_already_squad_engaged(ac):
+			continue
+		best_dist = d
+		best = ac
+	return best
+
+## 检查该目标是否已被队内其他僚机/长机作为 combat_target
+## 用来避免"全员冲同一个目标"的抱团浪费
+func _is_target_already_squad_engaged(target: Aircraft) -> bool:
+	if not squad:
+		return false
+	for member in squad.members:
+		if not is_instance_valid(member) or member == aircraft:
+			continue
+		if member.combat_target == target:
+			return true
+	return false
 
 ## 结束掩护交战，回归编队
 func _end_cover_engagement() -> void:
@@ -768,7 +880,13 @@ func _process_engage(delta: float) -> void:
 		return
 
 	# 编队僚机：长机取消目标时僚机也脱离（带宽限防止单帧抖动）
-	if squad and squad.leader and is_instance_valid(squad.leader):
+	# ⚠ 只对"协同攻击长机目标"(_squad_attacking_leader_target) 生效！
+	# 独立自由交战(_squad_free_engaging) 下，僚机是自主找的目标，
+	# 和长机是否锁定目标完全无关——不能用这个 check 把它们踢出来，
+	# 否则会出现"SQUAD FREE engage → 恰好 1.5s 后 DISENGAGE"的 bug
+	# （因为 FREE 扫描本身就是在 leader.combat_target == null 时才触发的，
+	#  这个 check 第一帧就开始累积，1.5 秒后必定触发 disengage）。
+	if _squad_attacking_leader_target and squad and squad.leader and is_instance_valid(squad.leader):
 		if not squad.leader.combat_target:
 			_leader_target_lost_timer += delta
 			if _leader_target_lost_timer >= LEADER_TARGET_LOST_GRACE:
@@ -778,12 +896,18 @@ func _process_engage(delta: float) -> void:
 		else:
 			_leader_target_lost_timer = 0.0
 
-	# 超出范围脱离（协同攻击长机目标时带宽限：允许短暂越界继续追）
+	# 超出范围脱离（小队指令的交战都带宽限：允许短暂越界，给飞机调整位置的时间）
+	# flat_altitude=true（生存模式）下距离判定忽略高度差——生存模式设计上
+	# "任何高度都能达到"，沙盒模式的 3D 距离概念不带进来。
 	if aircraft.params:
 		var max_range := aircraft.params.radar_range * 1.5
-		var dist := Aircraft.effective_distance_px(aircraft.global_position, aircraft.altitude, _current_target.global_position, _current_target.altitude)
+		var dist: float
+		if aircraft.flat_altitude:
+			dist = aircraft.global_position.distance_to(_current_target.global_position)
+		else:
+			dist = Aircraft.effective_distance_px(aircraft.global_position, aircraft.altitude, _current_target.global_position, _current_target.altitude)
 		if dist > max_range:
-			if _squad_attacking_leader_target:
+			if _squad_attacking_leader_target or _squad_free_engaging:
 				_squad_range_grace_timer += delta
 				if _squad_range_grace_timer >= SQUAD_RANGE_GRACE:
 					_squad_range_grace_timer = 0.0
@@ -1376,6 +1500,7 @@ func _enter_evade() -> void:
 	_state = AIState.EVADE_MISSILE
 	aircraft.ai_override_pursuit = false
 	_squad_attacking_leader_target = false
+	_squad_free_engaging = false
 	if aircraft.combat_target:
 		aircraft.clear_combat_target()
 	# 退出编队托管，规避机动必须走正常飞行物理（LOD 0）
@@ -1481,6 +1606,7 @@ func _try_engage() -> void:
 		_target_eval_timer = 0.0
 		aircraft.ai_override_pursuit = true
 		_squad_attacking_leader_target = false  # 独立交战
+		_squad_free_engaging = false
 		var dist_m := aircraft.global_position.distance_to(best_target.global_position) / CombatUnit.PIXELS_PER_METER
 		EventLogger.log_event("AI_STATE", _log_name(),
 			"%s → ENGAGE (target=%s, dist=%.0fm, score=%.2f)" % [
@@ -1546,6 +1672,7 @@ func _disengage() -> void:
 	_cooldown_timer = engage_cooldown
 	current_tactic_name = ""
 	_squad_attacking_leader_target = false
+	_squad_free_engaging = false
 	_leader_target_lost_timer = 0.0
 	_squad_range_grace_timer = 0.0
 	# 有编队且长机不是自己 → 回归编队；否则（独行或自己就是长机）回巡逻
