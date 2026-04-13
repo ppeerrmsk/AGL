@@ -17,14 +17,14 @@ enum EngageTactic {
 }
 
 const TACTIC_DISPLAY_NAME: Dictionary = {
-	EngageTactic.LEAD_PURSUIT: "前置追踪",
-	EngageTactic.LAG_PURSUIT: "滞后追踪",
-	EngageTactic.LEAD_TURN: "提前转弯",
+	EngageTactic.LEAD_PURSUIT: "",
+	EngageTactic.LAG_PURSUIT: "",
+	EngageTactic.LEAD_TURN: "",
 	EngageTactic.HIGH_YOYO: "高悠悠",
 	EngageTactic.LOW_YOYO: "低悠悠",
-	EngageTactic.BREAK_TURN: "急转防御",
+	EngageTactic.BREAK_TURN: "",
 	EngageTactic.EXTENSION: "加速脱离",
-	EngageTactic.SCISSORS: "剪刀机动",
+	EngageTactic.SCISSORS: "",
 }
 
 # ── 基础巡逻 ──
@@ -115,6 +115,11 @@ var _prev_tactic: EngageTactic = EngageTactic.LEAD_PURSUIT ## 上一个战术（
 var _defensive_time: float = 0.0        ## 持续处于防御态势的累计时间
 var _break_phase: int = 0               ## Break Turn 阶段：0=急转, 1=反转迎头
 var _target_eval_timer: float = 0.0     ## 交战中目标重评估计时器
+
+# ── 机炮闪避（斗士型蛇形机动） ──
+var _gun_jink_active: bool = false      ## 正在执行机炮闪避蛇形机动
+var _gun_jink_timer: float = 0.0        ## 蛇形相位计时器
+var _gun_jink_grace: float = 0.0        ## 停火后继续闪避的宽限倒计时
 
 # ── 飞行员状态 ──
 var _stress: float = 0.0                ## 当前压力值 (0~1)
@@ -386,6 +391,10 @@ func _apply_speed_error(speed_kmh: float) -> float:
 ## 给高度加上判断误差
 func _apply_altitude_error(alt: float) -> float:
 	return alt + _alt_error
+
+## 获取飞机的 CombatParams（性格参数），用于战术执行中的风格偏移
+func _cb() -> CombatParams:
+	return aircraft._combat_params()
 
 # ══════════════════════════════════════════════
 #  SIMPLE AI — 轻量化逻辑（UAV 等低级敌人）
@@ -856,6 +865,22 @@ func _process_engage(delta: float) -> void:
 	else:
 		_defensive_time = maxf(_defensive_time - delta * 0.5, 0.0)
 
+	# ── 战术机动防御：敌机从后方用机炮攻击时触发 ──
+	var _me := aircraft.get_maneuver()
+	if _me and not _me.is_used and not _me.is_active:
+		if _current_target and is_instance_valid(_current_target) and _current_target is Aircraft:
+			var enemy: Aircraft = _current_target
+			if enemy.is_firing:
+				var to_me := (aircraft.global_position - enemy.global_position).normalized()
+				var my_fwd := Vector2(sin(aircraft.heading), -cos(aircraft.heading))
+				if my_fwd.dot(to_me) > 0.3 and enemy.global_position.distance_to(aircraft.global_position) < 800.0:
+					_disengage()
+					_enter_evade()
+					_me.activate()
+					var fwd := Vector2(sin(aircraft.heading), -cos(aircraft.heading))
+					aircraft.target_position = aircraft.global_position + fwd * 2000.0
+					return
+
 	# ── 导弹规避（需要飞行员察觉 + 受 self_preservation 影响） ──
 	if evade_missiles and _missile_aware:
 		# 低自保飞行员可能忽略来袭导弹继续攻击
@@ -963,6 +988,9 @@ func _process_engage(delta: float) -> void:
 			_execute_extension(sit)
 		EngageTactic.SCISSORS:
 			_execute_scissors(sit, delta)
+
+	# ── 机炮闪避（斗士型：被追尾射击时叠加蛇形偏移） ──
+	_update_gun_jink(sit, delta)
 
 	# 更新战术名称（附带压力和技能信息）
 	current_tactic_name = EngageTactic.keys()[_tactic]
@@ -1234,8 +1262,10 @@ func _execute_lead_pursuit(s: SituationData) -> void:
 	var my_speed_px := s.my_speed * Aircraft.PIXELS_PER_METER
 	var tgt_speed_px := s.tgt_speed * Aircraft.PIXELS_PER_METER
 
-	var lead_time := clampf(s.dist_px / maxf(my_speed_px, 50.0), 0.3, 3.0)
-	var pursuit_pos := s.tgt_pos + s.tgt_fwd * tgt_speed_px * lead_time
+	# 复用距离+速度感知的动态追踪（远距直追→中距过渡→近距战术）
+	var pursuit_pos := aircraft._choose_dogfight_pursuit_pos(
+			s.my_pos, s.dist_px, s.tgt_pos, s.tgt_fwd,
+			tgt_speed_px, my_speed_px, s.in_rear_hemi)
 
 	aircraft.target_position = _apply_position_error(pursuit_pos)
 	_match_target_altitude()
@@ -1243,7 +1273,8 @@ func _execute_lead_pursuit(s: SituationData) -> void:
 
 ## 滞后追踪：瞄准敌机后方，防止冲过，保持后半球位置
 func _execute_lag_pursuit(s: SituationData) -> void:
-	var lag_offset := maxf(80.0, s.gun_range_px * 0.4)
+	# 性格偏移：斗士贴近六点钟(0.18)，骑士保持距离(0.45)
+	var lag_offset := maxf(80.0, s.gun_range_px * _cb().six_oclock_offset_ratio)
 	var pursuit_pos := s.tgt_pos - s.tgt_fwd * lag_offset
 
 	aircraft.target_position = _apply_position_error(pursuit_pos)
@@ -1259,7 +1290,8 @@ func _execute_lead_turn(s: SituationData) -> void:
 
 	var pass_time := s.dist_px / maxf(s.closing_rate + 50.0, 100.0)
 	var future_tgt_pos := s.tgt_pos + s.tgt_fwd * tgt_speed_px * pass_time
-	var six_pos := future_tgt_pos - s.tgt_fwd * maxf(100.0, s.gun_range_px * 0.5)
+	# 性格偏移：六点钟偏移 × 1.2（lead_turn 天然比 lag 更远一些）
+	var six_pos := future_tgt_pos - s.tgt_fwd * maxf(100.0, s.gun_range_px * _cb().six_oclock_offset_ratio * 1.2)
 
 	aircraft.target_position = _apply_position_error(six_pos)
 	_match_target_altitude()
@@ -1273,7 +1305,9 @@ func _execute_high_yoyo(s: SituationData, delta: float) -> void:
 			# 扁平模式：切到上一档
 			aircraft.set_target_tier(aircraft.tier_above())
 		else:
-			var climb_target := _yoyo_base_alt + _apply_altitude_error(1000.0)
+			# 性格偏移：斗士爬升幅度小(600m)，骑士爬升高(1000m)
+			var climb_height := _cb().climb_brake_height
+			var climb_target := _yoyo_base_alt + _apply_altitude_error(climb_height)
 			if aircraft.params:
 				climb_target = clampf(climb_target, _yoyo_base_alt + 300.0, aircraft.params.max_altitude - 500.0)
 			aircraft.target_altitude = climb_target
@@ -1281,7 +1315,8 @@ func _execute_high_yoyo(s: SituationData, delta: float) -> void:
 		var lag_pos := s.tgt_pos - s.tgt_fwd * s.gun_range_px * 0.6
 		aircraft.target_position = _apply_position_error(lag_pos)
 
-		aircraft.target_speed_kmh = _apply_speed_error(_current_target.speed * 3.6 * 0.85)
+		# 性格偏移：斗士减速更猛(0.80)，骑士保速(0.90)
+		aircraft.target_speed_kmh = _apply_speed_error(_current_target.speed * 3.6 * _cb().dive_speed_ratio)
 
 		if aircraft.flat_altitude:
 			# 扁平模式：到达目标档位即切阶段
@@ -1314,9 +1349,10 @@ func _execute_low_yoyo(s: SituationData, delta: float) -> void:
 			# 扁平模式：切到下一档
 			aircraft.set_target_tier(aircraft.tier_below())
 		else:
-			var dive_target := _yoyo_base_alt - _apply_altitude_error(800.0)
+			# 性格偏移：斗士俯冲更深(1500m)，骑士浅俯冲(800m)
+			var dive_target := _yoyo_base_alt - _apply_altitude_error(_cb().dive_depth)
 			if aircraft.params:
-				dive_target = clampf(dive_target, 1500.0, _yoyo_base_alt - 200.0)
+				dive_target = clampf(dive_target, _cb().dive_floor, _yoyo_base_alt - 200.0)
 			aircraft.target_altitude = dive_target
 
 		var my_speed_px := s.my_speed * Aircraft.PIXELS_PER_METER
@@ -1324,7 +1360,8 @@ func _execute_low_yoyo(s: SituationData, delta: float) -> void:
 		var lead_time := clampf(s.dist_px / maxf(my_speed_px, 50.0), 0.5, 3.0)
 		aircraft.target_position = _apply_position_error(s.tgt_pos + s.tgt_fwd * tgt_speed_px * lead_time)
 
-		_set_engage_speed(s, 1.4)
+		# 性格偏移：骑士俯冲加速更猛，斗士稍温和
+		_set_engage_speed(s, 1.2 + _cb().approach_speed_mult * 0.15)
 
 		if aircraft.flat_altitude:
 			if aircraft.get_altitude_tier() <= aircraft.target_altitude_tier or _tactic_timer > 4.0:
@@ -1387,8 +1424,11 @@ func _execute_extension(s: SituationData) -> void:
 	# 低技能飞行员脱离方向可能有偏差
 	aircraft.target_position = _apply_position_error(aircraft.global_position + away_dir * 2000.0)
 
+	# 性格偏移：骑士脱离更快(approach_speed_mult=1.75→0.95×max)，
+	# 斗士脱离较慢(1.55→0.89×max)，但斗士本身很少选 extension
 	if aircraft.params:
-		aircraft.target_speed_kmh = _apply_speed_error(aircraft.params.max_speed * 0.9)
+		var escape_mult := lerpf(0.85, 0.95, _cb().approach_speed_mult / 2.0)
+		aircraft.target_speed_kmh = _apply_speed_error(aircraft.params.max_speed * escape_mult)
 	else:
 		aircraft.target_speed_kmh = _apply_speed_error(1800.0)
 
@@ -1450,12 +1490,58 @@ func _set_patrol_altitude() -> void:
 	else:
 		aircraft.target_altitude = patrol_altitude
 
+## 机炮闪避：被追尾射击时叠加蛇形偏移（仅斗士型，幅度受技能梯度控制）
+## 不改变战术状态，只在当前战术的 target_position 上叠加垂直偏移
+func _update_gun_jink(s: SituationData, delta: float) -> void:
+	# 只有斗士型（combat_bank_aggression > 1.0）才做机炮闪避
+	if _cb().combat_bank_aggression <= 1.0:
+		_gun_jink_active = false
+		return
+
+	# 触发条件：敌机在我后半球开火 + 我意识到了 + 在威胁距离内
+	var should_jink := false
+	if _current_target and is_instance_valid(_current_target) and _current_target is Aircraft:
+		var enemy: Aircraft = _current_target
+		if enemy.is_firing and s.enemy_in_my_rear and _rear_threat_aware \
+				and s.dist_px < s.gun_range_px * 2.5:
+			should_jink = true
+
+	if should_jink:
+		_gun_jink_active = true
+		_gun_jink_grace = 0.5  # 停火后继续闪避 0.5 秒
+	elif _gun_jink_grace > 0.0:
+		_gun_jink_grace -= delta
+	else:
+		_gun_jink_active = false
+		_gun_jink_timer = 0.0
+		return
+
+	_gun_jink_timer += delta
+
+	# 技能梯度：高技能=大幅快频稳定，低技能=小幅慢频不稳
+	var eff := _effective_skill()
+	var base_amp := lerpf(60.0, 150.0, eff)       # 像素偏移幅度
+	var base_period := lerpf(1.5, 0.8, eff)        # 秒/周期（高技能更快切换）
+	# 低技能噪声：幅度随机波动，模拟"犯傻"
+	var noise := 0.0
+	if eff < 0.7:
+		noise = sin(_gun_jink_timer * 3.7) * (1.0 - eff) * 0.4
+	var amp := base_amp * (1.0 + noise)
+	var sway := sin(_gun_jink_timer * TAU / base_period) * amp
+
+	# 偏移方向：垂直于敌机→我的追尾方向
+	var to_me := (aircraft.global_position - _current_target.global_position).normalized()
+	var perp := Vector2(to_me.y, -to_me.x)
+	aircraft.target_position += perp * sway
+
 func _set_engage_speed(s: SituationData, mult: float) -> void:
 	if not aircraft.params:
 		aircraft.target_speed_kmh = _apply_speed_error(900.0 * mult)
 		return
 	var cruise := aircraft.params.cruise_speed
-	var target := clampf(cruise * mult, aircraft.params.stall_speed_base * 1.2, aircraft.params.max_speed)
+	# 性格偏移：斗士近战减速求转弯(0.9)，骑士保持高速保能量(1.15)
+	var style := _cb().maneuver_speed_mult
+	var target := clampf(cruise * mult * style, aircraft.params.stall_speed_base * 1.2, aircraft.params.max_speed)
 	aircraft.target_speed_kmh = _apply_speed_error(target)
 
 # ══════════════════════════════════════════════
@@ -1466,6 +1552,21 @@ func _process_evade(delta: float) -> void:
 	var missile := _find_nearest_incoming_missile()
 	if not missile:
 		_exit_evade()
+		return
+
+	# ── 战术机动：后方来袭导弹逼近时一次性触发 ──
+	var _mev := aircraft.get_maneuver()
+	if _mev and not _mev.is_used and not _mev.is_active:
+		var missile_dist := missile.global_position.distance_to(aircraft.global_position)
+		if missile_dist < 500.0 and _is_missile_from_rear(missile):
+			_mev.activate()
+			var fwd := Vector2(sin(aircraft.heading), -cos(aircraft.heading))
+			aircraft.target_position = aircraft.global_position + fwd * 2000.0
+			return
+	# 战术机动执行中：保持航向等待完成
+	if _mev and _mev.is_active:
+		var fwd := Vector2(sin(aircraft.heading), -cos(aircraft.heading))
+		aircraft.target_position = aircraft.global_position + fwd * 2000.0
 		return
 
 	var missile_dir := (aircraft.global_position - missile.global_position).normalized()
@@ -1717,12 +1818,28 @@ func _find_nearest_incoming_missile() -> Missile:
 			continue
 		if m.target != aircraft:
 			continue
+		if m.is_flare_jammed:
+			continue  # 已被热诱弹干扰，不再构成威胁
 		var dist := m.global_position.distance_to(aircraft.global_position)
 		if dist < nearest_dist:
 			nearest_dist = dist
 			nearest = m
 
 	return nearest
+
+## 判断导弹是否从后半球逼近（用于眼镜蛇触发）
+## 同时检查两个条件：
+##   1. 导弹在飞机后方（位置判定）
+##   2. 导弹正朝飞机飞来（速度方向判定，排除已飞过的导弹）
+func _is_missile_from_rear(missile: Missile) -> bool:
+	var missile_to_ac := (aircraft.global_position - missile.global_position).normalized()
+	var ac_fwd := Vector2(sin(aircraft.heading), -cos(aircraft.heading))
+	# 条件 1：导弹在飞机后方锥内
+	if ac_fwd.dot(missile_to_ac) <= 0.3:
+		return false
+	# 条件 2：导弹的飞行方向朝向飞机（而非已经飞过去了）
+	var missile_fwd := Vector2(sin(missile.heading), -cos(missile.heading))
+	return missile_fwd.dot(missile_to_ac) > 0.3
 
 func _get_missile_manager() -> MissileManager:
 	var root := aircraft.get_parent()

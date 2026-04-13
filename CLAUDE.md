@@ -44,13 +44,13 @@ AGL/
 │   ├── ai_controller.gd       # AI 状态机（巡逻/交战/规避/编队）
 │   ├── combat_unit.gd         # 战斗单位基类（Aircraft/GroundUnit 共享接口）
 │   ├── missile.gd             # 导弹实体（PN 制导）
-│   ├── missile_manager.gd     # 导弹管理器（命中检测/在飞查询）
+│   ├── missile_manager.gd     # 导弹管理器（命中检测/在飞查询/近炸AOE）
 │   ├── missile_params.gd      # MissileParams Resource
 │   ├── bullet_manager.gd      # 机炮子弹管理（物理+命中）
 │   ├── gun_params.gd          # GunParams Resource
 │   ├── rocket_params.gd       # RocketParams Resource（无制导火箭弹）
 │   ├── combat_params.gd       # CombatParams Resource（AI 行为风格）
-│   ├── flare_params.gd        # FlareParams Resource
+│   ├── flare_params.gd        # FlareParams Resource（含 fail_chance 失误概率 + head_on_fail_reduction 对头减免）
 │   ├── playable_aircraft.gd   # PlayableAircraft Resource（主角档案，UI+生存调味）
 │   ├── squad.gd               # 编队数据结构 + 6 种阵型计算
 │   ├── ground_unit.gd         # 地面单位基类
@@ -145,11 +145,15 @@ Resource
 | `MIG31(6)` | MiG-31 | Lancer 顶级 | `enemy_mig31.tres` | 8 | **2** | 9 | 单机 | `:1052` | `:1195` |
 | `MIG23(7)` | MiG-23 | Gladiator 综合 | `enemy_mig23.tres` | 4 | ∞ | 4 | 编队 | `:1054` | `:1208` |
 | `F100(8)` | F-100 | Lancer 编队 | `enemy_f100.tres` | 5 | **3** | 6 | 编队 | `:1056` | `:1220` |
+| `SU27(9)` | Su-27 | Gladiator+眼镜蛇 | `enemy_su27.tres` | 7 | **2** | 8 | 单机 | `:1263` | `:1443` |
+| `A7(10)` | A-7 | Lancer 亚音速攻击 | `enemy_a7.tres` + `a7_gun.tres` + `a7_rocket.tres` | 3 | ∞ | 3 | 编队 | `:1294` | `:1525` |
+| `Q5(11)` | Q-5 | Lancer 超音速攻击 | `enemy_q5.tres` + `q5_gun.tres` + `q5_rocket.tres` | 4 | ∞ | 5 | 编队 | `:1296` | `:1538` |
 
 **所有 Token / 上限 / 解锁常量** 都在 `survivor_data.gd` 里集中定义：
-- `TOKEN_COST`（`:261`）/ `TOKEN_INSTANCE_CAP`（`:276`）/ `TOKEN_BUDGET_BASE/PER_LEVEL/MAX`（`:254`）
-- `FAR_CLEANUP_DISTANCE`（`:289`）/ `FAR_CLEANUP_INTERVAL`（`:290`）/ `LATE_GAME_LEVEL`（`:296`）
-- 每个敌人的 `*_UNLOCK_LEVEL` / `*_CHANCE_PER_LEVEL` / `*_CHANCE_MAX`（`:220-244`）
+- `TOKEN_COST`（`:338`）/ `TOKEN_INSTANCE_CAP`（`:356`）/ `TOKEN_BUDGET_BASE/PER_LEVEL/MAX`（`:331`）
+- `FAR_CLEANUP_DISTANCE`（`:372`）/ `FAR_CLEANUP_INTERVAL`（`:373`）/ `LATE_GAME_LEVEL`（`:379`）
+- `LATE_GAME_MIN_TOKEN`（`:383`）/ `ENEMY_HP_MISSILE_CAP`（`:386`）
+- 每个敌人的 `*_UNLOCK_LEVEL` / `*_CHANCE_PER_LEVEL` / `*_CHANCE_MAX`（`:288-314`）
 
 ### 创建新敌人的完整清单（"加一个敌人"触发短语）
 
@@ -184,12 +188,13 @@ Resource
 
 | 文件 | 类/类型 | 职责 | 关键入口 |
 |------|---------|------|----------|
-| `aircraft.gd` | `Aircraft extends CombatUnit` | [共享] 飞机物理+战斗+武器+视觉（最核心，~2930 行） | `_physics_process:194` `_update_combat:1107` `_update_gun:1422` `_update_rocket:1468` `_update_weapon_mode:1599` `_update_missile:1811` `_effective_missile_range_px` `_missile_cannot_hit_but_gun_can` `_should_commit_gun_pass` `_is_gun_pass_finished` `_release_flares(target_missile)` `set_evasion_mode` `_corner_speed_kmh` |
+| `aircraft.gd` | `Aircraft extends CombatUnit` | [共享] 飞机物理+战斗+武器+视觉（最核心，~2900 行） | `_physics_process:194` `_update_combat:1107` `_update_gun:1422` `_update_rocket:1468` `_update_weapon_mode:1599` `_update_missile:1811` `_effective_missile_range_px` `_missile_cannot_hit_but_gun_can` `_should_commit_gun_pass` `_is_gun_pass_finished` `_release_flares(target_missile)` `set_evasion_mode` `_corner_speed_kmh` `get_maneuver` |
+| `cobra_maneuver.gd` | `CobraManeuver extends Node` | [共享] 眼镜蛇机动模块（挂载到 Aircraft 子节点） | `activate` `_physics_process`（三阶段状态机） |
 | `rocket_params.gd` | `RocketParams extends Resource` | [共享] 无制导火箭弹参数（齐射数/散布/冷却） | — |
 | `ai_controller.gd` | `AIController extends Node` | [共享] AI 状态机 + BFM 战术决策树（~1620 行） | `_process_patrol:553` `_process_squad_follow:583` `_process_engage:736` `_choose_tactic:952` `_process_evade:1341` |
 | `combat_unit.gd` | `CombatUnit extends Node2D` | [共享] 战斗单位基类（通用接口） | `take_damage:81` `is_in_radar_cone:94` `get_altitude_tier:65` |
 | `missile.gd` | `Missile extends Node2D` | [共享] 导弹飞行物理（PN 制导/SARH） | `_physics_process:37` `_guidance_degradation:238` |
-| `missile_manager.gd` | `MissileManager extends Node2D` | [共享] 导弹生成+命中+连锁弹头 | `spawn_missile:11` `_physics_process:46` `_find_bounce_target:101` |
+| `missile_manager.gd` | `MissileManager extends Node2D` | [共享] 导弹生成+命中+连锁弹头+近炸引信AOE | `spawn_missile:20` `_physics_process:56` `_spawn_aoe:109` `_update_aoe_zones:126` `_draw:157` `_find_bounce_target:166` |
 | `bullet_manager.gd` | `BulletManager extends Node2D` | [共享] 子弹/火箭物理+命中+伤害衰减（162 行） | `spawn_bullet:23` `spawn_rocket:38` `_physics_process` |
 | `main.gd` | `Main extends Node2D` | [沙盒] 沙盒主控：相机/输入/锁定循环/编队/LOD/地形 | `_update_radar_locks:226` `_spawn_friendly_squad:313` `_update_lod:455` |
 | `squad.gd` | `Squad extends RefCounted` | [共享] 6 种阵型偏移计算 | `get_formation_offset:51` `get_wingman_target:114` `cycle_formation:128` |
@@ -200,7 +205,7 @@ Resource
 | `survivor/survivor_mode.gd` | 生存模式主控（~1450 行） | [生存] 波次/刷怪/猎手/升级/Token 预算/远距清理 | `_update_spawner:722` `_pick_enemy_type:874` `_recalc_token_usage:851` `_can_spawn_type:863` `_get_token_budget:846` `_update_far_cleanup:586` `_update_hunters:610` `_spawn_single:934` `_spawn_squad:942` `_spawn_commander_squad:982` `_create_enemy:1038` `_detect_kills:1261` — **EnemyType enum:843** |
 | `survivor/survivor_debug_spawn.gd` | `SurvivorDebugSpawn extends CanvasLayer` | [生存] F5 刷怪调试面板（279 行） | `_build_ui:60` `_on_type_changed:226` `_on_spawn_pressed:236` `_on_clear_pressed:264` `_on_dump_pressed:276` |
 | `survivor/survivor_player.gd` | `SurvivorPlayer extends Node` | [生存] 经验/等级/升级应用 | `add_xp:20` `apply_upgrade:30` |
-| `survivor/survivor_data.gd` | `SurvivorData extends RefCounted` | [生存] 升级表/波次常量/Token 预算/经验曲线 | `UPGRADES:12`（含 `requires`/`exclusive_to` 字段说明） `is_upgrade_available_for(upgrade, aircraft_id, params)` `TOKEN_COST` `TOKEN_INSTANCE_CAP` `TOKEN_BUDGET_*` `FAR_CLEANUP_DISTANCE` `LATE_GAME_LEVEL` `xp_for_level` `enemy_scale_for_level` |
+| `survivor/survivor_data.gd` | `SurvivorData extends RefCounted` | [生存] 升级表/波次常量/Token 预算/经验曲线 | `UPGRADES:12`（含 `requires`/`exclusive_to` 字段说明） `is_upgrade_available_for(upgrade, aircraft_id, params)` `TOKEN_COST` `TOKEN_INSTANCE_CAP` `TOKEN_BUDGET_*` `FAR_CLEANUP_DISTANCE` `LATE_GAME_LEVEL` `LATE_GAME_MIN_TOKEN` `ENEMY_HP_MISSILE_CAP` `xp_for_level` `enemy_scale_for_level` |
 | `survivor/commander_aura.gd` | `CommanderAura extends Node` | [生存] Sentinel 光环 buff + 招募 UAV | `_apply_buff:93` `_try_recruit:155` |
 | `playable_aircraft.gd` | `PlayableAircraft extends Resource` | [生存] 主角档案：UI 元数据 + base_params 引用 + 生存模式调味（属性/武器/战斗/热诱弹覆盖）+ 起始僚机配置 | 全部 `@export` 字段；详见 docs/reference/playable-aircraft-workflow.md |
 | `survivor/survivor_playable_setup.gd` | `SurvivorPlayableSetup extends RefCounted` | [生存] 把 PlayableAircraft 应用到 Aircraft 实例（替代旧的 survivor_mode 内联 buff 块） | `apply(aircraft, profile)` `deep_dup_weapons(params)` |

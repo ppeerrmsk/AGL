@@ -77,6 +77,12 @@
 | F-86 参数 | `resources/enemy_f86.tres` | 亚音速 + 高G + Gladiator combat + FFAR + 6x.50cal |
 | F-86 专用机炮 | `resources/f86_gun.tres` | 低伤害低射速（避免秒杀玩家）|
 | F-86 生存模式 AI | `scripts/survivor/survivor_mode.gd` EnemyType.F86 分支 | 高 aggression / 低 self_preservation / 长 engage_duration |
+| A-7 参数 | `resources/enemy_a7.tres` | 亚音速 + 低G + Lancer combat + Zuni + M61 火神炮（高弹量）|
+| A-7 专用机炮 | `resources/a7_gun.tres` | M61A1 20mm（400发，中射速）|
+| A-7 火箭弹 | `resources/a7_rocket.tres` | Zuni 5"（高伤害 14，低弹量 16）|
+| Q-5 参数 | `resources/enemy_q5.tres` | 微超音速 + 中G + Lancer combat + 57mm + 23mm 双炮 |
+| Q-5 专用机炮 | `resources/q5_gun.tres` | 23-2K 23mm x2（200发）|
+| Q-5 火箭弹 | `resources/q5_rocket.tres` | 57mm 火箭弹（低伤害 8，高弹量 32，大散布）|
 
 ## 武器系统 — 导弹
 
@@ -101,21 +107,29 @@
 | 有效射程（像素） | `aircraft.gd:1565` _effective_range_px |
 | 导弹飞行物理+PN制导 | `missile.gd:37` _physics_process |
 | 导弹低空制导衰减 | `missile.gd:238` _guidance_degradation |
-| 导弹生成 | `missile_manager.gd:11` spawn_missile |
-| 导弹命中检测+连锁弹头 | `missile_manager.gd:46` _physics_process |
-| 在飞导弹查询 | `missile_manager.gd:38` has_active_missile_at |
-| 弹跳目标查找 | `missile_manager.gd:101` _find_bounce_target |
+| 导弹生成 | `missile_manager.gd:20` spawn_missile |
+| 导弹命中检测+连锁弹头 | `missile_manager.gd:56` _physics_process |
+| 在飞导弹查询 | `missile_manager.gd:48` has_active_missile_at |
+| 近炸引信 AOE 生成 | `missile_manager.gd:109` _spawn_aoe |
+| AOE 区域更新+伤害 | `missile_manager.gd:126` _update_aoe_zones |
+| AOE 红圈渲染 | `missile_manager.gd:157` _draw |
+| 弹跳目标查找 | `missile_manager.gd:166` _find_bounce_target |
 
 ## 热诱弹/反制
 
 | 功能 | 位置 |
 |------|------|
-| 热诱弹系统更新 | `aircraft.gd:2724` _update_flares |
-| 释放热诱弹（target_missile 可选，针对性释放）| `aircraft.gd:2789` _release_flares |
-| 干扰成功率计算 | `aircraft.gd:2846` _calc_jam_chance |
-| 粒子更新 | `aircraft.gd:2880` _update_flare_particles |
+| 热诱弹系统更新（含失误判定） | `aircraft.gd:3147` _update_flares |
+| 释放热诱弹（target_missile 可选，针对性释放）| `aircraft.gd:3245` _release_flares |
+| 干扰成功率计算 | `aircraft.gd:3307` _calc_jam_chance |
+| 粒子更新 | `aircraft.gd:3341` _update_flare_particles |
+| 失误概率 / 对头减免（FlareParams 字段） | `flare_params.gd:19-22` fail_chance / head_on_fail_reduction |
 | 规避模式（导弹来袭 S 型 + 降高度）| `aircraft.gd:1724` _update_evasion |
 | 规避模式开关（AI → Aircraft） | `aircraft.gd:1714` set_evasion_mode |
+| 眼镜蛇机动模块 | `cobra_maneuver.gd` CobraManeuver（挂载到 Aircraft 子节点） |
+| 眼镜蛇机动激活 | `cobra_maneuver.gd` activate |
+| 战术机动查询（通用） | `aircraft.gd` get_maneuver |
+| 眼镜蛇后方判定（AI） | `ai_controller.gd` _is_missile_from_rear |
 | 锁定免疫检查 | `aircraft.gd:2721` is_lock_immune |
 
 ## 伤害与击毁
@@ -262,7 +276,7 @@
 | 指定类型是否可生成（预算+实例上限）| `survivor_mode.gd:863` _can_spawn_type |
 | 按等级选敌机类型（概率 + Token 约束）| `survivor_mode.gd:874` _pick_enemy_type |
 | 单机生成（J-7 / MiG-31）| `survivor_mode.gd:934` _spawn_single |
-| 编队生成（MiG-29 / F-86 / MiG-23 / F-100 / UAV / UCAV）| `survivor_mode.gd:942` _spawn_squad |
+| 编队生成（MiG-29 / F-86 / MiG-23 / F-100 / A-7 / Q-5 / UAV / UCAV）| `survivor_mode.gd:942` _spawn_squad |
 | 指挥 UAV 小队生成（Sentinel + UAV 僚机）| `survivor_mode.gd:982` _spawn_commander_squad |
 | 创建敌机实体（参数/AI/缩放/Token meta）| `survivor_mode.gd:1038` _create_enemy |
 | └ base_params match（**新增敌人改这里**） | `:1041` |
@@ -281,6 +295,9 @@
 > - `MIG31(6)` MiG-31 — Lancer 顶级（极速 3200 / 雷达弹 / 单机精英）
 > - `MIG23(7)` MiG-23 — Gladiator 综合款（导弹+机炮编队）
 > - `F100(8)` F-100 — Lancer 中量编队（雷达弹打带跑）
+> - `SU27(9)` Su-27 — Gladiator+眼镜蛇（单机精英）
+> - `A7(10)` A-7 — Lancer 亚音速攻击机（M61火神炮+祖尼火箭弹编队）
+> - `Q5(11)` Q-5 — Lancer 超音速攻击机（23mm双炮+57mm火箭弹编队）
 
 > Token 常量表：`survivor_data.gd::TOKEN_COST` / `TOKEN_INSTANCE_CAP` / `TOKEN_BUDGET_BASE/PER_LEVEL/MAX` / `FAR_CLEANUP_DISTANCE` / `FAR_CLEANUP_INTERVAL`。设计要点：
 > - 每种敌人有 Token 成本（弱 1~2，精英 4~6）与可选实例上限（Sentinel=1，J-7=2）。
@@ -331,7 +348,10 @@
 | MiG-23 解锁/概率常量 | `survivor_data.gd:229-231` |
 | F-100 解锁/概率常量 | `survivor_data.gd:232-234` |
 | MiG-31 解锁/概率常量 | `survivor_data.gd:235-237` |
-| 指挥 UAV 解锁/概率/小队规模 | `survivor_data.gd:238-245` |
+| Su-27 解锁/概率常量 | `survivor_data.gd:238-240` |
+| A-7 解锁/概率常量 | `survivor_data.gd:241-243` |
+| Q-5 解锁/概率常量 | `survivor_data.gd:244-246` |
+| 指挥 UAV 解锁/概率/小队规模 | `survivor_data.gd:247-254` |
 | **Token 预算常量** (BASE/PER_LEVEL/MAX) | `survivor_data.gd:254-256` |
 | **Token 消耗表 TOKEN_COST** | `survivor_data.gd:261` |
 | **Token 实例上限表 TOKEN_INSTANCE_CAP** | `survivor_data.gd:276` |
@@ -492,6 +512,12 @@
 | UAV | `resources/enemy_uav.tres` |
 | UCAV（导弹型） | `resources/enemy_uav_missile.tres` |
 | Sentinel 指挥UAV | `resources/enemy_uav_commander.tres` |
+| A-7 攻击机 | `resources/enemy_a7.tres` |
+| A-7 机炮 | `resources/a7_gun.tres` |
+| A-7 火箭弹 | `resources/a7_rocket.tres` |
+| Q-5 攻击机 | `resources/enemy_q5.tres` |
+| Q-5 机炮 | `resources/q5_gun.tres` |
+| Q-5 火箭弹 | `resources/q5_rocket.tres` |
 | Probe 侦察机 | `resources/drone_probe.tres` |
 | M61A1 机炮 | `resources/default_gun.tres` |
 | ZU-23 高炮 | `resources/aa_gun.tres` |

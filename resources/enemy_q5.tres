@@ -1,0 +1,39 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/q5_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/lancer_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/q5_rocket.tres" id="4"]
+
+[resource]
+script = ExtResource("1")
+display_name = "Q-5"
+max_hp = 38.0
+armor = 0.0
+max_speed = 1300.0
+cruise_speed = 780.0
+stall_speed_base = 200.0
+acceleration = 38.0
+deceleration = 58.0
+g_drag_factor = 2.9
+max_g = 7.0
+max_g_structural = 9.0
+roll_rate = 3.5
+pilot_stamina = 80.0
+stamina_drain_rate = 28.0
+stamina_recovery_rate = 9.0
+max_altitude = 16500.0
+climb_rate_max = 240.0
+thrust_to_weight = 0.95
+drag_coefficient = 0.024
+afterburner_thrust_mult = 1.5
+fuel_capacity = 1600.0
+fuel_rate_normal = 1.8
+fuel_rate_afterburner = 8.0
+radar_range = 2200.0
+radar_half_angle = 25.0
+lock_time = 3.5
+gun = ExtResource("2")
+rocket = ExtResource("4")
+combat = ExtResource("3")
+icon_color = Color(0.4, 0.85, 0.55, 1)

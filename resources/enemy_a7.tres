@@ -1,0 +1,39 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/a7_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/lancer_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/a7_rocket.tres" id="4"]
+
+[resource]
+script = ExtResource("1")
+display_name = "A-7"
+max_hp = 50.0
+armor = 0.0
+max_speed = 1100.0
+cruise_speed = 700.0
+stall_speed_base = 210.0
+acceleration = 32.0
+deceleration = 55.0
+g_drag_factor = 3.0
+max_g = 6.5
+max_g_structural = 8.5
+roll_rate = 3.0
+pilot_stamina = 75.0
+stamina_drain_rate = 28.0
+stamina_recovery_rate = 8.0
+max_altitude = 12800.0
+climb_rate_max = 200.0
+thrust_to_weight = 0.85
+drag_coefficient = 0.025
+afterburner_thrust_mult = 1.0
+fuel_capacity = 2200.0
+fuel_rate_normal = 1.8
+fuel_rate_afterburner = 6.0
+radar_range = 2800.0
+radar_half_angle = 25.0
+lock_time = 3.5
+gun = ExtResource("2")
+rocket = ExtResource("4")
+combat = ExtResource("3")
+icon_color = Color(0.5, 0.75, 0.35, 1)

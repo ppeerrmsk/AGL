@@ -56,7 +56,8 @@
       "Bash(rm -f ~/.claude/agl_last_log.txt)",
       "Bash(bash .claude/hooks/open-latest-log.sh)",
       "Bash(echo \"exit=$?\")",
-      "Bash(sed -n '30,50p' scripts/event_logger.gd)"
+      "Bash(sed -n '30,50p' scripts/event_logger.gd)",
+      "WebFetch(domain:en.wikipedia.org)"
     ]
   },
   "hooks": {

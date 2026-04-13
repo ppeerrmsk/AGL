@@ -20,7 +20,10 @@ var _bullets: Array[Dictionary] = []
 ## 场景中所有战斗单位的缓存引用，由 main.gd 每帧更新
 var combat_unit_list: Array[CombatUnit] = []
 
-func spawn_bullet(origin: Vector2, direction: float, speed_ms: float, source: CombatUnit, damage: float) -> void:
+## 导弹管理器引用（CIWS 子弹需要碰撞导弹）
+var missile_manager: Node = null
+
+func spawn_bullet(origin: Vector2, direction: float, speed_ms: float, source: CombatUnit, damage: float, is_ciws: bool = false) -> void:
 	var speed_px := speed_ms * PIXELS_PER_METER
 	var vel := Vector2(sin(direction), -cos(direction)) * speed_px
 	# ⚠ 快照 team 到 dict：弹丸寿命中射手可能被释放，
@@ -35,6 +38,7 @@ func spawn_bullet(origin: Vector2, direction: float, speed_ms: float, source: Co
 		"max_life": 2.0,
 		"altitude": source.altitude if is_instance_valid(source) else 5000.0,
 		"is_rocket": false,
+		"is_ciws": is_ciws,
 	})
 
 ## 生成无制导火箭弹
@@ -86,6 +90,11 @@ func _physics_process(delta: float) -> void:
 			# 跳过同队（无论射手死活都用快照 team 判定）
 			if ac.team == source_team:
 				continue
+			# 战术机动中及结束后缓冲期内免疫所有弹药
+			if ac is Aircraft:
+				var _bm = ac.get_maneuver()
+				if _bm and (_bm.is_active or (_bm.is_used and ac.missile_phase_timer > 0.0)):
+					continue
 			# 命中判定：2D 距离 + 高度容差（分别检查）
 			var dist_2d: float = b["pos"].distance_to(ac.global_position)
 			var alt_diff: float = absf(float(b["altitude"]) - ac.altitude)
@@ -140,6 +149,21 @@ func _physics_process(delta: float) -> void:
 					ac.take_damage(b["damage"] * dmg_mult)
 				hit = true
 				break
+
+		# CIWS 子弹 vs 敌方导弹碰撞（仅带 is_ciws 标记的子弹）
+		if not hit and b.get("is_ciws", false) and missile_manager:
+			for child in missile_manager.get_children():
+				if not (child is Missile):
+					continue
+				var m: Missile = child as Missile
+				if not m.is_active or m.team == source_team:
+					continue
+				var dist_m: float = Vector2(b["pos"]).distance_to(m.global_position)
+				if dist_m < HIT_RADIUS:
+					m.is_active = false
+					EventLogger.log_event("CIWS", "Player", "intercepted missile at dist=%.0f" % dist_m)
+					hit = true
+					break
 
 		if hit:
 			_bullets.remove_at(i)

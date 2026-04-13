@@ -7,6 +7,7 @@ script = ExtResource("1")
 max_flares = 2
 burst_count = 1
 cooldown = 1.5
+reload_time = 12.0
 base_jam_chance = 0.90
 aspect_bonus = 0.3
 maneuvering_bonus = 0.25

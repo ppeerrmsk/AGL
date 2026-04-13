@@ -51,6 +51,9 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 		"missile_bounce":
 			# 进化：连锁弹头，导弹命中后弹跳
 			aircraft.missile_bounce_count = int(upgrade["value"])
+		"proximity_fuze":
+			# 进化：近炸引信，导弹爆炸产生 AOE 区域
+			aircraft.missile_proximity_aoe = true
 		"missile_reload":
 			aircraft.missile_reload_duration *= (1.0 - float(upgrade["value"]))
 		"multi_lock":
@@ -70,6 +73,12 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 		"gun_firerate":
 			if p.gun:
 				p.gun.fire_rate *= (1.0 + float(upgrade["value"]))
+		"gun_range":
+			if p.gun:
+				p.gun = p.gun.duplicate()
+				p.gun.max_range *= (1.0 + float(upgrade["value"]))
+		"gun_ciws":
+			aircraft.gun_ciws_active = true
 		"radar_range":
 			p.radar_range *= (1.0 + float(upgrade["value"]))
 		"lock_time":
@@ -86,6 +95,7 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 		"flare_cooldown":
 			if p.flare:
 				p.flare.cooldown *= (1.0 - float(upgrade["value"]))
+				p.flare.reload_time *= (1.0 - float(upgrade["value"]))
 		"flare_shield":
 			# 电子对抗套件：每层增加锁定免疫时间
 			aircraft.flare_lock_immunity += float(upgrade["value"])

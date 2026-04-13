@@ -33,6 +33,9 @@ const ENEMY_TYPE_LABELS := [
 	{"label": "J-7 截击机", "enum_idx": 3},             # EnemyType.INTERCEPTOR
 	{"label": "F-100", "enum_idx": 8},                # EnemyType.F100
 	{"label": "F-86", "enum_idx": 5},                 # EnemyType.F86
+	{"label": "Su-27", "enum_idx": 9},                # EnemyType.SU27
+	{"label": "A-7 攻击机", "enum_idx": 10},             # EnemyType.A7
+	{"label": "Q-5 攻击机", "enum_idx": 11},             # EnemyType.Q5
 	{"label": "UAV 机炮无人机", "enum_idx": 0},           # EnemyType.UAV
 	{"label": "UCAV 导弹无人机", "enum_idx": 1},          # EnemyType.UCAV
 	{"label": "Sentinel 指挥 UAV", "enum_idx": 4},      # EnemyType.UAV_COMMANDER

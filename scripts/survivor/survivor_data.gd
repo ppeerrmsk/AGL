@@ -111,7 +111,18 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 0.30,
 		"max_stacks": 4,
 		"category": "combat",
-		"evolves_to": "missile_bounce",
+		"evolves_to": "proximity_fuze",
+		"requires": ["missile"],
+	},
+	{
+		"id": "proximity_fuze",
+		"name": "★ 近炸引信",
+		"desc": "进化！导弹接近敌机时自动引爆，产生 AOE 伤害区域",
+		"stat": "proximity_fuze",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "combat",
+		"evolved": true,
 		"requires": ["missile"],
 	},
 	{
@@ -133,6 +144,7 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 0.15,
 		"max_stacks": 3,
 		"category": "combat",
+		"evolves_to": "missile_bounce",
 		"requires": ["missile"],
 	},
 	{
@@ -195,6 +207,28 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 0.25,
 		"max_stacks": 4,
 		"category": "combat",
+		"requires": ["gun"],
+	},
+	{
+		"id": "gun_range",
+		"name": "延伸弹道",
+		"desc": "机炮有效射程 +20%",
+		"stat": "gun_range",
+		"value": 0.20,
+		"max_stacks": 4,
+		"category": "combat",
+		"evolves_to": "gun_ciws",
+		"requires": ["gun"],
+	},
+	{
+		"id": "gun_ciws",
+		"name": "★ 近防炮",
+		"desc": "进化！机炮自动拦截正面来袭导弹",
+		"stat": "gun_ciws",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "combat",
+		"evolved": true,
 		"requires": ["gun"],
 	},
 	{
@@ -303,6 +337,15 @@ const F100_CHANCE_MAX := 0.30        ## F-100 最大出现概率
 const MIG31_UNLOCK_LEVEL := 9        ## MiG-31（最强 Lancer，单机）解锁等级
 const MIG31_CHANCE_PER_LEVEL := 0.08 ## 每超过解锁等级，MiG-31 出现概率增加
 const MIG31_CHANCE_MAX := 0.25       ## MiG-31 最大出现概率
+const SU27_UNLOCK_LEVEL := 8         ## Su-27（主力威胁 + 眼镜蛇机动）解锁等级
+const SU27_CHANCE_PER_LEVEL := 0.07  ## 每超过解锁等级，Su-27 出现概率增加
+const SU27_CHANCE_MAX := 0.25        ## Su-27 最大出现概率
+const A7_UNLOCK_LEVEL := 3           ## A-7（Lancer 亚音速攻击机，机炮+火箭弹）解锁等级
+const A7_CHANCE_PER_LEVEL := 0.14    ## 每超过解锁等级，A-7 出现概率增加
+const A7_CHANCE_MAX := 0.40          ## A-7 最大出现概率
+const Q5_UNLOCK_LEVEL := 5           ## Q-5（Lancer 超音速攻击机，机炮+火箭弹）解锁等级
+const Q5_CHANCE_PER_LEVEL := 0.10    ## 每超过解锁等级，Q-5 出现概率增加
+const Q5_CHANCE_MAX := 0.30          ## Q-5 最大出现概率
 const COMMANDER_UNLOCK_LEVEL := 4    ## 指挥 UAV 解锁等级
 const COMMANDER_CHANCE_BASE := 0.12  ## 解锁时的基础出现概率
 const COMMANDER_CHANCE_PER_LEVEL := 0.06  ## 每超过解锁等级，指挥 UAV 出现概率增加
@@ -325,17 +368,20 @@ const TOKEN_BUDGET_MAX := 45           ## Token 预算绝对上限
 
 ## 每种敌人的 Token 消耗
 ## key 是 survivor_mode.gd::EnemyType 的 int 值
-## UAV=0, UCAV=1, MIG=2, INTERCEPTOR=3, UAV_COMMANDER=4, F86=5, MIG31=6, MIG23=7, F100=8
+## UAV=0, UCAV=1, MIG=2, INTERCEPTOR=3, UAV_COMMANDER=4, F86=5, MIG31=6, MIG23=7, F100=8, SU27=9, A7=10, Q5=11
 const TOKEN_COST := {
-	0: 1,  ## UAV        — 最便宜的杂鱼
-	1: 2,  ## UCAV       — 导弹杂鱼
-	2: 4,  ## MiG-29     — 主力威胁
-	3: 5,  ## J-7        — Lancer 打带跑，单次冲锋威胁高
-	4: 6,  ## Sentinel   — Schemer 带光环+buff 僚机
-	5: 3,  ## F-86       — Gladiator 缠斗
-	6: 8,  ## MiG-31     — Lancer 顶级（速度 3200，雷达弹，单机出现）
-	7: 4,  ## MiG-23     — Gladiator 综合型（导弹+机炮编队）
-	8: 5,  ## F-100      — Lancer 编队型（雷达弹打带跑）
+	0: 1,   ## UAV        — 最便宜的杂鱼
+	1: 2,   ## UCAV       — 导弹杂鱼
+	2: 4,   ## MiG-29     — 主力威胁
+	3: 5,   ## J-7        — Lancer 打带跑，单次冲锋威胁高
+	4: 6,   ## Sentinel   — Schemer 带光环+buff 僚机
+	5: 3,   ## F-86       — Gladiator 缠斗
+	6: 8,   ## MiG-31     — Lancer 顶级（速度 3200，雷达弹，单机出现）
+	7: 4,   ## MiG-23     — Gladiator 综合型（导弹+机炮编队）
+	8: 5,   ## F-100      — Lancer 编队型（雷达弹打带跑）
+	9: 7,   ## Su-27      — 主力威胁 + 眼镜蛇机动（单机/双机出现）
+	10: 3,  ## A-7        — Lancer 亚音速攻击机（机炮+火箭弹编队）
+	11: 4,  ## Q-5        — Lancer 超音速攻击机（机炮+火箭弹编队）
 }
 
 ## 每种敌人的同时存在上限（-1 = 无限制）
@@ -351,6 +397,9 @@ const TOKEN_INSTANCE_CAP := {
 	6: 2,   ## MiG-31：最强 Lancer，单机稀有，一次最多 2 台
 	7: -1,  ## MiG-23
 	8: 3,   ## F-100 编队：一次最多 3 台维持稀有感
+	9: 2,   ## Su-27：精英单机，一次最多 2 台
+	10: -1, ## A-7：编队出现，无硬上限
+	11: -1, ## Q-5：编队出现，无硬上限
 }
 
 ## 远距清理
@@ -362,6 +411,13 @@ const FAR_CLEANUP_INTERVAL := 4.0      ## 清理检查间隔（秒）
 ## - J-7 截击机由单机出现改为 2-3 编队
 ## - MiG-31 / Sentinel 不受影响（设计上保留单机出场）
 const LATE_GAME_LEVEL := 10
+
+## 后期刷怪最低 Token 门槛：等级 >= LATE_GAME_LEVEL 后，
+## 不再生成 Token 消耗低于此值的敌人（UAV=1, UCAV=2 被淘汰）
+const LATE_GAME_MIN_TOKEN := 3
+
+## 导弹一击必杀：敌机 HP 上限（低于最弱玩家导弹 80 伤害），Sentinel 除外
+const ENEMY_HP_MISSILE_CAP := 75.0
 
 # ── 敌人缩放 ─────────────────────────────────────────────
 

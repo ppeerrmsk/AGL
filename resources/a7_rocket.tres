@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="RocketParams" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/rocket_params.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+display_name = "Zuni 5\""
+burst_count_min = 2
+burst_count_max = 3
+burst_interval = 0.12
+burst_cooldown = 4.0
+rocket_damage = 14.0
+muzzle_velocity = 280.0
+max_range = 2000.0
+spread_angle = 7.0
+fire_cone_half_angle = 10.0
+min_range = 500.0
+max_fire_range = 1600.0
+max_ammo = 16

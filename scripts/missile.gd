@@ -17,6 +17,7 @@ var is_active: bool = true
 var has_guidance: bool = true
 var is_flare_jammed: bool = false  ## 被热诱弹干扰，永久失去制导
 var bounces_remaining: int = 0     ## 剩余弹跳次数（连锁弹头进化）
+var proximity_aoe: bool = false    ## 近炸引信：爆炸时产生 AOE 区域
 
 var _prev_los_angle: float = 0.0  ## 上一帧 LOS 角（有限差分算角速率）
 var _prev_heading: float = 0.0   ## 上一帧航向（用于计算模拟 bank）
