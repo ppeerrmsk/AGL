@@ -26,6 +26,6 @@ func _update_display() -> void:
 		heading_deg += 360.0
 
 	var mach := speed_kmh / 1225.0
-	var status := "  STALL" if track_aircraft.is_stalled else ""
+	var status := tr("HUD_STALL") if track_aircraft.is_stalled else ""
 
-	info_label.text = "HDG %03d  M%.2f%s" % [roundi(heading_deg), mach, status]
+	info_label.text = tr("HUD_HEADING_FMT") % [roundi(heading_deg), mach, status]

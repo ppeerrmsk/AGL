@@ -140,31 +140,31 @@ func _build_ui() -> void:
 	_tactical_panel.add_child(tac_vbox)
 
 	var tac_title := Label.new()
-	tac_title.text = "[ 战术 ]"
+	tac_title.text = tr("TACTIC_HEADER")
 	tac_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	tac_title.add_theme_font_size_override("font_size", 11)
 	tac_title.add_theme_color_override("font_color", Color(0.8, 0.7, 0.3))
 	tac_vbox.add_child(tac_title)
 
-	_btn_weapon = _create_tac_button("1 导弹优先")
+	_btn_weapon = _create_tac_button(tr("TACTIC_MISSILE_PRIORITY"))
 	_btn_weapon.pressed.connect(_on_weapon_pressed)
 	_btn_weapon.mouse_entered.connect(_on_tac_hover.bind("weapon"))
 	_btn_weapon.mouse_exited.connect(_on_tac_hover_exit)
 	tac_vbox.add_child(_btn_weapon)
 
-	_btn_altitude = _create_tac_button("3 爬升优先")
+	_btn_altitude = _create_tac_button(tr("TACTIC_CLIMB_PRIORITY"))
 	_btn_altitude.pressed.connect(_on_altitude_pressed)
 	_btn_altitude.mouse_entered.connect(_on_tac_hover.bind("altitude"))
 	_btn_altitude.mouse_exited.connect(_on_tac_hover_exit)
 	tac_vbox.add_child(_btn_altitude)
 
-	_btn_evasion = _create_tac_button("E 规避: 关")
+	_btn_evasion = _create_tac_button(tr("TACTIC_EVADE_FMT") % tr("STATE_OFF"))
 	_btn_evasion.pressed.connect(_on_evasion_pressed)
 	_btn_evasion.mouse_entered.connect(_on_tac_hover.bind("evasion"))
 	_btn_evasion.mouse_exited.connect(_on_tac_hover_exit)
 	tac_vbox.add_child(_btn_evasion)
 
-	_btn_auto_fire = _create_tac_button("F 自动发射: 开")
+	_btn_auto_fire = _create_tac_button(tr("TACTIC_AUTOFIRE_FMT") % tr("STATE_ON"))
 	_btn_auto_fire.pressed.connect(_on_auto_fire_pressed)
 	_btn_auto_fire.mouse_entered.connect(_on_tac_hover.bind("auto_fire"))
 	_btn_auto_fire.mouse_exited.connect(_on_tac_hover_exit)
@@ -324,12 +324,12 @@ func _update_display() -> void:
 	_time_label.text = "%02d:%02d" % [mins, secs]
 
 	# 击杀
-	_kill_label.text = "击杀: %d" % kill_count
+	_kill_label.text = tr("HUD_KILLS_FMT") % kill_count
 
 	# 经验条
 	var xp_ratio := float(survivor_player.xp) / float(maxi(survivor_player.xp_to_next, 1))
 	_xp_bar_fill.size.x = XP_BAR_WIDTH * clampf(xp_ratio, 0.0, 1.0)
-	_xp_label.text = "LV %d    %d / %d" % [survivor_player.level, survivor_player.xp, survivor_player.xp_to_next]
+	_xp_label.text = tr("HUD_LEVEL_FMT") % [survivor_player.level, survivor_player.xp, survivor_player.xp_to_next]
 
 	# 右下角状态面板
 	_update_status_panel()
@@ -431,7 +431,7 @@ func _update_status_panel() -> void:
 						level_dots += "[color=#aaddaa]|[/color]"
 					else:
 						level_dots += "[color=#333]|[/color]"
-			text += "[color=#%s]%s[/color] %s\n" % [tag_color, u["name"], level_dots]
+			text += "[color=#%s]%s[/color] %s\n" % [tag_color, tr(u["name"]), level_dots]
 
 	_status_label.text = text
 
@@ -537,61 +537,52 @@ func _update_tooltip() -> void:
 	var ac := survivor_player.aircraft
 	var text := ""
 
+	var title_key := ""
+	var body_key := ""
+	var hint_key := ""
 	match _tooltip_key:
 		"weapon":
 			if ac.weapon_preference == Aircraft.WeaponPreference.PREFER_MISSILE:
-				text = "[color=#ffcc44][b]导弹优先[/b][/color]\n"
-				text += "[color=#aabbaa]点击敌机后自动锁定并发射导弹\n"
-				text += "导弹耗尽时自动切换机炮\n"
-				text += "装填完毕后恢复导弹模式[/color]\n\n"
-				text += "[color=#888888]按 [color=#ffdd66]2[/color] 切换到机炮优先[/color]"
+				title_key = "TOOLTIP_WEAPON_MISSILE_TITLE"
+				body_key = "TOOLTIP_WEAPON_MISSILE_BODY"
+				hint_key = "TOOLTIP_WEAPON_MISSILE_HINT"
 			else:
-				text = "[color=#ffcc44][b]机炮优先[/b][/color]\n"
-				text += "[color=#aabbaa]始终使用机炮进行攻击\n"
-				text += "不会自动发射导弹[/color]\n\n"
-				text += "[color=#888888]按 [color=#ffdd66]1[/color] 切换到导弹优先[/color]"
+				title_key = "TOOLTIP_WEAPON_GUN_TITLE"
+				body_key = "TOOLTIP_WEAPON_GUN_BODY"
+				hint_key = "TOOLTIP_WEAPON_GUN_HINT"
 		"altitude":
 			if ac.altitude_preference == Aircraft.AltitudePreference.PREFER_CLIMB:
-				text = "[color=#ffcc44][b]爬升优先[/b][/color]\n"
-				text += "[color=#aabbaa]巡航时自动爬升至高空\n"
-				text += "高空有利于积蓄能量\n"
-				text += "[color=#66ccff]导弹射程更远[/color]\n"
-				text += "交战时仍会自动匹配目标高度[/color]\n\n"
-				text += "[color=#888888]按 [color=#ffdd66]4[/color] 切换到低空优先[/color]"
+				title_key = "TOOLTIP_ALT_CLIMB_TITLE"
+				body_key = "TOOLTIP_ALT_CLIMB_BODY"
+				hint_key = "TOOLTIP_ALT_CLIMB_HINT"
 			else:
-				text = "[color=#ffcc44][b]低空优先[/b][/color]\n"
-				text += "[color=#aabbaa]巡航时自动降至低空\n"
-				text += "[color=#66ff66]更难被雷达锁定（锁定时间+43%）[/color]\n"
-				text += "[color=#66ff66]敌方导弹追踪能力下降[/color]\n"
-				text += "[color=#66ff66]AI攻击意愿降低[/color]\n"
-				text += "交战时仍会自动匹配目标高度[/color]\n\n"
-				text += "[color=#888888]按 [color=#ffdd66]3[/color] 切换到爬升优先[/color]"
+				title_key = "TOOLTIP_ALT_LOW_TITLE"
+				body_key = "TOOLTIP_ALT_LOW_BODY"
+				hint_key = "TOOLTIP_ALT_LOW_HINT"
 		"evasion":
 			if ac.evasion_mode:
-				text = "[color=#ffcc44][b]规避模式: 开[/b][/color]\n"
-				text += "[color=#aabbaa]检测到来袭导弹时自动规避\n"
-				text += "垂直于导弹轨迹急转+变换高度\n"
-				text += "无导弹威胁时做S型机动\n"
-				text += "点击地面可临时覆盖规避路径[/color]\n\n"
-				text += "[color=#888888]按 [color=#ffdd66]E[/color] 关闭规避[/color]"
+				title_key = "TOOLTIP_EVADE_ON_TITLE"
+				body_key = "TOOLTIP_EVADE_ON_BODY"
+				hint_key = "TOOLTIP_EVADE_ON_HINT"
 			else:
-				text = "[color=#ffcc44][b]规避模式: 关[/b][/color]\n"
-				text += "[color=#aabbaa]飞机不会主动进行规避机动\n"
-				text += "完全听从玩家的移动指令[/color]\n\n"
-				text += "[color=#888888]按 [color=#ffdd66]E[/color] 开启规避[/color]"
+				title_key = "TOOLTIP_EVADE_OFF_TITLE"
+				body_key = "TOOLTIP_EVADE_OFF_BODY"
+				hint_key = "TOOLTIP_EVADE_OFF_HINT"
 		"auto_fire":
 			if ac.missile_auto_fire:
-				text = "[color=#ffcc44][b]自动发射: 开[/b][/color]\n"
-				text += "[color=#aabbaa]飞机自动选择最佳角度发射导弹\n"
-				text += "锁定任意敌机即自动开火\n"
-				text += "[color=#66ccff]多目标追踪升级下一次发多枚[/color]\n"
-				text += "无需玩家手动点击目标[/color]\n\n"
-				text += "[color=#888888]按 [color=#ffdd66]F[/color] 关闭自动发射[/color]"
+				title_key = "TOOLTIP_AUTOFIRE_ON_TITLE"
+				body_key = "TOOLTIP_AUTOFIRE_ON_BODY"
+				hint_key = "TOOLTIP_AUTOFIRE_ON_HINT"
 			else:
-				text = "[color=#ffcc44][b]自动发射: 关[/b][/color]\n"
-				text += "[color=#aabbaa]只在玩家点击敌机指定攻击时开火\n"
-				text += "节省弹药 / 精准打击[/color]\n\n"
-				text += "[color=#888888]按 [color=#ffdd66]F[/color] 开启自动发射[/color]"
+				title_key = "TOOLTIP_AUTOFIRE_OFF_TITLE"
+				body_key = "TOOLTIP_AUTOFIRE_OFF_BODY"
+				hint_key = "TOOLTIP_AUTOFIRE_OFF_HINT"
+
+	if title_key != "":
+		# BODY 含 \n 转义，走 LocaleManager.trm() 还原为真实换行
+		text = "[color=#ffcc44][b]%s[/b][/color]\n" % tr(title_key)
+		text += "[color=#aabbaa]%s[/color]\n\n" % LocaleManager.trm(body_key)
+		text += "[color=#888888]%s[/color]" % LocaleManager.trm(hint_key)
 
 	_tooltip_label.text = text
 
@@ -600,15 +591,15 @@ func _update_tactical_buttons() -> void:
 		return
 	var ac := survivor_player.aircraft
 	if ac.weapon_preference == Aircraft.WeaponPreference.PREFER_MISSILE:
-		_btn_weapon.text = "1 导弹优先"
+		_btn_weapon.text = tr("TACTIC_MISSILE_PRIORITY")
 	else:
-		_btn_weapon.text = "2 机炮优先"
+		_btn_weapon.text = tr("TACTIC_GUN_PRIORITY")
 	if ac.altitude_preference == Aircraft.AltitudePreference.PREFER_CLIMB:
-		_btn_altitude.text = "3 爬升优先"
+		_btn_altitude.text = tr("TACTIC_CLIMB_PRIORITY")
 	else:
-		_btn_altitude.text = "4 低空优先"
-	_btn_evasion.text = "E 规避: %s" % ("开" if ac.evasion_mode else "关")
-	_btn_auto_fire.text = "F 自动发射: %s" % ("开" if ac.missile_auto_fire else "关")
+		_btn_altitude.text = tr("TACTIC_LOW_ALT")
+	_btn_evasion.text = tr("TACTIC_EVADE_FMT") % (tr("STATE_ON") if ac.evasion_mode else tr("STATE_OFF"))
+	_btn_auto_fire.text = tr("TACTIC_AUTOFIRE_FMT") % (tr("STATE_ON") if ac.missile_auto_fire else tr("STATE_OFF"))
 
 # ══════════════════════════════════════════════
 #  小队指挥面板（仅主角有僚机时存在）
@@ -636,7 +627,7 @@ func _build_squad_panel() -> void:
 	_squad_panel.add_child(sp_vbox)
 
 	var sp_title := Label.new()
-	sp_title.text = "[ 小队指挥 ]"
+	sp_title.text = tr("SQUAD_HEADER")
 	sp_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sp_title.add_theme_font_size_override("font_size", 11)
 	sp_title.add_theme_color_override("font_color", Color(0.5, 0.75, 1.0))
@@ -660,15 +651,15 @@ func _build_squad_panel() -> void:
 	sp_vbox.add_child(sep)
 
 	# 指令按钮
-	_btn_squad_formation = _create_tac_button("5 阵型: 指尖四点")
+	_btn_squad_formation = _create_tac_button(tr("SQUAD_FORMATION_FMT") % tr("FORMATION_FINGER_FOUR"))
 	_btn_squad_formation.pressed.connect(_on_squad_formation_pressed)
 	sp_vbox.add_child(_btn_squad_formation)
 
-	_btn_squad_engage = _create_tac_button("6 交战: 自由交战")
+	_btn_squad_engage = _create_tac_button(tr("SQUAD_ENGAGE_FMT") % tr("SQUAD_ENGAGE_FREE"))
 	_btn_squad_engage.pressed.connect(_on_squad_engage_pressed)
 	sp_vbox.add_child(_btn_squad_engage)
 
-	_btn_squad_weapon = _create_tac_button("7 武器: 导弹优先")
+	_btn_squad_weapon = _create_tac_button(tr("SQUAD_WEAPON_FMT") % tr("WEAPON_PREF_MISSILE"))
 	_btn_squad_weapon.pressed.connect(_on_squad_weapon_pressed)
 	sp_vbox.add_child(_btn_squad_weapon)
 
@@ -707,27 +698,27 @@ func _get_ai(ac: Aircraft) -> AIController:
 			return child
 	return null
 
-## 把 AI 当前状态/战术翻译成中文动作名
+## 把 AI 当前状态/战术翻译成动作名（已 tr() 翻译）
 func _wingman_action_text(ac: Aircraft) -> String:
 	var ai := _get_ai(ac)
 	if ai == null:
-		return "?"
+		return tr("ACTION_UNKNOWN")
 	if ac.evasion_mode:
-		return "规避机动"
+		return tr("ACTION_EVADING")
 	match ai._state:
 		AIController.AIState.PATROL:
-			return "巡逻"
+			return tr("ACTION_PATROL")
 		AIController.AIState.ENGAGE:
 			if ai.current_tactic_name != "":
-				return ai.current_tactic_name
-			return "交战"
+				return tr(ai.current_tactic_name)
+			return tr("ACTION_ENGAGE")
 		AIController.AIState.EVADE_MISSILE:
-			return "导弹规避"
+			return tr("ACTION_MISSILE_EVADE")
 		AIController.AIState.SQUAD_FOLLOW:
 			if ai.current_tactic_name != "":
-				return ai.current_tactic_name
-			return "编队跟随"
-	return "?"
+				return tr(ai.current_tactic_name)
+			return tr("ACTION_FORMATION")
+	return tr("ACTION_UNKNOWN")
 
 ## 每帧刷新小队面板内容（状态行 + 按钮文本 + 可见性）
 func _update_squad_panel() -> void:
@@ -765,10 +756,10 @@ func _update_squad_panel() -> void:
 	# 按钮文本
 	var sq := _get_player_squad()
 	if sq:
-		_btn_squad_formation.text = "5 阵型: %s" % sq.get_formation_name()
-	var mode_str := "自由交战" if _squad_engage_mode == AIController.SquadEngageMode.FREE else "跟随长机"
-	_btn_squad_engage.text = "6 交战: %s" % mode_str
-	_btn_squad_weapon.text = "7 武器: %s" % ("导弹优先" if _squad_weapon_pref == Aircraft.WeaponPreference.PREFER_MISSILE else "机炮优先")
+		_btn_squad_formation.text = tr("SQUAD_FORMATION_FMT") % sq.get_formation_name()
+	var mode_str := tr("SQUAD_ENGAGE_FREE") if _squad_engage_mode == AIController.SquadEngageMode.FREE else tr("SQUAD_ENGAGE_FOLLOW")
+	_btn_squad_engage.text = tr("SQUAD_ENGAGE_FMT") % mode_str
+	_btn_squad_weapon.text = tr("SQUAD_WEAPON_FMT") % (tr("WEAPON_PREF_MISSILE") if _squad_weapon_pref == Aircraft.WeaponPreference.PREFER_MISSILE else tr("WEAPON_PREF_GUN"))
 
 ## 切换阵型（命令所有僚机按新槽位归队）
 func _on_squad_formation_pressed() -> void:
@@ -857,11 +848,11 @@ func _count_nodes(node: Node) -> int:
 func show_game_over(level: int, time: float, kills: int) -> void:
 	var mins := int(time) / 60
 	var secs := int(time) % 60
-	var text := "[center][color=#ff6655][b][ GAME OVER ][/b][/color]\n\n"
-	text += "[color=#aaddaa]等级: %d\n" % level
-	text += "存活时间: %02d:%02d\n" % [mins, secs]
-	text += "击杀数: %d[/color]\n\n" % kills
-	text += "[color=#888888]按 ESC 返回主菜单[/color][/center]"
+	var text := "[center][color=#ff6655][b]%s[/b][/color]\n\n" % tr("HUD_GAMEOVER_TITLE")
+	text += "[color=#aaddaa]%s\n" % (tr("HUD_GAMEOVER_LEVEL_FMT") % level)
+	text += "%s\n" % (tr("HUD_GAMEOVER_TIME_FMT") % [mins, secs])
+	text += "%s[/color]\n\n" % (tr("HUD_GAMEOVER_KILLS_FMT") % kills)
+	text += "[color=#888888]%s[/color][/center]" % tr("HUD_GAMEOVER_HINT")
 	_game_over_label.text = text
 	_game_over_panel.visible = true
 

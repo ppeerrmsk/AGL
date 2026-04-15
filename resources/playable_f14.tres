@@ -6,10 +6,10 @@
 [resource]
 script = ExtResource("1")
 id = &"f14"
-display_name = "F-14A Tomcat"
+display_name = "AIRCRAFT_F14_DISPLAY"
 codename = "TopGun"
-card_tags = PackedStringArray("小队主控", "重型截击", "AIM-54")
-card_desc = "「Anytime, baby!」舰载重型截击机。三机僚机编队入场支援，但单机性能弱于 F-16：导弹/热诱弹/机炮均缩水，机动性较差，需依赖小队配合。"
+card_tags = PackedStringArray("TAG_SQUAD_LEADER", "TAG_HEAVY_INTERCEPT", "TAG_AIM54")
+card_desc = "AIRCRAFT_F14_CARDDESC"
 base_params = ExtResource("2")
 radar_range_mult = 0.333333
 max_speed_mult = 1.0

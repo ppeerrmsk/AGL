@@ -38,7 +38,7 @@ func _build_ui() -> void:
 
 	# 标题
 	_title = Label.new()
-	_title.text = "[ 选择升级 ]"
+	_title.text = tr("UPGRADE_HEADER")
 	_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_title.add_theme_font_size_override("font_size", 24)
 	_title.add_theme_color_override("font_color", Color(1.0, 0.8, 0.3))
@@ -99,10 +99,10 @@ func show_choices(choices: Array[Dictionary]) -> void:
 			var cat: String = choices[i].get("category", "")
 			var cat_prefix := ""
 			if cat == "combat":
-				cat_prefix = "[战斗] "
+				cat_prefix = tr("UPGRADE_CATEGORY_COMBAT_PREFIX")
 			elif cat == "survival":
-				cat_prefix = "[生存] "
-			_buttons[i].text = "%s%s\n\n%s" % [cat_prefix, choices[i]["name"], choices[i]["desc"]]
+				cat_prefix = tr("UPGRADE_CATEGORY_SURVIVAL_PREFIX")
+			_buttons[i].text = "%s%s\n\n%s" % [cat_prefix, tr(choices[i]["name"]), tr(choices[i]["desc"])]
 			# 根据类别调整边框颜色
 			var style_normal: StyleBoxFlat = _buttons[i].get_theme_stylebox("normal").duplicate()
 			var style_hover: StyleBoxFlat = _buttons[i].get_theme_stylebox("hover").duplicate()

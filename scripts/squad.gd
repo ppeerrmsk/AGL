@@ -5,13 +5,14 @@ extends RefCounted
 
 enum Formation { COMBAT_SPREAD, WEDGE, ECHELON, TRAIL, FINGER_FOUR, FLUID_FOUR }
 
+## 阵型名称使用翻译 key；get_formation_name() 会返回 tr() 后的显示字符串
 const FORMATION_NAMES := {
-	Formation.COMBAT_SPREAD: "战斗展开",
-	Formation.WEDGE: "楔形编队",
-	Formation.ECHELON: "梯形编队",
-	Formation.TRAIL: "纵列编队",
-	Formation.FINGER_FOUR: "指尖四点",
-	Formation.FLUID_FOUR: "流体四机",
+	Formation.COMBAT_SPREAD: "FORMATION_COMBAT_SPREAD",
+	Formation.WEDGE: "FORMATION_WEDGE",
+	Formation.ECHELON: "FORMATION_ECHELON",
+	Formation.TRAIL: "FORMATION_TRAIL",
+	Formation.FINGER_FOUR: "FORMATION_FINGER_FOUR",
+	Formation.FLUID_FOUR: "FORMATION_FLUID_FOUR",
 }
 
 const PIXELS_PER_METER: float = 0.5
@@ -134,9 +135,10 @@ func get_wingman_target(index: int) -> Vector2:
 	var rotated := offset.rotated(leader.heading)
 	return leader.global_position + rotated
 
-## 获取阵型名称
+## 获取阵型名称（已 tr() 翻译）
 func get_formation_name() -> String:
-	return FORMATION_NAMES.get(formation, "未知")
+	var key: String = FORMATION_NAMES.get(formation, "FORMATION_UNKNOWN")
+	return TranslationServer.translate(key)
 
 ## 切换到下一个阵型
 func cycle_formation() -> void:

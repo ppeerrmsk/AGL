@@ -18,6 +18,7 @@ config/icon="res://icon.svg"
 [autoload]
 
 EventLogger="*res://scripts/event_logger.gd"
+LocaleManager="*res://scripts/locale_manager.gd"
 
 [display]
 
@@ -25,6 +26,11 @@ window/size/viewport_width=1920
 window/size/viewport_height=1080
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
+
+[internationalization]
+
+locale/translations=PackedStringArray("res://i18n/translations.zh.translation", "res://i18n/translations.en.translation", "res://i18n/translations.ja.translation")
+locale/fallback="zh"
 
 [physics]
 

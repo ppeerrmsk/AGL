@@ -3,6 +3,7 @@ extends Resource
 
 @export_group("基本信息")
 @export var display_name: String = "F-16"
+@export var is_unmanned: bool = false       ## 无人驾驶标识（可被 Sentinel 招募）
 
 @export_group("生存性")
 @export var max_hp: float = 100.0

@@ -45,7 +45,7 @@ func activate() -> bool:
 	# 设置飞机的免疫计时器
 	_aircraft.missile_phase_timer = TOTAL_DURATION + POST_IMMUNITY
 	_aircraft._lock_immunity_timer = TOTAL_DURATION + POST_IMMUNITY
-	_aircraft.show_tactic_popup("眼镜蛇机动")
+	_aircraft.show_tactic_popup(tr("POPUP_COBRA"))
 	return true
 
 func _physics_process(delta: float) -> void:

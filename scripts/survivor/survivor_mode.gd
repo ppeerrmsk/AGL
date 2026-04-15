@@ -1260,6 +1260,7 @@ func _spawn_commander_squad(wingman_count: int) -> void:
 				wai.squad_index = i + 1
 				# 关键：保持 simple_ai，启用绕长机飞行
 				wai.orbit_squad_leader = true
+				wai.shield_leader = true
 				wai.enable_combat = true
 				wai.evade_missiles = false
 				wai.aggression = randf_range(0.7, 0.95)  # 高攻击欲望
@@ -1640,7 +1641,7 @@ func _on_upgrade_selected(upgrade: Dictionary) -> void:
 	var stk: int = upgrade_stacks.get(upgrade["id"], 0) + 1
 	EventLogger.log_event("UPGRADE", "Player",
 		"selected '%s' (stack %d/%d)" % [
-			upgrade["name"], stk, int(upgrade["max_stacks"])])
+			tr(upgrade["name"]), stk, int(upgrade["max_stacks"])])
 	survivor_player.apply_upgrade(upgrade)
 	var uid: String = upgrade["id"]
 	upgrade_stacks[uid] = upgrade_stacks.get(uid, 0) + 1
@@ -1656,7 +1657,7 @@ func _on_upgrade_selected(upgrade: Dictionary) -> void:
 				if u["id"] == evo_id:
 					survivor_player.apply_upgrade(u)
 					upgrade_stacks[evo_id] = 1
-					evolved_name = u["name"]
+					evolved_name = tr(u["name"])
 					break
 
 	is_paused_for_upgrade = false
@@ -1665,7 +1666,7 @@ func _on_upgrade_selected(upgrade: Dictionary) -> void:
 	# 进化提示
 	if evolved_name != "":
 		if survivor_player.aircraft:
-			survivor_player.aircraft.show_tactic_popup("技能进化！%s" % evolved_name)
+			survivor_player.aircraft.show_tactic_popup(tr("POPUP_EVOLUTION_FMT") % evolved_name)
 
 func _on_player_died() -> void:
 	is_game_over = true

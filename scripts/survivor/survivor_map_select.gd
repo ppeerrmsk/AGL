@@ -15,40 +15,41 @@ var _cards_container: HBoxContainer
 
 # ── 可选地图定义 ──
 # 第 0 个为之前默认的区域（已实装），其余 4 个为预留位
+## 字段里的 name/desc/tags 值均为翻译 key，由消费端 tr() 翻译
 const MAP_LIST: Array[Dictionary] = [
 	{
 		"id": "default",
-		"name": "海岸线 / Coastal",
-		"tags": ["平原", "海岸", "丘陵"],
-		"desc": "默认作战区域。多样的海岸与内陆地形，适合熟悉机型与战术。",
+		"name": "MAP_DEFAULT_NAME",
+		"tags": ["TAG_PLAIN", "TAG_COAST", "TAG_HILLS"],
+		"desc": "MAP_DEFAULT_DESC",
 		"locked": false,
 	},
 	{
 		"id": "tba_2",
-		"name": "??? / TBA",
-		"tags": ["未解锁"],
-		"desc": "新地图开发中，敬请期待。",
+		"name": "SLOT_TBA_NAME",
+		"tags": ["TAG_LOCKED"],
+		"desc": "SLOT_MAP_DESC",
 		"locked": true,
 	},
 	{
 		"id": "tba_3",
-		"name": "??? / TBA",
-		"tags": ["未解锁"],
-		"desc": "新地图开发中，敬请期待。",
+		"name": "SLOT_TBA_NAME",
+		"tags": ["TAG_LOCKED"],
+		"desc": "SLOT_MAP_DESC",
 		"locked": true,
 	},
 	{
 		"id": "tba_4",
-		"name": "??? / TBA",
-		"tags": ["未解锁"],
-		"desc": "新地图开发中，敬请期待。",
+		"name": "SLOT_TBA_NAME",
+		"tags": ["TAG_LOCKED"],
+		"desc": "SLOT_MAP_DESC",
 		"locked": true,
 	},
 	{
 		"id": "tba_5",
-		"name": "??? / TBA",
-		"tags": ["未解锁"],
-		"desc": "新地图开发中，敬请期待。",
+		"name": "SLOT_TBA_NAME",
+		"tags": ["TAG_LOCKED"],
+		"desc": "SLOT_MAP_DESC",
 		"locked": true,
 	},
 ]
@@ -116,7 +117,7 @@ func _build_ui() -> void:
 
 	# 标题
 	var title := Label.new()
-	title.text = "[ 选择地图 ]"
+	title.text = tr("MAP_SELECT_TITLE")
 	title.add_theme_font_size_override("font_size", 28)
 	title.add_theme_color_override("font_color", Color(0.4, 1.0, 0.4))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -124,7 +125,7 @@ func _build_ui() -> void:
 
 	# 副标题
 	var subtitle := Label.new()
-	subtitle.text = "生存模式  //  SURVIVAL MODE"
+	subtitle.text = tr("MAP_SELECT_SUBTITLE")
 	subtitle.add_theme_font_size_override("font_size", 13)
 	subtitle.add_theme_color_override("font_color", Color(0.3, 0.6, 0.3, 0.6))
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -150,7 +151,7 @@ func _build_ui() -> void:
 	root.add_child(sep2)
 
 	var hint := Label.new()
-	hint.text = "ESC 返回主菜单"
+	hint.text = tr("MAP_SELECT_HINT_ESC")
 	hint.add_theme_font_size_override("font_size", 12)
 	hint.add_theme_color_override("font_color", Color(0.4, 0.5, 0.4, 0.4))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -186,7 +187,7 @@ func _build_map_card(index: int) -> void:
 
 	# 序号
 	var idx_label := Label.new()
-	idx_label.text = "MAP %02d" % (index + 1)
+	idx_label.text = tr("SLOT_MAP_INDEX_FMT") % (index + 1)
 	idx_label.add_theme_font_size_override("font_size", 11)
 	idx_label.add_theme_color_override("font_color", Color(0.4, 0.6, 0.4, 0.5) if not locked else Color(0.3, 0.35, 0.3, 0.5))
 	idx_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -194,7 +195,7 @@ func _build_map_card(index: int) -> void:
 
 	# 地图名称
 	var name_label := Label.new()
-	name_label.text = data["name"]
+	name_label.text = tr(data["name"])
 	name_label.add_theme_font_size_override("font_size", 18)
 	if locked:
 		name_label.add_theme_color_override("font_color", Color(0.4, 0.45, 0.4, 0.6))
@@ -224,7 +225,7 @@ func _build_map_card(index: int) -> void:
 	var tags: Array = data["tags"]
 	for tag_text in tags:
 		var tag := Label.new()
-		tag.text = "[ %s ]" % tag_text
+		tag.text = tr("SLOT_TAG_WRAP_FMT") % tr(tag_text)
 		tag.add_theme_font_size_override("font_size", 10)
 		if locked:
 			tag.add_theme_color_override("font_color", Color(0.35, 0.4, 0.35, 0.6))
@@ -234,7 +235,7 @@ func _build_map_card(index: int) -> void:
 
 	# 描述
 	var desc_label := Label.new()
-	desc_label.text = data["desc"]
+	desc_label.text = tr(data["desc"])
 	desc_label.add_theme_font_size_override("font_size", 11)
 	if locked:
 		desc_label.add_theme_color_override("font_color", Color(0.4, 0.45, 0.4, 0.6))
@@ -255,7 +256,7 @@ func _build_map_card(index: int) -> void:
 	btn.add_theme_font_size_override("font_size", 15)
 
 	if locked:
-		btn.text = "未  解  锁"
+		btn.text = tr("SLOT_LOCKED_BUTTON")
 		btn.disabled = true
 		var dis_style := StyleBoxFlat.new()
 		dis_style.bg_color = Color(0.05, 0.06, 0.05, 0.5)
@@ -266,7 +267,7 @@ func _build_map_card(index: int) -> void:
 		btn.add_theme_stylebox_override("disabled", dis_style)
 		btn.add_theme_color_override("font_disabled_color", Color(0.3, 0.4, 0.3, 0.5))
 	else:
-		btn.text = "选  择"
+		btn.text = tr("SLOT_SELECT_BUTTON")
 		var btn_style := StyleBoxFlat.new()
 		btn_style.bg_color = Color(0.08, 0.15, 0.08, 0.9)
 		btn_style.border_color = Color(0.4, 0.8, 0.4, 0.5)

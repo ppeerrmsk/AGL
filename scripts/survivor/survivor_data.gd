@@ -27,8 +27,8 @@ const UPGRADES: Array[Dictionary] = [
 	# ── 生存轴 ──
 	{
 		"id": "hp_up",
-		"name": "装甲强化",
-		"desc": "最大HP +30，机炮闪避 +8%",
+		"name": "UPGRADE_HP_UP_NAME",
+		"desc": "UPGRADE_HP_UP_DESC",
 		"stat": "max_hp",
 		"value": 30.0,
 		"max_stacks": 5,
@@ -36,8 +36,8 @@ const UPGRADES: Array[Dictionary] = [
 	},
 	{
 		"id": "speed_up",
-		"name": "引擎强化",
-		"desc": "最大速度/巡航速度 +18%",
+		"name": "UPGRADE_SPEED_UP_NAME",
+		"desc": "UPGRADE_SPEED_UP_DESC",
 		"stat": "speed",
 		"value": 0.18,
 		"max_stacks": 4,
@@ -45,8 +45,8 @@ const UPGRADES: Array[Dictionary] = [
 	},
 	{
 		"id": "maneuver_up",
-		"name": "飞控升级",
-		"desc": "滚转速率 +25%，持续G +1.0",
+		"name": "UPGRADE_MANEUVER_UP_NAME",
+		"desc": "UPGRADE_MANEUVER_UP_DESC",
 		"stat": "maneuver",
 		"value": 0.25,
 		"max_stacks": 3,
@@ -54,8 +54,8 @@ const UPGRADES: Array[Dictionary] = [
 	},
 	{
 		"id": "flare_cooldown",
-		"name": "红外对抗优化",
-		"desc": "热诱弹冷却时间 -20%",
+		"name": "UPGRADE_FLARE_COOLDOWN_NAME",
+		"desc": "UPGRADE_FLARE_COOLDOWN_DESC",
 		"stat": "flare_cooldown",
 		"value": 0.20,
 		"max_stacks": 3,
@@ -65,8 +65,8 @@ const UPGRADES: Array[Dictionary] = [
 	},
 	{
 		"id": "flare_shield",
-		"name": "★ 电子对抗套件",
-		"desc": "进化！释放热诱弹时解除所有锁定，免疫锁定3秒",
+		"name": "UPGRADE_FLARE_SHIELD_NAME",
+		"desc": "UPGRADE_FLARE_SHIELD_DESC",
 		"stat": "flare_shield",
 		"value": 3.0,
 		"max_stacks": 1,
@@ -76,8 +76,8 @@ const UPGRADES: Array[Dictionary] = [
 	},
 	{
 		"id": "pilot_stamina",
-		"name": "体能强化",
-		"desc": "飞行员耐力上限×2，恢复速率×2",
+		"name": "UPGRADE_PILOT_STAMINA_NAME",
+		"desc": "UPGRADE_PILOT_STAMINA_DESC",
 		"stat": "pilot_stamina",
 		"value": 1.0,
 		"max_stacks": 3,
@@ -85,8 +85,8 @@ const UPGRADES: Array[Dictionary] = [
 	},
 	{
 		"id": "kill_heal",
-		"name": "战场急救",
-		"desc": "击杀敌机时回复10 HP",
+		"name": "UPGRADE_KILL_HEAL_NAME",
+		"desc": "UPGRADE_KILL_HEAL_DESC",
 		"stat": "kill_heal",
 		"value": 10.0,
 		"max_stacks": 3,
@@ -95,8 +95,8 @@ const UPGRADES: Array[Dictionary] = [
 	# ── 战斗轴 ──
 	{
 		"id": "missile_count",
-		"name": "导弹挂架扩展",
-		"desc": "导弹携带量 +1",
+		"name": "UPGRADE_MISSILE_COUNT_NAME",
+		"desc": "UPGRADE_MISSILE_COUNT_DESC",
 		"stat": "missile_count",
 		"value": 1,
 		"max_stacks": 4,
@@ -105,8 +105,8 @@ const UPGRADES: Array[Dictionary] = [
 	},
 	{
 		"id": "missile_tracking",
-		"name": "制导升级",
-		"desc": "导弹过载 +30%，导引常数 +0.5",
+		"name": "UPGRADE_MISSILE_TRACKING_NAME",
+		"desc": "UPGRADE_MISSILE_TRACKING_DESC",
 		"stat": "missile_tracking",
 		"value": 0.30,
 		"max_stacks": 4,
@@ -116,8 +116,8 @@ const UPGRADES: Array[Dictionary] = [
 	},
 	{
 		"id": "proximity_fuze",
-		"name": "★ 近炸引信",
-		"desc": "进化！导弹接近敌机时自动引爆，产生 AOE 伤害区域",
+		"name": "UPGRADE_PROXIMITY_FUZE_NAME",
+		"desc": "UPGRADE_PROXIMITY_FUZE_DESC",
 		"stat": "proximity_fuze",
 		"value": 1,
 		"max_stacks": 1,
@@ -127,8 +127,8 @@ const UPGRADES: Array[Dictionary] = [
 	},
 	{
 		"id": "missile_bounce",
-		"name": "★ 连锁弹头",
-		"desc": "进化！导弹命中后弹跳至最近的另一个敌机",
+		"name": "UPGRADE_MISSILE_BOUNCE_NAME",
+		"desc": "UPGRADE_MISSILE_BOUNCE_DESC",
 		"stat": "missile_bounce",
 		"value": 1,
 		"max_stacks": 1,
@@ -138,8 +138,8 @@ const UPGRADES: Array[Dictionary] = [
 	},
 	{
 		"id": "missile_reload",
-		"name": "快速挂载",
-		"desc": "导弹装填时间 -15%",
+		"name": "UPGRADE_MISSILE_RELOAD_NAME",
+		"desc": "UPGRADE_MISSILE_RELOAD_DESC",
 		"stat": "missile_reload",
 		"value": 0.15,
 		"max_stacks": 3,
@@ -149,8 +149,8 @@ const UPGRADES: Array[Dictionary] = [
 	},
 	{
 		"id": "multi_lock",
-		"name": "多目标追踪",
-		"desc": "自动对所有锁定目标同时发射导弹",
+		"name": "UPGRADE_MULTI_LOCK_NAME",
+		"desc": "UPGRADE_MULTI_LOCK_DESC",
 		"stat": "multi_lock",
 		"value": 1,
 		"max_stacks": 1,
@@ -159,8 +159,8 @@ const UPGRADES: Array[Dictionary] = [
 	},
 	{
 		"id": "gun_damage",
-		"name": "穿甲弹药",
-		"desc": "机炮伤害 +20%",
+		"name": "UPGRADE_GUN_DAMAGE_NAME",
+		"desc": "UPGRADE_GUN_DAMAGE_DESC",
 		"stat": "gun_damage",
 		"value": 0.20,
 		"max_stacks": 5,
@@ -170,8 +170,8 @@ const UPGRADES: Array[Dictionary] = [
 	},
 	{
 		"id": "gun_multishot",
-		"name": "★ 多管齐射",
-		"desc": "进化！同时射出三道机炮（前方+左右15°）",
+		"name": "UPGRADE_GUN_MULTISHOT_NAME",
+		"desc": "UPGRADE_GUN_MULTISHOT_DESC",
 		"stat": "gun_multishot",
 		"value": 2,
 		"max_stacks": 1,
@@ -181,8 +181,8 @@ const UPGRADES: Array[Dictionary] = [
 	},
 	{
 		"id": "gun_ammo",
-		"name": "弹药扩容",
-		"desc": "机炮弹药上限 +100",
+		"name": "UPGRADE_GUN_AMMO_NAME",
+		"desc": "UPGRADE_GUN_AMMO_DESC",
 		"stat": "gun_ammo",
 		"value": 100,
 		"max_stacks": 5,
@@ -191,8 +191,8 @@ const UPGRADES: Array[Dictionary] = [
 	},
 	{
 		"id": "gun_reload",
-		"name": "快速装弹机",
-		"desc": "机炮装填时间 -15%",
+		"name": "UPGRADE_GUN_RELOAD_NAME",
+		"desc": "UPGRADE_GUN_RELOAD_DESC",
 		"stat": "gun_reload",
 		"value": 0.15,
 		"max_stacks": 3,
@@ -201,8 +201,8 @@ const UPGRADES: Array[Dictionary] = [
 	},
 	{
 		"id": "gun_firerate",
-		"name": "射速强化",
-		"desc": "机炮射速 +25%",
+		"name": "UPGRADE_GUN_FIRERATE_NAME",
+		"desc": "UPGRADE_GUN_FIRERATE_DESC",
 		"stat": "gun_firerate",
 		"value": 0.25,
 		"max_stacks": 4,
@@ -211,8 +211,8 @@ const UPGRADES: Array[Dictionary] = [
 	},
 	{
 		"id": "gun_range",
-		"name": "延伸弹道",
-		"desc": "机炮有效射程 +20%",
+		"name": "UPGRADE_GUN_RANGE_NAME",
+		"desc": "UPGRADE_GUN_RANGE_DESC",
 		"stat": "gun_range",
 		"value": 0.20,
 		"max_stacks": 4,
@@ -222,8 +222,8 @@ const UPGRADES: Array[Dictionary] = [
 	},
 	{
 		"id": "gun_ciws",
-		"name": "★ 近防炮",
-		"desc": "进化！机炮自动拦截正面来袭导弹",
+		"name": "UPGRADE_GUN_CIWS_NAME",
+		"desc": "UPGRADE_GUN_CIWS_DESC",
 		"stat": "gun_ciws",
 		"value": 1,
 		"max_stacks": 1,
@@ -233,8 +233,8 @@ const UPGRADES: Array[Dictionary] = [
 	},
 	{
 		"id": "radar_range",
-		"name": "雷达升级",
-		"desc": "雷达探测距离 +20%",
+		"name": "UPGRADE_RADAR_RANGE_NAME",
+		"desc": "UPGRADE_RADAR_RANGE_DESC",
 		"stat": "radar_range",
 		"value": 0.20,
 		"max_stacks": 3,
@@ -242,8 +242,8 @@ const UPGRADES: Array[Dictionary] = [
 	},
 	{
 		"id": "lock_time",
-		"name": "火控优化",
-		"desc": "锁定时间 -0.5秒",
+		"name": "UPGRADE_LOCK_TIME_NAME",
+		"desc": "UPGRADE_LOCK_TIME_DESC",
 		"stat": "lock_time",
 		"value": -0.5,
 		"max_stacks": 3,
@@ -251,8 +251,8 @@ const UPGRADES: Array[Dictionary] = [
 	},
 	{
 		"id": "dogfight",
-		"name": "格斗大师",
-		"desc": "失速速度 -12%，减速 +30%，低速机动增强",
+		"name": "UPGRADE_DOGFIGHT_NAME",
+		"desc": "UPGRADE_DOGFIGHT_DESC",
 		"stat": "dogfight",
 		"value": 1,
 		"max_stacks": 3,
@@ -350,8 +350,8 @@ const COMMANDER_UNLOCK_LEVEL := 4    ## 指挥 UAV 解锁等级
 const COMMANDER_CHANCE_BASE := 0.12  ## 解锁时的基础出现概率
 const COMMANDER_CHANCE_PER_LEVEL := 0.06  ## 每超过解锁等级，指挥 UAV 出现概率增加
 const COMMANDER_CHANCE_MAX := 0.25   ## 指挥 UAV 最大出现概率
-const COMMANDER_SQUAD_MIN := 2       ## 指挥 UAV 自带僚机最少数
-const COMMANDER_SQUAD_MAX := 3       ## 指挥 UAV 自带僚机最多数
+const COMMANDER_SQUAD_MIN := 4       ## 指挥 UAV 自带僚机最少数
+const COMMANDER_SQUAD_MAX := 5       ## 指挥 UAV 自带僚机最多数
 const COMMANDER_MAX_SQUAD := 9       ## 指挥 UAV 分队总上限（含自己；实际招募限制在 CommanderAura.MAX_WINGMEN=8）
 const XP_PER_KILL_COMMANDER := 50    ## 指挥 UAV 击杀经验
 

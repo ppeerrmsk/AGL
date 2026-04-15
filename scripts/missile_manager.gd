@@ -77,10 +77,10 @@ func _physics_process(delta: float) -> void:
 			# 导弹穿透窗口：flare 释放后 1 秒内所有导弹从此单位穿过
 			if unit is Aircraft and unit.missile_phase_timer > 0.0:
 				continue
-			# 2D 距离 + 高度容差（地面单位跳过高度检查）
+			# 2D 距离 + 高度容差（地面单位/flat_altitude 模式跳过高度检查）
 			var dist_2d := missile.global_position.distance_to(unit.global_position)
-			var alt_diff := absf(missile.altitude - unit.altitude)
-			var alt_ok := alt_diff < missile.params.proximity_fuse_alt or unit is GroundUnit
+			var flat := unit is Aircraft and unit.flat_altitude
+			var alt_ok := flat or unit is GroundUnit or absf(missile.altitude - unit.altitude) < missile.params.proximity_fuse_alt
 			if dist_2d < fuse_radius_px and alt_ok:
 				var msl_name: String = missile.params.display_name if missile.params else "MSL"
 				var hit_unit: CombatUnit = unit as CombatUnit

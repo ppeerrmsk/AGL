@@ -191,7 +191,7 @@ Resource
 | `aircraft.gd` | `Aircraft extends CombatUnit` | [共享] 飞机物理+战斗+武器+视觉（最核心，~2900 行） | `_physics_process:194` `_update_combat:1107` `_update_gun:1422` `_update_rocket:1468` `_update_weapon_mode:1599` `_update_missile:1811` `_effective_missile_range_px` `_missile_cannot_hit_but_gun_can` `_should_commit_gun_pass` `_is_gun_pass_finished` `_release_flares(target_missile)` `set_evasion_mode` `_corner_speed_kmh` `get_maneuver` |
 | `cobra_maneuver.gd` | `CobraManeuver extends Node` | [共享] 眼镜蛇机动模块（挂载到 Aircraft 子节点） | `activate` `_physics_process`（三阶段状态机） |
 | `rocket_params.gd` | `RocketParams extends Resource` | [共享] 无制导火箭弹参数（齐射数/散布/冷却） | — |
-| `ai_controller.gd` | `AIController extends Node` | [共享] AI 状态机 + BFM 战术决策树（~1620 行） | `_process_patrol:553` `_process_squad_follow:583` `_process_engage:736` `_choose_tactic:952` `_process_evade:1341` |
+| `ai_controller.gd` | `AIController extends Node` | [共享] AI 状态机 + BFM 战术决策树 + 导弹拦截（~1720 行） | `_process_patrol:553` `_process_squad_follow:583` `_process_engage:736` `_choose_tactic:952` `_process_evade:1341` `_find_leader_threat` `_compute_intercept_pos` `_find_member_ai` |
 | `combat_unit.gd` | `CombatUnit extends Node2D` | [共享] 战斗单位基类（通用接口） | `take_damage:81` `is_in_radar_cone:94` `get_altitude_tier:65` |
 | `missile.gd` | `Missile extends Node2D` | [共享] 导弹飞行物理（PN 制导/SARH） | `_physics_process:37` `_guidance_degradation:238` |
 | `missile_manager.gd` | `MissileManager extends Node2D` | [共享] 导弹生成+命中+连锁弹头+近炸引信AOE | `spawn_missile:20` `_physics_process:56` `_spawn_aoe:109` `_update_aoe_zones:126` `_draw:157` `_find_bounce_target:166` |
@@ -214,6 +214,7 @@ Resource
 | `debug_panel.gd` | 调试面板 | [沙盒] 状态文本/飞行员信息/生成按钮 | `_get_strategy_text:266` `_get_combat_strategy:303` `_get_pilot_info:318` |
 | `event_logger.gd` | EventLogger (AutoLoad) | [共享] 全局事件环形日志 | `log_event:22` `dump_to_file:31` |
 | `callsign_db.gd` | CallsignDB (AutoLoad) | [共享] 呼号分配+回收 | `allocate` / `release` |
+| `locale_manager.gd` | LocaleManager (AutoLoad) | [共享] i18n 控制：启动读 user://locale.cfg（zh/en/ja），主菜单按钮切换+持久化+重载场景 | `_ready` `set_locale_persistent(code)` `get_current_locale()` `trm(key)` — 详见 [docs/reference/i18n.md](docs/reference/i18n.md) |
 
 ### 核心设计决策
 
@@ -316,6 +317,7 @@ Resource
 - **信号**：通过 signal 解耦，不用全局变量共享状态
 - **Resource 复用**：`.tres` 文件通过 `preload()` 加载，生成子节点时用 `duplicate(true)` 避免共享修改
 - **CombatUnit 基类**：所有战斗单位（包括地面）共用 `team/hp/altitude/radar_targets/is_locked`，扩展时覆写 `is_in_radar_cone` / `take_damage` / `is_lock_immune`
+- **i18n 约束**：玩家可见的 UI / 升级 / 机型 / 地图 / 弹窗文本**一律走 `tr("KEY")`**，在 `i18n/translations.csv` 定义 key。新增 UI 文本流程见 [docs/reference/i18n.md](docs/reference/i18n.md)。例外：`AircraftParams.display_name`（HUD/日志拼接用）保留原值、EventLogger、debug 面板。
 - **不要修改 CLAUDE.md 的 Script Index 之外的段落** 除非是架构级变更
 
 ## 相关文档
@@ -344,6 +346,7 @@ Resource
 - [docs/reference/scripts-reference.md](docs/reference/scripts-reference.md) — 脚本 API 参考（所有变量/方法说明）
 - [docs/reference/resources-catalog.md](docs/reference/resources-catalog.md) — 所有 .tres 参数总表
 - [docs/reference/playable-aircraft-workflow.md](docs/reference/playable-aircraft-workflow.md) — 加新主角飞机的完整流程
+- [docs/reference/i18n.md](docs/reference/i18n.md) — 本地化 / 翻译 key 约定 + 新增 UI 文本流程
 - [docs/reference/features.md](docs/reference/features.md) — 已实现功能清单
 
 **历史 / 变更日志**（docs/changelogs/，按日期命名）

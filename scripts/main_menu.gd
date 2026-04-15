@@ -139,7 +139,7 @@ func _build_ui() -> void:
 
 	# 标题
 	var title := Label.new()
-	title.text = "A G L"
+	title.text = tr("MENU_TITLE")
 	title.add_theme_font_size_override("font_size", 72)
 	title.add_theme_color_override("font_color", TITLE_COLOR)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -147,7 +147,7 @@ func _build_ui() -> void:
 
 	# 副标题
 	var subtitle := Label.new()
-	subtitle.text = "AIR  GROUND  LINK  //  俯视战斗机模拟"
+	subtitle.text = tr("MENU_SUBTITLE")
 	subtitle.add_theme_font_size_override("font_size", 16)
 	subtitle.add_theme_color_override("font_color", SUBTITLE_COLOR)
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -167,20 +167,20 @@ func _build_ui() -> void:
 
 	# 模式标签
 	var mode_label := Label.new()
-	mode_label.text = "[ 选择模式 ]"
+	mode_label.text = tr("MENU_MODE_LABEL")
 	mode_label.add_theme_font_size_override("font_size", 14)
 	mode_label.add_theme_color_override("font_color", Color(0.5, 0.7, 0.5, 0.6))
 	mode_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_mode_container.add_child(mode_label)
 
 	# 沙盒模式按钮
-	_add_mode_button("沙盒测试", "自由飞行 / 武器测试 / AI 对战", _on_sandbox_pressed)
+	_add_mode_button(tr("MENU_MODE_SANDBOX_NAME"), tr("MENU_MODE_SANDBOX_DESC"), _on_sandbox_pressed)
 
 	# 生存模式
-	_add_mode_button("生存模式", "击落敌机 / 升级武器 / 存活越久越好", _on_survivor_pressed)
+	_add_mode_button(tr("MENU_MODE_SURVIVOR_NAME"), tr("MENU_MODE_SURVIVOR_DESC"), _on_survivor_pressed)
 
 	# 未来模式占位（灰色不可用）
-	_add_mode_button("任务模式", "即将推出", Callable(), true)
+	_add_mode_button(tr("MENU_MODE_MISSION_NAME"), tr("MENU_MODE_MISSION_DESC"), Callable(), true)
 
 	# 下部空白
 	var spacer_bottom := Control.new()
@@ -188,9 +188,12 @@ func _build_ui() -> void:
 	spacer_bottom.size_flags_stretch_ratio = 0.5
 	root.add_child(spacer_bottom)
 
+	# --- 语言切换 ---
+	_build_language_switcher(root)
+
 	# --- 底部版本信息 ---
 	var version_label := Label.new()
-	version_label.text = "v0.1.0-dev  //  Godot 4.6  //  GL Compatibility"
+	version_label.text = tr("MENU_VERSION")
 	version_label.add_theme_font_size_override("font_size", 11)
 	version_label.add_theme_color_override("font_color", Color(0.3, 0.4, 0.3, 0.4))
 	version_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -199,6 +202,57 @@ func _build_ui() -> void:
 	var bottom_margin := Control.new()
 	bottom_margin.custom_minimum_size = Vector2(0, 20)
 	root.add_child(bottom_margin)
+
+## 底部语言切换：中 / EN / 日（按钮文字不翻译，保持识别性）
+func _build_language_switcher(root: VBoxContainer) -> void:
+	var lang_row := HBoxContainer.new()
+	lang_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	lang_row.add_theme_constant_override("separation", 8)
+	root.add_child(lang_row)
+
+	var current_locale: String = LocaleManager.get_current_locale()
+	var options := [
+		{"code": "zh", "label": "中"},
+		{"code": "en", "label": "EN"},
+		{"code": "ja", "label": "日"},
+	]
+	for opt in options:
+		var btn := Button.new()
+		btn.text = opt["label"]
+		btn.custom_minimum_size = Vector2(44, 26)
+		btn.add_theme_font_size_override("font_size", 13)
+		var is_active: bool = (opt["code"] == current_locale)
+
+		var style_normal := StyleBoxFlat.new()
+		if is_active:
+			style_normal.bg_color = Color(0.12, 0.22, 0.12, 0.85)
+			style_normal.border_color = Color(0.45, 1.0, 0.45, 0.75)
+			btn.add_theme_color_override("font_color", Color(0.6, 1.0, 0.6))
+		else:
+			style_normal.bg_color = Color(0.05, 0.08, 0.05, 0.45)
+			style_normal.border_color = Color(0.25, 0.45, 0.25, 0.35)
+			btn.add_theme_color_override("font_color", Color(0.5, 0.7, 0.5, 0.75))
+		style_normal.set_border_width_all(1)
+		style_normal.set_corner_radius_all(2)
+		style_normal.set_content_margin_all(4)
+		btn.add_theme_stylebox_override("normal", style_normal)
+
+		var style_hover := StyleBoxFlat.new()
+		style_hover.bg_color = Color(0.12, 0.2, 0.12, 0.8)
+		style_hover.border_color = Color(0.5, 1.0, 0.5, 0.7)
+		style_hover.set_border_width_all(1)
+		style_hover.set_corner_radius_all(2)
+		style_hover.set_content_margin_all(4)
+		btn.add_theme_stylebox_override("hover", style_hover)
+		btn.add_theme_color_override("font_hover_color", Color(0.9, 1.0, 0.6))
+
+		var code_capture: String = opt["code"]
+		btn.pressed.connect(func(): LocaleManager.set_locale_persistent(code_capture))
+		lang_row.add_child(btn)
+
+	var pad := Control.new()
+	pad.custom_minimum_size = Vector2(0, 8)
+	root.add_child(pad)
 
 func _add_mode_button(title: String, desc: String, callback: Callable, disabled := false) -> void:
 	var btn := Button.new()

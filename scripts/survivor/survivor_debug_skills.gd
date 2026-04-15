@@ -207,7 +207,7 @@ func _refresh() -> void:
 		row.add_child(tag)
 
 		var name_label := Label.new()
-		name_label.text = "%s  x%d / %d" % [u["name"], count, int(u["max_stacks"])]
+		name_label.text = "%s  x%d / %d" % [tr(u["name"]), count, int(u["max_stacks"])]
 		name_label.add_theme_font_size_override("font_size", 13)
 		name_label.add_theme_color_override("font_color", Color(0.85, 0.9, 0.85))
 		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -245,7 +245,7 @@ func _refresh() -> void:
 		# 应用与正式升级池相同的硬件 / 专属筛选
 		if not SurvivorData.is_upgrade_available_for(u, pid, p):
 			continue
-		_add_option.add_item("%s (%s)" % [u["name"], u["desc"]], _add_option.item_count)
+		_add_option.add_item("%s (%s)" % [tr(u["name"]), tr(u["desc"])], _add_option.item_count)
 		_add_option.set_item_metadata(_add_option.item_count - 1, uid)
 
 func _on_set_level() -> void:

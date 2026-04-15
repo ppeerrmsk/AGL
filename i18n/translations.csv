@@ -1,0 +1,166 @@
+keys,zh,en,ja
+MENU_TITLE,A G L,A G L,A G L
+MENU_SUBTITLE,AIR  GROUND  LINK  //  俯视战斗机模拟,AIR  GROUND  LINK  //  Top-Down Fighter Sim,AIR  GROUND  LINK  //  トップダウン戦闘機シム
+MENU_MODE_LABEL,[ 选择模式 ],[ Select Mode ],[ モード選択 ]
+MENU_MODE_SANDBOX_NAME,沙盒测试,Sandbox,サンドボックス
+MENU_MODE_SANDBOX_DESC,自由飞行 / 武器测试 / AI 对战,Free Flight / Weapons / AI Dogfight,フリーフライト / 武器テスト / AI 戦闘
+MENU_MODE_SURVIVOR_NAME,生存模式,Survival,サバイバル
+MENU_MODE_SURVIVOR_DESC,击落敌机 / 升级武器 / 存活越久越好,Kill Enemies / Upgrade / Survive,撃墜 / アップグレード / 長く生き残れ
+MENU_MODE_MISSION_NAME,任务模式,Campaign,キャンペーン
+MENU_MODE_MISSION_DESC,即将推出,Coming Soon,近日公開
+MENU_VERSION,v0.1.0-dev  //  Godot 4.6  //  GL Compatibility,v0.1.0-dev  //  Godot 4.6  //  GL Compatibility,v0.1.0-dev  //  Godot 4.6  //  GL Compatibility
+STATE_ON,开,ON,ON
+STATE_OFF,关,OFF,OFF
+HUD_HEADING_FMT,HDG %03d  M%.2f%s,HDG %03d  M%.2f%s,HDG %03d  M%.2f%s
+HUD_STALL,  STALL,  STALL,  STALL
+HUD_KILLS_FMT,击杀: %d,Kills: %d,撃墜: %d
+HUD_LEVEL_FMT,LV %d    %d / %d,LV %d    %d / %d,LV %d    %d / %d
+HUD_GAMEOVER_TITLE,[ GAME OVER ],[ GAME OVER ],[ GAME OVER ]
+HUD_GAMEOVER_LEVEL_FMT,等级: %d,Level: %d,レベル: %d
+HUD_GAMEOVER_TIME_FMT,存活时间: %02d:%02d,Survived: %02d:%02d,生存時間: %02d:%02d
+HUD_GAMEOVER_KILLS_FMT,击杀数: %d,Kills: %d,撃墜数: %d
+HUD_GAMEOVER_HINT,按 ESC 返回主菜单,Press ESC to return to main menu,ESC でメインメニューへ
+TACTIC_HEADER,[ 战术 ],[ TACTICS ],[ 戦術 ]
+TACTIC_MISSILE_PRIORITY,1 导弹优先,1 Missile Priority,1 ミサイル優先
+TACTIC_GUN_PRIORITY,2 机炮优先,2 Gun Priority,2 ガン優先
+TACTIC_CLIMB_PRIORITY,3 爬升优先,3 Climb High,3 高高度優先
+TACTIC_LOW_ALT,4 低空优先,4 Fly Low,4 低空優先
+TACTIC_EVADE_FMT,E 规避: %s,E Evade: %s,E 回避: %s
+TACTIC_AUTOFIRE_FMT,F 自动发射: %s,F Auto-Fire: %s,F 自動発射: %s
+UPGRADE_HEADER,[ 选择升级 ],[ Select Upgrade ],[ アップグレード選択 ]
+MAP_SELECT_TITLE,[ 选择地图 ],[ Select Map ],[ マップ選択 ]
+MAP_SELECT_SUBTITLE,生存模式  //  SURVIVAL MODE,SURVIVAL MODE,サバイバル  //  SURVIVAL MODE
+MAP_SELECT_HINT_ESC,ESC 返回主菜单,ESC to return to main menu,ESC でメインメニューへ
+SQUAD_HEADER,[ 小队指挥 ],[ SQUAD CMD ],[ 小隊指揮 ]
+SQUAD_FORMATION_FMT,5 阵型: %s,5 Formation: %s,5 編隊: %s
+SQUAD_ENGAGE_FMT,6 交战: %s,6 Engage: %s,6 交戦: %s
+SQUAD_WEAPON_FMT,7 武器: %s,7 Weapon: %s,7 武器: %s
+SQUAD_ENGAGE_FREE,自由交战,Free Engage,自由交戦
+SQUAD_ENGAGE_FOLLOW,跟随长机,Follow Leader,リーダー追従
+WEAPON_PREF_MISSILE,导弹优先,Missile Priority,ミサイル優先
+WEAPON_PREF_GUN,机炮优先,Gun Priority,ガン優先
+FORMATION_COMBAT_SPREAD,战斗展开,Combat Spread,コンバットスプレッド
+FORMATION_WEDGE,楔形编队,Wedge,ウェッジ
+FORMATION_ECHELON,梯形编队,Echelon,エシュロン
+FORMATION_TRAIL,纵列编队,Trail,トレイル
+FORMATION_FINGER_FOUR,指尖四点,Finger Four,フィンガーフォー
+FORMATION_FLUID_FOUR,流体四机,Fluid Four,フルードフォー
+FORMATION_UNKNOWN,未知,Unknown,不明
+ACTION_EVADING,规避机动,Evasive,回避機動
+ACTION_PATROL,巡逻,Patrol,哨戒
+ACTION_ENGAGE,交战,Engaging,交戦中
+ACTION_MISSILE_EVADE,导弹规避,Missile Dodge,ミサイル回避
+ACTION_FORMATION,编队跟随,Formation,編隊
+ACTION_UNKNOWN,?,?,?
+TACTIC_FOLLOW_FORMATION,编队跟随,Formation,編隊
+TACTIC_REJOIN,归队,Rejoining,帰隊中
+TACTIC_FORMATION_ADJUST,阵型调整中,Reforming,編隊再編成
+TACTIC_FREE_ENGAGE,自由交战,Free Engage,自由交戦
+TACTIC_TEAM_ATTACK,协同攻击,Team Attack,協同攻撃
+TACTIC_RETURN_FORMATION,回归编队,Returning,編隊復帰
+POPUP_EVOLUTION_FMT,技能进化！%s,Skill Evolved! %s,スキル進化！%s
+POPUP_COBRA,眼镜蛇机动,Cobra Maneuver,コブラ機動
+TOOLTIP_WEAPON_MISSILE_TITLE,导弹优先,Missile Priority,ミサイル優先
+TOOLTIP_WEAPON_MISSILE_BODY,点击敌机后自动锁定并发射导弹\n导弹耗尽时自动切换机炮\n装填完毕后恢复导弹模式,Click enemy to auto-lock and fire missile\nSwitches to gun when missiles depleted\nReturns to missile mode after reload,敵機クリックで自動ロック・発射\nミサイル切れ時はガンへ自動切替\n装填完了でミサイル優先に復帰
+TOOLTIP_WEAPON_MISSILE_HINT,按 [color=#ffdd66]2[/color] 切换到机炮优先,Press [color=#ffdd66]2[/color] to switch to Gun Priority,[color=#ffdd66]2[/color] でガン優先へ
+TOOLTIP_WEAPON_GUN_TITLE,机炮优先,Gun Priority,ガン優先
+TOOLTIP_WEAPON_GUN_BODY,始终使用机炮进行攻击\n不会自动发射导弹,Always attacks with gun\nNever auto-fires missiles,常にガンで攻撃\nミサイルは自動発射されません
+TOOLTIP_WEAPON_GUN_HINT,按 [color=#ffdd66]1[/color] 切换到导弹优先,Press [color=#ffdd66]1[/color] to switch to Missile Priority,[color=#ffdd66]1[/color] でミサイル優先へ
+TOOLTIP_ALT_CLIMB_TITLE,爬升优先,Climb High,高高度優先
+TOOLTIP_ALT_CLIMB_BODY,巡航时自动爬升至高空\n高空有利于积蓄能量\n[color=#66ccff]导弹射程更远[/color]\n交战时仍会自动匹配目标高度,Auto-climbs to high altitude while cruising\nHigh altitude builds energy\n[color=#66ccff]Missile range extended[/color]\nStill auto-matches target altitude in combat,巡航時に自動で高高度へ上昇\n高高度はエネルギー蓄積に有利\n[color=#66ccff]ミサイル射程が延長[/color]\n交戦時は目標高度に自動追従
+TOOLTIP_ALT_CLIMB_HINT,按 [color=#ffdd66]4[/color] 切换到低空优先,Press [color=#ffdd66]4[/color] to switch to Fly Low,[color=#ffdd66]4[/color] で低空優先へ
+TOOLTIP_ALT_LOW_TITLE,低空优先,Fly Low,低空優先
+TOOLTIP_ALT_LOW_BODY,巡航时自动降至低空\n[color=#66ff66]更难被雷达锁定（锁定时间+43%）[/color]\n[color=#66ff66]敌方导弹追踪能力下降[/color]\n[color=#66ff66]AI攻击意愿降低[/color]\n交战时仍会自动匹配目标高度,Auto-descends to low altitude while cruising\n[color=#66ff66]Harder to lock (lock time +43%)[/color]\n[color=#66ff66]Enemy missile tracking reduced[/color]\n[color=#66ff66]Enemy AI engages less aggressively[/color]\nStill auto-matches target altitude in combat,巡航時に自動で低空へ降下\n[color=#66ff66]ロックされにくい（ロック時間+43%）[/color]\n[color=#66ff66]敵ミサイルの追尾性能が低下[/color]\n[color=#66ff66]敵AIの攻撃意欲が低下[/color]\n交戦時は目標高度に自動追従
+TOOLTIP_ALT_LOW_HINT,按 [color=#ffdd66]3[/color] 切换到爬升优先,Press [color=#ffdd66]3[/color] to switch to Climb High,[color=#ffdd66]3[/color] で高高度優先へ
+TOOLTIP_EVADE_ON_TITLE,规避模式: 开,Evasion: ON,回避モード: ON
+TOOLTIP_EVADE_ON_BODY,检测到来袭导弹时自动规避\n垂直于导弹轨迹急转+变换高度\n无导弹威胁时做S型机动\n点击地面可临时覆盖规避路径,Auto-evades incoming missiles\nPerpendicular break + altitude change\nS-curve when no missile threat\nClick ground to temporarily override,来襲ミサイル検知で自動回避\nミサイル軌道に垂直急旋回＋高度変更\n脅威なし時はS字機動\n地面クリックで回避経路を一時上書き
+TOOLTIP_EVADE_ON_HINT,按 [color=#ffdd66]E[/color] 关闭规避,Press [color=#ffdd66]E[/color] to disable evasion,[color=#ffdd66]E[/color] で回避を無効化
+TOOLTIP_EVADE_OFF_TITLE,规避模式: 关,Evasion: OFF,回避モード: OFF
+TOOLTIP_EVADE_OFF_BODY,飞机不会主动进行规避机动\n完全听从玩家的移动指令,Aircraft will not evade automatically\nFollows player movement commands only,機体は自動回避しません\nプレイヤーの移動指示に完全追従
+TOOLTIP_EVADE_OFF_HINT,按 [color=#ffdd66]E[/color] 开启规避,Press [color=#ffdd66]E[/color] to enable evasion,[color=#ffdd66]E[/color] で回避を有効化
+TOOLTIP_AUTOFIRE_ON_TITLE,自动发射: 开,Auto-Fire: ON,自動発射: ON
+TOOLTIP_AUTOFIRE_ON_BODY,飞机自动选择最佳角度发射导弹\n锁定任意敌机即自动开火\n[color=#66ccff]多目标追踪升级下一次发多枚[/color]\n无需玩家手动点击目标,Aircraft picks best firing angle automatically\nFires on any locked target\n[color=#66ccff]Multi-lock upgrade fires multiple at once[/color]\nNo manual targeting needed,最適角度で自動ミサイル発射\nロックした敵機へ即射撃\n[color=#66ccff]マルチロック時は複数同時発射[/color]\n手動ターゲット不要
+TOOLTIP_AUTOFIRE_ON_HINT,按 [color=#ffdd66]F[/color] 关闭自动发射,Press [color=#ffdd66]F[/color] to disable auto-fire,[color=#ffdd66]F[/color] で自動発射を無効化
+TOOLTIP_AUTOFIRE_OFF_TITLE,自动发射: 关,Auto-Fire: OFF,自動発射: OFF
+TOOLTIP_AUTOFIRE_OFF_BODY,只在玩家点击敌机指定攻击时开火\n节省弹药 / 精准打击,Fires only when player targets an enemy\nConserves ammo / precise strikes,プレイヤー指定の敵機のみ射撃\n弾薬節約 / 精密打撃
+TOOLTIP_AUTOFIRE_OFF_HINT,按 [color=#ffdd66]F[/color] 开启自动发射,Press [color=#ffdd66]F[/color] to enable auto-fire,[color=#ffdd66]F[/color] で自動発射を有効化
+UPGRADE_CATEGORY_COMBAT_PREFIX,[战斗] ,[Combat] ,[戦闘]
+UPGRADE_CATEGORY_SURVIVAL_PREFIX,[生存] ,[Survival] ,[生存]
+UPGRADE_HP_UP_NAME,装甲强化,Armor Plating,装甲強化
+UPGRADE_HP_UP_DESC,最大HP +30，机炮闪避 +8%,Max HP +30, Gun Dodge +8%,最大HP +30、ガン回避 +8%
+UPGRADE_SPEED_UP_NAME,引擎强化,Engine Boost,エンジン強化
+UPGRADE_SPEED_UP_DESC,最大速度/巡航速度 +18%,Max/Cruise Speed +18%,最大/巡航速度 +18%
+UPGRADE_MANEUVER_UP_NAME,飞控升级,Flight Control,飛行制御強化
+UPGRADE_MANEUVER_UP_DESC,滚转速率 +25%，持续G +1.0,Roll Rate +25%, Sustained G +1.0,ロール速度 +25%、持続G +1.0
+UPGRADE_FLARE_COOLDOWN_NAME,红外对抗优化,IR Countermeasure,IR対策最適化
+UPGRADE_FLARE_COOLDOWN_DESC,热诱弹冷却时间 -20%,Flare Cooldown -20%,フレアクールダウン -20%
+UPGRADE_FLARE_SHIELD_NAME,★ 电子对抗套件,★ ECM Suite,★ ECMスイート
+UPGRADE_FLARE_SHIELD_DESC,进化！释放热诱弹时解除所有锁定，免疫锁定3秒,"Evolved! Flares break all locks, immune to lock for 3s",進化！フレア使用で全ロック解除、3秒間ロック無効
+UPGRADE_PILOT_STAMINA_NAME,体能强化,Pilot Stamina,体力強化
+UPGRADE_PILOT_STAMINA_DESC,飞行员耐力上限×2，恢复速率×2,"Stamina cap ×2, recovery ×2",スタミナ上限×2、回復×2
+UPGRADE_KILL_HEAL_NAME,战场急救,Battlefield First Aid,戦場救護
+UPGRADE_KILL_HEAL_DESC,击杀敌机时回复10 HP,Heal 10 HP on kill,撃墜時 HP +10 回復
+UPGRADE_MISSILE_COUNT_NAME,导弹挂架扩展,Missile Rack,ミサイル増設
+UPGRADE_MISSILE_COUNT_DESC,导弹携带量 +1,Missile capacity +1,ミサイル携行数 +1
+UPGRADE_MISSILE_TRACKING_NAME,制导升级,Guidance Upgrade,誘導強化
+UPGRADE_MISSILE_TRACKING_DESC,导弹过载 +30%，导引常数 +0.5,"Missile G-load +30%, nav constant +0.5",ミサイルG +30%、誘導係数 +0.5
+UPGRADE_PROXIMITY_FUZE_NAME,★ 近炸引信,★ Proximity Fuze,★ 近接信管
+UPGRADE_PROXIMITY_FUZE_DESC,进化！导弹接近敌机时自动引爆，产生 AOE 伤害区域,Evolved! Missile auto-detonates near target creating AOE damage,進化！敵機接近時にミサイル自動起爆、AOEダメージ発生
+UPGRADE_MISSILE_BOUNCE_NAME,★ 连锁弹头,★ Chain Warhead,★ 連鎖弾頭
+UPGRADE_MISSILE_BOUNCE_DESC,进化！导弹命中后弹跳至最近的另一个敌机,Evolved! Missile bounces to nearest enemy on impact,進化！命中後、最寄りの敵機へ跳弾
+UPGRADE_MISSILE_RELOAD_NAME,快速挂载,Quick Mount,高速装填
+UPGRADE_MISSILE_RELOAD_DESC,导弹装填时间 -15%,Missile reload -15%,ミサイル装填 -15%
+UPGRADE_MULTI_LOCK_NAME,多目标追踪,Multi-Target Tracking,マルチロック
+UPGRADE_MULTI_LOCK_DESC,自动对所有锁定目标同时发射导弹,Fire missiles at all locked targets simultaneously,全ロックターゲットへ同時発射
+UPGRADE_GUN_DAMAGE_NAME,穿甲弹药,AP Rounds,徹甲弾
+UPGRADE_GUN_DAMAGE_DESC,机炮伤害 +20%,Gun damage +20%,ガンダメージ +20%
+UPGRADE_GUN_MULTISHOT_NAME,★ 多管齐射,★ Triple Salvo,★ 三連射
+UPGRADE_GUN_MULTISHOT_DESC,"进化！同时射出三道机炮（前方+左右15°）",Evolved! Fire three gun streams (front + ±15°),進化！正面と左右15°の3方向同時射撃
+UPGRADE_GUN_AMMO_NAME,弹药扩容,Ammo Capacity,弾薬増設
+UPGRADE_GUN_AMMO_DESC,机炮弹药上限 +100,Gun ammo cap +100,ガン弾薬上限 +100
+UPGRADE_GUN_RELOAD_NAME,快速装弹机,Quick Loader,高速装弾
+UPGRADE_GUN_RELOAD_DESC,机炮装填时间 -15%,Gun reload -15%,ガン装填 -15%
+UPGRADE_GUN_FIRERATE_NAME,射速强化,Fire Rate Boost,連射速度強化
+UPGRADE_GUN_FIRERATE_DESC,机炮射速 +25%,Gun fire rate +25%,ガン連射速度 +25%
+UPGRADE_GUN_RANGE_NAME,延伸弹道,Extended Range,射程延長
+UPGRADE_GUN_RANGE_DESC,机炮有效射程 +20%,Gun effective range +20%,ガン有効射程 +20%
+UPGRADE_GUN_CIWS_NAME,★ 近防炮,★ CIWS,★ CIWS
+UPGRADE_GUN_CIWS_DESC,进化！机炮自动拦截正面来袭导弹,Evolved! Gun auto-intercepts incoming frontal missiles,進化！正面来襲ミサイルをガンで自動迎撃
+UPGRADE_RADAR_RANGE_NAME,雷达升级,Radar Upgrade,レーダー強化
+UPGRADE_RADAR_RANGE_DESC,雷达探测距离 +20%,Radar range +20%,レーダー探知距離 +20%
+UPGRADE_LOCK_TIME_NAME,火控优化,Fire Control,火器管制最適化
+UPGRADE_LOCK_TIME_DESC,锁定时间 -0.5秒,Lock time -0.5s,ロック時間 -0.5秒
+UPGRADE_DOGFIGHT_NAME,格斗大师,Dogfight Master,格闘戦の達人
+UPGRADE_DOGFIGHT_DESC,"失速速度 -12%，减速 +30%，低速机动增强","Stall speed -12%, deceleration +30%, low-speed maneuver boost",失速速度 -12%、減速 +30%、低速機動強化
+AIRCRAFT_F16_DISPLAY,F-16C Block 50,F-16C Block 50,F-16C Block 50
+AIRCRAFT_F16_CARDDESC,"多用途战斗机。携带热诱弹可 100% 规避来袭导弹，攻守兼备的入门之选。","Multirole fighter. Flares grant 100% evasion on incoming missiles. A balanced starter pick.",マルチロール戦闘機。フレアで来襲ミサイルを100%回避可能、攻守バランスの入門機。
+AIRCRAFT_F14_DISPLAY,F-14A Tomcat,F-14A Tomcat,F-14A Tomcat
+AIRCRAFT_F14_CARDDESC,"「Anytime, baby!」舰载重型截击机。三机僚机编队入场支援，但单机性能弱于 F-16：导弹/热诱弹/机炮均缩水，机动性较差，需依赖小队配合。","""Anytime, baby!"" Carrier-based heavy interceptor. Deploys with a 3-wingman squad but underperforms the F-16 solo: fewer missiles/flares, weaker gun, lower agility — squad play is essential.",「いつでもどうぞ！」艦載重戦闘機。3機の僚機編隊と共に出撃するが、単機性能は F-16 に劣る：ミサイル・フレア・ガンいずれも減量、機動性も低め、小隊連携が鍵。
+TAG_HEAT_FLARE,热诱弹,Flares,フレア
+TAG_BALANCED_MANEUVER,均衡机动,Balanced,均衡機動
+TAG_SARH_MISSILE,SARH 导弹,SARH Missile,SARH ミサイル
+TAG_SQUAD_LEADER,小队主控,Squad Leader,小隊長
+TAG_HEAVY_INTERCEPT,重型截击,Heavy Interceptor,重迎撃機
+TAG_AIM54,AIM-54,AIM-54,AIM-54
+TAG_LOCKED,未解锁,Locked,未解放
+TAG_PLAIN,平原,Plains,平原
+TAG_COAST,海岸,Coast,海岸
+TAG_HILLS,丘陵,Hills,丘陵
+TAG_TBA,未解锁,Locked,未解放
+SLOT_TBA_NAME,??? / TBA,??? / TBA,??? / TBA
+SLOT_AIRCRAFT_DESC,新机型开发中。,New aircraft in development.,新機体開発中。
+SLOT_MAP_DESC,新地图开发中，敬请期待。,"New map in development, stay tuned.",新マップ開発中、お楽しみに。
+SLOT_LOCKED_BUTTON,未  解  锁,L O C K E D,ロ  ッ  ク  中
+SLOT_SELECT_BUTTON,选  择,S E L E C T,選   択
+SLOT_PILOT_INDEX_FMT,PILOT %02d,PILOT %02d,PILOT %02d
+SLOT_MAP_INDEX_FMT,MAP %02d,MAP %02d,MAP %02d
+SLOT_STARTING_SQUAD_FMT,[ 起始小队 +%d 僚机 ],[ Starting Squad +%d Wingmen ],[ 開始小隊 +%d 僚機 ]
+SLOT_TAG_WRAP_FMT,[ %s ],[ %s ],[ %s ]
+SLOT_NAME_UNKNOWN,???,???,???
+MAP_DEFAULT_NAME,海岸线,Coastal,海岸線
+MAP_DEFAULT_DESC,默认作战区域。多样的海岸与内陆地形，适合熟悉机型与战术。,Default combat zone. Diverse coastal and inland terrain for learning aircraft and tactics.,デフォルト作戦区域。多彩な海岸・内陸地形、機体と戦術に慣れるのに最適。
+AIRCRAFT_SELECT_TITLE,[ 选择机型 ],[ Select Aircraft ],[ 機体選択 ]
+AIRCRAFT_SELECT_SUBTITLE,生存模式  //  SURVIVAL MODE,SURVIVAL MODE,サバイバル  //  SURVIVAL MODE
+AIRCRAFT_SELECT_HINT_ESC,ESC 返回地图选择,ESC to return to map select,ESC でマップ選択へ
+AIRCRAFT_SELECT_LAUNCH_BUTTON,出  击,L A U N C H,出   撃
+AIRCRAFT_STATS_FMT,HP %d  |  速度 %d km/h  |  G %.0f  |  导弹 %d,HP %d  |  Speed %d km/h  |  G %.0f  |  Missiles %d,HP %d  |  速度 %d km/h  |  G %.0f  |  ミサイル %d

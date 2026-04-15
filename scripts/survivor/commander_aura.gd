@@ -10,20 +10,20 @@ extends Node
 ##   5. Sentinel 自身不参与战斗，也不设定目标（僚机独立扫描并攻击靠近的敌方）
 
 # ── 范围常量 ──
-const AURA_RADIUS := 600.0          ## 增益范围（像素，~1200m）
-const RECRUIT_RADIUS := 800.0       ## 招募范围（像素，稍大于增益范围）
+const AURA_RADIUS := 1500.0         ## 增益范围（像素，~3000m）
+const RECRUIT_RADIUS := 1800.0      ## 招募范围（像素，稍大于增益范围）
 const SCAN_INTERVAL := 0.5          ## 扫描周期（秒）
 const MAX_WINGMEN := 8              ## 最大僚机数量（不含指挥机本身）
 
 # ── 增益参数（聚焦机动/速度/攻击欲望，不动技能/冷静——simple_ai 也用不上）──
 ## 设计目标：让玩家明显感觉到 UAV 被增强 —— 回转半径变小、加速更猛、速度更快
-const BUFF_AGGRESSION := 0.35       ## 攻击欲望 +0.35
-const BUFF_MAX_G_ADD := 4.0         ## 过载 +4G（UAV 4→8G，达到真正战斗机水准）
-const BUFF_STRUCTURAL_G_ADD := 5.0  ## 结构极限 +5G（防止高G时失效）
-const BUFF_ROLL_RATE_MULT := 1.8    ## 滚转速率 +80%
-const BUFF_SPEED_MULT := 1.25       ## 最大/巡航速度 +25%
-const BUFF_ACCEL_MULT := 2.0        ## 加速度 +100%（×2）
-const BUFF_STALL_MULT := 0.7        ## 失速速度 ×0.7（允许更紧的低速转弯）
+const BUFF_AGGRESSION := 0.5        ## 攻击欲望 +0.5
+const BUFF_MAX_G_ADD := 6.0         ## 过载 +6G（UAV 4→10G，超越战斗机水准）
+const BUFF_STRUCTURAL_G_ADD := 7.0  ## 结构极限 +7G（防止高G时失效）
+const BUFF_ROLL_RATE_MULT := 2.5    ## 滚转速率 +150%
+const BUFF_SPEED_MULT := 1.5        ## 最大/巡航速度 +50%
+const BUFF_ACCEL_MULT := 3.0        ## 加速度 +200%（×3）
+const BUFF_STALL_MULT := 0.5        ## 失速速度 ×0.5（允许极紧的低速转弯）
 
 var _scan_timer: float = 0.0
 var _commander: Aircraft = null
@@ -175,9 +175,10 @@ func _try_recruit() -> void:
 		if ac == _commander or ac.team != 1 or ac.is_destroyed:
 			continue
 
-		# 只招募 UAV / UCAV
-		var etype: String = ac.get_meta("enemy_type", "")
-		if etype != "uav" and etype != "ucav":
+		# 只招募无人驾驶飞机（is_unmanned 标签），排除指挥机自身
+		if not ac.params or not ac.params.is_unmanned:
+			continue
+		if ac.get_meta("enemy_type", "") == "uav_commander":
 			continue
 
 		var ai := _find_ai(ac)
@@ -210,6 +211,7 @@ func _try_recruit() -> void:
 		# 保持 simple_ai，开启绕长机飞行模式
 		# （不再切换到 SQUAD_FOLLOW / BFM，避免战术机动造成的 bug 和抖动）
 		ai.orbit_squad_leader = true
+		ai.shield_leader = true
 		ai.enable_combat = true  # 允许自主扫描并攻击靠近的敌方
 		ai.evade_missiles = false
 

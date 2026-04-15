@@ -120,6 +120,7 @@ var _gun_reload_timer: float = 0.0
 var gun_reload_duration: float = 25.0    ## 装填总时间（比导弹略久；可通过升级缩短）
 var gun_reload_progress: float = 0.0     ## 0.0-1.0, HUD 读取用
 var infinite_fuel: bool = false      ## 生存模式：无限燃油
+var orbit_speed_cap: float = 0.0     ## AI 轨道限速（m/s），0=不限制。由 AIController 设置
 var bullet_dodge_chance: float = 0.0  ## 机炮弹丸闪避概率（装甲强化升级）
 var flare_lock_immunity: float = 0.0  ## 释放热诱弹后的锁定免疫时间（秒）
 var _lock_immunity_timer: float = 0.0  ## 当前剩余锁定免疫时间
@@ -760,6 +761,9 @@ func _update_speed(delta: float) -> void:
 	speed -= gravity_effect * delta
 
 	speed = maxf(speed, 0.0)
+	# AI 轨道限速：由 AIController 设置，0 = 不限制
+	if orbit_speed_cap > 0.0 and speed > orbit_speed_cap:
+		speed = orbit_speed_cap
 
 func _update_altitude(delta: float) -> void:
 	var alt_diff := target_altitude - altitude

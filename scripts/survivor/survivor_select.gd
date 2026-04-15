@@ -30,14 +30,14 @@ const PLAYABLE_LIST: Array[Dictionary] = [
 	{
 		"resource": "",
 		"locked": true,
-		"slot_name": "??? / TBA",
-		"slot_desc": "新机型开发中。",
+		"slot_name": "SLOT_TBA_NAME",
+		"slot_desc": "SLOT_AIRCRAFT_DESC",
 	},
 	{
 		"resource": "",
 		"locked": true,
-		"slot_name": "??? / TBA",
-		"slot_desc": "新机型开发中。",
+		"slot_name": "SLOT_TBA_NAME",
+		"slot_desc": "SLOT_AIRCRAFT_DESC",
 	},
 ]
 
@@ -106,7 +106,7 @@ func _build_ui() -> void:
 
 	# 标题
 	var title := Label.new()
-	title.text = "[ 选择机型 ]"
+	title.text = tr("AIRCRAFT_SELECT_TITLE")
 	title.add_theme_font_size_override("font_size", 28)
 	title.add_theme_color_override("font_color", Color(0.4, 1.0, 0.4))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -114,7 +114,7 @@ func _build_ui() -> void:
 
 	# 副标题
 	var subtitle := Label.new()
-	subtitle.text = "生存模式  //  SURVIVAL MODE"
+	subtitle.text = tr("AIRCRAFT_SELECT_SUBTITLE")
 	subtitle.add_theme_font_size_override("font_size", 13)
 	subtitle.add_theme_color_override("font_color", Color(0.3, 0.6, 0.3, 0.6))
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -140,7 +140,7 @@ func _build_ui() -> void:
 	root.add_child(sep2)
 
 	var hint := Label.new()
-	hint.text = "ESC 返回地图选择"
+	hint.text = tr("AIRCRAFT_SELECT_HINT_ESC")
 	hint.add_theme_font_size_override("font_size", 12)
 	hint.add_theme_color_override("font_color", Color(0.4, 0.5, 0.4, 0.4))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -182,7 +182,7 @@ func _build_aircraft_card(index: int) -> void:
 
 	# 序号
 	var idx_label := Label.new()
-	idx_label.text = "PILOT %02d" % (index + 1)
+	idx_label.text = tr("SLOT_PILOT_INDEX_FMT") % (index + 1)
 	idx_label.add_theme_font_size_override("font_size", 11)
 	idx_label.add_theme_color_override("font_color",
 		Color(0.4, 0.6, 0.4, 0.5) if not locked else Color(0.3, 0.35, 0.3, 0.5))
@@ -192,10 +192,10 @@ func _build_aircraft_card(index: int) -> void:
 	# 机型名称
 	var name_label := Label.new()
 	if locked:
-		name_label.text = data.get("slot_name", "??? / TBA")
+		name_label.text = tr(data.get("slot_name", "SLOT_TBA_NAME"))
 		name_label.add_theme_color_override("font_color", Color(0.4, 0.45, 0.4, 0.6))
 	else:
-		name_label.text = profile.display_name if profile else "???"
+		name_label.text = tr(profile.display_name) if profile else tr("SLOT_NAME_UNKNOWN")
 		name_label.add_theme_color_override("font_color", Color(0.85, 0.95, 0.85))
 	name_label.add_theme_font_size_override("font_size", 20)
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -226,13 +226,13 @@ func _build_aircraft_card(index: int) -> void:
 
 	var tag_list: Array = []
 	if locked:
-		tag_list = ["未解锁"]
+		tag_list = ["TAG_LOCKED"]
 	elif profile:
 		for t in profile.card_tags:
 			tag_list.append(t)
 	for tag_text in tag_list:
 		var tag := Label.new()
-		tag.text = "[ %s ]" % tag_text
+		tag.text = tr("SLOT_TAG_WRAP_FMT") % tr(tag_text)
 		tag.add_theme_font_size_override("font_size", 10)
 		if locked:
 			tag.add_theme_color_override("font_color", Color(0.35, 0.4, 0.35, 0.6))
@@ -243,7 +243,7 @@ func _build_aircraft_card(index: int) -> void:
 	# 起始僚机标记（仅小队主控显示）
 	if not locked and profile and profile.wingman_count > 0:
 		var squad_label := Label.new()
-		squad_label.text = "[ 起始小队 +%d 僚机 ]" % profile.wingman_count
+		squad_label.text = tr("SLOT_STARTING_SQUAD_FMT") % profile.wingman_count
 		squad_label.add_theme_font_size_override("font_size", 11)
 		squad_label.add_theme_color_override("font_color", Color(0.6, 0.95, 0.6, 0.8))
 		squad_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -252,10 +252,10 @@ func _build_aircraft_card(index: int) -> void:
 	# 描述
 	var desc_label := Label.new()
 	if locked:
-		desc_label.text = data.get("slot_desc", "新机型开发中。")
+		desc_label.text = tr(data.get("slot_desc", "SLOT_AIRCRAFT_DESC"))
 		desc_label.add_theme_color_override("font_color", Color(0.4, 0.45, 0.4, 0.6))
 	else:
-		desc_label.text = profile.card_desc if profile else ""
+		desc_label.text = tr(profile.card_desc) if profile else ""
 		desc_label.add_theme_color_override("font_color", Color(0.6, 0.7, 0.6, 0.8))
 	desc_label.add_theme_font_size_override("font_size", 12)
 	desc_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -271,7 +271,7 @@ func _build_aircraft_card(index: int) -> void:
 	if not locked and profile and profile.base_params:
 		var bp: AircraftParams = profile.base_params
 		var stats := Label.new()
-		stats.text = "HP %d  |  速度 %d km/h  |  G %.0f  |  导弹 %d" % [
+		stats.text = tr("AIRCRAFT_STATS_FMT") % [
 			int(bp.max_hp),
 			int(bp.max_speed),
 			bp.max_g,
@@ -288,7 +288,7 @@ func _build_aircraft_card(index: int) -> void:
 	btn.add_theme_font_size_override("font_size", 16)
 
 	if locked:
-		btn.text = "未  解  锁"
+		btn.text = tr("SLOT_LOCKED_BUTTON")
 		btn.disabled = true
 		var dis_style := StyleBoxFlat.new()
 		dis_style.bg_color = Color(0.05, 0.06, 0.05, 0.5)
@@ -299,7 +299,7 @@ func _build_aircraft_card(index: int) -> void:
 		btn.add_theme_stylebox_override("disabled", dis_style)
 		btn.add_theme_color_override("font_disabled_color", Color(0.3, 0.4, 0.3, 0.5))
 	else:
-		btn.text = "出  击"
+		btn.text = tr("AIRCRAFT_SELECT_LAUNCH_BUTTON")
 		var btn_style := StyleBoxFlat.new()
 		btn_style.bg_color = Color(0.08, 0.15, 0.08, 0.9)
 		btn_style.border_color = Color(0.4, 0.8, 0.4, 0.5)

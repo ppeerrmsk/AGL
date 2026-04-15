@@ -57,7 +57,13 @@
       "Bash(bash .claude/hooks/open-latest-log.sh)",
       "Bash(echo \"exit=$?\")",
       "Bash(sed -n '30,50p' scripts/event_logger.gd)",
-      "WebFetch(domain:en.wikipedia.org)"
+      "WebFetch(domain:en.wikipedia.org)",
+      "Bash(git -C \"C:/Users/noelu/Documents/AGL\" status)",
+      "Bash(git -C \"C:/Users/noelu/Documents/AGL\" diff --stat)",
+      "Bash(git -C \"C:/Users/noelu/Documents/AGL\" log -10 --oneline)",
+      "Bash(git -C \"C:/Users/noelu/Documents/AGL\" diff scripts/ai_controller.gd)",
+      "Bash(git -C \"C:/Users/noelu/Documents/AGL\" diff scripts/aircraft.gd scripts/aircraft_params.gd scripts/missile_manager.gd resources/enemy_uav.tres resources/enemy_uav_missile.tres resources/enemy_uav_commander.tres scripts/survivor/commander_aura.gd)",
+      "Bash(git -C \"C:/Users/noelu/Documents/AGL\" diff .claude/settings.local.json)"
     ]
   },
   "hooks": {

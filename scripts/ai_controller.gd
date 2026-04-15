@@ -64,16 +64,23 @@ enum SquadEngageMode { FREE = 0, FOLLOW_LEADER = 1 }
 var squad: Squad = null              ## 所属编队
 var squad_index: int = -1            ## 在编队中的序号（0=长机，1+=僚机）
 @export var orbit_squad_leader: bool = false  ## simple_ai 专用：巡逻时围绕长机旋转（指挥 UAV 招募的僚机用）
+@export var shield_leader: bool = false       ## orbit 专用：主动飞入来袭导弹路径保护长机
+
+# ── 护盾系统（shield_leader 模式）──
+var _shield_missile: Missile = null           ## 当前帧检测到的来袭导弹
+var _shield_threat_dir: Vector2 = Vector2.ZERO ## 威胁方向（用于偏移轨道中心）
 
 # ── 绕长机飞行常量（orbit_squad_leader 模式）──
 ## 设计约束：
 ## 1. 切向速度 (ORBIT_RADIUS × ORBIT_ANGULAR_SPEED) 必须 < UAV 实际速度，否则轨道点永远追不上
 ## 2. UAV 物理转弯半径必须 ≤ ORBIT_RADIUS 才能在轨道上贴合飞行
 ## 3. ORBIT_TETHER_RADIUS < AURA_RADIUS=600 保证僚机始终在增益圈内
-const ORBIT_RADIUS := 400.0          ## 绕长机半径（像素，~800m），留在 AURA_RADIUS=600 内
-const ORBIT_ANGULAR_SPEED := 0.22    ## 轨道角速度（rad/s），切向速度 ~88 px/s，28秒/圈
-const ORBIT_SPEED_RATIO := 0.85      ## 目标速度 = max_speed × 0.85
-const ORBIT_TETHER_RADIUS := 550.0   ## 护驾半径：僚机不得超过此距离长机，也不会追击超出此范围的敌方
+## 多层轨道系统：每架 UAV 按 squad_index 分配不同轨道半径
+## 内圈更密、外圈更疏，像行星系统一样分层环绕
+const ORBIT_INNERMOST := 60.0        ## 最内圈半径（像素，~120m）— squad_index 1
+const ORBIT_SPACING := 40.0          ## 每层轨道间距（像素，~80m）
+const ORBIT_MIN_SPEED_KMH := 400.0   ## 轨道最低速度（km/h）— 保持自然飞行感
+const ORBIT_TETHER_RADIUS := 750.0   ## 护驾半径：不追击超出此范围的目标
 
 const COVER_SCAN_RANGE := 2500.0     ## 掩护扫描范围（像素）≈5000m
 const COVER_SCAN_INTERVAL := 0.5     ## 掩护扫描间隔（秒）
@@ -410,45 +417,250 @@ func _process_simple(delta: float) -> void:
 	if orbit_squad_leader:
 		if not squad or not squad.leader or not is_instance_valid(squad.leader) or squad.leader.is_destroyed:
 			orbit_squad_leader = false
+			shield_leader = false  # 长机阵亡，恢复为普通 simple AI
+			aircraft.orbit_speed_cap = 0.0  # 解除限速
+			aircraft.ai_override_pursuit = false
+			# 立即撤除 Sentinel 光环 buff（不等 queue_free）
+			if aircraft.has_meta("commander_buff_originals"):
+				var originals: Dictionary = aircraft.get_meta("commander_buff_originals")
+				aggression = originals.get("aggression", aggression)
+				if aircraft.params:
+					aircraft.params.roll_rate = originals.get("roll_rate", aircraft.params.roll_rate)
+					aircraft.params.max_g = originals.get("max_g", aircraft.params.max_g)
+					aircraft.params.max_g_structural = originals.get("max_g_structural", aircraft.params.max_g_structural)
+					aircraft.params.max_speed = originals.get("max_speed", aircraft.params.max_speed)
+					aircraft.params.cruise_speed = originals.get("cruise_speed", aircraft.params.cruise_speed)
+					aircraft.params.acceleration = originals.get("acceleration", aircraft.params.acceleration)
+					aircraft.params.stall_speed_base = originals.get("stall_speed_base", aircraft.params.stall_speed_base)
+				aircraft.remove_meta("commander_buff_originals")
+				aircraft.remove_meta("commander_buffed_by")
 			squad = null
 			squad_index = -1
+
+	# ── 护盾系统（shield_leader 模式，优先级高于一切）──
+	# 只在导弹来袭时介入，平时正常轨道飞行
+	if shield_leader and orbit_squad_leader and squad and squad.leader \
+			and is_instance_valid(squad.leader) and not squad.leader.is_destroyed:
+		var _leader := squad.leader
+
+		# ── 每帧导弹扫描 ──
+		_shield_missile = null
+		var _mm := aircraft.missile_manager
+		if _mm:
+			var best_dist := INF
+			var leader_pos := _leader.global_position
+			for child in _mm.get_children():
+				if not child is Missile:
+					continue
+				var m: Missile = child
+				if not m.is_active or m.is_flare_jammed:
+					continue
+				if m.team == _leader.team:
+					continue
+				var msl_to_leader := leader_pos - m.global_position
+				var dist_to_leader := msl_to_leader.length()
+				if dist_to_leader > 3000.0:
+					continue
+				var msl_fwd := Vector2(sin(m.heading), -cos(m.heading))
+				if msl_fwd.dot(msl_to_leader.normalized()) < 0.5:
+					continue
+				if dist_to_leader < best_dist:
+					best_dist = dist_to_leader
+					_shield_missile = m
+
+		# ── 导弹自爆拦截（100px 内触发，带 AOE 视觉指示）──
+		if _shield_missile and _shield_missile.is_active:
+			var msl_dist := _shield_missile.global_position.distance_to(aircraft.global_position)
+			if msl_dist < 100.0:
+				# 在爆炸点生成 AOE 视觉圈（和玩家近炸引信一样的红圈提示）
+				var mm := aircraft.missile_manager as MissileManager
+				if mm:
+					mm._aoe_zones.append({
+						"pos": aircraft.global_position,
+						"altitude": aircraft.altitude,
+						"radius_px": 50.0,  # 自爆指示圈半径（比近炸引信小一些）
+						"time_left": 1.0,
+						"max_time": 1.0,
+						"damage": 0.0,      # 纯视觉，不造成额外伤害
+						"team": aircraft.team,
+						"hit_set": { aircraft.get_instance_id(): true },
+					})
+					mm.queue_redraw()
+				# UAV 承受伤害
+				aircraft.take_damage(_shield_missile.params.damage if _shield_missile.params else 80.0)
+				# 销毁导弹
+				_shield_missile.is_active = false
+				_shield_missile.queue_free()
+				EventLogger.log_event("MISSILE",
+					_shield_missile.params.display_name if _shield_missile.params else "MSL",
+					"intercepted by %s (shield)" % aircraft.callsign)
+				_shield_missile = null
+				return
+			# 不改变轨道——继续绕圈
+
+		# ── 威胁感知：检测正在瞄准长机的敌机（用于偏移轨道中心）──
+		# 玩家瞄准 Sentinel 时，所有 UAV 的轨道向威胁方向偏移
+		# 这样 UAV 自然集中在导弹来袭方向，大幅提高拦截概率
+		var _threat_bias := Vector2.ZERO
+		if _shield_missile:
+			# 有导弹在飞：偏移向导弹方向
+			_threat_bias = (_shield_missile.global_position - _leader.global_position).normalized()
+		else:
+			# 检查是否有敌机正在瞄准/接近长机
+			var parent_node := _leader.get_parent()
+			if parent_node:
+				var closest_threat_dist := SHIELD_ENGAGE_RANGE
+				for child in parent_node.get_children():
+					if not child is Aircraft or child.team == _leader.team or child.is_destroyed:
+						continue
+					var ac := child as Aircraft
+					var dist_to_leader := ac.global_position.distance_to(_leader.global_position)
+					if dist_to_leader >= closest_threat_dist:
+						continue
+					# 检查敌机是否朝着长机方向飞
+					var to_leader := (_leader.global_position - ac.global_position).normalized()
+					var ac_fwd := Vector2(sin(ac.heading), -cos(ac.heading))
+					if ac_fwd.dot(to_leader) > 0.3:  # 大致朝向长机
+						closest_threat_dist = dist_to_leader
+						_threat_bias = (ac.global_position - _leader.global_position).normalized()
+		# 将偏移量存入实例变量，供轨道代码使用
+		_shield_threat_dir = _threat_bias
 
 	# 巡逻：走航点 or 绕长机飞行
 	if not _current_target or not is_instance_valid(_current_target) or _current_target.is_destroyed:
 		_current_target = null
 
-		# ── 绕长机飞行（指挥 UAV 招募的僚机）──
+		# ── 多层轨道环绕（指挥 UAV 编队）──
+		# 每架 UAV 按 squad_index 分配不同半径轨道，像行星系统分层环绕
 		if orbit_squad_leader and squad and squad.leader and is_instance_valid(squad.leader) \
 				and squad.leader != aircraft and not squad.leader.is_destroyed:
 			var leader := squad.leader
+			# 轨道中心：有威胁时向威胁方向偏移（UAV 集中在导弹来袭侧）
 			var center := leader.global_position
-			# 按 squad_index 错开相位，避免多架僚机贴在一起
-			var t := Time.get_ticks_msec() / 1000.0
-			var phase := float(maxi(squad_index, 1)) * (TAU / 6.0)
-			var angle := t * ORBIT_ANGULAR_SPEED + phase
-			aircraft.target_position = center + Vector2(cos(angle), sin(angle)) * ORBIT_RADIUS
-			# 目标速度：接近最大，让僚机感觉灵活迅捷
+			if _shield_threat_dir != Vector2.ZERO:
+				# 偏移量 = 轨道半径的 60%，让 UAV 密集覆盖威胁方向
+				var bias_amount := (ORBIT_INNERMOST + float(maxi(squad_index, 1) - 1) * ORBIT_SPACING) * 0.6
+				center += _shield_threat_dir * bias_amount
+
+			# 按 squad_index 分配轨道半径：index 1=最内圈，逐层向外
+			var slot := maxi(squad_index, 1)
+			var radius := ORBIT_INNERMOST + float(slot - 1) * ORBIT_SPACING
+
+			# 轨道速度：物理公式，但必须 > 长机速度才能真正绕圈
+			var leader_speed_kmh := leader.speed * 3.6
+			var orbit_speed_kmh := ORBIT_MIN_SPEED_KMH
 			if aircraft.params:
-				aircraft.target_speed_kmh = aircraft.params.max_speed * ORBIT_SPEED_RATIO
+				var radius_m := radius / Aircraft.PIXELS_PER_METER
+				var g_avail := aircraft.params.max_g * 0.5
+				orbit_speed_kmh = maxf(sqrt(radius_m * 9.81 * g_avail) * 3.6, ORBIT_MIN_SPEED_KMH)
+			# 关键：轨道速度必须比长机快，否则只能跟在后面
+			orbit_speed_kmh = maxf(orbit_speed_kmh, leader_speed_kmh * 1.6)
+
+			# 角速度 = 线速度 / 半径
+			var orbit_speed_px := orbit_speed_kmh / 3.6 * Aircraft.PIXELS_PER_METER
+			var ang_speed := orbit_speed_px / maxf(radius, 1.0)
+			# 按 squad_index 均匀错开相位
+			var members_count := maxi(squad.members.size() - 1, 1)
+			var phase := float(slot - 1) * (TAU / float(members_count))
+			var angle := Time.get_ticks_msec() / 1000.0 * ang_speed + phase
+
+			aircraft.target_position = center + Vector2(cos(angle), sin(angle)) * radius
+			aircraft.ai_override_pursuit = true
+			aircraft.target_speed_kmh = orbit_speed_kmh
+			aircraft.orbit_speed_cap = orbit_speed_kmh / 3.6
 			# 高度匹配长机
 			if aircraft.flat_altitude:
 				aircraft.set_target_tier(leader.get_altitude_tier())
 			else:
 				aircraft.target_altitude = leader.altitude
+
+			# ── 自爆攻击模式（最外圈 UAV 飞向敌人自爆）──
+			# 根据编队规模指派自爆机：<8 架 = 1 架自爆，≥8 架 = 2 架自爆
+			# 自爆机 = squad_index 最大的 1~2 架
+			if shield_leader and enable_combat:
+				var _total_members := squad.members.size() - 1
+				var _kamikaze_count := 2 if _total_members >= 8 else 1
+				var _is_kamikaze := squad_index > _total_members - _kamikaze_count
+
+				if _is_kamikaze:
+					# 寻找最近的敌人（不限距离，自爆机可以飞出 Sentinel 范围追杀）
+					_scan_timer -= delta
+					if _scan_timer <= 0.0:
+						_scan_timer = 0.5
+						var best_enemy: CombatUnit = null
+						var best_edist := INF
+						for child in leader.get_parent().get_children():
+							if child is CombatUnit and child.team != aircraft.team and not child.is_destroyed:
+								var d: float = child.global_position.distance_to(aircraft.global_position)
+								if d < best_edist:
+									best_edist = d
+									best_enemy = child
+						_current_target = best_enemy if best_enemy else null
+
+					if _current_target and is_instance_valid(_current_target) and not _current_target.is_destroyed:
+						# 目标超出光环范围：放弃追击，返回轨道
+						var tgt_to_leader: float = _current_target.global_position.distance_to(leader.global_position)
+						if tgt_to_leader > SHIELD_ENGAGE_RANGE:
+							_current_target = null
+							aircraft.clear_combat_target()
+
+					if _current_target and is_instance_valid(_current_target) and not _current_target.is_destroyed:
+						# 飞向敌人（前置追踪）
+						var tgt_fwd := Vector2(sin(_current_target.heading), -cos(_current_target.heading))
+						var dist_to_tgt := aircraft.global_position.distance_to(_current_target.global_position)
+						var lead_time := dist_to_tgt / maxf(aircraft.speed * Aircraft.PIXELS_PER_METER, 1.0)
+						var lead_pos := _current_target.global_position + tgt_fwd * _current_target.speed * Aircraft.PIXELS_PER_METER * lead_time * 0.8
+						aircraft.target_position = lead_pos
+						aircraft.ai_override_pursuit = true
+						aircraft.orbit_speed_cap = 0.0  # 解除限速，全速追击
+						if aircraft.params:
+							aircraft.target_speed_kmh = aircraft.params.max_speed
+						aircraft.set_combat_target(_current_target)
+
+						# 自爆判定：100px 内触发
+						if dist_to_tgt < 100.0:
+							# AOE 视觉指示
+							var mm := aircraft.missile_manager as MissileManager
+							if mm:
+								mm._aoe_zones.append({
+									"pos": aircraft.global_position,
+									"altitude": aircraft.altitude,
+									"radius_px": 50.0,
+									"time_left": 1.0,
+									"max_time": 1.0,
+									"damage": 0.0,
+									"team": aircraft.team,
+									"hit_set": { aircraft.get_instance_id(): true },
+								})
+								mm.queue_redraw()
+							# 对敌人造成导弹级伤害
+							var dmg := 80.0
+							if aircraft.params and aircraft.params.missile:
+								dmg = aircraft.params.missile.damage
+							_current_target.take_damage(dmg)
+							EventLogger.log_event("KAMIKAZE", aircraft.callsign,
+								"self-destruct hit %s (dmg=%.0f)" % [_current_target.callsign, dmg])
+							# UAV 自毁
+							aircraft.take_damage(9999.0)
+							_current_target = null
+							return
+						return  # 自爆机不走后续轨道逻辑
+			return
+
 		elif not waypoints.is_empty():
 			var target_wp := waypoints[current_waypoint_index]
 			if aircraft.global_position.distance_to(target_wp) < arrival_distance:
 				current_waypoint_index = (current_waypoint_index + 1) % waypoints.size()
 			aircraft.target_position = waypoints[current_waypoint_index]
 
-		# 简单扫描：定期寻找最近的敌人（绕长机模式下更高频，便于快速反应来袭目标）
+		# 简单扫描：只有非 shield_leader 的普通 UAV 才会进入交战模式
 		_scan_timer -= delta
-		if _scan_timer <= 0.0 and enable_combat:
+		if _scan_timer <= 0.0 and enable_combat and not shield_leader:
 			_scan_timer = 1.0 if orbit_squad_leader else 3.0
 			_try_engage_simple()
 		return
 
-	# 交战：直线前置追踪，不做任何花哨战术
+	# 交战：前置追踪
 	# flat_altitude（生存模式）下忽略高度差
 	var dist: float
 	if aircraft.flat_altitude:
@@ -457,15 +669,12 @@ func _process_simple(delta: float) -> void:
 		dist = Aircraft.effective_distance_px(aircraft.global_position, aircraft.altitude, _current_target.global_position, _current_target.altitude)
 
 	# ── 护驾系统（orbit_squad_leader 专用）──
-	# 如果僚机被长机吸引在身边（Sentinel 小队），它不得超出护驾半径追击目标
-	# 也不得追击已远离护驾半径的目标
 	if orbit_squad_leader and squad and squad.leader and is_instance_valid(squad.leader) \
 			and not squad.leader.is_destroyed:
 		var leader_pos := squad.leader.global_position
 		var self_to_leader := aircraft.global_position.distance_to(leader_pos)
 		var tgt_to_leader := _current_target.global_position.distance_to(leader_pos)
 		if self_to_leader > ORBIT_TETHER_RADIUS or tgt_to_leader > ORBIT_TETHER_RADIUS:
-			# 超出护驾范围：立即放弃目标，返回绕长机飞行
 			aircraft.clear_combat_target()
 			aircraft.ai_override_pursuit = false
 			_current_target = null
@@ -490,53 +699,75 @@ func _process_simple(delta: float) -> void:
 	aircraft.set_combat_target(_current_target)
 	aircraft.ai_override_pursuit = true
 
-	# ── 近距绕圈疲劳检测 ──
-	# 近距离 + 双方偏置角大（互相绕圈）→ 累计疲劳
-	var close_threshold := 400.0  # 像素，约800m
-	if dist < close_threshold:
-		var to_tgt := (_current_target.global_position - aircraft.global_position).normalized()
-		var my_fwd := Vector2(sin(aircraft.heading), -cos(aircraft.heading))
-		var aot := absf(my_fwd.angle_to(to_tgt))
-		if aot > deg_to_rad(40.0):
-			_simple_orbit_time += delta
+	# ── 护驾 UAV 跳过发呆机制（始终保持追踪） ──
+	var _is_sentinel_escort := orbit_squad_leader and shield_leader
+
+	if not _is_sentinel_escort:
+		# ── 近距绕圈疲劳检测（非护驾 UAV 才用）──
+		var close_threshold := 400.0
+		if dist < close_threshold:
+			var to_tgt := (_current_target.global_position - aircraft.global_position).normalized()
+			var my_fwd := Vector2(sin(aircraft.heading), -cos(aircraft.heading))
+			var aot := absf(my_fwd.angle_to(to_tgt))
+			if aot > deg_to_rad(40.0):
+				_simple_orbit_time += delta
+			else:
+				_simple_orbit_time = maxf(_simple_orbit_time - delta * 0.5, 0.0)
 		else:
-			_simple_orbit_time = maxf(_simple_orbit_time - delta * 0.5, 0.0)
-	else:
-		_simple_orbit_time = maxf(_simple_orbit_time - delta * 2.0, 0.0)
+			_simple_orbit_time = maxf(_simple_orbit_time - delta * 2.0, 0.0)
 
-	# 绕圈超过阈值 → 触发发呆
-	if not _simple_confused and _simple_orbit_time > _simple_orbit_threshold:
-		_simple_confused = true
-		_simple_confused_timer = randf_range(1.5, 3.0)
-		# 记住当前朝向，发呆时就直飞这个方向
-		_simple_confused_heading = Vector2(sin(aircraft.heading), -cos(aircraft.heading))
-		_simple_orbit_time = 0.0
-		_simple_orbit_threshold = randf_range(8.0, 14.0)
-
-	# ── 发呆状态：直飞不追踪 ──
-	if _simple_confused:
-		_simple_confused_timer -= delta
-		if _simple_confused_timer <= 0.0:
-			_simple_confused = false
+		if not _simple_confused and _simple_orbit_time > _simple_orbit_threshold:
+			_simple_confused = true
+			_simple_confused_timer = randf_range(1.5, 3.0)
+			_simple_confused_heading = Vector2(sin(aircraft.heading), -cos(aircraft.heading))
 			_simple_orbit_time = 0.0
 			_simple_orbit_threshold = randf_range(8.0, 14.0)
-		else:
-			# 直飞当前方向，不追踪目标
-			aircraft.target_position = aircraft.global_position + _simple_confused_heading * 1000.0
-			aircraft.target_altitude = aircraft.altitude
-			aircraft.target_speed_kmh = aircraft.params.max_speed * 0.5 if aircraft.params else 600.0
-			return
 
-	# 简单前置追踪
+		if _simple_confused:
+			_simple_confused_timer -= delta
+			if _simple_confused_timer <= 0.0:
+				_simple_confused = false
+				_simple_orbit_time = 0.0
+				_simple_orbit_threshold = randf_range(8.0, 14.0)
+			else:
+				aircraft.target_position = aircraft.global_position + _simple_confused_heading * 1000.0
+				aircraft.target_altitude = aircraft.altitude
+				aircraft.target_speed_kmh = aircraft.params.max_speed * 0.5 if aircraft.params else 600.0
+				return
+
+	# 前置追踪（护驾 UAV 用更激进的预判系数）
 	var tgt_fwd := Vector2(sin(_current_target.heading), -cos(_current_target.heading))
-	var lead_time := dist / maxf(aircraft.speed * Aircraft.PIXELS_PER_METER, 1.0)
-	var lead_pos := _current_target.global_position + tgt_fwd * _current_target.speed * Aircraft.PIXELS_PER_METER * lead_time * 0.5
+	var closing_speed := maxf(aircraft.speed + _current_target.speed, 1.0) * Aircraft.PIXELS_PER_METER
+	var lead_time := dist / closing_speed
+	var lead_factor := 1.0 if _is_sentinel_escort else 0.5  # 护驾 UAV 100% 前置，普通 50%
+	var lead_pos := _current_target.global_position + tgt_fwd * _current_target.speed * Aircraft.PIXELS_PER_METER * lead_time * lead_factor
 	aircraft.target_position = lead_pos
 	if aircraft.flat_altitude:
 		aircraft.set_target_tier(_current_target.get_altitude_tier())
 	else:
 		aircraft.target_altitude = _current_target.altitude
-	aircraft.target_speed_kmh = aircraft.params.max_speed * 0.7 if aircraft.params else 800.0
+	# 护驾 UAV 全速追击，普通 UAV 70% 速度
+	aircraft.target_speed_kmh = aircraft.params.max_speed if _is_sentinel_escort else (aircraft.params.max_speed * 0.7 if aircraft.params else 800.0)
+
+## shield_leader 专用：只攻击进入护驾范围的敌人
+## shield_leader 专用：敌人进入光环范围（900px）时交战
+const SHIELD_ENGAGE_RANGE := 1500.0   ## 护卫交战范围（像素，~3000m）——比光环范围更大
+func _try_engage_in_tether_range() -> void:
+	if not squad or not squad.leader or not is_instance_valid(squad.leader):
+		return
+	var leader_pos := squad.leader.global_position
+	var best: CombatUnit = null
+	var best_dist := SHIELD_ENGAGE_RANGE
+	for child in aircraft.get_parent().get_children():
+		if child is CombatUnit and child.team != aircraft.team and not child.is_destroyed:
+			var d: float = child.global_position.distance_to(leader_pos)
+			if d < best_dist:
+				best_dist = d
+				best = child
+	if best:
+		_current_target = best
+		_engage_timer = 0.0
+		aircraft.orbit_speed_cap = 0.0  # 交战时解除轨道限速
 
 func _try_engage_simple() -> void:
 	var best: CombatUnit = null
@@ -642,12 +873,12 @@ func _process_squad_follow(delta: float) -> void:
 	aircraft.keep_target_on_arrival = true
 	aircraft.formation_mode = true
 	aircraft._formation_leader = leader
-	current_tactic_name = "编队跟随"
+	current_tactic_name = "TACTIC_FOLLOW_FORMATION"
 
 	# 回归编队时渐变混合度（从自主飞行平滑过渡到完全托管）
 	if _formation_blend < 1.0:
 		_formation_blend = minf(_formation_blend + delta * 0.5, 1.0)  # ~2秒过渡
-		current_tactic_name = "归队"
+		current_tactic_name = "TACTIC_REJOIN"
 	else:
 		_rejoining = false  # 完全融入编队，结束归队状态
 	aircraft._formation_blend = _formation_blend
@@ -675,7 +906,7 @@ func _process_squad_follow(delta: float) -> void:
 	# 延迟过后突然更新 slot_pos，会触发 aircraft 编队代码的中距追击分支 → 自然曲线转弯
 	if _formation_react_timer > 0.0:
 		_formation_react_timer -= delta
-		current_tactic_name = "阵型调整中"
+		current_tactic_name = "TACTIC_FORMATION_ADJUST"
 	else:
 		if slot_pos != Vector2.INF:
 			aircraft.target_position = slot_pos
@@ -716,7 +947,7 @@ func _process_squad_follow(delta: float) -> void:
 					_squad_free_engaging = true  # 享有 range grace，避免刚进就被踢出
 					_leader_target_lost_timer = 0.0
 					_squad_range_grace_timer = 0.0
-					current_tactic_name = "自由交战"
+					current_tactic_name = "TACTIC_FREE_ENGAGE"
 					EventLogger.log_event("AI_STATE", _log_name(),
 						"SQUAD FREE engage → %s" % _log_target_name(tgt))
 					return
@@ -748,7 +979,7 @@ func _process_squad_follow(delta: float) -> void:
 			_squad_free_engaging = false  # 协同攻击路径互斥
 			_leader_target_lost_timer = 0.0
 			_squad_range_grace_timer = 0.0
-			current_tactic_name = "协同攻击"
+			current_tactic_name = "TACTIC_TEAM_ATTACK"
 	else:
 		_engage_delay = 0.0  # 长机无目标时重置延迟
 
@@ -848,7 +1079,7 @@ func _end_cover_engagement() -> void:
 	aircraft.clear_combat_target()
 	aircraft.ai_override_pursuit = false
 	aircraft.lod_level = 1
-	current_tactic_name = "回归编队"
+	current_tactic_name = "TACTIC_RETURN_FORMATION"
 
 # ══════════════════════════════════════════════
 #  ENGAGE — 交战（战术机动决策树）
@@ -1847,6 +2078,18 @@ func _get_missile_manager() -> MissileManager:
 		return null
 	for child in root.get_children():
 		if child is MissileManager:
+			return child
+	return null
+
+# ══════════════════════════════════════════════
+#  导弹拦截（shield_leader 模式）
+# ══════════════════════════════════════════════
+
+
+## 从 Aircraft 子节点找到其 AIController
+func _find_member_ai(ac: Aircraft) -> AIController:
+	for child in ac.get_children():
+		if child is AIController:
 			return child
 	return null
 

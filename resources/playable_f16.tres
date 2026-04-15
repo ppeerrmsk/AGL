@@ -8,10 +8,10 @@
 [resource]
 script = ExtResource("1")
 id = &"f16"
-display_name = "F-16C Block 50"
+display_name = "AIRCRAFT_F16_DISPLAY"
 codename = "SmartFalcon"
-card_tags = PackedStringArray("热诱弹", "均衡机动", "SARH 导弹")
-card_desc = "多用途战斗机。携带热诱弹可 100% 规避来袭导弹，攻守兼备的入门之选。"
+card_tags = PackedStringArray("TAG_HEAT_FLARE", "TAG_BALANCED_MANEUVER", "TAG_SARH_MISSILE")
+card_desc = "AIRCRAFT_F16_CARDDESC"
 base_params = ExtResource("2")
 radar_range_mult = 0.3333333
 max_speed_mult = 1.15
