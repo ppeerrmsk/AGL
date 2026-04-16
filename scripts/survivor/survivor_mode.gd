@@ -1730,8 +1730,12 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 		_ch47_serial += 1
 		enemy.callsign = "CHK-%02d" % _ch47_serial
 	elif etype == EnemyType.F47:
-		_f47_serial += 1
-		enemy.callsign = "ACE-%02d" % _f47_serial  # ACE = 王牌
+		# 呼号由 AceSquad 模块的 _serial 管理，这里用 _ace_squad 的计数器
+		if _ace_squad:
+			_ace_squad._serial += 1
+			enemy.callsign = "%s-%02d" % [_ace_squad.callsign_prefix, _ace_squad._serial]
+		else:
+			enemy.callsign = "ACE-%02d" % (randi() % 99 + 1)
 
 	enemy.position = spawn_pos
 	enemy.initial_heading_deg = heading_deg
