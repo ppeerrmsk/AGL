@@ -182,8 +182,9 @@
 | 协同齐射广播 | `ai_controller.gd` broadcast_salvo + process_salvo |
 | 赫尔贝特轮机动 | `herbst_maneuver.gd` HerbstManeuver（DECEL→TURN 180°→ACCEL，15s 冷却，可重复） |
 | 光学隐形（F-47） | `aircraft.gd` is_cloaked / _cloak_alpha → _draw() 淡出 + is_lock_immune() + missile.gd 丢失制导 |
-| F-47 战术状态机 | `survivor_mode.gd` F47Tactic enum（INTRO/ORBIT/ATTACK_RUN/SCATTER/REGROUP） |
-| F-47 隐形计时器 | `survivor_mode.gd` _update_f47_cloak — 60s 周期 / 5.5s 隐形 / 0.5s 淡入淡出 |
+| 王牌中队基类 | `survivor/ace_squad.gd` AceSquad — 通用飞机类 BOSS 框架（角色分配/隐形/force_engage） |
+| F-47 王牌小队 | `survivor/f47_ace_squad.gd` F47AceSquad extends AceSquad — 具体战斗参数 + HerbstManeuver + 齐射 |
+| F-47 隐形系统 | `ace_squad.gd` _update_cloak — 60s 周期 / 5.5s 隐形 / 0.5s 淡入淡出（可配置） |
 | 交战主逻辑 | `ai_controller.gd:715` _process_engage |
 | └ 长机目标丢失宽限（防抖动） | `ai_controller.gd:748` |
 | └ 长机目标超射程宽限 | `ai_controller.gd:764` |

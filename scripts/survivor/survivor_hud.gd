@@ -729,12 +729,11 @@ func _build_boss_panel() -> void:
 func _update_boss_panel() -> void:
 	if _boss_panel == null:
 		return
-	if not game_scene or not ("_f47_squad_active" in game_scene) or not game_scene._f47_squad_active:
+	if not game_scene or not ("_ace_squad" in game_scene) or not game_scene._ace_squad or not game_scene._ace_squad.active:
 		_boss_panel.visible = false
 		return
 
-	# 用 _f47_squad_all（含已击毁成员）保留击坠状态显示
-	var all_members: Array = game_scene._f47_squad_all if ("_f47_squad_all" in game_scene) else game_scene._f47_squad_members
+	var all_members: Array = game_scene._ace_squad.get_display_members()
 	if all_members.is_empty():
 		_boss_panel.visible = false
 		return

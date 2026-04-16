@@ -1,0 +1,74 @@
+## F-47 王牌狙击小队
+## 继承 AceSquad 基类，定义 F-47 特有的配置和行为：
+## - 赫尔贝特轮 J-Turn 机动
+## - 光学隐形
+## - 协同齐射
+## - 近距狗斗 / 远距导弹打击的二二组合战术参数
+class_name F47AceSquad
+extends AceSquad
+
+func _init() -> void:
+	squad_size = SurvivorData.F47_SQUAD_SIZE
+	intro_duration = SurvivorData.F47_INTRO_DURATION
+	intro_pass_dist = SurvivorData.F47_INTRO_PASS_DIST
+	callsign_prefix = "ACE"
+	boss_name = "ACE SQUAD"
+	enemy_type = 15  # EnemyType.F47
+
+	# 光学隐形
+	cloak_enabled = true
+	cloak_cycle = SurvivorData.F47_CLOAK_CYCLE
+	cloak_duration = SurvivorData.F47_CLOAK_DURATION
+	cloak_fade = SurvivorData.F47_CLOAK_FADE
+
+	# 距离
+	standoff_radius_min = SurvivorData.F47_STANDOFF_RADIUS_MIN
+	standoff_radius_max = SurvivorData.F47_STANDOFF_RADIUS_MAX
+
+## 每架 F-47 的额外配置
+func _configure_spawn(member: Aircraft, index: int, squad: Squad, ai: AIController) -> void:
+	# 挂载赫尔贝特轮机动模块
+	var herbst := HerbstManeuver.new()
+	herbst.name = "HerbstManeuver"
+	member.add_child(herbst)
+
+	# 队长指挥齐射
+	if index == 0 and ai:
+		ai.salvo_leader = true
+
+## 近距纠缠组：最大 G 力转弯 + 减速拉到最紧
+func _configure_close_fighter_combat(member: Aircraft) -> void:
+	if not member.params or not member.params.combat:
+		return
+	var c := member.params.combat
+	c.combat_bank_aggression = 1.5
+	c.combat_full_bank_diff = 0.05
+	c.combat_half_bank_diff = 0.01
+	c.approach_speed_mult = 1.6
+	c.maneuver_speed_mult = 0.70
+	c.closing_speed_mult = 1.4
+	c.intercept_range_mult = 1.6
+	c.ab_cooldown = 0.5
+	c.turn_slow_speed_mult = 0.65
+	c.turn_slow_angle = 30.0
+	c.turn_slow_max_angle = 90.0
+
+## 远距攻击组：全速冲刺 + 快速掉头 + 猛刹转弯
+func _configure_ranged_striker_combat(member: Aircraft) -> void:
+	if not member.params or not member.params.combat:
+		return
+	var c := member.params.combat
+	c.combat_bank_aggression = 1.3
+	c.combat_full_bank_diff = 0.06
+	c.combat_half_bank_diff = 0.015
+	c.approach_speed_mult = 1.8
+	c.maneuver_speed_mult = 0.80
+	c.closing_speed_mult = 1.6
+	c.intercept_range_mult = 2.5
+	c.ab_cooldown = 0.5
+	c.overshoot_speed_margin = 1.3
+	c.overshoot_decel_range = 0.8
+	c.overshoot_ab_range = 1.0
+	c.turn_slow_speed_mult = 0.70
+	c.turn_slow_angle = 35.0
+	c.turn_slow_max_angle = 100.0
