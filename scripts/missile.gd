@@ -180,29 +180,56 @@ func _draw_data_label() -> void:
 	if not _font:
 		_font = ThemeDB.fallback_font
 	var display_name: String = params.display_name if params else "MSL"
-	var speed_kmh := speed * 3.6
-	var mach := speed_kmh / 1225.0
 	var heading_deg := rad_to_deg(heading)
 	if heading_deg < 0:
 		heading_deg += 360.0
+
+	# 到目标的距离
+	var dist_to_tgt_m := 0.0
+	if target and is_instance_valid(target) and not target.is_destroyed:
+		dist_to_tgt_m = global_position.distance_to(target.global_position) / 0.5  # PIXELS_PER_METER
+
+	# 高度：优先使用目标的 flat_altitude 模式判断（生存模式用 tier 标签）
+	var alt_str: String
+	var use_flat := target and is_instance_valid(target) and target.flat_altitude
+	if use_flat:
+		var tier := CombatUnit.AltitudeTier.MID
+		if altitude < 3500.0:
+			tier = CombatUnit.AltitudeTier.LOW
+		elif altitude >= 7500.0:
+			tier = CombatUnit.AltitudeTier.HIGH
+		alt_str = "ALT %s" % CombatUnit.TIER_NAMES[tier]
+	else:
+		alt_str = "ALT %dm" % roundi(altitude)
+
+	var speed_kmh := speed * 3.6
+	var mach := speed_kmh / 1225.0
 	var time_left := params.max_lifetime - age if params else 0.0
 
 	var lines: PackedStringArray = PackedStringArray()
 	lines.append(display_name)
 	lines.append("HDG %03d" % roundi(heading_deg))
 	lines.append("M%.2f" % mach)
-	lines.append("ALT %dm" % roundi(altitude))
+	# 高度
+	lines.append(alt_str)
+	# 到目标距离
+	if dist_to_tgt_m > 0.0:
+		if dist_to_tgt_m < 1000.0:
+			lines.append("RNG %dm" % roundi(dist_to_tgt_m))
+		else:
+			lines.append("RNG %.1fkm" % (dist_to_tgt_m / 1000.0))
+	# 制导状态
 	if has_guidance:
 		lines.append("GUIDE")
 	elif is_flare_jammed:
 		lines.append("JAMMED")
 	else:
 		lines.append("NO GDE")
-	if age < params.motor_burn_time:
+	# 发动机状态
+	if params and age < params.motor_burn_time:
 		lines.append("MOTOR")
 	else:
 		lines.append("COAST")
-	lines.append("T-%.1fs" % maxf(time_left, 0.0))
 
 	var inv_rot := -rotation
 	var font_size := 10

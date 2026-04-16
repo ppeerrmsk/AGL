@@ -72,6 +72,7 @@ func _draw() -> void:
 	if is_hovered:
 		_draw_radar_circle()
 	_draw_sam_icon()
+	_draw_lock_indicator()
 	_draw_data_label()
 
 ## 圆形雷达范围（替代扇形）
@@ -139,12 +140,27 @@ func _draw_data_label() -> void:
 	var line_height := 12.0
 	var label_offset := Vector2(14, -8)
 
+	# 计算到玩家（team 0）的距离
+	var dist_m := 0.0
+	var parent_node := get_parent()
+	if parent_node:
+		for node in parent_node.get_children():
+			if node is Aircraft and node.team == 0 and not node.is_destroyed:
+				dist_m = global_position.distance_to(node.global_position) / PIXELS_PER_METER
+				break
+
 	var lines: PackedStringArray = PackedStringArray()
+	# 名称
 	lines.append(display_name)
-	lines.append("HP %d" % roundi(hp))
+	# 高度
+	lines.append("ALT GND")
+	# 距离
+	if dist_m < 1000.0:
+		lines.append("RNG %dm" % roundi(dist_m))
+	else:
+		lines.append("RNG %.1fkm" % (dist_m / 1000.0))
+	# 导弹数
 	lines.append("MSL %d" % missiles_remaining)
-	if combat_target:
-		lines.append("LOCK")
 
 	var inv_rot := -rotation
 	var max_w := 0.0

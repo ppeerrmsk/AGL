@@ -355,6 +355,35 @@ const COMMANDER_SQUAD_MAX := 5       ## 指挥 UAV 自带僚机最多数
 const COMMANDER_MAX_SQUAD := 9       ## 指挥 UAV 分队总上限（含自己；实际招募限制在 CommanderAura.MAX_WINGMEN=8）
 const XP_PER_KILL_COMMANDER := 50    ## 指挥 UAV 击杀经验
 
+# ── Adds（杂兵）──
+# Adds = 无反击、无威胁、纯经验奖励的单位；走独立刷新系统（族群 Flock），
+# 不占用 Token 预算，也不受远距清理影响（它们沿固定航线穿越战场）。
+# Adds（杂兵）类敌人不走随机刷新，由未来的事件系统触发 spawn。
+# 以下常量只定义"单次波次生成什么样的阵型" — 不再有解锁等级/刷新间隔/首次延迟。
+
+## Tu-160 白天鹅（横列 4 架）
+const XP_PER_KILL_TU160 := 60        ## Tu-160 击杀经验（杂兵级，略高于 MiG 的基础 40）
+const TU160_FLOCK_SIZE := 4          ## 每次波次的轰炸机数量
+const TU160_FLIGHT_DISTANCE := 8000.0  ## Tu-160 从起点到终点的直线距离（像素）
+const TU160_LATERAL_SPACING := 260.0 ## 编队成员之间的横向间距（像素）
+const TU160_STAGGER_SPACING := 180.0 ## 前后错位距离（像素）
+
+## AH-64 Apache（Adds 攻击直升机，4 架菱形层次编队）
+const XP_PER_KILL_AH64 := 45
+const AH64_FLOCK_SIZE := 4           ## 4 架编队
+const AH64_FLIGHT_DISTANCE := 6000.0 ## 直升机慢，航线短一些
+const AH64_FORWARD_SPACING := 280.0  ## 前后层级间距（像素）
+const AH64_LATERAL_SPACING := 260.0  ## 横向展宽间距（像素）
+
+## CH-47 Chinook（Adds 重型运输机，纵阵 3 架）
+const XP_PER_KILL_CH47 := 55
+
+## 地面单位
+const XP_PER_KILL_GROUND := 25   ## SAM / AA 炮击毁经验（与 UAV 相当）
+const CH47_FLOCK_SIZE := 3
+const CH47_FLIGHT_DISTANCE := 5500.0 ## 更慢，航线更短
+const CH47_COLUMN_SPACING := 320.0   ## Chinook 体型大，间距更大
+
 # ── Token 烈度预算 ─────────────────────────────────────────
 # Token 系统用于精细控制同屏战斗烈度：
 # - 每种敌人消耗不同 Token 值（杂鱼 1~2，精英 4~6）
@@ -368,7 +397,7 @@ const TOKEN_BUDGET_MAX := 45           ## Token 预算绝对上限
 
 ## 每种敌人的 Token 消耗
 ## key 是 survivor_mode.gd::EnemyType 的 int 值
-## UAV=0, UCAV=1, MIG=2, INTERCEPTOR=3, UAV_COMMANDER=4, F86=5, MIG31=6, MIG23=7, F100=8, SU27=9, A7=10, Q5=11
+## UAV=0, UCAV=1, MIG=2, INTERCEPTOR=3, UAV_COMMANDER=4, F86=5, MIG31=6, MIG23=7, F100=8, SU27=9, A7=10, Q5=11, TU160=12
 const TOKEN_COST := {
 	0: 1,   ## UAV        — 最便宜的杂鱼
 	1: 2,   ## UCAV       — 导弹杂鱼
@@ -382,6 +411,9 @@ const TOKEN_COST := {
 	9: 7,   ## Su-27      — 主力威胁 + 眼镜蛇机动（单机/双机出现）
 	10: 3,  ## A-7        — Lancer 亚音速攻击机（机炮+火箭弹编队）
 	11: 4,  ## Q-5        — Lancer 超音速攻击机（机炮+火箭弹编队）
+	12: 0,  ## Tu-160     — Adds 杂兵（独立波次，不占 Token，不被远距清理）
+	13: 0,  ## AH-64      — Adds 直升机（纵阵，独立波次）
+	14: 0,  ## CH-47      — Adds 重型直升机（纵阵，独立波次）
 }
 
 ## 每种敌人的同时存在上限（-1 = 无限制）
@@ -400,6 +432,9 @@ const TOKEN_INSTANCE_CAP := {
 	9: 2,   ## Su-27：精英单机，一次最多 2 台
 	10: -1, ## A-7：编队出现，无硬上限
 	11: -1, ## Q-5：编队出现，无硬上限
+	12: -1, ## Tu-160：Adds 族群波次，数量由独立系统控制
+	13: -1, ## AH-64：Adds 族群波次
+	14: -1, ## CH-47：Adds 族群波次
 }
 
 ## 远距清理

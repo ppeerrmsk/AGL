@@ -16,12 +16,15 @@ var _squad_size_row: HBoxContainer
 var _count_spin: SpinBox
 
 # ── 编队类型枚举（内部）──
-enum FormationType { SINGLE, SQUAD, COMMANDER_SQUAD }
+enum FormationType { SINGLE, SQUAD, COMMANDER_SQUAD, TU160_FLOCK, AH64_FLOCK, CH47_FLOCK }
 
 const FORMATION_NAMES := {
 	FormationType.SINGLE: "单机",
 	FormationType.SQUAD: "普通编队",
 	FormationType.COMMANDER_SQUAD: "指挥UAV小队",
+	FormationType.TU160_FLOCK: "Tu-160 族群波次",
+	FormationType.AH64_FLOCK: "AH-64 纵阵波次",
+	FormationType.CH47_FLOCK: "CH-47 纵阵波次",
 }
 
 # ── 敌机类型标签（与 survivor_mode.EnemyType 对应）──
@@ -39,6 +42,9 @@ const ENEMY_TYPE_LABELS := [
 	{"label": "UAV 机炮无人机", "enum_idx": 0},           # EnemyType.UAV
 	{"label": "UCAV 导弹无人机", "enum_idx": 1},          # EnemyType.UCAV
 	{"label": "Sentinel 指挥 UAV", "enum_idx": 4},      # EnemyType.UAV_COMMANDER
+	{"label": "Tu-160 白天鹅（Adds）", "enum_idx": 12}, # EnemyType.TU160
+	{"label": "AH-64 Apache（Adds 直升机）", "enum_idx": 13}, # EnemyType.AH64
+	{"label": "CH-47 Chinook（Adds 直升机）", "enum_idx": 14}, # EnemyType.CH47
 ]
 
 func _ready() -> void:
@@ -115,6 +121,9 @@ func _build_ui() -> void:
 	_formation_option.add_item("单机", FormationType.SINGLE)
 	_formation_option.add_item("普通编队", FormationType.SQUAD)
 	_formation_option.add_item("指挥UAV小队", FormationType.COMMANDER_SQUAD)
+	_formation_option.add_item("Tu-160 族群波次", FormationType.TU160_FLOCK)
+	_formation_option.add_item("AH-64 纵阵波次", FormationType.AH64_FLOCK)
+	_formation_option.add_item("CH-47 纵阵波次", FormationType.CH47_FLOCK)
 	_formation_option.selected = 0
 	_formation_option.item_selected.connect(_on_formation_changed)
 	formation_row.add_child(_formation_option)
@@ -168,6 +177,32 @@ func _build_ui() -> void:
 	_apply_btn_style(spawn_btn, Color(0.9, 0.5, 0.2))
 	spawn_btn.pressed.connect(_on_spawn_pressed)
 	_content.add_child(spawn_btn)
+
+	_content.add_child(_make_sep())
+
+	# ── 地面单位生成 ──
+	var ground_label := Label.new()
+	ground_label.text = "[ 地面单位 ]"
+	ground_label.add_theme_font_size_override("font_size", 13)
+	ground_label.add_theme_color_override("font_color", Color(0.85, 0.65, 0.3))
+	ground_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_content.add_child(ground_label)
+
+	var sam_btn := Button.new()
+	sam_btn.text = "▶ 敌方 SAM（防空导弹）"
+	sam_btn.add_theme_font_size_override("font_size", 12)
+	_apply_btn_style(sam_btn, Color(0.8, 0.4, 0.2))
+	sam_btn.pressed.connect(_on_spawn_enemy_sam)
+	_content.add_child(sam_btn)
+
+	var aa_btn := Button.new()
+	aa_btn.text = "▶ 敌方 AA 炮（高射炮）"
+	aa_btn.add_theme_font_size_override("font_size", 12)
+	_apply_btn_style(aa_btn, Color(0.8, 0.4, 0.2))
+	aa_btn.pressed.connect(_on_spawn_enemy_aa)
+	_content.add_child(aa_btn)
+
+	_content.add_child(_make_sep())
 
 	# 清空敌人按钮
 	var clear_btn := Button.new()
@@ -232,9 +267,23 @@ func _on_type_changed(idx: int) -> void:
 	if enum_idx == 4:  # EnemyType.UAV_COMMANDER
 		_formation_option.selected = FormationType.COMMANDER_SQUAD
 		_on_formation_changed(FormationType.COMMANDER_SQUAD)
+	elif enum_idx == 12:  # EnemyType.TU160
+		# Tu-160 只能走族群波次（Adds）
+		_formation_option.selected = FormationType.TU160_FLOCK
+		_on_formation_changed(FormationType.TU160_FLOCK)
+	elif enum_idx == 13:  # EnemyType.AH64
+		_formation_option.selected = FormationType.AH64_FLOCK
+		_on_formation_changed(FormationType.AH64_FLOCK)
+	elif enum_idx == 14:  # EnemyType.CH47
+		_formation_option.selected = FormationType.CH47_FLOCK
+		_on_formation_changed(FormationType.CH47_FLOCK)
 
 func _on_formation_changed(idx: int) -> void:
-	_squad_size_row.visible = (idx != FormationType.SINGLE)
+	# 单机 / Adds 族群波次（大小由 SurvivorData 定义，固定）不需要 size spinbox
+	_squad_size_row.visible = (idx != FormationType.SINGLE \
+			and idx != FormationType.TU160_FLOCK \
+			and idx != FormationType.AH64_FLOCK \
+			and idx != FormationType.CH47_FLOCK)
 
 func _on_spawn_pressed() -> void:
 	if not game_scene or not is_instance_valid(game_scene):
@@ -257,12 +306,39 @@ func _on_spawn_pressed() -> void:
 				game_scene._spawn_squad(enum_idx, size)
 			FormationType.COMMANDER_SQUAD:
 				game_scene._spawn_commander_squad(size)
+			FormationType.TU160_FLOCK:
+				# 族群波次：大小由 SurvivorData.TU160_FLOCK_SIZE 定义，size spinbox 忽略
+				game_scene._spawn_tu160_flock()
+			FormationType.AH64_FLOCK:
+				game_scene._spawn_ah64_flock()
+			FormationType.CH47_FLOCK:
+				game_scene._spawn_ch47_flock()
 
 	print("[DebugSpawn] spawned %d × %s [%s]" % [
 		repeats,
 		FORMATION_NAMES.get(formation, "?"),
 		ENEMY_TYPE_LABELS[_type_option.selected]["label"],
 	])
+
+func _on_spawn_enemy_sam() -> void:
+	if not game_scene or not is_instance_valid(game_scene):
+		return
+	if game_scene.is_game_over:
+		return
+	var repeats: int = int(_count_spin.value)
+	for r in range(repeats):
+		game_scene._spawn_enemy_sam()
+	print("[DebugSpawn] spawned %d × 敌方SAM" % repeats)
+
+func _on_spawn_enemy_aa() -> void:
+	if not game_scene or not is_instance_valid(game_scene):
+		return
+	if game_scene.is_game_over:
+		return
+	var repeats: int = int(_count_spin.value)
+	for r in range(repeats):
+		game_scene._spawn_enemy_aa()
+	print("[DebugSpawn] spawned %d × 敌方AA炮" % repeats)
 
 func _on_clear_pressed() -> void:
 	if not game_scene or not is_instance_valid(game_scene):
@@ -273,6 +349,11 @@ func _on_clear_pressed() -> void:
 			var ac: Aircraft = child
 			if ac.team != 0 and not ac.is_destroyed:
 				ac._start_destroy()
+				cleared += 1
+		elif child is GroundUnit:
+			var gu: GroundUnit = child
+			if gu.team != 0 and not gu.is_destroyed:
+				gu.take_damage(9999.0)
 				cleared += 1
 	print("[DebugSpawn] cleared %d enemies" % cleared)
 

@@ -123,7 +123,7 @@ Resource
 | **Gladiator（斗士）** | 积极近身狗斗，拉近距离，高转弯激进度，低自保 | `gladiator_combat.tres` | F-86, MiG-23 |
 | **Lancer（骑士/打带跑）** | 高速一次性突击，闭合率不足即脱离，不缠斗 | `lancer_combat.tres` | J-7（轻量）, F-100（中量编队）, MiG-31（顶级单机） |
 | **Schemer（策士）** | 特殊机制（光环 buff/远距狙击/隐身），玩家靠近即脱离 | — | Sentinel 指挥 UAV |
-| **Adds（杂鱼）** | UAV/UCAV/地面单位，低威胁+高经验 | — | UAV / UCAV / 地面单位 |
+| **Adds（杂兵）** | 无反击能力，直线飞过战场，纯经验奖励；族群波次（非编队） | — | Tu-160（战略轰炸机）。UAV/UCAV 虽然 Token 很便宜但仍会反击 + 受刷怪系统管理，设计上**不归类为 Adds** |
 | **主力威胁** | 全能 BFM 战术 + 导弹缠斗 | `default_combat.tres` | MiG-29 |
 
 ⚠ 这些原型名称是**纯内部设计词汇**，不要写进玩家可见 UI / debug 面板 / `display_name`。仅可出现在源码注释、`.tres` 注释、设计文档里。
@@ -148,6 +148,37 @@ Resource
 | `SU27(9)` | Su-27 | Gladiator+眼镜蛇 | `enemy_su27.tres` | 7 | **2** | 8 | 单机 | `:1263` | `:1443` |
 | `A7(10)` | A-7 | Lancer 亚音速攻击 | `enemy_a7.tres` + `a7_gun.tres` + `a7_rocket.tres` | 3 | ∞ | 3 | 编队 | `:1294` | `:1525` |
 | `Q5(11)` | Q-5 | Lancer 超音速攻击 | `enemy_q5.tres` + `q5_gun.tres` + `q5_rocket.tres` | 4 | ∞ | 5 | 编队 | `:1296` | `:1538` |
+| `TU160(12)` | Tu-160 "白天鹅" | **Adds 杂兵** | `enemy_tu160.tres`（无武器） | **0** | ∞ | 事件触发 | **族群 Flock**（横列 4 架） | `_create_enemy` Tu160 case | AI 简化(simple_ai) |
+| `AH64(13)` | AH-64 Apache | **Adds 直升机（对地）** | `enemy_ah64.tres` + `ah64_gun.tres`（M230 30mm）+ `ah64_rocket.tres`（Hydra 70）+ 1 枚热诱弹 | **0** | ∞ | 事件触发 | **菱形 Flock** 4 架（队长前 + 左右两翼 + 殿后） | `_create_enemy` AH64 case | simple_ai + `ground_combat_only=true` + `attack_air_targets=false` |
+| `CH47(14)` | CH-47 Chinook | **Adds 运输直升机** | `enemy_ch47.tres`（1 枚热诱弹，50% 失误概率） | **0** | ∞ | 事件触发 | **纵阵 Flock** 3 架 | `_create_enemy` CH47 case | AI 简化(simple_ai, 与 Tu-160 同) |
+
+**Adds 杂兵分类细节**（目前有 Tu-160 横列波次 + AH-64/CH-47 纵阵波次 + SAM/AA 地面单位五种）：
+- **无反击、无规避、无雷达**：`enable_combat = false` + `radar_range = 0` + `simple_ai`
+- **独立刷新系统**：`_update_tu160_flock`（survivor_mode.gd）自己的 timer，不走 `_update_spawner`
+- **不占 Token**（`TOKEN_COST[12]=0`），实例计入 `_count_enemies()` 但不消耗预算
+- **不被远距清理**（`skip_far_cleanup` meta → `_update_far_cleanup` 跳过）
+- **族群 Flock 而非编队**：4 架直线横向交错排开，各自独立飞向终点，**不使用 `Squad` 类**
+- **一击致命**：HP 60，被 `ENEMY_HP_MISSILE_CAP=75` 保证任何导弹都能一发命中
+- **特殊坠落动画**：`crash_style="bomber"` meta → `_update_destroy` 走侧翻慢坠分支（5 秒，持续 `bank_angle` 累加模拟侧翻）
+- **轰炸机外观**：`silhouette="bomber"` meta → `_draw_bomber_icon()` 大翼展 + 长机身
+- **XP 奖励**：`XP_PER_KILL_TU160 = 60`（略高于 MiG 基础 40，不是"大肥肉"级奖励）
+- **完全被动**：不转弯（单点 waypoint 直线飞）、不规避、**被击中无任何反应**（与 UAV 等普通敌机区别开 — adds 是纯靶子）
+- **跳过 3 个全局敌机系统**（`category=="adds"` meta 检测）：
+  - `_update_hunters` — 不会被指派为玩家追击者
+  - `_update_enemy_waypoints` — 每 8s 的"绕玩家圆周航点"不会覆盖其固定航线
+  - `_update_far_cleanup` — `skip_far_cleanup` meta 使之不受距离清理
+  - 新增 adds 类敌人必须同步排除这些系统，否则会被强制改向追玩家
+- **生命期上限**：`despawn_after` meta 标记 120~150 秒后静默消失（防止 skip_far_cleanup 下无限堆积）
+- **不走随机刷新**：Adds 类敌人**永不**由 `_update_spawner` / 任何 timer 自动出现 —— 由未来的事件系统（紧急事件 / 大地图 A→B 任务）手动调用 `_spawn_tu160_flock()` / `_spawn_ah64_flock()` / `_spawn_ch47_flock()` 触发。Debug 面板也能手动触发用于测试。
+- **新增 Adds 步骤**：创建 tres → 加 EnemyType 枚举 → `survivor_data.gd` 加 `TOKEN_COST/INSTANCE_CAP/XP/FLOCK_SIZE/FLIGHT_DISTANCE/spacing 等几何参数`（不要加 UNLOCK_LEVEL/WAVE_INTERVAL）→ `_create_enemy` 加 base_params/type_tag/AI 分支 → 新增 `_spawn_xxx_flock()` 函数 → `_configure_adds_unit()` 已自动设置 despawn_after 清理 meta → Debug 面板加条目供手动测试
+- **直升机专属细节**（AH-64/CH-47）：
+  - `silhouette="apache"` / `silhouette="chinook"` → `aircraft.gd` 里 `_draw_apache_icon` / `_draw_chinook_icon` 画出旋翼盘 + 旋转叶片
+  - `crash_style="heli"` → 坠落时尾桨失效自旋（大 yaw 旋转 + 中速下坠）
+  - **高度层**：AH-64/CH-47 固定 `AltitudeTier.LOW`（低空突防），Tu-160 固定 `AltitudeTier.HIGH`（战略轰炸）。`_spawn_*_flock` 直接指定单一 tier，不随机
+  - **1 枚热诱弹 + fail_chance**：Aircraft 的 `_update_flares` 里已有现成逻辑（FlareParams.fail_chance）—— 来袭导弹近到 release 距离时 roll 概率，命中失误则这枚导弹永远不会再触发 flare。恰好匹配"只用一次 + 概率触发"的设计。`enable_flare_reload=false`（默认）保证 1 枚用完就没了。
+  - **AH-64 对地武器 + 空中免疫**：挂 M230 30mm 机炮 + Hydra 70 火箭弹。**两处独立防火**：①`AIController.ground_combat_only=true` 保证 `_try_engage_simple` 只选 `GroundUnit` 作为 `_current_target`。②`Aircraft.attack_air_targets=false` 保证 `_auto_gun_scan` 在 `combat_target` 为空时也不会自动扫射路过的空中敌人（否则 Apache 会对穿过机头的玩家开火）。遇到地面敌方时走 `_update_combat_ground_attack` strafing 状态机。
+  - **AH-64 受击散队（jink 机动）**：`scatter_on_damage` meta + `Aircraft.flock_members` 共享引用。任一队员 `_apply_damage` 触发 `_trigger_flock_scatter()` 给所有队友设 `flock_scatter_timer = FLOCK_SCATTER_DURATION (3.5s)` + 随机侧向单位向量。AIController waypoint 分支用时间曲线复合偏移：`sin(progress×π)` 包络 × `sin(progress×τ×1.2)` weave × 侧向 650px ＋ 机头方向 × 200px 前冲 —— 形成明显的 S 型 jink 而非原地压杆。scatter 期间自动清空 `_current_target` 中断地面交战。
+  - **AH-64 菱形编队**：4 架偏移在 `_spawn_ah64_flock` 写死：[0] 队长 (0, 0)、[1/2] 两翼 (-fwd, ±lat)、[3] 殿后 (-2×fwd, 0)，全部沿 `flight_dir`/`lateral_axis` 变换到世界坐标。
 
 **所有 Token / 上限 / 解锁常量** 都在 `survivor_data.gd` 里集中定义：
 - `TOKEN_COST`（`:338`）/ `TOKEN_INSTANCE_CAP`（`:356`）/ `TOKEN_BUDGET_BASE/PER_LEVEL/MAX`（`:331`）

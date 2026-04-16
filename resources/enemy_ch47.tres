@@ -1,0 +1,36 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_flare.tres" id="2"]
+
+[resource]
+script = ExtResource("1")
+display_name = "CH-47"
+is_unmanned = false
+max_hp = 70.0
+armor = 0.0
+max_speed = 310.0
+cruise_speed = 215.0
+stall_speed_base = 50.0
+acceleration = 10.0
+deceleration = 20.0
+g_drag_factor = 5.0
+max_g = 1.5
+max_g_structural = 2.5
+roll_rate = 1.2
+pilot_stamina = 100.0
+stamina_drain_rate = 10.0
+stamina_recovery_rate = 5.0
+max_altitude = 6100.0
+climb_rate_max = 12.0
+thrust_to_weight = 0.25
+drag_coefficient = 0.07
+afterburner_thrust_mult = 1.0
+fuel_capacity = 3000.0
+fuel_rate_normal = 1.2
+fuel_rate_afterburner = 1.2
+radar_range = 0.0
+radar_half_angle = 5.0
+lock_time = 99.0
+flare = ExtResource("2")
+icon_color = Color(0.45, 0.45, 0.35, 1)

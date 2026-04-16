@@ -93,9 +93,26 @@ var max_simultaneous_locks: int = 1
 ## OFF：只对玩家手动指定的 combat_target 发射
 var missile_auto_fire: bool = true
 
+## 是否允许机炮/火箭弹自动射击空中目标
+## false 时 _auto_gun_scan 跳过所有 Aircraft 候选 —— 用于对地专用机型（AH-64 等）
+## 这与 AIController.ground_combat_only 配合：后者防止选空中 combat_target，
+## 前者防止 combat_target 为空时自动扫射路过的空中单位
+var attack_air_targets: bool = true
+
 # --- 击毁 ---
 var _destroy_timer: float = 0.0
-var _destroy_spin: float = 0.0      ## 坠落旋转速度
+var _destroy_spin: float = 0.0      ## 坠落旋转速度（heading 偏航）
+var _destroy_bank_rate: float = 0.0  ## 坠落滚转速度（仅轰炸机侧翻用）
+
+# --- 族群散开（Adds 直升机专用：受击时编队解体 + 扭转闪避）---
+## > 0 时 AIController 在 simple_ai 的 waypoint 分支会对目标点施加时变侧向偏移，
+## 模拟直升机急停侧跨 + 左右 jink 摆动，且中断任何正在进行的交战
+const FLOCK_SCATTER_DURATION: float = 3.5  ## 散开总时长（秒）
+var flock_scatter_timer: float = 0.0
+var flock_scatter_dir: Vector2 = Vector2.ZERO
+## 队友引用（flock_members[0..N-1] 共享同一数组）
+## set_meta("scatter_on_damage", true) 时，_apply_damage 会向所有队友传播 scatter
+var flock_members: Array[Aircraft] = []
 
 # --- 雷达 ---
 
@@ -215,6 +232,8 @@ func _ready() -> void:
 	_trail_ribbon = TrailRibbon.new()
 	_trail_ribbon.ribbon_width = 8.0
 	_trail_ribbon.max_points = 150
+	# 尾迹渲染在飞机图标之下，避免彩带盖住机身（尤其是轰炸机这种大尺寸图标）
+	_trail_ribbon.show_behind_parent = true
 	if team == 0:
 		_trail_ribbon.ribbon_color = Color(0.3, 0.5, 1.0, 0.6)  # 蓝色
 	else:
@@ -961,6 +980,9 @@ func _update_energy_management() -> void:
 		# 战斗最低安全速度：不允许因追踪慢速目标而降到失速边缘
 		var stall_base_kmh := params.stall_speed_base if params else 220.0
 		var combat_min_kmh := stall_base_kmh * 1.8  # 180% 失速速度，留足高G机动余量
+		# 慢目标判据（用于 gun 分支 + overshoot 分支）：目标速度 < 自己巡航的 40%
+		# 这是稳定判据，不依赖 current speed 避免振荡
+		var is_slow_target_persistent := combat_target.speed * 3.6 < cruise * 0.4
 
 		var is_missile_mode := weapon_mode == WeaponMode.MISSILE
 
@@ -1090,7 +1112,17 @@ func _update_energy_management() -> void:
 			var has_overshot := not _in_rear_hemisphere and dist < gun_range * 1.5
 			var recover_speed := tgt_speed_kmh * 0.85
 
-			if is_firing:
+			# ── 慢目标速度约束（直升机/轰炸机/UAV 等）──
+			# 判据：目标速度 < 自己巡航速度的 40%（稳定判据，不依赖 my_kmh，避免振荡）
+			# 目的：阻止下面 _in_rear_hemisphere 分支把玩家拉到 max_speed + AB
+			#       保持在 cruise 附近（充足机动性，同时不超音速冲过头）
+			# 注意：不再进一步降速到 tgt×1.3 —— 太慢会导致 G-lim 过低，转弯半径极大
+			# 反而被动等待目标经过。cruise 是效率与机动性的平衡点
+			var is_slow_target := is_slow_target_persistent
+			if is_slow_target:
+				target_speed_kmh = maneuver_speed  # cruise × maneuver_speed_mult ≈ cruise
+				_set_afterburner(false)
+			elif is_firing:
 				target_speed_kmh = maneuver_speed
 				_set_afterburner(false)
 			elif has_overshot:
@@ -1280,14 +1312,24 @@ func _update_combat(_delta: float) -> void:
 	# ---- 近距过顶 extension ----
 	# 与目标距离小于阈值时追击/开火都会退化，强制沿机头直飞一段时间脱离，
 	# 让正常追击逻辑在飞出后（target 落到后半球 heading_diff>90°）掉头重新接敌。
+	#
+	# 对极慢目标（直升机/轰炸机等，cruise×0.4 以下）：完全禁用 extension
+	#   - 原因：慢目标不会真正威胁到玩家，不需要"拉开距离脱离"
+	#   - 禁用后玩家穿过目标时持续开火（用 lead 计算仍然能准确命中侧向/过顶点）
+	#   - 过顶后 heading_diff>90° 的掉头逻辑 + combat_min 降到 1.3x 失速 → 小半径转弯
+	#     形成"穿过射击→小圈掉头→再穿过"的高效连击，不再大回环
+	var is_slow_tgt_for_overshoot := false
+	if params:
+		is_slow_tgt_for_overshoot = tgt_speed_px * 3.0 < (params.cruise_speed / 3.6 * PIXELS_PER_METER)
 	_overshoot_timer = maxf(_overshoot_timer - _delta, 0.0)
-	if dist < OVERSHOOT_DIST_PX:
-		_overshoot_timer = OVERSHOOT_EXTEND_TIME
-	if _overshoot_timer > 0.0:
-		target_position = my_pos + my_fwd * OVERSHOOT_EXTEND_DIST_PX
-		is_firing = false
-		_gun_lead_heading = heading
-		return
+	if not is_slow_tgt_for_overshoot:
+		if dist < OVERSHOOT_DIST_PX:
+			_overshoot_timer = OVERSHOOT_EXTEND_TIME
+		if _overshoot_timer > 0.0:
+			target_position = my_pos + my_fwd * OVERSHOOT_EXTEND_DIST_PX
+			is_firing = false
+			_gun_lead_heading = heading
+			return
 
 	var is_missile_mode := weapon_mode == WeaponMode.MISSILE
 
@@ -1480,13 +1522,26 @@ func _update_combat_ground_attack() -> void:
 				is_firing = true
 				_gun_lead_heading = heading_to_tgt  # 地面目标静止，直接瞄
 
-## 战术偏好机炮狗斗的动态拦截点选择
-## 根据距离与相对位置在"前置拦截"和"六点钟偏移"之间连续过渡：
-## - 后半球：瞄动态六点钟偏移。距离越近 offset 越大（自动 break-out 脱离过顶），
-##           距离到达 2×gun_range 时收敛到 0.3×gun_range 的紧追
-## - 前半球远距：lead intercept 拉近
-## - 前半球近距：侧向 lag，垂直于敌机航向推开一侧后再咬尾
-## 每帧重算，没有粘滞决策；插值连续，不会在阈值上震荡
+## 智能攻击位置评估（所有机炮攻击共用）
+## ══════════════════════════════════════════════════════════
+##  评估当前几何 → 选最优攻击角度（不是套一个固定公式）：
+##
+##   情况 A — 已经对准目标（机头夹角 < 30° 且在后半球）：
+##       → 直接瞄目标本体，走高效击杀路径（配合 OVERSHOOT 禁用，穿过时持续开火）
+##       → 对慢目标最高效：一次通场直接打死
+##
+##   情况 B — 在后半球但角度未对准（夹角 > 30°）：
+##       → 6 点钟偏移（尾跟位）把自己导入到后半球合适位置
+##       → 偏移被 gun_range × 1.5 封顶，防止对慢目标出现"瞄远离目标的点"
+##
+##   情况 C — 前半球 / 侧翼：
+##       → 前置拦截（lead intercept），瞄目标预测位置
+##       → 玩家切入完成侧向或迎头攻击，穿过后自然落到后半球重新评估
+##
+##  核心原则（用户要求的"永远做这个判断"）：
+##   1. 观察敌机朝向 tgt_fwd + 速度 → 知道目标在往哪飞
+##   2. 计算瞄准对齐度 aim_align → 知道自己现在对得准不准
+##   3. 综合相对位置（后半/前半）+ 对齐度 → 选最优策略
 func _choose_dogfight_pursuit_pos(
 		my_pos: Vector2,
 		dist: float,
@@ -1498,44 +1553,37 @@ func _choose_dogfight_pursuit_pos(
 ) -> Vector2:
 	var gun_range := _gun_range_px()
 
-	# ── 距离分段：远距追实际位置，中距过渡，近距精确战术 ──
-	# 阈值受敌机速度影响：
-	#   速度比 = 敌机速度 / 我的速度（>1 表示敌机更快）
-	#   敌机越快 → 阈值越大 → 维持直追更久（否则追不上）
-	#   敌机越慢 → 阈值越小 → 更早切入战术追踪
-	var speed_ratio := clampf(tgt_speed_px / maxf(my_speed_px, 50.0), 0.5, 2.0)
-	var far_threshold := gun_range * lerpf(2.0, 4.0, clampf(speed_ratio - 0.5, 0.0, 1.0))
-	var tactic_threshold := gun_range * lerpf(1.0, 2.0, clampf(speed_ratio - 0.5, 0.0, 1.0))
+	# ── 当前瞄准对齐度 ──
+	var my_fwd := Vector2(sin(heading), -cos(heading))
+	var to_target := (tgt_pos - my_pos).normalized()
+	var aim_align := my_fwd.dot(to_target)  ## 1.0=完美对准, 0=90°偏, -1=背朝
 
-	if dist > far_threshold:
-		# 远距：直追目标实际位置，最短路径闭合距离
+	# ══════════════════════════════════════
+	# 情况 A：后半球 + 已对准（30° 内）→ 直瞄目标，立即高效开火
+	# ══════════════════════════════════════
+	if in_rear and aim_align > 0.87:  # cos(30°) ≈ 0.866
+		# 玩家机头已经指着目标方向，最优策略就是直线冲进去连续射击
+		# 配合 OVERSHOOT 禁用（慢目标专用），穿过目标时依然开火
+		# 穿过后 in_rear 会变 false，自然切到 C 分支
 		return tgt_pos
 
-	# 计算近距战术目标点
-	var tactic_pos: Vector2
+	# ══════════════════════════════════════
+	# 情况 B：后半球但未对准 → 6 点钟偏移，导入合适位置
+	# ══════════════════════════════════════
 	if in_rear:
-		# 后半球：六点钟偏移，距离越近偏移越大防过顶
+		# 6 点钟偏移：距离越近偏移越大（防冲过）
+		# 上限被 gun_range × 1.5 封顶（约 1500m），避免对慢目标形成远离目标的追踪点
 		var t_six := clampf(dist / (gun_range * 2.0), 0.0, 1.0)
-		var offset_ratio := lerpf(1.8, 0.3, t_six)
-		var six_offset := maxf(80.0, gun_range * offset_ratio)
-		tactic_pos = tgt_pos - tgt_fwd * six_offset
-	else:
-		# 前半球近距：前置拦截点（利用改进的两轮迭代获得更准的前置量）
-		var bullet_speed_px := 525.0  # 默认值
-		if params and params.gun:
-			bullet_speed_px = params.gun.muzzle_velocity * PIXELS_PER_METER
-		var t1 := dist / maxf(bullet_speed_px, 100.0)
-		var lead1 := tgt_pos + tgt_fwd * tgt_speed_px * t1
-		var t2 := my_pos.distance_to(lead1) / maxf(bullet_speed_px, 100.0)
-		tactic_pos = tgt_pos + tgt_fwd * tgt_speed_px * t2
+		var offset_ratio := lerpf(1.0, 0.3, t_six)  ## 近距 1.0× 到远距 0.3×
+		var six_offset := clampf(gun_range * offset_ratio, 80.0, gun_range * 1.5)
+		return tgt_pos - tgt_fwd * six_offset
 
-	if dist > tactic_threshold:
-		# 中距过渡：目标实际位置与战术点之间线性混合
-		var blend := clampf((dist - tactic_threshold) / (far_threshold - tactic_threshold), 0.0, 1.0)
-		return tgt_pos.lerp(tactic_pos, 1.0 - blend)
-
-	# 近距：完全使用战术目标点
-	return tactic_pos
+	# ══════════════════════════════════════
+	# 情况 C：前半球 / 侧翼 → 前置拦截，瞄目标预测位置
+	# ══════════════════════════════════════
+	var closing_rate := maxf(my_speed_px - tgt_speed_px, 30.0)
+	var predict_time := clampf(dist / closing_rate, 0.3, 3.0)
+	return tgt_pos + tgt_fwd * tgt_speed_px * predict_time
 
 ## 战斗参数（带懒加载默认值）
 var _default_combat: CombatParams
@@ -1558,6 +1606,10 @@ func _gun_range_px() -> float:
 func _auto_gun_scan() -> void:
 	# 已有交战目标时由 _update_combat 处理开火
 	if combat_target != null and is_instance_valid(combat_target) and not combat_target.is_destroyed:
+		return
+	# 对地专用机型：永远不对空中目标开火（_auto_gun_scan 仅扫描 Aircraft）
+	if not attack_air_targets:
+		is_firing = false
 		return
 	# 导弹模式不自动扫射
 	if weapon_mode == WeaponMode.MISSILE:
@@ -2498,9 +2550,27 @@ func _apply_damage(amount: float) -> void:
 	hp -= amount
 	EventLogger.log_event("DAMAGE", _log_name(),
 		"took %.0f damage (hp=%.0f→%.0f)" % [amount, old_hp, hp])
+	# 族群散开触发：即使自己会被这一击打爆，也要把 scatter 信号传给队友
+	# （设计：某一架被击中时，其余幸存队友立刻转向散开，避免一发打掉一整列）
+	if has_meta("scatter_on_damage") and get_meta("scatter_on_damage"):
+		_trigger_flock_scatter()
 	if hp <= 0.0:
 		hp = 0.0
 		_start_destroy()
+
+## 触发整个 flock 散开：每架队友朝随机一侧做 jink 闪避数秒，
+## 同时中断 AIController 的任何交战追踪（_process_simple 开头会检查并清空 _current_target）
+func _trigger_flock_scatter() -> void:
+	for member in flock_members:
+		if not is_instance_valid(member) or member.is_destroyed:
+			continue
+		if member.flock_scatter_timer <= 0.0:
+			# 首次散开：选个方向（左/右随机）
+			var m_fwd := Vector2(sin(member.heading), -cos(member.heading))
+			var m_perp := Vector2(-m_fwd.y, m_fwd.x)
+			member.flock_scatter_dir = m_perp if randf() < 0.5 else -m_perp
+		# 刷新计时（后续受击保持方向、延长时间）
+		member.flock_scatter_timer = FLOCK_SCATTER_DURATION
 
 func _check_ground_crash() -> void:
 	# 高度为 0 且非起飞状态 → 坠地
@@ -2516,18 +2586,58 @@ func _start_destroy() -> void:
 	is_destroyed = true
 	is_firing = false
 	combat_target = null
-	_destroy_timer = 3.0
-	_destroy_spin = randf_range(-4.0, 4.0)
+	# 坠落风格：不同机种有不同的坠毁动画参数
+	# "bomber" = 重型轰炸机，小幅旋转 + 持续侧翻，下坠更久
+	# 默认 = 战斗机，失控旋转下坠
+	var style: String = get_meta("crash_style", "default") if has_meta("crash_style") else "default"
+	if style == "bomber":
+		_destroy_timer = 5.0
+		# 轰炸机重量大：偏航旋转慢；但用 bank_angle 模拟持续侧翻
+		_destroy_spin = randf_range(-0.8, 0.8)
+		# 初始随机方向的侧翻（左/右），一边倒的滚动
+		_destroy_bank_rate = randf_range(1.8, 2.6) * (1.0 if randf() < 0.5 else -1.0)
+	elif style == "heli":
+		# 直升机坠落：尾桨失效导致快速自旋（helicopter "autorotation fail"）
+		# 比战斗机更剧烈的 yaw，但下坠速度接近战斗机
+		_destroy_timer = 3.5
+		_destroy_spin = randf_range(-6.0, 6.0) * (1.0 if randf() < 0.5 else -1.0)
+		# 轻微随机侧翻
+		_destroy_bank_rate = randf_range(-0.6, 0.6)
+	else:
+		_destroy_timer = 3.0
+		_destroy_spin = randf_range(-4.0, 4.0)
+		_destroy_bank_rate = 0.0
 
 func _update_destroy(delta: float) -> void:
-	# 失控旋转下坠
-	heading += _destroy_spin * delta
-	altitude -= 300.0 * delta
-	speed = maxf(speed - 20.0 * delta, 50.0)
-	# 仍然移动
-	var velocity := Vector2(sin(heading), -cos(heading)) * speed * PIXELS_PER_METER
-	global_position += velocity * delta
-	rotation = heading
+	var style: String = get_meta("crash_style", "default") if has_meta("crash_style") else "default"
+
+	if style == "bomber":
+		# 轰炸机坠落：偏航慢、下坠慢、持续侧翻
+		heading += _destroy_spin * delta
+		altitude -= 180.0 * delta
+		speed = maxf(speed - 15.0 * delta, 60.0)
+		# 持续侧翻：bank_angle 一直累加（会越过 ±PI 进入倒飞视觉）
+		bank_angle += _destroy_bank_rate * delta
+		var velocity := Vector2(sin(heading), -cos(heading)) * speed * 0.7 * PIXELS_PER_METER
+		global_position += velocity * delta
+		rotation = heading
+	elif style == "heli":
+		# 直升机坠落：尾桨失效 → 极快自旋 + 中等下坠（约 220 m/s），几乎原地打转下坠
+		heading += _destroy_spin * delta
+		altitude -= 220.0 * delta
+		speed = maxf(speed - 30.0 * delta, 20.0)  # 很快减速
+		bank_angle += _destroy_bank_rate * delta
+		var velocity := Vector2(sin(heading), -cos(heading)) * speed * 0.3 * PIXELS_PER_METER
+		global_position += velocity * delta
+		rotation = heading
+	else:
+		# 战斗机失控旋转下坠
+		heading += _destroy_spin * delta
+		altitude -= 300.0 * delta
+		speed = maxf(speed - 20.0 * delta, 50.0)
+		var velocity := Vector2(sin(heading), -cos(heading)) * speed * PIXELS_PER_METER
+		global_position += velocity * delta
+		rotation = heading
 
 	_destroy_timer -= delta
 	if _destroy_timer <= 0.0 or altitude <= 0.0:
@@ -2828,6 +2938,22 @@ func _draw_aircraft_icon() -> void:
 		_draw_commander_icon(color, outline_color, size, base_scale, xform)
 		return
 
+	# 轰炸机外观：更大翼展 + 长机身（Tu-160 / 战略轰炸机）
+	var is_bomber: bool = has_meta("silhouette") and get_meta("silhouette") == "bomber"
+	if is_bomber:
+		_draw_bomber_icon(color, outline_color, size, base_scale, xform)
+		return
+
+	# 攻击直升机外观（AH-64 Apache）：细长机身 + 短翼挂架 + 主/尾旋翼盘
+	var silhouette: String = get_meta("silhouette", "") if has_meta("silhouette") else ""
+	if silhouette == "apache":
+		_draw_apache_icon(color, outline_color, size, base_scale, xform)
+		return
+	# 运输直升机外观（CH-47 Chinook）：方形机身 + 前后双旋翼盘
+	if silhouette == "chinook":
+		_draw_chinook_icon(color, outline_color, size, base_scale, xform)
+		return
+
 	# 机身主体（填充多边形）
 	var body: PackedVector2Array = PackedVector2Array([
 		Vector2(0, -size * 1.1),        # 机头尖端
@@ -2933,6 +3059,222 @@ func _draw_commander_icon(color: Color, outline_color: Color, size: float, base_
 	var antenna_tip := xform * Vector2(0, -s * 1.1)
 	draw_line(antenna_base, antenna_tip, accent, 1.0, true)
 	draw_circle(antenna_tip, 2.5 * base_scale, accent)
+
+	# 选中指示
+	if selected:
+		var ring_color := color
+		ring_color.a = 0.5
+		draw_arc(Vector2.ZERO, s * 1.8 * base_scale, 0, TAU, 48, ring_color, 1.5)
+
+## 轰炸机专用外观（Tu-160 / 战略轰炸机）：超大翼展 + 长机身
+## 相比战斗机图标整体放大 ~1.6x，并加深色机腹以示"重型单位"
+func _draw_bomber_icon(color: Color, outline_color: Color, size: float, base_scale: float, xform: Transform2D) -> void:
+	var s := size * 1.15  # 机身整体比战斗机大一点
+
+	# 机身主体（长梭形，前尖后收）
+	var body: PackedVector2Array = PackedVector2Array([
+		Vector2(0, -s * 1.6),          # 机头尖端（更长）
+		Vector2(s * 0.12, -s * 1.1),
+		Vector2(s * 0.22, -s * 0.3),
+		Vector2(s * 0.25, s * 0.4),
+		Vector2(s * 0.22, s * 1.0),
+		Vector2(s * 0.15, s * 1.25),   # 尾部
+		Vector2(0, s * 1.30),
+		Vector2(-s * 0.15, s * 1.25),
+		Vector2(-s * 0.22, s * 1.0),
+		Vector2(-s * 0.25, s * 0.4),
+		Vector2(-s * 0.22, -s * 0.3),
+		Vector2(-s * 0.12, -s * 1.1),
+	])
+
+	# 主翼（超大后掠翼，Tu-160 可变后掠特征 → 固定展开态）
+	var wing_r: PackedVector2Array = PackedVector2Array([
+		Vector2(s * 0.22, -s * 0.05),
+		Vector2(s * 1.9, s * 0.50),     # 翼尖远远伸出
+		Vector2(s * 1.75, s * 0.70),
+		Vector2(s * 0.22, s * 0.55),
+	])
+	var wing_l: PackedVector2Array = PackedVector2Array([
+		Vector2(-s * 0.22, -s * 0.05),
+		Vector2(-s * 1.9, s * 0.50),
+		Vector2(-s * 1.75, s * 0.70),
+		Vector2(-s * 0.22, s * 0.55),
+	])
+
+	# 尾翼（大平尾）
+	var tail_r: PackedVector2Array = PackedVector2Array([
+		Vector2(s * 0.20, s * 0.95),
+		Vector2(s * 0.85, s * 1.15),
+		Vector2(s * 0.70, s * 1.30),
+		Vector2(s * 0.22, s * 1.25),
+	])
+	var tail_l: PackedVector2Array = PackedVector2Array([
+		Vector2(-s * 0.20, s * 0.95),
+		Vector2(-s * 0.85, s * 1.15),
+		Vector2(-s * 0.70, s * 1.30),
+		Vector2(-s * 0.22, s * 1.25),
+	])
+
+	var parts := [body, wing_r, wing_l, tail_r, tail_l]
+	for part in parts:
+		var transformed: PackedVector2Array = PackedVector2Array()
+		for p in part:
+			transformed.append(xform * p)
+		draw_colored_polygon(transformed, color)
+		for i in range(transformed.size()):
+			var from := transformed[i]
+			var to := transformed[(i + 1) % transformed.size()]
+			draw_line(from, to, outline_color, 1.0, true)
+
+	# 选中指示
+	if selected:
+		var ring_color := color
+		ring_color.a = 0.5
+		draw_arc(Vector2.ZERO, s * 2.2 * base_scale, 0, TAU, 48, ring_color, 1.5)
+
+## AH-64 Apache 攻击直升机外观：细长机身 + 短翼挂架 + 主旋翼盘 + 尾桨
+func _draw_apache_icon(color: Color, outline_color: Color, size: float, base_scale: float, xform: Transform2D) -> void:
+	var s := size
+
+	# 机身（细长，机头含传感器球，尾梁延伸）
+	var body: PackedVector2Array = PackedVector2Array([
+		Vector2(0, -s * 1.15),           # 机头（尖端）
+		Vector2(s * 0.08, -s * 0.85),
+		Vector2(s * 0.14, -s * 0.45),
+		Vector2(s * 0.18, -s * 0.05),    # 驾驶舱段
+		Vector2(s * 0.20, s * 0.35),     # 机身中段（翼根）
+		Vector2(s * 0.15, s * 0.65),
+		Vector2(s * 0.08, s * 0.95),     # 尾梁开始收窄
+		Vector2(s * 0.06, s * 1.25),
+		Vector2(s * 0.04, s * 1.45),     # 尾端
+		Vector2(0, s * 1.50),
+		Vector2(-s * 0.04, s * 1.45),
+		Vector2(-s * 0.06, s * 1.25),
+		Vector2(-s * 0.08, s * 0.95),
+		Vector2(-s * 0.15, s * 0.65),
+		Vector2(-s * 0.20, s * 0.35),
+		Vector2(-s * 0.18, -s * 0.05),
+		Vector2(-s * 0.14, -s * 0.45),
+		Vector2(-s * 0.08, -s * 0.85),
+	])
+
+	# 短翼挂架（武器翼）
+	var wing_r: PackedVector2Array = PackedVector2Array([
+		Vector2(s * 0.20, s * 0.10),
+		Vector2(s * 0.75, s * 0.15),
+		Vector2(s * 0.75, s * 0.35),
+		Vector2(s * 0.20, s * 0.40),
+	])
+	var wing_l: PackedVector2Array = PackedVector2Array([
+		Vector2(-s * 0.20, s * 0.10),
+		Vector2(-s * 0.75, s * 0.15),
+		Vector2(-s * 0.75, s * 0.35),
+		Vector2(-s * 0.20, s * 0.40),
+	])
+
+	# 尾桨（小横杆在尾端）
+	var tail_rotor: PackedVector2Array = PackedVector2Array([
+		Vector2(-s * 0.30, s * 1.15),
+		Vector2(s * 0.30, s * 1.15),
+		Vector2(s * 0.30, s * 1.25),
+		Vector2(-s * 0.30, s * 1.25),
+	])
+
+	# 填充并画轮廓
+	var parts := [body, wing_r, wing_l, tail_rotor]
+	for part in parts:
+		var transformed: PackedVector2Array = PackedVector2Array()
+		for p in part:
+			transformed.append(xform * p)
+		draw_colored_polygon(transformed, color)
+		for i in range(transformed.size()):
+			var from := transformed[i]
+			var to := transformed[(i + 1) % transformed.size()]
+			draw_line(from, to, outline_color, 1.0, true)
+
+	# 主旋翼圆盘（半透明模拟旋转，随 Time 轻微闪变）
+	var spin := float(Time.get_ticks_msec()) * 0.012
+	var disc_alpha := 0.22 + 0.05 * sin(spin)
+	var disc_color := Color(outline_color.r, outline_color.g, outline_color.b, disc_alpha)
+	var disc_radius := s * 1.0 * base_scale
+	draw_circle(Vector2(0, s * 0.15 * base_scale), disc_radius, disc_color)
+	# 旋翼叶片（十字线，随时间旋转，强调"这是直升机"）
+	var blade_color := Color(outline_color.r, outline_color.g, outline_color.b, 0.55)
+	for k in range(4):
+		var ang := spin + k * PI / 2.0
+		var tip := Vector2(cos(ang), sin(ang)) * disc_radius
+		draw_line(Vector2(0, s * 0.15 * base_scale), Vector2(0, s * 0.15 * base_scale) + tip, blade_color, 1.0, true)
+
+	# 选中指示
+	if selected:
+		var ring_color := color
+		ring_color.a = 0.5
+		draw_arc(Vector2.ZERO, s * 1.8 * base_scale, 0, TAU, 48, ring_color, 1.5)
+
+## CH-47 Chinook 运输直升机外观：方形宽机身 + 前后双旋翼盘
+func _draw_chinook_icon(color: Color, outline_color: Color, size: float, base_scale: float, xform: Transform2D) -> void:
+	var s := size * 1.1
+
+	# 机身（方正的货舱，前后对称，后部有货舱斜坡）
+	var body: PackedVector2Array = PackedVector2Array([
+		Vector2(-s * 0.45, -s * 1.15),    # 左前（机头驾驶舱）
+		Vector2(-s * 0.25, -s * 1.30),    # 前部斜坡
+		Vector2(s * 0.25, -s * 1.30),
+		Vector2(s * 0.45, -s * 1.15),     # 右前
+		Vector2(s * 0.52, -s * 0.8),
+		Vector2(s * 0.52, s * 0.8),
+		Vector2(s * 0.45, s * 1.15),      # 右后
+		Vector2(s * 0.30, s * 1.25),      # 后货舱斜坡
+		Vector2(-s * 0.30, s * 1.25),
+		Vector2(-s * 0.45, s * 1.15),     # 左后
+		Vector2(-s * 0.52, s * 0.8),
+		Vector2(-s * 0.52, -s * 0.8),
+	])
+
+	# 前后两座驻驾塔（旋翼支架）
+	var pylon_front: PackedVector2Array = PackedVector2Array([
+		Vector2(-s * 0.18, -s * 1.0),
+		Vector2(s * 0.18, -s * 1.0),
+		Vector2(s * 0.15, -s * 0.75),
+		Vector2(-s * 0.15, -s * 0.75),
+	])
+	var pylon_rear: PackedVector2Array = PackedVector2Array([
+		Vector2(-s * 0.18, s * 0.75),
+		Vector2(s * 0.18, s * 0.75),
+		Vector2(s * 0.22, s * 1.05),
+		Vector2(-s * 0.22, s * 1.05),
+	])
+
+	# 填充机身 + 支架
+	var parts := [body, pylon_front, pylon_rear]
+	for part in parts:
+		var transformed: PackedVector2Array = PackedVector2Array()
+		for p in part:
+			transformed.append(xform * p)
+		draw_colored_polygon(transformed, color)
+		for i in range(transformed.size()):
+			var from := transformed[i]
+			var to := transformed[(i + 1) % transformed.size()]
+			draw_line(from, to, outline_color, 1.0, true)
+
+	# 前后双旋翼圆盘（Chinook 标志性双桨）
+	var spin := float(Time.get_ticks_msec()) * 0.013
+	var disc_alpha := 0.22 + 0.05 * sin(spin)
+	var disc_color := Color(outline_color.r, outline_color.g, outline_color.b, disc_alpha)
+	var disc_radius := s * 0.95 * base_scale
+	var front_pos := Vector2(0, -s * 0.85 * base_scale)
+	var rear_pos := Vector2(0, s * 0.90 * base_scale)
+	draw_circle(front_pos, disc_radius, disc_color)
+	draw_circle(rear_pos, disc_radius, disc_color)
+	# 旋翼叶片（前后桨反向旋转：Chinook 双桨反转）
+	var blade_color := Color(outline_color.r, outline_color.g, outline_color.b, 0.55)
+	for k in range(3):
+		var ang_f := spin + k * TAU / 3.0
+		var ang_r := -spin + k * TAU / 3.0
+		var tip_f := Vector2(cos(ang_f), sin(ang_f)) * disc_radius
+		var tip_r := Vector2(cos(ang_r), sin(ang_r)) * disc_radius
+		draw_line(front_pos, front_pos + tip_f, blade_color, 1.0, true)
+		draw_line(rear_pos, rear_pos + tip_r, blade_color, 1.0, true)
 
 	# 选中指示
 	if selected:

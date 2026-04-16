@@ -177,7 +177,19 @@ func _update_gun(delta: float) -> void:
 	_fire_cooldown = interval
 	ammo -= 1
 
-	var spread := deg_to_rad(params.gun.spread_angle)
+	var base_spread := deg_to_rad(params.gun.spread_angle)
+	# 高度惩罚：目标越高，散布越大（地面炮仰射更难命中）
+	#   LOW  (0)  → ×1.0（基准）
+	#   MID  (1)  → ×1.8（明显降低命中率）
+	#   HIGH (2)  → ×3.0（极难命中，几乎只是骚扰）
+	var alt_spread_mult := 1.0
+	if combat_target and is_instance_valid(combat_target):
+		var tgt_tier := combat_target.get_altitude_tier()
+		if tgt_tier == AltitudeTier.MID:
+			alt_spread_mult = 1.8
+		elif tgt_tier >= AltitudeTier.HIGH:
+			alt_spread_mult = 3.0
+	var spread := base_spread * alt_spread_mult
 	var dir := _gun_lead_heading + randf_range(-spread, spread)
 	var muzzle_pos := global_position + Vector2(sin(heading), -cos(heading)) * 10.0
 	bullet_manager.spawn_bullet(muzzle_pos, dir, params.gun.muzzle_velocity, self, params.gun.bullet_damage)
@@ -231,6 +243,7 @@ func _draw() -> void:
 	if is_hovered:
 		_draw_radar_cone()
 	_draw_ground_icon()
+	_draw_lock_indicator()
 	_draw_data_label()
 
 func _draw_radar_cone() -> void:
@@ -281,6 +294,43 @@ func _draw_ground_icon() -> void:
 	var front := Vector2(0, -size * 0.8)
 	draw_line(Vector2.ZERO, front, color.lightened(0.3), 1.5)
 
+## 被锁定指示器（与 Aircraft._draw_lock_indicator 同样的红色闪烁菱形 + 三角标记）
+func _draw_lock_indicator() -> void:
+	if not is_locked:
+		return
+	var blink := absf(sin(Time.get_ticks_msec() * 0.006))
+	var alpha := lerpf(0.4, 1.0, blink)
+	var color := Color(1.0, 0.15, 0.15, alpha)
+	var size := 18.0
+
+	# 四个三角标记（上下左右，对称指向中心）
+	var offset := size * 1.2
+	var tri_size := size * 0.4
+	# 上
+	draw_colored_polygon(PackedVector2Array([
+		Vector2(0, -offset),
+		Vector2(-tri_size * 0.5, -offset - tri_size),
+		Vector2(tri_size * 0.5, -offset - tri_size),
+	]), color)
+	# 下
+	draw_colored_polygon(PackedVector2Array([
+		Vector2(0, offset),
+		Vector2(-tri_size * 0.5, offset + tri_size),
+		Vector2(tri_size * 0.5, offset + tri_size),
+	]), color)
+	# 左
+	draw_colored_polygon(PackedVector2Array([
+		Vector2(-offset, 0),
+		Vector2(-offset - tri_size, -tri_size * 0.5),
+		Vector2(-offset - tri_size, tri_size * 0.5),
+	]), color)
+	# 右
+	draw_colored_polygon(PackedVector2Array([
+		Vector2(offset, 0),
+		Vector2(offset + tri_size, -tri_size * 0.5),
+		Vector2(offset + tri_size, tri_size * 0.5),
+	]), color)
+
 func _draw_destroyed() -> void:
 	var color := Color(0.5, 0.5, 0.5, 0.5)
 	var size := 8.0
@@ -296,13 +346,28 @@ func _draw_data_label() -> void:
 	var line_height := 12.0
 	var label_offset := Vector2(14, -8)
 
+	# 计算到玩家（team 0）的距离
+	var dist_m := 0.0
+	var parent_node := get_parent()
+	if parent_node:
+		for node in parent_node.get_children():
+			if node is Aircraft and node.team == 0 and not node.is_destroyed:
+				dist_m = global_position.distance_to(node.global_position) / PIXELS_PER_METER
+				break
+
 	var lines: PackedStringArray = PackedStringArray()
+	# 名称
 	lines.append(display_name)
-	lines.append("HP %d" % roundi(hp))
+	# 高度（地面单位永远 GND）
+	lines.append("ALT GND")
+	# 距离
+	if dist_m < 1000.0:
+		lines.append("RNG %dm" % roundi(dist_m))
+	else:
+		lines.append("RNG %.1fkm" % (dist_m / 1000.0))
+	# 弹药
 	if ammo > 0:
-		lines.append("AMMO %d" % ammo)
-	if combat_target:
-		lines.append("TGT")
+		lines.append("GUN %d" % ammo)
 
 	var inv_rot := -rotation
 	var max_w := 0.0

@@ -1,0 +1,40 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_flare.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/ah64_gun.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/ah64_rocket.tres" id="4"]
+
+[resource]
+script = ExtResource("1")
+display_name = "AH-64"
+is_unmanned = false
+max_hp = 45.0
+armor = 0.0
+max_speed = 290.0
+cruise_speed = 230.0
+stall_speed_base = 50.0
+acceleration = 22.0
+deceleration = 35.0
+g_drag_factor = 3.5
+max_g = 3.5
+max_g_structural = 4.5
+roll_rate = 3.0
+pilot_stamina = 100.0
+stamina_drain_rate = 10.0
+stamina_recovery_rate = 5.0
+max_altitude = 6400.0
+climb_rate_max = 15.0
+thrust_to_weight = 0.3
+drag_coefficient = 0.05
+afterburner_thrust_mult = 1.0
+fuel_capacity = 2000.0
+fuel_rate_normal = 1.0
+fuel_rate_afterburner = 1.0
+radar_range = 2500.0
+radar_half_angle = 45.0
+lock_time = 99.0
+gun = ExtResource("3")
+rocket = ExtResource("4")
+flare = ExtResource("2")
+icon_color = Color(0.35, 0.42, 0.3, 1)

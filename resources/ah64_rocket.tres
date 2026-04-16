@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="RocketParams" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/rocket_params.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+display_name = "Hydra 70"
+; AH-64 标配 2x19 发 70mm 非制导火箭弹。齐射规模比 F-86 FFAR 大，伤害也稍高
+burst_count_min = 4
+burst_count_max = 8
+burst_interval = 0.08
+burst_cooldown = 4.5
+rocket_damage = 15.0
+muzzle_velocity = 400.0
+max_range = 2000.0
+spread_angle = 6.0
+fire_cone_half_angle = 10.0
+min_range = 300.0
+max_fire_range = 1800.0
+max_ammo = 38

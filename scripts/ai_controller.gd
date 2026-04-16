@@ -39,6 +39,9 @@ const TACTIC_DISPLAY_NAME: Dictionary = {
 @export var engage_cooldown: float = 15.0     ## 两次交战间隔（秒）
 @export var engage_duration: float = 20.0     ## 单次交战最长时间（秒）
 @export var evade_missiles: bool = false      ## 是否规避来袭导弹
+## 仅攻击地面单位（对地攻击直升机 / 攻击机专用）：
+## 为 true 时 _try_engage_simple 只会选 GroundUnit 目标，永远不对空中单位开火
+@export var ground_combat_only: bool = false
 
 ## 小队交战模式（僚机 SQUAD_FOLLOW 时使用）
 ## FREE (0)          : 自由交战——僚机会独立扫描敌机并主动交战（保留编队飞行），
@@ -203,6 +206,11 @@ func _physics_process(delta: float) -> void:
 	if simple_ai:
 		# simple AI 只承袭固定 aggression，不受压力/SA 影响
 		aircraft.tactical_aggression = clampf(aggression, 0.0, 1.0)
+		# 族群散开：受击时强行中断任何交战追踪，回到 waypoint 分支应用侧向偏移
+		if aircraft.flock_scatter_timer > 0.0 and _current_target != null:
+			_current_target = null
+			aircraft.clear_combat_target()
+			aircraft.ai_override_pursuit = false
 		_process_simple(delta)
 		return
 
@@ -651,7 +659,26 @@ func _process_simple(delta: float) -> void:
 			var target_wp := waypoints[current_waypoint_index]
 			if aircraft.global_position.distance_to(target_wp) < arrival_distance:
 				current_waypoint_index = (current_waypoint_index + 1) % waypoints.size()
-			aircraft.target_position = waypoints[current_waypoint_index]
+			var final_wp: Vector2 = waypoints[current_waypoint_index]
+			# ── 族群散开：受击闪避（直升机 jink 机动）──
+			# 相比单纯"侧向偏移"，这里用 weave 摆动 + 时间曲线：
+			#   1) sin 曲线幅度：头尾 0、中段峰值，形成"侧跨→回中"的姿态
+			#   2) 方向来回旋转 ±45°：头 1 秒左跨、中 1 秒正前推进、尾 1 秒右跨
+			#      整体视觉是一个明显的 S 型 jink，不再只是原地压杆
+			#   3) 基向量 sin 分量加在侧方、cos 分量加在前方：保证飞机不会只侧
+			#      移而没有前进，始终沿航向往前"挪"
+			if aircraft.flock_scatter_timer > 0.0:
+				aircraft.flock_scatter_timer = maxf(aircraft.flock_scatter_timer - delta, 0.0)
+				var duration := Aircraft.FLOCK_SCATTER_DURATION
+				var progress := clampf(1.0 - aircraft.flock_scatter_timer / duration, 0.0, 1.0)
+				var ramp := sin(progress * PI)                        ## 0 → 1 → 0 的平滑包络
+				var weave := sin(progress * TAU * 1.2)                ## 完整 1.2 个周期的左右摆动
+				var dir := aircraft.flock_scatter_dir                 ## 侧向单位向量（左/右随机）
+				var fwd_axis := Vector2(sin(aircraft.heading), -cos(aircraft.heading))  ## 机头方向
+				var lateral := dir * (ramp * weave * 650.0)           ## 横向 jink（带来回）
+				var forward := fwd_axis * (ramp * 200.0)              ## 前冲分量（避免原地打转）
+				final_wp = final_wp + lateral + forward
+			aircraft.target_position = final_wp
 
 		# 简单扫描：只有非 shield_leader 的普通 UAV 才会进入交战模式
 		_scan_timer -= delta
@@ -774,6 +801,9 @@ func _try_engage_simple() -> void:
 	var best_dist := 99999.0
 	for child in aircraft.get_parent().get_children():
 		if child is CombatUnit and child.team != aircraft.team and not child.is_destroyed:
+			# 对地专用机型：跳过所有空中目标（飞机/UAV）
+			if ground_combat_only and not (child is GroundUnit):
+				continue
 			var d := aircraft.global_position.distance_to(child.global_position)
 			if d < best_dist:
 				best_dist = d

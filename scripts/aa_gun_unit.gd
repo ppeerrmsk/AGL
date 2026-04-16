@@ -131,7 +131,16 @@ func _update_gun(delta: float) -> void:
 	_fire_cooldown = interval
 	ammo -= 1
 
-	var spread := deg_to_rad(params.gun.spread_angle)
+	var base_spread := deg_to_rad(params.gun.spread_angle)
+	# 高度惩罚：目标越高散布越大（仰射精度降低）
+	var alt_spread_mult := 1.0
+	if combat_target and is_instance_valid(combat_target):
+		var tgt_tier := combat_target.get_altitude_tier()
+		if tgt_tier == AltitudeTier.MID:
+			alt_spread_mult = 1.8
+		elif tgt_tier >= AltitudeTier.HIGH:
+			alt_spread_mult = 3.0
+	var spread := base_spread * alt_spread_mult
 	var dir := _gun_lead_heading + randf_range(-spread, spread)
 	var muzzle_pos := global_position + Vector2(sin(turret_heading), -cos(turret_heading)) * 10.0
 	bullet_manager.spawn_bullet(muzzle_pos, dir, params.gun.muzzle_velocity, self, params.gun.bullet_damage)
@@ -145,6 +154,7 @@ func _draw() -> void:
 	if is_hovered:
 		_draw_attack_range()
 	_draw_aa_icon()
+	_draw_lock_indicator()
 	_draw_data_label()
 
 ## 绘制攻击范围圆（不是雷达锥）
@@ -173,25 +183,64 @@ func _draw_attack_range() -> void:
 		var p1 := Vector2(cos(a1), sin(a1)).rotated(-rotation) * range_px
 		draw_line(p0, p1, edge_color, 1.0)
 
+## 猎豹式自行高炮外观（Gepard / Flakpanzer）：
+## 坦克底盘 + 方形炮塔 + 双联装高炮 + 顶部搜索雷达
 func _draw_aa_icon() -> void:
 	var color: Color = params.icon_color if params else Color.ORANGE
-	var size := 10.0
+	var outline := color.darkened(0.35)
+	var s := 10.0
 
-	# 底盘
-	var chassis_half := size * 0.5
-	var chassis := PackedVector2Array([
-		Vector2(-chassis_half, -chassis_half * 0.7),
-		Vector2(chassis_half, -chassis_half * 0.7),
-		Vector2(chassis_half, chassis_half * 0.7),
-		Vector2(-chassis_half, chassis_half * 0.7),
+	# ── 1. 坦克底盘（长方形 + 履带裙板）──
+	var hull_w := s * 0.9   # 半宽
+	var hull_h := s * 1.2   # 半长
+	# 车体主体
+	var hull := PackedVector2Array([
+		Vector2(-hull_w, -hull_h),
+		Vector2( hull_w, -hull_h),
+		Vector2( hull_w * 0.85,  hull_h),  # 车尾略收
+		Vector2(-hull_w * 0.85,  hull_h),
 	])
-	draw_colored_polygon(chassis, color.darkened(0.3))
+	draw_colored_polygon(hull, color.darkened(0.4))
+	for i in range(hull.size()):
+		draw_line(hull[i], hull[(i + 1) % hull.size()], outline, 1.0)
 
-	# 炮管（粗线条，独立旋转）
+	# 左右履带（两条深色条带）
+	var track_w := s * 0.18
+	draw_rect(Rect2(-hull_w - track_w, -hull_h * 0.9, track_w, hull_h * 1.8), color.darkened(0.55))
+	draw_rect(Rect2( hull_w, -hull_h * 0.9, track_w, hull_h * 1.8), color.darkened(0.55))
+
+	# ── 2. 方形炮塔（独立旋转）──
 	var turret_rel := turret_heading - heading
-	var barrel_start := Vector2(0, 0).rotated(turret_rel)
-	var barrel_end := Vector2(0, -size * 1.2).rotated(turret_rel)
-	draw_line(barrel_start, barrel_end, color.lightened(0.2), 2.5)
+	var t_size := s * 0.55  # 炮塔半边长
+	var turret_pts := PackedVector2Array([
+		Vector2(-t_size, -t_size * 1.1),
+		Vector2( t_size, -t_size * 1.1),
+		Vector2( t_size * 1.05,  t_size * 0.7),
+		Vector2(-t_size * 1.05,  t_size * 0.7),
+	])
+	# 应用炮塔旋转
+	var rotated_turret := PackedVector2Array()
+	for p in turret_pts:
+		rotated_turret.append(p.rotated(turret_rel))
+	draw_colored_polygon(rotated_turret, color.darkened(0.15))
+	for i in range(rotated_turret.size()):
+		draw_line(rotated_turret[i], rotated_turret[(i + 1) % rotated_turret.size()], outline, 1.0)
 
-	# 炮座圆点
-	draw_circle(Vector2.ZERO, size * 0.2, color)
+	# ── 3. 双联装炮管（左右两根平行长管）──
+	var barrel_len := s * 1.6
+	var barrel_gap := s * 0.22  # 两管间距（半距）
+	var barrel_base_y := -t_size * 0.5  # 从炮塔前部伸出
+	# 左管
+	var bl_start := Vector2(-barrel_gap, barrel_base_y).rotated(turret_rel)
+	var bl_end := Vector2(-barrel_gap, barrel_base_y - barrel_len).rotated(turret_rel)
+	draw_line(bl_start, bl_end, color.lightened(0.15), 2.0)
+	# 右管
+	var br_start := Vector2( barrel_gap, barrel_base_y).rotated(turret_rel)
+	var br_end := Vector2( barrel_gap, barrel_base_y - barrel_len).rotated(turret_rel)
+	draw_line(br_start, br_end, color.lightened(0.15), 2.0)
+
+	# ── 4. 顶部搜索雷达（小圆 + 短杆，在炮塔后方）──
+	var radar_pos := Vector2(0, t_size * 0.3).rotated(turret_rel)
+	draw_circle(radar_pos, s * 0.15, color.lightened(0.3))
+	var radar_tip := Vector2(0, t_size * 0.3 - s * 0.3).rotated(turret_rel)
+	draw_line(radar_pos, radar_tip, color.lightened(0.3), 1.0)
