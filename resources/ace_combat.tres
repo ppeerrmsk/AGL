@@ -1,0 +1,38 @@
+[gd_resource type="Resource" script_class="CombatParams" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/combat_params.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+; ── Ace Sniper（王牌狙击手）──
+; BVR 远距打击 + 打了就跑；不缠斗，保持站位距离；
+; 比 Lancer 更精确、速度管理更好，适合协同齐射战术。
+intercept_range_mult = 3.2
+intercept_lead_max = 9.0
+closing_rate_threshold = 0.18
+six_oclock_offset_ratio = 0.40
+pure_pursuit_lead_factor = 0.50
+opportunity_cone_mult = 2.2
+opportunity_range_mult = 0.40
+combat_bank_aggression = 0.9
+combat_full_bank_diff = 0.12
+combat_half_bank_diff = 0.03
+turn_slow_angle = 40.0
+turn_slow_max_angle = 110.0
+turn_slow_speed_mult = 0.90
+ab_cooldown = 2.0
+approach_speed_mult = 1.70
+maneuver_speed_mult = 1.10
+closing_speed_mult = 1.35
+overshoot_speed_margin = 1.15
+overshoot_decel_range = 1.5
+overshoot_ab_range = 2.0
+dive_speed_ratio = 0.88
+dive_min_altitude = 2200.0
+dive_depth = 900.0
+dive_floor = 1800.0
+climb_brake_overspeed = 1.20
+climb_brake_height = 900.0
+climb_brake_ceiling = 14000.0
+climb_speed_ratio = 1.15
+climb_max_altitude = 10000.0

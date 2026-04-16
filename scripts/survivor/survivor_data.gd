@@ -378,6 +378,18 @@ const AH64_LATERAL_SPACING := 260.0  ## 横向展宽间距（像素）
 ## CH-47 Chinook（Adds 重型运输机，纵阵 3 架）
 const XP_PER_KILL_CH47 := 55
 
+## F-47 王牌狙击小队（BOSS，事件触发，4 架编队）
+const XP_PER_KILL_F47 := 100       ## F-47 击杀经验（王牌级，4 架共 400 XP）
+const F47_SQUAD_SIZE := 4           ## 编队成员数（固定 4 架）
+const F47_STANDOFF_RADIUS_MIN := 1800.0  ## 被追时逃跑最小距离（像素）— 不飞太远
+const F47_STANDOFF_RADIUS_MAX := 2500.0  ## 被追时逃跑最大距离（像素）
+const F47_FLEE_DISTANCE := 2000.0   ## 被盯飞机的逃跑距离（像素）
+const F47_INTRO_DURATION := 4.0     ## 登场通场表演时长（秒）
+const F47_INTRO_PASS_DIST := 800.0  ## 通场时经过玩家前方的距离（像素）
+const F47_CLOAK_CYCLE := 60.0       ## 隐形周期（秒）— 每 60 秒可隐形一次
+const F47_CLOAK_DURATION := 5.5     ## 隐形持续时间（秒）
+const F47_CLOAK_FADE := 0.5         ## 隐形淡入/淡出时间（秒）
+
 ## 地面单位
 const XP_PER_KILL_GROUND := 25   ## SAM / AA 炮击毁经验（与 UAV 相当）
 const CH47_FLOCK_SIZE := 3
@@ -397,7 +409,7 @@ const TOKEN_BUDGET_MAX := 45           ## Token 预算绝对上限
 
 ## 每种敌人的 Token 消耗
 ## key 是 survivor_mode.gd::EnemyType 的 int 值
-## UAV=0, UCAV=1, MIG=2, INTERCEPTOR=3, UAV_COMMANDER=4, F86=5, MIG31=6, MIG23=7, F100=8, SU27=9, A7=10, Q5=11, TU160=12
+## UAV=0, UCAV=1, MIG=2, INTERCEPTOR=3, UAV_COMMANDER=4, F86=5, MIG31=6, MIG23=7, F100=8, SU27=9, A7=10, Q5=11, TU160=12, AH64=13, CH47=14, F47=15
 const TOKEN_COST := {
 	0: 1,   ## UAV        — 最便宜的杂鱼
 	1: 2,   ## UCAV       — 导弹杂鱼
@@ -414,6 +426,7 @@ const TOKEN_COST := {
 	12: 0,  ## Tu-160     — Adds 杂兵（独立波次，不占 Token，不被远距清理）
 	13: 0,  ## AH-64      — Adds 直升机（纵阵，独立波次）
 	14: 0,  ## CH-47      — Adds 重型直升机（纵阵，独立波次）
+	15: 10, ## F-47       — BOSS 王牌狙击小队（全敌人最高 Token，事件触发）
 }
 
 ## 每种敌人的同时存在上限（-1 = 无限制）
@@ -435,6 +448,7 @@ const TOKEN_INSTANCE_CAP := {
 	12: -1, ## Tu-160：Adds 族群波次，数量由独立系统控制
 	13: -1, ## AH-64：Adds 族群波次
 	14: -1, ## CH-47：Adds 族群波次
+	15: 4,  ## F-47：BOSS 小队（固定 4 架，不多不少）
 }
 
 ## 远距清理

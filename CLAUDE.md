@@ -151,6 +151,7 @@ Resource
 | `TU160(12)` | Tu-160 "白天鹅" | **Adds 杂兵** | `enemy_tu160.tres`（无武器） | **0** | ∞ | 事件触发 | **族群 Flock**（横列 4 架） | `_create_enemy` Tu160 case | AI 简化(simple_ai) |
 | `AH64(13)` | AH-64 Apache | **Adds 直升机（对地）** | `enemy_ah64.tres` + `ah64_gun.tres`（M230 30mm）+ `ah64_rocket.tres`（Hydra 70）+ 1 枚热诱弹 | **0** | ∞ | 事件触发 | **菱形 Flock** 4 架（队长前 + 左右两翼 + 殿后） | `_create_enemy` AH64 case | simple_ai + `ground_combat_only=true` + `attack_air_targets=false` |
 | `CH47(14)` | CH-47 Chinook | **Adds 运输直升机** | `enemy_ch47.tres`（1 枚热诱弹，50% 失误概率） | **0** | ∞ | 事件触发 | **纵阵 Flock** 3 架 | `_create_enemy` CH47 case | AI 简化(simple_ai, 与 Tu-160 同) |
+| `F47(15)` | F-47 | **BOSS 王牌狙击小队** | `enemy_f47.tres` + `f47_missile.tres`（AIM-260）+ `f47_flare.tres`（40 枚电子战）+ `ace_combat.tres` | **10** | **4** | 事件触发 | **菱形编队** 4 架（队长+两翼+殿后）| `_create_enemy` F47 case + `_spawn_f47_squad` | BVR 狙击模式(bvr_only) + 协同齐射(salvo_leader) |
 
 **Adds 杂兵分类细节**（目前有 Tu-160 横列波次 + AH-64/CH-47 纵阵波次 + SAM/AA 地面单位五种）：
 - **无反击、无规避、无雷达**：`enable_combat = false` + `radar_range = 0` + `simple_ai`
@@ -179,6 +180,16 @@ Resource
   - **AH-64 对地武器 + 空中免疫**：挂 M230 30mm 机炮 + Hydra 70 火箭弹。**两处独立防火**：①`AIController.ground_combat_only=true` 保证 `_try_engage_simple` 只选 `GroundUnit` 作为 `_current_target`。②`Aircraft.attack_air_targets=false` 保证 `_auto_gun_scan` 在 `combat_target` 为空时也不会自动扫射路过的空中敌人（否则 Apache 会对穿过机头的玩家开火）。遇到地面敌方时走 `_update_combat_ground_attack` strafing 状态机。
   - **AH-64 受击散队（jink 机动）**：`scatter_on_damage` meta + `Aircraft.flock_members` 共享引用。任一队员 `_apply_damage` 触发 `_trigger_flock_scatter()` 给所有队友设 `flock_scatter_timer = FLOCK_SCATTER_DURATION (3.5s)` + 随机侧向单位向量。AIController waypoint 分支用时间曲线复合偏移：`sin(progress×π)` 包络 × `sin(progress×τ×1.2)` weave × 侧向 650px ＋ 机头方向 × 200px 前冲 —— 形成明显的 S 型 jink 而非原地压杆。scatter 期间自动清空 `_current_target` 中断地面交战。
   - **AH-64 菱形编队**：4 架偏移在 `_spawn_ah64_flock` 写死：[0] 队长 (0, 0)、[1/2] 两翼 (-fwd, ±lat)、[3] 殿后 (-2×fwd, 0)，全部沿 `flight_dir`/`lateral_axis` 变换到世界坐标。
+
+**F-47 BOSS 王牌狙击小队**（BVR 远距协同齐射 BOSS，事件触发）：
+- **核心战术循环**（`F47Tactic` 状态机）：INTRO → ORBIT（环形站位 8-12s）→ ATTACK_RUN（冲向玩家齐射）→ SCATTER（散开到不同方位）→ REGROUP → ORBIT...
+- **赫尔贝特轮**（`herbst_maneuver.gd`）：被玩家近距追逐时触发 180° J-Turn 急转反杀。BOSS 专属可重复使用（15s 冷却），由 `ai_controller.gd` bvr_only 分支自动触发
+- **协同齐射**：`salvo_leader` 队长发射后广播齐射信号给僚机，0.1-0.4s 内 4 枚导弹齐射
+- **光学隐形**：每 60 秒激活 5.5 秒全队隐形（`is_cloaked`）。效果：淡出消失 + 雷达锁定清除 + 导弹丢失制导 + 无法选中。`_update_f47_cloak()` 管理，全队共享计时器
+- **热诱弹豁免**：不受敌机 1 枚限制（BOSS 特权），使用完整 f47_flare.tres（40 枚，burst 3）
+- **不走随机刷新**：不在 `_pick_enemy_type` 中，不被 `_update_spawner` 管理；由 `_spawn_f47_squad()` 专用函数触发（Debug 面板 / 未来事件系统）
+- **独立航点**：`category="boss"` meta 使之跳过 `_update_hunters` 和 `_update_enemy_waypoints`
+- **不受远距清理**：`skip_far_cleanup` meta
 
 **所有 Token / 上限 / 解锁常量** 都在 `survivor_data.gd` 里集中定义：
 - `TOKEN_COST`（`:338`）/ `TOKEN_INSTANCE_CAP`（`:356`）/ `TOKEN_BUDGET_BASE/PER_LEVEL/MAX`（`:331`）
@@ -221,6 +232,7 @@ Resource
 |------|---------|------|----------|
 | `aircraft.gd` | `Aircraft extends CombatUnit` | [共享] 飞机物理+战斗+武器+视觉（最核心，~2900 行） | `_physics_process:194` `_update_combat:1107` `_update_gun:1422` `_update_rocket:1468` `_update_weapon_mode:1599` `_update_missile:1811` `_effective_missile_range_px` `_missile_cannot_hit_but_gun_can` `_should_commit_gun_pass` `_is_gun_pass_finished` `_release_flares(target_missile)` `set_evasion_mode` `_corner_speed_kmh` `get_maneuver` |
 | `cobra_maneuver.gd` | `CobraManeuver extends Node` | [共享] 眼镜蛇机动模块（挂载到 Aircraft 子节点） | `activate` `_physics_process`（三阶段状态机） |
+| `herbst_maneuver.gd` | `HerbstManeuver extends Node` | [生存] 赫尔贝特轮 J-Turn 模块（F-47 BOSS 专属，可重复使用） | `activate` `_physics_process`（DECEL→TURN→ACCEL） |
 | `rocket_params.gd` | `RocketParams extends Resource` | [共享] 无制导火箭弹参数（齐射数/散布/冷却） | — |
 | `ai_controller.gd` | `AIController extends Node` | [共享] AI 状态机 + BFM 战术决策树 + 导弹拦截（~1720 行） | `_process_patrol:553` `_process_squad_follow:583` `_process_engage:736` `_choose_tactic:952` `_process_evade:1341` `_find_leader_threat` `_compute_intercept_pos` `_find_member_ai` |
 | `combat_unit.gd` | `CombatUnit extends Node2D` | [共享] 战斗单位基类（通用接口） | `take_damage:81` `is_in_radar_cone:94` `get_altitude_tier:65` |

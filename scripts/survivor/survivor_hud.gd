@@ -41,6 +41,9 @@ var _btn_squad_weapon: Button
 var _squad_engage_mode: int = 0          # AIController.SquadEngageMode.FREE
 var _squad_weapon_pref: int = 0          # 0 = 导弹优先, 1 = 机炮优先 (Aircraft.WeaponPreference)
 
+# ── BOSS 小队状态面板（F-47 等 BOSS 在场时显示）──
+var _boss_panel: PanelContainer
+
 # ── 雷达小地图 ──
 var _radar: Control
 
@@ -175,6 +178,9 @@ func _build_ui() -> void:
 	# ── 小队指挥面板（仅当主角有僚机时显示）──
 	_build_squad_panel()
 
+	# ── BOSS 小队状态面板 ──
+	_build_boss_panel()
+
 	# ── 战术提示面板 ──
 	_tooltip_panel = PanelContainer.new()
 	_tooltip_panel.visible = false
@@ -257,6 +263,7 @@ func _process(delta: float) -> void:
 	_update_display()
 	_update_tactical_buttons()
 	_update_squad_panel()
+	_update_boss_panel()
 	if _debug_visible:
 		_debug_update_timer -= delta
 		if _debug_update_timer <= 0.0:
@@ -271,6 +278,13 @@ func _layout_ui() -> void:
 
 	_kill_label.position = Vector2(vp.x * 0.5 - 60, 42)
 	_kill_label.size = Vector2(120, 20)
+
+	# BOSS 小队面板：屏幕中上方，击杀标签下方
+	if _boss_panel and _boss_panel.visible:
+		_boss_panel.position = Vector2(
+			vp.x * 0.5 - _boss_panel.size.x * 0.5,
+			66
+		)
 
 	var xp_x := (vp.x - XP_BAR_WIDTH) * 0.5
 	var xp_y := vp.y - XP_BAR_HEIGHT - 20
@@ -664,6 +678,134 @@ func _build_squad_panel() -> void:
 	sp_vbox.add_child(_btn_squad_weapon)
 
 	add_child(_squad_panel)
+
+# ══════════════════════════════════════════════
+#  BOSS 小队状态面板
+# ══════════════════════════════════════════════
+
+var _boss_card_labels: Array[RichTextLabel] = []  ## 每架飞机一个卡片标签
+
+func _build_boss_panel() -> void:
+	_boss_panel = PanelContainer.new()
+	_boss_panel.visible = false
+	var bp_style := StyleBoxFlat.new()
+	bp_style.bg_color = Color(0.08, 0.02, 0.02, 0.82)
+	bp_style.border_color = Color(0.85, 0.25, 0.2, 0.5)
+	bp_style.set_border_width_all(1)
+	bp_style.set_corner_radius_all(3)
+	bp_style.content_margin_left = 8
+	bp_style.content_margin_right = 8
+	bp_style.content_margin_top = 4
+	bp_style.content_margin_bottom = 4
+	_boss_panel.add_theme_stylebox_override("panel", bp_style)
+
+	var hbox := HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 12)
+	_boss_panel.add_child(hbox)
+
+	# 标题
+	var title := Label.new()
+	title.text = "ACE"
+	title.add_theme_font_size_override("font_size", 11)
+	title.add_theme_color_override("font_color", Color(1.0, 0.35, 0.3))
+	hbox.add_child(title)
+
+	# 4 个卡片槽位
+	_boss_card_labels.clear()
+	for i in range(4):
+		var card := RichTextLabel.new()
+		card.bbcode_enabled = true
+		card.fit_content = true
+		card.scroll_active = false
+		card.custom_minimum_size = Vector2(130, 0)
+		card.add_theme_font_size_override("normal_font_size", 10)
+		card.add_theme_font_size_override("bold_font_size", 10)
+		card.add_theme_color_override("default_color", Color(0.9, 0.82, 0.8))
+		hbox.add_child(card)
+		_boss_card_labels.append(card)
+
+	add_child(_boss_panel)
+
+func _update_boss_panel() -> void:
+	if _boss_panel == null:
+		return
+	if not game_scene or not ("_f47_squad_active" in game_scene) or not game_scene._f47_squad_active:
+		_boss_panel.visible = false
+		return
+
+	# 用 _f47_squad_all（含已击毁成员）保留击坠状态显示
+	var all_members: Array = game_scene._f47_squad_all if ("_f47_squad_all" in game_scene) else game_scene._f47_squad_members
+	if all_members.is_empty():
+		_boss_panel.visible = false
+		return
+	_boss_panel.visible = true
+	var members := all_members
+
+	for i in range(_boss_card_labels.size()):
+		var card: RichTextLabel = _boss_card_labels[i]
+		if i >= members.size():
+			card.text = ""
+			continue
+		var ac_raw: Variant = members[i]
+		if not is_instance_valid(ac_raw):
+			card.text = "[color=#444444][b]ACE-%02d[/b] DOWN\n░░░░░░░░[/color]" % (i + 1)
+			continue
+		var ac: Aircraft = ac_raw as Aircraft
+
+		var max_hp: float = ac.params.max_hp if ac.params else 70.0
+		var hp_ratio: float
+		var status_text: String
+		var status_color: String
+
+		if ac.is_destroyed:
+			hp_ratio = 0.0
+			status_text = "DEAD"
+			status_color = "555555"
+		else:
+			hp_ratio = clampf(ac.hp / maxf(max_hp, 0.01), 0.0, 1.0)
+			if ac.is_cloaked:
+				status_text = "CLOAK"
+				status_color = "aa88ff"
+			else:
+				var ai := _get_ai(ac)
+				status_text = _boss_action_text(ac, ai) if ai else "---"
+				status_color = "e8a86a"
+
+		var hp_color: String = "ff4444" if hp_ratio <= 0.3 else ("ffcc44" if hp_ratio <= 0.6 else "44ff44")
+		var bar_len := 8
+		var filled := int(round(hp_ratio * bar_len))
+		var bar := ""
+		for c in range(bar_len):
+			bar += "█" if c < filled else "░"
+
+		if ac.is_destroyed:
+			card.text = "[color=#444444][b]%s[/b] DOWN\n░░░░░░░░ 0/%d[/color]" % [ac.callsign, int(max_hp)]
+		else:
+			card.text = "[b]%s[/b] [color=#%s]%s[/color]\n[color=#%s]%s[/color] [color=#%s]%d/%d[/color]" % [
+				ac.callsign, status_color, status_text,
+				hp_color, bar, hp_color, int(ac.hp), int(max_hp)]
+
+## BOSS 成员的动作文本
+func _boss_action_text(ac: Aircraft, ai: AIController) -> String:
+	var hm: HerbstManeuver = ac.get_herbst()
+	if hm and hm.is_active:
+		return "J-TURN"
+	if hm and hm.counterattack_timer > 0.0:
+		return "COUNTER"
+	match ai._state:
+		AIController.AIState.ENGAGE:
+			var role: int = ac.get_meta("f47_role", 0)
+			if role == 2:  # CLOSE_FIGHTER
+				return "CLOSE"
+			elif role == 3:  # RANGED_STRIKER
+				return "STRIKE"
+			return "ENGAGE"
+		AIController.AIState.EVADE_MISSILE:
+			return "EVADE"
+		AIController.AIState.PATROL:
+			return "RETURN"
+		_:
+			return "---"
 
 ## 返回玩家所在的小队（以玩家为长机的那个 Squad）
 func _get_player_squad() -> Squad:

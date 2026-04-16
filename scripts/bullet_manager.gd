@@ -90,6 +90,9 @@ func _physics_process(delta: float) -> void:
 			# 跳过同队（无论射手死活都用快照 team 判定）
 			if ac.team == source_team:
 				continue
+			# 光学隐形：子弹/火箭弹穿过隐形目标
+			if ac is Aircraft and ac.is_cloaked:
+				continue
 			# 战术机动中及结束后缓冲期内免疫所有弹药
 			if ac is Aircraft:
 				var _bm = ac.get_maneuver()

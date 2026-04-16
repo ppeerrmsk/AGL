@@ -21,4 +21,4 @@ proximity_fuse_alt = 200.0
 seeker_fov = 60.0
 guidance_delay = 0.5
 max_count = 2
-cooldown = 3.0
+cooldown = 2.0

@@ -52,6 +52,16 @@ func has_active_missile_at(source: CombatUnit, target: CombatUnit) -> bool:
 				return true
 	return false
 
+## 计数：某射手对某目标在飞的导弹数
+func count_active_missiles_at(source: CombatUnit, target: CombatUnit) -> int:
+	var count := 0
+	for child in get_children():
+		if child is Missile:
+			var m: Missile = child as Missile
+			if m.is_active and m.source == source and m.target == target:
+				count += 1
+	return count
+
 func _physics_process(delta: float) -> void:
 	# ── 导弹命中检测 ──
 	for child in get_children():
@@ -73,6 +83,9 @@ func _physics_process(delta: float) -> void:
 			if not is_instance_valid(unit) or unit.is_destroyed:
 				continue
 			if unit.team == missile.team:
+				continue
+			# 光学隐形：导弹从隐形目标穿过
+			if unit is Aircraft and unit.is_cloaked:
 				continue
 			# 导弹穿透窗口：flare 释放后 1 秒内所有导弹从此单位穿过
 			if unit is Aircraft and unit.missile_phase_timer > 0.0:

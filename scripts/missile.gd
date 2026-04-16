@@ -62,6 +62,8 @@ func _physics_process(delta: float) -> void:
 		# 发射后不管（AGM 等）：不需要持续照射，不受热诱弹干扰
 		if target == null or not is_instance_valid(target) or target.is_destroyed:
 			has_guidance = false
+		elif target is Aircraft and target.is_cloaked:
+			has_guidance = false  # 光学隐形：导弹丢失制导
 		else:
 			has_guidance = true
 	else:
@@ -70,6 +72,8 @@ func _physics_process(delta: float) -> void:
 			has_guidance = false
 		elif target == null or not is_instance_valid(target) or target.is_destroyed:
 			has_guidance = false
+		elif target is Aircraft and target.is_cloaked:
+			has_guidance = false  # 光学隐形：SARH 导弹丢失
 		elif source == null or not is_instance_valid(source) or source.is_destroyed:
 			has_guidance = false
 		else:

@@ -1,0 +1,24 @@
+[gd_resource type="Resource" script_class="MissileParams" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/missile_params.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+display_name = "AIM-260"
+max_speed = 1600.0
+motor_burn_time = 8.0
+motor_acceleration = 230.0
+drag_deceleration = 28.0
+max_g = 40.0
+nav_constant = 4.5
+max_range_rear = 20000.0
+front_rear_ratio = 4.5
+min_range = 400.0
+max_lifetime = 40.0
+damage = 90.0
+proximity_fuse_radius = 25.0
+proximity_fuse_alt = 200.0
+seeker_fov = 65.0
+guidance_delay = 0.3
+max_count = 4
+cooldown = 1.5

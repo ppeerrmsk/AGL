@@ -55,6 +55,20 @@ var _q5_params_base: AircraftParams
 var _tu160_params_base: AircraftParams
 var _ah64_params_base: AircraftParams
 var _ch47_params_base: AircraftParams
+var _f47_params_base: AircraftParams
+
+# ── F-47 BOSS 小队状态 ──
+enum F47Tactic { INTRO, COMBAT }
+enum F47Role { NONE, EVADER, CLOSE_FIGHTER, RANGED_STRIKER }
+var _f47_squad_active: bool = false         ## BOSS 小队是否在场
+var _f47_squad_members: Array[Aircraft] = [] ## F-47 存活成员（每帧过滤）
+var _f47_squad_all: Array[Aircraft] = []     ## F-47 全部成员（含已击毁，HUD 显示用）
+var _f47_tactic: int = F47Tactic.INTRO      ## 当前小队阶段（INTRO → COMBAT）
+var _f47_tactic_timer: float = 0.0          ## INTRO 倒计时
+# ── F-47 光学隐形 ──
+var _f47_cloak_timer: float = 0.0           ## 距下次隐形的倒计时
+var _f47_cloak_active: bool = false         ## 隐形是否激活中
+var _f47_cloak_remaining: float = 0.0       ## 隐形剩余时间
 
 # ── 地面单位场景/参数（Debug 面板用）──
 var _sam_scene: PackedScene
@@ -99,6 +113,7 @@ const SQUAD_CLEANUP_INTERVAL := 3.0  ## 每3秒清理一次无效分队
 var _tu160_serial: int = 0       ## Tu-160 编号计数器
 var _ah64_serial: int = 0
 var _ch47_serial: int = 0
+var _f47_serial: int = 0          ## F-47 编号计数器
 
 # ── Token 烈度控制 ──
 var _token_used: int = 0
@@ -118,6 +133,10 @@ var hud: SurvivorHUD
 var upgrade_ui: SurvivorUpgradeUI
 
 func _ready() -> void:
+	# 确保 SurvivorMode 在所有子节点（含 AI 控制器）之前执行
+	# 这样 _f47_assign_roles 设置的 boss_attacker 等标志在 AI 运行时已经生效
+	process_priority = -10
+	process_physics_priority = -10
 	_init_noise()
 	target_zoom = camera.zoom.x
 
@@ -137,6 +156,7 @@ func _ready() -> void:
 	_tu160_params_base = preload("res://resources/enemy_tu160.tres")
 	_ah64_params_base = preload("res://resources/enemy_ah64.tres")
 	_ch47_params_base = preload("res://resources/enemy_ch47.tres")
+	_f47_params_base = preload("res://resources/enemy_f47.tres")
 	_sam_scene = preload("res://scenes/sam_unit.tscn")
 	_sam_params = preload("res://resources/sam_params.tres")
 	_aa_scene = preload("res://scenes/aa_gun_unit.tscn")
@@ -576,6 +596,9 @@ func _physics_process(delta: float) -> void:
 	# 这里仅处理已刷出来单位的生命期超限清理（despawn_after meta）
 	_cleanup_expired_adds()
 
+	# F-47 BOSS 小队更新（狙击循环 / 登场通场）
+	_update_f47_squad(delta)
+
 	# 猎手追踪 & 巡逻航点更新
 	_update_hunters(delta)
 	_update_enemy_waypoints(delta)
@@ -852,8 +875,9 @@ func _update_hunters(delta: float) -> void:
 	var idle_enemies: Array[Aircraft] = []
 	for child in get_children():
 		if child is Aircraft and child.team != 0 and not child.is_destroyed:
-			# Adds 杂兵（Tu-160 等）不参与猎手系统，只沿固定航线飞
-			if child.has_meta("category") and child.get_meta("category") == "adds":
+			# Adds 杂兵和 Boss 不参与猎手系统（Adds 沿航线飞，Boss 有独立战术循环）
+			var cat: String = child.get_meta("category", "")
+			if cat == "adds" or cat == "boss":
 				continue
 			var ai := _get_ai(child)
 			if ai:
@@ -904,8 +928,9 @@ func _update_enemy_waypoints(delta: float) -> void:
 	var pp := player_aircraft.global_position
 	for child in get_children():
 		if child is Aircraft and child.team != 0 and not child.is_destroyed:
-			# Adds 杂兵（Tu-160 等）有自己固定的 A→B 直线航线，绝不能被绕玩家航点覆盖
-			if child.has_meta("category") and child.get_meta("category") == "adds":
+			# Adds 杂兵和 Boss 有独立航点管理，不被绕玩家航点覆盖
+			var cat2: String = child.get_meta("category", "")
+			if cat2 == "adds" or cat2 == "boss":
 				continue
 			var ai := _get_ai(child)
 			if ai and (ai._state == AIController.AIState.PATROL or (ai.simple_ai and ai._current_target == null)):
@@ -1085,7 +1110,7 @@ func _update_spawner(delta: float) -> void:
 ## - Adds（杂兵，category="adds"）：无反击能力，只沿直线飞行，不走 _update_spawner
 ##     / Token 预算系统，通过独立 flock 波次刷新，不受远距清理影响。
 ##     目前成员：TU160, AH64, CH47。敌人参数的 meta("category")="adds" 标识。
-enum EnemyType { UAV, UCAV, MIG, INTERCEPTOR, UAV_COMMANDER, F86, MIG31, MIG23, F100, SU27, A7, Q5, TU160, AH64, CH47 }
+enum EnemyType { UAV, UCAV, MIG, INTERCEPTOR, UAV_COMMANDER, F86, MIG31, MIG23, F100, SU27, A7, Q5, TU160, AH64, CH47, F47 }
 
 ## 当前 Token 预算（随等级增长，夹在常量范围内）
 func _get_token_budget() -> int:
@@ -1506,6 +1531,368 @@ func _spawn_enemy_aa() -> void:
 
 ## 地面单位通用生成（与沙盒 debug_panel._spawn_ground_unit 同构）
 ## 地面单位归类为 Adds：不占 Token、不随机刷新、只由事件/Debug 面板触发
+# ══════════════════════════════════════════════
+#  F-47 王牌狙击小队 BOSS
+# ══════════════════════════════════════════════
+
+## 生成 F-47 四机编队 BOSS（事件/Debug 面板触发）
+## 登场：菱形编队从侧方高速通场 → 散开到狙击站位 → 进入 BVR 狙击循环
+func _spawn_f47_squad() -> void:
+	if _f47_squad_active:
+		return  # 已有 BOSS 在场
+	if not player_aircraft or player_aircraft.is_destroyed:
+		return
+
+	_f47_squad_active = true
+	_f47_squad_members.clear()
+	_f47_squad_all.clear()
+	_f47_tactic = F47Tactic.INTRO
+	_f47_tactic_timer = SurvivorData.F47_INTRO_DURATION
+	_f47_cloak_timer = SurvivorData.F47_CLOAK_CYCLE  # 首次隐形在 60 秒后
+	_f47_cloak_active = false
+	_f47_cloak_remaining = 0.0
+
+	var pp := player_aircraft.global_position
+	# 登场方向：从玩家侧方进入（随机左/右 90°）
+	var player_hdg := player_aircraft.heading
+	var side := 1.0 if randf() > 0.5 else -1.0
+	var entry_angle := player_hdg + side * PI / 2.0  # 侧方 90°
+	var entry_dir := Vector2(sin(entry_angle), -cos(entry_angle))
+	var lateral_axis := Vector2(sin(entry_angle + PI / 2.0), -cos(entry_angle + PI / 2.0))
+
+	var spawn_origin := pp + entry_dir * SurvivorData.SPAWN_DISTANCE
+	var heading_deg := rad_to_deg(entry_angle + PI)  # 朝玩家方向飞
+
+	# 菱形编队偏移（队长在前，两翼，殿后）
+	var offsets: Array[Vector2] = [
+		Vector2.ZERO,                                     # [0] 队长
+		-entry_dir * 200.0 + lateral_axis * 180.0,       # [1] 右翼
+		-entry_dir * 200.0 - lateral_axis * 180.0,       # [2] 左翼
+		-entry_dir * 400.0,                               # [3] 殿后
+	]
+
+	# 创建编队
+	var sq := Squad.new()
+	for i in range(SurvivorData.F47_SQUAD_SIZE):
+		var pos := spawn_origin + offsets[i]
+		var f47: Aircraft = _create_enemy(EnemyType.F47, pos, heading_deg)
+
+		# 登场阶段设置：高速通场，暂不交战
+		f47.set_meta("boss_intro", true)
+		f47.set_meta("category", "boss")  # 不被 _update_hunters / _update_enemy_waypoints 影响
+		f47.set_meta("skip_far_cleanup", true)  # BOSS 不受远距清理
+
+		# 高度：高空通场
+		f47.set_target_tier(Aircraft.AltitudeTier.HIGH)
+
+		# 通场航路点：经过玩家前方，然后拉开
+		var pass_point := pp - entry_dir * SurvivorData.F47_INTRO_PASS_DIST
+		var exit_point := pp - entry_dir * SurvivorData.F47_STANDOFF_RADIUS_MIN
+
+		var ai_node: AIController = f47._get_ai_controller()
+		if ai_node:
+			# 登场阶段：关闭战斗，按航路点飞行
+			ai_node.enable_combat = false
+			ai_node.waypoints = PackedVector2Array([pass_point, exit_point])
+			ai_node.current_waypoint_index = 0
+			ai_node.arrival_distance = 300.0
+
+			# 编队配置
+			ai_node.squad = sq
+			ai_node.squad_index = i
+			if i == 0:
+				sq.leader = f47
+				ai_node.salvo_leader = true  # 队长指挥齐射
+
+		# 挂载赫尔贝特轮机动模块（BOSS 专属 J-Turn）
+		var herbst := HerbstManeuver.new()
+		herbst.name = "HerbstManeuver"
+		f47.add_child(herbst)
+
+		sq.members.append(f47)
+		_f47_squad_members.append(f47)
+		_f47_squad_all.append(f47)
+
+	_squads.append(sq)
+	EventLogger.log_event("BOSS", "F47_SQUAD", "F-47 ace squad spawned (4 aircraft)")
+
+## 每帧更新 F-47 BOSS 小队状态
+func _update_f47_squad(delta: float) -> void:
+	if not _f47_squad_active:
+		return
+
+	# 清理已击毁的成员
+	var alive: Array[Aircraft] = []
+	for member in _f47_squad_members:
+		if is_instance_valid(member) and not member.is_destroyed:
+			alive.append(member)
+	_f47_squad_members = alive
+
+	# 全灭 → 结束 BOSS 战
+	if _f47_squad_members.is_empty():
+		_f47_squad_active = false
+		_f47_cloak_active = false
+		EventLogger.log_event("BOSS", "F47_SQUAD", "F-47 ace squad eliminated")
+		return
+
+	# ── 光学隐形系统（全小队共享计时器） ──
+	_update_f47_cloak(delta)
+
+	# ── INTRO 阶段 ──
+	if _f47_tactic == F47Tactic.INTRO:
+		_f47_tactic_timer -= delta
+		_f47_process_intro(delta)
+		return
+
+	# ── 核心战术：被盯的逃跑/隐形，其他主动攻击玩家 ──
+	if not player_aircraft or player_aircraft.is_destroyed:
+		return
+	_f47_assign_roles()
+
+## F-47 核心战术分配："二二组合"战术
+## - 近距纠缠组（2 架）：贴近玩家用机动拉扯 + 机炮
+## - 远距攻击组（2 架）：保持距离用导弹持续打击
+## - 被玩家盯住的那架优先活命（逃跑/隐形/花式机动）
+## - 其余 3 架攻击欲望大幅提升
+## F-47 核心战术分配："二二组合" + 被追逃跑
+## 设计原则：只在角色切换时修改 AI 状态，不每帧覆盖
+const F47_RANGED_MAX_DISTANCE := 3500.0 ## 逃跑手最远距离（超过掉头）— 不让 BOSS 飞太远
+func _f47_assign_roles() -> void:
+	var pp := player_aircraft.global_position
+
+	# ── 1. 判断被追成员 ──
+	var chased_member: Aircraft = null
+	if player_aircraft.combat_target and is_instance_valid(player_aircraft.combat_target):
+		for member in _f47_squad_members:
+			if player_aircraft.combat_target == member:
+				chased_member = member
+				break
+	if not chased_member:
+		var player_fwd := Vector2(sin(player_aircraft.heading), -cos(player_aircraft.heading))
+		var best_dot := -1.0
+		for member in _f47_squad_members:
+			var to_member := (member.global_position - pp).normalized()
+			var dot := player_fwd.dot(to_member)
+			var dist := member.global_position.distance_to(pp)
+			if dot > 0.7 and dist < 2500.0 and dot > best_dot:
+				best_dot = dot
+				chased_member = member
+
+	# ── 2. 按距离排序（不含被追成员）──
+	var attackers: Array[Aircraft] = []
+	for member in _f47_squad_members:
+		if member != chased_member:
+			attackers.append(member)
+	attackers.sort_custom(func(a: Aircraft, b: Aircraft) -> bool:
+		return a.global_position.distance_squared_to(pp) < b.global_position.distance_squared_to(pp))
+
+	# ── 3. 计算新角色并应用（只在角色变化时重写 AI 状态）──
+	for member in _f47_squad_members:
+		var new_role: int
+		if member == chased_member:
+			new_role = F47Role.EVADER
+		elif attackers.find(member) < 2:
+			new_role = F47Role.CLOSE_FIGHTER
+		else:
+			new_role = F47Role.RANGED_STRIKER
+
+		var old_role: int = member.get_meta("f47_role", F47Role.NONE)
+		var ai_node: AIController = member._get_ai_controller()
+		if not ai_node:
+			continue
+
+		# 角色切换 → 一次性配置（不每帧覆盖）
+		if new_role != old_role:
+			member.set_meta("f47_role", new_role)
+			_f47_apply_role(member, ai_node, new_role, chased_member != null)
+
+		# 每帧只做轻量维护（航点更新 + 距离检查）
+		_f47_maintain_role(member, ai_node, new_role, pp, chased_member != null)
+
+## 角色切换时一次性配置（只在角色真正变化时调用）
+func _f47_apply_role(member: Aircraft, ai_node: AIController, role: int, has_chased: bool) -> void:
+	match role:
+		F47Role.EVADER:
+			ai_node.bvr_only = true
+			ai_node.boss_attacker = false
+			member.prefer_gun_mode = false
+		F47Role.CLOSE_FIGHTER:
+			ai_node.bvr_only = false
+			ai_node.boss_attacker = true
+			member.prefer_gun_mode = true
+			# 近距狗斗：最大 G 力转弯 + 减速拉到最紧
+			if member.params and member.params.combat:
+				var c := member.params.combat
+				c.combat_bank_aggression = 1.5    # 极激进转弯
+				c.combat_full_bank_diff = 0.05    # 极快进入满 bank
+				c.combat_half_bank_diff = 0.01
+				c.approach_speed_mult = 1.6       # 接近时快
+				c.maneuver_speed_mult = 0.70      # 机动时大幅减速（拉最小转弯半径）
+				c.closing_speed_mult = 1.4
+				c.intercept_range_mult = 1.6
+				c.ab_cooldown = 0.5               # 频繁加力
+				c.turn_slow_speed_mult = 0.65     # 转弯时急刹到 65% 巡航速度
+				c.turn_slow_angle = 30.0          # 30° 就开始刹车
+				c.turn_slow_max_angle = 90.0      # 90° 达到最大刹车
+			ai_node.aggression = 1.0 if has_chased else 0.95
+			ai_node.self_preservation = 0.05 if has_chased else 0.15
+		F47Role.RANGED_STRIKER:
+			ai_node.bvr_only = false
+			ai_node.boss_attacker = true
+			member.prefer_gun_mode = false
+			# 远距打击：全速冲刺 + 快速掉头 + 猛刹转弯
+			if member.params and member.params.combat:
+				var c := member.params.combat
+				c.combat_bank_aggression = 1.3    # 快速掉头
+				c.combat_full_bank_diff = 0.06
+				c.combat_half_bank_diff = 0.015
+				c.approach_speed_mult = 1.8       # 高速接近
+				c.maneuver_speed_mult = 0.80      # 转弯时减速（拉紧转弯半径）
+				c.closing_speed_mult = 1.6
+				c.intercept_range_mult = 2.5
+				c.ab_cooldown = 0.5               # 加力几乎无冷却
+				c.overshoot_speed_margin = 1.3
+				c.overshoot_decel_range = 0.8
+				c.overshoot_ab_range = 1.0
+				c.turn_slow_speed_mult = 0.70     # 转弯急刹
+				c.turn_slow_angle = 35.0
+				c.turn_slow_max_angle = 100.0
+			ai_node.aggression = 1.0 if has_chased else 0.95
+			ai_node.self_preservation = 0.05 if has_chased else 0.10
+
+## 每帧轻量维护：确保 BOSS 永远在 ENGAGE 状态追击玩家
+## BOSS 没有 PATROL 概念——他永远知道玩家在哪，永远在战斗
+func _f47_maintain_role(member: Aircraft, ai_node: AIController, role: int, pp: Vector2, _has_chased: bool) -> void:
+	match role:
+		F47Role.EVADER:
+			var hm: HerbstManeuver = member.get_herbst()
+			if hm and (hm.is_active or hm.counterattack_timer > 0.0):
+				return
+			var dist := member.global_position.distance_to(pp)
+			if dist > F47_RANGED_MAX_DISTANCE:
+				# 飞够远了 → 加力掉头绕回玩家侧面
+				var side_dir := Vector2(sin(player_aircraft.heading + PI / 2.0), -cos(player_aircraft.heading + PI / 2.0))
+				ai_node.waypoints = PackedVector2Array([pp + side_dir * 1800.0])
+				member.is_afterburner = true  # 全速返回
+			else:
+				var flee_dir := (member.global_position - pp).normalized()
+				if flee_dir.length_squared() < 0.1:
+					flee_dir = Vector2(randf_range(-1, 1), randf_range(-1, 1)).normalized()
+				ai_node.waypoints = PackedVector2Array([pp + flee_dir * SurvivorData.F47_STANDOFF_RADIUS_MAX])
+			ai_node.current_waypoint_index = 0
+
+		F47Role.CLOSE_FIGHTER, F47Role.RANGED_STRIKER:
+			# BOSS 永远在 ENGAGE——不管多远，目标都是玩家
+			_f47_force_engage(member, ai_node)
+			ai_node.waypoints = PackedVector2Array([pp])
+			ai_node.current_waypoint_index = 0
+			# 远距离时：强制加力 + 强制 LEAD_PURSUIT（别做花式机动，直线冲过来）
+			var dist := member.global_position.distance_to(pp)
+			if dist > 2500.0:
+				member.is_afterburner = true
+				if ai_node._tactic != AIController.EngageTactic.LEAD_PURSUIT:
+					ai_node._apply_new_tactic(AIController.EngageTactic.LEAD_PURSUIT)
+
+## 确保 BOSS 处于 ENGAGE 状态（如果因为任何原因脱离了，立即恢复）
+func _f47_force_engage(member: Aircraft, ai_node: AIController) -> void:
+	# 始终确保 boss_attacker 为 true（防止角色切换间隙）
+	ai_node.boss_attacker = true
+	# 强制最大战术激进度（拉满 G 力，用尽飞机性能）
+	member.tactical_aggression = 1.0
+	if ai_node._state != AIController.AIState.ENGAGE:
+		ai_node._state = AIController.AIState.ENGAGE
+		ai_node._current_target = player_aircraft
+		member.combat_target = player_aircraft
+		ai_node._engage_timer = 0.0
+		ai_node._cooldown_timer = 0.0
+		ai_node._tactic_timer = 0.0
+		ai_node._tactic_min_duration = 0.0
+	# 目标丢失时也恢复
+	elif not ai_node._current_target or not is_instance_valid(ai_node._current_target) or ai_node._current_target.is_destroyed:
+		ai_node._current_target = player_aircraft
+		member.combat_target = player_aircraft
+
+## F-47 光学隐形更新
+func _update_f47_cloak(delta: float) -> void:
+	if _f47_cloak_active:
+		# 隐形中：倒计时
+		_f47_cloak_remaining -= delta
+		# 更新淡出/淡入 alpha
+		for member in _f47_squad_members:
+			if _f47_cloak_remaining > SurvivorData.F47_CLOAK_DURATION - SurvivorData.F47_CLOAK_FADE:
+				# 淡出阶段
+				var fade_progress := (SurvivorData.F47_CLOAK_DURATION - _f47_cloak_remaining) / SurvivorData.F47_CLOAK_FADE
+				member._cloak_alpha = 1.0 - clampf(fade_progress, 0.0, 1.0)
+				member.is_cloaked = fade_progress >= 1.0
+			elif _f47_cloak_remaining < SurvivorData.F47_CLOAK_FADE:
+				# 淡入阶段
+				var fade_progress := _f47_cloak_remaining / SurvivorData.F47_CLOAK_FADE
+				member._cloak_alpha = 1.0 - clampf(fade_progress, 0.0, 1.0)
+				member.is_cloaked = fade_progress >= 0.5
+			else:
+				# 完全隐形
+				member._cloak_alpha = 0.0
+				member.is_cloaked = true
+		if _f47_cloak_remaining <= 0.0:
+			# 隐形结束
+			_f47_cloak_active = false
+			_f47_cloak_timer = SurvivorData.F47_CLOAK_CYCLE
+			for member in _f47_squad_members:
+				member.is_cloaked = false
+				member._cloak_alpha = 1.0
+			EventLogger.log_event("BOSS", "F47_CLOAK", "cloak deactivated")
+	else:
+		# 等待隐形冷却
+		_f47_cloak_timer -= delta
+		var should_cloak := _f47_cloak_timer <= 0.0
+		# 紧急隐形：被导弹追踪时，即使冷却未完也提前激活（优先于热诱弹）
+		# 条件：冷却已过 10 秒（最低间隔，防止无限循环）
+		if not should_cloak and _f47_cloak_timer < SurvivorData.F47_CLOAK_CYCLE - 10.0:
+			if missile_manager and _f47_has_incoming_missile():
+				should_cloak = true
+				EventLogger.log_event("BOSS", "F47_CLOAK", "emergency cloak (incoming missile)")
+		if should_cloak and _f47_tactic != F47Tactic.INTRO:
+			_f47_cloak_active = true
+			_f47_cloak_remaining = SurvivorData.F47_CLOAK_DURATION
+			# 隐形激活：取消玩家对 F-47 的锁定目标（玩家回到平飞）
+			if player_aircraft and is_instance_valid(player_aircraft):
+				if player_aircraft.combat_target and is_instance_valid(player_aircraft.combat_target):
+					for member in _f47_squad_members:
+						if player_aircraft.combat_target == member:
+							player_aircraft.clear_combat_target()
+							break
+			EventLogger.log_event("BOSS", "F47_CLOAK", "cloak activated (%.1fs)" % SurvivorData.F47_CLOAK_DURATION)
+
+	# ── 热诱弹抑制：隐形可用或隐形中 → 不释放热诱弹 ──
+	var cloak_ready := _f47_cloak_active or _f47_cloak_timer <= 0.0
+	for member in _f47_squad_members:
+		member.suppress_flares = cloak_ready
+
+## INTRO：登场通场
+func _f47_process_intro(_delta: float) -> void:
+	if _f47_tactic_timer <= 0.0:
+		# 通场结束 → 启动战斗 AI，进入战斗阶段
+		for member in _f47_squad_members:
+			member.remove_meta("boss_intro")
+			var ai_node: AIController = member._get_ai_controller()
+			if ai_node:
+				ai_node.enable_combat = true
+		_f47_tactic = F47Tactic.COMBAT
+		EventLogger.log_event("BOSS", "F47_SQUAD", "intro → COMBAT")
+
+## 检查是否有导弹正在追踪 F-47 小队任一成员
+func _f47_has_incoming_missile() -> bool:
+	if not missile_manager:
+		return false
+	for child in missile_manager.get_children():
+		if child is Missile:
+			var m: Missile = child as Missile
+			if m.is_active and m.has_guidance and m.target is Aircraft:
+				for member in _f47_squad_members:
+					if m.target == member:
+						return true
+	return false
+
 func _spawn_ground_unit(scene: PackedScene, params_res: Resource, team_id: int, distance: float) -> void:
 	if not player_aircraft or player_aircraft.is_destroyed:
 		return
@@ -1559,20 +1946,27 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 			base_params = _ah64_params_base
 		EnemyType.CH47:
 			base_params = _ch47_params_base
+		EnemyType.F47:
+			base_params = _f47_params_base
 		_:
 			base_params = _uav_params_base
 
 	var enemy: Aircraft = _aircraft_scene.instantiate()
 	var enemy_params: AircraftParams = base_params.duplicate(true)
-	# 手动 duplicate 外部子资源，避免累积修改污染基础资源
+	# 手动 duplicate 所有外部子资源，避免累积修改污染基础资源
+	# ⚠ duplicate(true) 只深拷贝 AircraftParams 本身，嵌套的 Resource 字段仍是共享引用
 	if enemy_params.missile:
 		enemy_params.missile = enemy_params.missile.duplicate()
+	if enemy_params.secondary_missile:
+		enemy_params.secondary_missile = enemy_params.secondary_missile.duplicate()
 	if enemy_params.gun:
 		enemy_params.gun = enemy_params.gun.duplicate()
 	if enemy_params.flare:
 		enemy_params.flare = enemy_params.flare.duplicate()
 	if enemy_params.rocket:
 		enemy_params.rocket = enemy_params.rocket.duplicate()
+	if enemy_params.combat:
+		enemy_params.combat = enemy_params.combat.duplicate()
 
 	# 根据等级缩放（载人战机走 enemy_scale_for_level，含 MiG-31/23/F-100）
 	var scale: Dictionary
@@ -1584,6 +1978,9 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 		scale = SurvivorData.commander_scale_for_level(survivor_player.level)
 	elif etype == EnemyType.TU160 or etype == EnemyType.AH64 or etype == EnemyType.CH47:
 		# Adds 杂兵：无缩放（一击必杀才有设计意义）
+		scale = {"hp_mult": 1.0, "missile_add": 0, "gun_damage_mult": 1.0}
+	elif etype == EnemyType.F47:
+		# F-47 BOSS：无缩放（按满级玩家平衡，固定参数）
 		scale = {"hp_mult": 1.0, "missile_add": 0, "gun_damage_mult": 1.0}
 	else:
 		scale = SurvivorData.uav_scale_for_level(survivor_player.level)
@@ -1602,9 +1999,11 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 
 	# 敌机热诱弹限制：整个生命周期只允许释放一次，且只释放 1 枚
 	# （只够干扰玩家第一枚导弹，之后就没弹了，玩家第二发会命中）
+	# F-47 BOSS 豁免此限制：6 代电子战允许多次释放
 	if enemy_params.flare:
-		enemy_params.flare.burst_count = 1
-		enemy_params.flare.max_flares = 1
+		if etype != EnemyType.F47:
+			enemy_params.flare.burst_count = 1
+			enemy_params.flare.max_flares = 1
 		# 热诱弹失误概率：编队低级机高失误率，精英单机低失误率
 		match etype:
 			EnemyType.UAV:
@@ -1636,15 +2035,21 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 			EnemyType.CH47:
 				# 运输直升机：机组偏向飞行而非战斗，50% 概率未能释放
 				enemy_params.flare.fail_chance = 0.50
+			EnemyType.F47:
+				# F-47 王牌：6 代电子战套件，不限制为 1 枚（BOSS 豁免热诱弹削弱）
+				enemy_params.flare.fail_chance = 0.05
+				enemy_params.flare.head_on_fail_reduction = 0.05
 
 	enemy.params = enemy_params
 	enemy.team = 1
 	enemy.infinite_fuel = true
+	enemy.infinite_ammo = true  # 生存模式：所有敌机无限弹药（机炮+导弹永不耗尽）
 
 	# UAV/UCAV/Tu-160 无耐力（载人战机有耐力；Tu-160 虽然有人驾驶但在游戏内走直线，不需要耐力系统）
 	if etype != EnemyType.MIG and etype != EnemyType.INTERCEPTOR and etype != EnemyType.F86 \
 			and etype != EnemyType.MIG31 and etype != EnemyType.MIG23 and etype != EnemyType.F100 \
-			and etype != EnemyType.SU27 and etype != EnemyType.A7 and etype != EnemyType.Q5:
+			and etype != EnemyType.SU27 and etype != EnemyType.A7 and etype != EnemyType.Q5 \
+			and etype != EnemyType.F47:
 		enemy.no_stamina = true
 
 	var type_tag: String
@@ -1663,6 +2068,7 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 		EnemyType.TU160: type_tag = "tu160"
 		EnemyType.AH64: type_tag = "ah64"
 		EnemyType.CH47: type_tag = "ch47"
+		EnemyType.F47: type_tag = "f47"
 		_: type_tag = "uav"
 	enemy.set_meta("enemy_type", type_tag)
 	# Token 系统元数据：便于重算占用与实例计数
@@ -1683,6 +2089,9 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 	elif etype == EnemyType.CH47:
 		_ch47_serial += 1
 		enemy.callsign = "CHK-%02d" % _ch47_serial
+	elif etype == EnemyType.F47:
+		_f47_serial += 1
+		enemy.callsign = "ACE-%02d" % _f47_serial  # ACE = 王牌
 
 	enemy.position = spawn_pos
 	enemy.initial_heading_deg = heading_deg
@@ -1859,6 +2268,20 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 			ai.aggression = 0.0
 			ai.self_preservation = 0.0
 			ai.orbit_squad_leader = false
+		EnemyType.F47:
+			# F-47 = BOSS 王牌狙击小队：第一要务是消灭玩家
+			# bvr_only 由 _update_f47_squad 动态控制（被盯上的逃，其他攻击）
+			ai.evade_missiles = true
+			ai.bvr_only = false                           # 默认不逃——主动攻击
+			ai.boss_attacker = true                       # 默认就是攻击手（EVADER 角色才设 false）
+			ai.aggression = randf_range(0.90, 1.0)        # 极高攻击欲
+			ai.engage_cooldown = 0.5                      # 几乎无冷却
+			ai.engage_duration = 999.0                    # 永不自动脱离交战
+			ai.skill_level = 0.95                         # 王牌
+			ai.composure = 0.95
+			ai.focus = 0.95
+			ai.self_preservation = randf_range(0.10, 0.25) # 低自保——杀玩家优先
+			ai.situational_awareness = 0.95
 		EnemyType.AH64:
 			# AH-64 = Adds 攻击直升机：带机炮+火箭弹，但 ground_combat_only 限定只攻地面
 			# 空中永远不交战，主航线仍是直线飞行；途中遇到地面单位会做 strafing 打击
@@ -1882,6 +2305,11 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 	# 按 skill_level 梯度：低技能 5%，高技能 15%
 	if enemy_params.combat and enemy_params.combat.combat_bank_aggression > 1.0:
 		enemy.bullet_dodge_chance = lerpf(0.05, 0.15, ai.skill_level)
+
+	# ── F-47 BOSS 抗性设定 ──
+	if etype == EnemyType.F47:
+		enemy.bullet_dodge_chance = 0.60   # 60% 闪避 = 40% 命中率（闪避时触发滚转动画）
+		enemy.boss_flare_immunity = true   # 热诱弹释放后享有导弹穿透无敌时间
 
 	enemy.add_child(ai)
 	return enemy
@@ -1918,6 +2346,8 @@ func _detect_kills() -> void:
 					base_xp = SurvivorData.XP_PER_KILL_AH64
 				elif etype == "ch47":
 					base_xp = SurvivorData.XP_PER_KILL_CH47
+				elif etype == "f47":
+					base_xp = SurvivorData.XP_PER_KILL_F47
 				var xp_value := base_xp + survivor_player.level * 8
 				survivor_player.add_xp(xp_value)
 				kill_count += 1

@@ -50,6 +50,28 @@ const TACTIC_DISPLAY_NAME: Dictionary = {
 enum SquadEngageMode { FREE = 0, FOLLOW_LEADER = 1 }
 @export var squad_engage_mode: int = SquadEngageMode.FREE
 @export var simple_ai: bool = false           ## 简化 AI：只用前置追踪，跳过 BFM 决策树/SA/压力系统
+@export var bvr_only: bool = false            ## BVR 狙击模式：只用导弹，不进近距战，被接近则撤退
+var boss_attacker: bool = false               ## BOSS 攻击手：禁止 EXTENSION/脱离/自保，死追玩家
+
+## 实际 boss_attacker 状态（综合 boss_attacker 标志 + F-47 角色 meta）
+## 即使标志延迟一帧未更新，角色 meta 实时检查也能正确判断
+func is_boss_attacker() -> bool:
+	if boss_attacker:
+		return true
+	# 兜底检查：F-47 的 CLOSE_FIGHTER(2) 或 RANGED_STRIKER(3) 角色始终是攻击手
+	if aircraft and aircraft.has_meta("f47_role"):
+		var role: int = aircraft.get_meta("f47_role")
+		return role == 2 or role == 3  # CLOSE_FIGHTER or RANGED_STRIKER
+	return false
+
+# ── BVR 狙击模式常量 ──
+const BVR_STANDOFF_MIN := 2000.0             ## BVR 最小站位距离（像素）— 低于此距离强制脱离
+const BVR_FLEE_DISTANCE := 3000.0            ## BVR 撤退后飞到的距离（像素）
+
+# ── 协同齐射（F-47 小队战术） ──
+var salvo_leader: bool = false               ## 是否是齐射指挥（leader 发射后通知僚机）
+var _salvo_pending: bool = false             ## 收到齐射信号，等待发射
+var _salvo_delay: float = 0.0               ## 齐射延迟倒计时（错开发射）
 
 # ── 飞行员能力 ──
 @export var skill_level: float = 0.7          ## 战术水平 (0=菜鸟, 1=王牌)
@@ -326,6 +348,11 @@ func _missile_aware_range() -> float:
 func _update_stress(delta: float) -> void:
 	if _prev_hp < 0.0 and aircraft:
 		_prev_hp = aircraft.hp
+	# 生存模式：禁用压力系统（敌机不会因压力崩溃/降低技能）
+	if aircraft and aircraft.flat_altitude:
+		_stress = 0.0
+		current_stress = 0.0
+		return
 
 	var stress_delta := 0.0
 	var under_threat := false
@@ -397,10 +424,14 @@ func _update_drift(delta: float) -> void:
 
 ## 给目标位置加上漂移偏差
 func _apply_position_error(pos: Vector2) -> Vector2:
+	if is_boss_attacker():
+		return pos  # BOSS 攻击手：零误差，精确追踪
 	return pos + _drift_offset
 
 ## 给速度加上误差
 func _apply_speed_error(speed_kmh: float) -> float:
+	if is_boss_attacker():
+		return speed_kmh  # BOSS 攻击手：零误差
 	return speed_kmh * (1.0 + _speed_error)
 
 ## 给高度加上判断误差
@@ -847,7 +878,7 @@ func _process_patrol(delta: float) -> void:
 	else:
 		aircraft.target_position = target_wp
 
-	if evade_missiles and _missile_aware:
+	if evade_missiles and _missile_aware and not is_boss_attacker():
 		_enter_evade()
 		return
 
@@ -888,8 +919,8 @@ func _process_squad_follow(delta: float) -> void:
 		_set_next_waypoint()
 		return
 
-	# ── 导弹规避优先 ──
-	if evade_missiles and _missile_aware:
+	# ── 导弹规避优先（BOSS 攻击手跳过） ──
+	if evade_missiles and _missile_aware and not is_boss_attacker():
 		_enter_evade()
 		return
 
@@ -1120,6 +1151,33 @@ func _process_engage(delta: float) -> void:
 	_tactic_timer += delta
 	_target_eval_timer += delta
 
+	# ── BVR 狙击模式：太近则触发 Herbst 或强制脱离 ──
+	if bvr_only and _current_target and is_instance_valid(_current_target):
+		var hm: HerbstManeuver = aircraft.get_herbst()
+		# Herbst 反击窗口中 → 暂停 bvr_only 逃跑，像近距狗斗机一样攻击
+		if hm and hm.counterattack_timer > 0.0:
+			pass  # 跳过 bvr_only 距离检查，继续走正常交战逻辑
+		else:
+			var bvr_dist := aircraft.global_position.distance_to(_current_target.global_position)
+			if bvr_dist < BVR_STANDOFF_MIN:
+				# 检查敌人是否在我的后半球（被追逐）
+				var to_enemy := (_current_target.global_position - aircraft.global_position).normalized()
+				var my_fwd := Vector2(sin(aircraft.heading), -cos(aircraft.heading))
+				var is_chased := my_fwd.dot(to_enemy) < -0.3  # 敌人在我身后
+				# 被追且距离很近 → 尝试 Herbst 急转反杀
+				if is_chased and bvr_dist < 1500.0:
+					if hm and hm.can_activate:
+						# 计算转弯方向：朝敌人侧面转
+						var cross := my_fwd.x * to_enemy.y - my_fwd.y * to_enemy.x
+						hm.activate(cross)
+						EventLogger.log_event("AI_TACTIC", _log_name(), "Herbst J-Turn triggered (chased at %.0fpx)" % bvr_dist)
+						return
+				# Herbst 不可用或未被追 → 正常撤退
+				var flee_dir := (aircraft.global_position - _current_target.global_position).normalized()
+				aircraft.target_position = aircraft.global_position + flee_dir * BVR_FLEE_DISTANCE
+				_disengage()
+				return
+
 	# 累积防御态势时间
 	if _tactic in [EngageTactic.BREAK_TURN, EngageTactic.EXTENSION, EngageTactic.SCISSORS]:
 		_defensive_time += delta
@@ -1143,7 +1201,8 @@ func _process_engage(delta: float) -> void:
 					return
 
 	# ── 导弹规避（需要飞行员察觉 + 受 self_preservation 影响） ──
-	if evade_missiles and _missile_aware:
+	# BOSS 攻击手不做导弹规避——他们有热诱弹和隐形防御，任务是死追玩家
+	if evade_missiles and _missile_aware and not is_boss_attacker():
 		# 低自保飞行员可能忽略来袭导弹继续攻击
 		var evade_chance := lerpf(0.3, 1.0, _effective_self_preservation())
 		if randf() < evade_chance or _state != AIState.ENGAGE:
@@ -1183,9 +1242,11 @@ func _process_engage(delta: float) -> void:
 			_leader_target_lost_timer = 0.0
 
 	# 超出范围脱离（小队指令的交战都带宽限：允许短暂越界，给飞机调整位置的时间）
-	# flat_altitude=true（生存模式）下距离判定忽略高度差——生存模式设计上
-	# "任何高度都能达到"，沙盒模式的 3D 距离概念不带进来。
-	if aircraft.params:
+	# BOSS 攻击手永不因距离脱离——死追目标
+	# flat_altitude=true（生存模式）下距离判定忽略高度差
+	if is_boss_attacker():
+		pass  # BOSS 攻击手跳过距离脱离
+	elif aircraft.params:
 		var max_range := aircraft.params.radar_range * 1.5
 		var dist: float
 		if aircraft.flat_altitude:
@@ -1205,8 +1266,8 @@ func _process_engage(delta: float) -> void:
 		else:
 			_squad_range_grace_timer = 0.0
 
-	# 交战时间限制
-	if _engage_timer > engage_duration:
+	# 交战时间限制（BOSS 攻击手无限制）
+	if not is_boss_attacker() and _engage_timer > engage_duration:
 		_disengage()
 		return
 
@@ -1363,6 +1424,21 @@ func _update_lufberry_detection(s: SituationData, delta: float) -> void:
 # ══════════════════════════════════════════════
 
 func _choose_tactic(s: SituationData) -> void:
+	# ── BVR 狙击模式：只用 EXTENSION 或 LEAD_PURSUIT（远距），不选近距战术 ──
+	# 反击窗口中则跳过此限制，允许近距战术
+	var _hm_tactic: HerbstManeuver = aircraft.get_herbst()
+	var in_counterattack := _hm_tactic and _hm_tactic.counterattack_timer > 0.0
+	if bvr_only and not in_counterattack:
+		if s.dist_px < s.gun_range_px * 5.0:
+			# 太近了，强制脱离
+			if _tactic != EngageTactic.EXTENSION:
+				_apply_new_tactic(EngageTactic.EXTENSION)
+		else:
+			# 远距保持 LEAD_PURSUIT（导弹追踪）
+			if _tactic != EngageTactic.LEAD_PURSUIT:
+				_apply_new_tactic(EngageTactic.LEAD_PURSUIT)
+		return
+
 	var new_tactic := _tactic
 	var close_range := s.gun_range_px * 2.0
 	var mid_range := s.gun_range_px * 5.0
@@ -1426,6 +1502,11 @@ func _choose_tactic(s: SituationData) -> void:
 		elif s.dist_px > mid_range * 0.7 and s.closing_rate < 10.0:
 			new_tactic = EngageTactic.LOW_YOYO
 		else:
+			new_tactic = EngageTactic.LEAD_PURSUIT
+
+	# BOSS 攻击手：只禁止逃跑（EXTENSION），其他战术机动自由使用
+	if is_boss_attacker():
+		if new_tactic == EngageTactic.EXTENSION:
 			new_tactic = EngageTactic.LEAD_PURSUIT
 
 	# 激进度调整：激进 AI 更倾向进攻战术
@@ -2027,6 +2108,30 @@ func _disengage() -> void:
 	EventLogger.log_event("AI_STATE", _log_name(),
 		"DISENGAGE (was fighting %s, engaged %.1fs)" % [
 			_log_target_name(_current_target), _engage_timer])
+
+	# ── BOSS 攻击手：不真正脱离，立即重新进入交战 ──
+	if is_boss_attacker():
+		# 即使 _current_target 丢失也不脱离——重新锁定玩家
+		var player: Aircraft = null
+		if _current_target and is_instance_valid(_current_target) and not _current_target.is_destroyed:
+			player = _current_target as Aircraft
+		else:
+			# 搜索玩家（team 0 的飞机）
+			for child in aircraft.get_parent().get_children():
+				if child is Aircraft and child.team == 0 and not child.is_destroyed:
+					player = child
+					break
+		if player:
+			_current_target = player
+			aircraft.combat_target = player
+			_engage_timer = 0.0
+			_cooldown_timer = 0.0
+			_tactic_timer = 0.0
+			_tactic_min_duration = 0.0
+			_apply_new_tactic(EngageTactic.LEAD_PURSUIT)
+			EventLogger.log_event("AI_STATE", _log_name(), "BOSS re-engage immediately")
+			return
+
 	aircraft.clear_combat_target()
 	aircraft.ai_override_pursuit = false
 	aircraft.keep_target_on_arrival = false
@@ -2038,8 +2143,9 @@ func _disengage() -> void:
 	_leader_target_lost_timer = 0.0
 	_squad_range_grace_timer = 0.0
 	# 有编队且长机不是自己 → 回归编队；否则（独行或自己就是长机）回巡逻
+	# bvr_only（F-47 逃跑手）不进编队跟随——走巡逻执行逃跑航点
 	# 不能让单机长机/新晋升长机进 SQUAD_FOLLOW，否则会对着自己算槽位原地自转
-	if squad and is_instance_valid(squad.leader) and not squad.leader.is_destroyed \
+	if not bvr_only and squad and is_instance_valid(squad.leader) and not squad.leader.is_destroyed \
 			and squad.leader != aircraft:
 		_state = AIState.SQUAD_FOLLOW
 		_cover_target = null
@@ -2147,3 +2253,27 @@ static func _angle_diff(a: float, b: float) -> float:
 	if d < 0:
 		d += TAU
 	return d - PI
+
+# ── 协同齐射系统（F-47 小队战术） ──
+
+## leader 发射导弹后广播齐射信号给编队僚机
+func broadcast_salvo() -> void:
+	if not squad:
+		return
+	for member in squad.members:
+		if not is_instance_valid(member) or member.is_destroyed or member == aircraft:
+			continue
+		var mai: AIController = _find_member_ai(member)
+		if mai and not mai._salvo_pending:
+			mai._salvo_pending = true
+			mai._salvo_delay = randf_range(0.1, 0.4)  # 0.1~0.4 秒错开
+
+## 处理齐射倒计时（在 aircraft._update_missile 中每帧调用）
+func process_salvo(delta: float) -> bool:
+	if not _salvo_pending:
+		return false
+	_salvo_delay -= delta
+	if _salvo_delay <= 0.0:
+		_salvo_pending = false
+		return true  # 通知 aircraft 强制发射
+	return false

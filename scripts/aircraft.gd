@@ -27,6 +27,15 @@ var target_altitude_tier: int = AltitudeTier.MID   ## 目标高度档位（flat_
 # --- 选择 ---
 var selected: bool = false
 
+# --- 光学隐形（F-47 BOSS 专用） ---
+var is_cloaked: bool = false          ## 当前是否处于隐形状态
+var _cloak_alpha: float = 1.0        ## 渲染透明度（1.0=可见, 0.0=完全隐形）
+var suppress_flares: bool = false     ## 抑制热诱弹释放（隐形 CD 已好时由 BOSS 管理器设置）
+var bullet_immune: bool = false       ## 子弹完全免疫（BOSS 专属：子弹穿过不造成伤害）
+var boss_flare_immunity: bool = false ## BOSS 释放热诱弹后也享有导弹穿透无敌时间
+var infinite_ammo: bool = false       ## 无限弹药（机炮+导弹永不耗尽）
+var prefer_gun_mode: bool = false     ## 强制优先机炮模式（近距纠缠组用）
+
 # --- 燃油 / 加力 ---
 var fuel: float = 3000.0
 var is_afterburner: bool = false
@@ -248,6 +257,18 @@ func show_tactic_popup(text: String) -> void:
 func get_maneuver() -> CobraManeuver:
 	for child in get_children():
 		if child is CobraManeuver:
+			return child
+	return null
+
+func _get_ai_controller() -> AIController:
+	for child in get_children():
+		if child is AIController:
+			return child
+	return null
+
+func get_herbst() -> HerbstManeuver:
+	for child in get_children():
+		if child is HerbstManeuver:
 			return child
 	return null
 
@@ -724,6 +745,10 @@ func _update_bank(delta: float) -> void:
 	bank_angle += clampf(bank_diff, -max_roll, max_roll)
 
 func _update_heading(delta: float) -> void:
+	# 赫尔贝特轮机动期间由模块直接控制 heading，跳过正常转弯
+	var _hm_hdg := get_herbst()
+	if _hm_hdg and _hm_hdg.is_active:
+		return
 	if abs(bank_angle) < 0.001:
 		return
 	# 转弯率 ω = g × tan(bank_angle) / speed
@@ -1281,6 +1306,10 @@ func _update_combat(_delta: float) -> void:
 		clear_combat_target()
 		target_position = Vector2.INF  # 目标被击毁，停止直飞
 		return
+	# 目标隐形 → 取消交战（从地图上消失）
+	if combat_target is Aircraft and combat_target.is_cloaked:
+		clear_combat_target()
+		return
 
 	# 地面目标 → 舔地攻击（strafing run）
 	if combat_target is GroundUnit:
@@ -1638,7 +1667,7 @@ func _auto_gun_scan() -> void:
 		if not child is Aircraft:
 			continue
 		var ac: Aircraft = child
-		if ac.team == team or ac.is_destroyed:
+		if ac.team == team or ac.is_destroyed or ac.is_cloaked:
 			continue
 
 		var to_ac := ac.global_position - my_pos
@@ -1709,10 +1738,11 @@ func _update_gun(delta: float) -> void:
 			bullet_manager.spawn_bullet(muzzle_pos, dir_l, gun.muzzle_velocity, self, gun.bullet_damage)
 			bullet_manager.spawn_bullet(muzzle_pos, dir_r, gun.muzzle_velocity, self, gun.bullet_damage)
 
-	ammo -= 1
-	if gun_extra_barrels >= 2:
-		ammo -= 2
-	ammo = maxi(ammo, 0)
+	if not infinite_ammo:
+		ammo -= 1
+		if gun_extra_barrels >= 2:
+			ammo -= 2
+		ammo = maxi(ammo, 0)
 	# 弹药耗尽 → 进入装填 CD（生存模式）
 	if enable_gun_reload and ammo <= 0 and not _gun_reload_active:
 		_gun_reload_active = true
@@ -1928,6 +1958,33 @@ func _update_weapon_mode() -> void:
 		_update_weapon_mode_tactical()
 		return
 
+	# BVR 狙击模式：永远锁定导弹模式，不切机炮
+	# 反击窗口中允许正常武器切换（近距可用机炮）
+	var ai_node: AIController = _get_ai_controller()
+	if ai_node and ai_node.bvr_only:
+		var _hm_wpn: HerbstManeuver = get_herbst()
+		if not _hm_wpn or _hm_wpn.counterattack_timer <= 0.0:
+			if params and params.missile and missiles_remaining > 0:
+				weapon_mode = WeaponMode.MISSILE
+			else:
+				weapon_mode = WeaponMode.GUN  # 弹药耗尽才用机炮
+			return
+
+	# 近距纠缠模式：强制机炮优先（近距时用机炮，远距才切导弹）
+	if prefer_gun_mode:
+		if combat_target and is_instance_valid(combat_target):
+			var gun_dist := global_position.distance_to(combat_target.global_position)
+			var gun_range := _gun_range_px() * 1.5  # 机炮射程的 1.5 倍以内用机炮
+			if gun_dist <= gun_range:
+				weapon_mode = WeaponMode.GUN
+				return
+		# 超出机炮范围才切导弹
+		if params and params.missile and missiles_remaining > 0:
+			weapon_mode = WeaponMode.MISSILE
+		else:
+			weapon_mode = WeaponMode.GUN
+		return
+
 	# AI / 沙盒模式（v9 sync with tactical）
 	# 规则：默认偏好导弹；只在 _missile_cannot_hit_but_gun_can() 为真时切机炮
 	# 根据目标类型判断"可用导弹数"：空中目标只能用 AAM（主），地面目标两种皆可
@@ -1960,8 +2017,12 @@ func _update_weapon_mode_tactical() -> void:
 			var reloading := enable_missile_reload and _missile_reload_active
 
 			# 机炮攻击提交状态维护：飞过目标后解除
-			if _gun_pass_committed and _is_gun_pass_finished():
-				_gun_pass_committed = false
+			if _gun_pass_committed:
+				if _is_gun_pass_finished():
+					_gun_pass_committed = false
+				# 导弹已装填完成 → 取消机炮 pass，切回导弹（不要错过发射窗口）
+				elif has_missile and not reloading:
+					_gun_pass_committed = false
 
 			# 装填中 或 正在完成机炮攻击 → 保持机炮模式
 			if reloading or _gun_pass_committed:
@@ -2045,6 +2106,14 @@ func set_evasion_mode(enabled: bool) -> void:
 		target_position = Vector2.INF
 		_evasion_override = false
 	# 关闭时不动作，玩家可手动指定新目标
+
+## 触发一次闪避滚转动画（子弹闪避/热诱弹成功时的视觉反馈）
+func _trigger_evasion_roll() -> void:
+	if _evade_roll_remaining <= 0.0 and _evade_roll_cooldown <= 0.0:
+		_evade_roll_remaining = _EVADE_ROLL_DURATION
+		# BOSS（高闪避率）给更长冷却，防止一直滚转
+		if bullet_dodge_chance >= 0.5:
+			_evade_roll_cooldown = 4.0  # 4 秒才能再次滚转
 
 ## 规避模式更新（生存模式玩家）
 func _update_evasion(delta: float) -> void:
@@ -2209,10 +2278,25 @@ func _update_missile(delta: float) -> void:
 		_log_msl_block("WEAPON_MODE", "mode=%d" % weapon_mode)
 		return
 	if _missile_cooldown > 0.0:
+		# 协同齐射倒计时仍然继续（但不发射）
+		var ai_cd: AIController = _get_ai_controller()
+		if ai_cd:
+			ai_cd.process_salvo(delta)
 		_log_msl_block("COOLDOWN", "cd=%.2fs" % _missile_cooldown)
 		return
 	if not missile_manager:
 		return
+
+	# ── 协同齐射：僚机收到信号后发射（需在射程+雷达锥内）──
+	var ai_sv: AIController = _get_ai_controller()
+	if ai_sv and ai_sv.process_salvo(delta):
+		if params and params.missile and missiles_remaining > 0 and combat_target \
+				and is_instance_valid(combat_target) and not combat_target.is_destroyed:
+			# 必须满足射击条件：在射程内 + 在雷达锥内
+			if _is_in_missile_envelope(combat_target, params.missile) \
+					and is_in_radar_cone(combat_target.global_position):
+				_fire_missile_at(combat_target, params.missile, false)
+			return
 
 	# 选择导弹类型：地面目标用副导弹（AGM），空中目标用主导弹（AAM）
 	var msl: MissileParams = null
@@ -2253,11 +2337,12 @@ func _update_missile(delta: float) -> void:
 	if combat_target == null or not is_instance_valid(combat_target) or combat_target.is_destroyed:
 		return
 
-	# 每目标在飞限制：AI 始终限 1 枚；玩家自动发射也限 1 枚（防浪费）
+	# 每目标在飞限制：AI 允许同目标 2 枚在飞（连发两枚）；玩家自动发射限 1 枚
 	# 玩家手动点击目标不受此限（允许补射）
-	if missile_manager.has_active_missile_at(self, combat_target):
+	var max_inflight := 2 if not use_tactical_preference else 1
+	if missile_manager.count_active_missiles_at(self, combat_target) >= max_inflight:
 		if not use_tactical_preference or missile_auto_fire:
-			_log_msl_block("ACTIVE_MSL", "already 1 in flight")
+			_log_msl_block("ACTIVE_MSL", "already %d in flight" % max_inflight)
 			return
 
 	# 机炮正在对 combat_target 开火时不发射导弹（避免机炮击毁后还补一发）
@@ -2300,6 +2385,10 @@ func _update_missile(delta: float) -> void:
 		_log_threat_picture("after single-fire")
 	# 开火成功：清除阻塞原因缓存
 	_msl_last_block_reason = ""
+	# ── 协同齐射：leader 发射后通知小队僚机 ──
+	var ai_salvo: AIController = _get_ai_controller()
+	if ai_salvo and ai_salvo.salvo_leader:
+		ai_salvo.broadcast_salvo()
 
 ## 对指定目标发射一枚导弹
 func _fire_missile_at(target_unit: CombatUnit, msl: MissileParams, is_secondary: bool = false) -> void:
@@ -2310,10 +2399,11 @@ func _fire_missile_at(target_unit: CombatUnit, msl: MissileParams, is_secondary:
 			msl.display_name if msl.display_name else "missile",
 			_log_unit_name(target_unit), dist_m, remaining])
 	missile_manager.spawn_missile(self, target_unit, msl)
-	if is_secondary:
-		secondary_missiles_remaining -= 1
-	else:
-		missiles_remaining -= 1
+	if not infinite_ammo:
+		if is_secondary:
+			secondary_missiles_remaining -= 1
+		else:
+			missiles_remaining -= 1
 	_missile_cooldown = msl.cooldown
 	_crank_timer = CRANK_DURATION
 	# 装填触发
@@ -2411,7 +2501,8 @@ func _fire_multi_lock_salvo(msl: MissileParams) -> bool:
 				missiles_remaining - 1, i + 1, fire_count,
 				hdg_deg, tgt_abs_brg, off_axis_deg, lock_val])
 		missile_manager.spawn_missile(self, tgt, msl)
-		missiles_remaining -= 1
+		if not infinite_ammo:
+			missiles_remaining -= 1
 
 	if fire_count > 0:
 		# 多目标追踪升级下跳过冷却，允许新锁定好的目标下一帧立刻开火；
@@ -2540,7 +2631,8 @@ func take_bullet_damage(amount: float) -> void:
 	if get_altitude_tier() == AltitudeTier.HIGH:
 		effective_dodge += 0.20  # HIGH 高度加成
 	if effective_dodge > 0.0 and randf() < effective_dodge:
-		return  # 装甲偏转/规避，无视伤害
+		_trigger_evasion_roll()  # 闪避滚转动画
+		return  # 闪避成功，无视伤害
 	if survivor_bullet_damage_cap > 0.0:
 		amount = minf(amount, survivor_bullet_damage_cap)
 	_apply_damage(amount)
@@ -2672,6 +2764,14 @@ func _draw() -> void:
 	if is_destroyed:
 		_draw_aircraft_icon_destroyed()
 		return
+	# 光学隐形：完全隐形时跳过所有绘制
+	if _cloak_alpha <= 0.0:
+		return
+	# 半透明淡入/淡出：通过 self_modulate 控制整体透明度
+	if _cloak_alpha < 1.0:
+		self_modulate = Color(1.0, 1.0, 1.0, _cloak_alpha)
+	elif self_modulate.a < 1.0:
+		self_modulate = Color(1.0, 1.0, 1.0, 1.0)
 	if is_hovered:
 		_draw_radar_cone()
 		_draw_gun_cone()
@@ -2928,6 +3028,9 @@ func _draw_aircraft_icon() -> void:
 	var _mv := get_maneuver()
 	if _mv and _mv.visual_offset > 0.0:
 		sy *= lerpf(1.0, 0.35, _mv.visual_offset)
+	var _hm := get_herbst()
+	if _hm and _hm.visual_offset > 0.0:
+		sy *= lerpf(1.0, 0.4, _hm.visual_offset)
 
 	var xform := Transform2D(0.0, Vector2.ZERO)
 	xform = xform.scaled(Vector2(sx, sy))
@@ -3562,7 +3665,7 @@ func _max_bank_angle_at_speed(spd: float, stall_base_ms: float) -> float:
 # ========== 热诱弹系统 ==========
 
 func is_lock_immune() -> bool:
-	return _lock_immunity_timer > 0.0
+	return _lock_immunity_timer > 0.0 or is_cloaked
 
 func _update_flares(delta: float) -> void:
 	# 定期清理失误记录中已失效的导弹引用
@@ -3610,6 +3713,9 @@ func _update_flares(delta: float) -> void:
 	# 战术机动中不释放热诱弹（机动本身提供免疫）
 	var _mf := get_maneuver()
 	if _mf and _mf.is_active:
+		return
+	# 隐形中或隐形即将可用时不释放热诱弹（隐形优先于热诱弹）
+	if is_cloaked or suppress_flares:
 		return
 
 	# 检测来袭导弹
@@ -3674,9 +3780,9 @@ func _release_flares(target_missile: Missile = null) -> void:
 	EventLogger.log_event("FLARE", _log_name(),
 		"deployed %d flares (remaining=%d)" % [count, flares_remaining])
 
-	# 只有玩家（flares_guaranteed）获得 1 秒导弹穿透：
-	# 解决已被 jammed 的导弹靠惯性直飞穿过慢速玩家仍然命中的问题
-	if flares_guaranteed:
+	# 导弹穿透窗口：flare 释放后 1 秒内所有导弹穿过
+	# 玩家（flares_guaranteed）和 BOSS（boss_flare_immunity）都享有
+	if flares_guaranteed or boss_flare_immunity:
 		missile_phase_timer = MISSILE_PHASE_DURATION
 
 	# 电子对抗升级：释放热诱弹时清除所有雷达锁定 + 启动锁定免疫

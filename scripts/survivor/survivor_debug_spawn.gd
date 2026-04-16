@@ -16,7 +16,7 @@ var _squad_size_row: HBoxContainer
 var _count_spin: SpinBox
 
 # ── 编队类型枚举（内部）──
-enum FormationType { SINGLE, SQUAD, COMMANDER_SQUAD, TU160_FLOCK, AH64_FLOCK, CH47_FLOCK }
+enum FormationType { SINGLE, SQUAD, COMMANDER_SQUAD, TU160_FLOCK, AH64_FLOCK, CH47_FLOCK, F47_SQUAD }
 
 const FORMATION_NAMES := {
 	FormationType.SINGLE: "单机",
@@ -25,6 +25,7 @@ const FORMATION_NAMES := {
 	FormationType.TU160_FLOCK: "Tu-160 族群波次",
 	FormationType.AH64_FLOCK: "AH-64 纵阵波次",
 	FormationType.CH47_FLOCK: "CH-47 纵阵波次",
+	FormationType.F47_SQUAD: "F-47 王牌小队",
 }
 
 # ── 敌机类型标签（与 survivor_mode.EnemyType 对应）──
@@ -45,6 +46,7 @@ const ENEMY_TYPE_LABELS := [
 	{"label": "Tu-160 白天鹅（Adds）", "enum_idx": 12}, # EnemyType.TU160
 	{"label": "AH-64 Apache（Adds 直升机）", "enum_idx": 13}, # EnemyType.AH64
 	{"label": "CH-47 Chinook（Adds 直升机）", "enum_idx": 14}, # EnemyType.CH47
+	{"label": "F-47 王牌小队（BOSS）", "enum_idx": 15},      # EnemyType.F47
 ]
 
 func _ready() -> void:
@@ -124,6 +126,7 @@ func _build_ui() -> void:
 	_formation_option.add_item("Tu-160 族群波次", FormationType.TU160_FLOCK)
 	_formation_option.add_item("AH-64 纵阵波次", FormationType.AH64_FLOCK)
 	_formation_option.add_item("CH-47 纵阵波次", FormationType.CH47_FLOCK)
+	_formation_option.add_item("F-47 王牌小队", FormationType.F47_SQUAD)
 	_formation_option.selected = 0
 	_formation_option.item_selected.connect(_on_formation_changed)
 	formation_row.add_child(_formation_option)
@@ -277,13 +280,17 @@ func _on_type_changed(idx: int) -> void:
 	elif enum_idx == 14:  # EnemyType.CH47
 		_formation_option.selected = FormationType.CH47_FLOCK
 		_on_formation_changed(FormationType.CH47_FLOCK)
+	elif enum_idx == 15:  # EnemyType.F47
+		_formation_option.selected = FormationType.F47_SQUAD
+		_on_formation_changed(FormationType.F47_SQUAD)
 
 func _on_formation_changed(idx: int) -> void:
 	# 单机 / Adds 族群波次（大小由 SurvivorData 定义，固定）不需要 size spinbox
 	_squad_size_row.visible = (idx != FormationType.SINGLE \
 			and idx != FormationType.TU160_FLOCK \
 			and idx != FormationType.AH64_FLOCK \
-			and idx != FormationType.CH47_FLOCK)
+			and idx != FormationType.CH47_FLOCK \
+			and idx != FormationType.F47_SQUAD)
 
 func _on_spawn_pressed() -> void:
 	if not game_scene or not is_instance_valid(game_scene):
@@ -313,6 +320,8 @@ func _on_spawn_pressed() -> void:
 				game_scene._spawn_ah64_flock()
 			FormationType.CH47_FLOCK:
 				game_scene._spawn_ch47_flock()
+			FormationType.F47_SQUAD:
+				game_scene._spawn_f47_squad()
 
 	print("[DebugSpawn] spawned %d × %s [%s]" % [
 		repeats,

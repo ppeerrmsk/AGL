@@ -129,6 +129,7 @@
 | 眼镜蛇机动模块 | `cobra_maneuver.gd` CobraManeuver（挂载到 Aircraft 子节点） |
 | 眼镜蛇机动激活 | `cobra_maneuver.gd` activate |
 | 战术机动查询（通用） | `aircraft.gd` get_maneuver |
+| AI 控制器查询 | `aircraft.gd` _get_ai_controller |
 | 眼镜蛇后方判定（AI） | `ai_controller.gd` _is_missile_from_rear |
 | 锁定免疫检查 | `aircraft.gd:2721` is_lock_immune |
 
@@ -176,6 +177,13 @@
 | 编队跟随逻辑 | `ai_controller.gd:576` _process_squad_follow |
 | └ 协同攻击触发（反应延迟） | `ai_controller.gd:639` 块内 |
 | 掩护扫描（队友后方） | `ai_controller.gd:670` _scan_leader_rear |
+| BVR 狙击模式（F-47 专用） | `ai_controller.gd` bvr_only 标志 → _process_engage 距离检查 + _choose_tactic 过滤 |
+| BVR 被追 → Herbst 触发 | `ai_controller.gd` _process_engage 内 bvr_only 分支：后半球检测 + get_herbst().activate() |
+| 协同齐射广播 | `ai_controller.gd` broadcast_salvo + process_salvo |
+| 赫尔贝特轮机动 | `herbst_maneuver.gd` HerbstManeuver（DECEL→TURN 180°→ACCEL，15s 冷却，可重复） |
+| 光学隐形（F-47） | `aircraft.gd` is_cloaked / _cloak_alpha → _draw() 淡出 + is_lock_immune() + missile.gd 丢失制导 |
+| F-47 战术状态机 | `survivor_mode.gd` F47Tactic enum（INTRO/ORBIT/ATTACK_RUN/SCATTER/REGROUP） |
+| F-47 隐形计时器 | `survivor_mode.gd` _update_f47_cloak — 60s 周期 / 5.5s 隐形 / 0.5s 淡入淡出 |
 | 交战主逻辑 | `ai_controller.gd:715` _process_engage |
 | └ 长机目标丢失宽限（防抖动） | `ai_controller.gd:748` |
 | └ 长机目标超射程宽限 | `ai_controller.gd:764` |
@@ -278,6 +286,8 @@
 | 单机生成（J-7 / MiG-31）| `survivor_mode.gd:934` _spawn_single |
 | 编队生成（MiG-29 / F-86 / MiG-23 / F-100 / A-7 / Q-5 / UAV / UCAV）| `survivor_mode.gd:942` _spawn_squad |
 | 指挥 UAV 小队生成（Sentinel + UAV 僚机）| `survivor_mode.gd:982` _spawn_commander_squad |
+| F-47 BOSS 小队生成（菱形 4 架 + 登场通场） | `survivor_mode.gd` _spawn_f47_squad |
+| F-47 BOSS 狙击循环更新（站位/撤退/全灭检测）| `survivor_mode.gd` _update_f47_squad |
 | 创建敌机实体（参数/AI/缩放/Token meta）| `survivor_mode.gd:1038` _create_enemy |
 | └ base_params match（**新增敌人改这里**） | `:1041` |
 | └ enemy_scale 适用判定 | `:1075` |
@@ -298,6 +308,7 @@
 > - `SU27(9)` Su-27 — Gladiator+眼镜蛇（单机精英）
 > - `A7(10)` A-7 — Lancer 亚音速攻击机（M61火神炮+祖尼火箭弹编队）
 > - `Q5(11)` Q-5 — Lancer 超音速攻击机（23mm双炮+57mm火箭弹编队）
+> - `F47(15)` F-47 — BOSS 王牌狙击小队（BVR 协同齐射 / bvr_only + salvo_leader）
 
 > Token 常量表：`survivor_data.gd::TOKEN_COST` / `TOKEN_INSTANCE_CAP` / `TOKEN_BUDGET_BASE/PER_LEVEL/MAX` / `FAR_CLEANUP_DISTANCE` / `FAR_CLEANUP_INTERVAL`。设计要点：
 > - 每种敌人有 Token 成本（弱 1~2，精英 4~6）与可选实例上限（Sentinel=1，J-7=2）。
