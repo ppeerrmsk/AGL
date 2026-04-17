@@ -50,6 +50,12 @@ var cloak_timer: float = 0.0
 var cloak_active: bool = false
 var cloak_remaining: float = 0.0
 
+## 逃跑手反击窗口（周期性切换到交战模式）
+var _evader_counter_timer: float = 8.0     ## 距下次反击窗口的倒计时
+var _evader_counter_window: float = 0.0    ## 反击窗口剩余时间（> 0 时暂时允许交战）
+const EVADER_COUNTER_INTERVAL := 8.0       ## 每 8 秒一次反击机会
+const EVADER_COUNTER_DURATION := 3.5       ## 每次反击窗口 3.5 秒
+
 ## 外部引用（spawn 时注入）
 var _scene_root: Node = null
 var _player: Aircraft = null
@@ -167,6 +173,17 @@ func update(delta: float) -> void:
 	# 战斗阶段：角色分配
 	if not _player or _player.is_destroyed:
 		return
+
+	# 逃跑手反击窗口计时
+	if _evader_counter_window > 0.0:
+		_evader_counter_window -= delta
+	else:
+		_evader_counter_timer -= delta
+		if _evader_counter_timer <= 0.0:
+			_evader_counter_window = EVADER_COUNTER_DURATION
+			_evader_counter_timer = EVADER_COUNTER_INTERVAL
+			EventLogger.log_event("BOSS", boss_name, "evader counter-attack window open (%.1fs)" % EVADER_COUNTER_DURATION)
+
 	_assign_roles()
 
 # ══════════════════════════════════════════════
@@ -258,6 +275,16 @@ func _maintain_role(member: Aircraft, ai: AIController, role: int, pp: Vector2, 
 			if hm and (hm.is_active or hm.counterattack_timer > 0.0):
 				return
 			var dist := member.global_position.distance_to(pp)
+			# 反击窗口：暂时转为交战模式（掉头攻击玩家）
+			if _evader_counter_window > 0.0 and dist < ranged_max_distance:
+				ai.bvr_only = false
+				_force_engage(member, ai)
+				ai.waypoints = PackedVector2Array([pp])
+				ai.current_waypoint_index = 0
+				member.is_afterburner = true
+				return
+			# 正常逃跑行为
+			ai.bvr_only = true
 			if dist > ranged_max_distance:
 				var side_dir := Vector2(sin(_player.heading + PI / 2.0), -cos(_player.heading + PI / 2.0))
 				ai.waypoints = PackedVector2Array([pp + side_dir * 1800.0])
