@@ -25,7 +25,7 @@ func _update_display() -> void:
 	if heading_deg < 0:
 		heading_deg += 360.0
 
-	var mach := speed_kmh / 1225.0
+	var mach := speed_kmh / GameConstants.SPEED_OF_SOUND_KMH
 	var status := tr("HUD_STALL") if track_aircraft.is_stalled else ""
 
 	info_label.text = tr("HUD_HEADING_FMT") % [roundi(heading_deg), mach, status]

@@ -11,6 +11,7 @@ var game_scene: Node2D
 # ── 顶部 ──
 var _time_label: Label
 var _kill_label: Label
+var _cloud_label: Label
 
 # ── 底部经验条 ──
 var _xp_bar_bg: ColorRect
@@ -71,24 +72,33 @@ func _build_ui() -> void:
 	_time_label = Label.new()
 	_time_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_time_label.add_theme_font_size_override("font_size", 18)
-	_time_label.add_theme_color_override("font_color", Color(0.8, 0.9, 0.8))
+	_time_label.add_theme_color_override("font_color", ThemeColors.TEXT_PRIMARY_ALT)
 	add_child(_time_label)
 
 	# ── 击杀数（时间下方）──
 	_kill_label = Label.new()
 	_kill_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_kill_label.add_theme_font_size_override("font_size", 13)
-	_kill_label.add_theme_color_override("font_color", Color(0.6, 0.7, 0.6, 0.7))
+	_kill_label.add_theme_color_override("font_color", ThemeColors.TEXT_MUTED)
 	add_child(_kill_label)
+
+	# ── 云中标记（玩家在云内时显示，极小）──
+	_cloud_label = Label.new()
+	_cloud_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_cloud_label.add_theme_font_size_override("font_size", 11)
+	_cloud_label.add_theme_color_override("font_color", Color(0.85, 0.92, 1.0, 0.9))
+	_cloud_label.text = "☁ IN CLOUD"
+	_cloud_label.visible = false
+	add_child(_cloud_label)
 
 	# ── 经验条（底部中央）──
 	_xp_bar_bg = ColorRect.new()
-	_xp_bar_bg.color = Color(0.1, 0.1, 0.1, 0.7)
+	_xp_bar_bg.color = ThemeColors.XP_BAR_BG
 	_xp_bar_bg.size = Vector2(XP_BAR_WIDTH, XP_BAR_HEIGHT)
 	add_child(_xp_bar_bg)
 
 	_xp_bar_fill = ColorRect.new()
-	_xp_bar_fill.color = Color(1.0, 0.8, 0.3)
+	_xp_bar_fill.color = ThemeColors.XP_BAR_FILL
 	_xp_bar_fill.size = Vector2(0, XP_BAR_HEIGHT)
 	add_child(_xp_bar_fill)
 
@@ -97,14 +107,14 @@ func _build_ui() -> void:
 	_xp_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_xp_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_xp_label.add_theme_font_size_override("font_size", 12)
-	_xp_label.add_theme_color_override("font_color", Color(1, 1, 1))
+	_xp_label.add_theme_color_override("font_color", ThemeColors.TEXT_WHITE)
 	add_child(_xp_label)
 
 	# ── 右下角状态面板 ──
 	_status_panel = PanelContainer.new()
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.02, 0.04, 0.02, 0.75)
-	style.border_color = Color(0.25, 0.5, 0.25, 0.35)
+	style.bg_color = ThemeColors.PANEL_BG
+	style.border_color = ThemeColors.PANEL_BORDER
 	style.set_border_width_all(1)
 	style.set_corner_radius_all(3)
 	style.content_margin_left = 10
@@ -122,14 +132,14 @@ func _build_ui() -> void:
 	_status_label.custom_minimum_size = Vector2(STATUS_PANEL_WIDTH - 20, 0)
 	_status_label.add_theme_font_size_override("normal_font_size", 12)
 	_status_label.add_theme_font_size_override("bold_font_size", 12)
-	_status_label.add_theme_color_override("default_color", Color(0.8, 0.9, 0.8))
+	_status_label.add_theme_color_override("default_color", ThemeColors.TEXT_PRIMARY_ALT)
 	_status_panel.add_child(_status_label)
 
 	# ── 右侧战术面板 ──
 	_tactical_panel = PanelContainer.new()
 	var tac_style := StyleBoxFlat.new()
-	tac_style.bg_color = Color(0.02, 0.04, 0.02, 0.75)
-	tac_style.border_color = Color(0.3, 0.6, 0.3, 0.4)
+	tac_style.bg_color = ThemeColors.PANEL_BG
+	tac_style.border_color = ThemeColors.PANEL_BORDER_ACCENT
 	tac_style.set_border_width_all(1)
 	tac_style.set_corner_radius_all(3)
 	tac_style.content_margin_left = 8
@@ -146,7 +156,7 @@ func _build_ui() -> void:
 	tac_title.text = tr("TACTIC_HEADER")
 	tac_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	tac_title.add_theme_font_size_override("font_size", 11)
-	tac_title.add_theme_color_override("font_color", Color(0.8, 0.7, 0.3))
+	tac_title.add_theme_color_override("font_color", ThemeColors.TEXT_ACCENT)
 	tac_vbox.add_child(tac_title)
 
 	_btn_weapon = _create_tac_button(tr("TACTIC_MISSILE_PRIORITY"))
@@ -185,8 +195,8 @@ func _build_ui() -> void:
 	_tooltip_panel = PanelContainer.new()
 	_tooltip_panel.visible = false
 	var tip_style := StyleBoxFlat.new()
-	tip_style.bg_color = Color(0.03, 0.05, 0.03, 0.9)
-	tip_style.border_color = Color(0.4, 0.6, 0.3, 0.5)
+	tip_style.bg_color = ThemeColors.PANEL_BG_TOOLTIP
+	tip_style.border_color = ThemeColors.PANEL_BORDER_TOOLTIP
 	tip_style.set_border_width_all(1)
 	tip_style.set_corner_radius_all(3)
 	tip_style.content_margin_left = 10
@@ -202,7 +212,7 @@ func _build_ui() -> void:
 	_tooltip_label.scroll_active = false
 	_tooltip_label.custom_minimum_size = Vector2(220, 0)
 	_tooltip_label.add_theme_font_size_override("normal_font_size", 11)
-	_tooltip_label.add_theme_color_override("default_color", Color(0.75, 0.85, 0.75))
+	_tooltip_label.add_theme_color_override("default_color", ThemeColors.TEXT_PRIMARY_ALT)
 	_tooltip_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_tooltip_panel.add_child(_tooltip_label)
 	add_child(_tooltip_panel)
@@ -218,8 +228,8 @@ func _build_ui() -> void:
 	add_child(_game_over_panel)
 
 	var go_style := StyleBoxFlat.new()
-	go_style.bg_color = Color(0.02, 0.03, 0.02, 0.92)
-	go_style.border_color = Color(1.0, 0.3, 0.3, 0.6)
+	go_style.bg_color = ThemeColors.PANEL_BG_GAMEOVER
+	go_style.border_color = ThemeColors.PANEL_BORDER_GAMEOVER
 	go_style.set_border_width_all(2)
 	go_style.set_corner_radius_all(4)
 	go_style.set_content_margin_all(30)
@@ -230,7 +240,7 @@ func _build_ui() -> void:
 	_game_over_label.fit_content = true
 	_game_over_label.custom_minimum_size = Vector2(300, 200)
 	_game_over_label.add_theme_font_size_override("normal_font_size", 14)
-	_game_over_label.add_theme_color_override("default_color", Color(0.85, 0.9, 0.85))
+	_game_over_label.add_theme_color_override("default_color", ThemeColors.TEXT_PRIMARY)
 	_game_over_panel.add_child(_game_over_label)
 
 	# ── 屏幕外威胁方位指示 ──
@@ -242,7 +252,7 @@ func _build_ui() -> void:
 	_debug_panel = PanelContainer.new()
 	_debug_panel.visible = false
 	var dbg_style := StyleBoxFlat.new()
-	dbg_style.bg_color = Color(0.0, 0.0, 0.0, 0.7)
+	dbg_style.bg_color = ThemeColors.PANEL_BG_DEBUG
 	dbg_style.set_corner_radius_all(3)
 	dbg_style.set_content_margin_all(8)
 	_debug_panel.add_theme_stylebox_override("panel", dbg_style)
@@ -250,7 +260,7 @@ func _build_ui() -> void:
 
 	_debug_label = Label.new()
 	_debug_label.add_theme_font_size_override("font_size", 11)
-	_debug_label.add_theme_color_override("font_color", Color(0.0, 1.0, 0.4))
+	_debug_label.add_theme_color_override("font_color", ThemeColors.TEXT_DEBUG)
 	_debug_panel.add_child(_debug_label)
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -278,6 +288,13 @@ func _layout_ui() -> void:
 
 	_kill_label.position = Vector2(vp.x * 0.5 - 60, 42)
 	_kill_label.size = Vector2(120, 20)
+
+	_cloud_label.position = Vector2(vp.x * 0.5 - 60, 62)
+	_cloud_label.size = Vector2(120, 16)
+	if game_scene and game_scene.player_aircraft and not game_scene.player_aircraft.is_destroyed:
+		_cloud_label.visible = game_scene.player_aircraft.cloud_state == 2
+	else:
+		_cloud_label.visible = false
 
 	# BOSS 小队面板：屏幕中上方，击杀标签下方
 	if _boss_panel and _boss_panel.visible:
@@ -454,10 +471,12 @@ func _create_tac_button(label_text: String) -> Button:
 	btn.text = label_text
 	btn.custom_minimum_size = Vector2(STATUS_PANEL_WIDTH - 16, 26)
 	btn.add_theme_font_size_override("font_size", 11)
+	# 禁用焦点，避免 Tab 被 UI 焦点循环消费（否则带僚机的主角按 Tab 无法打开战术地图）
+	btn.focus_mode = Control.FOCUS_NONE
 
 	var normal := StyleBoxFlat.new()
-	normal.bg_color = Color(0.06, 0.1, 0.06)
-	normal.border_color = Color(0.3, 0.6, 0.3, 0.5)
+	normal.bg_color = ThemeColors.BTN_NORMAL_BG
+	normal.border_color = ThemeColors.BTN_NORMAL_BORDER
 	normal.set_border_width_all(1)
 	normal.set_corner_radius_all(2)
 	normal.content_margin_left = 6
@@ -467,8 +486,8 @@ func _create_tac_button(label_text: String) -> Button:
 	btn.add_theme_stylebox_override("normal", normal)
 
 	var hover := StyleBoxFlat.new()
-	hover.bg_color = Color(0.1, 0.18, 0.1)
-	hover.border_color = Color(1.0, 0.8, 0.3, 0.6)
+	hover.bg_color = ThemeColors.BTN_HOVER_BG
+	hover.border_color = ThemeColors.BTN_HOVER_BORDER
 	hover.set_border_width_all(1)
 	hover.set_corner_radius_all(2)
 	hover.content_margin_left = 6
@@ -478,8 +497,8 @@ func _create_tac_button(label_text: String) -> Button:
 	btn.add_theme_stylebox_override("hover", hover)
 
 	var pressed := StyleBoxFlat.new()
-	pressed.bg_color = Color(0.15, 0.25, 0.15)
-	pressed.border_color = Color(1.0, 0.9, 0.4, 0.7)
+	pressed.bg_color = ThemeColors.BTN_PRESSED_BG
+	pressed.border_color = ThemeColors.BTN_PRESSED_BORDER
 	pressed.set_border_width_all(1)
 	pressed.set_corner_radius_all(2)
 	pressed.content_margin_left = 6
@@ -488,9 +507,9 @@ func _create_tac_button(label_text: String) -> Button:
 	pressed.content_margin_bottom = 3
 	btn.add_theme_stylebox_override("pressed", pressed)
 
-	btn.add_theme_color_override("font_color", Color(0.7, 0.9, 0.7))
-	btn.add_theme_color_override("font_hover_color", Color(1.0, 0.9, 0.5))
-	btn.add_theme_color_override("font_pressed_color", Color(1.0, 1.0, 0.6))
+	btn.add_theme_color_override("font_color", ThemeColors.BTN_TEXT)
+	btn.add_theme_color_override("font_hover_color", ThemeColors.BTN_HOVER_TEXT)
+	btn.add_theme_color_override("font_pressed_color", ThemeColors.BTN_PRESSED_TEXT)
 
 	return btn
 
@@ -625,8 +644,8 @@ func _build_squad_panel() -> void:
 	_squad_panel = PanelContainer.new()
 	_squad_panel.visible = false  # 默认隐藏，发现僚机时再显示
 	var sp_style := StyleBoxFlat.new()
-	sp_style.bg_color = Color(0.02, 0.04, 0.02, 0.78)
-	sp_style.border_color = Color(0.35, 0.55, 0.75, 0.45)
+	sp_style.bg_color = ThemeColors.SQUAD_PANEL_BG
+	sp_style.border_color = ThemeColors.SQUAD_PANEL_BORDER
 	sp_style.set_border_width_all(1)
 	sp_style.set_corner_radius_all(3)
 	sp_style.content_margin_left = 10
@@ -644,7 +663,7 @@ func _build_squad_panel() -> void:
 	sp_title.text = tr("SQUAD_HEADER")
 	sp_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sp_title.add_theme_font_size_override("font_size", 11)
-	sp_title.add_theme_color_override("font_color", Color(0.5, 0.75, 1.0))
+	sp_title.add_theme_color_override("font_color", ThemeColors.SQUAD_TITLE)
 	sp_vbox.add_child(sp_title)
 
 	# 状态区（每帧重新生成 bbcode）
@@ -660,7 +679,7 @@ func _build_squad_panel() -> void:
 
 	# 分隔线
 	var sep := ColorRect.new()
-	sep.color = Color(0.3, 0.5, 0.7, 0.35)
+	sep.color = ThemeColors.SQUAD_SEPARATOR
 	sep.custom_minimum_size = Vector2(0, 1)
 	sp_vbox.add_child(sep)
 
@@ -689,8 +708,8 @@ func _build_boss_panel() -> void:
 	_boss_panel = PanelContainer.new()
 	_boss_panel.visible = false
 	var bp_style := StyleBoxFlat.new()
-	bp_style.bg_color = Color(0.08, 0.02, 0.02, 0.82)
-	bp_style.border_color = Color(0.85, 0.25, 0.2, 0.5)
+	bp_style.bg_color = ThemeColors.BOSS_PANEL_BG
+	bp_style.border_color = ThemeColors.BOSS_PANEL_BORDER
 	bp_style.set_border_width_all(1)
 	bp_style.set_corner_radius_all(3)
 	bp_style.content_margin_left = 8
@@ -707,7 +726,7 @@ func _build_boss_panel() -> void:
 	var title := Label.new()
 	title.text = "ACE"
 	title.add_theme_font_size_override("font_size", 11)
-	title.add_theme_color_override("font_color", Color(1.0, 0.35, 0.3))
+	title.add_theme_color_override("font_color", ThemeColors.BOSS_TITLE)
 	hbox.add_child(title)
 
 	# 4 个卡片槽位
@@ -729,11 +748,11 @@ func _build_boss_panel() -> void:
 func _update_boss_panel() -> void:
 	if _boss_panel == null:
 		return
-	if not game_scene or not ("_ace_squad" in game_scene) or not game_scene._ace_squad or not game_scene._ace_squad.active:
+	if not game_scene or not game_scene._spawner or not game_scene._spawner.get_ace_squad() or not game_scene._spawner.get_ace_squad().active:
 		_boss_panel.visible = false
 		return
 
-	var all_members: Array = game_scene._ace_squad.get_display_members()
+	var all_members: Array = game_scene._spawner.get_ace_squad().get_display_members()
 	if all_members.is_empty():
 		_boss_panel.visible = false
 		return
@@ -810,8 +829,10 @@ func _boss_action_text(ac: Aircraft, ai: AIController) -> String:
 func _get_player_squad() -> Squad:
 	if not game_scene or not game_scene.player_aircraft:
 		return null
-	# game_scene 在生存模式下一定是 survivor_mode 且拥有 _squads 成员
-	var squads = game_scene._squads
+	# game_scene 在生存模式下一定是 survivor_mode 且拥有 _spawner 成员（刷怪系统委托）
+	if not game_scene._spawner:
+		return null
+	var squads = game_scene._spawner.get_squads()
 	if squads == null:
 		return null
 	for sq in squads:
@@ -997,6 +1018,18 @@ func show_game_over(level: int, time: float, kills: int) -> void:
 	_game_over_label.text = text
 	_game_over_panel.visible = true
 
+func show_victory(level: int, time: float, kills: int) -> void:
+	var mins := int(time) / 60
+	var secs := int(time) % 60
+	var text := "[center][color=#55ffaa][b]%s[/b][/color]\n\n" % tr("HUD_VICTORY_TITLE")
+	text += "[color=#ddffee]%s[/color]\n\n" % tr("HUD_VICTORY_SUBTITLE")
+	text += "[color=#aaddaa]%s\n" % (tr("HUD_GAMEOVER_LEVEL_FMT") % level)
+	text += "%s\n" % (tr("HUD_GAMEOVER_TIME_FMT") % [mins, secs])
+	text += "%s[/color]\n\n" % (tr("HUD_GAMEOVER_KILLS_FMT") % kills)
+	text += "[color=#888888]%s[/color][/center]" % tr("HUD_GAMEOVER_HINT")
+	_game_over_label.text = text
+	_game_over_panel.visible = true
+
 # ══════════════════════════════════════════════
 #  雷达小地图
 # ══════════════════════════════════════════════
@@ -1009,13 +1042,13 @@ class RadarDisplay extends Control:
 	const RADAR_RANGE := 5000.0       ## 雷达显示的世界范围（像素）
 	const SWEEP_SPEED := 2.5          ## 扫描线旋转速度（rad/s）
 	const RING_COUNT := 3             ## 同心圆数量
-	const BG_COLOR := Color(0.02, 0.06, 0.02, 0.8)
-	const RING_COLOR := Color(0.15, 0.35, 0.15, 0.5)
-	const SWEEP_COLOR := Color(0.2, 0.8, 0.2, 0.5)
-	const PLAYER_COLOR := Color(0.3, 0.7, 1.0, 0.9)
-	const ENEMY_COLOR := Color(1.0, 0.3, 0.2, 0.85)
-	const LOCKED_COLOR := Color(1.0, 0.8, 0.2, 0.95)
-	const MISSILE_WARNING_COLOR := Color(1.0, 0.15, 0.1, 0.95)
+	const BG_COLOR := ThemeColors.RADAR_BG
+	const RING_COLOR := ThemeColors.RADAR_RING
+	const SWEEP_COLOR := ThemeColors.RADAR_SWEEP
+	const PLAYER_COLOR := ThemeColors.RADAR_PLAYER
+	const ENEMY_COLOR := ThemeColors.RADAR_ENEMY
+	const LOCKED_COLOR := ThemeColors.RADAR_LOCKED
+	const MISSILE_WARNING_COLOR := ThemeColors.RADAR_MISSILE
 
 	var _sweep_angle: float = 0.0
 	var _blip_ages: Dictionary = {}  ## { Aircraft instance_id : float } 扫描到的时间
@@ -1179,7 +1212,7 @@ class RadarDisplay extends Control:
 				draw_string(font, warn_pos - Vector2(text_size.x * 0.5, 0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, MISSILE_WARNING_COLOR)
 
 		# 外圈边框
-		draw_arc(center, RADAR_RADIUS, 0, TAU, 64, Color(0.2, 0.5, 0.2, 0.6), 1.5)
+		draw_arc(center, RADAR_RADIUS, 0, TAU, 64, ThemeColors.RADAR_BORDER, 1.5)
 
 # ══════════════════════════════════════════════
 #  屏幕外威胁方位指示器
@@ -1190,8 +1223,8 @@ class ThreatOverlay extends Control:
 
 	const ARROW_SIZE := 12.0
 	const EDGE_MARGIN := 30.0
-	const THREAT_COLOR := Color(1.0, 0.3, 0.2, 0.8)
-	const LOCK_COLOR := Color(1.0, 0.15, 0.1, 0.95)
+	const THREAT_COLOR := ThemeColors.THREAT_ARROW
+	const LOCK_COLOR := ThemeColors.LOCK_WARNING
 
 	func _ready() -> void:
 		set_anchors_and_offsets_preset(PRESET_FULL_RECT)

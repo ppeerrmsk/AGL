@@ -13,7 +13,7 @@ extends Node
 const AURA_RADIUS := 1500.0         ## 增益范围（像素，~3000m）
 const RECRUIT_RADIUS := 1800.0      ## 招募范围（像素，稍大于增益范围）
 const SCAN_INTERVAL := 0.5          ## 扫描周期（秒）
-const MAX_WINGMEN := 8              ## 最大僚机数量（不含指挥机本身）
+const MAX_WINGMEN := 5              ## 最大僚机数量（不含指挥机本身）
 
 # ── 增益参数（聚焦机动/速度/攻击欲望，不动技能/冷静——simple_ai 也用不上）──
 ## 设计目标：让玩家明显感觉到 UAV 被增强 —— 回转半径变小、加速更猛、速度更快

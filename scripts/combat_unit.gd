@@ -4,8 +4,8 @@ extends Node2D
 ## 战斗单位基类：Aircraft 和 GroundUnit 的公共接口
 ## 提供 team/hp/altitude/heading/speed/雷达/锁定 等共享属性
 
-const GRAVITY: float = 9.81
-const PIXELS_PER_METER: float = 0.5  ## 1米 = 0.5像素
+const GRAVITY: float = GameConstants.GRAVITY
+const PIXELS_PER_METER: float = GameConstants.PIXELS_PER_METER
 
 # ── 全局唯一 ID 分配器 ──
 static var _next_id: int = 1           ## 下一个可用 ID
@@ -30,6 +30,11 @@ static func _recycle_id(id: int) -> void:
 static func reset_id_allocator() -> void:
 	_next_id = 1
 	_recycled_ids.clear()
+
+## 全场战斗单位共享列表（由主场景 survivor_mode / main 每帧写入）
+## 用途：避免 AI / Aircraft 里 get_parent().get_children() 的 O(N) 扫描（N=节点数，远大于单位数）
+## 消费方：ai_controller._try_engage_simple、aircraft._auto_gun_scan、main/survivor_mode.radar 等
+static var all_units: Array[CombatUnit] = []
 
 ## 高度档位系统（含地面）
 enum AltitudeTier { GROUND = -1, LOW = 0, MID = 1, HIGH = 2 }
@@ -60,6 +65,12 @@ var radar_targets: Dictionary = {}       ## { CombatUnit: float } 累计照射�
 var is_locked: bool = false              ## 被至少一个敌方单位锁定
 var locked_by: Array[CombatUnit] = []    ## 锁定自己的单位列表
 var is_hovered: bool = false             ## 鼠标悬停时为 true，显示雷达锥
+var is_mission_target: bool = false      ## 是否为当前战区/事件的必杀目标（UI 显示 TGT 括号）
+
+# --- 云层采样缓存（雷达锁定循环内会高频调用 WeatherSystem.is_in_cloud，按位置缓存 0.3s） ---
+var _cloud_cache_time: float = -1.0
+var _cloud_cache_pos: Vector2 = Vector2.INF
+var _cloud_cache_result: bool = false
 
 ## 从当前 altitude 数值推算高度档位
 func get_altitude_tier() -> int:

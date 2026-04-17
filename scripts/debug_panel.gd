@@ -376,7 +376,7 @@ func _get_pilot_info(ac: Aircraft) -> String:
 
 	var skill := ctrl.skill_level
 	var comp := ctrl.composure
-	var stress := ctrl.current_stress
+	var stress: float = ctrl.personality.current_stress if ctrl.personality else 0.0
 	var eff := ctrl._effective_skill()
 
 	# 技能评级

@@ -1,12 +1,13 @@
 class_name BulletManager
 extends Node2D
 
-const PIXELS_PER_METER: float = 0.5
+const PIXELS_PER_METER: float = GameConstants.PIXELS_PER_METER
 const HIT_RADIUS: float = 12.0   ## 2D命中判定半径（像素）
 const ROCKET_HIT_RADIUS: float = 18.0  ## 火箭命中判定半径（略大）
 const ALT_TOLERANCE: float = 500.0  ## 米 高度差容差
 const TRACER_LENGTH: float = 8.0  ## 曳光弹绘制长度（像素）
 const ROCKET_TRAIL_LENGTH: float = 16.0  ## 火箭尾迹绘制长度
+const ExplosionVFXScript = preload("res://scripts/explosion_vfx.gd")
 
 ## 友方（team 0）弹丸覆盖参数，由生存模式设置
 var friendly_hit_radius: float = HIT_RADIUS
@@ -142,10 +143,10 @@ func _physics_process(delta: float) -> void:
 					"hit %s (dmg=%.1f)" % [tgt_name, actual_dmg])
 				if is_rocket:
 					# 火箭不进入子弹闪避系统
-					if ac is Aircraft:
-						ac.take_damage(actual_dmg)
-					else:
-						ac.take_damage(actual_dmg)
+					# 爆炸画在目标本体位置（不是命中点），击中/击毁均只此一次
+					var r_head: float = ac.heading if "heading" in ac else 0.0
+					ExplosionVFXScript.emit(get_tree(), ac.global_position, r_head, 1.0)
+					ac.take_damage(actual_dmg)
 				elif ac is Aircraft:
 					ac.take_bullet_damage(b["damage"] * dmg_mult)
 				else:

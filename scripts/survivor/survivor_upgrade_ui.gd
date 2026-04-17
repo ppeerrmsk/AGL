@@ -20,7 +20,7 @@ func _ready() -> void:
 func _build_ui() -> void:
 	# 半透明遮罩
 	_overlay = ColorRect.new()
-	_overlay.color = Color(0.0, 0.0, 0.0, 0.6)
+	_overlay.color = ThemeColors.PANEL_BG_OVERLAY
 	_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(_overlay)
 
@@ -41,7 +41,7 @@ func _build_ui() -> void:
 	_title.text = tr("UPGRADE_HEADER")
 	_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_title.add_theme_font_size_override("font_size", 24)
-	_title.add_theme_color_override("font_color", Color(1.0, 0.8, 0.3))
+	_title.add_theme_color_override("font_color", ThemeColors.TEXT_ACCENT)
 	root.add_child(_title)
 
 	# 按钮容器
@@ -58,24 +58,24 @@ func _build_ui() -> void:
 		btn.add_theme_font_size_override("font_size", 14)
 
 		var style_normal := StyleBoxFlat.new()
-		style_normal.bg_color = Color(0.06, 0.1, 0.06, 0.85)
-		style_normal.border_color = Color(0.3, 0.6, 0.3, 0.5)
+		style_normal.bg_color = Color(ThemeColors.BTN_NORMAL_BG, 0.85)
+		style_normal.border_color = ThemeColors.BTN_NORMAL_BORDER
 		style_normal.set_border_width_all(1)
 		style_normal.set_corner_radius_all(4)
 		style_normal.set_content_margin_all(12)
 		btn.add_theme_stylebox_override("normal", style_normal)
 
 		var style_hover := StyleBoxFlat.new()
-		style_hover.bg_color = Color(0.1, 0.18, 0.1, 0.9)
-		style_hover.border_color = Color(1.0, 0.8, 0.3, 0.8)
+		style_hover.bg_color = Color(ThemeColors.BTN_HOVER_BG, 0.9)
+		style_hover.border_color = Color(ThemeColors.TEXT_ACCENT, 0.8)
 		style_hover.set_border_width_all(2)
 		style_hover.set_corner_radius_all(4)
 		style_hover.set_content_margin_all(12)
 		btn.add_theme_stylebox_override("hover", style_hover)
 
 		var style_pressed := StyleBoxFlat.new()
-		style_pressed.bg_color = Color(0.15, 0.25, 0.15, 0.95)
-		style_pressed.border_color = Color(1.0, 0.9, 0.4, 1.0)
+		style_pressed.bg_color = Color(ThemeColors.BTN_PRESSED_BG, 0.95)
+		style_pressed.border_color = Color(ThemeColors.BTN_PRESSED_BORDER, 1.0)
 		style_pressed.set_border_width_all(2)
 		style_pressed.set_corner_radius_all(4)
 		style_pressed.set_content_margin_all(12)

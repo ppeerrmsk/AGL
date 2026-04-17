@@ -164,3 +164,53 @@ AIRCRAFT_SELECT_SUBTITLE,生存模式  //  SURVIVAL MODE,SURVIVAL MODE,サバイ
 AIRCRAFT_SELECT_HINT_ESC,ESC 返回地图选择,ESC to return to map select,ESC でマップ選択へ
 AIRCRAFT_SELECT_LAUNCH_BUTTON,出  击,L A U N C H,出   撃
 AIRCRAFT_STATS_FMT,HP %d  |  速度 %d km/h  |  G %.0f  |  导弹 %d,HP %d  |  Speed %d km/h  |  G %.0f  |  Missiles %d,HP %d  |  速度 %d km/h  |  G %.0f  |  ミサイル %d
+BOUNDARY_APPROACH_WARN,⚠ 接近战场边界 — %.1f km,⚠ APPROACHING BORDER — %.1f km,⚠ 戦場境界に接近 — %.1f km
+BOUNDARY_MENU_TITLE,[ 越界提示 ],[ BORDER REACHED ],[ 境界到達 ]
+BOUNDARY_MENU_BODY,你已到达战场边界。选择下一步行动。,You have reached the edge of the combat zone. Choose your next action.,戦場の境界に到達しました。次の行動を選択してください。
+BOUNDARY_BTN_RETREAT,撤退 — 结束战局 结算奖励,RETREAT — End mission and collect rewards,撤退 — 戦闘を終了し報酬を確定
+BOUNDARY_BTN_SUPPLY,补给 — 回血（敌方增援增加）,SUPPLY — Restore HP (enemy reinforcement rises),補給 — HP回復（敵の増援増加）
+BOUNDARY_BTN_CANCEL,取消 — 调头继续作战,CANCEL — Turn back and continue,キャンセル — 反転して戦闘継続
+TACTICAL_MAP_TITLE,[ 战术地图 ],[ TACTICAL MAP ],[ 戦術マップ ]
+TACTICAL_MAP_SUBTITLE,海岸线 // 30 × 30 km,COASTLINE // 30 × 30 km,海岸線 // 30 × 30 km
+TACTICAL_MAP_HINT,TAB / ESC 关闭,TAB / ESC to close,TAB / ESC で閉じる
+ZONE_A_NAME,未来港,Future Harbor,未来港
+ZONE_B_NAME,湾北区,North Bay,湾北エリア
+ZONE_C_NAME,海滨公园,Seaside Park,海浜公園
+ZONE_D_NAME,君津山区,Kimitsu Hills,君津丘陵
+ZONE_BOSS_NAME,BOSS 决战地点,BOSS Showdown,BOSS 決戦地
+ZONE_STATE_AVAILABLE,可选,Available,選択可能
+ZONE_STATE_SELECTED,已选（前往中）,Selected (en route),選択中（移動中）
+ZONE_STATE_CLEARED,已攻克,Cleared,攻略済
+ZONE_STATE_LOCKED,锁定,Locked,ロック中
+ZONE_INFO_STATE,状态,Status,状態
+ZONE_INFO_REWARD,奖励提示,Reward Preview,報酬プレビュー
+ZONE_INFO_MISSION,任务,Mission,ミッション
+ZONE_REWARD_PLACEHOLDER,※ 随机进化技能（P3 未实装）,※ Random evolution skill (P3 pending),※ ランダム進化スキル（P3 未実装）
+ZONE_MISSION_PLACEHOLDER,※ 清剿战区内地面单位（SAM/AA）,※ Clear ground units inside the zone (SAM/AA),※ エリア内の地上目標を殲滅 (SAM/AA)
+ZONE_CLICK_TO_SELECT,>> 点击选择 <<,>> CLICK TO SELECT <<,>> クリックして選択 <<
+TACTICAL_MAP_INFO_TITLE,战区简报,ZONE BRIEFING,エリア概況
+TACTICAL_MAP_INFO_BODY,把鼠标悬停在战区上查看奖励和任务信息。\n前 3 个战区攻克后，BOSS 决战点解锁。,Hover a zone to see rewards and mission details.\nBoss unlocks after 3 zones are cleared.,エリアにマウスをかざすと報酬とミッションが表示されます。\n3エリア攻略後にBOSS決戦が解放されます。
+ZONE_HINT_NEW_OPENED,⚡ 新战区已开放 — 按 [Tab] 打开战术地图选择目标,⚡ NEW ZONE OPEN — Press [Tab] to open the tactical map,⚡ 新エリア開放 — [Tab] で戦術マップを開いて選択
+ZONE_REWARD_HINT_MISSILE,※ 这是一个强化导弹性能的技能,※ A missile performance upgrade,※ ミサイル性能を強化するスキル
+ZONE_REWARD_HINT_GUN,※ 这是一个强化机炮性能的技能,※ A gun performance upgrade,※ ガン性能を強化するスキル
+ZONE_REWARD_HINT_FLARE,※ 这是一个强化电子对抗/热诱弹的技能,※ An ECM / flare upgrade,※ ECM / フレア強化スキル
+ZONE_REWARD_HINT_SURVIVAL,※ 这是一个强化生存能力的技能,※ A survivability upgrade,※ 生存力強化スキル
+ZONE_REWARD_HINT_UNKNOWN,※ 未知奖励,※ Unknown reward,※ 不明な報酬
+ZONE_REWARD_ALREADY_GRANTED,※ 奖励已发放,※ Reward already granted,※ 報酬獲得済
+ZONE_MISSION_STARTED_FMT,⚔ 战区 %s 任务开始 — 清剿地面单位,⚔ ZONE %s — ENGAGE GROUND UNITS,⚔ エリア %s 開戦 — 地上目標を殲滅
+ZONE_MISSION_STARTED_AIR_FMT,⚔ 战区 %s 任务开始 — 歼灭敌方中队,⚔ ZONE %s — DESTROY ENEMY SQUADRON,⚔ エリア %s 開戦 — 敵中隊を撃墜
+ZONE_MISSION_STARTED_SQUADRON_FMT,⚔ 战区 %s 任务开始 — 击败敌方中队,⚔ ZONE %s — DEFEAT ENEMY SQUADRON,⚔ エリア %s 開戦 — 敵中隊を撃破
+ZONE_MISSION_STARTED_ELITE_FMT,⚔ 战区 %s 任务开始 — 击落指挥 Sentinel,⚔ ZONE %s — DOWN SENTINEL COMMANDER,⚔ エリア %s 開戦 — 指揮機 Sentinel 撃墜
+ZONE_CLEARED_FMT,✓ 战区 %s 已攻克,✓ ZONE %s CLEARED,✓ エリア %s 攻略完了
+ZONE_CLEARED_WITH_REWARD_FMT,✓ 战区 %s 已攻克 — 获得奖励：%s,✓ ZONE %s CLEARED — REWARD: %s,✓ エリア %s 攻略完了 — 報酬: %s
+HUD_VICTORY_TITLE,[ 通关 ],[ MISSION COMPLETE ],[ 任務達成 ]
+HUD_VICTORY_SUBTITLE,F-47 王牌中队已被击毁,F-47 Ace Squadron eliminated,F-47 エーススコードロン撃破
+ZONE_HINT_BOSS_UNLOCKED,★ BOSS 已出现 — 前往地图中央的决战地点,★ BOSS UNLOCKED — Head to the showdown point at map center,★ BOSS 解放 — マップ中央の決戦地へ向かえ
+ZONE_HINT_BOSS_ARRIVAL,⚔ 敌军王牌 F-47 中队强势切入！！ — 丢弃一切顾虑，全力击溃敌军！！,⚔ ENEMY ACES INBOUND — F-47 SQUADRON ENGAGING!! ALL WEAPONS FREE — HUNT THEM DOWN!!,⚔ 敵エース F-47 スコードロン強襲！！ — 全火器自由、敵機撃滅せよ！！
+ADBS_TUTORIAL_BOMBERS,⚠ 雷达捕获：2 架敌方轰炸机正前方！击落获取首笔奖励,⚠ CONTACT: 2 enemy bombers dead ahead — shoot them down for the first kill,⚠ レーダー捕捉：前方に敵爆撃機2機 — 撃墜で初報酬
+ADBS_CITY_HELIS_FMT,⚠ 城区上空：敌方直升机编队向 %s 方向逃离,⚠ CITY ALERT: Enemy heli flight fleeing %s,⚠ 都市上空：敵ヘリ編隊が %s 方向へ逃走
+ZONE_INFO_DIFFICULTY,难度,Difficulty,難易度
+ZONE_MISSION_GROUND,※ 清剿战区内的地面单位（SAM / AA）,※ Eliminate ground installations in the zone (SAM / AA),※ エリア内の地上目標を殲滅 (SAM / AA)
+ZONE_MISSION_AIR,※ 歼灭盘旋在战区上空的敌方中队,※ Destroy the enemy squadron patrolling the zone,※ 上空を警戒する敵飛行隊を撃墜
+ZONE_MISSION_SQUADRON,※ 击败锁定战区的敌方中队,※ Defeat the enemy squadron holding the zone,※ エリアを制圧中の敵中隊を撃破
+ZONE_MISSION_ELITE,※ 击落指挥 Sentinel（精英目标）,※ Shoot down the Sentinel commander (elite target),※ 指揮機 Sentinel を撃墜せよ（精鋭目標）

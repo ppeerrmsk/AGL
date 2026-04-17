@@ -33,6 +33,8 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 30.0,
 		"max_stacks": 5,
 		"category": "survival",
+		"dodge_per_stack": 0.08,   ## 每层 +8% 机炮闪避
+		"dodge_cap": 0.40,         ## 机炮闪避上限
 	},
 	{
 		"id": "speed_up",
@@ -42,6 +44,7 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 0.18,
 		"max_stacks": 4,
 		"category": "survival",
+		"accel_ratio": 0.5,        ## 加速提升 = value × 此值
 	},
 	{
 		"id": "maneuver_up",
@@ -51,6 +54,8 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 0.25,
 		"max_stacks": 3,
 		"category": "survival",
+		"max_g_bonus": 1.0,        ## 每层 +1.0 G
+		"structural_g_bonus": 0.5, ## 每层 +0.5 结构 G
 	},
 	{
 		"id": "flare_cooldown",
@@ -73,6 +78,7 @@ const UPGRADES: Array[Dictionary] = [
 		"category": "survival",
 		"evolved": true,
 		"requires": ["flare"],
+		"bonus_flares": 2,         ## 额外赠送热诱弹数
 	},
 	{
 		"id": "pilot_stamina",
@@ -82,6 +88,8 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 1.0,
 		"max_stacks": 3,
 		"category": "survival",
+		"stamina_mult": 2.0,       ## 耐力上限倍率
+		"recovery_mult": 2.0,      ## 恢复速率倍率
 	},
 	{
 		"id": "kill_heal",
@@ -248,6 +256,7 @@ const UPGRADES: Array[Dictionary] = [
 		"value": -0.5,
 		"max_stacks": 3,
 		"category": "combat",
+		"min_lock_time": 0.5,      ## 锁定时间不低于此值（秒）
 	},
 	{
 		"id": "dogfight",
@@ -257,6 +266,11 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 1,
 		"max_stacks": 3,
 		"category": "combat",
+		"stall_speed_mult": 0.88,           ## -12% 失速速度
+		"decel_mult": 1.3,                  ## +30% 减速
+		"g_drag_mult": 1.2,                 ## +20% G 力阻力
+		"overshoot_speed_margin_mult": 0.97, ## 更精确速度匹配
+		"turn_slow_speed_mult": 0.9,        ## 大角度减速更多
 	},
 ]
 
@@ -307,6 +321,15 @@ static func is_upgrade_available_for(upgrade: Dictionary, aircraft_id: StringNam
 static func xp_for_level(level: int) -> int:
 	return int(20.0 * pow(level, 1.15))
 
+## Adds 类（Tu-160/AH-64/CH-47）经验：单只 = 当前等级所需经验的 1/3（向上取整）
+## 设计意图：
+##   - 整组（3 只以上）击杀 → 保证至少 +1 级（"轰炸机奖励"）
+##   - 进度接近升级线时，打一只也可能触发升级（让玩家感觉自然）
+##   - flock 大小不影响单只奖励（与组大小解耦，简化设计）
+const ADDS_XP_DIVISOR := 3
+static func adds_xp_per_kill(level: int, _flock_size: int = 0) -> int:
+	return int(ceil(float(xp_for_level(level)) / float(ADDS_XP_DIVISOR)))
+
 # ── 刷怪参数 ─────────────────────────────────────────────
 
 const BASE_SPAWN_INTERVAL := 8.0    ## 初始刷怪间隔（秒）
@@ -318,7 +341,8 @@ const MAX_ENEMIES_HARD := 40          ## 绝对上限
 const MAX_ENEMIES_DEFAULT := 30       ## 默认上限
 const MIN_ENEMIES_CAP := 8            ## 动态下限（至少允许这么多敌人）
 const TARGET_FPS := 30                ## 目标最低帧率
-## UAV 与 UCAV 是等权重的杂鱼 adds，从 1 级一起出现，无解锁门槛/概率曲线
+## UAV 与 UCAV 是等权重的杂鱼 adds，1~UAV_RETIRE_LEVEL 级出现，之后不再刷
+const UAV_RETIRE_LEVEL := 4  ## 玩家达到此等级后，UAV/UCAV 不再出现
 const MIG_UNLOCK_LEVEL := 7         ## MiG 解锁等级
 const MIG_CHANCE_PER_LEVEL := 0.08  ## 每超过解锁等级，MiG 出现概率增加
 const MIG_CHANCE_MAX := 0.5         ## MiG 最大出现概率
@@ -347,11 +371,11 @@ const Q5_UNLOCK_LEVEL := 5           ## Q-5（Lancer 超音速攻击机，机炮
 const Q5_CHANCE_PER_LEVEL := 0.10    ## 每超过解锁等级，Q-5 出现概率增加
 const Q5_CHANCE_MAX := 0.30          ## Q-5 最大出现概率
 const COMMANDER_UNLOCK_LEVEL := 4    ## 指挥 UAV 解锁等级
-const COMMANDER_CHANCE_BASE := 0.12  ## 解锁时的基础出现概率
-const COMMANDER_CHANCE_PER_LEVEL := 0.06  ## 每超过解锁等级，指挥 UAV 出现概率增加
-const COMMANDER_CHANCE_MAX := 0.25   ## 指挥 UAV 最大出现概率
-const COMMANDER_SQUAD_MIN := 4       ## 指挥 UAV 自带僚机最少数
-const COMMANDER_SQUAD_MAX := 5       ## 指挥 UAV 自带僚机最多数
+const COMMANDER_CHANCE_BASE := 0.04  ## 解锁时的基础出现概率（稀有首领，一个战区约一架）
+const COMMANDER_CHANCE_PER_LEVEL := 0.015  ## 每超过解锁等级，指挥 UAV 出现概率增加
+const COMMANDER_CHANCE_MAX := 0.08   ## 指挥 UAV 最大出现概率
+const COMMANDER_SQUAD_MIN := 5       ## 指挥 UAV 自带僚机数量（固定 5 架，Sentinel 不会单独出现）
+const COMMANDER_SQUAD_MAX := 5       ## 指挥 UAV 自带僚机数量（固定 5 架，Sentinel 不会单独出现）
 const COMMANDER_MAX_SQUAD := 9       ## 指挥 UAV 分队总上限（含自己；实际招募限制在 CommanderAura.MAX_WINGMEN=8）
 const XP_PER_KILL_COMMANDER := 50    ## 指挥 UAV 击杀经验
 
@@ -362,21 +386,19 @@ const XP_PER_KILL_COMMANDER := 50    ## 指挥 UAV 击杀经验
 # 以下常量只定义"单次波次生成什么样的阵型" — 不再有解锁等级/刷新间隔/首次延迟。
 
 ## Tu-160 白天鹅（横列 4 架）
-const XP_PER_KILL_TU160 := 60        ## Tu-160 击杀经验（杂兵级，略高于 MiG 的基础 40）
+## Adds 类经验改走 adds_xp_per_kill()（整组击杀恰好 +1 级），不再用固定值
 const TU160_FLOCK_SIZE := 4          ## 每次波次的轰炸机数量
 const TU160_FLIGHT_DISTANCE := 8000.0  ## Tu-160 从起点到终点的直线距离（像素）
 const TU160_LATERAL_SPACING := 260.0 ## 编队成员之间的横向间距（像素）
 const TU160_STAGGER_SPACING := 180.0 ## 前后错位距离（像素）
 
 ## AH-64 Apache（Adds 攻击直升机，4 架菱形层次编队）
-const XP_PER_KILL_AH64 := 45
 const AH64_FLOCK_SIZE := 4           ## 4 架编队
 const AH64_FLIGHT_DISTANCE := 6000.0 ## 直升机慢，航线短一些
 const AH64_FORWARD_SPACING := 280.0  ## 前后层级间距（像素）
 const AH64_LATERAL_SPACING := 260.0  ## 横向展宽间距（像素）
 
 ## CH-47 Chinook（Adds 重型运输机，纵阵 3 架）
-const XP_PER_KILL_CH47 := 55
 
 ## F-47 王牌狙击小队（BOSS，事件触发，4 架编队）
 const XP_PER_KILL_F47 := 100       ## F-47 击杀经验（王牌级，4 架共 400 XP）
@@ -386,7 +408,7 @@ const F47_STANDOFF_RADIUS_MAX := 2500.0  ## 被追时逃跑最大距离（像素
 const F47_FLEE_DISTANCE := 2000.0   ## 被盯飞机的逃跑距离（像素）
 const F47_INTRO_DURATION := 4.0     ## 登场通场表演时长（秒）
 const F47_INTRO_PASS_DIST := 800.0  ## 通场时经过玩家前方的距离（像素）
-const F47_CLOAK_CYCLE := 60.0       ## 隐形周期（秒）— 每 60 秒可隐形一次
+const F47_CLOAK_CYCLE := 95.0       ## 隐形周期（秒）
 const F47_CLOAK_DURATION := 5.5     ## 隐形持续时间（秒）
 const F47_CLOAK_FADE := 0.5         ## 隐形淡入/淡出时间（秒）
 
@@ -415,7 +437,7 @@ const TOKEN_COST := {
 	1: 2,   ## UCAV       — 导弹杂鱼
 	2: 4,   ## MiG-29     — 主力威胁
 	3: 5,   ## J-7        — Lancer 打带跑，单次冲锋威胁高
-	4: 6,   ## Sentinel   — Schemer 带光环+buff 僚机
+	4: 6,   ## Sentinel   — Schemer 带光环+buff 僚机（首领级稀有，必带 5 架 UAV 僚机）
 	5: 3,   ## F-86       — Gladiator 缠斗
 	6: 8,   ## MiG-31     — Lancer 顶级（速度 3200，雷达弹，单机出现）
 	7: 4,   ## MiG-23     — Gladiator 综合型（导弹+机炮编队）

@@ -116,16 +116,16 @@ func _physics_process(delta: float) -> void:
 				_timer = 0.0
 				phase = Phase.ACCEL
 		Phase.ACCEL:
-			# 加力加速冲出
+			# 退出段：不开加力、保持低速（corner speed），靠自然推力恢复
 			visual_offset = 1.0 - clampf(_timer / ACCEL_DURATION, 0.0, 1.0)
-			_aircraft.speed = lerpf(_aircraft.speed, _pre_speed * 1.1, delta * 3.0)
-			_aircraft.is_afterburner = true
+			var corner_spd := _aircraft._corner_speed_kmh() / 3.6 if _aircraft.has_method("_corner_speed_kmh") else _aircraft.params.stall_speed_base / 3.6 * 1.5
+			_aircraft.speed = minf(_aircraft.speed, corner_spd)
+			_aircraft.is_afterburner = false
 			# 设置目标位置为当前前方（让 AI 继续向前飞）
 			var fwd := Vector2(sin(_aircraft.heading), -cos(_aircraft.heading))
 			_aircraft.target_position = _aircraft.global_position + fwd * 2000.0
 			if _timer >= ACCEL_DURATION:
 				phase = Phase.NONE
 				visual_offset = 0.0
-				_aircraft.is_afterburner = false
 				cooldown_remaining = COOLDOWN
 				counterattack_timer = COUNTERATTACK_WINDOW  # 反击窗口激活

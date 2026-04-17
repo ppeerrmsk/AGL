@@ -35,6 +35,26 @@ func _update_sam_missile(delta: float) -> void:
 	if combat_target == null or not is_instance_valid(combat_target) or combat_target.is_destroyed:
 		return
 
+	# ── 保险 1：目标必须仍在雷达范围内（防止因为锁定衰减滞后而打空）
+	if not is_in_radar_cone(combat_target.global_position):
+		combat_target = null
+		return
+
+	# ── 保险 2：目标不能处于"锁定免疫"/光学隐形状态
+	if combat_target.is_lock_immune():
+		combat_target = null
+		return
+	if combat_target is Aircraft and combat_target.is_cloaked:
+		combat_target = null
+		return
+
+	# ── 保险 3：距离要在导弹有效射程内（min/max）
+	var dist_px := global_position.distance_to(combat_target.global_position)
+	var dist_m := dist_px / PIXELS_PER_METER
+	var max_range_m := params.missile.max_range_rear * params.missile.front_rear_ratio
+	if dist_m < params.missile.min_range or dist_m > max_range_m:
+		return
+
 	# 检查锁定
 	var lock_time_val := params.lock_time if params else 3.0
 	var lock_progress: float = radar_targets.get(combat_target, 0.0)
@@ -73,6 +93,7 @@ func _draw() -> void:
 		_draw_radar_circle()
 	_draw_sam_icon()
 	_draw_lock_indicator()
+	AircraftRenderer.draw_target_bracket(self, is_mission_target)
 	_draw_data_label()
 
 ## 圆形雷达范围（替代扇形）
@@ -83,11 +104,7 @@ func _draw_radar_circle() -> void:
 	if radar_r <= 0.0:
 		return
 
-	var color: Color
-	if team == 0:
-		color = Color(0.2, 0.7, 0.8, 0.08)
-	else:
-		color = Color(0.8, 0.2, 0.2, 0.08)
+	var color := GameConstants.team_radar_color(team, 0.08)
 
 	# 填充圆
 	var segments := 48

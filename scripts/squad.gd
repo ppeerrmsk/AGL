@@ -15,7 +15,7 @@ const FORMATION_NAMES := {
 	Formation.FLUID_FOUR: "FORMATION_FLUID_FOUR",
 }
 
-const PIXELS_PER_METER: float = 0.5
+const PIXELS_PER_METER: float = GameConstants.PIXELS_PER_METER
 
 var leader: Aircraft = null
 var members: Array[Aircraft] = []

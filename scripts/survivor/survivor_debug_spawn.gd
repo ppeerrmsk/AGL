@@ -28,7 +28,7 @@ const FORMATION_NAMES := {
 	FormationType.F47_SQUAD: "F-47 王牌小队",
 }
 
-# ── 敌机类型标签（与 survivor_mode.EnemyType 对应）──
+# ── 敌机类型标签（与 SurvivorSpawner.EnemyType 对应）──
 # ⚠ 新增敌人类型时必须在这里同步追加，否则 Debug 面板刷不出来
 const ENEMY_TYPE_LABELS := [
 	{"label": "MiG-29", "enum_idx": 2},               # EnemyType.MIG
@@ -305,23 +305,26 @@ func _on_spawn_pressed() -> void:
 	var size: int = int(_squad_size_spin.value)
 	var repeats: int = int(_count_spin.value)
 
+	var spawner: SurvivorSpawner = game_scene._spawner
+	if not spawner:
+		return
 	for r in range(repeats):
 		match formation:
 			FormationType.SINGLE:
-				game_scene._spawn_single(enum_idx)
+				spawner._spawn_single(enum_idx)
 			FormationType.SQUAD:
-				game_scene._spawn_squad(enum_idx, size)
+				spawner._spawn_squad(enum_idx, size)
 			FormationType.COMMANDER_SQUAD:
-				game_scene._spawn_commander_squad(size)
+				spawner._spawn_commander_squad(size)
 			FormationType.TU160_FLOCK:
 				# 族群波次：大小由 SurvivorData.TU160_FLOCK_SIZE 定义，size spinbox 忽略
-				game_scene._spawn_tu160_flock()
+				spawner._spawn_tu160_flock()
 			FormationType.AH64_FLOCK:
-				game_scene._spawn_ah64_flock()
+				spawner._spawn_ah64_flock()
 			FormationType.CH47_FLOCK:
-				game_scene._spawn_ch47_flock()
+				spawner._spawn_ch47_flock()
 			FormationType.F47_SQUAD:
-				game_scene._spawn_f47_squad()
+				spawner._spawn_f47_squad()
 
 	print("[DebugSpawn] spawned %d × %s [%s]" % [
 		repeats,

@@ -209,6 +209,7 @@ func _start_destroy() -> void:
 	is_firing = false
 	combat_target = null
 	_destroy_timer = 2.0
+	# 不画殉爆闪光：爆炸特效只属于"被爆炸物击杀"的情况，由导弹/火箭/AOE 伤害源自行触发
 
 func _update_destroy(delta: float) -> void:
 	_destroy_timer -= delta
@@ -240,11 +241,23 @@ func _draw() -> void:
 	if is_destroyed:
 		_draw_destroyed()
 		return
+	_draw_cloud_shadow()
 	if is_hovered:
 		_draw_radar_cone()
 	_draw_ground_icon()
 	_draw_lock_indicator()
+	AircraftRenderer.draw_target_bracket(self, is_mission_target)
 	_draw_data_label()
+
+## 云下方阴影：淡灰蓝椭圆，暗示有云飘过地面单位头顶
+func _draw_cloud_shadow() -> void:
+	var weather := get_tree().get_first_node_in_group("weather")
+	if weather == null or not weather.has_method("sample_density"):
+		return
+	var density: float = weather.sample_density(global_position)
+	if density <= 0.0:
+		return
+	draw_circle(Vector2(4.0, 5.0), 18.0, Color(0.35, 0.42, 0.52, 0.22 * density))
 
 func _draw_radar_cone() -> void:
 	if not params:
@@ -256,11 +269,7 @@ func _draw_radar_cone() -> void:
 
 	var half_rad := deg_to_rad(half_deg)
 	var segments := 24
-	var color: Color
-	if team == 0:
-		color = Color(0.2, 0.7, 0.8, 0.12)
-	else:
-		color = Color(0.8, 0.2, 0.2, 0.12)
+	var color := GameConstants.team_radar_color(team, 0.12)
 
 	# 绘制扇形（需要抵消节点自身旋转，因为雷达锥跟随 heading）
 	var points := PackedVector2Array()
@@ -377,14 +386,9 @@ func _draw_data_label() -> void:
 	var box_w := max_w + 6.0
 	var box_h := lines.size() * line_height + 4.0
 
-	var text_color: Color
-	var bg_color: Color
-	if team == 0:
-		text_color = Color(0.5, 0.8, 1.0)
-		bg_color = Color(0.0, 0.1, 0.2, 0.6)
-	else:
-		text_color = Color(1.0, 0.6, 0.4)
-		bg_color = Color(0.2, 0.05, 0.0, 0.6)
+	var _glc := GameConstants.ground_label_colors(team)
+	var text_color: Color = _glc[0]
+	var bg_color: Color = _glc[1]
 
 	var rotated_offset := label_offset.rotated(inv_rot)
 	draw_set_transform(rotated_offset, inv_rot)

@@ -1,7 +1,7 @@
 class_name MissileManager
 extends Node2D
 
-const PIXELS_PER_METER: float = 0.5
+const PIXELS_PER_METER: float = GameConstants.PIXELS_PER_METER
 
 ## ── 近炸引信 AOE 常量 ──
 const AOE_RADIUS_M: float = 120.0       ## AOE 半径（米）
@@ -9,6 +9,7 @@ const AOE_DURATION: float = 1.5         ## 持续时间（秒）
 const AOE_ALT_TOLERANCE: float = 300.0  ## 高度容差（米）
 
 var _missile_scene: PackedScene = preload("res://scenes/missile.tscn")
+const ExplosionVFXScript = preload("res://scripts/explosion_vfx.gd")
 
 ## 场景中所有战斗单位的缓存引用，由 main.gd 每帧更新
 var target_list: Array[CombatUnit] = []
@@ -16,18 +17,37 @@ var target_list: Array[CombatUnit] = []
 ## 活跃的 AOE 区域列表
 var _aoe_zones: Array = []  # [{pos, altitude, radius_px, time_left, max_time, damage, team, hit_set}]
 
+## 命中闪光效果（类 3D 白色实色方块，一闪即淡出）
+## 全场所有爆炸特效的统一宿主，通过 ExplosionVFX.emit() 接入
+const HIT_FLASH_DURATION: float = 0.55
+const HIT_FLASH_BASE_SIZE: float = 26.0
+var _hit_flashes: Array = []  # [{pos, time_left, heading, scale}]
+
+func _ready() -> void:
+	add_to_group("explosion_vfx")
+
 func spawn_missile(source: CombatUnit, target: CombatUnit, missile_params: MissileParams) -> void:
 	var missile: Missile = _missile_scene.instantiate()
 	missile.params = missile_params
 	missile.source = source
 	missile.target = target
 	missile.team = source.team
-	missile.heading = source.heading
 	missile.speed = source.speed + 50.0  # 初速 = 发射单位速度 + 50 m/s
 	missile.altitude = source.altitude
 
-	# 初始位置：发射单位前方 15px
-	var fwd := Vector2(sin(source.heading), -cos(source.heading))
+	# 初始朝向：
+	#   飞机发射 → 用飞机当前朝向（飞机基本已对准目标）
+	#   地面发射（SAM 等）→ 用 source→target 的方向，避免 SAM 始终朝北导致初始 PN 爆转
+	var initial_heading: float
+	if source is GroundUnit and target and is_instance_valid(target):
+		var los := target.global_position - source.global_position
+		initial_heading = atan2(los.x, -los.y)
+	else:
+		initial_heading = source.heading
+	missile.heading = initial_heading
+
+	# 初始位置：沿初始朝向前方 15 px
+	var fwd := Vector2(sin(initial_heading), -cos(initial_heading))
 	missile.global_position = source.global_position + fwd * 15.0
 
 	# 初始化 LOS 角，避免第一帧 PN 尖峰
@@ -95,6 +115,13 @@ func _physics_process(delta: float) -> void:
 			var flat := unit is Aircraft and unit.flat_altitude
 			var alt_ok := flat or unit is GroundUnit or absf(missile.altitude - unit.altitude) < missile.params.proximity_fuse_alt
 			if dist_2d < fuse_radius_px and alt_ok:
+				# 云中目标：基于云密度的 miss roll（导弹"看不清"目标）
+				if unit.get_altitude_tier() == CombatUnit.AltitudeTier.HIGH:
+					var weather := get_tree().get_first_node_in_group("weather")
+					if weather and weather.has_method("sample_density"):
+						var density: float = weather.sample_density(unit.global_position)
+						if density > 0.0 and randf() < 0.35 * density:
+							continue  # 擦身而过，导弹继续飞
 				var msl_name: String = missile.params.display_name if missile.params else "MSL"
 				var hit_unit: CombatUnit = unit as CombatUnit
 				var tgt_name: String = hit_unit.callsign if hit_unit.callsign != "" else hit_unit.name
@@ -103,6 +130,9 @@ func _physics_process(delta: float) -> void:
 					tgt_name = "%s/%s[%s]" % [side, unit.params.display_name, unit.callsign]
 				EventLogger.log_event("MISSILE", msl_name,
 					"hit %s (dmg=%.0f)" % [tgt_name, missile.params.damage])
+				var hit_heading: float = unit.heading if "heading" in unit else 0.0
+				# 爆炸画在飞机身上（不是导弹位置），击中/击毁均只此一次
+				ExplosionVFXScript.emit(get_tree(), unit.global_position, hit_heading, 1.0)
 				unit.take_damage(missile.params.damage)
 				# 近炸引信：在爆炸点产生 AOE 区域
 				if missile.proximity_aoe:
@@ -129,6 +159,8 @@ func _physics_process(delta: float) -> void:
 
 	# ── AOE 区域更新 ──
 	_update_aoe_zones(delta)
+	# ── 命中闪光更新 ──
+	_update_hit_flashes(delta)
 
 ## 创建 AOE 区域
 func _spawn_aoe(pos: Vector2, alt: float, damage: float, team: int, direct_hit: CombatUnit) -> void:
@@ -184,6 +216,9 @@ func _update_aoe_zones(delta: float) -> void:
 			var alt_diff := absf(zalt - unit.altitude)
 			var alt_ok := alt_diff < AOE_ALT_TOLERANCE or unit is GroundUnit
 			if dist_2d < zradius and alt_ok:
+				# AOE 仍在飞机本体位置画爆炸（不在 AOE 中心），击中/击毁均只此一次
+				var u_head: float = unit.heading if "heading" in unit else 0.0
+				ExplosionVFXScript.emit(get_tree(), unit.global_position, u_head, 1.0)
 				unit.take_damage(zdmg)
 				zhit[uid] = true
 				var tgt_name: String = unit.callsign if unit.callsign != "" else unit.name
@@ -205,6 +240,112 @@ func _draw() -> void:
 		draw_circle(pos, radius, Color(1.0, 0.15, 0.1, alpha * 0.4))
 		# 描边
 		draw_arc(pos, radius, 0.0, TAU, 48, Color(1.0, 0.2, 0.1, alpha), 2.0)
+	# 命中闪光：白色等距线框方块（类 3D），一闪即淡出
+	for flash in _hit_flashes:
+		_draw_hit_flash(flash)
+
+## 统一爆炸闪光接入点（由 ExplosionVFX.emit 路由而来，外部模块不要直接 call）
+func spawn_flash(pos: Vector2, heading: float = 0.0, scale: float = 1.0) -> void:
+	_spawn_hit_flash(pos, heading, scale)
+
+## 内部实现：加入一条活动闪光记录
+func _spawn_hit_flash(pos: Vector2, heading: float = 0.0, scale: float = 1.0) -> void:
+	_hit_flashes.append({
+		"pos": pos,
+		"time_left": HIT_FLASH_DURATION,
+		"heading": heading,
+		"scale": maxf(scale, 0.1),
+	})
+	queue_redraw()
+
+func _update_hit_flashes(delta: float) -> void:
+	if _hit_flashes.is_empty():
+		return
+	var i := _hit_flashes.size() - 1
+	while i >= 0:
+		_hit_flashes[i]["time_left"] -= delta
+		if _hit_flashes[i]["time_left"] <= 0.0:
+			_hit_flashes.remove_at(i)
+		i -= 1
+	queue_redraw()
+
+func _draw_hit_flash(flash: Dictionary) -> void:
+	var t_left: float = flash["time_left"]
+	var ratio: float = clampf(t_left / HIT_FLASH_DURATION, 0.0, 1.0)
+	var age: float = 1.0 - ratio
+	# 初始亮闪阶段 + 线性淡出
+	var intensity: float
+	if age < 0.18:
+		intensity = 1.0
+	else:
+		intensity = ratio / 0.82
+	var alpha: float = clampf(intensity, 0.0, 1.0)
+	# 尺寸略微外扩（age 0 → 1 : 1.0 → 1.5），再按调用方给的 scale 放大
+	var flash_scale: float = flash.get("scale", 1.0)
+	var size: float = HIT_FLASH_BASE_SIZE * (1.0 + age * 0.5) * flash_scale
+	var pos: Vector2 = flash["pos"] - global_position
+	var h: float = flash["heading"]
+	# 依飞机 heading 建立局部轴：fwd 沿机头，right 沿机身右侧
+	var fwd := Vector2(sin(h), -cos(h))
+	var right := Vector2(cos(h), sin(h))
+	var half: float = size * 0.5
+	# 假 3D：顶面整体上移以模拟高度
+	var tilt := Vector2(0.0, -size * 0.55)
+	# 底面 4 角（b = bottom）
+	var b_fr := pos + fwd * half + right * half
+	var b_fl := pos + fwd * half - right * half
+	var b_bl := pos - fwd * half - right * half
+	var b_br := pos - fwd * half + right * half
+	# 顶面 4 角（t = top）
+	var t_fr := b_fr + tilt
+	var t_fl := b_fl + tilt
+	var t_bl := b_bl + tilt
+	var t_br := b_br + tilt
+	# 面颜色：核心白，侧面稍暗以分面
+	var col_top := Color(1.0, 1.0, 1.0, alpha * 0.85)
+	var col_side_bright := Color(0.92, 0.95, 1.0, alpha * 0.65)
+	var col_side_dim := Color(0.78, 0.82, 0.92, alpha * 0.5)
+	var col_edge := Color(1.0, 1.0, 1.0, alpha)
+	# 可见侧面：outward-normal 屏幕 y>0（面朝下 / 朝观察者）的面才画
+	# front 面 (+fwd): 屏幕 y 分量 = fwd.y；同理 right 面 = right.y
+	# 先画远端（不可见侧的背面缓冲），再按屏幕 y 从小到大画，保证重叠正确
+	var faces: Array = []  # [{verts, color, sort_y}]
+	# front 面（+fwd 方向的侧壁）
+	if fwd.y > 0.0:
+		var verts := PackedVector2Array([b_fr, b_fl, t_fl, t_fr])
+		faces.append({"v": verts, "c": col_side_bright if fwd.y > 0.5 else col_side_dim, "y": (b_fr.y + b_fl.y) * 0.5})
+	# back 面（-fwd）
+	if fwd.y < 0.0:
+		var verts2 := PackedVector2Array([b_bl, b_br, t_br, t_bl])
+		faces.append({"v": verts2, "c": col_side_bright if fwd.y < -0.5 else col_side_dim, "y": (b_bl.y + b_br.y) * 0.5})
+	# right 面 (+right)
+	if right.y > 0.0:
+		var verts3 := PackedVector2Array([b_br, b_fr, t_fr, t_br])
+		faces.append({"v": verts3, "c": col_side_bright if right.y > 0.5 else col_side_dim, "y": (b_br.y + b_fr.y) * 0.5})
+	# left 面 (-right)
+	if right.y < 0.0:
+		var verts4 := PackedVector2Array([b_fl, b_bl, t_bl, t_fl])
+		faces.append({"v": verts4, "c": col_side_bright if right.y < -0.5 else col_side_dim, "y": (b_fl.y + b_bl.y) * 0.5})
+	# 从远到近（y 小到大）画侧面
+	faces.sort_custom(func(a, b): return a["y"] < b["y"])
+	for f in faces:
+		draw_colored_polygon(f["v"], f["c"])
+	# 顶面（最后画，在侧面之上）
+	var top_verts := PackedVector2Array([t_fr, t_fl, t_bl, t_br])
+	draw_colored_polygon(top_verts, col_top)
+	# 线框（棱），增强方块轮廓
+	var lw: float = 1.6
+	# 顶面
+	draw_polyline(PackedVector2Array([t_fr, t_fl, t_bl, t_br, t_fr]), col_edge, lw)
+	# 底面
+	draw_polyline(PackedVector2Array([b_fr, b_fl, b_bl, b_br, b_fr]), Color(1, 1, 1, alpha * 0.55), lw)
+	# 垂直棱
+	draw_line(b_fr, t_fr, col_edge, lw)
+	draw_line(b_fl, t_fl, col_edge, lw)
+	draw_line(b_bl, t_bl, col_edge, lw)
+	draw_line(b_br, t_br, col_edge, lw)
+	# 中心亮点（强化闪光观感）
+	draw_circle(pos + tilt * 0.5, size * 0.18 * (0.4 + ratio * 0.6), Color(1.0, 1.0, 1.0, alpha))
 
 ## 寻找弹跳目标：最近的存活敌方单位（排除刚命中的）
 func _find_bounce_target(missile: Missile, just_hit: CombatUnit) -> CombatUnit:

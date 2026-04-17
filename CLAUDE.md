@@ -37,7 +37,9 @@ AGL/
 │   ├── aa_gun_unit.tscn       # 高射炮
 │   └── radar_station.tscn     # 雷达站
 ├── scripts/
-│   ├── main.gd                # 沙盒主场景：相机/输入/雷达锁定/编队生成/地形
+│   ├── main.gd                # 沙盒主场景：输入/雷达锁定/编队生成（地形/相机委托共享模块）
+│   ├── terrain_renderer.gd    # TerrainRenderer：地形/网格/云层绘制（沙盒+生存共享）
+│   ├── camera_controller.gd   # CameraController：缩放/平移/hover/坐标转换（沙盒+生存共享）
 │   ├── main_menu.gd           # 主菜单
 │   ├── aircraft.gd            # Aircraft 实体（~2500 行，物理+战斗+武器+视觉）
 │   ├── aircraft_params.gd     # AircraftParams Resource
@@ -64,8 +66,16 @@ AGL/
 │   ├── bullet_manager.gd      # 子弹管理器
 │   ├── hud.gd                 # 沙盒 HUD
 │   ├── debug_panel.gd         # 调试面板（策略显示/生成按钮）
+│   ├── game_constants.gd      # 全局物理/队伍颜色常量（GameConstants）
+│   ├── theme_colors.gd        # 生存 UI 统一调色板（ThemeColors）
+│   ├── terrain_renderer.gd    # 地形/网格/云层绘制（沙盒+生存共享）
+│   ├── camera_controller.gd   # 缩放/平移/hover/坐标转换（沙盒+生存共享）
+│   ├── aircraft_renderer.gd   # 飞机绘制系统（从 aircraft.gd 提取的 18 个 _draw_*）
+│   ├── aircraft_destruction.gd # 坠毁动画（fighter/bomber/heli 三种风格）
+│   ├── pilot_personality.gd   # 飞行员心理（压力/SA/判断误差）
 │   └── survivor/
-│       ├── survivor_mode.gd       # 生存模式主控制器（波次/刷怪/猎手）
+│       ├── survivor_mode.gd       # 生存模式主控制器（场景/操控/升级/HUD）
+│       ├── survivor_spawner.gd    # 刷怪系统（Token/生成/击杀/清理/猎手）
 │       ├── survivor_player.gd     # 经验/等级/升级应用
 │       ├── survivor_data.gd       # 升级定义 + 波次参数 + 经验曲线（静态）
 │       ├── survivor_hud.gd        # HUD（HP/经验/战术按钮）
@@ -162,7 +172,7 @@ Resource
 - **一击致命**：HP 60，被 `ENEMY_HP_MISSILE_CAP=75` 保证任何导弹都能一发命中
 - **特殊坠落动画**：`crash_style="bomber"` meta → `_update_destroy` 走侧翻慢坠分支（5 秒，持续 `bank_angle` 累加模拟侧翻）
 - **轰炸机外观**：`silhouette="bomber"` meta → `_draw_bomber_icon()` 大翼展 + 长机身
-- **XP 奖励**：`XP_PER_KILL_TU160 = 60`（略高于 MiG 基础 40，不是"大肥肉"级奖励）
+- **XP 奖励**：Adds 类（Tu-160/AH-64/CH-47）走 `SurvivorData.adds_xp_per_kill(level)`，每 kill = `ceil(xp_for_level(level) / 3)`（即当前等级所需经验的 1/3）。整组（≥3 只）击杀保证升 1 级；若玩家快满级时打一只也可能触发升级，体验更自然
 - **完全被动**：不转弯（单点 waypoint 直线飞）、不规避、**被击中无任何反应**（与 UAV 等普通敌机区别开 — adds 是纯靶子）
 - **跳过 3 个全局敌机系统**（`category=="adds"` meta 检测）：
   - `_update_hunters` — 不会被指派为玩家追击者
@@ -230,24 +240,31 @@ Resource
 
 | 文件 | 类/类型 | 职责 | 关键入口 |
 |------|---------|------|----------|
-| `aircraft.gd` | `Aircraft extends CombatUnit` | [共享] 飞机物理+战斗+武器+视觉（最核心，~2900 行） | `_physics_process:194` `_update_combat:1107` `_update_gun:1422` `_update_rocket:1468` `_update_weapon_mode:1599` `_update_missile:1811` `_effective_missile_range_px` `_missile_cannot_hit_but_gun_can` `_should_commit_gun_pass` `_is_gun_pass_finished` `_release_flares(target_missile)` `set_evasion_mode` `_corner_speed_kmh` `get_maneuver` |
+| `aircraft.gd` | `Aircraft extends CombatUnit` | [共享] 飞机物理+战斗+武器（~3091 行，绘制委托 aircraft_renderer.gd，坠毁委托 aircraft_destruction.gd） | `_physics_process` `_update_combat` `_update_gun` `_update_rocket` `_update_weapon_mode` `_update_missile` `_effective_missile_range_px` `_missile_cannot_hit_but_gun_can` `_should_commit_gun_pass` `_is_gun_pass_finished` `_release_flares(target_missile)` `set_evasion_mode` `_corner_speed_kmh` `get_maneuver` `_draw()` |
+| `aircraft_renderer.gd` | `AircraftRenderer extends RefCounted` | [共享] 飞机绘制系统（~865 行，18 个静态 `draw_*` 方法） | `draw_radar_cone` `draw_gun_cone` `draw_lock_indicator` `draw_muzzle_flash` `draw_afterburner_glow` `draw_flare_particles` `draw_aircraft_icon` `draw_commander_icon` `draw_bomber_icon` `draw_apache_icon` `draw_chinook_icon` `draw_data_label` `draw_tactic_popup` `draw_target_line` `draw_predicted_path` `draw_formation_debug` |
+| `aircraft_destruction.gd` | `AircraftDestruction extends RefCounted` | [共享] 坠毁动画系统（fighter/bomber/heli 三种风格） | `start(ac)` `update(ac, delta)` |
 | `cobra_maneuver.gd` | `CobraManeuver extends Node` | [共享] 眼镜蛇机动模块（挂载到 Aircraft 子节点） | `activate` `_physics_process`（三阶段状态机） |
 | `herbst_maneuver.gd` | `HerbstManeuver extends Node` | [生存] 赫尔贝特轮 J-Turn 模块（F-47 BOSS 专属，可重复使用） | `activate` `_physics_process`（DECEL→TURN→ACCEL） |
 | `survivor/ace_squad.gd` | `AceSquad extends RefCounted` | [生存] 王牌中队 BOSS 基类（通用飞机类 BOSS 框架） | `spawn` `update` `_assign_roles` `_apply_role` `_maintain_role` `_update_cloak` `_force_engage` |
 | `survivor/f47_ace_squad.gd` | `F47AceSquad extends AceSquad` | [生存] F-47 王牌小队具体实现（隐形+J-Turn+齐射+二二组合战术） | `_configure_spawn` `_configure_close_fighter_combat` `_configure_ranged_striker_combat` |
 | `rocket_params.gd` | `RocketParams extends Resource` | [共享] 无制导火箭弹参数（齐射数/散布/冷却） | — |
-| `ai_controller.gd` | `AIController extends Node` | [共享] AI 状态机 + BFM 战术决策树 + 导弹拦截（~1720 行） | `_process_patrol:553` `_process_squad_follow:583` `_process_engage:736` `_choose_tactic:952` `_process_evade:1341` `_find_leader_threat` `_compute_intercept_pos` `_find_member_ai` |
+| `ai_controller.gd` | `AIController extends Node` | [共享] AI 状态机 + BFM 战术决策树 + 导弹拦截（~2269 行，心理子系统委托 pilot_personality.gd） | `_process_patrol` `_process_squad_follow` `_process_engage` `_choose_tactic` `_process_evade` `_find_leader_threat` `_compute_intercept_pos` `_find_member_ai` |
+| `pilot_personality.gd` | `PilotPersonality extends RefCounted` | [共享] 飞行员心理子系统：压力/态势感知/判断误差（~223 行） | `update_stress(ai, delta)` `update_situational_awareness(ai, delta)` `update_drift(ai, delta)` `effective_skill` `effective_sa` `apply_position_error` `apply_speed_error` `apply_altitude_error` |
 | `combat_unit.gd` | `CombatUnit extends Node2D` | [共享] 战斗单位基类（通用接口） | `take_damage:81` `is_in_radar_cone:94` `get_altitude_tier:65` |
 | `missile.gd` | `Missile extends Node2D` | [共享] 导弹飞行物理（PN 制导/SARH） | `_physics_process:37` `_guidance_degradation:238` |
 | `missile_manager.gd` | `MissileManager extends Node2D` | [共享] 导弹生成+命中+连锁弹头+近炸引信AOE | `spawn_missile:20` `_physics_process:56` `_spawn_aoe:109` `_update_aoe_zones:126` `_draw:157` `_find_bounce_target:166` |
 | `bullet_manager.gd` | `BulletManager extends Node2D` | [共享] 子弹/火箭物理+命中+伤害衰减（162 行） | `spawn_bullet:23` `spawn_rocket:38` `_physics_process` |
-| `main.gd` | `Main extends Node2D` | [沙盒] 沙盒主控：相机/输入/锁定循环/编队/LOD/地形 | `_update_radar_locks:226` `_spawn_friendly_squad:313` `_update_lod:455` |
+| `terrain_renderer.gd` | `TerrainRenderer extends Node2D` | [共享] 地形/网格/云层绘制（子节点，自动 `_draw`） | `setup(camera)` `_draw_terrain` `_draw_grid` `_get_terrain_type` |
+| `weather_system.gd` | `WeatherSystem extends Node2D` | [共享] 全局天气：高空云层（随机风向 + 噪声密度场 + 漂移 + 半透明绘制）。加入 group `"weather"` 供战斗代码查询 | `setup(camera)` `sample_density(world_pos)` `is_in_cloud(world_pos)` `_draw` |
+| `camera_controller.gd` | `CameraController extends Node` | [共享] 缩放/平移/hover/坐标转换 | `setup(camera)` `update_zoom(delta)` `handle_zoom_input(factor)` `screen_to_world(screen_pos)` `handle_drag(relative)` `update_hover(screen_pos, units)` |
+| `main.gd` | `Main extends Node2D` | [沙盒] 沙盒主控：输入/雷达锁定/编队/LOD（地形/相机委托共享模块，~427 行） | `_update_radar_locks` `_spawn_friendly_squad` `_update_lod` |
 | `squad.gd` | `Squad extends RefCounted` | [共享] 6 种阵型偏移计算 | `get_formation_offset:51` `get_wingman_target:114` `cycle_formation:128` |
 | `ground_unit.gd` | `GroundUnit extends CombatUnit` | [共享] 地面单位基类（机炮+雷达+移动） | `_update_movement:63` `_update_combat:131` `_update_gun:164` |
 | `sam_unit.gd` | `SAMUnit extends GroundUnit` | [共享] SAM：360° 雷达 + HQ-7 导弹 | `_update_sam_missile:26` `is_in_radar_cone:54`（覆写圆形） |
 | `aa_gun_unit.gd` | `AAGunUnit extends GroundUnit` | [共享] AAA：独立炮塔 + ZU-23 | `_update_turret:69` `_update_aa_target_selection:30` |
 | `radar_station.gd` | `RadarStation extends GroundUnit` | [共享] 雷达站：20km 雷达 + 数据链共享 | `_update_datalink:35` `_update_dish:29` |
-| `survivor/survivor_mode.gd` | 生存模式主控（~1450 行） | [生存] 波次/刷怪/猎手/升级/Token 预算/远距清理 | `_update_spawner:722` `_pick_enemy_type:874` `_recalc_token_usage:851` `_can_spawn_type:863` `_get_token_budget:846` `_update_far_cleanup:586` `_update_hunters:610` `_spawn_single:934` `_spawn_squad:942` `_spawn_commander_squad:982` `_create_enemy:1038` `_detect_kills:1261` — **EnemyType enum:843** |
+| `survivor/survivor_mode.gd` | 生存模式主控（~797 行） | [生存] 场景初始化/操控/雷达/升级/HUD（地形+相机委托共享模块，刷怪委托 spawner） | `_physics_process` `_update_radar_locks` `_on_player_leveled_up` `_spawn_starting_wingmen` |
+| `survivor/survivor_spawner.gd` | `SurvivorSpawner extends Node` | [生存] 刷怪系统：Token 预算/敌人生成/击杀检测/远距清理/猎手指派/航点刷新（~1340 行） | `update` `_update_spawner` `_pick_enemy_type` `_create_enemy` `_spawn_single` `_spawn_squad` `_spawn_commander_squad` `_detect_kills` `_update_far_cleanup` `_update_hunters` `_update_enemy_waypoints` `_spawn_tu160_flock` `_spawn_ah64_flock` `_spawn_ch47_flock` `_spawn_f47_squad` — **EnemyType enum** |
 | `survivor/survivor_debug_spawn.gd` | `SurvivorDebugSpawn extends CanvasLayer` | [生存] F5 刷怪调试面板（279 行） | `_build_ui:60` `_on_type_changed:226` `_on_spawn_pressed:236` `_on_clear_pressed:264` `_on_dump_pressed:276` |
 | `survivor/survivor_player.gd` | `SurvivorPlayer extends Node` | [生存] 经验/等级/升级应用 | `add_xp:20` `apply_upgrade:30` |
 | `survivor/survivor_data.gd` | `SurvivorData extends RefCounted` | [生存] 升级表/波次常量/Token 预算/经验曲线 | `UPGRADES:12`（含 `requires`/`exclusive_to` 字段说明） `is_upgrade_available_for(upgrade, aircraft_id, params)` `TOKEN_COST` `TOKEN_INSTANCE_CAP` `TOKEN_BUDGET_*` `FAR_CLEANUP_DISTANCE` `LATE_GAME_LEVEL` `LATE_GAME_MIN_TOKEN` `ENEMY_HP_MISSILE_CAP` `xp_for_level` `enemy_scale_for_level` |
@@ -324,6 +341,21 @@ Resource
 3. 在锥内 → 按 `_lock_rate_for_tier` 速率累加照射时间（地面 ×0.5, 低空 ×0.7）
 4. 不在锥内 → 1.5 秒衰减窗口（防边缘震荡）
 5. 累计 ≥ `params.lock_time` → 锁定
+
+## ⚠ 性能守则（强制）
+
+**任何**新增 `_process` / `_physics_process` / `_draw` / `queue_redraw` / 挂在 Aircraft/Missile 下的子节点，都必须先读 [docs/reference/performance-guidelines.md](docs/reference/performance-guidelines.md)。
+
+7 条硬规则速记：
+1. 静态内容禁止每帧 `queue_redraw`（地图/边界都吃过亏）
+2. `_draw` 里不得有全场扫描（用 `AircraftRenderer.player_ref` / `CombatUnit.all_units`）
+3. 多次 `draw_polygon` / `draw_line` 要合并（用 `RenderingServer.canvas_item_add_triangle_array`）
+4. `_process` / `_physics_process` 禁用 `get_parent().get_children()`
+5. AI 决策默认从 20Hz 甚至 10Hz 起步（`ai_tick_divisor ≥ 3`）
+6. 挂到 Aircraft/Missile 子节点要先乘实体数（22 架 × 60Hz）
+7. 新功能必须跑生存模式 Sentinel + Lv5+ 压力测试，FPS 掉 >15 就回滚
+
+历史翻车清单（尾迹 40 万 draw_polygon/秒、地图每帧重算、数据标签 O(N²) 扫描等）见守则末尾"历史教训"段。同类问题出现过就不该再出现。
 
 ## 工作约定
 

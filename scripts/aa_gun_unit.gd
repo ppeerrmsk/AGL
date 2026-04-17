@@ -155,6 +155,7 @@ func _draw() -> void:
 		_draw_attack_range()
 	_draw_aa_icon()
 	_draw_lock_indicator()
+	AircraftRenderer.draw_target_bracket(self, is_mission_target)
 	_draw_data_label()
 
 ## 绘制攻击范围圆（不是雷达锥）
@@ -162,11 +163,7 @@ func _draw_attack_range() -> void:
 	if not params or not params.gun:
 		return
 	var range_px := params.gun.max_range * PIXELS_PER_METER
-	var color: Color
-	if team == 0:
-		color = Color(0.2, 0.7, 0.8, 0.08)
-	else:
-		color = Color(0.8, 0.5, 0.1, 0.08)
+	var color := GameConstants.aa_range_color(team, 0.08)
 
 	var segments := 32
 	var points := PackedVector2Array()

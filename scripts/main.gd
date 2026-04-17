@@ -1,34 +1,5 @@
 extends Node2D
 
-const ZOOM_MIN := 0.1
-const ZOOM_MAX := 5.0
-const ZOOM_STEP := 0.1
-const GRID_SIZE := 200.0  ## 网格间距（像素）
-const GRID_COLOR := Color(0.55, 0.55, 0.52, 0.25)
-
-## 地形类型枚举
-enum TerrainType { DEEP_OCEAN, OCEAN, COAST, LOWLAND, PLAINS, HILLS, HIGHLANDS, MOUNTAINS }
-
-## 地形颜色 - 纸质航图风格，低对比度，米白/淡绿基调
-const TERRAIN_COLORS := {
-	TerrainType.DEEP_OCEAN: Color(0.76, 0.80, 0.78, 1.0),    # 深水
-	TerrainType.OCEAN: Color(0.78, 0.82, 0.80, 1.0),          # 浅水
-	TerrainType.COAST: Color(0.80, 0.83, 0.78, 1.0),          # 海岸
-	TerrainType.LOWLAND: Color(0.82, 0.84, 0.77, 1.0),        # 低地
-	TerrainType.PLAINS: Color(0.84, 0.85, 0.78, 1.0),         # 平原
-	TerrainType.HILLS: Color(0.83, 0.82, 0.75, 1.0),          # 丘陵
-	TerrainType.HIGHLANDS: Color(0.80, 0.78, 0.72, 1.0),      # 高地
-	TerrainType.MOUNTAINS: Color(0.77, 0.75, 0.70, 1.0),      # 山脉
-}
-
-## 地形单元格大小（像素）
-const TERRAIN_CELL := 400.0
-
-## 噪声种子，用于生成可复现的地形
-var terrain_seed: int = 42
-var _noise: FastNoiseLite
-var _cloud_noise: FastNoiseLite
-
 @onready var camera: Camera2D = $Camera2D
 @onready var bullet_manager: BulletManager = $BulletManager
 @onready var missile_manager: MissileManager = $MissileManager
@@ -36,10 +7,11 @@ var _cloud_noise: FastNoiseLite
 var selected_aircraft: Array[Aircraft] = []
 var is_dragging: bool = false
 var drag_start: Vector2 = Vector2.ZERO
-var target_zoom: float = 1.0
 
-var _hovered_unit: CombatUnit = null
-const HOVER_RADIUS := 30.0  ## 鼠标悬停判定半径（像素）
+## ── 共享模块 ──
+var _terrain: TerrainRenderer
+var _camera_ctrl: CameraController
+var _weather: WeatherSystem
 
 ## ── 编队系统 ──
 var squads: Array[Squad] = []
@@ -49,28 +21,37 @@ var _player_params: Resource
 var _enemy_params: Resource
 const LOD_OFFSCREEN_MARGIN := 200.0  ## 屏幕外判定余量（像素）
 
+# ── 雷达锁定节流 + 战斗单位列表缓存 ──
+const RADAR_LOCK_INTERVAL := 0.2
+var _radar_lock_accum: float = 0.0
+var _all_combat_units_cache: Array[CombatUnit] = []
+var _sandbox_time: float = 0.0
+
 func _ready() -> void:
-	target_zoom = camera.zoom.x
-	_init_noise()
+	# 地形渲染器（最先添加，绘制在最底层）
+	_terrain = TerrainRenderer.new()
+	_terrain.show_behind_parent = true
+	add_child(_terrain)
+	_terrain.setup(camera)
+	move_child(_terrain, 0)
+
+	# 天气系统（高空云层，绘制在地形之上、单位之下）
+	_weather = WeatherSystem.new()
+	_weather.show_behind_parent = true
+	add_child(_weather)
+	_weather.setup(camera)
+	_weather.add_to_group("weather")
+	move_child(_weather, 1)
+
+	# 相机控制器
+	_camera_ctrl = CameraController.new()
+	add_child(_camera_ctrl)
+	_camera_ctrl.setup(camera)
+
 	_aircraft_scene = preload("res://scenes/aircraft.tscn")
 	_player_params = preload("res://resources/default_fighter.tres")
 	_enemy_params = preload("res://resources/enemy_fighter.tres")
 	_auto_select_player_aircraft()
-
-func _init_noise() -> void:
-	_noise = FastNoiseLite.new()
-	_noise.seed = terrain_seed
-	_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-	_noise.frequency = 0.0006  # 低频率 → 大片连续的生态区域
-	_noise.fractal_octaves = 2  # 少分形层 → 更平滑的过渡
-	_noise.fractal_lacunarity = 2.0
-	_noise.fractal_gain = 0.3
-
-	_cloud_noise = FastNoiseLite.new()
-	_cloud_noise.seed = terrain_seed + 100
-	_cloud_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-	_cloud_noise.frequency = 0.0008
-	_cloud_noise.fractal_octaves = 2
 
 func _auto_select_player_aircraft() -> void:
 	for child in get_children():
@@ -80,6 +61,7 @@ func _auto_select_player_aircraft() -> void:
 			if child.team == 0 and selected_aircraft.is_empty():
 				child.selected = true
 				selected_aircraft.append(child)
+				AircraftRenderer.player_ref = child
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed:
@@ -114,10 +96,10 @@ func _handle_mouse_button(event: InputEventMouseButton) -> void:
 	match event.button_index:
 		MOUSE_BUTTON_WHEEL_UP:
 			if event.pressed:
-				target_zoom = clampf(target_zoom * (1.0 + ZOOM_STEP), ZOOM_MIN, ZOOM_MAX)
+				_camera_ctrl.handle_zoom_input(1.0 + CameraController.ZOOM_STEP)
 		MOUSE_BUTTON_WHEEL_DOWN:
 			if event.pressed:
-				target_zoom = clampf(target_zoom * (1.0 - ZOOM_STEP), ZOOM_MIN, ZOOM_MAX)
+				_camera_ctrl.handle_zoom_input(1.0 - CameraController.ZOOM_STEP)
 		MOUSE_BUTTON_LEFT:
 			if event.pressed:
 				_on_left_click(event.global_position)
@@ -131,12 +113,11 @@ func _handle_mouse_button(event: InputEventMouseButton) -> void:
 
 func _handle_mouse_motion(event: InputEventMouseMotion) -> void:
 	if is_dragging:
-		var delta := event.relative / camera.zoom
-		camera.global_position -= delta
-	_update_hover(event.global_position)
+		_camera_ctrl.handle_drag(event.relative)
+	_camera_ctrl.update_hover(event.global_position, get_children())
 
 func _on_left_click(screen_pos: Vector2) -> void:
-	var world_pos := _screen_to_world(screen_pos)
+	var world_pos := _camera_ctrl.screen_to_world(screen_pos)
 
 	# 优先检测点击附近是否有敌方飞机
 	var enemy := _find_enemy_near(world_pos)
@@ -160,7 +141,7 @@ func _on_right_click() -> void:
 
 ## 查找世界坐标附近的敌方飞机
 func _find_enemy_near(world_pos: Vector2) -> CombatUnit:
-	var best_dist := HOVER_RADIUS
+	var best_dist := CameraController.HOVER_RADIUS
 	var best: CombatUnit = null
 	for child in get_children():
 		if child is CombatUnit and child.team != 0 and not child.is_destroyed:
@@ -170,21 +151,16 @@ func _find_enemy_near(world_pos: Vector2) -> CombatUnit:
 				best = child
 	return best
 
-func _screen_to_world(screen_pos: Vector2) -> Vector2:
-	var viewport := get_viewport()
-	var canvas_transform := viewport.get_canvas_transform()
-	return canvas_transform.affine_inverse() * screen_pos
-
 func _process(delta: float) -> void:
-	var current_zoom := camera.zoom.x
-	var new_zoom := lerpf(current_zoom, target_zoom, delta * 10.0)
-	camera.zoom = Vector2(new_zoom, new_zoom)
+	_sandbox_time += delta
+	_camera_ctrl.update_zoom(delta)
 	_cleanup_references()
 	_cleanup_squads()
 	_update_aircraft_list()
 	_update_radar_locks(delta)
 	_update_lod()
-	queue_redraw()
+	# TerrainRenderer 需要跟随相机重绘
+	_terrain.queue_redraw()
 
 func _cleanup_references() -> void:
 	var valid: Array[Aircraft] = []
@@ -204,31 +180,30 @@ func _update_aircraft_list() -> void:
 			all_units.append(child)
 	bullet_manager.combat_unit_list = all_units
 	missile_manager.target_list = all_units
+	_all_combat_units_cache = all_units
+	CombatUnit.all_units = all_units
 
-func _update_hover(screen_pos: Vector2) -> void:
-	var world_pos := _screen_to_world(screen_pos)
-	# 清除旧悬停
-	if _hovered_unit and is_instance_valid(_hovered_unit):
-		_hovered_unit.is_hovered = false
-	_hovered_unit = null
-
-	var best_dist := HOVER_RADIUS
-	for child in get_children():
-		if child is CombatUnit:
-			var d := world_pos.distance_to(child.global_position)
-			if d < best_dist:
-				best_dist = d
-				_hovered_unit = child
-
-	if _hovered_unit:
-		_hovered_unit.is_hovered = true
+func _cached_is_in_cloud(unit: CombatUnit) -> bool:
+	if not _weather:
+		return false
+	var now := _sandbox_time
+	var pos := unit.global_position
+	if now - unit._cloud_cache_time < 0.3 and pos.distance_squared_to(unit._cloud_cache_pos) < 40000.0:
+		return unit._cloud_cache_result
+	unit._cloud_cache_time = now
+	unit._cloud_cache_pos = pos
+	unit._cloud_cache_result = _weather.is_in_cloud(pos)
+	return unit._cloud_cache_result
 
 func _update_radar_locks(delta: float) -> void:
-	# 收集所有战斗单位（飞机 + 地面单位）
-	var all_units: Array[CombatUnit] = []
-	for child in get_children():
-		if child is CombatUnit:
-			all_units.append(child)
+	# 节流：每 RADAR_LOCK_INTERVAL 秒跑一次 O(N²) 循环
+	_radar_lock_accum += delta
+	if _radar_lock_accum < RADAR_LOCK_INTERVAL:
+		return
+	var step_delta := _radar_lock_accum
+	_radar_lock_accum = 0.0
+
+	var all_units := _all_combat_units_cache
 
 	# 重置锁定状态
 	for unit in all_units:
@@ -255,14 +230,18 @@ func _update_radar_locks(delta: float) -> void:
 			if unit.is_in_radar_cone(other.global_position):
 				# 在锥内：累加照射时间（低空目标更难锁定）
 				var lock_rate := _lock_rate_for_tier(other.get_altitude_tier())
+				# 云中高空目标：锁定速率减半（用缓存的采样结果）
+				if _weather and other.get_altitude_tier() == CombatUnit.AltitudeTier.HIGH \
+						and _cached_is_in_cloud(other):
+					lock_rate *= 0.5
 				var prev: float = unit.radar_targets.get(other, 0.0)
-				unit.radar_targets[other] = prev + delta * lock_rate
+				unit.radar_targets[other] = prev + step_delta * lock_rate
 			else:
 				# 不在锥内：逐渐衰减（1.5秒记忆窗口），而非瞬间清零
 				# 防止目标在雷达锥边缘反复进出导致锁定震荡
 				var prev: float = unit.radar_targets.get(other, 0.0)
 				if prev > 0.0:
-					unit.radar_targets[other] = prev - delta / 1.5  # 衰减速率 = 累积速率的 2/3
+					unit.radar_targets[other] = prev - step_delta / 1.5
 					if unit.radar_targets[other] <= 0.0:
 						unit.radar_targets.erase(other)
 				else:
@@ -337,7 +316,7 @@ func _spawn_friendly_squad(count: int) -> void:
 		ac.missile_manager = missile_manager
 		add_child(ac)
 
-		# AI 控制器：编队���随
+		# AI 控制器：编队跟随
 		var ai := AIController.new()
 		ai.name = "AI_Wing%d" % i
 		ai.aircraft = ac
@@ -484,100 +463,3 @@ func _update_lod() -> void:
 		else:
 			ac.lod_level = 1
 			ac.visible = true
-
-# ══════════════════════════════════════════════
-#  绘制
-# ══════════════════════════════════════════════
-
-func _draw() -> void:
-	_draw_terrain()
-	_draw_grid()
-
-## 根据噪声值映射地形类型
-func _get_terrain_type(noise_val: float) -> TerrainType:
-	if noise_val < -0.30:
-		return TerrainType.DEEP_OCEAN
-	elif noise_val < -0.12:
-		return TerrainType.OCEAN
-	elif noise_val < -0.02:
-		return TerrainType.COAST
-	elif noise_val < 0.10:
-		return TerrainType.LOWLAND
-	elif noise_val < 0.22:
-		return TerrainType.PLAINS
-	elif noise_val < 0.34:
-		return TerrainType.HILLS
-	elif noise_val < 0.46:
-		return TerrainType.HIGHLANDS
-	else:
-		return TerrainType.MOUNTAINS
-
-func _draw_terrain() -> void:
-	var viewport_size := get_viewport_rect().size / camera.zoom
-	var cam_pos := camera.global_position
-	var half := viewport_size / 2.0
-
-	var left := cam_pos.x - half.x
-	var right := cam_pos.x + half.x
-	var top := cam_pos.y - half.y
-	var bottom := cam_pos.y + half.y
-
-	# 按地形单元格绘制
-	var start_x := snappedf(left, TERRAIN_CELL) - TERRAIN_CELL
-	var start_y := snappedf(top, TERRAIN_CELL) - TERRAIN_CELL
-
-	var cx := start_x
-	while cx <= right + TERRAIN_CELL:
-		var cy := start_y
-		while cy <= bottom + TERRAIN_CELL:
-			# 取单元格中心点的噪声值
-			var center_x := cx + TERRAIN_CELL * 0.5
-			var center_y := cy + TERRAIN_CELL * 0.5
-			var noise_val := _noise.get_noise_2d(center_x, center_y)
-
-			var terrain := _get_terrain_type(noise_val)
-			var base_color: Color = TERRAIN_COLORS[terrain]
-
-			# 用噪声微调颜色，增加自然感
-			var variation := _noise.get_noise_2d(center_x * 2.3, center_y * 2.3) * 0.04
-			var cell_color := Color(
-				clampf(base_color.r + variation, 0.0, 1.0),
-				clampf(base_color.g + variation, 0.0, 1.0),
-				clampf(base_color.b + variation, 0.0, 1.0),
-				base_color.a
-			)
-
-			draw_rect(Rect2(cx, cy, TERRAIN_CELL, TERRAIN_CELL), cell_color)
-
-			# 薄雾叠加 - 极淡
-			var cloud_val := _cloud_noise.get_noise_2d(center_x, center_y)
-			if cloud_val > 0.25:
-				var cloud_alpha := remap(cloud_val, 0.25, 0.7, 0.0, 0.08)
-				cloud_alpha = clampf(cloud_alpha, 0.0, 0.08)
-				draw_rect(Rect2(cx, cy, TERRAIN_CELL, TERRAIN_CELL), Color(1.0, 1.0, 0.98, cloud_alpha))
-
-			cy += TERRAIN_CELL
-		cx += TERRAIN_CELL
-
-func _draw_grid() -> void:
-	var viewport_size := get_viewport_rect().size / camera.zoom
-	var cam_pos := camera.global_position
-	var half := viewport_size / 2.0
-
-	var left := cam_pos.x - half.x
-	var right := cam_pos.x + half.x
-	var top := cam_pos.y - half.y
-	var bottom := cam_pos.y + half.y
-
-	var start_x := snappedf(left, GRID_SIZE) - GRID_SIZE
-	var start_y := snappedf(top, GRID_SIZE) - GRID_SIZE
-
-	var x := start_x
-	while x <= right + GRID_SIZE:
-		draw_line(Vector2(x, top - GRID_SIZE), Vector2(x, bottom + GRID_SIZE), GRID_COLOR, 1.0)
-		x += GRID_SIZE
-
-	var y := start_y
-	while y <= bottom + GRID_SIZE:
-		draw_line(Vector2(left - GRID_SIZE, y), Vector2(right + GRID_SIZE, y), GRID_COLOR, 1.0)
-		y += GRID_SIZE

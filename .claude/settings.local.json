@@ -63,7 +63,12 @@
       "Bash(git -C \"C:/Users/noelu/Documents/AGL\" log -10 --oneline)",
       "Bash(git -C \"C:/Users/noelu/Documents/AGL\" diff scripts/ai_controller.gd)",
       "Bash(git -C \"C:/Users/noelu/Documents/AGL\" diff scripts/aircraft.gd scripts/aircraft_params.gd scripts/missile_manager.gd resources/enemy_uav.tres resources/enemy_uav_missile.tres resources/enemy_uav_commander.tres scripts/survivor/commander_aura.gd)",
-      "Bash(git -C \"C:/Users/noelu/Documents/AGL\" diff .claude/settings.local.json)"
+      "Bash(git -C \"C:/Users/noelu/Documents/AGL\" diff .claude/settings.local.json)",
+      "Bash(git status:*)",
+      "Bash(bash /tmp/count_lines.sh)",
+      "Bash(bash /tmp/ai_controller_analysis.sh)",
+      "Bash(ls C:/Users/noelu/Documents/AGL/scripts/*.gd)",
+      "Bash(\"C:/Program Files/Godot/Godot_v4.6-dev.exe\" --headless --check-only --path .)"
     ]
   },
   "hooks": {

@@ -1,8 +1,8 @@
 class_name Missile
 extends Node2D
 
-const PIXELS_PER_METER: float = 0.5
-const GRAVITY: float = 9.81
+const PIXELS_PER_METER: float = GameConstants.PIXELS_PER_METER
+const GRAVITY: float = GameConstants.GRAVITY
 
 var params: MissileParams
 var source: CombatUnit        ## 发射单位（SARH 需要持续照射）
@@ -25,12 +25,17 @@ var bank_angle: float = 0.0      ## 模拟 bank（由航向变化率推算）
 var _trail_ribbon: TrailRibbon
 var _font: Font
 
+## ── 云层穿越累计衰减 ──
+var _cloud_guidance_loss: float = 0.0   ## 0~(1-FLOOR) 累加不回复
+const CLOUD_LOSS_PER_SECOND: float = 0.12
+const CLOUD_LOSS_FLOOR: float = 0.3     ## 至少保留 30% 追踪
+
 func _ready() -> void:
 	_trail_ribbon = TrailRibbon.new()
 	_trail_ribbon.ribbon_width = 3.0
-	_trail_ribbon.max_points = 80
+	_trail_ribbon.max_points = 220
 	_trail_ribbon.sample_interval = 0.03
-	var trail_color := Color(0.3, 0.5, 1.0, 0.4) if team == 0 else Color(1.0, 0.25, 0.25, 0.4)
+	var trail_color := Color(GameConstants.team_trail_color(team), 0.4)
 	_trail_ribbon.ribbon_color = trail_color
 	add_child(_trail_ribbon)
 	_prev_heading = heading
@@ -40,6 +45,14 @@ func _physics_process(delta: float) -> void:
 		return
 
 	age += delta
+
+	# 0) 云层穿越：导弹自身在云中飞行 → 追踪能力永久衰减（不回复）
+	# 云层只存在于高空（HIGH tier，>=7500m）
+	if _cloud_guidance_loss < 1.0 - CLOUD_LOSS_FLOOR and altitude >= 7500.0:
+		var weather := get_tree().get_first_node_in_group("weather")
+		if weather and weather.has_method("is_in_cloud"):
+			if weather.is_in_cloud(global_position):
+				_cloud_guidance_loss = minf(_cloud_guidance_loss + CLOUD_LOSS_PER_SECOND * delta, 1.0 - CLOUD_LOSS_FLOOR)
 
 	# 1) 存活时间检查
 	if age > params.max_lifetime:
@@ -158,7 +171,7 @@ func _draw() -> void:
 	_draw_data_label()
 
 func _draw_body() -> void:
-	var color := Color(1.0, 0.5, 0.1) if team == 0 else Color(1.0, 0.2, 0.2)
+	var color := GameConstants.missile_body_color(team)
 	var size := 5.0
 	var body := PackedVector2Array([
 		Vector2(0, -size),       # 弹头
@@ -207,7 +220,7 @@ func _draw_data_label() -> void:
 		alt_str = "ALT %dm" % roundi(altitude)
 
 	var speed_kmh := speed * 3.6
-	var mach := speed_kmh / 1225.0
+	var mach := speed_kmh / GameConstants.SPEED_OF_SOUND_KMH
 	var time_left := params.max_lifetime - age if params else 0.0
 
 	var lines: PackedStringArray = PackedStringArray()
@@ -247,14 +260,9 @@ func _draw_data_label() -> void:
 	var box_w := max_w + 8.0
 	var box_h := lines.size() * line_height + 4.0
 
-	var bg_color: Color
-	var text_color: Color
-	if team == 0:
-		bg_color = Color(0.1, 0.2, 0.3, 0.75)
-		text_color = Color(0.7, 0.85, 1.0)
-	else:
-		bg_color = Color(0.3, 0.08, 0.08, 0.75)
-		text_color = Color(1.0, 0.8, 0.8)
+	var _lc := GameConstants.missile_label_colors(team)
+	var bg_color: Color = _lc[0]
+	var text_color: Color = _lc[1]
 
 	draw_set_transform(label_offset, inv_rot, Vector2.ONE)
 	draw_rect(Rect2(0, 0, box_w, box_h), bg_color)
@@ -265,19 +273,19 @@ func _draw_data_label() -> void:
 
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
-## 低空目标导引头性能衰减（地面杂波干扰）
-## 仅在扁平高度模式（生存模式）下生效
+## 低空目标导引头性能衰减（地面杂波干扰 + 云层穿越累计损耗）
+## 低空衰减仅在扁平高度模式（生存模式）下生效
 func _guidance_degradation() -> float:
-	if not is_instance_valid(target) or not target.flat_altitude:
-		return 1.0
-	var tier := target.get_altitude_tier()
-	match tier:
-		CombatUnit.AltitudeTier.GROUND:
-			return 0.5  # 地面目标：严重杂波
-		CombatUnit.AltitudeTier.LOW:
-			return 0.7  # 低空目标：中等杂波
-		_:
-			return 1.0
+	var base := 1.0
+	if is_instance_valid(target) and target.flat_altitude:
+		var tier := target.get_altitude_tier()
+		match tier:
+			CombatUnit.AltitudeTier.GROUND:
+				base = 0.5  # 地面目标：严重杂波
+			CombatUnit.AltitudeTier.LOW:
+				base = 0.7  # 低空目标：中等杂波
+	# 云层穿越衰减：每次穿过都累加，不回复
+	return base * (1.0 - _cloud_guidance_loss)
 
 ## 角度差（-PI 到 PI）
 static func _angle_diff(a: float, b: float) -> float:

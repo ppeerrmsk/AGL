@@ -32,8 +32,8 @@ func _unhandled_input(event: InputEvent) -> void:
 func _build_ui() -> void:
 	_panel = PanelContainer.new()
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.02, 0.04, 0.02, 0.95)
-	style.border_color = Color(0.3, 0.8, 0.3, 0.6)
+	style.bg_color = ThemeColors.PANEL_BG_SOLID
+	style.border_color = ThemeColors.PANEL_BORDER_DEBUG
 	style.set_border_width_all(1)
 	style.set_corner_radius_all(4)
 	style.set_content_margin_all(16)
@@ -50,7 +50,7 @@ func _build_ui() -> void:
 	var title := Label.new()
 	title.text = "[ DEBUG — 技能管理 ]"
 	title.add_theme_font_size_override("font_size", 18)
-	title.add_theme_color_override("font_color", Color(0.4, 1.0, 0.4))
+	title.add_theme_color_override("font_color", ThemeColors.TEXT_TITLE_GREEN)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_content.add_child(title)
 
@@ -62,7 +62,7 @@ func _build_ui() -> void:
 	_level_label = Label.new()
 	_level_label.text = "等级:"
 	_level_label.add_theme_font_size_override("font_size", 14)
-	_level_label.add_theme_color_override("font_color", Color(0.8, 0.9, 0.8))
+	_level_label.add_theme_color_override("font_color", ThemeColors.TEXT_PRIMARY_ALT)
 	level_row.add_child(_level_label)
 
 	_level_input = SpinBox.new()
@@ -90,14 +90,14 @@ func _build_ui() -> void:
 
 	# 分隔
 	var sep := HSeparator.new()
-	sep.add_theme_color_override("separator", Color(0.3, 0.5, 0.3, 0.3))
+	sep.add_theme_color_override("separator", ThemeColors.CARD_SEPARATOR_UNLOCKED)
 	_content.add_child(sep)
 
 	# 已有技能标题
 	var skills_title := Label.new()
 	skills_title.text = "已激活技能"
 	skills_title.add_theme_font_size_override("font_size", 13)
-	skills_title.add_theme_color_override("font_color", Color(0.6, 0.8, 0.6, 0.7))
+	skills_title.add_theme_color_override("font_color", ThemeColors.TEXT_MUTED)
 	_content.add_child(skills_title)
 
 	# 技能列表（可滚动）
@@ -113,7 +113,7 @@ func _build_ui() -> void:
 
 	# 分隔
 	var sep2 := HSeparator.new()
-	sep2.add_theme_color_override("separator", Color(0.3, 0.5, 0.3, 0.3))
+	sep2.add_theme_color_override("separator", ThemeColors.CARD_SEPARATOR_UNLOCKED)
 	_content.add_child(sep2)
 
 	# 添加技能行
@@ -124,7 +124,7 @@ func _build_ui() -> void:
 	var add_label := Label.new()
 	add_label.text = "添加:"
 	add_label.add_theme_font_size_override("font_size", 13)
-	add_label.add_theme_color_override("font_color", Color(0.8, 0.9, 0.8))
+	add_label.add_theme_color_override("font_color", ThemeColors.TEXT_PRIMARY_ALT)
 	add_row.add_child(add_label)
 
 	_add_option = OptionButton.new()
@@ -209,7 +209,7 @@ func _refresh() -> void:
 		var name_label := Label.new()
 		name_label.text = "%s  x%d / %d" % [tr(u["name"]), count, int(u["max_stacks"])]
 		name_label.add_theme_font_size_override("font_size", 13)
-		name_label.add_theme_color_override("font_color", Color(0.85, 0.9, 0.85))
+		name_label.add_theme_color_override("font_color", ThemeColors.TEXT_PRIMARY)
 		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(name_label)
 

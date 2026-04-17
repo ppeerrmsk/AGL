@@ -135,11 +135,7 @@ func _draw_radar_icon() -> void:
 
 ## 绘制数据链范围（虚线圆）
 func _draw_datalink_range() -> void:
-	var color: Color
-	if team == 0:
-		color = Color(0.3, 0.6, 1.0, 0.15)
-	else:
-		color = Color(1.0, 0.3, 0.3, 0.15)
+	var color := GameConstants.team_datalink_color(team)
 	var radius := datalink_range
 	# 简化：绘制点状圆
 	var segments := 32

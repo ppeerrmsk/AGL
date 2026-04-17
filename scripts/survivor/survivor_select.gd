@@ -5,9 +5,9 @@ extends Node2D
 
 # 视觉参数（与 main_menu 一致）
 const GRID_SPACING := 80.0
-const GRID_COLOR := Color(0.15, 0.2, 0.15, 0.3)
-const LINE_COLOR := Color(0.3, 0.7, 0.3, 0.5)
-const BG_COLOR := Color(0.02, 0.03, 0.02)
+const GRID_COLOR := ThemeColors.GRID_COLOR
+const LINE_COLOR := ThemeColors.GRID_LINE
+const BG_COLOR := ThemeColors.SCENE_BG
 
 var _time := 0.0
 var _canvas: CanvasLayer
@@ -108,7 +108,7 @@ func _build_ui() -> void:
 	var title := Label.new()
 	title.text = tr("AIRCRAFT_SELECT_TITLE")
 	title.add_theme_font_size_override("font_size", 28)
-	title.add_theme_color_override("font_color", Color(0.4, 1.0, 0.4))
+	title.add_theme_color_override("font_color", ThemeColors.TEXT_TITLE_GREEN)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	root.add_child(title)
 
@@ -116,7 +116,7 @@ func _build_ui() -> void:
 	var subtitle := Label.new()
 	subtitle.text = tr("AIRCRAFT_SELECT_SUBTITLE")
 	subtitle.add_theme_font_size_override("font_size", 13)
-	subtitle.add_theme_color_override("font_color", Color(0.3, 0.6, 0.3, 0.6))
+	subtitle.add_theme_color_override("font_color", ThemeColors.TEXT_SUBTITLE)
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	root.add_child(subtitle)
 
@@ -165,11 +165,11 @@ func _build_aircraft_card(index: int) -> void:
 	var panel := PanelContainer.new()
 	var style := StyleBoxFlat.new()
 	if locked:
-		style.bg_color = Color(0.03, 0.04, 0.03, 0.6)
-		style.border_color = Color(0.2, 0.3, 0.2, 0.3)
+		style.bg_color = ThemeColors.CARD_LOCKED_BG
+		style.border_color = ThemeColors.CARD_LOCKED_BORDER
 	else:
-		style.bg_color = Color(0.04, 0.07, 0.04, 0.8)
-		style.border_color = Color(0.3, 0.6, 0.3, 0.4)
+		style.bg_color = ThemeColors.CARD_UNLOCKED_BG
+		style.border_color = ThemeColors.CARD_UNLOCKED_BORDER
 	style.set_border_width_all(1)
 	style.set_corner_radius_all(4)
 	style.set_content_margin_all(18)
@@ -185,7 +185,7 @@ func _build_aircraft_card(index: int) -> void:
 	idx_label.text = tr("SLOT_PILOT_INDEX_FMT") % (index + 1)
 	idx_label.add_theme_font_size_override("font_size", 11)
 	idx_label.add_theme_color_override("font_color",
-		Color(0.4, 0.6, 0.4, 0.5) if not locked else Color(0.3, 0.35, 0.3, 0.5))
+		ThemeColors.TEXT_UNLOCKED_INDEX if not locked else ThemeColors.TEXT_LOCKED_INDEX)
 	idx_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	inner.add_child(idx_label)
 
@@ -193,10 +193,10 @@ func _build_aircraft_card(index: int) -> void:
 	var name_label := Label.new()
 	if locked:
 		name_label.text = tr(data.get("slot_name", "SLOT_TBA_NAME"))
-		name_label.add_theme_color_override("font_color", Color(0.4, 0.45, 0.4, 0.6))
+		name_label.add_theme_color_override("font_color", ThemeColors.TEXT_LOCKED)
 	else:
 		name_label.text = tr(profile.display_name) if profile else tr("SLOT_NAME_UNKNOWN")
-		name_label.add_theme_color_override("font_color", Color(0.85, 0.95, 0.85))
+		name_label.add_theme_color_override("font_color", ThemeColors.TEXT_PRIMARY)
 	name_label.add_theme_font_size_override("font_size", 20)
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -208,13 +208,13 @@ func _build_aircraft_card(index: int) -> void:
 		var sub := Label.new()
 		sub.text = "「%s」" % profile.codename
 		sub.add_theme_font_size_override("font_size", 12)
-		sub.add_theme_color_override("font_color", Color(0.5, 0.75, 0.5, 0.7))
+		sub.add_theme_color_override("font_color", ThemeColors.TEXT_CODENAME)
 		sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		inner.add_child(sub)
 
 	# 分隔线
 	var sep_line := ColorRect.new()
-	sep_line.color = Color(0.3, 0.6, 0.3, 0.3) if not locked else Color(0.2, 0.3, 0.2, 0.3)
+	sep_line.color = ThemeColors.CARD_SEPARATOR_UNLOCKED if not locked else ThemeColors.CARD_SEPARATOR_LOCKED
 	sep_line.custom_minimum_size = Vector2(0, 1)
 	inner.add_child(sep_line)
 
@@ -235,9 +235,9 @@ func _build_aircraft_card(index: int) -> void:
 		tag.text = tr("SLOT_TAG_WRAP_FMT") % tr(tag_text)
 		tag.add_theme_font_size_override("font_size", 10)
 		if locked:
-			tag.add_theme_color_override("font_color", Color(0.35, 0.4, 0.35, 0.6))
+			tag.add_theme_color_override("font_color", ThemeColors.TEXT_LOCKED)
 		else:
-			tag.add_theme_color_override("font_color", Color(0.5, 0.9, 0.5, 0.7))
+			tag.add_theme_color_override("font_color", ThemeColors.TEXT_TAG_UNLOCKED)
 		tags_box.add_child(tag)
 
 	# 起始僚机标记（仅小队主控显示）
@@ -253,10 +253,10 @@ func _build_aircraft_card(index: int) -> void:
 	var desc_label := Label.new()
 	if locked:
 		desc_label.text = tr(data.get("slot_desc", "SLOT_AIRCRAFT_DESC"))
-		desc_label.add_theme_color_override("font_color", Color(0.4, 0.45, 0.4, 0.6))
+		desc_label.add_theme_color_override("font_color", ThemeColors.TEXT_LOCKED)
 	else:
 		desc_label.text = tr(profile.card_desc) if profile else ""
-		desc_label.add_theme_color_override("font_color", Color(0.6, 0.7, 0.6, 0.8))
+		desc_label.add_theme_color_override("font_color", ThemeColors.TEXT_DESC_UNLOCKED)
 	desc_label.add_theme_font_size_override("font_size", 12)
 	desc_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	desc_label.custom_minimum_size = Vector2(220, 0)
@@ -278,7 +278,7 @@ func _build_aircraft_card(index: int) -> void:
 			bp.missile.max_count if bp.missile else 0,
 		]
 		stats.add_theme_font_size_override("font_size", 10)
-		stats.add_theme_color_override("font_color", Color(0.5, 0.65, 0.5, 0.6))
+		stats.add_theme_color_override("font_color", ThemeColors.TEXT_STATS)
 		stats.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		inner.add_child(stats)
 
@@ -291,34 +291,34 @@ func _build_aircraft_card(index: int) -> void:
 		btn.text = tr("SLOT_LOCKED_BUTTON")
 		btn.disabled = true
 		var dis_style := StyleBoxFlat.new()
-		dis_style.bg_color = Color(0.05, 0.06, 0.05, 0.5)
-		dis_style.border_color = Color(0.2, 0.25, 0.2, 0.4)
+		dis_style.bg_color = ThemeColors.SELECT_BTN_DISABLED_BG
+		dis_style.border_color = ThemeColors.SELECT_BTN_DISABLED_BORDER
 		dis_style.set_border_width_all(1)
 		dis_style.set_corner_radius_all(3)
 		dis_style.set_content_margin_all(6)
 		btn.add_theme_stylebox_override("disabled", dis_style)
-		btn.add_theme_color_override("font_disabled_color", Color(0.3, 0.4, 0.3, 0.5))
+		btn.add_theme_color_override("font_disabled_color", ThemeColors.SELECT_BTN_DISABLED_TEXT)
 	else:
 		btn.text = tr("AIRCRAFT_SELECT_LAUNCH_BUTTON")
 		var btn_style := StyleBoxFlat.new()
-		btn_style.bg_color = Color(0.08, 0.15, 0.08, 0.9)
-		btn_style.border_color = Color(0.4, 0.8, 0.4, 0.5)
+		btn_style.bg_color = ThemeColors.SELECT_BTN_NORMAL_BG
+		btn_style.border_color = ThemeColors.SELECT_BTN_NORMAL_BORDER
 		btn_style.set_border_width_all(1)
 		btn_style.set_corner_radius_all(3)
 		btn_style.set_content_margin_all(6)
 		btn.add_theme_stylebox_override("normal", btn_style)
 
 		var btn_hover := StyleBoxFlat.new()
-		btn_hover.bg_color = Color(0.12, 0.25, 0.12, 0.95)
-		btn_hover.border_color = Color(0.5, 1.0, 0.5, 0.8)
+		btn_hover.bg_color = ThemeColors.SELECT_BTN_HOVER_BG
+		btn_hover.border_color = ThemeColors.SELECT_BTN_HOVER_BORDER
 		btn_hover.set_border_width_all(2)
 		btn_hover.set_corner_radius_all(3)
 		btn_hover.set_content_margin_all(6)
 		btn.add_theme_stylebox_override("hover", btn_hover)
 
 		var btn_pressed := StyleBoxFlat.new()
-		btn_pressed.bg_color = Color(0.18, 0.35, 0.18, 1.0)
-		btn_pressed.border_color = Color(0.6, 1.0, 0.6, 1.0)
+		btn_pressed.bg_color = ThemeColors.SELECT_BTN_PRESSED_BG
+		btn_pressed.border_color = ThemeColors.SELECT_BTN_PRESSED_BORDER
 		btn_pressed.set_border_width_all(2)
 		btn_pressed.set_corner_radius_all(3)
 		btn_pressed.set_content_margin_all(6)

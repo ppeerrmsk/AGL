@@ -45,6 +45,15 @@ var tactic: int = Tactic.INTRO
 var tactic_timer: float = 0.0
 var _serial: int = 0
 
+## ── 锚定模式（P4）──
+## anchor_position != INF 时：BOSS 小队以此为中心盘旋，不追击玩家出圈
+## 玩家进 ANCHOR_ENGAGEMENT_RADIUS → 切入正常交战
+## 玩家出该半径 → 小队回到 anchor 附近绕飞
+var anchor_position: Vector2 = Vector2.INF
+const ANCHOR_ENGAGEMENT_RADIUS := 4500.0
+const ANCHOR_ORBIT_RADIUS := 1600.0
+var _hold_time: float = 0.0
+
 ## 隐形状态
 var cloak_timer: float = 0.0
 var cloak_active: bool = false
@@ -97,7 +106,20 @@ func spawn(scene_root: Node, aircraft_scene: PackedScene, create_enemy_func: Cal
 	var entry_angle := player_hdg + side * PI / 2.0
 	var entry_dir := Vector2(sin(entry_angle), -cos(entry_angle))
 	var lateral_axis := Vector2(sin(entry_angle + PI / 2.0), -cos(entry_angle + PI / 2.0))
-	var spawn_origin := pp + entry_dir * SurvivorData.SPAWN_DISTANCE
+	var spawn_origin: Vector2
+	if anchor_position != Vector2.INF:
+		# 锚定模式：直接在 anchor 附近切入（玩家飞到 BOSS 圈才看到）
+		spawn_origin = anchor_position + entry_dir * 800.0
+	else:
+		spawn_origin = pp + entry_dir * SurvivorData.SPAWN_DISTANCE
+		# 防越界
+		if not MapBoundary.is_safe_inside(spawn_origin, 1500.0):
+			var inward := (Vector2.ZERO - pp)
+			if inward.length_squared() > 1.0:
+				entry_dir = inward.normalized()
+				entry_angle = atan2(entry_dir.x, -entry_dir.y)
+				lateral_axis = Vector2(sin(entry_angle + PI / 2.0), -cos(entry_angle + PI / 2.0))
+				spawn_origin = pp + entry_dir * SurvivorData.SPAWN_DISTANCE
 	var heading_deg := rad_to_deg(entry_angle + PI)
 
 	# 菱形编队偏移
@@ -184,7 +206,30 @@ func update(delta: float) -> void:
 			_evader_counter_timer = EVADER_COUNTER_INTERVAL
 			EventLogger.log_event("BOSS", boss_name, "evader counter-attack window open (%.1fs)" % EVADER_COUNTER_DURATION)
 
+	# 锚定模式下：玩家远离 anchor → 让小队在 anchor 附近盘旋，不追出去
+	if anchor_position != Vector2.INF:
+		var d_player: float = _player.global_position.distance_to(anchor_position)
+		if d_player > ANCHOR_ENGAGEMENT_RADIUS:
+			_hold_time += delta
+			_hold_at_anchor()
+			return
+
 	_assign_roles()
+
+## 锚定模式下的盘旋：每个成员按自身 index 分角，每帧慢慢绕 anchor 飞
+func _hold_at_anchor() -> void:
+	var n: int = members.size()
+	if n <= 0:
+		return
+	var base_angle := _hold_time * 0.25  # 慢速旋转
+	for i in range(n):
+		var m: Aircraft = members[i]
+		if not is_instance_valid(m) or m.is_destroyed:
+			continue
+		var a := base_angle + float(i) * TAU / float(n)
+		var pt := anchor_position + Vector2(cos(a), sin(a)) * ANCHOR_ORBIT_RADIUS
+		m.target_position = pt
+		m.clear_combat_target()
 
 # ══════════════════════════════════════════════
 #  角色分配系统

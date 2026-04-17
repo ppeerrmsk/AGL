@@ -50,6 +50,11 @@ const TACTIC_DISPLAY_NAME: Dictionary = {
 enum SquadEngageMode { FREE = 0, FOLLOW_LEADER = 1 }
 @export var squad_engage_mode: int = SquadEngageMode.FREE
 @export var simple_ai: bool = false           ## 简化 AI：只用前置追踪，跳过 BFM 决策树/SA/压力系统
+
+## AI 决策节流：_physics_process 每 ai_tick_divisor 帧才跑一次，降低 CPU 消耗
+## simple_ai 在 _ready 里自动设为 3（UAV/Adds 人海时大幅省运算），全功能 AI 保持 1
+var ai_tick_divisor: int = 1
+var _tick_phase: int = 0   ## 0..ai_tick_divisor-1，随机错开各 AI 的决策帧
 @export var bvr_only: bool = false            ## BVR 狙击模式：只用导弹，不进近距战，被接近则撤退
 var boss_attacker: bool = false               ## BOSS 攻击手：禁止 EXTENSION/脱离/自保，死追玩家
 
@@ -345,6 +350,11 @@ func _ready() -> void:
 			aircraft.target_altitude = patrol_altitude
 		_set_next_waypoint()
 	_scan_timer = randf_range(1.0, 3.0)
+	# simple_ai 性价比极高 → 每 3 物理帧才决策一次，随机相位错开 CPU 峰谷
+	# 60Hz 下降到 20Hz，对 UAV/Adds 这种"直线飞/简单追击"足够
+	if simple_ai:
+		ai_tick_divisor = 3
+		_tick_phase = randi() % ai_tick_divisor
 
 ## 获取日志用名称
 func _log_name() -> String:
@@ -368,6 +378,13 @@ func _log_target_name(target: CombatUnit) -> String:
 func _physics_process(delta: float) -> void:
 	if not aircraft or aircraft.is_destroyed:
 		return
+
+	# 节流：simple_ai 等低优先级 AI 每 N 帧才决策一次，带相位错开
+	# 跳过的帧里 Aircraft 物理照常跑，只是 AI 不重新算目标/阵型/规避
+	if ai_tick_divisor > 1:
+		if (Engine.get_physics_frames() + _tick_phase) % ai_tick_divisor != 0:
+			return
+		delta *= float(ai_tick_divisor)  # 放大 delta，让 timers/scan_timer 节奏保持一致
 
 	if simple_ai:
 		# simple AI 只承袭固定 aggression，不受压力/SA 影响
@@ -822,15 +839,20 @@ func _try_engage_in_tether_range() -> void:
 func _try_engage_simple() -> void:
 	var best: CombatUnit = null
 	var best_dist := 99999.0
-	for child in aircraft.get_parent().get_children():
-		if child is CombatUnit and child.team != aircraft.team and not child.is_destroyed:
-			# 对地专用机型：跳过所有空中目标（飞机/UAV）
-			if ground_combat_only and not (child is GroundUnit):
-				continue
-			var d := aircraft.global_position.distance_to(child.global_position)
-			if d < best_dist:
-				best_dist = d
-				best = child
+	# 用共享列表代替 get_parent().get_children()（后者在 ~200 节点场景里是主瓶颈）
+	for unit in CombatUnit.all_units:
+		# 列表是上一帧末尾建的，其间可能有单位被 queue_free，先保护性过滤
+		if not is_instance_valid(unit):
+			continue
+		if unit.team == aircraft.team or unit.is_destroyed:
+			continue
+		# 对地专用机型：跳过所有空中目标（飞机/UAV）
+		if ground_combat_only and not (unit is GroundUnit):
+			continue
+		var d := aircraft.global_position.distance_to(unit.global_position)
+		if d < best_dist:
+			best_dist = d
+			best = unit
 	var detect_range := (aircraft.params.radar_range * 1.2) if aircraft.params else 2500.0
 	# 低空目标更难被发现
 	if best:
@@ -839,6 +861,9 @@ func _try_engage_simple() -> void:
 			detect_range *= 0.75
 		elif tgt_tier == CombatUnit.AltitudeTier.GROUND:
 			detect_range *= 0.6
+		# 云中目标同样更难被发现
+		if best.cloud_state == 2:
+			detect_range *= 0.7
 
 	# ── 护驾过滤（orbit_squad_leader 专用）──
 	# 只攻击进入长机护驾范围内的目标，远处的敌人不管
@@ -2009,6 +2034,10 @@ func _try_engage() -> void:
 		elif tgt_tier == CombatUnit.AltitudeTier.GROUND:
 			score *= 0.5
 
+		# 云中目标（HIGH + 在云内）同样降低攻击欲望：视觉遮蔽 + 追踪困难
+		if target_ac.cloud_state == 2:
+			score *= 0.6
+
 		# 偏好高度加成
 		if preferred_altitude_tier != -99 and tgt_tier == preferred_altitude_tier:
 			score *= 1.3
@@ -2183,7 +2212,14 @@ func _find_nearest_incoming_missile() -> Missile:
 			continue
 		if m.is_flare_jammed:
 			continue  # 已被热诱弹干扰，不再构成威胁
-		var dist := m.global_position.distance_to(aircraft.global_position)
+		# 过滤"已经飞过头、正在远离"的导弹——否则僚机做完第一次横滚规避后，
+		# 还未失效的过头导弹会让 missile_aware 一直为 true，AI 反复 _enter_evade
+		# 持续横滚脱队，直到导弹燃料/寿命耗尽（几十秒）才恢复，表现为"发呆平飞+飞离很远"。
+		var to_ac := aircraft.global_position - m.global_position
+		var m_fwd := Vector2(sin(m.heading), -cos(m.heading))
+		if to_ac.length() > 1.0 and m_fwd.dot(to_ac.normalized()) < -0.2:
+			continue
+		var dist := to_ac.length()
 		if dist < nearest_dist:
 			nearest_dist = dist
 			nearest = m
