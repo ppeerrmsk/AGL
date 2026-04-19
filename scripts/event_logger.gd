@@ -3,7 +3,7 @@ extends Node
 ## 全局事件日志系统
 ## 环形缓冲区记录最近 60 秒的游戏事件，按 F9 导出到文件
 
-const BUFFER_DURATION := 60.0  ## 保留最近多少秒的事件
+const BUFFER_DURATION := 300.0  ## 保留最近多少秒的事件（5 分钟，配合 F47 BOSS 诊断）
 
 var _events: Array[Dictionary] = []
 var _game_time: float = 0.0

@@ -85,6 +85,26 @@ var _msl_block_log_timer: float = 0.0
 var _msl_last_block_reason: String = ""
 const MSL_BLOCK_LOG_INTERVAL: float = 2.0  ## 最多每 2 秒记录一次阻塞原因
 
+# 诊断：玩家机炮追击决策追踪（仅 use_tactical_preference=true 时写入）
+# 设计意图见 docs/changelogs/player-ai-log.md — 用于复现"绕圈方向错"类 bug
+# 不触发任何行为变化，纯观测。节流 0.5s 一次快照，分支切换立即打点。
+var _pursuit_branch: String = ""              ## 上一帧选中的追击分支名
+var _pursuit_log_timer: float = 0.0           ## 快照节流
+var _pursuit_last_turn_sign: float = 0.0      ## 上次观察到的 _committed_turn_sign
+const PURSUIT_LOG_INTERVAL: float = 0.5
+
+# 诊断：高 G 机动物理采样（AC_TICK 事件）
+# 用于调查"激烈机动时飞机颤抖"bug —— 详见 docs/changelogs/player-ai-log.md 2026-04-20 (6)
+# 触发条件（OR）：Herbst/Cobra 机动激活中 / |bank| > 60° / _overshoot_timer > 0
+# 10Hz 节流，正常巡航零日志污染，激烈机动时以 0.1s 粒度采样位姿，能看出 60Hz 亚帧颤抖的能量
+var _ac_tick_log_timer: float = 0.0
+const AC_TICK_LOG_INTERVAL: float = 0.1
+const AC_TICK_BANK_THRESHOLD := 60.0  # deg
+
+# Bank 翻转抗振守卫阈值（详见 _update_bank 注释）
+const BANK_FLIP_ESTABLISHED_RAD: float = 0.524  ## ≈30°，当前 bank 超过此值才启用翻转守卫
+const BANK_FLIP_COMMIT_RAD: float = 0.087       ## ≈5°，翻转到反向需要的最小 heading_diff
+
 # --- 导弹装填（生存模式）---
 var enable_missile_reload: bool = false     ## 生存模式启用自动装填
 var _missile_reload_active: bool = false
@@ -384,29 +404,38 @@ func _physics_process(delta: float) -> void:
 	if lod_level >= 2:
 		if _lod_frame % 3 != 0:
 			_apply_movement(delta)
+			# rotation = heading 每帧同步，防止 LOD 2 下镜头切回来看到过时朝向
+			# （heading 在 full-update 帧已更新，这里只是跟上最新值；成本 1 次赋值）
+			# 详见 docs/changelogs/player-ai-log.md 2026-04-20 (10)
+			rotation = heading
 			# 玩家飞机即使屏幕外也要画锁定线
 			if selected and combat_target != null:
 				queue_redraw()
 			return
-		# 每3帧做一次完整更新（但跳过视觉和扫描）
+		# 每3帧做一次完整更新：用 lod_delta = delta*3 补偿跳过的 2 帧
+		# 之前用 delta 直接调会让 heading/bank/speed 以 1/3 真实速率更新，导致
+		# BOSS 离屏时转弯慢 3 倍追不上玩家，越飞越远（bug 2026-04-20 (10) Bug 2）。
+		# _apply_movement 和计时器类继续用 delta（每帧都要跑 → 累计不变）
+		var lod_delta: float = delta * 3.0
 		_update_weapon_mode()
-		_update_combat(delta)
+		_update_combat(lod_delta)
 		_update_energy_management()
 		_update_target_heading()
-		_update_bank(delta)
-		_update_heading(delta)
-		_update_speed(delta)
-		_update_altitude(delta)
-		_update_fuel(delta)
+		_update_bank(lod_delta)
+		_update_heading(lod_delta)
+		_update_speed(lod_delta)
+		_update_altitude(lod_delta)
+		_update_fuel(lod_delta)
 		_update_stall()
 		_check_ground_crash()
 		_update_g_load()
-		_apply_movement(delta)
+		_apply_movement(delta)  # 本帧 1/60s 的位移（前 2 帧已各 apply 一次，合计 3×1/60）
 		if combat_target != null:
-			_update_gun(delta)
-			_update_rocket(delta)
-			_update_missile(delta)
-		_update_flares(delta)
+			_update_gun(lod_delta)
+			_update_rocket(lod_delta)
+			_update_missile(lod_delta)
+		_update_flares(lod_delta)
+		_update_visuals()  # rotation = heading；上一轮 LOD 2 fix 漏掉这行导致图标/label 冻结在过时朝向
 		# 玩家飞机即使屏幕外也要画锁定线
 		if selected and combat_target != null:
 			queue_redraw()
@@ -660,9 +689,58 @@ func _physics_process(delta: float) -> void:
 	_update_missile(delta)
 	_update_flares(delta)
 	_update_visuals()
+	_log_ac_tick(delta)
 	# LOD 0 非玩家非悬停：每 2 帧重绘一次，减半 _draw 开销
 	if selected or is_hovered or _lod_frame % 2 == 0:
 		queue_redraw()
+
+## 高 G 机动物理采样（AC_TICK 诊断事件）
+## 仅在 Herbst/Cobra 激活、或 bank > 60°、或 overshoot extension 中触发，10Hz 采样。
+## 用来捕捉"颤抖"bug 的亚 0.5s 频率振荡 —— 看相邻采样的 bnk/spd/hdg/tp_brg 是否在翻跳。
+## 输出字段：
+##   bnk=<bank°> spd=<m/s> hdg=<deg 归一化±180> tp_brg=<target_position 相对机头方位°>
+##   g=<g_load> ab=<y/n> ph=<herbst phase / cobra / - >
+func _log_ac_tick(delta: float) -> void:
+	var herbst: HerbstManeuver = get_herbst()
+	var cobra: CobraManeuver = get_maneuver()
+	var maneuver_active: bool = (herbst and herbst.is_active) or (cobra and cobra.is_active)
+	var high_bank: bool = absf(rad_to_deg(bank_angle)) > AC_TICK_BANK_THRESHOLD
+	var in_overshoot: bool = _overshoot_timer > 0.0
+	if not (maneuver_active or high_bank or in_overshoot):
+		_ac_tick_log_timer = 0.0  # 条件失效就重置节流，下次进入立即采样
+		return
+	_ac_tick_log_timer -= delta
+	if _ac_tick_log_timer > 0.0:
+		return
+	_ac_tick_log_timer = AC_TICK_LOG_INTERVAL
+
+	var hdg_norm_deg: float = rad_to_deg(wrapf(heading, -PI, PI))
+	var bnk_deg: int = int(rad_to_deg(bank_angle))
+	var tp_brg_deg: int = 0
+	var tp_dist_m: int = -1  # -1 表示无 target_position
+	if target_position != Vector2.INF:
+		var to_tp: Vector2 = target_position - global_position
+		var tp_heading: float = atan2(to_tp.x, -to_tp.y)
+		tp_brg_deg = int(rad_to_deg(_angle_diff(tp_heading, heading)))
+		tp_dist_m = int(to_tp.length() / PIXELS_PER_METER)
+	var phase_tag := "-"
+	if herbst and herbst.is_active:
+		match herbst.phase:
+			1: phase_tag = "HB_DECEL"
+			2: phase_tag = "HB_TURN"
+			3: phase_tag = "HB_ACCEL"
+			_: phase_tag = "HB_?"
+	elif cobra and cobra.is_active:
+		phase_tag = "COBRA"
+	elif in_overshoot:
+		phase_tag = "OVERSHOOT"
+	else:
+		phase_tag = "HI_BANK"
+	var msg := "bnk=%+d° spd=%.0fm/s hdg=%+d° tp_brg=%+d° tp_d=%dm g=%.1f ab=%s ph=%s" % [
+		bnk_deg, speed, int(hdg_norm_deg), tp_brg_deg, tp_dist_m,
+		g_load, ("y" if is_afterburner else "n"), phase_tag,
+	]
+	EventLogger.log_event("AC_TICK", _log_name(), msg)
 
 # ========== 物理演算 ==========
 
@@ -687,6 +765,20 @@ var _cached_target_heading: float = 0.0
 var _proximity_damping: float = 1.0
 
 func _update_bank(delta: float) -> void:
+	# Herbst 急转阶段：模块直接修改 heading（herbst_maneuver.gd:106），
+	# _update_heading 已跳过此阶段；但 _update_bank 照常跑会看到 heading 被硬转
+	# 3~4°/frame，heading_diff 剧变 → target_bank 在 ±max 之间翻转（bug 2026-04-20 (7)）。
+	# 冻结 bank 也不对（会让进 TURN 时 ±85° 高 bank 持续到 ACCEL 结束，视觉 bank_compress
+	# 严重压扁 X 轴，飞机图标看起来被斜着画（bug 2026-04-20 (9)））。
+	# 正确做法：TURN 阶段强制 bank 向 0 衰减 —— 真实 post-stall yaw J-Turn 就是放平
+	# 机翼纯绕 yaw 轴旋转，视觉转向由 Herbst.visual_offset 处理。
+	# 详见 docs/changelogs/player-ai-log.md 2026-04-20 (9)
+	var _hm_bank := get_herbst()
+	if _hm_bank and _hm_bank.phase == HerbstManeuver.Phase.TURN:
+		var roll_rate_herbst: float = params.roll_rate if params else 4.0
+		bank_angle = move_toward(bank_angle, 0.0, roll_rate_herbst * delta)
+		return
+
 	if target_position == Vector2.INF and abs(bank_angle) < 0.01:
 		bank_angle = 0.0
 		return
@@ -703,8 +795,18 @@ func _update_bank(delta: float) -> void:
 	if abs(heading_diff) > 2.5:
 		if _committed_turn_sign == 0.0:
 			_committed_turn_sign = signf(heading_diff)
+			# 诊断：玩家 turn_sign 被锁定的瞬间立即打点 —— 追"绕错方向"bug 用
+			if use_tactical_preference and combat_target != null:
+				EventLogger.log_event("PURSUIT_LOCK", _log_name(),
+					"turn_sign=%+d (hdg_diff=%+d°, tgt=%s) branch=%s" % [
+						int(_committed_turn_sign), int(rad_to_deg(heading_diff)),
+						_log_unit_name(combat_target), _pursuit_branch])
 		heading_diff = absf(heading_diff) * _committed_turn_sign
 	elif abs(heading_diff) < 1.5:
+		if _committed_turn_sign != 0.0 and use_tactical_preference and combat_target != null:
+			EventLogger.log_event("PURSUIT_UNLOCK", _log_name(),
+				"turn_sign cleared (hdg_diff=%+d°, tgt=%s)" % [
+					int(rad_to_deg(heading_diff)), _log_unit_name(combat_target)])
 		_committed_turn_sign = 0.0
 
 	# ── 预测式过冲补偿（critical damping）──
@@ -825,6 +927,22 @@ func _update_bank(delta: float) -> void:
 		else:
 			target_bank = sign(heading_diff) * max_bank
 		target_bank *= _proximity_damping
+
+	# ── Bank 翻转抗振守卫 ──
+	# 场景：target_position 横向移动时 heading_diff 反复过零，候选 target_bank 就在
+	# `+max_bank` 和 `-max_bank` 之间瞬间切换。bank 滚转率 ~4 rad/s，从 +86° 滚到
+	# -86° 需 0.75s；期间 heading_diff 又因目标持续移动摆回对侧，形成 bang-bang 振荡
+	# —— 视觉上就是飞机剧烈颤抖、机头左右疯甩、原地打转、flare 堆在一处。
+	# 守卫：当前 bank 已建立（>30°）且候选 target_bank 要反向时，如果 heading_diff 还
+	# 不够大（<5°），强制先 roll 回中立（target_bank=0），过了中立再考虑翻。
+	# 这相当于给"bank 反向"加一层迟滞，让控制器在目标明确移到另一侧前先放平机翼。
+	# 不改原 target_bank 计算公式 —— 只在病态翻转场景 override。
+	# 详见 docs/changelogs/player-ai-log.md 2026-04-20 (7)
+	if absf(bank_angle) > BANK_FLIP_ESTABLISHED_RAD \
+			and signf(target_bank) != 0.0 \
+			and signf(target_bank) != signf(bank_angle) \
+			and absf(heading_diff) < BANK_FLIP_COMMIT_RAD:
+		target_bank = 0.0
 
 	# 失速时：强制回正（机翼失去升力，无法维持侧倾）
 	if is_stalled:
@@ -1400,14 +1518,22 @@ func set_combat_target(target: CombatUnit) -> void:
 	_strafe_state = 0  # 重置舔地状态机
 	_overshoot_timer = 0.0
 	_gun_pass_committed = false  # 切目标时解除机炮提交锁定
+	if use_tactical_preference and target != null:
+		EventLogger.log_event("PURSUIT_ACQUIRE", _log_name(),
+			"tgt=%s wpn=%s" % [_log_unit_name(target),
+				"GUN" if weapon_mode == WeaponMode.GUN else "MSL"])
 
 func clear_combat_target() -> void:
+	if use_tactical_preference and combat_target != null:
+		EventLogger.log_event("PURSUIT_CLEAR", _log_name(),
+			"(was %s)" % _log_unit_name(combat_target))
 	combat_target = null
 	_committed_turn_sign = 0.0
 	is_firing = false
 	_strafe_state = 0
 	_overshoot_timer = 0.0
 	_gun_pass_committed = false  # 清目标时解除机炮提交锁定
+	_pursuit_branch = ""
 
 ## 追踪逻辑：三阶段 —— 拦截 / 咬尾 / 纯追击+机会射击
 func _update_combat(_delta: float) -> void:
@@ -1462,14 +1588,22 @@ func _update_combat(_delta: float) -> void:
 	var is_slow_tgt_for_overshoot := false
 	if params:
 		is_slow_tgt_for_overshoot = tgt_speed_px * OVERSHOOT_SLOW_TARGET_MULT < (params.cruise_speed / 3.6 * PIXELS_PER_METER)
+	# 已对准的追尾（后半球 + 机头±30° 内）不触发 extension：此时正是最优射击位，
+	# 强制飞过去只会把屁股让给敌机反咬。穿过目标后 in_rear_hemisphere 自然变 false，
+	# 下一帧再走正常的 heading_diff>90° 掉头逻辑
+	# 附加判定而非修改 extension 本身 —— 详见 docs/changelogs/player-ai-log.md
+	var aligned_tail_chase := in_rear_hemisphere and my_fwd.dot(to_target) > 0.87
 	_overshoot_timer = maxf(_overshoot_timer - _delta, 0.0)
-	if not is_slow_tgt_for_overshoot:
+	if not is_slow_tgt_for_overshoot and not aligned_tail_chase:
 		if dist < OVERSHOOT_DIST_PX:
 			_overshoot_timer = OVERSHOOT_EXTEND_TIME
 		if _overshoot_timer > 0.0:
 			target_position = my_pos + my_fwd * OVERSHOOT_EXTEND_DIST_PX
 			is_firing = false
 			_gun_lead_heading = heading
+			if use_tactical_preference:
+				_pursuit_branch = "OVERSHOOT_EXT"
+				_log_pursuit_snapshot(dist, 0.0, false, 0.0)
 			return
 
 	var is_missile_mode := weapon_mode == WeaponMode.MISSILE
@@ -1497,6 +1631,9 @@ func _update_combat(_delta: float) -> void:
 		var heading_diff_to_tgt := absf(_angle_diff(heading_to_tgt, heading))
 		if heading_diff_to_tgt > deg_to_rad(90.0):
 			target_position = tgt_pos
+			if use_tactical_preference:
+				_pursuit_branch = "BIG_TURN_>90"
+				_log_pursuit_snapshot(dist, my_fwd.dot(to_target), in_rear_hemisphere, heading_diff_to_tgt)
 			return
 
 		if is_missile_mode:
@@ -1579,6 +1716,10 @@ func _update_combat(_delta: float) -> void:
 	else:
 		is_firing = false
 		_gun_lead_heading = heading
+
+	# 诊断快照（仅玩家，节流 0.5s 一次）—— 详见 docs/changelogs/player-ai-log.md
+	if use_tactical_preference:
+		_log_pursuit_snapshot(dist, my_fwd.dot(to_target), in_rear_hemisphere, aspect_angle)
 
 ## ========== 地面攻击（Strafing Run） ==========
 ## 飞机对地面静止/慢速目标的攻击模式：
@@ -1683,6 +1824,127 @@ func _update_combat_ground_attack() -> void:
 ##   1. 观察敌机朝向 tgt_fwd + 速度 → 知道目标在往哪飞
 ##   2. 计算瞄准对齐度 aim_align → 知道自己现在对得准不准
 ##   3. 综合相对位置（后半/前半）+ 对齐度 → 选最优策略
+## 玩家追击状态快照（节流 0.5s 一次）
+## 输出：branch / dist_m / aim_align / rear / aspect_deg / target_bearing_rel / heading_diff / turn_sign / firing / wpn / ammo
+## 含义：
+##   - branch: 选中的追击分支（A_rear_aligned / B_rear_six_offset / C_lead_intercept / C_head_on_guard / OVERSHOOT_EXT / BIG_TURN_>90）
+##   - tgt_bearing_rel: target_position 相对玩家机头的方位角（度），+右 / -左 → 用来对照"该往哪边转"
+##   - heading_diff: 当前机头与 target_position 方向的差（度，带符号）
+##   - turn_sign: _committed_turn_sign 状态（0 未锁 / +1 右 / -1 左）→ 判断是否卡在错误方向
+func _log_pursuit_snapshot(dist_px: float, aim_align: float, in_rear: bool, aspect_angle_rad: float) -> void:
+	_pursuit_log_timer -= get_physics_process_delta_time()
+	if _pursuit_log_timer > 0.0:
+		return
+	_pursuit_log_timer = PURSUIT_LOG_INTERVAL
+
+	var tgt_bearing_rel_deg := 0.0
+	var heading_diff_deg := 0.0
+	if target_position != Vector2.INF:
+		var to_tp := target_position - global_position
+		var tp_heading := atan2(to_tp.x, -to_tp.y)
+		tgt_bearing_rel_deg = rad_to_deg(_angle_diff(tp_heading, heading))
+		heading_diff_deg = tgt_bearing_rel_deg  # 和 target_position 方向的差
+	var tgt_name := _log_unit_name(combat_target)
+	var wpn := "GUN" if weapon_mode == WeaponMode.GUN else "MSL"
+	var msg := "branch=%s tgt=%s dist=%dm aim=%.2f rear=%s asp=%d° tp_brg=%+d° hdg_diff=%+d° turn_sign=%+d firing=%s wpn=%s ammo=%d" % [
+		_pursuit_branch, tgt_name,
+		int(dist_px / PIXELS_PER_METER),
+		aim_align, str(in_rear), int(rad_to_deg(aspect_angle_rad)),
+		int(tgt_bearing_rel_deg), int(heading_diff_deg),
+		int(_committed_turn_sign), str(is_firing), wpn, ammo,
+	]
+	EventLogger.log_event("PURSUIT", _log_name(), msg)
+
+	# 同周期附带：扫描正在交战玩家的敌方飞机，打印中队结构 + 战术 + 各自目标
+	# 用来诊断"同中队飞机爱理不睬"—— 同一 squad 的僚机若 target 各不相同或多数 target 为空，
+	# 就是编队协同失效的证据。
+	_log_enemy_squads_engaging_player()
+
+## 扫描敌方中队，找出"至少有一个成员在交战玩家"的中队，列出整个中队所有成员
+## 关键：哪怕某架僚机自己没把玩家当目标（正在跑路/归队/乱飞），只要它的中队有人在打玩家，
+## 这架僚机就要进 log —— 用来诊断"1 架打玩家其他 3 架跑向地图边缘"这类协同失效 bug
+## 每条记录：<callsign>[type] sq=<leader#idx> st=<state> tac=<tactic> tgt=<他的目标> d=<距玩家> dL=<距长机> spd=<km/h> hdg=<°>
+func _log_enemy_squads_engaging_player() -> void:
+	# Pass 1: 找到至少有一个成员在交战玩家的中队 + 无中队的单机交战者
+	var engaged_squads: Array[Squad] = []
+	var solo_engagers: Array[Aircraft] = []
+	for unit in CombatUnit.all_units:
+		if not is_instance_valid(unit) or unit.is_destroyed:
+			continue
+		if unit.team == team:
+			continue
+		if not (unit is Aircraft):
+			continue
+		var ac: Aircraft = unit
+		var ai := ac._get_ai_controller()
+		var engaging: bool = (ai != null and ai._current_target == self) or ac.combat_target == self
+		if not engaging:
+			continue
+		if ai and ai.squad:
+			if not engaged_squads.has(ai.squad):
+				engaged_squads.append(ai.squad)
+		else:
+			solo_engagers.append(ac)
+
+	if engaged_squads.is_empty() and solo_engagers.is_empty():
+		return
+
+	# Pass 2: 对每个参战中队列出所有存活成员（含不交战玩家的那几架）+ 单机交战者
+	var entries: Array[String] = []
+	for sq in engaged_squads:
+		if not sq or not sq.leader or not is_instance_valid(sq.leader):
+			continue
+		var ldr_name: String = sq.leader.callsign
+		for ac in sq.members:
+			if not is_instance_valid(ac) or ac.is_destroyed:
+				continue
+			entries.append(_format_enemy_entry(ac, ldr_name, sq.leader))
+	for ac in solo_engagers:
+		entries.append(_format_enemy_entry(ac, "", null))
+	if entries.is_empty():
+		return
+	EventLogger.log_event("ENEMY_SQUAD", _log_name(), " | ".join(entries))
+
+## 格式化单架敌机诊断条目（被 _log_enemy_squads_engaging_player 复用）
+func _format_enemy_entry(ac: Aircraft, ldr_name: String, leader: Aircraft) -> String:
+	var ai := ac._get_ai_controller()
+	var state_abbr := "-"
+	var tactic := "-"
+	var his_tgt := "-"
+	var flags := ""
+	var idx: int = -1
+	if ai:
+		match ai._state:
+			0: state_abbr = "P"
+			1: state_abbr = "E"
+			2: state_abbr = "V"
+			3: state_abbr = "F"
+			_: state_abbr = "?"
+		tactic = ai.current_tactic_name if ai.current_tactic_name != "" else "-"
+		idx = ai.squad_index
+		if ai._squad_attacking_leader_target:
+			flags += "[tm]"
+		if ai._squad_free_engaging:
+			flags += "[fr]"
+		if ai.salvo_leader:
+			flags += "[sl]"
+		if ai._current_target and is_instance_valid(ai._current_target) and not ai._current_target.is_destroyed:
+			his_tgt = _log_unit_name(ai._current_target)
+	if his_tgt == "-" and ac.combat_target and is_instance_valid(ac.combat_target):
+		his_tgt = _log_unit_name(ac.combat_target)
+	var sq_tag: String = ("%s#%d" % [ldr_name, idx]) if ldr_name != "" else "solo"
+	var d_me: int = int(global_position.distance_to(ac.global_position) / PIXELS_PER_METER)
+	var d_ldr_str := ""
+	if leader and leader != ac and is_instance_valid(leader):
+		var d_ldr: int = int(ac.global_position.distance_to(leader.global_position) / PIXELS_PER_METER)
+		d_ldr_str = " dL=%dm" % d_ldr
+	var spd_kmh: int = int(ac.speed * 3.6)
+	var hdg_deg: int = int(rad_to_deg(ac.heading))
+	var type_name: String = ac.params.display_name if ac.params else "?"
+	return "%s[%s] sq=%s st=%s tac=%s%s tgt=%s d=%dm%s spd=%d hdg=%d°" % [
+		ac.callsign, type_name, sq_tag, state_abbr, tactic, flags, his_tgt, d_me, d_ldr_str, spd_kmh, hdg_deg,
+	]
+
 func _choose_dogfight_pursuit_pos(
 		my_pos: Vector2,
 		dist: float,
@@ -1706,6 +1968,8 @@ func _choose_dogfight_pursuit_pos(
 		# 玩家机头已经指着目标方向，最优策略就是直线冲进去连续射击
 		# 配合 OVERSHOOT 禁用（慢目标专用），穿过目标时依然开火
 		# 穿过后 in_rear 会变 false，自然切到 C 分支
+		if use_tactical_preference:
+			_pursuit_branch = "A_rear_aligned"
 		return tgt_pos
 
 	# ══════════════════════════════════════
@@ -1717,13 +1981,47 @@ func _choose_dogfight_pursuit_pos(
 		var t_six := clampf(dist / (gun_range * SIX_OCLOCK_NORM), 0.0, 1.0)
 		var offset_ratio := lerpf(1.0, SIX_OCLOCK_FAR_RATIO, t_six)  ## 近距 1.0× 到远距 0.3×
 		var six_offset := clampf(gun_range * offset_ratio, SIX_OCLOCK_OFFSET_MIN_PX, gun_range * SIX_OCLOCK_MAX_MULT)
-		return tgt_pos - tgt_fwd * six_offset
+
+		# 守卫：玩家已经在目标六点钟"内侧"（dist < six_offset）时，原公式的
+		# pursuit_pos = tgt_pos - tgt_fwd × six_offset 会落在玩家身后 → 飞机 180° U 形
+		# 倒退到"理想的六点钟切入点"，再重新冲进来，形成大回环死循环。
+		# 见 docs/changelogs/player-ai-log.md 2026-04-20 (3) 的 log 分析。
+		# 原 B 分支公式保留不动；仅在"候选追击点在我身后"这个病态几何下 early-return 到目标本身，
+		# 让物理照 aim_align 继续朝目标延伸，等 in_rear 自然翻转到 false 后走 C 分支
+		var six_pos := tgt_pos - tgt_fwd * six_offset
+		var to_six_dir := (six_pos - my_pos).normalized()
+		if to_six_dir.dot(my_fwd) < 0.0:
+			if use_tactical_preference:
+				_pursuit_branch = "B_guard_six_behind_me"
+			return tgt_pos
+
+		if use_tactical_preference:
+			_pursuit_branch = "B_rear_six_offset"
+		return six_pos
 
 	# ══════════════════════════════════════
 	# 情况 C：前半球 / 侧翼 → 前置拦截，瞄目标预测位置
 	# ══════════════════════════════════════
 	var closing_rate := maxf(my_speed_px - tgt_speed_px, MIN_CLOSING_RATE_PX)
 	var predict_time := clampf(dist / closing_rate, PREDICT_TIME_MIN, PREDICT_TIME_MAX)
+
+	# ── 对头场景守卫（附加判定，不修改原闭合率公式）──
+	# 原 closing_rate = my_speed - tgt_speed 在对头时 ≈ 0 被钳到 MIN，
+	# 导致 predict_time 拉满 3s，前置点落到目标身后（对头时目标航向指向玩家身后），
+	# target_position 跑到玩家屁股后面，飞机掉头避战。
+	# 对头判定：目标航向与连线反向 (dot < -0.7)，即我从目标正前方接近 → 单独算真实闭合率
+	# 并改用较短的 predict_time，让前置点贴在目标当前位置前方的合理小范围内。
+	# 详见 docs/changelogs/player-ai-log.md (2026-04-20 对头开火)
+	var head_on_dot := -tgt_fwd.dot(to_target)  # 1.0 = 完美对头, -1.0 = 同向追尾
+	if head_on_dot > 0.7 and aim_align > 0.7:
+		var true_closure := aim_align * my_speed_px + head_on_dot * tgt_speed_px
+		var head_on_predict := clampf(dist / maxf(true_closure, MIN_CLOSING_RATE_PX), PREDICT_TIME_MIN, PREDICT_TIME_MAX)
+		if use_tactical_preference:
+			_pursuit_branch = "C_head_on_guard"
+		return tgt_pos + tgt_fwd * tgt_speed_px * head_on_predict
+
+	if use_tactical_preference:
+		_pursuit_branch = "C_lead_intercept"
 	return tgt_pos + tgt_fwd * tgt_speed_px * predict_time
 
 ## 战斗参数（带懒加载默认值）

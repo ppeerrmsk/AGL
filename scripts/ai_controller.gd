@@ -409,6 +409,32 @@ func _physics_process(delta: float) -> void:
 	# 低技能或高压力 → 接近 0（保守 70% 持续 G 限制 + turn_speed）
 	aircraft.tactical_aggression = clampf(_effective_skill() * aggression, 0.0, 1.0)
 
+	# ── 僚机编队状态自校正守卫 ──
+	# 问题：所有 spawner（survivor_spawner / ace_squad / 未来新增）只设 `squad` 和
+	# `squad_index`，不碰 `_state`；AIController `_state` 默认 PATROL（ai_controller.gd:296），
+	# 没有任何路径把刚 spawn 的僚机从 PATROL 切到 SQUAD_FOLLOW。
+	# 后果：
+	#   - 僚机在 PATROL 跑 _try_engage（雷达锥扫描，文件自己的注释 ai_controller.gd:996-999
+	#     承认漏 flyby）
+	#   - 从不进入 _process_squad_follow → 距离扫描 _scan_squad_nearby_enemy 和
+	#     跟随长机 combat_target 协同（ai_controller.gd:1001-1060）永远不运行
+	#   - 实际表现：中队各干各的，玩家跟 1 架战斗时其他几架爱理不睬
+	# 守卫：每帧检查"合法僚机身份但还在 PATROL"，自动切 SQUAD_FOLLOW。条件与 disengage
+	# 路径（ai_controller.gd:2173-2174）完全对齐，保证已有的 bvr_only/孤雁长机行为不变。
+	# 自终止：切到 SQUAD_FOLLOW 后条件失败不会再触发；所有 PATROL 的合法设入点
+	#（917/934/1998/2186）要么清 squad、要么自任长机，天然绕过本守卫。
+	# 动态自愈：未来中队成员变动（长机阵亡晋升、招募、重组）也能自动纠正。
+	# 详见 docs/changelogs/player-ai-log.md 2026-04-20 (5)
+	if _state == AIState.PATROL and not bvr_only \
+			and squad and is_instance_valid(squad.leader) and not squad.leader.is_destroyed \
+			and squad.leader != aircraft:
+		_state = AIState.SQUAD_FOLLOW
+		_rejoining = true
+		_formation_blend = 0.0
+		aircraft.lod_level = 1
+		EventLogger.log_event("AI_STATE", _log_name(),
+			"auto-enter SQUAD_FOLLOW (spawn init guard, leader=%s)" % squad.leader.callsign)
+
 	match _state:
 		AIState.PATROL:
 			_process_patrol(delta)

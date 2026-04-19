@@ -736,15 +736,31 @@ func _update_offscreen_lod() -> void:
 				break
 
 		if offscreen:
-			# 离屏：每 3 帧跑一次 + 不画
-			ac.set_physics_process(Engine.get_physics_frames() % 3 == 0)
+			# 离屏：走 Aircraft 自己的 LOD 2 机制（内部处理节流）+ 不画
+			# 旧代码 `set_physics_process(frames % 3 == 0)` 是错的：
+			# Aircraft._physics_process 每 3 帧才被调用一次，但 delta 还是 1/60s，
+			# 结果是"飞机按 1/3 实时速度运行"—— 用户看到的"不拖镜头飞机就冻住"。
+			# 正确做法是保持 _physics_process 每帧运行，让 Aircraft LOD 2 内部每帧都
+			# _apply_movement（位置推进），每 3 帧做一次完整 AI/物理更新。
+			# AIController 通过 ai_tick_divisor（已配合 delta 乘法）承担 AI 节流，simple_ai
+			# 在 _ready 里已设为 3，全功能 AI（boss/战斗机）离屏时保持每帧跑，数量有限不造成性能问题。
+			# 详见 docs/changelogs/player-ai-log.md 2026-04-20 (8)
+			ac.lod_level = 2
+			ac.set_physics_process(true)
 			if ai_node:
-				ai_node.set_physics_process(Engine.get_physics_frames() % 3 == 0)
+				ai_node.set_physics_process(true)
 			ac.visible = false
 			continue
 
 		# 屏幕内
+		# ⚠ 必须把 lod_level 重置回 0，否则敌机从离屏回屏幕内时 lod_level 卡在 2，导致：
+		# 1) _draw/queue_redraw 节流 → label 数据停留在离屏瞬间的 HDG/spd/RNG/FLR 不更新
+		# 2) label 跟飞机一起转（inv_rot 用的是过时 rotation 计算的角度补偿）
+		# 3) LOD 2 内部 delta*3 物理在屏幕内还继续跑 → 转向过激
+		# 敌机（含 simple_ai）屏幕内都应该走完整 LOD 0 路径，用户能看到细节渲染
+		# 详见 docs/changelogs/player-ai-log.md 2026-04-20 (11)
 		ac.visible = true
+		ac.lod_level = 0
 		# BOSS 之类关键目标强制全速，不参与预算排队
 		var is_critical: bool = ac.has_meta("category") and ac.get_meta("category") == "boss"
 		if is_critical or not (ai_node and ai_node.simple_ai):
