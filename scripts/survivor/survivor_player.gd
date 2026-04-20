@@ -124,9 +124,11 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 		"lock_time":
 			p.lock_time = maxf(p.lock_time + float(upgrade["value"]), float(upgrade.get("min_lock_time", 0.5)))
 		"speed":
+			# 只抬最大速度天花板 + 加速度；不动 cruise_speed。
+			# aircraft.gd 用 max(corner_speed, cruise*0.85) 作为转弯最低速度地板，
+			# 若 cruise 同步放大，堆层后会把飞机压在高速上转不动弯。
 			var mult := 1.0 + float(upgrade["value"])
 			p.max_speed *= mult
-			p.cruise_speed *= mult
 			p.acceleration *= (1.0 + float(upgrade["value"]) * float(upgrade.get("accel_ratio", 0.5)))
 		"maneuver":
 			p.roll_rate *= (1.0 + float(upgrade["value"]))

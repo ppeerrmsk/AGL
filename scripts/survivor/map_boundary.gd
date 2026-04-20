@@ -17,14 +17,14 @@ extends Node2D
 
 # ── 常量 ──
 const WORLD_SIZE_M := 30000.0                    ## 地图边长（米）
-const WORLD_HALF_PX := WORLD_SIZE_M * 0.5 * GameConstants.PIXELS_PER_METER  ## 半边长 = 12500 px
+const WORLD_HALF_PX := WORLD_SIZE_M * 0.5 * GameConstants.PIXELS_PER_METER  ## 半边长 = 7500 px（30000m × 0.5 × 0.5 px/m）
 const WARN_DISTANCE_M := 2000.0                  ## 警戒距离（米）
 const WARN_DISTANCE_PX := WARN_DISTANCE_M * GameConstants.PIXELS_PER_METER  ## 1000 px
 ## 相机外缘扩张：相机最多能拉到游戏边界外这么远，再往外拉不动。
 ## 这样玩家能看到"边界之外还有一小块空域"，不会被生硬裁掉。
 const CAMERA_MARGIN_M := 5000.0
 const CAMERA_MARGIN_PX := CAMERA_MARGIN_M * GameConstants.PIXELS_PER_METER  ## 2500 px
-const PLAYER_START_OFFSET_PX := Vector2(0.0, 4500.0)  ## 玩家起始点相对原点（南侧，y 正向）
+const PLAYER_START_OFFSET_PX := Vector2(0.0, 6400.0)  ## 玩家起始点相对原点（南侧靠边缘，y 正向；距南边界 1100px ≈ 2.2km，刚好在 1000px 警戒带外）
 
 # ── 视觉 ──
 const BORDER_COLOR := Color(0.85, 0.2, 0.2, 0.65)

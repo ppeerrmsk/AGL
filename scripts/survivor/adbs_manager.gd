@@ -23,11 +23,13 @@ const EVENT_DEFER_WHEN_IN_ZONE := true      ## 玩家在战区圆内时不刷支
 ## ── 教程轰炸机 ──
 ## 距离略大于玩家默认雷达锁定范围（F-16 ≈ 1667 px），玩家要往前飞才进入锁定
 ## 但又不会远到看不到 / 飞不过去
-const TUTORIAL_LEAD_DIST_PX := 3000.0       ## 第 0 架距玩家前方距离（≈6km）
+const TUTORIAL_LEAD_DIST_PX := 3000.0       ## 第 0 架距玩家前方距离（≈6km；保留给日志用）
 const TUTORIAL_SPAWN_MARGIN_PX := 1500.0    ## 防越界夹紧余量
 const TUTORIAL_LATERAL_PX := 320.0          ## 左右交替偏置
 const TUTORIAL_COLUMN_BACK_PX := 550.0      ## 每后一档的距离
 const TUTORIAL_COUNT := 3                   ## 轰炸机数量
+## 教程轰炸机锚点（固定世界坐标，与玩家起始点解耦；朝南逃离，因此置于原点北侧）
+const TUTORIAL_BOMBER_ANCHOR := Vector2(0.0, 3000.0)
 
 ## ── 城区直升机事件 ──
 const CITY_HELI_COUNT := 3
@@ -75,7 +77,8 @@ func _spawn_tutorial_bombers() -> void:
 		return
 	var fwd := Vector2(sin(_player.heading), -cos(_player.heading))
 	var right := Vector2(-fwd.y, fwd.x)
-	var lead_pos := _player.global_position + fwd * TUTORIAL_LEAD_DIST_PX
+	## 锚点固定在世界坐标，不再跟玩家走 —— 玩家往后退 = 真的拉开距离
+	var lead_pos := TUTORIAL_BOMBER_ANCHOR
 	if not MapBoundary.is_safe_inside(lead_pos, TUTORIAL_SPAWN_MARGIN_PX):
 		lead_pos = MapBoundary.clamp_inside(lead_pos, TUTORIAL_SPAWN_MARGIN_PX)
 	var flee_dir := fwd
