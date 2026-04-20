@@ -70,11 +70,13 @@ func open() -> void:
 	_is_open = true
 	_root.visible = true
 	get_tree().paused = true
+	AudioManager.set_music_muffled(true)
 
 func close() -> void:
 	_is_open = false
 	_root.visible = false
 	get_tree().paused = false
+	AudioManager.set_music_muffled(false)
 
 # ══════════════════════════════════════════════
 #  UI 构建
@@ -123,6 +125,7 @@ func _build_ui() -> void:
 	_map_panel.offset_top = -340
 	_map_panel.offset_bottom = 340
 	_map_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	_map_panel.clip_contents = true  # 裁剪所有绘制到面板矩形内（底图会自然被切齐）
 	_map_panel.draw.connect(_on_map_draw)
 	_map_panel.gui_input.connect(_on_map_gui_input)
 	_map_panel.mouse_exited.connect(func(): _hover_zone_id = &""; _refresh_info(); _map_panel.queue_redraw())
@@ -171,14 +174,18 @@ func _build_ui() -> void:
 # ══════════════════════════════════════════════
 
 func _on_map_draw() -> void:
+	MapGeography.ensure_ready()
+	_ensure_minimap_basemap()
 	var size := _map_panel.size
 	_map_rect = Rect2(Vector2.ZERO, size)
-	# 底色 = 海
+	# 底色 = 海（如果有底图 PNG 覆盖，下面会盖住）
 	_map_panel.draw_rect(_map_rect, MapGeography.SEA_COLOR)
-	# 陆地填充 + 海岸线
-	_draw_geography(size)
-	# 城区点
-	_draw_cities(size)
+	# 底图 PNG（如果存在）
+	_draw_minimap_basemap(size)
+	# 矢量细节层（只在没底图时才画 OSM 矢量，避免重复）
+	if _mm_basemap_tex == null:
+		_draw_geography(size)
+		_draw_cities(size)
 	# 框
 	_map_panel.draw_rect(_map_rect, FRAME_COLOR, false, 2.0)
 
@@ -204,52 +211,161 @@ func _on_map_draw() -> void:
 		Color(TEXT_COLOR.r, TEXT_COLOR.g, TEXT_COLOR.b, 0.6)
 	)
 
-## 缩略图：海岸线地图（陆地填充 + 海岸线 + 城区 + 高速）
-func _draw_geography(size: Vector2) -> void:
-	var land_list := MapGeography.get_land_polygons()
-	# 陆地填充
-	for i in range(land_list.size()):
-		var poly: PackedVector2Array = land_list[i]
-		var mapped := _map_poly(poly, size)
-		_map_panel.draw_colored_polygon(mapped, MapGeography.LAND_COLOR)
-		var n: int = mapped.size()
-		if i < 2:
-			# 主陆块：首尾贴地图边不描
-			if n >= 4:
-				for j in range(1, n - 1):
-					_map_panel.draw_line(mapped[j], mapped[j + 1], MapGeography.COAST_COLOR, 1.4)
-		else:
-			# 岛屿：闭合描
-			for j in range(n):
-				_map_panel.draw_line(mapped[j], mapped[(j + 1) % n], MapGeography.COAST_COLOR, 1.1)
+	# 最后叠一层扫描线 + 暗角，形成 CRT 战术屏效果
+	_draw_minimap_scanlines_and_vignette(size)
 
-## 缩略图：城区多边形 + 高速
-func _draw_cities(size: Vector2) -> void:
-	# 城区
+## 缩略图：用 OSM 预烘焙 land mask 作为陆地（和主地图保持一致）
+const MINIMAP_LAND_COLOR := Color(0.32, 0.35, 0.27, 1.0)
+const MINIMAP_URBAN_COLOR := Color(0.42, 0.38, 0.28, 1.0)
+const MINIMAP_ROAD_COLOR := Color(0.86, 0.78, 0.55, 1.0)
+
+## ---- 底图 PNG 缓存（和主地图共享同一张图 + 元数据）----
+const MM_BASEMAP_PNG := "res://resources/maps/tokyo_bay_bg.png"
+const MM_BASEMAP_META := "res://resources/maps/tokyo_bay_bg.json"
+var _mm_basemap_tex: Texture2D = null
+var _mm_basemap_world_rect: Rect2 = Rect2()
+var _mm_basemap_loaded := false
+
+func _ensure_minimap_basemap() -> void:
+	if _mm_basemap_loaded:
+		return
+	_mm_basemap_loaded = true
+	if not ResourceLoader.exists(MM_BASEMAP_PNG):
+		return
+	var f := FileAccess.open(MM_BASEMAP_META, FileAccess.READ)
+	if f == null:
+		return
+	var meta = JSON.parse_string(f.get_as_text())
+	f.close()
+	if meta == null:
+		return
+	var bbox: Dictionary = meta.get("bbox_ll", {})
+	var center_ll: Array = meta.get("game_world_center_latlon", [35.44, 139.76])
+	var m_per_lat: float = float(meta.get("game_world_meters_per_degree_lat", 111000.0))
+	var m_per_lon: float = float(meta.get("game_world_meters_per_degree_lon_at_center", 111000.0 * cos(deg_to_rad(35.44))))
+	var px_per_m: float = float(meta.get("game_world_px_per_meter", 0.5))
+	var lat_min: float = float(bbox.get("lat_min", 0))
+	var lat_max: float = float(bbox.get("lat_max", 0))
+	var lon_min: float = float(bbox.get("lon_min", 0))
+	var lon_max: float = float(bbox.get("lon_max", 0))
+	var cx: float = float(center_ll[1])
+	var cy: float = float(center_ll[0])
+	var x0 := (lon_min - cx) * m_per_lon * px_per_m
+	var x1 := (lon_max - cx) * m_per_lon * px_per_m
+	var y0 := -(lat_max - cy) * m_per_lat * px_per_m
+	var y1 := -(lat_min - cy) * m_per_lat * px_per_m
+	_mm_basemap_world_rect = Rect2(Vector2(x0, y0), Vector2(x1 - x0, y1 - y0))
+	_mm_basemap_tex = load(MM_BASEMAP_PNG) as Texture2D
+	print("[TacticalMap] minimap basemap loaded: %s rect=%s" % [
+		_mm_basemap_tex.get_size() if _mm_basemap_tex else "null", _mm_basemap_world_rect,
+	])
+
+## 把底图按 world → minimap 投影铺在缩略图上
+## 色调和主地图保持一致：中性偏暗，不加绿滤镜
+const MINIMAP_BASEMAP_MODULATE := Color(0.72, 0.76, 0.75, 1.0)
+func _draw_minimap_basemap(size: Vector2) -> void:
+	if _mm_basemap_tex == null:
+		return
+	# 把 basemap world rect 换到 minimap 屏幕坐标
+	var p0 := _world_to_map(_mm_basemap_world_rect.position, size)
+	var p1 := _world_to_map(_mm_basemap_world_rect.position + _mm_basemap_world_rect.size, size)
+	var dst := Rect2(p0, p1 - p0)
+	_map_panel.draw_texture_rect(_mm_basemap_tex, dst, false, MINIMAP_BASEMAP_MODULATE)
+
+## 扫描线后绘制覆盖层：半透明暗线 + 暗角，不用 shader，全 draw_line
+## 在所有内容画完之后调，叠在最上面做 CRT 感
+const SCANLINE_SPACING_PX := 3.0
+const SCANLINE_COLOR := Color(0.0, 0.0, 0.0, 0.18)
+const VIGNETTE_RINGS: Array[Dictionary] = [
+	{"inset": 0.0,  "alpha": 0.35},
+	{"inset": 20.0, "alpha": 0.18},
+	{"inset": 40.0, "alpha": 0.08},
+]
+func _draw_minimap_scanlines_and_vignette(size: Vector2) -> void:
+	var y := 0.0
+	while y < size.y:
+		_map_panel.draw_line(Vector2(0, y), Vector2(size.x, y), SCANLINE_COLOR, 1.0)
+		y += SCANLINE_SPACING_PX
+	# 暗角（四边矩形层叠）
+	for r_any in VIGNETTE_RINGS:
+		var r: Dictionary = r_any
+		var inset: float = r.inset
+		var a: float = r.alpha
+		var col := Color(0.0, 0.0, 0.0, a)
+		# 上
+		_map_panel.draw_rect(Rect2(0, 0, size.x, inset + 1), col)
+		# 下
+		_map_panel.draw_rect(Rect2(0, size.y - inset - 1, size.x, inset + 1), col)
+		# 左
+		_map_panel.draw_rect(Rect2(0, inset, inset + 1, size.y - 2 * inset), col)
+		# 右
+		_map_panel.draw_rect(Rect2(size.x - inset - 1, inset, inset + 1, size.y - 2 * inset), col)
+
+## ---- 变换缓存（size 不变就不重算） ----
+## 之前每 0.1 秒重绘时都在重新 _map_poly 变换 ~1300 个多边形的所有顶点，
+## 相当于 200k Vector2 分配/秒 + 2500+ draw calls/秒 —— 大幅影响 FPS。
+## 这里缓存 size 对应的已变换多边形，只在 size 变化时重建。
+var _mm_cache_size: Vector2 = Vector2.ZERO
+var _mm_cache_land: Array = []       # Array[PackedVector2Array]
+var _mm_cache_urban: Array = []
+var _mm_cache_roads: Array = []
+var _mm_cache_aqualine: PackedVector2Array = PackedVector2Array()
+
+func _rebuild_minimap_geometry_cache(size: Vector2) -> void:
+	if _mm_cache_size == size:
+		return
+	_mm_cache_size = size
+	_mm_cache_land.clear()
+	_mm_cache_urban.clear()
+	_mm_cache_roads.clear()
+	var t0 := Time.get_ticks_msec()
+	for poly_any in MapGeography.get_land_mask_polygons():
+		var m := _map_poly(poly_any, size)
+		if m.size() >= 3:
+			_mm_cache_land.append(m)
 	for poly_any in MapGeography.URBAN_DISTRICTS:
 		var poly: PackedVector2Array = poly_any
-		var mapped := _map_poly(poly, size)
-		if mapped.size() < 3:
+		if poly.size() < 3:
 			continue
-		_map_panel.draw_colored_polygon(mapped, MapGeography.URBAN_FILL)
-		for i in range(mapped.size()):
-			_map_panel.draw_line(mapped[i], mapped[(i + 1) % mapped.size()], MapGeography.URBAN_LINE, 0.8)
-	# 高速
+		var m2 := _map_poly(poly, size)
+		if m2.size() >= 3:
+			_mm_cache_urban.append(m2)
 	for hw_any in MapGeography.HIGHWAYS:
 		var hw: Dictionary = hw_any
 		var pts: PackedVector2Array = hw.get("pts", PackedVector2Array())
 		if pts.size() < 2:
 			continue
-		var mapped := _map_poly(pts, size)
-		var color: Color = hw.get("color", MapGeography.HIGHWAY_SUB)
-		for i in range(mapped.size() - 1):
-			_map_panel.draw_line(mapped[i], mapped[i + 1], color, 1.2)
-	# Aqua-Line 虚线
+		var m3 := _map_poly(pts, size)
+		if m3.size() >= 2:
+			_mm_cache_roads.append(m3)
 	var aq: PackedVector2Array = MapGeography.AQUALINE_PATH
 	if aq.size() >= 2:
-		var mapped_aq := _map_poly(aq, size)
-		for i in range(mapped_aq.size() - 1):
-			_map_panel.draw_dashed_line(mapped_aq[i], mapped_aq[i + 1], MapGeography.AQUALINE_COLOR, 1.0, 4.0)
+		_mm_cache_aqualine = _map_poly(aq, size)
+	else:
+		_mm_cache_aqualine = PackedVector2Array()
+	print("[TacticalMap] rebuilt mm geo cache @size=%s land=%d urban=%d roads=%d (%dms)" % [
+		size, _mm_cache_land.size(), _mm_cache_urban.size(), _mm_cache_roads.size(),
+		Time.get_ticks_msec() - t0,
+	])
+
+## 缩略图：海岸线地图（陆地填充）
+func _draw_geography(size: Vector2) -> void:
+	_rebuild_minimap_geometry_cache(size)
+	for poly_any in _mm_cache_land:
+		_map_panel.draw_colored_polygon(poly_any, MINIMAP_LAND_COLOR)
+
+## 缩略图：城区多边形 + 高速（都用缓存，道路用单次 draw_polyline）
+func _draw_cities(size: Vector2) -> void:
+	for poly_any in _mm_cache_urban:
+		_map_panel.draw_colored_polygon(poly_any, MINIMAP_URBAN_COLOR)
+	# draw_polyline：单次 GPU 调用画整条线，比 per-segment draw_line 快 ~3×
+	for mapped_any in _mm_cache_roads:
+		var mapped: PackedVector2Array = mapped_any
+		if mapped.size() >= 2:
+			_map_panel.draw_polyline(mapped, MINIMAP_ROAD_COLOR, 1.0)
+	if _mm_cache_aqualine.size() >= 2:
+		for i in range(_mm_cache_aqualine.size() - 1):
+			_map_panel.draw_dashed_line(_mm_cache_aqualine[i], _mm_cache_aqualine[i + 1], MapGeography.AQUALINE_COLOR, 1.0, 4.0)
 
 func _map_poly(src: PackedVector2Array, size: Vector2) -> PackedVector2Array:
 	var out := PackedVector2Array()

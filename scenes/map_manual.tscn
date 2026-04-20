@@ -1,0 +1,8 @@
+[gd_scene format=3 uid="uid://bgibclu71hpa1"]
+
+[ext_resource type="Script" uid="uid://cgypkp247iex6" path="res://scripts/survivor/map_manual_background.gd" id="1_bg"]
+
+[node name="Root" type="Node2D" unique_id=558453034]
+
+[node name="Background" type="Node2D" parent="." unique_id=592681310]
+script = ExtResource("1_bg")

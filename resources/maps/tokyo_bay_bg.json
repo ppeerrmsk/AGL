@@ -1,0 +1,23 @@
+{
+  "image": "tokyo_bay_bg.png",
+  "bbox_ll": {
+    "lat_min": 35.24561909420682,
+    "lat_max": 35.56798045801209,
+    "lon_min": 139.5703125,
+    "lon_max": 139.9658203125
+  },
+  "image_size_px": [
+    4608,
+    4608
+  ],
+  "zoom": 13,
+  "source": "CartoDB Light no-labels / OSM",
+  "license": "CC BY 3.0 (OpenStreetMap) + CartoDB attribution required",
+  "game_world_center_latlon": [
+    35.44,
+    139.76
+  ],
+  "game_world_meters_per_degree_lat": 111000.0,
+  "game_world_meters_per_degree_lon_at_center": 90434.27326522839,
+  "game_world_px_per_meter": 0.5
+}

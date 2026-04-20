@@ -189,15 +189,109 @@ static var HANEDA_AIRPORT := PackedVector2Array([
 	Vector2(200, -6400),
 ])
 
+## 陆地多边形（应用 Chaikin 平滑去锐角 — 仅平滑海岸线段，bbox 贴边顶点保留）
+## LAND_WEST/LAND_EAST 首尾 2 顶点贴 bbox 作为锚点，中间的"真海岸"段才做 Chaikin
+## HANEDA_AIRPORT 是完全闭合的岛，整体平滑
+const LAND_SMOOTH_ITER := 2       # 2 次 Chaikin = 每段边 → 4 段
+const LAND_BBOX_ANCHORS := 2      # LAND_WEST/EAST 首/尾保留顶点数
+
+static var _land_smoothed_cache: Array = []
+static var _land_smoothed_built: bool = false
+
 static func get_land_polygons() -> Array:
-	return [LAND_WEST, LAND_EAST, HANEDA_AIRPORT]
+	if not _land_smoothed_built:
+		_land_smoothed_built = true
+		_land_smoothed_cache.append(_chaikin_open(LAND_WEST, LAND_SMOOTH_ITER, LAND_BBOX_ANCHORS, LAND_BBOX_ANCHORS))
+		_land_smoothed_cache.append(_chaikin_open(LAND_EAST, LAND_SMOOTH_ITER, LAND_BBOX_ANCHORS, LAND_BBOX_ANCHORS))
+		_land_smoothed_cache.append(_chaikin_closed(HANEDA_AIRPORT, LAND_SMOOTH_ITER))
+		print("[MapGeography] Chaikin smoothed land — WEST=%d EAST=%d HANEDA=%d verts" % [
+			_land_smoothed_cache[0].size(),
+			_land_smoothed_cache[1].size(),
+			_land_smoothed_cache[2].size(),
+		])
+	return _land_smoothed_cache
+
+## Chaikin 平滑（开放折线版）：对 poly 中间段做角切，首 keep_first 与尾 keep_last 个顶点保留
+## 每次迭代：每条中间段 a→b 被替换为 (0.75a+0.25b, 0.25a+0.75b) 两点
+static func _chaikin_open(poly: PackedVector2Array, iterations: int, keep_first: int, keep_last: int) -> PackedVector2Array:
+	if poly.size() < keep_first + keep_last + 2:
+		return poly
+	var head := PackedVector2Array()
+	var tail := PackedVector2Array()
+	for i in range(keep_first):
+		head.append(poly[i])
+	for i in range(poly.size() - keep_last, poly.size()):
+		tail.append(poly[i])
+	var middle := PackedVector2Array()
+	for i in range(keep_first, poly.size() - keep_last):
+		middle.append(poly[i])
+	for _iter in range(iterations):
+		if middle.size() < 2:
+			break
+		var out := PackedVector2Array()
+		out.append(middle[0])
+		for i in range(middle.size() - 1):
+			var a: Vector2 = middle[i]
+			var b: Vector2 = middle[i + 1]
+			out.append(a * 0.75 + b * 0.25)
+			out.append(a * 0.25 + b * 0.75)
+		out.append(middle[middle.size() - 1])
+		middle = out
+	var result := PackedVector2Array()
+	for p in head:
+		result.append(p)
+	for p in middle:
+		result.append(p)
+	for p in tail:
+		result.append(p)
+	return result
+
+## Chaikin 平滑（闭合多边形版）：所有边都参与
+static func _chaikin_closed(poly: PackedVector2Array, iterations: int) -> PackedVector2Array:
+	var cur := poly
+	for _iter in range(iterations):
+		var out := PackedVector2Array()
+		var n := cur.size()
+		for i in range(n):
+			var a: Vector2 = cur[i]
+			var b: Vector2 = cur[(i + 1) % n]
+			out.append(a * 0.75 + b * 0.25)
+			out.append(a * 0.25 + b * 0.75)
+		cur = out
+	return cur
 
 # ══════════════════════════════════════════════
-#  城区多边形（替代之前的圆圈）
+#  城区多边形（OSM 烘焙）+ 道路 —— 懒加载
 # ══════════════════════════════════════════════
-## 每个城区是粗糙的多边形，对应现实中主要市区
-## 显示为暖色描边 + 半透明填充
-static var URBAN_DISTRICTS: Array = [
+## 这些数组在 ensure_ready() 之前都是 []
+## 所有调用方（MapFeatureRenderer / TacticalMap / MapManualBackground）
+## 必须在读取 URBAN_DISTRICTS / HIGHWAYS / COASTLINE_LINES 之前先调 ensure_ready()
+##
+## 不用 static var 初始化器直接赋值，因为 Godot 编辑器里 MapGeographyData 的 JSON
+## 数据还没加载时就会被引用，只能拿到空数组
+static var URBAN_DISTRICTS: Array = []
+static var COASTLINE_LINES: Array = []
+static var OSM_AERODROMES: Array = []
+
+static var _initialized: bool = false
+
+## 懒加载入口：首次调用 → MapGeographyData 读 JSON → 填充本类的静态字段
+## 所有读取 URBAN_DISTRICTS / HIGHWAYS / COASTLINE_LINES 前都要先调这个
+static func ensure_ready() -> void:
+	if _initialized:
+		return
+	_initialized = true
+	MapGeographyData.ensure_loaded()
+	URBAN_DISTRICTS = MapGeographyData.URBAN_POLYGONS
+	COASTLINE_LINES = MapGeographyData.COASTLINE_LINES
+	OSM_AERODROMES = MapGeographyData.AERODROME_POLYGONS
+	HIGHWAYS = _build_highways_from_osm()
+	print("[MapGeography] ready — URBAN=%d HIGHWAYS=%d COAST=%d" % [
+		URBAN_DISTRICTS.size(), HIGHWAYS.size(), COASTLINE_LINES.size(),
+	])
+
+## === 以下为被 OSM 替换的旧手画数据，保留注释以便回溯历史 ===
+static var _LEGACY_URBAN_DISTRICTS: Array = [
 	# 川崎市区
 	PackedVector2Array([
 		Vector2(-2300, -5400),
@@ -267,94 +361,31 @@ static var URBAN_DISTRICTS: Array = [
 ]
 
 # ══════════════════════════════════════════════
-#  道路 / 高速公路（折线）
+#  道路（OSM 烘焙分档）
 # ══════════════════════════════════════════════
-## 每条用 PackedVector2Array + 颜色 + 线宽
-## 以现实横滨/东京湾道路网为参考，但可以简化/虚构化
-static var HIGHWAYS: Array = [
-	# 湾岸高速（首都高湾岸线）：沿北侧西岸海岸线南下至横滨
-	{
-		"pts": PackedVector2Array([
-			Vector2(-7500, -6400),
-			Vector2(-4500, -6600),
-			Vector2(-2500, -6400),
-			Vector2(-800, -6000),
-			Vector2(400, -5400),
-			Vector2(600, -4900),
-			Vector2(-300, -4200),
-			Vector2(-1500, -3500),
-			Vector2(-2300, -2600),
-			Vector2(-2500, -1800),
-			Vector2(-3000, -1000),
-			Vector2(-3500, 0),
-			Vector2(-3800, 900),
-		]),
-		"color": HIGHWAY_MAIN,
-		"width": 2.2,
-	},
-	# 横浜横须贺道路：沿三浦半岛东岸南下
-	{
-		"pts": PackedVector2Array([
-			Vector2(-3800, 1500),
-			Vector2(-4000, 2500),
-			Vector2(-4200, 3500),
-			Vector2(-4400, 4500),
-			Vector2(-4600, 5500),
-			Vector2(-5000, 6500),
-			Vector2(-5800, 7200),
-		]),
-		"color": HIGHWAY_MAIN,
-		"width": 2.0,
-	},
-	# 馆山自动车道 / 館山自動車道：东岸南北干线
-	{
-		"pts": PackedVector2Array([
-			Vector2(5200, -6800),
-			Vector2(5500, -5500),
-			Vector2(5600, -4200),
-			Vector2(5400, -3000),
-			Vector2(5200, -1500),
-			Vector2(5000, 0),
-			Vector2(5200, 1500),
-			Vector2(5500, 3000),
-			Vector2(5800, 4500),
-			Vector2(6000, 6000),
-			Vector2(6500, 7300),
-		]),
-		"color": HIGHWAY_MAIN,
-		"width": 2.0,
-	},
-	# Route 16 / 国道 16：环湾主干（本项目用在西岸内陆一段）
-	{
-		"pts": PackedVector2Array([
-			Vector2(-7500, -3800),
-			Vector2(-5800, -3500),
-			Vector2(-4200, -3200),
-			Vector2(-3200, -2200),
-			Vector2(-3400, -1200),
-			Vector2(-4000, -200),
-			Vector2(-4800, 800),
-			Vector2(-5400, 2200),
-		]),
-		"color": HIGHWAY_SUB,
-		"width": 1.6,
-	},
-	# 内房线/君津方向次干（东岸内陆）
-	{
-		"pts": PackedVector2Array([
-			Vector2(4000, -6700),
-			Vector2(4300, -5000),
-			Vector2(4500, -3000),
-			Vector2(4400, -1000),
-			Vector2(4500, 1000),
-			Vector2(4700, 3000),
-			Vector2(5100, 5000),
-			Vector2(5600, 6800),
-		]),
-		"color": HIGHWAY_SUB,
-		"width": 1.6,
-	},
-]
+## motorway / trunk / primary / secondary 四档
+## 统一格式：Array[{"pts": PackedVector2Array, "color": Color, "width": float}]
+## 供 MapFeatureRenderer._draw_highways 直接消费（由 ensure_ready() 填充）
+static var HIGHWAYS: Array = []
+
+static func _build_highways_from_osm() -> Array:
+	var out: Array = []
+	for pts in MapGeographyData.ROADS_MOTORWAY:
+		out.append({"pts": pts, "color": Color(0.98, 0.75, 0.30, 0.92), "width": 2.4})
+	for pts in MapGeographyData.ROADS_TRUNK:
+		out.append({"pts": pts, "color": Color(0.98, 0.80, 0.40, 0.85), "width": 1.9})
+	for pts in MapGeographyData.ROADS_PRIMARY:
+		out.append({"pts": pts, "color": Color(0.92, 0.87, 0.70, 0.80), "width": 1.5})
+	for pts in MapGeographyData.ROADS_SECONDARY:
+		out.append({"pts": pts, "color": Color(0.85, 0.82, 0.70, 0.62), "width": 1.1})
+	print("[MapGeography] HIGHWAYS built from OSM: %d segments (M=%d T=%d P=%d S=%d)" % [
+		out.size(),
+		MapGeographyData.ROADS_MOTORWAY.size(),
+		MapGeographyData.ROADS_TRUNK.size(),
+		MapGeographyData.ROADS_PRIMARY.size(),
+		MapGeographyData.ROADS_SECONDARY.size(),
+	])
+	return out
 
 ## 跨湾通道（类比东京湾 Aqua-Line：川崎到木更津的海底隧道 + 海上桥）
 ## 在地图上显示为虚线
@@ -371,8 +402,79 @@ static var AQUALINE_PATH := PackedVector2Array([
 # ══════════════════════════════════════════════
 
 ## 判断某世界坐标是否在陆地上（包括羽田机场）
+## 同时检查 OSM 烘焙的 land mask（城区+道路外扩并集，精度高）+ 手画 LAND 轮廓（覆盖广）
+## 任一命中即视为陆地
 static func is_on_land(pos: Vector2) -> bool:
+	ensure_ready()
+	# OSM 陆地 mask 优先（对玩家活动区精确）
+	for poly in MapGeographyData.LAND_MASK_POLYGONS:
+		if Geometry2D.is_point_in_polygon(pos, poly):
+			return true
+	# 手画 LAND 兜底（覆盖 OSM 没 landuse 标记的山林区）
 	for poly in get_land_polygons():
 		if Geometry2D.is_point_in_polygon(pos, poly):
 			return true
 	return false
+
+# ══════════════════════════════════════════════
+#  OSM 陆地 mask（城区外扩 + 道路外扩 → 当作地面）
+# ══════════════════════════════════════════════
+## 供 map_feature_renderer / tactical_map 两个渲染器共享缓存
+## 首次调用计算（~500ms），之后零成本
+const LAND_MASK_URBAN_EXPAND := 320.0
+const LAND_MASK_ROAD_EXPAND := 160.0
+
+static var _land_mask_cache: Array = []
+static var _land_mask_built: bool = false
+
+## 返回 Python 烘焙脚本（bake_tokyo_bay.py）用 shapely unary_union 合并后的 mask
+## 由 1000+ halo 多边形合并成 ~3 个大块，大幅降低 GPU overdraw
+static func get_land_mask_polygons() -> Array:
+	ensure_ready()
+	return MapGeographyData.LAND_MASK_POLYGONS
+
+## 道路块状带缓存（用于主地图 _draw_highways）
+## 预计算 offset_polyline 结果，防御性：即使主地图被意外重绘也不触发 1012 次重算
+const ROAD_BAND_HALF_WIDTH := 2.2
+static var _road_bands_cache: Array = []   # Array[PackedVector2Array]
+static var _road_bands_built: bool = false
+
+static func get_road_bands() -> Array:
+	ensure_ready()
+	if not _road_bands_built:
+		_road_bands_built = true
+		var t0 := Time.get_ticks_msec()
+		for hw_any in HIGHWAYS:
+			var hw: Dictionary = hw_any
+			var pts: PackedVector2Array = hw.get("pts", PackedVector2Array())
+			if pts.size() < 2:
+				continue
+			for band in Geometry2D.offset_polyline(pts, ROAD_BAND_HALF_WIDTH, Geometry2D.JOIN_ROUND, Geometry2D.END_ROUND):
+				_road_bands_cache.append(band)
+		print("[MapGeography] road bands cached: %d (%dms)" % [_road_bands_cache.size(), Time.get_ticks_msec() - t0])
+	return _road_bands_cache
+
+## 已废弃：旧的运行时 offset_polygon 路径，保留做 fallback 若 MapGeographyData 没 bake mask
+static func _build_land_mask_fallback() -> void:
+	var t0 := Time.get_ticks_msec()
+	for urban_any in URBAN_DISTRICTS:
+		var urban: PackedVector2Array = urban_any
+		if urban.size() < 3:
+			continue
+		for op in Geometry2D.offset_polygon(urban, LAND_MASK_URBAN_EXPAND, Geometry2D.JOIN_ROUND):
+			_land_mask_cache.append(op)
+	for hw_any in HIGHWAYS:
+		var hw: Dictionary = hw_any
+		var pts: PackedVector2Array = hw.get("pts", PackedVector2Array())
+		if pts.size() < 2:
+			continue
+		for band in Geometry2D.offset_polyline(pts, LAND_MASK_ROAD_EXPAND, Geometry2D.JOIN_ROUND, Geometry2D.END_ROUND):
+			_land_mask_cache.append(band)
+	print("[MapGeography] land mask polygons: %d (%dms)" % [_land_mask_cache.size(), Time.get_ticks_msec() - t0])
+
+# ══════════════════════════════════════════════
+#  旧：程序化次级路网 — 已被 OSM 真实路网替代，此处保留空 stub 以免破坏调用点
+# ══════════════════════════════════════════════
+## 旧实现见 git 历史 / feedback_squad_spawner... 系列笔记；OSM 数据替代后弃用
+static func get_secondary_roads() -> Array:
+	return []

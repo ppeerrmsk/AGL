@@ -85,8 +85,18 @@ AGL/
 │       ├── survivor_playable_setup.gd # PlayableAircraft → Aircraft 实例的应用器
 │       ├── survivor_debug_skills.gd # 调试技能面板
 │       ├── commander_aura.gd      # Sentinel 指挥 UAV 光环 buff + 招募
-│       └── commander_overlay.gd   # 指挥机可视化覆盖层
+│       ├── commander_overlay.gd   # 指挥机可视化覆盖层
+│       ├── map_geography.gd       # 地图 API (is_on_land 等)
+│       ├── map_geography_data.gd  # JSON 加载器（OSM 烘焙数据）
+│       ├── map_feature_renderer.gd # 主地图 (Sprite 底图 + shader)
+│       ├── map_manual_background.gd # @tool 编辑器参考预览
+│       └── tactical_map.gd        # 战术缩略图 (CRT 风)
+├── scripts/tools/             # 开发工具（不进打包）
+│   ├── bake_tokyo_bay.py       # OSM GeoJSON → tokyo_bay.json
+│   └── download_basemap.py     # CartoDB 瓦片 → 底图 PNG
 ├── resources/                 # .tres 参数资源（飞机/武器/导弹/战斗风格）
+├── resources/maps/            # 地图数据（JSON / PNG）
+├── resources/shaders/         # 地图 shader（basemap_tacview.gdshader）
 ├── docs/                      # 设计文档 + 代码索引 + 更新日志
 └── export_presets.cfg         # Godot 导出配置
 ```
@@ -264,6 +274,11 @@ Resource
 | `aa_gun_unit.gd` | `AAGunUnit extends GroundUnit` | [共享] AAA：独立炮塔 + ZU-23 | `_update_turret:69` `_update_aa_target_selection:30` |
 | `radar_station.gd` | `RadarStation extends GroundUnit` | [共享] 雷达站：20km 雷达 + 数据链共享 | `_update_datalink:35` `_update_dish:29` |
 | `survivor/survivor_mode.gd` | 生存模式主控（~797 行） | [生存] 场景初始化/操控/雷达/升级/HUD（地形+相机委托共享模块，刷怪委托 spawner） | `_physics_process` `_update_radar_locks` `_on_player_leveled_up` `_spawn_starting_wingmen` |
+| `survivor/map_geography.gd` | `MapGeography extends RefCounted` | [生存] 地图数据 API（OSM + 手画陆地混合）| `ensure_ready` `is_on_land(pos)` `get_land_polygons` `get_land_mask_polygons` `get_road_bands` — 详见 [map-pipeline.md](docs/reference/map-pipeline.md) |
+| `survivor/map_geography_data.gd` | `MapGeographyData extends RefCounted` | [生存] OSM 数据加载器：从 `resources/maps/tokyo_bay.json` 读入 URBAN / ROADS_* / COASTLINE / LAND_MASK | `ensure_loaded` `_unpack` |
+| `survivor/map_feature_renderer.gd` | `MapFeatureRenderer extends Node2D` | [生存] 主地图渲染：Sprite2D 底图（shader 调色）+ 边缘检测 + 手画 Polygon2D 叠加 + vignette | `_ensure_basemap_loaded` `_apply_basemap_shader_params` `_draw_edge_vignette` — 全部 `@export` 参数可 Inspector 调 |
+| `survivor/map_manual_background.gd` | `@tool MapManualBackground extends Node2D` | [生存/编辑器] `map_manual.tscn` 的参考底图预览：在 Godot 编辑器里实时画出 OSM 数据作为描边参考 | `_draw_land` `_draw_urban` `_draw_roads` `_draw_info_text` |
+| `survivor/tactical_map.gd` | `TacticalMap extends CanvasLayer` | [生存] 战术缩略图：底图 PNG 缩略 + 战区/玩家/敌人标记 + CRT 扫描线暗角后绘制 | `_on_map_draw` `_rebuild_minimap_geometry_cache` `_draw_minimap_basemap` `_draw_minimap_scanlines_and_vignette` |
 | `survivor/survivor_spawner.gd` | `SurvivorSpawner extends Node` | [生存] 刷怪系统：Token 预算/敌人生成/击杀检测/远距清理/猎手指派/航点刷新（~1340 行） | `update` `_update_spawner` `_pick_enemy_type` `_create_enemy` `_spawn_single` `_spawn_squad` `_spawn_commander_squad` `_detect_kills` `_update_far_cleanup` `_update_hunters` `_update_enemy_waypoints` `_spawn_tu160_flock` `_spawn_ah64_flock` `_spawn_ch47_flock` `_spawn_f47_squad` — **EnemyType enum** |
 | `survivor/survivor_debug_spawn.gd` | `SurvivorDebugSpawn extends CanvasLayer` | [生存] F5 刷怪调试面板（279 行） | `_build_ui:60` `_on_type_changed:226` `_on_spawn_pressed:236` `_on_clear_pressed:264` `_on_dump_pressed:276` |
 | `survivor/survivor_player.gd` | `SurvivorPlayer extends Node` | [生存] 经验/等级/升级应用 | `add_xp:20` `apply_upgrade:30` |
@@ -425,7 +440,10 @@ Resource
 - [docs/reference/playable-aircraft-workflow.md](docs/reference/playable-aircraft-workflow.md) — 加新主角飞机的完整流程
 - [docs/reference/i18n.md](docs/reference/i18n.md) — 本地化 / 翻译 key 约定 + 新增 UI 文本流程
 - [docs/reference/features.md](docs/reference/features.md) — 已实现功能清单
+- **[docs/reference/map-pipeline.md](docs/reference/map-pipeline.md)** — 地图流水线（OSM 下载 / 烘焙 / 底图 / Tacview 风格 / `is_on_land` 判定）
+- **[docs/reference/manual-map-editing.md](docs/reference/manual-map-editing.md)** — Godot 编辑器手画地块 Polygon2D 流程
 
 **历史 / 变更日志**（docs/changelogs/，按日期命名）
-- [docs/changelogs/2026-04-11.md](docs/changelogs/2026-04-11.md) — 最近一次更新
+- [docs/changelogs/2026-04-20.md](docs/changelogs/2026-04-20.md) — 最近一次更新（地图流水线重构）
+- [docs/changelogs/2026-04-11.md](docs/changelogs/2026-04-11.md) — 上一次（敌人机型家族 + Token 烈度预算）
 - 更早的在 `docs/changelogs/` 下，按日期排序
