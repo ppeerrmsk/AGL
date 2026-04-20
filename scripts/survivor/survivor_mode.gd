@@ -73,6 +73,10 @@ func _ready() -> void:
 	process_priority = -10
 	process_physics_priority = -10
 
+	# 海岸线地图：两首战斗泛用 BGM 轮播（播完自动切下一首，周而复始）
+	# BOSS 登场时 crossfade 到 boss 曲，会自动退出 playlist 模式
+	AudioManager.play_music_playlist(["battle_coast", "battle_coast_2"], 2.0, 2.0)
+
 	# 海岸线大地图：用固定几何数据替代原 TerrainRenderer 的噪声
 	_map_features = MapFeatureRenderer.new()
 	_map_features.show_behind_parent = true
@@ -147,6 +151,8 @@ func _ready() -> void:
 	player_aircraft.selected = true
 	add_child(player_aircraft)
 	AircraftRenderer.player_ref = player_aircraft
+	# 引擎环境音：只给玩家一个循环源，按缩放+视野动态调音量
+	AudioManager.start_player_engine(player_aircraft)
 	selected_aircraft.append(player_aircraft)
 
 	# 生存模式状态
@@ -415,6 +421,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
 		get_tree().paused = false
+		AudioManager.stop_music(1.0)
 		get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
 		return
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F9:
@@ -902,6 +909,7 @@ func _spawn_ground_unit(scene: PackedScene, params_res: Resource, team_id: int, 
 func _on_player_leveled_up(_new_level: int) -> void:
 	is_paused_for_upgrade = true
 	get_tree().paused = true
+	AudioManager.set_music_muffled(true)
 
 	var available: Array[Dictionary] = []
 	var p: AircraftParams = player_aircraft.params if player_aircraft else null
@@ -920,6 +928,7 @@ func _on_player_leveled_up(_new_level: int) -> void:
 		survivor_player.consume_level_up_display()
 		is_paused_for_upgrade = false
 		get_tree().paused = false
+		AudioManager.set_music_muffled(false)
 		return
 
 	available.shuffle()
@@ -955,6 +964,7 @@ func _on_upgrade_selected(upgrade: Dictionary) -> void:
 	survivor_player.consume_level_up_display()
 	is_paused_for_upgrade = false
 	get_tree().paused = false
+	AudioManager.set_music_muffled(false)
 
 	# 进化提示
 	if evolved_name != "":

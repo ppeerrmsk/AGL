@@ -133,6 +133,9 @@ func _physics_process(delta: float) -> void:
 				var hit_heading: float = unit.heading if "heading" in unit else 0.0
 				# 爆炸画在飞机身上（不是导弹位置），击中/击毁均只此一次
 				ExplosionVFXScript.emit(get_tree(), unit.global_position, hit_heading, 1.0)
+				# 爆炸音效：4 种 bomb_distant 随机选一种
+				var bomb_ids := ["bomb_distant", "bomb_distant_02", "bomb_distant_03", "bomb_distant_04"]
+				AudioManager.play_sfx_2d(bomb_ids[randi() % 4], unit.global_position, 9.0)
 				unit.take_damage(missile.params.damage)
 				# 近炸引信：在爆炸点产生 AOE 区域
 				if missile.proximity_aoe:

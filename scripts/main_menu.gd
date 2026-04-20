@@ -191,6 +191,9 @@ func _build_ui() -> void:
 	# --- 语言切换 ---
 	_build_language_switcher(root)
 
+	# --- 音频设置按钮 ---
+	_build_audio_button(root)
+
 	# --- 底部版本信息 ---
 	var version_label := Label.new()
 	version_label.text = tr("MENU_VERSION")
@@ -253,6 +256,48 @@ func _build_language_switcher(root: VBoxContainer) -> void:
 	var pad := Control.new()
 	pad.custom_minimum_size = Vector2(0, 8)
 	root.add_child(pad)
+
+## 小号「音频设置」按钮，打开叠加面板
+func _build_audio_button(root: VBoxContainer) -> void:
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	root.add_child(row)
+
+	var btn := Button.new()
+	btn.text = tr("MENU_AUDIO_BUTTON")
+	btn.custom_minimum_size = Vector2(140, 28)
+	btn.add_theme_font_size_override("font_size", 13)
+
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.05, 0.08, 0.05, 0.45)
+	style.border_color = Color(0.25, 0.45, 0.25, 0.35)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(2)
+	style.set_content_margin_all(4)
+	btn.add_theme_stylebox_override("normal", style)
+	btn.add_theme_color_override("font_color", Color(0.5, 0.7, 0.5, 0.85))
+
+	var style_hover := StyleBoxFlat.new()
+	style_hover.bg_color = Color(0.12, 0.2, 0.12, 0.8)
+	style_hover.border_color = Color(0.5, 1.0, 0.5, 0.7)
+	style_hover.set_border_width_all(1)
+	style_hover.set_corner_radius_all(2)
+	style_hover.set_content_margin_all(4)
+	btn.add_theme_stylebox_override("hover", style_hover)
+	btn.add_theme_color_override("font_hover_color", Color(0.9, 1.0, 0.6))
+
+	btn.pressed.connect(_on_audio_settings_pressed)
+	row.add_child(btn)
+
+	var bottom_pad := Control.new()
+	bottom_pad.custom_minimum_size = Vector2(0, 6)
+	root.add_child(bottom_pad)
+
+func _on_audio_settings_pressed() -> void:
+	var panel = preload("res://scripts/audio/audio_settings_panel.gd").new()
+	add_child(panel)
+	panel.closed.connect(panel.queue_free)
+	panel.open()
 
 func _add_mode_button(title: String, desc: String, callback: Callable, disabled := false) -> void:
 	var btn := Button.new()

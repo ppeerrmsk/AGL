@@ -214,3 +214,12 @@ ZONE_MISSION_GROUND,※ 清剿战区内的地面单位（SAM / AA）,※ Elimina
 ZONE_MISSION_AIR,※ 歼灭盘旋在战区上空的敌方中队,※ Destroy the enemy squadron patrolling the zone,※ 上空を警戒する敵飛行隊を撃墜
 ZONE_MISSION_SQUADRON,※ 击败锁定战区的敌方中队,※ Defeat the enemy squadron holding the zone,※ エリアを制圧中の敵中隊を撃破
 ZONE_MISSION_ELITE,※ 击落指挥 Sentinel（精英目标）,※ Shoot down the Sentinel commander (elite target),※ 指揮機 Sentinel を撃墜せよ（精鋭目標）
+MENU_AUDIO_BUTTON,音频设置,Audio,音声設定
+AUDIO_SETTINGS_TITLE,音频设置,Audio Settings,音声設定
+AUDIO_BUS_MASTER,主音量,Master,マスター
+AUDIO_BUS_MUSIC,音乐,Music,音楽
+AUDIO_BUS_SFX,音效,SFX,効果音
+AUDIO_BUS_UI,界面,UI,UI
+AUDIO_SETTINGS_MUTE,静音,Mute,ミュート
+AUDIO_SETTINGS_RESET,恢复默认,Reset,デフォルト
+AUDIO_SETTINGS_SAVE,保存,Save,保存

@@ -926,6 +926,8 @@ func _spawn_f47_squad(anchor: Vector2 = Vector2.INF) -> void:
 	_ace_squad.anchor_position = anchor
 	_ace_squad.spawn(mode, _aircraft_scene, _create_enemy, player_aircraft,
 		bullet_manager, missile_manager, _squads)
+	# BOSS 登场：淡出泛用战斗曲，淡入 BOSS 专用曲
+	AudioManager.crossfade_music("boss", 2.0)
 
 # ══════════════════════════════════════════════
 #  敌机创建（核心工厂函数）

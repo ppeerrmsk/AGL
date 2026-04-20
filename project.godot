@@ -19,6 +19,7 @@ config/icon="res://icon.svg"
 
 EventLogger="*res://scripts/event_logger.gd"
 LocaleManager="*res://scripts/locale_manager.gd"
+AudioManager="*res://scripts/audio/audio_manager.gd"
 
 [display]
 

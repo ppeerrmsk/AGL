@@ -67,6 +67,7 @@ var weapon_mode: int = WeaponMode.GUN
 var missiles_remaining: int = 0
 var secondary_missiles_remaining: int = 0  ## 副导弹（空对地等）剩余数
 var _missile_cooldown: float = 0.0
+var _sfx_gun_cd: float = 0.0  ## 机炮音效节流（每 0.5s 最多一次），防扫射刷声道
 var _crank_timer: float = 0.0          ## 发射后保持照射计时（秒），> 0 时飞机维持稳定航向
 const CRANK_DURATION: float = 8.0      ## 发射后保持照射的时长
 const LOCK_STABLE_BUFFER: float = 1.0  ## 锁定后额外稳定时间才允许发射（AI）
@@ -2152,6 +2153,11 @@ func _update_gun(delta: float) -> void:
 		var bullet_dir := _gun_lead_heading + randf_range(-spread_rad, spread_rad)
 		var muzzle_pos := global_position + Vector2(sin(heading), -cos(heading)) * 20.0
 		bullet_manager.spawn_bullet(muzzle_pos, bullet_dir, gun.muzzle_velocity, self, gun.bullet_damage)
+		# 音效：连射节流 0.5s 一次，防每颗子弹叠声道
+		if _sfx_gun_cd <= 0.0:
+			_sfx_gun_cd = 0.5
+			var gun_sfx := "gun_long" if gun_extra_barrels >= 2 else "gun_fire"
+			AudioManager.play_sfx_2d(gun_sfx, muzzle_pos, 7.0)
 		# 多管齐射：额外射出左右偏角子弹
 		if gun_extra_barrels >= 2:
 			var fan_angle := deg_to_rad(15.0)
@@ -2679,6 +2685,7 @@ func _log_threat_picture(context: String) -> void:
 ## SARH 导弹：一次只锁定一个目标，选最容易命中的
 func _update_missile(delta: float) -> void:
 	_missile_cooldown = maxf(_missile_cooldown - delta, 0.0)
+	_sfx_gun_cd = maxf(_sfx_gun_cd - delta, 0.0)
 	_crank_timer = maxf(_crank_timer - delta, 0.0)
 	_msl_block_log_timer = maxf(_msl_block_log_timer - delta, 0.0)
 
@@ -2821,6 +2828,7 @@ func _fire_missile_at(target_unit: CombatUnit, msl: MissileParams, is_secondary:
 			msl.display_name if msl.display_name else "missile",
 			_log_unit_name(target_unit), dist_m, remaining])
 	missile_manager.spawn_missile(self, target_unit, msl)
+	AudioManager.play_sfx_2d("missile_launch" if randf() < 0.5 else "missile_launch_alt", global_position, -12.0)
 	if not infinite_ammo:
 		if is_secondary:
 			secondary_missiles_remaining -= 1
@@ -2923,6 +2931,9 @@ func _fire_multi_lock_salvo(msl: MissileParams) -> bool:
 				missiles_remaining - 1, i + 1, fire_count,
 				hdg_deg, tgt_abs_brg, off_axis_deg, lock_val])
 		missile_manager.spawn_missile(self, tgt, msl)
+		# 音效：齐射整体只响一下（听感上是"一次发射"）
+		if i == 0:
+			AudioManager.play_sfx_2d("missile_launch" if randf() < 0.5 else "missile_launch_alt", global_position, -12.0)
 		if not infinite_ammo:
 			missiles_remaining -= 1
 

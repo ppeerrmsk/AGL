@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://d13sjl8i7mh2v"
+path="res://.godot/imported/F-16_Fighting Falcon_ Medium_distance_04.wav-6244af266ae2623b9a0f9e4f6beb2cf6.sample"
+
+[deps]
+
+source_file="res://audio/sfx/F-16_Fighting Falcon_ Medium_distance_04.wav"
+dest_files=["res://.godot/imported/F-16_Fighting Falcon_ Medium_distance_04.wav-6244af266ae2623b9a0f9e4f6beb2cf6.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

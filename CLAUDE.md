@@ -91,6 +91,14 @@ AGL/
 │       ├── map_feature_renderer.gd # 主地图 (Sprite 底图 + shader)
 │       ├── map_manual_background.gd # @tool 编辑器参考预览
 │       └── tactical_map.gd        # 战术缩略图 (CRT 风)
+│   └── audio/
+│       ├── audio_manager.gd       # AutoLoad：BGM + SFX + UI + 播放列表 + 玩家引擎音 + 菜单模糊
+│       └── audio_settings_panel.gd # 主菜单"音频设置"叠加面板（4 条 Bus 滑条 + 静音 + 保存）
+├── audio/
+│   ├── music/                 # BGM .ogg（Vorbis Q5, 44.1kHz stereo）
+│   ├── sfx/                   # 世界音效 .wav（PCM mono, 44.1kHz, ≤ 2s）
+│   ├── ui/                    # 界面音效 .wav
+│   └── radio/                 # 无线电语音（Step 2 预留）
 ├── scripts/tools/             # 开发工具（不进打包）
 │   ├── bake_tokyo_bay.py       # OSM GeoJSON → tokyo_bay.json
 │   └── download_basemap.py     # CartoDB 瓦片 → 底图 PNG
@@ -108,6 +116,8 @@ AGL/
 `project.godot [autoload]`:
 1. **CallsignDB** — 呼号分配器（每架飞机 `_ready()` 时调用 `CallsignDB.allocate()`）
 2. **EventLogger** — 全局事件环形缓冲区（60 秒窗口，F9 导出）
+3. **LocaleManager** — i18n 本地化，启动读 `user://locale.cfg`
+4. **AudioManager** — 音频总线 + BGM + SFX + UI + 播放列表；详见 [docs/systems/audio.md](docs/systems/audio.md)
 
 ### 类继承体系
 
@@ -292,6 +302,8 @@ Resource
 | `event_logger.gd` | EventLogger (AutoLoad) | [共享] 全局事件环形日志 | `log_event:22` `dump_to_file:31` |
 | `callsign_db.gd` | CallsignDB (AutoLoad) | [共享] 呼号分配+回收 | `allocate` / `release` |
 | `locale_manager.gd` | LocaleManager (AutoLoad) | [共享] i18n 控制：启动读 user://locale.cfg（zh/en/ja），主菜单按钮切换+持久化+重载场景 | `_ready` `set_locale_persistent(code)` `get_current_locale()` `trm(key)` — 详见 [docs/reference/i18n.md](docs/reference/i18n.md) |
+| `audio/audio_manager.gd` | AudioManager (AutoLoad) | [共享] 音频总控：4 条 Bus（Music/SFX/UI/Radio）程序化创建，SFX 挂远距无线电效果链；32 SFX 池，屏幕外静音；双播放器 crossfade；playlist 轮播；菜单 muffle；玩家引擎环境音 | `play_music` `stop_music` `crossfade_music` `play_music_playlist` `set_music_muffled` `play_sfx_2d` `play_ui` `set_bus_volume_linear` `start_player_engine` `save_settings` — 详见 [docs/systems/audio.md](docs/systems/audio.md) |
+| `audio/audio_settings_panel.gd` | `AudioSettingsPanel extends CanvasLayer` | [共享] 音频设置面板（4 条 Bus 滑条 + 静音 + 恢复默认 + 保存到 user://audio.cfg） | `open` `close_panel` |
 
 ### 核心设计决策
 
@@ -431,6 +443,7 @@ Resource
 - [docs/systems/missile-system.md](docs/systems/missile-system.md) — 导弹系统
 - [docs/systems/radar-system.md](docs/systems/radar-system.md) — 雷达系统
 - [docs/systems/squad-tactics-design.md](docs/systems/squad-tactics-design.md) — 编队战术设计
+- [docs/systems/audio.md](docs/systems/audio.md) — 音频系统（Bus / BGM 轮播 / SFX 门禁 / 玩家引擎音 / 菜单模糊）
 - [docs/systems/aircraft-params.md](docs/systems/aircraft-params.md) — 飞机参数字段说明
 
 **查询手册**（docs/reference/）
