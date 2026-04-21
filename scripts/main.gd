@@ -227,13 +227,30 @@ func _update_radar_locks(delta: float) -> void:
 				unit.radar_targets.erase(other)
 				continue
 
-			if unit.is_in_radar_cone(other.global_position):
+			var in_cone := unit.is_in_radar_cone(other.global_position)
+			# ECM 吊舱（战区奖励）：目标自身缩短敌方雷达有效距离
+			if in_cone and other is Aircraft and other.ecm_range_mult < 1.0 \
+					and unit.params and "radar_range" in unit.params:
+				var ecm_range: float = unit.params.radar_range * other.ecm_range_mult
+				if unit.global_position.distance_to(other.global_position) > ecm_range:
+					in_cone = false
+			if in_cone:
 				# 在锥内：累加照射时间（低空目标更难锁定）
 				var lock_rate := _lock_rate_for_tier(other.get_altitude_tier())
-				# 云中高空目标：锁定速率减半（用缓存的采样结果）
-				if _weather and other.get_altitude_tier() == CombatUnit.AltitudeTier.HIGH \
-						and _cached_is_in_cloud(other):
-					lock_rate *= 0.5
+				# 云层锁定衰减（与 survivor_mode 保持一致）
+				if _weather and _cached_is_in_cloud(other):
+					if other is Aircraft and other.cloud_lock_stealth:
+						lock_rate *= 0.1
+					elif other.get_altitude_tier() == CombatUnit.AltitudeTier.HIGH:
+						lock_rate *= 0.5
+				# 目标自身的锁定抗性（强化吊舱升级）
+				if other is Aircraft and other.lock_resistance_mult > 1.0:
+					lock_rate /= other.lock_resistance_mult
+				# 硬下限：effective_lock_time = threshold / rate ≤ MAX_EFFECTIVE_LOCK_TIME_S
+				var shooter_threshold: float = unit.params.lock_time if unit.params else 3.0
+				var min_rate: float = shooter_threshold / CombatUnit.MAX_EFFECTIVE_LOCK_TIME_S
+				if lock_rate < min_rate:
+					lock_rate = min_rate
 				var prev: float = unit.radar_targets.get(other, 0.0)
 				unit.radar_targets[other] = prev + step_delta * lock_rate
 			else:
@@ -252,6 +269,7 @@ func _update_radar_locks(delta: float) -> void:
 		var lock_time_val: float
 		if unit is Aircraft and unit.params:
 			lock_time_val = unit.params.lock_time
+			lock_time_val *= unit._executioner_lock_mult()  # 侩子手：×0.90/层
 		elif unit is GroundUnit and unit.params:
 			lock_time_val = unit.params.lock_time
 		else:

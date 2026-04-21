@@ -16,6 +16,21 @@ var pilot_stamina: float = 100.0  ## 飞行员当前耐力
 # --- 目标 ---
 var target_position: Vector2 = Vector2.INF  ## 世界坐标, INF=无目标
 var keep_target_on_arrival: bool = false    ## true=外部管理target_position，到达时不清除
+
+## ── 预测路径缓存（世界坐标，用于 UI 预测线/航向箭头的稳定渲染）──
+## 关键原则：一旦算出就锁定在世界坐标里不动，直到真正需要才重算。
+## 原因：每帧重仿会受 Forward Euler 积分固有振荡 + bank 反馈控制环的影响，仿真器
+## 本身就有 ±10px 级别的输出抖动，靠低通/平均都压不掉（那是主信号的一部分）。
+## 解法：事件驱动重算 —— 目标变了 / 飞机偏离路径 / 缓存快消耗完 才重算。
+## 平时每帧只做 O(N) 的 trim（找最近缓存点往前截取），零仿真 → 零抖动。
+var predicted_path_cache: PackedVector2Array = PackedVector2Array()
+var predicted_path_target: Vector2 = Vector2.INF
+var predicted_path_cancel_reached: bool = false
+var predicted_path_progress_idx: int = 0          ## 飞机在缓存上的位置（单调递增，防止绕圈时闪烁）
+const PREDICTED_PATH_RETARGET_THRESHOLD := 20.0   ## 目标偏移超过此值触发重算
+const PREDICTED_PATH_DRIFT_THRESHOLD := 90.0      ## 飞机离最近缓存点超过此值（实际物理偏离预测）触发重算
+const PREDICTED_PATH_MIN_REMAINING := 12           ## 从飞机最近点到缓存末尾剩余点数不足时触发重算
+const PREDICTED_PATH_SEARCH_WINDOW := 30          ## progress_idx 附近的前瞻搜索窗口（不全局扫描，避免绕圈路径闪烁）
 var formation_mode: bool = false            ## true=编队托管模式，直接复制长机状态
 var _formation_leader: Aircraft = null      ## 编队长机引用（formation_mode时使用）
 var _formation_blend: float = 1.0           ## 编队混合度（0=自主, 1=完全托管，用于过渡）
@@ -172,6 +187,36 @@ var gun_reload_progress: float = 0.0     ## 0.0-1.0, HUD 读取用
 var infinite_fuel: bool = false      ## 生存模式：无限燃油
 var orbit_speed_cap: float = 0.0     ## AI 轨道限速（m/s），0=不限制。由 AIController 设置
 var bullet_dodge_chance: float = 0.0  ## 机炮弹丸闪避概率（装甲强化升级）
+var lock_resistance_mult: float = 1.0  ## 雷达锁定抗性（强化吊舱升级，每层 ×1.35），敌人对我累积锁定速率 ÷此值
+var altitude_authority_mult: float = 1.0  ## 高度操纵权威（云雾机动战区奖励），_update_altitude 三处同步放大
+var cloud_lock_stealth: bool = false      ## 云雾隐身（云雾机动战区奖励）：云中任意高度档 lock_rate ×0.1
+var ecm_range_mult: float = 1.0           ## ECM 吊舱（战区奖励）：敌人雷达对我的有效距离 × 此值（0.75 = 缩短 25%）
+var xp_multiplier: float = 1.0            ## 经验倍率（xp_mult 升级）：击杀获得 XP × 此值，硬顶 1.4
+# ── 战区奖励 v2 ──
+## 冲击吸收（战区奖励）：受到 ≥2 dmg 时，floor(dmg × SHOCK_ABSORB_RATIO) HP 缓慢回复
+## 一击致死时不触发（必死）。1 dmg 时 floor(0.4)=0，自然不触发。
+var shock_absorb_active: bool = false
+var shock_absorb_pending: float = 0.0     ## 待回复的 HP 池
+const SHOCK_ABSORB_RATIO: float = 0.4
+const SHOCK_ABSORB_RATE: float = 1.0      ## HP/秒回复速率（慢，强调"逐渐恢复"而非"立即抵消"）
+## 眼镜蛇机动（机动轴常规升级，单层）：
+## 仅在 evasion_mode=ON 时生效；玩家被来袭导弹/后方机炮追尾时自动触发。
+## 触发后 cobra 提供 ~3.3 秒无敌窗口（PITCH+HOLD+RECOVER+POST_IMMUNITY），
+## 期间 _update_flares 已有的 `if _mf.is_active: return` 守卫保证不浪费 flare。
+var cobra_skill_active: bool = false
+var _cobra_skill_cooldown: float = 0.0
+const COBRA_SKILL_COOLDOWN: float = 25.0    ## 自动触发间冷却
+const COBRA_MISSILE_TRIGGER_PX: float = 300.0   ## 来袭导弹近到此距离才触发（接近命中那一刻）
+const COBRA_TAIL_DETECT_PX: float = 900.0       ## 后方追尾敌机此距离内 + 正在开火即触发
+## 侩子手（战区奖励）：2 杀触发首层，之后每多 1 杀 +1 层（max 5）
+## 公式：stacks = clamp(kills - 1, 0, 5)
+##   kills=0,1 → 0；kills=2 → 1；kills=3 → 2；kills=4 → 3；kills=5 → 4；kills=6+ → 5
+## 受到任意伤害立即清零所有层数 + 计数
+var executioner_active: bool = false
+var executioner_kills: int = 0            ## 自上次受伤以来的击杀数
+var executioner_stacks: int = 0           ## 当前层数 0-5
+const EXECUTIONER_FIRST_STACK_KILLS: int = 2  ## 首层所需击杀数（之后每杀 +1 层）
+const EXECUTIONER_MAX_STACKS: int = 5
 var flare_lock_immunity: float = 0.0  ## 释放热诱弹后的锁定免疫时间（秒）
 var _lock_immunity_timer: float = 0.0  ## 当前剩余锁定免疫时间
 var kill_heal_amount: float = 0.0     ## 击杀敌机时回复的HP
@@ -244,7 +289,7 @@ const STRAFE_HEADING_DEG := 30.0                 ## 攻击进入航向对齐阈�
 const STRAFE_EXTEND_FWD_PX := 1000.0             ## 延伸飞行前方距离（像素）
 const STRAFE_TURNBACK_HDG_DEG := 45.0            ## 回转航向阈值（度）
 const STRAFE_TURNBACK_RATIO := 0.8               ## 回转距离比
-const STRAFE_ATTACK_ALT_M := 1500.0              ## 攻击高度（米）
+const STRAFE_ATTACK_ALT_M := 500.0               ## 攻击高度（米，低空掠袭匹配地面目标）
 const STRAFE_CLIMB_ALT_M := 3000.0               ## 脱离爬升高度（米）
 const GROUND_FIRE_CONE_MULT := 1.5               ## 对地火控角放宽倍率
 const ROCKET_FIRE_ALT_DIFF_M := 800.0            ## 火箭弹发射最大高度差（米）
@@ -679,6 +724,7 @@ func _physics_process(delta: float) -> void:
 	_update_speed(delta)
 	_update_altitude(delta)
 	_update_fuel(delta)
+	_update_shock_absorb(delta)
 	_update_stall()
 	_check_ground_crash()
 	_update_g_load()
@@ -688,6 +734,8 @@ func _physics_process(delta: float) -> void:
 	_update_ciws(delta)
 	_update_rocket(delta)
 	_update_missile(delta)
+	# 眼镜蛇技能必须在 _update_flares 之前 —— 一旦激活，flare 会因机动 active 而跳过
+	_update_cobra_skill(delta)
 	_update_flares(delta)
 	_update_visuals()
 	_log_ac_tick(delta)
@@ -746,6 +794,13 @@ func _log_ac_tick(delta: float) -> void:
 # ========== 物理演算 ==========
 
 func _update_target_heading() -> void:
+	# Herbst 激活期间冻结目标航向 —— 模块自己控制 heading/rotation，
+	# 不能让 _cached_target_heading 根据旧 target_position 持续刷新
+	# （下游 _update_bank 虽然已被 Herbst 守卫拦住，但其它链路也可能读 _cached_target_heading）
+	# 详见 docs/changelogs/player-ai-log.md 2026-04-21 (6)
+	var _hm_th := get_herbst()
+	if _hm_th and _hm_th.is_active:
+		return
 	if target_position == Vector2.INF:
 		return
 	var diff := target_position - global_position
@@ -756,6 +811,9 @@ func _update_target_heading() -> void:
 	if dist < arrival_dist and combat_target == null and not keep_target_on_arrival:
 		target_position = Vector2.INF
 		_evasion_override = false  # 到达目标后恢复规避
+		# 清除预测路径缓存（防止下次点击前残留旧弧线）
+		predicted_path_cache.clear()
+		predicted_path_target = Vector2.INF
 		return
 	var _target_heading := atan2(diff.x, -diff.y)
 	_cached_target_heading = _target_heading
@@ -771,11 +829,16 @@ func _update_bank(delta: float) -> void:
 	# 3~4°/frame，heading_diff 剧变 → target_bank 在 ±max 之间翻转（bug 2026-04-20 (7)）。
 	# 冻结 bank 也不对（会让进 TURN 时 ±85° 高 bank 持续到 ACCEL 结束，视觉 bank_compress
 	# 严重压扁 X 轴，飞机图标看起来被斜着画（bug 2026-04-20 (9)））。
-	# 正确做法：TURN 阶段强制 bank 向 0 衰减 —— 真实 post-stall yaw J-Turn 就是放平
-	# 机翼纯绕 yaw 轴旋转，视觉转向由 Herbst.visual_offset 处理。
-	# 详见 docs/changelogs/player-ai-log.md 2026-04-20 (9)
+	# 正确做法：Herbst 全程（DECEL/TURN/ACCEL）都强制 bank 向 0 衰减 —— 真实 post-stall
+	# yaw J-Turn 就是放平机翼纯绕 yaw 轴旋转，视觉转向由 Herbst.visual_offset 处理。
+	# 2026-04-20 (9) 只覆盖 TURN，但 DECEL/ACCEL 期间 heading 也是冻结的（_update_heading
+	# skip is_active 整段），而 AI 在 bvr_only 分支 Herbst 激活时每 tick 都会 fall through
+	# 到 flee→_disengage→boss re-engage 闭环（ai_controller.gd:1216-1220），target_position
+	# 在「远离玩家」和「LEAD_PURSUIT」之间反复跳 → target_bank 在 ±max 翻跳 → bank_compress
+	# 抖动 → 机身视觉颤抖（bug 2026-04-21）。
+	# 详见 docs/changelogs/player-ai-log.md 2026-04-20 (9) + 2026-04-21
 	var _hm_bank := get_herbst()
-	if _hm_bank and _hm_bank.phase == HerbstManeuver.Phase.TURN:
+	if _hm_bank and _hm_bank.is_active:
 		var roll_rate_herbst: float = params.roll_rate if params else 4.0
 		bank_angle = move_toward(bank_angle, 0.0, roll_rate_herbst * delta)
 		return
@@ -829,11 +892,20 @@ func _update_bank(delta: float) -> void:
 		var t_roll := absf(bank_angle) / maxf(rr_val, 0.5)
 		var anticipated_change := current_turn_rate * t_roll * 0.5
 		if signf(anticipated_change) == signf(heading_diff):
-			# 不让补偿超过 heading_diff 本身（避免反符号过冲）
-			if absf(anticipated_change) >= absf(heading_diff):
-				heading_diff = 0.0
-			else:
-				heading_diff -= anticipated_change
+			# 软钳位（避免反馈环 bang-bang 振荡）：
+			# 旧代码在 `|anticipated| >= |heading_diff|` 时把 heading_diff 硬归零 →
+			# target_bank=0 → bank 回中一档 → 下一 tick turn_rate 缩水 → anticipated 跟着缩水
+			# → heading_diff 原值重现未被吃完 → target_bank=±max → bank 回弹。
+			# 结果 bank 在 ~max / (max - 5°) 两档以 ~4Hz 来回切，G 也跟着抖 5↔13
+			# —— 视觉上就是 F-47 在近距咬尾（heading_diff ≈ 2~5°）时机身左右抽搐。
+			# F-47 CLOSE_FIGHTER 的 full_bank_diff=0.033 rad（≈1.9°）阈值极紧，
+			# target_bank 在此附近接近阶跃函数，放大了振荡。
+			# 改成最多吃 heading_diff 的 80%，保留 20% 残余命令让 target_bank 留在
+			# 平滑 lerp 区（而非阈值另一侧的 0），避免跨阈值跳变。
+			# 详见 docs/changelogs/player-ai-log.md 2026-04-21 (9)
+			var cap: float = absf(heading_diff) * 0.8
+			var sub: float = minf(absf(anticipated_change), cap) * signf(heading_diff)
+			heading_diff -= sub
 
 	var max_bank := _max_bank_angle()
 	var in_combat := combat_target != null
@@ -1002,7 +1074,7 @@ func _update_speed(delta: float) -> void:
 	target_ms = maxf(target_ms, min_safe_ms)
 
 	var accel_rate := params.acceleration if params else 50.0
-	var decel_rate := params.deceleration if params else 80.0
+	var decel_rate := (params.deceleration if params else 80.0) * _executioner_decel_mult()  # 侩子手：+10%/层
 
 	# 加力燃烧：提升加速度
 	if is_afterburner:
@@ -1033,15 +1105,20 @@ func _update_speed(delta: float) -> void:
 
 func _update_altitude(delta: float) -> void:
 	var alt_diff := target_altitude - altitude
-	var max_climb := params.climb_rate_max if params else 250.0
-	# 简化：根据高度差决定爬升/下降
+	# altitude_authority_mult 同步放大三处，避免只改 max_climb 被指数尾巴拖慢：
+	#   ① 钳制上限（前段快速接近）
+	#   ② 增益 0.1（后段指数收敛）
+	#   ③ 平滑 lerp 速率（响应延迟）
+	var alt_mult: float = altitude_authority_mult
+	var max_climb := (params.climb_rate_max if params else 250.0) * alt_mult
+	var gain := 0.1 * alt_mult
+	var smooth_rate := 2.0 * alt_mult
 	var target_vs: float
 	if abs(alt_diff) < 10.0:
 		target_vs = 0.0
 	else:
-		target_vs = clampf(alt_diff * 0.1, -max_climb, max_climb)
-	# 平滑过渡
-	vertical_speed = lerpf(vertical_speed, target_vs, delta * 2.0)
+		target_vs = clampf(alt_diff * gain, -max_climb, max_climb)
+	vertical_speed = lerpf(vertical_speed, target_vs, delta * smooth_rate)
 	altitude += vertical_speed * delta
 	altitude = maxf(altitude, 0.0)
 
@@ -1147,6 +1224,7 @@ func _stall_speed() -> float:
 
 func _max_speed_at_altitude() -> float:
 	var max_spd := params.max_speed if params else 2100.0
+	max_spd *= _executioner_speed_mult()  # 侩子手：+5%/层
 	# 简化：高空速度略降
 	var density_ratio := exp(-altitude / AIR_DENSITY_SCALE_M)
 	var v := max_spd * sqrt(density_ratio)
@@ -1177,6 +1255,132 @@ func tier_above() -> int:
 ## 获取比当前档位低一档（下限 LOW）
 func tier_below() -> int:
 	return maxi(get_altitude_tier() - 1, AltitudeTier.LOW)
+
+# ========== 战区奖励 v2 辅助 ==========
+
+## 冲击吸收：每帧把 shock_absorb_pending 中累积的 HP 慢慢还给玩家
+func _update_shock_absorb(delta: float) -> void:
+	if shock_absorb_pending <= 0.0 or is_destroyed:
+		return
+	if not params:
+		return
+	var step: float = minf(shock_absorb_pending, SHOCK_ABSORB_RATE * delta)
+	var max_hp: float = params.max_hp
+	var room: float = max_hp - hp
+	if room <= 0.0:
+		shock_absorb_pending = 0.0
+		return
+	step = minf(step, room)
+	hp += step
+	shock_absorb_pending -= step
+
+## 侩子手：外部（spawner）在玩家击杀敌机后调用，自增计数并按需升层
+## 公式：stacks = clamp(kills - (FIRST_STACK_KILLS - 1), 0, MAX) = clamp(kills - 1, 0, 5)
+##   首层需要 2 杀，之后每多 1 杀 +1 层
+func bump_executioner_kill() -> void:
+	if not executioner_active:
+		return
+	executioner_kills += 1
+	var target_stacks: int = clampi(executioner_kills - (EXECUTIONER_FIRST_STACK_KILLS - 1), 0, EXECUTIONER_MAX_STACKS)
+	if target_stacks > executioner_stacks:
+		executioner_stacks = target_stacks
+		EventLogger.log_event("EXECUTIONER", _log_name(), "stack +1 (now %d, kills=%d)" % [executioner_stacks, executioner_kills])
+
+## 眼镜蛇机动技能：每帧检查触发条件，满足则激活 cobra
+## 触发要求（全部满足）：
+##   1. 玩家拥有该升级（cobra_skill_active）
+##   2. 战术偏好开 + 规避模式 ON
+##   3. 当前没有正在进行的机动
+##   4. 冷却归零
+##   5. 来袭导弹 ≤ COBRA_MISSILE_TRIGGER_PX OR 后方有敌机追尾开火
+func _update_cobra_skill(delta: float) -> void:
+	if not cobra_skill_active:
+		return
+	_cobra_skill_cooldown = maxf(_cobra_skill_cooldown - delta, 0.0)
+	if not use_tactical_preference or not evasion_mode:
+		return
+	if _cobra_skill_cooldown > 0.0:
+		return
+	var mf := get_maneuver()
+	if mf == null:
+		return
+	if mf.is_active:
+		return
+	if not (_cobra_detect_imminent_missile() or _cobra_detect_tail_gun()):
+		return
+	# 触发：技能模式允许重复使用，强制重置 is_used 让 activate 通过
+	mf.is_used = false
+	if mf.activate():
+		_cobra_skill_cooldown = COBRA_SKILL_COOLDOWN
+
+## 检测来袭导弹是否已逼近触发距离 + 真的有命中可能
+## 三重过滤防止"远处擦边导弹"也触发 cobra：
+##   1. 距离 ≤ COBRA_MISSILE_TRIGGER_PX
+##   2. has_guidance == true（失锁/被诱骗的导弹直线飞，不构成威胁）
+##   3. 导弹机头基本朝向玩家（dot ≥ 0.5，约 ±60° 锥）— 已飞过头的不重复触发
+func _cobra_detect_imminent_missile() -> bool:
+	if not missile_manager:
+		return false
+	var trigger_sq: float = COBRA_MISSILE_TRIGGER_PX * COBRA_MISSILE_TRIGGER_PX
+	for child in missile_manager.get_children():
+		if not child is Missile:
+			continue
+		var m: Missile = child as Missile
+		if not m.is_active or m.is_flare_jammed or m.target != self:
+			continue
+		if not m.has_guidance:
+			continue
+		if global_position.distance_squared_to(m.global_position) > trigger_sq:
+			continue
+		# 导弹必须朝玩家飞才算威胁
+		var to_me := (global_position - m.global_position).normalized()
+		var m_heading := Vector2(sin(m.heading), -cos(m.heading))
+		if m_heading.dot(to_me) < 0.5:
+			continue
+		return true
+	return false
+
+## 检测后方是否有敌机正在以机炮追尾（敌机在我后半球 + 机头朝我 + 正在开火）
+func _cobra_detect_tail_gun() -> bool:
+	var trigger_sq: float = COBRA_TAIL_DETECT_PX * COBRA_TAIL_DETECT_PX
+	var my_fwd := Vector2(sin(heading), -cos(heading))
+	for u in CombatUnit.all_units:
+		if u == self or u.team == team or u.is_destroyed:
+			continue
+		if not u is Aircraft:
+			continue
+		var enemy: Aircraft = u as Aircraft
+		if not enemy.is_firing:
+			continue
+		if global_position.distance_squared_to(enemy.global_position) > trigger_sq:
+			continue
+		var to_enemy := (enemy.global_position - global_position).normalized()
+		# 要求敌机在我后半球（dot < -0.3，约 110° 后向锥）
+		if my_fwd.dot(to_enemy) > -0.3:
+			continue
+		# 要求敌机头朝我（dot 与 -to_enemy ≥ 0.7，约 ±45°）
+		var enemy_fwd := Vector2(sin(enemy.heading), -cos(enemy.heading))
+		if enemy_fwd.dot(-to_enemy) < 0.7:
+			continue
+		return true
+	return false
+
+## 侩子手 4 个属性乘数（仅在 executioner_active 且 stacks > 0 时偏离 1.0）
+func _executioner_speed_mult() -> float:
+	# 每层 +5% 最大速度，5 层 +25%
+	return 1.0 + 0.05 * float(executioner_stacks) if (executioner_active and executioner_stacks > 0) else 1.0
+
+func _executioner_decel_mult() -> float:
+	# 每层 +10% 减速能力，5 层 +50%
+	return 1.0 + 0.10 * float(executioner_stacks) if (executioner_active and executioner_stacks > 0) else 1.0
+
+func _executioner_reload_mult() -> float:
+	# 每层 -8% 装填时间（=×0.92），5 层 ×0.659（-34%）
+	return pow(0.92, executioner_stacks) if (executioner_active and executioner_stacks > 0) else 1.0
+
+func _executioner_lock_mult() -> float:
+	# 每层 -10% 锁定时间（=×0.90），5 层 ×0.590（-41%）
+	return pow(0.90, executioner_stacks) if (executioner_active and executioner_stacks > 0) else 1.0
 
 # ========== 燃油 / 能量管理 ==========
 
@@ -1215,11 +1419,18 @@ func _update_energy_management() -> void:
 	var cruise := params.cruise_speed if params else 900.0
 
 	if combat_target != null and is_instance_valid(combat_target) and not combat_target.is_destroyed:
-		# 地面攻击模式：保持中等速度，不做复杂能量管理
+		# 地面攻击模式（2026-04-21，详见 docs/changelogs/player-ai-log.md）
+		# 分武器模式处理：
+		#   - 机炮 / 火箭：地面目标固定，不需要照射；加力掠过 strafe，降低被 AAA 命中概率
+		#   - 导弹：维持照射时间，cruise×0.7 保证锁定稳定
 		if combat_target is GroundUnit:
-			var cruise_ms := cruise / 3.6
-			target_speed_kmh = cruise * 0.7  # 攻击速度 = 巡航 70%
-			_set_afterburner(false)
+			if weapon_mode == WeaponMode.MISSILE:
+				target_speed_kmh = cruise * 0.7
+				_set_afterburner(false)
+			else:
+				var approach_spd := cruise * cb.approach_speed_mult
+				target_speed_kmh = approach_spd
+				_set_afterburner(speed * 3.6 < approach_spd - 50.0 and fuel > 0.0)
 			return
 		# AI 战术机动模式：AI 控制器已设定速度，仅管理加力燃烧器
 		if ai_override_pursuit:
@@ -1369,13 +1580,18 @@ func _update_energy_management() -> void:
 
 			# ── 慢目标速度约束（直升机/轰炸机/UAV 等）──
 			# 判据：目标速度 < 自己巡航速度的 40%（稳定判据，不依赖 my_kmh，避免振荡）
-			# 目的：阻止下面 _in_rear_hemisphere 分支把玩家拉到 max_speed + AB
-			#       保持在 cruise 附近（充足机动性，同时不超音速冲过头）
-			# 注意：不再进一步降速到 tgt×1.3 —— 太慢会导致 G-lim 过低，转弯半径极大
-			# 反而被动等待目标经过。cruise 是效率与机动性的平衡点
+			# 按 BFM 分两种情况（2026-04-21，详见 docs/changelogs/player-ai-log.md）：
+			#   A. 已咬尾（后半球 + 机头±30° 内）→ 目标速度 × 1.2，保持射程稳定射击
+			#   B. 对头/横切/剪式 → 压到角点速度 _corner_speed_kmh()，小半径高角速度
+			#      等敌人过顶后以最短时间拉 180° 反咬后半球
+			# 公式全部派生自当前 params（stall / G-limit / gun_range），升级自动生效
 			var is_slow_target := is_slow_target_persistent
 			if is_slow_target:
-				target_speed_kmh = maneuver_speed  # cruise × maneuver_speed_mult ≈ cruise
+				var tail_aligned := _in_rear_hemisphere and heading_diff_deg < 30.0
+				if tail_aligned:
+					target_speed_kmh = maxf(combat_min_kmh, tgt_speed_kmh * 1.2)
+				else:
+					target_speed_kmh = _corner_speed_kmh()
 				_set_afterburner(false)
 			elif is_firing:
 				target_speed_kmh = maneuver_speed
@@ -1538,6 +1754,13 @@ func clear_combat_target() -> void:
 
 ## 追踪逻辑：三阶段 —— 拦截 / 咬尾 / 纯追击+机会射击
 func _update_combat(_delta: float) -> void:
+	# Herbst 激活期间完全停摆：OVERSHOOT / lead pursuit / 机炮 lead 这些分支都会写
+	# target_position、is_firing、_gun_lead_heading，和 Herbst 模块抢 heading/position 控制权。
+	# 详见 docs/changelogs/player-ai-log.md 2026-04-21 (6)
+	var _hm_uc := get_herbst()
+	if _hm_uc and _hm_uc.is_active:
+		is_firing = false
+		return
 	if combat_target == null:
 		return
 	if not is_instance_valid(combat_target) or combat_target.is_destroyed:
@@ -2488,10 +2711,22 @@ func _missile_cannot_hit_but_gun_can() -> bool:
 	var gun_range_m: float = params.gun.max_range
 	if dist_m > gun_range_m:
 		return false  # 机炮也打不到
-	if not params.missile:
-		return true  # 无导弹只能用机炮
+	# 选取"将要发射"的导弹类型对应的 min_range（与 _update_missile 选择逻辑一致）：
+	# 地面目标 → AGM（secondary），空中目标 → AAM（primary）
+	# 2026-04-21 bug 修复：原来固定用 primary min_range，AGM min 300m 的机会被
+	# AAM 500m 门槛吞掉，导致靠近 SAM 时 weapon_mode 被切到 GUN 再也回不来
+	var target_is_ground: bool = combat_target is GroundUnit
+	var effective_missile: MissileParams = null
+	if target_is_ground and params.secondary_missile and secondary_missiles_remaining > 0:
+		effective_missile = params.secondary_missile
+	elif params.missile and missiles_remaining > 0:
+		effective_missile = params.missile
+	elif target_is_ground and params.missile and missiles_remaining > 0:
+		effective_missile = params.missile  # fallback
+	if effective_missile == null:
+		return true  # 无可用导弹只能用机炮
 	# 核心规则：dist 太近（进不了导弹 min_range）且机炮能打 → 用机炮
-	var min_threshold: float = params.missile.min_range
+	var min_threshold: float = effective_missile.min_range
 	# 滞回：已在机炮模式时，需要飞出 min_range + 150m 才切回导弹
 	if weapon_mode == WeaponMode.GUN:
 		min_threshold += WEAPON_MODE_HYSTERESIS_M
@@ -2692,9 +2927,14 @@ func _update_missile(delta: float) -> void:
 	# 导弹装填系统（生存模式）
 	if enable_missile_reload and _missile_reload_active:
 		_missile_reload_timer += delta
-		missile_reload_progress = clampf(_missile_reload_timer / missile_reload_duration, 0.0, 1.0)
-		if _missile_reload_timer >= missile_reload_duration:
+		# 侩子手：装填时间 ×0.92/层，5 层 ≈ ×0.66
+		var eff_reload: float = missile_reload_duration * _executioner_reload_mult()
+		missile_reload_progress = clampf(_missile_reload_timer / eff_reload, 0.0, 1.0)
+		if _missile_reload_timer >= eff_reload:
 			missiles_remaining = params.missile.max_count if params and params.missile else 0
+			# AGM 与 AAM 共享装填（生存模式 AGM 数值 = AAM 克隆，同步补满）
+			if params and params.secondary_missile:
+				secondary_missiles_remaining = params.secondary_missile.max_count
 			_missile_reload_active = false
 			_missile_reload_timer = 0.0
 			missile_reload_progress = 0.0
@@ -3042,12 +3282,14 @@ func _is_in_missile_envelope(target_unit: CombatUnit, msl: MissileParams) -> boo
 
 	return true
 
-## 受到伤害（通用）
+## 受到伤害（通用：导弹/火箭/爆炸等战斗部伤害）
+## 战斗部类伤害：受"弹头穿甲"系数影响，只计一半护甲（见 MISSILE_ARMOR_PENETRATION）
 func take_damage(amount: float) -> void:
 	if is_destroyed:
 		return
 	if survivor_missile_damage_cap > 0.0:
 		amount = minf(amount, survivor_missile_damage_cap)
+	amount = _apply_armor(amount, MISSILE_ARMOR_PENETRATION)
 	_apply_damage(amount)
 
 ## 受到机炮伤害（可被装甲闪避）
@@ -3068,13 +3310,40 @@ func take_bullet_damage(amount: float) -> void:
 		return  # 闪避成功，无视伤害
 	if survivor_bullet_damage_cap > 0.0:
 		amount = minf(amount, survivor_bullet_damage_cap)
+	amount = _apply_armor(amount, 0.0)  # 机炮不穿甲，护甲全额生效
 	_apply_damage(amount)
+
+## 护甲减伤（DOTA 式软上限）：dr = armor_eff / (armor_eff + ARMOR_K)
+## penetration ∈ [0,1]：穿甲系数，导弹=0.5 抵消一半护甲，机炮=0 受全额护甲
+## armor=0 → dr=0，完全兼容现有无护甲飞机
+const ARMOR_K: float = 100.0
+const MISSILE_ARMOR_PENETRATION: float = 0.5
+func _apply_armor(amount: float, penetration: float) -> float:
+	if not params or params.armor <= 0.0:
+		return amount
+	var armor_eff: float = params.armor * (1.0 - clampf(penetration, 0.0, 1.0))
+	if armor_eff <= 0.0:
+		return amount
+	var dr: float = armor_eff / (armor_eff + ARMOR_K)
+	return amount * (1.0 - dr)
 
 func _apply_damage(amount: float) -> void:
 	var old_hp := hp
 	hp -= amount
 	EventLogger.log_event("DAMAGE", _log_name(),
 		"took %.0f damage (hp=%.0f→%.0f)" % [amount, old_hp, hp])
+	# 侩子手：受到任意伤害 → 清零连击与层数
+	if executioner_active and amount > 0.0:
+		if executioner_stacks > 0 or executioner_kills > 0:
+			EventLogger.log_event("EXECUTIONER", _log_name(), "streak broken (was %d kills, %d stacks)" % [executioner_kills, executioner_stacks])
+		executioner_kills = 0
+		executioner_stacks = 0
+	# 冲击吸收：未致死时按比例排队回血（floor，1dmg 自然不触发）
+	if shock_absorb_active and hp > 0.0 and amount >= 2.0:
+		# 重置而非累加：新伤害"断掉"上一次还没回完的回血池，
+		# 只为这次伤害排队 floor(dmg × 0.4) HP。
+		# 设计意图：冲击吸收只救偶发大伤害；被连续打会反复打断回血，惩罚 DPS。
+		shock_absorb_pending = floorf(amount * SHOCK_ABSORB_RATIO)
 	# 族群散开触发：即使自己会被这一击打爆，也要把 scatter 信号传给队友
 	# （设计：某一架被击中时，其余幸存队友立刻转向散开，避免一发打掉一整列）
 	if has_meta("scatter_on_damage") and get_meta("scatter_on_damage"):
@@ -3138,6 +3407,8 @@ func _draw() -> void:
 		_font = ThemeDB.fallback_font
 	if is_destroyed:
 		AircraftRenderer.draw_aircraft_icon_destroyed(self)
+		# 坠毁时仍绘制 tactic popup（例如 UAV "舍身"自爆瞬间会走这里）
+		AircraftRenderer.draw_tactic_popup(self)
 		return
 	# 光学隐形：完全隐形时跳过所有绘制
 	if _cloak_alpha <= 0.0:
@@ -3257,6 +3528,10 @@ func _update_flares(delta: float) -> void:
 	# 战术机动中不释放热诱弹（机动本身提供免疫）
 	var _mf := get_maneuver()
 	if _mf and _mf.is_active:
+		return
+	# 导弹穿透窗口期（cobra 后 / 前一次 flare 后 1s）：所有导弹会直接穿过，
+	# 此时再放 flare 是浪费。防止 cobra 阶段结束后立刻把热诱弹也烧光。
+	if missile_phase_timer > 0.0:
 		return
 	# 隐形中或隐形即将可用时不释放热诱弹（隐形优先于热诱弹）
 	if is_cloaked or suppress_flares:

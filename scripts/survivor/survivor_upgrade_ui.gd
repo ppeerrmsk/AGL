@@ -97,26 +97,39 @@ func show_choices(choices: Array[Dictionary]) -> void:
 		if i < choices.size():
 			_buttons[i].visible = true
 			var cat: String = choices[i].get("category", "")
-			var cat_prefix := ""
-			if cat == "combat":
-				cat_prefix = tr("UPGRADE_CATEGORY_COMBAT_PREFIX")
-			elif cat == "survival":
-				cat_prefix = tr("UPGRADE_CATEGORY_SURVIVAL_PREFIX")
+			var cat_prefix := _axis_prefix(cat)
 			_buttons[i].text = "%s%s\n\n%s" % [cat_prefix, tr(choices[i]["name"]), tr(choices[i]["desc"])]
-			# 根据类别调整边框颜色
+			# 5 轴颜色表
 			var style_normal: StyleBoxFlat = _buttons[i].get_theme_stylebox("normal").duplicate()
 			var style_hover: StyleBoxFlat = _buttons[i].get_theme_stylebox("hover").duplicate()
-			if cat == "combat":
-				style_normal.border_color = Color(0.8, 0.4, 0.3, 0.5)
-				style_hover.border_color = Color(1.0, 0.5, 0.3, 0.8)
-			else:
-				style_normal.border_color = Color(0.3, 0.6, 0.3, 0.5)
-				style_hover.border_color = Color(0.3, 1.0, 0.5, 0.8)
+			var cols := _axis_colors(cat)
+			style_normal.border_color = cols[0]
+			style_hover.border_color = cols[1]
 			_buttons[i].add_theme_stylebox_override("normal", style_normal)
 			_buttons[i].add_theme_stylebox_override("hover", style_hover)
 		else:
 			_buttons[i].visible = false
 	visible = true
+
+## 5 轴前缀（i18n key）
+func _axis_prefix(axis: String) -> String:
+	match axis:
+		"survival": return tr("UPGRADE_AXIS_SURVIVAL_PREFIX")
+		"mobility": return tr("UPGRADE_AXIS_MOBILITY_PREFIX")
+		"missile": return tr("UPGRADE_AXIS_MISSILE_PREFIX")
+		"secondary": return tr("UPGRADE_AXIS_SECONDARY_PREFIX")
+		"electronic_warfare": return tr("UPGRADE_AXIS_EW_PREFIX")
+		_: return ""
+
+## 5 轴边框颜色 [normal, hover]
+static func _axis_colors(axis: String) -> Array:
+	match axis:
+		"survival": return [Color(0.3, 0.6, 0.3, 0.5), Color(0.3, 1.0, 0.5, 0.8)]
+		"mobility": return [Color(0.3, 0.5, 0.8, 0.5), Color(0.4, 0.7, 1.0, 0.8)]
+		"missile": return [Color(0.8, 0.45, 0.2, 0.5), Color(1.0, 0.6, 0.3, 0.8)]
+		"secondary": return [Color(0.8, 0.35, 0.35, 0.5), Color(1.0, 0.5, 0.4, 0.8)]
+		"electronic_warfare": return [Color(0.6, 0.35, 0.7, 0.5), Color(0.8, 0.5, 1.0, 0.8)]
+		_: return [Color(0.5, 0.5, 0.5, 0.5), Color(0.7, 0.7, 0.7, 0.8)]
 
 func _on_choice_pressed(index: int) -> void:
 	if index < _choices.size():

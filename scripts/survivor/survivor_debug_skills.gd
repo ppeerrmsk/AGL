@@ -39,7 +39,7 @@ func _build_ui() -> void:
 	style.set_content_margin_all(16)
 	_panel.add_theme_stylebox_override("panel", style)
 	_panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-	_panel.custom_minimum_size = Vector2(420, 500)
+	_panel.custom_minimum_size = Vector2(460, 680)
 	add_child(_panel)
 
 	_content = VBoxContainer.new()
@@ -93,16 +93,16 @@ func _build_ui() -> void:
 	sep.add_theme_color_override("separator", ThemeColors.CARD_SEPARATOR_UNLOCKED)
 	_content.add_child(sep)
 
-	# 已有技能标题
+	# 技能列表标题
 	var skills_title := Label.new()
-	skills_title.text = "已激活技能"
+	skills_title.text = "所有技能（按轴分类）"
 	skills_title.add_theme_font_size_override("font_size", 13)
 	skills_title.add_theme_color_override("font_color", ThemeColors.TEXT_MUTED)
 	_content.add_child(skills_title)
 
 	# 技能列表（可滚动）
 	_scroll = ScrollContainer.new()
-	_scroll.custom_minimum_size = Vector2(0, 240)
+	_scroll.custom_minimum_size = Vector2(0, 480)
 	_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_content.add_child(_scroll)
 
@@ -160,6 +160,23 @@ func _apply_btn_style(btn: Button, accent: Color) -> void:
 	h.border_color = Color(accent, 0.8)
 	btn.add_theme_stylebox_override("hover", h)
 
+## 5 轴显示顺序与中文标题
+const _AXIS_ORDER: Array[String] = ["survival", "mobility", "missile", "secondary", "electronic_warfare"]
+const _AXIS_TITLES := {
+	"survival": "▸ 生存",
+	"mobility": "▸ 机动",
+	"missile": "▸ 导弹",
+	"secondary": "▸ 副武器",
+	"electronic_warfare": "▸ 电子战",
+}
+const _AXIS_COLORS := {
+	"survival": Color(0.3, 0.7, 0.4),
+	"mobility": Color(0.3, 0.6, 0.9),
+	"missile": Color(0.9, 0.55, 0.25),
+	"secondary": Color(0.9, 0.45, 0.45),
+	"electronic_warfare": Color(0.7, 0.45, 0.85),
+}
+
 func _refresh() -> void:
 	if not survivor_player or not game_scene:
 		return
@@ -170,83 +187,113 @@ func _refresh() -> void:
 	for child in _skill_list.get_children():
 		child.queue_free()
 
-	# 填充已有技能
 	var stacks: Dictionary = game_scene.upgrade_stacks
-	for u in SurvivorData.UPGRADES:
-		var uid: String = u["id"]
-		var count: int = stacks.get(uid, 0)
-		if count <= 0:
-			continue
-
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 6)
-		_skill_list.add_child(row)
-
-		var cat: String = u.get("category", "")
-		var is_evolved: bool = u.get("evolved", false)
-		var is_exclusive: bool = (u.get("exclusive_to", null) != null) and (u["exclusive_to"].size() > 0)
-		var cat_color: Color
-		var tag_text: String
-		if is_evolved:
-			cat_color = Color(1.0, 0.8, 0.2)
-			tag_text = "[★]"
-		elif is_exclusive:
-			cat_color = Color(0.4, 0.8, 1.0)
-			tag_text = "[专]"
-		elif cat == "combat":
-			cat_color = Color(0.8, 0.4, 0.3)
-			tag_text = "[战]"
-		else:
-			cat_color = Color(0.3, 0.7, 0.4)
-			tag_text = "[存]"
-
-		var tag := Label.new()
-		tag.text = tag_text
-		tag.add_theme_font_size_override("font_size", 11)
-		tag.add_theme_color_override("font_color", cat_color)
-		row.add_child(tag)
-
-		var name_label := Label.new()
-		name_label.text = "%s  x%d / %d" % [tr(u["name"]), count, int(u["max_stacks"])]
-		name_label.add_theme_font_size_override("font_size", 13)
-		name_label.add_theme_color_override("font_color", ThemeColors.TEXT_PRIMARY)
-		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.add_child(name_label)
-
-		# +1 层按钮（未满时可用）
-		var add_btn := Button.new()
-		add_btn.text = " + "
-		add_btn.custom_minimum_size = Vector2(30, 0)
-		_apply_btn_style(add_btn, Color(0.2, 0.7, 0.3))
-		var uid_add := uid
-		if count >= int(u["max_stacks"]):
-			add_btn.disabled = true
-		else:
-			add_btn.pressed.connect(func(): _on_add_skill_by_id(uid_add))
-		row.add_child(add_btn)
-
-		var remove_btn := Button.new()
-		remove_btn.text = " - "
-		remove_btn.custom_minimum_size = Vector2(30, 0)
-		_apply_btn_style(remove_btn, Color(0.8, 0.2, 0.2))
-		var uid_capture := uid
-		remove_btn.pressed.connect(func(): _on_remove_skill(uid_capture))
-		row.add_child(remove_btn)
-
-	# 填充可添加的技能下拉（仅显示当前主角实际可获取的）
-	_add_option.clear()
 	var pid: StringName = game_scene._player_profile_id if game_scene else &""
 	var p: AircraftParams = survivor_player.aircraft.params if survivor_player and survivor_player.aircraft else null
+
+	# 按轴分桶（evolved 即战区奖励，也按轴归类但单独排在每个轴末尾）
+	var buckets: Dictionary = {}
+	for axis in _AXIS_ORDER:
+		buckets[axis] = {"regular": [], "evolved": []}
 	for u in SurvivorData.UPGRADES:
-		var uid: String = u["id"]
-		var count: int = stacks.get(uid, 0)
-		if count >= int(u["max_stacks"]):
+		var cat: String = u.get("category", "survival")
+		if not buckets.has(cat):
+			buckets[cat] = {"regular": [], "evolved": []}
+		if u.get("evolved", false):
+			buckets[cat]["evolved"].append(u)
+		else:
+			buckets[cat]["regular"].append(u)
+
+	# 按轴顺序渲染
+	for axis in _AXIS_ORDER:
+		var bucket: Dictionary = buckets.get(axis, {"regular": [], "evolved": []})
+		if bucket["regular"].is_empty() and bucket["evolved"].is_empty():
 			continue
-		# 应用与正式升级池相同的硬件 / 专属筛选
-		if not SurvivorData.is_upgrade_available_for(u, pid, p):
-			continue
-		_add_option.add_item("%s (%s)" % [tr(u["name"]), tr(u["desc"])], _add_option.item_count)
-		_add_option.set_item_metadata(_add_option.item_count - 1, uid)
+
+		# 轴标题
+		var title := Label.new()
+		title.text = _AXIS_TITLES.get(axis, axis)
+		title.add_theme_font_size_override("font_size", 13)
+		title.add_theme_color_override("font_color", _AXIS_COLORS.get(axis, Color.WHITE))
+		_skill_list.add_child(title)
+
+		# 常规技能
+		for u in bucket["regular"]:
+			_build_skill_row(u, stacks, pid, p, axis, false)
+		# 战区奖励（细分隔）
+		if not bucket["evolved"].is_empty():
+			for u in bucket["evolved"]:
+				_build_skill_row(u, stacks, pid, p, axis, true)
+
+		# 轴间空隙
+		var sp := Control.new()
+		sp.custom_minimum_size = Vector2(0, 4)
+		_skill_list.add_child(sp)
+
+	# 隐藏旧的"添加"下拉（分轴列表已涵盖全部技能）
+	_add_option.clear()
+	_add_option.add_item("(已合并至上方列表)")
+	_add_option.disabled = true
+
+func _build_skill_row(u: Dictionary, stacks: Dictionary, pid: StringName, p: AircraftParams, axis: String, is_evolved: bool) -> void:
+	var uid: String = u["id"]
+	var count: int = stacks.get(uid, 0)
+	var available: bool = SurvivorData.is_upgrade_available_for(u, pid, p)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	_skill_list.add_child(row)
+
+	# 标签前缀（战区奖励 = ★，否则轴标签）
+	var tag := Label.new()
+	if is_evolved:
+		tag.text = "  ★"
+		tag.add_theme_color_override("font_color", Color(1.0, 0.8, 0.2))
+	else:
+		tag.text = "  •"
+		tag.add_theme_color_override("font_color", _AXIS_COLORS.get(axis, Color.WHITE))
+	tag.add_theme_font_size_override("font_size", 11)
+	row.add_child(tag)
+
+	# 名字 + 层数
+	var name_label := Label.new()
+	var text := "%s  %d/%d" % [tr(u["name"]), count, int(u["max_stacks"])]
+	if not available:
+		text += "  (不适配)"
+	name_label.text = text
+	name_label.add_theme_font_size_override("font_size", 12)
+	if count > 0:
+		name_label.add_theme_color_override("font_color", ThemeColors.TEXT_PRIMARY)
+	elif available:
+		name_label.add_theme_color_override("font_color", ThemeColors.TEXT_MUTED)
+	else:
+		name_label.add_theme_color_override("font_color", Color(0.5, 0.3, 0.3))
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(name_label)
+
+	# +1 按钮
+	var add_btn := Button.new()
+	add_btn.text = " + "
+	add_btn.custom_minimum_size = Vector2(30, 0)
+	_apply_btn_style(add_btn, Color(0.2, 0.7, 0.3))
+	if count >= int(u["max_stacks"]) or not available:
+		add_btn.disabled = true
+	else:
+		var uid_add := uid
+		add_btn.pressed.connect(func(): _on_add_skill_by_id(uid_add))
+	row.add_child(add_btn)
+
+	# -1 按钮（仅已有层数时）
+	var remove_btn := Button.new()
+	remove_btn.text = " - "
+	remove_btn.custom_minimum_size = Vector2(30, 0)
+	_apply_btn_style(remove_btn, Color(0.8, 0.2, 0.2))
+	if count <= 0:
+		remove_btn.disabled = true
+	else:
+		var uid_capture := uid
+		remove_btn.pressed.connect(func(): _on_remove_skill(uid_capture))
+	row.add_child(remove_btn)
 
 func _on_set_level() -> void:
 	if not survivor_player:

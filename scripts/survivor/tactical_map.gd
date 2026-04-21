@@ -37,6 +37,34 @@ var _zones: ZoneData
 var _hover_zone_id: StringName = &""
 var _is_open: bool = false
 var _adbs: AdbsManager = null  ## 用于在缩略图上画 ADBS 目标实时位置
+# ── 底部"随机战场简报" + 右下"操作指南" ──
+const _TIP_KEYS: Array[String] = [
+	"TACTICAL_TIP_BOUNDARY",
+	"TACTICAL_TIP_DIFFICULTY",
+	"TACTICAL_TIP_WEAPON_SWAP",
+	"TACTICAL_TIP_FLARE",
+	"TACTICAL_TIP_ALT_HIGH",
+	"TACTICAL_TIP_ALT_LOW",
+	"TACTICAL_TIP_ALT_CLOUDS",
+	"TACTICAL_TIP_SENTINEL",
+	"TACTICAL_TIP_STAMINA",
+	"TACTICAL_TIP_TURN_RADIUS",
+	"TACTICAL_TIP_CORNER_SPEED",
+	"TACTICAL_TIP_MISSILE_RANGE",
+	"TACTICAL_TIP_MISSILE_SWEET_SPOT",
+	"TACTICAL_TIP_CRANK",
+	"TACTICAL_TIP_RELOAD",
+]
+const TIP_BORDER := Color(0.85, 0.25, 0.25, 0.9)
+const TIP_FILL := Color(0.15, 0.04, 0.04, 0.55)
+const CONTROLS_BORDER := Color(0.35, 0.75, 1.0, 0.9)
+const CONTROLS_FILL := Color(0.04, 0.09, 0.14, 0.55)
+var _tip_label: RichTextLabel
+var _last_tip_idx: int = -1
+# ── 左侧"已激活技能"面板 ──
+var _game_scene: Node = null              ## survivor_mode，提供 upgrade_stacks
+var _upgrades_list: VBoxContainer
+var _upgrade_detail: RichTextLabel
 
 func _ready() -> void:
 	layer = 15
@@ -51,10 +79,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		close()
 
-func setup(world_rect: Rect2, player: Aircraft, zones: ZoneData) -> void:
+func setup(world_rect: Rect2, player: Aircraft, zones: ZoneData, game_scene: Node = null) -> void:
 	_world_rect = world_rect
 	_player = player
 	_zones = zones
+	_game_scene = game_scene
 
 func set_adbs(adbs: AdbsManager) -> void:
 	_adbs = adbs
@@ -71,12 +100,26 @@ func open() -> void:
 	_root.visible = true
 	get_tree().paused = true
 	AudioManager.set_music_muffled(true)
+	_refresh_upgrades_list()
+	_roll_random_tip()
 
 func close() -> void:
 	_is_open = false
 	_root.visible = false
 	get_tree().paused = false
 	AudioManager.set_music_muffled(false)
+	_roll_random_tip()
+
+## 从 _TIP_KEYS 随机抽一条，尽量不与上次重复
+func _roll_random_tip() -> void:
+	if not _tip_label or _TIP_KEYS.is_empty():
+		return
+	var idx := randi() % _TIP_KEYS.size()
+	if _TIP_KEYS.size() > 1 and idx == _last_tip_idx:
+		idx = (idx + 1) % _TIP_KEYS.size()
+	_last_tip_idx = idx
+	var prefix: String = tr("TACTICAL_TIP_PREFIX")
+	_tip_label.text = "[color=#ff8080][font_size=10]%s[/font_size][/color]  %s" % [prefix, tr(_TIP_KEYS[idx])]
 
 # ══════════════════════════════════════════════
 #  UI 构建
@@ -155,6 +198,15 @@ func _build_ui() -> void:
 	_info_label.add_theme_color_override("default_color", TEXT_COLOR)
 	_root.add_child(_info_label)
 	_refresh_info()
+
+	# 左侧"已激活技能"面板（镜像右侧 info_label 的位置）
+	_build_upgrades_panel()
+
+	# 底部"随机战场简报"红框（每次开关面板换一条）
+	_build_tip_banner()
+
+	# 右下"操作指南"蓝框（常驻）
+	_build_controls_panel()
 
 	# 底部提示
 	var hint := Label.new()
@@ -388,8 +440,11 @@ func _draw_boss(size: Vector2) -> void:
 	_draw_one_zone(z, zid, size)
 
 ## 未解锁（LOCKED）的战区/BOSS 在玩家还没攻克前完全不显示——不剧透
+## BOSS 阶段：常规战区 A/B/C/D 全部隐藏，地图只剩 BOSS 圈
 func _should_hide_zone(zid: StringName) -> bool:
 	if not _zones:
+		return true
+	if _zones.is_boss_phase() and zid != &"BOSS":
 		return true
 	return _zones.get_state(zid) == ZoneData.State.LOCKED
 
@@ -515,6 +570,279 @@ func _zone_id_at(map_pos: Vector2) -> StringName:
 			return z["id"]
 	return &""
 
+# ══════════════════════════════════════════════
+#  左侧"已激活技能"面板
+# ══════════════════════════════════════════════
+
+const _AXIS_ORDER: Array[String] = ["survival", "mobility", "missile", "secondary", "electronic_warfare"]
+const _AXIS_TITLES := {
+	"survival": "▸ 生存",
+	"mobility": "▸ 机动",
+	"missile": "▸ 导弹",
+	"secondary": "▸ 副武器",
+	"electronic_warfare": "▸ 电子战",
+}
+const _AXIS_COLORS := {
+	"survival": Color(0.3, 0.7, 0.4),
+	"mobility": Color(0.3, 0.6, 0.9),
+	"missile": Color(0.9, 0.55, 0.25),
+	"secondary": Color(0.9, 0.45, 0.45),
+	"electronic_warfare": Color(0.7, 0.45, 0.85),
+}
+
+func _build_upgrades_panel() -> void:
+	# 容器：左侧镜像 _info_label 的位置（offset_left=-720..-360）
+	var panel := VBoxContainer.new()
+	panel.anchor_left = 0.5
+	panel.anchor_right = 0.5
+	panel.anchor_top = 0.5
+	panel.offset_left = -720
+	panel.offset_right = -360
+	panel.offset_top = -340
+	panel.offset_bottom = 340
+	panel.add_theme_constant_override("separation", 8)
+	_root.add_child(panel)
+
+	var title := Label.new()
+	title.text = tr("TACTICAL_MAP_UPGRADES_TITLE")
+	title.add_theme_font_size_override("font_size", 16)
+	title.add_theme_color_override("font_color", TEXT_COLOR)
+	panel.add_child(title)
+
+	# 滚动列表（占大部分空间）
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.custom_minimum_size = Vector2(0, 380)
+	panel.add_child(scroll)
+
+	_upgrades_list = VBoxContainer.new()
+	_upgrades_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_upgrades_list.add_theme_constant_override("separation", 2)
+	scroll.add_child(_upgrades_list)
+
+	# 详情区（hover 时填充）
+	var det_label := Label.new()
+	det_label.text = tr("TACTICAL_MAP_UPGRADES_HINT")
+	det_label.add_theme_font_size_override("font_size", 11)
+	det_label.add_theme_color_override("font_color", Color(TEXT_COLOR.r, TEXT_COLOR.g, TEXT_COLOR.b, 0.55))
+	panel.add_child(det_label)
+
+	_upgrade_detail = RichTextLabel.new()
+	_upgrade_detail.bbcode_enabled = true
+	_upgrade_detail.scroll_active = false
+	_upgrade_detail.fit_content = true
+	_upgrade_detail.custom_minimum_size = Vector2(0, 140)
+	_upgrade_detail.add_theme_font_size_override("normal_font_size", 12)
+	_upgrade_detail.add_theme_color_override("default_color", TEXT_COLOR)
+	panel.add_child(_upgrade_detail)
+	_clear_upgrade_detail()
+
+## 底部红色"战场简报"横幅：带红边、半透明深色背景，内嵌一行随机提示
+func _build_tip_banner() -> void:
+	var holder := Control.new()
+	holder.anchor_left = 0.5
+	holder.anchor_right = 0.5
+	holder.anchor_top = 0.5
+	holder.anchor_bottom = 0.5
+	holder.offset_left = -340
+	holder.offset_right = 340
+	holder.offset_top = 350
+	holder.offset_bottom = 420
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(holder)
+
+	var style := StyleBoxFlat.new()
+	style.bg_color = TIP_FILL
+	style.border_color = TIP_BORDER
+	style.border_width_left = 1
+	style.border_width_right = 1
+	style.border_width_top = 1
+	style.border_width_bottom = 1
+	style.corner_radius_top_left = 2
+	style.corner_radius_top_right = 2
+	style.corner_radius_bottom_left = 2
+	style.corner_radius_bottom_right = 2
+	var bg := PanelContainer.new()
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	bg.add_theme_stylebox_override("panel", style)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	holder.add_child(bg)
+
+	_tip_label = RichTextLabel.new()
+	_tip_label.bbcode_enabled = true
+	_tip_label.scroll_active = false
+	_tip_label.fit_content = true
+	_tip_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_tip_label.offset_left = 12
+	_tip_label.offset_right = -12
+	_tip_label.offset_top = 8
+	_tip_label.offset_bottom = -6
+	_tip_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_tip_label.add_theme_font_size_override("normal_font_size", 12)
+	_tip_label.add_theme_color_override("default_color", Color(1.0, 0.88, 0.85, 0.95))
+	holder.add_child(_tip_label)
+	_roll_random_tip()
+
+## 右下蓝色"操作指南"框：常驻，列玩家可用按键
+func _build_controls_panel() -> void:
+	var style := StyleBoxFlat.new()
+	style.bg_color = CONTROLS_FILL
+	style.border_color = CONTROLS_BORDER
+	style.border_width_left = 1
+	style.border_width_right = 1
+	style.border_width_top = 1
+	style.border_width_bottom = 1
+	style.content_margin_left = 14
+	style.content_margin_right = 14
+	style.content_margin_top = 10
+	style.content_margin_bottom = 10
+	var bg := PanelContainer.new()
+	bg.anchor_left = 1.0
+	bg.anchor_right = 1.0
+	bg.anchor_top = 1.0
+	bg.anchor_bottom = 1.0
+	bg.offset_left = -280
+	bg.offset_right = -20
+	bg.offset_top = -260
+	bg.offset_bottom = -60
+	bg.add_theme_stylebox_override("panel", style)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(bg)
+
+	var inner := VBoxContainer.new()
+	inner.add_theme_constant_override("separation", 4)
+	inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bg.add_child(inner)
+
+	var title := Label.new()
+	title.text = tr("TACTICAL_CONTROLS_TITLE")
+	title.add_theme_font_size_override("font_size", 13)
+	title.add_theme_color_override("font_color", CONTROLS_BORDER)
+	inner.add_child(title)
+
+	var spacer := Control.new()
+	spacer.custom_minimum_size = Vector2(0, 4)
+	inner.add_child(spacer)
+
+	var rows: Array[String] = [
+		"TACTICAL_CONTROLS_LMB",
+		"TACTICAL_CONTROLS_RMB",
+		"TACTICAL_CONTROLS_MMB",
+		"TACTICAL_CONTROLS_WHEEL",
+		"TACTICAL_CONTROLS_SPACE",
+		"TACTICAL_CONTROLS_TAB",
+		"TACTICAL_CONTROLS_ESC",
+	]
+	for key in rows:
+		var row := RichTextLabel.new()
+		row.bbcode_enabled = true
+		row.scroll_active = false
+		row.fit_content = true
+		row.custom_minimum_size = Vector2(0, 18)
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.text = tr(key)
+		row.add_theme_font_size_override("normal_font_size", 12)
+		row.add_theme_font_size_override("bold_font_size", 12)
+		row.add_theme_color_override("default_color", Color(0.82, 0.92, 1.0, 0.9))
+		inner.add_child(row)
+
+func _refresh_upgrades_list() -> void:
+	if not _upgrades_list:
+		return
+	for child in _upgrades_list.get_children():
+		child.queue_free()
+	_clear_upgrade_detail()
+
+	if not _game_scene or not "upgrade_stacks" in _game_scene:
+		var empty := Label.new()
+		empty.text = tr("TACTICAL_MAP_UPGRADES_EMPTY")
+		empty.add_theme_font_size_override("font_size", 12)
+		empty.add_theme_color_override("font_color", Color(0.5, 0.5, 0.5))
+		_upgrades_list.add_child(empty)
+		return
+
+	var stacks: Dictionary = _game_scene.upgrade_stacks
+	# 按 5 轴分桶
+	var buckets: Dictionary = {}
+	for axis in _AXIS_ORDER:
+		buckets[axis] = []
+	for u in SurvivorData.UPGRADES:
+		var uid: String = u["id"]
+		if stacks.get(uid, 0) <= 0:
+			continue
+		var cat: String = u.get("category", "survival")
+		if not buckets.has(cat):
+			buckets[cat] = []
+		buckets[cat].append(u)
+
+	var any_added := false
+	for axis in _AXIS_ORDER:
+		var bucket: Array = buckets.get(axis, [])
+		if bucket.is_empty():
+			continue
+		any_added = true
+		var axis_title := Label.new()
+		axis_title.text = _AXIS_TITLES.get(axis, axis)
+		axis_title.add_theme_font_size_override("font_size", 12)
+		axis_title.add_theme_color_override("font_color", _AXIS_COLORS.get(axis, TEXT_COLOR))
+		_upgrades_list.add_child(axis_title)
+		for u in bucket:
+			_upgrades_list.add_child(_make_upgrade_row(u, stacks))
+
+	if not any_added:
+		var empty := Label.new()
+		empty.text = tr("TACTICAL_MAP_UPGRADES_EMPTY")
+		empty.add_theme_font_size_override("font_size", 12)
+		empty.add_theme_color_override("font_color", Color(0.5, 0.5, 0.5))
+		_upgrades_list.add_child(empty)
+
+func _make_upgrade_row(u: Dictionary, stacks: Dictionary) -> Control:
+	var uid: String = u["id"]
+	var count: int = stacks.get(uid, 0)
+	var max_s: int = int(u["max_stacks"])
+	var is_evolved: bool = u.get("evolved", false)
+
+	var row := Button.new()
+	row.flat = true
+	row.focus_mode = Control.FOCUS_NONE
+	row.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	row.add_theme_font_size_override("font_size", 12)
+	# 文字
+	var prefix: String = "  ★ " if is_evolved else "    "
+	var stk_text: String
+	if uid == "executioner":
+		stk_text = "  [%d]" % (_player.executioner_stacks if _player else 0)
+	elif max_s > 1:
+		stk_text = "  %d/%d" % [count, max_s]
+	else:
+		stk_text = ""
+	row.text = "%s%s%s" % [prefix, tr(u["name"]), stk_text]
+	if is_evolved:
+		row.add_theme_color_override("font_color", Color(1.0, 0.83, 0.3))
+	else:
+		row.add_theme_color_override("font_color", TEXT_COLOR)
+	# Hover 显示详情
+	var u_capture := u
+	row.mouse_entered.connect(func(): _show_upgrade_detail(u_capture))
+	row.mouse_exited.connect(func(): _clear_upgrade_detail())
+	return row
+
+func _show_upgrade_detail(u: Dictionary) -> void:
+	if not _upgrade_detail:
+		return
+	var name_text := tr(u["name"])
+	var desc_text := tr(u["desc"])
+	var axis: String = u.get("category", "survival")
+	var axis_title: String = _AXIS_TITLES.get(axis, axis)
+	var axis_color: Color = _AXIS_COLORS.get(axis, TEXT_COLOR)
+	var axis_hex := "#%02x%02x%02x" % [int(axis_color.r * 255), int(axis_color.g * 255), int(axis_color.b * 255)]
+	_upgrade_detail.text = "[b]%s[/b]\n[color=%s][font_size=10]%s[/font_size][/color]\n\n%s" % [name_text, axis_hex, axis_title, desc_text]
+
+func _clear_upgrade_detail() -> void:
+	if not _upgrade_detail:
+		return
+	_upgrade_detail.text = "[color=#666666][font_size=11]%s[/font_size][/color]" % tr("TACTICAL_MAP_UPGRADES_HOVER_HINT")
+
 func _refresh_info() -> void:
 	if not _info_label:
 		return
@@ -549,7 +877,7 @@ func _refresh_info() -> void:
 	var stars: String = "★".repeat(difficulty) + "☆".repeat(ZoneData.DIFFICULTY_MAX - difficulty)
 	lines.append("[color=#aaaaaa]%s[/color] [color=#ff9966]%s[/color]" % [tr("ZONE_INFO_DIFFICULTY"), stars])
 
-	# 奖励详情（具体技能名 + 描述 + 类别提示）
+	# 奖励详情（类别标签 + 具体技能名 + 描述）
 	var reward_block: String
 	var reward := _zones.get_reward(_hover_zone_id)
 	if reward.is_empty():
@@ -557,8 +885,11 @@ func _refresh_info() -> void:
 	else:
 		var rname: String = tr(reward.get("name", ""))
 		var rdesc: String = tr(reward.get("desc", ""))
-		var rcat: String = tr(_zones.get_reward_category_key(_hover_zone_id))
-		reward_block = "  [color=#ffd864]%s[/color]\n  [color=#aaccaa]%s[/color]\n  [color=#888888]%s[/color]" % [rname, rdesc, rcat]
+		var axis: String = reward.get("category", "survival")
+		var axis_title: String = _AXIS_TITLES.get(axis, axis)
+		var axis_color: Color = _AXIS_COLORS.get(axis, TEXT_COLOR)
+		var axis_hex := "#%02x%02x%02x" % [int(axis_color.r * 255), int(axis_color.g * 255), int(axis_color.b * 255)]
+		reward_block = "  [color=%s][font_size=10]%s[/font_size][/color]\n  [color=#ffd864]%s[/color]\n  [color=#aaccaa]%s[/color]" % [axis_hex, axis_title, rname, rdesc]
 
 	# 任务描述（按 ground / air 区分）
 	var mission_type: String = _zones.get_mission_type(_hover_zone_id) if _zones else z.get("mission_type", "ground")

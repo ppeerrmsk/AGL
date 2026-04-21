@@ -58,22 +58,23 @@ TACTIC_FORMATION_ADJUST,阵型调整中,Reforming,編隊再編成
 TACTIC_FREE_ENGAGE,自由交战,Free Engage,自由交戦
 TACTIC_TEAM_ATTACK,协同攻击,Team Attack,協同攻撃
 TACTIC_RETURN_FORMATION,回归编队,Returning,編隊復帰
+TACTIC_KAMIKAZE,舍身,Kamikaze,玉砕
 POPUP_EVOLUTION_FMT,技能进化！%s,Skill Evolved! %s,スキル進化！%s
 POPUP_COBRA,眼镜蛇机动,Cobra Maneuver,コブラ機動
 TOOLTIP_WEAPON_MISSILE_TITLE,导弹优先,Missile Priority,ミサイル優先
 TOOLTIP_WEAPON_MISSILE_BODY,点击敌机后自动锁定并发射导弹\n导弹耗尽时自动切换机炮\n装填完毕后恢复导弹模式,Click enemy to auto-lock and fire missile\nSwitches to gun when missiles depleted\nReturns to missile mode after reload,敵機クリックで自動ロック・発射\nミサイル切れ時はガンへ自動切替\n装填完了でミサイル優先に復帰
-TOOLTIP_WEAPON_MISSILE_HINT,按 [color=#ffdd66]2[/color] 切换到机炮优先,Press [color=#ffdd66]2[/color] to switch to Gun Priority,[color=#ffdd66]2[/color] でガン優先へ
+TOOLTIP_WEAPON_MISSILE_HINT,按 [color=#ffdd66]1[/color] 切换到机炮优先,Press [color=#ffdd66]1[/color] to switch to Gun Priority,[color=#ffdd66]1[/color] でガン優先へ
 TOOLTIP_WEAPON_GUN_TITLE,机炮优先,Gun Priority,ガン優先
 TOOLTIP_WEAPON_GUN_BODY,始终使用机炮进行攻击\n不会自动发射导弹,Always attacks with gun\nNever auto-fires missiles,常にガンで攻撃\nミサイルは自動発射されません
 TOOLTIP_WEAPON_GUN_HINT,按 [color=#ffdd66]1[/color] 切换到导弹优先,Press [color=#ffdd66]1[/color] to switch to Missile Priority,[color=#ffdd66]1[/color] でミサイル優先へ
 TOOLTIP_ALT_CLIMB_TITLE,爬升优先,Climb High,高高度優先
 TOOLTIP_ALT_CLIMB_BODY,巡航时自动爬升至高空\n高空有利于积蓄能量\n[color=#66ccff]导弹射程更远[/color]\n交战时仍会自动匹配目标高度,Auto-climbs to high altitude while cruising\nHigh altitude builds energy\n[color=#66ccff]Missile range extended[/color]\nStill auto-matches target altitude in combat,巡航時に自動で高高度へ上昇\n高高度はエネルギー蓄積に有利\n[color=#66ccff]ミサイル射程が延長[/color]\n交戦時は目標高度に自動追従
-TOOLTIP_ALT_CLIMB_HINT,按 [color=#ffdd66]4[/color] 切换到低空优先,Press [color=#ffdd66]4[/color] to switch to Fly Low,[color=#ffdd66]4[/color] で低空優先へ
+TOOLTIP_ALT_CLIMB_HINT,按 [color=#ffdd66]3[/color] 切换到低空优先,Press [color=#ffdd66]3[/color] to switch to Fly Low,[color=#ffdd66]3[/color] で低空優先へ
 TOOLTIP_ALT_LOW_TITLE,低空优先,Fly Low,低空優先
 TOOLTIP_ALT_LOW_BODY,巡航时自动降至低空\n[color=#66ff66]更难被雷达锁定（锁定时间+43%）[/color]\n[color=#66ff66]敌方导弹追踪能力下降[/color]\n[color=#66ff66]AI攻击意愿降低[/color]\n交战时仍会自动匹配目标高度,Auto-descends to low altitude while cruising\n[color=#66ff66]Harder to lock (lock time +43%)[/color]\n[color=#66ff66]Enemy missile tracking reduced[/color]\n[color=#66ff66]Enemy AI engages less aggressively[/color]\nStill auto-matches target altitude in combat,巡航時に自動で低空へ降下\n[color=#66ff66]ロックされにくい（ロック時間+43%）[/color]\n[color=#66ff66]敵ミサイルの追尾性能が低下[/color]\n[color=#66ff66]敵AIの攻撃意欲が低下[/color]\n交戦時は目標高度に自動追従
 TOOLTIP_ALT_LOW_HINT,按 [color=#ffdd66]3[/color] 切换到爬升优先,Press [color=#ffdd66]3[/color] to switch to Climb High,[color=#ffdd66]3[/color] で高高度優先へ
 TOOLTIP_EVADE_ON_TITLE,规避模式: 开,Evasion: ON,回避モード: ON
-TOOLTIP_EVADE_ON_BODY,检测到来袭导弹时自动规避\n垂直于导弹轨迹急转+变换高度\n无导弹威胁时做S型机动\n点击地面可临时覆盖规避路径,Auto-evades incoming missiles\nPerpendicular break + altitude change\nS-curve when no missile threat\nClick ground to temporarily override,来襲ミサイル検知で自動回避\nミサイル軌道に垂直急旋回＋高度変更\n脅威なし時はS字機動\n地面クリックで回避経路を一時上書き
+TOOLTIP_EVADE_ON_BODY,检测到来袭导弹时自动规避\n垂直于导弹轨迹急转+变换高度\n无导弹威胁时做S型机动\n点击目标或地面会自动关闭规避,Auto-evades incoming missiles\nPerpendicular break + altitude change\nS-curve when no missile threat\nClicking a target or ground disables evasion,来襲ミサイル検知で自動回避\nミサイル軌道に垂直急旋回＋高度変更\n脅威なし時はS字機動\nターゲットや地面クリックで回避解除
 TOOLTIP_EVADE_ON_HINT,按 [color=#ffdd66]E[/color] 关闭规避,Press [color=#ffdd66]E[/color] to disable evasion,[color=#ffdd66]E[/color] で回避を無効化
 TOOLTIP_EVADE_OFF_TITLE,规避模式: 关,Evasion: OFF,回避モード: OFF
 TOOLTIP_EVADE_OFF_BODY,飞机不会主动进行规避机动\n完全听从玩家的移动指令,Aircraft will not evade automatically\nFollows player movement commands only,機体は自動回避しません\nプレイヤーの移動指示に完全追従
@@ -86,28 +87,59 @@ TOOLTIP_AUTOFIRE_OFF_BODY,只在玩家点击敌机指定攻击时开火\n节省�
 TOOLTIP_AUTOFIRE_OFF_HINT,按 [color=#ffdd66]F[/color] 开启自动发射,Press [color=#ffdd66]F[/color] to enable auto-fire,[color=#ffdd66]F[/color] で自動発射を有効化
 UPGRADE_CATEGORY_COMBAT_PREFIX,[战斗] ,[Combat] ,[戦闘]
 UPGRADE_CATEGORY_SURVIVAL_PREFIX,[生存] ,[Survival] ,[生存]
+UPGRADE_AXIS_SURVIVAL_PREFIX,[生存] ,[Survival] ,[生存]
+UPGRADE_AXIS_MOBILITY_PREFIX,[机动] ,[Mobility] ,[機動]
+UPGRADE_AXIS_MISSILE_PREFIX,[导弹] ,[Missile] ,[ミサイル]
+UPGRADE_AXIS_SECONDARY_PREFIX,[副武器] ,[Secondary] ,[副武装]
+UPGRADE_AXIS_EW_PREFIX,[电子战] ,[EW] ,[電子戦]
 UPGRADE_HP_UP_NAME,装甲强化,Armor Plating,装甲強化
 UPGRADE_HP_UP_DESC,最大HP +30，机炮闪避 +8%,Max HP +30, Gun Dodge +8%,最大HP +30、ガン回避 +8%
 UPGRADE_SPEED_UP_NAME,引擎强化,Engine Boost,エンジン強化
-UPGRADE_SPEED_UP_DESC,最大速度/巡航速度 +18%,Max/Cruise Speed +18%,最大/巡航速度 +18%
+UPGRADE_SPEED_UP_DESC,最大速度 +18%，加速 +9%,"Max speed +18%, acceleration +9%",最大速度 +18%、加速 +9%
 UPGRADE_MANEUVER_UP_NAME,飞控升级,Flight Control,飛行制御強化
 UPGRADE_MANEUVER_UP_DESC,滚转速率 +25%，持续G +1.0,Roll Rate +25%, Sustained G +1.0,ロール速度 +25%、持続G +1.0
 UPGRADE_FLARE_COOLDOWN_NAME,红外对抗优化,IR Countermeasure,IR対策最適化
 UPGRADE_FLARE_COOLDOWN_DESC,热诱弹冷却时间 -20%,Flare Cooldown -20%,フレアクールダウン -20%
 UPGRADE_FLARE_SHIELD_NAME,★ 电子对抗套件,★ ECM Suite,★ ECMスイート
-UPGRADE_FLARE_SHIELD_DESC,进化！释放热诱弹时解除所有锁定，免疫锁定3秒,"Evolved! Flares break all locks, immune to lock for 3s",進化！フレア使用で全ロック解除、3秒間ロック無効
+UPGRADE_FLARE_SHIELD_DESC,释放热诱弹时解除所有敌方锁定，并短暂免疫被锁定,Flares break all enemy locks and grant brief lock immunity,フレア使用で全ロック解除、短時間ロック無効
 UPGRADE_PILOT_STAMINA_NAME,体能强化,Pilot Stamina,体力強化
 UPGRADE_PILOT_STAMINA_DESC,飞行员耐力上限×2，恢复速率×2,"Stamina cap ×2, recovery ×2",スタミナ上限×2、回復×2
 UPGRADE_KILL_HEAL_NAME,战场急救,Battlefield First Aid,戦場救護
 UPGRADE_KILL_HEAL_DESC,击杀敌机时回复10 HP,Heal 10 HP on kill,撃墜時 HP +10 回復
+UPGRADE_ARMOR_UP_NAME,复合装甲,Composite Armor,複合装甲
+UPGRADE_ARMOR_UP_DESC,装备复合装甲，大幅减少机炮伤害，对导弹也有减伤,"Composite armor greatly reduces gun damage, partial reduction vs missiles",複合装甲で機銃ダメージを大幅軽減、ミサイルも一部軽減
+UPGRADE_STEALTH_POD_NAME,强化吊舱,Stealth Pod,ステルスポッド
+UPGRADE_STEALTH_POD_DESC,降低雷达反射截面，敌人锁定你所需的时间显著延长,Reduces radar signature — enemies take significantly longer to lock you,レーダー反射面を低減、敵のロック所要時間が大幅に延長
+UPGRADE_XP_MULT_NAME,经验倍率,XP Multiplier,経験値倍率
+UPGRADE_XP_MULT_DESC,击杀获得的经验值提高,More XP per kill,撃墜時の獲得経験値アップ
+UPGRADE_RADAR_ANGLE_NAME,广角扫描,Wide Scan,広角スキャン
+UPGRADE_RADAR_ANGLE_DESC,雷达扫描扇形更宽，侧前方目标也能捕捉,Wider radar scan — side targets now detectable,レーダー走査範囲が拡大、側方の目標も捕捉可能
+UPGRADE_SEEKER_FOV_NAME,广角导引头,Wide Seeker,広角シーカー
+UPGRADE_SEEKER_FOV_DESC,导弹导引头视野更宽，目标大角度机动时也难以脱锁,Wider missile seeker — targets harder to shake off with sharp maneuvers,ミサイルシーカー視野拡大、目標の大角度機動にも追従
+UPGRADE_GUN_ACCURACY_NAME,枪械精度,Gun Accuracy,機銃精度
+UPGRADE_GUN_ACCURACY_DESC,机炮精度提升，远距离命中率显著提高,Tighter gun grouping — far-range accuracy significantly up,機銃精度向上、遠距離命中率が大幅アップ
+UPGRADE_AIM_ASSIST_NAME,瞄准辅助,Aim Assist,照準補助
+UPGRADE_AIM_ASSIST_DESC,机炮开火容错提升，稍微瞄歪也会自动开火,Relaxed firing angle — gun fires even when slightly off-target,機銃の許容発射角が緩和、多少ずれていても発射
+UPGRADE_MISSILE_BOOST_NAME,火箭助推,Missile Boost,ミサイルブースト
+UPGRADE_MISSILE_BOOST_DESC,导弹发射间隔缩短，推进段更长飞行性能增强,Shorter missile cooldown; longer burn phase and improved flight performance,ミサイル発射間隔短縮、ブースト延長で飛行性能強化
+UPGRADE_VAPOR_DODGE_NAME,★ 云雾机动,★ Vapor Dodge,★ ベイパードッジ
+UPGRADE_VAPOR_DODGE_DESC,高度切换更迅捷；藏身云层时敌人几乎无法锁定你,Faster altitude changes; nearly unlockable while hidden in clouds,高度変更が高速化、雲中に隠れれば敵のロックはほぼ不可能
+UPGRADE_ECM_POD_NAME,★ 电子战吊舱,★ ECM Pod,★ ECMポッド
+UPGRADE_ECM_POD_DESC,主动干扰敌方雷达，敌人必须靠得更近才能探测到你,Jam enemy radar — they must close in to detect you,敵レーダーを妨害、敵はより接近しないと探知不可
+UPGRADE_FIRE_AND_FORGET_NAME,★ 射后不理,★ Fire & Forget,★ 撃ちっぱなし
+UPGRADE_FIRE_AND_FORGET_DESC,导弹发射后自主追踪，立刻可转向脱离不必持续照射,Missiles track autonomously after launch — turn away freely,発射後は自律追尾、即時離脱が可能
+UPGRADE_SHOCK_ABSORB_NAME,★ 冲击吸收,★ Shock Absorber,★ 衝撃吸収
+UPGRADE_SHOCK_ABSORB_DESC,部分受伤值会慢慢回复，但一击致死无效,A portion of incoming damage slowly regenerates — lethal hits unaffected,被ダメージの一部が時間経過で回復、即死攻撃は対象外
+UPGRADE_EXECUTIONER_NAME,★ 侩子手,★ Executioner,★ 処刑人
+UPGRADE_EXECUTIONER_DESC,不受伤连续击杀敌机可堆叠层数，全面强化速度、减速、装填与锁定,"Consecutive kills without damage stack a buff — boosts speed, decel, reload and lock",無被弾連撃で層を重ね、速度・減速・装填・ロックを総合強化
 UPGRADE_MISSILE_COUNT_NAME,导弹挂架扩展,Missile Rack,ミサイル増設
 UPGRADE_MISSILE_COUNT_DESC,导弹携带量 +1,Missile capacity +1,ミサイル携行数 +1
 UPGRADE_MISSILE_TRACKING_NAME,制导升级,Guidance Upgrade,誘導強化
-UPGRADE_MISSILE_TRACKING_DESC,导弹过载 +30%，导引常数 +0.5,"Missile G-load +30%, nav constant +0.5",ミサイルG +30%、誘導係数 +0.5
+UPGRADE_MISSILE_TRACKING_DESC,导弹机动能力与追踪精度提升,Improved missile maneuverability and tracking precision,ミサイルの機動性と追尾精度が向上
 UPGRADE_PROXIMITY_FUZE_NAME,★ 近炸引信,★ Proximity Fuze,★ 近接信管
-UPGRADE_PROXIMITY_FUZE_DESC,进化！导弹接近敌机时自动引爆，产生 AOE 伤害区域,Evolved! Missile auto-detonates near target creating AOE damage,進化！敵機接近時にミサイル自動起爆、AOEダメージ発生
+UPGRADE_PROXIMITY_FUZE_DESC,导弹接近敌机时自动引爆，产生 AOE 伤害区域,Missile auto-detonates near target creating AOE damage,敵機接近時にミサイル自動起爆、AOEダメージ発生
 UPGRADE_MISSILE_BOUNCE_NAME,★ 连锁弹头,★ Chain Warhead,★ 連鎖弾頭
-UPGRADE_MISSILE_BOUNCE_DESC,进化！导弹命中后弹跳至最近的另一个敌机,Evolved! Missile bounces to nearest enemy on impact,進化！命中後、最寄りの敵機へ跳弾
+UPGRADE_MISSILE_BOUNCE_DESC,导弹命中后弹跳至最近的另一个敌机,Missile bounces to nearest enemy on impact,命中後、最寄りの敵機へ跳弾
 UPGRADE_MISSILE_RELOAD_NAME,快速挂载,Quick Mount,高速装填
 UPGRADE_MISSILE_RELOAD_DESC,导弹装填时间 -15%,Missile reload -15%,ミサイル装填 -15%
 UPGRADE_MULTI_LOCK_NAME,多目标追踪,Multi-Target Tracking,マルチロック
@@ -115,7 +147,7 @@ UPGRADE_MULTI_LOCK_DESC,自动对所有锁定目标同时发射导弹,Fire missi
 UPGRADE_GUN_DAMAGE_NAME,穿甲弹药,AP Rounds,徹甲弾
 UPGRADE_GUN_DAMAGE_DESC,机炮伤害 +20%,Gun damage +20%,ガンダメージ +20%
 UPGRADE_GUN_MULTISHOT_NAME,★ 多管齐射,★ Triple Salvo,★ 三連射
-UPGRADE_GUN_MULTISHOT_DESC,"进化！同时射出三道机炮（前方+左右15°）",Evolved! Fire three gun streams (front + ±15°),進化！正面と左右15°の3方向同時射撃
+UPGRADE_GUN_MULTISHOT_DESC,"同时射出三道机炮（前方+左右15°）",Fire three gun streams (front + ±15°),正面と左右15°の3方向同時射撃
 UPGRADE_GUN_AMMO_NAME,弹药扩容,Ammo Capacity,弾薬増設
 UPGRADE_GUN_AMMO_DESC,机炮弹药上限 +100,Gun ammo cap +100,ガン弾薬上限 +100
 UPGRADE_GUN_RELOAD_NAME,快速装弹机,Quick Loader,高速装弾
@@ -125,13 +157,15 @@ UPGRADE_GUN_FIRERATE_DESC,机炮射速 +25%,Gun fire rate +25%,ガン連射速�
 UPGRADE_GUN_RANGE_NAME,延伸弹道,Extended Range,射程延長
 UPGRADE_GUN_RANGE_DESC,机炮有效射程 +20%,Gun effective range +20%,ガン有効射程 +20%
 UPGRADE_GUN_CIWS_NAME,★ 近防炮,★ CIWS,★ CIWS
-UPGRADE_GUN_CIWS_DESC,进化！机炮自动拦截正面来袭导弹,Evolved! Gun auto-intercepts incoming frontal missiles,進化！正面来襲ミサイルをガンで自動迎撃
+UPGRADE_GUN_CIWS_DESC,机炮自动拦截正面来袭导弹,Gun auto-intercepts incoming frontal missiles,正面来襲ミサイルをガンで自動迎撃
 UPGRADE_RADAR_RANGE_NAME,雷达升级,Radar Upgrade,レーダー強化
 UPGRADE_RADAR_RANGE_DESC,雷达探测距离 +20%,Radar range +20%,レーダー探知距離 +20%
 UPGRADE_LOCK_TIME_NAME,火控优化,Fire Control,火器管制最適化
 UPGRADE_LOCK_TIME_DESC,锁定时间 -0.5秒,Lock time -0.5s,ロック時間 -0.5秒
 UPGRADE_DOGFIGHT_NAME,格斗大师,Dogfight Master,格闘戦の達人
-UPGRADE_DOGFIGHT_DESC,"失速速度 -12%，减速 +30%，低速机动增强","Stall speed -12%, deceleration +30%, low-speed maneuver boost",失速速度 -12%、減速 +30%、低速機動強化
+UPGRADE_DOGFIGHT_DESC,失速性能改善，减速能力增强，低速狗斗与咬尾更易得手,Better stall behavior and deceleration — easier low-speed dogfights and tail chases,失速特性改善・減速性能向上、低速格闘戦と追尾が容易に
+UPGRADE_COBRA_SKILL_NAME,眼镜蛇机动,Cobra Maneuver,コブラ機動
+UPGRADE_COBRA_SKILL_DESC,仅在规避模式下生效。被导弹接近或后方追尾时自动触发眼镜蛇机动，短时间无敌,Active in evasion mode only. Auto-triggers Cobra maneuver when missile closes in or enemy gun-tails from behind — brief invulnerability,回避モード時のみ有効。ミサイル接近時または後方ガン追尾時に自動でコブラ機動を発動、短時間無敵
 AIRCRAFT_F16_DISPLAY,F-16C Block 50,F-16C Block 50,F-16C Block 50
 AIRCRAFT_F16_CARDDESC,"多用途战斗机。携带热诱弹可 100% 规避来袭导弹，攻守兼备的入门之选。","Multirole fighter. Flares grant 100% evasion on incoming missiles. A balanced starter pick.",マルチロール戦闘機。フレアで来襲ミサイルを100%回避可能、攻守バランスの入門機。
 AIRCRAFT_F14_DISPLAY,F-14A Tomcat,F-14A Tomcat,F-14A Tomcat
@@ -151,6 +185,7 @@ SLOT_TBA_NAME,??? / TBA,??? / TBA,??? / TBA
 SLOT_AIRCRAFT_DESC,新机型开发中。,New aircraft in development.,新機体開発中。
 SLOT_MAP_DESC,新地图开发中，敬请期待。,"New map in development, stay tuned.",新マップ開発中、お楽しみに。
 SLOT_LOCKED_BUTTON,未  解  锁,L O C K E D,ロ  ッ  ク  中
+SLOT_DEV_LOCKED_BUTTON,开  发  中,I N  D E V,開  発  中
 SLOT_SELECT_BUTTON,选  择,S E L E C T,選   択
 SLOT_PILOT_INDEX_FMT,PILOT %02d,PILOT %02d,PILOT %02d
 SLOT_MAP_INDEX_FMT,MAP %02d,MAP %02d,MAP %02d
@@ -164,12 +199,14 @@ AIRCRAFT_SELECT_SUBTITLE,生存模式  //  SURVIVAL MODE,SURVIVAL MODE,サバイ
 AIRCRAFT_SELECT_HINT_ESC,ESC 返回地图选择,ESC to return to map select,ESC でマップ選択へ
 AIRCRAFT_SELECT_LAUNCH_BUTTON,出  击,L A U N C H,出   撃
 AIRCRAFT_STATS_FMT,HP %d  |  速度 %d km/h  |  G %.0f  |  导弹 %d,HP %d  |  Speed %d km/h  |  G %.0f  |  Missiles %d,HP %d  |  速度 %d km/h  |  G %.0f  |  ミサイル %d
-BOUNDARY_APPROACH_WARN,⚠ 接近战场边界 — %.1f km,⚠ APPROACHING BORDER — %.1f km,⚠ 戦場境界に接近 — %.1f km
+BOUNDARY_APPROACH_WARN,◈ 接近战场边界 — %.1f km — 继续前进可获得补给 / 回血,◈ APPROACHING BORDER — %.1f km — continue for supply & heal,◈ 戦場境界に接近 — %.1f km — 続けて前進すると補給・回復が可能
 BOUNDARY_MENU_TITLE,[ 越界提示 ],[ BORDER REACHED ],[ 境界到達 ]
 BOUNDARY_MENU_BODY,你已到达战场边界。选择下一步行动。,You have reached the edge of the combat zone. Choose your next action.,戦場の境界に到達しました。次の行動を選択してください。
 BOUNDARY_BTN_RETREAT,撤退 — 结束战局 结算奖励,RETREAT — End mission and collect rewards,撤退 — 戦闘を終了し報酬を確定
 BOUNDARY_BTN_SUPPLY,补给 — 回血（敌方增援增加）,SUPPLY — Restore HP (enemy reinforcement rises),補給 — HP回復（敵の増援増加）
 BOUNDARY_BTN_CANCEL,取消 — 调头继续作战,CANCEL — Turn back and continue,キャンセル — 反転して戦闘継続
+BOUNDARY_SUPPLY_BLOCKED_BOSS,BOSS 战斗中无法补给 — 返回战场,No supply during BOSS fight — return to combat,BOSS戦闘中は補給不可 — 戦場に戻れ
+BOUNDARY_APPROACH_WARN_BOSS,◈ 接近战场边界 — %.1f km — BOSS 阶段无法补给 / 回血，请返回战场,◈ APPROACHING BORDER — %.1f km — Supply disabled during BOSS — return to combat,◈ 戦場境界に接近 — %.1f km — BOSS戦闘中は補給不可 — 戦場へ戻れ
 TACTICAL_MAP_TITLE,[ 战术地图 ],[ TACTICAL MAP ],[ 戦術マップ ]
 TACTICAL_MAP_SUBTITLE,海岸线 // 30 × 30 km,COASTLINE // 30 × 30 km,海岸線 // 30 × 30 km
 TACTICAL_MAP_HINT,TAB / ESC 关闭,TAB / ESC to close,TAB / ESC で閉じる
@@ -190,6 +227,10 @@ ZONE_MISSION_PLACEHOLDER,※ 清剿战区内地面单位（SAM/AA）,※ Clear g
 ZONE_CLICK_TO_SELECT,>> 点击选择 <<,>> CLICK TO SELECT <<,>> クリックして選択 <<
 TACTICAL_MAP_INFO_TITLE,战区简报,ZONE BRIEFING,エリア概況
 TACTICAL_MAP_INFO_BODY,把鼠标悬停在战区上查看奖励和任务信息。\n前 3 个战区攻克后，BOSS 决战点解锁。,Hover a zone to see rewards and mission details.\nBoss unlocks after 3 zones are cleared.,エリアにマウスをかざすと報酬とミッションが表示されます。\n3エリア攻略後にBOSS決戦が解放されます。
+TACTICAL_MAP_UPGRADES_TITLE,已激活技能,ACTIVE UPGRADES,習得スキル
+TACTICAL_MAP_UPGRADES_HINT,详情,DETAILS,詳細
+TACTICAL_MAP_UPGRADES_HOVER_HINT,鼠标悬停技能查看详情,Hover a skill to see details,スキルにカーソルを合わせると詳細表示
+TACTICAL_MAP_UPGRADES_EMPTY,暂无已激活技能。升级或攻克战区以获得技能。,No upgrades yet. Level up or clear zones to acquire skills.,習得スキルなし。レベルアップやエリア攻略で習得
 ZONE_HINT_NEW_OPENED,⚡ 新战区已开放 — 按 [Tab] 打开战术地图选择目标,⚡ NEW ZONE OPEN — Press [Tab] to open the tactical map,⚡ 新エリア開放 — [Tab] で戦術マップを開いて選択
 ZONE_REWARD_HINT_MISSILE,※ 这是一个强化导弹性能的技能,※ A missile performance upgrade,※ ミサイル性能を強化するスキル
 ZONE_REWARD_HINT_GUN,※ 这是一个强化机炮性能的技能,※ A gun performance upgrade,※ ガン性能を強化するスキル
@@ -203,10 +244,11 @@ ZONE_MISSION_STARTED_SQUADRON_FMT,⚔ 战区 %s 任务开始 — 击败敌方中
 ZONE_MISSION_STARTED_ELITE_FMT,⚔ 战区 %s 任务开始 — 击落指挥 Sentinel,⚔ ZONE %s — DOWN SENTINEL COMMANDER,⚔ エリア %s 開戦 — 指揮機 Sentinel 撃墜
 ZONE_CLEARED_FMT,✓ 战区 %s 已攻克,✓ ZONE %s CLEARED,✓ エリア %s 攻略完了
 ZONE_CLEARED_WITH_REWARD_FMT,✓ 战区 %s 已攻克 — 获得奖励：%s,✓ ZONE %s CLEARED — REWARD: %s,✓ エリア %s 攻略完了 — 報酬: %s
+ZONE_REFRESHED_AFTER_CLEAR,⚡ 其他战区敌情升级 — 敌人已换防,⚡ OTHER ZONES REINFORCED — Enemies rotated,⚡ 他エリア敵勢力強化 — 敵部隊交代
 HUD_VICTORY_TITLE,[ 通关 ],[ MISSION COMPLETE ],[ 任務達成 ]
-HUD_VICTORY_SUBTITLE,F-47 王牌中队已被击毁,F-47 Ace Squadron eliminated,F-47 エーススコードロン撃破
+HUD_VICTORY_SUBTITLE,Wraith 中队已被击毁,Wraith Squadron eliminated,Wraith スコードロン撃破
 ZONE_HINT_BOSS_UNLOCKED,★ BOSS 已出现 — 前往地图中央的决战地点,★ BOSS UNLOCKED — Head to the showdown point at map center,★ BOSS 解放 — マップ中央の決戦地へ向かえ
-ZONE_HINT_BOSS_ARRIVAL,⚔ 敌军王牌 F-47 中队强势切入！！ — 丢弃一切顾虑，全力击溃敌军！！,⚔ ENEMY ACES INBOUND — F-47 SQUADRON ENGAGING!! ALL WEAPONS FREE — HUNT THEM DOWN!!,⚔ 敵エース F-47 スコードロン強襲！！ — 全火器自由、敵機撃滅せよ！！
+ZONE_HINT_BOSS_ARRIVAL,⚔ Wraith 中队进入战场,⚔ Wraith Squadron has entered the battlefield,⚔ Wraith スコードロン戦場進入
 ADBS_TUTORIAL_BOMBERS,⚠ 雷达捕获：2 架敌方轰炸机正前方！击落获取首笔奖励,⚠ CONTACT: 2 enemy bombers dead ahead — shoot them down for the first kill,⚠ レーダー捕捉：前方に敵爆撃機2機 — 撃墜で初報酬
 ADBS_CITY_HELIS_FMT,⚠ 城区上空：敌方直升机编队向 %s 方向逃离,⚠ CITY ALERT: Enemy heli flight fleeing %s,⚠ 都市上空：敵ヘリ編隊が %s 方向へ逃走
 ZONE_INFO_DIFFICULTY,难度,Difficulty,難易度
@@ -215,6 +257,11 @@ ZONE_MISSION_AIR,※ 歼灭盘旋在战区上空的敌方中队,※ Destroy the 
 ZONE_MISSION_SQUADRON,※ 击败锁定战区的敌方中队,※ Defeat the enemy squadron holding the zone,※ エリアを制圧中の敵中隊を撃破
 ZONE_MISSION_ELITE,※ 击落指挥 Sentinel（精英目标）,※ Shoot down the Sentinel commander (elite target),※ 指揮機 Sentinel を撃墜せよ（精鋭目標）
 MENU_AUDIO_BUTTON,音频设置,Audio,音声設定
+MENU_RESET_SAVE_BUTTON,删除存档,Reset Save,セーブ削除
+MENU_RESET_SAVE_CONFIRM,确认删除所有进度存档？\n（包括首次引导状态。语言 / 音频设置保留。）,Delete all save progress?\n(Including first-run tutorial state. Language / Audio settings are kept.),すべてのセーブデータを削除しますか？\n（初回チュートリアル状態を含む。言語／音声設定は保持）
+MENU_RESET_SAVE_OK,已删除存档：%d 个文件,Save cleared: %d file(s),セーブ削除完了：%d 件
+MENU_RESET_SAVE_CANCEL,取消,Cancel,キャンセル
+MENU_RESET_SAVE_CONFIRM_BTN,删除,Delete,削除
 AUDIO_SETTINGS_TITLE,音频设置,Audio Settings,音声設定
 AUDIO_BUS_MASTER,主音量,Master,マスター
 AUDIO_BUS_MUSIC,音乐,Music,音楽
@@ -223,3 +270,34 @@ AUDIO_BUS_UI,界面,UI,UI
 AUDIO_SETTINGS_MUTE,静音,Mute,ミュート
 AUDIO_SETTINGS_RESET,恢复默认,Reset,デフォルト
 AUDIO_SETTINGS_SAVE,保存,Save,保存
+PLAYER_OFFSCREEN_HINT,切回主视角,Recenter on player,主視点に戻る
+TACTICAL_TIP_PREFIX,// 战场简报,// INTEL BRIEF,// 戦場情報
+TACTICAL_TIP_BOUNDARY,靠近战区边界可补给恢复生命值，但会加速时间流逝——敌人会随之变强。,Approach the zone boundary to resupply and heal — but time speeds up and enemies grow stronger.,戦区境界に接近すると補給で HP を回復できるが、時間が加速し敵も強化される。
+TACTICAL_TIP_DIFFICULTY,敌人的实力会随时间推移逐渐增强。不要拖延。,Enemies grow stronger over time. Do not stall.,時間経過で敵はどんどん強くなる。長引かせるな。
+TACTICAL_TIP_WEAPON_SWAP,按 [1/2] 切换导弹/机炮优先；导弹耗尽时会自动切换至机炮模式。,Press [1/2] to toggle missile/gun priority. Runs out of missiles? Auto-switches to guns.,[1/2] でミサイル/ガン優先切替。ミサイルが尽きると自動でガンモードへ。
+TACTICAL_TIP_FLARE,受导弹威胁时战机会自动释放热诱弹——命中瞬间内不会被击中。,Your aircraft auto-releases flares against incoming missiles — hits are nullified in that window.,来襲ミサイルに対して機体が自動でフレアを放出し、命中を無効化する。
+TACTICAL_TIP_ALT_HIGH,高空飞行时雷达探测距离更远，也更难被低空雷达锁定。,Flying high extends your radar range and helps evade low-altitude radar locks.,高高度ではレーダー探知距離が伸び、低空レーダーに捕捉されにくい。
+TACTICAL_TIP_ALT_LOW,低空飞行时更难被远距雷达锁定，适合偷袭与脱离。,Low altitude evades long-range radar locks — good for ambushes and disengaging.,低空飛行は長距離レーダーから逃れやすく、奇襲や離脱に向く。
+TACTICAL_TIP_ALT_CLOUDS,云层中敌机雷达会失效——但要小心近距对头遭遇，那足以致命。,"Clouds blind enemy radar — but beware head-on encounters inside them, they can be fatal.",雲中は敵レーダーが無効化される——ただし接近戦や正面遭遇は致命的になりうる。
+TACTICAL_TIP_SENTINEL,Sentinel 哨兵指挥机范围内的 UAV 会被增幅，甚至会对玩家自爆。,UAVs within a Sentinel commander's aura are empowered and may kamikaze the player.,Sentinel 指揮機のオーラ内の UAV は強化され、自爆攻撃を仕掛けてくる。
+TACTICAL_TIP_STAMINA,持续高 G 机动会消耗飞行员耐力。耐力耗尽后可用 G 力大幅下降，留点时间给它恢复。,"Sustained high-G maneuvers drain pilot stamina. Once exhausted, max G drops sharply — give it time to recover.",高G機動の継続はパイロットの耐久を削る。尽きると使用可能Gが大幅低下、回復の時間を確保せよ。
+TACTICAL_TIP_TURN_RADIUS,转弯半径与速度的平方成正比，与最大 G 成反比——想咬尾时，减速比硬拉更划算。,Turn radius scales with speed squared and inversely with max G — slowing down turns tighter than brute-forcing G.,旋回半径は速度の二乗に比例し最大Gに反比例する——引き撃ちは減速の方が硬引きより有利。
+TACTICAL_TIP_CORNER_SPEED,每架飞机都有"最佳角速度"速度，在该速度下转弯率最高；过快或过慢都会变钝。,Each aircraft has a corner speed where turn rate peaks — going faster or slower both make you sluggish.,各機体には旋回率が最大になる「コーナー速度」があり、速すぎても遅すぎても鈍る。
+TACTICAL_TIP_MISSILE_RANGE,导弹射程随高度和接近率变化：高空迎头发射最远，低空尾追射程最短。,Missile range depends on altitude and closure: high-altitude head-on shots fly farthest; low tail-chase shots fall short.,ミサイル射程は高度と接近率に依存：高空ヘッドオンが最長、低空の追尾は最短。
+TACTICAL_TIP_MISSILE_SWEET_SPOT,导弹不是越远发射越好：最大射程边缘能量不足常被对方规避，最佳杀伤区在射程中段。,Max range ≠ best range — missiles at the edge run out of energy and get defeated. Fire in the middle of the envelope to score hits.,最大射程で撃つと終端でエネルギー切れし回避されやすい。実際の必殺ゾーンは射程の中程。
+TACTICAL_TIP_CRANK,发射导弹后飞机会减速并持续把机头指向目标——这是在用雷达为导弹提供照射；一旦脱离照射，导弹就会失去制导。,After launch your jet decelerates and keeps its nose on target to keep the missile illuminated by radar. Break lock and the missile goes blind.,発射後、機体は減速し機首を目標に向け続けレーダー照射を維持する。照射が切れるとミサイルは迷子になる。
+TACTICAL_TIP_RELOAD,导弹、机炮、热诱弹打光后都会自动进入冷却并重新装填；HUD 会显示装填进度条——这段时间要靠另一种武器挺过去。,"Missiles, guns, and flares all auto-reload after running dry — watch the HUD progress bar. You'll have to make do with what's left during the cooldown.",ミサイル・ガン・フレアはいずれも尽きると自動でクールダウンして再装填され、HUD にゲージが出る。その間は残った武器でしのぐこと。
+TACTICAL_CONTROLS_TITLE,[ 操作 ],[ CONTROLS ],[ 操作 ]
+TACTICAL_CONTROLS_LMB,[color=#ffe08a][左键][/color]  指定目标,[color=#ffe08a][LMB][/color]  Set target,[color=#ffe08a][左クリック][/color]  目標指定
+TACTICAL_CONTROLS_RMB,[color=#ffe08a][右键][/color]  解除任务,[color=#ffe08a][RMB][/color]  Clear order,[color=#ffe08a][右クリック][/color]  任務解除
+TACTICAL_CONTROLS_MMB,[color=#ffe08a][中键拖动][/color]  平移相机,[color=#ffe08a][MMB drag][/color]  Pan camera,[color=#ffe08a][中ドラッグ][/color]  カメラ移動
+TACTICAL_CONTROLS_WHEEL,[color=#ffe08a][滚轮][/color]  缩放,[color=#ffe08a][Wheel][/color]  Zoom,[color=#ffe08a][ホイール][/color]  ズーム
+TACTICAL_CONTROLS_SPACE,[color=#ffe08a][空格][/color]  回到主视角,[color=#ffe08a][Space][/color]  Recenter on player,[color=#ffe08a][スペース][/color]  主視点に戻す
+TACTICAL_CONTROLS_TAB,[color=#ffe08a][Tab][/color]  战术地图,[color=#ffe08a][Tab][/color]  Tactical map,[color=#ffe08a][Tab][/color]  戦術マップ
+TACTICAL_CONTROLS_ESC,[color=#ffe08a][ESC][/color]  退出当前界面,[color=#ffe08a][ESC][/color]  Exit current view,[color=#ffe08a][ESC][/color]  現在の画面を閉じる
+TUTORIAL_HEADER,[ 基础操作 ],[ Basics ],[ 基本操作 ]
+TUTORIAL_CLICK_ATTACK,[color=#ffe08a][左键点击敌机][/color]  下达攻击指令,[color=#ffe08a][Left-click enemy][/color]  Issue attack order,[color=#ffe08a][左クリック][/color]  敵機に攻撃指示
+TUTORIAL_AUTO_FIRE,[color=#ffe08a][雷达锁定完成][/color]  自动发射导弹,[color=#ffe08a][Radar lock complete][/color]  Missile auto-fires,[color=#ffe08a][ロックオン完了][/color]  ミサイル自動発射
+TUTORIAL_CAMERA,[color=#ffe08a][中键拖动][/color]  平移相机,[color=#ffe08a][MMB drag][/color]  Pan camera,[color=#ffe08a][中ドラッグ][/color]  カメラ移動
+TUTORIAL_ZOOM,[color=#ffe08a][滚轮][/color]  缩放视野,[color=#ffe08a][Wheel][/color]  Zoom view,[color=#ffe08a][ホイール][/color]  ズーム
+TUTORIAL_WORLD_CLICK,点击攻击,CLICK TO ATTACK,クリックで攻撃

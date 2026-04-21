@@ -9,13 +9,25 @@ extends Node
 enum Phase { NONE, DECEL, TURN, ACCEL }
 
 # ── 常量 ──
-const DECEL_DURATION := 0.3         ## 减速阶段
-const TURN_DURATION := 0.8          ## 180° 急转阶段
-const ACCEL_DURATION := 0.5         ## 加速冲出阶段
-const TOTAL_DURATION := 1.6         ## 总时长
+## 节奏：真实 F/A-18 post-stall J-Turn 全程 ≥3s —— 先猛刹到近失速，
+## 用推力矢量低速偏航 180°，然后低速重新加速冲出。玩家要看得到三个阶段。
+const DECEL_DURATION := 0.5         ## 减速阶段：迅速猛刹到近失速（原 1.0s 太慢，被玩家白嫖）
+## TURN 阶段持续时间 —— 2026-04-21 (12) 从 1.0s 拉长到 1.8s
+## 原因：1.0s 对应 180°/秒偏航 = 每帧 3° 递增，超出 Godot CanvasItem 在旋转下的
+## 像素/抗锯齿对齐容限，导致画在飞机 _draw() 里的所有东西（图标多边形边、标签框
+## Rect 边界、"J-TURN" popup 文字光栅）每帧子像素对齐不同，人眼感知为"剧烈抖动"。
+## 拉长到 1.8s → 100°/秒 = 1.67°/帧，低于感知阈值，视觉上平滑。代价是 J-Turn
+## 不再那么快（之前 (8) 缩短是因为太慢被白嫖，现在的 1.8s 配合 (7) 的导弹+机炮
+## 免疫窗口，既能看清动作又不会被白嫖）。
+## 详见 docs/changelogs/player-ai-log.md 2026-04-21 (12)
+const TURN_DURATION := 1.8          ## 180° 低速偏航（100°/秒，感知阈值内）
+const ACCEL_DURATION := 0.6         ## 加速冲出
+const TOTAL_DURATION := 2.9         ## 总时长（DECEL 0.5 + TURN 1.8 + ACCEL 0.6）
 const COOLDOWN := 15.0              ## 冷却时间（秒）
-const DECEL_RATE := 300.0           ## 减速段强制减速 m/s²
+const DECEL_RATE := 1400.0          ## 减速段 m/s²（DECEL 缩到 0.5s 需要更猛的刹车才能到低速）
 const TURN_RATE := PI / TURN_DURATION  ## 180° / TURN_DURATION = 目标转弯速率 rad/s
+const TURN_SPEED_FACTOR := 1.15     ## TURN 阶段速度 = 失速速度 × 此值（近失速低速偏航）
+const ACCEL_SPEED_FACTOR := 1.4     ## ACCEL 阶段起始速度上限 = 失速速度 × 此值
 const POST_IMMUNITY := 0.3          ## 机动结束后额外锁定免疫时间（秒）— 短，BOSS 不应长时间无法被锁
 const COUNTERATTACK_WINDOW := 5.0   ## J-Turn 后反击窗口（秒）— AI 暂停 bvr_only 逃跑
 
@@ -89,39 +101,52 @@ func _physics_process(delta: float) -> void:
 	if not _aircraft.no_stamina:
 		_aircraft._update_pilot_stamina(delta)
 
+	# 基准失速速度（不受当前 g_load 影响，稳定参考值）
+	var stall_base_ms: float = (_aircraft.params.stall_speed_base if _aircraft.params else 220.0) / 3.6
+	var turn_target_ms: float = stall_base_ms * TURN_SPEED_FACTOR
+	var accel_ceiling_ms: float = stall_base_ms * ACCEL_SPEED_FACTOR
+
 	match phase:
 		Phase.DECEL:
-			# 急刹车，降速到 corner speed（最佳转弯速度）
-			var corner_spd := _aircraft._corner_speed_kmh() / 3.6 if _aircraft.has_method("_corner_speed_kmh") else _aircraft.params.stall_speed_base / 3.6 * 1.5
+			# 猛刹车：强制降速到 turn_target（接近失速），同时关加力
+			_aircraft.is_afterburner = false
 			_aircraft.speed = maxf(
 				_aircraft.speed - DECEL_RATE * delta,
-				corner_spd)
-			visual_offset = clampf(_timer / DECEL_DURATION, 0.0, 0.5)
+				turn_target_ms)
+			# 同步 target_speed_kmh，防止 Aircraft._update_speed 反向加速抵消
+			_aircraft.target_speed_kmh = turn_target_ms * 3.6
+			# 前方虚拟目标，避免别处读到过期 target_position
+			var fwd_d := Vector2(sin(_aircraft.heading), -cos(_aircraft.heading))
+			_aircraft.target_position = _aircraft.global_position + fwd_d * 2000.0
+			visual_offset = clampf(_timer / DECEL_DURATION * 0.5, 0.0, 0.5)
 			if _timer >= DECEL_DURATION:
 				_timer = 0.0
 				phase = Phase.TURN
 		Phase.TURN:
-			# 180° 急转：直接修改 heading
+			# 低速偏航：heading 由模块每帧硬转，速度压在近失速
 			var turn_this_frame := TURN_RATE * delta * _turn_direction
 			_aircraft.heading += turn_this_frame
 			_aircraft.heading = fmod(_aircraft.heading + TAU, TAU)
 			_aircraft.rotation = _aircraft.heading
 			_turn_accumulated += absf(turn_this_frame)
-			# 维持 corner speed
-			var corner_spd := _aircraft._corner_speed_kmh() / 3.6 if _aircraft.has_method("_corner_speed_kmh") else _aircraft.params.stall_speed_base / 3.6 * 1.5
-			_aircraft.speed = maxf(_aircraft.speed, corner_spd * 0.8)
-			# 视觉偏移：转弯阶段最大
+			_aircraft.is_afterburner = false
+			# 严格压在 turn_target（双向钳制，不让 _update_speed 抬起来也不让飘走）
+			_aircraft.speed = turn_target_ms
+			_aircraft.target_speed_kmh = turn_target_ms * 3.6
+			var fwd_t := Vector2(sin(_aircraft.heading), -cos(_aircraft.heading))
+			_aircraft.target_position = _aircraft.global_position + fwd_t * 2000.0
 			visual_offset = clampf(0.5 + _timer / TURN_DURATION * 0.5, 0.5, 1.0)
 			if _turn_accumulated >= PI or _timer >= TURN_DURATION:
 				_timer = 0.0
 				phase = Phase.ACCEL
 		Phase.ACCEL:
-			# 退出段：不开加力、保持低速（corner speed），靠自然推力恢复
+			# 加力冲出：开加力，让 Aircraft._update_speed 自然拉回巡航
+			_aircraft.is_afterburner = true
+			# 起始 tick 把速度钳在 accel_ceiling（避免一帧暴起）
+			if _timer < 0.05:
+				_aircraft.speed = minf(_aircraft.speed, accel_ceiling_ms)
+			_aircraft.target_speed_kmh = _aircraft.params.cruise_speed if _aircraft.params else 1600.0
 			visual_offset = 1.0 - clampf(_timer / ACCEL_DURATION, 0.0, 1.0)
-			var corner_spd := _aircraft._corner_speed_kmh() / 3.6 if _aircraft.has_method("_corner_speed_kmh") else _aircraft.params.stall_speed_base / 3.6 * 1.5
-			_aircraft.speed = minf(_aircraft.speed, corner_spd)
-			_aircraft.is_afterburner = false
-			# 设置目标位置为当前前方（让 AI 继续向前飞）
 			var fwd := Vector2(sin(_aircraft.heading), -cos(_aircraft.heading))
 			_aircraft.target_position = _aircraft.global_position + fwd * 2000.0
 			if _timer >= ACCEL_DURATION:

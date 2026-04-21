@@ -136,7 +136,10 @@ func _physics_process(delta: float) -> void:
 				# 爆炸音效：4 种 bomb_distant 随机选一种
 				var bomb_ids := ["bomb_distant", "bomb_distant_02", "bomb_distant_03", "bomb_distant_04"]
 				AudioManager.play_sfx_2d(bomb_ids[randi() % 4], unit.global_position, 9.0)
-				unit.take_damage(missile.params.damage)
+				if unit is GroundUnit:
+					unit.take_missile_damage(missile.params.damage)
+				else:
+					unit.take_damage(missile.params.damage)
 				# 近炸引信：在爆炸点产生 AOE 区域
 				if missile.proximity_aoe:
 					_spawn_aoe(missile.global_position, missile.altitude,
@@ -222,7 +225,10 @@ func _update_aoe_zones(delta: float) -> void:
 				# AOE 仍在飞机本体位置画爆炸（不在 AOE 中心），击中/击毁均只此一次
 				var u_head: float = unit.heading if "heading" in unit else 0.0
 				ExplosionVFXScript.emit(get_tree(), unit.global_position, u_head, 1.0)
-				unit.take_damage(zdmg)
+				if unit is GroundUnit:
+					unit.take_missile_damage(zdmg)
+				else:
+					unit.take_damage(zdmg)
 				zhit[uid] = true
 				var tgt_name: String = unit.callsign if unit.callsign != "" else unit.name
 				EventLogger.log_event("AOE", "ProxFuze",

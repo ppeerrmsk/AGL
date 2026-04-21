@@ -36,6 +36,11 @@ static func reset_id_allocator() -> void:
 ## 消费方：ai_controller._try_engage_simple、aircraft._auto_gun_scan、main/survivor_mode.radar 等
 static var all_units: Array[CombatUnit] = []
 
+## 锁定时间硬上限（秒）：不管被玩家叠加多少隐身/云雾/吊舱，敌人从 0 累到 lock_time 阈值
+## 不得超过此时间。即 effective_lock_rate ≥ lock_time_threshold / MAX_EFFECTIVE_LOCK_TIME_S
+## 保证"最慢也能锁上，只是要等久"，不会变成完全锁不上。
+const MAX_EFFECTIVE_LOCK_TIME_S: float = 12.0
+
 ## 高度档位系统（含地面）
 enum AltitudeTier { GROUND = -1, LOW = 0, MID = 1, HIGH = 2 }
 const TIER_ALTITUDE := {

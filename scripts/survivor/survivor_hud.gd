@@ -445,16 +445,31 @@ func _update_status_panel() -> void:
 				continue
 			var is_evolved: bool = u.get("evolved", false)
 			var cat: String = u.get("category", "")
+			# 与战术地图 / 升级面板同一套轴色
 			var tag_color: String
-			if is_evolved:
-				tag_color = "ffcc44"  # 金色：进化技能
-			elif cat == "combat":
-				tag_color = "cc6655"
-			else:
-				tag_color = "55aa66"
+			match cat:
+				"survival":           tag_color = "4db366"
+				"mobility":           tag_color = "4d99e6"
+				"missile":            tag_color = "e68c40"
+				"secondary":          tag_color = "e67373"
+				"electronic_warfare": tag_color = "b373d9"
+				_:                    tag_color = "aaaaaa"
 			var max_s := int(u["max_stacks"])
 			var level_dots := ""
-			if is_evolved:
+			if uid == "executioner" and ac:
+				# 侩子手特例：右侧显示当前击杀连击层数（动态）
+				# 公式：stacks = clamp(kills-1, 0, 5)；下一层需要 (stacks+2-kills) 杀
+				var stk: int = ac.executioner_stacks
+				var max_st: int = Aircraft.EXECUTIONER_MAX_STACKS
+				var stk_color: String = "ffcc44" if stk > 0 else "666666"
+				level_dots = "[color=#%s]★ %d/%d[/color]" % [stk_color, stk, max_st]
+				# 进度提示：距下一层还差几杀（满层时不显示）
+				if stk < max_st:
+					var need: int = stk + Aircraft.EXECUTIONER_FIRST_STACK_KILLS - ac.executioner_kills
+					if need < 1:
+						need = 1
+					level_dots += "[color=#666] (+%d)[/color]" % need
+			elif is_evolved:
 				level_dots = "[color=#ffcc44]★[/color]"
 			else:
 				for i in range(max_s):
@@ -724,7 +739,7 @@ func _build_boss_panel() -> void:
 
 	# 标题
 	var title := Label.new()
-	title.text = "ACE"
+	title.text = "WRAITH"
 	title.add_theme_font_size_override("font_size", 11)
 	title.add_theme_color_override("font_color", ThemeColors.BOSS_TITLE)
 	hbox.add_child(title)
@@ -766,7 +781,7 @@ func _update_boss_panel() -> void:
 			continue
 		var ac_raw: Variant = members[i]
 		if not is_instance_valid(ac_raw):
-			card.text = "[color=#444444][b]ACE-%02d[/b] DOWN\n░░░░░░░░[/color]" % (i + 1)
+			card.text = "[color=#444444][b]WRAITH-%02d[/b] DOWN\n░░░░░░░░[/color]" % (i + 1)
 			continue
 		var ac: Aircraft = ac_raw as Aircraft
 
@@ -1108,20 +1123,15 @@ class RadarDisplay extends Control:
 			var alpha := 0.25 * (1.0 - t)
 			draw_line(center, trail_end, Color(0.2, 0.7, 0.2, alpha), 1.0)
 
-		# 更新 blip 并绘制敌机
-		var scene: Node2D = hud.game_scene
+		# 更新 blip 并绘制战斗单位（飞机 + 地面）
 		var player_pos := player_ac.global_position
+		const TGT_COLOR := Color(1.0, 0.85, 0.2, 1.0)  ## TGT 任务目标专用黄色（与战术地图一致）
 
-		for child in scene.get_children():
-			if not child is Aircraft:
-				continue
-			var ac: Aircraft = child
-			if ac == player_ac:
-				continue
-			if ac.is_destroyed:
+		for unit in CombatUnit.all_units:
+			if not is_instance_valid(unit) or unit == player_ac or unit.is_destroyed:
 				continue
 
-			var rel := ac.global_position - player_pos
+			var rel := unit.global_position - player_pos
 			var dist := rel.length()
 			if dist > RADAR_RANGE:
 				continue
@@ -1136,31 +1146,53 @@ class RadarDisplay extends Control:
 			var sweep_norm := fmod(_sweep_angle + TAU, TAU)
 			var angle_diff := fmod(sweep_norm - blip_angle + TAU, TAU)
 			if angle_diff < 0.3:
-				_blip_ages[ac.get_instance_id()] = 0.0
+				_blip_ages[unit.get_instance_id()] = 0.0
 
-			# 绘制 blip
-			var age: float = _blip_ages.get(ac.get_instance_id(), 99.0)
-			if age > 3.5:
-				continue  # 太久没扫描到，不显示
+			# TGT 任务目标：提前标注，不依赖扫描线，永远可见
+			var is_tgt: bool = unit.is_mission_target
+			var age: float = _blip_ages.get(unit.get_instance_id(), 99.0)
+			if not is_tgt and age > 3.5:
+				continue  # 非 TGT 且太久没扫到，不显示
 
-			var fade := clampf(1.0 - age / 3.5, 0.0, 1.0)
+			var fade: float = 1.0 if is_tgt else clampf(1.0 - age / 3.5, 0.0, 1.0)
 
-			# 颜色：锁定目标=黄色，普通敌机=红色，友方=蓝色
+			# 颜色：TGT=黄色（优先级最高），锁定=黄色，友方=蓝色，普通敌=红色
 			var blip_color: Color
-			if ac.team == 0:
+			if is_tgt and unit.team != 0:
+				blip_color = TGT_COLOR
+			elif unit.team == 0:
 				blip_color = PLAYER_COLOR
-			elif player_ac.combat_target == ac:
+			elif unit is Aircraft and player_ac.combat_target == unit:
 				blip_color = LOCKED_COLOR
 			else:
 				blip_color = ENEMY_COLOR
 
 			blip_color.a *= fade
-			draw_circle(blip_pos, 2.5, blip_color)
 
-			# 锁定目标加方框
-			if player_ac.combat_target == ac:
-				var d := 5.0
-				draw_rect(Rect2(blip_pos - Vector2(d, d), Vector2(d * 2, d * 2)), Color(blip_color, fade * 0.5), false, 1.0)
+			# TGT 用方括号外框 + 中心小点，一眼和普通点区分开
+			if is_tgt and unit.team != 0:
+				draw_circle(blip_pos, 2.0, blip_color)
+				var bd := 5.0
+				var bl := 2.0  ## 括号短边长
+				var thick := 1.5
+				var tl := blip_pos + Vector2(-bd, -bd)
+				var tr := blip_pos + Vector2(bd, -bd)
+				var bl_p := blip_pos + Vector2(-bd, bd)
+				var br_p := blip_pos + Vector2(bd, bd)
+				draw_line(tl, tl + Vector2(bl, 0), blip_color, thick)
+				draw_line(tl, tl + Vector2(0, bl), blip_color, thick)
+				draw_line(tr, tr + Vector2(-bl, 0), blip_color, thick)
+				draw_line(tr, tr + Vector2(0, bl), blip_color, thick)
+				draw_line(bl_p, bl_p + Vector2(bl, 0), blip_color, thick)
+				draw_line(bl_p, bl_p + Vector2(0, -bl), blip_color, thick)
+				draw_line(br_p, br_p + Vector2(-bl, 0), blip_color, thick)
+				draw_line(br_p, br_p + Vector2(0, -bl), blip_color, thick)
+			else:
+				draw_circle(blip_pos, 2.5, blip_color)
+				# 锁定目标加方框
+				if unit is Aircraft and player_ac.combat_target == unit:
+					var d := 5.0
+					draw_rect(Rect2(blip_pos - Vector2(d, d), Vector2(d * 2, d * 2)), Color(blip_color, fade * 0.5), false, 1.0)
 
 		# 玩家标记（中心，始终朝上的小三角）
 		var p_size := 4.0
@@ -1191,15 +1223,21 @@ class RadarDisplay extends Control:
 				var radar_dist_m := (dist_m / RADAR_RANGE) * RADAR_RADIUS
 				var msl_pos := center + Vector2(sin(angle_m), -cos(angle_m)) * radar_dist_m
 				if blink:
-					# 小菱形标记
-					var s := 4.0
-					var diamond := PackedVector2Array([
-						msl_pos + Vector2(0, -s),
-						msl_pos + Vector2(s, 0),
-						msl_pos + Vector2(0, s),
-						msl_pos + Vector2(-s, 0),
+					# 细长条状（指向玩家）：比三角形更容易看出方位，一眼知道是导弹
+					var to_player := (center - msl_pos)
+					var fwd := to_player.normalized() if to_player.length() > 0.1 else Vector2.UP
+					var side := Vector2(-fwd.y, fwd.x)
+					var bar_len := 7.0
+					var bar_w := 0.9        ## 半宽；实际线宽 2×bar_w = 1.8px
+					var tip := msl_pos + fwd * (bar_len * 0.5)
+					var tail := msl_pos - fwd * (bar_len * 0.5)
+					var bar := PackedVector2Array([
+						tail + side * bar_w,
+						tail - side * bar_w,
+						tip - side * bar_w,
+						tip + side * bar_w,
 					])
-					draw_colored_polygon(diamond, MISSILE_WARNING_COLOR)
+					draw_colored_polygon(bar, MISSILE_WARNING_COLOR)
 
 		# "MISSILE" 文字警告
 		if has_incoming:
@@ -1254,6 +1292,53 @@ class ThreatOverlay extends Control:
 		var screen_right := cam_pos.x + half_vp.x
 		var screen_top := cam_pos.y - half_vp.y
 		var screen_bottom := cam_pos.y + half_vp.y
+
+		# 玩家自身离屏时在边缘显示蓝色方向指示（自由视野下定位自己）
+		var ppos := player_ac.global_position
+		if ppos.x < screen_left or ppos.x > screen_right or ppos.y < screen_top or ppos.y > screen_bottom:
+			var pdir := (ppos - cam_pos).normalized()
+			var pcenter := vp_size * 0.5
+			var parrow_pos := _edge_intersect(pcenter, pdir, vp_size)
+			_draw_threat_arrow(parrow_pos, pdir, ThemeColors.RADAR_PLAYER)
+
+			var font := get_theme_default_font()
+			var font_size := 12
+			var line_h := 14.0
+			# 距离：像素 → 米 → 公里（PIXELS_PER_METER = 0.5）
+			var dist_km: float = (ppos - cam_pos).length() / (CombatUnit.PIXELS_PER_METER * 1000.0)
+			var plane_name := ""
+			if player_ac.params:
+				plane_name = player_ac.params.display_name
+			var lines := [
+				player_ac.callsign,
+				plane_name,
+				"%.1f km" % dist_km,
+			]
+			# 以箭头朝屏幕内（-pdir）偏移，得到三行文字块的中心锚点
+			var block_anchor := parrow_pos + (-pdir) * (ARROW_SIZE + 8.0 + line_h * 1.5)
+			# 逐行水平居中绘制
+			for i in range(lines.size()):
+				var line: String = lines[i]
+				var sz := font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+				var x: float = block_anchor.x - sz.x * 0.5
+				var y: float = block_anchor.y + (i - 1) * line_h
+				x = clamp(x, 6.0, vp_size.x - sz.x - 6.0)
+				y = clamp(y, sz.y + 2.0, vp_size.y - 6.0)
+				draw_string(font, Vector2(x, y), line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, ThemeColors.RADAR_PLAYER)
+
+			# 标记正上方系统提示：[ Space ] + 说明文字
+			var key_label := "[ Space ]"
+			var hint_text := tr("PLAYER_OFFSCREEN_HINT")
+			var key_size := font.get_string_size(key_label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+			var hint_size := font.get_string_size(hint_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+			var gap := 8.0
+			var total_w: float = key_size.x + gap + hint_size.x
+			# 放在三行标签块上方再加一行间距
+			var hint_cx: float = clamp(block_anchor.x, total_w * 0.5 + 6.0, vp_size.x - total_w * 0.5 - 6.0)
+			var hint_cy: float = clamp(block_anchor.y - line_h * 2.0 - 4.0, key_size.y + 2.0, vp_size.y - 6.0)
+			var hx: float = hint_cx - total_w * 0.5
+			draw_string(font, Vector2(hx, hint_cy), key_label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, ThemeColors.RADAR_PLAYER)
+			draw_string(font, Vector2(hx + key_size.x + gap, hint_cy), hint_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, ThemeColors.TEXT_MUTED)
 
 		for child in scene.get_children():
 			if not child is Aircraft:

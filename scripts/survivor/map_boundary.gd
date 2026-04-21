@@ -27,8 +27,9 @@ const CAMERA_MARGIN_PX := CAMERA_MARGIN_M * GameConstants.PIXELS_PER_METER  ## 2
 const PLAYER_START_OFFSET_PX := Vector2(0.0, 6400.0)  ## 玩家起始点相对原点（南侧靠边缘，y 正向；距南边界 1100px ≈ 2.2km，刚好在 1000px 警戒带外）
 
 # ── 视觉 ──
-const BORDER_COLOR := Color(0.85, 0.2, 0.2, 0.65)
-const BORDER_COLOR_PULSE := Color(1.0, 0.35, 0.35, 0.9)
+## 边界线：温和琥珀（补给友好区）而非刺眼红
+const BORDER_COLOR := Color(0.85, 0.65, 0.28, 0.65)
+const BORDER_COLOR_PULSE := Color(0.98, 0.78, 0.35, 0.9)
 const DASH_LEN := 60.0
 const DASH_GAP := 30.0
 const CORNER_TICK_LEN := 240.0
@@ -95,14 +96,15 @@ func _process(delta: float) -> void:
 	var dist_px := _distance_to_border(p)
 	var outside := not _world_rect.has_point(p)
 
-	# 越界：发一次信号
+	# 越界：发一次信号（BOSS 阶段也要发，由 survivor_mode._on_supply_confirmed 阻止补给）
 	if outside and not _is_crossed:
 		_is_crossed = true
 		boundary_crossed.emit()
 	elif not outside and _is_crossed:
 		_is_crossed = false  # 回到内部（被撤退菜单的取消按钮拉回）
 
-	# 警戒：进入/离开 ≤2km 区间
+	# 警戒：进入/离开 ≤2km 区间。BOSS 阶段仍弹警告，但 BoundaryUI 会切到
+	# "无法补给 / 回血" 的专用文案
 	var was_warning := _is_warning
 	var should_warn := (dist_px <= WARN_DISTANCE_PX) and not outside
 	if should_warn != _is_warning:

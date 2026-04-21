@@ -98,6 +98,16 @@ func _physics_process(delta: float) -> void:
 				lock_time_val = source.params.lock_time
 			has_guidance = lock_progress >= lock_time_val
 
+	# 4b) Seeker FOV：目标脱离导引头视场 → 导弹丢锁
+	# 仅在制导阶段（发射后 guidance_delay 之后）生效；丢锁后惯性飞行直到 max_lifetime
+	if has_guidance and age > params.guidance_delay and is_instance_valid(target):
+		var los_tgt := target.global_position - global_position
+		if los_tgt.length() > 1.0:
+			var tgt_angle := atan2(los_tgt.x, -los_tgt.y)
+			var off := absf(_angle_diff(tgt_angle, heading))
+			if off > deg_to_rad(params.seeker_fov * 0.5):
+				has_guidance = false
+
 	# 5) 制导
 	if has_guidance and is_instance_valid(target) and age > params.guidance_delay:
 		var los := target.global_position - global_position
@@ -171,15 +181,32 @@ func _draw() -> void:
 	_draw_data_label()
 
 func _draw_body() -> void:
+	# 细长"子弹+尾翼"造型，heading=0 朝上，与飞机圆点图标明显区分
 	var color := GameConstants.missile_body_color(team)
-	var size := 5.0
+	var length := 10.0   ## 弹身总长
+	var nose := 3.0      ## 头锥长度
+	var w := 1.2         ## 弹身半宽
+	var half_len := length * 0.5
+
+	# 弹身：尖头五边形（尖锥 + 矩形身）
 	var body := PackedVector2Array([
-		Vector2(0, -size),       # 弹头
-		Vector2(size * 0.4, 0),  # 右
-		Vector2(0, size * 0.6),  # 尾
-		Vector2(-size * 0.4, 0), # 左
+		Vector2(0, -half_len),               # 尖头
+		Vector2(w, -half_len + nose),        # 头锥右肩
+		Vector2(w, half_len),                # 右后
+		Vector2(-w, half_len),               # 左后
+		Vector2(-w, -half_len + nose),       # 头锥左肩
 	])
 	draw_colored_polygon(body, color)
+
+	# 前翼（中段十字）
+	var mid_fin := 2.0
+	var mid_y := -half_len + nose + 1.5
+	draw_line(Vector2(-mid_fin, mid_y), Vector2(mid_fin, mid_y), color, 1.2)
+
+	# 尾翼（后段十字，稍宽）
+	var tail_fin := 2.6
+	var tail_y := half_len - 0.8
+	draw_line(Vector2(-tail_fin, tail_y), Vector2(tail_fin, tail_y), color, 1.4)
 
 func _draw_motor_flame() -> void:
 	var flicker := randf_range(0.6, 1.0)
@@ -253,9 +280,18 @@ func _draw_data_label() -> void:
 	var line_height := 12.0
 	var label_offset := Vector2(14, -8).rotated(inv_rot)
 
+	# 测量最大宽度（把数字替换成 "0" 再测，避免 label 框因 hdg/rng/mach 每帧抽搐）
+	# 详见 docs/changelogs/player-ai-log.md 2026-04-21 (10)
 	var max_w := 0.0
 	for line in lines:
-		var w := _font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+		var stable := ""
+		for i in range(line.length()):
+			var c := line[i]
+			if c >= "0" and c <= "9":
+				stable += "0"
+			else:
+				stable += c
+		var w := _font.get_string_size(stable, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 		max_w = maxf(max_w, w)
 	var box_w := max_w + 8.0
 	var box_h := lines.size() * line_height + 4.0

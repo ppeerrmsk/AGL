@@ -51,6 +51,7 @@ var _all_combat_units_cache: Array[CombatUnit] = []   ## _update_aircraft_list �
 # ── HUD / UI ──
 var hud: SurvivorHUD
 var upgrade_ui: SurvivorUpgradeUI
+var _tutorial: SurvivorTutorial  ## 首次进入生存模式的浮现式教程
 
 # ── 大地图边界 / 战术地图（P1）──
 var _map_boundary: MapBoundary
@@ -212,10 +213,13 @@ func _ready() -> void:
 
 	# ── 战术地图 + 战区系统（P2）──
 	_zone_data = ZoneData.new()
+	# BoundaryUI 需要 _zone_data 来检测 BOSS 阶段（切换警告文案 + 补给阻断由 _on_supply_confirmed 做）
+	if _boundary_ui:
+		_boundary_ui.zones = _zone_data
 
 	_tactical_map = TacticalMap.new()
 	add_child(_tactical_map)
-	_tactical_map.setup(_map_boundary.get_world_rect(), player_aircraft, _zone_data)
+	_tactical_map.setup(_map_boundary.get_world_rect(), player_aircraft, _zone_data, self)
 	_tactical_map.zone_selected.connect(_on_zone_selected)
 
 	_zone_arrow = ZoneArrow.new()
@@ -233,12 +237,39 @@ func _ready() -> void:
 		bullet_manager, missile_manager, _spawner)
 	_zone_mission.mission_triggered.connect(_on_zone_mission_triggered)
 	_zone_mission.mission_completed.connect(_on_zone_mission_completed)
+	# 回注给 spawner：旅途刷怪需查询"玩家当前是否在战区任务里"
+	_spawner.set_zone_mission(_zone_mission)
 
 	# ── ADBS 随机事件系统（P4）──
 	_adbs = AdbsManager.new()
 	add_child(_adbs)
 	_adbs.setup(self, _spawner, player_aircraft, _zone_hint)
 	_tactical_map.set_adbs(_adbs)
+
+	# ── 首次进入生存模式：浮现式教程 ──
+	if SurvivorTutorial.should_show():
+		_start_first_run_tutorial()
+
+## 首次进入生存模式：浮现操作提示 + 在最近的 Tu-160 左侧显示"点击攻击"标签
+## （不自己刷 Tu-160，已有 Tu-160 场上时由教程内部轮询挂靶）
+func _start_first_run_tutorial() -> void:
+	_tutorial = SurvivorTutorial.new()
+	_tutorial.find_target_fn = _find_nearest_tu160
+	add_child(_tutorial)
+
+func _find_nearest_tu160() -> Node2D:
+	var best: Aircraft = null
+	var best_d := INF
+	for child in get_children():
+		if not (child is Aircraft) or child.is_destroyed or child.team == 0:
+			continue
+		if not child.has_meta("silhouette") or child.get_meta("silhouette") != "bomber":
+			continue
+		var d: float = child.global_position.distance_to(player_aircraft.global_position)
+		if d < best_d:
+			best_d = d
+			best = child
+	return best
 
 # ══════════════════════════════════════════════
 #  起始僚机（"小队主控"型主角专用）
@@ -449,17 +480,19 @@ func _unhandled_input(event: InputEvent) -> void:
 	# 战术面板快捷键
 	if event is InputEventKey and event.pressed and player_aircraft and not player_aircraft.is_destroyed:
 		match event.keycode:
-			KEY_1:
-				player_aircraft.weapon_preference = Aircraft.WeaponPreference.PREFER_MISSILE
+			KEY_1, KEY_2:
+				# 武器优先 toggle（对齐 HUD 按钮）
+				if player_aircraft.weapon_preference == Aircraft.WeaponPreference.PREFER_MISSILE:
+					player_aircraft.weapon_preference = Aircraft.WeaponPreference.PREFER_GUN
+				else:
+					player_aircraft.weapon_preference = Aircraft.WeaponPreference.PREFER_MISSILE
 				return
-			KEY_2:
-				player_aircraft.weapon_preference = Aircraft.WeaponPreference.PREFER_GUN
-				return
-			KEY_3:
-				player_aircraft.altitude_preference = Aircraft.AltitudePreference.PREFER_CLIMB
-				return
-			KEY_4:
-				player_aircraft.altitude_preference = Aircraft.AltitudePreference.PREFER_LOW
+			KEY_3, KEY_4:
+				# 高度偏好 toggle（对齐 HUD 按钮）
+				if player_aircraft.altitude_preference == Aircraft.AltitudePreference.PREFER_CLIMB:
+					player_aircraft.altitude_preference = Aircraft.AltitudePreference.PREFER_LOW
+				else:
+					player_aircraft.altitude_preference = Aircraft.AltitudePreference.PREFER_CLIMB
 				return
 			KEY_E:
 				# 进入规避会清空当前指令（内部实现等同右键"解除任务"）
@@ -493,9 +526,11 @@ func _handle_mouse_button(event: InputEventMouseButton) -> void:
 		MOUSE_BUTTON_WHEEL_UP:
 			if event.pressed:
 				_camera_ctrl.handle_zoom_input(1.0 + CameraController.ZOOM_STEP)
+				if is_instance_valid(_tutorial): _tutorial.notify_zoom()
 		MOUSE_BUTTON_WHEEL_DOWN:
 			if event.pressed:
 				_camera_ctrl.handle_zoom_input(1.0 - CameraController.ZOOM_STEP)
+				if is_instance_valid(_tutorial): _tutorial.notify_zoom()
 		MOUSE_BUTTON_LEFT:
 			if event.pressed:
 				_on_left_click(event.global_position)
@@ -510,6 +545,8 @@ func _handle_mouse_button(event: InputEventMouseButton) -> void:
 func _handle_mouse_motion(event: InputEventMouseMotion) -> void:
 	if is_dragging:
 		_camera_ctrl.handle_drag(event.relative)
+		if is_instance_valid(_tutorial) and event.relative.length_squared() > 1.0:
+			_tutorial.notify_pan()
 	_camera_ctrl.update_hover(event.global_position, get_children())
 
 func _on_left_click(screen_pos: Vector2) -> void:
@@ -522,6 +559,7 @@ func _on_left_click(screen_pos: Vector2) -> void:
 			if is_instance_valid(ac) and not ac.is_destroyed:
 				ac.evasion_mode = false  # 选择攻击目标自动关闭规避
 				ac.set_combat_target(enemy)
+		if is_instance_valid(_tutorial): _tutorial.notify_click_attack()
 		return
 
 	# 无敌机：普通移动指令（自动关闭规避）
@@ -641,13 +679,32 @@ func _update_radar_locks(delta: float) -> void:
 			if other.is_lock_immune():
 				unit.radar_targets.erase(other)
 				continue
-			if unit.is_in_radar_cone(other.global_position):
+			var in_cone := unit.is_in_radar_cone(other.global_position)
+			# ECM 吊舱（战区奖励）：目标自身缩短敌方雷达有效距离
+			if in_cone and other is Aircraft and other.ecm_range_mult < 1.0 \
+					and unit.params and "radar_range" in unit.params:
+				var ecm_range: float = unit.params.radar_range * other.ecm_range_mult
+				if unit.global_position.distance_to(other.global_position) > ecm_range:
+					in_cone = false
+			if in_cone:
 				# 低空/地面目标更难锁定
 				var lock_rate := _lock_rate_for_tier(other.get_altitude_tier())
-				# 云中高空目标：锁定速率减半（用缓存的采样结果）
-				if _weather and other.get_altitude_tier() == CombatUnit.AltitudeTier.HIGH \
-						and _cached_is_in_cloud(other):
-					lock_rate *= 0.5
+				# 云层锁定衰减：
+				#   - 默认：HIGH 档在云里 ×0.5
+				#   - 云雾机动（战区奖励）：任意档位云里 ×0.1（近乎无法锁定）
+				if _weather and _cached_is_in_cloud(other):
+					if other is Aircraft and other.cloud_lock_stealth:
+						lock_rate *= 0.1
+					elif other.get_altitude_tier() == CombatUnit.AltitudeTier.HIGH:
+						lock_rate *= 0.5
+				# 目标自身的锁定抗性（强化吊舱升级）
+				if other is Aircraft and other.lock_resistance_mult > 1.0:
+					lock_rate /= other.lock_resistance_mult
+				# 硬下限：保证 effective_lock_time = threshold / rate ≤ MAX_EFFECTIVE_LOCK_TIME_S
+				var shooter_threshold: float = unit.params.lock_time if unit.params else 3.0
+				var min_rate: float = shooter_threshold / CombatUnit.MAX_EFFECTIVE_LOCK_TIME_S
+				if lock_rate < min_rate:
+					lock_rate = min_rate
 				var prev: float = unit.radar_targets.get(other, 0.0)
 				unit.radar_targets[other] = prev + step_delta * lock_rate
 			else:
@@ -663,6 +720,8 @@ func _update_radar_locks(delta: float) -> void:
 		var lock_time_val: float
 		if unit is Aircraft and unit.params:
 			lock_time_val = unit.params.lock_time
+			# 侩子手：玩家锁定时间 ×0.90/层
+			lock_time_val *= unit._executioner_lock_mult()
 		elif unit is GroundUnit and unit.params:
 			lock_time_val = unit.params.lock_time
 		else:
@@ -987,6 +1046,14 @@ func _on_retreat_confirmed() -> void:
 	hud.show_game_over(survivor_player.level, game_time, _spawner.kill_count)
 
 func _on_supply_confirmed() -> void:
+	# BOSS 阶段禁用补给 —— 防止玩家反复贴边回血刷 BOSS
+	# 显示 toast 告诉玩家「无法补给，返回战场」，并把机头转回内部
+	if _zone_data and _zone_data.is_boss_phase():
+		if _zone_hint:
+			_zone_hint.show_temp(tr("BOUNDARY_SUPPLY_BLOCKED_BOSS"), 4.0)
+		_turn_player_inward()
+		EventLogger.log_event("BOUNDARY", "SupplyBlockedBoss", "boss_phase")
+		return
 	# 回血 + Token 加成（代价是敌人变强）
 	if player_aircraft and not player_aircraft.is_destroyed and player_aircraft.params:
 		player_aircraft.hp = player_aircraft.params.max_hp
@@ -1034,6 +1101,10 @@ func _on_zone_mission_completed(zone_id: StringName) -> void:
 	if not reward.is_empty() and survivor_player:
 		survivor_player.apply_upgrade(reward)
 		reward_name = tr(reward.get("name", ""))
+		# 写入 upgrade_stacks，否则右下角 HUD 已激活技能列表不会显示战区奖励
+		var rid: String = reward.get("id", "")
+		if rid != "":
+			upgrade_stacks[rid] = upgrade_stacks.get(rid, 0) + 1
 	# 基础回血：每攻克一个战区 +ZONE_CLEAR_HP_RESTORE，夹到 max_hp
 	var hp_gained := 0.0
 	if player_aircraft and not player_aircraft.is_destroyed and player_aircraft.params:
@@ -1045,6 +1116,11 @@ func _on_zone_mission_completed(zone_id: StringName) -> void:
 	# 清掉 zone_mission 内部对该战区的记录；下次该战区再进入 AVAILABLE 时会重新刷
 	if _zone_mission:
 		_zone_mission.reset_zone(zone_id)
+		## 2026-04-21：攻克后对其他仍空闲的战区做一次"按当前等级"的敌情升级
+		## 已进入交战的战区不会被刷新（避免打到一半敌人换型）
+		var refreshed: Array[StringName] = _zone_mission.refresh_active_zones_for_level(zone_id)
+		if refreshed.size() > 0 and _zone_hint:
+			_zone_hint.show_temp(tr("ZONE_REFRESHED_AFTER_CLEAR"), 3.0)
 	EventLogger.log_event("ZONE", "Cleared",
 		"id=%s reward=%s hp+%d" % [zone_id, reward.get("id", "-"), int(hp_gained)])
 
@@ -1128,7 +1204,8 @@ func _zone_label(zone_id: StringName) -> String:
 	return z.get("label", str(zone_id))
 
 ## 把玩家传送回边界内侧 + 机头朝向地图中心
-const RESPAWN_MARGIN_PX := 1600.0       ## 距边界至少留这么多（比 warn 的 2km 小一点，避免回来立刻再触发）
+## 回归时只钳到边界线上（0 margin），玩家从边缘线继续飞回战区，没有"瞬移闪烁"感
+const RESPAWN_MARGIN_PX := 0.0
 const RESPAWN_INWARD_TARGET_PX := 2500.0 ## 传送后 target_position 指向原点方向的距离
 const BOSS_ZONE_ENTRY_BUFFER_PX := 500.0 ## 进入 BOSS_ZONE 圆的宽松余量
 
@@ -1137,16 +1214,18 @@ func _turn_player_inward() -> void:
 		return
 	var r := _map_boundary.get_world_rect()
 	var p := player_aircraft.global_position
-	# 把玩家钳回矩形内 RESPAWN_MARGIN 的位置
-	p.x = clampf(p.x, r.position.x + RESPAWN_MARGIN_PX, r.end.x - RESPAWN_MARGIN_PX)
-	p.y = clampf(p.y, r.position.y + RESPAWN_MARGIN_PX, r.end.y - RESPAWN_MARGIN_PX)
+	var was_outside := not r.has_point(p)
+	# 只在真越界时钳回边界线上（0 margin，不再把玩家拉离边缘几公里）
+	p.x = clampf(p.x, r.position.x, r.end.x)
+	p.y = clampf(p.y, r.position.y, r.end.y)
 	player_aircraft.global_position = p
 	# heading 指向原点（0=北，顺时针）：atan2(-p.x, p.y)
 	if not p.is_equal_approx(Vector2.ZERO):
 		player_aircraft.heading = atan2(-p.x, p.y)
 	player_aircraft.bank_angle = 0.0
-	player_aircraft.clear_trail()  # 关键：清丝带避免跨越扭曲
+	# 只有越界被钳回时才清丝带 + 同步相机，避免边界内点取消菜单出现视觉瞬跳
+	if was_outside:
+		player_aircraft.clear_trail()
+		camera.global_position = p
 	var inward := (Vector2.ZERO - p).normalized() if not p.is_equal_approx(Vector2.ZERO) else Vector2(0, -1)
 	player_aircraft.target_position = p + inward * RESPAWN_INWARD_TARGET_PX
-	# 同步相机到新位置
-	camera.global_position = p

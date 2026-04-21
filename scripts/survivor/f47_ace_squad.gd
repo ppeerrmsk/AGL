@@ -11,8 +11,8 @@ func _init() -> void:
 	squad_size = SurvivorData.F47_SQUAD_SIZE
 	intro_duration = SurvivorData.F47_INTRO_DURATION
 	intro_pass_dist = SurvivorData.F47_INTRO_PASS_DIST
-	callsign_prefix = "ACE"
-	boss_name = "ACE SQUAD"
+	callsign_prefix = "WRAITH"
+	boss_name = "WRAITH SQUADRON"
 	enemy_type = 15  # EnemyType.F47
 
 	# 光学隐形
@@ -20,6 +20,7 @@ func _init() -> void:
 	cloak_cycle = SurvivorData.F47_CLOAK_CYCLE
 	cloak_duration = SurvivorData.F47_CLOAK_DURATION
 	cloak_fade = SurvivorData.F47_CLOAK_FADE
+	cloak_cycle_jitter = SurvivorData.F47_CLOAK_CYCLE_JITTER
 
 	# 距离
 	standoff_radius_min = SurvivorData.F47_STANDOFF_RADIUS_MIN

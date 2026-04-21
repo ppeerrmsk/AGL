@@ -43,7 +43,7 @@ const UPGRADES: Array[Dictionary] = [
 		"stat": "speed",
 		"value": 0.18,
 		"max_stacks": 4,
-		"category": "survival",
+		"category": "mobility",
 		"accel_ratio": 0.5,        ## 加速提升 = value × 此值
 	},
 	{
@@ -53,7 +53,7 @@ const UPGRADES: Array[Dictionary] = [
 		"stat": "maneuver",
 		"value": 0.25,
 		"max_stacks": 3,
-		"category": "survival",
+		"category": "mobility",
 		"max_g_bonus": 1.0,        ## 每层 +1.0 G
 		"structural_g_bonus": 0.5, ## 每层 +0.5 结构 G
 	},
@@ -64,7 +64,7 @@ const UPGRADES: Array[Dictionary] = [
 		"stat": "flare_cooldown",
 		"value": 0.20,
 		"max_stacks": 3,
-		"category": "survival",
+		"category": "electronic_warfare",
 		"evolves_to": "flare_shield",
 		"requires": ["flare"],
 	},
@@ -75,7 +75,7 @@ const UPGRADES: Array[Dictionary] = [
 		"stat": "flare_shield",
 		"value": 3.0,
 		"max_stacks": 1,
-		"category": "survival",
+		"category": "electronic_warfare",
 		"evolved": true,
 		"requires": ["flare"],
 		"bonus_flares": 2,         ## 额外赠送热诱弹数
@@ -90,6 +90,34 @@ const UPGRADES: Array[Dictionary] = [
 		"category": "survival",
 		"stamina_mult": 2.0,       ## 耐力上限倍率
 		"recovery_mult": 2.0,      ## 恢复速率倍率
+	},
+	{
+		"id": "armor_up",
+		"name": "UPGRADE_ARMOR_UP_NAME",
+		"desc": "UPGRADE_ARMOR_UP_DESC",
+		"stat": "armor",
+		"value": 40.0,             ## 每层 +40 armor（DR 软上限，100=50%，200=66.7%）
+		"max_stacks": 4,
+		"category": "survival",
+		## 公式在 aircraft.gd _apply_armor：dr = armor / (armor + 100)
+		## 导弹穿甲 50%（MISSILE_ARMOR_PENETRATION=0.5），机炮全额生效
+		## 1 层=40 → 29%/机炮 17%/导弹
+		## 2 层=80 → 44%/机炮 29%/导弹
+		## 3 层=120 → 55%/机炮 38%/导弹
+		## 4 层=160 → 62%/机炮 44%/导弹
+	},
+	{
+		"id": "stealth_pod",
+		"name": "UPGRADE_STEALTH_POD_NAME",
+		"desc": "UPGRADE_STEALTH_POD_DESC",
+		"stat": "lock_resistance",
+		"value": 0.35,             ## 每层 lock_resistance_mult ×1.35
+		"max_stacks": 3,
+		"category": "electronic_warfare",
+		## 敌人锁定速率 ÷ lock_resistance_mult
+		## 1 层 ×1.35 → 敌人要 35% 更长时间锁定
+		## 2 层 ×1.82 → 82% 更长
+		## 3 层 ×2.46 → 146% 更长
 	},
 	{
 		"id": "kill_heal",
@@ -108,7 +136,7 @@ const UPGRADES: Array[Dictionary] = [
 		"stat": "missile_count",
 		"value": 1,
 		"max_stacks": 4,
-		"category": "combat",
+		"category": "missile",
 		"requires": ["missile"],
 	},
 	{
@@ -118,7 +146,7 @@ const UPGRADES: Array[Dictionary] = [
 		"stat": "missile_tracking",
 		"value": 0.30,
 		"max_stacks": 4,
-		"category": "combat",
+		"category": "missile",
 		"evolves_to": "proximity_fuze",
 		"requires": ["missile"],
 	},
@@ -129,7 +157,7 @@ const UPGRADES: Array[Dictionary] = [
 		"stat": "proximity_fuze",
 		"value": 1,
 		"max_stacks": 1,
-		"category": "combat",
+		"category": "missile",
 		"evolved": true,
 		"requires": ["missile"],
 	},
@@ -140,7 +168,7 @@ const UPGRADES: Array[Dictionary] = [
 		"stat": "missile_bounce",
 		"value": 1,
 		"max_stacks": 1,
-		"category": "combat",
+		"category": "missile",
 		"evolved": true,
 		"requires": ["missile"],
 	},
@@ -151,7 +179,7 @@ const UPGRADES: Array[Dictionary] = [
 		"stat": "missile_reload",
 		"value": 0.15,
 		"max_stacks": 3,
-		"category": "combat",
+		"category": "missile",
 		"evolves_to": "missile_bounce",
 		"requires": ["missile"],
 	},
@@ -162,7 +190,7 @@ const UPGRADES: Array[Dictionary] = [
 		"stat": "multi_lock",
 		"value": 1,
 		"max_stacks": 1,
-		"category": "combat",
+		"category": "missile",
 		"requires": ["missile"],
 	},
 	{
@@ -172,7 +200,7 @@ const UPGRADES: Array[Dictionary] = [
 		"stat": "gun_damage",
 		"value": 0.20,
 		"max_stacks": 5,
-		"category": "combat",
+		"category": "secondary",
 		"evolves_to": "gun_multishot",
 		"requires": ["gun"],
 	},
@@ -183,7 +211,7 @@ const UPGRADES: Array[Dictionary] = [
 		"stat": "gun_multishot",
 		"value": 2,
 		"max_stacks": 1,
-		"category": "combat",
+		"category": "secondary",
 		"evolved": true,
 		"requires": ["gun"],
 	},
@@ -194,7 +222,7 @@ const UPGRADES: Array[Dictionary] = [
 		"stat": "gun_ammo",
 		"value": 100,
 		"max_stacks": 5,
-		"category": "combat",
+		"category": "secondary",
 		"requires": ["gun"],
 	},
 	{
@@ -204,7 +232,7 @@ const UPGRADES: Array[Dictionary] = [
 		"stat": "gun_reload",
 		"value": 0.15,
 		"max_stacks": 3,
-		"category": "combat",
+		"category": "secondary",
 		"requires": ["gun"],
 	},
 	{
@@ -214,7 +242,7 @@ const UPGRADES: Array[Dictionary] = [
 		"stat": "gun_firerate",
 		"value": 0.25,
 		"max_stacks": 4,
-		"category": "combat",
+		"category": "secondary",
 		"requires": ["gun"],
 	},
 	{
@@ -224,7 +252,7 @@ const UPGRADES: Array[Dictionary] = [
 		"stat": "gun_range",
 		"value": 0.20,
 		"max_stacks": 4,
-		"category": "combat",
+		"category": "secondary",
 		"evolves_to": "gun_ciws",
 		"requires": ["gun"],
 	},
@@ -235,7 +263,7 @@ const UPGRADES: Array[Dictionary] = [
 		"stat": "gun_ciws",
 		"value": 1,
 		"max_stacks": 1,
-		"category": "combat",
+		"category": "secondary",
 		"evolved": true,
 		"requires": ["gun"],
 	},
@@ -246,7 +274,7 @@ const UPGRADES: Array[Dictionary] = [
 		"stat": "radar_range",
 		"value": 0.20,
 		"max_stacks": 3,
-		"category": "combat",
+		"category": "electronic_warfare",
 	},
 	{
 		"id": "lock_time",
@@ -255,7 +283,7 @@ const UPGRADES: Array[Dictionary] = [
 		"stat": "lock_time",
 		"value": -0.5,
 		"max_stacks": 3,
-		"category": "combat",
+		"category": "electronic_warfare",
 		"min_lock_time": 0.5,      ## 锁定时间不低于此值（秒）
 	},
 	{
@@ -265,12 +293,157 @@ const UPGRADES: Array[Dictionary] = [
 		"stat": "dogfight",
 		"value": 1,
 		"max_stacks": 3,
-		"category": "combat",
+		"category": "mobility",
 		"stall_speed_mult": 0.88,           ## -12% 失速速度
 		"decel_mult": 1.3,                  ## +30% 减速
 		"g_drag_mult": 1.2,                 ## +20% G 力阻力
 		"overshoot_speed_margin_mult": 0.97, ## 更精确速度匹配
 		"turn_slow_speed_mult": 0.9,        ## 大角度减速更多
+	},
+	{
+		"id": "cobra_skill",
+		"name": "UPGRADE_COBRA_SKILL_NAME",
+		"desc": "UPGRADE_COBRA_SKILL_DESC",
+		"stat": "cobra_skill",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "mobility",
+		## 单层；规避模式下被来袭导弹/后方追尾自动触发眼镜蛇机动
+		## 实现：apply_upgrade 时给玩家挂 CobraManeuver 子节点 + 设 cobra_skill_active=true
+		## 触发与冷却逻辑见 aircraft.gd._update_cobra_skill
+	},
+	# ── 新增常规升级（v2026.4.21）──
+	{
+		"id": "xp_mult",
+		"name": "UPGRADE_XP_MULT_NAME",
+		"desc": "UPGRADE_XP_MULT_DESC",
+		"stat": "xp_mult",
+		"value": 0.20,             ## 每层累加 +20%，2 层上限 +40%
+		"max_stacks": 2,
+		"category": "survival",
+		"xp_cap": 1.4,             ## 硬顶 ×1.4
+	},
+	{
+		"id": "radar_angle",
+		"name": "UPGRADE_RADAR_ANGLE_NAME",
+		"desc": "UPGRADE_RADAR_ANGLE_DESC",
+		"stat": "radar_angle",
+		"value": 0.15,             ## 每层 ×1.15
+		"max_stacks": 3,
+		"category": "electronic_warfare",
+		"max_deg": 90.0,           ## 硬 cap 90°
+	},
+	{
+		"id": "seeker_fov",
+		"name": "UPGRADE_SEEKER_FOV_NAME",
+		"desc": "UPGRADE_SEEKER_FOV_DESC",
+		"stat": "seeker_fov",
+		"value": 0.20,             ## 每层 ×1.20
+		"max_stacks": 3,
+		"category": "missile",
+		"requires": ["missile"],
+		"max_deg": 120.0,          ## 硬 cap 120°
+	},
+	{
+		"id": "gun_accuracy",
+		"name": "UPGRADE_GUN_ACCURACY_NAME",
+		"desc": "UPGRADE_GUN_ACCURACY_DESC",
+		"stat": "gun_accuracy",
+		"value": 0.20,             ## 每层 spread ×(1-value)=×0.80
+		"max_stacks": 4,
+		"category": "secondary",
+		"requires": ["gun"],
+		"min_deg": 0.1,            ## 散布下限 0.1°
+	},
+	{
+		"id": "aim_assist",
+		"name": "UPGRADE_AIM_ASSIST_NAME",
+		"desc": "UPGRADE_AIM_ASSIST_DESC",
+		"stat": "aim_assist",
+		"value": 0.25,             ## 每层 fire_cone ×1.25
+		"max_stacks": 3,
+		"category": "secondary",
+		"requires": ["gun"],
+		"max_deg": 45.0,
+	},
+	{
+		"id": "missile_boost",
+		"name": "UPGRADE_MISSILE_BOOST_NAME",
+		"desc": "UPGRADE_MISSILE_BOOST_DESC",
+		"stat": "missile_boost",
+		"value": 1,
+		"max_stacks": 3,
+		"category": "missile",
+		"requires": ["missile"],
+		"cooldown_mult": 0.85,     ## 每层 cooldown ×0.85
+		"burn_mult": 1.15,         ## 每层 motor_burn_time ×1.15
+		"accel_mult": 1.10,        ## 每层 motor_acceleration ×1.10
+	},
+	# ── 战区奖励（evolved=true 进入战区奖励池，不参与随机升级池）──
+	{
+		"id": "vapor_dodge",
+		"name": "UPGRADE_VAPOR_DODGE_NAME",
+		"desc": "UPGRADE_VAPOR_DODGE_DESC",
+		"stat": "vapor_dodge",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"evolved": true,
+		## 效果两件套：
+		##   ① altitude_authority_mult ×2.0 — 切档速度翻倍（LOW↔HIGH 约 45s → 20s）
+		##   ② cloud_lock_stealth = true — 云中任意档位 lock_rate ×0.1
+		"altitude_mult": 2.0,
+	},
+	{
+		"id": "ecm_pod",
+		"name": "UPGRADE_ECM_POD_NAME",
+		"desc": "UPGRADE_ECM_POD_DESC",
+		"stat": "ecm_pod",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"evolved": true,
+		## 效果：ecm_range_mult = 0.75 — 敌方雷达对我的有效距离缩短 25%
+		## 在 main.gd / survivor_mode.gd 的雷达循环中，若 dist > radar_range × 此值 则视同脱锥
+		"range_mult": 0.75,
+	},
+	{
+		"id": "fire_and_forget",
+		"name": "UPGRADE_FIRE_AND_FORGET_NAME",
+		"desc": "UPGRADE_FIRE_AND_FORGET_DESC",
+		"stat": "fire_and_forget",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "missile",
+		"evolved": true,
+		"requires": ["missile"],
+		## 效果：params.missile.fire_and_forget = true，发射后无需照射，玩家可立刻转向
+	},
+	{
+		"id": "shock_absorb",
+		"name": "UPGRADE_SHOCK_ABSORB_NAME",
+		"desc": "UPGRADE_SHOCK_ABSORB_DESC",
+		"stat": "shock_absorb",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "survival",
+		"evolved": true,
+		## 效果：受到 ≥2 dmg 时排队回复 floor(dmg × 0.4) HP（5 HP/秒慢速回填）
+		## 一击致死无效（必死）；1 dmg 自然 floor=0 不回血
+	},
+	{
+		"id": "executioner",
+		"name": "UPGRADE_EXECUTIONER_NAME",
+		"desc": "UPGRADE_EXECUTIONER_DESC",
+		"stat": "executioner",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "mobility",
+		"evolved": true,
+		## 效果：连续不受伤击杀，每 2 杀 +1 层（max 5 层）
+		## 每层加成（详见 aircraft.gd _executioner_*_mult）：
+		##   max_speed +5%、deceleration +10%、missile_reload ×0.92、lock_time ×0.90
+		## 受到任意伤害立即清零所有层数 + 计数
 	},
 ]
 
@@ -318,22 +491,27 @@ static func is_upgrade_available_for(upgrade: Dictionary, aircraft_id: StringNam
 
 # ── 经验曲线 ─────────────────────────────────────────────
 
+## 基数 15（之前 20）：全局节奏提速 ~25%，配合 Adds 全额 XP，让玩家进 BOSS 战时能到 L16-18
 static func xp_for_level(level: int) -> int:
-	return int(20.0 * pow(level, 1.15))
+	return int(15.0 * pow(level, 1.15))
 
-## Adds 类（Tu-160/AH-64/CH-47）经验：单只 = 当前等级所需经验的 1/3（向上取整）
-## 设计意图：
-##   - 整组（3 只以上）击杀 → 保证至少 +1 级（"轰炸机奖励"）
-##   - 进度接近升级线时，打一只也可能触发升级（让玩家感觉自然）
-##   - flock 大小不影响单只奖励（与组大小解耦，简化设计）
-const ADDS_XP_DIVISOR := 3
+## Adds 类（Tu-160/AH-64/CH-47）经验：单只 = 当前等级所需经验全额
+## 设计意图（已撤销之前 /3 的削弱）：
+##   - 轰炸机 / 直升机在事件波次整组出现，给足经验让玩家升级感强
+##   - flock（3-4 架）全杀一次可升 3-4 级，显著推进等级曲线
+const ADDS_XP_DIVISOR := 1
 static func adds_xp_per_kill(level: int, _flock_size: int = 0) -> int:
 	return int(ceil(float(xp_for_level(level)) / float(ADDS_XP_DIVISOR)))
 
 # ── 刷怪参数 ─────────────────────────────────────────────
 
-const BASE_SPAWN_INTERVAL := 8.0    ## 初始刷怪间隔（秒）
-const MIN_SPAWN_INTERVAL := 3.0     ## 最小刷怪间隔
+const BASE_SPAWN_INTERVAL := 8.0    ## 初始刷怪间隔（秒，保留作沙盒/无战区 fallback；生存模式走 TRAVEL_SPAWN_INTERVAL_*）
+const MIN_SPAWN_INTERVAL := 3.0     ## 最小刷怪间隔（同上）
+## 旅途刷怪：玩家在战区之间移动时的节奏。比战区驻守放宽，一趟路一波足够。
+const TRAVEL_SPAWN_INTERVAL_BASE := 45.0   ## 玩家等级 1 时的旅途刷怪间隔（秒）
+const TRAVEL_SPAWN_INTERVAL_MIN := 25.0    ## 玩家高等级时的下限
+## 旅途刷怪方向扇形半角（弧度）。刷怪角度限制在玩家 heading ± 本值 = 前方约 140° 扇形。
+const TRAVEL_SPAWN_FAN_HALF := PI * 70.0 / 180.0
 const ENEMIES_PER_WAVE_BASE := 1    ## 每波基础敌人数
 const ENEMIES_PER_WAVE_GROWTH := 0.3  ## 每级额外敌人数
 const SPAWN_DISTANCE := 3000.0      ## 刷怪距离（像素）
@@ -408,9 +586,10 @@ const F47_STANDOFF_RADIUS_MAX := 2500.0  ## 被追时逃跑最大距离（像素
 const F47_FLEE_DISTANCE := 2000.0   ## 被盯飞机的逃跑距离（像素）
 const F47_INTRO_DURATION := 4.0     ## 登场通场表演时长（秒）
 const F47_INTRO_PASS_DIST := 800.0  ## 通场时经过玩家前方的距离（像素）
-const F47_CLOAK_CYCLE := 95.0       ## 隐形周期（秒）
+const F47_CLOAK_CYCLE := 110.0      ## 隐形基础 CD（秒）
 const F47_CLOAK_DURATION := 5.5     ## 隐形持续时间（秒）
 const F47_CLOAK_FADE := 0.5         ## 隐形淡入/淡出时间（秒）
+const F47_CLOAK_CYCLE_JITTER := 25.0 ## CD 到了随机 0~25s 内触发，玩家无法按表躲
 
 ## 地面单位
 const XP_PER_KILL_GROUND := 25   ## SAM / AA 炮击毁经验（与 UAV 相当）
@@ -489,6 +668,198 @@ const LATE_GAME_MIN_TOKEN := 3
 
 ## 导弹一击必杀：敌机 HP 上限（低于最弱玩家导弹 80 伤害），Sentinel 除外
 const ENEMY_HP_MISSILE_CAP := 75.0
+
+# ── 战区敌情曲线 ─────────────────────────────────────────
+# 设计原则（2026-04-21 修订，详见 docs/changelogs/2026-04-21-zone-level-curve.md）：
+#   1. 玩家等级决定战区敌人池（不是单纯 Token），让开局能撞到 UAV/UCAV
+#   2. 每种敌人有钟形权重：preview(解锁前 1 级) / peak(首发+2) / decay(衰减) / retire(淡出)
+#   3. "能打就用" — 不硬塞预算，预算不够就少刷，宁缺毋滥
+#   4. 护卫优先以"中队"整体出现 — 见 zone_mission._spawn_zone_defenders
+#
+# base_weight = 池子里的基线分量；level_factor 按 unlock/peak/retire 计算
+# unlock:  低于此等级不出现（level_factor=0）
+# preview: unlock-1 等级开始出现（level_factor=0.3，让玩家"预感"）
+# peak:    最高权重 1.0 的等级
+# retire:  >0 时到该等级权重开始衰减；-1 = 不淘汰
+const ZONE_ENEMY_TABLE: Array[Dictionary] = [
+	## type 对应 SurvivorSpawner.EnemyType 的 int 值
+	{"type": 0,  "unlock": 1, "peak": 1,  "retire": 5,  "base_weight": 1.6},  ## UAV        杂鱼（早期主力）
+	{"type": 1,  "unlock": 1, "peak": 2,  "retire": 6,  "base_weight": 1.4},  ## UCAV       带弹杂鱼
+	{"type": 5,  "unlock": 2, "peak": 3,  "retire": 9,  "base_weight": 1.2},  ## F-86       入门 Gladiator
+	{"type": 10, "unlock": 3, "peak": 4,  "retire": 10, "base_weight": 1.0},  ## A-7        亚音速攻击机
+	{"type": 7,  "unlock": 4, "peak": 5,  "retire": -1, "base_weight": 1.0},  ## MiG-23     综合 Gladiator
+	{"type": 3,  "unlock": 5, "peak": 6,  "retire": -1, "base_weight": 0.9},  ## J-7        Lancer 打带跑
+	{"type": 11, "unlock": 5, "peak": 6,  "retire": -1, "base_weight": 0.9},  ## Q-5        超音速攻击机
+	{"type": 8,  "unlock": 6, "peak": 7,  "retire": -1, "base_weight": 0.8},  ## F-100      Lancer 编队
+	{"type": 2,  "unlock": 7, "peak": 8,  "retire": -1, "base_weight": 0.9},  ## MiG-29     主力威胁
+	{"type": 9,  "unlock": 8, "peak": 10, "retire": -1, "base_weight": 0.6},  ## Su-27      精英+眼镜蛇
+	{"type": 6,  "unlock": 9, "peak": 11, "retire": -1, "base_weight": 0.4},  ## MiG-31     顶级 Lancer
+]
+
+## 等级钟形权重：
+##   level < unlock-1         → 0
+##   unlock-1 ≤ level < unlock → 0.3（preview，极低概率"预告"）
+##   unlock ≤ level ≤ peak    → 从 0.6 线性爬升到 1.0
+##   peak < level < retire    → 从 1.0 线性衰减到 0.4
+##   retire ≤ level           → 从 0.4 按半衰减（每 2 级 ×0.5），2 级后完全淡出
+static func _zone_pool_level_factor(level: int, unlock: int, peak: int, retire: int) -> float:
+	if level < unlock - 1:
+		return 0.0
+	if level < unlock:
+		return 0.3
+	if level <= peak:
+		var span: float = float(maxi(peak - unlock, 1))
+		return 0.6 + 0.4 * float(level - unlock) / span
+	# level > peak
+	if retire <= 0:
+		# 无 retire：peak 后缓慢衰减到 0.4 并持平（老敌人不会完全消失）
+		var decay: float = maxf(0.4, 1.0 - 0.1 * float(level - peak))
+		return decay
+	if level < retire:
+		var span2: float = float(maxi(retire - peak, 1))
+		return 1.0 - 0.6 * float(level - peak) / span2
+	# level ≥ retire：2 级内完全淡出
+	var over: int = level - retire
+	if over >= 2:
+		return 0.0
+	return 0.4 * pow(0.5, float(over))
+
+## 战区敌人池（按玩家等级加权）
+##   player_level:     当前玩家等级
+##   exclude_sentinel: elite 任务的 Sentinel 作为 TGT 已独占，守卫池排除 UAV_COMMANDER
+##   squad_friendly:   true 时排除强制单机的机型（MiG-31），供中队批量使用
+## 返回 [{type:int, cost:int, weight:float}, ...]，weight>0 的项
+static func get_zone_enemy_pool(player_level: int, exclude_sentinel: bool = true,
+		squad_friendly: bool = false) -> Array:
+	var out: Array = []
+	for row_any in ZONE_ENEMY_TABLE:
+		var row: Dictionary = row_any
+		var etype: int = int(row["type"])
+		if exclude_sentinel and etype == 4:
+			continue
+		## 中队只收允许编队的机型（MiG-31 单机上限 2，强制排除；Sentinel 走独立 elite 流程）
+		if squad_friendly and etype == 6:
+			continue
+		var f: float = _zone_pool_level_factor(player_level,
+				int(row["unlock"]), int(row["peak"]), int(row["retire"]))
+		if f <= 0.0:
+			continue
+		var cost: int = int(TOKEN_COST.get(etype, 99))
+		out.append({
+			"type": etype,
+			"cost": cost,
+			"weight": float(row["base_weight"]) * f,
+		})
+	return out
+
+## 战区角色虚拟等级 — 用于选敌人池子。
+## role "tgt" 永远比 "garrison" 高 ≥ 2 级，保证 TGT 比护卫硬。
+## floor 机制的目的：低等级玩家（Lv 1-3）打 ★★/★★★ 战区时，护卫池不再
+## 被 UAV/UCAV 淹没 —— 因为 UAV retire=5、UCAV retire=6，把虚拟等级顶到
+## floor 以上就让它们进入衰减/淡出区间，自然腾出空间给中级敌人。
+##
+## | 星级 | TGT boost / floor | Garrison boost / floor |
+## |------|-------------------|------------------------|
+## | ★    | +0 / 3            | +0 / 3                 |
+## | ★★   | +3 / 6            | +2 / 4                 |
+## | ★★★  | +5 / 8            | +3 / 6                 |
+##
+## 例：Lv 1 玩家
+##   ★   TGT/Gar = 3    → F-86 / UAV / UCAV 混合池
+##   ★★  TGT = 6 / Gar = 4 → TGT 是 J-7 / Q-5 级；护卫 A-7 / F-86 / MiG-23，UAV 稀少
+##   ★★★ TGT = 8 / Gar = 6 → TGT 可到 F-100 / MiG-29；护卫 J-7 / Q-5 / A-7 / MiG-23
+static func zone_virtual_level(difficulty: int, player_level: int, role: String = "garrison") -> int:
+	var boost: int
+	var floor_lv: int
+	match difficulty:
+		3:
+			if role == "tgt":
+				boost = 5
+				floor_lv = 8
+			else:
+				boost = 3
+				floor_lv = 6
+		2:
+			if role == "tgt":
+				boost = 3
+				floor_lv = 6
+			else:
+				boost = 2
+				floor_lv = 4
+		_:
+			boost = 0
+			floor_lv = 3
+	return maxi(player_level + boost, floor_lv)
+
+## 向后兼容：TGT 虚拟等级的薄包装
+static func tgt_level_for_zone(difficulty: int, player_level: int) -> int:
+	return zone_virtual_level(difficulty, player_level, "tgt")
+
+## 按战区星级决定空战中队规模
+static func air_squadron_count_for_difficulty(difficulty: int) -> int:
+	match difficulty:
+		3: return 5
+		2: return 4
+		_: return 3
+
+## 地面任务 TGT 强化（SAM / AA 数量 + HP 倍率）
+## 返回 {"sam_count":int, "aa_count":int, "add_radar":bool, "hp_mult":float}
+static func ground_tgt_scale(difficulty: int, player_level: int) -> Dictionary:
+	var sam_count: int
+	var aa_count: int
+	match difficulty:
+		3:
+			sam_count = 5
+			aa_count = 5
+		2:
+			sam_count = 3
+			aa_count = 3
+		_:
+			sam_count = 2
+			aa_count = 2
+	## HP：每级 +10%，每星 +20%（上限 ×3）
+	var hp_mult: float = minf(1.0 + 0.1 * float(maxi(player_level - 1, 0))
+			+ 0.2 * float(difficulty - 1), 3.0)
+	return {
+		"sam_count": sam_count,
+		"aa_count": aa_count,
+		"hp_mult": hp_mult,
+	}
+
+## 战区驻守预算：基础 + 等级线性加成
+## 基础按难度（1-3 星）：8 / 15 / 30
+## 每级 +8%（10 级时 ≈ ×1.72），让高等级战区实打实变重
+const ZONE_DEFENDER_BASE_BUDGET := {1: 8, 2: 15, 3: 30}
+const ZONE_DEFENDER_BUDGET_PER_LEVEL := 0.08
+static func zone_defender_budget(difficulty: int, player_level: int) -> int:
+	var base: int = int(ZONE_DEFENDER_BASE_BUDGET.get(difficulty, 8))
+	var scale: float = 1.0 + ZONE_DEFENDER_BUDGET_PER_LEVEL * float(maxi(player_level - 1, 0))
+	return int(round(float(base) * scale))
+
+## 从等级加权池中抽一个负担得起的敌人（权重随机）
+## 超出 unlock_level + 2 的敌人返回 {} —— 防止给低级玩家塞超纲威胁
+## 返回 {type:int, cost:int} 或 {}
+static func pick_zone_enemy(pool: Array, budget: int, player_level: int) -> Dictionary:
+	var candidates: Array = []
+	var total_weight := 0.0
+	for c_any in pool:
+		var c: Dictionary = c_any
+		var cost: int = int(c["cost"])
+		if cost > budget:
+			continue
+		## 寻找该敌人的 unlock，若 player_level + 2 < unlock 则跳过（等级钟形已处理，但硬门槛更保险）
+		candidates.append(c)
+		total_weight += float(c["weight"])
+	if candidates.is_empty() or total_weight <= 0.0:
+		return {}
+	var r := randf() * total_weight
+	var acc := 0.0
+	for c_any in candidates:
+		var c: Dictionary = c_any
+		acc += float(c["weight"])
+		if r <= acc:
+			return {"type": int(c["type"]), "cost": int(c["cost"])}
+	return {"type": int(candidates[-1]["type"]), "cost": int(candidates[-1]["cost"])}
 
 # ── 敌人缩放 ─────────────────────────────────────────────
 

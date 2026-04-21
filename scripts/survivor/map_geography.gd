@@ -416,6 +416,17 @@ static func is_on_land(pos: Vector2) -> bool:
 			return true
 	return false
 
+## 严格陆地判定：只使用 OSM 烘焙的 LAND_MASK（城区+道路外扩并集）
+## 手画 LAND 轮廓虽然覆盖广，但会把港池、码头之间的海湾也包进轮廓里，导致 is_on_land
+## 误判"港内海水"为陆地（SAM/AA 因此刷到水面上）。
+## 用来给地面单位选位、判定战区是否有足够陆地。
+static func is_on_land_strict(pos: Vector2) -> bool:
+	ensure_ready()
+	for poly in MapGeographyData.LAND_MASK_POLYGONS:
+		if Geometry2D.is_point_in_polygon(pos, poly):
+			return true
+	return false
+
 # ══════════════════════════════════════════════
 #  OSM 陆地 mask（城区外扩 + 道路外扩 → 当作地面）
 # ══════════════════════════════════════════════

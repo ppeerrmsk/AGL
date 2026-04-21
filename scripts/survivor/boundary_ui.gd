@@ -16,8 +16,9 @@ signal retreat_confirmed
 signal supply_confirmed
 signal cancelled
 
-const WARN_COLOR := Color(0.95, 0.2, 0.2, 1.0)
-const WARN_BG := Color(0.15, 0.03, 0.03, 0.75)
+## 警告条颜色 —— 从刺眼红改为温和的琥珀/暖金，边界其实是"补给友好区"，不是危险区
+const WARN_COLOR := Color(0.98, 0.78, 0.35, 1.0)
+const WARN_BG := Color(0.18, 0.13, 0.04, 0.75)
 const PANEL_BG := Color(0.04, 0.05, 0.06, 0.92)
 const PANEL_BORDER := Color(0.85, 0.25, 0.25, 0.9)
 const TEXT_TITLE := Color(0.95, 0.45, 0.45, 1.0)
@@ -30,6 +31,8 @@ var _warn_label: Label
 var _warn_bg: ColorRect
 var _menu_root: Control
 var _menu_visible: bool = false
+## 可选：指向 ZoneData —— BOSS 阶段下警告条改文案，告诉玩家无法补给
+var zones: ZoneData
 
 func _ready() -> void:
 	layer = 20  # 在一般 HUD 之上
@@ -39,10 +42,10 @@ func _ready() -> void:
 	_menu_root.visible = false
 
 func _process(delta: float) -> void:
-	# 警告条脉冲闪烁
+	# 警告条温和呼吸（不是刺眼闪烁）—— 边界是补给友好区，不是危险区
 	if _warn_bg.visible:
-		var t := (sin(Time.get_ticks_msec() / 150.0) * 0.5 + 0.5)
-		_warn_bg.color = WARN_BG.lerp(Color(WARN_BG.r * 2.0, 0.06, 0.06, 0.85), t)
+		var t := (sin(Time.get_ticks_msec() / 400.0) * 0.5 + 0.5)
+		_warn_bg.color = WARN_BG.lerp(Color(0.32, 0.22, 0.06, 0.85), t)
 
 # ══════════════════════════════════════════════
 #  信号入口（由 survivor_mode 接线到 MapBoundary）
@@ -51,7 +54,9 @@ func _process(delta: float) -> void:
 func on_approach(active: bool, distance_m: float) -> void:
 	if active:
 		_warn_bg.visible = true
-		_warn_label.text = tr("BOUNDARY_APPROACH_WARN") % (distance_m / 1000.0)
+		var boss_phase: bool = zones != null and zones.is_boss_phase()
+		var key := "BOUNDARY_APPROACH_WARN_BOSS" if boss_phase else "BOUNDARY_APPROACH_WARN"
+		_warn_label.text = tr(key) % (distance_m / 1000.0)
 	else:
 		_warn_bg.visible = false
 
@@ -136,10 +141,7 @@ func _build_menu() -> void:
 	sp.custom_minimum_size = Vector2(0, 8)
 	vb.add_child(sp)
 
-	var btn_retreat := _make_button(tr("BOUNDARY_BTN_RETREAT"))
-	btn_retreat.pressed.connect(_on_retreat_pressed)
-	vb.add_child(btn_retreat)
-
+	# 顺序：补给（最常用） → 继续作战 → 撤退（最下，避免误点结算战局）
 	var btn_supply := _make_button(tr("BOUNDARY_BTN_SUPPLY"))
 	btn_supply.pressed.connect(_on_supply_pressed)
 	vb.add_child(btn_supply)
@@ -147,6 +149,10 @@ func _build_menu() -> void:
 	var btn_cancel := _make_button(tr("BOUNDARY_BTN_CANCEL"))
 	btn_cancel.pressed.connect(_on_cancel_pressed)
 	vb.add_child(btn_cancel)
+
+	var btn_retreat := _make_button(tr("BOUNDARY_BTN_RETREAT"))
+	btn_retreat.pressed.connect(_on_retreat_pressed)
+	vb.add_child(btn_retreat)
 
 func _make_button(label: String) -> Button:
 	var btn := Button.new()

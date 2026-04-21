@@ -83,11 +83,18 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 			if p.missile:
 				p.missile.max_count += int(upgrade["value"])
 				aircraft.missiles_remaining += int(upgrade["value"])
+			# AGM 属性 = AAM 属性，同步升级
+			if p.secondary_missile:
+				p.secondary_missile.max_count += int(upgrade["value"])
+				aircraft.secondary_missiles_remaining += int(upgrade["value"])
 		"missile_tracking":
 			# 制导升级：导弹过载 +30%，导引常数 +0.5
 			if p.missile:
 				p.missile.max_g *= (1.0 + float(upgrade["value"]))
 				p.missile.nav_constant += 0.5
+			if p.secondary_missile:
+				p.secondary_missile.max_g *= (1.0 + float(upgrade["value"]))
+				p.secondary_missile.nav_constant += 0.5
 		"missile_bounce":
 			# 进化：连锁弹头，导弹命中后弹跳
 			aircraft.missile_bounce_count = int(upgrade["value"])
@@ -151,6 +158,79 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 			p.pilot_stamina *= float(upgrade.get("stamina_mult", 2.0))
 			aircraft.pilot_stamina = p.pilot_stamina
 			p.stamina_recovery_rate *= float(upgrade.get("recovery_mult", 2.0))
+		"armor":
+			# 复合装甲：DR 软上限公式 armor/(armor+100)；导弹按 50% 穿甲计算
+			p.armor += float(upgrade["value"])
+		"xp_mult":
+			# 经验倍率：每层 +20% 累加，硬顶 ×1.4
+			aircraft.xp_multiplier = minf(aircraft.xp_multiplier + float(upgrade["value"]), float(upgrade.get("xp_cap", 1.4)))
+		"radar_angle":
+			# 广角扫描：radar_half_angle ×(1+value)，硬 cap max_deg
+			p.radar_half_angle = minf(p.radar_half_angle * (1.0 + float(upgrade["value"])), float(upgrade.get("max_deg", 90.0)))
+		"seeker_fov":
+			# 广角导引头：MissileParams.seeker_fov ×(1+value)，硬 cap max_deg
+			# 2026-04-21：同步 AGM（AGM 是 AAM 克隆，所有导弹升级都该覆盖）
+			var fov_mult := 1.0 + float(upgrade["value"])
+			var fov_cap := float(upgrade.get("max_deg", 120.0))
+			if p.missile:
+				p.missile = p.missile.duplicate()
+				p.missile.seeker_fov = minf(p.missile.seeker_fov * fov_mult, fov_cap)
+			if p.secondary_missile:
+				p.secondary_missile = p.secondary_missile.duplicate()
+				p.secondary_missile.seeker_fov = minf(p.secondary_missile.seeker_fov * fov_mult, fov_cap)
+		"gun_accuracy":
+			# 枪械精度：spread_angle ×(1-value)，硬 floor min_deg
+			if p.gun:
+				p.gun = p.gun.duplicate()
+				p.gun.spread_angle = maxf(p.gun.spread_angle * (1.0 - float(upgrade["value"])), float(upgrade.get("min_deg", 0.1)))
+		"aim_assist":
+			# 瞄准辅助：fire_cone_half_angle ×(1+value)，硬 cap max_deg
+			if p.gun:
+				p.gun = p.gun.duplicate()
+				p.gun.fire_cone_half_angle = minf(p.gun.fire_cone_half_angle * (1.0 + float(upgrade["value"])), float(upgrade.get("max_deg", 45.0)))
+		"missile_boost":
+			# 火箭助推：cooldown ×0.85 + burn_time ×1.15 + motor_accel ×1.10（每层复合）
+			if p.missile:
+				p.missile = p.missile.duplicate()
+				p.missile.cooldown *= float(upgrade.get("cooldown_mult", 0.85))
+				p.missile.motor_burn_time *= float(upgrade.get("burn_mult", 1.15))
+				p.missile.motor_acceleration *= float(upgrade.get("accel_mult", 1.10))
+		"vapor_dodge":
+			# 云雾机动（战区奖励）：高度切换 ×2 + 云中任意档位锁定速率 ×0.1
+			aircraft.altitude_authority_mult *= float(upgrade.get("altitude_mult", 2.0))
+			aircraft.cloud_lock_stealth = true
+		"ecm_pod":
+			# ECM 吊舱（战区奖励）：敌方雷达对我的有效距离 ×0.75
+			aircraft.ecm_range_mult *= float(upgrade.get("range_mult", 0.75))
+		"fire_and_forget":
+			# 射后不理（战区奖励）：玩家所有导弹发射后不需要持续照射
+			if p.missile:
+				p.missile = p.missile.duplicate()
+				p.missile.fire_and_forget = true
+			if p.secondary_missile:
+				p.secondary_missile = p.secondary_missile.duplicate()
+				p.secondary_missile.fire_and_forget = true
+		"shock_absorb":
+			# 冲击吸收（战区奖励）：伤害的 40% 慢慢回血
+			aircraft.shock_absorb_active = true
+		"cobra_skill":
+			# 眼镜蛇机动技能：开启自动触发 + 确保玩家身上挂 CobraManeuver 子节点
+			aircraft.cobra_skill_active = true
+			var has_cobra := false
+			for child in aircraft.get_children():
+				if child is CobraManeuver:
+					has_cobra = true
+					break
+			if not has_cobra:
+				var cobra := CobraManeuver.new()
+				cobra.name = "CobraManeuver"
+				aircraft.add_child(cobra)
+		"executioner":
+			# 侩子手（战区奖励）：连续不受伤击杀堆层，最高 5 层
+			aircraft.executioner_active = true
+		"lock_resistance":
+			# 强化吊舱：敌人对我累积锁定速率 ÷ lock_resistance_mult（可堆叠）
+			aircraft.lock_resistance_mult *= (1.0 + float(upgrade["value"]))
 		"kill_heal":
 			# 战场急救：击杀回血，叠加层数记录在 aircraft 上
 			aircraft.kill_heal_amount += float(upgrade["value"])

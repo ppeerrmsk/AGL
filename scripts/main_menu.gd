@@ -173,14 +173,14 @@ func _build_ui() -> void:
 	mode_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_mode_container.add_child(mode_label)
 
-	# 沙盒模式按钮
-	_add_mode_button(tr("MENU_MODE_SANDBOX_NAME"), tr("MENU_MODE_SANDBOX_DESC"), _on_sandbox_pressed)
-
-	# 生存模式
+	# 测试版：生存模式为主显示
 	_add_mode_button(tr("MENU_MODE_SURVIVOR_NAME"), tr("MENU_MODE_SURVIVOR_DESC"), _on_survivor_pressed)
 
 	# 未来模式占位（灰色不可用）
 	_add_mode_button(tr("MENU_MODE_MISSION_NAME"), tr("MENU_MODE_MISSION_DESC"), Callable(), true)
+
+	# 测试版：沙盒入口缩成右下角小按钮
+	_build_sandbox_corner_button()
 
 	# 下部空白
 	var spacer_bottom := Control.new()
@@ -289,9 +289,80 @@ func _build_audio_button(root: VBoxContainer) -> void:
 	btn.pressed.connect(_on_audio_settings_pressed)
 	row.add_child(btn)
 
+	# 删除存档按钮（测试用）：重置首次引导 / 进度标志
+	var reset_btn := Button.new()
+	reset_btn.text = tr("MENU_RESET_SAVE_BUTTON")
+	reset_btn.custom_minimum_size = Vector2(140, 28)
+	reset_btn.add_theme_font_size_override("font_size", 13)
+	var rs_normal := StyleBoxFlat.new()
+	rs_normal.bg_color = Color(0.10, 0.05, 0.05, 0.45)
+	rs_normal.border_color = Color(0.55, 0.25, 0.22, 0.4)
+	rs_normal.set_border_width_all(1)
+	rs_normal.set_corner_radius_all(2)
+	rs_normal.set_content_margin_all(4)
+	reset_btn.add_theme_stylebox_override("normal", rs_normal)
+	reset_btn.add_theme_color_override("font_color", Color(0.75, 0.5, 0.45, 0.85))
+	var rs_hover := StyleBoxFlat.new()
+	rs_hover.bg_color = Color(0.2, 0.08, 0.08, 0.8)
+	rs_hover.border_color = Color(1.0, 0.45, 0.4, 0.7)
+	rs_hover.set_border_width_all(1)
+	rs_hover.set_corner_radius_all(2)
+	rs_hover.set_content_margin_all(4)
+	reset_btn.add_theme_stylebox_override("hover", rs_hover)
+	reset_btn.add_theme_color_override("font_hover_color", Color(1.0, 0.75, 0.55))
+	reset_btn.pressed.connect(_on_reset_save_pressed)
+	row.add_child(reset_btn)
+
 	var bottom_pad := Control.new()
 	bottom_pad.custom_minimum_size = Vector2(0, 6)
 	root.add_child(bottom_pad)
+
+## 要在重置时删除的存档文件列表（保留 locale.cfg / audio.cfg 用户偏好）
+const RESET_SAVE_FILES := [
+	"user://tutorial.cfg",
+]
+
+func _on_reset_save_pressed() -> void:
+	var dlg := ConfirmationDialog.new()
+	dlg.dialog_text = tr("MENU_RESET_SAVE_CONFIRM")
+	dlg.ok_button_text = tr("MENU_RESET_SAVE_CONFIRM_BTN")
+	dlg.cancel_button_text = tr("MENU_RESET_SAVE_CANCEL")
+	dlg.title = tr("MENU_RESET_SAVE_BUTTON")
+	_canvas.add_child(dlg)
+	dlg.confirmed.connect(func():
+		var removed := 0
+		for path in RESET_SAVE_FILES:
+			if FileAccess.file_exists(path):
+				DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+				removed += 1
+		_show_toast(tr("MENU_RESET_SAVE_OK") % removed)
+		dlg.queue_free())
+	dlg.canceled.connect(func(): dlg.queue_free())
+	dlg.popup_centered()
+
+func _show_toast(text: String) -> void:
+	var wrap := PanelContainer.new()
+	var bg := StyleBoxFlat.new()
+	bg.bg_color = Color(0.05, 0.1, 0.05, 0.92)
+	bg.border_color = Color(0.4, 0.9, 0.4, 0.6)
+	bg.set_border_width_all(1)
+	bg.set_corner_radius_all(3)
+	bg.set_content_margin_all(10)
+	wrap.add_theme_stylebox_override("panel", bg)
+	wrap.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	wrap.position = Vector2(-140, 80)
+	wrap.custom_minimum_size = Vector2(280, 0)
+	var lbl := Label.new()
+	lbl.text = text
+	lbl.add_theme_font_size_override("font_size", 14)
+	lbl.add_theme_color_override("font_color", Color(0.8, 1.0, 0.6))
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	wrap.add_child(lbl)
+	_canvas.add_child(wrap)
+	var tw := create_tween()
+	tw.tween_interval(1.8)
+	tw.tween_property(wrap, "modulate:a", 0.0, 0.5)
+	tw.tween_callback(wrap.queue_free)
 
 func _on_audio_settings_pressed() -> void:
 	var panel = preload("res://scripts/audio/audio_settings_panel.gd").new()
@@ -354,6 +425,36 @@ func _add_mode_button(title: String, desc: String, callback: Callable, disabled 
 
 func _on_sandbox_pressed() -> void:
 	get_tree().change_scene_to_file("res://scenes/main.tscn")
+
+## 测试版：把沙盒入口做成右下角小按钮（不走主菜单 VBox）
+func _build_sandbox_corner_button() -> void:
+	var btn := Button.new()
+	btn.text = tr("MENU_MODE_SANDBOX_NAME")
+	btn.custom_minimum_size = Vector2(110, 24)
+	btn.add_theme_font_size_override("font_size", 11)
+	btn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	btn.position = Vector2(-130, -40)
+
+	var style_normal := StyleBoxFlat.new()
+	style_normal.bg_color = Color(0.05, 0.08, 0.05, 0.45)
+	style_normal.border_color = Color(0.25, 0.45, 0.25, 0.35)
+	style_normal.set_border_width_all(1)
+	style_normal.set_corner_radius_all(2)
+	style_normal.set_content_margin_all(4)
+	btn.add_theme_stylebox_override("normal", style_normal)
+	btn.add_theme_color_override("font_color", Color(0.4, 0.6, 0.4, 0.7))
+
+	var style_hover := StyleBoxFlat.new()
+	style_hover.bg_color = Color(0.1, 0.16, 0.1, 0.75)
+	style_hover.border_color = Color(0.4, 0.8, 0.4, 0.6)
+	style_hover.set_border_width_all(1)
+	style_hover.set_corner_radius_all(2)
+	style_hover.set_content_margin_all(4)
+	btn.add_theme_stylebox_override("hover", style_hover)
+	btn.add_theme_color_override("font_hover_color", Color(0.8, 1.0, 0.6))
+
+	btn.pressed.connect(_on_sandbox_pressed)
+	_canvas.add_child(btn)
 
 func _on_survivor_pressed() -> void:
 	get_tree().change_scene_to_file("res://scenes/survivor_map_select.tscn")

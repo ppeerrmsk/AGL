@@ -16,6 +16,21 @@ static var player_ref: Aircraft = null
 ##   AircraftRenderer.draw_data_label(self)
 ##   等等
 
+## 把字符串里所有数字替换成 "0"，用于测量稳定宽度
+## 为什么：字体里 0~9 不是完全等宽（fallback 字体是 proportional，不是 tabular），
+## 所以 "HDG 060" 和 "HDG 063" 的像素宽度差 1~2 px。label 每帧按当前文字重算 max_w，
+## 导致 box_w 在高频 hdg 变化（如 F-47 J-Turn 3°/帧）下每帧抽 1~2 px，视觉表现为"抽搐"。
+## 详见 docs/changelogs/player-ai-log.md 2026-04-21 (10)
+static func _digit_stable(s: String) -> String:
+	var out := ""
+	for i in range(s.length()):
+		var c := s[i]
+		if c >= "0" and c <= "9":
+			out += "0"
+		else:
+			out += c
+	return out
+
 ## 云层状态视觉：云中（HIGH）画冷白光晕，云下（LOW/MID）画淡蓝灰阴影
 ## 必须在图标之前调用（作底）
 static func draw_cloud_state(ac: Aircraft) -> void:
@@ -223,9 +238,17 @@ static func draw_afterburner_glow(ac: Aircraft) -> void:
 	var flicker := randf_range(0.7, 1.0)
 	var glow_color := Color(1.0, 0.5, 0.1, 0.8 * flicker)
 	var core_color := Color(1.0, 0.85, 0.4, 0.9 * flicker)
+	# 与机身图标一致地应用 cobra/herbst 各向同性收缩（见 draw_aircraft_icon 的说明）
+	var sy_compress: float = 1.0
+	var _mv := ac.get_maneuver()
+	if _mv and _mv.visual_offset > 0.0:
+		sy_compress *= lerpf(1.0, 0.35, _mv.visual_offset)
+	var _hm := ac.get_herbst()
+	if _hm and _hm.visual_offset > 0.0:
+		sy_compress *= lerpf(1.0, 0.4, _hm.visual_offset)
 	# 尾喷口位置（本地坐标，飞机朝 -Y）
-	var tail := Vector2(0, 16.0)
-	var flame_len := randf_range(10.0, 16.0)
+	var tail := Vector2(0, 16.0 * sy_compress)
+	var flame_len := randf_range(10.0, 16.0) * sy_compress
 	# 火焰三角
 	var flame := PackedVector2Array([
 		tail + Vector2(-3.0, 0),
@@ -296,13 +319,24 @@ static func draw_aircraft_icon(ac: Aircraft) -> void:
 	var bank_compress := cos(ac.bank_angle + ac._evade_roll_phase)
 	var sx := base_scale * bank_compress
 	var sy := base_scale
-	# 战术机动视觉效果：俯视视角下 Y 轴压缩（模拟机头大仰角）
+	# 战术机动视觉效果：各向同性收缩（表示"极端机动"），不只压 Y 轴。
+	# 为什么各向同性：
+	#   旧版只压 sy（本地 Y 轴 = 机体纵轴），heading 旋转时 sy 压缩方向跟着转 →
+	#   J-Turn TURN 阶段 180°/秒偏航下，图标屏幕长宽比每帧剧变（每 3°/帧：
+	#   偏航 0° 短而宽 → 偏航 90° 高而窄），人眼感知为"机身抽搐、状态框跟着抖"。
+	#   这是物理上正确的俯视"机头仰角"效果，但转速太快感官无法接受。
+	#   改成 sx/sy 同时压缩后，图标只是变小（表达极端机动），长宽比稳定，不再抖。
+	# 详见 docs/changelogs/player-ai-log.md 2026-04-21 (11)
 	var _mv := ac.get_maneuver()
 	if _mv and _mv.visual_offset > 0.0:
-		sy *= lerpf(1.0, 0.35, _mv.visual_offset)
+		var f: float = lerpf(1.0, 0.35, _mv.visual_offset)
+		sx *= f
+		sy *= f
 	var _hm := ac.get_herbst()
 	if _hm and _hm.visual_offset > 0.0:
-		sy *= lerpf(1.0, 0.4, _hm.visual_offset)
+		var f: float = lerpf(1.0, 0.4, _hm.visual_offset)
+		sx *= f
+		sy *= f
 
 	var xform := Transform2D(0.0, Vector2.ZERO)
 	xform = xform.scaled(Vector2(sx, sy))
@@ -688,7 +722,7 @@ static func draw_data_label_minimal(ac: Aircraft) -> void:
 
 	var max_w := 0.0
 	for line in lines:
-		var w := ac._font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+		var w := ac._font.get_string_size(_digit_stable(line), HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 		max_w = maxf(max_w, w)
 
 	var scale_v := Vector2(inv_zoom, inv_zoom)
@@ -748,10 +782,10 @@ static func draw_data_label(ac: Aircraft) -> void:
 	var inv_zoom := 1.0 / maxf(zoom_scale.x, 0.01)
 	var label_offset := Vector2(24 * inv_zoom, -12 * inv_zoom).rotated(inv_rot)
 
-	# 测量最大宽度
+	# 测量最大宽度（把数字替换成 "0" 再测，避免 label 框每帧抽搐）
 	var max_w := 0.0
 	for line in lines:
-		var w := ac._font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+		var w := ac._font.get_string_size(_digit_stable(line), HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 		max_w = maxf(max_w, w)
 	var box_w := max_w + 10.0
 	var box_h := lines.size() * line_height + 6.0
@@ -823,93 +857,263 @@ static func draw_target_line(ac: Aircraft) -> void:
 	# 预测飞行路径
 	draw_predicted_path(ac, local_target, color)
 
-	# 航点标记 — 十字 + 圆环
-	var d := 10.0
-	var marker_color := Color(0.3, 0.8, 1.0, 0.7)
-	ac.draw_circle(local_target, d, Color(marker_color, 0.15))
-	ac.draw_arc(local_target, d, 0, TAU, 32, marker_color, 1.5)
-	ac.draw_line(local_target + Vector2(-d * 1.3, 0), local_target + Vector2(d * 1.3, 0), marker_color, 1.0)
-	ac.draw_line(local_target + Vector2(0, -d * 1.3), local_target + Vector2(0, d * 1.3), marker_color, 1.0)
+	# 航点标记 — 双环 + 十字 + 脉冲外圈，显眼且不遮挡目标位置本身
+	var d := 11.0
+	var marker_color := Color(0.35, 0.85, 1.0, 1.0)
+	var fill := Color(marker_color.r, marker_color.g, marker_color.b, 0.22)
+	# 中心填充 + 内环
+	ac.draw_circle(local_target, d, fill)
+	ac.draw_arc(local_target, d, 0, TAU, 32, marker_color, 2.0)
+	# 次内环（更细）
+	ac.draw_arc(local_target, d * 0.55, 0, TAU, 24, Color(marker_color, 0.9), 1.5)
+	# 十字（四个短线，不穿过中心保留目标点清晰）
+	var gap := d * 0.45
+	var tail := d * 1.55
+	var cross_col := Color(marker_color, 0.95)
+	ac.draw_line(local_target + Vector2(gap, 0), local_target + Vector2(tail, 0), cross_col, 1.6)
+	ac.draw_line(local_target + Vector2(-gap, 0), local_target + Vector2(-tail, 0), cross_col, 1.6)
+	ac.draw_line(local_target + Vector2(0, gap), local_target + Vector2(0, tail), cross_col, 1.6)
+	ac.draw_line(local_target + Vector2(0, -gap), local_target + Vector2(0, -tail), cross_col, 1.6)
+	# 脉冲外圈（缓慢呼吸）
+	var pulse_t := fmod(float(Time.get_ticks_msec()) * 0.002, 1.0)
+	var pulse_r := d * (1.4 + pulse_t * 0.8)
+	var pulse_a := (1.0 - pulse_t) * 0.55
+	ac.draw_arc(local_target, pulse_r, 0, TAU, 32, Color(marker_color.r, marker_color.g, marker_color.b, pulse_a), 1.5)
+	# 中心小实心点（精确标记点击位置）
+	ac.draw_circle(local_target, 2.0, Color(1.0, 1.0, 1.0, 0.95))
 
-## 绘制预测飞行路径：模拟转弯弧线 + 直线段
-## 模拟真实物理：滚转速率、速度衰减、G力限制
+## 绘制预测飞行路径 + 末端彩带箭头
+## ⚠ 抽动修复：缓存世界坐标。每帧从 ac.speed/bank/heading 的微抖动重算 240 步仿真，
+## 末端会放大到 ±20 px 抽动。现在：① 点击新目标或每 1.0s 才重新仿真 ② 平时直接用缓存
+## 里的世界点转本地坐标渲染 ③ 起点从"当前飞机位置"插入，保证线从机头出发不断。
 static func draw_predicted_path(ac: Aircraft, local_target: Vector2, base_color: Color) -> void:
-	var path_color := Color(base_color.r, base_color.g, base_color.b, 0.35)
+	# ── 事件驱动刷新判定 ──
+	# 关键：绝大多数帧都不重算，缓存保持世界坐标锁定，线和箭头视觉完全静止。
+	# progress_idx 单调递增：每帧只在 [progress_idx, progress_idx+SEARCH_WINDOW] 里
+	# 找最近点，避免绕圈路径上"起点"和"绕回来的末尾"同时接近飞机时跳来跳去闪烁。
+	var need_refresh := false
+	var nearest_idx: int = ac.predicted_path_progress_idx
+	var nearest_d_sq: float = INF
+	var cur_world: Vector2 = ac.global_position
 
-	# 模拟参数（从当前飞机状态初始化）
+	if ac.predicted_path_cache.size() < 2:
+		need_refresh = true
+	elif ac.predicted_path_target == Vector2.INF \
+			or ac.predicted_path_target.distance_to(ac.target_position) > Aircraft.PREDICTED_PATH_RETARGET_THRESHOLD:
+		need_refresh = true
+	else:
+		# 局部窗口搜索：从 progress_idx 开始往后找最近点
+		var start_i: int = clampi(ac.predicted_path_progress_idx, 0, ac.predicted_path_cache.size() - 1)
+		var end_i: int = mini(ac.predicted_path_cache.size(), start_i + Aircraft.PREDICTED_PATH_SEARCH_WINDOW)
+		nearest_idx = start_i
+		nearest_d_sq = cur_world.distance_squared_to(ac.predicted_path_cache[start_i])
+		for i in range(start_i + 1, end_i):
+			var dsq: float = cur_world.distance_squared_to(ac.predicted_path_cache[i])
+			if dsq < nearest_d_sq:
+				nearest_d_sq = dsq
+				nearest_idx = i
+		var drift_sq: float = Aircraft.PREDICTED_PATH_DRIFT_THRESHOLD * Aircraft.PREDICTED_PATH_DRIFT_THRESHOLD
+		var remaining: int = ac.predicted_path_cache.size() - nearest_idx
+		if nearest_d_sq > drift_sq or remaining < Aircraft.PREDICTED_PATH_MIN_REMAINING:
+			need_refresh = true
+
+	if need_refresh:
+		_recompute_predicted_path(ac)
+		ac.predicted_path_target = ac.target_position
+		# 重算后飞机就在 cache[0]，progress 回到 0
+		nearest_idx = 0
+		ac.predicted_path_progress_idx = 0
+	else:
+		# 沿缓存单调前进：progress 只能增不能减
+		ac.predicted_path_progress_idx = nearest_idx
+
+	var world_points: PackedVector2Array = ac.predicted_path_cache
+	if world_points.size() < 2:
+		return
+
+	# trim：从最近点往前截取（飞机已飞过的那段不画）
+	var points := PackedVector2Array()
+	points.append(Vector2.ZERO)   ## 机头本地原点，线从这里顺滑延伸
+	for i in range(nearest_idx + 1, world_points.size()):
+		points.append(ac.to_local(world_points[i]))
+	if points.size() < 2:
+		return
+
+	# ── 绘制路径：双层连续线 ──
+	var glow := Color(base_color.r, base_color.g, base_color.b, 0.35)
+	var core := Color(
+		clampf(base_color.r + 0.25, 0.0, 1.0),
+		clampf(base_color.g + 0.25, 0.0, 1.0),
+		clampf(base_color.b + 0.25, 0.0, 1.0),
+		0.85,
+	)
+	ac.draw_polyline(points, glow, 2.2, true)
+	ac.draw_polyline(points, core, 1.0, true)
+
+	# ── 末端箭头：两个凸多边形（矩形轴 + 三角头） ──
+	# 方向计算：从末端往回跳几段做 tangent，避开 arrival_dist 插值尾段（那段可能 < 1 px，
+	# 用它算方向会得到噪声），这样箭头方向和线的视觉走向稳定一致。
+	var tip_pt: Vector2 = points[points.size() - 1]
+	# 从末端往回找一段长度足够的切向量。优先跳回 2 段（第 size-3 个点），
+	# 如果点太少就退到第 0 个（机头原点）——这样至少拿到"飞机→末端"的总体方向，
+	# 不会再退到"飞机→目标"那种和路径脱钩的方向。
+	var lookback_idx: int = maxi(0, points.size() - 3)
+	var prev_pt: Vector2 = points[lookback_idx]
+	var tangent: Vector2 = tip_pt - prev_pt
+	var tlen: float = tangent.length()
+	# 再兜底：如果连 2 段跳回都拿不到有效 tangent，就尝试更远的跳回
+	if tlen < 0.5 and points.size() >= 5:
+		prev_pt = points[points.size() - 5]
+		tangent = tip_pt - prev_pt
+		tlen = tangent.length()
+	var fwd: Vector2
+	if tlen > 0.5:
+		fwd = tangent / tlen
+	else:
+		# 极端兜底（点太少且全挤在一起）：本地 -Y = 机头朝向，至少方向合理
+		fwd = Vector2(0, -1)
+	var side: Vector2 = Vector2(-fwd.y, fwd.x)
+
+	var shaft_len := 8.0    ## 轴段（和 core 线同宽的短延长）
+	var head_len := 11.0    ## 箭头头段长度
+	var barb_w := 6.0       ## 箭翼半展宽
+	var neck_w := 1.2       ## 轴宽
+
+	var shaft_start: Vector2 = tip_pt - fwd * (shaft_len + head_len)
+	var head_base: Vector2 = tip_pt - fwd * head_len
+	var final_tip: Vector2 = tip_pt
+
+	var core_col := Color(
+		clampf(base_color.r + 0.25, 0.0, 1.0),
+		clampf(base_color.g + 0.25, 0.0, 1.0),
+		clampf(base_color.b + 0.25, 0.0, 1.0),
+		0.95,
+	)
+	var glow_col := Color(base_color.r, base_color.g, base_color.b, 0.35)
+	var ge := 1.5
+
+	# 1) 矩形轴（凸四边形）—— 光晕 + 核心
+	var shaft_glow := PackedVector2Array([
+		shaft_start + side * (neck_w + ge * 0.3),
+		head_base + side * (neck_w + ge * 0.3),
+		head_base - side * (neck_w + ge * 0.3),
+		shaft_start - side * (neck_w + ge * 0.3),
+	])
+	ac.draw_colored_polygon(shaft_glow, glow_col)
+	var shaft_core := PackedVector2Array([
+		shaft_start + side * neck_w,
+		head_base + side * neck_w,
+		head_base - side * neck_w,
+		shaft_start - side * neck_w,
+	])
+	ac.draw_colored_polygon(shaft_core, core_col)
+
+	# 2) 三角箭头（凸三角形）—— 光晕 + 核心
+	var head_glow := PackedVector2Array([
+		head_base + side * (barb_w + ge),
+		final_tip + fwd * ge,
+		head_base - side * (barb_w + ge),
+	])
+	ac.draw_colored_polygon(head_glow, glow_col)
+	var head_core := PackedVector2Array([
+		head_base + side * barb_w,
+		final_tip,
+		head_base - side * barb_w,
+	])
+	ac.draw_colored_polygon(head_core, core_col)
+
+## 重新仿真预测路径，写入 ac.predicted_path_cache（世界坐标点序列）。
+## 调用频率：目标改变 / 缓存过期（每秒一次）。
+static func _recompute_predicted_path(ac: Aircraft) -> void:
+	var cache := PackedVector2Array()
+	ac.predicted_path_cancel_reached = false
+	if ac.target_position == Vector2.INF:
+		ac.predicted_path_cache = cache
+		return
+
+	# 仿真参数：直接读真实状态。之前搞的输入平滑在新事件驱动架构下已无必要 —— 因为
+	# 仿真只在"真的需要"时跑（目标变 / 飞机偏离 / 缓存耗尽），而不是每帧，所以仿真本身
+	# 的抖动性根本看不见，缓存一旦写入就世界坐标锁死。
 	var sim_heading := ac.heading
 	var sim_pos := ac.global_position
-	var sim_speed := maxf(ac.speed, 50.0)  # m/s
-	var sim_bank := ac.bank_angle          # 当前坡度
+	var sim_speed := maxf(ac.speed, 50.0)
+	var sim_bank := ac.bank_angle
 	var roll_rate_val := ac.params.roll_rate if ac.params else 4.0
 	var accel_rate := ac.params.acceleration if ac.params else 50.0
 	var decel_rate := ac.params.deceleration if ac.params else 80.0
 	var cruise_ms := (ac.params.cruise_speed if ac.params else 900.0) / 3.6
 	var stall_base_ms := (ac.params.stall_speed_base if ac.params else 220.0) / 3.6
 
-	var step := 0.08  # 更细的模拟步长
-	var max_steps := 180
-	var record_interval := 3  # 每3步记录一个点
+	var step := 0.08           ## 粗化一档（0.06→0.08）给更多时间
+	var max_steps := 400       ## 拉到 32 秒仿真时间，覆盖长途大转弯
+	var record_interval := 2
 
-	var points := PackedVector2Array()
-	points.append(Vector2.ZERO)
+	cache.append(sim_pos)
+	var arrival_dist_real: float = maxf(150.0, sim_speed * Aircraft.PIXELS_PER_METER * 2.0)
 
 	for i in range(max_steps):
 		var to_tgt := ac.target_position - sim_pos
 		var dist_to_tgt := to_tgt.length()
-		if dist_to_tgt < sim_speed * Aircraft.PIXELS_PER_METER * step * 2.0:
-			points.append(ac.to_local(sim_pos))
+		if dist_to_tgt < arrival_dist_real:
+			# 线性插值出精确末端
+			if cache.size() >= 1:
+				var prev_world: Vector2 = cache[cache.size() - 1]
+				var prev_d: float = (ac.target_position - prev_world).length()
+				if prev_d > arrival_dist_real and dist_to_tgt < arrival_dist_real:
+					var t: float = (prev_d - arrival_dist_real) / maxf(prev_d - dist_to_tgt, 0.001)
+					cache.append(prev_world.lerp(sim_pos, t))
+				else:
+					cache.append(sim_pos)
+			ac.predicted_path_cancel_reached = true
 			break
 
-		# 目标航向
 		var tgt_heading := atan2(to_tgt.x, -to_tgt.y)
 		var hdiff := Aircraft._angle_diff(tgt_heading, sim_heading)
 
-		# 模拟目标坡度（与实际 _update_bank 逻辑一致）
+		# Critical-damping 过冲补偿
+		if absf(sim_bank) > 0.05 and absf(hdiff) > 0.001:
+			var current_turn_rate := Aircraft.GRAVITY * tan(sim_bank) / maxf(sim_speed, 50.0)
+			var t_roll := absf(sim_bank) / maxf(roll_rate_val, 0.5)
+			var anticipated := current_turn_rate * t_roll * 0.5
+			if signf(anticipated) == signf(hdiff):
+				if absf(anticipated) >= absf(hdiff):
+					hdiff = 0.0
+				else:
+					hdiff -= anticipated
+
+		# 玩家战术巡航 bank 曲线
 		var max_bank_sim := ac._max_bank_angle_at_speed(sim_speed, stall_base_ms)
 		var target_bank: float
-		if abs(hdiff) < 0.05:
+		var abs_h := absf(hdiff)
+		if abs_h < 0.02:
 			target_bank = 0.0
-		elif abs(hdiff) < 0.4:
-			target_bank = sign(hdiff) * max_bank_sim * 0.3
+		elif abs_h < 0.15:
+			var r: float = (abs_h - 0.02) / (0.15 - 0.02)
+			target_bank = signf(hdiff) * max_bank_sim * lerpf(0.5, 1.0, r)
 		else:
-			target_bank = sign(hdiff) * max_bank_sim
-		# 接近目标时衰减坡度
-		var prox := clampf((dist_to_tgt - 150.0) / 300.0, 0.0, 1.0)
-		target_bank *= prox
+			target_bank = signf(hdiff) * max_bank_sim
 
-		# 滚转速率限制
 		var bank_diff := target_bank - sim_bank
 		var max_roll := roll_rate_val * step
 		sim_bank += clampf(bank_diff, -max_roll, max_roll)
 
-		# 转弯（基于当前坡度）
 		if abs(sim_bank) > 0.001:
 			var turn_rate := Aircraft.GRAVITY * tan(sim_bank) / maxf(sim_speed, 1.0)
 			sim_heading += turn_rate * step
 			sim_heading = fmod(sim_heading + PI, TAU) - PI
 
-		# 速度模拟：转弯时减速（G力阻力），直飞时恢复巡航速度
 		var current_g := 1.0 / maxf(cos(sim_bank), 0.01)
-		var drag_decel := (current_g - 1.0) * 8.0  # G力越大减速越快
-		var target_speed := cruise_ms
-		if sim_speed > target_speed:
+		var drag_decel := (current_g - 1.0) * 8.0
+		if sim_speed > cruise_ms:
 			sim_speed -= (decel_rate * 0.5 + drag_decel) * step
 		else:
 			sim_speed += accel_rate * 0.3 * step
 		sim_speed = maxf(sim_speed, stall_base_ms * 1.3)
 
-		# 前进
 		var vel := Vector2(sin(sim_heading), -cos(sim_heading)) * sim_speed * Aircraft.PIXELS_PER_METER
 		sim_pos += vel * step
 
 		if i % record_interval == 0:
-			points.append(ac.to_local(sim_pos))
+			cache.append(sim_pos)
 
-	# 绘制路径（虚线效果：交替绘制段）
-	if points.size() >= 2:
-		for i in range(points.size() - 1):
-			if i % 2 == 0:
-				var alpha := lerpf(0.4, 0.1, float(i) / float(points.size()))
-				var seg_color := Color(path_color.r, path_color.g, path_color.b, alpha)
-				ac.draw_line(points[i], points[i + 1], seg_color, 1.5)
+	ac.predicted_path_cache = cache

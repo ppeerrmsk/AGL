@@ -15,6 +15,14 @@ var _squad_size_spin: SpinBox
 var _squad_size_row: HBoxContainer
 var _count_spin: SpinBox
 
+# ── 坐标 HUD（面板可见时自动开启）──
+## 跟随鼠标的世界坐标读数（CanvasLayer 内）
+var _coord_label: Label
+## 挂在 game_scene 下的世界坐标轴 Node2D（X/Y 轴 + 原点 + 刻度）
+var _coord_axes: Node2D
+const COORD_AXES_GRID_PX := 1000.0   ## 刻度间距：1000px ≈ 2km
+const COORD_AXES_HALF_EXTENT := 8000.0  ## 轴向单边长度（世界 ±7500，多画一点点）
+
 # ── 编队类型枚举（内部）──
 enum FormationType { SINGLE, SQUAD, COMMANDER_SQUAD, TU160_FLOCK, AH64_FLOCK, CH47_FLOCK, F47_SQUAD }
 
@@ -54,6 +62,8 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	visible = false
 	_build_ui()
+	_build_coord_hud()
+	visibility_changed.connect(_on_panel_visibility_changed)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F5:
@@ -63,6 +73,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		if visible and game_scene and "is_paused_for_upgrade" in game_scene:
 			if get_tree().paused and not game_scene.is_paused_for_upgrade:
 				get_tree().paused = false
+
+func _process(_delta: float) -> void:
+	if not visible:
+		return
+	_update_coord_hud()
 
 # ══════════════════════════════════════════════
 #  UI 构建
@@ -225,7 +240,7 @@ func _build_ui() -> void:
 
 	# 底部提示
 	var hint := Label.new()
-	hint.text = "F5 关闭  |  面板不暂停游戏  |  绕过敌机上限"
+	hint.text = "F5 关闭  |  面板不暂停游戏  |  鼠标右下显示世界坐标"
 	hint.add_theme_font_size_override("font_size", 10)
 	hint.add_theme_color_override("font_color", Color(0.5, 0.5, 0.4, 0.6))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -373,3 +388,87 @@ func _on_dump_pressed() -> void:
 	var path := EventLogger.dump_to_file()
 	if path != "":
 		print("Combat log saved: %s" % path)
+
+# ══════════════════════════════════════════════
+#  坐标 HUD（面板可见时自动开启 / 关闭）
+# ══════════════════════════════════════════════
+##
+## 设计：把 F5 面板从「单一刷怪面板」升级为「Debug 套件入口」——
+## 打开面板就同时显示：
+##   1. 屏幕上叠加 X/Y 世界坐标轴 + 原点十字 + 1000px 刻度（挂在 game_scene 下，跟相机走）
+##   2. 鼠标右下角实时世界坐标（CanvasLayer 内的 Label，跟随光标）
+## 关闭面板就一起隐藏，避免占用额外按键。
+
+func _build_coord_hud() -> void:
+	# 鼠标坐标读数 Label（CanvasLayer 内，自动跟相机无关）
+	_coord_label = Label.new()
+	_coord_label.add_theme_font_size_override("font_size", 12)
+	_coord_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.4))
+	_coord_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	_coord_label.add_theme_constant_override("outline_size", 4)
+	_coord_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_coord_label.z_index = 100
+	add_child(_coord_label)
+
+	# 世界坐标轴 Node2D —— 等 game_scene 注入后再挂
+	_coord_axes = Node2D.new()
+	_coord_axes.z_index = 50
+	_coord_axes.draw.connect(_draw_coord_axes)
+
+func _on_panel_visibility_changed() -> void:
+	# 同步坐标轴 Node2D 的 parent + 可见性
+	if visible:
+		if _coord_axes and not _coord_axes.is_inside_tree() \
+				and game_scene and is_instance_valid(game_scene):
+			game_scene.add_child(_coord_axes)
+		if _coord_axes:
+			_coord_axes.visible = true
+			_coord_axes.queue_redraw()
+	else:
+		if _coord_axes:
+			_coord_axes.visible = false
+
+func _update_coord_hud() -> void:
+	if not _coord_label:
+		return
+	var screen_pos := get_viewport().get_mouse_position()
+	# 用 game_scene 的 canvas_transform 反算世界坐标（兼容相机平移/缩放）
+	var world_pos := screen_pos
+	if game_scene and is_instance_valid(game_scene) and game_scene is CanvasItem:
+		world_pos = (game_scene as CanvasItem).get_canvas_transform().affine_inverse() * screen_pos
+	_coord_label.text = "X: %d\nY: %d" % [int(round(world_pos.x)), int(round(world_pos.y))]
+	_coord_label.position = screen_pos + Vector2(16, 16)
+
+# 世界坐标轴绘制（callback 自 _coord_axes.draw 信号，运行在世界空间）
+func _draw_coord_axes() -> void:
+	if not _coord_axes:
+		return
+	var ext := COORD_AXES_HALF_EXTENT
+	var axis_color := Color(1.0, 0.85, 0.4, 0.55)
+	var grid_color := Color(1.0, 0.85, 0.4, 0.18)
+	# X 轴 / Y 轴
+	_coord_axes.draw_line(Vector2(-ext, 0), Vector2(ext, 0), axis_color, 2.0)
+	_coord_axes.draw_line(Vector2(0, -ext), Vector2(0, ext), axis_color, 2.0)
+	# 原点十字（更显眼）
+	_coord_axes.draw_circle(Vector2.ZERO, 30.0, Color(1.0, 0.85, 0.4, 0.35))
+	_coord_axes.draw_line(Vector2(-60, 0), Vector2(60, 0), Color(1.0, 0.5, 0.2, 0.9), 3.0)
+	_coord_axes.draw_line(Vector2(0, -60), Vector2(0, 60), Color(1.0, 0.5, 0.2, 0.9), 3.0)
+	# 刻度 + 数字标签
+	var step := COORD_AXES_GRID_PX
+	var n := int(ext / step)
+	var font := ThemeDB.fallback_font
+	var font_size := 18
+	for i in range(-n, n + 1):
+		if i == 0:
+			continue
+		var p: float = float(i) * step
+		# X 轴刻度 + 标签
+		_coord_axes.draw_line(Vector2(p, -10), Vector2(p, 10), axis_color, 1.5)
+		_coord_axes.draw_line(Vector2(p, -ext), Vector2(p, ext), grid_color, 1.0)
+		_coord_axes.draw_string(font, Vector2(p + 6, -16), str(int(p)),
+				HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, axis_color)
+		# Y 轴刻度 + 标签
+		_coord_axes.draw_line(Vector2(-10, p), Vector2(10, p), axis_color, 1.5)
+		_coord_axes.draw_line(Vector2(-ext, p), Vector2(ext, p), grid_color, 1.0)
+		_coord_axes.draw_string(font, Vector2(14, p - 4), str(int(p)),
+				HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, axis_color)

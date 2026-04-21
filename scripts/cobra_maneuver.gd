@@ -14,6 +14,7 @@ const TOTAL_DURATION := 1.8        ## 总时长（三阶段之和）
 const POST_IMMUNITY := 1.5         ## 机动结束后额外无敌时间（秒）
 const DECEL_RATE := 280.0          ## 强制减速 m/s²
 const FLARE_COOLDOWN_AFTER := 5.0  ## 机动结束后热诱弹冷却（秒）
+const AB_COOLDOWN_AFTER := 4.0     ## 机动结束后加力冷却（秒）—— 防止能量管理立刻把 AB 重新点亮
 
 # ── 状态（供外部查询） ──
 var phase: int = Phase.NONE
@@ -86,13 +87,17 @@ func _physics_process(delta: float) -> void:
 				_timer = 0.0
 				phase = Phase.RECOVER
 		Phase.RECOVER:
-			# 视觉偏移从 1 → 0，速度恢复
+			# 视觉偏移从 1 → 0，速度通过 lerp 自然恢复（不强制开 AB —— cobra 本身是低速机动，
+			# 强制 AB 既不符合机动语义，又会绕过 _set_afterburner 冷却造成 AB 视觉黏着）
 			var t := clampf(_timer / RECOVER_DURATION, 0.0, 1.0)
 			visual_offset = 1.0 - t
 			_aircraft.speed = lerpf(_aircraft.speed, _pre_speed, delta * 2.0)
-			_aircraft.is_afterburner = true
 			if _timer >= RECOVER_DURATION:
 				phase = Phase.NONE
 				visual_offset = 0.0
 				_aircraft.is_afterburner = false
 				_aircraft._flare_cooldown = FLARE_COOLDOWN_AFTER
+				# 加力冷却：阻止能量管理在 cobra 后的几秒内立刻重新点 AB
+				# 玩家战术分支会在速度低时无条件 _set_afterburner(true)，
+				# 没这段冷却 AB 视觉会"挂"在飞机后面好几秒
+				_aircraft._ab_cooldown = AB_COOLDOWN_AFTER

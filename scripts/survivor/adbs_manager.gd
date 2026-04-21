@@ -58,8 +58,14 @@ func _physics_process(delta: float) -> void:
 	# 清理已死亡/已 free 的单位
 	_cleanup_units()
 
-	# BOSS 登场后停止所有随机奖励事件（玩家应该专注最终战）
-	if mode and "_boss_spawned" in mode and bool(mode._boss_spawned):
+	# BOSS 阶段（玩家在战术地图选了 BOSS）停止所有新随机奖励事件 ——
+	# 已经在场上的奖励事件让它跑完，不暴力 free，符合"维持现状"原则。
+	# 同时兼容旧的 _boss_spawned 兜底（极少数路径绕过 select_zone 也覆盖到）
+	var boss_phase: bool = mode != null and "_zone_data" in mode \
+			and mode._zone_data != null and mode._zone_data.is_boss_phase()
+	var boss_spawned: bool = mode != null and "_boss_spawned" in mode \
+			and bool(mode._boss_spawned)
+	if boss_phase or boss_spawned:
 		return
 
 	# 城区事件：每 60-120s 一次
@@ -131,9 +137,9 @@ func _trigger_city_heli_event() -> void:
 		"heli flock spawned at %s fleeing %s (dist=%.0fpx)" %
 			[city_center, _compass_label(flee_dir), _player.global_position.distance_to(city_center)])
 
-## 玩家是否在任意 AVAILABLE / SELECTED 战区圈内
-func _player_in_any_zone() -> bool:
-	if not _player or not mode:
+## 指定位置是否落在任意 AVAILABLE / SELECTED 战区圈内（通用）
+func _pos_in_any_zone(pos: Vector2) -> bool:
+	if not mode:
 		return false
 	var zones: ZoneData = mode.get("_zone_data") if "_zone_data" in mode else null
 	if not zones:
@@ -144,12 +150,19 @@ func _player_in_any_zone() -> bool:
 		var state := zones.get_state(zid)
 		if state != ZoneData.State.AVAILABLE and state != ZoneData.State.SELECTED:
 			continue
-		var d: float = _player.global_position.distance_to(z["center"])
+		var d: float = pos.distance_to(z["center"])
 		if d <= float(z["radius"]):
 			return true
 	return false
 
-## 从所有城区多边形中挑一个距玩家 ≤ EVENT_SPAWN_MAX_DIST_PX 的
+## 玩家是否在任意 AVAILABLE / SELECTED 战区圈内（薄包装）
+func _player_in_any_zone() -> bool:
+	if not _player:
+		return false
+	return _pos_in_any_zone(_player.global_position)
+
+## 从所有城区多边形中挑一个距玩家 ≤ EVENT_SPAWN_MAX_DIST_PX 的，
+## 且城区中心本身不落在任何活跃战区圈内（ADBS 奖励任务只刷在战区外）。
 ## 失败返回 Vector2.INF
 func _pick_nearby_city_center() -> Vector2:
 	var pp := _player.global_position
@@ -159,8 +172,12 @@ func _pick_nearby_city_center() -> Vector2:
 		if poly.is_empty():
 			continue
 		var c := _polygon_centroid(poly)
-		if pp.distance_to(c) <= EVENT_SPAWN_MAX_DIST_PX:
-			candidates.append(c)
+		if pp.distance_to(c) > EVENT_SPAWN_MAX_DIST_PX:
+			continue
+		## 铁则：刷怪点落在任何活跃战区圆内 → 跳过，避免奖励任务污染战区任务空域
+		if _pos_in_any_zone(c):
+			continue
+		candidates.append(c)
 	if candidates.is_empty():
 		return Vector2.INF
 	return candidates[randi() % candidates.size()]

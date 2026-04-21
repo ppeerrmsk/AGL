@@ -204,6 +204,16 @@ func take_damage(amount: float) -> void:
 		hp = 0.0
 		_start_destroy()
 
+## 导弹/火箭等战斗部伤害：对地面单位一击必杀
+## 设计意图（2026-04-21）：地面单位都是软目标（无装甲、无机动），
+## 任何导弹命中都应该摧毁。HP 缩放只影响机炮对耗，不该让导弹需要多发补刀。
+## 详见 docs/changelogs/player-ai-log.md
+func take_missile_damage(_amount: float) -> void:
+	if is_destroyed:
+		return
+	hp = 0.0
+	_start_destroy()
+
 func _start_destroy() -> void:
 	is_destroyed = true
 	is_firing = false

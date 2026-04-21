@@ -21,9 +21,15 @@ var enemy_type: int = 15                  ## EnemyType 枚举值（F47=15）
 
 ## 隐形
 var cloak_enabled: bool = false
-var cloak_cycle: float = 60.0
+var cloak_cycle: float = 60.0       ## 基础 CD（秒）
 var cloak_duration: float = 5.5
 var cloak_fade: float = 0.5
+## CD 转好后，多长时间窗口内随机触发（秒）。均匀分布在 [0, cycle_jitter]，
+## 保证 BOSS 不是 CD 一到就发，而是 CD 到了"有可能会用"。
+var cloak_cycle_jitter: float = 20.0
+## 紧急隐形最早触发时间：上轮隐形结束后多少秒内，即使被导弹锁定也不触发紧急隐形。
+## 防止刷出来 0s 就被导弹打一下秒进隐形。
+const CLOAK_EMERGENCY_MIN_ELAPSED: float = 10.0
 
 ## 距离
 var standoff_radius_min: float = 1800.0
@@ -96,7 +102,8 @@ func spawn(scene_root: Node, aircraft_scene: PackedScene, create_enemy_func: Cal
 	tactic = Tactic.INTRO
 	tactic_timer = intro_duration
 	if cloak_enabled:
-		cloak_timer = cloak_cycle
+		# 首轮 CD 固定一个周期 + 随机抖动
+		cloak_timer = cloak_cycle + randf_range(0.0, cloak_cycle_jitter)
 	cloak_active = false
 	cloak_remaining = 0.0
 
@@ -313,11 +320,17 @@ func _apply_role(member: Aircraft, ai: AIController, role: int, has_chased: bool
 
 ## 每帧维护
 func _maintain_role(member: Aircraft, ai: AIController, role: int, pp: Vector2, _has_chased: bool) -> void:
+	# Herbst 活动中任何角色都不干预：保证模块独占 heading/speed/target_position/tactic 控制权，
+	# 否则 _force_engage / _apply_new_tactic / waypoints 覆盖会和 Herbst 抢写 → 视觉颤抖
+	# （之前只有 EVADER 分支有这个守卫，CLOSE_FIGHTER/RANGED_STRIKER 漏了）
+	# 详见 docs/changelogs/player-ai-log.md 2026-04-21 (7)
+	var hm_global: HerbstManeuver = member.get_herbst()
+	if hm_global and hm_global.is_active:
+		return
 	match role:
 		Role.EVADER:
-			# Herbst 活动中不干预
-			var hm: HerbstManeuver = member.get_herbst()
-			if hm and (hm.is_active or hm.counterattack_timer > 0.0):
+			# Herbst counterattack 窗口也不干预（让 BOSS 用 counterattack 反杀）
+			if hm_global and hm_global.counterattack_timer > 0.0:
 				return
 			var dist := member.global_position.distance_to(pp)
 			# 反击窗口：暂时转为交战模式（掉头攻击玩家）
@@ -388,15 +401,22 @@ func _update_cloak(delta: float) -> void:
 				member.is_cloaked = true
 		if cloak_remaining <= 0.0:
 			cloak_active = false
-			cloak_timer = cloak_cycle
+			# 下次 CD = 基础周期 + 随机抖动，保证不是准点爆发
+			cloak_timer = cloak_cycle + randf_range(0.0, cloak_cycle_jitter)
 			for member in members:
 				member.is_cloaked = false
 				member._cloak_alpha = 1.0
 			EventLogger.log_event("BOSS", boss_name, "cloak deactivated")
 	else:
 		cloak_timer -= delta
+		# 触发条件（OR）：
+		#   ① CD 到了（基础 cycle + jitter 初始化时已抖过，此处到零就触发 —— 不再挨导弹才用）
+		#   ② 紧急：CD 已过最短间隔（MIN_EMERGENCY_ELAPSED 秒）且有导弹锁向任一成员
+		# 老逻辑只靠 ② 被动反制，BOSS 挨导弹才隐形，弱。现在 ① 是主节奏，② 作为"还没到
+		# 下轮 CD 但被逼急了"的应急保险。
+		# 详见 docs/changelogs/player-ai-log.md 2026-04-21 (7)
 		var should_cloak := cloak_timer <= 0.0
-		if not should_cloak and cloak_timer < cloak_cycle - 10.0:
+		if not should_cloak and cloak_timer < cloak_cycle - CLOAK_EMERGENCY_MIN_ELAPSED:
 			if _missile_mgr and _has_incoming_missile():
 				should_cloak = true
 				EventLogger.log_event("BOSS", boss_name, "emergency cloak (incoming missile)")

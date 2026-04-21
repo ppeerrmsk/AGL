@@ -102,6 +102,758 @@ LOD 路径里每一步（`_update_combat / _update_bank / _update_visuals / queu
 
 ---
 
+## 2026-04-21 (12) J-Turn 颤抖最终方案：TURN 阶段 1.0s → 1.8s（降低旋转速率到感知阈值内）
+
+### 症状
+
+(11) 把视觉压缩改成各向同性后用户再测：J-Turn 仍然抖，而且发现**连 "J-TURN" popup 也一起抖**。popup 用 `draw_set_transform(popup_pos, inv_rot, 1)` + `popup_pos.rotated(inv_rot)` 做双重旋转抵消，数学上 `R(ac.rotation) * R(-ac.rotation) = I`，世界坐标完美稳定 —— 但视觉上还是抖。
+
+### 根因：Godot CanvasItem 在极快旋转下的光栅化亚像素伪影
+
+数学抵消 = transform 层面稳定，但**光栅化到屏幕像素**是另一回事：
+- 180°/秒 偏航 = 60fps 下每帧 3° 递增
+- 每帧飞机 CanvasItem 的 `rotation` 变 3° → 所有 `_draw()` 内的多边形 / Rect / 文字都重新光栅化
+- 多边形边的亚像素对齐、文字光栅缓存、抗锯齿羽化在每帧 3° 递增下全部**子像素跳动**
+- 人眼 60Hz 感知子像素级别的像素位置跳动 = "剧烈抖动"
+
+**这不是数学 bug，是渲染管线的物理极限**。任何 2D 游戏让物体以 3°/帧旋转都会有类似问题 —— 真实飞机不会这样偏航，游戏里也不应该。
+
+(10)、(11) 的修复都是针对具体现象打补丁：
+- (10) 标签框宽度：真 bug，已修
+- (11) 图标各向异性压缩：真 bug，已修
+
+但根本的"180°/秒超过 Godot 光栅化平滑阈值"问题，只能靠**降低旋转速率**或**改用非方向性图标**解决。
+
+### 修复（方案 A）：TURN_DURATION 1.0s → 1.8s
+
+[herbst_maneuver.gd:23](scripts/herbst_maneuver.gd:23)：
+
+| 参数 | 旧 | 新 |
+|---|---|---|
+| TURN_DURATION | 1.0s | **1.8s** |
+| 旋转速率 | 180°/秒 | **100°/秒** |
+| 每帧递增 | 3° | **1.67°** |
+| TOTAL_DURATION | 2.1s | **2.9s** |
+
+1.67°/帧在 Godot CanvasItem 光栅化容限内，视觉平滑无抖。
+
+### 为什么这个数值
+
+2026-04-21 (8) 曾把 TURN_DURATION 从 1.6s 拉到 1.0s，原因是"太慢被玩家白嫖"。本轮 1.8s 相比当时的 1.6s 只多 0.2s —— 配合 (7) 加的**机炮 / 导弹 J-Turn 全程免疫**（bullet_manager + missile_manager 都守卫 `get_herbst().is_active`），即使偏航慢一点也不会被打死。免疫时长 `TOTAL_DURATION + POST_IMMUNITY` 自动跟随 2.9 + 0.3 = 3.2s 免疫期。
+
+### 为什么不用方案 B（换非方向性图标）
+
+方案 B（Herbst TURN 期间把飞机画成对称圆圈）能绕开光栅化问题，但：
+- 视觉突兀（飞机突然变形成圆）
+- label / popup 在飞机 CanvasItem 里仍会抖（除非也同时隐藏）
+- 需要写新的 symmetric icon 渲染代码
+
+方案 A 改一个数字解决全部问题，优先选择。
+
+### 回归测试要点
+
+- F-47 J-Turn：TURN 阶段 1.8s，图标平滑旋转 180°，label 和 popup 稳定
+- 打 F-47 的机炮 / 导弹：在 Herbst 期间全程穿透（(7) 的免疫守卫已经保证）
+- 玩家在 J-Turn 期间是否能反杀：理论上慢了 0.8s 多一些反应时间，但由于免疫机制，应该仍然打不死 —— 观察实际效果，如果用户反馈"变成活靶子"，下一步可能要重新审视免疫机制，或考虑方案 B
+- Herbst 结束后的 counterattack 窗口：仍然 5s，不变
+
+### 教训
+
+(9-撤销) / (9) / (10) / (11) 都是在修"具体症状"，每次都以为找到了根因。真正的根因是**根本就不应该让物体以这个速度旋转** —— 这是设计问题（2026-04-21 (8) 为了对抗白嫖的调整副作用）而不是 bug。
+
+用户的一句 **"连 popup 也抖"** 是决定性证据 —— popup 有完整的旋转数学抵消，它还抖，那就不是任何单点的 bug，而是渲染管线本身在这个速度下不稳定。
+
+---
+
+## 2026-04-21 (11) J-Turn 颤抖真根因：机动视觉压缩只压本地 Y 轴，heading 快速旋转时长宽比剧变
+
+### 症状
+
+经过 2026-04-21 (10) 的标签框宽度修复后，用户反馈 J-Turn 仍然抖，且明确指出："**问题几乎可以肯定发生在 J-Turn 行为自身上，机动本身的动作导致**"。
+
+### 根因（通过排除法 + 用户关键观察锁定）
+
+日志连续几份都确认 J-Turn 期间物理状态 100% 平滑（heading/position/bank 全部单调变化）。但**用户还有一条观察**：
+> "当玩家导弹飞过 F-47 时，导弹也会跟着一起晃。"
+
+导弹不是 F-47 的子节点，不共享 transform。两者唯一的视觉共同点是：**都是在快速旋转的渲染对象**。
+
+回去再看 [aircraft_renderer.gd:draw_aircraft_icon](scripts/aircraft_renderer.gd:324) 的图标缩放逻辑：
+
+```gdscript
+var bank_compress := cos(ac.bank_angle + ac._evade_roll_phase)
+var sx := base_scale * bank_compress
+var sy := base_scale
+# 战术机动视觉效果：俯视视角下 Y 轴压缩（模拟机头大仰角）
+var _hm := ac.get_herbst()
+if _hm and _hm.visual_offset > 0.0:
+    sy *= lerpf(1.0, 0.4, _hm.visual_offset)   # ← 只压 sy，不压 sx
+```
+
+`sy` 是飞机**本地坐标系**的 Y 轴 = 机体纵轴（鼻尾方向）。设计意图：Herbst 期间模拟"机头大仰角"，俯视看应该沿机体纵轴被压扁。这在**静态**或慢转的情况下是物理上正确的效果。
+
+但 J-Turn TURN 阶段 heading 以 **180°/秒** 旋转（3°/帧）。因为 sy 压缩是在 LOCAL 坐标系，**压缩方向随 heading 旋转**：
+- 偏航 0°：sy 压缩方向 = 屏幕竖直 → 图标"短而宽"
+- 偏航 45°：sy 压缩方向 = 屏幕 45° → 图标斜扁
+- 偏航 90°：sy 压缩方向 = 屏幕水平 → 图标"高而窄"
+- 每帧 3° → 图标在屏幕上的长宽比每帧剧变
+
+人眼在 60Hz 下感知这种"形变 + 旋转"为"剧烈抖动、抽搐"。并且紧贴图标的状态框被人眼归因到"一起在抖"。
+
+### 为什么导弹也抖
+
+导弹图标也是有朝向的矩形（子弹+尾翼形状），`rotation = heading`。PN 制导在近距（<200m 纯追踪分支）转弯加剧，missile heading 也在高频变化。虽然 missile 没有 visual_offset 压缩，但 body 本身就是长条形（body = 10px × 2.4px），旋转时长轴方向变化 → 屏幕上的 bounding box 长宽比剧变 → 和 F-47 同样机制的"旋转中形状剧变"视觉效果。
+
+**F-47 和导弹没有直接耦合**，只是同时处在"高速旋转非对称形状"状态，一起抖。
+
+### 为什么只有 J-Turn 飞机抖
+
+普通转弯 ~30°/秒 = 0.5°/帧，人眼追得上，看起来是连续平滑的旋转，bbox 长宽比变化足够慢。J-Turn 的 180°/秒（6x 正常转速）才让视觉形变超出"平滑旋转"的感官容限，显露为"抖动"。
+
+### 修复
+
+[aircraft_renderer.gd:331-341](scripts/aircraft_renderer.gd:331) 把 Herbst / Cobra 的 `visual_offset` 压缩改成**各向同性**（sx、sy 同时乘因子），保留"图标变小"的极端机动视觉线索，但消除长宽比变化：
+
+```gdscript
+var _hm := ac.get_herbst()
+if _hm and _hm.visual_offset > 0.0:
+    var f: float = lerpf(1.0, 0.4, _hm.visual_offset)
+    sx *= f
+    sy *= f
+```
+
+现在 Herbst 期间图标均匀缩小到 40%（顶峰时），不再变形。旋转时整个图标等比旋转，屏幕上的长宽比始终稳定。
+
+### 代价
+
+失去了"俯视视角下机头大仰角"的物理隐喻。但这个隐喻在 180°/秒偏航下已经失效——真实 post-stall J-Turn 没这么快。换成"图标变小 = 极端机动"的视觉语言更符合感官容限，也更通用（对 Cobra 机动同样适用）。
+
+`afterburner_glow` 里的 `sy_compress` 保持原状（单纯用作尺度因子，没有各向异性问题）。
+
+### 回归测试要点
+
+- F-47 J-Turn：图标均匀缩小到 40%，平滑旋转 180°，不抖、不抽搐
+- Cobra 机动（玩家）：图标均匀缩小到 35%，同样平滑，不抖
+- 静态 / 慢速旋转下：视觉效果变化不大（只是图标稍小一点，但整体机动识别度保持）
+- 状态框：图标稳定 → 框稳定（配合 (10) 的 `_digit_stable` 宽度修复，完整消除抖动）
+- 导弹飞过：导弹自己仍会快速旋转，但 F-47 不再抖，不再给人"一起抖"的感知
+
+### 教训
+
+走了 4 轮才定位：
+1. (9-撤) boss 搜僚机 — 误诊
+2. (9) anticipated_change 软钳位 — 修了另一个真 bug（bank 4Hz 振荡），但不是 J-Turn 颤抖元凶
+3. (10) 标签框宽度 `_digit_stable` — 修了另一个渲染抖动（label 宽度）但不是元凶
+4. **(11) 视觉压缩各向异性 — 真元凶**
+
+用户最后一句 **"机动本身的动作导致"** 直接逼我去看 Herbst 的**渲染层交互**，跳过了一直聚焦的"物理层抢写"和"标签层"。教训：**"渲染"不只是 label，图标的 transform 本身也会出 bug**，尤其在高速旋转 + 非对称缩放同时存在时。
+
+---
+
+## 2026-04-21 (10) J-Turn "抖动" 真元凶：标签框宽度每帧按文字重算
+
+### 症状
+
+用户反复报告 F-47 J-Turn 期间"**机身和状态框一起左右摇晃、抽搐**"，修过 Herbst 相关守卫好几轮都没消掉。本轮关键线索：**"玩家射出去的导弹飞过 F-47 时，导弹也会跟着一起晃"**。导弹不是 F-47 的子节点，也不共享 transform —— 两者唯一的视觉共同点是**都有数据标签**。
+
+### 诊断过程
+
+加了 Herbst 期间每帧全速采样（AC_TICK 从 10Hz → 60Hz），附加 `rot/dx/dy/cth/tp_x/tp_y/erp/erR/hv_off/cloak/alt` 共 12 个字段。抓到一个 J-Turn 完整过程（2.1s 共 126 条 tick）：**所有物理字段完全平滑** —— `hdg`/`rot` 同步 +24°→-155° 每帧 3° 单调、`dx`/`dy` 单调无一次 sign 翻转、`bnk` 单调到 0、`erp=0° erR=0` 全程、`hv_off` 平滑 0→1→0。物理层没有任何抖动 → 抖动必在渲染层。
+
+用户进一步确认：**只有 J-Turn 那架飞机**抖，其它敌机不抖，摄像头不抖。导弹只有**经过 F-47 附近时**抖。
+
+### 根因
+
+[aircraft_renderer.gd:draw_data_label](scripts/aircraft_renderer.gd:727) + [missile.gd:_draw_data_label](scripts/missile.gd:223) 的标签背景框宽度计算：
+
+```gdscript
+var max_w := 0.0
+for line in lines:
+    var w := ac._font.get_string_size(line, ...).x
+    max_w = maxf(max_w, w)
+var box_w := max_w + 10.0
+```
+
+每帧按当前 `lines[]` 文字内容重新测量宽度。J-Turn TURN 阶段 `hdg` 以 **3°/帧**（180°/秒）变化，`"HDG %03d"` 每帧数字组合都不同。Godot fallback 字体是 **proportional**（不是 tabular digits），0~9 各自像素宽度略有差异 → 不同数字组合的 `max_w` 每帧波动 ±1~2 px → `box_w` 抖动 → **标签背景框每帧宽窄跳动** = "抽搐" 视觉。
+
+**为什么只有 J-Turn 飞机抖**：普通转弯 ~30°/秒 = 0.5°/帧，连续多帧 hdg 整数值相同，文字稳定，宽度稳定。只有 J-Turn 的 3°/帧才每帧必换数字。
+
+**为什么导弹经过 F-47 时也抖**：导弹标签同样有 `HDG %03d` + `M%.2f` + `RNG %dm/%.1fkm` 这类高频变化字段。PN 制导在接近目标时 heading 变化加剧，加上 RNG 跨 1000m 阈值切换格式 —— 标签框宽度一样跳。和 F-47 自身是否同一时刻抖无关，**只是同时都在抖**，近距离看起来像"跟着抖"。
+
+**为什么感觉飞机图标本身也在抖**：标签紧贴图标（offset `(24, -12)` px 或 `(14, -8)` px），标签框在图标边每帧抽 1~2 px，人眼把整个组合认作同一个物体的抖动。飞机图标多边形 transform 不变（xform 只依赖平滑的 bank/hv_off），图标本身其实完全稳定。
+
+### 修复
+
+测量宽度前把字符串里所有数字替换成 `"0"`，保证无论当前数字是什么，测量结果一致：
+
+[aircraft_renderer.gd:19-29](scripts/aircraft_renderer.gd:19) 新增 `_digit_stable()` helper。`draw_data_label` + `draw_data_label_minimal` 都改用 `_font.get_string_size(_digit_stable(line), ...)` 测宽度。
+
+[missile.gd:283](scripts/missile.gd:283) 同款内联替换（missile 没 import aircraft_renderer，本地写一遍）。
+
+**绘制的文字本身不变**，只改**测量时**的字符串。标签框宽度变成只依赖"每行字符结构 + 字母/空格部分"，不再跟数字内容联动。
+
+### 教训：视觉抖 ≠ 物理抖
+
+之前 2026-04-21 (5)(6)(7) 围绕"Herbst is_active 期间 AI/Combat/BankTarget 抢写 heading/position"加了 4 层守卫，修掉的是**真实物理振荡**（bang-bang bank 翻跳）。但 2026-04-21 起的新一轮"颤抖"投诉，物理层已经干净，残余视觉抖动其实是**标签渲染层的独立 bug**。
+
+走了 3 轮猜错根因（boss 搜僚机 / anticipated_change / _evade_roll_phase）才定位。教训：**"抖"字不要自动联想到"物理抖"**，先加全字段诊断再动手。这次是用户一句"导弹飞过也抖"才戳破——不共享 transform 的两个对象同时抖，共同点只能是渲染管线里的相同代码。
+
+### 回归测试要点
+
+- F-47 J-Turn：标签框宽度稳定，不抽搐。图标本身（物理层一直是稳的）视觉也稳（因为标签稳）
+- 玩家 F-16 / 普通敌机正常交战：heading 慢变，文字原本就稳，本改动无影响
+- 导弹飞过敌机：导弹标签框不再抖
+- 所有标签文字内容**显示无变化**（只是测量时用替换版本，绘制时仍用原 `line`）
+
+### 诊断代码清理
+
+本轮为抓 bug 加的 Herbst 全速采样 + 附加字段已撤回 `_log_ac_tick`。AC_TICK 恢复 10Hz 基础格式。未来再有"抖动"报告先用 diff 重新加回这段。
+
+### 上轮 (9) 软钳位修复仍保留
+
+2026-04-21 (9) 的 `anticipated_change` 软钳位修掉了另一个独立 bug：F-47 CLOSE_FIGHTER 近距咬尾时 bank 在 -79°/-85° 两档 4Hz 振荡（日志 22.7~23.6 直接可见）。那个不是 J-Turn 颤抖的元凶但也是真实 bug，保留不撤。
+
+---
+
+## 2026-04-21 (9) F-47 玩家阵亡后转弯颤抖（_disengage boss 搜索抓到僚机）【已撤销 — 误诊】
+
+⚠ **此修复已撤销**。用户实测"完全没有修好，它还是在晃动、颤抖"。
+
+撤销原因：按 `use_tactical_preference` 精确识别玩家的确切断了 _disengage 抓到僚机的路径，但并非颤抖根因 —— 撤销后行为不变，证明这条路径不是元凶。_try_engage 的 cooldown=15s 也不可能每帧刷。根因在别处（仍在诊断中），为了不把无效守卫留在 `_disengage` 里误导未来读代码，先撤回。
+
+下一步计划：加诊断事件（每帧打 `bank_angle / _cached_target_heading / target_position / combat_target / _state`），对 F-47 Herbst 过程 + 玩家死亡后 5 秒内高频采样，看哪个字段每帧跳变，再针对真元凶修。
+
+---
+
+## 2026-04-21 (9) F-47 近距咬尾 bank 两档振荡（anticipated_change 硬归零）
+
+### 症状
+
+用户："F-47 使用 J-Turn 回转会颤抖修过好几轮了，现在又发现玩家被击坠以后它转弯也会产生剧烈的晃动。整个机身连状态栏一起左右摇晃、抽搐。"
+
+之前修 J-Turn 颤抖围绕 Herbst is_active 期间加了 4 层守卫（AIController / _update_combat / _update_target_heading / AceSquad._maintain_role / _update_bank），但 **Herbst 并不是唯一触发点**。
+
+### 日志证据
+
+从 `combat_log_20260421_171637.txt` 22.7~23.6s WRAITH-02（F-47 CLOSE_FIGHTER，近距咬尾玩家）：
+
+| 时间 | bnk | g | tp_brg | tp_d |
+|---|---|---|---|---|
+| 22.7 | -81° | 6.7 | -5° | 1059m |
+| 22.8 | -80° | 6.3 | -4° | 1061m |
+| 22.9 | -85° | 13.3 | -3° | 1059m |
+| 23.0 | -84° | 11.2 | -2° | 1053m |
+| 23.2 | -79° | 5.3 | -3° | 1037m |
+| 23.3 | -83° | 9.3 | -3° | 1020m |
+| 23.4 | -79° | 5.3 | -3° | 1003m |
+| 23.5 | -83° | 9.3 | -3° | 987m |
+| 23.6 | -79° | 5.3 | -3° | 971m |
+
+bank 在 -79°/-85° 以 ~4Hz 两档切换，G 在 5.3/13.3 之间摆 —— **不是 Herbst 期间，是普通近距交战**。
+
+同一段 log 里玩家 F-16 bank 稳定在 ±84°，毫无抖动 —— 因为走的是另一条分支（`use_tactical_preference` 阈值宽）。
+
+### 根因：anticipated_change 反馈环 bang-bang 振荡
+
+[aircraft.gd:867-881](scripts/aircraft.gd:867) "预测式过冲补偿"：
+
+```gdscript
+var current_turn_rate := GRAVITY * tan(bank_angle) / maxf(speed, 50.0)
+var t_roll := absf(bank_angle) / maxf(rr_val, 0.5)
+var anticipated_change := current_turn_rate * t_roll * 0.5
+if signf(anticipated_change) == signf(heading_diff):
+    if absf(anticipated_change) >= absf(heading_diff):
+        heading_diff = 0.0                       # ← 罪魁：硬归零
+    else:
+        heading_diff -= anticipated_change
+```
+
+WRAITH-02 近距咬尾瞬态代入（bank=-85°, speed=342m/s, heading_diff ≈ -0.052 rad）：
+
+- `current_turn_rate = 9.81 * tan(-85°) / 342 = -0.328 rad/s`
+- `t_roll = 1.48 / 4.0 = 0.37s`
+- `anticipated_change = -0.328 * 0.37 * 0.5 = -0.061 rad`
+- `|anticipated| (0.061) > |heading_diff| (0.052)` → **heading_diff = 0**
+
+步骤：
+1. Tick N：bank=-85°，heading_diff=0 → `target_bank=0` → bank 向 0 滚，下一 tick 变 -81°
+2. Tick N+1：bank=-81°，`anticipated = 9.81 * tan(-81°) / 342 * (1.41/4) * 0.5 = -0.032 rad`；`|anticipated|(0.032) < |heading_diff|(0.052)` → heading_diff 减到 -0.020 rad（保留）→ `target_bank = -max_bank * 0.475` → bank 回滚到 -85°
+3. Tick N+2：回到步骤 1
+
+**振荡频率 ≈ roll_rate 能在一个 tick 内改变 bank 多少 / 两档阈值间距**，日志里看到的 ~4Hz。
+
+F-47 `_configure_close_fighter_combat` 把 `combat_full_bank_diff/aggression = 0.033 rad (1.9°)`，target_bank 在阈值附近近似阶跃函数，放大了振荡幅度（±6°）。玩家 F-16 走 `use_tactical_preference` 分支（阈值 0.02/0.15 rad 宽得多）+ `tactical_aggression≥0.999` 跳过 G-cap，不进振荡带。
+
+### 为什么 J-Turn 后 + 玩家阵亡后更明显
+
+两种场景 F-47 都处于"高 bank + 小 heading_diff"状态：
+- **J-Turn 刚结束**：Herbst 释放时 bank=0（守卫强制），counterattack 窗口 AI 立刻切 LEAD_PURSUIT 朝玩家拉 bank → 快速爬到 max bank，heading_diff 小 → 进入振荡带
+- **玩家阵亡后**：AI 抓到僚机（team 0 搜索）重新 ENGAGE，CLOSE_FIGHTER role 维持，近距锁敌时同样进振荡带
+- **常规近距咬尾**：其实一直在抖，只是玩家在混战中没那么容易注意到单架敌机的 4Hz 小抖
+
+### 修复
+
+[aircraft.gd:867-881](scripts/aircraft.gd:867)：把硬归零改成软钳位，最多吃 `|heading_diff|` 的 80%：
+
+```gdscript
+if signf(anticipated_change) == signf(heading_diff):
+    var cap: float = absf(heading_diff) * 0.8
+    var sub: float = minf(absf(anticipated_change), cap) * signf(heading_diff)
+    heading_diff -= sub
+```
+
+Tick N 同样瞬态代入：
+- `cap = 0.052 * 0.8 = 0.042`
+- `sub = min(0.061, 0.042) = 0.042`
+- `heading_diff -= 0.042 → -0.052 + 0.042 = -0.010 rad`（保留 20% 原值）
+
+→ 落在 `half_diff(0.0067) ~ full_diff(0.033)` 之间 → `target_bank ≈ -max * 0.5 = -43°` → bank 温和向 -43° 滚（不跳到 0）。下一 tick 在新 bank/heading_diff 下平滑迭代，不跨阈值。
+
+### 为什么不动阈值 / 不动 anticipated_change 公式本身
+
+- 阈值紧是 F-47 要"高激进度、最紧贴目标"的设计意图；改宽就丢了战斗力
+- anticipated_change 的 critical-damping 思路是对的，2026-04-20 用它解决过"追尾 sinusoidal 摆动"问题；只是硬归零太极端。软钳位保留了补偿效果（仍然减去大部分），只是留一小段残余信号
+- 改动**不影响**玩家 F-16（走不同分支）、不影响其他不进振荡带的 AI（`|anticipated| < |heading_diff|` 时两条路径行为完全一致 —— 软钳位只在"过补偿"瞬间生效）
+
+### 回归测试要点
+
+- F-47 近距咬尾：bank 稳在 -85° 附近单调变化，G 不再 5↔13 抖；日志 AC_TICK 连续 10 帧 bnk 差值 < 2°
+- J-Turn 结束后 counterattack 5s 内：bank 从 0 单调拉回咬尾位，不抽搐
+- 玩家阵亡后 F-47 转弯：同上
+- 玩家自己的追尾（上轮修的 MiG-29 绕圈问题）：`use_tactical_preference` 走另一条分支，本改动不触及
+- 普通 AI（MiG-29/F-86 等）BFM 机动：`|anticipated| < |heading_diff|` 场景两路径等价，无变化
+
+### 后续诊断钩子
+
+**已加**（2026-04-21 本轮）：Herbst 激活期间 AC_TICK 由 10Hz 升到每帧全速采样，额外输出 `rot` / `dx` / `dy` / `cth` / `tp_x` / `tp_y` ——
+- `rot` vs `hdg`：若 rotation 和 heading 相差大，说明有两处在抢写 rotation
+- `dx/dy`：若每帧 sign 翻转（例如 +5/-5/+5），说明 position 本身在抽
+- `cth`：若 `_cached_target_heading` 抖，说明 Herbst 守卫没堵住 `_update_target_heading`
+- `tp_x/tp_y`：若 target_position 每帧跳两个点，说明多系统抢写 target_position
+
+用户重现 J-Turn 后按 F9，就能一眼看到哪个字段在抖。
+
+**用户确认（2026-04-21）**：本轮 anticipated_change 软钳位修复**不是** J-Turn 颤抖的元凶 —— 修完后 J-Turn 依然抖。软钳位仍然是对的（日志 22.7~23.6s 的 bank 两档振荡是真实存在的 bug），但不影响 J-Turn（Herbst 激活时 `_update_bank` 整段走 `is_active` 守卫分支，根本走不到软钳位那段代码）。J-Turn 颤抖的根因尚未找到，待下一份 F9 日志（带 Herbst 期间逐帧采样）。
+
+---
+
+## 2026-04-21 (8) J-Turn 加速执行
+
+用户："J-Turn 现在太慢了，根本就是活靶子。开始那段要更快结束。"
+
+机动节奏上轮（2026-04-21 (6)）从 1.6s 拉到 3.4s 时为了"视觉清晰"步长设大了，配合 J-Turn 免疫 buff 后虽然不会被打死但观感拖沓。缩回：
+
+| 阶段 | 上轮 | 本轮 |
+|---|---|---|
+| DECEL_DURATION | 1.0s | **0.5s** |
+| TURN_DURATION | 1.6s | **1.0s** |
+| ACCEL_DURATION | 0.8s | **0.6s** |
+| TOTAL | 3.4s | **2.1s** |
+| DECEL_RATE | 600 m/s² | **1400 m/s²**（DECEL 缩到 0.5s 需要更猛刹车才能到 turn_target）|
+
+TURN_SPEED_FACTOR / ACCEL_SPEED_FACTOR 保持不变。整个 J-Turn 从"减速 → 偏航 → 加力"三段依然清晰可辨，但节奏紧凑，BOSS 快速消失-反咬。
+
+---
+
+## 2026-04-21 (7) F-47 J-Turn 颤抖三次修（AceSquad 漏守卫） + 机动 Buff + 隐形削弱
+
+### 症状 + 需求
+
+用户：
+1. "J-Turn 还是会剧烈地晃动。"
+2. "J-Turn 期间给它一个 buff，让它没有物理碰撞，导弹和机炮都会打空（像眼镜蛇机动）。"
+3. 隐形削弱：① 延长 CD；② 不要只在被导弹瞄准时用；③ CD 到了就有可能用（全队），不依赖导弹。
+
+### 颤抖根因（上轮 2026-04-21 (6) 漏的第四条链路）
+
+AIController._physics_process 和 Aircraft._update_combat / _update_target_heading 都加了 Herbst 守卫，但漏了 **AceSquad._maintain_role**（[ace_squad.gd:315](scripts/survivor/ace_squad.gd:315)）—— 基类的 CLOSE_FIGHTER / RANGED_STRIKER 两个 role 分支**没有**Herbst 守卫（只有 EVADER 有）。
+
+后果：J-Turn 执行者虽然是 EVADER（bvr_only 路径触发），但如果玩家的 `combat_target` 切到别的成员（或 EVADER 位置变化让它失去 "chased" 资格），AceSquad 会把 EVADER 重分类为 CLOSE_FIGHTER，触发：
+
+- `_force_engage(member, ai)` — 写 `ai._state = ENGAGE` / `ai._current_target = player` / `member.combat_target = player`
+- `ai.waypoints = PackedVector2Array([pp])` 每帧覆写
+- `ai._apply_new_tactic(LEAD_PURSUIT)` 每帧触发（每帧 `show_tactic_popup`）
+- `member.is_afterburner = true` 每帧强写
+
+其中关键抖动源：**`ai._apply_new_tactic(LEAD_PURSUIT)` 每帧判断 `_tactic != LEAD_PURSUIT` 时才触发，但中间有其它模块写 _tactic 就会反复切换** —— 加上 AceSquad 在 Herbst 期间改 `combat_target` / `boss_attacker`，这些都影响渲染和诊断路径，视觉上表现为机身颤抖。
+
+### 修复 A：AceSquad 全局 Herbst 守卫
+
+[ace_squad.gd:315-322](scripts/survivor/ace_squad.gd:315) `_maintain_role` 开头加全局守卫：
+
+```gdscript
+var hm_global: HerbstManeuver = member.get_herbst()
+if hm_global and hm_global.is_active:
+    return
+```
+
+Herbst 激活期间任何 role 都不干预，模块独占控制权。
+
+### 修复 B：J-Turn 物理碰撞免疫（对称 Cobra 机动）
+
+导弹已经走 `missile_phase_timer`（Herbst activate 时设为 `TOTAL_DURATION + POST_IMMUNITY = 3.7s`），[missile_manager.gd:111](scripts/missile_manager.gd:111) 已自动覆盖。
+
+机炮/火箭弹补：[bullet_manager.gd:102-105](scripts/bullet_manager.gd:102)：
+
+```gdscript
+var _hm_b = ac.get_herbst()
+if _hm_b and _hm_b.is_active:
+    continue
+```
+
+J-Turn 全程子弹穿过。机动结束 POST_IMMUNITY (0.3s) 后恢复正常碰撞。
+
+### 修复 C：隐形系统重做
+
+[ace_squad.gd:_update_cloak](scripts/survivor/ace_squad.gd:384)：
+
+触发条件改为 OR：
+- ① **CD 到了直接触发**（主节奏）—— 老逻辑只靠导弹紧急触发，BOSS 变成"挨打才隐形"的被动反制，威慑力弱。
+- ② **导弹紧急触发**（保留）—— CD 还没转完但已经过 `CLOAK_EMERGENCY_MIN_ELAPSED`（10s）最短间隔 + 有导弹锁向任一成员时，提前触发。作为"还没到下轮 CD 但被逼急了"的应急保险。
+
+每轮 CD = 基础周期 + 随机 jitter（`cloak_timer = cycle + randf_range(0, cycle_jitter)`），玩家无法按表躲。
+
+[survivor_data.gd:577-580](scripts/survivor/survivor_data.gd:577)：
+
+| 参数 | 旧 | 新 |
+|---|---|---|
+| F47_CLOAK_CYCLE | 95s | **110s** |
+| F47_CLOAK_CYCLE_JITTER | —（新增） | **25s** |
+
+实际周期 = 110~135s 随机，比老的 95s 固定略长，但没有拉到极端值。
+
+### 回归测试要点
+
+- F-47 J-Turn：三段节奏清晰（减速 1s → 低速偏航 1.6s → 加力 0.8s），机身**完全不抖**
+- J-Turn 期间打它：子弹直接穿过，导弹飞过去不触发近炸引信
+- J-Turn 结束 0.3s POST_IMMUNITY 后恢复正常碰撞
+- 隐形触发时机：开场后 160~205s 随机首次触发，之后每轮相同分布
+- 隐形和 J-Turn 独立：J-Turn 不会意外触发隐形
+- 普通 AI（MiG-29 / F-86 等）没有 HerbstManeuver 组件，所有守卫 `get_herbst()` 返回 null，路径不变
+
+---
+
+## 2026-04-21 (6) F-47 J-Turn 颤抖二次修（AI/Combat 抢写 + 机动节奏重做）
+
+### 症状
+
+用户："上一轮修复没效果，还是剧烈晃动。而且能不能让 J-Turn 减速后慢慢转，不要全速维持。"
+
+### 根因（上轮 2026-04-21 (5) 只堵了 bank，没堵 target/combat）
+
+上轮把 `_update_bank` Herbst 守卫扩到 `is_active` —— 只压住了 bank 不翻跳。但 Herbst 激活 1.6s 内，**其它三条链路还在跟 Herbst 抢写状态**：
+
+1. **AIController**：`_process_engage` 每 tick 跑 bvr_only 分支（[ai_controller.gd:1196](scripts/ai_controller.gd:1196)）。`hm.can_activate=false` 于是 fall through 到 `target_position = flee_dir × 3000` + `_disengage()` + boss re-engage + `_apply_new_tactic(LEAD_PURSUIT)`。每 tick `combat_target` 和 `target_position` 在「离玩家」和「对玩家」之间被覆写 2~3 次。
+2. **Aircraft._update_combat**：不管 `ai_override_pursuit`，OVERSHOOT 分支（[aircraft.gd:1697](scripts/aircraft.gd:1697)）只要 `dist < 80px` 就写 `target_position = my_pos + my_fwd × 2000` 并 `is_firing = false`；机炮 lead 分支写 `_gun_lead_heading` / `is_firing`。heading 在 TURN 期间每帧硬转 3.75° → `my_fwd` 跟着转 → `target_position` 绕圈。
+3. **Aircraft._update_target_heading**：每帧把 `_cached_target_heading` 按上面 1/2 写的 `target_position` 重算。
+
+heading 被 Herbst 硬转 + `target_position` 被多处绕圈刷新，下游 `_apply_movement` 用的 heading 本身稳定，但 **`_update_visuals` 的 `rotation = heading` 和 Herbst 的 `rotation = heading` 同帧顺序打架时间窗**，再加上 position 随 heading 转圈导致 icon 绕小圈飘 —— 视觉就是"整个机身不停晃动"。
+
+### 修复（让 Herbst 整段完全独占控制权）
+
+**A. AI 在 Herbst 激活期间完全停摆** —— [ai_controller.gd:381-390](scripts/ai_controller.gd:381) `_physics_process` 开头：
+
+```gdscript
+var _hm_ai := aircraft.get_herbst()
+if _hm_ai and _hm_ai.is_active:
+    return
+```
+
+Herbst 自带 1.6s 时长 + 5s counterattack 窗口，期间不需要任何 AI 决策。机动结束立刻恢复。
+
+**B. Aircraft._update_combat 整段跳过** —— [aircraft.gd:1639](scripts/aircraft.gd:1639)：
+
+```gdscript
+var _hm_uc := get_herbst()
+if _hm_uc and _hm_uc.is_active:
+    is_firing = false
+    return
+```
+
+OVERSHOOT / lead / 机炮 firing 全部停，不再写 `target_position` / `_gun_lead_heading` / `is_firing`。
+
+**C. Aircraft._update_target_heading 冻结** —— [aircraft.gd:770](scripts/aircraft.gd:770)：
+
+```gdscript
+var _hm_th := get_herbst()
+if _hm_th and _hm_th.is_active:
+    return
+```
+
+不再根据旧 target_position 刷新 `_cached_target_heading`。
+
+**D. Herbst 自己写稳定的 target_position** —— 各阶段都把 `target_position = global_position + fwd × 2000`，并同步 `target_speed_kmh`，防止 Aircraft `_update_speed` 反向抬升。
+
+### 机动节奏重做（用户要求的"减速后慢慢转"）
+
+[herbst_maneuver.gd:12-22](scripts/herbst_maneuver.gd:12)：
+
+| 参数 | 旧值 | 新值 | 说明 |
+|---|---|---|---|
+| DECEL_DURATION | 0.3s | **1.0s** | 玩家能看到减速 |
+| TURN_DURATION | 0.8s | **1.6s** | 低速偏航，像失速机动而不是急转 |
+| ACCEL_DURATION | 0.5s | **0.8s** | 从近失速平缓拉回巡航 |
+| TOTAL | 1.6s | **3.4s** | |
+| DECEL_RATE | 300 m/s² | **600 m/s²** | DECEL 1s 内真的要能刹到近失速 |
+| TURN 目标速度 | `corner × 0.8` | **`stall_base × 1.15`**（TURN_SPEED_FACTOR）| 近失速，观感像推力矢量低速偏航 |
+
+- DECEL / TURN 阶段 `is_afterburner=false` + `target_speed_kmh=turn_target × 3.6`，彻底压住 `_update_speed` 反向加速。
+- TURN 阶段 `speed = turn_target_ms` 双向钳制（不是 `maxf`），速度严格稳定在近失速值。
+- ACCEL 阶段 `is_afterburner=true` + `target_speed_kmh = cruise_speed`，让 `_update_speed` 自然拉回。起始 tick `minf(speed, stall_base × 1.4)` 防止一帧从 stall×1.15 暴涨。
+
+F-47 实际效果（`stall_base=180 km/h`）：
+- DECEL 1.0s：从 2000 km/h → 约 207 km/h
+- TURN 1.6s：定速 207 km/h 偏航 180°
+- ACCEL 0.8s：加力从 207 → 巡航 1600 km/h
+
+### 为什么不直接在 heading 上加守卫？
+
+`_update_heading` 早在 04-20 就已经用 `is_active` 跳过了；`_update_bank` 在 04-21 (5) 用 `is_active` 压到 0。剩下的抖动源是**别处在写 heading 的输入信号（target_position）和下游状态（combat_target / is_firing）**。必须从源头切断：让 Herbst 激活期间没有任何别的逻辑能写这些字段。
+
+### 回归测试要点
+
+- F-47 BOSS J-Turn：视觉三段清晰 —— 减速（1s，speed 曲线明显下降）→ 低速偏航 180°（1.6s，icon 绕自身缓慢旋转）→ 加力冲出（0.8s，speed 拉回巡航）
+- 机身不再颤抖（bank=0 全程 + target/combat 不抢写）
+- Herbst 结束立即进入 5s counterattack 窗口，AI 恢复，BOSS 开始反咬玩家
+- 普通 AI 机动不受影响（`is_active=false` 时所有守卫都不触发）
+- 玩家飞机不涉及 Herbst，路径不变
+
+---
+
+## 2026-04-21 (5) F-47 J-Turn 颤抖回潮（04-20 (9) 覆盖不全）
+
+### 症状
+
+用户："Boss F47 在使用 J-turn 的时候，飞机会剧烈颤抖。之前似乎修过一次。整个机身会不停地晃动，肯定有什么逻辑在打架。"
+
+### 根因
+
+04-20 (9) 的 `_update_bank` Herbst 守卫**只 match `Phase.TURN`**，DECEL（0.3s）和 ACCEL（0.5s）两段没覆盖。
+
+闭环：
+1. Herbst 整个 1.6s 内 `is_active=true` → `_update_heading` 被跳过，heading 在 DECEL/ACCEL 期间冻结（TURN 期间由 herbst 自己硬转）。
+2. 与此同时 AI `_process_engage` 每 tick 继续跑 bvr_only 分支（[ai_controller.gd:1196-1220](scripts/ai_controller.gd:1196)）。herbst 已激活 → `hm.can_activate=false` → fall through 到 `target_position = flee_dir × 3000` + `_disengage()`。`_disengage()` 对 boss 立即 re-engage + `_apply_new_tactic(LEAD_PURSUIT)`（[ai_controller.gd:2164-2184](scripts/ai_controller.gd:2164)）。
+3. 结果 `target_position` 每 tick 在「背离玩家的 flee 点」和「对准玩家的 pursuit 点」之间反复跳 → target_heading 跳 ±180°。
+4. DECEL/ACCEL 期间 `_update_bank` 正常跑但 heading 冻结，反馈环失效：heading_diff 始终是 ±180° 级，target_bank 在 `±max_bank` 翻跳。bank_flip 守卫（2026-04-20 (7)）只在 `|bank|>30°` 生效，小 bank 时直接放行翻转。
+5. 渲染层 [aircraft_renderer.gd:296](scripts/aircraft_renderer.gd:296) `bank_compress = cos(bank_angle)` → bank 抖 → icon X 轴宽度被反复压扁 → **视觉机身颤抖**。
+
+### 修复
+
+[aircraft.gd:799-802](scripts/aircraft.gd:799) 守卫从 `phase == Phase.TURN` 扩到 `is_active`：
+
+```gdscript
+var _hm_bank := get_herbst()
+if _hm_bank and _hm_bank.is_active:
+    var roll_rate_herbst: float = params.roll_rate if params else 4.0
+    bank_angle = move_toward(bank_angle, 0.0, roll_rate_herbst * delta)
+    return
+```
+
+Herbst 全程放平机翼。符合真实 post-stall J-Turn 的动作（全程 wings-level，只绕 yaw 轴）。视觉转身感由 `HerbstManeuver.visual_offset` 的俯视 Y 轴压缩负责。
+
+### 为什么不直接修 AI bvr_only 闭环
+
+AI 侧是设计意图（持续刷新 target_position 保证 boss 始终追玩家）。真正的责任边界是：**Herbst 激活时 bank 不该由 target_position 驱动**。在 `_update_bank` 源头守卫一次，所有上游波动都不会再影响视觉。
+
+### 回归测试要点
+
+- F-47 BOSS 多次 J-Turn：DECEL / TURN / ACCEL 三段 `bnk` AC_TICK 值应平滑降到 0，不再翻跳
+- J-Turn 结束进入 counterattack 5s 窗口后 bank 恢复正常 P 控制（不影响）
+- 非 Herbst 的普通高 G 机动不受影响（`is_active=false` 时守卫不触发）
+
+---
+
+## 2026-04-21 (4) 导弹对地一击必杀 + 补 AGM 升级遗漏
+
+### 症状
+
+用户："AGM 打在地面单位上，地面单位没死。所有的导弹，无论类型，打到地面单位就应该死。"
+
+### 根因
+
+1. **HP 缩放吃光弹头威力**：`survivor_data.gd:ground_tgt_scale` 给 SAM/AAA 加 `hp_mult = 1 + 0.1×(level-1) + 0.2×(diff-1)`（cap ×3）。5 级 + 2 星 → SAM HP = 80 × 1.6 = 128。AGM 80 damage 打不穿，需要 2 发。
+2. **AGM 升级覆盖审计发现一处遗漏**：`seeker_fov`（广角导引头）升级只改 `p.missile`，不改 `p.secondary_missile`。AGM 是 AAM 的 `duplicate()` 克隆，设计上所有升级都该同步覆盖，其它升级（`missile_count` / `missile_tracking` / `missile_reload` / `proximity_fuze` / `missile_bounce` / `multi_lock`）都已正确同步，唯独 seeker_fov 漏了。
+
+日志证据（`logs/combat_log_20260421_132219.txt`）：
+- `[102.9] AGM-65: hit @Node2D@385 (dmg=80)` —— 伤害打进去
+- `[103.9] PURSUIT_ACQUIRE tgt=@Node2D@385` —— 1 秒后 SAM 还活着被重新锁定
+- `[109.7] THREAT ... @Node2D@385 LOCKED=23.5/3.5s @541m` —— 7 秒后仍可被锁定（combat_target 有效 = 未 destroyed）
+- GroundUnit.take_damage 没有 EventLogger 记录，所以看不到 DAMAGE 事件（现象上"静默"）
+
+### 修复
+
+**1. 新增 `GroundUnit.take_missile_damage(amount)`**（[ground_unit.gd](scripts/ground_unit.gd)）：
+```gdscript
+func take_missile_damage(_amount: float) -> void:
+    if is_destroyed:
+        return
+    hp = 0.0
+    _start_destroy()
+```
+伤害值被忽略 —— 任何战斗部命中 = 秒杀，无视 HP 缩放。
+
+**2. missile_manager 对 GroundUnit 走新路径**（[missile_manager.gd](scripts/missile_manager.gd)）：
+- 直接命中分支（:139）：`if unit is GroundUnit: take_missile_damage() else: take_damage()`
+- 近炸 AOE 分支（:225）：同样分流
+
+**3. seeker_fov 升级补齐 AGM**（[survivor_player.gd:170](scripts/survivor/survivor_player.gd:170)）：同时对 `p.missile` 和 `p.secondary_missile` 放大 seeker_fov。
+
+### 设计原则
+
+- **地面单位 vs 导弹**：软目标，任何战斗部一击必杀。难度压力来自 garrison 的数量（`sam_count` 2/3/5）和编组，不是 HP 耗损。
+- **地面单位 vs 机炮**：保留原 HP 系统（`take_damage`），机炮扫射仍要持续射击才能打死。
+- **地面单位 vs 地面单位（比如友方卡车被敌方 AA 打）**：保留原 HP 系统，走 `take_damage`（非制导，不算战斗部）。
+- **AGM = AAM 包装**：survival 模式 `secondary_missile = missile.duplicate()`，所有导弹升级都该覆盖两份。
+
+### 回归测试要点
+
+- **任意等级打 SAM/AAA/雷达站**：AGM 一发击毁，不需要连发
+- **AIM-7M 打空中目标**：不走 GroundUnit 路径，HP 系统正常（一发可能打残不打死，设计如此）
+- **近炸引信 AOE 扫过地面单位**：SAM/AAA 被 AOE 命中也应该秒杀
+- **广角导引头升级**：AGM 的 seeker_fov 也应该变宽（对地大离轴发射应该更容易锁定）
+- **机炮扫射 SAM**：仍然需要多发（原逻辑不变）
+
+---
+
+## 2026-04-21 (3) AGM 对地发射 bug：武器模式切换用了错误的导弹 min_range
+
+### 症状
+
+用户："导弹模式下锁定地面单位，慢慢锁定以后没发射导弹；靠近以后使用了机炮，明明有 AGM 可以发射。"
+
+### 根因
+
+`aircraft.gd:_missile_cannot_hit_but_gun_can()` 判断"距离是否进入导弹 min_range"时**固定读 `params.missile.min_range`（AAM = 500m）**，但对地目标实际要发射的是 `params.secondary_missile`（AGM-65，min_range = 300m）。
+
+触发链：
+1. 玩家靠近 SAM 到 ~400m —— AGM 可打（>300m）、AAM 不能打（<500m）
+2. `_missile_cannot_hit_but_gun_can` 用 AAM 500m 判 → 500>400 → 返回 true
+3. `_update_weapon_mode_tactical` 把 `weapon_mode` 切到 GUN
+4. 滞回 +150m（`WEAPON_MODE_HYSTERESIS_M`）→ 除非拉到 650m 外才切回，strafe 通场中不会发生
+5. `_update_missile` 首行 `if weapon_mode != MISSILE: return` 直接出 → **AGM 从没获得发射机会**
+
+日志证据（`logs/combat_log_20260421_131248.txt`）：
+- `[84.3] PURSUIT_ACQUIRE tgt=SAMUnit wpn=GUN` —— 锁定 SAM 的瞬间 weapon_mode 已被切到 GUN
+- 84.3→94.3s 的 10 秒 SAM 交战期间**零 MSL_BLOCK 事件**（`WEAPON_MODE` 节流间隔 2s，最少应该出 5 条）—— 说明根本没走到带 log 的发射分支
+- 相比之下对 UCAV-06 正常发射了 AGM（:3069）—— 那次走的是另一个对空路径
+
+### 修复
+
+`_missile_cannot_hit_but_gun_can()` 按目标类型选择 `effective_missile`，与 `_update_missile` 的导弹选择逻辑保持一致：
+- 地面目标 → `secondary_missile` 优先（AGM）
+- 空中目标 → `missile`（AAM）
+- 无可用弹 → fallback 到另一个或 return true（机炮兜底）
+
+然后用 `effective_missile.min_range` 替代硬编码的 `params.missile.min_range` 做距离判据。
+
+### 关联文件（同步检查）
+
+以下位置也区分了"对空/对地用哪个导弹"，已确认与新 `effective_missile` 选择逻辑一致：
+- `_update_missile` [aircraft.gd:2819-2832](scripts/aircraft.gd:2819)：msl 选择（ground → secondary）
+- `_update_weapon_mode` AI 分支 [aircraft.gd:2503-2509](scripts/aircraft.gd:2503)：usable_missiles 计数（ground = AAM+AGM）
+
+### 回归测试要点
+
+- **导弹模式接近 SAM/AAA/雷达站**：应该在 ~300m 内才切 GUN（而不是 500m），AGM 能正常发射
+- **对空 UCAV 近战**：仍然用 AAM 500m 判据切 GUN（不应被误改）
+- **AGM 打完**：`secondary_missiles_remaining == 0` 时 `effective_missile` fallback 到 AAM，恢复旧行为
+- **MSL_BLOCK 日志**：发射失败时应该看到明确 reason（`ENVELOPE` / `LOCK` / `OFF_CONE`），而不是静默消失
+- **玩家切机炮优先 (PREFER_GUN)**：早期 return 优先生效，本修复不影响
+
+---
+
+## 2026-04-21 (2) 机炮对地攻击：加力低空掠袭（不再减速照射）
+
+### 症状
+
+用户："机炮模式攻击地面单位时，不应该像发射导弹那样慢慢减速，而是应该加力快速飞过地面单位进行一波攻击。飞行高度应尽可能往低，匹配目标高度。"
+
+### 根因
+
+`aircraft.gd:_update_energy_management` 的地面攻击分支一刀切：
+```gdscript
+if combat_target is GroundUnit:
+    target_speed_kmh = cruise * 0.7
+    _set_afterburner(false)
+    return
+```
+不管机炮还是导弹都 cruise×0.7 + 关加力。这对导弹模式合理（维持照射），但机炮 strafe 通场时等于主动降速把自己挂在 AAA/SAM 火控里。
+
+另外 `STRAFE_ATTACK_ALT_M = 1500m` 对掠袭来说太高，远离"贴地攻击"的直观感受。
+
+### 修复
+
+**1. 按武器模式分流**（`aircraft.gd:_update_energy_management` 地面分支）：
+- 机炮/火箭：`target_speed_kmh = cruise × approach_speed_mult`（默认 1.4×）+ 加力（my_kmh 不足时）
+- 导弹：保持 cruise×0.7 关加力（照射稳定）
+
+**2. 降低 strafe 攻击高度**：
+- `STRAFE_ATTACK_ALT_M`: 1500m → **500m**（脱离高度 3000m 不变）
+
+### 覆盖范围
+
+- `_update_combat_ground_attack` 只在 `weapon_mode != MISSILE` 时调用（`aircraft.gd:1569`），
+  所以 strafe 状态机天然是机炮/火箭路径。新加的武器模式分流只影响 `_update_energy_management` 的对地速度命令。
+- 火箭模式与机炮同路径处理（都是近距直射）。
+
+### 回归测试要点
+
+- **打 SAM/AAA**：玩家应该加力冲向目标、低空掠过、脱离时爬升到 3000m
+- **打 SAM（带导弹且玩家选择导弹模式）**：应该保持 cruise×0.7、不开加力、维持照射
+- **空对空不受影响**：`combat_target is GroundUnit` 门控，空中目标走原路径
+- **低空危险**：500m 对俯冲/失速有风险，注意 AC_TICK 日志看 `spd` 是否掉到失速附近；如果频繁坠地可以把地板抬到 700m
+
+---
+
+## 2026-04-21 机炮慢目标分两态：咬尾匹配速度 / 剪式压到角点
+
+### 症状
+
+用户："玩家攻击 UAV 的时候经常会飞过。在和敌人进行剪式飞行的时候，它会加速而不是减速；等敌人飞向它的前面时，它一直在加速飞过敌人，表现出一种找不到角度的样子。"
+
+### 根因
+
+`aircraft.gd` 的机炮模式能量管理分支里，`is_slow_target` 一刀切命令 `maneuver_speed = cruise × 1.0 ≈ 900 km/h`，不管玩家是咬在 UAV 屁股后还是对头剪式，都强制 cruise。
+
+- 2f93ee4 当时的注释解释："不再进一步降速到 tgt×1.3 —— 太慢会导致 G-lim 过低，转弯半径极大，反而被动等待目标经过"
+- 问题是对**所有慢目标场景**都这么处理，对头/剪式时根本不该维持高速 —— 该情形要压速换小半径拉反转咬尾
+
+UAV 150 km/h vs 玩家 900 km/h，相对速度 750，穿过目标瞬间完成，玩家根本没机会开火也没机会打剪式反转。
+
+### 修复
+
+`aircraft.gd` 机炮分支按 BFM 分两态：
+
+```gdscript
+if is_slow_target:
+    var tail_aligned := _in_rear_hemisphere and heading_diff_deg < 30.0
+    if tail_aligned:
+        # A. 已咬尾：目标速度 × 1.2，保持射程稳定射击
+        target_speed_kmh = maxf(combat_min_kmh, tgt_speed_kmh * 1.2)
+    else:
+        # B. 对头/横切/剪式：角点速度，最小转弯半径拉 180° 反咬
+        target_speed_kmh = _corner_speed_kmh()
+    _set_afterburner(false)
+```
+
+### 设计约束：全派生，不硬编码
+
+公式里所有速度/距离都从当前 params 派生，**玩家升级自动生效**：
+- `combat_min_kmh = stall × 1.8` ← 失速降低升级
+- `_corner_speed_kmh() = stall × 1.2 × √G_limit` ← 结构 G 升级
+- `gun_range` ← 机炮射程升级
+- `tgt_speed × 1.2`、`30°` 是 BFM 几何常量，与机型/升级无关
+
+### 回归测试要点
+
+- **UAV/直升机近战**：玩家应该能咬住 UAV 并持续命中（原症状修复）
+- **剪式/对头 UAV**：玩家应该减速而不是加速，穿过后立刻反转咬尾
+- **快目标（MiG/F-100 等）**：`is_slow_target=false`，走原 `_in_rear_hemisphere` / `needs_big_turn` 分支，不应有任何变化
+- **升级后**：`.tres` 调低 stall 或调高 G，追慢目标时速度档位应该相应下移（对头更激进的小圈）
+- **观察** AC_TICK 诊断：剪式场景下 `spd` 应该明显低于之前（接近 corner_speed，如 F-16 约 780 km/h 而不是 cruise 900）
+
+---
+
 ## 2026-04-20 (11) 修 LOD 2 → LOD 0 回切遗漏（label 不更新 + 跟飞机转）
 
 ### 症状

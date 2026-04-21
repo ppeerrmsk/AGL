@@ -51,6 +51,15 @@ static func apply(aircraft: Node, profile: PlayableAircraft, is_wingman: bool = 
 	if p.missile and profile.missile_count_override >= 0:
 		p.missile.max_count = profile.missile_count_override
 
+	# ── 副导弹（AGM）属性继承主导弹 ──
+	# 设计决策：AGM 只是对地显示名，数值完全复用主导弹，这样所有"导弹"升级
+	# （数量/制导/装填/数量上限）在对地时一样生效，不会出现"升了 AAM 升级 AGM
+	# 还是原始弱鸡"的情况。显示名保留 "AGM-xx" 满足军事细节党。
+	if p.missile and p.secondary_missile:
+		var agm_name := p.secondary_missile.display_name
+		p.secondary_missile = p.missile.duplicate()
+		p.secondary_missile.display_name = agm_name
+
 	# ── 机炮 ──
 	if p.gun:
 		if profile.gun_damage_mult != 1.0:

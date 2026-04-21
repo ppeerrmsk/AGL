@@ -26,6 +26,7 @@ const PLAYABLE_LIST: Array[Dictionary] = [
 	{
 		"resource": "res://resources/playable_f14.tres",
 		"locked": false,
+		"dev_locked": true,
 	},
 	{
 		"resource": "",
@@ -287,8 +288,9 @@ func _build_aircraft_card(index: int) -> void:
 	btn.custom_minimum_size = Vector2(220, 40)
 	btn.add_theme_font_size_override("font_size", 16)
 
-	if locked:
-		btn.text = tr("SLOT_LOCKED_BUTTON")
+	var dev_locked: bool = data.get("dev_locked", false)
+	if locked or dev_locked:
+		btn.text = tr("SLOT_DEV_LOCKED_BUTTON") if dev_locked else tr("SLOT_LOCKED_BUTTON")
 		btn.disabled = true
 		var dis_style := StyleBoxFlat.new()
 		dis_style.bg_color = ThemeColors.SELECT_BTN_DISABLED_BG
@@ -337,7 +339,7 @@ func _build_aircraft_card(index: int) -> void:
 
 func _on_aircraft_selected(index: int) -> void:
 	var data: Dictionary = PLAYABLE_LIST[index]
-	if data.get("locked", false):
+	if data.get("locked", false) or data.get("dev_locked", false):
 		return
 	# 通过 scene tree meta 传递选择的 PlayableAircraft 资源路径
 	get_tree().set_meta("survivor_aircraft_resource", data["resource"])

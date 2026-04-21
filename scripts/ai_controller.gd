@@ -379,6 +379,17 @@ func _physics_process(delta: float) -> void:
 	if not aircraft or aircraft.is_destroyed:
 		return
 
+	# Herbst 激活期间 AI 完全停摆：不再跑 engage/evade/follow/target 选择，
+	# 否则每 tick 的 bvr_only flee→_disengage→boss re-engage 闭环会反复刷
+	# target_position / combat_target / tactic / _cached_target_heading，
+	# 和 Herbst 模块自己的 heading 控制抢写 → 飞机视觉颤抖。
+	# Herbst 自带 1.6s 时长 + 5s counterattack 窗口，期间不需要 AI 介入；
+	# 机动结束（is_active=false）AI 立即恢复。
+	# 详见 docs/changelogs/player-ai-log.md 2026-04-21 (6)
+	var _hm_ai := aircraft.get_herbst()
+	if _hm_ai and _hm_ai.is_active:
+		return
+
 	# 节流：simple_ai 等低优先级 AI 每 N 帧才决策一次，带相位错开
 	# 跳过的帧里 Aircraft 物理照常跑，只是 AI 不重新算目标/阵型/规避
 	if ai_tick_divisor > 1:
@@ -546,6 +557,9 @@ func _process_simple(delta: float) -> void:
 		if _shield_missile and _shield_missile.is_active:
 			var msl_dist := _shield_missile.global_position.distance_to(aircraft.global_position)
 			if msl_dist < MISSILE_INTERCEPT_DIST:
+				# 真正执行自爆的这一瞬间显示"舍身"（只有这一架 UAV，不会编队刷屏）
+				current_tactic_name = "TACTIC_KAMIKAZE"
+				aircraft.show_tactic_popup(tr("TACTIC_KAMIKAZE"))
 				# 在爆炸点生成 AOE 视觉圈（和玩家近炸引信一样的红圈提示）
 				var mm := aircraft.missile_manager as MissileManager
 				if mm:
@@ -693,6 +707,9 @@ func _process_simple(delta: float) -> void:
 
 						# 自爆判定：100px 内触发
 						if dist_to_tgt < 100.0:
+							# 真正执行自爆的瞬间显示"舍身"（只有这一架 UAV 会走到这里）
+							current_tactic_name = "TACTIC_KAMIKAZE"
+							aircraft.show_tactic_popup(tr("TACTIC_KAMIKAZE"))
 							# AOE 视觉指示
 							var mm := aircraft.missile_manager as MissileManager
 							if mm:

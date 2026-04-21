@@ -99,6 +99,10 @@ func _physics_process(delta: float) -> void:
 				var _bm = ac.get_maneuver()
 				if _bm and (_bm.is_active or (_bm.is_used and ac.missile_phase_timer > 0.0)):
 					continue
+				# Herbst J-Turn 全程免疫（和眼镜蛇机动对称：模块激活期间子弹穿过）
+				var _hm_b = ac.get_herbst()
+				if _hm_b and _hm_b.is_active:
+					continue
 			# 命中判定：2D 距离 + 高度容差（分别检查）
 			var dist_2d: float = b["pos"].distance_to(ac.global_position)
 			var alt_diff: float = absf(float(b["altitude"]) - ac.altitude)

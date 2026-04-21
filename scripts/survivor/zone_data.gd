@@ -23,6 +23,15 @@ const DIFFICULTY_MAX := 3
 ##   "ground"  → 战区刷 SAM + AA（需要陆地）
 ##   "air"     → 战区刷敌方中队（可设在海上）
 ## 战区中心与半径保证 center ± radius 不越界（地图 ±7500）
+##
+## 可选字段：
+##   "ground_spawn_polygons": Array  —— 元素为 Array[Vector2]（顶点列表，使用时转 PackedVector2Array）。
+##     仅 mission_type=="ground" 起效。
+##     SAM/AA 只在这些多边形内随机刷（按面积加权挑一块 → bbox reject-sample）。
+##     仍走严格陆地判定 + 间距 + 距路，多边形外的部分被自动滤掉。
+##     若设置，应让多边形整体中心 ≈ zone center，使战术地图圆圈对齐刷怪区。
+##     缺省时 SAM/AA 走原 zone center + radius×0.85 散布逻辑。
+##     注：用嵌套 Vector2 数组而非 PackedVector2Array，因为后者构造调用在 const 字面量里不能展开。
 const ZONES: Array[Dictionary] = [
 	{
 		"id": &"A",
@@ -31,12 +40,32 @@ const ZONES: Array[Dictionary] = [
 		"center": Vector2(-3200.0, -2500.0),    ## 横滨核心（陆）
 		"radius": 2500.0,
 		"mission_type": "ground",
+		"ground_spawn_polygons": [
+			[
+				Vector2(-2512, -2207),
+				Vector2(-2117, -1485),
+				Vector2(-1055, -2099),
+				Vector2(-1468, -2754),
+			],
+			[
+				Vector2(-5424, -4063),
+				Vector2(-5339, -2634),
+				Vector2(-3957, -3096),
+				Vector2(-1441, -4490),
+			],
+			[
+				Vector2(-3212, -4605),
+				Vector2(-1937, -5148),
+				Vector2(-1724, -4199),
+				Vector2(-3078, -3559),
+			],
+		],
 	},
 	{
 		"id": &"B",
 		"name_key": "ZONE_B_NAME",
 		"label": "B",
-		"center": Vector2(4500.0, -4500.0),     ## 木更津北（陆）
+		"center": Vector2(3800.0, -3800.0),     ## 木更津北（陆），从 (4500,-4500) 内移避免贴边
 		"radius": 2500.0,
 		"mission_type": "ground",
 	},
@@ -44,7 +73,7 @@ const ZONES: Array[Dictionary] = [
 		"id": &"C",
 		"name_key": "ZONE_C_NAME",
 		"label": "C",
-		"center": Vector2(-4800.0, 4500.0),     ## 三浦东岸 / 湾内南部（海/陆过渡）
+		"center": Vector2(-4100.0, 3800.0),     ## 三浦东岸 / 湾内南部（海/陆过渡），从 (-4800,4500) 内移避免贴边
 		"radius": 2500.0,
 		"mission_type": "air",                   ## 海上，改为空战中队
 	},
@@ -55,15 +84,34 @@ const ZONES: Array[Dictionary] = [
 		"center": Vector2(4800.0, 4500.0),      ## 富津基部（陆）
 		"radius": 2500.0,
 		"mission_type": "ground",
+		"ground_spawn_polygons": [
+			[
+				Vector2(3697, 4090),
+				Vector2(3930, 3701),
+				Vector2(5591, 4494),
+				Vector2(5270, 5098),
+			],
+			[
+				Vector2(5057, 5032),
+				Vector2(5100, 5961),
+				Vector2(6670, 6080),
+				Vector2(6506, 5047),
+			],
+		],
 	},
 ]
 
+## BOSS 战区：放在地图中央偏南，与 4 个角的常规战区都留出余量
+##  - vs A (-3200,-2500) r=2500：距 ≈ 4744 ≥ 2500+2200=4700 ✓
+##  - vs B (3800,-3800) r=2500：距 ≈ 6123 ✓
+##  - vs C (-4100, 3800) r=2500：距 ≈ 4965 ✓
+##  - vs D (4800, 4500) r=2500：距 ≈ 5941 ✓
 const BOSS_ZONE: Dictionary = {
 	"id": &"BOSS",
 	"name_key": "ZONE_BOSS_NAME",
 	"label": "BOSS",
-	"center": Vector2(0.0, -500.0),
-	"radius": 1800.0,
+	"center": Vector2(0.0, 1000.0),
+	"radius": 2200.0,
 }
 
 ## 战区攻克时给玩家恢复的基础 HP（除了技能奖励外的额外回血）
@@ -81,6 +129,9 @@ var _last_cleared: StringName = &""
 var _last_cleared_mission_type: String = ""
 var boss_unlocked: bool = false
 var _rewards: Dictionary = {}                ## id → upgrade dict（该战区攻克后发放的技能）
+## 本局已分配过的奖励技能 id（含已攻克 + 当前 AVAILABLE 的所有战区）。
+## 用途：保证一局游戏中每个奖励技能最多出现在一个战区，不重复
+var _used_reward_ids: Dictionary = {}        ## skill_id → true
 var _difficulties: Dictionary = {}            ## id → int (DIFFICULTY_MIN..DIFFICULTY_MAX)
 var _mission_types: Dictionary = {}            ## id → String（运行时 mission_type，覆盖 ZONES 默认）
 ## 标记哪些战区是"新开放"的（最近一轮 refresh 打开的），便于 UI 再次提示玩家
@@ -101,6 +152,11 @@ func _init() -> void:
 	_roll_mission_type(&"A")
 	_roll_mission_type(&"B")
 	_newly_opened = [&"A", &"B"]
+
+## BOSS 阶段：玩家已选中 BOSS（在战术地图点了 BOSS 圈）。
+## 进入此阶段后：常规战区 A/B/C/D 的地图显示 + 任务推进全部停止，专心打 BOSS。
+func is_boss_phase() -> bool:
+	return selected_id == &"BOSS"
 
 func get_state(id: StringName) -> State:
 	return _states.get(id, State.LOCKED)
@@ -223,14 +279,23 @@ static func category_hint_key(category: StringName) -> String:
 		_: return "ZONE_REWARD_HINT_SURVIVAL"
 
 ## 随机给某个战区分配一个奖励技能（如已分配则保留）
+## 一局游戏中每个奖励技能只会出现在一个战区 —— 本函数过滤掉已分配过的 id
+## 若候选池被全部用尽，则该战区无奖励（_rewards 不写入），UI 应处理空奖励的情况
 func _assign_reward(id: StringName) -> void:
 	if _rewards.has(id):
 		return
 	var pool := _build_reward_pool()
-	if pool.is_empty():
+	# 过滤已用过的奖励
+	var avail: Array = []
+	for u in pool:
+		var uid := String(u.get("id", ""))
+		if uid != "" and not _used_reward_ids.has(uid):
+			avail.append(u)
+	if avail.is_empty():
 		return
-	var pick: Dictionary = pool[randi() % pool.size()]
+	var pick: Dictionary = avail[randi() % avail.size()]
 	_rewards[id] = pick
+	_used_reward_ids[String(pick["id"])] = true
 
 ## 获取某战区的奖励 upgrade dict（可能为空）
 func get_reward(id: StringName) -> Dictionary:
@@ -261,9 +326,11 @@ func get_difficulty(id: StringName) -> int:
 
 ## 基础 mission_type = "air" 的战区（C）地形在水上，只能空战中队任务
 ## 其他战区按难度权重滚动：
-##   - ★     → ground(70) / squadron(30)
-##   - ★★    → ground(50) / squadron(50)
-##   - ★★★   → ground(30) / squadron(30) / elite(40)  (elite = Sentinel 首领怪)
+##   - ★     → ground(60) / squadron(25) / elite(15)
+##   - ★★    → ground(40) / squadron(35) / elite(25)
+##   - ★★★   → ground(40) / squadron(60)   — 无 elite
+## elite (Sentinel 首领怪) 从 ★★★ 移除 —— 打掉 Sentinel 即完成任务，体量不够 ★★★ 分量。
+## ★★★ 改为纯 ground/squadron，配合 TGT 虚拟等级 +5 floor 8 抽 MiG-29/Su-27/MiG-31 级中队。
 func _roll_mission_type(id: StringName) -> void:
 	if _mission_types.has(id):
 		return
@@ -273,6 +340,9 @@ func _roll_mission_type(id: StringName) -> void:
 	if base_type == "air":
 		_mission_types[id] = "air"
 		return
+	# 陆地可用性检查：即便战区基础类型是 ground，若圆内几乎没有陆地
+	# （战区中心偏海/城市多边形稀疏），也强制为空战中队，避免 SAM/AA 落到海面
+	var has_land := zone_has_land(id)
 	var diff := int(_difficulties.get(id, DIFFICULTY_MIN))
 	# 最多重 roll 1 次以避开与刚完成的任务同类型，防止连续重复体验
 	# （水上 air 战区上面已直接返回，不走这里）
@@ -281,16 +351,27 @@ func _roll_mission_type(id: StringName) -> void:
 		var picked: String = ""
 		match diff:
 			3:
-				if r < 0.40:
+				## ★★★ 去掉 elite —— 分量不够，改走 squadron/ground
+				picked = "squadron" if r < 0.60 else "ground"
+			2:
+				## ★★ 下放 elite（25%），其余 squadron/ground
+				if r < 0.25:
 					picked = "elite"
-				elif r < 0.70:
+				elif r < 0.60:
 					picked = "squadron"
 				else:
 					picked = "ground"
-			2:
-				picked = "squadron" if r < 0.50 else "ground"
 			_:
-				picked = "squadron" if r < 0.30 else "ground"
+				## ★ 开始提供 elite（15%），作为玩家早期首次见到 Sentinel 的场合
+				if r < 0.15:
+					picked = "elite"
+				elif r < 0.40:
+					picked = "squadron"
+				else:
+					picked = "ground"
+		# 水上/近海战区不允许地面任务 —— 改为空战中队
+		if picked == "ground" and not has_land:
+			picked = "squadron"
 		if picked != _last_cleared_mission_type or attempt >= 1:
 			_mission_types[id] = picked
 			return
@@ -300,3 +381,51 @@ func get_mission_type(id: StringName) -> String:
 		return String(_mission_types[id])
 	var z := get_zone_by_id(id)
 	return z.get("mission_type", "ground")
+
+## 运行时覆写 mission_type（zone_mission 在刷怪前做陆地可用性检查时调用，
+## 防止"地面任务刷到海上"的情况下一次 refresh 仍然显示错误的任务类型）
+func set_mission_type(id: StringName, mission_type: String) -> void:
+	_mission_types[id] = mission_type
+
+# ══════════════════════════════════════════════
+#  陆地可用性（水上战区不允许地面任务）
+# ══════════════════════════════════════════════
+
+## 战区圆内可视为"有地面可刷"的最低陆地点比例
+const LAND_FRACTION_THRESHOLD := 0.12
+## 采样点数（随机散布 + 固定中心点）
+const LAND_SAMPLE_COUNT := 48
+
+## 在战区圆内（或 ground_spawn_polygons 内）随机采样若干点，判断陆地比例是否足以支撑"地面任务"
+## 采样半径与 zone_mission 的 SCATTER_RADIUS_SCALE(0.85) 对齐，避免圆边采到外海
+##
+## 若战区设了 ground_spawn_polygons，直接返回 true —— 用户既然指定了多边形，
+## 就默认那些点在陆地上（手画范围内不会故意标到水里）；实际 spawn 仍走严格陆地判定兜底
+static func zone_has_land(id: StringName) -> bool:
+	var z: Dictionary = {}
+	for zz in ZONES:
+		if zz["id"] == id:
+			z = zz
+			break
+	if z.is_empty():
+		return false
+	var polys: Array = z.get("ground_spawn_polygons", [])
+	if not polys.is_empty():
+		return true
+	var center: Vector2 = z["center"]
+	var radius: float = float(z["radius"]) * 0.85
+	var land_hits := 0
+	## 采用严格判定（只认 OSM 陆地 mask），与 zone_mission 实际刷怪的落点判定保持一致
+	## —— 手画 LAND 轮廓包含港池/海湾，会高估陆地占比
+	if MapGeography.is_on_land_strict(center):
+		land_hits += 1
+	for i in range(LAND_SAMPLE_COUNT):
+		var a := TAU * float(i) / float(LAND_SAMPLE_COUNT)
+		## 用黄金比例差步进半径，避免所有采样都落在同一圆环
+		var t := fposmod(float(i) * 0.618033, 1.0)
+		var r := sqrt(t) * radius
+		var p := center + Vector2(cos(a), sin(a)) * r
+		if MapGeography.is_on_land_strict(p):
+			land_hits += 1
+	var frac := float(land_hits) / float(LAND_SAMPLE_COUNT + 1)
+	return frac >= LAND_FRACTION_THRESHOLD

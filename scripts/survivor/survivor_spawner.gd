@@ -35,6 +35,7 @@ var player_aircraft: Aircraft
 var survivor_player: SurvivorPlayer
 var bullet_manager: BulletManager
 var missile_manager: MissileManager
+var zone_mission: ZoneMission  ## 由 survivor_mode 在自身 setup 序列里注入（避免循环依赖）
 
 # ── 场景/资源引用 ──
 var _aircraft_scene: PackedScene
@@ -59,7 +60,8 @@ var _f47_params_base: AircraftParams
 var _ace_squad: AceSquad = null              ## 当前活跃的王牌中队（F-47 等）
 
 # ── 刷怪计时器 ──
-var _spawn_timer: float = 3.0  ## 初始延迟
+## 初始延迟：取旅途间隔一半，让开局第一趟路也能刷出一波而不是 3 秒就被偷袭
+var _spawn_timer: float = SurvivorData.TRAVEL_SPAWN_INTERVAL_BASE * 0.5
 var _hunter_timer: float = 0.0
 var _waypoint_update_timer: float = 0.0
 var _far_cleanup_timer: float = 0.0
@@ -97,6 +99,10 @@ func setup(p_mode: Node2D, p_player: Aircraft, p_sp: SurvivorPlayer, p_bm: Bulle
 	bullet_manager = p_bm
 	missile_manager = p_mm
 	_preload_resources()
+
+## 由 survivor_mode 在创建 zone_mission 之后注入，用于旅途刷怪的战区状态门禁
+func set_zone_mission(zm: ZoneMission) -> void:
+	zone_mission = zm
 
 func _preload_resources() -> void:
 	_aircraft_scene = preload("res://scenes/aircraft.tscn")
@@ -347,16 +353,30 @@ func _pick_enemy_type() -> EnemyType:
 	# 最坏情况（所有类型被 cap）保底仍返回 UAV，避免上层死循环
 	return EnemyType.UAV
 
+## BOSS 阶段统一闸门：玩家选了 BOSS → 旅途刷怪 / 猎手指派 / Sentinel 护卫看门狗 全部停摆
+## 系统资源让给 BOSS（F-47 王牌中队），已刷的常规敌机由 zone_mission 在视线外悄悄撤离
+func _is_boss_phase() -> bool:
+	return mode and "_zone_data" in mode and mode._zone_data \
+			and mode._zone_data.is_boss_phase()
+
 func _update_spawner(delta: float) -> void:
 	_spawn_timer -= delta
 	if _spawn_timer > 0.0:
 		return
 	if not player_aircraft or player_aircraft.is_destroyed:
 		return
+	if _is_boss_phase():
+		return
+
+	# 玩家正在活跃战区任务里 → 旅途刷怪停摆，留给战区驻守独占
+	# 用短轮询而非长 interval，任务完成后第一时间恢复节奏
+	if zone_mission and zone_mission.is_player_in_active_mission():
+		_spawn_timer = 2.0
+		return
 
 	var interval := lerpf(
-		SurvivorData.BASE_SPAWN_INTERVAL,
-		SurvivorData.MIN_SPAWN_INTERVAL,
+		SurvivorData.TRAVEL_SPAWN_INTERVAL_BASE,
+		SurvivorData.TRAVEL_SPAWN_INTERVAL_MIN,
 		clampf(survivor_player.level / 20.0, 0.0, 1.0)
 	)
 	_spawn_timer = interval
@@ -469,17 +489,33 @@ func _update_spawner(delta: float) -> void:
 ## 全满足取之；8 次都不满足则放弃第 3 条，再 8 次；最终 fallback 指向地图中心方向。
 const SPAWN_SAFE_MARGIN_PX := 1500.0
 
-func _pick_safe_spawn_angle(player_pos: Vector2, dist: float) -> float:
+## `preferred_dir_rad` 为 NAN 时走历史行为（360° 均匀）；否则在
+## 以该方向为中心的 ±TRAVEL_SPAWN_FAN_HALF 扇形里选角（用于旅途刷怪："前方扇形"）。
+## 注意：这里的 angle 是世界坐标系数学角（0=+X 东，逆时针；atan2(y,x)）。
+## 调用方从 Aircraft.heading（0=北，顺时针）换算时应传
+## `Vector2.UP.rotated(heading)` 再 atan2(y,x)，或等效地 `heading - PI/2`。
+func _pick_safe_spawn_angle(player_pos: Vector2, dist: float, preferred_dir_rad: float = NAN) -> float:
+	var has_fan := not is_nan(preferred_dir_rad)
+	var fan: float = SurvivorData.TRAVEL_SPAWN_FAN_HALF
+
 	# Pass 1：全部约束
 	for i in range(8):
-		var a := randf() * TAU
+		var a: float
+		if has_fan:
+			a = preferred_dir_rad + randf_range(-fan, fan)
+		else:
+			a = randf() * TAU
 		var pos := player_pos + Vector2(cos(a), sin(a)) * dist
 		if MapBoundary.is_safe_inside(pos, SPAWN_SAFE_MARGIN_PX) \
 				and not _is_pos_visible(pos):
 			return a
 	# Pass 2：放弃可见性约束（玩家极端缩放/贴边时）
 	for i in range(8):
-		var a := randf() * TAU
+		var a: float
+		if has_fan:
+			a = preferred_dir_rad + randf_range(-fan, fan)
+		else:
+			a = randf() * TAU
 		var pos := player_pos + Vector2(cos(a), sin(a)) * dist
 		if MapBoundary.is_safe_inside(pos, SPAWN_SAFE_MARGIN_PX):
 			return a
@@ -495,6 +531,12 @@ func _is_pos_visible(pos: Vector2) -> bool:
 		return mode.is_world_pos_visible(pos)
 	return false
 
+## 玩家当前 heading 换算为标准数学角（0=+X 东，逆时针）。
+## Aircraft.heading 是 0=北顺时针的弧度 → 数学角 = heading - PI/2。
+## 旅途刷怪 3 个入口统一用这个方向作为"前方扇形"中心。
+func _player_forward_math_angle() -> float:
+	return player_aircraft.heading - PI * 0.5
+
 ## 生成单架敌机（不含分队），用于 J-7 截击机
 ## 【硬规则】Sentinel 永远不允许单独登场 → 自动改走 _spawn_commander_squad
 func _spawn_single(etype: EnemyType) -> void:
@@ -502,7 +544,7 @@ func _spawn_single(etype: EnemyType) -> void:
 		push_warning("[Spawner] _spawn_single(UAV_COMMANDER) 被拦截 → 改走 _spawn_commander_squad(5)")
 		_spawn_commander_squad(SurvivorData.COMMANDER_SQUAD_MAX)
 		return
-	var spawn_angle := _pick_safe_spawn_angle(player_aircraft.global_position, SurvivorData.SPAWN_DISTANCE)
+	var spawn_angle := _pick_safe_spawn_angle(player_aircraft.global_position, SurvivorData.SPAWN_DISTANCE, _player_forward_math_angle())
 	var spawn_pos := player_aircraft.global_position + Vector2(cos(spawn_angle), sin(spawn_angle)) * SurvivorData.SPAWN_DISTANCE
 	var to_player := (player_aircraft.global_position - spawn_pos).normalized()
 	var heading := rad_to_deg(atan2(to_player.x, -to_player.y))
@@ -517,8 +559,8 @@ func _spawn_squad(etype: EnemyType, squad_size: int) -> void:
 		return
 	var sq := Squad.new()
 
-	# 长机生成位置
-	var spawn_angle := _pick_safe_spawn_angle(player_aircraft.global_position, SurvivorData.SPAWN_DISTANCE)
+	# 长机生成位置（旅途刷怪：玩家前方扇形）
+	var spawn_angle := _pick_safe_spawn_angle(player_aircraft.global_position, SurvivorData.SPAWN_DISTANCE, _player_forward_math_angle())
 	var leader_pos := player_aircraft.global_position + Vector2(cos(spawn_angle), sin(spawn_angle)) * SurvivorData.SPAWN_DISTANCE
 	var to_player := (player_aircraft.global_position - leader_pos).normalized()
 	var heading := rad_to_deg(atan2(to_player.x, -to_player.y))
@@ -557,8 +599,8 @@ func _spawn_squad(etype: EnemyType, squad_size: int) -> void:
 func _spawn_commander_squad(wingman_count: int) -> void:
 	var sq := Squad.new()
 
-	# 指挥机生成位置
-	var spawn_angle := _pick_safe_spawn_angle(player_aircraft.global_position, SurvivorData.SPAWN_DISTANCE)
+	# 指挥机生成位置（旅途刷怪：玩家前方扇形）
+	var spawn_angle := _pick_safe_spawn_angle(player_aircraft.global_position, SurvivorData.SPAWN_DISTANCE, _player_forward_math_angle())
 	var leader_pos := player_aircraft.global_position + Vector2(cos(spawn_angle), sin(spawn_angle)) * SurvivorData.SPAWN_DISTANCE
 	var to_player := (player_aircraft.global_position - leader_pos).normalized()
 	var heading := rad_to_deg(atan2(to_player.x, -to_player.y))
@@ -616,6 +658,8 @@ func _spawn_commander_squad(wingman_count: int) -> void:
 const SENTINEL_MIN_ESCORT := 5
 func _ensure_sentinels_escorted() -> void:
 	if not mode:
+		return
+	if _is_boss_phase():
 		return
 	for child in mode.get_children():
 		if not (child is Aircraft):
@@ -1115,7 +1159,7 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 			_ace_squad._serial += 1
 			enemy.callsign = "%s-%02d" % [_ace_squad.callsign_prefix, _ace_squad._serial]
 		else:
-			enemy.callsign = "ACE-%02d" % (randi() % 99 + 1)
+			enemy.callsign = "WRAITH-%02d" % (randi() % 99 + 1)
 
 	enemy.position = spawn_pos
 	enemy.initial_heading_deg = heading_deg
@@ -1378,6 +1422,8 @@ func _update_hunters(delta: float) -> void:
 	_hunter_timer = HUNTER_INTERVAL
 	if not player_aircraft or player_aircraft.is_destroyed:
 		return
+	if _is_boss_phase():
+		return
 
 	# 统计当前正在交战玩家的敌机数量
 	var engaging_count := 0
@@ -1544,6 +1590,9 @@ func _detect_kills() -> void:
 					elif etype == "f47":
 						base_xp = SurvivorData.XP_PER_KILL_F47
 					xp_value = base_xp + survivor_player.level * 8
+				# xp_mult 升级（累加，硬顶 1.4）
+				if survivor_player.aircraft:
+					xp_value = int(round(float(xp_value) * survivor_player.aircraft.xp_multiplier))
 				survivor_player.add_xp(xp_value)
 				kill_count += 1
 				_kill_heal()
@@ -1552,6 +1601,9 @@ func _detect_kills() -> void:
 			if not child.has_meta("xp_granted"):
 				child.set_meta("xp_granted", true)
 				var xp_value := SurvivorData.XP_PER_KILL_GROUND + survivor_player.level * 4
+				# xp_mult 升级
+				if survivor_player.aircraft:
+					xp_value = int(round(float(xp_value) * survivor_player.aircraft.xp_multiplier))
 				survivor_player.add_xp(xp_value)
 				kill_count += 1
 				_kill_heal()
@@ -1562,6 +1614,9 @@ func _kill_heal() -> void:
 		var ac := survivor_player.aircraft
 		var max_hp_val: float = ac.params.max_hp if ac.params else 100.0
 		ac.hp = minf(ac.hp + ac.kill_heal_amount, max_hp_val)
+	# 侩子手（战区奖励）：每次击杀后累加连击计数
+	if survivor_player.aircraft and survivor_player.aircraft.executioner_active:
+		survivor_player.aircraft.bump_executioner_kill()
 
 # ══════════════════════════════════════════════
 #  工具方法
