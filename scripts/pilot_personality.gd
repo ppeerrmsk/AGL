@@ -98,7 +98,7 @@ func update_situational_awareness(ai: AIController, delta: float) -> void:
 		sa_lock_delay = lerpf(3.0, 0.2, esa)
 
 	# ── 导弹来袭感知 ──
-	var actual_missile := ai._find_nearest_incoming_missile()
+	var actual_missile := MissileEvasion.find_nearest_incoming_missile(ai)
 	if actual_missile:
 		if not missile_aware:
 			sa_missile_delay -= delta
@@ -157,7 +157,7 @@ func update_stress(ai: AIController, delta: float) -> void:
 			# 受伤强制唤醒态势感知
 			rear_threat_aware = true
 			lock_aware = aircraft.is_locked
-			missile_aware = ai._check_incoming_missile()
+			missile_aware = MissileEvasion.check_incoming_missile(ai)
 		prev_hp = aircraft.hp
 
 		# 高G持续（>7G）

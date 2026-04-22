@@ -2,6 +2,19 @@
 
 按功能主题索引到 `文件:行号`，直接 Read 对应行号即可获取上下文。
 
+> ⚠ **2026-04-22 大重构后索引过期警告**：`aircraft.gd` 的物理/武器/战斗追踪/热诱弹代码已拆到 `scripts/aircraft/` 下 4 个子模块，`ai_controller.gd` 的战术/规避/目标选择/编队代码已拆到 `scripts/ai/` 下 4 个子模块。下表中大部分 `aircraft.gd:xxx` / `ai_controller.gd:xxx` 行号**不再准确**。查找方法应改为：
+>
+> - **物理相关**（bank/heading/speed/altitude/stall/fuel/energy）→ `scripts/aircraft/aircraft_physics.gd`
+> - **武器相关**（gun/ciws/rocket/missile/flares/weapon_mode）→ `scripts/aircraft/aircraft_weapons.gd`
+> - **战斗追踪**（`_update_combat` / `_choose_dogfight_pursuit_pos` / 对地攻击）→ `scripts/aircraft/aircraft_combat_tracking.gd`
+> - **热诱弹**（释放/jam/粒子）→ `scripts/aircraft/aircraft_flares.gd`
+> - **BFM 战术**（8 个战术执行 + `choose_tactic`）→ `scripts/ai/bfm_tactics.gd`
+> - **目标选择** → `scripts/ai/target_selection.gd`
+> - **导弹规避** → `scripts/ai/missile_evasion.gd`
+> - **编队协同** → `scripts/ai/squad_coordination.gd`
+>
+> 查找时先 `grep -n "^func XXX" scripts/aircraft/*.gd scripts/ai/*.gd` 定位具体函数。CLAUDE.md 的 Script Index 已同步更新，优先从那里入手。本索引待后续批量刷新。
+
 ---
 
 ## 飞行物理

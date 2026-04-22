@@ -362,7 +362,7 @@ func _maintain_role(member: Aircraft, ai: AIController, role: int, pp: Vector2, 
 			if dist > force_pursuit_distance:
 				member.is_afterburner = true
 				if ai._tactic != AIController.EngageTactic.LEAD_PURSUIT:
-					ai._apply_new_tactic(AIController.EngageTactic.LEAD_PURSUIT)
+					BFMTactics.apply_new_tactic(ai, AIController.EngageTactic.LEAD_PURSUIT)
 
 ## 确保 BOSS 在 ENGAGE 状态
 func _force_engage(member: Aircraft, ai: AIController) -> void:
@@ -429,6 +429,11 @@ func _update_cloak(delta: float) -> void:
 						if _player.combat_target == member:
 							_player.clear_combat_target()
 							break
+			# 黄色战术框：向玩家提示本轮隐身启动
+			var popup_text: String = tr("POPUP_CLOAK")
+			for member in members:
+				if is_instance_valid(member):
+					member.show_tactic_popup(popup_text)
 			EventLogger.log_event("BOSS", boss_name, "cloak activated (%.1fs)" % cloak_duration)
 
 	var cloak_ready := cloak_active or cloak_timer <= 0.0
