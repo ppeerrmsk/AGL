@@ -21,7 +21,7 @@ extends RefCounted
 #  态势评估
 # ══════════════════════════════════════════════
 
-static func assess_situation(ai) -> AIController.SituationData:
+static func assess_situation(ai: AIController) -> AIController.SituationData:
 	var s := AIController.SituationData.new()
 	s.my_pos = ai.aircraft.global_position
 	s.tgt_pos = ai._current_target.global_position
@@ -75,7 +75,7 @@ static func assess_situation(ai) -> AIController.SituationData:
 # ══════════════════════════════════════════════
 
 ## 每帧更新拉弗伯雷检测：双方近距互绕超时则强制切换战术脱出
-static func update_lufberry_detection(ai, s: AIController.SituationData, delta: float) -> void:
+static func update_lufberry_detection(ai: AIController, s: AIController.SituationData, delta: float) -> void:
 	if ai._lufberry_cooldown > 0.0:
 		ai._lufberry_cooldown -= delta
 
@@ -104,7 +104,7 @@ static func update_lufberry_detection(ai, s: AIController.SituationData, delta: 
 #  战术选择决策树
 # ══════════════════════════════════════════════
 
-static func choose_tactic(ai, s: AIController.SituationData) -> void:
+static func choose_tactic(ai: AIController, s: AIController.SituationData) -> void:
 	# ── BVR 狙击模式：只用 EXTENSION 或 LEAD_PURSUIT（远距），不选近距战术 ──
 	# 反击窗口中则跳过此限制，允许近距战术
 	var _hm_tactic: HerbstManeuver = ai.aircraft.get_herbst()
@@ -211,7 +211,7 @@ static func choose_tactic(ai, s: AIController.SituationData) -> void:
 		apply_new_tactic(ai, new_tactic)
 
 ## 应用新战术并重置相关状态
-static func apply_new_tactic(ai, new_tactic: AIController.EngageTactic) -> void:
+static func apply_new_tactic(ai: AIController, new_tactic: AIController.EngageTactic) -> void:
 	var eff := ai._effective_skill()
 	var old_tactic := ai._tactic
 	ai._prev_tactic = ai._tactic
@@ -255,7 +255,7 @@ static func apply_new_tactic(ai, new_tactic: AIController.EngageTactic) -> void:
 	ai.personality.alt_error = randf_range(-1.0, 1.0) * (1.0 - eff) * AIController.ALTITUDE_ERROR_AMP
 
 ## 决策失误：返回一个"次优"战术替代正确选择
-static func make_mistake(ai, correct: AIController.EngageTactic) -> AIController.EngageTactic:
+static func make_mistake(ai: AIController, correct: AIController.EngageTactic) -> AIController.EngageTactic:
 	# 每种正确战术对应的常见失误
 	match correct:
 		AIController.EngageTactic.HIGH_YOYO:
@@ -287,7 +287,7 @@ static func make_mistake(ai, correct: AIController.EngageTactic) -> AIController
 # ══════════════════════════════════════════════
 
 ## 前置追踪：瞄准敌机前方，积极闭合距离
-static func execute_lead_pursuit(ai, s: AIController.SituationData) -> void:
+static func execute_lead_pursuit(ai: AIController, s: AIController.SituationData) -> void:
 	var my_speed_px := s.my_speed * Aircraft.PIXELS_PER_METER
 	var tgt_speed_px := s.tgt_speed * Aircraft.PIXELS_PER_METER
 
@@ -301,7 +301,7 @@ static func execute_lead_pursuit(ai, s: AIController.SituationData) -> void:
 	set_engage_speed(ai, s, 1.2)
 
 ## 滞后追踪：瞄准敌机后方，防止冲过，保持后半球位置
-static func execute_lag_pursuit(ai, s: AIController.SituationData) -> void:
+static func execute_lag_pursuit(ai: AIController, s: AIController.SituationData) -> void:
 	# 性格偏移：斗士贴近六点钟(0.18)，骑士保持距离(0.45)
 	var lag_offset := maxf(AIController.LAG_OFFSET_MIN, s.gun_range_px * ai._cb().six_oclock_offset_ratio)
 	var pursuit_pos := s.tgt_pos - s.tgt_fwd * lag_offset
@@ -314,7 +314,7 @@ static func execute_lag_pursuit(ai, s: AIController.SituationData) -> void:
 	ai.aircraft.target_speed_kmh = ai._apply_speed_error(clampf(target_speed_kmh, AIController.LAG_MIN_SPEED, ai.aircraft.params.max_speed if ai.aircraft.params else 2000.0))
 
 ## 提前转弯：迎头接近时提前转向敌机飞行路径后方
-static func execute_lead_turn(ai, s: AIController.SituationData) -> void:
+static func execute_lead_turn(ai: AIController, s: AIController.SituationData) -> void:
 	var tgt_speed_px := s.tgt_speed * Aircraft.PIXELS_PER_METER
 
 	var pass_time := s.dist_px / maxf(s.closing_rate + AIController.LEAD_TURN_CLOSING_ADJ, 100.0)
@@ -327,7 +327,7 @@ static func execute_lead_turn(ai, s: AIController.SituationData) -> void:
 	set_engage_speed(ai, s, 1.0)
 
 ## 高悠悠：拉高减速防止冲过，然后俯冲回来继续追踪
-static func execute_high_yoyo(ai, s: AIController.SituationData, delta: float) -> void:
+static func execute_high_yoyo(ai: AIController, s: AIController.SituationData, delta: float) -> void:
 	if ai._yoyo_phase == 0:
 		# 阶段0：拉高
 		if ai.aircraft.flat_altitude:
@@ -371,7 +371,7 @@ static func execute_high_yoyo(ai, s: AIController.SituationData, delta: float) -
 				ai._tactic_timer = ai._tactic_min_duration
 
 ## 低悠悠：俯冲加速缩短距离，再拉高攻击
-static func execute_low_yoyo(ai, s: AIController.SituationData, delta: float) -> void:
+static func execute_low_yoyo(ai: AIController, s: AIController.SituationData, delta: float) -> void:
 	if ai._yoyo_phase == 0:
 		# 阶段0：俯冲加速
 		if ai.aircraft.flat_altitude:
@@ -416,7 +416,7 @@ static func execute_low_yoyo(ai, s: AIController.SituationData, delta: float) ->
 
 ## 急转脱离：被咬尾时急转增大偏置角，然后反转迎头
 ## Shaw 原则：Break Turn 是初始防御，之后必须反转或脱离，不能一直平转
-static func execute_break_turn(ai, s: AIController.SituationData) -> void:
+static func execute_break_turn(ai: AIController, s: AIController.SituationData) -> void:
 	if ai._break_phase == 0 and ai._tactic_timer < 2.0:
 		# 阶段0（前2秒）：急转垂直于威胁方向，建立偏置角
 		var threat_dir := (ai.aircraft.global_position - s.tgt_pos).normalized()
@@ -448,7 +448,7 @@ static func execute_break_turn(ai, s: AIController.SituationData) -> void:
 		set_engage_speed(ai, s, AIController.BREAK_TURN_COUNTER_SPEED)
 
 ## 加速脱离：远离敌机拉开距离
-static func execute_extension(ai, s: AIController.SituationData) -> void:
+static func execute_extension(ai: AIController, s: AIController.SituationData) -> void:
 	var away_dir := (ai.aircraft.global_position - s.tgt_pos).normalized()
 	# 低技能飞行员脱离方向可能有偏差
 	ai.aircraft.target_position = ai._apply_position_error(ai.aircraft.global_position + away_dir * AIController.EXTENSION_DISTANCE)
@@ -472,7 +472,7 @@ static func execute_extension(ai, s: AIController.SituationData) -> void:
 		ai._tactic_timer = ai._tactic_min_duration
 
 ## 剪刀机动：近距反复交叉反转，利用低速优势抢位
-static func execute_scissors(ai, s: AIController.SituationData, delta: float) -> void:
+static func execute_scissors(ai: AIController, s: AIController.SituationData, delta: float) -> void:
 	ai._scissors_reverse_timer += delta
 
 	# 剪刀反转间隔（根据距离和速度调整）
@@ -504,7 +504,7 @@ static func execute_scissors(ai, s: AIController.SituationData, delta: float) ->
 # ══════════════════════════════════════════════
 
 ## 高度匹配敌机（自动适配扁平/连续模式）
-static func match_target_altitude(ai) -> void:
+static func match_target_altitude(ai: AIController) -> void:
 	if not ai._current_target:
 		return
 	if ai.aircraft.flat_altitude:
@@ -513,7 +513,7 @@ static func match_target_altitude(ai) -> void:
 		ai.aircraft.target_altitude = ai._current_target.altitude
 
 ## 设置巡逻高度（自动适配扁平/连续模式）
-static func set_patrol_altitude(ai) -> void:
+static func set_patrol_altitude(ai: AIController) -> void:
 	if ai.aircraft.flat_altitude:
 		ai.aircraft.set_target_tier(Aircraft.AltitudeTier.MID)
 	else:
@@ -521,7 +521,7 @@ static func set_patrol_altitude(ai) -> void:
 
 ## 机炮闪避：被追尾射击时叠加蛇形偏移（仅斗士型，幅度受技能梯度控制）
 ## 不改变战术状态，只在当前战术的 target_position 上叠加垂直偏移
-static func update_gun_jink(ai, s: AIController.SituationData, delta: float) -> void:
+static func update_gun_jink(ai: AIController, s: AIController.SituationData, delta: float) -> void:
 	# 只有斗士型（combat_bank_aggression > 1.0）才做机炮闪避
 	if ai._cb().combat_bank_aggression <= 1.0:
 		ai._gun_jink_active = false
@@ -563,7 +563,7 @@ static func update_gun_jink(ai, s: AIController.SituationData, delta: float) -> 
 	var perp := Vector2(to_me.y, -to_me.x)
 	ai.aircraft.target_position += perp * sway
 
-static func set_engage_speed(ai, s: AIController.SituationData, mult: float) -> void:
+static func set_engage_speed(ai: AIController, s: AIController.SituationData, mult: float) -> void:
 	if not ai.aircraft.params:
 		ai.aircraft.target_speed_kmh = ai._apply_speed_error(AIController.FALLBACK_ENGAGE_SPEED * mult)
 		return

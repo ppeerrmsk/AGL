@@ -127,14 +127,10 @@ var _gun_pass_committed: bool = false
 var max_simultaneous_locks: int = 1
 
 ## 战术偏好模式下是否自动发射导弹（玩家可在战术面板切换）
-## ON（默认）：齐射路径自动挑锁定目标开火，玩家无需点击
-## OFF：只对玩家手动指定的 combat_target 发射
-var missile_auto_fire: bool = true
-
-## auto_fire=OFF 模式下：当前 combat_target 的"一次点击一发"额度是否已用完
-## set_combat_target() 重置为 false（每次点击重新放行一发）；发射成功后置 true。
-## 防止 _update_missile 在 2s 冷却过后自动补射（tooltip 承诺"只在玩家点击时开火"）
-var _missile_manual_shot_spent: bool = false
+## ON（默认）：齐射路径自动挑所有锁定目标开火（多锁升级生效）
+## OFF：只对玩家手动指定的 combat_target 发射，但锁定成功仍自动开火
+##      —— 节流由 `_missile_cooldown` + `count_active_missiles_at <= 1` 承担，
+##      不需要"一次点击一发"守卫（2026-04-24 (3)，详见 player-ai-log.md）
 
 ## 是否允许机炮/火箭弹自动射击空中目标
 ## false 时 _auto_gun_scan 跳过所有 Aircraft 候选 —— 用于对地专用机型（AH-64 等）
@@ -913,7 +909,6 @@ func set_combat_target(target: CombatUnit) -> void:
 	_strafe_state = 0  # 重置舔地状态机
 	_overshoot_timer = 0.0
 	_gun_pass_committed = false  # 切目标时解除机炮提交锁定
-	_missile_manual_shot_spent = false  # 每次点击重新放行一发手动导弹
 	if use_tactical_preference and target != null:
 		EventLogger.log_event("PURSUIT_ACQUIRE", _log_name(),
 			"tgt=%s wpn=%s" % [_log_unit_name(target),

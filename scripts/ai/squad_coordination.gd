@@ -26,7 +26,7 @@ extends RefCounted
 #  SQUAD_FOLLOW — 编队跟随（含自由/协同交战切换）
 # ══════════════════════════════════════════════
 
-static func process_squad_follow(ai, delta: float) -> void:
+static func process_squad_follow(ai: AIController, delta: float) -> void:
 	if not ai.squad or not ai.squad.leader or not is_instance_valid(ai.squad.leader) or ai.squad.leader.is_destroyed:
 		# 编队无效，回退到巡逻
 		ai._state = AIController.AIState.PATROL
@@ -177,7 +177,7 @@ static func process_squad_follow(ai, delta: float) -> void:
 		ai._engage_delay = 0.0  # 长机无目标时重置延迟
 
 ## 扫描长机后半球威胁
-static func scan_leader_rear(ai) -> Aircraft:
+static func scan_leader_rear(ai: AIController) -> Aircraft:
 	if not ai.squad or not ai.squad.leader:
 		return null
 	var leader := ai.squad.leader
@@ -218,7 +218,7 @@ static func scan_leader_rear(ai) -> Aircraft:
 ##   - flat_altitude=true（生存模式）：用 2D 距离，完全忽略高度差
 ##     —— 生存模式设计上是"任何高度都能到"，不应让高度差影响目标选择
 ##   - 否则（沙盒模式）：用 effective_distance_px 3D
-static func scan_squad_nearby_enemy(ai) -> Aircraft:
+static func scan_squad_nearby_enemy(ai: AIController) -> Aircraft:
 	var root := ai.aircraft.get_parent()
 	if not root:
 		return null
@@ -253,7 +253,7 @@ static func scan_squad_nearby_enemy(ai) -> Aircraft:
 	return best
 
 ## 结束掩护交战，回归编队
-static func end_cover_engagement(ai) -> void:
+static func end_cover_engagement(ai: AIController) -> void:
 	ai._cover_target = null
 	ai.aircraft.clear_combat_target()
 	ai.aircraft.ai_override_pursuit = false
@@ -265,7 +265,7 @@ static func end_cover_engagement(ai) -> void:
 # ══════════════════════════════════════════════
 
 ## leader 发射导弹后广播齐射信号给编队僚机
-static func broadcast_salvo(ai) -> void:
+static func broadcast_salvo(ai: AIController) -> void:
 	if not ai.squad:
 		return
 	for member in ai.squad.members:
@@ -277,7 +277,7 @@ static func broadcast_salvo(ai) -> void:
 			mai._salvo_delay = randf_range(0.1, 0.4)  # 0.1~0.4 秒错开
 
 ## 处理齐射倒计时（在 aircraft._update_missile 中每帧调用）
-static func process_salvo(ai, delta: float) -> bool:
+static func process_salvo(ai: AIController, delta: float) -> bool:
 	if not ai._salvo_pending:
 		return false
 	ai._salvo_delay -= delta

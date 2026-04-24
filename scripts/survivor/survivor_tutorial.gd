@@ -2,8 +2,6 @@ class_name SurvivorTutorial
 extends CanvasLayer
 
 ## 首次进入生存模式时的嵌入式教程。
-## 经验条上方浮现 3 条操作提示 + 第一架 Tu-160 旁浮出"点击攻击"标定框。
-## 触发任一对应操作 → 对应条目打勾淡出；超时未操作 → 自动淡出。
 
 const ITEM_CLICK_ATTACK := 0
 const ITEM_AUTO_FIRE := 1
@@ -12,9 +10,10 @@ const ITEM_ZOOM := 3
 const ITEM_COUNT := 4
 
 const PER_ITEM_TIMEOUT := 14.0
-const GLOBAL_TIMEOUT := 26.0
 const FADE_OUT := 0.6
 const FINAL_FADE := 0.8
+## 前三架轰炸机全部击落后，整个教程消失
+const BOMBER_KILL_REQUIRED := 3
 
 const PREF_FILE := "user://tutorial.cfg"
 const PREF_SECTION := "survivor"
@@ -34,7 +33,7 @@ var _world_timer: float = 0.0
 ## 外部注入的查找函数（Callable），返回 Node2D 或 null
 var find_target_fn: Callable
 
-var _global_timer: float = 0.0
+var _bomber_kills: int = 0
 var _ended: bool = false
 
 func _ready() -> void:
@@ -80,6 +79,25 @@ func _build_ui() -> void:
 	header.add_theme_font_size_override("font_size", 14)
 	header.add_theme_color_override("font_color", Color(1.0, 0.88, 0.54, 1.0))
 	vb.add_child(header)
+
+	## ── 游戏规则说明（静态文字，不打勾）──
+	var rule_keys := ["TUTORIAL_RULE_AUTOFLY", "TUTORIAL_RULE_CLICKMOVE"]
+	for rk in rule_keys:
+		var rule := RichTextLabel.new()
+		rule.bbcode_enabled = true
+		rule.fit_content = true
+		rule.scroll_active = false
+		rule.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		rule.text = tr(rk)
+		rule.add_theme_font_size_override("normal_font_size", 13)
+		rule.add_theme_color_override("default_color", Color(0.78, 0.88, 1.0, 1.0))
+		rule.custom_minimum_size = Vector2(380, 0)
+		vb.add_child(rule)
+
+	## 分隔线
+	var sep := HSeparator.new()
+	sep.add_theme_constant_override("separation", 6)
+	vb.add_child(sep)
 
 	var keys := [
 		"TUTORIAL_CLICK_ATTACK",
@@ -136,6 +154,10 @@ func notify_pan_or_zoom() -> void:
 func notify_missile_fired() -> void:
 	_complete_item(ITEM_AUTO_FIRE)
 
+## 外部通知：一架轰炸机（Tu-160）被击落。累计 3 架后整个教程淡出
+func notify_bomber_killed() -> void:
+	_bomber_kills += 1
+
 func _complete_item(idx: int) -> void:
 	if idx < 0 or idx >= ITEM_COUNT or _items_done[idx]:
 		return
@@ -146,17 +168,12 @@ func _complete_item(idx: int) -> void:
 func _process(delta: float) -> void:
 	if _ended:
 		return
-	_global_timer += delta
 	_layout()
 	_update_items(delta)
 	_update_world_popup(delta)
 
-	var all_done := true
-	for i in range(ITEM_COUNT):
-		if _items_fade[i] > 0.001:
-			all_done = false
-			break
-	if all_done or _global_timer >= GLOBAL_TIMEOUT:
+	## 整个教程的结束条件：前三架轰炸机全部歼灭
+	if _bomber_kills >= BOMBER_KILL_REQUIRED:
 		_end_tutorial()
 
 func _layout() -> void:
@@ -166,15 +183,9 @@ func _layout() -> void:
 	var panel_y := vp.y - 20.0 - 20.0 - 30.0 - panel_size.y
 	_panel.position = Vector2((vp.x - panel_size.x) * 0.5, panel_y)
 
-func _update_items(delta: float) -> void:
+func _update_items(_delta: float) -> void:
+	## 条目打勾后仍保留可见（仅变灰 + 绿勾），整个教程由"3 架轰炸机被击落"统一结束
 	for i in range(ITEM_COUNT):
-		if _items_done[i]:
-			_items_fade[i] = maxf(_items_fade[i] - delta / FADE_OUT, 0.0)
-		else:
-			_items_timer[i] += delta
-			if _items_timer[i] >= PER_ITEM_TIMEOUT:
-				_items_done[i] = true
-				_item_check[i].add_theme_color_override("font_color", Color(0.6, 0.6, 0.6, 1.0))
 		_item_labels[i].modulate.a = _items_fade[i]
 		_item_check[i].modulate.a = _items_fade[i]
 

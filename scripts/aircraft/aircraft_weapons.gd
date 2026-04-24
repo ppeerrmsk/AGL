@@ -31,6 +31,16 @@ static func auto_gun_scan(ac: Aircraft) -> void:
 	# 判为不开火，或玩家正忙于操作其他事），机炮自动开火。
 	# 仅对玩家（use_tactical_preference）启用；AI 保持原行为（有 combat_target 整体跳过），
 	# 避免 AI 烧弹或干扰 AIController 的战术节奏。
+	# 机动中（眼镜蛇/赫尔贝特）：机头指向与速度和正常追击严重脱节，
+	# 继续开火会对着旧 _gun_lead_heading 狂喷。直接中止射击。
+	var cobra := ac.get_maneuver()
+	if cobra and cobra.is_active:
+		ac.is_firing = false
+		return
+	var herbst := ac.get_herbst()
+	if herbst and herbst.is_active:
+		ac.is_firing = false
+		return
 	# 保护：已在开火 → 保持当前 _gun_lead_heading，不让扫描覆盖。
 	if ac.is_firing:
 		return
@@ -133,7 +143,10 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 	if ac.bullet_manager and ac.bullet_manager.has_method("spawn_bullet"):
 		var spread_rad := deg_to_rad(gun.spread_angle)
 		# 云中目标：视觉遮蔽导致瞄准偏差，散布扩大
-		if ac.combat_target is Aircraft and ac.combat_target.cloud_state == 2:
+		# ⚠ combat_target 可能是刚被摧毁/释放的 MountTarget 代理，先做 is_instance_valid
+		#   守卫，否则直接 `is Aircraft` 会抛 "Left operand of 'is' is a previously freed instance"
+		var tgt := ac.combat_target
+		if is_instance_valid(tgt) and tgt is Aircraft and tgt.cloud_state == 2:
 			spread_rad *= 2.2
 		# 自己在云中：瞄准工具/视野被云雾干扰，散布再扩大
 		if ac.cloud_state == 2:
@@ -494,14 +507,6 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 	if ac.combat_target == null or not is_instance_valid(ac.combat_target) or ac.combat_target.is_destroyed:
 		return
 
-	# 2026-04-22：auto_fire=OFF 模式下"一次点击 = 一发"守卫
-	# tooltip 承诺"只在玩家点击敌机指定攻击时开火"；而 _update_missile 每帧运行，
-	# 仅靠 2s 冷却节流会导致玩家点一次、2 秒后自动再放一发（连射观感）。
-	# 每次 set_combat_target 重置标志，这里一旦已消耗就阻塞。
-	if ac.use_tactical_preference and not ac.missile_auto_fire and ac._missile_manual_shot_spent:
-		ac._log_msl_block("MANUAL_SPENT", "one-shot-per-click consumed; click target again to fire")
-		return
-
 	# 每目标在飞限制：AI 允许同目标 2 枚在飞（连发两枚）；玩家自动发射限 1 枚
 	# 玩家手动点击目标不受此限（允许补射）
 	var max_inflight := 2 if not ac.use_tactical_preference else 1
@@ -548,9 +553,6 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 	_fire_missile_at(ac, ac.combat_target, msl, use_secondary)
 	if ac.use_tactical_preference:
 		ac._log_threat_picture("after single-fire")
-		# auto_fire=OFF 下消耗本次点击的手动额度；再发需重新点击目标
-		if not ac.missile_auto_fire:
-			ac._missile_manual_shot_spent = true
 	# 开火成功：清除阻塞原因缓存
 	ac._msl_last_block_reason = ""
 	# ── 协同齐射：leader 发射后通知小队僚机 ──

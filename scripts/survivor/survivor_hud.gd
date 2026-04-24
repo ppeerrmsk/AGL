@@ -386,15 +386,18 @@ func _update_status_panel() -> void:
 	var g_color := "ffaa33" if g_cur > g_max * 0.85 else "ccddee"
 	text += "[color=#%s]G   %.1f / %.1f[/color]\n" % [g_color, g_cur, g_max]
 
-	# ── 高度档位 ──
+	# ── 高度档位 ──（颜色与飞机数据标签 / 投影视觉同步）
 	if ac.flat_altitude:
-		var tier_name: String = Aircraft.TIER_NAMES[ac.get_altitude_tier()]
-		var target_tier_name: String = Aircraft.TIER_NAMES[ac.target_altitude_tier]
-		var transitioning := ac.get_altitude_tier() != ac.target_altitude_tier
+		var tier_cur: int = ac.get_altitude_tier()
+		var tier_tgt: int = ac.target_altitude_tier
+		var tier_name: String = Aircraft.TIER_NAMES[tier_cur]
+		var target_tier_name: String = Aircraft.TIER_NAMES[tier_tgt]
+		var transitioning := tier_cur != tier_tgt
+		var hex_col := AircraftRenderer.altitude_tier_color_hex(tier_cur, transitioning)
 		if transitioning:
-			text += "[color=#ffcc44]ALT  %s → %s[/color]\n" % [tier_name, target_tier_name]
+			text += "[color=#%s]ALT  %s → %s[/color]\n" % [hex_col, tier_name, target_tier_name]
 		else:
-			text += "[color=#aaccff]ALT  %s[/color]\n" % tier_name
+			text += "[color=#%s]ALT  %s[/color]\n" % [hex_col, tier_name]
 
 	# ── 导弹 ──
 	var max_msl := ac.params.missile.max_count if ac.params and ac.params.missile else 0

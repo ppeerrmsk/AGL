@@ -180,6 +180,9 @@ func _draw_data_label() -> void:
 	lines.append("MSL %d" % missiles_remaining)
 
 	var inv_rot := -rotation
+	# 缩放补偿：标签大小不随摄像机缩放变化（与 ground_unit.gd 一致）
+	var zoom_scale := get_viewport_transform().get_scale()
+	var inv_zoom := 1.0 / maxf(zoom_scale.x, 0.01)
 	var max_w := 0.0
 	for line in lines:
 		var w := _font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
@@ -196,9 +199,10 @@ func _draw_data_label() -> void:
 		text_color = Color(1.0, 0.6, 0.4)
 		bg_color = Color(0.2, 0.05, 0.0, 0.6)
 
-	var rotated_offset := label_offset.rotated(inv_rot)
-	draw_set_transform(rotated_offset, inv_rot)
+	var rotated_offset := (label_offset * inv_zoom).rotated(inv_rot)
+	var scale_v := Vector2(inv_zoom, inv_zoom)
+	draw_set_transform(rotated_offset, inv_rot, scale_v)
 	draw_rect(Rect2(-1, -1, box_w, box_h), bg_color)
 	for i in lines.size():
 		draw_string(_font, Vector2(2, 10 + i * line_height), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
-	draw_set_transform(Vector2.ZERO, 0.0)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

@@ -1,0 +1,35 @@
+[gd_resource type="Resource" script_class="MissileParams" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/missile_params.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+display_name = "CG-VLS"
+max_speed = 800.0
+motor_burn_time = 3.5
+motor_acceleration = 200.0
+drag_deceleration = 25.0
+max_g = 20.0
+nav_constant = 1.8
+max_range_rear = 9000.0
+front_rear_ratio = 1.2
+min_range = 1500.0
+max_lifetime = 28.0
+damage = 22.0
+proximity_fuse_radius = 20.0
+proximity_fuse_alt = 300.0
+seeker_fov = 60.0
+guidance_delay = 0.3
+fire_and_forget = true
+max_count = 80
+cooldown = 6.0
+is_vls_salvo = true
+vls_salvo_size = 8
+vls_salvo_interval = 0.07
+vls_salvo_cooldown = 22.0
+vls_point_scatter_px = 200.0
+vls_climb_time = 0.9
+vls_transition_time = 0.7
+vls_transition_turn_rate_degs = 130.0
+vls_speed_variance = 0.22
+intercept_hp = 45.0

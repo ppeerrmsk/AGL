@@ -102,6 +102,108 @@ LOD 路径里每一步（`_update_combat / _update_bank / _update_visuals / queu
 
 ---
 
+## 2026-04-24 (3) auto_fire=OFF 锁定后自动开火（去掉"一点一发"）
+
+### 症状
+
+玩家反馈："导弹自动开火关闭时，每点击一次只发射一次。难道不应该锁定成功就自动发射吗？"
+
+### 根因
+
+2026-04-22 加的 `_missile_manual_shot_spent` 一次性额度标志把 auto_fire=OFF 做成了"半自动扳机"——每次 `set_combat_target` 重置、发射成功后置 true、下次阻塞。当初担心 2s 冷却过后 `_update_missile` 每帧跑会自动补射。
+
+但其实已经有两层天然节流：① `_missile_cooldown = msl.cooldown`（武器内部冷却），② `count_active_missiles_at(ac, target) >= 1`（auto_fire=OFF 下 `max_inflight=1`，前一枚没打完就拦住）。把它们放在一起结果就是"发一枚 → 等命中/脱靶 → 再发"的合理节奏，不需要额外守卫。
+
+tooltip 承诺的是"只在玩家点击敌机指定攻击时开火"——意思是**只打 combat_target，不多锁齐射**，从来没有承诺过"每次点击一发"。之前的实现误把这条读成了"每点击一次只放一发"。
+
+### 修复（直接删代码）
+
+移除 `aircraft.gd` 的 `_missile_manual_shot_spent` 字段 + `set_combat_target` 里的重置 + `aircraft_weapons.gd:update_missile` 里的守卫与置位。保留 auto_fire ON/OFF 的核心语义区别：
+
+- **ON**：走 `_fire_multi_lock_salvo`，多锁齐射所有雷达锁定目标
+- **OFF**：只对 `combat_target` 开火，锁定 + 冷却 + 在飞限制共同节流
+
+### 回归测试要点
+
+- **auto_fire=OFF 锁定远距离敌机**：到锁定时间就自动发射第一枚，命中/脱靶后自动补射，**不需要重新点目标**
+- **auto_fire=OFF 同一目标连射间隔**：应该是 `max(missile.cooldown, 导弹在飞时间)` —— 测测是不是合理的节奏（不要 0.2s 一枚的连珠泡）
+- **auto_fire=ON 不变**：多锁齐射路径优先级不变
+- **切目标**：点别的敌机立刻切 combat_target，冷却继承（不重置），避免切目标刷冷却 exploit
+- **机炮/火箭不受影响**：本次只动导弹路径
+
+### 症状
+
+玩家反馈："移动和攻击的积极性不一致。点地图目标点时，距离远飞机会加速，距离近就不加速，显得很奇怪。玩家点了地图就应该积极冲过去，即便可能飞过头也该保持加速。"
+
+### 根因
+
+`aircraft_physics.gd:update_energy_management` 巡航分支的玩家点击移动路径（原 863 行 `elif dist_to_tgt > 800.0:`）按距离分档：`> 800px` 才开 AB 冲 approach，≤ 800px 直接掉回 cruise 关 AB。
+
+800px 阈值当初估计是想"到点就缓下来准备悬停"，但：
+1. 玩家飞机 RTS 操控本来就没有悬停概念，飞过头是常态
+2. 和刚修好的对空/对地导弹"未进射程也开 AB 冲"形成反差 —— 同一个玩家操作，换个触发源就变被动
+
+### 修复（改公式）
+
+删掉距离分档，点击移动分两档：
+- 大角度转弯：corner speed + AB（帮助快速拉到 corner，而不是旧版关 AB 让速度自然掉）
+- 对准后：不论距离一律 `approach_speed + AB`（`my_kmh < approach - 0` 门控防震荡）
+
+加力门控保留旧版的 `my_kmh_cr < approach_spd` 判定，速度够高就自动关 AB 不浪费油。
+
+### 回归测试要点
+
+- **点 500m 近处**：应该开 AB 冲过去，不再温吞吞
+- **点 10km 远处**：和原版一致 —— AB 推到 approach_speed
+- **斜侧点击（大角度）**：corner speed + AB（新增 AB），应该转弯更快
+- **燃油耗尽**：AB 门控有 `ac.fuel > 0.0`，耗油后自动关 AB
+- **编队僚机**：`ac.formation_mode` 早已 early-return，此分支不影响编队
+- **不触发对头危险**：玩家点击路径不关心 combat_target，此处无对空顾虑
+
+---
+
+## 2026-04-24 对地导弹模式：远距主动减速 + 关加力 bug
+
+### 症状
+
+玩家反馈："导弹模式准备攻击地面单位，距离还很远、目标不在雷达照射范围里，为什么要减速？难道不应该加速尽快凑到能照射的距离吗？"
+
+日志实测（`combat_log_20260424_113528.txt`）：F-16 在 7.2km 外锁定 SAM，立刻关加力（`ab=y → ab=n`），速度从 460 m/s 一路掉到 201 m/s，同时还在 84° 压杆 11G 转弯（诱导阻力雪上加霜），之后一直贴着战斗最低速（~combat_min_kmh）缓慢推进，体感严重错乱。
+
+### 根因
+
+`aircraft_physics.gd:update_energy_management` 地面目标分支在 2026-04-21 (2) 分流后，导弹路径写死：
+
+```gdscript
+if ac.weapon_mode == Aircraft.WeaponMode.MISSILE:
+    ac.target_speed_kmh = cruise * 0.7
+    set_afterburner(ac, false)
+```
+
+无条件 `cruise × 0.7 + 关 AB`，不看距离、不看航向对准度。注释初衷是"维持照射稳定"—— 但只有 **已进入雷达有效距离** 的照射阶段才需要减速；距离外这么做就是主动自残。
+
+对空导弹分支（同函数 v9，668 行起）已经做对了：corner speed 未对准 / cruise 超射程 / match 进射程三段式，对地分支漏了。
+
+### 修复（改公式而不是加守卫）
+
+对齐对空导弹的三段式结构，在 `aircraft/aircraft_physics.gd:576` 地面 MISSILE 分支内：
+
+1. **未对准（`|hdg_diff| > 35°`）**：corner speed 获得最小转弯半径，必要时 AB 辅助快速进入最优转弯态
+2. **对准但超射程（`dist > _effective_missile_range_px`）**：cruise 推进，`my_kmh < cruise − 50` 时开 AB 快速闭合
+3. **对准且进射程**：恢复旧行为 `cruise × 0.7 + 关 AB`，稳定照射
+
+为什么改公式而不是加守卫：原公式在所有距离都返回同一组速度命令，本质是公式缺了距离带判定 —— 这和对空导弹分支早就解决的问题一模一样，加守卫只会让地面分支变成"旧路径 + 新路径"更难维护，直接抄对空分支的三段式更干净。
+
+### 回归测试要点
+
+- **打 7km+ 远的 SAM（导弹模式）**：应该保持 `ab=y`、速度维持 cruise 附近、快速凑距离；不要像旧版一路掉到 201 m/s
+- **进入雷达射程后**：应该降到 cruise × 0.7、关 AB、稳定累积锁定时间
+- **大角度开火（玩家点击斜侧 SAM）**：未对准阶段应该走 corner speed（比 cruise 慢但转弯最快），不要被新分支里 `cruise` 分支覆盖
+- **机炮对地不受影响**：地面 `else` 分支（机炮/火箭）逻辑未改，strafe 通场应保持 `approach_speed + AB`
+- **空对地 vs 空对空**：空对空走原 668 行分支，本次改动只触 576 行地面分支
+
+---
+
 ## 2026-04-21 (12) J-Turn 颤抖最终方案：TURN 阶段 1.0s → 1.8s（降低旋转速率到感知阈值内）
 
 ### 症状

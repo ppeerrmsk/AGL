@@ -36,6 +36,9 @@ var _destroy_timer: float = 0.0
 var _font: Font
 
 func _ready() -> void:
+	# 图层：地面单位画在飞机下面（空中单位永远覆盖地面/海面）
+	z_index = -10
+
 	altitude = 0.0
 	flat_altitude = true
 	speed = 0.0
@@ -313,42 +316,14 @@ func _draw_ground_icon() -> void:
 	var front := Vector2(0, -size * 0.8)
 	draw_line(Vector2.ZERO, front, color.lightened(0.3), 1.5)
 
-## 被锁定指示器（与 Aircraft._draw_lock_indicator 同样的红色闪烁菱形 + 三角标记）
+## 被锁定指示器：复用 AircraftRenderer.draw_lock_box（绿→红，随进度旋转收缩）
 func _draw_lock_indicator() -> void:
-	if not is_locked:
+	var p: float = clampf(incoming_lock_progress, 0.0, 1.0)
+	if p <= 0.0 and not is_locked:
 		return
-	var blink := absf(sin(Time.get_ticks_msec() * 0.006))
-	var alpha := lerpf(0.4, 1.0, blink)
-	var color := Color(1.0, 0.15, 0.15, alpha)
-	var size := 18.0
-
-	# 四个三角标记（上下左右，对称指向中心）
-	var offset := size * 1.2
-	var tri_size := size * 0.4
-	# 上
-	draw_colored_polygon(PackedVector2Array([
-		Vector2(0, -offset),
-		Vector2(-tri_size * 0.5, -offset - tri_size),
-		Vector2(tri_size * 0.5, -offset - tri_size),
-	]), color)
-	# 下
-	draw_colored_polygon(PackedVector2Array([
-		Vector2(0, offset),
-		Vector2(-tri_size * 0.5, offset + tri_size),
-		Vector2(tri_size * 0.5, offset + tri_size),
-	]), color)
-	# 左
-	draw_colored_polygon(PackedVector2Array([
-		Vector2(-offset, 0),
-		Vector2(-offset - tri_size, -tri_size * 0.5),
-		Vector2(-offset - tri_size, tri_size * 0.5),
-	]), color)
-	# 右
-	draw_colored_polygon(PackedVector2Array([
-		Vector2(offset, 0),
-		Vector2(offset + tri_size, -tri_size * 0.5),
-		Vector2(offset + tri_size, tri_size * 0.5),
-	]), color)
+	draw_set_transform(Vector2.ZERO, -rotation, Vector2.ONE)
+	AircraftRenderer.draw_lock_box(self, p, is_locked)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 func _draw_destroyed() -> void:
 	var color := Color(0.5, 0.5, 0.5, 0.5)
@@ -365,14 +340,11 @@ func _draw_data_label() -> void:
 	var line_height := 12.0
 	var label_offset := Vector2(14, -8)
 
-	# 计算到玩家（team 0）的距离
+	# 计算到玩家（team 0）的距离 —— 用全局 player_ref，避免每帧扫 parent.get_children()
 	var dist_m := 0.0
-	var parent_node := get_parent()
-	if parent_node:
-		for node in parent_node.get_children():
-			if node is Aircraft and node.team == 0 and not node.is_destroyed:
-				dist_m = global_position.distance_to(node.global_position) / PIXELS_PER_METER
-				break
+	var pref := AircraftRenderer.player_ref
+	if pref and is_instance_valid(pref) and not pref.is_destroyed:
+		dist_m = global_position.distance_to(pref.global_position) / PIXELS_PER_METER
 
 	var lines: PackedStringArray = PackedStringArray()
 	# 名称
@@ -389,6 +361,9 @@ func _draw_data_label() -> void:
 		lines.append("GUN %d" % ammo)
 
 	var inv_rot := -rotation
+	# 缩放补偿：标签大小不随摄像机缩放变化（与 AircraftRenderer.draw_data_label 一致）
+	var zoom_scale := get_viewport_transform().get_scale()
+	var inv_zoom := 1.0 / maxf(zoom_scale.x, 0.01)
 	var max_w := 0.0
 	for line in lines:
 		var w := _font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
@@ -400,9 +375,10 @@ func _draw_data_label() -> void:
 	var text_color: Color = _glc[0]
 	var bg_color: Color = _glc[1]
 
-	var rotated_offset := label_offset.rotated(inv_rot)
-	draw_set_transform(rotated_offset, inv_rot)
+	var rotated_offset := (label_offset * inv_zoom).rotated(inv_rot)
+	var scale_v := Vector2(inv_zoom, inv_zoom)
+	draw_set_transform(rotated_offset, inv_rot, scale_v)
 	draw_rect(Rect2(-1, -1, box_w, box_h), bg_color)
 	for i in lines.size():
 		draw_string(_font, Vector2(2, 10 + i * line_height), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
-	draw_set_transform(Vector2.ZERO, 0.0)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

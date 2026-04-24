@@ -99,6 +99,19 @@ const ZONES: Array[Dictionary] = [
 			],
 		],
 	},
+	{
+		"id": &"E",
+		"name_key": "ZONE_E_NAME",
+		"label": "E",
+		## 中央海域 —— BOSS 位置正南方，全海面战区
+		## BOSS 在 (0, 1000) r=2200；E 在 (0, 3500) r=1800，两者南北相距 2500，
+		## 边缘留 500 余量保证视觉不重叠（且被 BOSS 取消时也不会产生 UI 冲突）
+		"center": Vector2(0.0, 3500.0),
+		"radius": 1800.0,
+		## E 专属：mission_type 只 roll "naval" 或 "elite"（见 _roll_mission_type）
+		"mission_type": "naval",
+		"restricted_mission_types": ["naval", "elite"],
+	},
 ]
 
 ## BOSS 战区：放在地图中央偏南，与 4 个角的常规战区都留出余量
@@ -117,17 +130,24 @@ const BOSS_ZONE: Dictionary = {
 ## 战区攻克时给玩家恢复的基础 HP（除了技能奖励外的额外回血）
 const ZONE_CLEAR_HP_RESTORE := 30.0
 
+## E 战区在 A+B 都清掉后出现的概率（< 1.0 表示不是 100% 必出）
+const E_ZONE_UNLOCK_CHANCE := 0.60
+
 ## 运行时状态
 var _states: Dictionary = {}                 ## id → State
 var selected_id: StringName = &""
 ## 累计攻克次数（同一个战区重复攻克也会累计，用于判断 3 次攻克→解锁 BOSS）
 var cleared_count: int = 0
+## 历史上是否攻克过该 id（用于 E 战区"A+B 都清过"判定）
+var _ever_cleared: Dictionary = {}           ## id → true
 ## 最近一次攻克的战区 id —— 下一轮 refresh 时排除它（不能刚打完又被选中）
 var _last_cleared: StringName = &""
 ## 最近一次攻克的 mission_type —— 下一轮新战区 roll 时尽量避开相同类型
 ## （防止"刚打完中队又蹦出中队"的重复感）
 var _last_cleared_mission_type: String = ""
 var boss_unlocked: bool = false
+## E 战区是否已经尝试过解锁（避免 A+B 清完反复 roll）
+var _e_unlock_rolled: bool = false
 var _rewards: Dictionary = {}                ## id → upgrade dict（该战区攻克后发放的技能）
 ## 本局已分配过的奖励技能 id（含已攻克 + 当前 AVAILABLE 的所有战区）。
 ## 用途：保证一局游戏中每个奖励技能最多出现在一个战区，不重复
@@ -138,17 +158,19 @@ var _mission_types: Dictionary = {}            ## id → String（运行时 miss
 var _newly_opened: Array[StringName] = []
 
 func _init() -> void:
-	# 初始：A、B 可选；C、D 锁定；Boss 锁定
+	# 初始：A、B 可选；C、D、E 锁定；Boss 锁定
 	_states[&"A"] = State.AVAILABLE
 	_states[&"B"] = State.AVAILABLE
 	_states[&"C"] = State.LOCKED
 	_states[&"D"] = State.LOCKED
+	_states[&"E"] = State.LOCKED
 	_states[&"BOSS"] = State.LOCKED
 	# 给初始可选的两个战区分配奖励 + 难度
 	_assign_reward(&"A")
 	_assign_reward(&"B")
-	_roll_difficulty(&"A")
-	_roll_difficulty(&"B")
+	## 开局保底：首发两个战区不会直接出 ★★★，避免玩家一上来就被 MiG-29/Su-27 中队压制
+	_roll_difficulty(&"A", 2)
+	_roll_difficulty(&"B", 2)
 	_roll_mission_type(&"A")
 	_roll_mission_type(&"B")
 	_newly_opened = [&"A", &"B"]
@@ -191,6 +213,7 @@ func select_zone(id: StringName) -> bool:
 func mark_cleared(id: StringName) -> void:
 	set_state(id, State.CLEARED)
 	cleared_count += 1
+	_ever_cleared[id] = true
 	_last_cleared = id
 	_last_cleared_mission_type = get_mission_type(id)
 	if selected_id == id:
@@ -208,7 +231,33 @@ func _refresh_availability_after_clear() -> void:
 		boss_unlocked = true
 		_states[&"BOSS"] = State.AVAILABLE
 		_newly_opened.append(&"BOSS")
+		# BOSS 解锁 → E 战区被取消掉（中央海域被 BOSS 占用）
+		# 不改 _ever_cleared（E 可能都没出过），只把当前 state 压回 LOCKED
+		var e_state := get_state(&"E")
+		if e_state == State.AVAILABLE or e_state == State.SELECTED:
+			_states[&"E"] = State.LOCKED
+			if selected_id == &"E":
+				selected_id = &""
+			_rewards.erase(&"E")
+			_difficulties.erase(&"E")
+			_mission_types.erase(&"E")
 		return
+
+	# E 战区解锁判定：A + B 都曾攻克过 → 按概率出现
+	# 只尝试一次，避免反复 roll；如果不出就不再出（由 C/D 等补上）
+	if not _e_unlock_rolled and _ever_cleared.has(&"A") and _ever_cleared.has(&"B"):
+		_e_unlock_rolled = true
+		if get_state(&"E") == State.LOCKED and &"E" != _last_cleared:
+			if randf() < E_ZONE_UNLOCK_CHANCE:
+				_states[&"E"] = State.AVAILABLE
+				_assign_reward(&"E")
+				_roll_difficulty(&"E")
+				_roll_mission_type(&"E")
+				_newly_opened.append(&"E")
+				EventLogger.log_event("ZONE", "E_Unlock",
+					"after A+B cleared (chance=%.0f%% rolled success)" % (E_ZONE_UNLOCK_CHANCE * 100.0))
+				return
+
 	# 候选池 = 所有非 AVAILABLE / 非 SELECTED 的战区，排除刚攻克的那个
 	# 这样同一个战区之后可以被再次选中（走回头路），但不会"刚打完又立刻刷"
 	var pool: Array[StringName] = []
@@ -312,10 +361,11 @@ func get_reward_category_key(id: StringName) -> String:
 #  难度
 # ══════════════════════════════════════════════
 
-func _roll_difficulty(id: StringName) -> void:
+func _roll_difficulty(id: StringName, max_diff: int = DIFFICULTY_MAX) -> void:
 	if _difficulties.has(id):
 		return
-	_difficulties[id] = DIFFICULTY_MIN + randi() % (DIFFICULTY_MAX - DIFFICULTY_MIN + 1)
+	var hi: int = clampi(max_diff, DIFFICULTY_MIN, DIFFICULTY_MAX)
+	_difficulties[id] = DIFFICULTY_MIN + randi() % (hi - DIFFICULTY_MIN + 1)
 
 func get_difficulty(id: StringName) -> int:
 	return int(_difficulties.get(id, DIFFICULTY_MIN))
@@ -336,6 +386,17 @@ func _roll_mission_type(id: StringName) -> void:
 		return
 	var base := get_zone_by_id(id)
 	var base_type: String = base.get("mission_type", "ground")
+
+	# 带 restricted_mission_types 的战区（如 E）只从限定列表中 roll
+	var restricted: Array = base.get("restricted_mission_types", [])
+	if not restricted.is_empty():
+		var pick: String = String(restricted[randi() % restricted.size()])
+		# 尝试避开刚完成的类型，换一次；如果唯一就接受
+		if pick == _last_cleared_mission_type and restricted.size() > 1:
+			pick = String(restricted[randi() % restricted.size()])
+		_mission_types[id] = pick
+		return
+
 	# 水上战区只能空战
 	if base_type == "air":
 		_mission_types[id] = "air"
@@ -386,6 +447,51 @@ func get_mission_type(id: StringName) -> String:
 ## 防止"地面任务刷到海上"的情况下一次 refresh 仍然显示错误的任务类型）
 func set_mission_type(id: StringName, mission_type: String) -> void:
 	_mission_types[id] = mission_type
+
+# ══════════════════════════════════════════════
+#  Debug 辅助（F6 面板用）
+# ══════════════════════════════════════════════
+
+## Debug：强制把任意状态的战区改为 AVAILABLE，并 roll 好奖励/难度/任务类型
+## 若已经是 AVAILABLE/SELECTED 且已有 reward+difficulty，不会覆盖
+func debug_set_available(id: StringName) -> void:
+	_states[id] = State.AVAILABLE
+	if not _rewards.has(id):
+		_assign_reward(id)
+	if not _difficulties.has(id):
+		_roll_difficulty(id)
+	if not _mission_types.has(id):
+		_roll_mission_type(id)
+
+## Debug：指定战区使用指定 mission_type（不 roll 随机，直接覆写）
+## 与 set_mission_type 相同但命名更明确
+func debug_set_mission_type(id: StringName, new_type: String) -> void:
+	_mission_types[id] = new_type
+
+## Debug：强制把战区置为 CLEARED（不走 mark_cleared 的 refresh 逻辑）
+func debug_mark_cleared(id: StringName) -> void:
+	_states[id] = State.CLEARED
+	if selected_id == id:
+		selected_id = &""
+	_rewards.erase(id)
+	_difficulties.erase(id)
+	_mission_types.erase(id)
+
+## Debug：强制 LOCK 战区（隐藏到战术地图外）
+func debug_mark_locked(id: StringName) -> void:
+	_states[id] = State.LOCKED
+	if selected_id == id:
+		selected_id = &""
+	_rewards.erase(id)
+	_difficulties.erase(id)
+	_mission_types.erase(id)
+
+## 获取所有非 BOSS 的战区 id（A/B/C/D/E）
+static func get_all_zone_ids() -> Array[StringName]:
+	var ids: Array[StringName] = []
+	for z in ZONES:
+		ids.append(z["id"])
+	return ids
 
 # ══════════════════════════════════════════════
 #  陆地可用性（水上战区不允许地面任务）

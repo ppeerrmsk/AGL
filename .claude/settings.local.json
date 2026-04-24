@@ -136,7 +136,24 @@
       "Bash(awk '{print $3, $4}')",
       "Bash(awk -F'[][]' '{print $8}')",
       "Bash(awk '{for\\(i=1;i<=NF;i++\\) if\\($i~/^tp_x=/\\){x=$i} else if\\($i~/^tp_y=/\\){y=$i}; print x, y}')",
-      "Bash(awk '{for\\(i=1;i<=NF;i++\\) if\\($i~/^hv_off=/\\) print $1, $i}')"
+      "Bash(awk '{for\\(i=1;i<=NF;i++\\) if\\($i~/^hv_off=/\\) print $1, $i}')",
+      "Bash(awk -F'MSL_BLOCK\\\\\\\\].*:' '{print $2}')",
+      "Bash(awk '{print $1}')",
+      "Bash(awk '/15[6-9]|16[0-9]/')",
+      "Bash(awk -F'[' '/\\\\[15[6-9]\\\\.|\\\\[16[0-3]\\\\./')",
+      "Bash(\"/c/Program Files/Godot/Godot_v4.6-stable_win64.exe\" --headless --check-only --path .)",
+      "Bash(awk 'NR==3522,NR==3775' scripts/aircraft.gd)",
+      "Bash(awk 'NR==3520 || NR==3521 || NR==3776 || NR==3777' scripts/aircraft.gd)",
+      "Bash(python -)",
+      "Bash(awk 'NR<786 || NR>1197' scripts/aircraft.gd)",
+      "Bash(awk 'NR<928 || NR>1266' scripts/aircraft.gd)",
+      "Bash(godot --version)",
+      "Bash(awk 'NR<957 || NR>1201' /c/Users/noelu/Documents/AGL/scripts/ai_controller.gd)",
+      "Bash(awk 'NR<957 || \\(NR>=1183 && NR<=1193\\) || NR>1201' /c/Users/noelu/Documents/AGL/scripts/ai_controller.gd)",
+      "Bash(which godot *)",
+      "Bash(ls \"C:/Program Files/Godot/\"*)",
+      "Bash(ls /c/Godot*)",
+      "Bash(grep -v \"\\\\.uid$\")"
     ]
   },
   "hooks": {

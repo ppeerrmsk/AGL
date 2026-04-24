@@ -1,0 +1,26 @@
+[gd_resource type="Resource" script_class="NavalParams" load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/naval/naval_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/naval/mount_cg_vls_f.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/naval/mount_cg_vls_a.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/naval/mount_cg_ciws_f.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/naval/mount_cg_ciws_a.tres" id="5"]
+
+[resource]
+script = ExtResource("1")
+ship_class = 2
+display_name_prefix = "CG"
+hull_length = 240.0
+hull_width = 36.0
+icon_color = Color(0.85, 0.2, 0.15, 1)
+max_sea_speed = 8.0
+turn_rate = 0.08
+radar_range = 12000.0
+lock_time = 3.0
+mount_configs = Array[Resource]([ExtResource("2"), ExtResource("3"), ExtResource("4"), ExtResource("5")])
+weak_point_enabled = true
+weak_point_threshold = 2
+weak_point_hp = 60.0
+weak_point_radius = 480.0
+hull_hp_max = 720.0
+default_team = 1

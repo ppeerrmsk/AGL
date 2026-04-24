@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="WeaponMountParams" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/naval/weapon_mount_params.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+local_offset = Vector2(-45, 0)
+facing = 0.0
+arc = 6.2832
+weapon_type = 2
+weapon_params = null
+max_hp = 30.0
+display_symbol = "C"

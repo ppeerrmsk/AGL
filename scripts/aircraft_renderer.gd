@@ -31,6 +31,44 @@ static func _digit_stable(s: String) -> String:
 			out += c
 	return out
 
+## 高度档位颜色（供数据标签 ALT 行 + HUD 状态面板复用，保持两处一致）
+## LOW=暖橙(贴地危险) / MID=中性蓝 / HIGH=冷青(高空稀薄) / 过渡中=黄色
+## 返回 [normal_color, hex_string_for_rich_text]
+## 高度缩放基准（与 draw_aircraft_icon 保持一致）
+## 尾焰 / 枪口闪光 / 其他附件都必须乘这个值，否则图标变大后附件还停在原位
+static func altitude_base_scale(ac: Aircraft) -> float:
+	if ac.flat_altitude:
+		match ac.get_altitude_tier():
+			0: return 0.70
+			1: return 1.05
+			2: return 1.55
+			_: return 1.0
+	var ref_alt := 5000.0
+	var max_alt := ac.params.max_altitude if ac.params else 15000.0
+	var alt_ratio := clampf(ac.altitude / max_alt, 0.0, 1.0)
+	var ref_ratio := ref_alt / max_alt
+	if alt_ratio <= ref_ratio:
+		return lerpf(0.60, 1.0, sqrt(alt_ratio / maxf(ref_ratio, 0.001)))
+	return lerpf(1.0, 1.55, (alt_ratio - ref_ratio) / maxf(1.0 - ref_ratio, 0.001))
+
+static func altitude_tier_color(tier: int, transitioning: bool) -> Color:
+	if transitioning:
+		return Color(1.0, 0.80, 0.27)  # #ffcc44
+	match tier:
+		0:  return Color(1.0, 0.62, 0.40)  # LOW - 暖橙
+		1:  return Color(0.67, 0.80, 1.0)  # MID - 中性蓝（原默认）
+		2:  return Color(0.70, 0.95, 1.0)  # HIGH - 冷青
+		_:  return Color(0.67, 0.80, 1.0)
+
+static func altitude_tier_color_hex(tier: int, transitioning: bool) -> String:
+	if transitioning:
+		return "ffcc44"
+	match tier:
+		0:  return "ff9e66"
+		1:  return "aaccff"
+		2:  return "b3f2ff"
+		_:  return "aaccff"
+
 ## 云层状态视觉：云中（HIGH）画冷白光晕，云下（LOW/MID）画淡蓝灰阴影
 ## 必须在图标之前调用（作底）
 static func draw_cloud_state(ac: Aircraft) -> void:
@@ -176,23 +214,87 @@ static func draw_gun_cone(ac: Aircraft) -> void:
 		ac.draw_line(points[i], points[i + 1], edge_color, 1.0, true)
 
 static func draw_lock_indicator(ac: Aircraft) -> void:
-	if not ac.is_locked:
+	var p: float = clampf(ac.incoming_lock_progress, 0.0, 1.0)
+	if p <= 0.0 and not ac.is_locked:
 		return
-	# 红色警告菱形，闪烁效果
-	var blink := absf(sin(Time.get_ticks_msec() * 0.005))
-	var alpha := lerpf(0.5, 1.0, blink)
-	var warn_color := Color(1.0, 0.15, 0.1, alpha)
-	var d := 22.0
-	# 四个小三角围绕飞机
-	var offsets: Array[Vector2] = [Vector2(0, -d), Vector2(d, 0), Vector2(0, d), Vector2(-d, 0)]
-	var tri_size := 5.0
-	for offset: Vector2 in offsets:
-		var dir: Vector2 = offset.normalized()
+	var pref: Aircraft = player_ref
+	# 反旋转，让方框对齐屏幕（不随机身 heading 转）
+	var inv_rot: float = -ac.rotation
+	ac.draw_set_transform(Vector2.ZERO, inv_rot, Vector2.ONE)
+	draw_lock_box(ac, p, ac.is_locked)
+	# 玩家被锁定：在周边画红色小三角指向每个锁定者
+	if ac == pref and ac.is_locked and ac.locked_by.size() > 0:
+		_draw_incoming_lock_arrows(ac)
+	ac.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+## 玩家被锁定时，在周边画小红三角指向每个锁定者（世界方向）
+static func _draw_incoming_lock_arrows(ac: Aircraft) -> void:
+	const R: float = 52.0       # 距玩家中心的半径
+	const TRI: float = 6.0      # 三角尺寸
+	var blink: float = absf(sin(Time.get_ticks_msec() * 0.008))
+	var alpha: float = lerpf(0.6, 1.0, blink)
+	var color: Color = Color(1.0, 0.25, 0.2, alpha)
+	for shooter: CombatUnit in ac.locked_by:
+		if not is_instance_valid(shooter):
+			continue
+		var delta: Vector2 = shooter.global_position - ac.global_position
+		if delta.length_squared() < 1.0:
+			continue
+		var dir: Vector2 = delta.normalized()
 		var perp: Vector2 = Vector2(-dir.y, dir.x)
-		var tip: Vector2 = offset + dir * tri_size
-		var base_a: Vector2 = offset + perp * tri_size * 0.6
-		var base_b: Vector2 = offset - perp * tri_size * 0.6
-		ac.draw_colored_polygon(PackedVector2Array([tip, base_a, base_b]), warn_color)
+		var tip: Vector2 = dir * (R + TRI)
+		var base_a: Vector2 = dir * R + perp * TRI * 0.7
+		var base_b: Vector2 = dir * R - perp * TRI * 0.7
+		ac.draw_colored_polygon(PackedVector2Array([tip, base_a, base_b]), color)
+
+## 通用锁定方框绘制（Aircraft / GroundUnit 共用）
+## progress (0..1) 驱动动画：旋转一圈 + 从大到小收缩，绿色；locked=true 时切红色静止
+static func draw_lock_box(node: Node2D, progress: float, locked: bool) -> void:
+	if locked:
+		var blink: float = absf(sin(Time.get_ticks_msec() * 0.006))
+		var alpha: float = lerpf(0.55, 1.0, blink)
+		var red: Color = Color(1.0, 0.15, 0.1, alpha)
+		_draw_corner_brackets(node, 22.0, red, 0.0)
+	else:
+		var size: float = lerpf(68.0, 24.0, progress)
+		var angle: float = progress * TAU
+		var alpha: float = lerpf(0.35, 1.0, progress)
+		var green: Color = Color(0.35, 1.0, 0.45, alpha)
+		_draw_corner_brackets(node, size, green, angle)
+		# 进度环：顶部起顺时针扫过的短弧，辅助读进度
+		var arc_r: float = size * 0.95
+		var seg: int = maxi(8, int(progress * 28.0))
+		var start_a: float = -PI * 0.5 + angle
+		var pts: PackedVector2Array = PackedVector2Array()
+		for i in range(seg + 1):
+			var a: float = start_a + (progress * TAU) * float(i) / float(seg)
+			pts.append(Vector2(cos(a), sin(a)) * arc_r)
+		for i in range(pts.size() - 1):
+			node.draw_line(pts[i], pts[i + 1], Color(green, alpha * 0.6), 1.0, true)
+
+## 四角 L 形角标（带整体旋转角），短边 = size*0.35
+static func _draw_corner_brackets(node: Node2D, size: float, color: Color, angle: float) -> void:
+	var half: float = size * 0.5
+	var corner_len: float = size * 0.35
+	var width: float = 2.0
+	# 四个角：左上、右上、右下、左下
+	var corners: Array[Vector2] = [
+		Vector2(-half, -half), Vector2(half, -half),
+		Vector2(half, half), Vector2(-half, half),
+	]
+	# 每个角两条短线的方向（沿 x / 沿 y）
+	var dirs: Array = [
+		[Vector2(1, 0), Vector2(0, 1)],
+		[Vector2(-1, 0), Vector2(0, 1)],
+		[Vector2(-1, 0), Vector2(0, -1)],
+		[Vector2(1, 0), Vector2(0, -1)],
+	]
+	for i in range(4):
+		var c: Vector2 = corners[i].rotated(angle)
+		var d1: Vector2 = (dirs[i][0] as Vector2).rotated(angle) * corner_len
+		var d2: Vector2 = (dirs[i][1] as Vector2).rotated(angle) * corner_len
+		node.draw_line(c, c + d1, color, width, true)
+		node.draw_line(c, c + d2, color, width, true)
 
 ## 任务目标 TGT 括号（皇牌空战风格）：四角方括号 + 上方 "TGT" 文字
 ## 与 lock_indicator 区分：黄色非闪烁，尺寸更大
@@ -228,18 +330,21 @@ static func draw_target_bracket(node: Node2D, is_target: bool) -> void:
 static func draw_muzzle_flash(ac: Aircraft) -> void:
 	var flash_alpha := randf_range(0.6, 1.0)
 	var flash_color := Color(1.0, 0.9, 0.3, flash_alpha)
+	var s := altitude_base_scale(ac)
 	# 机头前方小闪光
-	var tip := Vector2(0, -20.0)
-	ac.draw_circle(tip, 4.0, flash_color)
+	var tip := Vector2(0, -20.0 * s)
+	ac.draw_circle(tip, 4.0 * s, flash_color)
 	var flash2 := Color(1.0, 0.6, 0.1, flash_alpha * 0.5)
-	ac.draw_circle(tip, 7.0, flash2)
+	ac.draw_circle(tip, 7.0 * s, flash2)
 
 static func draw_afterburner_glow(ac: Aircraft) -> void:
 	var flicker := randf_range(0.7, 1.0)
 	var glow_color := Color(1.0, 0.5, 0.1, 0.8 * flicker)
 	var core_color := Color(1.0, 0.85, 0.4, 0.9 * flicker)
-	# 与机身图标一致地应用 cobra/herbst 各向同性收缩（见 draw_aircraft_icon 的说明）
-	var sy_compress: float = 1.0
+	# 基础大小与机身图标一致（乘 altitude_base_scale）
+	var s := altitude_base_scale(ac)
+	# 再叠 cobra/herbst 各向同性收缩
+	var sy_compress: float = s
 	var _mv := ac.get_maneuver()
 	if _mv and _mv.visual_offset > 0.0:
 		sy_compress *= lerpf(1.0, 0.35, _mv.visual_offset)
@@ -249,17 +354,18 @@ static func draw_afterburner_glow(ac: Aircraft) -> void:
 	# 尾喷口位置（本地坐标，飞机朝 -Y）
 	var tail := Vector2(0, 16.0 * sy_compress)
 	var flame_len := randf_range(10.0, 16.0) * sy_compress
-	# 火焰三角
+	# 火焰三角（横向半宽也随 s 缩放）
+	var half_w := 3.0 * s
 	var flame := PackedVector2Array([
-		tail + Vector2(-3.0, 0),
-		tail + Vector2(3.0, 0),
+		tail + Vector2(-half_w, 0),
+		tail + Vector2(half_w, 0),
 		tail + Vector2(0, flame_len),
 	])
 	ac.draw_colored_polygon(flame, glow_color)
 	# 内焰
 	var inner := PackedVector2Array([
-		tail + Vector2(-1.5, 0),
-		tail + Vector2(1.5, 0),
+		tail + Vector2(-half_w * 0.5, 0),
+		tail + Vector2(half_w * 0.5, 0),
 		tail + Vector2(0, flame_len * 0.6),
 	])
 	ac.draw_colored_polygon(inner, core_color)
@@ -302,18 +408,8 @@ static func draw_aircraft_icon(ac: Aircraft) -> void:
 
 	var size := 16.0
 
-	# 高度缩放：以 5000m 为基准（scale=1.0），低空缩小、高空放大
-	# 使用 sqrt 曲线让中低空的变化更明显
-	var ref_alt := 5000.0
-	var max_alt := ac.params.max_altitude if ac.params else 15000.0
-	var alt_ratio := clampf(ac.altitude / max_alt, 0.0, 1.0)
-	var ref_ratio := ref_alt / max_alt
-	# 基准以下：0.65~1.0，基准以上：1.0~1.4
-	var base_scale: float
-	if alt_ratio <= ref_ratio:
-		base_scale = lerpf(0.65, 1.0, sqrt(alt_ratio / ref_ratio))
-	else:
-		base_scale = lerpf(1.0, 1.4, (alt_ratio - ref_ratio) / (1.0 - ref_ratio))
+	# 高度缩放（档位离散 / 沙盒连续，见 altitude_base_scale）
+	var base_scale: float = altitude_base_scale(ac)
 
 	# 滚转变形（常规 bank + 规避时的原地滚转相位）
 	var bank_compress := cos(ac.bank_angle + ac._evade_roll_phase)
@@ -704,13 +800,27 @@ static func draw_data_label_minimal(ac: Aircraft) -> void:
 	lines.append(ac.callsign)
 	lines.append("HDG %03d" % roundi(heading_deg))
 	lines.append("%d kt" % roundi(speed_kmh * 0.5399))
+	var alt_line_idx := lines.size()
 	if ac.flat_altitude:
-		lines.append("ALT %s" % Aircraft.TIER_NAMES[ac.get_altitude_tier()])
+		var tier_now: int = ac.get_altitude_tier()
+		var tier_tgt: int = ac.target_altitude_tier
+		if tier_now != tier_tgt:
+			lines.append("ALT %s>%s" % [Aircraft.TIER_NAMES[tier_now], Aircraft.TIER_NAMES[tier_tgt]])
+		else:
+			lines.append("ALT %s" % Aircraft.TIER_NAMES[tier_now])
 	else:
 		lines.append("ALT %dm" % roundi(ac.altitude))
 	lines.append("G %.1f" % ac.g_load)
 	var max_stam := ac.params.pilot_stamina if ac.params else 100.0
 	lines.append("STA %d%%" % roundi(ac.pilot_stamina / maxf(max_stam, 0.01) * 100.0))
+	# 装填状态（仅玩家）：临时行，装填完自动消失
+	if ac == player_ref:
+		if ac._gun_reload_active:
+			lines.append("GUN RELOAD %d%%" % roundi(ac.gun_reload_progress * 100.0))
+		if ac._missile_reload_active:
+			lines.append("MSL RELOAD %d%%" % roundi(ac.missile_reload_progress * 100.0))
+		if ac.enable_flare_reload and ac.flares_remaining <= 0 and ac.flare_reload_progress > 0.0:
+			lines.append("FLR RELOAD %d%%" % roundi(ac.flare_reload_progress * 100.0))
 
 	var inv_rot := -ac.rotation
 	var font_size := 11
@@ -731,8 +841,13 @@ static func draw_data_label_minimal(ac: Aircraft) -> void:
 
 	ac.draw_set_transform(label_offset, inv_rot, scale_v)
 	ac.draw_rect(Rect2(-2, -2, max_w + 6, lines.size() * line_height + 4), bg_color)
+	var default_text_color := Color(0.85, 0.9, 0.85, 0.9)
+	# 仅玩家自己标 ALT 颜色；敌机保持统一色
+	var is_player := ac == player_ref
+	var alt_color := altitude_tier_color(ac.get_altitude_tier(), ac.flat_altitude and ac.get_altitude_tier() != ac.target_altitude_tier) if is_player else default_text_color
 	for i in range(lines.size()):
-		ac.draw_string(ac._font, Vector2(0, i * line_height + 11), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.85, 0.9, 0.85, 0.9))
+		var col := alt_color if (is_player and i == alt_line_idx) else default_text_color
+		ac.draw_string(ac._font, Vector2(0, i * line_height + 11), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, col)
 	ac.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 static func draw_data_label(ac: Aircraft) -> void:
@@ -758,8 +873,14 @@ static func draw_data_label(ac: Aircraft) -> void:
 	# 第 3 行：朝向
 	lines.append("HDG %03d" % roundi(heading_deg))
 	# 第 4 行：高度
+	var alt_line_idx := lines.size()
 	if ac.flat_altitude:
-		lines.append("ALT %s" % Aircraft.TIER_NAMES[ac.get_altitude_tier()])
+		var tier_now: int = ac.get_altitude_tier()
+		var tier_tgt: int = ac.target_altitude_tier
+		if tier_now != tier_tgt:
+			lines.append("ALT %s>%s" % [Aircraft.TIER_NAMES[tier_now], Aircraft.TIER_NAMES[tier_tgt]])
+		else:
+			lines.append("ALT %s" % Aircraft.TIER_NAMES[tier_now])
 	else:
 		lines.append("ALT %dm" % roundi(ac.altitude))
 	# 第 5 行：距离（到玩家）
@@ -770,6 +891,14 @@ static func draw_data_label(ac: Aircraft) -> void:
 	# 第 6 行：热诱弹
 	if ac.params and ac.params.flare:
 		lines.append("FLR %d" % ac.flares_remaining)
+	# 装填状态（仅玩家）：按进度拼出来 — 机炮 / 导弹 / 热诱弹
+	if ac == player_ref:
+		if ac._gun_reload_active:
+			lines.append("GUN RELOAD %d%%" % roundi(ac.gun_reload_progress * 100.0))
+		if ac._missile_reload_active:
+			lines.append("MSL RELOAD %d%%" % roundi(ac.missile_reload_progress * 100.0))
+		if ac.enable_flare_reload and ac.flares_remaining <= 0 and ac.flare_reload_progress > 0.0:
+			lines.append("FLR RELOAD %d%%" % roundi(ac.flare_reload_progress * 100.0))
 	# 失速提示
 	if status != "":
 		lines.append(status)
@@ -800,8 +929,11 @@ static func draw_data_label(ac: Aircraft) -> void:
 	ac.draw_rect(Rect2(0, 0, box_w, box_h), bg_color)
 	ac.draw_rect(Rect2(0, 0, box_w, box_h), text_color * Color(1, 1, 1, 0.4), false, 1.0)
 
+	var is_player := ac == player_ref
+	var alt_color := altitude_tier_color(ac.get_altitude_tier(), ac.flat_altitude and ac.get_altitude_tier() != ac.target_altitude_tier) if is_player else text_color
 	for i in range(lines.size()):
-		ac.draw_string(ac._font, Vector2(5, 12 + i * line_height), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
+		var col := alt_color if (is_player and i == alt_line_idx) else text_color
+		ac.draw_string(ac._font, Vector2(5, 12 + i * line_height), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, col)
 
 	ac.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 

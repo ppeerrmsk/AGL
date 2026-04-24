@@ -19,6 +19,20 @@ var is_flare_jammed: bool = false  ## 被热诱弹干扰，永久失去制导
 var bounces_remaining: int = 0     ## 剩余弹跳次数（连锁弹头进化）
 var proximity_aoe: bool = false    ## 近炸引信：爆炸时产生 AOE 区域
 
+## CIWS 拦截累积伤害 —— 只有 CIWS 子弹能减这个，归零时导弹 is_active=false
+## 并非通用受击血量：导弹仍然是"一发命中目标即爆炸"，这里只表示"被拦截弹击落"
+## 初始值在 _ready 时从 params.intercept_hp 读取（所有型号 / 队伍共用同一套机制）
+var intercept_hp: float = 60.0
+
+## ── VLS 三段式弹道状态（仅 params.is_vls_salvo=true 的导弹用）──
+## 0 = VERTICAL（垂直爬升），1 = TRANSITION（过渡俯冲），2 = TERMINAL（末端追踪）
+var vls_phase: int = 0
+var _vls_phase_timer: float = 0.0
+## 发射瞬间锁死的玩家位置（不会更新）—— 阶段 2 朝这个点倾斜
+var vls_locked_point: Vector2 = Vector2.INF
+## 每发齐射弹的速度随机系数，0.8~1.2 之间 —— 让齐射弹错开，不重叠
+var speed_multiplier: float = 1.0
+
 var _prev_los_angle: float = 0.0  ## 上一帧 LOS 角（有限差分算角速率）
 var _prev_heading: float = 0.0   ## 上一帧航向（用于计算模拟 bank）
 var bank_angle: float = 0.0      ## 模拟 bank（由航向变化率推算）
@@ -39,12 +53,20 @@ func _ready() -> void:
 	_trail_ribbon.ribbon_color = trail_color
 	add_child(_trail_ribbon)
 	_prev_heading = heading
+	# 从 params 读取拦截抗性（不同型号可以配置不同的抗 CIWS 能力）
+	if params:
+		intercept_hp = params.intercept_hp
 
 func _physics_process(delta: float) -> void:
 	if not is_active:
 		return
 
 	age += delta
+
+	# VLS 齐射弹：前两段完全接管物理（第三段 TERMINAL 走标准 PN 路径下沉到 params.nav_constant 决定）
+	if params and params.is_vls_salvo and vls_phase < 2:
+		_update_vls_non_terminal(delta)
+		return
 
 	# 0) 云层穿越：导弹自身在云中飞行 → 追踪能力永久衰减（不回复）
 	# 云层只存在于高空（HIGH tier，>=7500m）
@@ -172,6 +194,53 @@ func _physics_process(delta: float) -> void:
 
 	queue_redraw()
 
+## ════════════════════════════════════════════════════════════
+##  VLS 三段式弹道（阶段 1 VERTICAL + 阶段 2 TRANSITION）
+## ════════════════════════════════════════════════════════════
+## 阶段 1（VERTICAL）：维持初始朝向（发射时统一朝世界北），50% 速度爬升；画面上一串"火柱冲天"
+## 阶段 2（TRANSITION）：朝 vls_locked_point 转向（弹道弯曲），速度爬升到满；不追踪移动的玩家
+## 阶段 3（TERMINAL）：回到 _physics_process 主流程走标准 PN（nav_constant 低 → 末端精度差）
+## 每发齐射弹的 speed_multiplier 在 NavalWeapons._fire_one_vls_missile 随机设定，打散弹道观感
+func _update_vls_non_terminal(delta: float) -> void:
+	_vls_phase_timer += delta
+
+	match vls_phase:
+		0:  # VERTICAL 爬升段：维持初始 heading，速度爬到 max_speed 的 50%
+			speed = minf(speed + params.motor_acceleration * delta, params.max_speed * 0.5)
+			if _vls_phase_timer >= params.vls_climb_time:
+				vls_phase = 1
+				_vls_phase_timer = 0.0
+		1:  # TRANSITION 过渡段：朝锁定点转向，速度爬满
+			if vls_locked_point != Vector2.INF:
+				var to_pt: Vector2 = vls_locked_point - global_position
+				if to_pt.length() > 1.0:
+					var target_hdg: float = atan2(to_pt.x, -to_pt.y)
+					var diff: float = atan2(sin(target_hdg - heading), cos(target_hdg - heading))
+					var max_turn: float = deg_to_rad(params.vls_transition_turn_rate_degs) * delta
+					heading += clampf(diff, -max_turn, max_turn)
+			speed = minf(speed + params.motor_acceleration * delta, params.max_speed)
+			if _vls_phase_timer >= params.vls_transition_time:
+				vls_phase = 2
+				_vls_phase_timer = 0.0
+				# 切末端前：重置 PN 的 LOS 角以避免第一帧爆转
+				if target and is_instance_valid(target):
+					var los: Vector2 = target.global_position - global_position
+					if los.length() > 1.0:
+						_prev_los_angle = atan2(los.x, -los.y)
+
+	# 位移（两段共用）—— 乘 speed_multiplier 让齐射弹各自快慢不同
+	var fwd := Vector2(sin(heading), -cos(heading))
+	var actual_speed: float = speed * speed_multiplier
+	global_position += fwd * actual_speed * PIXELS_PER_METER * delta
+
+	# 视觉尾迹更新（模拟轻微"侧滚"）
+	var hdg_diff: float = _angle_diff(heading, _prev_heading)
+	var turn_rate_now: float = hdg_diff / maxf(delta, 0.001)
+	bank_angle = clampf(turn_rate_now * 0.5, -1.0, 1.0)
+	_prev_heading = heading
+
+	queue_redraw()
+
 func _draw() -> void:
 	if not is_active:
 		return
@@ -224,61 +293,29 @@ func _draw_data_label() -> void:
 	if not _font:
 		_font = ThemeDB.fallback_font
 	var display_name: String = params.display_name if params else "MSL"
-	var heading_deg := rad_to_deg(heading)
-	if heading_deg < 0:
-		heading_deg += 360.0
 
 	# 到目标的距离
 	var dist_to_tgt_m := 0.0
 	if target and is_instance_valid(target) and not target.is_destroyed:
 		dist_to_tgt_m = global_position.distance_to(target.global_position) / 0.5  # PIXELS_PER_METER
 
-	# 高度：优先使用目标的 flat_altitude 模式判断（生存模式用 tier 标签）
-	var alt_str: String
-	var use_flat := target and is_instance_valid(target) and target.flat_altitude
-	if use_flat:
-		var tier := CombatUnit.AltitudeTier.MID
-		if altitude < 3500.0:
-			tier = CombatUnit.AltitudeTier.LOW
-		elif altitude >= 7500.0:
-			tier = CombatUnit.AltitudeTier.HIGH
-		alt_str = "ALT %s" % CombatUnit.TIER_NAMES[tier]
-	else:
-		alt_str = "ALT %dm" % roundi(altitude)
-
-	var speed_kmh := speed * 3.6
-	var mach := speed_kmh / GameConstants.SPEED_OF_SOUND_KMH
-	var time_left := params.max_lifetime - age if params else 0.0
-
 	var lines: PackedStringArray = PackedStringArray()
 	lines.append(display_name)
-	lines.append("HDG %03d" % roundi(heading_deg))
-	lines.append("M%.2f" % mach)
-	# 高度
-	lines.append(alt_str)
-	# 到目标距离
 	if dist_to_tgt_m > 0.0:
 		if dist_to_tgt_m < 1000.0:
 			lines.append("RNG %dm" % roundi(dist_to_tgt_m))
 		else:
 			lines.append("RNG %.1fkm" % (dist_to_tgt_m / 1000.0))
-	# 制导状态
-	if has_guidance:
-		lines.append("GUIDE")
-	elif is_flare_jammed:
-		lines.append("JAMMED")
 	else:
-		lines.append("NO GDE")
-	# 发动机状态
-	if params and age < params.motor_burn_time:
-		lines.append("MOTOR")
-	else:
-		lines.append("COAST")
+		lines.append("RNG --")
 
 	var inv_rot := -rotation
 	var font_size := 10
 	var line_height := 12.0
-	var label_offset := Vector2(14, -8).rotated(inv_rot)
+	# 缩放补偿：标签大小不随摄像机缩放变化（与 AircraftRenderer.draw_data_label 一致）
+	var zoom_scale := get_viewport_transform().get_scale()
+	var inv_zoom := 1.0 / maxf(zoom_scale.x, 0.01)
+	var label_offset := (Vector2(14, -8) * inv_zoom).rotated(inv_rot)
 
 	# 测量最大宽度（把数字替换成 "0" 再测，避免 label 框因 hdg/rng/mach 每帧抽搐）
 	# 详见 docs/changelogs/player-ai-log.md 2026-04-21 (10)
@@ -300,7 +337,7 @@ func _draw_data_label() -> void:
 	var bg_color: Color = _lc[0]
 	var text_color: Color = _lc[1]
 
-	draw_set_transform(label_offset, inv_rot, Vector2.ONE)
+	draw_set_transform(label_offset, inv_rot, Vector2(inv_zoom, inv_zoom))
 	draw_rect(Rect2(0, 0, box_w, box_h), bg_color)
 	draw_rect(Rect2(0, 0, box_w, box_h), text_color * Color(1, 1, 1, 0.3), false, 1.0)
 

@@ -1,0 +1,26 @@
+[gd_resource type="Resource" script_class="NavalParams" load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/naval/naval_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/naval/mount_ddg_vls_f.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/naval/mount_ddg_vls_a.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/naval/mount_ddg_ciws_p.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/naval/mount_ddg_ciws_s.tres" id="5"]
+
+[resource]
+script = ExtResource("1")
+ship_class = 1
+display_name_prefix = "DDG"
+hull_length = 180.0
+hull_width = 30.0
+icon_color = Color(0.8, 0.25, 0.2, 1)
+max_sea_speed = 10.0
+turn_rate = 0.10
+radar_range = 8000.0
+lock_time = 3.0
+mount_configs = Array[Resource]([ExtResource("2"), ExtResource("3"), ExtResource("4"), ExtResource("5")])
+weak_point_enabled = true
+weak_point_threshold = 2
+weak_point_hp = 60.0
+weak_point_radius = 450.0
+hull_hp_max = 480.0
+default_team = 1

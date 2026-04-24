@@ -898,6 +898,7 @@ func _refresh_info() -> void:
 		"air":       mission_desc_key = "ZONE_MISSION_AIR"
 		"squadron":  mission_desc_key = "ZONE_MISSION_SQUADRON"
 		"elite":     mission_desc_key = "ZONE_MISSION_ELITE"
+		"naval":     mission_desc_key = "ZONE_MISSION_NAVAL"
 		_:           mission_desc_key = "ZONE_MISSION_GROUND"
 
 	lines.append("")

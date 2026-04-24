@@ -1,0 +1,35 @@
+[gd_resource type="Resource" script_class="MissileParams" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/missile_params.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+display_name = "SS-VLS"
+max_speed = 900.0
+motor_burn_time = 4.0
+motor_acceleration = 220.0
+drag_deceleration = 25.0
+max_g = 22.0
+nav_constant = 1.8
+max_range_rear = 12000.0
+front_rear_ratio = 1.2
+min_range = 2000.0
+max_lifetime = 35.0
+damage = 25.0
+proximity_fuse_radius = 22.0
+proximity_fuse_alt = 400.0
+seeker_fov = 60.0
+guidance_delay = 0.3
+fire_and_forget = true
+max_count = 200
+cooldown = 6.0
+is_vls_salvo = true
+vls_salvo_size = 18
+vls_salvo_interval = 0.06
+vls_salvo_cooldown = 60.0
+vls_point_scatter_px = 300.0
+vls_climb_time = 1.2
+vls_transition_time = 0.8
+vls_transition_turn_rate_degs = 120.0
+vls_speed_variance = 0.25
+intercept_hp = 50.0

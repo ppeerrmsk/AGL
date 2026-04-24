@@ -66,6 +66,7 @@ var _hunter_timer: float = 0.0
 var _waypoint_update_timer: float = 0.0
 var _far_cleanup_timer: float = 0.0
 var _squad_cleanup_timer: float = 0.0
+var _boss_purge_timer: float = 0.0
 
 # ── 编队 ──
 var _squads: Array[Squad] = []  ## 活跃分队列表
@@ -149,6 +150,10 @@ func update(delta: float) -> void:
 
 	# 远距清理：释放 Token 预算
 	_update_far_cleanup(delta)
+
+	# BOSS 阶段清场：把画面外 + 过远的残余敌机全部撤走（保留画面内）
+	if _is_boss_phase():
+		_update_boss_phase_purge(delta)
 
 	# 【硬规则看门狗】：扫描所有 Sentinel，若护卫不足 5 架则紧急补刷
 	# 不管 Sentinel 从哪条路径登场，只要单独一架就强制配 5 架 UAV 护卫
@@ -751,6 +756,54 @@ func _cleanup_expired_adds() -> void:
 					ac.set_meta("xp_granted", true)  # 防止 _detect_kills 当成击杀
 					ac.queue_free()
 
+## Adds 航线安全余量：起点 A 至少离边界这么远（保证玩家看得到生成过程）
+const ADDS_SPAWN_MARGIN_PX := 1500.0
+## Adds 航线终点 B 安全余量：至少离边界这么远（防止一出生就往边界飞）
+const ADDS_ENDPOINT_MARGIN_PX := 800.0
+
+## 为 Adds 族群挑选一条"起点 A → 终点 B"的安全航线。
+##
+## 约束：
+##   1. A 距玩家 spawn_dist，且在 MapBoundary 内（余量 ADDS_SPAWN_MARGIN_PX）
+##   2. B = A 朝玩家方向延伸 flight_dist（线路必然穿过玩家附近）
+##   3. B 也在 MapBoundary 内（余量 ADDS_ENDPOINT_MARGIN_PX）
+##
+## 退化：如果玩家离边界太近以至于找不到合法路线，则逐步放宽 B 的余量；
+## 最终 fallback 把 B 钳制到安全区内（此时 flight 距离会被压缩，但不出图）。
+func _pick_safe_flock_route(pp: Vector2, spawn_dist: float, flight_dist: float) -> Dictionary:
+	var best_angle := 0.0
+	var best_a := Vector2.ZERO
+	var best_b := Vector2.ZERO
+	# Pass 1：严格 — A 和 B 都满足余量
+	for i in range(16):
+		var a := randf() * TAU
+		var dir := Vector2(cos(a), sin(a))
+		var point_a := pp + dir * spawn_dist
+		if not MapBoundary.is_safe_inside(point_a, ADDS_SPAWN_MARGIN_PX):
+			continue
+		var flight_dir := (pp - point_a).normalized()
+		var point_b := point_a + flight_dir * flight_dist
+		if MapBoundary.is_safe_inside(point_b, ADDS_ENDPOINT_MARGIN_PX):
+			return {"a": point_a, "b": point_b, "angle": a, "dir": flight_dir}
+		# 记录一个 fallback（A 合法但 B 超界）
+		if best_a == Vector2.ZERO:
+			best_angle = a
+			best_a = point_a
+			best_b = point_b
+	# Pass 2：玩家贴边时放宽 — 钳制 B 到安全区内（航线被压缩但方向仍朝中间）
+	if best_a == Vector2.ZERO:
+		# 极端情况：连 A 都找不到（不应该发生），随便给一个朝地图中心的方向
+		var inward: Vector2 = -pp.normalized() if pp.length_squared() > 1.0 else Vector2.UP
+		best_angle = atan2(-inward.y, -inward.x)  # A 在反方向，朝玩家飞即是朝 inward
+		best_a = MapBoundary.clamp_inside(pp + Vector2(cos(best_angle), sin(best_angle)) * spawn_dist, ADDS_SPAWN_MARGIN_PX)
+		best_b = pp + inward * flight_dist
+	best_b = MapBoundary.clamp_inside(best_b, ADDS_ENDPOINT_MARGIN_PX)
+	var best_dir := (best_b - best_a)
+	if best_dir.length_squared() < 1.0:
+		best_dir = (pp - best_a)
+	best_dir = best_dir.normalized()
+	return {"a": best_a, "b": best_b, "angle": best_angle, "dir": best_dir}
+
 ## 刷一群 Tu-160 杂兵波次（族群而非编队）
 ##   - 随机方位选起点 A（距玩家 SPAWN_DISTANCE）
 ##   - 终点 B = A 的对面方向延伸 TU160_FLIGHT_DISTANCE
@@ -761,14 +814,11 @@ func _spawn_tu160_flock() -> void:
 	var flock_size: int = SurvivorData.TU160_FLOCK_SIZE
 	var pp := player_aircraft.global_position
 
-	# 随机方位角（玩家为圆心，避开边界外）
-	var spawn_angle := _pick_safe_spawn_angle(pp, SurvivorData.SPAWN_DISTANCE)
-	var spawn_dir := Vector2(cos(spawn_angle), sin(spawn_angle))
-	# 起点 A：玩家外圈
-	var point_a := pp + spawn_dir * SurvivorData.SPAWN_DISTANCE
-	# 终点 B：起点穿过玩家、继续往对面延伸（确保航线经过玩家附近）
-	var flight_dir := (pp - point_a).normalized()
-	var point_b := point_a + flight_dir * SurvivorData.TU160_FLIGHT_DISTANCE
+	# 选一条安全航线：A 和 B 都在地图安全区内，保证玩家有时间拦截
+	var route := _pick_safe_flock_route(pp, SurvivorData.SPAWN_DISTANCE, SurvivorData.TU160_FLIGHT_DISTANCE)
+	var point_a: Vector2 = route.a
+	var point_b: Vector2 = route.b
+	var flight_dir: Vector2 = route.dir
 
 	# 横向偏置轴（垂直于 AB）
 	var lateral_axis := Vector2(-flight_dir.y, flight_dir.x)
@@ -849,11 +899,10 @@ func _spawn_ah64_flock() -> void:
 	var flock_size: int = SurvivorData.AH64_FLOCK_SIZE
 	var pp := player_aircraft.global_position
 
-	var spawn_angle := _pick_safe_spawn_angle(pp, SurvivorData.SPAWN_DISTANCE)
-	var spawn_dir := Vector2(cos(spawn_angle), sin(spawn_angle))
-	var point_a := pp + spawn_dir * SurvivorData.SPAWN_DISTANCE
-	var flight_dir := (pp - point_a).normalized()
-	var point_b := point_a + flight_dir * SurvivorData.AH64_FLIGHT_DISTANCE
+	var route := _pick_safe_flock_route(pp, SurvivorData.SPAWN_DISTANCE, SurvivorData.AH64_FLIGHT_DISTANCE)
+	var point_a: Vector2 = route.a
+	var point_b: Vector2 = route.b
+	var flight_dir: Vector2 = route.dir
 	var lateral_axis := Vector2(-flight_dir.y, flight_dir.x)
 	var heading_deg := rad_to_deg(atan2(flight_dir.x, -flight_dir.y))
 
@@ -895,11 +944,10 @@ func _spawn_ch47_flock() -> void:
 	var flock_size: int = SurvivorData.CH47_FLOCK_SIZE
 	var pp := player_aircraft.global_position
 
-	var spawn_angle := _pick_safe_spawn_angle(pp, SurvivorData.SPAWN_DISTANCE)
-	var spawn_dir := Vector2(cos(spawn_angle), sin(spawn_angle))
-	var point_a := pp + spawn_dir * SurvivorData.SPAWN_DISTANCE
-	var flight_dir := (pp - point_a).normalized()
-	var point_b := point_a + flight_dir * SurvivorData.CH47_FLIGHT_DISTANCE
+	var route := _pick_safe_flock_route(pp, SurvivorData.SPAWN_DISTANCE, SurvivorData.CH47_FLIGHT_DISTANCE)
+	var point_a: Vector2 = route.a
+	var point_b: Vector2 = route.b
+	var flight_dir: Vector2 = route.dir
 	var heading_deg := rad_to_deg(atan2(flight_dir.x, -flight_dir.y))
 
 	# 运输直升机永远低空飞行
@@ -1329,7 +1377,7 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 			ai.orbit_squad_leader = false
 		EnemyType.CH47:
 			# CH-47 = Adds 运输直升机：纯直线飞行，无武装，无反击
-			# 有 1 枚热诱弹（fail_chance 决定是否真的释放，_update_flares 被动触发）
+			# 有 1 枚热诱弹（fail_chance 决定是否真的释放，AircraftFlares.update 被动触发）
 			ai.simple_ai = true
 			ai.enable_combat = false
 			ai.evade_missiles = false
@@ -1413,6 +1461,58 @@ func _update_far_cleanup(delta: float) -> void:
 
 	if removed > 0:
 		EventLogger.log_event("TOKEN", "FarCleanup", "despawned %d distant enemies" % removed)
+
+## BOSS 阶段清场：只保留画面内的残余敌机；画面外或距离过远的都撤走。
+## 铁则：不在玩家画面内消失。
+##   - 画面外（+ margin 200 px）→ 立即 queue_free
+##   - 画面内但距离玩家 > BOSS_PURGE_NEAR_DISTANCE → 入 zone_mission._pending_despawn
+##     队列（飘出画面后才 free；不会瞬消）
+## BOSS 本体（category="boss"）和 adds（skip_far_cleanup meta）不受此影响。
+const BOSS_PURGE_INTERVAL := 1.0
+const BOSS_PURGE_NEAR_DISTANCE := 4000.0  ## 超过此距离的残余敌机强制进入延迟撤离队列
+func _update_boss_phase_purge(delta: float) -> void:
+	_boss_purge_timer -= delta
+	if _boss_purge_timer > 0.0:
+		return
+	_boss_purge_timer = BOSS_PURGE_INTERVAL
+	if not mode or not player_aircraft or player_aircraft.is_destroyed:
+		return
+
+	var pp := player_aircraft.global_position
+	var near_d2 := BOSS_PURGE_NEAR_DISTANCE * BOSS_PURGE_NEAR_DISTANCE
+	var freed := 0
+	var scheduled := 0
+	for child in mode.get_children():
+		if not (child is Aircraft):
+			continue
+		var ac: Aircraft = child
+		if ac.team == 0 or ac.is_destroyed:
+			continue
+		# BOSS 本体（F-47 小队）不动
+		var cat: String = ac.get_meta("category", "")
+		if cat == "boss":
+			continue
+		# Adds（Tu-160/AH-64/CH-47）按固定航线飞过战场，保留观感
+		if ac.has_meta("skip_far_cleanup") and ac.get_meta("skip_far_cleanup"):
+			continue
+
+		# 画面外 → 立即静默 free（释放 Token）
+		if not mode.is_world_pos_visible(ac.global_position, 0.0):
+			ac.set_meta("xp_granted", true)
+			ac.queue_free()
+			freed += 1
+			continue
+
+		# 画面内但距离过远 → 入延迟撤离队列（飘出画面才 free）
+		if ac.global_position.distance_squared_to(pp) > near_d2:
+			if zone_mission and zone_mission.has_method("_schedule_despawn"):
+				ac.set_meta("xp_granted", true)
+				zone_mission._schedule_despawn(ac)
+				scheduled += 1
+
+	if freed > 0 or scheduled > 0:
+		EventLogger.log_event("BOSS", "PhasePurge",
+			"offscreen_freed=%d far_deferred=%d" % [freed, scheduled])
 
 ## 猎手系统：定期指派空闲敌机主动追击玩家
 func _update_hunters(delta: float) -> void:
@@ -1541,6 +1641,9 @@ func _update_enemy_waypoints(delta: float) -> void:
 	_waypoint_update_timer = WAYPOINT_UPDATE_INTERVAL
 	if not player_aircraft or player_aircraft.is_destroyed:
 		return
+	# BOSS 阶段不再给残余敌机绕玩家航点 —— 让它们按自己航线飘，由 boss 清理 purge 带走
+	if _is_boss_phase():
+		return
 
 	var pp := player_aircraft.global_position
 	for child in mode.get_children():
@@ -1596,6 +1699,9 @@ func _detect_kills() -> void:
 				survivor_player.add_xp(xp_value)
 				kill_count += 1
 				_kill_heal()
+				## 教程钩子：Tu-160 击落通知（前 3 架击落后首次教程整体淡出）
+				if etype == "tu160" and is_instance_valid(mode._tutorial):
+					mode._tutorial.notify_bomber_killed()
 		# ── 地面单位击杀检测（SAM / AA 炮等）──
 		elif child is GroundUnit and child.team != 0 and child.is_destroyed:
 			if not child.has_meta("xp_granted"):

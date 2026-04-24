@@ -26,6 +26,16 @@ var _sam_params: Resource
 var _aa_scene: PackedScene
 var _aa_params: Resource
 
+# ── 海上单位参数（Debug 面板用，船没有 .tscn，直接 FrigateShip.new()）──
+var _ffg_params: Resource
+var _ddg_params: Resource
+var _cg_params: Resource
+var _cv_params: Resource
+var _ss_params: Resource
+
+# ── 通用战区系统（所有 ZoneType 共用）──
+var zone_manager: ZoneManager
+
 # ── 操控状态 ──
 var selected_aircraft: Array[Aircraft] = []
 var is_dragging: bool = false
@@ -103,6 +113,11 @@ func _ready() -> void:
 	_sam_params = preload("res://resources/sam_params.tres")
 	_aa_scene = preload("res://scenes/aa_gun_unit.tscn")
 	_aa_params = preload("res://resources/aa_gun_params.tres")
+	_ffg_params = preload("res://resources/naval/frigate_ffg.tres")
+	_ddg_params = preload("res://resources/naval/destroyer_ddg.tres")
+	_cg_params = preload("res://resources/naval/cruiser_cg.tres")
+	_cv_params = preload("res://resources/naval/carrier_cv.tres")
+	_ss_params = preload("res://resources/naval/submarine_ss.tres")
 
 	# 读取选择的机型档案（PlayableAircraft），缺省用 F-16
 	var profile_path: String = "res://resources/playable_f16.tres"
@@ -145,8 +160,10 @@ func _ready() -> void:
 	player_aircraft.set_target_tier(Aircraft.AltitudeTier.MID)
 	player_aircraft.team = 0
 	player_aircraft.position = MapBoundary.get_player_start()
-	# 相机初始对准玩家起始点
+	# 相机初始对准玩家起始点 + 启用跟随
 	camera.global_position = player_aircraft.position
+	_camera_ctrl.set_follow_target(player_aircraft)
+	_camera_ctrl.follow_enabled = true
 	player_aircraft.bullet_manager = bullet_manager
 	player_aircraft.missile_manager = missile_manager
 	player_aircraft.selected = true
@@ -193,6 +210,17 @@ func _ready() -> void:
 	var debug_spawn := SurvivorDebugSpawn.new()
 	debug_spawn.game_scene = self
 	add_child(debug_spawn)
+
+	# 通用战区系统 + F6 Debug 面板
+	zone_manager = ZoneManager.new()
+	zone_manager.name = "ZoneManager"
+	add_child(zone_manager)
+	zone_manager.setup(self, player_aircraft)
+
+	var debug_zone := SurvivorDebugZone.new()
+	debug_zone.game_scene = self
+	# 新 F6 面板直接从 game_scene 里读 _zone_data / _zone_mission，不再需要 zone_manager
+	add_child(debug_zone)
 
 	# ── 大地图边界系统 + 撤退菜单（P1）──
 	_map_boundary = MapBoundary.new()
@@ -250,24 +278,23 @@ func _ready() -> void:
 	if SurvivorTutorial.should_show():
 		_start_first_run_tutorial()
 
-## 首次进入生存模式：浮现操作提示 + 在最近的 Tu-160 左侧显示"点击攻击"标签
+## 首次进入生存模式：浮现操作提示 + 在最上方那架 Tu-160 左侧显示"点击攻击"标签
 ## （不自己刷 Tu-160，已有 Tu-160 场上时由教程内部轮询挂靶）
 func _start_first_run_tutorial() -> void:
 	_tutorial = SurvivorTutorial.new()
-	_tutorial.find_target_fn = _find_nearest_tu160
+	_tutorial.find_target_fn = _find_topmost_tu160
 	add_child(_tutorial)
 
-func _find_nearest_tu160() -> Node2D:
+func _find_topmost_tu160() -> Node2D:
 	var best: Aircraft = null
-	var best_d := INF
+	var best_y := INF
 	for child in get_children():
 		if not (child is Aircraft) or child.is_destroyed or child.team == 0:
 			continue
 		if not child.has_meta("silhouette") or child.get_meta("silhouette") != "bomber":
 			continue
-		var d: float = child.global_position.distance_to(player_aircraft.global_position)
-		if d < best_d:
-			best_d = d
+		if child.global_position.y < best_y:
+			best_y = child.global_position.y
 			best = child
 	return best
 
@@ -434,10 +461,11 @@ func _dump_wingman_formation_state() -> void:
 # ══════════════════════════════════════════════
 
 func _unhandled_input(event: InputEvent) -> void:
-	# SPACE：镜头立刻拉回玩家
+	# SPACE：重新启用跟随（镜头平滑回到玩家并锁定，后续持续跟随）
 	if event is InputEventKey and event.pressed and event.keycode == KEY_SPACE and player_aircraft and not player_aircraft.is_destroyed:
 		get_viewport().set_input_as_handled()
-		camera.global_position = player_aircraft.global_position
+		_camera_ctrl.set_follow_target(player_aircraft)
+		_camera_ctrl.snap_to_follow()
 		return
 	# Tab：切换战术地图（暂停）
 	if event is InputEventKey and event.pressed and event.keycode == KEY_TAB:
@@ -580,6 +608,11 @@ func _find_enemy_near(world_pos: Vector2) -> CombatUnit:
 	var best: CombatUnit = null
 	for child in get_children():
 		if child is CombatUnit and child.team != 0 and not child.is_destroyed:
+			# 跳过锁定免疫的目标 —— 如 NavalUnit 船体（不可直接锁定 / 攻击只能走 MountTarget 挂点代理）
+			# 否则玩家点到船身时 combat_target 会被设为 NavalUnit，但雷达循环从不累积它的
+			# radar_targets，导致导弹发射逻辑看不到锁定进度，拒绝开火。
+			if child.is_lock_immune():
+				continue
 			var d := world_pos.distance_to(child.global_position)
 			if d < best_dist:
 				best_dist = d
@@ -592,7 +625,12 @@ func _find_enemy_near(world_pos: Vector2) -> CombatUnit:
 # ══════════════════════════════════════════════
 
 func _process(delta: float) -> void:
-	_camera_ctrl.update_zoom(delta)
+	_camera_ctrl.update(delta)
+	# WASD 自由镜头也算完成"平移"教程项
+	if is_instance_valid(_tutorial) and (
+			Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_A)
+			or Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_D)):
+		_tutorial.notify_pan()
 	_cleanup_references()
 	_update_aircraft_list()
 	_update_radar_locks(delta)
@@ -643,6 +681,12 @@ func _update_aircraft_list() -> void:
 			all_units.append(child)
 		elif child is GroundUnit:
 			all_units.append(child)
+		elif child is NavalUnit:
+			all_units.append(child)
+		elif child is CombatUnit:
+			# 兜底：MountTarget 等不是 Aircraft/GroundUnit/NavalUnit 的 CombatUnit 子类
+			# 它们是船上挂点的锁定代理，必须进 all_units 才能被雷达锁定循环看见
+			all_units.append(child)
 	bullet_manager.combat_unit_list = all_units
 	missile_manager.target_list = all_units
 	_all_combat_units_cache = all_units
@@ -663,6 +707,7 @@ func _update_radar_locks(delta: float) -> void:
 	for unit in all_units:
 		unit.is_locked = false
 		unit.locked_by.clear()
+		unit.incoming_lock_progress = 0.0
 
 	for unit in all_units:
 		var keys_to_remove: Array = []
@@ -687,8 +732,8 @@ func _update_radar_locks(delta: float) -> void:
 				if unit.global_position.distance_to(other.global_position) > ecm_range:
 					in_cone = false
 			if in_cone:
-				# 低空/地面目标更难锁定
-				var lock_rate := _lock_rate_for_tier(other.get_altitude_tier())
+				# 低空飞机更难锁定（地面单位不受此影响）
+				var lock_rate := _lock_rate_for_target(other)
 				# 云层锁定衰减：
 				#   - 默认：HIGH 档在云里 ×0.5
 				#   - 云雾机动（战区奖励）：任意档位云里 ×0.1（近乎无法锁定）
@@ -727,8 +772,11 @@ func _update_radar_locks(delta: float) -> void:
 		else:
 			lock_time_val = 3.0
 		for target in unit.radar_targets:
+			var t: CombatUnit = target
+			var progress: float = clampf(unit.radar_targets[target] / lock_time_val, 0.0, 1.0)
+			if progress > t.incoming_lock_progress:
+				t.incoming_lock_progress = progress
 			if unit.radar_targets[target] >= lock_time_val:
-				var t: CombatUnit = target
 				t.is_locked = true
 				t.locked_by.append(unit)
 
@@ -759,15 +807,13 @@ func _cached_is_in_cloud(unit: CombatUnit) -> bool:
 	unit._cloud_cache_result = _weather.is_in_cloud(pos)
 	return unit._cloud_cache_result
 
-## 低空/地面目标锁定速率衰减
-static func _lock_rate_for_tier(tier: int) -> float:
-	match tier:
-		CombatUnit.AltitudeTier.GROUND:
-			return 0.5
-		CombatUnit.AltitudeTier.LOW:
-			return 0.7
-		_:
-			return 1.0
+## 低空飞行目标锁定速率衰减（仅对 Aircraft 生效；地面单位恒定 1.0）
+static func _lock_rate_for_target(target: CombatUnit) -> float:
+	if not (target is Aircraft):
+		return 1.0
+	if target.get_altitude_tier() == CombatUnit.AltitudeTier.LOW:
+		return 0.7
+	return 1.0
 
 ## simple_ai 敌机的"全速物理"预算：最近 N 架每帧跑，超出名额的隔帧跑
 ## 人海战术（大量 UAV）场景下这是最关键的 CPU 节流开关，可按性能需求调
@@ -939,6 +985,57 @@ func _spawn_enemy_sam() -> void:
 func _spawn_enemy_aa() -> void:
 	_spawn_ground_unit(_aa_scene, _aa_params, 1, 800.0)
 
+## 在玩家附近生成一艘敌方 FFG 护卫舰（Debug 面板用）
+## 直线往返 waypoint：玩家前方 1500 px 附近起刷，两条 5000 px 对角 waypoint 组成往返
+func _spawn_enemy_ffg() -> void:
+	_spawn_naval_ship(_ffg_params, FrigateShip)
+
+## 在玩家附近生成一艘敌方 DDG 驱逐舰
+func _spawn_enemy_ddg() -> void:
+	_spawn_naval_ship(_ddg_params, DestroyerShip)
+
+## 在玩家附近生成一艘敌方 CG 巡洋舰
+func _spawn_enemy_cg() -> void:
+	_spawn_naval_ship(_cg_params, CruiserShip)
+
+## 在玩家附近生成一艘敌方 CV 航母（BOSS 级，非常肉）
+## 用 preload 而非 class_name 引用 —— 防止 Godot 全局 class 缓存未更新时 "CarrierShip not declared"
+func _spawn_enemy_cv() -> void:
+	var cv_script: GDScript = preload("res://scripts/naval/carrier_ship.gd")
+	_spawn_naval_ship(_cv_params, cv_script)
+
+## 在玩家附近生成一艘敌方 SS 核潜艇（预留事件 BOSS，目前默认浮出可直接打）
+func _spawn_enemy_ss() -> void:
+	var ss_script: GDScript = preload("res://scripts/naval/submarine_ship.gd")
+	_spawn_naval_ship(_ss_params, ss_script)
+
+## 通用海上单位 spawn：在玩家附近刷一艘，配上直线往返 waypoint + 注入武器管理器
+func _spawn_naval_ship(params_res: Resource, ship_class: GDScript) -> void:
+	if not player_aircraft or player_aircraft.is_destroyed:
+		return
+	var pp := player_aircraft.global_position
+	var angle := randf() * TAU
+	var spawn_pos := pp + Vector2(cos(angle), sin(angle)) * 3000.0
+
+	var ship: NavalUnit = ship_class.new()
+	ship.params = params_res
+	ship.position = spawn_pos
+
+	# 朝向：沿切线方向（垂直于玩家-船连线）
+	var tangent := Vector2(-sin(angle), cos(angle))
+	ship.initial_heading_deg = rad_to_deg(atan2(tangent.x, -tangent.y))
+
+	# 直线往返 waypoint（船开起来比较容易观察火力）
+	var wp_dir := tangent * 4000.0
+	ship.waypoints = PackedVector2Array([spawn_pos + wp_dir, spawn_pos - wp_dir])
+
+	ship.set_meta("category", "adds")
+	ship.set_meta("skip_far_cleanup", true)
+
+	add_child(ship)
+	ship.bullet_manager = bullet_manager
+	ship.missile_manager = missile_manager
+
 ## 地面单位通用生成（与沙盒 debug_panel._spawn_ground_unit 同构）
 ## 地面单位归类为 Adds：不占 Token、不随机刷新、只由事件/Debug 面板触发
 func _spawn_ground_unit(scene: PackedScene, params_res: Resource, team_id: int, distance: float) -> void:
@@ -1087,6 +1184,7 @@ func _on_zone_mission_triggered(zone_id: StringName) -> void:
 			"air":       fmt_key = "ZONE_MISSION_STARTED_AIR_FMT"
 			"squadron":  fmt_key = "ZONE_MISSION_STARTED_SQUADRON_FMT"
 			"elite":     fmt_key = "ZONE_MISSION_STARTED_ELITE_FMT"
+			"naval":     fmt_key = "ZONE_MISSION_STARTED_NAVAL_FMT"
 			_:           fmt_key = "ZONE_MISSION_STARTED_FMT"
 		_zone_hint.show_temp(tr(fmt_key) % _zone_label(zone_id), 3.0)
 	if _zone_data:
@@ -1170,6 +1268,11 @@ func _update_boss_phase() -> void:
 		var d: float = player_aircraft.global_position.distance_to(boss_zone["center"])
 		if d <= float(boss_zone["radius"]) + BOSS_ZONE_ENTRY_BUFFER_PX:
 			_boss_spawned = true
+			# 【硬规则】玩家直接飞入 BOSS_ZONE（没走战术地图点击）时也要把 selected_id 切到 BOSS，
+			# 否则 is_boss_phase() 永远 false，所有"BOSS 阶段早退"守卫（刷怪 / 猎手 /
+			# 战区地图隐藏 / _update_boss_phase_purge / 敌机绕玩家航点）全部失效。
+			if _zone_data.selected_id != &"BOSS":
+				_zone_data.select_zone(&"BOSS")
 			if _zone_hint:
 				_zone_hint.hide_persistent()
 				_zone_hint.show_warning_banner("WARNING  WARNING")

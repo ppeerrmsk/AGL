@@ -22,7 +22,7 @@ extends RefCounted
 #  EVADE_MISSILE — 导弹规避（保持原有逻辑）
 # ══════════════════════════════════════════════
 
-static func process_evade(ai, delta: float) -> void:
+static func process_evade(ai: AIController, delta: float) -> void:
 	var missile := find_nearest_incoming_missile(ai)
 	if not missile:
 		exit_evade(ai)
@@ -68,7 +68,7 @@ static func process_evade(ai, delta: float) -> void:
 		var alt_change := AIController.EVADE_ALT_CHANGE if ai.aircraft.altitude < AIController.EVADE_ALT_THRESH else -AIController.EVADE_ALT_CHANGE
 		ai.aircraft.target_altitude = ai.aircraft.altitude + alt_change
 
-static func enter_evade(ai) -> void:
+static func enter_evade(ai: AIController) -> void:
 	EventLogger.log_event("EVADE", ai._log_name(),
 		"entering missile evasion (was %s, target=%s)" % [
 			AIController.AIState.keys()[ai._state], ai._log_target_name(ai._current_target)])
@@ -89,7 +89,7 @@ static func enter_evade(ai) -> void:
 	ai.aircraft.lod_level = 0
 	ai.aircraft.keep_target_on_arrival = false
 
-static func exit_evade(ai) -> void:
+static func exit_evade(ai: AIController) -> void:
 	EventLogger.log_event("EVADE", ai._log_name(), "exiting missile evasion")
 	if ai._current_target and is_instance_valid(ai._current_target) and not ai._current_target.is_destroyed:
 		ai.aircraft.set_combat_target(ai._current_target)
@@ -115,10 +115,10 @@ static func exit_evade(ai) -> void:
 #  导弹威胁检测
 # ══════════════════════════════════════════════
 
-static func check_incoming_missile(ai) -> bool:
+static func check_incoming_missile(ai: AIController) -> bool:
 	return find_nearest_incoming_missile(ai) != null
 
-static func find_nearest_incoming_missile(ai) -> Missile:
+static func find_nearest_incoming_missile(ai: AIController) -> Missile:
 	var missile_manager := ai._get_missile_manager()
 	if not missile_manager:
 		return null
@@ -154,7 +154,7 @@ static func find_nearest_incoming_missile(ai) -> Missile:
 ## 同时检查两个条件：
 ##   1. 导弹在飞机后方（位置判定）
 ##   2. 导弹正朝飞机飞来（速度方向判定，排除已飞过的导弹）
-static func is_missile_from_rear(ai, missile: Missile) -> bool:
+static func is_missile_from_rear(ai: AIController, missile: Missile) -> bool:
 	var missile_to_ac := (ai.aircraft.global_position - missile.global_position).normalized()
 	var ac_fwd := Vector2(sin(ai.aircraft.heading), -cos(ai.aircraft.heading))
 	# 条件 1：导弹在飞机后方锥内

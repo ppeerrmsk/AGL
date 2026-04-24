@@ -19,7 +19,7 @@ extends RefCounted
 #  进入交战（雷达扫描 + 打分）
 # ══════════════════════════════════════════════
 
-static func try_engage(ai) -> void:
+static func try_engage(ai: AIController) -> void:
 	if ai._cooldown_timer > 0.0:
 		return
 
@@ -96,7 +96,7 @@ static func try_engage(ai) -> void:
 				AIController.AIState.keys()[prev_state], ai._log_target_name(best_target), dist_m, best_score])
 
 ## 交战中重评估目标（受 focus 影响）
-static func reevaluate_target(ai) -> void:
+static func reevaluate_target(ai: AIController) -> void:
 	var best_target: CombatUnit = null
 	var best_score := -1.0
 	var current_score := -1.0
@@ -144,7 +144,7 @@ static func reevaluate_target(ai) -> void:
 			ai._log_target_name(old_target), ai._log_target_name(best_target),
 			current_score, best_score])
 
-static func disengage(ai) -> void:
+static func disengage(ai: AIController) -> void:
 	EventLogger.log_event("AI_STATE", ai._log_name(),
 		"DISENGAGE (was fighting %s, engaged %.1fs)" % [
 			ai._log_target_name(ai._current_target), ai._engage_timer])

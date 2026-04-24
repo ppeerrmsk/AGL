@@ -572,11 +572,30 @@ static func update_energy_management(ac: Aircraft) -> void:
 		# 地面攻击模式（2026-04-21，详见 docs/changelogs/player-ai-log.md）
 		# 分武器模式处理：
 		#   - 机炮 / 火箭：地面目标固定，不需要照射；加力掠过 strafe，降低被 AAA 命中概率
-		#   - 导弹：维持照射时间，cruise×0.7 保证锁定稳定
+		#   - 导弹：未对准先 corner speed 转弯，超射程外 cruise 推进，进射程再 0.7× 稳锁
+		#     （2026-04-24：对齐对空导弹分支的距离带；旧版无条件 0.7× 让玩家在 7km 外就主动减速还关 AB）
 		if ac.combat_target is GroundUnit:
 			if ac.weapon_mode == Aircraft.WeaponMode.MISSILE:
-				ac.target_speed_kmh = cruise * 0.7
-				set_afterburner(ac, false)
+				var eff_range_px_g := ac._effective_missile_range_px()
+				var dist_g := Aircraft.effective_distance_px(ac.global_position, ac.altitude,
+					ac.combat_target.global_position, ac.combat_target.altitude)
+				var to_tgt_g := (ac.combat_target.global_position - ac.global_position).normalized()
+				var hdg_to_tgt_g := atan2(to_tgt_g.x, -to_tgt_g.y)
+				var hdg_diff_deg_g := absf(rad_to_deg(Aircraft._angle_diff(hdg_to_tgt_g, ac.heading)))
+				var my_kmh_g := ac.speed * 3.6
+				if hdg_diff_deg_g > 35.0:
+					# 未对准：corner speed 最大角速度，必要时加力帮助快速进入最优转弯态
+					var turn_target_kmh_g := maxf(corner_speed_kmh(ac), cruise * 0.85)
+					ac.target_speed_kmh = turn_target_kmh_g
+					set_afterburner(ac, my_kmh_g < turn_target_kmh_g - 40.0 and ac.fuel > 0.0)
+				elif dist_g > eff_range_px_g:
+					# 对准但在射程外：cruise 推进，快速凑到照射距离
+					ac.target_speed_kmh = cruise
+					set_afterburner(ac, my_kmh_g < cruise - 50.0 and ac.fuel > 0.0)
+				else:
+					# 进入射程且对准：降速稳定照射（维持锁定累积）
+					ac.target_speed_kmh = cruise * 0.7
+					set_afterburner(ac, false)
 			else:
 				var approach_spd := cruise * cb.approach_speed_mult
 				ac.target_speed_kmh = approach_spd
@@ -827,10 +846,11 @@ static func update_energy_management(ac: Aircraft) -> void:
 		if ac.formation_mode:
 			return
 
-		# 玩家战术偏好巡航（点击移动）：距离目标远且航向对齐时开加力冲刺
+		# 玩家战术偏好巡航（点击移动）：玩家点了地图就要积极冲，不按距离降温
+		# （2026-04-24：旧版 dist < 800px 掉回 cruise 关 AB，和"攻击锁定外敌人才加速"表现不一致。
+		#  现在只要点了 target_position 就统一加力 approach，让移动和攻击的积极性一致。）
 		if ac.use_tactical_preference and ac.target_position != Vector2.INF:
 			var diff_to_tgt := ac.target_position - ac.global_position
-			var dist_to_tgt := diff_to_tgt.length()
 			var hdg_to_tgt := atan2(diff_to_tgt.x, -diff_to_tgt.y)
 			var hdiff_deg := absf(rad_to_deg(Aircraft._angle_diff(hdg_to_tgt, ac.heading)))
 			var approach_spd := cruise * cb.approach_speed_mult
@@ -838,16 +858,14 @@ static func update_energy_management(ac: Aircraft) -> void:
 			var corner_kmh_cr := corner_speed_kmh(ac)
 
 			if hdiff_deg > cb.turn_slow_angle:
-				# 大角度转弯：维持角点速度，拉满结构 G 获得最小转弯半径
-				ac.target_speed_kmh = maxf(corner_kmh_cr, cruise * 0.9)
-				set_afterburner(ac, false)
-			elif dist_to_tgt > 800.0:
-				# 远距离直线冲刺：开加力
+				# 大角度转弯：corner speed 最小半径，同时加力帮助快速拉到 corner
+				var turn_target_kmh_cr := maxf(corner_kmh_cr, cruise * 0.9)
+				ac.target_speed_kmh = turn_target_kmh_cr
+				set_afterburner(ac, my_kmh_cr < turn_target_kmh_cr - 40.0 and ac.fuel > 0.0)
+			else:
+				# 对准后：不论距离一律 approach + 加力，玩家点了就要冲
 				ac.target_speed_kmh = approach_spd
 				set_afterburner(ac, my_kmh_cr < approach_spd and ac.fuel > 0.0)
-			else:
-				ac.target_speed_kmh = cruise
-				set_afterburner(ac, false)
 		else:
 			set_afterburner(ac, false)
 			ac.target_speed_kmh = cruise

@@ -222,6 +222,51 @@ func _build_ui() -> void:
 
 	_content.add_child(_make_sep())
 
+	# ── 海上单位生成 ──
+	var naval_label := Label.new()
+	naval_label.text = "[ 海上单位 ]"
+	naval_label.add_theme_font_size_override("font_size", 13)
+	naval_label.add_theme_color_override("font_color", Color(0.5, 0.75, 0.95))
+	naval_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_content.add_child(naval_label)
+
+	var ffg_btn := Button.new()
+	ffg_btn.text = "▶ 敌方 FFG 护卫舰"
+	ffg_btn.add_theme_font_size_override("font_size", 12)
+	_apply_btn_style(ffg_btn, Color(0.3, 0.55, 0.85))
+	ffg_btn.pressed.connect(_on_spawn_enemy_ffg)
+	_content.add_child(ffg_btn)
+
+	var ddg_btn := Button.new()
+	ddg_btn.text = "▶ 敌方 DDG 驱逐舰（VLS 齐射）"
+	ddg_btn.add_theme_font_size_override("font_size", 12)
+	_apply_btn_style(ddg_btn, Color(0.25, 0.45, 0.9))
+	ddg_btn.pressed.connect(_on_spawn_enemy_ddg)
+	_content.add_child(ddg_btn)
+
+	var cg_btn := Button.new()
+	cg_btn.text = "▶ 敌方 CG 巡洋舰（远距 VLS）"
+	cg_btn.add_theme_font_size_override("font_size", 12)
+	_apply_btn_style(cg_btn, Color(0.2, 0.35, 0.95))
+	cg_btn.pressed.connect(_on_spawn_enemy_cg)
+	_content.add_child(cg_btn)
+
+	var cv_btn := Button.new()
+	cv_btn.text = "▶ 敌方 CV 航母（BOSS 级，1200 HP）"
+	cv_btn.add_theme_font_size_override("font_size", 12)
+	_apply_btn_style(cv_btn, Color(0.15, 0.25, 0.85))
+	cv_btn.pressed.connect(_on_spawn_enemy_cv)
+	_content.add_child(cv_btn)
+
+	var ss_btn := Button.new()
+	ss_btn.text = "▶ 敌方 SS 核潜艇（18 枚巡航导弹齐射）"
+	ss_btn.add_theme_font_size_override("font_size", 12)
+	_apply_btn_style(ss_btn, Color(0.35, 0.2, 0.55))
+	ss_btn.pressed.connect(_on_spawn_enemy_ss)
+	_content.add_child(ss_btn)
+
+	_content.add_child(_make_sep())
+
 	# 清空敌人按钮
 	var clear_btn := Button.new()
 	clear_btn.text = "✖ 清空所有敌人"
@@ -367,6 +412,56 @@ func _on_spawn_enemy_aa() -> void:
 		game_scene._spawn_enemy_aa()
 	print("[DebugSpawn] spawned %d × 敌方AA炮" % repeats)
 
+func _on_spawn_enemy_ffg() -> void:
+	if not game_scene or not is_instance_valid(game_scene):
+		return
+	if game_scene.is_game_over:
+		return
+	var repeats: int = int(_count_spin.value)
+	for r in range(repeats):
+		game_scene._spawn_enemy_ffg()
+	print("[DebugSpawn] spawned %d × 敌方FFG" % repeats)
+
+func _on_spawn_enemy_ddg() -> void:
+	if not game_scene or not is_instance_valid(game_scene):
+		return
+	if game_scene.is_game_over:
+		return
+	var repeats: int = int(_count_spin.value)
+	for r in range(repeats):
+		game_scene._spawn_enemy_ddg()
+	print("[DebugSpawn] spawned %d × 敌方DDG" % repeats)
+
+func _on_spawn_enemy_cg() -> void:
+	if not game_scene or not is_instance_valid(game_scene):
+		return
+	if game_scene.is_game_over:
+		return
+	var repeats: int = int(_count_spin.value)
+	for r in range(repeats):
+		game_scene._spawn_enemy_cg()
+	print("[DebugSpawn] spawned %d × 敌方CG" % repeats)
+
+func _on_spawn_enemy_cv() -> void:
+	if not game_scene or not is_instance_valid(game_scene):
+		return
+	if game_scene.is_game_over:
+		return
+	var repeats: int = int(_count_spin.value)
+	for r in range(repeats):
+		game_scene._spawn_enemy_cv()
+	print("[DebugSpawn] spawned %d × 敌方CV" % repeats)
+
+func _on_spawn_enemy_ss() -> void:
+	if not game_scene or not is_instance_valid(game_scene):
+		return
+	if game_scene.is_game_over:
+		return
+	var repeats: int = int(_count_spin.value)
+	for r in range(repeats):
+		game_scene._spawn_enemy_ss()
+	print("[DebugSpawn] spawned %d × 敌方SS" % repeats)
+
 func _on_clear_pressed() -> void:
 	if not game_scene or not is_instance_valid(game_scene):
 		return
@@ -381,6 +476,14 @@ func _on_clear_pressed() -> void:
 			var gu: GroundUnit = child
 			if gu.team != 0 and not gu.is_destroyed:
 				gu.take_damage(9999.0)
+				cleared += 1
+		elif child is NavalUnit:
+			var nu: NavalUnit = child
+			if nu.team != 0 and not nu.is_destroyed:
+				# 船没有 take_damage 斩杀路径（船本身不可直接击沉），直接 queue_free + 释放舰名
+				if nu.full_name != "":
+					NavalShipNames.release(nu.full_name)
+				nu.queue_free()
 				cleared += 1
 	print("[DebugSpawn] cleared %d enemies" % cleared)
 

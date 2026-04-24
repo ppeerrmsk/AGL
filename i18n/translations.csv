@@ -61,6 +61,7 @@ TACTIC_RETURN_FORMATION,回归编队,Returning,編隊復帰
 TACTIC_KAMIKAZE,舍身,Kamikaze,玉砕
 POPUP_EVOLUTION_FMT,技能进化！%s,Skill Evolved! %s,スキル進化！%s
 POPUP_COBRA,眼镜蛇机动,Cobra Maneuver,コブラ機動
+POPUP_CLOAK,光学迷彩,Optical Camouflage,光学迷彩
 TOOLTIP_WEAPON_MISSILE_TITLE,导弹优先,Missile Priority,ミサイル優先
 TOOLTIP_WEAPON_MISSILE_BODY,点击敌机后自动锁定并发射导弹\n导弹耗尽时自动切换机炮\n装填完毕后恢复导弹模式,Click enemy to auto-lock and fire missile\nSwitches to gun when missiles depleted\nReturns to missile mode after reload,敵機クリックで自動ロック・発射\nミサイル切れ時はガンへ自動切替\n装填完了でミサイル優先に復帰
 TOOLTIP_WEAPON_MISSILE_HINT,按 [color=#ffdd66]1[/color] 切换到机炮优先,Press [color=#ffdd66]1[/color] to switch to Gun Priority,[color=#ffdd66]1[/color] でガン優先へ
@@ -214,6 +215,7 @@ ZONE_A_NAME,未来港,Future Harbor,未来港
 ZONE_B_NAME,湾北区,North Bay,湾北エリア
 ZONE_C_NAME,海滨公园,Seaside Park,海浜公園
 ZONE_D_NAME,君津山区,Kimitsu Hills,君津丘陵
+ZONE_E_NAME,中央海域,Central Waters,中央海域
 ZONE_BOSS_NAME,BOSS 决战地点,BOSS Showdown,BOSS 決戦地
 ZONE_STATE_AVAILABLE,可选,Available,選択可能
 ZONE_STATE_SELECTED,已选（前往中）,Selected (en route),選択中（移動中）
@@ -242,6 +244,7 @@ ZONE_MISSION_STARTED_FMT,⚔ 战区 %s 任务开始 — 清剿地面单位,⚔ Z
 ZONE_MISSION_STARTED_AIR_FMT,⚔ 战区 %s 任务开始 — 歼灭敌方中队,⚔ ZONE %s — DESTROY ENEMY SQUADRON,⚔ エリア %s 開戦 — 敵中隊を撃墜
 ZONE_MISSION_STARTED_SQUADRON_FMT,⚔ 战区 %s 任务开始 — 击败敌方中队,⚔ ZONE %s — DEFEAT ENEMY SQUADRON,⚔ エリア %s 開戦 — 敵中隊を撃破
 ZONE_MISSION_STARTED_ELITE_FMT,⚔ 战区 %s 任务开始 — 击落指挥 Sentinel,⚔ ZONE %s — DOWN SENTINEL COMMANDER,⚔ エリア %s 開戦 — 指揮機 Sentinel 撃墜
+ZONE_MISSION_STARTED_NAVAL_FMT,⚔ 战区 %s 任务开始 — 击毁舰队旗舰,⚔ ZONE %s — SINK FLEET FLAGSHIP,⚔ エリア %s 開戦 — 艦隊旗艦を撃沈
 ZONE_CLEARED_FMT,✓ 战区 %s 已攻克,✓ ZONE %s CLEARED,✓ エリア %s 攻略完了
 ZONE_CLEARED_WITH_REWARD_FMT,✓ 战区 %s 已攻克 — 获得奖励：%s,✓ ZONE %s CLEARED — REWARD: %s,✓ エリア %s 攻略完了 — 報酬: %s
 ZONE_REFRESHED_AFTER_CLEAR,⚡ 其他战区敌情升级 — 敌人已换防,⚡ OTHER ZONES REINFORCED — Enemies rotated,⚡ 他エリア敵勢力強化 — 敵部隊交代
@@ -256,6 +259,7 @@ ZONE_MISSION_GROUND,※ 清剿战区内的地面单位（SAM / AA）,※ Elimina
 ZONE_MISSION_AIR,※ 歼灭盘旋在战区上空的敌方中队,※ Destroy the enemy squadron patrolling the zone,※ 上空を警戒する敵飛行隊を撃墜
 ZONE_MISSION_SQUADRON,※ 击败锁定战区的敌方中队,※ Defeat the enemy squadron holding the zone,※ エリアを制圧中の敵中隊を撃破
 ZONE_MISSION_ELITE,※ 击落指挥 Sentinel（精英目标）,※ Shoot down the Sentinel commander (elite target),※ 指揮機 Sentinel を撃墜せよ（精鋭目標）
+ZONE_MISSION_NAVAL,※ 击毁海上舰队旗舰,※ Sink the enemy fleet flagship,※ 敵艦隊旗艦を撃沈せよ
 MENU_AUDIO_BUTTON,音频设置,Audio,音声設定
 MENU_RESET_SAVE_BUTTON,删除存档,Reset Save,セーブ削除
 MENU_RESET_SAVE_CONFIRM,确认删除所有进度存档？\n（包括首次引导状态。语言 / 音频设置保留。）,Delete all save progress?\n(Including first-run tutorial state. Language / Audio settings are kept.),すべてのセーブデータを削除しますか？\n（初回チュートリアル状態を含む。言語／音声設定は保持）
@@ -290,14 +294,16 @@ TACTICAL_TIP_RELOAD,导弹、机炮、热诱弹打光后都会自动进入冷却
 TACTICAL_CONTROLS_TITLE,[ 操作 ],[ CONTROLS ],[ 操作 ]
 TACTICAL_CONTROLS_LMB,[color=#ffe08a][左键][/color]  指定目标,[color=#ffe08a][LMB][/color]  Set target,[color=#ffe08a][左クリック][/color]  目標指定
 TACTICAL_CONTROLS_RMB,[color=#ffe08a][右键][/color]  解除任务,[color=#ffe08a][RMB][/color]  Clear order,[color=#ffe08a][右クリック][/color]  任務解除
-TACTICAL_CONTROLS_MMB,[color=#ffe08a][中键拖动][/color]  平移相机,[color=#ffe08a][MMB drag][/color]  Pan camera,[color=#ffe08a][中ドラッグ][/color]  カメラ移動
+TACTICAL_CONTROLS_MMB,[color=#ffe08a][WASD / 中键拖动][/color]  自由平移相机,[color=#ffe08a][WASD / MMB drag][/color]  Pan camera freely,[color=#ffe08a][WASD / 中ドラッグ][/color]  カメラ自由移動
 TACTICAL_CONTROLS_WHEEL,[color=#ffe08a][滚轮][/color]  缩放,[color=#ffe08a][Wheel][/color]  Zoom,[color=#ffe08a][ホイール][/color]  ズーム
-TACTICAL_CONTROLS_SPACE,[color=#ffe08a][空格][/color]  回到主视角,[color=#ffe08a][Space][/color]  Recenter on player,[color=#ffe08a][スペース][/color]  主視点に戻す
+TACTICAL_CONTROLS_SPACE,[color=#ffe08a][空格][/color]  重新锁定跟随玩家,[color=#ffe08a][Space][/color]  Re-lock follow on player,[color=#ffe08a][スペース][/color]  プレイヤー追尾に復帰
 TACTICAL_CONTROLS_TAB,[color=#ffe08a][Tab][/color]  战术地图,[color=#ffe08a][Tab][/color]  Tactical map,[color=#ffe08a][Tab][/color]  戦術マップ
 TACTICAL_CONTROLS_ESC,[color=#ffe08a][ESC][/color]  退出当前界面,[color=#ffe08a][ESC][/color]  Exit current view,[color=#ffe08a][ESC][/color]  現在の画面を閉じる
 TUTORIAL_HEADER,[ 基础操作 ],[ Basics ],[ 基本操作 ]
+TUTORIAL_RULE_AUTOFLY,• 飞机会自动向前飞行，不会停下,• Your aircraft flies forward on its own — it never stops,• 機体は自動で前進し続けます（停止しません）
+TUTORIAL_RULE_CLICKMOVE,• 点击地图任意位置，飞机会转向并飞往该标记点,• Click anywhere on the map — your aircraft turns and flies toward the marker,• マップをクリックすると、機体はその地点に向かって旋回・飛行します
 TUTORIAL_CLICK_ATTACK,[color=#ffe08a][左键点击敌机][/color]  下达攻击指令,[color=#ffe08a][Left-click enemy][/color]  Issue attack order,[color=#ffe08a][左クリック][/color]  敵機に攻撃指示
 TUTORIAL_AUTO_FIRE,[color=#ffe08a][雷达锁定完成][/color]  自动发射导弹,[color=#ffe08a][Radar lock complete][/color]  Missile auto-fires,[color=#ffe08a][ロックオン完了][/color]  ミサイル自動発射
-TUTORIAL_CAMERA,[color=#ffe08a][中键拖动][/color]  平移相机,[color=#ffe08a][MMB drag][/color]  Pan camera,[color=#ffe08a][中ドラッグ][/color]  カメラ移動
+TUTORIAL_CAMERA,"[color=#ffe08a][WASD / 中键拖动][/color]  自由平移（默认跟随玩家，[color=#ffe08a]空格[/color]重新锁定）","[color=#ffe08a][WASD / MMB drag][/color]  Free-pan (follows you by default, [color=#ffe08a]Space[/color] to re-lock)","[color=#ffe08a][WASD / 中ドラッグ][/color]  自由移動（既定は追尾、[color=#ffe08a]スペース[/color]で再ロック）"
 TUTORIAL_ZOOM,[color=#ffe08a][滚轮][/color]  缩放视野,[color=#ffe08a][Wheel][/color]  Zoom view,[color=#ffe08a][ホイール][/color]  ズーム
 TUTORIAL_WORLD_CLICK,点击攻击,CLICK TO ATTACK,クリックで攻撃

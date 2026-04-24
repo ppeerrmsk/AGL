@@ -209,6 +209,7 @@ func _update_radar_locks(delta: float) -> void:
 	for unit in all_units:
 		unit.is_locked = false
 		unit.locked_by.clear()
+		unit.incoming_lock_progress = 0.0
 
 	# 对每个单位，检查其雷达锥内的敌方单位
 	for unit in all_units:
@@ -236,7 +237,7 @@ func _update_radar_locks(delta: float) -> void:
 					in_cone = false
 			if in_cone:
 				# 在锥内：累加照射时间（低空目标更难锁定）
-				var lock_rate := _lock_rate_for_tier(other.get_altitude_tier())
+				var lock_rate := _lock_rate_for_target(other)
 				# 云层锁定衰减（与 survivor_mode 保持一致）
 				if _weather and _cached_is_in_cloud(other):
 					if other is Aircraft and other.cloud_lock_stealth:
@@ -275,20 +276,21 @@ func _update_radar_locks(delta: float) -> void:
 		else:
 			lock_time_val = 3.0
 		for target in unit.radar_targets:
+			var t: CombatUnit = target
+			var progress: float = clampf(unit.radar_targets[target] / lock_time_val, 0.0, 1.0)
+			if progress > t.incoming_lock_progress:
+				t.incoming_lock_progress = progress
 			if unit.radar_targets[target] >= lock_time_val:
-				var t: CombatUnit = target
 				t.is_locked = true
 				t.locked_by.append(unit)
 
-## 低空/地面目标锁定速率衰减
-static func _lock_rate_for_tier(tier: int) -> float:
-	match tier:
-		CombatUnit.AltitudeTier.GROUND:
-			return 0.5  # 地面杂波严重干扰
-		CombatUnit.AltitudeTier.LOW:
-			return 0.7  # 低空杂波，锁定时间延长 ~43%
-		_:
-			return 1.0
+## 低空飞行目标锁定速率衰减（仅对 Aircraft 生效；地面单位恒定 1.0）
+static func _lock_rate_for_target(target: CombatUnit) -> float:
+	if not (target is Aircraft):
+		return 1.0
+	if target.get_altitude_tier() == CombatUnit.AltitudeTier.LOW:
+		return 0.7  # 低空杂波，锁定时间延长 ~43%
+	return 1.0
 
 # ══════════════════════════════════════════════
 #  编队管理

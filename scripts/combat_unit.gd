@@ -69,6 +69,7 @@ var flat_altitude: bool = false     ## 生存模式：扁平高度（三档/四�
 var radar_targets: Dictionary = {}       ## { CombatUnit: float } 累计照射时间
 var is_locked: bool = false              ## 被至少一个敌方单位锁定
 var locked_by: Array[CombatUnit] = []    ## 锁定自己的单位列表
+var incoming_lock_progress: float = 0.0  ## 被敌方锁定的最大进度 (0..1)，用于表现层动画
 var is_hovered: bool = false             ## 鼠标悬停时为 true，显示雷达锥
 var is_mission_target: bool = false      ## 是否为当前战区/事件的必杀目标（UI 显示 TGT 括号）
 

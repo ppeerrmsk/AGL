@@ -514,7 +514,7 @@ const TRAVEL_SPAWN_INTERVAL_MIN := 25.0    ## 玩家高等级时的下限
 const TRAVEL_SPAWN_FAN_HALF := PI * 70.0 / 180.0
 const ENEMIES_PER_WAVE_BASE := 1    ## 每波基础敌人数
 const ENEMIES_PER_WAVE_GROWTH := 0.3  ## 每级额外敌人数
-const SPAWN_DISTANCE := 3000.0      ## 刷怪距离（像素）
+const SPAWN_DISTANCE := 3200.0      ## 刷怪距离（像素）；需 > 最小 zoom 下的可视对角半径 + VIEW_SPAWN_MARGIN_PX（当前 ZOOM_MIN=0.4 下对角半径 ≈ 2750 px）
 const MAX_ENEMIES_HARD := 40          ## 绝对上限
 const MAX_ENEMIES_DEFAULT := 30       ## 默认上限
 const MIN_ENEMIES_CAP := 8            ## 动态下限（至少允许这么多敌人）

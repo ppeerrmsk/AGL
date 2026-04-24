@@ -46,6 +46,9 @@ var _garrison_zones: Dictionary = {}
 var _triggered_zones: Dictionary = {}
 ## 已发完成信号的战区（防止重复）
 var _completed_zones: Dictionary = {}
+## 待撤离单位：等玩家视线外才 queue_free（铁则：敌人不在玩家画面里消失）
+## 由 _despawn_garrison / refresh_active_zones_for_level / _despawn_zone_units_offscreen 共用
+var _pending_despawn: Array = []
 
 func setup(p_mode: Node, zones: ZoneData, player: Aircraft,
 		sam_scene: PackedScene, sam_params: Resource,
@@ -66,6 +69,10 @@ func setup(p_mode: Node, zones: ZoneData, player: Aircraft,
 func _physics_process(delta: float) -> void:
 	if not _zones or not _player:
 		return
+
+	# 每帧处理待撤离队列：单位飘到视线外就 free（与 BOSS 阶段共用机制）
+	if not _pending_despawn.is_empty():
+		_flush_pending_despawn()
 
 	# BOSS 阶段：常规战区 A/B/C/D 任务全部停止（不再刷怪、不再触发、不再判定完成）
 	# 已经刷出来的 TGT/驻守敌机在玩家视线外悄悄 free（不做飞出动画）
@@ -154,10 +161,14 @@ func _spawn_zone_units(zone_id: StringName, zone: Dictionary) -> void:
 			_spawn_air_squadron(zone_id, zone)
 		"elite":
 			_spawn_elite_target(zone_id, zone)
+		"naval":
+			_spawn_naval_fleet(zone_id, zone)
 		_:
 			_spawn_ground_garrison(zone_id, zone)
 	# 所有战区：按难度刷驻守敌机（守卫者，非 TGT，攻克后撤离）
-	_spawn_zone_defenders(zone_id, zone, mission_type)
+	# naval 任务不加空中驻守（玩家专心打船）
+	if mission_type != "naval":
+		_spawn_zone_defenders(zone_id, zone, mission_type)
 
 ## 陆地守备：SAM + AA 按星级/等级缩放
 func _spawn_ground_garrison(zone_id: StringName, zone: Dictionary) -> void:
@@ -509,12 +520,186 @@ func _spawn_elite_target(zone_id: StringName, zone: Dictionary) -> void:
 		"id=%s center=%s sentinel_uav_squad=%d lvl=%d diff=%d (garrison spawned separately)"
 		% [zone_id, center, escort_count, lvl_e, diff_e])
 
-## 攻克战区后，让驻守机"撤离"（直接 queue_free；未来可改成飞向边界）
+## 海上舰队 —— 按难度缩放编队组成
+##   1★ = 3 FFG 直线巡逻（第一艘 FFG = 旗舰）
+##   2★ = 1 DDG 旗舰 + 2 FFG 护卫，8 字轨迹
+##   3★ = 1 CG 旗舰 + 1 DDG + 2 FFG，圆周编队
+## 旗舰击毁 = 任务完成；护卫舰不是 TGT，攻克后自动撤离
+const _NAVAL_FLEET_DDG_PARAMS_PATH := "res://resources/naval/destroyer_ddg.tres"
+const _NAVAL_FLEET_FFG_PARAMS_PATH := "res://resources/naval/frigate_ffg.tres"
+const _NAVAL_FLEET_CG_PARAMS_PATH := "res://resources/naval/cruiser_cg.tres"
+
+func _spawn_naval_fleet(zone_id: StringName, zone: Dictionary) -> void:
+	var center: Vector2 = zone["center"]
+	var radius: float = float(zone["radius"])
+	var difficulty: int = _zones.get_difficulty(zone_id) if _zones else 1
+
+	var ffg_params: Resource = load(_NAVAL_FLEET_FFG_PARAMS_PATH)
+	if ffg_params == null:
+		push_error("ZoneMission _spawn_naval_fleet: missing FFG params")
+		return
+
+	match difficulty:
+		3: _spawn_naval_3star(zone_id, center, radius, ffg_params)
+		2: _spawn_naval_2star(zone_id, center, radius, ffg_params)
+		_: _spawn_naval_1star(zone_id, center, radius, ffg_params)
+
+	EventLogger.log_event("ZONE", "PreSpawnNaval",
+		"id=%s star=%d" % [zone_id, difficulty])
+
+## 编队设计：
+##   旗舰沿 waypoints 巡航，其他船 formation_leader = 旗舰，保持相对偏移
+##   偏移约定：+X = 船头方向，+Y = 右舷
+##   → 典型 CSG 护航阵型：前哨在旗舰前方，两翼在左右，后卫在后
+
+## 1★ 海上任务：3 FFG —— 旗舰在前，2 僚舰在后两翼
+func _spawn_naval_1star(zone_id: StringName, center: Vector2, radius: float, ffg_params: Resource) -> void:
+	var half_span: float = radius * 0.7
+	var leader_spawn := Vector2(center.x, center.y)
+	var leader_wps := PackedVector2Array([
+		Vector2(center.x + half_span, center.y),
+		Vector2(center.x - half_span, center.y),
+	])
+	# 旗舰 FFG（唯一 TGT）
+	var leader: NavalUnit = _make_zone_ship(FrigateShip.new(), ffg_params, leader_spawn, 90.0, leader_wps, zone_id)
+	leader.is_mission_target = true
+	_spawned_zones[zone_id] = [leader]
+
+	# 2 僚舰左右后 quarter（旗舰本地系：-X=船尾，±Y=左右舷）
+	var escort_offsets: Array[Vector2] = [
+		Vector2(-350, -500),   # 后左
+		Vector2(-350, 500),    # 后右
+	]
+	var escort: Array = []
+	for off in escort_offsets:
+		var initial_pos: Vector2 = _compute_formation_world_pos(leader, off)
+		var ffg: NavalUnit = _make_zone_ship(FrigateShip.new(), ffg_params, initial_pos, 90.0, PackedVector2Array(), zone_id)
+		ffg.formation_leader = leader
+		ffg.formation_offset = off
+		escort.append(ffg)
+	_garrison_zones[zone_id] = escort
+
+## 2★ 海上任务：1 DDG 旗舰 + 2 FFG —— 一字护航阵型（左右两舷）
+func _spawn_naval_2star(zone_id: StringName, center: Vector2, radius: float, ffg_params: Resource) -> void:
+	var ddg_params: Resource = load(_NAVAL_FLEET_DDG_PARAMS_PATH)
+	if ddg_params == null:
+		push_error("missing DDG params"); return
+
+	var eight_wps := _eight_figure_waypoints(center, radius * 0.55, 24)
+	var leader: NavalUnit = _make_zone_ship(DestroyerShip.new(), ddg_params, eight_wps[0], 90.0, eight_wps, zone_id)
+	leader.is_mission_target = true
+	_spawned_zones[zone_id] = [leader]
+
+	# 2 FFG 在旗舰的左右两舷（classic combat V，稍微后撤）
+	var escort_offsets: Array[Vector2] = [
+		Vector2(-200, -700),   # 左后
+		Vector2(-200, 700),    # 右后
+	]
+	var escort: Array = []
+	for off in escort_offsets:
+		var initial_pos: Vector2 = _compute_formation_world_pos(leader, off)
+		var ffg: NavalUnit = _make_zone_ship(FrigateShip.new(), ffg_params, initial_pos, 90.0, PackedVector2Array(), zone_id)
+		ffg.formation_leader = leader
+		ffg.formation_offset = off
+		escort.append(ffg)
+	_garrison_zones[zone_id] = escort
+
+## 3★ 海上任务：1 CG 旗舰 + 1 DDG 前哨 + 2 FFG 两翼后卫（钻石阵）
+func _spawn_naval_3star(zone_id: StringName, center: Vector2, radius: float, ffg_params: Resource) -> void:
+	var ddg_params: Resource = load(_NAVAL_FLEET_DDG_PARAMS_PATH)
+	var cg_params: Resource = load(_NAVAL_FLEET_CG_PARAMS_PATH)
+	if ddg_params == null or cg_params == null:
+		push_error("missing DDG / CG params"); return
+
+	# 旗舰 CG 走 8 字 —— 战术感强于圆周，且比 2★ 更大
+	var leader_radius: float = radius * 0.5
+	var leader_wps := _eight_figure_waypoints(center, leader_radius, 24)
+	var leader: NavalUnit = _make_zone_ship(CruiserShip.new(), cg_params, leader_wps[0], 90.0, leader_wps, zone_id)
+	leader.is_mission_target = true
+	_spawned_zones[zone_id] = [leader]
+
+	# 钻石护航阵：DDG 前哨、2 FFG 左右后翼
+	var escort_plan: Array = [
+		{"cls": DestroyerShip, "params": ddg_params, "off": Vector2(900, 0)},     # 前哨
+		{"cls": FrigateShip,   "params": ffg_params, "off": Vector2(-400, -900)},  # 左翼
+		{"cls": FrigateShip,   "params": ffg_params, "off": Vector2(-400, 900)},   # 右翼
+	]
+	var escort: Array = []
+	for e in escort_plan:
+		var off: Vector2 = e["off"]
+		var initial_pos: Vector2 = _compute_formation_world_pos(leader, off)
+		var ship: NavalUnit = _make_zone_ship(e["cls"].new(), e["params"], initial_pos, 90.0, PackedVector2Array(), zone_id)
+		ship.formation_leader = leader
+		ship.formation_offset = off
+		escort.append(ship)
+	_garrison_zones[zone_id] = escort
+
+## 根据 leader 当前位置 / 朝向 + 编队偏移算出僚舰初始世界坐标
+func _compute_formation_world_pos(leader: NavalUnit, offset: Vector2) -> Vector2:
+	var lead_fwd := Vector2(sin(leader.heading), -cos(leader.heading))
+	var lead_stb := Vector2(cos(leader.heading), sin(leader.heading))
+	return leader.global_position + lead_fwd * offset.x + lead_stb * offset.y
+
+## 通用船只创建 + 注入 manager + 打 meta 标签
+func _make_zone_ship(ship: NavalUnit, params_res: Resource, pos: Vector2, heading_deg: float, wps: PackedVector2Array, zone_id: StringName) -> NavalUnit:
+	ship.params = params_res
+	ship.position = pos
+	ship.initial_heading_deg = heading_deg
+	ship.waypoints = wps
+	ship.set_meta("zone_mission", zone_id)
+	ship.set_meta("category", "zone_naval")
+	ship.set_meta("skip_far_cleanup", true)
+	mode.add_child(ship)
+	_inject_ship_managers(ship)
+	return ship
+
+## 圆周航点（与 naval_zone.gd 同构但独立实现，避免跨文件依赖）
+func _orbit_wps_circular(center: Vector2, radius_r: float, start_angle: float, n: int) -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	for i in range(n):
+		var t: float = start_angle + float(i) / n * TAU
+		pts.append(center + Vector2(cos(t), sin(t)) * radius_r)
+	return pts
+
+## 圆周起点的切线方向（度）
+func _tangent_heading_deg(start_angle_rad: float) -> float:
+	var tangent_rad: float = start_angle_rad + PI * 0.5
+	var wd := Vector2(cos(tangent_rad), sin(tangent_rad))
+	return rad_to_deg(atan2(wd.x, -wd.y))
+
+## 给船注入 bullet / missile manager（zone_mission.mode 就是 survivor_mode）
+func _inject_ship_managers(ship: NavalUnit) -> void:
+	if "bullet_manager" in mode:
+		ship.bullet_manager = mode.bullet_manager
+	if "missile_manager" in mode:
+		ship.missile_manager = mode.missile_manager
+
+## 8 字 lemniscate 轨迹采样 N 个点（naval_zone.gd 里也有同样实现，此处再写一份避免跨文件依赖）
+func _eight_figure_waypoints(center: Vector2, radius_r: float, n: int) -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	for i in range(n):
+		var t: float = float(i) / n * TAU
+		var denom: float = 1.0 + sin(t) * sin(t)
+		var x: float = radius_r * cos(t) / denom
+		var y: float = radius_r * sin(t) * cos(t) / denom
+		pts.append(center + Vector2(x, y))
+	return pts
+
+func _rotated_waypoint_array(wps: PackedVector2Array, offset: int) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	var n := wps.size()
+	if n == 0:
+		return out
+	for i in range(n):
+		out.append(wps[(i + offset) % n])
+	return out
+
+## 攻克战区后，让驻守机"撤离"
+## 【铁则】不允许在玩家画面内消失 —— 视线内的单位入队等它飘出屏外再 free
 func _despawn_garrison(zone_id: StringName) -> void:
 	var units: Array = _garrison_zones.get(zone_id, [])
 	for u in units:
-		if is_instance_valid(u) and not u.is_destroyed:
-			u.queue_free()
+		_schedule_despawn(u)
 	_garrison_zones.erase(zone_id)
 
 func _get_ai_of(ac: Aircraft) -> AIController:
@@ -540,6 +725,77 @@ func reset_zone(zone_id: StringName) -> void:
 	_triggered_zones.erase(zone_id)
 	_completed_zones.erase(zone_id)
 
+## Debug: 彻底把一个战区的敌人从世界里擦掉（不只是改 state，是真的 queue_free 单位）
+## 走"视线外延迟 free"队列，铁则依然遵守
+func debug_purge_zone(zone_id: StringName) -> void:
+	# 任务目标（_spawned_zones）
+	var tgts: Array = _spawned_zones.get(zone_id, [])
+	for u in tgts:
+		_schedule_despawn(u)
+	_spawned_zones.erase(zone_id)
+	# 驻守单位（_garrison_zones）
+	_despawn_garrison(zone_id)
+	# 触发/完成记录
+	_triggered_zones.erase(zone_id)
+	_completed_zones.erase(zone_id)
+	EventLogger.log_event("ZONE", "DebugPurge", "id=%s" % zone_id)
+
+# ══════════════════════════════════════════════
+#  Debug 辅助（F6 面板用）
+# ══════════════════════════════════════════════
+
+## 强制重刷某战区内容：撤走旧单位 + 按当前 mission_type 重 spawn
+## 与 refresh_active_zones_for_level 的区别：无视 _triggered_zones（玩家正在打也强换）
+## 前提：战区已处于 AVAILABLE / SELECTED（LOCKED 的先调 debug_force_unlock_zone）
+func debug_force_respawn_zone(id: StringName) -> void:
+	if not _zones:
+		return
+	var z := _zones.get_zone_by_id(id)
+	if z.is_empty():
+		return
+	var state := _zones.get_state(id)
+	if state != ZoneData.State.AVAILABLE and state != ZoneData.State.SELECTED:
+		push_warning("debug_force_respawn_zone: zone %s is not AVAILABLE/SELECTED" % id)
+		return
+
+	# 撤走旧驻守 + 旧 TGT（视线内的延迟 free）
+	_despawn_garrison(id)
+	var tgts: Array = _spawned_zones.get(id, [])
+	for u in tgts:
+		_schedule_despawn(u)
+	_spawned_zones.erase(id)
+	_triggered_zones.erase(id)
+	_completed_zones.erase(id)
+
+	# 重刷
+	_spawn_zone_units(id, z)
+	EventLogger.log_event("ZONE", "DebugRespawn",
+		"id=%s new_mt=%s" % [id, _zones.get_mission_type(id)])
+
+## 强制解锁某战区并立即刷内容（LOCKED / CLEARED → AVAILABLE + spawn）
+func debug_force_unlock_zone(id: StringName) -> void:
+	if not _zones:
+		return
+	var z := _zones.get_zone_by_id(id)
+	if z.is_empty():
+		return
+	# 先清旧
+	_despawn_garrison(id)
+	var tgts: Array = _spawned_zones.get(id, [])
+	for u in tgts:
+		_schedule_despawn(u)
+	_spawned_zones.erase(id)
+	_triggered_zones.erase(id)
+	_completed_zones.erase(id)
+
+	# 置为 AVAILABLE + 重 roll 难度 / 奖励 / 任务类型（走 ZoneData 公开方法）
+	_zones.debug_set_available(id)
+
+	# 刷新内容
+	_spawn_zone_units(id, z)
+	EventLogger.log_event("ZONE", "DebugUnlock",
+		"id=%s mt=%s" % [id, _zones.get_mission_type(id)])
+
 ## 2026-04-21：攻克一个战区后，对所有其他仍处于 AVAILABLE 状态的战区做一次"敌情升级"
 ## —— 把旧驻守机撤走 + 清 spawn 记录，下一帧 _ensure_spawned_for_active_zones 会按当前
 ## 玩家等级重刷一套新的敌人池（已触发 TGT 交战的战区跳过，避免打到一半敌人突然换型）。
@@ -562,12 +818,11 @@ func refresh_active_zones_for_level(except_id: StringName) -> Array[StringName]:
 		## 没刷过就不用刷新（等 _ensure_spawned_for_active_zones 首次刷即可拿到当前等级）
 		if not _spawned_zones.has(zid) and not _garrison_zones.has(zid):
 			continue
-		## 先撤走驻守 + TGT（静默 queue_free；没有任务残留）
+		## 先撤走驻守 + TGT（视线内的入队延迟 free；不做飞出动画）
 		_despawn_garrison(zid)
 		var tgts: Array = _spawned_zones.get(zid, [])
 		for u in tgts:
-			if is_instance_valid(u) and "is_destroyed" in u and not u.is_destroyed:
-				u.queue_free()
+			_schedule_despawn(u)
 		_spawned_zones.erase(zid)
 		refreshed.append(zid)
 		EventLogger.log_event("ZONE", "RefreshedForLevel",
@@ -669,25 +924,46 @@ func _random_pos_in_circle(center: Vector2, radius: float) -> Vector2:
 	return center + Vector2(cos(a), sin(a)) * r
 
 ## BOSS 阶段下：把战区已刷的 TGT (_spawned_zones) + 驻守敌机 (_garrison_zones)
-## 在玩家视线外 queue_free。视线内的暂时不动，等飞出去再撤。
+## 转交 _pending_despawn 队列（由 _flush_pending_despawn 每帧检查视线外才 free）。
 ## 系统资源让给 BOSS（F-47 王牌中队），不做飞出动画。
 func _despawn_zone_units_offscreen() -> void:
-	if not mode or not mode.has_method("is_world_pos_visible"):
-		return
 	for tracker in [_spawned_zones, _garrison_zones]:
 		for zid in tracker.keys():
 			var arr: Array = tracker[zid]
-			var kept: Array = []
 			for u in arr:
-				if not is_instance_valid(u):
-					continue
-				if "is_destroyed" in u and u.is_destroyed:
-					continue
-				if mode.is_world_pos_visible(u.global_position, 0.0):
-					kept.append(u)
-				else:
-					u.queue_free()
-			tracker[zid] = kept
+				_schedule_despawn(u)
+			tracker[zid] = []
+
+## 加入待撤离队列：offscreen 立即 free，onscreen 入队等它飘出屏外
+## 【铁则】敌人不允许在玩家画面内凭空消失
+func _schedule_despawn(u) -> void:
+	if not is_instance_valid(u):
+		return
+	if "is_destroyed" in u and u.is_destroyed:
+		return
+	if mode and mode.has_method("is_world_pos_visible") \
+			and not mode.is_world_pos_visible(u.global_position, 0.0):
+		u.queue_free()
+		return
+	if not _pending_despawn.has(u):
+		_pending_despawn.append(u)
+
+## 每帧扫描 _pending_despawn：飘出视线的立即 free。
+## 单位沿自身 AI 航线继续飞（不强制撤离朝向）；玩家视线跟随谁，队列就等谁。
+func _flush_pending_despawn() -> void:
+	if not mode or not mode.has_method("is_world_pos_visible"):
+		return
+	var kept: Array = []
+	for u in _pending_despawn:
+		if not is_instance_valid(u):
+			continue
+		if "is_destroyed" in u and u.is_destroyed:
+			continue
+		if mode.is_world_pos_visible(u.global_position, 0.0):
+			kept.append(u)
+		else:
+			u.queue_free()
+	_pending_despawn = kept
 
 ## 多边形面积（shoelace，绝对值）。接受 Array[Vector2] 或 PackedVector2Array
 func _polygon_area(poly) -> float:

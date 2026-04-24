@@ -26,7 +26,7 @@ var _hit_flashes: Array = []  # [{pos, time_left, heading, scale}]
 func _ready() -> void:
 	add_to_group("explosion_vfx")
 
-func spawn_missile(source: CombatUnit, target: CombatUnit, missile_params: MissileParams) -> void:
+func spawn_missile(source: CombatUnit, target: CombatUnit, missile_params: MissileParams) -> Missile:
 	var missile: Missile = _missile_scene.instantiate()
 	missile.params = missile_params
 	missile.source = source
@@ -36,10 +36,15 @@ func spawn_missile(source: CombatUnit, target: CombatUnit, missile_params: Missi
 	missile.altitude = source.altitude
 
 	# 初始朝向：
+	#   VLS 齐射弹 → LOS 方向 + 每发随机 ±25° 散布（模拟"一串火柱方向略散"的齐射观感）
 	#   飞机发射 → 用飞机当前朝向（飞机基本已对准目标）
-	#   地面发射（SAM 等）→ 用 source→target 的方向，避免 SAM 始终朝北导致初始 PN 爆转
+	#   地面 / 舰船 SAM → 用 source→target 的方向，避免船/SAM 朝北导致初始 PN 爆转
 	var initial_heading: float
-	if source is GroundUnit and target and is_instance_valid(target):
+	if missile_params and missile_params.is_vls_salvo and target and is_instance_valid(target):
+		var los := target.global_position - source.global_position
+		var base := atan2(los.x, -los.y)
+		initial_heading = base + randf_range(-0.44, 0.44)  # ±25°
+	elif (source is GroundUnit or source is NavalUnit) and target and is_instance_valid(target):
 		var los := target.global_position - source.global_position
 		initial_heading = atan2(los.x, -los.y)
 	else:
@@ -62,13 +67,39 @@ func spawn_missile(source: CombatUnit, target: CombatUnit, missile_params: Missi
 		missile.bounces_remaining = 0
 
 	add_child(missile)
+	return missile
+
+## 是否应把这枚导弹计入"占额度"：丢锁 + 已出玩家视口 → 不算（可以补射）
+## 2026-04-22：BOSS 带热诱弹/光学隐形时导弹丢锁后仍按 max_lifetime 飞满 30s，
+## 原本会把玩家锁死整整 30 秒。放行条件严格设为"丢锁 && 离屏"，
+## 既消除 BOSS 隐形场景下的死锁，又保留玩家屏幕内的弹量节制（防乱射观感）。
+func _missile_blocks_slot(m: Missile) -> bool:
+	if not m.is_active:
+		return false
+	if m.has_guidance:
+		return true
+	return _is_on_screen(m.global_position)
+
+func _is_on_screen(world_pos: Vector2) -> bool:
+	var cam := get_viewport().get_camera_2d()
+	if cam == null:
+		return true
+	var center := cam.get_screen_center_position()
+	var vp_size := get_viewport().get_visible_rect().size
+	var zoom_x: float = maxf(cam.zoom.x, 0.0001)
+	var zoom_y: float = maxf(cam.zoom.y, 0.0001)
+	var half_w := (vp_size.x * 0.5) / zoom_x
+	var half_h := (vp_size.y * 0.5) / zoom_y
+	# 不加边距：必须真正离开视口才解除封锁，避免边缘闪入导致玩家看到两发同屏
+	return absf(world_pos.x - center.x) < half_w \
+		and absf(world_pos.y - center.y) < half_h
 
 ## 检查某目标是否已有在飞的导弹（由指定发射单位发射）
 func has_active_missile_at(source: CombatUnit, target: CombatUnit) -> bool:
 	for child in get_children():
 		if child is Missile:
 			var m: Missile = child as Missile
-			if m.is_active and m.source == source and m.target == target:
+			if m.source == source and m.target == target and _missile_blocks_slot(m):
 				return true
 	return false
 
@@ -78,7 +109,7 @@ func count_active_missiles_at(source: CombatUnit, target: CombatUnit) -> int:
 	for child in get_children():
 		if child is Missile:
 			var m: Missile = child as Missile
-			if m.is_active and m.source == source and m.target == target:
+			if m.source == source and m.target == target and _missile_blocks_slot(m):
 				count += 1
 	return count
 
@@ -113,8 +144,14 @@ func _physics_process(delta: float) -> void:
 			# 2D 距离 + 高度容差（地面单位/flat_altitude 模式跳过高度检查）
 			var dist_2d := missile.global_position.distance_to(unit.global_position)
 			var flat := unit is Aircraft and unit.flat_altitude
-			var alt_ok := flat or unit is GroundUnit or absf(missile.altitude - unit.altitude) < missile.params.proximity_fuse_alt
-			if dist_2d < fuse_radius_px and alt_ok:
+			var alt_ok := flat or unit is GroundUnit or unit is NavalUnit or absf(missile.altitude - unit.altitude) < missile.params.proximity_fuse_alt
+			# 船比飞机大一个量级，用船长一半作为有效命中半径（否则默认 fuse 半径太小容易擦边）
+			var effective_fuse: float = fuse_radius_px
+			if unit is NavalUnit:
+				var nu: NavalUnit = unit as NavalUnit
+				if nu.params:
+					effective_fuse = maxf(fuse_radius_px, nu.params.hull_length * 0.5)
+			if dist_2d < effective_fuse and alt_ok:
 				# 云中目标：基于云密度的 miss roll（导弹"看不清"目标）
 				if unit.get_altitude_tier() == CombatUnit.AltitudeTier.HIGH:
 					var weather := get_tree().get_first_node_in_group("weather")
@@ -138,6 +175,9 @@ func _physics_process(delta: float) -> void:
 				AudioManager.play_sfx_2d(bomb_ids[randi() % 4], unit.global_position, 9.0)
 				if unit is GroundUnit:
 					unit.take_missile_damage(missile.params.damage)
+				elif unit is NavalUnit:
+					# 船走位置感知路由：伤害给最近的挂点或弱点
+					(unit as NavalUnit).take_damage_at(missile.params.damage, missile.global_position)
 				else:
 					unit.take_damage(missile.params.damage)
 				# 近炸引信：在爆炸点产生 AOE 区域

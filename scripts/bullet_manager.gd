@@ -24,7 +24,9 @@ var combat_unit_list: Array[CombatUnit] = []
 ## 导弹管理器引用（CIWS 子弹需要碰撞导弹）
 var missile_manager: Node = null
 
-func spawn_bullet(origin: Vector2, direction: float, speed_ms: float, source: CombatUnit, damage: float, is_ciws: bool = false) -> void:
+## visual_only: 视觉装饰弹 —— 正常飞行 / 渲染 / 寿命结束，但跳过所有命中判定
+## 用于制造"CIWS 密集弹幕"的观感，同时不影响平衡（真实伤害由另一部分子弹承担）
+func spawn_bullet(origin: Vector2, direction: float, speed_ms: float, source: CombatUnit, damage: float, is_ciws: bool = false, visual_only: bool = false) -> void:
 	var speed_px := speed_ms * PIXELS_PER_METER
 	var vel := Vector2(sin(direction), -cos(direction)) * speed_px
 	# ⚠ 快照 team 到 dict：弹丸寿命中射手可能被释放，
@@ -40,6 +42,7 @@ func spawn_bullet(origin: Vector2, direction: float, speed_ms: float, source: Co
 		"altitude": source.altitude if is_instance_valid(source) else 5000.0,
 		"is_rocket": false,
 		"is_ciws": is_ciws,
+		"visual_only": visual_only,
 	})
 
 ## 生成无制导火箭弹
@@ -71,6 +74,11 @@ func _physics_process(delta: float) -> void:
 		# 寿命到期
 		if b["life"] <= 0.0:
 			_bullets.remove_at(i)
+			i -= 1
+			continue
+
+		# 视觉装饰弹 —— 完全跳过命中检测（只用于 CIWS 密集弹幕观感）
+		if b.get("visual_only", false):
 			i -= 1
 			continue
 
@@ -113,9 +121,14 @@ func _physics_process(delta: float) -> void:
 				hit_r = ROCKET_HIT_RADIUS
 			else:
 				hit_r = friendly_hit_radius if is_friendly else HIT_RADIUS
-			# 涉及地面单位时跳过高度检查（地面↔空中交火，俯视视角用2D判定）
-			var source_is_ground := source_alive and source_raw is GroundUnit
-			var alt_ok := flat_altitude_mode or alt_diff < ALT_TOLERANCE or ac is GroundUnit or source_is_ground
+			# 船的命中半径跟船长挂钩（否则 12px 半径对 80-280 px 船体太小了）
+			if ac is NavalUnit:
+				var nu: NavalUnit = ac as NavalUnit
+				if nu.params:
+					hit_r = maxf(hit_r, nu.params.hull_length * 0.5)
+			# 涉及地面 / 海上单位时跳过高度检查（俯视视角用 2D 判定）
+			var source_is_ground := source_alive and (source_raw is GroundUnit or source_raw is NavalUnit)
+			var alt_ok := flat_altitude_mode or alt_diff < ALT_TOLERANCE or ac is GroundUnit or ac is NavalUnit or source_is_ground
 			if dist_2d < hit_r and alt_ok:
 				var dmg_mult: float = 1.0
 				if not is_rocket:
@@ -150,15 +163,29 @@ func _physics_process(delta: float) -> void:
 					# 爆炸画在目标本体位置（不是命中点），击中/击毁均只此一次
 					var r_head: float = ac.heading if "heading" in ac else 0.0
 					ExplosionVFXScript.emit(get_tree(), ac.global_position, r_head, 1.0)
-					ac.take_damage(actual_dmg)
+					if ac is NavalUnit:
+						# 火箭对船体总血削 50%，可以打穿弱点（破甲效果）
+						(ac as NavalUnit).take_damage_at(actual_dmg, b["pos"], 0.5, true)
+					else:
+						ac.take_damage(actual_dmg)
 				elif ac is Aircraft:
 					ac.take_bullet_damage(b["damage"] * dmg_mult)
+				elif ac is NavalUnit:
+					# 机炮子弹：
+					#   - 总血削 15%（高射速高伤害 → 低总血贡献，避免一梭子秒船）
+					#   - 不能一发斩杀弱点（can_hit_weak_point=false）—— 弱点要留给导弹
+					#   - 挂点仍然按全额扣（机炮剥部件依然有效）
+					(ac as NavalUnit).take_damage_at(b["damage"] * dmg_mult, b["pos"], 0.15, false)
 				else:
 					ac.take_damage(b["damage"] * dmg_mult)
 				hit = true
 				break
 
 		# CIWS 子弹 vs 敌方导弹碰撞（仅带 is_ciws 标记的子弹）
+		# 伤害按"导弹到源（防守方）的距离"衰减：
+		#   - 导弹离防守单位很近（< 250 px，约末端引信距离）→ 满伤害
+		#   - 远距（> 800 px）→ 0 伤害（bullets 只是装饰，穿过导弹不受影响）
+		# 避免"玩家刚发射导弹就被 CIWS 的在飞子弹拦下"的反直觉场景
 		if not hit and b.get("is_ciws", false) and missile_manager:
 			for child in missile_manager.get_children():
 				if not (child is Missile):
@@ -168,8 +195,20 @@ func _physics_process(delta: float) -> void:
 					continue
 				var dist_m: float = Vector2(b["pos"]).distance_to(m.global_position)
 				if dist_m < HIT_RADIUS:
-					m.is_active = false
-					EventLogger.log_event("CIWS", "Player", "intercepted missile at dist=%.0f" % dist_m)
+					# 距离衰减因子：导弹离 CIWS 发射源越近，拦截伤害越高
+					var msl_to_src: float = 9999.0
+					var factor: float = 0.0
+					if source_alive:
+						msl_to_src = m.global_position.distance_to(source_raw.global_position)
+						factor = clampf((800.0 - msl_to_src) / 550.0, 0.0, 1.0)
+					# 累积伤害到 intercept_hp；归零才真正击落
+					var dmg: float = float(b["damage"]) * factor
+					if dmg > 0.0:
+						m.intercept_hp -= dmg
+						if m.intercept_hp <= 0.0:
+							m.is_active = false
+							EventLogger.log_event("CIWS", "Player",
+								"intercepted missile (final dist=%.0f, factor=%.2f)" % [msl_to_src, factor])
 					hit = true
 					break
 
