@@ -1520,7 +1520,9 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 			enemy.attack_air_targets = false  ## _auto_gun_scan 跳过空中目标（防止扫到玩家）
 		EnemyType.AF03:
 			# AF-03 = Schemer with combat 远距电磁炮狙击手
-			# 极高技能 + 极强自保（玩家近身就跑）+ 中距 keep distance
+			# bvr_only=true 关键：玩家进入 BVR_STANDOFF_MIN (4km) → 强制脱离飞 6km 外
+			# 这样 AF-03 始终在 4-14km 远距，电磁炮 min_engage 1.5km 永远满足
+			ai.bvr_only = true
 			ai.evade_missiles = true
 			ai.aggression = 0.7                 # 不主动近身，但敢于持续 keep distance 输出
 			ai.engage_cooldown = 1.0
