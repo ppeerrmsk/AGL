@@ -11,7 +11,13 @@ var _committed_turn_sign: float = 0.0  ## 转弯方向锁定：0=未锁定, +1/-
 var g_load: float = 1.0
 var is_stalled: bool = false
 var _stall_recovery_timer: float = 0.0  ## 失速恢复冷却（防止反复失速抽搐）
-var pilot_stamina: float = 100.0  ## 飞行员当前耐力
+## 死亡溯源：take_bullet_damage 在致死的那一击设为 true
+## survivor_spawner._detect_kills 据此判断是否触发"机炮击杀恐惧"AOE
+var _killed_by_bullet: bool = false
+## 玩家专属：机炮击杀附近敌机时给他们注入恐惧的半径，0=未升级
+var gun_kill_fear_radius: float = 0.0
+## 玩家专属：恐惧衰减率（stress / 秒）。值越小持续越长。0=未升级
+var gun_kill_fear_decay_rate: float = 0.0
 
 # --- 目标 ---
 var target_position: Vector2 = Vector2.INF  ## 世界坐标, INF=无目标
@@ -47,6 +53,7 @@ var is_cloaked: bool = false          ## 当前是否处于隐形状态
 var _cloak_alpha: float = 1.0        ## 渲染透明度（1.0=可见, 0.0=完全隐形）
 var suppress_flares: bool = false     ## 抑制热诱弹释放（隐形 CD 已好时由 BOSS 管理器设置）
 var bullet_immune: bool = false       ## 子弹完全免疫（BOSS 专属：子弹穿过不造成伤害）
+var invulnerable: bool = false        ## 全免伤（用于起飞甲板/出场无敌窗口；导弹与机炮伤害都吃掉）
 var boss_flare_immunity: bool = false ## BOSS 释放热诱弹后也享有导弹穿透无敌时间
 var infinite_ammo: bool = false       ## 无限弹药（机炮+导弹永不耗尽）
 var prefer_gun_mode: bool = false     ## 强制优先机炮模式（近距纠缠组用）
@@ -131,6 +138,7 @@ var max_simultaneous_locks: int = 1
 ## OFF：只对玩家手动指定的 combat_target 发射，但锁定成功仍自动开火
 ##      —— 节流由 `_missile_cooldown` + `count_active_missiles_at <= 1` 承担，
 ##      不需要"一次点击一发"守卫（2026-04-24 (3)，详见 player-ai-log.md）
+var missile_auto_fire: bool = true
 
 ## 是否允许机炮/火箭弹自动射击空中目标
 ## false 时 _auto_gun_scan 跳过所有 Aircraft 候选 —— 用于对地专用机型（AH-64 等）
@@ -216,16 +224,36 @@ var missile_bounce_count: int = 0     ## 导弹弹跳次数（连锁弹头进化
 var missile_proximity_aoe: bool = false  ## 近炸引信进化：导弹爆炸产生 AOE
 var gun_ciws_active: bool = false        ## 近防炮进化：自动拦截正面来袭导弹
 var _ciws_cooldown: float = 0.0          ## CIWS 射速冷却（独立于正常机炮）
-var no_stamina: bool = false         ## 跳过耐力系统（UAV 等）
 var survivor_missile_damage_cap: float = 0.0  ## 生存模式：导弹伤害上限（0=不限制）
 var survivor_bullet_damage_cap: float = 0.0   ## 生存模式：机炮伤害上限（0=不限制）
 var hide_data_label: bool = false    ## 隐藏飞机旁的数据标签（HUD 替代显示）
+
+# --- 视觉提示：敌方机炮锥威胁显示 ---
+## 敌方对玩家持续 weapon_mode==GUN 锁定时累计；≥0.3s 触发显示机炮射界锥
+## 条件不满足立即归零（hysteresis 防 weapon_mode GUN/MISSILE 抖动闪锥）
+var _gun_threat_timer: float = 0.0
+const GUN_THREAT_DISPLAY_DELAY: float = 0.3
+const GUN_THREAT_RANGE_MULT: float = 1.5
+
+# 锁定红线状态已搬到 CombatUnit 基类（飞机/SAM/海军共用）
+# Aircraft 仅覆写 _lock_line_can_engage_player 与触发 fire 通知
+
 
 # --- 战术偏好（生存模式玩家手动控制）---
 enum WeaponPreference { PREFER_MISSILE, PREFER_GUN }
 enum AltitudePreference { PREFER_CLIMB, PREFER_LOW }
 
 var use_tactical_preference: bool = false       ## 启用战术偏好系统（仅玩家飞机）
+## P1：启用新版 TacticalPlanner 决策路径（仅玩家飞机）。开启后 _physics_process 顶层调 planner，
+## update_weapon_mode / update_combat / update_energy_management 全部 early-return 不再各自决策，
+## 玩家飞机的 target_position / target_speed / weapon_mode / is_firing 由 plan 统一写入
+var use_tactical_planner: bool = false
+var _last_plan: TacticalPlan = null              ## P1：上一帧 plan，便于 update_missile 等读 allow_*_fire
+## P2：BFM intent 状态保持，防止边界附近高频翻转
+var _bfm_prev_intent: int = -1                   ## 上次 plan 选定的 intent（TacticalPlan.Intent）
+var _bfm_intent_started_at: float = 0.0          ## 当前 intent 开始时间（Time.get_ticks_msec/1000）
+## P2：EXTEND_RECOVER 计时戳，未到此时刻前 planner 强制保持 EXTEND
+var _bfm_extend_until: float = 0.0
 ## 战术激进度 [0..1]：
 ##   - 1.0 = 完全激进（解除 G 限制，维持角点速度，最小转弯半径）
 ##   - 0.0 = 保守（沿用原 70% 持续 G 限制与 turn_slow_speed 能量策略）
@@ -233,14 +261,28 @@ var use_tactical_preference: bool = false       ## 启用战术偏好系统（�
 ##   - AI 控制器每帧根据 effective_skill × aggression 写入此值，使沙盒 AI 随飞行员属性调整
 var tactical_aggression: float = 1.0
 var weapon_preference: int = WeaponPreference.PREFER_MISSILE
+## 飞行员射击精度（仅玩家用）：0=新手 ±5°lead 误差，1=王牌 ±0.5°
+## 由 gun_accuracy 升级 / PlayableAircraft.base_pilot_aim_skill 推升
+var pilot_aim_skill: float = 0.3
+## 每次火控窗口（is_firing false→true 边沿）抽一次 lead 偏移，整个 burst 共用
+var _gun_aim_offset_rad: float = 0.0
+var _was_gun_firing: bool = false
 var altitude_preference: int = AltitudePreference.PREFER_CLIMB
 var evasion_mode: bool = false
+## 冲锋攻击：玩家快速双击敌人触发。强制机炮模式 + 屏蔽导弹自动发射，专注当前目标
+## 速度由现有战斗逻辑（aircraft_physics.update_energy_management 机炮分支）按距离自适应
+## 自动清除：set_combat_target / clear_combat_target 默认清零，由调用方（survivor_mode）在双击时显式置 true
+var charge_attack: bool = false
+## 玩家右键长按急刹：油门归零 + 跳过失速安全余量，让飞机一路减速到失速坠落
+## 期间保持航向（target_position = INF 让 update_bank 回正），加力强制关闭
+var hard_brake: bool = false
 var _evasion_override: bool = false             ## 玩家手动点击临时覆盖规避
 var _evasion_sway_timer: float = 0.0            ## S型机动计时器
 var _evade_roll_phase: float = 0.0              ## 规避原地滚转相位（弧度，绘制时叠加到 bank）
 var _evade_roll_remaining: float = 0.0          ## 当前滚转动画剩余秒数
 var _evade_roll_cooldown: float = 0.0           ## 下次触发滚转的冷却秒数
 var _evade_last_missile_id: int = 0             ## 上次触发滚转的来袭导弹实例 id（避免同一导弹重复触发）
+
 const _EVADE_ROLL_DURATION: float = 1.4         ## 单次滚转动画时长（秒，约 1 圈）
 const _EVADE_ROLL_COOLDOWN: float = 1.2         ## 两次滚转之间的冷却
 const _EVADE_ROLL_TRIGGER_PX: float = 700.0     ## 来袭导弹接近到此距离才触发滚转
@@ -291,6 +333,15 @@ var _lod_frame: int = 0  ## LOD 帧计数器
 var cloud_state: int = 0
 var cloud_density: float = 0.0  ## 对应状态处采样到的密度，0~1
 var _cloud_state_accum: float = 0.0  ## 节流计时
+
+# --- 建筑状态缓存（LOW 档位 + 飞机所在位置在街区内时为 true）---
+## 物理用 → max_speed × 0.85；导弹/子弹用 → "shooting from inside cluster" 判定
+var in_building: bool = false
+var _in_building_accum: float = 0.0  ## 节流计时（0.2s 一次）
+
+# --- 能量管理（PE↔KE 转换）---
+## 上一帧的 altitude，用于计算 dh/dt（爬升 → 损失速度，俯冲 → 增加速度）
+var _prev_altitude_for_pe: float = 5000.0
 
 # --- 编队调试（survivor_mode F11 切换）---
 ## 打开后会缓存 LOD 1 编队分支的中间状态并在 _draw 中渲染调试覆盖层。
@@ -344,7 +395,6 @@ func _ready() -> void:
 			secondary_missiles_remaining = params.secondary_missile.max_count
 		if params.flare:
 			flares_remaining = params.flare.max_flares
-		pilot_stamina = params.pilot_stamina
 	# 轨迹丝带
 	_trail_ribbon = TrailRibbon.new()
 	_trail_ribbon.ribbon_width = 8.0
@@ -386,6 +436,9 @@ func _physics_process(delta: float) -> void:
 		queue_redraw()
 		return
 	_update_cloud_state(delta)
+	_update_in_building(delta)
+	_update_gun_threat_indicator(delta)
+	update_lock_line_state(delta)
 
 	# LOD 2（屏幕外）：每3帧完整处理，其余帧仅位移
 	if lod_level >= 2:
@@ -404,6 +457,7 @@ func _physics_process(delta: float) -> void:
 		# BOSS 离屏时转弯慢 3 倍追不上玩家，越飞越远（bug 2026-04-20 (10) Bug 2）。
 		# _apply_movement 和计时器类继续用 delta（每帧都要跑 → 累计不变）
 		var lod_delta: float = delta * 3.0
+		_run_tactical_planner_if_enabled()  # P4：LOD 2 也需 planner 写决策（每 3 帧一次）
 		AircraftWeapons.update_weapon_mode(self)
 		AircraftCombatTracking.update_combat(self, lod_delta)
 		AircraftPhysics.update_energy_management(self)
@@ -411,9 +465,9 @@ func _physics_process(delta: float) -> void:
 		AircraftPhysics.update_bank(self, lod_delta)
 		AircraftPhysics.update_heading(self, lod_delta)
 		AircraftPhysics.update_speed(self, lod_delta)
+		AircraftPhysics.update_stall(self)  # 必须在 update_altitude 前：stall 设 vertical_speed → altitude 直接施加
 		AircraftPhysics.update_altitude(self, lod_delta)
 		AircraftPhysics.update_fuel(self, lod_delta)
-		AircraftPhysics.update_stall(self)
 		_check_ground_crash()
 		AircraftPhysics.update_g_load(self)
 		AircraftPhysics.apply_movement(self, delta)  # 本帧 1/60s 的位移（前 2 帧已各 apply 一次，合计 3×1/60）
@@ -433,199 +487,14 @@ func _physics_process(delta: float) -> void:
 		var every3 := _lod_frame % 3 == 0
 
 		if formation_mode and _formation_leader:
-			# ── 编队托管模式 ──
-			# 三段式：
-			#   >REJOIN_DIST   → 纯追击归队（仅 b<0.05 的脱离重融合用）
-			#   CLOSE~REJOIN   → 长机航向 + 横向偏置（leader-local frame，避免 bearing flip）
-			#   <CLOSE_DIST    → 航向同步长机 + 微量漂移修正
-			var ldr: Aircraft = _formation_leader
-			var b := _formation_blend  # 0=自主飞行过渡, 1=正常编队
-
-			# 计算离阵型槽位的距离
-			var slot_dist := 0.0
-			if target_position != Vector2.INF:
-				slot_dist = global_position.distance_to(target_position)
-
-			# 槽位在长机本地坐标系下的偏移（相对僚机）
-			# slot_local.x > 0 → 槽位在僚机右侧（leader frame），需向右偏置
-			# slot_local.y > 0 → 槽位在僚机后方，僚机需减速让槽位追上
-			# slot_local.y < 0 → 槽位在僚机前方，僚机需加速追上
-			# 关键：用"长机本地坐标"而不是"飞机→槽位的世界方位角"
-			# 后者在长机转弯时 slot 绕长机切向移动 → 方位角剧烈摆动 → 旧 MID 分支机头乱扭
-			var slot_local := Vector2.ZERO
-			if target_position != Vector2.INF:
-				slot_local = (target_position - global_position).rotated(-ldr.heading)
-
-			# 微扰动：基于个体相位的缓慢正弦波
-			var t := float(_lod_frame) * 0.02
-			var jitter_heading := sin(t + _formation_jitter_phase) * 0.008
-			var jitter_bank := sin(t * 0.7 + _formation_jitter_phase + 1.0) * 0.015
-
-			const CLOSE_DIST := 50.0    # 以内纯航向同步
-			const REJOIN_DIST := 800.0  # 以外纯追击归队
-			const LEAD_BIAS_DIST := 250.0  # 横向偏置的虚拟前视距离（越大→偏置越温和）
-			const MAX_BIAS := PI / 3.0     # 横向偏置最大角度（60°）
-
-			# 调试：永远缓存槽位/分支等中间状态（开销可忽略，让 F12 快照不依赖 F11）
-			_dbg_slot_pos = target_position
-			_dbg_slot_dist = slot_dist
-			_dbg_blend_ratio = 0.0
-			_dbg_blended_heading = 0.0
-			_dbg_slot_heading = 0.0
-
-			# ── 先算好目标航向（由分支决定），然后用统一的"物理层 rate-limit"落位 ──
-			# 这样无论走哪个分支，bank/heading 都受 roll_rate / max_g / 协同转弯公式约束，
-			# 绝对不会发生瞬间 ±60° bank 或 ±180° 航向跳的情况。
-			# 对刚出战的僚机尤其关键——之前 combat 离开时 bank 可能还在 ±80°，
-			# 如果用 lerp(bank, 0, 4*delta) 会在几帧内抽回到 0，超过结构 G 极限。
-			var target_heading: float = heading  # 默认不变
-			var max_bank_ratio := 0.75           # 由分支调整
-
-			if slot_dist > REJOIN_DIST:
-				# 真正远距离：纯追击归队
-				_dbg_branch = "FAR"
-				if target_position != Vector2.INF and slot_dist > 10.0:
-					var to_slot := (target_position - global_position).normalized()
-					target_heading = atan2(to_slot.x, -to_slot.y)
-					max_bank_ratio = 0.7
-					_dbg_slot_heading = target_heading
-			elif slot_dist > CLOSE_DIST:
-				# 中距离：长机航向 + 横向偏置（leader-local frame）
-				_dbg_branch = "MID"
-				var bias_angle := atan2(slot_local.x, LEAD_BIAS_DIST)
-				bias_angle = clampf(bias_angle, -MAX_BIAS, MAX_BIAS)
-				target_heading = ldr.heading + jitter_heading + bias_angle
-				max_bank_ratio = 0.75
-				_dbg_slot_heading = bias_angle      # 复用字段：横向偏置角
-				_dbg_blend_ratio = bias_angle / MAX_BIAS
-				_dbg_blended_heading = target_heading
-			else:
-				# 近距离：直接跟长机航向
-				_dbg_branch = "CLOSE"
-				target_heading = ldr.heading + jitter_heading
-				max_bank_ratio = 0.6
-
-			_dbg_target_heading = target_heading
-
-			# ── 统一"平滑且有物理限制"的落位 ──
-			# 设计权衡：
-			#   - 纯物理公式 (g·tan(bank)/TAS) 在编队中过慢：F-14 在 84° bank 也只有 ~21°/s，
-			#     180° 归队要 9 秒，期间僚机会漂得很远。
-			#   - 纯 lerp 没有上限，combat 刚结束从 ±80° bank 一瞬间归零，非物理突兀。
-			# 折中：
-			#   - heading 用 lerp 追目标，但角速度被 FORMATION_MAX_TURN_RATE (1.5 rad/s ≈ 86°/s) 硬夹。
-			#     即使大 hdiff 也能在 2 秒左右 180° 翻转，够快但不突兀。
-			#   - bank 由当前的 hdiff 自然推出（视觉），并按 params.roll_rate 严格限制滚转速率。
-			#     保证 bank 过渡"真实飞机能做到"的那种感觉。
-			var hdiff := _angle_diff(target_heading, heading)
-			var max_bank_val := AircraftPhysics.max_bank_angle(self)
-			var roll_rate_limit := params.roll_rate if params else 3.0
-
-			const FORMATION_MAX_TURN_RATE := 1.5   # rad/s，编队归队的角速度硬上限
-			const FORMATION_LERP_K := 5.0          # hdiff lerp 增益
-			var desired_step := hdiff * FORMATION_LERP_K * delta
-			var max_step := FORMATION_MAX_TURN_RATE * delta
-			if absf(desired_step) > max_step:
-				desired_step = signf(desired_step) * max_step
-			heading = wrapf(heading + desired_step, -PI, PI)
-
-			# 用更新后的 hdiff 推 desired_bank（和航向变化匹配，视觉一致）
-			var hdiff_after := _angle_diff(target_heading, heading)
-			var desired_bank := signf(hdiff_after) * max_bank_val * clampf(absf(hdiff_after) * 2.5, 0.0, max_bank_ratio)
-			if _dbg_branch == "CLOSE":
-				# 近距离让 bank 额外向长机 bank 靠拢，编队视觉更统一
-				var ldr_target_bnk := ldr.bank_angle + jitter_bank
-				desired_bank = lerpf(desired_bank, ldr_target_bnk, 0.6)
-			_dbg_hdiff = hdiff
-			_dbg_desired_bank = desired_bank
-
-			# Bank 变化 rate-limit：严格 ≤ roll_rate
-			# 这保留了用户要求的"不能超过物理极限"——bank 的变化速率永远 ≤ 飞机结构允许的滚转速率。
-			var bank_step := clampf(desired_bank - bank_angle, -roll_rate_limit * delta, roll_rate_limit * delta)
-			bank_angle += bank_step
-
-			# 速度：根据 leader-local 纵向偏移调档
-			# fwd_offset > 0 → 槽位在僚机前方（leader frame）→ 加速追
-			# fwd_offset < 0 → 僚机已经超前于槽位 → 必须能减速（旧版只会加速）
-			# 重要：所有目标速度都必须 clamp 到 _max_speed_at_altitude，
-			# 否则在"长机阵亡 → 僚机(带 1.15x 超速)晋升为新长机"的循环中
-			# 速度会被不断放大，后期出现 Mach 8+ 的暴走（见 2026-04-11 修复）
-			var max_ms := AircraftPhysics.max_speed_at_altitude(self) / 3.6
-			var jitter_speed := sin(t * 0.5 + _formation_jitter_phase + 2.0) * ldr.speed * 0.005
-			var fwd_offset := -slot_local.y  # >0 = 槽位在前
-			var chase_target: float
-			var chase_rate: float
-			if slot_dist > REJOIN_DIST:
-				# 归队：大幅加速
-				chase_target = ldr.speed * 1.4
-				chase_rate = 4.0
-			elif fwd_offset > 200.0:
-				# 槽位远在前方
-				chase_target = ldr.speed * 1.15 + jitter_speed
-				chase_rate = 4.0
-			elif fwd_offset > 50.0:
-				# 槽位前方
-				chase_target = ldr.speed * 1.05 + jitter_speed
-				chase_rate = 3.0
-			elif fwd_offset < -50.0:
-				# 僚机超前于槽位 → 减速等槽位追上
-				chase_target = ldr.speed * 0.92 + jitter_speed
-				chase_rate = 3.0
-			else:
-				# 纵向基本对齐：匹配长机速度
-				chase_target = ldr.speed + jitter_speed
-				chase_rate = 3.0 + b * 3.0
-			chase_target = clampf(chase_target, 0.0, max_ms)
-			speed = lerpf(speed, chase_target, chase_rate * delta)
-			# 同步 target_speed_kmh，避免 LOD 切换回 0 时残留的过期目标速度
-			# 让 _update_speed 能无缝接管，而不是慢慢 decel 追老目标
-			target_speed_kmh = speed * 3.6
-
-			_dbg_chase_target_kmh = chase_target * 3.6
-
-			# 调试：每秒一次把核心数值打到 EventLogger（仅在 formation_debug=true 时）
-			if formation_debug:
-				_dbg_log_timer -= delta
-				if _dbg_log_timer <= 0.0:
-					_dbg_log_timer = 1.0
-					EventLogger.log_event("FORM_DBG", callsign,
-						"branch=%s slot_d=%.0f b=%.2f hdg=%d→%d Δ=%+.1f° dbank=%+.0f° bank=%+.0f° spd=%d/%d ldrG=%.1f" % [
-							_dbg_branch,
-							_dbg_slot_dist,
-							b,
-							int(rad_to_deg(heading)),
-							int(rad_to_deg(_dbg_target_heading)),
-							rad_to_deg(_dbg_hdiff),
-							rad_to_deg(_dbg_desired_bank),
-							rad_to_deg(bank_angle),
-							int(speed * 3.6),
-							int(AircraftPhysics.max_speed_at_altitude(self)),
-							ldr.g_load if is_instance_valid(ldr) else 0.0,
-						])
-
-			# 高度同步
-			altitude = lerpf(altitude, ldr.altitude, (2.0 + b * 2.0) * delta)
-
-			# 正常位移（全部位移通过 AircraftPhysics.apply_movement 走飞行物理）
-			AircraftPhysics.apply_movement(self, delta)
-
-			# 近距离微漂移：仅最后 50px 内做细微槽位对齐（很弱，避免平移感）
-			if target_position != Vector2.INF and slot_dist > 3.0 and slot_dist < CLOSE_DIST and b > 0.05:
-				var correction_dir := (target_position - global_position).normalized()
-				var strength := clampf(slot_dist / CLOSE_DIST, 0.1, 1.0) * b * 0.4
-				var correction_speed := speed * PIXELS_PER_METER * 0.15 * strength
-				var move_px := minf(correction_speed * delta, slot_dist)
-				global_position += correction_dir * move_px
-
-			if every3:
-				AircraftPhysics.update_fuel(self, delta)
-				AircraftPhysics.update_g_load(self)
-			_update_visuals()
-			if selected or is_hovered or every3:
-				queue_redraw()
+			# 编队托管三段式已搬到 scripts/aircraft/aircraft_formation.gd
+			# 原因：191 行算法塞在 _physics_process 中间，排查编队 bug 时动线长
+			# 拆分后常见 bug 回溯地图、三段式分支图都在 AircraftFormation 顶部注释
+			AircraftFormation.update_follow(self, delta)
 			return
 
 		# ── 非编队 LOD 1（降低运算频率） ──
+		_run_tactical_planner_if_enabled()  # P4：LOD 1 非编队也需 planner 写决策
 		AircraftWeapons.update_weapon_mode(self)
 		if combat_target != null:
 			AircraftCombatTracking.update_combat(self, delta)
@@ -636,9 +505,9 @@ func _physics_process(delta: float) -> void:
 		AircraftPhysics.update_heading(self, delta)
 		AircraftPhysics.update_speed(self, delta)
 		if every3:
+			AircraftPhysics.update_stall(self)  # 在 update_altitude 前
 			AircraftPhysics.update_altitude(self, delta)
 			AircraftPhysics.update_fuel(self, delta)
-			AircraftPhysics.update_stall(self)
 			_check_ground_crash()
 			AircraftPhysics.update_g_load(self)
 		AircraftPhysics.apply_movement(self, delta)
@@ -655,6 +524,9 @@ func _physics_process(delta: float) -> void:
 		return
 
 	# LOD 0（完整）：玩家 / 交战中
+	# P1：planner 在最顶层先跑，写 target_position/target_speed/weapon_mode/is_firing；
+	# 后面 update_weapon_mode / update_combat / update_energy_management 各自 early-return
+	_run_tactical_planner_if_enabled()
 	AircraftWeapons.update_weapon_mode(self)
 	_update_evasion(delta)
 	AircraftCombatTracking.update_combat(self, delta)
@@ -663,10 +535,10 @@ func _physics_process(delta: float) -> void:
 	AircraftPhysics.update_bank(self, delta)
 	AircraftPhysics.update_heading(self, delta)
 	AircraftPhysics.update_speed(self, delta)
+	AircraftPhysics.update_stall(self)  # 必须在 update_altitude 前
 	AircraftPhysics.update_altitude(self, delta)
 	AircraftPhysics.update_fuel(self, delta)
 	AircraftPhysics.update_shock_absorb(self, delta)
-	AircraftPhysics.update_stall(self)
 	_check_ground_crash()
 	AircraftPhysics.update_g_load(self)
 	AircraftPhysics.apply_movement(self, delta)
@@ -683,6 +555,84 @@ func _physics_process(delta: float) -> void:
 	# LOD 0 非玩家非悬停：每 2 帧重绘一次，减半 _draw 开销
 	if selected or is_hovered or _lod_frame % 2 == 0:
 		queue_redraw()
+
+## P1：TacticalPlanner 入口。建态势 → 决策 → 应用。
+## 仅在 use_tactical_planner=true 时跑，不影响默认旧路径。
+func _run_tactical_planner_if_enabled() -> void:
+	if not use_tactical_planner:
+		return
+	var waypoint: Vector2 = target_position
+	var s: Situation = Situation.from_aircraft(self)
+	var plan: TacticalPlan = TacticalPlanner.plan(s, waypoint)
+	# intent 切换时戳时间（用于下一帧的 hysteresis 判定）+ 诊断日志
+	if plan.intent != _bfm_prev_intent:
+		# 切换瞬间打 PLAN log，便于追溯"飞机为什么这帧选了这个 intent"
+		# 只对玩家 / 选中的友方飞机记录，避免敌机刷爆日志
+		if (use_tactical_preference or selected) and not is_destroyed:
+			var tgt_name: String = "none"
+			if combat_target and is_instance_valid(combat_target):
+				tgt_name = _log_unit_name(combat_target)
+			var prev_name: String = TacticalPlan.intent_name(_bfm_prev_intent) if _bfm_prev_intent != -1 else "init"
+			EventLogger.log_event("PLAN", _log_name(),
+				"%s → %s (tgt=%s, why=%s)" % [
+					prev_name, TacticalPlan.intent_name(plan.intent), tgt_name, plan.rationale
+				])
+		_bfm_prev_intent = plan.intent
+		_bfm_intent_started_at = Time.get_ticks_msec() / 1000.0
+	# extend 触发：本帧 plan 标记触发就把 _bfm_extend_until 推到 now + 触发秒数
+	if plan.trigger_extend_seconds > 0.0:
+		_bfm_extend_until = Time.get_ticks_msec() / 1000.0 + plan.trigger_extend_seconds
+	_apply_tactical_plan(plan)
+	_last_plan = plan
+
+## 把 plan 输出写到 Aircraft 字段，供后续物理/武器子系统消费。
+## ⚠ 这是 plan 唯一接触 Aircraft 状态的位置，便于追溯"为什么这帧 target_speed 是这个值"
+func _apply_tactical_plan(plan: TacticalPlan) -> void:
+	# CRUISE / EVADE 等不写 target_position（保留 INF 让 _update_evasion 自己控制）
+	if plan.pursuit_pos != Vector2.INF:
+		target_position = plan.pursuit_pos
+	target_speed_kmh = plan.target_speed_kmh
+	AircraftPhysics.set_afterburner(self, plan.afterburner)
+
+	# 玩家右键长按急刹：planner 写完立即覆盖 —— 不让 CRUISE/PURSUIT 的目标速度复活油门
+	if hard_brake:
+		target_speed_kmh = 0.0
+		AircraftPhysics.set_afterburner(self, false)
+		target_position = Vector2.INF  # 保持当前航向（update_bank 看到 INF 会回正）
+
+	# 武器模式
+	# NONE 显式重置为 GUN（防止 weapon_mode 残留 MISSILE 让 salvo 路径在 CRUISE/EVADE 期间走漏发射）
+	match plan.weapon_mode:
+		TacticalPlan.WeaponMode.GUN, TacticalPlan.WeaponMode.NONE:
+			weapon_mode = WeaponMode.GUN
+		TacticalPlan.WeaponMode.MISSILE:
+			weapon_mode = WeaponMode.MISSILE
+		_:
+			pass  # BOTH 保留
+
+	# 机炮：is_firing 直接由 plan 决定
+	is_firing = plan.allow_gun_fire
+	# _gun_lead_heading：朝 pursuit_pos 方向（让 update_gun 朝那里出弹）
+	if plan.pursuit_pos != Vector2.INF:
+		var to_pos: Vector2 = plan.pursuit_pos - global_position
+		_gun_lead_heading = atan2(to_pos.x, -to_pos.y)
+	else:
+		_gun_lead_heading = heading
+
+	# 高度（plan 没指定就保持现状）
+	if plan.target_altitude_m >= 0.0:
+		target_altitude = plan.target_altitude_m
+	# tier 必须走 set_target_tier() 同步 target_altitude（米数），
+	# 直接写字段会让物理插值停在旧高度 → "MID → LOW 永不到达" bug
+	if plan.target_altitude_tier >= 0:
+		set_target_tier(plan.target_altitude_tier)
+	# 交战 intent + flat_altitude → 自动匹配敌机高度档
+	if flat_altitude and combat_target != null and is_instance_valid(combat_target) and not combat_target.is_destroyed:
+		match plan.intent:
+			TacticalPlan.Intent.TAIL_CHASE, TacticalPlan.Intent.CLOSE_TAIL, \
+			TacticalPlan.Intent.LEAD_TURN, TacticalPlan.Intent.LEAD_PURSUIT, \
+			TacticalPlan.Intent.LAG_PURSUIT, TacticalPlan.Intent.MERGE_PASS:
+				set_target_tier(combat_target.get_altitude_tier())
 
 ## 高 G 机动物理采样（AC_TICK 诊断事件）
 ## 仅在 Herbst/Cobra 激活、或 bank > 60°、或 overshoot extension 中触发，10Hz 采样。
@@ -746,11 +696,6 @@ static func _angle_diff(target: float, current: float) -> float:
 	# 得到 |diff| > π 的结果（观测到 off_axis=268° 的 log bug）
 	# wrapf 正确处理正负两侧的 wrap
 	return wrapf(target - current, -PI, PI)
-
-## [保留委托：外部调用入口] 实际实现在 AircraftPhysics
-## cobra_maneuver.gd / herbst_maneuver.gd 在机动激活时手动调用
-func _update_pilot_stamina(delta: float) -> void:
-	AircraftPhysics.update_pilot_stamina(self, delta)
 
 ## [保留委托：外部调用入口] 实际实现在 AircraftPhysics
 ## survivor_hud.gd:385 读取玩家最大可用 G
@@ -901,6 +846,17 @@ func _log_unit_name(unit: CombatUnit) -> String:
 		var side := "Friend" if ac.team == 0 else "Enemy"
 		var dn: String = ac.params.display_name if ac.params else "???"
 		return "%s/%s[%s]" % [side, dn, ac.callsign]
+	# 舰船挂点代理：log 显示 "船名 [挂点符号]"，避免出现 @Node2D@454 难以追溯
+	if unit is MountTarget:
+		var mt: MountTarget = unit
+		if mt.parent_ship and is_instance_valid(mt.parent_ship):
+			var ship_label: String = mt.parent_ship.full_name if mt.parent_ship.full_name != "" else "Ship"
+			if mt.mount_ref and mt.mount_ref.params:
+				return "%s[%s]" % [ship_label, mt.mount_ref.params.display_symbol]
+			if mt.weak_point_ref:
+				return "%s[WP]" % ship_label
+			return ship_label
+		return "MountTarget"
 	return unit.name
 
 func set_combat_target(target: CombatUnit) -> void:
@@ -909,6 +865,7 @@ func set_combat_target(target: CombatUnit) -> void:
 	_strafe_state = 0  # 重置舔地状态机
 	_overshoot_timer = 0.0
 	_gun_pass_committed = false  # 切目标时解除机炮提交锁定
+	charge_attack = false  # 默认清除冲锋（双击调用方在 set 之后显式置 true）
 	if use_tactical_preference and target != null:
 		EventLogger.log_event("PURSUIT_ACQUIRE", _log_name(),
 			"tgt=%s wpn=%s" % [_log_unit_name(target),
@@ -925,6 +882,7 @@ func clear_combat_target() -> void:
 	_overshoot_timer = 0.0
 	_gun_pass_committed = false  # 清目标时解除机炮提交锁定
 	_pursuit_branch = ""
+	charge_attack = false
 
 ## [保留委托：外部/跨模块调用入口]
 ## 战斗追踪已搬到 scripts/aircraft/aircraft_combat_tracking.gd
@@ -989,7 +947,8 @@ func _effective_missile_range_px() -> float:
 	if flat_altitude:
 		missile_range_m *= 1.5
 	var missile_range_px := missile_range_m * PIXELS_PER_METER  # 米 → 像素
-	var radar_range_px: float = params.radar_range               # 已经是像素，不要再乘
+	# 用有效雷达范围（已含高度档位倍率）—— LOW 视野短，HIGH 看得远，导弹有效射程也跟着走
+	var radar_range_px := effective_radar_range_px()
 	return minf(missile_range_px, radar_range_px)
 
 ## 当前武器有效交战距离（像素）
@@ -1242,6 +1201,8 @@ func _select_best_missile_target() -> CombatUnit:
 func take_damage(amount: float) -> void:
 	if is_destroyed:
 		return
+	if invulnerable:
+		return
 	if survivor_missile_damage_cap > 0.0:
 		amount = minf(amount, survivor_missile_damage_cap)
 	amount = _apply_armor(amount, MISSILE_ARMOR_PENETRATION)
@@ -1255,17 +1216,25 @@ func take_damage(amount: float) -> void:
 func take_bullet_damage(amount: float) -> void:
 	if is_destroyed:
 		return
+	if invulnerable:
+		return
+	# Adds 杂兵（Tu-160/AH-64/CH-47）按设计被击中无任何反应——
+	# 不参与闪避也不触发桶滚动画，否则重型轰炸机会像战斗机一样在高空翻滚
+	var is_adds: bool = has_meta("category") and get_meta("category") == "adds"
 	var effective_dodge: float = bullet_dodge_chance
 	if use_tactical_preference and evasion_mode:
 		effective_dodge += 0.20  # 规避模式加成
 	if get_altitude_tier() == AltitudeTier.HIGH:
 		effective_dodge += 0.20  # HIGH 高度加成
-	if effective_dodge > 0.0 and randf() < effective_dodge:
+	if not is_adds and effective_dodge > 0.0 and randf() < effective_dodge:
 		_trigger_evasion_roll()  # 闪避滚转动画
 		return  # 闪避成功，无视伤害
 	if survivor_bullet_damage_cap > 0.0:
 		amount = minf(amount, survivor_bullet_damage_cap)
 	amount = _apply_armor(amount, 0.0)  # 机炮不穿甲，护甲全额生效
+	# 标记致死来源：survivor_spawner._detect_kills 据此触发"机炮击杀恐惧"AOE
+	if hp - amount <= 0.0:
+		_killed_by_bullet = true
 	_apply_damage(amount)
 
 ## 护甲减伤（DOTA 式软上限）：dr = armor_eff / (armor_eff + ARMOR_K)
@@ -1305,7 +1274,37 @@ func _apply_damage(amount: float) -> void:
 		_trigger_flock_scatter()
 	if hp <= 0.0:
 		hp = 0.0
+		_record_kill_attribution()
 		_start_destroy()
+
+## 致死瞬间快照攻击者归因 + 双方姿态。bullet/missile manager 在调 take_damage 前
+## 用 set_meta("_pending_attacker", source) 写入射手；这里读取并算几何。
+## 用 meta 而不是参数：避免改 take_damage 签名（CombatUnit 多个子类都覆写过）。
+##
+## 写出的 meta（survivor_spawner._detect_kills 读取）：
+##   kill_attacker_id   - 攻击者 instance_id（用于精确匹配玩家）
+##   kill_attacker_team - 攻击者 team（0=友方）
+##   kill_head_on_dot   - −victim_fwd · to_victim：1 = 受害者机头朝攻击者（对头）
+##   kill_attacker_aim  - attacker_fwd · to_victim：1 = 攻击者机头朝向受害者
+## 「对头击杀」判定：两个 dot 都 > 0.6（双方机头夹角 ≲ 53°，排除偷袭/侧射）
+func _record_kill_attribution() -> void:
+	if not has_meta("_pending_attacker"):
+		return
+	var attacker = get_meta("_pending_attacker")
+	remove_meta("_pending_attacker")
+	if not is_instance_valid(attacker) or not (attacker is Aircraft):
+		return
+	var atk: Aircraft = attacker
+	var delta_pos: Vector2 = global_position - atk.global_position
+	if delta_pos.length_squared() < 1.0:
+		return
+	var to_victim: Vector2 = delta_pos.normalized()
+	var atk_fwd := Vector2(sin(atk.heading), -cos(atk.heading))
+	var vic_fwd := Vector2(sin(heading), -cos(heading))
+	set_meta("kill_attacker_id", atk.get_instance_id())
+	set_meta("kill_attacker_team", atk.team)
+	set_meta("kill_head_on_dot", -vic_fwd.dot(to_victim))
+	set_meta("kill_attacker_aim", atk_fwd.dot(to_victim))
 
 ## 触发整个 flock 散开：每架队友朝随机一侧做 jink 闪避数秒，
 ## 同时中断 AIController 的任何交战追踪（_process_simple 开头会检查并清空 _current_target）
@@ -1323,7 +1322,8 @@ func _trigger_flock_scatter() -> void:
 
 func _check_ground_crash() -> void:
 	# 高度为 0 且非起飞状态 → 坠地
-	if altitude <= 0.0 and not is_destroyed:
+	# invulnerable 期间（如航母弹射起飞）放过：滑跑就在地面上，此时不算坠毁
+	if altitude <= 0.0 and not is_destroyed and not invulnerable:
 		altitude = 0.0
 		_start_destroy()
 
@@ -1336,9 +1336,41 @@ func _update_destroy(delta: float) -> void:
 
 # ========== 雷达 ==========
 
+## 高度对雷达范围的连续乘数（基于实际米数，不再因 tier 跳变）
+## 锚点对齐 TIER_ALTITUDE 中心，让玩家爬升/俯冲时雷达锥跟着平滑收缩 / 扩张
+##   0m     → 0.50 (贴地杂波最严重)
+##   2000m  → 0.60 (LOW 中心)
+##   5500m  → 1.00 (MID 中心)
+##   10000m → 1.40 (HIGH 中心)
+##   15000m → 1.50 (上限缓和)
+const RADAR_RANGE_ALT_KEYS := [
+	[0.0, 0.50],
+	[2000.0, 0.60],
+	[5500.0, 1.00],
+	[10000.0, 1.40],
+	[15000.0, 1.50],
+]
+
+
+## 雷达有效距离（params.radar_range × 当前高度连续倍率）
+## 是否要 ECM/buff 由调用方决定，这里只算"我的雷达高度修正"
+func effective_radar_range_px() -> float:
+	var base: float = params.radar_range if params else 300.0
+	var alt: float = altitude
+	# 锚点表线性插值 — 与 AircraftRenderer.altitude_base_scale 同思路
+	for i in range(RADAR_RANGE_ALT_KEYS.size() - 1):
+		var lo: Array = RADAR_RANGE_ALT_KEYS[i]
+		var hi: Array = RADAR_RANGE_ALT_KEYS[i + 1]
+		if alt <= float(hi[0]):
+			var t := (alt - float(lo[0])) / maxf(float(hi[0]) - float(lo[0]), 0.001)
+			var mult: float = lerpf(float(lo[1]), float(hi[1]), clampf(t, 0.0, 1.0))
+			return base * mult
+	return base * float(RADAR_RANGE_ALT_KEYS[RADAR_RANGE_ALT_KEYS.size() - 1][1])
+
+
 ## 判断目标世界坐标是否在本机雷达锥内
 func is_in_radar_cone(target_global_pos: Vector2) -> bool:
-	var radar_r := params.radar_range if params else 300.0
+	var radar_r := effective_radar_range_px()
 	var half_deg := params.radar_half_angle if params else 30.0
 	var half_rad := deg_to_rad(half_deg)
 
@@ -1378,7 +1410,9 @@ func _draw() -> void:
 		self_modulate = Color(1.0, 1.0, 1.0, 1.0)
 	if is_hovered:
 		AircraftRenderer.draw_radar_cone(self)
-		AircraftRenderer.draw_gun_cone(self)
+	# 友方 hover 时显示参考机炮锥；敌方对玩家提交机炮攻击时持续显示锥（条件在 draw_gun_cone 内判）
+	AircraftRenderer.draw_gun_cone(self)
+	LockWarning.draw(self, AircraftRenderer.player_ref)
 	AircraftRenderer.draw_target_line(self)
 	AircraftRenderer.draw_cloud_state(self)
 	AircraftRenderer.draw_aircraft_icon(self)
@@ -1426,6 +1460,19 @@ func _update_cloud_state(delta: float) -> void:
 	else:
 		cloud_state = 1
 
+
+## 每 0.2 秒采样一次建筑遮挡，更新 in_building（LOW 档位且位置在任意街区内）
+## 用于物理速度惩罚 + 弹药 spawn-from-inside 判定
+func _update_in_building(delta: float) -> void:
+	_in_building_accum += delta
+	if _in_building_accum < 0.2:
+		return
+	_in_building_accum = 0.0
+	if altitude >= 3500.0:
+		in_building = false
+		return
+	in_building = BuildingRenderer.is_position_inside_building(global_position)
+
 # ========== 热诱弹系统 ==========
 
 func is_lock_immune() -> bool:
@@ -1438,3 +1485,46 @@ func get_flare_cooldown_ratio() -> float:
 
 func _update_visuals() -> void:
 	rotation = heading
+
+
+## 敌方对玩家提交机炮攻击时累计计时；持续 ≥0.3s 显示红色机炮锥威胁提示。
+## 条件中断立即归零，避免 weapon_mode GUN/MISSILE 抖动时锥反复闪烁。
+func _update_gun_threat_indicator(delta: float) -> void:
+	if team == 0 or is_destroyed or is_cloaked:
+		_gun_threat_timer = 0.0
+		return
+	if not params or not params.gun:
+		_gun_threat_timer = 0.0
+		return
+	var pref: Aircraft = AircraftRenderer.player_ref
+	if pref == null or not is_instance_valid(pref) or pref.is_destroyed:
+		_gun_threat_timer = 0.0
+		return
+	if combat_target != pref or weapon_mode != WeaponMode.GUN:
+		_gun_threat_timer = 0.0
+		return
+	var range_px: float = params.gun.max_range * PIXELS_PER_METER * GUN_THREAT_RANGE_MULT
+	if global_position.distance_squared_to(pref.global_position) > range_px * range_px:
+		_gun_threat_timer = 0.0
+		return
+	_gun_threat_timer += delta
+
+
+## 覆写 CombatUnit：飞机能否对玩家发射导弹（lock_armed 上升沿条件之一）
+func _lock_line_can_engage_player() -> bool:
+	if not has_missile_capability():
+		return false
+	var pref: Aircraft = AircraftRenderer.player_ref
+	if pref == null:
+		return false
+	return combat_target == pref and _missile_cooldown <= 0.05
+
+
+## 敌方是否具备对玩家发射导弹的能力（无导弹的飞机不该有锁定线显示）
+## infinite_ammo BOSS 永远视为有导弹
+func has_missile_capability() -> bool:
+	if not params or not params.missile:
+		return false
+	if infinite_ammo:
+		return true
+	return missiles_remaining > 0

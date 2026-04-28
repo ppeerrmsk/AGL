@@ -64,8 +64,6 @@ func _physics_process(delta: float) -> void:
 		Phase.HOLD: cobra_g = 3.0
 		_: cobra_g = 4.0
 	_aircraft.g_load = cobra_g
-	if not _aircraft.no_stamina:
-		_aircraft._update_pilot_stamina(delta)
 
 	match phase:
 		Phase.PITCH_UP:

@@ -74,6 +74,11 @@ static func enter_evade(ai: AIController) -> void:
 			AIController.AIState.keys()[ai._state], ai._log_target_name(ai._current_target)])
 	ai._state = AIController.AIState.EVADE_MISSILE
 	ai.aircraft.ai_override_pursuit = false
+	# P4：planner 模式下置 evasion_mode → planner 选 EVADE_MISSILE intent → max + AB
+	# MissileEvasion.process_evade 仍写 target_position（垂直规避向量），两者协作：
+	# planner 决定速度/AB，process_evade 决定方向/高度
+	if ai.aircraft.use_tactical_planner:
+		ai.aircraft.evasion_mode = true
 	ai._squad_attacking_leader_target = false
 	ai._squad_free_engaging = false
 	if ai.aircraft.combat_target:
@@ -91,6 +96,9 @@ static func enter_evade(ai: AIController) -> void:
 
 static func exit_evade(ai: AIController) -> void:
 	EventLogger.log_event("EVADE", ai._log_name(), "exiting missile evasion")
+	# P4：清 evasion_mode 让 planner 回到正常 intent 路径
+	if ai.aircraft.use_tactical_planner:
+		ai.aircraft.evasion_mode = false
 	if ai._current_target and is_instance_valid(ai._current_target) and not ai._current_target.is_destroyed:
 		ai.aircraft.set_combat_target(ai._current_target)
 		BFMTactics.set_patrol_altitude(ai)

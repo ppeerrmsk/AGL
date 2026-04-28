@@ -297,7 +297,11 @@ static func execute_lead_pursuit(ai: AIController, s: AIController.SituationData
 			tgt_speed_px, my_speed_px, s.in_rear_hemi)
 
 	ai.aircraft.target_position = ai._apply_position_error(pursuit_pos)
-	match_target_altitude(ai)
+	# 远距（导弹区）保自身作战高度，近距（机炮区）匹配敌机
+	if s.dist_px > s.gun_range_px * 3.0:
+		use_combat_altitude(ai)
+	else:
+		match_target_altitude(ai)
 	set_engage_speed(ai, s, 1.2)
 
 ## 滞后追踪：瞄准敌机后方，防止冲过，保持后半球位置
@@ -323,7 +327,12 @@ static func execute_lead_turn(ai: AIController, s: AIController.SituationData) -
 	var six_pos := future_tgt_pos - s.tgt_fwd * maxf(AIController.LEAD_TURN_SIXOCLOCK_MIN, s.gun_range_px * ai._cb().six_oclock_offset_ratio * AIController.LEAD_TURN_SIXOCLOCK_MULT)
 
 	ai.aircraft.target_position = ai._apply_position_error(six_pos)
-	match_target_altitude(ai)
+	# Lead turn 是迎头/侧前的中远距过渡：默认保自身作战高度，
+	# 距离已进机炮区时才匹配（防止冲到 merge 还在错档）
+	if s.dist_px > s.gun_range_px * 3.0:
+		use_combat_altitude(ai)
+	else:
+		match_target_altitude(ai)
 	set_engage_speed(ai, s, 1.0)
 
 ## 高悠悠：拉高减速防止冲过，然后俯冲回来继续追踪
@@ -503,7 +512,7 @@ static func execute_scissors(ai: AIController, s: AIController.SituationData, de
 #  速度管理辅助
 # ══════════════════════════════════════════════
 
-## 高度匹配敌机（自动适配扁平/连续模式）
+## 高度匹配敌机（自动适配扁平/连续模式）—— 仅近距/机炮战使用
 static func match_target_altitude(ai: AIController) -> void:
 	if not ai._current_target:
 		return
@@ -511,6 +520,35 @@ static func match_target_altitude(ai: AIController) -> void:
 		ai.aircraft.set_target_tier(ai._current_target.get_altitude_tier())
 	else:
 		ai.aircraft.target_altitude = ai._current_target.altitude
+
+## 作战高度：使用自身 patrol_altitude 作为偏好（保留高度优势），
+## clamp 到目标 ±2500m 内以满足导弹包线 ±5000m 的高度差限制（留足余量）。
+## 远距/导弹战调用本函数代替 match_target_altitude。
+const COMBAT_ALT_TARGET_MARGIN := 2500.0
+static func use_combat_altitude(ai: AIController) -> void:
+	if not ai._current_target:
+		set_patrol_altitude(ai)
+		return
+	var tgt_alt: float = ai._current_target.altitude
+	var prefer: float = ai.patrol_altitude if ai.patrol_altitude > 0.0 else tgt_alt
+	var combat_alt: float = clampf(prefer, tgt_alt - COMBAT_ALT_TARGET_MARGIN, tgt_alt + COMBAT_ALT_TARGET_MARGIN)
+	if ai.aircraft.flat_altitude:
+		# 扁平模式：选 patrol 对应档，clamp 到目标 ±1 档（保证导弹高度差不超档）
+		var tgt_tier: int = ai._current_target.get_altitude_tier()
+		var prefer_tier: int = _altitude_to_tier(prefer)
+		var clamped_tier: int = clampi(prefer_tier, tgt_tier - 1, tgt_tier + 1)
+		ai.aircraft.set_target_tier(clamped_tier)
+	else:
+		if ai.aircraft.params:
+			combat_alt = clampf(combat_alt, 200.0, ai.aircraft.params.max_altitude - 200.0)
+		ai.aircraft.target_altitude = combat_alt
+
+static func _altitude_to_tier(alt: float) -> int:
+	if alt < 3500.0:
+		return CombatUnit.AltitudeTier.LOW
+	if alt < 7500.0:
+		return CombatUnit.AltitudeTier.MID
+	return CombatUnit.AltitudeTier.HIGH
 
 ## 设置巡逻高度（自动适配扁平/连续模式）
 static func set_patrol_altitude(ai: AIController) -> void:

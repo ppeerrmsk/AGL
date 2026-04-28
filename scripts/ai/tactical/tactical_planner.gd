@@ -1,0 +1,211 @@
+class_name TacticalPlanner extends RefCounted
+
+## 战术决策入口 —— 唯一的"选 intent"路径。
+##
+## 调用约定：
+##   var s := Situation.from_aircraft(player)
+##   var plan := TacticalPlanner.plan(s, waypoint)  # waypoint 可为 INF
+##
+## 设计原则：
+## 1. **决策树清晰**。每个 if/elif 检查一条几何条件，落到一个 BfmIntent 函数
+## 2. **无副作用**。不写 Aircraft / 不读 Node。整个文件都是纯函数
+## 3. **武器锁定后置**。intent 函数先按几何选武器，最后由 _apply_weapon_lock 强制覆盖
+
+# ══════════════════════════════════════════════
+#  顶层决策
+# ══════════════════════════════════════════════
+
+## 战斗 intent 之间的最短保持时间（秒）。
+## 防止几何边界附近（如 aspect 89-91° 反复跳）的 intent 高频翻转。
+## EVADE_MISSILE / WAYPOINT_MOVE / CRUISE 等不参与 hysteresis（紧急或非战斗，立即响应）
+const HYSTERESIS_MIN_HOLD := 0.5
+
+## 参与 hysteresis 的 intent 集合（战斗类）
+static func _is_combat_intent(intent_id: int) -> bool:
+	match intent_id:
+		TacticalPlan.Intent.TAIL_CHASE, TacticalPlan.Intent.CLOSE_TAIL, \
+		TacticalPlan.Intent.LEAD_TURN, TacticalPlan.Intent.LEAD_PURSUIT, \
+		TacticalPlan.Intent.LAG_PURSUIT, TacticalPlan.Intent.MERGE_PASS, \
+		TacticalPlan.Intent.WIDE_TURN, TacticalPlan.Intent.GROUND_STRAFE:
+			return true
+		_:
+			return false
+
+## 重跑指定 intent 的几何（hysteresis 期间用，situation 是当前帧的）
+static func _replay_intent(intent_id: int, s: Situation) -> TacticalPlan:
+	match intent_id:
+		TacticalPlan.Intent.TAIL_CHASE: return BfmIntent.tail_chase(s)
+		TacticalPlan.Intent.CLOSE_TAIL: return BfmIntent.close_tail(s)
+		TacticalPlan.Intent.LEAD_TURN: return BfmIntent.lead_turn(s)
+		TacticalPlan.Intent.LEAD_PURSUIT: return BfmIntent.lead_pursuit(s)
+		TacticalPlan.Intent.LAG_PURSUIT: return BfmIntent.lag_pursuit(s)
+		TacticalPlan.Intent.MERGE_PASS: return BfmIntent.merge_pass(s)
+		TacticalPlan.Intent.WIDE_TURN: return BfmIntent.wide_turn(s)
+		TacticalPlan.Intent.GROUND_STRAFE: return BfmIntent.ground_strafe(s)
+		_: return BfmIntent.cruise(s)
+
+static func plan(s: Situation, waypoint: Vector2 = Vector2.INF) -> TacticalPlan:
+	var fresh: TacticalPlan = _decide(s, waypoint)
+
+	# Hysteresis：战斗 intent 至少持 HYSTERESIS_MIN_HOLD 秒才允许切到不同战斗 intent
+	# 例外：相同 intent / 非战斗 intent / 紧急（EVADE）→ 不锁
+	if s.prev_intent != -1 \
+			and _is_combat_intent(s.prev_intent) \
+			and _is_combat_intent(fresh.intent) \
+			and fresh.intent != s.prev_intent \
+			and s.prev_intent_held_for < HYSTERESIS_MIN_HOLD:
+		var held: TacticalPlan = _replay_intent(s.prev_intent, s)
+		held.rationale += " | held %.2fs (was %s)" % [
+			s.prev_intent_held_for, TacticalPlan.intent_name(fresh.intent)
+		]
+		return _apply_weapon_lock(s, held)
+
+	return fresh
+
+## 内部决策树（不含 hysteresis）
+##
+## 优先级阶梯：
+## 1. EVADE_MISSILE（紧急覆盖一切）
+## 2. EXTEND_RECOVER 残余计时（穿过目标后 2s 强制脱离）
+## 3. 无目标 → CRUISE / WAYPOINT_MOVE / PASSIVE_AUTO_FIRE
+## 4. 地面 / 水面 → GROUND_STRAFE
+## 5. overshoot 检测（dist 极近 + 远离中）→ 触发 EXTEND_RECOVER
+## 6. WIDE_TURN（hdg 偏 >90°）
+## 7. 对头几何 → MERGE_PASS
+## 8. 后半球 → CLOSE_TAIL / TAIL_CHASE / LEAD_TURN
+## 9. 侧翼 → LAG_PURSUIT / LEAD_PURSUIT
+static func _decide(s: Situation, waypoint: Vector2) -> TacticalPlan:
+	# 优先级 1：规避（最高，覆盖所有交战）
+	if s.evasion_intent:
+		return BfmIntent.evade_missile(s)
+
+	# 优先级 2：仍在 EXTEND 计时内 → 强制保持脱离
+	# （即使重新有目标也不立即接战，让飞机先拉开距离再回头）
+	if s.extend_remaining > 0.0:
+		var ext := BfmIntent.extend_recover(s)
+		ext.rationale += " | extend_remain=%.2fs" % s.extend_remaining
+		return ext
+
+	# 优先级 3：无目标
+	if not s.has_target:
+		if waypoint == Vector2.INF:
+			# 被动 auto-fire：雷达锁住敌人 + 开关开 + 有导弹 → 让 salvo 路径自动发
+			if s.missile_auto_fire and s.missiles > 0 and s.has_radar_lock \
+					and s.weapon_lock != Situation.WEAPON_LOCK_FORCE_GUN:
+				return BfmIntent.passive_auto_fire(s)
+			return BfmIntent.cruise(s)
+		return BfmIntent.waypoint_move(s, waypoint)
+
+	# 优先级 4：水面 / 地面目标 → ground_strafe（max + AB 高速掠过）
+	# 包含 GroundUnit（SAM/AAA/雷达站等）和 NavalUnit（舰船）
+	if s.tgt_is_surface:
+		return _apply_weapon_lock(s, BfmIntent.ground_strafe(s))
+
+	# 优先级 5a：overshoot 检测 — 距离极近 + 正在远离 → 已穿过目标
+	if s.dist_m < s.gun_range_m * 0.4 and s.closing_rate_ms < -50.0:
+		var ext_trigger := BfmIntent.extend_recover(s)
+		ext_trigger.trigger_extend_seconds = 2.0
+		ext_trigger.rationale = "overshoot: dist=%.0fm closing=%.0fm/s → 2s EXTEND" % [
+			s.dist_m, s.closing_rate_ms
+		]
+		return ext_trigger
+
+	# 优先级 5b：boom-zoom 触发 — 长时间咬不上尾（能量劣势 / 转弯打不过）
+	# 条件：combat intent 持续 >8s 且 aspect 仍在前半球（>80°）→ 拉远重整再战
+	# Gladiator 排除：极高攻击欲（aggression > 0.85）的 AI 是设计上"不撤退"的近战机型
+	#   （SU27 / F86 等），boom_zoom 会破坏其 commit 风格 → 跳过
+	#   玩家飞机无 AIController，默认 ai_aggression=0.5 → 不触发本守卫，正常 BOOM_ZOOM
+	if _is_combat_intent(s.prev_intent) and s.prev_intent_held_for > 8.0 \
+			and s.aspect_angle_deg > 80.0 \
+			and s.ai_aggression <= 0.85:
+		var bz_trigger := BfmIntent.extend_recover(s)
+		bz_trigger.trigger_extend_seconds = 3.0  # 比 overshoot 长，给充分能量重建
+		bz_trigger.intent = TacticalPlan.Intent.BOOM_ZOOM_OUT
+		bz_trigger.rationale = "energy disadvantage: held %.1fs aspect=%.0f° → 3s BOOM_ZOOM" % [
+			s.prev_intent_held_for, s.aspect_angle_deg
+		]
+		return bz_trigger
+
+	# ── P5：僚机跟随长机撤离（保持队形完整，避免落单暴露）──
+	# 长机进 EXTEND_RECOVER / BOOM_ZOOM_OUT → 同目标的僚机也跟着撤
+	# 仅 following_leader_target 触发：自由交战的僚机不打断自己的追击
+	if s.is_wingman and s.following_leader_target \
+			and (s.leader_intent == TacticalPlan.Intent.EXTEND_RECOVER \
+				or s.leader_intent == TacticalPlan.Intent.BOOM_ZOOM_OUT):
+		var follow_ext := BfmIntent.extend_recover(s)
+		follow_ext.rationale += " | 僚机跟随长机撤离"
+		return _apply_weapon_lock(s, follow_ext)
+
+	# 优先级 6：hdg 偏差 >90° — 先把头转回来
+	if s.heading_diff_to_target_deg > 90.0:
+		return _apply_weapon_lock(s, BfmIntent.wide_turn(s))
+
+	# 优先级 7：对头几何
+	if s.head_on_dot > BfmIntent.HEAD_ON_THRESHOLD and s.aim_align > BfmIntent.HEAD_ON_THRESHOLD:
+		return _apply_weapon_lock(s, BfmIntent.merge_pass(s))
+
+	# 优先级 8：后半球
+	if s.in_rear_hemisphere:
+		if s.aim_align > BfmIntent.TAIL_AIM_THRESHOLD:
+			# 已对准尾后
+			# ── P5：僚机协同 — 长机已在 TAIL_CHASE/CLOSE_TAIL 同一目标 → 僚机改互补 intent
+			# 让长机占尾后位置，僚机从内圈/侧翼包夹（避免 wingmen 抢尾位 + 形成多角度威胁）
+			# 玩家长机也算（_last_plan 在玩家飞机上由 _run_tactical_planner 维护）
+			# 跟随机型：奇数 squad_index → LAG（侧后内切）；偶数 → LEAD（侧前拦截）
+			if s.is_wingman and s.following_leader_target \
+					and (s.leader_intent == TacticalPlan.Intent.TAIL_CHASE \
+						or s.leader_intent == TacticalPlan.Intent.CLOSE_TAIL):
+				var support_plan: TacticalPlan
+				if s.squad_index % 2 == 1:
+					support_plan = BfmIntent.lag_pursuit(s)
+					support_plan.rationale += " | 僚机#%d 互补 LAG（长机占尾）" % s.squad_index
+				else:
+					support_plan = BfmIntent.lead_pursuit(s)
+					support_plan.rationale += " | 僚机#%d 互补 LEAD（长机占尾）" % s.squad_index
+				return _apply_weapon_lock(s, support_plan)
+			if s.dist_m > s.gun_range_m * BfmIntent.GUN_RANGE_HYSTERESIS:
+				return _apply_weapon_lock(s, BfmIntent.close_tail(s))
+			else:
+				return _apply_weapon_lock(s, BfmIntent.tail_chase(s))
+		else:
+			# 后半球但未对准 → 抢六点
+			return _apply_weapon_lock(s, BfmIntent.lead_turn(s))
+
+	# 优先级 9：前半球 / 侧翼
+	# lag pursuit 触发：目标急转 + 距离够近能感知到圆周（< gun_range × 3）
+	if absf(s.tgt_bank_deg) > BfmIntent.HIGH_BANK_DEG \
+			and s.dist_m < s.gun_range_m * 3.0 \
+			and s.aspect_angle_deg > 60.0 and s.aspect_angle_deg < 130.0:
+		return _apply_weapon_lock(s, BfmIntent.lag_pursuit(s))
+
+	# 默认：lead pursuit
+	return _apply_weapon_lock(s, BfmIntent.lead_pursuit(s))
+
+# ══════════════════════════════════════════════
+#  武器锁定覆盖（玩家意图最终拍板）
+# ══════════════════════════════════════════════
+
+## 应用 weapon_lock + charge_intent 对 plan.weapon_mode / allow_missile_fire 的强制覆盖
+static func _apply_weapon_lock(s: Situation, p: TacticalPlan) -> TacticalPlan:
+	# 双击冲锋 = 强制机炮（覆盖 weapon_lock）
+	if s.charge_intent:
+		p.weapon_mode = TacticalPlan.WeaponMode.GUN
+		p.allow_missile_fire = false
+		p.rationale += " | charge:force-gun"
+		return p
+
+	# 玩家显式锁机炮
+	if s.weapon_lock == Situation.WEAPON_LOCK_FORCE_GUN:
+		p.weapon_mode = TacticalPlan.WeaponMode.GUN
+		p.allow_missile_fire = false
+		p.rationale += " | lock:force-gun"
+		return p
+
+	# 玩家显式锁导弹（暂留接口，UI 层未实现）
+	if s.weapon_lock == Situation.WEAPON_LOCK_FORCE_MISSILE:
+		p.weapon_mode = TacticalPlan.WeaponMode.MISSILE
+		p.allow_gun_fire = false
+		p.rationale += " | lock:force-missile"
+		return p
+
+	return p

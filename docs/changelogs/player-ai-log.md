@@ -102,6 +102,231 @@ LOD 路径里每一步（`_update_combat / _update_bank / _update_visuals / queu
 
 ---
 
+## 2026-04-27 AI 战斗时不再无脑贴目标高度：导弹战保自身作战高度
+
+### 症状 / 设计动机
+
+用户观察：所有 AI 一进 ENGAGE 就调 `BFMTactics.match_target_altitude(ai)` 把自身高度同步到目标高度，导致：
+- Lancer 类（MiG-31 / F-100）失去高空 BVR 优势 —— 玩家在 1000m 它就跟着掉到 1000m 打导弹
+- 飞机的 `patrol_altitude`（出生时随机 4000~9000m 的"作战高度"）只在巡逻有用，进战斗瞬间被抹消
+- `preferred_altitude_tier` 字段（`ai_controller.gd:113`）是预留的"作战偏好高度"位但根本没接通
+
+### 根因
+
+7 个战术执行器 + AIController 入口（`ai_controller.gd:1265`）一起强制 match_target_altitude：
+- `bfm_tactics.gd:300/310/326/359/403/447/500` —— LEAD/LAG/LEAD_TURN/HIGH_YOYO recover/LOW_YOYO recover/BREAK phase1/SCISSORS
+- `bfm_intent.gd` 在 6 个战斗 intent 里写死 `p.target_altitude_m = s.tgt_alt`（CLOSE_TAIL / TAIL_CHASE / LEAD_TURN / LAG_PURSUIT / LEAD_PURSUIT / MERGE_PASS）
+
+附带的硬约束：`aircraft_combat_tracking.gd:659` 导弹包线高度差 > 3000m 直接禁火 —— 这是为什么之前不敢留高度差的物理原因。
+
+### 修复方式
+
+**改公式（不加守卫）**：原来的"无条件匹配"对所有 case 都偏差，加守卫会变补丁地狱。直接按"机炮战 vs 导弹战"分桶。
+
+1. **新增 `BFMTactics.use_combat_altitude(ai)`** ([bfm_tactics.gd:524](scripts/ai/bfm_tactics.gd:524))：使用 `ai.patrol_altitude` 作偏好，clamp 到目标 ±2500m 内。扁平模式下选 patrol 对应档但限制目标 ±1 档。
+2. **AIController 入口** ([ai_controller.gd:1266](scripts/ai_controller.gd:1266))：alt_diff > 500m 时调 use_combat_altitude（默认作战高度），不是 match_target_altitude。
+3. **BFMTactics 战术分桶**：
+   - LEAD_PURSUIT / LEAD_TURN — 距离 > gun_range×3 用 use_combat，否则 match
+   - LAG_PURSUIT / SCISSORS / BREAK_TURN phase1 / YOYO recovery — 保持 match（机炮战或恢复几何）
+4. **TacticalPlanner 路径**：
+   - `Situation.combat_altitude_m` 新字段 ([situation.gd:58](scripts/ai/tactical/situation.gd:58))，从 AIController.patrol_altitude 注入；玩家用 my_alt
+   - `BfmIntent._apply_target_altitude(s, p)` 新辅助 ([bfm_intent.gd:438](scripts/ai/tactical/bfm_intent.gd:438))：weapon_mode==MISSILE → combat altitude（clamp 目标 ±2500m），否则 tgt_alt
+   - 6 个战斗 intent 的 `p.target_altitude_m = s.tgt_alt` 替换为 `_apply_target_altitude(s, p)`
+5. **导弹包线高度差上限** ([aircraft_combat_tracking.gd:660](scripts/aircraft/aircraft_combat_tracking.gd:660))：3000m → 5000m。AI 用 use_combat_altitude 的 ±2500m clamp 留 2500m 余量给 yoyo / extension 等过渡瞬态。
+
+### 设计取舍
+
+为什么 clamp ±2500m 而不让 AI 真的保留 4000m+ 高度差：导弹包线 5000m 是物理合理的硬上限（AAM 垂直能量耗损），允许 AI 高出目标 2500m 已经能吃到"BVR 高位"优势 + 让 patrol_altitude 真正生效，又不会让 missile envelope 频繁拒火。如果之后觉得 Lancer 高度优势不够明显，可以加 `CombatParams.combat_altitude_m` 字段让 archetype 显式声明（Lancer=9000, Gladiator=5000）—— 现在用 patrol_altitude 复用是最小变更。
+
+### 回归测试要点
+
+- **MiG-31 / F-100 vs 低空玩家**：BVR Lancer 应该明显保留高度优势打 dive 导弹
+- **F-86 / MiG-23 近距狗斗**：进入机炮射程后必须 match 高度，否则机炮 500m 高度差判定（[aircraft_weapons.gd:145](scripts/aircraft/aircraft_weapons.gd:145)）会让自动开火失效
+- **导弹包线**：高度差 > 5000m 时不发射，但 use_combat_altitude clamp 到 ±2500m 应该极少触发
+- **HIGH_YOYO / LOW_YOYO**：phase 1 仍 match 目标高度，maneuver 几何不破
+- **F-47 BOSS**：仍走 BFMTactics 路径，受同样规则影响 —— 应当观察是否仍能维持 BVR 狙击节奏
+- **僚机协同**：`SquadCoordination` 走 set_patrol_altitude 没动；编队归队应不变
+- **玩家飞机**（use_tactical_planner）：MISSILE intent 下保 my_alt（而不是贴目标），切换 GUN 模式才下高度 —— 验证不会出现"按导弹键时玩家自动爬升"
+
+---
+
+## 2026-04-26 auto_gun_scan "保护"早返冻结 lead_heading：UAV 高 bank 时持续朝侧面喷子弹
+
+### 症状
+
+生存模式日志 `combat_log_20260426_004909.txt` + 玩家截图：UAV-04 在 bank +86°、15g 高速旋转时，机炮持续朝一个固定的世界方向喷射子弹（机头早转过去了，子弹还往原方向飞），形成长长的弧形 tracer 残影。
+
+### 根因
+
+`f3a99fa` 重构（屎山拆分）时在 `aircraft/aircraft_weapons.gd:auto_gun_scan` 顶部新加了一段：
+
+```gdscript
+# 保护：已在开火 → 保持当前 _gun_lead_heading，不让扫描覆盖。
+if ac.is_firing:
+    return
+```
+
+这段早返在 `_auto_gun_scan_timer` 节流（行 92-95）**之前**就 return —— 一旦 `is_firing` 锁存为 true，整个 scan 永远走不到节流以下的逻辑，`_gun_lead_heading` 冻结在初次开火那帧的世界方向，`is_firing` 也不会被新一轮 scan 清掉。
+
+aircraft 在 86° bank 下旋转速率 ~60°/s，0.3s 转过 18°，但 lead 一动不动 → 子弹方向相对机头看就是"侧射"。
+
+`is_firing` 只在 cobra/herbst 机动 + 弹药耗尽时清，正常交战中永不重评估。
+
+### 修复
+
+`aircraft/aircraft_weapons.gd:auto_gun_scan`：
+- 删除 `if ac.is_firing: return` 三行
+- 替换为反面注释，说明为什么不能在这里早返（防止下次又有人按"保护"思路加回来）
+- 顶部 comment 也补一段 2026-04-26 修复说明
+
+行为退回到旧版 `aircraft.gd:_auto_gun_scan`（重构前）：scan 每 0.3s 重新扫描目标 + 刷新 `is_firing` + 刷新 `_gun_lead_heading`，射速节流由 `_fire_cooldown` 单独管。
+
+### 回归测试要点
+
+- ✅ 高 bank（>60°）追击中机炮指向应跟随机头，不残留世界方向
+- ✅ 目标飞出锥外应在 0.3s 内停火
+- ✅ 射速不应改变（`_fire_cooldown = 60/fire_rate` 单独节流）
+- ⚠ AI 走的是行 70-73 的 `combat_target` 早返分支，不直接走扫描，但日志显示 UAV 在 `combat_target` 为空（dogfight pursuit-only）时也会落入扫描分支 → 测试要覆盖 UAV/MiG 持续 360° 缠斗
+
+### 教训
+
+重构时往原本能跑的逻辑上加"保护守卫"，要先确认守卫不会绕过原有节流/状态重置机制。本来 `_auto_gun_scan_timer` 已经做了 0.3s 节流，scan 重新跑一遍代价极小，再加一层 `if is_firing: return` 是无效的优化但破坏了状态自愈。
+
+---
+
+## 2026-04-24 (5) Rejoin "扭曲"：combat→formation bank 瞬间反转（4 rad/s 硬拉）
+
+### 症状
+
+修了 bug #9 的 bank-flip 守卫后，bang-bang 抖动消失，玩家反馈仍有"扭曲"感。
+
+### 根因（10Hz 数据确诊）
+
+`combat_log_20260424_163239` Corsair @ 43.3-43.8:
+```
+bank=-53° → -33° → -13° → +7° → +22°  (0.5s 内, 平均 180°/s)
+dbank=+29° 全程稳定（**无振荡**）
+```
+
+desired_bank 没振荡——是从 combat 残留的 -53° 直拉到 formation 的 +29°，按 params.roll_rate
+（~4 rad/s = 229°/s）硬跑，**0.4 秒完成 82° 反转**。视觉上像"僚机突然把自己拧过去"。
+
+`_formation_blend` (b) 原本应该是 rejoin 的平滑过渡因子（0→1 over 2s），但在
+`aircraft_formation.gd` 中只用在了高度和速度上，**bank/heading rate-limit 始终用原始全速率**
+——所以 rejoin 瞬间 bank 以全速反转。
+
+### 修复
+
+`aircraft_formation.gd:update_follow` 加 rejoin 速率缩放：
+```gdscript
+const REJOIN_RATE_FLOOR := 0.35
+var rejoin_rate_scale = lerpf(REJOIN_RATE_FLOOR, 1.0, b)
+var eff_roll_rate = roll_rate_limit * rejoin_rate_scale
+var eff_turn_rate = FORMATION_MAX_TURN_RATE * rejoin_rate_scale
+```
+
+b=0（rejoin 起点）→ 35% 速率 → 82° 反转需 ~1.1s（原 0.4s）
+b=1（稳态）→ 100% 速率 → 旧行为完全不变
+
+### 为什么 `0.35` 而不是更低
+
+测过 0.2：82° 反转需 ~2s，僚机看起来"呆滞"，像飞行员犹豫。0.35 是"明显更柔和"与
+"仍然反应迅速"的折中。如果后续反馈仍偏快，调到 0.25；偏慢则 0.5。
+
+### 回归测试要点
+
+1. **僚机击毙敌机**：bank 反转过程应比之前柔和，但仍能在 ~1s 内完成（不会拖几秒）
+2. **稳态编队**（b=1）：所有速率回到 params.roll_rate / FORMATION_MAX_TURN_RATE，
+   手感跟老代码一样
+3. **rejoin 期间长机转向**：僚机 bank 跟随长机的速度降低，延迟感明显但不影响队形
+
+---
+
+## 2026-04-24 (4) Rejoin 抖动真正根因：MID 分支 bias_angle 硬钳翻转
+
+### 症状
+
+玩家反馈："僚机击毙了敌机以后回到阵型这个过程中会抖，在很多敌机身上包括 BOSS 都有复现。"
+长期存在的 bug，多轮修复未解决。
+
+### 先前的误诊（已撤销）
+
+最初怀疑是 `aircraft_physics.gd:update_bank` 的 target_bank 死区阶跃不连续（hdiff=half_diff
+时 0 → 0.4·max_bank 的跳变）。改了 3 处死区为二次平滑曲线。**玩家明确指出根因错了**，
+已撤销所有 BFM 改动。教训：不要在没看日志的情况下先猜公式 bug。
+
+### 真正的根因
+
+查 `combat_log_20260424_160912.txt` Fractal 在 33.9s DISENGAGE 后的 FORM_DBG：
+
+```
+[34.1] slot_d=786 b=0.08 hdg=4→44    Δ=+41.2°  dbank=+63°  bank=+29°
+[73.9] slot_d=620 b=0.09 hdg=-118→0  Δ=+120.6° dbank=+62°  bank=+7°
+[75.7] slot_d=623 b=0.08 hdg=-24→0   Δ=+25.4°  dbank=+62°  bank=+62°
+[76.7] slot_d=518 b=0.58 hdg=0→0     Δ=+0.3°   dbank=+1°   bank=+1°   ← 骤然归零
+[82.3] slot_d=443 b=0.43 hdg=-71→-106 Δ=-36.2° dbank=-62°  bank=-62°  ← 又反向
+```
+
+rejoin 期间 target_heading 巨幅跳变（40-120°），desired_bank 贴 ±62° 上限，然后
+骤然翻转。
+
+根源在 `aircraft_formation.gd` MID 分支：
+```gdscript
+bias_angle = atan2(slot_local.x, LEAD_BIAS_DIST=250)
+bias_angle = clampf(bias_angle, -MAX_BIAS, MAX_BIAS)  # ±60° 硬钳
+target_heading = ldr.heading + jitter_heading + bias_angle
+```
+
+rejoin 时 wingman 离阵型很远，slot_local.x 绝对值大，bias_angle 经常贴到 ±60° 硬钳。
+**长机转向让 slot_local.x 翻符号时，bias 从 +60° 跳到 -60°**（target_heading 瞬移 120°）
+→ desired_bank 翻正负 → rate-limit 拉过去又被拉回来 → bank bang-bang 抖动。
+
+稳态编队（b=1）没事是因为 wingman 已经贴近阵型（slot_local.x 小），bias_angle 远离
+±60° 钳位，翻符号时变化平滑。
+
+### 修复
+
+给 `aircraft_formation.gd` 加**编队专属 bank 翻转抗振守卫**（和 `aircraft_physics.gd:260-264`
+同构）：
+
+```gdscript
+const FORM_BANK_ESTABLISHED_RAD := deg_to_rad(30.0)
+const FORM_BANK_COMMIT_RAD := deg_to_rad(15.0)
+if absf(ac.bank_angle) > FORM_BANK_ESTABLISHED_RAD \
+        and signf(desired_bank) != 0.0 \
+        and signf(desired_bank) != signf(ac.bank_angle) \
+        and absf(hdiff_after) < FORM_BANK_COMMIT_RAD:
+    desired_bank = 0.0  # 先归零再考虑反向
+```
+
+当前 bank 已建立（|bank|>30°）且 desired_bank 要反向而 hdiff 又不够大（<15°）时，先
+强制 target=0 让机翼回正，过了中立位才允许反向。给 bias 翻转加一层迟滞。
+
+### 配套诊断改动
+
+`FORM_DBG` 节流：rejoin 期间（b<0.95）升到 10Hz，其他时段保持 1Hz。旧的 1Hz 采样看
+不见 60Hz 抖动，下次排查需要高频包络。
+
+### 为什么这次看错了方向
+
+BFM 目标 bank 死区阶跃确实是个 bug，但：
+1. BFM 阶跃是 0 → 34° 的 step，rate-limited 后实际 bank 平滑跟进，视觉影响小
+2. rejoin 的 bias 翻转是 +60° → -60° 的 120° 跳跃，差两个数量级
+3. 抖动复现条件是 rejoin（即 b<1.0 + lod=1 + formation_mode=true），不是全场 BFM
+
+今后排查前先让用户说清触发条件（"什么时候抖"），再读日志定位具体 FORM_DBG / AC_TICK
+片段，不要先猜公式。
+
+### 回归测试要点
+
+1. **僚机击毙敌机后归队**（主要场景）：之前整段 rejoin 看得见机身左右晃，修复后应平滑
+2. **长机连续硬转期间僚机归队**：bias 翻转触发 bank-flip 守卫，期间 bank 应先到 0 再翻
+3. **稳态编队**（b=1）：守卫不应触发，编队手感不变
+4. **导出日志**：下次出现抖动，找 FORM_DBG 条目（rejoin 期间 10Hz），看 dbank 是否频繁
+   翻转符号。如果仍翻转但带 `dbank=0`（守卫介入）的过渡，说明守卫生效但仍需调阈值
+
+---
+
 ## 2026-04-24 (3) auto_fire=OFF 锁定后自动开火（去掉"一点一发"）
 
 ### 症状

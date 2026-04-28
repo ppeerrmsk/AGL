@@ -103,10 +103,10 @@ const ZONES: Array[Dictionary] = [
 		"id": &"E",
 		"name_key": "ZONE_E_NAME",
 		"label": "E",
-		## 中央海域 —— BOSS 位置正南方，全海面战区
-		## BOSS 在 (0, 1000) r=2200；E 在 (0, 3500) r=1800，两者南北相距 2500，
-		## 边缘留 500 余量保证视觉不重叠（且被 BOSS 取消时也不会产生 UI 冲突）
-		"center": Vector2(0.0, 3500.0),
+		## 中央海域偏东 —— 与 C(-4100, 3800)r2500 / D(4800, 4500)r2500 同时拉开间距
+		## 距 C ≈ 4510 → 边缘 gap ≈ 210；距 D ≈ 4512 → 边缘 gap ≈ 212；
+		## y 不动（避免与 BOSS_SOUTH(0,3500) 区域更近），仅 x 东移 400
+		"center": Vector2(400.0, 3500.0),
 		"radius": 1800.0,
 		## E 专属：mission_type 只 roll "naval" 或 "elite"（见 _roll_mission_type）
 		"mission_type": "naval",
@@ -114,18 +114,29 @@ const ZONES: Array[Dictionary] = [
 	},
 ]
 
-## BOSS 战区：放在地图中央偏南，与 4 个角的常规战区都留出余量
-##  - vs A (-3200,-2500) r=2500：距 ≈ 4744 ≥ 2500+2200=4700 ✓
-##  - vs B (3800,-3800) r=2500：距 ≈ 6123 ✓
-##  - vs C (-4100, 3800) r=2500：距 ≈ 4965 ✓
-##  - vs D (4800, 4500) r=2500：距 ≈ 5941 ✓
-const BOSS_ZONE: Dictionary = {
+## BOSS 战区：不再固定中央位置，根据玩家最后攻克的战区动态选南北
+##   - 最后攻克 ∈ {A, B}（北部） → BOSS 出现在 **南** (E 位置)，朝北飞来迎战
+##   - 最后攻克 ∈ {C, D, E}（南部） → BOSS 出现在 **北** (B 位置)，朝西南飞来迎战
+## 目的：BOSS 出现在玩家上一个战区的对角侧，避免刷脸 + 给玩家赶赴时间
+const BOSS_RADIUS: float = 2200.0
+## 北 BOSS：桥主体以南、靠近桥的位置（视觉上像"舰队从桥下驶出"）
+## 桥线性逼近 y = 0.827x - 5616；center_y = -500 在 x=2500 处留 ~1300 px 离桥
+## 舰队北角（center + (1414, -2546)）= (3914, -3046)，会越过桥线 ~667 px —
+## 这部分船在视觉上贴近桥北侧，由玩家自己判断接受程度；主体（CV + 贴身护航）仍在桥南
+const BOSS_NORTH_CENTER: Vector2 = Vector2(2500.0, -500.0)
+const BOSS_SOUTH_CENTER: Vector2 = Vector2(0.0, 3500.0)      ## E 战区位置（南）
+const BOSS_NORTH_HEADING_DEG: float = 225.0                  ## 北 BOSS 朝西南（向玩家所在南部扑来）
+const BOSS_SOUTH_HEADING_DEG: float = 0.0                    ## 南 BOSS 朝正北
+
+## 运行时 BOSS 战区数据（boss_unlocked 时由 _finalize_boss_placement 填充）
+var boss_zone: Dictionary = {
 	"id": &"BOSS",
 	"name_key": "ZONE_BOSS_NAME",
 	"label": "BOSS",
-	"center": Vector2(0.0, 1000.0),
-	"radius": 2200.0,
+	"center": BOSS_NORTH_CENTER,          ## 占位，boss_unlocked 前不使用
+	"radius": BOSS_RADIUS,
 }
+var boss_heading_deg: float = 0.0         ## BOSS 出场朝向，供 CSG 等 encounter 决定航线
 
 ## 战区攻克时给玩家恢复的基础 HP（除了技能奖励外的额外回血）
 const ZONE_CLEAR_HP_RESTORE := 30.0
@@ -142,9 +153,32 @@ var cleared_count: int = 0
 var _ever_cleared: Dictionary = {}           ## id → true
 ## 最近一次攻克的战区 id —— 下一轮 refresh 时排除它（不能刚打完又被选中）
 var _last_cleared: StringName = &""
-## 最近一次攻克的 mission_type —— 下一轮新战区 roll 时尽量避开相同类型
-## （防止"刚打完中队又蹦出中队"的重复感）
+## 最近一次攻克的 mission_type（保留供日志/UI 用，不再参与抽取决策）
 var _last_cleared_mission_type: String = ""
+
+## ── 任务类型反重复抽取系统 ──
+##
+## 维护最近 N 次 `_roll_mission_type` 产出的类型滑窗。每次抽取时，把该类型
+## 的基础权重按"窗口内出现次数"指数衰减（每出现一次 ×REPEAT_PENALTY），
+## 自然把抽取倾向推向"窗口里没出现过的类型"。
+##
+## 比硬性"禁止上一次类型"更鲁棒：
+##   - 解决"刚开局 A/B 都 ground，C 又 ground，D 还 ground"的灾难
+##   - 不是硬禁 → 偶发重复仍可能，避免可预测性
+##   - E 战区 restricted_mission_types 走同一套衰减
+##
+## 历史在 _init / 首次 _assign 后就开始记录，A/B 开局抽两次也会互相影响。
+const MISSION_HISTORY_WINDOW := 5
+const MISSION_REPEAT_PENALTY := 0.30
+var _mission_type_history: Array[String] = []
+
+## 各难度下各 mission_type 的基础权重（数值是相对值，会按历史衰减后再归一）
+## 与旧 _roll_mission_type 的概率近似一致，便于回归
+const MISSION_TYPE_BASE_WEIGHTS := {
+	1: {"ground": 45.0, "squadron": 30.0, "elite": 25.0},   ## ★ 提一些 elite，玩家早期能见 Sentinel
+	2: {"ground": 35.0, "squadron": 35.0, "elite": 30.0},   ## ★★ 三类均衡
+	3: {"ground": 40.0, "squadron": 60.0},                    ## ★★★ 无 elite（分量不够）
+}
 var boss_unlocked: bool = false
 ## E 战区是否已经尝试过解锁（避免 A+B 清完反复 roll）
 var _e_unlock_rolled: bool = false
@@ -191,8 +225,8 @@ func get_zone_by_id(id: StringName) -> Dictionary:
 	for z in ZONES:
 		if z["id"] == id:
 			return z
-	if BOSS_ZONE["id"] == id:
-		return BOSS_ZONE
+	if boss_zone["id"] == id:
+		return boss_zone
 	return {}
 
 ## 玩家选中某战区（从 AVAILABLE → SELECTED）
@@ -224,6 +258,51 @@ func mark_cleared(id: StringName) -> void:
 	_mission_types.erase(id)
 	_refresh_availability_after_clear()
 
+## 依据 `_last_cleared` 决定 BOSS 出现在南还是北
+## 并把同位置的常规战区（E 或 B）压回 LOCKED，避免 UI 重叠
+## 选定位置后若在陆地上则向海面吸附 —— 舰队 BOSS（CSG）才能刷进池子
+func _finalize_boss_placement() -> void:
+	# 最后攻克 A/B（北部）→ BOSS 出现在南；其他情况（C/D/E 或未知）→ 出现在北
+	var spawn_at_south: bool = _last_cleared == &"A" or _last_cleared == &"B"
+	var center: Vector2
+	if spawn_at_south:
+		center = BOSS_SOUTH_CENTER
+		boss_heading_deg = BOSS_SOUTH_HEADING_DEG
+		_cancel_zone_if_open(&"E")
+	else:
+		center = BOSS_NORTH_CENTER
+		boss_heading_deg = BOSS_NORTH_HEADING_DEG
+		_cancel_zone_if_open(&"B")
+	# 陆地吸附：BOSS_NORTH 原位 (B) 是陆地，CSG 上不了陆，
+	# 这里把中心点平移到最近的海面，让舰队 BOSS 也能正常刷
+	boss_zone["center"] = _snap_to_water(center, BOSS_RADIUS)
+	EventLogger.log_event("BOSS", "Placement",
+		"center=%s heading=%.0f° (last_cleared=%s)" % [boss_zone["center"], boss_heading_deg, _last_cleared])
+
+## 若 pos 已是海面直接返回；否则螺旋扫描半径 search_radius 内的方向，
+## 找到的第一个海面点返回。全在陆地就回退原点（保底，CSG 会被 requires_water 过滤掉）
+func _snap_to_water(pos: Vector2, search_radius: float) -> Vector2:
+	if not MapGeography.is_on_land(pos):
+		return pos
+	# 16 方向 × 3 步长 = 48 候选点，由近到远选第一个海面点
+	for step in [search_radius * 0.5, search_radius * 1.0, search_radius * 1.5]:
+		for i in range(16):
+			var ang: float = float(i) * TAU / 16.0
+			var candidate: Vector2 = pos + Vector2(cos(ang), sin(ang)) * step
+			if not MapGeography.is_on_land(candidate):
+				return candidate
+	return pos
+
+func _cancel_zone_if_open(zid: StringName) -> void:
+	var st := get_state(zid)
+	if st == State.AVAILABLE or st == State.SELECTED:
+		_states[zid] = State.LOCKED
+		if selected_id == zid:
+			selected_id = &""
+		_rewards.erase(zid)
+		_difficulties.erase(zid)
+		_mission_types.erase(zid)
+
 func _refresh_availability_after_clear() -> void:
 	_newly_opened.clear()
 	# 累计攻克 3 次 → 解锁 Boss（无论是否走回头路）
@@ -231,16 +310,7 @@ func _refresh_availability_after_clear() -> void:
 		boss_unlocked = true
 		_states[&"BOSS"] = State.AVAILABLE
 		_newly_opened.append(&"BOSS")
-		# BOSS 解锁 → E 战区被取消掉（中央海域被 BOSS 占用）
-		# 不改 _ever_cleared（E 可能都没出过），只把当前 state 压回 LOCKED
-		var e_state := get_state(&"E")
-		if e_state == State.AVAILABLE or e_state == State.SELECTED:
-			_states[&"E"] = State.LOCKED
-			if selected_id == &"E":
-				selected_id = &""
-			_rewards.erase(&"E")
-			_difficulties.erase(&"E")
-			_mission_types.erase(&"E")
+		_finalize_boss_placement()
 		return
 
 	# E 战区解锁判定：A + B 都曾攻克过 → 按概率出现
@@ -374,68 +444,88 @@ func get_difficulty(id: StringName) -> int:
 #  任务类型（runtime roll，覆盖 ZONES 的默认 mission_type）
 # ══════════════════════════════════════════════
 
-## 基础 mission_type = "air" 的战区（C）地形在水上，只能空战中队任务
-## 其他战区按难度权重滚动：
-##   - ★     → ground(60) / squadron(25) / elite(15)
-##   - ★★    → ground(40) / squadron(35) / elite(25)
-##   - ★★★   → ground(40) / squadron(60)   — 无 elite
-## elite (Sentinel 首领怪) 从 ★★★ 移除 —— 打掉 Sentinel 即完成任务，体量不够 ★★★ 分量。
-## ★★★ 改为纯 ground/squadron，配合 TGT 虚拟等级 +5 floor 8 抽 MiG-29/Su-27/MiG-31 级中队。
+## 抽取战区的 mission_type，写入 `_mission_types[id]` 并推入历史滑窗。
+##   - C 战区基础 type=="air"（水上）→ 直接 air，不参与抽取
+##   - 带 restricted_mission_types 的战区（E）→ 限定池里加权抽
+##   - 普通战区 → MISSION_TYPE_BASE_WEIGHTS[difficulty] 加权抽
+##   - 陆地不足时 ground 候选权重清零（不会被选中），避免 SAM/AA 落水
+##   - 抽取前对每个候选权重按"历史出现次数"做 pow(REPEAT_PENALTY, count) 衰减
 func _roll_mission_type(id: StringName) -> void:
 	if _mission_types.has(id):
 		return
 	var base := get_zone_by_id(id)
 	var base_type: String = base.get("mission_type", "ground")
 
-	# 带 restricted_mission_types 的战区（如 E）只从限定列表中 roll
-	var restricted: Array = base.get("restricted_mission_types", [])
-	if not restricted.is_empty():
-		var pick: String = String(restricted[randi() % restricted.size()])
-		# 尝试避开刚完成的类型，换一次；如果唯一就接受
-		if pick == _last_cleared_mission_type and restricted.size() > 1:
-			pick = String(restricted[randi() % restricted.size()])
-		_mission_types[id] = pick
-		return
-
 	# 水上战区只能空战
 	if base_type == "air":
-		_mission_types[id] = "air"
+		_set_mission_type_and_record(id, "air")
 		return
-	# 陆地可用性检查：即便战区基础类型是 ground，若圆内几乎没有陆地
-	# （战区中心偏海/城市多边形稀疏），也强制为空战中队，避免 SAM/AA 落到海面
-	var has_land := zone_has_land(id)
-	var diff := int(_difficulties.get(id, DIFFICULTY_MIN))
-	# 最多重 roll 1 次以避开与刚完成的任务同类型，防止连续重复体验
-	# （水上 air 战区上面已直接返回，不走这里）
-	for attempt in range(2):
-		var r := randf()
-		var picked: String = ""
-		match diff:
-			3:
-				## ★★★ 去掉 elite —— 分量不够，改走 squadron/ground
-				picked = "squadron" if r < 0.60 else "ground"
-			2:
-				## ★★ 下放 elite（25%），其余 squadron/ground
-				if r < 0.25:
-					picked = "elite"
-				elif r < 0.60:
-					picked = "squadron"
-				else:
-					picked = "ground"
-			_:
-				## ★ 开始提供 elite（15%），作为玩家早期首次见到 Sentinel 的场合
-				if r < 0.15:
-					picked = "elite"
-				elif r < 0.40:
-					picked = "squadron"
-				else:
-					picked = "ground"
-		# 水上/近海战区不允许地面任务 —— 改为空战中队
-		if picked == "ground" and not has_land:
-			picked = "squadron"
-		if picked != _last_cleared_mission_type or attempt >= 1:
-			_mission_types[id] = picked
-			return
+
+	# E 战区：从 restricted_mission_types 等权抽，再走衰减
+	var restricted: Array = base.get("restricted_mission_types", [])
+	if not restricted.is_empty():
+		var weights: Dictionary = {}
+		for t_any in restricted:
+			weights[String(t_any)] = 1.0
+		var picked := _weighted_pick_with_history(weights)
+		if picked == "":
+			picked = String(restricted[randi() % restricted.size()])  ## 兜底
+		_set_mission_type_and_record(id, picked)
+		return
+
+	# 普通战区：按难度查基础权重表
+	var diff: int = int(_difficulties.get(id, DIFFICULTY_MIN))
+	var base_weights: Dictionary = MISSION_TYPE_BASE_WEIGHTS.get(diff, MISSION_TYPE_BASE_WEIGHTS[DIFFICULTY_MIN])
+	var weights := base_weights.duplicate()
+
+	# 陆地可用性：圆内陆地不足 → ground 不能抽（让其他类型瓜分权重）
+	if not zone_has_land(id):
+		weights["ground"] = 0.0
+
+	var picked2 := _weighted_pick_with_history(weights)
+	if picked2 == "":
+		picked2 = "squadron"  ## 兜底：所有候选权重都为 0（理论不会发生）
+	_set_mission_type_and_record(id, picked2)
+
+## 写入 _mission_types + 推入历史滑窗（同一个 zone 重 roll 时不会重复推 —— `if _mission_types.has` 已挡）
+func _set_mission_type_and_record(id: StringName, mission_type: String) -> void:
+	_mission_types[id] = mission_type
+	_mission_type_history.append(mission_type)
+	if _mission_type_history.size() > MISSION_HISTORY_WINDOW:
+		_mission_type_history.pop_front()
+
+## 加权抽取：对每个候选 type 按"历史窗口内出现次数"做指数衰减，再归一抽取
+## 返回 "" 表示所有权重都为 0（调用方应给兜底）
+func _weighted_pick_with_history(base_weights: Dictionary) -> String:
+	var adjusted: Array = []  ## [[type, weight], ...]
+	var total := 0.0
+	for k in base_weights.keys():
+		var t: String = String(k)
+		var w0: float = float(base_weights[k])
+		if w0 <= 0.0:
+			continue
+		var count: int = _count_in_history(t)
+		var w: float = w0 * pow(MISSION_REPEAT_PENALTY, count)
+		if w <= 0.0001:
+			continue
+		adjusted.append([t, w])
+		total += w
+	if total <= 0.0 or adjusted.is_empty():
+		return ""
+	var r := randf() * total
+	var acc := 0.0
+	for entry in adjusted:
+		acc += float(entry[1])
+		if r <= acc:
+			return String(entry[0])
+	return String(adjusted[adjusted.size() - 1][0])
+
+func _count_in_history(mission_type: String) -> int:
+	var c := 0
+	for t in _mission_type_history:
+		if t == mission_type:
+			c += 1
+	return c
 
 func get_mission_type(id: StringName) -> String:
 	if _mission_types.has(id):

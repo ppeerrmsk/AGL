@@ -36,20 +36,30 @@ static func _digit_stable(s: String) -> String:
 ## 返回 [normal_color, hex_string_for_rich_text]
 ## 高度缩放基准（与 draw_aircraft_icon 保持一致）
 ## 尾焰 / 枪口闪光 / 其他附件都必须乘这个值，否则图标变大后附件还停在原位
+##
+## 不再因 flat_altitude 走离散 tier 跳变 —— 始终走连续插值，跟着真实 altitude 米数走
+## 关键锚点对齐 TIER_ALTITUDE 中心（LOW=2000 → 0.70, MID=5500 → 1.05, HIGH=10000 → 1.55）
+## 这样玩家爬升/俯冲时图标会平滑放大缩小，能直观看到高度变化
+const ALT_SCALE_KEYS := [
+	[0.0, 0.55],
+	[2000.0, 0.70],   # CombatUnit.TIER_ALTITUDE.LOW
+	[5500.0, 1.05],   # CombatUnit.TIER_ALTITUDE.MID
+	[10000.0, 1.55],  # CombatUnit.TIER_ALTITUDE.HIGH
+	[15000.0, 1.70],  # 接近 max_altitude 上限
+]
+
+
 static func altitude_base_scale(ac: Aircraft) -> float:
-	if ac.flat_altitude:
-		match ac.get_altitude_tier():
-			0: return 0.70
-			1: return 1.05
-			2: return 1.55
-			_: return 1.0
-	var ref_alt := 5000.0
-	var max_alt := ac.params.max_altitude if ac.params else 15000.0
-	var alt_ratio := clampf(ac.altitude / max_alt, 0.0, 1.0)
-	var ref_ratio := ref_alt / max_alt
-	if alt_ratio <= ref_ratio:
-		return lerpf(0.60, 1.0, sqrt(alt_ratio / maxf(ref_ratio, 0.001)))
-	return lerpf(1.0, 1.55, (alt_ratio - ref_ratio) / maxf(1.0 - ref_ratio, 0.001))
+	var alt: float = ac.altitude
+	# 在锚点表中线性插值
+	for i in range(ALT_SCALE_KEYS.size() - 1):
+		var lo: Array = ALT_SCALE_KEYS[i]
+		var hi: Array = ALT_SCALE_KEYS[i + 1]
+		if alt <= float(hi[0]):
+			var t := (alt - float(lo[0])) / maxf(float(hi[0]) - float(lo[0]), 0.001)
+			return lerpf(float(lo[1]), float(hi[1]), clampf(t, 0.0, 1.0))
+	# 超出最高锚点
+	return float(ALT_SCALE_KEYS[ALT_SCALE_KEYS.size() - 1][1])
 
 static func altitude_tier_color(tier: int, transitioning: bool) -> Color:
 	if transitioning:
@@ -149,7 +159,7 @@ static func draw_formation_debug(ac: Aircraft) -> void:
 	ac.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 static func draw_radar_cone(ac: Aircraft) -> void:
-	var radar_r := ac.params.radar_range if ac.params else 300.0
+	var radar_r := ac.effective_radar_range_px()
 	var half_deg := ac.params.radar_half_angle if ac.params else 30.0
 	var half_rad := deg_to_rad(half_deg)
 
@@ -187,8 +197,11 @@ static func draw_radar_cone(ac: Aircraft) -> void:
 static func draw_gun_cone(ac: Aircraft) -> void:
 	if not ac.params or not ac.params.gun:
 		return
-	if ac.team != 0:
-		return  # 只对友方显示机炮射程锥
+	# 友方 hover 时显示黄色参考锥；敌方对玩家提交机炮攻击 ≥0.3s 显示红色威胁锥
+	var show_friendly: bool = (ac.team == 0 and ac.is_hovered)
+	var show_enemy_threat: bool = (ac.team != 0 and ac._gun_threat_timer >= Aircraft.GUN_THREAT_DISPLAY_DELAY)
+	if not show_friendly and not show_enemy_threat:
+		return
 	var gun_r := ac.params.gun.max_range * Aircraft.PIXELS_PER_METER
 	var half_rad := deg_to_rad(ac.params.gun.fire_cone_half_angle)
 
@@ -197,7 +210,8 @@ static func draw_gun_cone(ac: Aircraft) -> void:
 	var end_angle := center_angle + half_rad
 	var segments := 16
 
-	var cone_color := Color(0.9, 0.7, 0.2, 0.15)
+	# 友方/敌方威胁都用同一橙黄色锥，仅敌方威胁时不透明度略高便于注意
+	var cone_color: Color = Color(0.9, 0.7, 0.2, 0.22) if show_enemy_threat else Color(0.9, 0.7, 0.2, 0.15)
 
 	var points := PackedVector2Array()
 	points.append(Vector2.ZERO)
@@ -501,18 +515,30 @@ static func draw_aircraft_icon(ac: Aircraft) -> void:
 		Vector2(-size * 0.18, size * 0.80),
 	])
 
-	# 应用变换并绘制填充
-	var parts := [body, wing_r, wing_l, tail_r, tail_l]
-	for part in parts:
+	# 机翼可选副色（黑机身 + 红翼 等；alpha=0 时走主色）
+	var wing_color: Color = color
+	if ac.params and ac.params.wing_color.a > 0.01:
+		wing_color = ac.params.wing_color
+	var wing_outline := wing_color.darkened(0.3)
+
+	# 应用变换并绘制填充（body + tails 用主色；wings 可走副色）
+	var part_defs := [
+		{"pts": body, "col": color, "outline": outline_color},
+		{"pts": wing_r, "col": wing_color, "outline": wing_outline},
+		{"pts": wing_l, "col": wing_color, "outline": wing_outline},
+		{"pts": tail_r, "col": color, "outline": outline_color},
+		{"pts": tail_l, "col": color, "outline": outline_color},
+	]
+	for def in part_defs:
 		var transformed: PackedVector2Array = PackedVector2Array()
-		for p in part:
+		for p in def["pts"]:
 			transformed.append(xform * p)
-		ac.draw_colored_polygon(transformed, color)
+		ac.draw_colored_polygon(transformed, def["col"])
 		# 轮廓线
 		for i in range(transformed.size()):
 			var from := transformed[i]
 			var to := transformed[(i + 1) % transformed.size()]
-			ac.draw_line(from, to, outline_color, 1.0, true)
+			ac.draw_line(from, to, def["outline"], 1.0, true)
 
 	# 选中指示 - 细圆环
 	if ac.selected:
@@ -803,16 +829,15 @@ static func draw_data_label_minimal(ac: Aircraft) -> void:
 	var alt_line_idx := lines.size()
 	if ac.flat_altitude:
 		var tier_now: int = ac.get_altitude_tier()
-		var tier_tgt: int = ac.target_altitude_tier
-		if tier_now != tier_tgt:
-			lines.append("ALT %s>%s" % [Aircraft.TIER_NAMES[tier_now], Aircraft.TIER_NAMES[tier_tgt]])
+		var vs_abs: float = absf(ac.vertical_speed)
+		if vs_abs > 5.0:
+			var arrow: String = "↑" if ac.vertical_speed > 0.0 else "↓"
+			lines.append("ALT %s %s" % [Aircraft.TIER_NAMES[tier_now], arrow])
 		else:
 			lines.append("ALT %s" % Aircraft.TIER_NAMES[tier_now])
 	else:
 		lines.append("ALT %dm" % roundi(ac.altitude))
 	lines.append("G %.1f" % ac.g_load)
-	var max_stam := ac.params.pilot_stamina if ac.params else 100.0
-	lines.append("STA %d%%" % roundi(ac.pilot_stamina / maxf(max_stam, 0.01) * 100.0))
 	# 装填状态（仅玩家）：临时行，装填完自动消失
 	if ac == player_ref:
 		if ac._gun_reload_active:
@@ -844,7 +869,7 @@ static func draw_data_label_minimal(ac: Aircraft) -> void:
 	var default_text_color := Color(0.85, 0.9, 0.85, 0.9)
 	# 仅玩家自己标 ALT 颜色；敌机保持统一色
 	var is_player := ac == player_ref
-	var alt_color := altitude_tier_color(ac.get_altitude_tier(), ac.flat_altitude and ac.get_altitude_tier() != ac.target_altitude_tier) if is_player else default_text_color
+	var alt_color := altitude_tier_color(ac.get_altitude_tier(), ac.flat_altitude and absf(ac.vertical_speed) > 5.0) if is_player else default_text_color
 	for i in range(lines.size()):
 		var col := alt_color if (is_player and i == alt_line_idx) else default_text_color
 		ac.draw_string(ac._font, Vector2(0, i * line_height + 11), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, col)
@@ -872,13 +897,14 @@ static func draw_data_label(ac: Aircraft) -> void:
 	lines.append("%d kt" % roundi(speed_kmh * 0.5399))
 	# 第 3 行：朝向
 	lines.append("HDG %03d" % roundi(heading_deg))
-	# 第 4 行：高度
+	# 第 4 行：高度（vs 非零时附箭头表示正在升降）
 	var alt_line_idx := lines.size()
 	if ac.flat_altitude:
 		var tier_now: int = ac.get_altitude_tier()
-		var tier_tgt: int = ac.target_altitude_tier
-		if tier_now != tier_tgt:
-			lines.append("ALT %s>%s" % [Aircraft.TIER_NAMES[tier_now], Aircraft.TIER_NAMES[tier_tgt]])
+		var vs_abs: float = absf(ac.vertical_speed)
+		if vs_abs > 5.0:
+			var arrow: String = "↑" if ac.vertical_speed > 0.0 else "↓"
+			lines.append("ALT %s %s" % [Aircraft.TIER_NAMES[tier_now], arrow])
 		else:
 			lines.append("ALT %s" % Aircraft.TIER_NAMES[tier_now])
 	else:
@@ -930,7 +956,9 @@ static func draw_data_label(ac: Aircraft) -> void:
 	ac.draw_rect(Rect2(0, 0, box_w, box_h), text_color * Color(1, 1, 1, 0.4), false, 1.0)
 
 	var is_player := ac == player_ref
-	var alt_color := altitude_tier_color(ac.get_altitude_tier(), ac.flat_altitude and ac.get_altitude_tier() != ac.target_altitude_tier) if is_player else text_color
+	# 高度变化检测：用 vs 而不是 tier 跨边界（vs > 5 m/s 视为真在升降）
+	var alt_changing: bool = ac.flat_altitude and absf(ac.vertical_speed) > 5.0
+	var alt_color := altitude_tier_color(ac.get_altitude_tier(), alt_changing) if is_player else text_color
 	for i in range(lines.size()):
 		var col := alt_color if (is_player and i == alt_line_idx) else text_color
 		ac.draw_string(ac._font, Vector2(5, 12 + i * line_height), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, col)
@@ -961,14 +989,27 @@ static func draw_target_line(ac: Aircraft) -> void:
 	if not ac.selected and ac.team != 0:
 		return
 
+	# 规避模式：玩家不需要看到 target_position 抖动出来的预测线（每帧扭头会让线扭动）
+	# 战斗连接线也无意义（规避中不主动接战）
+	if ac.evasion_mode:
+		return
+
 	# 有战斗目标时：连接线指向敌机
 	if ac.combat_target and is_instance_valid(ac.combat_target) and not ac.combat_target.is_destroyed:
-		var ct_color := Color(GameConstants.team_color(ac.team), 0.6)
+		# 冲锋攻击（双击触发）→ 橙色 + 加粗，与单击维距打导弹的常规线区分开
+		var ct_color: Color
+		var ct_width: float
+		if ac.charge_attack:
+			ct_color = Color(1.0, 0.55, 0.2, 0.85)
+			ct_width = 2.2
+		else:
+			ct_color = Color(GameConstants.team_color(ac.team), 0.6)
+			ct_width = 1.5
 		var ct_local := ac.to_local(ac.combat_target.global_position)
-		ac.draw_line(Vector2.ZERO, ct_local, ct_color, 1.5, true)
+		ac.draw_line(Vector2.ZERO, ct_local, ct_color, ct_width, true)
 		var ct_d := 8.0
-		ac.draw_line(ct_local + Vector2(-ct_d, 0), ct_local + Vector2(ct_d, 0), ct_color, 1.5)
-		ac.draw_line(ct_local + Vector2(0, -ct_d), ct_local + Vector2(0, ct_d), ct_color, 1.5)
+		ac.draw_line(ct_local + Vector2(-ct_d, 0), ct_local + Vector2(ct_d, 0), ct_color, ct_width)
+		ac.draw_line(ct_local + Vector2(0, -ct_d), ct_local + Vector2(0, ct_d), ct_color, ct_width)
 		ac.draw_circle(ct_local, ct_d, Color(ct_color, 0.2))
 		return
 
@@ -1170,7 +1211,10 @@ static func _recompute_predicted_path(ac: Aircraft) -> void:
 	var sim_pos := ac.global_position
 	var sim_speed := maxf(ac.speed, 50.0)
 	var sim_bank := ac.bank_angle
-	var roll_rate_val := ac.params.roll_rate if ac.params else 4.0
+	# 与 update_bank 对齐：roll_rate 受高度加成（HIGH 顶部 ×1.3）
+	# 之前预测线用 base roll_rate，实际飞机更快 → 预测线被甩在后面，视觉脱节
+	var alt_mfact: float = clampf(ac.altitude / 15000.0, 0.0, 1.0)
+	var roll_rate_val := (ac.params.roll_rate if ac.params else 4.0) * (1.0 + alt_mfact * 0.30)
 	var accel_rate := ac.params.acceleration if ac.params else 50.0
 	var decel_rate := ac.params.deceleration if ac.params else 80.0
 	var cruise_ms := (ac.params.cruise_speed if ac.params else 900.0) / 3.6
@@ -1235,12 +1279,23 @@ static func _recompute_predicted_path(ac: Aircraft) -> void:
 			sim_heading = fmod(sim_heading + PI, TAU) - PI
 
 		var current_g := 1.0 / maxf(cos(sim_bank), 0.01)
-		var drag_decel := (current_g - 1.0) * 8.0
+		# 与 update_speed 对齐的 g_drag（持续生效，与 accel/decel 解耦）
+		# G_DRAG_GLOBAL_MULT=0.4，单机 g_drag_factor=3.0，HIGH 顶 ×0.7（机动加成）
+		var sim_g_drag_factor := (ac.params.g_drag_factor if ac.params else 3.0) * 0.4
+		sim_g_drag_factor *= 1.0 - alt_mfact * 0.30
+		var sim_g_drag_loss := maxf(current_g - 1.0, 0.0) * sim_g_drag_factor
+
+		# 引擎 accel / decel：与 update_speed 一致的强度（之前 ×0.3 / ×0.5 太弱）
 		if sim_speed > cruise_ms:
-			sim_speed -= (decel_rate * 0.5 + drag_decel) * step
+			sim_speed -= decel_rate * step
 		else:
-			sim_speed += accel_rate * 0.3 * step
-		sim_speed = maxf(sim_speed, stall_base_ms * 1.3)
+			sim_speed += accel_rate * step
+		# g_drag 持续扣（不论 speed_diff 方向）
+		sim_speed -= sim_g_drag_loss * step
+
+		# 动态 stall 失速速度下限（与 update_speed.min_safe_ms 对齐：base × pow(g, 0.4) × 1.05）
+		var sim_stall_at_g := stall_base_ms * pow(maxf(current_g, 1.0), 0.4)
+		sim_speed = maxf(sim_speed, sim_stall_at_g * 1.05)
 
 		var vel := Vector2(sin(sim_heading), -cos(sim_heading)) * sim_speed * Aircraft.PIXELS_PER_METER
 		sim_pos += vel * step

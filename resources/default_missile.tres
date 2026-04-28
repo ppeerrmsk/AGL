@@ -4,7 +4,7 @@
 
 [resource]
 script = ExtResource("1")
-display_name = "AIM-7M"
+display_name = "MRM"
 max_speed = 1400.0
 motor_burn_time = 6.0
 motor_acceleration = 200.0

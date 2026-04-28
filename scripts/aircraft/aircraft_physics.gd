@@ -4,13 +4,13 @@ extends RefCounted
 ## 物理演算子系统（静态工具类）
 ## 从 aircraft.gd 提取的 _update_target_heading / _update_bank / _update_heading /
 ## _update_speed / _update_altitude / _update_stall / _update_g_load /
-## _update_pilot_stamina / _apply_movement / _max_bank_angle / _effective_max_g /
+## _apply_movement / _max_bank_angle / _effective_max_g /
 ## _corner_speed_kmh / _stall_speed / _max_speed_at_altitude / _air_density_ratio /
 ## _update_shock_absorb / _set_afterburner / _update_fuel / _update_energy_management /
 ## _max_bank_angle_at_speed 全套逻辑。
 ##
 ## 状态仍住在 Aircraft（heading / bank_angle / speed / altitude / g_load / fuel /
-## pilot_stamina / is_afterburner / _ab_cooldown / _committed_turn_sign 等）。
+## is_afterburner / _ab_cooldown / _committed_turn_sign 等）。
 ## 本模块不持有状态，只在 ac 上读写。
 ##
 ## 调用约定（来自 aircraft.gd _physics_process）：
@@ -39,6 +39,7 @@ const BANK_FLIP_COMMIT_RAD: float = 0.087       ## ≈5°，翻转到反向需�
 
 # ── 冲击吸收 ──
 const SHOCK_ABSORB_RATE: float = 1.0      ## HP/秒回复速率（慢，强调"逐渐恢复"而非"立即抵消"）
+
 
 
 static func update_target_heading(ac: Aircraft) -> void:
@@ -280,6 +281,10 @@ static func update_bank(ac: Aircraft, delta: float) -> void:
 		var ctrl := clampf(ac.speed / maxf(stall_ms, 1.0), 0.1, 1.0)
 		roll_rate_val *= ctrl
 
+	# 高度加成：高空空气稀薄、垂直机动余量大 → 滚转更灵活
+	# 抽象表达"高空更多机动空间"的真实物理直觉
+	roll_rate_val *= 1.0 + altitude_maneuver_factor(ac) * 0.30
+
 	var bank_diff := target_bank - ac.bank_angle
 	var max_roll := roll_rate_val * delta
 	ac.bank_angle += clampf(bank_diff, -max_roll, max_roll)
@@ -312,38 +317,69 @@ static func update_speed(ac: Aircraft, delta: float) -> void:
 	var _m := ac.get_maneuver()
 	if _m and _m.is_active:
 		return  # 战术机动期间速度由模块控制
-	var target_ms := ac.target_speed_kmh / 3.6
-	var max_speed_ms := max_speed_at_altitude(ac) / 3.6
-	target_ms = minf(target_ms, max_speed_ms)
+	var target_ms: float
+	if ac.hard_brake:
+		# 右键长按急刹：目标 0，跳过失速安全余量，让飞机一路减速到失速
+		target_ms = 0.0
+	else:
+		target_ms = ac.target_speed_kmh / 3.6
 
-	# 安全速度下限：永远不主动减速到失速速度以下
-	var stall_base_ms := (ac.params.stall_speed_base if ac.params else 220.0) / 3.6
-	var min_safe_ms := stall_base_ms * 1.3  # 130% 失速速度作为安全余量
-	target_ms = maxf(target_ms, min_safe_ms)
+		# 高度变化对 target 的影响：爬升时 target 降低，俯冲时 target 提升
+		# vs/max_climb 归一化到 ±1，乘以 0.10 系数 → ±10% target swing
+		# 例：cruise=511 km/h → 满爬升 ~460 / 满俯冲 ~562（温和能量交换）
+		# 转弯+切档叠加 g_drag/min_safe/PE-KE 时不再造成"瞬间剧降"
+		var max_climb_norm: float = ac.params.climb_rate_max if ac.params else 250.0
+		var vs_norm: float = clampf(ac.vertical_speed / maxf(max_climb_norm, 1.0), -1.0, 1.0)
+		target_ms *= 1.0 - vs_norm * 0.10
+
+		var max_speed_ms := max_speed_at_altitude(ac) / 3.6
+		target_ms = minf(target_ms, max_speed_ms)
+
+		# 安全速度下限：永远不主动减速到失速速度以下
+		# 用"当前 G 力下的失速速度"而不是静态 stall_base —— 拉 G 时失速速度上升
+		# 之前用 stall_base * 1.3 = 79 m/s 静态值，corner_speed (183) 远高于这个
+		# 但 84° bank 时 g_load=9.5, 真实失速 = 220 * sqrt(9.5) = 188 m/s > corner!
+		# 飞机减速到 corner 时立即 stall。改成动态 stall * 1.05 保护。
+		var stall_at_g_ms := stall_speed(ac) / 3.6  # 含 g_load 的当前失速速度
+		var min_safe_ms := stall_at_g_ms * 1.05      # 5% 余量（高 G 时也安全）
+		target_ms = maxf(target_ms, min_safe_ms)
 
 	var accel_rate := ac.params.acceleration if ac.params else 50.0
 	var decel_rate := (ac.params.deceleration if ac.params else 80.0) * ac._executioner_decel_mult()  # 侩子手：+10%/层
 
-	# 加力燃烧：提升加速度
-	if ac.is_afterburner:
+	# 加力燃烧：提升加速度（hard_brake 期间禁用加力，避免与减速对冲）
+	if ac.is_afterburner and not ac.hard_brake:
 		var ab_mult := ac.params.afterburner_thrust_mult if ac.params else 1.5
 		accel_rate *= ab_mult
 
-	# 高G机动阻力：拉G越大减速越快
-	var g_drag := ac.params.g_drag_factor if ac.params else 3.0
-	var g_decel := maxf(ac.g_load - 1.0, 0.0) * g_drag  # 1G时无额外阻力
-	decel_rate += g_decel
-
-	# 非对称加减速
+	# 非对称加减速（throttle 响应：加速到 target / 减速从 over 回 target）
 	var speed_diff := target_ms - ac.speed
 	if speed_diff >= 0:
 		ac.speed += minf(speed_diff, accel_rate * delta)
 	else:
 		ac.speed += maxf(speed_diff, -decel_rate * delta)
 
-	# 高度⇌速度耦合：爬升减速、俯冲加速
+	# 高G机动诱导阻力：始终生效，与 accel/decel 解耦
+	# 系统层全局衰减系数 G_DRAG_GLOBAL_MULT：调整所有机型转弯能量损失的整体强度
+	# 不动单机 .tres 的 g_drag_factor，让狗斗大师等技能的乘数关系保持有意义
+	# 0.5 → 9G 转弯 = 0.5 × 8 × 3 = 12 m/s²/秒，引擎 50 轻松压制（不掉速）
+	# 1.0 → 完整物理（之前的"硬核"感）；> 1.0 = 比物理更激进
+	# 高空机动加成：再 × (1 - alt_factor × 0.30)，HIGH 顶损失少 30%
+	const G_DRAG_GLOBAL_MULT := 0.4
+	var g_drag := (ac.params.g_drag_factor if ac.params else 3.0) * G_DRAG_GLOBAL_MULT
+	g_drag *= 1.0 - altitude_maneuver_factor(ac) * 0.30
+	var g_speed_loss := maxf(ac.g_load - 1.0, 0.0) * g_drag
+	ac.speed = maxf(ac.speed - g_speed_loss * delta, 0.0)
+
+	# 高度⇌速度耦合：爬升减速、俯冲加速（PE↔KE 转换）
+	# E_total = 0.5*v² + g*h → v*dv = -g*dh → dv/dt = -g/v * dh/dt
+	#
+	# BOOST 越大爬升越费速度，但低速下 g/v 项会爆炸（v=75 m/s 时 BOOST=6 损失 78 m/s²
+	# 远超引擎 50 m/s²，导致永远爬不起来）。改成 2.5 让引擎在任何速度都能压制损失。
+	# 高速时仍有可见效应（最大爬升 ×2.5 = 24 m/s²/秒），但低速安全。
+	const PE_KE_BOOST := 2.5
 	var spd := maxf(ac.speed, 10.0)
-	var gravity_effect := CombatUnit.GRAVITY * ac.vertical_speed / spd
+	var gravity_effect := CombatUnit.GRAVITY * ac.vertical_speed / spd * PE_KE_BOOST
 	ac.speed -= gravity_effect * delta
 
 	ac.speed = maxf(ac.speed, 0.0)
@@ -353,20 +389,46 @@ static func update_speed(ac: Aircraft, delta: float) -> void:
 
 
 static func update_altitude(ac: Aircraft, delta: float) -> void:
+	# 失速旁路：update_stall 当帧已把 vertical_speed 强拉到 STALL_DIVE_RATE_MIN/MAX (-100~-250 m/s)
+	# 这里如果再走 lerp(target_vs)（target_altitude 离当前高度近 → target_vs≈0），俯冲率每帧
+	# 刚被设好就被平滑回零，飞机始终不掉高度 —— 失速时直接施加 vertical_speed，跳过 lerp
+	# 调用顺序前置要求：update_stall 必须在 update_altitude 之前跑（aircraft.gd 的三个调度位）
+	if ac.is_stalled:
+		ac.altitude += ac.vertical_speed * delta
+		ac.altitude = maxf(ac.altitude, 0.0)
+		return
 	var alt_diff := ac.target_altitude - ac.altitude
 	# altitude_authority_mult 同步放大三处，避免只改 max_climb 被指数尾巴拖慢：
 	#   ① 钳制上限（前段快速接近）
-	#   ② 增益 0.1（后段指数收敛）
+	#   ② 增益（后段指数收敛）
 	#   ③ 平滑 lerp 速率（响应延迟）
+	# 调高 gain 0.25→0.4 + smooth_rate 5.0→8.0：响应时间从 0.4s 降到 0.15s
+	# 配合 .tres 里 climb_rate_max 250→450 m/s，LOW↔HIGH 全程从 32s 降到 18s
+	# vapor_dodge altitude_mult ×2 时 → 9s 完成切档
 	var alt_mult: float = ac.altitude_authority_mult
 	var max_climb := (ac.params.climb_rate_max if ac.params else 250.0) * alt_mult
-	var gain := 0.1 * alt_mult
-	var smooth_rate := 2.0 * alt_mult
+	var gain := 0.4 * alt_mult
+	var smooth_rate := 8.0 * alt_mult
 	var target_vs: float
 	if abs(alt_diff) < 10.0:
 		target_vs = 0.0
 	else:
 		target_vs = clampf(alt_diff * gain, -max_climb, max_climb)
+
+	# 失速恢复期：禁止爬升（vs ≤ 0），防止"刚出失速 → 立即爬 → PE/KE 再榨速度 → 再失速"循环
+	# 给玩家时间在飞行轨迹平直的状态下重建动能，再继续爬升
+	if ac._stall_recovery_timer > 0.0 and target_vs > 0.0:
+		target_vs = 0.0
+
+	# 速度不足时也限制爬升率：低速没有能量爬升（real-world rate-of-climb = 余功率 / 重量）
+	# stall+50 m/s 以下，target_vs 按速度余量比例缩减；防止低速死循环爬升
+	if target_vs > 0.0:
+		var stall_at_g_ms := stall_speed(ac) / 3.6
+		var speed_margin := ac.speed - stall_at_g_ms
+		if speed_margin < 50.0:
+			var climb_authority := clampf(speed_margin / 50.0, 0.0, 1.0)
+			target_vs *= climb_authority
+
 	ac.vertical_speed = lerpf(ac.vertical_speed, target_vs, delta * smooth_rate)
 	ac.altitude += ac.vertical_speed * delta
 	ac.altitude = maxf(ac.altitude, 0.0)
@@ -401,24 +463,7 @@ static func update_g_load(ac: Aircraft) -> void:
 	if abs(ac.bank_angle) < 0.001:
 		ac.g_load = 1.0
 	else:
-		ac.g_load = 1.0 / cos(ac.bank_angle)
-		ac.g_load = absf(ac.g_load)
-	if not ac.no_stamina:
-		update_pilot_stamina(ac, ac.get_physics_process_delta_time())
-
-
-static func update_pilot_stamina(ac: Aircraft, delta: float) -> void:
-	var sustained_g := ac.params.max_g if ac.params else 9.0
-	var max_stam := ac.params.pilot_stamina if ac.params else 100.0
-	if ac.g_load > sustained_g:
-		# 超过持续耐受G时消耗耐力，G力越高消耗越快
-		var excess_ratio := (ac.g_load - sustained_g) / maxf(effective_max_g(ac) - sustained_g, 0.1)
-		var drain := (ac.params.stamina_drain_rate if ac.params else 25.0) * excess_ratio
-		ac.pilot_stamina = maxf(ac.pilot_stamina - drain * delta, 0.0)
-	else:
-		# 低于持续耐受G时恢复耐力
-		var recovery := ac.params.stamina_recovery_rate if ac.params else 10.0
-		ac.pilot_stamina = minf(ac.pilot_stamina + recovery * delta, max_stam)
+		ac.g_load = absf(1.0 / cos(ac.bank_angle))
 
 
 static func apply_movement(ac: Aircraft, delta: float) -> void:
@@ -452,12 +497,8 @@ static func max_bank_angle(ac: Aircraft) -> float:
 
 
 static func effective_max_g(ac: Aircraft) -> float:
-	## 根据飞行员耐力在 sustained G 与 structural G 之间插值
-	var sustained := ac.params.max_g if ac.params else 9.0
-	var structural := ac.params.max_g_structural if ac.params else 12.0
-	var max_stam := ac.params.pilot_stamina if ac.params else 100.0
-	var ratio := ac.pilot_stamina / maxf(max_stam, 0.01)
-	var g := sustained + (structural - sustained) * ratio
+	## 飞机最大可承受 G（直接取 params.max_g —— 耐力系统已删除）
+	var g := ac.params.max_g if ac.params else 9.0
 	# 云中：能见度差、气流扰动导致机动受限
 	if ac.cloud_state == 2:
 		g *= 0.9
@@ -474,10 +515,22 @@ static func corner_speed_kmh(ac: Aircraft) -> float:
 	return stall_base_kmh * 1.2 * sqrt(maxf(g_target, 1.0))
 
 
+## 高度机动加成因子（0..1）：0m=0，15000m=1（线性饱和）
+## 抽象表达"高空机动余量大"的物理直觉：
+##   1) 真实空间中高空有更多垂直机动空间，能量转化更自由
+##   2) 游戏 2D 顶视角下不能渲染垂直机动，用 roll_rate 加成 + g_drag 减成代替
+##   3) 数值在 +30% / -30% 区间，与云中 ×0.9 debuff 形成"晴 HIGH 灵 vs 云 HIGH 钝"的对比
+static func altitude_maneuver_factor(ac: Aircraft) -> float:
+	return clampf(ac.altitude / 15000.0, 0.0, 1.0)
+
+
 static func stall_speed(ac: Aircraft) -> float:
-	# V_stall = V_base * sqrt(G)
+	# V_stall = V_base * pow(G, 0.4)
+	# 之前用 sqrt(G) 太严：g=9 时 stall=660km/h，corner_speed 也 660km/h，急转必失速
+	# 改 pow(G, 0.4)：g=9 → ×2.41 (529km/h)，g=4 → ×1.74，g=1 → ×1.0
+	# 失速门槛更宽松，高 G 急转有缓冲，不会一进 corner 就被卡死
 	var base := ac.params.stall_speed_base if ac.params else 220.0
-	return base * sqrt(maxf(ac.g_load, 1.0))
+	return base * pow(maxf(ac.g_load, 1.0), 0.4)
 
 
 static func max_speed_at_altitude(ac: Aircraft) -> float:
@@ -489,6 +542,9 @@ static func max_speed_at_altitude(ac: Aircraft) -> float:
 	# 云中：气流扰动 + 机翼结冰风险 → 最大速度损失
 	if ac.cloud_state == 2:
 		v *= 0.9
+	# 飞越建筑群：高楼之间气流紊乱 + 视觉障碍 → 进一步减速
+	if ac.in_building:
+		v *= 0.85
 	return v
 
 
@@ -565,6 +621,9 @@ static func update_fuel(ac: Aircraft, delta: float) -> void:
 
 ## 自动能量管理：战斗时加力+俯冲换速，巡航时蓄能爬升
 static func update_energy_management(ac: Aircraft) -> void:
+	# P1：planner 已在帧顶写好 target_speed_kmh / is_afterburner / target_altitude，跳过旧能量管理
+	if ac.use_tactical_planner:
+		return
 	var cb := ac._combat_params()
 	var cruise := ac.params.cruise_speed if ac.params else 900.0
 
@@ -718,8 +777,18 @@ static func update_energy_management(ac: Aircraft) -> void:
 				ac.target_speed_kmh = cruise
 				set_afterburner(ac, false)
 			else:
-				# 对准且在雷达范围内：match 稳定累积锁定
-				ac.target_speed_kmh = match_kmh
+				# 对准且在雷达范围内：判断是否到了"稳锁 camping"状态
+				# 2026-04-24 修复：僚机一进雷达范围就降到 match_kmh（tgt+50）看起来"还没靠近就减速"。
+				#   真正该进入 match_kmh 的条件应是：① 锁定已开始累积（radar 已在扫），
+                                #   或 ② 离目标确实近（≤0.6×射程，稳定照射距离）。
+                                #   其他情况继续 cruise 推进闭合距离。
+				# 显式 float()：dict.get 返回 Variant，ternary 两分支类型须一致才不报 warning
+				var lock_progress: float = float(ac.radar_targets.get(ac.combat_target, 0.0)) if ac.combat_target else 0.0
+				var close_camping_dist: float = eff_range_px * 0.6
+				if lock_progress > 0.1 or dist < close_camping_dist:
+					ac.target_speed_kmh = match_kmh
+				else:
+					ac.target_speed_kmh = cruise
 				set_afterburner(ac, false)
 
 			ac.target_speed_kmh = maxf(ac.target_speed_kmh, combat_min_kmh)
@@ -767,8 +836,16 @@ static func update_energy_management(ac: Aircraft) -> void:
 					ac.target_speed_kmh = approach_speed
 					set_afterburner(ac, my_kmh < approach_speed - 50.0 and ac.fuel > 0.0)
 				elif tail_aligned:
-					ac.target_speed_kmh = maxf(combat_min_kmh, tgt_speed_kmh * 1.2)
-					set_afterburner(ac, false)
+					# 距离守卫：尾后对齐但远超射程时不能锁 tgt×1.2 龟速匹配，
+					# 否则 F-16 射程 1000m vs 慢目标（Sentinel 400km/h）会被 480km/h 锁死，
+					# 闭合率 ~80km/h → 1500m gap 要 90 秒（player_ai-log 2026-04-25）。
+					# 进入射程内（×1.2 滞回）才切回匹配速度稳定射击。
+					if dist > gun_range * 1.2:
+						ac.target_speed_kmh = approach_speed
+						set_afterburner(ac, my_kmh < approach_speed - 50.0 and ac.fuel > 0.0)
+					else:
+						ac.target_speed_kmh = maxf(combat_min_kmh, tgt_speed_kmh * 1.2)
+						set_afterburner(ac, false)
 				else:
 					ac.target_speed_kmh = corner_speed_kmh(ac)
 					set_afterburner(ac, false)
@@ -844,6 +921,16 @@ static func update_energy_management(ac: Aircraft) -> void:
 		# ---- 巡航模式 ----
 		# 编队跟随时由AI控制器管理速度和高度，跳过自主能量管理
 		if ac.formation_mode:
+			return
+
+		# 规避模式：拉满 max_speed + AB，最大化逃脱能力
+		# 高度由 Aircraft._update_evasion 单独驱动（来袭时 LOW↔HIGH 切换），这里只管速度
+		# 注意：规避中 target_position 被 _update_evasion 反复改写为垂直规避向量，
+		# 让原本的"大角度转弯走 corner_speed"分支频繁触发，反而把 corner_speed (~800)
+		# 当成稳态。改成 max_speed 后玩家牺牲一点转弯半径换最大逃脱速度。
+		if ac.use_tactical_preference and ac.evasion_mode:
+			ac.target_speed_kmh = ac.params.max_speed if ac.params else 2000.0
+			set_afterburner(ac, true)
 			return
 
 		# 玩家战术偏好巡航（点击移动）：玩家点了地图就要积极冲，不按距离降温

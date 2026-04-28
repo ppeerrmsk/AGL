@@ -42,18 +42,12 @@ static func try_engage(ai: AIController) -> void:
 		var lock_score := lock_progress / lock_time
 		var score := lock_score * 2.0 + dist_score
 
-		# 低空目标攻击欲望降低
-		var tgt_tier := target_ac.get_altitude_tier()
-		if tgt_tier == CombatUnit.AltitudeTier.LOW:
-			score *= 0.65
-		elif tgt_tier == CombatUnit.AltitudeTier.GROUND:
-			score *= 0.5
-
-		# 云中目标（HIGH + 在云内）同样降低攻击欲望：视觉遮蔽 + 追踪困难
-		if target_ac.cloud_state == 2:
-			score *= 0.6
+		# 视觉遮蔽：低空（贴地）+ 云中目标降低攻击欲望
+		# 用 altitude / cloud_density 连续插值，避免 tier 边界跳变
+		score *= _visibility_score_mult(target_ac)
 
 		# 偏好高度加成
+		var tgt_tier := target_ac.get_altitude_tier()
 		if ai.preferred_altitude_tier != -99 and tgt_tier == ai.preferred_altitude_tier:
 			score *= 1.3
 
@@ -116,6 +110,9 @@ static func reevaluate_target(ai: AIController) -> void:
 		var lock_score := lock_progress / lock_time
 		var score := lock_score * 2.0 + dist_score
 
+		# 视觉遮蔽：低空 / 云中目标降低吸引力（与 try_engage 同函数，连续插值）
+		score *= _visibility_score_mult(target_ac)
+
 		# 当前目标获得专注度粘性加成
 		if target_ac == ai._current_target:
 			score += ai.focus * 5.0
@@ -149,14 +146,15 @@ static func disengage(ai: AIController) -> void:
 		"DISENGAGE (was fighting %s, engaged %.1fs)" % [
 			ai._log_target_name(ai._current_target), ai._engage_timer])
 
-	# ── BOSS 攻击手：不真正脱离，立即重新进入交战 ──
+	# ── BOSS 攻击手：不真正脱离，重新锁定玩家 ──
+	# 【关键】只重置 _engage_timer + _cooldown_timer 防止下一帧又触发 disengage；
+	# 绝不动 _tactic_timer / _tactic_min_duration / 当前 tactic ——
+	# 让正在跑的 BFM 战术自然完成最小持续时间（否则每帧重置 → BOSS 决策瘫痪）
 	if ai.is_boss_attacker():
-		# 即使 _current_target 丢失也不脱离——重新锁定玩家
 		var player: Aircraft = null
 		if ai._current_target and is_instance_valid(ai._current_target) and not ai._current_target.is_destroyed:
 			player = ai._current_target as Aircraft
 		else:
-			# 搜索玩家（team 0 的飞机）
 			for child in ai.aircraft.get_parent().get_children():
 				if child is Aircraft and child.team == 0 and not child.is_destroyed:
 					player = child
@@ -166,9 +164,6 @@ static func disengage(ai: AIController) -> void:
 			ai.aircraft.combat_target = player
 			ai._engage_timer = 0.0
 			ai._cooldown_timer = 0.0
-			ai._tactic_timer = 0.0
-			ai._tactic_min_duration = 0.0
-			BFMTactics.apply_new_tactic(ai, AIController.EngageTactic.LEAD_PURSUIT)
 			EventLogger.log_event("AI_STATE", ai._log_name(), "BOSS re-engage immediately")
 			return
 
@@ -201,3 +196,24 @@ static func disengage(ai: AIController) -> void:
 		ai._state = AIController.AIState.PATROL
 		BFMTactics.set_patrol_altitude(ai)
 		ai._set_next_waypoint()
+
+# ══════════════════════════════════════════════
+#  视觉遮蔽辅助
+# ══════════════════════════════════════════════
+
+## 低空 / 云中目标的 score 倍率（连续，无 tier 跳变）
+##   贴地    → 0.80（轻度抑制）
+##   3500m+ → 1.00
+##   云密度 0~1 → 倍率 1.00 → 0.65（云中明显抑制）
+##   两者取较强抑制（min），不相乘 —— 低空和云中通常不同时发生
+static func _visibility_score_mult(target: CombatUnit) -> float:
+	if target == null:
+		return 1.0
+	# 低空抑制：altitude 0~3500m 用 smoothstep 平滑衰减
+	var alt_obscure := 1.0 - smoothstep(0.0, 3500.0, target.altitude)
+	var alt_mult := lerpf(1.0, 0.80, alt_obscure)
+	# 云中抑制：直接用 cloud_density (0~1) 线性
+	var cloud_mult: float = 1.0
+	if target is Aircraft:
+		cloud_mult = lerpf(1.0, 0.65, (target as Aircraft).cloud_density)
+	return minf(alt_mult, cloud_mult)

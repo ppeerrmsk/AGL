@@ -41,6 +41,14 @@ var _font: Font
 
 ## ── 云层穿越累计衰减 ──
 var _cloud_guidance_loss: float = 0.0   ## 0~(1-FLOOR) 累加不回复
+
+## 建筑遮挡相关
+## spawn 时检查源是否在街区内：是则导弹永久免疫建筑拦截（"从内部射出"规则）
+var spawned_in_building: bool = false
+## spawn 时记录发射源的高度档位 — 用于查建筑拦截概率
+var source_tier: int = 0  # CombatUnit.AltitudeTier
+## 上一帧是否在街区内 — 用来检测"从外部进入"事件，每次进入触发一次 roll
+var _was_in_building: bool = false
 const CLOUD_LOSS_PER_SECOND: float = 0.12
 const CLOUD_LOSS_FLOOR: float = 0.3     ## 至少保留 30% 追踪
 

@@ -114,3 +114,46 @@ func is_in_radar_cone(_target_global_pos: Vector2) -> bool:
 ## 锁定免疫检查（子类覆写）
 func is_lock_immune() -> bool:
 	return false
+
+# ── 锁定攻击警告线（飞机 / SAM / 海军共用） ──
+## 状态机/计时常量/绘制 全部模块化在 LockWarning（scripts/lock_warning.gd）
+## 子类只需覆写 has_missile_capability() 和 _lock_line_can_engage_player()
+## 干扰/ECM 等机制接入：调 LockWarning.suppress(state, seconds) 或 LockWarning.clear(state)
+var lock_warning_state: LockWarning.State = LockWarning.State.new()
+
+## 子类是否装载导弹（无导弹的单位不显示锁定线，因为不会发射）
+func has_missile_capability() -> bool:
+	return false
+
+## 子类是否能/会向玩家发射导弹（决定锁定线是否触发）
+## - Aircraft：combat_target == 玩家 + has_missile_capability + cooldown ≤ 0
+## - SAMUnit：combat_target == 玩家 + missiles_remaining > 0 + cooldown ≤ 0
+## - NavalUnit：任意导弹挂点存活 + 玩家在雷达内
+func _lock_line_can_engage_player() -> bool:
+	return false
+
+## 每帧由子类 _physics_process 调用
+func update_lock_line_state(delta: float) -> void:
+	var pref: Aircraft = AircraftRenderer.player_ref
+	var pref_valid: bool = pref != null and is_instance_valid(pref) and not pref.is_destroyed
+	var skip: bool = is_destroyed or team == 0 or not pref_valid
+	var locked: bool = pref_valid and pref.locked_by.has(self)
+	var can_engage: bool = pref_valid and _lock_line_can_engage_player()
+	LockWarning.update(lock_warning_state, locked, can_engage, skip, delta)
+
+## 武器路径在导弹生成后调用
+func notify_missile_fired_at(target: CombatUnit) -> void:
+	var pref: Aircraft = AircraftRenderer.player_ref
+	if pref == null or not is_instance_valid(pref) or target != pref:
+		return
+	LockWarning.notify_fired(lock_warning_state)
+
+## ── 接入挂钩（供干扰 / ECM / 隐身机制调用） ──
+
+## 屏蔽 N 秒内的新警告（不影响当前 show_timer 自然衰减）
+func suppress_lock_warning(seconds: float) -> void:
+	LockWarning.suppress(lock_warning_state, seconds)
+
+## 立即清空当前显示（隐身激活 / 干扰生效瞬间）
+func clear_lock_warning() -> void:
+	LockWarning.clear(lock_warning_state)

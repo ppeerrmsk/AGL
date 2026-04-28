@@ -104,7 +104,9 @@ func _draw() -> void:
 		_draw_urban_districts()
 		_draw_highways()
 	_draw_manual_overlays()        # 手画 Polygon2D 叠加层
-	_draw_aqualine()
+	# Aqua-Line 虚线不再绘制：底图 PNG 已烘焙了真实桥体像素，再画手画路径会双线对不齐
+	# （曾做过 z_index=-5 的 MapBridgeLayer 实色覆盖，同样对不齐，已移除）
+	# 解决"船穿桥"的方案改为：BOSS 刷新位置强制在桥南（见 ZoneData.BOSS_NORTH_CENTER）
 	_draw_tacview_crosses()
 	_draw_edge_vignette()          # 边界外逐层暗化
 	if not _logged:

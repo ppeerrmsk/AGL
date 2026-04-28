@@ -73,7 +73,7 @@ func _scan_and_buff() -> void:
 				_apply_buff(ac)
 		else:
 			# 离开增益范围：撤除增益（但仍保留小队成员身份）
-			if ac.has_meta("commander_buffed_by") and ac.get_meta("commander_buffed_by") == _commander:
+			if ac.has_meta("commander_buffed_by") and is_instance_valid(ac.get_meta("commander_buffed_by")) and ac.get_meta("commander_buffed_by") == _commander:
 				_remove_buff(ac)
 
 func _cleanup_buffed() -> void:
@@ -145,7 +145,8 @@ func _remove_buff(ac: Aircraft) -> void:
 func _remove_all_buffs() -> void:
 	var to_remove := buffed_aircraft.duplicate()
 	for ac in to_remove:
-		_remove_buff(ac)
+		if is_instance_valid(ac):
+			_remove_buff(ac)
 	buffed_aircraft.clear()
 
 # ══════════════════════════════════════════════

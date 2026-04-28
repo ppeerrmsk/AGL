@@ -20,7 +20,6 @@ const CarrierShipScript := preload("res://scripts/naval/carrier_ship.gd")
 
 # ── 运行时状态 ──
 var star_level: int = 1
-var patrol_mode: String = "linear"  # linear / eight / orbit
 
 # ── 舰队参数 ──
 var _ffg_params: Resource = preload("res://resources/naval/frigate_ffg.tres")
@@ -35,7 +34,6 @@ var _cv_params: Resource = preload("res://resources/naval/carrier_cv.tres")
 
 func spawn_entities() -> void:
 	star_level = int(config.get("star_level", 1))
-	patrol_mode = String(config.get("patrol_mode", "linear"))
 
 	match star_level:
 		1: _spawn_1star()
@@ -62,8 +60,8 @@ func _spawn_1star() -> void:
 
 	# 2 僚舰 FFG：左后 / 右后（leader 本地坐标：+X 船头, +Y 右舷）
 	var wing_offsets: Array[Vector2] = [
-		Vector2(-1800, -1400),  # 左后
-		Vector2(-1800, 1400),   # 右后
+		Vector2(-2400, -2000),  # 左后
+		Vector2(-2400, 2000),   # 右后
 	]
 	for off in wing_offsets:
 		_spawn_formation_escort(FrigateShipScript, _ffg_params, leader, off)
@@ -73,19 +71,21 @@ func _spawn_1star() -> void:
 ## 1 DDG（旗舰）走 8 字轨迹 + 2 FFG 贴身护航（刚体跟随旗舰）
 ## 整支编队作为一个刚体沿 8 字走，FFG 不再各自相位错开
 func _spawn_2star() -> void:
-	var eight_radius: float = radius * 0.55
-	var eight_wps: PackedVector2Array = _eight_waypoints(global_position, eight_radius, 24)
-
-	# DDG 旗舰
-	var ddg_spawn: Vector2 = eight_wps[0]
-	var leader := _make_ship(DestroyerShipScript, _ddg_params, ddg_spawn, 0.0, eight_wps)
+	# 直线往返：整队朝船头方向航行，U-turn 时一起转
+	var wp_half: float = radius * 0.75
+	var leader_heading_deg: float = 90.0
+	var ddg_spawn: Vector2 = global_position
+	var linear_wps: PackedVector2Array = _linear_waypoints(
+			Vector2(global_position.x + wp_half, global_position.y),
+			Vector2(global_position.x - wp_half, global_position.y))
+	var leader := _make_ship(DestroyerShipScript, _ddg_params, ddg_spawn, leader_heading_deg, linear_wps)
 	leader.is_mission_target = true
 	spawned_entities.append(leader)
 
-	# 2 FFG 贴身护航（左后 / 右后）
+	# 2 FFG 拉开护航（左后 / 右后）
 	var wing_offsets: Array[Vector2] = [
-		Vector2(-1600, -1200),
-		Vector2(-1600, 1200),
+		Vector2(-2200, -2200),
+		Vector2(-2200, 2200),
 	]
 	for off in wing_offsets:
 		_spawn_formation_escort(FrigateShipScript, _ffg_params, leader, off)
@@ -109,16 +109,16 @@ func _spawn_3star() -> void:
 	if cv is CarrierShip:
 		(cv as CarrierShip).spawn_escort_aircraft(scene_root)
 
-	# CSG 护航阵位（leader 本地坐标：+X 船头, +Y 右舷）
+	# CSG 护航阵位（leader 本地坐标：+X 船头, +Y 右舷）—— 拉开足够空间让玩家穿插
 	# 前翼 2 CG —— 前方两侧防空领头
-	_spawn_formation_escort(CruiserShipScript, _cg_params, cv, Vector2(2800, -2000))
-	_spawn_formation_escort(CruiserShipScript, _cg_params, cv, Vector2(2800, 2000))
-	# 后翼 2 DDG —— 左右两侧贴身护航
-	_spawn_formation_escort(DestroyerShipScript, _ddg_params, cv, Vector2(-500, -3200))
-	_spawn_formation_escort(DestroyerShipScript, _ddg_params, cv, Vector2(-500, 3200))
+	_spawn_formation_escort(CruiserShipScript, _cg_params, cv, Vector2(4000, -3000))
+	_spawn_formation_escort(CruiserShipScript, _cg_params, cv, Vector2(4000, 3000))
+	# 后翼 2 DDG —— 左右两侧拉开
+	_spawn_formation_escort(DestroyerShipScript, _ddg_params, cv, Vector2(-800, -4600))
+	_spawn_formation_escort(DestroyerShipScript, _ddg_params, cv, Vector2(-800, 4600))
 	# 远后翼 2 FFG —— 后方斜位反潜 / 补盲
-	_spawn_formation_escort(FrigateShipScript, _ffg_params, cv, Vector2(-3200, -2400))
-	_spawn_formation_escort(FrigateShipScript, _ffg_params, cv, Vector2(-3200, 2400))
+	_spawn_formation_escort(FrigateShipScript, _ffg_params, cv, Vector2(-4600, -3500))
+	_spawn_formation_escort(FrigateShipScript, _ffg_params, cv, Vector2(-4600, 3500))
 
 
 ## 刚体编队护航 spawn：在 leader 编队位置实例化，并设 formation_leader/offset
@@ -170,45 +170,6 @@ func _inject_managers(ship: NavalUnit) -> void:
 func _linear_waypoints(start: Vector2, end: Vector2) -> PackedVector2Array:
 	return PackedVector2Array([start, end])
 
-## 8 字轨迹（lemniscate）—— 参数化：x = r·cos(t)/(1+sin²t), y = r·sin(t)·cos(t)/(1+sin²t)
-## n 个采样点顺时针均匀分布
-func _eight_waypoints(center: Vector2, radius_r: float, n: int) -> PackedVector2Array:
-	var pts := PackedVector2Array()
-	for i in range(n):
-		var t: float = float(i) / n * TAU
-		var denom: float = 1.0 + sin(t) * sin(t)
-		var x: float = radius_r * cos(t) / denom
-		var y: float = radius_r * sin(t) * cos(t) / denom
-		pts.append(center + Vector2(x, y))
-	return pts
-
-## 圆周轨道：center 为圆心，radius_r 为半径，start_angle 为起点角度（弧度）
-## n 个均匀采样点，顺时针排列
-func _orbit_waypoints(center: Vector2, radius_r: float, start_angle: float, n: int) -> PackedVector2Array:
-	var pts := PackedVector2Array()
-	for i in range(n):
-		var t: float = start_angle + float(i) / n * TAU
-		pts.append(center + Vector2(cos(t), sin(t)) * radius_r)
-	return pts
-
-## 把 waypoints 数组循环右移 offset 个位置（起点重排）
-func _rotated_waypoints(wps: PackedVector2Array, offset: int) -> PackedVector2Array:
-	var out := PackedVector2Array()
-	var n := wps.size()
-	if n == 0:
-		return out
-	for i in range(n):
-		out.append(wps[(i + offset) % n])
-	return out
-
-## 圆周航点起点处的"船头切线"方向（度）—— 顺时针圆周，朝向向前走的方向
-func _orbit_initial_heading_deg(start_angle_rad: float) -> float:
-	# 切线方向（顺时针）= 起点方向 + 90°
-	var tangent_rad: float = start_angle_rad + PI * 0.5
-	# Godot 2D heading 约定：0=北(上)，顺时针正
-	# world_dir = (cos(a), sin(a))；heading = atan2(world_dir.x, -world_dir.y)
-	var wd := Vector2(cos(tangent_rad), sin(tangent_rad))
-	return rad_to_deg(atan2(wd.x, -wd.y))
 
 
 # ============================================================

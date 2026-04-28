@@ -149,7 +149,11 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 	# FREE / FOLLOW_LEADER 都进这里——这是"跟随长机打谁"的入口
 	if leader.combat_target and is_instance_valid(leader.combat_target) and not leader.combat_target.is_destroyed:
 		# 反应延迟：每架僚机有不同的反应时间（0.3~1.5秒）
-		if ai._engage_delay <= 0.0:
+		# P4：planner 管理的僚机跳过反应延迟（"聪明 AI"立即响应长机锁定）
+		# 旧 AI 保留延迟以维持人形不同步感
+		if ai.aircraft.use_tactical_planner:
+			ai._engage_delay = 0.0
+		elif ai._engage_delay <= 0.0:
 			ai._engage_delay = randf_range(AIController.WINGMAN_ENGAGE_DELAY_MIN, AIController.WINGMAN_ENGAGE_DELAY_MAX)
 		ai._engage_delay -= delta
 		if ai._engage_delay <= 0.0:

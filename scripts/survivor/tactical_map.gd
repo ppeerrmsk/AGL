@@ -433,18 +433,22 @@ func _draw_zones(size: Vector2) -> void:
 		_draw_one_zone(z, zid, size)
 
 func _draw_boss(size: Vector2) -> void:
-	var z := ZoneData.BOSS_ZONE
+	if not _zones:
+		return
+	var z := _zones.boss_zone
 	var zid: StringName = z["id"]
 	if _should_hide_zone(zid):
 		return
 	_draw_one_zone(z, zid, size)
 
 ## 未解锁（LOCKED）的战区/BOSS 在玩家还没攻克前完全不显示——不剧透
-## BOSS 阶段：常规战区 A/B/C/D 全部隐藏，地图只剩 BOSS 圈
+## BOSS 解锁后：其余战区（含 CLEARED / AVAILABLE）全部隐藏，地图只剩 BOSS 圈
+##   早先只在 is_boss_phase（玩家已选中 BOSS）才隐藏其他，导致 BOSS 一出来但 CLEARED 标志
+##   还挂着直到玩家点 BOSS 才消失 —— 与"BOSS 一出现其他就该消失"的预期不符
 func _should_hide_zone(zid: StringName) -> bool:
 	if not _zones:
 		return true
-	if _zones.is_boss_phase() and zid != &"BOSS":
+	if _zones.boss_unlocked and zid != &"BOSS":
 		return true
 	return _zones.get_state(zid) == ZoneData.State.LOCKED
 
@@ -554,7 +558,7 @@ func _zone_id_at(map_pos: Vector2) -> StringName:
 		return &""
 	var size := _map_panel.size
 	# Boss 优先级最高（仅在显示时命中）
-	var bz := ZoneData.BOSS_ZONE
+	var bz := _zones.boss_zone
 	if not _should_hide_zone(bz["id"]):
 		var bc := _world_to_map(bz["center"], size)
 		var br: float = float(bz["radius"]) * size.x / _world_rect.size.x
@@ -891,15 +895,18 @@ func _refresh_info() -> void:
 		var axis_hex := "#%02x%02x%02x" % [int(axis_color.r * 255), int(axis_color.g * 255), int(axis_color.b * 255)]
 		reward_block = "  [color=%s][font_size=10]%s[/font_size][/color]\n  [color=#ffd864]%s[/color]\n  [color=#aaccaa]%s[/color]" % [axis_hex, axis_title, rname, rdesc]
 
-	# 任务描述（按 ground / air 区分）
-	var mission_type: String = _zones.get_mission_type(_hover_zone_id) if _zones else z.get("mission_type", "ground")
+	# 任务描述（按 ground / air / boss 区分）
 	var mission_desc_key: String
-	match mission_type:
-		"air":       mission_desc_key = "ZONE_MISSION_AIR"
-		"squadron":  mission_desc_key = "ZONE_MISSION_SQUADRON"
-		"elite":     mission_desc_key = "ZONE_MISSION_ELITE"
-		"naval":     mission_desc_key = "ZONE_MISSION_NAVAL"
-		_:           mission_desc_key = "ZONE_MISSION_GROUND"
+	if _hover_zone_id == &"BOSS":
+		mission_desc_key = "ZONE_MISSION_BOSS"
+	else:
+		var mission_type: String = _zones.get_mission_type(_hover_zone_id) if _zones else z.get("mission_type", "ground")
+		match mission_type:
+			"air":       mission_desc_key = "ZONE_MISSION_AIR"
+			"squadron":  mission_desc_key = "ZONE_MISSION_SQUADRON"
+			"elite":     mission_desc_key = "ZONE_MISSION_ELITE"
+			"naval":     mission_desc_key = "ZONE_MISSION_NAVAL"
+			_:           mission_desc_key = "ZONE_MISSION_GROUND"
 
 	lines.append("")
 	lines.append("[color=#aaaaaa]%s[/color]" % tr("ZONE_INFO_REWARD"))

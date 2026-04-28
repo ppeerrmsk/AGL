@@ -55,6 +55,22 @@ func spawn_missile(source: CombatUnit, target: CombatUnit, missile_params: Missi
 	var fwd := Vector2(sin(initial_heading), -cos(initial_heading))
 	missile.global_position = source.global_position + fwd * 15.0
 
+	# 建筑遮挡参数：
+	# - spawned_in_building：源在街区内 → 永久免疫拦截（"从内向外射"规则）
+	# - source_tier：源的高度档位 → 决定拦截概率（HIGH 75% / MID 90% / LOW/GND 100%）
+	# - _was_in_building：跟踪从外部进入街区的事件，每次进入只 roll 一次
+	if source is Aircraft and (source as Aircraft).in_building:
+		missile.spawned_in_building = true
+	elif source.altitude < 3500.0 and BuildingRenderer.is_position_inside_building(source.global_position):
+		missile.spawned_in_building = true
+	# source_tier 区分 GROUND（地面/船）和 LOW（低空飞机）：
+	# 同样 altitude<3500，但地面发射器视为 GROUND（必拦），飞机视为 LOW（80%）
+	if source is GroundUnit or source is NavalUnit:
+		missile.source_tier = CombatUnit.AltitudeTier.GROUND
+	else:
+		missile.source_tier = source.get_altitude_tier()
+	missile._was_in_building = missile.spawned_in_building
+
 	# 初始化 LOS 角，避免第一帧 PN 尖峰
 	var los := target.global_position - missile.global_position
 	missile._prev_los_angle = atan2(los.x, -los.y)
@@ -128,6 +144,24 @@ func _physics_process(delta: float) -> void:
 		if missile.age < missile.params.guidance_delay:
 			continue
 
+		# 建筑遮挡（按 source 高度档位查表的单次进入 roll）
+		# 不在 LOW 或 spawned_in_building 直接跳过
+		if missile.altitude < 3500.0 and not missile.spawned_in_building:
+			var in_b: bool = BuildingRenderer.is_position_inside_building(missile.global_position)
+			# 只在 "外部 → 内部" 跳变时 roll 一次（在内部期间不再 roll，离开后下次进入再 roll）
+			if in_b and not missile._was_in_building:
+				var p := _building_block_prob_for_tier(missile.source_tier)
+				if randf() < p:
+					EventLogger.log_event("MISSILE", missile.params.display_name if missile.params else "MSL",
+						"intercepted by building @ alt %.0fm (src_tier=%d, p=%.2f)" % [missile.altitude, missile.source_tier, p])
+					ExplosionVFXScript.emit(get_tree(), missile.global_position, missile.heading, 1.0)
+					var bomb_ids := ["bomb_distant", "bomb_distant_02", "bomb_distant_03", "bomb_distant_04"]
+					AudioManager.play_sfx_2d(bomb_ids[randi() % 4], missile.global_position, 9.0)
+					missile.is_active = false
+					missile.queue_free()
+					continue
+			missile._was_in_building = in_b
+
 		# 命中检测：遍历所有敌方单位
 		var fuse_radius_px := missile.params.proximity_fuse_radius * PIXELS_PER_METER
 		for unit in target_list:
@@ -173,6 +207,9 @@ func _physics_process(delta: float) -> void:
 				# 爆炸音效：4 种 bomb_distant 随机选一种
 				var bomb_ids := ["bomb_distant", "bomb_distant_02", "bomb_distant_03", "bomb_distant_04"]
 				AudioManager.play_sfx_2d(bomb_ids[randi() % 4], unit.global_position, 9.0)
+				# 归因：把发射单位写到目标 meta，aircraft._record_kill_attribution 在致死时读取
+				if is_instance_valid(missile.source) and unit is Aircraft:
+					unit.set_meta("_pending_attacker", missile.source)
 				if unit is GroundUnit:
 					unit.take_missile_damage(missile.params.damage)
 				elif unit is NavalUnit:
@@ -395,6 +432,23 @@ func _draw_hit_flash(flash: Dictionary) -> void:
 	draw_line(b_br, t_br, col_edge, lw)
 	# 中心亮点（强化闪光观感）
 	draw_circle(pos + tilt * 0.5, size * 0.18 * (0.4 + ratio * 0.6), Color(1.0, 1.0, 1.0, alpha))
+
+## 建筑拦截概率查表（target 默认在 LOW 档；同 bullet_manager._building_block_prob_for_tier）
+##   HIGH (≥7500m) → 40%（陡降弹大多漏过城市间隙）
+##   MID  (3500-7500m) → 60%
+##   LOW  (<3500m，飞机) → 80%
+##   GROUND (SAM/AAA/船) → 100%（地面火力对楼里玩家完全无效）
+static func _building_block_prob_for_tier(source_tier: int) -> float:
+	match source_tier:
+		CombatUnit.AltitudeTier.HIGH:
+			return 0.40
+		CombatUnit.AltitudeTier.MID:
+			return 0.60
+		CombatUnit.AltitudeTier.LOW:
+			return 0.80
+		_:
+			return 1.00
+
 
 ## 寻找弹跳目标：最近的存活敌方单位（排除刚命中的）
 func _find_bounce_target(missile: Missile, just_hit: CombatUnit) -> CombatUnit:

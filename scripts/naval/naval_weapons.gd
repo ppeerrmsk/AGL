@@ -27,9 +27,15 @@ const CIWS_MISSILE_SPREAD_DEG: float = 5.0       ## 锁定导弹时 ±5° 散布
 const CIWS_DAMAGE_PER_BULLET: float = 10.0       ## 每发真弹命中导弹 10 HP
 
 # 对空扫射参数
-const CIWS_TRACER_SPREAD_DEG: float = 7.0        ## 朝玩家射击时 ±7° 散布
+const CIWS_TRACER_SPREAD_DEG: float = 7.0        ## 朝玩家射击时 ±7° 散布（远距装饰）
 const CIWS_TRACER_DAMAGE: float = 3.0            ## 每发真弹对飞机伤害（极低，纯气氛）
 const CIWS_TRACER_MAX_ALTITUDE: float = 7500.0   ## 玩家高于此高度 → 不扫射（纯装饰无威胁）
+
+## CIWS 近距反飞机（越过 CIWS_CLOSE_RANGE_PX 时无视导弹锁定，优先攻击玩家）
+## 距离内散布更紧 + 伤害更高，让"飞太贴近 CIWS 会被撕碎"
+const CIWS_CLOSE_RANGE_PX: float = 650.0         ## 切到近距反飞机模式的距离阈值
+const CIWS_CLOSE_SPREAD_DEG: float = 3.5         ## 近距散布（接近拦截导弹的精度）
+const CIWS_CLOSE_DAMAGE: float = 8.0             ## 近距真弹伤害（介于 tracer 3 和拦截 10 之间）
 
 # ── SAM 短程 / VLS 常量（步骤 2 只用 SAM_SHORT）──
 const SAM_SHORT_COOLDOWN: float = 6.0            ## 短程 SAM 再次发射间隔
@@ -50,16 +56,33 @@ static func update(nu: NavalUnit, delta: float) -> void:
 				_update_sam_short(nu, m, delta)
 			WeaponMountParams.WeaponType.VLS_SALVO:
 				_update_vls_salvo(nu, m, delta)
+			WeaponMountParams.WeaponType.NAVAL_AA:
+				_update_naval_aa(nu, m, delta)
 
 # ==================================================
 #  CIWS — 双模式（导弹拦截优先 / 对空扫射兜底）
 # ==================================================
 
 ## CIWS 更新入口：连续高射速单发模式（真 Phalanx 观感）
-## 优先级：已锁定导弹 → 搜索新导弹 → 对玩家扫射
-## 单发一颗，依靠高射速 + 高散布制造弹幕感，命中率低
+## 优先级（由近到远）：
+##   1. 近距反飞机（< CIWS_CLOSE_RANGE_PX）：无视导弹锁定，紧散布 + 真伤打玩家
+##   2. 已锁定来袭导弹 → 继续拦截
+##   3. 搜索新来袭导弹 → 锁定
+##   4. 中远距对空扫射（< CIWS_TRACER_RANGE_PX）：大散布 + 装饰伤害
+## 单发一颗，依靠高射速 + 散布制造弹幕感
 static func _update_ciws(nu: NavalUnit, mount: WeaponMount, _delta: float) -> void:
 	if nu.bullet_manager == null:
+		return
+
+	# 模式 0：飞机已经飞到 CIWS 嘴边 → 无视导弹，紧散布 + 真伤轰击玩家
+	# 这一层让"贴脸飞过 CIWS"成为不合算的选择：高命中率 + 中等伤害，短时间能撕薄血皮
+	var close_ac := _find_aircraft_in_range(nu, mount, CIWS_CLOSE_RANGE_PX, CIWS_TRACER_MAX_ALTITUDE)
+	if close_ac != null:
+		# 放弃之前锁的导弹（玩家近了才是真威胁）
+		if mount.engaged_missile != null:
+			mount.engaged_missile = null
+			mount.engage_cooldown = CIWS_ENGAGE_COOLDOWN
+		_ciws_fire_single(nu, mount, close_ac.global_position, CIWS_CLOSE_SPREAD_DEG, CIWS_CLOSE_DAMAGE, false)
 		return
 
 	# 模式 A：已锁定来袭导弹 → 继续拦截（子弹带 is_ciws=true，能碰撞导弹）
@@ -163,6 +186,28 @@ static func _missile_already_engaged(nu: NavalUnit, m: Missile, current_mount: W
 			return true
 	return false
 
+## 通用版：在给定挂点半径内找最近的敌方飞机
+## 供 CIWS 近距反飞机 / NAVAL_AA 共用
+static func _find_aircraft_in_range(nu: NavalUnit, mount: WeaponMount,
+		max_range_px: float, max_altitude: float) -> CombatUnit:
+	var mount_pos := mount.world_position(nu.global_position, nu.heading)
+	var best: CombatUnit = null
+	var best_d := max_range_px
+	for u in CombatUnit.all_units:
+		if u == null or not is_instance_valid(u):
+			continue
+		if u.is_destroyed or u.team == nu.team:
+			continue
+		if not u is Aircraft:
+			continue
+		if u.altitude >= max_altitude:
+			continue
+		var d := mount_pos.distance_to(u.global_position)
+		if d < best_d:
+			best_d = d
+			best = u
+	return best
+
 ## 查找 CIWS 对空扫射射程内的玩家飞机（team=0）
 ## 门禁比导弹拦截严：距离 < CIWS_TRACER_RANGE_PX 且高度 < CIWS_TRACER_MAX_ALTITUDE
 ## 不满足两条件之一 → CIWS 保持静默，不做"无意义扫射"
@@ -186,6 +231,50 @@ static func _find_player_in_ciws_range(nu: NavalUnit, mount: WeaponMount) -> Com
 			best_d = d
 			best = u
 	return best
+
+# ==================================================
+#  NAVAL_AA — 舰载对空机炮
+# ==================================================
+## 与陆基 AAGunUnit 同构但更强：射程更长、伤害偏高（舰载平台稳定 + 火控好）
+## 行为：找最近空中敌机 → 前置量 → 按 GunParams.fire_rate 连发
+## 参数来自 mount.params.weapon_params 的 GunParams（max_range / fire_rate /
+## muzzle_velocity / bullet_damage / spread_angle）
+
+## 高度门禁：默认放开（任何高度都能打），仅作为防御未来需要的预留参数
+## 早先设 8000 m 导致玩家飞 HIGH（>7500 m）时 AA 直接无视玩家 → "射了一会儿就不射了"
+const NAVAL_AA_MAX_ALTITUDE: float = 20000.0
+
+static func _update_naval_aa(nu: NavalUnit, mount: WeaponMount, _delta: float) -> void:
+	if nu.bullet_manager == null:
+		return
+	if mount.fire_cooldown > 0.0:
+		return
+	if mount.params == null or mount.params.weapon_params == null:
+		return
+	var gun := mount.params.weapon_params as GunParams
+	if gun == null:
+		return
+
+	var range_px: float = gun.max_range * PIXELS_PER_METER
+	var ac := _find_aircraft_in_range(nu, mount, range_px, NAVAL_AA_MAX_ALTITUDE)
+	if ac == null:
+		return
+
+	var mount_pos := mount.world_position(nu.global_position, nu.heading)
+	# 前置量：按子弹飞行时间预测目标位置
+	var bullet_speed_px: float = gun.muzzle_velocity * PIXELS_PER_METER
+	var dist_px: float = mount_pos.distance_to(ac.global_position)
+	var time_to_target: float = dist_px / maxf(bullet_speed_px, 1.0)
+	var tgt_vel := Vector2(sin(ac.heading), -cos(ac.heading)) * ac.speed * PIXELS_PER_METER
+	var lead_pos: Vector2 = ac.global_position + tgt_vel * time_to_target
+
+	var base_dir := atan2((lead_pos - mount_pos).x, -(lead_pos - mount_pos).y)
+	var spread_rad := deg_to_rad(gun.spread_angle)
+	var dir := base_dir + randf_range(-spread_rad, spread_rad)
+
+	nu.bullet_manager.spawn_bullet(mount_pos, dir, gun.muzzle_velocity, nu, gun.bullet_damage, false, false)
+	# fire_rate 单位：发/分钟 → 冷却 = 60 / fire_rate
+	mount.fire_cooldown = 60.0 / maxf(gun.fire_rate, 1.0)
 
 # ==================================================
 #  SAM 短程（FFG 主武器）
@@ -233,6 +322,7 @@ static func _update_sam_short(nu: NavalUnit, mount: WeaponMount, _delta: float) 
 		return
 
 	nu.missile_manager.spawn_missile(nu, target, missile_params)
+	nu.notify_missile_fired_at(target)
 	mount.fire_cooldown = SAM_SHORT_COOLDOWN
 
 # ==================================================
@@ -328,6 +418,7 @@ static func _fire_one_vls_missile(nu: NavalUnit, mount: WeaponMount, missile_par
 	var m := nu.missile_manager.spawn_missile(nu, target, missile_params)
 	if m == null:
 		return
+	nu.notify_missile_fired_at(target)
 
 	# VLS 专属参数：锁死当前玩家位置 + 散布 + 速度乱数
 	var scatter: float = missile_params.vls_point_scatter_px

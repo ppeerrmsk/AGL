@@ -259,6 +259,7 @@ func _draw() -> void:
 		_draw_radar_cone()
 	_draw_ground_icon()
 	_draw_lock_indicator()
+	LockWarning.draw(self, AircraftRenderer.player_ref)
 	AircraftRenderer.draw_target_bracket(self, is_mission_target)
 	_draw_data_label()
 

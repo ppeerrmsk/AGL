@@ -58,6 +58,28 @@ var _tick_phase: int = 0   ## 0..ai_tick_divisor-1，随机错开各 AI 的决�
 @export var bvr_only: bool = false            ## BVR 狙击模式：只用导弹，不进近距战，被接近则撤退
 var boss_attacker: bool = false               ## BOSS 攻击手：禁止 EXTENSION/脱离/自保，死追玩家
 
+# ── 事件系统 directive 覆盖 ──
+## 由 GameEvent.set_directive 写入，存在期间 _physics_process 顶层完全跳过
+## 正常 PATROL/ENGAGE/SQUAD_FOLLOW 路由，只执行 directive 行为。
+## directive owner_event 失效时本字段自动清空，AI 回到正常状态。
+var _directive: AIDirective = null
+## directive 内部状态（如 PATROL_RING 当前角度、FLY_TO_POINT 是否已抵达）
+var _directive_state: Dictionary = {}
+
+## 设置事件 directive；null = 释放
+func set_event_directive(directive: AIDirective) -> void:
+	if _directive == directive:
+		return
+	# 优先级守卫：高优先级 directive 不被低优先级覆盖
+	if directive != null and _directive != null \
+			and _directive.is_owner_alive() and directive.priority < _directive.priority:
+		return
+	_directive = directive
+	_directive_state.clear()
+	if directive == null and aircraft:
+		# 释放时清掉事件期间留下的强制目标，让正常 AI 重新选目标
+		aircraft.clear_combat_target()
+
 ## 实际 boss_attacker 状态（综合 boss_attacker 标志 + F-47 角色 meta）
 ## 即使标志延迟一帧未更新，角色 meta 实时检查也能正确判断
 func is_boss_attacker() -> bool:
@@ -365,7 +387,10 @@ func _log_name() -> String:
 	return "%s/%s[%s]" % [side, dn, aircraft.callsign]
 
 ## 获取目标日志名称
-func _log_target_name(target: CombatUnit) -> String:
+func _log_target_name(target) -> String:
+	# ⚠ 不能加 CombatUnit 类型标注：调用点可能传入 previously freed 的节点
+	#   （disengage 在 combat_target 被外部释放后仍会记录"was fighting XXX"），
+	#   Godot 的参数类型检查会先于函数体抛错，内部 is_instance_valid 守卫进不去
 	if not target or not is_instance_valid(target):
 		return "None"
 	if target is Aircraft:
@@ -389,6 +414,17 @@ func _physics_process(delta: float) -> void:
 	var _hm_ai := aircraft.get_herbst()
 	if _hm_ai and _hm_ai.is_active:
 		return
+
+	# ── 事件 directive 顶层覆盖 ──
+	# 存在 directive 且其 owner_event 仍 active 时：跳过所有正常 AI 路由，
+	# 只执行 directive 指定的 verb（飞向某点 / 盘旋 / 跟航线 / 强制目标 / 被动）。
+	# directive 释放或事件结束 → 自然回退到下面的正常流程。
+	if _directive != null:
+		if not _directive.is_owner_alive():
+			set_event_directive(null)
+		else:
+			_process_directive(delta)
+			return
 
 	# 节流：simple_ai 等低优先级 AI 每 N 帧才决策一次，带相位错开
 	# 跳过的帧里 Aircraft 物理照常跑，只是 AI 不重新算目标/阵型/规避
@@ -474,7 +510,7 @@ func _effective_sa() -> float:
 
 ## 给目标位置加上漂移偏差
 func _apply_position_error(pos: Vector2) -> Vector2:
-	return personality.apply_position_error(pos, is_boss_attacker())
+	return personality.apply_position_error(pos, _current_target, is_boss_attacker())
 
 ## 给速度加上误差
 func _apply_speed_error(speed_kmh: float) -> float:
@@ -487,6 +523,113 @@ func _apply_altitude_error(alt: float) -> float:
 ## 获取飞机的 CombatParams（性格参数），用于战术执行中的风格偏移
 func _cb() -> CombatParams:
 	return aircraft._combat_params()
+
+# ══════════════════════════════════════════════
+#  事件 directive 执行
+#  GameEvent 通过 set_event_directive 下发；本函数把 verb 翻译成
+#  target_position / waypoints / combat_target / enable_combat 写入 Aircraft。
+#  执行期间完全跳过正常 AI 路由。
+# ══════════════════════════════════════════════
+
+func _process_directive(_delta: float) -> void:
+	var d := _directive
+	# 通用：不交战时清掉 combat_target，避免残留目标牵制 AI
+	if d.combat_disabled:
+		aircraft.clear_combat_target()
+	match d.type:
+		AIDirective.Type.FLY_TO_POINT:
+			var tgt: Vector2 = d.params.get("target", aircraft.global_position)
+			aircraft.target_position = tgt
+			aircraft.keep_target_on_arrival = false
+			# 抵达检查
+			if aircraft.global_position.distance_to(tgt) < d.arrival_radius:
+				_directive_arrival_dispatch()
+		AIDirective.Type.PATROL_RING:
+			_directive_patrol_ring_step()
+		AIDirective.Type.FOLLOW_PATH:
+			_directive_follow_path_step()
+		AIDirective.Type.HOLD_POSITION:
+			# 保持当前位置：飞机原地盘旋（target = 旁边一点让它转圈）
+			var p := aircraft.global_position
+			aircraft.target_position = p + Vector2(0, -200).rotated(aircraft.heading + PI * 0.5)
+		AIDirective.Type.ENGAGE_TARGET:
+			var t = d.params.get("target", null)
+			if is_instance_valid(t):
+				aircraft.combat_target = t
+				_current_target = t
+				_state = AIState.ENGAGE
+				aircraft.target_position = t.global_position
+		AIDirective.Type.PASSIVE:
+			pass   # 啥也不做，飞机沿 waypoints 飞或保持 target_position
+
+## FLY_TO_POINT 抵达分派
+func _directive_arrival_dispatch() -> void:
+	var d := _directive
+	match d.on_arrival:
+		AIDirective.OnArrival.HOLD:
+			d.type = AIDirective.Type.HOLD_POSITION
+			_directive_state.clear()
+		AIDirective.OnArrival.PATROL:
+			var center: Vector2 = d.params.get("target", aircraft.global_position)
+			# 优先用调用方指定的 _pending_patrol_radius，否则按 arrival_radius × 2
+			var r: float = float(d.params.get("_pending_patrol_radius", d.arrival_radius * 2.0))
+			d.type = AIDirective.Type.PATROL_RING
+			d.params = {"center": center, "radius": r, "n_waypoints": 6}
+			_directive_state.clear()
+		AIDirective.OnArrival.RELEASE:
+			set_event_directive(null)
+		AIDirective.OnArrival.CALLBACK:
+			if d.on_complete.is_valid():
+				d.on_complete.call(self)
+
+## PATROL_RING：每帧推进一个圆周航点，到达就跳下一个
+func _directive_patrol_ring_step() -> void:
+	var d := _directive
+	var center: Vector2 = d.params.get("center", Vector2.ZERO)
+	var radius: float = float(d.params.get("radius", 1000.0))
+	var n: int = int(d.params.get("n_waypoints", 6))
+	var idx: int = int(_directive_state.get("idx", -1))
+	if idx < 0:
+		# 首次进入：选离当前位置最近的航点开始
+		var best := 0
+		var best_d2 := INF
+		for i in range(n):
+			var a := float(i) / float(n) * TAU
+			var pt := center + Vector2(cos(a), sin(a)) * radius
+			var dd: float = aircraft.global_position.distance_squared_to(pt)
+			if dd < best_d2:
+				best_d2 = dd
+				best = i
+		idx = best
+	var ang := float(idx) / float(n) * TAU
+	var wp := center + Vector2(cos(ang), sin(ang)) * radius
+	aircraft.target_position = wp
+	aircraft.keep_target_on_arrival = false
+	if aircraft.global_position.distance_to(wp) < 250.0:
+		idx = (idx + 1) % n
+	_directive_state["idx"] = idx
+
+## FOLLOW_PATH：沿 waypoints 一路飞，可循环
+func _directive_follow_path_step() -> void:
+	var d := _directive
+	var wps: PackedVector2Array = d.params.get("waypoints", PackedVector2Array())
+	if wps.is_empty():
+		return
+	var loop: bool = bool(d.params.get("loop", false))
+	var idx: int = int(_directive_state.get("idx", 0))
+	if idx >= wps.size():
+		if loop:
+			idx = 0
+		else:
+			# 抵达终点：HOLD_POSITION（让事件层决定是否切其他指令）
+			d.type = AIDirective.Type.HOLD_POSITION
+			return
+	var wp := wps[idx]
+	aircraft.target_position = wp
+	aircraft.keep_target_on_arrival = false
+	if aircraft.global_position.distance_to(wp) < 300.0:
+		idx += 1
+	_directive_state["idx"] = idx
 
 # ══════════════════════════════════════════════
 #  SIMPLE AI — 轻量化逻辑（UAV 等低级敌人）
@@ -793,8 +936,8 @@ func _process_simple(delta: float) -> void:
 			_simple_confused = false
 			return
 
-	# 超出范围或超时脱离
-	var max_range := (aircraft.params.radar_range * 1.5) if aircraft.params else 3000.0
+	# 超出范围或超时脱离（用有效雷达范围 → 高度档位影响 AI 缠斗持续半径）
+	var max_range := (aircraft.effective_radar_range_px() * 1.5) if aircraft.params else 3000.0
 	_engage_timer += delta
 	if dist > max_range or _engage_timer > engage_duration:
 		aircraft.clear_combat_target()
@@ -896,17 +1039,19 @@ func _try_engage_simple() -> void:
 		if d < best_dist:
 			best_dist = d
 			best = unit
-	var detect_range := (aircraft.params.radar_range * 1.2) if aircraft.params else 2500.0
-	# 低空目标更难被发现
+	var detect_range := (aircraft.effective_radar_range_px() * 1.2) if aircraft.params else 2500.0
+	# 低空 / 云中目标更难被发现 —— 连续插值，无 tier 跳变
+	#   贴地    → detect_range × 0.80
+	#   3500m+ → detect_range × 1.00
+	#   云心    → detect_range × 0.65
+	#   取较强抑制（min），与 target_selection 视觉遮蔽逻辑对齐
 	if best:
-		var tgt_tier := best.get_altitude_tier()
-		if tgt_tier == CombatUnit.AltitudeTier.LOW:
-			detect_range *= 0.75
-		elif tgt_tier == CombatUnit.AltitudeTier.GROUND:
-			detect_range *= 0.6
-		# 云中目标同样更难被发现
-		if best.cloud_state == 2:
-			detect_range *= 0.7
+		var alt_obscure := 1.0 - smoothstep(0.0, 3500.0, best.altitude)
+		var alt_mult := lerpf(1.0, 0.80, alt_obscure)
+		var cloud_mult: float = 1.0
+		if best is Aircraft:
+			cloud_mult = lerpf(1.0, 0.65, (best as Aircraft).cloud_density)
+		detect_range *= minf(alt_mult, cloud_mult)
 
 	# ── 护驾过滤（orbit_squad_leader 专用）──
 	# 只攻击进入长机护驾范围内的目标，远处的敌人不管
@@ -975,28 +1120,30 @@ func _process_engage(delta: float) -> void:
 	_tactic_timer += delta
 	_target_eval_timer += delta
 
-	# ── BVR 狙击模式：太近则触发 Herbst 或强制脱离 ──
+	# ── Herbst J-Turn 反咬触发（独立于 bvr_only）──
+	# 任何挂载 HerbstManeuver 模块的飞机被近距追击时尝试触发，与 BVR 撤退解耦
+	# F-14 Poltergeist：有 Herbst 模块、bvr_only=false → 触发 J-Turn 反杀
+	# F-47：无 Herbst 模块（已转移到 F-14）→ 不触发，纯 BVR 撤退 + 隐身
+	var hm: HerbstManeuver = aircraft.get_herbst()
+	if hm and _current_target and is_instance_valid(_current_target):
+		var to_enemy_h := (_current_target.global_position - aircraft.global_position).normalized()
+		var my_fwd_h := Vector2(sin(aircraft.heading), -cos(aircraft.heading))
+		var is_chased_h := my_fwd_h.dot(to_enemy_h) < BEING_CHASED_DOT
+		var dist_h := aircraft.global_position.distance_to(_current_target.global_position)
+		if is_chased_h and dist_h < HERBST_ACTIVATION_DIST and hm.can_activate:
+			var cross_h := my_fwd_h.x * to_enemy_h.y - my_fwd_h.y * to_enemy_h.x
+			hm.activate(cross_h)
+			EventLogger.log_event("AI_TACTIC", _log_name(), "Herbst J-Turn triggered (chased at %.0fpx)" % dist_h)
+			return
+
+	# ── BVR 狙击模式：太近强制脱离 ──
 	if bvr_only and _current_target and is_instance_valid(_current_target):
-		var hm: HerbstManeuver = aircraft.get_herbst()
 		# Herbst 反击窗口中 → 暂停 bvr_only 逃跑，像近距狗斗机一样攻击
 		if hm and hm.counterattack_timer > 0.0:
 			pass  # 跳过 bvr_only 距离检查，继续走正常交战逻辑
 		else:
 			var bvr_dist := aircraft.global_position.distance_to(_current_target.global_position)
 			if bvr_dist < BVR_STANDOFF_MIN:
-				# 检查敌人是否在我的后半球（被追逐）
-				var to_enemy := (_current_target.global_position - aircraft.global_position).normalized()
-				var my_fwd := Vector2(sin(aircraft.heading), -cos(aircraft.heading))
-				var is_chased := my_fwd.dot(to_enemy) < BEING_CHASED_DOT  # 敌人在我身后
-				# 被追且距离很近 → 尝试 Herbst 急转反杀
-				if is_chased and bvr_dist < HERBST_ACTIVATION_DIST:
-					if hm and hm.can_activate:
-						# 计算转弯方向：朝敌人侧面转
-						var cross := my_fwd.x * to_enemy.y - my_fwd.y * to_enemy.x
-						hm.activate(cross)
-						EventLogger.log_event("AI_TACTIC", _log_name(), "Herbst J-Turn triggered (chased at %.0fpx)" % bvr_dist)
-						return
-				# Herbst 不可用或未被追 → 正常撤退
 				var flee_dir := (aircraft.global_position - _current_target.global_position).normalized()
 				aircraft.target_position = aircraft.global_position + flee_dir * BVR_FLEE_DISTANCE
 				TargetSelection.disengage(self)
@@ -1071,7 +1218,7 @@ func _process_engage(delta: float) -> void:
 	if is_boss_attacker():
 		pass  # BOSS 攻击手跳过距离脱离
 	elif aircraft.params:
-		var max_range := aircraft.params.radar_range * 1.5
+		var max_range := aircraft.effective_radar_range_px() * 1.5
 		var dist: float
 		if aircraft.flat_altitude:
 			dist = aircraft.global_position.distance_to(_current_target.global_position)
@@ -1102,11 +1249,22 @@ func _process_engage(delta: float) -> void:
 		TargetSelection.reevaluate_target(self)
 
 	# ── 态势评估 ──
+	# P4：planner 模式下整段 BFMTactics 链都跳过（assess_situation / lufberry / choose / execute / gun_jink）
+	# 这些原本是为旧 BFMTactics.execute_* 服务，planner 接管后全是死代码 —— 省去每帧 SituationData 构造 + 战术选择 + jink 偏移计算
+	if aircraft.use_tactical_planner:
+		aircraft.ai_override_pursuit = false  # 让 planner 自由控制 target_position
+		# HUD 战术显示：planner 飞机用 plan 的 intent 名（玩家飞机自己更新；AI 飞机用 _last_plan）
+		if aircraft._last_plan:
+			current_tactic_name = TacticalPlan.intent_name(aircraft._last_plan.intent)
+		return
+
+	# ── 旧 BFMTactics 路径（沙盒模式 / 未迁移机型）──
 	var sit := BFMTactics.assess_situation(self)
 
-	# ── 交战中提前高度趋近：高度差过大时优先调整高度 ──
+	# ── 交战中默认目标高度：使用自身作战高度（patrol_altitude clamp 到目标 ±2500m），
+	# 各战术执行器需要时会覆写为 match_target_altitude（机炮战）──
 	if absf(sit.alt_diff) > ALTITUDE_MATCH_THRESH:
-		BFMTactics.match_target_altitude(self)
+		BFMTactics.use_combat_altitude(self)
 
 	# ── 拉弗伯雷圆圈检测（每帧更新，不受战术切换防抖限制） ──
 	BFMTactics.update_lufberry_detection(self, sit, delta)

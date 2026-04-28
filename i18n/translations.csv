@@ -69,10 +69,10 @@ TOOLTIP_WEAPON_GUN_TITLE,机炮优先,Gun Priority,ガン優先
 TOOLTIP_WEAPON_GUN_BODY,始终使用机炮进行攻击\n不会自动发射导弹,Always attacks with gun\nNever auto-fires missiles,常にガンで攻撃\nミサイルは自動発射されません
 TOOLTIP_WEAPON_GUN_HINT,按 [color=#ffdd66]1[/color] 切换到导弹优先,Press [color=#ffdd66]1[/color] to switch to Missile Priority,[color=#ffdd66]1[/color] でミサイル優先へ
 TOOLTIP_ALT_CLIMB_TITLE,爬升优先,Climb High,高高度優先
-TOOLTIP_ALT_CLIMB_BODY,巡航时自动爬升至高空\n高空有利于积蓄能量\n[color=#66ccff]导弹射程更远[/color]\n交战时仍会自动匹配目标高度,Auto-climbs to high altitude while cruising\nHigh altitude builds energy\n[color=#66ccff]Missile range extended[/color]\nStill auto-matches target altitude in combat,巡航時に自動で高高度へ上昇\n高高度はエネルギー蓄積に有利\n[color=#66ccff]ミサイル射程が延長[/color]\n交戦時は目標高度に自動追従
+TOOLTIP_ALT_CLIMB_BODY,巡航时自动爬升至高空\n[color=#66ccff]可在更远距离锁定敌人[/color]\n[color=#66ccff]空间充足，机动转向更灵活[/color]\n[color=#66ccff]进入云层后更不易被锁定与命中[/color]\n[color=#66ccff]远离地面火力威胁[/color],Auto-climbs to high altitude while cruising\n[color=#66ccff]Lock onto enemies at longer range[/color]\n[color=#66ccff]More room to maneuver — sharper turns[/color]\n[color=#66ccff]Cloud cover hides you from locks and hits[/color]\n[color=#66ccff]Above ground-based threats[/color],巡航時に自動で高高度へ上昇\n[color=#66ccff]より遠距離で敵をロック可能[/color]\n[color=#66ccff]空間に余裕 — 機動・旋回がしやすい[/color]\n[color=#66ccff]雲に入るとロック・命中率が低下[/color]\n[color=#66ccff]地上脅威の射程外[/color]
 TOOLTIP_ALT_CLIMB_HINT,按 [color=#ffdd66]3[/color] 切换到低空优先,Press [color=#ffdd66]3[/color] to switch to Fly Low,[color=#ffdd66]3[/color] で低空優先へ
 TOOLTIP_ALT_LOW_TITLE,低空优先,Fly Low,低空優先
-TOOLTIP_ALT_LOW_BODY,巡航时自动降至低空\n[color=#66ff66]更难被雷达锁定（锁定时间+43%）[/color]\n[color=#66ff66]敌方导弹追踪能力下降[/color]\n[color=#66ff66]AI攻击意愿降低[/color]\n交战时仍会自动匹配目标高度,Auto-descends to low altitude while cruising\n[color=#66ff66]Harder to lock (lock time +43%)[/color]\n[color=#66ff66]Enemy missile tracking reduced[/color]\n[color=#66ff66]Enemy AI engages less aggressively[/color]\nStill auto-matches target altitude in combat,巡航時に自動で低空へ降下\n[color=#66ff66]ロックされにくい（ロック時間+43%）[/color]\n[color=#66ff66]敵ミサイルの追尾性能が低下[/color]\n[color=#66ff66]敵AIの攻撃意欲が低下[/color]\n交戦時は目標高度に自動追従
+TOOLTIP_ALT_LOW_BODY,巡航时自动降至低空\n[color=#66ff66]更难被远距雷达锁定[/color]\n[color=#66ff66]顶速更高，适合突击与脱离[/color]\n自身锁定距离也较短,Auto-descends to low altitude while cruising\n[color=#66ff66]Harder for long-range radar to lock[/color]\n[color=#66ff66]Higher top speed — good for ambush & escape[/color]\nYour own lock-on range is shorter too,巡航時に自動で低空へ降下\n[color=#66ff66]長距離レーダーに捕捉されにくい[/color]\n[color=#66ff66]最高速度が向上 — 奇襲・離脱に有利[/color]\n自機のロック距離も短くなる
 TOOLTIP_ALT_LOW_HINT,按 [color=#ffdd66]3[/color] 切换到爬升优先,Press [color=#ffdd66]3[/color] to switch to Climb High,[color=#ffdd66]3[/color] で高高度優先へ
 TOOLTIP_EVADE_ON_TITLE,规避模式: 开,Evasion: ON,回避モード: ON
 TOOLTIP_EVADE_ON_BODY,检测到来袭导弹时自动规避\n垂直于导弹轨迹急转+变换高度\n无导弹威胁时做S型机动\n点击目标或地面会自动关闭规避,Auto-evades incoming missiles\nPerpendicular break + altitude change\nS-curve when no missile threat\nClicking a target or ground disables evasion,来襲ミサイル検知で自動回避\nミサイル軌道に垂直急旋回＋高度変更\n脅威なし時はS字機動\nターゲットや地面クリックで回避解除
@@ -159,6 +159,8 @@ UPGRADE_GUN_RANGE_NAME,延伸弹道,Extended Range,射程延長
 UPGRADE_GUN_RANGE_DESC,机炮有效射程 +20%,Gun effective range +20%,ガン有効射程 +20%
 UPGRADE_GUN_CIWS_NAME,★ 近防炮,★ CIWS,★ CIWS
 UPGRADE_GUN_CIWS_DESC,机炮自动拦截正面来袭导弹,Gun auto-intercepts incoming frontal missiles,正面来襲ミサイルをガンで自動迎撃
+UPGRADE_GUN_KILL_FEAR_NAME,震慑射击,Suppressive Kill,威圧射撃
+UPGRADE_GUN_KILL_FEAR_DESC,机炮击杀时半径内敌机陷入恐惧 操作大幅退化 BOSS 效果减半 每层提升范围+持续时间,Gun kills fear nearby enemies — heavy aim degradation; bosses resist (half effect); each rank boosts radius & duration,ガン撃墜時 周辺敵が恐慌状態 操作精度大幅低下 BOSSは半減耐性 各段階で範囲と持続時間が向上
 UPGRADE_RADAR_RANGE_NAME,雷达升级,Radar Upgrade,レーダー強化
 UPGRADE_RADAR_RANGE_DESC,雷达探测距离 +20%,Radar range +20%,レーダー探知距離 +20%
 UPGRADE_LOCK_TIME_NAME,火控优化,Fire Control,火器管制最適化
@@ -250,8 +252,8 @@ ZONE_CLEARED_WITH_REWARD_FMT,✓ 战区 %s 已攻克 — 获得奖励：%s,✓ Z
 ZONE_REFRESHED_AFTER_CLEAR,⚡ 其他战区敌情升级 — 敌人已换防,⚡ OTHER ZONES REINFORCED — Enemies rotated,⚡ 他エリア敵勢力強化 — 敵部隊交代
 HUD_VICTORY_TITLE,[ 通关 ],[ MISSION COMPLETE ],[ 任務達成 ]
 HUD_VICTORY_SUBTITLE,Wraith 中队已被击毁,Wraith Squadron eliminated,Wraith スコードロン撃破
-ZONE_HINT_BOSS_UNLOCKED,★ BOSS 已出现 — 前往地图中央的决战地点,★ BOSS UNLOCKED — Head to the showdown point at map center,★ BOSS 解放 — マップ中央の決戦地へ向かえ
-ZONE_HINT_BOSS_ARRIVAL,⚔ Wraith 中队进入战场,⚔ Wraith Squadron has entered the battlefield,⚔ Wraith スコードロン戦場進入
+ZONE_HINT_BOSS_UNLOCKED,★ BOSS 区域已出现 — 打开战术面板查看位置,★ BOSS ZONE DETECTED — Open Tactical Map to confirm,★ BOSS 区域出現 — タクティカルマップで確認せよ
+ZONE_HINT_BOSS_ARRIVAL,⚔ BOSS 进入战场,⚔ BOSS has entered the battlefield,⚔ BOSS 戦場進入
 ADBS_TUTORIAL_BOMBERS,⚠ 雷达捕获：2 架敌方轰炸机正前方！击落获取首笔奖励,⚠ CONTACT: 2 enemy bombers dead ahead — shoot them down for the first kill,⚠ レーダー捕捉：前方に敵爆撃機2機 — 撃墜で初報酬
 ADBS_CITY_HELIS_FMT,⚠ 城区上空：敌方直升机编队向 %s 方向逃离,⚠ CITY ALERT: Enemy heli flight fleeing %s,⚠ 都市上空：敵ヘリ編隊が %s 方向へ逃走
 ZONE_INFO_DIFFICULTY,难度,Difficulty,難易度
@@ -260,6 +262,7 @@ ZONE_MISSION_AIR,※ 歼灭盘旋在战区上空的敌方中队,※ Destroy the 
 ZONE_MISSION_SQUADRON,※ 击败锁定战区的敌方中队,※ Defeat the enemy squadron holding the zone,※ エリアを制圧中の敵中隊を撃破
 ZONE_MISSION_ELITE,※ 击落指挥 Sentinel（精英目标）,※ Shoot down the Sentinel commander (elite target),※ 指揮機 Sentinel を撃墜せよ（精鋭目標）
 ZONE_MISSION_NAVAL,※ 击毁海上舰队旗舰,※ Sink the enemy fleet flagship,※ 敵艦隊旗艦を撃沈せよ
+ZONE_MISSION_BOSS,※ 击溃来袭的 BOSS 部队,※ Destroy the incoming BOSS force,※ 襲来する BOSS 部隊を撃破せよ
 MENU_AUDIO_BUTTON,音频设置,Audio,音声設定
 MENU_RESET_SAVE_BUTTON,删除存档,Reset Save,セーブ削除
 MENU_RESET_SAVE_CONFIRM,确认删除所有进度存档？\n（包括首次引导状态。语言 / 音频设置保留。）,Delete all save progress?\n(Including first-run tutorial state. Language / Audio settings are kept.),すべてのセーブデータを削除しますか？\n（初回チュートリアル状態を含む。言語／音声設定は保持）

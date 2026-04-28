@@ -20,6 +20,7 @@ func _physics_process(delta: float) -> void:
 	_update_movement(delta)
 	_update_target_selection()
 	_update_sam_missile(delta)
+	update_lock_line_state(delta)
 	queue_redraw()
 
 ## SAM 导弹发射
@@ -67,6 +68,7 @@ func _update_sam_missile(delta: float) -> void:
 
 	# 发射
 	missile_manager.spawn_missile(self, combat_target, params.missile)
+	notify_missile_fired_at(combat_target)
 	missiles_remaining -= 1
 	_missile_cooldown = params.missile.cooldown
 
@@ -75,6 +77,21 @@ func is_in_radar_cone(target_global_pos: Vector2) -> bool:
 	var radar_r := params.radar_range if params else 5000.0
 	var dist := global_position.distance_to(target_global_pos)
 	return dist <= radar_r and dist > 1.0
+
+## SAM 装载导弹（影响锁定线显示）
+func has_missile_capability() -> bool:
+	return params != null and params.missile != null and missiles_remaining > 0
+
+## 覆写 CombatUnit：SAM 能否对玩家发射导弹
+func _lock_line_can_engage_player() -> bool:
+	if not has_missile_capability():
+		return false
+	if _missile_cooldown > 0.05:
+		return false
+	var pref: Aircraft = AircraftRenderer.player_ref
+	if pref == null:
+		return false
+	return combat_target == pref
 
 ## SAM 不用机炮
 func _update_combat(_delta: float) -> void:

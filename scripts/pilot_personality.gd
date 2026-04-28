@@ -9,6 +9,10 @@ extends RefCounted
 # ── 压力 ──
 var stress: float = 0.0                   ## 当前压力值 (0~1)
 var prev_hp: float = -1.0                 ## 上一帧 HP，用于检测受伤
+## 生存模式恐惧默认衰减率（注入 fear 时若没指定 override 用这个）
+const SURVIVOR_FEAR_DECAY_PER_SEC: float = 0.15
+## 玩家"震慑射击"升级注入的衰减率覆盖：>0 时替代默认值，stress 归零后自动重置
+var fear_decay_override: float = 0.0
 
 # ── 判断误差状态 ──
 var drift_offset: Vector2 = Vector2.ZERO  ## 漂移噪声偏移（模拟判断失误）
@@ -47,14 +51,11 @@ func effective_self_preservation(self_preservation: float, composure: float) -> 
 	var stress_push := stress * (1.0 - composure) * 0.6
 	return clampf(self_preservation + stress_push, 0.0, 1.0)
 
-## 有效态势感知 = 基础SA × 压力衰减 × 疲劳衰减
-## 压力大、耐力低的飞行员视野变窄
-func effective_sa(situational_awareness: float, composure: float, aircraft: Aircraft) -> float:
+## 有效态势感知 = 基础SA × 压力衰减
+## 压力大的飞行员视野变窄
+func effective_sa(situational_awareness: float, composure: float, _aircraft: Aircraft) -> float:
 	var stress_penalty := stress * (1.0 - composure) * 0.4
-	var stamina_penalty := 0.0
-	if aircraft and aircraft.pilot_stamina < 50.0:
-		stamina_penalty = (1.0 - aircraft.pilot_stamina / 50.0) * 0.2
-	var sa := situational_awareness * (1.0 - stress_penalty - stamina_penalty)
+	var sa := situational_awareness * (1.0 - stress_penalty)
 	current_sa_level = clampf(sa, 0.05, 1.0)
 	return current_sa_level
 
@@ -128,10 +129,14 @@ func update_stress(ai: AIController, delta: float) -> void:
 	var aircraft := ai.aircraft
 	if prev_hp < 0.0 and aircraft:
 		prev_hp = aircraft.hp
-	# 生存模式：禁用压力系统（敌机不会因压力崩溃/降低技能）
+	# 生存模式：不主动累积压力（敌机不会因受伤/被锁/拉G 自发崩溃），
+	# 但允许外部注入的恐惧（玩家"震慑射击"升级）按 fear_decay_override 或默认衰减率回 0
 	if aircraft and aircraft.flat_altitude:
-		stress = 0.0
-		current_stress = 0.0
+		var rate: float = fear_decay_override if fear_decay_override > 0.0 else SURVIVOR_FEAR_DECAY_PER_SEC
+		stress = maxf(stress - rate * delta, 0.0)
+		current_stress = stress
+		if stress <= 0.0:
+			fear_decay_override = 0.0  # 衰减完毕：清掉 override，让下一次注入决定新速率
 		return
 
 	var stress_delta := 0.0
@@ -207,10 +212,29 @@ func update_drift(ai: AIController, delta: float) -> void:
 # ══════════════════════════════════════════════
 
 ## 给目标位置加上漂移偏差
-func apply_position_error(pos: Vector2, is_boss: bool) -> Vector2:
+##
+## target 决定漂移倍率（视觉遮蔽 → 操作失误）：
+##   - 低空（贴地）：×1.20 最高，3500m+ 无影响（连续 smoothstep 衰减）
+##   - 云中：×1.50 最高（cloud_density 1.0），云外无影响
+##   - 两者取较强抑制（max），不相乘 —— 低空和云中通常不同时
+##
+## BOSS 攻击手：保留漂移但减弱 60%（增量打 0.4 折），仍然比常规 AI 精准
+func apply_position_error(pos: Vector2, target: CombatUnit, is_boss: bool) -> Vector2:
+	var mult: float = 1.0
+	if target != null:
+		var alt_obscure := 1.0 - smoothstep(0.0, 3500.0, target.altitude)
+		var alt_mult := lerpf(1.0, 1.2, alt_obscure)
+		var cloud_mult: float = 1.0
+		if target is Aircraft:
+			cloud_mult = lerpf(1.0, 1.5, (target as Aircraft).cloud_density)
+		mult = maxf(alt_mult, cloud_mult)
 	if is_boss:
-		return pos  # BOSS 攻击手：零误差，精确追踪
-	return pos + drift_offset
+		# BOSS：把"额外漂移量"打 0.4 折；mult=1（晴空）时保持精确追踪
+		mult = 1.0 + (mult - 1.0) * 0.4
+		if mult <= 1.001:
+			return pos
+		return pos + drift_offset * (mult - 1.0)
+	return pos + drift_offset * mult
 
 ## 给速度加上误差
 func apply_speed_error(speed_kmh: float, is_boss: bool) -> float:

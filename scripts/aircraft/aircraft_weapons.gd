@@ -21,6 +21,35 @@ extends RefCounted
 
 const AUTO_GUN_SCAN_INTERVAL := 0.3
 const ROCKET_FIRE_ALT_DIFF_M := 800.0            ## 火箭弹发射最大高度差（米）
+const LAUNCH_QUALITY_OFFAX_RATIO := 0.85         ## 目标距雷达锥边缘留 15% 余量（仅挡贴边的 4.5°）
+const LAUNCH_QUALITY_MAX_BANK_DEG := 60.0        ## 玩家 bank 超此判为急转，不发导弹
+
+## 发射窗口质量过滤（仅玩家自动发射用）：返回 true 表示当前几何稳定可发，false 跳过这一帧
+## 设计目标：避免半主动导弹（AIM-7M）射后丢失照射 — 既要目标在锥内有余量，
+## 又要玩家自身稳定（不在 60°+ bank 急转中）
+## 不过滤手动触发（玩家右键 / 单点击 set_combat_target 后单发逻辑由 update_missile 单走）—
+## 由用户体验决定，玩家明确指令也应被尊重
+##
+## fire_and_forget 导弹（自主制导）跳过本检查：发射后不需要发射器照射，
+## 玩家姿态/目标在锥位置都不影响命中率
+static func _has_stable_launch_window(ac: Aircraft, target_unit: CombatUnit) -> bool:
+	if not ac.params or not is_instance_valid(target_unit):
+		return true
+	# fire-and-forget 导弹不需要发射器照射 → 不必检查 launch geometry
+	if ac.params.missile and ac.params.missile.fire_and_forget:
+		return true
+	# 玩家急转中 → 等转完
+	var bank_deg: float = absf(rad_to_deg(ac.bank_angle))
+	if bank_deg > LAUNCH_QUALITY_MAX_BANK_DEG:
+		return false
+	# 目标距雷达锥边缘留余量
+	var to_tgt: Vector2 = target_unit.global_position - ac.global_position
+	var hdg_to_tgt: float = atan2(to_tgt.x, -to_tgt.y)
+	var off_axis_deg: float = absf(rad_to_deg(ac._angle_diff(hdg_to_tgt, ac.heading)))
+	var radar_half_deg: float = ac.params.radar_half_angle
+	if off_axis_deg > radar_half_deg * LAUNCH_QUALITY_OFFAX_RATIO:
+		return false
+	return true
 
 
 ## 射击更新
@@ -31,6 +60,9 @@ static func auto_gun_scan(ac: Aircraft) -> void:
 	# 判为不开火，或玩家正忙于操作其他事），机炮自动开火。
 	# 仅对玩家（use_tactical_preference）启用；AI 保持原行为（有 combat_target 整体跳过），
 	# 避免 AI 烧弹或干扰 AIController 的战术节奏。
+	# 2026-04-26 修复：之前重构时加过 "if ac.is_firing: return" 想避免覆盖 lead_heading，
+	# 但绕过了下面的 0.3s 节流，导致 is_firing 永不重评估、lead 冻结、UAV 高 bank 时持续
+	# 朝侧面喷子弹。详见下方节流处注释。
 	# 机动中（眼镜蛇/赫尔贝特）：机头指向与速度和正常追击严重脱节，
 	# 继续开火会对着旧 _gun_lead_heading 狂喷。直接中止射击。
 	var cobra := ac.get_maneuver()
@@ -41,9 +73,17 @@ static func auto_gun_scan(ac: Aircraft) -> void:
 	if herbst and herbst.is_active:
 		ac.is_firing = false
 		return
-	# 保护：已在开火 → 保持当前 _gun_lead_heading，不让扫描覆盖。
-	if ac.is_firing:
-		return
+	# 注意：不要在这里加 "if ac.is_firing: return" 早返 —— 那会绕过下面的
+	# `_auto_gun_scan_timer` 节流，导致 is_firing 一旦锁存就永不重评估，
+	# `_gun_lead_heading` 冻结在初次开火那帧的世界方向。aircraft 高 bank
+	# 旋转时（>60°/s）会持续朝侧面喷子弹。0.3s 一次的 scan 重置才是
+	# 正确节奏 —— 射速由 `_fire_cooldown` 单独节流。
+	# P4：planner 模式 + 有 combat_target 时，scan 只针对 combat_target 决定开火，
+	# 不再扫描随机敌人覆写 is_firing/lead_heading（之前的 bug：玩家朝不相干敌机贸然开火）。
+	# 但如果 combat_target 当前在锥内 + 射程内，仍允许 scan 设 is_firing —
+	# 兜底 planner 因 fire_cone 5° 边缘抖动判 false 而漏射的情况。
+	var planner_locked_target: bool = ac.use_tactical_planner and ac.combat_target != null \
+			and is_instance_valid(ac.combat_target) and not ac.combat_target.is_destroyed
 	if not ac.use_tactical_preference:
 		# AI 分支：保持旧行为——有 combat_target 时整体跳过
 		if ac.combat_target != null and is_instance_valid(ac.combat_target) and not ac.combat_target.is_destroyed:
@@ -74,8 +114,19 @@ static func auto_gun_scan(ac: Aircraft) -> void:
 	var best_target: Aircraft = null
 	var best_angle := fire_cone
 
-	# 用 CombatUnit.all_units 共享列表代替 get_parent().get_children()
-	for unit in CombatUnit.all_units:
+	# planner 模式 + 有 combat_target → 只考虑 combat_target，不扫随机敌机
+	# 否则保留旧行为（用 all_units 全场扫描）
+	var scan_pool: Array
+	if planner_locked_target:
+		if ac.combat_target is Aircraft:
+			scan_pool = [ac.combat_target]
+		else:
+			# 地面/水面目标走另一套（_update_combat_ground_attack），auto_gun_scan 不处理
+			return
+	else:
+		scan_pool = CombatUnit.all_units
+
+	for unit in scan_pool:
 		# 跨帧静态数组，可能持有已释放的节点
 		if not is_instance_valid(unit):
 			continue
@@ -139,6 +190,15 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 	# 射速冷却：60 / fire_rate 秒
 	ac._fire_cooldown = 60.0 / gun.fire_rate
 
+	# 飞行员瞄准误差（仅玩家）：火控窗口打开时摇一次 burst 级 lead 偏移
+	# skill=0 → ±5° / skill=1 → ±0.5°
+	if ac.use_tactical_preference and ac.is_firing and not ac._was_gun_firing:
+		var skill: float = clampf(ac.pilot_aim_skill, 0.0, 1.0)
+		var base_err_deg: float = lerpf(5.0, 0.5, skill)
+		ac._gun_aim_offset_rad = deg_to_rad(base_err_deg) * randf_range(-1.0, 1.0)
+	if ac.use_tactical_preference:
+		ac._was_gun_firing = ac.is_firing
+
 	# 生成弹丸：朝前置射击方向发射
 	if ac.bullet_manager and ac.bullet_manager.has_method("spawn_bullet"):
 		var spread_rad := deg_to_rad(gun.spread_angle)
@@ -151,7 +211,18 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 		# 自己在云中：瞄准工具/视野被云雾干扰，散布再扩大
 		if ac.cloud_state == 2:
 			spread_rad *= 1.8
-		var bullet_dir := ac._gun_lead_heading + randf_range(-spread_rad, spread_rad)
+		# 机动惩罚（仅玩家）：自身 bank>30° / 目标 bank>60° → 加额外 per-bullet 误差
+		var maneuver_err_rad: float = 0.0
+		if ac.use_tactical_preference:
+			var own_bank_deg: float = absf(rad_to_deg(ac.bank_angle))
+			var bank_penalty_deg: float = clampf((own_bank_deg - 30.0) / 60.0, 0.0, 1.0) * 2.0
+			var tgt_bank_penalty_deg: float = 0.0
+			if is_instance_valid(tgt) and tgt is Aircraft:
+				var t_bank: float = absf(rad_to_deg(tgt.bank_angle))
+				if t_bank > 60.0:
+					tgt_bank_penalty_deg = clampf((t_bank - 60.0) / 30.0, 0.0, 1.0) * 1.5
+			maneuver_err_rad = deg_to_rad(bank_penalty_deg + tgt_bank_penalty_deg) * randf_range(-1.0, 1.0)
+		var bullet_dir := ac._gun_lead_heading + ac._gun_aim_offset_rad + maneuver_err_rad + randf_range(-spread_rad, spread_rad)
 		var muzzle_pos := ac.global_position + Vector2(sin(ac.heading), -cos(ac.heading)) * 20.0
 		ac.bullet_manager.spawn_bullet(muzzle_pos, bullet_dir, gun.muzzle_velocity, ac, gun.bullet_damage)
 		# 音效：连射节流 0.5s 一次，防每颗子弹叠声道
@@ -326,6 +397,9 @@ static func _launch_rocket(ac: Aircraft, base_heading: float, _queued_pos: Vecto
 	ac.rockets_remaining -= 1
 
 static func update_weapon_mode(ac: Aircraft) -> void:
+	# P1：planner 已在帧顶写好 weapon_mode，跳过旧决策
+	if ac.use_tactical_planner:
+		return
 	# 战术偏好模式（生存模式玩家）
 	if ac.use_tactical_preference:
 		_update_weapon_mode_tactical(ac)
@@ -360,16 +434,8 @@ static func update_weapon_mode(ac: Aircraft) -> void:
 
 	# AI / 沙盒模式（v9 sync with tactical）
 	# 规则：默认偏好导弹；只在 _missile_cannot_hit_but_gun_can() 为真时切机炮
-	# 根据目标类型判断"可用导弹数"：空中目标只能用 AAM（主），地面目标两种皆可
-	var target_is_ground: bool = ac.combat_target != null and is_instance_valid(ac.combat_target) and ac.combat_target is GroundUnit
-	var usable_missiles: int = 0
-	if ac.params:
-		if target_is_ground:
-			usable_missiles = ac.missiles_remaining + ac.secondary_missiles_remaining
-		else:
-			usable_missiles = ac.missiles_remaining  # 空中只能用 AAM
-	# 完全无导弹（弹药为零或无武器） → 机炮
-	if (not ac.params or (not ac.params.missile and not ac.params.secondary_missile)) or usable_missiles <= 0:
+	# 统一导弹：所有目标共享 ac.missiles_remaining，不按类型区分
+	if not ac.params or not ac.params.missile or ac.missiles_remaining <= 0:
 		ac.weapon_mode = Aircraft.WeaponMode.GUN
 		return
 	# 发射后 crank 阶段：保持导弹模式稳定照射
@@ -384,9 +450,14 @@ static func update_weapon_mode(ac: Aircraft) -> void:
 
 ## 战术偏好武器模式：玩家手动控制，简洁明确
 static func _update_weapon_mode_tactical(ac: Aircraft) -> void:
+	# 双击冲锋：强制 GUN（让 combat_tracking 走贴近 pursuit），导弹通道由 update_missile 单独例外允许
+	if ac.charge_attack:
+		ac.weapon_mode = Aircraft.WeaponMode.GUN
+		ac._gun_pass_committed = false
+		return
 	match ac.weapon_preference:
 		Aircraft.WeaponPreference.PREFER_MISSILE:
-			var has_missile := (ac.missiles_remaining + ac.secondary_missiles_remaining) > 0
+			var has_missile := ac.missiles_remaining > 0
 			var reloading := ac.enable_missile_reload and ac._missile_reload_active
 
 			# 机炮攻击提交状态维护：飞过目标后解除
@@ -441,7 +512,7 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 			ac.missile_reload_progress = 0.0
 		return
 
-	# 机炮优先模式下不自动发射导弹
+	# 机炮优先模式下不自动发射导弹（双击冲锋同样阻断：双击 = 纯机炮专注）
 	if ac.use_tactical_preference and ac.weapon_preference == Aircraft.WeaponPreference.PREFER_GUN:
 		return
 	if ac.weapon_mode != Aircraft.WeaponMode.MISSILE:
@@ -468,20 +539,12 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 				_fire_missile_at(ac, ac.combat_target, ac.params.missile, false)
 			return
 
-	# 选择导弹类型：地面目标用副导弹（AGM），空中目标用主导弹（AAM）
+	# 统一导弹：所有目标共享 params.missile + ac.missiles_remaining 计数
+	# secondary_missile / secondary_missiles_remaining 字段保留但底层不再使用
+	# （避免低层 AAM/AGM 双轨制带来的同步、装填、选择路径复杂度）
 	var msl: MissileParams = null
-	var use_secondary := false
-	if ac.combat_target and is_instance_valid(ac.combat_target) and ac.combat_target is GroundUnit:
-		# 目标是地面单位 → 优先用副导弹
-		if ac.params and ac.params.secondary_missile and ac.secondary_missiles_remaining > 0:
-			msl = ac.params.secondary_missile
-			use_secondary = true
-		elif ac.params and ac.params.missile and ac.missiles_remaining > 0:
-			msl = ac.params.missile  # 无副导弹时 fallback 到主导弹
-	else:
-		# 空中目标 → 只能用主导弹（AAM）。AGM 等副导弹是对地武器，不 fallback
-		if ac.params and ac.params.missile and ac.missiles_remaining > 0:
-			msl = ac.params.missile
+	if ac.params and ac.params.missile and ac.missiles_remaining > 0:
+		msl = ac.params.missile
 
 	if msl == null:
 		ac._log_msl_block("NO_MSL", "missiles_remaining=%d" % ac.missiles_remaining)
@@ -539,18 +602,25 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 		return
 
 	var lock_progress: float = ac.radar_targets.get(ac.combat_target, 0.0)
-	# 玩家战术偏好模式：跳过 1 秒稳定 buffer，只要 lock_time 到就开火
-	# 原因：buffer 是给 AI 的"防抖"，玩家手动决策不需要
-	# 节省 1 秒让玩家能在更远距离发射
+	# 玩家战术偏好 / TacticalPlanner（P4 僚机）跳过 1 秒稳定 buffer，只要 lock_time 到就开火
+	# 原因：buffer 是给"哑 AI"的防抖，planner-managed 的飞机决策稳定不需要
+	# 节省 1 秒让玩家与僚机在更远距离发射，火力对称
 	var lock_threshold: float = ac.params.lock_time
-	if not ac.use_tactical_preference:
+	if not ac.use_tactical_preference and not ac.use_tactical_planner:
 		lock_threshold += Aircraft.LOCK_STABLE_BUFFER
 	if lock_progress < lock_threshold:
 		ac._log_msl_block("LOCK", "dist=%.0fm lock=%.2fs/%.2fs" % [
 			_dist_m, lock_progress, lock_threshold])
 		return
 
-	_fire_missile_at(ac, ac.combat_target, msl, use_secondary)
+	# 发射窗口质量：玩家激烈机动 / 目标在锥边缘 → 跳过这一帧（不计冷却，下帧重试），
+	# 等条件稳定后才发射。
+	# 解决用户反馈：A-7 在 28° 锥边发射 + 玩家急切转向 → 导弹丢失制导（半主动需持续照射）
+	if ac.use_tactical_preference and not _has_stable_launch_window(ac, ac.combat_target):
+		ac._log_msl_block("UNSTABLE_WIN", "off-axis 或 bank 超阈值，等下次窗口")
+		return
+
+	_fire_missile_at(ac, ac.combat_target, msl, false)
 	if ac.use_tactical_preference:
 		ac._log_threat_picture("after single-fire")
 	# 开火成功：清除阻塞原因缓存
@@ -569,6 +639,7 @@ static func _fire_missile_at(ac: Aircraft, target_unit: CombatUnit, msl: Missile
 			msl.display_name if msl.display_name else "missile",
 			ac._log_unit_name(target_unit), dist_m, remaining])
 	ac.missile_manager.spawn_missile(ac, target_unit, msl)
+	ac.notify_missile_fired_at(target_unit)
 	AudioManager.play_sfx_2d("missile_launch" if randf() < 0.5 else "missile_launch_alt", ac.global_position, -12.0)
 	if not ac.infinite_ammo:
 		if is_secondary:
@@ -593,7 +664,7 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 	# 到单发路径，单发路径会设满冷却，把 3 秒内才能成熟的兄弟目标全堵死。
 	# lock_time 本身就要持续在锥内追踪 1.25 秒，沿途瞬时穿越的目标到不了阈值。
 	var lock_threshold := ac.params.lock_time
-	if not ac.use_tactical_preference:
+	if not ac.use_tactical_preference and not ac.use_tactical_planner:
 		lock_threshold += Aircraft.LOCK_STABLE_BUFFER
 
 	for target_key in ac.radar_targets:
@@ -616,6 +687,9 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 		# 机炮正在射击 combat_target 时，不给 combat_target 发导弹（避免浪费）；
 		# 齐射仍可打其他锁定目标
 		if ac.use_tactical_preference and ac.is_firing and target_unit == ac.combat_target:
+			continue
+		# 发射窗口质量过滤（仅玩家）：目标在锥边缘 / 玩家急转中 → 跳过该目标
+		if ac.use_tactical_preference and not _has_stable_launch_window(ac, target_unit):
 			continue
 		locked_targets.append(target_unit)
 
@@ -661,7 +735,7 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 	for i in range(fire_count):
 		var tgt: CombatUnit = locked_targets[i]
 		var dist_m := ac.global_position.distance_to(tgt.global_position) / CombatUnit.PIXELS_PER_METER
-		# 诊断：目标相对机头的偏角（用于排查"导弹方向跟目标对不上"的反馈）
+		# 诊断：目标相对机头的偏角
 		var to_tgt := tgt.global_position - ac.global_position
 		var hdg_to_tgt := atan2(to_tgt.x, -to_tgt.y)
 		var off_axis_deg := rad_to_deg(ac._angle_diff(hdg_to_tgt, ac.heading))
@@ -673,7 +747,8 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 				ac.missiles_remaining - 1, i + 1, fire_count,
 				hdg_deg, tgt_abs_brg, off_axis_deg, lock_val])
 		ac.missile_manager.spawn_missile(ac, tgt, msl)
-		# 音效：齐射整体只响一下（听感上是"一次发射"）
+		ac.notify_missile_fired_at(tgt)
+		# 音效：齐射整体只响一下
 		if i == 0:
 			AudioManager.play_sfx_2d("missile_launch" if randf() < 0.5 else "missile_launch_alt", ac.global_position, -12.0)
 		if not ac.infinite_ammo:
@@ -681,11 +756,10 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 
 	if fire_count > 0:
 		# 多目标追踪升级下跳过冷却，允许新锁定好的目标下一帧立刻开火；
-		# 单锁定模式仍保留正常冷却（防止无升级时变相连发）
+		# 单锁定模式仍保留正常冷却
 		if ac.max_simultaneous_locks <= 1:
 			ac._missile_cooldown = msl.cooldown
 		ac._crank_timer = Aircraft.CRANK_DURATION
-		# 装填触发
 		if ac.enable_missile_reload and ac.missiles_remaining <= 0:
 			ac._missile_reload_active = true
 			ac._missile_reload_timer = 0.0

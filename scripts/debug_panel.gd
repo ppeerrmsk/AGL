@@ -315,7 +315,13 @@ func _get_strategy_text(ac: Aircraft) -> String:
 				return "无航点"
 		AIController.AIState.ENGAGE:
 			var tactic_str := ctrl.current_tactic_name if ctrl.current_tactic_name != "" else "---"
-			return "交战 [%s] (%.0fs)" % [tactic_str, ctrl._engage_timer]
+			# planner 模式：附带 plan.rationale 解释为什么选了这个 intent（仅 debug 面板可见）
+			var rationale_str := ""
+			if ctrl.aircraft and ctrl.aircraft.use_tactical_planner and ctrl.aircraft._last_plan:
+				var why: String = ctrl.aircraft._last_plan.rationale
+				if why != "":
+					rationale_str = "\n  └ %s" % why
+			return "交战 [%s] (%.0fs)%s" % [tactic_str, ctrl._engage_timer, rationale_str]
 		AIController.AIState.EVADE_MISSILE:
 			return "[color=#ff6655]规避导弹[/color]"
 		AIController.AIState.SQUAD_FOLLOW:

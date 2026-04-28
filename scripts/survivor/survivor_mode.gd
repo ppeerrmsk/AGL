@@ -41,6 +41,10 @@ var selected_aircraft: Array[Aircraft] = []
 var is_dragging: bool = false
 var drag_start: Vector2 = Vector2.ZERO
 
+# 双击敌人 = 冲锋攻击（max speed + AB + 机炮优先 + 导弹通道仍允许）
+const DOUBLE_CLICK_WINDOW := 0.3
+var _last_left_click_time: float = -1000.0
+
 # ── 生存模式状态 ──
 var player_aircraft: Aircraft
 var _player_profile_id: StringName = &""  ## 当前主角的 PlayableAircraft.id（用于专属技能筛选）
@@ -72,10 +76,11 @@ var _zone_arrow: ZoneArrow
 var _zone_hint: ZoneHint
 var _zone_mission: ZoneMission
 var _adbs: AdbsManager
+var _event_director: EventDirector
 ## BOSS 阶段状态（P4）
 var _boss_unlock_announced: bool = false  ## 已提示过"BOSS 出现"
-var _boss_spawned: bool = false            ## F-47 小队已生成
-var _boss_was_active: bool = false         ## 上一帧 ace_squad.active 状态（用于检测击败沿）
+var _boss_spawned: bool = false            ## BOSS 已激活进入战斗
+var _map_id: String = "default"            ## 当前地图 id（BOSS 池 lookup 用）
 var _is_victory: bool = false              ## 已胜利，阻止重复触发
 
 func _ready() -> void:
@@ -102,6 +107,12 @@ func _ready() -> void:
 	_weather.setup(camera)
 	_weather.add_to_group("weather")
 	move_child(_weather, 1)
+
+	# 横浜高建筑伪 3D 渲染（独立模块；删除以下 4 行 + building_renderer.gd 即可完整撤回）
+	var buildings := BuildingRenderer.new()
+	buildings.show_behind_parent = true
+	add_child(buildings)
+	buildings.setup(camera)
 
 	# 相机控制器
 	_camera_ctrl = CameraController.new()
@@ -134,6 +145,7 @@ func _ready() -> void:
 	# 读取选择的地图（占位：当前仅 default 一张实装，其它为预留位）
 	# 后续在此根据 map_id 切换噪声 seed/frequency/地形配色
 	if get_tree().has_meta("survivor_map_id"):
+		_map_id = String(get_tree().get_meta("survivor_map_id"))
 		get_tree().remove_meta("survivor_map_id")
 
 	# 友方子弹命中判定增强（生存模式全局，不依赖具体机型）
@@ -157,6 +169,8 @@ func _ready() -> void:
 	player_aircraft.hide_data_label = true          # HUD 替代显示
 	player_aircraft.flat_altitude = true            # 三档高度模式
 	player_aircraft.use_tactical_preference = true  # 启用战术偏好面板
+	# P1：启用新版 TacticalPlanner（仅玩家），出问题可注释这行回退
+	player_aircraft.use_tactical_planner = true
 	player_aircraft.set_target_tier(Aircraft.AltitudeTier.MID)
 	player_aircraft.team = 0
 	player_aircraft.position = MapBoundary.get_player_start()
@@ -274,6 +288,16 @@ func _ready() -> void:
 	_adbs.setup(self, _spawner, player_aircraft, _zone_hint)
 	_tactical_map.set_adbs(_adbs)
 
+	# ── 事件系统（GameEvent / AIDirective 调度器）──
+	# 当前承载 BOSS 战剧本（PRE_STAGE → ENGAGED → VICTORY）
+	# 后续要做"剧情演出"等新事件直接 EventDirector.start(MyEvent.new(...))
+	_event_director = EventDirector.new()
+	_event_director.name = "EventDirector"
+	_event_director.mode = self
+	_event_director.player = player_aircraft
+	_event_director.spawner = _spawner
+	add_child(_event_director)
+
 	# ── 首次进入生存模式：浮现式教程 ──
 	if SurvivorTutorial.should_show():
 		_start_first_run_tutorial()
@@ -341,6 +365,10 @@ func _spawn_starting_wingmen(profile: PlayableAircraft) -> void:
 		ac.flat_altitude = true
 		ac.hide_data_label = true  # 用与长机一致的精简 HUD 标签（无 MSL/AMM/FLR 细节，详情走小队面板）
 		ac.set_target_tier(Aircraft.AltitudeTier.MID)
+		# P4 Phase 2：僚机也走 TacticalPlanner（与 ENABLE_PLANNER_FOR_REGULAR_AI 共享开关）
+		# 修复：BFMTactics.execute_lag_pursuit 把僚机速度锁到 tgt×0.95，慢目标接战时被强制减速
+		if SurvivorData.ENABLE_PLANNER_FOR_REGULAR_AI:
+			ac.use_tactical_planner = true
 		add_child(ac)
 
 		var ai := AIController.new()
@@ -493,6 +521,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		if path != "":
 			print("Combat log saved: %s" % path)
 		return
+	# F10：跑 TacticalPlanner / BfmIntent 单元测试，结果输出到控制台
+	if event is InputEventKey and event.pressed and event.keycode == KEY_F10:
+		get_viewport().set_input_as_handled()
+		BfmIntentTest.run_all()
+		return
 	# F11：切换友方僚机的编队调试覆盖层
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F11:
 		get_viewport().set_input_as_handled()
@@ -565,6 +598,9 @@ func _handle_mouse_button(event: InputEventMouseButton) -> void:
 		MOUSE_BUTTON_RIGHT:
 			if event.pressed:
 				_on_right_click()
+				_set_hard_brake(true)
+			else:
+				_set_hard_brake(false)
 		MOUSE_BUTTON_MIDDLE:
 			is_dragging = event.pressed
 			if event.pressed:
@@ -578,7 +614,14 @@ func _handle_mouse_motion(event: InputEventMouseMotion) -> void:
 	_camera_ctrl.update_hover(event.global_position, get_children())
 
 func _on_left_click(screen_pos: Vector2) -> void:
+	# 任何左键操作都视为放弃急刹（防止右键 release 事件因 alt-tab 等丢失导致永久减速）
+	_set_hard_brake(false)
 	var world_pos := _camera_ctrl.screen_to_world(screen_pos)
+
+	# 双击窗口检测：窗口内第二次点击 = 冲锋指令（仅敌机有效）
+	var now := Time.get_ticks_msec() / 1000.0
+	var is_double_click := (now - _last_left_click_time) <= DOUBLE_CLICK_WINDOW
+	_last_left_click_time = now
 
 	# 优先检测点击附近的敌方飞机
 	var enemy := _find_enemy_near(world_pos)
@@ -586,7 +629,9 @@ func _on_left_click(screen_pos: Vector2) -> void:
 		for ac in selected_aircraft:
 			if is_instance_valid(ac) and not ac.is_destroyed:
 				ac.evasion_mode = false  # 选择攻击目标自动关闭规避
-				ac.set_combat_target(enemy)
+				ac.set_combat_target(enemy)  # 内部已清 charge_attack
+				if is_double_click:
+					ac.charge_attack = true  # 双击冲锋：强制机炮模式 + 屏蔽导弹自动发射，专注当前目标
 		if is_instance_valid(_tutorial): _tutorial.notify_click_attack()
 		return
 
@@ -603,20 +648,76 @@ func _on_right_click() -> void:
 			ac.clear_combat_target()
 			ac.target_position = Vector2.INF
 
+## 右键长按急刹：油门归零并禁用加力，aircraft_physics.update_speed 会跳过失速安全余量
+## 持续到松开右键；期间保持航向（target_position 已被 _on_right_click 清成 INF）
+func _set_hard_brake(active: bool) -> void:
+	for ac in selected_aircraft:
+		if is_instance_valid(ac) and not ac.is_destroyed:
+			ac.hard_brake = active
+
 func _find_enemy_near(world_pos: Vector2) -> CombatUnit:
+	# 第一优先级：常规可锁定目标（飞机、地面单位）—— 用 HOVER_RADIUS 精确判定
 	var best_dist := CameraController.HOVER_RADIUS
 	var best: CombatUnit = null
+	# 第二优先级：船体范围内点击 —— 自动选择该船最近的 MountTarget 代理
+	# 跳过锁定免疫的目标（NavalUnit 船体）—— 雷达循环不累积它的 radar_targets，
+	# 直接锁船会导致导弹发射逻辑看不到锁定进度。船体由下面的 ship_in_range 单独处理。
+	var ship_in_range: NavalUnit = null
+	var ship_dist_sq := INF
 	for child in get_children():
 		if child is CombatUnit and child.team != 0 and not child.is_destroyed:
-			# 跳过锁定免疫的目标 —— 如 NavalUnit 船体（不可直接锁定 / 攻击只能走 MountTarget 挂点代理）
-			# 否则玩家点到船身时 combat_target 会被设为 NavalUnit，但雷达循环从不累积它的
-			# radar_targets，导致导弹发射逻辑看不到锁定进度，拒绝开火。
+			if child is NavalUnit:
+				var dh := _distance_to_ship_hull(child, world_pos)
+				if dh <= 0.0:
+					# 落在船身矩形内：按船中心距离取最近的一艘
+					var dc2: float = world_pos.distance_squared_to(child.global_position)
+					if dc2 < ship_dist_sq:
+						ship_dist_sq = dc2
+						ship_in_range = child
+				continue
 			if child.is_lock_immune():
 				continue
 			var d := world_pos.distance_to(child.global_position)
 			if d < best_dist:
 				best_dist = d
 				best = child
+	if best != null:
+		return best
+	if ship_in_range != null:
+		return _find_nearest_mount_target_on(ship_in_range, world_pos)
+	return null
+
+## 点击位置到舰船船体矩形（hull_length × hull_width）的最短距离
+## 落在矩形内返回 0，外面返回正距离
+func _distance_to_ship_hull(ship: NavalUnit, world_pos: Vector2) -> float:
+	if ship.params == null:
+		return INF
+	var local := world_pos - ship.global_position
+	var fwd := Vector2(sin(ship.heading), -cos(ship.heading))
+	var stb := Vector2(cos(ship.heading), sin(ship.heading))
+	var local_y := local.dot(fwd)   # +Y 船头方向（船头 +half_l）
+	var local_x := local.dot(stb)   # +X 右舷方向
+	var half_l: float = ship.params.hull_length * 0.5
+	var half_w: float = ship.params.hull_width * 0.5
+	var dx := maxf(0.0, absf(local_x) - half_w)
+	var dy := maxf(0.0, absf(local_y) - half_l)
+	return sqrt(dx * dx + dy * dy)
+
+## 在指定船的所有 MountTarget 代理（挂点 + 暴露弱点）中找离 world_pos 最近的
+## MountTarget 是 survivor_mode 的子节点（不挂在 NavalUnit 下，避免 rotation 干扰）
+func _find_nearest_mount_target_on(ship: NavalUnit, world_pos: Vector2) -> CombatUnit:
+	var best: CombatUnit = null
+	var best_d2 := INF
+	for child in get_children():
+		if not (child is MountTarget):
+			continue
+		var mt: MountTarget = child
+		if mt.is_destroyed or mt.parent_ship != ship:
+			continue
+		var d2: float = world_pos.distance_squared_to(mt.global_position)
+		if d2 < best_d2:
+			best_d2 = d2
+			best = mt
 	return best
 
 
@@ -1248,46 +1349,42 @@ func is_world_pos_visible(world_pos: Vector2, extra_radius: float = 0.0) -> bool
 		return false
 	return _camera_ctrl.is_world_pos_visible(world_pos, VIEW_SPAWN_MARGIN_PX + extra_radius)
 
-## BOSS 阶段（P4）——3 个战区攻克后在 BOSS_ZONE 刷 F-47 小队
+## BOSS 阶段（P4）—— 3 个战区攻克 → 启动 BossEncounterEvent（事件层接管全部生命周期）
+## 本函数职责单一：检测解锁 → 启动事件。所有 PRE_STAGE/ENGAGED/VICTORY 状态流转、
+## directive 下发、UI/BGM 切换都收敛到 BossEncounterEvent；事件回调见 on_boss_*。
 func _update_boss_phase() -> void:
 	if _is_victory or is_game_over:
 		return
 	if not _zone_data or not _zone_data.boss_unlocked:
 		return
+	if _boss_unlock_announced:
+		return
+	_boss_unlock_announced = true
+	if not _event_director:
+		push_error("BOSS unlock: EventDirector not initialized")
+		return
+	var bz := _zone_data.boss_zone
+	var ev := BossEncounterEvent.new(bz["center"], _zone_data.boss_heading_deg, _map_id)
+	_event_director.start(ev)
 
-	# 第一次解锁 → 挂 persistent 提示
-	if not _boss_unlock_announced:
-		_boss_unlock_announced = true
-		if _zone_hint:
-			_zone_hint.show_persistent(tr("ZONE_HINT_BOSS_UNLOCKED"))
-		EventLogger.log_event("BOSS", "Unlock", "F-47 squad awaits at BOSS_ZONE")
+# ── BossEncounterEvent 回调（事件层主动调用）──
 
-	# 玩家进入 BOSS_ZONE 圆 → 触发 F-47 小队
-	if not _boss_spawned and player_aircraft and not player_aircraft.is_destroyed:
-		var boss_zone := ZoneData.BOSS_ZONE
-		var d: float = player_aircraft.global_position.distance_to(boss_zone["center"])
-		if d <= float(boss_zone["radius"]) + BOSS_ZONE_ENTRY_BUFFER_PX:
-			_boss_spawned = true
-			# 【硬规则】玩家直接飞入 BOSS_ZONE（没走战术地图点击）时也要把 selected_id 切到 BOSS，
-			# 否则 is_boss_phase() 永远 false，所有"BOSS 阶段早退"守卫（刷怪 / 猎手 /
-			# 战区地图隐藏 / _update_boss_phase_purge / 敌机绕玩家航点）全部失效。
-			if _zone_data.selected_id != &"BOSS":
-				_zone_data.select_zone(&"BOSS")
-			if _zone_hint:
-				_zone_hint.hide_persistent()
-				_zone_hint.show_warning_banner("WARNING  WARNING")
-				_zone_hint.show_temp(tr("ZONE_HINT_BOSS_ARRIVAL"), 5.0)
-			_spawner._spawn_f47_squad(boss_zone["center"])
-			EventLogger.log_event("BOSS", "Spawn",
-				"F-47 engaging at BOSS_ZONE anchor=%s" % boss_zone["center"])
+## ENGAGED：进入 boss phase（停摆常规系统）+ 临时提示
+func on_boss_engaged(_ev) -> void:
+	_boss_spawned = true
+	if _zone_data and _zone_data.selected_id != &"BOSS":
+		_zone_data.select_zone(&"BOSS")
+	if _zone_hint:
+		_zone_hint.hide_persistent()
+		_zone_hint.show_temp(tr("ZONE_HINT_BOSS_ARRIVAL"), 5.0)
 
-	# 胜利判定：曾生成且 ace_squad 从 active 变 inactive = 全灭
-	if _boss_spawned and _spawner:
-		var ace := _spawner.get_ace_squad()
-		if ace:
-			if _boss_was_active and not ace.active:
-				_on_victory()
-			_boss_was_active = ace.active
+## VICTORY：触发胜利
+func on_boss_victory(_ev) -> void:
+	_on_victory()
+
+## 事件结束（任何原因）—— HUD 自动随 encounter.active=false 隐藏，无需特别清理
+func on_boss_event_finished(_ev) -> void:
+	pass
 
 func _on_victory() -> void:
 	if _is_victory:
@@ -1310,7 +1407,6 @@ func _zone_label(zone_id: StringName) -> String:
 ## 回归时只钳到边界线上（0 margin），玩家从边缘线继续飞回战区，没有"瞬移闪烁"感
 const RESPAWN_MARGIN_PX := 0.0
 const RESPAWN_INWARD_TARGET_PX := 2500.0 ## 传送后 target_position 指向原点方向的距离
-const BOSS_ZONE_ENTRY_BUFFER_PX := 500.0 ## 进入 BOSS_ZONE 圆的宽松余量
 
 func _turn_player_inward() -> void:
 	if not player_aircraft or not _map_boundary:

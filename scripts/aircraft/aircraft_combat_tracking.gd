@@ -58,6 +58,9 @@ const STRAFE_APPROACH_RANGE := 3000.0 ## 像素，进入跑道对准距离
 
 
 static func update_combat(ac: Aircraft, _delta: float) -> void:
+	# P1：planner 已在帧顶写好 target_position / is_firing / _gun_lead_heading，跳过旧追踪
+	if ac.use_tactical_planner:
+		return
 	# Herbst 激活期间完全停摆：OVERSHOOT / lead pursuit / 机炮 lead 这些分支都会写
 	# target_position、is_firing、_gun_lead_heading，和 Herbst 模块抢 heading/position 控制权。
 	# 详见 docs/changelogs/player-ai-log.md 2026-04-21 (6)
@@ -159,6 +162,11 @@ static func update_combat(ac: Aircraft, _delta: float) -> void:
 		var heading_diff_to_tgt := absf(Aircraft._angle_diff(heading_to_tgt, ac.heading))
 		if heading_diff_to_tgt > deg_to_rad(90.0):
 			ac.target_position = tgt_pos
+			# 目标在后半球（>90°），机炮打不到。必须清 is_firing + 把 lead 对回机头，
+			# 否则 _update_gun 会用上一帧陈旧 _gun_lead_heading 持续朝世界某方向侧射
+			# （_auto_gun_scan 开头的 is_firing 保护进一步冻结 lead）
+			ac.is_firing = false
+			ac._gun_lead_heading = ac.heading
 			if ac.use_tactical_preference:
 				ac._pursuit_branch = "BIG_TURN_>90"
 				_log_pursuit_snapshot(ac, dist, my_fwd.dot(to_target), in_rear_hemisphere, heading_diff_to_tgt)
@@ -648,7 +656,9 @@ static func is_in_missile_envelope(ac: Aircraft, target_unit: CombatUnit, msl: M
 		return false
 
 	# 高度差限制（扁平模式下忽略）
-	if not ac.flat_altitude and absf(ac.altitude - target_unit.altitude) > 3000.0:
+	# 5000m 上限：use_combat_altitude 把 AI 高度 clamp 到 ±2500m，正常情况下不会触底；
+	# 触发本限制说明 AI 处在 yoyo / extension 等过渡状态，应当禁火等高度回落。
+	if not ac.flat_altitude and absf(ac.altitude - target_unit.altitude) > 5000.0:
 		return false
 
 	return true

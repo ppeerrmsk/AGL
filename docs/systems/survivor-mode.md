@@ -69,41 +69,13 @@ static func xp_for_level(level: int) -> int:
 
 ---
 
-## 升级系统 (SurvivorData.UPGRADES)
+## 升级系统
 
-### 生存轴
-
-| ID | 名称 | 效果 | 最大层数 | 进化 |
-|----|------|------|----------|------|
-| hp_up | 装甲强化 | HP+30, 机炮闪避+8% | 5 | - |
-| speed_up | 引擎强化 | 速度/巡航+18% | 4 | - |
-| maneuver_up | 飞控升级 | 滚转+25%, G+1 | 3 | - |
-| flare_cooldown | 红外对抗优化 | 热诱弹冷却-20% | 3 | → flare_shield |
-| flare_shield | ★电子对抗套件 | 释放热诱弹解锁+免疫锁定3s | 1 | (进化技能) |
-| pilot_stamina | 体能强化 | 耐力上限×2, 恢复×2 | 3 | - |
-| kill_heal | 战场急救 | 击杀回复10HP | 3 | - |
-
-### 战斗轴
-
-| ID | 名称 | 效果 | 最大层数 | 进化 |
-|----|------|------|----------|------|
-| missile_count | 导弹挂架扩展 | 导弹+1 | 4 | - |
-| missile_tracking | 制导升级 | 过载+30%, 导引常数+0.5 | 4 | → missile_bounce |
-| missile_bounce | ★连锁弹头 | 导弹命中后弹跳至另一敌机 | 1 | (进化技能) |
-| missile_reload | 快速挂载 | 装填时间-15% | 3 | - |
-| multi_lock | 多目标追踪 | 同时锁定+1 | 2 | - |
-| gun_damage | 穿甲弹药 | 机炮伤害+20% | 5 | → gun_multishot |
-| gun_multishot | ★多管齐射 | 同时射出三道机炮 | 1 | (进化技能) |
-| gun_ammo | 弹药扩容 | 弹药+100 | 5 | - |
-| gun_reload | 快速装弹机 | 机炮装填时间-15% | 3 | - |
-| gun_firerate | 射速强化 | 射速+25% | 4 | - |
-| radar_range | 雷达升级 | 探测距离+20% | 3 | - |
-| lock_time | 火控优化 | 锁定时间-0.5s | 3 | - |
-| dogfight | 格斗大师 | 失速-12%, 减速+30% | 3 | - |
-
-### 进化机制
-
-基础技能满级时 `evolves_to` 字段指向进化技能 ID。进化技能标记 `evolved: true`，不出现在随机池中，仅通过基础技能满级自动触发。
+完整技能图鉴 / 设计哲学 / 战区奖励池 / 骑士精神系列规划见 **[survivor-skills.md](survivor-skills.md)**。
+本文档只描述升级**机制**：
+- 升级池由 `SurvivorData.UPGRADES` 定义；筛选走 `is_upgrade_available_for(upgrade, aircraft_id, params)`（处理 `requires` 硬件依赖、`exclusive_to` 主角专属、`max_stacks` 上限）
+- 进化机制：基础技能满级时 `evolves_to` 字段触发自动进化为指定技能；进化技能 `evolved: true` 不出现在常规随机池，仅通过进化或战区奖励发放
+- 应用入口：[survivor_player.gd](../../scripts/survivor/survivor_player.gd) `apply_upgrade()` 把 stat 写到 Aircraft / AircraftParams（已 `duplicate(true)`）
 
 ---
 

@@ -1,13 +1,14 @@
 class_name WeakPoint
 extends RefCounted
 
-## 船体弱点运行时对象 —— 挂点死到阈值后暴露，1 发导弹斩杀
+## 船体弱点运行时对象 —— 挂点死到阈值后暴露
 ## 每艘船最多一个弱点，位置固定在船体中央（local_offset=0,0）
 ## 数据由 NavalParams.weak_point_* 字段初始化
+## HP 经过设计：单发玩家导弹（90 dmg）一发不死，最弱舰也至少 2 发命中才能击沉
 
 var revealed: bool = false        ## 暴露前不可锁、不可点
 var local_offset: Vector2 = Vector2.ZERO  ## 相对船首的像素偏移（默认船体中央）
-var hp: float = 60.0              ## 约等于一发导弹伤害，保证武器数值不错位
+var hp: float = 100.0             ## 默认值，被 NavalParams.weak_point_hp 覆盖
 var radius: float = 300.0         ## 玩家点击命中判定半径
 
 ## 应用伤害，返回是否被摧毁

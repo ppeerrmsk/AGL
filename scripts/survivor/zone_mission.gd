@@ -180,29 +180,19 @@ func _spawn_ground_garrison(zone_id: StringName, zone: Dictionary) -> void:
 	var spawn_polys: Array = zone.get("ground_spawn_polygons", [])
 	var use_polys: bool = not spawn_polys.is_empty()
 
-	## 2026-04-21：TGT 强度随星级 + 玩家等级缩放
-	##   数量：★2+2 / ★★3+3 / ★★★5+5
-	##   HP：  每级 +10%，每星 +20%（上限 ×3）
+	## TGT 数量随星级（HP 不缩放，直接用基础 params）
+	##   ★2+2 / ★★3+3 / ★★★5+5
 	var lvl: int = _player_level()
 	var difficulty: int = _zones.get_difficulty(zone_id) if _zones else 1
 	var scale: Dictionary = SurvivorData.ground_tgt_scale(difficulty, lvl)
 	var sam_count: int = int(scale["sam_count"])
 	var aa_count: int = int(scale["aa_count"])
-	var hp_mult: float = float(scale["hp_mult"])
-
-	## 深拷贝 params 并按 hp_mult 放大 max_hp（避免共享修改污染其他战区）
-	var sam_params_scaled: Resource = _sam_params.duplicate(true) if _sam_params else null
-	if sam_params_scaled and "max_hp" in sam_params_scaled:
-		sam_params_scaled.max_hp *= hp_mult
-	var aa_params_scaled: Resource = _aa_params.duplicate(true) if _aa_params else null
-	if aa_params_scaled and "max_hp" in aa_params_scaled:
-		aa_params_scaled.max_hp *= hp_mult
 
 	for i in range(sam_count):
 		var pos := _find_valid_spawn_pos(center, scatter, placed_positions, spawn_polys if use_polys else [])
 		if pos == Vector2.INF:
 			continue  ## 采样失败：战区这一侧全是海，跳过这颗单位
-		var u := _spawn_ground(_sam_scene, sam_params_scaled, pos, zone_id)
+		var u := _spawn_ground(_sam_scene, _sam_params, pos, zone_id)
 		if u:
 			units.append(u)
 			placed_positions.append(pos)
@@ -210,15 +200,15 @@ func _spawn_ground_garrison(zone_id: StringName, zone: Dictionary) -> void:
 		var pos := _find_valid_spawn_pos(center, scatter, placed_positions, spawn_polys if use_polys else [])
 		if pos == Vector2.INF:
 			continue
-		var u := _spawn_ground(_aa_scene, aa_params_scaled, pos, zone_id)
+		var u := _spawn_ground(_aa_scene, _aa_params, pos, zone_id)
 		if u:
 			units.append(u)
 			placed_positions.append(pos)
 	_spawned_zones[zone_id] = units
 	# TGT 标记在玩家进入战区（mission_triggered）时才打上，预刷阶段不标
 	EventLogger.log_event("ZONE", "PreSpawnGround",
-		"id=%s lvl=%d diff=%d units=%d hp_x%.2f center=%s"
-		% [zone_id, lvl, difficulty, units.size(), hp_mult, center])
+		"id=%s lvl=%d diff=%d units=%d center=%s"
+		% [zone_id, lvl, difficulty, units.size(), center])
 
 ## 空战中队：在战区中心刷一队敌机，绕战区盘旋，不受 Token 限制
 ## 复用 SurvivorSpawner 的 _create_enemy → 然后挂锚定 waypoint + adds 标记
@@ -567,8 +557,8 @@ func _spawn_naval_1star(zone_id: StringName, center: Vector2, radius: float, ffg
 
 	# 2 僚舰左右后 quarter（旗舰本地系：-X=船尾，±Y=左右舷）
 	var escort_offsets: Array[Vector2] = [
-		Vector2(-350, -500),   # 后左
-		Vector2(-350, 500),    # 后右
+		Vector2(-900, -1300),   # 后左
+		Vector2(-900, 1300),    # 后右
 	]
 	var escort: Array = []
 	for off in escort_offsets:
@@ -585,15 +575,20 @@ func _spawn_naval_2star(zone_id: StringName, center: Vector2, radius: float, ffg
 	if ddg_params == null:
 		push_error("missing DDG params"); return
 
-	var eight_wps := _eight_figure_waypoints(center, radius * 0.55, 24)
-	var leader: NavalUnit = _make_zone_ship(DestroyerShip.new(), ddg_params, eight_wps[0], 90.0, eight_wps, zone_id)
+	# 直线往返：让整支舰队朝船头方向直线航行，U-turn 时一起转弯
+	var half_span: float = radius * 0.8
+	var linear_wps := PackedVector2Array([
+		Vector2(center.x + half_span, center.y),
+		Vector2(center.x - half_span, center.y),
+	])
+	var leader: NavalUnit = _make_zone_ship(DestroyerShip.new(), ddg_params, center, 90.0, linear_wps, zone_id)
 	leader.is_mission_target = true
 	_spawned_zones[zone_id] = [leader]
 
-	# 2 FFG 在旗舰的左右两舷（classic combat V，稍微后撤）
+	# 2 FFG 在旗舰的左右两舷（classic combat V，拉开足够周旋空间）
 	var escort_offsets: Array[Vector2] = [
-		Vector2(-200, -700),   # 左后
-		Vector2(-200, 700),    # 右后
+		Vector2(-600, -1800),   # 左后
+		Vector2(-600, 1800),    # 右后
 	]
 	var escort: Array = []
 	for off in escort_offsets:
@@ -611,18 +606,21 @@ func _spawn_naval_3star(zone_id: StringName, center: Vector2, radius: float, ffg
 	if ddg_params == null or cg_params == null:
 		push_error("missing DDG / CG params"); return
 
-	# 旗舰 CG 走 8 字 —— 战术感强于圆周，且比 2★ 更大
-	var leader_radius: float = radius * 0.5
-	var leader_wps := _eight_figure_waypoints(center, leader_radius, 24)
-	var leader: NavalUnit = _make_zone_ship(CruiserShip.new(), cg_params, leader_wps[0], 90.0, leader_wps, zone_id)
+	# 旗舰 CG 走直线往返 —— CSG 作为整体巨型刚体缓慢航行
+	var half_span: float = radius * 0.85
+	var leader_wps := PackedVector2Array([
+		Vector2(center.x + half_span, center.y),
+		Vector2(center.x - half_span, center.y),
+	])
+	var leader: NavalUnit = _make_zone_ship(CruiserShip.new(), cg_params, center, 90.0, leader_wps, zone_id)
 	leader.is_mission_target = true
 	_spawned_zones[zone_id] = [leader]
 
-	# 钻石护航阵：DDG 前哨、2 FFG 左右后翼
+	# 钻石护航阵：DDG 前哨、2 FFG 左右后翼（拉开间距留周旋空间）
 	var escort_plan: Array = [
-		{"cls": DestroyerShip, "params": ddg_params, "off": Vector2(900, 0)},     # 前哨
-		{"cls": FrigateShip,   "params": ffg_params, "off": Vector2(-400, -900)},  # 左翼
-		{"cls": FrigateShip,   "params": ffg_params, "off": Vector2(-400, 900)},   # 右翼
+		{"cls": DestroyerShip, "params": ddg_params, "off": Vector2(2200, 0)},       # 前哨
+		{"cls": FrigateShip,   "params": ffg_params, "off": Vector2(-1000, -2400)},  # 左翼
+		{"cls": FrigateShip,   "params": ffg_params, "off": Vector2(-1000, 2400)},   # 右翼
 	]
 	var escort: Array = []
 	for e in escort_plan:
@@ -653,46 +651,12 @@ func _make_zone_ship(ship: NavalUnit, params_res: Resource, pos: Vector2, headin
 	_inject_ship_managers(ship)
 	return ship
 
-## 圆周航点（与 naval_zone.gd 同构但独立实现，避免跨文件依赖）
-func _orbit_wps_circular(center: Vector2, radius_r: float, start_angle: float, n: int) -> PackedVector2Array:
-	var pts := PackedVector2Array()
-	for i in range(n):
-		var t: float = start_angle + float(i) / n * TAU
-		pts.append(center + Vector2(cos(t), sin(t)) * radius_r)
-	return pts
-
-## 圆周起点的切线方向（度）
-func _tangent_heading_deg(start_angle_rad: float) -> float:
-	var tangent_rad: float = start_angle_rad + PI * 0.5
-	var wd := Vector2(cos(tangent_rad), sin(tangent_rad))
-	return rad_to_deg(atan2(wd.x, -wd.y))
-
 ## 给船注入 bullet / missile manager（zone_mission.mode 就是 survivor_mode）
 func _inject_ship_managers(ship: NavalUnit) -> void:
 	if "bullet_manager" in mode:
 		ship.bullet_manager = mode.bullet_manager
 	if "missile_manager" in mode:
 		ship.missile_manager = mode.missile_manager
-
-## 8 字 lemniscate 轨迹采样 N 个点（naval_zone.gd 里也有同样实现，此处再写一份避免跨文件依赖）
-func _eight_figure_waypoints(center: Vector2, radius_r: float, n: int) -> PackedVector2Array:
-	var pts := PackedVector2Array()
-	for i in range(n):
-		var t: float = float(i) / n * TAU
-		var denom: float = 1.0 + sin(t) * sin(t)
-		var x: float = radius_r * cos(t) / denom
-		var y: float = radius_r * sin(t) * cos(t) / denom
-		pts.append(center + Vector2(x, y))
-	return pts
-
-func _rotated_waypoint_array(wps: PackedVector2Array, offset: int) -> PackedVector2Array:
-	var out := PackedVector2Array()
-	var n := wps.size()
-	if n == 0:
-		return out
-	for i in range(n):
-		out.append(wps[(i + offset) % n])
-	return out
 
 ## 攻克战区后，让驻守机"撤离"
 ## 【铁则】不允许在玩家画面内消失 —— 视线内的单位入队等它飘出屏外再 free

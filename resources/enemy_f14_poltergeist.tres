@@ -1,0 +1,44 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/gladiator_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/default_missile.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/default_flare.tres" id="5"]
+[ext_resource type="Resource" path="res://resources/agm_missile.tres" id="6"]
+
+[resource]
+script = ExtResource("1")
+display_name = "F-14"
+max_hp = 65.0
+armor = 0.0
+max_speed = 2485.0
+cruise_speed = 1100.0
+stall_speed_base = 210.0
+acceleration = 65.0
+deceleration = 90.0
+g_drag_factor = 2.8
+max_g = 7.5
+max_g_structural = 10.5
+roll_rate = 4.0
+pilot_stamina = 95.0
+stamina_drain_rate = 22.0
+stamina_recovery_rate = 11.0
+max_altitude = 17000.0
+climb_rate_max = 260.0
+thrust_to_weight = 1.08
+drag_coefficient = 0.023
+afterburner_thrust_mult = 1.5
+fuel_capacity = 4000.0
+fuel_rate_normal = 1.9
+fuel_rate_afterburner = 9.5
+radar_range = 5500.0
+radar_half_angle = 32.0
+lock_time = 2.5
+gun = ExtResource("2")
+missile = ExtResource("4")
+secondary_missile = ExtResource("6")
+flare = ExtResource("5")
+combat = ExtResource("3")
+icon_color = Color(0.08, 0.08, 0.08, 1)
+wing_color = Color(0.92, 0.15, 0.12, 1)

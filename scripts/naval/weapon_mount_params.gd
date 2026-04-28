@@ -8,10 +8,12 @@ extends Resource
 ## VLS_SALVO  — 垂直发射齐射系统（DDG/CG 主力，一次 4-12 枚低精度齐射）
 ## SAM_SHORT  — 短程单发防空导弹（FFG 近程 RAM）
 ## CIWS       — 近防武器系统（拦导弹 + 对空扫射双用途）
+## NAVAL_AA   — 舰载对空机炮（类似陆基 ZU-23 AA，中距对飞机精准打击；weapon_params 走 GunParams）
 enum WeaponType {
 	VLS_SALVO,
 	SAM_SHORT,
 	CIWS,
+	NAVAL_AA,
 }
 
 @export_group("几何")

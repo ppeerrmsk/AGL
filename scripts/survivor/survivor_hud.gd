@@ -386,18 +386,29 @@ func _update_status_panel() -> void:
 	var g_color := "ffaa33" if g_cur > g_max * 0.85 else "ccddee"
 	text += "[color=#%s]G   %.1f / %.1f[/color]\n" % [g_color, g_cur, g_max]
 
-	# ── 高度档位 ──（颜色与飞机数据标签 / 投影视觉同步）
+	# ── 速度 / 加力 ──（双击启动 AB）
+	var spd_kmh: int = roundi(ac.speed * 3.6)
+	if ac.is_afterburner:
+		text += "[color=#ff8833]SPD  %d km/h  ◤AB◢[/color]\n" % spd_kmh
+	else:
+		text += "[color=#ccddee]SPD  %d km/h[/color]\n" % spd_kmh
+
+	# ── 失速警告 ──（速度低于失速线，机动严重受限）
+	# 闪烁式视觉：每秒交替深红/亮红，红字超大字 ! 标志足够刺眼
+	if ac.is_stalled:
+		var flash := int(Time.get_ticks_msec() / 250) % 2 == 0
+		var stall_color := "ff3322" if flash else "ff7733"
+		text += "[color=#%s][b]⚠ STALL[/b][/color]\n" % stall_color
+
+	# ── 高度档位 ──（HUD 只显示 tier 名；箭头在数据标签上展示）
+	# 颜色用 vs 判定（与数据标签同步）：vs > 5 m/s 视为升降中 → 过渡色，否则 tier 静态色
 	if ac.flat_altitude:
 		var tier_cur: int = ac.get_altitude_tier()
-		var tier_tgt: int = ac.target_altitude_tier
 		var tier_name: String = Aircraft.TIER_NAMES[tier_cur]
-		var target_tier_name: String = Aircraft.TIER_NAMES[tier_tgt]
-		var transitioning := tier_cur != tier_tgt
-		var hex_col := AircraftRenderer.altitude_tier_color_hex(tier_cur, transitioning)
-		if transitioning:
-			text += "[color=#%s]ALT  %s → %s[/color]\n" % [hex_col, tier_name, target_tier_name]
-		else:
-			text += "[color=#%s]ALT  %s[/color]\n" % [hex_col, tier_name]
+		var vs_abs: float = absf(ac.vertical_speed)
+		var changing: bool = vs_abs > 5.0
+		var hex_col := AircraftRenderer.altitude_tier_color_hex(tier_cur, changing)
+		text += "[color=#%s]ALT  %s[/color]\n" % [hex_col, tier_name]
 
 	# ── 导弹 ──
 	var max_msl := ac.params.missile.max_count if ac.params and ac.params.missile else 0
@@ -721,6 +732,7 @@ func _build_squad_panel() -> void:
 # ══════════════════════════════════════════════
 
 var _boss_card_labels: Array[RichTextLabel] = []  ## 每架飞机一个卡片标签
+var _boss_title_label: Label
 
 func _build_boss_panel() -> void:
 	_boss_panel = PanelContainer.new()
@@ -740,16 +752,16 @@ func _build_boss_panel() -> void:
 	hbox.add_theme_constant_override("separation", 12)
 	_boss_panel.add_child(hbox)
 
-	# 标题
-	var title := Label.new()
-	title.text = "WRAITH"
-	title.add_theme_font_size_override("font_size", 11)
-	title.add_theme_color_override("font_color", ThemeColors.BOSS_TITLE)
-	hbox.add_child(title)
+	# 标题（由 _update_boss_panel 动态设置为 boss.display_name）
+	_boss_title_label = Label.new()
+	_boss_title_label.text = "BOSS"
+	_boss_title_label.add_theme_font_size_override("font_size", 11)
+	_boss_title_label.add_theme_color_override("font_color", ThemeColors.BOSS_TITLE)
+	hbox.add_child(_boss_title_label)
 
-	# 4 个卡片槽位
+	# 5 个卡片槽位（CSG BOSS：CV 旗舰 + 最多 4 架 F-14 Poltergeist）
 	_boss_card_labels.clear()
-	for i in range(4):
+	for i in range(5):
 		var card := RichTextLabel.new()
 		card.bbcode_enabled = true
 		card.fit_content = true
@@ -766,60 +778,80 @@ func _build_boss_panel() -> void:
 func _update_boss_panel() -> void:
 	if _boss_panel == null:
 		return
-	if not game_scene or not game_scene._spawner or not game_scene._spawner.get_ace_squad() or not game_scene._spawner.get_ace_squad().active:
+	if not game_scene or not game_scene._spawner:
+		_boss_panel.visible = false
+		return
+	var boss: BossEncounter = game_scene._spawner.get_boss()
+	if boss == null or not boss.active or not boss.hud_visible:
 		_boss_panel.visible = false
 		return
 
-	var all_members: Array = game_scene._spawner.get_ace_squad().get_display_members()
+	var all_members: Array = boss.get_display_members()
 	if all_members.is_empty():
 		_boss_panel.visible = false
 		return
 	_boss_panel.visible = true
+	if _boss_title_label:
+		_boss_title_label.text = boss.display_name
 	var members := all_members
+	var prefix: String = boss.callsign_prefix if boss.callsign_prefix != "" else "BOSS"
 
 	for i in range(_boss_card_labels.size()):
 		var card: RichTextLabel = _boss_card_labels[i]
 		if i >= members.size():
 			card.text = ""
 			continue
-		var ac_raw: Variant = members[i]
-		if not is_instance_valid(ac_raw):
-			card.text = "[color=#444444][b]WRAITH-%02d[/b] DOWN\n░░░░░░░░[/color]" % (i + 1)
+		var raw: Variant = members[i]
+		if not is_instance_valid(raw):
+			card.text = "[color=#444444][b]%s-%02d[/b] DOWN\n░░░░░░░░[/color]" % [prefix, i + 1]
 			continue
-		var ac: Aircraft = ac_raw as Aircraft
+		# 舰船（NavalUnit）走独立分支：HP 用 hull_hp / hull_hp_max
+		if raw is NavalUnit:
+			card.text = _format_boss_ship_card(raw as NavalUnit)
+			continue
+		# 飞机
+		card.text = _format_boss_aircraft_card(raw as Aircraft)
 
-		var max_hp: float = ac.params.max_hp if ac.params else 70.0
-		var hp_ratio: float
-		var status_text: String
-		var status_color: String
+## 舰船（CV 旗舰等）HUD 卡片格式化
+func _format_boss_ship_card(ship: NavalUnit) -> String:
+	var name: String = ship.full_name if ship.full_name != "" else ship.ship_class_label
+	if ship.is_destroyed:
+		return "[color=#444444][b]%s[/b] SUNK\n░░░░░░░░[/color]" % name
+	var max_hp: float = maxf(ship.hull_hp_max, 1.0)
+	var hp_ratio: float = clampf(ship.hull_hp / max_hp, 0.0, 1.0)
+	var hp_color: String = "ff4444" if hp_ratio <= 0.3 else ("ffcc44" if hp_ratio <= 0.6 else "44ff44")
+	var bar_len := 8
+	var filled := int(round(hp_ratio * bar_len))
+	var bar := ""
+	for c in range(bar_len):
+		bar += "█" if c < filled else "░"
+	return "[b]%s[/b] [color=#ffaa55]FLAG[/color]\n[color=#%s]%s[/color] [color=#%s]%d/%d[/color]" % [
+		name, hp_color, bar, hp_color, int(ship.hull_hp), int(max_hp)]
 
-		if ac.is_destroyed:
-			hp_ratio = 0.0
-			status_text = "DEAD"
-			status_color = "555555"
-		else:
-			hp_ratio = clampf(ac.hp / maxf(max_hp, 0.01), 0.0, 1.0)
-			if ac.is_cloaked:
-				status_text = "CLOAK"
-				status_color = "aa88ff"
-			else:
-				var ai := _get_ai(ac)
-				status_text = _boss_action_text(ac, ai) if ai else "---"
-				status_color = "e8a86a"
-
-		var hp_color: String = "ff4444" if hp_ratio <= 0.3 else ("ffcc44" if hp_ratio <= 0.6 else "44ff44")
-		var bar_len := 8
-		var filled := int(round(hp_ratio * bar_len))
-		var bar := ""
-		for c in range(bar_len):
-			bar += "█" if c < filled else "░"
-
-		if ac.is_destroyed:
-			card.text = "[color=#444444][b]%s[/b] DOWN\n░░░░░░░░ 0/%d[/color]" % [ac.callsign, int(max_hp)]
-		else:
-			card.text = "[b]%s[/b] [color=#%s]%s[/color]\n[color=#%s]%s[/color] [color=#%s]%d/%d[/color]" % [
-				ac.callsign, status_color, status_text,
-				hp_color, bar, hp_color, int(ac.hp), int(max_hp)]
+## 飞机（F-14 Poltergeist / F-47 Wraith）HUD 卡片格式化
+func _format_boss_aircraft_card(ac: Aircraft) -> String:
+	var max_hp: float = ac.params.max_hp if ac.params else 70.0
+	if ac.is_destroyed:
+		return "[color=#444444][b]%s[/b] DOWN\n░░░░░░░░ 0/%d[/color]" % [ac.callsign, int(max_hp)]
+	var hp_ratio: float = clampf(ac.hp / maxf(max_hp, 0.01), 0.0, 1.0)
+	var status_text: String
+	var status_color: String
+	if ac.is_cloaked:
+		status_text = "CLOAK"
+		status_color = "aa88ff"
+	else:
+		var ai := _get_ai(ac)
+		status_text = _boss_action_text(ac, ai) if ai else "---"
+		status_color = "e8a86a"
+	var hp_color: String = "ff4444" if hp_ratio <= 0.3 else ("ffcc44" if hp_ratio <= 0.6 else "44ff44")
+	var bar_len := 8
+	var filled := int(round(hp_ratio * bar_len))
+	var bar := ""
+	for c in range(bar_len):
+		bar += "█" if c < filled else "░"
+	return "[b]%s[/b] [color=#%s]%s[/color]\n[color=#%s]%s[/color] [color=#%s]%d/%d[/color]" % [
+		ac.callsign, status_color, status_text,
+		hp_color, bar, hp_color, int(ac.hp), int(max_hp)]
 
 ## BOSS 成员的动作文本
 func _boss_action_text(ac: Aircraft, ai: AIController) -> String:
@@ -1179,13 +1211,13 @@ class RadarDisplay extends Control:
 				var bl := 2.0  ## 括号短边长
 				var thick := 1.5
 				var tl := blip_pos + Vector2(-bd, -bd)
-				var tr := blip_pos + Vector2(bd, -bd)
+				var tr_p := blip_pos + Vector2(bd, -bd)
 				var bl_p := blip_pos + Vector2(-bd, bd)
 				var br_p := blip_pos + Vector2(bd, bd)
 				draw_line(tl, tl + Vector2(bl, 0), blip_color, thick)
 				draw_line(tl, tl + Vector2(0, bl), blip_color, thick)
-				draw_line(tr, tr + Vector2(-bl, 0), blip_color, thick)
-				draw_line(tr, tr + Vector2(0, bl), blip_color, thick)
+				draw_line(tr_p, tr_p + Vector2(-bl, 0), blip_color, thick)
+				draw_line(tr_p, tr_p + Vector2(0, bl), blip_color, thick)
 				draw_line(bl_p, bl_p + Vector2(bl, 0), blip_color, thick)
 				draw_line(bl_p, bl_p + Vector2(0, -bl), blip_color, thick)
 				draw_line(br_p, br_p + Vector2(-bl, 0), blip_color, thick)

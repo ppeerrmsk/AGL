@@ -153,11 +153,14 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 			if p.flare:
 				p.flare.max_flares += _bf
 				aircraft.flares_remaining += _bf
-		"pilot_stamina":
-			# 体能强化：耐力上限×2，恢复速率×2
-			p.pilot_stamina *= float(upgrade.get("stamina_mult", 2.0))
-			aircraft.pilot_stamina = p.pilot_stamina
-			p.stamina_recovery_rate *= float(upgrade.get("recovery_mult", 2.0))
+		"gun_kill_fear":
+			# 震慑射击：机炮击杀敌机时半径内敌机陷入恐惧（BOSS 受减半效果）
+			# 每层 +800 px 半径 + 拉长持续时间（衰减率从 0.20 降到 0.08）
+			# L1：5s 全衰减；L2：8.3s；L3：12.5s（BOSS 因 stress 降到 0.4 → 实际持续 0.4×）
+			aircraft.gun_kill_fear_radius += float(upgrade.get("radius_per_stack", 800.0))
+			var stack_idx: int = clampi(int(round(aircraft.gun_kill_fear_radius / 800.0)) - 1, 0, 2)
+			var decay_levels: Array[float] = [0.20, 0.12, 0.08]
+			aircraft.gun_kill_fear_decay_rate = decay_levels[stack_idx]
 		"armor":
 			# 复合装甲：DR 软上限公式 armor/(armor+100)；导弹按 50% 穿甲计算
 			p.armor += float(upgrade["value"])
@@ -183,6 +186,10 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 			if p.gun:
 				p.gun = p.gun.duplicate()
 				p.gun.spread_angle = maxf(p.gun.spread_angle * (1.0 - float(upgrade["value"])), float(upgrade.get("min_deg", 0.1)))
+			# 同时提升飞行员 aim_skill（lead 误差减小），与 spread 减小复合
+			var aim_boost: float = float(upgrade.get("aim_skill_boost", 0.0))
+			if aim_boost > 0.0:
+				aircraft.pilot_aim_skill = clampf(aircraft.pilot_aim_skill + aim_boost, 0.0, 1.0)
 		"aim_assist":
 			# 瞄准辅助：fire_cone_half_angle ×(1+value)，硬 cap max_deg
 			if p.gun:

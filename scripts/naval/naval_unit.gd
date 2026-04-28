@@ -51,6 +51,18 @@ var waypoints: PackedVector2Array = PackedVector2Array()
 var current_waypoint_index: int = 0
 var arrival_distance: float = 80.0      ## 到达判定距离（像素，船更宽容）
 
+# ── 事件 directive（事件系统下发的覆盖指令）──
+## 由 GameEvent.set_directive 写入；存在且 owner_event 仍 active 时：
+##   - directive.combat_disabled = true → 跳过 NavalWeapons.update（不开火不锁玩家）
+##   - directive.type = HOLD_POSITION → 还跳过 waypoints 推进（船保持当前点）
+var _directive: AIDirective = null
+
+func set_event_directive(directive: AIDirective) -> void:
+	_directive = directive
+
+func _directive_active() -> bool:
+	return _directive != null and _directive.is_owner_alive()
+
 # ── 编队跟随（zone_mission 的多艘船编队用）──
 ## 设置后每帧 target_position 由 leader 的位置 + 朝向动态计算（忽略 waypoints）
 ## leader 死亡后自动清空并 fallback 到 waypoints
@@ -120,6 +132,14 @@ func _ready() -> void:
 	call_deferred("_spawn_mount_targets")
 
 ## ============ 帧循环 ============
+## LOD 策略（距玩家大于阈值 = "远距/屏幕外"）：
+##   - 移动依然每帧跑（保持刚体编队位置）
+##   - 武器子系统（VLS / CIWS / SAM）每 6 帧才 tick 一次（节流 83%）
+##   - 绘制每 6 帧 queue_redraw 一次（避免脏矩形频繁重刷）
+## 触发距离用玩家 Aircraft；找不到玩家就按远距处理
+const LOD_FAR_DISTANCE_PX: float = 6000.0    ## 12 km：超过此距离启用 LOD
+const LOD_FAR_TICK_DIVISOR: int = 6          ## 远距每 N 帧才跑一次完整更新
+var _lod_frame: int = 0
 
 func _physics_process(delta: float) -> void:
 	if is_destroyed:
@@ -128,9 +148,26 @@ func _physics_process(delta: float) -> void:
 		return
 
 	_update_movement(delta)
-	_update_subsystems(delta)
-	_weak_pulse_time += delta
+
+	# LOD 判定：玩家远 → 节流武器 + 绘制
+	_lod_frame += 1
+	var is_far: bool = _is_far_from_player()
+	if is_far and (_lod_frame % LOD_FAR_TICK_DIVISOR) != 0:
+		return
+
+	# 远距跑 subsystems 时补偿 delta，让 VLS / SAM 冷却按真实时间推进（不因节流慢 N 倍）
+	var sub_delta: float = delta * LOD_FAR_TICK_DIVISOR if is_far else delta
+	_update_subsystems(sub_delta)
+	update_lock_line_state(sub_delta)
+	_weak_pulse_time += sub_delta
 	queue_redraw()
+
+func _is_far_from_player() -> bool:
+	var pref: Aircraft = AircraftRenderer.player_ref
+	if pref == null or not is_instance_valid(pref) or pref.is_destroyed:
+		return true
+	var d2: float = global_position.distance_squared_to(pref.global_position)
+	return d2 > LOD_FAR_DISTANCE_PX * LOD_FAR_DISTANCE_PX
 
 ## ============ 移动 ============
 
@@ -175,41 +212,28 @@ func _update_movement(delta: float) -> void:
 	global_position += vel * delta
 	rotation = heading
 
-## 编队刚体跟随 —— heading/speed 直接同步 leader，位置用弹簧修正
-## 这样整支舰队作为一个整体移动，避免僚舰各自追逐 target 造成乱转 / 撞船
-const _FORMATION_CORRECTION_STIFFNESS: float = 1.2   ## 位置修正强度（越大跟得越紧）
-const _FORMATION_MAX_CORRECTION_SPEED: float = 60.0  ## 修正速度上限（px/s），防止弹射
-func _update_formation_follow(delta: float) -> void:
+## 编队刚体跟随 —— 位置/朝向/速度全部刚性绑定 leader
+## 僚舰不再独立计算速度方向：直接放在 leader 本地坐标系里的固定偏移位
+## 这样整支舰队作为一个整体移动，船头始终朝航行方向，转弯时一起转
+func _update_formation_follow(_delta: float) -> void:
 	var leader: NavalUnit = formation_leader
 	var lead_fwd := Vector2(sin(leader.heading), -cos(leader.heading))
 	var lead_stb := Vector2(cos(leader.heading), sin(leader.heading))
 
-	# 理想编队位置
-	var desired_pos: Vector2 = leader.global_position \
+	# 位置：跟 leader heading 同步旋转的刚体偏移
+	global_position = leader.global_position \
 			+ lead_fwd * formation_offset.x \
 			+ lead_stb * formation_offset.y
-
-	# 1. 朝向：平滑跟随 leader heading（不是瞬移，给转弯留一点惯性）
-	var diff := angle_difference(heading, leader.heading)
-	var turn_rate := params.turn_rate * 2.5  # 编队模式转弯放宽一点，跟得更紧
-	heading += clampf(diff, -turn_rate * delta, turn_rate * delta)
+	# 朝向：完全复制 leader（整队一起拐弯，船头永远朝航向）
+	heading = leader.heading
 	rotation = heading
-
-	# 2. 速度：跟 leader（视觉上 KTS 显示一致）
+	# 速度：跟 leader（HUD KTS 一致）
 	speed = leader.speed
-
-	# 3. 位置：以 leader 速度为主 + 向 desired_pos 的弹簧修正
-	var leader_velocity: Vector2 = lead_fwd * leader.speed * PIXELS_PER_METER
-	var pos_error: Vector2 = desired_pos - global_position
-	var correction: Vector2 = pos_error * _FORMATION_CORRECTION_STIFFNESS
-	if correction.length() > _FORMATION_MAX_CORRECTION_SPEED:
-		correction = correction.normalized() * _FORMATION_MAX_CORRECTION_SPEED
-	global_position += (leader_velocity + correction) * delta
-	# 同步 target_position（让 HUD / 其他系统有合理读数）
-	target_position = desired_pos
+	target_position = global_position
 
 ## ============ 子系统 ============
 ## 每帧先推进所有挂点冷却，再调用 NavalWeapons.update 做开火判定
+## 事件 directive 的 combat_disabled 跳过开火（CSG 预驻阶段用）
 func _update_subsystems(delta: float) -> void:
 	for m in mounts:
 		if m.destroyed:
@@ -219,6 +243,8 @@ func _update_subsystems(delta: float) -> void:
 		if m.engage_cooldown > 0.0:
 			m.engage_cooldown = maxf(m.engage_cooldown - delta, 0.0)
 
+	if _directive_active() and _directive.combat_disabled:
+		return
 	NavalWeapons.update(self, delta)
 
 ## ============ 高度 ============
@@ -468,12 +494,47 @@ func _draw() -> void:
 		_draw_radar_circle()
 		_draw_sam_envelope()
 		_draw_ciws_envelopes()
+		_draw_naval_aa_envelopes()
 	_draw_hull_placeholder()
 	_draw_mounts_placeholder()
 	_draw_weak_point_placeholder()
 	_draw_target_bracket()
 	_draw_lock_indicator()
+	LockWarning.draw(self, AircraftRenderer.player_ref)
 	_draw_status_label()
+
+
+## 任意挂点是否装载导弹（SAM_SHORT / VLS_SALVO，未损毁）
+func has_missile_capability() -> bool:
+	for m in mounts:
+		if m == null or m.destroyed or m.params == null:
+			continue
+		var wt: int = m.params.weapon_type
+		if wt == WeaponMountParams.WeaponType.SAM_SHORT or wt == WeaponMountParams.WeaponType.VLS_SALVO:
+			return true
+	return false
+
+## 覆写 CombatUnit：海军单位能否对玩家发射导弹
+## 条件：玩家在某个导弹挂点的雷达/有效射程内 + 该挂点 fire_cooldown ≤ 0
+func _lock_line_can_engage_player() -> bool:
+	var pref: Aircraft = AircraftRenderer.player_ref
+	if pref == null or not is_instance_valid(pref) or pref.is_destroyed:
+		return false
+	for m in mounts:
+		if m == null or m.destroyed or m.params == null:
+			continue
+		var wt: int = m.params.weapon_type
+		if wt != WeaponMountParams.WeaponType.SAM_SHORT and wt != WeaponMountParams.WeaponType.VLS_SALVO:
+			continue
+		if m.fire_cooldown > 0.05:
+			continue
+		var msl := m.params.weapon_params as MissileParams
+		if msl == null:
+			continue
+		var max_range_px: float = msl.max_range_rear * msl.front_rear_ratio * PIXELS_PER_METER
+		if global_position.distance_to(pref.global_position) <= max_range_px:
+			return true
+	return false
 
 ## 圆形雷达覆盖（hover 时显示）—— 与 SAM 同构但更薄，避免遮挡
 func _draw_radar_circle() -> void:
@@ -521,6 +582,22 @@ func _draw_ciws_envelopes() -> void:
 		var lo := m.params.local_offset
 		var draw_pos := Vector2(lo.y, -lo.x)
 		_draw_dashed_ring(draw_pos, ciws_range, color, 1.3, 48, 0.35)
+
+## NAVAL_AA 包线（hover 时显示）—— 每个 AA 挂点一个青色虚线圆
+func _draw_naval_aa_envelopes() -> void:
+	var color := Color(0.4, 0.9, 1.0, 0.5)  # 青色
+	for m in mounts:
+		if m.destroyed or m.params == null or m.params.weapon_params == null:
+			continue
+		if m.params.weapon_type != WeaponMountParams.WeaponType.NAVAL_AA:
+			continue
+		var gun := m.params.weapon_params as GunParams
+		if gun == null:
+			continue
+		var aa_range: float = gun.max_range * PIXELS_PER_METER
+		var lo := m.params.local_offset
+		var draw_pos := Vector2(lo.y, -lo.x)
+		_draw_dashed_ring(draw_pos, aa_range, color, 1.3, 48, 0.35)
 
 ## 计算船上所有 SAM/VLS 挂点中最大射程（像素）
 func _compute_max_sam_range() -> float:
@@ -611,6 +688,10 @@ func _draw_alive_mount(pos: Vector2, wtype: int) -> void:
 				pos + Vector2(-size * 0.5, size * 0.4),
 			])
 			draw_colored_polygon(tri, c)
+		WeaponMountParams.WeaponType.NAVAL_AA:
+			# 十字（区分于 CIWS 圆点），代表旋转机炮
+			draw_line(pos + Vector2(-size * 0.5, 0), pos + Vector2(size * 0.5, 0), c, 1.5)
+			draw_line(pos + Vector2(0, -size * 0.5), pos + Vector2(0, size * 0.5), c, 1.5)
 
 func _draw_dead_mount(pos: Vector2) -> void:
 	var size := 5.0

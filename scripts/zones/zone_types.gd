@@ -29,21 +29,21 @@ static var META: Dictionary = {
 		"script_path": "res://scripts/zones/naval_zone.gd",
 		"star": 1,
 		"is_boss": false,
-		"config": {"star_level": 1, "patrol_mode": "linear", "radius": 7000.0},
+		"config": {"star_level": 1, "radius": 7000.0},
 	},
 	NAVAL_2S: {
 		"display_name": "2★ 海上驱逐编队",
 		"script_path": "res://scripts/zones/naval_zone.gd",
 		"star": 2,
 		"is_boss": false,
-		"config": {"star_level": 2, "patrol_mode": "eight", "radius": 8000.0},
+		"config": {"star_level": 2, "radius": 8000.0},
 	},
 	NAVAL_3S: {
 		"display_name": "3★ 海上航母战斗群",
 		"script_path": "res://scripts/zones/naval_zone.gd",
 		"star": 3,
 		"is_boss": true,
-		"config": {"star_level": 3, "patrol_mode": "orbit", "radius": 10000.0},
+		"config": {"star_level": 3, "radius": 10000.0},
 	},
 }
 

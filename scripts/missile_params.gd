@@ -2,7 +2,7 @@ class_name MissileParams
 extends Resource
 
 @export_group("基本信息")
-@export var display_name: String = "AIM-7M"
+@export var display_name: String = "MRM"
 
 @export_group("性能")
 ## 最大飞行速度 (m/s)

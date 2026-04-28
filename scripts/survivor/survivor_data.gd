@@ -81,17 +81,6 @@ const UPGRADES: Array[Dictionary] = [
 		"bonus_flares": 2,         ## 额外赠送热诱弹数
 	},
 	{
-		"id": "pilot_stamina",
-		"name": "UPGRADE_PILOT_STAMINA_NAME",
-		"desc": "UPGRADE_PILOT_STAMINA_DESC",
-		"stat": "pilot_stamina",
-		"value": 1.0,
-		"max_stacks": 3,
-		"category": "survival",
-		"stamina_mult": 2.0,       ## 耐力上限倍率
-		"recovery_mult": 2.0,      ## 恢复速率倍率
-	},
-	{
 		"id": "armor_up",
 		"name": "UPGRADE_ARMOR_UP_NAME",
 		"desc": "UPGRADE_ARMOR_UP_DESC",
@@ -268,6 +257,17 @@ const UPGRADES: Array[Dictionary] = [
 		"requires": ["gun"],
 	},
 	{
+		"id": "gun_kill_fear",
+		"name": "UPGRADE_GUN_KILL_FEAR_NAME",
+		"desc": "UPGRADE_GUN_KILL_FEAR_DESC",
+		"stat": "gun_kill_fear",
+		"value": 1.0,
+		"max_stacks": 3,
+		"category": "secondary",
+		"requires": ["gun"],
+		"radius_per_stack": 800.0,  ## 每层 +800px 半径（满级 3 层 = 2400px）
+	},
+	{
 		"id": "radar_range",
 		"name": "UPGRADE_RADAR_RANGE_NAME",
 		"desc": "UPGRADE_RADAR_RANGE_DESC",
@@ -354,6 +354,7 @@ const UPGRADES: Array[Dictionary] = [
 		"category": "secondary",
 		"requires": ["gun"],
 		"min_deg": 0.1,            ## 散布下限 0.1°
+		"aim_skill_boost": 0.18,   ## 每层飞行员 aim_skill +0.18，4 层 = +0.72（基础 0.3 → 1.02 cap 1.0）
 	},
 	{
 		"id": "aim_assist",
@@ -669,6 +670,13 @@ const LATE_GAME_MIN_TOKEN := 3
 ## 导弹一击必杀：敌机 HP 上限（低于最弱玩家导弹 80 伤害），Sentinel 除外
 const ENEMY_HP_MISSILE_CAP := 75.0
 
+## P4：所有空战飞机走 TacticalPlanner（与玩家相同的决策路径）
+## 2026-04-26 默认翻 true，迁移已覆盖：常规战机 9 种 + BOSS 中队 2 种 + 玩家僚机
+## 仍走旧路径：Adds（Tu-160/AH-64/CH-47, simple_ai）/ Schemer（Sentinel, enable_combat=false）
+## 这些类型不进 BFM 决策树，planner 对它们无意义
+## 沙盒模式（main.gd 入口）不读此开关，敌机继续旧 BFMTactics 路径以保留沙盒兼容
+const ENABLE_PLANNER_FOR_REGULAR_AI := true
+
 # ── 战区敌情曲线 ─────────────────────────────────────────
 # 设计原则（2026-04-21 修订，详见 docs/changelogs/2026-04-21-zone-level-curve.md）：
 #   1. 玩家等级决定战区敌人池（不是单纯 Token），让开局能撞到 UAV/UCAV
@@ -802,9 +810,9 @@ static func air_squadron_count_for_difficulty(difficulty: int) -> int:
 		2: return 4
 		_: return 3
 
-## 地面任务 TGT 强化（SAM / AA 数量 + HP 倍率）
-## 返回 {"sam_count":int, "aa_count":int, "add_radar":bool, "hp_mult":float}
-static func ground_tgt_scale(difficulty: int, player_level: int) -> Dictionary:
+## 地面任务 TGT 数量（仅按星级缩放，单位 HP 不变）
+## 返回 {"sam_count":int, "aa_count":int}
+static func ground_tgt_scale(difficulty: int, _player_level: int) -> Dictionary:
 	var sam_count: int
 	var aa_count: int
 	match difficulty:
@@ -817,13 +825,9 @@ static func ground_tgt_scale(difficulty: int, player_level: int) -> Dictionary:
 		_:
 			sam_count = 2
 			aa_count = 2
-	## HP：每级 +10%，每星 +20%（上限 ×3）
-	var hp_mult: float = minf(1.0 + 0.1 * float(maxi(player_level - 1, 0))
-			+ 0.2 * float(difficulty - 1), 3.0)
 	return {
 		"sam_count": sam_count,
 		"aa_count": aa_count,
-		"hp_mult": hp_mult,
 	}
 
 ## 战区驻守预算：基础 + 等级线性加成

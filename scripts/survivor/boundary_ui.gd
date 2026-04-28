@@ -41,7 +41,7 @@ func _ready() -> void:
 	_warn_bg.visible = false
 	_menu_root.visible = false
 
-func _process(delta: float) -> void:
+func _process(_delta: float) -> void:
 	# 警告条温和呼吸（不是刺眼闪烁）—— 边界是补给友好区，不是危险区
 	if _warn_bg.visible:
 		var t := (sin(Time.get_ticks_msec() / 400.0) * 0.5 + 0.5)

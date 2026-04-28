@@ -13,7 +13,7 @@ extends Node
 ## - Adds（杂兵，category="adds"）：无反击能力，只沿直线飞行，不走 _update_spawner
 ##     / Token 预算系统，通过独立 flock 波次刷新，不受远距清理影响。
 ##     目前成员：TU160, AH64, CH47。敌人参数的 meta("category")="adds" 标识。
-enum EnemyType { UAV, UCAV, MIG, INTERCEPTOR, UAV_COMMANDER, F86, MIG31, MIG23, F100, SU27, A7, Q5, TU160, AH64, CH47, F47 }
+enum EnemyType { UAV, UCAV, MIG, INTERCEPTOR, UAV_COMMANDER, F86, MIG31, MIG23, F100, SU27, A7, Q5, TU160, AH64, CH47, F47, F14_POLTERGEIST }
 
 # ── 经验常量 ──
 const XP_PER_KILL := 40  ## 基础经验值（MiG）
@@ -55,9 +55,10 @@ var _tu160_params_base: AircraftParams
 var _ah64_params_base: AircraftParams
 var _ch47_params_base: AircraftParams
 var _f47_params_base: AircraftParams
+var _f14_poltergeist_params_base: AircraftParams
 
 # ── 王牌中队 BOSS ──
-var _ace_squad: AceSquad = null              ## 当前活跃的王牌中队（F-47 等）
+var _boss: BossEncounter = null               ## 当前活跃的 BOSS encounter（F-47 / CSG / ...）
 
 # ── 刷怪计时器 ──
 ## 初始延迟：取旅途间隔一半，让开局第一趟路也能刷出一波而不是 3 秒就被偷袭
@@ -123,6 +124,7 @@ func _preload_resources() -> void:
 	_ah64_params_base = preload("res://resources/enemy_ah64.tres")
 	_ch47_params_base = preload("res://resources/enemy_ch47.tres")
 	_f47_params_base = preload("res://resources/enemy_f47.tres")
+	_f14_poltergeist_params_base = preload("res://resources/enemy_f14_poltergeist.tres")
 
 # ══════════════════════════════════════════════
 #  每帧更新（由 survivor_mode._physics_process 调用）
@@ -139,9 +141,9 @@ func update(delta: float) -> void:
 	# 这里仅处理已刷出来单位的生命期超限清理（despawn_after meta）
 	_cleanup_expired_adds()
 
-	# 王牌中队 BOSS 更新
-	if _ace_squad:
-		_ace_squad.update(delta)
+	# BOSS encounter 更新（飞机 / 舰队 / 混合都走这个）
+	if _boss:
+		_boss.update(delta)
 
 	# 猎手追踪 & 巡逻航点更新
 	_update_hunters(delta)
@@ -172,8 +174,15 @@ func update(delta: float) -> void:
 func get_squads() -> Array[Squad]:
 	return _squads
 
+func get_boss() -> BossEncounter:
+	return _boss
+
+## 向后兼容：非 AceSquad 的 BOSS（例如 CSG）走 get_active_ace_squad 返回内部飞机子小队
+## Phase 2 未触发时 CSG 返回 null（HUD 自动隐藏面板）
 func get_ace_squad() -> AceSquad:
-	return _ace_squad
+	if _boss:
+		return _boss.get_active_ace_squad()
+	return null
 
 func get_enemy_count() -> int:
 	return _count_enemies()
@@ -1007,19 +1016,51 @@ func spawn_heli_flee(spawn_pos: Vector2, flee_dir: Vector2, count: int = 3) -> A
 	return spawned
 
 # ══════════════════════════════════════════════
-#  王牌中队 BOSS（委托给 AceSquad 模块）
+#  BOSS encounter（BossRegistry / AceSquad / 未来 CSG 统一入口）
 # ══════════════════════════════════════════════
 
-## 生成 F-47 王牌小队（事件/Debug 面板触发）
-func _spawn_f47_squad(anchor: Vector2 = Vector2.INF) -> void:
-	if _ace_squad and _ace_squad.active:
+## 生成已实例化的 BOSS encounter（调用方从 BossRegistry 拿实例）
+## 不同 BOSS 类型调 spawner 内部分支（飞机类 / 舰队类 ...）
+## skip_bgm = true：CSG 预驻阶段调用，不切 BOSS 曲（避免提前剧透）
+##              玩家进入 BOSS 圈触发激活时由 survivor_mode 直接调 AudioManager 播放
+func _spawn_boss(encounter: BossEncounter, anchor: Vector2 = Vector2.INF, skip_bgm: bool = false) -> void:
+	if encounter == null:
+		push_error("_spawn_boss: encounter is null")
 		return
-	_ace_squad = F47AceSquad.new()
-	_ace_squad.anchor_position = anchor
-	_ace_squad.spawn(mode, _aircraft_scene, _create_enemy, player_aircraft,
-		bullet_manager, missile_manager, _squads)
+	if _boss and _boss.active:
+		return
+	_boss = encounter
+
+	# 按 encounter 类型派发 spawn 参数
+	if encounter is CarrierStrikeGroup:
+		# 舰队 BOSS：CSG 自己构建舰队 + 管理 Phase 2 飞机子 encounter
+		var csg := encounter as CarrierStrikeGroup
+		csg.spawn(mode, _aircraft_scene, _create_enemy, player_aircraft,
+			bullet_manager, missile_manager, _squads, anchor)
+	elif encounter is AceSquad:
+		var ace := encounter as AceSquad
+		ace.anchor_position = anchor
+		ace.spawn(mode, _aircraft_scene, _create_enemy, player_aircraft,
+			bullet_manager, missile_manager, _squads)
+	else:
+		push_error("_spawn_boss: unsupported encounter type %s" % encounter.get_class())
+		_boss = null
+		return
+
 	# BOSS 登场：淡出泛用战斗曲，淡入 BOSS 专用曲
-	AudioManager.crossfade_music("boss", 2.0)
+	# bgm_layers 非空 → 层叠模式（CSG 双阶段同步）；否则单轨 crossfade（F-47 等）
+	if skip_bgm:
+		return
+	if not encounter.bgm_layers.is_empty():
+		AudioManager.play_layered_music(encounter.bgm_layers, 2.0, 0)
+	elif encounter.bgm_track != "":
+		AudioManager.crossfade_music(encounter.bgm_track, 2.0)
+
+## 向后兼容：Debug 面板 / 老代码直接调这个刷 F-47
+func _spawn_f47_squad(anchor: Vector2 = Vector2.INF) -> void:
+	var enc := BossRegistry.instantiate("WRAITH_SQUADRON")
+	if enc:
+		_spawn_boss(enc, anchor)
 
 # ══════════════════════════════════════════════
 #  敌机创建（核心工厂函数）
@@ -1060,6 +1101,8 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 			base_params = _ch47_params_base
 		EnemyType.F47:
 			base_params = _f47_params_base
+		EnemyType.F14_POLTERGEIST:
+			base_params = _f14_poltergeist_params_base
 		_:
 			base_params = _uav_params_base
 
@@ -1091,8 +1134,8 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 	elif etype == EnemyType.TU160 or etype == EnemyType.AH64 or etype == EnemyType.CH47:
 		# Adds 杂兵：无缩放（一击必杀才有设计意义）
 		scale = {"hp_mult": 1.0, "missile_add": 0, "gun_damage_mult": 1.0}
-	elif etype == EnemyType.F47:
-		# F-47 BOSS：无缩放（按满级玩家平衡，固定参数）
+	elif etype == EnemyType.F47 or etype == EnemyType.F14_POLTERGEIST:
+		# BOSS 飞机（F-47 / F-14 Poltergeist）：无缩放（按满级玩家平衡，固定参数）
 		scale = {"hp_mult": 1.0, "missile_add": 0, "gun_damage_mult": 1.0}
 	else:
 		scale = SurvivorData.uav_scale_for_level(survivor_player.level)
@@ -1113,7 +1156,7 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 	# （只够干扰玩家第一枚导弹，之后就没弹了，玩家第二发会命中）
 	# F-47 BOSS 豁免此限制：6 代电子战允许多次释放
 	if enemy_params.flare:
-		if etype != EnemyType.F47:
+		if etype != EnemyType.F47 and etype != EnemyType.F14_POLTERGEIST:
 			enemy_params.flare.burst_count = 1
 			enemy_params.flare.max_flares = 1
 		# 热诱弹失误概率：编队低级机高失误率，精英单机低失误率
@@ -1151,18 +1194,37 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 				# F-47 王牌：6 代电子战套件，不限制为 1 枚（BOSS 豁免热诱弹削弱）
 				enemy_params.flare.fail_chance = 0.05
 				enemy_params.flare.head_on_fail_reduction = 0.05
+			EnemyType.F14_POLTERGEIST:
+				# F-14 Poltergeist：舰载 BOSS，标准电子战，比 F-47 弱
+				enemy_params.flare.fail_chance = 0.15
+				enemy_params.flare.head_on_fail_reduction = 0.10
 
 	enemy.params = enemy_params
 	enemy.team = 1
 	enemy.infinite_fuel = true
-	enemy.infinite_ammo = true  # 生存模式：所有敌机无限弹药（机炮+导弹永不耗尽）
-
-	# UAV/UCAV/Tu-160 无耐力（载人战机有耐力；Tu-160 虽然有人驾驶但在游戏内走直线，不需要耐力系统）
-	if etype != EnemyType.MIG and etype != EnemyType.INTERCEPTOR and etype != EnemyType.F86 \
-			and etype != EnemyType.MIG31 and etype != EnemyType.MIG23 and etype != EnemyType.F100 \
-			and etype != EnemyType.SU27 and etype != EnemyType.A7 and etype != EnemyType.Q5 \
-			and etype != EnemyType.F47:
-		enemy.no_stamina = true
+	# 生存模式弹药：所有敌机走"有限弹匣 + 冷却装填"，与玩家一致；越精锐 reload 越快
+	enemy.infinite_ammo = false
+	enemy.enable_gun_reload = true
+	enemy.enable_missile_reload = true
+	match etype:
+		EnemyType.F47, EnemyType.F14_POLTERGEIST:
+			# BOSS 级：高节奏齐射，10 秒回满
+			enemy.gun_reload_duration = 10.0
+			enemy.missile_reload_duration = 10.0
+			if enemy_params.missile:
+				enemy_params.missile.cooldown = 1.5
+		EnemyType.SU27, EnemyType.MIG31:
+			# 顶级精英单机：15 秒
+			enemy.gun_reload_duration = 15.0
+			enemy.missile_reload_duration = 15.0
+			if enemy_params.missile:
+				enemy_params.missile.cooldown = 2.0
+		_:
+			# 默认 20 秒（与玩家档案默认一致）
+			enemy.gun_reload_duration = 20.0
+			enemy.missile_reload_duration = 20.0
+			if enemy_params.missile:
+				enemy_params.missile.cooldown = 2.5
 
 	var type_tag: String
 	match etype:
@@ -1181,6 +1243,7 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 		EnemyType.AH64: type_tag = "ah64"
 		EnemyType.CH47: type_tag = "ch47"
 		EnemyType.F47: type_tag = "f47"
+		EnemyType.F14_POLTERGEIST: type_tag = "f14_poltergeist"
 		_: type_tag = "uav"
 	enemy.set_meta("enemy_type", type_tag)
 	# Token 系统元数据：便于重算占用与实例计数
@@ -1201,13 +1264,15 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 	elif etype == EnemyType.CH47:
 		_ch47_serial += 1
 		enemy.callsign = "CHK-%02d" % _ch47_serial
-	elif etype == EnemyType.F47:
-		# 呼号由 AceSquad 模块的 _serial 管理，这里用 _ace_squad 的计数器
-		if _ace_squad:
-			_ace_squad._serial += 1
-			enemy.callsign = "%s-%02d" % [_ace_squad.callsign_prefix, _ace_squad._serial]
+	elif etype == EnemyType.F47 or etype == EnemyType.F14_POLTERGEIST:
+		# 呼号由当前 BOSS AceSquad 的 _serial + callsign_prefix 共同决定
+		# F-47 → WRAITH-XX，F-14 Poltergeist (CSG Phase 2) → PLTGST-XX
+		var ace_ref: AceSquad = _boss.get_active_ace_squad() if _boss else null
+		if ace_ref:
+			ace_ref._serial += 1
+			enemy.callsign = "%s-%02d" % [ace_ref.callsign_prefix, ace_ref._serial]
 		else:
-			enemy.callsign = "WRAITH-%02d" % (randi() % 99 + 1)
+			enemy.callsign = "BOSS-%02d" % (randi() % 99 + 1)
 
 	enemy.position = spawn_pos
 	enemy.initial_heading_deg = heading_deg
@@ -1389,7 +1454,7 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 			# bvr_only 由 _update_f47_squad 动态控制（被盯上的逃，其他攻击）
 			ai.evade_missiles = true
 			ai.bvr_only = false                           # 默认不逃——主动攻击
-			ai.boss_attacker = true                       # 默认就是攻击手（EVADER 角色才设 false）
+			ai.boss_attacker = true                       # F-47 全员攻击手（EVADER 角色已废弃）
 			ai.aggression = randf_range(0.90, 1.0)        # 极高攻击欲
 			ai.engage_cooldown = 0.5                      # 几乎无冷却
 			ai.engage_duration = 999.0                    # 永不自动脱离交战
@@ -1398,6 +1463,20 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 			ai.focus = 0.95
 			ai.self_preservation = randf_range(0.10, 0.25) # 低自保——杀玩家优先
 			ai.situational_awareness = 0.95
+		EnemyType.F14_POLTERGEIST:
+			# F-14 Poltergeist = CSG 第二阶段舰载 BOSS 中队
+			# 比 F-47 弱：普通 BFM 无特殊机动，但攻击欲极强、自保低（誓死保护航母）
+			ai.evade_missiles = true
+			ai.bvr_only = false
+			ai.boss_attacker = true
+			ai.aggression = randf_range(0.85, 0.95)        # 极高攻击欲
+			ai.engage_cooldown = 0.8
+			ai.engage_duration = 999.0
+			ai.skill_level = 0.82                          # 精英级，略低于 F-47
+			ai.composure = 0.85
+			ai.focus = 0.90
+			ai.self_preservation = randf_range(0.08, 0.20) # 极低自保
+			ai.situational_awareness = 0.88
 		EnemyType.AH64:
 			# AH-64 = Adds 攻击直升机：带机炮+火箭弹，但 ground_combat_only 限定只攻地面
 			# 空中永远不交战，主航线仍是直线飞行；途中遇到地面单位会做 strafing 打击
@@ -1426,6 +1505,25 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 	if etype == EnemyType.F47:
 		enemy.bullet_dodge_chance = 0.60   # 60% 闪避 = 40% 命中率（闪避时触发滚转动画）
 		enemy.boss_flare_immunity = true   # 热诱弹释放后享有导弹穿透无敌时间
+	elif etype == EnemyType.F14_POLTERGEIST:
+		# F-14 Poltergeist：比 F-47 弱的 BOSS 级抗性
+		enemy.bullet_dodge_chance = 0.35
+		enemy.boss_flare_immunity = true
+
+	# P4：实验性 — TacticalPlanner 接管 BFM 几何/速度决策（关闭 BFMTactics 执行）
+	# 由 SurvivorData.ENABLE_PLANNER_FOR_REGULAR_AI 主开关控制，默认 false
+	# 跳过 adds（Tu-160/AH-64/CH-47，simple_ai 无 BFM）/ Schemer（Sentinel commander_aura buff 系统）
+	# F-47/F-14_Poltergeist BOSS 已纳入：BVR flee / Herbst / Cloak 独立模块在 planner 之后写
+	# target_position 自然覆写；aggression 0.85+ 自动跳过 BOOM_ZOOM_OUT（commit 设计）
+	if SurvivorData.ENABLE_PLANNER_FOR_REGULAR_AI:
+		var is_planner_eligible: bool = etype in [
+			EnemyType.MIG, EnemyType.INTERCEPTOR, EnemyType.F86,
+			EnemyType.MIG23, EnemyType.F100, EnemyType.A7, EnemyType.Q5,
+			EnemyType.MIG31, EnemyType.SU27,
+			EnemyType.F47, EnemyType.F14_POLTERGEIST,  # BOSS 王牌中队
+		]
+		if is_planner_eligible:
+			enemy.use_tactical_planner = true
 
 	enemy.add_child(ai)
 	return enemy
@@ -1674,6 +1772,11 @@ func _detect_kills() -> void:
 		if child is Aircraft and child.team != 0 and child.is_destroyed:
 			if not child.has_meta("xp_granted"):
 				child.set_meta("xp_granted", true)
+				# 机炮击杀恐惧 AOE：玩家持有该升级时，对附近敌机注入恐惧
+				var pl_ac: Aircraft = survivor_player.aircraft
+				if (child as Aircraft)._killed_by_bullet \
+						and pl_ac and pl_ac.gun_kill_fear_radius > 0.0:
+					_trigger_gun_kill_fear(child.global_position, pl_ac.gun_kill_fear_radius, pl_ac.gun_kill_fear_decay_rate)
 				# UAV/UCAV 给较少经验，MiG 给完整经验
 				# Adds（Tu-160/AH-64/CH-47）用 flock 感知公式：整组击杀 ≈ +1 级
 				var etype: String = child.get_meta("enemy_type", "mig")
@@ -1699,6 +1802,7 @@ func _detect_kills() -> void:
 				survivor_player.add_xp(xp_value)
 				kill_count += 1
 				_kill_heal()
+				_check_head_on_kill_bonus(child)
 				## 教程钩子：Tu-160 击落通知（前 3 架击落后首次教程整体淡出）
 				if etype == "tu160" and is_instance_valid(mode._tutorial):
 					mode._tutorial.notify_bomber_killed()
@@ -1713,6 +1817,61 @@ func _detect_kills() -> void:
 				survivor_player.add_xp(xp_value)
 				kill_count += 1
 				_kill_heal()
+
+## BOSS 恐惧抗性：BOSS 注入 stress 0.4（普通敌机 1.0），按相同衰减率回 0 → 实际持续时间约 0.4×
+const FEAR_BOSS_STRESS_FACTOR: float = 0.4
+
+## 机炮击杀恐惧 AOE：以击杀点为圆心，向"可被压力"的敌机注入 stress
+## 过滤：有 AIController + 非 simple_ai（Adds 跳过）+ composure < 0.99（排除完美僚机）
+## BOSS 攻击手不再排除，但 stress 注入降低到 0.4（用 FEAR_BOSS_STRESS_FACTOR 控制）
+## decay_rate：来自玩家 gun_kill_fear_decay_rate（每层升级减小 → 持续更长）
+func _trigger_gun_kill_fear(epicenter: Vector2, radius: float, decay_rate: float) -> void:
+	var radius_sq := radius * radius
+	for child in mode.get_children():
+		if not (child is Aircraft) or child.team == 0 or child.is_destroyed:
+			continue
+		if child.global_position.distance_squared_to(epicenter) > radius_sq:
+			continue
+		var ai: AIController = null
+		for c in child.get_children():
+			if c is AIController:
+				ai = c
+				break
+		if ai == null or ai.personality == null:
+			continue
+		if ai.simple_ai:
+			continue  # Adds 没有人格状态，跳过
+		if ai.composure >= 0.99:
+			continue  # 完美飞行员（玩家僚机）免疫
+		var stress_amount: float = FEAR_BOSS_STRESS_FACTOR if ai.is_boss_attacker() else 1.0
+		ai.personality.stress = stress_amount
+		ai.personality.fear_decay_override = decay_rate
+		EventLogger.log_event("FEAR", child._log_name(),
+			"gun_kill_aoe stress=%.1f decay=%.3f dist=%.0f" % [stress_amount, decay_rate, epicenter.distance_to(child.global_position)])
+
+## 对头击杀奖励：玩家直接击落对头来袭的敌机 → 永久 +5 max_hp
+## 判定阈值：双方机头夹角均在 ~53° 内（dot > 0.6）
+## 受害者侧的归因 meta 由 aircraft._record_kill_attribution 在致死帧写入。
+## 设计预留：后续可放宽到僚机击杀（atk_id 改为 friendly team 全集）以解锁僚机技能。
+const HEAD_ON_KILL_HP_BONUS: float = 5.0
+const HEAD_ON_DOT_THRESHOLD: float = 0.6
+func _check_head_on_kill_bonus(victim: Node) -> void:
+	if not victim.has_meta("kill_head_on_dot"):
+		return
+	var pl_ac: Aircraft = survivor_player.aircraft
+	if pl_ac == null or not is_instance_valid(pl_ac) or pl_ac.params == null:
+		return
+	if victim.get_meta("kill_attacker_id", 0) != pl_ac.get_instance_id():
+		return
+	var head_on: float = victim.get_meta("kill_head_on_dot", 0.0)
+	var atk_aim: float = victim.get_meta("kill_attacker_aim", 0.0)
+	if head_on < HEAD_ON_DOT_THRESHOLD or atk_aim < HEAD_ON_DOT_THRESHOLD:
+		return
+	pl_ac.params.max_hp += HEAD_ON_KILL_HP_BONUS
+	pl_ac.hp = minf(pl_ac.hp + HEAD_ON_KILL_HP_BONUS, pl_ac.params.max_hp)
+	EventLogger.log_event("HEAD_ON_KILL", pl_ac._log_name(),
+		"+%.0f max_hp (now %.0f) head_on=%.2f aim=%.2f" % [
+			HEAD_ON_KILL_HP_BONUS, pl_ac.params.max_hp, head_on, atk_aim])
 
 ## 击杀回血（_detect_kills 共用）
 func _kill_heal() -> void:

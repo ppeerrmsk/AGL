@@ -98,8 +98,6 @@ func _physics_process(delta: float) -> void:
 		Phase.TURN: herbst_g = 8.0
 		_: herbst_g = 4.0
 	_aircraft.g_load = herbst_g
-	if not _aircraft.no_stamina:
-		_aircraft._update_pilot_stamina(delta)
 
 	# 基准失速速度（不受当前 g_load 影响，稳定参考值）
 	var stall_base_ms: float = (_aircraft.params.stall_speed_base if _aircraft.params else 220.0) / 3.6

@@ -24,7 +24,7 @@ const COORD_AXES_GRID_PX := 1000.0   ## 刻度间距：1000px ≈ 2km
 const COORD_AXES_HALF_EXTENT := 8000.0  ## 轴向单边长度（世界 ±7500，多画一点点）
 
 # ── 编队类型枚举（内部）──
-enum FormationType { SINGLE, SQUAD, COMMANDER_SQUAD, TU160_FLOCK, AH64_FLOCK, CH47_FLOCK, F47_SQUAD }
+enum FormationType { SINGLE, SQUAD, COMMANDER_SQUAD, TU160_FLOCK, AH64_FLOCK, CH47_FLOCK, F47_SQUAD, CSG_BOSS }
 
 const FORMATION_NAMES := {
 	FormationType.SINGLE: "单机",
@@ -34,6 +34,7 @@ const FORMATION_NAMES := {
 	FormationType.AH64_FLOCK: "AH-64 纵阵波次",
 	FormationType.CH47_FLOCK: "CH-47 纵阵波次",
 	FormationType.F47_SQUAD: "F-47 王牌小队",
+	FormationType.CSG_BOSS: "航母战斗群 BOSS",
 }
 
 # ── 敌机类型标签（与 SurvivorSpawner.EnemyType 对应）──
@@ -142,6 +143,7 @@ func _build_ui() -> void:
 	_formation_option.add_item("AH-64 纵阵波次", FormationType.AH64_FLOCK)
 	_formation_option.add_item("CH-47 纵阵波次", FormationType.CH47_FLOCK)
 	_formation_option.add_item("F-47 王牌小队", FormationType.F47_SQUAD)
+	_formation_option.add_item("航母战斗群 BOSS", FormationType.CSG_BOSS)
 	_formation_option.selected = 0
 	_formation_option.item_selected.connect(_on_formation_changed)
 	formation_row.add_child(_formation_option)
@@ -385,6 +387,11 @@ func _on_spawn_pressed() -> void:
 				spawner._spawn_ch47_flock()
 			FormationType.F47_SQUAD:
 				spawner._spawn_f47_squad()
+			FormationType.CSG_BOSS:
+				var enc := BossRegistry.instantiate("CARRIER_STRIKE_GROUP")
+				if enc and game_scene and "player_aircraft" in game_scene and game_scene.player_aircraft:
+					var anchor := _find_water_anchor(game_scene.player_aircraft.global_position)
+					spawner._spawn_boss(enc, anchor)
 
 	print("[DebugSpawn] spawned %d × %s [%s]" % [
 		repeats,
@@ -575,3 +582,28 @@ func _draw_coord_axes() -> void:
 		_coord_axes.draw_line(Vector2(-ext, p), Vector2(ext, p), grid_color, 1.0)
 		_coord_axes.draw_string(font, Vector2(14, p - 4), str(int(p)),
 				HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, axis_color)
+
+## CSG BOSS 刷出位置：优先在玩家附近海面找个圆形水域（半径 ≥ 2500px 容得下整支舰队）
+## 找不到就退回玩家前方 4500px 固定偏移（测试用，允许刷在陆地上）
+func _find_water_anchor(origin: Vector2) -> Vector2:
+	var fallback: Vector2 = origin + Vector2(4500, 0)
+	# 按距离 / 角度栅格扫描：距离 3000 → 7000 px，每 45° 一个方向
+	for dist in [3500.0, 4500.0, 5500.0, 6500.0]:
+		for i in range(8):
+			var ang: float = float(i) * TAU / 8.0
+			var candidate: Vector2 = origin + Vector2(cos(ang), sin(ang)) * dist
+			# 舰队尺寸 ~3400×2600，4 角 + 中心均需在水上
+			if _is_water_region(candidate, 3000.0):
+				return candidate
+	return fallback
+
+func _is_water_region(center: Vector2, radius: float) -> bool:
+	if not MapGeography.is_on_land(center):
+		# 再抽查 4 个方向的边缘点
+		for i in range(4):
+			var a: float = float(i) * TAU / 4.0
+			var pt: Vector2 = center + Vector2(cos(a), sin(a)) * radius
+			if MapGeography.is_on_land(pt):
+				return false
+		return true
+	return false

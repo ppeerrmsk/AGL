@@ -20,7 +20,6 @@ const PREF_SECTION := "survivor"
 const PREF_KEY_FIRST_RUN_DONE := "first_run_done"
 
 var _items_done: Array[bool] = [false, false, false, false]
-var _items_timer: Array[float] = [0.0, 0.0, 0.0, 0.0]
 var _items_fade: Array[float] = [1.0, 1.0, 1.0, 1.0]
 var _panel: PanelContainer
 var _item_labels: Array[RichTextLabel] = []

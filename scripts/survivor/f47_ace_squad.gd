@@ -12,8 +12,11 @@ func _init() -> void:
 	intro_duration = SurvivorData.F47_INTRO_DURATION
 	intro_pass_dist = SurvivorData.F47_INTRO_PASS_DIST
 	callsign_prefix = "WRAITH"
-	boss_name = "WRAITH SQUADRON"
+	display_name = "WRAITH SQUADRON"
+	bgm_track = "boss"
 	enemy_type = 15  # EnemyType.F47
+	# 上述 display_name / callsign_prefix / bgm_track 会被 BossRegistry.instantiate 再覆盖，
+	# 这里留着是给 Debug 面板等直接 `F47AceSquad.new()` 绕过 registry 的路径兜底
 
 	# 光学隐形
 	cloak_enabled = true
@@ -27,12 +30,8 @@ func _init() -> void:
 	standoff_radius_max = SurvivorData.F47_STANDOFF_RADIUS_MAX
 
 ## 每架 F-47 的额外配置
-func _configure_spawn(member: Aircraft, index: int, squad: Squad, ai: AIController) -> void:
-	# 挂载赫尔贝特轮机动模块
-	var herbst := HerbstManeuver.new()
-	herbst.name = "HerbstManeuver"
-	member.add_child(herbst)
-
+## F-47 特性：隐身（cloak）+ 协同齐射；不挂 Herbst（J-Turn 已转移到 F-14 Poltergeist）
+func _configure_spawn(_member: Aircraft, index: int, _squad: Squad, ai: AIController) -> void:
 	# 队长指挥齐射
 	if index == 0 and ai:
 		ai.salvo_leader = true

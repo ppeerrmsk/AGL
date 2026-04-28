@@ -26,7 +26,6 @@ const PLAYABLE_LIST: Array[Dictionary] = [
 	{
 		"resource": "res://resources/playable_f14.tres",
 		"locked": false,
-		"dev_locked": true,
 	},
 	{
 		"resource": "",
@@ -343,4 +342,5 @@ func _on_aircraft_selected(index: int) -> void:
 		return
 	# 通过 scene tree meta 传递选择的 PlayableAircraft 资源路径
 	get_tree().set_meta("survivor_aircraft_resource", data["resource"])
-	get_tree().change_scene_to_file("res://scenes/survivor_mode.tscn")
+	# 进 BuildingPreloader 预热建筑数据，跑完会自动切到 survivor_mode.tscn
+	get_tree().change_scene_to_file("res://scenes/building_preloader.tscn")

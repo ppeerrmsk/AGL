@@ -18,6 +18,8 @@ extends Node
 ##   save_settings() / _load_settings()
 
 const SFX_POOL_SIZE := 32
+const LAYER_COUNT := 4            ## 层叠音乐的最大层数（CSG BOSS 用 2）
+const LAYER_SILENT_DB := -80.0    ## 非激活层音量
 const MUSIC_BUS := "Music"
 const SFX_BUS := "SFX"
 const UI_BUS := "UI"
@@ -29,6 +31,9 @@ const MUSIC_FILES := {
 	"battle_coast": "res://audio/music/battlebgm1.ogg",
 	"battle_coast_2": "res://audio/music/battlebgm2.ogg",
 	"boss": "res://audio/music/bossbattle.ogg",
+	# CarrierStrikeGroup BOSS 双阶段 BGM —— 层叠同步播放（两首等长 + Loop 导入开）
+	"boss_csg": "res://audio/music/boss2phase1.ogg",
+	"boss_csg_phase2": "res://audio/music/boss2phase2.ogg",
 }
 
 const SFX_FILES := {
@@ -61,6 +66,9 @@ const DEFAULT_BUS_DB := {
 var _music_player_a: AudioStreamPlayer
 var _music_player_b: AudioStreamPlayer
 var _active_music: AudioStreamPlayer
+var _layer_players: Array[AudioStreamPlayer] = []  ## 层叠 BGM 专用池，独立于 a/b crossfade
+var _layer_active: bool = false                    ## 当前是否处于层叠模式
+var _layer_active_index: int = 0                   ## 当前激活层索引（其他层静音但同步播放）
 var _ui_player: AudioStreamPlayer
 var _sfx_pool: Array[AudioStreamPlayer2D] = []
 var _sfx_pool_idx := 0
@@ -92,6 +100,9 @@ func _ready() -> void:
 	# 播放列表：当活跃播放器自然播完时推进到下一首
 	_music_player_a.finished.connect(_on_music_player_finished.bind(_music_player_a))
 	_music_player_b.finished.connect(_on_music_player_finished.bind(_music_player_b))
+	for i in LAYER_COUNT:
+		var lp := _make_music_player()
+		_layer_players.append(lp)
 	_ui_player = AudioStreamPlayer.new()
 	_ui_player.bus = UI_BUS
 	_ui_player.process_mode = Node.PROCESS_MODE_ALWAYS
@@ -193,6 +204,7 @@ func _make_music_player() -> AudioStreamPlayer:
 
 func play_music(id: String, fade_in: float = 1.5, loop: bool = true) -> void:
 	_playlist_active = false
+	_stop_layered_internal(fade_in)
 	_play_music_internal(id, fade_in, loop)
 
 func _play_music_internal(id: String, fade_in: float, loop: bool) -> void:
@@ -209,6 +221,7 @@ func _play_music_internal(id: String, fade_in: float, loop: bool) -> void:
 
 func stop_music(fade_out: float = 2.0) -> void:
 	_playlist_active = false
+	_stop_layered_internal(fade_out)
 	if _active_music == null or not _active_music.playing:
 		return
 	_kill_tween(_active_music)
@@ -218,6 +231,7 @@ func stop_music(fade_out: float = 2.0) -> void:
 ## 交叉淡化：新曲从 -80 dB 淡入，旧曲同时淡出后停止
 func crossfade_music(id: String, duration: float = 2.0, loop: bool = true) -> void:
 	_playlist_active = false
+	_stop_layered_internal(duration)
 	_crossfade_music_internal(id, duration, loop)
 
 func _crossfade_music_internal(id: String, duration: float, loop: bool) -> void:
@@ -244,6 +258,7 @@ func _crossfade_music_internal(id: String, duration: float, loop: bool) -> void:
 func play_music_playlist(ids: Array, fade_in: float = 2.0, crossfade_between: float = 2.0) -> void:
 	if ids.is_empty():
 		return
+	_stop_layered_internal(fade_in)
 	_playlist = ids.duplicate()
 	_playlist_idx = 0
 	_playlist_crossfade = crossfade_between
@@ -264,6 +279,90 @@ func _on_music_player_finished(player: AudioStreamPlayer) -> void:
 
 func is_music_playing() -> bool:
 	return _active_music != null and _active_music.playing
+
+# ═══════════════════════════════════════════════════
+#  层叠音乐 API（多轨同步播放，通过音量切换层）
+#  CSG BOSS 用：Phase 1 + Phase 2 同时 play + loop，
+#  进二阶段时把 Phase 1 压成静音、Phase 2 拉起来 —— 作曲层面无缝衔接。
+#  前提：各层曲子长度相等、BPM 一致、.ogg 导入 Loop ✓。
+# ═══════════════════════════════════════════════════
+
+## 同帧启动所有层，active_index 那层淡入到 0 dB，其他层保持 -80 dB 静音同步播放
+func play_layered_music(ids: Array, fade_in: float = 2.0, active_index: int = 0) -> void:
+	if ids.is_empty():
+		return
+	# 先关掉 a/b 主轨（层叠期间独占 BGM）
+	_playlist_active = false
+	_fade_out_main_music(fade_in)
+	# 关掉上一次层叠（若有）
+	_stop_layered_internal(0.0)
+	var count: int = mini(ids.size(), LAYER_COUNT)
+	_layer_active = true
+	_layer_active_index = clampi(active_index, 0, count - 1)
+	for i in count:
+		var stream := _get_music(ids[i])
+		if stream == null:
+			continue
+		_apply_loop(stream, true)
+		var lp := _layer_players[i]
+		_kill_tween(lp)
+		lp.stop()
+		lp.stream = stream
+		lp.volume_db = LAYER_SILENT_DB
+		lp.play()
+		if i == _layer_active_index:
+			_fade_to(lp, 0.0, fade_in)
+
+## 切换激活层：
+## 新层快速淡入到 0 dB（~45% 时间），旧层先保持满音量、等新层接上后再淡出
+## —— 避免对称交叉时中段两轨都在 -40 dB 附近形成"空洞"。
+func set_music_layer(index: int, duration: float = 2.0) -> void:
+	if not _layer_active:
+		return
+	if index < 0 or index >= _layer_players.size():
+		return
+	_layer_active_index = index
+	var rise_time: float = maxf(duration * 0.45, 0.1)   # 新层淡入时长（占总时长前半）
+	var hold_time: float = duration * 0.5               # 旧层保持满音量的延迟
+	var fall_time: float = maxf(duration * 0.5, 0.1)    # 旧层淡出时长
+	for i in _layer_players.size():
+		var lp := _layer_players[i]
+		if not lp.playing:
+			continue
+		_kill_tween(lp)
+		if i == index:
+			_fade_to(lp, 0.0, rise_time)
+		else:
+			# 延迟 hold_time 后再开始淡出，期间新层已经接近满音量
+			var t := create_tween()
+			_tweens[lp.get_instance_id()] = t
+			t.tween_interval(hold_time)
+			t.tween_property(lp, "volume_db", LAYER_SILENT_DB, fall_time)
+
+## 停止所有层叠层（BOSS 胜利 / 撤退用）
+func stop_layered_music(fade_out: float = 2.0) -> void:
+	_stop_layered_internal(fade_out)
+
+func _stop_layered_internal(fade_out: float) -> void:
+	if not _layer_active:
+		return
+	_layer_active = false
+	for lp in _layer_players:
+		if not lp.playing:
+			continue
+		_kill_tween(lp)
+		var dying := lp
+		_fade_to(dying, LAYER_SILENT_DB, fade_out,
+			func(): if is_instance_valid(dying): dying.stop())
+
+## 层叠模式开始时把当前活跃的 a/b 主轨也压下去
+func _fade_out_main_music(duration: float) -> void:
+	if _active_music == null or not _active_music.playing:
+		return
+	_kill_tween(_active_music)
+	var dying := _active_music
+	_fade_to(dying, LAYER_SILENT_DB, duration,
+		func(): if is_instance_valid(dying): dying.stop())
 
 ## 菜单模糊效果（升级界面 / 战术面板打开时调 true，关闭时调 false）
 ## 淡入/淡出 cutoff_hz 模拟隔层雾的听感

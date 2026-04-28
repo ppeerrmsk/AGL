@@ -18,6 +18,20 @@ var flat_altitude_mode: bool = false       ## 扁平高度模式：跳过高度�
 ## 弹丸数据：{ pos: Vector2, vel: Vector2, owner: CombatUnit, damage: float, life: float }
 var _bullets: Array[Dictionary] = []
 
+
+## 建筑拦截概率查表（与 missile_manager._building_block_prob_for_tier 一致）
+##   HIGH → 40% / MID → 60% / LOW → 80% / GROUND → 100%
+static func _building_block_prob_for_tier(source_tier: int) -> float:
+	match source_tier:
+		CombatUnit.AltitudeTier.HIGH:
+			return 0.40
+		CombatUnit.AltitudeTier.MID:
+			return 0.60
+		CombatUnit.AltitudeTier.LOW:
+			return 0.80
+		_:
+			return 1.00
+
 ## 场景中所有战斗单位的缓存引用，由 main.gd 每帧更新
 var combat_unit_list: Array[CombatUnit] = []
 
@@ -31,6 +45,19 @@ func spawn_bullet(origin: Vector2, direction: float, speed_ms: float, source: Co
 	var vel := Vector2(sin(direction), -cos(direction)) * speed_px
 	# ⚠ 快照 team 到 dict：弹丸寿命中射手可能被释放，
 	#   后续命中判定必须靠 source_team 而不是 source.team。
+	# 建筑"从内向外射"规则：spawn 时源在街区内 → 永久免疫建筑拦截
+	var spawn_in_b := false
+	if is_instance_valid(source) and source.altitude < 3500.0:
+		if source is Aircraft and (source as Aircraft).in_building:
+			spawn_in_b = true
+		elif BuildingRenderer.is_position_inside_building(origin):
+			spawn_in_b = true
+	var src_tier: int = 0
+	if is_instance_valid(source):
+		if source is GroundUnit or source is NavalUnit:
+			src_tier = CombatUnit.AltitudeTier.GROUND
+		else:
+			src_tier = source.get_altitude_tier()
 	_bullets.append({
 		"pos": origin,
 		"vel": vel,
@@ -43,6 +70,9 @@ func spawn_bullet(origin: Vector2, direction: float, speed_ms: float, source: Co
 		"is_rocket": false,
 		"is_ciws": is_ciws,
 		"visual_only": visual_only,
+		"spawn_in_building": spawn_in_b,
+		"source_tier": src_tier,
+		"was_in_building": spawn_in_b,
 	})
 
 ## 生成无制导火箭弹
@@ -52,6 +82,18 @@ func spawn_rocket(origin: Vector2, direction: float, speed_ms: float, source: Co
 	var vel := Vector2(sin(direction), -cos(direction)) * speed_px
 	# 寿命 = 射程 / 初速
 	var life := clampf(max_range_m / maxf(speed_ms, 50.0), 1.5, 6.0)
+	var spawn_in_b := false
+	if is_instance_valid(source) and source.altitude < 3500.0:
+		if source is Aircraft and (source as Aircraft).in_building:
+			spawn_in_b = true
+		elif BuildingRenderer.is_position_inside_building(origin):
+			spawn_in_b = true
+	var src_tier: int = 0
+	if is_instance_valid(source):
+		if source is GroundUnit or source is NavalUnit:
+			src_tier = CombatUnit.AltitudeTier.GROUND
+		else:
+			src_tier = source.get_altitude_tier()
 	_bullets.append({
 		"pos": origin,
 		"vel": vel,
@@ -62,6 +104,9 @@ func spawn_rocket(origin: Vector2, direction: float, speed_ms: float, source: Co
 		"max_life": life,
 		"altitude": source.altitude if is_instance_valid(source) else 5000.0,
 		"is_rocket": true,
+		"spawn_in_building": spawn_in_b,
+		"source_tier": src_tier,
+		"was_in_building": spawn_in_b,
 	})
 
 func _physics_process(delta: float) -> void:
@@ -81,6 +126,25 @@ func _physics_process(delta: float) -> void:
 		if b.get("visual_only", false):
 			i -= 1
 			continue
+
+		# 建筑遮挡（按 source 高度档位查表的单次进入 roll）
+		# 进入街区那一帧 roll 一次，roll 失败的子弹本次穿楼期间不再 roll
+		# 离开街区后下次进入再 roll
+		var b_alt: float = float(b["altitude"])
+		if b_alt < 3500.0 and not b.get("spawn_in_building", false):
+			var bullet_in_b: bool = BuildingRenderer.is_position_inside_building(b["pos"])
+			var was_in: bool = b.get("was_in_building", false)
+			if bullet_in_b and not was_in:
+				var src_tier: int = int(b.get("source_tier", 0))
+				var p := _building_block_prob_for_tier(src_tier)
+				if randf() < p:
+					if b.get("is_rocket", false):
+						ExplosionVFXScript.emit(get_tree(), b["pos"], 0.0, 0.6)
+						AudioManager.play_sfx_2d("bomb_distant", b["pos"], 5.0)
+					_bullets.remove_at(i)
+					i -= 1
+					continue
+			b["was_in_building"] = bullet_in_b
 
 		# 命中检测
 		# ⚠ 不能直接给带类型变量赋值 b["source"]：如果射手已被释放，
@@ -158,6 +222,9 @@ func _physics_process(delta: float) -> void:
 				var evt_tag := "ROCKET" if is_rocket else "GUN"
 				EventLogger.log_event(evt_tag, src_name,
 					"hit %s (dmg=%.1f)" % [tgt_name, actual_dmg])
+				# 归因：把射手写到目标 meta，aircraft._record_kill_attribution 在致死时读取
+				if is_instance_valid(b["source"]) and ac is Aircraft:
+					ac.set_meta("_pending_attacker", b["source"])
 				if is_rocket:
 					# 火箭不进入子弹闪避系统
 					# 爆炸画在目标本体位置（不是命中点），击中/击毁均只此一次
