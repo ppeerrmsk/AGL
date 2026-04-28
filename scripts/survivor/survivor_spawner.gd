@@ -1519,22 +1519,19 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 			ai.engage_cooldown = 4.0
 			enemy.attack_air_targets = false  ## _auto_gun_scan 跳过空中目标（防止扫到玩家）
 		EnemyType.AF03:
-			# AF-03 = Lancer 狙击手（打带跑节奏 + bvr_only 远距站位）
-			# 行为闭环：
-			#   ENGAGE 6s → 加速冲到 5-8km 站位 → 充能 2s + 锁定 0.5s → 开火
-			#   DISENGAGE 9s（= 电磁炮 cooldown）→ 加速远离到 10km+ →
-			#   再 ENGAGE → 加速回来狙击 → 循环
-			# bvr_only 兜底：万一玩家追到 4km 内强制脱离飞 6km 外
+			# AF-03 = 试验机精英 Lancer 狙击手（打带跑 + bvr_only 远距站位）
+			# 完整开火循环 = 雷达锁 2s + 充能 2s + 锁定相位 0.5s = 4.5s
+			# engage_duration 必须 ≥ 4.5s + 加速到位时间，否则跑完一轮还没开枪就脱离
 			ai.bvr_only = true
 			ai.evade_missiles = true
-			ai.aggression = 0.9                 # 高攻击欲，主动加速冲向站位
-			ai.engage_cooldown = 9.0            # = 电磁炮 cooldown，脱离期正好等装填
-			ai.engage_duration = 6.0            # 一次打击窗口（2.5s 充能 + 0.5s 锁定 + 3s 缓冲）
-			ai.skill_level = 0.85
-			ai.composure = 0.80
-			ai.focus = 0.92
-			ai.self_preservation = 0.5          # 由 bvr_only 控距，self_preservation 不必过高
-			ai.situational_awareness = 0.80
+			ai.aggression = 0.95                # 极高攻击欲，主动加力冲向站位
+			ai.engage_cooldown = 7.0            # 略短于电磁炮 cooldown，立刻回头狙击
+			ai.engage_duration = 10.0           # 完整一轮：到位 ~3s + 锁 2s + 充能+锁定 3s + 缓冲
+			ai.skill_level = 0.92               # 精英级
+			ai.composure = 0.88
+			ai.focus = 0.95                     # 死盯玩家
+			ai.self_preservation = 0.4
+			ai.situational_awareness = 0.88
 		EnemyType.UAV_LASER:
 			# Aegis UAV：拦截特化，无对空武器，不主动交战
 			# 跟随 Sentinel 编队，靠激光拦导弹
