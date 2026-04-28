@@ -55,6 +55,17 @@ enum LockTrajectory {
 @export var fast_target_miss_speed_kmh: float = 1500.0
 @export var fast_target_max_miss_chance: float = 0.15
 
+@export_group("环境干扰 miss")
+## 基础 miss 概率（每发都 roll，0 = 必中除非环境干扰）。AF-03 = 0.15。
+@export var base_miss_chance: float = 0.0
+## 目标在云中追加 miss 概率（按云密度线性插值 0 → cloud_miss_bonus）。
+## AF-03 = 0.30 → 满云时总 miss = base + cloud = 0.45
+@export var cloud_miss_bonus: float = 0.0
+## 目标低空（< low_alt_threshold_m）追加 miss 概率（地面杂波干扰雷达 + 视线被建筑遮挡）
+## AF-03 = 0.20 → 低空满云总 miss = 0.65
+@export var low_alt_miss_bonus: float = 0.0
+@export var low_alt_threshold_m: float = 3500.0  ## AltitudeTier.LOW 阈值
+
 @export_group("命中 / 视觉")
 ## 弹道线段命中半径（像素）。25 = ~50 米光束直径。AF-03 等高精度狙击手可降到 10-15 减少命中率
 @export var hit_radius_px: float = 25.0
@@ -218,6 +229,33 @@ func _fire(ac, s: Dictionary) -> void:
 	# _tick_charging 进入完成态时（AT_FIRE_TIME 含预测）写入。
 	# 锁定相位（awaiting_fire）期间 tgt 可能变 null（被打掉）也无所谓 — 锁已经定了。
 	var aim_pos: Vector2 = s["locked_aim_pos"]
+
+	# 环境干扰 miss：基础 + 云层 + 低空
+	# 三项叠加后单次 roll，命中失败则给 aim_pos 加横向偏移 → hitscan 错过
+	var miss_chance: float = base_miss_chance
+	var tgt_for_env = s.get("charge_target", null)
+	if is_instance_valid(tgt_for_env):
+		# 云密度（用激光的同款 WeatherSystem 查询）
+		if cloud_miss_bonus > 0.0:
+			var loop := Engine.get_main_loop()
+			if loop != null:
+				var weather_nodes := loop.get_nodes_in_group("weather")
+				if weather_nodes.size() > 0 and weather_nodes[0] is WeatherSystem:
+					var w: WeatherSystem = weather_nodes[0]
+					var density: float = w.sample_density(tgt_for_env.global_position)
+					miss_chance += cloud_miss_bonus * clampf(density, 0.0, 1.0)
+		# 低空判定（敌机有 altitude 字段；地面单位天然在低空）
+		if low_alt_miss_bonus > 0.0 and "altitude" in tgt_for_env:
+			if float(tgt_for_env.altitude) < low_alt_threshold_m:
+				miss_chance += low_alt_miss_bonus
+	if miss_chance > 0.0 and randf() < clampf(miss_chance, 0.0, 0.95):
+		# 横向偏移让 hitscan 错过（偏移幅度 50-150px，与 fast_target miss 相当）
+		var to_target: Vector2 = aim_pos - ac.global_position
+		var perp: Vector2 = to_target.orthogonal().normalized()
+		var offset_amt: float = randf_range(50.0, 150.0)
+		aim_pos += perp * offset_amt * (1.0 if randf() < 0.5 else -1.0)
+		EventLogger.log_event("RAILGUN", ac.callsign,
+			"miss-roll triggered (chance=%.2f)" % miss_chance)
 	# 玩家版极速目标 miss 散布：仅当装备 fast_target_max_miss_chance > 0 时启用
 	# （敌人版 enemy_railgun.tres 设 0，没有这个补偿）
 	if fast_target_max_miss_chance > 0.0:
