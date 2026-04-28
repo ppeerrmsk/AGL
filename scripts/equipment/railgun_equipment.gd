@@ -28,6 +28,9 @@ enum LockTrajectory {
 @export_group("基本")
 @export var damage: float = 60.0                 ## 单发伤害（玩家版 150，敌人版 50-70）
 @export var max_range_m: float = 5000.0          ## 米 最大射程
+## 米 最小开火距离（小于此距离不充能 → 让出近战给机炮 / 激光）。
+## 玩家版设 0 让玩家自由选择；AI 多武器机型设 800-1500，避免点射近战目标
+@export var min_engage_range_m: float = 0.0
 
 @export_group("充能")
 @export var charge_duration: float = 2.5         ## 秒 telegraph 时长（玩家 1.2 / 敌人 2.5）
@@ -102,6 +105,11 @@ func _try_start_charging(ac, s: Dictionary) -> void:
 	var range_px: float = max_range_m * CombatUnit.PIXELS_PER_METER
 	if dist > range_px:
 		return
+	# 最小开火距离（多武器机型用，避免在近战距离消耗电磁炮）
+	if min_engage_range_m > 0.0:
+		var min_px: float = min_engage_range_m * CombatUnit.PIXELS_PER_METER
+		if dist < min_px:
+			return
 	# 雷达锁定要求：必须先 illuminate 目标到 is_locked = true
 	if require_radar_lock and not tgt.is_locked:
 		return
@@ -145,6 +153,14 @@ func _tick_charging(ac, s: Dictionary, delta: float) -> void:
 		s["charging"] = false
 		s["charge_progress"] = 0.0
 		return
+	# 充能期间敌机贴脸到 min_engage 内 → 取消（让位给近战武器）
+	if min_engage_range_m > 0.0:
+		var dist: float = ac.global_position.distance_to(tgt.global_position)
+		var min_px: float = min_engage_range_m * CombatUnit.PIXELS_PER_METER
+		if dist < min_px:
+			s["charging"] = false
+			s["charge_progress"] = 0.0
+			return
 	# 推进进度
 	s["charge_progress"] = clampf(s["charge_progress"] + delta / charge_duration, 0.0, 1.0)
 	if s["charge_progress"] >= 1.0:
