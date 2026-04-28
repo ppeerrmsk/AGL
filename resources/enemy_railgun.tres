@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="RailgunEquipment" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/equipment/railgun_equipment.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+equipment_kind = "railgun"
+display_name = "AF-03 Railgun"
+damage = 60.0
+max_range_m = 5500.0
+charge_duration = 2.5
+lock_trajectory_at = 0
+cooldown = 9.0
+fast_target_miss_speed_kmh = 1500.0
+fast_target_max_miss_chance = 0.0
+beam_color = Color(0.7, 0.95, 1.0, 1.0)
+enemy_beam_color = Color(1.0, 0.5, 0.4, 1.0)

@@ -1,0 +1,36 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/enemy_railgun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/default_combat.tres" id="3"]
+
+[resource]
+script = ExtResource("1")
+display_name = "AF-03"
+is_unmanned = false
+max_hp = 60.0
+armor = 0.0
+max_speed = 2200.0
+cruise_speed = 950.0
+stall_speed_base = 230.0
+acceleration = 60.0
+deceleration = 90.0
+g_drag_factor = 2.8
+max_g = 8.5
+max_g_structural = 11.0
+roll_rate = 4.0
+max_altitude = 16000.0
+climb_rate_max = 270.0
+thrust_to_weight = 1.15
+drag_coefficient = 0.020
+afterburner_thrust_mult = 1.55
+fuel_capacity = 3000.0
+fuel_rate_normal = 1.5
+fuel_rate_afterburner = 8.0
+radar_range = 500.0
+radar_half_angle = 35.0
+lock_time = 3.0
+combat = ExtResource("3")
+icon_color = Color(0.6, 0.4, 0.7, 1.0)
+wing_color = Color(0.3, 0.2, 0.4, 1.0)
+equipment = [ExtResource("2")]

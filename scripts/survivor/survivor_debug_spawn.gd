@@ -56,6 +56,8 @@ const ENEMY_TYPE_LABELS := [
 	{"label": "AH-64 Apache（Adds 直升机）", "enum_idx": 13}, # EnemyType.AH64
 	{"label": "CH-47 Chinook（Adds 直升机）", "enum_idx": 14}, # EnemyType.CH47
 	{"label": "F-47 王牌小队（BOSS）", "enum_idx": 15},      # EnemyType.F47
+	{"label": "AF-03 电磁炮狙击手（实验）", "enum_idx": 17},   # EnemyType.AF03
+	{"label": "Aegis UAV 激光拦截器", "enum_idx": 18},        # EnemyType.UAV_LASER
 ]
 
 func _ready() -> void:

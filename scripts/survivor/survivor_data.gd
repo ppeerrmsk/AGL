@@ -682,6 +682,9 @@ const TOKEN_COST := {
 	13: 0,  ## AH-64      — Adds 直升机（纵阵，独立波次）
 	14: 0,  ## CH-47      — Adds 重型直升机（纵阵，独立波次）
 	15: 10, ## F-47       — BOSS 王牌狙击小队（全敌人最高 Token，事件触发）
+	16: 10, ## F-14 Poltergeist — BOSS（CSG Phase 2，事件触发）
+	17: 7,  ## AF-03      — Schemer 电磁炮狙击手（中后期，事件触发）
+	18: 2,  ## Aegis UAV  — 激光拦截器，跟随 Sentinel 出现
 }
 
 ## 每种敌人的同时存在上限（-1 = 无限制）
@@ -704,6 +707,9 @@ const TOKEN_INSTANCE_CAP := {
 	13: -1, ## AH-64：Adds 族群波次
 	14: -1, ## CH-47：Adds 族群波次
 	15: 4,  ## F-47：BOSS 小队（固定 4 架，不多不少）
+	16: 4,  ## F-14 Poltergeist BOSS 小队
+	17: 1,  ## AF-03：单机出现（独特狙击体验）
+	18: 2,  ## Aegis UAV：每只 Sentinel 带 2 架
 }
 
 ## 远距清理

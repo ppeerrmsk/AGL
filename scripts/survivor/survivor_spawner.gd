@@ -13,7 +13,7 @@ extends Node
 ## - Adds（杂兵，category="adds"）：无反击能力，只沿直线飞行，不走 _update_spawner
 ##     / Token 预算系统，通过独立 flock 波次刷新，不受远距清理影响。
 ##     目前成员：TU160, AH64, CH47。敌人参数的 meta("category")="adds" 标识。
-enum EnemyType { UAV, UCAV, MIG, INTERCEPTOR, UAV_COMMANDER, F86, MIG31, MIG23, F100, SU27, A7, Q5, TU160, AH64, CH47, F47, F14_POLTERGEIST }
+enum EnemyType { UAV, UCAV, MIG, INTERCEPTOR, UAV_COMMANDER, F86, MIG31, MIG23, F100, SU27, A7, Q5, TU160, AH64, CH47, F47, F14_POLTERGEIST, AF03, UAV_LASER }
 
 # ── 经验常量 ──
 const XP_PER_KILL := 40  ## 基础经验值（MiG）
@@ -56,6 +56,8 @@ var _ah64_params_base: AircraftParams
 var _ch47_params_base: AircraftParams
 var _f47_params_base: AircraftParams
 var _f14_poltergeist_params_base: AircraftParams
+var _af03_params_base: AircraftParams         ## AF-03 电磁炮狙击手（Schemer with combat, commit 11/13）
+var _uav_laser_params_base: AircraftParams    ## Aegis UAV 激光拦截器（伴 Sentinel, commit 11/13）
 
 # ── 王牌中队 BOSS ──
 var _boss: BossEncounter = null               ## 当前活跃的 BOSS encounter（F-47 / CSG / ...）
@@ -125,6 +127,8 @@ func _preload_resources() -> void:
 	_ch47_params_base = preload("res://resources/enemy_ch47.tres")
 	_f47_params_base = preload("res://resources/enemy_f47.tres")
 	_f14_poltergeist_params_base = preload("res://resources/enemy_f14_poltergeist.tres")
+	_af03_params_base = preload("res://resources/enemy_af03.tres")
+	_uav_laser_params_base = preload("res://resources/enemy_uav_laser.tres")
 
 # ══════════════════════════════════════════════
 #  每帧更新（由 survivor_mode._physics_process 调用）
@@ -664,6 +668,20 @@ func _spawn_commander_squad(wingman_count: int) -> void:
 				wai.waypoints = PackedVector2Array()
 				break
 
+	# Aegis UAV 激光拦截器（commit 11/13）：每只 Sentinel 固定带 2 架
+	# 不属于 squad —— 它们独立飞行 + 各自 LaserEquipment.update 自动扫描拦导弹
+	for i in range(2):
+		var laser_angle := PI * (0.65 + 0.7 * float(i))  # 左右偏后侧站位
+		var laser_pos := leader_pos + Vector2(cos(laser_angle), sin(laser_angle)) * 320.0
+		var laser_uav := _create_enemy(EnemyType.UAV_LASER, laser_pos, heading)
+		# 让它绕 Sentinel 飞（orbit_squad_leader 已在 AI config 里设过）
+		for child in laser_uav.get_children():
+			if child is AIController:
+				var lai := child as AIController
+				lai.squad = sq
+				lai.squad_index = wingman_count + 1 + i
+				break
+
 	_squads.append(sq)
 
 ## 【Sentinel 护卫看门狗】：每帧扫描所有 Sentinel，护卫 < MIN_ESCORT 时紧急补刷
@@ -1103,6 +1121,10 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 			base_params = _f47_params_base
 		EnemyType.F14_POLTERGEIST:
 			base_params = _f14_poltergeist_params_base
+		EnemyType.AF03:
+			base_params = _af03_params_base
+		EnemyType.UAV_LASER:
+			base_params = _uav_laser_params_base
 		_:
 			base_params = _uav_params_base
 
@@ -1136,6 +1158,9 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 		scale = {"hp_mult": 1.0, "missile_add": 0, "gun_damage_mult": 1.0}
 	elif etype == EnemyType.F47 or etype == EnemyType.F14_POLTERGEIST:
 		# BOSS 飞机（F-47 / F-14 Poltergeist）：无缩放（按满级玩家平衡，固定参数）
+		scale = {"hp_mult": 1.0, "missile_add": 0, "gun_damage_mult": 1.0}
+	elif etype == EnemyType.AF03 or etype == EnemyType.UAV_LASER:
+		# 装备模块化新敌人：固定参数，按设计平衡
 		scale = {"hp_mult": 1.0, "missile_add": 0, "gun_damage_mult": 1.0}
 	else:
 		scale = SurvivorData.uav_scale_for_level(survivor_player.level)
@@ -1244,6 +1269,8 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 		EnemyType.CH47: type_tag = "ch47"
 		EnemyType.F47: type_tag = "f47"
 		EnemyType.F14_POLTERGEIST: type_tag = "f14_poltergeist"
+		EnemyType.AF03: type_tag = "af03"
+		EnemyType.UAV_LASER: type_tag = "uav_laser"
 		_: type_tag = "uav"
 	enemy.set_meta("enemy_type", type_tag)
 	# Token 系统元数据：便于重算占用与实例计数
@@ -1491,6 +1518,28 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 			ai.engage_duration = 12.0        ## 打完 10 多秒就脱离回航线
 			ai.engage_cooldown = 4.0
 			enemy.attack_air_targets = false  ## _auto_gun_scan 跳过空中目标（防止扫到玩家）
+		EnemyType.AF03:
+			# AF-03 = Schemer with combat 远距电磁炮狙击手
+			# 极高技能 + 极强自保（玩家近身就跑）+ 中距 keep distance
+			ai.evade_missiles = true
+			ai.aggression = 0.7                 # 不主动近身，但敢于持续 keep distance 输出
+			ai.engage_cooldown = 1.0
+			ai.engage_duration = 60.0           # 长时间盯人
+			ai.skill_level = 0.85
+			ai.composure = 0.80
+			ai.focus = 0.92
+			ai.self_preservation = 0.85         # 极高 → 玩家近身立即脱离
+			ai.situational_awareness = 0.80
+		EnemyType.UAV_LASER:
+			# Aegis UAV：拦截特化，无对空武器，不主动交战
+			# 跟随 Sentinel 编队，靠激光拦导弹
+			ai.simple_ai = true
+			ai.enable_combat = false            # 不通过 AI 决策开火（laser update 自己扫描）
+			ai.evade_missiles = true
+			ai.aggression = 0.0
+			ai.self_preservation = 0.95
+			ai.orbit_squad_leader = true
+			enemy.attack_air_targets = false
 		_:
 			ai.simple_ai = true
 			ai.evade_missiles = false
