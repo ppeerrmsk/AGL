@@ -280,6 +280,13 @@ func _pick_enemy_type() -> EnemyType:
 			0.0, SurvivorData.MIG31_CHANCE_MAX)
 		if randf() < mig31_chance:
 			return EnemyType.MIG31
+	# AF-03（电磁炮狙击 Schemer，单机）：等级 8+ 稀有出现
+	if lvl >= SurvivorData.AF03_UNLOCK_LEVEL and _can_spawn_type(int(EnemyType.AF03), remaining):
+		var af03_chance := clampf(
+			(lvl - SurvivorData.AF03_UNLOCK_LEVEL + 1) * SurvivorData.AF03_CHANCE_PER_LEVEL,
+			0.0, SurvivorData.AF03_CHANCE_MAX)
+		if randf() < af03_chance:
+			return EnemyType.AF03
 	# Su-27（主力威胁 + 眼镜蛇机动，单机）：等级 8+ 出现
 	if lvl >= SurvivorData.SU27_UNLOCK_LEVEL and _can_spawn_type(int(EnemyType.SU27), remaining):
 		var su27_chance := clampf(
@@ -439,6 +446,7 @@ func _update_spawner(delta: float) -> void:
 		# MiG-31 永远单机精英；J-7 在后期改走编队（视作低级 Lancer）
 		var spawn_as_single := etype == EnemyType.MIG31 \
 				or etype == EnemyType.SU27 \
+				or etype == EnemyType.AF03 \
 				or (etype == EnemyType.INTERCEPTOR and not is_late_game)
 
 		if spawn_as_single:
@@ -1149,7 +1157,8 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 	var scale: Dictionary
 	if etype == EnemyType.MIG or etype == EnemyType.INTERCEPTOR or etype == EnemyType.F86 \
 			or etype == EnemyType.MIG31 or etype == EnemyType.MIG23 or etype == EnemyType.F100 \
-			or etype == EnemyType.SU27 or etype == EnemyType.A7 or etype == EnemyType.Q5:
+			or etype == EnemyType.SU27 or etype == EnemyType.A7 or etype == EnemyType.Q5 \
+			or etype == EnemyType.AF03:
 		scale = SurvivorData.enemy_scale_for_level(survivor_player.level)
 	elif etype == EnemyType.UAV_COMMANDER:
 		scale = SurvivorData.commander_scale_for_level(survivor_player.level)
@@ -1159,8 +1168,8 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 	elif etype == EnemyType.F47 or etype == EnemyType.F14_POLTERGEIST:
 		# BOSS 飞机（F-47 / F-14 Poltergeist）：无缩放（按满级玩家平衡，固定参数）
 		scale = {"hp_mult": 1.0, "missile_add": 0, "gun_damage_mult": 1.0}
-	elif etype == EnemyType.AF03 or etype == EnemyType.UAV_LASER:
-		# 装备模块化新敌人：固定参数，按设计平衡
+	elif etype == EnemyType.UAV_LASER:
+		# 拦截支援机：固定参数（不需要按等级提升 HP/伤害）
 		scale = {"hp_mult": 1.0, "missile_add": 0, "gun_damage_mult": 1.0}
 	else:
 		scale = SurvivorData.uav_scale_for_level(survivor_player.level)
