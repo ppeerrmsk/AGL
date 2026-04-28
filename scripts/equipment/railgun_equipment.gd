@@ -235,15 +235,13 @@ func _fire(ac, s: Dictionary) -> void:
 	var miss_chance: float = base_miss_chance
 	var tgt_for_env = s.get("charge_target", null)
 	if is_instance_valid(tgt_for_env):
-		# 云密度（用激光的同款 WeatherSystem 查询）
-		if cloud_miss_bonus > 0.0:
-			var loop := Engine.get_main_loop()
-			if loop != null:
-				var weather_nodes := loop.get_nodes_in_group("weather")
-				if weather_nodes.size() > 0 and weather_nodes[0] is WeatherSystem:
-					var w: WeatherSystem = weather_nodes[0]
-					var density: float = w.sample_density(tgt_for_env.global_position)
-					miss_chance += cloud_miss_bonus * clampf(density, 0.0, 1.0)
+		# 云层加成：仅当目标实际"在云中"（HIGH 高度 + 有云密度）才生效。
+		# 用 Aircraft.cloud_state == 2（HIGH + 在云中），cloud_state == 1 表示在云下方（LOW/MID）
+		# 不算真的接触到云。这样低空玩家不会"借云免疫"——云物理上根本不在他周围。
+		if cloud_miss_bonus > 0.0 and tgt_for_env is Aircraft:
+			var ac_t: Aircraft = tgt_for_env
+			if ac_t.cloud_state == 2:
+				miss_chance += cloud_miss_bonus * clampf(ac_t.cloud_density, 0.0, 1.0)
 		# 低空判定（敌机有 altitude 字段；地面单位天然在低空）
 		if low_alt_miss_bonus > 0.0 and "altitude" in tgt_for_env:
 			if float(tgt_for_env.altitude) < low_alt_threshold_m:
