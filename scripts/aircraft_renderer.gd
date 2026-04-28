@@ -1441,7 +1441,7 @@ static func draw_railgun_beam(ac: Aircraft) -> void:
 	if rg == null:
 		return
 
-	var t: float = clampf(fade / RailgunEquipment.BEAM_FADE_DURATION, 0.0, 1.0)
+	var t: float = clampf(fade / maxf(rg.beam_fade_duration, 0.01), 0.0, 1.0)
 	var color: Color = rg.beam_color
 	if ac.team != 0:
 		color = rg.enemy_beam_color

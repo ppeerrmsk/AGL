@@ -15,8 +15,6 @@ extends EquipmentParams
 ## 视觉由 AircraftRenderer.draw_railgun_telegraph + draw_railgun_beam 承担。
 
 const STATE_KEY := "railgun"
-const HIT_RADIUS_PX := 25.0   ## 线段命中半径（~50 米光束直径）
-const BEAM_FADE_DURATION := 0.25  ## 视觉淡出时长（秒）
 const TELEGRAPH_INITIAL_HALF_ANGLE_DEG := 30.0  ## 扇形初始半角
 
 enum LockTrajectory {
@@ -57,7 +55,11 @@ enum LockTrajectory {
 @export var fast_target_miss_speed_kmh: float = 1500.0
 @export var fast_target_max_miss_chance: float = 0.15
 
-@export_group("视觉")
+@export_group("命中 / 视觉")
+## 弹道线段命中半径（像素）。25 = ~50 米光束直径。AF-03 等高精度狙击手可降到 10-15 减少命中率
+@export var hit_radius_px: float = 25.0
+## 发射后光束视觉淡出时长（秒）。延长可让玩家看清弹道方向 → 学习躲避
+@export var beam_fade_duration: float = 0.25
 @export var beam_color: Color = Color(0.7, 0.95, 1.0, 1.0)  ## 闪电色（蓝白）
 @export var enemy_beam_color: Color = Color(1.0, 0.5, 0.4, 1.0) ## 敌方红色版
 
@@ -243,7 +245,7 @@ func _fire(ac, s: Dictionary) -> void:
 	# 写入视觉状态
 	s["beam_start"] = muzzle
 	s["beam_end"] = beam_end
-	s["beam_fade"] = BEAM_FADE_DURATION
+	s["beam_fade"] = beam_fade_duration
 
 	# 进入冷却
 	s["charging"] = false
@@ -271,7 +273,7 @@ func _apply_hitscan_damage(ac, beam_start: Vector2, beam_end: Vector2) -> void:
 		if unit is Aircraft and (unit as Aircraft).is_cloaked:
 			continue
 		var d := _point_to_segment_distance(unit.global_position, beam_start, beam_end)
-		if d <= HIT_RADIUS_PX:
+		if d <= hit_radius_px:
 			unit.take_damage(damage)
 
 	# 2) 在飞导弹（如果当前 ac 持有 missile_manager 引用）
@@ -284,7 +286,7 @@ func _apply_hitscan_damage(ac, beam_start: Vector2, beam_end: Vector2) -> void:
 			if not m.is_active or m.team == ac.team:
 				continue
 			var d := _point_to_segment_distance(m.global_position, beam_start, beam_end)
-			if d <= HIT_RADIUS_PX:
+			if d <= hit_radius_px:
 				# 导弹被电磁炮命中 → 直接销毁
 				m.queue_free()
 
