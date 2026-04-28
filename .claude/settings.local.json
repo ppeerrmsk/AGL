@@ -192,7 +192,8 @@
       "Bash(awk '{ while\\(match\\($0, /^\\(\\\\t*\\)    /, a\\)\\) { $0 = a[1] \"\\\\t\" substr\\($0, RLENGTH+1\\); } print }' scripts/equipment/laser_equipment.gd)",
       "Bash(mv /tmp/le.gd scripts/equipment/laser_equipment.gd)",
       "Bash(awk '/^\\\\t/{t++} /^    /{s++} END{print \"tabs=\"t+0, \"spaces=\"s+0}' scripts/equipment/laser_equipment.gd)",
-      "Bash(grep -n \"^]$\\\\|^const UPGRADES\" scripts/survivor/survivor_data.gd)"
+      "Bash(grep -n \"^]$\\\\|^const UPGRADES\" scripts/survivor/survivor_data.gd)",
+      "Bash(grep -n \"= player_ref\\\\| player_ref$\\\\|ac == player_ref\" scripts/aircraft_renderer.gd)"
     ]
   },
   "hooks": {

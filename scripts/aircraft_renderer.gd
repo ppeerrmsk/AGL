@@ -5,6 +5,16 @@ extends RefCounted
 ## draw_data_label 里每帧为每架飞机算 RNG 用，避免在 _draw 里 O(N) 扫 parent.get_children()
 static var player_ref: Aircraft = null
 
+
+## 安全读 player_ref：自动清理 freed 引用。
+## 必须用此 getter 而非直接读 player_ref，否则 `var pref: Aircraft = safe_player_ref()`
+## 在 player_ref 已 free 时会抛 "previously freed" 类型校验错（aircraft._start_destroy
+## 的 cleanup 是主路径，本 getter 是兜底防御）。
+static func safe_player_ref() -> Aircraft:
+	if player_ref != null and not is_instance_valid(player_ref):
+		player_ref = null
+	return player_ref
+
 ## 飞机绘制系统（静态工具类）
 ## 从 aircraft.gd 提取的所有 _draw_* 子函数
 ## _draw() 入口仍保留在 aircraft.gd（Godot CanvasItem 回调必须是方法）
@@ -231,7 +241,7 @@ static func draw_lock_indicator(ac: Aircraft) -> void:
 	var p: float = clampf(ac.incoming_lock_progress, 0.0, 1.0)
 	if p <= 0.0 and not ac.is_locked:
 		return
-	var pref: Aircraft = player_ref
+	var pref: Aircraft = safe_player_ref()
 	# 反旋转，让方框对齐屏幕（不随机身 heading 转）
 	var inv_rot: float = -ac.rotation
 	ac.draw_set_transform(Vector2.ZERO, inv_rot, Vector2.ONE)
@@ -839,7 +849,7 @@ static func draw_data_label_minimal(ac: Aircraft) -> void:
 		lines.append("ALT %dm" % roundi(ac.altitude))
 	lines.append("G %.1f" % ac.g_load)
 	# 装填状态（仅玩家）：临时行，装填完自动消失
-	if ac == player_ref:
+	if ac == safe_player_ref():
 		if ac._gun_reload_active:
 			lines.append("GUN RELOAD %d%%" % roundi(ac.gun_reload_progress * 100.0))
 		if ac._missile_reload_active:
@@ -868,7 +878,7 @@ static func draw_data_label_minimal(ac: Aircraft) -> void:
 	ac.draw_rect(Rect2(-2, -2, max_w + 6, lines.size() * line_height + 4), bg_color)
 	var default_text_color := Color(0.85, 0.9, 0.85, 0.9)
 	# 仅玩家自己标 ALT 颜色；敌机保持统一色
-	var is_player := ac == player_ref
+	var is_player := ac == safe_player_ref()
 	var alt_color := altitude_tier_color(ac.get_altitude_tier(), ac.flat_altitude and absf(ac.vertical_speed) > 5.0) if is_player else default_text_color
 	for i in range(lines.size()):
 		var col := alt_color if (is_player and i == alt_line_idx) else default_text_color
@@ -885,7 +895,7 @@ static func draw_data_label(ac: Aircraft) -> void:
 
 	# 计算到玩家的距离（米）——用全局玩家引用，避免每帧扫 parent.get_children() 的 O(N)
 	var dist_m := 0.0
-	var pref := player_ref
+	var pref := safe_player_ref()
 	if pref and pref != ac and is_instance_valid(pref) and not pref.is_destroyed:
 		dist_m = ac.global_position.distance_to(pref.global_position) / Aircraft.PIXELS_PER_METER
 
@@ -918,7 +928,7 @@ static func draw_data_label(ac: Aircraft) -> void:
 	if ac.params and ac.params.flare:
 		lines.append("FLR %d" % ac.flares_remaining)
 	# 电磁炮 / 激光（仅玩家显示，避免 AF-03 头顶暴露状态）
-	if ac == player_ref and ac.params:
+	if ac == safe_player_ref() and ac.params:
 		var rg2: RailgunEquipment = ac.params.get_equipment_of_kind("railgun")
 		if rg2 != null:
 			var rg_st: Dictionary = ac.equipment_state.get(RailgunEquipment.STATE_KEY, {})
@@ -936,7 +946,7 @@ static func draw_data_label(ac: Aircraft) -> void:
 			else:
 				lines.append("LSR HEAT %d%%" % int(le_st.get("heat", 0.0) / le2.heat_max * 100))
 	# 装填状态（仅玩家）：按进度拼出来 — 机炮 / 导弹 / 热诱弹
-	if ac == player_ref:
+	if ac == safe_player_ref():
 		if ac._gun_reload_active:
 			lines.append("GUN RELOAD %d%%" % roundi(ac.gun_reload_progress * 100.0))
 		if ac._missile_reload_active:
@@ -973,7 +983,7 @@ static func draw_data_label(ac: Aircraft) -> void:
 	ac.draw_rect(Rect2(0, 0, box_w, box_h), bg_color)
 	ac.draw_rect(Rect2(0, 0, box_w, box_h), text_color * Color(1, 1, 1, 0.4), false, 1.0)
 
-	var is_player := ac == player_ref
+	var is_player := ac == safe_player_ref()
 	# 高度变化检测：用 vs 而不是 tier 跨边界（vs > 5 m/s 视为真在升降）
 	var alt_changing: bool = ac.flat_altitude and absf(ac.vertical_speed) > 5.0
 	var alt_color := altitude_tier_color(ac.get_altitude_tier(), alt_changing) if is_player else text_color
