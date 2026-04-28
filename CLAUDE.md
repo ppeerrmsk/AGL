@@ -99,7 +99,8 @@ AGL/
 │   │   ├── flare_equipment.gd          # 热诱弹装备包装器（commit 5/13；EvasionModule 子类，等 commit 7 接入投票）
 │   │   ├── cobra_evasion.gd            # 眼镜蛇 EvasionModule 标记（commit 6/13；publish 时自动 add_child 子节点）
 │   │   ├── herbst_evasion.gd           # 赫尔贝特轮 EvasionModule 标记（commit 6/13；自动挂 HerbstManeuver）
-│   │   └── railgun_equipment.gd        # 电磁炮（commit 8/13）：telegraph + hitscan + 闪电视觉 + 穿透
+│   │   ├── railgun_equipment.gd        # 电磁炮（commit 8/13）：telegraph + hitscan + 闪电视觉 + 穿透
+│   │   └── laser_equipment.gd          # 360° 激光（commit 9/13）：DoT + 过热 + 云削弱 + target_filter
 │   └── survivor/
 │       ├── survivor_mode.gd       # 生存模式主控制器（场景/操控/升级/HUD）
 │       ├── survivor_spawner.gd    # 刷怪系统（Token/生成/击杀/清理/猎手）
@@ -324,6 +325,7 @@ Resource
 | `equipment/cobra_evasion.gd` | `CobraEvasion extends EvasionModule` | [共享] 眼镜蛇标记装备（commit 6/13）；publish 时若 equipment 含 CobraEvasion 且无 CobraManeuver 子节点，自动 add_child 挂载 | `_init` 设 `equipment_kind="cobra"`；should_trigger / execute_evasion 等 commit 7 实装 |
 | `equipment/herbst_evasion.gd` | `HerbstEvasion extends EvasionModule` | [共享] 赫尔贝特轮标记装备（commit 6/13）；publish 时自动挂 HerbstManeuver 子节点 | `_init` 设 `equipment_kind="herbst"`；should_trigger / execute_evasion 等 commit 7 实装 |
 | `equipment/railgun_equipment.gd` | `RailgunEquipment extends EquipmentParams` | [共享] 电磁炮（commit 8/13，第一个全新机制装备）；telegraph 充能 + hitscan + 闪电视觉 + 穿透 + 玩家版/敌人版双锁定时机 | 字段 `damage` `max_range_m` `charge_duration` `lock_trajectory_at`(AT_CHARGE_START/AT_FIRE_TIME) `cooldown` `beam_color`；状态住 `Aircraft.equipment_state["railgun"]`；`update(ac, delta)` 状态机 IDLE→CHARGING→FIRE→COOLDOWN；`_apply_hitscan_damage` 线段穿透 + 命中导弹 queue_free；`_point_to_segment_distance` 几何辅助 |
+| `equipment/laser_equipment.gd` | `LaserEquipment extends EquipmentParams` | [共享] 360° 激光照射器（commit 9/13）；DoT + 过热 + 云削弱 + target_filter | 字段 `dps_max/min` `falloff_exp` `can_target_aircraft/missiles/ground` `max_simultaneous_targets` `heat_max/per_second/cooldown` `cloud_damage_factor_min`；状态 `Aircraft.equipment_state["laser"]` 含 heat/overheating/active_beams；`update` 扫描 + 距离/云衰减 + 多目标 DoT；导弹拦截走 `intercept_hp` 路径与 BulletManager CIWS 一致 |
 | `pilot_personality.gd` | `PilotPersonality extends RefCounted` | [共享] 飞行员心理子系统：压力/态势感知/判断误差（~223 行） | `update_stress(ai, delta)` `update_situational_awareness(ai, delta)` `update_drift(ai, delta)` `effective_skill` `effective_sa` `apply_position_error` `apply_speed_error` `apply_altitude_error` |
 | `combat_unit.gd` | `CombatUnit extends Node2D` | [共享] 战斗单位基类（通用接口） | `take_damage:81` `is_in_radar_cone:94` `get_altitude_tier:65` |
 | `missile.gd` | `Missile extends Node2D` | [共享] 导弹飞行物理（PN 制导/SARH） | `_physics_process:37` `_guidance_degradation:238` |

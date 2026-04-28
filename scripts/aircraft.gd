@@ -1474,6 +1474,7 @@ func _draw() -> void:
 	if is_firing:
 		AircraftRenderer.draw_muzzle_flash(self)
 	AircraftRenderer.draw_railgun_beam(self)
+	AircraftRenderer.draw_laser_beams(self)
 	if is_afterburner:
 		AircraftRenderer.draw_afterburner_glow(self)
 	AircraftRenderer.draw_flare_particles(self)

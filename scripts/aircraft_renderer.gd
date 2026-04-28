@@ -1400,3 +1400,43 @@ static func draw_railgun_beam(ac: Aircraft) -> void:
 		ac.draw_line(prev, p, jitter_color, 1.5, true)
 		prev = p
 	ac.draw_line(prev, end_local, jitter_color, 1.5, true)
+
+
+## ─────────── 激光照射光束（commit 9/13） ───────────
+## 360° 同时画 N 条到目标的细线；过热 → 闪烁 + 红边
+static func draw_laser_beams(ac: Aircraft) -> void:
+	var s = ac.equipment_state.get(LaserEquipment.STATE_KEY, null)
+	if s == null:
+		return
+	var beams: Array = s.get("active_beams", [])
+	var overheating: bool = s.get("overheating", false)
+	var heat_ratio: float = clampf(float(s.get("heat", 0.0)) / 100.0, 0.0, 1.0)
+
+	# 取装备实例拿颜色
+	var le: LaserEquipment = null
+	for eq in ac.params.equipment:
+		if eq is LaserEquipment:
+			le = eq
+			break
+	if le == null:
+		return
+
+	for beam in beams:
+		var unit = beam["unit"]
+		if not is_instance_valid(unit):
+			continue
+		var end_local := ac.to_local(unit.global_position)
+		var color: Color = le.beam_color
+		color.a = beam["alpha"]
+		# 过热边缘：beam 染红
+		if heat_ratio > 0.7:
+			color = color.lerp(Color(1.0, 0.4, 0.3, color.a), (heat_ratio - 0.7) / 0.3)
+		var t: float = beam["thickness"]
+		# 主光束 + 高亮中心
+		ac.draw_line(Vector2.ZERO, end_local, color, t, true)
+		var core := Color(1.0, 1.0, 1.0, color.a * 0.7)
+		ac.draw_line(Vector2.ZERO, end_local, core, t * 0.4, true)
+
+	# 过热时画一个红色光环警告（玩家友方才画）
+	if overheating and ac.team == 0:
+		ac.draw_arc(Vector2.ZERO, 30.0, 0.0, TAU, 32, Color(1.0, 0.3, 0.3, 0.6), 2.0, true)
