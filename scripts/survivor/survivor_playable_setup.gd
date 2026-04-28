@@ -105,3 +105,13 @@ static func deep_dup_weapons(p: AircraftParams) -> void:
 		p.flare = p.flare.duplicate()
 	if p.combat:
 		p.combat = p.combat.duplicate()
+	# 装备数组深拷贝（commit 10/13）：每件 EquipmentParams 都 dup，避免运行时
+	# 修改（如电磁炮 cooldown 升级）污染共享 .tres
+	if p.equipment != null and not p.equipment.is_empty():
+		var dup_arr: Array[EquipmentParams] = []
+		for eq in p.equipment:
+			if eq != null:
+				dup_arr.append(eq.duplicate())
+			else:
+				dup_arr.append(null)
+		p.equipment = dup_arr

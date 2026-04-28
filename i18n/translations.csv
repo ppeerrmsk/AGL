@@ -310,3 +310,20 @@ TUTORIAL_AUTO_FIRE,[color=#ffe08a][雷达锁定完成][/color]  自动发射导�
 TUTORIAL_CAMERA,"[color=#ffe08a][WASD / 中键拖动][/color]  自由平移（默认跟随玩家，[color=#ffe08a]空格[/color]重新锁定）","[color=#ffe08a][WASD / MMB drag][/color]  Free-pan (follows you by default, [color=#ffe08a]Space[/color] to re-lock)","[color=#ffe08a][WASD / 中ドラッグ][/color]  自由移動（既定は追尾、[color=#ffe08a]スペース[/color]で再ロック）"
 TUTORIAL_ZOOM,[color=#ffe08a][滚轮][/color]  缩放视野,[color=#ffe08a][Wheel][/color]  Zoom view,[color=#ffe08a][ホイール][/color]  ズーム
 TUTORIAL_WORLD_CLICK,点击攻击,CLICK TO ATTACK,クリックで攻撃
+AIRCRAFT_X02_DISPLAY,X-02 Wraith,X-02 Wraith,X-02 Wraith
+AIRCRAFT_X02_CARDDESC,实验型武器平台。无传统机炮导弹热诱弹。装备电磁炮（远距高伤）+ 360° 激光（贴脸 DoT）。云中激光威力锐减，电磁炮不受影响。,Experimental weapon platform. No conventional gun/missile/flare. Equipped with railgun (long-range high-dmg) + 360° laser (close-range DoT). Laser weakens in clouds; railgun unaffected.,試作型兵器プラットフォーム。従来の機関砲/ミサイル/フレアなし。電磁砲（遠距離高威力）+ 360°レーザー（近接DoT）装備。雲中はレーザー威力低下、電磁砲は影響なし。
+TAG_RAILGUN,电磁炮,Railgun,電磁砲
+TAG_LASER_360,360° 激光,360° Laser,360°レーザー
+TAG_NO_FLARE,无热诱弹,No Flares,フレアなし
+UPGRADE_RAILGUN_CHARGE_NAME,电磁炮加速,Railgun Capacitor,電磁砲チャージ
+UPGRADE_RAILGUN_CHARGE_DESC,充能时间 -20%,Charge time -20%,チャージ時間 -20%
+UPGRADE_RAILGUN_RANGE_NAME,电磁炮射程,Railgun Range,電磁砲射程
+UPGRADE_RAILGUN_RANGE_DESC,最大射程 +500m,Max range +500m,最大射程 +500m
+UPGRADE_RAILGUN_DAMAGE_NAME,电磁炮强化,Railgun Damage,電磁砲ダメージ
+UPGRADE_RAILGUN_DAMAGE_DESC,伤害 +25%,Damage +25%,ダメージ +25%
+UPGRADE_LASER_COOLDOWN_NAME,激光散热,Laser Cooling,レーザー冷却
+UPGRADE_LASER_COOLDOWN_DESC,散热效率 +25%,Cooling efficiency +25%,冷却効率 +25%
+UPGRADE_LASER_RANGE_NAME,激光增距,Laser Range,レーザー射程
+UPGRADE_LASER_RANGE_DESC,最大射程 +20%,Max range +20%,最大射程 +20%
+UPGRADE_LASER_HEAT_NAME,激光过载,Laser Capacity,レーザー過熱閾値
+UPGRADE_LASER_HEAT_DESC,过热阈值 +30%,Heat threshold +30%,過熱閾値 +30%

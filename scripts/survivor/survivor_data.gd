@@ -446,6 +446,68 @@ const UPGRADES: Array[Dictionary] = [
 		##   max_speed +5%、deceleration +10%、missile_reload ×0.92、lock_time ×0.90
 		## 受到任意伤害立即清零所有层数 + 计数
 	},
+	# ── X-02 专属：电磁炮 ──────────────────────────────────────
+	{
+		"id": "railgun_charge",
+		"name": "UPGRADE_RAILGUN_CHARGE_NAME",
+		"desc": "UPGRADE_RAILGUN_CHARGE_DESC",
+		"stat": "railgun_charge",
+		"value": 0.20,
+		"max_stacks": 3,
+		"category": "weapon",
+		"requires": ["railgun"],
+	},
+	{
+		"id": "railgun_range",
+		"name": "UPGRADE_RAILGUN_RANGE_NAME",
+		"desc": "UPGRADE_RAILGUN_RANGE_DESC",
+		"stat": "railgun_range",
+		"value": 500.0,
+		"max_stacks": 3,
+		"category": "weapon",
+		"requires": ["railgun"],
+	},
+	{
+		"id": "railgun_damage",
+		"name": "UPGRADE_RAILGUN_DAMAGE_NAME",
+		"desc": "UPGRADE_RAILGUN_DAMAGE_DESC",
+		"stat": "railgun_damage",
+		"value": 0.25,
+		"max_stacks": 3,
+		"category": "weapon",
+		"requires": ["railgun"],
+	},
+	# ── X-02 专属：激光照射 ────────────────────────────────────
+	{
+		"id": "laser_cooldown",
+		"name": "UPGRADE_LASER_COOLDOWN_NAME",
+		"desc": "UPGRADE_LASER_COOLDOWN_DESC",
+		"stat": "laser_cooldown",
+		"value": 0.25,
+		"max_stacks": 3,
+		"category": "weapon",
+		"requires": ["laser"],
+	},
+	{
+		"id": "laser_range",
+		"name": "UPGRADE_LASER_RANGE_NAME",
+		"desc": "UPGRADE_LASER_RANGE_DESC",
+		"stat": "laser_range",
+		"value": 0.20,
+		"max_stacks": 3,
+		"category": "weapon",
+		"requires": ["laser"],
+	},
+	{
+		"id": "laser_heat",
+		"name": "UPGRADE_LASER_HEAT_NAME",
+		"desc": "UPGRADE_LASER_HEAT_DESC",
+		"stat": "laser_heat",
+		"value": 0.30,
+		"max_stacks": 3,
+		"category": "weapon",
+		"requires": ["laser"],
+	},
 ]
 
 # ── 升级筛选 ─────────────────────────────────────────────

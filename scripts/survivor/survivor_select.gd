@@ -28,10 +28,8 @@ const PLAYABLE_LIST: Array[Dictionary] = [
 		"locked": false,
 	},
 	{
-		"resource": "",
-		"locked": true,
-		"slot_name": "SLOT_TBA_NAME",
-		"slot_desc": "SLOT_AIRCRAFT_DESC",
+		"resource": "res://resources/playable_x02.tres",
+		"locked": false,
 	},
 	{
 		"resource": "",

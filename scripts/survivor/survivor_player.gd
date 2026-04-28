@@ -235,6 +235,35 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 		"executioner":
 			# 侩子手（战区奖励）：连续不受伤击杀堆层，最高 5 层
 			aircraft.executioner_active = true
+		# ── X-02 电磁炮升级 ──
+		"railgun_charge":
+			# 充能时间 -20%（每层）
+			var rg := p.get_equipment_of_kind("railgun") as RailgunEquipment
+			if rg:
+				rg.charge_duration *= (1.0 - float(upgrade["value"]))
+		"railgun_range":
+			var rg2 := p.get_equipment_of_kind("railgun") as RailgunEquipment
+			if rg2:
+				rg2.max_range_m += float(upgrade["value"])
+		"railgun_damage":
+			var rg3 := p.get_equipment_of_kind("railgun") as RailgunEquipment
+			if rg3:
+				rg3.damage *= (1.0 + float(upgrade["value"]))
+		# ── X-02 激光升级 ──
+		"laser_cooldown":
+			# 散热效率 +25%（每层）
+			var le := p.get_equipment_of_kind("laser") as LaserEquipment
+			if le:
+				le.heat_cooldown_per_second *= (1.0 + float(upgrade["value"]))
+		"laser_range":
+			var le2 := p.get_equipment_of_kind("laser") as LaserEquipment
+			if le2:
+				le2.max_range_m *= (1.0 + float(upgrade["value"]))
+		"laser_heat":
+			# 过热阈值 +30% → 输出更久
+			var le3 := p.get_equipment_of_kind("laser") as LaserEquipment
+			if le3:
+				le3.heat_max *= (1.0 + float(upgrade["value"]))
 		"lock_resistance":
 			# 强化吊舱：敌人对我累积锁定速率 ÷ lock_resistance_mult（可堆叠）
 			aircraft.lock_resistance_mult *= (1.0 + float(upgrade["value"]))
