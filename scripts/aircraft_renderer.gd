@@ -1337,7 +1337,9 @@ static func draw_railgun_telegraph(ac: Aircraft) -> void:
 	var beam_len := minf(dist, range_px)
 
 	# 扇形颜色：敌方红 / 友方蓝
-	var color: Color = rg.beam_color if ac.team == 0 else rg.enemy_beam_color
+	var color: Color = rg.beam_color
+	if ac.team != 0:
+		color = rg.enemy_beam_color
 	color.a = 0.25 + 0.55 * progress  # 越收缩越亮（玩家更紧迫感）
 
 	# 用三角形扇形：以 ac.global_position 为顶点，远端两个切点
@@ -1377,7 +1379,9 @@ static func draw_railgun_beam(ac: Aircraft) -> void:
 		return
 
 	var t: float = clampf(fade / RailgunEquipment.BEAM_FADE_DURATION, 0.0, 1.0)
-	var color: Color = rg.beam_color if ac.team == 0 else rg.enemy_beam_color
+	var color: Color = rg.beam_color
+	if ac.team != 0:
+		color = rg.enemy_beam_color
 	color.a = t  # 线性淡出
 
 	var start_local := ac.to_local(s["beam_start"])

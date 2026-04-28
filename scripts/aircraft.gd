@@ -1464,7 +1464,11 @@ func _draw() -> void:
 		AircraftRenderer.draw_radar_cone(self)
 	# 友方 hover 时显示参考机炮锥；敌方对玩家提交机炮攻击时持续显示锥（条件在 draw_gun_cone 内判）
 	AircraftRenderer.draw_gun_cone(self)
-	LockWarning.draw(self, AircraftRenderer.player_ref)
+	# 守卫：player_ref 在 gameover 时可能持有 freed 引用 → GDScript 严格类型校验在
+	# 进入 LockWarning.draw 之前就抛 "previously freed" 类型错误（is_instance_valid 内部
+	# 检查反而救不了）。call-site 守卫必不可少。
+	if AircraftRenderer.player_ref != null and is_instance_valid(AircraftRenderer.player_ref):
+		LockWarning.draw(self, AircraftRenderer.player_ref)
 	AircraftRenderer.draw_target_line(self)
 	AircraftRenderer.draw_cloud_state(self)
 	AircraftRenderer.draw_railgun_telegraph(self)
