@@ -161,6 +161,11 @@ var flock_scatter_dir: Vector2 = Vector2.ZERO
 ## set_meta("scatter_on_damage", true) 时，_apply_damage 会向所有队友传播 scatter
 var flock_members: Array[Aircraft] = []
 
+## 装备运行时状态（commit 8/13 起）：每件 EquipmentParams 子类用 equipment_kind 作 key
+## 写入 / 读出自己的状态字典。避免 Aircraft 字段污染。
+## 例：RailgunEquipment 用 "railgun" key，存 charge_progress / beam_fade / cooldown 等。
+var equipment_state: Dictionary = {}
+
 # --- 雷达 ---
 
 # --- 热诱弹 ---
@@ -438,6 +443,18 @@ func _publish_equipment_to_legacy() -> void:
 	if params.has_equipment_of_kind("herbst") and get_herbst() == null:
 		add_child(HerbstManeuver.new())
 
+## 装备运行时驱动器（commit 8/13 起）
+## 每帧调用 params.equipment 数组每件的 update(self, delta)。
+## 老装备（GunEquipment/RocketEquipment 等）的 update 是 base no-op —— 它们的实际逻辑
+## 仍在 AircraftWeapons.update_gun 等里跑。
+## 新装备（RailgunEquipment / LaserEquipment）在 update 里实现完整逻辑。
+func _update_equipment(delta: float) -> void:
+	if params == null or params.equipment.is_empty():
+		return
+	for eq in params.equipment:
+		if eq != null:
+			eq.update(self, delta)
+
 func show_tactic_popup(text: String) -> void:
 	_tactic_popup_text = text
 	_tactic_popup_timer = TACTIC_POPUP_DURATION
@@ -473,6 +490,7 @@ func _physics_process(delta: float) -> void:
 	_update_in_building(delta)
 	_update_gun_threat_indicator(delta)
 	update_lock_line_state(delta)
+	_update_equipment(delta)
 
 	# LOD 2（屏幕外）：每3帧完整处理，其余帧仅位移
 	if lod_level >= 2:
@@ -1449,11 +1467,13 @@ func _draw() -> void:
 	LockWarning.draw(self, AircraftRenderer.player_ref)
 	AircraftRenderer.draw_target_line(self)
 	AircraftRenderer.draw_cloud_state(self)
+	AircraftRenderer.draw_railgun_telegraph(self)
 	AircraftRenderer.draw_aircraft_icon(self)
 	AircraftRenderer.draw_lock_indicator(self)
 	AircraftRenderer.draw_target_bracket(self, is_mission_target)
 	if is_firing:
 		AircraftRenderer.draw_muzzle_flash(self)
+	AircraftRenderer.draw_railgun_beam(self)
 	if is_afterburner:
 		AircraftRenderer.draw_afterburner_glow(self)
 	AircraftRenderer.draw_flare_particles(self)

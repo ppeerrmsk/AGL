@@ -1304,3 +1304,99 @@ static func _recompute_predicted_path(ac: Aircraft) -> void:
 			cache.append(sim_pos)
 
 	ac.predicted_path_cache = cache
+
+
+## ─────────── 电磁炮 telegraph 扇形（commit 8/13） ───────────
+## 攻击者机头出发，向充能目标方向，扇形从 INITIAL_HALF_ANGLE 收缩为 0°
+static func draw_railgun_telegraph(ac: Aircraft) -> void:
+	var s = ac.equipment_state.get(RailgunEquipment.STATE_KEY, null)
+	if s == null or not s.get("charging", false):
+		return
+	var tgt = s.get("charge_target", null)
+	if tgt == null or not is_instance_valid(tgt):
+		return
+	# 取装备实例以拿到颜色 / 初始扇角 / 距离限制
+	var rg: RailgunEquipment = null
+	for eq in ac.params.equipment:
+		if eq is RailgunEquipment:
+			rg = eq
+			break
+	if rg == null:
+		return
+
+	var to_tgt: Vector2 = tgt.global_position - ac.global_position
+	var dist: float = to_tgt.length()
+	var range_px: float = rg.max_range_m * CombatUnit.PIXELS_PER_METER
+	# 不在射程内不画
+	if dist > range_px:
+		return
+	var aim_dir: Vector2 = to_tgt.normalized()
+	var progress: float = clampf(s["charge_progress"], 0.0, 1.0)
+	var initial_half_rad := deg_to_rad(RailgunEquipment.TELEGRAPH_INITIAL_HALF_ANGLE_DEG)
+	var half_rad: float = lerpf(initial_half_rad, 0.0, progress)
+	var beam_len := minf(dist, range_px)
+
+	# 扇形颜色：敌方红 / 友方蓝
+	var color: Color = rg.beam_color if ac.team == 0 else rg.enemy_beam_color
+	color.a = 0.25 + 0.55 * progress  # 越收缩越亮（玩家更紧迫感）
+
+	# 用三角形扇形：以 ac.global_position 为顶点，远端两个切点
+	var ac_local := Vector2.ZERO
+	var ac_pos := ac.global_position
+	# Aircraft 是 Node2D，draw 调用是相对自身 transform 的；但 Aircraft.rotation = heading
+	# 在 _draw 中我们想画"世界对齐"的扇形 → 用 ac.to_local()
+	var dir_local: Vector2 = ac.to_local(ac_pos + aim_dir * beam_len) - ac.to_local(ac_pos)
+	var angle_to_dir := dir_local.angle()
+	var p1 := Vector2.from_angle(angle_to_dir - half_rad) * beam_len
+	var p2 := Vector2.from_angle(angle_to_dir + half_rad) * beam_len
+	# 三角填充
+	var pts := PackedVector2Array([Vector2.ZERO, p1, p2])
+	ac.draw_colored_polygon(pts, color)
+	# 边框
+	color.a = minf(color.a + 0.3, 1.0)
+	ac.draw_line(Vector2.ZERO, p1, color, 1.5, true)
+	ac.draw_line(Vector2.ZERO, p2, color, 1.5, true)
+
+
+## ─────────── 电磁炮闪电光束（commit 8/13） ───────────
+## hitscan 发射后短暂淡出
+static func draw_railgun_beam(ac: Aircraft) -> void:
+	var s = ac.equipment_state.get(RailgunEquipment.STATE_KEY, null)
+	if s == null:
+		return
+	var fade: float = s.get("beam_fade", 0.0)
+	if fade <= 0.0:
+		return
+
+	var rg: RailgunEquipment = null
+	for eq in ac.params.equipment:
+		if eq is RailgunEquipment:
+			rg = eq
+			break
+	if rg == null:
+		return
+
+	var t: float = clampf(fade / RailgunEquipment.BEAM_FADE_DURATION, 0.0, 1.0)
+	var color: Color = rg.beam_color if ac.team == 0 else rg.enemy_beam_color
+	color.a = t  # 线性淡出
+
+	var start_local := ac.to_local(s["beam_start"])
+	var end_local := ac.to_local(s["beam_end"])
+
+	# 主光束：粗白心 + 外彩边
+	var core := Color(1.0, 1.0, 1.0, t)
+	ac.draw_line(start_local, end_local, color, 6.0 * t, true)
+	ac.draw_line(start_local, end_local, core, 2.0 * t, true)
+
+	# 闪电抖动：沿光束方向插 4 个 jitter 点
+	var diff := end_local - start_local
+	var perp := diff.orthogonal().normalized()
+	var prev := start_local
+	var jitter_color := color
+	jitter_color.a *= 0.7
+	for i in range(1, 5):
+		var seg_t := float(i) / 5.0
+		var p := start_local + diff * seg_t + perp * randf_range(-15.0, 15.0) * t
+		ac.draw_line(prev, p, jitter_color, 1.5, true)
+		prev = p
+	ac.draw_line(prev, end_local, jitter_color, 1.5, true)
