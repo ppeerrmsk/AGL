@@ -96,7 +96,9 @@ AGL/
 │   │   ├── gun_equipment.gd            # 机炮装备包装器（commit 2/13；持 GunParams + CLOSE_TAIL 投票）
 │   │   ├── rocket_equipment.gd         # 火箭弹装备包装器（commit 3/13；持 RocketParams + TAIL_CHASE 投票）
 │   │   ├── missile_equipment.gd        # 导弹装备包装器（commit 4/13；主/副双槽 is_secondary + LEAD_PURSUIT 投票）
-│   │   └── flare_equipment.gd          # 热诱弹装备包装器（commit 5/13；EvasionModule 子类，等 commit 7 接入投票）
+│   │   ├── flare_equipment.gd          # 热诱弹装备包装器（commit 5/13；EvasionModule 子类，等 commit 7 接入投票）
+│   │   ├── cobra_evasion.gd            # 眼镜蛇 EvasionModule 标记（commit 6/13；publish 时自动 add_child 子节点）
+│   │   └── herbst_evasion.gd           # 赫尔贝特轮 EvasionModule 标记（commit 6/13；自动挂 HerbstManeuver）
 │   └── survivor/
 │       ├── survivor_mode.gd       # 生存模式主控制器（场景/操控/升级/HUD）
 │       ├── survivor_spawner.gd    # 刷怪系统（Token/生成/击杀/清理/猎手）
@@ -318,6 +320,8 @@ Resource
 | `equipment/rocket_equipment.gd` | `RocketEquipment extends EquipmentParams` | [共享] 火箭弹装备包装器（commit 3/13）；持 `rocket: RocketParams` 引用 | `_init` 设 `equipment_kind="rocket"`；`desired_engagement(s)` 返回 `EngagementPreference(intent=TAIL_CHASE, range=(min+max_fire)/2, priority=0.4)`；`ammo_ratio` `cooldown_ratio` |
 | `equipment/missile_equipment.gd` | `MissileEquipment extends EquipmentParams` | [共享] 导弹装备包装器（commit 4/13）；持 `missile: MissileParams` + `is_secondary` 双槽标识 | `_init` 设 `equipment_kind="missile"`；`is_secondary=false` 发布到 `params.missile`，`true` 发布到 `params.secondary_missile`；`desired_engagement(s)` 仅主导弹返回 `EngagementPreference(intent=LEAD_PURSUIT, range=max_range_rear×0.6, priority=0.7)`；`ammo_ratio` `cooldown_ratio` |
 | `equipment/flare_equipment.gd` | `FlareEquipment extends EvasionModule` | [共享] 热诱弹装备包装器（commit 5/13）；第一个 EvasionModule 子类 | `_init` 设 `equipment_kind="flare"`；持 `flare: FlareParams`；`should_trigger`/`execute_evasion` 暂留 base no-op，等 commit 7 接入投票后实装；`ammo_ratio` `cooldown_ratio` |
+| `equipment/cobra_evasion.gd` | `CobraEvasion extends EvasionModule` | [共享] 眼镜蛇标记装备（commit 6/13）；publish 时若 equipment 含 CobraEvasion 且无 CobraManeuver 子节点，自动 add_child 挂载 | `_init` 设 `equipment_kind="cobra"`；should_trigger / execute_evasion 等 commit 7 实装 |
+| `equipment/herbst_evasion.gd` | `HerbstEvasion extends EvasionModule` | [共享] 赫尔贝特轮标记装备（commit 6/13）；publish 时自动挂 HerbstManeuver 子节点 | `_init` 设 `equipment_kind="herbst"`；should_trigger / execute_evasion 等 commit 7 实装 |
 | `pilot_personality.gd` | `PilotPersonality extends RefCounted` | [共享] 飞行员心理子系统：压力/态势感知/判断误差（~223 行） | `update_stress(ai, delta)` `update_situational_awareness(ai, delta)` `update_drift(ai, delta)` `effective_skill` `effective_sa` `apply_position_error` `apply_speed_error` `apply_altitude_error` |
 | `combat_unit.gd` | `CombatUnit extends Node2D` | [共享] 战斗单位基类（通用接口） | `take_damage:81` `is_in_radar_cone:94` `get_altitude_tier:65` |
 | `missile.gd` | `Missile extends Node2D` | [共享] 导弹飞行物理（PN 制导/SARH） | `_physics_process:37` `_guidance_degradation:238` |

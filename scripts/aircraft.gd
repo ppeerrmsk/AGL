@@ -431,6 +431,12 @@ func _publish_equipment_to_legacy() -> void:
 	var flare_eq := params.get_equipment_of_kind("flare") as FlareEquipment
 	if flare_eq != null and flare_eq.flare != null:
 		params.flare = flare_eq.flare
+	# Cobra / Herbst 没有 params 字段；equipment 声明 → 自动挂载 Node 子节点
+	# 已存在的子节点（survivor_player / spawner / poltergeist_squad 手动 add_child 路径）跳过
+	if params.has_equipment_of_kind("cobra") and get_maneuver() == null:
+		add_child(CobraManeuver.new())
+	if params.has_equipment_of_kind("herbst") and get_herbst() == null:
+		add_child(HerbstManeuver.new())
 
 func show_tactic_popup(text: String) -> void:
 	_tactic_popup_text = text
