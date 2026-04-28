@@ -886,6 +886,8 @@ func _process_simple(delta: float) -> void:
 			return
 
 		elif not waypoints.is_empty():
+			if current_waypoint_index >= waypoints.size():
+				current_waypoint_index = 0
 			var target_wp := waypoints[current_waypoint_index]
 			if aircraft.global_position.distance_to(target_wp) < arrival_distance:
 				current_waypoint_index = (current_waypoint_index + 1) % waypoints.size()
@@ -1077,6 +1079,10 @@ func _process_patrol(delta: float) -> void:
 	aircraft.keep_target_on_arrival = false
 	if waypoints.is_empty():
 		return
+	# 守卫：waypoints 可能被外部代码重置成更短数组（如 ace_squad / commander_aura），
+	# 而 current_waypoint_index 仍指向旧 size。每次访问前 wrap 一下避免 out-of-bounds。
+	if current_waypoint_index >= waypoints.size():
+		current_waypoint_index = 0
 
 	var target_wp := waypoints[current_waypoint_index]
 	var dist := aircraft.global_position.distance_to(target_wp)
@@ -1147,8 +1153,12 @@ func _process_engage(delta: float) -> void:
 			pass  # 跳过 bvr_only 距离检查，继续走正常交战逻辑
 		else:
 			var bvr_dist := aircraft.global_position.distance_to(_current_target.global_position)
-			var standoff_min: float = bvr_standoff_min_px_override if bvr_standoff_min_px_override > 0.0 else BVR_STANDOFF_MIN
-			var flee_dist: float = bvr_flee_distance_px_override if bvr_flee_distance_px_override > 0.0 else BVR_FLEE_DISTANCE
+			var standoff_min: float = BVR_STANDOFF_MIN
+			if bvr_standoff_min_px_override > 0.0:
+				standoff_min = bvr_standoff_min_px_override
+			var flee_dist: float = BVR_FLEE_DISTANCE
+			if bvr_flee_distance_px_override > 0.0:
+				flee_dist = bvr_flee_distance_px_override
 			if bvr_dist < standoff_min:
 				var flee_dir := (aircraft.global_position - _current_target.global_position).normalized()
 				aircraft.target_position = aircraft.global_position + flee_dir * flee_dist
@@ -1378,6 +1388,8 @@ func _find_member_ai(ac: Aircraft) -> AIController:
 func _set_next_waypoint() -> void:
 	if waypoints.is_empty():
 		return
+	if current_waypoint_index >= waypoints.size():
+		current_waypoint_index = 0
 	aircraft.target_position = waypoints[current_waypoint_index]
 
 func _generate_default_waypoints() -> void:
