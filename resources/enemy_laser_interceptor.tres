@@ -6,7 +6,7 @@
 script = ExtResource("1")
 equipment_kind = "laser"
 display_name = "Aegis UAV Laser"
-max_range_m = 1000.0
+max_range_m = 2500.0
 dps_max = 80.0
 dps_min = 15.0
 falloff_exp = 1.5
