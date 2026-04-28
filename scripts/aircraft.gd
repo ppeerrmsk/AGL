@@ -381,6 +381,7 @@ func _ready() -> void:
 	heading = deg_to_rad(initial_heading_deg)
 	rotation = heading
 	if params:
+		_publish_equipment_to_legacy()
 		hp = params.max_hp
 		speed = params.cruise_speed / 3.6  # km/h -> m/s
 		target_speed_kmh = params.cruise_speed
@@ -403,6 +404,17 @@ func _ready() -> void:
 	_trail_ribbon.show_behind_parent = true
 	_trail_ribbon.ribbon_color = GameConstants.team_trail_color(team)
 	add_child(_trail_ribbon)
+
+## 装备模块化迁移期兼容层（commit 2/13 起逐步扩展）
+## 把 params.equipment 数组里的装备配置发布到对应的传统 params 字段，
+## 让 25 处现存 `params.gun` / `params.missile` 等读取无需修改。
+## 当所有装备都迁完（commit 12），删除此函数 + 删除 params 上的传统字段。
+func _publish_equipment_to_legacy() -> void:
+	if params == null:
+		return
+	var gun_eq := params.get_equipment_of_kind("gun") as GunEquipment
+	if gun_eq != null and gun_eq.gun != null:
+		params.gun = gun_eq.gun
 
 func show_tactic_popup(text: String) -> void:
 	_tactic_popup_text = text

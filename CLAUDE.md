@@ -92,7 +92,8 @@ AGL/
 │   ├── equipment/             # 装备模块化系统（重构中，逐 commit 迁移老武器字段）
 │   │   ├── equipment_params.gd         # 装备基类（武器/反制/规避统一抽象，equipment_kind 标识）
 │   │   ├── engagement_preference.gd    # 装备投票值类型（preferred_range/intent/priority）
-│   │   └── evasion_module.gd           # 规避模块基类（extends EquipmentParams + should_trigger）
+│   │   ├── evasion_module.gd           # 规避模块基类（extends EquipmentParams + should_trigger）
+│   │   └── gun_equipment.gd            # 机炮装备包装器（commit 2/13；持 GunParams + CLOSE_TAIL 投票）
 │   └── survivor/
 │       ├── survivor_mode.gd       # 生存模式主控制器（场景/操控/升级/HUD）
 │       ├── survivor_spawner.gd    # 刷怪系统（Token/生成/击杀/清理/猎手）
@@ -285,7 +286,7 @@ Resource
 
 | 文件 | 类/类型 | 职责 | 关键入口 |
 |------|---------|------|----------|
-| `aircraft.gd` | `Aircraft extends CombatUnit` | [共享] 飞机主控（~1254 行，LOD 路由 + 损伤生命期 + 状态所有者；物理/武器/战斗/编队/热诱弹全部委托 aircraft/ 子模块） | `_physics_process` `take_damage` `_apply_damage` `_check_ground_crash` `_start_destroy` `_update_cobra_skill` `set_evasion_mode` `_update_evasion` `get_maneuver` `is_lock_immune` `get_flare_cooldown_ratio` `_draw()` + 5 个委托壳（`_missile_cannot_hit_but_gun_can` `_should_commit_gun_pass` `_is_gun_pass_finished` `_is_in_missile_envelope` `_choose_dogfight_pursuit_pos`）+ 3 个物理委托壳（`_update_pilot_stamina` `_effective_max_g` `_max_bank_angle_at_speed`） |
+| `aircraft.gd` | `Aircraft extends CombatUnit` | [共享] 飞机主控（~1254 行，LOD 路由 + 损伤生命期 + 状态所有者；物理/武器/战斗/编队/热诱弹全部委托 aircraft/ 子模块） | `_physics_process` `take_damage` `_apply_damage` `_check_ground_crash` `_start_destroy` `_update_cobra_skill` `set_evasion_mode` `_update_evasion` `get_maneuver` `is_lock_immune` `get_flare_cooldown_ratio` `_draw()` + 5 个委托壳（`_missile_cannot_hit_but_gun_can` `_should_commit_gun_pass` `_is_gun_pass_finished` `_is_in_missile_envelope` `_choose_dogfight_pursuit_pos`）+ 3 个物理委托壳（`_update_pilot_stamina` `_effective_max_g` `_max_bank_angle_at_speed`） + `_publish_equipment_to_legacy()`（commit 2/13 起的装备迁移期兼容层） |
 | `aircraft/aircraft_flares.gd` | `AircraftFlares extends RefCounted` | [共享] 热诱弹子系统（~274 行，静态方法首参 `ac: Aircraft`） | `update(ac, delta)` `release(ac, target_missile)` `calc_jam_chance(ac, m)` `cooldown_ratio(ac)` + 15 个 `FLARE_*` / `MISSILE_PHASE_DURATION` 常量 |
 | `aircraft/aircraft_weapons.gd` | `AircraftWeapons extends RefCounted` | [共享] 武器子系统（~694 行，10 个静态方法） | `update_weapon_mode(ac)` `auto_gun_scan(ac)` `update_gun(ac, delta)` `update_ciws(ac, delta)` `update_rocket(ac, delta)` `update_missile(ac, delta)` + 内部 `_launch_rocket` `_update_weapon_mode_tactical` `_fire_missile_at` `_fire_multi_lock_salvo` |
 | `aircraft/aircraft_physics.gd` | `AircraftPhysics extends RefCounted` | [共享] 物理子系统（~873 行，每帧演算 + 查询函数） | `update_target_heading(ac)` `update_bank(ac, delta)` `update_heading(ac, delta)` `update_speed(ac, delta)` `update_altitude(ac, delta)` `update_stall(ac)` `update_g_load(ac)` `update_pilot_stamina(ac, delta)` `apply_movement(ac, delta)` `update_shock_absorb(ac, delta)` `update_fuel(ac, delta)` `update_energy_management(ac)` `set_afterburner(ac, on)` + 查询 `max_bank_angle` `effective_max_g` `corner_speed_kmh` `stall_speed` `max_speed_at_altitude` `air_density_ratio` `max_bank_angle_at_speed` |
@@ -310,6 +311,7 @@ Resource
 | `equipment/equipment_params.gd` | `EquipmentParams extends Resource` | [共享] 装备基类（武器+反制+规避统一抽象）；详见 [docs/changelogs/2026-04-28-equipment-scaffolding.md](docs/changelogs/2026-04-28-equipment-scaffolding.md) | `equipment_kind` 字段；虚方法 `can_fire(ac, target)` `desired_engagement(situation)` `fire(ac, target)` `update(ac, delta)` `ammo_ratio(ac)` `cooldown_ratio(ac)` |
 | `equipment/engagement_preference.gd` | `EngagementPreference extends RefCounted` | [共享] 装备投票值类型 | 字段 `preferred_range_m` `preferred_intent` `needs_lock` `needs_los` `priority` `preferred_speed_kmh` `prefers_afterburner` `rationale`；工厂 `make(kind, range, intent, prio)` |
 | `equipment/evasion_module.gd` | `EvasionModule extends EquipmentParams` | [共享] 规避模块基类（flare/cobra/herbst 子类） | `should_trigger(ac, missile)` `execute_evasion(ac, missile)` |
+| `equipment/gun_equipment.gd` | `GunEquipment extends EquipmentParams` | [共享] 机炮装备包装器（commit 2/13）；持 `gun: GunParams` 引用 + 给 planner 投票 CLOSE_TAIL preference | `_init` 设 `equipment_kind="gun"`；`desired_engagement(s)` 返回 `EngagementPreference(intent=CLOSE_TAIL, range=max_range×0.5, priority=0.6)`；`ammo_ratio(ac)` `cooldown_ratio(ac)` |
 | `pilot_personality.gd` | `PilotPersonality extends RefCounted` | [共享] 飞行员心理子系统：压力/态势感知/判断误差（~223 行） | `update_stress(ai, delta)` `update_situational_awareness(ai, delta)` `update_drift(ai, delta)` `effective_skill` `effective_sa` `apply_position_error` `apply_speed_error` `apply_altitude_error` |
 | `combat_unit.gd` | `CombatUnit extends Node2D` | [共享] 战斗单位基类（通用接口） | `take_damage:81` `is_in_radar_cone:94` `get_altitude_tier:65` |
 | `missile.gd` | `Missile extends Node2D` | [共享] 导弹飞行物理（PN 制导/SARH） | `_physics_process:37` `_guidance_degradation:238` |
