@@ -6,14 +6,14 @@
 script = ExtResource("1")
 equipment_kind = "laser"
 display_name = "X-02 Laser Array"
-max_range_m = 1500.0
+max_range_m = 1000.0
 dps_max = 150.0
 dps_min = 20.0
 falloff_exp = 1.5
 can_target_aircraft = true
 can_target_missiles = true
 can_target_ground = true
-max_simultaneous_targets = 8
+max_simultaneous_targets = 1
 heat_max = 100.0
 heat_per_second = 35.0
 heat_cooldown_per_second = 25.0
