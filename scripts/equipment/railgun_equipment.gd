@@ -26,7 +26,6 @@ enum LockTrajectory {
 
 
 @export_group("基本")
-@export var display_name: String = "电磁炮"
 @export var damage: float = 60.0                 ## 单发伤害（玩家版 150，敌人版 50-70）
 @export var max_range_m: float = 5000.0          ## 米 最大射程
 
@@ -139,7 +138,8 @@ func _fire(ac, s: Dictionary) -> void:
 					0.0, 1.0)
 				if randf() < fast_target_max_miss_chance * miss_t:
 					# 横向偏移让 hitscan 错过
-					var perp := (aim_pos - ac.global_position).orthogonal().normalized()
+					var to_target: Vector2 = aim_pos - ac.global_position
+					var perp: Vector2 = to_target.orthogonal().normalized()
 					aim_pos += perp * 80.0 * (1.0 if randf() < 0.5 else -1.0)
 
 	# 弹道：从 ac 机头延长到 max_range（穿透到底）
@@ -183,7 +183,7 @@ func _apply_hitscan_damage(ac, beam_start: Vector2, beam_end: Vector2) -> void:
 			continue
 		var d := _point_to_segment_distance(unit.global_position, beam_start, beam_end)
 		if d <= HIT_RADIUS_PX:
-			unit.take_damage(damage, ac)
+			unit.take_damage(damage)
 
 	# 2) 在飞导弹（如果当前 ac 持有 missile_manager 引用）
 	var mm = ac.missile_manager

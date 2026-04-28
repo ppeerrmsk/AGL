@@ -19,7 +19,6 @@ extends EquipmentParams
 const STATE_KEY := "laser"
 
 @export_group("基本")
-@export var display_name: String = "激光照射器"
 @export var max_range_m: float = 1500.0
 
 @export_group("伤害")
@@ -174,7 +173,7 @@ func _apply_laser_damage(ac, target, damage: float) -> void:
 			m.queue_free()
 		return
 	# CombatUnit：标准 take_damage
-	target.take_damage(damage, ac)
+	target.take_damage(damage)
 
 
 func _find_weather() -> WeatherSystem:
