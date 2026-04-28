@@ -1356,10 +1356,15 @@ static func _recompute_predicted_path(ac: Aircraft) -> void:
 ## 攻击者机头出发，向充能目标方向，扇形从 INITIAL_HALF_ANGLE 收缩为 0°
 static func draw_railgun_telegraph(ac: Aircraft) -> void:
 	var s = ac.equipment_state.get(RailgunEquipment.STATE_KEY, null)
-	if s == null or not s.get("charging", false):
+	if s == null:
 		return
+	var charging: bool = s.get("charging", false)
+	var awaiting: bool = s.get("awaiting_fire", false)
+	if not charging and not awaiting:
+		return
+	# awaiting_fire 阶段允许 tgt 已死（锁早就定好），只需 locked_aim_pos
 	var tgt = s.get("charge_target", null)
-	if tgt == null or not is_instance_valid(tgt):
+	if charging and (tgt == null or not is_instance_valid(tgt)):
 		return
 	# 取装备实例以拿到颜色 / 初始扇角 / 距离限制
 	var rg: RailgunEquipment = null
@@ -1370,23 +1375,26 @@ static func draw_railgun_telegraph(ac: Aircraft) -> void:
 	if rg == null:
 		return
 
-	# AT_CHARGE_START 模式（敌人版）：扇形必须指向实际弹道方向（locked_aim_pos），
-	# 不是当前目标位置。否则扇形跟着玩家移动收缩，但弹丸射向旧位置 → 玩家看到的
-	# "扇形锁我"和"实际弹道"对不上，机动躲掉时反而觉得是 bug。
-	# AT_FIRE_TIME 模式（玩家版）：弹道开火瞬间才锁定，期间扇形可以指向当前目标。
+	# Anchor 选择：
+	# - awaiting_fire 阶段：fan 完全收缩，锁在 locked_aim_pos（预测点，已不可改）
+	# - charging + AT_CHARGE_START：locked_aim_pos（早就锁死）
+	# - charging + AT_FIRE_TIME：跟踪当前目标 tgt.global_position
 	var aim_anchor: Vector2
-	if rg.lock_trajectory_at == RailgunEquipment.LockTrajectory.AT_CHARGE_START:
-		aim_anchor = s.get("locked_aim_pos", tgt.global_position)
+	if awaiting:
+		aim_anchor = s.get("locked_aim_pos", ac.global_position)
+	elif rg.lock_trajectory_at == RailgunEquipment.LockTrajectory.AT_CHARGE_START:
+		aim_anchor = s.get("locked_aim_pos", tgt.global_position if is_instance_valid(tgt) else ac.global_position)
 	else:
 		aim_anchor = tgt.global_position
 	var to_tgt: Vector2 = aim_anchor - ac.global_position
 	var dist: float = to_tgt.length()
 	var range_px: float = rg.max_range_m * CombatUnit.PIXELS_PER_METER
-	# 不在射程内不画
-	if dist > range_px:
+	# 不在射程内不画（仅 charging 阶段；awaiting 已锁定不再校验）
+	if charging and dist > range_px:
 		return
 	var aim_dir: Vector2 = to_tgt.normalized()
-	var progress: float = clampf(s["charge_progress"], 0.0, 1.0)
+	# awaiting_fire 阶段 progress 视觉上为 1.0（fan 完全收缩成线）
+	var progress: float = 1.0 if awaiting else clampf(s["charge_progress"], 0.0, 1.0)
 	var initial_half_rad := deg_to_rad(RailgunEquipment.TELEGRAPH_INITIAL_HALF_ANGLE_DEG)
 	var half_rad: float = lerpf(initial_half_rad, 0.0, progress)
 	var beam_len := minf(dist, range_px)

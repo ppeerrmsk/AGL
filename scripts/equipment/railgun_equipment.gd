@@ -36,6 +36,13 @@ enum LockTrajectory {
 @export var charge_duration: float = 2.5         ## 秒 telegraph 时长（玩家 1.2 / 敌人 2.5）
 @export var lock_trajectory_at: LockTrajectory = LockTrajectory.AT_CHARGE_START
 @export var cooldown: float = 6.0                ## 秒 单发后冷却
+## 充能完成到实际开火的延迟（秒）。用于敌人版"锁定后预测命中"机制：
+## - 充能完成 → 按目标当前速度预测 fire_delay_after_lock 秒后位置
+## - 进入"锁定相位"，扇形冻结在预测线上
+## - 倒计时结束后 fire 打预测位置
+## 玩家平飞 → 预测 = 实际，命中。玩家变速/转向 → 预测错，miss。
+## 玩家版 0.0（充能完即射击，无预测窗口）；敌人版 0.5。
+@export var fire_delay_after_lock: float = 0.0
 
 @export_group("瞄准约束")
 ## 必须沿机头方向开火：目标必须在机头 ±fire_cone_half_angle_deg 锥内才能开始 / 维持充能
@@ -69,6 +76,8 @@ static func _ensure_state(ac) -> Dictionary:
 			"charge_progress": 0.0,
 			"charge_target": null,
 			"locked_aim_pos": Vector2.ZERO,
+			"awaiting_fire": false,    ## 充能完后的"锁定相位"：等 fire_delay_timer 走完才发射
+			"fire_delay_timer": 0.0,
 			"beam_start": Vector2.ZERO,
 			"beam_end": Vector2.ZERO,
 			"beam_fade": 0.0,
@@ -87,10 +96,33 @@ func update(ac, delta: float) -> void:
 	if s["cooldown"] > 0.0:
 		s["cooldown"] = maxf(s["cooldown"] - delta, 0.0)
 
-	if s["charging"]:
+	if s.get("awaiting_fire", false):
+		_tick_awaiting_fire(ac, s, delta)
+	elif s["charging"]:
 		_tick_charging(ac, s, delta)
 	else:
 		_try_start_charging(ac, s)
+
+
+## 锁定相位：扇形已收缩完，预测点已锁死，倒计时到 0 即开火。
+## 期间不做任何 cancel 检查 —— 锁已经"咔哒"上膛，玩家只能靠机动让预测落空。
+func _tick_awaiting_fire(ac, s: Dictionary, delta: float) -> void:
+	s["fire_delay_timer"] = maxf(s["fire_delay_timer"] - delta, 0.0)
+	if s["fire_delay_timer"] <= 0.0:
+		s["awaiting_fire"] = false
+		_fire(ac, s)
+
+
+## 估算目标速度向量（像素/秒）。Aircraft / Missile 用 heading × speed；其他类型默认 0
+static func _target_velocity_px(tgt) -> Vector2:
+	if tgt is Aircraft:
+		var ac_t: Aircraft = tgt
+		return Vector2(sin(ac_t.heading), -cos(ac_t.heading)) * ac_t.speed * CombatUnit.PIXELS_PER_METER
+	if tgt is Missile:
+		var m: Missile = tgt
+		if "heading" in m and "speed" in m:
+			return Vector2(sin(m.heading), -cos(m.heading)) * m.speed * CombatUnit.PIXELS_PER_METER
+	return Vector2.ZERO
 
 
 func _try_start_charging(ac, s: Dictionary) -> void:
@@ -164,32 +196,37 @@ func _tick_charging(ac, s: Dictionary, delta: float) -> void:
 	# 推进进度
 	s["charge_progress"] = clampf(s["charge_progress"] + delta / charge_duration, 0.0, 1.0)
 	if s["charge_progress"] >= 1.0:
-		_fire(ac, s)
+		# 充能完成 —— 决定 aim_pos：
+		# AT_CHARGE_START：locked_aim_pos 早就在 _try_start_charging 写好（旧位置），不动
+		# AT_FIRE_TIME：现在按当前位置 + 速度 × fire_delay 预测开火点
+		if lock_trajectory_at == LockTrajectory.AT_FIRE_TIME:
+			var vel: Vector2 = _target_velocity_px(tgt)
+			s["locked_aim_pos"] = tgt.global_position + vel * fire_delay_after_lock
+		# 进入开火流程：有延迟则锁定相位等 timer，否则直接开火
+		s["charging"] = false
+		if fire_delay_after_lock > 0.0:
+			s["awaiting_fire"] = true
+			s["fire_delay_timer"] = fire_delay_after_lock
+		else:
+			_fire(ac, s)
 
 
 func _fire(ac, s: Dictionary) -> void:
-	var tgt = s["charge_target"]
-	if tgt == null or not is_instance_valid(tgt) or tgt.is_destroyed:
-		s["charging"] = false
-		s["charge_progress"] = 0.0
-		return
-
-	# 决定终点
-	var aim_pos: Vector2
-	if lock_trajectory_at == LockTrajectory.AT_CHARGE_START:
-		aim_pos = s["locked_aim_pos"]
-	else:
-		# AT_FIRE_TIME：开火瞬间锁定（基本必中）
-		aim_pos = tgt.global_position
-		# 极速目标加少量 miss 散布（玩家版的细节）
-		if "speed" in tgt:
+	# aim_pos 来自 s["locked_aim_pos"]，由 _try_start_charging（AT_CHARGE_START）或
+	# _tick_charging 进入完成态时（AT_FIRE_TIME 含预测）写入。
+	# 锁定相位（awaiting_fire）期间 tgt 可能变 null（被打掉）也无所谓 — 锁已经定了。
+	var aim_pos: Vector2 = s["locked_aim_pos"]
+	# 玩家版极速目标 miss 散布：仅当装备 fast_target_max_miss_chance > 0 时启用
+	# （敌人版 enemy_railgun.tres 设 0，没有这个补偿）
+	if fast_target_max_miss_chance > 0.0:
+		var tgt = s.get("charge_target", null)
+		if is_instance_valid(tgt) and "speed" in tgt:
 			var spd_kmh: float = float(tgt.speed) * 3.6
 			if spd_kmh > fast_target_miss_speed_kmh:
 				var miss_t: float = clampf(
 					(spd_kmh - fast_target_miss_speed_kmh) / fast_target_miss_speed_kmh,
 					0.0, 1.0)
 				if randf() < fast_target_max_miss_chance * miss_t:
-					# 横向偏移让 hitscan 错过
 					var to_target: Vector2 = aim_pos - ac.global_position
 					var perp: Vector2 = to_target.orthogonal().normalized()
 					aim_pos += perp * 80.0 * (1.0 if randf() < 0.5 else -1.0)
