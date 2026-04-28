@@ -856,6 +856,24 @@ static func draw_data_label_minimal(ac: Aircraft) -> void:
 			lines.append("MSL RELOAD %d%%" % roundi(ac.missile_reload_progress * 100.0))
 		if ac.enable_flare_reload and ac.flares_remaining <= 0 and ac.flare_reload_progress > 0.0:
 			lines.append("FLR RELOAD %d%%" % roundi(ac.flare_reload_progress * 100.0))
+		# 电磁炮 / 激光（commit 11+）
+		if ac.params != null:
+			var rg_min: RailgunEquipment = ac.params.get_equipment_of_kind("railgun")
+			if rg_min != null:
+				var rg_st: Dictionary = ac.equipment_state.get(RailgunEquipment.STATE_KEY, {})
+				if rg_st.get("charging", false):
+					lines.append("RAIL CHG %d%%" % int(rg_st.get("charge_progress", 0.0) * 100))
+				elif rg_st.get("cooldown", 0.0) > 0.01:
+					lines.append("RAIL CD %.1fs" % rg_st.get("cooldown", 0.0))
+			var le_min: LaserEquipment = ac.params.get_equipment_of_kind("laser")
+			if le_min != null:
+				var le_st: Dictionary = ac.equipment_state.get(LaserEquipment.STATE_KEY, {})
+				if le_st.get("overheating", false):
+					lines.append("LSR OVERHEAT")
+				else:
+					var heat_pct := int(le_st.get("heat", 0.0) / le_min.heat_max * 100)
+					if heat_pct >= 50:
+						lines.append("LSR HEAT %d%%" % heat_pct)
 
 	var inv_rot := -ac.rotation
 	var font_size := 11
