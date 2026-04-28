@@ -415,6 +415,9 @@ func _publish_equipment_to_legacy() -> void:
 	var gun_eq := params.get_equipment_of_kind("gun") as GunEquipment
 	if gun_eq != null and gun_eq.gun != null:
 		params.gun = gun_eq.gun
+	var rocket_eq := params.get_equipment_of_kind("rocket") as RocketEquipment
+	if rocket_eq != null and rocket_eq.rocket != null:
+		params.rocket = rocket_eq.rocket
 
 func show_tactic_popup(text: String) -> void:
 	_tactic_popup_text = text
