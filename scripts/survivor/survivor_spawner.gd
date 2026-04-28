@@ -1519,18 +1519,18 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 			ai.engage_cooldown = 4.0
 			enemy.attack_air_targets = false  ## _auto_gun_scan 跳过空中目标（防止扫到玩家）
 		EnemyType.AF03:
-			# AF-03 = 试验机精英 Lancer 狙击手（打带跑 + bvr_only 远距站位）
-			# 完整开火循环 = 雷达锁 2s + 充能 2s + 锁定相位 0.5s = 4.5s
-			# engage_duration 必须 ≥ 4.5s + 加速到位时间，否则跑完一轮还没开枪就脱离
-			ai.bvr_only = true
+			# AF-03 = 试验机精英 Lancer 狙击手
+			# 不用 bvr_only —— bvr_only 强制 4km 外，但玩家始终缠着 → 永远脱离不开火。
+			# 改用纯 Lancer 节奏：标准 BFM 闭合 → 打 → 自然 disengage。
+			# self_preservation 和 engage_duration 让飞机有持续战斗欲望但仍有进退。
 			ai.evade_missiles = true
-			ai.aggression = 0.95                # 极高攻击欲，主动加力冲向站位
-			ai.engage_cooldown = 7.0            # 略短于电磁炮 cooldown，立刻回头狙击
-			ai.engage_duration = 10.0           # 完整一轮：到位 ~3s + 锁 2s + 充能+锁定 3s + 缓冲
+			ai.aggression = 0.95                # 极高攻击欲，主动加力冲向交战位
+			ai.engage_cooldown = 7.0            # disengage 7s 让 AF-03 加速拉开距离
+			ai.engage_duration = 10.0           # 完整一轮：闭合 + 锁 + 充能 + 缓冲
 			ai.skill_level = 0.92               # 精英级
 			ai.composure = 0.88
 			ai.focus = 0.95                     # 死盯玩家
-			ai.self_preservation = 0.4
+			ai.self_preservation = 0.5          # 中等：受伤会拉开但不会一被锁就跑
 			ai.situational_awareness = 0.88
 		EnemyType.UAV_LASER:
 			# Aegis UAV：拦截特化，无对空武器，不主动交战
