@@ -460,22 +460,13 @@ const UPGRADES: Array[Dictionary] = [
 ##   - upgrade.exclusive_to 非空，且 aircraft_id 不在其中
 static func is_upgrade_available_for(upgrade: Dictionary, aircraft_id: StringName, p: AircraftParams) -> bool:
 	# ── 硬件要求 ──
+	# 走 AircraftParams.has_equipment_of_kind：双查 equipment 数组 + 老字段（gun/missile/...）
+	# 自动支持任意 equipment_kind（railgun / laser / cobra / herbst / ecm 未来扩展）
 	var reqs: Variant = upgrade.get("requires", null)
 	if reqs != null:
 		for req in reqs:
-			match str(req):
-				"gun":
-					if p == null or p.gun == null:
-						return false
-				"missile":
-					if p == null or p.missile == null:
-						return false
-				"flare":
-					if p == null or p.flare == null:
-						return false
-				"rocket":
-					if p == null or p.rocket == null:
-						return false
+			if p == null or not p.has_equipment_of_kind(str(req)):
+				return false
 
 	# ── 专属机型限制 ──
 	var excl: Variant = upgrade.get("exclusive_to", null)
