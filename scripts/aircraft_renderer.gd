@@ -917,6 +917,24 @@ static func draw_data_label(ac: Aircraft) -> void:
 	# 第 6 行：热诱弹
 	if ac.params and ac.params.flare:
 		lines.append("FLR %d" % ac.flares_remaining)
+	# 电磁炮 / 激光（仅玩家显示，避免 AF-03 头顶暴露状态）
+	if ac == player_ref and ac.params:
+		var rg2: RailgunEquipment = ac.params.get_equipment_of_kind("railgun")
+		if rg2 != null:
+			var rg_st: Dictionary = ac.equipment_state.get(RailgunEquipment.STATE_KEY, {})
+			if rg_st.get("charging", false):
+				lines.append("RAIL CHG %d%%" % int(rg_st.get("charge_progress", 0.0) * 100))
+			elif rg_st.get("cooldown", 0.0) > 0.01:
+				lines.append("RAIL CD %.1fs" % rg_st.get("cooldown", 0.0))
+			else:
+				lines.append("RAIL READY")
+		var le2: LaserEquipment = ac.params.get_equipment_of_kind("laser")
+		if le2 != null:
+			var le_st: Dictionary = ac.equipment_state.get(LaserEquipment.STATE_KEY, {})
+			if le_st.get("overheating", false):
+				lines.append("LSR OVERHEAT")
+			else:
+				lines.append("LSR HEAT %d%%" % int(le_st.get("heat", 0.0) / le2.heat_max * 100))
 	# 装填状态（仅玩家）：按进度拼出来 — 机炮 / 导弹 / 热诱弹
 	if ac == player_ref:
 		if ac._gun_reload_active:

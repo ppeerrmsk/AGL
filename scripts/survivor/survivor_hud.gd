@@ -446,6 +446,36 @@ func _update_status_panel() -> void:
 			var cd_text := "  CD" if cd_ratio > 0.01 else ""
 			text += "[color=#%s]FLR  %d / %d%s[/color]\n" % [flr_color, ac.flares_remaining, max_flr, cd_text]
 
+	# ── 电磁炮（commit 11+）──
+	var rg: RailgunEquipment = ac.params.get_equipment_of_kind("railgun") if ac.params else null
+	if rg != null:
+		var rg_state: Dictionary = ac.equipment_state.get(RailgunEquipment.STATE_KEY, {})
+		var charging: bool = rg_state.get("charging", false)
+		var charge_p: float = rg_state.get("charge_progress", 0.0)
+		var cd: float = rg_state.get("cooldown", 0.0)
+		if charging:
+			var chg_pct := int(charge_p * 100)
+			text += "[color=#aaccff]RAIL  CHG %d%%[/color]\n" % chg_pct
+		elif cd > 0.01:
+			text += "[color=#aa8833]RAIL  CD %.1fs[/color]\n" % cd
+		else:
+			text += "[color=#88ddff]RAIL  READY[/color]\n"
+
+	# ── 激光（commit 11+）──
+	var le: LaserEquipment = ac.params.get_equipment_of_kind("laser") if ac.params else null
+	if le != null:
+		var le_state: Dictionary = ac.equipment_state.get(LaserEquipment.STATE_KEY, {})
+		var heat: float = le_state.get("heat", 0.0)
+		var overheating: bool = le_state.get("overheating", false)
+		var heat_pct := int(heat / le.heat_max * 100)
+		if overheating:
+			var flash := int(Time.get_ticks_msec() / 250) % 2 == 0
+			var oh_color := "ff3322" if flash else "ff7733"
+			text += "[color=#%s][b]LSR  ⚠ OVERHEAT[/b][/color]\n" % oh_color
+		else:
+			var heat_color := "88dd88" if heat_pct < 50 else ("ffcc33" if heat_pct < 80 else "ff6633")
+			text += "[color=#%s]LSR  HEAT %d%%[/color]\n" % [heat_color, heat_pct]
+
 	# ── 分隔线 ──
 	if game_scene and not game_scene.upgrade_stacks.is_empty():
 		text += "[color=#445544]────────────[/color]\n"

@@ -34,6 +34,14 @@ enum LockTrajectory {
 @export var lock_trajectory_at: LockTrajectory = LockTrajectory.AT_CHARGE_START
 @export var cooldown: float = 6.0                ## 秒 单发后冷却
 
+@export_group("瞄准约束")
+## 必须沿机头方向开火：目标必须在机头 ±fire_cone_half_angle_deg 锥内才能开始 / 维持充能
+## 玩家版严格沿机头线（5°），让玩家"必须主动转向对准"才能发射
+@export var fire_cone_half_angle_deg: float = 5.0
+## 必须先用雷达锁定目标（target.is_locked = true）才能开始充能
+## 配合飞机 params.lock_time，可拉长"瞄准 → 锁定 → 充能 → 发射"全流程
+@export var require_radar_lock: bool = true
+
 @export_group("命中（仅 AT_FIRE_TIME 模式）")
 ## 高速目标 miss 概率 —— 玩家版本基本必中，但极速目标（>1500 km/h）会有少量散布
 @export var fast_target_miss_speed_kmh: float = 1500.0
@@ -94,6 +102,12 @@ func _try_start_charging(ac, s: Dictionary) -> void:
 	var range_px: float = max_range_m * CombatUnit.PIXELS_PER_METER
 	if dist > range_px:
 		return
+	# 雷达锁定要求：必须先 illuminate 目标到 is_locked = true
+	if require_radar_lock and not tgt.is_locked:
+		return
+	# 机头对准要求：目标必须在机头 ±fire_cone 锥内
+	if not _target_in_fire_cone(ac, tgt):
+		return
 	# 启动 charge
 	s["charging"] = true
 	s["charge_progress"] = 0.0
@@ -102,10 +116,32 @@ func _try_start_charging(ac, s: Dictionary) -> void:
 		s["locked_aim_pos"] = tgt.global_position  # 锁死位置 → 玩家可机动躲
 
 
+## 目标是否在机头开火锥内
+func _target_in_fire_cone(ac, tgt) -> bool:
+	var to_tgt: Vector2 = tgt.global_position - ac.global_position
+	var heading_to_tgt: float = atan2(to_tgt.x, -to_tgt.y)
+	var diff: float = heading_to_tgt - ac.heading
+	# 归一到 [-PI, PI]
+	while diff > PI:
+		diff -= TAU
+	while diff < -PI:
+		diff += TAU
+	return absf(diff) <= deg_to_rad(fire_cone_half_angle_deg)
+
+
 func _tick_charging(ac, s: Dictionary, delta: float) -> void:
 	# 目标失效 → 取消充能（无 cooldown 惩罚）
 	var tgt = s["charge_target"]
 	if tgt == null or not is_instance_valid(tgt) or tgt.is_destroyed:
+		s["charging"] = false
+		s["charge_progress"] = 0.0
+		return
+	# 充能期间持续要求雷达锁 + 机头对准（任一失守即取消，玩家须保持瞄准）
+	if require_radar_lock and not tgt.is_locked:
+		s["charging"] = false
+		s["charge_progress"] = 0.0
+		return
+	if not _target_in_fire_cone(ac, tgt):
 		s["charging"] = false
 		s["charge_progress"] = 0.0
 		return

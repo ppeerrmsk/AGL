@@ -172,7 +172,27 @@
       "Bash(grep -nA5 \"WAYPOINT_MOVE\\\\|def waypoint_move\" scripts/ai/tactical/bfm_intent.gd)",
       "Bash(awk '/^\\\\t/{tabs++} /^    /{spaces++} END{print \"tab-leading lines:\", tabs+0, \" space-leading lines:\", spaces+0}' scripts/aircraft_params.gd scripts/flare_params.gd scripts/aircraft.gd)",
       "Bash(grep -n \"^| \\\\`aircraft_params\" CLAUDE.md)",
-      "Bash(grep -n \"^| \\\\`pilot_personality\" CLAUDE.md)"
+      "Bash(grep -n \"^| \\\\`pilot_personality\" CLAUDE.md)",
+      "Bash(awk '{ while\\(match\\($0, /^\\(\\\\t*\\)    /, a\\)\\) { $0 = a[1] \"\\\\t\" substr\\($0, RLENGTH+1\\); } print }' scripts/equipment/gun_equipment.gd)",
+      "Bash(mv /tmp/ge.gd scripts/equipment/gun_equipment.gd)",
+      "Bash(awk '/^\\\\t/{t++} /^    /{s++} END{print \"tabs=\"t+0, \"spaces=\"s+0}' scripts/equipment/gun_equipment.gd)",
+      "Bash(awk '{ while\\(match\\($0, /^\\(\\\\t*\\)    /, a\\)\\) { $0 = a[1] \"\\\\t\" substr\\($0, RLENGTH+1\\); } print }' scripts/equipment/rocket_equipment.gd)",
+      "Bash(mv /tmp/re.gd scripts/equipment/rocket_equipment.gd)",
+      "Bash(awk '/^\\\\t/{t++} /^    /{s++} END{print \"tabs=\"t+0, \"spaces=\"s+0}' scripts/equipment/rocket_equipment.gd)",
+      "Bash(awk '{ while\\(match\\($0, /^\\(\\\\t*\\)    /, a\\)\\) { $0 = a[1] \"\\\\t\" substr\\($0, RLENGTH+1\\); } print }' scripts/equipment/missile_equipment.gd)",
+      "Bash(mv /tmp/me.gd scripts/equipment/missile_equipment.gd)",
+      "Bash(awk '/^\\\\t/{t++} /^    /{s++} END{print \"tabs=\"t+0, \"spaces=\"s+0}' scripts/equipment/missile_equipment.gd)",
+      "Bash(awk '{ while\\(match\\($0, /^\\(\\\\t*\\)    /, a\\)\\) { $0 = a[1] \"\\\\t\" substr\\($0, RLENGTH+1\\); } print }' scripts/equipment/flare_equipment.gd)",
+      "Bash(mv /tmp/fe.gd scripts/equipment/flare_equipment.gd)",
+      "Bash(awk '/^\\\\t/{t++} /^    /{s++} END{print \"tabs=\"t+0, \"spaces=\"s+0}' scripts/equipment/flare_equipment.gd)",
+      "Bash(wait)",
+      "Bash(awk '{ while\\(match\\($0, /^\\(\\\\t*\\)    /, a\\)\\) { $0 = a[1] \"\\\\t\" substr\\($0, RLENGTH+1\\); } print }' scripts/equipment/railgun_equipment.gd)",
+      "Bash(mv /tmp/rg.gd scripts/equipment/railgun_equipment.gd)",
+      "Bash(awk '/^\\\\t/{t++} /^    /{s++} END{print \"tabs=\"t+0, \"spaces=\"s+0}' scripts/equipment/railgun_equipment.gd scripts/aircraft_renderer.gd)",
+      "Bash(awk '{ while\\(match\\($0, /^\\(\\\\t*\\)    /, a\\)\\) { $0 = a[1] \"\\\\t\" substr\\($0, RLENGTH+1\\); } print }' scripts/equipment/laser_equipment.gd)",
+      "Bash(mv /tmp/le.gd scripts/equipment/laser_equipment.gd)",
+      "Bash(awk '/^\\\\t/{t++} /^    /{s++} END{print \"tabs=\"t+0, \"spaces=\"s+0}' scripts/equipment/laser_equipment.gd)",
+      "Bash(grep -n \"^]$\\\\|^const UPGRADES\" scripts/survivor/survivor_data.gd)"
     ]
   },
   "hooks": {

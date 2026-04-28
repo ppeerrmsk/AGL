@@ -177,7 +177,10 @@ func _apply_laser_damage(ac, target, damage: float) -> void:
 
 
 func _find_weather() -> WeatherSystem:
-	var nodes := Engine.get_main_loop().get_nodes_in_group("weather") if Engine.get_main_loop() else []
+	var loop := Engine.get_main_loop()
+	if loop == null:
+		return null
+	var nodes: Array = loop.get_nodes_in_group("weather")
 	if nodes.size() == 0:
 		return null
 	var n = nodes[0]

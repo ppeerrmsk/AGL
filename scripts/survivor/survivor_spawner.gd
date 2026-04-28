@@ -668,10 +668,10 @@ func _spawn_commander_squad(wingman_count: int) -> void:
 				wai.waypoints = PackedVector2Array()
 				break
 
-	# Aegis UAV 激光拦截器（commit 11/13）：每只 Sentinel 固定带 2 架
-	# 不属于 squad —— 它们独立飞行 + 各自 LaserEquipment.update 自动扫描拦导弹
-	for i in range(2):
-		var laser_angle := PI * (0.65 + 0.7 * float(i))  # 左右偏后侧站位
+	# Aegis UAV 激光拦截器（commit 11/13）：每只 Sentinel 固定带 1 架
+	# 不属于 squad —— 它独立飞行 + LaserEquipment.update 自动扫描拦导弹
+	for i in range(1):
+		var laser_angle := PI * 1.0  # 正后方站位
 		var laser_pos := leader_pos + Vector2(cos(laser_angle), sin(laser_angle)) * 320.0
 		var laser_uav := _create_enemy(EnemyType.UAV_LASER, laser_pos, heading)
 		# 让它绕 Sentinel 飞（orbit_squad_leader 已在 AI config 里设过）
