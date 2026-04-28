@@ -418,6 +418,16 @@ func _publish_equipment_to_legacy() -> void:
 	var rocket_eq := params.get_equipment_of_kind("rocket") as RocketEquipment
 	if rocket_eq != null and rocket_eq.rocket != null:
 		params.rocket = rocket_eq.rocket
+	# 导弹双槽：遍历找主/副两件 MissileEquipment
+	for eq in params.equipment:
+		if eq is MissileEquipment:
+			var me: MissileEquipment = eq
+			if me.missile == null:
+				continue
+			if me.is_secondary:
+				params.secondary_missile = me.missile
+			else:
+				params.missile = me.missile
 
 func show_tactic_popup(text: String) -> void:
 	_tactic_popup_text = text

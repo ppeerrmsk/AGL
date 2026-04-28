@@ -94,7 +94,8 @@ AGL/
 │   │   ├── engagement_preference.gd    # 装备投票值类型（preferred_range/intent/priority）
 │   │   ├── evasion_module.gd           # 规避模块基类（extends EquipmentParams + should_trigger）
 │   │   ├── gun_equipment.gd            # 机炮装备包装器（commit 2/13；持 GunParams + CLOSE_TAIL 投票）
-│   │   └── rocket_equipment.gd         # 火箭弹装备包装器（commit 3/13；持 RocketParams + TAIL_CHASE 投票）
+│   │   ├── rocket_equipment.gd         # 火箭弹装备包装器（commit 3/13；持 RocketParams + TAIL_CHASE 投票）
+│   │   └── missile_equipment.gd        # 导弹装备包装器（commit 4/13；主/副双槽 is_secondary + LEAD_PURSUIT 投票）
 │   └── survivor/
 │       ├── survivor_mode.gd       # 生存模式主控制器（场景/操控/升级/HUD）
 │       ├── survivor_spawner.gd    # 刷怪系统（Token/生成/击杀/清理/猎手）
@@ -314,6 +315,7 @@ Resource
 | `equipment/evasion_module.gd` | `EvasionModule extends EquipmentParams` | [共享] 规避模块基类（flare/cobra/herbst 子类） | `should_trigger(ac, missile)` `execute_evasion(ac, missile)` |
 | `equipment/gun_equipment.gd` | `GunEquipment extends EquipmentParams` | [共享] 机炮装备包装器（commit 2/13）；持 `gun: GunParams` 引用 + 给 planner 投票 CLOSE_TAIL preference | `_init` 设 `equipment_kind="gun"`；`desired_engagement(s)` 返回 `EngagementPreference(intent=CLOSE_TAIL, range=max_range×0.5, priority=0.6)`；`ammo_ratio(ac)` `cooldown_ratio(ac)` |
 | `equipment/rocket_equipment.gd` | `RocketEquipment extends EquipmentParams` | [共享] 火箭弹装备包装器（commit 3/13）；持 `rocket: RocketParams` 引用 | `_init` 设 `equipment_kind="rocket"`；`desired_engagement(s)` 返回 `EngagementPreference(intent=TAIL_CHASE, range=(min+max_fire)/2, priority=0.4)`；`ammo_ratio` `cooldown_ratio` |
+| `equipment/missile_equipment.gd` | `MissileEquipment extends EquipmentParams` | [共享] 导弹装备包装器（commit 4/13）；持 `missile: MissileParams` + `is_secondary` 双槽标识 | `_init` 设 `equipment_kind="missile"`；`is_secondary=false` 发布到 `params.missile`，`true` 发布到 `params.secondary_missile`；`desired_engagement(s)` 仅主导弹返回 `EngagementPreference(intent=LEAD_PURSUIT, range=max_range_rear×0.6, priority=0.7)`；`ammo_ratio` `cooldown_ratio` |
 | `pilot_personality.gd` | `PilotPersonality extends RefCounted` | [共享] 飞行员心理子系统：压力/态势感知/判断误差（~223 行） | `update_stress(ai, delta)` `update_situational_awareness(ai, delta)` `update_drift(ai, delta)` `effective_skill` `effective_sa` `apply_position_error` `apply_speed_error` `apply_altitude_error` |
 | `combat_unit.gd` | `CombatUnit extends Node2D` | [共享] 战斗单位基类（通用接口） | `take_damage:81` `is_in_radar_cone:94` `get_altitude_tier:65` |
 | `missile.gd` | `Missile extends Node2D` | [共享] 导弹飞行物理（PN 制导/SARH） | `_physics_process:37` `_guidance_degradation:238` |
