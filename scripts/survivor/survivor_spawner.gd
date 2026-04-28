@@ -1519,18 +1519,21 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 			ai.engage_cooldown = 4.0
 			enemy.attack_air_targets = false  ## _auto_gun_scan 跳过空中目标（防止扫到玩家）
 		EnemyType.AF03:
-			# AF-03 = Schemer with combat 远距电磁炮狙击手
-			# bvr_only=true 关键：玩家进入 BVR_STANDOFF_MIN (4km) → 强制脱离飞 6km 外
-			# 这样 AF-03 始终在 4-14km 远距，电磁炮 min_engage 1.5km 永远满足
+			# AF-03 = Lancer 狙击手（打带跑节奏 + bvr_only 远距站位）
+			# 行为闭环：
+			#   ENGAGE 6s → 加速冲到 5-8km 站位 → 充能 2s + 锁定 0.5s → 开火
+			#   DISENGAGE 9s（= 电磁炮 cooldown）→ 加速远离到 10km+ →
+			#   再 ENGAGE → 加速回来狙击 → 循环
+			# bvr_only 兜底：万一玩家追到 4km 内强制脱离飞 6km 外
 			ai.bvr_only = true
 			ai.evade_missiles = true
-			ai.aggression = 0.7                 # 不主动近身，但敢于持续 keep distance 输出
-			ai.engage_cooldown = 1.0
-			ai.engage_duration = 60.0           # 长时间盯人
+			ai.aggression = 0.9                 # 高攻击欲，主动加速冲向站位
+			ai.engage_cooldown = 9.0            # = 电磁炮 cooldown，脱离期正好等装填
+			ai.engage_duration = 6.0            # 一次打击窗口（2.5s 充能 + 0.5s 锁定 + 3s 缓冲）
 			ai.skill_level = 0.85
 			ai.composure = 0.80
 			ai.focus = 0.92
-			ai.self_preservation = 0.85         # 极高 → 玩家近身立即脱离
+			ai.self_preservation = 0.5          # 由 bvr_only 控距，self_preservation 不必过高
 			ai.situational_awareness = 0.80
 		EnemyType.UAV_LASER:
 			# Aegis UAV：拦截特化，无对空武器，不主动交战
