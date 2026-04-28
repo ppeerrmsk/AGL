@@ -410,6 +410,7 @@ Resource
 - **PATROL** — 航路点巡逻，周期性扫描
 - **ENGAGE** — BFM 决策树选择战术机动
   - LEAD_PURSUIT / LAG_PURSUIT / LEAD_TURN / HIGH_YOYO / LOW_YOYO / BREAK_TURN / EXTENSION / SCISSORS
+  - **SNIPER_HOLD** — 机头对准型武器专用（电磁炮 / 激光剑等）。直瞄目标当前位置（不取 lead）+ 减速 → 给装备稳定锁定+充能窗口。AI 通过 `prefer_nose_aligned_weapon=true` 启用，目标在前 80° 锥内+不太近+未被咬尾时自动选用
 - **EVADE_MISSILE** — 释放热诱弹 + 急转
 - **SQUAD_FOLLOW** — 编队跟随 + 掩护扫描（每 0.5s 扫长机后半球）
   - 子状态：`_rejoining`（归队）/ `_formation_react_timer`（阵型调整）/ `_squad_attacking_leader_target`（协同攻击）

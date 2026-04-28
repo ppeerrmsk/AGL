@@ -1520,18 +1520,20 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 			enemy.attack_air_targets = false  ## _auto_gun_scan 跳过空中目标（防止扫到玩家）
 		EnemyType.AF03:
 			# AF-03 = 试验机精英狙击手 — 自有"电磁炮甜点距离"策略
-			# 用 bvr_only + per-AI 距离覆盖：维持 5-8km 远距站位（电磁炮 14km 射程黄金区间）
-			# - 玩家进 < 5km → 加速逃到 8km 外
-			# - 5-8km → 标准 BFM 走 LEAD_PURSUIT 闭合，但很快又触发 standoff 弹回
-			# - 净效果：在 5-8km 区间反复振荡，正好是电磁炮甜点 + 玩家电磁炮射程外
+			# 三层组合：
+			#   1. bvr_only + 自定义 standoff/flee (5-8km)：维持远距站位
+			#   2. prefer_nose_aligned_weapon=true：交战时走 SNIPER_HOLD 战术
+			#      （直瞄玩家当前位置 + 减速稳瞄，不像 LEAD_PURSUIT 追前置点）
+			#   3. Lancer engage_duration/cooldown：打完一发 disengage 拉开
 			ai.bvr_only = true
-			ai.bvr_standoff_min_px_override = 2500.0  ## 5km（默认 4km 太近 + log 显示玩家压迫）
-			ai.bvr_flee_distance_px_override = 4000.0 ## 8km（默认 6km 不够拉开）
+			ai.bvr_standoff_min_px_override = 2500.0  ## 5km
+			ai.bvr_flee_distance_px_override = 4000.0 ## 8km
+			ai.prefer_nose_aligned_weapon = true      ## 优先 SNIPER_HOLD 而非 LEAD_PURSUIT
 			ai.evade_missiles = true
-			ai.aggression = 0.95                      # 高攻击欲，敢面向玩家
+			ai.aggression = 0.95
 			ai.engage_cooldown = 7.0
 			ai.engage_duration = 10.0
-			ai.skill_level = 0.92                     # 精英级
+			ai.skill_level = 0.92
 			ai.composure = 0.88
 			ai.focus = 0.95
 			ai.self_preservation = 0.5

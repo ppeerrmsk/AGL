@@ -14,6 +14,7 @@ enum EngageTactic {
 	BREAK_TURN,      ## 急转：被咬尾时防御
 	EXTENSION,       ## 加速脱离：拉开距离
 	SCISSORS,        ## 剪刀机动：近距反复交叉
+	SNIPER_HOLD,     ## 狙击稳瞄：减速 + 不取 lead，机头死锁玩家当前位置（电磁炮 / 激光等需机头对准武器用）
 }
 
 const TACTIC_DISPLAY_NAME: Dictionary = {
@@ -25,6 +26,7 @@ const TACTIC_DISPLAY_NAME: Dictionary = {
 	EngageTactic.BREAK_TURN: "",
 	EngageTactic.EXTENSION: "加速脱离",
 	EngageTactic.SCISSORS: "",
+	EngageTactic.SNIPER_HOLD: "狙击稳瞄",
 }
 
 # ── 基础巡逻 ──
@@ -60,6 +62,12 @@ var _tick_phase: int = 0   ## 0..ai_tick_divisor-1，随机错开各 AI 的决�
 ## 例：AF-03 用 standoff=2500 / flee=4000 → 维持 5-8km 远距站位（电磁炮甜点）
 @export var bvr_standoff_min_px_override: float = 0.0
 @export var bvr_flee_distance_px_override: float = 0.0
+
+## 偏好"机头对准型武器"（电磁炮 / 激光剑 / 任何需要机头死锁目标的武器）
+## 启用后 BFM 在交战阶段优先选 SNIPER_HOLD 战术 —— 减速 + 直瞄目标当前位置（不取 lead），
+## 避免 LEAD_PURSUIT 的"追前置点导致永远在转弯"问题。
+## 用法：装电磁炮 / 激光剑等武器的 AI 设此为 true（AF-03、未来 BOSS 机型等）。
+@export var prefer_nose_aligned_weapon: bool = false
 var boss_attacker: bool = false               ## BOSS 攻击手：禁止 EXTENSION/脱离/自保，死追玩家
 
 # ── 事件系统 directive 覆盖 ──
@@ -1308,6 +1316,8 @@ func _process_engage(delta: float) -> void:
 			BFMTactics.execute_extension(self, sit)
 		EngageTactic.SCISSORS:
 			BFMTactics.execute_scissors(self, sit, delta)
+		EngageTactic.SNIPER_HOLD:
+			BFMTactics.execute_sniper_hold(self, sit)
 
 	# ── 机炮闪避（斗士型：被追尾射击时叠加蛇形偏移） ──
 	BFMTactics.update_gun_jink(self, sit, delta)

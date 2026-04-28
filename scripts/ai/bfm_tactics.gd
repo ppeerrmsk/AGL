@@ -105,10 +105,23 @@ static func update_lufberry_detection(ai: AIController, s: AIController.Situatio
 # ══════════════════════════════════════════════
 
 static func choose_tactic(ai: AIController, s: AIController.SituationData) -> void:
-	# ── BVR 狙击模式：只用 EXTENSION 或 LEAD_PURSUIT（远距），不选近距战术 ──
-	# 反击窗口中则跳过此限制，允许近距战术
+	# ── 优先级 0：机头对准型武器（电磁炮 / 激光剑等）→ SNIPER_HOLD 取代 LEAD_PURSUIT ──
+	# 适用条件：敌机在前半球（my_aot < 80°），不太近（避免冲过去），不在后半球被咬
+	# 不满足 → 走下方常规 BFM（如 LEAD_TURN 转身、BREAK_TURN 防御）
 	var _hm_tactic: HerbstManeuver = ai.aircraft.get_herbst()
 	var in_counterattack := _hm_tactic and _hm_tactic.counterattack_timer > 0.0
+	if ai.prefer_nose_aligned_weapon and not in_counterattack:
+		var tgt_in_front: bool = s.my_aot < deg_to_rad(80.0)
+		var not_too_close: bool = s.dist_px > s.gun_range_px * 0.8
+		var not_being_chased: bool = not s.enemy_in_my_rear
+		if tgt_in_front and not_too_close and not_being_chased:
+			if ai._tactic != AIController.EngageTactic.SNIPER_HOLD:
+				apply_new_tactic(ai, AIController.EngageTactic.SNIPER_HOLD)
+			return
+		# 不在条件内 → 让步给常规 BFM 处理（转身/防御等）
+
+	# ── BVR 狙击模式：只用 EXTENSION 或 LEAD_PURSUIT（远距），不选近距战术 ──
+	# 反击窗口中则跳过此限制，允许近距战术
 	if ai.bvr_only and not in_counterattack:
 		if s.dist_px < s.gun_range_px * AIController.BVR_CLOSE_MULT:
 			# 太近了，强制脱离
@@ -610,3 +623,43 @@ static func set_engage_speed(ai: AIController, s: AIController.SituationData, mu
 	var style := ai._cb().maneuver_speed_mult
 	var target := clampf(cruise * mult * style, ai.aircraft.params.stall_speed_base * AIController.ENGAGE_STALL_SAFETY, ai.aircraft.params.max_speed)
 	ai.aircraft.target_speed_kmh = ai._apply_speed_error(target)
+
+
+## ──────────────────────────────────────────────────────
+## SNIPER_HOLD：狙击稳瞄战术（电磁炮 / 激光剑等"机头对准"武器专用）
+## ──────────────────────────────────────────────────────
+##
+## 设计目标：让 AI 飞机停下高 G 转弯陀螺，机头死锁玩家当前位置（不取 lead），
+## 减速到接近巡航让 bank 趋于平稳，给 RailgunEquipment 等装备稳定的锁定 + 充能窗口。
+##
+## 与 LEAD_PURSUIT 的核心区别：
+##   - LEAD_PURSUIT: target_position = 玩家未来位置（lead 点）→ 玩家移动 → AI 持续转头追
+##   - SNIPER_HOLD:  target_position = 玩家当前位置 → 玩家移动 → AI 缓慢调整 → 稳定瞄准窗口
+##
+## 速度策略：
+##   - 远距 (dist > 4000px / 8km)：减速到 cruise × 0.7（稳瞄）
+##   - 中距 (2500-4000px / 5-8km)：cruise × 0.6（更稳）
+##   - 近距 (< 2500px)：意味着武器站位失败 —— 速度照常，等 BFM 退出 SNIPER_HOLD
+##
+## 用法：AI 设 prefer_nose_aligned_weapon = true，BFMTactics.choose_tactic 在交战
+## 几何合适时（目标在前 60° 锥内、>min_engage 距离）会自动选 SNIPER_HOLD。
+static func execute_sniper_hold(ai: AIController, s: AIController.SituationData) -> void:
+	# 直瞄：用敌机当前位置（不取 lead），让机头有"稳定瞄准目标"
+	ai.aircraft.target_position = ai._apply_position_error(s.tgt_pos)
+
+	# 高度匹配：和敌机同高，避免射击有垂直偏差
+	match_target_altitude(ai)
+
+	# 减速稳瞄
+	if ai.aircraft.params:
+		var cruise := ai.aircraft.params.cruise_speed
+		var stall := ai.aircraft.params.stall_speed_base
+		var speed_mult: float = 0.7
+		if s.dist_px < 4000.0 and s.dist_px >= 2500.0:
+			speed_mult = 0.6
+		elif s.dist_px < 2500.0:
+			speed_mult = 0.85  # 太近，稍提速避免被超
+		var target_kmh := clampf(cruise * speed_mult, stall * AIController.ENGAGE_STALL_SAFETY, ai.aircraft.params.max_speed)
+		ai.aircraft.target_speed_kmh = ai._apply_speed_error(target_kmh)
+	else:
+		ai.aircraft.target_speed_kmh = AIController.FALLBACK_ENGAGE_SPEED * 0.7
