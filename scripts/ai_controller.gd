@@ -56,6 +56,10 @@ enum SquadEngageMode { FREE = 0, FOLLOW_LEADER = 1 }
 var ai_tick_divisor: int = 1
 var _tick_phase: int = 0   ## 0..ai_tick_divisor-1，随机错开各 AI 的决策帧
 @export var bvr_only: bool = false            ## BVR 狙击模式：只用导弹，不进近距战，被接近则撤退
+## bvr_only 距离阈值的 per-AI 覆盖（0 = 用全局 BVR_STANDOFF_MIN/FLEE_DISTANCE 默认）
+## 例：AF-03 用 standoff=2500 / flee=4000 → 维持 5-8km 远距站位（电磁炮甜点）
+@export var bvr_standoff_min_px_override: float = 0.0
+@export var bvr_flee_distance_px_override: float = 0.0
 var boss_attacker: bool = false               ## BOSS 攻击手：禁止 EXTENSION/脱离/自保，死追玩家
 
 # ── 事件系统 directive 覆盖 ──
@@ -1143,9 +1147,11 @@ func _process_engage(delta: float) -> void:
 			pass  # 跳过 bvr_only 距离检查，继续走正常交战逻辑
 		else:
 			var bvr_dist := aircraft.global_position.distance_to(_current_target.global_position)
-			if bvr_dist < BVR_STANDOFF_MIN:
+			var standoff_min: float = bvr_standoff_min_px_override if bvr_standoff_min_px_override > 0.0 else BVR_STANDOFF_MIN
+			var flee_dist: float = bvr_flee_distance_px_override if bvr_flee_distance_px_override > 0.0 else BVR_FLEE_DISTANCE
+			if bvr_dist < standoff_min:
 				var flee_dir := (aircraft.global_position - _current_target.global_position).normalized()
-				aircraft.target_position = aircraft.global_position + flee_dir * BVR_FLEE_DISTANCE
+				aircraft.target_position = aircraft.global_position + flee_dir * flee_dist
 				TargetSelection.disengage(self)
 				return
 

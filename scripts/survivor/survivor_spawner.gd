@@ -1519,18 +1519,22 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float) -> 
 			ai.engage_cooldown = 4.0
 			enemy.attack_air_targets = false  ## _auto_gun_scan 跳过空中目标（防止扫到玩家）
 		EnemyType.AF03:
-			# AF-03 = 试验机精英 Lancer 狙击手
-			# 不用 bvr_only —— bvr_only 强制 4km 外，但玩家始终缠着 → 永远脱离不开火。
-			# 改用纯 Lancer 节奏：标准 BFM 闭合 → 打 → 自然 disengage。
-			# self_preservation 和 engage_duration 让飞机有持续战斗欲望但仍有进退。
+			# AF-03 = 试验机精英狙击手 — 自有"电磁炮甜点距离"策略
+			# 用 bvr_only + per-AI 距离覆盖：维持 5-8km 远距站位（电磁炮 14km 射程黄金区间）
+			# - 玩家进 < 5km → 加速逃到 8km 外
+			# - 5-8km → 标准 BFM 走 LEAD_PURSUIT 闭合，但很快又触发 standoff 弹回
+			# - 净效果：在 5-8km 区间反复振荡，正好是电磁炮甜点 + 玩家电磁炮射程外
+			ai.bvr_only = true
+			ai.bvr_standoff_min_px_override = 2500.0  ## 5km（默认 4km 太近 + log 显示玩家压迫）
+			ai.bvr_flee_distance_px_override = 4000.0 ## 8km（默认 6km 不够拉开）
 			ai.evade_missiles = true
-			ai.aggression = 0.95                # 极高攻击欲，主动加力冲向交战位
-			ai.engage_cooldown = 7.0            # disengage 7s 让 AF-03 加速拉开距离
-			ai.engage_duration = 10.0           # 完整一轮：闭合 + 锁 + 充能 + 缓冲
-			ai.skill_level = 0.92               # 精英级
+			ai.aggression = 0.95                      # 高攻击欲，敢面向玩家
+			ai.engage_cooldown = 7.0
+			ai.engage_duration = 10.0
+			ai.skill_level = 0.92                     # 精英级
 			ai.composure = 0.88
-			ai.focus = 0.95                     # 死盯玩家
-			ai.self_preservation = 0.5          # 中等：受伤会拉开但不会一被锁就跑
+			ai.focus = 0.95
+			ai.self_preservation = 0.5
 			ai.situational_awareness = 0.88
 		EnemyType.UAV_LASER:
 			# Aegis UAV：拦截特化，无对空武器，不主动交战
