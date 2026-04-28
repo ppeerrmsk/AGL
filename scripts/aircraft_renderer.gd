@@ -1370,7 +1370,16 @@ static func draw_railgun_telegraph(ac: Aircraft) -> void:
 	if rg == null:
 		return
 
-	var to_tgt: Vector2 = tgt.global_position - ac.global_position
+	# AT_CHARGE_START 模式（敌人版）：扇形必须指向实际弹道方向（locked_aim_pos），
+	# 不是当前目标位置。否则扇形跟着玩家移动收缩，但弹丸射向旧位置 → 玩家看到的
+	# "扇形锁我"和"实际弹道"对不上，机动躲掉时反而觉得是 bug。
+	# AT_FIRE_TIME 模式（玩家版）：弹道开火瞬间才锁定，期间扇形可以指向当前目标。
+	var aim_anchor: Vector2
+	if rg.lock_trajectory_at == RailgunEquipment.LockTrajectory.AT_CHARGE_START:
+		aim_anchor = s.get("locked_aim_pos", tgt.global_position)
+	else:
+		aim_anchor = tgt.global_position
+	var to_tgt: Vector2 = aim_anchor - ac.global_position
 	var dist: float = to_tgt.length()
 	var range_px: float = rg.max_range_m * CombatUnit.PIXELS_PER_METER
 	# 不在射程内不画
