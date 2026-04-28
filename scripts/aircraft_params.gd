@@ -22,11 +22,6 @@ extends Resource
 @export var max_g_structural: float = 12.0  ## 机体结构极限G力（短时可超越max_g）
 @export var roll_rate: float = 4.0          ## rad/s 滚转速率
 
-@export_group("飞行员")
-@export var pilot_stamina: float = 100.0           ## 飞行员耐力上限
-@export var stamina_drain_rate: float = 25.0       ## 超过 max_g 时每秒消耗耐力
-@export var stamina_recovery_rate: float = 10.0    ## G力低于 max_g 时每秒恢复耐力
-
 @export_group("高度")
 @export var max_altitude: float = 15000.0   ## 米 实用升限
 @export var climb_rate_max: float = 250.0   ## m/s 最大爬升率
@@ -64,3 +59,39 @@ extends Resource
 
 @export_group("视觉")
 @export var icon_color: Color = Color.GREEN
+## 机翼配色（可选）—— 设为非零 alpha 时替换机翼为另一种颜色（例如黑机身 + 红翼）
+## 默认全透明 → 机翼用 icon_color 绘制
+@export var wing_color: Color = Color(0, 0, 0, 0)
+
+@export_group("装备（新模块化系统）")
+## 装备列表 —— 新模块化武器/规避抽象。空数组时回退读上方的旧字段（gun/missile/...）。
+## 迁移期：新机型（X-02 / AF-03 / 激光 UAV）走这里，老机型字段不动，逐 commit 迁移。
+## 详见 docs/changelogs/2026-04-28-equipment-scaffolding.md
+@export var equipment: Array[EquipmentParams] = []
+
+
+## 查询是否装备了某类装备。生存模式升级过滤 + AI 决策都通过此入口判定。
+## 同时检查新 equipment 数组和旧字段（兼容迁移期）。
+func has_equipment_of_kind(kind: String) -> bool:
+	for eq in equipment:
+		if eq != null and eq.equipment_kind == kind:
+			return true
+	# Backward-compat: 老字段直查
+	match kind:
+		"gun":
+			return gun != null
+		"missile":
+			return missile != null or secondary_missile != null
+		"rocket":
+			return rocket != null
+		"flare":
+			return flare != null
+	return false
+
+
+## 取某类装备的第一件。无则返回 null。
+func get_equipment_of_kind(kind: String) -> EquipmentParams:
+	for eq in equipment:
+		if eq != null and eq.equipment_kind == kind:
+			return eq
+	return null

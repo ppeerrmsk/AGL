@@ -41,7 +41,7 @@ AGL/
 │   ├── terrain_renderer.gd    # TerrainRenderer：地形/网格/云层绘制（沙盒+生存共享）
 │   ├── camera_controller.gd   # CameraController：缩放/平移/hover/坐标转换（沙盒+生存共享）
 │   ├── main_menu.gd           # 主菜单
-│   ├── aircraft.gd            # Aircraft 实体（~1445 行，LOD 路由 + 编队托管 + 损伤 + 状态所有者；子系统全部委托 aircraft/）
+│   ├── aircraft.gd            # Aircraft 实体（~1254 行，LOD 路由 + 损伤 + 状态所有者；物理/武器/战斗/编队/热诱弹全部委托 aircraft/）
 │   ├── aircraft_params.gd     # AircraftParams Resource
 │   ├── ai_controller.gd       # AI 状态机（~1235 行，状态机路由 + 状态所有者 + BVR/BOSS + 简单 AI；战术/规避/目标选择/编队委托 ai/）
 │   ├── combat_unit.gd         # 战斗单位基类（Aircraft/GroundUnit 共享接口）
@@ -77,12 +77,22 @@ AGL/
 │   │   ├── aircraft_flares.gd          # 热诱弹：释放/jam 概率/粒子/多波 reload（274 行）
 │   │   ├── aircraft_weapons.gd         # 武器：gun/ciws/rocket/missile/multi_lock_salvo/weapon_mode（694 行）
 │   │   ├── aircraft_physics.gd         # 物理：bank/heading/speed/altitude/stall/fuel/g/energy_mgmt（873 行）
-│   │   └── aircraft_combat_tracking.gd # 战斗追踪：_update_combat + _choose_dogfight_pursuit_pos + 对地攻击（654 行）
+│   │   ├── aircraft_combat_tracking.gd # 战斗追踪：_update_combat + _choose_dogfight_pursuit_pos + 对地攻击（654 行）
+│   │   └── aircraft_formation.gd       # LOD 1 编队托管三段式 FAR/MID/CLOSE + 常见 bug 回溯地图（246 行）
 │   ├── ai/                    # AI 子系统（RefCounted 静态模块，首参 ai: AIController）
 │   │   ├── bfm_tactics.gd              # BFM 战术：8 个执行器 + choose_tactic + assess_situation（574 行）
 │   │   ├── target_selection.gd         # 目标选择：try_engage + reevaluate_target + disengage（203 行）
 │   │   ├── missile_evasion.gd          # 导弹规避：process_evade + 来袭检测 + Herbst 触发（165 行）
-│   │   └── squad_coordination.gd       # 编队协同：squad_follow + 后半球扫描 + cover + salvo 广播（287 行）
+│   │   ├── squad_coordination.gd       # 编队协同：squad_follow + 后半球扫描 + cover + salvo 广播（287 行）
+│   │   └── tactical/                   # P4 重构：玩家 + 僚机 + 9 种敌机的统一决策路径
+│   │       ├── situation.gd            # 态势快照（输入）：几何/锁定/小队/AI 性格
+│   │       ├── tactical_plan.gd        # 决策输出（值类型）：13 种 intent + 速度/武器/AB
+│   │       ├── bfm_intent.gd           # 13 个 intent 纯函数：CRUISE/WAYPOINT/PASSIVE_FIRE/TAIL_CHASE/CLOSE_TAIL/LEAD_TURN/LEAD_PURSUIT/LAG_PURSUIT/MERGE_PASS/EXTEND_RECOVER/BOOM_ZOOM_OUT/WIDE_TURN/GROUND_STRAFE/EVADE_MISSILE
+│   │       └── tactical_planner.gd     # 顶层决策树（9 优先级）+ hysteresis 防抖 + 武器锁定后置覆盖
+│   ├── equipment/             # 装备模块化系统（重构中，逐 commit 迁移老武器字段）
+│   │   ├── equipment_params.gd         # 装备基类（武器/反制/规避统一抽象，equipment_kind 标识）
+│   │   ├── engagement_preference.gd    # 装备投票值类型（preferred_range/intent/priority）
+│   │   └── evasion_module.gd           # 规避模块基类（extends EquipmentParams + should_trigger）
 │   └── survivor/
 │       ├── survivor_mode.gd       # 生存模式主控制器（场景/操控/升级/HUD）
 │       ├── survivor_spawner.gd    # 刷怪系统（Token/生成/击杀/清理/猎手）
@@ -101,6 +111,11 @@ AGL/
 │       ├── map_feature_renderer.gd # 主地图 (Sprite 底图 + shader)
 │       ├── map_manual_background.gd # @tool 编辑器参考预览
 │       └── tactical_map.gd        # 战术缩略图 (CRT 风)
+│   ├── events/                  # 事件系统：剧本驱动单位 AI（BOSS / 未来剧情演出）
+│   │   ├── ai_directive.gd          # AI 指令（FLY_TO_POINT/PATROL_RING/FOLLOW_PATH/HOLD/ENGAGE/PASSIVE）
+│   │   ├── game_event.gd            # 事件基类（lifecycle + managed_units + set_directive）
+│   │   ├── event_director.gd        # 调度器（survivor_mode 子节点；每帧 tick 所有 active 事件）
+│   │   └── boss_encounter_event.gd  # BOSS 战剧本：PRE_STAGE → ENGAGED → VICTORY
 │   └── audio/
 │       ├── audio_manager.gd       # AutoLoad：BGM + SFX + UI + 播放列表 + 玩家引擎音 + 菜单模糊
 │       └── audio_settings_panel.gd # 主菜单"音频设置"叠加面板（4 条 Bus 滑条 + 静音 + 保存）
@@ -270,16 +285,17 @@ Resource
 
 | 文件 | 类/类型 | 职责 | 关键入口 |
 |------|---------|------|----------|
-| `aircraft.gd` | `Aircraft extends CombatUnit` | [共享] 飞机主控（~1445 行，LOD 路由 + LOD1 编队托管 + 损伤生命期 + 状态所有者；物理/武器/战斗/热诱弹全部委托 aircraft/ 子模块） | `_physics_process` `take_damage` `_apply_damage` `_check_ground_crash` `_start_destroy` `_update_cobra_skill` `set_evasion_mode` `_update_evasion` `get_maneuver` `is_lock_immune` `get_flare_cooldown_ratio` `_draw()` + 5 个委托壳（`_missile_cannot_hit_but_gun_can` `_should_commit_gun_pass` `_is_gun_pass_finished` `_is_in_missile_envelope` `_choose_dogfight_pursuit_pos`）+ 3 个物理委托壳（`_update_pilot_stamina` `_effective_max_g` `_max_bank_angle_at_speed`） |
+| `aircraft.gd` | `Aircraft extends CombatUnit` | [共享] 飞机主控（~1254 行，LOD 路由 + 损伤生命期 + 状态所有者；物理/武器/战斗/编队/热诱弹全部委托 aircraft/ 子模块） | `_physics_process` `take_damage` `_apply_damage` `_check_ground_crash` `_start_destroy` `_update_cobra_skill` `set_evasion_mode` `_update_evasion` `get_maneuver` `is_lock_immune` `get_flare_cooldown_ratio` `_draw()` + 5 个委托壳（`_missile_cannot_hit_but_gun_can` `_should_commit_gun_pass` `_is_gun_pass_finished` `_is_in_missile_envelope` `_choose_dogfight_pursuit_pos`）+ 3 个物理委托壳（`_update_pilot_stamina` `_effective_max_g` `_max_bank_angle_at_speed`） |
 | `aircraft/aircraft_flares.gd` | `AircraftFlares extends RefCounted` | [共享] 热诱弹子系统（~274 行，静态方法首参 `ac: Aircraft`） | `update(ac, delta)` `release(ac, target_missile)` `calc_jam_chance(ac, m)` `cooldown_ratio(ac)` + 15 个 `FLARE_*` / `MISSILE_PHASE_DURATION` 常量 |
 | `aircraft/aircraft_weapons.gd` | `AircraftWeapons extends RefCounted` | [共享] 武器子系统（~694 行，10 个静态方法） | `update_weapon_mode(ac)` `auto_gun_scan(ac)` `update_gun(ac, delta)` `update_ciws(ac, delta)` `update_rocket(ac, delta)` `update_missile(ac, delta)` + 内部 `_launch_rocket` `_update_weapon_mode_tactical` `_fire_missile_at` `_fire_multi_lock_salvo` |
 | `aircraft/aircraft_physics.gd` | `AircraftPhysics extends RefCounted` | [共享] 物理子系统（~873 行，每帧演算 + 查询函数） | `update_target_heading(ac)` `update_bank(ac, delta)` `update_heading(ac, delta)` `update_speed(ac, delta)` `update_altitude(ac, delta)` `update_stall(ac)` `update_g_load(ac)` `update_pilot_stamina(ac, delta)` `apply_movement(ac, delta)` `update_shock_absorb(ac, delta)` `update_fuel(ac, delta)` `update_energy_management(ac)` `set_afterburner(ac, on)` + 查询 `max_bank_angle` `effective_max_g` `corner_speed_kmh` `stall_speed` `max_speed_at_altitude` `air_density_ratio` `max_bank_angle_at_speed` |
 | `aircraft/aircraft_combat_tracking.gd` | `AircraftCombatTracking extends RefCounted` | [共享] 战斗追踪子系统（~654 行，BFM 级目标追踪 + 武器模式判定） | `update_combat(ac, delta)` `update_combat_ground_attack(ac)` `choose_dogfight_pursuit_pos(ac, ...)` `missile_cannot_hit_but_gun_can(ac)` `should_commit_gun_pass(ac)` `is_gun_pass_finished(ac)` `is_in_missile_envelope(ac, tgt, msl)` + 内部日志 `_log_pursuit_snapshot` `_log_enemy_squads_engaging_player` |
+| `aircraft/aircraft_formation.gd` | `AircraftFormation extends RefCounted` | [共享] LOD 1 编队托管子系统（~453 行，9 阶段流水线；顶部有架构图 + bug 回溯地图 10 条）| `update_follow(ac, delta)` 拆成 9 个阶段：`_build_context` → `_resolve_target_heading` → `_update_heading` → `_update_bank` → `_update_speed` → `_log_formation_debug` → `_update_altitude` → `_update_position` → `_periodic_and_visuals`；纯辅助函数 `_compute_leader_bank_blend` / `_should_suppress_bank_flip`；`Branch` 枚举 |
 | `aircraft_renderer.gd` | `AircraftRenderer extends RefCounted` | [共享] 飞机绘制系统（~865 行，18 个静态 `draw_*` 方法） | `draw_radar_cone` `draw_gun_cone` `draw_lock_indicator` `draw_muzzle_flash` `draw_afterburner_glow` `draw_flare_particles` `draw_aircraft_icon` `draw_commander_icon` `draw_bomber_icon` `draw_apache_icon` `draw_chinook_icon` `draw_data_label` `draw_tactic_popup` `draw_target_line` `draw_predicted_path` `draw_formation_debug` |
 | `aircraft_destruction.gd` | `AircraftDestruction extends RefCounted` | [共享] 坠毁动画系统（fighter/bomber/heli 三种风格） | `start(ac)` `update(ac, delta)` |
 | `cobra_maneuver.gd` | `CobraManeuver extends Node` | [共享] 眼镜蛇机动模块（挂载到 Aircraft 子节点） | `activate` `_physics_process`（三阶段状态机） |
 | `herbst_maneuver.gd` | `HerbstManeuver extends Node` | [生存] 赫尔贝特轮 J-Turn 模块（F-47 BOSS 专属，可重复使用） | `activate` `_physics_process`（DECEL→TURN→ACCEL） |
-| `survivor/ace_squad.gd` | `AceSquad extends RefCounted` | [生存] 王牌中队 BOSS 基类（通用飞机类 BOSS 框架） | `spawn` `update` `_assign_roles` `_apply_role` `_maintain_role` `_update_cloak` `_force_engage` |
+| `survivor/ace_squad.gd` | `AceSquad extends BossEncounter` | [生存] 王牌中队 BOSS 基类（飞机 BOSS 框架）；纯**小队级状态机**，状态切换才改 AI 字段，不每帧覆盖 → 杜绝 BFM 战术 timer 抖动 | 状态：`INTRO/PURSUIT/CLOAK/ANCHOR_HOLD`；钩子 `_pursuit_enter` `_pursuit_update`（每 0.5s 软重连）`_cloak_enter/exit/update` `_anchor_hold_enter/exit`；`spawn` `update` `engage` `_apply_specialty` |
 | `survivor/f47_ace_squad.gd` | `F47AceSquad extends AceSquad` | [生存] F-47 王牌小队具体实现（隐形+J-Turn+齐射+二二组合战术） | `_configure_spawn` `_configure_close_fighter_combat` `_configure_ranged_striker_combat` |
 | `rocket_params.gd` | `RocketParams extends Resource` | [共享] 无制导火箭弹参数（齐射数/散布/冷却） | — |
 | `ai_controller.gd` | `AIController extends Node` | [共享] AI 主控（~1235 行，状态机路由 + 状态所有者 + BVR/BOSS 覆盖判定 + 简单 AI 路径 `_process_simple` / `_try_engage_simple` / `_try_engage_in_tether_range`；战术/规避/目标/编队全部委托 ai/ 子模块） | `_physics_process` `_process_patrol` `_process_engage` `_process_simple` `_set_next_waypoint` `_generate_default_waypoints` `_get_missile_manager` `_find_member_ai` `is_boss_attacker` `_is_target_already_squad_engaged` + `SituationData` 类 + `EngageTactic` 枚举 + `TACTIC_DISPLAY_NAME` + 所有核心状态字段 `_state / _current_target / _tactic / _tactic_timer` |
@@ -287,6 +303,13 @@ Resource
 | `ai/target_selection.gd` | `TargetSelection extends RefCounted` | [共享] 目标选择子系统（~203 行） | `try_engage(ai)` `reevaluate_target(ai)` `disengage(ai)` |
 | `ai/missile_evasion.gd` | `MissileEvasion extends RefCounted` | [共享] 导弹规避子系统（~165 行） | `process_evade(ai, delta)` `enter_evade(ai)` `exit_evade(ai)` `check_incoming_missile(ai)` `find_nearest_incoming_missile(ai)` `is_missile_from_rear(ai, missile)` |
 | `ai/squad_coordination.gd` | `SquadCoordination extends RefCounted` | [共享] 编队协同子系统（~287 行） | `process_squad_follow(ai, delta)` `scan_leader_rear(ai)` `scan_squad_nearby_enemy(ai)` `end_cover_engagement(ai)` `broadcast_salvo(ai)` `process_salvo(ai, delta)` |
+| `ai/tactical/situation.gd` | `Situation extends RefCounted` | [P4 共享] 态势快照（~230 行）：纯数据，TacticalPlanner 输入 | `from_aircraft(ac)` 工厂；`new_for_test(d)` 测试用；`_recompute()` 几何派生；字段：几何 / 锁定 / 武器 / 小队 / `ai_aggression` |
+| `ai/tactical/tactical_plan.gd` | `TacticalPlan extends RefCounted` | [P4 共享] 决策输出值类型（~80 行） | 13 种 `Intent` 枚举 + `WeaponMode` + 字段（pursuit_pos / target_speed_kmh / afterburner / weapon_mode / allow_gun_fire / allow_missile_fire / target_altitude / trigger_extend_seconds / rationale） |
+| `ai/tactical/bfm_intent.gd` | `BfmIntent extends RefCounted` | [P4 共享] 13 个 intent 纯函数（~300 行） | `cruise(s)` `waypoint_move(s, wp)` `passive_auto_fire(s)` `evade_missile(s)` `tail_chase(s)` `close_tail(s)` `lead_turn(s)` `lead_pursuit(s)` `lag_pursuit(s)` `merge_pass(s)` `wide_turn(s)` `extend_recover(s)` `ground_strafe(s)` + 辅助 `_apply_combat_weapon` `_missile_engage_pos` `_missile_engage_speed` `_apply_squad_lateral_offset` `_gun_lead_point` |
+| `ai/tactical/tactical_planner.gd` | `TacticalPlanner extends RefCounted` | [P4 共享] 顶层决策入口（~140 行） | `plan(s, waypoint=INF)` 顶层 + 9 优先级决策树（evade/extend/no-target/surface/overshoot/boom-zoom/wide-turn/head-on/rear/side） + `_apply_weapon_lock` 武器锁定后置 + hysteresis 防 intent 抖动 |
+| `equipment/equipment_params.gd` | `EquipmentParams extends Resource` | [共享] 装备基类（武器+反制+规避统一抽象）；详见 [docs/changelogs/2026-04-28-equipment-scaffolding.md](docs/changelogs/2026-04-28-equipment-scaffolding.md) | `equipment_kind` 字段；虚方法 `can_fire(ac, target)` `desired_engagement(situation)` `fire(ac, target)` `update(ac, delta)` `ammo_ratio(ac)` `cooldown_ratio(ac)` |
+| `equipment/engagement_preference.gd` | `EngagementPreference extends RefCounted` | [共享] 装备投票值类型 | 字段 `preferred_range_m` `preferred_intent` `needs_lock` `needs_los` `priority` `preferred_speed_kmh` `prefers_afterburner` `rationale`；工厂 `make(kind, range, intent, prio)` |
+| `equipment/evasion_module.gd` | `EvasionModule extends EquipmentParams` | [共享] 规避模块基类（flare/cobra/herbst 子类） | `should_trigger(ac, missile)` `execute_evasion(ac, missile)` |
 | `pilot_personality.gd` | `PilotPersonality extends RefCounted` | [共享] 飞行员心理子系统：压力/态势感知/判断误差（~223 行） | `update_stress(ai, delta)` `update_situational_awareness(ai, delta)` `update_drift(ai, delta)` `effective_skill` `effective_sa` `apply_position_error` `apply_speed_error` `apply_altitude_error` |
 | `combat_unit.gd` | `CombatUnit extends Node2D` | [共享] 战斗单位基类（通用接口） | `take_damage:81` `is_in_radar_cone:94` `get_altitude_tier:65` |
 | `missile.gd` | `Missile extends Node2D` | [共享] 导弹飞行物理（PN 制导/SARH） | `_physics_process:37` `_guidance_degradation:238` |
@@ -322,6 +345,10 @@ Resource
 | `locale_manager.gd` | LocaleManager (AutoLoad) | [共享] i18n 控制：启动读 user://locale.cfg（zh/en/ja），主菜单按钮切换+持久化+重载场景 | `_ready` `set_locale_persistent(code)` `get_current_locale()` `trm(key)` — 详见 [docs/reference/i18n.md](docs/reference/i18n.md) |
 | `audio/audio_manager.gd` | AudioManager (AutoLoad) | [共享] 音频总控：4 条 Bus（Music/SFX/UI/Radio）程序化创建，SFX 挂远距无线电效果链；32 SFX 池，屏幕外静音；双播放器 crossfade；playlist 轮播；菜单 muffle；玩家引擎环境音 | `play_music` `stop_music` `crossfade_music` `play_music_playlist` `set_music_muffled` `play_sfx_2d` `play_ui` `set_bus_volume_linear` `start_player_engine` `save_settings` — 详见 [docs/systems/audio.md](docs/systems/audio.md) |
 | `audio/audio_settings_panel.gd` | `AudioSettingsPanel extends CanvasLayer` | [共享] 音频设置面板（4 条 Bus 滑条 + 静音 + 恢复默认 + 保存到 user://audio.cfg） | `open` `close_panel` |
+| `events/ai_directive.gd` | `AIDirective extends RefCounted` | [生存] 事件系统下发给 AI/NavalUnit 的声明式覆盖指令；存在期间 AI 跳过常规 PATROL/ENGAGE 路由 | 工厂 `fly_to(target, on_arrival)` `patrol_ring(center, radius)` `follow_path(wps, loop)` `hold_position()` `engage_target(t)` `passive()` + `is_owner_alive()` |
+| `events/game_event.gd` | `GameEvent extends RefCounted` | [生存] 事件基类（一段剧本/一次刷怪/BOSS 流程）；管理 lifecycle + managed_units + 自动撤销 directive | `_start` `_update(delta)` `_finish` `set_directive(unit, d)` `clear_directive(unit)` `clear_all_directives()` `end()` |
+| `events/event_director.gd` | `EventDirector extends Node` | [生存] 事件调度器（survivor_mode 子节点；非 AutoLoad）；持 mode/player/spawner 引用，每帧 tick 所有 active 事件 | `start(event)` `find_by_name(name)` `active_count()` `_physics_process` |
+| `events/boss_encounter_event.gd` | `BossEncounterEvent extends GameEvent` | [生存] BOSS 战剧本：PRE_STAGE（CSG passive 驻泊 / F-47 远端边缘飞入 + 巡逻）→ ENGAGED（释放 directive，CSG 开火 / F-47 角色分配）→ VICTORY | `_init(anchor, heading_deg, map_id)` `_start` `_update` `_enter_engaged` `_check_engagement_trigger` `_far_map_edge_from` `_apply_pre_stage_directives_csg/_ace` |
 
 ### 核心设计决策
 
@@ -345,10 +372,10 @@ Resource
 `aircraft.gd:_physics_process` → 按 LOD 分三档，每档调度 `AircraftPhysics` / `AircraftWeapons` / `AircraftCombatTracking` / `AircraftFlares` 静态方法：
 
 - **LOD 0（完整）**：玩家 + 交战中飞机。全部 18 步（武器模式/战斗/能量管理/航向/bank/速度/高度/燃油/失速/G 力/位移/机炮/导弹/热诱弹/视觉）
-- **LOD 1（简化）**：编队僚机巡航。大部分步骤每 3 帧运行一次，编队托管有专用三段式航向控制（见下；LOD 1 编队托管代码直接住在 aircraft.gd 不拆）
+- **LOD 1（简化）**：编队僚机巡航。大部分步骤每 3 帧运行一次，编队托管有专用三段式航向控制（见下；LOD 1 编队托管已拆到 `aircraft/aircraft_formation.gd`，顶部注释有"常见 bug 回溯地图"）
 - **LOD 2（屏幕外）**：离屏飞机，每 3 帧完整更新一次，其余帧仅位移
 
-### 编队托管三段式（aircraft.gd LOD 1 分支）
+### 编队托管三段式（`scripts/aircraft/aircraft_formation.gd`）
 
 | 距槽位距离 | 行为 |
 |-----------|------|
@@ -368,6 +395,56 @@ Resource
 - **EVADE_MISSILE** — 释放热诱弹 + 急转
 - **SQUAD_FOLLOW** — 编队跟随 + 掩护扫描（每 0.5s 扫长机后半球）
   - 子状态：`_rejoining`（归队）/ `_formation_react_timer`（阵型调整）/ `_squad_attacking_leader_target`（协同攻击）
+
+### TacticalPlanner（P4 重构，玩家 + 僚机 + 9 种敌机走的统一决策路径）
+
+新设计核心：**决策（planner） / 执行（physics/weapons/combat_tracking）分离**。详见 [scripts/ai/tactical/](scripts/ai/tactical/) 4 文件。
+
+**接入方式**：`Aircraft.use_tactical_planner = true` → `_physics_process` 顶层调 `_run_tactical_planner_if_enabled()`：
+1. `Situation.from_aircraft(self)` 抽快照
+2. `TacticalPlanner.plan(s, waypoint)` → 13 种 intent 之一
+3. `_apply_tactical_plan(plan)` 写入 `target_position` / `target_speed_kmh` / `is_afterburner` / `weapon_mode` / `is_firing` / `_gun_lead_heading`
+4. 后续 `update_weapon_mode` / `update_combat` / `update_energy_management` 全部检查 `use_tactical_planner` early-return
+
+**已迁移**：玩家 / 玩家僚机 / MIG / INTERCEPTOR / F86 / MIG23 / F100 / A7 / Q5 / MIG31 / SU27（9 种常规战机）
+
+**未迁移**（保留旧 BFMTactics 路径）：F-47 / F-14_Poltergeist BOSS（特殊：BVR/Herbst/cloak/salvo）/ Adds（Tu-160/AH-64/CH-47，simple_ai）/ Sentinel（commander_aura buff）
+
+**主开关**：`SurvivorData.ENABLE_PLANNER_FOR_REGULAR_AI`（默认 false，flip 即启用所有迁移机型）
+
+**13 种 intent**（按优先级）：EVADE_MISSILE / EXTEND_RECOVER（残余）/ CRUISE / WAYPOINT_MOVE / PASSIVE_AUTO_FIRE / GROUND_STRAFE / 5b: overshoot 触发 EXTEND / 5b: BOOM_ZOOM_OUT 触发 EXTEND / WIDE_TURN / MERGE_PASS / TAIL_CHASE / CLOSE_TAIL / LEAD_TURN / LAG_PURSUIT / LEAD_PURSUIT
+
+**关键防抖与守卫**：
+- Hysteresis：战斗 intent 至少持 0.5s 才允许切到不同战斗 intent（防几何边界翻转）
+- BOOM_ZOOM_OUT：仅 `ai_aggression ≤ 0.85` 触发（Gladiator 拒绝撤退）
+- Lock-aware crank：`target_locked = false` 时强制 LOS 直瞄不 crank（防止甩出雷达锥）
+- Launch quality（仅玩家）：cone 边缘 + bank > 60° 时跳过发射；`fire_and_forget` 导弹绕过此检查
+
+**单元测试**：[scripts/tests/test_bfm_intent.gd](scripts/tests/test_bfm_intent.gd) 共 73 个 case，调用 `BfmIntentTest.run_all()` 跑（无框架，console 输出 PASS/FAIL）
+
+### 事件系统（GameEvent + AIDirective）
+
+剧本驱动的 AI 命令系统。BOSS 战 / 未来剧情演出走这套，避免在 AceSquad / spawner 里硬塞特殊状态机。
+
+**三层结构**：
+1. **`EventDirector`**（survivor_mode 子节点）—— 持有所有 active 事件，每帧 tick；事件结束自动撤销其下发的 directive
+2. **`GameEvent`**（RefCounted 基类）—— 一段剧本的生命周期 + managed_units 列表；子类覆盖 `_start/_update/_finish`
+3. **`AIDirective`**（RefCounted）—— 给单架 AI / NavalUnit 的声明式覆盖指令；存在期间 AIController 顶层完全跳过 PATROL/ENGAGE 路由，只执行 directive verb
+
+**directive 类型**：FLY_TO_POINT（含 OnArrival HOLD/PATROL/RELEASE/CALLBACK）/ PATROL_RING / FOLLOW_PATH / HOLD_POSITION / ENGAGE_TARGET / PASSIVE。`combat_disabled=true`（默认）时 AI 跳过雷达锁定 + 武器开火。
+
+**集成点**：
+- `AIController._physics_process` 顶层判断 `_directive` → 调 `_process_directive(delta)` → return
+- `NavalUnit._update_subsystems` 顶层判断 `_directive_active() and combat_disabled` → 跳过 NavalWeapons.update
+- `GameEvent.set_directive(unit, d)` 自动写入 + 加 managed_units，事件结束 `clear_all_directives()` 统一撤销
+
+**当前剧本**：BossEncounterEvent（替代旧的散在 ace_squad/csg/survivor_mode 的 PRE_STAGE / Engage / Victory 三段状态机）
+
+**加新剧本步骤**：
+1. 写 `extends GameEvent` 类（`scripts/events/<name>_event.gd`）
+2. 在 `_start` 里挑单位 + 下发 directive
+3. 在 `_update` 里推进 phase / 检测完成条件 → `end()`
+4. 调用方：`event_director.start(MyEvent.new(...))`
 
 ### 战斗追踪与武器模式
 
@@ -457,6 +534,7 @@ Resource
 **子系统设计**（docs/systems/）
 - [docs/systems/ai-system.md](docs/systems/ai-system.md) — AI 状态机/战术/压力系统详解
 - [docs/systems/survivor-mode.md](docs/systems/survivor-mode.md) — 生存模式波次/升级表
+- [docs/systems/survivor-skills.md](docs/systems/survivor-skills.md) — 完整技能图鉴 + 设计哲学 + 战区奖励池 + 骑士精神系列（对头/低空/高速反偷袭）
 - [docs/systems/ground-units.md](docs/systems/ground-units.md) — 地面单位设计
 - [docs/systems/missile-system.md](docs/systems/missile-system.md) — 导弹系统
 - [docs/systems/radar-system.md](docs/systems/radar-system.md) — 雷达系统
