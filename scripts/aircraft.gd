@@ -1381,6 +1381,10 @@ func _check_ground_crash() -> void:
 
 ## 坠毁系统委托给 AircraftDestruction（aircraft_destruction.gd）
 func _start_destroy() -> void:
+	# 清空全局玩家引用，防止 AircraftRenderer 后续帧把 freed 实例赋给类型化变量崩溃
+	# （`var pref: Aircraft = player_ref` 在 player_ref 已 free 时抛 "previously freed"）
+	if AircraftRenderer.player_ref == self:
+		AircraftRenderer.player_ref = null
 	AircraftDestruction.start(self)
 
 func _update_destroy(delta: float) -> void:
