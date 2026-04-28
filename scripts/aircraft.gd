@@ -428,6 +428,9 @@ func _publish_equipment_to_legacy() -> void:
 				params.secondary_missile = me.missile
 			else:
 				params.missile = me.missile
+	var flare_eq := params.get_equipment_of_kind("flare") as FlareEquipment
+	if flare_eq != null and flare_eq.flare != null:
+		params.flare = flare_eq.flare
 
 func show_tactic_popup(text: String) -> void:
 	_tactic_popup_text = text
