@@ -626,6 +626,14 @@ func get_herbst() -> HerbstManeuver:
 	return null
 
 func _physics_process(delta: float) -> void:
+	# Perf 包装：整个飞机物理 / 武器 / 战斗追踪 / 装备 / 状态效果聚合到 aircraft_phys 桶
+	# 这是 LOD 0 主要工作，按 N 架 × 60Hz 缩放，疑似 CSG/Phase2 掉帧主因
+	var _perf_t0: int = Time.get_ticks_usec()
+	_physics_process_impl(delta)
+	PerfBuckets.tick("aircraft_phys", Time.get_ticks_usec() - _perf_t0)
+
+
+func _physics_process_impl(delta: float) -> void:
 	_lod_frame += 1
 	if _tactic_popup_timer > 0.0:
 		_tactic_popup_timer -= delta
@@ -1051,6 +1059,10 @@ func _herbst_pick_turn_direction() -> float:
 		var my_fwd := Vector2(sin(heading), -cos(heading))
 		var best_d_sq: float = INF
 		for u in CombatUnit.all_units:
+			# all_units 跨帧静态：必须 is_instance_valid 守卫；否则 `is Aircraft` /
+			# `.team` 访问 freed 实例会爆 "previously freed instance"
+			if not is_instance_valid(u):
+				continue
 			if u == self or u.team == team or u.is_destroyed or not u is Aircraft:
 				continue
 			var enemy: Aircraft = u as Aircraft
@@ -2008,6 +2020,13 @@ func is_in_radar_cone(target_global_pos: Vector2) -> bool:
 var _font: Font
 
 func _draw() -> void:
+	# Perf 包装：把整个飞机绘制成本（含 hover/锁定/HUD/弹道线）汇总到 aircraft_draw 桶
+	var _perf_t0: int = Time.get_ticks_usec()
+	_draw_impl()
+	PerfBuckets.tick("aircraft_draw", Time.get_ticks_usec() - _perf_t0)
+
+
+func _draw_impl() -> void:
 	if not _font:
 		_font = ThemeDB.fallback_font
 	if is_destroyed:

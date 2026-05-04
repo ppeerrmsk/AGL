@@ -1189,6 +1189,11 @@ func _update_debug_panel() -> void:
 	text += "Missiles: %d\n" % missile_count
 	text += "Nodes: %d\n" % node_count
 	text += "Memory: %.1f MB" % mem
+	# Perf 桶（PerfBuckets autoload 喂数据）：units 分类 / AI 拥挤度 / 各热区 µs/帧
+	# 用来定位 CSG BOSS 等高压场景的掉帧根因（MountTarget 是否撑大 all_units，
+	# 进而拉升 ai.crowd_t、把 AI 全员推到降频路径上去）
+	for line in PerfBuckets.format_hud_lines():
+		text += "\n" + line
 	_debug_label.text = text
 
 func _count_nodes(node: Node) -> int:

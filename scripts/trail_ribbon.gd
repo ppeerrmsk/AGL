@@ -9,6 +9,11 @@ extends Node2D
 @export var max_points: int = 80   ## 性能敏感：300→80，视觉上尾迹稍短但密度不变
 @export var sample_interval: float = 0.05  ## 采样间隔（秒）= 采样率 20Hz
 
+## 屏外早退余量（px）：父节点屏幕位置 + 此 margin 仍出视口 → 完全跳过 _draw
+## 800px ≈ 1600m，比 80 点 × 0.06s × 600 m/s 的最长导弹尾迹（~1450px）略小，足够避免可见 pop
+## 选小一些可以更激进地剔除；选大保险但收益变少
+const OFFSCREEN_CULL_MARGIN_PX: float = 800.0
+
 var _trail_data: Array = []  ## Array of { pos: Vector2, heading: float, bank: float }
 var _sample_timer: float = 0.0
 
@@ -40,6 +45,24 @@ func _process(delta: float) -> void:
 ## 原：max_points=300 × 60Hz × 22架 ≈ 40 万次 draw_polygon/秒（GPU 命令爆炸）
 ## 新：1 次/帧 × 20Hz × 22架 ≈ 440 次/秒
 func _draw() -> void:
+	# Perf 包装：每架飞机的尾迹绘制（trail_data → triangle_array）耗时聚合到 trail_draw 桶
+	var _perf_t0: int = Time.get_ticks_usec()
+	_draw_impl()
+	PerfBuckets.tick("trail_draw", Time.get_ticks_usec() - _perf_t0)
+
+
+func _draw_impl() -> void:
+	# 屏外早退：父节点（Aircraft/Missile）屏幕坐标若整体在视口 + margin 之外，
+	# 整条尾迹（含 1400px 左右的尾巴）都不会可见 → 直接跳过整个昂贵的 _draw
+	# 战斗中 15+ 枚导弹同时在飞时大部分在屏外，节省 trail_draw 主要成本
+	var parent := get_parent()
+	if parent is Node2D:
+		var screen_pos: Vector2 = get_viewport_transform() * (parent as Node2D).global_position
+		var vp_rect := get_viewport_rect().grow(OFFSCREEN_CULL_MARGIN_PX)
+		if not vp_rect.has_point(screen_pos):
+			PerfBuckets.count("trail_culled")
+			return
+
 	var count := _trail_data.size()
 	if count < 2:
 		return

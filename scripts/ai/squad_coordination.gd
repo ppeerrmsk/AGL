@@ -181,7 +181,8 @@ static func scan_leader_rear(ai: AIController) -> Aircraft:
 	var best_dist := AIController.COVER_SCAN_RANGE
 
 	for unit in CombatUnit.all_units:
-		if not unit or not unit is Aircraft:
+		# `not unit` 不能挡 freed 实例（仍 truthy），必须 is_instance_valid（perf R4）
+		if not is_instance_valid(unit) or not unit is Aircraft:
 			continue
 		var ac: Aircraft = unit
 		if ac.team == ai.aircraft.team or ac.is_destroyed:
@@ -217,7 +218,8 @@ static func scan_squad_nearby_enemy(ai: AIController) -> Aircraft:
 	var best_dist := max_range_px
 	var use_2d := ai.aircraft.flat_altitude  # 生存模式走 2D
 	for unit in CombatUnit.all_units:
-		if not unit or not unit is Aircraft:
+		# `not unit` 不能挡 freed 实例（仍 truthy），必须 is_instance_valid（perf R4）
+		if not is_instance_valid(unit) or not unit is Aircraft:
 			continue
 		var ac: Aircraft = unit
 		if ac.team == ai.aircraft.team or ac.is_destroyed:

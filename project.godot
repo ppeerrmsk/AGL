@@ -22,6 +22,7 @@ LocaleManager="*res://scripts/locale_manager.gd"
 AudioManager="*res://scripts/audio/audio_manager.gd"
 MeritLedger="*res://scripts/meta/merit_ledger.gd"
 LoadoutLedger="*res://scripts/meta/loadout_ledger.gd"
+PerfBuckets="*res://scripts/util/perf_buckets.gd"
 
 [display]
 

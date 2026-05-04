@@ -915,22 +915,53 @@ func _cleanup_references() -> void:
 func _update_aircraft_list() -> void:
 	var all_aircraft: Array[Aircraft] = []
 	var all_units: Array[CombatUnit] = []
+	# Perf 计数（按 CombatUnit 子类分桶，看 all_units 的真实膨胀来源）
+	var n_ac: int = 0
+	var n_gr: int = 0
+	var n_nv: int = 0
+	var n_mt: int = 0
 	for child in get_children():
 		if child is Aircraft:
 			all_aircraft.append(child)
 			all_units.append(child)
+			n_ac += 1
 		elif child is GroundUnit:
 			all_units.append(child)
+			n_gr += 1
 		elif child is NavalUnit:
 			all_units.append(child)
+			n_nv += 1
 		elif child is CombatUnit:
 			# 兜底：MountTarget 等不是 Aircraft/GroundUnit/NavalUnit 的 CombatUnit 子类
 			# 它们是船上挂点的锁定代理，必须进 all_units 才能被雷达锁定循环看见
 			all_units.append(child)
+			n_mt += 1
 	bullet_manager.combat_unit_list = all_units
 	missile_manager.target_list = all_units
 	_all_combat_units_cache = all_units
 	CombatUnit.all_units = all_units  # AI / 武器扫描共享引用，消灭多处 get_children() 扫描
+
+	# Perf 快照：all_units 分类 + 衍生 AI 拥挤度（驱动 ai_controller 的 effective_divisor）
+	# 这样在 HUD / F9 dump 里能直接看到 "MountTarget 把 N 推到 50 → AI 全员降频" 这类因果链
+	var n_total: int = all_units.size()
+	PerfBuckets.set_value("all_units.total", n_total)
+	PerfBuckets.set_value("all_units.aircraft", n_ac)
+	PerfBuckets.set_value("all_units.naval", n_nv)
+	PerfBuckets.set_value("all_units.ground", n_gr)
+	PerfBuckets.set_value("all_units.mount_target", n_mt)
+	var crowd_t: float = 0.0
+	if n_total > AIController.CROWD_THRESHOLD_LOW:
+		crowd_t = clampf(
+			float(n_total - AIController.CROWD_THRESHOLD_LOW)
+			/ float(AIController.CROWD_THRESHOLD_HIGH - AIController.CROWD_THRESHOLD_LOW),
+			0.0, 1.0)
+	PerfBuckets.set_value("ai.crowd_t", crowd_t)
+	# 把"基础 divisor=3 在当前拥挤度下的有效 divisor"算出来贴标签
+	# （ai_controller._physics_process 里同样的 ceil(base × lerp(1, max_mult, crowd_t)) 公式）
+	PerfBuckets.set_value("ai.normal_div_at_base3",
+		int(ceil(3.0 * lerpf(1.0, AIController.NORMAL_MAX_MULT, crowd_t))))
+	PerfBuckets.set_value("ai.cheap_div_at_base3",
+		int(ceil(3.0 * lerpf(1.0, AIController.CHEAP_MAX_MULT, crowd_t))))
 
 func _update_radar_locks(delta: float) -> void:
 	# 节流：每 RADAR_LOCK_INTERVAL 秒跑一次 O(N²) 循环
@@ -938,6 +969,8 @@ func _update_radar_locks(delta: float) -> void:
 	_radar_lock_accum += delta
 	if _radar_lock_accum < RADAR_LOCK_INTERVAL:
 		return
+	var _perf_t0: int = Time.get_ticks_usec()
+	var _perf_pairs: int = 0
 	var step_delta := _radar_lock_accum
 	_radar_lock_accum = 0.0
 
@@ -977,6 +1010,7 @@ func _update_radar_locks(delta: float) -> void:
 			continue
 
 		for other in all_units:
+			_perf_pairs += 1  # 雷达对计数（含早 filter 部分；后续 reverse-engineer N²/STRIDE 用）
 			if not is_instance_valid(other) or other == unit or other.team == unit.team:
 				continue
 			# 锁定免疫期间：无法对该目标累积雷达照射
@@ -1145,6 +1179,10 @@ func _update_radar_locks(delta: float) -> void:
 				if lock_val >= lock_time_val:
 					# 将锁定进度压回刚好低于锁定阈值，阻止发射但保持追踪
 					ac.radar_targets[player_aircraft] = lock_time_val - 0.5
+
+	# Perf 收尾：本 tick 总耗时 + 总评估对数（O(N²)/STRIDE 验证用）
+	PerfBuckets.tick("radar_locks", Time.get_ticks_usec() - _perf_t0)
+	PerfBuckets.count("radar_pairs", _perf_pairs)
 
 ## 云层采样缓存（0.3s 有效期 + 位置 >200px 自动失效）
 ## 雷达锁定循环对每个 HIGH 目标都会查云，节流后仍是 10+ 次/tick，缓存消除噪声采样开销

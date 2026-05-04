@@ -158,7 +158,10 @@ static func disengage(ai: AIController) -> void:
 		else:
 			# 用共享列表代替 get_parent().get_children() (perf)
 			for unit in CombatUnit.all_units:
-				if unit and unit is Aircraft and unit.team == 0 and not unit.is_destroyed:
+				# `unit` truthy 仍可能是 freed 实例 → is_instance_valid 守卫（perf R4）
+				if not is_instance_valid(unit):
+					continue
+				if unit is Aircraft and unit.team == 0 and not unit.is_destroyed:
 					player = unit as Aircraft
 					break
 		if player:

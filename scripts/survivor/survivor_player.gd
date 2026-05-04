@@ -302,6 +302,8 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 			aircraft.aura_skill = &"data_link"
 			var radar_mult := 1.0 + float(upgrade["value"])
 			for u in CombatUnit.all_units:
+				if not is_instance_valid(u):
+					continue
 				if u is Aircraft and u.team == 0 and u != aircraft and u.params:
 					u.params.radar_range *= radar_mult
 		"dogfight":

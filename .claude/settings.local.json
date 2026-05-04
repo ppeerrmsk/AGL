@@ -197,7 +197,10 @@
       "Bash(awk '{ while\\(match\\($0, /^\\(\\\\t*\\)    /, a\\)\\) { $0 = a[1] \"\\\\t\" substr\\($0, RLENGTH+1\\); } print }' scripts/ai/bfm_tactics.gd)",
       "Bash(mv /tmp/bfm.gd scripts/ai/bfm_tactics.gd)",
       "Bash(grep -E \"\\\\.\\(gd|tscn\\)$\")",
-      "Bash(awk 'NR==223' /c/Users/noelu/Documents/AGL/scripts/missile_manager.gd)"
+      "Bash(awk 'NR==223' /c/Users/noelu/Documents/AGL/scripts/missile_manager.gd)",
+      "Bash(awk '/^func _update_radar_locks/,/^func [^_]/' scripts/survivor/survivor_mode.gd)",
+      "Bash(awk -F: '$2 ~ /^[0-9]+$/ { line=$2; name=$3; if \\(prev_line > 0 && prev_name ~ /_update_radar_locks/\\) { printf \"%s starts at %d, ends before line %d\\\\n\", prev_name, prev_line, line; exit } prev_line=line; prev_name=name }')",
+      "Bash(awk *)"
     ]
   },
   "hooks": {

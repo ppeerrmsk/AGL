@@ -463,6 +463,14 @@ func _log_target_name(target) -> String:
 	return target.callsign if target.callsign != "" else target.name
 
 func _physics_process(delta: float) -> void:
+	# Perf 包装：所有 early-return 也计入耗时 → 真实"AI 占了多少帧预算"
+	# 包含 throttled-skip 的便宜 return；用 calls_per_frame 可以反推降频是否生效
+	var _perf_t0: int = Time.get_ticks_usec()
+	_physics_process_impl(delta)
+	PerfBuckets.tick("ai_tick", Time.get_ticks_usec() - _perf_t0)
+
+
+func _physics_process_impl(delta: float) -> void:
 	if not aircraft or aircraft.is_destroyed:
 		# 飞机销毁时清掉自己在他人 engaging_me 里的 entry
 		if is_instance_valid(_prev_target_for_reverse_idx) and _prev_target_for_reverse_idx is Aircraft:

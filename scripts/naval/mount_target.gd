@@ -39,7 +39,14 @@ func _ready() -> void:
 	_sync_position()
 
 
-func _physics_process(_delta: float) -> void:
+func _physics_process(delta: float) -> void:
+	# Perf 包装：30+ 个 MountTarget × 60Hz 的总成本归到 mount_target_phys 桶
+	var _perf_t0: int = Time.get_ticks_usec()
+	_physics_process_impl(delta)
+	PerfBuckets.tick("mount_target_phys", Time.get_ticks_usec() - _perf_t0)
+
+
+func _physics_process_impl(_delta: float) -> void:
 	# 已经开始销毁 —— 不再跑任何逻辑（防止 queue_free 生效前再跑一帧）
 	if is_destroyed:
 		return

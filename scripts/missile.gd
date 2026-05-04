@@ -73,8 +73,11 @@ const CLOUD_LOSS_FLOOR: float = 0.3     ## 至少保留 30% 追踪
 func _ready() -> void:
 	_trail_ribbon = TrailRibbon.new()
 	_trail_ribbon.ribbon_width = 3.0
-	_trail_ribbon.max_points = 220
-	_trail_ribbon.sample_interval = 0.03
+	# Perf: 220 → 80 (匹配 aircraft 默认值)；33Hz 采样 → 16Hz。
+	# 战斗中可有 15-20 枚导弹同时在飞，每枚 220 点尾迹每帧重建 → 见 perf_buckets dump
+	# trail_draw 占了 3.8ms/帧 (~50% 帧预算)，主要被 missile 拉爆
+	_trail_ribbon.max_points = 80
+	_trail_ribbon.sample_interval = 0.06
 	var trail_color := Color(GameConstants.team_trail_color(team), 0.4)
 	_trail_ribbon.ribbon_color = trail_color
 	add_child(_trail_ribbon)

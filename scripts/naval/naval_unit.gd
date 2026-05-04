@@ -569,6 +569,13 @@ static func _ship_class_to_string(sc: int) -> String:
 ## 画 Tacview 风格的单色剪影（见计划 §3.11）
 
 func _draw() -> void:
+	# Perf 包装：船的绘制（hover 包线 + 状态标签 + 弱点 + 锁定）成本聚合到 naval_draw
+	var _perf_t0: int = Time.get_ticks_usec()
+	_draw_impl()
+	PerfBuckets.tick("naval_draw", Time.get_ticks_usec() - _perf_t0)
+
+
+func _draw_impl() -> void:
 	if params == null:
 		return
 

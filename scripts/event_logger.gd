@@ -69,6 +69,11 @@ func dump_to_file() -> String:
 	# 用 try/except 风格的 nil-safe 拼装：找不到玩家就跳过整段
 	_dump_skill_snapshot(file)
 
+	# Perf 快照：CSG/F-47 等高压场景的根因定位
+	# 内容：all_units 分类 / AI 拥挤度 / 雷达对/热区 µs，详见 perf_buckets.gd
+	file.store_line("")
+	file.store_line(PerfBuckets.format_full_dump())
+
 	file.close()
 	print("EventLogger: saved %d events to %s" % [_events.size(), path])
 	return path
