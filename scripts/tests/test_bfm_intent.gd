@@ -42,6 +42,8 @@ static func run_all() -> bool:
 	test_close_tail_with_missiles_uses_missile()
 	test_ground_strafe_charge_uses_max_speed()
 	test_ground_strafe_default_speed()
+	test_ground_strafe_setup_when_off_axis()
+	test_ground_strafe_break_when_overshoot()
 	test_naval_target_uses_strafe()
 	test_missile_mode_uses_crank_geometry()
 	test_hysteresis_holds_combat_intent()
@@ -327,12 +329,12 @@ static func test_close_tail_with_missiles_uses_missile() -> void:
 	# 导弹模式应该不开 AB（不需要冲过包络）
 	_assert_eq("close_tail_msl.no_ab", false, p.afterburner)
 
-## 双击地面目标 → 强制机炮 + max speed + AB（不能用 corner speed 龟速接近）
+## 双击地面目标 + 机头对准 → 强制机炮 + RUN 速度 + AB（不能用 corner speed 龟速接近）
 static func test_ground_strafe_charge_uses_max_speed() -> void:
 	var s := Situation.new_for_test({
 		"has_target": true, "tgt_is_surface": true,
 		"my_pos": Vector2.ZERO,
-		"tgt_pos": Vector2(0, -2000.0),  # 地面目标在前方 2000px (=4000m) 远
+		"tgt_pos": Vector2(0, -2000.0),  # 地面目标在前方 2000px (=4000m) 远，机头对准
 		"my_heading": 0.0, "my_speed_ms": 250.0, "tgt_speed_ms": 0.0,
 		"missiles": 0,  # 没导弹强制走机炮
 		"charge_intent": true,
@@ -340,8 +342,9 @@ static func test_ground_strafe_charge_uses_max_speed() -> void:
 	var p := TacticalPlanner.plan(s)
 	_assert_eq("ground_charge.intent", TacticalPlan.Intent.GROUND_STRAFE, p.intent)
 	_assert_eq("ground_charge.weapon", TacticalPlan.WeaponMode.GUN, p.weapon_mode)
-	# 速度必须接近 max，不能是 corner
+	# RUN 状态：速度高于 corner 但被 max×0.75 cap
 	_assert_true("ground_charge.spd>=corner+200", p.target_speed_kmh >= s.corner_speed_kmh + 200.0)
+	_assert_true("ground_charge.spd<=max*0.76", p.target_speed_kmh <= s.max_speed_kmh * 0.76)
 	_assert_true("ground_charge.ab", p.afterburner)
 
 ## 默认地面攻击（无 charge）有导弹时打 AGM
@@ -359,7 +362,7 @@ static func test_ground_strafe_default_speed() -> void:
 	_assert_eq("ground_def.weapon=MSL", TacticalPlan.WeaponMode.MISSILE, p.weapon_mode)
 	_assert_eq("ground_def.fire_msl", true, p.allow_missile_fire)
 
-## 舰船（NavalUnit）也是 surface 目标 → 走 ground_strafe，不能走空战 corner_speed
+## 舰船（NavalUnit）也是 surface 目标 → 走 ground_strafe RUN
 ## 注意 Situation.from_aircraft 里靠 `tgt is NavalUnit` 检测，单元测试直接传 tgt_is_surface=true
 static func test_naval_target_uses_strafe() -> void:
 	var s := Situation.new_for_test({
@@ -372,8 +375,42 @@ static func test_naval_target_uses_strafe() -> void:
 	})
 	var p := TacticalPlanner.plan(s)
 	_assert_eq("naval.intent", TacticalPlan.Intent.GROUND_STRAFE, p.intent)
-	# 必须 max 速度，不是 corner
-	_assert_true("naval.spd_max", p.target_speed_kmh >= s.max_speed_kmh * 0.9)
+	# RUN 速度：高于 corner，cap 在 max×0.75
+	_assert_true("naval.spd>corner", p.target_speed_kmh > s.corner_speed_kmh)
+	_assert_true("naval.spd<=max*0.76", p.target_speed_kmh <= s.max_speed_kmh * 0.76)
+
+## 对地 SETUP：机头未对准（off_axis>30°）→ corner speed 转弯重整，关 AB
+static func test_ground_strafe_setup_when_off_axis() -> void:
+	# 飞机朝北（heading=0），目标在东侧 90°
+	var s := Situation.new_for_test({
+		"has_target": true, "tgt_is_surface": true,
+		"my_pos": Vector2.ZERO,
+		"tgt_pos": Vector2(2000.0, 0.0),  # 正东 4000m
+		"my_heading": 0.0, "my_speed_ms": 250.0, "tgt_speed_ms": 0.0,
+		"missiles": 0,
+	})
+	var p := TacticalPlanner.plan(s)
+	_assert_eq("setup.intent", TacticalPlan.Intent.GROUND_STRAFE, p.intent)
+	_assert_eq("setup.spd=corner", s.corner_speed_kmh, p.target_speed_kmh)
+	_assert_eq("setup.no_ab", false, p.afterburner)
+
+## 对地 BREAK：极近距离 + 远离 → 直线脱离 3km，关 AB
+static func test_ground_strafe_break_when_overshoot() -> void:
+	# 飞机朝北，目标在身后 200m → closing 极负
+	var s := Situation.new_for_test({
+		"has_target": true, "tgt_is_surface": true,
+		"my_pos": Vector2.ZERO,
+		"tgt_pos": Vector2(0, 100.0),   # 身后 200m（heading 0=北=屏幕上方）
+		"my_heading": 0.0, "my_speed_ms": 280.0, "tgt_speed_ms": 0.0,
+		"missiles": 0,
+		"gun_range_m": 1500.0,
+	})
+	var p := TacticalPlanner.plan(s)
+	_assert_eq("break.intent", TacticalPlan.Intent.GROUND_STRAFE, p.intent)
+	_assert_eq("break.no_ab", false, p.afterburner)
+	# pursuit_pos 应在我前方而不是 tgt 处
+	var to_pursuit: Vector2 = (p.pursuit_pos - s.my_pos).normalized()
+	_assert_true("break.pursuit_in_front", to_pursuit.dot(s.my_fwd) > 0.9)
 
 ## 已锁定 + 在 crank 包络内 → pursuit_pos 必须用 crank 几何（远离 LOS）
 ## 未锁定时不 crank，避免目标飞出锥

@@ -415,6 +415,78 @@ static func draw_flare_particles(ac: Aircraft) -> void:
 			var color := Color(1.0, 0.8, 0.3, alpha * 0.7)
 			ac.draw_circle(local_pos, size, color)
 
+## 状态效果条：单位正上方一摞水平进度条（buff 在前 / debuff 在后）
+## 每条 = 半透明背景 + 按 remaining/initial 比例缩减的彩色填充 + 中文标签
+## 抵消飞机 rotation → 始终水平 / 抵消摄像机 zoom → 大小固定不随缩放
+## 接受任何 CombatUnit（飞机 / 地面单位 / 船等），地面单位通常只显示 JAM
+static func draw_status_icons(ac: CombatUnit) -> void:
+	if ac.is_destroyed or ac.status_effects.is_empty():
+		return
+	var active_ids: Array[String] = []
+	for id in StatusEffects.DISPLAY_ORDER:
+		if ac.status_effects.has(id):
+			active_ids.append(id)
+	if active_ids.is_empty():
+		return
+
+	# 抵消摄像机缩放：UI 元素保持固定屏幕尺寸（与 draw_data_label 同思路）
+	var zoom_scale := ac.get_viewport_transform().get_scale()
+	var inv_zoom: float = 1.0 / maxf(zoom_scale.x, 0.01)
+	var w := StatusEffects.BAR_WIDTH * inv_zoom
+	var h := StatusEffects.BAR_HEIGHT * inv_zoom
+	var gap := StatusEffects.BAR_GAP * inv_zoom
+	var step := h + gap
+
+	# 抵消飞机 rotation；最底下的条贴近 BAR_OFFSET_Y，往上摞
+	var t := Transform2D(-ac.rotation, Vector2.ZERO)
+	ac.draw_set_transform_matrix(t)
+
+	var font := ThemeDB.fallback_font
+	var font_size := StatusEffects.BAR_FONT_SIZE
+	var x0 := -w * 0.5
+	var n := active_ids.size()
+
+	for i in n:
+		var id: String = active_ids[i]
+		var col: Color = StatusEffects.icon_color(id)
+		# 第 0 条最靠近飞机，第 n-1 条最靠上
+		var y := StatusEffects.BAR_OFFSET_Y * inv_zoom - step * float(i)
+		var bg_rect := Rect2(x0, y, w, h)
+
+		# 背景（半透明黑）
+		ac.draw_rect(bg_rect, Color(0.05, 0.05, 0.05, 0.75), true)
+
+		# 进度填充（按 remaining/initial 比例从左往右铺，右侧空出表示已消耗）
+		var remaining: float = float(ac.status_effects[id])
+		var initial: float = float(ac.status_initial_durations.get(id, remaining))
+		var ratio: float = clampf(remaining / maxf(initial, 0.001), 0.0, 1.0)
+		if ratio > 0.0:
+			var fill_w: float = w * ratio
+			var fill_col := Color(col.r, col.g, col.b, 0.85)
+			ac.draw_rect(Rect2(x0, y, fill_w, h), fill_col, true)
+
+		# 边框（buff 金 / debuff 红）
+		var border_col: Color = Color(1.0, 0.85, 0.2, 0.9) if StatusEffects.is_buff(id) else Color(0.95, 0.2, 0.2, 0.9)
+		ac.draw_rect(bg_rect, border_col, false, 1.0 * inv_zoom)
+
+		# 标签：黑底色高亮，居中显示中文短标签
+		var label := StatusEffects.short_label(id)
+		var sized_font := float(font_size) * inv_zoom
+		var text_w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_CENTER, -1, int(sized_font)).x
+		var text_pos := Vector2(x0 + (w - text_w) * 0.5, y + h - h * 0.22)
+		# 描边（黑色 1px 偏移 4 方向）
+		var outline := Color(0, 0, 0, 0.9)
+		var off: float = 1.0 * inv_zoom
+		for dx in [-off, off]:
+			for dy in [-off, off]:
+				ac.draw_string(font, text_pos + Vector2(dx, dy), label,
+					HORIZONTAL_ALIGNMENT_LEFT, -1, int(sized_font), outline)
+		ac.draw_string(font, text_pos, label,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, int(sized_font), Color.WHITE)
+
+	ac.draw_set_transform_matrix(Transform2D.IDENTITY)
+
+
 static func draw_aircraft_icon_destroyed(ac: Aircraft) -> void:
 	# 灰色闪烁图标
 	var blink := absf(sin(Time.get_ticks_msec() * 0.008))
@@ -481,6 +553,11 @@ static func draw_aircraft_icon(ac: Aircraft) -> void:
 	# 运输直升机外观（CH-47 Chinook）：方形机身 + 前后双旋翼盘
 	if silhouette == "chinook":
 		draw_chinook_icon(ac, color, outline_color, size, base_scale, xform)
+		return
+	# 忠诚僚机无人机外观（XQ-58 Valkyrie / MQ-28 Ghost Bat 灵感）：
+	# 比战斗机小 ~40% + 尖锐机头 + 高后掠三角翼 + V 形尾翼
+	if silhouette == "drone":
+		draw_drone_icon(ac, color, outline_color, size, base_scale, xform)
 		return
 
 	# 机身主体（填充多边形）
@@ -606,6 +683,83 @@ static func draw_commander_icon(ac: Aircraft, color: Color, outline_color: Color
 		var ring_color := color
 		ring_color.a = 0.5
 		ac.draw_arc(Vector2.ZERO, s * 1.8 * base_scale, 0, TAU, 48, ring_color, 1.5)
+
+
+## 忠诚僚机无人机外观（XQ-58 Valkyrie / MQ-28 Ghost Bat 灵感）
+##   - 尺寸比战斗机小（s = size × 0.55）
+##   - 锐利尖头 + 极后掠三角翼 + V 形尾翼
+##   - 没有座舱泡（无人机标识）
+##   - 单色填充 + 深色描边，简洁科技感
+static func draw_drone_icon(ac: Aircraft, color: Color, outline_color: Color, size: float, base_scale: float, xform: Transform2D) -> void:
+	var s := size * 0.55  # 整体比战斗机小约 45%
+
+	# ── 机身（细长流线，无座舱泡）──
+	var body: PackedVector2Array = PackedVector2Array([
+		Vector2(0, -s * 1.15),             # 机头尖端（比战斗机更尖）
+		Vector2(s * 0.10, -s * 0.75),
+		Vector2(s * 0.13, -s * 0.20),      # 翼根前
+		Vector2(s * 0.13, s * 0.45),       # 翼根后
+		Vector2(s * 0.18, s * 0.75),       # 尾段加宽（容纳 V 尾根部）
+		Vector2(s * 0.10, s * 0.95),
+		Vector2(0, s * 1.0),               # 尾喷口
+		Vector2(-s * 0.10, s * 0.95),
+		Vector2(-s * 0.18, s * 0.75),
+		Vector2(-s * 0.13, s * 0.45),
+		Vector2(-s * 0.13, -s * 0.20),
+		Vector2(-s * 0.10, -s * 0.75),
+	])
+
+	# ── 主翼（极后掠三角翼，更接近 Valkyrie）──
+	var wing_r: PackedVector2Array = PackedVector2Array([
+		Vector2(s * 0.13, -s * 0.05),      # 翼根前缘
+		Vector2(s * 0.95, s * 0.50),       # 翼尖
+		Vector2(s * 0.85, s * 0.62),
+		Vector2(s * 0.13, s * 0.30),       # 翼根后缘
+	])
+	var wing_l: PackedVector2Array = PackedVector2Array([
+		Vector2(-s * 0.13, -s * 0.05),
+		Vector2(-s * 0.13, s * 0.30),
+		Vector2(-s * 0.85, s * 0.62),
+		Vector2(-s * 0.95, s * 0.50),
+	])
+
+	# ── V 尾（两片倾斜的尾翼，从尾段斜向后伸）──
+	var vtail_r: PackedVector2Array = PackedVector2Array([
+		Vector2(s * 0.13, s * 0.55),
+		Vector2(s * 0.40, s * 0.95),
+		Vector2(s * 0.32, s * 1.0),
+		Vector2(s * 0.13, s * 0.70),
+	])
+	var vtail_l: PackedVector2Array = PackedVector2Array([
+		Vector2(-s * 0.13, s * 0.55),
+		Vector2(-s * 0.13, s * 0.70),
+		Vector2(-s * 0.32, s * 1.0),
+		Vector2(-s * 0.40, s * 0.95),
+	])
+
+	# 应用变换 + 绘制（顺序：尾翼 → 主翼 → 机身，让机身覆盖在最上）
+	var pieces: Array = [vtail_l, vtail_r, wing_l, wing_r, body]
+	for piece in pieces:
+		var transformed: PackedVector2Array = PackedVector2Array()
+		for p in piece:
+			transformed.append(xform * p)
+		ac.draw_colored_polygon(transformed, color)
+		# 轮廓
+		for i in range(transformed.size()):
+			ac.draw_line(transformed[i], transformed[(i + 1) % transformed.size()],
+				outline_color, 1.0, true)
+
+	# 中线（隐约的脊线，给"流线机身"质感）
+	var accent := color.lightened(0.4)
+	accent.a = 0.4
+	ac.draw_line(xform * Vector2(0, -s * 0.6), xform * Vector2(0, s * 0.7), accent, 1.0, true)
+
+	# 选中指示（drone 通常不被玩家选中，但保留以防万一）
+	if ac.selected:
+		var ring_color := color
+		ring_color.a = 0.5
+		ac.draw_arc(Vector2.ZERO, s * 1.4 * base_scale, 0, TAU, 32, ring_color, 1.2)
+
 
 ## 轰炸机专用外观（Tu-160 / 战略轰炸机）：超大翼展 + 长机身
 ## 相比战斗机图标整体放大 ~1.6x，并加深色机腹以示"重型单位"
@@ -823,6 +977,32 @@ static func draw_chinook_icon(ac: Aircraft, color: Color, outline_color: Color, 
 		ring_color.a = 0.5
 		ac.draw_arc(Vector2.ZERO, s * 1.8 * base_scale, 0, TAU, 48, ring_color, 1.5)
 
+## 极简标签：忠诚僚机 / 漂浮装置等不需要 callsign / altitude 的小型单位
+## 只显示一行 "DRONE  482 kt"（kind 名 + 速度）
+static func draw_data_label_drone(ac: Aircraft) -> void:
+	if ac._font == null:
+		return
+	var speed_kmh := ac.speed * 3.6
+	var line: String = "DRONE  %d kt" % roundi(speed_kmh * 0.5399)
+	var font_size := 11
+	var pad := 4.0
+	var text_w: float = ac._font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+	var box_w := text_w + pad * 2.0
+	var box_h := 13.0 + pad * 2.0
+	var origin_local: Vector2 = Vector2(14.0, -box_h * 0.5)
+	# 抵消机身旋转 + 摄像机缩放
+	var inv_zoom: float = 1.0
+	if ac.is_inside_tree():
+		var cam: Camera2D = ac.get_viewport().get_camera_2d()
+		if cam != null:
+			inv_zoom = 1.0 / maxf(cam.zoom.x, 0.0001)
+	ac.draw_set_transform(origin_local, -ac.global_rotation, Vector2.ONE * inv_zoom)
+	ac.draw_rect(Rect2(Vector2.ZERO, Vector2(box_w, box_h)), Color(0.05, 0.08, 0.05, 0.55), true)
+	ac.draw_string(ac._font, Vector2(pad, pad + ac._font.get_ascent(font_size)), line,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.7, 0.95, 0.7, 0.85))
+	ac.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
 ## 在飞机旁边绘制数据标签框（逐行列出所有参数）
 ## 是否使用精简标签（无导弹/无热诱弹的简单单位）
 ## 生存模式玩家用精简标签：只显示朝向、速度、高度、G、耐力
@@ -875,6 +1055,17 @@ static func draw_data_label_minimal(ac: Aircraft) -> void:
 					if heat_pct >= 50:
 						lines.append("LSR HEAT %d%%" % heat_pct)
 
+	# 状态效果（buff/debuff）：英文简称 + 百分比 + 颜色
+	var status_line_indices: Dictionary = {}
+	for sid in StatusEffects.DISPLAY_ORDER:
+		if not ac.status_effects.has(sid):
+			continue
+		var s_remaining: float = float(ac.status_effects[sid])
+		var s_initial: float = float(ac.status_initial_durations.get(sid, s_remaining))
+		var s_pct: int = clampi(roundi(s_remaining / maxf(s_initial, 0.001) * 100.0), 0, 100)
+		status_line_indices[lines.size()] = StatusEffects.icon_color(sid)
+		lines.append("%s %d%%" % [StatusEffects.english_label(sid), s_pct])
+
 	var inv_rot := -ac.rotation
 	var font_size := 11
 	var line_height := 14.0
@@ -899,7 +1090,11 @@ static func draw_data_label_minimal(ac: Aircraft) -> void:
 	var is_player := ac == safe_player_ref()
 	var alt_color := altitude_tier_color(ac.get_altitude_tier(), ac.flat_altitude and absf(ac.vertical_speed) > 5.0) if is_player else default_text_color
 	for i in range(lines.size()):
-		var col := alt_color if (is_player and i == alt_line_idx) else default_text_color
+		var col := default_text_color
+		if is_player and i == alt_line_idx:
+			col = alt_color
+		elif status_line_indices.has(i):
+			col = status_line_indices[i]
 		ac.draw_string(ac._font, Vector2(0, i * line_height + 11), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, col)
 	ac.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
@@ -975,6 +1170,17 @@ static func draw_data_label(ac: Aircraft) -> void:
 	if status != "":
 		lines.append(status)
 
+	# 状态效果（buff/debuff）：英文简称 + 百分比 + 颜色
+	var status_line_indices: Dictionary = {}
+	for sid in StatusEffects.DISPLAY_ORDER:
+		if not ac.status_effects.has(sid):
+			continue
+		var s_remaining: float = float(ac.status_effects[sid])
+		var s_initial: float = float(ac.status_initial_durations.get(sid, s_remaining))
+		var s_pct: int = clampi(roundi(s_remaining / maxf(s_initial, 0.001) * 100.0), 0, 100)
+		status_line_indices[lines.size()] = StatusEffects.icon_color(sid)
+		lines.append("%s %d%%" % [StatusEffects.english_label(sid), s_pct])
+
 	var inv_rot := -ac.rotation
 	var font_size := 11
 	var line_height := 14.0
@@ -1006,7 +1212,11 @@ static func draw_data_label(ac: Aircraft) -> void:
 	var alt_changing: bool = ac.flat_altitude and absf(ac.vertical_speed) > 5.0
 	var alt_color := altitude_tier_color(ac.get_altitude_tier(), alt_changing) if is_player else text_color
 	for i in range(lines.size()):
-		var col := alt_color if (is_player and i == alt_line_idx) else text_color
+		var col := text_color
+		if is_player and i == alt_line_idx:
+			col = alt_color
+		elif status_line_indices.has(i):
+			col = status_line_indices[i]
 		ac.draw_string(ac._font, Vector2(5, 12 + i * line_height), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, col)
 
 	ac.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

@@ -19,6 +19,16 @@ var tracer_timer: float = 0.0           ## (legacy，保留字段避免破坏 .t
 # ── 武器开火冷却（VLS 齐射 / SAM 单发 / CIWS 连射）──
 var fire_cooldown: float = 0.0          ## 下一次开火倒计时（秒）
 
+# ── CIWS 目标获取节流 ──
+## CIWS 每帧都跑 _find_aircraft / _find_incoming_missile / _find_player 三次全场扫描
+## 改为每 ~0.15s 才重做一次决策（仍以 fire_cooldown 节奏 ~33Hz 开火），
+## 单舰 12 CIWS × 60Hz 全场扫降到 12 × 6.7Hz，CSG 时省 ~90% 扫描开销
+var acquire_cooldown: float = 0.0
+## 缓存扫描结果，acquire_cooldown 期间复用（避免每帧扫描）
+## kind: 0=无目标, 1=近距反飞机, 2=对空扫射玩家
+var cached_aircraft_target: Node2D = null
+var cached_aircraft_kind: int = 0
+
 # ── CIWS 射击计数（用于每 N 发中夹 1 发真弹，其余是视觉装饰）──
 var ciws_shot_counter: int = 0
 

@@ -225,6 +225,58 @@ static func lead_pursuit(s: Situation) -> TacticalPlan:
 	_apply_target_altitude(s, p)
 	return p
 
+## 僚机翼侧切入：向"目标未来位置 + 侧向偏移"飞，截断目标行进路线（不抢长机尾后位）
+##
+## 几何思路：
+##   future_pos = tgt_pos + tgt_fwd × (tgt_speed × CUTOFF_LEAD_SECONDS)
+##   pursuit_pos = future_pos + perp_to_tgt × side × LATERAL_OFFSET
+## side：-1 = 左翼（FLANK_LEFT），+1 = 右翼（FLANK_RIGHT）
+##
+## 速度：max × 0.95 + AB（要赶在目标前面，必须高速）
+## 武器：复用 _apply_combat_weapon — 在导弹包络内仍走 crank（更高优先级）
+## 距离 < gun_range × 1.2 时不调用本函数（planner 会回退 lead_pursuit）
+const CUTOFF_LEAD_SECONDS := 5.0       ## 截击点提前量：目标 5s 后位置
+const CUTOFF_LATERAL_M := 800.0        ## 翼侧偏移（米）
+static func flank_cutoff(s: Situation, side: float) -> TacticalPlan:
+	var p := TacticalPlan.new()
+	p.intent = TacticalPlan.Intent.LEAD_PURSUIT  # 几何上属于前置拦截，复用 intent 不新增枚举
+	# 目标未来位置
+	var tgt_speed_px: float = s.tgt_speed_ms * CombatUnit.PIXELS_PER_METER
+	var future_pos: Vector2 = s.tgt_pos + s.tgt_fwd * (tgt_speed_px * CUTOFF_LEAD_SECONDS)
+	# 垂直于目标 heading 的法向（左手系：perp.x = -tgt_fwd.y, perp.y = tgt_fwd.x → 目标右侧）
+	var perp: Vector2 = Vector2(-s.tgt_fwd.y, s.tgt_fwd.x)
+	var lateral_px: float = CUTOFF_LATERAL_M * CombatUnit.PIXELS_PER_METER
+	p.pursuit_pos = future_pos + perp * (side * lateral_px)
+	_apply_combat_weapon(s, p)
+	if p.weapon_mode == TacticalPlan.WeaponMode.MISSILE:
+		# 导弹包络内：crank 几何更经济，让 _missile_engage_pos 接管
+		p.pursuit_pos = _missile_engage_pos(s)
+		var spd := _missile_engage_speed(s)
+		p.target_speed_kmh = spd[0]
+		p.afterburner = spd[1]
+		p.rationale = "翼侧#%s：导弹 crank 接管 (dist=%.0fm)" % ["L" if side < 0 else "R", s.dist_m]
+	else:
+		p.target_speed_kmh = s.max_speed_kmh * 0.95
+		p.afterburner = (s.my_speed_ms * 3.6) < s.max_speed_kmh * 0.85
+		# 截击航线下机炮不开火（瞄具几何不对），让长机收人头；接近时 planner 会切回 LEAD_PURSUIT
+		p.allow_gun_fire = false
+		p.rationale = "翼侧#%s 截击：max×0.95+AB 抢目标 %.1fs 后位置" % [
+			"L" if side < 0 else "R", CUTOFF_LEAD_SECONDS
+		]
+	_apply_target_altitude(s, p)
+	return p
+
+## 高位掩护：保持 +1500m 高度优势，走 lag 几何，作为 ARH 备份导弹平台
+const HIGH_COVER_ALT_BUMP_M := 1500.0
+static func high_cover(s: Situation) -> TacticalPlan:
+	# 几何沿用 lag_pursuit（侧后内切），但高度抬升 1500m
+	var p := lag_pursuit(s)
+	p.target_altitude_m = s.tgt_alt + HIGH_COVER_ALT_BUMP_M
+	# 拒绝机炮开火（高位掩护不下俯）
+	p.allow_gun_fire = false
+	p.rationale = "高位掩护：+%.0fm | %s" % [HIGH_COVER_ALT_BUMP_M, p.rationale]
+	return p
+
 ## 对头交汇 → 不减速穿过（保留 closing 不浪费高度）
 static func merge_pass(s: Situation) -> TacticalPlan:
 	var p := TacticalPlan.new()
@@ -265,27 +317,59 @@ static func extend_recover(s: Situation) -> TacticalPlan:
 	p.rationale = "已穿过目标：直线脱离重整"
 	return p
 
-## 对地攻击（strafing run）：高速直线掠过地面目标
-## 与空战不同：地面不机动，不需要 corner speed 做小半径转弯。
-## 真实战机对地都是 max + AB 减少 AAA 暴露时间。降速反而更危险。
-## 武器：在 _apply_combat_weapon 的导弹包络内优先 AGM，否则机炮（charge 强制机炮）
+## 对地攻击（strafing run）：完整 pass 状态机
+## 子状态（无状态纯函数，每帧 Situation 重算）：
+##   SETUP：机头未对准（off_axis>30°）→ corner speed 转弯，关 AB（小半径回头/对准）
+##   RUN  ：机头对准 + 距离够 → 直冲，速度 cap 在 max×0.75（瞄准窗口够长）
+##   BREAK：穿过目标（dist 极近 + closing<0）→ 直线脱离 3km 重整
+## 全部用同一个 GROUND_STRAFE intent（rationale 区分），hysteresis 不受影响
+## 武器：_apply_combat_weapon 在导弹包络内优先 AGM，否则机炮
 static func ground_strafe(s: Situation) -> TacticalPlan:
 	var p := TacticalPlan.new()
 	p.intent = TacticalPlan.Intent.GROUND_STRAFE
 	# pursuit_pos：地面目标静止，直接瞄目标即可（不需要 lead）
 	p.pursuit_pos = s.tgt_pos
+	p.target_altitude_m = s.tgt_alt
 	_apply_combat_weapon(s, p)
+
 	if p.weapon_mode == TacticalPlan.WeaponMode.MISSILE:
 		# 导弹模式：稳定推进保持锁定
 		p.target_speed_kmh = s.cruise_speed_kmh * 1.15
 		p.afterburner = false
 		p.rationale = "对地：导弹包络稳定推进"
-	else:
-		# 机炮 strafe：max + AB 高速掠过
-		p.target_speed_kmh = s.max_speed_kmh * 0.95
-		p.afterburner = (s.my_speed_ms * 3.6) < s.max_speed_kmh * 0.85
-		p.rationale = "对地 strafe：max + AB 高速掠过"
-	p.target_altitude_m = s.tgt_alt
+		return p
+
+	# 机炮 strafe：按几何分子状态
+	var off_axis_cos: float = s.aim_align       # 1=正对，0=90°，-1=背对
+	var dist_m: float = s.dist_m
+	var gun_range_m: float = s.gun_range_m if s.gun_range_m > 0.0 else 1500.0
+
+	# BREAK：穿过目标（极近 + 远离）→ 直线脱离 3km
+	if dist_m < gun_range_m * 0.4 and s.closing_rate_ms < -50.0:
+		p.pursuit_pos = s.my_pos + s.my_fwd * 3000.0 * CombatUnit.PIXELS_PER_METER
+		p.target_speed_kmh = s.cruise_speed_kmh * 1.1
+		p.afterburner = false
+		p.rationale = "对地 BREAK：穿过目标 (dist=%.0fm closing=%.0fm/s) → 直线脱离" % [dist_m, s.closing_rate_ms]
+		return p
+
+	# SETUP / REENTRY：机头未对准（含目标在身后 → 等价 REENTRY 回头）
+	if off_axis_cos < TAIL_AIM_THRESHOLD:
+		p.target_speed_kmh = s.corner_speed_kmh
+		p.afterburner = false
+		var off_deg: float = rad_to_deg(acos(clampf(off_axis_cos, -1.0, 1.0)))
+		var label: String = "REENTRY" if off_axis_cos < 0.0 else "SETUP"
+		p.rationale = "对地 %s：转弯对准目标 (off=%.0f°) corner=%dkmh" % [label, off_deg, int(s.corner_speed_kmh)]
+		return p
+
+	# RUN：机头对准 → 直冲。速度 cap 在 max×0.75 让瞄准窗口够长
+	var run_target_kmh: float = clampf(
+		s.cruise_speed_kmh * 1.4,
+		s.cruise_speed_kmh,
+		s.max_speed_kmh * 0.75
+	)
+	p.target_speed_kmh = run_target_kmh
+	p.afterburner = (s.my_speed_ms * 3.6) < run_target_kmh * 0.95
+	p.rationale = "对地 RUN：机头对准 → strafe 直冲 (target=%dkmh)" % int(run_target_kmh)
 	return p
 
 ## hdg 偏差 >90° → 大角度修正
@@ -423,21 +507,13 @@ static func _missile_engage_pos(s: Situation) -> Vector2:
 	var crank_dir: Vector2 = ccw if ccw_align > cw_align else cw
 	return s.my_pos + crank_dir * 5000.0
 
-## 作战高度：使用自身偏好（patrol_altitude / my_alt），clamp 到目标 ±2500m 内
-## 满足导弹包线 ±5000m 高度差限制，留余量给 yoyo / extension 等过渡。
-const COMBAT_ALT_TARGET_MARGIN := 2500.0
-static func _combat_altitude(s: Situation) -> float:
-	if not s.has_target:
-		return s.combat_altitude_m
-	return clampf(s.combat_altitude_m, s.tgt_alt - COMBAT_ALT_TARGET_MARGIN, s.tgt_alt + COMBAT_ALT_TARGET_MARGIN)
-
 ## 战斗 intent 的目标高度策略：
-## - MISSILE 模式（远距导弹战）→ 保自身作战高度，保留高度优势
-## - GUN 模式 / NONE（近距/对地）→ 匹配目标高度，否则机炮挂不上
+## - MISSILE 模式（远距导弹战）→ 保自身作战高度，不向目标高度靠拢（高位发射 → 射程更远 / 重力势能优势）
+## - GUN 模式 / NONE（近距/对地）→ 匹配目标高度，否则机炮锥挂不上
 ## 调用方在 _apply_combat_weapon 之后调用本函数。
 static func _apply_target_altitude(s: Situation, p: TacticalPlan) -> void:
 	if p.weapon_mode == TacticalPlan.WeaponMode.MISSILE:
-		p.target_altitude_m = _combat_altitude(s)
+		p.target_altitude_m = s.combat_altitude_m
 	else:
 		p.target_altitude_m = s.tgt_alt
 

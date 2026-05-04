@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="EquipmentPart" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/meta/equipment_part.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"gun_assault_t3"
+display_name_key = "EQUIPMENT_GUN_ASSAULT_T3_NAME"
+description_key = "EQUIPMENT_GUN_ASSAULT_T3_DESC"
+category = &"weapon"
+icon_color = Color(1.0, 0.45, 0.1, 1)
+slot_cost = 3
+tier = 3
+merit_cost = 400
+gun_damage_mult = 1.35
+gun_firerate_mult = 1.25
+gun_ammo_mult = 1.30

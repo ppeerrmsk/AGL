@@ -59,6 +59,15 @@ var _poltergeist: PoltergeistSquad = null    ## Phase 2 小队（Phase 1 为 nul
 var _cv_death_position: Vector2 = Vector2.INF
 var _cv_death_heading: float = 0.0
 
+# ── F/A-18 持续弹射（Phase 1 战斗期间）──
+const FA18_INITIAL_COUNT: int = 2             ## engage() 瞬间弹射数（一对编队）
+const FA18_PERIODIC_INTERVAL: float = 120.0   ## 每 2 分钟弹射一架补充
+const FA18_TAKEOFF_GRACE: float = 4.0         ## 起飞保护期（与 Poltergeist 同步）
+const FA18_INITIAL_LATERAL_OFFSET: float = 220.0 ## 初始两架左右分开像素距离
+var _fa18_engaged: bool = false               ## engage() 是否已经触发（防止重复）
+var _fa18_periodic_timer: float = 0.0         ## 距离下一次定期弹射的剩余秒数
+var _fa18_alive: Array[Aircraft] = []         ## 跟踪存活的 F/A-18，用于胜利判定 / 清理
+
 # ── spawn 时注入的外部依赖（Phase 2 要用）──
 var _mode: Node2D = null
 var _aircraft_scene: PackedScene = null
@@ -148,6 +157,10 @@ func update(delta: float) -> void:
 	if not active:
 		return
 
+	# Phase 1: F/A-18 持续弹射（CV 还活着的时候）
+	if _phase == 1 and _fa18_engaged:
+		_update_fa18_periodic_launch(delta)
+
 	# Phase 1: 监测 CV 沉没瞬间 → 捕获死亡位置/朝向 → 进 Phase 2
 	if _phase == 1 and _should_trigger_phase2():
 		_enter_phase2()
@@ -159,6 +172,73 @@ func update(delta: float) -> void:
 
 	# 胜利判定
 	_check_victory()
+
+# ══════════════════════════════════════════════
+#  接战入口（boss_encounter_event PRE_STAGE → ENGAGED 时调用）
+# ══════════════════════════════════════════════
+
+## 玩家进入 BOSS 圈瞬间触发 — 先弹射两架 F/A-18 见面礼，并启动 2 分钟定期补充
+func engage() -> void:
+	if _fa18_engaged:
+		return
+	_fa18_engaged = true
+	_fa18_periodic_timer = FA18_PERIODIC_INTERVAL
+	# 立即弹射 2 架（一对编队，左右分开）
+	for i in range(FA18_INITIAL_COUNT):
+		var lateral_idx: float = float(i) - float(FA18_INITIAL_COUNT - 1) * 0.5  # -0.5, +0.5 两架
+		_launch_fa18(lateral_idx * FA18_INITIAL_LATERAL_OFFSET)
+	EventLogger.log_event("BOSS", display_name,
+			"engaged: %d F/A-18 launched, periodic catapult every %.0fs" % [FA18_INITIAL_COUNT, FA18_PERIODIC_INTERVAL])
+
+## 每帧 tick — 计时到了刷一架（CV 还活着才刷；CV 沉没即停止）
+func _update_fa18_periodic_launch(delta: float) -> void:
+	# 清理已死的 F/A-18 引用（避免数组膨胀，胜利判定看 _phase/_poltergeist 不需要这个数组）
+	var alive: Array[Aircraft] = []
+	for ac in _fa18_alive:
+		if is_instance_valid(ac) and not ac.is_destroyed:
+			alive.append(ac)
+	_fa18_alive = alive
+	# CV 已死或正在死 → 不再刷
+	if _cv == null or not is_instance_valid(_cv) or _cv.is_destroyed:
+		return
+	_fa18_periodic_timer -= delta
+	if _fa18_periodic_timer <= 0.0:
+		_fa18_periodic_timer = FA18_PERIODIC_INTERVAL
+		_launch_fa18(0.0)
+		EventLogger.log_event("BOSS", display_name,
+				"periodic F/A-18 catapult (1 launched, %d alive)" % _fa18_alive.size())
+
+## 单架 F/A-18 弹射：CV 位置 + CV 当前朝向 + lateral 偏移（米/像素同尺度）
+## 起飞后立即开火（不像 Poltergeist 走 4 秒滑跑动画 — 设计上"补充梯队"节奏快）
+## 给一段 takeoff grace，玩家短暂内无法锁定 + 飞机自爬到作战高度
+func _launch_fa18(lateral_offset: float) -> void:
+	if _cv == null or not is_instance_valid(_cv):
+		return
+	var heading: float = _cv.heading
+	var fwd := Vector2(sin(heading), -cos(heading))
+	var stb := Vector2(cos(heading), sin(heading))
+	var spawn_pos: Vector2 = _cv.global_position + fwd * 60.0 + stb * lateral_offset
+	var heading_deg: float = rad_to_deg(heading)
+	var hornet := director_create_enemy(SurvivorSpawner.EnemyType.FA18, spawn_pos, heading_deg)
+	if hornet == null:
+		return
+	# 起飞参数：拉到低空作战高度，开 AB
+	hornet.altitude = 800.0
+	hornet.vertical_speed = 80.0
+	hornet.set_target_tier(CombatUnit.AltitudeTier.MID)
+	hornet.is_afterburner = true
+	hornet._lock_immunity_timer = FA18_TAKEOFF_GRACE
+	# 标识为 CSG 派生（survivor_spawner 远距清理跳过 + HUD 不显示血条）
+	hornet.set_meta("category", "boss_csg_aircraft")
+	hornet.set_meta("skip_far_cleanup", true)
+	# 让玩家成为目标 — combat_target 由 AI 雷达扫描自动获取，这里不强设
+	_fa18_alive.append(hornet)
+
+## 调 spawner._create_enemy（保留为内部辅助，防止 spawner 接口变化时一处定位）
+func director_create_enemy(etype: int, spawn_pos: Vector2, heading_deg: float) -> Aircraft:
+	if not _create_enemy_func.is_valid():
+		return null
+	return _create_enemy_func.call(etype, spawn_pos, heading_deg)
 
 ## Phase 2 触发：CV 沉没（is_destroyed=true 的第一帧，趁 CV 节点还没 queue_free）
 func _should_trigger_phase2() -> bool:
@@ -179,6 +259,9 @@ func _enter_phase2() -> void:
 	_poltergeist.entry_angle_override = _cv_death_heading - PI
 	_poltergeist.spawn(_mode, _aircraft_scene, _create_enemy_func, _player,
 			_bullet_mgr, _missile_mgr, _squads_ref)
+	# 立即触发 PURSUIT — 否则 AceSquad combat_phase_active=false 会让状态机停摆，
+	# 也就让 poltergeist_squad.gd 弹射结束的 ENGAGE 同步守卫拒绝触发
+	_poltergeist.engage()
 	# 切 Phase 2 BGM：层叠模式下只压音量，两轨继续同步播放 —— 无缝衔接
 	AudioManager.set_music_layer(1, 2.5)
 	EventLogger.log_event("BOSS", display_name,

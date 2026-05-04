@@ -24,6 +24,13 @@ const FADE_IN_DURATION: float = 0.6       ## 淡入时间
 const CATAPULT_DURATION: float = 1.8      ## 弹射滑跑时间
 const CATAPULT_INTERVAL: float = 1.4      ## 相邻两次弹射的间隔（秒）
 const CATAPULT_TARGET_DIST: float = 3000.0 ## 弹射目标点在机头正前方的距离
+## 离开甲板后的"先爬升再战斗"保护期：4 秒以内 + 达到 COMBAT_READY_ALT 就提前结束
+##   - 期间禁交战 + 锁定免疫（玩家无法锁/打）
+##   - 强制全推力爬升 + 朝玩家方向飞（避免飞出地图边缘）
+##   - 退出后 AceSquad 立即接管 → combat_target=_player → 进入战斗
+const TAKEOFF_GRACE_SECS: float = 4.0
+const TAKEOFF_GRACE_META := "pltgst_takeoff_grace_until"
+const COMBAT_READY_ALT: float = 1500.0    ## 达到此高度即提前结束保护期，立刻开打（与 ai_controller.HERBST_MIN_ALTITUDE_M 对齐）
 
 var _launch_phases: Array[int] = []       ## 与 all_members 对齐的阶段数组
 var _launch_timers: Array[float] = []     ## 每架当前阶段已过时长
@@ -179,6 +186,34 @@ func update(delta: float) -> void:
 	members = flying
 	super.update(delta)
 
+	# 7. 起飞保护期覆盖（放在 super.update 之后）：
+	#    - 朝玩家方向爬升，不再朝机头方向直冲（避免飞到地图边缘走丢）
+	#    - 清掉 AceSquad 塞回的 combat_target（4 秒内不交战）
+	#    - 顶起锁定免疫定时器（玩家无法锁定/导弹无法咬）
+	#    - 高度达到 COMBAT_READY_ALT 立即提前结束 → 下帧 AceSquad 接管直接开打
+	var now_s: float = Time.get_ticks_msec() / 1000.0
+	for ac5 in flying:
+		if not is_instance_valid(ac5) or ac5.is_destroyed:
+			continue
+		if not ac5.has_meta(TAKEOFF_GRACE_META):
+			continue
+		var grace_until: float = float(ac5.get_meta(TAKEOFF_GRACE_META))
+		var grace_remaining: float = grace_until - now_s
+		var ready: bool = ac5.altitude >= COMBAT_READY_ALT
+		if grace_remaining <= 0.0 or ready:
+			ac5.remove_meta(TAKEOFF_GRACE_META)
+			continue
+		# 朝玩家方向飞（仍然在爬升中，AB 推力 + target_altitude_tier=HIGH 由 _ready 时设好）
+		if is_instance_valid(_player):
+			ac5.target_position = _player.global_position
+		else:
+			var fwd2 := Vector2(sin(ac5.heading), -cos(ac5.heading))
+			ac5.target_position = ac5.global_position + fwd2 * CATAPULT_TARGET_DIST
+		ac5.combat_target = null
+		# 锁定免疫顶到至少剩余保护期长度（覆盖 aircraft 物理 tick 自然衰减）
+		if ac5._lock_immunity_timer < grace_remaining:
+			ac5._lock_immunity_timer = grace_remaining
+
 ## 推进单架的阶段状态机
 func _tick_phase(i: int, delta: float) -> void:
 	var phase: int = _launch_phases[i]
@@ -203,12 +238,24 @@ func _tick_phase(i: int, delta: float) -> void:
 				# 离开甲板：先把高度顶离 0（防 _check_ground_crash 在解锁瞬间误杀）+ 给个初始正爬升率
 				# 然后解除无敌、目标爬到 LOW（达到 LOW 后由 update() 推到 HIGH）
 				ac.altitude = 200.0
-				ac.vertical_speed = 30.0
+				ac.vertical_speed = 120.0  ## 大初始正爬升率，配合 4s 保护期 + AB 推力直冲到作战高度
 				ac.invulnerable = false
-				ac.set_target_tier(CombatUnit.AltitudeTier.LOW)
+				ac.set_target_tier(CombatUnit.AltitudeTier.HIGH)  ## 跳过 LOW 直接爬到 HIGH，避免到 LOW 后又重新加速
+				ac.set_meta(TAKEOFF_GRACE_META, Time.get_ticks_msec() / 1000.0 + TAKEOFF_GRACE_SECS)
+				ac.set_meta("pltgst_climbed_low", true)  ## 防 update() 段 5 重复调 set_target_tier(HIGH)
+				ac._lock_immunity_timer = TAKEOFF_GRACE_SECS  ## 起飞期间玩家无法锁定/攻击
 				var ai: AIController = ac._get_ai_controller()
 				if ai:
 					ai.process_mode = Node.PROCESS_MODE_INHERIT
+				# 弹射结束 → AceSquad 已经在 PURSUIT 时，显式同步 ENGAGE + combat_target
+				# 否则解冻下一帧 ai_controller.gd:511 的 spawn-init guard 会把它锁进 SQUAD_FOLLOW
+				if ai and combat_phase_active and squad_state == SquadState.PURSUIT \
+						and is_instance_valid(_player) and not _player.is_destroyed:
+					ai._state = AIController.AIState.ENGAGE
+					ai._current_target = _player
+					ai._engage_timer = 0.0
+					ai.boss_attacker = true
+					ac.combat_target = _player
 				EventLogger.log_event("BOSS", display_name,
 						"%s airborne, climbing to LOW" % ac.callsign)
 

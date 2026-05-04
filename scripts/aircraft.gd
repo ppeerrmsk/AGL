@@ -14,10 +14,10 @@ var _stall_recovery_timer: float = 0.0  ## 失速恢复冷却（防止反复失�
 ## 死亡溯源：take_bullet_damage 在致死的那一击设为 true
 ## survivor_spawner._detect_kills 据此判断是否触发"机炮击杀恐惧"AOE
 var _killed_by_bullet: bool = false
-## 玩家专属：机炮击杀附近敌机时给他们注入恐惧的半径，0=未升级
-var gun_kill_fear_radius: float = 0.0
-## 玩家专属：恐惧衰减率（stress / 秒）。值越小持续越长。0=未升级
-var gun_kill_fear_decay_rate: float = 0.0
+## 玩家专属：恐惧扩散持续时间（>0 时玩家击杀任意敌机后给同小队所有成员挂 FEAR）
+var fear_squad_spread_duration: float = 0.0
+## 玩家专属：施加 FEAR 时同步附带 SLOW（同 duration）
+var fear_applies_slow: bool = false
 
 # --- 目标 ---
 var target_position: Vector2 = Vector2.INF  ## 世界坐标, INF=无目标
@@ -39,8 +39,10 @@ const PREDICTED_PATH_MIN_REMAINING := 12           ## 从飞机最近点到缓�
 const PREDICTED_PATH_SEARCH_WINDOW := 30          ## progress_idx 附近的前瞻搜索窗口（不全局扫描，避免绕圈路径闪烁）
 var formation_mode: bool = false            ## true=编队托管模式，直接复制长机状态
 var _formation_leader: Aircraft = null      ## 编队长机引用（formation_mode时使用）
-var _formation_blend: float = 1.0           ## 编队混合度（0=自主, 1=完全托管，用于过渡）
-var _formation_jitter_phase: float = 0.0    ## 个体扰动相位
+## 注：_formation_blend / _formation_jitter_phase 单边住在 AIController（_ai_ref._formation_blend 等）。
+## 旧 API 把这两个字段在 Aircraft 上镜像了一份导致每帧手动同步，2026-05-04 重构删除。
+## 子模块 AircraftFormation 通过 ac._ai_ref 直接读 AI 端的值，单一权威源。
+var _ai_ref: AIController = null             ## 由 AIController._ready 回写；编队/规避代码读 blend/jitter
 var target_altitude: float = 5000.0
 var target_speed_kmh: float = 900.0  ## km/h, 玩家/AI设定
 var target_altitude_tier: int = AltitudeTier.MID   ## 目标高度档位（flat_altitude时使用）
@@ -77,10 +79,18 @@ var ai_override_pursuit: bool = false  ## AI 战术机动时跳过自动追踪�
 var bullet_manager: Node2D = null   ## 由 main.gd 注入
 var missile_manager: Node2D = null  ## 由 main.gd 注入
 
-# --- 火箭弹（无制导副武器） ---
+# --- 火箭弹（无制导副武器，全自动扫描齐射） ---
 var rockets_remaining: int = 0
 var _rocket_burst_cooldown: float = 0.0  ## 齐射冷却
-var _rocket_queue: Array[Dictionary] = []  ## 待发射火箭队列 { delay: float, heading: float, pos: Vector2 }
+var _rocket_queue: Array[Dictionary] = []  ## 待发射火箭队列 { delay: float, heading: float, pos: Vector2, pylon: int }
+
+# --- 空中鱼雷（规避模式下自动抛出的追踪雷） ---
+var _torpedo_cooldown: float = 0.0  ## 抛雷冷却（规避模式下持续倒数）
+
+# --- 忠诚僚机无人机（规避模式下从机尾释放的伴飞 drone） ---
+var _loyal_wingman_cooldown: float = 0.0  ## 释放冷却（规避模式下持续倒数）
+var _drone_squad: Squad = null            ## 懒创建的无人机 squad（leader=self；与 player.squad 解耦）
+var _alive_drones: Array[Aircraft] = []   ## 当前活着的 drone 引用（cap 计数 + 死亡清理）
 
 # --- 导弹 ---
 enum WeaponMode { MISSILE, GUN }
@@ -195,6 +205,98 @@ var lock_resistance_mult: float = 1.0  ## 雷达锁定抗性（强化吊舱升�
 var altitude_authority_mult: float = 1.0  ## 高度操纵权威（云雾机动战区奖励），_update_altitude 三处同步放大
 var cloud_lock_stealth: bool = false      ## 云雾隐身（云雾机动战区奖励）：云中任意高度档 lock_rate ×0.1
 var ecm_range_mult: float = 1.0           ## ECM 吊舱（战区奖励）：敌人雷达对我的有效距离 × 此值（0.75 = 缩短 25%）
+var category_radar_mult: float = 1.0      ## 词条联动：电子战类技能数量 → 雷达/锁定范围。由 SurvivorData.recompute_category_bonuses 写
+
+# ── 状态效果系统（StatusEffects 模块管理）──
+## 容器 status_effects + JAM 派生标记 status_jam_active 在 CombatUnit 基类，敌我对称
+## 这里只保留**仅 Aircraft 生效**的派生标记（地面单位 / 船 / 巨型 BOSS 不会识别）
+var status_invincible_active: bool = false ## INVINCIBLE buff 派生标记
+var status_stealth_active: bool = false    ## STEALTH buff 派生标记
+var status_bloodlust_active: bool = false  ## BLOODLUST buff 派生标记
+var status_overload_active: bool = false   ## OVERLOAD buff 派生标记
+var status_slow_active: bool = false       ## SLOW debuff 派生标记
+var status_fear_active: bool = false       ## FEAR debuff 派生标记
+
+## 无驾驶员标记（UAV / UCAV / Sentinel / Aegis UAV 等）
+## 心理类状态（FEAR）不该对无人机生效——无人机不会"恐惧"。
+## survivor_spawner 在创建时根据 enemy_type 设置；玩家 + 载人战机默认 false
+var no_pilot: bool = false
+
+## ── 便利贴技能字段（C 阶段批量实装）──
+## 各字段由 SurvivorPlayer.apply_upgrade 写入；消费点在对应模块 early-check
+var lock_panic_g_mult: float = 1.0          ## 被锁时 effective_max_g 倍率（physics）
+var low_hp_flare_reload_mult: float = 1.0   ## hp < 50% 时 flare reload 倍率（flares）
+var high_alt_lock_speed_bonus: float = 0.0  ## HIGH 档锁定速率 bonus（main 雷达循环）
+var ab_gun_regen_per_sec: float = 0.0       ## AB 时机炮子弹 regen/s（weapons.update_gun）
+var alt_change_stealth_factor: float = 0.0  ## 高度变化时锁定衰减系数（main 雷达循环）
+var head_on_gun_dodge_bonus: float = 0.0    ## 对头时机炮闪避加成（take_bullet_damage 加查）
+var low_alt_gun_dodge_bonus: float = 0.0    ## 低空时机炮闪避加成（take_bullet_damage 在 LOW/GROUND 档位加）
+var gun_fire_dr_window: float = 0.0         ## 机炮发射后 N 秒内受到伤害减免（_apply_damage 查）
+var gun_fire_dr_amount: float = 0.0         ## 该时间窗内伤害减免比例（0.5 = -50%）
+var _gun_fire_recently_until: float = 0.0   ## 时间戳：本时刻以前在开火窗口内
+var fear_on_lock_threshold: float = 0.0     ## 锁定累积达 N 秒后给目标施加 FEAR（0=禁用）
+var _locked_target_seconds: Dictionary = {} ## { instance_id → 累积秒数 }（玩家专用）
+
+## 反向索引：当前正在攻击我（_current_target == self）的敌方 AI 集合
+## AIController 在切目标到我时增量写入；切走时移除。0 扫描，纯增量更新
+## 配套技能：后半球减速光环 / JAM 光环（依赖此集合判定"和你缠斗中的敌人"）
+var engaging_me: Dictionary = {}              ## { Aircraft instance_id → Aircraft }
+## 后半球敌人减速光环：每 0.5s 扫描后半球 + 距离内的敌人 → 累加 SLOW
+## 累积式光环：累积期不生效；累积满施 Debuff；Debuff 期间不累积；消退后从 0 重新累积
+## 离开半径不归零（玩家可短暂脱离再回来续累积，避免取巧）
+var rear_aura_slow_radius_px: float = 0.0     ## 0=禁用；半径 px
+var _rear_aura_accum_seconds: Dictionary = {} ## { instance_id → 累积秒数 }
+## 全向 JAM 光环（同累积模式）
+var jam_aura_radius_px: float = 0.0            ## 0=禁用；半径 px
+var _jam_aura_accum_seconds: Dictionary = {}   ## { instance_id → 累积秒数 }
+## 累积式光环统一参数
+const AURA_ACCUMULATE_SECONDS: float = 8.0    ## 累积满需要 8s 持续在半径内
+const AURA_DEBUFF_DURATION: float = 4.0       ## Debuff 持续秒数
+
+## F-14 专属：全僚机锁定同一敌机时给该敌机施加 SLOW（survivor_mode 雷达循环维护）
+var f14_squad_lock_slow_active: bool = false
+
+## 云中事件触发器（玩家专用，每帧 main 场景检测进/出云事件 → 触发对应钩子）
+##   cloud_overload_active: 进云时 apply OVERLOAD，出云时 remove
+##   cloud_weapon_cd_mult:  进云时按倍率 scale 武器 cd（与 evasion_modifiers 同模式），出云反向
+var cloud_overload_active: bool = false      ## 技能解锁标记：玩家是否选了"云中超载"
+var _in_cloud_overload: bool = false          ## 运行时：当前是否处于云中且解锁此技能（StatusEffects.update OR 进派生标记）
+var cloud_weapon_cd_mult: float = 1.0        ## 技能：在云中武器 cd 倍率（< 1.0 = 更快）
+var _was_in_cloud_last_frame: bool = false   ## 用于检测进/出云边界事件
+
+## 进入 evasion 模式时启用 STEALTH（独立 bool + 派生 OR，避免与其它 STEALTH 来源冲突）
+var evasion_stealth_active: bool = false     ## 解锁标记：玩家是否选了"evasion 隐身"
+var _in_evasion_stealth: bool = false         ## 运行时：当前是否处于 evasion 模式且解锁
+const EVASION_STEALTH_DELAY: float = 2.0      ## 进入 evasion 后多少秒激活隐身
+var _evasion_stealth_timer: float = 0.0       ## evasion 进入后累计（仅当 evasion_stealth_active 时累加）
+
+## 弹药打空后获得 5 秒 STEALTH（玩家技能 missile_cd_stealth）
+## 与 evasion_stealth 同模式：解锁标记 + 运行时派生标记，status_effects.gd 里 OR 进派生
+const MISSILE_DEPLETED_STEALTH_DURATION: float = 5.0
+var missile_cd_stealth_active: bool = false   ## 解锁标记：玩家是否选了"弹后潜匿"
+var _in_missile_cd_stealth: bool = false       ## 运行时：当前是否处于打空隐身窗口
+var _missile_cd_stealth_timer: float = 0.0    ## 残余隐身时间（秒）
+var _prev_missiles_remaining: int = -1         ## 上一帧弹药数（边沿检测；-1=未初始化）
+
+## 对头干扰：和我面对面（双向 dot > 0.7）的雷达锥内敌机累计 N 秒后施加 JAM
+## 与 fear_on_lock 同模式：每帧扫 radar_targets，单位级累积；JAM 命中后该 entry 重置
+var head_on_jam_threshold: float = 0.0        ## 0=禁用；> 0 = 累积秒数
+var _head_on_jam_seconds: Dictionary = {}      ## { instance_id → 累积秒数 }
+const HEAD_ON_JAM_DOT: float = 0.7             ## 双向 dot 阈值（≈ 45° 对头锥）
+const HEAD_ON_JAM_DURATION: float = 5.0        ## 触发后给目标的 JAM 时长
+## 进入 evasion 模式时触发 J-Turn（HerbstManeuver）作为反击（被攻击触发，非主动）
+var evasion_herbst_active: bool = false       ## 解锁标记：玩家是否选了"evasion J-Turn"
+
+## evasion 模式中每 N 秒装填 1 发导弹，可突破 max_count×2 上限
+## value=4.0 表示每 4s 一发；超过 max_count×2 不再装
+var evasion_overstock_interval: float = 0.0   ## 0=禁用；>0 = 装填周期秒数
+var _evasion_overstock_timer: float = 0.0     ## 当前周期计时（仅 evasion ON 时累加）
+var _alt_velocity: float = 0.0              ## abs 高度变化速率（m/s 平滑），主场景每帧累算
+var _alt_velocity_prev: float = 0.0         ## 上一帧 altitude，用于差分
+## owner 追踪：状态系统是否是 invulnerable / is_cloaked 的当前置位者
+## 防止状态结束时把别的系统（航母弹射 / F-47 BOSS cloak）的设值也清掉
+var _status_owns_invul: bool = false
+var _status_owns_cloak: bool = false
 var xp_multiplier: float = 1.0            ## 经验倍率（xp_mult 升级）：击杀获得 XP × 此值，硬顶 1.4
 # ── 战区奖励 v2 ──
 ## 冲击吸收（战区奖励）：受到 ≥2 dmg 时，floor(dmg × SHOCK_ABSORB_RATIO) HP 缓慢回复
@@ -232,6 +334,11 @@ var _ciws_cooldown: float = 0.0          ## CIWS 射速冷却（独立于正常�
 var survivor_missile_damage_cap: float = 0.0  ## 生存模式：导弹伤害上限（0=不限制）
 var survivor_bullet_damage_cap: float = 0.0   ## 生存模式：机炮伤害上限（0=不限制）
 var hide_data_label: bool = false    ## 隐藏飞机旁的数据标签（HUD 替代显示）
+var is_drone: bool = false           ## 忠诚僚机无人机标记：跳过预测线 / 数据标签 / 高度文本，纯 2D 视觉
+
+## 玩家光环技能 ID（仅长机持有；&""=无）。当前实现：&"data_link"（F-14 专属）
+## 在 survivor_mode._update_radar_locks 由全局逻辑读取，本类自身不消费此字段。
+var aura_skill: StringName = &""
 
 # --- 视觉提示：敌方机炮锥威胁显示 ---
 ## 敌方对玩家持续 weapon_mode==GUN 锁定时累计；≥0.3s 触发显示机炮射界锥
@@ -274,6 +381,18 @@ var _gun_aim_offset_rad: float = 0.0
 var _was_gun_firing: bool = false
 var altitude_preference: int = AltitudePreference.PREFER_CLIMB
 var evasion_mode: bool = false
+
+## ── §1.2 evasion_modifiers：模式切换时按差量缩放运行时倒计时（避免每帧重算） ──
+## 技能 apply 时往该 dict 写倍率（< 1.0 = cd 缩短，> 1.0 = cd 延长）；
+## set_evasion_mode 切换瞬间一次性 scale/unscale 各 cd —— 进行中的倒计时按比例缩放，
+## 不会"倒回去"。默认 1.0 = 无修饰。技能消费点（cruise_speed_mult 等）每帧直接查表。
+var evasion_modifiers: Dictionary = {
+	"weapon_cd_mult": 1.0,        ## 机炮 + 导弹 + 火箭三路 cd（_fire_cooldown / _missile_cooldown / _rocket_burst_cooldown）
+	"flare_cd_mult": 1.0,         ## 热诱弹冷却（_flare_cooldown）
+	"missile_reload_mult": 1.0,   ## 导弹装填（_missile_reload_timer）
+	"cruise_speed_mult": 1.0,     ## 巡航速度上限倍率（physics 每帧查）
+}
+
 ## 冲锋攻击：玩家快速双击敌人触发。强制机炮模式 + 屏蔽导弹自动发射，专注当前目标
 ## 速度由现有战斗逻辑（aircraft_physics.update_energy_management 机炮分支）按距离自适应
 ## 自动清除：set_combat_target / clear_combat_target 默认清零，由调用方（survivor_mode）在双击时显式置 true
@@ -467,10 +586,38 @@ func get_maneuver() -> CobraManeuver:
 	return null
 
 func _get_ai_controller() -> AIController:
+	if _ai_ref:
+		return _ai_ref
 	for child in get_children():
 		if child is AIController:
+			_ai_ref = child
 			return child
 	return null
+
+## 进入/更新编队托管态。统一收口避免散布在多处的 4-5 行字段写入块。
+##   - formation_mode = true / _formation_leader = leader
+##   - target_position = slot_pos（INF 时跳过）
+##   - keep_target_on_arrival = keep_arrival
+##   - lod_level = 1（编队托管走 LOD 1 简化路径）
+func set_formation_target(leader: Aircraft, slot_pos: Vector2, keep_arrival: bool = true) -> void:
+	formation_mode = true
+	_formation_leader = leader
+	if slot_pos != Vector2.INF:
+		target_position = slot_pos
+	keep_target_on_arrival = keep_arrival
+	lod_level = 1
+
+## 退出编队托管（切到 ENGAGE / EVADE / 长机阵亡 / 规避来袭等）
+##   - formation_mode = false / _formation_leader = null
+##   - keep_target_on_arrival = false / ai_override_pursuit = false
+##   - lod_level = 0（恢复完整模拟）
+## 注：不动 combat_target —— 调用方按需自己 set/clear，避免清掉刚锁定的目标
+func clear_formation() -> void:
+	formation_mode = false
+	_formation_leader = null
+	keep_target_on_arrival = false
+	ai_override_pursuit = false
+	lod_level = 0
 
 func get_herbst() -> HerbstManeuver:
 	for child in get_children():
@@ -491,6 +638,7 @@ func _physics_process(delta: float) -> void:
 	_update_gun_threat_indicator(delta)
 	update_lock_line_state(delta)
 	_update_equipment(delta)
+	StatusEffects.update(self, delta)
 
 	# LOD 2（屏幕外）：每3帧完整处理，其余帧仅位移
 	if lod_level >= 2:
@@ -527,6 +675,8 @@ func _physics_process(delta: float) -> void:
 			AircraftWeapons.update_gun(self, lod_delta)
 			AircraftWeapons.update_rocket(self, lod_delta)
 			AircraftWeapons.update_missile(self, lod_delta)
+		AircraftWeapons.update_torpedo(self, lod_delta)
+		AircraftWeapons.update_loyal_wingman(self, lod_delta)
 		AircraftFlares.update(self, lod_delta)
 		_update_visuals()  # rotation = heading；上一轮 LOD 2 fix 漏掉这行导致图标/label 冻结在过时朝向
 		# 玩家飞机即使屏幕外也要画锁定线
@@ -568,6 +718,8 @@ func _physics_process(delta: float) -> void:
 			AircraftWeapons.update_gun(self, delta)
 			AircraftWeapons.update_rocket(self, delta)
 			AircraftWeapons.update_missile(self, delta)
+		AircraftWeapons.update_torpedo(self, delta)
+		AircraftWeapons.update_loyal_wingman(self, delta)
 		if every3:
 			AircraftFlares.update(self, delta)
 		_update_visuals()
@@ -599,8 +751,12 @@ func _physics_process(delta: float) -> void:
 	AircraftWeapons.update_ciws(self, delta)
 	AircraftWeapons.update_rocket(self, delta)
 	AircraftWeapons.update_missile(self, delta)
+	AircraftWeapons.update_torpedo(self, delta)
+	AircraftWeapons.update_loyal_wingman(self, delta)
 	# 眼镜蛇技能必须在 AircraftFlares.update 之前 —— 一旦激活，flare 会因机动 active 而跳过
 	_update_cobra_skill(delta)
+	# 危机赫尔贝特：与眼镜蛇共用触发条件（来袭导弹 / 后方机炮追尾），二选一
+	_update_evasion_herbst_skill(delta)
 	AircraftFlares.update(self, delta)
 	_update_visuals()
 	_log_ac_tick(delta)
@@ -802,6 +958,10 @@ func _update_cobra_skill(delta: float) -> void:
 		return
 	if mf.is_active:
 		return
+	# 互斥：J-Turn 进行中不触发 cobra（两动画叠加视觉混乱）
+	var hm := get_herbst()
+	if hm != null and hm.is_active:
+		return
 	if not (_cobra_detect_imminent_missile() or _cobra_detect_tail_gun()):
 		return
 	# 触发：技能模式允许重复使用，强制重置 is_used 让 activate 通过
@@ -836,6 +996,80 @@ func _cobra_detect_imminent_missile() -> bool:
 		return true
 	return false
 
+## 危机赫尔贝特技能：每帧检查触发条件，满足则启动 J-Turn
+## 与眼镜蛇等价（导弹命中前 / 后方机炮追尾自动触发），互斥已通过 UPGRADES.excludes 在抽卡层禁止同时持有。
+## 触发要求（全部满足）：
+##   1. 玩家拥有该升级（evasion_herbst_active）
+##   2. 战术偏好开 + 规避模式 ON
+##   3. 当前没有正在进行的机动（cobra/herbst）
+##   4. HerbstManeuver.can_activate（内置 15s 冷却）
+##   5. 来袭导弹 ≤ COBRA_MISSILE_TRIGGER_PX OR 后方有敌机追尾开火（复用 cobra 检测）
+## activate() 内已置 missile_phase_timer + _lock_immunity_timer，机动期间导弹/机炮免疫。
+func _update_evasion_herbst_skill(_delta: float) -> void:
+	if not evasion_herbst_active:
+		return
+	if not use_tactical_preference or not evasion_mode:
+		return
+	var hm := get_herbst()
+	if hm == null:
+		return
+	if not hm.can_activate:
+		return
+	# 互斥：眼镜蛇进行中不触发 J-Turn（cobra 优先，更短暂）
+	var mf := get_maneuver()
+	if mf != null and mf.is_active:
+		return
+	if not (_cobra_detect_imminent_missile() or _cobra_detect_tail_gun()):
+		return
+	# 转向方向：朝威胁源（追尾敌机或来袭导弹方向）
+	var turn_dir: float = _herbst_pick_turn_direction()
+	if hm.activate(turn_dir):
+		EventLogger.log_event("HOOK", "evasion_herbst",
+			"victim=%s turn_dir=%.0f (auto-trigger)" % [_log_name(), turn_dir])
+
+## 选 J-Turn 转向：优先朝最近来袭导弹的方向反转；没导弹则朝后方追尾敌机方向
+## 返回 +1（右转）/ -1（左转）/ 0（随机，由 HerbstManeuver.activate 兜底）
+func _herbst_pick_turn_direction() -> float:
+	var threat_pos: Vector2 = Vector2.ZERO
+	var found := false
+	# 优先：最近来袭导弹
+	if missile_manager:
+		var best_d_sq: float = INF
+		for child in missile_manager.get_children():
+			if not child is Missile:
+				continue
+			var m: Missile = child as Missile
+			if not m.is_active or m.is_flare_jammed or m.target != self or not m.has_guidance:
+				continue
+			var d_sq := global_position.distance_squared_to(m.global_position)
+			if d_sq < best_d_sq:
+				best_d_sq = d_sq
+				threat_pos = m.global_position
+				found = true
+	# 退而求其次：后方追尾敌机
+	if not found:
+		var my_fwd := Vector2(sin(heading), -cos(heading))
+		var best_d_sq: float = INF
+		for u in CombatUnit.all_units:
+			if u == self or u.team == team or u.is_destroyed or not u is Aircraft:
+				continue
+			var enemy: Aircraft = u as Aircraft
+			if not enemy.is_firing:
+				continue
+			var to_enemy := (enemy.global_position - global_position).normalized()
+			if my_fwd.dot(to_enemy) > -0.3:
+				continue
+			var d_sq := global_position.distance_squared_to(enemy.global_position)
+			if d_sq < best_d_sq:
+				best_d_sq = d_sq
+				threat_pos = enemy.global_position
+				found = true
+	if not found:
+		return 0.0
+	var to_threat: Vector2 = (threat_pos - global_position).normalized()
+	var my_right: Vector2 = Vector2(cos(heading), sin(heading))
+	return signf(my_right.dot(to_threat))
+
 ## 检测后方是否有敌机正在以机炮追尾（敌机在我后半球 + 机头朝我 + 正在开火）
 func _cobra_detect_tail_gun() -> bool:
 	var trigger_sq: float = COBRA_TAIL_DETECT_PX * COBRA_TAIL_DETECT_PX
@@ -862,21 +1096,37 @@ func _cobra_detect_tail_gun() -> bool:
 	return false
 
 ## 侩子手 4 个属性乘数（仅在 executioner_active 且 stacks > 0 时偏离 1.0）
+## OVERLOAD 状态会乘进同样的位置：装填/锁定 ×0.4，速度/减速 ×1.6
 func _executioner_speed_mult() -> float:
 	# 每层 +5% 最大速度，5 层 +25%
-	return 1.0 + 0.05 * float(executioner_stacks) if (executioner_active and executioner_stacks > 0) else 1.0
+	var m := (1.0 + 0.05 * float(executioner_stacks)) if (executioner_active and executioner_stacks > 0) else 1.0
+	if status_overload_active:
+		m *= StatusEffects.OVERLOAD_ACCEL_MULT
+	return m
 
 func _executioner_decel_mult() -> float:
 	# 每层 +10% 减速能力，5 层 +50%
-	return 1.0 + 0.10 * float(executioner_stacks) if (executioner_active and executioner_stacks > 0) else 1.0
+	var m := (1.0 + 0.10 * float(executioner_stacks)) if (executioner_active and executioner_stacks > 0) else 1.0
+	if status_overload_active:
+		m *= StatusEffects.OVERLOAD_ACCEL_MULT
+	return m
 
 func _executioner_reload_mult() -> float:
 	# 每层 -8% 装填时间（=×0.92），5 层 ×0.659（-34%）
-	return pow(0.92, executioner_stacks) if (executioner_active and executioner_stacks > 0) else 1.0
+	var m := pow(0.92, executioner_stacks) if (executioner_active and executioner_stacks > 0) else 1.0
+	if status_overload_active:
+		m *= StatusEffects.OVERLOAD_RELOAD_MULT
+	return m
 
 func _executioner_lock_mult() -> float:
 	# 每层 -10% 锁定时间（=×0.90），5 层 ×0.590（-41%）
-	return pow(0.90, executioner_stacks) if (executioner_active and executioner_stacks > 0) else 1.0
+	var m := pow(0.90, executioner_stacks) if (executioner_active and executioner_stacks > 0) else 1.0
+	if status_overload_active:
+		m *= StatusEffects.OVERLOAD_LOCK_MULT
+	return m
+
+# 状态效果：apply_status / has_status / remove_status / clear_all_statuses 在 CombatUnit
+
 
 # ========== 燃油 / 能量管理 ==========
 # _set_afterburner / _update_fuel / _update_energy_management 已搬到
@@ -1043,14 +1293,86 @@ func is_cranking() -> bool:
 
 ## 切换规避模式：进入时清空当前指令（等同右键"解除任务"），离开时不动作
 ## 供 HUD 按钮 / 键位 / 点击逻辑统一调用
+##
+## §1.2 边界差量：进入 / 退出 evasion 时一次性按 evasion_modifiers 倍率
+## 缩放 / 还原所有运行时倒计时，避免每帧 `if evasion: cd *= mult` 引起的边界抖动
+## （在云边缘 / 模式频繁切换时 cd 反复重置）。
 func set_evasion_mode(enabled: bool) -> void:
+	var was_enabled := evasion_mode
+	if enabled and not was_enabled:
+		_apply_evasion_modifiers(true)
+	elif not enabled and was_enabled:
+		_apply_evasion_modifiers(false)
 	evasion_mode = enabled
+	# §C 玩家技能"evasion 隐身"：进入不立即激活，由 _update_evasion 累计 2s 后置位
+	# 派生标记由 StatusEffects.update OR 进 status_stealth_active
+	if evasion_stealth_active:
+		if enabled:
+			_evasion_stealth_timer = 0.0
+			_in_evasion_stealth = false   # 进入瞬间一定不隐身
+		else:
+			_in_evasion_stealth = false
+			_evasion_stealth_timer = 0.0
+	# §C 玩家技能"evasion 4s 装填"：进入时重置 timer（避免短停短进取巧累积）
+	if enabled and evasion_overstock_interval > 0.0:
+		_evasion_overstock_timer = 0.0
 	if enabled:
 		# 取消当前移动指令和交战目标，专心躲避
 		clear_combat_target()
 		target_position = Vector2.INF
 		_evasion_override = false
 	# 关闭时不动作，玩家可手动指定新目标
+
+	# ── 玩家专属：把规避模式同步给僚机（散开自保） ──
+	# 规则：仅 use_tactical_preference 飞机（玩家）触发传播；状态变化时才传播，避免递归
+	# 僚机 set_evasion_mode 不会再次传播（because they don't have use_tactical_preference）
+	if use_tactical_preference and enabled != was_enabled:
+		_propagate_evasion_to_squad(enabled)
+
+## 把 evasion_mode 状态广播给本机为长机的所有僚机（仅玩家调用）
+## 僚机收到后会进入 scatter evade（MissileEvasion.process_evade 在 evasion_mode=true 时
+## 即使无来袭导弹也持续散开规避，方向偏向地图中心，避免飞出边界）
+func _propagate_evasion_to_squad(enabled: bool) -> void:
+	for u in CombatUnit.all_units:
+		if u == null or not is_instance_valid(u) or u.is_destroyed:
+			continue
+		if not (u is Aircraft) or u == self or u.team != team:
+			continue
+		var ac: Aircraft = u
+		# 跳过忠诚僚机 drone：它有自己的 kamikaze 导弹拦截路径（不靠 EVADE_MISSILE 状态机），
+		# 收到 evasion 广播会被 ai_controller.gd:535 的强制 EVADE 守卫卡住，永远不能跟玩家
+		# 攻击 combat_target，看起来"无视玩家锁定的敌人"。
+		if ac.is_drone:
+			continue
+		# 通过 AIController 找 squad
+		for child in ac.get_children():
+			if child is AIController:
+				var ai_ctrl: AIController = child
+				if ai_ctrl.squad and ai_ctrl.squad.leader == self:
+					ac.set_evasion_mode(enabled)
+				break
+
+## 进入(true) / 退出(false) evasion 时缩放 cd —— 进入按 mult 缩短，退出反向除回
+## 只动倒计时本身，不动 max 装填时间 / 弹药数等"配置"
+func _apply_evasion_modifiers(entering: bool) -> void:
+	var weapon_m: float = float(evasion_modifiers.get("weapon_cd_mult", 1.0))
+	var flare_m: float = float(evasion_modifiers.get("flare_cd_mult", 1.0))
+	var reload_m: float = float(evasion_modifiers.get("missile_reload_mult", 1.0))
+	if entering:
+		_fire_cooldown *= weapon_m
+		_missile_cooldown *= weapon_m
+		_rocket_burst_cooldown *= weapon_m
+		_flare_cooldown *= flare_m
+		_missile_reload_timer *= reload_m
+	else:
+		if weapon_m > 0.0:
+			_fire_cooldown /= weapon_m
+			_missile_cooldown /= weapon_m
+			_rocket_burst_cooldown /= weapon_m
+		if flare_m > 0.0:
+			_flare_cooldown /= flare_m
+		if reload_m > 0.0:
+			_missile_reload_timer /= reload_m
 
 ## 触发一次闪避滚转动画（子弹闪避/热诱弹成功时的视觉反馈）
 func _trigger_evasion_roll() -> void:
@@ -1064,6 +1386,163 @@ func _trigger_evasion_roll() -> void:
 func _update_evasion(delta: float) -> void:
 	# 冷却与动画倒计时
 	_evade_roll_cooldown = maxf(_evade_roll_cooldown - delta, 0.0)
+	# §C 玩家技能"evasion 4s 装填"：仅 evasion ON 时累加 timer，退出 evasion 不进入此分支
+	if evasion_mode and evasion_overstock_interval > 0.0 and params and params.missile:
+		_evasion_overstock_timer += delta
+		if _evasion_overstock_timer >= evasion_overstock_interval:
+			_evasion_overstock_timer -= evasion_overstock_interval
+			# 突破 max_count 上限到 max_count×2；超出不再装
+			var hard_cap: int = params.missile.max_count * 2
+			if missiles_remaining < hard_cap:
+				missiles_remaining += 1
+				EventLogger.log_event("EVASION_OVERSTOCK", _log_name(),
+					"+1 missile (now %d / cap %d)" % [missiles_remaining, hard_cap])
+
+	# §C 玩家技能"evasion 隐身"：进入 evasion 后持续 2s 才激活
+	if evasion_mode and evasion_stealth_active and not _in_evasion_stealth:
+		_evasion_stealth_timer += delta
+		if _evasion_stealth_timer >= EVASION_STEALTH_DELAY:
+			_in_evasion_stealth = true
+			EventLogger.log_event("EVASION_STEALTH_ON", _log_name(), "")
+
+	# §C 玩家技能"弹后潜匿"：弹药全部打空时触发 5 秒一次性隐身
+	if missile_cd_stealth_active:
+		var cur_missiles: int = missiles_remaining
+		# 边沿检测：>0 → 0 时启动定时器（_prev=-1 的首帧不触发，避免开局空载误触发）
+		if _prev_missiles_remaining > 0 and cur_missiles == 0:
+			_missile_cd_stealth_timer = MISSILE_DEPLETED_STEALTH_DURATION
+			EventLogger.log_event("MISSILE_CD_STEALTH_ON", _log_name(),
+				"depleted → stealth %.1fs" % MISSILE_DEPLETED_STEALTH_DURATION)
+		_prev_missiles_remaining = cur_missiles
+		if _missile_cd_stealth_timer > 0.0:
+			_missile_cd_stealth_timer -= delta
+			_in_missile_cd_stealth = _missile_cd_stealth_timer > 0.0
+		else:
+			_in_missile_cd_stealth = false
+	else:
+		_in_missile_cd_stealth = false
+		_missile_cd_stealth_timer = 0.0
+		_prev_missiles_remaining = -1
+
+	# §C 玩家技能"对头干扰"：扫 radar_targets，双向 dot > 0.7 的目标累积秒数 → 阈值施 JAM
+	if team == 0 and head_on_jam_threshold > 0.0 and not radar_targets.is_empty():
+		var my_fwd_h: Vector2 = Vector2(sin(heading), -cos(heading))
+		var to_remove_h: Array = []
+		for tgt_key in radar_targets.keys():
+			if tgt_key == null or not is_instance_valid(tgt_key):
+				continue
+			var tgt_ac := tgt_key as Aircraft
+			if tgt_ac == null or tgt_ac.is_destroyed:
+				continue
+			# 已 JAM 中：暂停累积，等状态消退后再开始
+			if tgt_ac.status_effects.has(StatusEffects.JAM):
+				continue
+			var to_target: Vector2 = (tgt_ac.global_position - global_position).normalized()
+			var tgt_fwd: Vector2 = Vector2(sin(tgt_ac.heading), -cos(tgt_ac.heading))
+			# 双向对头：我机头朝目标 + 目标机头朝我，且距离 ≤ 3km
+			if my_fwd_h.dot(to_target) > HEAD_ON_JAM_DOT and tgt_fwd.dot(-to_target) > HEAD_ON_JAM_DOT:
+				if global_position.distance_squared_to(tgt_ac.global_position) > SkillHooks.HEAD_ON_RANGE_PX * SkillHooks.HEAD_ON_RANGE_PX:
+					continue
+				var tid: int = tgt_ac.get_instance_id()
+				var sec: float = float(_head_on_jam_seconds.get(tid, 0.0)) + delta
+				_head_on_jam_seconds[tid] = sec
+				if sec >= head_on_jam_threshold:
+					tgt_ac.apply_status(StatusEffects.JAM, HEAD_ON_JAM_DURATION)
+					_head_on_jam_seconds[tid] = 0.0
+					EventLogger.log_event("SKILL_HOOK", _log_name(),
+						"head_on_jam → %s JAM %.1fs" % [tgt_ac._log_name(), HEAD_ON_JAM_DURATION])
+					SkillHooks.on_player_jam_landed(self, 1)
+		# 清掉离开雷达锥的累积
+		for tid_check in _head_on_jam_seconds.keys():
+			var still_in: bool = false
+			for tk in radar_targets.keys():
+				if is_instance_valid(tk) and tk.get_instance_id() == tid_check:
+					still_in = true
+					break
+			if not still_in:
+				to_remove_h.append(tid_check)
+		for k in to_remove_h:
+			_head_on_jam_seconds.erase(k)
+
+	# §C 玩家技能"后半球减速光环"：累积模式
+	# - 累积期不生效，每个目标在我后半球 + 距离内累加 → 满 8s 时施 SLOW 4s
+	# - SLOW 期间不再累积；状态消退后从 0 重新累积
+	if team == 0 and rear_aura_slow_radius_px > 0.0:
+		_tick_aura_accumulator(_rear_aura_accum_seconds,
+			rear_aura_slow_radius_px, StatusEffects.SLOW, true, delta)
+
+	# §C 玩家技能"全向 JAM 光环"：累积模式
+	if team == 0 and jam_aura_radius_px > 0.0:
+		_tick_aura_accumulator(_jam_aura_accum_seconds,
+			jam_aura_radius_px, StatusEffects.JAM, false, delta)
+
+
+## 累积式光环通用 tick：统一处理 rear_slow / jam_aura（未来加新光环可复用）
+##   accum_dict: { instance_id → 累积秒数 }（每光环各自一个）
+##   radius_px: 生效半径
+##   status_id: 累积满后施加的状态 id
+##   require_rear: true=需要在我后半球（dot(my_back, to_enemy) > 0.3）
+##   delta: 帧时长
+func _tick_aura_accumulator(accum_dict: Dictionary,
+		radius_px: float, status_id: String,
+		require_rear: bool, delta: float) -> void:
+	var r_sq: float = radius_px * radius_px
+	var my_back: Vector2 = Vector2.ZERO
+	if require_rear:
+		my_back = -Vector2(sin(heading), -cos(heading))
+	# 收集本帧需要"达阈值施加 Debuff"的目标位置（用于 VFX 一次性脉冲）
+	var debuff_hits: Array[Vector2] = []
+	# 收集失效条目（destroyed / 离开半径），统一删除避免遍历时改 dict
+	var to_remove: Array = []
+	# 第一遍：扫描半径内的敌方飞机，更新累积
+	# 用 set 跟踪本帧"在半径内"的 id，方便第二遍清理离开的
+	var in_radius_ids: Dictionary = {}
+	for u in CombatUnit.all_units:
+		if u == null or not is_instance_valid(u) or u.is_destroyed:
+			continue
+		if not (u is Aircraft):
+			continue
+		if u.team == team:
+			continue
+		var d_sq: float = u.global_position.distance_squared_to(global_position)
+		if d_sq > r_sq:
+			continue
+		if require_rear:
+			var to_e: Vector2 = (u.global_position - global_position).normalized()
+			if my_back.dot(to_e) <= 0.3:
+				continue
+		var oid: int = u.get_instance_id()
+		in_radius_ids[oid] = true
+		# 状态期间不累积
+		if u.status_effects.has(status_id):
+			continue
+		var sec: float = float(accum_dict.get(oid, 0.0)) + delta
+		if sec >= AURA_ACCUMULATE_SECONDS:
+			u.apply_status(status_id, AURA_DEBUFF_DURATION)
+			accum_dict[oid] = 0.0
+			debuff_hits.append(u.global_position)
+			if status_id == StatusEffects.JAM:
+				SkillHooks.on_player_jam_landed(self, 1)
+		else:
+			accum_dict[oid] = sec
+	# 第二遍：离开半径的目标累积**保留**（不归零，让玩家短暂脱离不丢累积）
+	# 但已经死的 / freed 的清理掉避免泄漏
+	for k in accum_dict.keys():
+		# 通过 instance_from_id 查找；不在 in_radius 里且对象已 free → 清掉
+		if not in_radius_ids.has(k):
+			var inst = instance_from_id(k)
+			if inst == null or not is_instance_valid(inst) or (inst as Aircraft).is_destroyed:
+				to_remove.append(k)
+	for k in to_remove:
+		accum_dict.erase(k)
+	# VFX：本帧达阈值的目标群一次性紫色（FEAR色） / 绿色（JAM）/ 蓝色（SLOW）脉冲
+	if debuff_hits.size() > 0:
+		var col: Color = AOEPulseVFX.COLOR_FEAR
+		match status_id:
+			StatusEffects.JAM: col = AOEPulseVFX.COLOR_JAM
+			StatusEffects.SLOW: col = Color(0.55, 0.80, 1.00)
+		AOEPulseVFX.spawn(get_parent(), global_position, radius_px, debuff_hits, col)
+
 	if _evade_roll_remaining > 0.0:
 		# 正在滚转：按固定速率推进相位（一圈 / _EVADE_ROLL_DURATION）
 		var roll_speed := TAU / _EVADE_ROLL_DURATION
@@ -1248,24 +1727,66 @@ func _select_best_missile_target() -> CombatUnit:
 
 	return best
 
+## 重写 apply_status：对无驾驶员的飞机过滤心理类状态
+## - FEAR 不该对 UAV 生效（无人机不会"恐惧"）
+## 其它状态（INVINCIBLE / STEALTH / JAM / SLOW 等）正常生效，因为它们都是物理/电子层面的
+func apply_status(id: String, duration: float, mode: String = "max") -> void:
+	if no_pilot and id == StatusEffects.FEAR:
+		# 静默丢弃，不计入 status_effects；既不显示状态条，也不触发 AI panic
+		return
+	# 玩家技能"过载共振"系列：OVERLOAD 时长 / 联动嗜血
+	# 仅影响走 apply_status 的 timed 来源；云中常驻 _in_cloud_overload 派生 OR 不经此路径
+	var also_bloodlust: bool = false
+	if id == StatusEffects.OVERLOAD and team == 0 and has_meta("upgrade_stacks"):
+		var stacks: Dictionary = get_meta("upgrade_stacks")
+		# 时长 ×4
+		if int(stacks.get(SkillHooks.SKILL_OVERLOAD_DURATION_4X, 0)) > 0:
+			duration *= SkillHooks.OVERLOAD_DURATION_MULT
+		# 燃尽自如：再 +4s
+		if int(stacks.get(SkillHooks.SKILL_OVERLOAD_EXTENDED_AMMO, 0)) > 0:
+			duration += SkillHooks.OVERLOAD_DURATION_FLAT_BONUS
+		# 噬血共振：进入 OVERLOAD 时同时获得 BLOODLUST 同时长
+		if int(stacks.get(SkillHooks.SKILL_OVERLOAD_TO_BLOODLUST, 0)) > 0:
+			also_bloodlust = true
+	super.apply_status(id, duration, mode)
+	if also_bloodlust:
+		# 用同一 duration（已被乘 4 / +4 处理过）。BLOODLUST 不会被本钩子再次乘上倍率
+		super.apply_status(StatusEffects.BLOODLUST, duration, mode)
+
+
 ## 受到伤害（通用：导弹/火箭/爆炸等战斗部伤害）
 ## 战斗部类伤害：受"弹头穿甲"系数影响，只计一半护甲（见 MISSILE_ARMOR_PENETRATION）
-func take_damage(amount: float) -> void:
+## 默认 kind="missile"（旧调用点 take_damage(x) 默认按导弹处理）；显式传 kind 覆盖
+func take_damage(amount: float, attacker: Node = null, kind: String = "") -> void:
 	if is_destroyed:
 		return
 	if invulnerable:
 		return
-	if survivor_missile_damage_cap > 0.0:
+	if attacker != null:
+		set_meta("_pending_attacker", attacker)
+	# 默认归类导弹（保持向后兼容，老调用点没显式传 kind 多来自导弹/AOE 路径）
+	var dk: String = kind if kind != "" else "missile"
+	set_meta("_last_damage_kind", dk)
+	# survivor_missile_damage_cap 仅作用于导弹（含 AOE 等爆炸类）；火箭弹是独立武器，
+	# 不走导弹数值通道（设计原则：火箭弹 ≠ 导弹）。
+	if dk == "missile" and survivor_missile_damage_cap > 0.0:
 		amount = minf(amount, survivor_missile_damage_cap)
 	amount = _apply_armor(amount, MISSILE_ARMOR_PENETRATION)
 	_apply_damage(amount)
 
 ## 受到机炮伤害（可被装甲闪避）
-## 闪避率累加来源：
-##   - 基础 bullet_dodge_chance（含生存模式 20% 主角基础 + 装甲强化升级）
-##   - 规避模式额外 +20%（战术面板开启“回避/规避模式”时生效）
+## 闪避率累加来源（**线性加和 + 全局 cap MAX_BULLET_DODGE_CAP**）：
+##   - 基础 bullet_dodge_chance（PlayableAircraft 0.10-0.20 基础 + hp_up 升级 cap 0.40）
+##   - 规避模式额外 +20%（战术面板开启"回避/规避模式"时生效）
 ##   - HIGH 高度档位额外 +20%（高空机炮更难命中）
-func take_bullet_damage(amount: float) -> void:
+##   - §C 玩家技能"对头机炮闪避"：与攻击者夹角对头时 +60%
+##
+## 全局 cap = 0.85：满 build（hp_up 0.40 + evasion 0.20 + HIGH 0.20 + head-on 0.60 = 1.40）
+## 必须夹住，否则机炮永远打不到玩家。85% 留 15% 命中窗口让玩家仍能感到"危险"。
+##
+## 设计权衡：用 cap 而不是乘法递减（1−Π(1−d_i)），简单可读 + 玩家容易心算"我大概多少闪避"。
+const MAX_BULLET_DODGE_CAP: float = 0.85
+func take_bullet_damage(amount: float, attacker: Node = null) -> void:
 	if is_destroyed:
 		return
 	if invulnerable:
@@ -1274,10 +1795,29 @@ func take_bullet_damage(amount: float) -> void:
 	# 不参与闪避也不触发桶滚动画，否则重型轰炸机会像战斗机一样在高空翻滚
 	var is_adds: bool = has_meta("category") and get_meta("category") == "adds"
 	var effective_dodge: float = bullet_dodge_chance
-	if use_tactical_preference and evasion_mode:
-		effective_dodge += 0.20  # 规避模式加成
+	if evasion_mode:
+		effective_dodge += 0.20  # 规避模式加成（玩家手动开 / 长机传播给僚机 / AI 进入 EVADE 状态）
 	if get_altitude_tier() == AltitudeTier.HIGH:
 		effective_dodge += 0.20  # HIGH 高度加成
+	# §C 玩家技能"低空机炮闪避"：LOW/GROUND 档位时加 bonus
+	if team == 0 and low_alt_gun_dodge_bonus > 0.0:
+		var t: int = get_altitude_tier()
+		if t == AltitudeTier.LOW or t == AltitudeTier.GROUND:
+			effective_dodge += low_alt_gun_dodge_bonus
+	# 对头机炮闪避（玩家技能）：仅 team==0 + 持有 SKILL_HEAD_ON_GUN_DODGE
+	# 几何门槛 head_on_dot > 0.7（双方机头对冲 ≲ 53°）
+	if team == 0 and head_on_gun_dodge_bonus > 0.0 and attacker is Aircraft:
+		var atk: Aircraft = attacker
+		if is_instance_valid(atk):
+			var to_atk: Vector2 = (atk.global_position - global_position).normalized()
+			var my_fwd: Vector2 = Vector2(sin(heading), -cos(heading))
+			var atk_fwd: Vector2 = Vector2(sin(atk.heading), -cos(atk.heading))
+			# 对头判定：我的机头朝向攻击者 + 攻击者机头朝向我 + 距离 ≤ 3km
+			if my_fwd.dot(to_atk) > 0.7 and atk_fwd.dot(-to_atk) > 0.7 \
+					and global_position.distance_squared_to(atk.global_position) <= SkillHooks.HEAD_ON_RANGE_PX * SkillHooks.HEAD_ON_RANGE_PX:
+				effective_dodge += head_on_gun_dodge_bonus
+	# 全局 cap：避免叠 build 后 100%+ 永闪避
+	effective_dodge = clampf(effective_dodge, 0.0, MAX_BULLET_DODGE_CAP)
 	if not is_adds and effective_dodge > 0.0 and randf() < effective_dodge:
 		_trigger_evasion_roll()  # 闪避滚转动画
 		return  # 闪避成功，无视伤害
@@ -1287,6 +1827,10 @@ func take_bullet_damage(amount: float) -> void:
 	# 标记致死来源：survivor_spawner._detect_kills 据此触发"机炮击杀恐惧"AOE
 	if hp - amount <= 0.0:
 		_killed_by_bullet = true
+	# damage_kind = gun（供机炮发射减伤 / 机炮闪避 / 机炮击杀钩子消费）
+	set_meta("_last_damage_kind", "gun")
+	if attacker != null:
+		set_meta("_pending_attacker", attacker)
 	_apply_damage(amount)
 
 ## 护甲减伤（DOTA 式软上限）：dr = armor_eff / (armor_eff + ARMOR_K)
@@ -1295,6 +1839,11 @@ func take_bullet_damage(amount: float) -> void:
 const ARMOR_K: float = 100.0
 const MISSILE_ARMOR_PENETRATION: float = 0.5
 func _apply_armor(amount: float, penetration: float) -> float:
+	# 玩家技能"血怒护甲"：BLOODLUST 期间额外减伤（叠在护甲层之外，独立乘）
+	if team == 0 and status_bloodlust_active and has_meta("upgrade_stacks"):
+		var bl_stacks: Dictionary = get_meta("upgrade_stacks")
+		if int(bl_stacks.get(SkillHooks.SKILL_BLOODLUST_ARMOR_MOBILITY, 0)) > 0:
+			amount *= (1.0 - SkillHooks.BLOODLUST_ARMOR_DR)
 	if not params or params.armor <= 0.0:
 		return amount
 	var armor_eff: float = params.armor * (1.0 - clampf(penetration, 0.0, 1.0))
@@ -1304,10 +1853,19 @@ func _apply_armor(amount: float, penetration: float) -> float:
 	return amount * (1.0 - dr)
 
 func _apply_damage(amount: float) -> void:
+	# §C 玩家技能"机炮发射时减伤"：在窗口期内乘伤害减免比例
+	if team == 0 and gun_fire_dr_amount > 0.0 and _gun_fire_recently_until > EventLogger.get_game_time():
+		amount *= maxf(1.0 - gun_fire_dr_amount, 0.0)
 	var old_hp := hp
 	hp -= amount
 	EventLogger.log_event("DAMAGE", _log_name(),
 		"took %.0f damage (hp=%.0f→%.0f)" % [amount, old_hp, hp])
+	# 受击钩子链（玩家系技能：受伤进嗜血 / 被导弹击中无敌 / 周围 JAM 等）
+	# early-return：only Aircraft team==0 + has upgrade_stacks → 不命中开销 ≈ 1 dict.has
+	if hp > 0.0 and team == 0:
+		var atk: Node = get_meta("_pending_attacker", null)
+		var kind: String = String(get_meta("_last_damage_kind", ""))
+		SkillHooks.dispatch_on_hit(self, atk, kind, amount)
 	# 侩子手：受到任意伤害 → 清零连击与层数
 	if executioner_active and amount > 0.0:
 		if executioner_stacks > 0 or executioner_kills > 0:
@@ -1357,6 +1915,8 @@ func _record_kill_attribution() -> void:
 	set_meta("kill_attacker_team", atk.team)
 	set_meta("kill_head_on_dot", -vic_fwd.dot(to_victim))
 	set_meta("kill_attacker_aim", atk_fwd.dot(to_victim))
+	# 状态系统的击杀钩子（敌我对称：BLOODLUST 等任何 killer-side buff 副作用）
+	StatusEffects.on_kill(atk, self)
 
 ## 触发整个 flock 散开：每架队友朝随机一侧做 jink 闪避数秒，
 ## 同时中断 AIController 的任何交战追踪（_process_simple 开头会检查并清空 _current_target）
@@ -1377,6 +1937,8 @@ func _check_ground_crash() -> void:
 	# invulnerable 期间（如航母弹射起飞）放过：滑跑就在地面上，此时不算坠毁
 	if altitude <= 0.0 and not is_destroyed and not invulnerable:
 		altitude = 0.0
+		# damage_kind = ground_crash（与战斗伤害区分，避免触发 on_kill 击杀链等玩家技能）
+		set_meta("_last_damage_kind", "ground_crash")
 		_start_destroy()
 
 ## 坠毁系统委托给 AircraftDestruction（aircraft_destruction.gd）
@@ -1411,7 +1973,7 @@ const RADAR_RANGE_ALT_KEYS := [
 ## 雷达有效距离（params.radar_range × 当前高度连续倍率）
 ## 是否要 ECM/buff 由调用方决定，这里只算"我的雷达高度修正"
 func effective_radar_range_px() -> float:
-	var base: float = params.radar_range if params else 300.0
+	var base: float = (params.radar_range if params else 300.0) * category_radar_mult
 	var alt: float = altitude
 	# 锚点表线性插值 — 与 AircraftRenderer.altitude_base_scale 同思路
 	for i in range(RADAR_RANGE_ALT_KEYS.size() - 1):
@@ -1473,12 +2035,15 @@ func _draw() -> void:
 	# 检查反而救不了）。call-site 守卫必不可少。
 	if AircraftRenderer.player_ref != null and is_instance_valid(AircraftRenderer.player_ref):
 		LockWarning.draw(self, AircraftRenderer.player_ref)
-	AircraftRenderer.draw_target_line(self)
+	# drone（忠诚僚机）跳过预测线 / 锁定指示 / 目标括号 / 数据标签 — 纯 2D 极简视觉
+	if not is_drone:
+		AircraftRenderer.draw_target_line(self)
 	AircraftRenderer.draw_cloud_state(self)
 	AircraftRenderer.draw_railgun_telegraph(self)
 	AircraftRenderer.draw_aircraft_icon(self)
-	AircraftRenderer.draw_lock_indicator(self)
-	AircraftRenderer.draw_target_bracket(self, is_mission_target)
+	if not is_drone:
+		AircraftRenderer.draw_lock_indicator(self)
+		AircraftRenderer.draw_target_bracket(self, is_mission_target)
 	if is_firing:
 		AircraftRenderer.draw_muzzle_flash(self)
 	AircraftRenderer.draw_railgun_beam(self)
@@ -1486,11 +2051,16 @@ func _draw() -> void:
 	if is_afterburner:
 		AircraftRenderer.draw_afterburner_glow(self)
 	AircraftRenderer.draw_flare_particles(self)
-	if hide_data_label:
+	if is_drone:
+		# drone 用极简一行标签：DRONE + 速度（无 callsign / altitude / HDG / G）
+		AircraftRenderer.draw_data_label_drone(self)
+	elif hide_data_label:
 		AircraftRenderer.draw_data_label_minimal(self)
 	else:
 		AircraftRenderer.draw_data_label(self)
 	AircraftRenderer.draw_tactic_popup(self)
+	# 飞机的 buff/debuff 改由 draw_data_label / draw_data_label_minimal 以文本+百分比形式显示
+	# （地面单位 SAM/AAA/ground_unit 仍走 draw_status_icons 的进度条，因其没有数据标签）
 	if formation_debug:
 		AircraftRenderer.draw_formation_debug(self)
 
@@ -1522,6 +2092,38 @@ func _update_cloud_state(delta: float) -> void:
 		cloud_state = 2
 	else:
 		cloud_state = 1
+	# §C 玩家技能：进/出云边界事件（在云中=cloud_state>=1 即视为入云，便于 LOW/MID 也能享受）
+	# 仅玩家走这条路径（敌机不需要这些 buff）
+	if team == 0:
+		var in_cloud: bool = cloud_state >= 1
+		if in_cloud != _was_in_cloud_last_frame:
+			_on_cloud_boundary(in_cloud)
+			_was_in_cloud_last_frame = in_cloud
+
+
+## §C 云边界事件：进入(true) / 离开(false) 一次性触发，避免每帧重算
+func _on_cloud_boundary(entering: bool) -> void:
+	# 1) 云中超载：用独立 bool _in_cloud_overload，不进 status_effects
+	# 历史 bug：原方案进云时 apply OVERLOAD 9999s + owner flag，若进云前已有
+	# evade missile 给的 OVERLOAD 6s，flag 仍被无条件置 true → 出云时
+	# remove_status 会把 evade 的 6s 一起清掉。
+	# 现在 status_overload_active 派生标记由 StatusEffects.update OR _in_cloud_overload，
+	# 两源独立，互不干扰。
+	if cloud_overload_active:
+		_in_cloud_overload = entering
+
+	# 2) 云中武器 cd：进入按倍率 scale 当前 cd（同 §1.2 evasion 边界差量模式）
+	if cloud_weapon_cd_mult != 1.0:
+		var mult: float = cloud_weapon_cd_mult
+		if entering:
+			_fire_cooldown *= mult
+			_missile_cooldown *= mult
+			_rocket_burst_cooldown *= mult
+		else:
+			if mult > 0.0:
+				_fire_cooldown /= mult
+				_missile_cooldown /= mult
+				_rocket_burst_cooldown /= mult
 
 
 ## 每 0.2 秒采样一次建筑遮挡，更新 in_building（LOW 档位且位置在任意街区内）

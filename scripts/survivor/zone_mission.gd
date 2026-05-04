@@ -255,7 +255,7 @@ func _spawn_air_squadron(zone_id: StringName, zone: Dictionary) -> void:
 	# 从当前 leader_angle 的下一个扇区开始，使长机往前飞而不是折返
 	var start_idx := int(floor((leader_angle + PI * 0.5) / TAU * AIR_SQUADRON_PATROL_WAYPOINTS)) % AIR_SQUADRON_PATROL_WAYPOINTS
 
-	var sq := Squad.new()
+	var sq := SquadFactory.create()
 	for i in range(squadron_count):
 		var spawn_pos: Vector2
 		if i == 0:
@@ -273,18 +273,15 @@ func _spawn_air_squadron(zone_id: StringName, zone: Dictionary) -> void:
 		ac.set_meta("category", "zone_air")
 		ac.set_meta("skip_far_cleanup", true)
 
-		sq.add_member(ac)
 		if i == 0:
-			sq.leader = ac
+			SquadFactory.register_leader(sq, ac)
+		else:
+			SquadFactory.register_wingman(sq, ac, true)  # Step 4：显式进 SQUAD_FOLLOW
 
 		var ai := _get_ai_of(ac)
 		if ai:
-			ai.squad = sq
-			ai.squad_index = i
 			# 所有成员都持有同一套盘旋航点：SQUAD_FOLLOW 期间航点被忽略；
 			# 长机阵亡后僚机回退 PATROL 时，能独立绕战区盘旋而不是直线平飞出圈
-			# （zone 专用 Squad 不在 _spawner._squads 里，不会被自动晋升新长机；
-			#  且 zone_air 被全局 waypoints/boundary/hunters 三个补救都 skip）
 			ai.waypoints = leader_waypoints
 			# 错开起点 index，避免几架飞机堆在同一个航点上
 			ai.current_waypoint_index = (start_idx + i) % AIR_SQUADRON_PATROL_WAYPOINTS
@@ -378,7 +375,7 @@ func _spawn_zone_defenders(zone_id: StringName, zone: Dictionary, mission_type: 
 			wp.append(center + Vector2(cos(wa), sin(wa)) * GARRISON_ORBIT_RADIUS)
 		var start_wp_idx: int = int(floor((slot_angle + PI * 0.5) / TAU * n_wp)) % n_wp
 
-		var sq := Squad.new()
+		var sq := SquadFactory.create()
 		var spawned_in_squad := 0
 		for i in range(squad_size):
 			if cost > budget:
@@ -396,13 +393,12 @@ func _spawn_zone_defenders(zone_id: StringName, zone: Dictionary, mission_type: 
 			ac.set_meta("zone_garrison", zone_id)
 			ac.set_meta("category", "zone_air")
 			ac.set_meta("skip_far_cleanup", true)
-			sq.add_member(ac)
 			if i == 0:
-				sq.leader = ac
+				SquadFactory.register_leader(sq, ac)
+			else:
+				SquadFactory.register_wingman(sq, ac, true)  # Step 4：显式进 SQUAD_FOLLOW
 			var ai := _get_ai_of(ac)
 			if ai:
-				ai.squad = sq
-				ai.squad_index = i
 				## 长机走航点盘旋；僚机由 SQUAD_FOLLOW 跟随；长机阵亡后僚机自然转 PATROL
 				ai.waypoints = wp
 				ai.current_waypoint_index = (start_wp_idx + i) % n_wp
@@ -458,13 +454,10 @@ func _spawn_elite_target(zone_id: StringName, zone: Dictionary) -> void:
 	overlay.name = "CommanderOverlay"
 	ac.add_child(overlay)
 	# 绑定 Squad，让 aura._try_recruit 能运作 + 僚机能挂上来
-	var sq := Squad.new()
-	sq.add_member(ac)
-	sq.leader = ac
+	var sq := SquadFactory.create()
+	SquadFactory.register_leader(sq, ac)
 	var leader_ai := _get_ai_of(ac)
 	if leader_ai:
-		leader_ai.squad = sq
-		leader_ai.squad_index = 0
 		var wp := PackedVector2Array()
 		var n_wp := 4
 		for k in range(n_wp):

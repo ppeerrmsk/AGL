@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="RocketParams" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/rocket_params.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+display_name = "Rocket V5"
+burst_count_min = 4
+burst_count_max = 7
+burst_interval = 0.08
+burst_cooldown = 3.3
+rocket_damage = 19.0
+muzzle_velocity = 380.0
+max_range = 1900.0
+spread_angle = 5.0
+fire_cone_half_angle = 12.0
+min_range = 350.0
+max_fire_range = 1615.0
+max_ammo = 34

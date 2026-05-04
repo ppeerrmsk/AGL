@@ -1,0 +1,48 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/gladiator_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/default_missile.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/agm_missile.tres" id="5"]
+
+[resource]
+script = ExtResource("1")
+display_name = "F-4 Phantom"
+; ── Gladiator 中段：导弹卡车 ──
+; 真实 F-4 Phantom II（Mach 2.23 / 双发 / 4×Sparrow + 4×Sidewinder + M61）
+; 与 MiG-23 同档 Gladiator，但带双弹种（主+副）总弹量大；代价是重而盘旋差
+max_hp = 55.0
+armor = 0.0
+; ── 速度（高速但加速一般，重）──
+max_speed = 2300.0
+cruise_speed = 950.0
+stall_speed_base = 240.0
+acceleration = 40.0
+deceleration = 60.0
+g_drag_factor = 3.4
+; ── 机动（Gladiator，但比 MiG-23 笨重）──
+max_g = 6.5
+max_g_structural = 8.5
+roll_rate = 2.4
+pilot_stamina = 80.0
+stamina_drain_rate = 28.0
+stamina_recovery_rate = 8.0
+; ── 高度 ──
+max_altitude = 16000.0
+climb_rate_max = 220.0
+thrust_to_weight = 0.92
+drag_coefficient = 0.028
+afterburner_thrust_mult = 1.45
+fuel_capacity = 2800.0
+fuel_rate_normal = 2.1
+fuel_rate_afterburner = 11.0
+; ── 雷达（中段标准）──
+radar_range = 4000.0
+radar_half_angle = 25.0
+lock_time = 3.4
+gun = ExtResource("2")
+missile = ExtResource("4")
+secondary_missile = ExtResource("5")
+combat = ExtResource("3")
+icon_color = Color(0.8, 0.5, 0.3, 1)

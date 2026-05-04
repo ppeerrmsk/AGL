@@ -310,7 +310,7 @@ func _apply_hitscan_damage(ac, beam_start: Vector2, beam_end: Vector2) -> void:
 			continue
 		var d := _point_to_segment_distance(unit.global_position, beam_start, beam_end)
 		if d <= hit_radius_px:
-			unit.take_damage(damage)
+			unit.take_damage_from(damage, ac, "railgun")
 
 	# 2) 在飞导弹（如果当前 ac 持有 missile_manager 引用）
 	var mm = ac.missile_manager

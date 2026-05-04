@@ -7,6 +7,12 @@ extends RefCounted
 
 const PIXELS_PER_METER: float = GameConstants.PIXELS_PER_METER
 
+## CIWS 目标获取节流间隔 —— 每 ACQUIRE_INTERVAL 才重做一次"找近距飞机/找来袭导弹/找玩家"扫描
+## 期间只复用上次找到的 engaged_missile / cached_close / cached_player 决策
+## 0.15s 反应延迟对 CIWS 距离 1400px / 导弹 600m·s 飞行时间 4.7s 来说足够；
+## 单舰 12 CIWS × 60Hz × 3 全场扫描 → 12 × 6.7Hz × 3，CSG 时直接砍 ~90% 扫描开销
+const CIWS_ACQUIRE_INTERVAL: float = 0.15
+
 # ── CIWS 常量 ──
 # 真 Phalanx 观感：超高射速 + 视觉弹幕，但只有少量子弹真正造成伤害
 # 每 N 发里夹 1 发"真弹"参与命中判定，其余是纯视觉装饰（visual_only），
@@ -74,6 +80,39 @@ static func _update_ciws(nu: NavalUnit, mount: WeaponMount, _delta: float) -> vo
 	if nu.bullet_manager == null:
 		return
 
+	# ── 节流路径（acquire_cooldown > 0）──
+	# 复用上次扫描得到的决策。已锁定的导弹仍按帧检查 still_threat（廉价），
+	# cached_aircraft_target 仅按帧验证 is_instance_valid，不重做全场扫描。
+	if mount.acquire_cooldown > 0.0:
+		# 优先：已锁定来袭导弹 → 继续拦截
+		if mount.engaged_missile != null:
+			var eng_t: Missile = mount.engaged_missile as Missile
+			if eng_t == null or not is_instance_valid(eng_t) or not _missile_still_threat(eng_t, nu):
+				mount.engaged_missile = null
+				mount.engage_cooldown = CIWS_ENGAGE_COOLDOWN
+			else:
+				_ciws_fire_single(nu, mount, eng_t.global_position, CIWS_MISSILE_SPREAD_DEG, CIWS_DAMAGE_PER_BULLET, true)
+				return
+		# 次：使用缓存的飞机目标继续开火
+		var cached: Node2D = mount.cached_aircraft_target
+		if cached != null and is_instance_valid(cached) and not (cached as CombatUnit).is_destroyed:
+			match mount.cached_aircraft_kind:
+				1:
+					_ciws_fire_single(nu, mount, cached.global_position, CIWS_CLOSE_SPREAD_DEG, CIWS_CLOSE_DAMAGE, false)
+				2:
+					_ciws_fire_single(nu, mount, cached.global_position, CIWS_TRACER_SPREAD_DEG, CIWS_TRACER_DAMAGE, false)
+			return
+		# 缓存的飞机目标失效 → 让本帧落到下方完整扫描分支去刷新（清掉 cooldown）
+		mount.cached_aircraft_target = null
+		mount.cached_aircraft_kind = 0
+		mount.acquire_cooldown = 0.0
+
+	# ── 完整扫描路径（acquire_cooldown == 0）──
+	# 重置缓存，下面分支会按需写回
+	mount.cached_aircraft_target = null
+	mount.cached_aircraft_kind = 0
+	mount.acquire_cooldown = CIWS_ACQUIRE_INTERVAL
+
 	# 模式 0：飞机已经飞到 CIWS 嘴边 → 无视导弹，紧散布 + 真伤轰击玩家
 	# 这一层让"贴脸飞过 CIWS"成为不合算的选择：高命中率 + 中等伤害，短时间能撕薄血皮
 	var close_ac := _find_aircraft_in_range(nu, mount, CIWS_CLOSE_RANGE_PX, CIWS_TRACER_MAX_ALTITUDE)
@@ -82,6 +121,8 @@ static func _update_ciws(nu: NavalUnit, mount: WeaponMount, _delta: float) -> vo
 		if mount.engaged_missile != null:
 			mount.engaged_missile = null
 			mount.engage_cooldown = CIWS_ENGAGE_COOLDOWN
+		mount.cached_aircraft_target = close_ac
+		mount.cached_aircraft_kind = 1
 		_ciws_fire_single(nu, mount, close_ac.global_position, CIWS_CLOSE_SPREAD_DEG, CIWS_CLOSE_DAMAGE, false)
 		return
 
@@ -107,6 +148,8 @@ static func _update_ciws(nu: NavalUnit, mount: WeaponMount, _delta: float) -> vo
 	# 避免"玩家刚发射导弹，CIWS 朝玩家扫射的子弹把自己发的导弹拦下来"这种违反直觉的场面
 	var player := _find_player_in_ciws_range(nu, mount)
 	if player != null:
+		mount.cached_aircraft_target = player
+		mount.cached_aircraft_kind = 2
 		_ciws_fire_single(nu, mount, player.global_position, CIWS_TRACER_SPREAD_DEG, CIWS_TRACER_DAMAGE, false)
 
 ## 单发开火 —— CIWS 的原子射击动作
@@ -139,23 +182,34 @@ static func _ciws_fire_single(nu: NavalUnit, mount: WeaponMount, target_pos: Vec
 	mount.fire_cooldown = CIWS_FIRE_INTERVAL
 
 ## 查找射程内最近的、未被其他 CIWS engaged 的玩家导弹
+## 优先用 BulletManager 帧级缓存（CSG 战 12 个 CIWS 共用一份预过滤的"敌方活跃导弹"列表，
+## 避免 12 × N 次 missile_manager.get_children() 全场扫）
 static func _find_incoming_missile_for_ciws(nu: NavalUnit, mount: WeaponMount) -> Node2D:
 	if nu.missile_manager == null:
 		return null
 	var mount_pos := mount.world_position(nu.global_position, nu.heading)
 	var best: Node2D = null
 	var best_d := CIWS_INTERCEPT_RANGE_PX
-	for child in nu.missile_manager.get_children():
-		if not is_instance_valid(child):
+
+	var candidates: Array = []
+	if SurvivorData.ENABLE_BULLET_FRAME_CACHE and nu.bullet_manager != null \
+			and nu.bullet_manager.has_method("get_enemy_missiles_for_team"):
+		candidates = nu.bullet_manager.get_enemy_missiles_for_team(nu.team)
+	if candidates.is_empty():
+		# 缓存关闭 / BulletManager 未连 → 走原始路径
+		for child in nu.missile_manager.get_children():
+			if (child is Missile) and (child as Missile).is_active and (child as Missile).team != nu.team:
+				candidates.append(child)
+
+	for c in candidates:
+		if not is_instance_valid(c):
 			continue
-		if not child is Missile:
-			continue
-		var m: Missile = child
-		if not m.is_active or m.team == nu.team:
+		var m: Missile = c as Missile
+		if m == null or not m.is_active:
 			continue
 		if not _missile_still_threat(m, nu):
 			continue
-		# 排除已被其他 CIWS engaged 的导弹
+		# 排除已被本船其他 CIWS engaged 的导弹
 		if _missile_already_engaged(nu, m, mount):
 			continue
 		var d := mount_pos.distance_to(m.global_position)

@@ -32,10 +32,8 @@ const PLAYABLE_LIST: Array[Dictionary] = [
 		"locked": false,
 	},
 	{
-		"resource": "",
-		"locked": true,
-		"slot_name": "SLOT_TBA_NAME",
-		"slot_desc": "SLOT_AIRCRAFT_DESC",
+		"resource": "res://resources/playable_a10.tres",
+		"locked": false,
 	},
 ]
 
@@ -49,8 +47,11 @@ func _process(delta: float) -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
-		# 返回到地图选择（机型选择是地图选择之后的第二步）
-		get_tree().change_scene_to_file("res://scenes/survivor_map_select.tscn")
+		# Boss Debug 模式：返回到 boss 选择界面而不是普通地图选择
+		if get_tree().has_meta("boss_debug_mode"):
+			get_tree().change_scene_to_file("res://scenes/boss_debug_select.tscn")
+		else:
+			get_tree().change_scene_to_file("res://scenes/survivor_map_select.tscn")
 
 func _draw() -> void:
 	var vp := get_viewport_rect().size
@@ -340,5 +341,9 @@ func _on_aircraft_selected(index: int) -> void:
 		return
 	# 通过 scene tree meta 传递选择的 PlayableAircraft 资源路径
 	get_tree().set_meta("survivor_aircraft_resource", data["resource"])
-	# 进 BuildingPreloader 预热建筑数据，跑完会自动切到 survivor_mode.tscn
-	get_tree().change_scene_to_file("res://scenes/building_preloader.tscn")
+	# 进配件机库；机库的"出击"按钮会接力到 building_preloader → survivor_mode
+	# Boss Debug 模式跳过机库（直接出击，配件预设由 BossDebugBuilds 管）
+	if get_tree().has_meta("boss_debug_mode"):
+		get_tree().change_scene_to_file("res://scenes/building_preloader.tscn")
+	else:
+		get_tree().change_scene_to_file("res://scenes/survivor_loadout.tscn")

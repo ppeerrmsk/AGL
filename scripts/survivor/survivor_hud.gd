@@ -430,6 +430,69 @@ func _update_status_panel() -> void:
 			var ammo_color := "ccddaa" if ac.ammo > 100 else ("ffaa44" if ac.ammo > 0 else "666666")
 			text += "[color=#%s]GUN  %d / %d[/color]\n" % [ammo_color, ac.ammo, max_ammo]
 
+	# ── 火箭弹（RKT）──
+	if ac.params and ac.params.rocket:
+		var rk: RocketParams = ac.params.rocket
+		var cd_ratio_rkt: float = 0.0
+		if rk.burst_cooldown > 0.0:
+			cd_ratio_rkt = clampf(ac._rocket_burst_cooldown / rk.burst_cooldown, 0.0, 1.0)
+		var rkt_color := "ff9944"
+		if cd_ratio_rkt > 0.01:
+			rkt_color = "884422"
+		if rk.infinite_ammo:
+			if cd_ratio_rkt > 0.01:
+				text += "[color=#%s]RKT  CD %d%%[/color]\n" % [rkt_color, int(cd_ratio_rkt * 100)]
+			else:
+				text += "[color=#%s]RKT  READY[/color]\n" % rkt_color
+		else:
+			var max_rkt := rk.max_ammo
+			if ac.rockets_remaining <= 0:
+				rkt_color = "666666"
+			text += "[color=#%s]RKT  %d / %d[/color]\n" % [rkt_color, ac.rockets_remaining, max_rkt]
+
+	# ── 空中鱼雷（TORP，规避模式下自动抛投）──
+	if ac.params and ac.params.torpedo:
+		var tp: TorpedoParams = ac.params.torpedo
+		var cd_ratio_t: float = 0.0
+		if tp.cooldown > 0.0:
+			cd_ratio_t = clampf(ac._torpedo_cooldown / tp.cooldown, 0.0, 1.0)
+		var torp_color := "55ddee"
+		if not ac.evasion_mode:
+			torp_color = "557788"  # 灰色：规避未激活，不会投放
+		elif cd_ratio_t > 0.01:
+			torp_color = "338899"
+		if cd_ratio_t > 0.01:
+			text += "[color=#%s]TORP CD %d%%[/color]\n" % [torp_color, int(cd_ratio_t * 100)]
+		else:
+			if ac.evasion_mode:
+				text += "[color=#%s]TORP READY[/color]\n" % torp_color
+			else:
+				text += "[color=#%s]TORP (Evade)[/color]\n" % torp_color
+
+	# ── 忠诚僚机（WMN，规避模式下自动释放，与 TORP 互斥槽位）──
+	if ac.params and ac.params.loyal_wingman:
+		var lw: LoyalWingmanParams = ac.params.loyal_wingman
+		var alive: int = ac._alive_drones.size()
+		var cd_ratio_w: float = 0.0
+		if lw.cooldown > 0.0:
+			cd_ratio_w = clampf(ac._loyal_wingman_cooldown / lw.cooldown, 0.0, 1.0)
+		var wmn_color := "88ddaa"  # 默认绿
+		if not ac.evasion_mode:
+			wmn_color = "557766"   # 灰：规避未激活
+		elif alive >= lw.max_simultaneous:
+			wmn_color = "667788"   # 蓝灰：到达 cap
+		elif cd_ratio_w > 0.01:
+			wmn_color = "447755"   # 暗绿：CD 中
+		if alive >= lw.max_simultaneous:
+			text += "[color=#%s]WMN  %d/%d  MAX[/color]\n" % [wmn_color, alive, lw.max_simultaneous]
+		elif cd_ratio_w > 0.01:
+			text += "[color=#%s]WMN  %d/%d  CD %d%%[/color]\n" % [wmn_color, alive, lw.max_simultaneous, int(cd_ratio_w * 100)]
+		else:
+			if ac.evasion_mode:
+				text += "[color=#%s]WMN  %d/%d  READY[/color]\n" % [wmn_color, alive, lw.max_simultaneous]
+			else:
+				text += "[color=#%s]WMN  %d/%d  (Evade)[/color]\n" % [wmn_color, alive, lw.max_simultaneous]
+
 	# ── 热诱弹 ──
 	if ac.params and ac.params.flare:
 		var max_flr := ac.params.flare.max_flares
@@ -445,6 +508,14 @@ func _update_status_panel() -> void:
 				flr_color = "666666"
 			var cd_text := "  CD" if cd_ratio > 0.01 else ""
 			text += "[color=#%s]FLR  %d / %d%s[/color]\n" % [flr_color, ac.flares_remaining, max_flr, cd_text]
+
+	# ── 规避隐身（仅解锁了 evasion_stealth 时显示）──
+	if ac.evasion_stealth_active:
+		if ac._in_evasion_stealth:
+			text += "[color=#b373d9][b]STLH  ACTIVE[/b][/color]\n"
+		elif ac.evasion_mode:
+			var rem: float = maxf(Aircraft.EVASION_STEALTH_DELAY - ac._evasion_stealth_timer, 0.0)
+			text += "[color=#7755aa]STLH  ARM %.1fs[/color]\n" % rem
 
 	# ── 电磁炮（commit 11+）──
 	var rg: RailgunEquipment = ac.params.get_equipment_of_kind("railgun") if ac.params else null
@@ -941,6 +1012,51 @@ func _get_ai(ac: Aircraft) -> AIController:
 	return null
 
 ## 把 AI 当前状态/战术翻译成动作名（已 tr() 翻译）
+## 僚机武器状态（导弹 / 机炮 / 热诱弹）—— 含装填进度、冷却剩余秒数。
+## 复用玩家 HUD 的色彩 / 标签约定，单行紧凑（squad panel 宽度有限）：
+##   MSL 2/2 / MSL ↻80% / MSL 2 (1.4s)
+##   GUN 250 / GUN ↻80%
+##   FLR 6 / FLR ↻45% / FLR (cd 比例)
+func _wingman_weapon_status(ac: Aircraft) -> String:
+	var parts: Array[String] = []
+
+	# ── 导弹 ──
+	if ac.params and ac.params.missile:
+		var max_msl: int = ac.params.missile.max_count
+		if ac._missile_reload_active:
+			var pct := int(ac.missile_reload_progress * 100)
+			parts.append("[color=#5599ff]MSL ↻%d%%[/color]" % pct)
+		elif ac._missile_cooldown > 0.1:
+			parts.append("[color=#88bbff]MSL %d (%.1fs)[/color]" % [ac.missiles_remaining, ac._missile_cooldown])
+		else:
+			var col := "88bbff" if ac.missiles_remaining > 0 else "666666"
+			parts.append("[color=#%s]MSL %d/%d[/color]" % [col, ac.missiles_remaining, max_msl])
+
+	# ── 机炮 ──
+	if ac.params and ac.params.gun:
+		if ac.enable_gun_reload and ac._gun_reload_active:
+			var pct := int(ac.gun_reload_progress * 100)
+			parts.append("[color=#aa7733]GUN ↻%d%%[/color]" % pct)
+		else:
+			var col := "ccddaa" if ac.ammo > 100 else ("ffaa44" if ac.ammo > 0 else "666666")
+			parts.append("[color=#%s]GUN %d[/color]" % [col, ac.ammo])
+
+	# ── 热诱弹 ──
+	if ac.params and ac.params.flare:
+		if ac.enable_flare_reload and ac.flares_remaining <= 0 and ac.flare_reload_progress > 0.01:
+			var pct := int(ac.flare_reload_progress * 100)
+			parts.append("[color=#aa8833]FLR ↻%d%%[/color]" % pct)
+		else:
+			var cd_ratio := ac.get_flare_cooldown_ratio()
+			var col := "ffdd66"
+			if cd_ratio > 0.01:
+				col = "aa8833"
+			elif ac.flares_remaining <= 0:
+				col = "666666"
+			parts.append("[color=#%s]FLR %d[/color]" % [col, ac.flares_remaining])
+
+	return "  ".join(parts)
+
 func _wingman_action_text(ac: Aircraft) -> String:
 	var ai := _get_ai(ac)
 	if ai == null:
@@ -986,10 +1102,7 @@ func _update_squad_panel() -> void:
 
 		bbcode += "[b]%s[/b]  [color=#%s]HP %3d%%[/color]\n" % [wm.callsign, hp_color, int(hp_ratio * 100)]
 		bbcode += "  [color=#%s]%s[/color]\n" % [hp_color, bar_str]
-		var msl_n: int = wm.missiles_remaining if wm.params and wm.params.missile else 0
-		var amm_n: int = wm.ammo if wm.params and wm.params.gun else 0
-		var flr_n: int = wm.flares_remaining if wm.params and wm.params.flare else 0
-		bbcode += "  [color=#aabbaa]MSL %d  AMM %d  FLR %d[/color]\n" % [msl_n, amm_n, flr_n]
+		bbcode += "  %s\n" % _wingman_weapon_status(wm)
 		bbcode += "  [color=#6ab4e8]• %s[/color]" % _wingman_action_text(wm)
 		if i < wingmen.size() - 1:
 			bbcode += "\n\n"
@@ -1027,17 +1140,14 @@ func _on_squad_engage_pressed() -> void:
 		# 若僚机正在交战，强制脱离并回到编队，保证"切模式=立刻生效"
 		if ai._state == AIController.AIState.ENGAGE:
 			wm.clear_combat_target()
-			wm.ai_override_pursuit = false
-			wm.keep_target_on_arrival = true
-			wm.formation_mode = true
-			wm._formation_leader = game_scene.player_aircraft
-			wm._formation_blend = 1.0  # 直接落位完整编队托管，不走慢吞吞的 rejoin
-			wm.lod_level = 1
+			# 直接落位完整编队托管（target_position=INF 留给下一帧 squad_coordination 填）
+			wm.set_formation_target(game_scene.player_aircraft, Vector2.INF)
 			ai._state = AIController.AIState.SQUAD_FOLLOW
-			ai._formation_blend = 1.0
+			ai._formation_blend = 1.0  # 跳过 rejoin 渐变
 			ai._rejoining = false
 			ai._current_target = null
 			ai._squad_attacking_leader_target = false
+			ai._squad_lateral_role = AIController.SquadRole.NONE
 			ai._engage_timer = 0.0
 			ai._cooldown_timer = 0.0
 			ai.current_tactic_name = ""
@@ -1087,18 +1197,21 @@ func _count_nodes(node: Node) -> int:
 		count += _count_nodes(child)
 	return count
 
-func show_game_over(level: int, time: float, kills: int) -> void:
+func show_game_over(level: int, time: float, kills: int,
+		xp_gained: int = 0, merit_earned: int = 0) -> void:
 	var mins := int(time) / 60
 	var secs := int(time) % 60
 	var text := "[center][color=#ff6655][b]%s[/b][/color]\n\n" % tr("HUD_GAMEOVER_TITLE")
 	text += "[color=#aaddaa]%s\n" % (tr("HUD_GAMEOVER_LEVEL_FMT") % level)
 	text += "%s\n" % (tr("HUD_GAMEOVER_TIME_FMT") % [mins, secs])
 	text += "%s[/color]\n\n" % (tr("HUD_GAMEOVER_KILLS_FMT") % kills)
+	text += _format_merit_line(xp_gained, merit_earned)
 	text += "[color=#888888]%s[/color][/center]" % tr("HUD_GAMEOVER_HINT")
 	_game_over_label.text = text
 	_game_over_panel.visible = true
 
-func show_victory(level: int, time: float, kills: int) -> void:
+func show_victory(level: int, time: float, kills: int,
+		xp_gained: int = 0, merit_earned: int = 0) -> void:
 	var mins := int(time) / 60
 	var secs := int(time) % 60
 	var text := "[center][color=#55ffaa][b]%s[/b][/color]\n\n" % tr("HUD_VICTORY_TITLE")
@@ -1106,9 +1219,18 @@ func show_victory(level: int, time: float, kills: int) -> void:
 	text += "[color=#aaddaa]%s\n" % (tr("HUD_GAMEOVER_LEVEL_FMT") % level)
 	text += "%s\n" % (tr("HUD_GAMEOVER_TIME_FMT") % [mins, secs])
 	text += "%s[/color]\n\n" % (tr("HUD_GAMEOVER_KILLS_FMT") % kills)
+	text += _format_merit_line(xp_gained, merit_earned)
 	text += "[color=#888888]%s[/color][/center]" % tr("HUD_GAMEOVER_HINT")
 	_game_over_label.text = text
 	_game_over_panel.visible = true
+
+## 结算面板里的"功勋 +N"行（XP=0 时返回空串，沙盒/老调用方安全）
+func _format_merit_line(xp_gained: int, merit_earned: int) -> String:
+	if xp_gained <= 0 and merit_earned <= 0:
+		return ""
+	var line := "[color=#e8c75c]%s[/color]\n" % (tr("HUD_GAMEOVER_MERIT_FMT") % merit_earned)
+	line += "[color=#7a6b3a]%s[/color]\n\n" % (tr("HUD_GAMEOVER_MERIT_DETAIL_FMT") % [xp_gained, MeritLedger.get_total()])
+	return line
 
 # ══════════════════════════════════════════════
 #  雷达小地图

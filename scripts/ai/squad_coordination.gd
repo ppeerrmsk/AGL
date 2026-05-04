@@ -12,12 +12,11 @@ extends RefCounted
 ##
 ## 状态仍住在 AIController。本模块不持有状态，只在 ai 上读写。
 ##
-## 枚举/常量引用保留在 AIController：
-##   AIController.AIState / AIController.EngageTactic / AIController.SquadEngageMode /
-##   AIController.FORMATION_* / AIController.WINGMAN_ENGAGE_DELAY_* /
-##   AIController.COVER_SCAN_RANGE / AIController.SQUAD_FREE_SCAN_RANGE /
-##   AIController.SQUAD_FREE_MIN_DIST / AIController.SQUAD_SCAN_RADAR_MULT /
-##   AIController.MIN_DUR_LEAD_PURSUIT
+## 枚举/常量引用：
+##   AIController.AIState / EngageTactic / SquadEngageMode / SquadRole / MIN_DUR_LEAD_PURSUIT
+##   AIController.COVER_SCAN_RANGE / SQUAD_FREE_SCAN_RANGE / SQUAD_FREE_MIN_DIST / SQUAD_SCAN_RADAR_MULT
+##   Squad.FORMATION_SWITCH_THRESH / FORMATION_REACT_BASE / FORMATION_JITTER_AMP /
+##   Squad.FORMATION_JITTER_ADD / WINGMAN_ENGAGE_DELAY_MIN / WINGMAN_ENGAGE_DELAY_MAX
 ##
 ## 注意：_find_member_ai / _get_missile_manager / _is_target_already_squad_engaged
 ## 内部实现仍保留在 AIController（场景图辅助）。本模块通过 ai._xxx 调用。
@@ -31,8 +30,7 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 		# 编队无效，回退到巡逻
 		ai._state = AIController.AIState.PATROL
 		ai.squad = null
-		ai.aircraft.formation_mode = false
-		ai.aircraft._formation_leader = null
+		ai.aircraft.clear_formation()
 		return
 
 	var leader := ai.squad.leader
@@ -42,8 +40,7 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 	# 一个相对于自身旋转的槽位，飞机陷入追自己尾巴的原地自转死循环
 	if leader == ai.aircraft:
 		ai.squad_index = 0
-		ai.aircraft.formation_mode = false
-		ai.aircraft._formation_leader = null
+		ai.aircraft.clear_formation()
 		ai._formation_blend = 0.0
 		ai._rejoining = false
 		ai._state = AIController.AIState.PATROL
@@ -62,22 +59,8 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 		ai.aircraft.clear_combat_target()
 		ai.aircraft.ai_override_pursuit = false
 	ai._cover_target = null
-	ai.aircraft.lod_level = 1  # 编队托管运算
-	ai.aircraft.keep_target_on_arrival = true
-	ai.aircraft.formation_mode = true
-	ai.aircraft._formation_leader = leader
+
 	ai.current_tactic_name = "TACTIC_FOLLOW_FORMATION"
-
-	# 回归编队时渐变混合度（从自主飞行平滑过渡到完全托管）
-	if ai._formation_blend < 1.0:
-		ai._formation_blend = minf(ai._formation_blend + delta * 0.5, 1.0)  # ~2秒过渡
-		ai.current_tactic_name = "TACTIC_REJOIN"
-	else:
-		ai._rejoining = false  # 完全融入编队，结束归队状态
-	ai.aircraft._formation_blend = ai._formation_blend
-
-	# 传递个体扰动相位
-	ai.aircraft._formation_jitter_phase = ai._formation_jitter_phase
 
 	# 计算阵型槽位
 	var slot_pos := ai.squad.get_wingman_target(ai.squad_index)
@@ -88,21 +71,30 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 		var new_offset_local := (slot_pos - leader.global_position).rotated(-leader.heading)
 		if ai._prev_formation_offset_local != Vector2.INF:
 			var offset_change := ai._prev_formation_offset_local.distance_to(new_offset_local)
-			if offset_change > AIController.FORMATION_SWITCH_THRESH:
+			if offset_change > Squad.FORMATION_SWITCH_THRESH:
 				# 阵型切换了：设置个体化反应延迟（0.3~1.3秒）
-				# 用个体扰动相位让每架飞机反应略有差异（风格一致）
-				var base_delay := AIController.FORMATION_REACT_BASE + (sin(ai._formation_jitter_phase) * AIController.FORMATION_JITTER_AMP + 0.5) * AIController.FORMATION_JITTER_ADD
+				var base_delay := Squad.FORMATION_REACT_BASE + (sin(ai._formation_jitter_phase) * Squad.FORMATION_JITTER_AMP + 0.5) * Squad.FORMATION_JITTER_ADD
 				ai._formation_react_timer = base_delay + randf_range(-0.15, 0.15)
 		ai._prev_formation_offset_local = new_offset_local
 
 	# 反应延迟期间：不更新 target_position（飞机继续向旧槽位飞行）
 	# 延迟过后突然更新 slot_pos，会触发 aircraft 编队代码的中距追击分支 → 自然曲线转弯
+	var slot_for_frame := slot_pos
 	if ai._formation_react_timer > 0.0:
 		ai._formation_react_timer -= delta
 		ai.current_tactic_name = "TACTIC_FORMATION_ADJUST"
+		slot_for_frame = Vector2.INF  # 跳过 target_position 写入
+
+	# 进入/更新编队托管态（formation_mode=true / _formation_leader / lod=1 / keep_arrival；INF 时跳过 target_position）
+	ai.aircraft.set_formation_target(leader, slot_for_frame)
+
+	# 回归编队时渐变混合度（从自主飞行平滑过渡到完全托管）
+	# AircraftFormation 通过 ac._ai_ref._formation_blend 直接读，不再镜像到 Aircraft
+	if ai._formation_blend < 1.0:
+		ai._formation_blend = minf(ai._formation_blend + delta * 0.5, 1.0)  # ~2秒过渡
+		ai.current_tactic_name = "TACTIC_REJOIN"
 	else:
-		if slot_pos != Vector2.INF:
-			ai.aircraft.target_position = slot_pos
+		ai._rejoining = false  # 完全融入编队，结束归队状态
 
 	# ── 自由模式：独立扫描附近敌机，优先级低于长机协同 ──
 	# 长机无目标时才独立找目标；长机一旦锁定会走下面的协同攻击入口。
@@ -123,20 +115,17 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 				if tgt:
 					# 进 ENGAGE：与协同攻击走一样的过渡，只是 target 是自己找的
 					ai._current_target = tgt
+					ai.aircraft.clear_formation()  # formation_mode/leader/keep_arrival/lod=0/ai_override
 					ai.aircraft.set_combat_target(tgt)
 					ai.aircraft.ai_override_pursuit = true
-					ai.aircraft.keep_target_on_arrival = false
-					ai.aircraft.formation_mode = false
-					ai.aircraft._formation_leader = null
-					ai.aircraft._formation_blend = 0.0
-					ai._formation_blend = 0.0
-					ai.aircraft.lod_level = 0
+					ai._formation_blend = 0.0  # 下次回归编队时从 0 开始混合
 					ai._state = AIController.AIState.ENGAGE
 					ai._engage_timer = 0.0
 					ai._tactic = AIController.EngageTactic.LEAD_PURSUIT
 					ai._tactic_timer = 0.0
 					ai._tactic_min_duration = AIController.MIN_DUR_LEAD_PURSUIT
 					ai._squad_attacking_leader_target = false
+					ai._squad_lateral_role = AIController.SquadRole.NONE  # 自由交战不分配角色
 					ai._squad_free_engaging = true  # 享有 range grace，避免刚进就被踢出
 					ai._leader_target_lost_timer = 0.0
 					ai._squad_range_grace_timer = 0.0
@@ -150,21 +139,19 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 	if leader.combat_target and is_instance_valid(leader.combat_target) and not leader.combat_target.is_destroyed:
 		# 反应延迟：每架僚机有不同的反应时间（0.3~1.5秒）
 		# P4：planner 管理的僚机跳过反应延迟（"聪明 AI"立即响应长机锁定）
+		# Drone（kamikaze_intercept 标识）：机器即时反应，无延迟
 		# 旧 AI 保留延迟以维持人形不同步感
-		if ai.aircraft.use_tactical_planner:
+		if ai.aircraft.use_tactical_planner or ai.kamikaze_intercept:
 			ai._engage_delay = 0.0
 		elif ai._engage_delay <= 0.0:
-			ai._engage_delay = randf_range(AIController.WINGMAN_ENGAGE_DELAY_MIN, AIController.WINGMAN_ENGAGE_DELAY_MAX)
+			ai._engage_delay = randf_range(Squad.WINGMAN_ENGAGE_DELAY_MIN, Squad.WINGMAN_ENGAGE_DELAY_MAX)
 		ai._engage_delay -= delta
 		if ai._engage_delay <= 0.0:
 			ai._engage_delay = 0.0
-			ai.aircraft.keep_target_on_arrival = false
-			ai.aircraft.formation_mode = false
-			ai.aircraft._formation_leader = null
-			ai.aircraft._formation_blend = 0.0
-			ai._formation_blend = 0.0  # 下次回归编队时从0开始混合
+			ai.aircraft.clear_formation()  # formation_mode/leader/keep_arrival/lod=0/ai_override
 			ai.aircraft.set_combat_target(leader.combat_target)
-			ai.aircraft.lod_level = 0
+			ai.aircraft.ai_override_pursuit = true
+			ai._formation_blend = 0.0  # 下次回归编队时从 0 开始混合
 			ai._state = AIController.AIState.ENGAGE
 			ai._engage_timer = 0.0
 			ai._tactic = AIController.EngageTactic.LEAD_PURSUIT
@@ -173,6 +160,7 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 			ai._current_target = leader.combat_target
 			ai.aircraft.ai_override_pursuit = true
 			ai._squad_attacking_leader_target = true
+			ai._squad_lateral_role = _role_for_squad_index(ai.squad_index)
 			ai._squad_free_engaging = false  # 协同攻击路径互斥
 			ai._leader_target_lost_timer = 0.0
 			ai._squad_range_grace_timer = 0.0
@@ -181,6 +169,8 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 		ai._engage_delay = 0.0  # 长机无目标时重置延迟
 
 ## 扫描长机后半球威胁
+## 用 CombatUnit.all_units 共享列表代替 get_parent().get_children() 全树扫描
+## （CLAUDE.md 性能守则第 4 条：_process 不得用 get_children()）
 static func scan_leader_rear(ai: AIController) -> Aircraft:
 	if not ai.squad or not ai.squad.leader:
 		return null
@@ -190,14 +180,10 @@ static func scan_leader_rear(ai: AIController) -> Aircraft:
 	var best_threat: Aircraft = null
 	var best_dist := AIController.COVER_SCAN_RANGE
 
-	var root := ai.aircraft.get_parent()
-	if not root:
-		return null
-
-	for child in root.get_children():
-		if not child is Aircraft:
+	for unit in CombatUnit.all_units:
+		if not unit or not unit is Aircraft:
 			continue
-		var ac: Aircraft = child
+		var ac: Aircraft = unit
 		if ac.team == ai.aircraft.team or ac.is_destroyed:
 			continue
 
@@ -223,9 +209,6 @@ static func scan_leader_rear(ai: AIController) -> Aircraft:
 ##     —— 生存模式设计上是"任何高度都能到"，不应让高度差影响目标选择
 ##   - 否则（沙盒模式）：用 effective_distance_px 3D
 static func scan_squad_nearby_enemy(ai: AIController) -> Aircraft:
-	var root := ai.aircraft.get_parent()
-	if not root:
-		return null
 	# max_range_px 必须严格小于 _process_engage 的脱战阈值 (radar_range * 1.5)。
 	var max_range_px := AIController.SQUAD_FREE_SCAN_RANGE
 	if ai.aircraft.params:
@@ -233,10 +216,10 @@ static func scan_squad_nearby_enemy(ai: AIController) -> Aircraft:
 	var best: Aircraft = null
 	var best_dist := max_range_px
 	var use_2d := ai.aircraft.flat_altitude  # 生存模式走 2D
-	for child in root.get_children():
-		if not child is Aircraft:
+	for unit in CombatUnit.all_units:
+		if not unit or not unit is Aircraft:
 			continue
-		var ac: Aircraft = child
+		var ac: Aircraft = unit
 		if ac.team == ai.aircraft.team or ac.is_destroyed:
 			continue
 		var d: float
@@ -279,6 +262,19 @@ static func broadcast_salvo(ai: AIController) -> void:
 		if mai and not mai._salvo_pending:
 			mai._salvo_pending = true
 			mai._salvo_delay = randf_range(0.1, 0.4)  # 0.1~0.4 秒错开
+
+## 按 squad_index 分配协同角色：奇数 → 左翼包夹，偶数 → 右翼包夹，3 号 → 高位掩护，
+## 4+ 继续左右交替（极少触发，玩家最多 3 僚机）。决定僚机的 pursuit_pos 偏移方向 +
+## 是否抬升高度 + 偏好 intent，让 3 架僚机分散在目标周围而不是抢长机的尾后位置。
+static func _role_for_squad_index(idx: int) -> int:
+	if idx <= 0:
+		return AIController.SquadRole.NONE  # 长机或未编队
+	if idx == 3:
+		return AIController.SquadRole.HIGH_COVER
+	# 1, 2, 4, 5... 交替左右
+	if idx % 2 == 1:
+		return AIController.SquadRole.FLANK_LEFT
+	return AIController.SquadRole.FLANK_RIGHT
 
 ## 处理齐射倒计时（在 aircraft._update_missile 中每帧调用）
 static func process_salvo(ai: AIController, delta: float) -> bool:

@@ -1,0 +1,51 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=5 format=3]
+
+; A-10 实验装载：用 loyal wingman 替换 torpedo（互斥槽位）
+; 同 playable_a10_base.tres，但 torpedo 留空、loyal_wingman 设为 a10_loyal_wingman
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/a10_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/a10_rocket.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/a10_loyal_wingman.tres" id="4"]
+
+[resource]
+script = ExtResource("1")
+display_name = "A-10"
+; ── 生存性 ──
+max_hp = 140.0
+armor = 0.15
+; ── 速度（亚音速攻击机） ──
+max_speed = 1050.0
+cruise_speed = 780.0
+stall_speed_base = 180.0
+; ── 加减速极佳 ──
+acceleration = 65.0
+deceleration = 110.0
+g_drag_factor = 2.4
+; ── 机动（攻击机定位：转弯性能拔尖） ──
+max_g = 9.5
+max_g_structural = 12.0
+roll_rate = 4.8
+pilot_stamina = 100.0
+stamina_drain_rate = 22.0
+stamina_recovery_rate = 12.0
+; ── 高度 ──
+max_altitude = 11000.0
+climb_rate_max = 280.0
+; ── 引擎（无加力） ──
+thrust_to_weight = 0.95
+drag_coefficient = 0.024
+afterburner_thrust_mult = 1.0
+; ── 燃油 ──
+fuel_capacity = 4000.0
+fuel_rate_normal = 1.2
+fuel_rate_afterburner = 1.2
+; ── 雷达 ──
+radar_range = 5000.0
+radar_half_angle = 25.0
+lock_time = 3.0
+; ── 武器（torpedo 留空，挂 loyal_wingman）──
+gun = ExtResource("2")
+rocket = ExtResource("3")
+loyal_wingman = ExtResource("4")
+icon_color = Color(0.45, 0.55, 0.30, 1)

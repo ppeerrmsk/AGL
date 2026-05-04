@@ -81,6 +81,7 @@ var _playlist: Array = []
 var _playlist_idx: int = 0
 var _playlist_active: bool = false
 var _playlist_crossfade: float = 2.0
+var _playlist_advance_armed: bool = false  ## 当前曲未到尾段（防重复触发预交叉淡化）
 const MUFFLE_CUTOFF_OPEN := 20000.0  # 直通（听起来无效果）
 const MUFFLE_CUTOFF_MENU := 600.0    # 模糊状态，像隔了层雾
 
@@ -245,13 +246,59 @@ func _crossfade_music_internal(id: String, duration: float, loop: bool) -> void:
 	_kill_tween(new_player)
 	new_player.stop()
 	new_player.stream = stream
+	# 等功率曲线开始：新轨从 -∞（≈-80dB）起步
 	new_player.volume_db = -80.0
 	new_player.play()
-	_fade_to(new_player, 0.0, duration)
+	# 等功率交叉淡化：避免线性 dB 在中点产生 -6dB 凹陷（两轨听感同时变小），
+	# 用 sin/cos 让两轨幅度的平方和恒为 1，听感音量平稳，节奏过渡更自然。
 	if old_player.playing:
-		var dying := old_player
-		_fade_to(dying, -80.0, duration, func(): if is_instance_valid(dying): dying.stop())
+		_equal_power_crossfade(old_player, new_player, duration)
+	else:
+		# 旧轨已停 → 退化为单纯淡入新轨（仍走幅度曲线，更平滑）
+		_fade_amplitude(new_player, 1.0, duration)
 	_active_music = new_player
+
+## 等功率交叉淡化（amplitude squared sum = 1）：
+##   t ∈ [0,1]，old.gain = cos(t·π/2)，new.gain = sin(t·π/2)
+##   对应 dB：linear_to_db(gain)，gain≈0 时 clamp 到 -80
+## 比起 dB 线性插值，这样在中点两轨各保持 -3dB（幅度 0.707），合成感知音量持平。
+func _equal_power_crossfade(out_player: AudioStreamPlayer, in_player: AudioStreamPlayer, duration: float) -> void:
+	if duration <= 0.01:
+		out_player.volume_db = -80.0
+		out_player.stop()
+		in_player.volume_db = 0.0
+		return
+	var tween := create_tween().set_parallel(false)
+	_tweens[out_player.get_instance_id()] = tween
+	_tweens[in_player.get_instance_id()] = tween
+	# 用 method tween 驱动一个 0→1 的 t，每帧同步两轨音量
+	tween.tween_method(func(t: float):
+			if not is_instance_valid(out_player) or not is_instance_valid(in_player):
+				return
+			var a_gain: float = cos(t * PI * 0.5)
+			var b_gain: float = sin(t * PI * 0.5)
+			out_player.volume_db = (linear_to_db(a_gain) if a_gain > 0.001 else -80.0)
+			in_player.volume_db = (linear_to_db(b_gain) if b_gain > 0.001 else -80.0),
+			0.0, 1.0, duration)
+	tween.tween_callback(func():
+			if is_instance_valid(out_player):
+				out_player.volume_db = -80.0
+				out_player.stop())
+
+## 单轨幅度淡入/淡出（target_amp ∈ [0,1]，0 = 静音 / -80dB，1 = 0dB）
+## 内部用 method tween 走线性幅度曲线再换算 dB，听感比 dB 直接线性更自然。
+func _fade_amplitude(player: AudioStreamPlayer, target_amp: float, duration: float) -> void:
+	if duration <= 0.01:
+		player.volume_db = (linear_to_db(target_amp) if target_amp > 0.001 else -80.0)
+		return
+	var start_amp: float = (db_to_linear(player.volume_db) if player.volume_db > -79.5 else 0.0)
+	var tween := create_tween()
+	_tweens[player.get_instance_id()] = tween
+	tween.tween_method(func(a: float):
+			if not is_instance_valid(player):
+				return
+			player.volume_db = (linear_to_db(a) if a > 0.001 else -80.0),
+			start_amp, target_amp, duration)
 
 ## 顺序轮播播放列表：首曲用 fade_in 淡入，之后每首播完自动 crossfade 下一首（循环）
 ## 调用 play_music/crossfade_music/stop_music 会自动终止播放列表模式
@@ -263,6 +310,7 @@ func play_music_playlist(ids: Array, fade_in: float = 2.0, crossfade_between: fl
 	_playlist_idx = 0
 	_playlist_crossfade = crossfade_between
 	_playlist_active = true
+	_playlist_advance_armed = true
 	# 首曲禁用 loop，这样播完触发 finished → 自动切下一首
 	_play_music_internal(_playlist[0], fade_in, false)
 
@@ -439,6 +487,33 @@ func stop_player_engine() -> void:
 
 func _process(_delta: float) -> void:
 	_update_engine_volume()
+	_check_playlist_early_crossfade()
+
+## 播放列表"预先交叉淡化"：在当前曲距结尾还有 _playlist_crossfade 秒时主动触发下一首，
+## 让上一首的尾巴 (outro/最后小节) 与下一首的开头 (intro/起拍) 真实重叠播出，
+## 避免老逻辑（等 finished 信号才切）出现的"上一首播完→静音 N 帧→下一首淡入"节奏断点。
+## 等功率曲线再叠加这个时间重叠，过渡听起来连续。
+func _check_playlist_early_crossfade() -> void:
+	if not _playlist_active or _playlist.size() < 2:
+		return
+	if _active_music == null or not _active_music.playing:
+		return
+	if not _playlist_advance_armed:
+		return
+	var stream := _active_music.stream
+	if stream == null:
+		return
+	var length: float = stream.get_length()
+	if length <= 0.0:
+		return
+	var pos: float = _active_music.get_playback_position()
+	# 距结尾不超过 crossfade 时长 → 启动下一首交叉淡化
+	if length - pos <= _playlist_crossfade:
+		_playlist_idx = (_playlist_idx + 1) % _playlist.size()
+		_crossfade_music_internal(_playlist[_playlist_idx], _playlist_crossfade, false)
+		_playlist_active = true
+		# 新曲启动 → 立即重新 arm，下一首到尾段时再触发
+		_playlist_advance_armed = true
 
 func _update_engine_volume() -> void:
 	if _engine_player == null or not is_instance_valid(_engine_player):

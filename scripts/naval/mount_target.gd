@@ -21,6 +21,14 @@ var weak_point_ref: WeakPoint = null    ## 代理的弱点（二选一）
 # ── 视觉（只绘制锁定指示）──
 const LOCK_BOX_SIZE: float = 14.0
 
+# ── 节流：CSG 时 70+ 个 MountTarget 各自跑 60Hz _physics_process + queue_redraw 是性能黑洞 ──
+## position sync 每 3 帧才完整重算一次（船在编队里以 14kts ≈ 7m/s 移动，3 帧延迟 0.05s ≈ 0.35m，看不出来）
+## queue_redraw 改为脏驱动：只在 lock_progress 实际变化或 is_locked 切换时重画
+const SYNC_TICK_DIVISOR: int = 3
+var _tick_count: int = 0
+var _last_lock_progress: float = -1.0
+var _last_is_locked: bool = false
+
 
 func _ready() -> void:
 	flat_altitude = true
@@ -55,8 +63,17 @@ func _physics_process(_delta: float) -> void:
 			return
 		hp = weak_point_ref.hp
 
-	_sync_position()
-	queue_redraw()
+	# 节流：每 SYNC_TICK_DIVISOR 帧才重算位置（船速度低，肉眼看不出抖动）
+	_tick_count += 1
+	if _tick_count % SYNC_TICK_DIVISOR == 0:
+		_sync_position()
+
+	# 脏驱动 redraw：仅锁定状态变化时重画
+	var p: float = clampf(incoming_lock_progress, 0.0, 1.0)
+	if not is_equal_approx(p, _last_lock_progress) or is_locked != _last_is_locked:
+		_last_lock_progress = p
+		_last_is_locked = is_locked
+		queue_redraw()
 
 
 ## 标记为 destroyed + 主动通知所有飞机清空 combat_target 引用 + queue_free
@@ -98,8 +115,12 @@ func _sync_position() -> void:
 
 
 ## 伤害转发给船（位置感知路由）
-func take_damage(amount: float) -> void:
+func take_damage(amount: float, attacker: Node = null, kind: String = "") -> void:
 	if parent_ship and is_instance_valid(parent_ship):
+		if attacker != null:
+			parent_ship.set_meta("_pending_attacker", attacker)
+		if kind != "":
+			parent_ship.set_meta("_last_damage_kind", kind)
 		parent_ship.take_damage_at(amount, global_position)
 
 

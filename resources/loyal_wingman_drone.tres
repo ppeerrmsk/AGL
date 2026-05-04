@@ -1,0 +1,44 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/loyal_wingman_laser.tres" id="2"]
+
+[resource]
+script = ExtResource("1")
+display_name = "DRONE"
+is_unmanned = true
+; ── 生存性（脆，挨一发就掉） ──
+max_hp = 40.0
+armor = 0.0
+; ── 机动（高速 + 高 G，且能跟上玩家剧烈转向）──
+; max_g 28 → 10 太低导致跟丢玩家；折中到 18，既不过冲（10×2 比 player A-10 9.5G 高一档）
+; 又能跟上玩家急转。max_g_structural 25 留给 chase 模式紧追的余量。
+max_speed = 1800.0
+cruise_speed = 1100.0
+stall_speed_base = 200.0
+acceleration = 75.0
+deceleration = 90.0
+g_drag_factor = 2.0
+max_g = 18.0
+max_g_structural = 25.0
+roll_rate = 5.5
+pilot_stamina = 999.0
+stamina_drain_rate = 0.0
+stamina_recovery_rate = 0.0
+; ── 高度 ──
+max_altitude = 12000.0
+climb_rate_max = 400.0
+; ── 引擎（无加力） ──
+thrust_to_weight = 1.4
+drag_coefficient = 0.018
+afterburner_thrust_mult = 1.0
+fuel_capacity = 9999.0
+fuel_rate_normal = 0.0
+fuel_rate_afterburner = 0.0
+; ── 雷达（仅做视觉判定，drone 不锁定） ──
+radar_range = 3000.0
+radar_half_angle = 30.0
+lock_time = 99.0
+; ── 武器：仅类机炮"激光" ──
+gun = ExtResource("2")
+icon_color = Color(0.55, 0.95, 0.65, 1)

@@ -51,14 +51,19 @@ static func apply(aircraft: Node, profile: PlayableAircraft, is_wingman: bool = 
 	if p.missile and profile.missile_count_override >= 0:
 		p.missile.max_count = profile.missile_count_override
 
-	# ── 副导弹（AGM）属性继承主导弹 ──
-	# 设计决策：AGM 只是对地显示名，数值完全复用主导弹，这样所有"导弹"升级
-	# （数量/制导/装填/数量上限）在对地时一样生效，不会出现"升了 AAM 升级 AGM
-	# 还是原始弱鸡"的情况。显示名保留 "AGM-xx" 满足军事细节党。
-	if p.missile and p.secondary_missile:
-		var agm_name := p.secondary_missile.display_name
-		p.secondary_missile = p.missile.duplicate()
-		p.secondary_missile.display_name = agm_name
+	# ── 玩家无副导弹（2026-04-29 决策：玩家导弹只有一种） ──
+	# 历史：曾区分 AAM/AGM，但 AGM 数值完全复用 AAM、UI 也不分槽位，纯冗余。
+	# 现在彻底清掉：玩家用同一种导弹打空地两类目标（combat_tracking 自动 fallback 到 p.missile）。
+	# .tres 的 secondary_missile 字段已移除（playable_f14_base / default_fighter），
+	# 这里再补一道保险，确保任何残留写入都被清空。
+	p.secondary_missile = null
+	aircraft.secondary_missiles_remaining = 0
+
+	# ── 玩家飞机导弹默认 fire_and_forget ──
+	# 设计：玩家不应该被"半主动持续照射"机制惩罚——发射后立刻可以转向甩 SARH。
+	# 原 fire_and_forget 升级（CLASSIFIED 稀有度）已废除，此能力下放为主角飞机标配。
+	if p.missile:
+		p.missile.fire_and_forget = true
 
 	# ── 机炮 ──
 	if p.gun:
@@ -68,6 +73,10 @@ static func apply(aircraft: Node, profile: PlayableAircraft, is_wingman: bool = 
 			p.gun.max_range = profile.gun_range_override
 		if profile.gun_cone_override > 0.0:
 			p.gun.fire_cone_half_angle = profile.gun_cone_override
+
+	# ── 飞行员瞄准技巧（仅 profile 显式给值时覆盖 Aircraft 默认 0.3）──
+	if profile.base_pilot_aim_skill > 0.0:
+		aircraft.pilot_aim_skill = profile.base_pilot_aim_skill
 
 	# ── 战斗风格覆盖 ──
 	if profile.combat_override:
@@ -86,6 +95,11 @@ static func apply(aircraft: Node, profile: PlayableAircraft, is_wingman: bool = 
 	aircraft.survivor_missile_damage_cap = profile.missile_damage_cap
 	aircraft.survivor_bullet_damage_cap = profile.bullet_damage_cap
 	aircraft.bullet_dodge_chance = profile.bullet_dodge_chance
+
+	# ── 局外配件（Loadout）──
+	# 仅长机生效——僚机不应继承玩家局外装备（保留与基础档案一致的纯净参数）
+	if not is_wingman:
+		LoadoutLedger.apply_to_aircraft(aircraft, profile)
 
 
 ## 工具：把 AircraftParams 上的所有外部子资源 deep duplicate 一份，

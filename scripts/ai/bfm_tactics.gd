@@ -105,6 +105,15 @@ static func update_lufberry_detection(ai: AIController, s: AIController.Situatio
 # ══════════════════════════════════════════════
 
 static func choose_tactic(ai: AIController, s: AIController.SituationData) -> void:
+	# ── §3 FEAR panic：玩家技能强加 FEAR 时，AI 强制 EXTENSION（脱离） ──
+	# 不动 _current_target（玩家追得上），只换战术 → 视觉反馈"敌人转身就跑"
+	# FEAR 自然衰减（StatusEffects.tick）后，下次 choose_tactic 自动恢复
+	# BOSS 攻击手豁免：FEAR 仍生效（stress=1.0 → 失误/SA 衰减/精度下降），但不会脱离
+	if ai.aircraft and ai.aircraft.status_fear_active and not ai.is_boss_attacker():
+		if ai._tactic != AIController.EngageTactic.EXTENSION:
+			apply_new_tactic(ai, AIController.EngageTactic.EXTENSION)
+		return
+
 	# ── 优先级 0：机头对准型武器（电磁炮 / 激光剑等）→ SNIPER_HOLD 取代 LEAD_PURSUIT ──
 	# 适用条件：敌机在前半球（my_aot < 80°），不太近（避免冲过去），不在后半球被咬
 	# 不满足 → 走下方常规 BFM（如 LEAD_TURN 转身、BREAK_TURN 防御）
@@ -131,6 +140,14 @@ static func choose_tactic(ai: AIController, s: AIController.SituationData) -> vo
 			# 远距保持 LEAD_PURSUIT（导弹追踪）
 			if ai._tactic != AIController.EngageTactic.LEAD_PURSUIT:
 				apply_new_tactic(ai, AIController.EngageTactic.LEAD_PURSUIT)
+		return
+
+	# ── 优先级 0.5：FEAR debuff → 强制 EXTENSION 逃跑 ──
+	# 玩家"震慑射击 / 惊鸿扩散"等技能注入；此优先级在 BVR/SNIPER 之后、常规 BFM 决策之前
+	# BOSS 攻击手豁免：仅吃 stress 副作用（精度/SA 下降），不会脱离玩家
+	if ai.aircraft.status_fear_active and not ai.is_boss_attacker():
+		if ai._tactic != AIController.EngageTactic.EXTENSION:
+			apply_new_tactic(ai, AIController.EngageTactic.EXTENSION)
 		return
 
 	var new_tactic := ai._tactic

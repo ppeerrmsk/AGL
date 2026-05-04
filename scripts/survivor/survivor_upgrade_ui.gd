@@ -9,6 +9,8 @@ var _overlay: ColorRect
 var _title: Label
 var _btn_container: HBoxContainer
 var _buttons: Array[Button] = []
+## §5 稀有度徽章：每张卡片右上角悬浮的"STABLE / ADV / EXP / CLA / NEXT"标签
+var _rarity_badges: Array[Label] = []
 var _choices: Array[Dictionary] = []
 
 func _ready() -> void:
@@ -86,6 +88,26 @@ func _build_ui() -> void:
 		_btn_container.add_child(btn)
 		_buttons.append(btn)
 
+		# §5 稀有度徽章：右上角小标签（pos 由 _layout_rarity_badge 在 show_choices 设置）
+		var badge := Label.new()
+		badge.text = ""
+		badge.add_theme_font_size_override("font_size", 11)
+		badge.add_theme_color_override("font_color", Color.WHITE)
+		# 半透明黑底 + 圆角，让浅色字在任何背景上都可读
+		var badge_bg := StyleBoxFlat.new()
+		badge_bg.bg_color = Color(0.0, 0.0, 0.0, 0.55)
+		badge_bg.set_corner_radius_all(3)
+		badge_bg.set_content_margin_all(4)
+		badge.add_theme_stylebox_override("normal", badge_bg)
+		# 不参与父容器布局：通过 anchor 钉到按钮右上
+		badge.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+		badge.position = Vector2(-90, 6)
+		badge.size = Vector2(82, 18)
+		badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		btn.add_child(badge)
+		_rarity_badges.append(badge)
+
 	# 下部空白
 	var spacer_bottom := Control.new()
 	spacer_bottom.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -99,16 +121,39 @@ func show_choices(choices: Array[Dictionary]) -> void:
 			var cat: String = choices[i].get("category", "")
 			var cat_prefix := _axis_prefix(cat)
 			_buttons[i].text = "%s%s\n\n%s" % [cat_prefix, tr(choices[i]["name"]), tr(choices[i]["desc"])]
-			# 5 轴颜色表
+
+			# §5 稀有度边框 + 徽章（覆盖原 5 轴边框颜色，让稀有度成为主视觉）
+			var rarity: int = SurvivorData.get_rarity(choices[i])
+			var rarity_color: Color = SurvivorData.RARITY_COLORS[rarity] if rarity < SurvivorData.RARITY_COLORS.size() else Color.WHITE
+			var rarity_label: String = ""
+			if rarity < SurvivorData.RARITY_LABEL_KEYS.size():
+				rarity_label = tr(SurvivorData.RARITY_LABEL_KEYS[rarity])
+			# 高稀有度更粗边框，更醒目
+			var border_w: int = 1 + clampi(rarity, 0, 4) / 2 + (1 if rarity >= SurvivorData.Rarity.CLASSIFIED else 0)
+
 			var style_normal: StyleBoxFlat = _buttons[i].get_theme_stylebox("normal").duplicate()
 			var style_hover: StyleBoxFlat = _buttons[i].get_theme_stylebox("hover").duplicate()
-			var cols := _axis_colors(cat)
-			style_normal.border_color = cols[0]
-			style_hover.border_color = cols[1]
+			# normal 用 70% 不透明的稀有度色，hover 满色 + 更粗
+			style_normal.border_color = Color(rarity_color, 0.7)
+			style_hover.border_color = rarity_color
+			style_normal.set_border_width_all(border_w)
+			style_hover.set_border_width_all(border_w + 1)
+			# Next-Gen 给一点微微的发光底色（让"顶级"卡视觉就能区分）
+			if rarity == SurvivorData.Rarity.NEXT_GEN:
+				style_normal.bg_color = Color(rarity_color, 0.10).blend(style_normal.bg_color)
 			_buttons[i].add_theme_stylebox_override("normal", style_normal)
 			_buttons[i].add_theme_stylebox_override("hover", style_hover)
+
+			# 徽章文本 + 边框颜色
+			if i < _rarity_badges.size():
+				var badge := _rarity_badges[i]
+				badge.text = rarity_label
+				badge.add_theme_color_override("font_color", rarity_color)
+				badge.visible = rarity_label != ""
 		else:
 			_buttons[i].visible = false
+			if i < _rarity_badges.size():
+				_rarity_badges[i].visible = false
 	visible = true
 
 ## 5 轴前缀（i18n key）

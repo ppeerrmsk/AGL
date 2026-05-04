@@ -391,20 +391,26 @@ func _pursuit_update(delta: float) -> void:
 		var ai: AIController = m._get_ai_controller()
 		if not ai:
 			continue
-		# Herbst 活动中不打扰
+		# Herbst 活动中不打扰；记录"刚才在 Herbst"，退出帧立刻硬补 combat_target
 		var hm := m.get_herbst()
 		if hm and hm.is_active:
+			m.set_meta("ace_herbst_was_active", true)
 			continue
+		var herbst_just_exited := m.has_meta("ace_herbst_was_active")
+		if herbst_just_exited:
+			m.remove_meta("ace_herbst_was_active")
 		# 软重连：只在掉出 ENGAGE 时补回，不动 _tactic_timer
 		var need_target := ai._current_target == null \
 				or not is_instance_valid(ai._current_target) \
 				or (ai._current_target is Aircraft and (ai._current_target as Aircraft).is_destroyed)
-		if ai._state != AIController.AIState.ENGAGE or need_target:
+		if ai._state != AIController.AIState.ENGAGE or need_target or herbst_just_exited:
 			ai._state = AIController.AIState.ENGAGE
 			ai._current_target = _player
 			m.combat_target = _player
 			ai.boss_attacker = true
 			ai._engage_timer = 0.0   ## 仅这一个，避免下一帧立即 disengage
+			if herbst_just_exited:
+				ai._tactic_timer = 0.0   ## Herbst 退出后让 BFM 重新挑战术（避免一路 EXTEND）
 		# 远距加力
 		var dist := m.global_position.distance_to(pp)
 		if dist > force_pursuit_distance:

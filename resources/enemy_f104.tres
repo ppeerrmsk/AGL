@@ -1,0 +1,46 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/lancer_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/default_missile.tres" id="4"]
+
+[resource]
+script = ExtResource("1")
+display_name = "F-104 Starfighter"
+; ── Lancer 纯速度截击（"missile with a man in it"）──
+; 真实 F-104（Mach 2.2 / 极快爬升 254 m/s / 小翼面盘旋差 / 纸糊 HP）
+; 与 J-7 同档 Lancer，更快但盘旋更差，HP 最低
+max_hp = 32.0
+armor = 0.0
+; ── 速度（极速 + 高加速，BOOM-ZOOM 之王）──
+max_speed = 2400.0
+cruise_speed = 1100.0
+stall_speed_base = 260.0
+acceleration = 60.0
+deceleration = 55.0
+g_drag_factor = 2.6
+; ── 机动（结构 G 高但盘旋角度极小 → 不持续转弯）──
+max_g = 8.0
+max_g_structural = 11.0
+roll_rate = 4.0
+pilot_stamina = 65.0
+stamina_drain_rate = 32.0
+stamina_recovery_rate = 8.0
+; ── 高度（爬升性能拉满，截击味）──
+max_altitude = 18000.0
+climb_rate_max = 320.0
+thrust_to_weight = 1.18
+drag_coefficient = 0.020
+afterburner_thrust_mult = 1.6
+fuel_capacity = 1700.0
+fuel_rate_normal = 2.0
+fuel_rate_afterburner = 12.0
+; ── 雷达（小型机载雷达）──
+radar_range = 2800.0
+radar_half_angle = 20.0
+lock_time = 3.8
+gun = ExtResource("2")
+missile = ExtResource("4")
+combat = ExtResource("3")
+icon_color = Color(0.6, 0.85, 1.0, 1)

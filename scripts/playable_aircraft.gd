@@ -45,6 +45,11 @@ extends Resource
 @export var gun_damage_mult: float = 1.0      ## 机炮伤害倍率
 @export var gun_range_override: float = 0.0   ## 0 = 不修改
 @export var gun_cone_override: float = 0.0    ## 0 = 不修改
+## 玩家飞行员瞄准技巧（0~1）：影响每 burst 的常驻 aim 偏移幅度
+## 公式 base_err_deg = lerpf(5°, 0.5°, skill)；0 = 业余（±5°）/ 1 = 王牌（±0.5°）
+## 默认 0.6 ≈ ±2.3°，比 Aircraft 默认 0.3（±3.65°）更准
+## ⚠ 0 = 不修改（保留 Aircraft 默认 0.3）；显式设值才覆盖
+@export var base_pilot_aim_skill: float = 0.0
 
 # ── 生存模式：战斗风格覆盖 ──
 @export_group("生存模式 / 战斗风格")
@@ -68,6 +73,18 @@ extends Resource
 @export var missile_damage_cap: float = 30.0   ## 收到的导弹伤害上限（0 = 不限）
 @export var bullet_damage_cap: float = 5.0     ## 收到的子弹伤害上限（0 = 不限）
 @export var bullet_dodge_chance: float = 0.10  ## 基础子弹闪避率
+
+# ── 生存模式：自然成长曲线 ──
+@export_group("生存模式 / 自然成长")
+## 等级节点表。每项 = {"level": int, "hp": int, "missile": int}
+## hp/missile 是该等级"累计"加成（不是单级 delta）。空 → 走 SurvivorData.DEFAULT_GROWTH_CURVE
+## 例：[{"level": 4, "hp": 20, "missile": 1}, {"level": 8, "hp": 40, "missile": 2}]
+@export var growth_curve: Array[Dictionary] = []
+
+# ── 生存模式：配件槽位预算 ──
+@export_group("生存模式 / 配件槽位")
+## 总槽位预算（默认 6 格）。配件占 1/2/3 格不等。≤0 时走 LoadoutLedger.DEFAULT_SLOT_BUDGET
+@export var slot_budget: int = 6
 
 # ── 起始僚机（小队主控） ──
 ## 僚机的飞行员属性固定为"完美执行"（skill=1, composure=1, focus=1, SA=1）；

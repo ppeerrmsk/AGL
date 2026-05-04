@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="EquipmentPart" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/meta/equipment_part.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"gun_dmg_t1"
+display_name_key = "EQUIPMENT_GUN_DMG_T1_NAME"
+description_key = "EQUIPMENT_GUN_DMG_T1_DESC"
+category = &"weapon"
+icon_color = Color(0.95, 0.55, 0.2, 1)
+slot_cost = 1
+tier = 1
+merit_cost = 80
+gun_damage_mult = 1.15

@@ -1,0 +1,51 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/gladiator_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/default_missile.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/default_flare.tres" id="5"]
+
+[resource]
+script = ExtResource("1")
+display_name = "F/A-18"
+; ── Gladiator（斗士型）顶层款：均衡型海军舰载多用途斗士 ──
+; 对应真实 F/A-18C Hornet（M61 + AIM-7/9 / Mach 1.8 / 7.5G 持续）
+; 生存模式下由航母 BOSS 弹射出现，单机或双机突袭玩家
+; 数值梯度：HP/盘旋/雷达 略胜 MiG-23 / F-100，但弱于 F-14（顶级 BOSS）
+; 风格：积极近身狗斗（Gladiator），舰载机精锐飞行员训练扎实
+max_hp = 56.0
+armor = 0.0
+; ── 速度（不如 F-14 快，但加速优秀）──
+max_speed = 1900.0
+cruise_speed = 950.0
+stall_speed_base = 215.0
+acceleration = 60.0
+deceleration = 85.0
+g_drag_factor = 2.8
+; ── 机动（Hornet 标志：高滚转 + 持续高 G + 后失速指向能力）──
+max_g = 7.8
+max_g_structural = 10.5
+roll_rate = 4.5
+pilot_stamina = 90.0
+stamina_drain_rate = 24.0
+stamina_recovery_rate = 10.0
+; ── 高度 ──
+max_altitude = 15000.0
+climb_rate_max = 260.0
+thrust_to_weight = 1.0
+drag_coefficient = 0.022
+afterburner_thrust_mult = 1.55
+fuel_capacity = 3200.0
+fuel_rate_normal = 1.7
+fuel_rate_afterburner = 9.0
+; ── 雷达（APG-73：射程不及 F-14 AWG-9 / Phoenix）──
+radar_range = 4500.0
+radar_half_angle = 30.0
+lock_time = 2.6
+gun = ExtResource("2")
+missile = ExtResource("4")
+flare = ExtResource("5")
+combat = ExtResource("3")
+icon_color = Color(0.12, 0.18, 0.28, 1)
+wing_color = Color(0.85, 0.85, 0.88, 1)

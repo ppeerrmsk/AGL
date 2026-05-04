@@ -23,8 +23,20 @@ const HIT_FLASH_DURATION: float = 0.55
 const HIT_FLASH_BASE_SIZE: float = 26.0
 var _hit_flashes: Array = []  # [{pos, time_left, heading, scale}]
 
+# ── 帧级共享快照（VLS / CSG BOSS 战群弹优化）──────────────────────
+# 同一帧内，同源同目标的多枚导弹共用一次查询。每帧 _physics_process 头部重建。
+# 详见 SurvivorData.ENABLE_MISSILE_FRAME_SNAPSHOT。
+const _CLOUD_SNAP_GRID_PX: float = 256.0  ## 云层快照量化网格（同格只查一次 weather.is_in_cloud）
+var _snap_frame: int = -1
+var _target_snap: Dictionary = {}  ## target_id -> {pos, heading, speed, alt, is_cloaked, valid, is_aircraft, missile_phase_timer}
+var _lock_snap: Dictionary = {}    ## "src_id:tgt_id" -> lock_progress
+var _cloud_snap: Dictionary = {}   ## Vector2i grid -> bool (in cloud)
+var _weather_ref: Node = null      ## 帧内缓存的 weather 节点引用（避免每枚导弹查 group）
+
 func _ready() -> void:
 	add_to_group("explosion_vfx")
+	# 让 MissileManager._physics_process 早于其 Missile 子节点运行 → 子节点能读到当帧快照
+	process_priority = -10
 
 func spawn_missile(source: CombatUnit, target: CombatUnit, missile_params: MissileParams) -> Missile:
 	var missile: Missile = _missile_scene.instantiate()
@@ -129,6 +141,109 @@ func count_active_missiles_at(source: CombatUnit, target: CombatUnit) -> int:
 				count += 1
 	return count
 
+## 队友对目标已发的有效在飞导弹累计伤害（不含 exclude_source）
+## 用于"队友已发足够伤害则不再补射"的弹药节约判定：
+##   if team_inbound_damage(tgt, my_team, self) >= tgt.hp: skip
+##
+## 过滤条件：
+##   - 导弹仍在 active 且未被热诱弹干扰（jammed 视为不会命中）
+##   - 源仍存活且与查询 team 同队
+##   - 目标受击伤害 cap 后的有效值（玩家方 survivor_missile_damage_cap），enemy 无 cap 用满伤
+func team_inbound_damage(target: CombatUnit, team: int, exclude_source: CombatUnit = null) -> float:
+	if not is_instance_valid(target):
+		return 0.0
+	var total := 0.0
+	for child in get_children():
+		if not (child is Missile):
+			continue
+		var m: Missile = child as Missile
+		if not m.is_active or m.is_flare_jammed:
+			continue
+		if m.target != target:
+			continue
+		if not is_instance_valid(m.source) or m.source.team != team or m.source == exclude_source:
+			continue
+		var dmg: float = m.params.damage
+		# 受击方伤害 cap：仅 Aircraft 上有 survivor_missile_damage_cap，且 > 0 才生效
+		if target is Aircraft:
+			var cap: float = (target as Aircraft).survivor_missile_damage_cap
+			if cap > 0.0:
+				dmg = minf(dmg, cap)
+		total += dmg
+	return total
+
+## 每帧重建：遍历所有活跃 Missile 子节点，把 (target / source-target lock) 拍成快照。
+## 云层与 weather 引用按需懒查（Missile 通过 get_in_cloud() 触发）。
+func _build_frame_snapshot() -> void:
+	if not SurvivorData.ENABLE_MISSILE_FRAME_SNAPSHOT:
+		return
+	var pf: int = Engine.get_physics_frames()
+	if _snap_frame == pf:
+		return
+	_snap_frame = pf
+	_target_snap.clear()
+	_lock_snap.clear()
+	_cloud_snap.clear()
+	_weather_ref = null
+
+	for child in get_children():
+		if not child is Missile:
+			continue
+		var msl: Missile = child as Missile
+		if not msl.is_active:
+			continue
+		var tgt: CombatUnit = msl.target
+		if tgt != null and is_instance_valid(tgt):
+			var tid: int = tgt.get_instance_id()
+			if not _target_snap.has(tid):
+				var is_ac: bool = tgt is Aircraft
+				_target_snap[tid] = {
+					"pos": tgt.global_position,
+					"heading": tgt.heading if "heading" in tgt else 0.0,
+					"speed": tgt.speed if "speed" in tgt else 0.0,
+					"alt": tgt.altitude,
+					"is_destroyed": tgt.is_destroyed,
+					"is_aircraft": is_ac,
+					"is_cloaked": is_ac and (tgt as Aircraft).is_cloaked,
+					"flat_altitude": tgt.flat_altitude,
+					"alt_tier": tgt.get_altitude_tier(),
+				}
+			# SARH 锁定进度（仅 SARH 路径需要）
+			var src: CombatUnit = msl.source
+			if msl.params and not msl.params.fire_and_forget and src != null and is_instance_valid(src):
+				var key: String = "%d:%d" % [src.get_instance_id(), tid]
+				if not _lock_snap.has(key):
+					_lock_snap[key] = src.radar_targets.get(tgt, 0.0)
+
+## Missile 调用：取目标快照（命中返回 Dictionary，未命中返回空 Dictionary）
+func get_target_snap(target: CombatUnit) -> Dictionary:
+	if not SurvivorData.ENABLE_MISSILE_FRAME_SNAPSHOT or target == null:
+		return {}
+	return _target_snap.get(target.get_instance_id(), {})
+
+## Missile 调用：取 SARH 锁定进度（命中返回 float，未命中返回 -1.0）
+func get_lock_progress(source: CombatUnit, target: CombatUnit) -> float:
+	if not SurvivorData.ENABLE_MISSILE_FRAME_SNAPSHOT or source == null or target == null:
+		return -1.0
+	var key: String = "%d:%d" % [source.get_instance_id(), target.get_instance_id()]
+	return _lock_snap.get(key, -1.0)
+
+## Missile 调用：云层在位（按 256px 网格量化共享）
+func get_in_cloud(world_pos: Vector2) -> bool:
+	if not SurvivorData.ENABLE_MISSILE_FRAME_SNAPSHOT:
+		var w := get_tree().get_first_node_in_group("weather")
+		return w != null and w.has_method("is_in_cloud") and w.is_in_cloud(world_pos)
+	var grid := Vector2i(int(world_pos.x / _CLOUD_SNAP_GRID_PX), int(world_pos.y / _CLOUD_SNAP_GRID_PX))
+	if _cloud_snap.has(grid):
+		return _cloud_snap[grid]
+	if _weather_ref == null:
+		_weather_ref = get_tree().get_first_node_in_group("weather")
+	var in_c: bool = false
+	if _weather_ref != null and _weather_ref.has_method("is_in_cloud"):
+		in_c = _weather_ref.is_in_cloud(world_pos)
+	_cloud_snap[grid] = in_c
+	return in_c
+
 func _physics_process(delta: float) -> void:
 	# ── 导弹命中检测 ──
 	for child in get_children():
@@ -208,19 +323,20 @@ func _physics_process(delta: float) -> void:
 				var bomb_ids := ["bomb_distant", "bomb_distant_02", "bomb_distant_03", "bomb_distant_04"]
 				AudioManager.play_sfx_2d(bomb_ids[randi() % 4], unit.global_position, 9.0)
 				# 归因：把发射单位写到目标 meta，aircraft._record_kill_attribution 在致死时读取
-				if is_instance_valid(missile.source) and unit is Aircraft:
+				if is_instance_valid(missile.source):
 					unit.set_meta("_pending_attacker", missile.source)
+					unit.set_meta("_last_damage_kind", "missile")
 				if unit is GroundUnit:
 					unit.take_missile_damage(missile.params.damage)
 				elif unit is NavalUnit:
 					# 船走位置感知路由：伤害给最近的挂点或弱点
 					(unit as NavalUnit).take_damage_at(missile.params.damage, missile.global_position)
 				else:
-					unit.take_damage(missile.params.damage)
+					unit.take_damage(missile.params.damage, missile.source, "missile")
 				# 近炸引信：在爆炸点产生 AOE 区域
 				if missile.proximity_aoe:
 					_spawn_aoe(missile.global_position, missile.altitude,
-						missile.params.damage, missile.team, unit)
+						missile.params.damage, missile.team, unit, missile.source)
 				# 连锁弹头：弹跳至最近的其他敌方单位
 				if missile.bounces_remaining > 0:
 					var next_target := _find_bounce_target(missile, unit)
@@ -244,9 +360,12 @@ func _physics_process(delta: float) -> void:
 	_update_aoe_zones(delta)
 	# ── 命中闪光更新 ──
 	_update_hit_flashes(delta)
+	# ── 帧级共享快照构建（放在命中检测之后；保证击杀已结算的目标 is_destroyed=true 写入快照，
+	#    供同帧后运行的 Missile._physics_process 读取，与改动前直接读 target.is_destroyed 一致）──
+	_build_frame_snapshot()
 
 ## 创建 AOE 区域
-func _spawn_aoe(pos: Vector2, alt: float, damage: float, team: int, direct_hit: CombatUnit) -> void:
+func _spawn_aoe(pos: Vector2, alt: float, damage: float, team: int, direct_hit: CombatUnit, source: Node = null) -> void:
 	var hit_set := {}
 	# 直接命中的单位已受伤，不重复伤害
 	if is_instance_valid(direct_hit):
@@ -260,6 +379,7 @@ func _spawn_aoe(pos: Vector2, alt: float, damage: float, team: int, direct_hit: 
 		"damage": damage,
 		"team": team,
 		"hit_set": hit_set,
+		"source": source,
 	}
 	_aoe_zones.append(zone)
 	EventLogger.log_event("AOE", "ProxFuze",
@@ -302,10 +422,11 @@ func _update_aoe_zones(delta: float) -> void:
 				# AOE 仍在飞机本体位置画爆炸（不在 AOE 中心），击中/击毁均只此一次
 				var u_head: float = unit.heading if "heading" in unit else 0.0
 				ExplosionVFXScript.emit(get_tree(), unit.global_position, u_head, 1.0)
+				var zsrc: Node = zone.get("source", null)
 				if unit is GroundUnit:
 					unit.take_missile_damage(zdmg)
 				else:
-					unit.take_damage(zdmg)
+					unit.take_damage_from(zdmg, zsrc, "aoe")
 				zhit[uid] = true
 				var tgt_name: String = unit.callsign if unit.callsign != "" else unit.name
 				EventLogger.log_event("AOE", "ProxFuze",

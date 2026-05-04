@@ -24,25 +24,27 @@ const ROCKET_FIRE_ALT_DIFF_M := 800.0            ## 火箭弹发射最大高度�
 const LAUNCH_QUALITY_OFFAX_RATIO := 0.85         ## 目标距雷达锥边缘留 15% 余量（仅挡贴边的 4.5°）
 const LAUNCH_QUALITY_MAX_BANK_DEG := 60.0        ## 玩家 bank 超此判为急转，不发导弹
 
-## 发射窗口质量过滤（仅玩家自动发射用）：返回 true 表示当前几何稳定可发，false 跳过这一帧
-## 设计目标：避免半主动导弹（AIM-7M）射后丢失照射 — 既要目标在锥内有余量，
-## 又要玩家自身稳定（不在 60°+ bank 急转中）
-## 不过滤手动触发（玩家右键 / 单点击 set_combat_target 后单发逻辑由 update_missile 单走）—
-## 由用户体验决定，玩家明确指令也应被尊重
+## 发射窗口质量过滤：返回 true 表示当前几何稳定可发，false 跳过这一帧
 ##
-## fire_and_forget 导弹（自主制导）跳过本检查：发射后不需要发射器照射，
-## 玩家姿态/目标在锥位置都不影响命中率
+## 适用范围：玩家自动发射 + 玩家方僚机（team==0 + use_tactical_planner）
+## 不过滤敌方 AI（保持游戏难度）；不过滤玩家手动 set_combat_target 后的单发
+##
+## 两条几何约束：
+##  1. **bank 角**：发射器急转中（>60°）→ 跳过。SARH 半主动需要发射后保持照射，
+##     急转会立刻丢锁；fire_and_forget 自主制导可豁免本条
+##  2. **off-axis 角**：目标距雷达锥边缘留 30% 余量。f&f 也受限——
+##     即使 f&f 也需要 seeker 在 launch 时能看到目标（seeker_fov 通常 ±30°）
+##     原来 f&f 整体 return true 是 bug：让僚机在大 bank + 锥边缘乱发，命中率极低
 static func _has_stable_launch_window(ac: Aircraft, target_unit: CombatUnit) -> bool:
 	if not ac.params or not is_instance_valid(target_unit):
 		return true
-	# fire-and-forget 导弹不需要发射器照射 → 不必检查 launch geometry
-	if ac.params.missile and ac.params.missile.fire_and_forget:
-		return true
-	# 玩家急转中 → 等转完
-	var bank_deg: float = absf(rad_to_deg(ac.bank_angle))
-	if bank_deg > LAUNCH_QUALITY_MAX_BANK_DEG:
-		return false
-	# 目标距雷达锥边缘留余量
+	var is_faf: bool = ac.params.missile and ac.params.missile.fire_and_forget
+	# bank 检查：仅 SARH（半主动需要持续照射）受限；f&f 可在急转中发射
+	if not is_faf:
+		var bank_deg: float = absf(rad_to_deg(ac.bank_angle))
+		if bank_deg > LAUNCH_QUALITY_MAX_BANK_DEG:
+			return false
+	# 目标距雷达锥边缘留余量（所有导弹都受限——seeker FOV 在 launch 时必须能看到目标）
 	var to_tgt: Vector2 = target_unit.global_position - ac.global_position
 	var hdg_to_tgt: float = atan2(to_tgt.x, -to_tgt.y)
 	var off_axis_deg: float = absf(rad_to_deg(ac._angle_diff(hdg_to_tgt, ac.heading)))
@@ -50,6 +52,16 @@ static func _has_stable_launch_window(ac: Aircraft, target_unit: CombatUnit) -> 
 	if off_axis_deg > radar_half_deg * LAUNCH_QUALITY_OFFAX_RATIO:
 		return false
 	return true
+
+## 是否对该飞机执行发射窗口质量过滤：玩家 + 玩家方 planner 僚机受限
+## 敌方 AI 跳过本检查（维持原有游戏难度）；老 BFM 路径的 AI（无 planner）也跳过
+static func _should_apply_launch_quality(ac: Aircraft) -> bool:
+	if ac.use_tactical_preference:
+		return true
+	# 玩家方僚机：team 0 + planner-managed → 与玩家同等纪律
+	if ac.team == 0 and ac.use_tactical_planner:
+		return true
+	return false
 
 
 ## 射击更新
@@ -164,6 +176,20 @@ static func auto_gun_scan(ac: Aircraft) -> void:
 
 static func update_gun(ac: Aircraft, delta: float) -> void:
 	ac._fire_cooldown = maxf(ac._fire_cooldown - delta, 0.0)
+	# §C 玩家技能"AB 时回机炮弹"：开 AB 时持续 regen（受 max_ammo 上限）
+	if ac.team == 0 and ac.is_afterburner and ac.ab_gun_regen_per_sec > 0.0 \
+			and ac.params and ac.params.gun:
+		var max_ammo: int = ac.params.gun.max_ammo
+		if ac.ammo < max_ammo:
+			# 累加 fractional → 整数（剩余分量挂在 _ab_gun_regen_accum）
+			if not ac.has_meta("_ab_gun_regen_accum"):
+				ac.set_meta("_ab_gun_regen_accum", 0.0)
+			var accum: float = float(ac.get_meta("_ab_gun_regen_accum")) + ac.ab_gun_regen_per_sec * delta
+			var add: int = int(accum)
+			if add > 0:
+				ac.ammo = mini(ac.ammo + add, max_ammo)
+				accum -= float(add)
+			ac.set_meta("_ab_gun_regen_accum", accum)
 	# 整匣装填（生存模式）：弹药耗尽 → 进入 CD → 一次性补满
 	if ac.enable_gun_reload and ac._gun_reload_active:
 		ac._gun_reload_timer += delta
@@ -177,6 +203,10 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 		ac.is_firing = false
 		return
 	if not ac.is_firing:
+		return
+	# JAM 干扰：所有武器封锁
+	if ac.status_jam_active:
+		ac.is_firing = false
 		return
 	if not ac.params or not ac.params.gun:
 		return
@@ -225,6 +255,9 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 		var bullet_dir := ac._gun_lead_heading + ac._gun_aim_offset_rad + maneuver_err_rad + randf_range(-spread_rad, spread_rad)
 		var muzzle_pos := ac.global_position + Vector2(sin(ac.heading), -cos(ac.heading)) * 20.0
 		ac.bullet_manager.spawn_bullet(muzzle_pos, bullet_dir, gun.muzzle_velocity, ac, gun.bullet_damage)
+		# §C 玩家技能"机炮发射时减伤"：刷新窗口时间戳，下次受伤 _apply_damage 查
+		if ac.team == 0 and ac.gun_fire_dr_window > 0.0:
+			ac._gun_fire_recently_until = EventLogger.get_game_time() + ac.gun_fire_dr_window
 		# 音效：连射节流 0.5s 一次，防每颗子弹叠声道
 		if ac._sfx_gun_cd <= 0.0:
 			ac._sfx_gun_cd = 0.5
@@ -321,6 +354,13 @@ static func update_ciws(ac: Aircraft, delta: float) -> void:
 ## 对空中或地面目标发射一串无制导火箭。散布很大，命中率故意调低。
 ## 发射时机：有战斗目标 + 目标在机头前方 + 距离在火箭弹射程内 + 齐射冷却归零。
 ## 齐射内部通过 _rocket_queue 按间隔连发，不立即一次性射出。
+## 火箭弹更新（全自动扫描齐射，遵循"全武器无手动开火"哲学）
+## 流程：
+##   1. CD 倒数 + 队列出膛
+##   2. 扫描机头前 fire_cone_half_angle 锥内 [min_range, max_fire_range] 是否有敌方
+##   3. 有则启动一次"扇形速发"：burst_count_max 枚火箭从左右挂点同时射出，
+##      角度沿 [-spread_angle, +spread_angle] 等距分布，形成机头前方扇形扩散
+##   4. 进入 burst_cooldown 等下次扫描
 static func update_rocket(ac: Aircraft, delta: float) -> void:
 	if not ac.params or not ac.params.rocket:
 		return
@@ -334,67 +374,108 @@ static func update_rocket(ac: Aircraft, delta: float) -> void:
 			var q: Dictionary = ac._rocket_queue[i]
 			q["delay"] = float(q["delay"]) - delta
 			if q["delay"] <= 0.0:
-				_launch_rocket(ac, q["heading"], q["pos"])
+				var pylon_val: int = int(q.get("pylon", 0))
+				_launch_rocket(ac, q["heading"], q["pos"], pylon_val)
 				ac._rocket_queue.remove_at(i)
 			i -= 1
 
-	# 新齐射判定
-	if ac.rockets_remaining <= 0:
+	# 齐射前置检查
+	if not rk.infinite_ammo and ac.rockets_remaining <= 0:
 		return
 	if ac._rocket_burst_cooldown > 0.0:
-		return
-	if ac.combat_target == null or not is_instance_valid(ac.combat_target) or ac.combat_target.is_destroyed:
 		return
 	# crank / 导弹发射阶段不打火箭，避免动作冲突
 	if ac._crank_timer > 0.0:
 		return
-
-	var tgt_pos := ac.combat_target.global_position
-	var dist_px := ac.global_position.distance_to(tgt_pos)
-	var dist_m := dist_px / CombatUnit.PIXELS_PER_METER
-
-	# 距离过滤
-	if dist_m < rk.min_range or dist_m > rk.max_fire_range:
+	# JAM 干扰：所有武器封锁
+	if ac.status_jam_active:
 		return
 
-	# 高度差过滤（扁平高度模式忽略；地面目标忽略）
-	if not ac.flat_altitude and not (ac.combat_target is GroundUnit):
-		if absf(ac.altitude - ac.combat_target.altitude) > ROCKET_FIRE_ALT_DIFF_M:
-			return
+	# 扫描：机头前锥内是否有敌方目标
+	var fire_cone := deg_to_rad(rk.fire_cone_half_angle)
+	var range_min_px: float = rk.min_range * CombatUnit.PIXELS_PER_METER
+	var range_max_px: float = rk.max_fire_range * CombatUnit.PIXELS_PER_METER
+	var found_target := false
+	for unit in CombatUnit.all_units:
+		if not is_instance_valid(unit) or unit.is_destroyed:
+			continue
+		if unit == ac or unit.team == ac.team:
+			continue
+		if unit is Aircraft and (unit as Aircraft).is_cloaked:
+			continue
+		var dist_px: float = ac.global_position.distance_to(unit.global_position)
+		if dist_px < range_min_px or dist_px > range_max_px:
+			continue
+		# 高度差过滤（扁平高度 / 地面海面目标忽略）
+		if not ac.flat_altitude and not (unit is GroundUnit) and not (unit is NavalUnit):
+			if absf(ac.altitude - unit.altitude) > ROCKET_FIRE_ALT_DIFF_M:
+				continue
+		# 机头偏角
+		var to_u := (unit.global_position - ac.global_position).normalized()
+		var hdg_to_u := atan2(to_u.x, -to_u.y)
+		if absf(ac._angle_diff(hdg_to_u, ac.heading)) > fire_cone:
+			continue
+		found_target = true
+		break
 
-	# 机头偏角过滤：目标必须在机头前方的 fire_cone_half_angle 内
-	var to_tgt := (tgt_pos - ac.global_position).normalized()
-	var hdg_to_tgt := atan2(to_tgt.x, -to_tgt.y)
-	var angle_diff := absf(ac._angle_diff(hdg_to_tgt, ac.heading))
-	if angle_diff > deg_to_rad(rk.fire_cone_half_angle):
+	if not found_target:
 		return
 
-	# 启动齐射：随机决定本次齐射枚数，入队延迟发射
-	var burst_n: int = randi_range(rk.burst_count_min, rk.burst_count_max)
-	burst_n = mini(burst_n, ac.rockets_remaining)
+	# 启动扇形齐射
+	var burst_n: int = rk.burst_count_max
+	if not rk.infinite_ammo:
+		burst_n = mini(burst_n, ac.rockets_remaining)
 	if burst_n <= 0:
 		return
 
+	var spread_rad := deg_to_rad(rk.spread_angle)
 	for n in range(burst_n):
+		# 角度沿 [-spread, +spread] 等距分布
+		var ratio: float = 0.5 if burst_n <= 1 else float(n) / float(burst_n - 1)
+		var angle_offset: float = lerpf(-spread_rad, spread_rad, ratio)
 		ac._rocket_queue.append({
-			"delay": float(n) * rk.burst_interval,
-			"heading": hdg_to_tgt,  ## 朝目标方向发射（由 _launch_rocket 再加散布）
+			"delay": float(n / 2) * rk.burst_interval,  # 每对（左右）共享 delay
+			"heading": ac.heading + angle_offset,
 			"pos": ac.global_position,
+			"pylon": -1 if (n % 2 == 0) else 1,
 		})
 	ac._rocket_burst_cooldown = rk.burst_cooldown
 
 ## 真正把一发火箭弹交给 BulletManager
-static func _launch_rocket(ac: Aircraft, base_heading: float, _queued_pos: Vector2) -> void:
-	if not ac.params or not ac.params.rocket or ac.rockets_remaining <= 0:
+## pylon: -1 = 左挂点 / 1 = 右挂点 / 0 = 机身中线
+## base_heading 已包含 update_rocket 在扇形齐射时计算的角度偏移，这里不再随机 spread
+static func _launch_rocket(ac: Aircraft, base_heading: float, _queued_pos: Vector2, pylon: int = 0) -> void:
+	if not ac.params or not ac.params.rocket:
+		return
+	var rk: RocketParams = ac.params.rocket
+	if not rk.infinite_ammo and ac.rockets_remaining <= 0:
 		return
 	if not ac.bullet_manager or not ac.bullet_manager.has_method("spawn_rocket"):
 		return
-	var rk: RocketParams = ac.params.rocket
-	var spread_rad := deg_to_rad(rk.spread_angle)
-	var dir := base_heading + randf_range(-spread_rad, spread_rad)
-	var muzzle_pos := ac.global_position + Vector2(sin(ac.heading), -cos(ac.heading)) * 24.0
-	ac.bullet_manager.spawn_rocket(muzzle_pos, dir, rk.muzzle_velocity, ac, rk.rocket_damage, rk.max_range)
-	ac.rockets_remaining -= 1
+	# 机头前向 = (sin, -cos)；右舷法向 = (cos, sin)
+	var fwd := Vector2(sin(ac.heading), -cos(ac.heading))
+	var right := Vector2(cos(ac.heading), sin(ac.heading))
+	var muzzle_pos := ac.global_position + fwd * 24.0 + right * (float(pylon) * 18.0)
+	if rk.min_damage_mult < 1.0:
+		ac.bullet_manager.spawn_rocket_with_falloff(
+			muzzle_pos, base_heading, rk.muzzle_velocity, ac,
+			rk.rocket_damage, rk.max_range,
+			rk.proximity_fuse_radius_m, rk.aoe_radius_m, rk.aoe_damage,
+			rk.min_damage_mult,
+		)
+	else:
+		ac.bullet_manager.spawn_rocket(
+			muzzle_pos, base_heading, rk.muzzle_velocity, ac,
+			rk.rocket_damage, rk.max_range,
+			rk.proximity_fuse_radius_m, rk.aoe_radius_m, rk.aoe_damage,
+		)
+	# 玩家技能 SKILL_ROCKET_HOMING：把刚生成的火箭弹标记为追踪型
+	if ac.team == 0 and ac.has_meta("upgrade_stacks"):
+		var stacks: Dictionary = ac.get_meta("upgrade_stacks")
+		if int(stacks.get(SkillHooks.SKILL_ROCKET_HOMING, 0)) > 0:
+			ac.bullet_manager.mark_last_rocket_homing()
+	if not rk.infinite_ammo:
+		ac.rockets_remaining -= 1
 
 static func update_weapon_mode(ac: Aircraft) -> void:
 	# P1：planner 已在帧顶写好 weapon_mode，跳过旧决策
@@ -496,6 +577,10 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 	ac._crank_timer = maxf(ac._crank_timer - delta, 0.0)
 	ac._msl_block_log_timer = maxf(ac._msl_block_log_timer - delta, 0.0)
 
+	# JAM 干扰：完全无法发射导弹（仍允许 cooldown 走完，恢复后立刻能打）
+	if ac.status_jam_active:
+		return
+
 	# 导弹装填系统（生存模式）
 	if ac.enable_missile_reload and ac._missile_reload_active:
 		ac._missile_reload_timer += delta
@@ -578,6 +663,16 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 			ac._log_msl_block("ACTIVE_MSL", "already %d in flight" % max_inflight)
 			return
 
+	# 队友已发足够伤害 → 不再补射（避免浪费弹药）
+	# 累计 team 内（不含自己）已发的 active+未失锁导弹伤害 ≥ 目标 hp → 跳过
+	# 自然涵盖"目标快死了 / 已经必死"两种场景；BOSS 因 hp >> 单弹伤害不会被屏蔽
+	# 例外：玩家手动点击目标（auto_fire=false）允许补射，与 max_inflight 例外保持一致
+	if not (ac.use_tactical_preference and not ac.missile_auto_fire):
+		var team_inbound: float = ac.missile_manager.team_inbound_damage(ac.combat_target, ac.team, ac)
+		if team_inbound >= ac.combat_target.hp:
+			ac._log_msl_block("TEAM_OVERKILL", "team inbound dmg=%.0f >= tgt hp=%.0f" % [team_inbound, ac.combat_target.hp])
+			return
+
 	# 机炮正在对 combat_target 开火时不发射导弹（避免机炮击毁后还补一发）
 	if ac.use_tactical_preference and ac.is_firing:
 		ac._log_msl_block("GUN_ACTIVE", "shooting combat_target with gun")
@@ -613,10 +708,10 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 			_dist_m, lock_progress, lock_threshold])
 		return
 
-	# 发射窗口质量：玩家激烈机动 / 目标在锥边缘 → 跳过这一帧（不计冷却，下帧重试），
-	# 等条件稳定后才发射。
-	# 解决用户反馈：A-7 在 28° 锥边发射 + 玩家急切转向 → 导弹丢失制导（半主动需持续照射）
-	if ac.use_tactical_preference and not _has_stable_launch_window(ac, ac.combat_target):
+	# 发射窗口质量：发射器急转 / 目标在锥边缘 → 跳过这一帧（不计冷却，下帧重试），
+	# 等条件稳定后才发射。玩家 + 玩家方 planner 僚机受限；敌方 AI 不受限
+	# 解决用户反馈：F-14 僚机在 7.5G 急转中盲发 MRM，连开 2 弹打 Tu-160 全 miss
+	if _should_apply_launch_quality(ac) and not _has_stable_launch_window(ac, ac.combat_target):
 		ac._log_msl_block("UNSTABLE_WIN", "off-axis 或 bank 超阈值，等下次窗口")
 		return
 
@@ -641,7 +736,7 @@ static func _fire_missile_at(ac: Aircraft, target_unit: CombatUnit, msl: Missile
 	ac.missile_manager.spawn_missile(ac, target_unit, msl)
 	ac.notify_missile_fired_at(target_unit)
 	AudioManager.play_sfx_2d("missile_launch" if randf() < 0.5 else "missile_launch_alt", ac.global_position, -12.0)
-	if not ac.infinite_ammo:
+	if not ac.infinite_ammo and not _overload_ammo_free(ac):
 		if is_secondary:
 			ac.secondary_missiles_remaining -= 1
 		else:
@@ -684,12 +779,16 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 			continue
 		if ac.missile_manager.has_active_missile_at(ac, target_unit):
 			continue
+		# 队友已发足够伤害（含自己已发的）→ 跳过该目标，避免浪费
+		# 过滤掉 exclude_source=ac 自己，因为上一行已经查过自己；这里就是看队友贡献
+		if ac.missile_manager.team_inbound_damage(target_unit, ac.team, ac) >= target_unit.hp:
+			continue
 		# 机炮正在射击 combat_target 时，不给 combat_target 发导弹（避免浪费）；
 		# 齐射仍可打其他锁定目标
 		if ac.use_tactical_preference and ac.is_firing and target_unit == ac.combat_target:
 			continue
-		# 发射窗口质量过滤（仅玩家）：目标在锥边缘 / 玩家急转中 → 跳过该目标
-		if ac.use_tactical_preference and not _has_stable_launch_window(ac, target_unit):
+		# 发射窗口质量过滤（玩家 + 玩家方 planner 僚机）：目标在锥边缘 / 急转中 → 跳过该目标
+		if _should_apply_launch_quality(ac) and not _has_stable_launch_window(ac, target_unit):
 			continue
 		locked_targets.append(target_unit)
 
@@ -703,8 +802,10 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 	if ac.use_tactical_preference and ac.combat_target != null \
 			and is_instance_valid(ac.combat_target) and not ac.combat_target.is_destroyed:
 		if locked_targets.find(ac.combat_target) == -1:
+			# combat_target 被过滤的合理原因：自己已经在打它（own/gun）/ 队友 inbound 足以击毁它
 			var combat_target_busy: bool = ac.missile_manager.has_active_missile_at(ac, ac.combat_target) \
-					or ac.is_firing
+					or ac.is_firing \
+					or ac.missile_manager.team_inbound_damage(ac.combat_target, ac.team, ac) >= ac.combat_target.hp
 			if not combat_target_busy:
 				return false
 
@@ -751,7 +852,7 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 		# 音效：齐射整体只响一下
 		if i == 0:
 			AudioManager.play_sfx_2d("missile_launch" if randf() < 0.5 else "missile_launch_alt", ac.global_position, -12.0)
-		if not ac.infinite_ammo:
+		if not ac.infinite_ammo and not _overload_ammo_free(ac):
 			ac.missiles_remaining -= 1
 
 	if fire_count > 0:
@@ -768,3 +869,205 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 			ac._log_threat_picture("after salvo x%d" % fire_count)
 		return true
 	return false
+
+
+## 玩家技能"燃尽自如"：超载期间发射不消耗导弹弹量
+## 仅 team 0 + status_overload_active + 持有该技能时返回 true
+static func _overload_ammo_free(ac: Aircraft) -> bool:
+	if ac.team != 0 or not ac.status_overload_active:
+		return false
+	if not ac.has_meta("upgrade_stacks"):
+		return false
+	var stacks: Dictionary = ac.get_meta("upgrade_stacks")
+	return int(stacks.get(SkillHooks.SKILL_OVERLOAD_EXTENDED_AMMO, 0)) > 0
+
+
+## 空中漂浮雷：规避模式下 CD 完毕自动在机身周围投下若干颗
+## 投下后留在原地缓慢漂移 + 缓降，不追踪，敌人靠近自爆 AOE
+## 不需要装填弹药，CD 持续倒数（不论是否在规避模式），但只在规避模式下才会触发投放
+static func update_torpedo(ac: Aircraft, delta: float) -> void:
+	if not ac.params or not ac.params.torpedo:
+		return
+	var tp: TorpedoParams = ac.params.torpedo
+
+	# 冷却持续倒数（不在规避模式时也减，但不会发射 → 进入规避瞬间不会立刻获得免费一发）
+	ac._torpedo_cooldown = maxf(ac._torpedo_cooldown - delta, 0.0)
+
+	# 仅在规避模式下投放
+	if not ac.evasion_mode:
+		return
+	if ac._torpedo_cooldown > 0.0:
+		return
+	# JAM 干扰：所有武器封锁
+	if ac.status_jam_active:
+		return
+	# BulletManager 必须在场（A-10 是玩家，沙盒/生存都注入了 bullet_manager）
+	if not ac.bullet_manager or not ac.bullet_manager.has_method("spawn_torpedo"):
+		return
+
+	# 投下若干颗：起始位置 = 飞机当前位置（留在原地）
+	# 漂移方向：在 0~2π 内均匀分布 + 小抖动，让"几个方向都有"
+	var count: int = maxi(tp.drop_count, 1)
+	var base_angle: float = randf() * TAU
+	for n in range(count):
+		var dir_jitter: float = randf_range(-0.25, 0.25)  # ±0.25 弧度 ≈ ±14°
+		var drift_angle: float = base_angle + (TAU / float(count)) * float(n) + dir_jitter
+		var drift_speed: float = randf_range(tp.drift_speed_min, tp.drift_speed_max)
+		ac.bullet_manager.spawn_torpedo(ac.global_position, drift_angle, drift_speed, ac, tp)
+	ac._torpedo_cooldown = tp.cooldown
+
+
+## 忠诚僚机无人机：规避模式下 CD 完毕从机尾释放一架伴飞 drone
+## drone 是真正的 Aircraft 实例（带 simple_ai + orbit_squad_leader + shield_leader + chase_leader_target）
+## 共享导弹自爆拦截能力（来自 shield_leader），无需新增 kamikaze 逻辑
+## 同源同屏 cap：max_simultaneous（默认 2）— 与漂浮雷的 21 cap 同设计哲学
+const _LOYAL_WINGMAN_SCENE_PATH := "res://scenes/aircraft.tscn"
+static var _loyal_wingman_scene: PackedScene = null
+
+static func update_loyal_wingman(ac: Aircraft, delta: float) -> void:
+	if not ac.params or not ac.params.loyal_wingman:
+		return
+	var lw: LoyalWingmanParams = ac.params.loyal_wingman
+
+	# 清理无效 / 已死的 drone 引用 + 离屏消失计时
+	# 设计：drone 在屏幕内永久存在；只有连续离屏超过 offscreen_despawn_seconds 才静默 queue_free
+	var i := ac._alive_drones.size() - 1
+	while i >= 0:
+		var d: Aircraft = ac._alive_drones[i]
+		if d == null or not is_instance_valid(d) or d.is_destroyed:
+			ac._alive_drones.remove_at(i)
+		else:
+			# 离屏计时
+			if lw.offscreen_despawn_seconds > 0.0:
+				if _is_drone_on_screen(d):
+					d.set_meta("_drone_offscreen_timer", 0.0)
+				else:
+					var t: float = float(d.get_meta("_drone_offscreen_timer", 0.0)) + delta
+					if t >= lw.offscreen_despawn_seconds:
+						EventLogger.log_event("WINGMAN", d.callsign,
+							"drone despawned after %.1fs offscreen" % t)
+						d.queue_free()
+						ac._alive_drones.remove_at(i)
+					else:
+						d.set_meta("_drone_offscreen_timer", t)
+		i -= 1
+
+	# 冷却持续倒数（即使不在规避模式 — 进规避瞬间不送免费一发）
+	ac._loyal_wingman_cooldown = maxf(ac._loyal_wingman_cooldown - delta, 0.0)
+
+	# 早退：不在规避模式 / CD 未到 / 已达 cap / JAM 干扰
+	if not ac.evasion_mode:
+		return
+	if ac._loyal_wingman_cooldown > 0.0:
+		return
+	if ac._alive_drones.size() >= lw.max_simultaneous:
+		return
+	if ac.status_jam_active:
+		return
+	if lw.drone_aircraft_params == null:
+		push_warning("LoyalWingmanParams.drone_aircraft_params 未设，无法 spawn drone")
+		return
+
+	var drone: Aircraft = _spawn_loyal_wingman_drone(ac, lw)
+	if drone != null:
+		ac._alive_drones.append(drone)
+		ac._loyal_wingman_cooldown = lw.cooldown
+		EventLogger.log_event("WINGMAN", ac._log_name(),
+			"deployed drone (active=%d/%d)" % [ac._alive_drones.size(), lw.max_simultaneous])
+
+
+## 检查 drone 是否在玩家视口内（含外扩边距，避免边缘瞬时离屏导致计时器抖动）
+## 复用 missile_manager 同款逻辑：camera 中心 + 视口尺寸 / zoom
+static func _is_drone_on_screen(drone: Aircraft) -> bool:
+	if not drone.is_inside_tree():
+		return false
+	var cam: Camera2D = drone.get_viewport().get_camera_2d()
+	if cam == null:
+		return true  # 无相机时默认认为可见
+	var center: Vector2 = cam.get_screen_center_position()
+	var vp_size: Vector2 = drone.get_viewport().get_visible_rect().size
+	var zoom_x: float = maxf(cam.zoom.x, 0.0001)
+	var zoom_y: float = maxf(cam.zoom.y, 0.0001)
+	# 外扩边距 200px，避免缘镜头瞬时离屏导致计时器抖动
+	var half_w: float = (vp_size.x * 0.5) / zoom_x + 200.0
+	var half_h: float = (vp_size.y * 0.5) / zoom_y + 200.0
+	var pos: Vector2 = drone.global_position
+	return absf(pos.x - center.x) < half_w and absf(pos.y - center.y) < half_h
+
+
+## 实例化 + 配置 drone Aircraft（编队跟随模式：与玩家同 squad / formation_mode + SQUAD_FOLLOW）
+## 与僚机同套机制（aircraft_formation.gd 三段式跟随），跟得上玩家剧烈机动；
+## 额外加 kamikaze_intercept 让 drone 检测到来袭导弹时主动撞毁。
+static func _spawn_loyal_wingman_drone(ac: Aircraft, lw: LoyalWingmanParams) -> Aircraft:
+	# 加载场景（首次调用时才 preload，避免冷启动开销）
+	if _loyal_wingman_scene == null:
+		_loyal_wingman_scene = load(_LOYAL_WINGMAN_SCENE_PATH)
+		if _loyal_wingman_scene == null:
+			push_error("Failed to load aircraft.tscn for loyal wingman drone")
+			return null
+
+	# 懒创建 drone squad（leader=ac；与玩家本身的 wingman squad 解耦，不影响阵型槽位）
+	if ac._drone_squad == null:
+		ac._drone_squad = SquadFactory.create(Squad.Formation.TRAIL, Squad.EngageMode.FOLLOW_LEADER)
+		SquadFactory.register_leader(ac._drone_squad, ac)
+
+	var drone: Aircraft = _loyal_wingman_scene.instantiate()
+	drone.params = lw.drone_aircraft_params.duplicate(true)
+	drone.team = ac.team
+	drone.bullet_manager = ac.bullet_manager
+	drone.missile_manager = ac.missile_manager
+	drone.flat_altitude = ac.flat_altitude
+	drone.altitude = ac.altitude
+	drone.is_drone = true  # 跳过预测线 / 数据标签 / 锁定指示，纯 2D 极简视觉
+	drone.set_meta("silhouette", "drone")  # 切换到 XQ-58 Valkyrie / MQ-28 Ghost Bat 风格的小型外观
+
+	# 计算 squad slot：当前活跃数 + 1（已死的 drone 之前已被 prune）
+	var slot_idx: int = ac._drone_squad.members.size()  # 玩家是 0，下一个是 1
+	# 出生位置 = 玩家当前位置（drone 接下来由 SQUAD_FOLLOW 自然移到 TRAIL formation 槽位）
+	drone.position = ac.global_position
+	drone.initial_heading_deg = rad_to_deg(ac.heading)
+	drone.target_altitude = ac.altitude
+
+	# 标识 group（便于 EventLogger / debug）
+	drone.add_to_group("loyal_wingman")
+
+	# 挂 AIController：SQUAD_FOLLOW 状态 + kamikaze 拦截 flag
+	# 不用 simple_ai / orbit / shield_leader — 走与玩家僚机同样的 formation_mode 路径，反应快
+	var ai: AIController = AIController.new()
+	ai.name = "AI_Drone%d" % slot_idx
+	ai.aircraft = drone
+	ai.enable_combat = true
+	ai.evade_missiles = true
+	# 完美飞行员（同玩家僚机），不受压力/技能退化影响
+	ai.aggression = 1.0
+	ai.skill_level = 1.0
+	ai.composure = 1.0
+	ai.focus = 1.0
+	ai.situational_awareness = 1.0
+	ai.self_preservation = 0.5
+	# 关键：drone 只打玩家锁定的目标（FOLLOW_LEADER 已在 squad.engage_mode 上）
+	ai.squad_engage_mode = AIController.SquadEngageMode.FOLLOW_LEADER
+	# kamikaze 拦截：来袭导弹瞄向 leader 时，drone 主动撞毁
+	ai.kamikaze_intercept = true
+	drone.add_child(ai)
+	SquadFactory.register_wingman(ac._drone_squad, drone)  # squad/squad_index/_state=SQUAD_FOLLOW
+
+	# 预置编队托管态：让 frame 1 直接走 LOD 1 编队分支（不经过 LOD 0 漂移过渡）
+	# set_formation_target 一次性写 formation_mode/_formation_leader/lod=1/keep_arrival/target_position
+	var initial_slot: Vector2 = ac._drone_squad.get_wingman_target(slot_idx)
+	drone.set_formation_target(ac, initial_slot)
+	# register_wingman 已在前面调用，这里 add_member 是 no-op（保留作为意图标记可省）
+
+	# 加到主场景节点（与玩家同 parent）
+	var parent_node: Node = ac.get_parent()
+	if parent_node:
+		parent_node.add_child(drone)
+
+	# 性能优化：drone 短命，TrailRibbon 顶点数大幅压缩（R6 历史教训）
+	if drone._trail_ribbon != null:
+		drone._trail_ribbon.max_points = 60
+
+	# 离屏消失计时器初始化（在屏幕内永久存在，离屏累计超过 offscreen_despawn_seconds 才消失）
+	drone.set_meta("_drone_offscreen_timer", 0.0)
+
+	return drone

@@ -48,6 +48,7 @@ var _last_left_click_time: float = -1000.0
 # ── 生存模式状态 ──
 var player_aircraft: Aircraft
 var _player_profile_id: StringName = &""  ## 当前主角的 PlayableAircraft.id（用于专属技能筛选）
+var _player_profile: PlayableAircraft = null  ## 当前主角档案引用（自然成长读 growth_curve）
 var _wingman_formation_debug: bool = false  ## F11 切换：友方僚机编队调试覆盖层
 var survivor_player: SurvivorPlayer
 var game_time: float = 0.0
@@ -55,10 +56,20 @@ var is_game_over: bool = false
 var is_paused_for_upgrade: bool = false
 var upgrade_stacks: Dictionary = {}
 
+## §5 抽卡 pity 计数：{ Rarity → int }，本局生效
+## SurvivorData.pick_3_upgrades 每次升级时读 + 写
+var _pity_counter: Dictionary = {}
+
 const OFFSCREEN_MARGIN := 500.0    ## 屏幕外判定余量（像素）
 
 # ── 雷达锁定节流（每 RADAR_LOCK_INTERVAL 秒跑一次 O(N²) 循环）──
 const RADAR_LOCK_INTERVAL := 0.2
+## 雷达锁定子集轮转：每 tick 只扫 1/RADAR_LOCK_STRIDE 单位作为 shooter，
+## 全覆盖周期 RADAR_LOCK_INTERVAL × RADAR_LOCK_STRIDE = 0.8s（2026-05-04 加入）。
+## 每个 shooter 看到的 step_delta 仍然是"完整间隔"（× stride 抵消频率），锁定累积速率不变。
+## 副作用：目标离开雷达锥后的衰减最多滞后 0.6s（旧 0.2s），实测无感知。
+const RADAR_LOCK_STRIDE := 4
+var _radar_lock_phase: int = 0  ## 当前轮到的 stride 索引（0..RADAR_LOCK_STRIDE-1）
 var _radar_lock_accum: float = 0.0
 var _all_combat_units_cache: Array[CombatUnit] = []   ## _update_aircraft_list 填充，_update_radar_locks 复用
 
@@ -83,22 +94,46 @@ var _boss_spawned: bool = false            ## BOSS 已激活进入战斗
 var _map_id: String = "default"            ## 当前地图 id（BOSS 池 lookup 用）
 var _is_victory: bool = false              ## 已胜利，阻止重复触发
 
+# ── Boss Debug 模式 ──
+## 进入路径：survivor_map_select 按 B → boss_debug_select 选 boss → set_meta → 此处读取
+## 与正常生存模式的差异：跳过地图渲染（空白）、跳过 BuildingRenderer、_ready 末尾 _setup_boss_debug_scenario()
+## 自动跳到 15 级 + 主题化随机 build + 立即触发 BossEncounterEvent
+var _boss_debug_mode: bool = false
+var _boss_debug_id: String = ""
+var _boss_debug_theme: String = ""              ## 当前主题名（HUD 显示用，备用）
+var _boss_debug_picks: Array[Dictionary] = []    ## 当前 build 的 14 张技能
+var _player_profile_path: String = ""            ## boss debug F8 重启需要原档案路径
+
 func _ready() -> void:
 	# 确保 SurvivorMode 在所有子节点（含 AI 控制器）之前执行
 	# 这样 _f47_assign_roles 设置的 boss_attacker 等标志在 AI 运行时已经生效
 	process_priority = -10
 	process_physics_priority = -10
 
+	# Boss Debug meta 必须在所有渲染器/边界初始化之前读取（决定后续是否跳过 MapFeatureRenderer）
+	if get_tree().has_meta("boss_debug_mode"):
+		_boss_debug_mode = bool(get_tree().get_meta("boss_debug_mode"))
+		get_tree().remove_meta("boss_debug_mode")
+	if get_tree().has_meta("boss_debug_id"):
+		_boss_debug_id = String(get_tree().get_meta("boss_debug_id"))
+		get_tree().remove_meta("boss_debug_id")
+
+	# Boss Debug 模式：把空白背景调到柔和深色（默认黑底太刺眼），与海岸线地图颜调一致
+	if _boss_debug_mode:
+		RenderingServer.set_default_clear_color(Color(0.10, 0.13, 0.16))
+
 	# 海岸线地图：两首战斗泛用 BGM 轮播（播完自动切下一首，周而复始）
 	# BOSS 登场时 crossfade 到 boss 曲，会自动退出 playlist 模式
 	AudioManager.play_music_playlist(["battle_coast", "battle_coast_2"], 2.0, 2.0)
 
 	# 海岸线大地图：用固定几何数据替代原 TerrainRenderer 的噪声
-	_map_features = MapFeatureRenderer.new()
-	_map_features.show_behind_parent = true
-	add_child(_map_features)
-	move_child(_map_features, 0)
-	# _map_features.setup() 会在 _map_boundary 创建后调用（见下方）
+	# Boss Debug 模式跳过：地图为空白，省一大块 shader+几何渲染开销
+	if not _boss_debug_mode:
+		_map_features = MapFeatureRenderer.new()
+		_map_features.show_behind_parent = true
+		add_child(_map_features)
+		move_child(_map_features, 0)
+		# _map_features.setup() 会在 _map_boundary 创建后调用（见下方）
 
 	# 天气系统（高空云层，绘制在地形之上、单位之下）
 	_weather = WeatherSystem.new()
@@ -109,10 +144,12 @@ func _ready() -> void:
 	move_child(_weather, 1)
 
 	# 横浜高建筑伪 3D 渲染（独立模块；删除以下 4 行 + building_renderer.gd 即可完整撤回）
-	var buildings := BuildingRenderer.new()
-	buildings.show_behind_parent = true
-	add_child(buildings)
-	buildings.setup(camera)
+	# Boss Debug 模式跳过（空白地图无需建筑）
+	if not _boss_debug_mode:
+		var buildings := BuildingRenderer.new()
+		buildings.show_behind_parent = true
+		add_child(buildings)
+		buildings.setup(camera)
 
 	# 相机控制器
 	_camera_ctrl = CameraController.new()
@@ -135,12 +172,14 @@ func _ready() -> void:
 	if get_tree().has_meta("survivor_aircraft_resource"):
 		profile_path = get_tree().get_meta("survivor_aircraft_resource")
 		get_tree().remove_meta("survivor_aircraft_resource")
+	_player_profile_path = profile_path  # 保存供 boss debug F8 重启使用
 	var profile: PlayableAircraft = load(profile_path)
 	if profile == null or profile.base_params == null:
 		push_error("survivor_mode: 无效的 PlayableAircraft：%s" % profile_path)
 		return
 	_player_params_base = profile.base_params
 	_player_profile_id = profile.id  # 用于专属技能筛选
+	_player_profile = profile  # 保留档案引用（自然成长曲线 / 后续配件系统用）
 
 	# 读取选择的地图（占位：当前仅 default 一张实装，其它为预留位）
 	# 后续在此根据 map_id 切换噪声 seed/frequency/地形配色
@@ -181,6 +220,10 @@ func _ready() -> void:
 	player_aircraft.bullet_manager = bullet_manager
 	player_aircraft.missile_manager = missile_manager
 	player_aircraft.selected = true
+	# 把 upgrade_stacks 通过 meta 暴露给 SkillHooks（钩子链 dispatch_on_kill / dispatch_on_hit
+	# 用此字段判断玩家是否已选某技能）。Dictionary 是引用类型，后续 upgrade_stacks[id]+=1
+	# 自动反映在 meta 上，无需重复 set_meta。
+	player_aircraft.set_meta("upgrade_stacks", upgrade_stacks)
 	add_child(player_aircraft)
 	AircraftRenderer.player_ref = player_aircraft
 	# 引擎环境音：只给玩家一个循环源，按缩放+视野动态调音量
@@ -242,8 +285,9 @@ func _ready() -> void:
 	add_child(_map_boundary)
 	# 相机钳制：比游戏边界稍大（CAMERA_MARGIN_PX），允许玩家看到边界外少许空域
 	_camera_ctrl.set_world_bounds(_map_boundary.get_camera_bounds())
-	# 地图特征绘制现在有了世界矩形
-	_map_features.setup(camera, _map_boundary.get_world_rect())
+	# 地图特征绘制现在有了世界矩形（Boss Debug 模式 _map_features 为 null，跳过）
+	if _map_features:
+		_map_features.setup(camera, _map_boundary.get_world_rect())
 
 	_boundary_ui = BoundaryUI.new()
 	add_child(_boundary_ui)
@@ -254,39 +298,41 @@ func _ready() -> void:
 	_boundary_ui.cancelled.connect(_on_retreat_cancelled)
 
 	# ── 战术地图 + 战区系统（P2）──
-	_zone_data = ZoneData.new()
-	# BoundaryUI 需要 _zone_data 来检测 BOSS 阶段（切换警告文案 + 补给阻断由 _on_supply_confirmed 做）
-	if _boundary_ui:
-		_boundary_ui.zones = _zone_data
+	# Boss Debug 模式跳过：无战区任务、无战术地图、无 ZoneArrow、无 ADBS 随机事件（开局 Tu-160）
+	if not _boss_debug_mode:
+		_zone_data = ZoneData.new()
+		# BoundaryUI 需要 _zone_data 来检测 BOSS 阶段（切换警告文案 + 补给阻断由 _on_supply_confirmed 做）
+		if _boundary_ui:
+			_boundary_ui.zones = _zone_data
 
-	_tactical_map = TacticalMap.new()
-	add_child(_tactical_map)
-	_tactical_map.setup(_map_boundary.get_world_rect(), player_aircraft, _zone_data, self)
-	_tactical_map.zone_selected.connect(_on_zone_selected)
+		_tactical_map = TacticalMap.new()
+		add_child(_tactical_map)
+		_tactical_map.setup(_map_boundary.get_world_rect(), player_aircraft, _zone_data, self)
+		_tactical_map.zone_selected.connect(_on_zone_selected)
 
-	_zone_arrow = ZoneArrow.new()
-	add_child(_zone_arrow)
-	_zone_arrow.setup(player_aircraft, camera, _zone_data)
+		_zone_arrow = ZoneArrow.new()
+		add_child(_zone_arrow)
+		_zone_arrow.setup(player_aircraft, camera, _zone_data)
 
-	_zone_hint = ZoneHint.new()
-	add_child(_zone_hint)
-	_zone_hint.show_persistent(tr("ZONE_HINT_NEW_OPENED"))
+		_zone_hint = ZoneHint.new()
+		add_child(_zone_hint)
+		_zone_hint.show_persistent(tr("ZONE_HINT_NEW_OPENED"))
 
-	_zone_mission = ZoneMission.new()
-	add_child(_zone_mission)
-	_zone_mission.setup(self, _zone_data, player_aircraft,
-		_sam_scene, _sam_params, _aa_scene, _aa_params,
-		bullet_manager, missile_manager, _spawner)
-	_zone_mission.mission_triggered.connect(_on_zone_mission_triggered)
-	_zone_mission.mission_completed.connect(_on_zone_mission_completed)
-	# 回注给 spawner：旅途刷怪需查询"玩家当前是否在战区任务里"
-	_spawner.set_zone_mission(_zone_mission)
+		_zone_mission = ZoneMission.new()
+		add_child(_zone_mission)
+		_zone_mission.setup(self, _zone_data, player_aircraft,
+			_sam_scene, _sam_params, _aa_scene, _aa_params,
+			bullet_manager, missile_manager, _spawner)
+		_zone_mission.mission_triggered.connect(_on_zone_mission_triggered)
+		_zone_mission.mission_completed.connect(_on_zone_mission_completed)
+		# 回注给 spawner：旅途刷怪需查询"玩家当前是否在战区任务里"
+		_spawner.set_zone_mission(_zone_mission)
 
-	# ── ADBS 随机事件系统（P4）──
-	_adbs = AdbsManager.new()
-	add_child(_adbs)
-	_adbs.setup(self, _spawner, player_aircraft, _zone_hint)
-	_tactical_map.set_adbs(_adbs)
+		# ── ADBS 随机事件系统（P4）──
+		_adbs = AdbsManager.new()
+		add_child(_adbs)
+		_adbs.setup(self, _spawner, player_aircraft, _zone_hint)
+		_tactical_map.set_adbs(_adbs)
 
 	# ── 事件系统（GameEvent / AIDirective 调度器）──
 	# 当前承载 BOSS 战剧本（PRE_STAGE → ENGAGED → VICTORY）
@@ -299,8 +345,96 @@ func _ready() -> void:
 	add_child(_event_director)
 
 	# ── 首次进入生存模式：浮现式教程 ──
-	if SurvivorTutorial.should_show():
+	# Boss Debug 模式跳过教程（玩家是来测 boss 的）
+	if not _boss_debug_mode and SurvivorTutorial.should_show():
 		_start_first_run_tutorial()
+
+	# ── Boss Debug 场景化设置（所有正常 setup 完成后） ──
+	# 跳到 15 级 + 主题化随机 build + 立即启动 BossEncounterEvent
+	if _boss_debug_mode:
+		call_deferred("_setup_boss_debug_scenario")
+
+## ════════════════════════════════════════════════
+##  Boss Debug 场景化设置
+## ════════════════════════════════════════════════
+##
+## 在 _ready 末尾 deferred 调用：
+##   1. 玩家直接到 15 级（不触发 leveled_up 信号 → 无升级 UI 弹窗）
+##   2. 按主题随机 roll 14 张升级（level 1→15 的总升级次数）
+##   3. 批量 apply（走 SurvivorPlayer.apply_upgrade + 维护 upgrade_stacks）
+##   4. 启动 BossEncounterEvent，强制使用 _boss_debug_id 而非地图池随机
+const BOSS_DEBUG_LEVEL := 15
+const BOSS_DEBUG_BOSS_DISTANCE_PX := 4500.0  ## 玩家正前方多远生成 boss anchor
+
+func _setup_boss_debug_scenario() -> void:
+	if not _boss_debug_mode:
+		return
+	if not survivor_player or not is_instance_valid(player_aircraft):
+		return
+
+	# 1. 直接拉到 15 级（绕过 add_xp 动画 + leveled_up 信号 → 不触发升级 UI 暂停）
+	survivor_player.level = BOSS_DEBUG_LEVEL
+	survivor_player.xp = 0
+	survivor_player.xp_to_next = SurvivorData.xp_for_level(BOSS_DEBUG_LEVEL + 1)
+	survivor_player._awaiting_level_up = false
+	# 跳级时手动补一次自然成长（leveled_up 信号被绕过，差量按 1→15 一次性结算）
+	survivor_player.apply_natural_growth(1, BOSS_DEBUG_LEVEL, _player_profile)
+
+	# 2. 主题化 roll
+	var roll: Dictionary = BossDebugBuilds.roll_build(
+		BOSS_DEBUG_LEVEL, _player_profile_id, player_aircraft.params)
+	_boss_debug_theme = String(roll.get("theme", ""))
+	_boss_debug_picks = roll.get("picks", []) as Array[Dictionary]
+
+	EventLogger.log_event("BOSS_DEBUG", "Setup",
+		"level=%d theme=%s picks=%d boss=%s" % [
+			BOSS_DEBUG_LEVEL, _boss_debug_theme, _boss_debug_picks.size(), _boss_debug_id])
+
+	# 3. 批量 apply 每张升级（与升级 UI 选择路径走同一份逻辑）
+	for upgrade in _boss_debug_picks:
+		survivor_player.apply_upgrade(upgrade)
+		var uid: String = String(upgrade["id"])
+		upgrade_stacks[uid] = int(upgrade_stacks.get(uid, 0)) + 1
+	# 重算战区 bonus（与正常升级链一致，确保派生倍率/category aura 同步）
+	SurvivorData.recompute_category_bonuses(player_aircraft, upgrade_stacks)
+
+	# 4. 启动 BossEncounterEvent（PRE_STAGE → 玩家飞近自动 ENGAGED → VICTORY）
+	if _event_director == null:
+		push_error("Boss Debug: _event_director is null")
+		return
+	var anchor: Vector2 = player_aircraft.position + Vector2.UP * BOSS_DEBUG_BOSS_DISTANCE_PX
+	# 玩家从南往北飞 → boss 朝南面对玩家（heading=180°）
+	var ev := BossEncounterEvent.new(anchor, 180.0, _map_id, _boss_debug_id)
+	_event_director.start(ev)
+
+	if _zone_hint:
+		_zone_hint.show_temp(
+			tr("BOSS_DEBUG_HUD_LOADED_FMT") % [_boss_debug_theme.to_upper(), _boss_debug_id], 5.0)
+
+## F7：切换玩家无敌（Boss Debug 模式专用）
+func _boss_debug_toggle_invuln() -> void:
+	if not is_instance_valid(player_aircraft):
+		return
+	player_aircraft.invulnerable = not player_aircraft.invulnerable
+	var msg := "INVULN ON" if player_aircraft.invulnerable else "INVULN OFF"
+	if _zone_hint:
+		_zone_hint.show_temp(msg, 2.0)
+	EventLogger.log_event("BOSS_DEBUG", "Cheat", msg)
+
+## F8：复活 + 重 roll build + 重刷 boss（Boss Debug 模式专用）
+## 实现方式：重置 meta + reload_current_scene。最简单可靠，避免半场状态同步问题。
+func _boss_debug_respawn_reroll() -> void:
+	# 重置 meta（_ready 里会重新读取）
+	get_tree().set_meta("boss_debug_mode", true)
+	get_tree().set_meta("boss_debug_id", _boss_debug_id)
+	get_tree().set_meta("survivor_map_id", "boss_debug")
+	get_tree().set_meta("survivor_aircraft_resource", _player_profile_path)
+	# 立刻关掉游戏暂停态（升级 UI 占了暂停时不重置会卡住）
+	get_tree().paused = false
+	is_game_over = false
+	is_paused_for_upgrade = false
+	EventLogger.log_event("BOSS_DEBUG", "Respawn", "reload+reroll boss=%s" % _boss_debug_id)
+	get_tree().reload_current_scene()
 
 ## 首次进入生存模式：浮现操作提示 + 在最上方那架 Tu-160 左侧显示"点击攻击"标签
 ## （不自己刷 Tu-160，已有 Tu-160 场上时由教程内部轮询挂靶）
@@ -338,9 +472,8 @@ func _spawn_starting_wingmen(profile: PlayableAircraft) -> void:
 	if wing_base == null:
 		return
 
-	var sq := Squad.new()
-	sq.leader = player_aircraft
-	sq.add_member(player_aircraft)
+	var sq := SquadFactory.create()
+	SquadFactory.register_leader(sq, player_aircraft)
 
 	for i in range(1, profile.wingman_count + 1):
 		var ac: Aircraft = _aircraft_scene.instantiate()
@@ -374,8 +507,6 @@ func _spawn_starting_wingmen(profile: PlayableAircraft) -> void:
 		var ai := AIController.new()
 		ai.name = "AI_Wing%d" % i
 		ai.aircraft = ac
-		ai.squad = sq
-		ai.squad_index = i
 		ai.enable_combat = true
 		ai.evade_missiles = true
 		# ── 完美飞行员：所有僚机都完美执行战术，不受压力/技能退化影响 ──
@@ -390,26 +521,18 @@ func _spawn_starting_wingmen(profile: PlayableAircraft) -> void:
 		ai.situational_awareness = 1.0
 		ai.self_preservation = 0.5
 		ai.patrol_altitude = player_aircraft.altitude
-		ai._state = AIController.AIState.SQUAD_FOLLOW
 		ac.add_child(ai)
+		SquadFactory.register_wingman(sq, ac)  # squad/squad_index/_state=SQUAD_FOLLOW
 
 		# 预置编队托管态：避免 frame 1 上 lod_level=0 + formation_mode=false 的默认值
 		# 让飞机走 LOD 0 全模拟分支（target_position=INF 直行漂移）。
-		# 直接把 aircraft 设置成"已经在编队里"的状态，让 frame 1 就走 LOD 1 编队分支。
-		ac.lod_level = 1
-		ac.formation_mode = true
-		ac._formation_leader = player_aircraft
-		ac._formation_blend = 1.0
-		ac._formation_jitter_phase = ai._formation_jitter_phase
-		ac.keep_target_on_arrival = true
+		# set_formation_target 一次性写 formation_mode/_formation_leader/lod=1/keep_arrival/target_position
+		# blend / jitter_phase 已单边住 ai._formation_blend / ai._formation_jitter_phase（无需镜像）
 		var initial_slot := sq.get_wingman_target(i)
-		if initial_slot != Vector2.INF:
-			ac.target_position = initial_slot
+		ac.set_formation_target(player_aircraft, initial_slot)
 		# 若 F11 编队调试已开启，新生成的僚机也跟着开
 		if _wingman_formation_debug:
 			ac.formation_debug = true
-
-		sq.add_member(ac)
 
 	_spawner.get_squads().append(sq)
 
@@ -536,6 +659,16 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		_dump_wingman_formation_state()
 		return
+	# Boss Debug 模式专用热键
+	if _boss_debug_mode and event is InputEventKey and event.pressed:
+		if event.keycode == KEY_F7:
+			get_viewport().set_input_as_handled()
+			_boss_debug_toggle_invuln()
+			return
+		if event.keycode == KEY_F8:
+			get_viewport().set_input_as_handled()
+			_boss_debug_respawn_reroll()
+			return
 	if is_game_over or is_paused_for_upgrade:
 		return
 	# 战术面板快捷键
@@ -628,7 +761,8 @@ func _on_left_click(screen_pos: Vector2) -> void:
 	if enemy:
 		for ac in selected_aircraft:
 			if is_instance_valid(ac) and not ac.is_destroyed:
-				ac.evasion_mode = false  # 选择攻击目标自动关闭规避
+				if ac.evasion_mode:
+					ac.set_evasion_mode(false)  # 走 set_evasion_mode 以便传播给僚机 + 还原 cd
 				ac.set_combat_target(enemy)  # 内部已清 charge_attack
 				if is_double_click:
 					ac.charge_attack = true  # 双击冲锋：强制机炮模式 + 屏蔽导弹自动发射，专注当前目标
@@ -638,7 +772,8 @@ func _on_left_click(screen_pos: Vector2) -> void:
 	# 无敌机：普通移动指令（自动关闭规避）
 	for ac in selected_aircraft:
 		if is_instance_valid(ac) and not ac.is_destroyed:
-			ac.evasion_mode = false
+			if ac.evasion_mode:
+				ac.set_evasion_mode(false)
 			ac.clear_combat_target()
 			ac.target_position = world_pos
 
@@ -754,10 +889,14 @@ func _physics_process(delta: float) -> void:
 		return
 
 	# 刷怪系统（击杀检测/刷怪/猎手/航点/远距清理/分队清理 全部委托给 spawner）
-	_spawner.update(delta)
+	# Boss Debug 模式跳过：不刷杂兵 / 不分配猎手 / 不重写敌机航点（仅 boss 在场）
+	if not _boss_debug_mode:
+		_spawner.update(delta)
 
 	# BOSS 阶段：3 个战区攻克后在 BOSS_ZONE 刷 F-47 小队 + 胜利判定
-	_update_boss_phase()
+	# Boss Debug 模式直接由 _setup_boss_debug_scenario 启动 BossEncounterEvent，跳过战区驱动
+	if not _boss_debug_mode:
+		_update_boss_phase()
 
 	# 清理已坠毁的敌机（节省性能）
 	_cleanup_destroyed_enemies()
@@ -806,11 +945,25 @@ func _update_radar_locks(delta: float) -> void:
 	var all_units := _all_combat_units_cache
 
 	for unit in all_units:
+		# 守卫：cache 跨帧静态，单位可能在 _update_aircraft_list 之后被 queue_free
+		if not is_instance_valid(unit):
+			continue
 		unit.is_locked = false
 		unit.locked_by.clear()
 		unit.incoming_lock_progress = 0.0
 
-	for unit in all_units:
+	# 子集轮转：本 tick 只把 phase ≡ i % STRIDE 的 shooter 当雷达发起方扫一遍
+	# 累积速率 × STRIDE 抵消频率（保证 lock_time 体感不变）
+	var phase := _radar_lock_phase
+	_radar_lock_phase = (_radar_lock_phase + 1) % RADAR_LOCK_STRIDE
+	var per_shooter_delta := step_delta * float(RADAR_LOCK_STRIDE)
+
+	for i in range(all_units.size()):
+		if i % RADAR_LOCK_STRIDE != phase:
+			continue
+		var unit: CombatUnit = all_units[i]
+		if not is_instance_valid(unit):
+			continue
 		var keys_to_remove: Array = []
 		for key in unit.radar_targets:
 			if not is_instance_valid(key):
@@ -818,8 +971,13 @@ func _update_radar_locks(delta: float) -> void:
 		for key in keys_to_remove:
 			unit.radar_targets.erase(key)
 
+		# JAM 状态：被干扰者完全无法累积锁定（飞机 + 地面单位 SAM/AA 等）
+		if unit.status_jam_active:
+			unit.radar_targets.clear()
+			continue
+
 		for other in all_units:
-			if other == unit or other.team == unit.team:
+			if not is_instance_valid(other) or other == unit or other.team == unit.team:
 				continue
 			# 锁定免疫期间：无法对该目标累积雷达照射
 			if other.is_lock_immune():
@@ -846,23 +1004,115 @@ func _update_radar_locks(delta: float) -> void:
 				# 目标自身的锁定抗性（强化吊舱升级）
 				if other is Aircraft and other.lock_resistance_mult > 1.0:
 					lock_rate /= other.lock_resistance_mult
+				# §C 玩家技能"高度变化时更难锁"：仅作用于玩家被锁路径
+				# alt_velocity_norm = clamp(_alt_velocity / max_climb, 0..1)，rate ×= 1 − norm × factor
+				if other is Aircraft and other.team == 0 and other.alt_change_stealth_factor > 0.0 and other.params:
+					var max_climb: float = maxf(other.params.climb_rate_max, 1.0)
+					var alt_v_norm: float = clampf(other._alt_velocity / max_climb, 0.0, 1.0)
+					lock_rate *= maxf(1.0 - alt_v_norm * other.alt_change_stealth_factor, 0.1)
+				# §C 玩家技能"最高度锁定加快"：仅作用于玩家锁敌路径
+				if unit is Aircraft and unit.team == 0 and unit.high_alt_lock_speed_bonus > 0.0:
+					if unit.get_altitude_tier() == CombatUnit.AltitudeTier.HIGH:
+						lock_rate *= (1.0 + unit.high_alt_lock_speed_bonus)
 				# 硬下限：保证 effective_lock_time = threshold / rate ≤ MAX_EFFECTIVE_LOCK_TIME_S
 				var shooter_threshold: float = unit.params.lock_time if unit.params else 3.0
 				var min_rate: float = shooter_threshold / CombatUnit.MAX_EFFECTIVE_LOCK_TIME_S
 				if lock_rate < min_rate:
 					lock_rate = min_rate
 				var prev: float = unit.radar_targets.get(other, 0.0)
-				unit.radar_targets[other] = prev + step_delta * lock_rate
+				unit.radar_targets[other] = prev + per_shooter_delta * lock_rate
+				# §C 玩家技能"被你锁定的敌人累积恐惧"：仅 unit==玩家 + other 是飞机
+				# 累积模式：状态期间不累积；累积满 → 施 FEAR → 归零；状态消退后重新累积
+				if unit is Aircraft and unit.team == 0 \
+						and unit.fear_on_lock_threshold > 0.0 \
+						and other is Aircraft and other.team != 0:
+					var oid: int = other.get_instance_id()
+					# 关键修复：目标已有 FEAR 时跳过累积，等状态消退后再开始
+					if not other.status_effects.has(StatusEffects.FEAR):
+						var sec: float = float(unit._locked_target_seconds.get(oid, 0.0)) + per_shooter_delta
+						unit._locked_target_seconds[oid] = sec
+						if sec >= unit.fear_on_lock_threshold:
+							AOEBroadcast.apply_status_in_radius(
+								other.global_position, 50.0, 1, StatusEffects.FEAR, 4.0, unit)
+							unit._locked_target_seconds[oid] = 0.0
 			else:
+				# 不在锥内：极短衰减（0.3 秒）—— 仅挡住雷达锥边缘 1-2 帧的几何抖动；
+				# 不再做长记忆，避免脱离照射的"幽灵锁定"被 _fire_multi_lock_salvo
+				# 继续当目标发弹（玩家观感"导弹乱射"）。SARH 物理上也是不照射即丢锁。
 				var prev: float = unit.radar_targets.get(other, 0.0)
 				if prev > 0.0:
-					unit.radar_targets[other] = prev - step_delta / 1.5
+					unit.radar_targets[other] = prev - per_shooter_delta / 0.3
 					if unit.radar_targets[other] <= 0.0:
 						unit.radar_targets.erase(other)
 				else:
 					unit.radar_targets.erase(other)
+				# 离开锥外清零累积（让玩家必须持续锁定才能触发）
+				if unit is Aircraft and unit.team == 0 and unit.fear_on_lock_threshold > 0.0 \
+						and other is Aircraft:
+					unit._locked_target_seconds.erase(other.get_instance_id())
+
+	# ── 数据链光环（F-14）：team 0 飞机间共享 radar_targets（取每个目标最大照射时间） ──
+	# 队友锁的玩家也算锁；玩家锁的队友也算锁。jam 中的飞机不参与共享（被干扰雷达失能）。
+	# 注意：发射仍受 cone / envelope / range 校验（aircraft_weapons.gd），不会出现"看不见就开火"。
+	if player_aircraft and not player_aircraft.is_destroyed \
+			and player_aircraft is Aircraft and player_aircraft.aura_skill == &"data_link":
+		var team0_ac: Array = []
+		for u in all_units:
+			if u is Aircraft and u.team == 0 and not u.is_destroyed and not u.status_jam_active:
+				team0_ac.append(u)
+		if team0_ac.size() >= 2:
+			var max_progress: Dictionary = {}
+			for ally in team0_ac:
+				for t in ally.radar_targets:
+					if not is_instance_valid(t):
+						continue
+					var p: float = ally.radar_targets[t]
+					if p > max_progress.get(t, 0.0):
+						max_progress[t] = p
+			for ally in team0_ac:
+				for t in max_progress:
+					var v: float = max_progress[t]
+					if ally.radar_targets.get(t, 0.0) < v:
+						ally.radar_targets[t] = v
+
+	# §C F-14 专属技能：全僚机锁定同一敌机 → 给该敌机 SLOW（专门加在 data_link 之后；要 ≥2 架在场）
+	if player_aircraft and not player_aircraft.is_destroyed \
+			and player_aircraft is Aircraft and player_aircraft.f14_squad_lock_slow_active:
+		var team0_a: Array = []
+		for u in all_units:
+			if u is Aircraft and u.team == 0 and not u.is_destroyed and not u.status_jam_active:
+				team0_a.append(u)
+		if team0_a.size() >= 2 and player_aircraft.params:
+			# 对每个 team0 飞机收集"已完成锁定的敌人"（accum >= lock_time）
+			var lock_thresh: float = player_aircraft.params.lock_time
+			# 从玩家锁定列表开始求交集
+			var common_locks: Dictionary = {}
+			for tgt in player_aircraft.radar_targets:
+				if not is_instance_valid(tgt) or tgt.team == 0:
+					continue
+				if float(player_aircraft.radar_targets[tgt]) >= lock_thresh:
+					common_locks[tgt] = true
+			# 与每个僚机交集
+			for ally in team0_a:
+				if ally == player_aircraft:
+					continue
+				var to_keep: Dictionary = {}
+				for tgt in common_locks:
+					if float(ally.radar_targets.get(tgt, 0.0)) >= lock_thresh:
+						to_keep[tgt] = true
+				common_locks = to_keep
+				if common_locks.is_empty():
+					break
+			# 仅当交集恰好为 1（"全队聚焦同一目标"）才触发
+			if common_locks.size() == 1:
+				var the_target: CombatUnit = common_locks.keys()[0]
+				if the_target is Aircraft:
+					AOEBroadcast.apply_status_in_radius(
+						the_target.global_position, 50.0, 1, StatusEffects.SLOW, 3.0, player_aircraft)
 
 	for unit in all_units:
+		if not is_instance_valid(unit):
+			continue
 		var lock_time_val: float
 		if unit is Aircraft and unit.params:
 			lock_time_val = unit.params.lock_time
@@ -873,6 +1123,8 @@ func _update_radar_locks(delta: float) -> void:
 		else:
 			lock_time_val = 3.0
 		for target in unit.radar_targets:
+			if not is_instance_valid(target):
+				continue
 			var t: CombatUnit = target
 			var progress: float = clampf(unit.radar_targets[target] / lock_time_val, 0.0, 1.0)
 			if progress > t.incoming_lock_progress:
@@ -920,6 +1172,12 @@ static func _lock_rate_for_target(target: CombatUnit) -> float:
 ## 人海战术（大量 UAV）场景下这是最关键的 CPU 节流开关，可按性能需求调
 const SIMPLE_AI_FULL_TICK_BUDGET := 6
 
+## 远距冻结距离²：屏幕外 + 距玩家 > 此距离的敌方 AI 完全停 _physics_process（2026-05-04 加入）
+## 1500 米（PIXELS_PER_METER=0.5 → 750 像素 → 750² = 562500）
+## 进屏幕或回到 < 1500m 时 _update_offscreen_lod 自动 set_physics_process(true) 解冻
+## BOSS / Sentinel（category=="boss" / enemy_type=="uav_commander"）跳过冻结
+const FAR_FREEZE_DIST_SQ: float = 750.0 * 750.0
+
 func _update_offscreen_lod() -> void:
 	var cam_pos := camera.global_position
 	var vp_size := get_viewport_rect().size / camera.zoom
@@ -950,19 +1208,19 @@ func _update_offscreen_lod() -> void:
 
 		if offscreen:
 			# 离屏：走 Aircraft 自己的 LOD 2 机制（内部处理节流）+ 不画
-			# 旧代码 `set_physics_process(frames % 3 == 0)` 是错的：
-			# Aircraft._physics_process 每 3 帧才被调用一次，但 delta 还是 1/60s，
-			# 结果是"飞机按 1/3 实时速度运行"—— 用户看到的"不拖镜头飞机就冻住"。
-			# 正确做法是保持 _physics_process 每帧运行，让 Aircraft LOD 2 内部每帧都
-			# _apply_movement（位置推进），每 3 帧做一次完整 AI/物理更新。
-			# AIController 通过 ai_tick_divisor（已配合 delta 乘法）承担 AI 节流，simple_ai
-			# 在 _ready 里已设为 3，全功能 AI（boss/战斗机）离屏时保持每帧跑，数量有限不造成性能问题。
 			# 详见 docs/changelogs/player-ai-log.md 2026-04-20 (8)
 			ac.lod_level = 2
-			ac.set_physics_process(true)
-			if ai_node:
-				ai_node.set_physics_process(true)
 			ac.visible = false
+			# 远距冻结（2026-05-04 加入）：屏幕外 + 距玩家 > FAR_FREEZE_DIST 的非关键敌人
+			# 完全停 _physics_process，AI/Aircraft 都不跑，零成本。回屏幕或靠近自动解冻。
+			# BOSS / Sentinel 例外（必须保持机动），always 全速运行
+			var is_critical_off: bool = ac.has_meta("category") and ac.get_meta("category") == "boss"
+			if not is_critical_off and ac.has_meta("enemy_type") and ac.get_meta("enemy_type") == "uav_commander":
+				is_critical_off = true
+			var freeze: bool = (not is_critical_off) and ac.global_position.distance_squared_to(player_pos) > FAR_FREEZE_DIST_SQ
+			ac.set_physics_process(not freeze)
+			if ai_node:
+				ai_node.set_physics_process(not freeze)
 			continue
 
 		# 屏幕内
@@ -1164,6 +1422,9 @@ func _spawn_ground_unit(scene: PackedScene, params_res: Resource, team_id: int, 
 # ══════════════════════════════════════════════
 
 func _on_player_leveled_up(_new_level: int) -> void:
+	# 自然成长：在升级 UI 弹出前应用 HP/导弹累计差量（玩家看到 HUD 数字先涨）
+	survivor_player.apply_natural_growth(_new_level - 1, _new_level, _player_profile)
+
 	is_paused_for_upgrade = true
 	get_tree().paused = true
 	AudioManager.set_music_muffled(true)
@@ -1175,7 +1436,10 @@ func _on_player_leveled_up(_new_level: int) -> void:
 		if u.get("evolved", false):
 			continue
 		# 硬件 / 专属机型筛选
-		if not SurvivorData.is_upgrade_available_for(u, _player_profile_id, p):
+		if not SurvivorData.is_upgrade_available_for(u, _player_profile_id, p, upgrade_stacks):
+			continue
+		# Doctrine 门控：恐惧/超载/嗜血等系统需要先在配件商店购买解锁件
+		if LoadoutLedger.is_upgrade_gated(u):
 			continue
 		var stacks: int = upgrade_stacks.get(u["id"], 0)
 		if stacks < int(u["max_stacks"]):
@@ -1188,10 +1452,19 @@ func _on_player_leveled_up(_new_level: int) -> void:
 		AudioManager.set_music_muffled(false)
 		return
 
-	available.shuffle()
-	var choices: Array[Dictionary] = []
-	for i in range(mini(3, available.size())):
-		choices.append(available[i])
+	# §5 三选一抽卡：稀有度分槽 + pity 保底 + §7 流派 steering
+	# pity_counter 在 survivor_mode 持久（一局生效），由 pick_3_upgrades 内部更新
+	var level: int = survivor_player.level if survivor_player else 1
+	var choices: Array[Dictionary] = SurvivorData.pick_3_upgrades(
+		available, upgrade_stacks, _pity_counter, level)
+
+	if choices.is_empty():
+		# pool 中实在没东西可抽（理论上极小概率）
+		survivor_player.consume_level_up_display()
+		is_paused_for_upgrade = false
+		get_tree().paused = false
+		AudioManager.set_music_muffled(false)
+		return
 
 	upgrade_ui.show_choices(choices)
 
@@ -1218,10 +1491,17 @@ func _on_upgrade_selected(upgrade: Dictionary) -> void:
 					evolved_name = tr(u["name"])
 					break
 
+	SurvivorData.recompute_category_bonuses(player_aircraft, upgrade_stacks)
+
 	survivor_player.consume_level_up_display()
 	is_paused_for_upgrade = false
 	get_tree().paused = false
 	AudioManager.set_music_muffled(false)
+
+	# 归零暂停期间被吞掉 release 事件的鼠标按键状态，
+	# 防止"右键急刹/中键拖图卡住 → 升级后飞机永远朝某方向直飞"
+	_set_hard_brake(false)
+	is_dragging = false
 
 	# 进化提示
 	if evolved_name != "":
@@ -1230,7 +1510,10 @@ func _on_upgrade_selected(upgrade: Dictionary) -> void:
 
 func _on_player_died() -> void:
 	is_game_over = true
-	hud.show_game_over(survivor_player.level, game_time, _spawner.kill_count)
+	var merit_earned := MeritLedger.settle_run(
+		survivor_player.total_xp_gained, MeritLedger.SETTLE_KIA)
+	hud.show_game_over(survivor_player.level, game_time, _spawner.kill_count,
+		survivor_player.total_xp_gained, merit_earned)
 
 # ══════════════════════════════════════════════
 #  边界 / 撤退菜单回调（P1）
@@ -1241,7 +1524,10 @@ func _on_retreat_confirmed() -> void:
 	EventLogger.log_event("BOUNDARY", "Retreat",
 		"lvl=%d time=%.0fs kills=%d" % [survivor_player.level, game_time, _spawner.kill_count])
 	is_game_over = true
-	hud.show_game_over(survivor_player.level, game_time, _spawner.kill_count)
+	var merit_earned := MeritLedger.settle_run(
+		survivor_player.total_xp_gained, MeritLedger.SETTLE_RETREAT)
+	hud.show_game_over(survivor_player.level, game_time, _spawner.kill_count,
+		survivor_player.total_xp_gained, merit_earned)
 
 func _on_supply_confirmed() -> void:
 	# BOSS 阶段禁用补给 —— 防止玩家反复贴边回血刷 BOSS
@@ -1294,7 +1580,12 @@ func _on_zone_mission_triggered(zone_id: StringName) -> void:
 func _on_zone_mission_completed(zone_id: StringName) -> void:
 	if not _zone_data:
 		return
-	var reward: Dictionary = _zone_data.get_reward(zone_id)
+	# §4 战区奖励降级：优先查 ZoneRewardRegistry（用户注册的专属奖励，模块化），
+	# 未注册时回退到旧 _zone_data.get_reward（目前因 evolved 字段已删 → 池为空 → 返回 {}）
+	# 默认行为：只回血，不发技能
+	var reward: Dictionary = ZoneRewardRegistry.get_reward_for(zone_id)
+	if reward.is_empty():
+		reward = _zone_data.get_reward(zone_id)
 	# 发放奖励
 	var reward_name := ""
 	if not reward.is_empty() and survivor_player:
@@ -1304,6 +1595,7 @@ func _on_zone_mission_completed(zone_id: StringName) -> void:
 		var rid: String = reward.get("id", "")
 		if rid != "":
 			upgrade_stacks[rid] = upgrade_stacks.get(rid, 0) + 1
+		SurvivorData.recompute_category_bonuses(player_aircraft, upgrade_stacks)
 	# 基础回血：每攻克一个战区 +ZONE_CLEAR_HP_RESTORE，夹到 max_hp
 	var hp_gained := 0.0
 	if player_aircraft and not player_aircraft.is_destroyed and player_aircraft.params:
@@ -1393,7 +1685,10 @@ func _on_victory() -> void:
 	is_game_over = true  # 复用 game_over 流程，阻止后续物理
 	EventLogger.log_event("VICTORY", "Clear", "BOSS defeated — game cleared")
 	if hud:
-		hud.show_victory(survivor_player.level, game_time, _spawner.kill_count)
+		var merit_earned := MeritLedger.settle_run(
+			survivor_player.total_xp_gained, MeritLedger.SETTLE_VICTORY)
+		hud.show_victory(survivor_player.level, game_time, _spawner.kill_count,
+			survivor_player.total_xp_gained, merit_earned)
 
 func _zone_label(zone_id: StringName) -> String:
 	if not _zone_data:

@@ -79,6 +79,21 @@ static func _decide(s: Situation, waypoint: Vector2) -> TacticalPlan:
 	if s.evasion_intent:
 		return BfmIntent.evade_missile(s)
 
+	# 优先级 1.5：FEAR debuff —— 飞行员恐慌，立即脱离逃跑
+	# 即使没有锁定 / 没被咬尾也强制 EXTEND_RECOVER；hysteresis 不阻塞（EXTEND 不在战斗 intent 集合）
+	# 与普通 EXTEND_RECOVER 区别：朝远离目标（玩家方向）的方向逃跑而非沿当前 heading，
+	# 避免"feared 还在撞向玩家"的反直觉表现
+	# BOSS 攻击手豁免：FEAR 不让 BOSS 脱离（仅吃 stress→精度/SA 衰减），仍走正常决策树
+	if s.is_feared and not s.is_boss_attacker:
+		var fear_ext := BfmIntent.extend_recover(s)
+		if s.has_target:
+			var flee_dir: Vector2 = (s.my_pos - s.tgt_pos)
+			if flee_dir.length_squared() > 1.0:
+				flee_dir = flee_dir.normalized()
+				fear_ext.pursuit_pos = s.my_pos + flee_dir * 3000.0 * CombatUnit.PIXELS_PER_METER
+		fear_ext.rationale = "FEAR debuff → panic flee"
+		return fear_ext
+
 	# 优先级 2：仍在 EXTEND 计时内 → 强制保持脱离
 	# （即使重新有目标也不立即接战，让飞机先拉开距离再回头）
 	if s.extend_remaining > 0.0:
@@ -144,15 +159,27 @@ static func _decide(s: Situation, waypoint: Vector2) -> TacticalPlan:
 	if s.head_on_dot > BfmIntent.HEAD_ON_THRESHOLD and s.aim_align > BfmIntent.HEAD_ON_THRESHOLD:
 		return _apply_weapon_lock(s, BfmIntent.merge_pass(s))
 
+	# ── P5.5：僚机协同角色（FLANK_LEFT / FLANK_RIGHT / HIGH_COVER）──
+	# 角色由 squad_coordination 在进入 TEAM_ATTACK 时按 squad_index 分配，全程稳定不抖动
+	# 仅在中远距生效；近距（< gun_range × 1.2）回退到下面的常规几何决策避免抢长机尾位/误伤
+	if s.is_wingman and s.following_leader_target and s.squad_role != AIController.SquadRole.NONE \
+			and s.dist_m > s.gun_range_m * 1.2 and not s.tgt_is_surface:
+		match s.squad_role:
+			AIController.SquadRole.FLANK_LEFT:
+				return _apply_weapon_lock(s, BfmIntent.flank_cutoff(s, -1.0))
+			AIController.SquadRole.FLANK_RIGHT:
+				return _apply_weapon_lock(s, BfmIntent.flank_cutoff(s, 1.0))
+			AIController.SquadRole.HIGH_COVER:
+				return _apply_weapon_lock(s, BfmIntent.high_cover(s))
+
 	# 优先级 8：后半球
 	if s.in_rear_hemisphere:
 		if s.aim_align > BfmIntent.TAIL_AIM_THRESHOLD:
 			# 已对准尾后
-			# ── P5：僚机协同 — 长机已在 TAIL_CHASE/CLOSE_TAIL 同一目标 → 僚机改互补 intent
-			# 让长机占尾后位置，僚机从内圈/侧翼包夹（避免 wingmen 抢尾位 + 形成多角度威胁）
-			# 玩家长机也算（_last_plan 在玩家飞机上由 _run_tactical_planner 维护）
-			# 跟随机型：奇数 squad_index → LAG（侧后内切）；偶数 → LEAD（侧前拦截）
+			# ── 后半球僚机角色未触发（近距 / 无 role）的退路：保留旧的奇偶 LAG/LEAD 互补
+			# 让长机占尾后位置，僚机从内圈/侧翼包夹，避免 wingmen 抢尾位
 			if s.is_wingman and s.following_leader_target \
+					and s.squad_role == AIController.SquadRole.NONE \
 					and (s.leader_intent == TacticalPlan.Intent.TAIL_CHASE \
 						or s.leader_intent == TacticalPlan.Intent.CLOSE_TAIL):
 				var support_plan: TacticalPlan

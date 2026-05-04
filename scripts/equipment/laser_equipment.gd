@@ -3,16 +3,19 @@ extends EquipmentParams
 
 ## 360° 激光照射器（commit 9/13 — 第二个全新机制装备）
 ##
-## 核心机制：
-## 1. **全向 DoT**：无锥角约束，扫描射程内所有目标，每帧应用 dps × delta
-## 2. **距离衰减**：dps_max（贴脸） → dps_min（满射程），falloff_exp 控制曲线
-## 3. **多目标限制**：max_simultaneous_targets 上限（防 N² 爆炸 + 过强）
-## 4. **Target filter**：can_target_aircraft / missiles / ground，按用途配置
-##    - X-02 玩家：全 true（全能武器）
-##    - 激光 UAV（拦截特化）：只 missiles=true
-## 5. **过热**：连续输出累加 heat，到 max 进入冷却 → 必须等散热到阈值才能再开
-## 6. **云层削弱**：调 WeatherSystem.sample_density 拿目标处云密度 →
-##    damage × (1 - density×0.7)，beam 视觉变细
+## 核心机制（2026-05-04 重做）：
+## 1. **默认效果 = SLOW（减速）**：
+##    - 飞机被光束扫到时持续刷 SLOW 状态（0.4s 续期），脱离光束 0.4s 后消失。
+##      SLOW 把目标速度 cap 到 350 km/h + 屏蔽 AB（见 status_effects.gd）
+##    - 导弹被光束扫到时由 LaserEquipment 续期 Missile._laser_slow_timer (0.5s)，
+##      速度 cap 至 max_speed × 45% + 转弯 G cap 50%。**减速更猛**，让玩家有机动时间闪开
+##    把"激光武器"重新定位成软压制 / 控制型武器，不再是 DPS / CIWS
+## 2. **地面目标**：默认无效（"激光不熔化坦克"，与机制定位一致），由 SKILL_LASER_DAMAGE 解锁
+## 3. **SKILL_LASER_DAMAGE 升级**：
+##    - 飞机 + 地面：在 SLOW 之外额外应用旧的 DPS 伤害（DoT 输出回归）
+##    - 导弹：在 SLOW 之外额外消耗 intercept_hp（CIWS 拦截能力回归）
+## 4. **距离衰减**：dps_max → dps_min（仅在 skill 启用时生效，影响伤害和视觉，slow 不衰减）
+## 5. **多目标限制 / 过热 / 云层削弱**：保持原状
 ##
 ## 状态住在 Aircraft.equipment_state["laser"]，视觉由 AircraftRenderer.draw_laser_beams 承担。
 
@@ -31,6 +34,9 @@ const STATE_KEY := "laser"
 @export var can_target_missiles: bool = true
 @export var can_target_ground: bool = true
 @export var max_simultaneous_targets: int = 8
+## 装备直接拦截导弹（不依赖玩家技能 SKILL_LASER_DAMAGE）：扣 intercept_hp，可击毁
+## 用途：敌方 Aegis UAV 等"专职拦截"激光。玩家 X-02 默认 false，靠技能解锁伤害
+@export var intercepts_missiles_directly: bool = false
 
 @export_group("过热")
 @export var heat_max: float = 100.0
@@ -81,6 +87,8 @@ func update(ac, delta: float) -> void:
 		if picks.size() > 0:
 			firing = true
 			var weather := _find_weather()
+			# 检查玩家是否持有"激光也造成伤害"技能（仅 team 0 玩家飞机生效）
+			var damage_skill_active: bool = _has_damage_skill(ac)
 			for pick in picks:
 				var unit = pick["unit"]
 				var dist: float = pick["dist"]
@@ -95,8 +103,8 @@ func update(ac, delta: float) -> void:
 					cloud_d = weather.sample_density(unit.global_position)
 				var cloud_damage_mult: float = lerpf(1.0, cloud_damage_factor_min, cloud_d)
 				var dmg: float = dps * cloud_damage_mult * delta
-				# 应用伤害
-				_apply_laser_damage(ac, unit, dmg)
+				# 应用效果：默认 SLOW；导弹拦截照旧；技能解锁 DPS 伤害
+				_apply_laser_effect(ac, unit, dmg, damage_skill_active)
 				# 视觉记录
 				var thickness: float = beam_thickness_base * lerpf(1.0, cloud_beam_thickness_factor_min, cloud_d)
 				beams.append({
@@ -164,16 +172,43 @@ func _pick_targets(ac) -> Array:
 	return picks
 
 
-func _apply_laser_damage(ac, target, damage: float) -> void:
-	# 导弹：消耗 intercept_hp（与 BulletManager CIWS 一致）
+## 默认效果 = SLOW（每帧刷新短暂 SLOW 状态，脱离光束自然消失）
+## 导弹也获得 SLOW（速度 cap + 转弯 G cap，让玩家有时间机动闪开），但不直接拦截
+## 技能解锁 = 在 SLOW 之外额外应用旧的 DPS 伤害（导弹回归 intercept_hp 拦截）
+func _apply_laser_effect(ac, target, damage: float, damage_skill_active: bool) -> void:
+	# 导弹：默认走 _laser_slow_timer（速度 + G 双 cap），玩家可机动闪开
+	# 技能解锁后才走 intercept_hp 击落（与 CIWS 同语义）
 	if target is Missile:
 		var m: Missile = target
-		m.intercept_hp -= damage
-		if m.intercept_hp <= 0.0:
-			m.queue_free()
+		m._laser_slow_timer = SkillHooks.LASER_MISSILE_SLOW_DURATION
+		if intercepts_missiles_directly or damage_skill_active:
+			m.intercept_hp -= damage
+			if m.intercept_hp <= 0.0:
+				m.queue_free()
 		return
-	# CombatUnit：标准 take_damage
-	target.take_damage(damage)
+	# Aircraft：默认 SLOW；技能解锁时额外加 DPS 伤害
+	if target is Aircraft:
+		# 飞机被光束扫到 → 短暂 SLOW（每帧刷新；脱离 0.4s 自动消失）
+		target.apply_status(StatusEffects.SLOW, SkillHooks.LASER_SLOW_REFRESH_DURATION)
+	if damage_skill_active:
+		# 玩家解锁"激光致伤"：飞机 + 地面单位都吃完整 DPS
+		# take_damage_from 走归因入口 — 触发恐惧扩散 / 寒颤 / 击杀回血等下游技能
+		if target.has_method("take_damage_from"):
+			target.take_damage_from(damage, ac, "laser")
+		else:
+			target.take_damage(damage, ac, "laser")
+
+
+## 检测 source 飞机是否持有"激光致伤"技能（仅玩家系 team 0 生效）
+func _has_damage_skill(ac) -> bool:
+	if ac == null or not is_instance_valid(ac):
+		return false
+	if ac.team != 0:
+		return false
+	if not ac.has_meta("upgrade_stacks"):
+		return false
+	var stacks: Dictionary = ac.get_meta("upgrade_stacks")
+	return int(stacks.get(SkillHooks.SKILL_LASER_DAMAGE, 0)) > 0
 
 
 func _find_weather() -> WeatherSystem:

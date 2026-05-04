@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="GunParams" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/gun_params.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+display_name = "Gun V8"
+fire_rate = 3000.0
+bullet_damage = 13.5
+muzzle_velocity = 1200.0
+max_range = 1350.0
+spread_angle = 1.1
+fire_cone_half_angle = 5.0
+max_ammo = 520

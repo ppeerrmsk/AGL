@@ -322,7 +322,18 @@ static func update_speed(ac: Aircraft, delta: float) -> void:
 		# 右键长按急刹：目标 0，跳过失速安全余量，让飞机一路减速到失速
 		target_ms = 0.0
 	else:
-		target_ms = ac.target_speed_kmh / 3.6
+		var t_kmh: float = ac.target_speed_kmh
+		# §1.2 evasion_modifiers.cruise_speed_mult：进入 evasion 模式后巡航速度按倍率提升
+		# 仍受下方 SLOW cap 与 max_speed_at_altitude 约束
+		if ac.evasion_mode:
+			var cruise_mult: float = float(ac.evasion_modifiers.get("cruise_speed_mult", 1.0))
+			if cruise_mult != 1.0:
+				t_kmh *= cruise_mult
+		# SLOW debuff：消费点强制限速（**放在 evasion mult 之后**，避免 evasion 把 SLOW 350 推到 490+）
+		# debuff 永远是 final cap，buff 永远在它之前应用
+		if ac.status_slow_active and t_kmh > StatusEffects.SLOW_SPEED_CAP_KMH:
+			t_kmh = StatusEffects.SLOW_SPEED_CAP_KMH
+		target_ms = t_kmh / 3.6
 
 		# 高度变化对 target 的影响：爬升时 target 降低，俯冲时 target 提升
 		# vs/max_climb 归一化到 ±1，乘以 0.10 系数 → ±10% target swing
@@ -345,7 +356,16 @@ static func update_speed(ac: Aircraft, delta: float) -> void:
 		target_ms = maxf(target_ms, min_safe_ms)
 
 	var accel_rate := ac.params.acceleration if ac.params else 50.0
+	# OVERLOAD 状态：加速能力同步 ×OVERLOAD_ACCEL_MULT（与 decel mult 对称）
+	if ac.status_overload_active:
+		accel_rate *= StatusEffects.OVERLOAD_ACCEL_MULT
 	var decel_rate := (ac.params.deceleration if ac.params else 80.0) * ac._executioner_decel_mult()  # 侩子手：+10%/层
+	# 玩家技能"血怒护甲"：BLOODLUST 期间加 / 减速 ×1.3
+	if ac.team == 0 and ac.status_bloodlust_active and ac.has_meta("upgrade_stacks"):
+		var bl_stacks: Dictionary = ac.get_meta("upgrade_stacks")
+		if int(bl_stacks.get(SkillHooks.SKILL_BLOODLUST_ARMOR_MOBILITY, 0)) > 0:
+			accel_rate *= SkillHooks.BLOODLUST_ACCEL_MULT
+			decel_rate *= SkillHooks.BLOODLUST_ACCEL_MULT
 
 	# 加力燃烧：提升加速度（hard_brake 期间禁用加力，避免与减速对冲）
 	if ac.is_afterburner and not ac.hard_brake:
@@ -432,6 +452,11 @@ static func update_altitude(ac: Aircraft, delta: float) -> void:
 	ac.vertical_speed = lerpf(ac.vertical_speed, target_vs, delta * smooth_rate)
 	ac.altitude += ac.vertical_speed * delta
 	ac.altitude = maxf(ac.altitude, 0.0)
+	# §C 玩家技能"高度变化时更难锁"：维护 _alt_velocity（abs vertical_speed 平滑值）
+	# 用 EMA 平滑避免边缘抖动；雷达循环只读不写
+	if ac.team == 0 and ac.alt_change_stealth_factor > 0.0:
+		var instant_v: float = absf(ac.vertical_speed)
+		ac._alt_velocity = lerpf(ac._alt_velocity, instant_v, clampf(delta * 4.0, 0.0, 1.0))
 
 
 static func update_stall(ac: Aircraft) -> void:
@@ -502,6 +527,14 @@ static func effective_max_g(ac: Aircraft) -> float:
 	# 云中：能见度差、气流扰动导致机动受限
 	if ac.cloud_state == 2:
 		g *= 0.9
+	# §C 玩家技能"被锁时 +G"：is_locked 时按 lock_panic_g_mult 加成
+	if ac.is_locked and ac.lock_panic_g_mult != 1.0:
+		g *= ac.lock_panic_g_mult
+	# 玩家技能"血怒护甲"：BLOODLUST 期间 max_g ×1.2
+	if ac.team == 0 and ac.status_bloodlust_active and ac.has_meta("upgrade_stacks"):
+		var stacks: Dictionary = ac.get_meta("upgrade_stacks")
+		if int(stacks.get(SkillHooks.SKILL_BLOODLUST_ARMOR_MOBILITY, 0)) > 0:
+			g *= SkillHooks.BLOODLUST_G_MULT
 	return g
 
 
@@ -536,9 +569,16 @@ static func stall_speed(ac: Aircraft) -> float:
 static func max_speed_at_altitude(ac: Aircraft) -> float:
 	var max_spd := ac.params.max_speed if ac.params else 2100.0
 	max_spd *= ac._executioner_speed_mult()  # 侩子手：+5%/层
-	# 简化：高空速度略降
-	var density_ratio := exp(-ac.altitude / AIR_DENSITY_SCALE_M)
-	var v := max_spd * sqrt(density_ratio)
+	# 低空动压上限（q-limit）：海平面 70%，5000m 以上拿满 published max
+	# 真实战机：低空空气稠密 → 阻力/结构负载顶住速度（F-16 海平面 ~Mach 1.2）
+	# 高空稀薄 → 拿到设计 max（F-16 高空 ~Mach 2）
+	# 注：俯冲时的 PE→KE 加成在 update_speed 末尾施加，可短暂顶破此 cap
+	# 亚音速机（< Mach 1.05 ≈ 1300 km/h）不受 q-limit 影响 —— 结构动压上限只对超音速有意义
+	# 含：F-86 / A-7 / Tu-160 / 直升机（AH-64 / CH-47）等
+	var q_factor: float = 1.0
+	if max_spd >= 1300.0:
+		q_factor = lerpf(0.7, 1.0, clampf(ac.altitude / 5000.0, 0.0, 1.0))
+	var v := max_spd * q_factor
 	# 云中：气流扰动 + 机翼结冰风险 → 最大速度损失
 	if ac.cloud_state == 2:
 		v *= 0.9
@@ -590,6 +630,9 @@ static func update_shock_absorb(ac: Aircraft, delta: float) -> void:
 
 ## 带冷却的加力切换
 static func set_afterburner(ac: Aircraft, on: bool) -> void:
+	# SLOW debuff：禁止开 AB（关 AB 始终允许）
+	if on and ac.status_slow_active:
+		return
 	if on == ac.is_afterburner:
 		return
 	if ac._ab_cooldown > 0.0:

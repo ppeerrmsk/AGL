@@ -47,6 +47,15 @@ extends Resource
 @export_group("火箭弹")
 @export var rocket: RocketParams             ## 无制导火箭弹（低命中率副武器，可选）
 
+@export_group("空中鱼雷")
+@export var torpedo: TorpedoParams           ## 规避模式下自动从机尾抛出的追踪雷（A-10 实验武器，可选）
+
+@export_group("忠诚僚机（与漂浮雷互斥）")
+## 规避模式下从机尾释放的自主无人机；与 torpedo 字段**互斥**（设计约定只填一个）。
+## 同时填的话 update_loyal_wingman 在 update_torpedo 之后跑，但二者都会消耗各自 CD —
+## 设计上不该出现同时填的 .tres，互斥靠资源编辑约定保证。
+@export var loyal_wingman: LoyalWingmanParams
+
 @export_group("导弹")
 @export var missile: MissileParams           ## 主导弹（空对空）
 @export var secondary_missile: MissileParams ## 副导弹（空对地）
@@ -86,6 +95,10 @@ func has_equipment_of_kind(kind: String) -> bool:
 			return rocket != null
 		"flare":
 			return flare != null
+		"torpedo":
+			return torpedo != null
+		"loyal_wingman":
+			return loyal_wingman != null
 	return false
 
 

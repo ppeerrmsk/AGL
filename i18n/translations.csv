@@ -20,6 +20,9 @@ HUD_GAMEOVER_LEVEL_FMT,等级: %d,Level: %d,レベル: %d
 HUD_GAMEOVER_TIME_FMT,存活时间: %02d:%02d,Survived: %02d:%02d,生存時間: %02d:%02d
 HUD_GAMEOVER_KILLS_FMT,击杀数: %d,Kills: %d,撃墜数: %d
 HUD_GAMEOVER_HINT,按 ESC 返回主菜单,Press ESC to return to main menu,ESC でメインメニューへ
+HUD_GAMEOVER_MERIT_FMT,功勋  +%d,Merit  +%d,功勲  +%d
+HUD_GAMEOVER_MERIT_DETAIL_FMT,（本局经验 %d  ·  账户合计 %d）,(Run XP %d  ·  Total %d),（本戦経験 %d  ·  累計 %d）
+MENU_MERIT_LABEL,功勋,Merit,功勲
 TACTIC_HEADER,[ 战术 ],[ TACTICS ],[ 戦術 ]
 TACTIC_MISSILE_PRIORITY,1 导弹优先,1 Missile Priority,1 ミサイル優先
 TACTIC_GUN_PRIORITY,2 机炮优先,2 Gun Priority,2 ガン優先
@@ -69,10 +72,10 @@ TOOLTIP_WEAPON_GUN_TITLE,机炮优先,Gun Priority,ガン優先
 TOOLTIP_WEAPON_GUN_BODY,始终使用机炮进行攻击\n不会自动发射导弹,Always attacks with gun\nNever auto-fires missiles,常にガンで攻撃\nミサイルは自動発射されません
 TOOLTIP_WEAPON_GUN_HINT,按 [color=#ffdd66]1[/color] 切换到导弹优先,Press [color=#ffdd66]1[/color] to switch to Missile Priority,[color=#ffdd66]1[/color] でミサイル優先へ
 TOOLTIP_ALT_CLIMB_TITLE,爬升优先,Climb High,高高度優先
-TOOLTIP_ALT_CLIMB_BODY,巡航时自动爬升至高空\n[color=#66ccff]可在更远距离锁定敌人[/color]\n[color=#66ccff]空间充足，机动转向更灵活[/color]\n[color=#66ccff]进入云层后更不易被锁定与命中[/color]\n[color=#66ccff]远离地面火力威胁[/color],Auto-climbs to high altitude while cruising\n[color=#66ccff]Lock onto enemies at longer range[/color]\n[color=#66ccff]More room to maneuver — sharper turns[/color]\n[color=#66ccff]Cloud cover hides you from locks and hits[/color]\n[color=#66ccff]Above ground-based threats[/color],巡航時に自動で高高度へ上昇\n[color=#66ccff]より遠距離で敵をロック可能[/color]\n[color=#66ccff]空間に余裕 — 機動・旋回がしやすい[/color]\n[color=#66ccff]雲に入るとロック・命中率が低下[/color]\n[color=#66ccff]地上脅威の射程外[/color]
+TOOLTIP_ALT_CLIMB_BODY,巡航时自动爬升至高空\n[color=#66ccff]空气稀薄阻力小，顶速更高[/color]\n[color=#66ccff]可在更远距离锁定敌人[/color]\n[color=#66ccff]空间充足，机动转向更灵活[/color]\n[color=#66ccff]进入云层后更不易被锁定与命中[/color]\n[color=#66ccff]远离地面火力威胁[/color],Auto-climbs to high altitude while cruising\n[color=#66ccff]Thin air = less drag — higher top speed[/color]\n[color=#66ccff]Lock onto enemies at longer range[/color]\n[color=#66ccff]More room to maneuver — sharper turns[/color]\n[color=#66ccff]Cloud cover hides you from locks and hits[/color]\n[color=#66ccff]Above ground-based threats[/color],巡航時に自動で高高度へ上昇\n[color=#66ccff]空気が薄く抵抗が少ない — 最高速度が向上[/color]\n[color=#66ccff]より遠距離で敵をロック可能[/color]\n[color=#66ccff]空間に余裕 — 機動・旋回がしやすい[/color]\n[color=#66ccff]雲に入るとロック・命中率が低下[/color]\n[color=#66ccff]地上脅威の射程外[/color]
 TOOLTIP_ALT_CLIMB_HINT,按 [color=#ffdd66]3[/color] 切换到低空优先,Press [color=#ffdd66]3[/color] to switch to Fly Low,[color=#ffdd66]3[/color] で低空優先へ
 TOOLTIP_ALT_LOW_TITLE,低空优先,Fly Low,低空優先
-TOOLTIP_ALT_LOW_BODY,巡航时自动降至低空\n[color=#66ff66]更难被远距雷达锁定[/color]\n[color=#66ff66]顶速更高，适合突击与脱离[/color]\n自身锁定距离也较短,Auto-descends to low altitude while cruising\n[color=#66ff66]Harder for long-range radar to lock[/color]\n[color=#66ff66]Higher top speed — good for ambush & escape[/color]\nYour own lock-on range is shorter too,巡航時に自動で低空へ降下\n[color=#66ff66]長距離レーダーに捕捉されにくい[/color]\n[color=#66ff66]最高速度が向上 — 奇襲・離脱に有利[/color]\n自機のロック距離も短くなる
+TOOLTIP_ALT_LOW_BODY,巡航时自动降至低空\n[color=#66ff66]更难被远距雷达锁定[/color]\n[color=#ff9966]空气稠密阻力大，顶速较低[/color]\n[color=#66ff66]但从高空俯冲过来可短暂保留速度优势[/color]\n自身锁定距离也较短,Auto-descends to low altitude while cruising\n[color=#66ff66]Harder for long-range radar to lock[/color]\n[color=#ff9966]Dense air = more drag — lower top speed[/color]\n[color=#66ff66]Diving from high altitude briefly preserves speed[/color]\nYour own lock-on range is shorter too,巡航時に自動で低空へ降下\n[color=#66ff66]長距離レーダーに捕捉されにくい[/color]\n[color=#ff9966]空気が濃く抵抗が大きい — 最高速度が低下[/color]\n[color=#66ff66]高高度から降下時は速度を一時的に維持可能[/color]\n自機のロック距離も短くなる
 TOOLTIP_ALT_LOW_HINT,按 [color=#ffdd66]3[/color] 切换到爬升优先,Press [color=#ffdd66]3[/color] to switch to Climb High,[color=#ffdd66]3[/color] で高高度優先へ
 TOOLTIP_EVADE_ON_TITLE,规避模式: 开,Evasion: ON,回避モード: ON
 TOOLTIP_EVADE_ON_BODY,检测到来袭导弹时自动规避\n垂直于导弹轨迹急转+变换高度\n无导弹威胁时做S型机动\n点击目标或地面会自动关闭规避,Auto-evades incoming missiles\nPerpendicular break + altitude change\nS-curve when no missile threat\nClicking a target or ground disables evasion,来襲ミサイル検知で自動回避\nミサイル軌道に垂直急旋回＋高度変更\n脅威なし時はS字機動\nターゲットや地面クリックで回避解除
@@ -94,11 +97,13 @@ UPGRADE_AXIS_MISSILE_PREFIX,[导弹] ,[Missile] ,[ミサイル]
 UPGRADE_AXIS_SECONDARY_PREFIX,[副武器] ,[Secondary] ,[副武装]
 UPGRADE_AXIS_EW_PREFIX,[电子战] ,[EW] ,[電子戦]
 UPGRADE_HP_UP_NAME,装甲强化,Armor Plating,装甲強化
-UPGRADE_HP_UP_DESC,最大HP +30，机炮闪避 +8%,Max HP +30, Gun Dodge +8%,最大HP +30、ガン回避 +8%
+UPGRADE_HP_UP_DESC,最大HP +80,Max HP +80,最大HP +80
+UPGRADE_BULLET_DODGE_NAME,闪避机动,Evasive Maneuvering,回避機動
+UPGRADE_BULLET_DODGE_DESC,机炮闪避 +20%,Gun dodge +20%,機関砲回避+20%
 UPGRADE_SPEED_UP_NAME,引擎强化,Engine Boost,エンジン強化
-UPGRADE_SPEED_UP_DESC,最大速度 +18%，加速 +9%,"Max speed +18%, acceleration +9%",最大速度 +18%、加速 +9%
+UPGRADE_SPEED_UP_DESC,最大速度 +30%，加速 +20%,"Max speed +30%, acceleration +20%",最大速度 +30%、加速 +20%
 UPGRADE_MANEUVER_UP_NAME,飞控升级,Flight Control,飛行制御強化
-UPGRADE_MANEUVER_UP_DESC,滚转速率 +25%，持续G +1.0,Roll Rate +25%, Sustained G +1.0,ロール速度 +25%、持続G +1.0
+UPGRADE_MANEUVER_UP_DESC,滚转速率 +45%，持续G +2.5，结构G +2.5,"Roll Rate +45%, Sustained G +2.5, Structural G +2.5",ロール +45%、持続G +2.5、構造G +2.5
 UPGRADE_FLARE_COOLDOWN_NAME,红外对抗优化,IR Countermeasure,IR対策最適化
 UPGRADE_FLARE_COOLDOWN_DESC,热诱弹冷却时间 -20%,Flare Cooldown -20%,フレアクールダウン -20%
 UPGRADE_FLARE_SHIELD_NAME,★ 电子对抗套件,★ ECM Suite,★ ECMスイート
@@ -127,14 +132,12 @@ UPGRADE_VAPOR_DODGE_NAME,★ 云雾机动,★ Vapor Dodge,★ ベイパードッ
 UPGRADE_VAPOR_DODGE_DESC,高度切换更迅捷；藏身云层时敌人几乎无法锁定你,Faster altitude changes; nearly unlockable while hidden in clouds,高度変更が高速化、雲中に隠れれば敵のロックはほぼ不可能
 UPGRADE_ECM_POD_NAME,★ 电子战吊舱,★ ECM Pod,★ ECMポッド
 UPGRADE_ECM_POD_DESC,主动干扰敌方雷达，敌人必须靠得更近才能探测到你,Jam enemy radar — they must close in to detect you,敵レーダーを妨害、敵はより接近しないと探知不可
-UPGRADE_FIRE_AND_FORGET_NAME,★ 射后不理,★ Fire & Forget,★ 撃ちっぱなし
-UPGRADE_FIRE_AND_FORGET_DESC,导弹发射后自主追踪，立刻可转向脱离不必持续照射,Missiles track autonomously after launch — turn away freely,発射後は自律追尾、即時離脱が可能
 UPGRADE_SHOCK_ABSORB_NAME,★ 冲击吸收,★ Shock Absorber,★ 衝撃吸収
 UPGRADE_SHOCK_ABSORB_DESC,部分受伤值会慢慢回复，但一击致死无效,A portion of incoming damage slowly regenerates — lethal hits unaffected,被ダメージの一部が時間経過で回復、即死攻撃は対象外
 UPGRADE_EXECUTIONER_NAME,★ 侩子手,★ Executioner,★ 処刑人
 UPGRADE_EXECUTIONER_DESC,不受伤连续击杀敌机可堆叠层数，全面强化速度、减速、装填与锁定,"Consecutive kills without damage stack a buff — boosts speed, decel, reload and lock",無被弾連撃で層を重ね、速度・減速・装填・ロックを総合強化
 UPGRADE_MISSILE_COUNT_NAME,导弹挂架扩展,Missile Rack,ミサイル増設
-UPGRADE_MISSILE_COUNT_DESC,导弹携带量 +1,Missile capacity +1,ミサイル携行数 +1
+UPGRADE_MISSILE_COUNT_DESC,导弹携带量 +2,Missile capacity +2,ミサイル携行数 +2
 UPGRADE_MISSILE_TRACKING_NAME,制导升级,Guidance Upgrade,誘導強化
 UPGRADE_MISSILE_TRACKING_DESC,导弹机动能力与追踪精度提升,Improved missile maneuverability and tracking precision,ミサイルの機動性と追尾精度が向上
 UPGRADE_PROXIMITY_FUZE_NAME,★ 近炸引信,★ Proximity Fuze,★ 近接信管
@@ -145,8 +148,10 @@ UPGRADE_MISSILE_RELOAD_NAME,快速挂载,Quick Mount,高速装填
 UPGRADE_MISSILE_RELOAD_DESC,导弹装填时间 -15%,Missile reload -15%,ミサイル装填 -15%
 UPGRADE_MULTI_LOCK_NAME,多目标追踪,Multi-Target Tracking,マルチロック
 UPGRADE_MULTI_LOCK_DESC,自动对所有锁定目标同时发射导弹,Fire missiles at all locked targets simultaneously,全ロックターゲットへ同時発射
+UPGRADE_MISSILE_SWARM_NAME,导弹蜂群,Missile Swarm,ミサイルスウォーム
+UPGRADE_MISSILE_SWARM_DESC,导弹挂载 +4 且自动对所有锁定目标齐射；导弹追踪能力轻微下降,"+4 missile slots, salvo-fire all locked targets; slight tracking penalty","ミサイル+4＆全ロック同時発射；追跡性能微減"
 UPGRADE_GUN_DAMAGE_NAME,穿甲弹药,AP Rounds,徹甲弾
-UPGRADE_GUN_DAMAGE_DESC,机炮伤害 +20%,Gun damage +20%,ガンダメージ +20%
+UPGRADE_GUN_DAMAGE_DESC,机炮伤害 +55%,Gun damage +55%,ガンダメージ +55%
 UPGRADE_GUN_MULTISHOT_NAME,★ 多管齐射,★ Triple Salvo,★ 三連射
 UPGRADE_GUN_MULTISHOT_DESC,"同时射出三道机炮（前方+左右15°）",Fire three gun streams (front + ±15°),正面と左右15°の3方向同時射撃
 UPGRADE_GUN_AMMO_NAME,弹药扩容,Ammo Capacity,弾薬増設
@@ -159,8 +164,10 @@ UPGRADE_GUN_RANGE_NAME,延伸弹道,Extended Range,射程延長
 UPGRADE_GUN_RANGE_DESC,机炮有效射程 +20%,Gun effective range +20%,ガン有効射程 +20%
 UPGRADE_GUN_CIWS_NAME,★ 近防炮,★ CIWS,★ CIWS
 UPGRADE_GUN_CIWS_DESC,机炮自动拦截正面来袭导弹,Gun auto-intercepts incoming frontal missiles,正面来襲ミサイルをガンで自動迎撃
-UPGRADE_GUN_KILL_FEAR_NAME,震慑射击,Suppressive Kill,威圧射撃
-UPGRADE_GUN_KILL_FEAR_DESC,机炮击杀时半径内敌机陷入恐惧 操作大幅退化 BOSS 效果减半 每层提升范围+持续时间,Gun kills fear nearby enemies — heavy aim degradation; bosses resist (half effect); each rank boosts radius & duration,ガン撃墜時 周辺敵が恐慌状態 操作精度大幅低下 BOSSは半減耐性 各段階で範囲と持続時間が向上
+UPGRADE_FEAR_SQUAD_SPREAD_NAME,惊鸿扩散,Panic Spread,恐慌伝播
+UPGRADE_FEAR_SQUAD_SPREAD_DESC,亲自击杀任何敌机时 其所在小队所有成员陷入恐惧 8 秒,Personal kills fear every member of the victim's squad for 8s,自ら撃墜した敵の編隊全員を 8 秒間恐慌状態に
+UPGRADE_FEAR_CHILLS_NAME,寒颤,Chills,凍えの戦慄
+UPGRADE_FEAR_CHILLS_DESC,你施加的所有恐惧同时附带减速效果,All fear you inflict also slows the target,自分が付与する恐怖に減速効果が追加
 UPGRADE_RADAR_RANGE_NAME,雷达升级,Radar Upgrade,レーダー強化
 UPGRADE_RADAR_RANGE_DESC,雷达探测距离 +20%,Radar range +20%,レーダー探知距離 +20%
 UPGRADE_LOCK_TIME_NAME,火控优化,Fire Control,火器管制最適化
@@ -171,14 +178,13 @@ UPGRADE_COBRA_SKILL_NAME,眼镜蛇机动,Cobra Maneuver,コブラ機動
 UPGRADE_COBRA_SKILL_DESC,仅在规避模式下生效。被导弹接近或后方追尾时自动触发眼镜蛇机动，短时间无敌,Active in evasion mode only. Auto-triggers Cobra maneuver when missile closes in or enemy gun-tails from behind — brief invulnerability,回避モード時のみ有効。ミサイル接近時または後方ガン追尾時に自動でコブラ機動を発動、短時間無敵
 AIRCRAFT_F16_DISPLAY,F-16C Block 50,F-16C Block 50,F-16C Block 50
 AIRCRAFT_F16_CARDDESC,"多用途战斗机。携带热诱弹可 100% 规避来袭导弹，攻守兼备的入门之选。","Multirole fighter. Flares grant 100% evasion on incoming missiles. A balanced starter pick.",マルチロール戦闘機。フレアで来襲ミサイルを100%回避可能、攻守バランスの入門機。
-AIRCRAFT_F14_DISPLAY,F-14A Tomcat,F-14A Tomcat,F-14A Tomcat
+AIRCRAFT_F14_DISPLAY,F-14A Ghost,F-14A Ghost,F-14A Ghost
 AIRCRAFT_F14_CARDDESC,"「Anytime, baby!」舰载重型截击机。三机僚机编队入场支援，但单机性能弱于 F-16：导弹/热诱弹/机炮均缩水，机动性较差，需依赖小队配合。","""Anytime, baby!"" Carrier-based heavy interceptor. Deploys with a 3-wingman squad but underperforms the F-16 solo: fewer missiles/flares, weaker gun, lower agility — squad play is essential.",「いつでもどうぞ！」艦載重戦闘機。3機の僚機編隊と共に出撃するが、単機性能は F-16 に劣る：ミサイル・フレア・ガンいずれも減量、機動性も低め、小隊連携が鍵。
 TAG_HEAT_FLARE,热诱弹,Flares,フレア
 TAG_BALANCED_MANEUVER,均衡机动,Balanced,均衡機動
 TAG_SARH_MISSILE,SARH 导弹,SARH Missile,SARH ミサイル
 TAG_SQUAD_LEADER,小队主控,Squad Leader,小隊長
 TAG_HEAVY_INTERCEPT,重型截击,Heavy Interceptor,重迎撃機
-TAG_AIM54,AIM-54,AIM-54,AIM-54
 TAG_LOCKED,未解锁,Locked,未解放
 TAG_PLAIN,平原,Plains,平原
 TAG_COAST,海岸,Coast,海岸
@@ -283,8 +289,8 @@ TACTICAL_TIP_BOUNDARY,靠近战区边界可补给恢复生命值，但会加速�
 TACTICAL_TIP_DIFFICULTY,敌人的实力会随时间推移逐渐增强。不要拖延。,Enemies grow stronger over time. Do not stall.,時間経過で敵はどんどん強くなる。長引かせるな。
 TACTICAL_TIP_WEAPON_SWAP,按 [1/2] 切换导弹/机炮优先；导弹耗尽时会自动切换至机炮模式。,Press [1/2] to toggle missile/gun priority. Runs out of missiles? Auto-switches to guns.,[1/2] でミサイル/ガン優先切替。ミサイルが尽きると自動でガンモードへ。
 TACTICAL_TIP_FLARE,受导弹威胁时战机会自动释放热诱弹——命中瞬间内不会被击中。,Your aircraft auto-releases flares against incoming missiles — hits are nullified in that window.,来襲ミサイルに対して機体が自動でフレアを放出し、命中を無効化する。
-TACTICAL_TIP_ALT_HIGH,高空飞行时雷达探测距离更远，也更难被低空雷达锁定。,Flying high extends your radar range and helps evade low-altitude radar locks.,高高度ではレーダー探知距離が伸び、低空レーダーに捕捉されにくい。
-TACTICAL_TIP_ALT_LOW,低空飞行时更难被远距雷达锁定，适合偷袭与脱离。,Low altitude evades long-range radar locks — good for ambushes and disengaging.,低空飛行は長距離レーダーから逃れやすく、奇襲や離脱に向く。
+TACTICAL_TIP_ALT_HIGH,高空空气稀薄阻力小，顶速更高、雷达更远，且更难被低空雷达锁定。,High altitude — thin air means higher top speed and longer radar range; harder for low-altitude radar to lock you.,高高度では空気が薄く最高速度・レーダー距離ともに伸び、低空レーダーにも捕捉されにくい。
+TACTICAL_TIP_ALT_LOW,低空动压大顶速较低，但难被远距雷达锁定；从高空俯冲下来可短暂保留速度。,Low altitude has lower top speed (denser air) but evades long-range radar; diving from high altitude briefly preserves speed.,低空は空気が濃く最高速度は低下するが長距離レーダーから逃れやすい。高高度からの降下で速度を一時的に維持可能。
 TACTICAL_TIP_ALT_CLOUDS,云层中敌机雷达会失效——但要小心近距对头遭遇，那足以致命。,"Clouds blind enemy radar — but beware head-on encounters inside them, they can be fatal.",雲中は敵レーダーが無効化される——ただし接近戦や正面遭遇は致命的になりうる。
 TACTICAL_TIP_SENTINEL,Sentinel 哨兵指挥机范围内的 UAV 会被增幅，甚至会对玩家自爆。,UAVs within a Sentinel commander's aura are empowered and may kamikaze the player.,Sentinel 指揮機のオーラ内の UAV は強化され、自爆攻撃を仕掛けてくる。
 TACTICAL_TIP_STAMINA,持续高 G 机动会消耗飞行员耐力。耐力耗尽后可用 G 力大幅下降，留点时间给它恢复。,"Sustained high-G maneuvers drain pilot stamina. Once exhausted, max G drops sharply — give it time to recover.",高G機動の継続はパイロットの耐久を削る。尽きると使用可能Gが大幅低下、回復の時間を確保せよ。
@@ -327,3 +333,195 @@ UPGRADE_LASER_RANGE_NAME,激光增距,Laser Range,レーザー射程
 UPGRADE_LASER_RANGE_DESC,最大射程 +20%,Max range +20%,最大射程 +20%
 UPGRADE_LASER_HEAT_NAME,激光过载,Laser Capacity,レーザー過熱閾値
 UPGRADE_LASER_HEAT_DESC,过热阈值 +30%,Heat threshold +30%,過熱閾値 +30%
+UPGRADE_DATA_LINK_NAME,数据链,Data Link,データリンク
+UPGRADE_DATA_LINK_DESC,"队友锁定共享给玩家，反之亦然；僚机雷达范围 +50%","Lock-on shared with wingmen and vice versa; wingman radar +50%",僚機とロックオン共有、僚機レーダー +50%
+UPGRADE_SKILL_KILL_BLOODLUST_NAME,猎杀本能,Kill Bloodlust,殺戮本能
+UPGRADE_SKILL_KILL_BLOODLUST_DESC,击杀进入嗜血状态 7s,Kill triggers Bloodlust for 7s,撃墜で7秒間 嗜血状態
+UPGRADE_SKILL_DAMAGED_BLOODLUST_NAME,反击本能,Wounded Bloodlust,反撃本能
+UPGRADE_SKILL_DAMAGED_BLOODLUST_DESC,受伤进入嗜血状态 7s（被打刷新）,Damage triggers Bloodlust 7s (refreshed on hit),被弾で7秒間 嗜血（更新）
+UPGRADE_SKILL_HEAD_ON_PERMA_HP_NAME,骑士心脏,Knight's Heart,騎士の心臓
+UPGRADE_SKILL_HEAD_ON_PERMA_HP_DESC,对头击杀 +5 最大 HP（局内永久）,Head-on kill: +5 max HP (run-permanent),正面撃墜で 最大HP+5 (永久)
+UPGRADE_SKILL_HEAD_ON_AOE_FEAR_NAME,寒颤号令,Battle Cry,戦慄の咆哮
+UPGRADE_SKILL_HEAD_ON_AOE_FEAR_DESC,对头击杀使大范围（3km）敌方进入恐惧 4s,Head-on kill applies 4s Fear in 3km radius,正面撃墜で半径3km敵に4秒恐怖
+UPGRADE_SKILL_MISSILE_HIT_INVUL_NAME,危机绝境,Last Stand,危機絶境
+UPGRADE_SKILL_MISSILE_HIT_INVUL_DESC,被导弹命中后 4s 无敌（无敌期间不刷新）,4s Invincibility on missile hit (no refresh),被弾後4秒無敵（更新なし）
+UPGRADE_SKILL_LOWEST_ALT_KILL_INVUL_NAME,贴地骑士,Treetop Knight,低空騎士
+UPGRADE_SKILL_LOWEST_ALT_KILL_INVUL_DESC,在低空击杀敌人后 4s 无敌,Low-altitude kill grants 4s Invincibility,低空撃墜で4秒無敵
+UPGRADE_SKILL_GUN_KILL_FEAR_NAME,机炮震慑,Gun Strike Terror,機関砲威圧
+UPGRADE_SKILL_GUN_KILL_FEAR_DESC,机炮击杀使周围敌方恐惧 3s,Gun kill applies 3s Fear in nearby enemies,機関砲撃墜で周囲敵に3秒恐怖
+RARITY_STABLE,稳定,Stable,安定
+RARITY_ADVANCED,先进,Advanced,先進
+RARITY_EXPERIMENTAL,实验,Experimental,実験
+RARITY_CLASSIFIED,机密,Classified,機密
+RARITY_NEXT_GEN,跨代,Next-Gen,次世代
+UPGRADE_EVASION_SPEED_BOOST_NAME,规避加力,Evasion Boost,回避ブースト
+UPGRADE_EVASION_SPEED_BOOST_DESC,规避模式巡航速度 +40%,Evasion mode cruise speed +40%,回避モード巡航速度+40%
+UPGRADE_EVASION_WEAPON_CD_NAME,规避狂暴,Evasion Frenzy,回避フレンジー
+UPGRADE_EVASION_WEAPON_CD_DESC,规避模式所有武器 cd ×0.5,All weapon cooldowns ×0.5 in evasion,回避モード武器CD×0.5
+UPGRADE_SKILL_KILL_STATUS_HEAL_NAME,虐弱,Prey on Weakness,弱者狩り
+UPGRADE_SKILL_KILL_STATUS_HEAL_DESC,击杀有异常状态的敌人后回 30 HP,Killing afflicted enemies restores 30 HP,異常敵を撃墜で30HP回復
+UPGRADE_SKILL_FLARE_AOE_JAM_NAME,扰乱投弹,Flare Static,フレア妨害
+UPGRADE_SKILL_FLARE_AOE_JAM_DESC,发射热诱弹后周围敌方进入干扰 3s,Releasing flares jams nearby enemies for 3s,フレア投下で周囲を3秒妨害
+UPGRADE_SKILL_GUN_KILL_FLARE_DROP_NAME,机炮余烬,Gun Embers,機関砲の残光
+UPGRADE_SKILL_GUN_KILL_FLARE_DROP_DESC,机炮击杀产生 flare 区域，干扰附近导弹,Gun kills drop a JAM zone deflecting nearby missiles,機関砲撃墜で妨害域を生成
+UPGRADE_SKILL_MISSILE_HIT_AOE_JAM_NAME,寒蝉效应,Hit-and-Hush,被弾静寂
+UPGRADE_SKILL_MISSILE_HIT_AOE_JAM_DESC,被导弹命中后周围 800px 内 JAM 3s,Missile hit jams 800px around for 3s,被弾で半径800pxを3秒妨害
+UPGRADE_SKILL_EVADE_MISSILE_OVERLOAD_NAME,死里逃生,Cheating Death,死中求活
+UPGRADE_SKILL_EVADE_MISSILE_OVERLOAD_DESC,成功躲掉一发导弹后获得超载 6s,Evading a missile grants Overload 6s,ミサイル回避でオーバーロード6秒
+UPGRADE_LOCK_PANIC_G_NAME,被锁狂飙,Locked-On Panic,ロック狂躁
+UPGRADE_LOCK_PANIC_G_DESC,被敌方锁定时 max G ×1.20（每层）,Max G ×1.20 while locked (per stack),ロック中max G×1.20
+UPGRADE_LOW_HP_FLARE_RELOAD_NAME,绝境装填,Last-Stand Reload,絶境装填
+UPGRADE_LOW_HP_FLARE_RELOAD_DESC,HP < 50% 时热诱弹装填速度翻倍,Flare reload ×2 below 50% HP,HP<50%でフレア装填×2
+UPGRADE_HIGH_ALT_LOCK_SPEED_NAME,平流层雷达,Stratosphere Radar,成層圏レーダー
+UPGRADE_HIGH_ALT_LOCK_SPEED_DESC,在最高度档锁定速率 +30%,Lock speed +30% at HIGH altitude,最高度ロック速度+30%
+UPGRADE_AB_GUN_REGEN_NAME,加力供弹,Burner Feeder,アフターバーナー給弾
+UPGRADE_AB_GUN_REGEN_DESC,加力时机炮弹药每秒回复 25 发,AB regenerates 25 gun rounds/s,AB中機関砲弾25発/秒回復
+UPGRADE_ALT_CHANGE_STEALTH_NAME,垂直机动隐身,Vertical Slip,垂直機動ステルス
+UPGRADE_ALT_CHANGE_STEALTH_DESC,高度变化时更难被敌方雷达锁定,Harder to lock when changing altitude,高度変化中ロック耐性
+UPGRADE_HEAD_ON_GUN_DODGE_NAME,正面回旋,Head-On Slip,正面スリップ
+UPGRADE_HEAD_ON_GUN_DODGE_DESC,对头交锋时机炮闪避 +60%,Gun dodge +60% in head-on encounters,正面交戦時 機関砲回避+60%
+UPGRADE_GUN_FIRE_DR_NAME,火力护盾,Suppression Shield,制圧シールド
+UPGRADE_GUN_FIRE_DR_DESC,机炮发射后 0.4s 内受到伤害 -50%,Damage taken -50% within 0.4s of gun fire,機関砲発射後0.4秒間 被ダメージ-50%
+UPGRADE_FEAR_ON_LOCK_NAME,凝视压迫,Lock Stare,ロック圧迫
+UPGRADE_FEAR_ON_LOCK_DESC,持续锁定敌人 8s 后给其施加恐惧（恐惧消退后重新累积）,Continuous lock 8s applies Fear (resets after Fear expires),8秒間ロック継続で恐怖（恐怖解除後再蓄積）
+UPGRADE_CLOUD_OVERLOAD_NAME,云中超载,Cloud Surge,雲中サージ
+UPGRADE_CLOUD_OVERLOAD_DESC,在云中获得超载状态,Overload while in clouds,雲中でオーバーロード
+UPGRADE_CLOUD_WEAPON_CD_NAME,云隙快攻,Cloud Cover Tempo,雲中速攻
+UPGRADE_CLOUD_WEAPON_CD_DESC,云中所有武器 cd ×0.5,All weapon cooldowns ×0.5 in clouds,雲中武器CD×0.5
+UPGRADE_EVASION_STEALTH_NAME,雾隐机动,Phantom Veil,霧隠機動
+UPGRADE_EVASION_STEALTH_DESC,规避模式中获得隐身效果,Stealth while in evasion mode,回避モード中ステルス
+UPGRADE_EVASION_HERBST_NAME,危机赫尔贝特,Crisis J-Turn,危機Jターン
+UPGRADE_EVASION_HERBST_DESC,规避模式下来袭导弹/后方机炮追尾时自动启动赫尔贝特轮（J-Turn）,Evasion mode auto-triggers J-Turn vs incoming missile / rear gun chase,回避モードで来襲ミサイル/後方追尾時にJターン自動発動
+UPGRADE_EVASION_OVERSTOCK_NAME,弹仓过载,Overstock Bay,弾倉オーバーロード
+UPGRADE_EVASION_OVERSTOCK_DESC,规避模式中每 4s 装填 1 发导弹（突破上限至 2 倍）,Evasion mode reloads +1 missile per 4s up to 2× cap,回避モード4秒毎ミサイル+1（上限2倍）
+UPGRADE_OVERLOAD_DURATION_4X_NAME,过载共振,Surge Resonance,オーバーロード共鳴
+UPGRADE_OVERLOAD_DURATION_4X_DESC,超载持续时间 ×4,Overload duration ×4,オーバーロード持続×4
+UPGRADE_MISSILE_CD_STEALTH_NAME,弹后潜匿,Silent Reload,弾後潜匿
+UPGRADE_MISSILE_CD_STEALTH_DESC,弹药打空后获得 5 秒隐身,Stealth for 5s when missiles depleted,弾切れ後5秒間ステルス
+UPGRADE_SKILL_FLARE_OVERLOAD_NAME,焰诱共振,Flare Surge,フレア共鳴
+UPGRADE_SKILL_FLARE_OVERLOAD_DESC,释放热诱弹后获得超载 4s,Releasing flare grants Overload 4s,フレア発射でオーバーロード4秒
+UPGRADE_OVERLOAD_EXTENDED_AMMO_NAME,燃尽自如,Limitless Burn,燃え尽きの自在
+UPGRADE_OVERLOAD_EXTENDED_AMMO_DESC,超载持续时间 +4s；超载期间发射不消耗弹药,Overload duration +4s; firing during Overload costs no ammo,オーバーロード+4秒；中は弾消費なし
+UPGRADE_OVERLOAD_TO_BLOODLUST_NAME,噬血共振,Crimson Surge,噬血共鳴
+UPGRADE_OVERLOAD_TO_BLOODLUST_DESC,超载期间同时获得嗜血；击杀刷新两者持续时间,Overload also grants Bloodlust; kills refresh both,オーバーロード中ブラッドラスト付与；撃墜で両方リフレッシュ
+UPGRADE_BLOODLUST_ARMOR_MOBILITY_NAME,血怒护甲,Frenzy Plate,血怒装甲
+UPGRADE_BLOODLUST_ARMOR_MOBILITY_DESC,嗜血期间减伤 20%；最大 G ×1.2；加 / 减速 ×1.3,Bloodlust: -20% damage; max G ×1.2; accel/decel ×1.3,ブラッドラスト中-20%被ダメ；最大G×1.2；加減速×1.3
+UPGRADE_FULL_HP_KILL_PERMA_HP_NAME,血誓不竭,Vital Vow,血誓不渇
+UPGRADE_FULL_HP_KILL_PERMA_HP_DESC,满血 + 嗜血期间击杀敌人永久 +5 最大生命,Full-HP Bloodlust kill: +5 max HP permanently,満血+ブラッドラスト撃墜で最大HP+5恒久
+UPGRADE_HEAD_ON_JAM_NAME,对锋干扰,Head-On Jammer,対峙妨害
+UPGRADE_HEAD_ON_JAM_DESC,对头目标累积 4s 后被电子干扰 3s,Head-on targets are jammed for 3s after 4s lock-on,対峙目標は4秒蓄積後3秒妨害
+UPGRADE_JAM_SELF_OVERLOAD_NAME,共振反馈,Jamming Surge,共鳴フィードバック
+UPGRADE_JAM_SELF_OVERLOAD_DESC,JAM 命中至少 1 个敌人时获得超载 3s,Landing JAM on ≥1 enemy grants Overload 3s,JAM命中で3秒オーバーロード
+UPGRADE_REAR_AURA_SLOW_NAME,后半球减速光环,Tailspike Aura,後方減速オーラ
+UPGRADE_REAR_AURA_SLOW_DESC,后半球 2.4km 内敌人停留 8s 后被施加减速（消退后重新累积）,Enemies in your 2.4km rear arc accumulate to Slow (resets after expires),後方2.4km内に8秒滞在で減速（解除後再蓄積）
+UPGRADE_F14_SQUAD_LOCK_SLOW_NAME,集火枷锁,Coordinated Lock,集中ロック
+UPGRADE_F14_SQUAD_LOCK_SLOW_DESC,F-14 专属：全僚机共同锁定的敌机持续受到减速,F-14 only: enemy locked by all wingmen is Slowed,F-14専用 全僚機共同ロック対象を減速
+UPGRADE_LOW_ALT_GUN_DODGE_NAME,地表狂奔,Hedgehopper,低空疾走
+UPGRADE_LOW_ALT_GUN_DODGE_DESC,在低空时机炮闪避 +50%,Gun dodge +50% at low altitude,低空時 機関砲回避+50%
+UPGRADE_JAM_AURA_NAME,全向干扰场,Omni-Jam Field,全方位妨害フィールド
+UPGRADE_JAM_AURA_DESC,周围 2km 内敌人停留 8s 后被施加干扰（消退后重新累积）,Enemies within 2km accumulate to Jam (resets after expires),周囲2km内に8秒滞在で妨害（解除後再蓄積）
+BOSS_DEBUG_ENTRY_HINT,按 B  // BOSS DEBUG,Press B  // BOSS DEBUG,B キー  // BOSS DEBUG
+BOSS_DEBUG_TITLE,[ BOSS DEBUG ],[ BOSS DEBUG ],[ BOSS DEBUG ]
+BOSS_DEBUG_SUBTITLE,空白地图 + 15 级满 build + 直进 BOSS 战,Blank arena · Level 15 + Random Build · Instant Boss,空白マップ・Lv15満ビルド・即ボス戦
+BOSS_DEBUG_HINT_ESC,ESC 返回   //   F7 无敌   //   F8 复活+重抽,ESC Back   //   F7 Invuln   //   F8 Respawn+Reroll,ESC 戻る   //   F7 無敵   //   F8 復活+再抽選
+BOSS_DEBUG_LAUNCH_BUTTON,>> 出击 <<,>> ENGAGE <<,>> 出撃 <<
+BOSS_DEBUG_WRAITH_NAME,WRAITH 中队 (F-47),Wraith Squadron (F-47),ワイス隊 (F-47)
+BOSS_DEBUG_WRAITH_DESC,4 架光学隐身 BVR 王牌；协同齐射 + 赫尔贝特反杀,4× optical-cloak BVR aces; coordinated salvo + Herbst reversal,光学ステルス4機 協調斉射＋ハーブストJターン
+BOSS_DEBUG_CSG_NAME,航母战斗群 (CSG),Carrier Strike Group (CSG),空母打撃群 (CSG)
+BOSS_DEBUG_CSG_DESC,CV+2CG+1DDG+2FFG; 旗舰沉没后弹射 4 架 F-14,CV+2CG+1DDG+2FFG; 4× F-14 ejected on CV sink,CV+2CG+1DDG+2FFG 沈没でF-14×4射出
+TAG_AIR,空战,AIR,空戦
+TAG_NAVAL,海上,NAVAL,海上
+TAG_STEALTH,隐身,STEALTH,ステルス
+TAG_TWO_PHASE,二阶段,2-PHASE,二段階
+BOSS_DEBUG_HUD_LOADED_FMT,BUILD: %s   //   BOSS: %s,BUILD: %s   //   BOSS: %s,BUILD: %s   //   BOSS: %s
+LOADOUT_TITLE,配件机库,LOADOUT HANGAR,装備格納庫
+LOADOUT_SLOTS_FMT,槽位 %d / %d,SLOTS %d / %d,スロット %d / %d
+LOADOUT_MERIT_FMT,功勋 %d,MERIT %d,功勲 %d
+LOADOUT_BACK,返回选机,BACK,戻る
+LOADOUT_LAUNCH,出击,LAUNCH,出撃
+LOADOUT_BTN_BUY_FMT,购买（%d 功勋）,BUY (%d M),購入 %d
+LOADOUT_BTN_EQUIP,装备,EQUIP,装備
+LOADOUT_BTN_UNEQUIP,卸下,UNEQUIP,取外
+LOADOUT_CAT_WEAPON,机炮,GUN,機関砲
+LOADOUT_CAT_MISSILE,导弹,MISSILE,ミサイル
+LOADOUT_CAT_RADAR,雷达,RADAR,レーダー
+LOADOUT_CAT_ECM,电战,ECM,電子戦
+EQUIPMENT_GUN_DMG_T1_NAME,机炮强化 I,Gun Tuning I,機関砲強化 I
+EQUIPMENT_GUN_DMG_T1_DESC,机炮伤害 +15%,Gun damage +15%,機関砲ダメージ +15%
+EQUIPMENT_GUN_COMBAT_T2_NAME,机炮战斗组件 II,Gun Combat II,機関砲戦闘 II
+EQUIPMENT_GUN_COMBAT_T2_DESC,伤害 +25% / 射速 +20%,Damage +25% / RoF +20%,ダメージ +25% / 連射 +20%
+EQUIPMENT_GUN_ASSAULT_T3_NAME,机炮突击套件 III,Gun Assault III,機関砲突撃 III
+EQUIPMENT_GUN_ASSAULT_T3_DESC,伤害 +35% / 射速 +25% / 弹量 +30%,Damage +35% / RoF +25% / Ammo +30%,ダメージ +35% / 連射 +25% / 弾量 +30%
+EQUIPMENT_MISSILE_TRACK_T1_NAME,导弹制导 I,Missile Tracking I,ミサイル誘導 I
+EQUIPMENT_MISSILE_TRACK_T1_DESC,导弹机动 +20%,Missile G +20%,ミサイル機動 +20%
+EQUIPMENT_MISSILE_SEEKER_T2_NAME,导弹引头 II,Missile Seeker II,ミサイル誘導 II
+EQUIPMENT_MISSILE_SEEKER_T2_DESC,机动 +30% / 视场 +20%,G +30% / FOV +20%,機動 +30% / FOV +20%
+EQUIPMENT_MISSILE_APEX_T3_NAME,顶级导弹组件 III,Missile Apex III,先進ミサイル III
+EQUIPMENT_MISSILE_APEX_T3_DESC,机动 +40% / 视场 +30% / 装填 ×0.7,G +40% / FOV +30% / Reload ×0.7,機動 +40% / FOV +30% / 再装填 ×0.7
+EQUIPMENT_RADAR_RANGE_T1_NAME,雷达增程 I,Radar Range I,レーダー増程 I
+EQUIPMENT_RADAR_RANGE_T1_DESC,雷达距离 +15%,Radar range +15%,レーダー距離 +15%
+EQUIPMENT_RADAR_COMBAT_T2_NAME,战术雷达 II,Tactical Radar II,戦術レーダー II
+EQUIPMENT_RADAR_COMBAT_T2_DESC,距离 +20% / 锁定时间 ×0.7,Range +20% / Lock ×0.7,距離 +20% / ロック ×0.7
+EQUIPMENT_RADAR_AEGIS_T3_NAME,神盾雷达 III,Aegis Radar III,イージスレーダー III
+EQUIPMENT_RADAR_AEGIS_T3_DESC,距离 +25% / 锁定 ×0.5 / 视角 +15%,Range +25% / Lock ×0.5 / Angle +15%,距離 +25% / ロック ×0.5 / 視角 +15%
+EQUIPMENT_FLARE_CD_T1_NAME,热诱弹冷却 I,Flare Cooldown I,フレア冷却 I
+EQUIPMENT_FLARE_CD_T1_DESC,热诱弹冷却 ×0.85,Flare cd ×0.85,フレアCD ×0.85
+EQUIPMENT_ECM_T2_NAME,电子对抗 II,ECM Pod II,電子対抗 II
+EQUIPMENT_ECM_T2_DESC,冷却 ×0.7 / 抗锁 ×1.25,CD ×0.7 / Lock-resist ×1.25,CD ×0.7 / 耐ロック ×1.25
+EQUIPMENT_ECM_AEGIS_T3_NAME,神盾电子战 III,Aegis ECM III,イージスECM III
+EQUIPMENT_ECM_AEGIS_T3_DESC,冷却 ×0.6 / 抗锁 ×1.5 / 锁免 +1.5s,CD ×0.6 / Lock-resist ×1.5 / Shield +1.5s,CD ×0.6 / 耐ロック ×1.5 / 免疫 +1.5s
+LOADOUT_SHOP_HEADER,市场货架,SHOP STOCK,マーケット
+LOADOUT_PLAYER_HEADER,玩家配置,PILOT LOADOUT,パイロット装備
+LOADOUT_SHOP_HINT,本批货架在你出击前持续保留。要换一批可付费刷新。,Stock persists until you launch a run. Pay to refresh now.,出撃まで在庫は保持。即更新は有料。
+LOADOUT_REFRESH_FMT,刷新货架（%d 功勋）,REFRESH STOCK (%d MERIT),在庫更新（%d 功勲）
+LOADOUT_REFRESH_NO_FUNDS_FMT,刷新需 %d 功勋（不足）,Need %d merit to refresh,更新には %d 功勲必要
+LOADOUT_EQUIPPED_HEADER,▼ 已装备,▼ EQUIPPED,▼ 装備中
+LOADOUT_INVENTORY_HEADER,▼ 库存,▼ INVENTORY,▼ 在庫
+LOADOUT_EMPTY_EQUIPPED,（暂无装备）,(no parts equipped),（装備なし）
+LOADOUT_EMPTY_INVENTORY,（暂无未装备的配件）,(no parts in inventory),（在庫なし）
+LOADOUT_BTN_OWNED,已拥有,OWNED,所持済
+LOADOUT_BTN_NO_FUNDS,功勋不足,INSUFFICIENT MERIT,功勲不足
+LOADOUT_BTN_NO_SLOTS,槽位不足,NO SLOTS,スロット不足
+LOADOUT_DOCTRINE_HEADER,▼ 解锁研究,▼ DOCTRINES,▼ 研究
+LOADOUT_RANDOM_STOCK_HEADER,▼ 随机货架,▼ RANDOM STOCK,▼ ランダム在庫
+LOADOUT_BADGE_DOCTRINE,[ 解锁 ],[ UNLOCK ],[ 解放 ]
+LOADOUT_DOCTRINE_UNLOCKS_FMT,▸ 解锁【%s】词条的技能,▸ Unlocks 【%s】 upgrades,▸ 【%s】系を解禁
+LOADOUT_KEYWORD_FEAR,恐惧,Fear,恐怖
+LOADOUT_KEYWORD_OVERLOAD,超载,Overload,オーバーロード
+LOADOUT_KEYWORD_BLOODLUST,嗜血,Bloodlust,血戦
+EQUIPMENT_DOCTRINE_FEAR_NAME,战术：恐惧,Tactic: Fear,戦術：恐怖
+EQUIPMENT_DOCTRINE_FEAR_DESC,解锁【恐惧】系 in-run 升级,Unlocks fear in-run upgrades,恐怖系を解禁
+EQUIPMENT_DOCTRINE_OVERLOAD_NAME,战术：超载,Tactic: Overload,戦術：オーバーロード
+EQUIPMENT_DOCTRINE_OVERLOAD_DESC,解锁【超载】系 in-run 升级,Unlocks overload in-run upgrades,オーバーロード系を解禁
+EQUIPMENT_DOCTRINE_BLOODLUST_NAME,战术：嗜血,Tactic: Bloodlust,戦術：血戦
+EQUIPMENT_DOCTRINE_BLOODLUST_DESC,解锁【嗜血】系 in-run 升级,Unlocks bloodlust in-run upgrades,血戦系を解禁
+LOADOUT_KEYWORD_CHIVALRY,对头触发,Head-on Triggers,正面トリガー
+LOADOUT_KEYWORD_JAM,干扰,Jamming,妨害
+EQUIPMENT_DOCTRINE_CHIVALRY_NAME,战术：骑士,Tactic: Chivalry,戦術：騎士
+EQUIPMENT_DOCTRINE_CHIVALRY_DESC,解锁【对头触发】系 in-run 升级,Unlocks head-on trigger in-run upgrades,正面トリガー系を解禁
+EQUIPMENT_DOCTRINE_JAM_NAME,战术：干扰,Tactic: Jamming,戦術：妨害
+EQUIPMENT_DOCTRINE_JAM_DESC,解锁【干扰】系 in-run 升级,Unlocks jamming in-run upgrades,妨害系を解禁
+LOADOUT_KEYWORD_STEALTH,隐身,Stealth,ステルス
+EQUIPMENT_DOCTRINE_STEALTH_NAME,战术：隐身,Tactic: Stealth,戦術：ステルス
+EQUIPMENT_DOCTRINE_STEALTH_DESC,解锁【隐身】系 in-run 升级,Unlocks stealth in-run upgrades,ステルス系を解禁
+EQUIPMENT_DOCTRINE_FEAR_FLAVOR,植入动摇。,Sow wavering.,動揺を植える。
+EQUIPMENT_DOCTRINE_OVERLOAD_FLAVOR,最大化杀伤。,Maximize the lethality.,殺傷を最大化。
+EQUIPMENT_DOCTRINE_BLOODLUST_FLAVOR,每一击都喂养下一击。,Each kill feeds the next.,撃つたびに次が育つ。
+EQUIPMENT_DOCTRINE_CHIVALRY_FLAVOR,眨眼的人交出天空。,The last to blink surrenders the sky.,瞬きした者が空を譲る。
+EQUIPMENT_DOCTRINE_JAM_FLAVOR,阻断反馈。,Sever feedback.,反応を断つ。
+EQUIPMENT_DOCTRINE_STEALTH_FLAVOR,从凝视中消失。,Vanish from their gaze.,視線から消える。
+LOADOUT_KEYWORD_STEALTH,隐身,Stealth,ステルス
+EQUIPMENT_DOCTRINE_STEALTH_NAME,战术：隐身,Tactic: Stealth,戦術：ステルス
+EQUIPMENT_DOCTRINE_STEALTH_DESC,解锁【隐身】系 in-run 升级,Unlocks stealth in-run upgrades,ステルス系を解禁
+UPGRADE_SKILL_TORPEDO_AOE_JAM_NAME,雷阵警讯,Mine Disruption,投雷警報
+UPGRADE_SKILL_TORPEDO_AOE_JAM_DESC,漂浮雷引爆时再向外释放一圈电子干扰，800m 内敌方进入 JAM 5 秒（武器 / 雷达全锁死）,Drift mines emit a JAM pulse on detonation: enemies within 800m get JAM 5s (weapons + radar locked),浮遊機雷の爆発時に電子干渉波が広がり、800m 以内の敵を 5 秒間 JAM
+UPGRADE_ROCKET_FIRERATE_RANGE_NAME,火箭弹·急速延伸,RKT Burst Extension,ロケット急射延伸
+UPGRADE_ROCKET_FIRERATE_RANGE_DESC,火箭弹齐射 CD ×0.75，最大射程与扫描距离 ×1.25。每层叠加。,Rocket burst CD ×0.75 + max range/scan ×1.25 per stack,ロケットの再射撃 CD ×0.75 + 射程・索敵 ×1.25（積み重ね可）
+UPGRADE_SKILL_ROCKET_HOMING_NAME,火箭弹·寻迹引导,RKT Homing,ロケット追尾誘導
+UPGRADE_SKILL_ROCKET_HOMING_DESC,火箭弹发射后获得弱追踪能力（1200m 内最近敌人，35°/s 转向），近距糊脸时偏移自动修正,Rockets gain weak homing (1200m scan / 35°/s turn rate) — auto-correct near-miss shots,ロケットに弱追尾を付与（1200m 索敵・35°/s 旋回）—近距離での外しを自動補正
+UPGRADE_TORPEDO_TRACKING_BOOST_NAME,漂浮雷·猎手感应,Drift Mine Hunter,浮遊機雷ハンター
+UPGRADE_TORPEDO_TRACKING_BOOST_DESC,漂浮雷扫描距离 ×1.6 + 转向速率 ×2.2。每层叠加。,Drift mine scan ×1.6 + turn rate ×2.2 per stack,浮遊機雷の索敵 ×1.6・旋回 ×2.2（積み重ね可）
+UPGRADE_SKILL_LASER_DAMAGE_NAME,激光·致命输出,Lethal Lasing,致死照射
+UPGRADE_SKILL_LASER_DAMAGE_DESC,激光在减速基础上叠加完整 DPS 伤害（贴脸 dps_max → 满射程 dps_min 衰减），让光束从压制武器变成实质杀伤,Lasers also deal full DPS damage on top of the slow effect (close-range dps_max → max-range dps_min falloff),激光は減速に加えて完全な DPS ダメージも与える（密着 dps_max → 最大射程 dps_min で減衰）
+UPGRADE_LASER_EXTRA_BEAMS_NAME,激光·分束扩容,Laser Splitter,レーザー分岐拡張
+UPGRADE_LASER_EXTRA_BEAMS_DESC,激光可同时照射的目标数 +2（每层叠加，最多 +4）。每束独立衰减，多目标群战覆盖力大幅提升,Laser can engage +2 simultaneous targets per stack (max +4). Each beam falls off independently — much better in furballs,レーザーの同時照射対象数 +2（積み重ね最大 +4）。多目標戦闘の制圧力が大幅向上

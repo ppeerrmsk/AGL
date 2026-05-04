@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="GunParams" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/gun_params.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+display_name = "Gun V4"
+fire_rate = 2400.0
+bullet_damage = 6.7
+muzzle_velocity = 1000.0
+max_range = 930.0
+spread_angle = 2.0
+fire_cone_half_angle = 5.0
+max_ammo = 360

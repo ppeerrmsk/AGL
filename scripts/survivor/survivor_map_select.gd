@@ -63,8 +63,12 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
-		get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+	if event is InputEventKey and event.pressed:
+		if event.keycode == KEY_ESCAPE:
+			get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+		elif event.keycode == KEY_B:
+			# Boss Debug 入口（仅开发期；正式发布前可加 OS.is_debug_build 守卫）
+			get_tree().change_scene_to_file("res://scenes/boss_debug_select.tscn")
 
 func _draw() -> void:
 	var vp := get_viewport_rect().size
@@ -156,6 +160,14 @@ func _build_ui() -> void:
 	hint.add_theme_color_override("font_color", Color(0.4, 0.5, 0.4, 0.4))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	root.add_child(hint)
+
+	# Boss Debug 入口提示（按 B 进入）
+	var debug_hint := Label.new()
+	debug_hint.text = tr("BOSS_DEBUG_ENTRY_HINT")
+	debug_hint.add_theme_font_size_override("font_size", 11)
+	debug_hint.add_theme_color_override("font_color", Color(0.55, 0.45, 0.25, 0.55))
+	debug_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	root.add_child(debug_hint)
 
 	# 下部空白
 	var spacer_bottom := Control.new()

@@ -55,6 +55,7 @@ func _physics_process(delta: float) -> void:
 		queue_redraw()
 		return
 
+	StatusEffects.tick(self, delta)
 	_update_movement(delta)
 	_update_target_selection()
 	_update_combat(delta)
@@ -165,6 +166,11 @@ func _update_combat(_delta: float) -> void:
 	is_firing = dist_px <= gun_range_px and angle_diff <= fire_cone
 
 func _update_gun(delta: float) -> void:
+	# JAM 干扰：地面单位也封锁机炮
+	if status_jam_active:
+		is_firing = false
+		_fire_cooldown = maxf(_fire_cooldown - delta, 0.0)
+		return
 	if not is_firing or not bullet_manager or not params or not params.gun:
 		_fire_cooldown = maxf(_fire_cooldown - delta, 0.0)
 		return
@@ -199,9 +205,13 @@ func _update_gun(delta: float) -> void:
 
 # ========== 伤害 ==========
 
-func take_damage(amount: float) -> void:
+func take_damage(amount: float, attacker: Node = null, kind: String = "") -> void:
 	if is_destroyed:
 		return
+	if attacker != null:
+		set_meta("_pending_attacker", attacker)
+	if kind != "":
+		set_meta("_last_damage_kind", kind)
 	hp -= amount
 	if hp <= 0.0:
 		hp = 0.0
@@ -261,6 +271,7 @@ func _draw() -> void:
 	_draw_lock_indicator()
 	LockWarning.draw(self, AircraftRenderer.player_ref)
 	AircraftRenderer.draw_target_bracket(self, is_mission_target)
+	AircraftRenderer.draw_status_icons(self)
 	_draw_data_label()
 
 ## 云下方阴影：淡灰蓝椭圆，暗示有云飘过地面单位头顶

@@ -141,6 +141,20 @@ const LOD_FAR_DISTANCE_PX: float = 6000.0    ## 12 km：超过此距离启用 LO
 const LOD_FAR_TICK_DIVISOR: int = 6          ## 远距每 N 帧才跑一次完整更新
 var _lod_frame: int = 0
 
+# ── 脏驱动 redraw 跟踪状态 ──
+## 不再每帧 queue_redraw —— 只在视觉真正变化时重画。
+## CSG 6 船 × 60Hz redraw（每艘 ~30 draw 调用）= 10800 draw/sec，
+## 砍到事件驱动后大多数帧只重画 0~2 艘船（hover / 被锁 / 销毁）
+var _last_hover: bool = false
+var _last_locked: bool = false
+var _last_destroyed: bool = false
+var _last_heading_int: int = -1
+var _last_speed_int: int = -1
+var _last_lock_progress_quant: int = -1
+var _last_mounts_destroyed_count: int = -1
+var _last_weak_revealed: bool = false
+var _last_lock_warning_active: bool = false
+
 func _physics_process(delta: float) -> void:
 	if is_destroyed:
 		_update_destroy(delta)
@@ -159,8 +173,77 @@ func _physics_process(delta: float) -> void:
 	var sub_delta: float = delta * LOD_FAR_TICK_DIVISOR if is_far else delta
 	_update_subsystems(sub_delta)
 	update_lock_line_state(sub_delta)
-	_weak_pulse_time += sub_delta
-	queue_redraw()
+	# weak_pulse_time 只在弱点暴露时才推进（脉动动画用），
+	# 否则任何旁观船都会以这个累加值为由触发 redraw
+	if weak_point != null and weak_point.revealed:
+		_weak_pulse_time += sub_delta
+
+	if _should_redraw():
+		queue_redraw()
+
+## 判断本帧是否需要 _draw 重新提交：连续动画状态 + 状态变化事件 + 标签整数级变化
+## 注意：连续动画分支返回 true 之前必须把"会触发状态机的"缓存字段同步好，
+## 否则关闭动画那一帧（hover→!hover）的下降沿会被错过 → 残留旧画面
+func _should_redraw() -> bool:
+	# 连续动画类（每帧都需要重画）
+	if is_hovered:
+		_last_hover = true
+		return true
+	var lws = lock_warning_state if "lock_warning_state" in self else null
+	var lw_active: bool = lws != null and lws.show_timer > 0.0
+	if lw_active:
+		_last_lock_warning_active = true
+		return true
+	if lw_active != _last_lock_warning_active:
+		_last_lock_warning_active = lw_active
+		return true
+	if weak_point != null and weak_point.revealed:
+		_last_weak_revealed = true
+		return true  # 1Hz 脉动需要每帧重画
+	if incoming_lock_progress > 0.001 or is_locked:
+		_last_locked = is_locked
+		return true
+
+	# 状态变化事件（一次性触发）
+	if is_hovered != _last_hover:
+		_last_hover = is_hovered
+		return true
+	if is_locked != _last_locked:
+		_last_locked = is_locked
+		return true
+	if is_destroyed != _last_destroyed:
+		_last_destroyed = is_destroyed
+		return true
+	var weak_revealed: bool = weak_point != null and weak_point.revealed
+	if weak_revealed != _last_weak_revealed:
+		_last_weak_revealed = weak_revealed
+		return true
+	# 挂点击毁事件
+	var destroyed_count := 0
+	for m in mounts:
+		if m.destroyed:
+			destroyed_count += 1
+	if destroyed_count != _last_mounts_destroyed_count:
+		_last_mounts_destroyed_count = destroyed_count
+		return true
+
+	# 标签整数级变化（HDG / KTS 显示，避免每帧重画）
+	var hdg_deg := int(rad_to_deg(heading)) % 360
+	if hdg_deg < 0:
+		hdg_deg += 360
+	var kts := int(speed / 0.5144)
+	if hdg_deg != _last_heading_int or kts != _last_speed_int:
+		_last_heading_int = hdg_deg
+		_last_speed_int = kts
+		return true
+
+	# lock_progress 量化 0~10 级，跨级才重画
+	var lp_q := int(clampf(incoming_lock_progress, 0.0, 1.0) * 10.0)
+	if lp_q != _last_lock_progress_quant:
+		_last_lock_progress_quant = lp_q
+		return true
+
+	return false
 
 func _is_far_from_player() -> bool:
 	var pref: Aircraft = AircraftRenderer.player_ref
@@ -242,6 +325,8 @@ func _update_subsystems(delta: float) -> void:
 			m.fire_cooldown = maxf(m.fire_cooldown - delta, 0.0)
 		if m.engage_cooldown > 0.0:
 			m.engage_cooldown = maxf(m.engage_cooldown - delta, 0.0)
+		if m.acquire_cooldown > 0.0:
+			m.acquire_cooldown = maxf(m.acquire_cooldown - delta, 0.0)
 
 	if _directive_active() and _directive.combat_disabled:
 		return
@@ -368,7 +453,11 @@ func take_damage_at(amount: float, hit_pos: Vector2, hull_dmg_mult: float = 1.0,
 
 ## CombatUnit 基类伤害入口（无位置信息）—— 兜底路由到船中心
 ## 例如 AOE 爆炸波可能调这个
-func take_damage(amount: float) -> void:
+func take_damage(amount: float, attacker: Node = null, kind: String = "") -> void:
+	if attacker != null:
+		set_meta("_pending_attacker", attacker)
+	if kind != "":
+		set_meta("_last_damage_kind", kind)
 	take_damage_at(amount, global_position)
 
 ## 挂点被摧毁的回调
@@ -537,6 +626,7 @@ func _lock_line_can_engage_player() -> bool:
 	return false
 
 ## 圆形雷达覆盖（hover 时显示）—— 与 SAM 同构但更薄，避免遮挡
+## 边缘线用 draw_multiline 一次提交，省掉 48 次独立 draw_line 调用
 func _draw_radar_circle() -> void:
 	if params == null or params.radar_range <= 0.0:
 		return
@@ -545,19 +635,20 @@ func _draw_radar_circle() -> void:
 
 	var segments := 48
 	var pts := PackedVector2Array()
+	pts.resize(segments)
 	for i in range(segments):
 		var angle: float = float(i) / segments * TAU
 		# 抵消本节点旋转（船 rotation = heading）
-		pts.append(Vector2(cos(angle), sin(angle)).rotated(-rotation) * radar_r)
+		pts[i] = Vector2(cos(angle), sin(angle)).rotated(-rotation) * radar_r
 	draw_colored_polygon(pts, color)
 
 	var edge_color := Color(color.r, color.g, color.b, 0.25)
+	var edge_pairs := PackedVector2Array()
+	edge_pairs.resize(segments * 2)
 	for i in range(segments):
-		var a0: float = float(i) / segments * TAU
-		var a1: float = float(i + 1) / segments * TAU
-		var p0 := Vector2(cos(a0), sin(a0)).rotated(-rotation) * radar_r
-		var p1 := Vector2(cos(a1), sin(a1)).rotated(-rotation) * radar_r
-		draw_line(p0, p1, edge_color, 1.0)
+		edge_pairs[i * 2] = pts[i]
+		edge_pairs[i * 2 + 1] = pts[(i + 1) % segments]
+	draw_multiline(edge_pairs, edge_color, 1.0)
 
 ## SAM 武器包线（hover 时显示）—— 橙色虚线圆，居船中心
 ## 显示所有 SAM_SHORT / VLS_SALVO 挂点中射程最远的一个的最大射程
@@ -617,15 +708,18 @@ func _compute_max_sam_range() -> float:
 	return max_r
 
 ## 画虚线圆（center 是本地坐标，gap_ratio=0..1 表示每段之间留多少空白）
+## 用 draw_multiline 一次提交所有段，48 段一调用替代 48 次 draw_line
 func _draw_dashed_ring(center: Vector2, radius: float, color: Color, width: float, segments: int, gap_ratio: float) -> void:
 	var seg_angle: float = TAU / segments
+	var pairs := PackedVector2Array()
+	pairs.resize(segments * 2)
 	for i in range(segments):
 		var a0: float = seg_angle * i
 		var a1: float = seg_angle * (i + 1) - seg_angle * gap_ratio
 		# 抵消船体 rotation，保证虚线段在屏幕上稳定（不随船头转）
-		var p0 := center + Vector2(cos(a0), sin(a0)).rotated(-rotation) * radius
-		var p1 := center + Vector2(cos(a1), sin(a1)).rotated(-rotation) * radius
-		draw_line(p0, p1, color, width)
+		pairs[i * 2] = center + Vector2(cos(a0), sin(a0)).rotated(-rotation) * radius
+		pairs[i * 2 + 1] = center + Vector2(cos(a1), sin(a1)).rotated(-rotation) * radius
+	draw_multiline(pairs, color, width)
 
 ## 船体轮廓（占位：矩形 + 船头三角）
 ## 绘制坐标系原点在船中心，+Y 方向 = 船头方向（因为 node.rotation = heading，heading 0=北=-Y世界，但本地坐标系需要把船头朝 -Y 画，这样经 rotation 旋转后与 heading 对齐）

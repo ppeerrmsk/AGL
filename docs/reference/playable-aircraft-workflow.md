@@ -333,3 +333,4 @@ SurvivorData.is_upgrade_available_for(upgrade, aircraft_id, params) -> bool
 |---|---|---|---|---|---|
 | `f16` | F-16C Block 50 / SmartFalcon | `playable_f16.tres` | M61A1 / AIM-7M ×2 / 热诱弹 ×2 | 0 | 入门均衡，全属性强化 |
 | `f14` | F-14A Tomcat / TopGun | `playable_f14.tres` | M61A1（半弹） / AIM-54 ×1 / 热诱弹 ×1 | 3 | 小队主控，单机弱依赖编队 |
+| `a10` | A-10 Warthog | `playable_a10.tres` | GAU-A 加强机炮 / Hydra 70 火箭弹（无限弹/手动 KEY_R 平行齐射 6 发）| 0 | 实验机型：玩家手动 RKT 入口，无导弹/无热诱弹/重装甲 |

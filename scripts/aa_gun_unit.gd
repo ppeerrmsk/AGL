@@ -19,6 +19,7 @@ func _physics_process(delta: float) -> void:
 		queue_redraw()
 		return
 
+	StatusEffects.tick(self, delta)
 	_update_movement(delta)
 	_update_aa_target_selection(delta)
 	_update_turret(delta)
@@ -116,6 +117,11 @@ func _update_combat(_delta: float) -> void:
 
 ## 覆写射击：从炮管方向发射
 func _update_gun(delta: float) -> void:
+	# JAM 干扰：AA 无雷达走自主扫描，必须在开火点显式 gate
+	if status_jam_active:
+		is_firing = false
+		_fire_cooldown = maxf(_fire_cooldown - delta, 0.0)
+		return
 	if not is_firing or not bullet_manager or not params or not params.gun:
 		_fire_cooldown = maxf(_fire_cooldown - delta, 0.0)
 		return
@@ -156,6 +162,7 @@ func _draw() -> void:
 	_draw_aa_icon()
 	_draw_lock_indicator()
 	AircraftRenderer.draw_target_bracket(self, is_mission_target)
+	AircraftRenderer.draw_status_icons(self)
 	_draw_data_label()
 
 ## 绘制攻击范围圆（不是雷达锥）

@@ -2,6 +2,12 @@
 
 本文件为 Claude Code 提供 AGL 项目的代码地图与工作约定。每次对话自动加载，作为主索引使用。
 
+## ⚠ 设计哲学（每次必读）
+
+加新机制 / 选数值 / 加敌人 / 加技能 / 加 BOSS 前，**必读** [docs/DESIGN_PHILOSOPHY.md](docs/DESIGN_PHILOSOPHY.md)。
+
+这份文档是 AGL 的 **north star**，规定了游戏不变的灵魂（一击毙命 / 笨重延迟快感 / 信息察觉优先 / 数值尺度 / 武器抽象 / 敌机现实参考 / 战场热闹+AI 演戏 / 真 BOSS / 局外节制）和 13 条反模式。每次生成新内容前过一遍 Litmus 测试 9 条。
+
 ## Project Overview
 
 **AGL** 是俯视 2D 战斗机模拟沙盒，用 **Godot 4.6** + **GDScript** + **GL Compatibility** 渲染器。玩家以 RTS 方式点击操控战斗机（点击地图位置 → 飞机自主转弯飞向目标），飞机遵循较真实的航空物理。极简线框美术。2D 场景 + 虚拟高度（高度仅作为数值存在，通过图标缩放可视化）。
@@ -151,6 +157,7 @@ AGL/
 2. **EventLogger** — 全局事件环形缓冲区（60 秒窗口，F9 导出）
 3. **LocaleManager** — i18n 本地化，启动读 `user://locale.cfg`
 4. **AudioManager** — 音频总线 + BGM + SFX + UI + 播放列表；详见 [docs/systems/audio.md](docs/systems/audio.md)
+5. **MeritLedger** — 局外货币"功勋"账本，读写 `user://merit.cfg`；局内 XP 按 0.8/1.0 系数折算入账
 
 ### 类继承体系
 
@@ -183,8 +190,8 @@ Resource
 
 | 原型 | 行为特征 | 预设文件 | 适用机型 |
 |------|---------|----------|----------|
-| **Gladiator（斗士）** | 积极近身狗斗，拉近距离，高转弯激进度，低自保 | `gladiator_combat.tres` | F-86, MiG-23 |
-| **Lancer（骑士/打带跑）** | 高速一次性突击，闭合率不足即脱离，不缠斗 | `lancer_combat.tres` | J-7（轻量）, F-100（中量编队）, MiG-31（顶级单机） |
+| **Gladiator（斗士）** | 积极近身狗斗，拉近距离，高转弯激进度，低自保 | `gladiator_combat.tres` | F-86, MiG-23, F-4（导弹卡车）, Su-27/Su-35（带眼镜蛇） |
+| **Lancer（骑士/打带跑）** | 高速一次性突击，闭合率不足即脱离，不缠斗 | `lancer_combat.tres` | J-7（轻量）, F-104（纯速度截击）, F-100（中量编队）, MiG-31（顶级单机） |
 | **Schemer（策士）** | 特殊机制（光环 buff/远距狙击/隐身），玩家靠近即脱离 | — | Sentinel 指挥 UAV |
 | **Adds（杂兵）** | 无反击能力，直线飞过战场，纯经验奖励；族群波次（非编队） | — | Tu-160（战略轰炸机）。UAV/UCAV 虽然 Token 很便宜但仍会反击 + 受刷怪系统管理，设计上**不归类为 Adds** |
 | **主力威胁** | 全能 BFM 战术 + 导弹缠斗 | `default_combat.tres` | MiG-29 |
@@ -217,6 +224,10 @@ Resource
 | `F47(15)` | F-47 | **BOSS 王牌狙击小队** | `enemy_f47.tres` + `default_gun.tres` + `f47_missile.tres`（AIM-260）+ `f47_flare.tres`（40 枚电子战）+ `ace_combat.tres` | **10** | **4** | 事件触发 | **菱形编队** 4 架（队长+两翼+殿后）| `_create_enemy` F47 case + `_spawn_f47_squad` | BVR 狙击模式(bvr_only) + 协同齐射(salvo_leader) + 距离切换由 `aircraft_weapons.update_weapon_mode` GUN/MISSILE 枚举管 |
 | `AF03(17)` | AF-03 | **Schemer 电磁炮狙击** | `enemy_af03.tres` + `enemy_railgun.tres`（充能 2.0s + 锁定 0.5s, AT_FIRE_TIME 预测命中, dmg 60, range 14000m, base+cloud+lowalt miss 加成）| **7** | **1** | **8**（随机刷新 + 事件触发）| 单机 | `_create_enemy` AF03 case + `_pick_enemy_type` 优先级 ≈ Su-27 | bvr_only @ 5-8km + prefer_nose_aligned_weapon (SNIPER_HOLD) + Lancer 节奏（10s/7s）+ 等级缩放 |
 | `UAV_LASER(18)` | Aegis UAV | **拦截支援 Schemer** | `enemy_uav_laser.tres` + `enemy_laser_interceptor.tres`（target_filter 仅 missiles, dps_max=80, range 1200m）| **2** | 2 | 跟随 Sentinel 自动出现 | Sentinel 编队的一部分 | `_create_enemy` UAV_LASER case + `_spawn_commander_squad` 末尾追加 2 架 | simple_ai + `enable_combat=false`（laser 自己扫描，AI 不开火）+ `attack_air_targets=false` |
+| `F4(19)` | F-4 Phantom | Gladiator 中段（导弹卡车） | `enemy_f4.tres` + `default_gun.tres` + `default_missile.tres` + `agm_missile.tres`（双弹种 sparrow+sidewinder 总弹量大）| **5** | ∞ | **6** | 编队 2-3 架 | `_create_enemy` F4 case | gladiator_combat + 中等 aggression / engage_cooldown 2.5s（重而不灵活但导弹齐射强） |
+| `F104(20)` | F-104 Starfighter | Lancer 纯速度截击 | `enemy_f104.tres` + `default_gun.tres` + `default_missile.tres` | **4** | ∞ | **5** | 编队 2-3 架 | `_create_enemy` F104 case | lancer_combat + 高 aggression / engage_cooldown 7s / engage_duration 5.5s（极速通过+一次发射后脱离，HP 32 纸糊） |
+| `SU35(21)` | Su-35 Super Flanker | Gladiator 顶级（Su-27 强化版+TVC） | `enemy_su35.tres` + `default_gun.tres` + `default_missile.tres` + `agm_missile.tres` + `default_flare.tres`（fail 10%）| **8** | **3** | **9** | 编队 2-3 架 | `_create_enemy` SU35 case | gladiator_combat + 极高 aggression / engage_cooldown 1.2s + 沿用 Su-27 的 CobraManeuver（spawner 内挂载）；雷达 3000m/22°（强于 Su-27） |
+| `FA18(22)` | F/A-18 Hornet | Gladiator 均衡舰载机（CSG 弹射） | `enemy_fa18.tres` + `default_gun.tres` + `default_missile.tres` + `default_flare.tres`（敌机统一限 1 枚） | **0**（CSG 事件弹射，不占 Token） | ∞ | CSG 接战触发 | CSG 引擎瞬刷 2 架（左右分开），之后每 120s 补 1 架，CV 沉则停 | `_create_enemy` FA18 case + `CarrierStrikeGroup.engage()` / `_launch_fa18` | gladiator_combat + aggression 0.85-1.0 / cooldown 1.5s / duration 35s（海军舰载机精锐：技能 0.55-0.78，超 MiG-23 略低于 Su-27）；callsign HRNT-XX |
 
 **Adds 杂兵分类细节**（目前有 Tu-160 横列波次 + AH-64/CH-47 纵阵波次 + SAM/AA 地面单位五种）：
 - **无反击、无规避、无雷达**：`enable_combat = false` + `radar_range = 0` + `simple_ai`
@@ -295,7 +306,7 @@ Resource
 
 | 文件 | 类/类型 | 职责 | 关键入口 |
 |------|---------|------|----------|
-| `aircraft.gd` | `Aircraft extends CombatUnit` | [共享] 飞机主控（~1254 行，LOD 路由 + 损伤生命期 + 状态所有者；物理/武器/战斗/编队/热诱弹全部委托 aircraft/ 子模块） | `_physics_process` `take_damage` `_apply_damage` `_check_ground_crash` `_start_destroy` `_update_cobra_skill` `set_evasion_mode` `_update_evasion` `get_maneuver` `is_lock_immune` `get_flare_cooldown_ratio` `_draw()` + 5 个委托壳（`_missile_cannot_hit_but_gun_can` `_should_commit_gun_pass` `_is_gun_pass_finished` `_is_in_missile_envelope` `_choose_dogfight_pursuit_pos`）+ 3 个物理委托壳（`_update_pilot_stamina` `_effective_max_g` `_max_bank_angle_at_speed`） + `_publish_equipment_to_legacy()`（commit 2/13 起的装备迁移期兼容层） |
+| `aircraft.gd` | `Aircraft extends CombatUnit` | [共享] 飞机主控（~1254 行，LOD 路由 + 损伤生命期 + 状态所有者；物理/武器/战斗/编队/热诱弹全部委托 aircraft/ 子模块） | `_physics_process` `take_damage` `_apply_damage` `_check_ground_crash` `_start_destroy` `_update_cobra_skill` `set_evasion_mode` `_update_evasion` `get_maneuver` `is_lock_immune` `get_flare_cooldown_ratio` `_draw()` + 5 个委托壳（`_missile_cannot_hit_but_gun_can` `_should_commit_gun_pass` `_is_gun_pass_finished` `_is_in_missile_envelope` `_choose_dogfight_pursuit_pos`）+ 3 个物理委托壳（`_update_pilot_stamina` `_effective_max_g` `_max_bank_angle_at_speed`） + 编队接口 `set_formation_target(leader, slot, keep_arrival)` / `clear_formation()`（2026-05-04 重构）+ `_ai_ref`（AIController 反向引用，由 AI._ready 设）+ `_publish_equipment_to_legacy()`（commit 2/13 起的装备迁移期兼容层） |
 | `aircraft/aircraft_flares.gd` | `AircraftFlares extends RefCounted` | [共享] 热诱弹子系统（~274 行，静态方法首参 `ac: Aircraft`） | `update(ac, delta)` `release(ac, target_missile)` `calc_jam_chance(ac, m)` `cooldown_ratio(ac)` + 15 个 `FLARE_*` / `MISSILE_PHASE_DURATION` 常量 |
 | `aircraft/aircraft_weapons.gd` | `AircraftWeapons extends RefCounted` | [共享] 武器子系统（~694 行，10 个静态方法） | `update_weapon_mode(ac)` `auto_gun_scan(ac)` `update_gun(ac, delta)` `update_ciws(ac, delta)` `update_rocket(ac, delta)` `update_missile(ac, delta)` + 内部 `_launch_rocket` `_update_weapon_mode_tactical` `_fire_missile_at` `_fire_multi_lock_salvo` |
 | `aircraft/aircraft_physics.gd` | `AircraftPhysics extends RefCounted` | [共享] 物理子系统（~873 行，每帧演算 + 查询函数） | `update_target_heading(ac)` `update_bank(ac, delta)` `update_heading(ac, delta)` `update_speed(ac, delta)` `update_altitude(ac, delta)` `update_stall(ac)` `update_g_load(ac)` `update_pilot_stamina(ac, delta)` `apply_movement(ac, delta)` `update_shock_absorb(ac, delta)` `update_fuel(ac, delta)` `update_energy_management(ac)` `set_afterburner(ac, on)` + 查询 `max_bank_angle` `effective_max_g` `corner_speed_kmh` `stall_speed` `max_speed_at_altitude` `air_density_ratio` `max_bank_angle_at_speed` |
@@ -337,7 +348,9 @@ Resource
 | `weather_system.gd` | `WeatherSystem extends Node2D` | [共享] 全局天气：高空云层（随机风向 + 噪声密度场 + 漂移 + 半透明绘制）。加入 group `"weather"` 供战斗代码查询 | `setup(camera)` `sample_density(world_pos)` `is_in_cloud(world_pos)` `_draw` |
 | `camera_controller.gd` | `CameraController extends Node` | [共享] 缩放/平移/hover/坐标转换 | `setup(camera)` `update_zoom(delta)` `handle_zoom_input(factor)` `screen_to_world(screen_pos)` `handle_drag(relative)` `update_hover(screen_pos, units)` |
 | `main.gd` | `Main extends Node2D` | [沙盒] 沙盒主控：输入/雷达锁定/编队/LOD（地形/相机委托共享模块，~427 行） | `_update_radar_locks` `_spawn_friendly_squad` `_update_lod` |
-| `squad.gd` | `Squad extends RefCounted` | [共享] 6 种阵型偏移计算 | `get_formation_offset:51` `get_wingman_target:114` `cycle_formation:128` |
+| `squad.gd` | `Squad extends Resource` | [共享] 6 种阵型偏移计算 + 编队反应延迟常量（FORMATION_SWITCH_THRESH/REACT_BASE/JITTER_AMP/JITTER_ADD/WINGMAN_ENGAGE_DELAY_*）+ 整队 engage_mode + leader_changed 信号 | `get_formation_offset` `get_wingman_target` `cycle_formation` `add_member` `remove_member` `cleanup` |
+| `squad_factory.gd` | `SquadFactory extends RefCounted` | [共享] 编队生成统一入口（2026-05-04 重构，替代 9 处散乱的 Squad.new + add_member + ai 串接） | `create(formation, engage_mode, spacing)` `register_leader(sq, leader)` `register_wingman(sq, ac, set_state=true)` `form_up(leader, wingmen, ...)` |
+| `ai/escort_behavior.gd` | `EscortBehavior extends RefCounted` | [共享] 护驾行为子系统（Sentinel UAV 绕长机+拦弹+自爆）；2026-05-04 起谓词收口，执行体仍在 ai_controller._process_simple | `is_active(ai)` `cleanup_after_leader_lost(ai)` |
 | `ground_unit.gd` | `GroundUnit extends CombatUnit` | [共享] 地面单位基类（机炮+雷达+移动） | `_update_movement:63` `_update_combat:131` `_update_gun:164` |
 | `sam_unit.gd` | `SAMUnit extends GroundUnit` | [共享] SAM：360° 雷达 + HQ-7 导弹 | `_update_sam_missile:26` `is_in_radar_cone:54`（覆写圆形） |
 | `aa_gun_unit.gd` | `AAGunUnit extends GroundUnit` | [共享] AAA：独立炮塔 + ZU-23 | `_update_turret:69` `_update_aa_target_selection:30` |
@@ -355,14 +368,18 @@ Resource
 | `survivor/commander_aura.gd` | `CommanderAura extends Node` | [生存] Sentinel 光环 buff + 招募 UAV | `_apply_buff:93` `_try_recruit:155` |
 | `playable_aircraft.gd` | `PlayableAircraft extends Resource` | [生存] 主角档案：UI 元数据 + base_params 引用 + 生存模式调味（属性/武器/战斗/热诱弹覆盖）+ 起始僚机配置 | 全部 `@export` 字段；详见 docs/reference/playable-aircraft-workflow.md |
 | `survivor/survivor_playable_setup.gd` | `SurvivorPlayableSetup extends RefCounted` | [生存] 把 PlayableAircraft 应用到 Aircraft 实例（替代旧的 survivor_mode 内联 buff 块） | `apply(aircraft, profile)` `deep_dup_weapons(params)` |
-| `survivor/survivor_select.gd` | 生存模式机型选择界面 | [生存] 4 槽 PlayableAircraft 卡片（F-16/F-14 解锁 + 2 占位） | `PLAYABLE_LIST:21` `_build_aircraft_card:157` `_on_aircraft_selected` |
-| `survivor/survivor_map_select.gd` | 生存模式地图选择界面 | [生存] 5 槽地图卡片（1 解锁 + 4 占位）；ESC→主菜单 | `MAP_LIST:18` `_build_map_card` `_on_map_selected` |
+| `survivor/survivor_select.gd` | 生存模式机型选择界面 | [生存] 4 槽 PlayableAircraft 卡片（F-16/F-14 解锁 + 2 占位）；ESC 在 boss debug 路径里跳回 boss_debug_select | `PLAYABLE_LIST:21` `_build_aircraft_card:157` `_on_aircraft_selected` |
+| `survivor/survivor_map_select.gd` | 生存模式地图选择界面 | [生存] 5 槽地图卡片（1 解锁 + 4 占位）；ESC→主菜单；**B → boss_debug_select** | `MAP_LIST:18` `_build_map_card` `_on_map_selected` |
+| `survivor/boss_debug_select.gd` | Boss Debug — BOSS 选择界面 | [生存/Debug] 列出可测试 BOSS（与 BossRegistry.BOSS_DEFS 同步），选中 → set_meta(boss_debug_mode/_id) → survivor_select；空白无地图渲染 + 自动 15 级 + 主题化随机 build + 进场即 PRE_STAGE | `BOSS_LIST:18` `_build_boss_card` `_on_boss_selected` |
+| `survivor/boss_debug_builds.gd` | `BossDebugBuilds extends RefCounted` | [生存/Debug] 主题化随机 build roller（5 主题：missile/gun/status/low_alt/high_alt）；尊重 max_stacks / requires / excludes / requires_skill | `THEMES:13` `roll_build(level, aircraft_id, params)` `roll_for_theme_name` |
 | `debug_panel.gd` | 调试面板 | [沙盒] 状态文本/飞行员信息/生成按钮 | `_get_strategy_text:266` `_get_combat_strategy:303` `_get_pilot_info:318` |
 | `event_logger.gd` | EventLogger (AutoLoad) | [共享] 全局事件环形日志 | `log_event:22` `dump_to_file:31` |
 | `callsign_db.gd` | CallsignDB (AutoLoad) | [共享] 呼号分配+回收 | `allocate` / `release` |
 | `locale_manager.gd` | LocaleManager (AutoLoad) | [共享] i18n 控制：启动读 user://locale.cfg（zh/en/ja），主菜单按钮切换+持久化+重载场景 | `_ready` `set_locale_persistent(code)` `get_current_locale()` `trm(key)` — 详见 [docs/reference/i18n.md](docs/reference/i18n.md) |
 | `audio/audio_manager.gd` | AudioManager (AutoLoad) | [共享] 音频总控：4 条 Bus（Music/SFX/UI/Radio）程序化创建，SFX 挂远距无线电效果链；32 SFX 池，屏幕外静音；双播放器 crossfade；playlist 轮播；菜单 muffle；玩家引擎环境音 | `play_music` `stop_music` `crossfade_music` `play_music_playlist` `set_music_muffled` `play_sfx_2d` `play_ui` `set_bus_volume_linear` `start_player_engine` `save_settings` — 详见 [docs/systems/audio.md](docs/systems/audio.md) |
 | `audio/audio_settings_panel.gd` | `AudioSettingsPanel extends CanvasLayer` | [共享] 音频设置面板（4 条 Bus 滑条 + 静音 + 恢复默认 + 保存到 user://audio.cfg） | `open` `close_panel` |
+| `meta/merit_ledger.gd` | MeritLedger (AutoLoad) | [共享] 局外货币"功勋"账本：局内 XP × 系数 → user://merit.cfg；后续改装系统从这里扣 | `get_total` `settle_run(xp, mult)` `spend(amount)` `debug_add` `debug_reset`；常量 `SETTLE_RETREAT=1.0` `SETTLE_KIA=0.8` `SETTLE_VICTORY=1.0`；信号 `merit_changed(total, delta)` |
+| `meta/merit_coin_icon.gd` | `MeritCoinIcon extends Control` | [共享] 功勋硬币徽章 — 纯 _draw 绘制（双圈 + 12 边缘齿 + 中心十字），无外部资源依赖 | `@export radius` `coin_color` |
 | `events/ai_directive.gd` | `AIDirective extends RefCounted` | [生存] 事件系统下发给 AI/NavalUnit 的声明式覆盖指令；存在期间 AI 跳过常规 PATROL/ENGAGE 路由 | 工厂 `fly_to(target, on_arrival)` `patrol_ring(center, radius)` `follow_path(wps, loop)` `hold_position()` `engage_target(t)` `passive()` + `is_owner_alive()` |
 | `events/game_event.gd` | `GameEvent extends RefCounted` | [生存] 事件基类（一段剧本/一次刷怪/BOSS 流程）；管理 lifecycle + managed_units + 自动撤销 directive | `_start` `_update(delta)` `_finish` `set_directive(unit, d)` `clear_directive(unit)` `clear_all_directives()` `end()` |
 | `events/event_director.gd` | `EventDirector extends Node` | [生存] 事件调度器（survivor_mode 子节点；非 AutoLoad）；持 mode/player/spawner 引用，每帧 tick 所有 active 事件 | `start(event)` `find_by_name(name)` `active_count()` `_physics_process` |
@@ -487,7 +504,7 @@ Resource
 
 **任何**新增 `_process` / `_physics_process` / `_draw` / `queue_redraw` / 挂在 Aircraft/Missile 下的子节点，都必须先读 [docs/reference/performance-guidelines.md](docs/reference/performance-guidelines.md)。
 
-7 条硬规则速记：
+8 条硬规则速记：
 1. 静态内容禁止每帧 `queue_redraw`（地图/边界都吃过亏）
 2. `_draw` 里不得有全场扫描（用 `AircraftRenderer.player_ref` / `CombatUnit.all_units`）
 3. 多次 `draw_polygon` / `draw_line` 要合并（用 `RenderingServer.canvas_item_add_triangle_array`）

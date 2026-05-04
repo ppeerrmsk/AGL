@@ -24,6 +24,7 @@ missile_count_override = 2
 gun_damage_mult = 1.25
 gun_range_override = 800.0
 gun_cone_override = 8.0
+base_pilot_aim_skill = 0.6
 combat_override = ExtResource("3")
 flare_override = ExtResource("4")
 flares_guaranteed = true

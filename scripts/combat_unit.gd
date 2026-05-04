@@ -78,6 +78,42 @@ var _cloud_cache_time: float = -1.0
 var _cloud_cache_pos: Vector2 = Vector2.INF
 var _cloud_cache_result: bool = false
 
+# --- 状态效果：通用容器（StatusEffects 模块管理）---
+## 注意：除 JAM 外的状态（INVINCIBLE / STEALTH / BLOODLUST / OVERLOAD / FEAR / SLOW）
+## 仅对 Aircraft（含 BOSS 飞行体）生效。地面单位 / 船 / 巨型 BOSS 等只识别 JAM。
+## 容器和 API 统一放在基类，方便外部"挂状态"代码不区分目标类型。
+var status_effects: Dictionary = {}            ## id(String) → 剩余秒数(float)
+var status_initial_durations: Dictionary = {}   ## id(String) → 施加时的初始秒数(float)，渲染条进度基准
+var status_jam_active: bool = false             ## 唯一对所有 CombatUnit 子类生效的派生标记
+
+## 施加状态。
+## mode 语义：
+##   "max"（默认）= 取 max(剩余, duration)，常规状态：FEAR/SLOW/JAM/STEALTH/BLOODLUST/OVERLOAD
+##   "no_refresh" = 状态已存在期间忽略后续 apply（只在状态结束后才能再触发）
+##                  典型用途：被导弹命中后无敌 2s —— 无敌期间反复被命中不延长
+func apply_status(id: String, duration: float, mode: String = "max") -> void:
+	if duration <= 0.0:
+		return
+	var prev: float = float(status_effects.get(id, 0.0))
+	if mode == "no_refresh" and prev > 0.0:
+		# 状态仍在持续 → 不刷新、不延长
+		return
+	if duration > prev:
+		status_effects[id] = duration
+		# 重置 baseline：用最长一次施加值作为进度条满刻度（更直观）
+		status_initial_durations[id] = duration
+
+func remove_status(id: String) -> void:
+	status_effects.erase(id)
+	status_initial_durations.erase(id)
+
+func has_status(id: String) -> bool:
+	return status_effects.has(id)
+
+func clear_all_statuses() -> void:
+	status_effects.clear()
+	status_initial_durations.clear()
+
 ## 从当前 altitude 数值推算高度档位
 func get_altitude_tier() -> int:
 	if altitude < 3500.0:
@@ -95,13 +131,26 @@ static func effective_distance_px(pos_a: Vector2, alt_a: float, pos_b: Vector2, 
 	return sqrt(dist_2d * dist_2d + alt_diff_px * alt_diff_px)
 
 ## 受到伤害（子类可覆写）
-func take_damage(amount: float) -> void:
+## damage_kind 枚举字符串："gun" / "missile" / "aoe" / "rocket" / "laser" / "railgun" / "ground_crash" / "collision" / ""(未知)
+## 写入 `_last_damage_kind` meta 供 _apply_damage / on_kill / on_hit 钩子链消费
+## （技能：机炮闪避 / 机炮发射时减伤 / 导弹命中无敌 / 机炮击杀恐惧 等都按 kind 分流）
+func take_damage(amount: float, attacker: Node = null, kind: String = "") -> void:
 	if is_destroyed:
 		return
+	if attacker != null:
+		set_meta("_pending_attacker", attacker)
+	if kind != "":
+		set_meta("_last_damage_kind", kind)
 	hp -= amount
 	if hp <= 0.0:
 		hp = 0.0
 		_on_destroyed()
+
+## 受伤 + 归因：保留旧 API 名作为兼容入口（薄壳，转发到 take_damage）
+## 所有直接伤害武器（机炮 / 导弹 / 电磁炮 / 激光 / 撞击 / 未来武器）都应携带 kind
+## 归因机制：致死时 `_record_kill_attribution()` 读 `_pending_attacker` → 写入 kill_attacker_*
+func take_damage_from(amount: float, attacker: Node, kind: String = "") -> void:
+	take_damage(amount, attacker, kind)
 
 ## 击毁回调（子类覆写）
 func _on_destroyed() -> void:

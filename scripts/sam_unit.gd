@@ -17,6 +17,7 @@ func _physics_process(delta: float) -> void:
 		queue_redraw()
 		return
 
+	StatusEffects.tick(self, delta)
 	_update_movement(delta)
 	_update_target_selection()
 	_update_sam_missile(delta)
@@ -27,6 +28,9 @@ func _physics_process(delta: float) -> void:
 func _update_sam_missile(delta: float) -> void:
 	_missile_cooldown = maxf(_missile_cooldown - delta, 0.0)
 
+	# JAM 干扰：封锁导弹发射
+	if status_jam_active:
+		return
 	if not missile_manager or not params or not params.missile:
 		return
 	if missiles_remaining <= 0:
@@ -111,6 +115,7 @@ func _draw() -> void:
 	_draw_sam_icon()
 	_draw_lock_indicator()
 	AircraftRenderer.draw_target_bracket(self, is_mission_target)
+	AircraftRenderer.draw_status_icons(self)
 	_draw_data_label()
 
 ## 圆形雷达范围（替代扇形）

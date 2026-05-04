@@ -3,7 +3,7 @@
 > **给未来的自己和 Claude**：做任何新机制（敌人/武器/UI/特效/地图要素）之前先读这份文档。
 > 过去的 bug 全部归档在末尾"历史教训"，同类的问题一次就够了。
 
-AGL 目前帧预算 = 16.6 ms/frame（60 FPS）。生存模式 + Sentinel 小队 + 20+ 敌机的压力测试是验收标杆。任何让这个场景掉到 30 FPS 以下的新代码都要砍掉或改写。
+AGL 帧预算 = 16.6 ms/frame（60 FPS）。**60 FPS 是不可突破的硬底线**——见 [DESIGN_PHILOSOPHY.md §11](../DESIGN_PHILOSOPHY.md)。生存模式 + Sentinel 小队 + 20+ 敌机的压力测试是验收标杆，任何让这个场景**掉一帧**的新代码都要砍掉或改写。不接受"偶发掉到 X FPS"的妥协。
 
 ---
 
@@ -91,7 +91,127 @@ Aircraft 有 22 架、Missile 有 10 枚。挂在它们上面的每个子节点�
 如果得到六位数，就得改。
 
 ### R7. 新功能必须跑一下 Sentinel 压力测试
-任何加入 `_process` / `_physics_process` / `_draw` 的代码，提交前去生存模式触发 Sentinel 小队 + 打到 level 5+（20+ 敌机），记录 FPS。基线从 60 掉到 <45 要立即回滚或改写。
+任何加入 `_process` / `_physics_process` / `_draw` 的代码，提交前去生存模式触发 Sentinel 小队 + 打到 level 5+（20+ 敌机），记录 FPS。**60 FPS 不可掉**——只要有一帧低于 60 就立即回滚或改写。这是 [DESIGN_PHILOSOPHY.md §11](../DESIGN_PHILOSOPHY.md) 的硬底线。
+
+### R8. 单帧成本随 N 增长的代码必须支持拥挤度自适应
+任何"每个单位都要做的事情"（AI 决策 / 雷达扫描 / 状态广播 / 装备 update），单帧成本随 N 线性或更高增长。**N 不是常数**——生存模式中后期可能突破 30。
+
+**原则**：单帧成本与 N 强相关的代码，**必须**让单位级成本能在 N 大时退化。三档退化优先级：
+
+1. **降频**（首选）：成本不变但频率随 N 减小（见下方"套路 II"）
+2. **冻结**（次选）：完全跳过非关键单位（见下方"套路 III"）
+3. **简化**（兜底）：用更便宜的算法替代（如 BFM → 直冲 lead pursuit）
+
+**例外**：玩家、BOSS、Sentinel — 永不降级。任何降级方案都要支持"豁免名单"。
+
+**当前实现参考**：
+- AI 决策：`AIController.AIScaleClass {IMMUNE/NORMAL/CHEAP}` + 自动派生（team / category / is_unmanned）+ 30+ 敌机时拉到 max_mult
+- 雷达锁定：`RADAR_LOCK_STRIDE = 4` 子集轮转
+- 屏幕外远距：`FAR_FREEZE_DIST_SQ` 硬冻结（survivor_mode._update_offscreen_lod）
+
+---
+
+## 优化套路（Optimization Patterns）
+
+写新机制时，**先看这 4 个套路里有没有现成模板**。重复造轮子前再考虑特殊情况。
+
+### 套路 I — 共享列表替代 `get_children()`
+
+**何时用**：任何"扫场上某类单位"的循环。
+
+**用法**：
+- `CombatUnit.all_units` — 所有飞机+地面单位（survivor_mode 每帧维护）
+- `AircraftRenderer.player_ref` — 玩家飞机引用
+- 子弹/导弹命中：`bullet_manager.combat_unit_list` / `missile_manager.target_list`
+
+**坑**：`CombatUnit.all_units` 是跨帧静态数组，必须 `is_instance_valid(unit)` 守卫，否则访问僵尸引用崩溃。
+
+### 套路 II — Tick Divisor 节流（固定降频）
+
+**何时用**：行为不需要 60Hz 精度的代码（AI 决策 / 长时累积 / 慢量更新）。
+
+**模式**：
+```gdscript
+if (Engine.get_physics_frames() + _tick_phase) % divisor != 0:
+    return
+delta *= float(divisor)  # 放大 delta 让 timers 节奏不变
+```
+
+**关键点**：
+- `_tick_phase = randi() % divisor` 在 `_ready` 设，错开不同实例的决策帧（防峰谷）
+- `delta *= divisor` 抵消频率，让累积量（timers / 距离 / 倒计时）一致
+- 速度/高度/燃油等慢量：20Hz 起步（divisor=3）；视觉敏感量（bank/heading/位置）：永远 60Hz
+
+**实例**：
+- `AIController.ai_tick_divisor` — simple_ai 默认 3
+- `aircraft_formation.gd:update_follow` — speed/altitude 走 `_lod_frame % 3` + `delta×3`，bank/heading 60Hz
+
+### 套路 III — 拥挤度自适应（动态降频）
+
+**何时用**：成本随 N 增长且 N 可能很大（AI 决策 / 状态广播）。
+
+**模式**：
+```gdscript
+var n: int = CombatUnit.all_units.size()
+var crowd_t: float = clampf(float(n - LOW_THRESH) / float(HIGH_THRESH - LOW_THRESH), 0.0, 1.0)
+var max_mult: float = CHEAP_MAX if scaling_class == CHEAP else NORMAL_MAX
+var effective_divisor: int = int(ceil(base_divisor * lerpf(1.0, max_mult, crowd_t)))
+```
+
+**默认阈值**：
+- LOW = 12 单位（≤此值：不降频）
+- HIGH = 30 单位（≥此值：拉满 max_mult）
+- CHEAP × 2.0（UAV / Adds：30+ 时 6→12，5Hz 决策）
+- NORMAL × 1.5（载人战机：30+ 时 3→5，约 13Hz 决策）
+- IMMUNE 不降（玩家 / BOSS / Sentinel）
+
+**实例**：`AIController._compute_scaling_class` 自动从 `aircraft.team / category meta / params.is_unmanned` 派生分级。
+
+### 套路 IV — 子集轮转（Stride Rotation）
+
+**何时用**：O(N²) 全场扫描已经按时间节流（如 0.2s 一次），但单 tick 仍然贵。
+
+**模式**：
+```gdscript
+const STRIDE := 4
+var _phase: int = 0
+
+func _full_scan(delta):
+    var phase = _phase
+    _phase = (_phase + 1) % STRIDE
+    var per_unit_delta = delta * float(STRIDE)  # 抵消 1/STRIDE 频率
+    for i in range(units.size()):
+        if i % STRIDE != phase:
+            continue
+        # ... 用 per_unit_delta 累积
+```
+
+**关键点**：
+- 每个单位被处理周期 = 节流间隔 × STRIDE（如 0.2s × 4 = 0.8s）
+- `per_unit_delta = step_delta × STRIDE` 抵消频率，累积速率不变
+- 全局状态（`is_locked` 等）每 tick 都要 reset，但累积态（`radar_targets` 字典）跨 stride 持久
+- 副作用：状态变化最多滞后 (STRIDE-1) × 节流间隔（如 0.6s），需评估玩家可感知性
+
+**实例**：`survivor_mode._update_radar_locks` STRIDE=4，全覆盖 0.8s。
+
+### 套路 V — 屏幕外+远距冻结（完全停 _physics_process）
+
+**何时用**：屏幕外且远离玩家的非关键实体（敌机 / 子弹追踪 / 装饰单位）。
+
+**模式**（参考 `survivor_mode._update_offscreen_lod`）：
+```gdscript
+if offscreen and dist_sq > FAR_FREEZE_DIST_SQ and not is_critical:
+    ac.set_physics_process(false)
+    ai_node.set_physics_process(false)
+else:
+    ac.set_physics_process(true)
+    ai_node.set_physics_process(true)
+```
+
+**关键点**：
+- 必须有 `is_critical` 豁免（BOSS / Sentinel / 玩家），否则游戏会异常停摆
+- 进屏 / 靠近时立即解冻，否则会"位置跳跃"
+- 当前默认阈值：`FAR_FREEZE_DIST_SQ = 750² = 562500`（1500m，PIXELS_PER_METER=0.5）
 
 ---
 
@@ -103,10 +223,15 @@ Aircraft 有 22 架、Missile 有 10 枚。挂在它们上面的每个子节点�
 | 全场战斗单位列表 | `CombatUnit.all_units` | `combat_unit.gd`，`survivor_mode._update_aircraft_list` 维护 |
 | 子弹命中目标列表 | `bullet_manager.combat_unit_list` | 同上维护 |
 | 导弹命中目标列表 | `missile_manager.target_list` | 同上维护 |
-| AI 决策节流 | `AIController.ai_tick_divisor` | `ai_controller.gd` |
+| AI 决策节流（固定降频） | `AIController.ai_tick_divisor` | `ai_controller.gd` |
+| AI 拥挤度自适应分级 | `AIController.AIScaleClass` + `_compute_scaling_class()` | `ai_controller.gd`（按 team / category / is_unmanned 自动派生） |
+| 拥挤阈值常量 | `AIController.CROWD_THRESHOLD_LOW=12 / HIGH=30 / CHEAP_MAX_MULT=2 / NORMAL_MAX_MULT=1.5` | `ai_controller.gd` |
 | 屏幕外敌机节流 | `survivor_mode._update_offscreen_lod` | `survivor_mode.gd` |
+| 屏幕外远距冻结距离 | `FAR_FREEZE_DIST_SQ`（1.5km²） | `survivor_mode.gd` |
 | simple_ai 预算池 | `SIMPLE_AI_FULL_TICK_BUDGET` | `survivor_mode.gd` |
+| 雷达锁定子集轮转 | `RADAR_LOCK_STRIDE=4` + `_radar_lock_phase` | `survivor_mode.gd:_update_radar_locks` |
 | 云层采样缓存 | `CombatUnit._cloud_cache_*` + `_cached_is_in_cloud` | `survivor_mode.gd` / `main.gd` |
+| LOD 1 编队降频边界 | `aircraft/aircraft_formation.gd:update_follow`（speed/altitude 20Hz，bank/heading 60Hz） | 套路 II 实例 |
 
 ---
 
@@ -156,6 +281,24 @@ Aircraft 有 22 架、Missile 有 10 枚。挂在它们上面的每个子节点�
 
 **教训** → R4 注意事项
 
+### 30 敌机时帧数掉到 25 FPS — 缺乏拥挤度自适应（2026-05-04）
+**原因**：固定 `ai_tick_divisor` 不会随场上单位数动态调整。30 架飞机时所有 simple_ai 仍跑 20Hz、全功能 BFM AI 仍跑 60Hz；雷达锁定 O(N²) 哪怕 0.2s 节流，单 tick 成本 N=30 时仍重；屏幕外远距 UAV 仍 `_physics_process` 全跑。
+
+**修复**：
+- 加 `AIScaleClass {IMMUNE/NORMAL/CHEAP}` + `CombatUnit.all_units.size()` 拥挤系数；30+ 时 CHEAP UAV ×2、NORMAL 战机 ×1.5
+- 雷达锁定 `RADAR_LOCK_STRIDE=4` 子集轮转
+- 屏幕外 + 距玩家 >1.5km 非关键敌机 `set_physics_process(false)` 完全冻结
+- LOD 1 编队 speed/altitude 降到 20Hz（`_lod_frame % 3` + `delta×3`）
+
+**教训** → R8 + 套路 II/III/IV/V 全部确立。**记住**：单帧成本随 N 增长的代码必须支持降频路径。
+
+### `get_parent().get_children()` 残留 4 处（2026-05-04）
+**原因**：squad_coordination 的 scan_leader_rear / scan_squad_nearby_enemy、ai_controller 的 `_try_engage_in_tether_range` / 自爆机扫描、target_selection 的 BOSS 重锁路径，仍用 `get_parent().get_children()`。在 R4 立后没清干净。
+
+**修复**：4 处全部改用 `CombatUnit.all_units` + `is_instance_valid()` 守卫。
+
+**教训** → R4。新规则立时要全仓库扫一遍合规情况，别只改一处样板。
+
 ### Sentinel 数据链虚线（commander_overlay.gd）（2026-04-18）
 **原因**：每帧画 Sentinel → 每个僚机的虚线连接，小循环拆成 50+ 条 `draw_line`。5 个僚机 × 50 条 × 60Hz = 1.5 万 draw_line/s，纯装饰。
 
@@ -167,11 +310,27 @@ Aircraft 有 22 架、Missile 有 10 枚。挂在它们上面的每个子节点�
 
 ## 审查清单（PR / 新功能 checklist）
 
+**触发条件**：每个加 `_process` / `_physics_process` / `_draw` 的 PR 都要过一遍。
+
+### 共享列表 + 现有节流
 - [ ] 是否加了 `_process` / `_physics_process`？→ 能不能用信号/timer 替代？
 - [ ] 是否调了 `queue_redraw`？→ 是真的需要每帧，还是状态驱动？
-- [ ] `_draw` 里有没有循环/扫描？→ 用缓存列表，别现查
-- [ ] 是否挂到 Aircraft/Missile 下？→ 先乘实体数再判断
-- [ ] 新 AI 决策？→ 默认 `ai_tick_divisor ≥ 3` 起步
-- [ ] `get_children()`？→ 换成 `CombatUnit.all_units` + `is_instance_valid`
+- [ ] `_draw` 里有没有循环/扫描？→ 用 `CombatUnit.all_units` / `AircraftRenderer.player_ref`
+- [ ] `get_children()`？→ 换成 `CombatUnit.all_units` + `is_instance_valid` 守卫
 - [ ] 视觉效果有多个 `draw_line` / `draw_polygon`？→ 合并成 `draw_polyline_colors` / `canvas_item_add_triangle_array`
-- [ ] 改完了跑一下 Sentinel + Lv5+ 压力测试
+
+### 频率与挂载倍数
+- [ ] 是否挂到 Aircraft/Missile 下？→ 先乘实体数 × 60Hz 再判断（六位数就要改）
+- [ ] 新 AI 决策？→ 默认 `ai_tick_divisor ≥ 3`（20Hz）起步
+- [ ] 视觉敏感量（bank/heading/位置）：60Hz；慢量（speed/altitude/燃油）：20Hz；累积量（锁定/buff）：5Hz 起步
+
+### 拥挤度自适应（R8）
+- [ ] 单帧成本与 N 强相关？→ 必须支持降频/冻结/简化中至少一种（套路 II/III/IV/V）
+- [ ] 设置了 IMMUNE 豁免名单？（玩家 / BOSS / Sentinel 永不降级）
+- [ ] N 大时降级行为可接受？（用户已明确"允许行为退化"也要确认 BOSS 不退化）
+
+### 验收
+- [ ] 改完了跑 Sentinel + Lv5+（20+ 敌机）压力测试 — 60 FPS 不可掉
+- [ ] 改完了跑 Lv8+（30+ 敌机）压力测试 — 验证拥挤度自适应是否启动
+- [ ] F9 导出 log 看有没有新增 push_warning / null deref
+- [ ] 改了 R4-R8 任一硬规则的实现？→ 全仓库 grep 一遍同模式残留

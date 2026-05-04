@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="GunParams" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/gun_params.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+display_name = "Gun V3"
+fire_rate = 2100.0
+bullet_damage = 5.7
+muzzle_velocity = 950.0
+max_range = 850.0
+spread_angle = 2.3
+fire_cone_half_angle = 5.0
+max_ammo = 320

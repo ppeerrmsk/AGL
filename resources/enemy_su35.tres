@@ -1,0 +1,50 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/gladiator_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/default_missile.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/default_flare.tres" id="5"]
+[ext_resource type="Resource" path="res://resources/agm_missile.tres" id="6"]
+
+[resource]
+script = ExtResource("1")
+display_name = "Su-35 Super Flanker"
+; ── Gladiator 顶级：Su-27 强化版（4.5 代 + TVC）──
+; 沿用 Su-27 的眼镜蛇机动（spawner 内挂载 CobraManeuver），不引入 Herbst
+; 数值在 Su-27 基础上 +10~15%（速度/G/HP/挂点）
+max_hp = 70.0
+armor = 0.0
+; ── 速度（Su-27 是 2500，Su-35 真实更快）──
+max_speed = 2700.0
+cruise_speed = 1050.0
+stall_speed_base = 185.0
+acceleration = 60.0
+deceleration = 90.0
+g_drag_factor = 2.8
+; ── 机动（TVC 加持：高 G + 高滚转）──
+max_g = 8.5
+max_g_structural = 11.0
+roll_rate = 4.2
+pilot_stamina = 95.0
+stamina_drain_rate = 22.0
+stamina_recovery_rate = 11.0
+; ── 高度 ──
+max_altitude = 18000.0
+climb_rate_max = 320.0
+thrust_to_weight = 1.20
+drag_coefficient = 0.020
+afterburner_thrust_mult = 1.55
+fuel_capacity = 3800.0
+fuel_rate_normal = 2.0
+fuel_rate_afterburner = 10.0
+; ── 雷达（精英级，比 Su-27 略强）──
+radar_range = 5500.0
+radar_half_angle = 30.0
+lock_time = 2.7
+gun = ExtResource("2")
+missile = ExtResource("4")
+secondary_missile = ExtResource("6")
+flare = ExtResource("5")
+combat = ExtResource("3")
+icon_color = Color(0.4, 0.7, 1, 1)

@@ -1,9 +1,18 @@
 class_name Squad
-extends RefCounted
+extends Resource
 
 ## 编队数据结构与阵型计算
+##
+## 升 Resource（2026-05-04 重构）：原 RefCounted。改 Resource 只为以后能 .tres
+## 化阵型预设和挂信号；运行时字段 leader/members 不参与序列化（持有 Aircraft Node 引用）。
+
+signal leader_changed(new_leader: Aircraft)
 
 enum Formation { COMBAT_SPREAD, WEDGE, ECHELON, TRAIL, FINGER_FOUR, FLUID_FOUR }
+
+## 整队共享的交战模式：FREE = 僚机可以独立扫描；FOLLOW_LEADER = 只跟长机打。
+## 原本散在每架僚机的 AIController.squad_engage_mode，现在收编到 Squad 上整队一份。
+enum EngageMode { FREE = 0, FOLLOW_LEADER = 1 }
 
 ## 阵型名称使用翻译 key；get_formation_name() 会返回 tr() 后的显示字符串
 const FORMATION_NAMES := {
@@ -17,10 +26,19 @@ const FORMATION_NAMES := {
 
 const PIXELS_PER_METER: float = GameConstants.PIXELS_PER_METER
 
+## 编队反应延迟与槽位变化阈值（原住 AIController，Step 5 收编到这里整队共享）
+const FORMATION_SWITCH_THRESH: float = 30.0   ## 槽位 offset 变化超过此像素 → 触发反应延迟
+const FORMATION_REACT_BASE: float = 0.3       ## 反应延迟基准秒
+const FORMATION_JITTER_AMP: float = 0.5       ## 个体扰动振幅
+const FORMATION_JITTER_ADD: float = 1.0       ## 扰动叠加上限
+const WINGMAN_ENGAGE_DELAY_MIN: float = 0.3   ## 僚机协同攻击长机目标的最小反应延迟
+const WINGMAN_ENGAGE_DELAY_MAX: float = 1.5
+
 var leader: Aircraft = null
 var members: Array[Aircraft] = []
-var formation: Formation = Formation.FINGER_FOUR
-var base_spacing_m: float = 300.0  ## 基础间距（米）≈150像素，现实约200-500m
+@export var formation: Formation = Formation.FINGER_FOUR
+@export var base_spacing_m: float = 300.0  ## 基础间距（米）≈150像素，现实约200-500m
+@export var engage_mode: int = EngageMode.FREE
 
 ## 添加成员
 func add_member(ac: Aircraft) -> void:
@@ -33,6 +51,7 @@ func remove_member(ac: Aircraft) -> void:
 	if ac == leader and members.size() > 0:
 		leader = members[0]
 		_sync_leader_squad_index(leader)
+		leader_changed.emit(leader)
 
 ## 清理无效成员
 func cleanup() -> void:
@@ -45,10 +64,10 @@ func cleanup() -> void:
 		leader = members[0] if members.size() > 0 else null
 		if leader:
 			_sync_leader_squad_index(leader)
+			leader_changed.emit(leader)
 
-## 晋升长机后，同步其 AIController.squad_index 到 0
-## 防止原僚机带着旧 index (1/2/3) 进入 SQUAD_FOLLOW 时，
-## get_wingman_target 计算出相对于自身的 slot → 飞机追自己尾巴原地自转
+## 晋升新长机后同步其 AIController.squad_index = 0（防止僚机带旧 index 进 SQUAD_FOLLOW 自转）
+## TODO Step 2 起由 SquadFactory 监听 leader_changed 接管，本方法可删
 static func _sync_leader_squad_index(ac: Aircraft) -> void:
 	if not ac:
 		return

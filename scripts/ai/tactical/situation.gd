@@ -52,6 +52,7 @@ var is_wingman: bool = false              ## 我是僚机（squad 存在 + 长�
 var squad_index: int = 0                  ## 我在小队中的位置：0=长机/单机, 1/2/3...=僚机槽位
 var following_leader_target: bool = false ## 我的 combat_target == 长机 combat_target（协同攻击）
 var leader_intent: int = -1               ## 长机当前 plan.intent（用于僚机角色互补），-1 表示无/未跑过
+var squad_role: int = 0                   ## AIController.SquadRole：NONE/FLANK_LEFT/FLANK_RIGHT/HIGH_COVER
 
 # ── AI 性格（来自 AIController；玩家无此 component → 使用默认值）──
 var ai_aggression: float = 0.5            ## AI 攻击欲 [0..1]：高=committed Gladiator, 低=careful Lancer
@@ -91,6 +92,10 @@ var tgt_in_my_rear: bool = false  ## 敌人在我的后半球（被咬尾警告�
 var has_incoming_missile: bool = false
 var nearest_threat_dist_m: float = INF
 
+# ── 状态效果（FEAR 等会改变高层决策）──
+var is_feared: bool = false              ## FEAR debuff 激活：planner 强制脱离
+var is_boss_attacker: bool = false       ## BOSS 攻击手豁免：FEAR 不会让其脱离（仅吃 stress 副作用）
+
 # ── 时序状态（防 intent 抖动）──
 var current_time: float = 0.0          ## 当前游戏时间（秒）
 var prev_intent: int = -1              ## 上一帧选定的 intent，-1 表示无
@@ -108,6 +113,7 @@ static func from_aircraft(ac) -> Situation:
 	s.my_heading = ac.heading
 	s.my_speed_ms = ac.speed
 	s.my_alt = ac.altitude
+	s.is_feared = ac.status_fear_active
 	s.combat_altitude_m = ac.altitude  # 默认：保持当前高度；AIController 分支会覆写为 patrol_altitude
 	s.my_bank_deg = rad_to_deg(ac.bank_angle)
 	s.ammo = ac.ammo
@@ -195,6 +201,7 @@ static func from_aircraft(ac) -> Situation:
 		if child is AIController:
 			var ai_ctrl: AIController = child
 			s.ai_aggression = ai_ctrl.aggression
+			s.is_boss_attacker = ai_ctrl.is_boss_attacker()
 			if ai_ctrl.patrol_altitude > 0.0:
 				s.combat_altitude_m = ai_ctrl.patrol_altitude
 			if ai_ctrl.squad and ai_ctrl.squad.leader and ai_ctrl.squad.leader != ac \
@@ -207,6 +214,7 @@ static func from_aircraft(ac) -> Situation:
 				# 读长机最近 plan，用于角色互补决策（玩家长机也有 _last_plan）
 				if "_last_plan" in leader and leader._last_plan != null:
 					s.leader_intent = leader._last_plan.intent
+				s.squad_role = ai_ctrl._squad_lateral_role
 			break
 
 	s._recompute()

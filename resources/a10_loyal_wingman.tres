@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="LoyalWingmanParams" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/loyal_wingman_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/loyal_wingman_drone.tres" id="2"]
+
+[resource]
+script = ExtResource("1")
+display_name = "Loyal Wingman"
+cooldown = 8.0
+offscreen_despawn_seconds = 8.0
+max_simultaneous = 2
+drone_aircraft_params = ExtResource("2")
+kamikaze_range_m = 80.0
+kamikaze_aoe_radius_m = 60.0
+kamikaze_aoe_damage = 30.0

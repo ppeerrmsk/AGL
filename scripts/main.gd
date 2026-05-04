@@ -255,11 +255,13 @@ func _update_radar_locks(delta: float) -> void:
 				var prev: float = unit.radar_targets.get(other, 0.0)
 				unit.radar_targets[other] = prev + step_delta * lock_rate
 			else:
-				# 不在锥内：逐渐衰减（1.5秒记忆窗口），而非瞬间清零
-				# 防止目标在雷达锥边缘反复进出导致锁定震荡
+				# 不在锥内：极短衰减（0.3 秒）—— 仅用于挡住雷达锥边缘 1-2 帧的几何抖动，
+				# 不再做"长记忆"。物理直觉：不照射就该丢锁；半主动 SARH 也确实如此。
+				# 之前的 1.5s 记忆窗会让 _fire_multi_lock_salvo 对早就脱离锥的"幽灵锁定"
+				# 继续发弹（玩家观感"乱射"），改 0.3s 后这些条目快速归零并 erase。
 				var prev: float = unit.radar_targets.get(other, 0.0)
 				if prev > 0.0:
-					unit.radar_targets[other] = prev - step_delta / 1.5
+					unit.radar_targets[other] = prev - step_delta / 0.3
 					if unit.radar_targets[other] <= 0.0:
 						unit.radar_targets.erase(other)
 				else:
@@ -316,9 +318,8 @@ func _spawn_friendly_squad(count: int) -> void:
 	if not is_instance_valid(leader) or leader.is_destroyed:
 		return
 
-	var sq := Squad.new()
-	sq.leader = leader
-	sq.add_member(leader)
+	var sq := SquadFactory.create()
+	SquadFactory.register_leader(sq, leader)
 
 	for i in range(1, count):
 		var ac: Aircraft = _aircraft_scene.instantiate()
@@ -340,8 +341,6 @@ func _spawn_friendly_squad(count: int) -> void:
 		var ai := AIController.new()
 		ai.name = "AI_Wing%d" % i
 		ai.aircraft = ac
-		ai.squad = sq
-		ai.squad_index = i
 		ai.enable_combat = true
 		ai.evade_missiles = true
 		ai.aggression = randf_range(0.5, 0.8)
@@ -350,10 +349,9 @@ func _spawn_friendly_squad(count: int) -> void:
 		ai.focus = randf_range(0.5, 0.8)
 		ai.self_preservation = randf_range(0.3, 0.6)
 		ai.patrol_altitude = leader.altitude
-		ai._state = AIController.AIState.SQUAD_FOLLOW
 		ac.add_child(ai)
 
-		sq.add_member(ac)
+		SquadFactory.register_wingman(sq, ac)  # 设 squad/squad_index/_state=SQUAD_FOLLOW
 		selected_aircraft.append(ac)
 
 	squads.append(sq)
@@ -377,8 +375,7 @@ func _spawn_enemies(count: int) -> void:
 	var leader_heading := atan2(to_player.x, -to_player.y)
 	var patrol_alt := randf_range(4000.0, 7000.0)
 
-	var sq := Squad.new()
-	var leader_ac: Aircraft = null
+	var sq := SquadFactory.create()
 
 	for i in range(count):
 		var enemy: Aircraft = _aircraft_scene.instantiate()
@@ -421,19 +418,12 @@ func _spawn_enemies(count: int) -> void:
 		ai.composure = randf_range(0.3, 0.7)
 		ai.focus = randf_range(0.3, 0.8)
 		ai.self_preservation = randf_range(0.2, 0.7)
+		enemy.add_child(ai)
 
 		if i == 0:
-			# 长机：正常巡逻AI
-			leader_ac = enemy
-			sq.leader = enemy
+			SquadFactory.register_leader(sq, enemy)
 		else:
-			# 僚机：编队跟随
-			ai.squad = sq
-			ai.squad_index = i
-			ai._state = AIController.AIState.SQUAD_FOLLOW
-
-		enemy.add_child(ai)
-		sq.add_member(enemy)
+			SquadFactory.register_wingman(sq, enemy)
 
 	squads.append(sq)
 

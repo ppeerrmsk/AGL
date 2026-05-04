@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="EquipmentPart" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/meta/equipment_part.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"doctrine_bloodlust"
+display_name_key = "EQUIPMENT_DOCTRINE_BLOODLUST_NAME"
+description_key = "EQUIPMENT_DOCTRINE_BLOODLUST_DESC"
+category = &"doctrine"
+icon_color = Color(1.0, 0.30, 0.30, 1)
+slot_cost = 0
+tier = 2
+merit_cost = 120
+unlocks_keywords = PackedStringArray("bloodlust")
+flavor_text_key = "EQUIPMENT_DOCTRINE_BLOODLUST_FLAVOR"

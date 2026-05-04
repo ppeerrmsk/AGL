@@ -46,7 +46,7 @@
 
 ```gdscript
 static func xp_for_level(level: int) -> int:
-    return int(20.0 * pow(level, 1.15))
+    return int(15.0 * pow(level, 1.15))
 ```
 
 每次升级暂停游戏，弹出 3 个随机升级，玩家选 1 个。详见 [survivor_player.gd](../../scripts/survivor/survivor_player.gd)。
@@ -84,74 +84,73 @@ static func xp_for_level(level: int) -> int:
 
 ## 技能图鉴
 
-🟡 = 战区奖励池（不参与随机升级抽卡）
-✅ = 已实现 / ⏳ = 规划中
+**唯一数据源**：[scripts/survivor/survivor_data.gd](../../scripts/survivor/survivor_data.gd) `UPGRADES` 表。
+**翻译**：所有 `name`/`desc` 是翻译 key，文本在 [i18n/translations.csv](../../i18n/translations.csv)，对应列 `UPGRADE_<id>_NAME` / `UPGRADE_<id>_DESC`。
+**应用**：[scripts/survivor/survivor_player.gd](../../scripts/survivor/survivor_player.gd) `apply_upgrade()` 把每条 `id` 翻译成 Aircraft / Params 上的实际字段写入。
+**类别（category）**：`survival` / `mobility` / `electronic_warfare` / `missile` / `secondary`（机炮）/ `weapon`（特殊机制武器，railgun/laser）。
 
-### 生存轴（survival）
+> 词条联动 `CATEGORY_BONUSES`：当前唯一一条规则 — 持有 `electronic_warfare` 类技能数 × 10% → 写入 `Aircraft.category_radar_mult`（雷达加成）。
 
-| id | 效果 | 层数 | 注 |
-|---|---|---|---|
-| `hp_up` | +30 max_hp，每层 +8% 机炮闪避（cap 40%） | 5 | 双轴（HP + 闪避） |
-| `armor_up` | +40 armor（DR 软上限，导弹穿甲 50%） | 4 | 1 层 ≈ 29%/机炮·17%/导弹 |
-| `kill_heal` | 击杀回血 +10 HP | 3 | |
-| `xp_mult` | XP 倍率累加 +20%（硬顶 ×1.4） | 2 | |
-| `shock_absorb` 🟡 | 受 ≥2 dmg 排队回 floor(dmg×0.4) HP；一击致死无效 | 1 | |
+### 全部技能总表（Excel 用）
 
-### 机动轴（mobility）
+下表覆盖代码里全部 41 条 `UPGRADES`。`evolved=true` 标记进入战区奖励池，**不**参与随机抽卡。
 
-| id | 效果 | 层数 | 注 |
-|---|---|---|---|
-| `speed_up` | +18% max_speed，加速跟着涨一半 | 4 | |
-| `maneuver_up` | +25% 转弯能力，每层 +1 G、+0.5 结构 G | 3 | |
-| `dogfight` | -12% 失速速度 + +30% 减速 + +20% G 阻力 + 大角度减速更多 | 3 | 综合格斗 buff |
-| `cobra_skill` 🟡 | 规避模式下被来袭/追尾自动眼镜蛇 | 1 | |
-| `executioner` 🟡 | 不受伤连杀堆层（max 5），每层 +5% 速度 / +10% 减速 / 武器加成；受任意伤害清零 | 1 | |
+| id | name key | category | value (单层) | max_stacks | requires | exclusive_to | requires_skill | evolved | 额外参数 | 简述 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| hp_up | UPGRADE_HP_UP_NAME | survival | 30.0 max_hp | 5 | — | — | — | — | dodge_per_stack=0.08, dodge_cap=0.40 | +30 HP，每层 +8% 机炮闪避，cap 40% |
+| armor_up | UPGRADE_ARMOR_UP_NAME | survival | 40.0 armor | 4 | — | — | — | — | DR=armor/(armor+100)，导弹 50% 穿甲 | 1 层 29% 机炮 / 17% 导弹；4 层 62% / 44% |
+| kill_heal | UPGRADE_KILL_HEAL_NAME | survival | 10.0 HP/kill | 3 | — | — | — | — | — | 击杀回血 |
+| xp_mult | UPGRADE_XP_MULT_NAME | survival | 0.20 (+20%) | 2 | — | — | — | — | xp_cap=1.4 | 累加，硬顶 ×1.4 |
+| shock_absorb | UPGRADE_SHOCK_ABSORB_NAME | survival | 1 (开关) | 1 | — | — | — | ✅ | 回血量 floor(dmg×0.4)，5 HP/秒回填 | 战区奖励；≥2 dmg 触发；一击致死无效 |
+| speed_up | UPGRADE_SPEED_UP_NAME | mobility | 0.18 (+18%) | 4 | — | — | — | — | accel_ratio=0.5 | 加速 = value × 0.5 同步提升 |
+| maneuver_up | UPGRADE_MANEUVER_UP_NAME | mobility | 0.25 (+25%) | 3 | — | — | — | — | max_g_bonus=1.0, structural_g_bonus=0.5 | 每层 +1 G / +0.5 结构 G |
+| dogfight | UPGRADE_DOGFIGHT_NAME | mobility | 1 (开关，按层叠) | 3 | — | — | — | — | stall×0.88, decel×1.3, g_drag×1.2, overshoot×0.97, turn_slow×0.9 | 综合格斗包 |
+| cobra_skill | UPGRADE_COBRA_SKILL_NAME | mobility | 1 (开关) | 1 | — | — | — | ✅ | 给玩家挂 CobraManeuver 子节点 | 战区奖励；规避模式下来袭/追尾自动触发 |
+| executioner | UPGRADE_EXECUTIONER_NAME | mobility | 1 (开关) | 1 | — | — | — | ✅ | 每 2 杀 +1 层（max 5）；每层 speed+5%/decel+10%/reload×0.92/lock×0.90 | 战区奖励；任意伤害清零层数 |
+| flare_cooldown | UPGRADE_FLARE_COOLDOWN_NAME | electronic_warfare | 0.20 (-20%) | 3 | flare | — | — | — | evolves_to=flare_shield（已弃用链） | 热诱弹冷却 |
+| flare_shield | UPGRADE_FLARE_SHIELD_NAME | electronic_warfare | 3.0 (持续秒) | 1 | flare | — | — | ✅ | bonus_flares=2 | 战区奖励；自动护盾 + 赠送 2 枚 |
+| stealth_pod | UPGRADE_STEALTH_POD_NAME | electronic_warfare | 0.35 (×1.35/层) | 3 | — | — | — | — | 累乘：1=×1.35 / 2=×1.82 / 3=×2.46 | 敌人锁定速率除以此倍率 |
+| radar_range | UPGRADE_RADAR_RANGE_NAME | electronic_warfare | 0.20 (+20%) | 3 | — | — | — | — | — | 我方雷达距离 |
+| radar_angle | UPGRADE_RADAR_ANGLE_NAME | electronic_warfare | 0.15 (×1.15/层) | 3 | — | — | — | — | max_deg=90.0 | 雷达锥角度，硬 cap 90° |
+| lock_time | UPGRADE_LOCK_TIME_NAME | electronic_warfare | -0.5 秒/层 | 3 | — | — | — | — | min_lock_time=0.5 | 锁敌时间，地板 0.5 秒 |
+| vapor_dodge | UPGRADE_VAPOR_DODGE_NAME | electronic_warfare | 1 (开关) | 1 | — | — | — | ✅ | altitude_mult=2.0；cloud_lock_stealth=true | 战区奖励；切高度速度 ×2 + 云中 lock_rate ×0.1 |
+| ecm_pod | UPGRADE_ECM_POD_NAME | electronic_warfare | 1 (开关) | 1 | — | — | — | ✅ | range_mult=0.75 | 战区奖励；敌方雷达对我有效距离 ×0.75 |
+| data_link | UPGRADE_DATA_LINK_NAME | electronic_warfare | 0.50 | 1 | — | f14 | — | — | 僚机雷达 ×1.5；锁定共享 | F-14 专属 |
+| missile_count | UPGRADE_MISSILE_COUNT_NAME | missile | 1 弹 | 4 | missile | — | — | — | — | 载弹 +1 |
+| missile_tracking | UPGRADE_MISSILE_TRACKING_NAME | missile | 0.30 (+30%) | 4 | missile | — | — | — | evolves_to=proximity_fuze（弃用） | 跟踪能力 |
+| missile_reload | UPGRADE_MISSILE_RELOAD_NAME | missile | 0.15 (-15%) | 3 | missile | — | — | — | evolves_to=missile_bounce（弃用） | 装填 |
+| missile_boost | UPGRADE_MISSILE_BOOST_NAME | missile | 1 (按层叠) | 3 | missile | — | — | — | cooldown×0.85, burn×1.15, accel×1.10 | 推进强化包 |
+| seeker_fov | UPGRADE_SEEKER_FOV_NAME | missile | 0.20 (×1.20/层) | 3 | missile | — | — | — | max_deg=120.0 | 导引头 FOV，cap 120° |
+| multi_lock | UPGRADE_MULTI_LOCK_NAME | missile | 1 (开关) | 1 | missile | — | — | — | — | 多锁定齐射 |
+| proximity_fuze | UPGRADE_PROXIMITY_FUZE_NAME | missile | 1 (开关) | 1 | missile | — | — | ✅ | — | 战区奖励；近炸引信 AOE |
+| missile_bounce | UPGRADE_MISSILE_BOUNCE_NAME | missile | 1 (开关) | 1 | missile | — | — | ✅ | — | 战区奖励；命中后弹跳至另一敌机 |
+| gun_damage | UPGRADE_GUN_DAMAGE_NAME | secondary | 0.20 (+20%) | 5 | gun | — | — | — | evolves_to=gun_multishot（弃用） | 机炮伤害 |
+| gun_ammo | UPGRADE_GUN_AMMO_NAME | secondary | 100 发 | 5 | gun | — | — | — | — | 备弹 |
+| gun_reload | UPGRADE_GUN_RELOAD_NAME | secondary | 0.15 (-15%) | 3 | gun | — | — | — | — | 装填 |
+| gun_firerate | UPGRADE_GUN_FIRERATE_NAME | secondary | 0.25 (+25%) | 4 | gun | — | — | — | — | 射速 |
+| gun_range | UPGRADE_GUN_RANGE_NAME | secondary | 0.20 (+20%) | 4 | gun | — | — | — | evolves_to=gun_ciws（弃用） | 射程 |
+| gun_accuracy | UPGRADE_GUN_ACCURACY_NAME | secondary | 0.20 (×0.80/层) | 4 | gun | — | — | — | min_deg=0.1, aim_skill_boost=0.18 | 散布累乘，地板 0.1°；飞行员 aim +0.18/层 |
+| aim_assist | UPGRADE_AIM_ASSIST_NAME | secondary | 0.25 (×1.25/层) | 3 | gun | — | — | — | max_deg=45.0 | 自动开火扇区，cap 45° |
+| gun_multishot | UPGRADE_GUN_MULTISHOT_NAME | secondary | 2 弹 | 1 | gun | — | — | ✅ | — | 战区奖励；一次发射 +2 弹 |
+| gun_ciws | UPGRADE_GUN_CIWS_NAME | secondary | 1 (开关) | 1 | gun | — | — | ✅ | — | 战区奖励；自动 CIWS 拦截来袭导弹 |
+| gun_kill_fear | UPGRADE_GUN_KILL_FEAR_NAME | secondary | 1.0 (按层叠) | 3 | gun | — | — | — | 半径固定 2km；持续 1=4s / 2=7s / 3=10s | 机炮击杀 AOE 注入恐惧 stress |
+| fear_squad_spread | UPGRADE_FEAR_SQUAD_SPREAD_NAME | secondary | 8.0 秒 | 1 | — | — | — | — | 自身就是恐惧源（无前置） | 给同小队成员施加恐惧 |
+| fear_chills | UPGRADE_FEAR_CHILLS_NAME | secondary | 1.0 (开关) | 1 | — | — | gun_kill_fear / fear_squad_spread | — | 修饰恐惧效果（任一恐惧源即可） | 配合恐惧附加效果 |
+| railgun_charge | UPGRADE_RAILGUN_CHARGE_NAME | weapon | 0.20 (-20%) | 3 | railgun | — | — | — | — | 电磁炮充能时间，X-02 专属硬件 |
+| railgun_range | UPGRADE_RAILGUN_RANGE_NAME | weapon | 500.0 米/层 | 3 | railgun | — | — | — | — | 电磁炮射程 |
+| railgun_damage | UPGRADE_RAILGUN_DAMAGE_NAME | weapon | 0.25 (+25%) | 3 | railgun | — | — | — | — | 电磁炮伤害 |
+| laser_cooldown | UPGRADE_LASER_COOLDOWN_NAME | weapon | 0.25 (-25%) | 3 | laser | — | — | — | — | 激光过热冷却 |
+| laser_range | UPGRADE_LASER_RANGE_NAME | weapon | 0.20 (+20%) | 3 | laser | — | — | — | — | 激光射程 |
+| laser_heat | UPGRADE_LASER_HEAT_NAME | weapon | 0.30 (+30%) | 3 | laser | — | — | — | — | 激光过热容量 |
 
-### 电子战轴（electronic_warfare）
+> 注：`evolves_to` 字段在代码里仍残留（运行时不再走进化链），不要依赖；新技能不要再加。`requires` 走 `AircraftParams.has_equipment_of_kind()`，等价于"主角装备表里要有 gun/missile/flare/rocket/railgun/laser"。`exclusive_to` 限定 PlayableAircraft.id。`requires_skill` 至少持有列表内任一即可。
 
-| id | 效果 | 层数 | 注 |
-|---|---|---|---|
-| `flare_cooldown` | -20% 热诱弹冷却 | 3 | |
-| `flare_shield` 🟡 | 自动护盾 + 赠送 2 枚热诱弹 | 1 | |
-| `stealth_pod` | 敌人锁定速率 ÷1.35 / ÷1.82 / ÷2.46 | 3 | |
-| `radar_range` | +20% 雷达距离 | 3 | |
-| `radar_angle` | +15% 雷达锥角度（cap 90°） | 3 | |
-| `lock_time` | -0.5s 锁定时间（地板 0.5s） | 3 | |
-| `vapor_dodge` 🟡 | 切高度速度 ×2 + 云中 lock_rate ×0.1 | 1 | |
-| `ecm_pod` 🟡 | 敌方雷达对我有效距离 ×0.75 | 1 | |
+### 数值字段语义提示（Excel 公式参考）
 
-### 导弹轴（missile）
-
-需要 `requires: ["missile"]`，无导弹的主角不会 roll 到。
-
-| id | 效果 | 层数 | 注 |
-|---|---|---|---|
-| `missile_count` | +1 载弹 | 4 | |
-| `missile_tracking` | +30% 跟踪 | 4 | |
-| `missile_reload` | -15% 装填 | 3 | |
-| `missile_boost` | -15% cooldown / +15% 燃烧时间 / +10% 加速 | 3 | |
-| `seeker_fov` | +20% 导引头 FOV（cap 120°） | 3 | |
-| `multi_lock` | 多锁定齐射 | 1 | |
-| `proximity_fuze` 🟡 | 近炸引信 AOE | 1 | |
-| `missile_bounce` 🟡 | 连锁弹头（命中后弹跳至另一敌机） | 1 | |
-| `fire_and_forget` 🟡 | 发射后无需照射，可立刻转向 | 1 | |
-
-### 副武器轴（secondary，机炮系）
-
-需要 `requires: ["gun"]`。
-
-| id | 效果 | 层数 | 注 |
-|---|---|---|---|
-| `gun_damage` | +20% 机炮伤害 | 5 | |
-| `gun_ammo` | +100 备弹 | 5 | |
-| `gun_reload` | -15% 装填 | 3 | |
-| `gun_firerate` | +25% 射速 | 4 | |
-| `gun_range` | +20% 射程 | 4 | |
-| `gun_accuracy` | -20% 散布（地板 0.1°）+ 飞行员 aim_skill +0.18/层 | 4 | |
-| `aim_assist` | +25% 开火扇区（cap 45°） | 3 | |
-| `gun_kill_fear` ✅ | 机炮击杀 AOE 注入恐惧 stress（每层 +800px 半径，满级 2400px） | 3 | 心理战已实装的代表作 |
-| `gun_multishot` 🟡 | 一次发射 +2 弹 | 1 | |
-| `gun_ciws` 🟡 | 自动 CIWS 拦截来袭导弹 | 1 | |
+- **比例字段**（speed_up / xx_cooldown / xx_damage 等）：`value` 是单层 fraction，多层一般"线性累加"或"乘性累乘"，看 max_stacks 旁的 `mult/累加` 注释；像 `stealth_pod` 是按 `(1+value)^stacks` 累乘。
+- **绝对字段**（hp_up / armor_up / gun_ammo / kill_heal / missile_count 等）：`value` 是单层加量，乘上 stacks 即总加成。
+- **开关型**（multi_lock / cobra_skill / proximity_fuze 等）：`value=1` 仅作占位，效果在 `apply_upgrade()` 里硬编码。
+- **cap 字段**（`max_deg` / `xp_cap` / `min_deg` / `min_lock_time` / `dodge_cap`）：与 `value` 同列，是最终结果硬上下限。
 
 ---
 
@@ -159,7 +158,7 @@ static func xp_for_level(level: int) -> int:
 
 打通战区任务发放，**不**进入常规升级池。当前清单：
 
-`shock_absorb` / `executioner` / `vapor_dodge` / `ecm_pod` / `fire_and_forget` / `flare_shield` / `proximity_fuze` / `missile_bounce` / `gun_multishot` / `gun_ciws`
+`shock_absorb` / `executioner` / `vapor_dodge` / `ecm_pod` / `flare_shield` / `proximity_fuze` / `missile_bounce` / `gun_multishot` / `gun_ciws`
 
 新技能要进战区池：`evolved: true` + 在战区奖励发放代码里挂上挑选权重。
 
@@ -178,6 +177,7 @@ static func xp_for_level(level: int) -> int:
 **几何判据**（双方当帧 heading 几何）：
 - `head_on_dot = -victim_fwd · to_victim > 0.6`（受害者机头朝攻击者，夹角 ≲ 53°）
 - `attacker_aim = attacker_fwd · to_victim > 0.6`（攻击者机头朝受害者，夹角 ≲ 53°）
+- **距离 ≤ 3km**（`SkillHooks.HEAD_ON_RANGE_PX = 1500px`）—— 远距 BVR 几何巧合不算对冲冲锋
 
 **实现**：
 - 归因层：[aircraft.gd](../../scripts/aircraft.gd) `_record_kill_attribution()`

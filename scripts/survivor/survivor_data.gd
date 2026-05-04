@@ -3,6 +3,56 @@ extends RefCounted
 
 ## 生存模式静态数据：敌人波次、升级定义、经验曲线
 
+# ── 性能开关（VLS / CSG BOSS 战导弹优化，详见 docs/changelogs/2026-04-29-missile-perf.md）
+## 让 MissileManager 每帧建一份 (target / source-lock / cloud) 共享快照，
+## 同源同目标的群弹（尤其 VLS 齐射 8~13 枚）共用查询结果，减少冗余 I/O
+const ENABLE_MISSILE_FRAME_SNAPSHOT: bool = true
+## VLS 齐射弹 phase 0(垂直爬升) / phase 1(过渡转向) 是确定性弹道 → 20Hz tick 即可
+## phase 2 (TERMINAL) 立刻恢复 60Hz PN，不影响末端制导精度
+const ENABLE_VLS_LOW_RATE_TICK: bool = true
+## BulletManager 帧级共享缓存：CSG BOSS 战 12 CIWS × ~22 子弹/CIWS 在飞 → 减子弹 × 单位的
+## 子节点遍历（get_maneuver / get_herbst）开销 + CIWS 子弹查导弹时只查共享列表
+const ENABLE_BULLET_FRAME_CACHE: bool = true
+
+# ── §5 稀有度系统 ─────────────────────────────────────────
+## 5 档稀有度（粗调初版，后续按手感调）：
+## STABLE        — 纯数值轻微提升（+5% 转弯率 / +1 max_hp 类）
+## ADVANCED      — 数值显著提升 + 简单触发
+## EXPERIMENTAL  — 解锁一个新战术维度（眼镜蛇 / 对头闪避 / 云中超载）
+## CLASSIFIED    — 跨系统强联动（对头大范围恐惧 / 云中武器 cd 翻倍）
+## NEXT_GEN      — 改变战斗节奏 / 颠覆性（导弹齐射全打 / evasion 隐身）
+enum Rarity { STABLE, ADVANCED, EXPERIMENTAL, CLASSIFIED, NEXT_GEN }
+
+const RARITY_LABEL_KEYS: Array[String] = [
+	"RARITY_STABLE", "RARITY_ADVANCED", "RARITY_EXPERIMENTAL", "RARITY_CLASSIFIED", "RARITY_NEXT_GEN",
+]
+
+const RARITY_COLORS: Array[Color] = [
+	Color(0.85, 0.85, 0.85),  ## STABLE        — 灰白
+	Color(0.40, 0.75, 1.00),  ## ADVANCED      — 蓝
+	Color(0.85, 0.50, 1.00),  ## EXPERIMENTAL  — 紫
+	Color(1.00, 0.78, 0.20),  ## CLASSIFIED    — 金
+	Color(1.00, 0.30, 0.30),  ## NEXT_GEN      — 红
+]
+
+## 抽卡基础权重（5 槽相对概率，未应用 pity / steering 前）
+## 每升一级 normalize 后乘 keyword_steering_mult；高稀有未出 pity 累加见 _pick_3_upgrades
+const RARITY_BASE_WEIGHT: Array[float] = [
+	0.50,   # STABLE
+	0.25,   # ADVANCED
+	0.15,   # EXPERIMENTAL
+	0.08,   # CLASSIFIED
+	0.02,   # NEXT_GEN
+]
+
+## Pity 阈值：连续 N 次升级未出该档则下次保底必出
+## advanced 不设 pity（base 25% 足够），exp/cla/next 强保底
+const PITY_THRESHOLD: Dictionary = {
+	Rarity.EXPERIMENTAL: 5,
+	Rarity.CLASSIFIED: 8,
+	Rarity.NEXT_GEN: 12,
+}
+
 # ── 升级定义 ─────────────────────────────────────────────
 # 每种升级直接修改 Aircraft 的 params（AircraftParams / GunParams / MissileParams）
 #
@@ -11,15 +61,20 @@ extends RefCounted
 # category: "combat" = 战斗轴, "survival" = 生存轴
 #
 # 可选字段：
-#   evolved: true = 进化技能，不出现在随机池中，由基础技能满级自动触发
-#   evolves_to: "xxx" = 满级后自动进化为指定技能
+#   rarity: Rarity 枚举（默认 STABLE）— §5 抽卡分槽 + UI 染色用
+#   keywords: Array[String] — §7 流派引导关键词（如 ["fear","head_on"]）；纯数值技能可不挂
+#   evolved: true = 进化技能，不出现在随机池中，由基础技能满级自动触发（§4 后已弃用）
+#   evolves_to: "xxx" = 满级后自动进化为指定技能（仍保留旧链）
 #   requires: 数组 — 飞机必须具备的硬件标签才能获得此升级
 #               可选值: "gun" / "missile" / "flare" / "rocket"
 #               例：["gun"] 表示无机炮的飞机不会出现该升级
 #               留空 = 无硬件要求
+#   requires_skill: Array[String] — §6 前置链；至少持有列表中一个技能（stacks>0）才解锁
 #   exclusive_to: 数组 — 仅允许指定的 PlayableAircraft.id 获得（专属升级）
 #               例：["f14"] 表示只有 F-14 主角能 roll 到
 #               留空 = 通用升级，所有飞机可获取
+#   excludes: Array[String] — 互斥技能；列表中任一技能 stacks>0 时，本升级不再出现在抽卡池
+#               例：cobra_skill ↔ evasion_herbst（激活条件相同，二选一）
 #
 # 技能可用性判定见 SurvivorData.is_upgrade_available_for()
 
@@ -30,44 +85,49 @@ const UPGRADES: Array[Dictionary] = [
 		"name": "UPGRADE_HP_UP_NAME",
 		"desc": "UPGRADE_HP_UP_DESC",
 		"stat": "max_hp",
-		"value": 30.0,
-		"max_stacks": 5,
+		"value": 80.0,             ## 单层 +80 HP（C2 重构：从 5×30 → 1×80，特化加成）
+		"max_stacks": 1,
 		"category": "survival",
-		"dodge_per_stack": 0.08,   ## 每层 +8% 机炮闪避
-		"dodge_cap": 0.40,         ## 机炮闪避上限
+		"rarity": Rarity.STABLE,
+		"keywords": ["hp"],
+	},
+	{
+		"id": "bullet_dodge",
+		"name": "UPGRADE_BULLET_DODGE_NAME",
+		"desc": "UPGRADE_BULLET_DODGE_DESC",
+		"stat": "bullet_dodge_flat",
+		"value": 0.20,             ## 每层 +20% 机炮闪避（全局 cap MAX_BULLET_DODGE_CAP=0.85 兜底）
+		"max_stacks": 2,
+		"category": "survival",
+		"rarity": Rarity.STABLE,
+		"keywords": ["dodge"],
 	},
 	{
 		"id": "speed_up",
 		"name": "UPGRADE_SPEED_UP_NAME",
 		"desc": "UPGRADE_SPEED_UP_DESC",
 		"stat": "speed",
-		"value": 0.18,
-		"max_stacks": 4,
+		"value": 0.30,             ## C2 重构：1×30% max_speed（原 4×18%），accel 同步 +20%
+		"max_stacks": 1,
 		"category": "mobility",
-		"accel_ratio": 0.5,        ## 加速提升 = value × 此值
+		"rarity": Rarity.STABLE,
+		"keywords": ["speed"],
+		"accel_ratio": 0.667,      ## 加速提升 = value × 此值（0.30 × 0.667 ≈ 0.20）
 	},
 	{
 		"id": "maneuver_up",
 		"name": "UPGRADE_MANEUVER_UP_NAME",
 		"desc": "UPGRADE_MANEUVER_UP_DESC",
 		"stat": "maneuver",
-		"value": 0.25,
-		"max_stacks": 3,
+		"value": 0.45,             ## C2 重构：1×45% roll（原 3×25%）+ +2.5 G 持续 + +2.5 结构
+		"max_stacks": 1,
 		"category": "mobility",
-		"max_g_bonus": 1.0,        ## 每层 +1.0 G
-		"structural_g_bonus": 0.5, ## 每层 +0.5 结构 G
+		"rarity": Rarity.STABLE,
+		"keywords": ["maneuver"],
+		"max_g_bonus": 2.5,
+		"structural_g_bonus": 2.5,
 	},
-	{
-		"id": "flare_cooldown",
-		"name": "UPGRADE_FLARE_COOLDOWN_NAME",
-		"desc": "UPGRADE_FLARE_COOLDOWN_DESC",
-		"stat": "flare_cooldown",
-		"value": 0.20,
-		"max_stacks": 3,
-		"category": "electronic_warfare",
-		"evolves_to": "flare_shield",
-		"requires": ["flare"],
-	},
+	## flare_cooldown 已删除（C2：迁移到局外配件 ecm_t2/ecm_aegis_t3）
 	{
 		"id": "flare_shield",
 		"name": "UPGRADE_FLARE_SHIELD_NAME",
@@ -76,7 +136,9 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 3.0,
 		"max_stacks": 1,
 		"category": "electronic_warfare",
-		"evolved": true,
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["flare"],
+		# evolved 字段已弃用（§4 战区奖励降级；后续按战区映射注册）
 		"requires": ["flare"],
 		"bonus_flares": 2,         ## 额外赠送热诱弹数
 	},
@@ -85,29 +147,16 @@ const UPGRADES: Array[Dictionary] = [
 		"name": "UPGRADE_ARMOR_UP_NAME",
 		"desc": "UPGRADE_ARMOR_UP_DESC",
 		"stat": "armor",
-		"value": 40.0,             ## 每层 +40 armor（DR 软上限，100=50%，200=66.7%）
-		"max_stacks": 4,
+		"value": 120.0,            ## C2 重构：1 层 +120（原 4×40 总 160；现单层 ≈ 原 3 层效果）
+		"max_stacks": 1,
 		"category": "survival",
-		## 公式在 aircraft.gd _apply_armor：dr = armor / (armor + 100)
+		"rarity": Rarity.STABLE,
+		"keywords": ["armor"],
+		## 公式 aircraft.gd _apply_armor：dr = armor / (armor + 100)
 		## 导弹穿甲 50%（MISSILE_ARMOR_PENETRATION=0.5），机炮全额生效
-		## 1 层=40 → 29%/机炮 17%/导弹
-		## 2 层=80 → 44%/机炮 29%/导弹
-		## 3 层=120 → 55%/机炮 38%/导弹
-		## 4 层=160 → 62%/机炮 44%/导弹
+		## 120 armor → 55%/机炮 38%/导弹
 	},
-	{
-		"id": "stealth_pod",
-		"name": "UPGRADE_STEALTH_POD_NAME",
-		"desc": "UPGRADE_STEALTH_POD_DESC",
-		"stat": "lock_resistance",
-		"value": 0.35,             ## 每层 lock_resistance_mult ×1.35
-		"max_stacks": 3,
-		"category": "electronic_warfare",
-		## 敌人锁定速率 ÷ lock_resistance_mult
-		## 1 层 ×1.35 → 敌人要 35% 更长时间锁定
-		## 2 层 ×1.82 → 82% 更长
-		## 3 层 ×2.46 → 146% 更长
-	},
+	## stealth_pod 已删除（C2：迁移到配件 ecm_t2/ecm_aegis_t3 的 lock_resistance）
 	{
 		"id": "kill_heal",
 		"name": "UPGRADE_KILL_HEAL_NAME",
@@ -116,6 +165,8 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 10.0,
 		"max_stacks": 3,
 		"category": "survival",
+		"rarity": Rarity.ADVANCED,
+		"keywords": ["heal", "kill"],
 	},
 	# ── 战斗轴 ──
 	{
@@ -123,22 +174,14 @@ const UPGRADES: Array[Dictionary] = [
 		"name": "UPGRADE_MISSILE_COUNT_NAME",
 		"desc": "UPGRADE_MISSILE_COUNT_DESC",
 		"stat": "missile_count",
-		"value": 1,
-		"max_stacks": 4,
+		"value": 2,                ## C2 重构：1×+2（主+副槽各 +2，与自然成长叠加）
+		"max_stacks": 1,
 		"category": "missile",
+		"rarity": Rarity.ADVANCED,
+		"keywords": ["missile"],
 		"requires": ["missile"],
 	},
-	{
-		"id": "missile_tracking",
-		"name": "UPGRADE_MISSILE_TRACKING_NAME",
-		"desc": "UPGRADE_MISSILE_TRACKING_DESC",
-		"stat": "missile_tracking",
-		"value": 0.30,
-		"max_stacks": 4,
-		"category": "missile",
-		"evolves_to": "proximity_fuze",
-		"requires": ["missile"],
-	},
+	## missile_tracking 已删除（C2：迁移到配件 missile_track_t1/t2/apex_t3 的 G/FOV）
 	{
 		"id": "proximity_fuze",
 		"name": "UPGRADE_PROXIMITY_FUZE_NAME",
@@ -147,7 +190,9 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 1,
 		"max_stacks": 1,
 		"category": "missile",
-		"evolved": true,
+		"rarity": Rarity.CLASSIFIED,
+		"keywords": ["missile", "swarm"],
+		# evolved 字段已弃用（§4 战区奖励降级；后续按战区映射注册）
 		"requires": ["missile"],
 	},
 	{
@@ -158,39 +203,37 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 1,
 		"max_stacks": 1,
 		"category": "missile",
-		"evolved": true,
+		"rarity": Rarity.CLASSIFIED,
+		"keywords": ["missile", "chain"],
+		# evolved 字段已弃用（§4 战区奖励降级；后续按战区映射注册）
 		"requires": ["missile"],
 	},
+	## missile_reload 已删除（C2：迁移到配件 missile_apex_t3 的 reload×0.7）
 	{
-		"id": "missile_reload",
-		"name": "UPGRADE_MISSILE_RELOAD_NAME",
-		"desc": "UPGRADE_MISSILE_RELOAD_DESC",
-		"stat": "missile_reload",
-		"value": 0.15,
-		"max_stacks": 3,
-		"category": "missile",
-		"evolves_to": "missile_bounce",
-		"requires": ["missile"],
-	},
-	{
-		"id": "multi_lock",
-		"name": "UPGRADE_MULTI_LOCK_NAME",
-		"desc": "UPGRADE_MULTI_LOCK_DESC",
-		"stat": "multi_lock",
-		"value": 1,
+		"id": "missile_swarm",
+		"name": "UPGRADE_MISSILE_SWARM_NAME",
+		"desc": "UPGRADE_MISSILE_SWARM_DESC",
+		"stat": "missile_swarm",
+		"value": 4,                 ## max_count +4
 		"max_stacks": 1,
 		"category": "missile",
+		"rarity": Rarity.NEXT_GEN,
+		"keywords": ["missile", "swarm"],
 		"requires": ["missile"],
+		## 解锁同时锁定 + 齐射；负面效果：导弹 max_g ×0.85（轻微追踪减劣，弹群压火力不靠精度）
+		"tracking_penalty": 0.85,
 	},
 	{
 		"id": "gun_damage",
 		"name": "UPGRADE_GUN_DAMAGE_NAME",
 		"desc": "UPGRADE_GUN_DAMAGE_DESC",
 		"stat": "gun_damage",
-		"value": 0.20,
-		"max_stacks": 5,
+		"value": 0.55,             ## C2 重构：1×55%（原 5×20% 累乘 = ×2.49；现单层 ×1.55）
+		"max_stacks": 1,
 		"category": "secondary",
-		"evolves_to": "gun_multishot",
+		"rarity": Rarity.STABLE,
+		"keywords": ["gun"],
+		## evolves_to 已移除：max_stacks=1 时拿到即触发会白送 multishot；multishot 已独立在池中
 		"requires": ["gun"],
 	},
 	{
@@ -201,50 +244,13 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 2,
 		"max_stacks": 1,
 		"category": "secondary",
-		"evolved": true,
+		"rarity": Rarity.CLASSIFIED,
+		"keywords": ["gun", "swarm"],
+		# evolved 字段已弃用（§4 战区奖励降级；后续按战区映射注册）
 		"requires": ["gun"],
 	},
-	{
-		"id": "gun_ammo",
-		"name": "UPGRADE_GUN_AMMO_NAME",
-		"desc": "UPGRADE_GUN_AMMO_DESC",
-		"stat": "gun_ammo",
-		"value": 100,
-		"max_stacks": 5,
-		"category": "secondary",
-		"requires": ["gun"],
-	},
-	{
-		"id": "gun_reload",
-		"name": "UPGRADE_GUN_RELOAD_NAME",
-		"desc": "UPGRADE_GUN_RELOAD_DESC",
-		"stat": "gun_reload",
-		"value": 0.15,
-		"max_stacks": 3,
-		"category": "secondary",
-		"requires": ["gun"],
-	},
-	{
-		"id": "gun_firerate",
-		"name": "UPGRADE_GUN_FIRERATE_NAME",
-		"desc": "UPGRADE_GUN_FIRERATE_DESC",
-		"stat": "gun_firerate",
-		"value": 0.25,
-		"max_stacks": 4,
-		"category": "secondary",
-		"requires": ["gun"],
-	},
-	{
-		"id": "gun_range",
-		"name": "UPGRADE_GUN_RANGE_NAME",
-		"desc": "UPGRADE_GUN_RANGE_DESC",
-		"stat": "gun_range",
-		"value": 0.20,
-		"max_stacks": 4,
-		"category": "secondary",
-		"evolves_to": "gun_ciws",
-		"requires": ["gun"],
-	},
+	## gun_ammo / gun_reload / gun_firerate / gun_range 已删除（C2：全部迁移到配件
+	## gun_dmg_t1 / gun_combat_t2 / gun_assault_t3）
 	{
 		"id": "gun_ciws",
 		"name": "UPGRADE_GUN_CIWS_NAME",
@@ -253,39 +259,37 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 1,
 		"max_stacks": 1,
 		"category": "secondary",
-		"evolved": true,
+		"rarity": Rarity.CLASSIFIED,
+		"keywords": ["gun", "ciws"],
+		# evolved 字段已弃用（§4 战区奖励降级；后续按战区映射注册）
 		"requires": ["gun"],
 	},
 	{
-		"id": "gun_kill_fear",
-		"name": "UPGRADE_GUN_KILL_FEAR_NAME",
-		"desc": "UPGRADE_GUN_KILL_FEAR_DESC",
-		"stat": "gun_kill_fear",
-		"value": 1.0,
-		"max_stacks": 3,
+		"id": "fear_squad_spread",
+		"name": "UPGRADE_FEAR_SQUAD_SPREAD_NAME",
+		"desc": "UPGRADE_FEAR_SQUAD_SPREAD_DESC",
+		"stat": "fear_squad_spread",
+		"value": 10.0,                ## 给同小队成员施加 FEAR 的持续时间（秒）
+		"max_stacks": 1,
 		"category": "secondary",
-		"requires": ["gun"],
-		"radius_per_stack": 800.0,  ## 每层 +800px 半径（满级 3 层 = 2400px）
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["fear"],
+		## 自身就是"能施加恐惧的技能"，不需要前置
 	},
 	{
-		"id": "radar_range",
-		"name": "UPGRADE_RADAR_RANGE_NAME",
-		"desc": "UPGRADE_RADAR_RANGE_DESC",
-		"stat": "radar_range",
-		"value": 0.20,
-		"max_stacks": 3,
-		"category": "electronic_warfare",
+		"id": "fear_chills",
+		"name": "UPGRADE_FEAR_CHILLS_NAME",
+		"desc": "UPGRADE_FEAR_CHILLS_DESC",
+		"stat": "fear_chills",
+		"value": 1.0,
+		"max_stacks": 1,
+		"category": "secondary",
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["fear", "slow"],
+		## 修饰恐惧效果 → 必须先持有任意"能施加恐惧的"技能
+		"requires_skill": ["fear_squad_spread", "skill_gun_kill_fear", "skill_head_on_aoe_fear"],
 	},
-	{
-		"id": "lock_time",
-		"name": "UPGRADE_LOCK_TIME_NAME",
-		"desc": "UPGRADE_LOCK_TIME_DESC",
-		"stat": "lock_time",
-		"value": -0.5,
-		"max_stacks": 3,
-		"category": "electronic_warfare",
-		"min_lock_time": 0.5,      ## 锁定时间不低于此值（秒）
-	},
+	## radar_range / lock_time 已删除（C2：迁移到配件 radar_range_t1/radar_combat_t2/radar_aegis_t3）
 	{
 		"id": "dogfight",
 		"name": "UPGRADE_DOGFIGHT_NAME",
@@ -294,6 +298,8 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 1,
 		"max_stacks": 3,
 		"category": "mobility",
+		"rarity": Rarity.ADVANCED,
+		"keywords": ["maneuver", "dogfight"],
 		"stall_speed_mult": 0.88,           ## -12% 失速速度
 		"decel_mult": 1.3,                  ## +30% 减速
 		"g_drag_mult": 1.2,                 ## +20% G 力阻力
@@ -308,6 +314,9 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 1,
 		"max_stacks": 1,
 		"category": "mobility",
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["evasion_mode", "cobra"],
+		"excludes": ["evasion_herbst"],   ## 与危机赫尔贝特互斥（激活条件相同）
 		## 单层；规避模式下被来袭导弹/后方追尾自动触发眼镜蛇机动
 		## 实现：apply_upgrade 时给玩家挂 CobraManeuver 子节点 + 设 cobra_skill_active=true
 		## 触发与冷却逻辑见 aircraft.gd._update_cobra_skill
@@ -320,30 +329,12 @@ const UPGRADES: Array[Dictionary] = [
 		"stat": "xp_mult",
 		"value": 0.20,             ## 每层累加 +20%，2 层上限 +40%
 		"max_stacks": 2,
-		"category": "survival",
+		"category": "electronic_warfare",
+		"rarity": Rarity.STABLE,
+		"keywords": ["xp"],
 		"xp_cap": 1.4,             ## 硬顶 ×1.4
 	},
-	{
-		"id": "radar_angle",
-		"name": "UPGRADE_RADAR_ANGLE_NAME",
-		"desc": "UPGRADE_RADAR_ANGLE_DESC",
-		"stat": "radar_angle",
-		"value": 0.15,             ## 每层 ×1.15
-		"max_stacks": 3,
-		"category": "electronic_warfare",
-		"max_deg": 90.0,           ## 硬 cap 90°
-	},
-	{
-		"id": "seeker_fov",
-		"name": "UPGRADE_SEEKER_FOV_NAME",
-		"desc": "UPGRADE_SEEKER_FOV_DESC",
-		"stat": "seeker_fov",
-		"value": 0.20,             ## 每层 ×1.20
-		"max_stacks": 3,
-		"category": "missile",
-		"requires": ["missile"],
-		"max_deg": 120.0,          ## 硬 cap 120°
-	},
+	## radar_angle / seeker_fov 已删除（C2：迁移到配件 radar_aegis_t3 / missile_seeker_t2/apex_t3）
 	{
 		"id": "gun_accuracy",
 		"name": "UPGRADE_GUN_ACCURACY_NAME",
@@ -352,6 +343,8 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 0.20,             ## 每层 spread ×(1-value)=×0.80
 		"max_stacks": 4,
 		"category": "secondary",
+		"rarity": Rarity.STABLE,
+		"keywords": ["gun"],
 		"requires": ["gun"],
 		"min_deg": 0.1,            ## 散布下限 0.1°
 		"aim_skill_boost": 0.18,   ## 每层飞行员 aim_skill +0.18，4 层 = +0.72（基础 0.3 → 1.02 cap 1.0）
@@ -364,6 +357,8 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 0.25,             ## 每层 fire_cone ×1.25
 		"max_stacks": 3,
 		"category": "secondary",
+		"rarity": Rarity.STABLE,
+		"keywords": ["gun"],
 		"requires": ["gun"],
 		"max_deg": 45.0,
 	},
@@ -375,6 +370,8 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 1,
 		"max_stacks": 3,
 		"category": "missile",
+		"rarity": Rarity.ADVANCED,
+		"keywords": ["missile"],
 		"requires": ["missile"],
 		"cooldown_mult": 0.85,     ## 每层 cooldown ×0.85
 		"burn_mult": 1.15,         ## 每层 motor_burn_time ×1.15
@@ -389,7 +386,9 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 1,
 		"max_stacks": 1,
 		"category": "electronic_warfare",
-		"evolved": true,
+		"rarity": Rarity.CLASSIFIED,
+		"keywords": ["cloud", "altitude", "stealth"],
+		# evolved 字段已弃用（§4 战区奖励降级；后续按战区映射注册）
 		## 效果两件套：
 		##   ① altitude_authority_mult ×2.0 — 切档速度翻倍（LOW↔HIGH 约 45s → 20s）
 		##   ② cloud_lock_stealth = true — 云中任意档位 lock_rate ×0.1
@@ -403,23 +402,15 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 1,
 		"max_stacks": 1,
 		"category": "electronic_warfare",
-		"evolved": true,
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["radar", "stealth"],
+		# evolved 字段已弃用（§4 战区奖励降级；后续按战区映射注册）
 		## 效果：ecm_range_mult = 0.75 — 敌方雷达对我的有效距离缩短 25%
 		## 在 main.gd / survivor_mode.gd 的雷达循环中，若 dist > radar_range × 此值 则视同脱锥
 		"range_mult": 0.75,
 	},
-	{
-		"id": "fire_and_forget",
-		"name": "UPGRADE_FIRE_AND_FORGET_NAME",
-		"desc": "UPGRADE_FIRE_AND_FORGET_DESC",
-		"stat": "fire_and_forget",
-		"value": 1,
-		"max_stacks": 1,
-		"category": "missile",
-		"evolved": true,
-		"requires": ["missile"],
-		## 效果：params.missile.fire_and_forget = true，发射后无需照射，玩家可立刻转向
-	},
+	# fire_and_forget 升级已废除（2026-04-29）：下放为玩家飞机标配。
+	# 见 survivor_playable_setup.gd `apply()` 末段的导弹处理。
 	{
 		"id": "shock_absorb",
 		"name": "UPGRADE_SHOCK_ABSORB_NAME",
@@ -428,7 +419,9 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 1,
 		"max_stacks": 1,
 		"category": "survival",
-		"evolved": true,
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["heal"],
+		# evolved 字段已弃用（§4 战区奖励降级；后续按战区映射注册）
 		## 效果：受到 ≥2 dmg 时排队回复 floor(dmg × 0.4) HP（5 HP/秒慢速回填）
 		## 一击致死无效（必死）；1 dmg 自然 floor=0 不回血
 	},
@@ -440,7 +433,9 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 1,
 		"max_stacks": 1,
 		"category": "mobility",
-		"evolved": true,
+		"rarity": Rarity.CLASSIFIED,
+		"keywords": ["kill", "streak"],
+		# evolved 字段已弃用（§4 战区奖励降级；后续按战区映射注册）
 		## 效果：连续不受伤击杀，每 2 杀 +1 层（max 5 层）
 		## 每层加成（详见 aircraft.gd _executioner_*_mult）：
 		##   max_speed +5%、deceleration +10%、missile_reload ×0.92、lock_time ×0.90
@@ -455,6 +450,8 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 0.20,
 		"max_stacks": 3,
 		"category": "weapon",
+		"rarity": Rarity.ADVANCED,
+		"keywords": ["railgun"],
 		"requires": ["railgun"],
 	},
 	{
@@ -465,6 +462,8 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 500.0,
 		"max_stacks": 3,
 		"category": "weapon",
+		"rarity": Rarity.STABLE,
+		"keywords": ["railgun"],
 		"requires": ["railgun"],
 	},
 	{
@@ -475,6 +474,8 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 0.25,
 		"max_stacks": 3,
 		"category": "weapon",
+		"rarity": Rarity.ADVANCED,
+		"keywords": ["railgun"],
 		"requires": ["railgun"],
 	},
 	# ── X-02 专属：激光照射 ────────────────────────────────────
@@ -486,6 +487,8 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 0.25,
 		"max_stacks": 3,
 		"category": "weapon",
+		"rarity": Rarity.ADVANCED,
+		"keywords": ["laser"],
 		"requires": ["laser"],
 	},
 	{
@@ -496,6 +499,8 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 0.20,
 		"max_stacks": 3,
 		"category": "weapon",
+		"rarity": Rarity.STABLE,
+		"keywords": ["laser"],
 		"requires": ["laser"],
 	},
 	{
@@ -506,9 +511,606 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 0.30,
 		"max_stacks": 3,
 		"category": "weapon",
+		"rarity": Rarity.ADVANCED,
+		"keywords": ["laser"],
 		"requires": ["laser"],
 	},
+	# ══════════════════════════════════════════════════════════════
+	# §1.4 样例技能：钩子链验证用（5 张，覆盖 ADV/EXP/CLA 三档稀有度）
+	# 这些技能的 id 与 SkillHooks 中的 SKILL_* 常量一一对应
+	# 实际效果由 SkillHooks.dispatch_on_kill / dispatch_on_hit 触发，stat 字段仅占位
+	# ══════════════════════════════════════════════════════════════
+	# ── §1.2 Evasion 模式扩展（直接写 evasion_modifiers，set_evasion_mode 切换时差量应用）──
+	{
+		"id": "evasion_overstock",
+		"name": "UPGRADE_EVASION_OVERSTOCK_NAME",
+		"desc": "UPGRADE_EVASION_OVERSTOCK_DESC",
+		"stat": "evasion_overstock",
+		"value": 4.0,                ## evasion 期间每 4s 装填 1 发，cap = max_count×2
+		"max_stacks": 1,
+		"category": "missile",
+		"rarity": Rarity.CLASSIFIED,
+		"keywords": ["evasion_mode", "missile"],
+		"requires": ["missile"],
+	},
+	{
+		"id": "low_alt_gun_dodge",
+		"name": "UPGRADE_LOW_ALT_GUN_DODGE_NAME",
+		"desc": "UPGRADE_LOW_ALT_GUN_DODGE_DESC",
+		"stat": "low_alt_gun_dodge",
+		"value": 0.50,                ## 低空时机炮闪避 +50%
+		"max_stacks": 1,
+		"category": "secondary",
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["dodge", "low_alt", "chivalry"],
+		"requires": ["gun"],
+	},
+	{
+		"id": "jam_aura",
+		"name": "UPGRADE_JAM_AURA_NAME",
+		"desc": "UPGRADE_JAM_AURA_DESC",
+		"stat": "jam_aura",
+		"value": 1300.0,              ## JAM 光环半径（≈2.6km）
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"rarity": Rarity.CLASSIFIED,
+		"keywords": ["jam", "aura"],
+	},
+	{
+		"id": "rear_aura_slow",
+		"name": "UPGRADE_REAR_AURA_SLOW_NAME",
+		"desc": "UPGRADE_REAR_AURA_SLOW_DESC",
+		"stat": "rear_aura_slow",
+		"value": 1200.0,             ## 后半球 SLOW 光环半径 px (≈2.4km)
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"rarity": Rarity.CLASSIFIED,
+		"keywords": ["slow", "aura"],
+	},
+	{
+		"id": "evasion_stealth",
+		"name": "UPGRADE_EVASION_STEALTH_NAME",
+		"desc": "UPGRADE_EVASION_STEALTH_DESC",
+		"stat": "evasion_stealth",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"rarity": Rarity.NEXT_GEN,
+		"keywords": ["evasion_mode", "stealth"],
+	},
+	{
+		"id": "evasion_herbst",
+		"name": "UPGRADE_EVASION_HERBST_NAME",
+		"desc": "UPGRADE_EVASION_HERBST_DESC",
+		"stat": "evasion_herbst",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "mobility",
+		"rarity": Rarity.CLASSIFIED,
+		"keywords": ["evasion_mode", "panic_save"],
+		"excludes": ["cobra_skill"],   ## 与眼镜蛇机动互斥（激活条件相同）
+	},
+	{
+		"id": "evasion_speed_boost",
+		"name": "UPGRADE_EVASION_SPEED_BOOST_NAME",
+		"desc": "UPGRADE_EVASION_SPEED_BOOST_DESC",
+		"stat": "evasion_speed_boost",
+		"value": 1.4,                ## evasion 模式 cruise ×1.4（≈ +40%）
+		"max_stacks": 1,
+		"category": "mobility",
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["evasion_mode", "speed"],
+	},
+	{
+		"id": "evasion_weapon_cd",
+		"name": "UPGRADE_EVASION_WEAPON_CD_NAME",
+		"desc": "UPGRADE_EVASION_WEAPON_CD_DESC",
+		"stat": "evasion_weapon_cd",
+		"value": 0.5,                ## evasion 模式 武器 cd ×0.5（更快）
+		"max_stacks": 1,
+		"category": "mobility",
+		"rarity": Rarity.CLASSIFIED,
+		"keywords": ["evasion_mode", "gun", "missile"],
+	},
+	{
+		"id": "skill_kill_bloodlust",
+		"name": "UPGRADE_SKILL_KILL_BLOODLUST_NAME",
+		"desc": "UPGRADE_SKILL_KILL_BLOODLUST_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "survival",
+		"rarity": Rarity.ADVANCED,
+		"keywords": ["bloodlust"],
+	},
+	{
+		"id": "skill_damaged_bloodlust",
+		"name": "UPGRADE_SKILL_DAMAGED_BLOODLUST_NAME",
+		"desc": "UPGRADE_SKILL_DAMAGED_BLOODLUST_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "survival",
+		"rarity": Rarity.ADVANCED,
+		"keywords": ["bloodlust"],
+	},
+	{
+		"id": "skill_head_on_perma_hp",
+		"name": "UPGRADE_SKILL_HEAD_ON_PERMA_HP_NAME",
+		"desc": "UPGRADE_SKILL_HEAD_ON_PERMA_HP_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "survival",
+		"rarity": Rarity.CLASSIFIED,
+		"keywords": ["head_on", "chivalry"],
+	},
+	{
+		"id": "skill_head_on_aoe_fear",
+		"name": "UPGRADE_SKILL_HEAD_ON_AOE_FEAR_NAME",
+		"desc": "UPGRADE_SKILL_HEAD_ON_AOE_FEAR_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"rarity": Rarity.CLASSIFIED,
+		"keywords": ["head_on", "fear"],
+	},
+	{
+		"id": "skill_missile_hit_invul",
+		"name": "UPGRADE_SKILL_MISSILE_HIT_INVUL_NAME",
+		"desc": "UPGRADE_SKILL_MISSILE_HIT_INVUL_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "survival",
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["panic_save"],
+	},
+	{
+		"id": "skill_lowest_alt_kill_invul",
+		"name": "UPGRADE_SKILL_LOWEST_ALT_KILL_INVUL_NAME",
+		"desc": "UPGRADE_SKILL_LOWEST_ALT_KILL_INVUL_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "survival",
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["low_alt", "chivalry"],
+	},
+	{
+		"id": "skill_gun_kill_fear",
+		"name": "UPGRADE_SKILL_GUN_KILL_FEAR_NAME",
+		"desc": "UPGRADE_SKILL_GUN_KILL_FEAR_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["fear", "gun"],
+		"requires": ["gun"],
+	},
+	# ── 已有 SkillHooks 但缺 UPGRADES 入口的钩子激活技能 ──
+	{
+		"id": "skill_kill_status_heal",
+		"name": "UPGRADE_SKILL_KILL_STATUS_HEAL_NAME",
+		"desc": "UPGRADE_SKILL_KILL_STATUS_HEAL_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "survival",
+		"rarity": Rarity.ADVANCED,
+		"keywords": ["heal", "kill", "fear"],   ## 门控在【恐惧】doctrine 后——异常状态最常见的来源就是 FEAR
+	},
+	{
+		"id": "skill_flare_aoe_jam",
+		"name": "UPGRADE_SKILL_FLARE_AOE_JAM_NAME",
+		"desc": "UPGRADE_SKILL_FLARE_AOE_JAM_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"rarity": Rarity.ADVANCED,
+		"keywords": ["flare", "jam"],
+		"requires": ["flare"],
+	},
+	{
+		"id": "skill_gun_kill_flare_drop",
+		"name": "UPGRADE_SKILL_GUN_KILL_FLARE_DROP_NAME",
+		"desc": "UPGRADE_SKILL_GUN_KILL_FLARE_DROP_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "secondary",
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["gun", "jam"],
+		"requires": ["gun"],
+	},
+	{
+		"id": "skill_missile_hit_aoe_jam",
+		"name": "UPGRADE_SKILL_MISSILE_HIT_AOE_JAM_NAME",
+		"desc": "UPGRADE_SKILL_MISSILE_HIT_AOE_JAM_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["jam", "panic_save"],
+	},
+	# ── 激光升级（按装备过滤）──
+	{
+		"id": "skill_laser_damage",
+		"name": "UPGRADE_SKILL_LASER_DAMAGE_NAME",
+		"desc": "UPGRADE_SKILL_LASER_DAMAGE_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "secondary",
+		"rarity": Rarity.ADVANCED,
+		"keywords": ["laser", "damage"],
+		"requires": ["laser"],
+	},
+	{
+		"id": "laser_extra_beams",
+		"name": "UPGRADE_LASER_EXTRA_BEAMS_NAME",
+		"desc": "UPGRADE_LASER_EXTRA_BEAMS_DESC",
+		"stat": "laser_extra_beams",
+		"value": 2,                    ## 每层 max_simultaneous_targets +2
+		"max_stacks": 2,               ## 最多 2 层 = +4 束
+		"category": "secondary",
+		"rarity": Rarity.STABLE,
+		"keywords": ["laser", "multishot"],
+		"requires": ["laser"],
+	},
+	# ── 火箭弹 / 漂浮雷专属升级（按装备过滤，不限机型）──
+	# requires 已保证只有挂相应武器的飞机才能 roll；不加 exclusive_to，
+	# 这样未来任何机型挂上 rocket / torpedo 都能享用同一池
+	{
+		"id": "skill_torpedo_aoe_jam",
+		"name": "UPGRADE_SKILL_TORPEDO_AOE_JAM_NAME",
+		"desc": "UPGRADE_SKILL_TORPEDO_AOE_JAM_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"rarity": Rarity.ADVANCED,
+		"keywords": ["torpedo", "jam"],
+		"requires": ["torpedo"],
+	},
+	{
+		"id": "rocket_firerate_range",
+		"name": "UPGRADE_ROCKET_FIRERATE_RANGE_NAME",
+		"desc": "UPGRADE_ROCKET_FIRERATE_RANGE_DESC",
+		"stat": "rocket_firerate_range",
+		"value": 0.25,                 ## CD ×0.75，max_range ×1.25（每层）
+		"max_stacks": 2,
+		"category": "secondary",
+		"rarity": Rarity.STABLE,
+		"keywords": ["rocket"],
+		"requires": ["rocket"],
+	},
+	{
+		"id": "skill_rocket_homing",
+		"name": "UPGRADE_SKILL_ROCKET_HOMING_NAME",
+		"desc": "UPGRADE_SKILL_ROCKET_HOMING_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "secondary",
+		"rarity": Rarity.ADVANCED,
+		"keywords": ["rocket", "tracking"],
+		"requires": ["rocket"],
+	},
+	{
+		"id": "torpedo_tracking_boost",
+		"name": "UPGRADE_TORPEDO_TRACKING_BOOST_NAME",
+		"desc": "UPGRADE_TORPEDO_TRACKING_BOOST_DESC",
+		"stat": "torpedo_tracking_boost",
+		"value": 0.6,                  ## scan_range ×1.6，turn_rate ×2.0（每层）
+		"max_stacks": 2,
+		"category": "secondary",
+		"rarity": Rarity.ADVANCED,
+		"keywords": ["torpedo", "tracking"],
+		"requires": ["torpedo"],
+	},
+	# ── 数值类便利贴技能（直接改 Aircraft / params 字段）──
+	{
+		"id": "lock_panic_g",
+		"name": "UPGRADE_LOCK_PANIC_G_NAME",
+		"desc": "UPGRADE_LOCK_PANIC_G_DESC",
+		"stat": "lock_panic_g",
+		"value": 0.20,                ## 被锁时 max_g ×1.20
+		"max_stacks": 2,
+		"category": "mobility",
+		"rarity": Rarity.STABLE,
+		"keywords": ["maneuver", "panic"],
+	},
+	{
+		"id": "low_hp_flare_reload",
+		"name": "UPGRADE_LOW_HP_FLARE_RELOAD_NAME",
+		"desc": "UPGRADE_LOW_HP_FLARE_RELOAD_DESC",
+		"stat": "low_hp_flare_reload",
+		"value": 0.5,                 ## hp<50% 时 flare reload ×0.5（更快）
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"rarity": Rarity.ADVANCED,
+		"keywords": ["flare", "low_hp"],
+		"requires": ["flare"],
+	},
+	{
+		"id": "high_alt_lock_speed",
+		"name": "UPGRADE_HIGH_ALT_LOCK_SPEED_NAME",
+		"desc": "UPGRADE_HIGH_ALT_LOCK_SPEED_DESC",
+		"stat": "high_alt_lock_speed",
+		"value": 0.30,                ## HIGH 档时锁定速率 ×1.30
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"rarity": Rarity.ADVANCED,
+		"keywords": ["radar", "altitude"],
+	},
+	{
+		"id": "ab_gun_regen",
+		"name": "UPGRADE_AB_GUN_REGEN_NAME",
+		"desc": "UPGRADE_AB_GUN_REGEN_DESC",
+		"stat": "ab_gun_regen",
+		"value": 25.0,                ## AB 时每秒 +25 发机炮弹
+		"max_stacks": 1,
+		"category": "secondary",
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["gun", "afterburner"],
+		"requires": ["gun"],
+	},
+	{
+		"id": "head_on_gun_dodge",
+		"name": "UPGRADE_HEAD_ON_GUN_DODGE_NAME",
+		"desc": "UPGRADE_HEAD_ON_GUN_DODGE_DESC",
+		"stat": "head_on_gun_dodge",
+		"value": 0.60,                ## 对头时机炮闪避 +60%
+		"max_stacks": 1,
+		"category": "secondary",
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["gun", "head_on", "chivalry"],
+		"requires": ["gun"],
+	},
+	{
+		"id": "gun_fire_dr",
+		"name": "UPGRADE_GUN_FIRE_DR_NAME",
+		"desc": "UPGRADE_GUN_FIRE_DR_DESC",
+		"stat": "gun_fire_dr",
+		"value": 0.5,                 ## 减伤比例 50%
+		"window": 0.4,                ## 时间窗 0.4s（开火后 0.4s 内）
+		"max_stacks": 1,
+		"category": "secondary",
+		"rarity": Rarity.CLASSIFIED,
+		"keywords": ["gun", "panic_save"],
+		"requires": ["gun"],
+	},
+	{
+		"id": "fear_on_lock",
+		"name": "UPGRADE_FEAR_ON_LOCK_NAME",
+		"desc": "UPGRADE_FEAR_ON_LOCK_DESC",
+		"stat": "fear_on_lock",
+		"value": 6.0,                 ## 累积 6s（FEAR 期间不累积，消退后重置）
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["fear", "radar", "lock"],
+	},
+	{
+		"id": "cloud_overload",
+		"name": "UPGRADE_CLOUD_OVERLOAD_NAME",
+		"desc": "UPGRADE_CLOUD_OVERLOAD_DESC",
+		"stat": "cloud_overload",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"rarity": Rarity.CLASSIFIED,
+		"keywords": ["cloud", "overload"],
+	},
+	{
+		"id": "cloud_weapon_cd",
+		"name": "UPGRADE_CLOUD_WEAPON_CD_NAME",
+		"desc": "UPGRADE_CLOUD_WEAPON_CD_DESC",
+		"stat": "cloud_weapon_cd",
+		"value": 0.5,                 ## 云中武器 cd ×0.5（更快）
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"rarity": Rarity.CLASSIFIED,
+		"keywords": ["cloud", "gun", "missile"],
+	},
+	{
+		"id": "alt_change_stealth",
+		"name": "UPGRADE_ALT_CHANGE_STEALTH_NAME",
+		"desc": "UPGRADE_ALT_CHANGE_STEALTH_DESC",
+		"stat": "alt_change_stealth",
+		"value": 0.5,                 ## 高度变化时 lock_rate ×(1 - alt_velocity_norm × 0.5)
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["altitude", "stealth"],
+	},
+	{
+		"id": "skill_evade_missile_overload",
+		"name": "UPGRADE_SKILL_EVADE_MISSILE_OVERLOAD_NAME",
+		"desc": "UPGRADE_SKILL_EVADE_MISSILE_OVERLOAD_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"rarity": Rarity.CLASSIFIED,
+		"keywords": ["flare", "overload"],
+		"requires": ["flare"],
+	},
+	{
+		"id": "skill_flare_overload",
+		"name": "UPGRADE_SKILL_FLARE_OVERLOAD_NAME",
+		"desc": "UPGRADE_SKILL_FLARE_OVERLOAD_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"rarity": Rarity.ADVANCED,
+		"keywords": ["flare", "overload"],
+		"requires": ["flare"],
+	},
+	{
+		"id": "missile_cd_stealth",
+		"name": "UPGRADE_MISSILE_CD_STEALTH_NAME",
+		"desc": "UPGRADE_MISSILE_CD_STEALTH_DESC",
+		"stat": "missile_cd_stealth",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"rarity": Rarity.ADVANCED,
+		"keywords": ["missile", "stealth"],
+		"requires": ["missile"],
+	},
+	{
+		"id": "overload_duration_4x",
+		"name": "UPGRADE_OVERLOAD_DURATION_4X_NAME",
+		"desc": "UPGRADE_OVERLOAD_DURATION_4X_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["overload"],
+		## 必须先有"能进入超载"的来源，避免单独 roll 到形同空技能
+		"requires_skill": ["cloud_overload", "skill_evade_missile_overload", "skill_flare_overload"],
+	},
+	{
+		"id": "overload_extended_ammo",
+		"name": "UPGRADE_OVERLOAD_EXTENDED_AMMO_NAME",
+		"desc": "UPGRADE_OVERLOAD_EXTENDED_AMMO_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["overload", "missile", "gun"],
+		"requires_skill": ["cloud_overload", "skill_evade_missile_overload", "skill_flare_overload"],
+	},
+	{
+		"id": "overload_to_bloodlust",
+		"name": "UPGRADE_OVERLOAD_TO_BLOODLUST_NAME",
+		"desc": "UPGRADE_OVERLOAD_TO_BLOODLUST_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["overload", "bloodlust"],
+		"requires_skill": ["cloud_overload", "skill_evade_missile_overload", "skill_flare_overload"],
+	},
+	{
+		"id": "bloodlust_armor_mobility",
+		"name": "UPGRADE_BLOODLUST_ARMOR_MOBILITY_NAME",
+		"desc": "UPGRADE_BLOODLUST_ARMOR_MOBILITY_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "survival",
+		"rarity": Rarity.ADVANCED,
+		"keywords": ["bloodlust", "armor", "mobility"],
+		"requires_skill": ["skill_kill_bloodlust", "skill_damaged_bloodlust", "overload_to_bloodlust"],
+	},
+	{
+		"id": "full_hp_kill_perma_hp",
+		"name": "UPGRADE_FULL_HP_KILL_PERMA_HP_NAME",
+		"desc": "UPGRADE_FULL_HP_KILL_PERMA_HP_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "survival",
+		"rarity": Rarity.CLASSIFIED,
+		"keywords": ["bloodlust", "hp"],
+		"requires_skill": ["skill_kill_bloodlust", "skill_damaged_bloodlust", "overload_to_bloodlust"],
+	},
+	{
+		"id": "head_on_jam",
+		"name": "UPGRADE_HEAD_ON_JAM_NAME",
+		"desc": "UPGRADE_HEAD_ON_JAM_DESC",
+		"stat": "head_on_jam",
+		"value": 3.0,                ## 累积 3s 后施加 JAM
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["head_on", "jam"],
+	},
+	{
+		"id": "jam_self_overload",
+		"name": "UPGRADE_JAM_SELF_OVERLOAD_NAME",
+		"desc": "UPGRADE_JAM_SELF_OVERLOAD_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["jam", "overload"],
+		## 必须先有"能施加 JAM"的来源；否则技能形同空
+		"requires_skill": ["skill_flare_aoe_jam", "skill_gun_kill_flare_drop", "skill_missile_hit_aoe_jam", "jam_aura", "head_on_jam"],
+	},
+	# ── F-14 专属：数据链 ──
+	# 队友锁定的目标 = 玩家完成锁定（反之亦然）；同时强化僚机雷达范围
+	# 仍受发射时 cone/envelope/range 校验，"看不见就能射" 不会发生
+	{
+		"id": "data_link",
+		"name": "UPGRADE_DATA_LINK_NAME",
+		"desc": "UPGRADE_DATA_LINK_DESC",
+		"stat": "data_link",
+		"value": 0.50,                  ## 僚机雷达范围 ×1.5
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"rarity": Rarity.NEXT_GEN,
+		"keywords": ["radar", "wingman", "f14"],
+		"exclusive_to": ["f14"],
+	},
+	{
+		"id": "f14_squad_lock_slow",
+		"name": "UPGRADE_F14_SQUAD_LOCK_SLOW_NAME",
+		"desc": "UPGRADE_F14_SQUAD_LOCK_SLOW_DESC",
+		"stat": "f14_squad_lock_slow",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"rarity": Rarity.NEXT_GEN,
+		"keywords": ["slow", "wingman", "f14"],
+		"exclusive_to": ["f14"],
+		## 前置：必须先有数据链；不然全队雷达不共享，锁同目标极难
+		"requires_skill": ["data_link"],
+	},
 ]
+
+# ── 词条联动：某类技能数量 → 某个参数 ────────────────────
+## 数据驱动：每条规则按 category 数 owned_skills（去重），按 per_skill 累加倍率
+## 写入 Aircraft 上对应的 *_mult 字段。每次拿升级 / 拿战区奖励后由 survivor_mode 调用 recompute。
+## 计数语义：同一 category 下"已拥有的不同技能 id 数量"（每个技能算 1 次，不看堆叠层数）。
+const CATEGORY_BONUSES: Array[Dictionary] = [
+	{
+		"category": "electronic_warfare",
+		"field": "category_radar_mult",   ## Aircraft 上的运行时倍率字段
+		"per_skill": 0.10,                ## 每持有 1 个该类技能 +10%
+	},
+]
+
+## 重算所有 CATEGORY_BONUSES 规则，把结果写入 aircraft 对应字段。
+##   stacks: survivor_mode.upgrade_stacks（id → 层数）
+static func recompute_category_bonuses(aircraft: Aircraft, stacks: Dictionary) -> void:
+	if aircraft == null:
+		return
+	# 预编 id → category 映射，避免每条规则都遍历 UPGRADES
+	var id_to_cat: Dictionary = {}
+	for u in UPGRADES:
+		id_to_cat[u["id"]] = u.get("category", "")
+	for rule in CATEGORY_BONUSES:
+		var cat: String = rule["category"]
+		var count := 0
+		for uid in stacks.keys():
+			if int(stacks[uid]) > 0 and id_to_cat.get(uid, "") == cat:
+				count += 1
+		var mult := 1.0 + float(rule["per_skill"]) * float(count)
+		aircraft.set(rule["field"], mult)
+
 
 # ── 升级筛选 ─────────────────────────────────────────────
 
@@ -520,7 +1122,7 @@ const UPGRADES: Array[Dictionary] = [
 ## 拒绝条件：
 ##   - upgrade.requires 中列出的硬件，主角缺失任意一项
 ##   - upgrade.exclusive_to 非空，且 aircraft_id 不在其中
-static func is_upgrade_available_for(upgrade: Dictionary, aircraft_id: StringName, p: AircraftParams) -> bool:
+static func is_upgrade_available_for(upgrade: Dictionary, aircraft_id: StringName, p: AircraftParams, owned_stacks: Dictionary = {}) -> bool:
 	# ── 硬件要求 ──
 	# 走 AircraftParams.has_equipment_of_kind：双查 equipment 数组 + 老字段（gun/missile/...）
 	# 自动支持任意 equipment_kind（railgun / laser / cobra / herbst / ecm 未来扩展）
@@ -541,7 +1143,230 @@ static func is_upgrade_available_for(upgrade: Dictionary, aircraft_id: StringNam
 		if not matched:
 			return false
 
+	# ── 互斥技能（excludes）──
+	# 列表中任一技能已被选取（stacks > 0）时，本升级不再出现在抽卡池。
+	# 用于"激活条件相同的二选一"（如 cobra_skill ↔ evasion_herbst 都在 evasion 模式被攻击触发）。
+	var excludes: Variant = upgrade.get("excludes", null)
+	if excludes != null and excludes.size() > 0:
+		for excl_id in excludes:
+			if int(owned_stacks.get(excl_id, 0)) > 0:
+				return false
+
+	# ── 技能前置（require_skill）──
+	# 至少要拥有列表中的一个技能（stacks > 0）才解锁此升级。
+	# 用于"派生类"技能（如恐惧扩散 / 恐惧附带减速）只有在玩家先选了一个能产生该状态的根技能后才进池。
+	var prereq: Variant = upgrade.get("requires_skill", null)
+	if prereq != null and prereq.size() > 0:
+		var has_any := false
+		for skill_id in prereq:
+			if int(owned_stacks.get(skill_id, 0)) > 0:
+				has_any = true
+				break
+		if not has_any:
+			return false
+
 	return true
+
+
+# ══════════════════════════════════════════════
+# §5 / §7 抽卡 + Pity + 流派引导
+# ══════════════════════════════════════════════
+
+## 取技能稀有度（默认 STABLE）
+static func get_rarity(upgrade: Dictionary) -> int:
+	return int(upgrade.get("rarity", Rarity.STABLE))
+
+
+## §7 流派引导：根据 owned_stacks 计算每个 keyword 的推荐倍率
+## 返回 { keyword: float } —— 抽卡时同 keyword 技能权重 ×= 该值
+## 公式：每 1 stack 同关键词 +20% 权重，封顶 +100%（5 stacks 即满）
+##
+## 注意：本函数 O(技能数 × 关键词数)，但只在升级时点调用 1 次（极低频），不每帧
+static func compute_keyword_steering_weights(owned_stacks: Dictionary, level: int = 1) -> Dictionary:
+	var counts: Dictionary = {}
+	for u in UPGRADES:
+		var uid: String = u.get("id", "")
+		var stk: int = int(owned_stacks.get(uid, 0))
+		if stk <= 0:
+			continue
+		var kws = u.get("keywords", null)
+		if kws == null:
+			continue
+		for kw in kws:
+			counts[kw] = int(counts.get(kw, 0)) + stk
+	# 阶段开放：等级 < 5 时 steering 折半（避免新手被早期 funnel 锁死流派）
+	var phase_mult: float = 0.5 if level < 5 else 1.0
+	var steering: Dictionary = {}
+	for kw in counts.keys():
+		var n: int = int(counts[kw])
+		var bump: float = minf(float(n), 5.0) * 0.20
+		steering[kw] = 1.0 + bump * phase_mult
+	return steering
+
+
+## 取技能"流派权重倍率"——若技能挂多个 keyword，取最高 steering（鼓励同流派多归一）
+static func _keyword_weight_mult(upgrade: Dictionary, steering: Dictionary) -> float:
+	var kws = upgrade.get("keywords", null)
+	if kws == null:
+		return 1.0
+	var max_mult: float = 1.0
+	for kw in kws:
+		max_mult = maxf(max_mult, float(steering.get(kw, 1.0)))
+	return max_mult
+
+
+## §5 三选一抽卡：返回 3 张 upgrade dict（保底至少 1 张 ≥ ADVANCED）
+##
+## 参数：
+##   pool: 已通过 is_upgrade_available_for + max_stacks 过滤的候选 upgrade 列表
+##   owned_stacks: 玩家当前 upgrade_stacks（用于 steering 计算）
+##   pity_counter: { Rarity → int } 传引用，本函数会修改
+##   level: 当前等级（影响 steering 阶段）
+##
+## 输出：3 张技能 dict（可能少于 3 张如 pool 不够）
+##
+## 算法：
+##   1. 按 rarity 把 pool 分桶
+##   2. 检查 pity：超阈值的最高档强制保底 1 张
+##   3. 默认 2 槽 LOW (Stable+Advanced) + 1 槽 HIGH (Experimental+) 分布
+##   4. 每槽内按 RARITY_BASE_WEIGHT × keyword_steering 加权随机
+##   5. 不重复抽同一 id
+static func pick_3_upgrades(pool: Array, owned_stacks: Dictionary, pity_counter: Dictionary, level: int) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	if pool.is_empty():
+		return result
+	# 分桶
+	var bucket: Dictionary = {
+		Rarity.STABLE: [], Rarity.ADVANCED: [], Rarity.EXPERIMENTAL: [],
+		Rarity.CLASSIFIED: [], Rarity.NEXT_GEN: [],
+	}
+	for u in pool:
+		var r: int = get_rarity(u)
+		(bucket[r] as Array).append(u)
+
+	# 流派引导
+	var steering: Dictionary = compute_keyword_steering_weights(owned_stacks, level)
+
+	# Pity：找出超阈值的最高档（优先满足最高的）
+	var forced_rarity: int = -1
+	for r in [Rarity.NEXT_GEN, Rarity.CLASSIFIED, Rarity.EXPERIMENTAL]:
+		var threshold: int = int(PITY_THRESHOLD.get(r, 999))
+		var counter: int = int(pity_counter.get(r, 0))
+		if counter >= threshold and (bucket[r] as Array).size() > 0:
+			forced_rarity = r
+			break
+
+	# 选第 1 张 = 保底（如有 forced_rarity 否则 = HIGH 槽）
+	var picked_ids: Dictionary = {}
+	if forced_rarity >= 0:
+		var forced_pick: Dictionary = _weighted_pick(bucket[forced_rarity], steering, picked_ids)
+		if not forced_pick.is_empty():
+			result.append(forced_pick)
+			picked_ids[forced_pick["id"]] = true
+
+	# HIGH 槽：从 EXP+ 抽（若 forced 没抽，就从 EXP+CLA+NEXT 加权）
+	if result.is_empty():
+		var high_pool: Array = []
+		for r in [Rarity.EXPERIMENTAL, Rarity.CLASSIFIED, Rarity.NEXT_GEN]:
+			high_pool.append_array(bucket[r] as Array)
+		if high_pool.size() > 0:
+			var hp: Dictionary = _weighted_pick(high_pool, steering, picked_ids)
+			if not hp.is_empty():
+				result.append(hp)
+				picked_ids[hp["id"]] = true
+
+	# LOW 槽 ×2：从 STABLE + ADVANCED
+	var low_pool: Array = []
+	for r in [Rarity.STABLE, Rarity.ADVANCED]:
+		low_pool.append_array(bucket[r] as Array)
+	while result.size() < 3:
+		var pick: Dictionary
+		if low_pool.size() > 0:
+			pick = _weighted_pick(low_pool, steering, picked_ids)
+		else:
+			# LOW 池耗尽 → 从全 pool 兜底
+			pick = _weighted_pick(pool, steering, picked_ids)
+		if pick.is_empty():
+			break  # pool 已全用，无法再抽
+		result.append(pick)
+		picked_ids[pick["id"]] = true
+
+	# 更新 pity_counter：本次出现了什么档就清零，没出现的 +1
+	var rarities_picked: Dictionary = {}
+	for u in result:
+		rarities_picked[get_rarity(u)] = true
+	for r in PITY_THRESHOLD.keys():
+		if rarities_picked.has(r):
+			pity_counter[r] = 0
+		else:
+			pity_counter[r] = int(pity_counter.get(r, 0)) + 1
+
+	return result
+
+
+## 内部：按 RARITY_BASE_WEIGHT × keyword_steering 加权随机选一张，跳过 picked_ids 中的
+static func _weighted_pick(items: Array, steering: Dictionary, picked_ids: Dictionary) -> Dictionary:
+	if items.is_empty():
+		return {}
+	var weights: Array[float] = []
+	var total: float = 0.0
+	for u in items:
+		var uid: String = u.get("id", "")
+		if picked_ids.has(uid):
+			weights.append(0.0)
+			continue
+		var r: int = get_rarity(u)
+		var base_w: float = RARITY_BASE_WEIGHT[r] if r < RARITY_BASE_WEIGHT.size() else 0.1
+		var kw_w: float = _keyword_weight_mult(u, steering)
+		var w: float = base_w * kw_w
+		weights.append(w)
+		total += w
+	if total <= 0.0:
+		return {}
+	var roll: float = randf() * total
+	var acc: float = 0.0
+	for i in items.size():
+		acc += weights[i]
+		if roll <= acc and weights[i] > 0.0:
+			return items[i]
+	# 兜底：返回最后一个有权重的
+	for i in range(items.size() - 1, -1, -1):
+		if weights[i] > 0.0:
+			return items[i]
+	return {}
+
+
+# ── 玩家自然成长（节点式，按等级累计） ─────────────────────
+
+## 默认成长曲线：HP 每 3 级 +20、导弹 L4 +1 / L8 +2
+## 每项 = {"level": int, "hp": int, "missile": int}（hp/missile 是该等级"累计"加成）
+## 设计意图见计划 C1：对症敌人机炮 +8%/级 + 弹量 +floor(L/4) 的 DPS 通胀
+const DEFAULT_GROWTH_CURVE: Array[Dictionary] = [
+	{"level": 3,  "hp": 20,  "missile": 0},
+	{"level": 4,  "hp": 20,  "missile": 1},
+	{"level": 6,  "hp": 40,  "missile": 1},
+	{"level": 8,  "hp": 40,  "missile": 2},
+	{"level": 9,  "hp": 60,  "missile": 2},
+	{"level": 12, "hp": 80,  "missile": 2},
+	{"level": 15, "hp": 100, "missile": 2},
+]
+
+## 返回到达 level 时的累计成长加成 {hp, missile}。
+## profile 提供自定义 growth_curve 时走它，否则走默认。
+## 算法：取 curve 中最大的 entry.level <= level 的那一项；不存在则返回零。
+static func player_growth_at(level: int, profile: PlayableAircraft = null) -> Dictionary:
+	var curve: Array = DEFAULT_GROWTH_CURVE
+	if profile != null and not profile.growth_curve.is_empty():
+		curve = profile.growth_curve
+	var hp: int = 0
+	var missile: int = 0
+	for entry in curve:
+		var l: int = int(entry.get("level", 0))
+		if l <= level:
+			hp = int(entry.get("hp", hp))
+			missile = int(entry.get("missile", missile))
+	return {"hp": hp, "missile": missile}
+
 
 # ── 经验曲线 ─────────────────────────────────────────────
 
@@ -599,6 +1424,15 @@ const AF03_CHANCE_MAX := 0.18        ## AF-03 最大出现概率
 const SU27_UNLOCK_LEVEL := 8         ## Su-27（主力威胁 + 眼镜蛇机动）解锁等级
 const SU27_CHANCE_PER_LEVEL := 0.07  ## 每超过解锁等级，Su-27 出现概率增加
 const SU27_CHANCE_MAX := 0.25        ## Su-27 最大出现概率
+const SU35_UNLOCK_LEVEL := 9         ## Su-35（Su-27 强化版 + 眼镜蛇 + TVC）解锁等级
+const SU35_CHANCE_PER_LEVEL := 0.07  ## 每超过解锁等级，Su-35 出现概率增加（与 MiG-31 同档稀有度）
+const SU35_CHANCE_MAX := 0.22        ## Su-35 最大出现概率（略低于 Su-27 + 低于 MiG-31）
+const F4_UNLOCK_LEVEL := 6           ## F-4 Phantom（Gladiator 中段，导弹卡车）解锁等级
+const F4_CHANCE_PER_LEVEL := 0.10    ## 每超过解锁等级，F-4 出现概率增加
+const F4_CHANCE_MAX := 0.30          ## F-4 最大出现概率
+const F104_UNLOCK_LEVEL := 5         ## F-104 Starfighter（Lancer 纯速度截击）解锁等级
+const F104_CHANCE_PER_LEVEL := 0.12  ## 每超过解锁等级，F-104 出现概率增加
+const F104_CHANCE_MAX := 0.32        ## F-104 最大出现概率
 const A7_UNLOCK_LEVEL := 3           ## A-7（Lancer 亚音速攻击机，机炮+火箭弹）解锁等级
 const A7_CHANCE_PER_LEVEL := 0.14    ## 每超过解锁等级，A-7 出现概率增加
 const A7_CHANCE_MAX := 0.40          ## A-7 最大出现概率
@@ -688,6 +1522,10 @@ const TOKEN_COST := {
 	16: 10, ## F-14 Poltergeist — BOSS（CSG Phase 2，事件触发）
 	17: 7,  ## AF-03      — Schemer 电磁炮狙击手（中后期，事件触发）
 	18: 2,  ## Aegis UAV  — 激光拦截器，跟随 Sentinel 出现
+	19: 5,  ## F-4 Phantom — Gladiator 中段（双弹种导弹卡车）
+	20: 4,  ## F-104       — Lancer 纯速度截击（BOOM-ZOOM 专家）
+	21: 8,  ## Su-35       — Gladiator 顶级（Su-27 强化版 + TVC，单/双机出现）
+	22: 0,  ## F/A-18      — CSG 航母舰载机（事件弹射，不占 Token；CSG Phase 1 期间定期出现）
 }
 
 ## 每种敌人的同时存在上限（-1 = 无限制）
@@ -713,6 +1551,10 @@ const TOKEN_INSTANCE_CAP := {
 	16: 4,  ## F-14 Poltergeist BOSS 小队
 	17: 1,  ## AF-03：单机出现（独特狙击体验）
 	18: 2,  ## Aegis UAV：每只 Sentinel 带 2 架
+	19: -1, ## F-4 Phantom：编队出现，无硬上限
+	20: -1, ## F-104：编队出现，无硬上限
+	21: 3,  ## Su-35：精英单/双机，一次最多 3 台（含编队）
+	22: -1, ## F/A-18：航母 BOSS 持续弹射，不限同时存在数（CV 死时停刷）
 }
 
 ## 远距清理
@@ -739,6 +1581,94 @@ const ENEMY_HP_MISSILE_CAP := 75.0
 ## 沙盒模式（main.gd 入口）不读此开关，敌机继续旧 BFMTactics 路径以保留沙盒兼容
 const ENABLE_PLANNER_FOR_REGULAR_AI := true
 
+# ── 敌人武器等级（V1-V8）─────────────────────────────────
+# 仅作用于敌人。玩家武器不走 V_N（保持机型绑定 + 技能升级树强化）。
+# 详见 docs/changelogs/2026-05-04-enemy-weapon-tiers.md
+#
+# 8 档铺满整个生存模式生命周期；玩家等级决定基线档位，敌人种类带 ±N 偏移。
+
+## 玩家等级 → 敌人武器基线档位（1-8）
+const PLAYER_LEVEL_TO_TIER: Dictionary = {
+	1: 1, 2: 1,
+	3: 2, 4: 2,
+	5: 3, 6: 3,
+	7: 4, 8: 4,
+	9: 5, 10: 5,
+	11: 6, 12: 6,
+	13: 7, 14: 7,
+	## ≥15 默认 V8
+}
+
+## 敌人种类 → tier 偏移（int 对应 SurvivorSpawner.EnemyType）。
+## 同等级下 UAV 永远比 MiG 弱一截；BOSS / 精英带正偏移。
+## 列表外的种类（Adds/无武器单位）默认 0。
+const ENEMY_TIER_OFFSET: Dictionary = {
+	0: -2,    # UAV
+	1: -1,    # UCAV
+	5: -1,    # F-86
+	18: -1,   # UAV_LASER (Aegis)
+	3:  0,    # INTERCEPTOR (J-7)
+	10: 0,    # A-7
+	11: 0,    # Q-5
+	7:  0,    # MIG-23
+	8:  0,    # F-100
+	20: 0,    # F-104
+	2:  1,    # MIG-29
+	19: 1,    # F-4
+	4:  1,    # UAV_COMMANDER (Sentinel)
+	22: 1,    # FA-18 (CSG)
+	6:  2,    # MIG-31
+	9:  2,    # SU-27
+	17: 2,    # AF-03
+	21: 3,    # SU-35
+	15: 4,    # F-47 BOSS
+	16: 3,    # F-14 Poltergeist BOSS
+	## Adds / 事件触发：默认 0；调用方可显式传 tier
+	13: 0,    # AH-64（事件触发，默认 V5 由 _spawn_ah64_flock 传）
+	14: 0,    # CH-47（无武器）
+	12: 0,    # TU-160（无武器）
+}
+
+## 武器 tier 数组（索引 0 = V1，索引 7 = V8）
+const ENEMY_GUN_TIERS: Array[GunParams] = [
+	preload("res://resources/weapons/enemy_gun_v1.tres"),
+	preload("res://resources/weapons/enemy_gun_v2.tres"),
+	preload("res://resources/weapons/enemy_gun_v3.tres"),
+	preload("res://resources/weapons/enemy_gun_v4.tres"),
+	preload("res://resources/weapons/enemy_gun_v5.tres"),
+	preload("res://resources/weapons/enemy_gun_v6.tres"),
+	preload("res://resources/weapons/enemy_gun_v7.tres"),
+	preload("res://resources/weapons/enemy_gun_v8.tres"),
+]
+
+const ENEMY_MISSILE_TIERS: Array[MissileParams] = [
+	preload("res://resources/weapons/enemy_missile_v1.tres"),
+	preload("res://resources/weapons/enemy_missile_v2.tres"),
+	preload("res://resources/weapons/enemy_missile_v3.tres"),
+	preload("res://resources/weapons/enemy_missile_v4.tres"),
+	preload("res://resources/weapons/enemy_missile_v5.tres"),
+	preload("res://resources/weapons/enemy_missile_v6.tres"),
+	preload("res://resources/weapons/enemy_missile_v7.tres"),
+	preload("res://resources/weapons/enemy_missile_v8.tres"),
+]
+
+const ENEMY_ROCKET_TIERS: Array[RocketParams] = [
+	preload("res://resources/weapons/enemy_rocket_v1.tres"),
+	preload("res://resources/weapons/enemy_rocket_v2.tres"),
+	preload("res://resources/weapons/enemy_rocket_v3.tres"),
+	preload("res://resources/weapons/enemy_rocket_v4.tres"),
+	preload("res://resources/weapons/enemy_rocket_v5.tres"),
+	preload("res://resources/weapons/enemy_rocket_v6.tres"),
+	preload("res://resources/weapons/enemy_rocket_v7.tres"),
+	preload("res://resources/weapons/enemy_rocket_v8.tres"),
+]
+
+## 玩家等级 + 敌人种类 → 武器 tier (1-8)
+static func get_weapon_tier(etype: int, player_level: int) -> int:
+	var base: int = PLAYER_LEVEL_TO_TIER.get(player_level, 8)
+	var offset: int = ENEMY_TIER_OFFSET.get(etype, 0)
+	return clampi(base + offset, 1, 8)
+
 # ── 战区敌情曲线 ─────────────────────────────────────────
 # 设计原则（2026-04-21 修订，详见 docs/changelogs/2026-04-21-zone-level-curve.md）：
 #   1. 玩家等级决定战区敌人池（不是单纯 Token），让开局能撞到 UAV/UCAV
@@ -760,10 +1690,13 @@ const ZONE_ENEMY_TABLE: Array[Dictionary] = [
 	{"type": 7,  "unlock": 4, "peak": 5,  "retire": -1, "base_weight": 1.0},  ## MiG-23     综合 Gladiator
 	{"type": 3,  "unlock": 5, "peak": 6,  "retire": -1, "base_weight": 0.9},  ## J-7        Lancer 打带跑
 	{"type": 11, "unlock": 5, "peak": 6,  "retire": -1, "base_weight": 0.9},  ## Q-5        超音速攻击机
+	{"type": 20, "unlock": 5, "peak": 6,  "retire": -1, "base_weight": 0.9},  ## F-104      Lancer 纯速度截击
 	{"type": 8,  "unlock": 6, "peak": 7,  "retire": -1, "base_weight": 0.8},  ## F-100      Lancer 编队
+	{"type": 19, "unlock": 6, "peak": 7,  "retire": -1, "base_weight": 0.85}, ## F-4        Gladiator 中段（导弹卡车）
 	{"type": 2,  "unlock": 7, "peak": 8,  "retire": -1, "base_weight": 0.9},  ## MiG-29     主力威胁
 	{"type": 9,  "unlock": 8, "peak": 10, "retire": -1, "base_weight": 0.6},  ## Su-27      精英+眼镜蛇
 	{"type": 6,  "unlock": 9, "peak": 11, "retire": -1, "base_weight": 0.4},  ## MiG-31     顶级 Lancer
+	{"type": 21, "unlock": 9, "peak": 11, "retire": -1, "base_weight": 0.4},  ## Su-35      顶级 Gladiator+TVC
 ]
 
 ## 等级钟形权重：

@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="PlayableAircraft" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/playable_aircraft.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/playable_a10_base.tres" id="2"]
+
+[resource]
+script = ExtResource("1")
+id = &"a10"
+display_name = "A-10"
+codename = "Warthog"
+card_tags = PackedStringArray("装甲", "火箭弹齐射", "无导弹")
+card_desc = "亚音速对地攻击机，装甲厚血量高。机翼挂载多管火箭弹巢，按 R 键平行齐射六发。无导弹无热诱弹，不锁定也能糊脸。"
+base_params = ExtResource("2")
+flares_guaranteed = false
+enable_missile_reload = false
+enable_flare_reload = false
+enable_gun_reload = true
+infinite_fuel = true
+bullet_damage_cap = 5.0
+bullet_dodge_chance = 0.05
+wingman_count = 0

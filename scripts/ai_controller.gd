@@ -4,6 +4,9 @@ extends Node
 ## AI 控制器：巡逻 / 交战（战术机动） / 导弹规避 状态机
 ## 交战时基于 Shaw《Fighter Combat》BFM 决策树选择战术机动
 
+# 显式 preload 兜底新增的 class_name 类（Godot 全局类缓存有时不刷新）
+const EscortBehavior := preload("res://scripts/ai/escort_behavior.gd")
+
 enum AIState { PATROL, ENGAGE, EVADE_MISSILE, SQUAD_FOLLOW }
 enum EngageTactic {
 	LEAD_PURSUIT,    ## 前置追踪：积极闭合
@@ -52,6 +55,18 @@ const TACTIC_DISPLAY_NAME: Dictionary = {
 enum SquadEngageMode { FREE = 0, FOLLOW_LEADER = 1 }
 @export var squad_engage_mode: int = SquadEngageMode.FREE
 @export var simple_ai: bool = false           ## 简化 AI：只用前置追踪，跳过 BFM 决策树/SA/压力系统
+
+## AI 拥挤度分级（同屏敌机数过多时按此降决策频率，2026-05-04 起加入）：
+##   IMMUNE — BOSS / Sentinel / 玩家方：永不降频
+##   NORMAL — 主力载人机（MiG/F-86 等）：温和降频（30+ 敌机时 ×1.5）
+##   CHEAP  — UAV/UCAV/Adds：激进降频（30+ 敌机时 ×2，配合 simple_ai 的 base divisor=3 → 6）
+## 由 _compute_scaling_class() 在第一帧从 aircraft.team / category meta / params.is_unmanned 自动派生
+enum AIScaleClass { IMMUNE = 0, NORMAL = 1, CHEAP = 2 }
+const CROWD_THRESHOLD_LOW := 12   ## 同屏 ≤12 单位：不降频
+const CROWD_THRESHOLD_HIGH := 30  ## 同屏 ≥30 单位：拉到 max_mult
+const NORMAL_MAX_MULT := 1.5      ## NORMAL 类拥挤上限：divisor ×1.5
+const CHEAP_MAX_MULT := 2.0       ## CHEAP 类拥挤上限：divisor ×2.0
+var _scaling_class_cached: int = -1   ## -1 = 未计算（_physics_process 首次调用时派生）
 
 ## AI 决策节流：_physics_process 每 ai_tick_divisor 帧才跑一次，降低 CPU 消耗
 ## simple_ai 在 _ready 里自动设为 3（UAV/Adds 人海时大幅省运算），全功能 AI 保持 1
@@ -127,8 +142,17 @@ var _salvo_delay: float = 0.0               ## 齐射延迟倒计时（错开发
 # ── 编队 ──
 var squad: Squad = null              ## 所属编队
 var squad_index: int = -1            ## 在编队中的序号（0=长机，1+=僚机）
+
+## §C 玩家技能反向索引：每帧检测 _current_target 变化，差量更新 target.engaging_me
+## 不在 _current_target 各赋值点散落，集中到 _physics_process 顶层做一次比对
+var _prev_target_for_reverse_idx: CombatUnit = null
 @export var orbit_squad_leader: bool = false  ## simple_ai 专用：巡逻时围绕长机旋转（指挥 UAV 招募的僚机用）
-@export var shield_leader: bool = false       ## orbit 专用：主动飞入来袭导弹路径保护长机
+@export var shield_leader: bool = false       ## orbit 专用：主动飞入来袭导弹路径保护长机（含自爆拦截 @ MISSILE_INTERCEPT_DIST=100px）
+## 玩家忠诚僚机 drone 专用：来袭导弹瞄向 squad.leader 时，drone 主动撞毁拦截
+## 与 SQUAD_FOLLOW 配合使用；默认 false，不影响普通僚机
+@export var kamikaze_intercept: bool = false
+const KAMIKAZE_DETONATE_DIST_PX: float = 120.0   ## 60m，drone 与导弹距离 ≤ 此值即同归于尽
+const KAMIKAZE_INTERCEPT_RANGE_PX: float = 2400.0 ## 1200m，开始飞向导弹拦截
 
 # ── 护盾系统（shield_leader 模式）──
 var _shield_missile: Missile = null           ## 当前帧检测到的来袭导弹
@@ -152,8 +176,13 @@ const COVER_DISENGAGE_RANGE := 3500.0 ## 掩护脱离距离（威胁远离后回
 var _cover_scan_timer: float = 0.0
 var _cover_target: Aircraft = null   ## 掩护交战目标（后半球威胁）
 var _rejoining: bool = false       ## 交战/规避后正在全速归队
+var _scatter_evade_timer: float = 0.0  ## 散开规避方向刷新计时器（玩家传播 evasion 时用）
 var _squad_attacking_leader_target: bool = false  ## 正在协同攻击长机指定的目标
 var _squad_free_engaging: bool = false  ## 正在自由交战模式下独立交战（同样享有 range grace）
+## 协同攻击时的小队角色（squad_index → 角色）。NONE=单机/长机，其他=僚机分散战术
+## 仅在进入 TEAM_ATTACK 时设置一次，离开协同攻击时复位为 NONE
+enum SquadRole { NONE = 0, FLANK_LEFT = 1, FLANK_RIGHT = 2, HIGH_COVER = 3 }
+var _squad_lateral_role: int = SquadRole.NONE
 var _leader_target_lost_timer: float = 0.0  ## 长机目标丢失后的宽限计时（防止单帧抖动触发脱离）
 const LEADER_TARGET_LOST_GRACE := 1.5  ## 长机目标丢失后的宽限时长（秒）
 var _squad_range_grace_timer: float = 0.0  ## 长机指定目标超出僚机射程的宽限计时
@@ -185,13 +214,9 @@ const REGULAR_UAV_SPEED_RATIO := 0.7       ## 普通 UAV 目标速度比
 const REGULAR_UAV_LEAD := 0.5              ## 普通 UAV 拦截提前量
 const ESCORT_UAV_LEAD := 1.0               ## 护卫 UAV 拦截提前量
 
-# ── 编队反应 ──
-const FORMATION_SWITCH_THRESH := 30.0      ## 阵型偏移变化触发阈值（像素）
-const FORMATION_REACT_BASE := 0.3          ## 阵型反应延迟基准（秒）
-const FORMATION_JITTER_AMP := 0.5          ## 阵型扰动振幅
-const FORMATION_JITTER_ADD := 1.0          ## 阵型扰动附加延迟（秒）
-const WINGMAN_ENGAGE_DELAY_MIN := 0.3      ## 僚机交战反应延迟下限（秒）
-const WINGMAN_ENGAGE_DELAY_MAX := 1.5      ## 僚机交战反应延迟上限（秒）
+# ── 编队反应（已迁移到 Squad，2026-05-04 重构）──
+# Squad.FORMATION_SWITCH_THRESH / FORMATION_REACT_BASE / FORMATION_JITTER_AMP /
+# Squad.FORMATION_JITTER_ADD / WINGMAN_ENGAGE_DELAY_MIN / WINGMAN_ENGAGE_DELAY_MAX
 
 # ── 自由扫描 ──
 const SQUAD_FREE_SCAN_RANGE := 2000.0      ## 僚机自由扫描范围（像素）
@@ -201,6 +226,7 @@ const SQUAD_SCAN_RADAR_MULT := 1.3         ## 自由扫描雷达范围倍率
 # ── BFM 决策阈值 ──
 const BEING_CHASED_DOT := -0.3             ## 被追判定点积阈值
 const HERBST_ACTIVATION_DIST := 1500.0     ## 赫尔贝特轮触发距离（像素）
+const HERBST_MIN_ALTITUDE_M := 1500.0      ## J-Turn DECEL 段会刹到 ~69m/s（近失速），低于此高度不触发以免来不及恢复就坠地
 const GUN_ATTACK_DOT := 0.3                ## 机炮攻击威胁朝向点积
 const GUN_ATTACK_THREAT_DIST := 800.0      ## 机炮攻击威胁距离（像素）
 const EVASION_TARGET_DIST := 2000.0        ## 规避目标距离（像素）
@@ -375,6 +401,8 @@ var current_tactic_name: String = ""
 
 func _ready() -> void:
 	_formation_jitter_phase = randf() * TAU  # 每架飞机不同的扰动相位
+	if aircraft:
+		aircraft._ai_ref = self  # AircraftFormation / debug 路径走 ac._ai_ref 读 AI 端权威值
 	if waypoints.is_empty():
 		_generate_default_waypoints()
 	if aircraft:
@@ -389,6 +417,28 @@ func _ready() -> void:
 	if simple_ai:
 		ai_tick_divisor = 3
 		_tick_phase = randi() % ai_tick_divisor
+
+## 从 aircraft 标记派生 AI 拥挤降频分级（在 _physics_process 首次调用时缓存）
+##   - 玩家方（team 0）→ IMMUNE
+##   - meta category=="boss" 或 enemy_type=="uav_commander" → IMMUNE（F-47 / F-14 Poltergeist / Sentinel）
+##   - meta category=="adds" 或 params.is_unmanned → CHEAP（杂兵 / UAV / UCAV）
+##   - 其它 → NORMAL（载人战机如 MiG/F-86 等）
+func _compute_scaling_class() -> int:
+	if not aircraft:
+		return AIScaleClass.NORMAL
+	if aircraft.team == 0:
+		return AIScaleClass.IMMUNE
+	var cat: String = str(aircraft.get_meta("category", ""))
+	if cat == "boss":
+		return AIScaleClass.IMMUNE
+	if cat == "adds":
+		return AIScaleClass.CHEAP
+	var et: String = str(aircraft.get_meta("enemy_type", ""))
+	if et == "uav_commander":
+		return AIScaleClass.IMMUNE
+	if aircraft.params and aircraft.params.is_unmanned:
+		return AIScaleClass.CHEAP
+	return AIScaleClass.NORMAL
 
 ## 获取日志用名称
 func _log_name() -> String:
@@ -414,7 +464,21 @@ func _log_target_name(target) -> String:
 
 func _physics_process(delta: float) -> void:
 	if not aircraft or aircraft.is_destroyed:
+		# 飞机销毁时清掉自己在他人 engaging_me 里的 entry
+		if is_instance_valid(_prev_target_for_reverse_idx) and _prev_target_for_reverse_idx is Aircraft:
+			(_prev_target_for_reverse_idx as Aircraft).engaging_me.erase(aircraft.get_instance_id() if aircraft else 0)
+			_prev_target_for_reverse_idx = null
 		return
+
+	# §C 反向索引差量同步：检测 _current_target 变化（每帧一次比对）
+	# 仅维护 team 0 玩家系飞机的 engaging_me（其它阵营不需要）
+	if _current_target != _prev_target_for_reverse_idx:
+		if is_instance_valid(_prev_target_for_reverse_idx) and _prev_target_for_reverse_idx is Aircraft:
+			(_prev_target_for_reverse_idx as Aircraft).engaging_me.erase(aircraft.get_instance_id())
+		if is_instance_valid(_current_target) and _current_target is Aircraft \
+				and (_current_target as Aircraft).team == 0:
+			(_current_target as Aircraft).engaging_me[aircraft.get_instance_id()] = aircraft
+		_prev_target_for_reverse_idx = _current_target
 
 	# Herbst 激活期间 AI 完全停摆：不再跑 engage/evade/follow/target 选择，
 	# 否则每 tick 的 bvr_only flee→_disengage→boss re-engage 闭环会反复刷
@@ -440,10 +504,26 @@ func _physics_process(delta: float) -> void:
 
 	# 节流：simple_ai 等低优先级 AI 每 N 帧才决策一次，带相位错开
 	# 跳过的帧里 Aircraft 物理照常跑，只是 AI 不重新算目标/阵型/规避
-	if ai_tick_divisor > 1:
-		if (Engine.get_physics_frames() + _tick_phase) % ai_tick_divisor != 0:
+	# 拥挤度调节：同屏单位 > 12 时按 ai_scaling_class 放大 divisor（CHEAP UAV 在 30+ 时×2，NORMAL ×1.5）
+	if _scaling_class_cached < 0:
+		_scaling_class_cached = _compute_scaling_class()
+	var effective_divisor: int = ai_tick_divisor
+	if _scaling_class_cached != AIScaleClass.IMMUNE:
+		var unit_count: int = CombatUnit.all_units.size()
+		if unit_count > CROWD_THRESHOLD_LOW:
+			var crowd_t: float = clampf(float(unit_count - CROWD_THRESHOLD_LOW) / float(CROWD_THRESHOLD_HIGH - CROWD_THRESHOLD_LOW), 0.0, 1.0)
+			var max_mult: float = CHEAP_MAX_MULT if _scaling_class_cached == AIScaleClass.CHEAP else NORMAL_MAX_MULT
+			effective_divisor = int(ceil(float(ai_tick_divisor) * lerpf(1.0, max_mult, crowd_t)))
+	if effective_divisor > 1:
+		if (Engine.get_physics_frames() + _tick_phase) % effective_divisor != 0:
 			return
-		delta *= float(ai_tick_divisor)  # 放大 delta，让 timers/scan_timer 节奏保持一致
+		delta *= float(effective_divisor)  # 放大 delta，让 timers/scan_timer 节奏保持一致
+
+	# ── kamikaze 拦截 hook（玩家忠诚僚机 drone 专用）──
+	# 来袭导弹瞄向 squad.leader 且距离合适时，break formation 飞过去撞毁
+	# 在 simple_ai / 全功能 AI 路由之前介入，确保拦截优先于其他行为
+	if kamikaze_intercept and _try_kamikaze_intercept(delta):
+		return
 
 	if simple_ai:
 		# simple AI 只承袭固定 aggression，不受压力/SA 影响
@@ -468,22 +548,16 @@ func _physics_process(delta: float) -> void:
 	# 低技能或高压力 → 接近 0（保守 70% 持续 G 限制 + turn_speed）
 	aircraft.tactical_aggression = clampf(_effective_skill() * aggression, 0.0, 1.0)
 
-	# ── 僚机编队状态自校正守卫 ──
-	# 问题：所有 spawner（survivor_spawner / ace_squad / 未来新增）只设 `squad` 和
-	# `squad_index`，不碰 `_state`；AIController `_state` 默认 PATROL（ai_controller.gd:296），
-	# 没有任何路径把刚 spawn 的僚机从 PATROL 切到 SQUAD_FOLLOW。
-	# 后果：
-	#   - 僚机在 PATROL 跑 _try_engage（雷达锥扫描，文件自己的注释 ai_controller.gd:996-999
-	#     承认漏 flyby）
-	#   - 从不进入 _process_squad_follow → 距离扫描 _scan_squad_nearby_enemy 和
-	#     跟随长机 combat_target 协同（ai_controller.gd:1001-1060）永远不运行
-	#   - 实际表现：中队各干各的，玩家跟 1 架战斗时其他几架爱理不睬
-	# 守卫：每帧检查"合法僚机身份但还在 PATROL"，自动切 SQUAD_FOLLOW。条件与 disengage
-	# 路径（ai_controller.gd:2173-2174）完全对齐，保证已有的 bvr_only/孤雁长机行为不变。
-	# 自终止：切到 SQUAD_FOLLOW 后条件失败不会再触发；所有 PATROL 的合法设入点
-	#（917/934/1998/2186）要么清 squad、要么自任长机，天然绕过本守卫。
-	# 动态自愈：未来中队成员变动（长机阵亡晋升、招募、重组）也能自动纠正。
-	# 详见 docs/changelogs/player-ai-log.md 2026-04-20 (5)
+	# ── 僚机编队状态自校正守卫（运行时兜底）──
+	# 2026-05-04 重构后：所有 spawn 路径（main / survivor_spawner / survivor_mode /
+	# zone_mission / aircraft_weapons drone）都通过 SquadFactory.register_wingman(set_state=true)
+	# 显式进 SQUAD_FOLLOW，不再依赖本守卫做初始化。
+	# 守卫现在只服务 **运行时动态变化** 的兜底：
+	#   1. 中队成员重组（如未来招募系统把游离 AI 拉入小队）
+	#   2. 罕见的 PATROL 残留路径（_set_next_waypoint 失败 / waypoints 清空等）
+	# Sentinel UAV escort 走 simple_ai 路径（ai_controller.gd:481 提前 return），永远不会
+	# 触发本守卫——orbit_squad_leader 与 SQUAD_FOLLOW 互不影响。
+	# 详见 docs/changelogs/player-ai-log.md 2026-04-20 (5) + 2026-05-04 squad 重构
 	if _state == AIState.PATROL and not bvr_only \
 			and squad and is_instance_valid(squad.leader) and not squad.leader.is_destroyed \
 			and squad.leader != aircraft:
@@ -493,6 +567,15 @@ func _physics_process(delta: float) -> void:
 		aircraft.lod_level = 1
 		EventLogger.log_event("AI_STATE", _log_name(),
 			"auto-enter SQUAD_FOLLOW (spawn init guard, leader=%s)" % squad.leader.callsign)
+
+	# ── 玩家长机传播的 evasion：僚机立刻散开自保 ──
+	# 僚机 aircraft.evasion_mode=true（由长机 _propagate_evasion_to_squad 广播）→ 不论当前状态，
+	# 强制进入 EVADE_MISSILE。允许阵型被破坏、各自闪避；exit 由长机关 evasion 时同步广播触发
+	if aircraft.evasion_mode and _state != AIState.EVADE_MISSILE \
+			and squad and is_instance_valid(squad.leader) and squad.leader != aircraft \
+			and not is_boss_attacker():
+		MissileEvasion.enter_evade(self)
+		return
 
 	match _state:
 		AIState.PATROL:
@@ -654,33 +737,12 @@ func _process_simple(delta: float) -> void:
 	# ── 护驾长机失效检测（Sentinel 被击坠）──
 	# 一旦长机不再有效，立即清除 orbit flag 和 squad 引用，回退为独立 simple AI
 	# survivor_mode._update_enemy_waypoints 会在 8 秒内为其补充新航点
-	if orbit_squad_leader:
-		if not squad or not squad.leader or not is_instance_valid(squad.leader) or squad.leader.is_destroyed:
-			orbit_squad_leader = false
-			shield_leader = false  # 长机阵亡，恢复为普通 simple AI
-			aircraft.orbit_speed_cap = 0.0  # 解除限速
-			aircraft.ai_override_pursuit = false
-			# 立即撤除 Sentinel 光环 buff（不等 queue_free）
-			if aircraft.has_meta("commander_buff_originals"):
-				var originals: Dictionary = aircraft.get_meta("commander_buff_originals")
-				aggression = originals.get("aggression", aggression)
-				if aircraft.params:
-					aircraft.params.roll_rate = originals.get("roll_rate", aircraft.params.roll_rate)
-					aircraft.params.max_g = originals.get("max_g", aircraft.params.max_g)
-					aircraft.params.max_g_structural = originals.get("max_g_structural", aircraft.params.max_g_structural)
-					aircraft.params.max_speed = originals.get("max_speed", aircraft.params.max_speed)
-					aircraft.params.cruise_speed = originals.get("cruise_speed", aircraft.params.cruise_speed)
-					aircraft.params.acceleration = originals.get("acceleration", aircraft.params.acceleration)
-					aircraft.params.stall_speed_base = originals.get("stall_speed_base", aircraft.params.stall_speed_base)
-				aircraft.remove_meta("commander_buff_originals")
-				aircraft.remove_meta("commander_buffed_by")
-			squad = null
-			squad_index = -1
+	if orbit_squad_leader and not EscortBehavior.is_active(self):
+		EscortBehavior.cleanup_after_leader_lost(self)
 
 	# ── 护盾系统（shield_leader 模式，优先级高于一切）──
 	# 只在导弹来袭时介入，平时正常轨道飞行
-	if shield_leader and orbit_squad_leader and squad and squad.leader \
-			and is_instance_valid(squad.leader) and not squad.leader.is_destroyed:
+	if shield_leader and EscortBehavior.is_active(self):
 		var _leader := squad.leader
 
 		# ── 每帧导弹扫描 ──
@@ -730,7 +792,7 @@ func _process_simple(delta: float) -> void:
 					})
 					mm.queue_redraw()
 				# UAV 承受伤害
-				aircraft.take_damage(_shield_missile.params.damage if _shield_missile.params else 80.0)
+				aircraft.take_damage(_shield_missile.params.damage if _shield_missile.params else 80.0, _shield_missile, "missile")
 				# 销毁导弹
 				_shield_missile.is_active = false
 				_shield_missile.queue_free()
@@ -775,8 +837,7 @@ func _process_simple(delta: float) -> void:
 
 		# ── 多层轨道环绕（指挥 UAV 编队）──
 		# 每架 UAV 按 squad_index 分配不同半径轨道，像行星系统分层环绕
-		if orbit_squad_leader and squad and squad.leader and is_instance_valid(squad.leader) \
-				and squad.leader != aircraft and not squad.leader.is_destroyed:
+		if EscortBehavior.is_active(self) and squad.leader != aircraft:
 			var leader := squad.leader
 			# 轨道中心：有威胁时向威胁方向偏移（UAV 集中在导弹来袭侧）
 			var center := leader.global_position
@@ -832,12 +893,13 @@ func _process_simple(delta: float) -> void:
 						_scan_timer = 0.5
 						var best_enemy: CombatUnit = null
 						var best_edist := INF
-						for child in leader.get_parent().get_children():
-							if child is CombatUnit and child.team != aircraft.team and not child.is_destroyed:
-								var d: float = child.global_position.distance_to(aircraft.global_position)
+						# 用共享列表代替 get_parent().get_children() (perf: 节点数 N >> 单位数)
+						for unit in CombatUnit.all_units:
+							if unit and unit.team != aircraft.team and not unit.is_destroyed:
+								var d: float = unit.global_position.distance_to(aircraft.global_position)
 								if d < best_edist:
 									best_edist = d
-									best_enemy = child
+									best_enemy = unit
 						_current_target = best_enemy if best_enemy else null
 
 					if _current_target and is_instance_valid(_current_target) and not _current_target.is_destroyed:
@@ -883,11 +945,11 @@ func _process_simple(delta: float) -> void:
 							var dmg := 80.0
 							if aircraft.params and aircraft.params.missile:
 								dmg = aircraft.params.missile.damage
-							_current_target.take_damage(dmg)
+							_current_target.take_damage(dmg, aircraft, "collision")
 							EventLogger.log_event("KAMIKAZE", aircraft.callsign,
 								"self-destruct hit %s (dmg=%.0f)" % [_current_target.callsign, dmg])
-							# UAV 自毁
-							aircraft.take_damage(9999.0)
+							# UAV 自毁（自身爆炸，无攻击者）
+							aircraft.take_damage(9999.0, null, "collision")
 							_current_target = null
 							return
 						return  # 自爆机不走后续轨道逻辑
@@ -936,8 +998,7 @@ func _process_simple(delta: float) -> void:
 		dist = Aircraft.effective_distance_px(aircraft.global_position, aircraft.altitude, _current_target.global_position, _current_target.altitude)
 
 	# ── 护驾系统（orbit_squad_leader 专用）──
-	if orbit_squad_leader and squad and squad.leader and is_instance_valid(squad.leader) \
-			and not squad.leader.is_destroyed:
+	if EscortBehavior.is_active(self):
 		var leader_pos := squad.leader.global_position
 		var self_to_leader := aircraft.global_position.distance_to(leader_pos)
 		var tgt_to_leader := _current_target.global_position.distance_to(leader_pos)
@@ -1025,12 +1086,13 @@ func _try_engage_in_tether_range() -> void:
 	var leader_pos := squad.leader.global_position
 	var best: CombatUnit = null
 	var best_dist := SHIELD_ENGAGE_RANGE
-	for child in aircraft.get_parent().get_children():
-		if child is CombatUnit and child.team != aircraft.team and not child.is_destroyed:
-			var d: float = child.global_position.distance_to(leader_pos)
+	# 用共享列表代替 get_parent().get_children() (perf)
+	for unit in CombatUnit.all_units:
+		if unit and unit.team != aircraft.team and not unit.is_destroyed:
+			var d: float = unit.global_position.distance_to(leader_pos)
 			if d < best_dist:
 				best_dist = d
-				best = child
+				best = unit
 	if best:
 		_current_target = best
 		_engage_timer = 0.0
@@ -1069,8 +1131,7 @@ func _try_engage_simple() -> void:
 
 	# ── 护驾过滤（orbit_squad_leader 专用）──
 	# 只攻击进入长机护驾范围内的目标，远处的敌人不管
-	if orbit_squad_leader and squad and squad.leader and is_instance_valid(squad.leader) \
-			and not squad.leader.is_destroyed and best:
+	if best and EscortBehavior.is_active(self):
 		var tgt_to_leader := best.global_position.distance_to(squad.leader.global_position)
 		if tgt_to_leader > ORBIT_TETHER_RADIUS:
 			return  # 目标不在护驾范围内，不交战
@@ -1138,6 +1199,16 @@ func _process_engage(delta: float) -> void:
 	_tactic_timer += delta
 	_target_eval_timer += delta
 
+	# ── Drone 直冲式攻击（loyal_wingman 专用）──
+	# 用 kamikaze_intercept 标识识别 drone：跳过 BFM 决策树（不需 yo-yo / scissors / lag pursuit），
+	# 直冲玩家锁定的目标 + 全速 + 微 lead，进 gun_range 自动开火。目标死/丢自动回编队。
+	if kamikaze_intercept:
+		if not _current_target or not is_instance_valid(_current_target) or _current_target.is_destroyed:
+			TargetSelection.disengage(self)
+			return
+		_process_drone_engage(delta)
+		return
+
 	# ── Herbst J-Turn 反咬触发（独立于 bvr_only）──
 	# 任何挂载 HerbstManeuver 模块的飞机被近距追击时尝试触发，与 BVR 撤退解耦
 	# F-14 Poltergeist：有 Herbst 模块、bvr_only=false → 触发 J-Turn 反杀
@@ -1148,7 +1219,8 @@ func _process_engage(delta: float) -> void:
 		var my_fwd_h := Vector2(sin(aircraft.heading), -cos(aircraft.heading))
 		var is_chased_h := my_fwd_h.dot(to_enemy_h) < BEING_CHASED_DOT
 		var dist_h := aircraft.global_position.distance_to(_current_target.global_position)
-		if is_chased_h and dist_h < HERBST_ACTIVATION_DIST and hm.can_activate:
+		if is_chased_h and dist_h < HERBST_ACTIVATION_DIST and hm.can_activate \
+				and aircraft.altitude >= HERBST_MIN_ALTITUDE_M:
 			var cross_h := my_fwd_h.x * to_enemy_h.y - my_fwd_h.y * to_enemy_h.x
 			hm.activate(cross_h)
 			EventLogger.log_event("AI_TACTIC", _log_name(), "Herbst J-Turn triggered (chased at %.0fpx)" % dist_h)
@@ -1326,6 +1398,38 @@ func _process_engage(delta: float) -> void:
 	current_tactic_name = EngageTactic.keys()[_tactic]
 
 # ══════════════════════════════════════════════
+#  Drone 直冲式 engage（loyal_wingman 专用，跳过 BFM 决策）
+# ══════════════════════════════════════════════
+
+## 简单直冲：朝目标位置 + 半秒 lead 飞，全速，机炮自动开火
+## 目标死/超距由 _process_engage 入口的有效性检查 + TargetSelection.disengage 处理
+func _process_drone_engage(delta: float) -> void:
+	var tgt := _current_target
+	# 目标 lead：以自身闭合时间为预测窗口（BFM lead pursuit 的简化版本）
+	var to_tgt := tgt.global_position - aircraft.global_position
+	var dist_px := to_tgt.length()
+	var my_speed_px := maxf(aircraft.speed * Aircraft.PIXELS_PER_METER, 1.0)
+	var t_to_target := minf(dist_px / my_speed_px, 1.5)  # 上限 1.5s 防过冲
+	var tgt_fwd := Vector2(sin(tgt.heading), -cos(tgt.heading))
+	var tgt_speed_px := tgt.speed * Aircraft.PIXELS_PER_METER
+	var lead_pos := tgt.global_position + tgt_fwd * tgt_speed_px * t_to_target * 0.6
+
+	aircraft.target_position = lead_pos
+	aircraft.ai_override_pursuit = true
+
+	# 全速冲（drone 没有加力，max_speed 1800 km/h 已经够快）
+	if aircraft.params:
+		aircraft.target_speed_kmh = aircraft.params.max_speed
+
+	# 高度匹配目标（生存模式 flat_altitude → 用 tier）
+	if aircraft.flat_altitude:
+		aircraft.set_target_tier(tgt.get_altitude_tier())
+	else:
+		aircraft.target_altitude = tgt.altitude
+
+	current_tactic_name = "TACTIC_DRONE_STRIKE"
+
+# ══════════════════════════════════════════════
 #  态势评估
 # ══════════════════════════════════════════════
 
@@ -1417,5 +1521,82 @@ static func _angle_diff(a: float, b: float) -> float:
 	if d < 0:
 		d += TAU
 	return d - PI
+
+# ── kamikaze 拦截：忠诚僚机 drone 专用 ──
+## 扫描 missile_manager 找瞄向 squad.leader 的来袭导弹；
+## 选最近一枚、距离 ≤ KAMIKAZE_INTERCEPT_RANGE_PX 的 → break formation，飞过去撞毁
+## 命中（距离 ≤ KAMIKAZE_DETONATE_DIST_PX）→ ExplosionVFX + 双双 free
+## 返回 true 表示本帧已 override（调用者跳过常规 AI 路由）
+func _try_kamikaze_intercept(_delta: float) -> bool:
+	if squad == null or squad.leader == null or not is_instance_valid(squad.leader) or squad.leader.is_destroyed:
+		return false
+	var mm: Node = aircraft.missile_manager
+	if mm == null or not is_instance_valid(mm):
+		return false
+	var leader_pos: Vector2 = squad.leader.global_position
+	var threat: Missile = null
+	var best_dist: float = INF
+	for child in mm.get_children():
+		if not (child is Missile):
+			continue
+		var m: Missile = child
+		if not m.is_active or m.is_flare_jammed:
+			continue
+		if m.team == aircraft.team:
+			continue
+		# 只拦瞄向 leader 的（target == leader 或航向指向 leader）
+		var msl_to_leader: Vector2 = leader_pos - m.global_position
+		var dist_to_leader: float = msl_to_leader.length()
+		if dist_to_leader > MISSILE_THREAT_RANGE:
+			continue
+		var msl_fwd: Vector2 = Vector2(sin(m.heading), -cos(m.heading))
+		if msl_fwd.dot(msl_to_leader.normalized()) < MISSILE_HEADING_DOT:
+			continue
+		# 选 drone 自己最容易拦到的（距离 drone 最近的那一枚）
+		var dist_to_self: float = aircraft.global_position.distance_to(m.global_position)
+		if dist_to_self < best_dist:
+			best_dist = dist_to_self
+			threat = m
+	if threat == null:
+		return false
+	# 太远来不及拦：让常规 AI 接管（drone 还会绕在玩家身边）
+	if best_dist > KAMIKAZE_INTERCEPT_RANGE_PX:
+		return false
+
+	# break formation，全速朝导弹冲
+	aircraft.clear_formation()
+	aircraft.target_position = threat.global_position
+	aircraft.ai_override_pursuit = true
+	if aircraft.params:
+		aircraft.target_speed_kmh = aircraft.params.max_speed
+	aircraft.orbit_speed_cap = 0.0  # 解除 orbit 限速
+
+	# 进入引爆距离 → 同归于尽
+	if best_dist <= KAMIKAZE_DETONATE_DIST_PX:
+		current_tactic_name = "TACTIC_KAMIKAZE"
+		aircraft.show_tactic_popup("KAMIKAZE")
+		# AOE 视觉指示（与 shield_leader 同款）
+		var msl_mgr: MissileManager = mm as MissileManager
+		if msl_mgr:
+			msl_mgr._aoe_zones.append({
+				"pos": aircraft.global_position,
+				"altitude": aircraft.altitude,
+				"radius_px": 50.0,
+				"time_left": 1.0,
+				"max_time": 1.0,
+				"damage": 0.0,
+				"team": aircraft.team,
+				"hit_set": { aircraft.get_instance_id(): true },
+			})
+			msl_mgr.queue_redraw()
+		# 销毁导弹
+		threat.is_active = false
+		threat.queue_free()
+		# drone 自毁
+		aircraft.take_damage(9999.0, null, "collision")
+		EventLogger.log_event("KAMIKAZE", aircraft.callsign,
+			"drone intercepted missile (dist=%.0f)" % best_dist)
+	return true
+
 
 # ── 协同齐射系统（F-47 小队战术） — 已提取到 ai/squad_coordination.gd ──

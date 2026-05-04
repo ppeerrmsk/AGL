@@ -39,6 +39,24 @@ var bank_angle: float = 0.0      ## 模拟 bank（由航向变化率推算）
 var _trail_ribbon: TrailRibbon
 var _font: Font
 
+## VLS phase 0/1 降帧 tick 状态（详见 SurvivorData.ENABLE_VLS_LOW_RATE_TICK）
+var _vls_low_rate_counter: int = 0
+const VLS_LOW_RATE_DIVISOR: int = 3   ## 60Hz / 3 = 20Hz
+
+## 缓存的 MissileManager 引用（首次 _physics_process 时解析）
+var _mm = null
+
+## 寿命到期 / 能量耗尽 / 制导彻底丢失时进入 coasting fade，而不是瞬间消失。
+## 命中爆炸由 MissileManager 直接 queue_free，已有 ExplosionVFX 替代视觉，不走 fade。
+const FADE_OUT_DURATION: float = 0.5
+var _fading_out: bool = false
+
+## 激光减速计时（敌方激光照射导弹时由 LaserEquipment 写入）
+## > 0 时导弹速度 cap 到 max_speed × LASER_MISSILE_SPEED_MULT，max_g cap 同理
+## 让玩家有机动时间躲开 — 不直接击落导弹（默认；致命输出技能下走另一条 intercept 路径）
+var _laser_slow_timer: float = 0.0
+var _fade_timer: float = 0.0
+
 ## ── 云层穿越累计衰减 ──
 var _cloud_guidance_loss: float = 0.0   ## 0~(1-FLOOR) 累加不回复
 
@@ -71,41 +89,117 @@ func _physics_process(delta: float) -> void:
 
 	age += delta
 
+	# 激光减速倒数：VLS / 渐隐 / 主路径都需要倒计时（否则 VLS 弹被照射后永久减速）
+	# 倒数放在所有分支之前，确保 timer 不被旁路
+	_laser_slow_timer = maxf(_laser_slow_timer - delta, 0.0)
+
+	# 缓存 MissileManager 引用（用于读取帧级共享快照；CSG/VLS 群弹优化）
+	if _mm == null:
+		_mm = get_parent()
+
+	# 渐隐 coasting：寿命到期/能量耗尽进入此分支，跳过制导，仅按当前速度滑行 + 淡出
+	if _fading_out:
+		_fade_timer -= delta
+		var ratio: float = clampf(_fade_timer / FADE_OUT_DURATION, 0.0, 1.0)
+		modulate.a = ratio  # 影响自身 + 子节点 (TrailRibbon)
+		if _fade_timer <= 0.0:
+			is_active = false  # 让 MissileManager 下一帧 queue_free
+			return
+		# 继续滑行（无制导）：靠现有 heading + speed 平移，缓慢减速
+		speed = maxf(speed - params.drag_deceleration * delta, 0.0)
+		var fwd_f := Vector2(sin(heading), -cos(heading))
+		global_position += fwd_f * speed * PIXELS_PER_METER * delta
+		queue_redraw()
+		return
+
 	# VLS 齐射弹：前两段完全接管物理（第三段 TERMINAL 走标准 PN 路径下沉到 params.nav_constant 决定）
 	if params and params.is_vls_salvo and vls_phase < 2:
-		_update_vls_non_terminal(delta)
+		# phase 0/1 是确定性弹道（爬升+固定点转向），可降帧 tick
+		if SurvivorData.ENABLE_VLS_LOW_RATE_TICK:
+			_vls_low_rate_counter += 1
+			if _vls_low_rate_counter < VLS_LOW_RATE_DIVISOR:
+				return
+			# 累积 N 帧 delta 一次性传入，保证位移/速度积分总量不变
+			_update_vls_non_terminal(delta * _vls_low_rate_counter)
+			_vls_low_rate_counter = 0
+		else:
+			_update_vls_non_terminal(delta)
 		return
+	# 进入 TERMINAL（或非 VLS 弹）后立刻恢复 60Hz tick，重置降帧计数
+	_vls_low_rate_counter = 0
 
 	# 0) 云层穿越：导弹自身在云中飞行 → 追踪能力永久衰减（不回复）
 	# 云层只存在于高空（HIGH tier，>=7500m）
+	# get_in_cloud 走 MissileManager 的 256px 网格快照（同帧同区域只查一次）
 	if _cloud_guidance_loss < 1.0 - CLOUD_LOSS_FLOOR and altitude >= 7500.0:
-		var weather := get_tree().get_first_node_in_group("weather")
-		if weather and weather.has_method("is_in_cloud"):
-			if weather.is_in_cloud(global_position):
+		if _mm and _mm.has_method("get_in_cloud"):
+			if _mm.get_in_cloud(global_position):
 				_cloud_guidance_loss = minf(_cloud_guidance_loss + CLOUD_LOSS_PER_SECOND * delta, 1.0 - CLOUD_LOSS_FLOOR)
 
-	# 1) 存活时间检查
+	# 0.5) 激光减速倍率（_laser_slow_timer 已在函数顶部倒数，这里仅取当前帧的 mult）
+	var _laser_speed_mult: float = SkillHooks.LASER_MISSILE_SPEED_MULT if _laser_slow_timer > 0.0 else 1.0
+	var _laser_g_mult: float = SkillHooks.LASER_MISSILE_G_MULT if _laser_slow_timer > 0.0 else 1.0
+
+	# 1) 存活时间检查 → 进入渐隐 coasting，而不是瞬间消失
 	if age > params.max_lifetime:
-		is_active = false
+		_start_fade_out()
 		return
 
 	# 2) 动力阶段
 	if age < params.motor_burn_time:
-		speed = minf(speed + params.motor_acceleration * delta, params.max_speed)
+		speed = minf(speed + params.motor_acceleration * delta, params.max_speed * _laser_speed_mult)
 	else:
 		speed = maxf(speed - params.drag_deceleration * delta, 0.0)
+	# 激光减速生效时强制 cap（即使在制动段也限上限，防止突然脱离激光后速度暴涨）
+	if _laser_slow_timer > 0.0:
+		speed = minf(speed, params.max_speed * _laser_speed_mult)
 
-	# 3) 能量耗尽（发动机燃烧阶段跳过，允许地面发射的低初速导弹加速）
+	# 3) 能量耗尽（发动机燃烧阶段跳过，允许地面发射的低初速导弹加速）→ 渐隐
 	if speed < 80.0 and age >= params.motor_burn_time:
-		is_active = false
+		_start_fade_out()
 		return
+
+	# ── 解析目标状态（优先从 MissileManager 帧快照读，未命中走直接属性）──
+	# 同源同目标的多枚导弹（VLS 齐射 / 玩家多弹齐射）共用同一份快照，避免每枚重复查询
+	var t_valid: bool = is_instance_valid(target) and target != null
+	var t_pos: Vector2 = global_position
+	var t_heading: float = 0.0
+	var t_speed: float = 0.0
+	var t_alt: float = altitude
+	var t_destroyed: bool = true
+	var t_is_aircraft: bool = false
+	var t_is_cloaked: bool = false
+	var t_flat_altitude: bool = false
+	var t_alt_tier: int = 0
+	if t_valid:
+		var snap: Dictionary = _mm.get_target_snap(target) if (_mm and _mm.has_method("get_target_snap")) else {}
+		if snap.is_empty():
+			t_pos = target.global_position
+			t_heading = target.heading
+			t_speed = target.speed
+			t_alt = target.altitude
+			t_destroyed = target.is_destroyed
+			t_is_aircraft = target is Aircraft
+			t_is_cloaked = t_is_aircraft and (target as Aircraft).is_cloaked
+			t_flat_altitude = target.flat_altitude
+			t_alt_tier = target.get_altitude_tier()
+		else:
+			t_pos = snap["pos"]
+			t_heading = snap["heading"]
+			t_speed = snap["speed"]
+			t_alt = snap["alt"]
+			t_destroyed = snap["is_destroyed"]
+			t_is_aircraft = snap["is_aircraft"]
+			t_is_cloaked = snap["is_cloaked"]
+			t_flat_altitude = snap["flat_altitude"]
+			t_alt_tier = snap["alt_tier"]
 
 	# 4) 制导模式判定
 	if params.fire_and_forget:
 		# 发射后不管（AGM 等）：不需要持续照射，不受热诱弹干扰
-		if target == null or not is_instance_valid(target) or target.is_destroyed:
+		if not t_valid or t_destroyed:
 			has_guidance = false
-		elif target is Aircraft and target.is_cloaked:
+		elif t_is_cloaked:
 			has_guidance = false  # 光学隐形：导弹丢失制导
 		else:
 			has_guidance = true
@@ -113,14 +207,18 @@ func _physics_process(delta: float) -> void:
 		# SARH 照射检查 + 热诱弹干扰
 		if is_flare_jammed:
 			has_guidance = false
-		elif target == null or not is_instance_valid(target) or target.is_destroyed:
+		elif not t_valid or t_destroyed:
 			has_guidance = false
-		elif target is Aircraft and target.is_cloaked:
+		elif t_is_cloaked:
 			has_guidance = false  # 光学隐形：SARH 导弹丢失
 		elif source == null or not is_instance_valid(source) or source.is_destroyed:
 			has_guidance = false
 		else:
-			var lock_progress: float = source.radar_targets.get(target, 0.0)
+			var lock_progress: float = -1.0
+			if _mm and _mm.has_method("get_lock_progress"):
+				lock_progress = _mm.get_lock_progress(source, target)
+			if lock_progress < 0.0:
+				lock_progress = source.radar_targets.get(target, 0.0)
 			var lock_time_val: float = 3.0
 			if source is Aircraft and source.params:
 				lock_time_val = source.params.lock_time
@@ -130,8 +228,8 @@ func _physics_process(delta: float) -> void:
 
 	# 4b) Seeker FOV：目标脱离导引头视场 → 导弹丢锁
 	# 仅在制导阶段（发射后 guidance_delay 之后）生效；丢锁后惯性飞行直到 max_lifetime
-	if has_guidance and age > params.guidance_delay and is_instance_valid(target):
-		var los_tgt := target.global_position - global_position
+	if has_guidance and age > params.guidance_delay and t_valid:
+		var los_tgt := t_pos - global_position
 		if los_tgt.length() > 1.0:
 			var tgt_angle := atan2(los_tgt.x, -los_tgt.y)
 			var off := absf(_angle_diff(tgt_angle, heading))
@@ -139,22 +237,22 @@ func _physics_process(delta: float) -> void:
 				has_guidance = false
 
 	# 5) 制导
-	if has_guidance and is_instance_valid(target) and age > params.guidance_delay:
-		var los := target.global_position - global_position
+	if has_guidance and t_valid and age > params.guidance_delay:
+		var los := t_pos - global_position
 		var dist_px := los.length()
 		var dist_m := dist_px / PIXELS_PER_METER
 
 		# 发射后不管 + 目标静止/慢速 → 纯追踪（最精确）
-		var target_is_slow := target.speed < 10.0
+		var target_is_slow := t_speed < 10.0
 		if params.fire_and_forget and target_is_slow:
 			# 对静止目标直接纯追踪，不用 PN（避免数值误差）
 			var pure_heading := atan2(los.x, -los.y)
 			var diff := _angle_diff(pure_heading, heading)
-			var max_turn := params.max_g * GRAVITY / maxf(speed, 50.0) * delta
+			var max_turn := params.max_g * _laser_g_mult * GRAVITY / maxf(speed, 50.0) * delta
 			heading += clampf(diff, -max_turn, max_turn)
 		else:
 			# 低空目标：地面杂波干扰导引头，降低追踪过载
-			var effective_max_g := params.max_g * _guidance_degradation()
+			var effective_max_g := params.max_g * _guidance_degradation_for(t_flat_altitude, t_alt_tier) * _laser_g_mult
 
 			if dist_m < 200.0:
 				# 近距纯追踪，避免 PN 振荡
@@ -170,7 +268,7 @@ func _physics_process(delta: float) -> void:
 				# 闭合速度
 				var los_dir := los.normalized()
 				var my_vel := Vector2(sin(heading), -cos(heading)) * speed * PIXELS_PER_METER
-				var tgt_vel := Vector2(sin(target.heading), -cos(target.heading)) * target.speed * PIXELS_PER_METER
+				var tgt_vel := Vector2(sin(t_heading), -cos(t_heading)) * t_speed * PIXELS_PER_METER
 				var rel_vel := tgt_vel - my_vel
 				var v_closure := -rel_vel.dot(los_dir)
 
@@ -186,8 +284,8 @@ func _physics_process(delta: float) -> void:
 				_prev_los_angle = los_angle
 
 	# 6) 高度趋近
-	if has_guidance and target != null and is_instance_valid(target):
-		altitude += (target.altitude - altitude) * 3.0 * delta
+	if has_guidance and t_valid:
+		altitude += (t_alt - altitude) * 3.0 * delta
 
 	# 7) 位移
 	var vel_dir := Vector2(sin(heading), -cos(heading))
@@ -202,6 +300,15 @@ func _physics_process(delta: float) -> void:
 
 	queue_redraw()
 
+## 进入渐隐滑行状态：寿命到期 / 能量耗尽时调用，替代瞬间 is_active=false。
+## 命中爆炸路径不走这里（MissileManager 直接 queue_free，由 ExplosionVFX 替代视觉）
+func _start_fade_out() -> void:
+	if _fading_out:
+		return
+	_fading_out = true
+	_fade_timer = FADE_OUT_DURATION
+	has_guidance = false  # 渐隐期间不再做任何制导
+
 ## ════════════════════════════════════════════════════════════
 ##  VLS 三段式弹道（阶段 1 VERTICAL + 阶段 2 TRANSITION）
 ## ════════════════════════════════════════════════════════════
@@ -212,9 +319,13 @@ func _physics_process(delta: float) -> void:
 func _update_vls_non_terminal(delta: float) -> void:
 	_vls_phase_timer += delta
 
+	# 激光减速倍率（laser timer 已在 _physics_process 顶部倒数）
+	var _laser_speed_mult_vls: float = SkillHooks.LASER_MISSILE_SPEED_MULT if _laser_slow_timer > 0.0 else 1.0
+	var _laser_g_mult_vls: float = SkillHooks.LASER_MISSILE_G_MULT if _laser_slow_timer > 0.0 else 1.0
+
 	match vls_phase:
 		0:  # VERTICAL 爬升段：维持初始 heading，速度爬到 max_speed 的 50%
-			speed = minf(speed + params.motor_acceleration * delta, params.max_speed * 0.5)
+			speed = minf(speed + params.motor_acceleration * delta, params.max_speed * 0.5 * _laser_speed_mult_vls)
 			if _vls_phase_timer >= params.vls_climb_time:
 				vls_phase = 1
 				_vls_phase_timer = 0.0
@@ -224,9 +335,9 @@ func _update_vls_non_terminal(delta: float) -> void:
 				if to_pt.length() > 1.0:
 					var target_hdg: float = atan2(to_pt.x, -to_pt.y)
 					var diff: float = atan2(sin(target_hdg - heading), cos(target_hdg - heading))
-					var max_turn: float = deg_to_rad(params.vls_transition_turn_rate_degs) * delta
+					var max_turn: float = deg_to_rad(params.vls_transition_turn_rate_degs) * _laser_g_mult_vls * delta
 					heading += clampf(diff, -max_turn, max_turn)
-			speed = minf(speed + params.motor_acceleration * delta, params.max_speed)
+			speed = minf(speed + params.motor_acceleration * delta, params.max_speed * _laser_speed_mult_vls)
 			if _vls_phase_timer >= params.vls_transition_time:
 				vls_phase = 2
 				_vls_phase_timer = 0.0
@@ -356,11 +467,19 @@ func _draw_data_label() -> void:
 
 ## 低空目标导引头性能衰减（地面杂波干扰 + 云层穿越累计损耗）
 ## 低空衰减仅在扁平高度模式（生存模式）下生效
+## 优先用 _guidance_degradation_for() — 由 _physics_process 传入已解析的 (flat, tier) 避免重复属性查
 func _guidance_degradation() -> float:
+	var t_flat: bool = false
+	var t_tier: int = 0
+	if is_instance_valid(target):
+		t_flat = target.flat_altitude
+		t_tier = target.get_altitude_tier()
+	return _guidance_degradation_for(t_flat, t_tier)
+
+func _guidance_degradation_for(t_flat: bool, t_tier: int) -> float:
 	var base := 1.0
-	if is_instance_valid(target) and target.flat_altitude:
-		var tier := target.get_altitude_tier()
-		match tier:
+	if t_flat:
+		match t_tier:
 			CombatUnit.AltitudeTier.GROUND:
 				base = 0.5  # 地面目标：严重杂波
 			CombatUnit.AltitudeTier.LOW:

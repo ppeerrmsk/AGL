@@ -24,6 +24,33 @@ func _ready() -> void:
 	CallsignDB.reset()
 	_build_ui()
 
+
+## ── Debug 快捷键（开发用） ──
+## Ctrl + M           → +1000 功勋
+## Ctrl + Shift + M   → -1000 功勋（夹底 0）
+## Ctrl + Alt + M     → 功勋归零
+## 注：仅在主菜单生效；不入正式发布的 build 时可去掉本函数
+func _unhandled_key_input(event: InputEvent) -> void:
+	if not (event is InputEventKey) or not event.pressed or event.echo:
+		return
+	if event.keycode != KEY_M or not event.ctrl_pressed:
+		return
+	var delta: int = 1000
+	var msg: String = ""
+	if event.alt_pressed:
+		MeritLedger.debug_reset()
+		msg = "[debug] merit reset → 0"
+	elif event.shift_pressed:
+		var cur: int = MeritLedger.get_total()
+		var sub: int = mini(delta, cur)
+		MeritLedger.debug_add(-sub)
+		msg = "[debug] merit -%d → %d" % [sub, MeritLedger.get_total()]
+	else:
+		MeritLedger.debug_add(delta)
+		msg = "[debug] merit +%d → %d" % [delta, MeritLedger.get_total()]
+	_show_toast(msg)
+	get_viewport().set_input_as_handled()
+
 func _process(delta: float) -> void:
 	_time += delta
 	_sweep_angle += delta * 1.2  # 雷达扫描速度
@@ -152,6 +179,9 @@ func _build_ui() -> void:
 	subtitle.add_theme_color_override("font_color", SUBTITLE_COLOR)
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title_box.add_child(subtitle)
+
+	# 功勋显示（标题下方居中，硬币 + 数字）
+	_build_merit_display(title_box)
 
 	# 分隔
 	var sep_spacer := Control.new()
@@ -318,6 +348,7 @@ func _build_audio_button(root: VBoxContainer) -> void:
 	root.add_child(bottom_pad)
 
 ## 要在重置时删除的存档文件列表（保留 locale.cfg / audio.cfg 用户偏好）
+## tutorial.cfg 走文件删除；merit/loadout 走 ledger.debug_reset()（同时清内存 + 重写 cfg）
 const RESET_SAVE_FILES := [
 	"user://tutorial.cfg",
 ]
@@ -335,6 +366,11 @@ func _on_reset_save_pressed() -> void:
 			if FileAccess.file_exists(path):
 				DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 				removed += 1
+		# AutoLoad 已在内存里持有这些 ledger 状态，单删 cfg 不够，必须调 debug_reset
+		MeritLedger.debug_reset()
+		removed += 1
+		LoadoutLedger.debug_reset()
+		removed += 1
 		_show_toast(tr("MENU_RESET_SAVE_OK") % removed)
 		dlg.queue_free())
 	dlg.canceled.connect(func(): dlg.queue_free())
@@ -458,3 +494,29 @@ func _build_sandbox_corner_button() -> void:
 
 func _on_survivor_pressed() -> void:
 	get_tree().change_scene_to_file("res://scenes/survivor_map_select.tscn")
+
+## 标题下方的功勋徽章 + 数字（局外货币）
+func _build_merit_display(parent: VBoxContainer) -> void:
+	var pad := Control.new()
+	pad.custom_minimum_size = Vector2(0, 10)
+	parent.add_child(pad)
+
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 8)
+	parent.add_child(row)
+
+	var coin := preload("res://scripts/meta/merit_coin_icon.gd").new()
+	coin.radius = 11.0
+	row.add_child(coin)
+
+	var label := Label.new()
+	label.text = "%s  %d" % [tr("MENU_MERIT_LABEL"), MeritLedger.get_total()]
+	label.add_theme_font_size_override("font_size", 18)
+	label.add_theme_color_override("font_color", Color(0.85, 0.75, 0.35))
+	row.add_child(label)
+
+	# 余额变化时实时刷新（如果以后加调试按钮 / 改装界面跳回主菜单）
+	MeritLedger.merit_changed.connect(func(total: int, _delta: int):
+		if is_instance_valid(label):
+			label.text = "%s  %d" % [tr("MENU_MERIT_LABEL"), total])

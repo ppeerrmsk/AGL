@@ -42,20 +42,25 @@ var encounter: BossEncounter = null
 var anchor: Vector2 = Vector2.INF
 var heading_deg: float = 0.0
 var map_id: String = "default"
+var boss_id_override: String = ""    ## Boss Debug 强制指定 boss id，绕过地图池随机
 var _was_active: bool = false
 
-func _init(p_anchor: Vector2, p_heading_deg: float, p_map_id: String) -> void:
+func _init(p_anchor: Vector2, p_heading_deg: float, p_map_id: String, p_boss_id_override: String = "") -> void:
 	name = "boss_encounter"
 	anchor = p_anchor
 	heading_deg = p_heading_deg
 	map_id = p_map_id
+	boss_id_override = p_boss_id_override
 
 # ──────────────── 生命周期 ────────────────
 
 func _start() -> void:
 	active = true
-	# 1. 选 encounter
-	encounter = BossRegistry.pick_for_map(map_id, anchor)
+	# 1. 选 encounter（boss_debug 路径走 instantiate 强制指定；否则按地图池 roll）
+	if boss_id_override != "":
+		encounter = BossRegistry.instantiate(boss_id_override)
+	else:
+		encounter = BossRegistry.pick_for_map(map_id, anchor)
 	if encounter == null:
 		push_error("BossEncounterEvent: BossRegistry returned null for map '%s'" % map_id)
 		end()
@@ -117,9 +122,8 @@ func _enter_engaged() -> void:
 	phase = Phase.ENGAGED
 	# 释放所有 directive
 	clear_all_directives()
-	# 飞机 BOSS：调 engage() 打开 enable_combat
-	if encounter is AceSquad:
-		(encounter as AceSquad).engage()
+	# 通用 engage()：AceSquad → PURSUIT；CSG → 启动 F/A-18 弹射循环；其他子类按需覆盖
+	encounter.engage()
 	# HUD + BGM
 	encounter.hud_visible = true
 	if not encounter.bgm_layers.is_empty():

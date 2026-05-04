@@ -4,8 +4,8 @@ extends RefCounted
 ## 编队托管子系统（静态工具类）
 ## 从 aircraft.gd 提取的 LOD 1 编队托管三段式逻辑。
 ##
-## 状态仍住在 Aircraft（formation_mode / _formation_leader / _formation_blend /
-## _formation_jitter_phase / _dbg_* / target_position / target_speed_kmh 等）。
+## 状态住在 Aircraft（formation_mode / _formation_leader / _dbg_* / target_position 等）+
+## AIController（_formation_blend / _formation_jitter_phase 单边权威，2026-05-04 重构后取消镜像）。
 ## 本模块不持有状态，只在 ac 上读写 + 调 AircraftPhysics 静态方法。
 ##
 ## 调用约定（来自 aircraft.gd _physics_process LOD 1 分支）：
@@ -126,14 +126,19 @@ const BRANCH_NAMES := ["FAR", "MID", "CLOSE"]
 ## LOD 1 编队托管主入口。
 ## 调用方已在 _physics_process 判定 `formation_mode and _formation_leader`。
 ## 9 阶段流水线：context → heading → bank → speed → log → altitude → position → periodic.
+##
+## 2026-05-04 性能优化：speed / altitude 降到 20Hz（每 3 帧更新一次，delta×3 抵消频率）。
+## bank / heading / position 保持 60Hz —— 视觉敏感，抖动一帧就能看出。speed/altitude 是
+## 慢量（飞机加减速秒级），20Hz 决策完全够。各飞机 _lod_frame 错相位天然分散负载峰值。
 static func update_follow(ac: Aircraft, delta: float) -> void:
 	var ctx := _build_context(ac)
 	var target_heading: float = _resolve_target_heading(ac, ctx)
 	_update_heading(ac, ctx, target_heading, delta)
 	_update_bank(ac, ctx, target_heading, delta)
-	_update_speed(ac, ctx, delta)
+	if ac._lod_frame % 3 == 0:
+		_update_speed(ac, ctx, delta * 3.0)
+		_update_altitude(ac, ctx, delta * 3.0)
 	_log_formation_debug(ac, ctx, delta)
-	_update_altitude(ac, ctx, delta)
 	_update_position(ac, ctx, delta)
 	_periodic_and_visuals(ac, ctx, delta)
 
@@ -146,7 +151,9 @@ static func update_follow(ac: Aircraft, delta: float) -> void:
 ## 注意：slot_local 用"长机本地坐标系"而不是"飞机→槽位世界方位角"（见 bug #1）。
 static func _build_context(ac: Aircraft) -> Dictionary:
 	var ldr: Aircraft = ac._formation_leader
-	var b: float = ac._formation_blend  # 0=自主飞行过渡, 1=正常编队
+	# 2026-05-04 重构：blend / jitter_phase 单边住 AIController，从 _ai_ref 读
+	# （之前在 Aircraft 上镜像了一份，每帧手动同步 → 已删）
+	var b: float = ac._ai_ref._formation_blend if ac._ai_ref else 1.0  # 0=自主飞行过渡, 1=正常编队
 
 	# 离槽位距离
 	var slot_pos: Vector2 = ac.target_position
@@ -169,7 +176,7 @@ static func _build_context(ac: Aircraft) -> Dictionary:
 
 	# 个体微扰动相位（基于 _lod_frame 推进，各飞机 phase 错开）
 	var t := float(ac._lod_frame) * 0.02
-	var phase: float = ac._formation_jitter_phase
+	var phase: float = ac._ai_ref._formation_jitter_phase if ac._ai_ref else 0.0
 
 	# Rejoin 速率缩放（bug #10）：b<1 时 bank/heading 速率按 b 线性缩放，
 	# 避免 combat 残留 bank 硬拉。稳态 b=1 时 scale=1.0，行为完全等同老代码。

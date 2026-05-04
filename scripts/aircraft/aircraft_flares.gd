@@ -53,8 +53,13 @@ static func update(ac: Aircraft, delta: float) -> void:
 	# 粒子
 	_update_particles(ac, delta)
 
-	# 释放冷却
-	ac._flare_cooldown = maxf(ac._flare_cooldown - delta, 0.0)
+	# 释放冷却（§C 玩家技能：hp<50% 时按 low_hp_flare_reload_mult 加快倒计时；mult<1 = 加快）
+	var cd_decrement: float = delta
+	if ac.team == 0 and ac.low_hp_flare_reload_mult != 1.0 and ac.params:
+		var hp_ratio: float = ac.hp / maxf(ac.params.max_hp, 1.0)
+		if hp_ratio < 0.5 and ac.low_hp_flare_reload_mult > 0.0:
+			cd_decrement = delta / ac.low_hp_flare_reload_mult  # mult=0.5 → 倒计时 ×2 速度
+	ac._flare_cooldown = maxf(ac._flare_cooldown - cd_decrement, 0.0)
 
 	if not ac.params or not ac.params.flare:
 		return
@@ -105,6 +110,23 @@ static func update(ac: Aircraft, delta: float) -> void:
 	if not nearest_missile:
 		return
 
+	# ── 机动优先（Cobra / Herbst）──
+	# 玩家持有眼镜蛇或危机赫尔贝特技能 + 规避模式 + 机动可用时，
+	# 让机动在 ~300px (COBRA_MISSILE_TRIGGER_PX) 处接管这枚导弹（机动期间物理免疫，
+	# 比 flare 概率拦截更稳）。这里抑制 flare 释放，避免提前烧 flare 后让机动闲置。
+	# 若机动正在冷却 / 已经用完 / 不在 evasion 模式 → 落回 flare 兜底。
+	if ac.use_tactical_preference and ac.evasion_mode:
+		var cobra_ready: bool = false
+		if ac.cobra_skill_active and ac._cobra_skill_cooldown <= 0.0:
+			var mf := ac.get_maneuver()
+			cobra_ready = mf != null and not mf.is_active
+		var herbst_ready: bool = false
+		if ac.evasion_herbst_active:
+			var hm := ac.get_herbst()
+			herbst_ready = hm != null and hm.can_activate
+		if cobra_ready or herbst_ready:
+			return
+
 	# 根据性格计算释放距离
 	var fp := ac.params.flare
 	var release_dist_m := lerpf(fp.calm_distance, fp.panic_distance, fp.nervousness)
@@ -145,6 +167,23 @@ static func release(ac: Aircraft, target_missile: Missile = null) -> void:
 		ac._flare_cooldown = fp.cooldown
 	EventLogger.log_event("FLARE", ac._log_name(),
 		"deployed %d flares (remaining=%d)" % [count, ac.flares_remaining])
+
+	# §1.3 + §1.4 玩家技能：发射 flare 给周围敌方施加 JAM
+	# 早退检查：仅 team 0 + 持有 SKILL_FLARE_AOE_JAM
+	if ac.team == 0 and ac.has_meta("upgrade_stacks"):
+		var stacks: Dictionary = ac.get_meta("upgrade_stacks")
+		if int(stacks.get(SkillHooks.SKILL_FLARE_AOE_JAM, 0)) > 0:
+			var fa_hits: int = AOEBroadcast.apply_status_in_radius(
+				ac.global_position,
+				SkillHooks.FLARE_AOE_JAM_RADIUS_PX,
+				1, StatusEffects.JAM,
+				SkillHooks.FLARE_AOE_JAM_DURATION,
+				ac)
+			SkillHooks.on_player_jam_landed(ac, fa_hits)
+
+	# 玩家技能"焰诱共振"：释放热诱弹后获得 OVERLOAD（与 jam 是否成功无关）
+	if ac.team == 0:
+		SkillHooks.on_flare_release(ac)
 
 	# 导弹穿透窗口：玩家 / BOSS 享有
 	if ac.flares_guaranteed or ac.boss_flare_immunity:
@@ -196,6 +235,8 @@ static func release(ac: Aircraft, target_missile: Missile = null) -> void:
 		# 热诱弹成功干扰时触发一次滚转动画
 		if ac._evade_roll_remaining <= 0.0 and ac._evade_roll_cooldown <= 0.0:
 			ac._evade_roll_remaining = Aircraft._EVADE_ROLL_DURATION
+		# §1.4 玩家技能钩子：成功回避导弹 → 给自己 OVERLOAD 4s
+		SkillHooks.on_evade_missile(ac)
 
 static func calc_jam_chance(ac: Aircraft, m: Missile) -> float:
 	var fp := ac.params.flare

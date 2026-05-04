@@ -32,6 +32,11 @@ func is_defeated() -> bool:
 func update(_delta: float) -> void:
 	pass
 
+## 玩家正式与 BOSS 接战（boss_encounter_event 从 PRE_STAGE 切到 ENGAGED 时调用）
+## 子类可覆盖以触发"接战瞬间"行为（例：CSG 弹射 F/A-18 / AceSquad 进 PURSUIT）
+func engage() -> void:
+	pass
+
 ## HUD BOSS 面板显示的成员列表
 ## 飞机 BOSS：返回 Aircraft 数组（含已击毁，HUD 显示 DOWN）
 ## 舰队 BOSS：返回 NavalUnit 数组（旗舰 + 关键护航）

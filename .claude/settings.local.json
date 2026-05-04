@@ -195,7 +195,9 @@
       "Bash(grep -n \"^]$\\\\|^const UPGRADES\" scripts/survivor/survivor_data.gd)",
       "Bash(grep -n \"= player_ref\\\\| player_ref$\\\\|ac == player_ref\" scripts/aircraft_renderer.gd)",
       "Bash(awk '{ while\\(match\\($0, /^\\(\\\\t*\\)    /, a\\)\\) { $0 = a[1] \"\\\\t\" substr\\($0, RLENGTH+1\\); } print }' scripts/ai/bfm_tactics.gd)",
-      "Bash(mv /tmp/bfm.gd scripts/ai/bfm_tactics.gd)"
+      "Bash(mv /tmp/bfm.gd scripts/ai/bfm_tactics.gd)",
+      "Bash(grep -E \"\\\\.\\(gd|tscn\\)$\")",
+      "Bash(awk 'NR==223' /c/Users/noelu/Documents/AGL/scripts/missile_manager.gd)"
     ]
   },
   "hooks": {

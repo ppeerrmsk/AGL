@@ -2,9 +2,9 @@
 
 [ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
 [ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
-[ext_resource type="Resource" path="res://resources/gladiator_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/lancer_combat.tres" id="3"]
 [ext_resource type="Resource" path="res://resources/default_missile.tres" id="4"]
-[ext_resource type="Resource" path="res://resources/default_flare.tres" id="5"]
+[ext_resource type="Resource" path="res://resources/f14_flare.tres" id="5"]
 [ext_resource type="Resource" path="res://resources/agm_missile.tres" id="6"]
 
 [resource]

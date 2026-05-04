@@ -65,9 +65,73 @@ func dump_to_file() -> String:
 		file.store_line("[%.1f] [%s] %s: %s" % [
 			ev["time"], ev["category"], ev["subject"], ev["message"]])
 
+	# §7.6 末尾追加技能快照（玩家飞机当前 upgrade_stacks + 状态效果 + max_hp 修正）
+	# 用 try/except 风格的 nil-safe 拼装：找不到玩家就跳过整段
+	_dump_skill_snapshot(file)
+
 	file.close()
 	print("EventLogger: saved %d events to %s" % [_events.size(), path])
 	return path
+
+
+## §7.6 技能快照：玩家技能 / 状态效果 / 关键属性 / 最近钩子触发
+## 不持久化新数据，只是把已有信息汇总到 log 末尾，方便用户对照玩家死亡前 30s 看哪些技能链触发了什么
+func _dump_skill_snapshot(file: FileAccess) -> void:
+	var pref: Aircraft = AircraftRenderer.player_ref
+	if pref == null or not is_instance_valid(pref):
+		return
+	file.store_line("")
+	file.store_line("=== SKILLS SNAPSHOT @ t=%.1fs ===" % _game_time)
+	file.store_line("Player: %s (callsign=%s, hp=%.0f/%.0f)" % [
+		(pref.params.display_name if pref.params else "?"),
+		pref.callsign,
+		pref.hp,
+		(pref.params.max_hp if pref.params else 0.0),
+	])
+	# Active upgrades
+	var stacks: Dictionary = {}
+	if pref.has_meta("upgrade_stacks"):
+		stacks = pref.get_meta("upgrade_stacks")
+	file.store_line("Active upgrades (%d):" % stacks.size())
+	for u in SurvivorData.UPGRADES:
+		var uid: String = u.get("id", "")
+		var stk: int = int(stacks.get(uid, 0))
+		if stk <= 0:
+			continue
+		var rarity_idx: int = SurvivorData.get_rarity(u)
+		var rarity_name: String = ""
+		match rarity_idx:
+			0: rarity_name = "STABLE"
+			1: rarity_name = "ADV"
+			2: rarity_name = "EXP"
+			3: rarity_name = "CLA"
+			4: rarity_name = "NEXT"
+			_: rarity_name = "?"
+		var kw: Variant = u.get("keywords", [])
+		var kw_str: String = ""
+		if kw is Array and (kw as Array).size() > 0:
+			kw_str = " keywords=%s" % str(kw)
+		file.store_line("  [%-4s] %s ×%d%s" % [rarity_name, uid, stk, kw_str])
+	# Active status effects
+	file.store_line("Active status effects (%d):" % pref.status_effects.size())
+	for sid in pref.status_effects.keys():
+		var rem: float = float(pref.status_effects[sid])
+		var initial: float = float(pref.status_initial_durations.get(sid, rem))
+		file.store_line("  %s remaining=%.2fs / initial=%.2fs" % [sid, rem, initial])
+	# evasion_modifiers active values
+	if "evasion_modifiers" in pref:
+		file.store_line("Evasion modifiers (active=%s):" % pref.evasion_mode)
+		for k in pref.evasion_modifiers.keys():
+			file.store_line("  %s = %s" % [k, str(pref.evasion_modifiers[k])])
+	# Pity / steering snapshot — survivor_mode 持有，需穿透找
+	var sm := get_tree().current_scene
+	if sm and "_pity_counter" in sm:
+		file.store_line("Pity counter: %s" % str(sm._pity_counter))
+	if sm and "upgrade_stacks" in sm:
+		var steering: Dictionary = SurvivorData.compute_keyword_steering_weights(sm.upgrade_stacks, sm.survivor_player.level if sm.survivor_player else 1)
+		file.store_line("Keyword steering: %s" % str(steering))
+	file.store_line("=== END SKILLS SNAPSHOT ===")
+
 
 ## 获取当前游戏时间（供外部使用）
 func get_game_time() -> float:

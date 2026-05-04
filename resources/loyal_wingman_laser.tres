@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="GunParams" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/gun_params.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+display_name = "Drone Pulse Cannon"
+; ── 类机炮"点射激光"：高单发 / 慢射速 / 极快弹速 ──
+fire_rate = 60.0
+bullet_damage = 20.0
+muzzle_velocity = 1800.0
+max_range = 1400.0
+spread_angle = 0.3
+fire_cone_half_angle = 6.0
+max_ammo = 999

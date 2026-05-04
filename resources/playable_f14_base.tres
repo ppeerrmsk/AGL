@@ -1,11 +1,10 @@
-[gd_resource type="Resource" script_class="AircraftParams" load_steps=7 format=3]
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
 [ext_resource type="Resource" path="res://resources/f14_gun.tres" id="2"]
 [ext_resource type="Resource" path="res://resources/default_combat.tres" id="3"]
-[ext_resource type="Resource" path="res://resources/f14_missile.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/default_missile.tres" id="4"]
 [ext_resource type="Resource" path="res://resources/f14_flare.tres" id="5"]
-[ext_resource type="Resource" path="res://resources/agm_missile.tres" id="6"]
 
 [resource]
 script = ExtResource("1")
@@ -37,7 +36,6 @@ radar_half_angle = 35.0
 lock_time = 3.0
 gun = ExtResource("2")
 missile = ExtResource("4")
-secondary_missile = ExtResource("6")
 flare = ExtResource("5")
 combat = ExtResource("3")
 icon_color = Color(0.20, 0.65, 0.85, 1)

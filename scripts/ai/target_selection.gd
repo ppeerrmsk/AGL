@@ -83,6 +83,7 @@ static func try_engage(ai: AIController) -> void:
 		ai._target_eval_timer = 0.0
 		ai.aircraft.ai_override_pursuit = true
 		ai._squad_attacking_leader_target = false  # 独立交战
+		ai._squad_lateral_role = AIController.SquadRole.NONE
 		ai._squad_free_engaging = false
 		var dist_m := ai.aircraft.global_position.distance_to(best_target.global_position) / CombatUnit.PIXELS_PER_METER
 		EventLogger.log_event("AI_STATE", ai._log_name(),
@@ -155,9 +156,10 @@ static func disengage(ai: AIController) -> void:
 		if ai._current_target and is_instance_valid(ai._current_target) and not ai._current_target.is_destroyed:
 			player = ai._current_target as Aircraft
 		else:
-			for child in ai.aircraft.get_parent().get_children():
-				if child is Aircraft and child.team == 0 and not child.is_destroyed:
-					player = child
+			# 用共享列表代替 get_parent().get_children() (perf)
+			for unit in CombatUnit.all_units:
+				if unit and unit is Aircraft and unit.team == 0 and not unit.is_destroyed:
+					player = unit as Aircraft
 					break
 		if player:
 			ai._current_target = player
@@ -174,6 +176,7 @@ static func disengage(ai: AIController) -> void:
 	ai._cooldown_timer = ai.engage_cooldown
 	ai.current_tactic_name = ""
 	ai._squad_attacking_leader_target = false
+	ai._squad_lateral_role = AIController.SquadRole.NONE
 	ai._squad_free_engaging = false
 	ai._leader_target_lost_timer = 0.0
 	ai._squad_range_grace_timer = 0.0
@@ -191,8 +194,7 @@ static func disengage(ai: AIController) -> void:
 		# 独自存活的长机走巡逻，顺便把 squad_index 归零（以防 squad 尚在但已是孤雁）
 		if ai.squad and ai.squad.leader == ai.aircraft:
 			ai.squad_index = 0
-		ai.aircraft.formation_mode = false
-		ai.aircraft._formation_leader = null
+		ai.aircraft.clear_formation()
 		ai._state = AIController.AIState.PATROL
 		BFMTactics.set_patrol_altitude(ai)
 		ai._set_next_waypoint()
