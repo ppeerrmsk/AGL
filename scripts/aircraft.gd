@@ -7,6 +7,8 @@ extends CombatUnit
 # --- 状态 ---
 var vertical_speed: float = 0.0     ## m/s
 var bank_angle: float = 0.0         ## 弧度
+var _prev_bank_for_rate: float = 0.0  ## 上一帧 bank（用于发射稳定性检查计算 roll rate）
+var _bank_rate_rad_s: float = 0.0     ## 滚转率，rad/s（EMA 平滑，避免单帧噪声）
 var _committed_turn_sign: float = 0.0  ## 转弯方向锁定：0=未锁定, +1/-1=锁定方向
 var g_load: float = 1.0
 var is_stalled: bool = false
@@ -29,14 +31,8 @@ var keep_target_on_arrival: bool = false    ## true=外部管理target_position�
 ## 本身就有 ±10px 级别的输出抖动，靠低通/平均都压不掉（那是主信号的一部分）。
 ## 解法：事件驱动重算 —— 目标变了 / 飞机偏离路径 / 缓存快消耗完 才重算。
 ## 平时每帧只做 O(N) 的 trim（找最近缓存点往前截取），零仿真 → 零抖动。
-var predicted_path_cache: PackedVector2Array = PackedVector2Array()
-var predicted_path_target: Vector2 = Vector2.INF
-var predicted_path_cancel_reached: bool = false
-var predicted_path_progress_idx: int = 0          ## 飞机在缓存上的位置（单调递增，防止绕圈时闪烁）
-const PREDICTED_PATH_RETARGET_THRESHOLD := 20.0   ## 目标偏移超过此值触发重算
-const PREDICTED_PATH_DRIFT_THRESHOLD := 90.0      ## 飞机离最近缓存点超过此值（实际物理偏离预测）触发重算
-const PREDICTED_PATH_MIN_REMAINING := 12           ## 从飞机最近点到缓存末尾剩余点数不足时触发重算
-const PREDICTED_PATH_SEARCH_WINDOW := 30          ## progress_idx 附近的前瞻搜索窗口（不全局扫描，避免绕圈路径闪烁）
+# 预测线已改为每帧重算的"短小转向指示物"，不再需要缓存机制
+# 详见 aircraft_renderer.gd:draw_predicted_path 顶部注释
 var formation_mode: bool = false            ## true=编队托管模式，直接复制长机状态
 var _formation_leader: Aircraft = null      ## 编队长机引用（formation_mode时使用）
 ## 注：_formation_blend / _formation_jitter_phase 单边住在 AIController（_ai_ref._formation_blend 等）。
@@ -73,6 +69,12 @@ var ammo: int = 500
 var _auto_gun_scan_timer: float = 0.0
 var _fire_cooldown: float = 0.0
 var _gun_lead_heading: float = 0.0  ## 前置射击方向（由 _update_combat 计算）
+## 敌方 AI 机炮 burst-pause 节奏：连续射击 AI_GUN_BURST_DURATION 秒后强制 AI_GUN_PAUSE_DURATION 秒不开火，
+## 给玩家挣脱尾追的窗口。仅 team != 0 生效，玩家/玩家僚机不受限。
+const AI_GUN_BURST_DURATION: float = 2.5
+const AI_GUN_PAUSE_DURATION: float = 3.0
+var _ai_gun_burst_timer: float = AI_GUN_BURST_DURATION  ## 当前 burst 剩余可射秒数
+var _ai_gun_pause_timer: float = 0.0                    ## 当前 pause 剩余秒数（>0 时禁射）
 var _in_rear_hemisphere: bool = false  ## 是否处于敌机后半球（由 _update_combat 计算）
 var _overshoot_timer: float = 0.0   ## 近距过顶 extension 计时（秒），>0 时强制沿机头直飞脱离
 var ai_override_pursuit: bool = false  ## AI 战术机动时跳过自动追踪，由 AI 直接控制 target_position
@@ -125,6 +127,7 @@ var _pursuit_last_turn_sign: float = 0.0      ## 上次观察到的 _committed_t
 var _ac_tick_log_timer: float = 0.0
 const AC_TICK_LOG_INTERVAL: float = 0.1
 const AC_TICK_BANK_THRESHOLD := 60.0  # deg
+var _gun_aim_log_until: float = 0.0  # 节流 [GUN_AIM] 诊断：0.5s 一次
 
 # Bank 翻转抗振守卫阈值 / 失速物理 / 空气密度常量 已搬到 scripts/aircraft/aircraft_physics.gd
 
@@ -523,7 +526,10 @@ func _ready() -> void:
 	# 轨迹丝带
 	_trail_ribbon = TrailRibbon.new()
 	_trail_ribbon.ribbon_width = 8.0
-	_trail_ribbon.max_points = 360
+	# Perf：360→80（与 missile/default 一致）。原 360 在 30s 后 trail 填满 → per-call _draw 成本
+	# 4.7× 增长（80 → 360 个三角形条带顶点 + to_local 调用）。bench/results 5s vs 30s 对比定位。
+	# 视觉上尾迹更短（80 点 × 0.05s = 4s 长度）但战斗中差异不明显。
+	_trail_ribbon.max_points = 80
 	# 尾迹渲染在飞机图标之下，避免彩带盖住机身（尤其是轰炸机这种大尺寸图标）
 	_trail_ribbon.show_behind_parent = true
 	_trail_ribbon.ribbon_color = GameConstants.team_trail_color(team)
@@ -641,12 +647,26 @@ func _physics_process_impl(delta: float) -> void:
 		_update_destroy(delta)
 		queue_redraw()
 		return
+	# Perf 子桶 ac_phys.misc.* —— 拆 6 段精确定位 misc 膨胀来源
+	# 全 LOD 共用，每段单独埋点，misc 总和仍由 PerfBuckets 自然累加（看 sum 即可）
+	var _t_misc1: int = Time.get_ticks_usec()
 	_update_cloud_state(delta)
+	PerfBuckets.tick("ac_phys.misc.cloud", Time.get_ticks_usec() - _t_misc1)
+	var _t_misc2: int = Time.get_ticks_usec()
 	_update_in_building(delta)
+	PerfBuckets.tick("ac_phys.misc.building", Time.get_ticks_usec() - _t_misc2)
+	var _t_misc3: int = Time.get_ticks_usec()
 	_update_gun_threat_indicator(delta)
+	PerfBuckets.tick("ac_phys.misc.gun_threat", Time.get_ticks_usec() - _t_misc3)
+	var _t_misc4: int = Time.get_ticks_usec()
 	update_lock_line_state(delta)
+	PerfBuckets.tick("ac_phys.misc.lock_line", Time.get_ticks_usec() - _t_misc4)
+	var _t_misc5: int = Time.get_ticks_usec()
 	_update_equipment(delta)
+	PerfBuckets.tick("ac_phys.misc.equipment", Time.get_ticks_usec() - _t_misc5)
+	var _t_misc6: int = Time.get_ticks_usec()
 	StatusEffects.update(self, delta)
+	PerfBuckets.tick("ac_phys.misc.status_fx", Time.get_ticks_usec() - _t_misc6)
 
 	# LOD 2（屏幕外）：每3帧完整处理，其余帧仅位移
 	if lod_level >= 2:
@@ -738,10 +758,33 @@ func _physics_process_impl(delta: float) -> void:
 	# LOD 0（完整）：玩家 / 交战中
 	# P1：planner 在最顶层先跑，写 target_position/target_speed/weapon_mode/is_firing；
 	# 后面 update_weapon_mode / update_combat / update_energy_management 各自 early-return
+	#
+	# Perf 子桶（仅 LOD 0 实装；27 架混战时 90% 走这条路径）：
+	#   ac_phys.combat — planner / weapon_mode / evasion / combat_tracking
+	#   ac_phys.kine   — physics 全家（energy/heading/bank/speed/stall/altitude/fuel/g/movement）
+	#   ac_phys.wpn    — auto_gun_scan / gun / ciws / rocket / missile / torpedo / loyal_wingman
+	#   ac_phys.evade  — cobra / herbst / flares
+	#   ac_phys.visual — _update_visuals / _log_ac_tick
+	# 配合 ac_phys.misc（顶部）+ aircraft_phys 总桶 → 看哪个子桶随时间膨胀
+
+	# ac_phys.combat.* — 拆 4 段：哪个真正在膨胀
+	# planner 调 BfmIntent + Situation.from_aircraft（涉及全场态势抽样）
+	# combat_tracking 调 BFM lead 计算 + 武器锁定 + 雷达扫描
+	# weapon_mode + evasion 通常很轻
+	var _t_planner: int = Time.get_ticks_usec()
 	_run_tactical_planner_if_enabled()
+	PerfBuckets.tick("ac_phys.combat.planner", Time.get_ticks_usec() - _t_planner)
+	var _t_wmode: int = Time.get_ticks_usec()
 	AircraftWeapons.update_weapon_mode(self)
+	PerfBuckets.tick("ac_phys.combat.wmode", Time.get_ticks_usec() - _t_wmode)
+	var _t_evade1: int = Time.get_ticks_usec()
 	_update_evasion(delta)
+	PerfBuckets.tick("ac_phys.combat.evasion", Time.get_ticks_usec() - _t_evade1)
+	var _t_track: int = Time.get_ticks_usec()
 	AircraftCombatTracking.update_combat(self, delta)
+	PerfBuckets.tick("ac_phys.combat.track", Time.get_ticks_usec() - _t_track)
+
+	var _t_kine: int = Time.get_ticks_usec()
 	AircraftPhysics.update_energy_management(self)
 	AircraftPhysics.update_target_heading(self)
 	AircraftPhysics.update_bank(self, delta)
@@ -754,6 +797,9 @@ func _physics_process_impl(delta: float) -> void:
 	_check_ground_crash()
 	AircraftPhysics.update_g_load(self)
 	AircraftPhysics.apply_movement(self, delta)
+	PerfBuckets.tick("ac_phys.kine", Time.get_ticks_usec() - _t_kine)
+
+	var _t_wpn: int = Time.get_ticks_usec()
 	AircraftWeapons.auto_gun_scan(self)
 	AircraftWeapons.update_gun(self, delta)
 	AircraftWeapons.update_ciws(self, delta)
@@ -761,13 +807,20 @@ func _physics_process_impl(delta: float) -> void:
 	AircraftWeapons.update_missile(self, delta)
 	AircraftWeapons.update_torpedo(self, delta)
 	AircraftWeapons.update_loyal_wingman(self, delta)
+	PerfBuckets.tick("ac_phys.wpn", Time.get_ticks_usec() - _t_wpn)
+
+	var _t_evade: int = Time.get_ticks_usec()
 	# 眼镜蛇技能必须在 AircraftFlares.update 之前 —— 一旦激活，flare 会因机动 active 而跳过
 	_update_cobra_skill(delta)
 	# 危机赫尔贝特：与眼镜蛇共用触发条件（来袭导弹 / 后方机炮追尾），二选一
 	_update_evasion_herbst_skill(delta)
 	AircraftFlares.update(self, delta)
+	PerfBuckets.tick("ac_phys.evade", Time.get_ticks_usec() - _t_evade)
+
+	var _t_visual: int = Time.get_ticks_usec()
 	_update_visuals()
 	_log_ac_tick(delta)
+	PerfBuckets.tick("ac_phys.visual", Time.get_ticks_usec() - _t_visual)
 	# LOD 0 非玩家非悬停：每 2 帧重绘一次，减半 _draw 开销
 	if selected or is_hovered or _lod_frame % 2 == 0:
 		queue_redraw()
@@ -777,14 +830,28 @@ func _physics_process_impl(delta: float) -> void:
 func _run_tactical_planner_if_enabled() -> void:
 	if not use_tactical_planner:
 		return
+	# ── 目标死亡守卫（与 aircraft_combat_tracking.update_combat 73-76 行对称）──
+	# planner 的 CRUISE intent 不写 target_position（保留给 evade 自己控制），
+	# 因此必须在这里显式清掉 target_position，否则飞机会继续飞向死敌的最后 lead 点
+	# ⚠ 但 target_position 同时承载玩家 click waypoint / 编队槽位 / 巡逻点 等"非战斗写入"，
+	# 一律清成 INF 会摧毁玩家 click + 触发"敌人死 → click 丢失 → 自动锁新敌人 → target_position
+	# 单帧跳到对侧 → bank 翻越 0 度（机身 roll）"病态链。
+	# 仅当上一帧 target_position 本身就是 planner 写入的战斗 lead 点时才清。
+	if combat_target != null and (not is_instance_valid(combat_target) or combat_target.is_destroyed):
+		var was_combat_pos: bool = _last_plan != null \
+				and _last_plan.pursuit_pos != Vector2.INF \
+				and target_position == _last_plan.pursuit_pos
+		clear_combat_target()
+		if was_combat_pos:
+			target_position = Vector2.INF
 	var waypoint: Vector2 = target_position
 	var s: Situation = Situation.from_aircraft(self)
 	var plan: TacticalPlan = TacticalPlanner.plan(s, waypoint)
 	# intent 切换时戳时间（用于下一帧的 hysteresis 判定）+ 诊断日志
 	if plan.intent != _bfm_prev_intent:
 		# 切换瞬间打 PLAN log，便于追溯"飞机为什么这帧选了这个 intent"
-		# 只对玩家 / 选中的友方飞机记录，避免敌机刷爆日志
-		if (use_tactical_preference or selected) and not is_destroyed:
+		# 玩家 + 玩家方友军（team=0）+ 选中机都记录，敌机仍 silenced 避免刷爆日志
+		if (team == 0 or selected) and not is_destroyed:
 			var tgt_name: String = "none"
 			if combat_target and is_instance_valid(combat_target):
 				tgt_name = _log_unit_name(combat_target)
@@ -826,14 +893,30 @@ func _apply_tactical_plan(plan: TacticalPlan) -> void:
 		_:
 			pass  # BOTH 保留
 
-	# 机炮：is_firing 直接由 plan 决定
-	is_firing = plan.allow_gun_fire
+	# 机炮：is_firing 由 plan 决定 + AI burst 节奏 gate（team != 0 才会节流）
+	is_firing = _ai_gun_burst_allowed(plan.allow_gun_fire, get_physics_process_delta_time())
 	# _gun_lead_heading：朝 pursuit_pos 方向（让 update_gun 朝那里出弹）
+	# ⚠ planner 的 pursuit_pos 不一定是真机炮 lead（LEAD_TURN/LAG_PURSUIT 等故意偏到目标侧后方），
+	# 用作机炮瞄准会导致子弹方向偏离目标 —— Q1"机炮偏左"诊断字段
 	if plan.pursuit_pos != Vector2.INF:
 		var to_pos: Vector2 = plan.pursuit_pos - global_position
 		_gun_lead_heading = atan2(to_pos.x, -to_pos.y)
 	else:
 		_gun_lead_heading = heading
+	if is_firing and (team == 0 or selected) \
+			and combat_target != null and is_instance_valid(combat_target) and not combat_target.is_destroyed:
+		var now_s: float = Time.get_ticks_msec() / 1000.0
+		if now_s >= _gun_aim_log_until:
+			_gun_aim_log_until = now_s + 0.5
+			var to_tgt: Vector2 = combat_target.global_position - global_position
+			var hdg_to_tgt: float = atan2(to_tgt.x, -to_tgt.y)
+			var aim_off_deg: int = int(rad_to_deg(_angle_diff(_gun_lead_heading, hdg_to_tgt)))
+			var nose_off_deg: int = int(rad_to_deg(_angle_diff(_gun_lead_heading, heading)))
+			EventLogger.log_event("GUN_AIM", _log_name(),
+				"intent=%s tgt=%s aim_vs_tgt=%+d° aim_vs_nose=%+d°" % [
+					TacticalPlan.intent_name(plan.intent),
+					_log_unit_name(combat_target), aim_off_deg, nose_off_deg
+				])
 
 	# 高度（plan 没指定就保持现状）
 	if plan.target_altitude_m >= 0.0:
@@ -1201,6 +1284,24 @@ func clear_combat_target() -> void:
 ## [保留委托：外部/跨模块调用入口]
 ## 战斗追踪已搬到 scripts/aircraft/aircraft_combat_tracking.gd
 ## 以下 5 个薄壳保持 ac._xxx() 写法兼容（被 ai_controller / aircraft_weapons 调用）
+## AI 机炮 burst 节奏：仅对敌方 AI（team != 0）生效；玩家/玩家僚机直接放行 want_fire。
+## want_fire = 本帧战术层希望开火与否。返回是否实际允许开火（含 burst/pause 自洽 tick）。
+func _ai_gun_burst_allowed(want_fire: bool, delta: float) -> bool:
+	if team == 0:
+		return want_fire
+	if _ai_gun_pause_timer > 0.0:
+		_ai_gun_pause_timer -= delta
+		if _ai_gun_pause_timer > 0.0:
+			return false
+		_ai_gun_burst_timer = AI_GUN_BURST_DURATION
+	if not want_fire:
+		return false
+	_ai_gun_burst_timer -= delta
+	if _ai_gun_burst_timer <= 0.0:
+		_ai_gun_pause_timer = AI_GUN_PAUSE_DURATION
+		return false
+	return true
+
 func _missile_cannot_hit_but_gun_can() -> bool:
 	return AircraftCombatTracking.missile_cannot_hit_but_gun_can(self)
 
@@ -1622,10 +1723,11 @@ func _tick_aura_accumulator(accum_dict: Dictionary,
 		var sway_heading := heading + sway_angle
 		target_position = global_position + Vector2(sin(sway_heading), -cos(sway_heading)) * 1500.0
 
-## 节流记录玩家导弹发射被阻塞的原因（每 MSL_BLOCK_LOG_INTERVAL 最多一次）
+## 节流记录导弹发射被阻塞的原因（每 MSL_BLOCK_LOG_INTERVAL 最多一次）
 ## 同一 reason 连续触发时不重复记录，直到 reason 改变或间隔到期
+## 范围：玩家 + 玩家方友军（team=0），以便排查"僚机决定 combat_target 却不开火"类问题
 func _log_msl_block(reason: String, detail: String) -> void:
-	if not use_tactical_preference:
+	if team != 0:
 		return
 	if combat_target == null or not is_instance_valid(combat_target):
 		return

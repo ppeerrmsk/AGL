@@ -104,6 +104,18 @@ var _boss_debug_theme: String = ""              ## 当前主题名（HUD 显示�
 var _boss_debug_picks: Array[Dictionary] = []    ## 当前 build 的 14 张技能
 var _player_profile_path: String = ""            ## boss debug F8 重启需要原档案路径
 
+# ── Bench 模式（headless 性能压测）──
+## 入口：BenchRunner autoload 解析 --bench=<scenario> CLI → set_meta → 切到 survivor_mode.tscn
+## 与 boss_debug 类似（跳 UI/教程/战区），区别：
+##   - 玩家挂 AIController 自动接管交战
+##   - 升级自动选随机（无视 max_stacks/requires/exclusive，无限堆叠 → 自我放大压力）
+##   - 跑 _bench_duration 秒后回调 BenchRunner.bench_finish() 写 PerfBuckets dump 并 quit
+var _bench_mode: bool = false
+var _bench_scenario: String = ""
+var _bench_duration: float = 30.0
+var _bench_elapsed: float = 0.0
+var _bench_finished: bool = false
+
 func _ready() -> void:
 	# 确保 SurvivorMode 在所有子节点（含 AI 控制器）之前执行
 	# 这样 _f47_assign_roles 设置的 boss_attacker 等标志在 AI 运行时已经生效
@@ -118,6 +130,17 @@ func _ready() -> void:
 		_boss_debug_id = String(get_tree().get_meta("boss_debug_id"))
 		get_tree().remove_meta("boss_debug_id")
 
+	# Bench 模式 meta（BenchRunner 在 autoload _ready 写入；这里读完即清，防止重启场景时残留）
+	if get_tree().has_meta("bench_mode"):
+		_bench_mode = bool(get_tree().get_meta("bench_mode"))
+		get_tree().remove_meta("bench_mode")
+	if get_tree().has_meta("bench_scenario"):
+		_bench_scenario = String(get_tree().get_meta("bench_scenario"))
+		get_tree().remove_meta("bench_scenario")
+	if get_tree().has_meta("bench_duration"):
+		_bench_duration = float(get_tree().get_meta("bench_duration"))
+		get_tree().remove_meta("bench_duration")
+
 	# Boss Debug 模式：把空白背景调到柔和深色（默认黑底太刺眼），与海岸线地图颜调一致
 	if _boss_debug_mode:
 		RenderingServer.set_default_clear_color(Color(0.10, 0.13, 0.16))
@@ -127,8 +150,8 @@ func _ready() -> void:
 	AudioManager.play_music_playlist(["battle_coast", "battle_coast_2"], 2.0, 2.0)
 
 	# 海岸线大地图：用固定几何数据替代原 TerrainRenderer 的噪声
-	# Boss Debug 模式跳过：地图为空白，省一大块 shader+几何渲染开销
-	if not _boss_debug_mode:
+	# Boss Debug / Bench 模式跳过：boss_debug 是空白地图省 shader+几何；bench 是 headless 不渲染
+	if not _boss_debug_mode and not _bench_mode:
 		_map_features = MapFeatureRenderer.new()
 		_map_features.show_behind_parent = true
 		add_child(_map_features)
@@ -144,8 +167,8 @@ func _ready() -> void:
 	move_child(_weather, 1)
 
 	# 横浜高建筑伪 3D 渲染（独立模块；删除以下 4 行 + building_renderer.gd 即可完整撤回）
-	# Boss Debug 模式跳过（空白地图无需建筑）
-	if not _boss_debug_mode:
+	# Boss Debug / Bench 模式跳过
+	if not _boss_debug_mode and not _bench_mode:
 		var buildings := BuildingRenderer.new()
 		buildings.show_behind_parent = true
 		add_child(buildings)
@@ -298,8 +321,8 @@ func _ready() -> void:
 	_boundary_ui.cancelled.connect(_on_retreat_cancelled)
 
 	# ── 战术地图 + 战区系统（P2）──
-	# Boss Debug 模式跳过：无战区任务、无战术地图、无 ZoneArrow、无 ADBS 随机事件（开局 Tu-160）
-	if not _boss_debug_mode:
+	# Boss Debug / Bench 模式跳过：bench 不要战区任务/ADBS 干扰压力测试样本
+	if not _boss_debug_mode and not _bench_mode:
 		_zone_data = ZoneData.new()
 		# BoundaryUI 需要 _zone_data 来检测 BOSS 阶段（切换警告文案 + 补给阻断由 _on_supply_confirmed 做）
 		if _boundary_ui:
@@ -345,14 +368,20 @@ func _ready() -> void:
 	add_child(_event_director)
 
 	# ── 首次进入生存模式：浮现式教程 ──
-	# Boss Debug 模式跳过教程（玩家是来测 boss 的）
-	if not _boss_debug_mode and SurvivorTutorial.should_show():
+	# Boss Debug / Bench 模式跳过教程（前者来测 boss，后者是 headless 没人看）
+	if not _boss_debug_mode and not _bench_mode and SurvivorTutorial.should_show():
 		_start_first_run_tutorial()
 
 	# ── Boss Debug 场景化设置（所有正常 setup 完成后） ──
 	# 跳到 15 级 + 主题化随机 build + 立即启动 BossEncounterEvent
 	if _boss_debug_mode:
 		call_deferred("_setup_boss_debug_scenario")
+
+	# ── Bench 场景化设置（headless 性能压测）──
+	# 玩家挂 AIController + boost 到 15 级（升级路径走 _on_player_leveled_up bench 分支）
+	# + 立即批量 spawn 敌机 + 启动 duration 倒计时
+	if _bench_mode:
+		call_deferred("_setup_bench_scenario")
 
 ## ════════════════════════════════════════════════
 ##  Boss Debug 场景化设置
@@ -410,6 +439,136 @@ func _setup_boss_debug_scenario() -> void:
 	if _zone_hint:
 		_zone_hint.show_temp(
 			tr("BOSS_DEBUG_HUD_LOADED_FMT") % [_boss_debug_theme.to_upper(), _boss_debug_id], 5.0)
+
+## ════════════════════════════════════════════════
+##  Bench 模式场景化设置（headless 性能压测）
+## ════════════════════════════════════════════════
+##
+## 在 _ready 末尾 deferred 调用：
+##   1. 玩家无敌（duration 期间持续输出，不会死掉）
+##   2. 玩家挂 AIController 接管交战（替代手动点击操控）
+##   3. add_xp 直接拉满经验 → 触发 leveled_up 信号链 → 走 _on_player_leveled_up
+##      bench 分支自动随机抽技能（无视 max_stacks/requires/exclusive 全堆叠）
+##   4. 立即 force-spawn 一批混编敌机覆盖所有"重 AI 路径"
+##   5. spawner 仍在每帧 update（_physics_process 不跳）→ 之后按 token budget 自然补刷
+const BENCH_PLAYER_LEVEL := 15
+const BENCH_INITIAL_ENEMY_COUNT := 26  ## 立即 force-spawn 总数，足够 26+ 编队对抗
+
+func _setup_bench_scenario() -> void:
+	if not _bench_mode:
+		return
+	if not survivor_player or not is_instance_valid(player_aircraft):
+		push_error("[Bench] setup: missing survivor_player or player_aircraft")
+		return
+
+	# 0. 固定 RNG seed → 同 scenario 多次跑得到相同 spawn 几何 / AI 抖动 / 战斗节拍
+	#    没这一步：33-144 fps 的 spread 完全淹没"优化前后对比"信号
+	seed(42)
+
+	# 1. 玩家无敌（防止 duration 期间 KIA 中断压力）
+	player_aircraft.invulnerable = true
+
+	# 2. 玩家挂 AIController（覆盖默认的"鼠标点击 → target_position"操控路径）
+	#    与 spawner 给敌机挂 AI 的方式一致；team=0 让目标选择只挑敌方
+	var ai := AIController.new()
+	ai.name = "AI_BenchPlayer"
+	ai.aircraft = player_aircraft
+	ai.patrol_altitude = 5500.0
+	var pp: Vector2 = player_aircraft.global_position
+	ai.waypoints = PackedVector2Array([
+		pp + Vector2(2000, -2000),
+		pp + Vector2(2000, 2000),
+		pp + Vector2(-2000, 2000),
+		pp + Vector2(-2000, -2000),
+	])
+	ai.enable_combat = true
+	ai.engage_cooldown = 1.0
+	ai.engage_duration = 60.0
+	ai.aggression = 0.95
+	ai.skill_level = 0.85
+	ai.composure = 0.7
+	ai.focus = 0.85
+	ai.self_preservation = 0.4
+	ai.evade_missiles = true
+	player_aircraft.add_child(ai)
+
+	# 3. 一次性灌满 1→15 级所需经验 → SurvivorPlayer 的 _process 排空时连续 emit 14 次
+	#    leveled_up → 每次走 _on_player_leveled_up bench 分支随机选技能（一帧内全部完成）
+	#    *2 是冗余，保证溢出不会让最后一次缺一点点经验
+	survivor_player.add_xp(SurvivorData.xp_for_level(BENCH_PLAYER_LEVEL + 1) * 2)
+
+	# 4. 批量 force-spawn 敌机
+	if _spawner:
+		_bench_force_spawn_mixed(BENCH_INITIAL_ENEMY_COUNT)
+
+	EventLogger.log_event("BENCH", "Setup",
+		"scenario=%s duration=%.1fs initial_enemies=%d level_target=%d" % [
+			_bench_scenario, _bench_duration, BENCH_INITIAL_ENEMY_COUNT, BENCH_PLAYER_LEVEL])
+	print("[Bench] scenario ready: %s, duration=%.1fs, initial_enemies=%d" % [
+		_bench_scenario, _bench_duration, BENCH_INITIAL_ENEMY_COUNT])
+
+## 按"占用 AI 时间"加权混编：覆盖所有重战术路径，避免压测样本只反映单一类型
+## 编队/单机的选择参考各 EnemyType 在 CLAUDE.md 敌人索引表里的"生成形式"列
+func _bench_force_spawn_mixed(_total: int) -> void:
+	if _spawner == null:
+		return
+	# [enemy_type, count, as_squad?]
+	# 编队类用 _spawn_squad（走 SquadFactory，触发 SQUAD_FOLLOW AI 路径）
+	# 单机类用 _spawn_single（直接 _create_enemy，走 PATROL/ENGAGE）
+	var mix: Array = [
+		[SurvivorSpawner.EnemyType.MIG, 4, true],            # 4× MiG-29 (主力威胁，默认 BFM)
+		[SurvivorSpawner.EnemyType.F86, 4, true],            # 4× F-86 (Gladiator + 火箭弹路径)
+		[SurvivorSpawner.EnemyType.MIG23, 3, true],          # 3× MiG-23 (Gladiator 综合)
+		[SurvivorSpawner.EnemyType.F100, 3, true],           # 3× F-100 (Lancer 编队)
+		[SurvivorSpawner.EnemyType.F4, 3, true],             # 3× F-4 (重导弹卡车，双弹种)
+		[SurvivorSpawner.EnemyType.SU27, 2, false],          # 2× Su-27 (Gladiator 顶级 + 眼镜蛇)
+		[SurvivorSpawner.EnemyType.MIG31, 2, false],         # 2× MiG-31 (Lancer 顶级单机)
+		[SurvivorSpawner.EnemyType.INTERCEPTOR, 3, true],    # 3× J-7 (Lancer 入门)
+		[SurvivorSpawner.EnemyType.UCAV, 2, false],          # 2× UCAV
+	]
+	var spawned: int = 0
+	for entry in mix:
+		var etype: int = entry[0]
+		var n: int = entry[1]
+		var as_squad: bool = entry[2]
+		if as_squad:
+			_spawner._spawn_squad(etype, n)
+		else:
+			for i in range(n):
+				_spawner._spawn_single(etype)
+		spawned += n
+	print("[Bench] force-spawned %d enemies across %d types" % [spawned, mix.size()])
+
+## Bench 自动选技能：随机抽一张（剔除 evolved），无视 max_stacks/requires/exclusive
+## 设计意图：玩家越打越强 → 击杀更快 → spawner token 越满 → 自我放大压力曲线
+func _bench_auto_pick_upgrade() -> void:
+	# 候选池：UPGRADES 里所有非进化技能；不做任何门控筛选
+	var pool: Array[Dictionary] = []
+	for u in SurvivorData.UPGRADES:
+		if u.get("evolved", false):
+			continue
+		pool.append(u)
+	if pool.is_empty():
+		survivor_player.consume_level_up_display()
+		return
+	var pick: Dictionary = pool[randi() % pool.size()]
+	survivor_player.apply_upgrade(pick)
+	var uid: String = String(pick["id"])
+	upgrade_stacks[uid] = int(upgrade_stacks.get(uid, 0)) + 1
+	# 重算战区 / category aura（与正常升级链一致）
+	SurvivorData.recompute_category_bonuses(player_aircraft, upgrade_stacks)
+	# 解除"等待升级 UI"，让 SurvivorPlayer._process 继续排空 _pending_xp 触发下次 leveled_up
+	survivor_player.consume_level_up_display()
+
+func _count_aircraft_alive() -> int:
+	var n: int = 0
+	for u in CombatUnit.all_units:
+		if not is_instance_valid(u):
+			continue
+		if u is Aircraft and not (u as Aircraft).is_destroyed:
+			n += 1
+	return n
+
 
 ## F7：切换玩家无敌（Boss Debug 模式专用）
 func _boss_debug_toggle_invuln() -> void:
@@ -520,6 +679,12 @@ func _spawn_starting_wingmen(profile: PlayableAircraft) -> void:
 		ai.focus = 1.0
 		ai.situational_awareness = 1.0
 		ai.self_preservation = 0.5
+		# 玩家僚机存在的目的就是给玩家打仗 —— 关掉 20s 强制脱离 + 15s 冷却
+		# 默认值（20s/15s）是给敌方 AI 的"打打停停"节奏；给玩家僚机用就是 35s 周期里
+		# 只有 20s 在交战、且会硬生生在 20s 把还没打死的目标抛掉。
+		# 改为：交战到目标死或自己死，DISENGAGE 后 2s 即可再次引擎（让目标切换不那么粘）
+		ai.engage_duration = 99999.0
+		ai.engage_cooldown = 2.0
 		ai.patrol_altitude = player_aircraft.altitude
 		ac.add_child(ai)
 		SquadFactory.register_wingman(sq, ac)  # squad/squad_index/_state=SQUAD_FOLLOW
@@ -894,12 +1059,26 @@ func _physics_process(delta: float) -> void:
 		_spawner.update(delta)
 
 	# BOSS 阶段：3 个战区攻克后在 BOSS_ZONE 刷 F-47 小队 + 胜利判定
-	# Boss Debug 模式直接由 _setup_boss_debug_scenario 启动 BossEncounterEvent，跳过战区驱动
-	if not _boss_debug_mode:
+	# Boss Debug / Bench 模式跳过：boss_debug 走 BossEncounterEvent，bench 不需要战区驱动
+	if not _boss_debug_mode and not _bench_mode:
 		_update_boss_phase()
 
 	# 清理已坠毁的敌机（节省性能）
 	_cleanup_destroyed_enemies()
+
+	# Bench 倒计时：duration 到点 → 回调 BenchRunner 写 dump + quit
+	# 用 path 查 autoload 而非裸 `BenchRunner.xxx()` —— 后者依赖编辑器静态识别 autoload，
+	# 项目重载前会报 "Identifier not declared"。get_node_or_null 在 headless / 编辑器
+	# 都能稳定工作，且 BenchRunner 没注册时静默 no-op
+	if _bench_mode and not _bench_finished:
+		_bench_elapsed += delta
+		if _bench_elapsed >= _bench_duration:
+			_bench_finished = true
+			var summary: String = "tick_at=%.2fs aircraft_alive=%d enemies_killed=%d\n" % [
+				_bench_elapsed, _count_aircraft_alive(), (_spawner.kill_count if _spawner else 0)]
+			var br: Node = get_tree().root.get_node_or_null("/root/BenchRunner")
+			if br and br.has_method("bench_finish"):
+				br.call("bench_finish", summary)
 
 	# 更新HUD
 	hud.game_time = game_time
@@ -1323,15 +1502,12 @@ func _update_friendly_squad_lod() -> void:
 		var rel := ac.global_position - cam_pos
 		var offscreen := absf(rel.x) > half.x or absf(rel.y) > half.y
 
-		if offscreen:
-			ac.lod_level = 2
-			ac.visible = false
-		elif ac.combat_target != null:
-			ac.lod_level = 0
-			ac.visible = true
-		else:
-			ac.lod_level = 1
-			ac.visible = true
+		# 玩家僚机一律 LOD 0：与玩家同级别响应频率（60Hz 完整物理）
+		# 旧策略 offscreen→LOD2 / cruise→LOD1 让僚机进入 1/3 速率简化路径，
+		# 表现为"决定 combat_target 却迟迟不去攻击""反应慢半拍"。
+		# 玩家方最多 3 架僚机，全 LOD 0 的 CPU 成本可忽略（~0.3ms/frame）。
+		ac.lod_level = 0
+		ac.visible = not offscreen
 
 func _cleanup_destroyed_enemies() -> void:
 	for child in get_children():
@@ -1462,6 +1638,12 @@ func _spawn_ground_unit(scene: PackedScene, params_res: Resource, team_id: int, 
 func _on_player_leveled_up(_new_level: int) -> void:
 	# 自然成长：在升级 UI 弹出前应用 HP/导弹累计差量（玩家看到 HUD 数字先涨）
 	survivor_player.apply_natural_growth(_new_level - 1, _new_level, _player_profile)
+
+	# Bench 模式：跳 UI / 不暂停游戏 / 随机抽取一张升级（无视 max_stacks/requires/exclusive）
+	# 设计目的：玩家越打越强 → 击杀更快 → spawner token 越满 → AI/物理负载持续放大 → 暴露真实瓶颈
+	if _bench_mode:
+		_bench_auto_pick_upgrade()
+		return
 
 	is_paused_for_upgrade = true
 	get_tree().paused = true

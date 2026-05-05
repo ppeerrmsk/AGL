@@ -1,0 +1,2 @@
+# Bench output files - regenerated each run, not in version control
+results/*.txt
