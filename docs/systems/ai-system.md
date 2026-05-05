@@ -201,3 +201,43 @@ SQUAD_FOLLOW
 - 当前目标仍然是最优？
 - 是否有更高优先级威胁？
 - focus 属性影响切换意愿（高 focus → 不轻易切目标）
+
+---
+
+## AI 状态机（CLAUDE.md 摘出，2026-05-05）
+
+`ai_controller.gd` 四状态 + 8 战术机动（战术执行委托 `ai/bfm_tactics.gd`，规避 `ai/missile_evasion.gd`，目标选择 `ai/target_selection.gd`，编队 `ai/squad_coordination.gd`）：
+
+- **PATROL** — 航路点巡逻，周期性扫描
+- **ENGAGE** — BFM 决策树选择战术机动
+  - LEAD_PURSUIT / LAG_PURSUIT / LEAD_TURN / HIGH_YOYO / LOW_YOYO / BREAK_TURN / EXTENSION / SCISSORS
+  - **SNIPER_HOLD** — 机头对准型武器专用（电磁炮 / 激光剑等）。直瞄目标当前位置（不取 lead）+ 减速 → 给装备稳定锁定+充能窗口。AI 通过 `prefer_nose_aligned_weapon=true` 启用，目标在前 80° 锥内+不太近+未被咬尾时自动选用
+- **EVADE_MISSILE** — 释放热诱弹 + 急转
+- **SQUAD_FOLLOW** — 编队跟随 + 掩护扫描（每 0.5s 扫长机后半球）
+  - 子状态：`_rejoining`（归队）/ `_formation_react_timer`（阵型调整）/ `_squad_attacking_leader_target`（协同攻击）
+
+## TacticalPlanner（P4 重构，玩家 + 僚机 + 9 种敌机走的统一决策路径）
+
+新设计核心：**决策（planner） / 执行（physics/weapons/combat_tracking）分离**。详见 [scripts/ai/tactical/](../../scripts/ai/tactical/) 4 文件。
+
+**接入方式**：`Aircraft.use_tactical_planner = true` → `_physics_process` 顶层调 `_run_tactical_planner_if_enabled()`：
+1. `Situation.from_aircraft(self)` 抽快照
+2. `TacticalPlanner.plan(s, waypoint)` → 13 种 intent 之一
+3. `_apply_tactical_plan(plan)` 写入 `target_position` / `target_speed_kmh` / `is_afterburner` / `weapon_mode` / `is_firing` / `_gun_lead_heading`
+4. 后续 `update_weapon_mode` / `update_combat` / `update_energy_management` 全部检查 `use_tactical_planner` early-return
+
+**已迁移**：玩家 / 玩家僚机 / MIG / INTERCEPTOR / F86 / MIG23 / F100 / A7 / Q5 / MIG31 / SU27（9 种常规战机）
+
+**未迁移**（保留旧 BFMTactics 路径）：F-47 / F-14_Poltergeist BOSS（特殊：BVR/Herbst/cloak/salvo）/ Adds（Tu-160/AH-64/CH-47，simple_ai）/ Sentinel（commander_aura buff）
+
+**主开关**：`SurvivorData.ENABLE_PLANNER_FOR_REGULAR_AI`（默认 false，flip 即启用所有迁移机型）
+
+**13 种 intent**（按优先级）：EVADE_MISSILE / EXTEND_RECOVER（残余）/ CRUISE / WAYPOINT_MOVE / PASSIVE_AUTO_FIRE / GROUND_STRAFE / 5b: overshoot 触发 EXTEND / 5b: BOOM_ZOOM_OUT 触发 EXTEND / WIDE_TURN / MERGE_PASS / TAIL_CHASE / CLOSE_TAIL / LEAD_TURN / LAG_PURSUIT / LEAD_PURSUIT
+
+**关键防抖与守卫**：
+- Hysteresis：战斗 intent 至少持 0.5s 才允许切到不同战斗 intent（防几何边界翻转）
+- BOOM_ZOOM_OUT：仅 `ai_aggression ≤ 0.85` 触发（Gladiator 拒绝撤退）
+- Lock-aware crank：`target_locked = false` 时强制 LOS 直瞄不 crank（防止甩出雷达锥）
+- Launch quality（仅玩家）：cone 边缘 + bank > 60° 时跳过发射；`fire_and_forget` 导弹绕过此检查
+
+**单元测试**：[scripts/tests/test_bfm_intent.gd](../../scripts/tests/test_bfm_intent.gd) 共 73 个 case，调用 `BfmIntentTest.run_all()` 跑（无框架，console 输出 PASS/FAIL）

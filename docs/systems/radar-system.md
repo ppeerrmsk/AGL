@@ -88,3 +88,16 @@
 | `scripts/main.gd` | 鼠标悬停检测、每帧锁定计算循环 |
 | `resources/default_fighter.tres` | F-16 雷达参数配置 |
 | `resources/enemy_fighter.tres` | MiG-29 雷达参数配置 |
+
+---
+
+## 雷达锁定计算（CLAUDE.md 摘出，2026-05-05）
+
+主循环位置：`main.gd:_update_radar_locks:226`（沙盒）/ `survivor_mode.gd:_update_radar_locks`（生存）。
+
+全局循环每帧：
+1. 遍历所有 CombatUnit，重置 `is_locked`
+2. 对每单位，检查其雷达锥内的敌方单位
+3. 在锥内 → 按 `_lock_rate_for_tier` 速率累加照射时间（地面 ×0.5, 低空 ×0.7）
+4. 不在锥内 → 1.5 秒衰减窗口（防边缘震荡）
+5. 累计 ≥ `params.lock_time` → 锁定

@@ -58,3 +58,14 @@ _physics_process(delta)
 | 失速速度 | `V_stall = V_stall_base × √G` | 过载越大失速速度越高 |
 | 空气密度比 | `σ = e^(-altitude / 8500)` | 简化大气模型 |
 | 最大速度（高空） | `V_max × √σ` | 高空最大速度下降 |
+
+---
+
+## 核心设计决策（CLAUDE.md 摘出，2026-05-05）
+
+- **不使用 Godot 物理引擎**：飞机运动全部在 `_physics_process` 手动演算，完全可控
+- **2D 场景 + 虚拟高度**：`altitude` 是纯 float 变量，仅通过图标缩放可视化
+- **单位系统**：内部 SI 单位（米、m/s），显示 km/h。`PIXELS_PER_METER = 0.5`（1 像素 = 2 米）
+- **输入模型**：玩家点击 → `target_position` → 飞机自主 G 力极限转弯
+- **飞机通用模板**：`aircraft.tscn` + `AircraftParams` Resource，通过不同 `.tres` 定义机型
+- **AI 组合模式**：`AIController` 作为子节点附加到飞机，飞机本身不区分玩家/AI，只是目标来源不同
