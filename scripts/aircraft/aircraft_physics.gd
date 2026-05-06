@@ -42,42 +42,261 @@ const SHOCK_ABSORB_RATE: float = 1.0      ## HP/秒回复速率（慢，强调"�
 
 
 
-## 实物理 tick 包裹器：from → step → write_back（单 tick 4 次，开销可忽略）
-## 详见 step_target_heading 注释
+## ⚠ 性能取舍：update_* 直接读写 ac，避免 FlightState populate/write_back 的 22+12 字段
+## 拷贝开销（22 ac × 60Hz × 5 wrappers ≈ 449k 字段操作/秒，~13ms/秒）。
+## step_*(state) 仍然是 prediction 唯一入口。两份实现的算法**必须一致**——任何对
+## 物理公式的改动都要同时改 update_*（这里）和 step_*（下方），否则预测会与实飞行撕裂。
+## 共享纯 helper：compute_target_bank / max_bank_angle_at_speed_pure / effective_max_g 等
+## 同时被两边调用，是公式真正的"单一来源"。
+
 static func update_target_heading(ac: Aircraft) -> void:
-	var st := FlightState.from_aircraft(ac)
-	step_target_heading(st)
-	st.write_back()
+	var _hm_th := ac.get_herbst()
+	if _hm_th and _hm_th.is_active:
+		return
+	if ac.target_position == Vector2.INF:
+		return
+	var diff := ac.target_position - ac.global_position
+	var dist := diff.length()
+	var arrival_dist := maxf(150.0, ac.speed * CombatUnit.PIXELS_PER_METER * 2.0)
+	if dist < arrival_dist and ac.combat_target == null and not ac.keep_target_on_arrival:
+		ac.target_position = Vector2.INF
+		ac._evasion_override = false
+		return
+	ac._cached_target_heading = atan2(diff.x, -diff.y)
+	ac._proximity_damping = clampf((dist - arrival_dist) / (arrival_dist * 2.0), 0.0, 1.0)
 
 
-## 实物理 tick 包裹器：from → step → write_back
-## 详见 step_bank 注释
 static func update_bank(ac: Aircraft, delta: float) -> void:
-	var st := FlightState.from_aircraft(ac)
-	step_bank(st, delta)
-	st.write_back()
+	# Herbst 守卫
+	var _hm_bank := ac.get_herbst()
+	if _hm_bank and _hm_bank.is_active:
+		var roll_rate_h: float = ac.params.roll_rate if ac.params else 4.0
+		ac.bank_angle = move_toward(ac.bank_angle, 0.0, roll_rate_h * delta)
+		return
+
+	if ac.target_position == Vector2.INF and abs(ac.bank_angle) < 0.01:
+		ac.bank_angle = 0.0
+		return
+
+	var heading_diff := Aircraft._angle_diff(ac._cached_target_heading, ac.heading)
+
+	if ac.target_position == Vector2.INF:
+		heading_diff = 0.0
+		ac._committed_turn_sign = 0.0
+
+	# 转弯方向锁定
+	if abs(heading_diff) > 2.5:
+		if ac._committed_turn_sign == 0.0:
+			ac._committed_turn_sign = signf(heading_diff)
+			if ac.use_tactical_preference and ac.combat_target != null:
+				EventLogger.log_event("PURSUIT_LOCK", ac._log_name(),
+					"turn_sign=%+d (hdg_diff=%+d°, tgt=%s) branch=%s" % [
+						int(ac._committed_turn_sign), int(rad_to_deg(heading_diff)),
+						ac._log_unit_name(ac.combat_target), ac._pursuit_branch])
+		heading_diff = absf(heading_diff) * ac._committed_turn_sign
+	elif abs(heading_diff) < 1.5:
+		if ac._committed_turn_sign != 0.0 and ac.use_tactical_preference and ac.combat_target != null:
+			EventLogger.log_event("PURSUIT_UNLOCK", ac._log_name(),
+				"turn_sign cleared (hdg_diff=%+d°, tgt=%s)" % [
+					int(rad_to_deg(heading_diff)), ac._log_unit_name(ac.combat_target)])
+		ac._committed_turn_sign = 0.0
+
+	# 过冲补偿
+	var stall_base_kmh: float = ac.params.stall_speed_base if ac.params else 220.0
+	var stall_at_g_ms: float = stall_base_kmh * pow(maxf(ac.g_load, 1.0), 0.4) / 3.6
+
+	if absf(ac.bank_angle) > 0.05 and absf(heading_diff) > 0.001:
+		var rr_val: float = ac.params.roll_rate if ac.params else 4.0
+		if ac.speed < stall_at_g_ms:
+			var ctrl_pre := clampf(ac.speed / maxf(stall_at_g_ms, 1.0), 0.1, 1.0)
+			rr_val *= ctrl_pre
+		var current_turn_rate := CombatUnit.GRAVITY * tan(ac.bank_angle) / maxf(ac.speed, 50.0)
+		var t_roll := absf(ac.bank_angle) / maxf(rr_val, 0.5)
+		var anticipated_change := current_turn_rate * t_roll * 0.5
+		if signf(anticipated_change) == signf(heading_diff):
+			var cap: float = absf(heading_diff) * 0.8
+			var sub: float = minf(absf(anticipated_change), cap) * signf(heading_diff)
+			heading_diff -= sub
+
+	# max_bank（直接调原版 max_bank_angle，避免 effective_max_g + _dynamic_safe_margin 重复 fetch）
+	var max_bank := max_bank_angle(ac)
+	var in_combat := ac.combat_target != null
+
+	if in_combat and abs(heading_diff) > 0.5 and ac.tactical_aggression < 0.999:
+		var sustained_g: float = ac.params.max_g if ac.params else 9.0
+		var turn_g_capped := lerpf(sustained_g * 0.7, sustained_g, clampf((PI - abs(heading_diff)) / (PI - 0.5), 0.0, 1.0))
+		var turn_g := lerpf(turn_g_capped, effective_max_g(ac), clampf(ac.tactical_aggression, 0.0, 1.0))
+		var sustained_bank := acos(1.0 / maxf(turn_g, 1.01))
+		max_bank = minf(max_bank, sustained_bank)
+
+	var cb_full_diff: float = 0.0
+	var cb_half_diff: float = 0.0
+	if in_combat:
+		var cb := ac._combat_params()
+		cb_full_diff = cb.combat_full_bank_diff / cb.combat_bank_aggression
+		cb_half_diff = cb.combat_half_bank_diff / cb.combat_bank_aggression
+	var msl_phase_now: int = ac._get_missile_phase() \
+			if (in_combat and ac.weapon_mode == Aircraft.WeaponMode.MISSILE) else 0
+	var target_bank: float = compute_target_bank(
+			heading_diff, max_bank, in_combat,
+			ac.use_tactical_preference, ac.weapon_mode, msl_phase_now,
+			ac.formation_mode, ac._proximity_damping, cb_full_diff, cb_half_diff)
+
+	# Bank flip 守卫
+	if absf(ac.bank_angle) > BANK_FLIP_ESTABLISHED_RAD \
+			and signf(target_bank) != 0.0 \
+			and signf(target_bank) != signf(ac.bank_angle) \
+			and absf(heading_diff) < BANK_FLIP_COMMIT_RAD:
+		target_bank = 0.0
+
+	# 失速回正
+	if ac.is_stalled:
+		target_bank = 0.0
+	elif ac._stall_recovery_timer > 0.0:
+		var recovery_ratio := 1.0 - clampf(ac._stall_recovery_timer / 1.0, 0.0, 1.0)
+		target_bank *= recovery_ratio
+
+	# Roll rate
+	var roll_rate_val: float = ac.params.roll_rate if ac.params else 4.0
+	if ac.speed < stall_at_g_ms:
+		var ctrl := clampf(ac.speed / maxf(stall_at_g_ms, 1.0), 0.1, 1.0)
+		roll_rate_val *= ctrl
+	var alt_factor := clampf(ac.altitude / 15000.0, 0.0, 1.0)
+	roll_rate_val *= 1.0 + alt_factor * 0.30
+
+	var bank_diff := target_bank - ac.bank_angle
+	var max_roll := roll_rate_val * delta
+	ac.bank_angle += clampf(bank_diff, -max_roll, max_roll)
+
+	# Bank rate EMA
+	if delta > 0.0:
+		var instant_rate: float = (ac.bank_angle - ac._prev_bank_for_rate) / delta
+		ac._bank_rate_rad_s = ac._bank_rate_rad_s * 0.5 + instant_rate * 0.5
+	ac._prev_bank_for_rate = ac.bank_angle
 
 
-## 实物理 tick 包裹器：from → step → write_back
 static func update_heading(ac: Aircraft, delta: float) -> void:
-	var st := FlightState.from_aircraft(ac)
-	step_heading(st, delta)
-	st.write_back()
+	var _hm_hdg := ac.get_herbst()
+	if _hm_hdg and _hm_hdg.is_active:
+		return
+	if abs(ac.bank_angle) < 0.001:
+		return
+	var speed_ms := maxf(ac.speed, 1.0)
+	var turn_rate := CombatUnit.GRAVITY * tan(ac.bank_angle) / speed_ms
+
+	var stall_base_kmh: float = ac.params.stall_speed_base if ac.params else 220.0
+	var stall_at_g_ms := stall_base_kmh * pow(maxf(ac.g_load, 1.0), 0.4) / 3.6
+	if ac.speed < stall_at_g_ms:
+		var control_ratio := clampf(ac.speed / maxf(stall_at_g_ms, 1.0), 0.0, 1.0)
+		turn_rate *= control_ratio * control_ratio
+
+	ac.heading += turn_rate * delta
+	ac.heading = fmod(ac.heading + PI, TAU) - PI
 
 
-## 实物理 tick 包裹器：from → step → write_back
-## 详见 step_speed 注释
 static func update_speed(ac: Aircraft, delta: float) -> void:
-	var st := FlightState.from_aircraft(ac)
-	step_speed(st, delta)
-	st.write_back()
+	var _m := ac.get_maneuver()
+	if _m and _m.is_active:
+		return
+
+	var target_ms: float
+	if ac.hard_brake:
+		target_ms = 0.0
+	else:
+		var t_kmh: float = ac.target_speed_kmh
+		if ac.evasion_mode:
+			var cruise_mult: float = float(ac.evasion_modifiers.get("cruise_speed_mult", 1.0))
+			if cruise_mult != 1.0:
+				t_kmh *= cruise_mult
+		if ac.status_slow_active and t_kmh > StatusEffects.SLOW_SPEED_CAP_KMH:
+			t_kmh = StatusEffects.SLOW_SPEED_CAP_KMH
+		target_ms = t_kmh / 3.6
+
+		var max_climb_norm: float = ac.params.climb_rate_max if ac.params else 250.0
+		var vs_norm: float = clampf(ac.vertical_speed / maxf(max_climb_norm, 1.0), -1.0, 1.0)
+		target_ms *= 1.0 - vs_norm * 0.10
+
+		var max_speed_ms := max_speed_at_altitude(ac) / 3.6
+		if ac.evasion_mode:
+			var cm: float = float(ac.evasion_modifiers.get("cruise_speed_mult", 1.0))
+			if cm > 1.0:
+				max_speed_ms *= cm
+		target_ms = minf(target_ms, max_speed_ms)
+
+		var stall_base_kmh: float = ac.params.stall_speed_base if ac.params else 220.0
+		var stall_at_g_ms := stall_base_kmh * pow(maxf(ac.g_load, 1.0), 0.4) / 3.6
+		var min_safe_ms := stall_at_g_ms * 1.05
+		target_ms = maxf(target_ms, min_safe_ms)
+
+	var accel_rate: float = ac.params.acceleration if ac.params else 50.0
+	if ac.status_overload_active:
+		accel_rate *= StatusEffects.OVERLOAD_ACCEL_MULT
+	var decel_rate: float = (ac.params.deceleration if ac.params else 80.0) * ac._executioner_decel_mult()
+	if ac.team == 0 and ac.status_bloodlust_active and ac.has_meta("upgrade_stacks"):
+		var bl_stacks: Dictionary = ac.get_meta("upgrade_stacks")
+		if int(bl_stacks.get(SkillHooks.SKILL_BLOODLUST_ARMOR_MOBILITY, 0)) > 0:
+			accel_rate *= SkillHooks.BLOODLUST_ACCEL_MULT
+			decel_rate *= SkillHooks.BLOODLUST_ACCEL_MULT
+	if ac.is_afterburner and not ac.hard_brake:
+		var ab_mult: float = ac.params.afterburner_thrust_mult if ac.params else 1.5
+		accel_rate *= ab_mult
+
+	var speed_diff := target_ms - ac.speed
+	if speed_diff >= 0:
+		ac.speed += minf(speed_diff, accel_rate * delta)
+	else:
+		ac.speed += maxf(speed_diff, -decel_rate * delta)
+
+	const G_DRAG_GLOBAL_MULT := 0.4
+	var g_drag := (ac.params.g_drag_factor if ac.params else 3.0) * G_DRAG_GLOBAL_MULT
+	var alt_factor := clampf(ac.altitude / 15000.0, 0.0, 1.0)
+	g_drag *= 1.0 - alt_factor * 0.30
+	var g_speed_loss := maxf(ac.g_load - 1.0, 0.0) * g_drag
+	ac.speed = maxf(ac.speed - g_speed_loss * delta, 0.0)
+
+	const PE_KE_BOOST := 2.5
+	var spd := maxf(ac.speed, 10.0)
+	var gravity_effect := CombatUnit.GRAVITY * ac.vertical_speed / spd * PE_KE_BOOST
+	ac.speed -= gravity_effect * delta
+
+	ac.speed = maxf(ac.speed, 0.0)
+	if ac.orbit_speed_cap > 0.0 and ac.speed > ac.orbit_speed_cap:
+		ac.speed = ac.orbit_speed_cap
 
 
-## 实物理 tick 包裹器：from → step → write_back
 static func update_altitude(ac: Aircraft, delta: float) -> void:
-	var st := FlightState.from_aircraft(ac)
-	step_altitude(st, delta)
-	st.write_back_altitude()
+	if ac.is_stalled:
+		ac.altitude += ac.vertical_speed * delta
+		ac.altitude = maxf(ac.altitude, 0.0)
+		return
+	var alt_diff := ac.target_altitude - ac.altitude
+	var alt_mult: float = ac.altitude_authority_mult
+	var max_climb := (ac.params.climb_rate_max if ac.params else 250.0) * alt_mult
+	var gain := 0.4 * alt_mult
+	var smooth_rate := 8.0 * alt_mult
+	var target_vs: float
+	if abs(alt_diff) < 10.0:
+		target_vs = 0.0
+	else:
+		target_vs = clampf(alt_diff * gain, -max_climb, max_climb)
+
+	if ac._stall_recovery_timer > 0.0 and target_vs > 0.0:
+		target_vs = 0.0
+
+	if target_vs > 0.0:
+		var stall_base_kmh: float = ac.params.stall_speed_base if ac.params else 220.0
+		var stall_at_g_ms: float = stall_base_kmh * pow(maxf(ac.g_load, 1.0), 0.4) / 3.6
+		var speed_margin := ac.speed - stall_at_g_ms
+		if speed_margin < 50.0:
+			var climb_authority := clampf(speed_margin / 50.0, 0.0, 1.0)
+			target_vs *= climb_authority
+
+	ac.vertical_speed = lerpf(ac.vertical_speed, target_vs, delta * smooth_rate)
+	ac.altitude += ac.vertical_speed * delta
+	ac.altitude = maxf(ac.altitude, 0.0)
+	if ac.team == 0 and ac.alt_change_stealth_factor > 0.0:
+		var instant_v: float = absf(ac.vertical_speed)
+		ac._alt_velocity = lerpf(ac._alt_velocity, instant_v, clampf(delta * 4.0, 0.0, 1.0))
 
 
 static func update_stall(ac: Aircraft) -> void:

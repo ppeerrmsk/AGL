@@ -61,28 +61,42 @@ var cached_corner_speed_kmh: float = NAN
 var cached_max_speed_kmh: float = NAN
 
 
+## 把 ac 状态填入当前实例（实物理 tick 用：复用一个共享实例避免 60Hz × N ac × 5 wrappers
+## 的 RefCounted 分配开销 —— 实测降低 ac_phys.kine 从 1125µs 回到 ~115µs/frame）
+func populate_from(a: Aircraft, prediction: bool = false) -> void:
+	ac = a
+	is_prediction = prediction
+	position = a.global_position
+	heading = a.heading
+	bank_angle = a.bank_angle
+	speed = a.speed
+	vertical_speed = a.vertical_speed
+	altitude = a.altitude
+	g_load = a.g_load
+	target_position = a.target_position
+	cached_target_heading = a._cached_target_heading
+	proximity_damping = a._proximity_damping
+	committed_turn_sign = a._committed_turn_sign
+	bank_rate_rad_s = a._bank_rate_rad_s
+	prev_bank_for_rate = a._prev_bank_for_rate
+	evasion_override = a._evasion_override
+	is_stalled = a.is_stalled
+	stall_recovery_timer = a._stall_recovery_timer
+	target_speed_kmh = a.target_speed_kmh
+	is_afterburner = a.is_afterburner
+	# 缓存字段必须每次 populate 时清掉（NaN）—— 实物理 tick 路径走 lazy compute；
+	# predict 路径会在 from_aircraft 之后再单独填充缓存
+	cached_max_g = NAN
+	cached_safe_margin = NAN
+	cached_max_speed_alt_ms = NAN
+	cached_corner_speed_kmh = NAN
+	cached_max_speed_kmh = NAN
+
+
+## 创建新实例（predict 用：每次 cache refresh 调一次，频率低，分配可接受）
 static func from_aircraft(a: Aircraft, prediction: bool = false) -> FlightState:
 	var st := FlightState.new()
-	st.ac = a
-	st.is_prediction = prediction
-	st.position = a.global_position
-	st.heading = a.heading
-	st.bank_angle = a.bank_angle
-	st.speed = a.speed
-	st.vertical_speed = a.vertical_speed
-	st.altitude = a.altitude
-	st.g_load = a.g_load
-	st.target_position = a.target_position
-	st.cached_target_heading = a._cached_target_heading
-	st.proximity_damping = a._proximity_damping
-	st.committed_turn_sign = a._committed_turn_sign
-	st.bank_rate_rad_s = a._bank_rate_rad_s
-	st.prev_bank_for_rate = a._prev_bank_for_rate
-	st.evasion_override = a._evasion_override
-	st.is_stalled = a.is_stalled
-	st.stall_recovery_timer = a._stall_recovery_timer
-	st.target_speed_kmh = a.target_speed_kmh
-	st.is_afterburner = a.is_afterburner
+	st.populate_from(a, prediction)
 	return st
 
 
