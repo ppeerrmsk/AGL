@@ -27,6 +27,10 @@ extends RefCounted
 const SCATTER_REFRESH := 1.5      ## 方向刷新周期（秒）
 const SCATTER_TURN_DIST := 1500.0 ## 散开目标点距离（像素）
 const SCATTER_EDGE_MARGIN := 1000.0 ## 距边界 < 此值时强制朝中心（像素）
+## 散开兜底超时：累计"无导弹"扫描超过此值就强制退出 evade，
+## 不再受 leader 的 evasion_mode 广播控制（防 LOD2 / 广播脱节导致 wingman
+## 在无威胁状态下持续 max+AB 散开飞出地图，并留下不消失的 flare 特效）
+const SCATTER_NO_MISSILE_TIMEOUT := 3.5
 static func _process_scatter_evade(ai: AIController, delta: float) -> void:
 	# 个体扰动相位（每架僚机不同 → 方向各异）
 	ai._scatter_evade_timer -= delta
@@ -63,10 +67,22 @@ static func process_evade(ai: AIController, delta: float) -> void:
 		# 旁路：长机 / 单机 evasion_mode 由其他系统驱动，这里只覆盖僚机散开场景
 		if ai.aircraft.evasion_mode and ai.squad and is_instance_valid(ai.squad.leader) \
 				and ai.squad.leader != ai.aircraft:
+			# 兜底超时：累计"无导弹散开"时长 > SCATTER_NO_MISSILE_TIMEOUT 就强制 exit，
+			# 不再被 leader.evasion_mode 卡住（修 wingman 飞出地图 + flare 残留 bug）
+			ai._scatter_no_missile_secs += delta
+			if ai._scatter_no_missile_secs >= SCATTER_NO_MISSILE_TIMEOUT:
+				# 关键：本地清 evasion_mode，否则 ai_controller.gd:574 的 evade 守卫
+				# 下一帧又会强制 enter_evade，形成 bounce。leader 下次 toggle 时
+				# _propagate_evasion_to_squad 会重新写回 true，正常 enter_evade 链路恢复。
+				ai.aircraft.evasion_mode = false
+				exit_evade(ai)
+				return
 			_process_scatter_evade(ai, delta)
 			return
 		exit_evade(ai)
 		return
+	# 检测到真实导弹 → 重置散开兜底计时（让 wingman 在真有威胁时无限散开）
+	ai._scatter_no_missile_secs = 0.0
 
 	# ── 战术机动：后方来袭导弹逼近时一次性触发 ──
 	var _mev := ai.aircraft.get_maneuver()
@@ -123,6 +139,7 @@ static func enter_evade(ai: AIController) -> void:
 	ai._squad_lateral_role = AIController.SquadRole.NONE
 	ai._squad_free_engaging = false
 	ai._scatter_evade_timer = 0.0  # 散开模式下保证首帧重选方向
+	ai._scatter_no_missile_secs = 0.0  # 兜底计时清零
 	if ai.aircraft.combat_target:
 		ai.aircraft.clear_combat_target()
 	# 退出编队托管，规避机动必须走正常飞行物理（LOD 0）
@@ -137,6 +154,7 @@ static func exit_evade(ai: AIController) -> void:
 	# P4：清 evasion_mode 让 planner 回到正常 intent 路径
 	if ai.aircraft.use_tactical_planner:
 		ai.aircraft.evasion_mode = false
+	ai._scatter_no_missile_secs = 0.0
 	if ai._current_target and is_instance_valid(ai._current_target) and not ai._current_target.is_destroyed:
 		ai.aircraft.set_combat_target(ai._current_target)
 		BFMTactics.set_patrol_altitude(ai)

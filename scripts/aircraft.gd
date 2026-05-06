@@ -25,14 +25,38 @@ var fear_applies_slow: bool = false
 var target_position: Vector2 = Vector2.INF  ## 世界坐标, INF=无目标
 var keep_target_on_arrival: bool = false    ## true=外部管理target_position，到达时不清除
 
-## ── 预测路径缓存（世界坐标，用于 UI 预测线/航向箭头的稳定渲染）──
-## 关键原则：一旦算出就锁定在世界坐标里不动，直到真正需要才重算。
-## 原因：每帧重仿会受 Forward Euler 积分固有振荡 + bank 反馈控制环的影响，仿真器
-## 本身就有 ±10px 级别的输出抖动，靠低通/平均都压不掉（那是主信号的一部分）。
-## 解法：事件驱动重算 —— 目标变了 / 飞机偏离路径 / 缓存快消耗完 才重算。
-## 平时每帧只做 O(N) 的 trim（找最近缓存点往前截取），零仿真 → 零抖动。
-# 预测线已改为每帧重算的"短小转向指示物"，不再需要缓存机制
-# 详见 aircraft_renderer.gd:draw_predicted_path 顶部注释
+## ── 预测路径缓存（世界坐标）──
+## 玩家专用，~20Hz 重算（每 50ms 一次）。每帧渲染只做 O(N) 的 to_local 转换。
+## 不每帧重算的两个原因：
+##   ① 600 步 × N 个 helper 的 dictionary 查询太贵，单帧能吃 5-10ms 把 FPS 砸到 30-
+##   ② FE 积分在长程上对 state 微扰非常敏感，每帧重算的 "尾端" 会肉眼可见地抖动
+## 50ms 间隔下，玩家 800km/h 飞约 11m / 22px，世界点缓存对预测末端的视觉稳定性贡献巨大
+## 预测窗口 ~6 秒（360 步 × 1/60s）—— 比 3 秒长是因为 G10 拉 90° 弯本身就要 4-5 秒，
+## 短窗口只看得到能量崩溃段（红色），看不到转完恢复（蓝色），视觉上呈现"红短线突然变蓝长线"。
+## 6 秒能容纳完整的"拉 G 掉速 → 对准目标 → 加速恢复"能量曲线，自然平滑。
+## 性能：20Hz × 360 步 × ~5µs ≈ 36ms/秒（3.6% 预算），可接受。
+const PRED_MAX_STEPS: int = 360
+var _predicted_path_world: PackedVector2Array = PackedVector2Array()        ## 最新 cache（target，20Hz 跳变）
+var _predicted_path_healths: PackedFloat32Array = PackedFloat32Array()
+## 平滑视图：每帧 lerp 向 _predicted_path_world，实际渲染用这个
+## 修复"6 秒预测推进时高速瞬移"的视觉问题——cache 在 20Hz 离散更新，
+## 平滑视图填补 50ms 间隔让线条连续追平
+var _predicted_path_smooth_world: PackedVector2Array = PackedVector2Array()
+var _predicted_path_smooth_healths: PackedFloat32Array = PackedFloat32Array()
+const PRED_SMOOTH_LERP_RATE: float = 24.0  ## 时常数 ~42ms，差不多 cache 间隔
+var _predicted_path_cache_ms: int = 0
+## 长度平滑保留：处理 arrival_dist 阈值穿越时的边界跳变（极少见）
+var _predicted_path_visible_n_smooth: float = 0.0
+var _predicted_path_last_draw_ms: int = 0
+var _predicted_path_last_target: Vector2 = Vector2.INF
+const PREDICTED_PATH_REFRESH_MS: int = 50
+const PRED_LEN_LERP_RATE: float = 6.0
+const PRED_TARGET_RESET_PX: float = 200.0
+## 诊断：保存上次 prediction 用于计算两次 refresh 之间形状偏移量
+## 偏移大说明预测线"跳"得厉害；按阈值打 PRED_JUMP 事件方便在 log 里搜出抽搐瞬间
+var _predicted_path_prev_world: PackedVector2Array = PackedVector2Array()
+var _predicted_path_diag_step: int = 0
+const PRED_JUMP_PX_THRESHOLD: float = 80.0
 var formation_mode: bool = false            ## true=编队托管模式，直接复制长机状态
 var _formation_leader: Aircraft = null      ## 编队长机引用（formation_mode时使用）
 ## 注：_formation_blend / _formation_jitter_phase 单边住在 AIController（_ai_ref._formation_blend 等）。
@@ -670,6 +694,13 @@ func _physics_process_impl(delta: float) -> void:
 
 	# LOD 2（屏幕外）：每3帧完整处理，其余帧仅位移
 	if lod_level >= 2:
+		# 编队跟随机：屏外也必须维持编队几何，否则 leader 机动后 follower 漂出阵型
+		# （旧版 LOD 2 完全不调 update_follow → 三轰炸机/Sentinel UAV 漂离）
+		# update_follow 内部已按 _lod_frame % 3 把 speed/altitude 节流到 20Hz；
+		# heading/bank/position 60Hz 是必要开销（leader 转向时槽位变化太快）
+		if formation_mode and _formation_leader and is_instance_valid(_formation_leader):
+			AircraftFormation.update_follow(self, delta)
+			return
 		if _lod_frame % 3 != 0:
 			AircraftPhysics.apply_movement(self, delta)
 			# rotation = heading 每帧同步，防止 LOD 2 下镜头切回来看到过时朝向
@@ -926,7 +957,10 @@ func _apply_tactical_plan(plan: TacticalPlan) -> void:
 	if plan.target_altitude_tier >= 0:
 		set_target_tier(plan.target_altitude_tier)
 	# 交战 intent + flat_altitude → 自动匹配敌机高度档
-	if flat_altitude and combat_target != null and is_instance_valid(combat_target) and not combat_target.is_destroyed:
+	# ⚠ 玩家（use_tactical_preference）跳过本节：玩家高度永远走 altitude_preference，
+	# 不向敌机靠拢（详见 bfm_intent._apply_target_altitude 注释）。
+	if flat_altitude and not use_tactical_preference \
+			and combat_target != null and is_instance_valid(combat_target) and not combat_target.is_destroyed:
 		match plan.intent:
 			TacticalPlan.Intent.TAIL_CHASE, TacticalPlan.Intent.CLOSE_TAIL, \
 			TacticalPlan.Intent.LEAD_TURN, TacticalPlan.Intent.LEAD_PURSUIT, \

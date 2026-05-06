@@ -1033,15 +1033,22 @@ func _process(delta: float) -> void:
 			or Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_D)):
 		_tutorial.notify_pan()
 	_cleanup_references()
-	_update_aircraft_list()
-	_update_radar_locks(delta)
 	# MapFeatureRenderer 自己每帧 queue_redraw，不需要在这里触发
+	# ⚠ _update_aircraft_list() + _update_radar_locks() 已迁移到 _physics_process —
+	#   原因：_process 是渲染帧率，窗口失焦 / Alt-Tab / 最小化时 Godot 会把它节流到
+	#   1-30Hz，单次 delta 可达 0.5-1.0s。雷达进度按 delta 累积 + RADAR_LOCK_STRIDE×4
+	#   倍率 → 一次 tick 灌进 4s 的锁定时间，玩家看到"切出画面后导弹瞬间发射"。
+	#   _physics_process 固定 60Hz 不受焦点影响，是正确的累积时基。
 
 func _physics_process(delta: float) -> void:
 	if is_game_over or is_paused_for_upgrade:
 		return
 
 	game_time += delta
+	# 雷达锁定累积放在物理帧（固定 60Hz）：失焦/最小化时不会因 _process 大 delta 暴涨。
+	# 必须在所有 AI/武器子系统之前跑，因为 update_missile 读 radar_targets 决定开火。
+	_update_aircraft_list()
+	_update_radar_locks(delta)
 
 	# 动态性能控制
 	_spawner.update_fps_sampling(delta)
@@ -1152,6 +1159,14 @@ func _update_radar_locks(delta: float) -> void:
 	var _perf_pairs: int = 0
 	var step_delta := _radar_lock_accum
 	_radar_lock_accum = 0.0
+	# 防御：单次累积超过 2× 周期视为异常大 delta（窗口失焦 / 物理帧暂停后恢复）。
+	# 不 clamp 会让 per_shooter_delta = step_delta×STRIDE 灌入数秒锁定进度。
+	# 阈值取 RADAR_LOCK_INTERVAL × 2 = 0.4s（正常 60Hz 下永远不到 0.2s+1 帧）
+	var max_step: float = RADAR_LOCK_INTERVAL * 2.0
+	if step_delta > max_step:
+		EventLogger.log_event("RADAR_TICK", "survivor",
+			"step_delta=%.2fs clamped to %.2fs（疑似失焦/暂停恢复）" % [step_delta, max_step])
+		step_delta = max_step
 
 	# 复用 _update_aircraft_list 已经构建的列表
 	var all_units := _all_combat_units_cache
@@ -1430,9 +1445,18 @@ func _update_offscreen_lod() -> void:
 			ac.visible = false
 			# 远距冻结（2026-05-04 加入）：屏幕外 + 距玩家 > FAR_FREEZE_DIST 的非关键敌人
 			# 完全停 _physics_process，AI/Aircraft 都不跑，零成本。回屏幕或靠近自动解冻。
-			# BOSS / Sentinel 例外（必须保持机动），always 全速运行
+			# 豁免清单：
+			#   - BOSS / Sentinel：必须保持机动
+			#   - adds（教程轰炸机/CH-47/AH-64）：有 waypoint 任务（飞向城区/逃离），冻结
+			#     就永远走不到目标 → 表现为"没移动"+"V 阵型崩塌"（玩家 2026-05-07 报告）
+			#   - formation_mode follower：必须跟 leader，冻结会跑到 leader 后面距离爆炸，
+			#     视觉上 UAV 飞出 Sentinel 圈外（同上报告）
 			var is_critical_off: bool = ac.has_meta("category") and ac.get_meta("category") == "boss"
 			if not is_critical_off and ac.has_meta("enemy_type") and ac.get_meta("enemy_type") == "uav_commander":
+				is_critical_off = true
+			if not is_critical_off and ac.has_meta("category") and ac.get_meta("category") == "adds":
+				is_critical_off = true
+			if not is_critical_off and ac.formation_mode and ac._formation_leader and is_instance_valid(ac._formation_leader):
 				is_critical_off = true
 			var freeze: bool = (not is_critical_off) and ac.global_position.distance_squared_to(player_pos) > FAR_FREEZE_DIST_SQ
 			ac.set_physics_process(not freeze)

@@ -246,7 +246,8 @@ static func update_combat(ac: Aircraft, _delta: float) -> void:
 		var alt_diff := absf(ac.altitude - ac.combat_target.altitude)
 		# 射程检查用到目标的实际距离（dist），不用到前置点的距离（lead_dist），
 		# 因为迭代修正后前置点更远，用 lead_dist 会误判超出射程导致不开火
-		ac.is_firing = dist > MIN_GUN_FIRE_DIST_PX and dist <= fire_range and angle_diff <= fire_cone and (ac.flat_altitude or alt_diff < GUN_FIRE_ALT_DIFF_M)
+		var _want_fire := dist > MIN_GUN_FIRE_DIST_PX and dist <= fire_range and angle_diff <= fire_cone and (ac.flat_altitude or alt_diff < GUN_FIRE_ALT_DIFF_M)
+		ac.is_firing = ac._ai_gun_burst_allowed(_want_fire, ac.get_physics_process_delta_time())
 		# 缓存前置点供 _update_gun 使用
 		ac._gun_lead_heading = angle_to_lead
 	else:

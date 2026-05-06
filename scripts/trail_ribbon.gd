@@ -17,6 +17,12 @@ const OFFSCREEN_CULL_MARGIN_PX: float = 800.0
 var _trail_data: Array = []  ## Array of { pos: Vector2, heading: float, bank: float }
 var _sample_timer: float = 0.0
 
+## 屏外 cull → 进入可见的 fade-in（避免镜头切到飞机时 80 点尾迹"瞬间显形"）
+## 初值 true → spawn 时第一帧也算"进入可见"，新尾迹也是渐显出来
+var _was_culled: bool = true
+var _visibility_fade_in: float = 0.0  ## 0..1，1=完全显示
+const FADE_IN_PER_FRAME: float = 0.04  ## ≈ 0.4s @60Hz fully fade in
+
 func add_point(pos: Vector2, heading: float, bank: float) -> void:
 	_trail_data.append({ "pos": pos, "heading": heading, "bank": bank })
 	if _trail_data.size() > max_points:
@@ -60,8 +66,16 @@ func _draw_impl() -> void:
 		var screen_pos: Vector2 = get_viewport_transform() * (parent as Node2D).global_position
 		var vp_rect := get_viewport_rect().grow(OFFSCREEN_CULL_MARGIN_PX)
 		if not vp_rect.has_point(screen_pos):
+			_was_culled = true
+			_visibility_fade_in = 0.0
 			PerfBuckets.count("trail_culled")
 			return
+
+	# 刚从屏外切回 → 启动 fade-in（避免 80 点累积尾迹瞬间整段显形）
+	if _was_culled:
+		_was_culled = false
+		_visibility_fade_in = 0.0
+	_visibility_fade_in = minf(_visibility_fade_in + FADE_IN_PER_FRAME, 1.0)
 
 	var count := _trail_data.size()
 	if count < 2:
@@ -97,7 +111,7 @@ func _draw_impl() -> void:
 		var w := ribbon_width * cos(bank) * 0.5
 		var off := perp * ribbon_width * sin(bank) * 0.3
 
-		var alpha := float(i) * inv_last * ribbon_color.a
+		var alpha := float(i) * inv_last * ribbon_color.a * _visibility_fade_in
 		var c := Color(ribbon_color.r, ribbon_color.g, ribbon_color.b, alpha)
 
 		verts[i * 2] = p_local + off + perp * w

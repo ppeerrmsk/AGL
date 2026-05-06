@@ -42,421 +42,42 @@ const SHOCK_ABSORB_RATE: float = 1.0      ## HP/秒回复速率（慢，强调"�
 
 
 
+## 实物理 tick 包裹器：from → step → write_back（单 tick 4 次，开销可忽略）
+## 详见 step_target_heading 注释
 static func update_target_heading(ac: Aircraft) -> void:
-	# Herbst 激活期间冻结目标航向 —— 模块自己控制 heading/rotation，
-	# 不能让 _cached_target_heading 根据旧 target_position 持续刷新
-	# （下游 _update_bank 虽然已被 Herbst 守卫拦住，但其它链路也可能读 _cached_target_heading）
-	# 详见 docs/changelogs/player-ai-log.md 2026-04-21 (6)
-	var _hm_th := ac.get_herbst()
-	if _hm_th and _hm_th.is_active:
-		return
-	if ac.target_position == Vector2.INF:
-		return
-	var diff := ac.target_position - ac.global_position
-	var dist := diff.length()
-	# 到达判定：至少150px，或当前速度下2秒的飞行距离
-	# 追踪战斗目标时跳过到达清除（由 _update_combat 持续更新）
-	var arrival_dist := maxf(150.0, ac.speed * CombatUnit.PIXELS_PER_METER * 2.0)
-	if dist < arrival_dist and ac.combat_target == null and not ac.keep_target_on_arrival:
-		ac.target_position = Vector2.INF
-		ac._evasion_override = false  # 到达目标后恢复规避
-		# 清除预测路径缓存（防止下次点击前残留旧弧线）
-		ac.predicted_path_cache.clear()
-		ac.predicted_path_target = Vector2.INF
-		return
-	var _target_heading := atan2(diff.x, -diff.y)
-	ac._cached_target_heading = _target_heading
-	# 接近目标时衰减修正力度：在 arrival_dist ~ 3×arrival_dist 之间从 0 线性过渡到 1
-	ac._proximity_damping = clampf((dist - arrival_dist) / (arrival_dist * 2.0), 0.0, 1.0)
+	var st := FlightState.from_aircraft(ac)
+	step_target_heading(st)
+	st.write_back()
 
 
+## 实物理 tick 包裹器：from → step → write_back
+## 详见 step_bank 注释
 static func update_bank(ac: Aircraft, delta: float) -> void:
-	# Herbst 急转阶段：模块直接修改 heading（herbst_maneuver.gd:106），
-	# _update_heading 已跳过此阶段；但 _update_bank 照常跑会看到 heading 被硬转
-	# 3~4°/frame，heading_diff 剧变 → target_bank 在 ±max 之间翻转（bug 2026-04-20 (7)）。
-	# 冻结 bank 也不对（会让进 TURN 时 ±85° 高 bank 持续到 ACCEL 结束，视觉 bank_compress
-	# 严重压扁 X 轴，飞机图标看起来被斜着画（bug 2026-04-20 (9)））。
-	# 正确做法：Herbst 全程（DECEL/TURN/ACCEL）都强制 bank 向 0 衰减 —— 真实 post-stall
-	# yaw J-Turn 就是放平机翼纯绕 yaw 轴旋转，视觉转向由 Herbst.visual_offset 处理。
-	# 2026-04-20 (9) 只覆盖 TURN，但 DECEL/ACCEL 期间 heading 也是冻结的（_update_heading
-	# skip is_active 整段），而 AI 在 bvr_only 分支 Herbst 激活时每 tick 都会 fall through
-	# 到 flee→_disengage→boss re-engage 闭环（ai_controller.gd:1216-1220），target_position
-	# 在「远离玩家」和「LEAD_PURSUIT」之间反复跳 → target_bank 在 ±max 翻跳 → bank_compress
-	# 抖动 → 机身视觉颤抖（bug 2026-04-21）。
-	# 详见 docs/changelogs/player-ai-log.md 2026-04-20 (9) + 2026-04-21
-	var _hm_bank := ac.get_herbst()
-	if _hm_bank and _hm_bank.is_active:
-		var roll_rate_herbst: float = ac.params.roll_rate if ac.params else 4.0
-		ac.bank_angle = move_toward(ac.bank_angle, 0.0, roll_rate_herbst * delta)
-		return
-
-	if ac.target_position == Vector2.INF and abs(ac.bank_angle) < 0.01:
-		ac.bank_angle = 0.0
-		return
-
-	var heading_diff := Aircraft._angle_diff(ac._cached_target_heading, ac.heading)
-
-	if ac.target_position == Vector2.INF:
-		# 无目标，回正
-		heading_diff = 0.0
-		ac._committed_turn_sign = 0.0
-
-	# 转弯方向锁定：防止目标在正后方时 heading_diff 符号逐帧跳动导致滚转振荡
-	# 当偏差 > ~143° 时锁定转弯方向，当偏差 < ~86° 时解锁
-	if abs(heading_diff) > 2.5:
-		if ac._committed_turn_sign == 0.0:
-			ac._committed_turn_sign = signf(heading_diff)
-			# 诊断：玩家 turn_sign 被锁定的瞬间立即打点 —— 追"绕错方向"bug 用
-			if ac.use_tactical_preference and ac.combat_target != null:
-				EventLogger.log_event("PURSUIT_LOCK", ac._log_name(),
-					"turn_sign=%+d (hdg_diff=%+d°, tgt=%s) branch=%s" % [
-						int(ac._committed_turn_sign), int(rad_to_deg(heading_diff)),
-						ac._log_unit_name(ac.combat_target), ac._pursuit_branch])
-		heading_diff = absf(heading_diff) * ac._committed_turn_sign
-	elif abs(heading_diff) < 1.5:
-		if ac._committed_turn_sign != 0.0 and ac.use_tactical_preference and ac.combat_target != null:
-			EventLogger.log_event("PURSUIT_UNLOCK", ac._log_name(),
-				"turn_sign cleared (hdg_diff=%+d°, tgt=%s)" % [
-					int(rad_to_deg(heading_diff)), ac._log_unit_name(ac.combat_target)])
-		ac._committed_turn_sign = 0.0
-
-	# ── 预测式过冲补偿（critical damping）──
-	# 真实飞行员会"预读"自己当前的转弯率：在到达目标航向**之前**就开始回正坡度，
-	# 这样反馈环路才不会沿着 sinusoidal 摆动。
-	# 1. 估算当前转弯率 ω = g·tan(bank)/V
-	# 2. 估算把当前坡度从 |bank| 滚回 0 需要的时间 t_roll = |bank|/roll_rate
-	# 3. 三角积分：滚出过程中航向再走 (ω · t_roll)/2 弧度
-	# 4. 把这个预测量从 heading_diff 里扣掉，让下面的 P 控制器把"未来航向"对准目标
-	# 注：仅在 anticipated_change 与 heading_diff 同号时扣（即正在朝目标转），
-	#     避免在反向初动时把扣减算反。
-	if absf(ac.bank_angle) > 0.05 and absf(heading_diff) > 0.001:
-		var rr_val := ac.params.roll_rate if ac.params else 4.0
-		var stall_ms_pre := stall_speed(ac) / 3.6
-		if ac.speed < stall_ms_pre:
-			var ctrl_pre := clampf(ac.speed / maxf(stall_ms_pre, 1.0), 0.1, 1.0)
-			rr_val *= ctrl_pre
-		var current_turn_rate := CombatUnit.GRAVITY * tan(ac.bank_angle) / maxf(ac.speed, 50.0)
-		var t_roll := absf(ac.bank_angle) / maxf(rr_val, 0.5)
-		var anticipated_change := current_turn_rate * t_roll * 0.5
-		if signf(anticipated_change) == signf(heading_diff):
-			# 软钳位（避免反馈环 bang-bang 振荡）：
-			# 旧代码在 `|anticipated| >= |heading_diff|` 时把 heading_diff 硬归零 →
-			# target_bank=0 → bank 回中一档 → 下一 tick turn_rate 缩水 → anticipated 跟着缩水
-			# → heading_diff 原值重现未被吃完 → target_bank=±max → bank 回弹。
-			# 结果 bank 在 ~max / (max - 5°) 两档以 ~4Hz 来回切，G 也跟着抖 5↔13
-			# —— 视觉上就是 F-47 在近距咬尾（heading_diff ≈ 2~5°）时机身左右抽搐。
-			# F-47 CLOSE_FIGHTER 的 full_bank_diff=0.033 rad（≈1.9°）阈值极紧，
-			# target_bank 在此附近接近阶跃函数，放大了振荡。
-			# 改成最多吃 heading_diff 的 80%，保留 20% 残余命令让 target_bank 留在
-			# 平滑 lerp 区（而非阈值另一侧的 0），避免跨阈值跳变。
-			# 详见 docs/changelogs/player-ai-log.md 2026-04-21 (9)
-			var cap: float = absf(heading_diff) * 0.8
-			var sub: float = minf(absf(anticipated_change), cap) * signf(heading_diff)
-			heading_diff -= sub
-
-	var max_bank := max_bank_angle(ac)
-	var in_combat := ac.combat_target != null
-	var target_bank: float
-
-	# 大角度转弯时限制最大坡度到持续G水平，防止追踪时拉极端G螺旋
-	# 只有小角度精确对准时才允许使用结构极限G
-	# tactical_aggression 控制限制的强度：
-	#   1.0 = 完全解除限制，拉到结构 G 上限（survivor 玩家默认）
-	#   0.0 = 完全应用 70% 持续 G 限制（保守 AI）
-	#   中间 = 按因子在两者之间插值（沙盒 AI 随飞行员属性动态调整）
-	if in_combat and abs(heading_diff) > 0.5 and ac.tactical_aggression < 0.999:
-		var sustained_g := ac.params.max_g if ac.params else 9.0
-		var turn_g_capped := lerpf(sustained_g * 0.7, sustained_g, clampf((PI - abs(heading_diff)) / (PI - 0.5), 0.0, 1.0))
-		var turn_g_full := effective_max_g(ac)
-		var turn_g := lerpf(turn_g_capped, turn_g_full, clampf(ac.tactical_aggression, 0.0, 1.0))
-		var sustained_bank := acos(1.0 / maxf(turn_g, 1.01))
-		max_bank = minf(max_bank, sustained_bank)
-
-	if in_combat:
-		var cb := ac._combat_params()
-		var full_diff := cb.combat_full_bank_diff / cb.combat_bank_aggression
-		var half_diff := cb.combat_half_bank_diff / cb.combat_bank_aggression
-
-		if ac.use_tactical_preference:
-			# 战术偏好模式（玩家控制）：始终使用激进转弯，不受导弹阶段影响
-			if abs(heading_diff) < half_diff:
-				target_bank = 0.0
-			elif abs(heading_diff) < full_diff:
-				var bank_ratio: float = (abs(heading_diff) - half_diff) / (full_diff - half_diff)
-				target_bank = sign(heading_diff) * max_bank * lerpf(0.4, 1.0, bank_ratio)
-			else:
-				target_bank = sign(heading_diff) * max_bank
-		elif ac.weapon_mode == Aircraft.WeaponMode.MISSILE:
-			# 导弹模式分三阶段：接近→照射→保持
-			var msl_phase := ac._get_missile_phase()
-			if msl_phase == 0:
-				# 接近阶段：积极机动（与机炮模式相同）
-				if abs(heading_diff) < half_diff:
-					target_bank = 0.0
-				elif abs(heading_diff) < full_diff:
-					var bank_ratio: float = (abs(heading_diff) - half_diff) / (full_diff - half_diff)
-					target_bank = sign(heading_diff) * max_bank * lerpf(0.4, 1.0, bank_ratio)
-				else:
-					target_bank = sign(heading_diff) * max_bank
-			elif msl_phase == 1:
-				# 照射阶段：目标在锥内累积锁定，适度稳定
-				if abs(heading_diff) < 0.03:
-					target_bank = 0.0
-				else:
-					target_bank = sign(heading_diff) * max_bank * clampf(abs(heading_diff) * 3.0, 0.2, 0.6)
-			else:
-				# 保持阶段（已锁定/crank）：极稳定
-				if abs(heading_diff) < 0.02:
-					target_bank = 0.0
-				else:
-					target_bank = sign(heading_diff) * max_bank * clampf(abs(heading_diff) * 2.0, 0.1, 0.35)
-		else:
-			# 机炮模式：激进转弯
-			if abs(heading_diff) < half_diff:
-				target_bank = 0.0
-			elif abs(heading_diff) < full_diff:
-				var gun_bank_ratio: float = (abs(heading_diff) - half_diff) / (full_diff - half_diff)
-				target_bank = sign(heading_diff) * max_bank * lerpf(0.4, 1.0, gun_bank_ratio)
-			else:
-				target_bank = sign(heading_diff) * max_bank
-	elif ac.formation_mode:
-		# 编队跟随模式：积极转弯追赶阵型位置
-		if abs(heading_diff) < 0.03:
-			target_bank = 0.0
-		elif abs(heading_diff) < 0.2:
-			target_bank = sign(heading_diff) * max_bank * lerpf(0.3, 0.8, abs(heading_diff) / 0.2)
-		else:
-			target_bank = sign(heading_diff) * max_bank * 0.9
-	elif ac.use_tactical_preference:
-		# 玩家巡航模式（点击移动）：最激进的转弯，忽略距离衰减
-		# 目的：最快到达点击位置，拉满 G 以获得最小转弯半径
-		if abs(heading_diff) < 0.02:
-			target_bank = 0.0
-		elif abs(heading_diff) < 0.15:
-			var player_ratio: float = (abs(heading_diff) - 0.02) / (0.15 - 0.02)
-			target_bank = sign(heading_diff) * max_bank * lerpf(0.5, 1.0, player_ratio)
-		else:
-			target_bank = sign(heading_diff) * max_bank
-		# 不应用 _proximity_damping：玩家要始终满 G 转弯
-	else:
-		# 巡航模式：温和修正
-		if abs(heading_diff) < 0.05:
-			target_bank = 0.0
-		elif abs(heading_diff) < 0.4:
-			target_bank = sign(heading_diff) * max_bank * 0.3
-		else:
-			target_bank = sign(heading_diff) * max_bank
-		target_bank *= ac._proximity_damping
-
-	# ── Bank 翻转抗振守卫 ──
-	# 场景：target_position 横向移动时 heading_diff 反复过零，候选 target_bank 就在
-	# `+max_bank` 和 `-max_bank` 之间瞬间切换。bank 滚转率 ~4 rad/s，从 +86° 滚到
-	# -86° 需 0.75s；期间 heading_diff 又因目标持续移动摆回对侧，形成 bang-bang 振荡
-	# —— 视觉上就是飞机剧烈颤抖、机头左右疯甩、原地打转、flare 堆在一处。
-	# 守卫：当前 bank 已建立（>30°）且候选 target_bank 要反向时，如果 heading_diff 还
-	# 不够大（<5°），强制先 roll 回中立（target_bank=0），过了中立再考虑翻。
-	# 这相当于给"bank 反向"加一层迟滞，让控制器在目标明确移到另一侧前先放平机翼。
-	# 不改原 target_bank 计算公式 —— 只在病态翻转场景 override。
-	# 详见 docs/changelogs/player-ai-log.md 2026-04-20 (7)
-	if absf(ac.bank_angle) > BANK_FLIP_ESTABLISHED_RAD \
-			and signf(target_bank) != 0.0 \
-			and signf(target_bank) != signf(ac.bank_angle) \
-			and absf(heading_diff) < BANK_FLIP_COMMIT_RAD:
-		target_bank = 0.0
-
-	# 失速时：强制回正（机翼失去升力，无法维持侧倾）
-	if ac.is_stalled:
-		target_bank = 0.0
-	elif ac._stall_recovery_timer > 0.0:
-		# 失速恢复期：逐渐恢复机动能力，防止立即拉G再次失速
-		var recovery_ratio := 1.0 - clampf(ac._stall_recovery_timer / 1.0, 0.0, 1.0)
-		target_bank *= recovery_ratio  # 线性恢复，更快回复机动能力
-
-	# 滚转速率限制
-	var roll_rate_val := ac.params.roll_rate if ac.params else 4.0
-
-	# 低速时滚转速率也下降
-	var stall_ms := stall_speed(ac) / 3.6
-	if ac.speed < stall_ms:
-		var ctrl := clampf(ac.speed / maxf(stall_ms, 1.0), 0.1, 1.0)
-		roll_rate_val *= ctrl
-
-	# 高度加成：高空空气稀薄、垂直机动余量大 → 滚转更灵活
-	# 抽象表达"高空更多机动空间"的真实物理直觉
-	roll_rate_val *= 1.0 + altitude_maneuver_factor(ac) * 0.30
-
-	var bank_diff := target_bank - ac.bank_angle
-	var max_roll := roll_rate_val * delta
-	ac.bank_angle += clampf(bank_diff, -max_roll, max_roll)
+	var st := FlightState.from_aircraft(ac)
+	step_bank(st, delta)
+	st.write_back()
 
 
+## 实物理 tick 包裹器：from → step → write_back
 static func update_heading(ac: Aircraft, delta: float) -> void:
-	# 赫尔贝特轮机动期间由模块直接控制 heading，跳过正常转弯
-	var _hm_hdg := ac.get_herbst()
-	if _hm_hdg and _hm_hdg.is_active:
-		return
-	if abs(ac.bank_angle) < 0.001:
-		return
-	# 转弯率 ω = g × tan(bank_angle) / speed
-	var speed_ms := maxf(ac.speed, 1.0)  # 防止除零
-	var turn_rate := CombatUnit.GRAVITY * tan(ac.bank_angle) / speed_ms
-
-	# 低速时操控性急剧下降：速度低于失速速度时，转向能力线性衰减
-	var stall_ms := stall_speed(ac) / 3.6
-	if ac.speed < stall_ms:
-		var control_ratio := clampf(ac.speed / maxf(stall_ms, 1.0), 0.0, 1.0)
-		# 平方衰减：速度越低，操控越差
-		turn_rate *= control_ratio * control_ratio
-
-	ac.heading += turn_rate * delta
-	# 归一化到 [-PI, PI]
-	ac.heading = fmod(ac.heading + PI, TAU) - PI
+	var st := FlightState.from_aircraft(ac)
+	step_heading(st, delta)
+	st.write_back()
 
 
+## 实物理 tick 包裹器：from → step → write_back
+## 详见 step_speed 注释
 static func update_speed(ac: Aircraft, delta: float) -> void:
-	var _m := ac.get_maneuver()
-	if _m and _m.is_active:
-		return  # 战术机动期间速度由模块控制
-	var target_ms: float
-	if ac.hard_brake:
-		# 右键长按急刹：目标 0，跳过失速安全余量，让飞机一路减速到失速
-		target_ms = 0.0
-	else:
-		var t_kmh: float = ac.target_speed_kmh
-		# §1.2 evasion_modifiers.cruise_speed_mult：进入 evasion 模式后巡航速度按倍率提升
-		# 仍受下方 SLOW cap 与 max_speed_at_altitude 约束
-		if ac.evasion_mode:
-			var cruise_mult: float = float(ac.evasion_modifiers.get("cruise_speed_mult", 1.0))
-			if cruise_mult != 1.0:
-				t_kmh *= cruise_mult
-		# SLOW debuff：消费点强制限速（**放在 evasion mult 之后**，避免 evasion 把 SLOW 350 推到 490+）
-		# debuff 永远是 final cap，buff 永远在它之前应用
-		if ac.status_slow_active and t_kmh > StatusEffects.SLOW_SPEED_CAP_KMH:
-			t_kmh = StatusEffects.SLOW_SPEED_CAP_KMH
-		target_ms = t_kmh / 3.6
-
-		# 高度变化对 target 的影响：爬升时 target 降低，俯冲时 target 提升
-		# vs/max_climb 归一化到 ±1，乘以 0.10 系数 → ±10% target swing
-		# 例：cruise=511 km/h → 满爬升 ~460 / 满俯冲 ~562（温和能量交换）
-		# 转弯+切档叠加 g_drag/min_safe/PE-KE 时不再造成"瞬间剧降"
-		var max_climb_norm: float = ac.params.climb_rate_max if ac.params else 250.0
-		var vs_norm: float = clampf(ac.vertical_speed / maxf(max_climb_norm, 1.0), -1.0, 1.0)
-		target_ms *= 1.0 - vs_norm * 0.10
-
-		var max_speed_ms := max_speed_at_altitude(ac) / 3.6
-		target_ms = minf(target_ms, max_speed_ms)
-
-		# 安全速度下限：永远不主动减速到失速速度以下
-		# 用"当前 G 力下的失速速度"而不是静态 stall_base —— 拉 G 时失速速度上升
-		# 之前用 stall_base * 1.3 = 79 m/s 静态值，corner_speed (183) 远高于这个
-		# 但 84° bank 时 g_load=9.5, 真实失速 = 220 * sqrt(9.5) = 188 m/s > corner!
-		# 飞机减速到 corner 时立即 stall。改成动态 stall * 1.05 保护。
-		var stall_at_g_ms := stall_speed(ac) / 3.6  # 含 g_load 的当前失速速度
-		var min_safe_ms := stall_at_g_ms * 1.05      # 5% 余量（高 G 时也安全）
-		target_ms = maxf(target_ms, min_safe_ms)
-
-	var accel_rate := ac.params.acceleration if ac.params else 50.0
-	# OVERLOAD 状态：加速能力同步 ×OVERLOAD_ACCEL_MULT（与 decel mult 对称）
-	if ac.status_overload_active:
-		accel_rate *= StatusEffects.OVERLOAD_ACCEL_MULT
-	var decel_rate := (ac.params.deceleration if ac.params else 80.0) * ac._executioner_decel_mult()  # 侩子手：+10%/层
-	# 玩家技能"血怒护甲"：BLOODLUST 期间加 / 减速 ×1.3
-	if ac.team == 0 and ac.status_bloodlust_active and ac.has_meta("upgrade_stacks"):
-		var bl_stacks: Dictionary = ac.get_meta("upgrade_stacks")
-		if int(bl_stacks.get(SkillHooks.SKILL_BLOODLUST_ARMOR_MOBILITY, 0)) > 0:
-			accel_rate *= SkillHooks.BLOODLUST_ACCEL_MULT
-			decel_rate *= SkillHooks.BLOODLUST_ACCEL_MULT
-
-	# 加力燃烧：提升加速度（hard_brake 期间禁用加力，避免与减速对冲）
-	if ac.is_afterburner and not ac.hard_brake:
-		var ab_mult := ac.params.afterburner_thrust_mult if ac.params else 1.5
-		accel_rate *= ab_mult
-
-	# 非对称加减速（throttle 响应：加速到 target / 减速从 over 回 target）
-	var speed_diff := target_ms - ac.speed
-	if speed_diff >= 0:
-		ac.speed += minf(speed_diff, accel_rate * delta)
-	else:
-		ac.speed += maxf(speed_diff, -decel_rate * delta)
-
-	# 高G机动诱导阻力：始终生效，与 accel/decel 解耦
-	# 系统层全局衰减系数 G_DRAG_GLOBAL_MULT：调整所有机型转弯能量损失的整体强度
-	# 不动单机 .tres 的 g_drag_factor，让狗斗大师等技能的乘数关系保持有意义
-	# 0.5 → 9G 转弯 = 0.5 × 8 × 3 = 12 m/s²/秒，引擎 50 轻松压制（不掉速）
-	# 1.0 → 完整物理（之前的"硬核"感）；> 1.0 = 比物理更激进
-	# 高空机动加成：再 × (1 - alt_factor × 0.30)，HIGH 顶损失少 30%
-	const G_DRAG_GLOBAL_MULT := 0.4
-	var g_drag := (ac.params.g_drag_factor if ac.params else 3.0) * G_DRAG_GLOBAL_MULT
-	g_drag *= 1.0 - altitude_maneuver_factor(ac) * 0.30
-	var g_speed_loss := maxf(ac.g_load - 1.0, 0.0) * g_drag
-	ac.speed = maxf(ac.speed - g_speed_loss * delta, 0.0)
-
-	# 高度⇌速度耦合：爬升减速、俯冲加速（PE↔KE 转换）
-	# E_total = 0.5*v² + g*h → v*dv = -g*dh → dv/dt = -g/v * dh/dt
-	#
-	# BOOST 越大爬升越费速度，但低速下 g/v 项会爆炸（v=75 m/s 时 BOOST=6 损失 78 m/s²
-	# 远超引擎 50 m/s²，导致永远爬不起来）。改成 2.5 让引擎在任何速度都能压制损失。
-	# 高速时仍有可见效应（最大爬升 ×2.5 = 24 m/s²/秒），但低速安全。
-	const PE_KE_BOOST := 2.5
-	var spd := maxf(ac.speed, 10.0)
-	var gravity_effect := CombatUnit.GRAVITY * ac.vertical_speed / spd * PE_KE_BOOST
-	ac.speed -= gravity_effect * delta
-
-	ac.speed = maxf(ac.speed, 0.0)
-	# AI 轨道限速：由 AIController 设置，0 = 不限制
-	if ac.orbit_speed_cap > 0.0 and ac.speed > ac.orbit_speed_cap:
-		ac.speed = ac.orbit_speed_cap
+	var st := FlightState.from_aircraft(ac)
+	step_speed(st, delta)
+	st.write_back()
 
 
+## 实物理 tick 包裹器：from → step → write_back
 static func update_altitude(ac: Aircraft, delta: float) -> void:
-	# 失速旁路：update_stall 当帧已把 vertical_speed 强拉到 STALL_DIVE_RATE_MIN/MAX (-100~-250 m/s)
-	# 这里如果再走 lerp(target_vs)（target_altitude 离当前高度近 → target_vs≈0），俯冲率每帧
-	# 刚被设好就被平滑回零，飞机始终不掉高度 —— 失速时直接施加 vertical_speed，跳过 lerp
-	# 调用顺序前置要求：update_stall 必须在 update_altitude 之前跑（aircraft.gd 的三个调度位）
-	if ac.is_stalled:
-		ac.altitude += ac.vertical_speed * delta
-		ac.altitude = maxf(ac.altitude, 0.0)
-		return
-	var alt_diff := ac.target_altitude - ac.altitude
-	# altitude_authority_mult 同步放大三处，避免只改 max_climb 被指数尾巴拖慢：
-	#   ① 钳制上限（前段快速接近）
-	#   ② 增益（后段指数收敛）
-	#   ③ 平滑 lerp 速率（响应延迟）
-	# 调高 gain 0.25→0.4 + smooth_rate 5.0→8.0：响应时间从 0.4s 降到 0.15s
-	# 配合 .tres 里 climb_rate_max 250→450 m/s，LOW↔HIGH 全程从 32s 降到 18s
-	# vapor_dodge altitude_mult ×2 时 → 9s 完成切档
-	var alt_mult: float = ac.altitude_authority_mult
-	var max_climb := (ac.params.climb_rate_max if ac.params else 250.0) * alt_mult
-	var gain := 0.4 * alt_mult
-	var smooth_rate := 8.0 * alt_mult
-	var target_vs: float
-	if abs(alt_diff) < 10.0:
-		target_vs = 0.0
-	else:
-		target_vs = clampf(alt_diff * gain, -max_climb, max_climb)
-
-	# 失速恢复期：禁止爬升（vs ≤ 0），防止"刚出失速 → 立即爬 → PE/KE 再榨速度 → 再失速"循环
-	# 给玩家时间在飞行轨迹平直的状态下重建动能，再继续爬升
-	if ac._stall_recovery_timer > 0.0 and target_vs > 0.0:
-		target_vs = 0.0
-
-	# 速度不足时也限制爬升率：低速没有能量爬升（real-world rate-of-climb = 余功率 / 重量）
-	# stall+50 m/s 以下，target_vs 按速度余量比例缩减；防止低速死循环爬升
-	if target_vs > 0.0:
-		var stall_at_g_ms := stall_speed(ac) / 3.6
-		var speed_margin := ac.speed - stall_at_g_ms
-		if speed_margin < 50.0:
-			var climb_authority := clampf(speed_margin / 50.0, 0.0, 1.0)
-			target_vs *= climb_authority
-
-	ac.vertical_speed = lerpf(ac.vertical_speed, target_vs, delta * smooth_rate)
-	ac.altitude += ac.vertical_speed * delta
-	ac.altitude = maxf(ac.altitude, 0.0)
-	# §C 玩家技能"高度变化时更难锁"：维护 _alt_velocity（abs vertical_speed 平滑值）
-	# 用 EMA 平滑避免边缘抖动；雷达循环只读不写
-	if ac.team == 0 and ac.alt_change_stealth_factor > 0.0:
-		var instant_v: float = absf(ac.vertical_speed)
-		ac._alt_velocity = lerpf(ac._alt_velocity, instant_v, clampf(delta * 4.0, 0.0, 1.0))
+	var st := FlightState.from_aircraft(ac)
+	step_altitude(st, delta)
+	st.write_back_altitude()
 
 
 static func update_stall(ac: Aircraft) -> void:
@@ -509,7 +130,7 @@ static func max_bank_angle(ac: Aircraft) -> float:
 	# 失速速度 V_stall = V_base * sqrt(G)，所以允许的最大G = (V_current / V_base)²
 	# 留 20% 安全余量防止拉G后立即失速抽搐
 	var stall_base := (ac.params.stall_speed_base if ac.params else 220.0) / 3.6  # m/s
-	var safe_margin := 1.2  # 保留20%速度余量
+	var safe_margin := _dynamic_safe_margin(ac)  # §B1/B2 BLOODLUST/被锁时降到 1.0；预测线共用此 helper
 	if ac.speed > stall_base * safe_margin:
 		var effective_speed := ac.speed / safe_margin  # 用折减后的速度计算允许G
 		var max_g_for_speed := (effective_speed / stall_base) * (effective_speed / stall_base)
@@ -546,6 +167,62 @@ static func corner_speed_kmh(ac: Aircraft) -> float:
 	var stall_base_kmh := ac.params.stall_speed_base if ac.params else 220.0
 	# safe_margin 与 max_bank_angle 保持一致（1.2）
 	return stall_base_kmh * 1.2 * sqrt(maxf(g_target, 1.0))
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  effective_*() — AI 战术层 buff-aware accessor 层
+# ══════════════════════════════════════════════════════════════════════
+# 设计原则：
+#   1) Situation.from_aircraft 和其他 AI 决策入口**只读这些 accessor**，
+#      绝不直接读 ac.params.*（那样会绕过 buff 注入点）
+#   2) 零 buff 状态下，accessor 返回值与旧的 params.* 直读完全一致
+#      （保证现有导弹/机炮战术手感不被破坏）
+#   3) 新增机动性 buff（速度/G/失速/转弯）只在两个地方注入：
+#        a. 永久升级 → survivor_player.gd:apply_upgrade 改 params.* 字段
+#        b. 状态/模式 buff → 在对应 effective_*() 加 if 块
+#      禁止在 update_speed/update_bank 等物理 tick 里散点叠 buff
+#   4) 注意区别：effective_max_speed_kmh ≠ max_speed_at_altitude
+#        - effective_*: AI 战术参考（不含 q_factor/cloud/building 减成）
+#        - max_speed_at_altitude: 物理实际可达上限（含所有减成）
+#      物理 cap 仍走 max_speed_at_altitude，AI 目标走 effective_*
+# ══════════════════════════════════════════════════════════════════════
+
+## AI 战术层用的"有效顶速"。零 buff = ac.params.max_speed
+## buff 注入点：executioner（永久 stack）+ evasion_modifiers.cruise_speed_mult（模式）
+static func effective_max_speed_kmh(ac: Aircraft) -> float:
+	var v := ac.params.max_speed if ac.params else 2100.0
+	v *= ac._executioner_speed_mult()  # 侩子手 stack：每层 +5%
+	if ac.evasion_mode:
+		var cm: float = float(ac.evasion_modifiers.get("cruise_speed_mult", 1.0))
+		if cm > 1.0:
+			v *= cm
+	return v
+
+
+## AI 战术层用的"有效巡航速度"。零 buff = ac.params.cruise_speed
+static func effective_cruise_speed_kmh(ac: Aircraft) -> float:
+	var v := ac.params.cruise_speed if ac.params else 800.0
+	if ac.evasion_mode:
+		var cm: float = float(ac.evasion_modifiers.get("cruise_speed_mult", 1.0))
+		if cm > 1.0:
+			v *= cm
+	return v
+
+
+## AI 战术层用的"有效失速基数"。永久升级（DOGFIGHT_STALL_MULT 等）已经改了 params 本身，
+## 直接读 params.stall_speed_base 即可
+static func effective_stall_speed_kmh(ac: Aircraft) -> float:
+	return ac.params.stall_speed_base if ac.params else 220.0
+
+
+## AI 战术用的角点速度（不含 max_bank 的 ×1.2 safe_margin —— 那是物理转弯的安全余量）
+## 公式与旧 Situation.from_aircraft 保持同型 stall × √max_g，只是 max_g 走 effective_max_g
+## 零 buff 下 = stall × √params.max_g（与旧实现一致）
+## 有 BLOODLUST/lock_panic/cloud 时自动随 effective_max_g 抬升
+static func effective_corner_speed_kmh(ac: Aircraft) -> float:
+	var stall := effective_stall_speed_kmh(ac)
+	var g := effective_max_g(ac)
+	return stall * sqrt(maxf(g, 1.0))
 
 
 ## 高度机动加成因子（0..1）：0m=0，15000m=1（线性饱和）
@@ -592,11 +269,92 @@ static func air_density_ratio(ac: Aircraft) -> float:
 	return exp(-ac.altitude / AIR_DENSITY_SCALE_M)
 
 
-## 计算指定速度下的最大坡度角（预测线用）
-static func max_bank_angle_at_speed(ac: Aircraft, spd: float, stall_base_ms: float) -> float:
-	var max_g_val := effective_max_g(ac)
-	var g_limited_bank := acos(1.0 / max_g_val)
-	var safe_margin := 1.2
+## 共享 target_bank 计算 —— 物理 update_bank 与预测线 draw_predicted_path 都用
+## 保证两者公式严格同源，避免预测路径与实际飞行轨迹"撕裂"
+## 调用方负责传入快照值（in_combat/weapon_mode/msl_phase 等）；helper 内不读 ac，纯函数
+static func compute_target_bank(
+		heading_diff: float,
+		max_bank: float,
+		in_combat: bool,
+		use_tactical_preference: bool,
+		weapon_mode: int,
+		msl_phase: int,
+		formation_mode: bool,
+		proximity_damping: float,
+		combat_full_bank_diff: float,
+		combat_half_bank_diff: float) -> float:
+	var sgn: float = signf(heading_diff)
+	var abs_h: float = absf(heading_diff)
+
+	if in_combat:
+		# 战术偏好 / 机炮 / 导弹接近阶段共享激进 lerp 曲线
+		var aggressive_ok: bool = use_tactical_preference \
+				or weapon_mode != Aircraft.WeaponMode.MISSILE \
+				or msl_phase == 0
+		if aggressive_ok:
+			if abs_h < combat_half_bank_diff:
+				return 0.0
+			elif abs_h < combat_full_bank_diff:
+				var ratio: float = (abs_h - combat_half_bank_diff) / maxf(combat_full_bank_diff - combat_half_bank_diff, 0.001)
+				return sgn * max_bank * lerpf(0.4, 1.0, ratio)
+			else:
+				return sgn * max_bank
+		elif msl_phase == 1:
+			# 导弹照射阶段：稳定
+			if abs_h < 0.03:
+				return 0.0
+			return sgn * max_bank * clampf(abs_h * 3.0, 0.2, 0.6)
+		else:
+			# 导弹保持阶段（crank）：极稳定
+			if abs_h < 0.02:
+				return 0.0
+			return sgn * max_bank * clampf(abs_h * 2.0, 0.1, 0.35)
+	elif formation_mode:
+		if abs_h < 0.03:
+			return 0.0
+		elif abs_h < 0.2:
+			return sgn * max_bank * lerpf(0.3, 0.8, abs_h / 0.2)
+		else:
+			return sgn * max_bank * 0.9
+	elif use_tactical_preference:
+		# 玩家巡航（点击移动）：最激进，忽略距离衰减
+		if abs_h < 0.02:
+			return 0.0
+		elif abs_h < 0.15:
+			var ratio: float = (abs_h - 0.02) / (0.15 - 0.02)
+			return sgn * max_bank * lerpf(0.5, 1.0, ratio)
+		else:
+			return sgn * max_bank
+	else:
+		# 通用巡航：温和修正 + proximity_damping
+		var t_bank: float
+		if abs_h < 0.05:
+			t_bank = 0.0
+		elif abs_h < 0.4:
+			t_bank = sgn * max_bank * 0.3
+		else:
+			t_bank = sgn * max_bank
+		return t_bank * proximity_damping
+
+
+## max_bank 系列共享的"安全余量"。零 buff = 1.2；BLOODLUST/被锁恐慌时降到 1.0
+## 让低速也能拉满 G 加成（min_safe_ms × 1.05 已在 update_speed 守底，5% 余量保证不立即失速抽搐）
+## ⚠ 物理 max_bank_angle 与预测线 max_bank_angle_at_speed 必须用同一个值，否则预测路径撕裂
+static func _dynamic_safe_margin(ac: Aircraft) -> float:
+	if ac.team == 0:
+		if ac.status_bloodlust_active and ac.has_meta("upgrade_stacks"):
+			var stacks: Dictionary = ac.get_meta("upgrade_stacks")
+			if int(stacks.get(SkillHooks.SKILL_BLOODLUST_ARMOR_MOBILITY, 0)) > 0:
+				return 1.0
+		if ac.is_locked and ac.lock_panic_g_mult != 1.0:
+			return 1.0
+	return 1.2
+
+
+## 计算指定速度下的最大坡度角（预测线用）。纯函数版本接受预先算好的 max_g / safe_margin
+## 调用方负责传入 effective_max_g(ac) + _dynamic_safe_margin(ac)（或缓存值）
+static func max_bank_angle_at_speed_pure(spd: float, stall_base_ms: float, max_g: float, safe_margin: float) -> float:
+	var g_limited_bank := acos(1.0 / max_g)
 	if spd > stall_base_ms * safe_margin:
 		var effective_speed := spd / safe_margin
 		var max_g_for_speed := (effective_speed / stall_base_ms) * (effective_speed / stall_base_ms)
@@ -605,6 +363,30 @@ static func max_bank_angle_at_speed(ac: Aircraft, spd: float, stall_base_ms: flo
 	else:
 		var ratio := clampf(spd / (stall_base_ms * safe_margin), 0.0, 1.0)
 		return STALL_BANK_MIN + ratio * STALL_BANK_RANGE
+
+
+## 兼容包裹器：旧调用方走这里
+static func max_bank_angle_at_speed(ac: Aircraft, spd: float, stall_base_ms: float) -> float:
+	return max_bank_angle_at_speed_pure(spd, stall_base_ms, effective_max_g(ac), _dynamic_safe_margin(ac))
+
+
+## state-aware 版本：优先用 st.cached_*，否则 lazy compute（实物理 tick 路径）
+static func _eff_max_g_st(st: FlightState) -> float:
+	if not is_nan(st.cached_max_g):
+		return st.cached_max_g
+	return effective_max_g(st.ac)
+
+
+static func _safe_margin_st(st: FlightState) -> float:
+	if not is_nan(st.cached_safe_margin):
+		return st.cached_safe_margin
+	return _dynamic_safe_margin(st.ac)
+
+
+static func _max_speed_alt_ms_st(st: FlightState) -> float:
+	if not is_nan(st.cached_max_speed_alt_ms):
+		return st.cached_max_speed_alt_ms
+	return max_speed_at_altitude(st.ac) / 3.6
 
 
 # ========== 战区奖励 v2 辅助 ==========
@@ -1019,3 +801,392 @@ static func update_energy_management(ac: Aircraft) -> void:
 				pass
 			elif ac.speed > cruise_ms * cb.climb_speed_ratio and ac.altitude < cb.climb_max_altitude:
 				ac.target_altitude = minf(ac.altitude + 500.0, cb.climb_max_altitude)
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  step_*() — 纯仿真步进（实物理 tick 与预测线共用）
+# ══════════════════════════════════════════════════════════════════════
+# 设计原则：
+#   1) 实物理 tick：from_aircraft → step_X → write_back（每个 update_X 包裹器内部）
+#   2) 预测线：from_aircraft(ac, true) → 循环跑 step_X → 不 write_back
+#   3) is_prediction=true 时所有副作用（EventLogger / randf）禁用
+#   4) 步进期间读 mutable 字段走 st.*（speed/bank/heading/position/g_load/
+#      cached_target_heading/proximity_damping/committed_turn_sign），读 frozen
+#      字段走 st.ac.*（params/evasion_modifiers/skills/altitude/cloud_state 等）
+#   5) altitude / vertical_speed 在预测中不演化（snapshot 后冻结），update_altitude
+#      不参与预测。这对短程预测足够准；超长程切档预测需要时再扩展
+# ══════════════════════════════════════════════════════════════════════
+
+const PHYSICS_DT: float = 1.0 / 60.0  ## 与 _physics_process 默认 tick 严格一致
+
+
+## 目标航向缓存 + 接近衰减。到达目标时清 target_position = INF（外层据此终止预测循环）
+static func step_target_heading(st: FlightState) -> void:
+	var _hm := st.ac.get_herbst()
+	if _hm and _hm.is_active:
+		return
+	if st.target_position == Vector2.INF:
+		return
+	var diff := st.target_position - st.position
+	var dist := diff.length()
+	var arrival_dist := maxf(150.0, st.speed * CombatUnit.PIXELS_PER_METER * 2.0)
+	if dist < arrival_dist and st.ac.combat_target == null and not st.ac.keep_target_on_arrival:
+		st.target_position = Vector2.INF
+		st.evasion_override = false
+		return
+	st.cached_target_heading = atan2(diff.x, -diff.y)
+	st.proximity_damping = clampf((dist - arrival_dist) / (arrival_dist * 2.0), 0.0, 1.0)
+
+
+## bank 演化（最复杂的一步：方向锁定 + 过冲补偿 + max_bank cap + bank flip 守卫 +
+## 失速回正 + roll_rate 限速 + EMA bank_rate 追踪）
+static func step_bank(st: FlightState, delta: float) -> void:
+	# Herbst 守卫：模块期间强制 bank → 0
+	var _hm := st.ac.get_herbst()
+	if _hm and _hm.is_active:
+		var roll_rate_h: float = st.ac.params.roll_rate if st.ac.params else 4.0
+		st.bank_angle = move_toward(st.bank_angle, 0.0, roll_rate_h * delta)
+		return
+
+	if st.target_position == Vector2.INF and abs(st.bank_angle) < 0.01:
+		st.bank_angle = 0.0
+		return
+
+	var heading_diff := Aircraft._angle_diff(st.cached_target_heading, st.heading)
+
+	if st.target_position == Vector2.INF:
+		heading_diff = 0.0
+		st.committed_turn_sign = 0.0
+
+	# 转弯方向锁定（详见原 update_bank 注释）
+	if abs(heading_diff) > 2.5:
+		if st.committed_turn_sign == 0.0:
+			st.committed_turn_sign = signf(heading_diff)
+			if not st.is_prediction and st.ac.use_tactical_preference and st.ac.combat_target != null:
+				EventLogger.log_event("PURSUIT_LOCK", st.ac._log_name(),
+					"turn_sign=%+d (hdg_diff=%+d°, tgt=%s) branch=%s" % [
+						int(st.committed_turn_sign), int(rad_to_deg(heading_diff)),
+						st.ac._log_unit_name(st.ac.combat_target), st.ac._pursuit_branch])
+		heading_diff = absf(heading_diff) * st.committed_turn_sign
+	elif abs(heading_diff) < 1.5:
+		if st.committed_turn_sign != 0.0 and not st.is_prediction \
+				and st.ac.use_tactical_preference and st.ac.combat_target != null:
+			EventLogger.log_event("PURSUIT_UNLOCK", st.ac._log_name(),
+				"turn_sign cleared (hdg_diff=%+d°, tgt=%s)" % [
+					int(rad_to_deg(heading_diff)), st.ac._log_unit_name(st.ac.combat_target)])
+		st.committed_turn_sign = 0.0
+
+	# 过冲补偿（critical damping）
+	var stall_base_kmh: float = st.ac.params.stall_speed_base if st.ac.params else 220.0
+	var stall_at_g_ms: float = stall_base_kmh * pow(maxf(st.g_load, 1.0), 0.4) / 3.6
+
+	if absf(st.bank_angle) > 0.05 and absf(heading_diff) > 0.001:
+		var rr_val: float = st.ac.params.roll_rate if st.ac.params else 4.0
+		if st.speed < stall_at_g_ms:
+			var ctrl_pre := clampf(st.speed / maxf(stall_at_g_ms, 1.0), 0.1, 1.0)
+			rr_val *= ctrl_pre
+		var current_turn_rate := CombatUnit.GRAVITY * tan(st.bank_angle) / maxf(st.speed, 50.0)
+		var t_roll := absf(st.bank_angle) / maxf(rr_val, 0.5)
+		var anticipated_change := current_turn_rate * t_roll * 0.5
+		if signf(anticipated_change) == signf(heading_diff):
+			var cap: float = absf(heading_diff) * 0.8
+			var sub: float = minf(absf(anticipated_change), cap) * signf(heading_diff)
+			heading_diff -= sub
+
+	# max_bank（state-aware：prediction 走 cached_max_g/safe_margin，real tick 走 lazy）
+	var stall_base_ms: float = stall_base_kmh / 3.6
+	var eff_max_g := _eff_max_g_st(st)
+	var safe_margin := _safe_margin_st(st)
+	var max_bank := max_bank_angle_at_speed_pure(st.speed, stall_base_ms, eff_max_g, safe_margin)
+	var in_combat := st.ac.combat_target != null
+
+	if in_combat and abs(heading_diff) > 0.5 and st.ac.tactical_aggression < 0.999:
+		var sustained_g: float = st.ac.params.max_g if st.ac.params else 9.0
+		var turn_g_capped := lerpf(sustained_g * 0.7, sustained_g, clampf((PI - abs(heading_diff)) / (PI - 0.5), 0.0, 1.0))
+		var turn_g := lerpf(turn_g_capped, eff_max_g, clampf(st.ac.tactical_aggression, 0.0, 1.0))
+		var sustained_bank := acos(1.0 / maxf(turn_g, 1.01))
+		max_bank = minf(max_bank, sustained_bank)
+
+	var cb_full_diff: float = 0.0
+	var cb_half_diff: float = 0.0
+	if in_combat:
+		var cb := st.ac._combat_params()
+		cb_full_diff = cb.combat_full_bank_diff / cb.combat_bank_aggression
+		cb_half_diff = cb.combat_half_bank_diff / cb.combat_bank_aggression
+	var msl_phase_now: int = st.ac._get_missile_phase() \
+			if (in_combat and st.ac.weapon_mode == Aircraft.WeaponMode.MISSILE) else 0
+	var target_bank: float = compute_target_bank(
+			heading_diff, max_bank, in_combat,
+			st.ac.use_tactical_preference, st.ac.weapon_mode, msl_phase_now,
+			st.ac.formation_mode, st.proximity_damping, cb_full_diff, cb_half_diff)
+
+	# Bank flip 守卫
+	if absf(st.bank_angle) > BANK_FLIP_ESTABLISHED_RAD \
+			and signf(target_bank) != 0.0 \
+			and signf(target_bank) != signf(st.bank_angle) \
+			and absf(heading_diff) < BANK_FLIP_COMMIT_RAD:
+		target_bank = 0.0
+
+	# 失速回正
+	if st.is_stalled:
+		target_bank = 0.0
+	elif st.stall_recovery_timer > 0.0:
+		var recovery_ratio := 1.0 - clampf(st.stall_recovery_timer / 1.0, 0.0, 1.0)
+		target_bank *= recovery_ratio
+
+	# 滚转速率限制（低速 + 高度加成）
+	var roll_rate_val: float = st.ac.params.roll_rate if st.ac.params else 4.0
+	if st.speed < stall_at_g_ms:
+		var ctrl := clampf(st.speed / maxf(stall_at_g_ms, 1.0), 0.1, 1.0)
+		roll_rate_val *= ctrl
+	var alt_factor := clampf(st.altitude / 15000.0, 0.0, 1.0)
+	roll_rate_val *= 1.0 + alt_factor * 0.30
+
+	var bank_diff := target_bank - st.bank_angle
+	var max_roll := roll_rate_val * delta
+	st.bank_angle += clampf(bank_diff, -max_roll, max_roll)
+
+	# Bank rate EMA 追踪
+	if delta > 0.0:
+		var instant_rate: float = (st.bank_angle - st.prev_bank_for_rate) / delta
+		st.bank_rate_rad_s = st.bank_rate_rad_s * 0.5 + instant_rate * 0.5
+	st.prev_bank_for_rate = st.bank_angle
+
+
+## heading 演化：ω = g·tan(bank)/V，低速衰减
+static func step_heading(st: FlightState, delta: float) -> void:
+	var _hm := st.ac.get_herbst()
+	if _hm and _hm.is_active:
+		return
+	if abs(st.bank_angle) < 0.001:
+		return
+	var speed_ms := maxf(st.speed, 1.0)
+	var turn_rate := CombatUnit.GRAVITY * tan(st.bank_angle) / speed_ms
+
+	var stall_base_kmh: float = st.ac.params.stall_speed_base if st.ac.params else 220.0
+	var stall_at_g_ms := stall_base_kmh * pow(maxf(st.g_load, 1.0), 0.4) / 3.6
+	if st.speed < stall_at_g_ms:
+		var control_ratio := clampf(st.speed / maxf(stall_at_g_ms, 1.0), 0.0, 1.0)
+		turn_rate *= control_ratio * control_ratio
+
+	st.heading += turn_rate * delta
+	st.heading = fmod(st.heading + PI, TAU) - PI
+
+
+## altitude / vertical_speed 演化：target_altitude 收敛 + 速度余量限制 + 失速恢复门控
+## 预测期间用此函数让 vertical_speed 自然衰减到 0（飞机抵达目标高度后 PE/KE 不再耗速度
+## → 预测线长度回归"巡航段长度"），不再因为冻结 vertical_speed 导致预测全程都被拉短
+static func step_altitude(st: FlightState, delta: float) -> void:
+	if st.is_stalled:
+		st.altitude += st.vertical_speed * delta
+		st.altitude = maxf(st.altitude, 0.0)
+		return
+	var alt_diff: float = st.ac.target_altitude - st.altitude
+	var alt_mult: float = st.ac.altitude_authority_mult
+	var max_climb: float = (st.ac.params.climb_rate_max if st.ac.params else 250.0) * alt_mult
+	var gain: float = 0.4 * alt_mult
+	var smooth_rate: float = 8.0 * alt_mult
+	var target_vs: float
+	if abs(alt_diff) < 10.0:
+		target_vs = 0.0
+	else:
+		target_vs = clampf(alt_diff * gain, -max_climb, max_climb)
+
+	if st.stall_recovery_timer > 0.0 and target_vs > 0.0:
+		target_vs = 0.0
+
+	if target_vs > 0.0:
+		var stall_base_kmh: float = st.ac.params.stall_speed_base if st.ac.params else 220.0
+		var stall_at_g_ms: float = stall_base_kmh * pow(maxf(st.g_load, 1.0), 0.4) / 3.6
+		var speed_margin: float = st.speed - stall_at_g_ms
+		if speed_margin < 50.0:
+			var climb_authority: float = clampf(speed_margin / 50.0, 0.0, 1.0)
+			target_vs *= climb_authority
+
+	st.vertical_speed = lerpf(st.vertical_speed, target_vs, delta * smooth_rate)
+	st.altitude += st.vertical_speed * delta
+	st.altitude = maxf(st.altitude, 0.0)
+	# §C 玩家"高度变化更难锁"副作用：仅 real tick 写回，prediction 跳过
+	if not st.is_prediction and st.ac.team == 0 and st.ac.alt_change_stealth_factor > 0.0:
+		var instant_v: float = absf(st.vertical_speed)
+		st.ac._alt_velocity = lerpf(st.ac._alt_velocity, instant_v, clampf(delta * 4.0, 0.0, 1.0))
+
+
+## speed 演化：target → 加/减速 → g_drag → PE/KE → orbit cap
+static func step_speed(st: FlightState, delta: float) -> void:
+	var ac := st.ac
+	var _m := ac.get_maneuver()
+	if _m and _m.is_active:
+		return
+
+	var target_ms: float
+	if ac.hard_brake:
+		target_ms = 0.0
+	else:
+		# ⚠ 读 st.target_speed_kmh 而非 ac —— 让 prediction 的 inline planner 能在循环里
+		# 演化 target_speed（详见 predict_player_path 注释）。实物理 tick 里 st 是 ac 的快照，
+		# 行为完全一致
+		var t_kmh: float = st.target_speed_kmh
+		if ac.evasion_mode:
+			var cruise_mult: float = float(ac.evasion_modifiers.get("cruise_speed_mult", 1.0))
+			if cruise_mult != 1.0:
+				t_kmh *= cruise_mult
+		if ac.status_slow_active and t_kmh > StatusEffects.SLOW_SPEED_CAP_KMH:
+			t_kmh = StatusEffects.SLOW_SPEED_CAP_KMH
+		target_ms = t_kmh / 3.6
+
+		var max_climb_norm: float = ac.params.climb_rate_max if ac.params else 250.0
+		var vs_norm: float = clampf(st.vertical_speed / maxf(max_climb_norm, 1.0), -1.0, 1.0)
+		target_ms *= 1.0 - vs_norm * 0.10
+
+		var max_speed_ms := _max_speed_alt_ms_st(st)
+		if ac.evasion_mode:
+			var cm: float = float(ac.evasion_modifiers.get("cruise_speed_mult", 1.0))
+			if cm > 1.0:
+				max_speed_ms *= cm
+		target_ms = minf(target_ms, max_speed_ms)
+
+		var stall_base_kmh: float = ac.params.stall_speed_base if ac.params else 220.0
+		var stall_at_g_ms := stall_base_kmh * pow(maxf(st.g_load, 1.0), 0.4) / 3.6
+		var min_safe_ms := stall_at_g_ms * 1.05
+		target_ms = maxf(target_ms, min_safe_ms)
+
+	var accel_rate: float = ac.params.acceleration if ac.params else 50.0
+	if ac.status_overload_active:
+		accel_rate *= StatusEffects.OVERLOAD_ACCEL_MULT
+	var decel_rate: float = (ac.params.deceleration if ac.params else 80.0) * ac._executioner_decel_mult()
+	if ac.team == 0 and ac.status_bloodlust_active and ac.has_meta("upgrade_stacks"):
+		var bl_stacks: Dictionary = ac.get_meta("upgrade_stacks")
+		if int(bl_stacks.get(SkillHooks.SKILL_BLOODLUST_ARMOR_MOBILITY, 0)) > 0:
+			accel_rate *= SkillHooks.BLOODLUST_ACCEL_MULT
+			decel_rate *= SkillHooks.BLOODLUST_ACCEL_MULT
+	# AB 也走 st 而非 ac（同上 prediction 内联 planner 的需要）
+	if st.is_afterburner and not ac.hard_brake:
+		var ab_mult: float = ac.params.afterburner_thrust_mult if ac.params else 1.5
+		accel_rate *= ab_mult
+
+	var speed_diff := target_ms - st.speed
+	if speed_diff >= 0:
+		st.speed += minf(speed_diff, accel_rate * delta)
+	else:
+		st.speed += maxf(speed_diff, -decel_rate * delta)
+
+	const G_DRAG_GLOBAL_MULT := 0.4
+	var g_drag := (ac.params.g_drag_factor if ac.params else 3.0) * G_DRAG_GLOBAL_MULT
+	var alt_factor := clampf(st.altitude / 15000.0, 0.0, 1.0)
+	g_drag *= 1.0 - alt_factor * 0.30
+	var g_speed_loss := maxf(st.g_load - 1.0, 0.0) * g_drag
+	st.speed = maxf(st.speed - g_speed_loss * delta, 0.0)
+
+	const PE_KE_BOOST := 2.5
+	var spd := maxf(st.speed, 10.0)
+	var gravity_effect := CombatUnit.GRAVITY * st.vertical_speed / spd * PE_KE_BOOST
+	st.speed -= gravity_effect * delta
+
+	st.speed = maxf(st.speed, 0.0)
+	if ac.orbit_speed_cap > 0.0 and st.speed > ac.orbit_speed_cap:
+		st.speed = ac.orbit_speed_cap
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  predict_player_path — 玩家飞行轨迹精确预测
+# ══════════════════════════════════════════════════════════════════════
+## prediction 专用：在 sim 的每一步重新决定 target_speed_kmh / is_afterburner
+## 等价于 BfmIntent.waypoint_move 的速度/AB 分支，只是输入用 sim state 而非 Situation
+## 必须与 [bfm_intent.gd:waypoint_move](scripts/ai/tactical/bfm_intent.gd) 公式一致 ——
+## 任何对那边速度曲线的调整都要同步过来，否则 prediction 与实飞行再次出现"撕裂"
+static func _predict_inline_planner_waypoint_move(st: FlightState) -> void:
+	if st.target_position == Vector2.INF:
+		return
+	var to_wp: Vector2 = st.target_position - st.position
+	if to_wp.length_squared() < 1.0:
+		return
+	var hdg_to_wp: float = atan2(to_wp.x, -to_wp.y)
+	var hdiff_deg: float = rad_to_deg(absf(Aircraft._angle_diff(hdg_to_wp, st.heading)))
+	var t: float = clampf((80.0 - hdiff_deg) / 50.0, 0.0, 1.0)
+	t = t * t * (3.0 - 2.0 * t)
+	var corner_kmh: float = st.cached_corner_speed_kmh if not is_nan(st.cached_corner_speed_kmh) else effective_corner_speed_kmh(st.ac)
+	var max_kmh: float = st.cached_max_speed_kmh if not is_nan(st.cached_max_speed_kmh) else effective_max_speed_kmh(st.ac)
+	var cruise_high: float = max_kmh * 0.85
+	st.target_speed_kmh = lerpf(corner_kmh, cruise_high, t)
+	st.is_afterburner = (st.speed * 3.6) < st.target_speed_kmh * 0.95
+
+
+## 用同源 step_X 把当前 ac 状态向前推 max_steps 步（默认 180 步 = 3s @ PHYSICS_DT），
+## 到达目标立即终止。返回**世界坐标**点列（渲染层每帧再做 to_local，便于缓存）。
+##
+## 与实物理 tick 顺序严格一致：target_heading → bank → heading → speed → g_load → 移动
+## g_load 后置语义保留：step_speed 读上一步 g_load（与真实 tick 行为完全相同）
+##
+## 性能：单次调用 ~1ms（180 步 × ~5µs/step），渲染层应缓存到 20Hz refresh
+## 缓存频率不能太低 —— 玩家飞行时 state 在变，长间隔会让"未来线"明显落后实际轨迹
+##
+## 返回 Dictionary：
+##   points: PackedVector2Array — **世界坐标**点列（首点是飞机当前 global_position）
+##   healths: PackedFloat32Array — 同长度，每点 (speed - stall_floor_at_g) / (cruise - stall_floor_1g)
+static func predict_player_path(ac: Aircraft, max_steps: int = 180) -> Dictionary:
+	var result := {
+		"points": PackedVector2Array(),
+		"healths": PackedFloat32Array(),
+	}
+	if ac == null or not is_instance_valid(ac):
+		return result
+	if ac.target_position == Vector2.INF:
+		return result
+
+	var stall_base_kmh: float = ac.params.stall_speed_base if ac.params else 220.0
+	var cruise_kmh: float = ac.params.cruise_speed if ac.params else 900.0
+	var cruise_ms: float = cruise_kmh / 3.6
+	var stall_base_ms: float = stall_base_kmh / 3.6
+	var cruise_health_span: float = maxf(cruise_ms - stall_base_ms * 1.05, 1.0)
+
+	var st := FlightState.from_aircraft(ac, true)
+
+	# ── 频繁调用的 helper 在这里只读一次 ac.* 就缓存到 state，省掉 180×N 的字典查询 ──
+	# 这些字段在 prediction 期间不变（cloud_state / is_locked / status_bloodlust /
+	# upgrade_stacks / altitude / cloud / in_building 都视作 frozen）
+	st.cached_max_g = effective_max_g(ac)
+	st.cached_safe_margin = _dynamic_safe_margin(ac)
+	st.cached_max_speed_alt_ms = max_speed_at_altitude(ac) / 3.6
+	# inline planner 用：corner / max speed (km/h) 在 prediction 期间不变
+	st.cached_corner_speed_kmh = effective_corner_speed_kmh(ac)
+	st.cached_max_speed_kmh = effective_max_speed_kmh(ac)
+
+	var pts: PackedVector2Array = result["points"]
+	var healths: PackedFloat32Array = result["healths"]
+
+	# 起点：飞机当前世界位置
+	pts.append(st.position)
+	var start_floor: float = stall_base_ms * pow(maxf(st.g_load, 1.0), 0.4) * 1.05
+	healths.append((st.speed - start_floor) / cruise_health_span)
+
+	for i in range(max_steps):
+		step_target_heading(st)
+		if st.target_position == Vector2.INF:
+			break  # 已到达目标
+		# ── inline planner（WAYPOINT_MOVE 决策）──
+		# 必须在 step_speed 之前更新 st.target_speed_kmh / st.is_afterburner，让 sim plane
+		# 自洽地"知道"未来转弯结束后会加速。否则 prediction 全程用快照时的 target_speed，
+		# 实际飞机随对准目标 target_speed 渐增，prediction 末端就持续偏短，每帧 cache refresh
+		# 都看到稍长一点的预测线 → 视觉上"反复延伸"。
+		# 公式严格复制 bfm_intent.waypoint_move（smoothstep 30°-80°）
+		_predict_inline_planner_waypoint_move(st)
+		step_bank(st, PHYSICS_DT)
+		step_heading(st, PHYSICS_DT)
+		step_speed(st, PHYSICS_DT)
+		# step_altitude 让 vertical_speed 在 sim 中收敛 → 飞机抵达目标高度后
+		# PE/KE 项归零 → 预测线不会因为冻结 vertical_speed 被持续拉短
+		step_altitude(st, PHYSICS_DT)
+		if abs(st.bank_angle) < 0.001:
+			st.g_load = 1.0
+		else:
+			st.g_load = absf(1.0 / cos(st.bank_angle))
+
+		var velocity := Vector2(sin(st.heading), -cos(st.heading)) * st.speed * CombatUnit.PIXELS_PER_METER
+		st.position += velocity * PHYSICS_DT
+
+		pts.append(st.position)
+		var floor_at_g: float = stall_base_ms * pow(maxf(st.g_load, 1.0), 0.4) * 1.05
+		healths.append((st.speed - floor_at_g) / cruise_health_span)
+
+	return result

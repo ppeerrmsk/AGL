@@ -25,7 +25,10 @@ enum LockTrajectory {
 
 @export_group("基本")
 @export var damage: float = 60.0                 ## 单发伤害（玩家版 150，敌人版 50-70）
-@export var max_range_m: float = 5000.0          ## 米 最大射程
+## 米 最大射程（legacy / 防御性兜底）。
+## 默认实际射程读 host `params.radar_range` —— 装到任何飞机上都按本机雷达范围生效。
+## 仅当 `ac.params == null` 时才回退到此字段，正常游戏路径用不到。
+@export var max_range_m: float = 5000.0
 ## 米 最小开火距离（小于此距离不充能 → 让出近战给机炮 / 激光）。
 ## 玩家版设 0 让玩家自由选择；AI 多武器机型设 800-1500，避免点射近战目标
 @export var min_engage_range_m: float = 0.0
@@ -77,6 +80,14 @@ enum LockTrajectory {
 
 func _init() -> void:
 	equipment_kind = "railgun"
+
+
+## 有效最大射程（米）：默认绑定 host 飞机的雷达范围。
+## require_radar_lock=true 时反正打不到雷达外的目标，所以让射程 = 雷达范围天然吻合。
+func _effective_max_range_m(ac) -> float:
+	if ac != null and ac.params != null and "radar_range" in ac.params:
+		return float(ac.params.radar_range)
+	return max_range_m
 
 
 # ─────────── 状态访问 ───────────
@@ -147,7 +158,7 @@ func _try_start_charging(ac, s: Dictionary) -> void:
 		return
 	# 射程检查
 	var dist: float = ac.global_position.distance_to(tgt.global_position)
-	var range_px: float = max_range_m * CombatUnit.PIXELS_PER_METER
+	var range_px: float = _effective_max_range_m(ac) * CombatUnit.PIXELS_PER_METER
 	if dist > range_px:
 		return
 	# 最小开火距离（多武器机型用，避免在近战距离消耗电磁炮）
@@ -272,7 +283,7 @@ func _fire(ac, s: Dictionary) -> void:
 	# 弹道：从 ac 机头延长到 max_range（穿透到底）
 	var muzzle: Vector2 = ac.global_position
 	var dir: Vector2 = (aim_pos - muzzle).normalized()
-	var range_px: float = max_range_m * CombatUnit.PIXELS_PER_METER
+	var range_px: float = _effective_max_range_m(ac) * CombatUnit.PIXELS_PER_METER
 	var beam_end: Vector2 = muzzle + dir * range_px
 
 	# Hitscan 命中检测：穿透 = 线段沿途所有 unit

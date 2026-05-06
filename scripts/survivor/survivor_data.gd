@@ -302,7 +302,7 @@ const UPGRADES: Array[Dictionary] = [
 		"keywords": ["maneuver", "dogfight"],
 		"stall_speed_mult": 0.88,           ## -12% 失速速度
 		"decel_mult": 1.3,                  ## +30% 减速
-		"g_drag_mult": 1.2,                 ## +20% G 力阻力
+		"g_drag_mult": 0.85,                ## -15% G 力阻力（狗斗派转弯能量更省）
 		"overshoot_speed_margin_mult": 0.97, ## 更精确速度匹配
 		"turn_slow_speed_mult": 0.9,        ## 大角度减速更多
 	},

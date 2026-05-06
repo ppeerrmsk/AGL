@@ -157,6 +157,14 @@ static func _decide(s: Situation, waypoint: Vector2) -> TacticalPlan:
 
 	# 优先级 7：对头几何
 	if s.head_on_dot > BfmIntent.HEAD_ON_THRESHOLD and s.aim_align > BfmIntent.HEAD_ON_THRESHOLD:
+		# 守卫：目标已在急转中（bank > HIGH_BANK_DEG）→ 跳过 MERGE_PASS。
+		# MERGE_PASS GUN 模式 max×0.9 直冲过去，对方借急转切到尾位拿尾追枪 → 自杀。
+		# 改走 lead_pursuit：减速到 corner_speed + 用 MRM/lead 解决，避免送人头。
+		# 典型场景：玩家 F-16 对头 UAV，UAV 已 bank=80° G=6 蛇形（log 2026-05-07 UAV-14）
+		if absf(s.tgt_bank_deg) > BfmIntent.HIGH_BANK_DEG:
+			var lp := BfmIntent.lead_pursuit(s)
+			lp.rationale += " | 替代 MERGE_PASS：目标急转 bank=%.0f°" % s.tgt_bank_deg
+			return _apply_weapon_lock(s, lp)
 		return _apply_weapon_lock(s, BfmIntent.merge_pass(s))
 
 	# ── P5.5：僚机协同角色（FLANK_LEFT / FLANK_RIGHT / HIGH_COVER）──

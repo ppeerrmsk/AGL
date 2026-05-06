@@ -310,7 +310,7 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 			# 格斗大师：降低失速速度、增强减速、改善低速追踪
 			p.stall_speed_base *= float(upgrade.get("stall_speed_mult", 0.88))
 			p.deceleration *= float(upgrade.get("decel_mult", 1.3))
-			p.g_drag_factor *= float(upgrade.get("g_drag_mult", 1.2))
+			p.g_drag_factor *= float(upgrade.get("g_drag_mult", 0.85))
 			if p.combat:
 				p.combat = p.combat.duplicate()
 				p.combat.overshoot_speed_margin *= float(upgrade.get("overshoot_speed_margin_mult", 0.97))

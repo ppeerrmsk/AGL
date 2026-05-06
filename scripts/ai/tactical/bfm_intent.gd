@@ -59,18 +59,24 @@ static func waypoint_move(s: Situation, waypoint: Vector2) -> TacticalPlan:
 	var p := TacticalPlan.new()
 	p.intent = TacticalPlan.Intent.WAYPOINT_MOVE
 	p.pursuit_pos = waypoint
-	# 大角度转弯走 corner speed，对准后走 max_speed × 0.85（不浪费 AB）
+	# 速度选择：大角度转弯靠 corner speed，对准后冲 max×0.85（不浪费 AB）
+	# ⚠ 改动（2026-05-07）：旧版在 hdiff=60° 处硬切换 target_speed_kmh 从 corner→max×0.85
+	# （差距 ~700→1900 km/h，180% 跳变 + AB 瞬开），玩家手感上"过 60° 突然加力撒欢"，
+	# 预测线也因此在转弯每次跨 60° 时整条重画一次。
+	# 现在：在 [30°, 80°] 区间用 smoothstep 平滑 lerp，AB 条件改成"低于 target 的 90%"
+	# 自然跟随 target_speed 一起平滑。详见 logs/combat_log_20260507_010656.txt 的
+	# PRED_JUMP step=32 / 217 案例。
 	var to_wp: Vector2 = waypoint - s.my_pos
 	var hdg_to_wp: float = atan2(to_wp.x, -to_wp.y)
 	var hdiff_deg: float = rad_to_deg(absf(Situation._angle_diff(hdg_to_wp, s.my_heading)))
-	if hdiff_deg > 60.0:
-		p.target_speed_kmh = s.corner_speed_kmh
-		p.afterburner = false
-		p.rationale = "航点大角度转弯：corner speed"
-	else:
-		p.target_speed_kmh = s.max_speed_kmh * 0.85
-		p.afterburner = (s.my_speed_ms * 3.6) < s.max_speed_kmh * 0.8
-		p.rationale = "航点对准：max×0.85 巡航推进"
+	# t=0 全 corner speed（hdiff>=80°）；t=1 全 max×0.85（hdiff<=30°）；中间 smoothstep
+	var t: float = clampf((80.0 - hdiff_deg) / 50.0, 0.0, 1.0)
+	t = t * t * (3.0 - 2.0 * t)  # smoothstep
+	var cruise_high: float = s.max_speed_kmh * 0.85
+	p.target_speed_kmh = lerpf(s.corner_speed_kmh, cruise_high, t)
+	# AB：当前速度低于 target 的 95% 就给 → 跟着 target_speed 平滑变化，无离散切换
+	p.afterburner = (s.my_speed_ms * 3.6) < p.target_speed_kmh * 0.95
+	p.rationale = "航点移动：hdiff=%d° t=%.2f tspd=%dkmh" % [int(hdiff_deg), t, int(p.target_speed_kmh)]
 	# 即使在移动到航点中，也允许被动 auto-fire（条件同 PASSIVE_AUTO_FIRE）：
 	# 移动 / 开火是两个独立通道，玩家点了"走那边"不应当抑制对锁定敌机的导弹发射
 	if s.missile_auto_fire and s.missiles > 0 and s.has_radar_lock \
@@ -329,8 +335,16 @@ static func ground_strafe(s: Situation) -> TacticalPlan:
 	p.intent = TacticalPlan.Intent.GROUND_STRAFE
 	# pursuit_pos：地面目标静止，直接瞄目标即可（不需要 lead）
 	p.pursuit_pos = s.tgt_pos
-	p.target_altitude_m = s.tgt_alt
 	_apply_combat_weapon(s, p)
+
+	# 高度策略：
+	# - 玩家 + 导弹模式 → 走 altitude_preference（AGM 高空发射效果一致，不必俯冲）
+	# - 玩家 + 机炮模式（strafe pass）→ 下降到目标高度（机炮必须贴地才能 hit）
+	# - 非玩家 AI → 维持原行为：始终下降匹配地面目标
+	if s.is_tactical_preference_user and p.weapon_mode == TacticalPlan.WeaponMode.MISSILE:
+		p.target_altitude_tier = _altitude_tier_from_preference(s.altitude_preference)
+	else:
+		p.target_altitude_m = s.tgt_alt
 
 	if p.weapon_mode == TacticalPlan.WeaponMode.MISSILE:
 		# 导弹模式：稳定推进保持锁定
@@ -380,7 +394,11 @@ static func wide_turn(s: Situation) -> TacticalPlan:
 	p.target_speed_kmh = s.corner_speed_kmh
 	p.afterburner = false
 	p.weapon_mode = TacticalPlan.WeaponMode.NONE
-	p.target_altitude_m = s.tgt_alt
+	# 玩家高度走 preference；AI 沿用原来匹配目标的行为
+	if s.is_tactical_preference_user:
+		p.target_altitude_tier = _altitude_tier_from_preference(s.altitude_preference)
+	else:
+		p.target_altitude_m = s.tgt_alt
 	p.rationale = "hdg偏差>90°：corner speed 大转弯"
 	return p
 
@@ -508,10 +526,17 @@ static func _missile_engage_pos(s: Situation) -> Vector2:
 	return s.my_pos + crank_dir * 5000.0
 
 ## 战斗 intent 的目标高度策略：
-## - MISSILE 模式（远距导弹战）→ 保自身作战高度，不向目标高度靠拢（高位发射 → 射程更远 / 重力势能优势）
-## - GUN 模式 / NONE（近距/对地）→ 匹配目标高度，否则机炮锥挂不上
+## - 玩家（use_tactical_preference）→ 永不匹配目标高度，始终走 altitude_preference 的 tier
+##   原因：GUN 模式拉低跟敌后，combat_altitude_m 每帧取 ac.altitude → 切回 MISSILE 时也"保持当前低空"，
+##   PREFER_CLIMB 失效，且高度切换的能量代价让飞机往远处飘。统一让玩家高度自治
+## - AI MISSILE 模式 → 保自身作战高度，不向目标高度靠拢（高位发射 → 射程更远）
+## - AI GUN 模式 / NONE（近距/对地）→ 匹配目标高度，否则机炮锥挂不上
 ## 调用方在 _apply_combat_weapon 之后调用本函数。
 static func _apply_target_altitude(s: Situation, p: TacticalPlan) -> void:
+	if s.is_tactical_preference_user:
+		# 玩家：tier 走偏好（PREFER_CLIMB → HIGH / PREFER_LOW → LOW），target_altitude_m 留 -1 由 tier 主导
+		p.target_altitude_tier = _altitude_tier_from_preference(s.altitude_preference)
+		return
 	if p.weapon_mode == TacticalPlan.WeaponMode.MISSILE:
 		p.target_altitude_m = s.combat_altitude_m
 	else:

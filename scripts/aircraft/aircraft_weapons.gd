@@ -21,35 +21,46 @@ extends RefCounted
 
 const AUTO_GUN_SCAN_INTERVAL := 0.3
 const ROCKET_FIRE_ALT_DIFF_M := 800.0            ## 火箭弹发射最大高度差（米）
-const LAUNCH_QUALITY_OFFAX_RATIO := 0.85         ## 目标距雷达锥边缘留 15% 余量（仅挡贴边的 4.5°）
-const LAUNCH_QUALITY_MAX_BANK_DEG := 60.0        ## 玩家 bank 超此判为急转，不发导弹
+const LAUNCH_QUALITY_OFFAX_RATIO_SARH := 0.5     ## SARH：目标必须在雷达锥中央 50% 内（F-14 16°）
+const LAUNCH_QUALITY_OFFAX_RATIO_FAF  := 0.85    ## f&f：seeker FOV 内即可（保持原有宽松）
+const LAUNCH_QUALITY_MAX_BANK_DEG_SARH := 35.0   ## SARH：bank 超此急转中不发，避免打完即丢锁
+const LAUNCH_QUALITY_MAX_BANK_DEG_FAF  := 60.0   ## f&f：bank 限制原 60°
+const LAUNCH_QUALITY_MAX_ROLL_RATE_DEG_S := 30.0 ## 滚转率超此判为"急速侧滚中"，所有制导都拒发（SARH 失锁 / f&f 初始 los 抖动）
 
 ## 发射窗口质量过滤：返回 true 表示当前几何稳定可发，false 跳过这一帧
 ##
 ## 适用范围：玩家自动发射 + 玩家方僚机（team==0 + use_tactical_planner）
 ## 不过滤敌方 AI（保持游戏难度）；不过滤玩家手动 set_combat_target 后的单发
 ##
-## 两条几何约束：
-##  1. **bank 角**：发射器急转中（>60°）→ 跳过。SARH 半主动需要发射后保持照射，
-##     急转会立刻丢锁；fire_and_forget 自主制导可豁免本条
-##  2. **off-axis 角**：目标距雷达锥边缘留 30% 余量。f&f 也受限——
-##     即使 f&f 也需要 seeker 在 launch 时能看到目标（seeker_fov 通常 ±30°）
-##     原来 f&f 整体 return true 是 bug：让僚机在大 bank + 锥边缘乱发，命中率极低
+## 三条几何约束：
+##  1. **滚转率**：|d_bank/dt| > 30°/s 判定为"急速滚转中"，**仅 SARH 拒发**
+##     —— 修 Xerxes 在 70°→-82° 滚转过程中借 bank=0 瞬间发 SARH，
+##     发射后立即继续滚转把目标甩出雷达锥 → SARH 丢锁 → 全部打空
+##     f&f 自主制导，发射后发射器再怎么滚都不影响命中，不受本条限制
+##     （否则玩家追 12G UAV 时 100-200°/s 滚转率永远过不了门，导致一发不出）
+##  2. **bank 角**：SARH 35°，f&f 60°。SARH 半主动需要持续照射，门槛收紧
+##  3. **off-axis 角**：SARH 0.5×radar_half（F-14 16°），f&f 0.85×（27°）
+##     SARH 在小 cone 内开火，给 launch 后的转动留余量
 static func _has_stable_launch_window(ac: Aircraft, target_unit: CombatUnit) -> bool:
 	if not ac.params or not is_instance_valid(target_unit):
 		return true
 	var is_faf: bool = ac.params.missile and ac.params.missile.fire_and_forget
-	# bank 检查：仅 SARH（半主动需要持续照射）受限；f&f 可在急转中发射
-	if not is_faf:
-		var bank_deg: float = absf(rad_to_deg(ac.bank_angle))
-		if bank_deg > LAUNCH_QUALITY_MAX_BANK_DEG:
-			return false
-	# 目标距雷达锥边缘留余量（所有导弹都受限——seeker FOV 在 launch 时必须能看到目标）
+	# 1. 滚转率检查：仅 SARH 受限（f&f 发射后自主制导，发射器姿态无关）
+	var roll_rate_deg_s: float = absf(rad_to_deg(ac._bank_rate_rad_s))
+	if not is_faf and roll_rate_deg_s > LAUNCH_QUALITY_MAX_ROLL_RATE_DEG_S:
+		return false
+	# 2. bank 检查
+	var bank_deg: float = absf(rad_to_deg(ac.bank_angle))
+	var bank_limit: float = LAUNCH_QUALITY_MAX_BANK_DEG_FAF if is_faf else LAUNCH_QUALITY_MAX_BANK_DEG_SARH
+	if bank_deg > bank_limit:
+		return false
+	# 3. off-axis 检查
 	var to_tgt: Vector2 = target_unit.global_position - ac.global_position
 	var hdg_to_tgt: float = atan2(to_tgt.x, -to_tgt.y)
 	var off_axis_deg: float = absf(rad_to_deg(ac._angle_diff(hdg_to_tgt, ac.heading)))
 	var radar_half_deg: float = ac.params.radar_half_angle
-	if off_axis_deg > radar_half_deg * LAUNCH_QUALITY_OFFAX_RATIO:
+	var offax_ratio: float = LAUNCH_QUALITY_OFFAX_RATIO_FAF if is_faf else LAUNCH_QUALITY_OFFAX_RATIO_SARH
+	if off_axis_deg > radar_half_deg * offax_ratio:
 		return false
 	return true
 
@@ -172,7 +183,7 @@ static func auto_gun_scan(ac: Aircraft) -> void:
 			best_target = other
 			ac._gun_lead_heading = angle_to_lead
 
-	ac.is_firing = best_target != null
+	ac.is_firing = ac._ai_gun_burst_allowed(best_target != null, ac.get_physics_process_delta_time())
 
 static func update_gun(ac: Aircraft, delta: float) -> void:
 	ac._fire_cooldown = maxf(ac._fire_cooldown - delta, 0.0)
@@ -712,7 +723,12 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 	# 等条件稳定后才发射。玩家 + 玩家方 planner 僚机受限；敌方 AI 不受限
 	# 解决用户反馈：F-14 僚机在 7.5G 急转中盲发 MRM，连开 2 弹打 Tu-160 全 miss
 	if _should_apply_launch_quality(ac) and not _has_stable_launch_window(ac, ac.combat_target):
-		ac._log_msl_block("UNSTABLE_WIN", "off-axis 或 bank 超阈值，等下次窗口")
+		var bank_deg: float = absf(rad_to_deg(ac.bank_angle))
+		var roll_deg_s: float = absf(rad_to_deg(ac._bank_rate_rad_s))
+		var to_tgt2: Vector2 = ac.combat_target.global_position - ac.global_position
+		var off_ax: float = absf(rad_to_deg(ac._angle_diff(atan2(to_tgt2.x, -to_tgt2.y), ac.heading)))
+		ac._log_msl_block("UNSTABLE_WIN",
+				"bank=%.0f° roll=%.0f°/s off=%.0f°（任一超阈值则等下个窗口）" % [bank_deg, roll_deg_s, off_ax])
 		return
 
 	_fire_missile_at(ac, ac.combat_target, msl, false)

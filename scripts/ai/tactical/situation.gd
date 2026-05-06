@@ -95,6 +95,7 @@ var nearest_threat_dist_m: float = INF
 # ── 状态效果（FEAR 等会改变高层决策）──
 var is_feared: bool = false              ## FEAR debuff 激活：planner 强制脱离
 var is_boss_attacker: bool = false       ## BOSS 攻击手豁免：FEAR 不会让其脱离（仅吃 stress 副作用）
+var is_tactical_preference_user: bool = false  ## 玩家（use_tactical_preference）：高度走 altitude_preference，不匹配目标
 
 # ── 时序状态（防 intent 抖动）──
 var current_time: float = 0.0          ## 当前游戏时间（秒）
@@ -121,11 +122,13 @@ static func from_aircraft(ac) -> Situation:
 	s.fuel = ac.fuel
 
 	if ac.params:
-		s.max_speed_kmh = ac.params.max_speed
-		s.cruise_speed_kmh = ac.params.cruise_speed
-		s.stall_speed_kmh = ac.params.stall_speed_base
-		# corner_speed: 物理最优转弯速度 ≈ stall × √max_g
-		s.corner_speed_kmh = ac.params.stall_speed_base * sqrt(ac.params.max_g)
+		# ⚠ 性能/机动参考一律走 AircraftPhysics.effective_*() accessor
+		# 零 buff 下与旧 params.* 直读完全一致；buff 通过 accessor 内部 if 块自动透传
+		# 详见 aircraft_physics.gd "effective_*() — AI 战术层 buff-aware accessor 层" 段
+		s.max_speed_kmh = AircraftPhysics.effective_max_speed_kmh(ac)
+		s.cruise_speed_kmh = AircraftPhysics.effective_cruise_speed_kmh(ac)
+		s.stall_speed_kmh = AircraftPhysics.effective_stall_speed_kmh(ac)
+		s.corner_speed_kmh = AircraftPhysics.effective_corner_speed_kmh(ac)
 		s.radar_half_angle_deg = ac.params.radar_half_angle
 		s.lock_time_threshold = ac.params.lock_time
 		if ac.params.gun:
@@ -152,6 +155,8 @@ static func from_aircraft(ac) -> Situation:
 		s.missile_auto_fire = ac.missile_auto_fire
 	if "altitude_preference" in ac:
 		s.altitude_preference = ac.altitude_preference
+	if "use_tactical_preference" in ac:
+		s.is_tactical_preference_user = ac.use_tactical_preference
 	# 雷达锁：radar_targets 是 Dictionary[CombatUnit → lock_progress]，
 	# 任意一个 progress >= lock_time 即视为已锁
 	if "radar_targets" in ac and ac.params:

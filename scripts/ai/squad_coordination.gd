@@ -96,17 +96,18 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 	else:
 		ai._rejoining = false  # 完全融入编队，结束归队状态
 
-	# ── 自由模式：独立扫描附近敌机，优先级低于长机协同 ──
-	# 长机无目标时才独立找目标；长机一旦锁定会走下面的协同攻击入口。
-	# 跟随长机模式不做独立扫描。
+	# ── 自由模式：独立扫描附近敌机（优先级高于跟随长机协同）──
+	# 改动（2026-05-04）：旧版有 `leader.combat_target == null` 闸门，导致玩家一选目标
+	# 所有僚机就抛下身边的敌人扑过去抢同一个 → 僚机失去自主性。
+	# 现在：自由扫描始终跑，找到附近敌机就引擎；扫不到再走下面的"跟随长机锁定"分支。
+	# 后果：玩家选远敌时，附近若有敌机僚机优先打附近的；附近清光后才补射玩家选的远敌。
 	#
 	# 注：这里用的是距离扫描（_scan_squad_nearby_enemy）而不是 _try_engage(雷达锥扫描)。
 	# 原因：_try_engage 只能看到"雷达锥内 + 已经锁定 30% 以上"的敌机；玩家平飞飞过
 	# 一架敌机时，该敌机会在僚机的雷达锥外或只短暂进入，永远达不到锁定门槛——
 	# 结果就是"我明明飞过一架敌机，僚机一动不动"。
 	# 距离扫描绕开雷达锥和锁定门槛，让僚机拥有真正的"小队态势感知"。
-	if ai.squad_engage_mode == AIController.SquadEngageMode.FREE and ai.enable_combat \
-			and (leader.combat_target == null or not is_instance_valid(leader.combat_target) or leader.combat_target.is_destroyed):
+	if ai.squad_engage_mode == AIController.SquadEngageMode.FREE and ai.enable_combat:
 		ai._scan_timer -= delta
 		if ai._scan_timer <= 0.0:
 			ai._scan_timer = 1.0  # 每秒一次扫描，flyby 不容易漏

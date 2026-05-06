@@ -177,6 +177,7 @@ var _cover_scan_timer: float = 0.0
 var _cover_target: Aircraft = null   ## 掩护交战目标（后半球威胁）
 var _rejoining: bool = false       ## 交战/规避后正在全速归队
 var _scatter_evade_timer: float = 0.0  ## 散开规避方向刷新计时器（玩家传播 evasion 时用）
+var _scatter_no_missile_secs: float = 0.0  ## 散开期间累计"无导弹"时长，超阈值强制 exit（防 evasion_mode 卡住飞出地图）
 var _squad_attacking_leader_target: bool = false  ## 正在协同攻击长机指定的目标
 var _squad_free_engaging: bool = false  ## 正在自由交战模式下独立交战（同样享有 range grace）
 ## 协同攻击时的小队角色（squad_index → 角色）。NONE=单机/长机，其他=僚机分散战术
