@@ -8,3 +8,9 @@
 # Godot 导出产物（AGL.exe / AGL.console.exe / .pck 等）
 /AGL*.exe
 /AGL*.pck
+
+# 项目根的临时 script-check / 解析探针文件（如 _parse_check.gd 及其 Godot 自动伴生的 .uid）
+# 这类文件来自 `godot --script-check` 等临时验证流程，跑完应被删除；防止 .uid orphan 留下
+/_*.gd
+/_*.gd.uid
+
