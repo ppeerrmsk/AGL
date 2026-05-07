@@ -593,6 +593,10 @@ static func draw_aircraft_icon(ac: Aircraft) -> void:
 	if silhouette == "drone":
 		draw_drone_icon(ac, color, outline_color, size, base_scale, xform)
 		return
+	# Mother Goose 巨型空中航母（Arsenal Bird Liberty 灵感）：宽阔飞翼 + 6 发动机舱 + 中部船桥
+	if silhouette == "mother_goose":
+		draw_mother_goose_icon(ac, color, outline_color, size, base_scale, xform)
+		return
 
 	# 机身主体（填充多边形）
 	var body: PackedVector2Array = PackedVector2Array([
@@ -793,6 +797,104 @@ static func draw_drone_icon(ac: Aircraft, color: Color, outline_color: Color, si
 		var ring_color := color
 		ring_color.a = 0.5
 		ac.draw_arc(Vector2.ZERO, s * 1.4 * base_scale, 0, TAU, 32, ring_color, 1.2)
+
+
+## Mother Goose 巨型空中航母外观（Arsenal Bird "Liberty" 灵感）
+## 整体放大 ~9×（战斗机 16px → goose 翼端 ~220px @ MID 高度），宽展飞翼 + 6 发动机舱 +
+## 中部船桥 + 6 尾部螺旋桨槽位标记 + 2 VLS 标记
+## 螺旋桨/VLS v1 仅视觉占位；v2 接入 MountTarget 后变成可锁定目标
+static func draw_mother_goose_icon(ac: Aircraft, color: Color, outline_color: Color, size: float, base_scale: float, xform: Transform2D) -> void:
+	var s := size * 9.0  # 巨型航母翼展 ≈ 战斗机 9 倍
+	var wing_color: Color = ac.params.wing_color if (ac.params and ac.params.wing_color.a > 0.01) else color
+	var wing_outline := wing_color.darkened(0.3)
+
+	# ── 飞翼主体（极宽 V 字飞翼）──
+	var wing_body: PackedVector2Array = PackedVector2Array([
+		Vector2(0, -s * 0.45),              # 机头中央
+		Vector2(s * 0.20, -s * 0.35),       # 机头右
+		Vector2(s * 1.40, s * 0.05),        # 右翼前缘尖端（极宽）
+		Vector2(s * 1.55, s * 0.22),
+		Vector2(s * 1.20, s * 0.30),        # 右翼后缘
+		Vector2(s * 0.55, s * 0.28),        # 右翼根后缘
+		Vector2(s * 0.30, s * 0.50),        # 右尾段
+		Vector2(s * 0.10, s * 0.55),        # 中部尾段
+		Vector2(0, s * 0.45),               # 中央尾凹（小 V）
+		Vector2(-s * 0.10, s * 0.55),
+		Vector2(-s * 0.30, s * 0.50),
+		Vector2(-s * 0.55, s * 0.28),
+		Vector2(-s * 1.20, s * 0.30),
+		Vector2(-s * 1.55, s * 0.22),
+		Vector2(-s * 1.40, s * 0.05),
+		Vector2(-s * 0.20, -s * 0.35),
+	])
+	var transformed: PackedVector2Array = PackedVector2Array()
+	for p in wing_body:
+		transformed.append(xform * p)
+	ac.draw_colored_polygon(transformed, wing_color)
+	for i in range(transformed.size()):
+		var from := transformed[i]
+		var to := transformed[(i + 1) % transformed.size()]
+		ac.draw_line(from, to, wing_outline, 1.5, true)
+
+	# ── 中部船桥（圆形扫描窗）──
+	var bridge_col := color.lightened(0.15)
+	var bridge_outline := bridge_col.darkened(0.4)
+	var bridge_pos := xform * Vector2(0, -s * 0.05)
+	ac.draw_circle(bridge_pos, s * 0.18 * base_scale, bridge_col)
+	ac.draw_arc(bridge_pos, s * 0.18 * base_scale, 0, TAU, 32, bridge_outline, 1.5, true)
+
+	# ── 6 个发动机舱（沿翼前缘等距分布，左右对称）──
+	var engine_col := color.darkened(0.25)
+	var engine_outline := engine_col.darkened(0.3)
+	var engine_xs := [-1.20, -0.75, -0.30, 0.30, 0.75, 1.20]
+	for ex in engine_xs:
+		var center := xform * Vector2(s * float(ex), -s * 0.05)
+		var rx: float = s * 0.10 * base_scale
+		var ry: float = s * 0.18 * base_scale
+		# 椭圆用 16 段近似
+		var pts: PackedVector2Array = PackedVector2Array()
+		for k in range(20):
+			var t := TAU * float(k) / 20.0
+			pts.append(center + Vector2(cos(t) * rx, sin(t) * ry))
+		ac.draw_colored_polygon(pts, engine_col)
+		for k in range(pts.size()):
+			ac.draw_line(pts[k], pts[(k + 1) % pts.size()], engine_outline, 1.0, true)
+
+	# ── 8 个尾部螺旋桨槽位标记 ──
+	## prop_xs / ry=0.42 与 [mother_goose_boss.gd:PROP_OFFSETS_PX] 严格对齐
+	## 任意一处改动需同步另一处，否则雷达锁定框会和飞机模型脱节
+	var prop_col := color.darkened(0.35)
+	var prop_outline := prop_col.darkened(0.3)
+	var prop_xs := [-0.95, -0.68, -0.41, -0.14, 0.14, 0.41, 0.68, 0.95]
+	for px in prop_xs:
+		var c := xform * Vector2(s * float(px), s * 0.42)
+		var r: float = s * 0.045 * base_scale
+		ac.draw_circle(c, r, prop_col)
+		ac.draw_arc(c, r, 0, TAU, 12, prop_outline, 1.0, true)
+	# 中央两个 VLS 标记（机身中段）
+	var vls_col := color.lightened(0.05)
+	var vls_outline := vls_col.darkened(0.4)
+	for vx in [-0.18, 0.18]:
+		var c := xform * Vector2(s * float(vx), s * 0.10)
+		var w: float = s * 0.08 * base_scale
+		var h: float = s * 0.18 * base_scale
+		var rect := Rect2(c - Vector2(w * 0.5, h * 0.5), Vector2(w, h))
+		ac.draw_rect(rect, vls_col, true)
+		ac.draw_rect(rect, vls_outline, false, 1.0)
+
+	# ── 翼面纵向参考线（增加规模感）──
+	var accent := outline_color
+	accent.a = 0.6
+	for ly in [-0.2, 0.05, 0.2]:
+		var l_from := xform * Vector2(-s * 1.30, s * float(ly))
+		var l_to := xform * Vector2(s * 1.30, s * float(ly))
+		ac.draw_line(l_from, l_to, accent, 0.8, true)
+
+	# 选中指示（玩家通常不会选中 boss，但保留）
+	if ac.selected:
+		var ring_color := color
+		ring_color.a = 0.5
+		ac.draw_arc(Vector2.ZERO, s * 1.7 * base_scale, 0, TAU, 64, ring_color, 1.5)
 
 
 ## 轰炸机专用外观（Tu-160 / 战略轰炸机）：超大翼展 + 长机身
@@ -1630,11 +1732,16 @@ static func draw_railgun_telegraph(ac: Aircraft) -> void:
 		return
 
 	# Anchor 选择：
+	# - fire_along_nose=true（机头直射型，如 MQ-112）：永远沿机头延长线，不用 locked_aim_pos
 	# - awaiting_fire 阶段：fan 完全收缩，锁在 locked_aim_pos（预测点，已不可改）
 	# - charging + AT_CHARGE_START：locked_aim_pos（早就锁死）
 	# - charging + AT_FIRE_TIME：跟踪当前目标 tgt.global_position
+	var range_px: float = rg.max_range_m * CombatUnit.PIXELS_PER_METER
 	var aim_anchor: Vector2
-	if awaiting:
+	if rg.fire_along_nose:
+		var nose_dir := Vector2(sin(ac.heading), -cos(ac.heading))
+		aim_anchor = ac.global_position + nose_dir * range_px
+	elif awaiting:
 		aim_anchor = s.get("locked_aim_pos", ac.global_position)
 	elif rg.lock_trajectory_at == RailgunEquipment.LockTrajectory.AT_CHARGE_START:
 		aim_anchor = s.get("locked_aim_pos", tgt.global_position if is_instance_valid(tgt) else ac.global_position)
@@ -1642,8 +1749,8 @@ static func draw_railgun_telegraph(ac: Aircraft) -> void:
 		aim_anchor = tgt.global_position
 	var to_tgt: Vector2 = aim_anchor - ac.global_position
 	var dist: float = to_tgt.length()
-	var range_px: float = rg.max_range_m * CombatUnit.PIXELS_PER_METER
 	# 不在射程内不画（仅 charging 阶段；awaiting 已锁定不再校验）
+	# fire_along_nose 模式下 dist == range_px，必通过
 	if charging and dist > range_px:
 		return
 	var aim_dir: Vector2 = to_tgt.normalized()
