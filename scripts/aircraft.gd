@@ -279,6 +279,9 @@ var _jam_aura_accum_seconds: Dictionary = {}   ## { instance_id → 累积秒数
 ## 累积式光环统一参数
 const AURA_ACCUMULATE_SECONDS: float = 8.0    ## 累积满需要 8s 持续在半径内
 const AURA_DEBUFF_DURATION: float = 4.0       ## Debuff 持续秒数
+const AURA_INTERNAL_CD: float = 4.0           ## 触发 debuff 后整个光环锁 4s（= debuff 时长，期间不再扫描 / 施加新 debuff）
+var _rear_aura_cd_remaining: float = 0.0
+var _jam_aura_cd_remaining: float = 0.0
 
 ## F-14 专属：全僚机锁定同一敌机时给该敌机施加 SLOW（survivor_mode 雷达循环维护）
 var f14_squad_lock_slow_active: bool = false
@@ -1611,17 +1614,30 @@ func _update_evasion(delta: float) -> void:
 		for k in to_remove_h:
 			_head_on_jam_seconds.erase(k)
 
-	# §C 玩家技能"后半球减速光环"：累积模式
+	# §C 玩家技能"后半球减速光环"：累积模式 + 内置 CD
 	# - 累积期不生效，每个目标在我后半球 + 距离内累加 → 满 8s 时施 SLOW 4s
 	# - SLOW 期间不再累积；状态消退后从 0 重新累积
+	# - 触发 debuff 后整段锁 AURA_INTERNAL_CD 秒，避免短时间内多次 VFX 脉冲叠加（性能）
 	if team == 0 and rear_aura_slow_radius_px > 0.0:
-		_tick_aura_accumulator(_rear_aura_accum_seconds,
-			rear_aura_slow_radius_px, StatusEffects.SLOW, true, delta)
+		if _rear_aura_cd_remaining > 0.0:
+			_rear_aura_cd_remaining -= delta
+		else:
+			var fired_rear: Array = [false]
+			_tick_aura_accumulator(_rear_aura_accum_seconds,
+				rear_aura_slow_radius_px, StatusEffects.SLOW, true, delta, fired_rear)
+			if fired_rear[0]:
+				_rear_aura_cd_remaining = AURA_INTERNAL_CD
 
-	# §C 玩家技能"全向 JAM 光环"：累积模式
+	# §C 玩家技能"全向 JAM 光环"：累积模式 + 内置 CD
 	if team == 0 and jam_aura_radius_px > 0.0:
-		_tick_aura_accumulator(_jam_aura_accum_seconds,
-			jam_aura_radius_px, StatusEffects.JAM, false, delta)
+		if _jam_aura_cd_remaining > 0.0:
+			_jam_aura_cd_remaining -= delta
+		else:
+			var fired_jam: Array = [false]
+			_tick_aura_accumulator(_jam_aura_accum_seconds,
+				jam_aura_radius_px, StatusEffects.JAM, false, delta, fired_jam)
+			if fired_jam[0]:
+				_jam_aura_cd_remaining = AURA_INTERNAL_CD
 
 
 ## 累积式光环通用 tick：统一处理 rear_slow / jam_aura（未来加新光环可复用）
@@ -1630,9 +1646,11 @@ func _update_evasion(delta: float) -> void:
 ##   status_id: 累积满后施加的状态 id
 ##   require_rear: true=需要在我后半球（dot(my_back, to_enemy) > 0.3）
 ##   delta: 帧时长
+## out_fired: 1 元素数组（[bool]），由调用方提供；本帧触发了 debuff 时置 true
+## 用 out 参数而非 return，因为函数体内（历史遗留）混入了 _update_evasion 的 evade-roll 逻辑，不能 early-return
 func _tick_aura_accumulator(accum_dict: Dictionary,
 		radius_px: float, status_id: String,
-		require_rear: bool, delta: float) -> void:
+		require_rear: bool, delta: float, out_fired: Array = []) -> void:
 	var r_sq: float = radius_px * radius_px
 	var my_back: Vector2 = Vector2.ZERO
 	if require_rear:
@@ -1682,13 +1700,11 @@ func _tick_aura_accumulator(accum_dict: Dictionary,
 				to_remove.append(k)
 	for k in to_remove:
 		accum_dict.erase(k)
-	# VFX：本帧达阈值的目标群一次性紫色（FEAR色） / 绿色（JAM）/ 蓝色（SLOW）脉冲
+	# 累积式光环是逐目标异步达阈值（不是瞬时 AOE），不放范围脉冲 VFX；
+	# 敌方头上的 status 图标 / 百分比已足够提示。范围脉冲只用于"瞬间全部生效"的真 AOE。
 	if debuff_hits.size() > 0:
-		var col: Color = AOEPulseVFX.COLOR_FEAR
-		match status_id:
-			StatusEffects.JAM: col = AOEPulseVFX.COLOR_JAM
-			StatusEffects.SLOW: col = Color(0.55, 0.80, 1.00)
-		AOEPulseVFX.spawn(get_parent(), global_position, radius_px, debuff_hits, col)
+		if out_fired.size() > 0:
+			out_fired[0] = true
 
 	if _evade_roll_remaining > 0.0:
 		# 正在滚转：按固定速率推进相位（一圈 / _EVADE_ROLL_DURATION）
@@ -2183,6 +2199,7 @@ func _draw_impl() -> void:
 		self_modulate = Color(1.0, 1.0, 1.0, 1.0)
 	if is_hovered:
 		AircraftRenderer.draw_radar_cone(self)
+		AircraftRenderer.draw_aura_ranges(self)
 	# 友方 hover 时显示参考机炮锥；敌方对玩家提交机炮攻击时持续显示锥（条件在 draw_gun_cone 内判）
 	AircraftRenderer.draw_gun_cone(self)
 	# 守卫：player_ref 在 gameover 时可能持有 freed 引用 → GDScript 严格类型校验在
