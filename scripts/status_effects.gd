@@ -149,6 +149,8 @@ static func update(ac: Aircraft, delta: float) -> void:
 		ac._cloak_alpha = 1.0
 
 	# FEAR → 直接拉满 AI 的 stress（玩家无 AIController，对玩家无效果，纯视觉）
+	## fear_immune 单位通过 [combat_unit.gd:apply_status] 入口直接拒绝 FEAR 状态，
+	## 这里 status_fear_active 自然为 false，无需再检查
 	if ac.status_fear_active:
 		var ai := ac.get_node_or_null("AIController") as AIController
 		if ai and ai.personality:
