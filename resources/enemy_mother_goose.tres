@@ -1,0 +1,37 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_combat.tres" id="3"]
+
+[resource]
+script = ExtResource("1")
+display_name = "Mother Goose"
+is_unmanned = true
+max_hp = 3000.0
+armor = 0.0
+max_speed = 280.0
+cruise_speed = 200.0
+stall_speed_base = 80.0
+acceleration = 8.0
+deceleration = 12.0
+g_drag_factor = 0.5
+max_g = 1.5
+max_g_structural = 2.0
+roll_rate = 0.4
+pilot_stamina = 100.0
+stamina_drain_rate = 0.0
+stamina_recovery_rate = 100.0
+max_altitude = 8000.0
+climb_rate_max = 30.0
+thrust_to_weight = 0.20
+drag_coefficient = 0.04
+afterburner_thrust_mult = 1.0
+fuel_capacity = 99999.0
+fuel_rate_normal = 0.0
+fuel_rate_afterburner = 0.0
+radar_range = 2500.0
+radar_half_angle = 90.0
+lock_time = 99.0
+combat = ExtResource("3")
+icon_color = Color(0.92, 0.92, 0.95, 1)
+wing_color = Color(0.78, 0.80, 0.85, 1)
