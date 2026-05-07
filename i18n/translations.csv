@@ -429,8 +429,11 @@ BOSS_DEBUG_WRAITH_NAME,WRAITH 中队 (F-47),Wraith Squadron (F-47),ワイス隊 
 BOSS_DEBUG_WRAITH_DESC,4 架光学隐身 BVR 王牌；协同齐射 + 赫尔贝特反杀,4× optical-cloak BVR aces; coordinated salvo + Herbst reversal,光学ステルス4機 協調斉射＋ハーブストJターン
 BOSS_DEBUG_CSG_NAME,航母战斗群 (CSG),Carrier Strike Group (CSG),空母打撃群 (CSG)
 BOSS_DEBUG_CSG_DESC,CV+2CG+1DDG+2FFG; 旗舰沉没后弹射 4 架 F-14,CV+2CG+1DDG+2FFG; 4× F-14 ejected on CV sink,CV+2CG+1DDG+2FFG 沈没でF-14×4射出
+BOSS_DEBUG_GOOSE_NAME,鹅妈妈 (空中航母),Mother Goose (Sky Carrier),マザーグース (空中空母)
+BOSS_DEBUG_GOOSE_DESC,3000HP 巨型空中航母；UAV 蜂群 12-30 + 周期干扰场（每 60s 扩张 16s）,3000HP airborne carrier; 12-30 UAV swarm + cyclic jam-field (every 60s, 16s expand+sustain),3000HP巨大空中空母 UAV12-30機 60s周期干渉場
 TAG_AIR,空战,AIR,空戦
 TAG_NAVAL,海上,NAVAL,海上
+TAG_CARRIER,空中航母,SKY CARRIER,空中空母
 TAG_STEALTH,隐身,STEALTH,ステルス
 TAG_TWO_PHASE,二阶段,2-PHASE,二段階
 BOSS_DEBUG_HUD_LOADED_FMT,BUILD: %s   //   BOSS: %s,BUILD: %s   //   BOSS: %s,BUILD: %s   //   BOSS: %s

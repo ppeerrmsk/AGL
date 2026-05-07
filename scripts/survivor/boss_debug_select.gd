@@ -29,6 +29,12 @@ const BOSS_LIST: Array[Dictionary] = [
 		"desc": "BOSS_DEBUG_CSG_DESC",
 		"tags": ["TAG_NAVAL", "TAG_TWO_PHASE"],
 	},
+	{
+		"id": "MOTHER_GOOSE",
+		"name": "BOSS_DEBUG_GOOSE_NAME",
+		"desc": "BOSS_DEBUG_GOOSE_DESC",
+		"tags": ["TAG_AIR", "TAG_CARRIER"],
+	},
 ]
 
 func _ready() -> void:

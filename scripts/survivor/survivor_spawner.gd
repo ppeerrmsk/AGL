@@ -1068,6 +1068,10 @@ func _spawn_boss(encounter: BossEncounter, anchor: Vector2 = Vector2.INF, skip_b
 		ace.anchor_position = anchor
 		ace.spawn(mode, _aircraft_scene, _create_enemy, player_aircraft,
 			bullet_manager, missile_manager, _squads)
+	elif encounter is MotherGooseBoss:
+		var goose := encounter as MotherGooseBoss
+		goose.spawn(mode, _aircraft_scene, _create_enemy, player_aircraft,
+			bullet_manager, missile_manager, _squads, anchor)
 	else:
 		push_error("_spawn_boss: unsupported encounter type %s" % encounter.get_class())
 		_boss = null

@@ -74,6 +74,9 @@ func _start() -> void:
 	elif encounter is AceSquad:
 		_spawn_ace()
 		_apply_pre_stage_directives_ace()
+	elif encounter is MotherGooseBoss:
+		_spawn_mother_goose()
+		_apply_pre_stage_directives_mother_goose()
 	else:
 		push_error("BossEncounterEvent: unsupported encounter type %s" % encounter.get_class())
 		end()
@@ -178,6 +181,10 @@ func _spawn_ace() -> void:
 	ace.entry_origin_override = _far_map_edge_from(pp)
 	director.spawner._spawn_boss(ace, anchor, true)  # skip_bgm
 
+func _spawn_mother_goose() -> void:
+	var goose := encounter as MotherGooseBoss
+	director.spawner._spawn_boss(goose, anchor, true)  # skip_bgm
+
 func _far_map_edge_from(pp: Vector2) -> Vector2:
 	var half := MapBoundary.world_half_px() - FAR_EDGE_INSET_PX
 	var sx: float = -1.0 if pp.x >= 0.0 else 1.0
@@ -204,3 +211,8 @@ func _apply_pre_stage_directives_ace() -> void:
 		# 抵达后改 PATROL 时半径用 ANCHOR_PATROL_RADIUS
 		d.params["_pending_patrol_radius"] = ANCHOR_PATROL_RADIUS
 		set_directive(member, d)
+
+## Mother Goose：v1 简单处理 — 自身已在 patrol ring 上飞，不下 directive；
+## UAV 蜂群在 spawn() 时已起飞，自然奔向玩家。事件系统不干预。
+func _apply_pre_stage_directives_mother_goose() -> void:
+	pass

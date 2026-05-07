@@ -26,6 +26,13 @@ const BOSS_DEFS: Dictionary = {
 		"callsign_prefix": "CSG",
 		"requires_water": true,             ## 舰队只能刷海上
 	},
+	"MOTHER_GOOSE": {
+		"class_path": "res://scripts/survivor/mother_goose_boss.gd",
+		"bgm": "boss",                      ## v1 复用 F-47 BGM；v2 单独配
+		"display_name": "MOTHER GOOSE",
+		"callsign_prefix": "GOOSE",
+		"requires_water": false,            ## 飞机型，陆海皆可
+	},
 }
 
 ## 地图 BOSS 池：map_id → [boss_id]（等权随机）
