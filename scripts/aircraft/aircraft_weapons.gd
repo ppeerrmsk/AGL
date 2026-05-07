@@ -812,18 +812,15 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 		return false
 
 	# 玩家战术偏好 + 显式指定了 combat_target：
-	# 要求 combat_target 必须出现在发射列表里，否则整个齐射取消。
-	# 例外 1：combat_target 已经有在飞导弹（说明上一轮已经打过它了），允许齐射打其他目标
-	# 例外 2：机炮正在打 combat_target（is_firing），允许齐射打其他目标
-	if ac.use_tactical_preference and ac.combat_target != null \
-			and is_instance_valid(ac.combat_target) and not ac.combat_target.is_destroyed:
-		if locked_targets.find(ac.combat_target) == -1:
-			# combat_target 被过滤的合理原因：自己已经在打它（own/gun）/ 队友 inbound 足以击毁它
-			var combat_target_busy: bool = ac.missile_manager.has_active_missile_at(ac, ac.combat_target) \
-					or ac.is_firing \
-					or ac.missile_manager.team_inbound_damage(ac.combat_target, ac.team, ac) >= ac.combat_target.hp
-			if not combat_target_busy:
-				return false
+	# 旧版（< 2026-05-07）：combat_target 不在 locked_targets 时整个齐射 return false。
+	# 这与 missile_swarm 升级（max_simultaneous_locks > 1，齐射成为唯一发射路径）冲突——
+	# 玩家点远处一艘还没锁定的船 / 还没进包络的敌机时，所有已锁定目标也跟着不开火，
+	# 导致用户感受到的"不点船它不打、点了又卡死"。修复：combat_target 仅作为"优先级提示"
+	# （由下方排序逻辑提到队首），不再作为"独占发射许可"。
+	# combat_target 自身没进 locked_targets 不影响其他目标继续打——这是 RTS 风格的
+	# auto-fire 应有的行为（与 passive_auto_fire 一致）。
+	# 双击冲锋（charge_attack）由更上层 [aircraft_weapons.gd:611-613]
+	# weapon_preference=PREFER_GUN 阻断导弹路径，本修复不会让冲锋时误发。
 
 	# 按距离排序，优先打近的
 	var ac_pos := ac.global_position
