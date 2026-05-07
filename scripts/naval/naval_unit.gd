@@ -164,6 +164,17 @@ func _physics_process(delta: float) -> void:
 
 	_update_movement(delta)
 
+	# 相机缩放跨级 → _draw_status_label 把 inv_zoom 烤进 canvas item，必须每帧检测，
+	# 不能放到 _should_redraw 里：远距船被 LOD throttle 跳过 5/6 帧，且 _should_redraw
+	# 末尾的 zoom 检查会被前面 hover/lock/weak 等早返回路径短路（虽然那些路径自身已
+	# queue_redraw，但 idle 状态下的船没有任何持续触发器，唯有靠这里强制重画）。
+	# take_damage_at 本身不触发 redraw —— "被打一次后变正常"是因为命中暴露 weak_point
+	# 进入了每帧重画路径，并非伤害本身做的。
+	var zoom_q := int(get_viewport_transform().get_scale().x * 100.0)
+	if zoom_q != _last_zoom_quant:
+		_last_zoom_quant = zoom_q
+		queue_redraw()
+
 	# LOD 判定：玩家远 → 节流武器 + 绘制
 	_lod_frame += 1
 	var is_far: bool = _is_far_from_player()
@@ -244,12 +255,7 @@ func _should_redraw() -> bool:
 		_last_lock_progress_quant = lp_q
 		return true
 
-	# 相机缩放跨级 → _draw_status_label 的 inv_zoom 烤进了 canvas item，
-	# 不重画会让标签随世界一起放大缩小
-	var zoom_q := int(get_viewport_transform().get_scale().x * 100.0)
-	if zoom_q != _last_zoom_quant:
-		_last_zoom_quant = zoom_q
-		return true
+	# zoom 跨级触发已上移到 _physics_process（LOD 节流之前），这里不再检查
 
 	return false
 
