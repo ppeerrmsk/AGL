@@ -1090,15 +1090,30 @@ static func draw_data_label_minimal(ac: Aircraft) -> void:
 						lines.append("LSR HEAT %d%%" % heat_pct)
 
 	# 状态效果（buff/debuff）：英文简称 + 百分比 + 颜色
+	# 玩家标签：对 INVINCIBLE / STEALTH 用权威标志兜底，让走直写 invulnerable / is_cloaked
+	# 或派生 status_stealth_active 的玩家通路（KIA 复活、规避加力隐形、导弹弹尽隐形等）
+	# 也能在 HUD 上显示。无字典条目时不带百分比。
 	var status_line_indices: Dictionary = {}
 	for sid in StatusEffects.DISPLAY_ORDER:
-		if not ac.status_effects.has(sid):
+		var has_dict: bool = ac.status_effects.has(sid)
+		var auth_active: bool = false
+		match sid:
+			StatusEffects.INVINCIBLE:
+				auth_active = ac.invulnerable
+			StatusEffects.STEALTH:
+				auth_active = ac.status_stealth_active
+			_:
+				auth_active = has_dict
+		if not has_dict and not auth_active:
 			continue
-		var s_remaining: float = float(ac.status_effects[sid])
-		var s_initial: float = float(ac.status_initial_durations.get(sid, s_remaining))
-		var s_pct: int = clampi(roundi(s_remaining / maxf(s_initial, 0.001) * 100.0), 0, 100)
 		status_line_indices[lines.size()] = StatusEffects.icon_color(sid)
-		lines.append("%s %d%%" % [StatusEffects.english_label(sid), s_pct])
+		if has_dict:
+			var s_remaining: float = float(ac.status_effects[sid])
+			var s_initial: float = float(ac.status_initial_durations.get(sid, s_remaining))
+			var s_pct: int = clampi(roundi(s_remaining / maxf(s_initial, 0.001) * 100.0), 0, 100)
+			lines.append("%s %d%%" % [StatusEffects.english_label(sid), s_pct])
+		else:
+			lines.append(StatusEffects.english_label(sid))
 
 	var inv_rot := -ac.rotation
 	var font_size := 11
@@ -1205,15 +1220,28 @@ static func draw_data_label(ac: Aircraft) -> void:
 		lines.append(status)
 
 	# 状态效果（buff/debuff）：英文简称 + 百分比 + 颜色
+	# 敌人/友机标签：仅 STEALTH 用 is_cloaked 兜底（让 F-47 光学隐形阶段能被玩家看到）。
+	# INVINCIBLE 不兜底——F-14 出生 4s 起飞保护是纯演出效果，走直写 invulnerable，
+	# 不进字典 → 不在 HUD 暴露。
 	var status_line_indices: Dictionary = {}
 	for sid in StatusEffects.DISPLAY_ORDER:
-		if not ac.status_effects.has(sid):
+		var has_dict: bool = ac.status_effects.has(sid)
+		var auth_active: bool = false
+		match sid:
+			StatusEffects.STEALTH:
+				auth_active = ac.is_cloaked
+			_:
+				auth_active = has_dict
+		if not has_dict and not auth_active:
 			continue
-		var s_remaining: float = float(ac.status_effects[sid])
-		var s_initial: float = float(ac.status_initial_durations.get(sid, s_remaining))
-		var s_pct: int = clampi(roundi(s_remaining / maxf(s_initial, 0.001) * 100.0), 0, 100)
 		status_line_indices[lines.size()] = StatusEffects.icon_color(sid)
-		lines.append("%s %d%%" % [StatusEffects.english_label(sid), s_pct])
+		if has_dict:
+			var s_remaining: float = float(ac.status_effects[sid])
+			var s_initial: float = float(ac.status_initial_durations.get(sid, s_remaining))
+			var s_pct: int = clampi(roundi(s_remaining / maxf(s_initial, 0.001) * 100.0), 0, 100)
+			lines.append("%s %d%%" % [StatusEffects.english_label(sid), s_pct])
+		else:
+			lines.append(StatusEffects.english_label(sid))
 
 	var inv_rot := -ac.rotation
 	var font_size := 11
