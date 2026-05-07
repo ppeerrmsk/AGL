@@ -453,6 +453,13 @@ func _setup_boss_debug_scenario() -> void:
 ##   5. spawner 仍在每帧 update（_physics_process 不跳）→ 之后按 token budget 自然补刷
 const BENCH_PLAYER_LEVEL := 15
 const BENCH_INITIAL_ENEMY_COUNT := 26  ## 立即 force-spawn 总数，足够 26+ 编队对抗
+## stress_swarm 场景：20 敌 + 10 友全图随机小队混战
+const BENCH_SWARM_ENEMY_COUNT := 20
+const BENCH_SWARM_FRIENDLY_COUNT := 10
+const BENCH_SWARM_AA_COUNT := 8     ## AA 炮散布数（团队 1，自动打 team 0）
+const BENCH_SWARM_SAM_COUNT := 6    ## SAM 散布数（团队 1，自动打 team 0）
+const BENCH_SWARM_SPAWN_MARGIN_PX := 1500.0  ## 离世界边界至少留这么远，避免一刷出来就被 boundary clamp
+const BENCH_SWARM_MIN_SEPARATION_PX := 800.0 ## 同方刷点间距下限，防止开局重叠
 
 func _setup_bench_scenario() -> void:
 	if not _bench_mode:
@@ -497,9 +504,12 @@ func _setup_bench_scenario() -> void:
 	#    *2 是冗余，保证溢出不会让最后一次缺一点点经验
 	survivor_player.add_xp(SurvivorData.xp_for_level(BENCH_PLAYER_LEVEL + 1) * 2)
 
-	# 4. 批量 force-spawn 敌机
+	# 4. 批量 force-spawn 敌机（按 scenario 分支）
 	if _spawner:
-		_bench_force_spawn_mixed(BENCH_INITIAL_ENEMY_COUNT)
+		if _bench_scenario == "stress_swarm":
+			_bench_force_spawn_swarm()
+		else:
+			_bench_force_spawn_mixed(BENCH_INITIAL_ENEMY_COUNT)
 
 	EventLogger.log_event("BENCH", "Setup",
 		"scenario=%s duration=%.1fs initial_enemies=%d level_target=%d" % [
@@ -538,6 +548,186 @@ func _bench_force_spawn_mixed(_total: int) -> void:
 				_spawner._spawn_single(etype)
 		spawned += n
 	print("[Bench] force-spawned %d enemies across %d types" % [spawned, mix.size()])
+
+## stress_swarm：20 敌 + 10 友全图随机小队混战 + 地面 AA/SAM 骚扰，把 SquadFactory /
+## SQUAD_FOLLOW / formation offset / ground unit 路径全都踩一遍。所有飞机 invulnerable，
+## 整个 30s 维持满编混战；spawner cap 拉到 MAX_ENEMIES_HARD 让自然补刷尽量补满
+func _bench_force_spawn_swarm() -> void:
+	if _spawner == null:
+		return
+	# 与 stress_40 (seed=42) 区分，避免散布几何撞 baseline
+	seed(43)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 43
+
+	# 放开 spawner 的 dynamic cap，让自然补刷尽量补到 hard cap（默认 30 → 40）
+	_spawner._dynamic_enemy_cap = SurvivorData.MAX_ENEMIES_HARD
+
+	# 监听自然补刷：新加进 mode 树的 Aircraft 也设 invulnerable，否则会被无敌友军屠杀完
+	# 进不到稳态 cap。child_entered_tree 在 mode.add_child(enemy) 时同步触发
+	if not child_entered_tree.is_connected(_bench_swarm_on_child_entered):
+		child_entered_tree.connect(_bench_swarm_on_child_entered)
+
+	var used_positions: Array[Vector2] = []
+
+	# 敌方小队（每队 2~4 架，9 类机型轮抽至 20 架）
+	var enemy_pool: Array = [
+		SurvivorSpawner.EnemyType.MIG, SurvivorSpawner.EnemyType.F86,
+		SurvivorSpawner.EnemyType.MIG23, SurvivorSpawner.EnemyType.F100,
+		SurvivorSpawner.EnemyType.F4, SurvivorSpawner.EnemyType.SU27,
+		SurvivorSpawner.EnemyType.MIG31, SurvivorSpawner.EnemyType.INTERCEPTOR,
+		SurvivorSpawner.EnemyType.UCAV,
+	]
+	var enemy_remaining: int = BENCH_SWARM_ENEMY_COUNT
+	while enemy_remaining > 0:
+		var size: int = mini(rng.randi_range(2, 4), enemy_remaining)
+		var etype: int = enemy_pool[rng.randi() % enemy_pool.size()]
+		_bench_spawn_random_squad(etype, size, false, rng, used_positions)
+		enemy_remaining -= size
+
+	# 友方小队（每队 2~4 架，4 类空优机型轮抽至 10 架）
+	var friendly_pool: Array = [
+		SurvivorSpawner.EnemyType.SU27, SurvivorSpawner.EnemyType.MIG31,
+		SurvivorSpawner.EnemyType.MIG, SurvivorSpawner.EnemyType.F100,
+	]
+	var friendly_remaining: int = BENCH_SWARM_FRIENDLY_COUNT
+	while friendly_remaining > 0:
+		var size: int = mini(rng.randi_range(2, 4), friendly_remaining)
+		var ftype: int = friendly_pool[rng.randi() % friendly_pool.size()]
+		_bench_spawn_random_squad(ftype, size, true, rng, used_positions)
+		friendly_remaining -= size
+
+	# 地面骚扰：散布 AA 炮 + SAM（team=1，自动锁 team=0 友军/玩家）
+	var ground_count: int = 0
+	for i in range(BENCH_SWARM_AA_COUNT):
+		var p := _bench_pick_swarm_pos(rng, used_positions)
+		used_positions.append(p)
+		_bench_spawn_ground_at(_aa_scene, _aa_params, 1, p)
+		ground_count += 1
+	for i in range(BENCH_SWARM_SAM_COUNT):
+		var p := _bench_pick_swarm_pos(rng, used_positions)
+		used_positions.append(p)
+		_bench_spawn_ground_at(_sam_scene, _sam_params, 1, p)
+		ground_count += 1
+
+	# 场地中央刷一个航母战斗群 BOSS（CV + 5 护卫 + Phase 1 F/A-18 弹射）
+	_bench_spawn_csg_at_center()
+
+	print("[Bench] swarm: %d enemies + %d friendlies + %d ground (AA+SAM) + CSG boss at center, all units effectively invulnerable" % [
+		BENCH_SWARM_ENEMY_COUNT, BENCH_SWARM_FRIENDLY_COUNT, ground_count])
+
+## 在地图中心刷一个 CSG（航母战斗群）BOSS，并把所有舰船 HP 拉爆模拟无敌
+## 直接调用 _spawner._spawn_boss(skip_bgm=true) 复用现成 spawn 逻辑
+## engage() 启动 F/A-18 持续弹射循环（每 120s 补一架，初始 2 架）
+func _bench_spawn_csg_at_center() -> void:
+	if _spawner == null:
+		return
+	var csg := CarrierStrikeGroup.new()
+	csg.initial_heading_deg = 0.0
+	_spawner._spawn_boss(csg, Vector2.ZERO, true)
+	if _spawner._boss == null:
+		push_error("[Bench] CSG spawn failed")
+		return
+	# 舰船没有 invulnerable 字段 → 拉爆所有可被打掉的 HP（hull / weak_point / mounts）
+	# 任一归零都会触发沉船 / 挂点失能 → 影响 stress 持续性，所以三个都拉
+	for ship in (_spawner._boss as CarrierStrikeGroup).get_all_ships():
+		if ship == null or not is_instance_valid(ship):
+			continue
+		ship.hull_hp_max = 1.0e9
+		ship.hull_hp = 1.0e9
+		if ship.weak_point != null:
+			ship.weak_point.hp = 1.0e9
+		for mount in ship.mounts:
+			if mount != null:
+				mount.hp = 1.0e9
+	# 启动 Phase 1 F/A-18 持续弹射（正常流程是玩家进 BOSS_ZONE 触发；bench 直接调）
+	_spawner._boss.engage()
+
+## 在全图随机点刷一支同型小队（参考 spawner._spawn_squad 但落点改全图随机）
+##   etype         — 该小队全队机型（同型编队，与现有 _spawn_squad 一致）
+##   size          — 小队人数 (2~4)
+##   make_friendly — true 时把该小队整体翻转成 team=0 + invulnerable
+func _bench_spawn_random_squad(etype: int, size: int, make_friendly: bool,
+		rng: RandomNumberGenerator, used: Array[Vector2]) -> void:
+	var leader_pos: Vector2 = _bench_pick_swarm_pos(rng, used)
+	used.append(leader_pos)
+	var heading_deg: float = rng.randf() * 360.0
+	var heading_rad: float = deg_to_rad(heading_deg)
+
+	var sq: Squad = SquadFactory.create()
+	for i in range(size):
+		var spawn_pos: Vector2
+		if i == 0:
+			spawn_pos = leader_pos
+		else:
+			# 复用 SquadFactory 的编队偏移（与 spawner._spawn_squad 同款），让 SQUAD_FOLLOW 路径有效
+			var offset: Vector2 = sq.get_formation_offset(i)
+			spawn_pos = leader_pos + offset.rotated(heading_rad)
+			used.append(spawn_pos)
+		var ac: Aircraft = _spawner._create_enemy(etype, spawn_pos, heading_deg)
+		if ac == null:
+			continue
+		# 所有飞机（敌 + 友）全部 invulnerable，30s 维持满编混战，PerfBuckets 样本干净
+		ac.invulnerable = true
+		# 全图散布 → 离玩家最远可到 ~12000px，远过 FAR_CLEANUP_DISTANCE(7000)。
+		# 不挂 skip_far_cleanup meta 会被 _update_far_cleanup 静默清掉
+		ac.set_meta("skip_far_cleanup", true)
+		if make_friendly:
+			_bench_convert_to_friendly(ac)
+		if i == 0:
+			SquadFactory.register_leader(sq, ac)
+		else:
+			# set_state=true → 直接进 SQUAD_FOLLOW（与 spawner._spawn_squad 一致）
+			SquadFactory.register_wingman(sq, ac, true)
+
+## 全图随机选一个不与已用点过近的位置（最多重试 20 次，兜底返回随机点）
+func _bench_pick_swarm_pos(rng: RandomNumberGenerator, used: Array[Vector2]) -> Vector2:
+	var half: float = MapBoundary.WORLD_HALF_PX - BENCH_SWARM_SPAWN_MARGIN_PX
+	for _attempt in range(20):
+		var p := Vector2(rng.randf_range(-half, half), rng.randf_range(-half, half))
+		var ok := true
+		for u in used:
+			if p.distance_to(u) < BENCH_SWARM_MIN_SEPARATION_PX:
+				ok = false
+				break
+		if ok:
+			return p
+	return Vector2(rng.randf_range(-half, half), rng.randf_range(-half, half))
+
+## 在全图随机点刷一个地面单位（AA 炮 / SAM），与 _spawn_ground_unit 类似但落点用传入坐标
+## bench 用：HP 拉爆模拟无敌，30s 持续骚扰友军
+func _bench_spawn_ground_at(scene: PackedScene, params_res: Resource, team_id: int, pos: Vector2) -> void:
+	if scene == null or params_res == null:
+		return
+	# 复制 params 避免改原始 .tres
+	var dup_params: Resource = params_res.duplicate(true)
+	dup_params.max_hp = 1.0e9
+	var unit: GroundUnit = scene.instantiate()
+	unit.params = dup_params
+	unit.team = team_id
+	unit.position = pos
+	unit.initial_heading_deg = randf() * 360.0
+	unit.set_meta("category", "adds")
+	add_child(unit)
+	unit.hp = 1.0e9
+	unit.bullet_manager = bullet_manager
+	unit.missile_manager = missile_manager
+
+## stress_swarm 自然补刷的新 Aircraft 也设 invulnerable + skip_far_cleanup，维持满编混战
+func _bench_swarm_on_child_entered(node: Node) -> void:
+	if node is Aircraft:
+		var ac := node as Aircraft
+		ac.invulnerable = true
+		ac.set_meta("skip_far_cleanup", true)
+
+## 把 _create_enemy 出来的 (team=1) Aircraft 翻转成 team=0 友军
+##   - team=0 → AIController.enable_combat 自动选 team=1 目标
+##   - invulnerable=true → 30s 压测窗口不掉员
+##   - callsign 加 ALLY- 前缀方便日志区分
+func _bench_convert_to_friendly(ac: Aircraft) -> void:
+	ac.team = 0
+	ac.invulnerable = true
+	ac.callsign = "ALLY-%s" % ac.callsign
 
 ## Bench 自动选技能：随机抽一张（剔除 evolved），无视 max_stacks/requires/exclusive
 ## 设计意图：玩家越打越强 → 击杀更快 → spawner token 越满 → 自我放大压力曲线
@@ -1120,6 +1310,10 @@ func _update_aircraft_list() -> void:
 		elif child is CombatUnit:
 			# 兜底：MountTarget 等不是 Aircraft/GroundUnit/NavalUnit 的 CombatUnit 子类
 			# 它们是船上挂点的锁定代理，必须进 all_units 才能被雷达锁定循环看见
+			# （NavalUnit 船体 is_lock_immune=true，玩家锁的是 mount 而不是船本身；
+			#  从 all_units 摘掉 mount 会让 radar_targets[mount] 永远累不到 → 玩家彻底
+			#  无法对船开火。曾尝试摘除已回滚。深度 ship-level 雷达重构需要同时改写
+			#  lock_immune / 导弹 firing block 路径，改动量很大）
 			all_units.append(child)
 			n_mt += 1
 	bullet_manager.combat_unit_list = all_units
@@ -1190,6 +1384,11 @@ func _update_radar_locks(delta: float) -> void:
 			continue
 		var unit: CombatUnit = all_units[i]
 		if not is_instance_valid(unit):
+			continue
+		# MountTarget 不当雷达发起方：它的 radar_targets 字典永远为空（挂点武器获取
+		# 走 weapon_mount.acquire_cooldown 自己的扫描），跑这一圈纯属浪费 N 次配对。
+		# 仍保留它作为 victim 让飞机能锁/打它（玩家锁船依赖此路径，不能动）。
+		if unit is MountTarget:
 			continue
 		var keys_to_remove: Array = []
 		for key in unit.radar_targets:
