@@ -81,7 +81,12 @@ static func update_combat(ac: Aircraft, _delta: float) -> void:
 
 	# 地面目标 → 只有机炮模式才舔地（降到 LOW）；导弹模式保持当前高度，
 	# 让 PN 制导的导弹自己往下俯冲命中（避免被强拉到低空增加地面威胁暴露）
-	if ac.combat_target is GroundUnit and ac.weapon_mode != Aircraft.WeaponMode.MISSILE:
+	# 包含 GroundUnit / NavalUnit / MountTarget（船挂点代理）—— 都是"非机动表面目标"，
+	# 走 strafe 流程（低空高速掠过 + 直瞄），与导弹模式分流处理
+	var tgt_is_surface: bool = ac.combat_target is GroundUnit \
+			or ac.combat_target is NavalUnit \
+			or ac.combat_target is MountTarget
+	if tgt_is_surface and ac.weapon_mode != Aircraft.WeaponMode.MISSILE:
 		update_combat_ground_attack(ac)
 		return
 
