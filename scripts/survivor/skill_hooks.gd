@@ -155,6 +155,8 @@ static func dispatch_on_kill(killer: Aircraft, victim: Aircraft) -> void:
 				"head_on_perma_hp → max_hp+%d (now %.0f)" % [int(HEAD_ON_PERMA_HP_BONUS), killer.params.max_hp])
 
 	# ── 钩子：对头击杀大范围 FEAR ──
+	# fear_chills 联动（FEAR → 同步 SLOW）由 AOEBroadcast.apply_status_in_radius
+	# 内部统一处理，覆盖所有 AOE FEAR 入口（gun_kill / head_on / 凝视压迫）
 	if is_head_on and stacks.get(SKILL_HEAD_ON_AOE_FEAR, 0) > 0:
 		AOEBroadcast.apply_status_in_radius(
 			victim.global_position, HEAD_ON_AOE_FEAR_RADIUS_PX,

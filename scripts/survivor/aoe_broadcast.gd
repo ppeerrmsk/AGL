@@ -57,6 +57,17 @@ static func apply_status_in_radius(
 		u.apply_status(status_id, duration)
 		hit_count += 1
 		hit_positions.append(u.global_position)
+		# fear_chills 联动：玩家施加的 FEAR 真正生效时，同步附带 SLOW（同时长）。
+		# 这里集中处理三条 AOE FEAR 入口（skill_hooks gun_kill / head_on / survivor_mode
+		# 凝视压迫），与单体路径 survivor_spawner._apply_player_fear 行为对齐。
+		# fear_immune 单位的 FEAR 已在 combat_unit.apply_status 入口被拒，status_effects
+		# 字典里没条目 → 这里 has(FEAR) 为 false，自然不施 SLOW。
+		if status_id == StatusEffects.FEAR \
+				and u.status_effects.has(StatusEffects.FEAR) \
+				and source is Aircraft \
+				and (source as Aircraft).team == 0 \
+				and (source as Aircraft).fear_applies_slow:
+			u.apply_status(StatusEffects.SLOW, duration)
 	if hit_count > 0:
 		var src_name: String = "AOE"
 		if source != null and is_instance_valid(source) and source.has_method("get") and "callsign" in source:
