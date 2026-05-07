@@ -890,7 +890,8 @@ func _process_simple(delta: float) -> void:
 			# ── 自爆攻击模式（最外圈 UAV 飞向敌人自爆）──
 			# 根据编队规模指派自爆机：<8 架 = 1 架自爆，≥8 架 = 2 架自爆
 			# 自爆机 = squad_index 最大的 1~2 架
-			if shield_leader and enable_combat:
+			# 例外：飞机带 "no_kamikaze" meta 永不出列（Mother Goose MQ-111 等专职近距护卫）
+			if shield_leader and enable_combat and not aircraft.has_meta(&"no_kamikaze"):
 				var _total_members := squad.members.size() - 1
 				var _kamikaze_count := 2 if _total_members >= 8 else 1
 				var _is_kamikaze := squad_index > _total_members - _kamikaze_count

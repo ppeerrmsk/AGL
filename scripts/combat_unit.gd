@@ -94,6 +94,10 @@ var status_jam_active: bool = false             ## 唯一对所有 CombatUnit �
 func apply_status(id: String, duration: float, mode: String = "max") -> void:
 	if duration <= 0.0:
 		return
+	# 免疫检查：免疫单位不进入该状态（HUD 状态栏不显示 + 派生标记不写）
+	# 例：fear_immune meta（Mother Goose UAV 等硬件平台无飞行员 → FEAR 无来源）
+	if id == "fear" and has_meta(&"fear_immune"):
+		return
 	var prev: float = float(status_effects.get(id, 0.0))
 	if mode == "no_refresh" and prev > 0.0:
 		# 状态仍在持续 → 不刷新、不延长
