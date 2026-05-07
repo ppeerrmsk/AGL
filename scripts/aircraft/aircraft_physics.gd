@@ -415,6 +415,8 @@ static func effective_max_speed_kmh(ac: Aircraft) -> float:
 		var cm: float = float(ac.evasion_modifiers.get("cruise_speed_mult", 1.0))
 		if cm > 1.0:
 			v *= cm
+	# Mother Goose 干扰场减速走标准 SLOW 状态（cap 至 SLOW_SPEED_CAP_KMH，
+	# 由 update_speed 内的 status_slow_active 分支处理 + HUD 显示蓝条）
 	return v
 
 

@@ -13,8 +13,13 @@ extends CombatUnit
 ## 不参与 hover（camera_controller 里特判跳过），让 hover 仍作用于整艘船
 ## 不参与 bullet_manager 的子弹命中判定？—— 实际上 MountTarget 小尺寸 + 船的
 ##   hull_length 扩展命中半径先触发，bullet 不会先打到 MountTarget，可以留着
+##
+## 2026-05-07：parent_ship 类型放宽到 CombatUnit，让 Mother Goose（Aircraft 子类）
+## 也能复用此挂点锁定系统。所有 parent_ship 调用都使用 CombatUnit 通用 API
+## (heading/global_position/team/is_destroyed) 或父类约定的 take_damage_at(amount, hit_pos)；
+## NavalUnit 已实现 take_damage_at；Aircraft 也提供同名 forwarder。
 
-var parent_ship: NavalUnit = null
+var parent_ship: CombatUnit = null
 var mount_ref: WeaponMount = null       ## 代理的挂点（与 weak_point_ref 二选一）
 var weak_point_ref: WeakPoint = null    ## 代理的弱点（二选一）
 

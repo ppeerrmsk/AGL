@@ -1280,17 +1280,31 @@ func _log_unit_name(unit: CombatUnit) -> String:
 		var side := "Friend" if ac.team == 0 else "Enemy"
 		var dn: String = ac.params.display_name if ac.params else "???"
 		return "%s/%s[%s]" % [side, dn, ac.callsign]
-	# 舰船挂点代理：log 显示 "船名 [挂点符号]"，避免出现 @Node2D@454 难以追溯
+	# 舰船 / Mother Goose 挂点代理：log 显示 "船名 [挂点符号]"，避免 @Node2D@454 难追溯
 	if unit is MountTarget:
 		var mt: MountTarget = unit
 		if mt.parent_ship and is_instance_valid(mt.parent_ship):
-			var ship_label: String = mt.parent_ship.full_name if mt.parent_ship.full_name != "" else "Ship"
+			# parent_ship 既可能是 NavalUnit（有 full_name），也可能是 Aircraft（用 callsign）
+			var ship_label: String = "Ship"
+			if mt.parent_ship is NavalUnit and (mt.parent_ship as NavalUnit).full_name != "":
+				ship_label = (mt.parent_ship as NavalUnit).full_name
+			elif mt.parent_ship.callsign != "":
+				ship_label = mt.parent_ship.callsign
 			if mt.mount_ref and mt.mount_ref.params:
 				return "%s[%s]" % [ship_label, mt.mount_ref.params.display_symbol]
 			if mt.weak_point_ref:
 				return "%s[WP]" % ship_label
 			return ship_label
 		return "MountTarget"
+	# NavalUnit 本体（船体）：log 显示 full_name 而非 @Node2D@xxx
+	if unit is NavalUnit:
+		var nv: NavalUnit = unit
+		return nv.full_name if nv.full_name != "" else "Ship"
+	# GroundUnit：用 params.display_name 兜底
+	if unit is GroundUnit and unit.params and "display_name" in unit.params:
+		var gn: String = unit.params.display_name
+		if gn != "":
+			return gn
 	return unit.name
 
 func set_combat_target(target: CombatUnit) -> void:
@@ -1919,6 +1933,17 @@ func apply_status(id: String, duration: float, mode: String = "max") -> void:
 
 
 ## 受到伤害（通用：导弹/火箭/爆炸等战斗部伤害）
+## 位置感知伤害入口：MountTarget 等子部件命中时调，传入命中世界坐标。
+## 默认转发给 take_damage(amount)；如果飞机注册了 damage_router meta（例：Mother Goose
+## 通过 MotherGooseController 接管路由），则委托给 router.route_damage(amount, hit_pos)。
+func take_damage_at(amount: float, hit_pos: Vector2) -> void:
+	if has_meta(&"damage_router"):
+		var router: Object = get_meta(&"damage_router")
+		if router and is_instance_valid(router) and router.has_method(&"route_damage"):
+			router.call(&"route_damage", amount, hit_pos)
+			return
+	take_damage(amount)
+
 ## 战斗部类伤害：受"弹头穿甲"系数影响，只计一半护甲（见 MISSILE_ARMOR_PENETRATION）
 ## 默认 kind="missile"（旧调用点 take_damage(x) 默认按导弹处理）；显式传 kind 覆盖
 func take_damage(amount: float, attacker: Node = null, kind: String = "") -> void:
@@ -1926,6 +1951,16 @@ func take_damage(amount: float, attacker: Node = null, kind: String = "") -> voi
 		return
 	if invulnerable:
 		return
+	# Mother Goose / 类似挂点 BOSS：弱点暴露后玩家直锁主体的伤害也要走 router
+	## router.route_damage(amount, hit_pos) —— 这里没有命中坐标，传 boss 中心
+	if has_meta(&"damage_router"):
+		var router: Object = get_meta(&"damage_router")
+		if router and is_instance_valid(router) and router.has_method(&"route_damage"):
+			if attacker != null:
+				set_meta("_pending_attacker", attacker)
+			set_meta("_last_damage_kind", kind if kind != "" else "missile")
+			router.call(&"route_damage", amount, global_position)
+			return
 	if attacker != null:
 		set_meta("_pending_attacker", attacker)
 	# 默认归类导弹（保持向后兼容，老调用点没显式传 kind 多来自导弹/AOE 路径）
@@ -1955,6 +1990,15 @@ func take_bullet_damage(amount: float, attacker: Node = null) -> void:
 		return
 	if invulnerable:
 		return
+	# Mother Goose 等挂点 BOSS：机炮也走 router（按 boss 中心传 hit_pos，弱点未暴露则被角度过滤）
+	if has_meta(&"damage_router"):
+		var router: Object = get_meta(&"damage_router")
+		if router and is_instance_valid(router) and router.has_method(&"route_damage"):
+			if attacker != null:
+				set_meta("_pending_attacker", attacker)
+			set_meta("_last_damage_kind", "gun")
+			router.call(&"route_damage", amount, global_position)
+			return
 	# Adds 杂兵（Tu-160/AH-64/CH-47）按设计被击中无任何反应——
 	# 不参与闪避也不触发桶滚动画，否则重型轰炸机会像战斗机一样在高空翻滚
 	var is_adds: bool = has_meta("category") and get_meta("category") == "adds"
@@ -2313,6 +2357,11 @@ func _update_in_building(delta: float) -> void:
 # ========== 热诱弹系统 ==========
 
 func is_lock_immune() -> bool:
+	# Mother Goose 等接管挂点系统的 BOSS：玩家锁定走 MountTarget 子代理，
+	# 主体本身在挂点全死 + 弱点未暴露阶段维持免锁
+	if has_meta(&"lock_immune_override"):
+		if bool(get_meta(&"lock_immune_override")):
+			return true
 	return _lock_immunity_timer > 0.0 or is_cloaked
 
 ## HUD 用：热诱弹冷却比例（委托 AircraftFlares）
