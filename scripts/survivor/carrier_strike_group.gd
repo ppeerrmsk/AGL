@@ -169,6 +169,8 @@ func update(delta: float) -> void:
 	if _phase == 2 and _poltergeist and _poltergeist.active:
 		_poltergeist.anchor_position = _cv_death_position
 		_poltergeist.update(delta)
+		# 小地图 BOSS 圈跟随 F-14 群质心（已 FLYING 的成员），让玩家在远距能看见 BOSS 在哪
+		_sync_boss_zone_to_poltergeist()
 
 	# 胜利判定
 	_check_victory()
@@ -266,6 +268,34 @@ func _enter_phase2() -> void:
 	AudioManager.set_music_layer(1, 2.5)
 	EventLogger.log_event("BOSS", display_name,
 			"Phase 2: CV sunk, F-14 catapult launch begins at %s heading=%.0f°" % [_cv_death_position, rad_to_deg(_cv_death_heading)])
+
+## 把战术小地图的 boss_zone 中心移到 F-14 群质心（已揭幕的成员位置平均）。
+## 没有揭幕成员时退回 _cv_death_position（FROZEN 期 / 弹射中）。
+## 不修改 boss_zone radius —— 让玩家依旧看到完整 BOSS 圈范围。
+## 调用频次：每帧 update() 一次（CSG.update 每帧调一次本函数）；写入 Dictionary 是廉价操作，
+## minimap 在 _on_map_draw 里读取，自然反映最新值。
+func _sync_boss_zone_to_poltergeist() -> void:
+	if _mode == null or not is_instance_valid(_mode):
+		return
+	var zd: ZoneData = null
+	if "_zone_data" in _mode:
+		zd = _mode._zone_data
+	if zd == null:
+		return
+	# 取已揭幕 F-14 质心；没有则用 CV 死亡位置
+	var center: Vector2 = _cv_death_position
+	if _poltergeist:
+		var sum := Vector2.ZERO
+		var n := 0
+		for m in _poltergeist.get_display_members():
+			if not is_instance_valid(m) or (m as CombatUnit).is_destroyed:
+				continue
+			sum += (m as Node2D).global_position
+			n += 1
+		if n > 0:
+			center = sum / float(n)
+	zd.boss_zone["center"] = center
+
 
 ## 胜利：CV 死 AND（Phase 2 未触发 OR Poltergeist 全灭）
 func _check_victory() -> void:
