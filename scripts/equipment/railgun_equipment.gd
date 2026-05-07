@@ -52,6 +52,14 @@ enum LockTrajectory {
 ## 必须先用雷达锁定目标（target.is_locked = true）才能开始充能
 ## 配合飞机 params.lock_time，可拉长"瞄准 → 锁定 → 充能 → 发射"全流程
 @export var require_radar_lock: bool = true
+## 一旦开始充能就不再因目标失锁/出锥/贴脸而取消（仅目标死亡才中断）。
+## 充能完成时即使目标已偏离也按 locked_aim_pos 朝原方向射击 —— 玩家有更强压迫感。
+## Mother Goose MQ-112 等"无脑狙击型" UAV 用 true；玩家版 / AF-03 保持 false。
+@export var charge_persistent: bool = false
+## true 时弹道无视 locked_aim_pos，永远沿机头方向延伸到 max_range —— "电磁炮就是直射武器"。
+## 命中靠玩家是否在机头延长线上；玩家被减速时反应距离不够 → 容易被命中。
+## MQ-112 用 true（机头直射）；玩家版 / AF-03 用 false（向 aim_pos 射击，含散布偏移）
+@export var fire_along_nose: bool = false
 
 @export_group("命中（仅 AT_FIRE_TIME 模式）")
 ## 高速目标 miss 概率 —— 玩家版本基本必中，但极速目标（>1500 km/h）会有少量散布
@@ -200,23 +208,25 @@ func _tick_charging(ac, s: Dictionary, delta: float) -> void:
 		s["charging"] = false
 		s["charge_progress"] = 0.0
 		return
-	# 充能期间持续要求雷达锁 + 机头对准（任一失守即取消，玩家须保持瞄准）
-	if require_radar_lock and not tgt.is_locked:
-		s["charging"] = false
-		s["charge_progress"] = 0.0
-		return
-	if not _target_in_fire_cone(ac, tgt):
-		s["charging"] = false
-		s["charge_progress"] = 0.0
-		return
-	# 充能期间敌机贴脸到 min_engage 内 → 取消（让位给近战武器）
-	if min_engage_range_m > 0.0:
-		var dist: float = ac.global_position.distance_to(tgt.global_position)
-		var min_px: float = min_engage_range_m * CombatUnit.PIXELS_PER_METER
-		if dist < min_px:
+	# charge_persistent：跳过失锁/出锥/贴脸 cancel 检查 —— 锁定一旦开始就跑完
+	if not charge_persistent:
+		# 充能期间持续要求雷达锁 + 机头对准（任一失守即取消，玩家须保持瞄准）
+		if require_radar_lock and not tgt.is_locked:
 			s["charging"] = false
 			s["charge_progress"] = 0.0
 			return
+		if not _target_in_fire_cone(ac, tgt):
+			s["charging"] = false
+			s["charge_progress"] = 0.0
+			return
+		# 充能期间敌机贴脸到 min_engage 内 → 取消（让位给近战武器）
+		if min_engage_range_m > 0.0:
+			var dist: float = ac.global_position.distance_to(tgt.global_position)
+			var min_px: float = min_engage_range_m * CombatUnit.PIXELS_PER_METER
+			if dist < min_px:
+				s["charging"] = false
+				s["charge_progress"] = 0.0
+				return
 	# 推进进度
 	s["charge_progress"] = clampf(s["charge_progress"] + delta / charge_duration, 0.0, 1.0)
 	if s["charge_progress"] >= 1.0:
@@ -242,7 +252,7 @@ func _fire(ac, s: Dictionary) -> void:
 	var aim_pos: Vector2 = s["locked_aim_pos"]
 
 	# 环境干扰 miss：基础 + 云层 + 低空
-	# 三项叠加后单次 roll，命中失败则给 aim_pos 加横向偏移 → hitscan 错过
+	# 三项叠加后单次 roll；命中失败 → 在最终 dir 上加横向角度扰动（兼容 fire_along_nose）
 	var miss_chance: float = base_miss_chance
 	var tgt_for_env = s.get("charge_target", null)
 	if is_instance_valid(tgt_for_env):
@@ -257,16 +267,20 @@ func _fire(ac, s: Dictionary) -> void:
 		if low_alt_miss_bonus > 0.0 and "altitude" in tgt_for_env:
 			if float(tgt_for_env.altitude) < low_alt_threshold_m:
 				miss_chance += low_alt_miss_bonus
-	if miss_chance > 0.0 and randf() < clampf(miss_chance, 0.0, 0.95):
-		# 横向偏移让 hitscan 错过（偏移幅度 50-150px，与 fast_target miss 相当）
-		var to_target: Vector2 = aim_pos - ac.global_position
-		var perp: Vector2 = to_target.orthogonal().normalized()
-		var offset_amt: float = randf_range(50.0, 150.0)
-		aim_pos += perp * offset_amt * (1.0 if randf() < 0.5 else -1.0)
+		# 慢速目标命中加成：被减速 / 静止的目标"应该更容易被命中"
+		# < 300km/h 时按线性内插最多砍 60% miss，把"减速难躲"这条设计承诺接到数值上
+		if tgt_for_env is Aircraft:
+			var spd_kmh_slow: float = float((tgt_for_env as Aircraft).speed) * 3.6
+			if spd_kmh_slow < 300.0:
+				var slow_t: float = 1.0 - clampf(spd_kmh_slow / 300.0, 0.0, 1.0)
+				miss_chance *= 1.0 - 0.6 * slow_t
+	var env_miss: bool = miss_chance > 0.0 and randf() < clampf(miss_chance, 0.0, 0.95)
+	if env_miss:
 		EventLogger.log_event("RAILGUN", ac.callsign,
 			"miss-roll triggered (chance=%.2f)" % miss_chance)
 	# 玩家版极速目标 miss 散布：仅当装备 fast_target_max_miss_chance > 0 时启用
 	# （敌人版 enemy_railgun.tres 设 0，没有这个补偿）
+	var fast_miss: bool = false
 	if fast_target_max_miss_chance > 0.0:
 		var tgt = s.get("charge_target", null)
 		if is_instance_valid(tgt) and "speed" in tgt:
@@ -276,13 +290,25 @@ func _fire(ac, s: Dictionary) -> void:
 					(spd_kmh - fast_target_miss_speed_kmh) / fast_target_miss_speed_kmh,
 					0.0, 1.0)
 				if randf() < fast_target_max_miss_chance * miss_t:
-					var to_target: Vector2 = aim_pos - ac.global_position
-					var perp: Vector2 = to_target.orthogonal().normalized()
-					aim_pos += perp * 80.0 * (1.0 if randf() < 0.5 else -1.0)
+					fast_miss = true
 
 	# 弹道：从 ac 机头延长到 max_range（穿透到底）
 	var muzzle: Vector2 = ac.global_position
-	var dir: Vector2 = (aim_pos - muzzle).normalized()
+	var dir: Vector2
+	if fire_along_nose:
+		# 永远沿机头方向 —— 不向 aim_pos 偏移，玩家不在机头延长线上自然 miss
+		dir = Vector2(sin(ac.heading), -cos(ac.heading))
+	else:
+		dir = (aim_pos - muzzle).normalized()
+	# miss-roll 触发后扰动 dir（在确定基底方向之后，确保 fire_along_nose 也受影响）
+	if env_miss:
+		var perp_dir: Vector2 = dir.orthogonal()
+		var jitter: float = randf_range(0.04, 0.10) * (1.0 if randf() < 0.5 else -1.0)
+		dir = (dir + perp_dir * jitter).normalized()
+	if fast_miss:
+		var perp_dir2: Vector2 = dir.orthogonal()
+		var jitter2: float = 0.05 * (1.0 if randf() < 0.5 else -1.0)
+		dir = (dir + perp_dir2 * jitter2).normalized()
 	var range_px: float = _effective_max_range_m(ac) * CombatUnit.PIXELS_PER_METER
 	var beam_end: Vector2 = muzzle + dir * range_px
 

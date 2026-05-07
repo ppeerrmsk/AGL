@@ -1,0 +1,27 @@
+[gd_resource type="Resource" script_class="RailgunEquipment" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/equipment/railgun_equipment.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+equipment_kind = "railgun"
+display_name = "MQ-112 Railgun"
+fire_cone_half_angle_deg = 8.0
+hit_radius_px = 10.0
+beam_fade_duration = 1.0
+damage = 45.0
+max_range_m = 9000.0
+min_engage_range_m = 1500.0
+charge_duration = 2.5
+lock_trajectory_at = 0
+fire_delay_after_lock = 0.6
+cooldown = 12.0
+charge_persistent = true
+fire_along_nose = true
+fast_target_miss_speed_kmh = 1500.0
+fast_target_max_miss_chance = 0.0
+base_miss_chance = 0.0
+cloud_miss_bonus = 0.30
+low_alt_miss_bonus = 0.20
+beam_color = Color(0.7, 0.95, 1.0, 1.0)
+enemy_beam_color = Color(1.0, 0.5, 0.4, 1.0)
