@@ -204,6 +204,40 @@ static func draw_radar_cone(ac: Aircraft) -> void:
 	for i in range(1, points.size() - 1):
 		ac.draw_line(points[i], points[i + 1], edge_color, 1.0, true)
 
+## 玩家光环范围预览（hover 玩家时显示）：
+##   - jam_aura：全圆绿色 ring
+##   - rear_aura_slow：后半球弧（dot(my_back, to_enemy) > 0.3 → ±72.5°）
+##   - fear_on_lock（凝视压迫）：与雷达锥同形状的紫色外弧（持续锁定 N 秒后施 FEAR）
+## 仅在 ac.team == 0 且 ac.is_hovered 时绘制；本地坐标里飞机朝 -Y，所以"back"=+Y（角度 PI/2）
+static func draw_aura_ranges(ac: Aircraft) -> void:
+	if ac.team != 0 or not ac.is_hovered:
+		return
+	if ac.jam_aura_radius_px > 0.0:
+		var jam_col := Color(0.40, 1.00, 0.55, 0.55)
+		ac.draw_arc(Vector2.ZERO, ac.jam_aura_radius_px, 0.0, TAU, 48, jam_col, 1.2, true)
+	if ac.rear_aura_slow_radius_px > 0.0:
+		# dot > 0.3 → 半角 acos(0.3) ≈ 72.54°，关于 +Y（local back）
+		var slow_col := Color(0.55, 0.80, 1.00, 0.55)
+		var half := deg_to_rad(72.54)
+		var center := PI / 2.0  # local +Y = back
+		ac.draw_arc(Vector2.ZERO, ac.rear_aura_slow_radius_px,
+			center - half, center + half, 32, slow_col, 1.2, true)
+	# 凝视压迫：技能没有独立"AOE 范围" —— 真实触发条件 = 玩家雷达持续锁中某敌 N 秒，
+	# 所以"视线范围"就是雷达锁定锥本身。在 draw_radar_cone 已画的淡色填充之上，
+	# 叠一道紫色外弧 + 中轴线 + 边缘线，明示"在这个锥里被盯久了会上 FEAR"。
+	if ac.fear_on_lock_threshold > 0.0 and ac.params:
+		var radar_r: float = ac.effective_radar_range_px()
+		var half_rad: float = deg_to_rad(ac.params.radar_half_angle)
+		var fear_center: float = -PI / 2.0   # 本地朝 -Y = 机头方向
+		var fear_col := Color(0.80, 0.45, 0.95, 0.65)
+		ac.draw_arc(Vector2.ZERO, radar_r,
+			fear_center - half_rad, fear_center + half_rad, 32, fear_col, 1.5, true)
+		# 两条边缘线（从飞机指向锥端点），让锥角清楚
+		var edge_a := Vector2(cos(fear_center - half_rad), sin(fear_center - half_rad)) * radar_r
+		var edge_b := Vector2(cos(fear_center + half_rad), sin(fear_center + half_rad)) * radar_r
+		ac.draw_line(Vector2.ZERO, edge_a, fear_col, 1.0, true)
+		ac.draw_line(Vector2.ZERO, edge_b, fear_col, 1.0, true)
+
 static func draw_gun_cone(ac: Aircraft) -> void:
 	if not ac.params or not ac.params.gun:
 		return
