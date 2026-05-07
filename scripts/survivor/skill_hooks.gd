@@ -155,10 +155,16 @@ static func dispatch_on_kill(killer: Aircraft, victim: Aircraft) -> void:
 				"head_on_perma_hp → max_hp+%d (now %.0f)" % [int(HEAD_ON_PERMA_HP_BONUS), killer.params.max_hp])
 
 	# ── 钩子：对头击杀大范围 FEAR ──
+	# fear_chills（寒颤）联动：玩家持有该升级时，AOE FEAR 同步附带 SLOW
+	# 与单体路径 _apply_player_fear 行为一致，确保 fear_applies_slow 在所有 FEAR 入口生效
 	if is_head_on and stacks.get(SKILL_HEAD_ON_AOE_FEAR, 0) > 0:
 		AOEBroadcast.apply_status_in_radius(
 			victim.global_position, HEAD_ON_AOE_FEAR_RADIUS_PX,
 			1, StatusEffects.FEAR, HEAD_ON_AOE_FEAR_DURATION, killer)
+		if killer.fear_applies_slow:
+			AOEBroadcast.apply_status_in_radius(
+				victim.global_position, HEAD_ON_AOE_FEAR_RADIUS_PX,
+				1, StatusEffects.SLOW, HEAD_ON_AOE_FEAR_DURATION, killer)
 
 	# ── 钩子：超载-嗜血联动击杀刷新 ──
 	# 击杀时若 OVERLOAD 或 BLOODLUST 仍在 → 刷新两者到 initial duration（重置进度条）
