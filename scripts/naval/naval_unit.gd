@@ -154,6 +154,7 @@ var _last_lock_progress_quant: int = -1
 var _last_mounts_destroyed_count: int = -1
 var _last_weak_revealed: bool = false
 var _last_lock_warning_active: bool = false
+var _last_zoom_quant: int = -1
 
 func _physics_process(delta: float) -> void:
 	if is_destroyed:
@@ -241,6 +242,13 @@ func _should_redraw() -> bool:
 	var lp_q := int(clampf(incoming_lock_progress, 0.0, 1.0) * 10.0)
 	if lp_q != _last_lock_progress_quant:
 		_last_lock_progress_quant = lp_q
+		return true
+
+	# 相机缩放跨级 → _draw_status_label 的 inv_zoom 烤进了 canvas item，
+	# 不重画会让标签随世界一起放大缩小
+	var zoom_q := int(get_viewport_transform().get_scale().x * 100.0)
+	if zoom_q != _last_zoom_quant:
+		_last_zoom_quant = zoom_q
 		return true
 
 	return false
