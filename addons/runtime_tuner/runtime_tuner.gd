@@ -1,7 +1,7 @@
 extends CanvasLayer
-class_name RuntimeTuner
 
 ## 运行时参数调试器（autoload 注入，不被游戏代码引用）
+## 注：不写 class_name —— autoload 已经提供 RuntimeTuner 全局名，二者冲突会报错。
 ##
 ## 用法：F10 切换显示。Hover 玩家飞机时滑条调 .tres 字段或 Aircraft 实例字段，
 ## 现场看效果。改的是运行时实例（params 是 .tres 但 Godot 默认不写盘 Resource），
@@ -83,11 +83,8 @@ func _process(_delta: float) -> void:
 
 
 func _refresh_target() -> void:
-	# 用 safe_player_ref 防 freed
-	if AircraftRenderer.has_method("safe_player_ref"):
-		_target = AircraftRenderer.safe_player_ref()
-	else:
-		_target = AircraftRenderer.player_ref
+	# safe_player_ref 是静态方法，自动清理 freed 引用
+	_target = AircraftRenderer.safe_player_ref()
 	if _target == null or not is_instance_valid(_target):
 		_target_label.text = "Target: (none)"
 		return
