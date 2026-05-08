@@ -24,6 +24,7 @@ MeritLedger="*res://scripts/meta/merit_ledger.gd"
 LoadoutLedger="*res://scripts/meta/loadout_ledger.gd"
 PerfBuckets="*res://scripts/util/perf_buckets.gd"
 BenchRunner="*res://scripts/bench/bench_runner.gd"
+RuntimeTuner="*res://addons/runtime_tuner/runtime_tuner.gd"
 
 [display]
 
