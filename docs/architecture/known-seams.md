@@ -170,3 +170,17 @@ Sub 2 段。
 - 解法已实施的 seam 不删，留作历史 + 模式参考。新成员看到能避免重复发明。
 - 这份文档 + [CLAUDE.md](../../CLAUDE.md) "加机动性 buff 的规范" + [docs/DESIGN_PHILOSOPHY.md](../DESIGN_PHILOSOPHY.md)
   共同构成 AGL 的"防撞抗体"。
+
+### Git log 自动计票约定
+
+修 bug 撞到本表里某 seam 时，commit message 里加 `[ref:SEAM-XXX]` 标记（可放任何位置，
+正文或脚注都行）。然后用 `tools/seam-report.ps1` 扫 git log 统计票数：
+
+```powershell
+.\tools\seam-report.ps1                # 全历史
+.\tools\seam-report.ps1 -Since 30      # 最近 30 天（refactor 阈值判断窗口）
+.\tools\seam-report.ps1 -Verbose       # 同时打印每条 commit 的 hash + 标题
+```
+
+git log 的票数 = 实测踩坑频次（验证文档里"踩到次数"基线是否仍然准确）。
+两个数都 ≥ 2 + 都在 30 天内 → 该 seam 已成熟到值得做档 3 refactor。
