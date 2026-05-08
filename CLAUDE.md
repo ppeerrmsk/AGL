@@ -158,6 +158,7 @@ Resource:   AircraftParams / GunParams / RocketParams / MissileParams / CombatPa
 - [known-seams.md](docs/architecture/known-seams.md) — **反复绊倒 fix 的耦合点登记**。修 bug 时撞到地基先来这里看，未记则加新条目。下一轮 refactor 排期的输入。
 
 **查询手册**（docs/reference/）
+- [playbook.md](docs/reference/playbook.md) — **"加新 X" 总入口索引**（敌机 / BOSS / 武器 / 技能 / 主角飞机 / 事件 / 地面单位 / 地图 / 状态 9 类，每类带清单 + 必读约束）
 - [script-index.md](docs/reference/script-index.md) — **关键文件职责大表**（按文件，含行号 + 入口）
 - [enemy-index.md](docs/reference/enemy-index.md) — **敌人索引大表 + Adds/F-47 细节 + 创建新敌人 12 步清单 + AI Archetype**
 - [repo-layout.md](docs/reference/repo-layout.md) — 完整目录树
