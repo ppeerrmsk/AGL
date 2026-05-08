@@ -154,6 +154,9 @@ Resource:   AircraftParams / GunParams / RocketParams / MissileParams / CombatPa
 - [audio.md](docs/systems/audio.md) — 音频系统
 - [aircraft-params.md](docs/systems/aircraft-params.md) — 飞机参数字段说明
 
+**架构**（docs/architecture/）
+- [known-seams.md](docs/architecture/known-seams.md) — **反复绊倒 fix 的耦合点登记**。修 bug 时撞到地基先来这里看，未记则加新条目。下一轮 refactor 排期的输入。
+
 **查询手册**（docs/reference/）
 - [script-index.md](docs/reference/script-index.md) — **关键文件职责大表**（按文件，含行号 + 入口）
 - [enemy-index.md](docs/reference/enemy-index.md) — **敌人索引大表 + Adds/F-47 细节 + 创建新敌人 12 步清单 + AI Archetype**
