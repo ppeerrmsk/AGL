@@ -72,7 +72,7 @@ func _process(_delta: float) -> void:
 		return
 	for field in FIELDS:
 		var path: String = field["path"]
-		var v: float = float(_read_field(path))
+		var v: float = _read_field(path)
 		var slider: HSlider = _slider_refs.get(path)
 		if slider and absf(slider.value - v) > 0.001:
 			# 只在外部值变了才更新滑条（避免拖动时反复跳）
@@ -99,7 +99,7 @@ func _refresh_target() -> void:
 	# 同步滑条到当前值
 	for field in FIELDS:
 		var path: String = field["path"]
-		var v: float = float(_read_field(path))
+		var v: float = _read_field(path)
 		var slider: HSlider = _slider_refs.get(path)
 		if slider:
 			slider.set_block_signals(true)
@@ -262,7 +262,8 @@ func _on_print() -> void:
 	print(msg)
 
 
-func _read_field(path: String):
+## 始终返回 float —— 字段不存在 / null / 不可转 → 0.0 + warning
+func _read_field(path: String) -> float:
 	if _target == null or not is_instance_valid(_target):
 		return 0.0
 	var parts := path.split(":")
@@ -270,12 +271,22 @@ func _read_field(path: String):
 		return 0.0
 	var owner_kind := parts[0]
 	var field := parts[1]
+	var raw = null
 	if owner_kind == "params":
 		if _target.params == null:
 			return 0.0
-		return _target.params.get(field)
+		raw = _target.params.get(field)
 	elif owner_kind == "self":
-		return _target.get(field)
+		raw = _target.get(field)
+	if raw == null:
+		push_warning("RuntimeTuner: field not found: %s" % path)
+		return 0.0
+	# 兼容 int / float / bool；其他类型直接 0
+	if typeof(raw) == TYPE_FLOAT or typeof(raw) == TYPE_INT:
+		return float(raw)
+	if typeof(raw) == TYPE_BOOL:
+		return 1.0 if raw else 0.0
+	push_warning("RuntimeTuner: field %s has unsupported type %d" % [path, typeof(raw)])
 	return 0.0
 
 
