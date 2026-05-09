@@ -4,6 +4,8 @@
 
 [resource]
 script = ExtResource("1")
+missile_skill = 0.65
+missile_skill_jitter = 0.15
 ; ── Lancer（骑士型 / 打带跑）──
 ; 高速突击一次然后脱离；不追求缠斗，闭合率不够就放弃；
 ; 相对默认：拦截距离更远 / 六点钟偏移更大 / 转弯较保守 / 接近段油门拉满。

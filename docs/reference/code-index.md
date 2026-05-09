@@ -111,7 +111,8 @@
 | 单枚发射 | `aircraft.gd:1909` _fire_missile_at |
 | 多目标齐射 | `aircraft.gd:1931` _fire_multi_lock_salvo |
 | 最优目标选择（评分） | `aircraft.gd:1977` _select_best_missile_target |
-| 射程包线检查 | `aircraft.gd:2026` _is_in_missile_envelope |
+| 射程包线检查 | `aircraft.gd:2026` _is_in_missile_envelope → `aircraft_combat_tracking.gd:632` is_in_missile_envelope / `:envelope_pass_at(point, hdg, alt, msl)` 纯几何 |
+| 发射纪律 missile_skill (CombatParams.missile_skill / _jitter) | `aircraft_weapons.gd` _missile_skill / _has_stable_launch_window(skill) / _has_lead_intercept_solution(skill)（前置点包络 + off-axis-to-lead）|
 | 导弹阶段判定（接近/照射/保持） | `aircraft.gd:1571` _get_missile_phase |
 | 是否应该用机炮 | `aircraft.gd:1588` _should_use_gun |
 | Crank 状态查询 | `aircraft.gd:1709` is_cranking |

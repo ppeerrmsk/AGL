@@ -1,6 +1,18 @@
 class_name CombatParams
 extends Resource
 
+@export_group("导弹发射纪律")
+## 导弹熟练度 0..1：影响"前置点是否在包络内 / 偏角是否合理 / 发射窗口是否稳定"三道门槛
+##  0   = 不过滤窗口稳定度，前置点包络仍然检查（避免明显废弹）
+##  0.4 = 杂兵基线：偶尔筛掉乱射
+##  0.55 = 常规敌战斗机
+##  0.85 = 玩家 / 王牌：严格 lead + 严格发射窗口
+## 仅对装备导弹（params.missile != null）的飞机生效；纯机炮/纯火箭飞机此字段被忽略
+@export_range(0.0, 1.0, 0.05) var missile_skill: float = 0.4
+## 每次发射判断时的随机波动 ± 范围。skill=0.55 jitter=0.20 → 实际生效在 [0.35, 0.75]
+## 让"老练飞行员"偶尔急了，"杂兵"偶尔抓到好窗口
+@export_range(0.0, 0.4, 0.05) var missile_skill_jitter: float = 0.15
+
 @export_group("追踪策略")
 @export var intercept_range_mult: float = 2.5      ## 超过 射程×此值 进入拦截模式
 @export var intercept_lead_max: float = 8.0        ## 秒 前置拦截最大预判时间

@@ -4,6 +4,8 @@
 
 [resource]
 script = ExtResource("1")
+missile_skill = 0.45
+missile_skill_jitter = 0.20
 ; ── Gladiator（斗士型）──
 ; 积极拉近距离、不怕近战狗斗、保持压迫式咬尾。
 ; 相对默认：拦截距离更近 / 六点钟偏移更小 / 转弯更激进 / 近战速度略低求最小转弯半径

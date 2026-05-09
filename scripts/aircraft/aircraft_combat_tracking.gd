@@ -630,15 +630,21 @@ static func is_gun_pass_finished(ac: Aircraft) -> bool:
 
 ## 检查目标是否在导弹射程包线内
 static func is_in_missile_envelope(ac: Aircraft, target_unit: CombatUnit, msl: MissileParams) -> bool:
-	var dist_px := ac.global_position.distance_to(target_unit.global_position)
+	return envelope_pass_at(ac, target_unit.global_position, target_unit.heading, target_unit.altitude, msl)
+
+## 纯几何包络检查：判定从 ac 朝 point 发射 msl 是否在射程包线内
+## point/tgt_heading/tgt_altitude 可来自当前目标，也可来自预测的前置点
+## 抽出来给 _has_lead_intercept_solution 复用（lead 检查需要拿预测点跑同一套包络）
+static func envelope_pass_at(ac: Aircraft, point: Vector2, tgt_heading: float, tgt_altitude: float, msl: MissileParams) -> bool:
+	var dist_px := ac.global_position.distance_to(point)
 	var dist_m := dist_px / CombatUnit.PIXELS_PER_METER
 
 	if dist_m < msl.min_range:
 		return false
 
 	# TAA（目标纵横角）
-	var tgt_fwd := Vector2(sin(target_unit.heading), -cos(target_unit.heading))
-	var to_me := (ac.global_position - target_unit.global_position).normalized()
+	var tgt_fwd := Vector2(sin(tgt_heading), -cos(tgt_heading))
+	var to_me := (ac.global_position - point).normalized()
 	var taa_rad := acos(clampf(-tgt_fwd.dot(to_me), -1.0, 1.0))
 	var taa_deg := rad_to_deg(taa_rad)
 
@@ -662,9 +668,7 @@ static func is_in_missile_envelope(ac: Aircraft, target_unit: CombatUnit, msl: M
 		return false
 
 	# 高度差限制（扁平模式下忽略）
-	# 5000m 上限：use_combat_altitude 把 AI 高度 clamp 到 ±2500m，正常情况下不会触底；
-	# 触发本限制说明 AI 处在 yoyo / extension 等过渡状态，应当禁火等高度回落。
-	if not ac.flat_altitude and absf(ac.altitude - target_unit.altitude) > 5000.0:
+	if not ac.flat_altitude and absf(ac.altitude - tgt_altitude) > 5000.0:
 		return false
 
 	return true

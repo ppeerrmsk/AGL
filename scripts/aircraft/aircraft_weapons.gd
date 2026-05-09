@@ -21,37 +21,66 @@ extends RefCounted
 
 const AUTO_GUN_SCAN_INTERVAL := 0.3
 const ROCKET_FIRE_ALT_DIFF_M := 800.0            ## 火箭弹发射最大高度差（米）
-const LAUNCH_QUALITY_OFFAX_RATIO_SARH := 0.5     ## SARH：目标必须在雷达锥中央 50% 内（F-14 16°）
-const LAUNCH_QUALITY_OFFAX_RATIO_FAF  := 0.85    ## f&f：seeker FOV 内即可（保持原有宽松）
-const LAUNCH_QUALITY_MAX_BANK_DEG_SARH := 35.0   ## SARH：bank 超此急转中不发，避免打完即丢锁
-const LAUNCH_QUALITY_MAX_BANK_DEG_FAF  := 60.0   ## f&f：bank 限制原 60°
-const LAUNCH_QUALITY_MAX_ROLL_RATE_DEG_S := 30.0 ## 滚转率超此判为"急速侧滚中"，所有制导都拒发（SARH 失锁 / f&f 初始 los 抖动）
+
+## 发射窗口稳定度阈值表（按 missile_skill 双线性插值）
+## skill=0 端 = 极宽（几乎不过滤），skill=1 端 = 老逻辑严格值
+## SARH 比 f&f 更收紧（半主动制导发射后还要持续照射，发射器姿态影响命中）
+const STABLE_OFFAX_RATIO_SARH_LOOSE := 0.95
+const STABLE_OFFAX_RATIO_SARH_TIGHT := 0.5
+const STABLE_OFFAX_RATIO_FAF_LOOSE  := 1.0
+const STABLE_OFFAX_RATIO_FAF_TIGHT  := 0.85
+const STABLE_MAX_BANK_DEG_SARH_LOOSE := 75.0
+const STABLE_MAX_BANK_DEG_SARH_TIGHT := 35.0
+const STABLE_MAX_BANK_DEG_FAF_LOOSE  := 90.0
+const STABLE_MAX_BANK_DEG_FAF_TIGHT  := 60.0
+const STABLE_MAX_ROLL_RATE_DEG_S_LOOSE := 120.0
+const STABLE_MAX_ROLL_RATE_DEG_S_TIGHT := 30.0
+
+## 前置 lead 检查的 off-axis 收紧系数（lerp(LOOSE, TIGHT, skill)）
+## TIGHT 端对应 skill=1：seeker_half_deg(默认 30°) × 此比 = 实际允许偏角
+## SARH 0.30 → 9° 内才发；f&f 0.55 → 16.5° 内才发
+## 旧值 0.5 / 0.7 偏松，玩家 skill=0.85 时仍允许 17° 偏角，看起来"打中间"
+const LEAD_OFFAX_RATIO_SARH_LOOSE := 1.0
+const LEAD_OFFAX_RATIO_SARH_TIGHT := 0.30
+const LEAD_OFFAX_RATIO_FAF_LOOSE  := 1.0
+const LEAD_OFFAX_RATIO_FAF_TIGHT  := 0.55
+## 估算导弹平均飞行速度系数：avg = max(ac.speed, msl.max_speed * 此系数)
+const LEAD_MISSILE_AVG_SPEED_FRAC := 0.85
+
+## 当前架次的"导弹熟练度"实际生效值（base ± jitter，每次发射判定重新摇）
+##  - 没有 missile loadout / 没有 combat 资源：返回 0（语义上不参与本系统）
+##  - 仅对 params.missile != null 的飞机有意义；纯机炮/纯火箭飞机不会进入 update_missile
+static func _missile_skill(ac: Aircraft) -> float:
+	if not ac.params or not ac.params.missile or not ac.params.combat:
+		return 0.0
+	var c: CombatParams = ac.params.combat
+	var base: float = c.missile_skill
+	var j: float = c.missile_skill_jitter
+	if j <= 0.0:
+		return clampf(base, 0.0, 1.0)
+	return clampf(base + randf_range(-j, j), 0.0, 1.0)
 
 ## 发射窗口质量过滤：返回 true 表示当前几何稳定可发，false 跳过这一帧
-##
-## 适用范围：玩家自动发射 + 玩家方僚机（team==0 + use_tactical_planner）
-## 不过滤敌方 AI（保持游戏难度）；不过滤玩家手动 set_combat_target 后的单发
-##
-## 三条几何约束：
-##  1. **滚转率**：|d_bank/dt| > 30°/s 判定为"急速滚转中"，**仅 SARH 拒发**
-##     —— 修 Xerxes 在 70°→-82° 滚转过程中借 bank=0 瞬间发 SARH，
-##     发射后立即继续滚转把目标甩出雷达锥 → SARH 丢锁 → 全部打空
-##     f&f 自主制导，发射后发射器再怎么滚都不影响命中，不受本条限制
-##     （否则玩家追 12G UAV 时 100-200°/s 滚转率永远过不了门，导致一发不出）
-##  2. **bank 角**：SARH 35°，f&f 60°。SARH 半主动需要持续照射，门槛收紧
-##  3. **off-axis 角**：SARH 0.5×radar_half（F-14 16°），f&f 0.85×（27°）
-##     SARH 在小 cone 内开火，给 launch 后的转动留余量
-static func _has_stable_launch_window(ac: Aircraft, target_unit: CombatUnit) -> bool:
+## skill=0 → 阈值放到 LOOSE 端（行为≈不过滤），skill=1 → TIGHT 端（老严格值）
+## SARH 与 f&f 走两套阈值：SARH 半主动需持续照射，门槛收紧
+static func _has_stable_launch_window(ac: Aircraft, target_unit: CombatUnit, skill: float) -> bool:
 	if not ac.params or not is_instance_valid(target_unit):
 		return true
 	var is_faf: bool = ac.params.missile and ac.params.missile.fire_and_forget
+	var s: float = clampf(skill, 0.0, 1.0)
 	# 1. 滚转率检查：仅 SARH 受限（f&f 发射后自主制导，发射器姿态无关）
-	var roll_rate_deg_s: float = absf(rad_to_deg(ac._bank_rate_rad_s))
-	if not is_faf and roll_rate_deg_s > LAUNCH_QUALITY_MAX_ROLL_RATE_DEG_S:
-		return false
+	if not is_faf:
+		var roll_rate_deg_s: float = absf(rad_to_deg(ac._bank_rate_rad_s))
+		var roll_limit: float = lerpf(STABLE_MAX_ROLL_RATE_DEG_S_LOOSE, STABLE_MAX_ROLL_RATE_DEG_S_TIGHT, s)
+		if roll_rate_deg_s > roll_limit:
+			return false
 	# 2. bank 检查
 	var bank_deg: float = absf(rad_to_deg(ac.bank_angle))
-	var bank_limit: float = LAUNCH_QUALITY_MAX_BANK_DEG_FAF if is_faf else LAUNCH_QUALITY_MAX_BANK_DEG_SARH
+	var bank_limit: float
+	if is_faf:
+		bank_limit = lerpf(STABLE_MAX_BANK_DEG_FAF_LOOSE, STABLE_MAX_BANK_DEG_FAF_TIGHT, s)
+	else:
+		bank_limit = lerpf(STABLE_MAX_BANK_DEG_SARH_LOOSE, STABLE_MAX_BANK_DEG_SARH_TIGHT, s)
 	if bank_deg > bank_limit:
 		return false
 	# 3. off-axis 检查
@@ -59,20 +88,56 @@ static func _has_stable_launch_window(ac: Aircraft, target_unit: CombatUnit) -> 
 	var hdg_to_tgt: float = atan2(to_tgt.x, -to_tgt.y)
 	var off_axis_deg: float = absf(rad_to_deg(ac._angle_diff(hdg_to_tgt, ac.heading)))
 	var radar_half_deg: float = ac.params.radar_half_angle
-	var offax_ratio: float = LAUNCH_QUALITY_OFFAX_RATIO_FAF if is_faf else LAUNCH_QUALITY_OFFAX_RATIO_SARH
+	var offax_ratio: float
+	if is_faf:
+		offax_ratio = lerpf(STABLE_OFFAX_RATIO_FAF_LOOSE, STABLE_OFFAX_RATIO_FAF_TIGHT, s)
+	else:
+		offax_ratio = lerpf(STABLE_OFFAX_RATIO_SARH_LOOSE, STABLE_OFFAX_RATIO_SARH_TIGHT, s)
 	if off_axis_deg > radar_half_deg * offax_ratio:
 		return false
 	return true
 
-## 是否对该飞机执行发射窗口质量过滤：玩家 + 玩家方 planner 僚机受限
-## 敌方 AI 跳过本检查（维持原有游戏难度）；老 BFM 路径的 AI（无 planner）也跳过
-static func _should_apply_launch_quality(ac: Aircraft) -> bool:
-	if ac.use_tactical_preference:
-		return true
-	# 玩家方僚机：team 0 + planner-managed → 与玩家同等纪律
-	if ac.team == 0 and ac.use_tactical_planner:
-		return true
-	return false
+## 前置 lead 解算：估算 TTI、计算预测命中点，验证：
+##  1) 预测点仍在导弹包络内（max_range × alt_factor，按 TAA 取）—— 物理上不可漏的"废弹"过滤
+##  2) 我机当前机头到预测点的偏角 ≤ seeker_fov × 0.5 × ratio(skill, is_faf)
+##     （skill 越高越收紧，避免发射器还在大幅偏置就扣扳机让导弹烧能量找前置）
+## 算法两轮迭代（与 BfmIntent._gun_lead_point 同型）
+## 返回 [pass: bool, tti_s: float, off_to_lead_deg: float] 用于日志
+static func _has_lead_intercept_solution(ac: Aircraft, target_unit: CombatUnit, msl: MissileParams, skill: float) -> Array:
+	if not ac.params or not is_instance_valid(target_unit) or msl == null:
+		return [true, 0.0, 0.0]
+	var avg_speed_ms: float = maxf(ac.speed, msl.max_speed * LEAD_MISSILE_AVG_SPEED_FRAC)
+	if avg_speed_ms < 100.0:
+		avg_speed_ms = 100.0
+	var avg_speed_px: float = avg_speed_ms * CombatUnit.PIXELS_PER_METER
+	var my_pos: Vector2 = ac.global_position
+	var tgt_pos: Vector2 = target_unit.global_position
+	var tgt_speed_px: float = target_unit.speed * CombatUnit.PIXELS_PER_METER
+	var tgt_vel: Vector2 = Vector2(sin(target_unit.heading), -cos(target_unit.heading)) * tgt_speed_px
+	# 两轮迭代估 TTI
+	var t1: float = my_pos.distance_to(tgt_pos) / avg_speed_px
+	var lead1: Vector2 = tgt_pos + tgt_vel * t1
+	var t2: float = my_pos.distance_to(lead1) / avg_speed_px
+	var final_lead: Vector2 = tgt_pos + tgt_vel * t2
+	# 1) 包络检查（始终启用，与 skill 无关：物理上的废弹判定）
+	if not AircraftCombatTracking.envelope_pass_at(ac, final_lead, target_unit.heading, target_unit.altitude, msl):
+		var lead_dist_m: float = my_pos.distance_to(final_lead) / CombatUnit.PIXELS_PER_METER
+		return [false, t2, lead_dist_m]
+	# 2) off-axis 偏角到预测点（按 skill 收紧）
+	var s: float = clampf(skill, 0.0, 1.0)
+	var to_lead: Vector2 = final_lead - my_pos
+	var hdg_to_lead: float = atan2(to_lead.x, -to_lead.y)
+	var off_lead_deg: float = absf(rad_to_deg(ac._angle_diff(hdg_to_lead, ac.heading)))
+	var is_faf: bool = msl.fire_and_forget
+	var ratio: float
+	if is_faf:
+		ratio = lerpf(LEAD_OFFAX_RATIO_FAF_LOOSE, LEAD_OFFAX_RATIO_FAF_TIGHT, s)
+	else:
+		ratio = lerpf(LEAD_OFFAX_RATIO_SARH_LOOSE, LEAD_OFFAX_RATIO_SARH_TIGHT, s)
+	var seeker_half_deg: float = msl.seeker_fov * 0.5
+	if off_lead_deg > seeker_half_deg * ratio:
+		return [false, t2, off_lead_deg]
+	return [true, t2, off_lead_deg]
 
 
 ## 射击更新
@@ -719,16 +784,24 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 			_dist_m, lock_progress, lock_threshold])
 		return
 
-	# 发射窗口质量：发射器急转 / 目标在锥边缘 → 跳过这一帧（不计冷却，下帧重试），
-	# 等条件稳定后才发射。玩家 + 玩家方 planner 僚机受限；敌方 AI 不受限
-	# 解决用户反馈：F-14 僚机在 7.5G 急转中盲发 MRM，连开 2 弹打 Tu-160 全 miss
-	if _should_apply_launch_quality(ac) and not _has_stable_launch_window(ac, ac.combat_target):
+	# 发射纪律：missile_skill 控制三道门槛
+	#  - 发射窗口稳定（bank/roll/off-axis）按 skill 双线性插值
+	#  - 前置 lead 解算（包络 + off-axis-to-lead）按 skill 收紧
+	# skill=0 → 阈值放到 LOOSE 端（≈不过滤），skill=1 → TIGHT 端（老严格值）
+	# 见 combat_params.gd `missile_skill` 字段说明
+	var skill := _missile_skill(ac)
+	if not _has_stable_launch_window(ac, ac.combat_target, skill):
 		var bank_deg: float = absf(rad_to_deg(ac.bank_angle))
 		var roll_deg_s: float = absf(rad_to_deg(ac._bank_rate_rad_s))
 		var to_tgt2: Vector2 = ac.combat_target.global_position - ac.global_position
 		var off_ax: float = absf(rad_to_deg(ac._angle_diff(atan2(to_tgt2.x, -to_tgt2.y), ac.heading)))
 		ac._log_msl_block("UNSTABLE_WIN",
-				"bank=%.0f° roll=%.0f°/s off=%.0f°（任一超阈值则等下个窗口）" % [bank_deg, roll_deg_s, off_ax])
+				"skill=%.2f bank=%.0f° roll=%.0f°/s off=%.0f°" % [skill, bank_deg, roll_deg_s, off_ax])
+		return
+	var lead_res: Array = _has_lead_intercept_solution(ac, ac.combat_target, msl, skill)
+	if not lead_res[0]:
+		ac._log_msl_block("LEAD_GEOM",
+				"skill=%.2f tti=%.1fs detail=%.0f（前置点超出包络或我机偏角过大）" % [skill, lead_res[1], lead_res[2]])
 		return
 
 	_fire_missile_at(ac, ac.combat_target, msl, false)
@@ -803,8 +876,12 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 		# 齐射仍可打其他锁定目标
 		if ac.use_tactical_preference and ac.is_firing and target_unit == ac.combat_target:
 			continue
-		# 发射窗口质量过滤（玩家 + 玩家方 planner 僚机）：目标在锥边缘 / 急转中 → 跳过该目标
-		if _should_apply_launch_quality(ac) and not _has_stable_launch_window(ac, target_unit):
+		# 发射纪律：missile_skill 双门槛（窗口稳定 + 前置 lead 解算）
+		var skill_s := _missile_skill(ac)
+		if not _has_stable_launch_window(ac, target_unit, skill_s):
+			continue
+		var lead_s: Array = _has_lead_intercept_solution(ac, target_unit, msl, skill_s)
+		if not lead_s[0]:
 			continue
 		locked_targets.append(target_unit)
 

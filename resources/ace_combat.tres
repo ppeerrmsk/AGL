@@ -4,6 +4,8 @@
 
 [resource]
 script = ExtResource("1")
+missile_skill = 0.85
+missile_skill_jitter = 0.10
 ; ── Ace Sniper（王牌狙击手）──
 ; BVR 远距打击 + 打了就跑；不缠斗，保持站位距离；
 ; 比 Lancer 更精确、速度管理更好，适合协同齐射战术。

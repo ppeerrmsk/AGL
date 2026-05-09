@@ -48,9 +48,11 @@ func spawn_missile(source: CombatUnit, target: CombatUnit, missile_params: Missi
 	missile.altitude = source.altitude
 
 	# 初始朝向：
-	#   VLS 齐射弹 → LOS 方向 + 每发随机 ±25° 散布（模拟"一串火柱方向略散"的齐射观感）
-	#   飞机发射 → 用飞机当前朝向（飞机基本已对准目标）
-	#   地面 / 舰船 SAM → 用 source→target 的方向，避免船/SAM 朝北导致初始 PN 爆转
+	#   VLS 齐射弹 → LOS 方向 + 每发随机 ±25° 散布
+	#   飞机发射 → 朝预测前置点（lead point），让导弹一出筒就指向命中位置，
+	#              避免前 0.5s guidance_delay 内笔直飞向当前目标位置造成"打中间"观感；
+	#              clamp 到机头 ±60°（seeker_fov 半角），避免投弹角度物理失真
+	#   地面 / 舰船 SAM → 用 source→target 的方向
 	var initial_heading: float
 	if missile_params and missile_params.is_vls_salvo and target and is_instance_valid(target):
 		var los := target.global_position - source.global_position
@@ -59,6 +61,8 @@ func spawn_missile(source: CombatUnit, target: CombatUnit, missile_params: Missi
 	elif (source is GroundUnit or source is NavalUnit) and target and is_instance_valid(target):
 		var los := target.global_position - source.global_position
 		initial_heading = atan2(los.x, -los.y)
+	elif source is Aircraft and target and is_instance_valid(target) and missile_params:
+		initial_heading = _compute_lead_launch_heading(source, target, missile_params)
 	else:
 		initial_heading = source.heading
 	missile.heading = initial_heading
@@ -96,6 +100,32 @@ func spawn_missile(source: CombatUnit, target: CombatUnit, missile_params: Missi
 
 	add_child(missile)
 	return missile
+
+## 计算飞机发射导弹时的初始朝向：指向预测前置点
+## - 两轮迭代估 TTI（与 AircraftWeapons._has_lead_intercept_solution 同型，但不依赖 skill）
+## - clamp 到发射器机头 ±60°（seeker_fov 半角），避免几何爆角
+##   （上层 AircraftWeapons 已用 lead off-axis 门槛保证大多数发射只需小修正）
+## - 让导弹一出筒就指向命中点，避开 guidance_delay 内笔直飞向当前位置的"打中间"观感
+func _compute_lead_launch_heading(source: CombatUnit, target: CombatUnit, msl: MissileParams) -> float:
+	var avg_speed_ms: float = maxf(source.speed, msl.max_speed * 0.85)
+	if avg_speed_ms < 100.0:
+		avg_speed_ms = 100.0
+	var avg_speed_px: float = avg_speed_ms * PIXELS_PER_METER
+	var src_pos: Vector2 = source.global_position
+	var tgt_pos: Vector2 = target.global_position
+	var tgt_speed_px: float = target.speed * PIXELS_PER_METER
+	var tgt_vel: Vector2 = Vector2(sin(target.heading), -cos(target.heading)) * tgt_speed_px
+	var t1: float = src_pos.distance_to(tgt_pos) / avg_speed_px
+	var lead1: Vector2 = tgt_pos + tgt_vel * t1
+	var t2: float = src_pos.distance_to(lead1) / avg_speed_px
+	var lead: Vector2 = tgt_pos + tgt_vel * t2
+	var to_lead: Vector2 = lead - src_pos
+	var hdg_to_lead: float = atan2(to_lead.x, -to_lead.y)
+	# clamp 到机头 ±60°（seeker_fov 通常 60° 全角即 ±30° 半角，留出余量到 60°）
+	var diff: float = wrapf(hdg_to_lead - source.heading, -PI, PI)
+	var max_offset: float = deg_to_rad(60.0)
+	diff = clampf(diff, -max_offset, max_offset)
+	return source.heading + diff
 
 ## 是否应把这枚导弹计入"占额度"：丢锁 + 已出玩家视口 → 不算（可以补射）
 ## 2026-04-22：BOSS 带热诱弹/光学隐形时导弹丢锁后仍按 max_lifetime 飞满 30s，
