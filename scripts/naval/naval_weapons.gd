@@ -51,6 +51,9 @@ const SAM_SHORT_MIN_RANGE_M: float = 300.0       ## 最小射程（米）
 static func update(nu: NavalUnit, delta: float) -> void:
 	if nu == null or nu.is_destroyed:
 		return
+	# JAM 状态：所有挂点武器禁射（与 aa_gun_unit / aircraft_weapons 早返路径对称）
+	if nu.status_jam_active:
+		return
 
 	for m in nu.mounts:
 		if m.destroyed or m.params == null:

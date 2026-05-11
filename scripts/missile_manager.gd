@@ -422,7 +422,10 @@ func _update_aoe_zones(delta: float) -> void:
 				continue
 			var dist_2d := zpos.distance_to(unit.global_position)
 			var alt_diff := absf(zalt - unit.altitude)
-			var alt_ok := alt_diff < AOE_ALT_TOLERANCE or unit is GroundUnit
+			# 地表单位（地面/船/挂点代理）altitude=0，AOE 引爆点在空中时 alt_diff 必然超容差
+			# → 必须把这些类型显式列在 alt_ok 例外里，否则 AOE 永远扫不到船
+			var alt_ok := alt_diff < AOE_ALT_TOLERANCE \
+					or unit is GroundUnit or unit is NavalUnit or unit is MountTarget
 			if dist_2d < zradius and alt_ok:
 				# AOE 仍在飞机本体位置画爆炸（不在 AOE 中心），击中/击毁均只此一次
 				var u_head: float = unit.heading if "heading" in unit else 0.0
@@ -430,6 +433,12 @@ func _update_aoe_zones(delta: float) -> void:
 				var zsrc: Node = zone.get("source", null)
 				if unit is GroundUnit:
 					unit.take_missile_damage(zdmg)
+				elif unit is NavalUnit:
+					# 走位置感知路由：用 AOE 中心而不是船中心，让 mount/弱点 routing 更准
+					if zsrc != null and is_instance_valid(zsrc):
+						unit.set_meta("_pending_attacker", zsrc)
+						unit.set_meta("_last_damage_kind", "aoe")
+					(unit as NavalUnit).take_damage_at(zdmg, zpos)
 				else:
 					unit.take_damage_from(zdmg, zsrc, "aoe")
 				zhit[uid] = true

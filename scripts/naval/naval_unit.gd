@@ -162,6 +162,10 @@ func _physics_process(delta: float) -> void:
 		queue_redraw()
 		return
 
+	# 状态效果倒计时（船只识别 JAM；其它状态被 apply_status 覆写直接丢弃，不会进字典）
+	# 与 ground_unit / sam_unit / aa_gun_unit 写法对齐；不调 tick 会导致 status_jam_active 永不更新
+	StatusEffects.tick(self, delta)
+
 	_update_movement(delta)
 
 	# 相机缩放跨级 → _draw_status_label 把 inv_zoom 烤进 canvas item，必须每帧检测，
@@ -423,8 +427,9 @@ func _despawn_all_lock_targets() -> void:
 ##
 ## hull_dmg_mult: 对"总血量"的折扣系数。防止机炮用总血秒杀船：
 ##   - 导弹 / AOE：1.0（全额）/ 火箭弹：0.5 / 机炮子弹：0.15
-## can_hit_weak_point: 能否一发斩杀弱点。机炮子弹传 false —— 弱点是给导弹的斩杀点，
-##   否则玩家一梭子扫过弱点就 60HP 秒死，违背设计
+## can_hit_weak_point: 命中可否扣弱点 HP。所有玩家武器（机炮 / 火箭 / 导弹）现在都传 true：
+##   弱点是有 HP 的常规扣血点，不是"导弹专属斩杀机关"。hull_dmg_mult 已经独立把机炮压低，
+##   不再需要靠 can_hit_weak_point 二次屏蔽
 func take_damage_at(amount: float, hit_pos: Vector2, hull_dmg_mult: float = 1.0, can_hit_weak_point: bool = true) -> void:
 	if is_destroyed:
 		return
@@ -473,6 +478,14 @@ func take_damage(amount: float, attacker: Node = null, kind: String = "") -> voi
 	if kind != "":
 		set_meta("_last_damage_kind", kind)
 	take_damage_at(amount, global_position)
+
+## 船只识别 JAM（武器禁射）。其它状态（SLOW/FEAR/BLOODLUST/OVERLOAD/STEALTH/INVINCIBLE）
+## 对船没有任何作用通路 —— 不写进 status_effects，避免字典里堆积永不衰减的死条目
+## （参考 combat_unit.gd:82 注释 + aircraft.gd:1931 同模式过滤）
+func apply_status(id: String, duration: float, mode: String = "max") -> void:
+	if id != StatusEffects.JAM:
+		return
+	super.apply_status(id, duration, mode)
 
 ## 挂点被摧毁的回调
 func _on_mount_destroyed(_mount: WeaponMount) -> void:

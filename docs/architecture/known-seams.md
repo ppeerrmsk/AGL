@@ -161,6 +161,48 @@ Sub 2 段。
 
 ---
 
+## SEAM-008 · CombatUnit 基类契约与子类实现脱节
+
+**症状**：`combat_unit.gd:82-87` 注释 + `status_effects.gd:96-98` 写明"地面单位 / 船 / 巨型
+BOSS 只识别 JAM，其它状态仅对 Aircraft 生效"。但 NavalUnit 实现完全没遵守：
+- 不调 `StatusEffects.tick(self, delta)` → `status_jam_active` 永不被写，JAM 形同虚设
+- `NavalWeapons.update` 没有 `if status_jam_active: return` 早返 → 即使 JAM 写进字典，船依然开火
+- 没覆写 `apply_status` 过滤 → SLOW/FEAR 等被静默写入永不衰减的死条目
+
+外部代码（玩家技能 / AOE 广播）按契约调 `naval.apply_status(JAM, 5.0)`，期望船停火 5 秒 ——
+但实际什么也不发生。类似地 `bullet_manager.gd:656` 给 NavalUnit 传 `can_hit_weak_point=false`
+做硬隔离，绕过 NavalUnit 自己已经设计好的 hull_dmg_mult 双池机制，制造"机炮打不死船"的
+体验 bug。这些都是**基类提供的契约（注释 / 默认行为）和子类实现不一致**导致的同一类问题。
+
+**根因**：
+1. 基类契约只在注释里，没有 lint / 测试强制。
+2. 子类（NavalUnit）只重写了"必须重写才能跑"的方法（_physics_process / take_damage_at），
+   "应该重写但不重写也能编译"的方法（apply_status / 状态 tick 调用）会被遗漏。
+3. 调用方（bullet_manager）在外部用参数硬编码绕过子类逻辑，是另一个变体。
+
+**踩到次数**：3+（本次同次发现 3 个：JAM 不工作、SLOW/FEAR 永驻、机炮弱点屏蔽）
+
+**解法**（已实施 part）：
+- 三处补齐：tick / JAM 早返 / apply_status 覆写
+- can_hit_weak_point 子类外部硬编码改回 true，由 NavalUnit 自己用 hull_dmg_mult 决定平衡
+
+**模式**：
+- **任何 CombatUnit 新子类**（未来船 / 巨型 BOSS / 地面新单位）都必须自检：
+  - [ ] `_physics_process` 里有没有 `StatusEffects.tick(self, delta)`？
+  - [ ] 武器 / 行动逻辑入口有没有 `if status_jam_active: return`？
+  - [ ] 是否需要覆写 `apply_status` 过滤掉对该单位类型没有作用通路的状态？
+  - [ ] 是否需要覆写 `take_damage_at`（带位置感知）+ `take_damage`（兜底）？
+- **调用方（bullet_manager / missile_manager / 技能）不应该用参数硬编码绕过子类伤害模型**。
+  应该让子类自己用 `hull_dmg_mult` / 路由优先级 / 内部 routing 做平衡。
+
+**约束（新加）**：加新 CombatUnit 子类前先按上面 4 个 checkbox 自检；改伤害平衡时
+**优先调子类自己的字段**（NavalParams.hull_hp_max / mount hp / weak_point_hp），不要在
+调用方传 `can_hit_*=false` 类的硬开关。
+
+详见 [docs/changelogs/2026-05-12-naval-damage-and-jam-fixes.md](../changelogs/2026-05-12-naval-damage-and-jam-fixes.md)。
+
+---
+
 ## 维护约定
 
 - 修 bug 时撞到地基 → 先来这里看是否已记。已记 → 票数 +1，可能升级到 refactor 优先级。

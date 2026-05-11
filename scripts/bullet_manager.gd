@@ -648,12 +648,12 @@ func _physics_process(delta: float) -> void:
 				elif ac is NavalUnit:
 					# 机炮子弹：
 					#   - 总血削 15%（高射速高伤害 → 低总血贡献，避免一梭子秒船）
-					#   - 不能一发斩杀弱点（can_hit_weak_point=false）—— 弱点要留给导弹
+					#   - 弱点可被机炮磨爆（can_hit_weak_point=true）—— 弱点有 HP 不是"导弹斩杀点"
 					#   - 挂点仍然按全额扣（机炮剥部件依然有效）
 					if is_instance_valid(b["source"]):
 						(ac as NavalUnit).set_meta("_pending_attacker", b["source"])
 						(ac as NavalUnit).set_meta("_last_damage_kind", "gun")
-					(ac as NavalUnit).take_damage_at(b["damage"] * dmg_mult, b["pos"], 0.15, false)
+					(ac as NavalUnit).take_damage_at(b["damage"] * dmg_mult, b["pos"], 0.15, true)
 				else:
 					ac.take_damage(b["damage"] * dmg_mult, b["source"], "gun")
 				hit = true

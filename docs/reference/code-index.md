@@ -247,6 +247,31 @@
 | 雷达站数据链 | `radar_station.gd:35` _update_datalink |
 | 车队管理 | `ground_convoy.gd:12` add_member |
 
+## 海上单位 / 船伤害路由
+
+| 功能 | 位置 |
+|------|------|
+| NavalUnit 物理主循环（含状态 tick） | `scripts/naval/naval_unit.gd:159` _physics_process |
+| 位置感知伤害入口（双池：部件 + hull）| `scripts/naval/naval_unit.gd:430` take_damage_at |
+| 状态过滤（船只接受 JAM）| `scripts/naval/naval_unit.gd:486` apply_status |
+| 弱点暴露判定 | `scripts/naval/naval_unit.gd:490` _check_weak_point_reveal |
+| 武器派发（JAM 早返）| `scripts/naval/naval_weapons.gd:51` update |
+| 子弹命中船（机炮 hull 0.15× / 弱点可磨）| `scripts/bullet_manager.gd:648` 命中循环 NavalUnit 分支 |
+| 火箭弹命中船（hull 0.5× / 可磨弱点）| `scripts/bullet_manager.gd:636` 同上 is_rocket 分支 |
+| 火箭弹 AOE 命中船 | `scripts/bullet_manager.gd:429` _explode_rocket |
+| 导弹近炸 AOE 命中船（含 alt_ok 例外）| `scripts/missile_manager.gd:425` _update_aoe_zones |
+
+## 状态效果（StatusEffects）
+
+| 功能 | 位置 |
+|------|------|
+| 状态常量（INVINCIBLE/STEALTH/BLOODLUST/OVERLOAD/JAM/SLOW/FEAR）| `scripts/status_effects.gd:11-22` |
+| 通用 tick（倒计时 + 写 status_jam_active）| `scripts/status_effects.gd:99` tick |
+| Aircraft 专用 update（所有派生标记 + 副作用）| `scripts/status_effects.gd:115` update |
+| Aircraft.apply_status 覆写（UAV 滤 FEAR / OVERLOAD 钩子）| `scripts/aircraft.gd:1931` apply_status |
+| NavalUnit.apply_status 覆写（只接受 JAM）| `scripts/naval/naval_unit.gd:486` apply_status |
+| AOE 状态广播（fear_applies_slow 联动）| `scripts/survivor/aoe_broadcast.gd` apply_status_in_radius |
+
 ## 生存模式
 
 ### survivor_mode.gd — 主控制器（~1450 行）
