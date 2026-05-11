@@ -780,15 +780,27 @@ func _spawn_sentinel_escort_uavs(commander: Aircraft, sq: Squad, count: int) -> 
 # ══════════════════════════════════════════════
 
 ## 超过 despawn_after 时间戳的 Adds 静默移除（不触发击杀/经验）
+##
+## **2026-05-09 修复**：到期时若单位仍在玩家视野内，不直接 free（避免凭空消失），
+## 而是把过期时间向后推 3 秒，等飞出屏后再静默清理。
+const ADDS_OFFSCREEN_GRACE_SEC := 3.0
+
 func _cleanup_expired_adds() -> void:
 	for child in mode.get_children():
 		if child is Aircraft and child.team != 0 and not child.is_destroyed:
 			var ac: Aircraft = child
-			if ac.has_meta("despawn_after"):
-				var t: float = float(ac.get_meta("despawn_after"))
-				if mode.game_time >= t:
-					ac.set_meta("xp_granted", true)  # 防止 _detect_kills 当成击杀
-					ac.queue_free()
+			if not ac.has_meta("despawn_after"):
+				continue
+			var t: float = float(ac.get_meta("despawn_after"))
+			if mode.game_time < t:
+				continue
+			# 仍在玩家视野内 → 推迟 free，防止画面中央凭空消失
+			if mode.has_method("is_world_pos_visible") \
+					and mode.is_world_pos_visible(ac.global_position):
+				ac.set_meta("despawn_after", mode.game_time + ADDS_OFFSCREEN_GRACE_SEC)
+				continue
+			ac.set_meta("xp_granted", true)  # 防止 _detect_kills 当成击杀
+			ac.queue_free()
 
 ## Adds 航线安全余量：起点 A 至少离边界这么远（保证玩家看得到生成过程）
 const ADDS_SPAWN_MARGIN_PX := 1500.0
@@ -903,6 +915,14 @@ func _spawn_tu160_flock() -> void:
 ##   - 设置速度、高度层、生命期
 ##   - **关键**：直接把 altitude 设到 tier 对应高度，避免从默认 5000m 慢慢爬升/
 ##     下降（直升机 15 m/s 爬升率要 200 秒才能下到低空，整个生命期都耗在换高度）
+##
+## **修 BLKJK-01 永久盘旋 bug**（2026-05-09）：
+## 单点 waypoints 数组在 ai_controller.gd:973 的 modulo cycle 下永远指向自己，
+## bomber 抵达 250m arrival_distance 后会过头继续转回来盘旋。
+## 解决：把 waypoint 沿飞行方向延伸到地图外，arrival 永远到不了，强制保持直线飞行
+## 直到 despawn_after 兜底 / 飞出地图被静默清理。
+const ADDS_EXIT_EXTENSION_PX := 5000.0
+
 func _configure_adds_unit(unit: Aircraft, target_pos: Vector2, tier: int,
 		cruise_kmh: float, silhouette: String, crash_style: String, lifetime_sec: float) -> void:
 	unit.set_meta("skip_far_cleanup", true)
@@ -910,14 +930,22 @@ func _configure_adds_unit(unit: Aircraft, target_pos: Vector2, tier: int,
 	unit.set_meta("silhouette", silhouette)
 	unit.set_meta("crash_style", crash_style)
 
+	# 把 target_pos 沿 spawn→target 方向延伸出地图，避免单点 waypoint modulo
+	# cycle 让 bomber 在原地盘旋（见上方注释）
+	var to_target: Vector2 = target_pos - unit.global_position
+	var extended_target: Vector2 = target_pos
+	if to_target.length_squared() > 1.0:
+		var flight_dir: Vector2 = to_target.normalized()
+		extended_target = target_pos + flight_dir * ADDS_EXIT_EXTENSION_PX
+
 	var ai := _get_ai(unit)
 	if ai:
-		ai.waypoints = PackedVector2Array([target_pos])
+		ai.waypoints = PackedVector2Array([extended_target])
 		ai.current_waypoint_index = 0
 		ai.arrival_distance = 250.0
 
 	unit.speed = cruise_kmh / 3.6
-	unit.target_position = target_pos
+	unit.target_position = extended_target
 	unit.set_target_tier(tier)
 	# 直接赋值初始高度到目标层，保证一出生就在对应高度作战
 	unit.altitude = CombatUnit.TIER_ALTITUDE[tier]

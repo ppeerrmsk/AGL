@@ -242,6 +242,9 @@ TACTICAL_MAP_UPGRADES_HINT,详情,DETAILS,詳細
 TACTICAL_MAP_UPGRADES_HOVER_HINT,鼠标悬停技能查看详情,Hover a skill to see details,スキルにカーソルを合わせると詳細表示
 TACTICAL_MAP_UPGRADES_EMPTY,暂无已激活技能。升级或攻克战区以获得技能。,No upgrades yet. Level up or clear zones to acquire skills.,習得スキルなし。レベルアップやエリア攻略で習得
 ZONE_HINT_NEW_OPENED,⚡ 新战区已开放 — 按 [Tab] 打开战术地图选择目标,⚡ NEW ZONE OPEN — Press [Tab] to open the tactical map,⚡ 新エリア開放 — [Tab] で戦術マップを開いて選択
+BOSS_ZONE_READY,⚠ 战区取消 — 前往中央迎击 BOSS,⚠ Warzones cancelled — head to center for BOSS,⚠ エリア中止 — 中央へ向かいBOSS迎撃
+HUD_WARZONE_TIMER_FMT,战区剩余 %02d:%02d,WARZONE %02d:%02d,エリア残 %02d:%02d
+HUD_BOSS_PHASE,BOSS 阶段,BOSS PHASE,BOSSフェーズ
 ZONE_REWARD_HINT_MISSILE,※ 这是一个强化导弹性能的技能,※ A missile performance upgrade,※ ミサイル性能を強化するスキル
 ZONE_REWARD_HINT_GUN,※ 这是一个强化机炮性能的技能,※ A gun performance upgrade,※ ガン性能を強化するスキル
 ZONE_REWARD_HINT_FLARE,※ 这是一个强化电子对抗/热诱弹的技能,※ An ECM / flare upgrade,※ ECM / フレア強化スキル
@@ -336,17 +339,17 @@ UPGRADE_LASER_HEAT_DESC,过热阈值 +30%,Heat threshold +30%,過熱閾値 +30%
 UPGRADE_DATA_LINK_NAME,数据链,Data Link,データリンク
 UPGRADE_DATA_LINK_DESC,"队友锁定共享给玩家，反之亦然；僚机雷达范围 +50%","Lock-on shared with wingmen and vice versa; wingman radar +50%",僚機とロックオン共有、僚機レーダー +50%
 UPGRADE_SKILL_KILL_BLOODLUST_NAME,猎杀本能,Kill Bloodlust,殺戮本能
-UPGRADE_SKILL_KILL_BLOODLUST_DESC,击杀进入嗜血状态 7s,Kill triggers Bloodlust for 7s,撃墜で7秒間 嗜血状態
+UPGRADE_SKILL_KILL_BLOODLUST_DESC,击杀进入嗜血状态 8s,Kill triggers Bloodlust for 8s,撃墜で8秒間 嗜血状態
 UPGRADE_SKILL_DAMAGED_BLOODLUST_NAME,反击本能,Wounded Bloodlust,反撃本能
-UPGRADE_SKILL_DAMAGED_BLOODLUST_DESC,受伤进入嗜血状态 7s（被打刷新）,Damage triggers Bloodlust 7s (refreshed on hit),被弾で7秒間 嗜血（更新）
+UPGRADE_SKILL_DAMAGED_BLOODLUST_DESC,受伤进入嗜血状态 8s（被打刷新）,Damage triggers Bloodlust 8s (refreshed on hit),被弾で8秒間 嗜血（更新）
 UPGRADE_SKILL_HEAD_ON_PERMA_HP_NAME,骑士心脏,Knight's Heart,騎士の心臓
 UPGRADE_SKILL_HEAD_ON_PERMA_HP_DESC,对头击杀 +5 最大 HP（局内永久）,Head-on kill: +5 max HP (run-permanent),正面撃墜で 最大HP+5 (永久)
 UPGRADE_SKILL_HEAD_ON_AOE_FEAR_NAME,寒颤号令,Battle Cry,戦慄の咆哮
 UPGRADE_SKILL_HEAD_ON_AOE_FEAR_DESC,对头击杀使大范围（3km）敌方进入恐惧 4s,Head-on kill applies 4s Fear in 3km radius,正面撃墜で半径3km敵に4秒恐怖
 UPGRADE_SKILL_MISSILE_HIT_INVUL_NAME,危机绝境,Last Stand,危機絶境
-UPGRADE_SKILL_MISSILE_HIT_INVUL_DESC,被导弹命中后 4s 无敌（无敌期间不刷新）,4s Invincibility on missile hit (no refresh),被弾後4秒無敵（更新なし）
+UPGRADE_SKILL_MISSILE_HIT_INVUL_DESC,被导弹命中后 8s 无敌（无敌期间不刷新）,8s Invincibility on missile hit (no refresh),被弾後8秒無敵（更新なし）
 UPGRADE_SKILL_LOWEST_ALT_KILL_INVUL_NAME,贴地骑士,Treetop Knight,低空騎士
-UPGRADE_SKILL_LOWEST_ALT_KILL_INVUL_DESC,在低空击杀敌人后 4s 无敌,Low-altitude kill grants 4s Invincibility,低空撃墜で4秒無敵
+UPGRADE_SKILL_LOWEST_ALT_KILL_INVUL_DESC,在低空击杀敌人后 8s 无敌,Low-altitude kill grants 8s Invincibility,低空撃墜で8秒無敵
 UPGRADE_SKILL_GUN_KILL_FEAR_NAME,机炮震慑,Gun Strike Terror,機関砲威圧
 UPGRADE_SKILL_GUN_KILL_FEAR_DESC,机炮击杀使周围敌方恐惧 3s,Gun kill applies 3s Fear in nearby enemies,機関砲撃墜で周囲敵に3秒恐怖
 RARITY_STABLE,稳定,Stable,安定
@@ -367,7 +370,7 @@ UPGRADE_SKILL_GUN_KILL_FLARE_DROP_DESC,机炮击杀产生 flare 区域，干扰�
 UPGRADE_SKILL_MISSILE_HIT_AOE_JAM_NAME,寒蝉效应,Hit-and-Hush,被弾静寂
 UPGRADE_SKILL_MISSILE_HIT_AOE_JAM_DESC,被导弹命中后周围 800px 内 JAM 3s,Missile hit jams 800px around for 3s,被弾で半径800pxを3秒妨害
 UPGRADE_SKILL_EVADE_MISSILE_OVERLOAD_NAME,死里逃生,Cheating Death,死中求活
-UPGRADE_SKILL_EVADE_MISSILE_OVERLOAD_DESC,成功躲掉一发导弹后获得超载 6s,Evading a missile grants Overload 6s,ミサイル回避でオーバーロード6秒
+UPGRADE_SKILL_EVADE_MISSILE_OVERLOAD_DESC,成功躲掉一发导弹后获得超载 8s,Evading a missile grants Overload 8s,ミサイル回避でオーバーロード8秒
 UPGRADE_LOCK_PANIC_G_NAME,被锁狂飙,Locked-On Panic,ロック狂躁
 UPGRADE_LOCK_PANIC_G_DESC,被敌方锁定时 max G ×1.20（每层）,Max G ×1.20 while locked (per stack),ロック中max G×1.20
 UPGRADE_LOW_HP_FLARE_RELOAD_NAME,绝境装填,Last-Stand Reload,絶境装填
@@ -395,23 +398,23 @@ UPGRADE_EVASION_HERBST_DESC,规避模式下来袭导弹/后方机炮追尾时自
 UPGRADE_EVASION_OVERSTOCK_NAME,弹仓过载,Overstock Bay,弾倉オーバーロード
 UPGRADE_EVASION_OVERSTOCK_DESC,规避模式中每 4s 装填 1 发导弹（突破上限至 2 倍）,Evasion mode reloads +1 missile per 4s up to 2× cap,回避モード4秒毎ミサイル+1（上限2倍）
 UPGRADE_OVERLOAD_DURATION_4X_NAME,过载共振,Surge Resonance,オーバーロード共鳴
-UPGRADE_OVERLOAD_DURATION_4X_DESC,超载持续时间 ×4,Overload duration ×4,オーバーロード持続×4
+UPGRADE_OVERLOAD_DURATION_4X_DESC,超载持续时间 ×2,Overload duration ×2,オーバーロード持続×2
 UPGRADE_MISSILE_CD_STEALTH_NAME,弹后潜匿,Silent Reload,弾後潜匿
 UPGRADE_MISSILE_CD_STEALTH_DESC,弹药打空后获得 5 秒隐身,Stealth for 5s when missiles depleted,弾切れ後5秒間ステルス
 UPGRADE_SKILL_FLARE_OVERLOAD_NAME,焰诱共振,Flare Surge,フレア共鳴
-UPGRADE_SKILL_FLARE_OVERLOAD_DESC,释放热诱弹后获得超载 4s,Releasing flare grants Overload 4s,フレア発射でオーバーロード4秒
+UPGRADE_SKILL_FLARE_OVERLOAD_DESC,释放热诱弹后获得超载 8s,Releasing flare grants Overload 8s,フレア発射でオーバーロード8秒
 UPGRADE_OVERLOAD_EXTENDED_AMMO_NAME,燃尽自如,Limitless Burn,燃え尽きの自在
-UPGRADE_OVERLOAD_EXTENDED_AMMO_DESC,超载持续时间 +4s；超载期间发射不消耗弹药,Overload duration +4s; firing during Overload costs no ammo,オーバーロード+4秒；中は弾消費なし
+UPGRADE_OVERLOAD_EXTENDED_AMMO_DESC,超载持续时间 +6s；超载期间发射不消耗弹药,Overload duration +6s; firing during Overload costs no ammo,オーバーロード+6秒；中は弾消費なし
 UPGRADE_OVERLOAD_TO_BLOODLUST_NAME,噬血共振,Crimson Surge,噬血共鳴
 UPGRADE_OVERLOAD_TO_BLOODLUST_DESC,超载期间同时获得嗜血；击杀刷新两者持续时间,Overload also grants Bloodlust; kills refresh both,オーバーロード中ブラッドラスト付与；撃墜で両方リフレッシュ
 UPGRADE_BLOODLUST_ARMOR_MOBILITY_NAME,血怒护甲,Frenzy Plate,血怒装甲
-UPGRADE_BLOODLUST_ARMOR_MOBILITY_DESC,嗜血期间减伤 20%；最大 G ×1.2；加 / 减速 ×1.3,Bloodlust: -20% damage; max G ×1.2; accel/decel ×1.3,ブラッドラスト中-20%被ダメ；最大G×1.2；加減速×1.3
+UPGRADE_BLOODLUST_ARMOR_MOBILITY_DESC,嗜血期间减伤 30%；最大 G ×1.2；加 / 减速 ×1.3,Bloodlust: -30% damage; max G ×1.2; accel/decel ×1.3,ブラッドラスト中-30%被ダメ；最大G×1.2；加減速×1.3
 UPGRADE_FULL_HP_KILL_PERMA_HP_NAME,血誓不竭,Vital Vow,血誓不渇
 UPGRADE_FULL_HP_KILL_PERMA_HP_DESC,满血 + 嗜血期间击杀敌人永久 +5 最大生命,Full-HP Bloodlust kill: +5 max HP permanently,満血+ブラッドラスト撃墜で最大HP+5恒久
 UPGRADE_HEAD_ON_JAM_NAME,对锋干扰,Head-On Jammer,対峙妨害
 UPGRADE_HEAD_ON_JAM_DESC,对头目标累积 4s 后被电子干扰 3s,Head-on targets are jammed for 3s after 4s lock-on,対峙目標は4秒蓄積後3秒妨害
 UPGRADE_JAM_SELF_OVERLOAD_NAME,共振反馈,Jamming Surge,共鳴フィードバック
-UPGRADE_JAM_SELF_OVERLOAD_DESC,JAM 命中至少 1 个敌人时获得超载 3s,Landing JAM on ≥1 enemy grants Overload 3s,JAM命中で3秒オーバーロード
+UPGRADE_JAM_SELF_OVERLOAD_DESC,JAM 命中至少 1 个敌人时获得超载 8s,Landing JAM on ≥1 enemy grants Overload 8s,JAM命中で8秒オーバーロード
 UPGRADE_REAR_AURA_SLOW_NAME,后半球减速光环,Tailspike Aura,後方減速オーラ
 UPGRADE_REAR_AURA_SLOW_DESC,后半球 2.4km 内敌人停留 8s 后被施加减速（消退后重新累积）,Enemies in your 2.4km rear arc accumulate to Slow (resets after expires),後方2.4km内に8秒滞在で減速（解除後再蓄積）
 UPGRADE_F14_SQUAD_LOCK_SLOW_NAME,集火枷锁,Coordinated Lock,集中ロック

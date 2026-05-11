@@ -656,11 +656,12 @@ const _LOADOUT_SLOTS: Array[Dictionary] = [
 	},
 	{
 		"key": "secondary_missile",
-		"name": "副导弹",
+		"name": "副武器槽 (SP)",
 		"kind": "field",
 		"field": "secondary_missile",
 		"options": [
 			{"label": "无", "path": ""},
+			{"label": "QMAAM 格斗弹", "path": "res://resources/qmaam_missile.tres"},
 			{"label": "AGM 空地", "path": "res://resources/agm_missile.tres"},
 		],
 	},
@@ -876,4 +877,11 @@ func _reset_runtime_state_for_field(ac: Aircraft, field: String) -> void:
 				ac.secondary_missiles_remaining = ac.params.secondary_missile.max_count
 			else:
 				ac.secondary_missiles_remaining = 0
+			# 副槽 runtime 状态重置（独立 cooldown / reload / 锁定累积清空）
+			ac._secondary_cooldown = 0.0
+			ac._secondary_reload_active = false
+			ac._secondary_reload_timer = 0.0
+			ac._secondary_radar_tick_acc = 0.0
+			ac.secondary_radar_targets.clear()
+			ac.secondary_combat_target = null
 		# combat 不需要重置 runtime（AI 下一帧自然采用新风格）

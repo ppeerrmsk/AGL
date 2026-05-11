@@ -89,6 +89,39 @@ static func altitude_tier_color_hex(tier: int, transitioning: bool) -> String:
 		2:  return "b3f2ff"
 		_:  return "aaccff"
 
+# 武器/装备行的品牌色 —— 与右下角"机体&武器栏"（survivor_hud._update_status_panel）共用同一套色板。
+# 飞机旁边"状态栏"data label 里的同名行直接调用这里，避免两边色码漂移。
+# 详见 docs/architecture/known-seams.md（HUD 配色统一）。
+static func _wpn_color(tag: String, ctx: Dictionary = {}) -> Color:
+	if tag == "MSL_RELOAD":
+		return Color.html("#5599ff")
+	elif tag == "GUN_RELOAD":
+		return Color.html("#aa7733")
+	elif tag == "FLR_RELOAD":
+		return Color.html("#aa8833")
+	elif tag == "FLR_READY":
+		return Color.html("#ffdd66")
+	elif tag == "FLR_EMPTY":
+		return Color.html("#666666")
+	elif tag == "RAIL_CHG":
+		return Color.html("#aaccff")
+	elif tag == "RAIL_CD":
+		return Color.html("#aa8833")
+	elif tag == "RAIL_READY":
+		return Color.html("#88ddff")
+	elif tag == "LSR_OVERHEAT" or tag == "STALL":
+		var flash: bool = int(Time.get_ticks_msec() / 250) % 2 == 0
+		return Color.html("#ff3322") if flash else Color.html("#ff7733")
+	elif tag == "LSR_HEAT":
+		var pct: int = int(ctx.get("pct", 0))
+		if pct < 50:
+			return Color.html("#88dd88")
+		elif pct < 80:
+			return Color.html("#ffcc33")
+		else:
+			return Color.html("#ff6633")
+	return Color.WHITE
+
 ## 云层状态视觉：云中（HIGH）画冷白光晕，云下（LOW/MID）画淡蓝灰阴影
 ## 必须在图标之前调用（作底）
 static func draw_cloud_state(ac: Aircraft) -> void:
@@ -203,6 +236,96 @@ static func draw_radar_cone(ac: Aircraft) -> void:
 	# 弧线
 	for i in range(1, points.size() - 1):
 		ac.draw_line(points[i], points[i + 1], edge_color, 1.0, true)
+
+## 副导弹槽锁定锥（仅装备副弹的玩家 + hover 时可见）
+## 完全独立于主雷达锥：橙色更暖、透明度低，画在主锥之上
+## 仅 hover 显示：避免战斗中长期占据视觉，与主雷达锥同遵守 hover-only 规则
+## 详见 docs/changelogs/2026-05-10-secondary-slot-revival.md
+static func draw_secondary_lock_cone(ac: Aircraft) -> void:
+	if ac.params == null: return
+	if not ac.secondary_missile_enabled: return
+	if not ac.is_hovered: return  # hover-only：避免视觉污染（与主雷达 draw_radar_cone 同规则）
+	var sec: MissileParams = ac.params.secondary_missile
+	if sec == null: return
+
+	var half_deg: float = sec.lock_cone_half_angle_deg if sec.lock_cone_half_angle_deg > 0.0 \
+			else (ac.params.radar_half_angle if ac.params else 30.0)
+	var radar_r: float = sec.lock_max_range_px if sec.lock_max_range_px > 0.0 \
+			else ac.effective_radar_range_px()
+	var half_rad: float = deg_to_rad(half_deg)
+
+	# 本地坐标飞机朝 -Y，扇形中心轴 = -PI/2
+	var center_angle := -PI / 2.0
+	var start_angle := center_angle - half_rad
+	var end_angle := center_angle + half_rad
+	var segments := 24
+
+	# 橙色（暖色）半透明，与主雷达蓝色 / fear 紫色都区分
+	# 装填中褪色（提示玩家副槽不可用）/ 弹尽更淡
+	var alpha: float
+	if ac._secondary_reload_active:
+		alpha = 0.10
+	elif ac.secondary_missiles_remaining <= 0:
+		alpha = 0.06
+	else:
+		alpha = 0.18
+	var cone_color := Color(1.0, 0.55, 0.15, alpha)
+
+	var points := PackedVector2Array()
+	points.append(Vector2.ZERO)
+	for i in range(segments + 1):
+		var angle := start_angle + (end_angle - start_angle) * float(i) / float(segments)
+		points.append(Vector2(cos(angle), sin(angle)) * radar_r)
+
+	ac.draw_colored_polygon(points, cone_color)
+
+	# 边缘线 + 弧线
+	var edge_color := Color(1.0, 0.55, 0.15, alpha * 2.5)
+	ac.draw_line(Vector2.ZERO, points[1], edge_color, 1.0, true)
+	ac.draw_line(Vector2.ZERO, points[points.size() - 1], edge_color, 1.0, true)
+	for i in range(1, points.size() - 1):
+		ac.draw_line(points[i], points[i + 1], edge_color, 1.0, true)
+
+## 副槽锁定指示：在已锁定满的目标上画橙色括号（玩家世界坐标系）
+## 长期可见（与锥不同）—— 给玩家"QMAAM 已就绪可以放手"的明确反馈
+## 注：此函数在 ac 的本地坐标系 _draw 里调用，需要 to_local 转换
+static func draw_secondary_lock_indicators(ac: Aircraft) -> void:
+	if ac.params == null: return
+	if not ac.secondary_missile_enabled: return
+	var sec: MissileParams = ac.params.secondary_missile
+	if sec == null: return
+	# 弹空 / 装填中：不显示（避免误导玩家以为可以打）
+	if ac.secondary_missiles_remaining <= 0 or ac._secondary_reload_active:
+		return
+	if ac._secondary_cooldown > 0.05:
+		return
+
+	var lock_time_val: float = ac.params.lock_time
+	var radius := 18.0  # 括号半径（像素）
+	# 颜色：用 QMAAM 同色橙
+	var ring_color := Color(1.0, 0.65, 0.15, 0.95)
+	var fill_color := Color(1.0, 0.55, 0.15, 0.22)
+
+	for unit in ac.secondary_radar_targets.keys():
+		if unit == null or not is_instance_valid(unit): continue
+		var prog: float = ac.secondary_radar_targets[unit]
+		if prog < lock_time_val: continue  # 仅锁满显示
+		# 用本地坐标（_draw 在 ac 本地空间）
+		var local_pos: Vector2 = ac.to_local(unit.global_position)
+		# 4 个角的 corner brackets（开口朝内）
+		var arm := 6.0
+		var corners := [
+			[Vector2(-radius, -radius), Vector2(arm, 0), Vector2(0, arm)],   # 左上
+			[Vector2(radius, -radius),  Vector2(-arm, 0), Vector2(0, arm)],  # 右上
+			[Vector2(-radius, radius),  Vector2(arm, 0), Vector2(0, -arm)],  # 左下
+			[Vector2(radius, radius),   Vector2(-arm, 0), Vector2(0, -arm)], # 右下
+		]
+		# 浅填充（+ 4 个 corner，明确"锁定"语义）
+		ac.draw_circle(local_pos, radius - 4, fill_color)
+		for c in corners:
+			var origin: Vector2 = local_pos + c[0]
+			ac.draw_line(origin, origin + c[1], ring_color, 1.5, true)
+			ac.draw_line(origin, origin + c[2], ring_color, 1.5, true)
 
 ## 玩家光环范围预览（hover 玩家时显示）：
 ##   - jam_aura：全圆绿色 ring
@@ -1164,13 +1287,18 @@ static func draw_data_label_minimal(ac: Aircraft) -> void:
 	else:
 		lines.append("ALT %dm" % roundi(ac.altitude))
 	lines.append("G %.1f" % ac.g_load)
+	# 武器行品牌色映射（与右下角武器栏同源 _wpn_color）
+	var wpn_color_indices: Dictionary = {}
 	# 装填状态（仅玩家）：临时行，装填完自动消失
 	if ac == safe_player_ref():
 		if ac._gun_reload_active:
+			wpn_color_indices[lines.size()] = _wpn_color("GUN_RELOAD")
 			lines.append("GUN RELOAD %d%%" % roundi(ac.gun_reload_progress * 100.0))
 		if ac._missile_reload_active:
+			wpn_color_indices[lines.size()] = _wpn_color("MSL_RELOAD")
 			lines.append("MSL RELOAD %d%%" % roundi(ac.missile_reload_progress * 100.0))
 		if ac.enable_flare_reload and ac.flares_remaining <= 0 and ac.flare_reload_progress > 0.0:
+			wpn_color_indices[lines.size()] = _wpn_color("FLR_RELOAD")
 			lines.append("FLR RELOAD %d%%" % roundi(ac.flare_reload_progress * 100.0))
 		# 电磁炮 / 激光（commit 11+）
 		if ac.params != null:
@@ -1178,17 +1306,23 @@ static func draw_data_label_minimal(ac: Aircraft) -> void:
 			if rg_min != null:
 				var rg_st: Dictionary = ac.equipment_state.get(RailgunEquipment.STATE_KEY, {})
 				if rg_st.get("charging", false):
+					wpn_color_indices[lines.size()] = _wpn_color("RAIL_CHG")
 					lines.append("RAIL CHG %d%%" % int(rg_st.get("charge_progress", 0.0) * 100))
 				elif rg_st.get("cooldown", 0.0) > 0.01:
-					lines.append("RAIL CD %.1fs" % rg_st.get("cooldown", 0.0))
+					var rg_cd: float = float(rg_st.get("cooldown", 0.0))
+					var rg_pct: int = int(clampf(rg_cd / rg_min.cooldown, 0.0, 1.0) * 100) if rg_min.cooldown > 0.0 else 0
+					wpn_color_indices[lines.size()] = _wpn_color("RAIL_CD")
+					lines.append("RAIL CD %d%%" % rg_pct)
 			var le_min: LaserEquipment = ac.params.get_equipment_of_kind("laser")
 			if le_min != null:
 				var le_st: Dictionary = ac.equipment_state.get(LaserEquipment.STATE_KEY, {})
 				if le_st.get("overheating", false):
+					wpn_color_indices[lines.size()] = _wpn_color("LSR_OVERHEAT")
 					lines.append("LSR OVERHEAT")
 				else:
 					var heat_pct := int(le_st.get("heat", 0.0) / le_min.heat_max * 100)
 					if heat_pct >= 50:
+						wpn_color_indices[lines.size()] = _wpn_color("LSR_HEAT", {"pct": heat_pct})
 						lines.append("LSR HEAT %d%%" % heat_pct)
 
 	# 状态效果（buff/debuff）：英文简称 + 百分比 + 颜色
@@ -1246,6 +1380,8 @@ static func draw_data_label_minimal(ac: Aircraft) -> void:
 			col = alt_color
 		elif status_line_indices.has(i):
 			col = status_line_indices[i]
+		elif wpn_color_indices.has(i):
+			col = wpn_color_indices[i]
 		ac.draw_string(ac._font, Vector2(0, i * line_height + 11), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, col)
 	ac.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
@@ -1288,8 +1424,15 @@ static func draw_data_label(ac: Aircraft) -> void:
 		lines.append("RNG %dm" % roundi(dist_m))
 	else:
 		lines.append("RNG %.1fkm" % (dist_m / 1000.0))
-	# 第 6 行：热诱弹
+	# 武器行品牌色映射：line_idx → Color，draw 阶段优先于 text_color。
+	# 约定：武器/装备颜色只标在玩家自己 label 上（玩家需要知道的信息）；
+	# 敌机/友机走 team text_color，buff/debuff 仍由 status_line_indices 单独上色。
+	var wpn_color_indices: Dictionary = {}
+	var is_player_label := ac == safe_player_ref()
+	# 第 6 行：热诱弹（玩家才染色，敌机/友机保留 text_color）
 	if ac.params and ac.params.flare:
+		if is_player_label:
+			wpn_color_indices[lines.size()] = _wpn_color("FLR_READY" if ac.flares_remaining > 0 else "FLR_EMPTY")
 		lines.append("FLR %d" % ac.flares_remaining)
 	# 电磁炮 / 激光（仅玩家显示，避免 AF-03 头顶暴露状态）
 	if ac == safe_player_ref() and ac.params:
@@ -1297,28 +1440,42 @@ static func draw_data_label(ac: Aircraft) -> void:
 		if rg2 != null:
 			var rg_st: Dictionary = ac.equipment_state.get(RailgunEquipment.STATE_KEY, {})
 			if rg_st.get("charging", false):
+				wpn_color_indices[lines.size()] = _wpn_color("RAIL_CHG")
 				lines.append("RAIL CHG %d%%" % int(rg_st.get("charge_progress", 0.0) * 100))
 			elif rg_st.get("cooldown", 0.0) > 0.01:
-				lines.append("RAIL CD %.1fs" % rg_st.get("cooldown", 0.0))
+				# CD 显示与右下角武器栏统一为百分比（current/max × 100）
+				var rg_cd: float = float(rg_st.get("cooldown", 0.0))
+				var rg_pct: int = int(clampf(rg_cd / rg2.cooldown, 0.0, 1.0) * 100) if rg2.cooldown > 0.0 else 0
+				wpn_color_indices[lines.size()] = _wpn_color("RAIL_CD")
+				lines.append("RAIL CD %d%%" % rg_pct)
 			else:
+				wpn_color_indices[lines.size()] = _wpn_color("RAIL_READY")
 				lines.append("RAIL READY")
 		var le2: LaserEquipment = ac.params.get_equipment_of_kind("laser")
 		if le2 != null:
 			var le_st: Dictionary = ac.equipment_state.get(LaserEquipment.STATE_KEY, {})
 			if le_st.get("overheating", false):
+				wpn_color_indices[lines.size()] = _wpn_color("LSR_OVERHEAT")
 				lines.append("LSR OVERHEAT")
 			else:
-				lines.append("LSR HEAT %d%%" % int(le_st.get("heat", 0.0) / le2.heat_max * 100))
+				var le_pct: int = int(le_st.get("heat", 0.0) / le2.heat_max * 100)
+				wpn_color_indices[lines.size()] = _wpn_color("LSR_HEAT", {"pct": le_pct})
+				lines.append("LSR HEAT %d%%" % le_pct)
 	# 装填状态（仅玩家）：按进度拼出来 — 机炮 / 导弹 / 热诱弹
 	if ac == safe_player_ref():
 		if ac._gun_reload_active:
+			wpn_color_indices[lines.size()] = _wpn_color("GUN_RELOAD")
 			lines.append("GUN RELOAD %d%%" % roundi(ac.gun_reload_progress * 100.0))
 		if ac._missile_reload_active:
+			wpn_color_indices[lines.size()] = _wpn_color("MSL_RELOAD")
 			lines.append("MSL RELOAD %d%%" % roundi(ac.missile_reload_progress * 100.0))
 		if ac.enable_flare_reload and ac.flares_remaining <= 0 and ac.flare_reload_progress > 0.0:
+			wpn_color_indices[lines.size()] = _wpn_color("FLR_RELOAD")
 			lines.append("FLR RELOAD %d%%" % roundi(ac.flare_reload_progress * 100.0))
-	# 失速提示
+	# 失速提示（仅玩家染色，敌机走 text_color）
 	if status != "":
+		if is_player_label:
+			wpn_color_indices[lines.size()] = _wpn_color("STALL")
 		lines.append(status)
 
 	# 状态效果（buff/debuff）：英文简称 + 百分比 + 颜色
@@ -1381,6 +1538,8 @@ static func draw_data_label(ac: Aircraft) -> void:
 			col = alt_color
 		elif status_line_indices.has(i):
 			col = status_line_indices[i]
+		elif wpn_color_indices.has(i):
+			col = wpn_color_indices[i]
 		ac.draw_string(ac._font, Vector2(5, 12 + i * line_height), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, col)
 
 	ac.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

@@ -51,11 +51,16 @@ func spawn_missile(source: CombatUnit, target: CombatUnit, missile_params: Missi
 	#   VLS 齐射弹 → LOS 方向 + 每发随机 ±25° 散布（模拟"一串火柱方向略散"的齐射观感）
 	#   飞机发射 → 用飞机当前朝向（飞机基本已对准目标）
 	#   地面 / 舰船 SAM → 用 source→target 的方向，避免船/SAM 朝北导致初始 PN 爆转
+	#   HOBS 高离轴弹（QMAAM 等）→ launch_toward_target=true，直接指向 LOS，
+	#     和宽锁定锥配套，避免侧面发射后还要先扭机头转弯
 	var initial_heading: float
 	if missile_params and missile_params.is_vls_salvo and target and is_instance_valid(target):
 		var los := target.global_position - source.global_position
 		var base := atan2(los.x, -los.y)
 		initial_heading = base + randf_range(-0.44, 0.44)  # ±25°
+	elif missile_params and missile_params.launch_toward_target and target and is_instance_valid(target):
+		var los := target.global_position - source.global_position
+		initial_heading = atan2(los.x, -los.y)
 	elif (source is GroundUnit or source is NavalUnit) and target and is_instance_valid(target):
 		var los := target.global_position - source.global_position
 		initial_heading = atan2(los.x, -los.y)

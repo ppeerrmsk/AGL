@@ -757,13 +757,15 @@ static func _fire_missile_at(ac: Aircraft, target_unit: CombatUnit, msl: Missile
 			ac.secondary_missiles_remaining -= 1
 		else:
 			ac.missiles_remaining -= 1
-	ac._missile_cooldown = msl.cooldown
-	ac._crank_timer = Aircraft.CRANK_DURATION
-	# 装填触发
-	if ac.enable_missile_reload and ac.missiles_remaining <= 0:
-		ac._missile_reload_active = true
-		ac._missile_reload_timer = 0.0
-		ac.missile_reload_progress = 0.0
+	# 主弹路径：写共享 _missile_cooldown / _crank_timer / 装填触发
+	# 副槽路径：cooldown / reload 全在 update_secondary_missile 自管，这里不动
+	if not is_secondary:
+		ac._missile_cooldown = msl.cooldown
+		ac._crank_timer = Aircraft.CRANK_DURATION
+		if ac.enable_missile_reload and ac.missiles_remaining <= 0:
+			ac._missile_reload_active = true
+			ac._missile_reload_timer = 0.0
+			ac.missile_reload_progress = 0.0
 
 
 ## 多目标齐射：选出多个已锁定目标，每个目标发射一枚
@@ -1084,3 +1086,180 @@ static func _spawn_loyal_wingman_drone(ac: Aircraft, lw: LoyalWingmanParams) -> 
 	drone.set_meta("_drone_offscreen_timer", 0.0)
 
 	return drone
+
+
+# ════════════════════════════════════════════════════════════
+#  副导弹槽位（开发代号 secondary_missile）独立子系统
+# ════════════════════════════════════════════════════════════
+# 完全独立于主 MSL 路径：自己的扫描锥 / 自己的累积 dict / 自己的目标 / 自己的 cooldown
+# 仅 secondary_missile_enabled=true 的飞机参与（默认 false，玩家在 SurvivorPlayableSetup 显式开）
+# 详见 docs/changelogs/2026-05-10-secondary-slot-revival.md
+
+const SECONDARY_RADAR_TICK: float = 0.5  ## 副雷达扫描节流（性能：避免每帧扫 combat_unit_list）
+
+## 目标 → 类别位（对照 MissileParams.TARGET_AIR / GROUND）
+## 注：TARGET_MISSILE 位预留给未来拦截弹——但 Missile 不继承 CombatUnit，且不在
+## combat_unit_list 中，所以本函数不分发那位。拦截弹实装时需另起来袭弹扫描路径
+## （扫 missile_manager 子节点而非 combat_unit_list），那时单独写 helper 即可。
+static func _secondary_target_class_bit(target: CombatUnit) -> int:
+	if target is Aircraft: return MissileParams.TARGET_AIR
+	return MissileParams.TARGET_GROUND  # GroundUnit / 船 / 其他
+
+## 副雷达扫描：累积锁定到 ac.secondary_radar_targets
+## 性能：0.5s tick；只扫 BulletManager.combat_unit_list 缓存（遵守 docs/reference/performance-guidelines.md 规则 4）
+static func update_secondary_radar(ac: Aircraft, delta: float) -> void:
+	if not ac.secondary_missile_enabled: return
+	if ac.params == null: return
+	var sec: MissileParams = ac.params.secondary_missile
+	if sec == null: return
+	# JAM 期间副雷达冻结（与主雷达 status_jam_active 阻断对称）
+	if ac.status_jam_active:
+		ac.secondary_radar_targets.clear()
+		return
+
+	ac._secondary_radar_tick_acc += delta
+	if ac._secondary_radar_tick_acc < SECONDARY_RADAR_TICK: return
+	var dt: float = ac._secondary_radar_tick_acc
+	ac._secondary_radar_tick_acc = 0.0
+
+	# 锥角 / 距离：>0 时用副槽覆盖值，否则用飞机默认
+	var cone_half_rad: float = deg_to_rad(sec.lock_cone_half_angle_deg) if sec.lock_cone_half_angle_deg > 0.0 \
+			else deg_to_rad(ac.params.radar_half_angle if ac.params else 30.0)
+	var max_range_px: float = sec.lock_max_range_px if sec.lock_max_range_px > 0.0 \
+			else ac.effective_radar_range_px()
+
+	if ac.bullet_manager == null: return  # 还没注入 manager（spawn 极早期），跳过
+
+	for unit in ac.bullet_manager.combat_unit_list:
+		if unit == null or not is_instance_valid(unit): continue
+		if unit.team == ac.team or unit.is_destroyed: continue
+		# filter 不匹配的从累积清掉
+		if (sec.target_filter & _secondary_target_class_bit(unit)) == 0:
+			ac.secondary_radar_targets.erase(unit); continue
+		var to_unit: Vector2 = unit.global_position - ac.global_position
+		var dist: float = to_unit.length()
+		if dist > max_range_px:
+			ac.secondary_radar_targets.erase(unit); continue
+		var hdg_to: float = atan2(to_unit.x, -to_unit.y)
+		if absf(Aircraft._angle_diff(hdg_to, ac.heading)) > cone_half_rad:
+			ac.secondary_radar_targets.erase(unit); continue
+		# 累积锁定：用 aircraft 共享 lock_time（自动吃 lock_time 升级）
+		var lock_time_val: float = ac.params.lock_time
+		var prog: float = ac.secondary_radar_targets.get(unit, 0.0)
+		ac.secondary_radar_targets[unit] = minf(prog + dt, lock_time_val)
+
+	# 清掉无效引用
+	var to_remove: Array = []
+	for u in ac.secondary_radar_targets.keys():
+		if u == null or not is_instance_valid(u) or u.is_destroyed:
+			to_remove.append(u)
+	for u in to_remove:
+		ac.secondary_radar_targets.erase(u)
+
+## 副槽发射调度：自动选目标 + 自动开火 + 独立 cooldown / 装填
+static func update_secondary_missile(ac: Aircraft, delta: float) -> void:
+	if not ac.secondary_missile_enabled: return
+	if ac.params == null: return
+	var sec: MissileParams = ac.params.secondary_missile
+	if sec == null: return
+
+	ac._secondary_cooldown = maxf(ac._secondary_cooldown - delta, 0.0)
+	# JAM 期间副槽不发射（仍允许 cooldown 走完，恢复后立刻能打）
+	if ac.status_jam_active: return
+
+	# 装填（独立计时器，与主弹无关）
+	if ac._secondary_reload_active:
+		ac._secondary_reload_timer += delta
+		# 简化：reload 时长 = cooldown × max_count（一波弹一起补满）
+		var reload_dur: float = sec.cooldown * float(maxi(sec.max_count, 1))
+		if ac._secondary_reload_timer >= reload_dur:
+			ac.secondary_missiles_remaining = sec.max_count
+			ac._secondary_reload_active = false
+			ac._secondary_reload_timer = 0.0
+		return
+
+	if ac._secondary_cooldown > 0.0: return
+	if ac.secondary_missiles_remaining <= 0:
+		ac._secondary_reload_active = true
+		ac._secondary_reload_timer = 0.0
+		return
+	if ac.missile_manager == null: return
+
+	# 自动选目标：分发到武器自己声明的优先级策略
+	var best: CombatUnit = _pick_secondary_target(ac, sec)
+	if best == null: return
+
+	# envelope：min_range / max_range 用副槽自己的
+	var dist_m: float = ac.global_position.distance_to(best.global_position) / CombatUnit.PIXELS_PER_METER
+	if dist_m < sec.min_range or dist_m > sec.max_range_rear * sec.front_rear_ratio:
+		return
+
+	_fire_missile_at(ac, best, sec, true)
+	ac._secondary_cooldown = sec.cooldown
+	ac.secondary_combat_target = best
+
+## 武器特定的目标优先级分发器
+static func _pick_secondary_target(ac: Aircraft, sec: MissileParams) -> CombatUnit:
+	match sec.target_priority:
+		MissileParams.TARGET_PRIO_DOGFIGHT_SIDE:
+			return _pick_dogfight_side(ac)
+		_:  # 默认 CLOSEST
+			return _pick_closest_locked(ac)
+
+## 共用前置过滤：锁定满 + 有效 + 主 MSL 没在打它（不抢主弹目标）
+static func _is_valid_secondary_candidate(ac: Aircraft, unit: CombatUnit) -> bool:
+	if unit == null or not is_instance_valid(unit) or unit.is_destroyed: return false
+	if ac.secondary_radar_targets.get(unit, 0.0) < ac.params.lock_time: return false
+	# 主 MSL 已经有在飞导弹瞄这个目标 → QMAAM 跳过，避免双杀浪费
+	if ac.missile_manager and ac.missile_manager.count_active_missiles_at(ac, unit) > 0:
+		return false
+	return true
+
+## QMAAM 专属：距离为主 + 侧面/狗斗轻微加权
+## 设计变更（2026-05-11）：原版用 off_axis 作主权重，导致正面目标永远打不到（评分 ≈ 0）。
+## 现改为"距离为主、侧面/狗斗为小加成"——正面/侧面都是合法目标，但**同距离下**侧面咬尾的优先。
+## 评分（无量纲，越大越优）：
+##   closeness = 1 - dist/max_range          # 0..1，越近越高（主权重）
+##   side_bonus = off_axis / max_off × 0.30   # 最多 +0.30（70° 时 = 0.30）
+##   dogfight_bonus = 0.40 if 锁我/瞄我 else 0
+static func _pick_dogfight_side(ac: Aircraft) -> CombatUnit:
+	var sec: MissileParams = ac.params.secondary_missile if ac.params else null
+	if sec == null: return null
+	var max_range: float = sec.lock_max_range_px if sec.lock_max_range_px > 0.0 \
+			else ac.effective_radar_range_px()
+	var max_off: float = deg_to_rad(sec.lock_cone_half_angle_deg) if sec.lock_cone_half_angle_deg > 0.0 \
+			else deg_to_rad(ac.params.radar_half_angle if ac.params else 30.0)
+
+	var best: CombatUnit = null
+	var best_score: float = -INF
+	for unit in ac.secondary_radar_targets.keys():
+		if not _is_valid_secondary_candidate(ac, unit): continue
+		if not (unit is Aircraft): continue
+		var enemy: Aircraft = unit
+		var to_unit: Vector2 = unit.global_position - ac.global_position
+		var dist: float = to_unit.length()
+		var hdg_to: float = atan2(to_unit.x, -to_unit.y)
+		var off_axis: float = absf(Aircraft._angle_diff(hdg_to, ac.heading))
+		# 狗斗：敌人锁我或瞄我
+		var is_dogfighting: bool = (enemy.combat_target == ac) \
+				or (enemy.radar_targets.has(ac) and enemy.radar_targets[ac] > ac.params.lock_time * 0.5)
+		var closeness: float = clampf(1.0 - dist / maxf(max_range, 1.0), 0.0, 1.0)
+		var side_bonus: float = (off_axis / maxf(max_off, 0.01)) * 0.30
+		var dogfight_bonus: float = 0.40 if is_dogfighting else 0.0
+		var score: float = closeness + side_bonus + dogfight_bonus
+		if score > best_score:
+			best_score = score
+			best = unit
+	return best
+
+## 默认策略：最近的锁定满目标
+static func _pick_closest_locked(ac: Aircraft) -> CombatUnit:
+	var best: CombatUnit = null
+	var best_dist: float = INF
+	for unit in ac.secondary_radar_targets.keys():
+		if not _is_valid_secondary_candidate(ac, unit): continue
+		var d: float = ac.global_position.distance_to(unit.global_position)
+		if d < best_dist:
+			best_dist = d
+			best = unit
+	return best

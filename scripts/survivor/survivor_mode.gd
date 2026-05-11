@@ -56,6 +56,14 @@ var is_game_over: bool = false
 var is_paused_for_upgrade: bool = false
 var upgrade_stacks: Dictionary = {}
 
+## ── 阶段制（2026-05-09）──
+## 战区阶段时长（8 分钟）。到点后关闭其他战区，玩家在打的可结算后进 BOSS。
+const WARZONE_PHASE_DURATION := 480.0
+## 出界回血时间税：玩家点 SUPPLY 满血但 game_time 前进 15 秒，把 BOSS 拉近
+const SUPPLY_TIME_COST := 15.0
+## 战区阶段已结束（game_time 跨过 WARZONE_PHASE_DURATION 时置 true，仅触发一次）
+var _warzone_phase_ended: bool = false
+
 ## §5 抽卡 pity 计数：{ Rarity → int }，本局生效
 ## SurvivorData.pick_3_upgrades 每次升级时读 + 写
 var _pity_counter: Dictionary = {}
@@ -1234,7 +1242,9 @@ func _physics_process(delta: float) -> void:
 	if is_game_over or is_paused_for_upgrade:
 		return
 
-	game_time += delta
+	# BOSS 阶段后 game_time 不再累加（HUD 自然停在 00:00 / "BOSS PHASE"）
+	if not _is_in_boss_phase():
+		game_time += delta
 	# 雷达锁定累积放在物理帧（固定 60Hz）：失焦/最小化时不会因 _process 大 delta 暴涨。
 	# 必须在所有 AI/武器子系统之前跑，因为 update_missile 读 radar_targets 决定开火。
 	_update_aircraft_list()
@@ -1255,7 +1265,11 @@ func _physics_process(delta: float) -> void:
 	if not _boss_debug_mode:
 		_spawner.update(delta)
 
-	# BOSS 阶段：3 个战区攻克后在 BOSS_ZONE 刷 F-47 小队 + 胜利判定
+	# 战区阶段倒计时检查（8 分钟到点 → 关闭其他战区 / 解锁 BOSS）
+	if not _boss_debug_mode and not _bench_mode:
+		_check_warzone_phase_timeout()
+
+	# BOSS 阶段：8 分钟到点（或当前 SELECTED 战区结算后）解锁 BOSS，刷 F-47 小队 + 胜利判定
 	# Boss Debug / Bench 模式跳过：boss_debug 走 BossEncounterEvent，bench 不需要战区驱动
 	if not _boss_debug_mode and not _bench_mode:
 		_update_boss_phase()
@@ -1280,6 +1294,9 @@ func _physics_process(delta: float) -> void:
 	# 更新HUD
 	hud.game_time = game_time
 	hud.kill_count = _spawner.kill_count
+	# 战区阶段倒计时（在 BOSS 阶段切换为"BOSS PHASE"文案，game_time 已冻结）
+	var _remaining: float = maxf(0.0, WARZONE_PHASE_DURATION - game_time)
+	hud.set_warzone_remaining(_remaining, _is_in_boss_phase())
 
 func _cleanup_references() -> void:
 	var valid: Array[Aircraft] = []
@@ -1871,6 +1888,10 @@ func _on_player_leveled_up(_new_level: int) -> void:
 	is_paused_for_upgrade = true
 	get_tree().paused = true
 	AudioManager.set_music_muffled(true)
+	# 升级期间 _physics_process 早 return，HUD timer 不会自动刷新 → 暂停前同步一次
+	if hud:
+		var _remaining: float = maxf(0.0, WARZONE_PHASE_DURATION - game_time)
+		hud.set_warzone_remaining(_remaining, _is_in_boss_phase())
 
 	var available: Array[Dictionary] = []
 	var p: AircraftParams = player_aircraft.params if player_aircraft else null
@@ -1986,9 +2007,15 @@ func _on_supply_confirmed() -> void:
 		player_aircraft.hp = player_aircraft.params.max_hp
 	if _spawner:
 		_spawner.add_supply_token_bonus()
+	# 时间税：把 game_time 推进 15s（clamp 到 WARZONE_PHASE_DURATION，
+	# 避免一次回血直接跨过阈值时跳过 _check_warzone_phase_timeout 的过渡逻辑）
+	var time_before := game_time
+	game_time = minf(game_time + SUPPLY_TIME_COST, WARZONE_PHASE_DURATION)
 	# 机头转向地图中心，玩家自然飞回内部
 	_turn_player_inward()
-	EventLogger.log_event("BOUNDARY", "Supply", "hp_restored, token +%d" % SurvivorSpawner.SUPPLY_TOKEN_GAIN)
+	EventLogger.log_event("BOUNDARY", "Supply",
+		"hp_restored, token +%d, time_cost=%.1fs (%.1f→%.1f)" % [
+			SurvivorSpawner.SUPPLY_TOKEN_GAIN, game_time - time_before, time_before, game_time])
 
 func _on_retreat_cancelled() -> void:
 	# 取消：机头转向地图中心，不传送，玩家自己飞回
@@ -2074,6 +2101,7 @@ func _on_zone_mission_completed(zone_id: StringName) -> void:
 		# 用 call_deferred 让 toast 先显示完再闪 persistent（不冲突，zone_hint 支持两者共存）
 		_zone_hint.show_persistent(tr("ZONE_HINT_NEW_OPENED"))
 
+
 ## 系统铁则：世界坐标是否在玩家屏幕可见范围内
 ## 供 spawner / zone_mission / adbs_manager 刷新前做可见性检查
 const VIEW_SPAWN_MARGIN_PX := 200.0  ## 屏外 200px 缓冲，避免贴边刷新被玩家瞥见
@@ -2084,7 +2112,51 @@ func is_world_pos_visible(world_pos: Vector2, extra_radius: float = 0.0) -> bool
 		return false
 	return _camera_ctrl.is_world_pos_visible(world_pos, VIEW_SPAWN_MARGIN_PX + extra_radius)
 
-## BOSS 阶段（P4）—— 3 个战区攻克 → 启动 BossEncounterEvent（事件层接管全部生命周期）
+## 是否已进入 BOSS 阶段（BOSS 已解锁 / 玩家选中 BOSS / BOSS 已 spawn 任一即为真）
+## 用途：game_time 冻结判定 + HUD 文案切换 + 各种 BOSS 阶段守卫
+func _is_in_boss_phase() -> bool:
+	if _boss_spawned:
+		return true
+	if _zone_data and (_zone_data.is_boss_phase() or _zone_data.boss_unlocked):
+		return true
+	return false
+
+## 8 分钟战区阶段超时检查（即时切换）
+## - 取消所有正在进行的战区任务（TGT 标记去掉、不再发完成信号、不再发奖励）
+## - 关闭所有 AVAILABLE 战区（包括玩家正在打的）
+## - 立即解锁 BOSS，_update_boss_phase 下一帧会启动 BossEncounterEvent
+## - 战区里残留的敌人继续存活，可被击杀给经验，但已不构成"任务"
+func _check_warzone_phase_timeout() -> void:
+	if _warzone_phase_ended:
+		return
+	if game_time < WARZONE_PHASE_DURATION:
+		return
+	if not _zone_data:
+		return
+	_warzone_phase_ended = true
+	_zone_data.phase_ended = true
+
+	# 取消所有战区任务（敌人留场，但 TGT 标记 + 完成信号路径都断掉）
+	if _zone_mission:
+		_zone_mission.cancel_all_zone_missions()
+
+	# 关掉所有 AVAILABLE / SELECTED 状态的战区
+	_zone_data.lock_all_open_zones_except(&"")
+	if _zone_data.selected_id != &"" and _zone_data.selected_id != &"BOSS":
+		_zone_data.set_state(_zone_data.selected_id, ZoneData.State.LOCKED)
+		_zone_data.selected_id = &""
+
+	# 立即解锁 BOSS
+	_zone_data.finalize_boss_placement()
+	_zone_data.boss_unlocked = true
+	_zone_data.set_state(&"BOSS", ZoneData.State.AVAILABLE)
+
+	if _zone_hint:
+		_zone_hint.show_temp(tr("BOSS_ZONE_READY"), 5.0)
+	EventLogger.log_event("PHASE", "WarzoneTimeout",
+		"game_time=%.1f → all zones cancelled, BOSS unlocked" % game_time)
+
+## BOSS 阶段（P4）—— 8 分钟到点（或当前 SELECTED 战区结算后）→ 启动 BossEncounterEvent（事件层接管全部生命周期）
 ## 本函数职责单一：检测解锁 → 启动事件。所有 PRE_STAGE/ENGAGED/VICTORY 状态流转、
 ## directive 下发、UI/BGM 切换都收敛到 BossEncounterEvent；事件回调见 on_boss_*。
 func _update_boss_phase() -> void:

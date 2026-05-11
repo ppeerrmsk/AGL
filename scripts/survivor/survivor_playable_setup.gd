@@ -51,13 +51,18 @@ static func apply(aircraft: Node, profile: PlayableAircraft, is_wingman: bool = 
 	if p.missile and profile.missile_count_override >= 0:
 		p.missile.max_count = profile.missile_count_override
 
-	# ── 玩家无副导弹（2026-04-29 决策：玩家导弹只有一种） ──
-	# 历史：曾区分 AAM/AGM，但 AGM 数值完全复用 AAM、UI 也不分槽位，纯冗余。
-	# 现在彻底清掉：玩家用同一种导弹打空地两类目标（combat_tracking 自动 fallback 到 p.missile）。
-	# .tres 的 secondary_missile 字段已移除（playable_f14_base / default_fighter），
-	# 这里再补一道保险，确保任何残留写入都被清空。
-	p.secondary_missile = null
-	aircraft.secondary_missiles_remaining = 0
+	# ── 副导弹槽位（开发代号 secondary_missile，玩家面叫 SP）──
+	# 2026-04-29 曾因 AAM/AGM 双轨制冗余被合并掉。2026-05-10 复活为通用特殊武器槽
+	# （详见 docs/changelogs/2026-05-10-secondary-slot-revival.md）：
+	#   - 完全独立于 MSL：独立锁定锥 / 独立目标 / 独立 cooldown / 独立装填 / 不吃 MSL 升级
+	#   - 默认槽位为空（玩家档案 .tres 未配置 secondary_missile）
+	#   - F4 调试面板可挂 QMAAM/AGM 等特殊武器；运行时切换由 survivor_debug_skills 处理
+	#   - 这里只开 enable 标志：有无副弹运行时由 params.secondary_missile 是否非空决定
+	aircraft.secondary_missile_enabled = true
+	if p.secondary_missile:
+		aircraft.secondary_missiles_remaining = p.secondary_missile.max_count
+	else:
+		aircraft.secondary_missiles_remaining = 0
 
 	# ── 玩家飞机导弹默认 fire_and_forget ──
 	# 设计：玩家不应该被"半主动持续照射"机制惩罚——发射后立刻可以转向甩 SARH。

@@ -39,6 +39,30 @@
 
 ---
 
+## 阶段制（2026-05-09 起）
+
+| 阶段 | 时长 | 行为 |
+|------|------|------|
+| 战区阶段 | 0–8 分钟（`WARZONE_PHASE_DURATION = 480.0`） | 战区可循环刷新；攻克 1 个 → 立即开 2 个新战区 |
+| BOSS 阶段 | 8 分钟到点之后 | `game_time` 冻结；其他战区关闭，BOSS 可用 |
+
+**触发流程（即时切换）**：
+1. 8 分钟到点（`survivor_mode._check_warzone_phase_timeout`）：
+   - `zone_mission.cancel_all_zone_missions()` → 清所有 TGT 标记 / `_spawned_zones` / `_triggered_zones` / `_completed_zones`，敌人留场（继续给经验，但不再给奖励）
+   - 关所有 AVAILABLE/SELECTED 战区为 LOCKED
+   - `boss_unlocked = true`
+2. 下一帧 `_update_boss_phase` 启动 `BossEncounterEvent`
+
+**已攻克战区再激活**：`_refresh_availability_after_clear` 用加权抽取（CLEARED 1.5×，LOCKED 1.0×）从候选池开 2 个新战区 → 已攻克战区有显著概率被重新激活并刷新敌人。
+
+**出界回血时间税**：玩家点 SUPPLY 满血但 `game_time += 15.0`（`SUPPLY_TIME_COST`），把 BOSS 拉近。BOSS 阶段 SUPPLY 已被 `_on_supply_confirmed` L1978 早 return 屏蔽。
+
+**HUD 显示**：[survivor_hud.gd](../../scripts/survivor/survivor_hud.gd) `set_warzone_remaining(seconds, in_boss_phase)`：顶部最上方常驻 Label，PROCESS_MODE_ALWAYS 保证升级面板暂停时也显示；升级面板打开前 survivor_mode 同步刷新一次。
+
+**已废弃**：旧的 `cleared_count >= 3` 触发 BOSS 路径已删除（`zone_data.gd:_refresh_availability_after_clear`），改由 `survivor_mode._check_warzone_phase_timeout` 时间驱动。
+
+---
+
 ## 经验与等级系统 (SurvivorPlayer)
 
 ### 经验曲线

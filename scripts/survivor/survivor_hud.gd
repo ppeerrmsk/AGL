@@ -12,6 +12,10 @@ var game_scene: Node2D
 var _time_label: Label
 var _kill_label: Label
 var _cloud_label: Label
+## 战区阶段倒计时（始终可见，包括升级面板暂停期间）
+var _warzone_timer_label: Label
+var _warzone_remaining: float = -1.0   ## -1 = 尚未注入；setter 写入后转正
+var _warzone_in_boss_phase: bool = false
 
 # ── 底部经验条 ──
 var _xp_bar_bg: ColorRect
@@ -68,6 +72,16 @@ func _ready() -> void:
 	_build_ui()
 
 func _build_ui() -> void:
+	# ── 战区阶段倒计时（顶部最上方，始终可见，升级面板暂停时也保留）──
+	# process_mode=ALWAYS 确保 get_tree().paused=true 时 Label 仍能 process（虽然 Label 本身没 _process，
+	# 但保险起见显式设置；setter 调用是同步赋值，process_mode 主要影响子节点 / 信号回调）
+	_warzone_timer_label = Label.new()
+	_warzone_timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_warzone_timer_label.add_theme_font_size_override("font_size", 22)
+	_warzone_timer_label.add_theme_color_override("font_color", ThemeColors.TEXT_PRIMARY_ALT)
+	_warzone_timer_label.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(_warzone_timer_label)
+
 	# ── 时间（顶部中央）──
 	_time_label = Label.new()
 	_time_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -283,13 +297,17 @@ func _process(delta: float) -> void:
 func _layout_ui() -> void:
 	var vp := get_viewport().get_visible_rect().size
 
-	_time_label.position = Vector2(vp.x * 0.5 - 60, 16)
+	# 战区倒计时（顶部最上方）
+	_warzone_timer_label.position = Vector2(vp.x * 0.5 - 100, -2)
+	_warzone_timer_label.size = Vector2(200, 28)
+
+	_time_label.position = Vector2(vp.x * 0.5 - 60, 28)
 	_time_label.size = Vector2(120, 30)
 
-	_kill_label.position = Vector2(vp.x * 0.5 - 60, 42)
+	_kill_label.position = Vector2(vp.x * 0.5 - 60, 54)
 	_kill_label.size = Vector2(120, 20)
 
-	_cloud_label.position = Vector2(vp.x * 0.5 - 60, 62)
+	_cloud_label.position = Vector2(vp.x * 0.5 - 60, 74)
 	_cloud_label.size = Vector2(120, 16)
 	if game_scene and game_scene.player_aircraft and not game_scene.player_aircraft.is_destroyed:
 		_cloud_label.visible = game_scene.player_aircraft.cloud_state == 2
@@ -300,7 +318,7 @@ func _layout_ui() -> void:
 	if _boss_panel and _boss_panel.visible:
 		_boss_panel.position = Vector2(
 			vp.x * 0.5 - _boss_panel.size.x * 0.5,
-			66
+			78
 		)
 
 	var xp_x := (vp.x - XP_BAR_WIDTH) * 0.5
@@ -344,6 +362,30 @@ func _layout_ui() -> void:
 			(vp.x - _game_over_panel.size.x) * 0.5,
 			(vp.y - _game_over_panel.size.y) * 0.5
 		)
+
+## survivor_mode 调用：注入战区阶段剩余秒数 + 是否进入 BOSS 阶段
+## 升级面板暂停期间（_physics_process 早 return）由 survivor_mode 在打开面板前同步一次
+func set_warzone_remaining(seconds: float, in_boss_phase: bool) -> void:
+	_warzone_remaining = seconds
+	_warzone_in_boss_phase = in_boss_phase
+	if not _warzone_timer_label:
+		return
+	if in_boss_phase:
+		_warzone_timer_label.text = tr("HUD_BOSS_PHASE")
+		_warzone_timer_label.add_theme_color_override("font_color", Color(1.0, 0.45, 0.35))
+		return
+	var mins := int(seconds) / 60
+	var secs := int(seconds) % 60
+	_warzone_timer_label.text = tr("HUD_WARZONE_TIMER_FMT") % [mins, secs]
+	# 视觉提示：≤ 60s 转红，60–120s 转黄，其他常规色
+	var color: Color
+	if seconds <= 60.0:
+		color = Color(1.0, 0.35, 0.3)
+	elif seconds <= 120.0:
+		color = Color(1.0, 0.85, 0.3)
+	else:
+		color = ThemeColors.TEXT_PRIMARY_ALT
+	_warzone_timer_label.add_theme_color_override("font_color", color)
 
 func _update_display() -> void:
 	if not survivor_player:
@@ -419,6 +461,24 @@ func _update_status_panel() -> void:
 		else:
 			var msl_color := "88bbff" if ac.missiles_remaining > 0 else "666666"
 			text += "[color=#%s]MSL  %d / %d[/color]\n" % [msl_color, ac.missiles_remaining, max_msl]
+
+	# ── 副导弹槽（SP，仅装备时显示）──
+	# 完全独立于 MSL 的子系统：独立锁定 / 独立 cooldown / 独立装填
+	# 详见 docs/changelogs/2026-05-10-secondary-slot-revival.md
+	if ac.params and ac.params.secondary_missile:
+		var sec: MissileParams = ac.params.secondary_missile
+		var max_sp := sec.max_count
+		var sp_name := sec.display_name if sec.display_name else "SP"
+		if ac._secondary_reload_active:
+			text += "[color=#ffaa55]%s  RELOAD[/color]\n" % sp_name
+		elif ac._secondary_cooldown > 0.05:
+			var cd_ratio_sp: float = 0.0
+			if sec.cooldown > 0.0:
+				cd_ratio_sp = clampf(ac._secondary_cooldown / sec.cooldown, 0.0, 1.0)
+			text += "[color=#aa6633]%s  CD %d%%[/color]\n" % [sp_name, int(cd_ratio_sp * 100)]
+		else:
+			var sp_color := "ffcc66" if ac.secondary_missiles_remaining > 0 else "666666"
+			text += "[color=#%s]%s  %d / %d[/color]\n" % [sp_color, sp_name, ac.secondary_missiles_remaining, max_sp]
 
 	# ── 机炮 ──
 	if ac.params and ac.params.gun:
@@ -528,7 +588,10 @@ func _update_status_panel() -> void:
 			var chg_pct := int(charge_p * 100)
 			text += "[color=#aaccff]RAIL  CHG %d%%[/color]\n" % chg_pct
 		elif cd > 0.01:
-			text += "[color=#aa8833]RAIL  CD %.1fs[/color]\n" % cd
+			var cd_ratio_rg: float = 0.0
+			if rg.cooldown > 0.0:
+				cd_ratio_rg = clampf(cd / rg.cooldown, 0.0, 1.0)
+			text += "[color=#aa8833]RAIL  CD %d%%[/color]\n" % int(cd_ratio_rg * 100)
 		else:
 			text += "[color=#88ddff]RAIL  READY[/color]\n"
 
@@ -1014,7 +1077,7 @@ func _get_ai(ac: Aircraft) -> AIController:
 ## 把 AI 当前状态/战术翻译成动作名（已 tr() 翻译）
 ## 僚机武器状态（导弹 / 机炮 / 热诱弹）—— 含装填进度、冷却剩余秒数。
 ## 复用玩家 HUD 的色彩 / 标签约定，单行紧凑（squad panel 宽度有限）：
-##   MSL 2/2 / MSL ↻80% / MSL 2 (1.4s)
+##   MSL 2/2 / MSL ↻80% / MSL 2 (CD 80%)
 ##   GUN 250 / GUN ↻80%
 ##   FLR 6 / FLR ↻45% / FLR (cd 比例)
 func _wingman_weapon_status(ac: Aircraft) -> String:
@@ -1027,7 +1090,9 @@ func _wingman_weapon_status(ac: Aircraft) -> String:
 			var pct := int(ac.missile_reload_progress * 100)
 			parts.append("[color=#5599ff]MSL ↻%d%%[/color]" % pct)
 		elif ac._missile_cooldown > 0.1:
-			parts.append("[color=#88bbff]MSL %d (%.1fs)[/color]" % [ac.missiles_remaining, ac._missile_cooldown])
+			var max_cd: float = ac.params.missile.cooldown
+			var pct_cd: int = int(clampf(ac._missile_cooldown / max_cd, 0.0, 1.0) * 100) if max_cd > 0.0 else 0
+			parts.append("[color=#88bbff]MSL %d (CD %d%%)[/color]" % [ac.missiles_remaining, pct_cd])
 		else:
 			var col := "88bbff" if ac.missiles_remaining > 0 else "666666"
 			parts.append("[color=#%s]MSL %d/%d[/color]" % [col, ac.missiles_remaining, max_msl])

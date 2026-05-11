@@ -375,6 +375,11 @@ var _defensive_time: float = 0.0        ## 持续处于防御态势的累计时�
 var _break_phase: int = 0               ## Break Turn 阶段：0=急转, 1=反转迎头
 var _target_eval_timer: float = 0.0     ## 交战中目标重评估计时器
 
+# ── FEAR 状态机（边沿检测 + 解除冷却）──
+var _fear_was_active: bool = false      ## 上一帧 FEAR 状态（用于边沿检测）
+var _post_fear_no_ab_timer: float = 0.0 ## FEAR 解除后禁加力倒计时（秒）
+const POST_FEAR_NO_AB_DURATION: float = 3.0
+
 # ── 机炮闪避（斗士型蛇形机动） ──
 var _gun_jink_active: bool = false      ## 正在执行机炮闪避蛇形机动
 var _gun_jink_timer: float = 0.0        ## 蛇形相位计时器
@@ -499,6 +504,20 @@ func _physics_process_impl(delta: float) -> void:
 	var _hm_ai := aircraft.get_herbst()
 	if _hm_ai and _hm_ai.is_active:
 		return
+
+	# ── FEAR 边沿 + 解除后禁加力 ──
+	# 上升沿：仅记录；下降沿：清战术冷却（立即重选战术 / 归队），开 3s 禁 AB 窗口
+	# 禁 AB 用 SLOW 同款写法（status_effects.gd:161），避免 FEAR 一过又全速冲出战场
+	# 放在节流门控之前：timer 即使在 throttle skip 帧也照样推进
+	var _fear_now: bool = aircraft.status_fear_active
+	if _fear_was_active and not _fear_now:
+		_post_fear_no_ab_timer = POST_FEAR_NO_AB_DURATION
+		_tactic_min_duration = 0.0
+		_target_eval_timer = 0.0
+	_fear_was_active = _fear_now
+	if _post_fear_no_ab_timer > 0.0:
+		_post_fear_no_ab_timer -= delta
+		aircraft.is_afterburner = false
 
 	# ── 事件 directive 顶层覆盖 ──
 	# 存在 directive 且其 owner_event 仍 active 时：跳过所有正常 AI 路由，

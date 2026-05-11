@@ -221,6 +221,12 @@ func _update_radar_locks(delta: float) -> void:
 		for key in keys_to_remove:
 			unit.radar_targets.erase(key)
 
+		# JAM 状态：被干扰者完全无法累积锁定（与 survivor_mode.gd:1417-1420 对称）
+		# 详见 docs/changelogs/2026-05-10-secondary-slot-revival.md（一致性补丁段）
+		if unit.status_jam_active:
+			unit.radar_targets.clear()
+			continue
+
 		for other in all_units:
 			if other == unit or other.team == unit.team:
 				continue

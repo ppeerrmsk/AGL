@@ -1,0 +1,31 @@
+[gd_resource type="Resource" script_class="MissileParams" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/missile_params.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+display_name = "QMAAM"
+max_speed = 1400.0
+motor_burn_time = 2.5
+motor_acceleration = 320.0
+drag_deceleration = 35.0
+max_g = 60.0
+nav_constant = 5.0
+max_range_rear = 800.0
+front_rear_ratio = 2.0
+min_range = 100.0
+max_lifetime = 8.0
+damage = 70.0
+proximity_fuse_radius = 25.0
+proximity_fuse_alt = 200.0
+intercept_hp = 40.0
+seeker_fov = 120.0
+guidance_delay = 0.1
+fire_and_forget = true
+max_count = 1
+cooldown = 8.0
+target_filter = 1
+lock_cone_half_angle_deg = 70.0
+lock_max_range_px = 800.0
+target_priority = 1
+launch_toward_target = true

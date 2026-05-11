@@ -122,8 +122,19 @@ var _alive_drones: Array[Aircraft] = []   ## 当前活着的 drone 引用（cap 
 enum WeaponMode { MISSILE, GUN }
 var weapon_mode: int = WeaponMode.GUN
 var missiles_remaining: int = 0
-var secondary_missiles_remaining: int = 0  ## 副导弹（空对地等）剩余数
+var secondary_missiles_remaining: int = 0  ## 副导弹槽剩余数（独立计数）
 var _missile_cooldown: float = 0.0
+
+# --- 副导弹槽位（开发代号 secondary_missile，玩家面叫 SP）---
+# 完全独立子系统：独立锁定锥 / 独立目标 / 独立 cooldown / 独立装填 / 不吃 MSL 升级
+# enable 默认关，仅玩家在 SurvivorPlayableSetup 显式开启
+var secondary_missile_enabled: bool = false
+var secondary_radar_targets: Dictionary = {}    ## CombatUnit -> 锁定累积秒
+var secondary_combat_target: CombatUnit = null  ## 自动选定的副槽目标
+var _secondary_cooldown: float = 0.0
+var _secondary_reload_active: bool = false
+var _secondary_reload_timer: float = 0.0
+var _secondary_radar_tick_acc: float = 0.0  ## 0.5s tick 累加器（性能：避免每帧扫描）
 var _sfx_gun_cd: float = 0.0  ## 机炮音效节流（每 0.5s 最多一次），防扫射刷声道
 var _crank_timer: float = 0.0          ## 发射后保持照射计时（秒），> 0 时飞机维持稳定航向
 const CRANK_DURATION: float = 8.0      ## 发射后保持照射的时长
@@ -739,6 +750,9 @@ func _physics_process_impl(delta: float) -> void:
 			AircraftWeapons.update_missile(self, lod_delta)
 		AircraftWeapons.update_torpedo(self, lod_delta)
 		AircraftWeapons.update_loyal_wingman(self, lod_delta)
+		# 副导弹槽（独立子系统，不依赖 combat_target）
+		AircraftWeapons.update_secondary_radar(self, lod_delta)
+		AircraftWeapons.update_secondary_missile(self, lod_delta)
 		AircraftFlares.update(self, lod_delta)
 		_update_visuals()  # rotation = heading；上一轮 LOD 2 fix 漏掉这行导致图标/label 冻结在过时朝向
 		# 玩家飞机即使屏幕外也要画锁定线
@@ -782,6 +796,9 @@ func _physics_process_impl(delta: float) -> void:
 			AircraftWeapons.update_missile(self, delta)
 		AircraftWeapons.update_torpedo(self, delta)
 		AircraftWeapons.update_loyal_wingman(self, delta)
+		# 副导弹槽（独立子系统）
+		AircraftWeapons.update_secondary_radar(self, delta)
+		AircraftWeapons.update_secondary_missile(self, delta)
 		if every3:
 			AircraftFlares.update(self, delta)
 		_update_visuals()
@@ -841,6 +858,9 @@ func _physics_process_impl(delta: float) -> void:
 	AircraftWeapons.update_missile(self, delta)
 	AircraftWeapons.update_torpedo(self, delta)
 	AircraftWeapons.update_loyal_wingman(self, delta)
+	# 副导弹槽（独立子系统，不走 update_missile 的统一池路径）
+	AircraftWeapons.update_secondary_radar(self, delta)
+	AircraftWeapons.update_secondary_missile(self, delta)
 	PerfBuckets.tick("ac_phys.wpn", Time.get_ticks_usec() - _t_wpn)
 
 	var _t_evade: int = Time.get_ticks_usec()
@@ -2244,6 +2264,12 @@ func _draw_impl() -> void:
 	if is_hovered:
 		AircraftRenderer.draw_radar_cone(self)
 		AircraftRenderer.draw_aura_ranges(self)
+	# 副导弹槽（仅玩家、装备副弹时画）
+	#   - 锁定锥：hover-only（draw_secondary_lock_cone 自身判断 is_hovered）
+	#   - 锁定指示括号：长期可见，提示"QMAAM 已就绪可以打"
+	if AircraftRenderer.player_ref == self:
+		AircraftRenderer.draw_secondary_lock_cone(self)
+		AircraftRenderer.draw_secondary_lock_indicators(self)
 	# 友方 hover 时显示参考机炮锥；敌方对玩家提交机炮攻击时持续显示锥（条件在 draw_gun_cone 内判）
 	AircraftRenderer.draw_gun_cone(self)
 	# 守卫：player_ref 在 gameover 时可能持有 freed 引用 → GDScript 严格类型校验在

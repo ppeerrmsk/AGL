@@ -1,6 +1,19 @@
 class_name MissileParams
 extends Resource
 
+# ── 副导弹槽位（开发代号 secondary_missile）目标过滤位域 ──
+# 副槽武器靠 target_filter 决定能锁谁；主弹槽默认 TARGET_AIR 与历史行为一致
+const TARGET_AIR: int = 1
+const TARGET_GROUND: int = 2
+const TARGET_SHIP: int = 4
+const TARGET_MISSILE: int = 8           ## 来袭导弹（拦截弹用，预留）
+const TARGET_ALL_VEHICLES: int = 7      ## 飞机+地面+船
+
+# ── 副槽目标优先级策略（武器自己声明）──
+# update_secondary_missile 的 _pick_secondary_target 按这个 enum 分发到不同 picker
+const TARGET_PRIO_CLOSEST: int = 0           ## 默认：最近的锁定满目标
+const TARGET_PRIO_DOGFIGHT_SIDE: int = 1     ## QMAAM：侧面（off-axis 大）+ 正在狗斗我
+
 @export_group("基本信息")
 @export var display_name: String = "MRM"
 
@@ -54,6 +67,22 @@ extends Resource
 @export var max_count: int = 2
 ## 发射间隔 (秒)
 @export var cooldown: float = 3.0
+
+@export_group("副导弹槽位（仅当本资源挂在 AircraftParams.secondary_missile 时生效）")
+## 目标类型过滤位域：MissileParams.TARGET_AIR / GROUND / SHIP / MISSILE 的或合
+## 默认 TARGET_AIR，主弹槽零行为变化；副槽武器自己声明
+@export var target_filter: int = TARGET_AIR
+## 副雷达锁定锥半角（度）。>0 时覆盖飞机 params.radar_half_angle，独立于主雷达
+## QMAAM: 70° 宽锥扩到侧面；普通副弹设 -1 沿用飞机默认
+@export var lock_cone_half_angle_deg: float = -1.0
+## 副雷达最大锁定距离（像素）。>0 时覆盖飞机 effective_radar_range_px，独立于主雷达
+## QMAAM: 1500px ≈ 3km 近距锁定；普通副弹设 -1 沿用飞机默认
+@export var lock_max_range_px: float = -1.0
+## 目标优先级策略：MissileParams.TARGET_PRIO_*。武器自己声明纪律
+@export var target_priority: int = TARGET_PRIO_CLOSEST
+## HOBS 高离轴发射：发射时不沿载机机头，而是直接指向目标 LOS
+## QMAAM 70° 宽锁定锥配此参数 = 起飞就指向目标，PN 立刻有效（否则 60G 也要先做大转弯）
+@export var launch_toward_target: bool = false
 
 @export_group("VLS 齐射（仅船用）")
 ## 是否为 VLS 齐射弹 —— 开启后走三段式弹道（垂直爬升 → 过渡俯冲 → 末端 PN）

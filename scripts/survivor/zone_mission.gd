@@ -673,6 +673,25 @@ func is_player_in_active_mission() -> bool:
 			return true
 	return false
 
+## 8 分钟战区阶段结束时调用（由 survivor_mode._check_warzone_phase_timeout）：
+## 取消所有战区任务 —— 已刷的 TGT 单位继续存活、可击杀给 XP，但不再发完成信号、
+## 不再发奖励、UI 上 TGT 括号去掉。是"任务取消但敌人留场"的语义。
+##
+## 注意：本函数只清记录 + TGT 标记，不 despawn 单位。units 由 spawner 击杀流自然回收。
+func cancel_all_zone_missions() -> void:
+	var canceled_count := 0
+	for zid in _spawned_zones.keys():
+		var units: Array = _spawned_zones.get(zid, [])
+		for u in units:
+			if u is CombatUnit and is_instance_valid(u):
+				u.is_mission_target = false
+		canceled_count += 1
+	_spawned_zones.clear()
+	_triggered_zones.clear()
+	_completed_zones.clear()
+	EventLogger.log_event("ZONE", "AllMissionsCancelled",
+		"phase_ended; %d zones, TGT marks cleared, units remain combat-active" % canceled_count)
+
 ## 战区被 mark_cleared 之后调用（由 survivor_mode 在 _on_zone_mission_completed 里转发）：
 ## 清掉该战区的 spawn/trigger/completion 记录，让下一次该战区重新 AVAILABLE
 ## 时能干净地重刷一批单位。

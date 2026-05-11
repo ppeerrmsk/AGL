@@ -109,7 +109,11 @@ static func choose_tactic(ai: AIController, s: AIController.SituationData) -> vo
 	# 不动 _current_target（玩家追得上），只换战术 → 视觉反馈"敌人转身就跑"
 	# FEAR 自然衰减（StatusEffects.tick）后，下次 choose_tactic 自动恢复
 	# BOSS 攻击手豁免：FEAR 仍生效（stress=1.0 → 失误/SA 衰减/精度下降），但不会脱离
+	# 战区目标 (zone_air) 豁免：仅"发呆平飞"，不脱离不加速，避免任务变成无解追逃
 	if ai.aircraft and ai.aircraft.status_fear_active and not ai.is_boss_attacker():
+		if ai.aircraft.get_meta("category", "") == "zone_air":
+			_apply_fear_daze(ai)
+			return
 		if ai._tactic != AIController.EngageTactic.EXTENSION:
 			apply_new_tactic(ai, AIController.EngageTactic.EXTENSION)
 		return
@@ -145,7 +149,11 @@ static func choose_tactic(ai: AIController, s: AIController.SituationData) -> vo
 	# ── 优先级 0.5：FEAR debuff → 强制 EXTENSION 逃跑 ──
 	# 玩家"震慑射击 / 惊鸿扩散"等技能注入；此优先级在 BVR/SNIPER 之后、常规 BFM 决策之前
 	# BOSS 攻击手豁免：仅吃 stress 副作用（精度/SA 下降），不会脱离玩家
+	# 战区目标 (zone_air) 豁免：仅"发呆平飞"
 	if ai.aircraft.status_fear_active and not ai.is_boss_attacker():
+		if ai.aircraft.get_meta("category", "") == "zone_air":
+			_apply_fear_daze(ai)
+			return
 		if ai._tactic != AIController.EngageTactic.EXTENSION:
 			apply_new_tactic(ai, AIController.EngageTactic.EXTENSION)
 		return
@@ -486,22 +494,51 @@ static func execute_break_turn(ai: AIController, s: AIController.SituationData) 
 		match_target_altitude(ai)
 		set_engage_speed(ai, s, AIController.BREAK_TURN_COUNTER_SPEED)
 
+## 战区目标 FEAR 豁免：发呆平飞（保持 heading + cruise + 禁加力 + 不爬升）
+## 不切 _tactic，FEAR 衰减后下次 choose_tactic 自动回到原战术决策树
+static func _apply_fear_daze(ai: AIController) -> void:
+	var fwd := Vector2(sin(ai.aircraft.heading), -cos(ai.aircraft.heading))
+	ai.aircraft.target_position = ai.aircraft.global_position + fwd * 1500.0
+	ai.aircraft.target_altitude = ai.aircraft.altitude
+	if ai.aircraft.params:
+		ai.aircraft.target_speed_kmh = ai.aircraft.params.cruise_speed
+	ai.aircraft.is_afterburner = false
+
 ## 加速脱离：远离敌机拉开距离
 static func execute_extension(ai: AIController, s: AIController.SituationData) -> void:
 	var away_dir := (ai.aircraft.global_position - s.tgt_pos).normalized()
+
+	# FEAR 守卫：恐慌时 away_dir 几乎总指向"远离玩家"，玩家在敌机后方追击 →
+	# away_dir 多半指向地图外。距边 ≤3km 时把 away_dir 朝地图中心 lerp，避免飞出战场
+	var feared := ai.aircraft.status_fear_active
+	if feared:
+		var pos_for_bound := ai.aircraft.global_position
+		var edge_dist := MapBoundary.distance_to_edge(pos_for_bound)
+		if edge_dist <= MapBoundary.WARN_DISTANCE_PX + 1000.0:
+			var inward := (Vector2.ZERO - pos_for_bound).normalized()
+			if away_dir.dot(inward) < 0.0:
+				var blend := clampf(1.0 - edge_dist / (MapBoundary.WARN_DISTANCE_PX + 1000.0), 0.3, 1.0)
+				away_dir = away_dir.lerp(inward, blend).normalized()
+
 	# 低技能飞行员脱离方向可能有偏差
 	ai.aircraft.target_position = ai._apply_position_error(ai.aircraft.global_position + away_dir * AIController.EXTENSION_DISTANCE)
 
 	# 性格偏移：骑士脱离更快(approach_speed_mult=1.75→0.95×max)，
 	# 斗士脱离较慢(1.55→0.89×max)，但斗士本身很少选 extension
-	if ai.aircraft.params:
+	# FEAR 守卫：恐慌脱离改用 cruise 速度且禁加力，防止全速冲出战场
+	if feared and ai.aircraft.params:
+		ai.aircraft.target_speed_kmh = ai._apply_speed_error(ai.aircraft.params.cruise_speed)
+		ai.aircraft.is_afterburner = false
+	elif ai.aircraft.params:
 		var escape_mult := lerpf(AIController.EXTENSION_ESCAPE_MIN, AIController.EXTENSION_ESCAPE_MAX, ai._cb().approach_speed_mult / 2.0)
 		ai.aircraft.target_speed_kmh = ai._apply_speed_error(ai.aircraft.params.max_speed * escape_mult)
 	else:
 		ai.aircraft.target_speed_kmh = ai._apply_speed_error(1800.0)
 
-	# 脱离时爬升保能
-	if ai.aircraft.flat_altitude:
+	# 脱离时爬升保能（FEAR 不爬升，避免高速 + 高空双重远走高飞）
+	if feared:
+		ai.aircraft.target_altitude = ai.aircraft.altitude
+	elif ai.aircraft.flat_altitude:
 		ai.aircraft.set_target_tier(ai.aircraft.tier_above())
 	else:
 		ai.aircraft.target_altitude = ai.aircraft.altitude + AIController.EXTENSION_CLIMB
