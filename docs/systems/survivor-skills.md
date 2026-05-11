@@ -142,6 +142,21 @@ static func xp_for_level(level: int) -> int:
 | laser_cooldown | UPGRADE_LASER_COOLDOWN_NAME | weapon | 0.25 (-25%) | 3 | laser | — | — | — | — | 激光过热冷却 |
 | laser_range | UPGRADE_LASER_RANGE_NAME | weapon | 0.20 (+20%) | 3 | laser | — | — | — | — | 激光射程 |
 | laser_heat | UPGRADE_LASER_HEAT_NAME | weapon | 0.30 (+30%) | 3 | laser | — | — | — | — | 激光过热容量 |
+| skill_kill_bloodlust | UPGRADE_SKILL_KILL_BLOODLUST_NAME | survival | 1 (开关) | 1 | — | — | — | — | duration=8s | 击杀 → 自身 FRENZY 8s |
+| skill_damaged_bloodlust | UPGRADE_SKILL_DAMAGED_BLOODLUST_NAME | survival | 1 (开关) | 1 | — | — | — | — | duration=8s；被打刷新 | 受伤 → 自身 FRENZY 8s（被打刷新） |
+| skill_missile_hit_invul | UPGRADE_SKILL_MISSILE_HIT_INVUL_NAME | survival | 1 (开关) | 1 | — | — | — | — | duration=8s；无敌期间不刷新 | 被导弹命中 → 自身 INVUL 8s |
+| skill_lowest_alt_kill_invul | UPGRADE_SKILL_LOWEST_ALT_KILL_INVUL_NAME | survival | 1 (开关) | 1 | — | — | — | — | duration=8s；altitude_tier==LOW | 低空击杀 → 自身 INVUL 8s |
+| skill_evade_missile_overload | UPGRADE_SKILL_EVADE_MISSILE_OVERLOAD_NAME | electronic_warfare | 1 (开关) | 1 | flare | — | — | — | duration=8s | 规避导弹 → 自身 OVERLOAD 8s |
+| skill_flare_overload | UPGRADE_SKILL_FLARE_OVERLOAD_NAME | electronic_warfare | 1 (开关) | 1 | flare | — | — | — | duration=8s | 投热诱弹 → 自身 OVERLOAD 8s |
+| jam_self_overload | UPGRADE_JAM_SELF_OVERLOAD_NAME | electronic_warfare | 1 (开关) | 1 | — | — | — | — | duration=8s；命中 ≥1 敌 | JAM 命中 → 自身 OVERLOAD 8s |
+| overload_duration_4x | UPGRADE_OVERLOAD_DURATION_4X_NAME | electronic_warfare | 1 (开关) | 1 | — | — | cloud_overload / skill_evade_missile_overload / skill_flare_overload | — | OVERLOAD_DURATION_MULT=×2；基础 8s → 16s | 超载持续时间 ×2 |
+| overload_extended_ammo | UPGRADE_OVERLOAD_EXTENDED_AMMO_NAME | electronic_warfare | 1 (开关) | 1 | — | — | cloud_overload / skill_evade_missile_overload / skill_flare_overload | — | +6s flat；超载期间发射不消耗弹药 | 超载 +6s + 免费弹药 |
+| overload_to_bloodlust | UPGRADE_OVERLOAD_TO_BLOODLUST_NAME | electronic_warfare | 1 (开关) | 1 | — | — | cloud_overload / skill_evade_missile_overload / skill_flare_overload | — | 击杀刷新两者 | 超载期间同时获得嗜血；击杀双刷新 |
+| bloodlust_armor_mobility | UPGRADE_BLOODLUST_ARMOR_MOBILITY_NAME | survival | 1 (开关) | 1 | — | — | skill_kill_bloodlust / skill_damaged_bloodlust / overload_to_bloodlust | — | DR=0.30；max_g×1.2；accel×1.3 | 嗜血期减伤 30% + max G ×1.2 + 加速 ×1.3 |
+| full_hp_kill_perma_hp | UPGRADE_FULL_HP_KILL_PERMA_HP_NAME | survival | 1 (开关) | 1 | — | — | skill_kill_bloodlust / skill_damaged_bloodlust / overload_to_bloodlust | — | +8 max_hp；同时+8 hp | 满血+嗜血击杀 → 永久 +8 max_hp |
+| skill_head_on_perma_hp | UPGRADE_SKILL_HEAD_ON_PERMA_HP_NAME | survival | 1 (开关) | 1 | — | — | — | — | +5 max_hp/次；HEAD_ON_DOT>0.7 + dist≤3km | 对头击杀 → 永久 +5 max_hp |
+| skill_head_on_aoe_fear | UPGRADE_SKILL_HEAD_ON_AOE_FEAR_NAME | electronic_warfare | 1 (开关) | 1 | — | — | — | — | 半径 3km；duration=6s（AOE debuff，不动） | 对头击杀大范围 FEAR 6s |
+| skill_kill_status_heal | UPGRADE_SKILL_KILL_STATUS_HEAL_NAME | survival | 1 (开关) | 1 | — | — | — | — | heal=30 HP | 击杀有异常状态敌人 → 回 30 HP |
 
 > 注：`evolves_to` 字段在代码里仍残留（运行时不再走进化链），不要依赖；新技能不要再加。`requires` 走 `AircraftParams.has_equipment_of_kind()`，等价于"主角装备表里要有 gun/missile/flare/rocket/railgun/laser"。`exclusive_to` 限定 PlayableAircraft.id。`requires_skill` 至少持有列表内任一即可。
 
