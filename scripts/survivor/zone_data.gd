@@ -180,6 +180,9 @@ const MISSION_TYPE_BASE_WEIGHTS := {
 	3: {"ground": 40.0, "squadron": 60.0},                    ## ★★★ 无 elite（分量不够）
 }
 var boss_unlocked: bool = false
+## 战区阶段是否已结束（survivor_mode 在 8 分钟到点时置 true）
+## 置 true 后 _refresh_availability_after_clear 不再开新战区，E 解锁路径也屏蔽
+var phase_ended: bool = false
 ## E 战区是否已经尝试过解锁（避免 A+B 清完反复 roll）
 var _e_unlock_rolled: bool = false
 var _rewards: Dictionary = {}                ## id → upgrade dict（该战区攻克后发放的技能）
@@ -261,6 +264,25 @@ func mark_cleared(id: StringName) -> void:
 ## 依据 `_last_cleared` 决定 BOSS 出现在南还是北
 ## 并把同位置的常规战区（E 或 B）压回 LOCKED，避免 UI 重叠
 ## 选定位置后若在陆地上则向海面吸附 —— 舰队 BOSS（CSG）才能刷进池子
+## public：survivor_mode 在 8 分钟到点（或 SELECTED 战区结算后）调用
+func finalize_boss_placement() -> void:
+	_finalize_boss_placement()
+
+## 把所有 AVAILABLE 状态的战区压回 LOCKED，except_id 保留不动（玩家正在打的）
+## 用途：8 分钟战区阶段结束时调用，让 BOSS 阶段视野干净
+func lock_all_open_zones_except(except_id: StringName) -> void:
+	for z in ZONES:
+		var zid: StringName = z["id"]
+		if zid == except_id:
+			continue
+		var st := get_state(zid)
+		if st == State.AVAILABLE:
+			_states[zid] = State.LOCKED
+			_rewards.erase(zid)
+			_difficulties.erase(zid)
+			_mission_types.erase(zid)
+	_newly_opened.clear()
+
 func _finalize_boss_placement() -> void:
 	# 最后攻克 A/B（北部）→ BOSS 出现在南；其他情况（C/D/E 或未知）→ 出现在北
 	var spawn_at_south: bool = _last_cleared == &"A" or _last_cleared == &"B"
@@ -305,16 +327,13 @@ func _cancel_zone_if_open(zid: StringName) -> void:
 
 func _refresh_availability_after_clear() -> void:
 	_newly_opened.clear()
-	# 累计攻克 3 次 → 解锁 Boss（无论是否走回头路）
-	if cleared_count >= 3:
-		boss_unlocked = true
-		_states[&"BOSS"] = State.AVAILABLE
-		_newly_opened.append(&"BOSS")
-		_finalize_boss_placement()
+	# 阶段已结束（8 分钟到点）→ 不再开新战区，BOSS 由 survivor_mode 接管
+	if phase_ended:
 		return
 
 	# E 战区解锁判定：A + B 都曾攻克过 → 按概率出现
 	# 只尝试一次，避免反复 roll；如果不出就不再出（由 C/D 等补上）
+	# 注意：E 单独占一次 refresh（不和下方 2 个新战区叠加），保留原行为
 	if not _e_unlock_rolled and _ever_cleared.has(&"A") and _ever_cleared.has(&"B"):
 		_e_unlock_rolled = true
 		if get_state(&"E") == State.LOCKED and &"E" != _last_cleared:
@@ -329,8 +348,13 @@ func _refresh_availability_after_clear() -> void:
 				return
 
 	# 候选池 = 所有非 AVAILABLE / 非 SELECTED 的战区，排除刚攻克的那个
-	# 这样同一个战区之后可以被再次选中（走回头路），但不会"刚打完又立刻刷"
+	# 同一个战区之后可以被再次选中（走回头路），但不会"刚打完又立刻刷"
+	#
+	# 加权抽取（2026-05-09）：CLEARED 比 LOCKED 多一点权重 →
+	# 让"已攻克战区被重新激活刷新敌人"成为玩家能感知的机制，
+	# 而不只是无差别随机（早期 LOCKED 数量远多于 CLEARED 时几乎抽不到）
 	var pool: Array[StringName] = []
+	var weights: Array[float] = []
 	for z in ZONES:
 		var zid: StringName = z["id"]
 		if zid == _last_cleared:
@@ -339,15 +363,44 @@ func _refresh_availability_after_clear() -> void:
 		if st == State.AVAILABLE or st == State.SELECTED:
 			continue
 		pool.append(zid)
+		# CLEARED 1.5× 权重（再激活），LOCKED 1.0× 权重（新开）
+		weights.append(1.5 if st == State.CLEARED else 1.0)
 	if pool.is_empty():
 		return
-	pool.shuffle()
-	var open_id: StringName = pool[0]
-	_states[open_id] = State.AVAILABLE
-	_assign_reward(open_id)
-	_roll_difficulty(open_id)
-	_roll_mission_type(open_id)
-	_newly_opened.append(open_id)
+	# 加权无放回抽 2 个
+	var open_count: int = mini(2, pool.size())
+	for i in range(open_count):
+		var idx: int = _weighted_pick(weights)
+		if idx < 0:
+			break
+		var open_id: StringName = pool[idx]
+		var was_cleared: bool = get_state(open_id) == State.CLEARED
+		pool.remove_at(idx)
+		weights.remove_at(idx)
+		_states[open_id] = State.AVAILABLE
+		_assign_reward(open_id)
+		_roll_difficulty(open_id)
+		_roll_mission_type(open_id)
+		_newly_opened.append(open_id)
+		EventLogger.log_event("ZONE", "Reactivated" if was_cleared else "Opened",
+			"id=%s mt=%s diff=%d" % [open_id, get_mission_type(open_id), get_difficulty(open_id)])
+
+## 加权随机：返回 weights 数组中按权重抽取的索引；空数组返回 -1
+func _weighted_pick(weights: Array[float]) -> int:
+	if weights.is_empty():
+		return -1
+	var total: float = 0.0
+	for w in weights:
+		total += w
+	if total <= 0.0:
+		return 0
+	var r: float = randf() * total
+	var acc: float = 0.0
+	for i in range(weights.size()):
+		acc += weights[i]
+		if r <= acc:
+			return i
+	return weights.size() - 1
 
 ## 返回最近 refresh 新开放的战区 id 列表（UI 显示"新战区开放"提示用），读一次后通常重置
 func take_newly_opened() -> Array[StringName]:
