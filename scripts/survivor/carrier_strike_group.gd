@@ -1,7 +1,7 @@
 ## Carrier Strike Group BOSS —— 航母战斗群
 ##
 ## 设计流程：
-##   Phase 1: CV 航母（旗舰）+ 2 CG + 1 DDG + 2 FFG 刚体舰队航行
+##   Phase 1: CV 航母（旗舰）+ 2 CG + 2 DDG + 6 FFG 刚体舰队航行
 ##   Phase 2 触发：CV 沉没 → 航母爆炸前最后一击弹射 4 架 F-14 Poltergeist
 ##          弹射从 CV 死亡位置沿 CV 最后朝向依次滑出（每架 1.2 秒间隔）
 ##   胜利条件：CV 沉没 AND Poltergeist 中队全灭
@@ -31,13 +31,19 @@ const CarrierShipScript   := preload("res://scripts/naval/carrier_ship.gd")
 const CV_PATROL_HALF_SPAN: float = 1500.0     ## CV 往返直线半程（紧贴 zone 中心，舰队不脱环）
 const ESCORT_OFFSETS: Array[Vector2] = [
 	# (前后, 左右) 相对旗舰本地坐标；+X 船头，+Y 右舷
-	# 舰队 bbox 约 1500×1100 px（≈3.0 km × 2.2 km）—— 紧密护卫队形
-	# 拉近后 CIWS 拦截网交叉覆盖更密，玩家从单侧突防更难钻空当
-	Vector2(650, -500),     # 前左 CG
-	Vector2(650, 500),      # 前右 CG
-	Vector2(-380, 0),       # 贴身后卫 DDG（CV 半长 210 + DDG 半长 90 + ~80 间隙）
-	Vector2(-850, -550),    # 后左 FFG
-	Vector2(-850, 550),     # 后右 FFG
+	# 舰队 bbox 约 1950×2200 px（≈3.9 km × 4.4 km）—— 11 舰双层护卫队形
+	# 最外点到中心 sqrt(1100²+1100²) ≈ 1556 px，仍在 BOSS_ZONE radius 2200 px 内
+	# CIWS / 防空网双层交叉覆盖，玩家从单侧突防更难钻空当
+	Vector2(650, -500),     # [0] 前左 CG
+	Vector2(650, 500),      # [1] 前右 CG
+	Vector2(-380, 0),       # [2] 贴身后卫 DDG（CV 半长 210 + DDG 半长 90 + ~80 间隙）
+	Vector2(-850, -550),    # [3] 后左 FFG
+	Vector2(-850, 550),     # [4] 后右 FFG
+	Vector2(500, 0),        # [5] 贴身前卫 DDG（与 [2] 对称，封堵 CV 正前死角）
+	Vector2(0, -1100),      # [6] 左舷腰部 FFG（封堵左舷侧突）
+	Vector2(0, 1100),       # [7] 右舷腰部 FFG（封堵右舷侧突）
+	Vector2(1100, -900),    # [8] 左舷前哨 FFG（CG 外翼，前向预警）
+	Vector2(1100, 900),     # [9] 右舷前哨 FFG（CG 外翼，前向预警）
 ]
 
 # ── 身份默认值（可被 BossRegistry 覆盖）──
@@ -133,6 +139,11 @@ func spawn(mode: Node2D, aircraft_scene: PackedScene, create_enemy_func: Callabl
 		{"cls": DestroyerShipScript, "params": ddg_params, "off": ESCORT_OFFSETS[2]},
 		{"cls": FrigateShipScript,   "params": ffg_params, "off": ESCORT_OFFSETS[3]},
 		{"cls": FrigateShipScript,   "params": ffg_params, "off": ESCORT_OFFSETS[4]},
+		{"cls": DestroyerShipScript, "params": ddg_params, "off": ESCORT_OFFSETS[5]},
+		{"cls": FrigateShipScript,   "params": ffg_params, "off": ESCORT_OFFSETS[6]},
+		{"cls": FrigateShipScript,   "params": ffg_params, "off": ESCORT_OFFSETS[7]},
+		{"cls": FrigateShipScript,   "params": ffg_params, "off": ESCORT_OFFSETS[8]},
+		{"cls": FrigateShipScript,   "params": ffg_params, "off": ESCORT_OFFSETS[9]},
 	]
 	for plan in escort_plan:
 		_spawn_escort(plan["cls"], plan["params"], plan["off"])

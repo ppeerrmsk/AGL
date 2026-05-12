@@ -49,14 +49,26 @@ const VARIANT_ALIVE_CAP: Dictionary = {
 }
 
 ## 角色：HUNTER（追猎玩家） / GUARD（护卫 boss + 自爆拦截）
-## 由 variant 决定，spawn 时一次性配置，不再周期切换
+## 由 variant 决定（spawn 时配置）—— MQ-109 按概率分裂，其它型号固定
 enum Role { GUARD, HUNTER }
 const VARIANT_ROLES: Dictionary = {
-	Variant.MQ_109_GUN:      Role.GUARD,
+	Variant.MQ_109_GUN:      Role.GUARD,    # 实际由 MQ_109_HUNTER_RATIO 决定，见 _resolve_role
 	Variant.MQ_110_MISSILE:  Role.HUNTER,
 	Variant.MQ_111_LASER:    Role.GUARD,
 	Variant.MQ_112_RAILGUN:  Role.HUNTER,
 }
+## MQ-109 的 hunter 概率：将主力机炮 UAV 大部分扔去追玩家，少量留在 boss 身边当护驾
+## 旧设计 100% guard 导致光环 buff 都被栓在 boss 周围，玩家体感"机炮 UAV 直到 boss 死才变猛"
+## 调到 0.5：最终蜂群 ≈ 22.5% MQ-109-guard + 15% MQ-111 = 37.5% guard；62.5% hunter
+## （0.7 时 hunter 过多，丢目标后大批漂远不返回，反而让玩家接触的 UAV 数量更少）
+const MQ_109_HUNTER_RATIO := 0.5
+
+## Hunter 离 boss 多远开始拽回（像素）—— 超过即在 update 里刷新 waypoints 牵引到 boss
+## BFM hunter 没有 squad leader 锚点，_process_patrol 在空 waypoints 时不更新 target_position，
+## 丢目标后沿残留方向直线漂走。给一个 boss 牵引点让它们打不到玩家就回 boss 附近重新交战。
+## 2026-05-12 抬到 4500：原 2500 会在玩家拉远后立刻中断交战（玩家 3000px 处 = 立即脱锁），
+## 配合 SwarmDirector 的 ATTACKER 角色（director 指派下不召回）避免中断式来回拉扯。
+const HUNTER_LEASH_RADIUS := 4500.0
 
 var _scene_root: Node = null
 var _aircraft_scene: PackedScene = null
@@ -68,6 +80,12 @@ var _missile_mgr: MissileManager = null
 var _uavs: Array[Aircraft] = []
 var _spawn_timer: float = 0.0
 var _initial_done: bool = false
+
+# ── 远距 cull 后的补刷队列（绕开 SPAWN_INTERVAL 但仍走小批次节流，避免一帧刷 12 架掉 FPS）──
+var _respawn_pending: int = 0
+var _respawn_drain_timer: float = 0.0
+const RESPAWN_DRAIN_BATCH: int = 2          ## 每次 drain 最多刷 2 架（与 SPAWN_BATCH 同）
+const RESPAWN_DRAIN_INTERVAL_BASE: float = 3.0  ## 基础间隔；pending 越多间隔越短（最少 1.5s）
 
 
 func setup(scene_root: Node, aircraft_scene: PackedScene, boss_unit: Aircraft,
@@ -115,9 +133,38 @@ func update(delta: float) -> void:
 				var angle: float = randf() * TAU
 				_spawn_one(angle)
 
+	# Cull 补刷队列：每 RESPAWN_DRAIN_INTERVAL（pending 越多越短）刷 RESPAWN_DRAIN_BATCH 架
+	if _respawn_pending > 0:
+		_respawn_drain_timer += delta
+		# pending 1-4: 3s 间隔；5-8: 2.25s；9+: 1.5s（下限）
+		var drain_interval: float = maxf(RESPAWN_DRAIN_INTERVAL_BASE - float(_respawn_pending - 1) * 0.2, 1.5)
+		if _respawn_drain_timer >= drain_interval:
+			_respawn_drain_timer = 0.0
+			var slots: int = MAX_COUNT - _uavs.size()
+			var spawn_n: int = mini(mini(RESPAWN_DRAIN_BATCH, _respawn_pending), slots)
+			for i in range(spawn_n):
+				var angle: float = randf() * TAU
+				_spawn_one(angle)
+			_respawn_pending -= spawn_n
+			# slots 已满（boss UAV cap），队列里剩下的也无地可去 —— 清零避免误堆积
+			if slots <= 0:
+				_respawn_pending = 0
+
+	# Hunter 不再需要外部 leash —— combat_zone_anchor/_radius 在 AIController 内部处理
+
 ## 主体死亡时调；让 UAV 不再补充（残存 UAV 自然战斗）
 func stop_replenishing() -> void:
 	_initial_done = false   ## 不再 spawn_initial 也不再补给
+
+## 远距 cull 后请求补刷：加进 pending 队列，由 update() 按 RESPAWN_DRAIN_BATCH/INTERVAL 节流刷出
+## 一次性刷 10+ 架会一帧创建 10 个 Aircraft + AIController + Squad → FPS 掉得明显，
+## 改成 2 架/3s 起步（pending 多则间隔缩短到 1.5s），帧时间分摊
+func request_respawn(count: int) -> void:
+	if not _initial_done or count <= 0:
+		return
+	_respawn_pending += count
+	# 让下一帧 update() 立即处理首批（首次拉满 drain_timer 等价于 timer >= interval）
+	_respawn_drain_timer = RESPAWN_DRAIN_INTERVAL_BASE
 
 ## 当前存活数量（HUD 用）
 func alive_count() -> int:
@@ -215,13 +262,21 @@ func _spawn_one(angle_offset: float) -> void:
 	## 硬件平台 = 无情绪 = 无恐惧 —— 跳过 [status_effects.gd] FEAR 应用，
 	## 防止玩家 skill_gun_kill_fear 一发把整个蜂群打成"平飞傻子"
 	uav.set_meta(&"fear_immune", true)
+	## 蜂群 saturation 攻击者 —— 跳过 aircraft_weapons.gd 的 TEAM_OVERKILL 检查，
+	## 让 30 架 UAV 同时打满火力（玩家方反正会用 flare/机动消解一部分），
+	## 否则 6 架 MQ-110 发 180 inbound damage 就把全队后续导弹锁死
+	uav.set_meta(&"saturation_attacker", true)
 	# 注入管理器：MQ-110 发导弹 / MQ-111 激光扫描玩家导弹 / MQ-109 子弹命中等全靠这俩
 	uav.bullet_manager = _bullet_mgr
 	uav.missile_manager = _missile_mgr
 	_scene_root.add_child(uav)
 
-	# 角色：guard / hunter（基于 variant，spawn 时一次性配置）
-	var role: int = int(VARIANT_ROLES.get(variant, Role.GUARD))
+	# 角色：guard / hunter（MQ-109 按概率分裂，其它固定）
+	var role: int
+	if variant == Variant.MQ_109_GUN:
+		role = Role.HUNTER if randf() < MQ_109_HUNTER_RATIO else Role.GUARD
+	else:
+		role = int(VARIANT_ROLES.get(variant, Role.GUARD))
 	uav.set_meta("mg_role", role)
 
 	var ai := AIController.new()
@@ -255,17 +310,16 @@ func _spawn_one(angle_offset: float) -> void:
 		if variant == Variant.MQ_111_LASER:
 			uav.set_meta(&"no_kamikaze", true)
 	else:
-		# Hunter：全功能 BFM AI 持续追击玩家，不绕 boss
-		# ⚠ 关键：ai.squad **不能**指向 boss_squad —— 否则 [ai_controller.gd:570] 的
-		# 自动 SQUAD_FOLLOW 守卫会把它转成"跟随长机"模式（PATROL → SQUAD_FOLLOW），
-		# 这就是日志里 MQ-110/MQ-112 平飞不打人的根因。
-		# 给一个独立单人 squad（leader=自己），守卫条件 squad.leader != aircraft 不成立 → 跳过
+		# Hunter：simple_ai 持续追击玩家（不绕 boss）。曾用 BFM（simple_ai=false）但实测
+		# BFM 战术层在 boss 战乱场里不太爱拉开火条件 → 火力实际投放偏弱；
+		# 切回 simple_ai 后 lead 追踪 + 武器系统接管，开火更直接。
+		# 站位距离由 preferred_standoff_range_px 控制（MQ-110/MQ-112 站远）。
 		var solo_squad := Squad.new()
 		solo_squad.leader = uav
 		solo_squad.add_member(uav)
 		ai.squad = solo_squad
 		ai.squad_index = 0
-		ai.simple_ai = false
+		ai.simple_ai = true
 		ai.orbit_squad_leader = false
 		ai.shield_leader = false
 		ai.evade_missiles = true             ## hunter 要活久才能持续给玩家压力
@@ -276,6 +330,21 @@ func _spawn_one(angle_offset: float) -> void:
 		ai.composure = randf_range(0.5, 0.75)
 		ai.focus = randf_range(0.7, 0.9)
 		ai.self_preservation = 0.15
+		# 战斗偏好区域：以 boss 为中心、HUNTER_LEASH_RADIUS 为半径
+		# 出界即放弃当前目标 + 强制回返；目标飘出 × SLACK 也放弃。
+		ai.combat_zone_anchor = _boss_unit
+		ai.combat_zone_radius = HUNTER_LEASH_RADIUS
+		# 站位距离：电磁炮 / 导弹 UAV 远距狙击不打狗斗
+		# MQ-112 雷达 5000m / PPM=0.5 → 实际雷达 2500px；railgun min_engage=1500m=750px。
+		# 站位 2000px (~1000m) 落在雷达内、最小开火距离外，留出充能距离
+		# MQ-110 雷达 4000m = 2000px；missile min_range=300m=150px；hunter 又比玩家慢
+		# 必须 standoff 否则一路冲到玩家面前甩出 35° 锥永远凑不齐 1.0s lock
+		# 站位 1500px 落在雷达内 + 远离 missile 死区 + 留余量给玩家机动
+		match variant:
+			Variant.MQ_110_MISSILE:
+				ai.preferred_standoff_range_px = 1500.0
+			Variant.MQ_112_RAILGUN:
+				ai.preferred_standoff_range_px = 2000.0
 
 	uav.add_child(ai)
 	_uavs.append(uav)

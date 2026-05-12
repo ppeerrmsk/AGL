@@ -367,6 +367,10 @@ static func draw_gun_cone(ac: Aircraft) -> void:
 	# 友方 hover 时显示黄色参考锥；敌方对玩家提交机炮攻击 ≥0.3s 显示红色威胁锥
 	var show_friendly: bool = (ac.team == 0 and ac.is_hovered)
 	var show_enemy_threat: bool = (ac.team != 0 and ac._gun_threat_timer >= Aircraft.GUN_THREAT_DISPLAY_DELAY)
+	# UAV 蜂群一群飞机各自显示锥子太碍眼，玩家根本看不过来 —— 抑制 UAV / 无人机
+	# 类别（参与 Mother Goose 蜂群）与无人机 silhouette 的锥显示
+	if show_enemy_threat and ac.params.is_unmanned:
+		show_enemy_threat = false
 	if not show_friendly and not show_enemy_threat:
 		return
 	var gun_r := ac.params.gun.max_range * Aircraft.PIXELS_PER_METER
@@ -986,19 +990,33 @@ static func draw_mother_goose_icon(ac: Aircraft, color: Color, outline_color: Co
 	# ── 8 个尾部螺旋桨槽位标记 ──
 	## prop_xs / ry=0.42 与 [mother_goose_boss.gd:PROP_OFFSETS_PX] 严格对齐
 	## 任意一处改动需同步另一处，否则雷达锁定框会和飞机模型脱节
+	# 已损毁挂点：跳过绘制，玩家直接看到"哪些还在/还没打"——boss 设了 mg_mounts meta（10 项）
+	var mg_mounts: Array = ac.get_meta(&"mg_mounts", []) if ac.has_meta(&"mg_mounts") else []
 	var prop_col := color.darkened(0.35)
 	var prop_outline := prop_col.darkened(0.3)
 	var prop_xs := [-0.95, -0.68, -0.41, -0.14, 0.14, 0.41, 0.68, 0.95]
-	for px in prop_xs:
-		var c := xform * Vector2(s * float(px), s * 0.42)
+	for i in range(prop_xs.size()):
+		if i < mg_mounts.size():
+			var m = mg_mounts[i]
+			if m and m is WeaponMount and m.destroyed:
+				continue
+		var px: float = float(prop_xs[i])
+		var c := xform * Vector2(s * px, s * 0.42)
 		var r: float = s * 0.045 * base_scale
 		ac.draw_circle(c, r, prop_col)
 		ac.draw_arc(c, r, 0, TAU, 12, prop_outline, 1.0, true)
-	# 中央两个 VLS 标记（机身中段）
+	# 中央两个 VLS 标记（机身中段）—— mounts[8] / mounts[9]
 	var vls_col := color.lightened(0.05)
 	var vls_outline := vls_col.darkened(0.4)
-	for vx in [-0.18, 0.18]:
-		var c := xform * Vector2(s * float(vx), s * 0.10)
+	var vls_xs := [-0.18, 0.18]
+	for j in range(vls_xs.size()):
+		var mount_idx: int = 8 + j
+		if mount_idx < mg_mounts.size():
+			var m = mg_mounts[mount_idx]
+			if m and m is WeaponMount and m.destroyed:
+				continue
+		var vx: float = float(vls_xs[j])
+		var c := xform * Vector2(s * vx, s * 0.10)
 		var w: float = s * 0.08 * base_scale
 		var h: float = s * 0.18 * base_scale
 		var rect := Rect2(c - Vector2(w * 0.5, h * 0.5), Vector2(w, h))

@@ -23,6 +23,33 @@ var player_ref: Aircraft = null               ## VLS 齐射目标
 var missile_manager_ref: MissileManager = null
 var jam_shield: MotherGooseJamShield = null
 var uav_swarm: MotherGooseUAVSwarm = null
+var designation: MotherGooseDesignation = null
+## SwarmDirector：1Hz 战略层，把 30 架 UAV 分配到 4 轴楔形 + SHOOTER + DECOY 实现协同突击
+## 参数走 res://resources/ace_swarm_director.tres（策划可在 Inspector 调）
+var swarm_director: SwarmDirector = null
+const SWARM_DIRECTOR_PARAMS_PATH: String = "res://resources/ace_swarm_director.tres"
+
+# ── DESIGNATION（指定猎杀）阶段相关 ──
+## ACTIVE 期间存放被改过 AI 的 UAV 原始字段，结束时回滚
+## key = AIController（WeakRef 不必要，遍历时 is_instance_valid 守卫即可）
+## value = Dictionary { orbit_squad_leader, shield_leader, combat_zone_radius, combat_zone_anchor,
+##                       aggression, self_preservation, simple_ai }
+var _designation_overrides: Dictionary = {}
+## ACTIVE 期间被指派为"前置伏击"角色的 AIController 集合（key = AIController, value = true）
+## 这些 UAV 在 _designation_tick 里不被全局 force-target 覆盖：它们应当先飞到伏击点，
+## 抵达后自己用雷达重新捕获玩家进入 lead-chase（natural transition）
+var _designation_interceptors: Dictionary = {}
+## 包围期 hunter leash 半径：设极大值让 `_is_hunter` 在 ai_controller 内被判 true
+## （检测条件 combat_zone_anchor != null AND combat_zone_radius > 0），
+## 从而让 UAV 在 simple_combat 里走 HUNTER_UAV_SPEED_RATIO 全速分支，
+## 同时不会被 leash"出界回返"触发（半径远超地图）。
+const DESIG_HUNT_RADIUS: float = 99999.0
+## 前置伏击点距玩家像素 —— 30% UAV 当前位于玩家前半球（dot(forward, to_uav) > 0）
+## 时把它们派去玩家前方 INTERCEPT_DIST 远处当伏兵，制造"从前方接近"的战术分层。
+## 其余 UAV 走纯 lead-chase，无 target_position 干预 —— 处于玩家身后的自然从后半球扑上来，
+## 处于侧面的从侧面接近，形成多角度包围。
+const DESIG_INTERCEPT_DIST: float = 2400.0
+const DESIG_INTERCEPT_RATIO: float = 0.30
 
 # ── 角度免伤参数 ──
 ## 与机头夹角越大（越接近从尾部打来）伤害越高：
@@ -53,14 +80,31 @@ var _vls_missile_params: MissileParams = null
 ## 周期扫描蜂群：脱离 boss 太远且无交战目标的 UAV → 强制返航
 ## 解决"玩家飞远后 hunter 失去目标在原地打转 / guard 被击退后回不来"的浪费问题
 const RECALL_INTERVAL: float = 4.0
-const RECALL_LEASH_PX: float = 3500.0     ## 离 boss 超过此距离 + 无目标 → 召回
+## 2026-05-12 抬到 5000（原 3500）：配合 HUNTER_LEASH_RADIUS=4500，
+## 让 ATTACKER 角色被 SwarmDirector 拉到 lane 攻击点时不被 stray recall 中断。
+## SwarmDirector 指派为 ATTACKER 的 UAV 在 _update_stray_recall 里 explicit skip。
+const RECALL_LEASH_PX: float = 5000.0     ## 离 boss 超过此距离 + 无目标 → 召回
 var _recall_timer: float = 0.0
+
+# ── 远距离 + 离屏 UAV 周期清除 ──
+## 召回机制解决不了的死角：UAV 跑到玩家画面外 + 离玩家很远 + 不再威胁玩家时
+## 直接静默销毁（不爆炸不掉血），让 boss 在下次 SPAWN_INTERVAL 重新补刷新鲜 UAV。
+## 玩家看不见的"远处闲逛"UAV 占用 CPU 又没体感，全部回收，让蜂群始终保持在画面内压迫感。
+const FAR_CULL_INTERVAL: float = 5.0       ## 每 5 秒检查一次
+const FAR_CULL_DIST_PX: float = 3500.0     ## 离玩家超过此距离才算"远"
+const FAR_CULL_VIEWPORT_MARGIN_PX: float = 400.0   ## 视口外缘缓冲（避免边缘出入频抖）
+var _far_cull_timer: float = 0.0
 
 ## 上一帧被打过 jam 标记的玩家方单位（用于本帧没在场内时主动清理）
 func _ready() -> void:
 	if jam_shield == null:
 		jam_shield = MotherGooseJamShield.new()
 		jam_shield.start()
+	if designation == null:
+		designation = MotherGooseDesignation.new()
+		designation.start()
+	# SwarmDirector：等 setup_uav_swarm 注入 uav_swarm 后由调用方触发 init_swarm_director()
+	# 这里只构造一个空实例占位；params 在 init_swarm_director 中加载
 	# 预加载 VLS 导弹参数（齐射热路径不再做 IO）
 	var p: Resource = load(VLS_MISSILE_PATH)
 	if p is MissileParams:
@@ -81,11 +125,17 @@ func _process(delta: float) -> void:
 		if boss_dead:
 			uav_swarm.stop_replenishing()
 		uav_swarm.update(delta)
+		# SwarmDirector lazy 初始化：boss 还活且 uav_swarm 已就位（首批 UAV spawn 后）
+		if not boss_dead and swarm_director == null:
+			_init_swarm_director()
+		# 战略 tick：内部按 director_hz 累加器节流，每帧调一次但 ~1Hz 才真正算
+		if swarm_director != null and not boss_dead:
+			swarm_director.update(delta)
 
 	# Jam shield 状态机（boss 死后立刻停止）
 	if not boss_dead and jam_shield:
 		jam_shield.update(delta)
-		_apply_jam_field()
+		_apply_jam_field(delta)
 	else:
 		_clear_jam_field()
 
@@ -94,23 +144,30 @@ func _process(delta: float) -> void:
 		_update_vls_salvo(delta)
 		# 流浪 UAV 召回（boss 死后不再召回 —— 残存 UAV 自然战斗到死）
 		_update_stray_recall(delta)
+		# 远距 + 离屏 UAV 周期清除（让 boss 补刷新鲜 UAV，永远在画面内压迫玩家）
+		_update_far_cull(delta)
+		# DESIGNATION 阶段调度（boss 死后停止，残存 UAV 维持上次设置自然战斗）
+		_update_designation(delta)
 
 	# Shield 绘制由独立的 MotherGooseShieldOverlay 接管（脱离 boss transform，
 	# 即便 boss 屏外也保证 AOE 圈可见 —— 玩家 gameplay 必须知道范围在哪）
 
 
-## 给场内玩家方单位施加 jam + slow 状态
+## 给场内玩家方单位施加 jam + slow 状态 + AOE 滴血
 ## 走标准 status_effects 系统 → 自动写 status_jam_active / status_slow_active 派生标记，
 ## 同时玩家 HUD 状态栏会渲染 JAM 绿条 + SLOW 蓝条，玩家明确知道在被干扰减速
 ##   - JAM  → status_jam_active=true → 武器锁定/发射全断（aircraft_weapons 已有路径）
 ##   - SLOW → 顶速硬 cap 到 SLOW_SPEED_CAP_KMH=350 km/h，禁加力
+##   - AOE  → JAM_FIELD_DPS=5/s 持续掉血，kind="jam_field"
 ## 离开场内时不主动清，让 0.5s 自然衰减（_last_jammed 跟踪不再需要）
-func _apply_jam_field() -> void:
+const JAM_FIELD_DPS: float = 5.0   ## 场内每秒掉血（与 SLOW + JAM 叠加压迫）
+func _apply_jam_field(delta: float) -> void:
 	if jam_shield == null or not jam_shield.is_effect_active():
 		return
 	if boss_unit == null or not is_instance_valid(boss_unit):
 		return
 	var bp: Vector2 = boss_unit.global_position
+	var dmg: float = JAM_FIELD_DPS * delta
 	for u in CombatUnit.all_units:
 		if u == null or not is_instance_valid(u) or u.is_destroyed:
 			continue
@@ -123,11 +180,30 @@ func _apply_jam_field() -> void:
 			# 续期：每帧把状态时长刷到 JAM_REFRESH_DURATION
 			ac.apply_status(StatusEffects.JAM, JAM_REFRESH_DURATION)
 			ac.apply_status(StatusEffects.SLOW, JAM_REFRESH_DURATION)
+			# AOE 滴血（按 delta 精确累计，hp 是 float，无需 1.0 阈值）
+			ac.take_damage(dmg, boss_unit, "jam_field")
 
 
 ## boss 死亡时调；状态栏的 JAM/SLOW 会自动衰减消失，无需主动清理
 func _clear_jam_field() -> void:
 	pass
+
+
+## 构造 SwarmDirector + 加载 params .tres
+func _init_swarm_director() -> void:
+	if uav_swarm == null or player_ref == null or not is_instance_valid(player_ref):
+		return
+	if boss_unit == null or not is_instance_valid(boss_unit):
+		return
+	var params: SwarmDirectorParams = load(SWARM_DIRECTOR_PARAMS_PATH) as SwarmDirectorParams
+	if params == null:
+		push_warning("MotherGooseController: failed to load %s — using defaults" % SWARM_DIRECTOR_PARAMS_PATH)
+		params = SwarmDirectorParams.new()
+	swarm_director = SwarmDirector.new()
+	swarm_director.setup(boss_unit, player_ref, uav_swarm, designation, params)
+	EventLogger.log_event("BOSS", "MOTHER GOOSE",
+		"SwarmDirector online (atk=%.0f%% / decoy=%.0f%% / guard=%.0f%%)" %
+		[params.attacker_pct * 100.0, params.decoy_pct * 100.0, params.guard_pct * 100.0])
 
 
 # ════════════════════════════════════════════════════════════
@@ -296,18 +372,29 @@ func _update_stray_recall(delta: float) -> void:
 		if ai._current_target != null and is_instance_valid(ai._current_target) \
 				and not ai._current_target.is_destroyed:
 			continue
-		# 强制返航：清残留追击 + 直接朝 boss 飞
+		# SwarmDirector 主动派遣的 ATTACKER 角色 → 跳过召回（director 控制其攻击点）
+		# 否则会出现"director 把 UAV 拉到楔形攻击点 → 距 boss > leash → 立刻被召回 → 圈空一圈"的撕扯
+		if SwarmDirector.is_active_attacker(ai.swarm_role_override):
+			continue
+		# 强制返航：清残留追击 + 朝"恢复锚点"飞。
+		# 玩家比 boss 近时锚点拉到玩家附近（避免 boss 飞远整个蜂群被拽出画面）；
+		# 否则锚点是 boss（原行为）。
+		var anchor: Vector2 = bp
+		if player_ref != null and is_instance_valid(player_ref) and not player_ref.is_destroyed:
+			var pp: Vector2 = player_ref.global_position
+			if uav.global_position.distance_squared_to(pp) < uav.global_position.distance_squared_to(bp):
+				anchor = pp
 		ai._current_target = null
 		uav.clear_combat_target()
 		uav.ai_override_pursuit = false
-		uav.target_position = bp
-		# 重新生成围 boss 的 4 点航点（避免 _generate_default_waypoints 用 UAV 当前位置 → 远端打转）
+		uav.target_position = anchor
+		# 围锚点的 4 点航点
 		var ring_r: float = 600.0
 		ai.waypoints = PackedVector2Array([
-			bp + Vector2(ring_r, 0),
-			bp + Vector2(0, ring_r),
-			bp + Vector2(-ring_r, 0),
-			bp + Vector2(0, -ring_r),
+			anchor + Vector2(ring_r, 0),
+			anchor + Vector2(0, ring_r),
+			anchor + Vector2(-ring_r, 0),
+			anchor + Vector2(0, -ring_r),
 		])
 		ai.current_waypoint_index = 0
 		recalled += 1
@@ -323,3 +410,248 @@ func _find_uav_ai(uav: Aircraft) -> AIController:
 	return null
 
 
+# ════════════════════════════════════════════════════════════
+# 远距 + 离屏 UAV 周期清除
+# 召回机制只能把 UAV 拉回锚点，但："锚点也在画面外 + 玩家飞远了不再观察" 时
+# UAV 在远处闲逛白白消耗资源。这里每 5s 扫一遍：
+#   远（dist > 3500px from player）AND 离屏（不在相机视口 ± 400px 缓冲内）→ 销毁
+# 销毁走 queue_free 跳过 take_damage 的死亡动画，因为玩家根本看不见。
+# UAV 减员后 swarm 内部计数减少，下次 SPAWN_INTERVAL（12s）自动补刷新 UAV 在 boss 周围。
+# 实现"压迫感始终在画面内"的体感：远处闲逛 UAV → 死掉 → 玩家附近补刷。
+# ════════════════════════════════════════════════════════════
+func _update_far_cull(delta: float) -> void:
+	if uav_swarm == null:
+		return
+	if player_ref == null or not is_instance_valid(player_ref) or player_ref.is_destroyed:
+		return
+	_far_cull_timer += delta
+	if _far_cull_timer < FAR_CULL_INTERVAL:
+		return
+	_far_cull_timer = 0.0
+
+	var pp: Vector2 = player_ref.global_position
+	var dist_sq: float = FAR_CULL_DIST_PX * FAR_CULL_DIST_PX
+	var culled: int = 0
+	for uav in uav_swarm.get_uavs():
+		if uav == null or not is_instance_valid(uav) or uav.is_destroyed:
+			continue
+		if uav.global_position.distance_squared_to(pp) < dist_sq:
+			continue
+		if not _is_pos_offscreen(uav.global_position, FAR_CULL_VIEWPORT_MARGIN_PX):
+			continue
+		# 远 + 离屏 → 静默销毁。先置 is_destroyed=true 让其他系统（玩家锁定 / radar_targets /
+		# squad members）下一帧检查时识别为"已死"自动剔除，避免他们持有 freed 引用导致
+		# "Trying to cast a freed object"。然后清掉 designation dicts 的 AIController key
+		# （否则下次 _designation_end 在 keys() 上 cast 已释放对象会崩）。最后 queue_free。
+		uav.is_destroyed = true
+		var ai_ref: AIController = _find_uav_ai(uav)
+		if ai_ref != null:
+			_designation_overrides.erase(ai_ref)
+			_designation_interceptors.erase(ai_ref)
+		uav.queue_free()
+		culled += 1
+	if culled > 0:
+		# 入补刷队列（swarm 按 2 架/3s 节流刷出，pending 多则加速到 2 架/1.5s）
+		# 一帧刷 10+ 架 = 10 个 Aircraft+AIController+Squad 同帧实例化，FPS 立刻掉
+		uav_swarm.request_respawn(culled)
+		EventLogger.log_event("BOSS", "MOTHER GOOSE",
+			"culled %d UAVs (far + off-screen) — queued for respawn" % culled)
+
+
+## 世界坐标是否在玩家相机视口外（带 margin_px 缓冲）
+## 用相机 + 视口大小自行算（不依赖 CameraController 引用）
+func _is_pos_offscreen(world_pos: Vector2, margin_px: float) -> bool:
+	var vp: Viewport = get_viewport()
+	if vp == null:
+		return false
+	var cam: Camera2D = vp.get_camera_2d()
+	if cam == null:
+		return false
+	var vp_size: Vector2 = vp.get_visible_rect().size
+	var zoom: Vector2 = cam.zoom
+	# zoom 在 Godot 4 中是"放大倍数"：zoom > 1 = 画面放大 = 可视世界范围变小
+	var half_w: float = (vp_size.x * 0.5) / maxf(zoom.x, 0.001) + margin_px
+	var half_h: float = (vp_size.y * 0.5) / maxf(zoom.y, 0.001) + margin_px
+	var cam_center: Vector2 = cam.get_screen_center_position()
+	var dx: float = absf(world_pos.x - cam_center.x)
+	var dy: float = absf(world_pos.y - cam_center.y)
+	return dx > half_w or dy > half_h
+
+
+# ════════════════════════════════════════════════════════════
+# DESIGNATION（指定猎杀）阶段
+# 节奏：COOLDOWN 180s → WARNING 3s（tether 红线伸出预警）→ ACTIVE 15s →
+#       回 COOLDOWN
+# ACTIVE 期间：
+#   - 全场 team=1 飞机的 AI._current_target 强制锁定玩家（含远端散兵）
+#   - UAV 蜂群临时切 hunter 模式（guard 解除 orbit/shield、combat_zone leash 解除）
+#   - UAV target_position 写到玩家前方扇形格 → "卡位包围 + 阻塞前进路线"
+#   - aggression=1.0 / self_preservation=0.05，全员死撑追击
+# 结束：回滚每架 UAV AI 字段到 ACTIVE 开始前的原值（saved in _designation_overrides）
+# ════════════════════════════════════════════════════════════
+func _update_designation(delta: float) -> void:
+	if designation == null:
+		return
+	var prev_active: bool = designation.is_active()
+	designation.update(delta)
+	var now_active: bool = designation.is_active()
+	if not prev_active and now_active:
+		_designation_begin()
+	elif prev_active and not now_active:
+		_designation_end()
+	if now_active:
+		_designation_tick()
+
+
+func _designation_begin() -> void:
+	_designation_overrides.clear()
+	_designation_interceptors.clear()
+	if uav_swarm == null or player_ref == null or not is_instance_valid(player_ref):
+		EventLogger.log_event("BOSS", "MOTHER GOOSE", "DESIGNATION: target acquired (no swarm/player)")
+		return
+
+	## 第一遍：保存原字段 + 切 hunter（解 orbit/shield/leash，全速、激进、不惜命）
+	## MQ-111 激光 UAV 被跳过 —— 它们是反导拦截器（限量 2，no_kamikaze），定位是"贴 boss 提供
+	## 反导/反机覆盖"，被改 hunter 派出去追玩家会让 boss 失去关键防御层；保留它们继续 shield_leader
+	var ai_list: Array[AIController] = []
+	for uav in uav_swarm.get_uavs():
+		if uav == null or not is_instance_valid(uav) or uav.is_destroyed:
+			continue
+		if uav.params and uav.params.display_name == "MQ-111":
+			continue
+		var ai: AIController = _find_uav_ai(uav)
+		if ai == null:
+			continue
+		_designation_overrides[ai] = {
+			"orbit_squad_leader": ai.orbit_squad_leader,
+			"shield_leader": ai.shield_leader,
+			"combat_zone_radius": ai.combat_zone_radius,
+			"combat_zone_anchor": ai.combat_zone_anchor,
+			"aggression": ai.aggression,
+			"self_preservation": ai.self_preservation,
+			"simple_ai": ai.simple_ai,
+			"evade_missiles": ai.evade_missiles,
+		}
+		ai.orbit_squad_leader = false
+		ai.shield_leader = false
+		## 关键：保留 anchor + 极大 radius → ai_controller 把它判为 hunter → 走 HUNTER_UAV_SPEED_RATIO
+		## 全速分支（line 1202）；radius 极大不会触发"出界回返"
+		ai.combat_zone_anchor = boss_unit
+		ai.combat_zone_radius = DESIG_HUNT_RADIUS
+		ai.aggression = 1.0
+		ai.self_preservation = 0.05
+		ai.simple_ai = true
+		ai.evade_missiles = true   ## hunter 要活久才能持续给压力
+		ai_list.append(ai)
+
+	## 第二遍：挑选"前置伏击"UAV —— 当前位于玩家前半球（与 player forward 同向）且
+	## 距玩家最远的几架，派去前方 INTERCEPT_DIST 当伏兵；其余走纯 lead-chase 自然包围
+	var ppos: Vector2 = player_ref.global_position
+	var fwd := Vector2(sin(player_ref.heading), -cos(player_ref.heading))
+	var candidates: Array = []   ## [ai, score]，score = dot(forward, to_uav) * dist（前方且远）
+	for ai in ai_list:
+		if ai == null or not is_instance_valid(ai) or ai.aircraft == null:
+			continue
+		var to_uav: Vector2 = ai.aircraft.global_position - ppos
+		var d: float = to_uav.length()
+		if d < 1.0:
+			continue
+		var dot: float = fwd.dot(to_uav / d)
+		if dot <= 0.0:
+			continue   ## 在玩家后半球，不当伏兵（让它从后追）
+		candidates.append([ai, dot * d])
+	candidates.sort_custom(func(a, b): return float(a[1]) > float(b[1]))
+	var n_intercept: int = int(round(float(ai_list.size()) * DESIG_INTERCEPT_RATIO))
+	var intercept_point: Vector2 = ppos + fwd * DESIG_INTERCEPT_DIST
+	for i in range(mini(n_intercept, candidates.size())):
+		var ai: AIController = candidates[i][0]
+		if ai == null or not is_instance_valid(ai):
+			continue
+		_designation_interceptors[ai] = true
+		## 清当前目标 + 单点航点 → 走 patrol 路径直冲伏击点；
+		## 到达后用雷达重新捕获玩家 → 自动切回 simple_combat lead-chase
+		ai._current_target = null
+		if ai.aircraft:
+			ai.aircraft.clear_combat_target()
+			ai.aircraft.ai_override_pursuit = false
+			ai.aircraft.target_position = intercept_point
+		ai.waypoints = PackedVector2Array([intercept_point])
+		ai.current_waypoint_index = 0
+
+	EventLogger.log_event("BOSS", "MOTHER GOOSE",
+		"DESIGNATION: target acquired — %d hunters / %d interceptors" %
+		[ai_list.size() - _designation_interceptors.size(), _designation_interceptors.size()])
+
+
+func _designation_end() -> void:
+	var n_restored: int = 0
+	var bp: Vector2 = boss_unit.global_position if (boss_unit and is_instance_valid(boss_unit)) else Vector2.ZERO
+	for key in _designation_overrides.keys():
+		## 关键：`key as AIController` 在 key 已被 queue_free 时直接崩"Trying to cast a freed object"
+		## —— 必须先 is_instance_valid 才能 cast（far_cull 释放 UAV 会带走其 AIController 子节点）
+		if not is_instance_valid(key):
+			continue
+		var ai: AIController = key as AIController
+		if ai == null:
+			continue
+		var saved: Dictionary = _designation_overrides[key]
+		ai.orbit_squad_leader = bool(saved.get("orbit_squad_leader", false))
+		ai.shield_leader = bool(saved.get("shield_leader", false))
+		ai.combat_zone_radius = float(saved.get("combat_zone_radius", 0.0))
+		ai.combat_zone_anchor = saved.get("combat_zone_anchor", null)
+		ai.aggression = float(saved.get("aggression", 0.5))
+		ai.self_preservation = float(saved.get("self_preservation", 0.5))
+		ai.simple_ai = bool(saved.get("simple_ai", true))
+		ai.evade_missiles = bool(saved.get("evade_missiles", true))
+		## 主动清交战状态 + 重置 waypoints —— 否则 UAV 会卡在
+		##   "_current_target=player（被 designation_tick 强行设的）→
+		##    被 combat_zone_radius*1.5 守卫拉 target 之前一直冲玩家方向 →
+		##    脱锁后无 waypoints / 在外圈漂走（hunter 用 solo_squad，没"跟长机"路径）"
+		## 强制把所有被 mod 过的 UAV 拉回 boss 周围环形 4 点航点（与 stray_recall 同处理）
+		ai._current_target = null
+		if ai.aircraft and is_instance_valid(ai.aircraft):
+			ai.aircraft.clear_combat_target()
+			ai.aircraft.ai_override_pursuit = false
+			ai.aircraft.target_position = bp
+		var ring_r: float = 600.0
+		ai.waypoints = PackedVector2Array([
+			bp + Vector2(ring_r, 0),
+			bp + Vector2(0, ring_r),
+			bp + Vector2(-ring_r, 0),
+			bp + Vector2(0, -ring_r),
+		])
+		ai.current_waypoint_index = 0
+		n_restored += 1
+	_designation_overrides.clear()
+	_designation_interceptors.clear()
+	EventLogger.log_event("BOSS", "MOTHER GOOSE",
+		"DESIGNATION: hunt ended, %d UAVs restored & recalled" % n_restored)
+
+
+func _designation_tick() -> void:
+	if player_ref == null or not is_instance_valid(player_ref) or player_ref.is_destroyed:
+		return
+	## 全场 team=1 飞机强制把玩家设为当前目标（覆盖远端散兵 + orbit guard），
+	## 但跳过被指派为"前置伏击"的 UAV —— 它们需要先飞到伏击点，途中不应被 lead-chase 拉回。
+	## 不再覆写 target_position —— 让 simple_combat 自己跑 lead 追击 / patrol 自己跑伏击航点。
+	## 这是修复"全部减速停在前置点"的核心：上版每帧用静态点覆盖 lead_pos 导致 AI 路径震荡。
+	for u in CombatUnit.all_units:
+		if u == null or not is_instance_valid(u) or u.is_destroyed:
+			continue
+		if not u is Aircraft:
+			continue
+		if u.team != 1:
+			continue
+		if u == boss_unit:
+			continue
+		var ac: Aircraft = u
+		## MQ-111 反导激光 UAV 在 designation 期间继续守 boss，不强行换目标到玩家
+		if ac.params and ac.params.display_name == "MQ-111":
+			continue
+		var ai: AIController = _find_uav_ai(ac)
+		if ai == null:
+			continue
+		if _designation_interceptors.has(ai):
+			continue
+		ai._current_target = player_ref
+		ac.set_combat_target(player_ref)

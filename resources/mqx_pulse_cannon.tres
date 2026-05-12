@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="GunParams" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/gun_params.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+display_name = "MQ-X Pulse Cannon"
+; ── 精英版"点射激光"——比 loyal_wingman_laser 射程更远 + 更精准 + 单发更狠 ──
+; loyal_wingman_laser : range 1400 / spread 0.3 / dmg 20 / vel 1800
+; MQ-X             : range 1800 / spread 0.15 / dmg 25 / vel 2200
+fire_rate = 50.0
+bullet_damage = 25.0
+muzzle_velocity = 2200.0
+max_range = 1800.0
+spread_angle = 0.15
+fire_cone_half_angle = 5.0
+max_ammo = 999

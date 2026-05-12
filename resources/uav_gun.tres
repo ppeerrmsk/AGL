@@ -6,9 +6,9 @@
 script = ExtResource("1")
 display_name = "UAV MG"
 fire_rate = 600.0
-bullet_damage = 2.0
-muzzle_velocity = 600.0
-max_range = 400.0
-spread_angle = 6.0
-fire_cone_half_angle = 3.0
+bullet_damage = 3.0
+muzzle_velocity = 1050.0
+max_range = 1200.0
+spread_angle = 4.0
+fire_cone_half_angle = 6.0
 max_ammo = 200

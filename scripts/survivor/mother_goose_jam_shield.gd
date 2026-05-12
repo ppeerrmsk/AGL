@@ -43,9 +43,10 @@ func start() -> void:
 	state = State.COOLDOWN
 	state_timer = 0.0
 
-## 是否处于"实际施加效果"的阶段（EXPANDING + SUSTAIN）
+## 是否处于"实际施加效果"的阶段（仅 SUSTAIN 满范围红色阶段）
+## EXPANDING 期是视觉警示窗口（橙色撑大圈），不施加减速/JAM，玩家有 8s 完整撤离窗口
 func is_effect_active() -> bool:
-	return state == State.EXPANDING or state == State.SUSTAIN
+	return state == State.SUSTAIN
 
 ## 仅显示警示（用于 HUD 提示玩家提前撤离），不施加效果
 func is_warning_active() -> bool:

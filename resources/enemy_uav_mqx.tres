@@ -1,0 +1,43 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/uav_mqx_missile.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/default_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/mqx_pulse_cannon.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/uav_mqx_flare.tres" id="5"]
+
+[resource]
+script = ExtResource("1")
+display_name = "MQ-X"
+is_unmanned = true
+max_hp = 300.0
+armor = 5.0
+max_speed = 1900.0
+cruise_speed = 1000.0
+stall_speed_base = 160.0
+acceleration = 100.0
+deceleration = 120.0
+g_drag_factor = 1.3
+max_g = 20.0
+max_g_structural = 26.0
+roll_rate = 6.0
+pilot_stamina = 999.0
+stamina_drain_rate = 0.0
+stamina_recovery_rate = 0.0
+max_altitude = 14000.0
+climb_rate_max = 280.0
+thrust_to_weight = 1.2
+drag_coefficient = 0.018
+afterburner_thrust_mult = 1.7
+fuel_capacity = 2400.0
+fuel_rate_normal = 0.8
+fuel_rate_afterburner = 4.0
+radar_range = 5500.0
+radar_half_angle = 40.0
+lock_time = 1.0
+gun = ExtResource("4")
+missile = ExtResource("2")
+combat = ExtResource("3")
+flare = ExtResource("5")
+icon_color = Color(1.0, 0.15, 0.15, 1)
+wing_color = Color(0.55, 0.05, 0.05, 1)

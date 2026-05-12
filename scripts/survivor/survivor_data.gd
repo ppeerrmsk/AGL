@@ -390,7 +390,8 @@ const UPGRADES: Array[Dictionary] = [
 		"keywords": ["cloud", "altitude", "stealth"],
 		# evolved 字段已弃用（§4 战区奖励降级；后续按战区映射注册）
 		## 效果两件套：
-		##   ① altitude_authority_mult ×2.0 — 切档速度翻倍（LOW↔HIGH 约 45s → 20s）
+		##   ① altitude_authority_mult ×2.0 — 切档响应度翻倍（gain/smooth ×2），物理顶速被 cap 在 +30%
+		##      —— cap 是为了不让 PE↔KE (g·vs/spd·2.5) 把横速吃光，详见 known-seams 与 aircraft_physics.gd:273
 		##   ② cloud_lock_stealth = true — 云中任意档位 lock_rate ×0.1
 		"altitude_mult": 2.0,
 	},

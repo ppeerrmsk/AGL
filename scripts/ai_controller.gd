@@ -85,6 +85,14 @@ var _tick_phase: int = 0   ## 0..ai_tick_divisor-1，随机错开各 AI 的决�
 @export var prefer_nose_aligned_weapon: bool = false
 var boss_attacker: bool = false               ## BOSS 攻击手：禁止 EXTENSION/脱离/自保，死追玩家
 
+## ── SwarmDirector 接口（Mother Goose UAV 协同用）──
+## 由 [scripts/ai/swarm/swarm_director.gd] 在 1Hz tick 中写入，simple_combat 路径每帧读
+## -1 = 未分配 / 普通 AI（默认）；0+ = 对应 SwarmDirector.Role 枚举
+@export var swarm_role_override: int = -1
+## SHOOTER/ATTACKER_*: lane 中心在世界系的弧度（玩家航向 + 楔形本地角度）
+## DECOY: 跑路方向；GUARD/RESERVE/NONE 时不读
+@export var swarm_lane_world_angle: float = 0.0
+
 # ── 事件系统 directive 覆盖 ──
 ## 由 GameEvent.set_directive 写入，存在期间 _physics_process 顶层完全跳过
 ## 正常 PATROL/ENGAGE/SQUAD_FOLLOW 路由，只执行 directive 行为。
@@ -151,6 +159,25 @@ var _prev_target_for_reverse_idx: CombatUnit = null
 ## 玩家忠诚僚机 drone 专用：来袭导弹瞄向 squad.leader 时，drone 主动撞毁拦截
 ## 与 SQUAD_FOLLOW 配合使用；默认 false，不影响普通僚机
 @export var kamikaze_intercept: bool = false
+
+## ── 战斗偏好区域（combat zone）──
+## 用途：让 boss/Sentinel 的 hunter UAV 在 boss 周围一个圆区域里活动，
+## 出界即放弃当前目标 + 强制回返。区内正常跑 AI；目标被引出区外 × SLACK 也放弃。
+## 没设 anchor 或 radius=0 = 不启用，对普通 AI 无影响。
+@export var combat_zone_anchor: Node = null
+@export var combat_zone_radius: float = 0.0
+## 区外目标宽限系数：允许追击的目标距区心最多 = radius × 此值，超出则放弃
+const COMBAT_ZONE_TARGET_SLACK := 1.3
+
+## ── 远程武器站位距离（standoff range）──
+## simple_ai 交战时：若距目标 < standoff_range_px，则反向飞离维持站位距离，不贴脸狗斗
+## 0 = 不启用，正常前置追踪。用于电磁炮 / 远距导弹 UAV
+@export var preferred_standoff_range_px: float = 0.0
+
+## 横向 flank 偏置（像素）——加到 lead_pos 上让两架同队 hunter 攻击目标不同侧
+## 正数 = 目标右翼方向（target_fwd 顺时针 90°），负数 = 目标左翼
+## 用于双机编队避免重叠（MQ-X 等精英对子）；普通 UAV 留 0 不影响
+@export var flank_offset_lateral_px: float = 0.0
 const KAMIKAZE_DETONATE_DIST_PX: float = 120.0   ## 60m，drone 与导弹距离 ≤ 此值即同归于尽
 const KAMIKAZE_INTERCEPT_RANGE_PX: float = 2400.0 ## 1200m，开始飞向导弹拦截
 
@@ -168,7 +195,12 @@ var _shield_threat_dir: Vector2 = Vector2.ZERO ## 威胁方向（用于偏移轨
 const ORBIT_INNERMOST := 60.0        ## 最内圈半径（像素，~120m）— squad_index 1
 const ORBIT_SPACING := 40.0          ## 每层轨道间距（像素，~80m）
 const ORBIT_MIN_SPEED_KMH := 400.0   ## 轨道最低速度（km/h）— 保持自然飞行感
-const ORBIT_TETHER_RADIUS := 750.0   ## 护驾半径：不追击超出此范围的目标
+const ORBIT_TETHER_RADIUS := 750.0   ## 护驾轨道半径：无人机绕长机的轨道距离上限（视觉/护盾拦截需要贴近）
+## 护驾交战触发范围：与 CommanderAura.AURA_RADIUS=1500 对齐 —— 玩家踏进光环圈就该被打。
+## 解耦原因：轨道半径决定无人机贴 boss 多近（小），交战范围决定它们追多远（大）。
+## 之前两者共用 ORBIT_TETHER_RADIUS=750，导致光环 1500 圈内 750~1500 这一段无人机被 buff
+## 但不交战，玩家体感"光环没生效"，等 boss 死掉栓绳释放才看到无人机追击。
+const ESCORT_ENGAGE_RADIUS := 1500.0
 
 const COVER_SCAN_RANGE := 2500.0     ## 掩护扫描范围（像素）≈5000m
 const COVER_SCAN_INTERVAL := 0.5     ## 掩护扫描间隔（秒）
@@ -214,6 +246,13 @@ const CONFUSED_SPEED_RATIO := 0.5          ## 发呆时速度比（最大速度 
 const REGULAR_UAV_SPEED_RATIO := 0.7       ## 普通 UAV 目标速度比
 const REGULAR_UAV_LEAD := 0.5              ## 普通 UAV 拦截提前量
 const ESCORT_UAV_LEAD := 1.0               ## 护卫 UAV 拦截提前量
+## Boss/Sentinel hunter（combat_zone_radius > 0 的 simple_ai）：
+## 全速 + 全前置 —— hunter 要给玩家持续压力，不能 70% 巡航
+const HUNTER_UAV_SPEED_RATIO := 1.0
+const HUNTER_UAV_LEAD := 1.0
+## Hunter 近战切换距离（像素）：dist < 此值时降速到 cruise_speed 提高转弯率
+## 防止 buffed UAV @ 1650 km/h（turn radius ~1800m）冲过玩家不开枪
+const HUNTER_CLOSE_COMBAT_DIST := 1200.0
 
 # ── 编队反应（已迁移到 Squad，2026-05-04 重构）──
 # Squad.FORMATION_SWITCH_THRESH / FORMATION_REACT_BASE / FORMATION_JITTER_AMP /
@@ -553,6 +592,39 @@ func _physics_process_impl(delta: float) -> void:
 	if kamikaze_intercept and _try_kamikaze_intercept(delta):
 		return
 
+	# ── 战斗偏好区域守卫 ──
+	# 圆形区域 (combat_zone_anchor.global_position, combat_zone_radius)：
+	#   1. 飞机出区 → 清交战 + PATROL + 单点 waypoint 拉回 + 全速返航；本帧后续 AI 跳过
+	#   2. 目标飘出区域 × SLACK → 放弃目标（不全速回返，让 AI 自然换目标）
+	# 用于 Mother Goose / Sentinel 的 hunter UAV：丢目标后不漂走，永远在 boss 周围战斗
+	# 锚点是飞机/单位且已被击坠：解除区域，回退到正常 AI（追玩家 / 自由扫描）
+	if combat_zone_anchor is CombatUnit and (combat_zone_anchor as CombatUnit).is_destroyed:
+		combat_zone_anchor = null
+		combat_zone_radius = 0.0
+	if combat_zone_anchor != null and is_instance_valid(combat_zone_anchor) and combat_zone_radius > 0.0:
+		var zone_center: Vector2 = combat_zone_anchor.global_position
+		var self_dist := aircraft.global_position.distance_to(zone_center)
+		if self_dist > combat_zone_radius:
+			# 出界：强制回返
+			_current_target = null
+			aircraft.clear_combat_target()
+			aircraft.ai_override_pursuit = false
+			_state = AIState.PATROL
+			waypoints = PackedVector2Array([zone_center])
+			current_waypoint_index = 0
+			aircraft.target_position = zone_center
+			if aircraft.flat_altitude and combat_zone_anchor is Aircraft:
+				aircraft.set_target_tier((combat_zone_anchor as Aircraft).get_altitude_tier())
+			if aircraft.params:
+				aircraft.target_speed_kmh = aircraft.params.max_speed
+			return
+		elif _current_target != null and is_instance_valid(_current_target):
+			var target_dist := _current_target.global_position.distance_to(zone_center)
+			if target_dist > combat_zone_radius * COMBAT_ZONE_TARGET_SLACK:
+				_current_target = null
+				aircraft.clear_combat_target()
+				aircraft.ai_override_pursuit = false
+
 	if simple_ai:
 		# simple AI 只承袭固定 aggression，不受压力/SA 影响
 		aircraft.tactical_aggression = clampf(aggression, 0.0, 1.0)
@@ -863,9 +935,15 @@ func _process_simple(delta: float) -> void:
 	if not _current_target or not is_instance_valid(_current_target) or _current_target.is_destroyed:
 		_current_target = null
 
+		# ── SwarmDirector ATTACKER/SHOOTER/DECOY 跳过 orbit 分支 ──
+		# Director 已经把 _current_target 设过，但 _process_simple 顶部可能因 target 失效清零；
+		# 这里给一个明确兜底：non-GUARD/non-RESERVE 角色不应回 orbit，let _try_engage_simple 重新拉
+		var _swarm_skip_orbit: bool = (swarm_role_override == 0 \
+				or (swarm_role_override >= 1 and swarm_role_override <= 5))
+
 		# ── 多层轨道环绕（指挥 UAV 编队）──
 		# 每架 UAV 按 squad_index 分配不同半径轨道，像行星系统分层环绕
-		if EscortBehavior.is_active(self) and squad.leader != aircraft:
+		if not _swarm_skip_orbit and EscortBehavior.is_active(self) and squad.leader != aircraft:
 			var leader := squad.leader
 			# 轨道中心：有威胁时向威胁方向偏移（UAV 集中在导弹来袭侧）
 			var center := leader.global_position
@@ -1014,7 +1092,13 @@ func _process_simple(delta: float) -> void:
 		# 简单扫描：只有非 shield_leader 的普通 UAV 才会进入交战模式
 		_scan_timer -= delta
 		if _scan_timer <= 0.0 and enable_combat and not shield_leader:
-			_scan_timer = 1.0 if orbit_squad_leader else 3.0
+			# Hunter 0.5s / 护驾 1.0s / 普通 3.0s —— hunter 需要快速重新接敌避免"丢目标 3s 漂走"
+			if combat_zone_anchor != null and combat_zone_radius > 0.0:
+				_scan_timer = 0.5
+			elif orbit_squad_leader:
+				_scan_timer = 1.0
+			else:
+				_scan_timer = 3.0
 			_try_engage_simple()
 		return
 
@@ -1031,7 +1115,8 @@ func _process_simple(delta: float) -> void:
 		var leader_pos := squad.leader.global_position
 		var self_to_leader := aircraft.global_position.distance_to(leader_pos)
 		var tgt_to_leader := _current_target.global_position.distance_to(leader_pos)
-		if self_to_leader > ORBIT_TETHER_RADIUS or tgt_to_leader > ORBIT_TETHER_RADIUS:
+		# 交战期间允许冲到光环边（ESCORT_ENGAGE_RADIUS=1500），脱离后才回 750 轨道
+		if self_to_leader > ESCORT_ENGAGE_RADIUS or tgt_to_leader > ESCORT_ENGAGE_RADIUS:
 			aircraft.clear_combat_target()
 			aircraft.ai_override_pursuit = false
 			_current_target = null
@@ -1040,8 +1125,17 @@ func _process_simple(delta: float) -> void:
 			_simple_confused = false
 			return
 
+	# Hunter 判定：combat_zone 绑定的 simple_ai = boss/Sentinel 的 hunter UAV
+	# 全速 + 全前置 + 跳过发呆 + 宽放交战距离上限，给玩家持续压力
+	var _is_hunter := combat_zone_anchor != null and combat_zone_radius > 0.0
+
 	# 超出范围或超时脱离（用有效雷达范围 → 高度档位影响 AI 缠斗持续半径）
-	var max_range := (aircraft.effective_radar_range_px() * 1.5) if aircraft.params else 3000.0
+	# Hunter：用 combat_zone × 1.5 作为脱离距离，与雷达解耦——MQ-110 雷达只 750px 但 hunter 要追远
+	var max_range: float
+	if _is_hunter:
+		max_range = combat_zone_radius * 1.5
+	else:
+		max_range = (aircraft.effective_radar_range_px() * 1.5) if aircraft.params else 3000.0
 	_engage_timer += delta
 	if dist > max_range or _engage_timer > engage_duration:
 		aircraft.clear_combat_target()
@@ -1056,10 +1150,11 @@ func _process_simple(delta: float) -> void:
 	aircraft.set_combat_target(_current_target)
 	aircraft.ai_override_pursuit = true
 
-	# ── 护驾 UAV 跳过发呆机制（始终保持追踪） ──
+	# ── 护驾 UAV / Hunter 跳过发呆机制（始终保持追踪） ──
 	var _is_sentinel_escort := orbit_squad_leader and shield_leader
+	var _skip_fatigue := _is_sentinel_escort or _is_hunter
 
-	if not _is_sentinel_escort:
+	if not _skip_fatigue:
 		# ── 近距绕圈疲劳检测（非护驾 UAV 才用）──
 		var close_threshold := ORBIT_CLOSE_DIST
 		if dist < close_threshold:
@@ -1092,19 +1187,143 @@ func _process_simple(delta: float) -> void:
 				aircraft.target_speed_kmh = aircraft.params.max_speed * CONFUSED_SPEED_RATIO if aircraft.params else 600.0
 				return
 
-	# 前置追踪（护驾 UAV 用更激进的预判系数）
+	# 前置追踪（护驾 UAV / hunter 用更激进的预判系数）
 	var tgt_fwd := Vector2(sin(_current_target.heading), -cos(_current_target.heading))
 	var closing_speed := maxf(aircraft.speed + _current_target.speed, 1.0) * Aircraft.PIXELS_PER_METER
 	var lead_time := dist / closing_speed
-	var lead_factor := ESCORT_UAV_LEAD if _is_sentinel_escort else REGULAR_UAV_LEAD  # 护驾 UAV 100% 前置，普通 50%
+	var lead_factor: float
+	if _is_sentinel_escort:
+		lead_factor = ESCORT_UAV_LEAD
+	elif _is_hunter:
+		lead_factor = HUNTER_UAV_LEAD
+	else:
+		lead_factor = REGULAR_UAV_LEAD
 	var lead_pos := _current_target.global_position + tgt_fwd * _current_target.speed * Aircraft.PIXELS_PER_METER * lead_time * lead_factor
-	aircraft.target_position = lead_pos
+	# 横向 flank 偏置：让两架同队 hunter 攻击目标不同侧，避免在 lead_pos 收敛重叠
+	# 距离衰减：远距(>1500px)满偏 / 近距(<500px)归零，让 AI 贴脸时仍能直瞄开火
+	if flank_offset_lateral_px != 0.0:
+		var flank_scale: float = clampf((dist - 500.0) / 1000.0, 0.0, 1.0)
+		var tgt_right: Vector2 = Vector2(-tgt_fwd.y, tgt_fwd.x)   ## target_fwd 顺时针 90°
+		lead_pos += tgt_right * flank_offset_lateral_px * flank_scale
+
+	# ── SwarmDirector 协同覆写（Mother Goose UAV 多轴突击）──
+	# ATTACKER_*: dist >2500px 直奔玩家（救回离场 UAV）；dist <2500 + 不在楔形 → 飞楔形攻击点；
+	#            在楔形 → 保持 lead_pos 让 simple_combat 走 LEAD_CHASE 开火
+	# DECOY: 沿 lane 方向跑路 2000px
+	# SHOOTER / GUARD / RESERVE / NONE: 不动 lead_pos，沿用既有 simple_combat 行为
+	const SWARM_FERRY_DIST: float = 2500.0   ## 超过此距离的 ATTACKER 直接 beeline 玩家，不走 lane
+	if swarm_role_override >= 1 and swarm_role_override <= 4:
+		# ATTACKER_N(1) / E(2) / S(3) / W(4)
+		var ptgt: Vector2 = _current_target.global_position
+		if dist > SWARM_FERRY_DIST:
+			## 离场救援：丢弃 lane 直接冲玩家位置（lead_pos 保持上面算好的玩家 lead 前置）
+			pass   ## lead_pos 不动，已是玩家 lead 前置点
+		else:
+			var lane_dir := Vector2(sin(swarm_lane_world_angle), -cos(swarm_lane_world_angle))
+			var to_me_v: Vector2 = aircraft.global_position - ptgt
+			var to_me_len: float = to_me_v.length()
+			var in_wedge: bool = false
+			if to_me_len > 1.0:
+				var dot: float = lane_dir.dot(to_me_v / to_me_len)
+				in_wedge = dot > cos(deg_to_rad(30.0))   ## 楔形半宽 30°
+			if not in_wedge:
+				## 楔形攻击点收紧到 600~1000px（原 600-1500 范围过远，容易冲出地图）
+				var dist_scale: float = lerpf(600.0, 1000.0, clampf(dist / 2000.0, 0.0, 1.0))
+				lead_pos = ptgt + lane_dir * dist_scale
+			## 在楔形内 → 保持 lead_pos = 纯 lead
+	elif swarm_role_override == 5:
+		# DECOY: 沿 lane 方向跑（垂直玩家航向），让 director 把 ATTACKER 楔形空位换给别人
+		var dec_dir := Vector2(sin(swarm_lane_world_angle), -cos(swarm_lane_world_angle))
+		lead_pos = aircraft.global_position + dec_dir * 2000.0
+
+	# ── Railgun 充能稳头守卫 ──
+	# fire_along_nose=true 的电磁炮（MQ-112 等）开火方向 = 当前机头，charging/awaiting 期间
+	# 机头乱飘 = 必打偏。检测 equipment_state["railgun"] 的 charging/awaiting_fire，
+	# 期间把 target_position 钉到 locked_aim_pos，让机头冻结对准锁定点。
+	var _railgun_aiming: bool = false
+	if aircraft.equipment_state.has("railgun"):
+		var rs: Dictionary = aircraft.equipment_state["railgun"]
+		if rs.get("charging", false) or rs.get("awaiting_fire", false):
+			var aim_pos: Vector2 = rs.get("locked_aim_pos", Vector2.ZERO)
+			if aim_pos != Vector2.ZERO:
+				aircraft.target_position = aim_pos
+				_railgun_aiming = true
+
+	# 远程武器站位：贴得太近就往反方向飞，维持狙击距离不打狗斗
+	# 旧方案"<standoff 直接飞离"会让机头在 standoff 阈值处来回甩 → 射击 cone 永远不满足。
+	# SHOOTER 角色（永远是 standoff 平台）干脆绕开 standoff 又会导致 MQ-112 冲过玩家头顶。
+	# 新方案：切向轨道 —— dist < 1.5×standoff 时把 target_position 设在 standoff 圆上、
+	# 切向偏置 0.5×standoff 的点。AI 沿弧线绕飞而非反复出/入，机头径向偏 ~27° → 射击 cone 易满足。
+	if not _railgun_aiming:
+		if preferred_standoff_range_px > 0.0 and dist < preferred_standoff_range_px * 1.5 and dist > 1.0:
+			var to_me_vec: Vector2 = aircraft.global_position - _current_target.global_position
+			var to_me_len: float = to_me_vec.length()
+			var radial: Vector2
+			if to_me_len > 0.01:
+				radial = to_me_vec / to_me_len
+			else:
+				radial = Vector2(sin(aircraft.heading), -cos(aircraft.heading))
+			# 切向方向：与 radial 垂直，选与当前 heading 同侧的方向（避免反复换边震荡）
+			var fwd: Vector2 = Vector2(sin(aircraft.heading), -cos(aircraft.heading))
+			var tangent_cw: Vector2 = Vector2(-radial.y, radial.x)
+			var tangent: Vector2 = tangent_cw if tangent_cw.dot(fwd) >= 0.0 else -tangent_cw
+			aircraft.target_position = _current_target.global_position + radial * preferred_standoff_range_px + tangent * (preferred_standoff_range_px * 0.5)
+		else:
+			aircraft.target_position = lead_pos
 	if aircraft.flat_altitude:
 		aircraft.set_target_tier(_current_target.get_altitude_tier())
 	else:
 		aircraft.target_altitude = _current_target.altitude
-	# 护驾 UAV 全速追击，普通 UAV 70% 速度
-	aircraft.target_speed_kmh = aircraft.params.max_speed if _is_sentinel_escort else (aircraft.params.max_speed * REGULAR_UAV_SPEED_RATIO if aircraft.params else 800.0)
+	# 速度：护驾/hunter 全速，普通 UAV 70%
+	# Hunter 自适应：远距 max_speed 闭合，近距 cruise_speed 防止"飞过头不开枪"
+	# （buffed UAV 顶速 ~1650 km/h 时 turn radius ~1800m，必须降速才能转弯对准玩家开火）
+	var speed_ratio: float
+	if _is_sentinel_escort or _is_hunter:
+		speed_ratio = HUNTER_UAV_SPEED_RATIO
+	else:
+		speed_ratio = REGULAR_UAV_SPEED_RATIO
+	if aircraft.params:
+		# SwarmDirector 角色速度策略：
+		#   远距 ferry (dist>2500)：max_speed 全速追玩家
+		#   近距 ATTACKER：cruise×1.5 保留转弯能力 (max_speed 会冲过头)
+		#   SHOOTER：max_speed（赶到能打位置最重要）
+		var _swarm_role := swarm_role_override
+		var _swarm_is_attacker := _swarm_role >= 1 and _swarm_role <= 4
+		var _swarm_is_shooter := _swarm_role == 0
+		if _swarm_is_attacker or _swarm_is_shooter:
+			var cruise := AircraftPhysics.effective_cruise_speed_kmh(aircraft)
+			var top := AircraftPhysics.effective_max_speed_kmh(aircraft)
+			if _swarm_is_shooter and preferred_standoff_range_px > 0.0:
+				# SHOOTER 速度策略：
+				#   远距(>1.5×standoff) → max_speed 闭合
+				#   1.0~1.5×standoff   → cruise×1.3（既有能量做圆周运动，又不冲过头）
+				#   <standoff          → 跟随目标速度 ×1.1（略快保持外推位 + 不贴脸）
+				# 不再用 corner_speed —— 对 1500~2000px 半径的轨道而言 corner_speed 太低，
+				# 物理转弯半径远小于 standoff，AI 反而往内冲螺旋
+				if dist > preferred_standoff_range_px * 1.5:
+					aircraft.target_speed_kmh = top
+					aircraft.orbit_speed_cap = 0.0
+				else:
+					aircraft.target_speed_kmh = minf(cruise * 1.3, top)
+					if dist < preferred_standoff_range_px and _current_target is Aircraft:
+						# 上限 = 目标速度 × 1.1；floor = cruise × 0.9 防止"悬停感"
+						var tgt_kmh: float = _current_target.speed * 3.6 * 1.1
+						aircraft.orbit_speed_cap = maxf(tgt_kmh, cruise * 0.9) / 3.6   # → m/s
+					else:
+						aircraft.orbit_speed_cap = 0.0
+			elif _swarm_is_shooter or dist > 2500.0:
+				aircraft.orbit_speed_cap = 0.0
+				aircraft.target_speed_kmh = top
+			else:
+				aircraft.orbit_speed_cap = 0.0
+				aircraft.target_speed_kmh = minf(cruise * 1.5, top)
+		elif _is_hunter and dist < HUNTER_CLOSE_COMBAT_DIST:
+			# 近距：用 corner_speed 最大化转弯率，避免 max_speed 1800m turn radius 飞过头不开枪
+			aircraft.target_speed_kmh = AircraftPhysics.effective_corner_speed_kmh(aircraft)
+		else:
+			aircraft.target_speed_kmh = aircraft.params.max_speed * speed_ratio
+	else:
+		aircraft.target_speed_kmh = 800.0
 
 ## shield_leader 专用：只攻击进入护驾范围的敌人
 ## shield_leader 专用：敌人进入光环范围（900px）时交战
@@ -1144,7 +1363,13 @@ func _try_engage_simple() -> void:
 		if d < best_dist:
 			best_dist = d
 			best = unit
-	var detect_range := (aircraft.effective_radar_range_px() * 1.2) if aircraft.params else 2500.0
+	# Hunter detect range = combat_zone × 1.3，与雷达解耦，让 MQ-110（750px 雷达）也能在
+	# 整个 boss 战斗圈内识别玩家；普通 UAV 仍按雷达 × 1.2
+	var detect_range: float
+	if combat_zone_anchor != null and combat_zone_radius > 0.0:
+		detect_range = combat_zone_radius * 1.3
+	else:
+		detect_range = (aircraft.effective_radar_range_px() * 1.2) if aircraft.params else 2500.0
 	# 低空 / 云中目标更难被发现 —— 连续插值，无 tier 跳变
 	#   贴地    → detect_range × 0.80
 	#   3500m+ → detect_range × 1.00
@@ -1162,8 +1387,8 @@ func _try_engage_simple() -> void:
 	# 只攻击进入长机护驾范围内的目标，远处的敌人不管
 	if best and EscortBehavior.is_active(self):
 		var tgt_to_leader := best.global_position.distance_to(squad.leader.global_position)
-		if tgt_to_leader > ORBIT_TETHER_RADIUS:
-			return  # 目标不在护驾范围内，不交战
+		if tgt_to_leader > ESCORT_ENGAGE_RADIUS:
+			return  # 目标超出光环范围才不交战（与 CommanderAura.AURA_RADIUS 对齐）
 
 	if best and best_dist < detect_range:
 		_current_target = best

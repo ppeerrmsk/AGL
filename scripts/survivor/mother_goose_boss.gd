@@ -41,6 +41,16 @@ const MOUNT_VLS_HP: float = 350.0          ## VLS 挂点 HP（更耐打）
 const WEAK_POINT_HP: float = 800.0         ## 弱点暴露后的最终 HP（≈ 1 发玩家高伤导弹无法秒）
 const WEAK_POINT_RADIUS: float = 220.0     ## 弱点点击命中半径
 
+# ── MQ-X 精英无人机（半血触发，两机编队，点射激光 + 导弹 + 1 flare）──
+const MQX_PARAMS_PATH: String = "res://resources/enemy_uav_mqx.tres"
+const MQX_SPAWN_HP_RATIO: float = 0.5      ## boss 总 HP 降到 50% 以下触发一次
+const MQX_SPAWN_OFFSET_PX: float = 500.0   ## 两机间距（boss starboard 方向 ±）
+const MQX_LEASH_RADIUS_PX: float = 7000.0  ## 精英无人机不要跑出 boss 战圈，比普通 hunter 更宽
+## MQ-X 是近战 dogfighter（脉冲炮 1800m + 导弹），不走 standoff 而走"flank 双翼夹击"模式：
+## 一架攻击目标右翼、一架攻击左翼，每架 lead_pos 加 ±MQX_FLANK_OFFSET_PX 横向偏置
+## 既保证两机不重叠又能持续给玩家压力
+const MQX_FLANK_OFFSET_PX: float = 600.0   ## flank 偏置（≈ 玩家 turn radius 量级）
+
 ## 8 个螺旋桨 —— 与 [aircraft_renderer.gd:draw_mother_goose_icon] prop_xs 对齐
 ## 渲染 prop 在 ry=0.42 → mount.x = -0.42 * 151 ≈ -63
 ## 渲染 prop_xs ∈ [-0.95, -0.68, -0.41, -0.14, 0.14, 0.41, 0.68, 0.95] → mount.y = rx * 151
@@ -71,6 +81,11 @@ var mounts: Array[WeaponMount] = []          ## 8 propeller + 2 VLS = 10 个 Wea
 var weak_point: WeakPoint = null              ## 挂点全死后 reveal
 var mount_targets: Array[MountTarget] = []   ## 雷达锁定代理（_scene_root 子节点）
 var weak_point_target: MountTarget = null    ## 弱点暴露时 spawn
+
+# MQ-X 精英无人机
+var _mqx_units: Array[Aircraft] = []
+var _mqx_spawned: bool = false
+var _initial_total_hp: float = 0.0           ## 用作 MQX_SPAWN_HP_RATIO 触发分母
 
 var _scene_root: Node = null
 var _aircraft_scene: PackedScene = null
@@ -123,6 +138,7 @@ func spawn(scene_root: Node, aircraft_scene: PackedScene, _create_enemy_func: Ca
 		WEAK_POINT_HP
 	)
 	ac_params.max_hp = total_subsystem_hp
+	_initial_total_hp = total_subsystem_hp
 
 	# 实例化主体 Aircraft
 	boss_unit = _aircraft_scene.instantiate()
@@ -153,6 +169,9 @@ func spawn(scene_root: Node, aircraft_scene: PackedScene, _create_enemy_func: Ca
 
 	# 构建 10 个挂点（8 螺旋桨 + 2 VLS）+ 1 弱点
 	_build_mounts()
+	# 暴露 mounts 给 aircraft_renderer 让它跳过画已损毁的螺旋桨/VLS
+	# 索引顺序与 PROP_OFFSETS_PX(0-7) + VLS_OFFSETS_PX(8-9) 严格对齐
+	boss_unit.set_meta(&"mg_mounts", mounts)
 	# 弱点：占位创建（revealed=false），mount 全死后才 reveal
 	weak_point = WeakPoint.new()
 	weak_point.hp = WEAK_POINT_HP
@@ -212,6 +231,15 @@ func spawn(scene_root: Node, aircraft_scene: PackedScene, _create_enemy_func: Ca
 	shield_overlay.boss_unit = boss_unit
 	shield_overlay.jam_shield = controller.jam_shield
 	_scene_root.call_deferred("add_child", shield_overlay)
+
+	# Designation tether overlay：与 shield_overlay 同思路脱离 boss transform，
+	# 玩家被锁定时无论 boss 是否在屏内都能看到 boss→玩家 的红线
+	var des_overlay := MotherGooseDesignationOverlay.new()
+	des_overlay.name = "MotherGooseDesignationOverlay"
+	des_overlay.boss_unit = boss_unit
+	des_overlay.player_ref = _player
+	des_overlay.designation = controller.designation
+	_scene_root.call_deferred("add_child", des_overlay)
 
 	# 起始 UAV 12 架（延后一帧让 boss_unit._ready 跑完）
 	if controller.uav_swarm:
@@ -339,6 +367,20 @@ func update(_delta: float) -> void:
 		hp_sum += weak_point.hp
 	boss_unit.hp = hp_sum
 
+	# 半血触发一次性 spawn 两架 MQ-X
+	if not _mqx_spawned and _initial_total_hp > 0.0 \
+			and hp_sum < _initial_total_hp * MQX_SPAWN_HP_RATIO:
+		_mqx_spawned = true
+		_spawn_mqx_pair()
+
+	# 清死的 MQ-X 引用（用 freed-instance-safe 写法）
+	if not _mqx_units.is_empty():
+		var alive: Array[Aircraft] = []
+		for u in _mqx_units:
+			if is_instance_valid(u) and not u.is_destroyed:
+				alive.append(u)
+		_mqx_units = alive
+
 	if weak_point != null and weak_point.revealed and weak_point.hp <= 0.0:
 		# 弱点死亡 → 触发主体销毁动画
 		boss_unit.is_destroyed = true
@@ -346,12 +388,120 @@ func update(_delta: float) -> void:
 		EventLogger.log_event("BOSS", display_name, "Mother Goose defeated (weak point destroyed)")
 
 
+# ──────────────────────── MQ-X 精英无人机 ────────────────────────
+
+## boss 半血触发：在 boss 左右翼 spawn 两架 MQ-X 编队
+## MQ-X = "无人机最强档" — 点射激光 + 强化导弹 + 1 flare，HP 300、双武器、F-47 级加减速
+## 两机共享同一个 Squad（leader + wingman），CommanderAura / 其他系统能识别为编队
+func _spawn_mqx_pair() -> void:
+	if _scene_root == null or _aircraft_scene == null:
+		return
+	if boss_unit == null or not is_instance_valid(boss_unit) or boss_unit.is_destroyed:
+		return
+	var base_params: Resource = load(MQX_PARAMS_PATH)
+	if base_params == null:
+		push_warning("MotherGooseBoss._spawn_mqx_pair: failed to load %s" % MQX_PARAMS_PATH)
+		return
+	# 在 boss 左右翼对称 spawn（沿 boss starboard 方向 ±MQX_SPAWN_OFFSET_PX）
+	var bp: Vector2 = boss_unit.global_position
+	var bh: float = boss_unit.heading
+	var stb := Vector2(cos(bh), sin(bh))
+	var offsets: Array[Vector2] = [
+		bp + stb * MQX_SPAWN_OFFSET_PX,
+		bp - stb * MQX_SPAWN_OFFSET_PX,
+	]
+	# 共享编队 Squad —— 两机都引用同一个，第一架是 leader
+	var mqx_squad := Squad.new()
+	for i in range(offsets.size()):
+		var u: Aircraft = _make_mqx(base_params as AircraftParams, offsets[i], "MQ-X-%02d" % (i + 1), mqx_squad, i)
+		if u:
+			_mqx_units.append(u)
+	EventLogger.log_event("BOSS", display_name,
+		"MQ-X elite pair deployed at %.0f%% HP (hp/each=%.0f, F-47 mobility tier)" %
+		[MQX_SPAWN_HP_RATIO * 100.0, (base_params as AircraftParams).max_hp])
+
+
+func _make_mqx(base_params: AircraftParams, spawn_pos: Vector2, callsign: String,
+		pair_squad: Squad, idx: int) -> Aircraft:
+	var params_dup: AircraftParams = base_params.duplicate(true)
+	if params_dup.gun:
+		params_dup.gun = params_dup.gun.duplicate()
+	if params_dup.missile:
+		params_dup.missile = params_dup.missile.duplicate()
+	if params_dup.combat:
+		params_dup.combat = params_dup.combat.duplicate()
+	if params_dup.flare:
+		params_dup.flare = params_dup.flare.duplicate()
+	var uav: Aircraft = _aircraft_scene.instantiate()
+	uav.params = params_dup
+	uav.team = 1
+	uav.callsign = callsign
+	uav.position = spawn_pos
+	uav.initial_heading_deg = rad_to_deg(boss_unit.heading)
+	uav.altitude = boss_unit.altitude
+	uav.flat_altitude = true
+	uav.set_target_tier(CombatUnit.AltitudeTier.MID)
+	uav.infinite_fuel = true
+	uav.infinite_ammo = true   ## 与其它 MQ 系列一致：导弹槽 4 发循环用，绕 missile_remaining 衰减
+	uav.set_meta("enemy_type", "uav")
+	uav.set_meta("category", "boss_mother_goose_mqx")
+	uav.set_meta("skip_far_cleanup", true)
+	uav.set_meta("silhouette", "drone")
+	uav.set_meta(&"fear_immune", true)
+	uav.set_meta(&"saturation_attacker", true)   ## 跳过 TEAM_OVERKILL，让玩家被打满火力
+	uav.bullet_manager = _bullet_mgr
+	uav.missile_manager = _missile_mgr
+	_scene_root.add_child(uav)
+
+	# 加入 boss_squad 让 CommanderAura buff 覆盖到 MQ-X
+	if boss_squad:
+		boss_squad.add_member(uav)
+
+	# 共享 MQ-X 编队 Squad —— idx=0 是 leader，idx=1 是 wingman
+	# 加入这个 squad 让外部系统（FormationFlight / debug / 索敌）能把两机识别为一对
+	pair_squad.add_member(uav)
+	if idx == 0:
+		pair_squad.leader = uav
+
+	# AI：simple_ai hunter + standoff + 高 aggression（精英追着玩家打，不让玩家脱离）
+	var ai := AIController.new()
+	ai.name = "AI_MQX"
+	ai.aircraft = uav
+	ai.patrol_altitude = boss_unit.altitude
+	ai.enable_combat = true
+	ai.squad = pair_squad
+	ai.squad_index = idx
+	ai.simple_ai = true                ## 保留默认 ai_tick_divisor=3 节流（LOD 一档不变）
+	ai.orbit_squad_leader = false      ## wingman 不绕 leader，独立 hunter 追玩家
+	ai.shield_leader = false
+	ai.evade_missiles = true
+	ai.engage_cooldown = 0.3
+	ai.engage_duration = 120.0
+	ai.aggression = 1.0
+	ai.skill_level = 0.90
+	ai.composure = 0.85
+	ai.focus = 0.95
+	ai.self_preservation = 0.20
+	ai.combat_zone_anchor = boss_unit
+	ai.combat_zone_radius = MQX_LEASH_RADIUS_PX
+	ai.preferred_standoff_range_px = 0.0     ## 近战 dogfighter，不走 standoff（避免长期 tangent orbit 吃光能量）
+	# Flank 偏置：idx 0 攻目标右翼 / idx 1 攻左翼，两机不重叠
+	ai.flank_offset_lateral_px = MQX_FLANK_OFFSET_PX if idx == 0 else -MQX_FLANK_OFFSET_PX
+	uav.add_child(ai)
+	return uav
+
+
 # ──────────────────────── HUD ────────────────────────
 
 func get_display_members() -> Array:
+	var out: Array = []
 	if boss_unit and is_instance_valid(boss_unit):
-		return [boss_unit]
-	return []
+		out.append(boss_unit)
+	# MQ-X 精英无人机 HP 也独立显示在 boss 面板（顶部血条堆叠）
+	for u in _mqx_units:
+		if u and is_instance_valid(u) and not u.is_destroyed:
+			out.append(u)
+	return out
 
 ## 飞机 BOSS 但不是 AceSquad —— 返回 null，呼号分配走默认路径
 func get_active_ace_squad() -> AceSquad:

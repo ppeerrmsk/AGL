@@ -678,7 +678,11 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 	# 累计 team 内（不含自己）已发的 active+未失锁导弹伤害 ≥ 目标 hp → 跳过
 	# 自然涵盖"目标快死了 / 已经必死"两种场景；BOSS 因 hp >> 单弹伤害不会被屏蔽
 	# 例外：玩家手动点击目标（auto_fire=false）允许补射，与 max_inflight 例外保持一致
-	if not (ac.use_tactical_preference and not ac.missile_auto_fire):
+	# 例外 2：Mother Goose 蜂群成员 / saturation 设计的 BOSS UAV 跳过此检查 —— 蜂群假设
+	# 玩家用 flare/机动消解一部分，必须打满才有压迫感（6 MQ-110×30dmg=180 inbound 就锁全队
+	# 的设计对蜂群是 bug 而非 feature）
+	var _is_swarm_attacker: bool = ac.has_meta(&"saturation_attacker")
+	if not _is_swarm_attacker and not (ac.use_tactical_preference and not ac.missile_auto_fire):
 		var team_inbound: float = ac.missile_manager.team_inbound_damage(ac.combat_target, ac.team, ac)
 		if team_inbound >= ac.combat_target.hp:
 			ac._log_msl_block("TEAM_OVERKILL", "team inbound dmg=%.0f >= tgt hp=%.0f" % [team_inbound, ac.combat_target.hp])
@@ -799,7 +803,9 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 			continue
 		# 队友已发足够伤害（含自己已发的）→ 跳过该目标，避免浪费
 		# 过滤掉 exclude_source=ac 自己，因为上一行已经查过自己；这里就是看队友贡献
-		if ac.missile_manager.team_inbound_damage(target_unit, ac.team, ac) >= target_unit.hp:
+		# saturation 蜂群（Mother Goose UAV 等）跳过此检查，必须打满火力
+		if not ac.has_meta(&"saturation_attacker") \
+				and ac.missile_manager.team_inbound_damage(target_unit, ac.team, ac) >= target_unit.hp:
 			continue
 		# 机炮正在射击 combat_target 时，不给 combat_target 发导弹（避免浪费）；
 		# 齐射仍可打其他锁定目标

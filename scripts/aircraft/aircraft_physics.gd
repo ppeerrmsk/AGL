@@ -271,7 +271,10 @@ static func update_altitude(ac: Aircraft, delta: float) -> void:
 		return
 	var alt_diff := ac.target_altitude - ac.altitude
 	var alt_mult: float = ac.altitude_authority_mult
-	var max_climb := (ac.params.climb_rate_max if ac.params else 250.0) * alt_mult
+	# alt_mult 只放大响应度(gain/smooth)，物理顶速最多 +30% —— 防止 PE↔KE 反抽吃光横速
+	# (vapor_dodge × HIGH 档 target_altitude 翻车点，见 docs/architecture/known-seams.md)
+	var base_climb: float = ac.params.climb_rate_max if ac.params else 250.0
+	var max_climb := base_climb * minf(alt_mult, 1.3)
 	var gain := 0.4 * alt_mult
 	var smooth_rate := 8.0 * alt_mult
 	var target_vs: float
@@ -1204,7 +1207,9 @@ static func step_altitude(st: FlightState, delta: float) -> void:
 		return
 	var alt_diff: float = st.ac.target_altitude - st.altitude
 	var alt_mult: float = st.ac.altitude_authority_mult
-	var max_climb: float = (st.ac.params.climb_rate_max if st.ac.params else 250.0) * alt_mult
+	# 与 update_altitude 保持同步：alt_mult 只放大响应度，物理顶速最多 +30%
+	var base_climb: float = st.ac.params.climb_rate_max if st.ac.params else 250.0
+	var max_climb: float = base_climb * minf(alt_mult, 1.3)
 	var gain: float = 0.4 * alt_mult
 	var smooth_rate: float = 8.0 * alt_mult
 	var target_vs: float

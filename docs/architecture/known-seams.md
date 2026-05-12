@@ -203,6 +203,31 @@ BOSS 只识别 JAM，其它状态仅对 Aircraft 生效"。但 NavalUnit 实现�
 
 ---
 
+## SEAM-009 · altitude_authority_mult 与 PE↔KE 反抽公式的耦合
+
+**症状**：玩家拿到 vapor_dodge（云雾机动）后开局速度异常低（spd 卡在 138~200kt），
+无任何 debuff，加力推力顶不住，疯狂爬升（vs ≈ 900 m/s）一路把横速吃光。
+
+**根因**：`altitude_authority_mult`（设计意图："操纵响应度"）被同时乘进 `update_altitude`
+三处：`max_climb` / `gain` / `smooth_rate`。其中 `max_climb` 被放大到 500+ m/s 后，PE↔KE
+公式 `gravity_effect = GRAVITY · vs / spd · PE_KE_BOOST(2.5)` 反向抽 spd，每秒 ≈ 110 m/s
+速度损失，加力推力（≈ 17 m/s²）完全顶不住。
+[scripts/aircraft/aircraft_physics.gd:267 update_altitude](../../scripts/aircraft/aircraft_physics.gd:267)
+× [scripts/aircraft/aircraft_physics.gd:255 PE↔KE](../../scripts/aircraft/aircraft_physics.gd:255)
+两段都涉及 vs，缺一个出血点。
+
+**踩到次数**：2（这次 + 用户记忆中至少一次同样症状）
+
+**解法**（2026-05-12）：在 [aircraft_physics.gd:273](../../scripts/aircraft/aircraft_physics.gd:273)
+和 [aircraft_physics.gd:1207 step_altitude](../../scripts/aircraft/aircraft_physics.gd:1207)
+两处把 `max_climb` 改为 `base_climb * minf(alt_mult, 1.3)`。`gain` / `smooth_rate` 仍由
+`alt_mult` 全幅放大（响应度保留），物理顶速最多 +30%（PE↔KE 损耗回到可承受档）。
+
+**约束**：未来加任何新的 `altitude_authority_mult` 来源前，先确认这个 cap 仍合理；
+不要在物理 tick 里散点乘 `altitude_authority_mult`（参考 SEAM-001 的 effective_*() 思路）。
+
+---
+
 ## 维护约定
 
 - 修 bug 时撞到地基 → 先来这里看是否已记。已记 → 票数 +1，可能升级到 refactor 优先级。

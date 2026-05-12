@@ -14,6 +14,14 @@ const AURA_RADIUS := 1500.0         ## 增益范围（像素，~3000m）
 const RECRUIT_RADIUS := 1800.0      ## 招募范围（像素，稍大于增益范围）
 const SCAN_INTERVAL := 0.5          ## 扫描周期（秒）
 const MAX_WINGMEN := 5              ## 最大僚机数量（不含指挥机本身）
+## 护驾名额：前 GUARD_COUNT 个 recruit 当贴身护驾，剩下 (MAX_WINGMEN-GUARD_COUNT) 当 hunter
+## 设计：少量 guard 维持"指挥机被簇拥"的视觉 + 反导拦截能力；多数 hunter 给玩家持续压力，
+## 让光环 buff 在 Sentinel 存活时就被玩家感受到，而不是死了才"突然变猛"
+const GUARD_COUNT := 2
+
+## Hunter 离 Sentinel 多远开始拽回（像素）—— 超过即刷新 waypoints 牵引到 Sentinel
+## simple_ai PATROL 在 waypoints 空时不更新 target_position，hunter 丢目标后会沿残留方向直线漂走
+const HUNTER_LEASH_RADIUS := 2500.0
 
 # ── 增益参数（聚焦机动/速度/攻击欲望，不动技能/冷静——simple_ai 也用不上）──
 ## 设计目标：让玩家明显感觉到 UAV 被增强 —— 回转半径变小、加速更猛、速度更快
@@ -47,6 +55,7 @@ func _physics_process(delta: float) -> void:
 		_try_recruit()
 		_scan_and_buff()
 		_cleanup_buffed()
+	# Hunter 牵引现在由 AIController.combat_zone_* 在内部处理，不再需要外部刷 waypoint
 
 # ══════════════════════════════════════════════
 #  增益扫描（只增益小队成员）
@@ -209,18 +218,35 @@ func _try_recruit() -> void:
 		ai.squad = sq
 		ai.squad_index = new_index
 
-		# 保持 simple_ai，开启绕长机飞行模式
-		# （不再切换到 SQUAD_FOLLOW / BFM，避免战术机动造成的 bug 和抖动）
-		ai.orbit_squad_leader = true
-		ai.shield_leader = true
-		ai.enable_combat = true  # 允许自主扫描并攻击靠近的敌方
-		ai.evade_missiles = false
+		# 角色分配：前 GUARD_COUNT 个 recruit 当贴身护驾（绕长机 + 拦导弹），其余全部当 hunter
+		# （脱离轨道、自由追击玩家），保留 simple_ai 路径。
+		# 之前 100% guard 导致玩家体感"光环没生效"——Sentinel 死后栓绳释放才看到 UAV 用加力追击。
+		var existing_wingmen := (sq.members.size() - 1) - 1  # 减自己（commander）和刚加入的本机
+		var is_hunter := existing_wingmen >= GUARD_COUNT
+
+		if is_hunter:
+			# Hunter：脱离 boss 轨道，simple_ai engage 模式自由追击玩家，buff 通过 squad 成员身份照常生效
+			ai.orbit_squad_leader = false
+			ai.shield_leader = false
+			ai.enable_combat = true
+			ai.evade_missiles = true
+			ai.aggression = clampf(ai.aggression + 0.2, 0.0, 1.0)
+			# 战斗偏好区域：以 Sentinel 为锚，HUNTER_LEASH_RADIUS 为半径
+			# 出界强制回返 + 目标飘出 × SLACK 即放弃，防 hunter 漂走不归
+			ai.combat_zone_anchor = _commander
+			ai.combat_zone_radius = HUNTER_LEASH_RADIUS
+		else:
+			# Guard：保持 simple_ai，开启绕长机飞行 + 自爆拦截导弹
+			ai.orbit_squad_leader = true
+			ai.shield_leader = true
+			ai.enable_combat = true
+			ai.evade_missiles = false
 
 		# 清理旧航点：它们可能围绕玩家刷出的位置，与绕长机飞行冲突
 		ai.waypoints = PackedVector2Array()
 		ai._current_target = null
 
-		print("[Sentinel] recruited %s (squad=%d/%d)" % [ac.callsign, sq.members.size() - 1, MAX_WINGMEN])
+		print("[Sentinel] recruited %s as %s (squad=%d/%d)" % [ac.callsign, ("hunter" if is_hunter else "guard"), sq.members.size() - 1, MAX_WINGMEN])
 
 func _exit_tree() -> void:
 	_remove_all_buffs()

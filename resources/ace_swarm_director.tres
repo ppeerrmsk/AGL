@@ -1,0 +1,23 @@
+[gd_resource type="Resource" script_class="SwarmDirectorParams" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/ai/swarm/swarm_director_params.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+director_hz = 1.0
+attacker_pct = 0.60
+shooter_count = 3
+decoy_pct = 0.10
+guard_pct = 0.20
+designation_attacker_pct = 0.85
+wedge_half_deg = 30.0
+converge_distance_far = 1500.0
+converge_distance_close = 600.0
+extend_threshold_px = 2500.0
+shooter_weight_aspect = 1.0
+shooter_weight_dist = 1.0
+shooter_weight_ammo = 0.5
+hysteresis_score_pct = 0.15
+reserve_energy_threshold = 0.40
+reserve_orbit_radius_px = 800.0
+attacker_to_chase_aspect_deg = 60.0

@@ -20,5 +20,5 @@ proximity_fuse_radius = 15.0
 proximity_fuse_alt = 200.0
 seeker_fov = 40.0
 guidance_delay = 0.8
-max_count = 2
-cooldown = 8.0
+max_count = 3
+cooldown = 5.0

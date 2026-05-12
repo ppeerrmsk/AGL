@@ -469,6 +469,11 @@ const BENCH_SWARM_SAM_COUNT := 6    ## SAM 散布数（团队 1，自动打 team
 const BENCH_SWARM_SPAWN_MARGIN_PX := 1500.0  ## 离世界边界至少留这么远，避免一刷出来就被 boundary clamp
 const BENCH_SWARM_MIN_SEPARATION_PX := 800.0 ## 同方刷点间距下限，防止开局重叠
 
+# boss_mother_goose scenario：满配玩家 + 20 友军挑战 Mother Goose
+const BENCH_BOSS_MG_FRIENDLY_COUNT := 20
+const BENCH_BOSS_MG_FRIENDLY_RING_MIN_PX := 2000.0
+const BENCH_BOSS_MG_FRIENDLY_RING_MAX_PX := 3500.0
+
 func _setup_bench_scenario() -> void:
 	if not _bench_mode:
 		return
@@ -516,6 +521,8 @@ func _setup_bench_scenario() -> void:
 	if _spawner:
 		if _bench_scenario == "stress_swarm":
 			_bench_force_spawn_swarm()
+		elif _bench_scenario == "boss_mother_goose":
+			_bench_force_spawn_boss_mg()
 		else:
 			_bench_force_spawn_mixed(BENCH_INITIAL_ENEMY_COUNT)
 
@@ -623,6 +630,78 @@ func _bench_force_spawn_swarm() -> void:
 
 	print("[Bench] swarm: %d enemies + %d friendlies + %d ground (AA+SAM) + CSG boss at center, all units effectively invulnerable" % [
 		BENCH_SWARM_ENEMY_COUNT, BENCH_SWARM_FRIENDLY_COUNT, ground_count])
+
+## boss_mother_goose scenario：满配 lv15 玩家 + 20 友军挑战 Mother Goose
+## 友军 invul（30s+ 维持火力），boss / MQ-X / MQ-110 等正常 HP（可被打死，测试战斗终局）
+## 推荐 --duration=120 看完整战斗（30s 默认只能跑到 MQ-X 出场）
+func _bench_force_spawn_boss_mg() -> void:
+	if _spawner == null:
+		return
+	seed(44)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 44
+
+	# 关掉 spawner 自然补刷（专注 boss + 友军，避免其它敌人扰乱测试样本）
+	_spawner._dynamic_enemy_cap = 0
+
+	# 20 架友军分 5 队（每队 4 架），围玩家 2000-3500px 圆周散布
+	var friendly_pool: Array = [
+		SurvivorSpawner.EnemyType.SU27,    # Gladiator 顶级 (双弹种 + 眼镜蛇)
+		SurvivorSpawner.EnemyType.MIG31,   # Lancer 顶级 (长射程 AAM)
+		SurvivorSpawner.EnemyType.MIG,     # MiG-29 默认 BFM
+		SurvivorSpawner.EnemyType.F100,    # Lancer 编队
+	]
+	var player_pos: Vector2 = player_aircraft.global_position
+	var friendly_remaining: int = BENCH_BOSS_MG_FRIENDLY_COUNT
+	var squad_idx: int = 0
+	var total_squads: int = int(ceilf(float(BENCH_BOSS_MG_FRIENDLY_COUNT) / 4.0))
+	while friendly_remaining > 0:
+		var size: int = mini(4, friendly_remaining)
+		var ftype: int = friendly_pool[squad_idx % friendly_pool.size()]
+		# 均匀散布在玩家周围圆周，加少量随机抖动避免完美对称
+		var base_ang: float = TAU * float(squad_idx) / float(total_squads)
+		var ang: float = base_ang + rng.randf_range(-0.3, 0.3)
+		var dist: float = rng.randf_range(BENCH_BOSS_MG_FRIENDLY_RING_MIN_PX, BENCH_BOSS_MG_FRIENDLY_RING_MAX_PX)
+		var leader_pos: Vector2 = player_pos + Vector2(cos(ang), sin(ang)) * dist
+		# 初始 heading 大致面向中心（玩家方向），AI 会自动选目标接战
+		var heading_deg: float = rad_to_deg(atan2(player_pos.x - leader_pos.x, -(player_pos.y - leader_pos.y)))
+		_bench_spawn_friendly_squad_at(ftype, size, leader_pos, heading_deg)
+		friendly_remaining -= size
+		squad_idx += 1
+
+	# Mother Goose 在地图中心 spawn（skip_bgm=true headless 无音频）
+	var goose := MotherGooseBoss.new()
+	_spawner._spawn_boss(goose, Vector2.ZERO, true)
+	if _spawner._boss == null:
+		push_error("[Bench] MotherGoose spawn failed")
+		return
+
+	print("[Bench] boss_mother_goose: lv%d player + %d friendlies vs MOTHER GOOSE @ (0,0)" % [
+		BENCH_PLAYER_LEVEL, BENCH_BOSS_MG_FRIENDLY_COUNT])
+
+## boss_mother_goose 用：在指定位置 spawn 一队同型友军（与 _bench_spawn_random_squad 同款
+## 但落点已由调用方决定，且不写 used 数组）
+func _bench_spawn_friendly_squad_at(etype: int, size: int, leader_pos: Vector2, heading_deg: float) -> void:
+	var heading_rad: float = deg_to_rad(heading_deg)
+	var sq: Squad = SquadFactory.create()
+	for i in range(size):
+		var spawn_pos: Vector2
+		if i == 0:
+			spawn_pos = leader_pos
+		else:
+			var offset: Vector2 = sq.get_formation_offset(i)
+			spawn_pos = leader_pos + offset.rotated(heading_rad)
+		var ac: Aircraft = _spawner._create_enemy(etype, spawn_pos, heading_deg)
+		if ac == null:
+			continue
+		ac.invulnerable = true                       ## 30s+ 维持完整火力
+		ac.set_meta("skip_far_cleanup", true)
+		_bench_convert_to_friendly(ac)
+		if i == 0:
+			SquadFactory.register_leader(sq, ac)
+		else:
+			SquadFactory.register_wingman(sq, ac, true)
+
 
 ## 在地图中心刷一个 CSG（航母战斗群）BOSS，并把所有舰船 HP 拉爆模拟无敌
 ## 直接调用 _spawner._spawn_boss(skip_bgm=true) 复用现成 spawn 逻辑
@@ -1287,6 +1366,16 @@ func _physics_process(delta: float) -> void:
 			_bench_finished = true
 			var summary: String = "tick_at=%.2fs aircraft_alive=%d enemies_killed=%d\n" % [
 				_bench_elapsed, _count_aircraft_alive(), (_spawner.kill_count if _spawner else 0)]
+			# boss_mother_goose scenario：附加 boss 终态信息
+			if _bench_scenario == "boss_mother_goose" and _spawner and _spawner._boss:
+				var boss: BossEncounter = _spawner._boss
+				var boss_alive: bool = boss.active and boss.boss_unit != null \
+						and is_instance_valid(boss.boss_unit) and not boss.boss_unit.is_destroyed
+				var boss_hp_pct: float = 0.0
+				if boss.boss_unit and is_instance_valid(boss.boss_unit) and boss.boss_unit.params:
+					boss_hp_pct = boss.boss_unit.hp / maxf(boss.boss_unit.params.max_hp, 1.0) * 100.0
+				summary += "boss=MOTHER_GOOSE alive=%s hp_pct=%.1f%%\n" % [
+					"YES" if boss_alive else "NO (defeated)", boss_hp_pct]
 			var br: Node = get_tree().root.get_node_or_null("/root/BenchRunner")
 			if br and br.has_method("bench_finish"):
 				br.call("bench_finish", summary)

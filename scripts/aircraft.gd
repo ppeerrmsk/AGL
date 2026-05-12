@@ -138,7 +138,7 @@ var _secondary_radar_tick_acc: float = 0.0  ## 0.5s tick 累加器（性能：�
 var _sfx_gun_cd: float = 0.0  ## 机炮音效节流（每 0.5s 最多一次），防扫射刷声道
 var _crank_timer: float = 0.0          ## 发射后保持照射计时（秒），> 0 时飞机维持稳定航向
 const CRANK_DURATION: float = 8.0      ## 发射后保持照射的时长
-const LOCK_STABLE_BUFFER: float = 1.0  ## 锁定后额外稳定时间才允许发射（AI）
+const LOCK_STABLE_BUFFER: float = 0.3  ## 锁定后额外稳定时间才允许发射（AI 防抖，原 1.0 让 UAV 高机动下永远咬不到阈值）
 
 # --- 近距过顶（extension）常量已搬到 scripts/aircraft/aircraft_combat_tracking.gd ---
 
@@ -240,7 +240,7 @@ var infinite_fuel: bool = false      ## 生存模式：无限燃油
 var orbit_speed_cap: float = 0.0     ## AI 轨道限速（m/s），0=不限制。由 AIController 设置
 var bullet_dodge_chance: float = 0.0  ## 机炮弹丸闪避概率（装甲强化升级）
 var lock_resistance_mult: float = 1.0  ## 雷达锁定抗性（强化吊舱升级，每层 ×1.35），敌人对我累积锁定速率 ÷此值
-var altitude_authority_mult: float = 1.0  ## 高度操纵权威（云雾机动战区奖励），_update_altitude 三处同步放大
+var altitude_authority_mult: float = 1.0  ## 高度操纵权威（云雾机动）：gain/smooth_rate 全幅放大，max_climb 顶 +30% 防 PE↔KE 反抽
 var cloud_lock_stealth: bool = false      ## 云雾隐身（云雾机动战区奖励）：云中任意高度档 lock_rate ×0.1
 var ecm_range_mult: float = 1.0           ## ECM 吊舱（战区奖励）：敌人雷达对我的有效距离 × 此值（0.75 = 缩短 25%）
 var category_radar_mult: float = 1.0      ## 词条联动：电子战类技能数量 → 雷达/锁定范围。由 SurvivorData.recompute_category_bonuses 写
