@@ -96,7 +96,9 @@ var _missile_mgr: MissileManager = null
 func _init() -> void:
 	display_name = "MOTHER GOOSE"
 	callsign_prefix = "GOOSE"
-	bgm_track = "boss"   ## 复用 F-47 BGM；v2 单独配
+	# 双曲循环播放列表：mothergoose1 → mothergoose2 → 循环
+	# bgm_playlist 优先级高于 bgm_track，spawner 走 play_music_playlist 路径
+	bgm_playlist = ["boss_mothergoose_1", "boss_mothergoose_2"]
 
 
 # ──────────────────────── 生成 ────────────────────────

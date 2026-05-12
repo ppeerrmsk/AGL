@@ -17,6 +17,7 @@ var display_name: String = "BOSS"         ## HUD 标题（可直接塞 tr key）
 var callsign_prefix: String = "BOSS"      ## 成员呼号前缀（HUD 阵亡显示 / EventLogger）
 var bgm_track: String = "boss"            ## AudioManager music id；spawn 时切歌
 var bgm_layers: Array[String] = []        ## 非空 = 层叠 BGM 模式（多轨同步，按音量切层），忽略 bgm_track
+var bgm_playlist: Array[String] = []      ## 非空 = 顺序播放列表（首曲完接下一首，列表循环），优先级高于 layers/track
 var initial_heading_deg: float = 90.0     ## 出场朝向（度，0=北）；由 ZoneData.boss_heading_deg 决定
 
 # ── 运行时状态 ──

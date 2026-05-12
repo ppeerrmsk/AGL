@@ -34,6 +34,9 @@ const MUSIC_FILES := {
 	# CarrierStrikeGroup BOSS 双阶段 BGM —— 层叠同步播放（两首等长 + Loop 导入开）
 	"boss_csg": "res://audio/music/boss2phase1.ogg",
 	"boss_csg_phase2": "res://audio/music/boss2phase2.ogg",
+	# Mother Goose BOSS 双曲循环 —— 走 playlist 顺序播放（首播完接第二首，再循环回首）
+	"boss_mothergoose_1": "res://audio/music/mothergoose1.ogg",
+	"boss_mothergoose_2": "res://audio/music/mothergoose2.ogg",
 }
 
 const SFX_FILES := {

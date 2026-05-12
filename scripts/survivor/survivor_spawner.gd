@@ -1106,10 +1106,12 @@ func _spawn_boss(encounter: BossEncounter, anchor: Vector2 = Vector2.INF, skip_b
 		return
 
 	# BOSS 登场：淡出泛用战斗曲，淡入 BOSS 专用曲
-	# bgm_layers 非空 → 层叠模式（CSG 双阶段同步）；否则单轨 crossfade（F-47 等）
+	# 优先级：bgm_playlist（顺序循环，Mother Goose）> bgm_layers（层叠同步，CSG）> bgm_track（单轨，F-47）
 	if skip_bgm:
 		return
-	if not encounter.bgm_layers.is_empty():
+	if not encounter.bgm_playlist.is_empty():
+		AudioManager.play_music_playlist(encounter.bgm_playlist, 2.0, 2.0)
+	elif not encounter.bgm_layers.is_empty():
 		AudioManager.play_layered_music(encounter.bgm_layers, 2.0, 0)
 	elif encounter.bgm_track != "":
 		AudioManager.crossfade_music(encounter.bgm_track, 2.0)
