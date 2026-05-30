@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/tools/bake_icons_runtime.gd" id="1_bake"]
+
+[node name="BakeIcons" type="Node"]
+script = ExtResource("1_bake")

@@ -659,6 +659,31 @@ static func draw_aircraft_icon_destroyed(ac: Aircraft) -> void:
 	])
 	ac.draw_colored_polygon(body, gray)
 
+## 图标动态缩放（高度档 base_scale × bank 滚转压缩 × 机动/herbst 收缩）。
+## live _draw（draw_aircraft_icon 的 xform）与 Sprite2D 路径（aircraft._update_visuals 同步
+## IconSprite.scale）共用此单一来源，避免 sprite 路径丢失 bank/altitude/机动 形变动画。
+## 眼镜蛇（CobraManeuver）：纯俯仰上仰、不改 heading → 只压 sy（机体纵轴），读作机头猛拉起的
+## "超前压缩"，沿机身方向稳定不抖。
+## Herbst（J-Turn）：TURN 阶段 180°/秒硬转 heading，若只压 sy，压缩方向跟着每帧旋转 →
+## 屏幕长宽比剧变（偏航 0° 短宽 → 90° 高窄），人眼感知"机身抽搐、状态框抖"，故各向同性收缩
+## （只缩小，长宽比稳定）。详见 player-ai-log.md 2026-04-21(11)
+static func icon_dynamic_scale(ac: Aircraft) -> Vector2:
+	var base_scale: float = altitude_base_scale(ac)
+	var bank_compress := cos(ac.bank_angle + ac._evade_roll_phase)
+	var sx := base_scale * bank_compress
+	var sy := base_scale
+	var mv := ac.get_maneuver()
+	if mv and mv.visual_offset > 0.0:
+		# 眼镜蛇：纵向（机体轴）压缩，恢复机头上仰的"超前压缩"观感
+		sy *= lerpf(1.0, 0.35, mv.visual_offset)
+	var hm := ac.get_herbst()
+	if hm and hm.visual_offset > 0.0:
+		# J-Turn：各向同性收缩，避免快速偏航下长宽比抖动
+		var f: float = lerpf(1.0, 0.4, hm.visual_offset)
+		sx *= f
+		sy *= f
+	return Vector2(sx, sy)
+
 static func draw_aircraft_icon(ac: Aircraft) -> void:
 	var color: Color = ac.params.icon_color if ac.params else Color.GREEN
 	var outline_color := color.darkened(0.3)
@@ -668,31 +693,9 @@ static func draw_aircraft_icon(ac: Aircraft) -> void:
 	# 高度缩放（档位离散 / 沙盒连续，见 altitude_base_scale）
 	var base_scale: float = altitude_base_scale(ac)
 
-	# 滚转变形（常规 bank + 规避时的原地滚转相位）
-	var bank_compress := cos(ac.bank_angle + ac._evade_roll_phase)
-	var sx := base_scale * bank_compress
-	var sy := base_scale
-	# 战术机动视觉效果：各向同性收缩（表示"极端机动"），不只压 Y 轴。
-	# 为什么各向同性：
-	#   旧版只压 sy（本地 Y 轴 = 机体纵轴），heading 旋转时 sy 压缩方向跟着转 →
-	#   J-Turn TURN 阶段 180°/秒偏航下，图标屏幕长宽比每帧剧变（每 3°/帧：
-	#   偏航 0° 短而宽 → 偏航 90° 高而窄），人眼感知为"机身抽搐、状态框跟着抖"。
-	#   这是物理上正确的俯视"机头仰角"效果，但转速太快感官无法接受。
-	#   改成 sx/sy 同时压缩后，图标只是变小（表达极端机动），长宽比稳定，不再抖。
-	# 详见 docs/changelogs/player-ai-log.md 2026-04-21 (11)
-	var _mv := ac.get_maneuver()
-	if _mv and _mv.visual_offset > 0.0:
-		var f: float = lerpf(1.0, 0.35, _mv.visual_offset)
-		sx *= f
-		sy *= f
-	var _hm := ac.get_herbst()
-	if _hm and _hm.visual_offset > 0.0:
-		var f: float = lerpf(1.0, 0.4, _hm.visual_offset)
-		sx *= f
-		sy *= f
-
-	var xform := Transform2D(0.0, Vector2.ZERO)
-	xform = xform.scaled(Vector2(sx, sy))
+	# 动态缩放（bank 压缩 / 机动收缩 / 高度档），与 Sprite2D 路径共用 icon_dynamic_scale
+	var dyn := icon_dynamic_scale(ac)
+	var xform := Transform2D(0.0, Vector2.ZERO).scaled(dyn)
 
 	# 指挥 UAV（哨兵）使用独立的飞翼外观
 	var is_commander: bool = ac.has_meta("enemy_type") and ac.get_meta("enemy_type") == "uav_commander"
@@ -725,8 +728,33 @@ static func draw_aircraft_icon(ac: Aircraft) -> void:
 		draw_mother_goose_icon(ac, color, outline_color, size, base_scale, xform)
 		return
 
+	# 机翼可选副色（黑机身 + 红翼 等；alpha=0 时走主色）
+	var wing_color: Color = color
+	if ac.params and ac.params.wing_color.a > 0.01:
+		wing_color = ac.params.wing_color
+	var wing_outline := wing_color.darkened(0.3)
+
+	# Sprite2D 路径（USE_SPRITE_AIRCRAFT_ICONS）：子节点已渲染图标 → 跳过 polygon 绘制，
+	# 但保留下方的 selection ring（动态状态留在 _draw 里）
+	# 详见 docs/planning/sprite-multimesh-refactor.md
+	var _has_sprite_icon := GameConstants.USE_SPRITE_AIRCRAFT_ICONS and ac.has_node("IconSprite")
+	if not _has_sprite_icon:
+		# 几何与烘焙工具共用同一个 draw_fighter_geometry，单一几何源避免 drift
+		draw_fighter_geometry(ac, size, color, outline_color, wing_color, wing_outline, xform)
+
+	# 选中指示 - 细圆环
+	if ac.selected:
+		var ring_color := color
+		ring_color.a = 0.5
+		ac.draw_arc(Vector2.ZERO, size * 1.8 * base_scale, 0, TAU, 48, ring_color, 1.5)
+
+## fighter 默认外观几何（live _draw 与 bake_aircraft_icons 烘焙工具共用，单一几何源避免 drift）
+## ci: 目标画布 —— 运行时是 Aircraft 自身，烘焙时是临时 Node2D
+## size: 基础像素半径 —— 运行时与烘焙都传 16.0，放大/压缩交给 xform
+## xform: 应用到所有顶点的变换 —— 运行时含 base_scale/bank 压缩；烘焙时含 RENDER_SCALE 放大
+static func draw_fighter_geometry(ci: CanvasItem, size: float, color: Color, outline_color: Color, wing_color: Color, wing_outline: Color, xform: Transform2D) -> void:
 	# 机身主体（填充多边形）
-	var body: PackedVector2Array = PackedVector2Array([
+	var body := PackedVector2Array([
 		Vector2(0, -size * 1.1),        # 机头尖端
 		Vector2(size * 0.15, -size * 0.7),
 		Vector2(size * 0.18, -size * 0.2),
@@ -738,42 +766,32 @@ static func draw_aircraft_icon(ac: Aircraft) -> void:
 		Vector2(-size * 0.18, -size * 0.2),
 		Vector2(-size * 0.15, -size * 0.7),
 	])
-
 	# 主翼（三角翼，后掠）
-	var wing_r: PackedVector2Array = PackedVector2Array([
+	var wing_r := PackedVector2Array([
 		Vector2(size * 0.18, -size * 0.05),
 		Vector2(size * 1.1, size * 0.25),
 		Vector2(size * 0.9, size * 0.35),
 		Vector2(size * 0.18, size * 0.20),
 	])
-	var wing_l: PackedVector2Array = PackedVector2Array([
+	var wing_l := PackedVector2Array([
 		Vector2(-size * 0.18, -size * 0.05),
 		Vector2(-size * 1.1, size * 0.25),
 		Vector2(-size * 0.9, size * 0.35),
 		Vector2(-size * 0.18, size * 0.20),
 	])
-
 	# 尾翼
-	var tail_r: PackedVector2Array = PackedVector2Array([
+	var tail_r := PackedVector2Array([
 		Vector2(size * 0.15, size * 0.55),
 		Vector2(size * 0.55, size * 0.75),
 		Vector2(size * 0.45, size * 0.85),
 		Vector2(size * 0.18, size * 0.80),
 	])
-	var tail_l: PackedVector2Array = PackedVector2Array([
+	var tail_l := PackedVector2Array([
 		Vector2(-size * 0.15, size * 0.55),
 		Vector2(-size * 0.55, size * 0.75),
 		Vector2(-size * 0.45, size * 0.85),
 		Vector2(-size * 0.18, size * 0.80),
 	])
-
-	# 机翼可选副色（黑机身 + 红翼 等；alpha=0 时走主色）
-	var wing_color: Color = color
-	if ac.params and ac.params.wing_color.a > 0.01:
-		wing_color = ac.params.wing_color
-	var wing_outline := wing_color.darkened(0.3)
-
-	# 应用变换并绘制填充（body + tails 用主色；wings 可走副色）
 	var part_defs := [
 		{"pts": body, "col": color, "outline": outline_color},
 		{"pts": wing_r, "col": wing_color, "outline": wing_outline},
@@ -782,21 +800,12 @@ static func draw_aircraft_icon(ac: Aircraft) -> void:
 		{"pts": tail_l, "col": color, "outline": outline_color},
 	]
 	for def in part_defs:
-		var transformed: PackedVector2Array = PackedVector2Array()
+		var transformed := PackedVector2Array()
 		for p in def["pts"]:
 			transformed.append(xform * p)
-		ac.draw_colored_polygon(transformed, def["col"])
-		# 轮廓线
+		ci.draw_colored_polygon(transformed, def["col"])
 		for i in range(transformed.size()):
-			var from := transformed[i]
-			var to := transformed[(i + 1) % transformed.size()]
-			ac.draw_line(from, to, def["outline"], 1.0, true)
-
-	# 选中指示 - 细圆环
-	if ac.selected:
-		var ring_color := color
-		ring_color.a = 0.5
-		ac.draw_arc(Vector2.ZERO, size * 1.8 * base_scale, 0, TAU, 48, ring_color, 1.5)
+			ci.draw_line(transformed[i], transformed[(i + 1) % transformed.size()], def["outline"], 1.0, true)
 
 ## 指挥 UAV "哨兵" 专用飞翼外观
 static func draw_commander_icon(ac: Aircraft, color: Color, outline_color: Color, size: float, base_scale: float, xform: Transform2D) -> void:
@@ -1273,10 +1282,17 @@ static func draw_data_label_drone(ac: Aircraft) -> void:
 		var cam: Camera2D = ac.get_viewport().get_camera_2d()
 		if cam != null:
 			inv_zoom = 1.0 / maxf(cam.zoom.x, 0.0001)
+	# 配色：drone 不会是玩家 → 走己方/敌方分支（is_player=false）
+	var _style := GameConstants.unit_label_style(ac.team, false)
+	var bg_color: Color = _style[0]
+	var text_color: Color = _style[1]
+	var border_color: Color = _style[2]
 	ac.draw_set_transform(origin_local, -ac.global_rotation, Vector2.ONE * inv_zoom)
-	ac.draw_rect(Rect2(Vector2.ZERO, Vector2(box_w, box_h)), Color(0.05, 0.08, 0.05, 0.55), true)
+	var box_rect := Rect2(Vector2.ZERO, Vector2(box_w, box_h))
+	ac.draw_rect(box_rect, bg_color, true)
+	ac.draw_rect(box_rect, border_color, false, 1.0)
 	ac.draw_string(ac._font, Vector2(pad, pad + ac._font.get_ascent(font_size)), line,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.7, 0.95, 0.7, 0.85))
+		HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
 	ac.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
@@ -1383,14 +1399,18 @@ static func draw_data_label_minimal(ac: Aircraft) -> void:
 		max_w = maxf(max_w, w)
 
 	var scale_v := Vector2(inv_zoom, inv_zoom)
-	var team_color: Color = ac.params.icon_color if ac.params else Color.GREEN
-	var bg_color := Color(team_color.r * 0.15, team_color.g * 0.15, team_color.b * 0.2, 0.7)
+	# 配色：操控者白底蓝边 / 己方蓝底白边 / 敌方红底白边
+	var is_player := ac == safe_player_ref()
+	var _style := GameConstants.unit_label_style(ac.team, is_player)
+	var bg_color: Color = _style[0]
+	var default_text_color: Color = _style[1]
+	var border_color: Color = _style[2]
 
 	ac.draw_set_transform(label_offset, inv_rot, scale_v)
-	ac.draw_rect(Rect2(-2, -2, max_w + 6, lines.size() * line_height + 4), bg_color)
-	var default_text_color := Color(0.85, 0.9, 0.85, 0.9)
+	var box_rect := Rect2(-2, -2, max_w + 6, lines.size() * line_height + 4)
+	ac.draw_rect(box_rect, bg_color)
+	ac.draw_rect(box_rect, border_color, false, 1.0)
 	# 仅玩家自己标 ALT 颜色；敌机保持统一色
-	var is_player := ac == safe_player_ref()
 	var alt_color := altitude_tier_color(ac.get_altitude_tier(), ac.flat_altitude and absf(ac.vertical_speed) > 5.0) if is_player else default_text_color
 	for i in range(lines.size()):
 		var col := default_text_color
@@ -1400,6 +1420,9 @@ static func draw_data_label_minimal(ac: Aircraft) -> void:
 			col = status_line_indices[i]
 		elif wpn_color_indices.has(i):
 			col = wpn_color_indices[i]
+		# 玩家白底：把高亮色调暗，否则浅色 buff/status/alt 在白底上彻底消失
+		if is_player and col != default_text_color:
+			col = GameConstants.darken_for_light_bg(col)
 		ac.draw_string(ac._font, Vector2(0, i * line_height + 11), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, col)
 	ac.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
@@ -1536,15 +1559,16 @@ static func draw_data_label(ac: Aircraft) -> void:
 	var box_w := max_w + 10.0
 	var box_h := lines.size() * line_height + 6.0
 
-	# 背景色（基于阵营）
-	var _alc := GameConstants.aircraft_label_colors(ac.team)
-	var bg_color: Color = _alc[0]
-	var text_color: Color = _alc[1]
+	# 配色：操控者（玩家）白底蓝边 / 己方蓝底白边 / 敌方红底白边
+	var _style := GameConstants.unit_label_style(ac.team, ac == safe_player_ref())
+	var bg_color: Color = _style[0]
+	var text_color: Color = _style[1]
+	var border_color: Color = _style[2]
 
 	var scale_v := Vector2(inv_zoom, inv_zoom)
 	ac.draw_set_transform(label_offset, inv_rot, scale_v)
 	ac.draw_rect(Rect2(0, 0, box_w, box_h), bg_color)
-	ac.draw_rect(Rect2(0, 0, box_w, box_h), text_color * Color(1, 1, 1, 0.4), false, 1.0)
+	ac.draw_rect(Rect2(0, 0, box_w, box_h), border_color, false, 1.0)
 
 	var is_player := ac == safe_player_ref()
 	# 高度变化检测：用 vs 而不是 tier 跨边界（vs > 5 m/s 视为真在升降）
@@ -1558,6 +1582,9 @@ static func draw_data_label(ac: Aircraft) -> void:
 			col = status_line_indices[i]
 		elif wpn_color_indices.has(i):
 			col = wpn_color_indices[i]
+		# 玩家白底：把高亮色调暗，否则浅色 buff/status/alt 在白底上彻底消失
+		if is_player and col != text_color:
+			col = GameConstants.darken_for_light_bg(col)
 		ac.draw_string(ac._font, Vector2(5, 12 + i * line_height), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, col)
 
 	ac.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

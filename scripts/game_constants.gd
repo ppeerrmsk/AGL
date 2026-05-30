@@ -9,6 +9,16 @@ const PIXELS_PER_METER: float = 0.5   ## 1 米 = 0.5 像素
 const GRAVITY: float = 9.81           ## m/s²
 const SPEED_OF_SOUND_KMH: float = 1225.0  ## km/h，用于马赫数计算
 
+# ── 渲染重构 feature flag（2026-05-26 加）──
+# 详见 docs/planning/sprite-multimesh-refactor.md
+# 默认 false 保持老 _draw 路径；阶段 3 验证通过后再考虑改为默认 true
+const USE_SPRITE_AIRCRAFT_ICONS: bool = true   ## 飞机本体图标走 Sprite2D 而不是 _draw 自绘
+const USE_MULTIMESH_BULLETS: bool = false      ## 机炮弹走 MultiMeshInstance2D 而不是 _draw 自绘
+const SHOW_PERF_HUD: bool = false              ## F10 切换；默认 off 不占屏幕
+## 飞机图标烘焙放大倍率（单一来源）：烘焙器按此放大几何，Sprite2D 按 1/此值缩回到 size=16
+## bake_icons_runtime.gd 与 aircraft.gd._setup_sprite_icon 共用，避免两边 drift
+const SPRITE_ICON_BAKE_SCALE: float = 3.5
+
 # ── 队伍主色（RGB，alpha 由调用处按需设置）──
 const TEAM_COLOR_BLUE := Color(0.3, 0.6, 1.0)   ## team 0
 const TEAM_COLOR_RED  := Color(1.0, 0.3, 0.2)    ## team 1

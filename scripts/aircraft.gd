@@ -573,6 +573,54 @@ func _ready() -> void:
 	_trail_ribbon.ribbon_color = GameConstants.team_trail_color(team)
 	add_child(_trail_ribbon)
 
+	# Sprite2D 图标路径（USE_SPRITE_AIRCRAFT_ICONS 开关）—— 详见 docs/planning/sprite-multimesh-refactor.md
+	# 用 call_deferred 是因为 silhouette / enemy_type meta 可能在 spawner add_child 之后才设置
+	if GameConstants.USE_SPRITE_AIRCRAFT_ICONS:
+		call_deferred("_setup_sprite_icon")
+
+## Sprite2D 图标路径（阶段 1 渲染重构）：把 _draw 自绘的飞机图标替换为子 Sprite2D，
+## 让 Godot 自动按纹理批处理；其他特效（雷达锥/瞄准锥/特效/标签）仍走 _draw。
+## v1 只有 fighter silhouette 有烘焙纹理，其他 silhouette 返回 null → 回退 _draw 老路径。
+## 已知限制：sprite 不实现 bank_compress / maneuver visual_offset 形变（视觉简化）。
+##
+## 注：用 preload 而不是 class_name 引用，避免 Godot 在 --run（不带 --editor）模式下
+## 还没扫到 manifest.gd 的 class_name 就触发"未声明"报错
+const _AircraftIconManifest = preload("res://scripts/util/aircraft_icon_manifest.gd")
+## Sprite2D 图标路径的缓存引用（null = 走 _draw 老路径）；_update_visuals 每帧同步其 scale
+var _icon_sprite: Sprite2D = null
+
+func _setup_sprite_icon() -> void:
+	if not GameConstants.USE_SPRITE_AIRCRAFT_ICONS:
+		return
+	if has_node("IconSprite"):
+		return
+	var silhouette := _detect_silhouette()
+	var tex: Texture2D = _AircraftIconManifest.get_texture(silhouette)
+	if tex == null:
+		return  # 烘焙纹理缺失 → 回退 _draw 老路径
+	var sprite := Sprite2D.new()
+	sprite.name = "IconSprite"
+	sprite.texture = tex
+	# 烘焙时按 SPRITE_ICON_BAKE_SCALE 放大几何，这里缩回游戏 icon 尺寸（size=16）
+	# 每帧的 bank/高度/机动 形变由 _update_visuals 覆写 scale（见 icon_dynamic_scale）
+	sprite.scale = Vector2.ONE / GameConstants.SPRITE_ICON_BAKE_SCALE
+	# Team color tint
+	if params:
+		sprite.modulate = params.icon_color
+	# show_behind_parent=false：sprite 盖在 parent _draw 之上，匹配老路径里图标画在
+	# draw_target_line 之后（否则预测线/目标线会盖住小图标，见 2026-05-30 反馈）
+	sprite.show_behind_parent = false
+	add_child(sprite)
+	_icon_sprite = sprite
+
+## Sprite2D 路径用的 silhouette 检测（与 AircraftRenderer.draw_aircraft_icon 的 dispatch 规则一致）
+func _detect_silhouette() -> String:
+	if has_meta("enemy_type") and get_meta("enemy_type") == "uav_commander":
+		return "commander"
+	if has_meta("silhouette"):
+		return String(get_meta("silhouette"))
+	return "fighter"
+
 ## 装备模块化迁移期兼容层（commit 2/13 起逐步扩展）
 ## 把 params.equipment 数组里的装备配置发布到对应的传统 params 字段，
 ## 让 25 处现存 `params.gun` / `params.missile` 等读取无需修改。
@@ -2177,6 +2225,9 @@ func _start_destroy() -> void:
 	# （`var pref: Aircraft = player_ref` 在 player_ref 已 free 时抛 "previously freed"）
 	if AircraftRenderer.player_ref == self:
 		AircraftRenderer.player_ref = null
+	# Sprite 路径：隐藏图标 sprite，让 _draw 的灰色坠机图标接管（否则彩色贴图盖住坠机外观）
+	if _icon_sprite != null:
+		_icon_sprite.visible = false
 	AircraftDestruction.start(self)
 
 func _update_destroy(delta: float) -> void:
@@ -2399,6 +2450,10 @@ func get_flare_cooldown_ratio() -> float:
 
 func _update_visuals() -> void:
 	rotation = heading
+	# Sprite2D 路径：每帧把 bank 压缩 / 高度 / 机动收缩同步到图标 scale，
+	# 复原老 _draw 的滚转/缩放动画（节点 rotation 已处理朝向，这里只管 scale）
+	if _icon_sprite != null:
+		_icon_sprite.scale = AircraftRenderer.icon_dynamic_scale(self) / GameConstants.SPRITE_ICON_BAKE_SCALE
 
 
 ## 敌方对玩家提交机炮攻击时累计计时；持续 ≥0.3s 显示红色机炮锥威胁提示。

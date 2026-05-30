@@ -19,6 +19,13 @@ var flat_altitude_mode: bool = false       ## 扁平高度模式：跳过高度�
 ## 弹丸数据：{ pos: Vector2, vel: Vector2, owner: CombatUnit, damage: float, life: float }
 var _bullets: Array[Dictionary] = []
 
+## MultiMesh 路径（USE_MULTIMESH_BULLETS 开关）— 仅用于机炮 tracer（非火箭）
+## v1 范围：tracer 用 QuadMesh + 单一黄色 + per-instance fade alpha
+## 火箭弹和漂浮雷保留 _draw 老路径（视觉太异质难批处理）
+## 详见 docs/planning/sprite-multimesh-refactor.md
+var _mm_instance: MultiMeshInstance2D = null
+var _mm: MultiMesh = null
+
 ## 空中漂浮雷（独立数组，不污染子弹热路径）
 ## 数据结构：{ pos, drift_vel_px, source, source_team, params, target_id,
 ##            retarget_timer, life, altitude }
@@ -26,6 +33,62 @@ var _torpedoes: Array[Dictionary] = []
 ## 同屏上限：每个 source 各自最多 21 颗（玩家有技能减 CD 后的极限值）
 const MAX_TORPEDOES_PER_SOURCE: int = 21
 
+
+func _ready() -> void:
+	# MultiMesh 路径初始化（flag 关时零开销）
+	if GameConstants.USE_MULTIMESH_BULLETS:
+		_setup_multimesh_tracers()
+
+## 建立 MultiMesh + Quad mesh 用于机炮 tracer 批量渲染
+## Quad 大小 = (TRACER_LENGTH, 1.5px)，中心位于本地 (0,0)
+## 每帧 _update_multimesh_tracers 写 transform + per-instance color
+## 头部位于 Quad 局部 +X / 2，让 vel 方向旋转后头部对齐 b["pos"]
+func _setup_multimesh_tracers() -> void:
+	_mm = MultiMesh.new()
+	_mm.transform_format = MultiMesh.TRANSFORM_2D
+	_mm.use_colors = true
+	# 用 QuadMesh（3D 在 2D 上下文也能渲染）
+	var quad := QuadMesh.new()
+	quad.size = Vector2(TRACER_LENGTH, 1.5)
+	_mm.mesh = quad
+	_mm.instance_count = 0  # 每帧动态调整
+	_mm_instance = MultiMeshInstance2D.new()
+	_mm_instance.name = "BulletMultiMesh"
+	_mm_instance.multimesh = _mm
+	# 无纹理 → 纯色 quad，颜色由 per-instance color modulate
+	add_child(_mm_instance)
+
+## 把 _bullets 数组里的"非火箭非装饰"机炮 tracer 写到 MultiMesh
+## 火箭、漂浮雷、visual_only 装饰弹保留 _draw 老路径
+func _update_multimesh_tracers() -> void:
+	if _mm == null:
+		return
+	# 第一遍：数有几颗要走 MultiMesh
+	var count := 0
+	for b in _bullets:
+		if b.get("is_rocket", false):
+			continue
+		count += 1
+	_mm.instance_count = count
+	# 第二遍：写 transform + color
+	var i := 0
+	for b in _bullets:
+		if b.get("is_rocket", false):
+			continue
+		var pos: Vector2 = b["pos"]
+		var vel: Vector2 = b["vel"]
+		# 速度为零的子弹理论上不存在；防御性处理
+		var dir: Vector2 = vel.normalized() if vel.length_squared() > 0.01 else Vector2.RIGHT
+		var angle: float = atan2(dir.y, dir.x)
+		# Quad 中心放在头部后 TRACER_LENGTH/2 处 → 头部对齐 b["pos"]，尾部 b["pos"] - dir*TRACER_LENGTH
+		var center: Vector2 = pos - dir * (TRACER_LENGTH * 0.5)
+		var xf := Transform2D(angle, center)
+		_mm.set_instance_transform_2d(i, xf)
+		# fade：寿命末段淡出（与 _draw 老路径一致：alpha = 0.9 * fade）
+		var life_left: float = float(b["life"])
+		var fade: float = clampf(life_left / FADE_OUT_DURATION, 0.0, 1.0)
+		_mm.set_instance_color(i, Color(1.0, 0.95, 0.4, 0.9 * fade))
+		i += 1
 
 ## 建筑拦截概率查表（与 missile_manager._building_block_prob_for_tier 一致）
 ##   HIGH → 40% / MID → 60% / LOW → 80% / GROUND → 100%
@@ -54,6 +117,14 @@ var missile_manager: Node = null
 var _frame_cache_filled: bool = false
 var _frame_unit_immune: Dictionary = {}            ## unit_instance_id -> bool
 var _frame_enemy_missiles_by_team: Dictionary = {} ## team(int) -> Array[Missile]
+## 性能 HUD 用：当前活跃弹丸数（机炮 + 火箭弹合计，不含漂浮雷）
+func active_bullet_count() -> int:
+	return _bullets.size()
+
+## 性能 HUD 用：当前活跃漂浮雷数
+func active_torpedo_count() -> int:
+	return _torpedoes.size()
+
 ## CIWS / 舰载武器复用："射手 team" → 敌方活跃导弹列表（NavalWeapons 也读）
 func get_enemy_missiles_for_team(team: int) -> Array:
 	if not SurvivorData.ENABLE_BULLET_FRAME_CACHE:
@@ -705,21 +776,26 @@ func _physics_process(delta: float) -> void:
 
 		i -= 1
 
+	# MultiMesh 路径：每帧把存活的 tracer 写到 GPU 实例（flag 关时零开销）
+	if GameConstants.USE_MULTIMESH_BULLETS:
+		_update_multimesh_tracers()
+
 	queue_redraw()
 
 func _draw() -> void:
+	var skip_tracer := GameConstants.USE_MULTIMESH_BULLETS  # tracer 已走 MultiMesh
 	for b in _bullets:
 		var dir: Vector2 = b["vel"].normalized()
 		# 寿命末段淡出（替代瞬间消失）
 		var life_left: float = float(b["life"])
 		var fade: float = clampf(life_left / FADE_OUT_DURATION, 0.0, 1.0)
 		if b.get("is_rocket", false):
-			# 火箭：橙红色较长尾迹 + 亮白头
+			# 火箭：橙红色较长尾迹 + 亮白头（永远走 _draw，MultiMesh 不接管）
 			var tail: Vector2 = b["pos"] - dir * ROCKET_TRAIL_LENGTH
 			draw_line(b["pos"], tail, Color(1.0, 0.45, 0.15, 0.85 * fade), 2.2, true)
 			draw_circle(b["pos"], 2.0, Color(1.0, 0.95, 0.8, fade))
-		else:
-			# 曳光弹：亮黄色短线
+		elif not skip_tracer:
+			# 曳光弹：亮黄色短线（flag 关时走 _draw 老路径）
 			var tail: Vector2 = b["pos"] - dir * TRACER_LENGTH
 			draw_line(b["pos"], tail, Color(1.0, 0.95, 0.4, 0.9 * fade), 1.5, true)
 

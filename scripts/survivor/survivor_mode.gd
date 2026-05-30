@@ -96,6 +96,7 @@ var _zone_hint: ZoneHint
 var _zone_mission: ZoneMission
 var _adbs: AdbsManager
 var _event_director: EventDirector
+var _perf_hud: PerfHUD  ## F6 切换；详见 docs/planning/sprite-multimesh-refactor.md
 ## BOSS 阶段状态（P4）
 var _boss_unlock_announced: bool = false  ## 已提示过"BOSS 出现"
 var _boss_spawned: bool = false            ## BOSS 已激活进入战斗
@@ -224,6 +225,12 @@ func _ready() -> void:
 	bullet_manager.friendly_dmg_min_mult = 0.4    # 最远衰减 20%→40%
 	bullet_manager.flat_altitude_mode = true       # 扁平高度：无高度容差限制
 	bullet_manager.missile_manager = missile_manager  # CIWS 子弹需要碰撞导弹
+
+	# 性能 HUD（F6 切换）— 渲染重构 baseline 测量用
+	_perf_hud = PerfHUD.new()
+	_perf_hud.name = "PerfHUD"
+	add_child(_perf_hud)
+	_perf_hud.attach_bullet_manager(bullet_manager)
 
 	# 生成玩家飞机
 	player_aircraft = _aircraft_scene.instantiate()
@@ -1085,6 +1092,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		var path := EventLogger.dump_to_file()
 		if path != "":
 			print("Combat log saved: %s" % path)
+		return
+	# F6：切换性能 HUD（渲染重构 baseline 测量用，详见 docs/planning/sprite-multimesh-refactor.md）
+	if event is InputEventKey and event.pressed and event.keycode == KEY_F6:
+		get_viewport().set_input_as_handled()
+		if _perf_hud:
+			_perf_hud.toggle_visible()
 		return
 	# F10：跑 TacticalPlanner / BfmIntent 单元测试，结果输出到控制台
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F10:
