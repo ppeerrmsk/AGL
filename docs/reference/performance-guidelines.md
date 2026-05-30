@@ -222,6 +222,7 @@ else:
 | 玩家飞机引用（只读） | `AircraftRenderer.player_ref` | `aircraft_renderer.gd:5` |
 | 全场战斗单位列表 | `CombatUnit.all_units` | `combat_unit.gd`，`survivor_mode._update_aircraft_list` 维护 |
 | 子弹命中目标列表 | `bullet_manager.combat_unit_list` | 同上维护 |
+| 敌我方预分桶（只扫对方阵营，根治雷达/子弹 O(N²)） | `bullet_manager.enemies_of_team0/1`（自建）、`survivor_mode._enemies_of_team0/1`（雷达） | `bullet_manager._rebuild_team_buckets` / `survivor_mode._update_aircraft_list` |
 | 导弹命中目标列表 | `missile_manager.target_list` | 同上维护 |
 | AI 决策节流（固定降频） | `AIController.ai_tick_divisor` | `ai_controller.gd` |
 | AI 拥挤度自适应分级 | `AIController.AIScaleClass` + `_compute_scaling_class()` | `ai_controller.gd`（按 team / category / is_unmanned 自动派生） |

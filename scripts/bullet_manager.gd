@@ -105,6 +105,27 @@ static func _building_block_prob_for_tier(source_tier: int) -> float:
 
 ## 场景中所有战斗单位的缓存引用，由 main.gd 每帧更新
 var combat_unit_list: Array[CombatUnit] = []
+## 敌我方预分桶（_rebuild_team_buckets 每帧从 combat_unit_list 自建）：enemies_of_teamT = 所有 team != T 的单位
+## 子弹命中循环用，team-0/1 射手只扫对方阵营，避免 O(B×N) 全扫；source_team=-1 等回退 combat_unit_list
+var enemies_of_team0: Array[CombatUnit] = []
+var enemies_of_team1: Array[CombatUnit] = []
+
+## 每帧从 combat_unit_list 重建敌我方分桶（team_other 对双方都算敌方，与旧 team!= 判定等价）
+func _rebuild_team_buckets() -> void:
+	var t0: Array[CombatUnit] = []
+	var t1: Array[CombatUnit] = []
+	var other: Array[CombatUnit] = []
+	for u in combat_unit_list:
+		if u == null or not is_instance_valid(u):
+			continue
+		if u.team == 0:
+			t0.append(u)
+		elif u.team == 1:
+			t1.append(u)
+		else:
+			other.append(u)
+	enemies_of_team0 = t1 + other
+	enemies_of_team1 = t0 + other
 
 ## 导弹管理器引用（CIWS 子弹需要碰撞导弹）
 var missile_manager: Node = null
@@ -510,6 +531,9 @@ func _physics_process(delta: float) -> void:
 	_frame_cache_filled = false
 	if SurvivorData.ENABLE_BULLET_FRAME_CACHE:
 		_build_frame_cache()
+	# ── 敌我方预分桶：从 combat_unit_list 自建（与谁设 combat_unit_list 解耦，沙盒亦安全）──
+	# team-0/1 子弹只扫对方阵营，把命中循环从 O(B×N) 降到 O(B×N_enemy)
+	_rebuild_team_buckets()
 
 	# ── 空中鱼雷（独立循环，不污染子弹热路径）──
 	_update_torpedoes(delta)
@@ -622,13 +646,21 @@ func _physics_process(delta: float) -> void:
 		var source_raw: Variant = b["source"]
 		var source_alive: bool = is_instance_valid(source_raw)
 		var source_team: int = int(b.get("source_team", -1))
-		for ac in combat_unit_list:
+		# 敌我方预分桶：team-0/1 射手只扫对方阵营（避免 O(B×N) 全扫）；其他（source_team=-1）回退全表
+		var hit_candidates: Array[CombatUnit]
+		if source_team == 0:
+			hit_candidates = enemies_of_team0
+		elif source_team == 1:
+			hit_candidates = enemies_of_team1
+		else:
+			hit_candidates = combat_unit_list
+		for ac in hit_candidates:
 			if not is_instance_valid(ac) or ac.is_destroyed:
 				continue
 			# 射手还活着：跳过打到自己
 			if source_alive and ac == source_raw:
 				continue
-			# 跳过同队（无论射手死活都用快照 team 判定）
+			# 跳过同队（无论射手死活都用快照 team 判定；分桶后正常永不触发，回退路径仍需）
 			if ac.team == source_team:
 				continue
 			# 光学隐形：子弹/火箭弹穿过隐形目标

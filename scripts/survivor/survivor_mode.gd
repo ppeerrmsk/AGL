@@ -80,6 +80,10 @@ const RADAR_LOCK_STRIDE := 4
 var _radar_lock_phase: int = 0  ## 当前轮到的 stride 索引（0..RADAR_LOCK_STRIDE-1）
 var _radar_lock_accum: float = 0.0
 var _all_combat_units_cache: Array[CombatUnit] = []   ## _update_aircraft_list 填充，_update_radar_locks 复用
+## 敌我方预分桶（_update_aircraft_list 每帧填充）：enemies_of_teamT = 所有 team != T 的单位
+## 雷达锁定内层循环用，避免为找对方目标全扫 N 个单位
+var _enemies_of_team0: Array[CombatUnit] = []
+var _enemies_of_team1: Array[CombatUnit] = []
 
 # ── HUD / UI ──
 var hud: SurvivorHUD
@@ -1440,6 +1444,25 @@ func _update_aircraft_list() -> void:
 	_all_combat_units_cache = all_units
 	CombatUnit.all_units = all_units  # AI / 武器扫描共享引用，消灭多处 get_children() 扫描
 
+	# 敌我方预分桶（雷达锁定 / 子弹命中的 O(N²) 根治）：
+	# shooter/子弹只关心对方阵营 → 不再为找 1 个目标白扫全部 N 个单位再 team 跳过。
+	# 多敌少友的典型局面下（如 136 敌 vs 1 友），内层迭代从 N 降到 N_enemy，数量级下降。
+	# team 仅 0/1；team_other 防御性兜底（理论为空，若有则对双方都算敌方，与旧 team!= 判定一致）
+	var team0: Array[CombatUnit] = []
+	var team1: Array[CombatUnit] = []
+	var team_other: Array[CombatUnit] = []
+	for u in all_units:
+		if u.team == 0:
+			team0.append(u)
+		elif u.team == 1:
+			team1.append(u)
+		else:
+			team_other.append(u)
+	# enemies_of[t] = 所有 team != t 的单位（team_other 对双方都是敌方）
+	# 仅雷达锁定用；子弹命中由 bullet_manager 自建分桶（沙盒/main.gd 也复用，不依赖此处下发）
+	_enemies_of_team0 = team1 + team_other
+	_enemies_of_team1 = team0 + team_other
+
 	# Perf 快照：all_units 分类 + 衍生 AI 拥挤度（驱动 ai_controller 的 effective_divisor）
 	# 这样在 HUD / F9 dump 里能直接看到 "MountTarget 把 N 推到 50 → AI 全员降频" 这类因果链
 	var n_total: int = all_units.size()
@@ -1521,9 +1544,17 @@ func _update_radar_locks(delta: float) -> void:
 			unit.radar_targets.clear()
 			continue
 
-		for other in all_units:
-			_perf_pairs += 1  # 雷达对计数（含早 filter 部分；后续 reverse-engineer N²/STRIDE 用）
-			if not is_instance_valid(other) or other == unit or other.team == unit.team:
+		# 敌我方预分桶：只遍历对方阵营单位（不再全扫 N 再 team 跳过）
+		var radar_candidates: Array[CombatUnit]
+		if unit.team == 0:
+			radar_candidates = _enemies_of_team0
+		elif unit.team == 1:
+			radar_candidates = _enemies_of_team1
+		else:
+			radar_candidates = all_units  # 防御：非 0/1 阵营回退全表
+		for other in radar_candidates:
+			_perf_pairs += 1  # 雷达对计数（现在只数对方阵营 = 真实有效配对）
+			if not is_instance_valid(other) or other == unit:
 				continue
 			# 锁定免疫期间：无法对该目标累积雷达照射
 			if other.is_lock_immune():
