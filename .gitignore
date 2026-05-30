@@ -14,3 +14,13 @@
 /_*.gd
 /_*.gd.uid
 
+# bench harness 输出（每次跑分自动生成，不入库）
+/bench/results/
+
+# 本地机器配置 / 临时状态（含绝对路径或 per-machine 数据，不应入库）
+# .mcp.json 含本机 Godot 绝对路径；settings.local.json / worktrees / 锁文件均为 per-machine
+/.mcp.json
+/.claude/settings.local.json
+/.claude/scheduled_tasks.lock
+/.claude/worktrees/
+
