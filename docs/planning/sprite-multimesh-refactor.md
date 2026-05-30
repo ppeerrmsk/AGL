@@ -54,14 +54,21 @@
 - ✅ 改 `aircraft_renderer.gd::draw_aircraft_icon`：有 IconSprite 子节点时跳过 polygon 绘制，保留 selection ring 等动态 _draw
 - ✅ **已验证**（2026-05-30）：FPS A/B（见"数据记录"）— 52 架 +89% FPS、27 架 draw CPU −82%、视觉零回归（转弯/预测线/坠机/眼镜蛇四处回归已修复确认）→ `USE_SPRITE_AIRCRAFT_ICONS` 默认改 true
 
-### 阶段 2 — 子弹 MultiMesh 化
-- 改 `bullet_manager.gd`：
-  - `_ready` 里看 `GameConstants.USE_MULTIMESH_BULLETS`
-  - 若 on → 挂 `MultiMeshInstance2D` 子节点，QuadMesh + 曳光弹渐变纹理 (16×4 px 一头亮一头暗)
-  - `_physics_process` 末尾 → 遍历 `_bullets` 写 `multimesh.set_instance_transform_2d(i, ...)`，长度按速度方向缩放
-  - `_draw` 里看 flag 跳过 bullet 的 `draw_line` 循环
-- **第一刀只动机炮弹**，火箭弹和漂浮雷因为 fade / canopy / 颜色字段多样，保留旧 `_draw` 路径
-- 第二刀（后续）再考虑火箭
+### 阶段 2 — 子弹 MultiMesh 化（✅ 已实现 + 已评估，**默认保持 off**）
+- ✅ `bullet_manager.gd` 脚手架：`_setup_multimesh_tracers` 挂 MultiMeshInstance2D + QuadMesh，
+  `_update_multimesh_tracers` 每帧写 transform + per-instance color，`_draw` 按 flag 跳过 tracer draw_line
+- **第一刀只动机炮弹**，火箭弹/漂浮雷保留 `_draw`（fade/canopy/颜色字段多样）
+
+**评估结论（2026-05-30，RTX 3080，见"数据记录·阶段 2"）：MultiMesh 子弹只在 ~4000 颗
+（GPU object-bound）才赢，现实子弹量（100~300，极端弹幕 1500）反而略亏。** Godot 2D 批处理器
+本来就把 `draw_line` 批得很好，子弹没有 sprite 那样的 CPU 大头（建复杂多边形）可削。
+
+→ **`USE_MULTIMESH_BULLETS` 默认保持 `false`**。脚手架保留（flag 关零开销），作为弱硬件 / 极端
+弹量的后手——objs −89~94%、prims −60~76% 与子弹分布无关，弱 GPU 在更低弹量就会 object-bound。
+
+**关键发现（回答"真实多源火力"质疑）**：真实子弹要堆到高位，先撞到的瓶颈是 **CPU**（单位雷达 +
+命中判定的 O(N²)，已由「敌我方预分桶」根治；见 perf-guidelines「敌我方预分桶」行 + 对应 commit），
+以及单位数本身的 _physics_process/_draw —— **不是子弹渲染**。所以 MM 在真实战斗里更难派上用场。
 
 ### 阶段 3 — 数据对比与决策
 - 用 godot-mcp `run_project` headless 跑生存模式
@@ -124,11 +131,28 @@
 - → `USE_SPRITE_AIRCRAFT_ICONS` 默认改为 **true**。
 - 注：高硬件下 FPS 在低实体数会被上限掩盖差异，真实收益要在 draw-bound 区间（≥50 架）才显现。
 
-### 阶段 2 完成后（USE_MULTIMESH_BULLETS=on，80 架 + 1000 子弹）
-- 日期：
-- FPS：
-- draw_call：
-- canvas_items：
+### 阶段 2（USE_MULTIMESH_BULLETS off vs on，bullet_storm 场景，2026-05-30）
+visual_only 子弹隔离纯渲染开销。FPS=window 均值（warmup 2s）。
+
+| 子弹量 / 分布 | flag | FPS | draw_call | objs | prims |
+|---|---|---|---|---|---|
+| ~150（混编实战） | off | 120 | 258 | 2790 | 10174 |
+| ~150 | on | 116.6 | 337 | 3073 | 16860 |
+| 1500 单原点 | off | 119 | 225 | 29072 | 37098 |
+| 1500 单原点 | on | 116 | 286 | 3320 | 14894 |
+| 1500 散布汇聚 | off | 110 | 338 | 30445 | 39218 |
+| 1500 散布汇聚 | on | 114 | 308 | 3324 | 14738 |
+| 4000 单原点 | off | **56** | 299 | 74907 | 83577 |
+| 4000 单原点 | on | **83** | 305 | 3627 | 20339 |
+
+- 拐点在 ~4000 颗（GPU object-bound）才 +49% FPS；现实量级 off 顶 120 FPS，MM 略亏。
+- 散布分布让 _draw 的 draw_call 上升（225→338 @1500），MM 对分布不敏感 → 散布下 MM 相对优势更大，但 FPS 拐点仍在高位。
+- **结论 → 默认 off**（理由见上方"阶段 2"段）。
+
+### 真实多源火力（ground_storm，140 AA 炮环射，~3900 真实子弹）
+- 敌我方分桶前：FPS 1.6，radar_pairs **2967/帧**；分桶后：FPS 6.3，radar_pairs **38/帧（−98.7%）**。
+- 分桶 + MM on：objs −91% 但 FPS 不动（6.3→6.5）→ 此场景 **CPU-bound**（140 单位各自 AI/draw + 子弹移动 + 玩家画 136 框），非渲染。
+- 教训：真实战斗的子弹瓶颈先撞 CPU（雷达/命中 O(N²)），不是渲染 → 优先级是分桶/单位 LOD 而非 MM。
 
 ## 不在本次重构范围内（明确排除）
 
