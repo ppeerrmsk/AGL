@@ -128,6 +128,15 @@ var _bench_scenario: String = ""
 var _bench_duration: float = 30.0
 var _bench_elapsed: float = 0.0
 var _bench_finished: bool = false
+## 渲染监视器采样（A/B 用：MultiMesh / Sprite 的 GPU draw_call 收益 PerfBuckets 抓不到）
+## 跳过前 BENCH_RENDER_WARMUP 秒的 spawn 尖峰，之后逐帧累加取均值
+const BENCH_RENDER_WARMUP: float = 2.0
+var _bench_dc_sum: float = 0.0      ## draw_call 累加
+var _bench_fps_sum: float = 0.0     ## FPS 累加
+var _bench_obj_sum: float = 0.0     ## render objects 累加
+var _bench_prim_sum: float = 0.0    ## render primitives 累加
+var _bench_bullet_sum: float = 0.0  ## 活跃子弹数累加（确认 MM 测试的子弹量级）
+var _bench_render_samples: int = 0
 
 func _ready() -> void:
 	# 确保 SurvivorMode 在所有子节点（含 AI 控制器）之前执行
@@ -534,6 +543,8 @@ func _setup_bench_scenario() -> void:
 			_bench_force_spawn_swarm()
 		elif _bench_scenario == "boss_mother_goose":
 			_bench_force_spawn_boss_mg()
+		elif _bench_scenario == "ground_storm":
+			_bench_force_spawn_ground_storm()
 		else:
 			_bench_force_spawn_mixed(BENCH_INITIAL_ENEMY_COUNT)
 
@@ -574,6 +585,76 @@ func _bench_force_spawn_mixed(_total: int) -> void:
 				_spawner._spawn_single(etype)
 		spawned += n
 	print("[Bench] force-spawned %d enemies across %d types" % [spawned, mix.size()])
+
+## ground_storm 场景：玩家周围环形布大量 AA 炮（team=1），把 gun range 临时拔高让它们
+## 从各方向持续朝玩家射**真实子弹**（有目标、多源、多方向汇聚）—— 比 bullet_storm 的单原点
+## 放射状 visual_only 弹更贴近真实战斗的渲染分布，用来验证"散布源 + 方向多样"是否改变 MM 结论。
+## 玩家无敌（bench 设），在阵中飞被四面打。
+const GROUND_STORM_AA_COUNT: int = 140
+const GROUND_STORM_RING_MIN_PX: float = 1000.0
+const GROUND_STORM_RING_MAX_PX: float = 3200.0
+const GROUND_STORM_GUN_RANGE_PX: float = 5000.0  ## 拔高 gun range，让全阵持续开火
+func _bench_force_spawn_ground_storm() -> void:
+	if _aa_scene == null or _aa_params == null:
+		return
+	seed(45)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 45
+	var center: Vector2 = Vector2.ZERO
+	if player_aircraft != null and is_instance_valid(player_aircraft):
+		center = player_aircraft.global_position
+	for i in range(GROUND_STORM_AA_COUNT):
+		var ang: float = rng.randf() * TAU
+		var rad: float = rng.randf_range(GROUND_STORM_RING_MIN_PX, GROUND_STORM_RING_MAX_PX)
+		var p: Vector2 = center + Vector2(cos(ang), sin(ang)) * rad
+		# dup params + 拔高 gun range（deep dup，不动原始 .tres）
+		var dup_params: Resource = _aa_params.duplicate(true)
+		dup_params.max_hp = 1.0e9
+		if dup_params.gun != null:
+			dup_params.gun.max_range = GROUND_STORM_GUN_RANGE_PX
+		var unit: GroundUnit = _aa_scene.instantiate()
+		unit.params = dup_params
+		unit.team = 1
+		unit.position = p
+		unit.initial_heading_deg = rng.randf() * 360.0
+		unit.set_meta("category", "adds")
+		add_child(unit)
+		unit.hp = 1.0e9
+		unit.bullet_manager = bullet_manager
+		unit.missile_manager = missile_manager
+	print("[Bench] ground_storm: %d AA guns ringed around player (gun_range=%.0f)" % [
+		GROUND_STORM_AA_COUNT, GROUND_STORM_GUN_RANGE_PX])
+
+## bullet_storm 场景：每帧把 visual_only 子弹补到 BULLET_STORM_TARGET 颗，
+## 隔离纯渲染开销（MM vs _draw 拐点测试）。visual_only 跳过所有命中判定 → CPU 几乎只剩渲染。
+## 从玩家机位向四周随机方向喷，速度抖动让弹幕铺开占屏。
+const BULLET_STORM_TARGET: int = 3000
+const BULLET_STORM_MAX_PER_FRAME: int = 600
+## 散布汇聚模式：从玩家周围环形的多个散布原点朝玩家方向（带抖动）发射 visual_only 子弹，
+## 模拟"多源、多方向汇聚"的真实弹幕分布；visual_only 跳过命中判定 → 隔离纯渲染开销。
+const BULLET_STORM_EMITTER_RING_PX: float = 2800.0
+const BULLET_STORM_CONVERGE_SPREAD: float = 0.55  ## 朝玩家方向的随机抖动（弧度 ±）
+func _bench_topup_bullet_storm() -> void:
+	if bullet_manager == null or not is_instance_valid(bullet_manager):
+		return
+	if player_aircraft == null or not is_instance_valid(player_aircraft):
+		return
+	var deficit: int = BULLET_STORM_TARGET - bullet_manager.active_bullet_count()
+	if deficit <= 0:
+		return
+	var add: int = mini(deficit, BULLET_STORM_MAX_PER_FRAME)
+	var pc: Vector2 = player_aircraft.global_position
+	for _k in range(add):
+		# 散布原点：玩家周围环形随机一点
+		var ea: float = randf() * TAU
+		var er: float = BULLET_STORM_EMITTER_RING_PX * (0.5 + randf() * 0.5)
+		var origin: Vector2 = pc + Vector2(cos(ea), sin(ea)) * er
+		# 朝玩家方向（heading 系：0=北，sin/-cos）+ 抖动，制造多方向汇聚
+		var to_player: Vector2 = pc - origin
+		var base_hdg: float = atan2(to_player.x, -to_player.y)
+		var dir: float = base_hdg + (randf() - 0.5) * 2.0 * BULLET_STORM_CONVERGE_SPREAD
+		var spd: float = 600.0 + randf() * 600.0
+		bullet_manager.spawn_bullet(origin, dir, spd, player_aircraft, 0.0, false, true)
 
 ## stress_swarm：20 敌 + 10 友全图随机小队混战 + 地面 AA/SAM 骚扰，把 SquadFactory /
 ## SQUAD_FOLLOW / formation offset / ground unit 路径全都踩一遍。所有飞机 invulnerable，
@@ -1379,10 +1460,29 @@ func _physics_process(delta: float) -> void:
 	# 都能稳定工作，且 BenchRunner 没注册时静默 no-op
 	if _bench_mode and not _bench_finished:
 		_bench_elapsed += delta
+		# bullet_storm 场景：每帧把 visual_only 子弹补到目标量，隔离纯渲染开销（MM vs _draw 拐点测试）
+		if _bench_scenario == "bullet_storm":
+			_bench_topup_bullet_storm()
+		# 渲染监视器采样（跳过 spawn 尖峰预热期）：draw_call 是 MultiMesh/Sprite 批处理收益的核心指标
+		if _bench_elapsed >= BENCH_RENDER_WARMUP:
+			_bench_dc_sum += Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)
+			_bench_fps_sum += Performance.get_monitor(Performance.TIME_FPS)
+			_bench_obj_sum += Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME)
+			_bench_prim_sum += Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)
+			if bullet_manager and is_instance_valid(bullet_manager):
+				_bench_bullet_sum += bullet_manager.active_bullet_count()
+			_bench_render_samples += 1
 		if _bench_elapsed >= _bench_duration:
 			_bench_finished = true
 			var summary: String = "tick_at=%.2fs aircraft_alive=%d enemies_killed=%d\n" % [
 				_bench_elapsed, _count_aircraft_alive(), (_spawner.kill_count if _spawner else 0)]
+			# 渲染监视器均值（A/B 对比 draw_call / FPS / objs / prims）
+			if _bench_render_samples > 0:
+				var n := float(_bench_render_samples)
+				summary += "render_avg(n=%d, warmup=%.0fs): fps=%.1f draw_call=%.0f objs=%.0f prims=%.0f bullets=%.0f\n" % [
+					_bench_render_samples, BENCH_RENDER_WARMUP,
+					_bench_fps_sum / n, _bench_dc_sum / n,
+					_bench_obj_sum / n, _bench_prim_sum / n, _bench_bullet_sum / n]
 			# boss_mother_goose scenario：附加 boss 终态信息
 			if _bench_scenario == "boss_mother_goose" and _spawner and _spawner._boss:
 				var boss: BossEncounter = _spawner._boss
