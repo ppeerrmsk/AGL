@@ -56,6 +56,8 @@ var _radar: Control
 var _game_over_panel: PanelContainer
 var _game_over_label: RichTextLabel
 var _threat_overlay: Control
+## 屏幕外圈受击/异常/治疗反馈边框（add 在 _threat_overlay 之前，让箭头/文字盖在上面）
+var _damage_vignette: DamageVignette
 
 # Debug 性能面板
 var _debug_panel: PanelContainer
@@ -257,6 +259,10 @@ func _build_ui() -> void:
 	_game_over_label.add_theme_color_override("default_color", ThemeColors.TEXT_PRIMARY)
 	_game_over_panel.add_child(_game_over_label)
 
+	# ── 屏幕外圈受击/异常/治疗反馈边框（先 add，让威胁箭头/文字盖在上面）──
+	_damage_vignette = DamageVignette.new()
+	add_child(_damage_vignette)
+
 	# ── 屏幕外威胁方位指示 ──
 	_threat_overlay = ThreatOverlay.new()
 	_threat_overlay.hud = self
@@ -296,6 +302,12 @@ func _process(delta: float) -> void:
 
 func _layout_ui() -> void:
 	var vp := get_viewport().get_visible_rect().size
+
+	# 受击/异常/治疗边框：全屏覆盖 + 注入玩家飞机引用
+	if _damage_vignette:
+		_damage_vignette.position = Vector2.ZERO
+		_damage_vignette.size = vp
+		_damage_vignette.player_ref = survivor_player.aircraft if survivor_player else null
 
 	# 战区倒计时（顶部最上方）
 	_warzone_timer_label.position = Vector2(vp.x * 0.5 - 100, -2)

@@ -2091,6 +2091,8 @@ func _apply_damage(amount: float) -> void:
 	# 受击钩子链（玩家系技能：受伤进嗜血 / 被导弹击中无敌 / 周围 JAM 等）
 	# early-return：only Aircraft team==0 + has upgrade_stacks → 不命中开销 ≈ 1 dict.has
 	if hp > 0.0 and team == 0:
+		# HUD 屏幕边框反馈用：vignette 每帧读这个时间戳判断"正在受伤"
+		set_meta(&"hud_last_damage_at", EventLogger.get_game_time())
 		var atk: Node = get_meta("_pending_attacker", null)
 		var kind: String = String(get_meta("_last_damage_kind", ""))
 		SkillHooks.dispatch_on_hit(self, atk, kind, amount)
