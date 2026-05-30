@@ -383,14 +383,18 @@ func _draw_data_label() -> void:
 	var box_w := max_w + 6.0
 	var box_h := lines.size() * line_height + 4.0
 
-	var _glc := GameConstants.ground_label_colors(team)
-	var text_color: Color = _glc[0]
-	var bg_color: Color = _glc[1]
+	# 配色：地面单位无"操控者"语义 → 己方/敌方分支
+	var _style := GameConstants.unit_label_style(team, false)
+	var bg_color: Color = _style[0]
+	var text_color: Color = _style[1]
+	var border_color: Color = _style[2]
 
 	var rotated_offset := (label_offset * inv_zoom).rotated(inv_rot)
 	var scale_v := Vector2(inv_zoom, inv_zoom)
 	draw_set_transform(rotated_offset, inv_rot, scale_v)
-	draw_rect(Rect2(-1, -1, box_w, box_h), bg_color)
+	var box_rect := Rect2(-1, -1, box_w, box_h)
+	draw_rect(box_rect, bg_color)
+	draw_rect(box_rect, border_color, false, 1.0)
 	for i in lines.size():
 		draw_string(_font, Vector2(2, 10 + i * line_height), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

@@ -455,13 +455,15 @@ func _draw_data_label() -> void:
 	var box_w := max_w + 8.0
 	var box_h := lines.size() * line_height + 4.0
 
-	var _lc := GameConstants.missile_label_colors(team)
-	var bg_color: Color = _lc[0]
-	var text_color: Color = _lc[1]
+	# 配色：导弹无"操控者"语义 → 走己方/敌方分支
+	var _style := GameConstants.unit_label_style(team, false)
+	var bg_color: Color = _style[0]
+	var text_color: Color = _style[1]
+	var border_color: Color = _style[2]
 
 	draw_set_transform(label_offset, inv_rot, Vector2(inv_zoom, inv_zoom))
 	draw_rect(Rect2(0, 0, box_w, box_h), bg_color)
-	draw_rect(Rect2(0, 0, box_w, box_h), text_color * Color(1, 1, 1, 0.3), false, 1.0)
+	draw_rect(Rect2(0, 0, box_w, box_h), border_color, false, 1.0)
 
 	for i in range(lines.size()):
 		draw_string(_font, Vector2(4, 10 + i * line_height), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)

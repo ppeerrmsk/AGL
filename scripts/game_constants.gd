@@ -51,6 +51,26 @@ const GROUND_LABEL_BG_BLUE   := Color(0.0, 0.1, 0.2, 0.6)
 const GROUND_LABEL_TEXT_RED  := Color(1.0, 0.6, 0.4)
 const GROUND_LABEL_BG_RED    := Color(0.2, 0.05, 0.0, 0.6)
 
+# ── 单位状态栏标签 — 操控者 / 己方 / 敌方 三档统一配色 ──
+# 全程禁纯白：所有"白"都掺一点蓝，避免设计上刺眼
+# 玩家正在操控的飞机：冷白底 + 蓝边 + 深蓝字（视觉重心）
+const UNIT_LABEL_BG_PLAYER     := Color(0.91, 0.94, 1.0, 0.92)
+const UNIT_LABEL_TEXT_PLAYER   := Color(0.10, 0.25, 0.55, 1.0)
+const UNIT_LABEL_BORDER_PLAYER := Color(0.30, 0.60, 1.0, 0.95)
+# 己方非操控（队友 / 僚机 / 己方导弹 / Sentinel UAV）：蓝底 + 冷白边 + 冷白字
+const UNIT_LABEL_BG_ALLY       := Color(0.10, 0.20, 0.45, 0.85)
+const UNIT_LABEL_TEXT_ALLY     := Color(0.90, 0.95, 1.0, 1.0)
+const UNIT_LABEL_BORDER_ALLY   := Color(0.85, 0.92, 1.0, 0.85)
+# 敌方：红底 + 冷白边 + 冷白字（不用暖白，避免与红底融成粉色刺眼）
+const UNIT_LABEL_BG_ENEMY      := Color(0.40, 0.10, 0.10, 0.88)
+const UNIT_LABEL_TEXT_ENEMY    := Color(0.90, 0.95, 1.0, 1.0)
+const UNIT_LABEL_BORDER_ENEMY  := Color(0.85, 0.92, 1.0, 0.85)
+
+## 把高亮/buff 文字色调暗以便在浅色背景（玩家标签白底）下保持可读
+## 直接用 darkened 会保留色相，让 BLOODLUST/STEALTH/JAM 等仍能区分
+static func darken_for_light_bg(c: Color) -> Color:
+	return Color(c.r * 0.42, c.g * 0.42, c.b * 0.42, c.a)
+
 ## 根据 team 索引返回队伍色（便捷方法）
 static func team_color(team: int) -> Color:
 	return TEAM_COLOR_BLUE if team == 0 else TEAM_COLOR_RED
@@ -89,3 +109,12 @@ static func aircraft_label_colors(team: int) -> Array:
 	if team == 0:
 		return [AIRCRAFT_LABEL_BG_BLUE, AIRCRAFT_LABEL_TEXT_BLUE]
 	return [AIRCRAFT_LABEL_BG_RED, AIRCRAFT_LABEL_TEXT_RED]
+
+## 单位状态栏标签统一配色：返回 [bg, text, border]
+## 三档：操控者（玩家）→ 白底蓝边；己方非操控 → 蓝底白边；敌方 → 红底白边
+static func unit_label_style(team: int, is_player_controlled: bool) -> Array:
+	if is_player_controlled:
+		return [UNIT_LABEL_BG_PLAYER, UNIT_LABEL_TEXT_PLAYER, UNIT_LABEL_BORDER_PLAYER]
+	if team == 0:
+		return [UNIT_LABEL_BG_ALLY, UNIT_LABEL_TEXT_ALLY, UNIT_LABEL_BORDER_ALLY]
+	return [UNIT_LABEL_BG_ENEMY, UNIT_LABEL_TEXT_ENEMY, UNIT_LABEL_BORDER_ENEMY]
