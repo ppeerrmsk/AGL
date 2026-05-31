@@ -22,7 +22,9 @@ extends RefCounted
 const AUTO_GUN_SCAN_INTERVAL := 0.3
 const ROCKET_FIRE_ALT_DIFF_M := 800.0            ## 火箭弹发射最大高度差（米）
 const LAUNCH_QUALITY_OFFAX_RATIO_SARH := 0.5     ## SARH：目标必须在雷达锥中央 50% 内（F-14 16°）
-const LAUNCH_QUALITY_OFFAX_RATIO_FAF  := 0.85    ## f&f：seeker FOV 内即可（保持原有宽松）
+const LAUNCH_QUALITY_OFFAX_RATIO_FAF  := 0.55    ## f&f：收紧到 0.55×radar_half（F-14≈19°），给 seeker FOV(±30°) 留 ~11° 发射后漂移余量
+												  ## 旧值 0.85（≈29.75°）几乎贴着 seeker 边缘：目标稍一横移即出框丢锁→射空。
+												  ## 见 docs/changelogs/player-ai-log.md（2026-05-30 F-14 MRM 贸然发射/射空诊断）
 const LAUNCH_QUALITY_MAX_BANK_DEG_SARH := 35.0   ## SARH：bank 超此急转中不发，避免打完即丢锁
 const LAUNCH_QUALITY_MAX_BANK_DEG_FAF  := 60.0   ## f&f：bank 限制原 60°
 const LAUNCH_QUALITY_MAX_ROLL_RATE_DEG_S := 30.0 ## 滚转率超此判为"急速侧滚中"，所有制导都拒发（SARH 失锁 / f&f 初始 los 抖动）
@@ -39,8 +41,10 @@ const LAUNCH_QUALITY_MAX_ROLL_RATE_DEG_S := 30.0 ## 滚转率超此判为"急速
 ##     f&f 自主制导，发射后发射器再怎么滚都不影响命中，不受本条限制
 ##     （否则玩家追 12G UAV 时 100-200°/s 滚转率永远过不了门，导致一发不出）
 ##  2. **bank 角**：SARH 35°，f&f 60°。SARH 半主动需要持续照射，门槛收紧
-##  3. **off-axis 角**：SARH 0.5×radar_half（F-14 16°），f&f 0.85×（27°）
-##     SARH 在小 cone 内开火，给 launch 后的转动留余量
+##  3. **off-axis 角**：SARH 0.5×radar_half（F-14 ≈18°），f&f 0.55×（F-14 ≈19°）
+##     两者都要在小 cone 内开火，给 launch 后的转动留余量。
+##     f&f 原为 0.85×（≈30°），几乎贴 seeker FOV(±30°) 边缘：目标横移即出框丢锁→射空，
+##     2026-05-30 收紧到 0.55×（留 ~11° 漂移余量）。
 static func _has_stable_launch_window(ac: Aircraft, target_unit: CombatUnit) -> bool:
 	if not ac.params or not is_instance_valid(target_unit):
 		return true

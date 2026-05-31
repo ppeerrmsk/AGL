@@ -44,6 +44,10 @@ const AIRCRAFT_LABEL_BG_BLUE   := Color(0.1, 0.15, 0.35, 0.85)
 const AIRCRAFT_LABEL_TEXT_BLUE  := Color(0.8, 0.9, 1.0)
 const AIRCRAFT_LABEL_BG_RED    := Color(0.35, 0.08, 0.08, 0.85)
 const AIRCRAFT_LABEL_TEXT_RED   := Color(1.0, 0.85, 0.85)
+## 当前操控机的白底（偏蓝，避免纯白刺眼，spec squad-control-switching §2.2）
+const PLAYER_CTRL_LABEL_BG := Color(0.91, 0.94, 1.0, 0.90)
+## 白底上的深色基础文字
+const PLAYER_CTRL_LABEL_TEXT := Color(0.08, 0.10, 0.18, 1.0)
 
 # ── 地面单位信息标签色 ──
 const GROUND_LABEL_TEXT_BLUE := Color(0.5, 0.8, 1.0)
@@ -89,3 +93,8 @@ static func aircraft_label_colors(team: int) -> Array:
 	if team == 0:
 		return [AIRCRAFT_LABEL_BG_BLUE, AIRCRAFT_LABEL_TEXT_BLUE]
 	return [AIRCRAFT_LABEL_BG_RED, AIRCRAFT_LABEL_TEXT_RED]
+
+## 把高亮/浅色文字压暗到能在白底上读清，同时保留色相（buff/状态/武器/高度等彩色行用）。
+## 仅当文字绘制在玩家白底标签上时调用；非玩家（蓝/红底）走原色不变。
+static func darken_for_light_bg(c: Color) -> Color:
+	return Color(c.r * 0.42, c.g * 0.42, c.b * 0.42, 1.0)

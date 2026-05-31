@@ -39,11 +39,10 @@ var _tooltip_key: String = ""  # 当前悬停的按钮标识
 # ── 小队指挥面板（仅主角有僚机时显示）──
 var _squad_panel: PanelContainer
 var _squad_status_label: RichTextLabel
-var _btn_squad_formation: Button
 var _btn_squad_engage: Button
 var _btn_squad_weapon: Button
 ## 小队交战模式：FREE=独立扫描+协同 / FOLLOW_LEADER=只打长机目标
-var _squad_engage_mode: int = 0          # AIController.SquadEngageMode.FREE
+var _squad_engage_mode: int = 1          # AIController.SquadEngageMode.FOLLOW_LEADER（默认凝聚，spec squad-cohesion）
 var _squad_weapon_pref: int = 0          # 0 = 导弹优先, 1 = 机炮优先 (Aircraft.WeaponPreference)
 
 # ── BOSS 小队状态面板（F-47 等 BOSS 在场时显示）──
@@ -422,11 +421,15 @@ func _update_status_panel() -> void:
 	var hp_color := "66ff66" if hp_ratio > 0.5 else ("ffcc33" if hp_ratio > 0.25 else "ff4444")
 	text += "[color=#%s]HP %d / %d[/color]\n" % [hp_color, ceili(current_hp), ceili(max_hp)]
 
-	# ── G 力 / 结构极限 ──
+	# ── G 力（实时 / 结构极限）──
+	# 分母用瞬时结构 G（猛拉可达的物理上限 max_g_structural），与头顶浮动栏的
+	# 当前 g_load 自洽 —— 否则会出现"当前 10.0 / 上限 7.5"这种当前超上限的怪象。
+	# 颜色：超持续 max_g（进入掉能量的结构 G 区间）转橙，逼近结构上限转红。
 	var g_cur: float = ac.g_load
-	var g_max: float = ac._effective_max_g()
-	var g_color := "ffaa33" if g_cur > g_max * 0.85 else "ccddee"
-	text += "[color=#%s]G   %.1f / %.1f[/color]\n" % [g_color, g_cur, g_max]
+	var g_sustained: float = ac._effective_max_g()
+	var g_struct: float = ac._effective_max_g_instant()
+	var g_color := "ff4444" if g_cur >= g_struct * 0.97 else ("ffaa33" if g_cur > g_sustained + 0.05 else "ccddee")
+	text += "[color=#%s]G   %.1f / %.1f[/color]\n" % [g_color, g_cur, g_struct]
 
 	# ── 速度 / 加力 ──（双击启动 AB）
 	var spd_kmh: int = roundi(ac.speed * 3.6)
@@ -877,10 +880,7 @@ func _build_squad_panel() -> void:
 	sp_vbox.add_child(sep)
 
 	# 指令按钮
-	_btn_squad_formation = _create_tac_button(tr("SQUAD_FORMATION_FMT") % tr("FORMATION_FINGER_FOUR"))
-	_btn_squad_formation.pressed.connect(_on_squad_formation_pressed)
-	sp_vbox.add_child(_btn_squad_formation)
-
+	# 阵型按钮已废弃（spec squad-cohesion：战术=阵型，由「交战模式」决定阵型，不再手动切）
 	_btn_squad_engage = _create_tac_button(tr("SQUAD_ENGAGE_FMT") % tr("SQUAD_ENGAGE_FREE"))
 	_btn_squad_engage.pressed.connect(_on_squad_engage_pressed)
 	sp_vbox.add_child(_btn_squad_engage)
@@ -1173,30 +1173,27 @@ func _update_squad_panel() -> void:
 			bbcode += "\n\n"
 	_squad_status_label.text = bbcode
 
-	# 按钮文本
-	var sq := _get_player_squad()
-	if sq:
-		_btn_squad_formation.text = tr("SQUAD_FORMATION_FMT") % sq.get_formation_name()
-	var mode_str := tr("SQUAD_ENGAGE_FREE") if _squad_engage_mode == AIController.SquadEngageMode.FREE else tr("SQUAD_ENGAGE_FOLLOW")
-	_btn_squad_engage.text = tr("SQUAD_ENGAGE_FMT") % mode_str
+	# 按钮文本（阵型按钮已废弃，由交战模式决定阵型）
+	_btn_squad_engage.text = tr("SQUAD_ENGAGE_FMT") % _squad_engage_mode_label()
 	_btn_squad_weapon.text = tr("SQUAD_WEAPON_FMT") % (tr("WEAPON_PREF_MISSILE") if _squad_weapon_pref == Aircraft.WeaponPreference.PREFER_MISSILE else tr("WEAPON_PREF_GUN"))
 
-## 切换阵型（命令所有僚机按新槽位归队）
-func _on_squad_formation_pressed() -> void:
-	var sq := _get_player_squad()
-	if sq == null:
-		return
-	sq.cycle_formation()
-	EventLogger.log_event("SQUAD_CMD", "Player", "formation → %s" % sq.get_formation_name())
+## 交战模式标签（三态：自由交战 / 跟随长机 / 守护后方）
+func _squad_engage_mode_label() -> String:
+	match _squad_engage_mode:
+		AIController.SquadEngageMode.FREE:
+			return tr("SQUAD_ENGAGE_FREE")
+		AIController.SquadEngageMode.GUARD_REAR:
+			return tr("SQUAD_ENGAGE_GUARD")
+		_:
+			return tr("SQUAD_ENGAGE_FOLLOW")
 
-## 切换交战模式（自由交战 ↔ 跟随长机）
-## 切换时强制所有僚机立即脱离当前 ENGAGE 并回到 SQUAD_FOLLOW，
-## 这样模式切换能马上生效，不会有"模式改了但僚机还在打老目标"的感觉。
 func _on_squad_engage_pressed() -> void:
-	if _squad_engage_mode == AIController.SquadEngageMode.FREE:
-		_squad_engage_mode = AIController.SquadEngageMode.FOLLOW_LEADER
-	else:
-		_squad_engage_mode = AIController.SquadEngageMode.FREE
+	# 三态循环：自由(0) → 跟随长机(1) → 守护后方(2) → 自由
+	_squad_engage_mode = (_squad_engage_mode + 1) % 3
+	# 战术=阵型：切模式同时把小队阵型设成绑定的那个（自由→展开 / 跟随→指尖四点 / 守后→楔形）
+	var sq := _get_player_squad()
+	if sq:
+		sq.formation = Squad.formation_for_engage_mode(_squad_engage_mode)
 	for wm in _get_wingmen():
 		var ai := _get_ai(wm)
 		if ai == null:
@@ -1216,7 +1213,7 @@ func _on_squad_engage_pressed() -> void:
 			ai._engage_timer = 0.0
 			ai._cooldown_timer = 0.0
 			ai.current_tactic_name = ""
-	var mode_str := "FREE" if _squad_engage_mode == AIController.SquadEngageMode.FREE else "FOLLOW_LEADER"
+	var mode_str: String = ["FREE", "FOLLOW_LEADER", "GUARD_REAR"][_squad_engage_mode]
 	EventLogger.log_event("SQUAD_CMD", "Player", "engage mode → %s" % mode_str)
 
 ## 切换武器偏好（导弹优先 ↔ 机炮优先）

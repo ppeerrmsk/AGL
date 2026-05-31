@@ -96,6 +96,12 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 	else:
 		ai._rejoining = false  # 完全融入编队，结束归队状态
 
+	# ── 守护后半球模式：僚机只盯长机六点钟后半球的威胁，绝不去打长机的进攻目标 ──
+	# 长机负责进攻，僚机专职守后：扫到后半球敌机就去拦截，没有就保持编队守在长机身后。
+	if ai.squad_engage_mode == AIController.SquadEngageMode.GUARD_REAR:
+		_guard_rear_tick(ai, delta)
+		return  # 无后方威胁 → 只保持编队守在长机身后，不打长机的前方目标
+
 	# ── 自由模式：独立扫描附近敌机（优先级高于跟随长机协同）──
 	# 改动（2026-05-04）：旧版有 `leader.combat_target == null` 闸门，导致玩家一选目标
 	# 所有僚机就抛下身边的敌人扑过去抢同一个 → 僚机失去自主性。
@@ -138,6 +144,12 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 	# 跟随长机的交战目标（长机锁定敌机时僚机协同攻击）
 	# FREE / FOLLOW_LEADER 都进这里——这是"跟随长机打谁"的入口
 	if leader.combat_target and is_instance_valid(leader.combat_target) and not leader.combat_target.is_destroyed:
+		# 自由机互掩（双重攻击学说）：FOLLOW_LEADER 焦点打"飞机"时，指定一架僚机不进攻、
+		# 改守长机后半球；其余僚机照常压目标。打地面/船/BOSS 不留掩护 → 全员饱和。
+		if _should_be_free_fighter(ai, leader.combat_target):
+			ai._engage_delay = 0.0
+			_guard_rear_tick(ai, delta)
+			return
 		# 反应延迟：每架僚机有不同的反应时间（0.3~1.5秒）
 		# P4：planner 管理的僚机跳过反应延迟（"聪明 AI"立即响应长机锁定）
 		# Drone（kamikaze_intercept 标识）：机器即时反应，无延迟
@@ -169,9 +181,144 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 	else:
 		ai._engage_delay = 0.0  # 长机无目标时重置延迟
 
-## 扫描长机后半球威胁
-## 用 CombatUnit.all_units 共享列表代替 get_parent().get_children() 全树扫描
-## （CLAUDE.md 性能守则第 4 条：_process 不得用 get_children()）
+# ══════════════════════════════════════════════
+#  护卫学说（spec squad-ai-escort §2.2 / §3.1-3.2）—— 目标评分加权
+# ══════════════════════════════════════════════
+
+## 本机是否为"护卫编队的僚机"（吃护卫评分）：
+## 编队开了护卫学说 + 长机有效 + 自己不是长机（长机不护卫自己，§3.4）。
+## 杂兵/散兵编队 escort_doctrine_enabled=false → 返回 false，评分路径全程跳过。
+static func is_escort_wingman(ai: AIController) -> bool:
+	if not ai.squad or not ai.squad.escort_doctrine_enabled:
+		return false
+	var leader: Aircraft = ai.squad.leader
+	return leader != null and is_instance_valid(leader) and not leader.is_destroyed \
+			and leader != ai.aircraft
+
+## 候选敌机的护卫加权（叠加到现有就近/锁定分上）：
+##   正在咬长机 → +ATTACKING_LEADER_BONUS（查长机 engaging_me 反向索引，O(1)）
+##   威胁紧贴长机 → 按距长机插值 0~LEADER_PROXIMITY_BONUS_MAX
+## 零威胁（远离长机且未咬长机）→ 返回 ≈0，自然退回就近交战（护卫优先但不死板）。
+static func escort_target_bonus(leader: Aircraft, candidate: Aircraft) -> float:
+	if leader == null or candidate == null:
+		return 0.0
+	var bonus := 0.0
+	# 正在攻击长机：engaging_me 以"攻击者 instance_id"为键，O(1) 命中即该敌机在咬长机
+	if leader.engaging_me.has(candidate.get_instance_id()):
+		bonus += AIController.ATTACKING_LEADER_BONUS
+	# 威胁距长机近：近 → 满加权，超出 COVER_SCAN_RANGE → 0
+	var d_leader := leader.global_position.distance_to(candidate.global_position)
+	var prox := 1.0 - clampf(d_leader / AIController.COVER_SCAN_RANGE, 0.0, 1.0)
+	bonus += prox * AIController.LEADER_PROXIMITY_BONUS_MAX
+	return bonus
+
+## 进入"自主交战"态（FREE 就近 / GUARD_REAR 后方威胁 共用）：
+## 切出编队托管 + 设 combat_target + 转 ENGAGE。tactic_name 仅用于 HUD/日志标签。
+static func _enter_autonomous_engage(ai: AIController, tgt: CombatUnit, tactic_name: String) -> void:
+	ai._current_target = tgt
+	ai.aircraft.clear_formation()  # formation_mode/leader/keep_arrival/lod=0/ai_override
+	ai.aircraft.set_combat_target(tgt)
+	ai.aircraft.ai_override_pursuit = true
+	ai._formation_blend = 0.0  # 下次回归编队时从 0 开始混合
+	ai._state = AIController.AIState.ENGAGE
+	ai._engage_timer = 0.0
+	ai._tactic = AIController.EngageTactic.LEAD_PURSUIT
+	ai._tactic_timer = 0.0
+	ai._tactic_min_duration = AIController.MIN_DUR_LEAD_PURSUIT
+	ai._squad_attacking_leader_target = false
+	ai._squad_lateral_role = AIController.SquadRole.NONE
+	ai._squad_free_engaging = true  # 享有 range grace，避免刚进就被踢出
+	ai._leader_target_lost_timer = 0.0
+	ai._squad_range_grace_timer = 0.0
+	ai.current_tactic_name = tactic_name
+
+## 守后行为（GUARD_REAR 模式 / 自由机互掩 共用）：
+##   ① 优先拦后半球空中威胁（scan_leader_rear）；
+##   ② 否则打威胁长机的地面防空（scan_leader_threat_ground）—— 默认 PREFER_MISSILE + GROUND_STRAFE 导弹模式
+##      会从导弹包络远射，不会贴脸 strafe，避免吃 AA 火力（用户："AA 优先用导弹打掉避免受伤"）。
+##   ③ 都没有 → 什么都不做（让 SQUAD_FOLLOW 编队托管继续，僚机守在阵位上盯后方）。
+static func _guard_rear_tick(ai: AIController, delta: float) -> void:
+	if not ai.enable_combat:
+		return
+	ai._scan_timer -= delta
+	if ai._scan_timer <= 0.0:
+		ai._scan_timer = 1.0
+		if ai._cooldown_timer <= 0.0:
+			var rear_threat := scan_leader_rear(ai)
+			if rear_threat:
+				_enter_autonomous_engage(ai, rear_threat, "TACTIC_GUARD_REAR")
+				EventLogger.log_event("AI_STATE", ai._log_name(),
+					"GUARD REAR engage → %s" % ai._log_target_name(rear_threat))
+				return
+			var ground_threat := scan_leader_threat_ground(ai)
+			if ground_threat:
+				_enter_autonomous_engage(ai, ground_threat, "TACTIC_GUARD_REAR")
+				EventLogger.log_event("AI_STATE", ai._log_name(),
+					"GUARD REAR engage GROUND AA → %s" % ai._log_target_name(ground_threat))
+
+## 扫描威胁长机的地面防空（SAM / AAA）——守护者也帮长机拔掉对其构成威胁的地面 AA。
+## 范围用 COVER_SCAN_RANGE（AA 能威胁长机所在空域的范围），不限后半球（地面静止，方位无意义）。
+## 只挑 SAM/AAGun（真防空威胁）；坦克等非防空不算。已被本队其他僚机盯上的跳过（分摊）。
+static func scan_leader_threat_ground(ai: AIController) -> GroundUnit:
+	if not ai.squad or not ai.squad.leader:
+		return null
+	var leader := ai.squad.leader
+	var best: GroundUnit = null
+	# 范围 = 打地面时放宽到的 leash（SQUAD_LEASH_DIST），保证守护者够得着、不会刚扑上去就被 leash 拽回
+	var best_dist := AIController.SQUAD_LEASH_DIST
+	for unit in CombatUnit.all_units:
+		# 仅防空地面单位（SAM / AAA）才算"威胁长机"
+		if not is_instance_valid(unit) or not (unit is SAMUnit or unit is AAGunUnit):
+			continue
+		var g: GroundUnit = unit as GroundUnit
+		if g.team == ai.aircraft.team or g.is_destroyed:
+			continue
+		if ai._is_target_already_squad_engaged(g):
+			continue
+		var d := g.global_position.distance_to(leader.global_position)
+		if d < best_dist:
+			best_dist = d
+			best = g
+	return best
+
+## 自由机互掩判定（双重攻击学说，spec squad-cohesion §2.3/§3.3）：
+## 仅 FOLLOW_LEADER 焦点开火 + 目标是"飞机"(非 BOSS) + 本队 ≥2 架存活自主僚机时，
+## 指定 squad_index 最大的那架为"自由机"（不进攻、守后半球）。地面/船/BOSS → 不留掩护(饱和)。
+## 瞬态：每 tick 按当前存活成员重算 → 操控切换 / 僚机减员自愈，不写持久属性。
+static func _should_be_free_fighter(ai: AIController, target) -> bool:
+	if ai.squad_engage_mode != AIController.SquadEngageMode.FOLLOW_LEADER:
+		return false
+	if not target is Aircraft or _is_boss_target(target):
+		return false  # 地面/船/BOSS → 全员饱和，不留自由机
+	if not ai.squad:
+		return false
+	# 自由机 = 存活自主僚机里 squad_index 最大的那架；只 1 架僚机时不留（它得去打）
+	var max_idx := -1
+	var alive_wingmen := 0
+	for m in ai.squad.members:
+		if not is_instance_valid(m) or m.is_destroyed or m == ai.squad.leader:
+			continue
+		var mai: AIController = m._ai_ref
+		if mai == null or mai.manual_control:
+			continue
+		alive_wingmen += 1
+		if mai.squad_index > max_idx:
+			max_idx = mai.squad_index
+	if alive_wingmen < 2:
+		return false
+	return ai.squad_index == max_idx
+
+## 目标是否为 BOSS（category meta 含 "boss"：F-47 王牌队 / Mother Goose 旗舰+MQ-X 等）
+static func _is_boss_target(target) -> bool:
+	if not target.has_meta("category"):
+		return false
+	return String(target.get_meta("category")).contains("boss")
+
+## 扫描长机后半球的"真威胁"——守护者只拦截真正威胁长机后方的敌机，而不是攻击身后任何敌人。
+## 威胁判定（二选一即可）：① 正在咬长机（leader.engaging_me，反向索引 O(1)）；
+##   ② 正朝长机飞来（approaching：敌机机头指向长机）。只是"在身后远处晃悠、暂不构成威胁"的 → 忽略。
+## 范围用 REAR_GUARD_RANGE(≈2.4km, < leash)，让守护者贴着长机守而不飞远（修"守后却去打远处闲敌"）。
+## 用 CombatUnit.all_units 共享列表代替 get_parent().get_children() 全树扫描（perf R4）。
 static func scan_leader_rear(ai: AIController) -> Aircraft:
 	if not ai.squad or not ai.squad.leader:
 		return null
@@ -179,7 +326,7 @@ static func scan_leader_rear(ai: AIController) -> Aircraft:
 	var leader_fwd := Vector2(sin(leader.heading), -cos(leader.heading))
 
 	var best_threat: Aircraft = null
-	var best_dist := AIController.COVER_SCAN_RANGE
+	var best_dist := AIController.REAR_GUARD_RANGE
 
 	for unit in CombatUnit.all_units:
 		# `not unit` 不能挡 freed 实例（仍 truthy），必须 is_instance_valid（perf R4）
@@ -188,17 +335,31 @@ static func scan_leader_rear(ai: AIController) -> Aircraft:
 		var ac: Aircraft = unit
 		if ac.team == ai.aircraft.team or ac.is_destroyed:
 			continue
+		# 已被本队其他僚机盯上的后方威胁跳过 → 多架守护者分摊不同威胁，不挤同一个
+		if ai._is_target_already_squad_engaged(ac):
+			continue
 
 		var to_enemy := ac.global_position - leader.global_position
 		var dist := to_enemy.length()
-		if dist > AIController.COVER_SCAN_RANGE or dist >= best_dist:
+		if dist > AIController.REAR_GUARD_RANGE or dist >= best_dist:
 			continue
 
-		# 检查是否在长机后半球（与长机航向的夹角 > 90°）
+		# 必须在长机后半球（与长机航向的夹角 > 90°）
 		var angle := leader_fwd.angle_to(to_enemy.normalized())
-		if absf(angle) > PI * 0.5:
-			best_dist = dist
-			best_threat = ac
+		if absf(angle) <= PI * 0.5:
+			continue
+
+		# ★ 只拦"真正的后方威胁"：正在咬长机 或 正朝长机飞来；远处闲晃的不算 → 守护者不去打
+		var is_targeting_leader: bool = leader.engaging_me.has(ac.get_instance_id())
+		var approaching := false
+		if dist > 1.0:
+			var enemy_fwd := Vector2(sin(ac.heading), -cos(ac.heading))
+			approaching = enemy_fwd.dot((-to_enemy).normalized()) > 0.3
+		if not (is_targeting_leader or approaching):
+			continue
+
+		best_dist = dist
+		best_threat = ac
 
 	return best_threat
 
@@ -215,9 +376,12 @@ static func scan_squad_nearby_enemy(ai: AIController) -> Aircraft:
 	var max_range_px := AIController.SQUAD_FREE_SCAN_RANGE
 	if ai.aircraft.params:
 		max_range_px = minf(max_range_px, ai.aircraft.params.radar_range * AIController.SQUAD_SCAN_RADAR_MULT)
-	var best: Aircraft = null
-	var best_dist := max_range_px
 	var use_2d := ai.aircraft.flat_altitude  # 生存模式走 2D
+	# 护卫编队僚机：在就近分上叠加护卫加权（§2.2）；杂兵 escort_leader=null → 纯就近（行为不变）。
+	# 用就近分 1/d*1000 选最大 ⟺ 选最近，与原 best_dist 纯距离选择对非护卫编队等价。
+	var escort_leader: Aircraft = ai.squad.leader if is_escort_wingman(ai) else null
+	var best: Aircraft = null
+	var best_score := -INF
 	for unit in CombatUnit.all_units:
 		# `not unit` 不能挡 freed 实例（仍 truthy），必须 is_instance_valid（perf R4）
 		if not is_instance_valid(unit) or not unit is Aircraft:
@@ -233,13 +397,17 @@ static func scan_squad_nearby_enemy(ai: AIController) -> Aircraft:
 				ai.aircraft.global_position, ai.aircraft.altitude,
 				ac.global_position, ac.altitude
 			)
-		if d < AIController.SQUAD_FREE_MIN_DIST or d >= best_dist:
+		if d < AIController.SQUAD_FREE_MIN_DIST or d >= max_range_px:
 			continue
 		# 不追刚被别的僚机盯上的目标：避免 3 架同时扑一个
 		if ai._is_target_already_squad_engaged(ac):
 			continue
-		best_dist = d
-		best = ac
+		var score := 1.0 / maxf(d, 100.0) * 1000.0
+		if escort_leader != null:
+			score += escort_target_bonus(escort_leader, ac)
+		if score > best_score:
+			best_score = score
+			best = ac
 	return best
 
 ## 结束掩护交战，回归编队

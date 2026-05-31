@@ -61,24 +61,47 @@ static func _process_scatter_evade(ai: AIController, delta: float) -> void:
 		ai.aircraft.clear_combat_target()
 
 static func process_evade(ai: AIController, delta: float) -> void:
+	# ── 小队 leash 也管躲弹（spec squad-cohesion）──
+	# 躲弹无 leash 是僚机脱队的大头：被地面 SAM 反复打 → 一路 max+AB 躲到天边（log 实测 7km），
+	# 守后/编队名存实亡。这里：躲弹中游走出长机 leash 距离 → 停躲归队（仍有真威胁会在近处重新进躲）。
+	if ai.squad and is_instance_valid(ai.squad.leader) and ai.squad.leader != ai.aircraft \
+			and not ai.bvr_only and not ai.is_boss_attacker() and ai.combat_zone_anchor == null:
+		var ld := ai.aircraft.global_position.distance_to(ai.squad.leader.global_position)
+		if ld > ai.effective_squad_leash():
+			ai._squad_leash_timer += delta
+			if ai._squad_leash_timer >= AIController.SQUAD_LEASH_HYSTERESIS:
+				ai._squad_leash_timer = 0.0
+				ai.aircraft.evasion_mode = false  # 清掉防 ai_controller evade 守卫 re-enter bounce
+				EventLogger.log_event("AI_STATE", ai._log_name(),
+					"LEASH break-off (evade %.0fpx from leader) → rejoin" % ld)
+				exit_evade(ai)
+				return
+		else:
+			ai._squad_leash_timer = 0.0
+
 	var missile := find_nearest_incoming_missile(ai)
 	if not missile:
-		# 僚机 + 长机 evasion 仍开 → 持续散开规避（不退出）
-		# 旁路：长机 / 单机 evasion_mode 由其他系统驱动，这里只覆盖僚机散开场景
-		if ai.aircraft.evasion_mode and ai.squad and is_instance_valid(ai.squad.leader) \
-				and ai.squad.leader != ai.aircraft:
+		# 只有"长机正在广播规避"（玩家按了规避键，全队陪同散开）才持续散开。
+		# 僚机自己躲的那发一旦解除（jam/甩开/飞过头），长机没在广播 → 立刻清 evasion_mode 退出归位，
+		# 不再空跑 3.5s 散开尾巴（用户反馈：威胁一解除就该立刻归队）。
+		var leader_broadcasting: bool = ai.squad and is_instance_valid(ai.squad.leader) \
+				and ai.squad.leader != ai.aircraft and ai.squad.leader.evasion_mode
+		if ai.aircraft.evasion_mode and leader_broadcasting:
 			# 兜底超时：累计"无导弹散开"时长 > SCATTER_NO_MISSILE_TIMEOUT 就强制 exit，
-			# 不再被 leader.evasion_mode 卡住（修 wingman 飞出地图 + flare 残留 bug）
+			# 防 LOD/广播脱节导致 wingman 无威胁还持续 max+AB 散开飞出地图
 			ai._scatter_no_missile_secs += delta
 			if ai._scatter_no_missile_secs >= SCATTER_NO_MISSILE_TIMEOUT:
-				# 关键：本地清 evasion_mode，否则 ai_controller.gd:574 的 evade 守卫
-				# 下一帧又会强制 enter_evade，形成 bounce。leader 下次 toggle 时
-				# _propagate_evasion_to_squad 会重新写回 true，正常 enter_evade 链路恢复。
+				# 关键：本地清 evasion_mode，否则 ai_controller 的 evade 守卫下一帧又强制
+				# enter_evade 形成 bounce。leader 下次 toggle 时 _propagate 会重新写回 true。
 				ai.aircraft.evasion_mode = false
 				exit_evade(ai)
 				return
 			_process_scatter_evade(ai, delta)
 			return
+		# 自己躲的那发已解除 + 长机没在广播 → 立即归位。
+		# 先清 evasion_mode（同上：防 ai_controller evade 守卫 bounce），再 exit。
+		if ai.aircraft.evasion_mode:
+			ai.aircraft.evasion_mode = false
 		exit_evade(ai)
 		return
 	# 检测到真实导弹 → 重置散开兜底计时（让 wingman 在真有威胁时无限散开）
@@ -207,6 +230,16 @@ static func find_nearest_incoming_missile(ai: AIController) -> Missile:
 		var m_fwd := Vector2(sin(m.heading), -cos(m.heading))
 		if to_ac.length() > 1.0 and m_fwd.dot(to_ac.normalized()) < -0.2:
 			continue
+		# ── 已脱离动力(滑行)且追不上 → 视为已解除，不再当威胁（根治"躲一发要躲十几秒"）──
+		# 导弹熄火滑行后会减速；若此刻距离已不再缩小（飞机甩开了它），它再不可能命中 →
+		# 立刻让 AI 退出躲弹回去干正事。仍在动力段 / 仍在逼近的导弹照常算威胁，不放过。
+		if m.params and m.age > m.params.motor_burn_time and to_ac.length() > 1.0:
+			var los := to_ac.normalized()  # 从导弹指向飞机
+			var v_ac := Vector2(sin(ai.aircraft.heading), -cos(ai.aircraft.heading)) * ai.aircraft.speed
+			var v_m := m_fwd * m.speed
+			# 距离变化率 (v_ac - v_m)·los ≥ 0 → 距离不再缩小 → 追不上
+			if (v_ac - v_m).dot(los) >= 0.0:
+				continue
 		var dist := to_ac.length()
 		if dist < nearest_dist:
 			nearest_dist = dist

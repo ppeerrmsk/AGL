@@ -52,8 +52,12 @@ const TACTIC_DISPLAY_NAME: Dictionary = {
 ## FREE (0)          : 自由交战——僚机会独立扫描敌机并主动交战（保留编队飞行），
 ##                     长机锁定目标时仍然协同攻击
 ## FOLLOW_LEADER (1) : 跟随长机——僚机只会打长机当前锁定的目标，不做独立扫描
-enum SquadEngageMode { FREE = 0, FOLLOW_LEADER = 1 }
-@export var squad_engage_mode: int = SquadEngageMode.FREE
+## GUARD_REAR (2)    : 守护后半球——僚机不打长机的进攻目标，只盯长机六点钟后半球、
+##                     攻击其中有威胁的敌机；无后方威胁时保持编队守在长机身后
+enum SquadEngageMode { FREE = 0, FOLLOW_LEADER = 1, GUARD_REAR = 2 }
+## 默认 FOLLOW_LEADER（spec squad-cohesion §2.1，2026-05-31 由 FREE 改）：小队默认凝聚——
+## 僚机只打长机目标（焦点开火 + 维持阵型），玩家可经 HUD「交战模式」按钮切回 FREE 放养。
+@export var squad_engage_mode: int = SquadEngageMode.FOLLOW_LEADER
 @export var simple_ai: bool = false           ## 简化 AI：只用前置追踪，跳过 BFM 决策树/SA/压力系统
 
 ## AI 拥挤度分级（同屏敌机数过多时按此降决策频率，2026-05-04 起加入）：
@@ -151,6 +155,19 @@ var _salvo_delay: float = 0.0               ## 齐射延迟倒计时（错开发
 var squad: Squad = null              ## 所属编队
 var squad_index: int = -1            ## 在编队中的序号（0=长机，1+=僚机）
 
+## 玩家亲控休眠（spec squad-control-switching §3.6）：
+## true = 这架被玩家鼠标操控，AI 完全休眠——不写 target_position、不选战术、不设速度/高度，
+## 让玩家点击接管导航。与现状"玩家机不挂 AI"体验一致。
+## 武器自动开火在 Aircraft 层（不经 AIController），休眠不影响开火；导弹靠玩家走位躲。
+## 切换操控时由 survivor_mode 在新/旧长机上翻转此标志。
+var manual_control: bool = false
+
+## 降级过渡 grace（spec §3.4 "打完再归队"）：旧长机被卸下操控后唤醒 AI，
+## 但此计时器>0 期间保持当前 combat_target/target_position、不强制归位编队。
+## 由 combat_target 消失 / 到达 target_position / 计时归零 任一触发归队（在 SQUAD_FOLLOW 路由前消费）。
+const TAKEOVER_TRANSITION_GRACE: float = 6.0
+var _takeover_transition_timer: float = 0.0
+
 ## §C 玩家技能反向索引：每帧检测 _current_target 变化，差量更新 target.engaging_me
 ## 不在 _current_target 各赋值点散落，集中到 _physics_process 顶层做一次比对
 var _prev_target_for_reverse_idx: CombatUnit = null
@@ -202,7 +219,17 @@ const ORBIT_TETHER_RADIUS := 750.0   ## 护驾轨道半径：无人机绕长机�
 ## 但不交战，玩家体感"光环没生效"，等 boss 死掉栓绳释放才看到无人机追击。
 const ESCORT_ENGAGE_RADIUS := 1500.0
 
-const COVER_SCAN_RANGE := 2500.0     ## 掩护扫描范围（像素）≈5000m
+# ── 护卫学说目标评分加权（spec squad-ai-escort §2.2，仅护卫编队僚机叠加）──
+# 与 try_engage / scan 的现有评分同尺度（dist_score≈1/d*1000，自然值 ~0~12）。
+# 这两个常量是体感调参项：ATTACKING_LEADER_BONUS 取主导值让"咬长机者"几乎必被优先；
+# 近长机加权次之。零威胁时 bonus≈0，自然退回就近交战（护卫优先但不死板）。
+const ATTACKING_LEADER_BONUS := 60.0      ## 候选敌机正在咬长机 → 评分主导加权
+const LEADER_PROXIMITY_BONUS_MAX := 25.0  ## 候选敌机紧贴长机 → 最大近距加权（按距长机插值 0~此值）
+
+const COVER_SCAN_RANGE := 2500.0     ## 掩护扫描范围（像素）≈5000m（escort 评分近长机加权用）
+## 守后半球拦截范围（像素，≈1.8km）：守护者只拦"靠近 + 真威胁"的后方敌机，且 < REAR_GUARD_LEASH_DIST
+## 让守护者贴着长机不飞远（spec squad-cohesion：守后体感"贴身守"而非"远射"）
+const REAR_GUARD_RANGE := 900.0
 const COVER_SCAN_INTERVAL := 0.5     ## 掩护扫描间隔（秒）
 const COVER_DISENGAGE_RANGE := 3500.0 ## 掩护脱离距离（威胁远离后回归）
 var _cover_scan_timer: float = 0.0
@@ -220,6 +247,21 @@ var _leader_target_lost_timer: float = 0.0  ## 长机目标丢失后的宽限计
 const LEADER_TARGET_LOST_GRACE := 1.5  ## 长机目标丢失后的宽限时长（秒）
 var _squad_range_grace_timer: float = 0.0  ## 长机指定目标超出僚机射程的宽限计时
 const SQUAD_RANGE_GRACE := 2.0  ## 超出射程宽限时长（秒）— 允许僚机继续追击长机指定的目标一段时间
+# ── 小队 leash（spec squad-cohesion §2.2/§3.2）：交战僚机游走出长机此距离 → 强制脱战回编队 ──
+# 根治"绕一大圈查无此人"。所有常规 squad 僚机生效（drone/bvr/boss/hunter 各有自己的远距逻辑，跳过）。
+const SQUAD_LEASH_DIST := 1800.0  ## 距长机超此像素（≈3600m）触发 break-off（FREE / FOLLOW_LEADER）
+const REAR_GUARD_LEASH_DIST := 1200.0  ## 守护后方专属更紧 leash（≈2.4km）：守后要贴身，不许远游（> REAR_GUARD_RANGE 以容拦截+追）
+const SQUAD_LEASH_HYSTERESIS := 0.5  ## 越界持续此时长（秒）才触发，防边界抖动
+
+## 当前生效的小队 leash 距离：守护后方用更紧的 REAR_GUARD_LEASH_DIST 贴身守；
+## 但守护者去打威胁长机的地面 AA 时放宽到 SQUAD_LEASH_DIST（导弹 standoff 要够得着，不能被紧 leash 拽回）。
+func effective_squad_leash() -> float:
+	if squad_engage_mode == SquadEngageMode.GUARD_REAR:
+		if _current_target is GroundUnit:
+			return SQUAD_LEASH_DIST
+		return REAR_GUARD_LEASH_DIST
+	return SQUAD_LEASH_DIST
+var _squad_leash_timer: float = 0.0  ## leash 越界累计计时
 
 # ── 编队护盾/导弹拦截 ──
 const MISSILE_THREAT_RANGE := 3000.0       ## 护盾导弹威胁检测范围（像素）
@@ -259,7 +301,8 @@ const HUNTER_CLOSE_COMBAT_DIST := 1200.0
 # Squad.FORMATION_JITTER_ADD / WINGMAN_ENGAGE_DELAY_MIN / WINGMAN_ENGAGE_DELAY_MAX
 
 # ── 自由扫描 ──
-const SQUAD_FREE_SCAN_RANGE := 2000.0      ## 僚机自由扫描范围（像素）
+const SQUAD_FREE_SCAN_RANGE := 1500.0      ## 僚机自由扫描范围（像素，=3km）。2026-05-31：2000→800→1500：
+										   ## 自由交战接管 ~3km 内靠近的敌机，不再一点就散开去够 4km 外目标（仍 < leash 1800px）
 const SQUAD_FREE_MIN_DIST := 80.0          ## 自由扫描最小距离（防目标残骸）
 const SQUAD_SCAN_RADAR_MULT := 1.3         ## 自由扫描雷达范围倍率
 
@@ -507,6 +550,20 @@ func _log_target_name(target) -> String:
 		return "%s/%s[%s]" % [side, dn, ac.callsign]
 	return target.callsign if target.callsign != "" else target.name
 
+## 该目标是否需要维护 engaging_me 反向索引（spec squad-ai-escort §2.4 集中开关）。
+## team0 玩家系：技能反向索引（缠斗恐惧 / 后半球减速光环）依赖，原状保留必须 true。
+## 护卫学说编队成员：精英 BOSS 队僚机要反查"谁在咬长机"。
+## 杂兵（无 squad 或 squad 未开护卫学说且非 team0）→ false，攻击它们不写 engaging_me。
+static func _maintains_engaging_me(target) -> bool:
+	if not target is Aircraft:
+		return false
+	var ac: Aircraft = target
+	if ac.team == 0:
+		return true
+	# squad 引用住在目标自己的 AIController（_ai_ref，由 AIController._ready 回写）
+	var sq: Squad = ac._ai_ref.squad if ac._ai_ref else null
+	return sq != null and sq.escort_doctrine_enabled
+
 func _physics_process(delta: float) -> void:
 	# Perf 包装：所有 early-return 也计入耗时 → 真实"AI 占了多少帧预算"
 	# 包含 throttled-skip 的便宜 return；用 calls_per_frame 可以反推降频是否生效
@@ -524,12 +581,13 @@ func _physics_process_impl(delta: float) -> void:
 		return
 
 	# §C 反向索引差量同步：检测 _current_target 变化（每帧一次比对）
-	# 仅维护 team 0 玩家系飞机的 engaging_me（其它阵营不需要）
+	# 维护范围 = _maintains_engaging_me()：team0 玩家系（技能反向索引依赖，原状保留）
+	# + 护卫学说编队成员（spec squad-ai-escort §2.4：精英 BOSS 队反杀长机威胁要用）。
+	# 杂兵不维护 → 远离 O(N²)。
 	if _current_target != _prev_target_for_reverse_idx:
 		if is_instance_valid(_prev_target_for_reverse_idx) and _prev_target_for_reverse_idx is Aircraft:
 			(_prev_target_for_reverse_idx as Aircraft).engaging_me.erase(aircraft.get_instance_id())
-		if is_instance_valid(_current_target) and _current_target is Aircraft \
-				and (_current_target as Aircraft).team == 0:
+		if is_instance_valid(_current_target) and _maintains_engaging_me(_current_target):
 			(_current_target as Aircraft).engaging_me[aircraft.get_instance_id()] = aircraft
 		_prev_target_for_reverse_idx = _current_target
 
@@ -568,6 +626,23 @@ func _physics_process_impl(delta: float) -> void:
 		else:
 			_process_directive(delta)
 			return
+
+	# ── 玩家亲控休眠（spec squad-control-switching §3.6）──
+	# manual_control = true：这架被玩家鼠标操控，AI 完全让位——不写 target_position /
+	# 不选战术 / 不设速度高度，由玩家点击接管导航。武器自动开火在 Aircraft 层不受影响。
+	if manual_control:
+		return
+
+	# ── 降级过渡 grace（spec §3.4 "打完再归队"）──
+	# 旧长机被卸下操控后唤醒：grace 期间不强制归队，让正常 AI 延续当前交战；
+	# 当前目标打完（combat_target 失效）或计时到 → 融入新长机编队。grace 内不 return，
+	# 继续走下面正常 AI（延续交战），只是没归位。
+	if _takeover_transition_timer > 0.0:
+		_takeover_transition_timer -= delta
+		if _takeover_transition_timer <= 0.0 or not is_instance_valid(aircraft.combat_target):
+			_takeover_transition_timer = 0.0
+			if squad and squad.leader and is_instance_valid(squad.leader) and squad.leader != aircraft:
+				aircraft.set_formation_target(squad.leader, squad.get_wingman_target(squad_index))
 
 	# 节流：simple_ai 等低优先级 AI 每 N 帧才决策一次，带相位错开
 	# 跳过的帧里 Aircraft 物理照常跑，只是 AI 不重新算目标/阵型/规避
@@ -1434,7 +1509,7 @@ func _process_patrol(delta: float) -> void:
 
 ## 检查该目标是否已被队内其他僚机/长机作为 combat_target
 ## 用来避免"全员冲同一个目标"的抱团浪费
-func _is_target_already_squad_engaged(target: Aircraft) -> bool:
+func _is_target_already_squad_engaged(target: CombatUnit) -> bool:
 	if not squad:
 		return false
 	for member in squad.members:
@@ -1462,6 +1537,23 @@ func _process_engage(delta: float) -> void:
 			return
 		_process_drone_engage(delta)
 		return
+
+	# ── 小队 leash（spec squad-cohesion §3.2）：交战僚机游走出长机太远 → 强制脱战回编队 ──
+	# 根治"飞着飞着绕一大圈查无此人"。仅常规 squad 僚机生效；
+	# drone(上方已 return) / bvr_only(F-47 远距逃跑手) / boss / hunter(combat_zone 远距巡猎) 各有自己的远距语义，跳过。
+	if squad and is_instance_valid(squad.leader) and squad.leader != aircraft \
+			and not bvr_only and not is_boss_attacker() and combat_zone_anchor == null:
+		var leash_d := aircraft.global_position.distance_to(squad.leader.global_position)
+		if leash_d > effective_squad_leash():
+			_squad_leash_timer += delta
+			if _squad_leash_timer >= SQUAD_LEASH_HYSTERESIS:
+				_squad_leash_timer = 0.0
+				EventLogger.log_event("AI_STATE", _log_name(),
+					"LEASH break-off (%.0fpx from leader) → rejoin" % leash_d)
+				TargetSelection.disengage(self)
+				return
+		else:
+			_squad_leash_timer = 0.0
 
 	# ── Herbst J-Turn 反咬触发（独立于 bvr_only）──
 	# 任何挂载 HerbstManeuver 模块的飞机被近距追击时尝试触发，与 BVR 撤退解耦

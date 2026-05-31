@@ -50,6 +50,9 @@ var player_aircraft: Aircraft
 var _player_profile_id: StringName = &""  ## 当前主角的 PlayableAircraft.id（用于专属技能筛选）
 var _player_profile: PlayableAircraft = null  ## 当前主角档案引用（自然成长读 growth_curve）
 var _wingman_formation_debug: bool = false  ## F11 切换：友方僚机编队调试覆盖层
+## 当前玩家小队（spec squad-control-switching）：数字键 1-4 切换操控 / 击落接管 / 换帅监听。
+## 仅有起始僚机的主角（如 F-14）会建立；单机主角为 null（无切换）。
+var _squad: Squad = null
 var survivor_player: SurvivorPlayer
 var game_time: float = 0.0
 var is_game_over: bool = false
@@ -909,10 +912,37 @@ func _spawn_starting_wingmen(profile: PlayableAircraft) -> void:
 		return
 
 	var sq := SquadFactory.create()
+	sq.escort_doctrine_enabled = true  # 玩家队吃护卫学说（spec squad-ai-escort）：僚机护长机/反杀咬长机者
+	# 战术=阵型：初始阵型跟默认交战模式（FOLLOW_LEADER → 指尖四点）一致（spec squad-cohesion）
+	sq.formation = Squad.formation_for_engage_mode(AIController.SquadEngageMode.FOLLOW_LEADER)
+	# 长机（玩家）挂休眠 AIController（manual_control=true）：被降为僚机时 AI 能接手。
+	# 休眠 AI 早 return，不改变玩家鼠标操控体验（spec squad-control-switching §2.4）。
+	player_aircraft.squad_slot = 1
+	if _get_ai(player_aircraft) == null:
+		var leader_ai := AIController.new()
+		leader_ai.name = "AI_Leader"
+		leader_ai.aircraft = player_aircraft
+		leader_ai.enable_combat = true
+		leader_ai.evade_missiles = true
+		leader_ai.aggression = 1.0
+		leader_ai.skill_level = 1.0
+		leader_ai.composure = 1.0
+		leader_ai.focus = 1.0
+		leader_ai.situational_awareness = 1.0
+		leader_ai.engage_duration = 99999.0
+		leader_ai.engage_cooldown = 2.0
+		leader_ai.manual_control = true
+		player_aircraft.add_child(leader_ai)
 	SquadFactory.register_leader(sq, player_aircraft)
+ 	# 长机是玩家亲控机：绝不能带编队托管标志，否则 keep_target_on_arrival=true 会让
+	# 点击移动"到达不停"（飞过头继续飞）。显式清干净，与切换接管时的 clear_formation 一致。
+	player_aircraft.clear_formation()
+	_squad = sq
+	sq.leader_changed.connect(_on_squad_leader_changed)
 
 	for i in range(1, profile.wingman_count + 1):
 		var ac: Aircraft = _aircraft_scene.instantiate()
+		ac.squad_slot = i + 1   # 号机号：长机=1，僚机 2..N（稳定、出生即定，数字键映射）
 		ac.params = wing_base.duplicate(true)
 		SurvivorPlayableSetup.deep_dup_weapons(ac.params)
 		# 僚机走与长机完全相同的档案应用，确保起始属性（雷达/速度/G/武器/装填/伤害上限/
@@ -1116,15 +1146,19 @@ func _unhandled_input(event: InputEvent) -> void:
 	# 战术面板快捷键
 	if event is InputEventKey and event.pressed and player_aircraft and not player_aircraft.is_destroyed:
 		match event.keycode:
-			KEY_1, KEY_2:
-				# 武器优先 toggle（对齐 HUD 按钮）
+			KEY_1, KEY_2, KEY_3, KEY_4:
+				# 切换操控对象到对应号机（spec squad-control-switching）。无小队/无对应号机=no-op
+				_switch_control_to_slot(event.keycode - KEY_1 + 1)
+				return
+			KEY_Q:
+				# 武器优先 toggle（原 KEY_1/2，让位给操控切换；对齐 HUD 按钮）
 				if player_aircraft.weapon_preference == Aircraft.WeaponPreference.PREFER_MISSILE:
 					player_aircraft.weapon_preference = Aircraft.WeaponPreference.PREFER_GUN
 				else:
 					player_aircraft.weapon_preference = Aircraft.WeaponPreference.PREFER_MISSILE
 				return
-			KEY_3, KEY_4:
-				# 高度偏好 toggle（对齐 HUD 按钮）
+			KEY_Z:
+				# 高度偏好 toggle（原 KEY_3/4，让位给操控切换；对齐 HUD 按钮）
 				if player_aircraft.altitude_preference == Aircraft.AltitudePreference.PREFER_CLIMB:
 					player_aircraft.altitude_preference = Aircraft.AltitudePreference.PREFER_LOW
 				else:
@@ -1137,13 +1171,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_F:
 				player_aircraft.missile_auto_fire = not player_aircraft.missile_auto_fire
 				return
-			KEY_5:
-				# 小队阵型切换（等同点击小队面板的"阵型"按钮）
-				if hud:
-					hud._on_squad_formation_pressed()
-				return
 			KEY_6:
-				# 小队交战模式（护航 ↔ 自由）
+				# 小队交战模式三态循环（自由 → 跟随长机 → 守护后方）——同时决定阵型（战术=阵型）
 				if hud:
 					hud._on_squad_engage_pressed()
 				return
@@ -1336,7 +1365,10 @@ func _physics_process(delta: float) -> void:
 
 	# 检查玩家是否死亡
 	if player_aircraft and player_aircraft.is_destroyed and not is_game_over:
-		_on_player_died()
+		# 长机被击坠 → 先尝试接管存活僚机（squad-control-switching：全队覆灭才 GameOver）。
+		# 不能等 spawner 的 3s 周期 cleanup（那在本死亡检查之后、且节流），否则总是先 GameOver。
+		if not _try_takeover_after_leader_down():
+			_on_player_died()
 		return
 
 	# 刷怪系统（击杀检测/刷怪/猎手/航点/远距清理/分队清理 全部委托给 spawner）
@@ -1851,6 +1883,78 @@ func _get_ai(ac: Aircraft) -> AIController:
 			return child
 	return null
 
+# ──────────────────────────────────────────────
+# 操控对象切换（spec squad-control-switching）
+# ──────────────────────────────────────────────
+
+## 数字键入口：切到 squad_slot==slot 的存活友机。无效/已死/即当前机 = no-op（spec §3.1）。
+func _switch_control_to_slot(slot: int) -> void:
+	if not _squad:
+		return
+	for ac in _squad.members:
+		if is_instance_valid(ac) and not ac.is_destroyed and ac.squad_slot == slot:
+			if ac == player_aircraft:
+				return
+			_switch_player_to(ac)
+			return
+
+## 接管流程（spec §3.2）：新机上手 + 换帅 + 旧机降级 + 重定向操控真源。
+func _switch_player_to(new_ac: Aircraft) -> void:
+	if not new_ac or not is_instance_valid(new_ac) or new_ac == player_aircraft:
+		return
+	var old_ac := player_aircraft
+	var new_ai := _get_ai(new_ac)
+	if new_ai:
+		new_ai.manual_control = true
+		new_ai._takeover_transition_timer = 0.0
+	# 彻底清掉僚机残留（formation_mode + keep_target_on_arrival + ai_override_pursuit），
+	# 否则 keep_target_on_arrival=true 会让点击移动永不清除 target_position → 飞过头不停（bug）。
+	new_ac.clear_formation()
+	new_ac.target_position = Vector2.INF  # 接管即清旧航路，等玩家下新指令
+	new_ac.selected = true
+	if _squad:
+		_squad.set_leader(new_ac)
+	if old_ac and is_instance_valid(old_ac):
+		old_ac.selected = false
+		# 问题3：旧机降级时取消移动指令（target_position 清空），仅保留战斗（combat_target 不动）
+		old_ac.target_position = Vector2.INF
+		var old_ai := _get_ai(old_ac)
+		if old_ai:
+			old_ai.manual_control = false
+			old_ai._takeover_transition_timer = AIController.TAKEOVER_TRANSITION_GRACE
+	_set_player_aircraft(new_ac)
+	EventLogger.log_event("CONTROL_SWITCH", "Survivor",
+		"-> slot %d (%s)" % [new_ac.squad_slot, new_ac.callsign])
+
+## 操控真源单一 chokepoint（spec §3.2 步骤5）：原子重定向所有"谁是玩家机"的消费者。
+func _set_player_aircraft(ac: Aircraft) -> void:
+	if not ac or not is_instance_valid(ac):
+		return
+	player_aircraft = ac
+	AircraftRenderer.player_ref = ac
+	if survivor_player:
+		survivor_player.aircraft = ac
+	selected_aircraft = [ac]
+	if _camera_ctrl:
+		_camera_ctrl.set_follow_target(ac)
+		_camera_ctrl.snap_to_follow()
+
+## 换帅信号回调（spec §3.7 击落自动接管）：当前操控机阵亡 → 自动接管新长机。
+func _on_squad_leader_changed(new_leader: Aircraft) -> void:
+	if not new_leader or not is_instance_valid(new_leader):
+		return
+	if player_aircraft == null or not is_instance_valid(player_aircraft) or player_aircraft.is_destroyed:
+		var new_ai := _get_ai(new_leader)
+		if new_ai:
+			new_ai.manual_control = true
+			new_ai._takeover_transition_timer = 0.0
+		new_leader.formation_mode = false
+		new_leader.selected = true
+		_set_player_aircraft(new_leader)
+		EventLogger.log_event("CONTROL_TAKEOVER", "Survivor",
+			"leader down -> slot %d (%s)" % [new_leader.squad_slot, new_leader.callsign])
+
+
 func _count_missiles_targeting_player() -> int:
 	var count := 0
 	for child in missile_manager.get_children():
@@ -2060,6 +2164,16 @@ func _on_upgrade_selected(upgrade: Dictionary) -> void:
 	if evolved_name != "":
 		if survivor_player.aircraft:
 			survivor_player.aircraft.show_tactic_popup(tr("POPUP_EVOLUTION_FMT") % evolved_name)
+
+## 长机被击坠时立即尝试接管存活僚机（不等 spawner 3s 周期 cleanup）。
+## `_squad.cleanup()` 过滤死亡成员 + 晋升存活僚机为新长机 → 同步发 leader_changed →
+## `_on_squad_leader_changed` 把 player_aircraft 重指派到新长机。
+## 返回 true=接管成功（有存活僚机），false=全队覆灭（调用方走 _on_player_died）。
+func _try_takeover_after_leader_down() -> bool:
+	if _squad == null:
+		return false
+	_squad.cleanup()  # 同步晋升 + 发 leader_changed（_on_squad_leader_changed 接管 player_aircraft）
+	return player_aircraft != null and is_instance_valid(player_aircraft) and not player_aircraft.is_destroyed
 
 func _on_player_died() -> void:
 	is_game_over = true
@@ -2327,3 +2441,20 @@ func _turn_player_inward() -> void:
 		camera.global_position = p
 	var inward := (Vector2.ZERO - p).normalized() if not p.is_equal_approx(Vector2.ZERO) else Vector2(0, -1)
 	player_aircraft.target_position = p + inward * RESPAWN_INWARD_TARGET_PX
+	# 僚机一起按当前阵型传送到操控机身边（出界回归时避免僚机被甩在界外/远处掉队）。
+	# 只在真越界被钳回时执行；slot 用 squad.get_wingman_target（leader=当前操控机，heading 已更新）。
+	if was_outside and _squad:
+		for wm in _squad.members:
+			if not is_instance_valid(wm) or wm.is_destroyed or wm == player_aircraft:
+				continue
+			var wm_ai := _get_ai(wm)
+			var slot_idx: int = wm_ai.squad_index if wm_ai else 1
+			var slot_pos: Vector2 = _squad.get_wingman_target(slot_idx)
+			if slot_pos == Vector2.INF:
+				slot_pos = p  # 兜底：直接落到玩家落点
+			wm.global_position = slot_pos
+			wm.heading = player_aircraft.heading
+			wm.bank_angle = 0.0
+			wm.altitude = player_aircraft.altitude
+			wm.target_altitude = player_aircraft.target_altitude
+			wm.clear_trail()

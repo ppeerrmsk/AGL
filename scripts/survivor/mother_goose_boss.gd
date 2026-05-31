@@ -183,6 +183,7 @@ func spawn(scene_root: Node, aircraft_scene: PackedScene, _create_enemy_func: Ca
 
 	# 共享小队：boss = leader（index 0），UAV 加入后通过 ai.squad 被 CommanderAura 扫到
 	boss_squad = Squad.new()
+	boss_squad.escort_doctrine_enabled = true  # 旗舰队吃护卫学说（spec squad-ai-escort §1）：攻击旗舰/成员登记 engaging_me
 	boss_squad.leader = boss_unit
 	boss_squad.add_member(boss_unit)
 	if _squads != null:
@@ -414,6 +415,7 @@ func _spawn_mqx_pair() -> void:
 	]
 	# 共享编队 Squad —— 两机都引用同一个，第一架是 leader
 	var mqx_squad := Squad.new()
+	mqx_squad.escort_doctrine_enabled = true  # 精英 MQ-X 护航对吃护卫学说（spec squad-ai-escort §1）
 	for i in range(offsets.size()):
 		var u: Aircraft = _make_mqx(base_params as AircraftParams, offsets[i], "MQ-X-%02d" % (i + 1), mqx_squad, i)
 		if u:

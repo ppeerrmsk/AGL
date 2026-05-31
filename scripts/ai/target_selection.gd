@@ -26,6 +26,8 @@ static func try_engage(ai: AIController) -> void:
 	var best_target: CombatUnit = null
 	var best_score := -1.0
 	var current_target_score := -1.0
+	# 护卫编队僚机：候选叠加"咬长机/近长机"加权（§2.2）；非护卫 → null，评分不变
+	var escort_leader: Aircraft = ai.squad.leader if SquadCoordination.is_escort_wingman(ai) else null
 
 	for target_key in ai.aircraft.radar_targets:
 		if not is_instance_valid(target_key):
@@ -45,6 +47,10 @@ static func try_engage(ai: AIController) -> void:
 		# 视觉遮蔽：低空（贴地）+ 云中目标降低攻击欲望
 		# 用 altitude / cloud_density 连续插值，避免 tier 边界跳变
 		score *= _visibility_score_mult(target_ac)
+
+		# 护卫学说加权（叠加在遮蔽倍率之后，作为绝对加分主导护卫优先级）
+		if escort_leader != null and target_ac is Aircraft:
+			score += SquadCoordination.escort_target_bonus(escort_leader, target_ac as Aircraft)
 
 		# 偏好高度加成
 		var tgt_tier := target_ac.get_altitude_tier()
@@ -95,6 +101,8 @@ static func reevaluate_target(ai: AIController) -> void:
 	var best_target: CombatUnit = null
 	var best_score := -1.0
 	var current_score := -1.0
+	# 护卫编队僚机：交战中重评估也吃护卫加权——新出现的"咬长机者"能抢回护卫优先级
+	var escort_leader: Aircraft = ai.squad.leader if SquadCoordination.is_escort_wingman(ai) else null
 
 	for target_key in ai.aircraft.radar_targets:
 		if not is_instance_valid(target_key):
@@ -113,6 +121,10 @@ static func reevaluate_target(ai: AIController) -> void:
 
 		# 视觉遮蔽：低空 / 云中目标降低吸引力（与 try_engage 同函数，连续插值）
 		score *= _visibility_score_mult(target_ac)
+
+		# 护卫学说加权（§2.2，与 try_engage 一致）
+		if escort_leader != null and target_ac is Aircraft:
+			score += SquadCoordination.escort_target_bonus(escort_leader, target_ac as Aircraft)
 
 		# 当前目标获得专注度粘性加成
 		if target_ac == ai._current_target:

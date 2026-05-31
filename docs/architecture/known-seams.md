@@ -228,6 +228,31 @@ BOSS 只识别 JAM，其它状态仅对 Aircraft 生效"。但 NavalUnit 实现�
 
 ---
 
+## SEAM-010 · 小队横切行为分散在 AI 状态 / survivor `_process` 顺序里，易漏某一处
+
+**症状**（2026-05 squad-cohesion 期间连环踩）：
+- 给交战僚机加了"防游走 leash"（`_process_engage`），但**躲弹（EVADE）没 leash** → 僚机被地面 SAM
+  反复打、一路 max+AB 躲到 7km 脱队，"守护后方"名存实亡。leash 只覆盖了一个状态。
+- 长机被击坠**没接管、直接 GameOver**：`survivor_mode._process` 的死亡检查（→`_on_player_died`）
+  排在 spawner 周期 squad cleanup（晋升新长机 + leader_changed 接管）**之前**且节流 → 当帧先 GameOver。
+
+**根因**：小队的**横切关注点**（containment/leash、长机阵亡接管、凝聚模式行为）天然要作用于
+**多个 AI 状态**（PATROL / ENGAGE / EVADE_MISSILE / SQUAD_FOLLOW）和 **survivor `_process` 的多个阶段**，
+但实现是按"单个状态 / 单个 _process 位置"散点加的 → 加在一处就以为齐了，漏掉另一状态/另一阶段时静默失效。
+
+**踩到次数**：2（EVADE 漏 leash + 接管 race，同根）
+
+**解法**（2026-05-31）：
+- leash 抽成 `AIController.effective_squad_leash()`，在 `_process_engage` **和** `MissileEvasion.process_evade`
+  **两处**都查（覆盖 ENGAGE + EVADE）。守后模式用更紧的 `REAR_GUARD_LEASH_DIST`、打地面时放宽。
+- 长机阵亡：`_process` 死亡检查改为**先 `_try_takeover_after_leader_down()`**（立即 `_squad.cleanup()`
+  同步晋升 + leader_changed 接管），全队覆灭才 `_on_player_died()` —— 不依赖 spawner 周期 cleanup 的时序。
+
+**约束**：以后给小队加任何"无论僚机在干什么都该生效"的行为（新 containment / 新接管 / 新模式），
+先列出它要覆盖的**所有 AI 状态**和 survivor `_process` 里相关阶段的**顺序**，逐一接上，别只加在 ENGAGE。
+
+---
+
 ## 维护约定
 
 - 修 bug 时撞到地基 → 先来这里看是否已记。已记 → 票数 +1，可能升级到 refactor 优先级。

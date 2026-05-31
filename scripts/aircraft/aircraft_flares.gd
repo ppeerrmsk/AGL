@@ -13,6 +13,11 @@ extends RefCounted
 ##   AircraftFlares.update(self, delta)
 
 const MISSILE_PHASE_DURATION: float = 1.0     ## 热诱弹释放后的导弹穿透窗口（秒）
+## 躲弹中放焰距离（像素，≈3km）：AI 躲弹是满加力朝远点猛冲，会把追来的导弹一直甩在
+## 常规 release_dist 之外 → 永远不放焰 → 导弹烧到寿命尽头才解除（十几秒乱飞、脱队"查无此人"）。
+## 躲弹中把释放距离抬到这里，让飞机尽早放焰干扰；guaranteed-jam 飞行员一发即 jam → 下一 tick
+## find_nearest_incoming_missile 过滤掉它 → process_evade 退出 → 立刻归位。
+const EVADE_FLARE_RELEASE_DIST: float = 1500.0
 const FLARE_IGNORE_CLEANUP_S := 2.0            ## 已忽略导弹清理间隔（秒）
 const FLARE_PARTICLE_DRAG := 0.96              ## 粒子速度衰减率
 const FLARE_PARTICLE_JITTER := 3.0             ## 粒子随机抖动幅度
@@ -131,6 +136,13 @@ static func update(ac: Aircraft, delta: float) -> void:
 	var fp := ac.params.flare
 	var release_dist_m := lerpf(fp.calm_distance, fp.panic_distance, fp.nervousness)
 	var release_dist_px := release_dist_m * CombatUnit.PIXELS_PER_METER
+
+	# 躲弹中主动放焰（根治"僚机躲弹乱飞十几秒不归队"）：抬高释放距离，让追来的导弹尽早被焰干扰，
+	# 而不是靠满加力硬甩到导弹烧完。evasion_mode（planner 躲弹）或 EVADE_MISSILE 状态都算。
+	var is_evading: bool = ac.evasion_mode \
+			or (ac._ai_ref != null and ac._ai_ref._state == AIController.AIState.EVADE_MISSILE)
+	if is_evading:
+		release_dist_px = maxf(release_dist_px, EVADE_FLARE_RELEASE_DIST)
 
 	if nearest_dist > release_dist_px:
 		return

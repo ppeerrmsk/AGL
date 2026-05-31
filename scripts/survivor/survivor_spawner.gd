@@ -521,10 +521,12 @@ func _update_spawner(delta: float) -> void:
 				var type_cur: int = int(_token_count_by_type.get(int(etype), 0))
 				squad_size = mini(squad_size, type_cap - type_cur)
 
-			# 后期分水岭：低级飞机/杂鱼不允许单架，至少凑成 2 架编队
-			# - 早期 min=1（允许尾巴落单），后期 min=2（强制成对）
-			# - 凑不齐 min 就 break，等下一个 spawner tick 重新选型
-			var min_squad_size := 2 if is_late_game else 1
+			# 杂鱼一律成建制：非精英敌机始终至少 2 架编队，不允许单架落单
+			# （spec squad-cohesion §阶段4：让凝聚学说在敌人身上"通用"——单机无 leader/阵型 = 没小队感）
+			# - 凑不齐 2 架就 break，等下一个 spawner tick 重新选型（早期不再放养单机尾巴）
+			# - 单机精英（MiG-31/Su-27/AF-03/早期 J-7）走上面 spawn_as_single 分支，不受此约束，保持设计上的孤狼
+			# - is_late_game 仍用于上面 squad_size 范围；此处统一最低 2
+			var min_squad_size := 2
 			if squad_size < min_squad_size:
 				break
 
@@ -616,6 +618,9 @@ func _spawn_squad(etype: EnemyType, squad_size: int) -> void:
 		_spawn_commander_squad(SurvivorData.COMMANDER_SQUAD_MAX)
 		return
 	var sq := SquadFactory.create()
+	# 普通杂鱼登场随机阵型（除 Trail 外）——视觉/站位多样化，行为仍走凝聚默认（spec squad-cohesion）。
+	# 精英/Boss 不走这里（各自建队时显式固定阵型）。
+	sq.formation = Squad.random_formation()
 
 	# 长机生成位置（旅途刷怪：玩家前方扇形）
 	var spawn_angle := _pick_safe_spawn_angle(player_aircraft.global_position, SurvivorData.SPAWN_DISTANCE, _player_forward_math_angle())

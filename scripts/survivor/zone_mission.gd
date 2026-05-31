@@ -256,6 +256,7 @@ func _spawn_air_squadron(zone_id: StringName, zone: Dictionary) -> void:
 	var start_idx := int(floor((leader_angle + PI * 0.5) / TAU * AIR_SQUADRON_PATROL_WAYPOINTS)) % AIR_SQUADRON_PATROL_WAYPOINTS
 
 	var sq := SquadFactory.create()
+	sq.formation = Squad.random_formation()  # 杂鱼随机阵型（凝聚已由 FOLLOW_LEADER 默认继承）
 	for i in range(squadron_count):
 		var spawn_pos: Vector2
 		if i == 0:
@@ -376,6 +377,7 @@ func _spawn_zone_defenders(zone_id: StringName, zone: Dictionary, mission_type: 
 		var start_wp_idx: int = int(floor((slot_angle + PI * 0.5) / TAU * n_wp)) % n_wp
 
 		var sq := SquadFactory.create()
+		sq.formation = Squad.random_formation()  # 杂鱼随机阵型（凝聚已由 FOLLOW_LEADER 默认继承）
 		var spawned_in_squad := 0
 		for i in range(squad_size):
 			if cost > budget:
@@ -683,7 +685,7 @@ func cancel_all_zone_missions() -> void:
 	for zid in _spawned_zones.keys():
 		var units: Array = _spawned_zones.get(zid, [])
 		for u in units:
-			if u is CombatUnit and is_instance_valid(u):
+			if is_instance_valid(u) and u is CombatUnit:
 				u.is_mission_target = false
 		canceled_count += 1
 	_spawned_zones.clear()

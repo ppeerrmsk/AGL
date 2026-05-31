@@ -168,7 +168,7 @@ static func dispatch_on_kill(killer: Aircraft, victim: Aircraft) -> void:
 		_refresh_status(killer, StatusEffects.OVERLOAD)
 		_refresh_status(killer, StatusEffects.BLOODLUST)
 
-	# ── 钩子：满血 + BLOODLUST 期间击杀 → 永久 +5 max_hp ──
+	# ── 钩子：满血 + BLOODLUST 期间击杀 → 永久 +8 max_hp ──
 	if stacks.get(SKILL_FULL_HP_KILL_PERMA_HP, 0) > 0 and killer.status_bloodlust_active:
 		var max_hp_now: float = killer.params.max_hp if killer.params else 100.0
 		# 满血判定（容差 0.5 以容纳 BLOODLUST_HEAL_PER_KILL clamp 误差）

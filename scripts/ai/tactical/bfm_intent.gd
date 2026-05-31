@@ -338,11 +338,15 @@ static func ground_strafe(s: Situation) -> TacticalPlan:
 	_apply_combat_weapon(s, p)
 
 	# 高度策略：
-	# - 玩家 + 导弹模式 → 走 altitude_preference（AGM 高空发射效果一致，不必俯冲）
-	# - 玩家 + 机炮模式（strafe pass）→ 下降到目标高度（机炮必须贴地才能 hit）
-	# - 非玩家 AI → 维持原行为：始终下降匹配地面目标
-	if s.is_tactical_preference_user and p.weapon_mode == TacticalPlan.WeaponMode.MISSILE:
-		p.target_altitude_tier = _altitude_tier_from_preference(s.altitude_preference)
+	# - 导弹/AGM 模式 → 高空发射即可，**不俯冲进 AA 火力**（守护者打地面 AA 也走这条 → 远射少受伤）
+	#   · 玩家：走 altitude_preference；· 非玩家 AI：保持中空 MID（2026-05-31 改：原来始终俯冲到目标高度，
+	#     导致僚机/守护者打 SAM/AAA 时一头扎进防空火力吃伤害）
+	# - 机炮 strafe → 必须下降贴地才能 hit
+	if p.weapon_mode == TacticalPlan.WeaponMode.MISSILE:
+		if s.is_tactical_preference_user:
+			p.target_altitude_tier = _altitude_tier_from_preference(s.altitude_preference)
+		else:
+			p.target_altitude_tier = CombatUnit.AltitudeTier.MID
 	else:
 		p.target_altitude_m = s.tgt_alt
 

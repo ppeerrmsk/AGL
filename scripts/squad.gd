@@ -12,7 +12,7 @@ enum Formation { COMBAT_SPREAD, WEDGE, ECHELON, TRAIL, FINGER_FOUR, FLUID_FOUR }
 
 ## 整队共享的交战模式：FREE = 僚机可以独立扫描；FOLLOW_LEADER = 只跟长机打。
 ## 原本散在每架僚机的 AIController.squad_engage_mode，现在收编到 Squad 上整队一份。
-enum EngageMode { FREE = 0, FOLLOW_LEADER = 1 }
+enum EngageMode { FREE = 0, FOLLOW_LEADER = 1, GUARD_REAR = 2 }  ## GUARD_REAR: 僚机只守长机后半球（见 AIController.SquadEngageMode）
 
 ## 阵型名称使用翻译 key；get_formation_name() 会返回 tr() 后的显示字符串
 const FORMATION_NAMES := {
@@ -40,6 +40,11 @@ var members: Array[Aircraft] = []
 @export var base_spacing_m: float = 300.0  ## 基础间距（米）≈150像素，现实约200-500m
 @export var engage_mode: int = EngageMode.FREE
 
+## 护卫学说开关（spec squad-ai-escort）：true 时本队僚机吃"护卫长机/反杀攻击者/守后半球"
+## 逻辑——玩家队建队 on、F-47/Mother Goose 等精英 BOSS 队建队 on、普通杂兵队 off。
+## off 时护卫评分/engaging_me 登记/守后指派全程跳过，行为与改动前完全一致。
+@export var escort_doctrine_enabled: bool = false
+
 ## 添加成员
 func add_member(ac: Aircraft) -> void:
 	if ac not in members:
@@ -52,6 +57,29 @@ func remove_member(ac: Aircraft) -> void:
 		leader = members[0]
 		_sync_leader_squad_index(leader)
 		leader_changed.emit(leader)
+
+## 显式换帅（玩家切换操控对象时调用）——只换 leader 引用 + 重排 squad_index 记账。
+## ★最小扰动原则（spec squad-control-switching §3.5）：禁止遍历 members 强制设
+## formation_mode / 强制状态转 SQUAD_FOLLOW。FREE 各自为战的僚机决策路径不读 leader，
+## 天然隔离，切换不影响它们；只有处于归位跟随的僚机会在下一帧自然跟随新长机阵型。
+## 注意：只动编队角色 squad_index，绝不碰稳定号机号 squad_slot。
+func set_leader(new_leader: Aircraft) -> void:
+	if new_leader == leader or new_leader not in members:
+		return
+	leader = new_leader
+	# 重排 squad_index：new_leader=0，其余成员按原 members 顺序补 1..N
+	var idx := 1
+	for ac in members:
+		if not is_instance_valid(ac):
+			continue
+		var target_index := 0 if ac == new_leader else idx
+		if ac != new_leader:
+			idx += 1
+		for child in ac.get_children():
+			if child is AIController:
+				(child as AIController).squad_index = target_index
+				break
+	leader_changed.emit(new_leader)
 
 ## 清理无效成员
 func cleanup() -> void:
@@ -159,7 +187,24 @@ func get_formation_name() -> String:
 	var key: String = FORMATION_NAMES.get(formation, "FORMATION_UNKNOWN")
 	return TranslationServer.translate(key)
 
-## 切换到下一个阵型
+## 交战模式 → 绑定阵型（spec squad-cohesion：战术=阵型，玩家不再手动切阵型）
+## 自由=战斗展开(搜索/互看六点)；跟随长机=指尖四点(凝聚)；守护后方=楔形(僚机在后方锥内罩六点)
+static func formation_for_engage_mode(mode: int) -> int:
+	match mode:
+		EngageMode.FREE:
+			return Formation.COMBAT_SPREAD
+		EngageMode.GUARD_REAR:
+			return Formation.WEDGE
+		_:  # FOLLOW_LEADER 及兜底
+			return Formation.FINGER_FOUR
+
+## 随机阵型（敌方杂鱼 spawn 时用）——除 Trail(纵列) 外随机一个。
+## Trail 排除：互相支援差、视觉上不像"散兵杂鱼"，留作不用。精英/Boss 不走这里（建队时显式固定）。
+static func random_formation() -> int:
+	var pool := [Formation.COMBAT_SPREAD, Formation.WEDGE, Formation.ECHELON, Formation.FINGER_FOUR, Formation.FLUID_FOUR]
+	return pool[randi() % pool.size()]
+
+## 切换到下一个阵型（沙盒模式 main.gd / debug 仍用；生存模式已废弃手动切阵型，改由战术绑定）
 func cycle_formation() -> void:
 	var all := [Formation.COMBAT_SPREAD, Formation.WEDGE, Formation.ECHELON, Formation.TRAIL, Formation.FINGER_FOUR, Formation.FLUID_FOUR]
 	var idx := all.find(formation)

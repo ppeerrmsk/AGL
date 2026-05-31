@@ -59,6 +59,11 @@ var _predicted_path_diag_step: int = 0
 const PRED_JUMP_PX_THRESHOLD: float = 80.0
 var formation_mode: bool = false            ## true=编队托管模式，直接复制长机状态
 var _formation_leader: Aircraft = null      ## 编队长机引用（formation_mode时使用）
+## 稳定号机号（spec squad-control-switching §2.1）：玩家小队内 1..N，出生即定、永不变。
+## 数字键 1-4 切换操控按此映射（键 N → squad_slot==N 的飞机），与会随接管变动的
+## AIController.squad_index（0=长机）解耦——保证"按键 N 永远对应同一架物理飞机"。
+## 0 = 未分配（非玩家小队成员）。spawn 起始僚机时按生成序赋值。
+var squad_slot: int = 0
 ## 注：_formation_blend / _formation_jitter_phase 单边住在 AIController（_ai_ref._formation_blend 等）。
 ## 旧 API 把这两个字段在 Aircraft 上镜像了一份导致每帧手动同步，2026-05-04 重构删除。
 ## 子模块 AircraftFormation 通过 ac._ai_ref 直接读 AI 端的值，单一权威源。
@@ -1057,6 +1062,11 @@ static func _angle_diff(target: float, current: float) -> float:
 ## survivor_hud.gd:385 读取玩家最大可用 G
 func _effective_max_g() -> float:
 	return AircraftPhysics.effective_max_g(self)
+
+
+## 瞬时结构 G 上限（猛拉短暂可达）——HUD G 表分母用它，保证"当前 G ≤ 显示上限"
+func _effective_max_g_instant() -> float:
+	return AircraftPhysics.effective_max_g_instant(self)
 
 ## 设置目标高度档位（同步 target_altitude 到档位对应值）
 func set_target_tier(tier: int) -> void:

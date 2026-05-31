@@ -40,6 +40,7 @@ SQUAD_ENGAGE_FMT,6 交战: %s,6 Engage: %s,6 交戦: %s
 SQUAD_WEAPON_FMT,7 武器: %s,7 Weapon: %s,7 武器: %s
 SQUAD_ENGAGE_FREE,自由交战,Free Engage,自由交戦
 SQUAD_ENGAGE_FOLLOW,跟随长机,Follow Leader,リーダー追従
+SQUAD_ENGAGE_GUARD,守护后方,Guard Rear,後方警戒
 WEAPON_PREF_MISSILE,导弹优先,Missile Priority,ミサイル優先
 WEAPON_PREF_GUN,机炮优先,Gun Priority,ガン優先
 FORMATION_COMBAT_SPREAD,战斗展开,Combat Spread,コンバットスプレッド
@@ -61,6 +62,7 @@ TACTIC_FORMATION_ADJUST,阵型调整中,Reforming,編隊再編成
 TACTIC_FREE_ENGAGE,自由交战,Free Engage,自由交戦
 TACTIC_TEAM_ATTACK,协同攻击,Team Attack,協同攻撃
 TACTIC_RETURN_FORMATION,回归编队,Returning,編隊復帰
+TACTIC_GUARD_REAR,守护后方,Guard Rear,後方警戒
 TACTIC_KAMIKAZE,舍身,Kamikaze,玉砕
 POPUP_EVOLUTION_FMT,技能进化！%s,Skill Evolved! %s,スキル進化！%s
 POPUP_COBRA,眼镜蛇机动,Cobra Maneuver,コブラ機動
@@ -410,7 +412,7 @@ UPGRADE_OVERLOAD_TO_BLOODLUST_DESC,超载期间同时获得嗜血；击杀刷新
 UPGRADE_BLOODLUST_ARMOR_MOBILITY_NAME,血怒护甲,Frenzy Plate,血怒装甲
 UPGRADE_BLOODLUST_ARMOR_MOBILITY_DESC,嗜血期间减伤 30%；最大 G ×1.2；加 / 减速 ×1.3,Bloodlust: -30% damage; max G ×1.2; accel/decel ×1.3,ブラッドラスト中-30%被ダメ；最大G×1.2；加減速×1.3
 UPGRADE_FULL_HP_KILL_PERMA_HP_NAME,血誓不竭,Vital Vow,血誓不渇
-UPGRADE_FULL_HP_KILL_PERMA_HP_DESC,满血 + 嗜血期间击杀敌人永久 +5 最大生命,Full-HP Bloodlust kill: +5 max HP permanently,満血+ブラッドラスト撃墜で最大HP+5恒久
+UPGRADE_FULL_HP_KILL_PERMA_HP_DESC,满血 + 嗜血期间击杀敌人永久 +8 最大生命,Full-HP Bloodlust kill: +8 max HP permanently,満血+ブラッドラスト撃墜で最大HP+8恒久
 UPGRADE_HEAD_ON_JAM_NAME,对锋干扰,Head-On Jammer,対峙妨害
 UPGRADE_HEAD_ON_JAM_DESC,对头目标累积 4s 后被电子干扰 3s,Head-on targets are jammed for 3s after 4s lock-on,対峙目標は4秒蓄積後3秒妨害
 UPGRADE_JAM_SELF_OVERLOAD_NAME,共振反馈,Jamming Surge,共鳴フィードバック

@@ -1383,14 +1383,18 @@ static func draw_data_label_minimal(ac: Aircraft) -> void:
 		max_w = maxf(max_w, w)
 
 	var scale_v := Vector2(inv_zoom, inv_zoom)
+	var is_player := ac == safe_player_ref()
 	var team_color: Color = ac.params.icon_color if ac.params else Color.GREEN
 	var bg_color := Color(team_color.r * 0.15, team_color.g * 0.15, team_color.b * 0.2, 0.7)
+	var default_text_color := Color(0.85, 0.9, 0.85, 0.9)
+	# 当前操控机=白底（偏蓝，spec squad-control-switching §2.2）+ 默认文字转深色
+	if is_player:
+		bg_color = GameConstants.PLAYER_CTRL_LABEL_BG
+		default_text_color = GameConstants.PLAYER_CTRL_LABEL_TEXT
 
 	ac.draw_set_transform(label_offset, inv_rot, scale_v)
 	ac.draw_rect(Rect2(-2, -2, max_w + 6, lines.size() * line_height + 4), bg_color)
-	var default_text_color := Color(0.85, 0.9, 0.85, 0.9)
 	# 仅玩家自己标 ALT 颜色；敌机保持统一色
-	var is_player := ac == safe_player_ref()
 	var alt_color := altitude_tier_color(ac.get_altitude_tier(), ac.flat_altitude and absf(ac.vertical_speed) > 5.0) if is_player else default_text_color
 	for i in range(lines.size()):
 		var col := default_text_color
@@ -1400,6 +1404,9 @@ static func draw_data_label_minimal(ac: Aircraft) -> void:
 			col = status_line_indices[i]
 		elif wpn_color_indices.has(i):
 			col = wpn_color_indices[i]
+		# 白底压暗：彩色行（status/wpn/alt）原本是高亮浅色，在白底上看不清 → 压暗保色相
+		if is_player and col != default_text_color:
+			col = GameConstants.darken_for_light_bg(col)
 		ac.draw_string(ac._font, Vector2(0, i * line_height + 11), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, col)
 	ac.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
@@ -1536,17 +1543,21 @@ static func draw_data_label(ac: Aircraft) -> void:
 	var box_w := max_w + 10.0
 	var box_h := lines.size() * line_height + 6.0
 
-	# 背景色（基于阵营）
+	# 背景色（spec squad-control-switching §2.2）：当前操控机=白底，其余友机=蓝底，敌机=红底。
+	# 白底只标"玩家当前亲控那一架"（safe_player_ref），让玩家一眼看出"我现在是谁"。
 	var _alc := GameConstants.aircraft_label_colors(ac.team)
 	var bg_color: Color = _alc[0]
 	var text_color: Color = _alc[1]
+	var is_player := ac == safe_player_ref()
+	if is_player:
+		bg_color = GameConstants.PLAYER_CTRL_LABEL_BG   # 偏蓝白底（不纯白，避免刺眼）
+		text_color = GameConstants.PLAYER_CTRL_LABEL_TEXT  # 深色基础文字
 
 	var scale_v := Vector2(inv_zoom, inv_zoom)
 	ac.draw_set_transform(label_offset, inv_rot, scale_v)
 	ac.draw_rect(Rect2(0, 0, box_w, box_h), bg_color)
 	ac.draw_rect(Rect2(0, 0, box_w, box_h), text_color * Color(1, 1, 1, 0.4), false, 1.0)
 
-	var is_player := ac == safe_player_ref()
 	# 高度变化检测：用 vs 而不是 tier 跨边界（vs > 5 m/s 视为真在升降）
 	var alt_changing: bool = ac.flat_altitude and absf(ac.vertical_speed) > 5.0
 	var alt_color := altitude_tier_color(ac.get_altitude_tier(), alt_changing) if is_player else text_color
@@ -1558,6 +1569,9 @@ static func draw_data_label(ac: Aircraft) -> void:
 			col = status_line_indices[i]
 		elif wpn_color_indices.has(i):
 			col = wpn_color_indices[i]
+		# 白底压暗：彩色行（status/wpn/alt 等高亮浅色）在白底上看不清 → 压暗保色相
+		if is_player and col != text_color:
+			col = GameConstants.darken_for_light_bg(col)
 		ac.draw_string(ac._font, Vector2(5, 12 + i * line_height), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, col)
 
 	ac.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

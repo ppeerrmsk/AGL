@@ -1,8 +1,9 @@
-[gd_resource type="Resource" script_class="PlayableAircraft" load_steps=4 format=3]
+[gd_resource type="Resource" script_class="PlayableAircraft" load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://scripts/playable_aircraft.gd" id="1"]
 [ext_resource type="Resource" path="res://resources/playable_f14_base.tres" id="2"]
 [ext_resource type="Resource" path="res://resources/playable_f14_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/playable_f14_wingman.tres" id="4"]
 
 [resource]
 script = ExtResource("1")
@@ -33,3 +34,4 @@ missile_damage_cap = 30.0
 bullet_damage_cap = 5.0
 bullet_dodge_chance = 0.10
 wingman_count = 3
+wingman_params = ExtResource("4")

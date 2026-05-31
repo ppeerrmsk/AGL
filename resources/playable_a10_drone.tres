@@ -22,13 +22,10 @@ stall_speed_base = 180.0
 acceleration = 65.0
 deceleration = 110.0
 g_drag_factor = 2.4
-; ── 机动（攻击机定位：转弯性能拔尖） ──
-max_g = 9.5
-max_g_structural = 12.0
+; ── 机动（攻击机定位：转弯性能拔尖；A-10 真实 ~6.5G，攻击机不应有战机级持续 G） ──
+max_g = 7.0
+max_g_structural = 9.0
 roll_rate = 4.8
-pilot_stamina = 100.0
-stamina_drain_rate = 22.0
-stamina_recovery_rate = 12.0
 ; ── 高度 ──
 max_altitude = 11000.0
 climb_rate_max = 280.0

@@ -102,6 +102,25 @@ LOD 路径里每一步（`_update_combat / _update_bank / _update_visuals / queu
 
 ---
 
+## 2026-05-30 F-14 MRM 贸然发射/射空：发射窗口贴着 seeker FOV 边缘
+
+**症状（玩家反馈）**：F-14 的导弹经常追踪不到、射空；明显很难命中的情况下也贸然发射。
+
+**根因**：F-14 用 `default_missile.tres`（MRM，`seeker_fov=60°` → 导引头机首 ±30°，出框即永久丢锁→惯性射空）。但因为 MRM 是 `fire_and_forget`，发射窗口质量过滤走的是宽松 FAF 档：
+- `LAUNCH_QUALITY_OFFAX_RATIO_FAF = 0.85` → off-axis 容许 `0.85 × radar_half_angle(35°) ≈ 29.75°`，几乎贴着 seeker ±30° 边缘。
+- 目标（尤其机动 UAV）发射瞬间已在视场边缘，稍一横移即出框丢锁。
+- 另有上游问题：`is_in_missile_envelope` 只看射程/TAA/高度，不看接近率/可追性，正面 max_range 可达 ~90km，会绿灯远距离低 Pk 发射（本轮未动，见方案 B 备选）。
+
+**修复方式**：改公式（常量标定不对，非加守卫）。`aircraft_weapons.gd:25`
+`LAUNCH_QUALITY_OFFAX_RATIO_FAF` `0.85 → 0.55`（F-14 ≈19°），给 seeker FOV 留 ~11° 发射后漂移余量。仅收紧、方向安全（只会少发边缘弹，不会多发）。影响所有玩家方 FAF 发射（玩家 + planner 僚机），敌方 AI 不受此过滤。
+
+**回归测试要点**：
+- 升存模式 Lv5+，看 F-14 僚机对机动 UAV 的命中率应上升、`tgt_off` 大角度（>20°）盲发应消失。
+- 验证对头/小偏角的轰炸机（Tu-160）正常发射不受影响（off-axis 本来就小）。
+- 若出现"该打的不打、攒着不发"，说明 0.55 过严，可回调到 0.6。
+
+---
+
 ## 2026-04-27 AI 战斗时不再无脑贴目标高度：导弹战保自身作战高度
 
 ### 症状 / 设计动机
@@ -1984,3 +2003,138 @@ if to_six_dir.dot(my_fwd) < 0.0:
 - 对头超高速敌机（MiG-31）：新守卫的 `head_on_predict` 仍被 `PREDICT_TIME_MAX` 约束，不会射击点飞出合理范围
 - 侧翼 90° 切入：`head_on_dot < 0.7`，应走原公式，不触发新守卫
 - AI 敌机的 `_choose_dogfight_pursuit_pos` 调用路径（`use_tactical_preference=false` 分支）也复用同一函数 —— 确认 AI 对头进攻行为不变差
+
+---
+
+## 2026-05-31 僚机散队后归队太消极 → 提早进 FAR 纯追击
+
+### 症状
+无敌可打的空闲期，僚机散在远处（机头朝向偏离长机航向，速度低于长机），不积极收拢回阵型。
+
+### 诊断（aircraft_formation.gd 三段式分支）
+- **FAR**（>REJOIN_DIST）：纯追击，直扑槽位 + 1.4× 长机速度加速 —— 积极。
+- **MID**（CLOSE_DIST~REJOIN_DIST，即 50~800px）：飞"长机航向 + ≤60° 横向偏置"，仅 1.05~1.15× 速度
+  —— **温和平行收敛，不是直扑槽位**。散在几百 px 外的僚机落在 MID 带 → 慢悠悠飘回，机头大致顺长机航向而非指向槽位。
+
+### 修复
+`REJOIN_DIST` 800 → 400（单常量，line 101）。影响一致的三处：分支选择(170)/FAR 速度档(358)/MID bank 混合归一化(321)。
+效果：离槽位 >400px（~800m）即进 FAR 纯追击直扑 + 1.4× 加速；<400px 仍走 MID 平滑末端逼近，保留近距防抖。
+
+### 回归测试要点
+- 空闲散队：僚机应明显更快机头指向槽位、加速收拢。
+- 长机硬转 / 击杀后 rejoin：观察 FAR↔MID 新边界(400px)附近无 bank bang-bang（bug #9 守卫 _should_suppress_bank_flip 仍在）。
+- 稳态贴队（<50px）：CLOSE 分支不变，无新抖动。
+- 太激进/末端过冲就回调 450~550；仍消极可再降到 300。
+
+---
+
+## 2026-05-31 僚机躲弹乱飞十几秒不归队 → 躲弹中主动放焰
+
+### 症状
+玩家飞到别处后，某僚机（log: F-14[Sage]）在远处满加力乱飞十几秒"查无此人"。
+
+### 诊断（combat_log_20260531_121251）
+- Sage 71.3s 进 EVADE_MISSILE，到日志末（85s）14s **无退出**；tp_d 钉在 ~2000px(EVADE_TURN_DIST)=真导弹规避路径，
+  说明确有一发导弹咬着它（多半是 SAM HQ-7 被玩家热诱弹骗偏后转锁最近友机）。
+- **关键：整局只有玩家放过 flare，Sage 这 14s 一发都没放。** 根因 = 热诱弹自动释放有距离门槛
+  （`aircraft_flares.gd` `nearest_dist > release_dist_px` 就 return）；而 AI 躲弹是满加力朝 4km 外猛冲，
+  把追来的导弹一直甩在 release 距离外 → 永不放焰 → 导弹没被干扰 → 一直"指着"它 → 躲到导弹烧完(~14s)。
+  玩家瞬杀导弹正因为玩家会放焰。
+
+### 修复（aircraft_flares.gd）
+飞机处于躲弹（`evasion_mode` 或 `_state==EVADE_MISSILE`）时，释放距离抬到 `EVADE_FLARE_RELEASE_DIST=1500px(3km)`：
+让追来的导弹尽早被焰干扰。guaranteed-jam 飞行员（玩家小队"完美飞行员"）一发即 jam →
+`find_nearest_incoming_missile` 过滤掉它 → `process_evade` 下一 tick 无导弹 → exit_evade → 立刻归位。
+零 buff/常态（非躲弹）行为不变。
+
+### 回归测试要点
+- 僚机被导弹咬 → 应放一发焰 → EventLogger 看到 `[FLARE] ... deployed` + `flare jammed` → 几乎立刻退出躲弹归队。
+- 不再出现僚机满加力乱飞十几秒。
+- 玩家自己放焰节奏不应异常（玩家本就在 evasion 时放焰）。
+- ⚠ 若仍有僚机长时间躲弹：可能是它在"甩开"导弹（导弹一直 >3km 够不到 release）→ 需补"被甩开/导弹无能量→判定解除"退出条件（本轮未做）。
+
+### 追加：导弹"已甩开"判定退出（配合上条）
+`missile_evasion.gd` `find_nearest_incoming_missile` 新增过滤：导弹**已熄火滑行**（`age > motor_burn_time`）
+**且距离不再缩小**（`(v_ac - v_missile)·los ≥ 0`，飞机已甩开它）→ 不再算威胁 → 躲弹立即解除归位。
+仍在动力段 / 仍在逼近的导弹照常算威胁（不会无视致命弹）。
+
+⚠ 已知残留：僚机靠 planner 躲弹时 `evasion_mode=true`，威胁解除后会走 `_process_scatter_evade`
+最多再散开 SCATTER_NO_MISSILE_TIMEOUT=3.5s 才完全退出（不是瞬间归位）。若需"威胁一解除就立刻归队"，
+可把散开分支的进入条件加 `leader.evasion_mode`（仅长机真在广播规避时才散开，否则清 evasion_mode 立即 exit）——
+有 LOD/广播脱节的 bounce 风险，需加守卫，本轮未做。
+
+### 追加：去掉躲弹 3.5s 散开尾巴 → 威胁一解除立刻归位
+`missile_evasion.gd` `process_evade` 无导弹分支：原来只要僚机 `evasion_mode=true` 就散开、靠 3.5s 兜底才退。
+改为**仅当长机正在广播规避**（`leader.evasion_mode`，即玩家按了规避键全队陪同）才散开；
+僚机自己躲的那发一解除（jam/甩开/飞过头）→ 清 `evasion_mode` + 立即 `exit_evade` 归位，不再空跑 3.5s。
+- 清 `evasion_mode` 防 `ai_controller.gd:733` evade 守卫下一帧 re-enter（bounce）——已核对该守卫仅在 evasion_mode=true 时触发。
+- 长机广播散开（玩家主动规避）行为不变；3.5s 兜底仍保留给 LOD/广播脱节场景。
+- 真·新来袭导弹仍正常重新触发躲弹（check_incoming 不受影响）。
+
+---
+
+## 2026-05-31 长机被击坠没接管直接 GameOver（squad-control-switching 竞态修复）
+
+### 症状
+长机（玩家机）被击落时，明明还有存活僚机（log: Flicker），却没自动接管，直接 GAME OVER。
+
+### 诊断
+`survivor_mode._process`：死亡检查（`player_aircraft.is_destroyed → _on_player_died()`）在**最前面**，
+而长机晋升（squad cleanup → leader_changed → `_on_squad_leader_changed` 接管）只走 spawner 的 **3s 周期 cleanup**，
+位置在死亡检查**之后**且节流。→ 长机一死，当帧先 GameOver，3s cleanup 根本来不及晋升。`_on_player_died` 本身也无接管尝试。
+
+### 修复
+死亡检查改为**先尝试接管再决定 GameOver**：新增 `_try_takeover_after_leader_down()` —— 立即 `_squad.cleanup()`
+（同步过滤死亡成员 + 晋升存活僚机 + 发 leader_changed → `_on_squad_leader_changed` 重指派 player_aircraft）。
+接管成功（有存活僚机）→ 不 GameOver；全队覆灭（cleanup 后无存活长机）→ 才 `_on_player_died`。
+
+### 回归测试要点
+- 长机被击坠 + 有存活僚机 → 自动接管下一号机，不 GameOver（log 看 CONTROL_TAKEOVER）。
+- 长机被击坠 + 无僚机/全队覆灭 → 正常 GameOver。
+- 反复接管（连续阵亡）→ 逐个晋升直到全灭。
+
+---
+
+## 2026-05-31 守护后方/编队在地面威胁场景名存实亡 → 躲弹也上 leash
+
+### 反馈
+GUARD_REAR 模式、场上只有地面目标威胁玩家时，守护者不在长机后方，离玩家很远，既不编队也不跟随。
+
+### 诊断（combat_log_20260531_141909）
+- 僚机距各自 target_pos **4~7km**（Fjord 7031m），AC_TICK(LOD0) 高 G 乱飞，**不在编队**。
+- **0 次 LEASH 事件**；**Fjord 躲弹 28 次**。根因：地面 SAM 反复对僚机发弹 → 僚机一路 max+AB 躲到天边；
+  而 leash 只在 ENGAGE 生效、**EVADE 无 leash** → 躲弹把僚机抛到 7km，守后/编队全废。
+
+### 修复（missile_evasion.gd process_evade 顶部）
+躲弹也走小队 leash：僚机躲弹中距长机 > `SQUAD_LEASH_DIST`(1800px) 持续 hysteresis → 清 evasion_mode + `exit_evade` 归队。
+近处若仍有真威胁会重新进躲（在长机附近躲，不再飞到天边）。drone/bvr/boss/hunter 跳过；与 ENGAGE leash 共用 `_squad_leash_timer`。
+
+### ⚠ 待观察 / 可继续调
+- leash 距离 1800px(3.6km) 对"守护后方"仍偏松（守护者可离 3.6km）。若仍觉得远，可调小 SQUAD_LEASH_DIST（全局）或给 GUARD_REAR 专设更紧的 leash。
+- 更深层：僚机被地面 SAM 打 = 它们飞进了 SAM 杀伤区。让守护者贴长机高度/位置避开 SAM 覆盖是另一条线（未做）。
+
+### 回归测试要点
+- 地面威胁场景：僚机躲 SAM 弹后应在长机附近、不再飞到几 km 外（log 看 LEASH break-off (evade)）。
+- 真有导弹近身仍会躲（不是禁用躲弹）。
+- 无威胁时守护者贴在长机后方。
+
+---
+
+## 2026-05-31 对地导弹模式不再俯冲进 AA 火力（守护者打地面 AA 少受伤）
+
+### 起因
+上一条加了"守护者用导弹打威胁长机的地面 AA"，但遗留：非玩家 AI 在 GROUND_STRAFE 导弹模式仍会**下降到目标高度**
+（bfm_intent.ground_strafe 旧逻辑：只有 tactical_preference_user 的导弹模式才不俯冲），导致守护者/僚机打 SAM/AAA 时一头扎进防空火力吃伤害。
+
+### 修复（bfm_intent.gd ground_strafe 高度策略）
+改为按武器模式分：
+- **导弹/AGM 模式**：高空发射，不俯冲。玩家走 altitude_preference；**非玩家 AI 保持 MID（中空）**（原来俯冲到 tgt_alt）。
+- **机炮 strafe**：仍下降贴地（机炮必须近地才 hit）。
+
+### 影响范围 / 风险
+- 影响所有非玩家 AI 的对地**导弹**攻击（守护者打 AA、敌方对地攻击机等）→ 都改为中空 AGM 远射，不再俯冲。机炮对地不变。
+- 低风险：AGM 本就该高空发射；MID 高于 AAA 射高，减少受伤。若实测发现 MID 打不到某些地面目标（导弹包络），再放宽。
+
+### 验证（待 playtest）
+- [ ] 守护者打 SAM/AAA 时维持中空、导弹远射，不再俯冲扎进防空火力、掉血明显减少。
+- [ ] 玩家自己对地（Q 切机炮）仍可贴地 strafe；导弹模式走高度偏好。

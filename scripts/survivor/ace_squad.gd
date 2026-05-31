@@ -186,6 +186,7 @@ func spawn(scene_root: Node, aircraft_scene: PackedScene, create_enemy_func: Cal
 
 	# ── 生成成员 + 静态分配战斗专长 ──
 	var sq := Squad.new()
+	sq.escort_doctrine_enabled = true  # 精英 BOSS 队吃护卫学说（spec squad-ai-escort §1）：护旗舰/反杀威胁者
 	for i in range(squad_size):
 		var pos := spawn_origin + (offsets[i] if i < offsets.size() else Vector2.ZERO)
 		var ac: Aircraft = create_enemy_func.call(enemy_type, pos, heading_deg)

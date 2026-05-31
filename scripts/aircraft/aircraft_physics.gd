@@ -248,11 +248,23 @@ static func update_speed(ac: Aircraft, delta: float) -> void:
 		ac.speed += maxf(speed_diff, -decel_rate * delta)
 
 	const G_DRAG_GLOBAL_MULT := 0.4
-	var g_drag := (ac.params.g_drag_factor if ac.params else 3.0) * G_DRAG_GLOBAL_MULT
+	const STRUCT_BLEED_FACTOR := 6.0  # 超持续 max_g 部分的额外掉速 (m/s² per G)；手感调参旋钮
 	var alt_factor := clampf(ac.altitude / 15000.0, 0.0, 1.0)
-	g_drag *= 1.0 - alt_factor * 0.30
-	var g_speed_loss := maxf(ac.g_load - 1.0, 0.0) * g_drag
-	ac.speed = maxf(ac.speed - g_speed_loss * delta, 0.0)
+	var alt_drag_mult := 1.0 - alt_factor * 0.30
+	var g_drag := (ac.params.g_drag_factor if ac.params else 3.0) * G_DRAG_GLOBAL_MULT * alt_drag_mult
+	var base_loss := maxf(ac.g_load - 1.0, 0.0) * g_drag
+	# 双层 G 能量自限：超过持续 max_g 的部分额外狠掉速（瞬时结构 G 维持不住）
+	# 编队托管豁免：僚机归队/追赶时频繁切向急转，若再吃结构超 G 掉速会"追不上长机"
+	# → formation_mode 下只保留 base_loss，跳过 struct_loss（追赶手感优先；战斗/玩家不豁免）
+	var sustained_g := effective_max_g(ac)
+	var over_g := maxf(ac.g_load - sustained_g, 0.0)
+	var struct_loss := 0.0 if ac.formation_mode else over_g * STRUCT_BLEED_FACTOR * alt_drag_mult
+	# 🚫 头号硬约束：G 引致掉速最多拽到角点速度地板，绝不更低（转弯不得自陷失速）
+	# 只钳制 G 掉速；直线按 target_speed 正常减速不受影响
+	var g_loss_total := base_loss + struct_loss
+	var no_stall_floor_ms := corner_speed_kmh(ac) / 3.6
+	var allowed_g_loss := maxf(ac.speed - no_stall_floor_ms, 0.0)
+	ac.speed = maxf(ac.speed - minf(g_loss_total * delta, allowed_g_loss), 0.0)
 
 	const PE_KE_BOOST := 2.5
 	var spd := maxf(ac.speed, 10.0)
@@ -344,7 +356,8 @@ static func apply_movement(ac: Aircraft, delta: float) -> void:
 # ========== 辅助计算 ==========
 
 static func max_bank_angle(ac: Aircraft) -> float:
-	var max_g_val := effective_max_g(ac)
+	# 物理瞬时上限用结构 G（猛拉可达）；能量自限靠掉速把稳态拽回持续 G
+	var max_g_val := effective_max_g_instant(ac)
 	# G = 1/cos(bank) => bank = acos(1/G)
 	var g_limited_bank := acos(1.0 / max_g_val)
 
@@ -364,21 +377,35 @@ static func max_bank_angle(ac: Aircraft) -> float:
 		return STALL_BANK_MIN + ratio * STALL_BANK_RANGE  # 0.1~0.3 rad (约6°~17°)
 
 
-static func effective_max_g(ac: Aircraft) -> float:
-	## 飞机最大可承受 G（直接取 params.max_g —— 耐力系统已删除）
-	var g := ac.params.max_g if ac.params else 9.0
+## 机动性 G buff 乘数（云/被锁恐慌/血怒护甲）——持续 G 与瞬时结构 G 共享同一套乘数（SEAM-001）
+## 未来任何 G 类 buff 只在此处加一段，即可同时透传持续 + 瞬时，AI 战术层自动感知
+static func _g_buff_mult(ac: Aircraft) -> float:
+	var m := 1.0
 	# 云中：能见度差、气流扰动导致机动受限
 	if ac.cloud_state == 2:
-		g *= 0.9
+		m *= 0.9
 	# §C 玩家技能"被锁时 +G"：is_locked 时按 lock_panic_g_mult 加成
 	if ac.is_locked and ac.lock_panic_g_mult != 1.0:
-		g *= ac.lock_panic_g_mult
+		m *= ac.lock_panic_g_mult
 	# 玩家技能"血怒护甲"：BLOODLUST 期间 max_g ×1.2
 	if ac.team == 0 and ac.status_bloodlust_active and ac.has_meta("upgrade_stacks"):
 		var stacks: Dictionary = ac.get_meta("upgrade_stacks")
 		if int(stacks.get(SkillHooks.SKILL_BLOODLUST_ARMOR_MOBILITY, 0)) > 0:
-			g *= SkillHooks.BLOODLUST_G_MULT
-	return g
+			m *= SkillHooks.BLOODLUST_G_MULT
+	return m
+
+
+static func effective_max_g(ac: Aircraft) -> float:
+	## 持续 G（可长期维持）：稳态转弯 / AI 战术规划 / corner speed / 稳态 bank cap 的依据
+	var g := ac.params.max_g if ac.params else 9.0
+	return g * _g_buff_mult(ac)
+
+
+static func effective_max_g_instant(ac: Aircraft) -> float:
+	## 瞬时结构 G（猛拉入弯短暂可达）：仅 max_bank_angle 物理瞬时上限消费；
+	## 能量自限（update_speed struct_loss）会靠掉速把速度拽回持续 G 对应的稳态转弯
+	var g := ac.params.max_g_structural if ac.params else 12.0
+	return g * _g_buff_mult(ac)
 
 
 ## 角点速度（km/h）：能承受当前 G 极限而不被 max_bank_angle 速度限制卡住的最低速度
@@ -1297,12 +1324,22 @@ static func step_speed(st: FlightState, delta: float) -> void:
 	else:
 		st.speed += maxf(speed_diff, -decel_rate * delta)
 
+	# 与实物理 update_speed 严格同源（双层 G 能量自限 + 角点速度失速地板）——
+	# 任何对那边掉速公式的改动都要同步到此，否则预测线与实飞行轨迹"撕裂"（known-seams）
 	const G_DRAG_GLOBAL_MULT := 0.4
-	var g_drag := (ac.params.g_drag_factor if ac.params else 3.0) * G_DRAG_GLOBAL_MULT
+	const STRUCT_BLEED_FACTOR := 6.0
 	var alt_factor := clampf(st.altitude / 15000.0, 0.0, 1.0)
-	g_drag *= 1.0 - alt_factor * 0.30
-	var g_speed_loss := maxf(st.g_load - 1.0, 0.0) * g_drag
-	st.speed = maxf(st.speed - g_speed_loss * delta, 0.0)
+	var alt_drag_mult := 1.0 - alt_factor * 0.30
+	var g_drag := (ac.params.g_drag_factor if ac.params else 3.0) * G_DRAG_GLOBAL_MULT * alt_drag_mult
+	var base_loss := maxf(st.g_load - 1.0, 0.0) * g_drag
+	var sustained_g := effective_max_g(ac)
+	var over_g := maxf(st.g_load - sustained_g, 0.0)
+	# 编队托管豁免结构超 G 掉速（与实物理 update_speed 同源）
+	var struct_loss := 0.0 if ac.formation_mode else over_g * STRUCT_BLEED_FACTOR * alt_drag_mult
+	var g_loss_total := base_loss + struct_loss
+	var no_stall_floor_ms := corner_speed_kmh(ac) / 3.6
+	var allowed_g_loss := maxf(st.speed - no_stall_floor_ms, 0.0)
+	st.speed = maxf(st.speed - minf(g_loss_total * delta, allowed_g_loss), 0.0)
 
 	const PE_KE_BOOST := 2.5
 	var spd := maxf(st.speed, 10.0)

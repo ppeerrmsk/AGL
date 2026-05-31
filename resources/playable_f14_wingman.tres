@@ -1,0 +1,44 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=6 format=3]
+
+; F-14 僚机专用档案：比长机 base 更敏捷，专为"跟得上长机 + 编队追赶不掉队"调校。
+; 与 playable_f14_base.tres 同武器/同速度，仅提高 roll_rate / acceleration / max_g。
+; 理由：僚机需要频繁切向归队 + 追赶，钝重的长机 base 参数会导致"慢一拍、追不上"。
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/f14_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/default_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/default_missile.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/f14_flare.tres" id="5"]
+
+[resource]
+script = ExtResource("1")
+display_name = "F-14"
+max_hp = 110.0
+armor = 0.0
+max_speed = 2000.0
+cruise_speed = 850.0
+stall_speed_base = 240.0
+; ── 僚机敏捷化：加速 42→60（追赶更快） ──
+acceleration = 60.0
+deceleration = 80.0
+g_drag_factor = 3.5
+; ── 僚机敏捷化：roll 3.0→4.5（切向归队不慢半拍）/ max_g 7.5→8.5（追赶急转余量） ──
+max_g = 8.5
+max_g_structural = 11.5
+roll_rate = 4.5
+max_altitude = 16500.0
+climb_rate_max = 400.0
+thrust_to_weight = 0.95
+drag_coefficient = 0.022
+afterburner_thrust_mult = 1.55
+fuel_capacity = 7000.0
+fuel_rate_normal = 2.0
+fuel_rate_afterburner = 10.0
+radar_range = 3500.0
+radar_half_angle = 35.0
+lock_time = 3.0
+gun = ExtResource("2")
+missile = ExtResource("4")
+flare = ExtResource("5")
+combat = ExtResource("3")
+icon_color = Color(0.20, 0.65, 0.85, 1)
