@@ -96,6 +96,22 @@ Resource:   AircraftParams / GunParams / RocketParams / MissileParams / CombatPa
 
 ## 工作约定
 
+### 加新东西的顺序（spec-first，强制）
+
+AGL 采用 **spec-first** 工作流：设计/写文档是主要工作，写代码是 cheap 的下游派生。
+[docs/specs/](docs/specs/_INDEX.md) 是**设计单一数据源（SSOT）**，目标"代码全丢、只看 specs 也能一比一重建游戏"。
+
+加任何**敌人 / 武器 / 技能 / BOSS / 系统 / 主角机**：
+
+1. 复制 [docs/specs/_TEMPLATE.md](docs/specs/_TEMPLATE.md) → 建 `docs/specs/<kind>/<name>.md`
+2. 填 §1~§5（设计意图 + **全部数值/公式/行为** + 验收）→ 与用户确认定稿（status: approved）
+3. **再**按 spec 的 §6 实现计划派生代码（接入点查 [playbook.md](docs/reference/playbook.md)）
+4. 收尾：跑 §5 验收 → 填 spec §7 锚点 + 同步 reference 索引 → 写 §8 变更记录 → status: done
+5. 在 [docs/specs/_INDEX.md](docs/specs/_INDEX.md) 总表追加一行
+
+**硬分工**：`docs/specs/` 写数值/行为/原因（权威，**禁止写行号**）；`docs/reference/`（enemy-index /
+script-index / code-index）只写"代码在哪"（纯指针）。样板见 [bosses/mother-goose.md](docs/specs/bosses/mother-goose.md)。
+
 ### 查找代码的顺序
 
 1. **先查 Script Index**（[docs/reference/script-index.md](docs/reference/script-index.md)）找文件 + 关键入口
@@ -132,6 +148,11 @@ Resource:   AircraftParams / GunParams / RocketParams / MissileParams / CombatPa
 - **模式隔离**：禁止在共享层代码里写 `if in_survivor_mode` / `if in_sandbox`，必须走参数资源 `duplicate(true)` 或 PlayableAircraft 档案注入
 
 ## 相关文档（按需加载）
+
+**设计单一数据源 SSOT**（docs/specs/）—— **加新东西先来这里**
+- [_INDEX.md](docs/specs/_INDEX.md) — 全部 spec 总表 + 分层硬约定 + 重建缺口清单
+- [_TEMPLATE.md](docs/specs/_TEMPLATE.md) — 规格模板（复制它起新 spec）
+- 权威源：写数值/公式/行为/原因，禁止行号；reference/ 才放代码指针
 
 **入口 / 概述**
 - [docs/project-overview.md](docs/project-overview.md) — 项目概述

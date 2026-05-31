@@ -6,6 +6,18 @@
 >
 > 通用约束（**所有改动都要看的**）写在最后一段。
 
+> ## ⚠ 先写 spec，再来执行（spec-first）
+>
+> AGL 采用 **spec-first** 工作流：本 playbook 回答**"接入点在哪、怎么执行"**；
+> [docs/specs/](../specs/_INDEX.md) 才是**设计权威源**，回答**"做什么 + 为什么 + 全部数值"**。
+>
+> **正确顺序**：复制 [docs/specs/_TEMPLATE.md](../specs/_TEMPLATE.md) → 建 `docs/specs/<kind>/<name>.md`
+> → 填 §1~§5 设计定稿（status: approved）→ **再回本 playbook**按 spec 的 §6 实现计划派生代码。
+> 收尾把指针填回 spec §7 + 同步 reference 索引。
+>
+> 重建底线：spec 写**真实数值、不写行号**；"代码全丢只看 spec 能否一比一重建"是验收线。
+> 样板见 [bosses/mother-goose.md](../specs/bosses/mother-goose.md)。
+
 ---
 
 ## 分类索引
@@ -13,7 +25,7 @@
 | 你要加的 | 看哪一节 | 已有详细 doc |
 |---|---|---|
 | 普通敌机 / 王牌 / Adds 杂兵 | [§1 加敌机](#1-加敌机) | [enemy-index.md 12 步清单](enemy-index.md#创建新敌人的完整清单加一个敌人触发短语) |
-| BOSS（飞机型 / 海军型 / 复合型） | [§2 加 BOSS](#2-加-boss) | 暂无（用本文 + Mother Goose changelog） |
+| BOSS（飞机型 / 海军型 / 复合型） | [§2 加 BOSS](#2-加-boss) | spec 样板 [bosses/mother-goose.md](../specs/bosses/mother-goose.md) |
 | 武器 / 装备（gun/missile/rocket/laser/railgun/flare） | [§3 加武器装备](#3-加武器装备) | 暂无 |
 | 玩家技能 / 升级 | [§4 加技能升级](#4-加技能升级) | [survivor-skills.md](../systems/survivor-skills.md) |
 | 主角飞机 | [§5 加主角飞机](#5-加主角飞机) | [playable-aircraft-workflow.md](playable-aircraft-workflow.md) |
