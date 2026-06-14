@@ -46,6 +46,56 @@ func _ready() -> void:
 	if bench_scenario == "":
 		printerr("[Bench] no --bench= arg, BenchRunner idle")
 		return
+
+	# 特殊场景：纯物理单元仿真（不切 survivor 场景，直接跑 + quit）。
+	# 在正常项目上下文运行 → autoload(EventLogger 等)可用 → aircraft_physics 可编译。
+	if bench_scenario == "turn_physics":
+		var script: GDScript = load("res://scripts/tests/test_turn_physics.gd")
+		if script:
+			var tpt = script.new()
+			if tpt and tpt.has_method("run"):
+				tpt.run()
+		else:
+			printerr("[Bench] turn_physics: 测试脚本加载失败")
+		get_tree().quit(0)  # 无论成败都退出，避免 headless 挂起超时
+		return
+
+	# 智能放焰验证（2026-06-14 玩家方 TTI 放焰）
+	if bench_scenario == "flare":
+		var fscript: GDScript = load("res://scripts/tests/test_flare_timing.gd")
+		if fscript:
+			var ft = fscript.new()
+			if ft and ft.has_method("run"):
+				ft.run()
+		else:
+			printerr("[Bench] flare: 测试脚本加载失败")
+		get_tree().quit(0)
+		return
+
+	# 编队归队速度验证（2026-06-13 _update_speed 提速修复）
+	if bench_scenario == "rejoin":
+		var rscript: GDScript = load("res://scripts/tests/test_formation_rejoin.gd")
+		if rscript:
+			var rt = rscript.new()
+			if rt and rt.has_method("run"):
+				rt.run()
+		else:
+			printerr("[Bench] rejoin: 测试脚本加载失败")
+		get_tree().quit(0)
+		return
+
+	# 武器行为验证（2026-06-13 武器有效性修复回归测试）
+	if bench_scenario == "weapon":
+		var wscript: GDScript = load("res://scripts/tests/test_weapon_behavior.gd")
+		if wscript:
+			var wt = wscript.new()
+			if wt and wt.has_method("run"):
+				wt.run()
+		else:
+			printerr("[Bench] weapon: 测试脚本加载失败")
+		get_tree().quit(0)
+		return
+
 	bench_active = true
 
 	# 输出路径：bench/results/<scenario>_<UTC YYYYMMDD_HHMMSS>.txt
@@ -58,6 +108,10 @@ func _ready() -> void:
 	get_tree().set_meta("bench_mode", true)
 	get_tree().set_meta("bench_scenario", bench_scenario)
 	get_tree().set_meta("bench_duration", bench_duration)
+	# demo 模式（--bench=demo）：渲染运行 + 不退出 + 持续补敌，供肉眼观察小队战斗/物理/表现。
+	# 用法（注意：不要加 --headless）：godot --path . -- --bench=demo
+	if bench_scenario == "demo":
+		get_tree().set_meta("bench_demo", true)
 
 	printerr("[Bench] scenario=%s duration=%.1fs out=%s" % [bench_scenario, bench_duration, _out_path])
 	# 切场景必须 deferred —— autoload _ready 早于主场景实例化，直接 change_scene 会撞到
@@ -94,6 +148,9 @@ func bench_finish(extra_summary: String = "") -> void:
 		print("[Bench] wrote %s" % ProjectSettings.globalize_path(_out_path))
 	else:
 		push_error("[Bench] failed to write %s" % _out_path)
+	# 同时 dump EventLogger 事件日志（确定性场景的 churn/twitch 离线分析用）
+	if Engine.has_singleton("EventLogger") or EventLogger:
+		EventLogger.dump_to_file()
 	# 给 print 一帧时间被 stdout 吐出
 	await get_tree().process_frame
 	get_tree().quit(0)

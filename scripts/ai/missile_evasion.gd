@@ -130,6 +130,12 @@ static func process_evade(ai: AIController, delta: float) -> void:
 	var diff_a := absf(AIController._angle_diff(evade_heading_a, ai.aircraft.heading))
 	var diff_b := absf(AIController._angle_diff(evade_heading_b, ai.aircraft.heading))
 	var chosen_dir := evade_dir if diff_a < diff_b else -evade_dir
+	# 承诺 break 方向：首次选定后保持，不每帧按"哪个垂直向更近"重选——否则导弹移动时
+	# chosen_dir 来回翻 → target 左右跳 → 机身 bank 来回摆（2026-06-07 修 EVADE 抖）。
+	# 现实导弹规避就是朝一个方向硬 break。承诺向与新 chosen 反向超过 90° 才允许重定（极端再机动）。
+	if ai._evade_committed_dir == Vector2.ZERO or ai._evade_committed_dir.dot(chosen_dir) < -0.1:
+		ai._evade_committed_dir = chosen_dir
+	chosen_dir = ai._evade_committed_dir
 
 	ai._evade_target_pos = ai.aircraft.global_position + chosen_dir * AIController.EVADE_TURN_DIST
 	ai.aircraft.target_position = ai._evade_target_pos
@@ -152,6 +158,7 @@ static func enter_evade(ai: AIController) -> void:
 		"entering missile evasion (was %s, target=%s)" % [
 			AIController.AIState.keys()[ai._state], ai._log_target_name(ai._current_target)])
 	ai._state = AIController.AIState.EVADE_MISSILE
+	ai._evade_committed_dir = Vector2.ZERO  # 每次新规避重新选 break 方向
 	ai.aircraft.ai_override_pursuit = false
 	# P4：planner 模式下置 evasion_mode → planner 选 EVADE_MISSILE intent → max + AB
 	# MissileEvasion.process_evade 仍写 target_position（垂直规避向量），两者协作：
@@ -202,6 +209,35 @@ static func exit_evade(ai: AIController) -> void:
 #  导弹威胁检测
 # ══════════════════════════════════════════════
 
+# ── 玩家方规避威胁门（2026-06-14）──
+# 用户反馈：僚机对慢速/追不上/还很远的导弹也 max+AB 散开飞离阵型，过激、不自然。
+# 改为：只有"在逼近(会命中) 且 即将到达"的导弹才算规避威胁，触发加速散开；其余留在阵型，
+# 由智能 flare 末段兜底（巡航/待机时最小限度努力）。比 flare 门更早一点（给机动留提前量），
+# 但同样要求导弹确实在逼近。敌方不受此门约束（维持难度）。
+const EVADE_MIN_CLOSING_MS := 60.0    ## 闭合速度 < 此(m/s) → 追不上/慢弹 → 不值得散开规避
+const EVADE_TTI_THRESHOLD := 3.5      ## 命中剩余时间 > 此(s) → 还不急，先不进 max+AB 散开
+
+## 玩家方：这枚导弹是否值得进入/维持"加速散开"规避（在逼近 + 即将到达）。纯几何，可单测。
+## already_evading 滞回：已在躲弹时用更宽松的门（更难解除）——否则僚机一加速就把 closing 拉低到
+## 阈值下 → 退出 → 减速归队 → closing 又升回 → 重新进，在边界来回弹跳(EVADE↔SQUAD_FOLLOW 抖)。
+static func _is_evasion_threat(ac: Aircraft, m: Missile, already_evading: bool = false) -> bool:
+	var los: Vector2 = ac.global_position - m.global_position
+	var dist_px: float = los.length()
+	if dist_px < 1.0:
+		return true
+	var los_n: Vector2 = los / dist_px
+	var v_ac: Vector2 = Vector2(sin(ac.heading), -cos(ac.heading)) * ac.speed
+	var v_m: Vector2 = Vector2(sin(m.heading), -cos(m.heading)) * m.speed
+	var closing_ms: float = (v_m - v_ac).dot(los_n)   # >0 = 间距在缩小（导弹在逼近）
+	# 滞回：进入要求 closing≥60 & TTI≤3.5；已在躲则放宽到 closing≥30 & TTI≤5.0 才解除
+	var min_closing: float = (EVADE_MIN_CLOSING_MS * 0.5) if already_evading else EVADE_MIN_CLOSING_MS
+	var tti_max: float = (EVADE_TTI_THRESHOLD + 1.5) if already_evading else EVADE_TTI_THRESHOLD
+	if closing_ms < min_closing:
+		return false
+	var dist_m: float = dist_px / CombatUnit.PIXELS_PER_METER
+	return (dist_m / closing_ms) <= tti_max
+
+
 static func check_incoming_missile(ai: AIController) -> bool:
 	return find_nearest_incoming_missile(ai) != null
 
@@ -212,6 +248,7 @@ static func find_nearest_incoming_missile(ai: AIController) -> Missile:
 
 	var nearest: Missile = null
 	var nearest_dist := 99999.0
+	var is_player_side: bool = ai.aircraft.team == 0
 
 	for child in missile_manager.get_children():
 		if not child is Missile:
@@ -230,16 +267,24 @@ static func find_nearest_incoming_missile(ai: AIController) -> Missile:
 		var m_fwd := Vector2(sin(m.heading), -cos(m.heading))
 		if to_ac.length() > 1.0 and m_fwd.dot(to_ac.normalized()) < -0.2:
 			continue
-		# ── 已脱离动力(滑行)且追不上 → 视为已解除，不再当威胁（根治"躲一发要躲十几秒"）──
-		# 导弹熄火滑行后会减速；若此刻距离已不再缩小（飞机甩开了它），它再不可能命中 →
-		# 立刻让 AI 退出躲弹回去干正事。仍在动力段 / 仍在逼近的导弹照常算威胁，不放过。
-		if m.params and m.age > m.params.motor_burn_time and to_ac.length() > 1.0:
-			var los := to_ac.normalized()  # 从导弹指向飞机
-			var v_ac := Vector2(sin(ai.aircraft.heading), -cos(ai.aircraft.heading)) * ai.aircraft.speed
-			var v_m := m_fwd * m.speed
-			# 距离变化率 (v_ac - v_m)·los ≥ 0 → 距离不再缩小 → 追不上
-			if (v_ac - v_m).dot(los) >= 0.0:
+		if is_player_side:
+			# 玩家方 wingmen：只有"在逼近 + 即将到达"的导弹才算规避威胁（慢/远/追不上 → 不散开，
+			# 留在阵型靠智能 flare 末段兜底）。一旦被甩开(closing 掉)/TTI 拉远，下一 tick 即退出散开归位。
+			# already_evading 滞回：已在躲弹用更宽松门，防边界 EVADE↔SQUAD_FOLLOW 抖。
+			var already_evading: bool = ai.aircraft.evasion_mode \
+					or ai._state == AIController.AIState.EVADE_MISSILE
+			if not _is_evasion_threat(ai.aircraft, m, already_evading):
 				continue
+		else:
+			# ── 敌方：保留原"熄火后追不上即解除"逻辑（维持难度）──
+			# 导弹熄火滑行后会减速；若此刻距离已不再缩小（飞机甩开了它），它再不可能命中 → 解除。
+			if m.params and m.age > m.params.motor_burn_time and to_ac.length() > 1.0:
+				var los := to_ac.normalized()  # 从导弹指向飞机
+				var v_ac := Vector2(sin(ai.aircraft.heading), -cos(ai.aircraft.heading)) * ai.aircraft.speed
+				var v_m := m_fwd * m.speed
+				# 距离变化率 (v_ac - v_m)·los ≥ 0 → 距离不再缩小 → 追不上
+				if (v_ac - v_m).dot(los) >= 0.0:
+					continue
 		var dist := to_ac.length()
 		if dist < nearest_dist:
 			nearest_dist = dist

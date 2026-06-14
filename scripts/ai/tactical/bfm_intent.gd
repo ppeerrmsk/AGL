@@ -19,6 +19,9 @@ const HEAD_ON_THRESHOLD := 0.7         ## head_on_dot > 0.7 视为对头几何
 const HIGH_BANK_DEG := 60.0            ## 目标 bank 超此判定急转
 const FIRE_CONE_HALF_DEG := 5.0        ## 机炮火控角（与 default_gun.tres 一致）
 const GUN_RANGE_HYSTERESIS := 1.2      ## 进入射程的滞回缓冲
+const GUN_TARGET_AHEAD_MIN := 0.7      ## 开火要求目标本体 aim_align ≥ 此值（cos45.6°≈0.7）
+									   ## 仅靠"前置点在锥内"会在横切高速目标时把机头前方的预测点判进锥，
+									   ## 对着空域零碎喷子弹（用户反馈：面前没敌机也射击）。目标本体 >45° 离轴一律不开火。
 
 # ══════════════════════════════════════════════
 #  无目标 / 巡航 / 移动
@@ -74,6 +77,20 @@ static func waypoint_move(s: Situation, waypoint: Vector2) -> TacticalPlan:
 	t = t * t * (3.0 - 2.0 * t)  # smoothstep
 	var cruise_high: float = s.max_speed_kmh * 0.85
 	p.target_speed_kmh = lerpf(s.corner_speed_kmh, cruise_high, t)
+	# ── 僚机编队槽位追赶（2026-06-07）──
+	# 僚机的 waypoint 是随长机实时移动的阵型槽位。上面纯航向的速度公式（为"玩家点击移动"设计）
+	# 不含距离项：僚机一旦落后，会因"相对槽位航向差大"被锁在 corner 速度、即便对准也只有 0.85max，
+	# 追不上开加力的长机 → 越追越远直至掉队（log 实测落后 2885px 仍只飞 699）。
+	# 修：仅 is_wingman 时叠加"离槽位越远越猛追"——低端(转弯中)从 corner 抬到 (corner+max)/2，
+	# 高端(对准)从 0.85max 抬到全速+AB；近距(≤400px)catchup=0 完全不变（紧密编队手感不动）。
+	# 玩家(非 is_wingman)走原逻辑，点击移动手感不变。
+	if s.is_wingman:
+		var dist_to_wp: float = to_wp.length()
+		var catchup: float = clampf((dist_to_wp - 400.0) / 1200.0, 0.0, 1.0)  # 400px→0 … 1600px→1 全力
+		if catchup > 0.0:
+			var lo: float = lerpf(s.corner_speed_kmh, (s.corner_speed_kmh + s.max_speed_kmh) * 0.5, catchup)
+			var hi: float = lerpf(cruise_high, s.max_speed_kmh, catchup)
+			p.target_speed_kmh = lerpf(lo, hi, t)
 	# AB：当前速度低于 target 的 95% 就给 → 跟着 target_speed 平滑变化，无离散切换
 	p.afterburner = (s.my_speed_ms * 3.6) < p.target_speed_kmh * 0.95
 	p.rationale = "航点移动：hdiff=%d° t=%.2f tspd=%dkmh" % [int(hdiff_deg), t, int(p.target_speed_kmh)]
@@ -429,7 +446,9 @@ static func _apply_combat_weapon(s: Situation, p: TacticalPlan) -> void:
 	if p.pursuit_pos != Vector2.INF:
 		var hdg_to_lead: float = _heading_to(s.my_pos, p.pursuit_pos)
 		var angle_diff_deg: float = rad_to_deg(absf(Situation._angle_diff(hdg_to_lead, s.my_heading)))
-		gun_in_cone = angle_diff_deg <= FIRE_CONE_HALF_DEG
+		# 前置点在火控锥内 + 目标本体也大致在机头前方（aim_align）。两者都满足才允许开火，
+		# 杜绝"前置点扫进锥、目标却在侧后"的对空放空（见 GUN_TARGET_AHEAD_MIN 注释）。
+		gun_in_cone = angle_diff_deg <= FIRE_CONE_HALF_DEG and s.aim_align >= GUN_TARGET_AHEAD_MIN
 
 	# 玩家强制锁机炮（charge 或 UI PREFER_GUN）
 	if s.charge_intent or s.weapon_lock == Situation.WEAPON_LOCK_FORCE_GUN:
@@ -520,14 +539,22 @@ static func _missile_engage_pos(s: Situation) -> Vector2:
 		return s.tgt_pos
 
 	# 已锁定 + 包络内：crank radar_half × 0.5
+	# 旧实现按"哪侧更对齐机头"离散选 crank 侧（ccw/cw）。目标接近正前方时两侧 align 几乎相等，
+	# 单帧噪声就让 crank 侧翻号 → 追踪点在机身两侧 ±5000px(=10000m) 瞬移 → 平滑 bank 控制器
+	# 忠实追摆 → 长机原地大坡摇摆打转（SEAM-013）。
+	# 改为**连续 clamp**（无离散选侧）：瞄准航向 = LOS 朝机头当前方向偏移，封顶 crank_deg。
+	#   - 机头正对目标(nose_off=0) → 瞄 LOS，无 crank、无翻号；
+	#   - 机头小偏(|nose_off|<crank_deg) → 瞄机头当前方向(顺势直飞)，目标在锥内缓慢漂移；
+	#   - 机头大偏(|nose_off|>crank_deg) → crank 封顶在 LOS 偏 crank_deg 处（朝机头侧，维持锁不过冲）。
+	# nose_off 过零时 aim_hdg 连续穿过 LOS，无跳变 → 根除抖动。语义不变（朝机头侧 crank、封顶
+	# crank_deg、维持锁），仅把"满 crank 离散选侧"换成"0~crank_deg 连续偏置"。
 	var crank_deg: float = s.radar_half_angle_deg * 0.5
 	var crank_rad: float = deg_to_rad(crank_deg)
-	var ccw: Vector2 = s.to_target_dir.rotated(crank_rad)
-	var cw: Vector2 = s.to_target_dir.rotated(-crank_rad)
-	var ccw_align: float = ccw.dot(s.my_fwd)
-	var cw_align: float = cw.dot(s.my_fwd)
-	var crank_dir: Vector2 = ccw if ccw_align > cw_align else cw
-	return s.my_pos + crank_dir * 5000.0
+	var los_hdg: float = _heading_to(s.my_pos, s.tgt_pos)
+	var nose_off: float = Situation._angle_diff(s.my_heading, los_hdg)  # 机头相对 LOS 的有符号偏角
+	var aim_hdg: float = los_hdg + clampf(nose_off, -crank_rad, crank_rad)
+	var aim_dir: Vector2 = Vector2(sin(aim_hdg), -cos(aim_hdg))
+	return s.my_pos + aim_dir * 5000.0
 
 ## 战斗 intent 的目标高度策略：
 ## - 玩家（use_tactical_preference）→ 永不匹配目标高度，始终走 altitude_preference 的 tier

@@ -33,9 +33,28 @@ const STALL_BANK_MIN := 0.1                      ## 失速时bank角最小（rad
 const STALL_BANK_RANGE := 0.2                    ## 失速时bank角范围（rad）
 const AIR_DENSITY_SCALE_M := 8500.0              ## 空气密度指数衰减标尺高度（米）
 
-# ── Bank 翻转抗振守卫（详见 update_bank 注释）──
-const BANK_FLIP_ESTABLISHED_RAD: float = 0.524  ## ≈30°，当前 bank 超过此值才启用翻转守卫
-const BANK_FLIP_COMMIT_RAD: float = 0.087       ## ≈5°，翻转到反向需要的最小 heading_diff
+# ── 临界阻尼 PD 转弯控制（SEAM-012 根治，2026-06-07）──
+# 控制律：target_turn_rate = kp·heading_diff − kd·current_turn_rate
+#         bank = atan(target_turn_rate · v / g)（协调转弯反推）
+# kd 项 = 旧位置式(P)控制缺失的速度(转速)阻尼项；接近目标航向且转速高时自动提前滚出，
+# 从根上消除"航向过冲→翻号→来回"的欠阻尼极限环。无需 bank-flip 守卫 / 去抖等治标补丁。
+# 注：用 static var 而非 const，方便 test_turn_physics 无头扫参；定稿值即默认值。
+static var PD_KP_BASE: float = 3.0       ## PD 比例增益基数（rad/s per rad 航向误差）；combat_bank_aggression 在其上缩放
+                                          ## 注：大误差(硬转)下 kp·e 早已饱和到 max_bank，kp 只影响小误差精跟随。
+                                          ## 实测调低 kp 能减少同向"呼吸"但牺牲精瞄+恶化退化追击案例，3.0 是平衡点
+static var PD_KD_SCALE: float = 3.0       ## PD 阻尼标尺；实际 kd = clamp(PD_KD_SCALE / roll_rate, …)：滚转越慢→阻尼越大→维持临界阻尼
+static var PD_KD_MIN: float = 0.35       ## kd 下限（快滚转机防欠阻尼残余过冲）
+static var PD_KD_MAX: float = 1.60       ## kd 上限（极慢滚转机防过阻尼僵滞/转弯迟钝）
+static var TURN_RATE_FILT_ALPHA: float = 0.30  ## D 项转速低通系数：协调转弯下 ω 几乎一帧跟上指令，
+                                          ## 直接反馈裸 ω 会形成单帧代数环(−kd)^n 交替抖；低通到 ~3 帧时间常数即破环
+                                          ## 又保留真实滚出时标(~0.2~0.4s)的阻尼。是 PD 跨"近瞬时执行器"稳定的关键。
+# LOS 前馈：理论上尾追转弯目标(e≈0 仍需稳态转速)需要它，但无头扫参实测在离散物理 +
+# AI 分频跳变参考下恒为害（前馈在参考跳变时尖刺过冲，得不偿失），故默认 0 关闭。
+# 保留管线，待将来有抗跳变的 LOS 估计再启用。残留的是同向 bank 幅度"呼吸"，非用户关心的大坡反转。
+static var PD_LOS_FF: float = 0.0         ## 目标 LOS 角速度前馈系数（默认 0 关闭，见上）
+static var PD_LOS_RATE_CAP: float = 0.45  ## LOS 角速度前馈封顶（rad/s）：喂入前馈的合法 LOS 上限
+static var PD_LOS_FILT_ALPHA: float = 0.08  ## LOS 角速度专用慢低通
+static var PD_LOS_SANE_CAP: float = 1.0   ## LOS 异常剔除阈值（rad/s）：超过此值视为参考跳变尖刺(瞬移/AI 分频重指 lead 点)，丢弃不喂前馈滤波
 
 # ── 冲击吸收 ──
 const SHOCK_ABSORB_RATE: float = 1.0      ## HP/秒回复速率（慢，强调"逐渐恢复"而非"立即抵消"）
@@ -101,22 +120,31 @@ static func update_bank(ac: Aircraft, delta: float) -> void:
 					int(rad_to_deg(heading_diff)), ac._log_unit_name(ac.combat_target)])
 		ac._committed_turn_sign = 0.0
 
-	# 过冲补偿
 	var stall_base_kmh: float = ac.params.stall_speed_base if ac.params else 220.0
 	var stall_at_g_ms: float = stall_base_kmh * pow(maxf(ac.g_load, 1.0), 0.4) / 3.6
 
-	if absf(ac.bank_angle) > 0.05 and absf(heading_diff) > 0.001:
-		var rr_val: float = ac.params.roll_rate if ac.params else 4.0
-		if ac.speed < stall_at_g_ms:
-			var ctrl_pre := clampf(ac.speed / maxf(stall_at_g_ms, 1.0), 0.1, 1.0)
-			rr_val *= ctrl_pre
-		var current_turn_rate := CombatUnit.GRAVITY * tan(ac.bank_angle) / maxf(ac.speed, 50.0)
-		var t_roll := absf(ac.bank_angle) / maxf(rr_val, 0.5)
-		var anticipated_change := current_turn_rate * t_roll * 0.5
-		if signf(anticipated_change) == signf(heading_diff):
-			var cap: float = absf(heading_diff) * 0.8
-			var sub: float = minf(absf(anticipated_change), cap) * signf(heading_diff)
-			heading_diff -= sub
+	# 当前实际转速（带符号），= PD 控制律的 D 项输入（协调转弯 ω = g·tan(bank)/v）
+	# 低通滤波破除"协调转弯下 ω 一帧跟上指令 → (−kd)^n 单帧交替"代数环（见 TURN_RATE_FILT_ALPHA）
+	var cur_v: float = maxf(ac.speed, 50.0)
+	var current_turn_rate: float = CombatUnit.GRAVITY * tan(ac.bank_angle) / cur_v
+	ac._turn_rate_filt = lerpf(ac._turn_rate_filt, current_turn_rate, TURN_RATE_FILT_ALPHA)
+	var damp_turn_rate: float = ac._turn_rate_filt
+
+	# 目标 LOS 角速度（前馈项）：追转弯目标时补偿稳态转速。
+	# 默认 PD_LOS_FF=0（前馈关闭，见常量注释）→ 跳过整段计算，零成本
+	var ff_los: float = 0.0
+	if PD_LOS_FF != 0.0:
+		if ac.target_position != Vector2.INF:
+			if not is_nan(ac._prev_tgt_heading_pd):
+				var raw: float = Aircraft._angle_diff(ac._cached_target_heading, ac._prev_tgt_heading_pd) / maxf(delta, 0.0001)
+				# 异常剔除：瞬移/AI 分频重指 lead 点产生的 LOS 尖刺远超物理转速 → 丢弃，保持上次滤波值（防前馈过冲）
+				if absf(raw) <= PD_LOS_SANE_CAP:
+					ac._los_rate_filt = lerpf(ac._los_rate_filt, clampf(raw, -PD_LOS_RATE_CAP, PD_LOS_RATE_CAP), PD_LOS_FILT_ALPHA)
+			ac._prev_tgt_heading_pd = ac._cached_target_heading
+		else:
+			ac._prev_tgt_heading_pd = NAN
+			ac._los_rate_filt = 0.0
+		ff_los = ac._los_rate_filt
 
 	# max_bank（直接调原版 max_bank_angle，避免 effective_max_g + _dynamic_safe_margin 重复 fetch）
 	var max_bank := max_bank_angle(ac)
@@ -129,25 +157,19 @@ static func update_bank(ac: Aircraft, delta: float) -> void:
 		var sustained_bank := acos(1.0 / maxf(turn_g, 1.01))
 		max_bank = minf(max_bank, sustained_bank)
 
-	var cb_full_diff: float = 0.0
-	var cb_half_diff: float = 0.0
-	if in_combat:
-		var cb := ac._combat_params()
-		cb_full_diff = cb.combat_full_bank_diff / cb.combat_bank_aggression
-		cb_half_diff = cb.combat_half_bank_diff / cb.combat_bank_aggression
+	# PD 增益：Kp 受战斗激进度缩放；Kd 随 roll_rate 反比（维持临界阻尼，慢滚机阻尼更大）
+	var roll_rate_base: float = ac.params.roll_rate if ac.params else 4.0
+	var aggression: float = ac._combat_params().combat_bank_aggression if in_combat else 1.0
+	var kp: float = PD_KP_BASE * aggression
+	var kd: float = clampf(PD_KD_SCALE / maxf(roll_rate_base, 0.5), PD_KD_MIN, PD_KD_MAX)
+	var deadzone: float = ac._combat_params().combat_half_bank_diff if in_combat else 0.02
+
 	var msl_phase_now: int = ac._get_missile_phase() \
 			if (in_combat and ac.weapon_mode == Aircraft.WeaponMode.MISSILE) else 0
 	var target_bank: float = compute_target_bank(
-			heading_diff, max_bank, in_combat,
+			heading_diff, damp_turn_rate, ff_los, cur_v, max_bank, in_combat,
 			ac.use_tactical_preference, ac.weapon_mode, msl_phase_now,
-			ac.formation_mode, ac._proximity_damping, cb_full_diff, cb_half_diff)
-
-	# Bank flip 守卫
-	if absf(ac.bank_angle) > BANK_FLIP_ESTABLISHED_RAD \
-			and signf(target_bank) != 0.0 \
-			and signf(target_bank) != signf(ac.bank_angle) \
-			and absf(heading_diff) < BANK_FLIP_COMMIT_RAD:
-		target_bank = 0.0
+			ac.formation_mode and not ac._formation_full_bank, ac._proximity_damping, deadzone, kp, kd)
 
 	# 失速回正
 	if ac.is_stalled:
@@ -520,11 +542,25 @@ static func air_density_ratio(ac: Aircraft) -> float:
 	return exp(-ac.altitude / AIR_DENSITY_SCALE_M)
 
 
-## 共享 target_bank 计算 —— 物理 update_bank 与预测线 draw_predicted_path 都用
-## 保证两者公式严格同源，避免预测路径与实际飞行轨迹"撕裂"
-## 调用方负责传入快照值（in_combat/weapon_mode/msl_phase 等）；helper 内不读 ac，纯函数
+## 共享 target_bank 计算 —— 临界阻尼 PD 控制（SEAM-012 根治，2026-06-07）
+## 物理 update_bank 与预测线 step_bank/draw_predicted_path 都用，保证公式严格同源。
+##
+## 控制律：target_turn_rate = kp·heading_diff − kd·current_turn_rate + ff·los_rate
+##         bank = atan(target_turn_rate · v / g)（协调转弯反推坡度）
+## ── kp·heading_diff 是位置(P)项：航向误差越大压坡越狠。
+## ── kd·current_turn_rate 是阻尼(D)项：当前转速越高越扣减目标转速 → 接近目标航向时自动
+##    提前滚出，从根上消除旧位置式(P)控制"航向过冲→翻号→来回"的欠阻尼极限环。
+## ── ff·los_rate 是前馈项：目标转弯(LOS 角速度≠0)时补偿稳态跟随转速，否则 D 项会与"跟上
+##    目标必需的转速"对抗 → 弛豫极限环（追内圈转弯目标尤甚）。
+## 因为命令的是"转速"再反推坡度，(g/v) 与 (v/g) 抵消 → 闭环阻尼与速度无关，跨机型/速度稳健。
+##
+## 模式只调三个旋钮：kp 缩放(激进度)/坡度上限比例(导弹阶段更柔)/死区(微误差不压坡)。
+## 纯函数：不读 ac；调用方传入快照值（in_combat/weapon_mode/msl_phase/kp/kd/los_rate/speed 等）。
 static func compute_target_bank(
 		heading_diff: float,
+		current_turn_rate: float,
+		los_rate: float,
+		speed: float,
 		max_bank: float,
 		in_combat: bool,
 		use_tactical_preference: bool,
@@ -532,60 +568,54 @@ static func compute_target_bank(
 		msl_phase: int,
 		formation_mode: bool,
 		proximity_damping: float,
-		combat_full_bank_diff: float,
-		combat_half_bank_diff: float) -> float:
-	var sgn: float = signf(heading_diff)
-	var abs_h: float = absf(heading_diff)
-
+		deadzone: float,
+		kp: float,
+		kd: float) -> float:
+	# 模式决定：Kp 缩放 / 坡度上限比例 / 死区 / 近距降坡
+	var kp_scale: float = 1.0
+	var cap_frac: float = 1.0
+	var dz: float = deadzone
+	var prox: float = 1.0
 	if in_combat:
-		# 战术偏好 / 机炮 / 导弹接近阶段共享激进 lerp 曲线
 		var aggressive_ok: bool = use_tactical_preference \
 				or weapon_mode != Aircraft.WeaponMode.MISSILE \
 				or msl_phase == 0
 		if aggressive_ok:
-			if abs_h < combat_half_bank_diff:
-				return 0.0
-			elif abs_h < combat_full_bank_diff:
-				var ratio: float = (abs_h - combat_half_bank_diff) / maxf(combat_full_bank_diff - combat_half_bank_diff, 0.001)
-				return sgn * max_bank * lerpf(0.4, 1.0, ratio)
-			else:
-				return sgn * max_bank
+			pass  # 满激进：kp_scale=1, cap=1
 		elif msl_phase == 1:
-			# 导弹照射阶段：稳定
-			if abs_h < 0.03:
-				return 0.0
-			return sgn * max_bank * clampf(abs_h * 3.0, 0.2, 0.6)
+			# 导弹照射阶段：稳定，柔和压坡
+			kp_scale = 0.7
+			cap_frac = 0.6
+			dz = maxf(dz, 0.03)
 		else:
-			# 导弹保持阶段（crank）：极稳定
-			if abs_h < 0.02:
-				return 0.0
-			return sgn * max_bank * clampf(abs_h * 2.0, 0.1, 0.35)
+			# 导弹保持(crank)：极稳
+			kp_scale = 0.5
+			cap_frac = 0.35
+			dz = maxf(dz, 0.02)
 	elif formation_mode:
-		if abs_h < 0.03:
-			return 0.0
-		elif abs_h < 0.2:
-			return sgn * max_bank * lerpf(0.3, 0.8, abs_h / 0.2)
-		else:
-			return sgn * max_bank * 0.9
+		# 注：编队 bank 现由 AircraftFormation 接管，此分支基本不触发
+		kp_scale = 0.9
+		cap_frac = 0.9
+		dz = maxf(dz, 0.03)
 	elif use_tactical_preference:
-		# 玩家巡航（点击移动）：最激进，忽略距离衰减
-		if abs_h < 0.02:
-			return 0.0
-		elif abs_h < 0.15:
-			var ratio: float = (abs_h - 0.02) / (0.15 - 0.02)
-			return sgn * max_bank * lerpf(0.5, 1.0, ratio)
-		else:
-			return sgn * max_bank
+		dz = maxf(dz, 0.02)  # 玩家点击巡航
 	else:
-		# 通用巡航：温和修正 + proximity_damping
-		var t_bank: float
-		if abs_h < 0.05:
-			t_bank = 0.0
-		elif abs_h < 0.4:
-			t_bank = sgn * max_bank * 0.3
-		else:
-			t_bank = sgn * max_bank
-		return t_bank * proximity_damping
+		# 通用巡航：近目标降坡（proximity_damping）
+		dz = maxf(dz, 0.05)
+		prox = proximity_damping
+
+	# P 项死区：航向误差很小就不再压坡（防微抖）；D 阻尼项始终生效 → 残余转速被吸收滚平。
+	var e: float = heading_diff if absf(heading_diff) >= dz else 0.0
+	var target_turn_rate: float = kp * kp_scale * e - kd * current_turn_rate
+	# LOS 前馈（默认 PD_LOS_FF=0 关闭，见常量注释 —— 实测各种形态均为害，保留管线待将来）：
+	# 仅"尾追对准"(误差小)时投入，门控 1@对准→0@大误差，避免硬转/跳变时过冲
+	if PD_LOS_FF != 0.0:
+		var ff_gate: float = 1.0 - smoothstep(0.08, 0.35, absf(heading_diff))
+		target_turn_rate += PD_LOS_FF * los_rate * cap_frac * ff_gate
+	# 协调转弯反推坡度：bank = atan(ω · v / g)
+	var bank_cmd: float = atan(target_turn_rate * speed / CombatUnit.GRAVITY)
+	var cap: float = max_bank * cap_frac
+	return clampf(bank_cmd, -cap, cap) * prox
 
 
 ## max_bank 系列共享的"安全余量"。零 buff = 1.2；BLOODLUST/被锁恐慌时降到 1.0
@@ -1127,22 +1157,28 @@ static func step_bank(st: FlightState, delta: float) -> void:
 					int(rad_to_deg(heading_diff)), st.ac._log_unit_name(st.ac.combat_target)])
 		st.committed_turn_sign = 0.0
 
-	# 过冲补偿（critical damping）
 	var stall_base_kmh: float = st.ac.params.stall_speed_base if st.ac.params else 220.0
 	var stall_at_g_ms: float = stall_base_kmh * pow(maxf(st.g_load, 1.0), 0.4) / 3.6
 
-	if absf(st.bank_angle) > 0.05 and absf(heading_diff) > 0.001:
-		var rr_val: float = st.ac.params.roll_rate if st.ac.params else 4.0
-		if st.speed < stall_at_g_ms:
-			var ctrl_pre := clampf(st.speed / maxf(stall_at_g_ms, 1.0), 0.1, 1.0)
-			rr_val *= ctrl_pre
-		var current_turn_rate := CombatUnit.GRAVITY * tan(st.bank_angle) / maxf(st.speed, 50.0)
-		var t_roll := absf(st.bank_angle) / maxf(rr_val, 0.5)
-		var anticipated_change := current_turn_rate * t_roll * 0.5
-		if signf(anticipated_change) == signf(heading_diff):
-			var cap: float = absf(heading_diff) * 0.8
-			var sub: float = minf(absf(anticipated_change), cap) * signf(heading_diff)
-			heading_diff -= sub
+	# 当前实际转速（带符号），= PD 控制律的 D 项输入（低通破单帧代数环，与 update_bank 同源）
+	var cur_v: float = maxf(st.speed, 50.0)
+	var current_turn_rate: float = CombatUnit.GRAVITY * tan(st.bank_angle) / cur_v
+	st.turn_rate_filt = lerpf(st.turn_rate_filt, current_turn_rate, TURN_RATE_FILT_ALPHA)
+	var damp_turn_rate: float = st.turn_rate_filt
+
+	# 目标 LOS 角速度前馈（与 update_bank 同源）；默认关闭则跳过，零成本
+	var ff_los: float = 0.0
+	if PD_LOS_FF != 0.0:
+		if st.target_position != Vector2.INF:
+			if not is_nan(st.prev_tgt_heading_pd):
+				var raw: float = Aircraft._angle_diff(st.cached_target_heading, st.prev_tgt_heading_pd) / maxf(delta, 0.0001)
+				if absf(raw) <= PD_LOS_SANE_CAP:
+					st.los_rate_filt = lerpf(st.los_rate_filt, clampf(raw, -PD_LOS_RATE_CAP, PD_LOS_RATE_CAP), PD_LOS_FILT_ALPHA)
+			st.prev_tgt_heading_pd = st.cached_target_heading
+		else:
+			st.prev_tgt_heading_pd = NAN
+			st.los_rate_filt = 0.0
+		ff_los = st.los_rate_filt
 
 	# max_bank（state-aware：prediction 走 cached_max_g/safe_margin，real tick 走 lazy）
 	var stall_base_ms: float = stall_base_kmh / 3.6
@@ -1158,25 +1194,19 @@ static func step_bank(st: FlightState, delta: float) -> void:
 		var sustained_bank := acos(1.0 / maxf(turn_g, 1.01))
 		max_bank = minf(max_bank, sustained_bank)
 
-	var cb_full_diff: float = 0.0
-	var cb_half_diff: float = 0.0
-	if in_combat:
-		var cb := st.ac._combat_params()
-		cb_full_diff = cb.combat_full_bank_diff / cb.combat_bank_aggression
-		cb_half_diff = cb.combat_half_bank_diff / cb.combat_bank_aggression
+	# PD 增益（与实物理 update_bank 严格同源）
+	var roll_rate_base: float = st.ac.params.roll_rate if st.ac.params else 4.0
+	var aggression: float = st.ac._combat_params().combat_bank_aggression if in_combat else 1.0
+	var kp: float = PD_KP_BASE * aggression
+	var kd: float = clampf(PD_KD_SCALE / maxf(roll_rate_base, 0.5), PD_KD_MIN, PD_KD_MAX)
+	var deadzone: float = st.ac._combat_params().combat_half_bank_diff if in_combat else 0.02
+
 	var msl_phase_now: int = st.ac._get_missile_phase() \
 			if (in_combat and st.ac.weapon_mode == Aircraft.WeaponMode.MISSILE) else 0
 	var target_bank: float = compute_target_bank(
-			heading_diff, max_bank, in_combat,
+			heading_diff, damp_turn_rate, ff_los, cur_v, max_bank, in_combat,
 			st.ac.use_tactical_preference, st.ac.weapon_mode, msl_phase_now,
-			st.ac.formation_mode, st.proximity_damping, cb_full_diff, cb_half_diff)
-
-	# Bank flip 守卫
-	if absf(st.bank_angle) > BANK_FLIP_ESTABLISHED_RAD \
-			and signf(target_bank) != 0.0 \
-			and signf(target_bank) != signf(st.bank_angle) \
-			and absf(heading_diff) < BANK_FLIP_COMMIT_RAD:
-		target_bank = 0.0
+			st.ac.formation_mode and not st.ac._formation_full_bank, st.proximity_damping, deadzone, kp, kd)
 
 	# 失速回正
 	if st.is_stalled:

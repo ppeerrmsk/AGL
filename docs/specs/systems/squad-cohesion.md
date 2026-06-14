@@ -1,7 +1,7 @@
 ---
 id: squad-cohesion
 kind: system
-status: draft
+status: in-progress   # 阶段 1-3 + 阶段 4 主体已落地；剩联调/调参/§5 playtest → done
 schema_version: 1
 spec_version: 1
 owner: noelu
@@ -115,6 +115,29 @@ FREE 模式：维持现状（自由扫描就近交战），但**仍受 §2.2 lea
 - 自由机指派复用 escort 守后基础设施（已节流）。
 - 验收必跑 Sentinel + Lv5+ 满编队压测。
 
+### 3.6 阵型槽位双频率架构（实时跟随，消除"慢一拍"）★
+
+**问题**：玩家频繁点地图下移动指令时，僚机跟随滞后、阵型拖泥带水。根因是槽位更新有两条脱节频率：
+- 旧实现在 **AI 分频 tick（~10~20Hz）** 算槽位 `leader.pos + offset.rotated(leader.heading)`，写成一个**冻结的世界坐标死点**；
+- 60Hz 的编队跟随逻辑读的就是这个死点。长机转弯/平移时，正确槽位应随长机机体系实时旋转，僚机却要等下一个 AI tick 才更新 → 50~100ms 内追"过去的槽位"。
+
+**架构**：把槽位拆成两部分，分别在各自合适的频率更新：
+
+| 部分 | 内容 | 频率 | 位置 |
+|---|---|---|---|
+| **慢变（committed 偏移）** | 用哪个阵型、第几槽（长机本地系偏移，未旋转） | AI tick（~10~20Hz） | squad_coordination 写 `_formation_offset_committed`；换阵型时经 react 延迟错落采纳 |
+| **快变（世界槽位）** | committed 偏移旋进**长机当前机体系**得世界坐标 | **每物理帧 60Hz** | AircraftFormation 跟随逻辑每帧实时算，长机一动全队同帧跟动 |
+
+**优雅性**（俯视下玩家全程可见，要真实编队的优雅，不靠强扭轨迹）：实时槽位本身让僚机靠既有 bank/盘旋自然到位，因此：
+- 旧"延迟+突跳伪造曲线"机制自动失效（曲线由实时槽位 + 物理 bank 自然产生）。
+- 旧"直接挪坐标"的归位修正降级为**稳态亚像素吸附**（仅"几乎到位 + 稳态巡航"时清残差，肉眼不可见）；动态归位全交给真实转弯。
+
+**范围**：改在共享编队跟随层（无 team 分叉），**友机与敌机编队同时生效**。
+
+**性能**：每帧每僚机仅新增 1 次向量旋转 + 回写，无分配、无全场扫描。
+
+**不破坏历史编队 bug 修复**：leader-frame 槽位（防方位角摆动）、bank 翻转守卫、leader-bank 混合、roll/turn rate-limit、速度 clamp 全部不动；实时槽位让槽位距离更连续（不再每 AI tick 阶跃），分支边界穿越反而减少。
+
 ## 4. 结构与组成（Structure）
 
 | 组成 | 角色 | 新增/改动 |
@@ -175,6 +198,7 @@ FREE 模式：维持现状（自由扫描就近交战），但**仍受 §2.2 lea
 | anti-pile-on 条件化 | `scripts/ai/squad_coordination.gd`（_is_target_already_squad_engaged 调用处） |
 | 建队默认模式 | `squad_factory.gd` / `survivor_mode.gd` / 敌方建队处 |
 | 敌方成建制（杂鱼 ≥2 编队） | `scripts/survivor/survivor_spawner.gd`（_spawn_wave min_squad_size 恒 2；单机精英走 spawn_as_single） |
+| 阵型槽位双频率（实时跟随，§3.6） | 慢变写：`scripts/ai/squad_coordination.gd`（process_squad_follow → `_formation_offset_committed`）+ `scripts/ai_controller.gd`（字段）；快变读：`scripts/aircraft/aircraft_formation.gd`（`_build_context` 实时旋转 + `_update_position` 稳态吸附）；槽位源 `scripts/squad.gd`（get_formation_offset） |
 
 ## 8. 变更记录
 
@@ -186,3 +210,6 @@ FREE 模式：维持现状（自由扫描就近交战），但**仍受 §2.2 lea
 | 2026-05-31 | 1 | **新增第三交战模式 GUARD_REAR（守护后方）**（用户需求）：长机进攻、僚机专职守长机后半球、只打后半球威胁。HUD「交战模式」按钮由二态改**三态循环**。复用 scan_leader_rear（加 anti-pile-on 分摊）+ 新 `_enter_autonomous_engage` 共用入口。i18n: SQUAD_ENGAGE_GUARD / TACTIC_GUARD_REAR 三语。这是 escort/cohesion 阶段3"守后"的**玩家可选整队学说**版本（区别于自动指派单机守后）。 |
 | 2026-05-31 | 1 | **战术=阵型 + 阵型系统重构**（用户决策）：①废弃玩家手动切阵型（删 HUD 阵型按钮 + KEY_5）；交战模式直接绑定阵型（自由→Combat Spread / 跟随→Finger Four / 守后→Wedge，`Squad.formation_for_engage_mode`）。②敌方杂鱼 `_spawn_squad` 登场随机阵型（除 Trail 外，`Squad.random_formation`），**只换站位行为不变**；精英/Boss 显式固定不进随机。③FREE 搜索范围 2000→800px（后又调 3km=1500px）。Trail 现无人使用。 |
 | 2026-05-31 | 1 | **阶段 3 自由机互掩**（用户：更有战术感）：FOLLOW_LEADER 焦点打飞机(非 BOSS)且 ≥2 僚机时，squad_index 最大的一架转"自由机"守长机后半球（`_should_be_free_fighter` + `_guard_rear_tick` 复用 GUARD_REAR）；地/船/BOSS 饱和不留。瞬态自愈。**阶段 4 zone_mission**：凝聚已由默认继承，补随机阵型；随机奖励目标无 AI 跳过、flock 暂不动。 |
+| 2026-06-07 | 1 | **状态对齐**（status draft→in-progress）：核对确认阶段 1-3 + 阶段 4 主体（敌方杂鱼成建制 / zone_mission 随机阵型）均已落地（commit 04a7a44）。**阶段 4 未尽项**：与 squad-ai-escort / squad-control-switching 三方联调（leash × leader_changed × 守后无竞态）、SQUAD_LEASH_DIST / 自由机数量调参、跑 §5 全部验收 + 性能压测——均为 playtest 项，未代跑。验收通过后转 done。 |
+| 2026-06-07 | 1 | **机身颤抖多层根治 + 无头测试 harness**：编队 bank 改"转向速率驱动协调转弯"(替代 leader-bank 镜像，消除原地打滚)；分支迟滞 + bias 死区 + target_heading/bank EMA(消除小幅 flutter)；LOD0 补 formation 分支(屏内僚机终于走 update_follow)；战斗侧 compute_target_bank 台阶→连续斜坡 + 过冲补偿改滚出精确积分临界阻尼 + combat_full_bank_diff 放宽；clear_formation 清 target_position；规避承诺 break 方向；leash 拽回设冷却；formation 分支补 flare 更新。新增 `test_turn_physics.gd`(无头量化 bank 反转) + `--bench=demo`(自动战斗可视)。残留：慢速机激进缠斗欠阻尼大坡反转(SEAM-012，待 PD 重设计)。详见 changelogs/2026-06-07-bank-twitch-rootfix-and-test-harness.md。 |
+| 2026-06-07 | 1 | **新增 §3.6 阵型槽位双频率架构（实时跟随，消除慢一拍）**（用户反馈：玩家频繁点地图时僚机慢一拍、阵型拖泥带水；要真实编队的优雅，不靠强扭轨迹）。改 `aircraft_formation.gd:_build_context` 槽位来源：冻结 `target_position` → 每帧 `_formation_offset_committed.rotated(leader.heading)` 实时算（squad_coordination 在 AI tick 写 committed 偏移 + 回写 target_position 保一致）。优雅性：去两处非物理强扭——"突跳伪造曲线"自动失效（订正注释）、`_update_position` 直接挪坐标降级为稳态亚像素吸附（FORM_SETTLE_DIST=25 / STRENGTH=0.15）。共享层 → 友/敌同时生效。历史 10 bug 修复结构零触碰。**首轮（核心修复）；"协调盘旋"增强延后调参阶段**。待 §5 playtest 验收。详见 changelogs/2026-06-07-formation-realtime-slot.md。 |

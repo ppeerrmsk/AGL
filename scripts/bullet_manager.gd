@@ -626,6 +626,9 @@ func _physics_process(delta: float) -> void:
 				var evt_tag := "ROCKET" if is_rocket else "GUN"
 				EventLogger.log_event(evt_tag, src_name,
 					"hit %s (dmg=%.1f)" % [tgt_name, actual_dmg])
+				# 战报：机炮命中计数（火箭弹不计入机炮命中率）
+				if not is_rocket:
+					EventLogger.tally(src_name, "gun_hits")
 				# 归因：把射手写到目标 meta，aircraft._record_kill_attribution 在致死时读取
 				if is_instance_valid(b["source"]) and ac is Aircraft:
 					ac.set_meta("_pending_attacker", b["source"])

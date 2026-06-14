@@ -253,6 +253,109 @@ BOSS 只识别 JAM，其它状态仅对 Aircraft 生效"。但 NavalUnit 实现�
 
 ---
 
+## SEAM-011 · 编队槽位"AI 分频写 / 物理 60Hz 读"双频率，写读必须解耦
+
+**症状**：僚机编队跟随"慢一拍"——玩家频繁点地图、长机持续转弯时，僚机追的是上一个 AI tick
+的旧槽位，阵型拖泥带水。把任何"随长机机体实时变化"的量缓存成 AI-tick 死点都会复现。
+
+**根因**：槽位有**慢变**（用哪个阵型/第几槽，AI tick 决定就够）和**快变**（offset 旋进长机
+当前机体系的世界坐标，必须 60Hz 跟）两部分。旧实现在 `squad_coordination.gd:process_squad_follow`
+（AI 分频 ~10~20Hz）把两者**一起**算成冻结的 `ac.target_position`，而 60Hz 的
+`aircraft_formation.gd:_build_context` 读这个死点 → 快变部分被钉在 AI tick 频率上。
+
+**踩到次数**：1（2026-06-07 首次显式登记）
+
+**解法**（2026-06-07）：写读解耦——
+- **慢变**：`process_squad_follow` 在 AI tick 写 `AIController._formation_offset_committed`（长机本地系偏移，
+  未旋转）；`set_formation_target(leader, INF)` 不再写冻结世界槽位。
+- **快变**：`_build_context` 每物理帧实时 `slot_pos = leader.pos + committed.rotated(leader.heading)` +
+  回写 `target_position` 保一致。无 committed 守卫回退旧值（下游 INF 安全平飞）。
+
+**约束**：以后任何"飞机相对长机/相对世界、且长机在动"的派生量（槽位 / 守后拦截位 / 相对锚点），
+**别在 AI 分频 tick 缓存成世界坐标死点**；缓存"相对/本地系不变量"，世界坐标留到物理帧实时旋转。
+详见 [squad-cohesion §3.6](../specs/systems/squad-cohesion.md) + changelogs/2026-06-07-formation-realtime-slot.md。
+
+---
+
+## SEAM-012 · 战斗转弯控制器欠阻尼 —— 激进机动时机身大坡反转颤抖
+
+**症状**：飞机硬转 / 追击机动目标 / 躲弹归队时机身剧烈来回压坡（bank ±70°）。慢速机（F-86，cruise 700）
+最明显。表现为 bank 在目标方位附近反复过冲反转。
+
+**根因**：`aircraft_physics.gd` 的转弯控制（`update_bank` → `compute_target_bank` + `update_heading`）
+本质是**欠阻尼**的位置式（P）控制：bank 追 heading_diff，但缺有效的速度阻尼（D）项，高 bank 时航向过冲
+目标 → heading_diff 翻号 → target_bank 翻号 → 来回。多个放大器叠加：①`compute_target_bank` 硬台阶
+②`combat_full_bank_diff` 太小（小误差就满坡度）③过冲补偿近似失真且被 cap 卡死。
+
+**踩到次数**：1（2026-06-07 系统排查，分 ~7 层补丁）
+
+**第一轮（治标，2026-06-07）**：台阶→连续斜坡；`combat_full_bank_diff` 放宽；过冲补偿改滚出航向精确积分
+`(G/v)·t_roll·(-ln(cosB)/B)` + 临界阻尼式扣减。把"每帧猛翻 buzz"从 501 次/局压到个位数。
+
+**第二轮（治本=根治，2026-06-07）**：把 `compute_target_bank` 整个重写成**临界阻尼 PD 控制**：
+`target_turn_rate = kp·heading_diff − kd·current_turn_rate`，`bank = atan(target_turn_rate·v/g)`（协调转弯反推）。
+位置式(P)缺失的速度阻尼(D)项接近目标航向时自动提前滚出，从根上消除"过冲→翻号→来回"。
+删除所有治标补丁：bank-flip 守卫 / target_bank 翻转去抖 / 滚出精确积分过冲补偿全部移除。
+
+**实现要点（踩坑记录，改这块前必看）**：
+1. **命令转速再反推坡度**：(g/v) 与 (v/g) 抵消 → 闭环阻尼与速度无关，跨机型/速度稳健。这是用 turn_rate
+   命令而非直接 heading→bank 映射的关键好处。
+2. **D 项必须低通**（`TURN_RATE_FILT_ALPHA`）：协调转弯下 ω 几乎一帧跟上指令，直接反馈裸 ω 形成单帧
+   代数环 `ω_n = kp·e − kd·ω_{n-1}` → `(−kd)^n` 每帧交替 Nyquist 抖。低通到 ~3 帧时间常数破环。
+3. **kd 随 roll_rate 反比**（`kd = clamp(PD_KD_SCALE/roll_rate, …)`）：慢滚机阻尼更大维持临界阻尼。
+4. **LOS 前馈试过但关掉**（`PD_LOS_FF=0`）：理论上尾追转弯目标(e≈0 仍需稳态转速)需要它，否则同向
+   bank 幅度"呼吸"；但无头扫参实测在离散物理 + AI 分频跳变参考下前馈尖刺过冲恒为害。管线保留待将来抗跳变 LOS 估计。
+5. **度量要分清"符号反转"vs"同向呼吸"**：用户抱怨的"大坡反转"是 bank 过零硬翻（左↔右），不是同向幅度脉动。
+   harness 两个指标都报。PD 把**符号反转**全场景压到 ≤2（根治目标达成）；残留的是同向呼吸（追内圈出转目标时
+   的结构性弛豫，非用户痛点）。盲优化"总反转"会被同向呼吸误导（本轮实测教训）。
+
+调参旋钮全在 `aircraft_physics.gd` 顶部 `PD_*` static var（用 static 方便 harness 扫参）；逐机型经
+`combat_bank_aggression`(→kp 缩放) 透传。验证：`godot --headless --path . -- --bench=turn_physics`
+（看"符号反转"列，全场景 ≤2）；扫参 `--pd-sweep`；可视 `--bench=demo`。
+详见 changelogs/2026-06-07-bank-twitch-rootfix-and-test-harness.md。
+
+**约束**：以后改任何"飞机追目标/航点的转弯"逻辑，先用 harness 量化**符号反转**（≤2），别靠肉眼，也别用
+同向呼吸总数误导自己。`update_bank`（实物理）与 `step_bank`（预测线）两份必须同步改，否则预测路径撕裂。
+
+---
+
+## SEAM-013 · 战术追踪点"子 intent 抖动" —— crank 侧选择无滞回致长机原地摇摆打转
+
+**症状**：长机（含玩家方 planner 机）对**近似共线 / 对头**的机动目标交战时，机身在 ±60~84° 坡度间
+反复硬翻，**航向几乎不动**（hdg 漂移 < 5°），看上去"不停滚转、原地打转"，却打不出有效转弯。
+日志特征：`AC_TICK` 里 `bnk` 大幅左右翻（如 +82°→−71°→+84°），但 `tp_brg`（到追踪点方位）极小（±1~7°）。
+（2026-06-13 日志 Warhound[Ultra] 24~30s / 106~114s 多段复现。）
+
+**根因（与 SEAM-012 不同层）**：SEAM-012 已证明 bank **控制器**本身临界阻尼、平滑（turn_physics 全场景
+符号反转 ≤2）。本 seam 是**喂给控制器的参考点在抖**：
+1. `bfm_intent._missile_engage_pos` 的 crank 侧每帧按 `ccw_align > cw_align` 重选，**无滞回**。目标接近
+   正前方 / crank 决策边界时两侧 align 几乎相等，单帧噪声就让 crank 侧翻号 → 追踪点在机身两侧
+   ±5000px(=10000m) 之间瞬移 → 参考航向大幅摆 → 平滑控制器忠实追摆 → 大坡来回。
+2. 顶层 `TacticalPlanner` 有 intent 滞回（`HYSTERESIS_MIN_HOLD=0.5s`），但只防"换 intent"，**管不住
+   同一 intent 内追踪点的左右跳**——抖动是 sub-intent 的，滞回看不见。
+3. 叠加诱因：`merge_pass`/`lead_pursuit` 的"目标急转 bank>60° 则替代 MERGE_PASS"覆写，会随**目标自己**
+   摇摆的 bank 跨 60° 阈值而 toggle，进一步给追踪点换边。
+
+**踩到次数**：1（2026-06-13 武器有效性排查时顺带定位）
+
+**解法状态：已根治（2026-06-13）**。`_missile_engage_pos` 的离散选侧（`ccw if ccw_align>cw_align else cw`）
+换成**连续 clamp**：`aim_hdg = los_hdg + clamp(nose_off, ±crank_deg)`，瞄准点 = 该航向 5000px 处。
+- nose_off=0（正对目标）→ aim=LOS，无 crank；
+- |nose_off|<crank_deg → aim=机头当前方向（顺势直飞）；
+- |nose_off|>crank_deg → crank 封顶在 LOS 偏 crank_deg（朝机头侧，维持锁不过冲）。
+nose_off 过零时 aim 连续穿过 LOS，**没有"侧"可翻** → 从根上消除瞬移。语义不变（仍朝机头侧 crank、
+封顶 crank_deg、维持雷达锁），只是把"满 crank 离散二选一"改成"0~crank_deg 连续偏置"。纯函数、无状态。
+
+**验证**：`scripts/tests/test_weapon_behavior.gd` 加测试 D（经 `--bench=weapon`）：让 nose_off 从 +20°
+扫到 −20°，量化相邻步进的 aim 航向跳变。修复后 **翻号=0、最大相邻步进 1.0°**（修复前过零处会 ~30° 跳）。
+论证闭合：连续参考（本修复）+ 临界阻尼控制器（SEAM-012 已证 turn_physics 符号反转 ≤2）= 无摇摆。
+
+**约束（再动这块时）**：改 `_missile_engage_pos` 不要触碰 SEAM-012 的 `update_bank`/`step_bank`；
+继续用 `--bench=weapon` 的测试 D 守"无翻号"，别靠肉眼。`merge_pass` 的"目标 bank>60° 替代"覆写仍是
+潜在二级诱因（目标摇摆传导成本机换 intent），如再现摇摆可给该阈值加滞回带。
+
+---
+
 ## 维护约定
 
 - 修 bug 时撞到地基 → 先来这里看是否已记。已记 → 票数 +1，可能升级到 refactor 优先级。

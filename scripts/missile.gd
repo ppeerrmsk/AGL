@@ -16,6 +16,7 @@ var age: float = 0.0         ## 存活时间
 var is_active: bool = true
 var has_guidance: bool = true
 var is_flare_jammed: bool = false  ## 被热诱弹干扰，永久失去制导
+var _guidance_ever_lost: bool = false  ## 飞行中曾丢制导(出 FOV/照射中断)——脱靶日志区分"末段丢锁"vs"全程制导仍脱靶"
 var bounces_remaining: int = 0     ## 剩余弹跳次数（连锁弹头进化）
 var proximity_aoe: bool = false    ## 近炸引信：爆炸时产生 AOE 区域
 
@@ -145,7 +146,7 @@ func _physics_process(delta: float) -> void:
 
 	# 1) 存活时间检查 → 进入渐隐 coasting，而不是瞬间消失
 	if age > params.max_lifetime:
-		_start_fade_out()
+		_start_fade_out("寿命耗尽")
 		return
 
 	# 2) 动力阶段
@@ -159,7 +160,7 @@ func _physics_process(delta: float) -> void:
 
 	# 3) 能量耗尽（发动机燃烧阶段跳过，允许地面发射的低初速导弹加速）→ 渐隐
 	if speed < 80.0 and age >= params.motor_burn_time:
-		_start_fade_out()
+		_start_fade_out("能量耗尽")
 		return
 
 	# ── 解析目标状态（优先从 MissileManager 帧快照读，未命中走直接属性）──
@@ -238,6 +239,7 @@ func _physics_process(delta: float) -> void:
 			var off := absf(_angle_diff(tgt_angle, heading))
 			if off > deg_to_rad(params.seeker_fov * 0.5):
 				has_guidance = false
+				_guidance_ever_lost = true  # 标记末段丢锁（脱靶日志据此归类）
 
 	# 5) 制导
 	if has_guidance and t_valid and age > params.guidance_delay:
@@ -305,12 +307,48 @@ func _physics_process(delta: float) -> void:
 
 ## 进入渐隐滑行状态：寿命到期 / 能量耗尽时调用，替代瞬间 is_active=false。
 ## 命中爆炸路径不走这里（MissileManager 直接 queue_free，由 ExplosionVFX 替代视觉）
-func _start_fade_out() -> void:
+func _start_fade_out(reason: String = "") -> void:
 	if _fading_out:
 		return
 	_fading_out = true
 	_fade_timer = FADE_OUT_DURATION
+	# ── 脱靶/失效日志：命中由 MissileManager 直接 queue_free，不经此处 → 每次 fade 必是未命中 ──
+	_log_miss(reason)
 	has_guidance = false  # 渐隐期间不再做任何制导
+
+## 记录一次"导弹未命中即消失"，并归类原因（让"射空"在日志里可见——
+## 否则一枚丢锁的弹是静默消失的，正是 team_inbound 幽灵封锁那类 bug 难发现的根源）。
+func _log_miss(reason: String) -> void:
+	var msl_name: String = params.display_name if params else "MSL"
+	var src_name: String = _unit_name(source)
+	var cause: String = reason
+	var tgt_name: String = "?"
+	if not is_instance_valid(target) or target == null:
+		cause = "目标已消失"
+	elif target.is_destroyed:
+		tgt_name = _unit_name(target)
+		cause = "目标已被摧毁(火力浪费)"
+	else:
+		tgt_name = _unit_name(target)
+		if is_flare_jammed:
+			cause = "热诱弹干扰" + ("/" + reason if reason != "" else "")
+		elif _guidance_ever_lost:
+			cause = "末段丢锁(出导引头FOV)" + ("/" + reason if reason != "" else "")
+	EventLogger.log_event("MISSILE", src_name if src_name != "" else msl_name,
+			"%s 脱靶 → %s (%s)" % [msl_name, tgt_name, cause])
+	if src_name != "":
+		EventLogger.tally(src_name, "msl_miss")
+
+## 把单位格式化成 "Friend/F-14[Solar]" 风格名（与 GUN/MISSILE hit 日志一致）
+func _unit_name(unit) -> String:
+	if not is_instance_valid(unit) or unit == null:
+		return ""
+	if unit is Aircraft and unit.params:
+		var side := "Friend" if unit.team == 0 else "Enemy"
+		return "%s/%s[%s]" % [side, unit.params.display_name, unit.callsign]
+	if "callsign" in unit and unit.callsign != "":
+		return String(unit.callsign)
+	return String(unit.name)
 
 ## ════════════════════════════════════════════════════════════
 ##  VLS 三段式弹道（阶段 1 VERTICAL + 阶段 2 TRANSITION）

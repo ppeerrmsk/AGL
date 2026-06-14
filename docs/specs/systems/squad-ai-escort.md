@@ -1,7 +1,7 @@
 ---
 id: squad-ai-escort
 kind: system
-status: draft
+status: draft   # 仅阶段 1-2（反杀+评分）落地；阶段 3 守后半球未在 escort 接线（行为由 squad-cohesion 的 GUARD_REAR/自由机覆盖），阶段 4-5 未做
 schema_version: 1
 spec_version: 1
 owner: noelu
@@ -209,3 +209,4 @@ RTS 化要求僚机像"小队"而非"散兵"。本 spec 给玩家小队僚机注
 |---|---|---|
 | 2026-05-30 | 1 | 初稿（draft）：僚机护卫三目标（护长机/反杀攻击者/守后半球）。决策定型：护卫优先但不死板 / 指派一机占位守后 / **先只玩家队、架构留口**（接口不绑 team，开敌方仅需打开反查维护开关）。固化切换自愈（守护者瞬态键于当前长机 + leader_changed 重算 + 跳过 manual_control）与 engaging_me 定向扩展（本轮仅 team0 写入避免 O(N²)，留集中开关）。待 review → approved。 |
 | 2026-05-31 | 1 | **派生代码 §6 阶段 1-2**（目标 1+2 + 切换自愈）：`Squad.escort_doctrine_enabled` 字段 + 玩家队/F-47/Mother Goose 建队打开；engaging_me 维护由 `team==0` **加性扩展**到 `_maintains_engaging_me`（team0 OR 护卫编队，保留 team0 技能反向索引）；`is_escort_wingman` + `escort_target_bonus` 接入 scan_squad_nearby_enemy / try_engage / reevaluate_target。**阶段 3-5 未做**（守后半球未接线、待 playtest 调参 ATTACKING_LEADER_BONUS=60/PROXIMITY=25）。详见 changelogs/2026-05-31-squad-ai-escort-1-2.md。 |
+| 2026-06-07 | 1 | **状态复核（维持 draft）**：本 spec 仅阶段 1-2 落地，**阶段 3「后半球守护者」从未在 escort 自身接线**——该"守后"行为实际由 [squad-cohesion](squad-cohesion.md) 的 `GUARD_REAR` 模式 + 自由机互掩（`_should_be_free_fighter`/`_guard_rear_tick`/`scan_leader_rear`）以另一条路径实现，二者共用 `scan_leader_rear` 基础设施。阶段 4-5（联调 + 验收调优）亦未做。故**不标 done**，保持 draft。后续二选一：①承认守后已由 cohesion 覆盖 → escort 阶段 3 改 superseded-by-cohesion 后转 done；②在 escort 内补独立的"单机自动守护者"指派（区别于 cohesion 的整队 GUARD_REAR）。待用户定夺。 |

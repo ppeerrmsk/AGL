@@ -79,7 +79,7 @@
 | `survivor/boss_debug_select.gd` | Boss Debug — BOSS 选择界面 | [生存/Debug] 列出可测试 BOSS（与 BossRegistry.BOSS_DEFS 同步），选中 → set_meta(boss_debug_mode/_id) → survivor_select；空白无地图渲染 + 自动 15 级 + 主题化随机 build + 进场即 PRE_STAGE | `BOSS_LIST:18` `_build_boss_card` `_on_boss_selected` |
 | `survivor/boss_debug_builds.gd` | `BossDebugBuilds extends RefCounted` | [生存/Debug] 主题化随机 build roller（5 主题：missile/gun/status/low_alt/high_alt）；尊重 max_stacks / requires / excludes / requires_skill | `THEMES:13` `roll_build(level, aircraft_id, params)` `roll_for_theme_name` |
 | `debug_panel.gd` | 调试面板 | [沙盒] 状态文本/飞行员信息/生成按钮 | `_get_strategy_text:266` `_get_combat_strategy:303` `_get_pilot_info:318` |
-| `event_logger.gd` | EventLogger (AutoLoad) | [共享] 全局事件环形日志 | `log_event:22` `dump_to_file:31` |
+| `event_logger.gd` | EventLogger (AutoLoad) | [共享] 全局事件环形日志 + 本局战报累计 | `log_event` `dump_to_file` `tally(subject,key,n)` `reset_stats` `format_stats_summary`（F9 末尾追加 KILL/脱靶/命中率汇总） |
 | `callsign_db.gd` | CallsignDB (AutoLoad) | [共享] 呼号分配+回收 | `allocate` / `release` |
 | `locale_manager.gd` | LocaleManager (AutoLoad) | [共享] i18n 控制：启动读 user://locale.cfg（zh/en/ja），主菜单按钮切换+持久化+重载场景 | `_ready` `set_locale_persistent(code)` `get_current_locale()` `trm(key)` — 详见 [docs/reference/i18n.md](i18n.md) |
 | `audio/audio_manager.gd` | AudioManager (AutoLoad) | [共享] 音频总控：4 条 Bus（Music/SFX/UI/Radio）程序化创建，SFX 挂远距无线电效果链；32 SFX 池，屏幕外静音；双播放器 crossfade；playlist 轮播；菜单 muffle；玩家引擎环境音 | `play_music` `stop_music` `crossfade_music` `play_music_playlist` `set_music_muffled` `play_sfx_2d` `play_ui` `set_bus_volume_linear` `start_player_engine` `save_settings` — 详见 [docs/systems/audio.md](../systems/audio.md) |

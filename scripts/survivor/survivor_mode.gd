@@ -126,12 +126,19 @@ var _bench_scenario: String = ""
 var _bench_duration: float = 30.0
 var _bench_elapsed: float = 0.0
 var _bench_finished: bool = false
+## demo 模式：复用 bench 的"玩家挂AI+force-spawn敌机+相机跟随"，但渲染运行、不退出、
+## 持续补充敌人——供肉眼观察物理/表现/小队战术（2026-06-07）
+var _bench_demo: bool = false
+var _bench_demo_topup_timer: float = 0.0
 
 func _ready() -> void:
 	# 确保 SurvivorMode 在所有子节点（含 AI 控制器）之前执行
 	# 这样 _f47_assign_roles 设置的 boss_attacker 等标志在 AI 运行时已经生效
 	process_priority = -10
 	process_physics_priority = -10
+
+	# 新一局开始：清空上一局的战报累计统计（击坠/命中/脱靶），避免跨局污染 F9 战报汇总
+	EventLogger.reset_stats()
 
 	# Boss Debug meta 必须在所有渲染器/边界初始化之前读取（决定后续是否跳过 MapFeatureRenderer）
 	if get_tree().has_meta("boss_debug_mode"):
@@ -151,6 +158,9 @@ func _ready() -> void:
 	if get_tree().has_meta("bench_duration"):
 		_bench_duration = float(get_tree().get_meta("bench_duration"))
 		get_tree().remove_meta("bench_duration")
+	if get_tree().has_meta("bench_demo"):
+		_bench_demo = bool(get_tree().get_meta("bench_demo"))
+		get_tree().remove_meta("bench_demo")
 
 	# Boss Debug 模式：把空白背景调到柔和深色（默认黑底太刺眼），与海岸线地图颜调一致
 	if _boss_debug_mode:
@@ -211,6 +221,14 @@ func _ready() -> void:
 	if profile == null or profile.base_params == null:
 		push_error("survivor_mode: 无效的 PlayableAircraft：%s" % profile_path)
 		return
+	# demo 模式：强制 4 架僚机，方便观察编队跟随/归队（默认机型 wingman_count 多为 0）
+	if _bench_demo and profile.wingman_count < 4:
+		profile = profile.duplicate()
+		profile.wingman_count = 4
+	# reversal 模式：玩家方为 4 机编队（长机 + 3 僚机）对抗敌方编队
+	elif _bench_scenario == "reversal":
+		profile = profile.duplicate()
+		profile.wingman_count = 3
 	_player_params_base = profile.base_params
 	_player_profile_id = profile.id  # 用于专属技能筛选
 	_player_profile = profile  # 保留档案引用（自然成长曲线 / 后续配件系统用）
@@ -526,6 +544,8 @@ func _setup_bench_scenario() -> void:
 			_bench_force_spawn_swarm()
 		elif _bench_scenario == "boss_mother_goose":
 			_bench_force_spawn_boss_mg()
+		elif _bench_scenario == "reversal":
+			_bench_force_spawn_reversal()
 		else:
 			_bench_force_spawn_mixed(BENCH_INITIAL_ENEMY_COUNT)
 
@@ -549,10 +569,10 @@ func _bench_force_spawn_mixed(_total: int) -> void:
 		[SurvivorSpawner.EnemyType.MIG23, 3, true],          # 3× MiG-23 (Gladiator 综合)
 		[SurvivorSpawner.EnemyType.F100, 3, true],           # 3× F-100 (Lancer 编队)
 		[SurvivorSpawner.EnemyType.F4, 3, true],             # 3× F-4 (重导弹卡车，双弹种)
-		[SurvivorSpawner.EnemyType.SU27, 2, false],          # 2× Su-27 (Gladiator 顶级 + 眼镜蛇)
-		[SurvivorSpawner.EnemyType.MIG31, 2, false],         # 2× MiG-31 (Lancer 顶级单机)
+		[SurvivorSpawner.EnemyType.SU27, 3, true],           # 3× Su-27 (Gladiator 顶级 + 眼镜蛇) — 测试场景成建制
+		[SurvivorSpawner.EnemyType.MIG31, 2, true],          # 2× MiG-31 (Lancer 顶级) — 测试场景成建制
 		[SurvivorSpawner.EnemyType.INTERCEPTOR, 3, true],    # 3× J-7 (Lancer 入门)
-		[SurvivorSpawner.EnemyType.UCAV, 2, false],          # 2× UCAV
+		[SurvivorSpawner.EnemyType.UCAV, 3, true],           # 3× UCAV — 测试场景成建制
 	]
 	var spawned: int = 0
 	for entry in mix:
@@ -566,6 +586,89 @@ func _bench_force_spawn_mixed(_total: int) -> void:
 				_spawner._spawn_single(etype)
 		spawned += n
 	print("[Bench] force-spawned %d enemies across %d types" % [spawned, mix.size()])
+
+## reversal：专项复现"短时间内 180° 调转机头"。**编队 vs 编队**：玩家方 4 机编队（长机 + 3 僚机，
+## 在 _ready 里按 wingman_count=3 生成）对抗一支 4 机敌方成建制小队（Gladiator 原型，
+## aggression>0.85 → 不 boom-zoom 撤退），在 ~2km 内头对头：merge → 双方编队反转再咬 → 高频 180° 反转，
+## 同时压到 SQUAD_FOLLOW / 编队归位 / 反转 三条路径的交叉。关掉全场导弹规避(聚焦纯转弯，避免 evade 打断)，
+## 并把 AC_TICK 采样门槛降到 20° → 完整记录每次反转弧(含过零段)，离线判定"平滑单向反转"vs"来回大坡颤抖"。
+## 用法：godot --path . -- --bench=reversal --duration=60（不加 --headless 可肉眼看；结束自动 dump 日志）
+func _bench_force_spawn_reversal() -> void:
+	if _spawner == null:
+		return
+	Aircraft.AC_TICK_BANK_THRESHOLD = 20.0  # 全程低门槛采样，捕捉反转全弧
+	# ⚠ 把玩家放到地图正中心 (0,0)：默认起点 (0,6400) 只距南边界 1100px（地图半边长仅 7500px），
+	#   战斗一散开就撞 survivor_spawner 的边界 disengage 系统（强制 PATROL 朝内飞）→ 与小队
+	#   SQUAD_FOLLOW 守卫每帧弹跳（log 实证僚机狂刷 auto-enter SQUAD_FOLLOW、飘边变慢不参战）。
+	#   居中后整场战斗远离 ±7500 边界，边界系统永不触发。
+	player_aircraft.global_position = Vector2.ZERO
+	var pp: Vector2 = Vector2.ZERO
+	# 战区锚点固定在地图中心，半径 5000 < 6500（边界警戒线 7500-1000）→ 出圈平滑返航发生在
+	# 撞边界之前，边界 disengage 永不触发。锚点用普通 Node2D（非 CombatUnit，不会被击坠解除）。
+	var anchor := Node2D.new()
+	anchor.name = "ReversalArenaAnchor"
+	anchor.global_position = pp
+	add_child(anchor)
+	# 敌方 4 支 4 机小队，从中心四周 ~3km 朝中心扑来 → 在中心圆内汇成持续大乱斗（玩家方 4 机编队对抗）
+	var squads: Array = [
+		[SurvivorSpawner.EnemyType.SU27,  pp + Vector2(0, -3000), 180.0],   # 北 → 南
+		[SurvivorSpawner.EnemyType.MIG,   pp + Vector2(3000, 0), 270.0],    # 东 → 西
+		[SurvivorSpawner.EnemyType.F86,   pp + Vector2(0, 3000), 0.0],      # 南 → 北
+		[SurvivorSpawner.EnemyType.MIG23, pp + Vector2(-3000, 0), 90.0],    # 西 → 东
+	]
+	for sq in squads:
+		_bench_spawn_enemy_squad_at(sq[0], 4, sq[1], sq[2])
+	# 全场（玩家长机/僚机 + 敌方）统一：commit + 关导弹规避。
+	# ⚠ combat_zone 战区约束**只加在小队长机 / 独立机**上，绝不加在僚机上：
+	#   combat_zone 出圈会强制 PATROL，与僚机 SQUAD_FOLLOW + spawn 自校正守卫冲突 → 每帧
+	#   PATROL↔SQUAD_FOLLOW 弹跳（log 实证 Echo 每 0.1s 刷 auto-enter SQUAD_FOLLOW，飞到边上变慢）。
+	#   长机被困住，僚机跟着长机自然留在中心，无冲突。
+	for unit in CombatUnit.all_units:
+		if not is_instance_valid(unit) or not (unit is Aircraft):
+			continue
+		for child in (unit as Aircraft).get_children():
+			if child is AIController:
+				var ai2: AIController = child
+				ai2.evade_missiles = false
+				ai2.self_preservation = 0.25       # commit，不 extend 拉远
+				ai2.aggression = 0.98
+				ai2.engage_cooldown = 1.0
+				var is_leader: bool = (ai2.squad == null) \
+						or (is_instance_valid(ai2.squad.leader) and ai2.squad.leader == unit)
+				if is_leader:
+					ai2.combat_zone_anchor = anchor    # 仅长机困在中心圆，出圈平滑返航；僚机跟随长机
+					ai2.combat_zone_radius = 5000.0    # < 6500 边界警戒线
+					# 玩家长机的巡逻航点也收到中心小框（默认是绕旧起点 (0,6400) 贴边）
+					if unit == player_aircraft:
+						ai2.waypoints = PackedVector2Array([
+							Vector2(1500, -1500), Vector2(1500, 1500),
+							Vector2(-1500, 1500), Vector2(-1500, -1500),
+						])
+						ai2.current_waypoint_index = 0
+				break
+	print("[Bench] reversal: 4v16 困中心(0,0)战区大乱斗（仅长机锚定，半径 5000px）, AC_TICK threshold=20°")
+
+
+## reversal 用：在指定位置 spawn 一支敌方成建制小队（同 _bench_spawn_friendly_squad_at 但保持 team=enemy）
+func _bench_spawn_enemy_squad_at(etype: int, size: int, leader_pos: Vector2, heading_deg: float) -> void:
+	var heading_rad: float = deg_to_rad(heading_deg)
+	var sq: Squad = SquadFactory.create()
+	for i in range(size):
+		var spawn_pos: Vector2
+		if i == 0:
+			spawn_pos = leader_pos
+		else:
+			spawn_pos = leader_pos + sq.get_formation_offset(i).rotated(heading_rad)
+		var ac: Aircraft = _spawner._create_enemy(etype, spawn_pos, heading_deg)
+		if ac == null:
+			continue
+		ac.invulnerable = true                       ## 维持整段对抗不减员
+		ac.set_meta("skip_far_cleanup", true)
+		if i == 0:
+			SquadFactory.register_leader(sq, ac)
+		else:
+			SquadFactory.register_wingman(sq, ac, true)
+
 
 ## stress_swarm：20 敌 + 10 友全图随机小队混战 + 地面 AA/SAM 骚扰，把 SquadFactory /
 ## SQUAD_FOLLOW / formation offset / ground unit 路径全都踩一遍。所有飞机 invulnerable，
@@ -846,6 +949,17 @@ func _count_aircraft_alive() -> int:
 		if not is_instance_valid(u):
 			continue
 		if u is Aircraft and not (u as Aircraft).is_destroyed:
+			n += 1
+	return n
+
+
+## demo 模式补敌用：存活的敌方(team==1)飞机数
+func _count_enemy_alive() -> int:
+	var n: int = 0
+	for u in CombatUnit.all_units:
+		if not is_instance_valid(u):
+			continue
+		if u is Aircraft and u.team == 1 and not (u as Aircraft).is_destroyed:
 			n += 1
 	return n
 
@@ -1392,7 +1506,14 @@ func _physics_process(delta: float) -> void:
 	# 用 path 查 autoload 而非裸 `BenchRunner.xxx()` —— 后者依赖编辑器静态识别 autoload，
 	# 项目重载前会报 "Identifier not declared"。get_node_or_null 在 headless / 编辑器
 	# 都能稳定工作，且 BenchRunner 没注册时静默 no-op
-	if _bench_mode and not _bench_finished:
+	# demo 模式：不计时退出，改为持续补充敌人，供长时间观察小队战斗
+	if _bench_demo:
+		_bench_demo_topup_timer -= delta
+		if _bench_demo_topup_timer <= 0.0:
+			_bench_demo_topup_timer = 6.0
+			if _spawner and _count_enemy_alive() < 8:
+				_bench_force_spawn_mixed(6)
+	elif _bench_mode and not _bench_finished:
 		_bench_elapsed += delta
 		if _bench_elapsed >= _bench_duration:
 			_bench_finished = true

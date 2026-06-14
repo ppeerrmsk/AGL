@@ -757,6 +757,7 @@ static func _fire_missile_at(ac: Aircraft, target_unit: CombatUnit, msl: Missile
 		"fired %s → %s (range=%.0fm, remaining=%d)" % [
 			msl.display_name if msl.display_name else "missile",
 			ac._log_unit_name(target_unit), dist_m, remaining])
+	EventLogger.tally(ac._log_name(), "msl_fired")
 	ac.missile_manager.spawn_missile(ac, target_unit, msl)
 	ac.notify_missile_fired_at(target_unit)
 	AudioManager.play_sfx_2d("missile_launch" if randf() < 0.5 else "missile_launch_alt", ac.global_position, -12.0)
@@ -872,6 +873,7 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 				msl_display, ac._log_unit_name(tgt), dist_m,
 				ac.missiles_remaining - 1, i + 1, fire_count,
 				hdg_deg, tgt_abs_brg, off_axis_deg, lock_val])
+		EventLogger.tally(ac._log_name(), "msl_fired")
 		ac.missile_manager.spawn_missile(ac, tgt, msl)
 		ac.notify_missile_fired_at(tgt)
 		# 音效：齐射整体只响一下

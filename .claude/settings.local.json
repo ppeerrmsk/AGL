@@ -200,7 +200,22 @@
       "Bash(awk 'NR==223' /c/Users/noelu/Documents/AGL/scripts/missile_manager.gd)",
       "Bash(awk '/^func _update_radar_locks/,/^func [^_]/' scripts/survivor/survivor_mode.gd)",
       "Bash(awk -F: '$2 ~ /^[0-9]+$/ { line=$2; name=$3; if \\(prev_line > 0 && prev_name ~ /_update_radar_locks/\\) { printf \"%s starts at %d, ends before line %d\\\\n\", prev_name, prev_line, line; exit } prev_line=line; prev_name=name }')",
-      "Bash(awk *)"
+      "Bash(awk *)",
+      "mcp__godot__get_debug_output",
+      "mcp__godot__stop_project",
+      "mcp__godot__run_project",
+      "Bash(git checkout *)",
+      "Bash(git merge *)",
+      "Bash(sed -n '5440,5460p' combat_log_20260613_135005.txt)",
+      "Bash(sed -n '5665,5720p' combat_log_20260613_135005.txt)",
+      "Bash(sed -n '5,30p' scripts/aircraft_destruction.gd)",
+      "Bash(sed -n '2105,2135p' scripts/aircraft.gd)",
+      "Bash(sed -n '150,190p' scripts/ai/missile_evasion.gd)",
+      "Bash(grep -E \"calm_distance|panic_distance|nervousness|cooldown|reload_time|max_flares|base_jam\" f14_flare.tres)",
+      "Bash(grep -E \"calm_distance|panic_distance|nervousness\" default_flare.tres)",
+      "Bash(grep -E \"max_speed|motor_burn|max_lifetime|display_name\" uav_missile.tres enemy_uav_missile.tres)",
+      "Bash(grep -vE \"Godot Engine|BenchRunner|^\\\\s*$\")",
+      "Bash(grep -vE \"^\\\\s*$\")"
     ]
   },
   "hooks": {

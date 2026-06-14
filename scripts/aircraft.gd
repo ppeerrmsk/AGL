@@ -9,6 +9,9 @@ var vertical_speed: float = 0.0     ## m/s
 var bank_angle: float = 0.0         ## 弧度
 var _prev_bank_for_rate: float = 0.0  ## 上一帧 bank（用于发射稳定性检查计算 roll rate）
 var _bank_rate_rad_s: float = 0.0     ## 滚转率，rad/s（EMA 平滑，避免单帧噪声）
+var _turn_rate_filt: float = 0.0      ## 低通滤波后的航向角速度，rad/s（PD 控制 D 项输入；破除单帧代数环 Nyquist 抖）
+var _prev_tgt_heading_pd: float = NAN ## 上一帧目标方位（算 LOS 角速度用；NAN=未初始化）
+var _los_rate_filt: float = 0.0       ## 低通滤波目标 LOS 角速度，rad/s（PD 前馈项：跟随转弯目标时补偿稳态转速，免得 D 项与必要转速对抗成弛豫振荡）
 var _committed_turn_sign: float = 0.0  ## 转弯方向锁定：0=未锁定, +1/-1=锁定方向
 var g_load: float = 1.0
 var is_stalled: bool = false
@@ -58,6 +61,9 @@ var _predicted_path_prev_world: PackedVector2Array = PackedVector2Array()
 var _predicted_path_diag_step: int = 0
 const PRED_JUMP_PX_THRESHOLD: float = 80.0
 var formation_mode: bool = false            ## true=编队托管模式，直接复制长机状态
+## 编队 FAR 归队时放开 bank 上限到满 G（像玩家一样硬转回阵线）；MID/CLOSE 站位保持柔和 0.9 cap。
+## 由 AircraftFormation._update_bank_via_pd 每帧按 branch 写。
+var _formation_full_bank: bool = false
 var _formation_leader: Aircraft = null      ## 编队长机引用（formation_mode时使用）
 ## 稳定号机号（spec squad-control-switching §2.1）：玩家小队内 1..N，出生即定、永不变。
 ## 数字键 1-4 切换操控按此映射（键 N → squad_slot==N 的飞机），与会随接管变动的
@@ -166,7 +172,8 @@ var _pursuit_last_turn_sign: float = 0.0      ## 上次观察到的 _committed_t
 # 10Hz 节流，正常巡航零日志污染，激烈机动时以 0.1s 粒度采样位姿，能看出 60Hz 亚帧颤抖的能量
 var _ac_tick_log_timer: float = 0.0
 const AC_TICK_LOG_INTERVAL: float = 0.1
-const AC_TICK_BANK_THRESHOLD := 60.0  # deg
+## deg。默认 60° 只抓硬机动；reversal bench 把它调低到 ~20° 以完整记录每次 180° 反转的全弧（含过零段）
+static var AC_TICK_BANK_THRESHOLD := 60.0
 var _gun_aim_log_until: float = 0.0  # 节流 [GUN_AIM] 诊断：0.5s 一次
 
 # Bank 翻转抗振守卫阈值 / 失速物理 / 空气密度常量 已搬到 scripts/aircraft/aircraft_physics.gd
@@ -667,6 +674,9 @@ func clear_formation() -> void:
 	keep_target_on_arrival = false
 	ai_override_pursuit = false
 	lod_level = 0
+	# 清掉残留的编队槽位 target_position：否则脱离编队后被动开火/巡航会朝旧槽位压满坡度抖动
+	# （进 ENGAGE 会被 combat_tracking 立即重设 lead 点，无副作用；2026-06-07 修 PASSIVE_AUTO_FIRE 抖）
+	target_position = Vector2.INF
 
 func get_herbst() -> HerbstManeuver:
 	for child in get_children():
@@ -719,6 +729,7 @@ func _physics_process_impl(delta: float) -> void:
 		# heading/bank/position 60Hz 是必要开销（leader 转向时槽位变化太快）
 		if formation_mode and _formation_leader and is_instance_valid(_formation_leader):
 			AircraftFormation.update_follow(self, delta)
+			AircraftFlares.update(self, delta)  # 编队中也要更新/清除 flare 粒子，否则残留不消失
 			return
 		if _lod_frame % 3 != 0:
 			AircraftPhysics.apply_movement(self, delta)
@@ -774,6 +785,7 @@ func _physics_process_impl(delta: float) -> void:
 			# 原因：191 行算法塞在 _physics_process 中间，排查编队 bug 时动线长
 			# 拆分后常见 bug 回溯地图、三段式分支图都在 AircraftFormation 顶部注释
 			AircraftFormation.update_follow(self, delta)
+			AircraftFlares.update(self, delta)  # 编队中也要更新/清除 flare 粒子，否则残留不消失
 			return
 
 		# ── 非编队 LOD 1（降低运算频率） ──
@@ -809,6 +821,16 @@ func _physics_process_impl(delta: float) -> void:
 		_update_visuals()
 		if selected or is_hovered or every3:
 			queue_redraw()
+		return
+
+	# LOD 0 编队跟随（2026-06-07 修）：与 LOD1/2 一致，formation_mode 时走 update_follow。
+	# 之前 LOD0 缺这个分支 → 屏内编队僚机落到下面的 planner WAYPOINT_MOVE 纯追击，
+	# 没有"长机机体系槽位 + bank 镜像 + 切弯"逻辑，长机一转弯就严重掉队（log 落后到 2000px+）。
+	# 玩家(formation_mode=false，spawn 时 clear_formation) / 交战僚机(进 ENGAGE 时 clear_formation)
+	# 都不会命中此分支，照走下面完整 LOD0；只有真正编队跟随的僚机走 update_follow。
+	if formation_mode and _formation_leader and is_instance_valid(_formation_leader):
+		AircraftFormation.update_follow(self, delta)
+		AircraftFlares.update(self, delta)  # 编队中也要更新/清除 flare 粒子，否则残留不消失
 		return
 
 	# LOD 0（完整）：玩家 / 交战中
@@ -2135,10 +2157,30 @@ func _apply_damage(amount: float) -> void:
 ##   kill_head_on_dot   - −victim_fwd · to_victim：1 = 受害者机头朝攻击者（对头）
 ##   kill_attacker_aim  - attacker_fwd · to_victim：1 = 攻击者机头朝向受害者
 ## 「对头击杀」判定：两个 dot 都 > 0.6（双方机头夹角 ≲ 53°，排除偷袭/侧射）
+## _last_damage_kind → 中文武器标签（KILL 日志用）
+func _kill_weapon_label(kind: String) -> String:
+	match kind:
+		"gun": return "机炮"
+		"missile": return "导弹"
+		"rocket": return "火箭弹"
+		"aoe": return "爆炸"
+		"ground_crash": return "坠地"
+		_: return ""
+
 func _record_kill_attribution() -> void:
 	if not has_meta("_pending_attacker"):
 		return
 	var attacker = get_meta("_pending_attacker")
+	# ── 击杀归因日志（KILL）：致死瞬间打一行"谁用什么武器击坠了谁"──
+	# 低频（每次死亡一次）。attacker 可能是飞机 / 地面 / 舰船；武器种类取自 _last_damage_kind。
+	# DESTROY 行只写被击毁者，KILL 行补上凶手 + 武器，省去人工关联 fired→hit。
+	if is_instance_valid(attacker):
+		var dk: String = String(get_meta("_last_damage_kind", ""))
+		var wpn: String = _kill_weapon_label(dk)
+		var atk_name: String = attacker._log_name() if attacker.has_method("_log_name") \
+				else (attacker.callsign if ("callsign" in attacker and attacker.callsign != "") else String(attacker.name))
+		EventLogger.log_event("KILL", atk_name, "%s击坠 %s" % [wpn, _log_name()])
+		EventLogger.tally(atk_name, "kills")
 	remove_meta("_pending_attacker")
 	if not is_instance_valid(attacker) or not (attacker is Aircraft):
 		return

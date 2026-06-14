@@ -8,6 +8,11 @@ const BUFFER_DURATION := 300.0  ## 保留最近多少秒的事件（5 分钟，�
 var _events: Array[Dictionary] = []
 var _game_time: float = 0.0
 
+## ── 本局战报累计统计（不进环形缓冲，整局持续累加，F9 导出时汇总）──
+## key = 射手的 _log_name() 字符串；value = {kills, gun_hits, msl_fired, msl_hit, msl_miss}
+## 只在低频事件点（命中/击杀/发射/脱靶）做一次 dict++，对性能无感。
+var _stats: Dictionary = {}
+
 func _process(delta: float) -> void:
 	_game_time += delta
 	# 清理超过 60 秒的旧事件
@@ -26,6 +31,38 @@ func log_event(category: String, subject: String, message: String) -> void:
 		"subject": subject,
 		"message": message,
 	})
+
+## 战报累计：给某射手的某项计数 +n（key 不存在则初始化）。
+## 在命中/击杀/发射/脱靶等低频点调用，cost ≈ 1 次 dict 查 + 1 次 int 加。
+func tally(subject: String, key: String, n: int = 1) -> void:
+	if subject == "":
+		return
+	if not _stats.has(subject):
+		_stats[subject] = {"kills": 0, "gun_hits": 0, "msl_fired": 0, "msl_hit": 0, "msl_miss": 0}
+	_stats[subject][key] = int(_stats[subject].get(key, 0)) + n
+
+## 清空战报统计（新一局开始时调用，避免跨局累加）
+func reset_stats() -> void:
+	_stats.clear()
+
+## 把战报汇总成多行文本（F9 导出时追加到末尾）。按击杀数降序。
+func format_stats_summary() -> String:
+	if _stats.is_empty():
+		return ""
+	var keys: Array = _stats.keys()
+	keys.sort_custom(func(a, b): return int(_stats[a]["kills"]) > int(_stats[b]["kills"]))
+	var lines: PackedStringArray = PackedStringArray()
+	lines.append("=== 战报汇总 (本局累计) ===")
+	for k in keys:
+		var st: Dictionary = _stats[k]
+		var resolved: int = int(st["msl_hit"]) + int(st["msl_miss"])
+		var rate_str: String = "--"
+		if resolved > 0:
+			rate_str = "%d%%" % roundi(100.0 * float(st["msl_hit"]) / float(resolved))
+		lines.append("%-26s 击坠=%-3d 机炮命中=%-4d 导弹[发射=%-2d 命中=%-2d 脱靶=%-2d 命中率=%s]" % [
+			k, int(st["kills"]), int(st["gun_hits"]),
+			int(st["msl_fired"]), int(st["msl_hit"]), int(st["msl_miss"]), rate_str])
+	return "\n".join(lines)
 
 ## 导出日志到文件，返回文件路径
 ##
@@ -64,6 +101,12 @@ func dump_to_file() -> String:
 	for ev in _events:
 		file.store_line("[%.1f] [%s] %s: %s" % [
 			ev["time"], ev["category"], ev["subject"], ev["message"]])
+
+	# 战报汇总（每机击坠 / 机炮命中 / 导弹发射·命中·脱靶·命中率）
+	var stats_summary: String = format_stats_summary()
+	if stats_summary != "":
+		file.store_line("")
+		file.store_line(stats_summary)
 
 	# §7.6 末尾追加技能快照（玩家飞机当前 upgrade_stacks + 状态效果 + max_hp 修正）
 	# 用 try/except 风格的 nil-safe 拼装：找不到玩家就跳过整段

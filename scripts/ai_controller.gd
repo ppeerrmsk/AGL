@@ -429,6 +429,10 @@ const TARGET_EVAL_INTERVAL_MIN := 3.0      ## 低专注目标评估间隔（秒�
 const TARGET_EVAL_INTERVAL_MAX := 10.0     ## 高专注目标评估间隔（秒）
 
 var _prev_formation_offset_local: Vector2 = Vector2.INF  ## 上一帧相对长机本地坐标系的阵型偏移
+var _formation_offset_committed: Vector2 = Vector2.INF  ## 已采纳的阵型偏移（长机本地系，未旋转）；AircraftFormation 每帧旋进长机当前机体系算实时槽位（强相关，消除"慢一拍"）
+var _formation_branch: int = -1  ## 上一帧编队分支(FAR/MID/CLOSE)，分支迟滞用——防 slot_d 在阈值附近逐帧翻转导致 target_heading 跳变（机头颤抖）
+var _form_bank_ema: float = 0.0  ## 编队 bank EMA 平滑值（滤高频抖，2026-06-07）
+var _form_th_ema: float = INF    ## 编队 target_heading EMA（角度感知，滤高频抖；源头治 heading+bank 颤抖）
 var _formation_react_timer: float = 0.0  ## 阵型变换反应延迟（每架飞机个体化）
 var _formation_blend: float = 1.0  ## 编队托管混合度（0=自主飞行, 1=完全托管）
 var _engage_delay: float = 0.0     ## 进入交战前的反应延迟
@@ -441,6 +445,7 @@ var _engage_timer: float = 0.0           ## 当前交战已持续时间
 var _cooldown_timer: float = 0.0         ## 交战冷却剩余
 var _scan_timer: float = 0.0            ## 扫描计时器
 var _evade_target_pos: Vector2 = Vector2.INF  ## 规避目标位置
+var _evade_committed_dir: Vector2 = Vector2.ZERO  ## 规避承诺的 break 方向（一次选定保持，防每帧重选垂直向导致 bank 来回摆）
 var _current_target: CombatUnit = null   ## 当前交战目标（飞机或地面单位）
 
 # ── 战术机动状态 ──
@@ -1491,7 +1496,10 @@ func _process_patrol(delta: float) -> void:
 	else:
 		aircraft.target_position = target_wp
 
-	if evade_missiles and personality.missile_aware and not is_boss_attacker():
+	# 巡逻中也只在真有来袭导弹时才规避（同 ENGAGE：check_incoming_missile 做门，
+	# 否则 evade_missiles=true 的巡逻机每 tick 空转 enter_evade ↔ exit_evade 抖动）
+	if evade_missiles and personality.missile_aware and not is_boss_attacker() \
+			and MissileEvasion.check_incoming_missile(self):
 		MissileEvasion.enter_evade(self)
 		return
 
@@ -1551,6 +1559,9 @@ func _process_engage(delta: float) -> void:
 				EventLogger.log_event("AI_STATE", _log_name(),
 					"LEASH break-off (%.0fpx from leader) → rejoin" % leash_d)
 				TargetSelection.disengage(self)
+				# 关键：拽回后设交战冷却，否则归队下一帧又咬同一个远目标 → ENGAGE↔编队 0.5s 反复横跳
+				# → target_position 在敌机/槽位间跳 → combat 线+槽位线+bank 一起抖（2026-06-07 修状态 thrash）
+				_cooldown_timer = maxf(engage_cooldown, 3.0)
 				return
 		else:
 			_squad_leash_timer = 0.0
@@ -1606,7 +1617,10 @@ func _process_engage(delta: float) -> void:
 				var to_me := (aircraft.global_position - enemy.global_position).normalized()
 				var my_fwd := Vector2(sin(aircraft.heading), -cos(aircraft.heading))
 				if my_fwd.dot(to_me) > GUN_ATTACK_DOT and enemy.global_position.distance_to(aircraft.global_position) < GUN_ATTACK_THREAT_DIST:
-					TargetSelection.disengage(self)
+					# ⚠ 不调 disengage：enter_evade 已设 EVADE_MISSILE 状态 + 清 combat_target，
+					# 但保留 _current_target → exit_evade 防御结束后无缝恢复同一目标。
+					# 调 disengage 会 null 掉 _current_target + 设 15s 冷却 → 防御后被迫重新选目标
+					# （常是 180° 外的另一架）→ 机身大坡反转 churn（SEAM-012 真实战斗残留根因之一）。
 					MissileEvasion.enter_evade(self)
 					_me.activate()
 					var fwd := Vector2(sin(aircraft.heading), -cos(aircraft.heading))
@@ -1615,11 +1629,18 @@ func _process_engage(delta: float) -> void:
 
 	# ── 导弹规避（需要飞行员察觉 + 受 self_preservation 影响） ──
 	# BOSS 攻击手不做导弹规避——他们有热诱弹和隐形防御，任务是死追玩家
-	if evade_missiles and personality.missile_aware and not is_boss_attacker():
+	# ⚠ 必须先确认真有来袭导弹（check_incoming_missile）才 roll 规避：
+	#   evade_missiles 是静态配置位（多数机型常 true），不是"有导弹"信号。缺这道门时
+	#   randf 每个 ENGAGE tick 空转触发 enter_evade → process_evade 无弹立即 exit → 回 ENGAGE
+	#   → 再触发 …… 形成 enter/exit 抖动（实测 evade 进入 18→588）。旧代码靠 disengage 的 15s
+	#   冷却把飞机踢出 ENGAGE 才意外压住，但代价是"躲完丢目标重咬另一架 → 大坡反转"churn。
+	if evade_missiles and personality.missile_aware and not is_boss_attacker() \
+			and MissileEvasion.check_incoming_missile(self):
 		# 低自保飞行员可能忽略来袭导弹继续攻击
 		var evade_chance := lerpf(0.3, 1.0, _effective_self_preservation())
 		if randf() < evade_chance or _state != AIState.ENGAGE:
-			TargetSelection.disengage(self)
+			# ⚠ 不调 disengage（见上方机炮防御注释）：保留 _current_target → 躲完导弹由
+			# exit_evade 无缝恢复同一交战。避免"每次躲弹都丢目标 → 重新咬另一架 → 大坡反转"churn。
 			MissileEvasion.enter_evade(self)
 			return
 

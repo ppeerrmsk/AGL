@@ -49,7 +49,12 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 		return
 
 	# ── 导弹规避优先（BOSS 攻击手跳过） ──
-	if ai.evade_missiles and ai.personality.missile_aware and not ai.is_boss_attacker():
+	# ⚠ 必须先确认真有来袭导弹（check_incoming_missile）：evade_missiles 是静态配置位（多数机型常 true），
+	#   不是"有导弹"信号。缺这道门 → 编队中每个 AI tick 空转 enter_evade → process_evade 无弹立即 exit
+	#   回 SQUAD_FOLLOW → 再触发 …… EVADE↔SQUAD_FOLLOW 每帧弹跳（log 实证僚机狂刷 auto-enter SQUAD_FOLLOW、
+	#   飘到边上变慢不参战）。与 _process_engage / _process_patrol 两处同源修复保持一致。
+	if ai.evade_missiles and ai.personality.missile_aware and not ai.is_boss_attacker() \
+			and MissileEvasion.check_incoming_missile(ai):
 		MissileEvasion.enter_evade(ai)
 		return
 
@@ -62,31 +67,37 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 
 	ai.current_tactic_name = "TACTIC_FOLLOW_FORMATION"
 
-	# 计算阵型槽位
-	var slot_pos := ai.squad.get_wingman_target(ai.squad_index)
+	# 计算阵型偏移（长机本地坐标系，未旋转）——这是槽位的"慢变部分"：用哪个阵型、第几槽。
+	# 世界坐标（"快变部分"= offset 旋进长机当前机体系）改由 AircraftFormation 每物理帧实时算，
+	# 长机一动全队同帧跟动（强相关），不再有"等下一个 AI tick 才更新冻结死点"的慢一拍。
+	var new_offset_local := ai.squad.get_formation_offset(ai.squad_index)
 
-	# 检测阵型变换：对比相对长机本地坐标系的偏移
-	# （消除长机移动/转向带来的影响，只检测阵型 offset 本身的变化）
-	if slot_pos != Vector2.INF:
-		var new_offset_local := (slot_pos - leader.global_position).rotated(-leader.heading)
-		if ai._prev_formation_offset_local != Vector2.INF:
-			var offset_change := ai._prev_formation_offset_local.distance_to(new_offset_local)
-			if offset_change > Squad.FORMATION_SWITCH_THRESH:
-				# 阵型切换了：设置个体化反应延迟（0.3~1.3秒）
-				var base_delay := Squad.FORMATION_REACT_BASE + (sin(ai._formation_jitter_phase) * Squad.FORMATION_JITTER_AMP + 0.5) * Squad.FORMATION_JITTER_ADD
-				ai._formation_react_timer = base_delay + randf_range(-0.15, 0.15)
-		ai._prev_formation_offset_local = new_offset_local
+	# 检测阵型变换：长机平移/转向不改变本地偏移，只有"换阵型类型"才会变 → 仅此时给反应延迟。
+	if ai._prev_formation_offset_local != Vector2.INF:
+		var offset_change := ai._prev_formation_offset_local.distance_to(new_offset_local)
+		if offset_change > Squad.FORMATION_SWITCH_THRESH:
+			# 阵型类型切换：设置个体化反应延迟（0.3~1.3秒），让换阵型显得自然、错落
+			var base_delay := Squad.FORMATION_REACT_BASE + (sin(ai._formation_jitter_phase) * Squad.FORMATION_JITTER_AMP + 0.5) * Squad.FORMATION_JITTER_ADD
+			ai._formation_react_timer = base_delay + randf_range(-0.15, 0.15)
+	ai._prev_formation_offset_local = new_offset_local
 
-	# 反应延迟期间：不更新 target_position（飞机继续向旧槽位飞行）
-	# 延迟过后突然更新 slot_pos，会触发 aircraft 编队代码的中距追击分支 → 自然曲线转弯
-	var slot_for_frame := slot_pos
+	# 反应延迟期间：暂不采纳新偏移（committed 维持旧槽位），仅平滑"换阵型"过渡。
+	# 注意：这只延迟"采纳哪个 offset"，不影响日常跟随——槽位世界坐标仍每帧实时跟长机。
 	if ai._formation_react_timer > 0.0:
 		ai._formation_react_timer -= delta
 		ai.current_tactic_name = "TACTIC_FORMATION_ADJUST"
-		slot_for_frame = Vector2.INF  # 跳过 target_position 写入
+		if ai._formation_offset_committed == Vector2.INF:
+			ai._formation_offset_committed = new_offset_local  # 首次进编队必须初始化，否则无槽位
+	else:
+		ai._formation_offset_committed = new_offset_local
 
-	# 进入/更新编队托管态（formation_mode=true / _formation_leader / lod=1 / keep_arrival；INF 时跳过 target_position）
-	ai.aircraft.set_formation_target(leader, slot_for_frame)
+	# 进入/更新编队托管态（formation_mode=true / _formation_leader / lod=1 / keep_arrival）。
+	# 写入 AI-tick 新鲜的世界槽位作基线（committed 此处已保证非 INF）；
+	# AircraftFormation._build_context 再每物理帧从 committed 偏移实时细化到 60Hz（消除慢一拍）。
+	# 双保险：即使某条 spawn/接管/规避恢复路径让 committed 暂为 INF 或时序错位，
+	# 回退用的也是这一帧的新鲜槽位，而不是陈旧死点（修 2026-06-07 队友追旧位置回归）。
+	var world_slot := leader.global_position + ai._formation_offset_committed.rotated(leader.heading)
+	ai.aircraft.set_formation_target(leader, world_slot)
 
 	# 回归编队时渐变混合度（从自主飞行平滑过渡到完全托管）
 	# AircraftFormation 通过 ac._ai_ref._formation_blend 直接读，不再镜像到 Aircraft

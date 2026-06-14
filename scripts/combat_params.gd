@@ -13,9 +13,11 @@ extends Resource
 @export var opportunity_range_mult: float = 0.4    ## 机会射击：有效射程缩减比
 
 @export_group("机动激进度")
-@export var combat_bank_aggression: float = 1.0    ## 战斗转弯激进度 (0.5=保守, 1.0=标准, 1.5=极限)
-@export var combat_full_bank_diff: float = 0.1     ## rad 战斗中航向偏差超过此值就压满坡度
-@export var combat_half_bank_diff: float = 0.02    ## rad 低于此值归零，介于两者之间用50%坡度
+## 转弯控制器自 2026-06-07 改为临界阻尼 PD（SEAM-012）：target_turn_rate = kp·误差 − kd·转速，
+## bank = atan(turn_rate·v/g) 反推。下列字段在 PD 语义下的含义：
+@export var combat_bank_aggression: float = 1.0    ## PD 比例增益 kp 的缩放（0.5=保守, 1.0=标准, 1.5=极限）；越大跟随越紧、稳态误差越小
+@export var combat_full_bank_diff: float = 0.1     ## 【已弃用】旧位置式控制的"满坡度航向阈值"，PD 控制不再读取（保留仅为 .tres 兼容）
+@export var combat_half_bank_diff: float = 0.02    ## rad PD 的 P 项死区：航向误差小于此值不压坡（防对准后微抖）；D 阻尼项仍生效
 
 @export_group("转向减速")
 @export var turn_slow_angle: float = 45.0          ## 度 航向偏差超过此值开始减速

@@ -35,6 +35,9 @@ var cached_target_heading: float
 var proximity_damping: float
 var committed_turn_sign: float
 var bank_rate_rad_s: float
+var turn_rate_filt: float           ## 低通滤波航向角速度（PD D 项输入）
+var prev_tgt_heading_pd: float      ## 上一帧目标方位（LOS 角速度用）
+var los_rate_filt: float            ## 低通滤波目标 LOS 角速度（PD 前馈项）
 var prev_bank_for_rate: float
 var evasion_override: bool
 var is_stalled: bool                ## 步进期间也维护，避免预测时低速 bank 没被失速守卫拦
@@ -78,6 +81,9 @@ func populate_from(a: Aircraft, prediction: bool = false) -> void:
 	proximity_damping = a._proximity_damping
 	committed_turn_sign = a._committed_turn_sign
 	bank_rate_rad_s = a._bank_rate_rad_s
+	turn_rate_filt = a._turn_rate_filt
+	prev_tgt_heading_pd = a._prev_tgt_heading_pd
+	los_rate_filt = a._los_rate_filt
 	prev_bank_for_rate = a._prev_bank_for_rate
 	evasion_override = a._evasion_override
 	is_stalled = a.is_stalled
@@ -114,6 +120,9 @@ func write_back() -> void:
 	ac._proximity_damping = proximity_damping
 	ac._committed_turn_sign = committed_turn_sign
 	ac._bank_rate_rad_s = bank_rate_rad_s
+	ac._turn_rate_filt = turn_rate_filt
+	ac._prev_tgt_heading_pd = prev_tgt_heading_pd
+	ac._los_rate_filt = los_rate_filt
 	ac._prev_bank_for_rate = prev_bank_for_rate
 	ac._evasion_override = evasion_override
 	# target_speed_kmh / is_afterburner 不写回：实物理 tick 由外部 planner 在 _apply_tactical_plan

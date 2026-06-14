@@ -1,7 +1,7 @@
 ---
 id: squad-control-switching
 kind: system
-status: draft
+status: in-progress   # 代码全落地（数字键切换/换帅/休眠AI/击落接管），仅差 §5 playtest 验收 → done
 schema_version: 1
 spec_version: 3
 owner: noelu
@@ -194,42 +194,42 @@ func set_leader(new_leader):
 
 ## 6. 实现计划（Task Pipeline）
 
-### 阶段 1 — 基础设施
-- [ ] `Aircraft.squad_slot` 字段 + spawn 时按生成序赋 1..N。
-- [ ] `Squad.set_leader(new_leader)`：换帅 + squad_index 重排（不动 squad_slot）+ 发 leader_changed（§3.3）。
-- [ ] `AIController.manual_control` 字段 + 主循环开头分支：true 时跳过战术/导航、仅保留反射（§3.5）+ 维护内部状态。
-- [ ] `AIController._takeover_transition_timer` + SQUAD_FOLLOW 前置 grace（§3.4）。
+### 阶段 1 — 基础设施 ✅（早前会话，commit 04a7a44）
+- [x] `Aircraft.squad_slot` 字段 + spawn 时按生成序赋 1..N（长机=1，僚机 2..N）。
+- [x] `Squad.set_leader(new_leader)`：换帅 + squad_index 重排（不动 squad_slot）+ 发 leader_changed（§3.3）。
+- [x] `AIController.manual_control` 字段 + 主循环开头分支：true 时跳过战术/导航、仅保留反射（§3.5）+ 维护内部状态。
+- [x] `AIController._takeover_transition_timer` + SQUAD_FOLLOW 前置 grace（§3.4）。
 
-### 阶段 2 — 操控真源 chokepoint
-- [ ] `set_player_aircraft(ac)`：原子更新 player_aircraft / player_ref / 相机 snap / HUD（§3.2 步骤 5）。
-- [ ] 全队初始化：所有友机挂 AIController；初始 1 号机 `manual_control = true`。
+### 阶段 2 — 操控真源 chokepoint ✅（早前会话，commit 04a7a44）
+- [x] 操控真源切换（chokepoint 内联在 `_switch_control_to_slot`）：原子更新 player_aircraft / player_ref / 相机 snap / HUD（§3.2 步骤 5）。命名与 spec 的 `set_player_aircraft` 不同（内联实现），功能等价。
+- [x] 全队初始化：所有友机挂 AIController；初始 1 号机 `manual_control = true`。
 
-### 阶段 3 — 键位与切换交互
-- [ ] 武器偏好 KEY_1/2 → KEY_Q 迁移（survivor_mode + 帮助文本 + i18n）。
-- [ ] _unhandled_input 加 KEY_1..4 → 查 squad_slot → switch_player_to（§3.1）。
-- [ ] `switch_player_to(new_ac)` 协调全流程（§3.2）。
+### 阶段 3 — 键位与切换交互 ✅（早前会话，commit 04a7a44）
+- [x] 武器偏好 KEY_1/2 → KEY_Q 迁移（survivor_mode + 帮助文本 + i18n）；KEY_3/4 高度偏好同迁。
+- [x] _unhandled_input 加 KEY_1..4 → 查 squad_slot → `_switch_control_to_slot`（§3.1，命名替代 spec 的 switch_player_to）。
+- [x] `_switch_control_to_slot(slot)` 协调全流程（§3.2）。
 
-### 阶段 4 — 视觉 + 击落接管
-- [ ] draw_data_label：当前操控机白底分支（§2.2）+ 号机号显示。
-- [ ] survivor_mode 接 squad `leader_changed` / 死亡 → 击落自动接管（§3.6）。
+### 阶段 4 — 视觉 + 击落接管 ✅（早前会话，commit 04a7a44）
+- [x] draw_data_label：当前操控机白底分支（§2.2）+ 号机号显示。
+- [x] survivor_mode 接 squad `leader_changed` / 死亡 → 击落自动接管（§3.6）；全队覆灭才 Game Over。
 
-### 阶段 5 — 验收调优
-- [ ] 跑 §5 全部验收 + 边界 + 性能压测。
+### 阶段 5 — 验收调优 ⏳（待 playtest）
+- [x] 更新 §7 锚点 + reference 索引（本次文档对齐）。
+- [ ] **跑 §5 全部验收 + 边界 + 性能压测（需在 Godot playtest，未代跑）**。
 - [ ] 调 TAKEOVER_TRANSITION_GRACE 至降级过渡自然。
-- [ ] 更新 §7 锚点 + reference 索引 + known-seams 登记 player_ref chokepoint。
-- [ ] status → done，reconstruction_complete → true。
+- [ ] known-seams 登记 player_ref chokepoint（如尚未登记）。
+- [ ] §5 验收通过后：status → done，reconstruction_complete → true。
 
-## 7. 索引锚点（Where —— 实现后回填）
+## 7. 索引锚点（Where）
 
 | 关注点 | 文件 |
 |---|---|
-| 操控 chokepoint / 键切换 / 击落接管 | `scripts/survivor/survivor_mode.gd` |
-| squad_slot / 号机号 | `scripts/aircraft.gd` |
-| 换帅 API | `scripts/.../squad.gd` |
-| manual_control / 降级 grace | `scripts/ai/ai_controller.gd` |
-| 状态栏白底 + 号机号 | `scripts/.../aircraft_renderer.gd`（draw_data_label）+ `game_constants.gd` |
+| 键切换入口 / 操控 chokepoint（内联）/ 击落接管 | `scripts/survivor/survivor_mode.gd`（`_unhandled_input` KEY_1..4 → `_switch_control_to_slot`；player_aircraft/player_ref 原子重定向） |
+| squad_slot 号机号字段 | `scripts/aircraft.gd`（`squad_slot`）；spawn 赋值在 `survivor_mode.gd`（长机=1、僚机 `ac.squad_slot = i+1`） |
+| 换帅 API | `scripts/squad.gd`（`func set_leader`） |
+| manual_control / 降级 grace | `scripts/ai_controller.gd`（`manual_control` 字段 + 休眠分支 + `_takeover_transition_timer`） |
+| 状态栏白底 + 号机号 | `scripts/aircraft_renderer.gd`（draw_data_label 当前操控机白底分支）+ `scripts/game_constants.gd`（颜色） |
 | HUD 状态面板 / 武器偏好键 | `scripts/survivor/survivor_hud.gd` |
-| 输入路由 | `scripts/input/input_router.gd` |
 | reference 索引行 | script-index.md / code-index.md 对应段 |
 
 ## 8. 变更记录
@@ -239,3 +239,4 @@ func set_leader(new_leader):
 | 2026-05-30 | 1 | 初稿（draft）：长机/僚机移交。决策：敌机保持红底 / 击落自动接管 / 全机常挂 AI 操控机休眠。 |
 | 2026-05-30 | 2 | 切换机制定为**数字键 1-4**（非点选）；引入稳定 `squad_slot` 号机号与编队 squad_index 解耦（键永远对应同一物理机）；武器偏好键 KEY_1/2 迁移到 KEY_Q 腾位。 |
 | 2026-05-30 | 3 | 降级过渡改为**"打完再归队"事件驱动**（目标消失/到达即归队，grace 6s 仅兜底）；新增 §3.5 **换帅最小扰动原则**——set_leader 只换引用不强制归位，FREE 各自为战的僚机切换时完全不受影响（用户场景：在 2/3 间切换不扰动 1/4）。待用户 review → approved。 |
+| 2026-06-07 | 3 | **文档对齐代码**（status draft→in-progress）：核对确认 §6 阶段 1-4 **早前会话已全部派生**（commit 04a7a44）——`Aircraft.squad_slot`、`Squad.set_leader`、`AIController.manual_control` + `_takeover_transition_timer`、KEY_1..4 切换 + `_switch_control_to_slot`、KEY_Q 武器偏好迁移、白底 + 击落接管。实现命名与 spec 略有出入（chokepoint 内联在 `_switch_control_to_slot` 而非独立 `set_player_aircraft`/`switch_player_to`，功能等价）。回填 §6 勾 + §7 真实文件锚点。**唯一未尽**：§5 验收为 playtest 项（需 Godot 内目测 + Lv5+ 压测），未代跑 → 故 status 暂停在 in-progress，验收通过后转 done。 |

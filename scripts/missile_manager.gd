@@ -66,6 +66,19 @@ func spawn_missile(source: CombatUnit, target: CombatUnit, missile_params: Missi
 		initial_heading = atan2(los.x, -los.y)
 	else:
 		initial_heading = source.heading
+		# 急转/大坡度发射修正：发射机正在急速滚转或深坡度盘旋时，机头朝向与目标 LOS
+		# 严重脱节。沿机头发射 → 导弹在 guidance_delay 盲飞段先朝错误方向冲出去，等制导
+		# 接管时目标已被甩出导引头 FOV(±30°) → 永久丢锁射空。改为朝 LOS 发射，消除"继承
+		# 滚转机头"的初始误差。仅飞机源 + 有目标时触发，零坡度平飞发射不受影响。
+		# （见 2026-06-13 武器有效性诊断：僚机 Solar 在 155°/s 滚转反向中盲发 MRM 连续射空）
+		if source is Aircraft and target and is_instance_valid(target):
+			var ac_src := source as Aircraft
+			var rolling_fast: bool = absf(ac_src._bank_rate_rad_s) > deg_to_rad(60.0)
+			var banked_steep: bool = absf(ac_src.bank_angle) > deg_to_rad(45.0)
+			if rolling_fast or banked_steep:
+				var los_fix := target.global_position - source.global_position
+				if los_fix.length() > 1.0:
+					initial_heading = atan2(los_fix.x, -los_fix.y)
 	missile.heading = initial_heading
 
 	# 初始位置：沿初始朝向前方 15 px
@@ -152,6 +165,11 @@ func count_active_missiles_at(source: CombatUnit, target: CombatUnit) -> int:
 ##
 ## 过滤条件：
 ##   - 导弹仍在 active 且未被热诱弹干扰（jammed 视为不会命中）
+##   - **仍持有制导**（has_guidance）：丢锁/出 FOV/照射中断的导弹必定射空，
+##     绝不能再算进"已发足够伤害"——否则一枚射空的导弹会把整支小队的补射封锁到
+##     它寿命耗尽（最长 30s），目标却安然无恙。这是"队友连续射空 + 全队不再开火"的根因。
+##     （见 2026-06-13 武器有效性诊断：A-7 Dispatch 50hp 吃下 2 枚射空的 MRM 后，
+##      Dolphin/Ultra 被 TEAM_OVERKILL 连封 17s 一弹不发）
 ##   - 源仍存活且与查询 team 同队
 ##   - 目标受击伤害 cap 后的有效值（玩家方 survivor_missile_damage_cap），enemy 无 cap 用满伤
 func team_inbound_damage(target: CombatUnit, team: int, exclude_source: CombatUnit = null) -> float:
@@ -162,7 +180,7 @@ func team_inbound_damage(target: CombatUnit, team: int, exclude_source: CombatUn
 		if not (child is Missile):
 			continue
 		var m: Missile = child as Missile
-		if not m.is_active or m.is_flare_jammed:
+		if not m.is_active or m.is_flare_jammed or not m.has_guidance:
 			continue
 		if m.target != target:
 			continue
@@ -321,6 +339,12 @@ func _physics_process(delta: float) -> void:
 					tgt_name = "%s/%s[%s]" % [side, unit.params.display_name, unit.callsign]
 				EventLogger.log_event("MISSILE", msl_name,
 					"hit %s (dmg=%.0f)" % [tgt_name, missile.params.damage])
+				# 战报：命中归到射手名下（命中行主体是弹种，这里按 source 计数）
+				if is_instance_valid(missile.source):
+					var _shooter := missile.source
+					var _sn: String = _shooter._log_name() if _shooter.has_method("_log_name") \
+							else (_shooter.callsign if ("callsign" in _shooter and _shooter.callsign != "") else String(_shooter.name))
+					EventLogger.tally(_sn, "msl_hit")
 				var hit_heading: float = unit.heading if "heading" in unit else 0.0
 				# 爆炸画在飞机身上（不是导弹位置），击中/击毁均只此一次
 				ExplosionVFXScript.emit(get_tree(), unit.global_position, hit_heading, 1.0)

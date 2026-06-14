@@ -32,6 +32,14 @@ const FLARE_SPAWN_PERP_MAX := 4.0              ## 生成横向偏移最大值
 const FLARE_LIFE_MIN := 2.0                    ## 粒子寿命下限（秒）
 const FLARE_LIFE_MAX := 3.5                    ## 粒子寿命上限（秒）
 
+# ── 玩家方智能放焰（TTI 触发，2026-06-14）──
+# 用户反馈：玩家/僚机经常在导弹还很远、甚至对速度慢追不上的导弹就放焰，很浪费。
+# 玩家方改为按"命中剩余时间(TTI)"判定：只对【正在逼近(会命中)且即将到达】的导弹放焰。
+# 敌方 AI 路径不变（维持难度）。
+const FLARE_TTI_THRESHOLD := 1.5      ## 命中剩余时间 ≤ 此值(s)才放焰（确保导弹确实即将命中）
+const FLARE_MIN_DIST_M := 300.0       ## 距离 ≤ 此值(m)的逼近导弹无条件放焰（终端兜底，防慢速 TTI 偏大漏放）
+const FLARE_MIN_CLOSING_MS := 30.0    ## 闭合速度 < 此值(m/s) → 追不上/在远离 → 不是会命中的威胁，绝不放焰
+
 const _BURST_WAVE_COUNT := 6                   ## 视觉分波数
 const _BURST_WAVE_INTERVAL := 0.12             ## 每波间隔（秒）
 
@@ -96,9 +104,12 @@ static func update(ac: Aircraft, delta: float) -> void:
 	if ac.is_cloaked or ac.suppress_flares:
 		return
 
-	# 检测最近来袭导弹
+	# 检测最近来袭导弹（玩家方同时挑选"会命中且即将到达"的最近一枚作为放焰目标）
 	var nearest_missile: Missile = null
 	var nearest_dist := 99999.0
+	var player_trigger_missile: Missile = null
+	var player_trigger_dist := 99999.0
+	var is_player_side: bool = ac.team == 0
 	for child in ac.missile_manager.get_children():
 		if not child is Missile:
 			continue
@@ -111,6 +122,10 @@ static func update(ac: Aircraft, delta: float) -> void:
 		if dist_px < nearest_dist:
 			nearest_dist = dist_px
 			nearest_missile = m
+		# 玩家方智能放焰：只把"正在逼近(会命中) + TTI 够短/已很近"的导弹列为放焰目标
+		if is_player_side and dist_px < player_trigger_dist and player_flare_should_trigger(ac, m):
+			player_trigger_dist = dist_px
+			player_trigger_missile = m
 
 	if not nearest_missile:
 		return
@@ -132,20 +147,25 @@ static func update(ac: Aircraft, delta: float) -> void:
 		if cobra_ready or herbst_ready:
 			return
 
-	# 根据性格计算释放距离
 	var fp := ac.params.flare
-	var release_dist_m := lerpf(fp.calm_distance, fp.panic_distance, fp.nervousness)
-	var release_dist_px := release_dist_m * CombatUnit.PIXELS_PER_METER
-
-	# 躲弹中主动放焰（根治"僚机躲弹乱飞十几秒不归队"）：抬高释放距离，让追来的导弹尽早被焰干扰，
-	# 而不是靠满加力硬甩到导弹烧完。evasion_mode（planner 躲弹）或 EVADE_MISSILE 状态都算。
-	var is_evading: bool = ac.evasion_mode \
-			or (ac._ai_ref != null and ac._ai_ref._state == AIController.AIState.EVADE_MISSILE)
-	if is_evading:
-		release_dist_px = maxf(release_dist_px, EVADE_FLARE_RELEASE_DIST)
-
-	if nearest_dist > release_dist_px:
-		return
+	if is_player_side:
+		# ── 玩家方智能放焰：导弹必须"会命中且即将到达"（player_flare_should_trigger）才放 ──
+		# 替代旧的"性格距离 + 躲弹 3km 抬升"：不再对慢速/追不上的导弹浪费诱饵，也不再在导弹
+		# 还在远处就提前甩光仅有的几发。无符合条件的来袭导弹 → 直接不放。
+		if player_trigger_missile == null:
+			return
+		nearest_missile = player_trigger_missile
+		nearest_dist = player_trigger_dist
+	else:
+		# 敌方 AI：保留原"性格距离 + 躲弹 3km 抬升"逻辑（维持难度，不变）
+		var release_dist_m := lerpf(fp.calm_distance, fp.panic_distance, fp.nervousness)
+		var release_dist_px := release_dist_m * CombatUnit.PIXELS_PER_METER
+		var is_evading: bool = ac.evasion_mode \
+				or (ac._ai_ref != null and ac._ai_ref._state == AIController.AIState.EVADE_MISSILE)
+		if is_evading:
+			release_dist_px = maxf(release_dist_px, EVADE_FLARE_RELEASE_DIST)
+		if nearest_dist > release_dist_px:
+			return
 
 	# 失误判定
 	if fp.fail_chance > 0.0:
@@ -164,6 +184,29 @@ static func update(ac: Aircraft, delta: float) -> void:
 			return
 
 	release(ac, nearest_missile)
+
+## 玩家方智能放焰判定：这枚导弹是否值得现在放焰。
+## 规则（满足"会命中(逼近) 且 即将到达"才放）：
+##   1. 闭合速度 < FLARE_MIN_CLOSING_MS → 追不上/在远离 → 不会命中 → 不放（杜绝对慢速导弹浪费）。
+##   2. 否则按命中剩余时间 TTI = 距离 / 闭合速度：TTI ≤ 阈值 → 即将命中 → 放。
+##   3. 兜底：距离 ≤ FLARE_MIN_DIST_M 的逼近导弹无条件放（防慢速逼近 TTI 偏大却已贴脸漏放）。
+## 纯几何判断（无副作用），可单测。closing = (导弹速度 − 本机速度) 在 LOS 上的投影。
+static func player_flare_should_trigger(ac: Aircraft, m: Missile) -> bool:
+	var los: Vector2 = ac.global_position - m.global_position
+	var dist_px: float = los.length()
+	if dist_px < 1.0:
+		return true
+	var los_n: Vector2 = los / dist_px
+	var v_ac: Vector2 = Vector2(sin(ac.heading), -cos(ac.heading)) * ac.speed
+	var v_m: Vector2 = Vector2(sin(m.heading), -cos(m.heading)) * m.speed
+	var closing_ms: float = (v_m - v_ac).dot(los_n)   # >0 = 间距在缩小（导弹在逼近）
+	if closing_ms < FLARE_MIN_CLOSING_MS:
+		return false
+	var dist_m: float = dist_px / CombatUnit.PIXELS_PER_METER
+	if dist_m <= FLARE_MIN_DIST_M:
+		return true
+	return (dist_m / closing_ms) <= FLARE_TTI_THRESHOLD
+
 
 ## target_missile：本次释放"瞄准"的那枚来袭导弹。
 ## 一次热诱弹释放只能诱骗一枚导弹（flare 是一次性诱饵），

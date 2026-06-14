@@ -102,6 +102,13 @@ const REJOIN_DIST := 400.0              ## 以外纯追击归队（800→400，2
 const LEAD_BIAS_DIST := 250.0           ## MID 横向偏置的虚拟前视距离（越大→偏置越温和）
 const MAX_BIAS := PI / 3.0              ## MID 横向偏置最大角度（60° 硬钳）
 
+# ── 稳态亚像素吸附（_update_position；动态归位交给物理 bank，这里只清残差）──
+const FORM_SETTLE_DIST := 25.0          ## 仅 <此距离才做微吸附（原 CLOSE_DIST=50，收紧一半）
+const FORM_SETTLE_STRENGTH := 0.15      ## 吸附强度系数（原 0.4 → 0.15，肉眼不可见、非强扭）
+const FORM_BIAS_DEADZONE := 35.0        ## MID 横向偏置死区(px)：贴近槽位中线不偏置，防 slot_local.x 过中线翻符号导致机身颤抖
+const FORM_BANK_EMA := 0.12             ## 编队 bank EMA 平滑系数：滤掉 turn_rate 高频抖，避免微航向修正被放大成可见 bank 抖
+const FORM_TH_EMA := 0.08               ## 编队 target_heading EMA：~0.15s 时间常数，滤高频抖(±50°方波→±3°)，真实转弯仅轻微滞后
+
 # ── 运动控制 ──
 const FORMATION_MAX_TURN_RATE := 1.5    ## rad/s，编队归队角速度硬上限（≈86°/s）
 const FORMATION_LERP_K := 5.0           ## hdiff lerp 增益
@@ -121,6 +128,29 @@ const BANK_BLEND_MID_FAR := 0.30        ## MID 贴近 REJOIN 时的混合
 # ── 分支枚举（调试字符串仅供 FORM_DBG 日志读）──
 enum Branch { FAR = 0, MID = 1, CLOSE = 2 }
 const BRANCH_NAMES := ["FAR", "MID", "CLOSE"]
+const FORM_BRANCH_HYST := 45.0          ## 分支切换迟滞带宽 px（防边界逐帧翻转导致机头颤抖）
+
+
+## 带迟滞的分支选择：在阈值 ±FORM_BRANCH_HYST 内维持上一帧分支，越过迟滞带才切换。
+## 防 slot_d 在 REJOIN_DIST/CLOSE_DIST 附近抖动时 target_heading 在两套公式间逐帧横跳。
+static func _select_branch(slot_dist: float, prev: int) -> int:
+	# 维持上一帧分支（若仍在其迟滞带内）
+	match prev:
+		Branch.FAR:
+			if slot_dist > REJOIN_DIST - FORM_BRANCH_HYST:
+				return Branch.FAR
+		Branch.MID:
+			if slot_dist <= REJOIN_DIST + FORM_BRANCH_HYST and slot_dist > CLOSE_DIST - FORM_BRANCH_HYST:
+				return Branch.MID
+		Branch.CLOSE:
+			if slot_dist <= CLOSE_DIST + FORM_BRANCH_HYST:
+				return Branch.CLOSE
+	# 无前值或已越出迟滞带 → 按硬阈值
+	if slot_dist > REJOIN_DIST:
+		return Branch.FAR
+	elif slot_dist > CLOSE_DIST:
+		return Branch.MID
+	return Branch.CLOSE
 
 
 ## LOD 1 编队托管主入口。
@@ -133,8 +163,13 @@ const BRANCH_NAMES := ["FAR", "MID", "CLOSE"]
 static func update_follow(ac: Aircraft, delta: float) -> void:
 	var ctx := _build_context(ac)
 	var target_heading: float = _resolve_target_heading(ac, ctx)
-	_update_heading(ac, ctx, target_heading, delta)
-	_update_bank(ac, ctx, target_heading, delta)
+	# 全分支（FAR/MID/CLOSE）统一走全局临界阻尼 PD 控制器（与战斗/巡航同源）。
+	# 编队自创的 lerp-heading + turn-rate-bank 在槽位方位角 / bias 翻号时欠阻尼 → 僚机大坡反转颤抖。
+	# 只修 FAR 会把抖动挪到 MID（实测 Depth slot_d=182 时 bank -85↔+60 猛翻）。一次接全分支根治：
+	# _resolve_target_heading 已按分支算好 target_heading（FAR=指向槽位，MID/CLOSE=长机航向+横向 bias），
+	# PD 用 kp·误差 − kd·转速 + 协调转弯反推坡度，参考怎么跳都不来回猛翻。协调转弯 bank 天然随转向
+	# 产生 → 编队转弯时僚机自然同步压坡（不再需要旧的 leader-bank 镜像）。
+	_update_bank_via_pd(ac, ctx, target_heading, delta)
 	if ac._lod_frame % 3 == 0:
 		_update_speed(ac, ctx, delta * 3.0)
 		_update_altitude(ac, ctx, delta * 3.0)
@@ -150,13 +185,33 @@ static func update_follow(ac: Aircraft, delta: float) -> void:
 ## 构建 Context Dictionary。所有下游阶段的输入都从这里拿。
 ## 注意：slot_local 用"长机本地坐标系"而不是"飞机→槽位世界方位角"（见 bug #1）。
 static func _build_context(ac: Aircraft) -> Dictionary:
-	var ldr: Aircraft = ac._formation_leader
+	# 几何长机以权威 squad.leader 为准（与旧 get_wingman_target 一致）。
+	# _formation_leader 是缓存副本，控制切换 / 长机变更后可能与 squad.leader 走样
+	# （2026-06-07 队友追静止旧长机/slot_d=0 回归的真因）；它仅作"是否在编队"门闸。
+	var _fl_raw: Aircraft = ac._formation_leader
+	var ldr: Aircraft = _fl_raw
+	if ac._ai_ref and ac._ai_ref.squad and is_instance_valid(ac._ai_ref.squad.leader):
+		ldr = ac._ai_ref.squad.leader
 	# 2026-05-04 重构：blend / jitter_phase 单边住 AIController，从 _ai_ref 读
 	# （之前在 Aircraft 上镜像了一份，每帧手动同步 → 已删）
 	var b: float = ac._ai_ref._formation_blend if ac._ai_ref else 1.0  # 0=自主飞行过渡, 1=正常编队
 
-	# 离槽位距离
+	# ── 槽位实时跟随（强相关，消除"慢一拍"）──
+	# 槽位 = 长机当前位置 + 已采纳偏移旋进长机当前机体系，每物理帧（60Hz）重算。
+	# 旧实现读冻结的 ac.target_position（只在 AI 分频 tick 更新），长机机动时槽位滞后
+	# 一个 AI-tick（50~100ms）→ 编队"慢一拍"。改为每帧实时算后，长机一动全队同帧跟动。
+	# committed 偏移是"慢变部分"（用哪个阵型/第几槽），由 squad_coordination 在 AI tick 更新。
 	var slot_pos: Vector2 = ac.target_position
+	var _ai := ac._ai_ref
+	if _ai != null:
+		# 优先用 committed 偏移（含换阵型 react 平滑）；committed 暂为 INF（竞态/首帧/某些 spawn 路径）
+		# 时直接从 squad 实时算 offset，**绝不回退到陈旧 target_position**（否则队友会追长机旧位置）。
+		var off: Vector2 = _ai._formation_offset_committed
+		if off == Vector2.INF and _ai.squad != null and is_instance_valid(_ai.squad.leader):
+			off = _ai.squad.get_formation_offset(_ai.squad_index)
+		if off != Vector2.INF and ldr != null:
+			slot_pos = ldr.global_position + off.rotated(ldr.heading)
+			ac.target_position = slot_pos  # 回写：micro-drift / 调试 / LOD 切换 / 其它读 target_position 处一致
 	var slot_dist := 0.0
 	var slot_local := Vector2.ZERO
 	if slot_pos != Vector2.INF:
@@ -165,14 +220,13 @@ static func _build_context(ac: Aircraft) -> Dictionary:
 		# 用 leader frame 避免长机转弯时方位角摆动（bug #1）
 		slot_local = (slot_pos - ac.global_position).rotated(-ldr.heading)
 
-	# 分支解析（单次判定，下游阶段直接用 branch 枚举）
-	var branch: int
-	if slot_dist > REJOIN_DIST:
-		branch = Branch.FAR
-	elif slot_dist > CLOSE_DIST:
-		branch = Branch.MID
-	else:
-		branch = Branch.CLOSE
+	# 分支解析（带迟滞：防 slot_d 在 REJOIN_DIST/CLOSE_DIST 阈值附近逐帧翻转 →
+	# target_heading 在"纯追击(FAR)"与"长机航向+偏置(MID)"两套公式间横跳 → 机头颤抖。
+	# 在边界 ±FORM_BRANCH_HYST 内维持上一帧分支，只有越过迟滞带才真正切换。）
+	var prev_branch: int = ac._ai_ref._formation_branch if ac._ai_ref else -1
+	var branch: int = _select_branch(slot_dist, prev_branch)
+	if ac._ai_ref:
+		ac._ai_ref._formation_branch = branch
 
 	# 个体微扰动相位（基于 _lod_frame 推进，各飞机 phase 错开）
 	var t := float(ac._lod_frame) * 0.02
@@ -235,8 +289,11 @@ static func _resolve_target_heading(ac: Aircraft, ctx: Dictionary) -> float:
 				ac._dbg_slot_heading = target_heading
 		Branch.MID:
 			# 中距离：长机航向 + 横向偏置（leader-local frame）
-			# bias_angle 贴 ±60° 硬钳 + slot_local.x 符号翻转是 bug #9 的起源
-			var bias_angle := clampf(atan2(slot_local.x, LEAD_BIAS_DIST), -MAX_BIAS, MAX_BIAS)
+			# bias_angle：横向偏置。slot_local.x 过中线翻符号 → target_heading 抖 → 机身颤抖。
+			# 加死区(2026-06-07)：|x|<FORM_BIAS_DEADZONE 内不偏置(贴近槽位中线时按长机航向走，
+			# 残余横向交给微吸附)，超出死区按 |x|-死区 连续起偏 → 无符号跳变。
+			var x_eff: float = slot_local.x - signf(slot_local.x) * minf(absf(slot_local.x), FORM_BIAS_DEADZONE)
+			var bias_angle := clampf(atan2(x_eff, LEAD_BIAS_DIST), -MAX_BIAS, MAX_BIAS)
 			target_heading = ldr.heading + jitter_heading + bias_angle
 			max_bank_ratio = 0.75
 			ac._dbg_slot_heading = bias_angle  # 复用字段：横向偏置角
@@ -246,6 +303,18 @@ static func _resolve_target_heading(ac: Aircraft, ctx: Dictionary) -> float:
 			# 近距离：直接跟长机航向
 			target_heading = ldr.heading + jitter_heading
 			max_bank_ratio = 0.6
+
+	# 源头平滑 target_heading（角度感知 EMA）：滤掉高频抖动（slot 方位角过中线 / 继承长机航向抖 /
+	# 高速 FAR 逼近移动槽位时方位角快摆）。同时根治 heading 抖 + bank 抖（bank 由 heading_step 推出）。
+	# 全分支适用(含 FAR)：稳定槽位时 EMA 收敛=不影响果断切弯；槽位方位摆时才平滑（修高速归队 heading 颤抖）。
+	if ac._ai_ref:
+		var e: float = ac._ai_ref._form_th_ema
+		if e == INF:
+			e = target_heading
+		else:
+			e = wrapf(e + Aircraft._angle_diff(target_heading, e) * FORM_TH_EMA, -PI, PI)  # wrap 防累积角漂移
+		ac._ai_ref._form_th_ema = e
+		target_heading = e
 
 	ac._dbg_target_heading = target_heading
 	ctx["max_bank_ratio"] = max_bank_ratio
@@ -272,39 +341,61 @@ static func _update_heading(ac: Aircraft, ctx: Dictionary, target_heading: float
 	ac.heading = wrapf(ac.heading + desired_step, -PI, PI)
 	# 缓存 hdiff 供 _update_bank 写调试字段用（与 hdiff_after 区分）
 	ctx["hdiff"] = hdiff
+	# 缓存本帧实际航向步进 → _update_bank 据此推协调坡度（bank 永远与实际转弯一致，
+	# 不再镜像长机 bank 而产生"航向不变却左右打滚"的颤抖）
+	ctx["heading_step"] = desired_step
 
 
 # ══════════════════════════════════════════════════════════════════════════
 # ④ Bank 更新：desired 公式 + leader 混合 + 翻转守卫 + rate-limit
 # ══════════════════════════════════════════════════════════════════════════
 
-## 按 hdiff 推 desired_bank，CLOSE/MID 分支混合长机 bank，触发翻转守卫后 rate-limit 落位。
+## 编队转弯统一走全局 PD 转弯控制器（与 AircraftPhysics.update_bank/update_heading 同源）。
+## 全分支适用：target_heading 已由 _resolve_target_heading 按分支算好(FAR=指向槽位，
+## MID/CLOSE=长机航向+横向 bias，均经角度 EMA 平滑) → 直接喂 PD：kp·误差 − kd·转速 +
+## 协调转弯反推坡度，临界阻尼，参考(槽位方位/bias)怎么跳都不来回猛翻。
+## 与"归位/编队靠真实 bank/盘旋自然到位、禁止伪造转速"的偏好一致。
+static func _update_bank_via_pd(ac: Aircraft, ctx: Dictionary, target_heading: float, delta: float) -> void:
+	var hdiff := Aircraft._angle_diff(target_heading, ac.heading)
+	ac._cached_target_heading = target_heading
+	ac._proximity_damping = 1.0
+	ctx["hdiff"] = hdiff
+	ctx["heading_step"] = 0.0  # 供 _log_formation_debug / 下游读
+	# FAR 归队放开 bank 到满 G（像玩家硬转回阵）；MID/CLOSE 站位仍走柔和 0.9 cap 防颤抖。
+	# 旧版编队 bank 恒被 compute_target_bank 的 formation 分支钳到 0.9×max_bank → ~4.4G，
+	# 远不及玩家的满 G（~12.5G），归队转弯半径大、慢（用户反馈"僚机像只能用 4G"）。
+	ac._formation_full_bank = int(ctx["branch"]) == Branch.FAR
+	# PD 控制器（随后真实 ω=g·tan(bank)/v 积分航向）
+	AircraftPhysics.update_bank(ac, delta)
+	AircraftPhysics.update_heading(ac, delta)
+	ac._dbg_hdiff = hdiff
+	ac._dbg_desired_bank = ac.bank_angle
+
+
+## Bank 由本帧实际转向速率推出（协调转弯模型）：转得多压多少坡，不转则平飞。
+## ⚠ 2026-06-07 重写：旧版按 hdiff 推 bank + 混合长机 bank + 翻转守卫，导致僚机稳守阵位
+## （航向不变）时仍镜像长机 bank 而"原地左右打滚"（60Hz log 实证 hdg 不动 bank 却 +56↔-47），
+## 也是 bug#8/#9/#10 一系列 bank 颤抖的根源。改为：bank ∝ 本帧实际航向变化率（已被
+## FORMATION_MAX_TURN_RATE 限幅）→ bank 永远与航迹一致，真转弯才压坡，平飞即回中，颤抖消失。
 static func _update_bank(ac: Aircraft, ctx: Dictionary, target_heading: float, delta: float) -> void:
-	var ldr: Aircraft = ctx["ldr"]
-	var branch: int = ctx["branch"]
 	var max_bank_val := AircraftPhysics.max_bank_angle(ac)
 	var max_bank_ratio: float = ctx["max_bank_ratio"]
 
-	# 用更新后的 heading 重算 hdiff（和 target 之间的残留），推 desired_bank
-	var hdiff_after := Aircraft._angle_diff(target_heading, ac.heading)
-	var desired_bank := signf(hdiff_after) * max_bank_val \
-			* clampf(absf(hdiff_after) * 2.5, 0.0, max_bank_ratio)
+	# 本帧实际航向变化率（rad/s，已在 _update_heading 限幅到 ±FORMATION_MAX_TURN_RATE×rejoin_scale）
+	var step: float = ctx.get("heading_step", 0.0)
+	var turn_rate: float = (step / delta) if delta > 0.0 else 0.0
+	var bank_frac: float = clampf(turn_rate / FORMATION_MAX_TURN_RATE, -1.0, 1.0)
+	var desired_bank_raw: float = bank_frac * max_bank_val * max_bank_ratio
+	# EMA 平滑：滤掉 turn_rate 高频抖动，避免贴槽位时微小航向修正被放大成可见 bank 颤抖
+	var desired_bank: float = desired_bank_raw
+	if ac._ai_ref:
+		ac._ai_ref._form_bank_ema = lerpf(ac._ai_ref._form_bank_ema, desired_bank_raw, FORM_BANK_EMA)
+		desired_bank = ac._ai_ref._form_bank_ema
 
-	# Leader-bank 混合（bug #8：CLOSE/MID 边界连续过渡）
-	if branch == Branch.CLOSE or branch == Branch.MID:
-		var ldr_target_bnk: float = ldr.bank_angle + ctx["jitter_bank"]
-		var blend: float = _compute_leader_bank_blend(branch, ctx["slot_dist"])
-		desired_bank = lerpf(desired_bank, ldr_target_bnk, blend)
-
-	# 记录"未经翻转守卫处理"的 desired（诊断用，便于观察守卫是否触发）
 	ac._dbg_hdiff = ctx["hdiff"]
 	ac._dbg_desired_bank = desired_bank
 
-	# Bank 翻转抗振守卫（bug #9）
-	if _should_suppress_bank_flip(ac.bank_angle, desired_bank, hdiff_after):
-		desired_bank = 0.0
-
-	# Rate-limit（bug #10：rejoin 期间按 b 缩放）
+	# Rate-limit（rejoin 期间按 b 缩放，bug #10）
 	var roll_rate_limit: float = ac.params.roll_rate if ac.params else 3.0
 	var eff_roll_rate: float = roll_rate_limit * float(ctx["rejoin_rate_scale"])
 	var bank_step := clampf(desired_bank - ac.bank_angle, -eff_roll_rate * delta, eff_roll_rate * delta)
@@ -353,26 +444,42 @@ static func _update_speed(ac: Aircraft, ctx: Dictionary, delta: float) -> void:
 	var max_ms := AircraftPhysics.max_speed_at_altitude(ac) / 3.6
 	var jitter_speed: float = sin(ctx["jitter_t"] * 0.5 + ctx["jitter_phase"] + 2.0) * ldr.speed * 0.005
 
+	# ── 归队追赶速度（2026-06-13 提速重写，根治"飞回长机身边龟速、不踩油门"）──
+	# 旧版三个龟速因：①唯一的 1.4× 冲刺档只在 slot_d>400px 有效，一进 400px 倍率即塌到
+	# 1.05~1.15×（仅比长机快 5~15%）→ 最后 350px 蹭进去；②追赶倍率以纵向 fwd_offset 为判据，
+	# 横向落后(fwd_offset≈0)直接落 1.0× 纯跟速、零追赶；③速度全相对长机，长机巡航不快时归队全程都慢。
+	# 实测基线：从 600/400px 起 30s 都归不了队（见 test_formation_rejoin / changelog）。
+	#
+	# 新版：以【总距离 slot_dist】(含横向)连续插值 长机速度 → 本机满速。距离越远越接近满速冲刺
+	# （= 踩满油门/加力的绝对速度，不再被长机巡航速度封顶），贴近槽位时连续收敛到 1.05× 平滑停靠，
+	# 无 400px 悬崖。fwd_offset<-50 的"超前减速"分支保留（防冲过槽位后来回振荡）。
 	var chase_target: float
 	var chase_rate: float
-	if slot_dist > REJOIN_DIST:
-		# 归队：大幅加速追上
-		chase_target = ldr.speed * 1.4
-		chase_rate = 4.0
-	elif fwd_offset > 200.0:
-		# 槽位远在前方
-		chase_target = ldr.speed * 1.15 + jitter_speed
-		chase_rate = 4.0
-	elif fwd_offset > 50.0:
-		# 槽位前方
-		chase_target = ldr.speed * 1.05 + jitter_speed
-		chase_rate = 3.0
-	elif fwd_offset < -50.0:
-		# 超前于槽位 → 减速（bug #7）
+	if fwd_offset < -50.0:
+		# 已超前于槽位 → 减速让槽位追上（bug #7，保留：防超调振荡）
 		chase_target = ldr.speed * 0.92 + jitter_speed
 		chase_rate = 3.0
+	elif slot_dist > CLOSE_DIST:
+		# 落后/远离槽位：按总距离连续插值 长机速度(1.05×, 贴近) → 满速(满油门, 远距)
+		var t: float = clampf((slot_dist - CLOSE_DIST) / (REJOIN_DIST - CLOSE_DIST), 0.0, 1.0)
+		var dist_target: float = lerpf(ldr.speed * 1.05, max_ms, t)
+		# ── 航向对齐门（2026-06-14 修回归：max 速度归队转不回来、原地绕大圈越飞越远）──
+		# 转弯率 ω=g·tan(bank)/v 与速度成反比：满速(555m/s)+77°bank ≈ 4°/s，槽位在侧/后时
+		# 永远转不到 → slot_d 反而越飞越远（日志 Yard 飞到 12km）。机头未对准槽位方向时压到
+		# 角点速度（最佳转弯率）先把机头转过去，对准后再松开到全速冲刺。"先转向再加速"。
+		var corner_ms: float = AircraftPhysics.effective_corner_speed_kmh(ac) / 3.6
+		var align: float = 1.0
+		var slot_pos: Vector2 = ctx["slot_pos"]
+		if slot_pos != Vector2.INF:
+			var to_slot: Vector2 = slot_pos - ac.global_position
+			if to_slot.length() > 1.0:
+				var slot_hdg: float = atan2(to_slot.x, -to_slot.y)
+				var head_err: float = absf(Aircraft._angle_diff(slot_hdg, ac.heading))
+				align = clampf(1.0 - head_err / (PI * 0.5), 0.0, 1.0)  # 0°→1(全速) / ≥90°→0(角点)
+		chase_target = lerpf(corner_ms, dist_target, align) + jitter_speed
+		chase_rate = 4.0
 	else:
-		# 纵向基本对齐：匹配长机
+		# CLOSE（<50px）：匹配长机，稳定停靠
 		chase_target = ldr.speed + jitter_speed
 		chase_rate = 3.0 + b * 3.0
 
@@ -428,19 +535,21 @@ static func _update_altitude(ac: Aircraft, ctx: Dictionary, delta: float) -> voi
 # ⑧ 位移：apply_movement + 微漂移
 # ══════════════════════════════════════════════════════════════════════════
 
-## 正常位移走 AircraftPhysics.apply_movement（与非编队路径一致），然后 CLOSE 范围内
-## 做一次细微的槽位对齐（避免"隔着 30px 卡位"的视觉 bug）。
+## 正常位移走 AircraftPhysics.apply_movement（与非编队路径一致）。
+## 稳态亚像素吸附：仅"几乎到位 + 稳态巡航"时做肉眼不可见的微吸附，消除残留卡位。
+## ⚠ 动态归位（拉回阵线）全部交给真实 bank/盘旋（_resolve_target_heading + _update_bank），
+##    本函数不再承担动态归位——避免"非物理强扭轨迹"，保持俯视下的优雅跟随感。
 static func _update_position(ac: Aircraft, ctx: Dictionary, delta: float) -> void:
 	AircraftPhysics.apply_movement(ac, delta)
 
-	# 微漂移：仅 CLOSE 范围内（3~50px）做细微槽位对齐
+	# 稳态微吸附：仅 slot_dist < SETTLE_DIST(25px) 且 b>0.9 稳态时，做亚像素级残差对齐
 	var slot_pos: Vector2 = ctx["slot_pos"]
 	var slot_dist: float = ctx["slot_dist"]
 	var b: float = ctx["b"]
-	if slot_pos == Vector2.INF or slot_dist <= 3.0 or slot_dist >= CLOSE_DIST or b <= 0.05:
+	if slot_pos == Vector2.INF or slot_dist <= 3.0 or slot_dist >= FORM_SETTLE_DIST or b <= 0.9:
 		return
 	var correction_dir := (slot_pos - ac.global_position).normalized()
-	var strength := clampf(slot_dist / CLOSE_DIST, 0.1, 1.0) * b * 0.4
+	var strength := clampf(slot_dist / FORM_SETTLE_DIST, 0.1, 1.0) * b * FORM_SETTLE_STRENGTH
 	var correction_speed := ac.speed * CombatUnit.PIXELS_PER_METER * 0.15 * strength
 	var move_px := minf(correction_speed * delta, slot_dist)
 	ac.global_position += correction_dir * move_px
