@@ -58,6 +58,12 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 		MissileEvasion.enter_evade(ai)
 		return
 
+	# ── 护卫 flare（spec wingman-escort-evasion §3.2）──
+	# 长机按 E 进护卫姿态 + 本机没被真威胁（上面 self-evade 已 return）→ 编队待命的同时，
+	# 替长机投焰挡追它的导弹。仅玩家方僚机；近长机才有效；消耗自身 flare（详见 AircraftFlares）。
+	if ai.aircraft.escort_cover_active:
+		AircraftFlares.try_cover_flare(ai.aircraft, leader)
+
 	# ── 正常编队跟随 ──
 	# 防御性清除：确保编队中无残留战斗目标干扰
 	if ai.aircraft.combat_target != null:
@@ -334,10 +340,9 @@ static func scan_leader_rear(ai: AIController) -> Aircraft:
 	if not ai.squad or not ai.squad.leader:
 		return null
 	var leader := ai.squad.leader
-	var leader_fwd := Vector2(sin(leader.heading), -cos(leader.heading))
 
 	var best_threat: Aircraft = null
-	var best_dist := AIController.REAR_GUARD_RANGE
+	var best_score := 0.0  # rear_threat_score 必 > 0 才算威胁
 
 	for unit in CombatUnit.all_units:
 		# `not unit` 不能挡 freed 实例（仍 truthy），必须 is_instance_valid（perf R4）
@@ -350,29 +355,45 @@ static func scan_leader_rear(ai: AIController) -> Aircraft:
 		if ai._is_target_already_squad_engaged(ac):
 			continue
 
-		var to_enemy := ac.global_position - leader.global_position
-		var dist := to_enemy.length()
-		if dist > AIController.REAR_GUARD_RANGE or dist >= best_dist:
+		# ★ 按"攻击长机的准备度"排序，而非最近优先：已咬长机 > 朝长机逼近 > 远处闲晃(=0 跳过)。
+		# 修用户反馈："守后时正在/准备攻击长机的飞机加权更高"。同距离 tiebreak 才看贴长机近度。
+		var score := rear_threat_score(leader, ac)
+		if score <= best_score:
 			continue
-
-		# 必须在长机后半球（与长机航向的夹角 > 90°）
-		var angle := leader_fwd.angle_to(to_enemy.normalized())
-		if absf(angle) <= PI * 0.5:
-			continue
-
-		# ★ 只拦"真正的后方威胁"：正在咬长机 或 正朝长机飞来；远处闲晃的不算 → 守护者不去打
-		var is_targeting_leader: bool = leader.engaging_me.has(ac.get_instance_id())
-		var approaching := false
-		if dist > 1.0:
-			var enemy_fwd := Vector2(sin(ac.heading), -cos(ac.heading))
-			approaching = enemy_fwd.dot((-to_enemy).normalized()) > 0.3
-		if not (is_targeting_leader or approaching):
-			continue
-
-		best_dist = dist
+		best_score = score
 		best_threat = ac
 
 	return best_threat
+
+## 后方威胁度评分（守后选定 + 目标选择守后加权 共用，保证两处同源）：
+##   返回 [0,1]：0 = 非后方威胁（不在后半球 / 超 REAR_GUARD_RANGE / 既不咬也不逼近）。
+##   已咬长机   → 0.7~1.0（按贴长机近度在档内插值）
+##   朝长机逼近 → 0.42~0.6
+##   → 任一"已咬"必压过任一"逼近"；档内近者优先。
+static func rear_threat_score(leader: Aircraft, candidate: Aircraft) -> float:
+	if leader == null or candidate == null \
+			or not is_instance_valid(leader) or not is_instance_valid(candidate):
+		return 0.0
+	var to_cand := candidate.global_position - leader.global_position
+	var dist := to_cand.length()
+	if dist > AIController.REAR_GUARD_RANGE or dist < 1.0:
+		return 0.0
+	# 必须在长机后半球（与长机航向夹角 > 90°）
+	var leader_fwd := Vector2(sin(leader.heading), -cos(leader.heading))
+	if absf(leader_fwd.angle_to(to_cand.normalized())) <= PI * 0.5:
+		return 0.0
+	# 威胁等级：已咬长机 > 朝长机逼近（机头指向长机）> 闲晃(0)
+	var threat := 0.0
+	if leader.engaging_me.has(candidate.get_instance_id()):
+		threat = 1.0
+	else:
+		var enemy_fwd := Vector2(sin(candidate.heading), -cos(candidate.heading))
+		if enemy_fwd.dot((-to_cand).normalized()) > 0.3:
+			threat = 0.6
+	if threat <= 0.0:
+		return 0.0
+	var prox := 1.0 - clampf(dist / AIController.REAR_GUARD_RANGE, 0.0, 1.0)
+	return threat * (0.7 + 0.3 * prox)
 
 ## 小队自由交战：距离扫描最近的敌机（绕开雷达锥 + 锁定门槛）
 ## 设计理念：把"小队整体的感知"与"单机雷达"解耦——

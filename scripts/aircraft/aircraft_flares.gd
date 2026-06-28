@@ -40,6 +40,11 @@ const FLARE_TTI_THRESHOLD := 1.5      ## 命中剩余时间 ≤ 此值(s)才放�
 const FLARE_MIN_DIST_M := 300.0       ## 距离 ≤ 此值(m)的逼近导弹无条件放焰（终端兜底，防慢速 TTI 偏大漏放）
 const FLARE_MIN_CLOSING_MS := 30.0    ## 闭合速度 < 此值(m/s) → 追不上/在远离 → 不是会命中的威胁，绝不放焰
 
+# ── 僚机护卫 flare（spec wingman-escort-evasion §2.2）──
+# 玩家按 E 进护卫姿态时，编队待命的僚机替长机投焰干扰追长机的导弹。
+const ESCORT_FLARE_LEADER_RANGE_M := 800.0  ## 僚机距长机 ≤ 此值才能护卫投焰（约编队槽位尺度）
+const ESCORT_BASE_JAM := 0.70               ## 僚机紧贴长机(距离≈0)时干扰概率上限；按近度线性衰减到 0
+
 const _BURST_WAVE_COUNT := 6                   ## 视觉分波数
 const _BURST_WAVE_INTERVAL := 0.12             ## 每波间隔（秒）
 
@@ -55,6 +60,13 @@ static func update(ac: Aircraft, delta: float) -> void:
 				to_remove.append(mid)
 		for mid in to_remove:
 			ac._flare_ignored_missiles.erase(mid)
+		# 护卫 flare 单弹单次记录同节奏清理失效引用
+		var esc_remove: Array = []
+		for mid2 in ac._escort_flare_tried:
+			if not is_instance_id_valid(mid2):
+				esc_remove.append(mid2)
+		for mid2 in esc_remove:
+			ac._escort_flare_tried.erase(mid2)
 
 	# 更新锁定免疫计时
 	if ac._lock_immunity_timer > 0.0:
@@ -292,6 +304,136 @@ static func release(ac: Aircraft, target_missile: Missile = null) -> void:
 			ac._evade_roll_remaining = Aircraft._EVADE_ROLL_DURATION
 		# §1.4 玩家技能钩子：成功回避导弹 → 给自己 OVERLOAD 4s
 		SkillHooks.on_evade_missile(ac)
+
+## 护卫 flare（spec wingman-escort-evasion §3.2）：编队待命的僚机替长机投焰，
+## 干扰【追长机】且【即将命中长机】的导弹。仅玩家方僚机在长机护卫广播期间由
+## SquadCoordination.process_squad_follow 调用。返回是否投了焰。
+## 门：玩家方 + 长机有效 + flare 就绪（与自卫同套门）+ 距长机 ≤ 800m + 有合格目标导弹。
+## ★全队协调（一次只有一架）：选定目标导弹后，只有「同队就绪僚机中离长机最近」的那架出手；
+##   它若没干扰成功（进 CD + 标记已试），下一帧次近的僚机才接手 → 任一时刻只一架在喷焰，
+##   且优先让位置最好（jam 概率最高）的去做，失败有顺序兜底。
+static func try_cover_flare(ac: Aircraft, leader: Aircraft) -> bool:
+	if leader == null or not is_instance_valid(leader) or leader.is_destroyed:
+		return false
+	if not _escort_flare_ready(ac):
+		return false
+	# 距长机门
+	var d_leader_m: float = ac.global_position.distance_to(leader.global_position) / CombatUnit.PIXELS_PER_METER
+	if d_leader_m > ESCORT_FLARE_LEADER_RANGE_M:
+		return false
+	# 选目标：本机可护卫（追长机 + 即将命中 + 未试过）的最近一枚导弹
+	var best: Missile = null
+	var best_dist := 99999.0
+	for child in ac.missile_manager.get_children():
+		if not child is Missile:
+			continue
+		var m: Missile = child
+		if not _escort_missile_qualifies(ac, leader, m):
+			continue
+		var d := m.global_position.distance_to(ac.global_position)
+		if d < best_dist:
+			best_dist = d
+			best = m
+	if best == null:
+		return false
+	# 全队裁决：仅当本机是这枚导弹的"最佳护卫者"（就绪僚机里离长机最近）才出手
+	if not _is_best_escort_for(ac, leader, best):
+		return false
+	ac._escort_flare_tried[best.get_instance_id()] = true
+	release_cover(ac, leader, best, d_leader_m)
+	return true
+
+## 护卫 jam 概率（纯函数，可单测）：贴脸 ESCORT_BASE_JAM → 距长机 ≥800m 时趋 0 线性衰减。
+static func escort_jam_chance(d_leader_m: float) -> float:
+	var proximity: float = clampf(1.0 - d_leader_m / ESCORT_FLARE_LEADER_RANGE_M, 0.0, 1.0)
+	return ESCORT_BASE_JAM * proximity
+
+## flare 就绪门（护卫与自卫共用同套：玩家方 + 有 flare + 弹量/CD/隐身/穿透/机动）
+static func _escort_flare_ready(ac: Aircraft) -> bool:
+	if ac == null or not is_instance_valid(ac) or ac.is_destroyed:
+		return false
+	if ac.team != 0 or not ac.params or not ac.params.flare or not ac.missile_manager:
+		return false
+	if ac.flares_remaining <= 0 or ac._flare_cooldown > 0.0:
+		return false
+	if ac.is_cloaked or ac.suppress_flares or ac.missile_phase_timer > 0.0:
+		return false
+	var mf := ac.get_maneuver()
+	if mf and mf.is_active:
+		return false
+	return true
+
+## 这枚导弹是否是 ac 可护卫的合格目标：在追长机 + 即将命中长机 + ac 本机还没试过
+static func _escort_missile_qualifies(ac: Aircraft, leader: Aircraft, m: Missile) -> bool:
+	if not m.is_active or m.is_flare_jammed:
+		return false
+	if m.target != leader:
+		return false
+	if ac._escort_flare_tried.has(m.get_instance_id()):
+		return false
+	return player_flare_should_trigger(leader, m)
+
+## 全队裁决：在同队、就绪、且这枚导弹对其同样合格的僚机中，ac 是否离长机最近（一次只一架）。
+## 平局用 instance_id 决断，保证多架同帧 tick 结果一致、恰好一架通过。
+static func _is_best_escort_for(ac: Aircraft, leader: Aircraft, m: Missile) -> bool:
+	var ai: AIController = ac._ai_ref
+	if ai == null or ai.squad == null:
+		return true  # 无队信息（理论不至）→ 退化为本机自行护卫
+	var range_px: float = ESCORT_FLARE_LEADER_RANGE_M * CombatUnit.PIXELS_PER_METER
+	var my_d: float = ac.global_position.distance_to(leader.global_position)
+	for other in ai.squad.members:
+		if other == ac or other == leader:
+			continue
+		if not _escort_flare_ready(other):
+			continue
+		if other.global_position.distance_to(leader.global_position) > range_px:
+			continue
+		if not _escort_missile_qualifies(other, leader, m):
+			continue
+		var od: float = other.global_position.distance_to(leader.global_position)
+		# 更近的僚机优先；等距用 instance_id 决断
+		if od < my_d or (od == my_d and other.get_instance_id() < ac.get_instance_id()):
+			return false
+	return true
+
+## 护卫投焰落地：粒子 / 弹量 / CD 复用 release 的逻辑，但 jam 判定对【追 leader 的导弹】，
+## 概率用近度公式 escort_jam_chance（贴脸 ESCORT_BASE_JAM → 800m 处趋 0），不走 calc_jam_chance
+## 那套自卫视角的角度/机动加成。不触发玩家自卫技能钩子（护卫是僚机行为，非玩家自卫）。
+static func release_cover(ac: Aircraft, leader: Aircraft, target_missile: Missile, d_leader_m: float) -> void:
+	var fp := ac.params.flare
+	var count := mini(fp.burst_count, ac.flares_remaining)
+	ac.flares_remaining -= count
+	if ac.flares_remaining <= 0 and ac.enable_flare_reload:
+		ac._flare_cooldown = fp.reload_time
+	else:
+		ac._flare_cooldown = fp.cooldown
+
+	# 分批释放视觉粒子（与 release 同款，从机尾逐颗弹出）
+	for w in range(_BURST_WAVE_COUNT):
+		ac._flare_spawn_queue.append({
+			"delay": float(w) * _BURST_WAVE_INTERVAL,
+			"heading": ac.heading,
+			"pos": ac.global_position,
+		})
+
+	if target_missile == null or not is_instance_valid(target_missile):
+		return
+	if not target_missile.is_active or target_missile.is_flare_jammed:
+		return
+	if target_missile.target != leader:
+		return
+
+	var jam_chance: float = escort_jam_chance(d_leader_m)
+	EventLogger.log_event("ESCORT_FLARE", ac._log_name(),
+		"covering %s (d=%.0fm jam=%.0f%%)" % [leader.callsign, d_leader_m, jam_chance * 100.0])
+	if randf() < jam_chance:
+		target_missile.is_flare_jammed = true
+		var msl_name: String = target_missile.params.display_name if target_missile.params else "MSL"
+		EventLogger.log_event("MISSILE", msl_name,
+			"escort flare jammed (was chasing %s)" % leader.callsign)
+		# 成功护卫触发一次滚转动画（视觉反馈）
+		if ac._evade_roll_remaining <= 0.0 and ac._evade_roll_cooldown <= 0.0:
+			ac._evade_roll_remaining = Aircraft._EVADE_ROLL_DURATION
 
 static func calc_jam_chance(ac: Aircraft, m: Missile) -> float:
 	var fp := ac.params.flare

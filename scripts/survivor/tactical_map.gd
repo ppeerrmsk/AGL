@@ -8,12 +8,17 @@ extends CanvasLayer
 ## 奖励预览暂时只显示占位文本，具体奖励池由 P3 实现
 
 signal zone_selected(zone_id: StringName)
+## 点击地图空白处（非战区）：下达巡航航点。world_pos 已反算成世界坐标。
+signal nav_point_selected(world_pos: Vector2)
+## 地图上右键：取消当前巡航指令（清航点标记）。
+signal nav_cleared()
 
 const BG_COLOR := Color(0.02, 0.03, 0.04, 0.92)
 const GRID_COLOR := Color(0.15, 0.35, 0.35, 0.35)
 const FRAME_COLOR := Color(0.55, 0.85, 0.85, 0.8)
 const TEXT_COLOR := Color(0.7, 0.95, 0.95, 0.95)
 const PLAYER_COLOR := Color(0.4, 1.0, 0.4, 1.0)
+const NAV_MARKER_COLOR := Color(1.0, 0.85, 0.3, 1.0)  ## 巡航航点标记（琥珀色十字+脉冲环）
 
 # 战区状态颜色
 const ZONE_AVAILABLE := Color(0.8, 0.25, 0.25, 0.75)
@@ -35,6 +40,7 @@ var _world_rect: Rect2
 var _player: Aircraft
 var _zones: ZoneData
 var _hover_zone_id: StringName = &""
+var _nav_marker_world: Vector2 = Vector2.INF  ## 当前巡航航点标记（世界坐标，INF=无）。选战区时清除。
 var _is_open: bool = false
 var _adbs: AdbsManager = null  ## 用于在缩略图上画 ADBS 目标实时位置
 # ── 底部"随机战场简报" + 右下"操作指南" ──
@@ -248,6 +254,9 @@ func _on_map_draw() -> void:
 
 	# ADBS 目标实时位置（黄色菱形 + 朝向短线，带脉冲）
 	_draw_adbs_markers(size)
+
+	# 巡航航点标记（玩家点空白处留下的目标点）
+	_draw_nav_marker(size)
 
 	# 玩家光点
 	if _player and is_instance_valid(_player) and _world_rect.size.x > 0.0:
@@ -517,6 +526,20 @@ func _draw_adbs_markers(size: Vector2) -> void:
 		var tip := pos + Vector2(sin(hd), -cos(hd)) * 10.0
 		_map_panel.draw_line(pos, tip, color, 1.5)
 
+## 画巡航航点标记：脉冲环 + 十字（琥珀色）。右键清除。
+func _draw_nav_marker(size: Vector2) -> void:
+	if _nav_marker_world == Vector2.INF or _world_rect.size.x <= 0.0:
+		return
+	var m := _world_to_map(_nav_marker_world, size)
+	var pulse := 0.5 + 0.5 * (sin(Time.get_ticks_msec() * 0.005) * 0.5 + 0.5)
+	var ring_r := 7.0 + 4.0 * pulse
+	var col := Color(NAV_MARKER_COLOR.r, NAV_MARKER_COLOR.g, NAV_MARKER_COLOR.b, 0.5 + 0.45 * pulse)
+	_map_panel.draw_arc(m, ring_r, 0.0, TAU, 24, col, 1.5)
+	# 十字
+	_map_panel.draw_line(m + Vector2(-9, 0), m + Vector2(9, 0), col, 1.5)
+	_map_panel.draw_line(m + Vector2(0, -9), m + Vector2(0, 9), col, 1.5)
+	_map_panel.draw_circle(m, 2.0, NAV_MARKER_COLOR)
+
 func _world_to_map(world_pos: Vector2, map_size: Vector2) -> Vector2:
 	var norm := (world_pos - _world_rect.position) / _world_rect.size
 	return Vector2(norm.x * map_size.x, norm.y * map_size.y)
@@ -532,8 +555,34 @@ func _map_to_world(map_pos: Vector2, map_size: Vector2) -> Vector2:
 func _on_map_gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		_update_hover(event.position)
-	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
-		_try_click_zone(event.position)
+	elif event is InputEventMouseButton and event.pressed:
+		if event.button_index == MOUSE_BUTTON_LEFT:
+			_handle_map_click(event.position)
+		elif event.button_index == MOUSE_BUTTON_RIGHT:
+			_clear_nav_marker()
+
+## 左键：先试点战区，未命中战区则当作"下巡航航点"（点空白处）。
+## 不关闭地图 —— 玩家可继续规划，标记会留在地图上（Tab/Esc 才关）。
+func _handle_map_click(map_pos: Vector2) -> void:
+	var zid := _zone_id_at(map_pos)
+	if zid != &"":
+		_try_click_zone(map_pos)
+		return
+	# 空白处：反算世界坐标 → 下巡航航点 + 留标记（不关图）
+	if _world_rect.size.x <= 0.0:
+		return
+	var wp := _map_to_world(map_pos, _map_panel.size)
+	_nav_marker_world = wp
+	nav_point_selected.emit(wp)
+	_map_panel.queue_redraw()
+
+## 右键：取消当前巡航指令 + 清掉航点标记
+func _clear_nav_marker() -> void:
+	if _nav_marker_world == Vector2.INF:
+		return
+	_nav_marker_world = Vector2.INF
+	nav_cleared.emit()
+	_map_panel.queue_redraw()
 
 func _update_hover(map_pos: Vector2) -> void:
 	var new_hover := _zone_id_at(map_pos)
@@ -546,11 +595,17 @@ func _try_click_zone(map_pos: Vector2) -> void:
 	var zid := _zone_id_at(map_pos)
 	if zid == &"":
 		return
-	if not _zones or _zones.get_state(zid) != ZoneData.State.AVAILABLE:
+	if not _zones:
 		return
-	if _zones.select_zone(zid):
-		zone_selected.emit(zid)
-		close()
+	# _zone_id_at 已跳过隐藏/LOCKED 的战区 → 能点到的都可前往（AVAILABLE/SELECTED/CLEARED）。
+	# 导航与"任务选择状态机"解耦：每次点击都重新下达巡航指令（不管战区当前状态），
+	# 仅 AVAILABLE 时才触发 select_zone（任务选择）。修复"飞过一次变 CLEARED 后再也点不动"。
+	if _zones.get_state(zid) == ZoneData.State.AVAILABLE:
+		_zones.select_zone(zid)
+	# 选战区 = 巡航目标改为战区，清掉之前的空白航点标记（不关图）
+	_nav_marker_world = Vector2.INF
+	zone_selected.emit(zid)
+	_map_panel.queue_redraw()
 
 ## 命中检测：返回 map_pos 所在的战区 id（就近），没命中或隐藏的都返回空
 func _zone_id_at(map_pos: Vector2) -> StringName:

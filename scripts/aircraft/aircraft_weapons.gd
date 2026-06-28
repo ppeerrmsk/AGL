@@ -100,6 +100,15 @@ static func auto_gun_scan(ac: Aircraft) -> void:
 	if herbst and herbst.is_active:
 		ac.is_firing = false
 		return
+	# 规避模式（玩家 E 键 / 僚机 scatter）：planner 已请求武器静默（evade_missile 出
+	# weapon_mode=NONE，但 _apply_tactical_plan 把 NONE 重映射成 GUN 以阻断 salvo 漏发），
+	# 于是 weapon_mode==GUN 让本函数的导弹模式早退失效。规避时机头在做大角度机动，
+	# combat_target 已清 → 这里会扫到前方任意敌机并锁存 is_firing，朝 0.3s 前的旧 lead
+	# 方向狂喷子弹（= 用户反馈"规避中朝没有目标的地方开火"）。与 cobra/herbst 同款静默。
+	# 见 docs/changelogs/player-ai-log.md（2026-06-15 规避盲射根治）
+	if ac.evasion_mode:
+		ac.is_firing = false
+		return
 	# 注意：不要在这里加 "if ac.is_firing: return" 早返 —— 那会绕过下面的
 	# `_auto_gun_scan_timer` 节流，导致 is_firing 一旦锁存就永不重评估，
 	# `_gun_lead_heading` 冻结在初次开火那帧的世界方向。aircraft 高 bank
@@ -1178,6 +1187,11 @@ static func update_secondary_missile(ac: Aircraft, delta: float) -> void:
 	ac._secondary_cooldown = maxf(ac._secondary_cooldown - delta, 0.0)
 	# JAM 期间副槽不发射（仍允许 cooldown 走完，恢复后立刻能打）
 	if ac.status_jam_active: return
+	# 规避模式：与主武器静默一致。副槽不受 weapon_mode / 雷达锥 / 发射窗口质量约束，
+	# 仅凭距离包络对锁定目标盲发——规避机动中机头乱摆时会朝错误几何乱射副弹
+	# （= 用户反馈"规避中朝没有目标的地方发射导弹"）。cooldown 继续倒数，退出规避即可发。
+	# 见 docs/changelogs/player-ai-log.md（2026-06-15 规避盲射根治）
+	if ac.evasion_mode: return
 
 	# 装填（独立计时器，与主弹无关）
 	if ac._secondary_reload_active:

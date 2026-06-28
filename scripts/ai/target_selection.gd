@@ -14,6 +14,24 @@ extends RefCounted
 ##
 ## 注意：_try_engage_in_tether_range 与 _try_engage_simple 是 simple_ai 路径，
 ## 仍保留在 AIController，未提取。
+##
+## 评分哲学（spec target-engageability-selection）：选"现在最能干净命中"的目标，
+## 而非"最近"。base ∈ [0,1] 由四因子加权（对正/包络/锁定封顶/邻近），再叠修饰倍率与
+## 护卫/守后绝对加分。护卫/守后加分量级远大于 base → 威胁目标主导；无威胁时 base 独立决定。
+
+# ── 可命中性四因子权重（和=1.0 → base∈[0,1]）──
+const W_ALIGN := 0.45   ## 对正度：目标离机头多少度（与发射门同源）
+const W_ENV   := 0.30   ## 导弹包络内
+const W_LOCK  := 0.15   ## 已锁定（封顶 0/1，杜绝 runaway）
+const W_PROX  := 0.10   ## 邻近（仅 tiebreaker）
+# ── 修饰 ──
+const OVERKILL_MULT := 0.10        ## 队友已发足量弹（必死）→ 让路，避免超杀浪费
+const PREFERRED_ALT_MULT := 1.3    ## 命中偏好高度档
+const STICKY_BONUS := 0.10         ## 当前目标专注度粘性（替代旧 focus*5，适配 [0,1] 尺度）
+const REAR_GUARD_PRIORITY := 100.0 ## 守后语境：后方威胁主导加分（远大于 base，与 escort 同加性尺度）
+# ── 切换迟滞（防抖；base[0,1] 尺度）──
+const SWITCH_MARGIN_ENTER := 0.12  ## try_engage 换目标门槛
+const SWITCH_MARGIN_REEVAL := 0.18 ## reevaluate 交战中更黏
 
 # ══════════════════════════════════════════════
 #  进入交战（雷达扫描 + 打分）
@@ -26,8 +44,9 @@ static func try_engage(ai: AIController) -> void:
 	var best_target: CombatUnit = null
 	var best_score := -1.0
 	var current_target_score := -1.0
-	# 护卫编队僚机：候选叠加"咬长机/近长机"加权（§2.2）；非护卫 → null，评分不变
+	# 护卫编队僚机：候选叠加"咬长机/近长机"加权；非护卫 → null，评分不变
 	var escort_leader: Aircraft = ai.squad.leader if SquadCoordination.is_escort_wingman(ai) else null
+	var guard_ctx := _is_guard_rear_context(ai)
 
 	for target_key in ai.aircraft.radar_targets:
 		if not is_instance_valid(target_key):
@@ -36,35 +55,14 @@ static func try_engage(ai: AIController) -> void:
 		if target_ac.is_destroyed or target_ac.team == ai.aircraft.team:
 			continue
 
-		var lock_progress: float = ai.aircraft.radar_targets[target_key]
-		var lock_time: float = ai.aircraft.params.lock_time if ai.aircraft.params else 3.0
-
-		var dist := ai.aircraft.global_position.distance_to(target_ac.global_position)
-		var dist_score := 1.0 / maxf(dist, 100.0) * 1000.0
-		var lock_score := lock_progress / lock_time
-		var score := lock_score * 2.0 + dist_score
-
-		# 视觉遮蔽：低空（贴地）+ 云中目标降低攻击欲望
-		# 用 altitude / cloud_density 连续插值，避免 tier 边界跳变
-		score *= _visibility_score_mult(target_ac)
-
-		# 护卫学说加权（叠加在遮蔽倍率之后，作为绝对加分主导护卫优先级）
-		if escort_leader != null and target_ac is Aircraft:
-			score += SquadCoordination.escort_target_bonus(escort_leader, target_ac as Aircraft)
-
-		# 偏好高度加成
-		var tgt_tier := target_ac.get_altitude_tier()
-		if ai.preferred_altitude_tier != -99 and tgt_tier == ai.preferred_altitude_tier:
-			score *= 1.3
+		var score := _score_candidate(ai, target_ac, escort_leader, guard_ctx)
+		if score < 0.0:
+			continue  # 未过最低锁定门
 
 		# 目标粘性：当前目标获得专注度加成
 		if target_ac == ai._current_target:
-			score += ai.focus * 5.0
+			score += STICKY_BONUS
 			current_target_score = score
-
-		var min_lock_ratio := lerpf(1.0, 0.3, ai.aggression)
-		if lock_score < min_lock_ratio:
-			continue
 
 		if score > best_score:
 			best_score = score
@@ -74,8 +72,7 @@ static func try_engage(ai: AIController) -> void:
 		# 切换目标需要超越当前目标的粘性阈值
 		if ai._current_target and is_instance_valid(ai._current_target) and not ai._current_target.is_destroyed:
 			if best_target != ai._current_target and current_target_score > 0.0:
-				var switch_threshold := ai.focus * 2.0
-				if best_score < current_target_score + switch_threshold:
+				if best_score < current_target_score + SWITCH_MARGIN_ENTER:
 					return  # 新目标不够优，维持当前目标
 
 		var prev_state := ai._state
@@ -103,6 +100,7 @@ static func reevaluate_target(ai: AIController) -> void:
 	var current_score := -1.0
 	# 护卫编队僚机：交战中重评估也吃护卫加权——新出现的"咬长机者"能抢回护卫优先级
 	var escort_leader: Aircraft = ai.squad.leader if SquadCoordination.is_escort_wingman(ai) else null
+	var guard_ctx := _is_guard_rear_context(ai)
 
 	for target_key in ai.aircraft.radar_targets:
 		if not is_instance_valid(target_key):
@@ -111,24 +109,13 @@ static func reevaluate_target(ai: AIController) -> void:
 		if target_ac.is_destroyed or target_ac.team == ai.aircraft.team:
 			continue
 
-		var lock_progress: float = ai.aircraft.radar_targets[target_key]
-		var lock_time: float = ai.aircraft.params.lock_time if ai.aircraft.params else 3.0
-
-		var dist := ai.aircraft.global_position.distance_to(target_ac.global_position)
-		var dist_score := 1.0 / maxf(dist, 100.0) * 1000.0
-		var lock_score := lock_progress / lock_time
-		var score := lock_score * 2.0 + dist_score
-
-		# 视觉遮蔽：低空 / 云中目标降低吸引力（与 try_engage 同函数，连续插值）
-		score *= _visibility_score_mult(target_ac)
-
-		# 护卫学说加权（§2.2，与 try_engage 一致）
-		if escort_leader != null and target_ac is Aircraft:
-			score += SquadCoordination.escort_target_bonus(escort_leader, target_ac as Aircraft)
+		var score := _score_candidate(ai, target_ac, escort_leader, guard_ctx)
+		if score < 0.0:
+			continue  # 未过最低锁定门
 
 		# 当前目标获得专注度粘性加成
 		if target_ac == ai._current_target:
-			score += ai.focus * 5.0
+			score += STICKY_BONUS
 			current_score = score
 
 		if score > best_score:
@@ -138,9 +125,8 @@ static func reevaluate_target(ai: AIController) -> void:
 	if not best_target or best_target == ai._current_target:
 		return
 
-	# 必须显著优于当前目标才切换
-	var switch_threshold := ai.focus * 3.0
-	if current_score > 0.0 and best_score < current_score + switch_threshold:
+	# 必须显著优于当前目标才切换（交战中更黏，防横跳）
+	if current_score > 0.0 and best_score < current_score + SWITCH_MARGIN_REEVAL:
 		return
 
 	# 切换目标
@@ -213,6 +199,78 @@ static func disengage(ai: AIController) -> void:
 		ai._state = AIController.AIState.PATROL
 		BFMTactics.set_patrol_altitude(ai)
 		ai._set_next_waypoint()
+
+# ══════════════════════════════════════════════
+#  可命中性评分（try_engage / reevaluate 共用，杜绝两份公式漂移）
+# ══════════════════════════════════════════════
+
+## 单个候选打分：返回 score（base + 修饰 + 加分），或 -1.0 表示未过最低锁定门。
+## 不含粘性加成（STICKY_BONUS 由调用方在 target == current 时加）。
+static func _score_candidate(ai: AIController, target_ac: CombatUnit,
+		escort_leader: Aircraft, guard_ctx: bool) -> float:
+	var lock_progress: float = ai.aircraft.radar_targets.get(target_ac, 0.0)
+	var lock_time: float = ai.aircraft.params.lock_time if ai.aircraft.params else 3.0
+	var lock01 := clampf(lock_progress / maxf(lock_time, 0.01), 0.0, 1.0)
+	# 最低锁定门：高攻击性放宽到 30% 即可参选
+	if lock01 < lerpf(1.0, 0.3, ai.aggression):
+		return -1.0
+
+	var dist_m := ai.aircraft.global_position.distance_to(target_ac.global_position) / CombatUnit.PIXELS_PER_METER
+
+	# 对正度：目标离机头多少度（与发射门同源 atan2）
+	var to_tgt: Vector2 = target_ac.global_position - ai.aircraft.global_position
+	var hdg_to_tgt := atan2(to_tgt.x, -to_tgt.y)
+	var off_axis_deg := absf(rad_to_deg(ai.aircraft._angle_diff(hdg_to_tgt, ai.aircraft.heading)))
+	var radar_half: float = ai.aircraft.params.radar_half_angle if ai.aircraft.params else 30.0
+	var align01 := clampf(1.0 - off_axis_deg / maxf(radar_half, 1.0), 0.0, 1.0)
+
+	# 包络 + 邻近
+	var env01 := _envelope_factor(ai.aircraft, target_ac, dist_m)
+	var msl: MissileParams = ai.aircraft.params.missile if ai.aircraft.params else null
+	var max_r: float = msl.max_range_rear if msl else 8000.0
+	var prox01 := clampf(1.0 - dist_m / maxf(max_r, 1.0), 0.0, 1.0)
+
+	var score := W_ALIGN * align01 + W_ENV * env01 + W_LOCK * lock01 + W_PROX * prox01
+
+	# 视觉遮蔽（低空 / 云中）
+	score *= _visibility_score_mult(target_ac)
+
+	# 队友超杀让路：已发足量弹（含在途）→ 强降权
+	var mm := ai.aircraft.missile_manager
+	if mm and is_instance_valid(mm):
+		if mm.team_inbound_damage(target_ac, ai.aircraft.team, ai.aircraft) >= target_ac.hp:
+			score *= OVERKILL_MULT
+
+	# 偏好高度
+	if ai.preferred_altitude_tier != -99 and target_ac.get_altitude_tier() == ai.preferred_altitude_tier:
+		score *= PREFERRED_ALT_MULT
+
+	# 护卫加权（绝对加分，量级远大于 base → 咬长机者主导）
+	if escort_leader != null and target_ac is Aircraft:
+		score += SquadCoordination.escort_target_bonus(escort_leader, target_ac as Aircraft)
+
+	# 守后优先：仅守后语境，长机后半球且咬/逼近长机的敌机主导本次选择
+	if guard_ctx and target_ac is Aircraft and ai.squad and is_instance_valid(ai.squad.leader):
+		score += REAR_GUARD_PRIORITY * SquadCoordination.rear_threat_score(ai.squad.leader, target_ac as Aircraft)
+
+	return score
+
+## 导弹包络因子：包络内=1.0；太近(要拉开)=0.3；超包络=0.15（低优先但仍可作兜底飞近再打）。
+## 无导弹（纯机炮机）→ 1.0，不按导弹包络罚分。
+static func _envelope_factor(ac: Aircraft, target: CombatUnit, dist_m: float) -> float:
+	var msl: MissileParams = ac.params.missile if ac.params else null
+	if msl == null:
+		return 1.0
+	if ac._is_in_missile_envelope(target, msl):
+		return 1.0
+	if dist_m < msl.min_range:
+		return 0.3
+	return 0.15
+
+## 守后语境：整队 GUARD_REAR 模式。FOLLOW_LEADER 下的"自由机互掩守后"是逐帧瞬态，
+## 由 scan_leader_rear 直接接管选定，不依赖本评分路径，故此处只认 GUARD_REAR。
+static func _is_guard_rear_context(ai: AIController) -> bool:
+	return ai.squad_engage_mode == AIController.SquadEngageMode.GUARD_REAR
 
 # ══════════════════════════════════════════════
 #  视觉遮蔽辅助

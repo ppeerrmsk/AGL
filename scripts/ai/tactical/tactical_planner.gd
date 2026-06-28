@@ -20,6 +20,17 @@ class_name TacticalPlanner extends RefCounted
 ## EVADE_MISSILE / WAYPOINT_MOVE / CRUISE 等不参与 hysteresis（紧急或非战斗，立即响应）
 const HYSTERESIS_MIN_HOLD := 0.5
 
+## ── 慢速目标交战（按目标速度决定打法，与武器无关）──
+## 问题：快机在角点速度下最小转弯半径 ~ corner²/(g·G)。当目标近乎静止、且交战距离 ≲ 该半径时，
+## 快机绕着目标空转（aspect 永远 ~90°，机头带不到目标 → 枪打不准、导弹也对不准）。
+## 解法：目标够慢时，过顶/正横（hdg>90°）不绕大圈 WIDE_TURN，而是按距离分流：
+##   太近（转不回来）→ 短 extend 拉开间距；有间距 → wide turn 从远处转回。
+## 配合"指向接近（hdg<90°）走正常 lead/tail 决策对准开火"形成清晰的 pass-攻击-脱离-重攻循环。
+const SLOW_TARGET_SPEED_RATIO := 0.5   ## 目标速度 < 本机角点速度×此值 → 视为"慢速目标"
+const SLOW_TARGET_TURN_G := 7.0        ## 估算最小转弯半径用的持续 G（近似）
+const SLOW_TARGET_REATTACK_MULT := 1.5 ## 距离 < 最小转弯半径×此值 → 太近，先 extend 拉开
+const SLOW_TARGET_EXTEND_SEC := 1.5    ## 慢目标贴脸过顶时的 extend 时长（拉开间距，不要太长以免飞远）
+
 ## 参与 hysteresis 的 intent 集合（战斗类）
 static func _is_combat_intent(intent_id: int) -> bool:
 	match intent_id:
@@ -150,6 +161,23 @@ static func _decide(s: Situation, waypoint: Vector2) -> TacticalPlan:
 		var follow_ext := BfmIntent.extend_recover(s)
 		follow_ext.rationale += " | 僚机跟随长机撤离"
 		return _apply_weapon_lock(s, follow_ext)
+
+	# 优先级 5.9：慢速空中目标过顶/正横（hdg>90°）—— 别绕大圈空转，按距离分流（与武器无关）
+	# 仅拦截 hdg>90° 的"绕圈"病态；hdg<90°（正在指向接近）继续走下面正常决策对准开火。
+	if not s.tgt_is_surface and s.heading_diff_to_target_deg > 90.0 \
+			and (s.tgt_speed_ms * 3.6) < s.corner_speed_kmh * SLOW_TARGET_SPEED_RATIO:
+		var corner_ms: float = s.corner_speed_kmh / 3.6
+		var min_turn_r: float = (corner_ms * corner_ms) / (9.81 * SLOW_TARGET_TURN_G)
+		if s.dist_m < min_turn_r * SLOW_TARGET_REATTACK_MULT:
+			# 太近（半径 > 距离，转不回来）→ 短 extend 拉开间距，下次从远处转回做 pass
+			var ext: TacticalPlan = BfmIntent.extend_recover(s)
+			ext.trigger_extend_seconds = SLOW_TARGET_EXTEND_SEC
+			ext.rationale = "慢目标贴脸过顶 → extend 拉开重攻（绕不动：半径%.0fm vs 距%.0fm）" % [min_turn_r, s.dist_m]
+			return _apply_weapon_lock(s, ext)
+		# 有间距 → wide turn 从远处转回（机头能带到目标，不空转）
+		var wt: TacticalPlan = BfmIntent.wide_turn(s)
+		wt.rationale += " | 慢目标远距转回"
+		return _apply_weapon_lock(s, wt)
 
 	# 优先级 6：hdg 偏差 >90° — 先把头转回来
 	if s.heading_diff_to_target_deg > 90.0:

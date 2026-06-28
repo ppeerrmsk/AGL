@@ -22,43 +22,9 @@ extends RefCounted
 #  EVADE_MISSILE — 导弹规避（保持原有逻辑）
 # ══════════════════════════════════════════════
 
-## 散开规避（无来袭导弹时的退路：玩家长机传播 evasion_mode 给僚机时使用）
-## 每 SCATTER_REFRESH 秒重选一个方向，方向偏向地图中心 + 个体扰动，避免飞出边界
-const SCATTER_REFRESH := 1.5      ## 方向刷新周期（秒）
-const SCATTER_TURN_DIST := 1500.0 ## 散开目标点距离（像素）
-const SCATTER_EDGE_MARGIN := 1000.0 ## 距边界 < 此值时强制朝中心（像素）
-## 散开兜底超时：累计"无导弹"扫描超过此值就强制退出 evade，
-## 不再受 leader 的 evasion_mode 广播控制（防 LOD2 / 广播脱节导致 wingman
-## 在无威胁状态下持续 max+AB 散开飞出地图，并留下不消失的 flare 特效）
-const SCATTER_NO_MISSILE_TIMEOUT := 3.5
-static func _process_scatter_evade(ai: AIController, delta: float) -> void:
-	# 个体扰动相位（每架僚机不同 → 方向各异）
-	ai._scatter_evade_timer -= delta
-	if ai._scatter_evade_timer <= 0.0:
-		ai._scatter_evade_timer = SCATTER_REFRESH + randf_range(-0.3, 0.3)
-		# 默认方向：基于 squad_index 的固定 60-150° 散开扇形（每个僚机方向不同）
-		var base_angle := ai.aircraft.heading + deg_to_rad(60.0 + ai.squad_index * 35.0)
-		base_angle += randf_range(-0.4, 0.4)  # 随机扰动 ~±23°
-		var dir := Vector2(sin(base_angle), -cos(base_angle))
-		# 边界偏移：距边界 < SCATTER_EDGE_MARGIN 时把方向偏向地图中心
-		var edge_dist := MapBoundary.distance_to_edge(ai.aircraft.global_position)
-		if edge_dist < SCATTER_EDGE_MARGIN:
-			var to_center: Vector2 = -ai.aircraft.global_position.normalized()
-			# 边缘越近，越接近纯指向中心；EDGE_MARGIN 处 0% center，0 处 100% center
-			var center_weight: float = clampf(1.0 - edge_dist / SCATTER_EDGE_MARGIN, 0.0, 1.0)
-			dir = dir.lerp(to_center, center_weight).normalized()
-		ai._evade_target_pos = ai.aircraft.global_position + dir * SCATTER_TURN_DIST
-		# 安全网：clamp 到地图内部至少 500m，防止 target 本身越界
-		ai._evade_target_pos = MapBoundary.clamp_inside(ai._evade_target_pos, 500.0)
-		# 同步刷新时切换高度档（每 ~1.5s 一次，不每帧抖动）
-		if ai.aircraft.flat_altitude:
-			if ai.aircraft.get_altitude_tier() == Aircraft.AltitudeTier.LOW:
-				ai.aircraft.set_target_tier(Aircraft.AltitudeTier.HIGH)
-			else:
-				ai.aircraft.set_target_tier(Aircraft.AltitudeTier.LOW)
-	ai.aircraft.target_position = ai._evade_target_pos
-	if ai.aircraft.combat_target:
-		ai.aircraft.clear_combat_target()
+# spec wingman-escort-evasion：旧 _process_scatter_evade（玩家广播 evasion 时僚机无脑散开扇形）
+# 已废除 —— 护卫姿态改为 escort_cover_active + SQUAD_FOLLOW 待命 + 护卫 flare（僚机不脱队）。
+# 僚机仅在"自己真被导弹咬住"时走下方 process_evade 的垂直规避机动逃命。
 
 static func process_evade(ai: AIController, delta: float) -> void:
 	# ── 小队 leash 也管躲弹（spec squad-cohesion）──
@@ -81,31 +47,14 @@ static func process_evade(ai: AIController, delta: float) -> void:
 
 	var missile := find_nearest_incoming_missile(ai)
 	if not missile:
-		# 只有"长机正在广播规避"（玩家按了规避键，全队陪同散开）才持续散开。
-		# 僚机自己躲的那发一旦解除（jam/甩开/飞过头），长机没在广播 → 立刻清 evasion_mode 退出归位，
-		# 不再空跑 3.5s 散开尾巴（用户反馈：威胁一解除就该立刻归队）。
-		var leader_broadcasting: bool = ai.squad and is_instance_valid(ai.squad.leader) \
-				and ai.squad.leader != ai.aircraft and ai.squad.leader.evasion_mode
-		if ai.aircraft.evasion_mode and leader_broadcasting:
-			# 兜底超时：累计"无导弹散开"时长 > SCATTER_NO_MISSILE_TIMEOUT 就强制 exit，
-			# 防 LOD/广播脱节导致 wingman 无威胁还持续 max+AB 散开飞出地图
-			ai._scatter_no_missile_secs += delta
-			if ai._scatter_no_missile_secs >= SCATTER_NO_MISSILE_TIMEOUT:
-				# 关键：本地清 evasion_mode，否则 ai_controller 的 evade 守卫下一帧又强制
-				# enter_evade 形成 bounce。leader 下次 toggle 时 _propagate 会重新写回 true。
-				ai.aircraft.evasion_mode = false
-				exit_evade(ai)
-				return
-			_process_scatter_evade(ai, delta)
-			return
-		# 自己躲的那发已解除 + 长机没在广播 → 立即归位。
-		# 先清 evasion_mode（同上：防 ai_controller evade 守卫 bounce），再 exit。
+		# spec wingman-escort-evasion：自己被咬的那发一旦解除（jam/甩开/飞过头）→ 立即归队。
+		# 不再因"长机正在广播规避"而持续 max+AB 散开 —— 旧的 scatter-on-broadcast 行为已废除，
+		# 护卫姿态改由 escort_cover_active + SQUAD_FOLLOW 待命 + 护卫 flare 承担（不脱队）。
+		# 先清 evasion_mode（enter_evade 自保时设的），防 planner evasion_intent 残留 + 守卫 bounce。
 		if ai.aircraft.evasion_mode:
 			ai.aircraft.evasion_mode = false
 		exit_evade(ai)
 		return
-	# 检测到真实导弹 → 重置散开兜底计时（让 wingman 在真有威胁时无限散开）
-	ai._scatter_no_missile_secs = 0.0
 
 	# ── 战术机动：后方来袭导弹逼近时一次性触发 ──
 	var _mev := ai.aircraft.get_maneuver()
@@ -168,8 +117,6 @@ static func enter_evade(ai: AIController) -> void:
 	ai._squad_attacking_leader_target = false
 	ai._squad_lateral_role = AIController.SquadRole.NONE
 	ai._squad_free_engaging = false
-	ai._scatter_evade_timer = 0.0  # 散开模式下保证首帧重选方向
-	ai._scatter_no_missile_secs = 0.0  # 兜底计时清零
 	if ai.aircraft.combat_target:
 		ai.aircraft.clear_combat_target()
 	# 退出编队托管，规避机动必须走正常飞行物理（LOD 0）
@@ -184,7 +131,6 @@ static func exit_evade(ai: AIController) -> void:
 	# P4：清 evasion_mode 让 planner 回到正常 intent 路径
 	if ai.aircraft.use_tactical_planner:
 		ai.aircraft.evasion_mode = false
-	ai._scatter_no_missile_secs = 0.0
 	if ai._current_target and is_instance_valid(ai._current_target) and not ai._current_target.is_destroyed:
 		ai.aircraft.set_combat_target(ai._current_target)
 		BFMTactics.set_patrol_altitude(ai)

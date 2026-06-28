@@ -102,6 +102,67 @@ LOD 路径里每一步（`_update_combat / _update_bank / _update_visuals / queu
 
 ---
 
+## 2026-06-25 命令铁律豁免 leash/超距脱离：僚机奉命打远目标不再平飞 thrash
+
+**症状（用户）**：僚机 Brute 在平飞，没有追随长机。
+
+**日志铁证**（`logs/combat_log_20260625_222956.txt`，t≈69–111s）：Brute 每帧刷
+`DISENGAGE (was fighting Tu-160[BLKJK-01], engaged 0.0s)`（每 0.1s ≈6 条），夹着每 ~0.5s 一条
+`LEASH break-off (~2000px from leader) → rejoin`；距长机 1850–2935px **永不收敛**。
+
+**根因（状态 thrash，命令铁律被两条自动规则每帧覆盖）**：
+1. Brute 带玩家持久 `commanded_target = BLKJK-01`（~7km 外的图-160 轰炸机）。
+2. `ai_controller.gd:_enforce_commanded_target()` 按铁律**每帧**强制 `ENGAGE` + `clear_formation()`。
+3. 进 `_process_engage`：BLKJK-01 距离 > `radar_range×1.5`，命令路径**未设** `_squad_attacking_leader_target`，
+   于是走"非小队"分支**立即** `disengage`（`engaged 0.0s`）；leash break-off 也周期性把它拽回。
+4. `disengage` 不清 `commanded_target` → 下一帧 `_enforce` 又强制 ENGAGE → 死循环。
+   每帧 `ENGAGE ↔ SQUAD_FOLLOW` 弹跳 + 每帧 `clear_formation()`：BFM 拿不到稳定帧 → 不机动（**平飞**），
+   编队托管也建不起来 → **不归队**。直接违反 memory `player-command-iron-rule`。
+
+**修复（加守卫，`scripts/ai_controller.gd:_process_engage`）**：开头算一次
+`_cmd_engage = commanded_target == _current_target`（存活）。命令交战时：
+- **跳过 leash break-off**（在 leash 条件追加 `and not _cmd_engage`）；
+- **跳过超距 disengage**（`if is_boss_attacker() or _cmd_engage: pass`，与 BOSS 死追同语义）。
+玩家点名打多远的目标就追多远，允许脱编队全力扑上；命令目标死/被清后 `_enforce` 返回 false，
+自然落回正常 AI（disengage 回编队），老路径不变。
+
+**回归测试要点**：① 给僚机下令打 >radar×1.5 的远目标 → 应稳定 ENGAGE 飞 BFM 闭合，无 DISENGAGE 刷屏；
+② 无命令的普通僚机交战游走出 leash → 仍按原逻辑被拽回编队（leash 未失效）；
+③ 命令目标死后 → 僚机回 SQUAD_FOLLOW 归队。`--bench=stress_mixed` 编译干净、无报错。
+
+---
+
+## 2026-06-16 僚机护卫规避：玩家按 E 时僚机不再无脑散开（被打才逃 / 待命护焰）
+
+**症状（玩家反馈）**：玩家按 E 进规避，僚机没被攻击也加速散开飞离阵型（脱队飞数 km）。期望：被真威胁才逃，否则守长机 + 投焰替长机挡导弹。
+
+**根因**：`_propagate_evasion_to_squad` 广播 `evasion_mode=true` 给僚机 → `ai_controller` 守卫无条件 `enter_evade` → 走 `_process_scatter_evade` 散开；且 `evasion_mode=true` 让 planner `evasion_intent` 出 `EVADE_MISSILE`（max+AB）即使留 SQUAD_FOLLOW 也散开。
+
+**修复方式**：新增 `escort_cover_active` 标志与 `evasion_mode` 解耦（广播改置它）；`ai_controller` 守卫改三分支（自己被威胁→evade / 无命令→召回编队 / 有命令→落铁律）；`process_evade` 废除 scatter-on-broadcast；新增僚机护卫 flare（`AircraftFlares.try_cover_flare` / `release_cover`，jam=0.70×近度、范围 800m、单弹单次、消耗自身弹）。完整设计见 spec [systems/wingman-escort-evasion](../specs/systems/wingman-escort-evasion.md) + changelog [2026-06-16-wingman-escort-evasion](2026-06-16-wingman-escort-evasion.md)。
+
+**回归测试要点**：① 按 E 未被瞄僚机留编队不散开（log 无 scatter / 无 EVADE_MISSILE PLAN）；② 被瞄僚机仍正常规避；③ 长机被追时近距僚机出 `ESCORT_FLARE` + 导弹被 jam；④ 关 E 后僚机正常恢复自由交战；⑤ 玩家手控长机自卫机制零回归。⚠ 上一条（2080 行）记的"威胁解除后散开 3.5s 才退"老残留已随本次废除 scatter 一并消除。
+
+---
+
+## 2026-06-15 规避模式盲射：机炮 + 副导弹槽朝没有目标的方向开火
+
+**症状（玩家反馈）**：操控 Gale 进规避模式时，飞机一边做规避机动一边发射导弹、发射机炮，朝没有目标的方向乱打。
+
+**根因（两处叠加，规避时同时暴露）**：
+1. **机炮**：`BfmIntent.evade_missile` 出 `weapon_mode=NONE`（意图武器静默），但 `aircraft.gd:_apply_tactical_plan` 把 `NONE` 重映射成 `GUN`（为阻断 salvo 路径在 CRUISE/EVADE 期间漏发）。结果 `weapon_mode==GUN` 让 `auto_gun_scan` 的"导弹模式早退"失效；规避时 `combat_target` 已清 → scan 走 `all_units` 扫到前方任意敌机，锁存 `is_firing` + 旧 `_gun_lead_heading`。LOD 0 下 `auto_gun_scan` 每帧无条件跑（LOD 1/2 有 `if combat_target != null` 门，所以只在 LOD 0 暴露），机头随规避机动乱摆 → 朝 0.3s 前的旧 lead 喷子弹。cobra/herbst 有静默门，规避没有。
+2. **副导弹槽（QMAAM `update_secondary_missile`）**：不受 `weapon_mode` / 雷达锥 / `_has_stable_launch_window` 约束，仅凭距离包络对锁定目标盲发 → 规避机动中朝错误几何乱射副弹。
+
+**日志佐证**：`logs/combat_log_20260615_223410.txt` 2607.1~2608.8 Gale `EVADE_MISSILE`（tgt=none）期间，主弹被 `MSL_BLOCK WEAPON_MODE mode=1(GUN)` 正确拦截，但机炮 scan 与副槽无门。
+
+**修复方式（加守卫，与 cobra/herbst 同款静默）**：
+- `aircraft_weapons.gd:auto_gun_scan` 顶部加 `if ac.evasion_mode: ac.is_firing = false; return`（在 cobra/herbst 门之后）。
+- `aircraft_weapons.gd:update_secondary_missile` 在 JAM 门后加 `if ac.evasion_mode: return`（cooldown 继续倒数，退出规避即可发）。
+- 覆盖范围：`Situation.evasion_intent = ac.evasion_mode`，所以凡是 planner 出 EVADE_MISSILE（触发 NONE→GUN 重映射）的帧，`ac.evasion_mode` 必为真 → 守卫精确覆盖所有暴露场景；玩家 E 键与僚机 scatter 传播都置位 `evasion_mode`，两者同时受益。
+
+**回归测试要点**：① 规避中机炮/副弹应完全静默；② 退出规避后机炮与副槽立即恢复（cooldown 未被冻结）；③ 零规避场景行为不变（守卫未触发）；④ 验证僚机 scatter（非玩家 team 0）同样静默。
+
+---
+
 ## 2026-05-30 F-14 MRM 贸然发射/射空：发射窗口贴着 seeker FOV 边缘
 
 **症状（玩家反馈）**：F-14 的导弹经常追踪不到、射空；明显很难命中的情况下也贸然发射。
@@ -2138,3 +2199,81 @@ GUARD_REAR 模式、场上只有地面目标威胁玩家时，守护者不在长
 ### 验证（待 playtest）
 - [ ] 守护者打 SAM/AAA 时维持中空、导弹远射，不再俯冲扎进防空火力、掉血明显减少。
 - [ ] 玩家自己对地（Q 切机炮）仍可贴地 strafe；导弹模式走高度偏好。
+
+---
+
+## 2026-06-14 — 玩家命令铁律（commanded_target）+ RTS 指挥模块化
+
+### 背景 / 病象
+- RTS 自动交战的"命令粘性"原是 survivor_mode 里的单字段 `_player_commanded_target`，只护当前操控机，**非逐机**——用 1/2/3/4 切到别的机下令时，旧机的命令没有独立载体。
+- 切走后旧机被 AIController 唤醒，`_process_engage` 每 `eval_interval`(focus=1→10s) 无条件 `reevaluate_target`，按"近 + 锁"打分改打附近杂兵 → **覆盖玩家命令**（日志 `[TARGET] switched Sentinel→UAV`）。违背"玩家点名命令不可被 AI 覆盖"的铁律。
+
+### 改动（additive，守旧路径）
+1. 新增 `Aircraft.commanded_target`：玩家对**这架机**显式点名的攻击命令，逐机持有、跨切控持久。
+2. `AIController._enforce_commanded_target()`（路由 `match _state` 之前，manual/simple/规避之后）：带存活 `commanded_target` → 强制 ENGAGE 它、`clear_formation`、绕过 `try_engage` 评分与编队路由；命令目标死/被清 → 解除回正常 AI。
+3. `_process_engage` reevaluate 段加门：`commanded_target` 存活时**跳过** `reevaluate_target`（AI 不得改打别的）。
+4. 配套：RTS 指挥逻辑抽到 `scripts/rts/squad_command_controller.gd`（命令/自动交战单一所有者）+ 参数 Resource `rts_command.tres`（去硬编码）。被操控机由 controller.tick 守铁律（不拴绳不重选命令目标），非操控机由 `_enforce_commanded_target` 守。
+
+### 影响范围 / 风险
+- 仅影响**带 `commanded_target` 的玩家方飞机**（默认 null，敌机/未点名僚机不受影响，行为完全不变）。
+- 未被点名的"自由僚机"保留原有 reevaluate 自由度；有限度自主切目标（必中让路/不偏太远）归 spec target-engageability-selection，本次不做。
+- 求生规避优先于命令（规避 guard 在 `_enforce_commanded_target` 之前 return），规避结束下一 tick 自动重接命令目标。
+
+### 验证（headless 解析通过；待 playtest）
+- [ ] 点名打 Sentinel（远）→ 操控机 + 切走后仍全程死咬，AI/自动交战不夺走。
+- [ ] 操控 2 号机打 B → 切 1 号机打 A → 两机各打各的，切来切去不丢命令。
+- [ ] 对某机下移动/右键 → 放弃攻击命令；命令目标死 → 回编队，不飞向死敌点。
+- [ ] 未点名僚机行为与改动前一致。
+
+---
+
+## 2026-06-15 — 慢速目标交战：快机别绕圈空转（按目标速度决定打法）
+
+### 病象（log combat_log_20260615_213549）
+- 操控机 + 僚机围着 CH-47 直升机绕圈，一直不出手。日志：距离 533~845m（贴脸），但 `off_axis` 大量是 90°（正横）；PLAN 死循环 LEAD_TURN↔WIDE_TURN↔LEAD_PURSUIT；导弹被 `MSL_BLOCK WEAPON_MODE`（在机炮模式）+ `OFF_CONE`（对不准）拦下。
+
+### 根因（几何，与武器无关）
+- 快机角点速度下最小转弯半径 ≈ corner²/(g·G)。F-14 corner≈700km/h → 半径≈550m ≈ 交战距离。
+- TacticalPlanner 把近乎静止的直升机当普通战斗机跑 BFM：hdg>90° 就 WIDE_TURN 绕大圈，半径≈距离 → 永远绕着转、机头带不到目标 → 枪打不准、弹也对不准。决策树没用 `Situation.tgt_speed_ms` 分速度处理。
+
+### 改动（additive，仅慢速空中目标触发）
+- `tactical_planner._decide` 在 P6(WIDE_TURN) 之前加 P5.9：目标速度 < 本机角点速度×`SLOW_TARGET_SPEED_RATIO`(0.5) 且 hdg>90° 时，**不绕大圈**，按距离分流：
+  - 距离 < 最小转弯半径×`SLOW_TARGET_REATTACK_MULT`(1.5)（太近转不回来）→ 短 `extend_recover`(`SLOW_TARGET_EXTEND_SEC`=1.5s) 拉开间距；
+  - 有间距 → wide turn 从远处转回（机头能带到目标）。
+- hdg<90°（正在指向接近）不拦，走正常 lead/tail 决策 → 对准瞬间开火。形成"指向 pass → 过顶 → extend 拉开 → 转回重攻"循环，枪/弹都能在对准时出手。
+- 半径用 corner 速度估算（`SLOW_TARGET_TURN_G`=7），自动随机型缩放（A-10 角点慢→半径小→门槛小）。
+
+### 影响 / 风险
+- 仅影响"目标速度 < 本机角点速度一半"的**空中**慢速目标（直升机/螺旋桨等）；快速战斗机空战、地面/海面目标（走 ground_strafe）完全不受影响。
+- extend 时长刻意短(1.5s)+ 距离门控，防"飞太远再也不回头"。
+
+### 验证（headless 解析通过；待 playtest）
+- [ ] 打 CH-47/慢速目标：不再绕圈空转，改成指向 pass + 拉开重攻，能稳定出手击杀。
+- [ ] 快速战斗机互相缠斗手感不变（P5.9 不触发）。
+- [ ] 无"慢目标把飞机引飞走再也不回头"。
+
+---
+
+## 2026-06-16 — 目标选择改"可命中性"评分 + 守后优先 + 锁定封顶（spec target-engageability-selection）
+
+### 病象（log combat_log_20260614_170955）
+- 长机放着已锁定的近处轰炸机不打，慢慢转向去够稍远的另一架。
+
+### 根因（两条独立缺陷）
+1. **锁定进度无上限**：生存模式主雷达累积 `radar_targets[tgt] += delta*rate` 不封顶（副雷达却 minf 封了）。盯得久的远目标累到 lock_time 的数倍。
+2. **评分被锁定时间主导**：旧 `score = lock_score*2 + dist_score`，`lock_score = progress/lock_time` 无上限 → 涨到 6/10 把 dist_score(~0.5) 淹没。"盯得久=远的"碾压"近的、已对正"，切换门槛又拦着不换回。
+
+### 改动
+- **target_selection.gd**：抽 `_score_candidate`，旧公式换成可命中性四因子 `base = 0.45*align + 0.30*env + 0.15*lock + 0.10*prox`（均 [0,1]，`lock01` 封顶 0/1 杜绝 runaway）。修饰：视觉遮蔽 ×、队友超杀 ×0.10 让路、偏好高度 ×1.3、护卫加分、守后优先加分、当前目标 +0.10 粘性。切换迟滞改 `SWITCH_MARGIN_ENTER=0.12 / REEVAL=0.18`（替 focus*N）。`env01` 复用 `_is_in_missile_envelope`。
+- **守后优先**（用户反馈）：`squad_coordination.rear_threat_score(leader, cand)`——长机后半球 + (已咬长机 1.0 / 朝长机逼近 0.6) × (0.7+0.3*prox)。`scan_leader_rear` 从"选最近"改为"选最高威胁"（已咬 > 逼近 > 闲晃）；目标选择守后语境额外 `+100*rear_threat_score`。
+- **锁定封顶**（survivor_mode 主雷达累积）：`minf(prev+delta*rate, lock_time + LOCK_STABLE_BUFFER)`——封顶但留发射余量，不饿死哑 AI。
+
+### 影响 / 风险
+- 影响所有走 try_engage/reevaluate 的 AI 目标选择（友 + 敌）。base[0,1] 与 escort(60/25)/守后(100) 绝对加分共存：威胁目标主导、无威胁时 base 独立决定（即修好的近处轰炸机）。
+- 守后选定逻辑只在 GUARD_REAR / 自由机互掩守后触发，普通交战不变。
+
+### 验证（单测 7/7 + 回归全绿；待 playtest）
+- target_sel 单测：A 远正对>近偏轴(0.98>0.61) / B 超杀×0.10 / C 近>远 prox / D 已咬>逼近>前方 / runaway 封顶同分。
+- 回归：weapon 7/0、flare 9/0、rejoin ✓、turn_physics 48/0。
+- [ ] 生存 playtest：换目标手感 + 守后拦截 + 调 SWITCH_MARGIN/权重/OVERKILL_MULT。
+- [ ] 验证"选对了能否打出"（crank≈发射门 第二问题，待决定是否另起 firing-window spec）。

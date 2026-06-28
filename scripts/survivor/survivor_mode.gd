@@ -84,6 +84,11 @@ var _radar_lock_phase: int = 0  ## 当前轮到的 stride 索引（0..RADAR_LOCK
 var _radar_lock_accum: float = 0.0
 var _all_combat_units_cache: Array[CombatUnit] = []   ## _update_aircraft_list 填充，_update_radar_locks 复用
 
+# ── RTS 指挥（命令 + 自动交战）—— 逻辑全在 SquadCommandController，本文件只接线 ──
+# 数值见 resources/rts_command.tres；设计见 docs/specs/systems/rts-command.md
+const RTS_COMMAND_PARAMS := preload("res://resources/rts_command.tres")
+var _squad_cmd: SquadCommandController = null
+
 # ── HUD / UI ──
 var hud: SurvivorHUD
 var upgrade_ui: SurvivorUpgradeUI
@@ -264,6 +269,11 @@ func _ready() -> void:
 	player_aircraft.use_tactical_planner = true
 	player_aircraft.set_target_tier(Aircraft.AltitudeTier.MID)
 	player_aircraft.team = 0
+	# RTS 指挥控制器（命令 + 自动交战的单一所有者；本文件只转发输入）
+	_squad_cmd = SquadCommandController.new()
+	_squad_cmd.name = "SquadCommandController"
+	add_child(_squad_cmd)
+	_squad_cmd.setup(self, RTS_COMMAND_PARAMS)
 	player_aircraft.position = MapBoundary.get_player_start()
 	# 相机初始对准玩家起始点 + 启用跟随
 	camera.global_position = player_aircraft.position
@@ -361,6 +371,8 @@ func _ready() -> void:
 		add_child(_tactical_map)
 		_tactical_map.setup(_map_boundary.get_world_rect(), player_aircraft, _zone_data, self)
 		_tactical_map.zone_selected.connect(_on_zone_selected)
+		_tactical_map.nav_point_selected.connect(_on_nav_point_selected)
+		_tactical_map.nav_cleared.connect(_on_nav_cleared)
 
 		_zone_arrow = ZoneArrow.new()
 		add_child(_zone_arrow)
@@ -1341,32 +1353,26 @@ func _on_left_click(screen_pos: Vector2) -> void:
 	var is_double_click := (now - _last_left_click_time) <= DOUBLE_CLICK_WINDOW
 	_last_left_click_time = now
 
-	# 优先检测点击附近的敌方飞机
+	# 优先检测点击附近的敌方飞机 → 玩家点名攻击命令（铁律目标，逻辑在 SquadCommandController）
 	var enemy := _find_enemy_near(world_pos)
 	if enemy:
-		for ac in selected_aircraft:
-			if is_instance_valid(ac) and not ac.is_destroyed:
-				if ac.evasion_mode:
-					ac.set_evasion_mode(false)  # 走 set_evasion_mode 以便传播给僚机 + 还原 cd
-				ac.set_combat_target(enemy)  # 内部已清 charge_attack
-				if is_double_click:
-					ac.charge_attack = true  # 双击冲锋：强制机炮模式 + 屏蔽导弹自动发射，专注当前目标
+		if _squad_cmd:
+			_squad_cmd.command_attack(enemy)  # 内部 set_combat_target + commanded_target + 清规避
+		if is_double_click:
+			# 双击冲锋：强制机炮 + 屏蔽导弹自动发射（输入时序留在 mode 层）
+			for ac in selected_aircraft:
+				if is_instance_valid(ac) and not ac.is_destroyed:
+					ac.charge_attack = true
 		if is_instance_valid(_tutorial): _tutorial.notify_click_attack()
 		return
 
-	# 无敌机：普通移动指令（自动关闭规避）
-	for ac in selected_aircraft:
-		if is_instance_valid(ac) and not ac.is_destroyed:
-			if ac.evasion_mode:
-				ac.set_evasion_mode(false)
-			ac.clear_combat_target()
-			ac.target_position = world_pos
+	# 无敌机：普通移动指令（自动关闭规避，放弃攻击命令）
+	if _squad_cmd:
+		_squad_cmd.command_move(world_pos)
 
 func _on_right_click() -> void:
-	for ac in selected_aircraft:
-		if is_instance_valid(ac):
-			ac.clear_combat_target()
-			ac.target_position = Vector2.INF
+	if _squad_cmd:
+		_squad_cmd.cancel()
 
 ## 右键长按急刹：油门归零并禁用加力，aircraft_physics.update_speed 会跳过失速安全余量
 ## 持续到松开右键；期间保持航向（target_position 已被 _on_right_click 清成 INF）
@@ -1442,6 +1448,23 @@ func _find_nearest_mount_target_on(ship: NavalUnit, world_pos: Vector2) -> Comba
 
 
 # ══════════════════════════════════════════════
+#  RTS 指挥：战术地图信号转发 → SquadCommandController
+#  指挥逻辑（命令/自动交战）全在 scripts/rts/squad_command_controller.gd
+#  设计见 docs/specs/systems/rts-command.md
+# ══════════════════════════════════════════════
+
+## 战术地图点空白处 → 下达巡航航点（精确世界坐标）。
+func _on_nav_point_selected(world_pos: Vector2) -> void:
+	if _squad_cmd:
+		_squad_cmd.command_move(world_pos)
+
+## 战术地图右键：取消当前巡航/攻击指令。
+func _on_nav_cleared() -> void:
+	if _squad_cmd:
+		_squad_cmd.cancel()
+
+
+# ══════════════════════════════════════════════
 #  主循环
 # ══════════════════════════════════════════════
 
@@ -1471,6 +1494,9 @@ func _physics_process(delta: float) -> void:
 	# 必须在所有 AI/武器子系统之前跑，因为 update_missile 读 radar_targets 决定开火。
 	_update_aircraft_list()
 	_update_radar_locks(delta)
+	# RTS 自动交战：到点/空闲时长机自动锁最近敌机（僚机经 SquadCoordination 跟打）
+	if _squad_cmd:
+		_squad_cmd.tick(delta)
 
 	# 动态性能控制
 	_spawner.update_fps_sampling(delta)
@@ -1706,7 +1732,11 @@ func _update_radar_locks(delta: float) -> void:
 				if lock_rate < min_rate:
 					lock_rate = min_rate
 				var prev: float = unit.radar_targets.get(other, 0.0)
-				unit.radar_targets[other] = prev + per_shooter_delta * lock_rate
+				# 锁定进度封顶 = 阈值 + 稳定缓冲。哑 AI 发射需 threshold+LOCK_STABLE_BUFFER，
+				# 不能 cap 到 threshold 否则饿死其发射；但必须封顶，杜绝无上限累积让
+				# "盯得久=分高"碾压目标选择的可命中性评分（spec target-engageability-selection §2.2）。
+				var lock_cap: float = shooter_threshold + Aircraft.LOCK_STABLE_BUFFER
+				unit.radar_targets[other] = minf(prev + per_shooter_delta * lock_rate, lock_cap)
 				# §C 玩家技能"被你锁定的敌人累积恐惧"：仅 unit==玩家 + other 是飞机
 				# 累积模式：状态期间不累积；累积满 → 施 FEAR → 归零；状态消退后重新累积
 				if unit is Aircraft and unit.team == 0 \
@@ -2354,6 +2384,26 @@ func _on_zone_selected(zone_id: StringName) -> void:
 	# 消费掉 newly_opened 标记
 	if _zone_data:
 		_zone_data.take_newly_opened()
+	# RTS 巡航：把小队目标设到战区圆的"近边缘点"，飞过去即进圈触发 ZoneMission
+	_set_cruise_to_zone_edge(zone_id)
+
+## 计算战区圆边缘上离玩家最近的点，下达为小队巡航目标
+func _set_cruise_to_zone_edge(zone_id: StringName) -> void:
+	if not _zone_data or not player_aircraft or not is_instance_valid(player_aircraft):
+		return
+	var z := _zone_data.get_zone_by_id(zone_id)
+	if z.is_empty():
+		return
+	var center: Vector2 = z.get("center", Vector2.INF)
+	var radius: float = float(z.get("radius", 0.0))
+	if center == Vector2.INF or radius <= 0.0:
+		return
+	var dir := (player_aircraft.global_position - center)
+	# 玩家恰在圆心时给个默认方向，避免归一化得到零向量
+	var edge: Vector2 = center + (dir.normalized() if dir.length() > 1.0 else Vector2.UP) * radius
+	# 选战区 = 巡航指令（放弃攻击命令），逻辑走 SquadCommandController
+	if _squad_cmd:
+		_squad_cmd.command_move(edge)
 
 func _on_zone_mission_triggered(zone_id: StringName) -> void:
 	# 自动进入战区 = 自动开始任务；同时清掉顶部"新战区已开放"提示

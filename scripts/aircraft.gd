@@ -98,6 +98,10 @@ var _ab_cooldown: float = 0.0        ## 加力状态切换冷却
 
 # --- 战斗 ---
 var combat_target: CombatUnit = null  ## 锁定追踪的敌机/地面单位
+## 玩家对【这架机】显式点名下达的攻击命令目标（RTS 铁律）。逐机持有、跨 1/2/3/4 切控持久：
+## AI / 自动交战一律不得覆盖；只在目标阵亡、或玩家对本机另下移动/取消/新攻击命令时清除。
+## 默认 null（无玩家命令），仅玩家方使用。见 docs/specs/systems/rts-command.md。
+var commanded_target: CombatUnit = null
 var is_firing: bool = false
 var ammo: int = 500
 # 自动扫描机炮目标的节流计时器：60Hz 扫描无意义，且每次扫描都是 O(N) 遍历全场单位
@@ -199,6 +203,11 @@ var max_simultaneous_locks: int = 1
 ##      —— 节流由 `_missile_cooldown` + `count_active_missiles_at <= 1` 承担，
 ##      不需要"一次点击一发"守卫（2026-04-24 (3)，详见 player-ai-log.md）
 var missile_auto_fire: bool = true
+
+## RTS 自动交战（auto-engage）：到达巡航点/空闲时自动在半径内锁最近敌机。
+## 仅生存模式玩家长机读取（survivor_mode._update_auto_engage）；敌机不读此字段。
+## 默认开，右侧战术栏可关；关闭后小队到点纯待命，手动点敌仍可交战。见 docs/specs/systems/rts-command.md
+var auto_engage_enabled: bool = true
 
 ## 是否允许机炮/火箭弹自动射击空中目标
 ## false 时 _auto_gun_scan 跳过所有 Aircraft 候选 —— 用于对地专用机型（AH-64 等）
@@ -434,6 +443,16 @@ var _gun_aim_offset_rad: float = 0.0
 var _was_gun_firing: bool = false
 var altitude_preference: int = AltitudePreference.PREFER_CLIMB
 var evasion_mode: bool = false
+
+## ── 僚机护卫姿态（spec wingman-escort-evasion）──
+## 长机（玩家）按 E 时由 _propagate_evasion_to_squad 广播给僚机置位；关 E 清零。
+## 与 evasion_mode 解耦：护卫待命期间僚机 evasion_mode 必须为 false，否则 planner 的
+## Situation.evasion_intent 会让待命僚机也出 EVADE_MISSILE intent（max+AB）散开飞离阵型。
+## 僚机收到后：自己被真威胁才 enter_evade 逃命；否则回编队待命 + 替长机投护卫 flare。
+var escort_cover_active: bool = false
+## 护卫 flare 单弹单次记录（导弹 instance_id → true）：每枚导弹本机只护卫尝试一次，
+## 防止多架僚机/多帧轮流 jam 同一弹让长机无敌。由 AircraftFlares 清理失效引用。
+var _escort_flare_tried: Dictionary = {}
 
 ## ── §1.2 evasion_modifiers：模式切换时按差量缩放运行时倒计时（避免每帧重算） ──
 ## 技能 apply 时往该 dict 写倍率（< 1.0 = cd 缩短，> 1.0 = cd 延长）；
@@ -1545,9 +1564,10 @@ func set_evasion_mode(enabled: bool) -> void:
 	if use_tactical_preference and enabled != was_enabled:
 		_propagate_evasion_to_squad(enabled)
 
-## 把 evasion_mode 状态广播给本机为长机的所有僚机（仅玩家调用）
-## 僚机收到后会进入 scatter evade（MissileEvasion.process_evade 在 evasion_mode=true 时
-## 即使无来袭导弹也持续散开规避，方向偏向地图中心，避免飞出边界）
+## 把规避状态广播给本机为长机的所有僚机（仅玩家调用）
+## spec wingman-escort-evasion：广播置位的是僚机的 escort_cover_active（护卫姿态），
+## 不再直接置 evasion_mode —— 否则 planner 的 evasion_intent 会让待命僚机 max+AB 散开。
+## 僚机收到后：自己被真威胁才 enter_evade 逃命；否则回编队待命 + 替长机投护卫 flare。
 func _propagate_evasion_to_squad(enabled: bool) -> void:
 	for u in CombatUnit.all_units:
 		if u == null or not is_instance_valid(u) or u.is_destroyed:
@@ -1565,7 +1585,9 @@ func _propagate_evasion_to_squad(enabled: bool) -> void:
 			if child is AIController:
 				var ai_ctrl: AIController = child
 				if ai_ctrl.squad and ai_ctrl.squad.leader == self:
-					ac.set_evasion_mode(enabled)
+					ac.escort_cover_active = enabled
+					if not enabled:
+						ac._escort_flare_tried.clear()  # 关 E：清护卫尝试记录
 				break
 
 ## 进入(true) / 退出(false) evasion 时缩放 cd —— 进入按 mult 缩短，退出反向除回

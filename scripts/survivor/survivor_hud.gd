@@ -32,6 +32,7 @@ var _btn_weapon: Button
 var _btn_altitude: Button
 var _btn_evasion: Button
 var _btn_auto_fire: Button
+var _btn_auto_engage: Button
 var _tooltip_panel: PanelContainer
 var _tooltip_label: RichTextLabel
 var _tooltip_key: String = ""  # 当前悬停的按钮标识
@@ -195,6 +196,12 @@ func _build_ui() -> void:
 	_btn_auto_fire.mouse_entered.connect(_on_tac_hover.bind("auto_fire"))
 	_btn_auto_fire.mouse_exited.connect(_on_tac_hover_exit)
 	tac_vbox.add_child(_btn_auto_fire)
+
+	_btn_auto_engage = _create_tac_button(tr("TACTIC_AUTO_ENGAGE_FMT") % tr("STATE_ON"))
+	_btn_auto_engage.pressed.connect(_on_auto_engage_pressed)
+	_btn_auto_engage.mouse_entered.connect(_on_tac_hover.bind("auto_engage"))
+	_btn_auto_engage.mouse_exited.connect(_on_tac_hover_exit)
+	tac_vbox.add_child(_btn_auto_engage)
 
 	add_child(_tactical_panel)
 
@@ -751,6 +758,15 @@ func _on_auto_fire_pressed() -> void:
 	if _tooltip_panel.visible:
 		_update_tooltip()
 
+func _on_auto_engage_pressed() -> void:
+	if not survivor_player or not survivor_player.aircraft:
+		return
+	var ac := survivor_player.aircraft
+	ac.auto_engage_enabled = not ac.auto_engage_enabled
+	_update_tactical_buttons()
+	if _tooltip_panel.visible:
+		_update_tooltip()
+
 func _on_tac_hover(key: String) -> void:
 	_tooltip_key = key
 	_update_tooltip()
@@ -806,6 +822,15 @@ func _update_tooltip() -> void:
 				title_key = "TOOLTIP_AUTOFIRE_OFF_TITLE"
 				body_key = "TOOLTIP_AUTOFIRE_OFF_BODY"
 				hint_key = "TOOLTIP_AUTOFIRE_OFF_HINT"
+		"auto_engage":
+			if ac.auto_engage_enabled:
+				title_key = "TOOLTIP_AUTO_ENGAGE_ON_TITLE"
+				body_key = "TOOLTIP_AUTO_ENGAGE_ON_BODY"
+				hint_key = "TOOLTIP_AUTO_ENGAGE_ON_HINT"
+			else:
+				title_key = "TOOLTIP_AUTO_ENGAGE_OFF_TITLE"
+				body_key = "TOOLTIP_AUTO_ENGAGE_OFF_BODY"
+				hint_key = "TOOLTIP_AUTO_ENGAGE_OFF_HINT"
 
 	if title_key != "":
 		# BODY 含 \n 转义，走 LocaleManager.trm() 还原为真实换行
@@ -829,6 +854,7 @@ func _update_tactical_buttons() -> void:
 		_btn_altitude.text = tr("TACTIC_LOW_ALT")
 	_btn_evasion.text = tr("TACTIC_EVADE_FMT") % (tr("STATE_ON") if ac.evasion_mode else tr("STATE_OFF"))
 	_btn_auto_fire.text = tr("TACTIC_AUTOFIRE_FMT") % (tr("STATE_ON") if ac.missile_auto_fire else tr("STATE_OFF"))
+	_btn_auto_engage.text = tr("TACTIC_AUTO_ENGAGE_FMT") % (tr("STATE_ON") if ac.auto_engage_enabled else tr("STATE_OFF"))
 
 # ══════════════════════════════════════════════
 #  小队指挥面板（仅主角有僚机时存在）

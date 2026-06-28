@@ -235,8 +235,6 @@ const COVER_DISENGAGE_RANGE := 3500.0 ## 掩护脱离距离（威胁远离后回
 var _cover_scan_timer: float = 0.0
 var _cover_target: Aircraft = null   ## 掩护交战目标（后半球威胁）
 var _rejoining: bool = false       ## 交战/规避后正在全速归队
-var _scatter_evade_timer: float = 0.0  ## 散开规避方向刷新计时器（玩家传播 evasion 时用）
-var _scatter_no_missile_secs: float = 0.0  ## 散开期间累计"无导弹"时长，超阈值强制 exit（防 evasion_mode 卡住飞出地图）
 var _squad_attacking_leader_target: bool = false  ## 正在协同攻击长机指定的目标
 var _squad_free_engaging: bool = false  ## 正在自由交战模式下独立交战（同样享有 range grace）
 ## 协同攻击时的小队角色（squad_index → 角色）。NONE=单机/长机，其他=僚机分散战术
@@ -748,13 +746,36 @@ func _physics_process_impl(delta: float) -> void:
 		EventLogger.log_event("AI_STATE", _log_name(),
 			"auto-enter SQUAD_FOLLOW (spawn init guard, leader=%s)" % squad.leader.callsign)
 
-	# ── 玩家长机传播的 evasion：僚机立刻散开自保 ──
-	# 僚机 aircraft.evasion_mode=true（由长机 _propagate_evasion_to_squad 广播）→ 不论当前状态，
-	# 强制进入 EVADE_MISSILE。允许阵型被破坏、各自闪避；exit 由长机关 evasion 时同步广播触发
-	if aircraft.evasion_mode and _state != AIState.EVADE_MISSILE \
+	# ── 玩家长机传播的护卫规避（spec wingman-escort-evasion §3.1）──
+	# 长机按 E 时给僚机置 escort_cover_active（不再直接置 evasion_mode → 否则 planner 的
+	# evasion_intent 会让待命僚机也 max+AB 散开飞离）。僚机三分支：
+	#   ① 自己真被导弹咬住 → enter_evade 加速逃命（自保优先）
+	#   ② 没被威胁 + 无玩家命令 → 召回编队护卫长机（不再自由交战飞远，回槽位待命投护卫 flare）
+	#   ③ 没被威胁 + 有玩家命令 → 不拦截，落下方"命令铁律"继续交战（commanded_target 优先）
+	if aircraft.escort_cover_active and _state != AIState.EVADE_MISSILE \
 			and squad and is_instance_valid(squad.leader) and squad.leader != aircraft \
 			and not is_boss_attacker():
-		MissileEvasion.enter_evade(self)
+		if MissileEvasion.check_incoming_missile(self):
+			MissileEvasion.enter_evade(self)
+			return
+		elif aircraft.commanded_target == null and _state != AIState.SQUAD_FOLLOW:
+			# 召回编队待命（镜像 exit_evade 的 SQUAD_FOLLOW 归队设置，但不打 EVADE 日志）
+			_state = AIState.SQUAD_FOLLOW
+			_current_target = null
+			aircraft.clear_combat_target()
+			aircraft.ai_override_pursuit = false
+			_rejoining = true
+			_formation_blend = 0.0
+			aircraft.lod_level = 1
+
+	# ── 玩家命令铁律（spec rts-command §3）──
+	# 这架机带玩家显式攻击命令(aircraft.commanded_target)且目标存活 → 强制 ENGAGE 它，
+	# 绕过评分/编队路由，AI 不得改打别的（逐机持久，跨 1/2/3/4 切控）。
+	# 命令目标死/被清 → _enforce 返回 false，自然落回正常 AI（disengage 回编队）。
+	# 注：放在 manual_control / simple_ai / 规避 之后 —— 亲控由 controller+planner 管，
+	# 求生规避优先于命令，规避结束下一 tick 自动重接命令目标。
+	if _enforce_commanded_target():
+		_process_engage(delta)
 		return
 
 	match _state:
@@ -766,6 +787,29 @@ func _physics_process_impl(delta: float) -> void:
 			MissileEvasion.process_evade(self, delta)
 		AIState.SQUAD_FOLLOW:
 			SquadCoordination.process_squad_follow(self, delta)
+
+## 玩家命令铁律执行：若本机带存活的 commanded_target，强制/维持对它 ENGAGE，返回 true。
+## 命令目标为空/阵亡 → 清除 commanded_target 并返回 false（回正常 AI 目标选择）。
+func _enforce_commanded_target() -> bool:
+	var cmd: CombatUnit = aircraft.commanded_target
+	if cmd == null:
+		return false
+	if not is_instance_valid(cmd) or cmd.is_destroyed:
+		aircraft.commanded_target = null  # 命令目标已亡 → 解除命令，回正常 AI
+		return false
+	# 设置/维持对命令目标的交战（已在打它就只是空转一次比较）
+	if _current_target != cmd or _state != AIState.ENGAGE:
+		_current_target = cmd
+		aircraft.set_combat_target(cmd)
+		aircraft.ai_override_pursuit = true
+		if _state != AIState.ENGAGE:
+			_state = AIState.ENGAGE
+			_engage_timer = 0.0
+			_tactic = EngageTactic.LEAD_PURSUIT
+			_tactic_timer = 0.0
+			_tactic_min_duration = MIN_DUR_LEAD_PURSUIT
+			aircraft.clear_formation()  # 脱离编队托管去执行命令
+	return true
 
 # ══════════════════════════════════════════════
 #  飞行员能力系统（委托给 PilotPersonality）
@@ -1546,11 +1590,23 @@ func _process_engage(delta: float) -> void:
 		_process_drone_engage(delta)
 		return
 
+	# ── 玩家命令铁律（spec rts-command §3 / memory player-command-iron-rule）──
+	# 本机带存活的 commanded_target 且正打它 → 这是玩家显式下达的交战。下面两条"自动"规则
+	# （leash 距长机太远拽回 / 超雷达距脱离）都不得覆盖它：否则 _enforce_commanded_target 每帧
+	# 强制 ENGAGE ↔ 这里每帧 disengage → 状态 thrash，僚机既不飞 BFM 也不回编队（日志实证：
+	# 平飞、不追随长机、DISENGAGE engaged 0.0s 刷屏，距长机 2000px 永不收敛）。
+	# 玩家点名打远目标 = 允许脱编队全力扑上去，距离/leash 一律让位。
+	var _cmd_engage: bool = aircraft.commanded_target != null \
+			and aircraft.commanded_target == _current_target \
+			and is_instance_valid(aircraft.commanded_target) and not aircraft.commanded_target.is_destroyed
+
 	# ── 小队 leash（spec squad-cohesion §3.2）：交战僚机游走出长机太远 → 强制脱战回编队 ──
 	# 根治"飞着飞着绕一大圈查无此人"。仅常规 squad 僚机生效；
 	# drone(上方已 return) / bvr_only(F-47 远距逃跑手) / boss / hunter(combat_zone 远距巡猎) 各有自己的远距语义，跳过。
+	# 命令铁律：_cmd_engage 时跳过 leash（玩家令其打远目标，不许被拽回编队）。
 	if squad and is_instance_valid(squad.leader) and squad.leader != aircraft \
-			and not bvr_only and not is_boss_attacker() and combat_zone_anchor == null:
+			and not bvr_only and not is_boss_attacker() and combat_zone_anchor == null \
+			and not _cmd_engage:
 		var leash_d := aircraft.global_position.distance_to(squad.leader.global_position)
 		if leash_d > effective_squad_leash():
 			_squad_leash_timer += delta
@@ -1677,9 +1733,10 @@ func _process_engage(delta: float) -> void:
 
 	# 超出范围脱离（小队指令的交战都带宽限：允许短暂越界，给飞机调整位置的时间）
 	# BOSS 攻击手永不因距离脱离——死追目标
+	# 命令铁律：_cmd_engage（玩家点名的目标）同样永不因距离脱离——玩家要打多远就追多远
 	# flat_altitude=true（生存模式）下距离判定忽略高度差
-	if is_boss_attacker():
-		pass  # BOSS 攻击手跳过距离脱离
+	if is_boss_attacker() or _cmd_engage:
+		pass  # BOSS 攻击手 / 玩家命令目标跳过距离脱离
 	elif aircraft.params:
 		var max_range := aircraft.effective_radar_range_px() * 1.5
 		var dist: float
@@ -1706,8 +1763,11 @@ func _process_engage(delta: float) -> void:
 		return
 
 	# ── 交战中目标重评估（受 focus 影响） ──
+	# 玩家命令铁律：本机带存活 commanded_target 时跳过独立重评估，AI 不得改打别的。
+	var _has_cmd: bool = aircraft.commanded_target != null \
+			and is_instance_valid(aircraft.commanded_target) and not aircraft.commanded_target.is_destroyed
 	var eval_interval := lerpf(TARGET_EVAL_INTERVAL_MIN, TARGET_EVAL_INTERVAL_MAX, focus)  # 低专注=3秒重评，高专注=10秒
-	if _target_eval_timer >= eval_interval:
+	if not _has_cmd and _target_eval_timer >= eval_interval:
 		_target_eval_timer = 0.0
 		TargetSelection.reevaluate_target(self)
 

@@ -96,6 +96,29 @@ func _ready() -> void:
 		get_tree().quit(0)
 		return
 
+	# 僚机护卫规避验证（2026-06-16 spec wingman-escort-evasion）
+	if bench_scenario == "escort":
+		var escript: GDScript = load("res://scripts/tests/test_escort_evasion.gd")
+		if escript:
+			var et = escript.new()
+			if et and et.has_method("run"):
+				et.run()
+		else:
+			printerr("[Bench] escort: 测试脚本加载失败")
+		get_tree().quit(0)
+		return
+
+	if bench_scenario == "target_sel":
+		var tscript: GDScript = load("res://scripts/tests/test_target_selection.gd")
+		if tscript:
+			var tt = tscript.new()
+			if tt and tt.has_method("run"):
+				tt.run()
+		else:
+			printerr("[Bench] target_sel: 测试脚本加载失败")
+		get_tree().quit(0)
+		return
+
 	bench_active = true
 
 	# 输出路径：bench/results/<scenario>_<UTC YYYYMMDD_HHMMSS>.txt

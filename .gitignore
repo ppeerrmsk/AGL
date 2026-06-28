@@ -14,3 +14,8 @@
 /_*.gd
 /_*.gd.uid
 
+# Claude Code 本地产物（机器专属 / 临时，不入库）
+.claude/worktrees/
+.claude/scheduled_tasks.lock
+.mcp.json
+

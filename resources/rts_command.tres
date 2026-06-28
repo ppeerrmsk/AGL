@@ -1,0 +1,9 @@
+[gd_resource type="Resource" script_class="RtsCommandParams" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/rts/rts_command_params.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+auto_engage_radius_px = 1500.0
+auto_engage_leash_mult = 1.5
+auto_engage_interval_s = 0.3

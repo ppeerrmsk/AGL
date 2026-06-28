@@ -30,6 +30,7 @@ TACTIC_CLIMB_PRIORITY,3 爬升优先,3 Climb High,3 高高度優先
 TACTIC_LOW_ALT,4 低空优先,4 Fly Low,4 低空優先
 TACTIC_EVADE_FMT,E 规避: %s,E Evade: %s,E 回避: %s
 TACTIC_AUTOFIRE_FMT,F 自动发射: %s,F Auto-Fire: %s,F 自動発射: %s
+TACTIC_AUTO_ENGAGE_FMT,自动交战: %s,Auto-Engage: %s,自動交戦: %s
 UPGRADE_HEADER,[ 选择升级 ],[ Select Upgrade ],[ アップグレード選択 ]
 MAP_SELECT_TITLE,[ 选择地图 ],[ Select Map ],[ マップ選択 ]
 MAP_SELECT_SUBTITLE,生存模式  //  SURVIVAL MODE,SURVIVAL MODE,サバイバル  //  SURVIVAL MODE
@@ -91,6 +92,12 @@ TOOLTIP_AUTOFIRE_ON_HINT,按 [color=#ffdd66]F[/color] 关闭自动发射,Press [
 TOOLTIP_AUTOFIRE_OFF_TITLE,自动发射: 关,Auto-Fire: OFF,自動発射: OFF
 TOOLTIP_AUTOFIRE_OFF_BODY,只在玩家点击敌机指定攻击时开火\n节省弹药 / 精准打击,Fires only when player targets an enemy\nConserves ammo / precise strikes,プレイヤー指定の敵機のみ射撃\n弾薬節約 / 精密打撃
 TOOLTIP_AUTOFIRE_OFF_HINT,按 [color=#ffdd66]F[/color] 开启自动发射,Press [color=#ffdd66]F[/color] to enable auto-fire,[color=#ffdd66]F[/color] で自動発射を有効化
+TOOLTIP_AUTO_ENGAGE_ON_TITLE,自动交战: 开,Auto-Engage: ON,自動交戦: ON
+TOOLTIP_AUTO_ENGAGE_ON_BODY,小队抵达巡航点/空闲时自动锁最近敌机\n长机交战 僚机自动跟打\n巡航途中不交战 保证抵达目的地\n敌机飞太远会放弃 回到待命,Squad auto-locks nearest enemy on arrival / when idle\nLeader engages and wingmen follow\nWon't engage mid-transit so the squad reaches its goal\nDrops targets that flee too far and returns to standby,巡航点到着・待機時に最寄りの敵機を自動ロック\n長機が交戦し僚機が追従\n移動中は交戦せず目的地へ到達\n遠すぎる敵は諦めて待機に戻る
+TOOLTIP_AUTO_ENGAGE_ON_HINT,点击关闭自动交战,Click to disable auto-engage,クリックで自動交戦を無効化
+TOOLTIP_AUTO_ENGAGE_OFF_TITLE,自动交战: 关,Auto-Engage: OFF,自動交戦: OFF
+TOOLTIP_AUTO_ENGAGE_OFF_BODY,小队到达巡航点后纯待命 不自动锁敌\n仍可手动点击敌机指定攻击,Squad just holds at the cruise point with no auto-targeting\nYou can still click an enemy to attack manually,巡航点到着後は待機し自動ロックしない\n敵機を手動クリックで攻撃指定は可能
+TOOLTIP_AUTO_ENGAGE_OFF_HINT,点击开启自动交战,Click to enable auto-engage,クリックで自動交戦を有効化
 UPGRADE_CATEGORY_COMBAT_PREFIX,[战斗] ,[Combat] ,[戦闘]
 UPGRADE_CATEGORY_SURVIVAL_PREFIX,[生存] ,[Survival] ,[生存]
 UPGRADE_AXIS_SURVIVAL_PREFIX,[生存] ,[Survival] ,[生存]
