@@ -1,8 +1,10 @@
-[gd_resource type="Resource" script_class="AircraftParams" load_steps=4 format=3]
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
 [ext_resource type="Resource" path="res://resources/x02_railgun.tres" id="2"]
 [ext_resource type="Resource" path="res://resources/x02_laser.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/default_missile.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/default_flare.tres" id="5"]
 
 [resource]
 script = ExtResource("1")
@@ -32,4 +34,6 @@ radar_half_angle = 32.0
 lock_time = 4.5
 icon_color = Color(0.85, 0.9, 1.0, 1.0)
 wing_color = Color(0.2, 0.25, 0.35, 1.0)
+missile = ExtResource("4")
+flare = ExtResource("5")
 equipment = [ExtResource("2"), ExtResource("3")]

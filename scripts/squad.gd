@@ -89,8 +89,17 @@ func cleanup() -> void:
 			valid.append(ac)
 	members = valid
 	if leader and (not is_instance_valid(leader) or leader.is_destroyed):
-		leader = members[0] if members.size() > 0 else null
+		# ACE 继任（spec ace-system §3）：长机阵亡 → **击坠数最高**的存活成员继任
+		# （kill_tally 在 _record_kill_attribution 记账；平手取 members 靠前 = 资历序）。
+		# 敌方小队走同一规则（战果最高者接任），无副作用。
+		var best: Aircraft = null
+		for ac in members:
+			if best == null or ac.kill_tally > best.kill_tally:
+				best = ac
+		leader = best
 		if leader:
+			EventLogger.log_event("ACE", leader.callsign,
+				"继任长机/王牌 (kills=%d)" % leader.kill_tally)
 			_sync_leader_squad_index(leader)
 			leader_changed.emit(leader)
 

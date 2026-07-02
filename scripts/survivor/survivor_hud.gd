@@ -1273,6 +1273,14 @@ func _update_squad_panel() -> void:
 		return
 	_squad_panel.visible = true
 
+	# 继任者标记（spec ace-system §3）：击坠数最高的僚机 = 王牌阵亡时的继任者，标 ★
+	var heir: Aircraft = null
+	for wm0 in wingmen:
+		if heir == null or (wm0 as Aircraft).kill_tally > heir.kill_tally:
+			heir = wm0
+	if heir and heir.kill_tally <= 0:
+		heir = null  # 零杀不标（无有意义的继任排序）
+
 	var bbcode := ""
 	for i in range(wingmen.size()):
 		var wm: Aircraft = wingmen[i]
@@ -1285,7 +1293,9 @@ func _update_squad_panel() -> void:
 		for c in range(bar_cells):
 			bar_str += "█" if c < filled else "░"
 
-		bbcode += "[b]%s[/b]  [color=#%s]HP %3d%%[/color]\n" % [wm.callsign, hp_color, int(hp_ratio * 100)]
+		var heir_mark := "[color=#ffcc44]★[/color] " if wm == heir else ""
+		var kills_str := "  [color=#8899aa]✕%d[/color]" % wm.kill_tally if wm.kill_tally > 0 else ""
+		bbcode += "%s[b]%s[/b]%s  [color=#%s]HP %3d%%[/color]\n" % [heir_mark, wm.callsign, kills_str, hp_color, int(hp_ratio * 100)]
 		bbcode += "  [color=#%s]%s[/color]\n" % [hp_color, bar_str]
 		bbcode += "  %s\n" % _wingman_weapon_status(wm)
 		bbcode += "  [color=#6ab4e8]• %s[/color]" % _wingman_action_text(wm)
