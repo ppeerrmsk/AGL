@@ -9,7 +9,8 @@ extends Node
 ##   cam_ctrl.setup(camera)
 ##   cam_ctrl.set_world_bounds(Rect2(...))  # 可选：开启相机位置钳制
 
-const ZOOM_MIN := 0.4       ## 最大缩小倍率（越小视野越大；0.4 ≈ 1920 屏宽下可视 4800 px / 9.6 km，对角半径 ≈ 2750 px）
+const ZOOM_MIN := 0.2       ## 最大缩小倍率（越小视野越大；0.2 ≈ 1920 屏宽下可视 9600 px / 19.2 km，可俯瞰大半张图）
+const START_ZOOM := 0.35    ## 开局镜头（比 ZOOM_MIN 略紧，避免开局飞机太小；玩家可滚轮拉到 ZOOM_MIN 看全场）
 const ZOOM_MAX := 5.0
 const ZOOM_STEP := 0.1
 const HOVER_RADIUS := 30.0  ## 鼠标悬停判定半径（像素）
@@ -41,9 +42,9 @@ var _wasd_velocity: Vector2 = Vector2.ZERO
 
 func setup(p_camera: Camera2D) -> void:
 	camera = p_camera
-	# 初始镜头拉到最远（ZOOM_MIN）：玩家开局就能看到最大范围的战场
-	camera.zoom = Vector2(ZOOM_MIN, ZOOM_MIN)
-	target_zoom = ZOOM_MIN
+	# 初始镜头用 START_ZOOM（俯瞰但飞机不至于太小）；上限放宽到 ZOOM_MIN 供玩家拉远看全场
+	camera.zoom = Vector2(START_ZOOM, START_ZOOM)
+	target_zoom = START_ZOOM
 
 ## 启用相机位置钳制（传入世界矩形；生存模式传 MapBoundary.get_world_rect()）
 func set_world_bounds(rect: Rect2) -> void:

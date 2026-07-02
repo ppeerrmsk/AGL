@@ -5,6 +5,10 @@ extends Node
 
 const BUFFER_DURATION := 300.0  ## 保留最近多少秒的事件（5 分钟，配合 F47 BOSS 诊断）
 
+## 击杀战况信号 → survivor_hud 的 kill feed 订阅。在 Aircraft._record_kill_attribution 致死瞬间 emit。
+## killer/victim = 可读呼号；weapon_kind ∈ gun/missile/rocket/aoe/ground_crash；team: 0=友方。
+signal kill_recorded(killer: String, victim: String, weapon_kind: String, killer_team: int, victim_team: int)
+
 var _events: Array[Dictionary] = []
 var _game_time: float = 0.0
 

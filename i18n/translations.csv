@@ -44,6 +44,11 @@ SQUAD_ENGAGE_FOLLOW,跟随长机,Follow Leader,リーダー追従
 SQUAD_ENGAGE_GUARD,守护后方,Guard Rear,後方警戒
 WEAPON_PREF_MISSILE,导弹优先,Missile Priority,ミサイル優先
 WEAPON_PREF_GUN,机炮优先,Gun Priority,ガン優先
+WEAPON_GUN,机炮,Gun,ガン
+WEAPON_MISSILE,导弹,Missile,ミサイル
+WEAPON_ROCKET,火箭弹,Rocket,ロケット
+WEAPON_AOE,爆炸,Blast,爆発
+WEAPON_CRASH,坠地,Crash,墜落
 FORMATION_COMBAT_SPREAD,战斗展开,Combat Spread,コンバットスプレッド
 FORMATION_WEDGE,楔形编队,Wedge,ウェッジ
 FORMATION_ECHELON,梯形编队,Echelon,エシュロン

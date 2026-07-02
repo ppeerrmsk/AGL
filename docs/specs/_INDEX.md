@@ -53,6 +53,14 @@
 | [systems/wingman-escort-evasion](systems/wingman-escort-evasion.md) | system | in-progress | ✅ | 僚机护卫规避：玩家按 E 时僚机不再无脑散开——被真威胁才逃，否则召回编队待命 + 投护卫 flare 替长机挡追它的导弹（escort_cover_active 与 evasion_mode 解耦；护卫 jam=0.70×近度，范围 800m）。**代码落地、flare bench 9/9，差 §5 playtest** |
 
 | [systems/combat-effectiveness-metrics](systems/combat-effectiveness-metrics.md) | system | draft | ✗ | 战斗效能评估：交战记录 4 层指标（转化 FSR/执行 hit_rate/结果 TTK/对手规避+CapIndex 差距）+ 两轴 Offense/Defense 评级 + bench 对位矩阵；核心解决"快机打不中慢直升机≠直升机强"。**仅 §1~§6 草稿，待 review** |
+| [systems/aircraft-evolution](systems/aircraft-evolution.md) | system | wip-design | ✗ | 战区结算 + 宝可梦式机型进化（F-15 基底 / F-16 降分支）+ Tab 结算坞 + 三选一(武器/红技能/进化) + 槽位装备继承 + 航母外援。**高层骨架，进化树内容/数值待用户补** |
+| [systems/aircraft-evolution-tree](systems/aircraft-evolution-tree.md) | system | draft | ✗ | 进化科技树具体名单：5 档位（四代→四代半→五代→六代→虚构超凡）/ 每架 ≥3 出口全列 / 苏美欧中系穿插 / 剔除侦察机 / Su-57·F-22 同档平级 / 档位 5 虚构期待机 7 款占位（X-09/X-13/X-21/X-44/X-77/X-90/AX-00）。**名单/门槛/虚构名待定** |
+| [systems/squad-upgrade-ownership](systems/squad-upgrade-ownership.md) | system | draft | ✗ | 升级归属**绑机型**：三归类字段(ownership/affinity/flavor/inheritable) + 全 41 技能归类总表(GLOBAL/GUN-A10/EW-F16/MISSILE/UNIVERSAL/HARDWARE) + 同型共享/战损不丢 build + 僚机生产+build 重放 + 编队上限 9/1-9 接管 + Session 内 Roguelike。**待 review；待拍板硬件继承 A/B** |
+
+| [systems/combat-feed](systems/combat-feed.md) | system | done | ✅ | 战况栏 / kill feed：左上角实时"谁用什么武器击坠谁"，最新 5 条、HOLD 5s+淡出 1.5s、友绿敌红配色；EventLogger.kill_recorded 信号桥接、复用既有击杀归因。同批放宽镜头缩放上限 ZOOM_MIN 0.4→0.2 |
+| [systems/meta-progression](systems/meta-progression.md) | system | draft | ✗ | 局内/局外彻底分层，轴=**槽位装备 vs 玩法深度**：局外（功勋持久）解锁机型武器/装备 loadout（A-10 火箭/X-02 电磁炮）；局内（roguelike 清零）= 提升玩法深度的机制 + 进化（每局从初始机起，局外令进化更平滑）。**方向 stub；货币/进化已定，局内深度内容待用户推敲** |
+
+| [systems/ace-system](systems/ace-system.md) | system | draft | ✗ | 王牌系统：长机当前机=ACE（开局默认）；进化分王牌/僚机两类对象（王牌线=进化树深度 / 编队线=数量+品质+loadout 轻成长）；ACE 阵亡由击坠最高者继任、旧加成不继承。调和"单机英雄进化 vs RTS 编队"。**核心已定，资源分配/继任边界待推敲** |
 
 <!-- 新增 spec 后在此追加一行。保持按 kind 分组、最新在各组顶部。 -->
 

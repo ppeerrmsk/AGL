@@ -180,7 +180,7 @@ const MISSION_TYPE_BASE_WEIGHTS := {
 	3: {"ground": 40.0, "squadron": 60.0},                    ## ★★★ 无 elite（分量不够）
 }
 var boss_unlocked: bool = false
-## 战区阶段是否已结束（survivor_mode 在 8 分钟到点时置 true）
+## 战区阶段是否已结束（survivor_mode 在 10 分钟到点时置 true）
 ## 置 true 后 _refresh_availability_after_clear 不再开新战区，E 解锁路径也屏蔽
 var phase_ended: bool = false
 ## E 战区是否已经尝试过解锁（避免 A+B 清完反复 roll）
@@ -264,12 +264,12 @@ func mark_cleared(id: StringName) -> void:
 ## 依据 `_last_cleared` 决定 BOSS 出现在南还是北
 ## 并把同位置的常规战区（E 或 B）压回 LOCKED，避免 UI 重叠
 ## 选定位置后若在陆地上则向海面吸附 —— 舰队 BOSS（CSG）才能刷进池子
-## public：survivor_mode 在 8 分钟到点（或 SELECTED 战区结算后）调用
+## public：survivor_mode 在 10 分钟到点（或 SELECTED 战区结算后）调用
 func finalize_boss_placement() -> void:
 	_finalize_boss_placement()
 
 ## 把所有 AVAILABLE 状态的战区压回 LOCKED，except_id 保留不动（玩家正在打的）
-## 用途：8 分钟战区阶段结束时调用，让 BOSS 阶段视野干净
+## 用途：10 分钟战区阶段结束时调用，让 BOSS 阶段视野干净
 func lock_all_open_zones_except(except_id: StringName) -> void:
 	for z in ZONES:
 		var zid: StringName = z["id"]
@@ -327,7 +327,7 @@ func _cancel_zone_if_open(zid: StringName) -> void:
 
 func _refresh_availability_after_clear() -> void:
 	_newly_opened.clear()
-	# 阶段已结束（8 分钟到点）→ 不再开新战区，BOSS 由 survivor_mode 接管
+	# 阶段已结束（10 分钟到点）→ 不再开新战区，BOSS 由 survivor_mode 接管
 	if phase_ended:
 		return
 

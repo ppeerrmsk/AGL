@@ -2203,6 +2203,10 @@ func _record_kill_attribution() -> void:
 				else (attacker.callsign if ("callsign" in attacker and attacker.callsign != "") else String(attacker.name))
 		EventLogger.log_event("KILL", atk_name, "%s击坠 %s" % [wpn, _log_name()])
 		EventLogger.tally(atk_name, "kills")
+		# ── 战况栏（kill feed）信号：呼号 + 武器种类 + 双方阵营，survivor_hud 订阅显示 ──
+		var atk_call: String = attacker.callsign if ("callsign" in attacker and attacker.callsign != "") else String(attacker.name)
+		var atk_team_i: int = attacker.team if ("team" in attacker) else -1
+		EventLogger.kill_recorded.emit(atk_call, callsign, dk, atk_team_i, team)
 	remove_meta("_pending_attacker")
 	if not is_instance_valid(attacker) or not (attacker is Aircraft):
 		return

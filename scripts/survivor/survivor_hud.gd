@@ -52,6 +52,10 @@ var _boss_panel: PanelContainer
 # ── 雷达小地图 ──
 var _radar: Control
 
+# ── 战况栏 / kill feed（左上角，最新 5 条，逐渐淡出）──
+var _kill_feed_container: VBoxContainer
+var _kill_feed_entries: Array = []   ## 每项 {label: Label, age: float}
+
 # ── 其他 ──
 var _game_over_panel: PanelContainer
 var _game_over_label: RichTextLabel
@@ -66,6 +70,11 @@ var _debug_update_timer: float = 0.0
 const XP_BAR_WIDTH := 400.0
 const XP_BAR_HEIGHT := 20.0
 const STATUS_PANEL_WIDTH := 220.0
+
+# ── 战况栏参数 ──
+const KILL_FEED_MAX := 5      ## 同时显示的最大条数（超出立即移除最旧）
+const KILL_FEED_HOLD := 5.0   ## 完全不透明保持秒数
+const KILL_FEED_FADE := 1.5   ## 之后淡出秒数
 
 func _ready() -> void:
 	layer = 10
@@ -283,6 +292,13 @@ func _build_ui() -> void:
 	_debug_label.add_theme_color_override("font_color", ThemeColors.TEXT_DEBUG)
 	_debug_panel.add_child(_debug_label)
 
+	# ── 战况栏 / kill feed（左上角，订阅 EventLogger 击杀信号）──
+	_kill_feed_container = VBoxContainer.new()
+	_kill_feed_container.add_theme_constant_override("separation", 2)
+	_kill_feed_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_kill_feed_container)
+	EventLogger.kill_recorded.connect(_on_kill_recorded)
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F3:
 		_debug_visible = not _debug_visible
@@ -294,6 +310,7 @@ func _process(delta: float) -> void:
 	_update_tactical_buttons()
 	_update_squad_panel()
 	_update_boss_panel()
+	_update_kill_feed(delta)
 	if _debug_visible:
 		_debug_update_timer -= delta
 		if _debug_update_timer <= 0.0:
@@ -312,6 +329,10 @@ func _layout_ui() -> void:
 
 	_kill_label.position = Vector2(vp.x * 0.5 - 60, 54)
 	_kill_label.size = Vector2(120, 20)
+
+	# 战况栏：左上角（最新在上，向下堆叠）
+	if _kill_feed_container:
+		_kill_feed_container.position = Vector2(16, 92)
 
 	_cloud_label.position = Vector2(vp.x * 0.5 - 60, 74)
 	_cloud_label.size = Vector2(120, 16)
@@ -412,6 +433,79 @@ func _update_display() -> void:
 
 	# 右下角状态面板
 	_update_status_panel()
+
+## 收到击杀信号 → 战况栏顶部插入一条（友机击坠=绿 / 友机阵亡=红 / 中立=灰），超上限移除最旧
+func _on_kill_recorded(killer: String, victim: String, weapon_kind: String, killer_team: int, victim_team: int) -> void:
+	if not _kill_feed_container:
+		return
+	var col: Color
+	if victim_team == 0:
+		col = ThemeColors.HP_LOW       # 友机被击坠 → 红
+	elif killer_team == 0:
+		col = ThemeColors.HP_OK        # 友机击坠敌机 → 绿
+	else:
+		col = ThemeColors.TEXT_MUTED   # 敌方内讧 / 中立 → 灰
+	var wpn := _feed_weapon_label(weapon_kind)
+	var line := ""
+	if wpn != "":
+		line = "%s  →%s→  %s" % [killer, wpn, victim]
+	else:
+		line = "%s  →  %s" % [killer, victim]
+	var lbl := Label.new()
+	lbl.text = line
+	lbl.add_theme_font_size_override("font_size", 13)
+	lbl.add_theme_color_override("font_color", col)
+	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	lbl.add_theme_constant_override("outline_size", 4)
+	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_kill_feed_container.add_child(lbl)
+	_kill_feed_container.move_child(lbl, 0)   # 最新置顶
+	_kill_feed_entries.push_front({"label": lbl, "age": 0.0})
+	while _kill_feed_entries.size() > KILL_FEED_MAX:
+		var old: Dictionary = _kill_feed_entries.pop_back()
+		var ol = old.get("label")
+		if is_instance_valid(ol):
+			ol.queue_free()
+
+## 每帧推进战况栏条目年龄：HOLD 秒后开始淡出，完全透明则移除
+func _update_kill_feed(delta: float) -> void:
+	var i := _kill_feed_entries.size() - 1
+	while i >= 0:
+		var e: Dictionary = _kill_feed_entries[i]
+		var lbl = e.get("label")
+		if not is_instance_valid(lbl):
+			_kill_feed_entries.remove_at(i)
+			i -= 1
+			continue
+		e["age"] = float(e["age"]) + delta
+		var age: float = e["age"]
+		if age > KILL_FEED_HOLD + KILL_FEED_FADE:
+			lbl.queue_free()
+			_kill_feed_entries.remove_at(i)
+		elif age > KILL_FEED_HOLD:
+			lbl.modulate.a = 1.0 - (age - KILL_FEED_HOLD) / KILL_FEED_FADE
+		i -= 1
+
+## 武器种类 → 本地化标签；i18n 未导入时回退中文，保证不崩
+func _feed_weapon_label(kind: String) -> String:
+	var key := ""
+	match kind:
+		"gun": key = "WEAPON_GUN"
+		"missile": key = "WEAPON_MISSILE"
+		"rocket": key = "WEAPON_ROCKET"
+		"aoe": key = "WEAPON_AOE"
+		"ground_crash": key = "WEAPON_CRASH"
+		_: return ""
+	var t := tr(key)
+	if t != key:
+		return t
+	match kind:   # 翻译未导入 → 中文回退
+		"gun": return "机炮"
+		"missile": return "导弹"
+		"rocket": return "火箭弹"
+		"aoe": return "爆炸"
+		"ground_crash": return "坠地"
+	return ""
 
 func _update_status_panel() -> void:
 	var ac := survivor_player.aircraft

@@ -60,8 +60,8 @@ var is_paused_for_upgrade: bool = false
 var upgrade_stacks: Dictionary = {}
 
 ## ── 阶段制（2026-05-09）──
-## 战区阶段时长（8 分钟）。到点后关闭其他战区，玩家在打的可结算后进 BOSS。
-const WARZONE_PHASE_DURATION := 480.0
+## 战区阶段时长（10 分钟，2026-06-28 从 8 分钟延长；后续模式重做时可能再调）。到点后关闭其他战区，玩家在打的可结算后进 BOSS。
+const WARZONE_PHASE_DURATION := 600.0
 ## 出界回血时间税：玩家点 SUPPLY 满血但 game_time 前进 15 秒，把 BOSS 拉近
 const SUPPLY_TIME_COST := 15.0
 ## 战区阶段已结束（game_time 跨过 WARZONE_PHASE_DURATION 时置 true，仅触发一次）
@@ -1516,11 +1516,11 @@ func _physics_process(delta: float) -> void:
 	if not _boss_debug_mode:
 		_spawner.update(delta)
 
-	# 战区阶段倒计时检查（8 分钟到点 → 关闭其他战区 / 解锁 BOSS）
+	# 战区阶段倒计时检查（10 分钟到点 → 关闭其他战区 / 解锁 BOSS）
 	if not _boss_debug_mode and not _bench_mode:
 		_check_warzone_phase_timeout()
 
-	# BOSS 阶段：8 分钟到点（或当前 SELECTED 战区结算后）解锁 BOSS，刷 F-47 小队 + 胜利判定
+	# BOSS 阶段：10 分钟到点（或当前 SELECTED 战区结算后）解锁 BOSS，刷 F-47 小队 + 胜利判定
 	# Boss Debug / Bench 模式跳过：boss_debug 走 BossEncounterEvent，bench 不需要战区驱动
 	if not _boss_debug_mode and not _bench_mode:
 		_update_boss_phase()
@@ -2495,7 +2495,7 @@ func _is_in_boss_phase() -> bool:
 		return true
 	return false
 
-## 8 分钟战区阶段超时检查（即时切换）
+## 10 分钟战区阶段超时检查（即时切换）
 ## - 取消所有正在进行的战区任务（TGT 标记去掉、不再发完成信号、不再发奖励）
 ## - 关闭所有 AVAILABLE 战区（包括玩家正在打的）
 ## - 立即解锁 BOSS，_update_boss_phase 下一帧会启动 BossEncounterEvent
@@ -2530,7 +2530,7 @@ func _check_warzone_phase_timeout() -> void:
 	EventLogger.log_event("PHASE", "WarzoneTimeout",
 		"game_time=%.1f → all zones cancelled, BOSS unlocked" % game_time)
 
-## BOSS 阶段（P4）—— 8 分钟到点（或当前 SELECTED 战区结算后）→ 启动 BossEncounterEvent（事件层接管全部生命周期）
+## BOSS 阶段（P4）—— 10 分钟到点（或当前 SELECTED 战区结算后）→ 启动 BossEncounterEvent（事件层接管全部生命周期）
 ## 本函数职责单一：检测解锁 → 启动事件。所有 PRE_STAGE/ENGAGED/VICTORY 状态流转、
 ## directive 下发、UI/BGM 切换都收敛到 BossEncounterEvent；事件回调见 on_boss_*。
 func _update_boss_phase() -> void:
