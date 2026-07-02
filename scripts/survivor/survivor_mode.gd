@@ -219,8 +219,8 @@ func _ready() -> void:
 	_cv_params = preload("res://resources/naval/carrier_cv.tres")
 	_ss_params = preload("res://resources/naval/submarine_ss.tres")
 
-	# 读取选择的机型档案（PlayableAircraft），缺省用 F-16
-	var profile_path: String = "res://resources/playable_f16.tres"
+	# 读取选择的机型档案（PlayableAircraft），缺省用 F-15（起手基底，spec aircraft-evolution §2.6）
+	var profile_path: String = "res://resources/playable_f15.tres"
 	if get_tree().has_meta("survivor_aircraft_resource"):
 		profile_path = get_tree().get_meta("survivor_aircraft_resource")
 		get_tree().remove_meta("survivor_aircraft_resource")

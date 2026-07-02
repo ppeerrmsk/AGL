@@ -26,7 +26,7 @@
 **Phase 1（本批实装，2026-07-02 完成 ✅ 除手测）**：
 - [x] 排序决策/护栏文档（本文件）
 - [x] 进化树 JSON（`resources/evolution/evolution_tree.json`，12 节点 3 档）+ AircraftDB registry（护栏 1/2）
-- [x] 切片树内容：起手 f16/f14/a10 → T2 f22/f35/mig31/su34 → T3 x09/x13/x21/x44/x02；8 个变体 .tres（共享 base + 倍率递增）
+- [x] 切片树内容：**起手 f15/f14/a10**（F-15 承接原 F-16 起手调校；F-16 降为 T2 电战形态，spec §2.6 用户纠正 2026-07-02）→ T2 f22/**f16**/mig31/su34 → T3 x09/x13/x21/x44/x02；变体 .tres 共享 base + 倍率递增（f35.tres 留档未挂树）
 - [x] `EvolutionSystem.evolve()`：与出生注入同路（params 深拷贝 + SurvivorPlayableSetup.apply）；保 HP 比例；武器载弹重置为新机满额
 - [x] 战区结算钩子 → 进化面板（置旗延到首个未暂停帧，避免与升级 UI 暂停打架）；僚机跟随=直接同款（切片简化）
 - [x] 团队等级门槛 = survivor_player.level（切片 T2=LV3 / T3=LV6）

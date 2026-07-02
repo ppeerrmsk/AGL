@@ -10,12 +10,12 @@
 		"omni":   "EVOLUTION_CAT_OMNI"
 	},
 	"nodes": [
-		{ "id": "f16",   "tier": 1, "category": "ew",     "profile": "f16",   "name_key": "AIRCRAFT_F16_DISPLAY",   "exits": ["f35", "f22", "su34"] },
+		{ "id": "f15",   "tier": 1, "category": "air",    "profile": "f15",   "name_key": "AIRCRAFT_F15_DISPLAY",   "exits": ["f22", "f16", "mig31"] },
 		{ "id": "f14",   "tier": 1, "category": "range",  "profile": "f14",   "name_key": "AIRCRAFT_F14_DISPLAY",   "exits": ["mig31", "su34", "f22"] },
-		{ "id": "a10",   "tier": 1, "category": "attack", "profile": "a10",   "name_key": "AIRCRAFT_A10_DISPLAY",   "exits": ["su34", "f35", "mig31"] },
+		{ "id": "a10",   "tier": 1, "category": "attack", "profile": "a10",   "name_key": "AIRCRAFT_A10_DISPLAY",   "exits": ["su34", "f16", "mig31"] },
 
 		{ "id": "f22",   "tier": 2, "category": "air",    "profile": "f22",   "name_key": "AIRCRAFT_F22_DISPLAY",   "exits": ["x09", "x13", "x21", "x02"] },
-		{ "id": "f35",   "tier": 2, "category": "ew",     "profile": "f35",   "name_key": "AIRCRAFT_F35_DISPLAY",   "exits": ["x13", "x09", "x44", "x02"] },
+		{ "id": "f16",   "tier": 2, "category": "ew",     "profile": "f16",   "name_key": "AIRCRAFT_F16_DISPLAY",   "exits": ["x13", "x09", "x44", "x02"] },
 		{ "id": "mig31", "tier": 2, "category": "range",  "profile": "mig31", "name_key": "AIRCRAFT_MIG31_DISPLAY", "exits": ["x21", "x44", "x09", "x02"] },
 		{ "id": "su34",  "tier": 2, "category": "attack", "profile": "su34",  "name_key": "AIRCRAFT_SU34_DISPLAY",  "exits": ["x44", "x13", "x21", "x02"] },
 

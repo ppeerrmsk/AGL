@@ -60,6 +60,8 @@ EVOLUTION_CAT_RANGE,远程,Long range,長距離
 EVOLUTION_CAT_ATTACK,攻击,Attack,攻撃
 EVOLUTION_CAT_OMNI,全能,Omni-role,万能
 AIRCRAFT_A10_DISPLAY,A-10 疣猪,A-10 Warthog,A-10 ウォートホッグ
+AIRCRAFT_F15_DISPLAY,F-15 鹰,F-15 Eagle,F-15 イーグル
+AIRCRAFT_F15_CARDDESC,"重型双发制空基底。综合全面、上手友好，进化路线最多的起手之选。","Heavy twin-engine air-superiority base. Well-rounded, beginner-friendly, with the most evolution routes.",重量級双発制空戦闘機。バランス型で扱いやすく、進化ルートが最も多い入門機。
 AIRCRAFT_F22_DISPLAY,F-22 猛禽,F-22 Raptor,F-22 ラプター
 AIRCRAFT_F35_DISPLAY,F-35 闪电II,F-35 Lightning II,F-35 ライトニングII
 AIRCRAFT_MIG31_DISPLAY,MiG-31 猎狐犬,MiG-31 Foxhound,MiG-31 フォックスハウンド

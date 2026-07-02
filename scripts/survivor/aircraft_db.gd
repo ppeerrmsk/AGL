@@ -7,6 +7,7 @@ extends RefCounted
 
 ## id → 档案资源路径（官方内容内置表；UGC 运行时经 register() 追加）
 static var _paths: Dictionary = {
+	&"f15": "res://resources/playable_f15.tres",
 	&"f16": "res://resources/playable_f16.tres",
 	&"f14": "res://resources/playable_f14.tres",
 	&"a10": "res://resources/playable_a10.tres",

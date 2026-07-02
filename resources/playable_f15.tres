@@ -7,20 +7,20 @@
 
 [resource]
 script = ExtResource("1")
-id = &"f16"
-display_name = "AIRCRAFT_F16_DISPLAY"
-codename = "SmartFalcon"
+id = &"f15"
+display_name = "AIRCRAFT_F15_DISPLAY"
+codename = "Eagle"
 card_tags = PackedStringArray("TAG_HEAT_FLARE", "TAG_BALANCED_MANEUVER", "TAG_SARH_MISSILE")
-card_desc = "AIRCRAFT_F16_CARDDESC"
+card_desc = "AIRCRAFT_F15_CARDDESC"
 base_params = ExtResource("2")
-radar_range_mult = 0.5
-max_speed_mult = 1.1
-cruise_speed_mult = 1.08
+radar_range_mult = 0.3333333
+max_speed_mult = 1.05
+cruise_speed_mult = 1.05
 acceleration_mult = 1.1
 roll_rate_mult = 1.2
-lock_time_mult = 0.55
+lock_time_mult = 0.7
 max_g_bonus = 1.0
-missile_count_override = 3
+missile_count_override = 2
 gun_damage_mult = 1.25
 gun_range_override = 800.0
 gun_cone_override = 8.0
