@@ -70,6 +70,9 @@ var _formation_leader: Aircraft = null      ## 编队长机引用（formation_mo
 ## AIController.squad_index（0=长机）解耦——保证"按键 N 永远对应同一架物理飞机"。
 ## 0 = 未分配（非玩家小队成员）。spawn 起始僚机时按生成序赋值。
 var squad_slot: int = 0
+## 本局击坠数（ACE 继任依据，spec ace-system §3：王牌阵亡由击坠最高者继任）。
+## 在 _record_kill_attribution 里给击杀者 +1；不落盘（session-only）。
+var kill_tally: int = 0
 ## 注：_formation_blend / _formation_jitter_phase 单边住在 AIController（_ai_ref._formation_blend 等）。
 ## 旧 API 把这两个字段在 Aircraft 上镜像了一份导致每帧手动同步，2026-05-04 重构删除。
 ## 子模块 AircraftFormation 通过 ac._ai_ref 直接读 AI 端的值，单一权威源。
@@ -2203,6 +2206,8 @@ func _record_kill_attribution() -> void:
 				else (attacker.callsign if ("callsign" in attacker and attacker.callsign != "") else String(attacker.name))
 		EventLogger.log_event("KILL", atk_name, "%s击坠 %s" % [wpn, _log_name()])
 		EventLogger.tally(atk_name, "kills")
+		if attacker is Aircraft:
+			attacker.kill_tally += 1  # ACE 继任记账（spec ace-system §3）
 		# ── 战况栏（kill feed）信号：呼号 + 武器种类 + 双方阵营，survivor_hud 订阅显示 ──
 		var atk_call: String = attacker.callsign if ("callsign" in attacker and attacker.callsign != "") else String(attacker.name)
 		var atk_team_i: int = attacker.team if ("team" in attacker) else -1

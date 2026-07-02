@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="PlayableAircraft" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/playable_aircraft.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/playable_x02_base.tres" id="2"]
+
+[resource]
+script = ExtResource("1")
+id = &"x13"
+display_name = "AIRCRAFT_X13_DISPLAY"
+codename = "Skyfalcon"
+base_params = ExtResource("2")
+radar_range_mult = 1.5
+lock_time_mult = 0.5
+max_speed_mult = 1.15
+max_g_bonus = 1.0

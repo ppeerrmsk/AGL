@@ -56,6 +56,9 @@ var _squad: Squad = null
 var survivor_player: SurvivorPlayer
 var game_time: float = 0.0
 var is_game_over: bool = false
+## 进化系统（垂直切片，spec ace-system §2.4）：战区结算后置旗，等其他暂停 UI 关完再开进化面板
+var _evolution_ui: EvolutionUI = null
+var _evolution_pending: bool = false
 var is_paused_for_upgrade: bool = false
 var upgrade_stacks: Dictionary = {}
 
@@ -1503,6 +1506,13 @@ func _physics_process(delta: float) -> void:
 	_update_offscreen_lod()
 	_update_friendly_squad_lod()
 
+	# 战区结算后的进化面板（spec ace-system §2.4：结算点触发；等升级/其他暂停 UI 关完再开）
+	if _evolution_pending and not is_game_over and not is_paused_for_upgrade \
+			and player_aircraft and is_instance_valid(player_aircraft) and not player_aircraft.is_destroyed:
+		_evolution_pending = false
+		_open_evolution_offer()
+		return
+
 	# 检查玩家是否死亡
 	if player_aircraft and player_aircraft.is_destroyed and not is_game_over:
 		# 长机被击坠 → 先尝试接管存活僚机（squad-control-switching：全队覆灭才 GameOver）。
@@ -2475,6 +2485,62 @@ func _on_zone_mission_completed(zone_id: StringName) -> void:
 		# 用 call_deferred 让 toast 先显示完再闪 persistent（不冲突，zone_hint 支持两者共存）
 		_zone_hint.show_persistent(tr("ZONE_HINT_NEW_OPENED"))
 
+	# 进化机会（spec ace-system §2.4：每打完一个战区一次）。置旗延后到 _physics_process
+	# 首个未暂停帧再开面板——让战区奖励 toast / 可能同帧的升级 UI 先走完，避免暂停态打架。
+	_evolution_pending = true
+
+
+# ══════════════════════════════════════════════
+#  进化系统（垂直切片，spec ace-system；docs/planning/evolution-vertical-slice.md）
+#  切片简化：ACE = player_aircraft（长机）；僚机默认跟随王牌变同款（§2.3）。
+# ══════════════════════════════════════════════
+
+## 打开进化面板：查当前节点出口，复用升级 UI 的暂停模式
+func _open_evolution_offer() -> void:
+	if player_aircraft == null or not is_instance_valid(player_aircraft):
+		return
+	var cur_id: StringName = player_aircraft.get_meta("evo_node", &"")
+	if cur_id == &"":
+		cur_id = EvolutionSystem.node_id_for_profile(_player_profile_id)
+	if cur_id == &"":
+		return  # 主角机型不在树上（如直接起手 x02）→ 本局无进化
+	var exits: Array = EvolutionSystem.exits_of(cur_id)
+	if exits.is_empty():
+		return  # 已到路线尽头
+	if _evolution_ui == null:
+		_evolution_ui = EvolutionUI.new()
+		add_child(_evolution_ui)
+		_evolution_ui.choice_made.connect(_on_evolution_choice)
+	is_paused_for_upgrade = true
+	get_tree().paused = true
+	AudioManager.set_music_muffled(true)
+	var lvl: int = survivor_player.level if survivor_player else 1
+	_evolution_ui.show_offer(EvolutionSystem.node_of(cur_id), exits, lvl)
+
+## 面板选择回调：&"" = 暂不；否则 ACE 手动进化 + 僚机自动跟随同款（spec ace-system §2.3）
+func _on_evolution_choice(node_id: StringName) -> void:
+	is_paused_for_upgrade = false
+	get_tree().paused = false
+	AudioManager.set_music_muffled(false)
+	if node_id == &"":
+		return
+	var nd: Dictionary = EvolutionSystem.node_of(node_id)
+	if nd.is_empty():
+		return
+	if not EvolutionSystem.evolve(player_aircraft, node_id, false):
+		return
+	# 主角档案引用同步（自然成长曲线 / 专属技能筛选跟新机型走）
+	var prof := AircraftDB.get_profile(StringName(nd.get("profile", "")))
+	if prof:
+		_player_profile = prof
+		_player_profile_id = prof.id
+	# 僚机默认跟随王牌 → 直接同款（切片版：不走逐架路径校验，"最终变同款"的最短路径）
+	if _squad:
+		for m in _squad.members:
+			if m != player_aircraft and is_instance_valid(m) and not m.is_destroyed:
+				EvolutionSystem.evolve(m, node_id, true)
+	if _zone_hint:
+		_zone_hint.show_temp(tr("EVOLUTION_DONE_FMT") % tr(String(nd.get("name_key", ""))), 4.0)
 
 ## 系统铁则：世界坐标是否在玩家屏幕可见范围内
 ## 供 spawner / zone_mission / adbs_manager 刷新前做可见性检查

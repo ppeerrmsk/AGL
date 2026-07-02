@@ -49,6 +49,25 @@ WEAPON_MISSILE,导弹,Missile,ミサイル
 WEAPON_ROCKET,火箭弹,Rocket,ロケット
 WEAPON_AOE,爆炸,Blast,爆発
 WEAPON_CRASH,坠地,Crash,墜落
+EVOLUTION_TITLE,机体进化,Evolution,機体進化
+EVOLUTION_SUBTITLE_FMT,王牌 %s — 选择进化路线（僚机将跟随）,Ace %s — choose an evolution (wingmen follow),エース %s — 進化先を選択（僚機は追従）
+EVOLUTION_SKIP,暂不进化,Not now,今回は見送る
+EVOLUTION_LOCKED_FMT,需要 LV %d,Requires LV %d,LV %d が必要
+EVOLUTION_DONE_FMT,全队进化 → %s,Squad evolved → %s,編隊が進化 → %s
+EVOLUTION_CAT_AIR,制空,Air superiority,制空
+EVOLUTION_CAT_EW,电战,Electronic warfare,電子戦
+EVOLUTION_CAT_RANGE,远程,Long range,長距離
+EVOLUTION_CAT_ATTACK,攻击,Attack,攻撃
+EVOLUTION_CAT_OMNI,全能,Omni-role,万能
+AIRCRAFT_A10_DISPLAY,A-10 疣猪,A-10 Warthog,A-10 ウォートホッグ
+AIRCRAFT_F22_DISPLAY,F-22 猛禽,F-22 Raptor,F-22 ラプター
+AIRCRAFT_F35_DISPLAY,F-35 闪电II,F-35 Lightning II,F-35 ライトニングII
+AIRCRAFT_MIG31_DISPLAY,MiG-31 猎狐犬,MiG-31 Foxhound,MiG-31 フォックスハウンド
+AIRCRAFT_SU34_DISPLAY,Su-34 鸭嘴兽,Su-34 Fullback,Su-34 フルバック
+AIRCRAFT_X09_DISPLAY,X-09 雷霆鸮,X-09 Thunder Owl,X-09 サンダーアウル
+AIRCRAFT_X13_DISPLAY,X-13 苍隼,X-13 Skyfalcon,X-13 スカイファルコン
+AIRCRAFT_X21_DISPLAY,X-21 长缨,X-21 Longreach,X-21 ロングリーチ
+AIRCRAFT_X44_DISPLAY,X-44 铁砧,X-44 Anvil,X-44 アンヴィル
 FORMATION_COMBAT_SPREAD,战斗展开,Combat Spread,コンバットスプレッド
 FORMATION_WEDGE,楔形编队,Wedge,ウェッジ
 FORMATION_ECHELON,梯形编队,Echelon,エシュロン

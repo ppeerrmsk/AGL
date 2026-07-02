@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="PlayableAircraft" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/playable_aircraft.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/playable_f14_base.tres" id="2"]
+
+[resource]
+script = ExtResource("1")
+id = &"mig31"
+display_name = "AIRCRAFT_MIG31_DISPLAY"
+codename = "Foxhound"
+base_params = ExtResource("2")
+max_speed_mult = 1.3
+cruise_speed_mult = 1.2
+acceleration_mult = 1.15
+radar_range_mult = 1.4
+lock_time_mult = 0.8
+roll_rate_mult = 0.9

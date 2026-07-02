@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="PlayableAircraft" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/playable_aircraft.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_fighter.tres" id="2"]
+
+[resource]
+script = ExtResource("1")
+id = &"f35"
+display_name = "AIRCRAFT_F35_DISPLAY"
+codename = "Lightning"
+base_params = ExtResource("2")
+radar_range_mult = 1.35
+lock_time_mult = 0.65
+max_speed_mult = 1.05
+acceleration_mult = 1.08
+max_g_bonus = 0.5

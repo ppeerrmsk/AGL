@@ -42,6 +42,17 @@ user://ugc/
 ```
 官方内容逐步迁移到同一 schema（dogfood：官方=第一批 UGC）。
 
+## 3.5 与进化系统的排序（✅ 用户定 2026-07-02）
+
+**游戏性先行，编辑器 P0 后置**：进化/ACE 垂直切片先做（在 `feature/aircraft-evolution` 分支验证），
+但切片实装**强制守三条护栏**，保证产出天生是编辑器能吃的形状（详见 [evolution-vertical-slice](../../planning/evolution-vertical-slice.md) §0）：
+1. 进化树 = 数据文件（JSON），代码只读表；
+2. 机型查找走单一 registry（AircraftDB），UgcLoader 将来只需注册；
+3. 不往 match 块塞新 per-type 硬编码。
+
+理由：ACE/继任/结算 UI 与编辑器正交；.tres→JSON 可机械迁移；反之 schema 依赖未验证的游戏性设计，先定必 churn。
+**P0 数据化在进化切片验证通过、设计稳定后启动。**
+
 ## 4. 分阶段计划
 
 ### P0 — 数据化地基（先做，其余全部踩在它上面）

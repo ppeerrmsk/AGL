@@ -76,6 +76,10 @@
 | `survivor/commander_aura.gd` | `CommanderAura extends Node` | [生存] Sentinel 光环 buff + 招募 UAV | `_apply_buff:93` `_try_recruit:155` |
 | `playable_aircraft.gd` | `PlayableAircraft extends Resource` | [生存] 主角档案：UI 元数据 + base_params 引用 + 生存模式调味（属性/武器/战斗/热诱弹覆盖）+ 起始僚机配置 | 全部 `@export` 字段；详见 [playable-aircraft-workflow.md](playable-aircraft-workflow.md) |
 | `survivor/survivor_playable_setup.gd` | `SurvivorPlayableSetup extends RefCounted` | [生存] 把 PlayableAircraft 应用到 Aircraft 实例（替代旧的 survivor_mode 内联 buff 块） | `apply(aircraft, profile)` `deep_dup_weapons(params)` |
+| `survivor/aircraft_db.gd` | `AircraftDB extends RefCounted` | [生存] 机型档案注册表（UGC 护栏 2：按 id 取档案唯一入口，UgcLoader 将来 register 注入） | `get_profile(id)` `register(id, path_or_res)` |
+| `survivor/evolution_system.gd` | `EvolutionSystem extends RefCounted` | [生存] 进化系统（切片）：读 evolution_tree.json（护栏 1）+ 整机换档案执行（保 HP 比例/换武器载弹） | `node_of` `exits_of` `node_id_for_profile` `min_level_of` `evolve(ac, node_id, is_wingman)` |
+| `survivor/evolution_ui.gd` | `EvolutionUI extends CanvasLayer` | [生存] 战区结算进化面板：ACE 手动三选 + 暂不；PROCESS_MODE_ALWAYS 暂停可交互 | `show_offer(current, exits, team_level)` signal `choice_made(node_id)` |
+| `tests/test_evolution_tree.gd` | SceneTree 脚本 | [测试] 进化树完整性冒烟（--script 运行）：JSON 解析/档案加载/出口无悬空/≥3 选/i18n key | `_initialize` |
 | `survivor/survivor_select.gd` | 生存模式机型选择界面 | [生存] 4 槽 PlayableAircraft 卡片（F-16/F-14 解锁 + 2 占位）；ESC 在 boss debug 路径里跳回 boss_debug_select | `PLAYABLE_LIST:21` `_build_aircraft_card:157` `_on_aircraft_selected` |
 | `survivor/survivor_map_select.gd` | 生存模式地图选择界面 | [生存] 5 槽地图卡片（1 解锁 + 4 占位）；ESC→主菜单；**B → boss_debug_select** | `MAP_LIST:18` `_build_map_card` `_on_map_selected` |
 | `survivor/boss_debug_select.gd` | Boss Debug — BOSS 选择界面 | [生存/Debug] 列出可测试 BOSS（与 BossRegistry.BOSS_DEFS 同步），选中 → set_meta(boss_debug_mode/_id) → survivor_select；空白无地图渲染 + 自动 15 级 + 主题化随机 build + 进场即 PRE_STAGE | `BOSS_LIST:18` `_build_boss_card` `_on_boss_selected` |
