@@ -2230,63 +2230,44 @@ func _spawn_ground_unit(scene: PackedScene, params_res: Resource, team_id: int, 
 # ══════════════════════════════════════════════
 
 func _on_player_leveled_up(_new_level: int) -> void:
-	# 自然成长：在升级 UI 弹出前应用 HP/导弹累计差量（玩家看到 HUD 数字先涨）
+	# 自然成长：应用 HP/导弹累计差量（玩家看到 HUD 数字先涨）
 	survivor_player.apply_natural_growth(_new_level - 1, _new_level, _player_profile)
 
-	# Bench 模式：跳 UI / 不暂停游戏 / 随机抽取一张升级（无视 max_stacks/requires/exclusive）
-	# 设计目的：玩家越打越强 → 击杀更快 → spawner token 越满 → AI/物理负载持续放大 → 暴露真实瓶颈
+	# Bench 模式：随机自动拿一张升级（压力放大器：越强→杀越快→负载越大）
 	if _bench_mode:
 		_bench_auto_pick_upgrade()
 		return
 
-	is_paused_for_upgrade = true
-	get_tree().paused = true
-	AudioManager.set_music_muffled(true)
-	# 升级期间 _physics_process 早 return，HUD timer 不会自动刷新 → 暂停前同步一次
-	if hud:
-		var _remaining: float = maxf(0.0, WARZONE_PHASE_DURATION - game_time)
-		hud.set_warzone_remaining(_remaining, _is_in_boss_phase())
+	# Phase 2（用户反馈 2026-07-02）：等级升级**不再暂停/弹三选一**——
+	# 升级选择搬进战区结算规划站（_open_settlement_panel），等级只做进化门槛。
+	# 仅 toast 提示，不打断节奏（spec squad-upgrade-ownership §0 "升级只提示已升级"）。
+	survivor_player.consume_level_up_display()
+	if _zone_hint:
+		_zone_hint.show_temp(tr("LEVEL_UP_TOAST_FMT") % _new_level, 2.5)
 
+## 从升级池按现行规则（专属筛选/doctrine 门控/稀有度分槽/pity）抽三选一。
+## 战区结算规划站调用（原等级弹窗逻辑原样抽出复用）。空数组 = 无可抽。
+func _roll_upgrade_choices() -> Array[Dictionary]:
 	var available: Array[Dictionary] = []
 	var p: AircraftParams = player_aircraft.params if player_aircraft else null
 	for u in SurvivorData.UPGRADES:
-		# 进化技能不进入随机池
 		if u.get("evolved", false):
-			continue
-		# 硬件 / 专属机型筛选
+			continue  # 战区奖励池技能不进随机池
 		if not SurvivorData.is_upgrade_available_for(u, _player_profile_id, p, upgrade_stacks):
 			continue
-		# Doctrine 门控：恐惧/超载/嗜血等系统需要先在配件商店购买解锁件
 		if LoadoutLedger.is_upgrade_gated(u):
-			continue
+			continue  # Doctrine 门控：需先在配件商店解锁
 		var stacks: int = upgrade_stacks.get(u["id"], 0)
 		if stacks < int(u["max_stacks"]):
 			available.append(u)
-
 	if available.is_empty():
-		survivor_player.consume_level_up_display()
-		is_paused_for_upgrade = false
-		get_tree().paused = false
-		AudioManager.set_music_muffled(false)
-		return
-
-	# §5 三选一抽卡：稀有度分槽 + pity 保底 + §7 流派 steering
-	# pity_counter 在 survivor_mode 持久（一局生效），由 pick_3_upgrades 内部更新
+		return []
 	var level: int = survivor_player.level if survivor_player else 1
-	var choices: Array[Dictionary] = SurvivorData.pick_3_upgrades(
-		available, upgrade_stacks, _pity_counter, level)
+	return SurvivorData.pick_3_upgrades(available, upgrade_stacks, _pity_counter, level)
 
-	if choices.is_empty():
-		# pool 中实在没东西可抽（理论上极小概率）
-		survivor_player.consume_level_up_display()
-		is_paused_for_upgrade = false
-		get_tree().paused = false
-		AudioManager.set_music_muffled(false)
-		return
-
-	upgrade_ui.show_choices(choices)
-
-func _on_upgrade_selected(upgrade: Dictionary) -> void:
+## 应用一条升级（apply + 记栈 + 旧进化链检测 + 分类加成重算）。返回触发的旧进化技能名（无则 ""）。
+## 供 结算规划站 / 旧 upgrade_ui 信号 两个入口共用（不含暂停/恢复）。
+func _apply_upgrade_choice(upgrade: Dictionary) -> String:
 	var stk: int = upgrade_stacks.get(upgrade["id"], 0) + 1
 	EventLogger.log_event("UPGRADE", "Player",
 		"selected '%s' (stack %d/%d)" % [
@@ -2295,13 +2276,12 @@ func _on_upgrade_selected(upgrade: Dictionary) -> void:
 	var uid: String = upgrade["id"]
 	upgrade_stacks[uid] = upgrade_stacks.get(uid, 0) + 1
 
-	# ── 进化检测 ──
+	# ── 旧进化链检测（evolves_to 残留机制）──
 	var evolved_name := ""
 	if upgrade.has("evolves_to"):
 		var stacks: int = upgrade_stacks.get(uid, 0)
 		if stacks >= int(upgrade["max_stacks"]):
 			var evo_id: String = upgrade["evolves_to"]
-			# 查找进化技能定义
 			for u in SurvivorData.UPGRADES:
 				if u["id"] == evo_id:
 					survivor_player.apply_upgrade(u)
@@ -2310,6 +2290,10 @@ func _on_upgrade_selected(upgrade: Dictionary) -> void:
 					break
 
 	SurvivorData.recompute_category_bonuses(player_aircraft, upgrade_stacks)
+	return evolved_name
+
+func _on_upgrade_selected(upgrade: Dictionary) -> void:
+	var evolved_name := _apply_upgrade_choice(upgrade)
 
 	survivor_player.consume_level_up_display()
 	is_paused_for_upgrade = false
@@ -2495,35 +2479,38 @@ func _on_zone_mission_completed(zone_id: StringName) -> void:
 #  切片简化：ACE = player_aircraft（长机）；僚机默认跟随王牌变同款（§2.3）。
 # ══════════════════════════════════════════════
 
-## 打开进化面板：查当前节点出口，复用升级 UI 的暂停模式
+## 打开战区结算规划站（Phase 2，用户反馈 2026-07-02）：进化 + 强化当前机 双栏一体。
+## 进化出口可能全锁（等级门槛）→ 仍显示灰卡（可视化"练级解锁进化"目标）。
 func _open_evolution_offer() -> void:
 	if player_aircraft == null or not is_instance_valid(player_aircraft):
 		return
 	var cur_id: StringName = player_aircraft.get_meta("evo_node", &"")
 	if cur_id == &"":
 		cur_id = EvolutionSystem.node_id_for_profile(_player_profile_id)
-	if cur_id == &"":
-		return  # 主角机型不在树上（如直接起手 x02）→ 本局无进化
-	var exits: Array = EvolutionSystem.exits_of(cur_id)
-	if exits.is_empty():
-		return  # 已到路线尽头
+	var exits: Array = []
+	if cur_id != &"":
+		exits = EvolutionSystem.exits_of(cur_id)
+	var choices: Array[Dictionary] = _roll_upgrade_choices()
+	if exits.is_empty() and choices.is_empty():
+		return  # 两栏都空 → 不开面板
 	if _evolution_ui == null:
 		_evolution_ui = EvolutionUI.new()
 		add_child(_evolution_ui)
-		_evolution_ui.choice_made.connect(_on_evolution_choice)
+		_evolution_ui.evolution_chosen.connect(_on_settlement_evolution)
+		_evolution_ui.upgrade_chosen.connect(_on_settlement_upgrade)
+		_evolution_ui.closed.connect(_on_settlement_closed)
 	is_paused_for_upgrade = true
 	get_tree().paused = true
 	AudioManager.set_music_muffled(true)
+	# 暂停期 HUD timer 不刷新 → 同步一次
+	if hud:
+		var _remaining: float = maxf(0.0, WARZONE_PHASE_DURATION - game_time)
+		hud.set_warzone_remaining(_remaining, _is_in_boss_phase())
 	var lvl: int = survivor_player.level if survivor_player else 1
-	_evolution_ui.show_offer(EvolutionSystem.node_of(cur_id), exits, lvl)
+	_evolution_ui.show_offer(EvolutionSystem.node_of(cur_id), exits, lvl, choices)
 
-## 面板选择回调：&"" = 暂不；否则 ACE 手动进化 + 僚机自动跟随同款（spec ace-system §2.3）
-func _on_evolution_choice(node_id: StringName) -> void:
-	is_paused_for_upgrade = false
-	get_tree().paused = false
-	AudioManager.set_music_muffled(false)
-	if node_id == &"":
-		return
+## 规划站·进化栏：ACE 手动进化 + 僚机自动跟随同款（spec ace-system §2.3）。面板保持打开。
+func _on_settlement_evolution(node_id: StringName) -> void:
 	var nd: Dictionary = EvolutionSystem.node_of(node_id)
 	if nd.is_empty():
 		return
@@ -2534,13 +2521,27 @@ func _on_evolution_choice(node_id: StringName) -> void:
 	if prof:
 		_player_profile = prof
 		_player_profile_id = prof.id
-	# 僚机默认跟随王牌 → 直接同款（切片版：不走逐架路径校验，"最终变同款"的最短路径）
+	# 僚机默认跟随王牌 → 直接同款（切片版："最终变同款"的最短路径）
 	if _squad:
 		for m in _squad.members:
 			if m != player_aircraft and is_instance_valid(m) and not m.is_destroyed:
 				EvolutionSystem.evolve(m, node_id, true)
 	if _zone_hint:
 		_zone_hint.show_temp(tr("EVOLUTION_DONE_FMT") % tr(String(nd.get("name_key", ""))), 4.0)
+
+## 规划站·强化栏：应用所选升级（复用等级弹窗时代的全套规则）。面板保持打开。
+func _on_settlement_upgrade(upgrade: Dictionary) -> void:
+	var evolved_name := _apply_upgrade_choice(upgrade)
+	if evolved_name != "" and survivor_player.aircraft:
+		survivor_player.aircraft.show_tactic_popup(tr("POPUP_EVOLUTION_FMT") % evolved_name)
+
+## 规划站关闭：恢复游戏（镜像升级 UI 的收尾：解暂停 + 鼠标状态归零防直飞）
+func _on_settlement_closed() -> void:
+	is_paused_for_upgrade = false
+	get_tree().paused = false
+	AudioManager.set_music_muffled(false)
+	_set_hard_brake(false)
+	is_dragging = false
 
 ## 系统铁则：世界坐标是否在玩家屏幕可见范围内
 ## 供 spawner / zone_mission / adbs_manager 刷新前做可见性检查

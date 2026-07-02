@@ -50,6 +50,14 @@ WEAPON_ROCKET,火箭弹,Rocket,ロケット
 WEAPON_AOE,爆炸,Blast,爆発
 WEAPON_CRASH,坠地,Crash,墜落
 EVOLUTION_TITLE,机体进化,Evolution,機体進化
+SETTLEMENT_TITLE,战区结算 · 规划站,Zone cleared · Planning,戦区制圧 · 作戦計画
+SETTLEMENT_EVO_HEADER,机体进化（全队跟随）,Evolve airframe (squad follows),機体進化（編隊追従）
+SETTLEMENT_UPGRADE_HEADER,强化当前机体,Upgrade current airframe,現行機を強化
+SETTLEMENT_CONTINUE,继续出击,Return to combat,出撃続行
+SETTLEMENT_NO_EVO,已到进化路线尽头,Evolution line complete,進化ルート完了
+SETTLEMENT_NO_UPGRADE,暂无可用强化,No upgrades available,強化なし
+SETTLEMENT_PICKED_FMT,✓ %s,✓ %s,✓ %s
+LEVEL_UP_TOAST_FMT,LV %d — 进化解锁进度已累计,LV %d — evolution unlock progress,LV %d — 進化解放が進行
 EVOLUTION_SUBTITLE_FMT,王牌 %s — 选择进化路线（僚机将跟随）,Ace %s — choose an evolution (wingmen follow),エース %s — 進化先を選択（僚機は追従）
 EVOLUTION_SKIP,暂不进化,Not now,今回は見送る
 EVOLUTION_LOCKED_FMT,需要 LV %d,Requires LV %d,LV %d が必要
