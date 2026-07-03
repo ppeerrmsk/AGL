@@ -65,6 +65,8 @@
 | [systems/map-expansion](systems/map-expansion.md) | system | draft | ✗ | 地图扩展 + 镜头再拉远：世界尺寸单常量主开关（30×30km→N）；Tab 全息图/相机/雷达/spawner 均数据驱动自动适配；硬编码点=战区坐标+手画地理+出生偏移；需图标 LOD。**建议编辑器先行、战区 JSON 化** |
 | [systems/ugc-editor](systems/ugc-editor.md) | system | draft | ✗ | 游戏内 UGC 编辑器 + 创意工坊：飞机/地图/编队可行性高（params 纯数据、JSON+user:// 惯例现成）；安全红线只收 JSON+数值围栏；P0 数据化→P1 地图编辑器（兼扩图工具）→P2 飞机→P3 编队→P4 本地分享→工坊（GodotSteam/mod.io） |
 
+| [systems/player-aircraft-power-curve](systems/player-aircraft-power-curve.md) | balance | draft | ✗ | 玩家机战斗力曲线规范：F-14 最弱锚点 / 档位预算 100-115-130% / 同类进化逐轴不倒退 / 单 tradeoff 轴 / 雷达走廊 2800-5000 / 12 机有效值矩阵 / resources/player/ 数据解耦（mult 归 1，敌机 enemy_* 独立）。**矩阵待用户 review 后实装** |
+
 <!-- 新增 spec 后在此追加一行。保持按 kind 分组、最新在各组顶部。 -->
 
 ---
