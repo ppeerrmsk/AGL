@@ -60,6 +60,7 @@ SETTLEMENT_NO_EVO,已到进化路线尽头,Evolution line complete,進化ルー�
 SETTLEMENT_NO_UPGRADE,暂无可用强化,No upgrades available,強化なし
 SETTLEMENT_PICKED_FMT,✓ %s,✓ %s,✓ %s
 EVOLUTION_TREE_CURRENT,当前,Current,現在
+EVOLUTION_TREE_UNKNOWN,？？？,???,？？？
 EVOLUTION_TREE_HINT,点击亮色机体查看详情并进化；灰色 = 等级未到,Click a lit airframe to inspect & evolve; gray = level locked,明るい機体をクリックで詳細·進化；灰色 = レベル不足
 EVOLUTION_CONFIRM,进化到该机体,Evolve to this airframe,この機体に進化
 LEVEL_UP_TOAST_FMT,LV %d — 进化解锁进度已累计,LV %d — evolution unlock progress,LV %d — 進化解放が進行

@@ -2507,9 +2507,11 @@ func _open_evolution_offer() -> void:
 		var _remaining: float = maxf(0.0, WARZONE_PHASE_DURATION - game_time)
 		hud.set_warzone_remaining(_remaining, _is_in_boss_phase())
 	var lvl: int = survivor_player.level if survivor_player else 1
-	# 起点记账（树视图爬线历史的第一格；首次结算时补写）
-	if cur_id != &"" and not player_aircraft.has_meta("evo_node"):
-		player_aircraft.set_meta("evo_node", cur_id)
+	# 起点记账（树视图爬线历史的第一格；首次结算时补写）+ 图鉴（起手机=拥有过）
+	if cur_id != &"":
+		AircraftCodex.mark_discovered(cur_id)
+		if not player_aircraft.has_meta("evo_node"):
+			player_aircraft.set_meta("evo_node", cur_id)
 	var history: Array = player_aircraft.get_meta("evo_history", [])
 	if history.is_empty() and cur_id != &"":
 		history = [cur_id]

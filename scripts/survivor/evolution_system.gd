@@ -102,6 +102,7 @@ static func evolve(ac: Aircraft, node_id: StringName, is_wingman: bool) -> bool:
 	hist.append(node_id)
 	ac.set_meta("evo_history", hist)
 	ac.set_meta("evo_node", node_id)
+	AircraftCodex.mark_discovered(node_id)  # 跨局图鉴：拥有过=永久揭示（树视图迷雾）
 	EventLogger.log_event("EVOLVE", ac._log_name(),
 		"%s → %s (tier=%d, wingman=%s)" % [old_name, ac.params.display_name, int(nd.get("tier", 0)), str(is_wingman)])
 	return true

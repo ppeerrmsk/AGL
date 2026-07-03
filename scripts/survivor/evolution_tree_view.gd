@@ -102,6 +102,15 @@ func _draw() -> void:
 		if not _rects.has(nid):
 			continue
 		var r: Rect2 = _rects[nid]
+		# ── 战争迷雾（用户 2026-07-03）：从没拥有过 + 不是当前出口 → 剪影 ？？？──
+		# 揭示条件：当前机 / 本局爬线历史 / 当前机的直接出口（"可以被解锁的"）/ 跨局图鉴（拥有过）
+		if not _is_revealed(nid):
+			draw_rect(r, Color(0.02, 0.03, 0.02, 0.85))
+			draw_rect(r, Color(0.2, 0.24, 0.2, 0.3), false, 1.0)
+			draw_string(get_theme_default_font(), Vector2(r.position.x, r.position.y + 28.0),
+				tr("EVOLUTION_TREE_UNKNOWN"), HORIZONTAL_ALIGNMENT_CENTER, NODE_W, 13,
+				Color(0.35, 0.4, 0.35, 0.5))
+			continue
 		var name_txt: String = tr(String(nd.get("name_key", "")))
 		var lv := EvolutionSystem.min_level_of(nd)
 		var bg := Color(0.03, 0.05, 0.03, 0.9)
@@ -141,6 +150,14 @@ func _draw() -> void:
 		if sub != "":
 			draw_string(font, Vector2(r.position.x, r.position.y + 36.0), sub,
 				HORIZONTAL_ALIGNMENT_CENTER, NODE_W, 11, sub_col)
+
+## 节点是否揭示（非剪影）：当前机 / 本局爬线历史 / 当前机直接出口（可被解锁=直接显示）/ 跨局图鉴
+func _is_revealed(nid: StringName) -> bool:
+	if nid == _current or _exit_lv.has(nid):
+		return true
+	if _history.has(nid) or _history.has(String(nid)):
+		return true
+	return AircraftCodex.is_discovered(nid)
 
 ## 爬线历史相邻对 = 走过的边
 func _edge_in_history(a: StringName, b: StringName) -> bool:
