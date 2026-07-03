@@ -250,6 +250,19 @@ func _build_aircraft_card(index: int) -> void:
 		squad_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		inner.add_child(squad_label)
 
+	# 武器清单（用户 2026-07-03：选机时要看到这架带什么武器/特色装备）
+	if not locked and profile:
+		var wpn_text := AircraftDB.weapons_summary(profile)
+		if wpn_text != "":
+			var wpn_label := Label.new()
+			wpn_label.text = wpn_text
+			wpn_label.add_theme_font_size_override("font_size", 11)
+			wpn_label.add_theme_color_override("font_color", ThemeColors.CATEGORY_WEAPON)
+			wpn_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			wpn_label.custom_minimum_size = Vector2(220, 0)
+			wpn_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			inner.add_child(wpn_label)
+
 	# 描述
 	var desc_label := Label.new()
 	if locked:

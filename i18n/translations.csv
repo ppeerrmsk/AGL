@@ -49,6 +49,8 @@ WEAPON_MISSILE,导弹,Missile,ミサイル
 WEAPON_ROCKET,火箭弹,Rocket,ロケット
 WEAPON_AOE,爆炸,Blast,爆発
 WEAPON_CRASH,坠地,Crash,墜落
+WEAPON_FLARE,热诱弹,Flares,フレア
+WEAPON_SECONDARY,副导弹,Secondary missiles,サブミサイル
 EVOLUTION_TITLE,机体进化,Evolution,機体進化
 SETTLEMENT_TITLE,战区结算 · 规划站,Zone cleared · Planning,戦区制圧 · 作戦計画
 SETTLEMENT_EVO_HEADER,机体进化（全队跟随）,Evolve airframe (squad follows),機体進化（編隊追従）

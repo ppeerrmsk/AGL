@@ -40,6 +40,30 @@ static func get_profile(id: StringName) -> PlayableAircraft:
 	_cache[id] = res
 	return res
 
+## 机型武器清单文本（选机卡 / 进化规划站共用，用户 2026-07-03：选飞机要看得到带什么武器）。
+## 从 base_params + profile 覆盖推导；equipment（电磁炮/激光等）用其 display_name。
+## 静态上下文无 tr() → 走 TranslationServer.translate。
+static func weapons_summary(profile: PlayableAircraft) -> String:
+	if profile == null or profile.base_params == null:
+		return ""
+	var p: AircraftParams = profile.base_params
+	var parts: PackedStringArray = []
+	if p.gun:
+		parts.append(TranslationServer.translate(&"WEAPON_GUN"))
+	if p.missile:
+		var cnt: int = profile.missile_count_override if profile.missile_count_override >= 0 else p.missile.max_count
+		parts.append("%s×%d" % [TranslationServer.translate(&"WEAPON_MISSILE"), cnt])
+	if p.secondary_missile:
+		parts.append(TranslationServer.translate(&"WEAPON_SECONDARY"))
+	if p.rocket:
+		parts.append(TranslationServer.translate(&"WEAPON_ROCKET"))
+	if p.flare:
+		parts.append(TranslationServer.translate(&"WEAPON_FLARE"))
+	for eq in p.equipment:
+		if eq and eq.display_name != "":
+			parts.append(eq.display_name)
+	return " · ".join(parts)
+
 ## 注册/覆盖档案路径（未来 UgcLoader 用；也可直接注册已构造的 Resource）
 static func register(id: StringName, path_or_res) -> void:
 	if path_or_res is String:

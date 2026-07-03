@@ -107,6 +107,17 @@ func show_offer(current: Dictionary, exits: Array, team_level: int, choices: Arr
 				btn.pressed.connect(func() -> void: _pick_evo(nid, btn))
 			_evo_pane.add_child(btn)
 			_evo_buttons.append(btn)
+			# 武器清单（用户 2026-07-03：选进化方向 = 选下一架飞机，必须看得到它带什么）
+			var prof := AircraftDB.get_profile(StringName(nd.get("profile", "")))
+			var wpn := AircraftDB.weapons_summary(prof)
+			if wpn != "":
+				var wl := Label.new()
+				wl.text = wpn
+				wl.add_theme_font_size_override("font_size", 11)
+				wl.add_theme_color_override("font_color", ThemeColors.TEXT_DESC_UNLOCKED)
+				wl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+				wl.custom_minimum_size = Vector2(PANE_WIDTH - 16, 0)
+				_evo_pane.add_child(wl)
 
 	# 右：强化当前机体（升级三选一 + 描述）
 	if choices.is_empty():
