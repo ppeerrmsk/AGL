@@ -1,10 +1,10 @@
 class_name EvolutionUI
 extends CanvasLayer
 
-## 战区结算规划站（Phase 2，spec ace-system §2.4 + 用户反馈 2026-07-02）
-## 双栏一体：左 = 机体进化（ACE 手动三选，僚机跟随）；右 = 强化当前机体（三选一升级）。
-## 每栏各限选一次；"继续出击"关闭。锁定的进化出口灰显门槛（可视化练级目标）。
-## 信号即时回传（选了立刻生效），closed 时 survivor_mode 恢复游戏。
+## 战区结算规划站（Phase 2/3，spec ace-system §2.4 + 用户反馈 2026-07-03）
+## 左栏 = 机体进化树（EvolutionTreeView，皇牌空战式自下而上：亮色可进化/灰色未解锁/金色爬线历史），
+## 点击亮色机体 → 底部显示 机型·种类·档位·LV·武器清单 → [进化] 确认。
+## 右栏 = 强化当前机体（三选一升级）。各限一次；"继续出击"关闭。
 
 signal evolution_chosen(node_id: StringName)
 signal upgrade_chosen(upgrade: Dictionary)
@@ -16,12 +16,15 @@ var _panel: PanelContainer
 var _root: VBoxContainer
 var _evo_pane: VBoxContainer
 var _up_pane: VBoxContainer
+var _tree: EvolutionTreeView
+var _evo_info: Label
+var _evo_confirm: Button
+var _evo_selected: StringName = &""
 var _evo_picked: bool = false
 var _up_picked: bool = false
-var _evo_buttons: Array = []
 var _up_buttons: Array = []
 
-## 进化种类 → 主题色（左栏卡片染色）
+## 进化种类 → 主题色（详情行染色）
 const EVO_CAT_COLORS := {
 	"air": ThemeColors.CATEGORY_MOBILITY,
 	"ew": ThemeColors.CATEGORY_SYSTEM,
@@ -29,7 +32,7 @@ const EVO_CAT_COLORS := {
 	"attack": ThemeColors.CATEGORY_WEAPON,
 	"omni": ThemeColors.TEXT_ACCENT,
 }
-## 升级 category → 主题色（右栏卡片染色，对齐 HUD 战术按钮的分类色）
+## 升级 category → 主题色（右栏卡片，对齐 HUD 分类色）
 const UP_CAT_COLORS := {
 	"survival": ThemeColors.CATEGORY_DEFENSE,
 	"mobility": ThemeColors.CATEGORY_MOBILITY,
@@ -56,11 +59,11 @@ func _ready() -> void:
 	_root.add_theme_constant_override("separation", 10)
 	_panel.add_child(_root)
 
-## current = 当前节点（可为空 Dictionary）；exits = 进化出口；choices = 升级三选一（可为空）
-func show_offer(current: Dictionary, exits: Array, team_level: int, choices: Array) -> void:
+## current = 当前节点（可空）；exits = 出口；choices = 升级三选一；history = 爬线历史（节点 id 序列）
+func show_offer(current: Dictionary, exits: Array, team_level: int, choices: Array, history: Array = []) -> void:
 	_evo_picked = false
 	_up_picked = false
-	_evo_buttons.clear()
+	_evo_selected = &""
 	_up_buttons.clear()
 	for c in _root.get_children():
 		c.queue_free()
@@ -84,40 +87,33 @@ func show_offer(current: Dictionary, exits: Array, team_level: int, choices: Arr
 	var cols := HBoxContainer.new()
 	cols.add_theme_constant_override("separation", 18)
 	_root.add_child(cols)
-	_evo_pane = _make_pane(cols, tr("SETTLEMENT_EVO_HEADER"))
-	_up_pane = _make_pane(cols, tr("SETTLEMENT_UPGRADE_HEADER"))
+	_evo_pane = _make_pane(cols, tr("SETTLEMENT_EVO_HEADER"), 0.0)  # 宽度随树自适应
+	_up_pane = _make_pane(cols, tr("SETTLEMENT_UPGRADE_HEADER"), PANE_WIDTH)
 
-	# 左：进化出口（含锁定灰卡 = 练级目标可视化）
-	if exits.is_empty():
-		_add_empty_hint(_evo_pane, tr("SETTLEMENT_NO_EVO"))
-	else:
-		for nd in exits:
-			var need: int = EvolutionSystem.min_level_of(nd)
-			var col: Color = EVO_CAT_COLORS.get(nd.get("category", ""), ThemeColors.TEXT_PRIMARY)
-			var head := "%s ｜ %s · T%d" % [
-				tr(String(nd.get("name_key", ""))),
-				tr(EvolutionSystem.category_key_of(nd)),
-				int(nd.get("tier", 0))]
-			var btn := _make_card_button(head, col)
-			if team_level < need:
-				btn.disabled = true
-				btn.text += "\n" + tr("EVOLUTION_LOCKED_FMT") % need
-			else:
-				var nid := StringName(nd.get("id", ""))
-				btn.pressed.connect(func() -> void: _pick_evo(nid, btn))
-			_evo_pane.add_child(btn)
-			_evo_buttons.append(btn)
-			# 武器清单（用户 2026-07-03：选进化方向 = 选下一架飞机，必须看得到它带什么）
-			var prof := AircraftDB.get_profile(StringName(nd.get("profile", "")))
-			var wpn := AircraftDB.weapons_summary(prof)
-			if wpn != "":
-				var wl := Label.new()
-				wl.text = wpn
-				wl.add_theme_font_size_override("font_size", 11)
-				wl.add_theme_color_override("font_color", ThemeColors.TEXT_DESC_UNLOCKED)
-				wl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-				wl.custom_minimum_size = Vector2(PANE_WIDTH - 16, 0)
-				_evo_pane.add_child(wl)
+	# 左：进化树视图（皇牌空战式，自下而上）
+	_tree = EvolutionTreeView.new()
+	_tree.setup(EvolutionSystem.all_nodes(), StringName(current.get("id", "")), history, team_level)
+	_tree.node_selected.connect(_on_tree_node_selected)
+	_evo_pane.add_child(_tree)
+	var hint := Label.new()
+	hint.text = tr("EVOLUTION_TREE_HINT") if not exits.is_empty() else tr("SETTLEMENT_NO_EVO")
+	hint.add_theme_font_size_override("font_size", 11)
+	hint.add_theme_color_override("font_color", ThemeColors.TEXT_MUTED)
+	_evo_pane.add_child(hint)
+	_evo_info = Label.new()
+	_evo_info.text = ""
+	_evo_info.add_theme_font_size_override("font_size", 12)
+	_evo_info.add_theme_color_override("font_color", ThemeColors.TEXT_PRIMARY)
+	_evo_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_evo_pane.add_child(_evo_info)
+	_evo_confirm = Button.new()
+	_evo_confirm.text = tr("EVOLUTION_CONFIRM")
+	_evo_confirm.disabled = true
+	_evo_confirm.add_theme_font_size_override("font_size", 14)
+	_evo_confirm.custom_minimum_size = Vector2(180, 34)
+	_evo_confirm.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_evo_confirm.pressed.connect(_confirm_evolution)
+	_evo_pane.add_child(_evo_confirm)
 
 	# 右：强化当前机体（升级三选一 + 描述）
 	if choices.is_empty():
@@ -150,10 +146,11 @@ func show_offer(current: Dictionary, exits: Array, team_level: int, choices: Arr
 	visible = true
 	_center.call_deferred()
 
-func _make_pane(parent: HBoxContainer, header_text: String) -> VBoxContainer:
+func _make_pane(parent: HBoxContainer, header_text: String, min_w: float) -> VBoxContainer:
 	var pane := VBoxContainer.new()
 	pane.add_theme_constant_override("separation", 6)
-	pane.custom_minimum_size = Vector2(PANE_WIDTH, 0)
+	if min_w > 0.0:
+		pane.custom_minimum_size = Vector2(min_w, 0)
 	var header := Label.new()
 	header.text = header_text
 	header.add_theme_font_size_override("font_size", 15)
@@ -182,14 +179,32 @@ func _add_empty_hint(pane: VBoxContainer, text_: String) -> void:
 	lbl.add_theme_color_override("font_color", ThemeColors.TEXT_LOCKED)
 	pane.add_child(lbl)
 
-func _pick_evo(node_id: StringName, btn: Button) -> void:
+## 树上点了亮色机体 → 底部详情 + 解锁确认按钮
+func _on_tree_node_selected(node_id: StringName) -> void:
 	if _evo_picked:
 		return
+	_evo_selected = node_id
+	var nd := EvolutionSystem.node_of(node_id)
+	var prof := AircraftDB.get_profile(StringName(nd.get("profile", "")))
+	var wpn := AircraftDB.weapons_summary(prof)
+	_evo_info.text = "%s ｜ %s · T%d ｜ LV %d\n%s" % [
+		tr(String(nd.get("name_key", ""))),
+		tr(EvolutionSystem.category_key_of(nd)),
+		int(nd.get("tier", 0)),
+		EvolutionSystem.min_level_of(nd),
+		wpn]
+	_evo_info.add_theme_color_override("font_color",
+		EVO_CAT_COLORS.get(nd.get("category", ""), ThemeColors.TEXT_PRIMARY))
+	_evo_confirm.disabled = false
+
+func _confirm_evolution() -> void:
+	if _evo_picked or _evo_selected == &"":
+		return
 	_evo_picked = true
-	for b in _evo_buttons:
-		b.disabled = true
-	btn.text = tr("SETTLEMENT_PICKED_FMT") % btn.text
-	evolution_chosen.emit(node_id)
+	_tree.interactive = false
+	_evo_confirm.disabled = true
+	_evo_confirm.text = tr("SETTLEMENT_PICKED_FMT") % _evo_confirm.text
+	evolution_chosen.emit(_evo_selected)
 
 func _pick_upgrade(upgrade: Dictionary, btn: Button) -> void:
 	if _up_picked:

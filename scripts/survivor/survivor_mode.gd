@@ -1997,12 +1997,12 @@ func _update_offscreen_lod() -> void:
 		item["ai"].set_physics_process(true)
 		item["ai"].ai_tick_divisor = 3 if i < SIMPLE_AI_FULL_TICK_BUDGET else 6
 
-## 友方编队 LOD：明确把僚机置入正确的 lod_level（防止 AI 与物理跑步序错位时
-## 落到 LOD 0 全模拟分支，引起编队抖动）。
-##   - player_aircraft → 永远 LOD 0
-##   - 友方僚机交战中 → LOD 0
-##   - 友方僚机巡航中 → LOD 1（编队托管）
-##   - 友方僚机离屏 → LOD 2（自我节流）
+## 友方编队 LOD：每帧把玩家 + 全部友方僚机钉在 LOD 0（60Hz 完整物理）。
+## ⚠ 注意：这里每帧覆盖会压过 AI 侧（set_formation_target / exit_evade 等）写入的
+## lod=1/2 —— 收敛依赖"父先子后"树序（本函数先写、Aircraft 后读）。lod_level 的
+## 单一所有权归属留给重构计划 Phase 4（docs/planning/physics-ai-control-refactor.md）。
+## 历史：旧策略 cruise→LOD1 / 离屏→LOD2 让僚机进入 1/3 速率简化路径，表现为
+## "决定 combat_target 却迟迟不去攻击""反应慢半拍"，故全钉 LOD 0（成本 ~0.3ms/frame）。
 func _update_friendly_squad_lod() -> void:
 	if not player_aircraft or player_aircraft.is_destroyed:
 		return
@@ -2507,7 +2507,13 @@ func _open_evolution_offer() -> void:
 		var _remaining: float = maxf(0.0, WARZONE_PHASE_DURATION - game_time)
 		hud.set_warzone_remaining(_remaining, _is_in_boss_phase())
 	var lvl: int = survivor_player.level if survivor_player else 1
-	_evolution_ui.show_offer(EvolutionSystem.node_of(cur_id), exits, lvl, choices)
+	# 起点记账（树视图爬线历史的第一格；首次结算时补写）
+	if cur_id != &"" and not player_aircraft.has_meta("evo_node"):
+		player_aircraft.set_meta("evo_node", cur_id)
+	var history: Array = player_aircraft.get_meta("evo_history", [])
+	if history.is_empty() and cur_id != &"":
+		history = [cur_id]
+	_evolution_ui.show_offer(EvolutionSystem.node_of(cur_id), exits, lvl, choices, history)
 
 ## 规划站·进化栏：ACE 手动进化 + 僚机自动跟随同款（spec ace-system §2.3）。面板保持打开。
 func _on_settlement_evolution(node_id: StringName) -> void:

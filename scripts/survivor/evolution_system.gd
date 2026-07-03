@@ -53,9 +53,18 @@ static func exits_of(id: StringName) -> Array:
 			out.append(nd)
 	return out
 
+## 逐机解锁等级（spec player-aircraft-power-curve §1.8）：节点带 min_level 字段则优先；
+## 否则回退档位默认（tier_min_level）。
 static func min_level_of(nd: Dictionary) -> int:
 	_ensure_loaded()
+	if nd.has("min_level"):
+		return int(nd["min_level"])
 	return _tier_min_level.get(int(nd.get("tier", 1)), 1)
+
+## 全部节点（进化树视图用）
+static func all_nodes() -> Array:
+	_ensure_loaded()
+	return _nodes.values()
 
 static func category_key_of(nd: Dictionary) -> String:
 	_ensure_loaded()
@@ -85,6 +94,13 @@ static func evolve(ac: Aircraft, node_id: StringName, is_wingman: bool) -> bool:
 		ac.secondary_missiles_remaining = ac.params.secondary_missile.max_count
 	if ac.params.flare:
 		ac.flares_remaining = ac.params.flare.max_flares
+	# 爬线历史（树视图"从哪来"高亮）：首次进化先补记起点，再记本次终点
+	var hist: Array = ac.get_meta("evo_history", [])
+	var prev: StringName = ac.get_meta("evo_node", &"")
+	if hist.is_empty() and prev != &"":
+		hist.append(prev)
+	hist.append(node_id)
+	ac.set_meta("evo_history", hist)
 	ac.set_meta("evo_node", node_id)
 	EventLogger.log_event("EVOLVE", ac._log_name(),
 		"%s → %s (tier=%d, wingman=%s)" % [old_name, ac.params.display_name, int(nd.get("tier", 0)), str(is_wingman)])
