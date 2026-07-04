@@ -5,6 +5,7 @@ extends RefCounted
 ## 从 ai_controller.gd 提取的 EVADE_MISSILE 状态逻辑：
 ##   process_evade            — EVADE 主循环：垂直规避 + Herbst 机动触发 + 高度档位切换
 ##   enter_evade / exit_evade — 状态转入/转出（退出编队托管 / 重入交战 / 归队 / 返回巡逻）
+##   should_enter_evade       — 分层规避入口门（B1：flare 优先，无 flare 才机动）
 ##   check_incoming_missile   — 是否有来袭导弹
 ##   find_nearest_incoming_missile — 扫描最近来袭导弹（过滤热诱弹干扰 / 已过头导弹）
 ##   is_missile_from_rear     — 后半球来袭判定（用于眼镜蛇触发）
@@ -37,9 +38,16 @@ static func process_evade(ai: AIController, delta: float) -> void:
 			ai._squad_leash_timer += delta
 			if ai._squad_leash_timer >= AIController.SQUAD_LEASH_HYSTERESIS:
 				ai._squad_leash_timer = 0.0
-				ai.aircraft.evasion_mode = false  # 清掉防 ai_controller evade 守卫 re-enter bounce
+				# 清掉防 ai_controller evade 守卫 re-enter bounce（走入口，保 evasion_modifiers 边界缩放对称）
+				ai.aircraft.set_evasion_mode(false)
+				# 再入冷却（2026-07-03）：leash 拽回后压制 should_enter_evade 一小段，让飞机
+				# 真的往回飞（回程本身就是变向规避 + 回到僚机护卫焰范围内）。否则威胁仍在时
+				# 下一 tick SQUAD_FOLLOW 立即重进躲 → EVADE↔SQUAD_FOLLOW 每 0.5s 振荡
+				# （日志实证：190108 [262.8]/[263.3]/[263.9] Phoenix 三连拽回-重进）。
+				ai._evade_reenter_cd = LEASH_REENTER_SUPPRESS_S
 				EventLogger.log_event("AI_STATE", ai._log_name(),
-					"LEASH break-off (evade %.0fpx from leader) → rejoin" % ld)
+					"LEASH break-off (evade %.0fpx from leader) → rejoin (evade suppressed %.1fs)" % [
+						ld, LEASH_REENTER_SUPPRESS_S])
 				exit_evade(ai)
 				return
 		else:
@@ -52,7 +60,7 @@ static func process_evade(ai: AIController, delta: float) -> void:
 		# 护卫姿态改由 escort_cover_active + SQUAD_FOLLOW 待命 + 护卫 flare 承担（不脱队）。
 		# 先清 evasion_mode（enter_evade 自保时设的），防 planner evasion_intent 残留 + 守卫 bounce。
 		if ai.aircraft.evasion_mode:
-			ai.aircraft.evasion_mode = false
+			ai.aircraft.set_evasion_mode(false)
 		exit_evade(ai)
 		return
 
@@ -112,8 +120,10 @@ static func enter_evade(ai: AIController) -> void:
 	# P4：planner 模式下置 evasion_mode → planner 选 EVADE_MISSILE intent → max + AB
 	# MissileEvasion.process_evade 仍写 target_position（垂直规避向量），两者协作：
 	# planner 决定速度/AB，process_evade 决定方向/高度
+	# 走 set_evasion_mode 入口（B3）：保 evasion_modifiers 边界差量缩放对称；
+	# AI 无 use_tactical_preference 不会触发僚机广播。
 	if ai.aircraft.use_tactical_planner:
-		ai.aircraft.evasion_mode = true
+		ai.aircraft.set_evasion_mode(true)
 	ai._squad_attacking_leader_target = false
 	ai._squad_lateral_role = AIController.SquadRole.NONE
 	ai._squad_free_engaging = false
@@ -128,9 +138,9 @@ static func enter_evade(ai: AIController) -> void:
 
 static func exit_evade(ai: AIController) -> void:
 	EventLogger.log_event("EVADE", ai._log_name(), "exiting missile evasion")
-	# P4：清 evasion_mode 让 planner 回到正常 intent 路径
+	# P4：清 evasion_mode 让 planner 回到正常 intent 路径（走入口，同 enter 对称）
 	if ai.aircraft.use_tactical_planner:
-		ai.aircraft.evasion_mode = false
+		ai.aircraft.set_evasion_mode(false)
 	if ai._current_target and is_instance_valid(ai._current_target) and not ai._current_target.is_destroyed:
 		ai.aircraft.set_combat_target(ai._current_target)
 		BFMTactics.set_patrol_altitude(ai)
@@ -152,6 +162,41 @@ static func exit_evade(ai: AIController) -> void:
 		ai._set_next_waypoint()
 
 # ══════════════════════════════════════════════
+#  分层规避入口门（B1 定稿策略 2026-07-02）
+# ══════════════════════════════════════════════
+
+## 是否应进入运动学规避（EVADE_MISSILE）。所有 enter_evade 的"入口"判定统一走这里；
+## EVADE 的"维持/退出"仍由 process_evade 的 find_nearest_incoming_missile（带滞回）负责。
+##
+## 玩家方三层（见 docs/planning/physics-ai-control-refactor.md §3 B1 定稿策略）：
+##   ① 无真威胁导弹 → 不躲。_is_evasion_threat 已滤掉"追不上/还很远/已过头"的导弹，
+##      被雷达锁定本身不构成脱离命令/编队的理由。
+##   ② 有真威胁但 flare 还能兜底（弹量/CD 就绪）→ 不进运动学规避，留在命令/编队航线，
+##      智能 flare 会在末段（TTI≤1.5s）自动出手——多数导弹到此为止，不脱队。
+##   ③ flare 不可用（弹尽/装填/冷却/隐身抑制/机动中）或 flare 已对这枚弹失误放弃
+##      → 才允许加速散开躲弹（此时命令铁律让位，见 _enforce_commanded_target）。
+## 敌方不受 flare 门约束（维持难度，行为与旧 check_incoming_missile 完全一致）。
+static func should_enter_evade(ai: AIController) -> bool:
+	# leash 拽回后的再入冷却：归队意志压过规避一小段（回程即变向，且回到护卫焰覆盖内）
+	if ai._evade_reenter_cd > 0.0:
+		return false
+	var m := find_nearest_incoming_missile(ai)
+	if m == null:
+		return false
+	if ai.aircraft.team != 0:
+		return true
+	# 导弹穿透窗口期（刚放焰获得的免疫窗）：导弹打不中，无需散开
+	if ai.aircraft.missile_phase_timer > 0.0:
+		return false
+	# flare 曾对这枚弹失误放弃（fail_chance roll）→ flare 不会再管它 → 必须机动
+	if ai.aircraft._flare_ignored_missiles.has(m.get_instance_id()):
+		return true
+	# flare 就绪 → 交给智能 flare 末段兜底，不进运动学规避
+	if AircraftFlares.flare_ready(ai.aircraft):
+		return false
+	return true
+
+# ══════════════════════════════════════════════
 #  导弹威胁检测
 # ══════════════════════════════════════════════
 
@@ -162,6 +207,7 @@ static func exit_evade(ai: AIController) -> void:
 # 但同样要求导弹确实在逼近。敌方不受此门约束（维持难度）。
 const EVADE_MIN_CLOSING_MS := 60.0    ## 闭合速度 < 此(m/s) → 追不上/慢弹 → 不值得散开规避
 const EVADE_TTI_THRESHOLD := 3.5      ## 命中剩余时间 > 此(s) → 还不急，先不进 max+AB 散开
+const LEASH_REENTER_SUPPRESS_S := 2.0 ## leash 拽回后规避再入冷却（防 EVADE↔SQUAD_FOLLOW 振荡）
 
 ## 玩家方：这枚导弹是否值得进入/维持"加速散开"规避（在逼近 + 即将到达）。纯几何，可单测。
 ## already_evading 滞回：已在躲弹时用更宽松的门（更难解除）——否则僚机一加速就把 closing 拉低到

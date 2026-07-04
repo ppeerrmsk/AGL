@@ -22,17 +22,15 @@ extends RefCounted
 ##   ① _build_context        — 采集所有几何量（slot_dist / slot_local / b / jitter /
 ##                              branch / rejoin_rate_scale / every3 等）
 ##   ② _resolve_target_heading — 按 branch 算 target_heading + max_bank_ratio
-##   ③ _update_heading       — rate-limited lerp 到 target_heading
-##   ④ _update_bank          — desired_bank 公式 + leader-bank 混合 + 翻转守卫 + rate-limit
+##   ③④ _update_bank_via_pd  — 全局临界阻尼 PD 控制器（heading+bank 一体，与战斗/巡航同源）
 ##   ⑤ _update_speed         — fwd_offset 驱动的速度调档
 ##   ⑥ _log_formation_debug  — FORM_DBG 事件（稳态 1Hz / rejoin 10Hz）
 ##   ⑦ _update_altitude      — lerp 向长机收敛
 ##   ⑧ _update_position      — apply_movement + 微漂移
 ##   ⑨ _periodic_and_visuals — every3 节流更新 + rotation 同步 + queue_redraw
 ##
-## 辅助纯函数（无副作用）：
-##   - _compute_leader_bank_blend(branch, slot_dist)
-##   - _should_suppress_bank_flip(bank, desired, hdiff)
+## （旧编队私有 _update_heading/_update_bank/leader-bank 混合/翻转守卫已随 2026-06-07
+##   PD 重写退役，死代码于 2026-07-03 删除——见 git 历史。）
 ##
 ## ══════════════════════════════════════════════════════════════════════════
 ## 三段式行为（按距阵型槽位的距离分支）
@@ -78,7 +76,7 @@ extends RefCounted
 ##            +55°（CLOSE 有 leader-bank 混合）↔ +10°（MID 无混合）之间跳变
 ##    - 日志证据：combat_log_20260424_160912.txt Charge @ 9.8s→10.8s
 ##    - 修复：MID 分支也做 leader-bank 混合，按 slot_dist 从 0.55 衰减到 0.30
-##            见 _compute_leader_bank_blend
+##            （该机制已随 2026-06-07 PD 重写整体退役，问题由 PD 从根上消除）
 ##
 ## 9. 击毙敌机后 rejoin 过程中机身剧烈抖动（2026-04-24）
 ##    - 日志证据：combat_log_20260424_160912 Fractal @ 33.9s DISENGAGE 后
@@ -87,7 +85,7 @@ extends RefCounted
 ##    - 根因：rejoin 时 wingman 离阵型远，MID 分支 bias_angle 经常贴到 ±60° 硬钳。
 ##            长机转向让 slot_local.x 翻符号时 bias 从 +60° 跳到 -60°
 ##            （target_heading 瞬移 120°）→ desired_bank 翻正负 → bank bang-bang
-##    - 修复：bank 翻转抗振守卫，见 _should_suppress_bank_flip
+##    - 修复：bank 翻转抗振守卫（已随 2026-06-07 PD 重写退役，PD 的 D 项阻尼从根上消除 bang-bang）
 ##
 ## 10. 击毙敌机后进入编队瞬间机身"扭曲/拧过去"（2026-04-24 combat_log_163239）
 ##    - 根因：`_formation_blend` (b) 原本是 rejoin 渐变因子，但只用在高度和速度上。
@@ -106,24 +104,13 @@ const MAX_BIAS := PI / 3.0              ## MID 横向偏置最大角度（60° �
 const FORM_SETTLE_DIST := 25.0          ## 仅 <此距离才做微吸附（原 CLOSE_DIST=50，收紧一半）
 const FORM_SETTLE_STRENGTH := 0.15      ## 吸附强度系数（原 0.4 → 0.15，肉眼不可见、非强扭）
 const FORM_BIAS_DEADZONE := 35.0        ## MID 横向偏置死区(px)：贴近槽位中线不偏置，防 slot_local.x 过中线翻符号导致机身颤抖
-const FORM_BANK_EMA := 0.12             ## 编队 bank EMA 平滑系数：滤掉 turn_rate 高频抖，避免微航向修正被放大成可见 bank 抖
 const FORM_TH_EMA := 0.08               ## 编队 target_heading EMA：~0.15s 时间常数，滤高频抖(±50°方波→±3°)，真实转弯仅轻微滞后
 
 # ── 运动控制 ──
-const FORMATION_MAX_TURN_RATE := 1.5    ## rad/s，编队归队角速度硬上限（≈86°/s）
-const FORMATION_LERP_K := 5.0           ## hdiff lerp 增益
+const FORMATION_MAX_TURN_RATE := 1.5    ## rad/s，编队归队角速度硬上限（≈86°/s；现仅 rejoin 无头测试作 ω 上限参考）
 
 # ── Rejoin 平滑（bug #10）──
 const REJOIN_RATE_FLOOR := 0.35         ## b=0 时速率保留 35%（再低会看起来呆滞）
-
-# ── Bank 翻转守卫（bug #9）──
-const FORM_BANK_ESTABLISHED_RAD := 0.5236  ## deg_to_rad(30) — 已建立 bank 阈值
-const FORM_BANK_COMMIT_RAD := 0.2618       ## deg_to_rad(15) — 翻转提交所需 hdiff
-
-# ── Leader-bank 混合系数（bug #8）──
-const BANK_BLEND_CLOSE := 0.6           ## CLOSE 分支固定混合
-const BANK_BLEND_MID_NEAR := 0.55       ## MID 贴近 CLOSE 时的混合
-const BANK_BLEND_MID_FAR := 0.30        ## MID 贴近 REJOIN 时的混合
 
 # ── 分支枚举（调试字符串仅供 FORM_DBG 日志读）──
 enum Branch { FAR = 0, MID = 1, CLOSE = 2 }
@@ -259,7 +246,8 @@ static func _build_context(ac: Aircraft) -> Dictionary:
 
 ## 根据 branch 决定 target_heading 和 max_bank_ratio。
 ## 副作用：写 ac._dbg_* 调试字段（F12 快照不依赖 F11 开关）。
-## 把 max_bank_ratio 写回 ctx 供 _update_bank 读取。
+## 把 max_bank_ratio 写回 ctx（原供已删除的旧 _update_bank 读取；PD 路径的 bank 上限
+## 由 _formation_full_bank + compute_target_bank 决定，此值现仅留作调试参考）。
 static func _resolve_target_heading(ac: Aircraft, ctx: Dictionary) -> float:
 	var ldr: Aircraft = ctx["ldr"]
 	var slot_pos: Vector2 = ctx["slot_pos"]
@@ -322,32 +310,7 @@ static func _resolve_target_heading(ac: Aircraft, ctx: Dictionary) -> float:
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# ③ 航向更新：rate-limited lerp，受 rejoin_rate_scale 缩放
-# ══════════════════════════════════════════════════════════════════════════
-
-## 把 heading 向 target 推进一步。
-## 原则（2026-04-10）：
-##   - 纯物理公式 (g·tan(bank)/TAS) 在编队中过慢：F-14 在 84° bank 也只有 ~21°/s
-##   - 纯 lerp 没有上限，combat 刚结束从 ±80° bank 一瞬间归零，非物理突兀
-## 折中：lerp 追目标，但角速度被 FORMATION_MAX_TURN_RATE 硬夹（~86°/s 稳态）。
-## rejoin 期间（bug #10）再按 b 缩放降速。
-static func _update_heading(ac: Aircraft, ctx: Dictionary, target_heading: float, delta: float) -> void:
-	var hdiff := Aircraft._angle_diff(target_heading, ac.heading)
-	var eff_turn_rate: float = FORMATION_MAX_TURN_RATE * ctx["rejoin_rate_scale"]
-	var desired_step := hdiff * FORMATION_LERP_K * delta
-	var max_step := eff_turn_rate * delta
-	if absf(desired_step) > max_step:
-		desired_step = signf(desired_step) * max_step
-	ac.heading = wrapf(ac.heading + desired_step, -PI, PI)
-	# 缓存 hdiff 供 _update_bank 写调试字段用（与 hdiff_after 区分）
-	ctx["hdiff"] = hdiff
-	# 缓存本帧实际航向步进 → _update_bank 据此推协调坡度（bank 永远与实际转弯一致，
-	# 不再镜像长机 bank 而产生"航向不变却左右打滚"的颤抖）
-	ctx["heading_step"] = desired_step
-
-
-# ══════════════════════════════════════════════════════════════════════════
-# ④ Bank 更新：desired 公式 + leader 混合 + 翻转守卫 + rate-limit
+# ③④ 航向 + Bank：全局临界阻尼 PD 控制器（2026-06-07 重写，取代编队私有公式）
 # ══════════════════════════════════════════════════════════════════════════
 
 ## 编队转弯统一走全局 PD 转弯控制器（与 AircraftPhysics.update_bank/update_heading 同源）。
@@ -370,62 +333,6 @@ static func _update_bank_via_pd(ac: Aircraft, ctx: Dictionary, target_heading: f
 	AircraftPhysics.update_heading(ac, delta)
 	ac._dbg_hdiff = hdiff
 	ac._dbg_desired_bank = ac.bank_angle
-
-
-## Bank 由本帧实际转向速率推出（协调转弯模型）：转得多压多少坡，不转则平飞。
-## ⚠ 2026-06-07 重写：旧版按 hdiff 推 bank + 混合长机 bank + 翻转守卫，导致僚机稳守阵位
-## （航向不变）时仍镜像长机 bank 而"原地左右打滚"（60Hz log 实证 hdg 不动 bank 却 +56↔-47），
-## 也是 bug#8/#9/#10 一系列 bank 颤抖的根源。改为：bank ∝ 本帧实际航向变化率（已被
-## FORMATION_MAX_TURN_RATE 限幅）→ bank 永远与航迹一致，真转弯才压坡，平飞即回中，颤抖消失。
-static func _update_bank(ac: Aircraft, ctx: Dictionary, target_heading: float, delta: float) -> void:
-	var max_bank_val := AircraftPhysics.max_bank_angle(ac)
-	var max_bank_ratio: float = ctx["max_bank_ratio"]
-
-	# 本帧实际航向变化率（rad/s，已在 _update_heading 限幅到 ±FORMATION_MAX_TURN_RATE×rejoin_scale）
-	var step: float = ctx.get("heading_step", 0.0)
-	var turn_rate: float = (step / delta) if delta > 0.0 else 0.0
-	var bank_frac: float = clampf(turn_rate / FORMATION_MAX_TURN_RATE, -1.0, 1.0)
-	var desired_bank_raw: float = bank_frac * max_bank_val * max_bank_ratio
-	# EMA 平滑：滤掉 turn_rate 高频抖动，避免贴槽位时微小航向修正被放大成可见 bank 颤抖
-	var desired_bank: float = desired_bank_raw
-	if ac._ai_ref:
-		ac._ai_ref._form_bank_ema = lerpf(ac._ai_ref._form_bank_ema, desired_bank_raw, FORM_BANK_EMA)
-		desired_bank = ac._ai_ref._form_bank_ema
-
-	ac._dbg_hdiff = ctx["hdiff"]
-	ac._dbg_desired_bank = desired_bank
-
-	# Rate-limit（rejoin 期间按 b 缩放，bug #10）
-	var roll_rate_limit: float = ac.params.roll_rate if ac.params else 3.0
-	var eff_roll_rate: float = roll_rate_limit * float(ctx["rejoin_rate_scale"])
-	var bank_step := clampf(desired_bank - ac.bank_angle, -eff_roll_rate * delta, eff_roll_rate * delta)
-	ac.bank_angle += bank_step
-
-
-## Leader-bank 混合系数（纯函数）。
-## CLOSE 固定 0.6；MID 按 slot_dist 从 0.55（贴近 CLOSE）衰减到 0.30（贴近 REJOIN）。
-## 目的：消除 CLOSE/MID 边界的 bank 目标跳变（bug #8）。
-static func _compute_leader_bank_blend(branch: int, slot_dist: float) -> float:
-	if branch == Branch.CLOSE:
-		return BANK_BLEND_CLOSE
-	if branch == Branch.MID:
-		var dist_ratio := clampf((slot_dist - CLOSE_DIST) / (REJOIN_DIST - CLOSE_DIST), 0.0, 1.0)
-		return lerpf(BANK_BLEND_MID_NEAR, BANK_BLEND_MID_FAR, dist_ratio)
-	return 0.0
-
-
-## Bank 翻转守卫判定（纯函数，见 bug #9）。
-## 条件：|bank|>30° 且 desired 要反向，但 hdiff 还不够大（<15°）。
-## 用途：rejoin 时 bias_angle 贴 ±60° 钳位翻符号导致 desired_bank bang-bang。
-## 返回 true 时调用方应把 desired_bank 归零（先回中再考虑翻）。
-static func _should_suppress_bank_flip(current_bank: float, desired_bank: float, hdiff_after: float) -> bool:
-	if absf(current_bank) <= FORM_BANK_ESTABLISHED_RAD:
-		return false
-	if signf(desired_bank) == 0.0:
-		return false
-	if signf(desired_bank) == signf(current_bank):
-		return false
-	return absf(hdiff_after) < FORM_BANK_COMMIT_RAD
 
 
 # ══════════════════════════════════════════════════════════════════════════

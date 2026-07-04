@@ -822,9 +822,12 @@ func _physics_process_impl(delta: float) -> void:
 		AircraftPhysics.update_heading(self, delta)
 		AircraftPhysics.update_speed(self, delta)
 		if every3:
+			# ⚠ every3 节流必须 ×3 补偿 delta（同 LOD2 的 lod_delta 教训，2026-07-03 修：
+			# 旧版传裸 delta → LOD1 非编队机爬升/燃油/flare CD 全部 1/3 速率演化）
+			var every3_delta := delta * 3.0
 			AircraftPhysics.update_stall(self)  # 在 update_altitude 前
-			AircraftPhysics.update_altitude(self, delta)
-			AircraftPhysics.update_fuel(self, delta)
+			AircraftPhysics.update_altitude(self, every3_delta)
+			AircraftPhysics.update_fuel(self, every3_delta)
 			_check_ground_crash()
 			AircraftPhysics.update_g_load(self)
 		AircraftPhysics.apply_movement(self, delta)
@@ -839,7 +842,7 @@ func _physics_process_impl(delta: float) -> void:
 		AircraftWeapons.update_secondary_radar(self, delta)
 		AircraftWeapons.update_secondary_missile(self, delta)
 		if every3:
-			AircraftFlares.update(self, delta)
+			AircraftFlares.update(self, delta * 3.0)  # 同款 ×3 补偿：flare CD/粒子寿命
 		_update_visuals()
 		if selected or is_hovered or every3:
 			queue_redraw()

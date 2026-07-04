@@ -111,7 +111,8 @@ func _physics_process(delta: float) -> void:
 			_aircraft.speed = maxf(
 				_aircraft.speed - DECEL_RATE * delta,
 				turn_target_ms)
-			# 同步 target_speed_kmh，防止 Aircraft._update_speed 反向加速抵消
+			# 同步意图字段保持一致（update_speed 已被 maneuver_overrides_speed 守卫让位，
+			# 此写仅供 HUD/预测线读到正确意图，不再是对抗 update_speed 的自卫手段）
 			_aircraft.target_speed_kmh = turn_target_ms * 3.6
 			# 前方虚拟目标，避免别处读到过期 target_position
 			var fwd_d := Vector2(sin(_aircraft.heading), -cos(_aircraft.heading))
@@ -128,7 +129,7 @@ func _physics_process(delta: float) -> void:
 			_aircraft.rotation = _aircraft.heading
 			_turn_accumulated += absf(turn_this_frame)
 			_aircraft.is_afterburner = false
-			# 严格压在 turn_target（双向钳制，不让 _update_speed 抬起来也不让飘走）
+			# 严格压在 turn_target（update_speed 已让位，本模块是 DECEL/TURN 期间速度唯一写者）
 			_aircraft.speed = turn_target_ms
 			_aircraft.target_speed_kmh = turn_target_ms * 3.6
 			var fwd_t := Vector2(sin(_aircraft.heading), -cos(_aircraft.heading))
@@ -138,8 +139,8 @@ func _physics_process(delta: float) -> void:
 				_timer = 0.0
 				phase = Phase.ACCEL
 		Phase.ACCEL:
-			# 加力冲出：开加力，让 Aircraft._update_speed 自然拉回巡航
-			_aircraft.is_afterburner = true
+			# 加力冲出：开加力，让 Aircraft._update_speed 自然拉回巡航（燃油守卫防零油白嫖）
+			_aircraft.is_afterburner = _aircraft.fuel > 0.0
 			# 起始 tick 把速度钳在 accel_ceiling（避免一帧暴起）
 			if _timer < 0.05:
 				_aircraft.speed = minf(_aircraft.speed, accel_ceiling_ms)

@@ -128,17 +128,30 @@ static func test_waypoint_aligned() -> void:
 	_assert_true("waypoint_aligned.spd>cruise", p.target_speed_kmh > s.cruise_speed_kmh)
 
 static func test_waypoint_big_turn() -> void:
+	# 2026-05-07 设计变更（bfm_intent.waypoint_move 注释）：AB 不再按"hdiff>60° 禁开"
+	# 离散切换，改为"当前速度 < target 的 95% 就给"，跟随 smoothstep 的 target 平滑变化。
+	# 旧断言 ab=false 属旧设计残留（F10 手测时代未被发现，2026-07-03 接入 bench 后修正）。
 	var s := Situation.new_for_test({
 		"has_target": false,
 		"my_pos": Vector2.ZERO,
 		"my_heading": 0.0,  # 朝北
 	})
-	# waypoint 在正东（90° 偏差）
+	# waypoint 在正东（90° 偏差）→ t=0 全 corner speed
 	var wp := Vector2(1000.0, 0)
 	var p := TacticalPlanner.plan(s, wp)
 	_assert_eq("waypoint_big_turn.intent", TacticalPlan.Intent.WAYPOINT_MOVE, p.intent)
 	_assert_eq("waypoint_big_turn.spd=corner", s.corner_speed_kmh, p.target_speed_kmh)
-	_assert_eq("waypoint_big_turn.ab=false", false, p.afterburner)
+	# 慢速（my_speed=0）大转弯：低于 corner×0.95 → 开 AB 追目标速度
+	_assert_eq("waypoint_big_turn.ab_slow=true", true, p.afterburner)
+	# 已在角点速度巡航转弯：不浪费 AB
+	var s2 := Situation.new_for_test({
+		"has_target": false,
+		"my_pos": Vector2.ZERO,
+		"my_heading": 0.0,
+		"my_speed_ms": s.corner_speed_kmh / 3.6,
+	})
+	var p2 := TacticalPlanner.plan(s2, wp)
+	_assert_eq("waypoint_big_turn.ab_at_corner=false", false, p2.afterburner)
 
 static func test_evade_overrides_combat() -> void:
 	# 即使有目标 + 对头，规避也优先

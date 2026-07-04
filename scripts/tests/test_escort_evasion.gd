@@ -3,7 +3,7 @@ extends RefCounted
 ## 无头僚机护卫规避测试（2026-06-16，spec wingman-escort-evasion）
 ## 验证护卫 flare 的纯判定/裁决逻辑（确定性、无需场景树）：
 ##   1. escort_jam_chance —— 近度概率公式
-##   2. _escort_flare_ready —— flare 就绪门
+##   2. flare_ready —— flare 就绪门
 ##   3. _escort_missile_qualifies —— 合格目标导弹判定
 ##   4. _is_best_escort_for —— 全队裁决「一次只有一架」+ CD/范围兜底 + 平局决断
 ## 运行：godot --headless --path . -- --bench=escort
@@ -16,7 +16,7 @@ const FLARE_TRES := "res://resources/default_flare.tres"
 
 var _pass := 0
 var _fail := 0
-var _shared_mm: Node2D = null   ## 共享 dummy missile_manager（Node2D 类型，_escort_flare_ready 只查非空）
+var _shared_mm: Node2D = null   ## 共享 dummy missile_manager（Node2D 类型，flare_ready 只查非空）
 
 
 func run() -> void:
@@ -46,20 +46,20 @@ func _test_jam_chance() -> void:
 
 # ── 2. flare 就绪门 ──
 func _test_flare_ready() -> void:
-	print("── _escort_flare_ready：玩家方 + 有 flare + 弹量/CD/隐身 ──")
+	print("── flare_ready：玩家方 + 有 flare + 弹量/CD/隐身 ──")
 	var w := _make_wingman(Vector2(100, 0))
-	_check("就绪僚机", AircraftFlares._escort_flare_ready(w), true, "team0+有弹+CD0")
+	_check("就绪僚机", AircraftFlares.flare_ready(w), true, "team0+有弹+CD0")
 
 	var w_enemy := _make_wingman(Vector2(100, 0)); w_enemy.team = 1
-	_check("敌方机", AircraftFlares._escort_flare_ready(w_enemy), false, "team≠0 不护卫")
+	_check("敌方机", AircraftFlares.flare_ready(w_enemy), false, "team≠0 不护卫")
 	w_enemy.free()
 
 	var w_noflare := _make_wingman(Vector2(100, 0)); w_noflare.flares_remaining = 0
-	_check("无弹", AircraftFlares._escort_flare_ready(w_noflare), false, "flares_remaining=0")
+	_check("无弹", AircraftFlares.flare_ready(w_noflare), false, "flares_remaining=0")
 	w_noflare.free()
 
 	var w_cd := _make_wingman(Vector2(100, 0)); w_cd._flare_cooldown = 3.0
-	_check("CD 中", AircraftFlares._escort_flare_ready(w_cd), false, "_flare_cooldown>0")
+	_check("CD 中", AircraftFlares.flare_ready(w_cd), false, "_flare_cooldown>0")
 	w_cd.free()
 
 	w.free()

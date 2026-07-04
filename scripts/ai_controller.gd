@@ -115,6 +115,10 @@ func set_event_directive(directive: AIDirective) -> void:
 		return
 	_directive = directive
 	_directive_state.clear()
+	if directive != null and aircraft:
+		# 接管时清护驾/蜂群轨道限速残留（2026-07-03）：directive 分支在轨道代码之前
+		# return，期间没人清 cap → 整段 directive 飞行被钳在轨道速度（~280km/h）
+		aircraft.orbit_speed_cap = 0.0
 	if directive == null and aircraft:
 		# 释放时清掉事件期间留下的强制目标，让正常 AI 重新选目标
 		aircraft.clear_combat_target()
@@ -429,7 +433,6 @@ const TARGET_EVAL_INTERVAL_MAX := 10.0     ## 高专注目标评估间隔（秒�
 var _prev_formation_offset_local: Vector2 = Vector2.INF  ## 上一帧相对长机本地坐标系的阵型偏移
 var _formation_offset_committed: Vector2 = Vector2.INF  ## 已采纳的阵型偏移（长机本地系，未旋转）；AircraftFormation 每帧旋进长机当前机体系算实时槽位（强相关，消除"慢一拍"）
 var _formation_branch: int = -1  ## 上一帧编队分支(FAR/MID/CLOSE)，分支迟滞用——防 slot_d 在阈值附近逐帧翻转导致 target_heading 跳变（机头颤抖）
-var _form_bank_ema: float = 0.0  ## 编队 bank EMA 平滑值（滤高频抖，2026-06-07）
 var _form_th_ema: float = INF    ## 编队 target_heading EMA（角度感知，滤高频抖；源头治 heading+bank 颤抖）
 var _formation_react_timer: float = 0.0  ## 阵型变换反应延迟（每架飞机个体化）
 var _formation_blend: float = 1.0  ## 编队托管混合度（0=自主飞行, 1=完全托管）
@@ -444,6 +447,7 @@ var _cooldown_timer: float = 0.0         ## 交战冷却剩余
 var _scan_timer: float = 0.0            ## 扫描计时器
 var _evade_target_pos: Vector2 = Vector2.INF  ## 规避目标位置
 var _evade_committed_dir: Vector2 = Vector2.ZERO  ## 规避承诺的 break 方向（一次选定保持，防每帧重选垂直向导致 bank 来回摆）
+var _evade_reenter_cd: float = 0.0       ## leash 拽回后的规避再入冷却（防 EVADE↔SQUAD_FOLLOW 0.5s 振荡，2026-07-03）
 var _current_target: CombatUnit = null   ## 当前交战目标（飞机或地面单位）
 
 # ── 战术机动状态 ──
@@ -716,6 +720,8 @@ func _physics_process_impl(delta: float) -> void:
 
 	if _cooldown_timer > 0.0:
 		_cooldown_timer -= delta
+	if _evade_reenter_cd > 0.0:
+		_evade_reenter_cd -= delta
 
 	personality.update_stress(self, delta)
 	personality.update_drift(self, delta)
@@ -755,7 +761,8 @@ func _physics_process_impl(delta: float) -> void:
 	if aircraft.escort_cover_active and _state != AIState.EVADE_MISSILE \
 			and squad and is_instance_valid(squad.leader) and squad.leader != aircraft \
 			and not is_boss_attacker():
-		if MissileEvasion.check_incoming_missile(self):
+		# B1 分层门：flare 能兜底就不散开（护卫姿态本来就要求尽量不脱队）
+		if MissileEvasion.should_enter_evade(self):
 			MissileEvasion.enter_evade(self)
 			return
 		elif aircraft.commanded_target == null and _state != AIState.SQUAD_FOLLOW:
@@ -772,8 +779,9 @@ func _physics_process_impl(delta: float) -> void:
 	# 这架机带玩家显式攻击命令(aircraft.commanded_target)且目标存活 → 强制 ENGAGE 它，
 	# 绕过评分/编队路由，AI 不得改打别的（逐机持久，跨 1/2/3/4 切控）。
 	# 命令目标死/被清 → _enforce 返回 false，自然落回正常 AI（disengage 回编队）。
-	# 注：放在 manual_control / simple_ai / 规避 之后 —— 亲控由 controller+planner 管，
-	# 求生规避优先于命令，规避结束下一 tick 自动重接命令目标。
+	# 注：亲控由 controller+planner 管（manual_control 已提前 return）；求生规避优先于命令
+	# 但有界（B1 定稿策略）—— _enforce 内部对 EVADE_MISSILE 让位（不清命令），躲弹入口走
+	# should_enter_evade 分层门（flare 能兜底不脱离），威胁消失 exit_evade 下一 tick 重接命令目标。
 	if _enforce_commanded_target():
 		_process_engage(delta)
 		return
@@ -791,6 +799,15 @@ func _physics_process_impl(delta: float) -> void:
 ## 玩家命令铁律执行：若本机带存活的 commanded_target，强制/维持对它 ENGAGE，返回 true。
 ## 命令目标为空/阵亡 → 清除 commanded_target 并返回 false（回正常 AI 目标选择）。
 func _enforce_commanded_target() -> bool:
+	# ── B1（2026-07-02）：求生规避优先于命令，但有界 ──
+	# 躲弹中铁律让位（commanded_target 保留不清），落回 match 派发 process_evade。
+	# 有界性：process_evade 每 tick 用带滞回的威胁门重新确认真威胁，威胁消失立即
+	# exit_evade → _current_target(=命令目标) 无缝恢复 ENGAGE → 下一 tick 铁律重新接管。
+	# 且入口走 should_enter_evade 分层门：flare 能兜底就根本不进 EVADE、不脱离命令。
+	# 修复的旧 bug：铁律排在 match 之前无条件拉回 ENGAGE → ENGAGE↔EVADE 按 tick 抖动 +
+	# evasion_mode 卡 true（planner 持续 max+AB 武器静默直到玩家重新下令）。
+	if _state == AIState.EVADE_MISSILE:
+		return false
 	var cmd: CombatUnit = aircraft.commanded_target
 	if cmd == null:
 		return false
@@ -1540,10 +1557,11 @@ func _process_patrol(delta: float) -> void:
 	else:
 		aircraft.target_position = target_wp
 
-	# 巡逻中也只在真有来袭导弹时才规避（同 ENGAGE：check_incoming_missile 做门，
-	# 否则 evade_missiles=true 的巡逻机每 tick 空转 enter_evade ↔ exit_evade 抖动）
+	# 巡逻中也只在真有来袭导弹时才规避（同 ENGAGE：should_enter_evade 做门，
+	# 否则 evade_missiles=true 的巡逻机每 tick 空转 enter_evade ↔ exit_evade 抖动；
+	# B1 分层门：玩家方 flare 能兜底就不进运动学规避）
 	if evade_missiles and personality.missile_aware and not is_boss_attacker() \
-			and MissileEvasion.check_incoming_missile(self):
+			and MissileEvasion.should_enter_evade(self):
 		MissileEvasion.enter_evade(self)
 		return
 
@@ -1685,13 +1703,14 @@ func _process_engage(delta: float) -> void:
 
 	# ── 导弹规避（需要飞行员察觉 + 受 self_preservation 影响） ──
 	# BOSS 攻击手不做导弹规避——他们有热诱弹和隐形防御，任务是死追玩家
-	# ⚠ 必须先确认真有来袭导弹（check_incoming_missile）才 roll 规避：
+	# ⚠ 必须先过 should_enter_evade 分层门才 roll 规避：
 	#   evade_missiles 是静态配置位（多数机型常 true），不是"有导弹"信号。缺这道门时
 	#   randf 每个 ENGAGE tick 空转触发 enter_evade → process_evade 无弹立即 exit → 回 ENGAGE
 	#   → 再触发 …… 形成 enter/exit 抖动（实测 evade 进入 18→588）。旧代码靠 disengage 的 15s
 	#   冷却把飞机踢出 ENGAGE 才意外压住，但代价是"躲完丢目标重咬另一架 → 大坡反转"churn。
+	#   B1 分层门（2026-07-02）：玩家方 flare 能兜底 → 不进运动学规避，继续交战/执行命令。
 	if evade_missiles and personality.missile_aware and not is_boss_attacker() \
-			and MissileEvasion.check_incoming_missile(self):
+			and MissileEvasion.should_enter_evade(self):
 		# 低自保飞行员可能忽略来袭导弹继续攻击
 		var evade_chance := lerpf(0.3, 1.0, _effective_self_preservation())
 		if randf() < evade_chance or _state != AIState.ENGAGE:

@@ -304,6 +304,12 @@ static func release(ac: Aircraft, target_missile: Missile = null) -> void:
 			ac._evade_roll_remaining = Aircraft._EVADE_ROLL_DURATION
 		# §1.4 玩家技能钩子：成功回避导弹 → 给自己 OVERLOAD 4s
 		SkillHooks.on_evade_missile(ac)
+	else:
+		# 失败也记日志（2026-07-03 补观测盲区：旧版只记成功，"投了焰仍被命中"无法归因）
+		var msl_name_f: String = target_missile.params.display_name if target_missile.params else "MSL"
+		EventLogger.log_event("MISSILE", msl_name_f,
+			"flare FAILED to jam (target %s, jam_chance=%.0f%%, missile still tracking)" % [
+				ac._log_name(), jam_chance * 100.0])
 
 ## 护卫 flare（spec wingman-escort-evasion §3.2）：编队待命的僚机替长机投焰，
 ## 干扰【追长机】且【即将命中长机】的导弹。仅玩家方僚机在长机护卫广播期间由
@@ -315,7 +321,7 @@ static func release(ac: Aircraft, target_missile: Missile = null) -> void:
 static func try_cover_flare(ac: Aircraft, leader: Aircraft) -> bool:
 	if leader == null or not is_instance_valid(leader) or leader.is_destroyed:
 		return false
-	if not _escort_flare_ready(ac):
+	if not flare_ready(ac):
 		return false
 	# 距长机门
 	var d_leader_m: float = ac.global_position.distance_to(leader.global_position) / CombatUnit.PIXELS_PER_METER
@@ -348,8 +354,10 @@ static func escort_jam_chance(d_leader_m: float) -> float:
 	var proximity: float = clampf(1.0 - d_leader_m / ESCORT_FLARE_LEADER_RANGE_M, 0.0, 1.0)
 	return ESCORT_BASE_JAM * proximity
 
-## flare 就绪门（护卫与自卫共用同套：玩家方 + 有 flare + 弹量/CD/隐身/穿透/机动）
-static func _escort_flare_ready(ac: Aircraft) -> bool:
+## flare 就绪门（护卫 flare / 自卫 flare / 规避入口门三方共用同套：
+## 玩家方 + 有 flare + 弹量/CD/隐身/穿透/机动）
+## B1 分层规避（2026-07-02）也用它判定"flare 还能兜底 → 不进运动学规避"。
+static func flare_ready(ac: Aircraft) -> bool:
 	if ac == null or not is_instance_valid(ac) or ac.is_destroyed:
 		return false
 	if ac.team != 0 or not ac.params or not ac.params.flare or not ac.missile_manager:
@@ -384,7 +392,7 @@ static func _is_best_escort_for(ac: Aircraft, leader: Aircraft, m: Missile) -> b
 	for other in ai.squad.members:
 		if other == ac or other == leader:
 			continue
-		if not _escort_flare_ready(other):
+		if not flare_ready(other):
 			continue
 		if other.global_position.distance_to(leader.global_position) > range_px:
 			continue
@@ -431,6 +439,11 @@ static func release_cover(ac: Aircraft, leader: Aircraft, target_missile: Missil
 		var msl_name: String = target_missile.params.display_name if target_missile.params else "MSL"
 		EventLogger.log_event("MISSILE", msl_name,
 			"escort flare jammed (was chasing %s)" % leader.callsign)
+	else:
+		var msl_name_f: String = target_missile.params.display_name if target_missile.params else "MSL"
+		EventLogger.log_event("MISSILE", msl_name_f,
+			"escort flare FAILED (still chasing %s, jam_chance=%.0f%%)" % [
+				leader.callsign, jam_chance * 100.0])
 		# 成功护卫触发一次滚转动画（视觉反馈）
 		if ac._evade_roll_remaining <= 0.0 and ac._evade_roll_cooldown <= 0.0:
 			ac._evade_roll_remaining = Aircraft._EVADE_ROLL_DURATION

@@ -2277,3 +2277,30 @@ GUARD_REAR 模式、场上只有地面目标威胁玩家时，守护者不在长
 - 回归：weapon 7/0、flare 9/0、rejoin ✓、turn_physics 48/0。
 - [ ] 生存 playtest：换目标手感 + 守后拦截 + 调 SWITCH_MARGIN/权重/OVERKILL_MULT。
 - [ ] 验证"选对了能否打出"（crank≈发射门 第二问题，待决定是否另起 firing-window spec）。
+
+---
+
+## 2026-07-03 · B1 分层规避：flare 优先不脱队 + 命令铁律躲弹让位（[ref:SEAM-014]）
+
+### 背景（用户拍板，重构计划 Phase 0）
+用户："躲导弹多数时候只要扔下 flare 就行了，没有 flare 才需要加速去躲；躲弹违令可以，
+但不能因被锁/打不到的导弹无限脱离命令。" 旧行为两个病：①有 flare 也照样散开脱队；
+②带命令飞机躲弹被铁律每 tick 拉回 ENGAGE → ENGAGE↔EVADE 抖 + evasion_mode 卡 true。
+
+### 改动
+- **新增 `MissileEvasion.should_enter_evade`**：4 处 enter_evade 入口（engage/patrol/
+  squad-follow/escort 广播）统一走三层门——真威胁(已有 closing/TTI 门) → flare 就绪则
+  留阵型交给智能 flare 末段 → flare 弹尽/CD/弃管才运动学规避。敌方不受 flare 门。
+- **`_enforce_commanded_target` 对 EVADE 让位**（不清 commanded_target），威胁消失
+  process_evade 滞回门退出 → `_current_target` 无缝恢复命令目标 → 铁律重接。
+- evasion_mode 4 处裸写收口进 `set_evasion_mode`（保 evasion_modifiers 边界缩放对称）。
+
+### 影响 / 风险
+- 玩家方僚机在有 flare 时被导弹咬**不再散开**（更守阵型/命令）；flare 失手进 CD 的下一
+  tick 才机动。极限情况（多弹连射 + flare 失手）留给机动兜底，与旧行为一致。
+- 敌机行为完全不变（should_enter_evade 对 team≠0 等价旧 check_incoming_missile）。
+
+### 验证（新 bench 23/23 + 回归全绿）
+- `--bench=cmd_evade`：分层门 8 / 铁律让位 4 / 闭环+30tick 零弹回 11。
+- `--bench=all` 回归门 8 项全绿（escort 24/24、bfm_intent 89/89 首次接入）。
+- [ ] 生存 playtest：僚机被 SAM 齐射时的阵型保持手感 + 命令目标追击连续性。

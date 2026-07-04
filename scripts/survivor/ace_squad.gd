@@ -412,9 +412,10 @@ func _pursuit_update(delta: float) -> void:
 			ai._engage_timer = 0.0   ## 仅这一个，避免下一帧立即 disengage
 			if herbst_just_exited:
 				ai._tactic_timer = 0.0   ## Herbst 退出后让 BFM 重新挑战术（避免一路 EXTEND）
-		# 远距加力
+		# 远距加力（燃油守卫 2026-07-03：裸写发生在该机 update_fuel 之后，无检查会
+		# 零燃油白嫖 AB 推力——当前被 spawner 的 infinite_fuel 掩盖，防未来关无限油翻车）
 		var dist := m.global_position.distance_to(pp)
-		if dist > force_pursuit_distance:
+		if dist > force_pursuit_distance and m.fuel > 0.0:
 			m.is_afterburner = true
 
 # ── CLOAK ──

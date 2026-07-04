@@ -57,6 +57,7 @@ var is_prediction: bool = false
 # max_speed_at_altitude 这些跑 dictionary 查询的 helper（cloud/lock/bloodlust 等
 # frozen 字段在预测期间不变）。NaN = 未缓存，step_X 走 lazy compute（实物理 tick 路径）
 var cached_max_g: float = NAN
+var cached_max_g_instant: float = NAN  ## 结构 G（基础 max_bank 口径，2026-07-03 修预测线偏宽）
 var cached_safe_margin: float = NAN
 var cached_max_speed_alt_ms: float = NAN
 ## predict 用 inline planner 时需要的 frozen 输入：corner / max_speed (km/h)
@@ -93,6 +94,7 @@ func populate_from(a: Aircraft, prediction: bool = false) -> void:
 	# 缓存字段必须每次 populate 时清掉（NaN）—— 实物理 tick 路径走 lazy compute；
 	# predict 路径会在 from_aircraft 之后再单独填充缓存
 	cached_max_g = NAN
+	cached_max_g_instant = NAN
 	cached_safe_margin = NAN
 	cached_max_speed_alt_ms = NAN
 	cached_corner_speed_kmh = NAN

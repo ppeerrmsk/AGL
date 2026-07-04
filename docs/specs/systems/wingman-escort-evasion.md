@@ -70,7 +70,7 @@ reconstruction_complete: true
 
 | 条件（按序判定） | 行为 |
 |---|---|
-| `escort_cover_active` 且 **僚机自己被真威胁导弹追**（`check_incoming_missile` = 沿用 `_is_evasion_threat` 门返回真） | `enter_evade`（临时自保：照旧垂直规避 + 真威胁才 max+AB；`enter_evade` 内部才把 `evasion_mode` 设 true）。**需求 1。** |
+| `escort_cover_active` 且 **僚机自己被真威胁导弹追、且 flare 兜不住**（`should_enter_evade` 分层门：真威胁（`_is_evasion_threat`）**且** flare 不可用/该弹已被 flare 弃管/无免疫窗 —— flare 就绪时留在阵型由智能 flare 末段处理，**不进 EVADE**） | `enter_evade`（临时自保：照旧垂直规避 + 真威胁才 max+AB；`enter_evade` 内部才把 `evasion_mode` 设 true）。**需求 1 + B1 分层规避（2026-07-03）。** |
 | `escort_cover_active` 且 自己没被真威胁 | **不进 EVADE**，落到正常 `SQUAD_FOLLOW` 路由（回编队槽位待命跟随）。在 squad-follow 内跑护卫焰扫描（见 3.2）。**需求 2。** |
 | `escort_cover_active = false`（长机没在规避） | 完全走原有 AI 路由，行为不变。 |
 
@@ -91,7 +91,7 @@ reconstruction_complete: true
   跳过 m 已在 ac._escort_flare_tried 里的（单弹单次）。
 
 全队裁决（一次一架）：仅当 ac 是这枚 m 的"最佳护卫者"才出手 ——
-  遍历 squad.members 中同队就绪僚机（_escort_flare_ready + 距长机≤800m + 这枚对其合格），
+  遍历 squad.members 中同队就绪僚机（flare_ready（就绪门） + 距长机≤800m + 这枚对其合格），
   若存在比 ac 更近长机的候选 → ac 让位（return）。等距用 instance_id 决断。
   → 任一时刻同一枚导弹只一架投；最近那架失败(进CD+标记已试)后次近接手。
 
@@ -171,3 +171,4 @@ reconstruction_complete: true
 |---|---|---|
 | 2026-06-15 | 1 | 初稿（draft）：定义 escort_cover_active 解耦 + 护卫 flare 机制 + 三分支决策。待用户定稿。 |
 | 2026-06-16 | 2 | 用户定稿（护卫概率 0.70/范围 800m 采纳）→ 阶段 1+2 代码落地：解耦广播标志、三分支守卫（含召回编队）、废除 scatter-on-broadcast、`try_cover_flare`/`release_cover`。flare bench 9/9 通过、编译干净。剩 playtest（§5）转 done。 |
+| 2026-07-03 | 3 | B1 分层规避（用户定稿，见 planning/physics-ai-control-refactor.md §3）：全部 `enter_evade` 入口（含 §3.1 广播分支、ENGAGE/PATROL/SQUAD_FOLLOW）统一走 `should_enter_evade` 三层门——真威胁 + flare 可用 → 只扔 flare 不脱队；flare 不可用才运动学规避；躲弹期间命令铁律让位但有界（威胁消失立即恢复命令目标）。就绪门 `_escort_flare_ready` 改名 `flare_ready` 三方共用。验收：`--bench=cmd_evade` 23/23 + `--bench=escort` 24/24。 |

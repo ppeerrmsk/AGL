@@ -220,7 +220,8 @@
 | 尝试进入交战 | `ai_controller.gd:1387` _try_engage |
 | 目标重评估 | `ai_controller.gd:1459` _reevaluate_target |
 | 脱离交战（重置宽限计时器） | `ai_controller.gd:1507` _disengage |
-| 来袭导弹检查 | `ai_controller.gd:1536` _check_incoming_missile |
+| 来袭导弹检查 | `ai/missile_evasion.gd` check_incoming_missile / find_nearest_incoming_missile |
+| 规避入口分层门（flare 优先不脱队） | `ai/missile_evasion.gd` should_enter_evade（B1，2026-07-03） |
 | 编队宽限常量 | `ai_controller.gd:72-75` LEADER_TARGET_LOST_GRACE / SQUAD_RANGE_GRACE |
 
 ## 编队系统

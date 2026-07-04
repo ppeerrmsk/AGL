@@ -49,12 +49,13 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 		return
 
 	# ── 导弹规避优先（BOSS 攻击手跳过） ──
-	# ⚠ 必须先确认真有来袭导弹（check_incoming_missile）：evade_missiles 是静态配置位（多数机型常 true），
+	# ⚠ 必须先过 should_enter_evade 分层门：evade_missiles 是静态配置位（多数机型常 true），
 	#   不是"有导弹"信号。缺这道门 → 编队中每个 AI tick 空转 enter_evade → process_evade 无弹立即 exit
 	#   回 SQUAD_FOLLOW → 再触发 …… EVADE↔SQUAD_FOLLOW 每帧弹跳（log 实证僚机狂刷 auto-enter SQUAD_FOLLOW、
 	#   飘到边上变慢不参战）。与 _process_engage / _process_patrol 两处同源修复保持一致。
+	#   B1 分层门（2026-07-02）：flare 能兜底 → 留在编队让智能 flare 末段处理，不散开。
 	if ai.evade_missiles and ai.personality.missile_aware and not ai.is_boss_attacker() \
-			and MissileEvasion.check_incoming_missile(ai):
+			and MissileEvasion.should_enter_evade(ai):
 		MissileEvasion.enter_evade(ai)
 		return
 

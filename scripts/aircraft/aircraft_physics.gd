@@ -217,13 +217,17 @@ static func update_heading(ac: Aircraft, delta: float) -> void:
 
 
 static func update_speed(ac: Aircraft, delta: float) -> void:
-	var _m := ac.get_maneuver()
-	if _m and _m.is_active:
+	# B2 统一机动守卫：Cobra 全程 / Herbst 的 DECEL+TURN 让位；
+	# Herbst ACCEL 阶段刻意交还本函数（开 AB 让物理自然拉回巡航）
+	if maneuver_overrides_speed(ac):
 		return
 
 	var target_ms: float
 	if ac.hard_brake:
-		target_ms = 0.0
+		# 急刹（2026-07-03 用户定稿）：减到失速软地板为止——刹车 = 减到最小可控速度，
+		# 不能刹进失速自杀。配合 survivor_mode 急刹只作用亲控长机（僚机靠编队逻辑自行减速）。
+		var stall_base_hb: float = ac.params.stall_speed_base if ac.params else 220.0
+		target_ms = stall_base_hb * pow(maxf(ac.g_load, 1.0), 0.4) / 3.6 * 1.05
 	else:
 		var t_kmh: float = ac.target_speed_kmh
 		if ac.evasion_mode:
@@ -262,6 +266,13 @@ static func update_speed(ac: Aircraft, delta: float) -> void:
 	if ac.is_afterburner and not ac.hard_brake:
 		var ab_mult: float = ac.params.afterburner_thrust_mult if ac.params else 1.5
 		accel_rate *= ab_mult
+	if ac.hard_brake:
+		# 急刹减速效率随速度衰减（阻力 ∝ v）：巡航段全额 deceleration，逼近失速地板时
+		# 衰减到 35%。deceleration 按机型差异化（低级机天然刹得肉），
+		# "轻按一秒速度就到底"不再发生。验收：--bench=hard_brake。
+		const HARD_BRAKE_DRAG_FLOOR := 0.35  # ⚠ 与 step_speed 镜像同步（SEAM-017）
+		var cruise_ms_hb: float = (ac.params.cruise_speed if ac.params else 900.0) / 3.6
+		decel_rate *= clampf(ac.speed / maxf(cruise_ms_hb, 1.0), HARD_BRAKE_DRAG_FLOOR, 1.0)
 
 	var speed_diff := target_ms - ac.speed
 	if speed_diff >= 0:
@@ -359,13 +370,36 @@ static func update_stall(ac: Aircraft) -> void:
 
 
 static func update_g_load(ac: Aircraft) -> void:
-	var _m := ac.get_maneuver()
-	if _m and _m.is_active:
-		return  # 战术机动期间 G 力由模块直接设置
+	if maneuver_overrides_g(ac):
+		return  # 战术机动（Cobra/Herbst）期间 G 力由模块直接设置
 	if abs(ac.bank_angle) < 0.001:
 		ac.g_load = 1.0
 	else:
 		ac.g_load = absf(1.0 / cos(ac.bank_angle))
+
+
+# ── B2 机动接管守卫（2026-07-03，重构计划 §3）──
+# Cobra/Herbst 挂在 Aircraft 子节点、每帧在物理之后跑并直写 speed/g_load。
+# 旧守卫只查 Cobra，Herbst 被迫"同帧双写自卫"（先被本模块写一次、再自己钳回），
+# 正确性依赖 Godot 父先子后树序——守卫矩阵不对称的实证。统一成下面两个谓词，
+# 以后新增机动模块只改这里，不再往各 update_* 里散点补 if。
+
+## 机动模块是否接管速度（update_speed 让位）
+static func maneuver_overrides_speed(ac: Aircraft) -> bool:
+	var m := ac.get_maneuver()
+	if m and m.is_active:
+		return true
+	var h := ac.get_herbst()
+	# Herbst ACCEL 阶段不接管速度：开加力交还 update_speed 自然拉回巡航
+	return h != null and h.is_active and h.phase != HerbstManeuver.Phase.ACCEL
+
+## 机动模块是否接管 G 力（update_g_load 让位；Herbst 全程自设 G）
+static func maneuver_overrides_g(ac: Aircraft) -> bool:
+	var m := ac.get_maneuver()
+	if m and m.is_active:
+		return true
+	var h := ac.get_herbst()
+	return h != null and h.is_active
 
 
 static func apply_movement(ac: Aircraft, delta: float) -> void:
@@ -656,6 +690,15 @@ static func _eff_max_g_st(st: FlightState) -> float:
 	if not is_nan(st.cached_max_g):
 		return st.cached_max_g
 	return effective_max_g(st.ac)
+
+
+## state-aware 结构 G 版本：基础 max_bank 必须与实飞 max_bank_angle 同口径（结构 G）。
+## 2026-07-03 修：预测线此前误用持续 G（9G vs 实飞 12G）→ 预测弧线系统性偏宽 ~30%，
+## 实机总"转得比线快"。持续 G（_eff_max_g_st）仍用于 sustained cap 的 aggression lerp。
+static func _eff_max_g_instant_st(st: FlightState) -> float:
+	if not is_nan(st.cached_max_g_instant):
+		return st.cached_max_g_instant
+	return effective_max_g_instant(st.ac)
 
 
 static func _safe_margin_st(st: FlightState) -> float:
@@ -1180,11 +1223,12 @@ static func step_bank(st: FlightState, delta: float) -> void:
 			st.los_rate_filt = 0.0
 		ff_los = st.los_rate_filt
 
-	# max_bank（state-aware：prediction 走 cached_max_g/safe_margin，real tick 走 lazy）
+	# max_bank（state-aware：prediction 走 cached_*，real tick 走 lazy）
+	# 基础上限用结构 G（与实飞 max_bank_angle 同口径）；持续 G 只给下方 sustained cap 用
 	var stall_base_ms: float = stall_base_kmh / 3.6
 	var eff_max_g := _eff_max_g_st(st)
 	var safe_margin := _safe_margin_st(st)
-	var max_bank := max_bank_angle_at_speed_pure(st.speed, stall_base_ms, eff_max_g, safe_margin)
+	var max_bank := max_bank_angle_at_speed_pure(st.speed, stall_base_ms, _eff_max_g_instant_st(st), safe_margin)
 	var in_combat := st.ac.combat_target != null
 
 	if in_combat and abs(heading_diff) > 0.5 and st.ac.tactical_aggression < 0.999:
@@ -1298,13 +1342,16 @@ static func step_altitude(st: FlightState, delta: float) -> void:
 ## speed 演化：target → 加/减速 → g_drag → PE/KE → orbit cap
 static func step_speed(st: FlightState, delta: float) -> void:
 	var ac := st.ac
-	var _m := ac.get_maneuver()
-	if _m and _m.is_active:
+	# 与 update_speed 同口径的机动守卫（2026-07-03 修镜像漂移：旧版只查 Cobra 漏 Herbst，
+	# 玩家危机赫尔贝特期间实机速度被模块钳在近失速、预测线却自由加减速 → 撕裂）
+	if maneuver_overrides_speed(ac):
 		return
 
 	var target_ms: float
 	if ac.hard_brake:
-		target_ms = 0.0
+		# 急刹失速软地板（与实物理 update_speed 镜像同步，2026-07-03）
+		var stall_base_hb: float = ac.params.stall_speed_base if ac.params else 220.0
+		target_ms = stall_base_hb * pow(maxf(st.g_load, 1.0), 0.4) / 3.6 * 1.05
 	else:
 		# ⚠ 读 st.target_speed_kmh 而非 ac —— 让 prediction 的 inline planner 能在循环里
 		# 演化 target_speed（详见 predict_player_path 注释）。实物理 tick 里 st 是 ac 的快照，
@@ -1347,6 +1394,11 @@ static func step_speed(st: FlightState, delta: float) -> void:
 	if st.is_afterburner and not ac.hard_brake:
 		var ab_mult: float = ac.params.afterburner_thrust_mult if ac.params else 1.5
 		accel_rate *= ab_mult
+	if ac.hard_brake:
+		# 急刹阻力随速度衰减（与实物理 update_speed 镜像同步，SEAM-017）
+		const HARD_BRAKE_DRAG_FLOOR := 0.35
+		var cruise_ms_hb: float = (ac.params.cruise_speed if ac.params else 900.0) / 3.6
+		decel_rate *= clampf(st.speed / maxf(cruise_ms_hb, 1.0), HARD_BRAKE_DRAG_FLOOR, 1.0)
 
 	var speed_diff := target_ms - st.speed
 	if speed_diff >= 0:
@@ -1439,6 +1491,7 @@ static func predict_player_path(ac: Aircraft, max_steps: int = 180) -> Dictionar
 	# 这些字段在 prediction 期间不变（cloud_state / is_locked / status_bloodlust /
 	# upgrade_stacks / altitude / cloud / in_building 都视作 frozen）
 	st.cached_max_g = effective_max_g(ac)
+	st.cached_max_g_instant = effective_max_g_instant(ac)
 	st.cached_safe_margin = _dynamic_safe_margin(ac)
 	st.cached_max_speed_alt_ms = max_speed_at_altitude(ac) / 3.6
 	# inline planner 用：corner / max speed (km/h) 在 prediction 期间不变
@@ -1470,10 +1523,13 @@ static func predict_player_path(ac: Aircraft, max_steps: int = 180) -> Dictionar
 		# step_altitude 让 vertical_speed 在 sim 中收敛 → 飞机抵达目标高度后
 		# PE/KE 项归零 → 预测线不会因为冻结 vertical_speed 被持续拉短
 		step_altitude(st, PHYSICS_DT)
-		if abs(st.bank_angle) < 0.001:
-			st.g_load = 1.0
-		else:
-			st.g_load = absf(1.0 / cos(st.bank_angle))
+		# 与 update_g_load 同口径的机动守卫（Herbst/Cobra 期间 G 由模块直写，
+		# 预测保持快照值，不按 bank 反推覆盖）
+		if not maneuver_overrides_g(ac):
+			if abs(st.bank_angle) < 0.001:
+				st.g_load = 1.0
+			else:
+				st.g_load = absf(1.0 / cos(st.bank_angle))
 
 		var velocity := Vector2(sin(st.heading), -cos(st.heading)) * st.speed * CombatUnit.PIXELS_PER_METER
 		st.position += velocity * PHYSICS_DT

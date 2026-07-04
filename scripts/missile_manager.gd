@@ -278,6 +278,15 @@ func _physics_process(delta: float) -> void:
 			missile.queue_free()
 			continue
 
+		# ── 热诱弹干扰弹不参与命中检测（2026-07-03 修）──
+		# 语义 = "jammed 视为不会命中"（与 team_inbound_damage / CIWS 拦截过滤同一契约：
+		# CIWS 不拦 jammed 弹、队友补射不把 jammed 弹算进伤害，都建立在它无害的前提上）。
+		# 旧 bug：jammed 只关制导（直线飞行），近炸引信却照常起爆——尾追被干扰的导弹正对
+		# 目标航迹直飞，目标因"威胁列表已滤掉 jammed"不再规避 → 直线弹撞直线机。
+		# 日志实证：184619 [120.3] Watch flare jam 成功(100%) → [121.8] 同弹命中 Watch。
+		if missile.is_flare_jammed:
+			continue
+
 		# 引信武装时间检查
 		if missile.age < missile.params.guidance_delay:
 			continue

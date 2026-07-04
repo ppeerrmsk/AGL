@@ -175,3 +175,4 @@ tgt = 半径内最近有效敌方(CombatUnit.all_units, radius)
 | 2026-06-14 | 3 | 修 bug：①自动交战目标阵亡后清 target_position 回待命（不再飞向死敌 lead 点）②战区导航与 AVAILABLE 状态机解耦（CLEARED 战区也能重新前往） |
 | 2026-06-14 | 4 | 修 bug：拴绳误清玩家手动命令的远目标 → 自动交战改抓最近杂兵（来回切 combat target）。新增 `_player_commanded_target` 粘性命令：手动指定目标凌驾自动交战、不被拴绳、丢了重新指回；拴绳改为只对 `_auto_engage_target` 生效 |
 | 2026-06-14 | 5 | 重构 + 铁律：①RTS 逻辑抽出独立模块 `SquadCommandController` + 参数 Resource `RtsCommandParams`（去硬编码），survivor_mode 瘦身为接线；②玩家命令升级为**逐机持久铁律** `Aircraft.commanded_target`，跨 1/2/3/4 切控持久，AIController `_enforce_commanded_target` 保证非操控机也死咬命令、跳过 reevaluate；③自由僚机有限度切目标细则归 [[target-engageability-selection]]，本 spec 不做 |
+| 2026-07-03 | 6 | 右键长按急刹重定义（用户定稿）：仍作用全体 selected（整队一起减速），但物理端加**失速软地板**——减到 stall×1.05 最小可控速度为止、刹不进失速，任何高度档都**无法通过减速自杀坠机**；减速率 = 各机 params.deceleration × 随速度衰减的阻力因子（高速刹得动、低速效率变差、低级机天然刹得肉，"轻按一秒到底"消失）。预测线 step_speed 镜像同步。验收 `--bench=hard_brake` 5 断言（1 秒不到底/软地板/收敛/阻力衰减/机型差异化） |

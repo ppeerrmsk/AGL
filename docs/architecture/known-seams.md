@@ -31,6 +31,12 @@
 散点 if-else 乘 buff，禁止在 Situation 里直读 `ac.params.*`。详见 [CLAUDE.md](../../CLAUDE.md)
 "加机动性 buff 的规范"段。
 
+**2026-07-03 审计备注**：planner 主干（Situation/tactical/）已零旁路 ✅；但 **legacy
+路径系统性直读 params.***（bfm_tactics set_engage_speed 全家 / ai_controller
+`_process_simple` orbit 等 10+ 处）。当前未爆雷仅因敌机现有 buff（指挥光环）直改 params
+字段。给敌机加任何"状态型"机动 buff（走 effective_* if 块）前，必须先修这条直读带，
+否则 SEAM-001 原病灶在敌机侧完整复发。
+
 ---
 
 ## SEAM-002 · CombatUnit.all_units 与 MountTarget 一致性
@@ -353,6 +359,92 @@ nose_off 过零时 aim 连续穿过 LOS，**没有"侧"可翻** → 从根上消
 **约束（再动这块时）**：改 `_missile_engage_pos` 不要触碰 SEAM-012 的 `update_bank`/`step_bank`；
 继续用 `--bench=weapon` 的测试 D 守"无翻号"，别靠肉眼。`merge_pass` 的"目标 bank>60° 替代"覆写仍是
 潜在二级诱因（目标摇摆传导成本机换 intent），如再现摇摆可给该阈值加滞回带。
+
+---
+
+## SEAM-014 · 命令铁律与 EVADE 争同一根 `_state` 轴，仲裁顺序即行为
+
+**症状**：带玩家命令（commanded_target）的飞机躲弹时 ENGAGE↔EVADE 按 tick 抖动；
+`evasion_mode` 卡 true → planner 持续输出 EVADE intent（max+AB、武器静默）直到玩家重新下令。
+
+**根因**：`_enforce_commanded_target`（铁律）排在 `match _state` **之前**且无条件把状态拉回
+ENGAGE —— 注释宣称"求生规避优先于命令"，代码顺序与之相反。规避（正交模态）与命令（目标
+所有权）都挤在 `_state` 一根轴上，谁先执行谁赢。是重构计划 R2（正交模态混轴）的典型实例。
+
+**踩到次数**：1（2026-07-02 架构体检定位；此前长期存在未被诊断）
+
+**解法**（已实施 2026-07-03，B1）：
+- `_enforce_commanded_target` 顶部对 `EVADE_MISSILE` 让位（返回 false，**不清** commanded_target）；
+- 有界性：全部 `enter_evade` 入口统一走 `MissileEvasion.should_enter_evade` 分层门
+  （真威胁 + flare 不可用才进；被锁/打不到的导弹不算威胁），EVADE 维持由 process_evade
+  每 tick 带滞回重新确认，威胁消失立即 exit → `_current_target`(=命令目标) 无缝恢复。
+- 验收：`--bench=cmd_evade`（23 断言：分层门 8 + 仲裁 4 + 闭环无抖动 11）。
+
+**约束**：以后任何"正交模态 vs 命令"的优先级问题（新增机动/剧本/状态），先看重构计划
+Phase 2 的 modifier 栈方案；在那之前，修改 `_enforce_commanded_target` 入口顺序必须
+跑 `--bench=cmd_evade` 守护。
+
+---
+
+## SEAM-015 · 机动模块（Cobra/Herbst）守卫矩阵不对称，靠"同帧双写自卫"
+
+**症状**：Herbst J-Turn 期间 `update_speed`/`update_g_load` 照常跑（守卫只查 Cobra），
+Herbst 被迫每帧"先被物理写一次、再自己钳回"的同帧双写自卫（herbst_maneuver.gd 旧注释
+自认），正确性依赖 Godot 父先子后树序——改 process_priority / reparent 即碎。
+
+**根因**：每加一个机动模块要在 N 个 `update_*` 里散点补 if 守卫，漏一处就是同帧双写。
+重构计划 R1（守卫矩阵不完备）的实证。
+
+**踩到次数**：1（2026-07-02 体检发现；Herbst 上线以来一直靠双写硬顶）
+
+**解法**（已实施 2026-07-03，B2）：守卫收口成 `AircraftPhysics.maneuver_overrides_speed(ac)` /
+`maneuver_overrides_g(ac)` 两个谓词。注意 **Herbst ACCEL 阶段刻意不接管速度**（开 AB 交还
+update_speed 自然拉回巡航）——谓词按阶段区分，不是一刀切。
+
+**约束**：新增任何机动模块（新 EvasionModule 子类等），接管判定**只改这两个谓词**，
+禁止再往 update_* 里散点加 if。Phase 1 意图仲裁器落地后此层整体退役。
+
+---
+
+## SEAM-016 · lod_level 七写者每帧拔河，收敛依赖引擎树序（未修，Phase 4 排期）
+
+**症状**：`lod_level` 有 ~12 处写入 / 7 个写者：survivor_mode 每帧强制（敌机屏内=0/离屏=2、
+友方一律=0）与 AI 侧按事件写（set_formation_target=1 / exit_evade=1 / disengage 等）
+互相覆盖，"最后写者赢"。历史已产生需在 aircraft.gd LOD0 编队分支打补丁的 bug；
+生存模式里 LOD1 非编队分支实为死代码；`_update_friendly_squad_lod` docstring 与实现
+曾自相矛盾（2026-07-03 已修注释，B5）。
+
+**根因**：LOD 无单一 owner。survivor_mode（相机视角）与 AI（行为语义）都认为自己有权决定。
+
+**踩到次数**：1 次显性 bug + 多次注释级困惑
+
+**解法状态**：**未修**。归属方案（mode 唯一决策者 vs Aircraft 自决）在重构计划
+Phase 4 定夺，见 [docs/planning/physics-ai-control-refactor.md](../planning/physics-ai-control-refactor.md) §5。
+
+**约束（过渡期）**：不要再新增 lod_level 写入者；需要改 LOD 语义先读
+`_update_friendly_squad_lod` / `_update_offscreen_lod` 的每帧覆盖行为，明白你的写会被
+下一帧盖掉。
+
+---
+
+## SEAM-017 · update_* / step_* 预测线镜像契约仅存在于注释，已实证漂移
+
+**症状**：玩家预测弧线与实机航迹系统性不符。2026-07-03 物理审计实证 2 处漂移：
+①基础 max_bank 的 G 口径撕裂——实飞用结构 G（`effective_max_g_instant`，默认 12G），
+预测线用持续 G（9G）→ 预测弧恒偏宽 ~30%，实机总"转得比线快"（`max_bank_angle` 改用
+instant G 时忘改预测侧）；②`step_speed` 只守卫 Cobra 不守卫 Herbst——B2（2026-07-03 上午）
+的新守卫又只改了单侧，玩家危机赫尔贝特期间实机速度被钳近失速、预测线自由加减速。
+
+**根因**：aircraft_physics.gd 顶部"两份实现必须人肉同步"的契约没有任何测试/断言强制
+（与导弹"jammed 视为不会命中"契约失效同构）。每次改 update_* 都是一次漂移机会。
+
+**踩到次数**：2（本次审计一次抓到两处；SEAM-012 约束段早有预警）
+
+**解法**（2026-07-03 两处已修：`_eff_max_g_instant_st` + `cached_max_g_instant` /
+`step_speed` 改用 `maneuver_overrides_speed` + 预测 g_load 加 `maneuver_overrides_g`）。
+**根治**在重构计划 Phase 3：逐对提取共享纯函数（`compute_target_bank` 已是样板），
+两侧变薄壳后契约自动成立。过渡期约束：**改任何 update_* 前 grep 对应 step_* 并同步**，
+改完跑 `--bench=all`。
 
 ---
 

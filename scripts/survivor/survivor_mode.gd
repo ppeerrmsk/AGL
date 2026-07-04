@@ -1381,7 +1381,11 @@ func _on_right_click() -> void:
 	if _squad_cmd:
 		_squad_cmd.cancel()
 
-## 右键长按急刹：油门归零并禁用加力，aircraft_physics.update_speed 会跳过失速安全余量
+## 右键长按急刹（2026-07-03 用户定稿）：作用于全体 selected（整队一起减速），
+## 但物理端有失速软地板（update_speed 急刹分支：减到 stall×1.05 最小可控速度为止，
+## 刹不进失速 → **无法通过减速自杀坠机**，任何高度档都安全）；
+## 减速率 = 各机自己的 params.deceleration × 随速度衰减的阻力因子
+## （高速段刹得动、低速段效率自然变差，低级机天然刹得肉）。验收：--bench=hard_brake。
 ## 持续到松开右键；期间保持航向（target_position 已被 _on_right_click 清成 INF）
 func _set_hard_brake(active: bool) -> void:
 	for ac in selected_aircraft:
@@ -2083,6 +2087,9 @@ func _switch_player_to(new_ac: Aircraft) -> void:
 		old_ac.selected = false
 		# 问题3：旧机降级时取消移动指令（target_position 清空），仅保留战斗（combat_target 不动）
 		old_ac.target_position = Vector2.INF
+		# 按住右键急刹时切控：旧机的刹车旗必须清（它随后离开 selected，release 事件
+		# 不再覆盖它），否则 AI 接管后 hard_brake 残留 → 永久钳在失速地板速度
+		old_ac.hard_brake = false
 		var old_ai := _get_ai(old_ac)
 		if old_ai:
 			old_ai.manual_control = false
