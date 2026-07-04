@@ -253,7 +253,8 @@ editor_cells             → 由多边形栅格化反推（格心 point-in-polyg
 - [x] `MapDocument`：schema 读写 + 围栏 + 撤销栈 + layer_dirty（2026-07-04，冒烟 7 组过）
 - [x] `ContourBaker`：边界追踪 + 抽稀 + Chaikin（对拍 MapGeography 逐点相等；2026-07-04）
 - [x] **官方图转换器**（§3.4）：直通映射 + 陆地/城区并集消重叠 + 栅格化反推 + 陆判 22500 格心逐点对拍（2026-07-04，冒烟 5 组过）
-- [ ] `UgcLoader.load_map()` 注入（多边形/建筑/云/战区 + style 调色板数据驱动化）+ 官方图回归（零差异）
+- [x] `UgcLoader` 注入——地理（inject_ugc + ugc_mode 偶奇陆判）/ 建筑（复用分帧预热）/ 云（§3.2 sample_density 唯一注入点 + mask 双线性）；官方回归=无头 5 组（注入等价/建筑与官方管线零差异/clear 还原）（2026-07-04）
+- [ ] `UgcLoader` 余项：战区/出生点注入（待 ZoneData 读取口数据化）+ style 调色板数据驱动化（渲染层读色，配合阶段 4 面板）+ 官方图 F5 手测回归
 
 ### 阶段 2 — 画布与地形笔刷（最先见效）
 - [ ] 编辑器场景骨架 + 三区布局 + CameraController 复用
@@ -280,7 +281,8 @@ editor_cells             → 由多边形栅格化反推（格心 point-in-polyg
 | 烘焙流水线（§3.1）+ 逆向栅格化 + 并集消重叠 | `scripts/ugc/contour_baker.gd` |
 | 文档数据层（§2.3/§2.4 schema/围栏/撤销/dirty） | `scripts/ugc/map_document.gd` |
 | 官方图转换器（§3.4） | `scripts/ugc/official_map_converter.gd` |
-| 阶段 1 冒烟测试 | `scripts/tests/test_map_editor_core.gd` / `test_official_map_converter.gd` |
+| 运行时注入器（§4）+ 注入口 | `scripts/ugc/ugc_loader.gd`（+ map_geography.gd `ugc_mode` / map_geography_data.gd `inject_ugc` / building_renderer.gd `inject_ugc_districts` / weather_system.gd `apply_ugc_config`） |
+| 阶段 1 冒烟测试 | `scripts/tests/test_map_editor_core.gd` / `test_official_map_converter.gd` / `test_ugc_loader.gd` |
 | 现有多边形渲染/判定 | `scripts/survivor/map_feature_renderer.gd` / `map_geography.gd` |
 | 现有云系统 | `scripts/weather_system.gd` |
 | 现有建筑渲染 | `scripts/survivor/building_renderer.gd` |

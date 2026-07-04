@@ -63,6 +63,36 @@ static func ensure_loaded() -> void:
 		COASTLINE_LINES.size(),
 	])
 
+## UGC 注入口（UgcLoader 调用）：用 UGC 地图数据整体替换静态数组，并标记已加载
+## 跳过官方 JSON。恢复官方图：reset_to_official() → 下次 ensure_loaded 重读 JSON。
+static func inject_ugc(land_mask: Array, urban: Array, aero: Array,
+		roads_by_class: Dictionary, coastline: Array) -> void:
+	_loaded = true
+	LAND_MASK_POLYGONS = land_mask
+	URBAN_POLYGONS = urban
+	AERODROME_POLYGONS = aero
+	ROADS_MOTORWAY = roads_by_class.get("motorway", [])
+	ROADS_TRUNK = roads_by_class.get("trunk", [])
+	ROADS_PRIMARY = roads_by_class.get("primary", [])
+	ROADS_SECONDARY = roads_by_class.get("secondary", [])
+	ROADS_TERTIARY = roads_by_class.get("tertiary", [])
+	COASTLINE_LINES = coastline
+
+
+## 复位为官方数据（下次 ensure_loaded 重新读官方 JSON）
+static func reset_to_official() -> void:
+	_loaded = false
+	LAND_MASK_POLYGONS = []
+	URBAN_POLYGONS = []
+	AERODROME_POLYGONS = []
+	ROADS_MOTORWAY = []
+	ROADS_TRUNK = []
+	ROADS_PRIMARY = []
+	ROADS_SECONDARY = []
+	ROADS_TERTIARY = []
+	COASTLINE_LINES = []
+
+
 ## 把扁平 [x1, y1, x2, y2, ...] 列表转成 Array[PackedVector2Array]
 ## 同时做清洗：去连续重复顶点、丢面积过小的退化多边形
 ## 避免 Godot 的 draw_colored_polygon 三角剖分在退化数据上狂报错

@@ -85,6 +85,17 @@ static func cache_reset() -> void:
 	_cache_phase = 0
 
 
+## UGC 注入口（UgcLoader 调用）：跳过 JSON 读取，直接给 raw districts，
+## 复用既有分帧预热流水线（cache_step）构建 entries。官方路径不受影响。
+## districts 元素结构与官方 JSON 相同：{footprint: [[x,y]...], max_real_h: float}
+static func inject_ugc_districts(districts: Array) -> void:
+	cache_reset()
+	_cache_raw_districts = districts
+	_cache_phase = 2 if districts.size() > 0 else 3
+	if districts.is_empty():
+		_finalize_cache()
+
+
 ## 单步预热 N 个街区。返回 true 表示已完成。每帧调一次。
 static func cache_step(n: int = 25) -> bool:
 	if _cache_phase == 3:

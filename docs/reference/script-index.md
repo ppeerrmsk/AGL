@@ -87,7 +87,9 @@
 | `ugc/map_document.gd` | `MapDocument extends RefCounted` | [UGC] 地图文档数据层（spec map-editor §2.3/§2.4）：schema 读写/围栏钳制/style 调色板默认=官方现值/layer_dirty 懒烘焙/撤销栈 50/过新 schema 拒载 | `save_to(path)` `load_from(path)` `from_json_dict` `push_undo` `undo` `mark_dirty_and_rebake(layer)` |
 | `ugc/official_map_converter.gd` | `OfficialMapConverter extends RefCounted` | [UGC] 官方图→MapDocument 一键转换（spec map-editor §3.4）：矢量 JSON 直通 + 陆地/城区并集消重叠（偶奇自洽）+ 栅格化反推 editor_cells + 战区/出生点 JSON 化 | `build()` |
 | `tests/test_map_editor_core.gd` | SceneTree 脚本 | [测试] 地图编辑器阶段1核心冒烟（--script 运行）：Chaikin对拍/烘焙几何/孔洞/栅格化往返/存读闭环/围栏/撤销 7 组 | `_initialize` |
+| `ugc/ugc_loader.gd` | `UgcLoader extends RefCounted` | [UGC] 地图运行时注入器（spec map-editor §4）：地理→MapGeographyData.inject_ugc+ugc_mode 偶奇陆判 / 建筑→BuildingRenderer.inject_ugc_districts / 云→WeatherSystem.apply_ugc_config；**退出 UGC 局必调 clear() 防静态残留**；战区/spawn/style 待接线 | `load_map(path)` `apply_geography(doc)` `apply_buildings(doc)` `apply_to_weather(w, doc)` `clear()` |
 | `tests/test_official_map_converter.gd` | SceneTree 脚本 | [测试] 官方图转换冒烟（--script 运行）：陆判 22500 格心逐点等价/涂格反推/直通保真/存读闭环/围栏静默 5 组 | `_initialize` |
+| `tests/test_ugc_loader.gd` | SceneTree 脚本 | [测试] UgcLoader 注入冒烟（--script 运行）：地理注入偶奇等价/注入量/建筑预热与官方管线零差异/云 mask 三态/clear 还原 5 组 | `_initialize` |
 | `survivor/survivor_select.gd` | 生存模式机型选择界面 | [生存] 4 槽 PlayableAircraft 卡片（F-16/F-14 解锁 + 2 占位）；ESC 在 boss debug 路径里跳回 boss_debug_select | `PLAYABLE_LIST:21` `_build_aircraft_card:157` `_on_aircraft_selected` |
 | `survivor/survivor_map_select.gd` | 生存模式地图选择界面 | [生存] 5 槽地图卡片（1 解锁 + 4 占位）；ESC→主菜单；**B → boss_debug_select** | `MAP_LIST:18` `_build_map_card` `_on_map_selected` |
 | `survivor/boss_debug_select.gd` | Boss Debug — BOSS 选择界面 | [生存/Debug] 列出可测试 BOSS（与 BossRegistry.BOSS_DEFS 同步），选中 → set_meta(boss_debug_mode/_id) → survivor_select；空白无地图渲染 + 自动 15 级 + 主题化随机 build + 进场即 PRE_STAGE | `BOSS_LIST:18` `_build_boss_card` `_on_boss_selected` |

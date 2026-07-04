@@ -28,6 +28,13 @@ var cloud_seed: int = 0
 var cloud_frequency: float = 0.00055
 var cloud_coverage: float = 0.35
 
+## ── UGC 云 mask（spec map-editor §3.2）──
+## 64×64 字节网格覆盖全图，值/127.5 = 密度乘数 0~2；空 = 全 1.0（官方行为不变）。
+## 锚定"云空间"（采样时同噪声一起减去风偏移 → 随风整体漂移）。
+var ugc_mask: PackedByteArray = PackedByteArray()
+const UGC_MASK_GRID := 64
+const UGC_MASK_WORLD_HALF := 7500.0
+
 ## ── 贴图烘焙参数 ──
 const SPRITE_SIZE: int = 256            ## 单张云贴图尺寸
 const SPRITE_COUNT: int = 4             ## 变体数量（哈希选取）
@@ -81,14 +88,56 @@ func _wind_offset() -> Vector2:
 	return wind_direction * wind_speed * PIXELS_PER_METER * _time
 
 ## 采样某世界坐标的云密度（归一化 0~1）
+## UGC mask 注入点（唯一，渲染与战斗查询共用此口）：density = clamp(noise × mask, 0, 1)
 func sample_density(world_pos: Vector2) -> float:
 	if _noise == null:
 		return 0.0
 	var offset := _wind_offset()
-	var val := _noise.get_noise_2d(world_pos.x - offset.x, world_pos.y - offset.y)
-	if val <= cloud_coverage:
-		return 0.0
-	return clampf((val - cloud_coverage) / 0.35, 0.0, 1.0)
+	var cx := world_pos.x - offset.x
+	var cy := world_pos.y - offset.y
+	var val := _noise.get_noise_2d(cx, cy)
+	var base := 0.0
+	if val > cloud_coverage:
+		base = clampf((val - cloud_coverage) / 0.35, 0.0, 1.0)
+	if ugc_mask.is_empty():
+		return base
+	return clampf(base * _sample_mask(cx, cy), 0.0, 1.0)
+
+
+## 双线性采样 UGC mask（云空间坐标），越界视为 1.0（不改边缘行为）
+func _sample_mask(cx: float, cy: float) -> float:
+	var cell := UGC_MASK_WORLD_HALF * 2.0 / float(UGC_MASK_GRID)
+	var fx := (cx + UGC_MASK_WORLD_HALF) / cell - 0.5
+	var fy := (cy + UGC_MASK_WORLD_HALF) / cell - 0.5
+	var x0 := int(floorf(fx))
+	var y0 := int(floorf(fy))
+	var tx := fx - float(x0)
+	var ty := fy - float(y0)
+	var v00 := _mask_at(x0, y0)
+	var v10 := _mask_at(x0 + 1, y0)
+	var v01 := _mask_at(x0, y0 + 1)
+	var v11 := _mask_at(x0 + 1, y0 + 1)
+	return lerpf(lerpf(v00, v10, tx), lerpf(v01, v11, tx), ty)
+
+
+func _mask_at(gx: int, gy: int) -> float:
+	if gx < 0 or gy < 0 or gx >= UGC_MASK_GRID or gy >= UGC_MASK_GRID:
+		return 1.0
+	return float(ugc_mask[gy * UGC_MASK_GRID + gx]) / 127.5
+
+
+## UGC 云配置注入（UgcLoader 调用；setup 之后调）
+## 覆盖 seed/coverage/frequency/风，重建噪声；mask 空 = 保持纯噪声
+func apply_ugc_config(cloud: Dictionary) -> void:
+	cloud_seed = int(cloud.get("seed", cloud_seed))
+	cloud_coverage = clampf(float(cloud.get("coverage", cloud_coverage)), 0.0, 1.0)
+	cloud_frequency = float(cloud.get("frequency", cloud_frequency))
+	var dir_rad := deg_to_rad(float(cloud.get("wind_dir_deg", 0.0)))
+	wind_direction = Vector2(sin(dir_rad), -cos(dir_rad))  # 0°=北（屏幕上方），顺时针，与 heading 约定一致
+	wind_speed = float(cloud.get("wind_speed_ms", wind_speed))
+	var mask = cloud.get("mask", PackedByteArray())
+	ugc_mask = mask if mask is PackedByteArray and mask.size() == UGC_MASK_GRID * UGC_MASK_GRID else PackedByteArray()
+	_init_noise()
 
 ## 某世界坐标是否在云内
 func is_in_cloud(world_pos: Vector2) -> bool:
