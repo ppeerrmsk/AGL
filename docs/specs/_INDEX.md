@@ -51,6 +51,7 @@
 | [systems/rts-command](systems/rts-command.md) | system | done | ✅ | RTS 指挥（独立模块 SquadCommandController + 参数 Resource）：战术地图航点/战区边缘巡航 + 到点自动交战 + **玩家命令逐机持久铁律**（commanded_target 跨 1-4 切控、AI 不得覆盖）+ 右侧开关；自由僚机切目标细则归 target-engageability-selection |
 | [systems/target-engageability-selection](systems/target-engageability-selection.md) | system | in-progress | ✗ | 目标选择改"可命中性"评分：对正度/包络/锁定(封顶)/邻近四因子 + 队友超杀让路 + 守后优先(rear_threat_score)；根除锁定 runaway。**代码落地 + 单测 7/7，差生存 playtest 调参** |
 | [systems/wingman-escort-evasion](systems/wingman-escort-evasion.md) | system | in-progress | ✅ | 僚机护卫规避：玩家按 E 时僚机不再无脑散开——被真威胁才逃，否则召回编队待命 + 投护卫 flare 替长机挡追它的导弹（escort_cover_active 与 evasion_mode 解耦；护卫 jam=0.70×近度，范围 800m）。**代码落地、flare bench 9/9，差 §5 playtest** |
+| [systems/weapon-employment-doctrine](systems/weapon-employment-doctrine.md) | system | draft | — | 武器使用准则：僚机多武器时"什么距离用什么武器"的竞选规则（距离带+滞回+远程优先）、全武器统一"机头指向路径提前点"瞄准语义（锥角=纪律严格度，电磁炮 ±3° 最苛）、机动跟随主武器（railgun LINE_UP 直线充能 intent）。激活休眠的 EquipmentParams.desired_engagement 投票骨架。**待用户定稿** |
 
 | [systems/combat-effectiveness-metrics](systems/combat-effectiveness-metrics.md) | system | draft | ✗ | 战斗效能评估：交战记录 4 层指标（转化 FSR/执行 hit_rate/结果 TTK/对手规避+CapIndex 差距）+ 两轴 Offense/Defense 评级 + bench 对位矩阵；核心解决"快机打不中慢直升机≠直升机强"。**仅 §1~§6 草稿，待 review** |
 | [systems/aircraft-evolution](systems/aircraft-evolution.md) | system | wip-design | ✗ | 战区结算 + 宝可梦式机型进化（F-15 基底 / F-16 降分支）+ Tab 结算坞 + 三选一(武器/红技能/进化) + 槽位装备继承 + 航母外援。**高层骨架，进化树内容/数值待用户补** |
