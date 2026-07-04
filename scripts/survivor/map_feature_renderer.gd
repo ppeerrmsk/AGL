@@ -89,12 +89,17 @@ const BASEMAP_SHADER_PATH := "res://resources/shaders/basemap_tacview.gdshader"
 var _basemap_sprite: Sprite2D = null
 var _basemap_loaded := false
 
+## UGC 纯矢量模式（survivor_mode 在 UGC 试飞时置 true）：
+## 跳过官方底图 PNG 与手画覆盖层（都是官方东京湾专属素材），只走矢量渲染路径
+var ugc_vector_only := false
+
 func _draw() -> void:
 	if not _camera:
 		return
 	MapGeography.ensure_ready()
-	_ensure_manual_loaded()
-	_ensure_basemap_loaded()
+	if not ugc_vector_only:
+		_ensure_manual_loaded()
+		_ensure_basemap_loaded()
 	# 底图存在时跳过 sea 色铺底 —— basemap 本身含海面颜色，再盖一层会遮住
 	if _basemap_sprite == null:
 		_draw_sea()

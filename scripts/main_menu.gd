@@ -206,6 +206,9 @@ func _build_ui() -> void:
 	# 测试版：生存模式为主显示
 	_add_mode_button(tr("MENU_MODE_SURVIVOR_NAME"), tr("MENU_MODE_SURVIVOR_DESC"), _on_survivor_pressed)
 
+	# 地图工坊（UGC 地图编辑器，spec map-editor）
+	_add_mode_button(tr("MENU_MODE_EDITOR_NAME"), tr("MENU_MODE_EDITOR_DESC"), _on_editor_pressed)
+
 	# 未来模式占位（灰色不可用）
 	_add_mode_button(tr("MENU_MODE_MISSION_NAME"), tr("MENU_MODE_MISSION_DESC"), Callable(), true)
 
@@ -494,6 +497,10 @@ func _build_sandbox_corner_button() -> void:
 
 func _on_survivor_pressed() -> void:
 	get_tree().change_scene_to_file("res://scenes/survivor_map_select.tscn")
+
+
+func _on_editor_pressed() -> void:
+	get_tree().change_scene_to_file("res://scenes/map_editor.tscn")
 
 ## 标题下方的功勋徽章 + 数字（局外货币）
 func _build_merit_display(parent: VBoxContainer) -> void:

@@ -6,6 +6,7 @@ extends Node2D
 
 # ── 共享模块 ──
 var _map_features: MapFeatureRenderer
+var _ugc_doc: MapDocument = null  ## UGC 试飞中的地图文档（null = 官方图）
 var _camera_ctrl: CameraController
 var _weather: WeatherSystem
 
@@ -139,6 +140,13 @@ var _bench_finished: bool = false
 var _bench_demo: bool = false
 var _bench_demo_topup_timer: float = 0.0
 
+func _exit_tree() -> void:
+	# UGC 试飞收尾：清除静态注入（MapGeography/建筑缓存），防污染下一局官方图
+	if _ugc_doc != null:
+		UgcLoader.clear()
+		_ugc_doc = null
+
+
 func _ready() -> void:
 	# 确保 SurvivorMode 在所有子节点（含 AI 控制器）之前执行
 	# 这样 _f47_assign_roles 设置的 boss_attacker 等标志在 AI 运行时已经生效
@@ -170,6 +178,22 @@ func _ready() -> void:
 		_bench_demo = bool(get_tree().get_meta("bench_demo"))
 		get_tree().remove_meta("bench_demo")
 
+	# UGC 试飞 meta（地图编辑器写入）：必须在渲染器/边界初始化之前注入地理
+	if get_tree().has_meta("ugc_map_path"):
+		var ugc_path := String(get_tree().get_meta("ugc_map_path"))
+		get_tree().remove_meta("ugc_map_path")
+		_ugc_doc = UgcLoader.load_map(ugc_path)
+		if _ugc_doc != null:
+			UgcLoader.apply_geography(_ugc_doc)
+			UgcLoader.apply_buildings(_ugc_doc)
+			# 同步跑完建筑分帧预热（一次性 ~10-30ms），否则 BuildingRenderer.setup
+			# 会因 cache 未就绪回退到官方 JSON 同步加载
+			while not BuildingRenderer.cache_step(200):
+				pass
+			print("[SurvivorMode] UGC 地图已注入: %s" % ugc_path)
+		else:
+			push_warning("[SurvivorMode] UGC 地图加载失败，回退官方图: %s" % ugc_path)
+
 	# Boss Debug 模式：把空白背景调到柔和深色（默认黑底太刺眼），与海岸线地图颜调一致
 	if _boss_debug_mode:
 		RenderingServer.set_default_clear_color(Color(0.10, 0.13, 0.16))
@@ -183,6 +207,7 @@ func _ready() -> void:
 	if not _boss_debug_mode and not _bench_mode:
 		_map_features = MapFeatureRenderer.new()
 		_map_features.show_behind_parent = true
+		_map_features.ugc_vector_only = _ugc_doc != null  # UGC 图跳过官方底图/手画层
 		add_child(_map_features)
 		move_child(_map_features, 0)
 		# _map_features.setup() 会在 _map_boundary 创建后调用（见下方）
@@ -194,6 +219,8 @@ func _ready() -> void:
 	_weather.setup(camera)
 	_weather.add_to_group("weather")
 	move_child(_weather, 1)
+	if _ugc_doc != null:
+		UgcLoader.apply_to_weather(_weather, _ugc_doc)  # 覆盖 seed/风/coverage + mask（setup 之后）
 
 	# 横浜高建筑伪 3D 渲染（独立模块；删除以下 4 行 + building_renderer.gd 即可完整撤回）
 	# Boss Debug / Bench 模式跳过
