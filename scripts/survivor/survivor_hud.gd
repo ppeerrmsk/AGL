@@ -1330,19 +1330,19 @@ func _on_squad_engage_pressed() -> void:
 			continue
 		ai.squad_engage_mode = _squad_engage_mode
 		# 若僚机正在交战，强制脱离并回到编队，保证"切模式=立刻生效"
+		# （玩家 UI 强制脱战 → release_target(TS_COMMANDED)，最高优先级必然放行）
 		if ai._state == AIController.AIState.ENGAGE:
-			wm.clear_combat_target()
-			# 直接落位完整编队托管（target_position=INF 留给下一帧 squad_coordination 填）
-			wm.set_formation_target(game_scene.player_aircraft, Vector2.INF)
-			ai._state = AIController.AIState.SQUAD_FOLLOW
-			ai._formation_blend = 1.0  # 跳过 rejoin 渐变
-			ai._rejoining = false
-			ai._current_target = null
-			ai._squad_attacking_leader_target = false
-			ai._squad_lateral_role = AIController.SquadRole.NONE
-			ai._engage_timer = 0.0
-			ai._cooldown_timer = 0.0
-			ai.current_tactic_name = ""
+			if ai.release_target(AIController.TargetSource.TS_COMMANDED, "engage mode switch"):
+				# 直接落位完整编队托管（target_position=INF 留给下一帧 squad_coordination 填）
+				wm.set_formation_target(game_scene.player_aircraft, Vector2.INF)
+				ai._state = AIController.AIState.SQUAD_FOLLOW
+				ai._formation_blend = 1.0  # 跳过 rejoin 渐变
+				ai._rejoining = false
+				ai._squad_attacking_leader_target = false
+				ai._squad_lateral_role = AIController.SquadRole.NONE
+				ai._engage_timer = 0.0
+				ai._cooldown_timer = 0.0
+				ai.current_tactic_name = ""
 	var mode_str: String = ["FREE", "FOLLOW_LEADER", "GUARD_REAR"][_squad_engage_mode]
 	EventLogger.log_event("SQUAD_CMD", "Player", "engage mode → %s" % mode_str)
 

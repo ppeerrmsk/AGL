@@ -38,3 +38,34 @@
 未迁移的直写者（旧 BFM / `_process_simple` / EM / 编队 / BOSS / RTS 点击）不受影响：
 无槽位主张的字段 resolve 不碰，直写值照常生效；planner 的 waypoint echo（读
 target_position → 提交回同值）保持外部直写在 planner 机上的兼容。
+
+---
+
+# 追加（同日）：目标所有权仲裁器落地
+
+## 新机制（ai_controller.gd "目标所有权仲裁" 段）
+
+- `enum TargetSource { TS_NONE < TS_SCORED < TS_BOSS < TS_DIRECTIVE < TS_COMMANDED }`
+- `acquire_target(tgt, source, why)` / `release_target(source, why)` —— 设/清目标唯一入口：
+  低优先级请求不得抢占/清除高优先级持有的**存活**目标；目标死亡自动降级不再受保护；
+  同目标重申不降级来源；TARGET_ACQ / TARGET_REL 归因日志。
+- 入口只管目标字段 + 来源记账，状态切换/计时器副作用仍由调用方处理（Phase 2 收口）。
+
+## 迁移（30+ 站点，11 文件）
+
+外部直写者全部收口：survivor_hud（强制脱战=TS_COMMANDED）、survivor_spawner（猎手指派/
+边界纪律=TS_BOSS）、ace_squad、poltergeist_squad、swarm_director、mother_goose_controller、
+commander_aura（均 TS_BOSS）；内部：try_engage/reevaluate/disengage（TS_SCORED）、
+squad_coordination 三路、directive（TS_DIRECTIVE）、_process_simple 全家。
+返回值全部消化：被高优先级拒绝时跳过后续副作用（这正是仲裁要建立的保护）。
+三处"军备竞赛"注释（spawner/swarm_director/poltergeist 描述与守卫层互相设防）删除。
+
+**行为提升（原 bug 类，现在由代码保证）**：
+- spawner 猎手/边界纪律不再能清掉玩家 commanded 目标（原靠"敌机没有 commanded"的巧合）；
+- BOSS 指派的目标不会被普通 disengage/评分交战踢掉；
+- HUD 强制脱战以 TS_COMMANDED 级执行（玩家意志压 AI）。
+
+## 验收
+
+新增 `--bench=target_arb` 17 断言（四级抢占/拒绝/死亡降级/同目标重申不降级/release 对称）。
+回归门 **11 项全绿**（intent 14 / cmd_evade 25 / bfm_intent 89 / turn_physics 等全部通过）。

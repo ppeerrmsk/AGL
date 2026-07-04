@@ -188,8 +188,14 @@ known-seams + aircraft_formation 头部 bug 回溯地图 + specs/。
 > 与 AI 的 process_evade 天然互斥 → 安全合并进同一 EVADE 槽；②BRAKE 桥接 pursuit
 > 用 25 特例优先级（压 TACTIC 让位 EVADE），与旧帧序精确等价；③AB 主张过
 > set_afterburner 守卫（冷却连关也挡，迁移前同语义）。
-> **剩余步骤**：BOSS/剧本/spawner 直写迁移（step 4）→ 旧 BFM/_process_simple（step 5）
-> → 目标仲裁器（`_current_target`/`combat_target` 40+ 写点收口）。
+> **目标仲裁器已落地（2026-07-04）**：`acquire_target(tgt, source)` / `release_target(source)`
+> 四级仲裁（TS_COMMANDED > TS_DIRECTIVE > TS_BOSS > TS_SCORED），低级源不得抢占/清除
+> 高级源持有的存活目标（死亡自动降级）。全库 30+ 直写点迁移完成（外部：HUD/spawner/
+> ace/poltergeist/swarm/mother_goose/commander_aura；内部：try_engage/reevaluate/
+> disengage/squad 三路/directive/simple 全家），三处"军备竞赛"注释删除——玩家命令铁律
+> 与 BOSS 指派从"靠约定"变成"靠代码"。验收 `--bench=target_arb` 17 断言 + 回归门 11 项全绿。
+> **剩余步骤**：BOSS/剧本的 pursuit 直写迁移（step 4，低优先级——simple 机无槽位冲突）
+> → 旧 BFM/_process_simple 的 pursuit 提交（step 5）→ Phase 2 状态正交化。
 
 引入 `ControlIntent`（或沿用/扩展 TacticalPlan 的形态）：
 

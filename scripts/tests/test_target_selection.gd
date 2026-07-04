@@ -63,7 +63,7 @@ func _mk_ai(ac: Aircraft) -> AIController:
 	ai.preferred_altitude_tier = -99
 	ai.squad = null
 	ai.squad_engage_mode = AIController.SquadEngageMode.FOLLOW_LEADER
-	ai._current_target = null
+	# _current_target 默认即 null；目标写入统一走 acquire_target/release_target 仲裁入口
 	return ai
 
 

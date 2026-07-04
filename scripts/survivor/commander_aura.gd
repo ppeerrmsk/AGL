@@ -244,7 +244,7 @@ func _try_recruit() -> void:
 
 		# 清理旧航点：它们可能围绕玩家刷出的位置，与绕长机飞行冲突
 		ai.waypoints = PackedVector2Array()
-		ai._current_target = null
+		ai.release_target(AIController.TargetSource.TS_BOSS, "sentinel recruit reset")
 
 		print("[Sentinel] recruited %s as %s (squad=%d/%d)" % [ac.callsign, ("hunter" if is_hunter else "guard"), sq.members.size() - 1, MAX_WINGMEN])
 

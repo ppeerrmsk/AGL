@@ -137,11 +137,9 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 			ai._scan_timer = 1.0  # 每秒一次扫描，flyby 不容易漏
 			if ai._cooldown_timer <= 0.0:
 				var tgt := scan_squad_nearby_enemy(ai)
-				if tgt:
+				if tgt and ai.acquire_target(tgt, AIController.TargetSource.TS_SCORED, "squad free scan"):
 					# 进 ENGAGE：与协同攻击走一样的过渡，只是 target 是自己找的
-					ai._current_target = tgt
 					ai.aircraft.clear_formation()  # formation_mode/leader/keep_arrival/lod=0/ai_override
-					ai.aircraft.set_combat_target(tgt)
 					ai.aircraft.ai_override_pursuit = true
 					ai._formation_blend = 0.0  # 下次回归编队时从 0 开始混合
 					ai._state = AIController.AIState.ENGAGE
@@ -179,23 +177,21 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 		ai._engage_delay -= delta
 		if ai._engage_delay <= 0.0:
 			ai._engage_delay = 0.0
-			ai.aircraft.clear_formation()  # formation_mode/leader/keep_arrival/lod=0/ai_override
-			ai.aircraft.set_combat_target(leader.combat_target)
-			ai.aircraft.ai_override_pursuit = true
-			ai._formation_blend = 0.0  # 下次回归编队时从 0 开始混合
-			ai._state = AIController.AIState.ENGAGE
-			ai._engage_timer = 0.0
-			ai._tactic = AIController.EngageTactic.LEAD_PURSUIT
-			ai._tactic_timer = 0.0
-			ai._tactic_min_duration = AIController.MIN_DUR_LEAD_PURSUIT
-			ai._current_target = leader.combat_target
-			ai.aircraft.ai_override_pursuit = true
-			ai._squad_attacking_leader_target = true
-			ai._squad_lateral_role = _role_for_squad_index(ai.squad_index)
-			ai._squad_free_engaging = false  # 协同攻击路径互斥
-			ai._leader_target_lost_timer = 0.0
-			ai._squad_range_grace_timer = 0.0
-			ai.current_tactic_name = "TACTIC_TEAM_ATTACK"
+			if ai.acquire_target(leader.combat_target, AIController.TargetSource.TS_SCORED, "follow leader target"):
+				ai.aircraft.clear_formation()  # formation_mode/leader/keep_arrival/lod=0/ai_override
+				ai.aircraft.ai_override_pursuit = true
+				ai._formation_blend = 0.0  # 下次回归编队时从 0 开始混合
+				ai._state = AIController.AIState.ENGAGE
+				ai._engage_timer = 0.0
+				ai._tactic = AIController.EngageTactic.LEAD_PURSUIT
+				ai._tactic_timer = 0.0
+				ai._tactic_min_duration = AIController.MIN_DUR_LEAD_PURSUIT
+				ai._squad_attacking_leader_target = true
+				ai._squad_lateral_role = _role_for_squad_index(ai.squad_index)
+				ai._squad_free_engaging = false  # 协同攻击路径互斥
+				ai._leader_target_lost_timer = 0.0
+				ai._squad_range_grace_timer = 0.0
+				ai.current_tactic_name = "TACTIC_TEAM_ATTACK"
 	else:
 		ai._engage_delay = 0.0  # 长机无目标时重置延迟
 
@@ -233,9 +229,9 @@ static func escort_target_bonus(leader: Aircraft, candidate: Aircraft) -> float:
 ## 进入"自主交战"态（FREE 就近 / GUARD_REAR 后方威胁 共用）：
 ## 切出编队托管 + 设 combat_target + 转 ENGAGE。tactic_name 仅用于 HUD/日志标签。
 static func _enter_autonomous_engage(ai: AIController, tgt: CombatUnit, tactic_name: String) -> void:
-	ai._current_target = tgt
+	if not ai.acquire_target(tgt, AIController.TargetSource.TS_SCORED, "autonomous engage"):
+		return  # 目标被更高优先级来源持有 → 放弃本次自主交战
 	ai.aircraft.clear_formation()  # formation_mode/leader/keep_arrival/lod=0/ai_override
-	ai.aircraft.set_combat_target(tgt)
 	ai.aircraft.ai_override_pursuit = true
 	ai._formation_blend = 0.0  # 下次回归编队时从 0 开始混合
 	ai._state = AIController.AIState.ENGAGE

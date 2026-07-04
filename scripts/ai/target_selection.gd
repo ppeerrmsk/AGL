@@ -76,8 +76,8 @@ static func try_engage(ai: AIController) -> void:
 					return  # 新目标不够优，维持当前目标
 
 		var prev_state := ai._state
-		ai._current_target = best_target
-		ai.aircraft.set_combat_target(best_target)
+		if not ai.acquire_target(best_target, AIController.TargetSource.TS_SCORED, "try_engage"):
+			return  # 目标被更高优先级来源持有 → 放弃本次评分交战
 		ai._state = AIController.AIState.ENGAGE
 		ai._engage_timer = 0.0
 		ai._tactic = AIController.EngageTactic.LEAD_PURSUIT
@@ -131,8 +131,8 @@ static func reevaluate_target(ai: AIController) -> void:
 
 	# 切换目标
 	var old_target := ai._current_target
-	ai._current_target = best_target
-	ai.aircraft.set_combat_target(best_target)
+	if not ai.acquire_target(best_target, AIController.TargetSource.TS_SCORED, "reevaluate switch"):
+		return  # 目标被更高优先级来源持有 → 维持原目标
 	ai._tactic_timer = 0.0
 	ai._yoyo_phase = 0
 	EventLogger.log_event("TARGET", ai._log_name(),
@@ -141,10 +141,6 @@ static func reevaluate_target(ai: AIController) -> void:
 			current_score, best_score])
 
 static func disengage(ai: AIController) -> void:
-	EventLogger.log_event("AI_STATE", ai._log_name(),
-		"DISENGAGE (was fighting %s, engaged %.1fs)" % [
-			ai._log_target_name(ai._current_target), ai._engage_timer])
-
 	# ── BOSS 攻击手：不真正脱离，重新锁定玩家 ──
 	# 【关键】只重置 _engage_timer + _cooldown_timer 防止下一帧又触发 disengage；
 	# 绝不动 _tactic_timer / _tactic_min_duration / 当前 tactic ——
@@ -162,18 +158,21 @@ static func disengage(ai: AIController) -> void:
 				if unit is Aircraft and unit.team == 0 and not unit.is_destroyed:
 					player = unit as Aircraft
 					break
-		if player:
-			ai._current_target = player
-			ai.aircraft.combat_target = player
+		if player and ai.acquire_target(player, AIController.TargetSource.TS_SCORED, "boss re-engage"):
 			ai._engage_timer = 0.0
 			ai._cooldown_timer = 0.0
 			EventLogger.log_event("AI_STATE", ai._log_name(), "BOSS re-engage immediately")
 			return
 
-	ai.aircraft.clear_combat_target()
+	# 先记快照再 release（release 后 _current_target 已清）；被高优先级拒绝 → 保持交战不脱离
+	var _was_fighting: String = ai._log_target_name(ai._current_target)
+	var _engaged_secs: float = ai._engage_timer
+	if not ai.release_target(AIController.TargetSource.TS_SCORED, "disengage"):
+		return
+	EventLogger.log_event("AI_STATE", ai._log_name(),
+		"DISENGAGE (was fighting %s, engaged %.1fs)" % [_was_fighting, _engaged_secs])
 	ai.aircraft.ai_override_pursuit = false
 	ai.aircraft.keep_target_on_arrival = false
-	ai._current_target = null
 	ai._cooldown_timer = ai.engage_cooldown
 	ai.current_tactic_name = ""
 	ai._squad_attacking_leader_target = false

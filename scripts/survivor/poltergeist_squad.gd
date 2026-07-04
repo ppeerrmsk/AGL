@@ -247,15 +247,14 @@ func _tick_phase(i: int, delta: float) -> void:
 				var ai: AIController = ac._get_ai_controller()
 				if ai:
 					ai.process_mode = Node.PROCESS_MODE_INHERIT
-				# 弹射结束 → AceSquad 已经在 PURSUIT 时，显式同步 ENGAGE + combat_target
-				# 否则解冻下一帧 ai_controller.gd:511 的 spawn-init guard 会把它锁进 SQUAD_FOLLOW
+				# 弹射结束 → AceSquad 已经在 PURSUIT 时，显式同步 ENGAGE；
+				# 目标经 acquire_target(TS_BOSS) 指派，优先级仲裁防抢写
 				if ai and combat_phase_active and squad_state == SquadState.PURSUIT \
 						and is_instance_valid(_player) and not _player.is_destroyed:
-					ai._state = AIController.AIState.ENGAGE
-					ai._current_target = _player
-					ai._engage_timer = 0.0
-					ai.boss_attacker = true
-					ac.combat_target = _player
+					if ai.acquire_target(_player, AIController.TargetSource.TS_BOSS, "catapult PURSUIT sync"):
+						ai._state = AIController.AIState.ENGAGE
+						ai._engage_timer = 0.0
+						ai.boss_attacker = true
 				EventLogger.log_event("BOSS", display_name,
 						"%s airborne, climbing to LOW" % ac.callsign)
 

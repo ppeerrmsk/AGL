@@ -245,7 +245,19 @@
       "Bash(\"/c/Users/noelu/Downloads/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64_console.exe\" --headless --path . -- --bench=hard_brake)",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(\"/c/Users/noelu/Downloads/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64_console.exe\" --headless --path . -- --bench=intent)"
+      "Bash(\"/c/Users/noelu/Downloads/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64_console.exe\" --headless --path . -- --bench=intent)",
+      "PowerShell(git checkout -b feature/map-editor)",
+      "PowerShell(git add docs/specs/_INDEX.md docs/specs/systems/ugc-editor.md docs/specs/systems/map-editor.md)",
+      "PowerShell(Get-ChildItem \"$env:USERPROFILE\\\\Downloads\\\\Godot_v4.6.2-stable_mono_win64\" | Select-Object Name)",
+      "PowerShell(Get-ChildItem \"$env:USERPROFILE\\\\Downloads\\\\Godot_v4.6.2-stable_mono_win64\\\\Godot_v4.6.2-stable_mono_win64\" | Select-Object Name)",
+      "PowerShell(& \"$env:USERPROFILE\\\\Downloads\\\\Godot_v4.6.2-stable_mono_win64\\\\Godot_v4.6.2-stable_mono_win64\\\\Godot_v4.6.2-stable_mono_win64_console.exe\" --headless --path . --script res://scripts/tests/test_map_editor_core.gd; \"EXIT=$LASTEXITCODE\")",
+      "PowerShell(& \"$env:USERPROFILE\\\\Downloads\\\\Godot_v4.6.2-stable_mono_win64\\\\Godot_v4.6.2-stable_mono_win64\\\\Godot_v4.6.2-stable_mono_win64_console.exe\" --headless --path . --import 2>&1 | Select-Object -Last 5; \"EXIT=$LASTEXITCODE\")",
+      "PowerShell(& \"$env:USERPROFILE\\\\Downloads\\\\Godot_v4.6.2-stable_mono_win64\\\\Godot_v4.6.2-stable_mono_win64\\\\Godot_v4.6.2-stable_mono_win64_console.exe\" --headless --path . --script res://scripts/tests/test_evolution_tree.gd; \"EXIT=$LASTEXITCODE\")",
+      "PowerShell(git add scripts/tests/test_map_editor_core.gd.uid scripts/tests/test_intent_arbiter.gd.uid)",
+      "PowerShell($j = Get-Content \"resources\\\\maps\\\\yokohama_buildings.json\" -Raw | ConvertFrom-Json; \"districts: $\\($j.districts.Count\\)\"; $verts = 0; foreach \\($d in $j.districts\\) { $verts += $d.footprint.Count }; \"total footprint verts: $verts\")",
+      "PowerShell(python -c \"import json; d=json.load\\(open\\('resources/maps/yokohama_buildings.json',encoding='utf-8'\\)\\); print\\('keys:',list\\(d.keys\\(\\)\\)\\); ds=d.get\\('districts',[]\\); print\\('districts:',len\\(ds\\)\\); print\\('verts:',sum\\(len\\(x['footprint']\\) for x in ds\\)\\); print\\('sample keys:',list\\(ds[0].keys\\(\\)\\) if ds else None\\); print\\('normal:',len\\(d.get\\('normal',[]\\)\\),'landmark:',len\\(d.get\\('landmark',[]\\)\\)\\)\")",
+      "PowerShell(& \"$env:USERPROFILE\\\\Downloads\\\\Godot_v4.6.2-stable_mono_win64\\\\Godot_v4.6.2-stable_mono_win64\\\\Godot_v4.6.2-stable_mono_win64_console.exe\" --headless --path . --import 2>&1 | Select-Object -Last 1; & \"$env:USERPROFILE\\\\Downloads\\\\Godot_v4.6.2-stable_mono_win64\\\\Godot_v4.6.2-stable_mono_win64\\\\Godot_v4.6.2-stable_mono_win64_console.exe\" --headless --path . --script res://scripts/tests/test_official_map_converter.gd; \"EXIT=$LASTEXITCODE\")",
+      "PowerShell(& \"$env:USERPROFILE\\\\Downloads\\\\Godot_v4.6.2-stable_mono_win64\\\\Godot_v4.6.2-stable_mono_win64\\\\Godot_v4.6.2-stable_mono_win64_console.exe\" --headless --path . --script res://scripts/tests/test_map_editor_core.gd 2>&1 | Select-Object -Last 2; \"EXIT=$LASTEXITCODE\")"
     ]
   },
   "hooks": {

@@ -384,20 +384,19 @@ func _update_stray_recall(delta: float) -> void:
 			var pp: Vector2 = player_ref.global_position
 			if uav.global_position.distance_squared_to(pp) < uav.global_position.distance_squared_to(bp):
 				anchor = pp
-		ai._current_target = null
-		uav.clear_combat_target()
-		uav.ai_override_pursuit = false
-		uav.target_position = anchor
-		# 围锚点的 4 点航点
-		var ring_r: float = 600.0
-		ai.waypoints = PackedVector2Array([
-			anchor + Vector2(ring_r, 0),
-			anchor + Vector2(0, ring_r),
-			anchor + Vector2(-ring_r, 0),
-			anchor + Vector2(0, -ring_r),
-		])
-		ai.current_waypoint_index = 0
-		recalled += 1
+		if ai.release_target(AIController.TargetSource.TS_BOSS, "stray UAV recall"):
+			uav.ai_override_pursuit = false
+			uav.target_position = anchor
+			# 围锚点的 4 点航点
+			var ring_r: float = 600.0
+			ai.waypoints = PackedVector2Array([
+				anchor + Vector2(ring_r, 0),
+				anchor + Vector2(0, ring_r),
+				anchor + Vector2(-ring_r, 0),
+				anchor + Vector2(0, -ring_r),
+			])
+			ai.current_waypoint_index = 0
+			recalled += 1
 	if recalled > 0:
 		EventLogger.log_event("BOSS", "MOTHER GOOSE",
 			"recalled %d stray UAVs to boss" % recalled)
@@ -567,16 +566,16 @@ func _designation_begin() -> void:
 		var ai: AIController = candidates[i][0]
 		if ai == null or not is_instance_valid(ai):
 			continue
-		_designation_interceptors[ai] = true
 		## 清当前目标 + 单点航点 → 走 patrol 路径直冲伏击点；
 		## 到达后用雷达重新捕获玩家 → 自动切回 simple_combat lead-chase
-		ai._current_target = null
-		if ai.aircraft:
-			ai.aircraft.clear_combat_target()
-			ai.aircraft.ai_override_pursuit = false
-			ai.aircraft.target_position = intercept_point
-		ai.waypoints = PackedVector2Array([intercept_point])
-		ai.current_waypoint_index = 0
+		## （经 release_target(TS_BOSS) 清目标，优先级仲裁防抢写）
+		if ai.release_target(AIController.TargetSource.TS_BOSS, "designation interceptor"):
+			_designation_interceptors[ai] = true
+			if ai.aircraft:
+				ai.aircraft.ai_override_pursuit = false
+				ai.aircraft.target_position = intercept_point
+			ai.waypoints = PackedVector2Array([intercept_point])
+			ai.current_waypoint_index = 0
 
 	EventLogger.log_event("BOSS", "MOTHER GOOSE",
 		"DESIGNATION: target acquired — %d hunters / %d interceptors" %
@@ -608,19 +607,19 @@ func _designation_end() -> void:
 		##    被 combat_zone_radius*1.5 守卫拉 target 之前一直冲玩家方向 →
 		##    脱锁后无 waypoints / 在外圈漂走（hunter 用 solo_squad，没"跟长机"路径）"
 		## 强制把所有被 mod 过的 UAV 拉回 boss 周围环形 4 点航点（与 stray_recall 同处理）
-		ai._current_target = null
-		if ai.aircraft and is_instance_valid(ai.aircraft):
-			ai.aircraft.clear_combat_target()
-			ai.aircraft.ai_override_pursuit = false
-			ai.aircraft.target_position = bp
-		var ring_r: float = 600.0
-		ai.waypoints = PackedVector2Array([
-			bp + Vector2(ring_r, 0),
-			bp + Vector2(0, ring_r),
-			bp + Vector2(-ring_r, 0),
-			bp + Vector2(0, -ring_r),
-		])
-		ai.current_waypoint_index = 0
+		## （经 release_target(TS_BOSS) 清目标，优先级仲裁防抢写）
+		if ai.release_target(AIController.TargetSource.TS_BOSS, "designation end recall"):
+			if ai.aircraft and is_instance_valid(ai.aircraft):
+				ai.aircraft.ai_override_pursuit = false
+				ai.aircraft.target_position = bp
+			var ring_r: float = 600.0
+			ai.waypoints = PackedVector2Array([
+				bp + Vector2(ring_r, 0),
+				bp + Vector2(0, ring_r),
+				bp + Vector2(-ring_r, 0),
+				bp + Vector2(0, -ring_r),
+			])
+			ai.current_waypoint_index = 0
 		n_restored += 1
 	_designation_overrides.clear()
 	_designation_interceptors.clear()
@@ -653,5 +652,5 @@ func _designation_tick() -> void:
 			continue
 		if _designation_interceptors.has(ai):
 			continue
-		ai._current_target = player_ref
-		ac.set_combat_target(player_ref)
+		## 经 acquire_target(TS_BOSS) 指派，优先级仲裁防抢写
+		ai.acquire_target(player_ref, AIController.TargetSource.TS_BOSS, "designation force player")

@@ -687,34 +687,31 @@ func _physics_process_impl(delta: float) -> void:
 		var zone_center: Vector2 = combat_zone_anchor.global_position
 		var self_dist := aircraft.global_position.distance_to(zone_center)
 		if self_dist > combat_zone_radius:
-			# 出界：强制回返
-			_current_target = null
-			aircraft.clear_combat_target()
-			aircraft.ai_override_pursuit = false
-			_state = AIState.PATROL
-			waypoints = PackedVector2Array([zone_center])
-			current_waypoint_index = 0
-			aircraft.target_position = zone_center
-			if aircraft.flat_altitude and combat_zone_anchor is Aircraft:
-				aircraft.set_target_tier((combat_zone_anchor as Aircraft).get_altitude_tier())
-			if aircraft.params:
-				aircraft.target_speed_kmh = aircraft.params.max_speed
-			return
+			# 出界：强制回返（release 被高优先级拒绝时跳过整段回返）
+			if release_target(TargetSource.TS_SCORED, "combat zone exit"):
+				aircraft.ai_override_pursuit = false
+				_state = AIState.PATROL
+				waypoints = PackedVector2Array([zone_center])
+				current_waypoint_index = 0
+				aircraft.target_position = zone_center
+				if aircraft.flat_altitude and combat_zone_anchor is Aircraft:
+					aircraft.set_target_tier((combat_zone_anchor as Aircraft).get_altitude_tier())
+				if aircraft.params:
+					aircraft.target_speed_kmh = aircraft.params.max_speed
+				return
 		elif _current_target != null and is_instance_valid(_current_target):
 			var target_dist := _current_target.global_position.distance_to(zone_center)
 			if target_dist > combat_zone_radius * COMBAT_ZONE_TARGET_SLACK:
-				_current_target = null
-				aircraft.clear_combat_target()
-				aircraft.ai_override_pursuit = false
+				if release_target(TargetSource.TS_SCORED, "target left combat zone"):
+					aircraft.ai_override_pursuit = false
 
 	if simple_ai:
 		# simple AI 只承袭固定 aggression，不受压力/SA 影响
 		aircraft.tactical_aggression = clampf(aggression, 0.0, 1.0)
 		# 族群散开：受击时强行中断任何交战追踪，回到 waypoint 分支应用侧向偏移
 		if aircraft.flock_scatter_timer > 0.0 and _current_target != null:
-			_current_target = null
-			aircraft.clear_combat_target()
-			aircraft.ai_override_pursuit = false
+			if release_target(TargetSource.TS_SCORED, "flock scatter"):
+				aircraft.ai_override_pursuit = false
 		_process_simple(delta)
 		return
 
@@ -767,13 +764,12 @@ func _physics_process_impl(delta: float) -> void:
 			return
 		elif aircraft.commanded_target == null and _state != AIState.SQUAD_FOLLOW:
 			# 召回编队待命（镜像 exit_evade 的 SQUAD_FOLLOW 归队设置，但不打 EVADE 日志）
-			_state = AIState.SQUAD_FOLLOW
-			_current_target = null
-			aircraft.clear_combat_target()
-			aircraft.ai_override_pursuit = false
-			_rejoining = true
-			_formation_blend = 0.0
-			aircraft.lod_level = 1
+			if release_target(TargetSource.TS_SCORED, "escort recall"):
+				_state = AIState.SQUAD_FOLLOW
+				aircraft.ai_override_pursuit = false
+				_rejoining = true
+				_formation_blend = 0.0
+				aircraft.lod_level = 1
 
 	# ── 玩家命令铁律（spec rts-command §3）──
 	# 这架机带玩家显式攻击命令(aircraft.commanded_target)且目标存活 → 强制 ENGAGE 它，
@@ -796,6 +792,63 @@ func _physics_process_impl(delta: float) -> void:
 		AIState.SQUAD_FOLLOW:
 			SquadCoordination.process_squad_follow(self, delta)
 
+# ══════════════════════════════════════════════
+#  目标所有权仲裁（Phase 1 目标仲裁器，2026-07-04，重构计划 §5）
+# ══════════════════════════════════════════════
+## 四级优先级（大者胜）：commanded > directive > boss/swarm > scored。
+## 低优先级请求不得抢占/清除高优先级持有的**存活**目标——终结"谁后写谁赢"：
+## 此前 spawner/SwarmDirector/BOSS 的注释都在描述与 AIController 守卫的军备竞赛
+## （survivor_spawner ~1917 / swarm_director ~165 / poltergeist ~251），根因就是
+## 目标写入无来源标记。目标已死/失效 = 不再受保护（_target_holder_pri 自动降级）。
+enum TargetSource { TS_NONE = 0, TS_SCORED = 1, TS_BOSS = 2, TS_DIRECTIVE = 3, TS_COMMANDED = 4 }
+var _target_source: int = TargetSource.TS_NONE
+
+const _TS_NAMES := ["none", "SCORED", "BOSS", "DIRECTIVE", "COMMANDED"]
+
+
+## 当前持有优先级；目标死/失效即不再受保护
+func _target_holder_pri() -> int:
+	if _current_target == null or not is_instance_valid(_current_target) \
+			or _current_target.is_destroyed:
+		return TargetSource.TS_NONE
+	return _target_source
+
+
+## 设目标唯一入口：目标字段 + 来源记账 + 归因日志。
+## ⚠ 只管目标本身——状态切换/计时器/编队清理等副作用仍由调用方处理（Phase 2 再收口）。
+## 返回 false = 被更高优先级持有者拒绝，调用方应放弃本次指派（不要绕过直写！）。
+func acquire_target(tgt: CombatUnit, source: int, why: String = "") -> bool:
+	if tgt == null or not is_instance_valid(tgt) or tgt.is_destroyed:
+		return false
+	if tgt != _current_target and source < _target_holder_pri():
+		return false
+	var changed := tgt != _current_target
+	_current_target = tgt
+	if changed or source >= _target_source:
+		_target_source = source
+	aircraft.set_combat_target(tgt)
+	if changed and (aircraft.team == 0 or aircraft.selected):
+		EventLogger.log_event("TARGET_ACQ", _log_name(), "%s ← %s%s" % [
+			_log_target_name(tgt), _TS_NAMES[source],
+			(" (" + why + ")") if why != "" else ""])
+	return true
+
+
+## 清目标唯一入口：低优先级不得清除高优先级的存活目标。
+## 返回 false = 目标受更高优先级保护，调用方应跳过本次清理。
+func release_target(source: int, why: String = "") -> bool:
+	if source < _target_holder_pri():
+		return false
+	if _current_target != null and (aircraft.team == 0 or aircraft.selected):
+		EventLogger.log_event("TARGET_REL", _log_name(), "%s by %s%s" % [
+			_log_target_name(_current_target), _TS_NAMES[source],
+			(" (" + why + ")") if why != "" else ""])
+	_current_target = null
+	_target_source = TargetSource.TS_NONE
+	aircraft.clear_combat_target()
+	return true
+
+
 ## 玩家命令铁律执行：若本机带存活的 commanded_target，强制/维持对它 ENGAGE，返回 true。
 ## 命令目标为空/阵亡 → 清除 commanded_target 并返回 false（回正常 AI 目标选择）。
 func _enforce_commanded_target() -> bool:
@@ -816,8 +869,7 @@ func _enforce_commanded_target() -> bool:
 		return false
 	# 设置/维持对命令目标的交战（已在打它就只是空转一次比较）
 	if _current_target != cmd or _state != AIState.ENGAGE:
-		_current_target = cmd
-		aircraft.set_combat_target(cmd)
+		acquire_target(cmd, TargetSource.TS_COMMANDED, "iron rule")
 		aircraft.ai_override_pursuit = true
 		if _state != AIState.ENGAGE:
 			_state = AIState.ENGAGE
@@ -891,10 +943,9 @@ func _process_directive(_delta: float) -> void:
 		AIDirective.Type.ENGAGE_TARGET:
 			var t = d.params.get("target", null)
 			if is_instance_valid(t):
-				aircraft.combat_target = t
-				_current_target = t
-				_state = AIState.ENGAGE
-				aircraft.target_position = t.global_position
+				if acquire_target(t, TargetSource.TS_DIRECTIVE, "directive ENGAGE_TARGET"):
+					_state = AIState.ENGAGE
+					aircraft.target_position = t.global_position
 		AIDirective.Type.PASSIVE:
 			pass   # 啥也不做，飞机沿 waypoints 飞或保持 target_position
 
@@ -1074,7 +1125,8 @@ func _process_simple(delta: float) -> void:
 
 	# 巡逻：走航点 or 绕长机飞行
 	if not _current_target or not is_instance_valid(_current_target) or _current_target.is_destroyed:
-		_current_target = null
+		if _current_target != null:
+			release_target(TargetSource.TS_SCORED, "simple target invalid")
 
 		# ── SwarmDirector ATTACKER/SHOOTER/DECOY 跳过 orbit 分支 ──
 		# Director 已经把 _current_target 设过，但 _process_simple 顶部可能因 target 失效清零；
@@ -1148,14 +1200,16 @@ func _process_simple(delta: float) -> void:
 								if d < best_edist:
 									best_edist = d
 									best_enemy = unit
-						_current_target = best_enemy if best_enemy else null
+						if best_enemy:
+							acquire_target(best_enemy, TargetSource.TS_SCORED, "kamikaze nearest enemy")
+						else:
+							release_target(TargetSource.TS_SCORED, "kamikaze no enemy")
 
 					if _current_target and is_instance_valid(_current_target) and not _current_target.is_destroyed:
 						# 目标超出光环范围：放弃追击，返回轨道
 						var tgt_to_leader: float = _current_target.global_position.distance_to(leader.global_position)
 						if tgt_to_leader > SHIELD_ENGAGE_RANGE:
-							_current_target = null
-							aircraft.clear_combat_target()
+							release_target(TargetSource.TS_SCORED, "kamikaze target out of shield range")
 
 					if _current_target and is_instance_valid(_current_target) and not _current_target.is_destroyed:
 						# 飞向敌人（前置追踪）
@@ -1198,7 +1252,7 @@ func _process_simple(delta: float) -> void:
 								"self-destruct hit %s (dmg=%.0f)" % [_current_target.callsign, dmg])
 							# UAV 自毁（自身爆炸，无攻击者）
 							aircraft.take_damage(9999.0, null, "collision")
-							_current_target = null
+							release_target(TargetSource.TS_SCORED, "kamikaze self-destruct")
 							return
 						return  # 自爆机不走后续轨道逻辑
 			return
@@ -1258,13 +1312,12 @@ func _process_simple(delta: float) -> void:
 		var tgt_to_leader := _current_target.global_position.distance_to(leader_pos)
 		# 交战期间允许冲到光环边（ESCORT_ENGAGE_RADIUS=1500），脱离后才回 750 轨道
 		if self_to_leader > ESCORT_ENGAGE_RADIUS or tgt_to_leader > ESCORT_ENGAGE_RADIUS:
-			aircraft.clear_combat_target()
-			aircraft.ai_override_pursuit = false
-			_current_target = null
-			_engage_timer = 0.0
-			_simple_orbit_time = 0.0
-			_simple_confused = false
-			return
+			if release_target(TargetSource.TS_SCORED, "escort tether break"):
+				aircraft.ai_override_pursuit = false
+				_engage_timer = 0.0
+				_simple_orbit_time = 0.0
+				_simple_confused = false
+				return
 
 	# Hunter 判定：combat_zone 绑定的 simple_ai = boss/Sentinel 的 hunter UAV
 	# 全速 + 全前置 + 跳过发呆 + 宽放交战距离上限，给玩家持续压力
@@ -1279,14 +1332,13 @@ func _process_simple(delta: float) -> void:
 		max_range = (aircraft.effective_radar_range_px() * 1.5) if aircraft.params else 3000.0
 	_engage_timer += delta
 	if dist > max_range or _engage_timer > engage_duration:
-		aircraft.clear_combat_target()
-		aircraft.ai_override_pursuit = false
-		_current_target = null
-		_engage_timer = 0.0
-		_simple_orbit_time = 0.0
-		_simple_confused = false
-		_simple_orbit_threshold = randf_range(SIMPLE_ORBIT_THRESH_MIN, SIMPLE_ORBIT_THRESH_MAX)
-		return
+		if release_target(TargetSource.TS_SCORED, "simple disengage (range/timeout)"):
+			aircraft.ai_override_pursuit = false
+			_engage_timer = 0.0
+			_simple_orbit_time = 0.0
+			_simple_confused = false
+			_simple_orbit_threshold = randf_range(SIMPLE_ORBIT_THRESH_MIN, SIMPLE_ORBIT_THRESH_MAX)
+			return
 
 	aircraft.set_combat_target(_current_target)
 	aircraft.ai_override_pursuit = true
@@ -1483,9 +1535,9 @@ func _try_engage_in_tether_range() -> void:
 				best_dist = d
 				best = unit
 	if best:
-		_current_target = best
-		_engage_timer = 0.0
-		aircraft.orbit_speed_cap = 0.0  # 交战时解除轨道限速
+		if acquire_target(best, TargetSource.TS_SCORED, "tether-range engage"):
+			_engage_timer = 0.0
+			aircraft.orbit_speed_cap = 0.0  # 交战时解除轨道限速
 
 func _try_engage_simple() -> void:
 	var best: CombatUnit = null
@@ -1532,8 +1584,8 @@ func _try_engage_simple() -> void:
 			return  # 目标超出光环范围才不交战（与 CommanderAura.AURA_RADIUS 对齐）
 
 	if best and best_dist < detect_range:
-		_current_target = best
-		_engage_timer = 0.0
+		if acquire_target(best, TargetSource.TS_SCORED, "simple scan"):
+			_engage_timer = 0.0
 
 # ══════════════════════════════════════════════
 #  PATROL — 巡逻（保持原有逻辑）

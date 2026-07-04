@@ -162,21 +162,21 @@ func _assign(uav: Aircraft, role: int, lane_world: float) -> void:
 	ai.swarm_role_override = role
 	ai.swarm_lane_world_angle = lane_world
 
-	## 关键：非 GUARD/RESERVE 角色必须强设玩家为 _current_target，
-	## 否则 GUARD UAV 走 orbit 分支被 orbit_speed_cap 钳到 ~280km/h，
-	## SwarmDirector 派出的 ATTACKER 永远在原地慢慢转。
-	## 注：只在 target 实际变化时调 set_combat_target，避免每秒重置 is_firing 抖机炮 / lock_progress
+	## 经 acquire_target(TS_BOSS) 指派，优先级仲裁防抢写。
+	## 注：只在 target 实际变化时调 acquire（内部走 set_combat_target），
+	## 避免每秒重置 is_firing 抖机炮 / lock_progress
 	if role == Role.SHOOTER \
 			or role == Role.ATTACKER_N or role == Role.ATTACKER_E \
 			or role == Role.ATTACKER_S or role == Role.ATTACKER_W \
 			or role == Role.DECOY:
 		if _player_ref != null and is_instance_valid(_player_ref) and not _player_ref.is_destroyed:
-			ai._current_target = _player_ref
-			if uav != null:
-				if uav.combat_target != _player_ref:
-					uav.set_combat_target(_player_ref)
-				uav.ai_override_pursuit = true
-				uav.orbit_speed_cap = 0.0   ## 解除轨道限速
+			var already_on_target: bool = ai._current_target == _player_ref \
+					and uav != null and uav.combat_target == _player_ref
+			if already_on_target \
+					or ai.acquire_target(_player_ref, AIController.TargetSource.TS_BOSS, "swarm attacker/decoy"):
+				if uav != null:
+					uav.ai_override_pursuit = true
+					uav.orbit_speed_cap = 0.0   ## 解除轨道限速
 	elif role == Role.RESERVE:
 		## RESERVE 不主动追玩家，但也要解除 orbit_speed_cap 让它能去 reserve 站位
 		if uav != null:

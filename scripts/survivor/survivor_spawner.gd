@@ -1853,20 +1853,17 @@ func _update_hunters(delta: float) -> void:
 			var enemy := idle_enemies[i]
 			var ai := _get_ai(enemy)
 			if ai:
-				# 强制进入交战状态
-				ai._current_target = player_aircraft
-				enemy.set_combat_target(player_aircraft)
-				ai._state = AIController.AIState.ENGAGE if not ai.simple_ai else AIController.AIState.PATROL
-				ai._engage_timer = 0.0
-				ai._cooldown_timer = 0.0
-				if ai.simple_ai:
-					ai._current_target = player_aircraft
-				else:
-					ai._tactic = AIController.EngageTactic.LEAD_PURSUIT
-					ai._tactic_timer = 0.0
-					ai._tactic_min_duration = 0.5
-					ai._target_eval_timer = 0.0
-					enemy.ai_override_pursuit = true
+				# 强制进入交战状态（经 acquire_target(TS_BOSS) 指派，优先级仲裁防抢写）
+				if ai.acquire_target(player_aircraft, AIController.TargetSource.TS_BOSS, "hunter assign"):
+					ai._state = AIController.AIState.ENGAGE if not ai.simple_ai else AIController.AIState.PATROL
+					ai._engage_timer = 0.0
+					ai._cooldown_timer = 0.0
+					if not ai.simple_ai:
+						ai._tactic = AIController.EngageTactic.LEAD_PURSUIT
+						ai._tactic_timer = 0.0
+						ai._tactic_min_duration = 0.5
+						ai._target_eval_timer = 0.0
+						enemy.ai_override_pursuit = true
 
 ## 定期更新敌机巡逻航点，使其围绕玩家当前位置巡逻
 ## 边界纪律：防止敌人越界 + 玩家靠近边缘时敌人放弃攻击
@@ -1914,14 +1911,13 @@ func _update_boundary_discipline(_delta: float) -> void:
 			continue
 
 		# 敌人自身贴边 OR 玩家在警戒区：强制 disengage（清 AI 目标 / 状态 / 机动 flag）
-		# 仅覆盖 aircraft.combat_target 是不够的 —— AI 下一 tick 的 set_combat_target 会立刻覆盖回来
+		# 经 release_target(TS_BOSS) 清目标，优先级仲裁防抢写
 		if enemy_near_edge or player_near_edge:
-			ac.clear_combat_target()
-			ai._current_target = null
-			ai._state = AIController.AIState.PATROL
-			ai._tactic_timer = 0.0
-			ac.ai_override_pursuit = false
-			ac.target_position = inward_pt
+			if ai.release_target(AIController.TargetSource.TS_BOSS, "boundary discipline"):
+				ai._state = AIController.AIState.PATROL
+				ai._tactic_timer = 0.0
+				ac.ai_override_pursuit = false
+				ac.target_position = inward_pt
 		# 覆盖 waypoints，让 PATROL 分支朝内飞
 		ai.waypoints = PackedVector2Array([inward_pt])
 
