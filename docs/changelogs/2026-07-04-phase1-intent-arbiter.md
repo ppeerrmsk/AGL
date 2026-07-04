@@ -69,3 +69,26 @@ squad_coordination 三路、directive（TS_DIRECTIVE）、_process_simple 全家
 
 新增 `--bench=target_arb` 17 断言（四级抢占/拒绝/死亡降级/同目标重申不降级/release 对称）。
 回归门 **11 项全绿**（intent 14 / cmd_evade 25 / bfm_intent 89 / turn_physics 等全部通过）。
+
+---
+
+# 追加（同日）：修"机炮侧射"（僚机朝机头左 90° 开炮）
+
+## 诊断（log 230431 实证）
+`[230.9] Orbit: intent=TAIL_CHASE aim_vs_tgt=-61° aim_vs_nose=-74°`——机炮既不瞄机头
+也不瞄目标，瞄的是**战术追踪点**。三层根因：
+1. planner 机的 `_gun_lead_heading` 来自 `_apply_tactical_plan`，直接用 plan.pursuit_pos
+   方向（注释自认"Q1 机炮偏左"）；TAIL_CHASE 挂导弹模式时追踪点走 crank 几何 +
+   僚机侧向位，故意偏目标 60~90°。
+2. 有正确提前点+锥门的 auto_gun_scan 对 **AI 机**（非玩家）"有 combat_target 时整体
+   跳过"——玩家的机炮被修正，僚机的没有（分支覆盖漏洞）。
+3. update_gun 出弹方向 = _gun_lead_heading，无机头锥角检查。
+
+## 修复
+`_apply_tactical_plan` 机炮瞄准重写：瞄 **combat_target 的双迭代提前点**（与旧
+combat_tracking 同款公式；地面/船慢目标直接瞄）+ **固定机炮物理锥门**（提前点偏机头
+超过 `gun.fire_cone_half_angle` 不开火——真机机炮沿机身固定，不能侧射）。
+
+## 验收
+新增 `--bench=gun_aim` 6 断言（侧向追踪点不影响瞄准 / 锥外禁射 / 无目标沿机头）。
+回归门 **12 项全绿**。GUN_AIM 日志此后 aim_vs_tgt 应恒 ≈0（开火时）。

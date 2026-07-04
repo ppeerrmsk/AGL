@@ -1087,16 +1087,35 @@ func _apply_tactical_plan(plan: TacticalPlan) -> void:
 		_:
 			pass  # BOTH 保留
 
-	# 机炮：is_firing 由 plan 决定 + AI burst 节奏 gate（team != 0 才会节流）
-	is_firing = _ai_gun_burst_allowed(plan.allow_gun_fire, get_physics_process_delta_time())
-	# _gun_lead_heading：朝 pursuit_pos 方向（让 update_gun 朝那里出弹）
-	# ⚠ planner 的 pursuit_pos 不一定是真机炮 lead（LEAD_TURN/LAG_PURSUIT 等故意偏到目标侧后方），
-	# 用作机炮瞄准会导致子弹方向偏离目标 —— Q1"机炮偏左"诊断字段
-	if plan.pursuit_pos != Vector2.INF:
-		var to_pos: Vector2 = plan.pursuit_pos - global_position
-		_gun_lead_heading = atan2(to_pos.x, -to_pos.y)
+	# ── 机炮瞄准（2026-07-04 修"机炮侧射"）──
+	# 旧实现瞄 plan.pursuit_pos（战术追踪点）：导弹 crank / 僚机侧向位 / lag 等 intent 的
+	# 追踪点故意偏离目标，AI 僚机（auto_gun_scan 对非玩家有 combat_target 时整体跳过、
+	# 无人修正）就朝追踪点方向侧喷（log 实证 230431 [230.9] Orbit aim_vs_nose=-74°）。
+	# 现在：瞄 combat_target 的双迭代提前点（与旧 combat_tracking 路径同款公式）；
+	# 地面/船慢目标直接瞄；并补固定机炮物理锥门——瞄准方向偏机头超过
+	# gun.fire_cone_half_angle 不开火（真机机炮沿机身固定，不能侧射）。
+	var aim_ok := false
+	if combat_target != null and is_instance_valid(combat_target) and not combat_target.is_destroyed:
+		var to_tgt_v: Vector2 = combat_target.global_position - global_position
+		if combat_target is Aircraft and params and params.gun:
+			var tgt_ac_g: Aircraft = combat_target
+			var bullet_px: float = params.gun.muzzle_velocity * PIXELS_PER_METER
+			var tgt_fwd_v := Vector2(sin(tgt_ac_g.heading), -cos(tgt_ac_g.heading))
+			var tgt_spd_px: float = tgt_ac_g.speed * PIXELS_PER_METER
+			var t1_g: float = to_tgt_v.length() / maxf(bullet_px, 100.0)
+			var lead1_g: Vector2 = tgt_ac_g.global_position + tgt_fwd_v * tgt_spd_px * t1_g
+			var t2_g: float = global_position.distance_to(lead1_g) / maxf(bullet_px, 100.0)
+			var lead_v: Vector2 = tgt_ac_g.global_position + tgt_fwd_v * tgt_spd_px * t2_g - global_position
+			_gun_lead_heading = atan2(lead_v.x, -lead_v.y)
+		else:
+			_gun_lead_heading = atan2(to_tgt_v.x, -to_tgt_v.y)  # 地面/船：慢目标直接瞄
+		var cone_half: float = deg_to_rad(params.gun.fire_cone_half_angle) \
+				if (params and params.gun) else 0.26
+		aim_ok = absf(_angle_diff(_gun_lead_heading, heading)) <= cone_half
 	else:
 		_gun_lead_heading = heading
+	# is_firing：plan 允许 + 提前点在机头锥内 + AI burst 节奏 gate（team != 0 才节流）
+	is_firing = _ai_gun_burst_allowed(plan.allow_gun_fire and aim_ok, get_physics_process_delta_time())
 	if is_firing and (team == 0 or selected) \
 			and combat_target != null and is_instance_valid(combat_target) and not combat_target.is_destroyed:
 		var now_s: float = Time.get_ticks_msec() / 1000.0
