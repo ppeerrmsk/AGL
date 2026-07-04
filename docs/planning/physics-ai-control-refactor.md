@@ -181,6 +181,16 @@ known-seams + aircraft_formation 头部 bug 回溯地图 + specs/。
 
 ### Phase 1 · 控制意图收口（核心，风险：中）
 
+> **Step 1 已落地（2026-07-04）**：ControlIntent + Aircraft 意图槽（submit/withdraw/
+> _resolve_intents，按字段 sticky 仲裁）+ 首批迁移 planner/hard_brake/规避（三者同批，
+> 见下方实施设计）。验收 `--bench=intent` 14 断言 + 回归门 10 项全绿。
+> 关键实现事实：①`_update_evasion` 几何写有 use_tactical_preference 门（仅玩家），
+> 与 AI 的 process_evade 天然互斥 → 安全合并进同一 EVADE 槽；②BRAKE 桥接 pursuit
+> 用 25 特例优先级（压 TACTIC 让位 EVADE），与旧帧序精确等价；③AB 主张过
+> set_afterburner 守卫（冷却连关也挡，迁移前同语义）。
+> **剩余步骤**：BOSS/剧本/spawner 直写迁移（step 4）→ 旧 BFM/_process_simple（step 5）
+> → 目标仲裁器（`_current_target`/`combat_target` 40+ 写点收口）。
+
 引入 `ControlIntent`（或沿用/扩展 TacticalPlan 的形态）：
 
 ```

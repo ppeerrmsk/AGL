@@ -475,6 +475,11 @@ var charge_attack: bool = false
 ## 玩家右键长按急刹：油门归零 + 跳过失速安全余量，让飞机一路减速到失速坠落
 ## 期间保持航向（target_position = INF 让 update_bank 回正），加力强制关闭
 var hard_brake: bool = false
+
+# ── 控制意图仲裁（Phase 1，见 scripts/aircraft/control_intent.gd 顶注 + 重构计划 §5）──
+var _intent_slots: Dictionary = {}   ## source:int → ControlIntent（sticky slot，跨帧保持）
+var _intent_winner_sig: String = ""  ## 上次 resolve 胜者签名（变化才打 INTENT_RESOLVE）
+var _intent_log_cd: float = 0.0      ## INTENT_RESOLVE 日志节流
 var _evasion_override: bool = false             ## 玩家手动点击临时覆盖规避
 var _evasion_sway_timer: float = 0.0            ## S型机动计时器
 var _evade_roll_phase: float = 0.0              ## 规避原地滚转相位（弧度，绘制时叠加到 bank）
@@ -771,6 +776,7 @@ func _physics_process_impl(delta: float) -> void:
 		_run_tactical_planner_if_enabled()  # P4：LOD 2 也需 planner 写决策（每 3 帧一次）
 		AircraftWeapons.update_weapon_mode(self)
 		AircraftCombatTracking.update_combat(self, lod_delta)
+		_resolve_intents(lod_delta)  # Phase 1：决策后、物理前仲裁契约字段
 		AircraftPhysics.update_energy_management(self)
 		AircraftPhysics.update_target_heading(self)
 		AircraftPhysics.update_bank(self, lod_delta)
@@ -815,6 +821,7 @@ func _physics_process_impl(delta: float) -> void:
 		AircraftWeapons.update_weapon_mode(self)
 		if combat_target != null:
 			AircraftCombatTracking.update_combat(self, delta)
+		_resolve_intents(delta)  # Phase 1：决策后、物理前仲裁契约字段
 		if every3:
 			AircraftPhysics.update_energy_management(self)
 		AircraftPhysics.update_target_heading(self)
@@ -886,6 +893,7 @@ func _physics_process_impl(delta: float) -> void:
 	var _t_track: int = Time.get_ticks_usec()
 	AircraftCombatTracking.update_combat(self, delta)
 	PerfBuckets.tick("ac_phys.combat.track", Time.get_ticks_usec() - _t_track)
+	_resolve_intents(delta)  # Phase 1：决策系统全部跑完 → 仲裁契约字段 → 物理消费
 
 	var _t_kine: int = Time.get_ticks_usec()
 	AircraftPhysics.update_energy_management(self)
@@ -930,6 +938,88 @@ func _physics_process_impl(delta: float) -> void:
 	# LOD 0 非玩家非悬停：每 2 帧重绘一次，减半 _draw 开销
 	if selected or is_hovered or _lod_frame % 2 == 0:
 		queue_redraw()
+
+# ══════════════════════════════════════════════
+#  控制意图仲裁（Phase 1 Step 1）
+# ══════════════════════════════════════════════
+
+## 提交/替换一份控制意图（sticky：保持有效直到同源覆盖或 withdraw_intent）
+func submit_intent(source: int, ci: ControlIntent) -> void:
+	_intent_slots[source] = ci
+
+
+## 撤销某源的意图。进/出状态的生命周期必须对称调用（exit_evade / set_evasion_mode(false)）
+func withdraw_intent(source: int) -> void:
+	_intent_slots.erase(source)
+
+
+## 按字段仲裁并写入 target_* —— 每物理帧在决策系统（planner/evasion/combat）之后、
+## 物理链（update_target_heading 起）之前调用一次。pursuit/speed/AB 三个契约字段的
+## 写入权从"谁后写谁赢"收口到这里（重构计划 R1 根治起点）。
+## 未迁移的直写者（旧 BFM / _process_simple / EM / 编队 / BOSS）不受影响：
+## 无槽位主张的字段 resolve 不碰，直写值照常生效。
+func _resolve_intents(delta: float) -> void:
+	_intent_log_cd = maxf(_intent_log_cd - delta, 0.0)
+	# 急刹桥接：事件式布尔旗 → BRAKE 槽。速度/AB 满优先级压一切；pursuit 用 25 特例
+	# （压 TACTIC、让位 EVADE 蛇形几何——与迁移前帧序行为精确等价）。
+	# update_speed 的急刹分支自算失速软地板，不消费这里的速度意图值（仅保持字段语义一致）。
+	if hard_brake:
+		var b := ControlIntent.new()
+		b.clear_pursuit = true
+		b.pursuit_pri = 25
+		b.target_speed_kmh = 0.0
+		b.afterburner = 0
+		_intent_slots[ControlIntent.SOURCE_BRAKE] = b
+	else:
+		_intent_slots.erase(ControlIntent.SOURCE_BRAKE)
+
+	if _intent_slots.is_empty():
+		return
+	var win_p := -1
+	var win_s := -1
+	var win_a := -1
+	var pri_p := -1
+	var pri_s := -1
+	var pri_a := -1
+	for src in _intent_slots:
+		var ci: ControlIntent = _intent_slots[src]
+		var pr: int = ControlIntent.PRIORITY[src]
+		if ci.pursuit_pos != Vector2.INF or ci.clear_pursuit:
+			var ppr: int = ci.pursuit_pri if ci.pursuit_pri >= 0 else pr
+			if ppr > pri_p:
+				pri_p = ppr
+				win_p = src
+		if ci.target_speed_kmh >= 0.0 and pr > pri_s:
+			pri_s = pr
+			win_s = src
+		if ci.afterburner >= 0 and pr > pri_a:
+			pri_a = pr
+			win_a = src
+	if win_p >= 0:
+		var cw: ControlIntent = _intent_slots[win_p]
+		target_position = Vector2.INF if cw.clear_pursuit else cw.pursuit_pos
+	if win_s >= 0:
+		target_speed_kmh = _intent_slots[win_s].target_speed_kmh
+	if win_a >= 0:
+		AircraftPhysics.set_afterburner(self, _intent_slots[win_a].afterburner == 1)
+	# 可解释性：胜者集合变化时打一行（"飞机为什么这么飞"从翻代码变成看日志）
+	if team == 0 or selected:
+		var sig := "p%d/s%d/a%d" % [win_p, win_s, win_a]
+		if sig != _intent_winner_sig and _intent_log_cd <= 0.0:
+			_intent_winner_sig = sig
+			_intent_log_cd = 0.5
+			EventLogger.log_event("INTENT_RESOLVE", _log_name(),
+				"pursuit=%s speed=%s ab=%s" % [
+					_intent_src_name(win_p), _intent_src_name(win_s), _intent_src_name(win_a)])
+
+
+static func _intent_src_name(src: int) -> String:
+	match src:
+		ControlIntent.SOURCE_TACTIC: return "TACTIC"
+		ControlIntent.SOURCE_EVADE: return "EVADE"
+		ControlIntent.SOURCE_BRAKE: return "BRAKE"
+	return "none"
+
 
 ## P1：TacticalPlanner 入口。建态势 → 决策 → 应用。
 ## 仅在 use_tactical_planner=true 时跑，不影响默认旧路径。
@@ -977,17 +1067,15 @@ func _run_tactical_planner_if_enabled() -> void:
 ## 把 plan 输出写到 Aircraft 字段，供后续物理/武器子系统消费。
 ## ⚠ 这是 plan 唯一接触 Aircraft 状态的位置，便于追溯"为什么这帧 target_speed 是这个值"
 func _apply_tactical_plan(plan: TacticalPlan) -> void:
-	# CRUISE / EVADE 等不写 target_position（保留 INF 让 _update_evasion 自己控制）
-	if plan.pursuit_pos != Vector2.INF:
-		target_position = plan.pursuit_pos
-	target_speed_kmh = plan.target_speed_kmh
-	AircraftPhysics.set_afterburner(self, plan.afterburner)
-
-	# 玩家右键长按急刹：planner 写完立即覆盖 —— 不让 CRUISE/PURSUIT 的目标速度复活油门
-	if hard_brake:
-		target_speed_kmh = 0.0
-		AircraftPhysics.set_afterburner(self, false)
-		target_position = Vector2.INF  # 保持当前航向（update_bank 看到 INF 会回正）
+	# Phase 1：pursuit/speed/AB 三个契约字段改走意图仲裁（_resolve_intents 在决策系统
+	# 跑完后统一写入）。pursuit=INF 即"不主张"，语义同旧"CRUISE/EVADE 不写、保留给
+	# _update_evasion 控制"；急刹覆盖由 resolve 的 BRAKE 槽承担（速度/AB 满优先级、
+	# pursuit=25 让位 EVADE 几何，与旧帧序精确等价）。weapon/gun/高度仍直写（后批迁移）。
+	var ci := ControlIntent.new()
+	ci.pursuit_pos = plan.pursuit_pos
+	ci.target_speed_kmh = plan.target_speed_kmh
+	ci.afterburner = 1 if plan.afterburner else 0
+	submit_intent(ControlIntent.SOURCE_TACTIC, ci)
 
 	# 武器模式
 	# NONE 显式重置为 GUN（防止 weapon_mode 残留 MISSILE 让 salvo 路径在 CRUISE/EVADE 期间走漏发射）
@@ -1562,6 +1650,9 @@ func set_evasion_mode(enabled: bool) -> void:
 		clear_combat_target()
 		target_position = Vector2.INF
 		_evasion_override = false
+	else:
+		# Phase 1：撤销规避几何主张（sticky 槽必须显式撤，否则 S 型/break 点残留压过 planner）
+		withdraw_intent(ControlIntent.SOURCE_EVADE)
 	# 关闭时不动作，玩家可手动指定新目标
 
 	# ── 玩家专属：把规避模式同步给僚机（散开自保） ──
@@ -1851,7 +1942,10 @@ func _tick_aura_accumulator(accum_dict: Dictionary,
 		var diff_a := absf(angle_difference(heading, evade_heading_a))
 		var diff_b := absf(angle_difference(heading, evade_heading_b))
 		var chosen_dir := evade_dir if diff_a < diff_b else -evade_dir
-		target_position = global_position + chosen_dir * 2000.0
+		# Phase 1：规避几何走 EVADE 意图槽（优先级压 TACTIC，与旧"③晚于①直写"帧序等价）
+		var ci_ev := ControlIntent.new()
+		ci_ev.pursuit_pos = global_position + chosen_dir * 2000.0
+		submit_intent(ControlIntent.SOURCE_EVADE, ci_ev)
 		# 高度规避：切换档位
 		if flat_altitude:
 			if get_altitude_tier() == AltitudeTier.LOW:
@@ -1865,7 +1959,9 @@ func _tick_aura_accumulator(accum_dict: Dictionary,
 		var sway_period := 3.0
 		var sway_angle := sin(_evasion_sway_timer * TAU / sway_period) * 0.8
 		var sway_heading := heading + sway_angle
-		target_position = global_position + Vector2(sin(sway_heading), -cos(sway_heading)) * 1500.0
+		var ci_sw := ControlIntent.new()
+		ci_sw.pursuit_pos = global_position + Vector2(sin(sway_heading), -cos(sway_heading)) * 1500.0
+		submit_intent(ControlIntent.SOURCE_EVADE, ci_sw)
 
 ## 节流记录导弹发射被阻塞的原因（每 MSL_BLOCK_LOG_INTERVAL 最多一次）
 ## 同一 reason 连续触发时不重复记录，直到 reason 改变或间隔到期

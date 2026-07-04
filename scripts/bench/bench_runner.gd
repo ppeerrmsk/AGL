@@ -40,6 +40,7 @@ const UNIT_TESTS: Dictionary = {
 	"target_sel": "res://scripts/tests/test_target_selection.gd",
 	"cmd_evade": "res://scripts/tests/test_commanded_evade.gd",
 	"hard_brake": "res://scripts/tests/test_hard_brake.gd",
+	"intent": "res://scripts/tests/test_intent_arbiter.gd",
 	"bfm_intent": "res://scripts/tests/test_bfm_intent.gd",
 }
 

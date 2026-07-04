@@ -70,13 +70,11 @@ static func process_evade(ai: AIController, delta: float) -> void:
 		var missile_dist := missile.global_position.distance_to(ai.aircraft.global_position)
 		if missile_dist < AIController.MANEUVER_ACTIVATE_DIST and is_missile_from_rear(ai, missile):
 			_mev.activate()
-			var fwd := Vector2(sin(ai.aircraft.heading), -cos(ai.aircraft.heading))
-			ai.aircraft.target_position = ai.aircraft.global_position + fwd * AIController.EVADE_FLIGHT_DIST
+			_submit_evade_pursuit(ai, _forward_point(ai, AIController.EVADE_FLIGHT_DIST))
 			return
 	# 战术机动执行中：保持航向等待完成
 	if _mev and _mev.is_active:
-		var fwd := Vector2(sin(ai.aircraft.heading), -cos(ai.aircraft.heading))
-		ai.aircraft.target_position = ai.aircraft.global_position + fwd * AIController.EVADE_FLIGHT_DIST
+		_submit_evade_pursuit(ai, _forward_point(ai, AIController.EVADE_FLIGHT_DIST))
 		return
 
 	var missile_dir := (ai.aircraft.global_position - missile.global_position).normalized()
@@ -95,7 +93,9 @@ static func process_evade(ai: AIController, delta: float) -> void:
 	chosen_dir = ai._evade_committed_dir
 
 	ai._evade_target_pos = ai.aircraft.global_position + chosen_dir * AIController.EVADE_TURN_DIST
-	ai.aircraft.target_position = ai._evade_target_pos
+	# Phase 1：AI 规避几何走 EVADE 意图槽（sticky：AI 分频写、60Hz resolve 读，
+	# 且不再会被 planner 的 CRUISE/WAYPOINT 意外覆盖——慢写快读死点根治）
+	_submit_evade_pursuit(ai, ai._evade_target_pos)
 
 	if ai.aircraft.combat_target:
 		ai.aircraft.clear_combat_target()
@@ -136,8 +136,23 @@ static func enter_evade(ai: AIController) -> void:
 	ai.aircraft.clear_formation()
 	ai._formation_blend = 0.0  # 规避结束后从 0 开始重新融入编队
 
+## EVADE 槽提交 helper（process_evade 三个几何分支共用）
+static func _submit_evade_pursuit(ai: AIController, pos: Vector2) -> void:
+	var ci := ControlIntent.new()
+	ci.pursuit_pos = pos
+	ai.aircraft.submit_intent(ControlIntent.SOURCE_EVADE, ci)
+
+
+## 机头前方 dist px 的点（机动期间"保持航向"用）
+static func _forward_point(ai: AIController, dist: float) -> Vector2:
+	var fwd := Vector2(sin(ai.aircraft.heading), -cos(ai.aircraft.heading))
+	return ai.aircraft.global_position + fwd * dist
+
+
 static func exit_evade(ai: AIController) -> void:
 	EventLogger.log_event("EVADE", ai._log_name(), "exiting missile evasion")
+	# Phase 1：撤销规避几何主张（sticky 槽生命周期与 EVADE 状态对称）
+	ai.aircraft.withdraw_intent(ControlIntent.SOURCE_EVADE)
 	# P4：清 evasion_mode 让 planner 回到正常 intent 路径（走入口，同 enter 对称）
 	if ai.aircraft.use_tactical_planner:
 		ai.aircraft.set_evasion_mode(false)

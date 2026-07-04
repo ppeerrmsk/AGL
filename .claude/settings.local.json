@@ -244,7 +244,8 @@
       "Bash(awk -F'[][]' 'NR<=3161' logs/combat_log_20260703_184619.txt)",
       "Bash(\"/c/Users/noelu/Downloads/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64_console.exe\" --headless --path . -- --bench=hard_brake)",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(\"/c/Users/noelu/Downloads/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64_console.exe\" --headless --path . -- --bench=intent)"
     ]
   },
   "hooks": {
