@@ -195,7 +195,8 @@ func _test_crank_no_side_flip() -> void:
 ## 构造一个"机炮模式、距离在枪程内、无导弹包络"的 Situation
 func _make_gun_situation(aim_align: float) -> Situation:
 	var s := Situation.new()
-	s.missiles = 0                 # 无导弹 → 走机炮兜底分支
+	s.missiles = 0                 # 无导弹 → 竞选出机炮
+	s.ammo = 500                   # 机炮就绪（武器竞选制的弹药门，2026-07-04）
 	s.dist_m = 500.0               # 在枪程(1000m)内、>60m
 	s.gun_range_m = 1000.0
 	s.missile_min_range_m = 500.0

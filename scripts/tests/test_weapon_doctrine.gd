@@ -11,6 +11,7 @@ func run() -> void:
 	print("\n════════ 武器竞选器（weapon-employment-doctrine §2.2） ════════")
 	_test_pure_select()
 	_test_dynamic_candidates()
+	_test_planner_integration()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
 
@@ -41,6 +42,11 @@ func _test_pure_select() -> void:
 	r = WeaponSelector.select(all_cd, 800.0)
 	_check("全 CD → 空手 + 导弹纪律等待", r.kind == "" and r.wait_doctrine == "missile",
 			"不再机炮硬兜底，crank 保锁等 CD")
+	# 4b. 纯机炮机带外逼近：≠失格，按机炮纪律收距离（CLOSE_TAIL 语义不破坏）
+	var gun_only := [{"kind": "gun", "band_min": 60.0, "band_max": 1000.0, "ready": true}]
+	r = WeaponSelector.select(gun_only, 1500.0)
+	_check("机炮机带外=按机炮纪律逼近", r.kind == "" and r.wait_doctrine == "gun",
+			"就绪但未进带 → 逼近，不是等待")
 	# 5. 滞回：上任 missile 仍合格且保持 <1.5s → 不切 railgun
 	r = WeaponSelector.select(cands, 5000.0, "missile", 0.5)
 	_check("滞回期内不换武器", r.kind == "missile", "hold 0.5s < 1.5s")
@@ -82,6 +88,77 @@ func _test_dynamic_candidates() -> void:
 	_check("弹尽失格", r.kind == "", "")
 
 	ac.free()
+
+
+func _test_planner_integration() -> void:
+	print("── 阶段2：planner 消费竞选（_apply_combat_weapon）──")
+	# 电磁炮机 5000m（railgun+missile 带重叠）→ 竞选出电磁炮，机动按导弹纪律 crank（阶段2 过渡）
+	var s := Situation.new_for_test({
+		"has_target": true,
+		"my_pos": Vector2.ZERO, "tgt_pos": Vector2(0, -2500),  # 5000m（PPM=0.5）
+		"my_heading": 0.0, "tgt_heading": 0.0,
+		"missiles": 4, "ammo": 500,
+		"railgun_band_min_m": 2500.0, "railgun_band_max_m": 8000.0, "railgun_ready": true,
+	})
+	var p := TacticalPlan.new()
+	p.pursuit_pos = s.tgt_pos
+	BfmIntent._apply_combat_weapon(s, p)
+	_check("5000m 电磁炮胜出", p.primary_weapon == "railgun", "命中率 100 > 导弹 70")
+	_check("电磁炮按导弹纪律 crank", p.weapon_mode == TacticalPlan.WeaponMode.MISSILE,
+			"阶段2 过渡；LINE_UP intent 在阶段3")
+
+	# 无电磁炮 5000m → 导弹（与旧行为一致）
+	var s2 := Situation.new_for_test({
+		"has_target": true, "my_pos": Vector2.ZERO, "tgt_pos": Vector2(0, -2500),
+		"my_heading": 0.0, "tgt_heading": 0.0, "missiles": 4, "ammo": 500,
+	})
+	var p2 := TacticalPlan.new(); p2.pursuit_pos = s2.tgt_pos
+	BfmIntent._apply_combat_weapon(s2, p2)
+	_check("普通机 5000m=导弹", p2.primary_weapon == "missile" \
+			and p2.weapon_mode == TacticalPlan.WeaponMode.MISSILE and p2.allow_missile_fire, "")
+
+	# 弹尽 800m → 机炮（涌现，与旧兜底同结果）
+	var s3 := Situation.new_for_test({
+		"has_target": true, "my_pos": Vector2.ZERO, "tgt_pos": Vector2(0, -400),  # 800m
+		"my_heading": 0.0, "tgt_heading": 0.0, "missiles": 0, "ammo": 500,
+	})
+	var p3 := TacticalPlan.new(); p3.pursuit_pos = s3.tgt_pos
+	BfmIntent._apply_combat_weapon(s3, p3)
+	_check("弹尽近距=机炮", p3.primary_weapon == "gun" \
+			and p3.weapon_mode == TacticalPlan.WeaponMode.GUN and p3.allow_gun_fire, "")
+
+	# 真·全失格（弹全尽）→ 维持追击 + 导弹纪律等待、武器静默（定稿 4b）
+	var s4 := Situation.new_for_test({
+		"has_target": true, "my_pos": Vector2.ZERO, "tgt_pos": Vector2(0, -1500),  # 3000m
+		"my_heading": 0.0, "tgt_heading": 0.0, "missiles": 0, "ammo": 0,
+	})
+	var p4 := TacticalPlan.new(); p4.pursuit_pos = s4.tgt_pos
+	BfmIntent._apply_combat_weapon(s4, p4)
+	_check("全失格=导弹纪律等待", p4.primary_weapon == "" \
+			and p4.weapon_mode == TacticalPlan.WeaponMode.MISSILE \
+			and not p4.allow_gun_fire and not p4.allow_missile_fire,
+			"弹全尽 → crank 等待")
+
+	# 有弹机炮机带外（3000m）→ 按机炮纪律逼近（≠失格，CLOSE_TAIL 语义保留）
+	var s4b := Situation.new_for_test({
+		"has_target": true, "my_pos": Vector2.ZERO, "tgt_pos": Vector2(0, -1500),
+		"my_heading": 0.0, "tgt_heading": 0.0, "missiles": 0, "ammo": 500,
+	})
+	var p4b := TacticalPlan.new(); p4b.pursuit_pos = s4b.tgt_pos
+	BfmIntent._apply_combat_weapon(s4b, p4b)
+	_check("机炮机带外=机炮纪律逼近", p4b.primary_weapon == "" \
+			and p4b.weapon_mode == TacticalPlan.WeaponMode.GUN and not p4b.allow_gun_fire,
+			"逼近收距离，进带后自然开火")
+
+	# 玩家强制机炮覆盖竞选（现行为保留）
+	var s5 := Situation.new_for_test({
+		"has_target": true, "my_pos": Vector2.ZERO, "tgt_pos": Vector2(0, -400),
+		"my_heading": 0.0, "tgt_heading": 0.0, "missiles": 4, "ammo": 500,
+		"weapon_lock": Situation.WEAPON_LOCK_FORCE_GUN,
+	})
+	var p5 := TacticalPlan.new(); p5.pursuit_pos = s5.tgt_pos
+	BfmIntent._apply_combat_weapon(s5, p5)
+	_check("玩家锁机炮压过竞选", p5.weapon_mode == TacticalPlan.WeaponMode.GUN, "")
 
 
 func _check(name: String, got: bool, note: String) -> void:

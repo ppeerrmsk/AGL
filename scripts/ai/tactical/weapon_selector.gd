@@ -42,7 +42,22 @@ static func select(candidates: Array, dist_m: float, prev_kind: String = "",
 			best_band_max = bmax
 			best_kind = kind
 	if best_kind == "":
-		return {"kind": "", "wait_doctrine": "missile"}
+		# 无带内候选 ≠ 全失格：区分"逼近中"与"全 CD/弹尽"。
+		# 有就绪武器但距离还没进它的带（band_max < dist）→ 按其中命中率最高者的纪律
+		# **逼近收距离**（纯机炮机保持机炮几何压向 gun 带——CLOSE_TAIL 语义不破坏）；
+		# 真·没有任何就绪武器 → 导弹纪律 crank 等待（用户定稿 4b）。
+		var wait := "missile"
+		var wait_pri := -1
+		for c in candidates:
+			if not bool(c.get("ready", false)):
+				continue
+			if float(c.get("band_max", 0.0)) < dist_m:
+				var k: String = String(c.get("kind", ""))
+				var pri: int = int(HIT_PRI.get(k, 0))
+				if pri > wait_pri:
+					wait_pri = pri
+					wait = k
+		return {"kind": "", "wait_doctrine": wait}
 	# 滞回：上任胜者仍合格且保持未满 SWITCH_HOLD_S → 不换（防带边界抖动）
 	if prev_kind != "" and prev_kind != best_kind and prev_still_valid \
 			and prev_hold_s < SWITCH_HOLD_S:

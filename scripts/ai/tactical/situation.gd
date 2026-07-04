@@ -66,6 +66,13 @@ var gun_range_m: float = 1000.0
 var missile_max_range_m: float = 8000.0
 var missile_min_range_m: float = 500.0
 
+# ── 武器竞选（spec weapon-employment-doctrine 阶段2）──
+var railgun_ready: bool = false          ## 电磁炮冷却就绪
+var railgun_band_min_m: float = 0.0      ## 电磁炮最近射程（live）
+var railgun_band_max_m: float = -1.0     ## 电磁炮最远射程 = 本机雷达距离（live）；<0 = 未装备
+var primary_weapon_prev: String = ""     ## 上次竞选胜者（滞回输入，来自 Aircraft 状态）
+var primary_weapon_hold_s: float = 999.0 ## 上次胜者已保持秒数
+
 # ── 飞行性能（米/秒，由 params 注入）──
 var max_speed_kmh: float = 2100.0
 var cruise_speed_kmh: float = 900.0
@@ -136,6 +143,18 @@ static func from_aircraft(ac) -> Situation:
 		if ac.params.missile:
 			s.missile_max_range_m = ac.params.missile.max_range_rear
 			s.missile_min_range_m = ac.params.missile.min_range
+		# 电磁炮竞选输入（spec weapon-employment-doctrine：距离带实时读 live 参数，
+		# 升级/强化即时生效——禁止烘焙常量）
+		var _rg = ac.params.get_equipment_of_kind("railgun")
+		if _rg != null:
+			s.railgun_band_min_m = _rg.min_engage_range_m
+			s.railgun_band_max_m = _rg._effective_max_range_m(ac)
+			var _rgs = ac.equipment_state.get("railgun", null)
+			s.railgun_ready = _rgs == null or float(_rgs.get("cooldown", 0.0)) <= 0.0
+
+	# 武器竞选滞回状态（住 Aircraft，_apply_tactical_plan 回写）
+	s.primary_weapon_prev = ac._primary_weapon_kind
+	s.primary_weapon_hold_s = ac._primary_weapon_hold_s
 
 	# 时序状态（防抖动用）
 	s.current_time = Time.get_ticks_msec() / 1000.0
@@ -228,6 +247,9 @@ static func from_aircraft(ac) -> Situation:
 ## 测试用：直接传字段构造，不需要 Aircraft 实例
 static func new_for_test(d: Dictionary) -> Situation:
 	var s := Situation.new()
+	# 测试默认给足机炮弹药（游戏内 from_aircraft 恒有真实值；旧武器决策不读 ammo，
+	# 存量测试夹具从不设它——武器竞选制引入 ammo 就绪门后补此默认，夹具可显式覆盖）
+	s.ammo = 500
 	for k in d:
 		s.set(k, d[k])
 	s._recompute()

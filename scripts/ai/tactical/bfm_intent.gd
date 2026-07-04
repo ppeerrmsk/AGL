@@ -464,16 +464,48 @@ static func _apply_combat_weapon(s: Situation, p: TacticalPlan) -> void:
 		p.allow_missile_fire = in_msl_envelope
 		return
 
-	# 自动（默认 PREFER_MISSILE）
-	if in_msl_envelope:
-		p.weapon_mode = TacticalPlan.WeaponMode.MISSILE
-		p.allow_gun_fire = false  # 不并发，专注导弹锁
-		p.allow_missile_fire = true
-	else:
-		# 导弹包络外（弹药 0 / 距离不在 min~max）→ 机炮兜底
-		p.weapon_mode = TacticalPlan.WeaponMode.GUN
-		p.allow_gun_fire = gun_in_cone and in_gun_envelope
-		p.allow_missile_fire = false
+	# ── 自动：武器竞选（spec weapon-employment-doctrine §2.2，2026-07-04 用户定稿）──
+	# 候选距离带来自 Situation 的 live params 注入（升级即时生效）；重叠区命中率优先
+	# （railgun 必中 100 > missile 70 > gun 50）；1.5s 滞回防带边界抖动换武器。
+	# 火箭弹暂不参与竞选（保持机会射击，阶段 3 评估）；副导弹/激光为被动武器不竞选。
+	var cands: Array = []
+	if s.railgun_band_max_m > 0.0:
+		cands.append({"kind": "railgun", "band_min": s.railgun_band_min_m,
+				"band_max": s.railgun_band_max_m, "ready": s.railgun_ready})
+	cands.append({"kind": "missile", "band_min": s.missile_min_range_m,
+			"band_max": s.missile_max_range_m * 1.1, "ready": s.missiles > 0})
+	cands.append({"kind": "gun", "band_min": 60.0, "band_max": s.gun_range_m,
+			"ready": s.ammo > 0})
+	var sel := WeaponSelector.select(cands, s.dist_m, s.primary_weapon_prev, s.primary_weapon_hold_s)
+	p.primary_weapon = String(sel["kind"])
+	match p.primary_weapon:
+		"missile":
+			p.weapon_mode = TacticalPlan.WeaponMode.MISSILE
+			p.allow_gun_fire = false  # 不并发，专注导弹锁
+			p.allow_missile_fire = in_msl_envelope
+		"gun":
+			p.weapon_mode = TacticalPlan.WeaponMode.GUN
+			p.allow_gun_fire = gun_in_cone and in_gun_envelope
+			p.allow_missile_fire = false
+		"railgun":
+			# 阶段2 过渡：LINE_UP intent 在阶段3 落地。先按导弹纪律 crank 保锁——
+			# 电磁炮射程 = 本机雷达距离，crank 维持锁定的几何对它同样有效；发射时机
+			# 暂仍由 RailgunEquipment 状态机自理。导弹包络内允许并射（现状不变）。
+			p.weapon_mode = TacticalPlan.WeaponMode.MISSILE
+			p.allow_gun_fire = false
+			p.allow_missile_fire = in_msl_envelope
+		_:
+			# 无带内候选：wait_doctrine 区分两种情况——
+			# "gun" = 有弹的机炮机在带外逼近 → 保持机炮几何收距离（CLOSE_TAIL 语义）；
+			# 其余（含 railgun 逼近 = crank 保锁同效）= 导弹纪律 crank 等待（用户定稿 4b）
+			# ——不再"机炮硬兜底"；各武器由自己的弹药/CD 门自然静默
+			if String(sel.get("wait_doctrine", "missile")) == "gun":
+				p.weapon_mode = TacticalPlan.WeaponMode.GUN
+				p.allow_gun_fire = gun_in_cone and in_gun_envelope  # 带外恒 false，纯逼近
+			else:
+				p.weapon_mode = TacticalPlan.WeaponMode.MISSILE
+				p.allow_gun_fire = false
+			p.allow_missile_fire = false
 
 # ══════════════════════════════════════════════
 #  辅助

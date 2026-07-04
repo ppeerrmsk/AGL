@@ -41,6 +41,7 @@ var afterburner: bool = false                  ## physics 调 set_afterburner
 var weapon_mode: int = WeaponMode.NONE         ## weapons 据此选模式
 var allow_gun_fire: bool = false               ## 火控允许开火
 var allow_missile_fire: bool = false           ## 火控允许发射导弹
+var primary_weapon: String = ""                ## 武器竞选胜者（spec weapon-employment-doctrine；""=全失格/无战斗）
 var target_altitude_m: float = -1.0            ## -1 = 保持，否则覆写 target_altitude
 var target_altitude_tier: int = -1             ## -1 = 保持，否则覆写 target_altitude_tier
 

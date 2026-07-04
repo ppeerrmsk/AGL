@@ -111,6 +111,10 @@ var ammo: int = 500
 var _auto_gun_scan_timer: float = 0.0
 var _fire_cooldown: float = 0.0
 var _gun_lead_heading: float = 0.0  ## 前置射击方向（由 _update_combat 计算）
+# ── 武器竞选滞回状态（spec weapon-employment-doctrine §2.2；planner 经 Situation 读、
+#    _apply_tactical_plan 回写；1.5s 滞回在 WeaponSelector.select 内判定）──
+var _primary_weapon_kind: String = ""      ## 当前竞选胜者（""=无战斗/全失格）
+var _primary_weapon_hold_s: float = 999.0  ## 胜者已保持秒数（初值大 → 首次竞选立即生效）
 ## 敌方 AI 机炮 burst-pause 节奏：连续射击 AI_GUN_BURST_DURATION 秒后强制 AI_GUN_PAUSE_DURATION 秒不开火，
 ## 给玩家挣脱尾追的窗口。仅 team != 0 生效，玩家/玩家僚机不受限。
 const AI_GUN_BURST_DURATION: float = 2.5
@@ -1076,6 +1080,14 @@ func _apply_tactical_plan(plan: TacticalPlan) -> void:
 	ci.target_speed_kmh = plan.target_speed_kmh
 	ci.afterburner = 1 if plan.afterburner else 0
 	submit_intent(ControlIntent.SOURCE_TACTIC, ci)
+
+	# 武器竞选滞回状态回写（spec weapon-employment-doctrine：胜者不变累计保持时长，
+	# 变化即归零——WeaponSelector 用它实现 1.5s 防抖）
+	if plan.primary_weapon == _primary_weapon_kind:
+		_primary_weapon_hold_s += get_physics_process_delta_time()
+	else:
+		_primary_weapon_kind = plan.primary_weapon
+		_primary_weapon_hold_s = 0.0
 
 	# 武器模式
 	# NONE 显式重置为 GUN（防止 weapon_mode 残留 MISSILE 让 salvo 路径在 CRUISE/EVADE 期间走漏发射）
