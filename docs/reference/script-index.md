@@ -83,6 +83,9 @@
 | `survivor/evolution_tree_view.gd` | `EvolutionTreeView extends Control` | [生存] 机体进化树视图（皇牌空战式自下而上；亮=可进化/灰=等级未到/金=爬线历史/**剪影？？？=从未拥有**；数据驱动 _draw） | `setup(all_nodes, current, history, team_level)` `_is_revealed(id)` signal `node_selected(id)` `interactive` |
 | `survivor/aircraft_codex.gd` | `AircraftCodex extends RefCounted` | [生存/局外] 机体图鉴（user://aircraft_codex.cfg，跨局持久）：拥有过=永久揭示树迷雾；低频写盘 | `is_discovered(id)` `mark_discovered(id)` |
 | `tests/test_evolution_tree.gd` | SceneTree 脚本 | [测试] 进化树完整性冒烟（--script 运行）：JSON 解析/档案加载/出口无悬空/≥3 选/i18n key | `_initialize` |
+| `ugc/contour_baker.gd` | `ContourBaker extends RefCounted` | [UGC] 涂格位图→平滑多边形烘焙（spec map-editor §3.1）：边界追踪(含孔洞/鞍点右转)→DP 抽稀(0.4×格)→Chaikin×2(与 MapGeography 同数学)；逆向栅格化供官方图转换 | `bake_layer(cells,w,h,cell_size,origin)` `rasterize_polygons` `chaikin_closed` `simplify_closed` |
+| `ugc/map_document.gd` | `MapDocument extends RefCounted` | [UGC] 地图文档数据层（spec map-editor §2.3/§2.4）：schema 读写/围栏钳制/style 调色板默认=官方现值/layer_dirty 懒烘焙/撤销栈 50/过新 schema 拒载 | `save_to(path)` `load_from(path)` `from_json_dict` `push_undo` `undo` `mark_dirty_and_rebake(layer)` |
+| `tests/test_map_editor_core.gd` | SceneTree 脚本 | [测试] 地图编辑器阶段1核心冒烟（--script 运行）：Chaikin对拍/烘焙几何/孔洞/栅格化往返/存读闭环/围栏/撤销 7 组 | `_initialize` |
 | `survivor/survivor_select.gd` | 生存模式机型选择界面 | [生存] 4 槽 PlayableAircraft 卡片（F-16/F-14 解锁 + 2 占位）；ESC 在 boss debug 路径里跳回 boss_debug_select | `PLAYABLE_LIST:21` `_build_aircraft_card:157` `_on_aircraft_selected` |
 | `survivor/survivor_map_select.gd` | 生存模式地图选择界面 | [生存] 5 槽地图卡片（1 解锁 + 4 占位）；ESC→主菜单；**B → boss_debug_select** | `MAP_LIST:18` `_build_map_card` `_on_map_selected` |
 | `survivor/boss_debug_select.gd` | Boss Debug — BOSS 选择界面 | [生存/Debug] 列出可测试 BOSS（与 BossRegistry.BOSS_DEFS 同步），选中 → set_meta(boss_debug_mode/_id) → survivor_select；空白无地图渲染 + 自动 15 级 + 主题化随机 build + 进场即 PRE_STAGE | `BOSS_LIST:18` `_build_boss_card` `_on_boss_selected` |

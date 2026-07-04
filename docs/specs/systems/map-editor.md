@@ -244,8 +244,8 @@ editor_cells             → 由多边形栅格化反推（格心 point-in-polyg
 前置：[ugc-editor](ugc-editor.md) P0 的 `UgcLoader` + map schema（本 spec §2.3 即其定稿）。
 
 ### 阶段 1 — 数据与烘焙核心（无 UI，可单测）
-- [ ] `MapDocument`：schema 读写 + 围栏 + 撤销栈 + layer_dirty
-- [ ] `ContourBaker`：marching squares + 抽稀 + Chaikin（对拍现有手画地块参数）
+- [x] `MapDocument`：schema 读写 + 围栏 + 撤销栈 + layer_dirty（2026-07-04，冒烟 7 组过）
+- [x] `ContourBaker`：边界追踪 + 抽稀 + Chaikin（对拍 MapGeography 逐点相等；2026-07-04）
 - [ ] **官方图转换器**（§3.4）：JSON 直通映射 + 多边形栅格化反推 editor_cells + 转换闭环对拍
 - [ ] `UgcLoader.load_map()` 注入（多边形/建筑/云/战区 + style 调色板数据驱动化）+ 官方图回归（零差异）
 
@@ -271,7 +271,9 @@ editor_cells             → 由多边形栅格化反推（格心 point-in-polyg
 
 | 关注点 | 文件 |
 |---|---|
-| （未实装） | — |
+| 烘焙流水线（§3.1）+ 逆向栅格化 | `scripts/ugc/contour_baker.gd` |
+| 文档数据层（§2.3/§2.4 schema/围栏/撤销/dirty） | `scripts/ugc/map_document.gd` |
+| 阶段 1 冒烟测试 | `scripts/tests/test_map_editor_core.gd` |
 | 现有多边形渲染/判定 | `scripts/survivor/map_feature_renderer.gd` / `map_geography.gd` |
 | 现有云系统 | `scripts/weather_system.gd` |
 | 现有建筑渲染 | `scripts/survivor/building_renderer.gd` |
