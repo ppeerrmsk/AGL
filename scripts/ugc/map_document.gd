@@ -59,8 +59,9 @@ var world_size_m := 30000.0
 ## key = CELL_LAYERS 图层名 → Array[PackedVector2Array]
 var layer_polygons: Dictionary = {}
 
-var airports: Array = []    # [{center:[x,y], size:[w,h], rotation_deg}]
+var airports: Array = []    # [{center:[x,y], size:[w,h], rotation_deg}] 或 {polygon:[[x,y]...]}（官方转换）
 var roads: Array = []       # [{points:[[x,y]...], width_class}]
+var coastlines: Array = []  # [[[x,y]...]...] 海岸线折线（官方转换保真用；编辑器新图可空）
 var buildings: Array = []   # [{footprint:[[x,y]...], h_m}]
 var zones: Array = []       # [{center:[x,y], radius, type}]
 var spawn: Dictionary = {}  # {pos:[x,y], heading_deg}
@@ -152,7 +153,7 @@ func to_json_dict() -> Dictionary:
 		"display_name": display_name,
 		"world_size_m": world_size_m,
 		"layer_polygons": polys_out,
-		"airports": airports, "roads": roads, "buildings": buildings,
+		"airports": airports, "roads": roads, "coastlines": coastlines, "buildings": buildings,
 		"zones": zones, "spawn": spawn,
 		"cloud": cloud_out,
 		"style": style,
@@ -193,6 +194,7 @@ static func from_json_dict(d: Dictionary) -> MapDocument:
 
 	doc.airports = d.get("airports", []) if d.get("airports") is Array else []
 	doc.roads = d.get("roads", []) if d.get("roads") is Array else []
+	doc.coastlines = d.get("coastlines", []) if d.get("coastlines") is Array else []
 	doc.buildings = d.get("buildings", []) if d.get("buildings") is Array else []
 	if doc.buildings.size() > MAX_BUILDINGS:
 		doc.warnings.append("建筑 %d 超上限 %d，截断" % [doc.buildings.size(), MAX_BUILDINGS])

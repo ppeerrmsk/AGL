@@ -170,6 +170,12 @@ editor_cells             → 由多边形栅格化反推（格心 point-in-polyg
 
 底图 PNG **不参与转换**（§1 退役决定）：转换图直接用矢量渲染；原照片可选作编辑态参考垫。
 
+**判定语义（实装定 2026-07-04）**：UGC 地图的涂格图层多边形一律按**偶奇规则**判定/栅格化
+（孔洞=独立环，天然正确）。官方陆地 mask 与手画地块互相重叠、城区块间互叠，会破坏偶奇
+计数 → 转换时对陆地/城区两层做**无损布尔并集**（覆盖面积严格不变，重叠处顶点被改写）；
+道路/建筑/机场/海岸线/战区仍逐顶点直通。等价性由测试硬保证：全部 150×150 格心上
+偶奇陆判 == 官方 `is_on_land` 逐点一致。
+
 **保真策略（1:1 的关键）——`layer_dirty` 逐图层懒烘焙**：
 - 转换后所有图层 `dirty=false`，**原始多边形是权威**，运行时直接用 → 逐顶点等同官方，零损失。
 - 只有当用户对某图层**实际动了笔刷**，该图层才置 dirty 并从 editor_cells 重走 §3.1 烘焙。
@@ -246,7 +252,7 @@ editor_cells             → 由多边形栅格化反推（格心 point-in-polyg
 ### 阶段 1 — 数据与烘焙核心（无 UI，可单测）
 - [x] `MapDocument`：schema 读写 + 围栏 + 撤销栈 + layer_dirty（2026-07-04，冒烟 7 组过）
 - [x] `ContourBaker`：边界追踪 + 抽稀 + Chaikin（对拍 MapGeography 逐点相等；2026-07-04）
-- [ ] **官方图转换器**（§3.4）：JSON 直通映射 + 多边形栅格化反推 editor_cells + 转换闭环对拍
+- [x] **官方图转换器**（§3.4）：直通映射 + 陆地/城区并集消重叠 + 栅格化反推 + 陆判 22500 格心逐点对拍（2026-07-04，冒烟 5 组过）
 - [ ] `UgcLoader.load_map()` 注入（多边形/建筑/云/战区 + style 调色板数据驱动化）+ 官方图回归（零差异）
 
 ### 阶段 2 — 画布与地形笔刷（最先见效）
@@ -271,9 +277,10 @@ editor_cells             → 由多边形栅格化反推（格心 point-in-polyg
 
 | 关注点 | 文件 |
 |---|---|
-| 烘焙流水线（§3.1）+ 逆向栅格化 | `scripts/ugc/contour_baker.gd` |
+| 烘焙流水线（§3.1）+ 逆向栅格化 + 并集消重叠 | `scripts/ugc/contour_baker.gd` |
 | 文档数据层（§2.3/§2.4 schema/围栏/撤销/dirty） | `scripts/ugc/map_document.gd` |
-| 阶段 1 冒烟测试 | `scripts/tests/test_map_editor_core.gd` |
+| 官方图转换器（§3.4） | `scripts/ugc/official_map_converter.gd` |
+| 阶段 1 冒烟测试 | `scripts/tests/test_map_editor_core.gd` / `test_official_map_converter.gd` |
 | 现有多边形渲染/判定 | `scripts/survivor/map_feature_renderer.gd` / `map_geography.gd` |
 | 现有云系统 | `scripts/weather_system.gd` |
 | 现有建筑渲染 | `scripts/survivor/building_renderer.gd` |

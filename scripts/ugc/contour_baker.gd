@@ -35,21 +35,74 @@ static func bake_layer(cells: PackedByteArray, grid_w: int, grid_h: int,
 
 
 ## 逆向：多边形组 → 涂格位图（格心偶奇判定：被奇数个多边形包含 = 已涂）。
-## 官方图转换用；一次性调用，150×150 × 多边形数量级。
+## 官方图转换用；一次性调用。预计算 bbox 剪枝，150×150 × 上千多边形也在百 ms 级。
 static func rasterize_polygons(polys: Array, grid_w: int, grid_h: int,
 		cell_size: float, origin: Vector2) -> PackedByteArray:
 	var cells := PackedByteArray()
 	cells.resize(grid_w * grid_h)
+	# 预计算每个多边形的 bbox
+	var bboxes: Array[Rect2] = []
+	for poly in polys:
+		if (poly as PackedVector2Array).is_empty():
+			bboxes.append(Rect2())
+			continue
+		var r := Rect2((poly as PackedVector2Array)[0], Vector2.ZERO)
+		for p in poly:
+			r = r.expand(p)
+		bboxes.append(r)
 	for cy in range(grid_h):
 		for cx in range(grid_w):
 			var center := origin + Vector2(cx + 0.5, cy + 0.5) * cell_size
 			var hits := 0
-			for poly in polys:
-				if Geometry2D.is_point_in_polygon(center, poly):
+			for i in range(polys.size()):
+				if bboxes[i].has_point(center) and Geometry2D.is_point_in_polygon(center, polys[i]):
 					hits += 1
 			if hits % 2 == 1:
 				cells[cy * grid_w + cx] = 1
 	return cells
+
+
+## 消重叠布尔并集：把互相重叠的多边形合并（面积不变），使偶奇判定/栅格化全局自洽。
+## 官方图转换用（陆地 mask 与手画地块重叠、城区块间互叠）。
+## 并集产生的孔洞以独立环返回（偶奇语义下天然正确）。相触不相交（零面积交）不合并。
+static func merge_overlapping(polys: Array) -> Array:
+	var list: Array = []
+	for p in polys:
+		list.append(p)
+	var bboxes: Array[Rect2] = []
+	for p in list:
+		bboxes.append(_poly_bbox(p))
+	var changed := true
+	while changed:
+		changed = false
+		for i in range(list.size()):
+			for j in range(i + 1, list.size()):
+				if not bboxes[i].intersects(bboxes[j]):
+					continue
+				if Geometry2D.intersect_polygons(list[i], list[j]).is_empty():
+					continue
+				var merged := Geometry2D.merge_polygons(list[i], list[j])
+				list.remove_at(j)
+				list.remove_at(i)
+				bboxes.remove_at(j)
+				bboxes.remove_at(i)
+				for m in merged:
+					list.append(m)
+					bboxes.append(_poly_bbox(m))
+				changed = true
+				break
+			if changed:
+				break
+	return list
+
+
+static func _poly_bbox(poly: PackedVector2Array) -> Rect2:
+	if poly.is_empty():
+		return Rect2()
+	var r := Rect2(poly[0], Vector2.ZERO)
+	for p in poly:
+		r = r.expand(p)
+	return r
 
 
 # ══════════════════════════════════════════════
