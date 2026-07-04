@@ -240,6 +240,10 @@ func _ready() -> void:
 	_player_params_base = profile.base_params
 	_player_profile_id = profile.id  # 用于专属技能筛选
 	_player_profile = profile  # 保留档案引用（自然成长曲线 / 后续配件系统用）
+	# 图鉴记账（用户规则：**获得即记录**，开局拿到起手机这一刻就算"拥有过"，不等首次结算）
+	var _start_node: StringName = EvolutionSystem.node_id_for_profile(profile.id)
+	if _start_node != &"":
+		AircraftCodex.mark_discovered(_start_node)
 
 	# 读取选择的地图（占位：当前仅 default 一张实装，其它为预留位）
 	# 后续在此根据 map_id 切换噪声 seed/frequency/地形配色
