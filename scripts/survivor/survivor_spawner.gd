@@ -1660,15 +1660,15 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tie
 			enemy.attack_air_targets = false  ## _auto_gun_scan 跳过空中目标（防止扫到玩家）
 		EnemyType.AF03:
 			# AF-03 = 试验机精英狙击手 — 自有"电磁炮甜点距离"策略
-			# 三层组合：
-			#   1. bvr_only + 自定义 standoff/flee (5-8km)：维持远距站位
-			#   2. prefer_nose_aligned_weapon=true：交战时走 SNIPER_HOLD 战术
-			#      （直瞄玩家当前位置 + 减速稳瞄，不像 LEAD_PURSUIT 追前置点）
+			# 三层组合（2026-07-05 阶段3 迁入 planner，spec weapon-employment-doctrine）：
+			#   1. bvr_only + 自定义 standoff/flee (5-8km)：维持远距站位（走位学说，保留）
+			#   2. planner 武器竞选：远距竞选出 railgun → LINE_UP 直线稳瞄
+			#      （取代旧 prefer_nose_aligned_weapon=SNIPER_HOLD legacy 路径）
 			#   3. Lancer engage_duration/cooldown：打完一发 disengage 拉开
 			ai.bvr_only = true
 			ai.bvr_standoff_min_px_override = 2500.0  ## 5km
 			ai.bvr_flee_distance_px_override = 4000.0 ## 8km
-			ai.prefer_nose_aligned_weapon = true      ## 优先 SNIPER_HOLD 而非 LEAD_PURSUIT
+			enemy.use_tactical_planner = true         ## 阶段3：LINE_UP 纪律由 planner 竞选驱动
 			ai.evade_missiles = true
 			ai.aggression = 0.95
 			ai.engage_cooldown = 7.0

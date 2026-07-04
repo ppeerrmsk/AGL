@@ -437,6 +437,45 @@ static func wide_turn(s: Situation) -> TacticalPlan:
 ## - 默认（PREFER_MISSILE）→ 导弹包络内优先导弹，否则机炮兜底
 ##
 ## 调用方可在返回后微调 allow_gun_fire（lag/merge 等几何条件不允许开火时设回 false）
+## 武器竞选单点入口（spec weapon-employment-doctrine §2.2）：planner 决策树（LINE_UP 判定）
+## 与 _apply_combat_weapon 共用，保证同 tick 同结果。纯函数。
+static func run_weapon_election(s: Situation) -> Dictionary:
+	var cands: Array = []
+	if s.railgun_band_max_m > 0.0:
+		cands.append({"kind": "railgun", "band_min": s.railgun_band_min_m,
+				"band_max": s.railgun_band_max_m, "ready": s.railgun_ready})
+	cands.append({"kind": "missile", "band_min": s.missile_min_range_m,
+			"band_max": s.missile_max_range_m * 1.1, "ready": s.missiles > 0})
+	cands.append({"kind": "gun", "band_min": 60.0, "band_max": s.gun_range_m,
+			"ready": s.ammo > 0})
+	return WeaponSelector.select(cands, s.dist_m, s.primary_weapon_prev, s.primary_weapon_hold_s)
+
+
+## LINE_UP —— 电磁炮射击纪律（spec weapon-employment-doctrine §3.2，阶段3）
+## 平直对准目标提前点的直线航线：hitscan 无飞行时间 → 提前点 = 目标位置 + 微小外推；
+## 每 tick 重算 → 充能期间持续追踪敌机航点（用户定稿 2a，小幅修正不触发甩头中断）；
+## 恒巡航速稳定射击平台；坡度上限 30°（plan.bank_limit_deg → update_bank 消费）。
+## 甩头中断充能的守卫在 RailgunEquipment 侧；射空可接受（定稿 2b，不抑制发射）。
+const LINE_UP_EXTRAPOLATE_S := 0.4    ## 提前点外推秒数（微小：跟住目标航点趋势）
+const LINE_UP_BANK_LIMIT_DEG := 30.0  ## 充能平台坡度上限
+static func line_up(s: Situation) -> TacticalPlan:
+	var p := TacticalPlan.new()
+	p.intent = TacticalPlan.Intent.LINE_UP
+	var aim_pos: Vector2 = s.tgt_pos \
+			+ s.tgt_fwd * (s.tgt_speed_ms * CombatUnit.PIXELS_PER_METER) * LINE_UP_EXTRAPOLATE_S
+	var dir: Vector2 = aim_pos - s.my_pos
+	if dir.length_squared() < 1.0:
+		dir = s.my_fwd
+	# 远点直线航线：pursuit 放提前点方向远处 → heading_diff 恒小量，PD 自然平直跟踪
+	p.pursuit_pos = s.my_pos + dir.normalized() * 5000.0
+	p.target_speed_kmh = s.cruise_speed_kmh
+	p.afterburner = false
+	p.bank_limit_deg = LINE_UP_BANK_LIMIT_DEG
+	p.rationale = "LINE_UP：电磁炮直线对准（dist=%dm）" % int(s.dist_m)
+	_apply_combat_weapon(s, p)
+	return p
+
+
 static func _apply_combat_weapon(s: Situation, p: TacticalPlan) -> void:
 	var in_msl_envelope: bool = s.missiles > 0 \
 			and s.dist_m > s.missile_min_range_m \
@@ -468,15 +507,7 @@ static func _apply_combat_weapon(s: Situation, p: TacticalPlan) -> void:
 	# 候选距离带来自 Situation 的 live params 注入（升级即时生效）；重叠区命中率优先
 	# （railgun 必中 100 > missile 70 > gun 50）；1.5s 滞回防带边界抖动换武器。
 	# 火箭弹暂不参与竞选（保持机会射击，阶段 3 评估）；副导弹/激光为被动武器不竞选。
-	var cands: Array = []
-	if s.railgun_band_max_m > 0.0:
-		cands.append({"kind": "railgun", "band_min": s.railgun_band_min_m,
-				"band_max": s.railgun_band_max_m, "ready": s.railgun_ready})
-	cands.append({"kind": "missile", "band_min": s.missile_min_range_m,
-			"band_max": s.missile_max_range_m * 1.1, "ready": s.missiles > 0})
-	cands.append({"kind": "gun", "band_min": 60.0, "band_max": s.gun_range_m,
-			"ready": s.ammo > 0})
-	var sel := WeaponSelector.select(cands, s.dist_m, s.primary_weapon_prev, s.primary_weapon_hold_s)
+	var sel := run_weapon_election(s)
 	p.primary_weapon = String(sel["kind"])
 	match p.primary_weapon:
 		"missile":

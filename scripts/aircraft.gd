@@ -115,6 +115,7 @@ var _gun_lead_heading: float = 0.0  ## 前置射击方向（由 _update_combat �
 #    _apply_tactical_plan 回写；1.5s 滞回在 WeaponSelector.select 内判定）──
 var _primary_weapon_kind: String = ""      ## 当前竞选胜者（""=无战斗/全失格）
 var _primary_weapon_hold_s: float = 999.0  ## 胜者已保持秒数（初值大 → 首次竞选立即生效）
+var _plan_bank_limit_rad: float = -1.0     ## plan 级坡度上限（LINE_UP 充能平台=30°；-1=无限制）
 ## 敌方 AI 机炮 burst-pause 节奏：连续射击 AI_GUN_BURST_DURATION 秒后强制 AI_GUN_PAUSE_DURATION 秒不开火，
 ## 给玩家挣脱尾追的窗口。仅 team != 0 生效，玩家/玩家僚机不受限。
 const AI_GUN_BURST_DURATION: float = 2.5
@@ -1088,6 +1089,8 @@ func _apply_tactical_plan(plan: TacticalPlan) -> void:
 	else:
 		_primary_weapon_kind = plan.primary_weapon
 		_primary_weapon_hold_s = 0.0
+	# plan 级坡度上限（LINE_UP 充能平台等武器纪律；update_bank/step_bank 消费）
+	_plan_bank_limit_rad = deg_to_rad(plan.bank_limit_deg) if plan.bank_limit_deg > 0.0 else -1.0
 
 	# 武器模式
 	# NONE 显式重置为 GUN（防止 weapon_mode 残留 MISSILE 让 salvo 路径在 CRUISE/EVADE 期间走漏发射）
@@ -1108,19 +1111,10 @@ func _apply_tactical_plan(plan: TacticalPlan) -> void:
 	# gun.fire_cone_half_angle 不开火（真机机炮沿机身固定，不能侧射）。
 	var aim_ok := false
 	if combat_target != null and is_instance_valid(combat_target) and not combat_target.is_destroyed:
-		var to_tgt_v: Vector2 = combat_target.global_position - global_position
-		if combat_target is Aircraft and params and params.gun:
-			var tgt_ac_g: Aircraft = combat_target
-			var bullet_px: float = params.gun.muzzle_velocity * PIXELS_PER_METER
-			var tgt_fwd_v := Vector2(sin(tgt_ac_g.heading), -cos(tgt_ac_g.heading))
-			var tgt_spd_px: float = tgt_ac_g.speed * PIXELS_PER_METER
-			var t1_g: float = to_tgt_v.length() / maxf(bullet_px, 100.0)
-			var lead1_g: Vector2 = tgt_ac_g.global_position + tgt_fwd_v * tgt_spd_px * t1_g
-			var t2_g: float = global_position.distance_to(lead1_g) / maxf(bullet_px, 100.0)
-			var lead_v: Vector2 = tgt_ac_g.global_position + tgt_fwd_v * tgt_spd_px * t2_g - global_position
-			_gun_lead_heading = atan2(lead_v.x, -lead_v.y)
-		else:
-			_gun_lead_heading = atan2(to_tgt_v.x, -to_tgt_v.y)  # 地面/船：慢目标直接瞄
+		# 统一提前点公式（spec weapon-employment-doctrine §2.3：全指向性武器共用，
+		# 弹速按武器传入——机炮=muzzle_velocity；helper 在 AircraftWeapons）
+		var bullet_mps: float = params.gun.muzzle_velocity if (params and params.gun) else 1000.0
+		_gun_lead_heading = AircraftWeapons.lead_heading(self, combat_target, bullet_mps)
 		var cone_half: float = deg_to_rad(params.gun.fire_cone_half_angle) \
 				if (params and params.gun) else 0.26
 		aim_ok = absf(_angle_diff(_gun_lead_heading, heading)) <= cone_half

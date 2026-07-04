@@ -37,7 +37,8 @@ static func _is_combat_intent(intent_id: int) -> bool:
 		TacticalPlan.Intent.TAIL_CHASE, TacticalPlan.Intent.CLOSE_TAIL, \
 		TacticalPlan.Intent.LEAD_TURN, TacticalPlan.Intent.LEAD_PURSUIT, \
 		TacticalPlan.Intent.LAG_PURSUIT, TacticalPlan.Intent.MERGE_PASS, \
-		TacticalPlan.Intent.WIDE_TURN, TacticalPlan.Intent.GROUND_STRAFE:
+		TacticalPlan.Intent.WIDE_TURN, TacticalPlan.Intent.GROUND_STRAFE, \
+		TacticalPlan.Intent.LINE_UP:
 			return true
 		_:
 			return false
@@ -53,6 +54,7 @@ static func _replay_intent(intent_id: int, s: Situation) -> TacticalPlan:
 		TacticalPlan.Intent.MERGE_PASS: return BfmIntent.merge_pass(s)
 		TacticalPlan.Intent.WIDE_TURN: return BfmIntent.wide_turn(s)
 		TacticalPlan.Intent.GROUND_STRAFE: return BfmIntent.ground_strafe(s)
+		TacticalPlan.Intent.LINE_UP: return BfmIntent.line_up(s)
 		_: return BfmIntent.cruise(s)
 
 static func plan(s: Situation, waypoint: Vector2 = Vector2.INF) -> TacticalPlan:
@@ -135,6 +137,15 @@ static func _decide(s: Situation, waypoint: Vector2) -> TacticalPlan:
 			s.dist_m, s.closing_rate_ms
 		]
 		return ext_trigger
+
+	# 优先级 5a.5：电磁炮 LINE_UP（spec weapon-employment-doctrine §3.2，阶段3）
+	# 武器竞选出 railgun（远距必中，命中率最高）→ 机动跟随武器纪律：平直对准提前点。
+	# ⚠ 必须放在 5b boom-zoom 之前：远距狙击 aspect 常年 >80°，放后面会被误判
+	# "咬不上尾"强制脱离。竞选自带 1.5s 滞回（WeaponSelector），出带/CD 自然退出。
+	if not s.tgt_is_surface:
+		var _election := BfmIntent.run_weapon_election(s)
+		if String(_election.get("kind", "")) == "railgun":
+			return _apply_weapon_lock(s, BfmIntent.line_up(s))
 
 	# 优先级 5b：boom-zoom 触发 — 长时间咬不上尾（能量劣势 / 转弯打不过）
 	# 条件：combat intent 持续 >8s 且 aspect 仍在前半球（>80°）→ 拉远重整再战

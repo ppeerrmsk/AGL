@@ -23,6 +23,7 @@ enum Intent {
 	BOOM_ZOOM_OUT,    ## 转不过敌人 → 拉远后再回头
 	GROUND_STRAFE,    ## 对地扫射
 	EVADE_MISSILE,    ## 来袭导弹规避
+	LINE_UP,          ## 电磁炮射击纪律：平直对准提前点直线航线（spec weapon-employment-doctrine 阶段3）
 }
 
 ## 武器装备状态
@@ -41,7 +42,8 @@ var afterburner: bool = false                  ## physics 调 set_afterburner
 var weapon_mode: int = WeaponMode.NONE         ## weapons 据此选模式
 var allow_gun_fire: bool = false               ## 火控允许开火
 var allow_missile_fire: bool = false           ## 火控允许发射导弹
-var primary_weapon: String = ""                ## 武器竞选胜者（spec weapon-employment-doctrine；""=全失格/无战斗）
+var primary_weapon: String = ""
+var bank_limit_deg: float = -1.0               ## 坡度上限（武器纪律用，LINE_UP=30；-1=无限制；消费点 update_bank/step_bank）                ## 武器竞选胜者（spec weapon-employment-doctrine；""=全失格/无战斗）
 var target_altitude_m: float = -1.0            ## -1 = 保持，否则覆写 target_altitude
 var target_altitude_tier: int = -1             ## -1 = 保持，否则覆写 target_altitude_tier
 
@@ -73,6 +75,7 @@ static func intent_name(intent_id: int) -> String:
 		Intent.BOOM_ZOOM_OUT: return "BOOM_ZOOM_OUT"
 		Intent.GROUND_STRAFE: return "GROUND_STRAFE"
 		Intent.EVADE_MISSILE: return "EVADE_MISSILE"
+		Intent.LINE_UP: return "LINE_UP"
 		_: return "UNKNOWN"
 
 static func weapon_mode_name(mode_id: int) -> String:

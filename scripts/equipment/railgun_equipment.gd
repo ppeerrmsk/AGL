@@ -157,8 +157,17 @@ static func _target_velocity_px(tgt) -> Vector2:
 	return Vector2.ZERO
 
 
+## 充能期间的甩头中断阈值（deg/s）：LINE_UP 的小幅航点跟踪修正在阈值内不触发；
+## 只有大机动（规避/急转）才取消充能——取消回 IDLE，不进冷却（不白费 CD，可立即重试）
+const CHARGE_ABORT_TURN_RATE_DEG := 25.0
+
 func _try_start_charging(ac, s: Dictionary) -> void:
 	if s["cooldown"] > 0.0:
+		return
+	# planner 门（spec weapon-employment-doctrine 阶段3）：planner 机只在武器竞选
+	# 选中电磁炮时才充能（时机决策上收 planner；发射执行仍在本状态机）。
+	# 非 planner 机（sandbox legacy）保留旧自主时机。
+	if ac is Aircraft and ac.use_tactical_planner and ac._primary_weapon_kind != "railgun":
 		return
 	# 需要有效战斗目标
 	var tgt = ac.combat_target
@@ -207,6 +216,16 @@ func _tick_charging(ac, s: Dictionary, delta: float) -> void:
 	if tgt == null or not is_instance_valid(tgt) or tgt.is_destroyed:
 		s["charging"] = false
 		s["charge_progress"] = 0.0
+		return
+	# 甩头中断（spec weapon-employment-doctrine §3.2，阶段3）：充能是稳定射击平台，
+	# 大机动（规避/急转）即取消——回 IDLE 不进冷却（不白费 CD，稳定后立即重试）。
+	# LINE_UP 的小幅航点跟踪修正（PD 微调 <10°/s）在阈值内，不会误触发。
+	if ac is Aircraft and absf(ac._turn_rate_filt) > deg_to_rad(CHARGE_ABORT_TURN_RATE_DEG):
+		s["charging"] = false
+		s["charge_progress"] = 0.0
+		EventLogger.log_event("RAILGUN", ac._log_name() if ac.has_method("_log_name") else "RG",
+			"charge aborted: turn rate %.0f°/s > %.0f°/s" % [
+				rad_to_deg(absf(ac._turn_rate_filt)), CHARGE_ABORT_TURN_RATE_DEG])
 		return
 	# charge_persistent：跳过失锁/出锥/贴脸 cancel 检查 —— 锁定一旦开始就跑完
 	if not charge_persistent:

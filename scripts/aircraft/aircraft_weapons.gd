@@ -81,6 +81,24 @@ static func _should_apply_launch_quality(ac: Aircraft) -> bool:
 
 ## 射击更新
 ## 无交战目标时自动扫描：前方有敌机就开火
+## 统一弹道提前点航向（spec weapon-employment-doctrine §2.3：全指向性武器共用）。
+## 双迭代收敛（与旧 combat_tracking 同款公式）；非 Aircraft 目标（地面/船，慢速）或
+## 弹速非法时退化为直瞄。bullet_speed_mps=INF（hitscan 电磁炮）同样退化为直瞄。
+static func lead_heading(ac: Aircraft, tgt: CombatUnit, bullet_speed_mps: float) -> float:
+	var to_tgt: Vector2 = tgt.global_position - ac.global_position
+	if not (tgt is Aircraft) or bullet_speed_mps <= 0.0 or is_inf(bullet_speed_mps):
+		return atan2(to_tgt.x, -to_tgt.y)
+	var t_ac: Aircraft = tgt
+	var bullet_px: float = bullet_speed_mps * CombatUnit.PIXELS_PER_METER
+	var tgt_fwd := Vector2(sin(t_ac.heading), -cos(t_ac.heading))
+	var tgt_spd_px: float = t_ac.speed * CombatUnit.PIXELS_PER_METER
+	var t1: float = to_tgt.length() / maxf(bullet_px, 100.0)
+	var lead1: Vector2 = t_ac.global_position + tgt_fwd * tgt_spd_px * t1
+	var t2: float = ac.global_position.distance_to(lead1) / maxf(bullet_px, 100.0)
+	var lead_v: Vector2 = t_ac.global_position + tgt_fwd * tgt_spd_px * t2 - ac.global_position
+	return atan2(lead_v.x, -lead_v.y)
+
+
 static func auto_gun_scan(ac: Aircraft) -> void:
 	# 2026-04-22 玩家独立射击意识：取消"有 combat_target 就整体跳过"，让扫描兜底——
 	# 只要前方锥内有敌机进入射程（包括 combat_target 因前置角/距离不满足而被 _update_combat

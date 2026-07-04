@@ -148,6 +148,9 @@ static func update_bank(ac: Aircraft, delta: float) -> void:
 
 	# max_bank（直接调原版 max_bank_angle，避免 effective_max_g + _dynamic_safe_margin 重复 fetch）
 	var max_bank := max_bank_angle(ac)
+	# plan 级坡度上限（LINE_UP 充能平台等武器纪律；⚠ step_bank 镜像同步，SEAM-017）
+	if ac._plan_bank_limit_rad > 0.0:
+		max_bank = minf(max_bank, ac._plan_bank_limit_rad)
 	var in_combat := ac.combat_target != null
 
 	if in_combat and abs(heading_diff) > 0.5 and ac.tactical_aggression < 0.999:
@@ -1229,6 +1232,9 @@ static func step_bank(st: FlightState, delta: float) -> void:
 	var eff_max_g := _eff_max_g_st(st)
 	var safe_margin := _safe_margin_st(st)
 	var max_bank := max_bank_angle_at_speed_pure(st.speed, stall_base_ms, _eff_max_g_instant_st(st), safe_margin)
+	# plan 级坡度上限（与实飞 update_bank 镜像同步，SEAM-017）
+	if st.ac._plan_bank_limit_rad > 0.0:
+		max_bank = minf(max_bank, st.ac._plan_bank_limit_rad)
 	var in_combat := st.ac.combat_target != null
 
 	if in_combat and abs(heading_diff) > 0.5 and st.ac.tactical_aggression < 0.999:

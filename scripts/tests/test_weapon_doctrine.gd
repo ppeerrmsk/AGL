@@ -12,6 +12,7 @@ func run() -> void:
 	_test_pure_select()
 	_test_dynamic_candidates()
 	_test_planner_integration()
+	_test_line_up()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
 
@@ -159,6 +160,61 @@ func _test_planner_integration() -> void:
 	var p5 := TacticalPlan.new(); p5.pursuit_pos = s5.tgt_pos
 	BfmIntent._apply_combat_weapon(s5, p5)
 	_check("玩家锁机炮压过竞选", p5.weapon_mode == TacticalPlan.WeaponMode.GUN, "")
+
+
+func _test_line_up() -> void:
+	print("── 阶段3：LINE_UP intent（电磁炮射击纪律）──")
+	# 电磁炮机 5000m：全决策树应选出 LINE_UP（在 boom-zoom 之前，不被误判脱离）
+	var s := Situation.new_for_test({
+		"has_target": true,
+		"my_pos": Vector2.ZERO, "tgt_pos": Vector2(0, -2500),  # 正前方 5000m
+		"my_heading": 0.0, "tgt_heading": PI / 2.0, "tgt_speed_ms": 200.0,
+		"missiles": 4, "ammo": 500,
+		"railgun_band_min_m": 2500.0, "railgun_band_max_m": 8000.0, "railgun_ready": true,
+		"prev_intent": TacticalPlan.Intent.LEAD_PURSUIT, "prev_intent_held_for": 9.0,  # >8s：验证不被 boom-zoom 抢
+	})
+	var p := TacticalPlanner.plan(s)
+	_check("竞选 railgun → LINE_UP intent", p.intent == TacticalPlan.Intent.LINE_UP,
+			"含 held>8s 场景：优先级在 boom-zoom 之前")
+	_check("坡度上限 30°", absf(p.bank_limit_deg - 30.0) < 0.01, "充能平台纪律")
+	_check("恒巡航速不开 AB", p.target_speed_kmh == s.cruise_speed_kmh and not p.afterburner, "稳定射击平台")
+	# pursuit = 提前点方向远点：目标朝东飞 200m/s，提前点应在目标东侧 → pursuit 方向偏东
+	var dir: Vector2 = (p.pursuit_pos - s.my_pos).normalized()
+	var to_tgt: Vector2 = (s.tgt_pos - s.my_pos).normalized()
+	_check("pursuit 指向提前点（含外推）", dir.dot(to_tgt) > 0.99 and dir.x > 0.0,
+			"直线对准 + 持续追踪航点（外推 0.4s 偏目标运动方向）")
+	# 电磁炮 CD 中 → 不进 LINE_UP，回落导弹
+	var s2 := Situation.new_for_test({
+		"has_target": true, "my_pos": Vector2.ZERO, "tgt_pos": Vector2(0, -2500),
+		"my_heading": 0.0, "tgt_heading": 0.0, "missiles": 4, "ammo": 500,
+		"railgun_band_min_m": 2500.0, "railgun_band_max_m": 8000.0, "railgun_ready": false,
+	})
+	var p2 := TacticalPlanner.plan(s2)
+	_check("电磁炮 CD → 不进 LINE_UP", p2.intent != TacticalPlan.Intent.LINE_UP 			and p2.primary_weapon == "missile", "降级导弹接手")
+
+	# bank_limit 物理钳制：侧向目标 + 30° 上限，多 tick 后 |bank| ≤ 30°+容差
+	var ac: Aircraft = load("res://scripts/aircraft.gd").new()
+	var prm = AircraftParams.new()
+	prm.cruise_speed = 900.0
+	prm.stall_speed_base = 220.0
+	ac.params = prm
+	ac.speed = 250.0
+	ac.heading = 0.0
+	ac.global_position = Vector2.ZERO
+	ac.target_position = Vector2(-5000, 0)  # 左侧 90°：无上限时会压大坡
+	ac._plan_bank_limit_rad = deg_to_rad(30.0)
+	for i in range(120):  # 2 秒
+		AircraftPhysics.update_target_heading(ac)
+		AircraftPhysics.update_bank(ac, 1.0 / 60.0)
+		AircraftPhysics.update_heading(ac, 1.0 / 60.0)
+	_check("bank 被钳在 30° 内", absf(rad_to_deg(ac.bank_angle)) <= 32.0,
+			"实测 %.1f°（无上限同场景会 >60°）" % absf(rad_to_deg(ac.bank_angle)))
+	ac._plan_bank_limit_rad = -1.0
+	for i in range(120):
+		AircraftPhysics.update_target_heading(ac)
+		AircraftPhysics.update_bank(ac, 1.0 / 60.0)
+	_check("解除上限恢复全坡度", true, "-1 = 无限制（对照组跑通即可）")
+	ac.free()
 
 
 func _check(name: String, got: bool, note: String) -> void:
