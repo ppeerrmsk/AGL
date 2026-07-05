@@ -145,6 +145,15 @@ func _tick_awaiting_fire(ac, s: Dictionary, delta: float) -> void:
 		_fire(ac, s)
 
 
+## 机头直射型的路径提前点：目标当前位置 + 速度 ×（剩余充能时间 + 锁定相位延迟）。
+## AI 稳头守卫（ai_controller "Railgun 充能稳头守卫"）把机头钉向此点。
+## 直线外推是刻意的：目标平飞 → 锁定时机头恰在拦截线上 → 命中；
+## 目标机动 → 外推失效 → miss（"玩家可靠机动躲掉"的设计承诺）。
+func _nose_lead_point(tgt, s: Dictionary) -> Vector2:
+	var time_to_fire: float = (1.0 - float(s["charge_progress"])) * charge_duration + fire_delay_after_lock
+	return tgt.global_position + _target_velocity_px(tgt) * time_to_fire
+
+
 ## 估算目标速度向量（像素/秒）。Aircraft / Missile 用 heading × speed；其他类型默认 0
 static func _target_velocity_px(tgt) -> Vector2:
 	if tgt is Aircraft:
@@ -216,7 +225,14 @@ func _try_start_charging(ac, s: Dictionary) -> void:
 	s["charging"] = true
 	s["charge_progress"] = 0.0
 	s["charge_target"] = tgt
-	if lock_trajectory_at == LockTrajectory.AT_CHARGE_START:
+	if fire_along_nose:
+		# 机头直射型：locked_aim_pos 充能期间只是 AI 稳头守卫的瞄准销（真弹道 =
+		# 锁定瞬间机头冻结，见 _commit_fire_solution）。销必须钉在路径提前点
+		# （spec weapon-employment-doctrine §2 统一瞄准语义：机头指向敌机路径提前点），
+		# 否则机头整个充能期追着目标 3s 前的旧位置——平飞目标都打不中
+		# （2026-07-05 用户实测：MQ-112 瞄准"不关心玩家往哪飞"）
+		s["locked_aim_pos"] = _nose_lead_point(tgt, s)
+	elif lock_trajectory_at == LockTrajectory.AT_CHARGE_START:
 		s["locked_aim_pos"] = tgt.global_position  # 锁死位置 → 玩家可机动躲
 
 
@@ -269,6 +285,10 @@ func _tick_charging(ac, s: Dictionary, delta: float) -> void:
 				s["charging"] = false
 				s["charge_progress"] = 0.0
 				return
+	# 机头直射型：持续刷新提前点瞄准销（提前量 = 剩余充能 + 锁定延迟，随充能推进收敛，
+	# 锁定瞬间恰好 = fire_delay_after_lock 预测，与 AT_FIRE_TIME 同式）
+	if fire_along_nose:
+		s["locked_aim_pos"] = _nose_lead_point(tgt, s)
 	# 推进进度
 	s["charge_progress"] = clampf(s["charge_progress"] + delta / charge_duration, 0.0, 1.0)
 	if s["charge_progress"] >= 1.0:

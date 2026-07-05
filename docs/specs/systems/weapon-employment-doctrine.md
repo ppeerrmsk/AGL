@@ -1,6 +1,6 @@
 # 武器使用准则（Weapon Employment Doctrine）
 
-> status: **approved（2026-07-04 用户定稿）** · spec_version: 2 · 日期：2026-07-04
+> status: **done（2026-07-05 验收通过）** · spec_version: 6 · 日期：2026-07-05
 > 上游：重构计划 [physics-ai-control-refactor.md](../../planning/physics-ai-control-refactor.md)
 > （用户提出："武器使用的 AI 比较乱，需要规范僚机装备各种武器后，什么时候发射什么武器、
 > 怎么瞄准、怎么机动"）。姊妹 spec：[wingman-escort-evasion](wingman-escort-evasion.md)。
@@ -172,12 +172,30 @@ bench + playtest + §7 锚点回填 + survivor-skills/enemy-index 相关行同�
   `_commit_fire_solution` 一次性定死完整弹道解（锁定点 + 机头冻结 + miss 扰动烘焙进
   locked_aim_pos），telegraph 与 `_fire` 同源消费；锁定相位指示线画全射程（穿透段也在
   杀伤线内）。副产物：telegraph 射程改用 `_effective_max_range_m`（与实弹同源）。
-- [ ] 修复后对比局归因分析 → 转 done（⚠ 122049 与 230431 均为 MRM 修复**前**样本
-  ——7961d75 的"57 发"= 32+25 两局合并。等修复后新 F9 日志再对比）
+- [x] 修复后对比局归因分析（log 175843，19 发 MRM）：命中 44%→**79%**、
+  目标已消失 19%→**5%**（1 发）、末段丢锁出 FOV 19%→**5%**（1 发，极端几何按
+  missile_env 仿真属预期）。两条验收线全过 → **spec 转 done**。
+  （注：修复前基线 = 7961d75 正文"57 发"= 230431(32) + 122049(25) 两局合并，均为修复前样本）
+- [x] MQ-112 机头直射瞄准违反 §2 统一提前点语义（2026-07-05 用户实测"不关心玩家往哪飞"）：
+  AT_CHARGE_START 把充能开始时的目标旧位置写死成瞄准销，机头钉旧点 2.5s+0.6s → 发射时
+  瞄的是目标 3.1s 前的位置，平飞都打不中。修法 `_nose_lead_point`：充能期间瞄准销持续
+  刷新为路径提前点（目标位置 + 速度 ×〔剩余充能 + 锁定延迟〕），提前量随充能收敛，锁定
+  瞬间 = fire_delay 预测（与 AT_FIRE_TIME 同式）；锁定后照旧冻结（承诺弹道不变）。
+  直线外推是刻意的：平飞 → 命中；机动 → miss（"可靠机动躲掉"承诺保留）。
 
 ## 7. 索引锚点（Where）
 
-（实现后回填）
+| 职责 | 文件 · 符号 |
+|---|---|
+| 武器竞选（距离带 + 命中率优先 + 滞回） | `scripts/ai/tactical/bfm_intent.gd` · `run_weapon_election`（planner 与 legacy 共用，同 tick 同结果） |
+| planner 消费竞选 | `scripts/ai/tactical/tactical_planner.gd` · `_apply_combat_weapon`（plan.primary_weapon 写入） |
+| LINE_UP intent（电磁炮射击纪律） | `scripts/ai/tactical/bfm_intent.gd` · LINE_UP 分支（bank_limit_deg 钳制、恒巡航速、提前点外推） |
+| 统一提前点 | `scripts/aircraft/aircraft_weapons.gd` · `lead_heading(ac, tgt, bullet_speed_mps)`（双迭代；机炮瞄准共用） |
+| 电磁炮 planner 门 + 甩头中断 | `scripts/equipment/railgun_equipment.gd` · `_try_start_charging` / `_tick_charging`（CHARGE_ABORT_TURN_RATE_DEG） |
+| 承诺弹道（指示线=发射线） | `scripts/equipment/railgun_equipment.gd` · `_commit_fire_solution`；`scripts/aircraft_renderer.gd` · `draw_railgun_telegraph` |
+| 机头直射提前点瞄准销 | `scripts/equipment/railgun_equipment.gd` · `_nose_lead_point`；消费方 `scripts/ai_controller.gd` · "Railgun 充能稳头守卫" |
+| 超杀让路（电磁炮充能记账） | `scripts/equipment/railgun_equipment.gd` · `team_charging_damage`；消费方 `scripts/aircraft/aircraft_weapons.gd` 导弹发射纪律 |
+| 验收 bench | `scripts/tests/test_weapon_doctrine.gd`（--bench=weapon_doctrine 26 断言）；--bench=missile_env（MRM 包络仲裁）；--bench=weapon_demo（观察场） |
 
 ## 8. 变更记录
 
@@ -187,4 +205,5 @@ bench + playtest + §7 锚点回填 + survivor-skills/enemy-index 相关行同�
 | 2026-07-04 | 2 | **用户定稿（approved）**：①距离带改为动态数值（实时读装备 live params，升级即时生效）；②重叠区竞选从"射程上界优先"改为**命中率优先**（电磁炮必中 > 导弹 > 机炮 > 火箭），电磁炮最近射程使近距自然归机炮；③充能期间持续追踪敌机航点（非冻结），射空可接受；④阵营分级：瞄准纪律同一套，难度差异全放执行层（敌机节流/误差）；⑤兜底改"维持追击 + 按导弹纪律 crank 等待 CD"。 |
 | 2026-07-05 | 4 | 阶段 3 落地：LINE_UP intent（竞选驱动、bank_limit_deg 双侧镜像钳制、boom-zoom 之前插枝）+ 电磁炮充能 planner 门 + 甩头中断（25°/s，取消不进 CD）+ AF-03 摘旗迁 planner + 统一提前点 lead_heading 上移。weapon_doctrine 26 断言 + 回归门 13 项全绿。剩阶段 4 playtest。 |
 | 2026-07-04 | 3 | 阶段 2 落地：planner 消费竞选（Situation 竞选输入 + plan.primary_weapon + _apply_combat_weapon 重写）。实现中细化 §2.2-5 "逼近≠失格"语义（回归门抓出：纯机炮机带外须保持机炮几何逼近）。--bench=weapon_doctrine 18 断言 + 回归门 13 项全绿。 |
+| 2026-07-05 | 6 | **验收通过 → done**：修复后对比局（log 175843，19 发）命中 44%→79%、目标已消失 19%→5%、末段丢锁 19%→5%，两条验收线全过。同批修 MQ-112 机头直射瞄准违反 §2 提前点语义（`_nose_lead_point`：充能期瞄准销 = 路径提前点，提前量随充能收敛至 fire_delay 预测；用户实测"不关心玩家往哪飞"的根因）。§7 锚点回填。回归门 14 项全绿。 |
 | 2026-07-05 | 5 | **电磁炮"所见即所得承诺弹道"**：修"锁定完成后指示线≠实际发射线"（用户实测）。充能完成瞬间 `_commit_fire_solution` 定死完整弹道解——AT_FIRE_TIME 预测点 / AT_CHARGE_START 保留点 / fire_along_nose 冻结机头线，miss-roll（环境+极速）当场结算并烘焙进 locked_aim_pos；`_fire` 纯执行零随机。telegraph awaiting 相位锚 locked_aim_pos 优先于机头分支、画全射程（穿透段可视）、射程与实弹同源 `_effective_max_range_m`。行为影响：玩家版 fire_delay=0 零变化；MQ-112 锁定相位不再追踪机头（躲指示线现在真的躲得掉，符合"咔哒上膛"设计承诺）；miss 打偏在锁定相位就可见（可读的躲避反馈）。回归门 14 项全绿。 |

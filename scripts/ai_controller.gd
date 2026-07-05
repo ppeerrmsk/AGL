@@ -1430,9 +1430,11 @@ func _process_simple(delta: float) -> void:
 		lead_pos = aircraft.global_position + dec_dir * 2000.0
 
 	# ── Railgun 充能稳头守卫 ──
-	# fire_along_nose=true 的电磁炮（MQ-112 等）开火方向 = 当前机头，charging/awaiting 期间
-	# 机头乱飘 = 必打偏。检测 equipment_state["railgun"] 的 charging/awaiting_fire，
-	# 期间把 target_position 钉到 locked_aim_pos，让机头冻结对准锁定点。
+	# fire_along_nose=true 的电磁炮（MQ-112 等）开火方向 = 锁定瞬间机头，charging/awaiting
+	# 期间机头乱飘 = 必打偏。检测 equipment_state["railgun"] 的 charging/awaiting_fire，
+	# 期间把 target_position 钉到 locked_aim_pos：
+	#   charging → 收敛中的路径提前点（RailgunEquipment._nose_lead_point 每 tick 刷新）
+	#   awaiting → 冻结的承诺弹道远点（_commit_fire_solution 定死，指示线即发射线）
 	var _railgun_aiming: bool = false
 	if aircraft.equipment_state.has("railgun"):
 		var rs: Dictionary = aircraft.equipment_state["railgun"]
