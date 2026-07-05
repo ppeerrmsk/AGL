@@ -161,6 +161,29 @@ static func _target_velocity_px(tgt) -> Vector2:
 ## 只有大机动（规避/急转）才取消充能——取消回 IDLE，不进冷却（不白费 CD，可立即重试）
 const CHARGE_ABORT_TURN_RATE_DEG := 25.0
 
+## 队友电磁炮"正在充能/待发射"锁定 target 的预期伤害合计（超杀让路记账用，
+## spec weapon-employment-doctrine：电磁炮必中 → 充能锁定即视为 inbound 伤害，
+## 队友导弹发射纪律据此避免对同一目标补射浪费——修"MRM 目标已消失 46% 脱靶"）
+static func team_charging_damage(target, team: int, exclude) -> float:
+	var total := 0.0
+	for u in CombatUnit.all_units:
+		if u == null or not is_instance_valid(u) or u == exclude:
+			continue
+		if not (u is Aircraft) or u.team != team or u.is_destroyed:
+			continue
+		var st = u.equipment_state.get(STATE_KEY, null)
+		if st == null:
+			continue
+		if not (bool(st.get("charging", false)) or bool(st.get("awaiting_fire", false))):
+			continue
+		if st.get("charge_target", null) != target:
+			continue
+		var rg = u.params.get_equipment_of_kind("railgun") if u.params else null
+		if rg != null:
+			total += rg.damage
+	return total
+
+
 func _try_start_charging(ac, s: Dictionary) -> void:
 	if s["cooldown"] > 0.0:
 		return

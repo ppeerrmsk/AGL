@@ -715,6 +715,9 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 	var _is_swarm_attacker: bool = ac.has_meta(&"saturation_attacker")
 	if not _is_swarm_attacker and not (ac.use_tactical_preference and not ac.missile_auto_fire):
 		var team_inbound: float = ac.missile_manager.team_inbound_damage(ac.combat_target, ac.team, ac)
+		# 电磁炮必中：队友正在充能/待发射锁定同一目标 → 预期伤害计入超杀记账
+		# （修"发射后目标被电磁炮蒸发 → MRM 目标已消失"类浪费，log 122049 实证 46%）
+		team_inbound += RailgunEquipment.team_charging_damage(ac.combat_target, ac.team, ac)
 		if team_inbound >= ac.combat_target.hp:
 			ac._log_msl_block("TEAM_OVERKILL", "team inbound dmg=%.0f >= tgt hp=%.0f" % [team_inbound, ac.combat_target.hp])
 			return
