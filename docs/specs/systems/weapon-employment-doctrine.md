@@ -165,8 +165,15 @@ bench + playtest + §7 锚点回填 + survivor-skills/enemy-index 相关行同�
 - [x] weapon_demo 观察场（--bench=weapon_demo：X-02 满装备 vs 2×AF-03+MiG+UAV）
 - [x] 首局日志验收：LINE_UP 生效（267 条 PLAN）、电磁炮 5km 实弹、充能 0 中断、GUN_AIM≈0
 - [x] MRM 包络仲裁仿真（--bench=missile_env）：FOV 60→90 定案（20° 离轴丢锁带实证）
-- [ ] 🔴 **敌方电磁炮锁定线≠发射线**（用户实测；诊断线索见重构计划 §9 交接快照）
-- [ ] 修复后对比局归因分析 → 转 done
+- [x] **敌方电磁炮锁定线≠发射线**（2026-07-05 已修，待用户 playtest 确认）：真因非快照
+  假设（enemy tres 实为 AT_FIRE_TIME；telegraph 锚点本就用 locked_aim_pos），而是
+  ①miss-roll 扰动在发射瞬间才结算（承诺线之外另画一条打偏线）②fire_along_nose 型
+  （MQ-112）锁定相位机头继续追踪，"扇形冻结在预测线上"从未发生。修法：充能完成瞬间
+  `_commit_fire_solution` 一次性定死完整弹道解（锁定点 + 机头冻结 + miss 扰动烘焙进
+  locked_aim_pos），telegraph 与 `_fire` 同源消费；锁定相位指示线画全射程（穿透段也在
+  杀伤线内）。副产物：telegraph 射程改用 `_effective_max_range_m`（与实弹同源）。
+- [ ] 修复后对比局归因分析 → 转 done（⚠ 122049 与 230431 均为 MRM 修复**前**样本
+  ——7961d75 的"57 发"= 32+25 两局合并。等修复后新 F9 日志再对比）
 
 ## 7. 索引锚点（Where）
 
@@ -180,3 +187,4 @@ bench + playtest + §7 锚点回填 + survivor-skills/enemy-index 相关行同�
 | 2026-07-04 | 2 | **用户定稿（approved）**：①距离带改为动态数值（实时读装备 live params，升级即时生效）；②重叠区竞选从"射程上界优先"改为**命中率优先**（电磁炮必中 > 导弹 > 机炮 > 火箭），电磁炮最近射程使近距自然归机炮；③充能期间持续追踪敌机航点（非冻结），射空可接受；④阵营分级：瞄准纪律同一套，难度差异全放执行层（敌机节流/误差）；⑤兜底改"维持追击 + 按导弹纪律 crank 等待 CD"。 |
 | 2026-07-05 | 4 | 阶段 3 落地：LINE_UP intent（竞选驱动、bank_limit_deg 双侧镜像钳制、boom-zoom 之前插枝）+ 电磁炮充能 planner 门 + 甩头中断（25°/s，取消不进 CD）+ AF-03 摘旗迁 planner + 统一提前点 lead_heading 上移。weapon_doctrine 26 断言 + 回归门 13 项全绿。剩阶段 4 playtest。 |
 | 2026-07-04 | 3 | 阶段 2 落地：planner 消费竞选（Situation 竞选输入 + plan.primary_weapon + _apply_combat_weapon 重写）。实现中细化 §2.2-5 "逼近≠失格"语义（回归门抓出：纯机炮机带外须保持机炮几何逼近）。--bench=weapon_doctrine 18 断言 + 回归门 13 项全绿。 |
+| 2026-07-05 | 5 | **电磁炮"所见即所得承诺弹道"**：修"锁定完成后指示线≠实际发射线"（用户实测）。充能完成瞬间 `_commit_fire_solution` 定死完整弹道解——AT_FIRE_TIME 预测点 / AT_CHARGE_START 保留点 / fire_along_nose 冻结机头线，miss-roll（环境+极速）当场结算并烘焙进 locked_aim_pos；`_fire` 纯执行零随机。telegraph awaiting 相位锚 locked_aim_pos 优先于机头分支、画全射程（穿透段可视）、射程与实弹同源 `_effective_max_range_m`。行为影响：玩家版 fire_delay=0 零变化；MQ-112 锁定相位不再追踪机头（躲指示线现在真的躲得掉，符合"咔哒上膛"设计承诺）；miss 打偏在锁定相位就可见（可读的躲避反馈）。回归门 14 项全绿。 |

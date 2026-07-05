@@ -425,19 +425,21 @@ Phase 0 (安全网)  ──►  Phase 1 (意图仲裁)  ──►  Phase 2 (状�
   `--headless --import` 刷类缓存，否则新 class_name 报 not declared。
 - Godot: Downloads/Godot_v4.6.2-stable_mono_win64/。观察场：`godot --path . -- --bench=weapon_demo`。
 
-### 🔴 待修 bug（用户实测报告，优先）
-**敌方电磁炮"锁定完成后的指示线 ≠ 实际发射线"**。
-诊断线索（未验证）：敌人版 `lock_trajectory_at=AT_CHARGE_START`（充能开始即锁死
-`locked_aim_pos`）+ `fire_delay_after_lock=0.5`；`_fire` 按 locked_aim_pos 打
-（fire_along_nose=false）。嫌疑：telegraph 视觉（AircraftRenderer.draw_railgun_telegraph）
-的扇形/线端点跟随**当前机头或当前目标位置**，而发射按**开局锁死点**——阶段3 的 LINE_UP
-让载机充能期间持续跟踪航点（机头在动），分叉被放大。首查 draw_railgun_telegraph 端点来源；
-修法候选：telegraph 收缩终点改画 locked_aim_pos（所见即所得的承诺弹道）。
+### ✅ 电磁炮锁定线 bug（2026-07-05 已修，待用户 playtest 确认）
+真因与上一版快照假设不同：enemy_railgun.tres 实为 **AT_FIRE_TIME**（tres 值 1；注释
+说敌人用 AT_CHARGE_START 是误导），telegraph 锚点本就消费 locked_aim_pos，逐帧几何
+一致。真正分叉：①miss-roll（基础 15%+云 30%+低空 20%）在**发射瞬间**才扰动方向
+2.3°~5.7°；②fire_along_nose 型（MQ-112）telegraph 与 _fire 都读**当前机头**，
+0.6s 锁定相位机头继续追踪——"扇形冻结在预测线上"从未发生，躲了指示线仍被追着打。
+修法：`RailgunEquipment._commit_fire_solution`（充能完成瞬间定死弹道解，miss 扰动
+烘焙进 locked_aim_pos）+ telegraph awaiting 锚点优先级/全射程/有效射程同源。
+spec weapon-employment-doctrine §8 v5 有完整记录。回归门 14 项全绿。
 
 ### 待办（按优先级）
-1. **上述电磁炮视觉/弹道一致性 bug**。
-2. **weapon_demo 对比局归因分析**：用户刚打了一局（修复后首局），若 logs/ 有新 F9 日志，
-   对比 122049 的脱靶归因（预期：末段丢锁≈消失、目标已消失显著降）→ 通过则 spec
+1. **电磁炮修复的 playtest 确认**（用户进游戏看 AF-03/MQ-112 指示线与实弹重合）。
+2. **MRM 修复后对比局归因分析**：⚠ 122049 与 230431 都是修复**前**样本（7961d75
+   正文"57 发"= 32+25 合并）。修复后（12:27 之后）用户尚无 F9 日志。等新日志后
+   对比归因（预期：末段丢锁≈消失、目标已消失显著降）→ 通过则 spec
    weapon-employment-doctrine 转 done + §7 锚点回填 + _INDEX 状态更新。
 3. 观察项（用户已知，待拍板是否做）：①电磁炮竞选无超杀去重——开局 5 机集火同一 UAV；
    ②QMAAM 格斗弹无人挂载（预留资源，装备位设计机会）；③电磁炮射击节奏（cooldown 数值活）。

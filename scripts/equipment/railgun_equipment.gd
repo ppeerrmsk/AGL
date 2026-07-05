@@ -272,12 +272,8 @@ func _tick_charging(ac, s: Dictionary, delta: float) -> void:
 	# 推进进度
 	s["charge_progress"] = clampf(s["charge_progress"] + delta / charge_duration, 0.0, 1.0)
 	if s["charge_progress"] >= 1.0:
-		# 充能完成 —— 决定 aim_pos：
-		# AT_CHARGE_START：locked_aim_pos 早就在 _try_start_charging 写好（旧位置），不动
-		# AT_FIRE_TIME：现在按当前位置 + 速度 × fire_delay 预测开火点
-		if lock_trajectory_at == LockTrajectory.AT_FIRE_TIME:
-			var vel: Vector2 = _target_velocity_px(tgt)
-			s["locked_aim_pos"] = tgt.global_position + vel * fire_delay_after_lock
+		# 充能完成 —— 完整弹道解（锁定点 + 机头冻结 + miss 扰动）一次性定死
+		_commit_fire_solution(ac, s)
 		# 进入开火流程：有延迟则锁定相位等 timer，否则直接开火
 		s["charging"] = false
 		if fire_delay_after_lock > 0.0:
@@ -287,32 +283,47 @@ func _tick_charging(ac, s: Dictionary, delta: float) -> void:
 			_fire(ac, s)
 
 
-func _fire(ac, s: Dictionary) -> void:
-	# aim_pos 来自 s["locked_aim_pos"]，由 _try_start_charging（AT_CHARGE_START）或
-	# _tick_charging 进入完成态时（AT_FIRE_TIME 含预测）写入。
-	# 锁定相位（awaiting_fire）期间 tgt 可能变 null（被打掉）也无所谓 — 锁已经定了。
-	var aim_pos: Vector2 = s["locked_aim_pos"]
+## 充能完成瞬间把完整弹道解一次性定死（"所见即所得承诺弹道"，2026-07-05）：
+## 1) 锁定点：AT_FIRE_TIME 按目标速度预测 / AT_CHARGE_START 保留开局锁死点 /
+##    fire_along_nose 冻结当前机头线（设计承诺"锁定相位扇形冻结在预测线上"）
+## 2) miss-roll（环境干扰 + 极速目标）此刻结算，横向扰动直接烘焙进 locked_aim_pos
+## 此后 telegraph（awaiting 相位）与 _fire 消费同一个承诺点 —— 锁定相位画的指示线
+## 就是实际发射线。旧实现机头方向 / miss 扰动都在发射瞬间才结算，导致
+## "锁定完成后的指示线 ≠ 实际发射线"（2026-07-05 用户实测 bug）。
+func _commit_fire_solution(ac, s: Dictionary) -> void:
+	var muzzle: Vector2 = ac.global_position
+	var tgt = s.get("charge_target", null)
+	if fire_along_nose:
+		# 机头直射型（MQ-112）：锁定相位起机头线冻结。旧实现发射时才读机头，
+		# awaiting 期间机头继续追踪 → 玩家躲开指示线仍被追着打
+		var nose_dir := Vector2(sin(ac.heading), -cos(ac.heading))
+		var nose_range_px: float = _effective_max_range_m(ac) * CombatUnit.PIXELS_PER_METER
+		s["locked_aim_pos"] = muzzle + nose_dir * nose_range_px
+	elif lock_trajectory_at == LockTrajectory.AT_FIRE_TIME:
+		# 按目标当前位置 + 速度 × fire_delay 预测开火点（玩家平飞=命中，机动=落空）
+		var vel: Vector2 = _target_velocity_px(tgt)
+		s["locked_aim_pos"] = tgt.global_position + vel * fire_delay_after_lock
+	# AT_CHARGE_START：locked_aim_pos 早在 _try_start_charging 写好（旧位置），不动
 
 	# 环境干扰 miss：基础 + 云层 + 低空
-	# 三项叠加后单次 roll；命中失败 → 在最终 dir 上加横向角度扰动（兼容 fire_along_nose）
+	# 三项叠加后单次 roll；命中失败 → 在承诺点上加横向角度扰动
 	var miss_chance: float = base_miss_chance
-	var tgt_for_env = s.get("charge_target", null)
-	if is_instance_valid(tgt_for_env):
+	if is_instance_valid(tgt):
 		# 云层加成：仅当目标实际"在云中"（HIGH 高度 + 有云密度）才生效。
 		# 用 Aircraft.cloud_state == 2（HIGH + 在云中），cloud_state == 1 表示在云下方（LOW/MID）
 		# 不算真的接触到云。这样低空玩家不会"借云免疫"——云物理上根本不在他周围。
-		if cloud_miss_bonus > 0.0 and tgt_for_env is Aircraft:
-			var ac_t: Aircraft = tgt_for_env
+		if cloud_miss_bonus > 0.0 and tgt is Aircraft:
+			var ac_t: Aircraft = tgt
 			if ac_t.cloud_state == 2:
 				miss_chance += cloud_miss_bonus * clampf(ac_t.cloud_density, 0.0, 1.0)
 		# 低空判定（敌机有 altitude 字段；地面单位天然在低空）
-		if low_alt_miss_bonus > 0.0 and "altitude" in tgt_for_env:
-			if float(tgt_for_env.altitude) < low_alt_threshold_m:
+		if low_alt_miss_bonus > 0.0 and "altitude" in tgt:
+			if float(tgt.altitude) < low_alt_threshold_m:
 				miss_chance += low_alt_miss_bonus
 		# 慢速目标命中加成：被减速 / 静止的目标"应该更容易被命中"
 		# < 300km/h 时按线性内插最多砍 60% miss，把"减速难躲"这条设计承诺接到数值上
-		if tgt_for_env is Aircraft:
-			var spd_kmh_slow: float = float((tgt_for_env as Aircraft).speed) * 3.6
+		if tgt is Aircraft:
+			var spd_kmh_slow: float = float((tgt as Aircraft).speed) * 3.6
 			if spd_kmh_slow < 300.0:
 				var slow_t: float = 1.0 - clampf(spd_kmh_slow / 300.0, 0.0, 1.0)
 				miss_chance *= 1.0 - 0.6 * slow_t
@@ -324,7 +335,6 @@ func _fire(ac, s: Dictionary) -> void:
 	# （敌人版 enemy_railgun.tres 设 0，没有这个补偿）
 	var fast_miss: bool = false
 	if fast_target_max_miss_chance > 0.0:
-		var tgt = s.get("charge_target", null)
 		if is_instance_valid(tgt) and "speed" in tgt:
 			var spd_kmh: float = float(tgt.speed) * 3.6
 			if spd_kmh > fast_target_miss_speed_kmh:
@@ -334,23 +344,35 @@ func _fire(ac, s: Dictionary) -> void:
 				if randf() < fast_target_max_miss_chance * miss_t:
 					fast_miss = true
 
-	# 弹道：从 ac 机头延长到 max_range（穿透到底）
+	# 扰动烘焙进承诺点：等价于旧版发射时对 dir 的横向扰动，但此刻就写进
+	# locked_aim_pos → 锁定相位的指示线直接画出（打偏的）实际弹道
+	if env_miss or fast_miss:
+		var to_aim: Vector2 = s["locked_aim_pos"] - muzzle
+		var aim_dist: float = to_aim.length()
+		if aim_dist > 1.0:
+			var dir: Vector2 = to_aim / aim_dist
+			if env_miss:
+				var jitter: float = randf_range(0.04, 0.10) * (1.0 if randf() < 0.5 else -1.0)
+				dir = (dir + dir.orthogonal() * jitter).normalized()
+			if fast_miss:
+				var jitter2: float = 0.05 * (1.0 if randf() < 0.5 else -1.0)
+				dir = (dir + dir.orthogonal() * jitter2).normalized()
+			s["locked_aim_pos"] = muzzle + dir * aim_dist
+
+
+func _fire(ac, s: Dictionary) -> void:
+	# 弹道解已在 _commit_fire_solution 定死（锁定点 + 机头冻结 + miss 扰动）——
+	# 这里纯执行，不再有任何随机 / 机头读取。
+	# 锁定相位（awaiting_fire）期间 tgt 可能变 null（被打掉）也无所谓 — 锁已经定了。
 	var muzzle: Vector2 = ac.global_position
+	var to_aim: Vector2 = s["locked_aim_pos"] - muzzle
 	var dir: Vector2
-	if fire_along_nose:
-		# 永远沿机头方向 —— 不向 aim_pos 偏移，玩家不在机头延长线上自然 miss
-		dir = Vector2(sin(ac.heading), -cos(ac.heading))
+	if to_aim.length() > 1.0:
+		dir = to_aim.normalized()
 	else:
-		dir = (aim_pos - muzzle).normalized()
-	# miss-roll 触发后扰动 dir（在确定基底方向之后，确保 fire_along_nose 也受影响）
-	if env_miss:
-		var perp_dir: Vector2 = dir.orthogonal()
-		var jitter: float = randf_range(0.04, 0.10) * (1.0 if randf() < 0.5 else -1.0)
-		dir = (dir + perp_dir * jitter).normalized()
-	if fast_miss:
-		var perp_dir2: Vector2 = dir.orthogonal()
-		var jitter2: float = 0.05 * (1.0 if randf() < 0.5 else -1.0)
-		dir = (dir + perp_dir2 * jitter2).normalized()
+		# 防御兜底：承诺点与炮口重合（理论不可达）→ 退化沿机头
+		dir = Vector2(sin(ac.heading), -cos(ac.heading))
+	# 弹道：从炮口穿过承诺点延长到 max_range（穿透到底）
 	var range_px: float = _effective_max_range_m(ac) * CombatUnit.PIXELS_PER_METER
 	var beam_end: Vector2 = muzzle + dir * range_px
 

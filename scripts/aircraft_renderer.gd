@@ -1923,23 +1923,27 @@ static func draw_railgun_telegraph(ac: Aircraft) -> void:
 		return
 
 	# Anchor 选择：
-	# - fire_along_nose=true（机头直射型，如 MQ-112）：永远沿机头延长线，不用 locked_aim_pos
-	# - awaiting_fire 阶段：fan 完全收缩，锁在 locked_aim_pos（预测点，已不可改）
+	# - awaiting_fire 阶段（最高优先）：弹道解已由 _commit_fire_solution 定死（含机头
+	#   直射冻结 + miss 扰动），锁在 locked_aim_pos —— 指示线即实际发射线
+	# - charging + fire_along_nose（机头直射型，如 MQ-112）：沿当前机头延长线收缩
 	# - charging + AT_CHARGE_START：locked_aim_pos（早就锁死）
 	# - charging + AT_FIRE_TIME：跟踪当前目标 tgt.global_position
-	var range_px: float = rg.max_range_m * CombatUnit.PIXELS_PER_METER
+	# 射程与 _fire 同源（_effective_max_range_m = 本机雷达范围），别用 max_range_m 兜底值
+	var range_px: float = rg._effective_max_range_m(ac) * CombatUnit.PIXELS_PER_METER
 	var aim_anchor: Vector2
-	if rg.fire_along_nose:
+	if awaiting:
+		aim_anchor = s.get("locked_aim_pos", ac.global_position)
+	elif rg.fire_along_nose:
 		var nose_dir := Vector2(sin(ac.heading), -cos(ac.heading))
 		aim_anchor = ac.global_position + nose_dir * range_px
-	elif awaiting:
-		aim_anchor = s.get("locked_aim_pos", ac.global_position)
 	elif rg.lock_trajectory_at == RailgunEquipment.LockTrajectory.AT_CHARGE_START:
 		aim_anchor = s.get("locked_aim_pos", tgt.global_position if is_instance_valid(tgt) else ac.global_position)
 	else:
 		aim_anchor = tgt.global_position
 	var to_tgt: Vector2 = aim_anchor - ac.global_position
 	var dist: float = to_tgt.length()
+	if dist < 1.0:
+		return
 	# 不在射程内不画（仅 charging 阶段；awaiting 已锁定不再校验）
 	# fire_along_nose 模式下 dist == range_px，必通过
 	if charging and dist > range_px:
@@ -1949,7 +1953,9 @@ static func draw_railgun_telegraph(ac: Aircraft) -> void:
 	var progress: float = 1.0 if awaiting else clampf(s["charge_progress"], 0.0, 1.0)
 	var initial_half_rad := deg_to_rad(RailgunEquipment.TELEGRAPH_INITIAL_HALF_ANGLE_DEG)
 	var half_rad: float = lerpf(initial_half_rad, 0.0, progress)
-	var beam_len := minf(dist, range_px)
+	# awaiting：画全射程 —— 实弹 hitscan 会穿透延伸到 max_range，不止到锁定点；
+	# 指示线必须覆盖整条杀伤线，否则玩家以为"线外安全"仍会被穿透段命中
+	var beam_len := range_px if awaiting else minf(dist, range_px)
 
 	# 扇形颜色：敌方红 / 友方蓝
 	var color: Color = rg.beam_color
