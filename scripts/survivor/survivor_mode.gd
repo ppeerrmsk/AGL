@@ -224,6 +224,10 @@ func _ready() -> void:
 	if get_tree().has_meta("survivor_aircraft_resource"):
 		profile_path = get_tree().get_meta("survivor_aircraft_resource")
 		get_tree().remove_meta("survivor_aircraft_resource")
+	# weapon_demo（spec weapon-employment-doctrine 阶段4 观察场）：强制 X-02 满装备档案
+	# （基础档案自带 x02_railgun + 导弹 + 机炮）——验收武器竞选/LINE_UP/距离带切换
+	if _bench_scenario == "weapon_demo":
+		profile_path = "res://resources/playable_x02_base.tres"
 	_player_profile_path = profile_path  # 保存供 boss debug F8 重启使用
 	var profile: PlayableAircraft = load(profile_path)
 	if profile == null or profile.base_params == null:
@@ -593,6 +597,14 @@ func _bench_force_spawn_mixed(_total: int) -> void:
 		[SurvivorSpawner.EnemyType.INTERCEPTOR, 3, true],    # 3× J-7 (Lancer 入门)
 		[SurvivorSpawner.EnemyType.UCAV, 3, true],           # 3× UCAV — 测试场景成建制
 	]
+	# weapon_demo：武器准则观察场——AF-03（敌方电磁炮狙击手，LINE_UP 活体样本）×2
+	# + 少量常规敌机（给己方竞选制造远/中/近距离样本），总量小便于肉眼跟踪单机行为
+	if _bench_scenario == "weapon_demo":
+		mix = [
+			[SurvivorSpawner.EnemyType.AF03, 2, false],   # 2× AF-03 单机（bvr 狙击手）
+			[SurvivorSpawner.EnemyType.MIG, 3, true],     # 3× MiG-29 编队（中距导弹样本）
+			[SurvivorSpawner.EnemyType.UAV, 3, false],    # 3× UAV（近距机炮样本）
+		]
 	var spawned: int = 0
 	for entry in mix:
 		var etype: int = entry[0]

@@ -98,7 +98,7 @@ func _ready() -> void:
 	get_tree().set_meta("bench_duration", bench_duration)
 	# demo 模式（--bench=demo）：渲染运行 + 不退出 + 持续补敌，供肉眼观察小队战斗/物理/表现。
 	# 用法（注意：不要加 --headless）：godot --path . -- --bench=demo
-	if bench_scenario == "demo":
+	if bench_scenario == "demo" or bench_scenario == "weapon_demo":
 		get_tree().set_meta("bench_demo", true)
 
 	printerr("[Bench] scenario=%s duration=%.1fs out=%s" % [bench_scenario, bench_duration, _out_path])
