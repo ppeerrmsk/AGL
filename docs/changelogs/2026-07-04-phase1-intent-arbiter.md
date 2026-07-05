@@ -108,8 +108,11 @@ combat_tracking 同款公式；地面/船慢目标直接瞄）+ **固定机炮�
 
 ## 修复
 1. `default_missile.tres`（MRM）：seeker_fov 60→90°、max_g 35→45——仍低于 QMAAM
-   （120°/60G），保留弹种档次差。⚠ 对称影响：敌方多数机型同用此弹（enemy_f4/mig23/
-   f100 等），双方同步变准，公平性不变、整体杀伤节奏加快。
+   （120°/60G），保留弹种档次差。⚠ **影响面更正（2026-07-05）**：机型 .tres 挂
+   default_missile 的敌机在生存模式 spawn 时被 spawner 按玩家等级换成
+   `ENEMY_MISSILE_TIERS`（Missile V1~V8，FOV 恒 60~65），**不吃本次上调**——
+   实际受益方主要是玩家方（F-14/X-02 僚机 + 玩家 MRM）。这恰好符合用户定稿的
+   阵营分级（玩家方尽量准、敌机允许失误），但幅度是否合适待用户过目导弹族谱后拍板。
 2. 电磁炮充能计入超杀：`RailgunEquipment.team_charging_damage(target, team, exclude)`
    （充能/待发射且 charge_target==目标 → 预期伤害合计）并入导弹发射纪律的
    TEAM_OVERKILL 记账——队友充能锁定的目标不再补射 MRM。
