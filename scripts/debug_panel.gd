@@ -304,6 +304,8 @@ func _get_strategy_text(ac: Aircraft) -> String:
 		return _get_combat_strategy(ac)
 
 	# 无战斗目标：按 AI 状态
+	if ctrl.is_evading():  # Phase 2：EVADE 是 modifier，不在 _state 轴
+		return "[color=#ff6655]规避导弹[/color]"
 	match ctrl._state:
 		AIController.AIState.PATROL:
 			if ctrl.waypoints.size() > 0:
@@ -322,8 +324,6 @@ func _get_strategy_text(ac: Aircraft) -> String:
 				if why != "":
 					rationale_str = "\n  └ %s" % why
 			return "交战 [%s] (%.0fs)%s" % [tactic_str, ctrl._engage_timer, rationale_str]
-		AIController.AIState.EVADE_MISSILE:
-			return "[color=#ff6655]规避导弹[/color]"
 		AIController.AIState.SQUAD_FOLLOW:
 			# 阵型调整 > 归队 > 正常跟随
 			if ctrl._formation_react_timer > 0.0:

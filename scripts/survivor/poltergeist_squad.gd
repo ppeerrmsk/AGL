@@ -252,8 +252,7 @@ func _tick_phase(i: int, delta: float) -> void:
 				if ai and combat_phase_active and squad_state == SquadState.PURSUIT \
 						and is_instance_valid(_player) and not _player.is_destroyed:
 					if ai.acquire_target(_player, AIController.TargetSource.TS_BOSS, "catapult PURSUIT sync"):
-						ai._state = AIController.AIState.ENGAGE
-						ai._engage_timer = 0.0
+						ai.enter_engage_state(false)  # 软进入：状态+engage_timer，不碰私有字段
 						ai.boss_attacker = true
 				EventLogger.log_event("BOSS", display_name,
 						"%s airborne, climbing to LOW" % ac.callsign)

@@ -82,7 +82,10 @@ func update_situational_awareness(ai: AIController, delta: float) -> void:
 		sa_check_timer = lerpf(5.0, 1.5, esa)
 		# 检查成功率：高SA几乎不会遗漏，低SA经常检查失败
 		var check_success_chance := 0.3 + esa * 0.7  # 最低30%，最高100%
-		if ai._state == AIController.AIState.ENGAGE and ai._tactic in [AIController.EngageTactic.LEAD_PURSUIT, AIController.EngageTactic.LEAD_TURN]:
+		# Phase 2：躲弹期间背景 _state 可能滞留 ENGAGE，加 not _evading 保持旧语义
+		# （规避中不算"专注追踪"）
+		if ai._state == AIController.AIState.ENGAGE and not ai._evading \
+				and ai._tactic in [AIController.EngageTactic.LEAD_PURSUIT, AIController.EngageTactic.LEAD_TURN]:
 			# 专注追踪时更容易忽略后方
 			check_success_chance *= 0.7
 		rear_threat_aware = randf() < check_success_chance

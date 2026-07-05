@@ -47,6 +47,7 @@ const UNIT_TESTS: Dictionary = {
 	"weapon_doctrine": "res://scripts/tests/test_weapon_doctrine.gd",
 	"missile_env": "res://scripts/tests/test_missile_envelope.gd",
 	"joust": "res://scripts/tests/test_joust.gd",
+	"state_machine": "res://scripts/tests/test_state_machine.gd",
 	"bfm_intent": "res://scripts/tests/test_bfm_intent.gd",
 }
 

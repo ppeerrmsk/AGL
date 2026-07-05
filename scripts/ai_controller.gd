@@ -7,7 +7,12 @@ extends Node
 # 显式 preload 兜底新增的 class_name 类（Godot 全局类缓存有时不刷新）
 const EscortBehavior := preload("res://scripts/ai/escort_behavior.gd")
 
-enum AIState { PATROL, ENGAGE, EVADE_MISSILE, SQUAD_FOLLOW }
+# Phase 2 状态正交化（2026-07-05，重构计划 §5 Phase 2）：
+# EVADE 不再是 _state 轴上的值 —— 它与 PATROL/ENGAGE/SQUAD_FOLLOW 正交，实现为
+# `_evading` modifier（由 MissileEvasion.enter_evade/exit_evade 独占进出）。
+# 躲弹期间背景 _state 保持原值，分发层短路到 process_evade；退出时按上下文三路重定。
+# 同理 directive / manual_control 本就是分发层旁路（正交模态），只是没占 _state 轴。
+enum AIState { PATROL, ENGAGE, SQUAD_FOLLOW }
 enum EngageTactic {
 	LEAD_PURSUIT,    ## 前置追踪：积极闭合
 	LAG_PURSUIT,     ## 滞后追踪：保持后半球不冲过
@@ -457,6 +462,11 @@ var _formation_jitter_phase: float = 0.0  ## 个体扰动相位（随机初始�
 # ── 内部状态 ──
 var current_waypoint_index: int = 0
 var _state: AIState = AIState.PATROL
+## EVADE modifier（Phase 2）：与 _state 正交的躲弹模态。true 时分发层短路到
+## MissileEvasion.process_evade，背景 _state 保持原值。**只允许 MissileEvasion
+## enter_evade/exit_evade 写**——与 aircraft.evasion_mode（planner 油门协作位）的
+## 双真值源问题由"同一对进出函数写两者"解决。
+var _evading: bool = false
 var _engage_timer: float = 0.0           ## 当前交战已持续时间
 var _cooldown_timer: float = 0.0         ## 交战冷却剩余
 var _scan_timer: float = 0.0            ## 扫描计时器
@@ -689,36 +699,11 @@ func _physics_process_impl(delta: float) -> void:
 	if kamikaze_intercept and _try_kamikaze_intercept(delta):
 		return
 
-	# ── 战斗偏好区域守卫 ──
-	# 圆形区域 (combat_zone_anchor.global_position, combat_zone_radius)：
-	#   1. 飞机出区 → 清交战 + PATROL + 单点 waypoint 拉回 + 全速返航；本帧后续 AI 跳过
-	#   2. 目标飘出区域 × SLACK → 放弃目标（不全速回返，让 AI 自然换目标）
-	# 用于 Mother Goose / Sentinel 的 hunter UAV：丢目标后不漂走，永远在 boss 周围战斗
-	# 锚点是飞机/单位且已被击坠：解除区域，回退到正常 AI（追玩家 / 自由扫描）
-	if combat_zone_anchor is CombatUnit and (combat_zone_anchor as CombatUnit).is_destroyed:
-		combat_zone_anchor = null
-		combat_zone_radius = 0.0
-	if combat_zone_anchor != null and is_instance_valid(combat_zone_anchor) and combat_zone_radius > 0.0:
-		var zone_center: Vector2 = combat_zone_anchor.global_position
-		var self_dist := aircraft.global_position.distance_to(zone_center)
-		if self_dist > combat_zone_radius:
-			# 出界：强制回返（release 被高优先级拒绝时跳过整段回返）
-			if release_target(TargetSource.TS_SCORED, "combat zone exit"):
-				aircraft.ai_override_pursuit = false
-				_state = AIState.PATROL
-				waypoints = PackedVector2Array([zone_center])
-				current_waypoint_index = 0
-				aircraft.target_position = zone_center
-				if aircraft.flat_altitude and combat_zone_anchor is Aircraft:
-					aircraft.set_target_tier((combat_zone_anchor as Aircraft).get_altitude_tier())
-				if aircraft.params:
-					aircraft.target_speed_kmh = aircraft.params.max_speed
-				return
-		elif _current_target != null and is_instance_valid(_current_target):
-			var target_dist := _current_target.global_position.distance_to(zone_center)
-			if target_dist > combat_zone_radius * COMBAT_ZONE_TARGET_SLACK:
-				if release_target(TargetSource.TS_SCORED, "target left combat zone"):
-					aircraft.ai_override_pursuit = false
+	# ── Phase 2 约束层：区域包含 + 小队 leash 统一执行（分发前，对所有模态生效）──
+	# 旧实现散在 zone 块（此处）+ _process_engage leash + process_evade leash 三处拷贝，
+	# SEAM-010 根治：现收口 _apply_constraints 单点。
+	if _apply_constraints(delta):
+		return
 
 	if simple_ai:
 		# simple AI 只承袭固定 aggression，不受压力/SA 影响
@@ -754,13 +739,12 @@ func _physics_process_impl(delta: float) -> void:
 	# Sentinel UAV escort 走 simple_ai 路径（ai_controller.gd:481 提前 return），永远不会
 	# 触发本守卫——orbit_squad_leader 与 SQUAD_FOLLOW 互不影响。
 	# 详见 docs/changelogs/player-ai-log.md 2026-04-20 (5) + 2026-05-04 squad 重构
-	if _state == AIState.PATROL and not bvr_only \
+	# Phase 2：加 not _evading 门——躲弹期间背景 _state 可能是 PATROL，此守卫若触发
+	# 会把规避机塞回编队托管（LOD1 lerp = 360°/s 扭头旧 bug 复发）
+	if _state == AIState.PATROL and not _evading and not bvr_only \
 			and squad and is_instance_valid(squad.leader) and not squad.leader.is_destroyed \
 			and squad.leader != aircraft:
-		_state = AIState.SQUAD_FOLLOW
-		_rejoining = true
-		_formation_blend = 0.0
-		aircraft.lod_level = 1
+		enter_squad_follow_state()
 		EventLogger.log_event("AI_STATE", _log_name(),
 			"auto-enter SQUAD_FOLLOW (spawn init guard, leader=%s)" % squad.leader.callsign)
 
@@ -770,7 +754,7 @@ func _physics_process_impl(delta: float) -> void:
 	#   ① 自己真被导弹咬住 → enter_evade 加速逃命（自保优先）
 	#   ② 没被威胁 + 无玩家命令 → 召回编队护卫长机（不再自由交战飞远，回槽位待命投护卫 flare）
 	#   ③ 没被威胁 + 有玩家命令 → 不拦截，落下方"命令铁律"继续交战（commanded_target 优先）
-	if aircraft.escort_cover_active and _state != AIState.EVADE_MISSILE \
+	if aircraft.escort_cover_active and not _evading \
 			and squad and is_instance_valid(squad.leader) and squad.leader != aircraft \
 			and not is_boss_attacker():
 		# B1 分层门：flare 能兜底就不散开（护卫姿态本来就要求尽量不脱队）
@@ -778,20 +762,24 @@ func _physics_process_impl(delta: float) -> void:
 			MissileEvasion.enter_evade(self)
 			return
 		elif aircraft.commanded_target == null and _state != AIState.SQUAD_FOLLOW:
-			# 召回编队待命（镜像 exit_evade 的 SQUAD_FOLLOW 归队设置，但不打 EVADE 日志）
+			# 召回编队待命（与 exit_evade 的归队走同一过渡函数，但不打 EVADE 日志）
 			if release_target(TargetSource.TS_SCORED, "escort recall"):
-				_state = AIState.SQUAD_FOLLOW
-				aircraft.ai_override_pursuit = false
-				_rejoining = true
-				_formation_blend = 0.0
-				aircraft.lod_level = 1
+				enter_squad_follow_state()
+
+	# ── EVADE modifier 分发（Phase 2：规避是正交模态，不占 _state 轴）──
+	# _evading 由 MissileEvasion 独占进出；期间背景 _state 保持原值，退出时按上下文重定。
+	# 位置在铁律之前 = 求生规避优先于命令但有界（B1 定稿）：commanded_target 保留不清，
+	# 威胁消失 exit_evade 下一 tick 铁律无缝重接。
+	if _evading:
+		MissileEvasion.process_evade(self, delta)
+		return
 
 	# ── 玩家命令铁律（spec rts-command §3）──
 	# 这架机带玩家显式攻击命令(aircraft.commanded_target)且目标存活 → 强制 ENGAGE 它，
 	# 绕过评分/编队路由，AI 不得改打别的（逐机持久，跨 1/2/3/4 切控）。
 	# 命令目标死/被清 → _enforce 返回 false，自然落回正常 AI（disengage 回编队）。
 	# 注：亲控由 controller+planner 管（manual_control 已提前 return）；求生规避优先于命令
-	# 但有界（B1 定稿策略）—— _enforce 内部对 EVADE_MISSILE 让位（不清命令），躲弹入口走
+	# 但有界（B1 定稿策略）—— 上方 _evading 分发先行让位（不清命令），躲弹入口走
 	# should_enter_evade 分层门（flare 能兜底不脱离），威胁消失 exit_evade 下一 tick 重接命令目标。
 	if _enforce_commanded_target():
 		_process_engage(delta)
@@ -802,10 +790,133 @@ func _physics_process_impl(delta: float) -> void:
 			_process_patrol(delta)
 		AIState.ENGAGE:
 			_process_engage(delta)
-		AIState.EVADE_MISSILE:
-			MissileEvasion.process_evade(self, delta)
 		AIState.SQUAD_FOLLOW:
 			SquadCoordination.process_squad_follow(self, delta)
+
+# ══════════════════════════════════════════════
+#  模态过渡函数（Phase 2 状态正交化，2026-07-05）
+#  所有 _state 写入必须走这三个函数——字段清单唯一化，进出对称由此保证。
+#  （EVADE modifier 的进出对 = MissileEvasion.enter_evade/exit_evade，独占 _evading）
+# ══════════════════════════════════════════════
+
+## 进入/维持 ENGAGE。前置：目标已由 acquire_target 建立（本函数不碰目标所有权）。
+## reset_tactic=true：新交战，重置战术选择；false：软重连/恢复交战
+## （BOSS 维持、躲弹后恢复——不打断进行中的 BFM 战术选择）。
+func enter_engage_state(reset_tactic: bool = true) -> void:
+	_state = AIState.ENGAGE
+	_engage_timer = 0.0
+	if reset_tactic:
+		_tactic = EngageTactic.LEAD_PURSUIT
+		_tactic_timer = 0.0
+		_tactic_min_duration = MIN_DUR_LEAD_PURSUIT
+
+
+## 进入 SQUAD_FOLLOW（编队跟随）。snap=false：从 0 开始渐变归队（常规）；
+## snap=true：跳过 rejoin 渐变直接落位（玩家 UI 强制切模式用）。
+func enter_squad_follow_state(snap: bool = false) -> void:
+	_state = AIState.SQUAD_FOLLOW
+	_cover_target = null
+	_rejoining = not snap
+	_formation_blend = 1.0 if snap else 0.0
+	aircraft.ai_override_pursuit = false
+	aircraft.lod_level = 1
+
+
+## 进入 PATROL。pick_waypoint=true：设巡逻高度 + 选下一航点（常规脱战）；
+## false：调用方自己接管航点（combat_zone 回拉等自带航点的路径）。
+func enter_patrol_state(pick_waypoint: bool = true) -> void:
+	_state = AIState.PATROL
+	aircraft.ai_override_pursuit = false
+	if pick_waypoint:
+		BFMTactics.set_patrol_altitude(self)
+		_set_next_waypoint()
+
+
+## EVADE modifier 查询（外部读者用；写入只归 MissileEvasion）
+func is_evading() -> bool:
+	return _evading
+
+# ══════════════════════════════════════════════
+#  约束层（Phase 2 · SEAM-010 根治，2026-07-05）
+#  横切约束（区域包含 / 小队 leash）统一在分发前执行一次，对所有模态生效——
+#  从此加新状态/模态不需要人肉遍历"每个状态各修一遍 leash"。
+#  未来 anchor 区域保护（命令轮盘"防守此区"，重构计划 §7.1）在此层接入。
+# ══════════════════════════════════════════════
+
+## 玩家命令交战判定（铁律豁免共用：leash / 超距脱离都不得拽回玩家点名的交战）
+func _cmd_engage_active() -> bool:
+	return aircraft.commanded_target != null \
+			and aircraft.commanded_target == _current_target \
+			and is_instance_valid(aircraft.commanded_target) and not aircraft.commanded_target.is_destroyed
+
+
+## 统一约束执行点。返回 true = 本 tick 已被约束接管（调用方直接 return）。
+## 在节流之后、simple/全功能分发之前调用（zone 对 simple hunter 生效；leash 不管 simple——
+## simple 有自己的 escort tether；drone 的 kamikaze 分支在更上游 return）。
+func _apply_constraints(delta: float) -> bool:
+	# ── 约束 1：战斗偏好区域（combat_zone containment，hunter UAV 专用）──
+	# 锚点是飞机/单位且已被击坠：解除区域，回退到正常 AI（追玩家 / 自由扫描）
+	if combat_zone_anchor is CombatUnit and (combat_zone_anchor as CombatUnit).is_destroyed:
+		combat_zone_anchor = null
+		combat_zone_radius = 0.0
+	if combat_zone_anchor != null and is_instance_valid(combat_zone_anchor) and combat_zone_radius > 0.0:
+		var zone_center: Vector2 = combat_zone_anchor.global_position
+		var self_dist := aircraft.global_position.distance_to(zone_center)
+		if self_dist > combat_zone_radius:
+			# 出界：强制回返（release 被高优先级拒绝时跳过整段回返）
+			if release_target(TargetSource.TS_SCORED, "combat zone exit"):
+				enter_patrol_state(false)  # 航点自带（下方 zone_center）
+				waypoints = PackedVector2Array([zone_center])
+				current_waypoint_index = 0
+				aircraft.target_position = zone_center
+				if aircraft.flat_altitude and combat_zone_anchor is Aircraft:
+					aircraft.set_target_tier((combat_zone_anchor as Aircraft).get_altitude_tier())
+				if aircraft.params:
+					aircraft.target_speed_kmh = aircraft.params.max_speed
+				return true
+		elif _current_target != null and is_instance_valid(_current_target):
+			var target_dist := _current_target.global_position.distance_to(zone_center)
+			if target_dist > combat_zone_radius * COMBAT_ZONE_TARGET_SLACK:
+				if release_target(TargetSource.TS_SCORED, "target left combat zone"):
+					aircraft.ai_override_pursuit = false
+
+	# ── 约束 2：小队 leash（spec squad-cohesion §3.2，交战/躲弹一视同仁）──
+	# 根治"飞着飞着绕一大圈查无此人"（SEAM-010：旧实现散在 _process_engage 与
+	# process_evade 两份拷贝，漏一个状态就是一个脱队 bug）。
+	# 豁免：simple(有 escort tether) / bvr_only / boss / hunter(zone 管) /
+	# 命令铁律（玩家点名打远目标不许拽回；躲弹中无此豁免——保持旧 evade-leash 语义）。
+	if simple_ai:
+		return false
+	var leash_applicable: bool = _evading \
+			or (_state == AIState.ENGAGE and not _cmd_engage_active())
+	if leash_applicable and squad and is_instance_valid(squad.leader) and squad.leader != aircraft \
+			and not bvr_only and not is_boss_attacker() and combat_zone_anchor == null:
+		var leash_d := aircraft.global_position.distance_to(squad.leader.global_position)
+		if leash_d > effective_squad_leash():
+			_squad_leash_timer += delta
+			if _squad_leash_timer >= SQUAD_LEASH_HYSTERESIS:
+				_squad_leash_timer = 0.0
+				if _evading:
+					# 躲弹拽回：清 evasion_mode（走入口保边界缩放对称）+ 再入冷却
+					# （防威胁仍在时下一 tick 立即重进躲 → EVADE↔SQUAD_FOLLOW 振荡）
+					aircraft.set_evasion_mode(false)
+					_evade_reenter_cd = MissileEvasion.LEASH_REENTER_SUPPRESS_S
+					EventLogger.log_event("AI_STATE", _log_name(),
+						"LEASH break-off (evade %.0fpx from leader) → rejoin (evade suppressed %.1fs)" % [
+							leash_d, MissileEvasion.LEASH_REENTER_SUPPRESS_S])
+					MissileEvasion.exit_evade(self)
+				else:
+					EventLogger.log_event("AI_STATE", _log_name(),
+						"LEASH break-off (%.0fpx from leader) → rejoin" % leash_d)
+					TargetSelection.disengage(self)
+					# 拽回后设交战冷却，否则归队下一帧又咬同一个远目标 → ENGAGE↔编队反复横跳
+					_cooldown_timer = maxf(engage_cooldown, 3.0)
+				return true
+		else:
+			_squad_leash_timer = 0.0
+	else:
+		_squad_leash_timer = 0.0
+	return false
 
 # ══════════════════════════════════════════════
 #  目标所有权仲裁（Phase 1 目标仲裁器，2026-07-04，重构计划 §5）
@@ -874,7 +985,8 @@ func _enforce_commanded_target() -> bool:
 	# 且入口走 should_enter_evade 分层门：flare 能兜底就根本不进 EVADE、不脱离命令。
 	# 修复的旧 bug：铁律排在 match 之前无条件拉回 ENGAGE → ENGAGE↔EVADE 按 tick 抖动 +
 	# evasion_mode 卡 true（planner 持续 max+AB 武器静默直到玩家重新下令）。
-	if _state == AIState.EVADE_MISSILE:
+	# Phase 2 后主让位在分发层（_evading 短路先于本函数调用）；此处留防御性双保险。
+	if _evading:
 		return false
 	var cmd: CombatUnit = aircraft.commanded_target
 	if cmd == null:
@@ -887,11 +999,7 @@ func _enforce_commanded_target() -> bool:
 		acquire_target(cmd, TargetSource.TS_COMMANDED, "iron rule")
 		aircraft.ai_override_pursuit = true
 		if _state != AIState.ENGAGE:
-			_state = AIState.ENGAGE
-			_engage_timer = 0.0
-			_tactic = EngageTactic.LEAD_PURSUIT
-			_tactic_timer = 0.0
-			_tactic_min_duration = MIN_DUR_LEAD_PURSUIT
+			enter_engage_state()
 			aircraft.clear_formation()  # 脱离编队托管去执行命令
 	return true
 
@@ -959,7 +1067,7 @@ func _process_directive(_delta: float) -> void:
 			var t = d.params.get("target", null)
 			if is_instance_valid(t):
 				if acquire_target(t, TargetSource.TS_DIRECTIVE, "directive ENGAGE_TARGET"):
-					_state = AIState.ENGAGE
+					enter_engage_state(false)  # 软进入：不打断已有战术选择
 					aircraft.target_position = t.global_position
 		AIDirective.Type.PASSIVE:
 			pass   # 啥也不做，飞机沿 waypoints 飞或保持 target_position
@@ -1700,31 +1808,9 @@ func _process_engage(delta: float) -> void:
 	# 强制 ENGAGE ↔ 这里每帧 disengage → 状态 thrash，僚机既不飞 BFM 也不回编队（日志实证：
 	# 平飞、不追随长机、DISENGAGE engaged 0.0s 刷屏，距长机 2000px 永不收敛）。
 	# 玩家点名打远目标 = 允许脱编队全力扑上去，距离/leash 一律让位。
-	var _cmd_engage: bool = aircraft.commanded_target != null \
-			and aircraft.commanded_target == _current_target \
-			and is_instance_valid(aircraft.commanded_target) and not aircraft.commanded_target.is_destroyed
-
-	# ── 小队 leash（spec squad-cohesion §3.2）：交战僚机游走出长机太远 → 强制脱战回编队 ──
-	# 根治"飞着飞着绕一大圈查无此人"。仅常规 squad 僚机生效；
-	# drone(上方已 return) / bvr_only(F-47 远距逃跑手) / boss / hunter(combat_zone 远距巡猎) 各有自己的远距语义，跳过。
-	# 命令铁律：_cmd_engage 时跳过 leash（玩家令其打远目标，不许被拽回编队）。
-	if squad and is_instance_valid(squad.leader) and squad.leader != aircraft \
-			and not bvr_only and not is_boss_attacker() and combat_zone_anchor == null \
-			and not _cmd_engage:
-		var leash_d := aircraft.global_position.distance_to(squad.leader.global_position)
-		if leash_d > effective_squad_leash():
-			_squad_leash_timer += delta
-			if _squad_leash_timer >= SQUAD_LEASH_HYSTERESIS:
-				_squad_leash_timer = 0.0
-				EventLogger.log_event("AI_STATE", _log_name(),
-					"LEASH break-off (%.0fpx from leader) → rejoin" % leash_d)
-				TargetSelection.disengage(self)
-				# 关键：拽回后设交战冷却，否则归队下一帧又咬同一个远目标 → ENGAGE↔编队 0.5s 反复横跳
-				# → target_position 在敌机/槽位间跳 → combat 线+槽位线+bank 一起抖（2026-06-07 修状态 thrash）
-				_cooldown_timer = maxf(engage_cooldown, 3.0)
-				return
-		else:
-			_squad_leash_timer = 0.0
+	var _cmd_engage: bool = _cmd_engage_active()
+	# 小队 leash 已上收到 _apply_constraints 约束层（Phase 2，分发前统一执行）——
+	# 本函数不再持有 leash 拷贝；_cmd_engage 仍供下方"超距脱离"豁免使用。
 
 	# ── Herbst J-Turn 反咬触发（独立于 bvr_only）──
 	# 任何挂载 HerbstManeuver 模块的飞机被近距追击时尝试触发，与 BVR 撤退解耦
@@ -1777,7 +1863,7 @@ func _process_engage(delta: float) -> void:
 				var to_me := (aircraft.global_position - enemy.global_position).normalized()
 				var my_fwd := Vector2(sin(aircraft.heading), -cos(aircraft.heading))
 				if my_fwd.dot(to_me) > GUN_ATTACK_DOT and enemy.global_position.distance_to(aircraft.global_position) < GUN_ATTACK_THREAT_DIST:
-					# ⚠ 不调 disengage：enter_evade 已设 EVADE_MISSILE 状态 + 清 combat_target，
+					# ⚠ 不调 disengage：enter_evade 已置 _evading modifier + 清 combat_target，
 					# 但保留 _current_target → exit_evade 防御结束后无缝恢复同一目标。
 					# 调 disengage 会 null 掉 _current_target + 设 15s 冷却 → 防御后被迫重新选目标
 					# （常是 180° 外的另一架）→ 机身大坡反转 churn（SEAM-012 真实战斗残留根因之一）。

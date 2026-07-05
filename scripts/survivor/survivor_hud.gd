@@ -1144,6 +1144,8 @@ func _boss_action_text(ac: Aircraft, ai: AIController) -> String:
 		return "J-TURN"
 	if hm and hm.counterattack_timer > 0.0:
 		return "COUNTER"
+	if ai.is_evading():  # Phase 2：EVADE 是 modifier，不在 _state 轴
+		return "EVADE"
 	match ai._state:
 		AIController.AIState.ENGAGE:
 			var role: int = ac.get_meta("f47_role", 0)
@@ -1152,8 +1154,6 @@ func _boss_action_text(ac: Aircraft, ai: AIController) -> String:
 			elif role == 3:  # RANGED_STRIKER
 				return "STRIKE"
 			return "ENGAGE"
-		AIController.AIState.EVADE_MISSILE:
-			return "EVADE"
 		AIController.AIState.PATROL:
 			return "RETURN"
 		_:
@@ -1248,6 +1248,8 @@ func _wingman_action_text(ac: Aircraft) -> String:
 		return tr("ACTION_UNKNOWN")
 	if ac.evasion_mode:
 		return tr("ACTION_EVADING")
+	if ai.is_evading():  # Phase 2：EVADE 是 modifier，不在 _state 轴
+		return tr("ACTION_MISSILE_EVADE")
 	match ai._state:
 		AIController.AIState.PATROL:
 			return tr("ACTION_PATROL")
@@ -1255,8 +1257,6 @@ func _wingman_action_text(ac: Aircraft) -> String:
 			if ai.current_tactic_name != "":
 				return tr(ai.current_tactic_name)
 			return tr("ACTION_ENGAGE")
-		AIController.AIState.EVADE_MISSILE:
-			return tr("ACTION_MISSILE_EVADE")
 		AIController.AIState.SQUAD_FOLLOW:
 			if ai.current_tactic_name != "":
 				return tr(ai.current_tactic_name)
@@ -1335,9 +1335,7 @@ func _on_squad_engage_pressed() -> void:
 			if ai.release_target(AIController.TargetSource.TS_COMMANDED, "engage mode switch"):
 				# 直接落位完整编队托管（target_position=INF 留给下一帧 squad_coordination 填）
 				wm.set_formation_target(game_scene.player_aircraft, Vector2.INF)
-				ai._state = AIController.AIState.SQUAD_FOLLOW
-				ai._formation_blend = 1.0  # 跳过 rejoin 渐变
-				ai._rejoining = false
+				ai.enter_squad_follow_state(true)  # snap：跳过 rejoin 渐变直接落位
 				ai._squad_attacking_leader_target = false
 				ai._squad_lateral_role = AIController.SquadRole.NONE
 				ai._engage_timer = 0.0

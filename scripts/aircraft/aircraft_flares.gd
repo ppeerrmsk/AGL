@@ -173,7 +173,7 @@ static func update(ac: Aircraft, delta: float) -> void:
 		var release_dist_m := lerpf(fp.calm_distance, fp.panic_distance, fp.nervousness)
 		var release_dist_px := release_dist_m * CombatUnit.PIXELS_PER_METER
 		var is_evading: bool = ac.evasion_mode \
-				or (ac._ai_ref != null and ac._ai_ref._state == AIController.AIState.EVADE_MISSILE)
+				or (ac._ai_ref != null and ac._ai_ref._evading)
 		if is_evading:
 			release_dist_px = maxf(release_dist_px, EVADE_FLARE_RELEASE_DIST)
 		if nearest_dist > release_dist_px:

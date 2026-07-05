@@ -113,10 +113,11 @@ func _test_iron_rule_yield() -> void:
 	_check("ENGAGE 中铁律接管", ai._enforce_commanded_target(), true, "命令照常执行")
 	_check("接管后 combat_target=命令", ai.aircraft.combat_target == cmd, true, "")
 
-	# 躲弹中：铁律让位且保留命令
-	ai._state = AIController.AIState.EVADE_MISSILE
+	# 躲弹中：铁律让位且保留命令（Phase 2：EVADE 是 _evading modifier，不占 _state 轴）
+	ai._evading = true
 	_check("EVADE 中铁律让位", ai._enforce_commanded_target(), false,
-			"落回 match 派发 process_evade")
+			"分发层短路 + _enforce 内双保险")
+	ai._evading = false
 	_check("让位不清命令", ai.aircraft.commanded_target == cmd, true,
 			"commanded_target 保留，脱险后重接")
 
@@ -143,7 +144,9 @@ func _test_full_cycle() -> void:
 	var m := _spawn_missile(Vector2(0, 300), 1100.0, ac)
 	_check("威胁在场应进躲", MissileEvasion.should_enter_evade(ai), true, "")
 	MissileEvasion.enter_evade(ai)
-	_check("进躲后状态=EVADE", ai._state == AIController.AIState.EVADE_MISSILE, true, "")
+	_check("进躲后 _evading=true", ai._evading, true, "Phase 2：modifier 置位")
+	_check("进躲背景状态保持 ENGAGE", ai._state == AIController.AIState.ENGAGE, true,
+			"EVADE 不占 _state 轴，退出即无缝回落")
 	_check("进躲后 evasion_mode=true", ac.evasion_mode, true, "planner 协作通路")
 	_check("进躲保留 _current_target", ai._current_target == cmd, true, "脱险无缝恢复用")
 
@@ -155,7 +158,7 @@ func _test_full_cycle() -> void:
 			bounced += 1  # 旧 bug 路径：躲弹中被铁律接管
 		else:
 			MissileEvasion.process_evade(ai, DT)
-		if ai._state != AIController.AIState.EVADE_MISSILE:
+		if not ai._evading:
 			bounced += 1
 	_check("威胁持续期间零弹回（30 tick）", bounced == 0, true,
 			"旧 bug 实测按 tick 频率 ENGAGE↔EVADE 抖")

@@ -370,9 +370,9 @@ func _pursuit_enter() -> void:
 		ai.enable_combat = true
 		ai.boss_attacker = true
 		ai.bvr_only = false
-		# 经 acquire_target(TS_BOSS) 指派，优先级仲裁防抢写
+		# 经 acquire_target(TS_BOSS) 指派，优先级仲裁防抢写；过渡走 API 不碰私有 _state
 		if ai.acquire_target(_player, AIController.TargetSource.TS_BOSS, "ace PURSUIT enter"):
-			ai._state = AIController.AIState.ENGAGE
+			ai.enter_engage_state()
 			m.tactical_aggression = 1.0
 	_maintain_timer = 0.0
 	EventLogger.log_event("BOSS", display_name, "→ PURSUIT")
@@ -405,11 +405,10 @@ func _pursuit_update(delta: float) -> void:
 				or not is_instance_valid(ai._current_target) \
 				or (ai._current_target is Aircraft and (ai._current_target as Aircraft).is_destroyed)
 		if ai._state != AIController.AIState.ENGAGE or need_target or herbst_just_exited:
-			# 经 acquire_target(TS_BOSS) 指派，优先级仲裁防抢写
+			# 经 acquire_target(TS_BOSS) 指派，优先级仲裁防抢写；软重连不打断战术选择
 			if ai.acquire_target(_player, AIController.TargetSource.TS_BOSS, "ace PURSUIT maintain"):
-				ai._state = AIController.AIState.ENGAGE
+				ai.enter_engage_state(false)  # reset_tactic=false：只补状态+engage_timer
 				ai.boss_attacker = true
-				ai._engage_timer = 0.0   ## 仅这一个，避免下一帧立即 disengage
 				if herbst_just_exited:
 					ai._tactic_timer = 0.0   ## Herbst 退出后让 BFM 重新挑战术（避免一路 EXTEND）
 		# 远距加力（燃油守卫 2026-07-03：裸写发生在该机 update_fuel 之后，无检查会

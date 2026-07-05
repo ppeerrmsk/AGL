@@ -28,30 +28,8 @@ extends RefCounted
 # 僚机仅在"自己真被导弹咬住"时走下方 process_evade 的垂直规避机动逃命。
 
 static func process_evade(ai: AIController, delta: float) -> void:
-	# ── 小队 leash 也管躲弹（spec squad-cohesion）──
-	# 躲弹无 leash 是僚机脱队的大头：被地面 SAM 反复打 → 一路 max+AB 躲到天边（log 实测 7km），
-	# 守后/编队名存实亡。这里：躲弹中游走出长机 leash 距离 → 停躲归队（仍有真威胁会在近处重新进躲）。
-	if ai.squad and is_instance_valid(ai.squad.leader) and ai.squad.leader != ai.aircraft \
-			and not ai.bvr_only and not ai.is_boss_attacker() and ai.combat_zone_anchor == null:
-		var ld := ai.aircraft.global_position.distance_to(ai.squad.leader.global_position)
-		if ld > ai.effective_squad_leash():
-			ai._squad_leash_timer += delta
-			if ai._squad_leash_timer >= AIController.SQUAD_LEASH_HYSTERESIS:
-				ai._squad_leash_timer = 0.0
-				# 清掉防 ai_controller evade 守卫 re-enter bounce（走入口，保 evasion_modifiers 边界缩放对称）
-				ai.aircraft.set_evasion_mode(false)
-				# 再入冷却（2026-07-03）：leash 拽回后压制 should_enter_evade 一小段，让飞机
-				# 真的往回飞（回程本身就是变向规避 + 回到僚机护卫焰范围内）。否则威胁仍在时
-				# 下一 tick SQUAD_FOLLOW 立即重进躲 → EVADE↔SQUAD_FOLLOW 每 0.5s 振荡
-				# （日志实证：190108 [262.8]/[263.3]/[263.9] Phoenix 三连拽回-重进）。
-				ai._evade_reenter_cd = LEASH_REENTER_SUPPRESS_S
-				EventLogger.log_event("AI_STATE", ai._log_name(),
-					"LEASH break-off (evade %.0fpx from leader) → rejoin (evade suppressed %.1fs)" % [
-						ld, LEASH_REENTER_SUPPRESS_S])
-				exit_evade(ai)
-				return
-		else:
-			ai._squad_leash_timer = 0.0
+	# 躲弹 leash 已上收到 AIController._apply_constraints 约束层（Phase 2）——
+	# 分发前统一执行，交战/躲弹一视同仁，本函数不再持有拷贝（SEAM-010 根治）。
 
 	var missile := find_nearest_incoming_missile(ai)
 	if not missile:
@@ -111,10 +89,14 @@ static func process_evade(ai: AIController, delta: float) -> void:
 		ai.aircraft.target_altitude = ai.aircraft.altitude + alt_change
 
 static func enter_evade(ai: AIController) -> void:
+	# Phase 2：EVADE 是 modifier（_evading），不占 _state 轴——背景状态保持原值，
+	# 分发层短路到 process_evade；本函数是 _evading 的唯一 true 写入点。
+	if ai._evading:
+		return  # 幂等：已在躲弹（护卫分支/巡逻分支可能重复调用）
 	EventLogger.log_event("EVADE", ai._log_name(),
-		"entering missile evasion (was %s, target=%s)" % [
+		"entering missile evasion (bg_state=%s, target=%s)" % [
 			AIController.AIState.keys()[ai._state], ai._log_target_name(ai._current_target)])
-	ai._state = AIController.AIState.EVADE_MISSILE
+	ai._evading = true
 	ai._evade_committed_dir = Vector2.ZERO  # 每次新规避重新选 break 方向
 	ai.aircraft.ai_override_pursuit = false
 	# P4：planner 模式下置 evasion_mode → planner 选 EVADE_MISSILE intent → max + AB
@@ -151,30 +133,26 @@ static func _forward_point(ai: AIController, dist: float) -> Vector2:
 
 static func exit_evade(ai: AIController) -> void:
 	EventLogger.log_event("EVADE", ai._log_name(), "exiting missile evasion")
-	# Phase 1：撤销规避几何主张（sticky 槽生命周期与 EVADE 状态对称）
+	# Phase 2：_evading 的唯一 false 写入点（与 enter_evade 对称）
+	ai._evading = false
+	# Phase 1：撤销规避几何主张（sticky 槽生命周期与 EVADE 模态对称）
 	ai.aircraft.withdraw_intent(ControlIntent.SOURCE_EVADE)
 	# P4：清 evasion_mode 让 planner 回到正常 intent 路径（走入口，同 enter 对称）
 	if ai.aircraft.use_tactical_planner:
 		ai.aircraft.set_evasion_mode(false)
+	# 三路重定：躲弹期间目标/长机可能已亡，按当下上下文重选背景状态。
+	# 字段清单收口到 AIController 的过渡函数（Phase 2），本处只补各路特有字段。
 	if ai._current_target and is_instance_valid(ai._current_target) and not ai._current_target.is_destroyed:
 		ai.aircraft.set_combat_target(ai._current_target)
 		BFMTactics.set_patrol_altitude(ai)
-		ai._state = AIController.AIState.ENGAGE
-		ai._tactic_timer = 0.0
+		ai.enter_engage_state(false)  # 恢复交战：不打断躲弹前的战术选择
+		ai._tactic_timer = 0.0        # 但允许下一 tick 立刻重挑战术（旧行为）
 	elif ai.squad and is_instance_valid(ai.squad.leader) and not ai.squad.leader.is_destroyed:
-		ai._state = AIController.AIState.SQUAD_FOLLOW
-		ai._cover_target = null
-		ai._rejoining = true
-		ai._formation_blend = 0.0  # 从0开始渐变回编队托管
+		ai.enter_squad_follow_state()
 		ai.aircraft.clear_combat_target()
-		ai.aircraft.ai_override_pursuit = false
-		ai.aircraft.lod_level = 1
 	else:
 		ai._current_target = null
-		ai._state = AIController.AIState.PATROL
-		BFMTactics.set_patrol_altitude(ai)
-		ai.aircraft.ai_override_pursuit = false
-		ai._set_next_waypoint()
+		ai.enter_patrol_state()
 
 # ══════════════════════════════════════════════
 #  分层规避入口门（B1 定稿策略 2026-07-02）
@@ -278,8 +256,7 @@ static func find_nearest_incoming_missile(ai: AIController) -> Missile:
 			# 玩家方 wingmen：只有"在逼近 + 即将到达"的导弹才算规避威胁（慢/远/追不上 → 不散开，
 			# 留在阵型靠智能 flare 末段兜底）。一旦被甩开(closing 掉)/TTI 拉远，下一 tick 即退出散开归位。
 			# already_evading 滞回：已在躲弹用更宽松门，防边界 EVADE↔SQUAD_FOLLOW 抖。
-			var already_evading: bool = ai.aircraft.evasion_mode \
-					or ai._state == AIController.AIState.EVADE_MISSILE
+			var already_evading: bool = ai.aircraft.evasion_mode or ai._evading
 			if not _is_evasion_threat(ai.aircraft, m, already_evading):
 				continue
 		else:

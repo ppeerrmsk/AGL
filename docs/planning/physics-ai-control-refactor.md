@@ -260,8 +260,23 @@ ControlIntent { source: enum, priority: int,
 
 ### Phase 2 · 状态机正交化（风险：中）
 
+> **已落地（2026-07-05）**：`--bench=state_machine` 15 断言 + 回归门 17 项全绿。
+> 关键实现事实：
+> ①`AIState` 收缩为三值，`_evading` modifier 由 MissileEvasion enter/exit 独占（enter 幂等；
+>   exit 三路重定复用过渡函数）；分发层 `if _evading` 短路排在铁律之前（B1 让位保持）。
+> ②过渡函数 `enter_engage_state(reset_tactic)` / `enter_squad_follow_state(snap)` /
+>   `enter_patrol_state(pick_waypoint)` 收口全部 23 个 _state 写点（含 HUD/ace/poltergeist
+>   外部直写→API）。软重连语义（reset_tactic=false）覆盖 BOSS 维持/躲弹恢复/directive。
+> ③约束层 `_apply_constraints`（节流后、分发前）：combat_zone + 小队 leash 合一，
+>   交战/躲弹一视同仁（SEAM-010 三份拷贝退役）；铁律豁免仅 ENGAGE（EVADE 无豁免=旧语义）。
+> ④踩点修正：spawn 守卫/escort 分支/pilot_personality 压力累积各加 `not _evading` 门
+>   （背景 _state 滞留 ENGAGE/PATROL 时旧读者会误判）。
+> ⑤已知小改（记录在案）：躲弹恢复交战时 `_engage_timer` 重置（旧不重置——
+>   躲完的机 engage_duration 重新计时，脱离稍晚，可接受）；zone 出界时若在躲弹，
+>   现在躲完才回拉（旧代码直改 _state 会泄漏 evade 意图槽——顺手修了个潜在 bug）。
+
 - `_state` 收缩为 `PATROL / ENGAGE / SQUAD_FOLLOW`；EVADE 变成 modifier
-  （`evading: bool`，由 missile_evasion 独占进出），directive/manual 已天然是旁路，
+  （`_evading: bool`，由 missile_evasion 独占进出），directive/manual 已天然是旁路，
   显式登记为 modifier。
 - 每个模态一对 `enter_x()/exit_x()` 过渡函数，字段清单唯一化；切控交接复用同一套。
 - leash / containment 等横切行为移到状态机外的统一位置（每 tick 一次，对所有模式生效），
@@ -445,10 +460,13 @@ spec weapon-employment-doctrine §8 v5 有完整记录。回归门 14 项全绿�
    （engage_duration 定时器伪打带跑已由 joust 自循环取代）。过 → spec 转 done。
 3. 观察项（用户已知，待拍板是否做）：①电磁炮竞选无超杀去重——开局 5 机集火同一 UAV；
    ②QMAAM 格斗弹无人挂载（预留资源，装备位设计机会）；③电磁炮射击节奏（cooldown 数值活）。
-4. 重构主线剩余：Phase 1 step4/5（BOSS/旧BFM 的 pursuit 直写迁移，低优先）→
-   **Phase 2 状态正交化+约束层**（EVADE 变 modifier、anchor 区域保护的地基，下一个大块）
-   → Phase 3 执行器归一（删旧 BFMTactics/update-step 合一 SEAM-017 根治/PilotPersonality
-   接入 planner）→ Phase 4 频率/LOD → Phase 5 小队学说层（§7 战术行为映射）。
+4. 重构主线剩余：~~Phase 2 状态正交化+约束层~~ **已落地（2026-07-05，
+   --bench=state_machine 15 断言 + 回归门 17 项全绿，详见 §5 Phase 2 标注）**。
+   下一块：Phase 1 step4/5（BOSS/旧BFM 的 pursuit 直写迁移，低优先，可并入 Phase 3）→
+   **Phase 3 执行器归一**（删旧 BFMTactics/update-step 合一 SEAM-017 根治/PilotPersonality
+   接入 planner，净删 1000+ 行）→ Phase 4 频率/LOD → Phase 5 小队学说层（§7）。
+   anchor 区域保护（§7.1）的地基已就位（约束层 _apply_constraints），命令轮盘
+   "防守此区"实装时直接在约束层加第三条。
 5. 小项：legacy AI 直读 params 带（SEAM-001 备注，给敌机加状态型 buff 前必修）、
    `set_target_ground()`（poltergeist 裸写双字段）、hard_brake 多选僚机... （已结清）。
 

@@ -78,11 +78,7 @@ static func try_engage(ai: AIController) -> void:
 		var prev_state := ai._state
 		if not ai.acquire_target(best_target, AIController.TargetSource.TS_SCORED, "try_engage"):
 			return  # 目标被更高优先级来源持有 → 放弃本次评分交战
-		ai._state = AIController.AIState.ENGAGE
-		ai._engage_timer = 0.0
-		ai._tactic = AIController.EngageTactic.LEAD_PURSUIT
-		ai._tactic_timer = 0.0
-		ai._tactic_min_duration = AIController.MIN_DUR_LEAD_PURSUIT
+		ai.enter_engage_state()
 		ai._target_eval_timer = 0.0
 		ai.aircraft.ai_override_pursuit = true
 		ai._squad_attacking_leader_target = false  # 独立交战
@@ -185,19 +181,13 @@ static func disengage(ai: AIController) -> void:
 	# 不能让单机长机/新晋升长机进 SQUAD_FOLLOW，否则会对着自己算槽位原地自转
 	if not ai.bvr_only and ai.squad and is_instance_valid(ai.squad.leader) and not ai.squad.leader.is_destroyed \
 			and ai.squad.leader != ai.aircraft:
-		ai._state = AIController.AIState.SQUAD_FOLLOW
-		ai._cover_target = null
-		ai._rejoining = true
-		ai._formation_blend = 0.0  # 从0开始渐变回编队托管
-		ai.aircraft.lod_level = 1
+		ai.enter_squad_follow_state()
 	else:
 		# 独自存活的长机走巡逻，顺便把 squad_index 归零（以防 squad 尚在但已是孤雁）
 		if ai.squad and ai.squad.leader == ai.aircraft:
 			ai.squad_index = 0
 		ai.aircraft.clear_formation()
-		ai._state = AIController.AIState.PATROL
-		BFMTactics.set_patrol_altitude(ai)
-		ai._set_next_waypoint()
+		ai.enter_patrol_state()
 
 # ══════════════════════════════════════════════
 #  可命中性评分（try_engage / reevaluate 共用，杜绝两份公式漂移）

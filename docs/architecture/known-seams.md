@@ -248,14 +248,20 @@ BOSS 只识别 JAM，其它状态仅对 Aircraft 生效"。但 NavalUnit 实现�
 
 **踩到次数**：2（EVADE 漏 leash + 接管 race，同根）
 
-**解法**（2026-05-31）：
+**解法**（2026-05-31，临时）：
 - leash 抽成 `AIController.effective_squad_leash()`，在 `_process_engage` **和** `MissileEvasion.process_evade`
   **两处**都查（覆盖 ENGAGE + EVADE）。守后模式用更紧的 `REAR_GUARD_LEASH_DIST`、打地面时放宽。
 - 长机阵亡：`_process` 死亡检查改为**先 `_try_takeover_after_leader_down()`**（立即 `_squad.cleanup()`
   同步晋升 + leader_changed 接管），全队覆灭才 `_on_player_died()` —— 不依赖 spawner 周期 cleanup 的时序。
 
-**约束**：以后给小队加任何"无论僚机在干什么都该生效"的行为（新 containment / 新接管 / 新模式），
-先列出它要覆盖的**所有 AI 状态**和 survivor `_process` 里相关阶段的**顺序**，逐一接上，别只加在 ENGAGE。
+**根治**（2026-07-05，Phase 2 约束层）：leash / combat_zone 收口到
+`AIController._apply_constraints()`——分发前每 tick 统一执行、对所有模态生效（EVADE 已是
+modifier，天然被覆盖），两份 leash 拷贝退役。**AI 侧的"按状态散点加约束"模式就此结束**：
+新 containment（如 anchor 区域保护）直接加进约束层即可。survivor `_process` 阶段顺序的
+另一半（长机接管时序）解法不变。
+
+**约束**（更新）：给小队加"无论僚机在干什么都该生效"的行为——AI 侧一律进
+`_apply_constraints`；survivor `_process` 侧仍需列阶段顺序逐一确认。
 
 ---
 

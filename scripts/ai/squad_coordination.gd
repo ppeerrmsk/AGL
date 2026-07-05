@@ -27,8 +27,8 @@ extends RefCounted
 
 static func process_squad_follow(ai: AIController, delta: float) -> void:
 	if not ai.squad or not ai.squad.leader or not is_instance_valid(ai.squad.leader) or ai.squad.leader.is_destroyed:
-		# 编队无效，回退到巡逻
-		ai._state = AIController.AIState.PATROL
+		# 编队无效，回退到巡逻（沿用现有航点，不重选——下一 tick _process_patrol 自理）
+		ai.enter_patrol_state(false)
 		ai.squad = null
 		ai.aircraft.clear_formation()
 		return
@@ -43,9 +43,7 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 		ai.aircraft.clear_formation()
 		ai._formation_blend = 0.0
 		ai._rejoining = false
-		ai._state = AIController.AIState.PATROL
-		BFMTactics.set_patrol_altitude(ai)
-		ai._set_next_waypoint()
+		ai.enter_patrol_state()
 		return
 
 	# ── 导弹规避优先（BOSS 攻击手跳过） ──
@@ -142,11 +140,7 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 					ai.aircraft.clear_formation()  # formation_mode/leader/keep_arrival/lod=0/ai_override
 					ai.aircraft.ai_override_pursuit = true
 					ai._formation_blend = 0.0  # 下次回归编队时从 0 开始混合
-					ai._state = AIController.AIState.ENGAGE
-					ai._engage_timer = 0.0
-					ai._tactic = AIController.EngageTactic.LEAD_PURSUIT
-					ai._tactic_timer = 0.0
-					ai._tactic_min_duration = AIController.MIN_DUR_LEAD_PURSUIT
+					ai.enter_engage_state()
 					ai._squad_attacking_leader_target = false
 					ai._squad_lateral_role = AIController.SquadRole.NONE  # 自由交战不分配角色
 					ai._squad_free_engaging = true  # 享有 range grace，避免刚进就被踢出
@@ -159,7 +153,13 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 
 	# 跟随长机的交战目标（长机锁定敌机时僚机协同攻击）
 	# FREE / FOLLOW_LEADER 都进这里——这是"跟随长机打谁"的入口
-	if leader.combat_target and is_instance_valid(leader.combat_target) and not leader.combat_target.is_destroyed:
+	# 交战冷却门（对齐上方 FREE 扫描路径）：leash 拽回 / disengage 设的 _cooldown_timer
+	# 必须对本路径同样生效。否则 leash 脱战同拍就被塞回长机的同一目标 →
+	# ENGAGE↔SQUAD_FOLLOW 以 0.5s（SQUAD_LEASH_HYSTERESIS）反复横跳，永不真正归队，
+	# UI 上交战线/移动标记同频频闪（2026-07-05 log：Guide 的 LEASH break-off 与
+	# TARGET_ACQ "follow leader target" 同一时间戳循环 62 次）。
+	if leader.combat_target and is_instance_valid(leader.combat_target) and not leader.combat_target.is_destroyed \
+			and ai._cooldown_timer <= 0.0:
 		# 自由机互掩（双重攻击学说）：FOLLOW_LEADER 焦点打"飞机"时，指定一架僚机不进攻、
 		# 改守长机后半球；其余僚机照常压目标。打地面/船/BOSS 不留掩护 → 全员饱和。
 		if _should_be_free_fighter(ai, leader.combat_target):
@@ -181,11 +181,7 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 				ai.aircraft.clear_formation()  # formation_mode/leader/keep_arrival/lod=0/ai_override
 				ai.aircraft.ai_override_pursuit = true
 				ai._formation_blend = 0.0  # 下次回归编队时从 0 开始混合
-				ai._state = AIController.AIState.ENGAGE
-				ai._engage_timer = 0.0
-				ai._tactic = AIController.EngageTactic.LEAD_PURSUIT
-				ai._tactic_timer = 0.0
-				ai._tactic_min_duration = AIController.MIN_DUR_LEAD_PURSUIT
+				ai.enter_engage_state()
 				ai._squad_attacking_leader_target = true
 				ai._squad_lateral_role = _role_for_squad_index(ai.squad_index)
 				ai._squad_free_engaging = false  # 协同攻击路径互斥
@@ -234,11 +230,7 @@ static func _enter_autonomous_engage(ai: AIController, tgt: CombatUnit, tactic_n
 	ai.aircraft.clear_formation()  # formation_mode/leader/keep_arrival/lod=0/ai_override
 	ai.aircraft.ai_override_pursuit = true
 	ai._formation_blend = 0.0  # 下次回归编队时从 0 开始混合
-	ai._state = AIController.AIState.ENGAGE
-	ai._engage_timer = 0.0
-	ai._tactic = AIController.EngageTactic.LEAD_PURSUIT
-	ai._tactic_timer = 0.0
-	ai._tactic_min_duration = AIController.MIN_DUR_LEAD_PURSUIT
+	ai.enter_engage_state()
 	ai._squad_attacking_leader_target = false
 	ai._squad_lateral_role = AIController.SquadRole.NONE
 	ai._squad_free_engaging = true  # 享有 range grace，避免刚进就被踢出
