@@ -334,17 +334,17 @@ func _spawn_one(angle_offset: float) -> void:
 		# 出界即放弃当前目标 + 强制回返；目标飘出 × SLACK 也放弃。
 		ai.combat_zone_anchor = _boss_unit
 		ai.combat_zone_radius = HUNTER_LEASH_RADIUS
-		# 站位距离：电磁炮 / 导弹 UAV 远距狙击不打狗斗
-		# MQ-112 雷达 5000m / PPM=0.5 → 实际雷达 2500px；railgun min_engage=1500m=750px。
-		# 站位 2000px (~1000m) 落在雷达内、最小开火距离外，留出充能距离
-		# MQ-110 雷达 4000m = 2000px；missile min_range=300m=150px；hunter 又比玩家慢
-		# 必须 standoff 否则一路冲到玩家面前甩出 35° 锥永远凑不齐 1.0s lock
-		# 站位 1500px 落在雷达内 + 远离 missile 死区 + 留余量给玩家机动
+		# 攻击跑（spec joust-attack-run，2026-07-05）：电磁炮/导弹 UAV 的
+		# "机头稳对玩家累 lock"由 RUN_IN 对准段保证。旧 standoff 切向轨道在
+		# 1.5×standoff(6000m) 就甩头，而电磁炮射程只有 5000m —— 开火包络整个躺在
+		# 侧身绕圈区里，全场 0 充能（log 183044 死锁实证）。
+		# 包络 inner/outer 由 JoustController 动态读装备 live params（雷达/min_engage），
+		# run 速=cruise（稳定对准平台）/ break 速=max（脱离快），全部走默认自动值。
 		match variant:
 			Variant.MQ_110_MISSILE:
-				ai.preferred_standoff_range_px = 1500.0
+				ai.joust_enabled = true
 			Variant.MQ_112_RAILGUN:
-				ai.preferred_standoff_range_px = 2000.0
+				ai.joust_enabled = true
 
 	uav.add_child(ai)
 	_uavs.append(uav)

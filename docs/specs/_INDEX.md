@@ -40,6 +40,7 @@
 | [enemies/af-03](enemies/af-03.md) | enemy | done | ✅ | AF-03 电磁炮狙击无人机（Schemer）：railgun AT_FIRE_TIME 预测狙击 + BVR 5-8km 打带跑 |
 | [skills/bloodlust](skills/bloodlust.md) | skill | done | ✅ | BLOODLUST 嗜血家族：击杀/受伤触发 8s buff，基础回血 + 血怒护甲修饰卡（减伤/拉G/加速，经 SEAM-001 注入） |
 | [weapons/qmaam](weapons/qmaam.md) | weapon | done | ✅ | QMAAM 副武器槽近距格斗弹：宽锁定锥 70° + HOBS + 60G 发射后不管，自动补刀狗斗侧面目标；副槽机制完整 |
+| [weapons/gun-burst-fire](weapons/gun-burst-fire.md) | weapon | in-progress | ✅ | 敌我飞机机炮匀速滴弹改梭射：burst_count=10/梭，梭内 3.3× 密度 + 梭间 CD，平均射速守恒（DPS 不变）；梭承诺根治"窗口一闪只漏一发孤弹"；--bench=gun_burst 回归门 |
 | [systems/survivor-loop](systems/survivor-loop.md) | system | done | ⚠ partial | 生存模式核心循环：8 分钟战区→BOSS 阶段、Token 经济、加权刷怪、XP/升级、出界时间税；★含扩展接入图 |
 | [aircraft/a-10](aircraft/a-10.md) | aircraft | done | ✅ | A-10 Warthog 主角机：厚甲无导弹、Hydra 70 自动扇形火箭、漂浮雷、实验忠诚僚机变体；档案注入完整 |
 | [systems/event-system](systems/event-system.md) | system | done | ✅ | 剧本系统：GameEvent + EventDirector + AIDirective（6 verb）；BOSS 事件三相；★含扩展接入图 |
@@ -52,6 +53,9 @@
 | [systems/target-engageability-selection](systems/target-engageability-selection.md) | system | in-progress | ✗ | 目标选择改"可命中性"评分：对正度/包络/锁定(封顶)/邻近四因子 + 队友超杀让路 + 守后优先(rear_threat_score)；根除锁定 runaway。**代码落地 + 单测 7/7，差生存 playtest 调参** |
 | [systems/wingman-escort-evasion](systems/wingman-escort-evasion.md) | system | in-progress | ✅ | 僚机护卫规避：玩家按 E 时僚机不再无脑散开——被真威胁才逃，否则召回编队待命 + 投护卫 flare 替长机挡追它的导弹（escort_cover_active 与 evasion_mode 解耦；护卫 jam=0.70×近度，范围 800m）。**代码落地、flare bench 9/9，差 §5 playtest** |
 | [systems/weapon-employment-doctrine](systems/weapon-employment-doctrine.md) | system | done | 2026-07-05 | 武器使用准则：僚机多武器时"什么距离用什么武器"的竞选规则（距离带+滞回+命中率优先）、全武器统一"机头指向路径提前点"瞄准语义（锥角=纪律严格度，电磁炮 ±3° 最苛）、机动跟随主武器（railgun LINE_UP 直线充能 intent）+ 电磁炮承诺弹道（指示线=发射线）。验收：MRM 命中 44%→79%（log 175843） |
+| [systems/joust-attack-run](systems/joust-attack-run.md) | system | in-progress | ✅ | 攻击跑行为原语：RUN_IN 对准进入火力窗（两段速）→ BREAK 脱离拉开 → 折返循环；包络动态读装备 live params；修 MG 电磁炮 UAV"切向轨道 vs 机头对准"死锁（log 183044 全场 0 充能）+ 骑士型 Lancer（J-7/F-104/F-100/MiG-31）打带跑统一实现（取代 engage_duration 定时器）。**bench 7/7（真实电磁炮步进实弹），差 playtest** |
+| [systems/command-wheel](systems/command-wheel.md) | system | in-progress | ✗ | 命令轮盘：按住左键拖拽呼出 marking menu（位置=参数/方向=动词，0.3x 子弹时间）。**操作语法：单点=只操控自机 / 轮盘=永远全队广播**。小队命令轮盘(按空地)=紧急集合+撤离此区(圈内径向散出 5km+20s 限时禁入圈、圈外不生效)+防守此区(3km 圈紧拴绳)+开关（自动交战/高度偏好三态循环/自动发射候选）；攻击轮盘(按敌机)=姿态（保持距离 STANDOFF 打带跑/突击 ASSAULT 锚定）×火力分配（集火=同目标+包围轴分离≥45° / 分火=锚点目标池内各自接敌+超杀让路）×阵型纪律开关，挂 commanded_target 铁律；**最新输入覆盖移动命令（单点→自机/轮盘→全队）**；移动指示线只画当前操控机（现状闪烁/僚机误显示 bug 列阶段 1 前置修复）；二级分叉机制留空、导弹/机炮优先搁置；开关长期收束进轮盘。**设计要点已齐，待 review 转 approved** |
+| [systems/formation-discipline](systems/formation-discipline.md) | system | draft | ✗ | 阵型纪律与齐射：队级开关 FREE 自由散开（=现状，多角度包围）/ TIGHT 紧密队形（整队进入→齐射窗口 1.5s→整队拉开的队级 STANDOFF 循环；锁定提前 1.3×、禁补射"宁可少打一发也不脱队"、齐射距离走武器准则包络带）；ASSAULT 缠斗临时豁免（已确认）；齐射接火力分配（FOCUS 饱和/SPREAD 一波清一片）；入口=攻击轮盘右槽+HUD 第 6 toggle（长期收束轮盘）。**待 review** |
 
 | [systems/combat-effectiveness-metrics](systems/combat-effectiveness-metrics.md) | system | draft | ✗ | 战斗效能评估：交战记录 4 层指标（转化 FSR/执行 hit_rate/结果 TTK/对手规避+CapIndex 差距）+ 两轴 Offense/Defense 评级 + bench 对位矩阵；核心解决"快机打不中慢直升机≠直升机强"。**仅 §1~§6 草稿，待 review** |
 | [systems/aircraft-evolution](systems/aircraft-evolution.md) | system | wip-design | ✗ | 战区结算 + 宝可梦式机型进化（F-15 基底 / F-16 降分支）+ Tab 结算坞 + 三选一(武器/红技能/进化) + 槽位装备继承 + 航母外援。**高层骨架，进化树内容/数值待用户补** |
@@ -84,6 +88,6 @@
 - [x] **systems/event-system** —— GameEvent + EventDirective 剧本系统（含扩展接入图）✅
 - [x] **systems/map-system** —— 地图边界 + 地理 + 三条流水线（含加新地图接入图）✅
 - [ ] **skills/** —— 20+ 升级技能逐个建 spec（效果逻辑在 skill_hooks.gd，数值在常量 + i18n）
-- [ ] **weapons/** —— 各武器 GunParams/MissileParams/RocketParams（现在 .tres）。已完成：qmaam（副槽）
+- [ ] **weapons/** —— 各武器 GunParams/MissileParams/RocketParams（现在 .tres）。已完成：qmaam（副槽）、gun-burst-fire（机炮梭射节奏）
 - [ ] **aircraft/** —— 各主角机型档案（现走 PlayableAircraft 注入）。已完成：a-10（待补 f-16/f-14/x-02）
 - [ ] **bosses/f-47** —— F-47 王牌狙击小队（现 enemy-index 有摘要，无完整 spec）

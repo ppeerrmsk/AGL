@@ -238,3 +238,4 @@ BGM：循环歌单 `["boss_mothergoose_1", "boss_mothergoose_2"]`（优先于 bg
 | 2026-05-08 | — | BOSS 初版落地（见 changelogs/2026-05-08-mother-goose-boss.md） |
 | 2026-05-12 | — | MQ-X 精英 + 收尾（见 changelogs/2026-05-12-mqx-elite-uav.md） |
 | 2026-05-30 | 1 | 回填为 reconstruction-grade spec（本文件，从源码逆向提取全部数值） |
+| 2026-07-05 | 2 | MQ-110/112 hunter 走位改 joust 攻击跑（spec joust-attack-run）：退役 standoff 切向轨道（其 1.5×standoff=6000m 触发圈盖住整个 5000m 电磁炮包络 → 机头永远侧身 → 全场 0 充能死锁，log 183044）。preferred_standoff_range_px 不再设置，包络由 joust 动态读装备。 |

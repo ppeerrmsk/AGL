@@ -438,9 +438,11 @@ spec weapon-employment-doctrine §8 v5 有完整记录。回归门 14 项全绿�
 ### 待办（按优先级）
 1. ~~电磁炮修复 playtest 确认 + MRM 对比局归因~~ **已结（2026-07-05）**：log 175843
    归因过线（命中 44%→79%、目标已消失/末段丢锁 各 19%→5%）→ spec
-   weapon-employment-doctrine **转 done**（§7 锚点已回填 + _INDEX 已更新）。
-   playtest 抓出 MQ-112 瞄准违反 §2 提前点语义（机头钉目标 3.1s 前旧位置），
-   已修（`_nose_lead_point` 充能期收敛提前点），**待用户下局回看 MQ-112 手感**。
+   weapon-employment-doctrine **转 done**。
+2. **joust 攻击跑 playtest**（spec joust-attack-run，bench 7/7 已过）：用户实测两点
+   ①MG 战 MQ-110/112 现在会"对准冲进 5000m→充能/射弹→脱离折返"（对照 log 183044
+   全场 0 充能死锁）②骑士型 Lancer（J-7/F-104/F-100/MiG-31）读感"冲锋-脱离-折返"
+   （engage_duration 定时器伪打带跑已由 joust 自循环取代）。过 → spec 转 done。
 3. 观察项（用户已知，待拍板是否做）：①电磁炮竞选无超杀去重——开局 5 机集火同一 UAV；
    ②QMAAM 格斗弹无人挂载（预留资源，装备位设计机会）；③电磁炮射击节奏（cooldown 数值活）。
 4. 重构主线剩余：Phase 1 step4/5（BOSS/旧BFM 的 pursuit 直写迁移，低优先）→

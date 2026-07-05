@@ -199,6 +199,21 @@ const COMBAT_ZONE_TARGET_SLACK := 1.3
 ## 正数 = 目标右翼方向（target_fwd 顺时针 90°），负数 = 目标左翼
 ## 用于双机编队避免重叠（MQ-X 等精英对子）；普通 UAV 留 0 不影响
 @export var flank_offset_lateral_px: float = 0.0
+
+## ── 攻击跑（joust）行为原语（spec: docs/specs/systems/joust-attack-run.md）──
+## RUN_IN 对准进入火力窗 → BREAK 脱离拉开 → 折返循环；替代 standoff 切向轨道
+## （切向轨道与"锁定/充能要机头对准"结构矛盾 → MQ-112 全场 0 充能死锁）+
+## Lancer 骑士型打带跑的统一实现。包络（inner/outer）默认动态读装备 live params。
+@export var joust_enabled: bool = false
+@export var joust_break_range_px: float = 0.0      ## 0=自动（武器包络 inner）
+@export var joust_reentry_range_px: float = 0.0    ## 0=自动（outer × 1.3）
+@export var joust_run_speed_kmh: float = 0.0       ## 0=自动（cruise，稳定对准平台）
+@export var joust_break_speed_kmh: float = 0.0     ## 0=自动（max，脱离要快）
+@export var joust_giveup_closing_mps: float = 0.0  ## 0=关；>0 = 骑士"闭合不够就放弃"阈值
+@export var joust_run_max_s: float = 15.0          ## RUN_IN 安全超时
+var _joust_phase: int = 0                          ## JoustController.Phase
+var _joust_run_timer: float = 0.0
+var _joust_lowclose_timer: float = 0.0
 const KAMIKAZE_DETONATE_DIST_PX: float = 120.0   ## 60m，drone 与导弹距离 ≤ 此值即同归于尽
 const KAMIKAZE_INTERCEPT_RANGE_PX: float = 2400.0 ## 1200m，开始飞向导弹拦截
 
@@ -1449,22 +1464,29 @@ func _process_simple(delta: float) -> void:
 	# SHOOTER 角色（永远是 standoff 平台）干脆绕开 standoff 又会导致 MQ-112 冲过玩家头顶。
 	# 新方案：切向轨道 —— dist < 1.5×standoff 时把 target_position 设在 standoff 圆上、
 	# 切向偏置 0.5×standoff 的点。AI 沿弧线绕飞而非反复出/入，机头径向偏 ~27° → 射击 cone 易满足。
+	var _joust_handled: bool = false
 	if not _railgun_aiming:
-		if preferred_standoff_range_px > 0.0 and dist < preferred_standoff_range_px * 1.5 and dist > 1.0:
-			var to_me_vec: Vector2 = aircraft.global_position - _current_target.global_position
-			var to_me_len: float = to_me_vec.length()
-			var radial: Vector2
-			if to_me_len > 0.01:
-				radial = to_me_vec / to_me_len
+		# 攻击跑优先（spec joust-attack-run）：RUN_IN 对准/BREAK 脱离循环接管走位+速度。
+		# 切向轨道与"锁定/充能要机头对准"结构矛盾（MQ-112 全场 0 充能死锁，log 183044），
+		# joust 机型（MQ-110/112）不再走 standoff 轨道。
+		if joust_enabled:
+			_joust_handled = JoustController.update(self, delta)
+		if not _joust_handled:
+			if preferred_standoff_range_px > 0.0 and dist < preferred_standoff_range_px * 1.5 and dist > 1.0:
+				var to_me_vec: Vector2 = aircraft.global_position - _current_target.global_position
+				var to_me_len: float = to_me_vec.length()
+				var radial: Vector2
+				if to_me_len > 0.01:
+					radial = to_me_vec / to_me_len
+				else:
+					radial = Vector2(sin(aircraft.heading), -cos(aircraft.heading))
+				# 切向方向：与 radial 垂直，选与当前 heading 同侧的方向（避免反复换边震荡）
+				var fwd: Vector2 = Vector2(sin(aircraft.heading), -cos(aircraft.heading))
+				var tangent_cw: Vector2 = Vector2(-radial.y, radial.x)
+				var tangent: Vector2 = tangent_cw if tangent_cw.dot(fwd) >= 0.0 else -tangent_cw
+				aircraft.target_position = _current_target.global_position + radial * preferred_standoff_range_px + tangent * (preferred_standoff_range_px * 0.5)
 			else:
-				radial = Vector2(sin(aircraft.heading), -cos(aircraft.heading))
-			# 切向方向：与 radial 垂直，选与当前 heading 同侧的方向（避免反复换边震荡）
-			var fwd: Vector2 = Vector2(sin(aircraft.heading), -cos(aircraft.heading))
-			var tangent_cw: Vector2 = Vector2(-radial.y, radial.x)
-			var tangent: Vector2 = tangent_cw if tangent_cw.dot(fwd) >= 0.0 else -tangent_cw
-			aircraft.target_position = _current_target.global_position + radial * preferred_standoff_range_px + tangent * (preferred_standoff_range_px * 0.5)
-		else:
-			aircraft.target_position = lead_pos
+				aircraft.target_position = lead_pos
 	if aircraft.flat_altitude:
 		aircraft.set_target_tier(_current_target.get_altitude_tier())
 	else:
@@ -1472,6 +1494,16 @@ func _process_simple(delta: float) -> void:
 	# 速度：护驾/hunter 全速，普通 UAV 70%
 	# Hunter 自适应：远距 max_speed 闭合，近距 cruise_speed 防止"飞过头不开枪"
 	# （buffed UAV 顶速 ~1650 km/h 时 turn radius ~1800m，必须降速才能转弯对准玩家开火）
+	# joust 接管时速度已由 JoustController 写好（RUN_IN=cruise / BREAK=max），跳过本段
+	if _joust_handled:
+		return
+	# joust 机型充能稳头期间（_railgun_aiming 钉住机头）：稳定射击平台用巡航速，
+	# 不落回 swarm SHOOTER 的 top-speed 策略（充能平台猛加速没意义）
+	if joust_enabled and _railgun_aiming:
+		aircraft.orbit_speed_cap = 0.0
+		aircraft.target_speed_kmh = joust_run_speed_kmh if joust_run_speed_kmh > 0.0 \
+				else AircraftPhysics.effective_cruise_speed_kmh(aircraft)
+		return
 	var speed_ratio: float
 	if _is_sentinel_escort or _is_hunter:
 		speed_ratio = HUNTER_UAV_SPEED_RATIO
@@ -1843,6 +1875,15 @@ func _process_engage(delta: float) -> void:
 	if not _has_cmd and _target_eval_timer >= eval_interval:
 		_target_eval_timer = 0.0
 		TargetSelection.reevaluate_target(self)
+
+	# ── 攻击跑（joust，骑士型 Lancer 统一实现；spec joust-attack-run）──
+	# RUN_IN 对准冲锋 → BREAK 脱离拉开 → 折返循环，取代"engage_duration 定时器伪打带跑"。
+	# 防御行为（Herbst 反咬 / 躲弹 / 机炮防御）的 return 都在上方——防御永远压过攻击跑；
+	# 目标重评估保留在上方。武器（机炮锥门/导弹锁定）由 Aircraft 系统在对准姿态下自然开火。
+	if joust_enabled and JoustController.update(self, delta):
+		aircraft.ai_override_pursuit = true
+		current_tactic_name = "JOUST_RUN_IN" if _joust_phase == JoustController.Phase.RUN_IN else "JOUST_BREAK"
+		return
 
 	# ── 态势评估 ──
 	# P4：planner 模式下整段 BFMTactics 链都跳过（assess_situation / lufberry / choose / execute / gun_jink）

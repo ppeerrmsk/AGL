@@ -1420,10 +1420,15 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tie
 			ai.self_preservation = randf_range(0.1, 0.5)
 		EnemyType.INTERCEPTOR:
 			# J-7 = Lancer 骑士型打带跑：开加力单次突击后脱离
+			# joust（spec joust-attack-run）：RUN_IN 高速对准冲锋 → 机炮穿越扫射 → BREAK
+			# 折返循环取代旧"engage_duration 5s 定时器伪打带跑"；闭合不够 2s 即放弃换角度
 			ai.evade_missiles = false
 			ai.aggression = randf_range(0.6, 0.8)
 			ai.engage_cooldown = 8.0
-			ai.engage_duration = 5.0
+			ai.engage_duration = 30.0   # joust 自循环接管节奏（旧 5.0 定时器切断冲锋中段）
+			ai.joust_enabled = true
+			ai.joust_run_speed_kmh = enemy_params.max_speed * 0.9   # 骑士冲锋要快
+			ai.joust_giveup_closing_mps = 60.0
 			var level_bonus_int := clampf(float(survivor_player.level) / 20.0, 0.0, 0.2)
 			ai.skill_level = clampf(randf_range(0.3, 0.5) + level_bonus_int, 0.3, 0.7)
 			ai.composure = clampf(randf_range(0.2, 0.4) + level_bonus_int, 0.2, 0.6)
@@ -1449,10 +1454,15 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tie
 		EnemyType.MIG31:
 			# MiG-31 = Lancer 顶级（最强骑士型）：超高速远距 BVR 截击 + 一击脱离
 			# 单机出现，威胁极高；用雷达弹打远距，机炮只是补刀
+			# joust：RUN_IN 对准闭合 → 导弹包络内齐射 → 1200px 脱离折返（不进狗斗距离）
 			ai.evade_missiles = true
 			ai.aggression = randf_range(0.7, 0.9)
 			ai.engage_cooldown = 6.0                  # 比 J-7 短，但仍长于狗斗机
-			ai.engage_duration = 9.0                  # 一次突击 9 秒后脱离
+			ai.engage_duration = 45.0                 # joust 自循环接管节奏（旧 9.0 定时器）
+			ai.joust_enabled = true
+			ai.joust_run_speed_kmh = enemy_params.max_speed * 0.9
+			ai.joust_break_range_px = 1200.0          # 雷达弹平台不进狗斗圈（压过 missile.min_range 深度）
+			ai.joust_giveup_closing_mps = 40.0
 			var lbonus_m31 := clampf(float(survivor_player.level) / 20.0, 0.0, 0.35)
 			ai.skill_level = clampf(randf_range(0.6, 0.85) + lbonus_m31, 0.6, 0.98)
 			ai.composure = clampf(randf_range(0.55, 0.8) + lbonus_m31, 0.55, 0.95)
@@ -1474,10 +1484,15 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tie
 		EnemyType.F100:
 			# F-100 = Lancer 编队型：高速突击编队，雷达弹照射后脱离
 			# 比 J-7 强（更高 skill / 雷达弹），但比 MiG-31 弱
+			# joust：同 MiG-31 结构，脱离圈略浅
 			ai.evade_missiles = true
 			ai.aggression = randf_range(0.65, 0.85)
 			ai.engage_cooldown = 5.0
-			ai.engage_duration = 7.0
+			ai.engage_duration = 40.0                 # joust 自循环接管节奏（旧 7.0 定时器）
+			ai.joust_enabled = true
+			ai.joust_run_speed_kmh = enemy_params.max_speed * 0.9
+			ai.joust_break_range_px = 1000.0
+			ai.joust_giveup_closing_mps = 40.0
 			var lbonus_f100 := clampf(float(survivor_player.level) / 20.0, 0.0, 0.25)
 			ai.skill_level = clampf(randf_range(0.45, 0.7) + lbonus_f100, 0.45, 0.85)
 			ai.composure = clampf(randf_range(0.4, 0.6) + lbonus_f100, 0.4, 0.8)
@@ -1553,10 +1568,14 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tie
 		EnemyType.F104:
 			# F-104 = Lancer 纯速度截击（"载人导弹"）：极速通过 + 一次发射后脱离
 			# 比 J-7 更激进（更高 aggression / 短 cooldown），但 HP 极低
+			# joust：满速冲锋（0.95×max，全场最快的骑士）
 			ai.evade_missiles = false
 			ai.aggression = randf_range(0.65, 0.85)
 			ai.engage_cooldown = 7.0                       # 比 J-7 短（更高频突击）
-			ai.engage_duration = 5.5
+			ai.engage_duration = 30.0                      # joust 自循环接管节奏（旧 5.5 定时器）
+			ai.joust_enabled = true
+			ai.joust_run_speed_kmh = enemy_params.max_speed * 0.95
+			ai.joust_giveup_closing_mps = 60.0
 			var lbonus_f104 := clampf(float(survivor_player.level) / 20.0, 0.0, 0.22)
 			ai.skill_level = clampf(randf_range(0.35, 0.58) + lbonus_f104, 0.35, 0.78)
 			ai.composure = clampf(randf_range(0.25, 0.45) + lbonus_f104, 0.25, 0.65)
