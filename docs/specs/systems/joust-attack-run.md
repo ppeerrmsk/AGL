@@ -1,6 +1,6 @@
 # 攻击跑行为原语（Joust Attack Run）
 
-> status: **in-progress（代码落地 + bench 7/7，差 §5 playtest）** · spec_version: 2 · 日期：2026-07-05
+> status: **done（2026-07-05 用户 playtest 手感确认）** · spec_version: 3 · 日期：2026-07-05
 > 上游：weapon-employment-doctrine（§2 统一瞄准语义）；触发 bug：MG 电磁炮 UAV 全场 0 充能死锁（log 183044）。
 > 关联：bosses/mother-goose（MQ-110/112 蜂群 SHOOTER）、enemy-index Lancer 原型（J-7 / F-104 / F-100 / MiG-31）。
 
@@ -118,8 +118,8 @@ RUN_IN（对准进入）──dist≤inner / 超时 / 闭合放弃──▶ BREA
   穿越闭合的物理窗本就在 0.8~2s 量级，门槛定 ≥0.6s）
 - [x] bench C（闭合放弃）：目标 2.5× 速度逃逸，give-up 于 t=2.0s 转 BREAK，不死追
 - [x] 回归门 --bench=all 16 项全绿
-- [ ] playtest：MG 战 MQ-112 出现充能 telegraph + 实弹（对照 log 183044 的 0 次）；
-  Lancer 突击读感"冲锋-脱离-折返"
+- [x] playtest：MG 战 MQ-112 出现充能 telegraph + 实弹（对照 log 183044 的 0 次）；
+  Lancer 突击读感"冲锋-脱离-折返"（2026-07-05 用户手感确认）
 
 ## 6. 实现计划（§4 各阶段 → 文件）
 
@@ -146,5 +146,6 @@ RUN_IN（对准进入）──dist≤inner / 超时 / 闭合放弃──▶ BREA
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-07-05 | 3 | 用户 playtest 手感确认 → **done**。 |
 | 2026-07-05 | 2 | 全量落地 + bench 7/7。实现中两处设计修正：①RUN_IN 超时只计火力窗内时间（转场不烧预算）；②RUN_IN 两段速（带外全速闭合/入带稳巡航——cruise 追不上横穿目标）。验收口径修正：连续窗要求落在 ±25° 锁定稳定（±8° 开火锥只需启动一瞬）；机炮窗门槛 0.6s（物理窗 0.8~2s 量级）。剩 playtest。 |
 | 2026-07-05 | 1 | 初稿 + 用户拍板方向（对话确认："joust 听上去不错……一并修改实装"）。 |
