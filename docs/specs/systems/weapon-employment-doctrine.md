@@ -160,8 +160,13 @@ Situation 注入竞选输入（railgun 带/就绪 live 读取 + 滞回状态经 
 验收：weapon_doctrine 26 断言（LINE_UP 竞选驱动/坡度钳 30°/CD 降级/提前点外推方向）
 + 回归门 13 项全绿。
 
-### 阶段 4 — 验收 + 文档
+### 阶段 4 — 验收 + 文档（进行中，2026-07-05）
 bench + playtest + §7 锚点回填 + survivor-skills/enemy-index 相关行同步。
+- [x] weapon_demo 观察场（--bench=weapon_demo：X-02 满装备 vs 2×AF-03+MiG+UAV）
+- [x] 首局日志验收：LINE_UP 生效（267 条 PLAN）、电磁炮 5km 实弹、充能 0 中断、GUN_AIM≈0
+- [x] MRM 包络仲裁仿真（--bench=missile_env）：FOV 60→90 定案（20° 离轴丢锁带实证）
+- [ ] 🔴 **敌方电磁炮锁定线≠发射线**（用户实测；诊断线索见重构计划 §9 交接快照）
+- [ ] 修复后对比局归因分析 → 转 done
 
 ## 7. 索引锚点（Where）
 

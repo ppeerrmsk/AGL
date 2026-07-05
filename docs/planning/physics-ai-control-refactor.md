@@ -411,3 +411,44 @@ Phase 0 (安全网)  ──►  Phase 1 (意图仲裁)  ──►  Phase 2 (状�
 - 不重写 Situation/BfmIntent/TacticalPlan——它们的纯数据/纯函数形态正是本计划的范本。
 - 不动武器系统、雷达、伤害路由（另属其它 seam）。
 - 不追求"一个大 FlightController 类"——收口的是**写入权**，不是把代码搬进一个上帝类。
+
+---
+
+## §9 交接快照（2026-07-05，上下文切换点——下个会话从这里展开）
+
+### 分支布局（重要！）
+- **refactor/control-authority**（当前工作区所在）：重构 + 武器准则全部工作，tip=ba63ef5。
+- **feature/map-editor**：用户的地图编辑器线（tip=46b7406），与重构线同基底（75fea9f）互不包含。
+  ⚠ 在 map-editor 分支上武器修复不存在（机炮侧射会复现）——两线终将各自合 main。
+- backup/map-editor-premix：分支手术前的保险，确认无误可删。
+- 回归门：`godot --headless --path . -- --bench=all`（14 项，当前全绿）；跨分支切换后先
+  `--headless --import` 刷类缓存，否则新 class_name 报 not declared。
+- Godot: Downloads/Godot_v4.6.2-stable_mono_win64/。观察场：`godot --path . -- --bench=weapon_demo`。
+
+### 🔴 待修 bug（用户实测报告，优先）
+**敌方电磁炮"锁定完成后的指示线 ≠ 实际发射线"**。
+诊断线索（未验证）：敌人版 `lock_trajectory_at=AT_CHARGE_START`（充能开始即锁死
+`locked_aim_pos`）+ `fire_delay_after_lock=0.5`；`_fire` 按 locked_aim_pos 打
+（fire_along_nose=false）。嫌疑：telegraph 视觉（AircraftRenderer.draw_railgun_telegraph）
+的扇形/线端点跟随**当前机头或当前目标位置**，而发射按**开局锁死点**——阶段3 的 LINE_UP
+让载机充能期间持续跟踪航点（机头在动），分叉被放大。首查 draw_railgun_telegraph 端点来源；
+修法候选：telegraph 收缩终点改画 locked_aim_pos（所见即所得的承诺弹道）。
+
+### 待办（按优先级）
+1. **上述电磁炮视觉/弹道一致性 bug**。
+2. **weapon_demo 对比局归因分析**：用户刚打了一局（修复后首局），若 logs/ 有新 F9 日志，
+   对比 122049 的脱靶归因（预期：末段丢锁≈消失、目标已消失显著降）→ 通过则 spec
+   weapon-employment-doctrine 转 done + §7 锚点回填 + _INDEX 状态更新。
+3. 观察项（用户已知，待拍板是否做）：①电磁炮竞选无超杀去重——开局 5 机集火同一 UAV；
+   ②QMAAM 格斗弹无人挂载（预留资源，装备位设计机会）；③电磁炮射击节奏（cooldown 数值活）。
+4. 重构主线剩余：Phase 1 step4/5（BOSS/旧BFM 的 pursuit 直写迁移，低优先）→
+   **Phase 2 状态正交化+约束层**（EVADE 变 modifier、anchor 区域保护的地基，下一个大块）
+   → Phase 3 执行器归一（删旧 BFMTactics/update-step 合一 SEAM-017 根治/PilotPersonality
+   接入 planner）→ Phase 4 频率/LOD → Phase 5 小队学说层（§7 战术行为映射）。
+5. 小项：legacy AI 直读 params 带（SEAM-001 备注，给敌机加状态型 buff 前必修）、
+   `set_target_ground()`（poltergeist 裸写双字段）、hard_brake 多选僚机... （已结清）。
+
+### 本会话累计（供追溯）
+Phase 0 安全网 / flare 命中 bug / 物理审计 5 修 / 急刹重设计 / Phase 1 意图仲裁器 +
+目标仲裁器 / 机炮侧射修复 / 武器准则 spec 四阶段（竞选/planner 接入/LINE_UP/观察场）/
+MRM 包络仲裁仿真（FOV90 定案）。changelogs：2026-07-03-phase0-* 与 2026-07-04-phase1-*。

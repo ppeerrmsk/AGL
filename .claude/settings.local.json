@@ -266,7 +266,24 @@
       "PowerShell($godot = \"$env:USERPROFILE\\\\Downloads\\\\Godot_v4.6.2-stable_mono_win64\\\\Godot_v4.6.2-stable_mono_win64\\\\Godot_v4.6.2-stable_mono_win64_console.exe\"; & $godot --headless --path . --import 2>&1 | Select-String \"ERROR\" | Select-Object -First 5; foreach \\($t in @\\(\"test_map_editor_scene_smoke\", \"test_ugc_loader\", \"test_map_editor_core\", \"test_official_map_converter\", \"test_evolution_tree\"\\)\\) { & $godot --headless --path . --script \"res://scripts/tests/$t.gd\" 2>&1 | Select-String \"^PASS|^FAIL\" | ForEach-Object { \"$t → $_\" }; \"  EXIT=$LASTEXITCODE\" })",
       "Bash(\"/c/Users/noelu/Downloads/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64_console.exe\" --headless --path . -- --bench=weapon_doctrine)",
       "Bash(\"/c/Users/noelu/Downloads/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64_console.exe\" --headless --import)",
-      "Bash(git commit -q -m ' *)"
+      "Bash(git commit -q -m ' *)",
+      "Bash(git stash *)",
+      "Bash(git worktree *)",
+      "Bash(git -C .claude/worktrees/skill-modifier log --oneline -1)",
+      "Bash(\"/c/Users/noelu/Downloads/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64.exe\" --path . -- --bench=weapon_demo)",
+      "Bash(taskkill //IM Godot_v4.6.2-stable_mono_win64.exe //F)",
+      "Bash(git commit -q -m 'fix\\(bench\\): weapon_demo 档案路径改用 PlayableAircraft（playable_x02 而非 _base params） *)",
+      "Bash(git commit -q -m 'docs: 更正 MRM 上调影响面记录（敌机走 V 系换弹，实际主要 buff 玩家方） *)",
+      "Bash(sort -t= -k2 -n)",
+      "Bash(awk -F= '{print $2}')",
+      "Bash(awk '{s+=$1; a[NR]=$1} END {print \"发射距离: min=\"a[1]\"m 中位=\"a[int\\(NR/2\\)]\"m max=\"a[NR]\"m 均值=\"int\\(s/NR\\)\"m n=\"NR}')",
+      "Bash(\"/c/Users/noelu/Downloads/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64_console.exe\" --headless --path . -- --bench=missile_env)",
+      "Bash(cat)",
+      "PowerShell(git checkout feature/map-editor)",
+      "PowerShell(git stash push .claude/settings.local.json -m \"settings.local ��ʱ�ݴ棨�з�֧�ã�\")",
+      "PowerShell(git stash pop)",
+      "PowerShell(git restore --staged .claude/settings.local.json)",
+      "PowerShell(git stash drop)"
     ]
   },
   "hooks": {
