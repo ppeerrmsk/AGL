@@ -227,7 +227,7 @@ func _ready() -> void:
 	# weapon_demo（spec weapon-employment-doctrine 阶段4 观察场）：强制 X-02 满装备档案
 	# （基础档案自带 x02_railgun + 导弹 + 机炮）——验收武器竞选/LINE_UP/距离带切换
 	if _bench_scenario == "weapon_demo":
-		profile_path = "res://resources/playable_x02_base.tres"
+		profile_path = "res://resources/playable_x02.tres"
 	_player_profile_path = profile_path  # 保存供 boss debug F8 重启使用
 	var profile: PlayableAircraft = load(profile_path)
 	if profile == null or profile.base_params == null:
