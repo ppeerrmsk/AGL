@@ -580,3 +580,37 @@ UPGRADE_SKILL_LASER_DAMAGE_NAME,激光·致命输出,Lethal Lasing,致死照射
 UPGRADE_SKILL_LASER_DAMAGE_DESC,激光在减速基础上叠加完整 DPS 伤害（贴脸 dps_max → 满射程 dps_min 衰减），让光束从压制武器变成实质杀伤,Lasers also deal full DPS damage on top of the slow effect (close-range dps_max → max-range dps_min falloff),激光は減速に加えて完全な DPS ダメージも与える（密着 dps_max → 最大射程 dps_min で減衰）
 UPGRADE_LASER_EXTRA_BEAMS_NAME,激光·分束扩容,Laser Splitter,レーザー分岐拡張
 UPGRADE_LASER_EXTRA_BEAMS_DESC,激光可同时照射的目标数 +2（每层叠加，最多 +4）。每束独立衰减，多目标群战覆盖力大幅提升,Laser can engage +2 simultaneous targets per stack (max +4). Each beam falls off independently — much better in furballs,レーザーの同時照射対象数 +2（積み重ね最大 +4）。多目標戦闘の制圧力が大幅向上
+WHEEL_REGROUP,紧急集合,Regroup,緊急集合
+WHEEL_GUARD_AREA,防守此区,Guard Area,エリア防衛
+WHEEL_EVAC_AREA,撤离此区,Evacuate,エリア離脱
+WHEEL_AUTO_ENGAGE,自动交战,Auto-Engage,自動交戦
+WHEEL_ALT_PREF,高度偏好,Altitude,高度設定
+WHEEL_AUTOFIRE,自动发射,Auto-Fire,自動発射
+WHEEL_STANDOFF,保持距离,Standoff,距離維持
+WHEEL_ASSAULT,突击,Assault,突撃
+WHEEL_FIRE_ALLOC,火力分配,Fire Alloc,火力配分
+WHEEL_FORMATION,阵型纪律,Formation,陣形規律
+WHEEL_CANCEL,取消,Cancel,キャンセル
+WHEEL_STATE_ON,开,ON,ON
+WHEEL_STATE_OFF,关,OFF,OFF
+WHEEL_STATE_CLIMB,爬升,Climb,上昇
+WHEEL_STATE_LOW,低空,Low,低空
+WHEEL_STATE_FOCUS,集火,Focus,集中
+WHEEL_STATE_SPREAD,分火,Spread,分散
+WHEEL_STATE_FREE,散开,Free,散開
+WHEEL_STATE_TIGHT,紧密,Tight,密集
+WHEEL_CENTER_MOVE,前往此处,Move Here,ここへ移動
+WHEEL_CENTER_ATTACK,攻击目标,Attack,目標攻撃
+WHEEL_TIP_REGROUP,全队立即中断当前任务（含攻击命令），飞向该点集合。,All units abort current tasks (incl. attack orders) and regroup at this point.,全機が現在の任務（攻撃命令含む）を中断し、この地点に集合します。
+WHEEL_TIP_EVAC,3 公里圈内的队员立刻脱战、向圈外撤离；已在圈外的队员不受影响。,Units inside the 3 km circle disengage and evacuate outward; units already outside are unaffected.,3km圏内の機体は即座に離脱し圏外へ退避。圏外の機体には影響しません。
+WHEEL_TIP_GUARD,全队前往该点驻防：在 3 公里警戒圈内盘旋，攻击进圈之敌，不追出圈外。,Squad garrisons this point: orbit inside the 3 km circle and engage intruders without chasing out.,全機がこの地点を防衛：3km警戒圏内を旋回し、侵入する敵のみ攻撃します。
+WHEEL_TIP_AUTO_ENGAGE,开启后空闲时自动攻击靠近小队的敌人（圈内为搜敌范围）。,When ON idle units automatically engage enemies near the squad (circle = search range).,ONにすると待機中に接近する敵を自動攻撃します（円は索敵範囲）。
+WHEEL_TIP_ALT_PREF,设定全队高度偏好：爬升抢占高位，低空贴地飞行。,Set squad altitude preference: climb for high ground or hug the deck.,高度設定：上昇で高位を確保、低空で低高度を維持します。
+WHEEL_TIP_AUTOFIRE,开启后导弹有射击解算即自动发射，无需手动开火。,When ON missiles fire automatically whenever a firing solution exists.,ONにすると射撃解が得られ次第ミサイルを自動発射します。
+WHEEL_TIP_STANDOFF,游击（打带跑）：全队集火该目标，打完一轮就拉开距离，再回头打下一轮。,Standoff (hit-and-run): squad strikes the target then extends away before re-attacking.,一撃離脱：攻撃後に距離を取り、再度接近して攻撃を繰り返します。
+WHEEL_TIP_ASSAULT,突击：全队近身缠斗该目标，咬住不放。,Assault: squad closes in and dogfights the target relentlessly.,突撃：全機が目標に接近し、格闘戦で食らいつきます。
+WHEEL_TIP_FIRE_ALLOC,集火＝全队围攻同一目标；分火＝在目标周边区域内各自选敌攻击。,Focus = all attack one target; Spread = each unit picks its own target nearby.,集中＝全機で同一目標を攻撃。分散＝周辺の敵を各自選択して攻撃。
+WHEEL_TIP_FORMATION,散开＝各自机动包围；紧密＝保持编队一起进入、一起齐射、一起脱离。,Free = spread out and surround; Tight = attack in formation with synchronized volleys.,自由＝各自機動で包囲。密集＝編隊を維持し一斉射撃で攻撃します。
+WHEEL_TIP_CANCEL,取消本次轮盘操作，不执行任何命令（进行中的战斗不受影响）。,Cancel this wheel interaction without issuing any command.,このホイール操作をキャンセルします（進行中の戦闘には影響なし）。
+WHEEL_TIP_CENTER_MOVE,在中心松开＝前往按下的位置（等同普通单击移动）。,Release in the center = move to the pressed point (same as a normal click).,中央で離すと押した地点へ移動します（通常クリックと同じ）。
+WHEEL_TIP_CENTER_ATTACK,在中心松开＝命令攻击该目标（等同普通单击点名）。,Release in the center = attack this target (same as a normal click).,中央で離すとこの目標を攻撃します（通常クリックと同じ）。

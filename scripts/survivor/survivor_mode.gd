@@ -90,7 +90,10 @@ var _all_combat_units_cache: Array[CombatUnit] = []   ## _update_aircraft_list �
 # ── RTS 指挥（命令 + 自动交战）—— 逻辑全在 SquadCommandController，本文件只接线 ──
 # 数值见 resources/rts_command.tres；设计见 docs/specs/systems/rts-command.md
 const RTS_COMMAND_PARAMS := preload("res://resources/rts_command.tres")
+const COMMAND_WHEEL_PARAMS := preload("res://resources/command_wheel.tres")
 var _squad_cmd: SquadCommandController = null
+var _command_wheel: CommandWheel = null
+var _pending_click_double := false
 
 # ── HUD / UI ──
 var hud: SurvivorHUD
@@ -285,6 +288,13 @@ func _ready() -> void:
 	_squad_cmd.name = "SquadCommandController"
 	add_child(_squad_cmd)
 	_squad_cmd.setup(self, RTS_COMMAND_PARAMS)
+	_squad_cmd.wheel_params = COMMAND_WHEEL_PARAMS
+	# 命令轮盘（按住左键拖拽的手势层，spec command-wheel）
+	_command_wheel = CommandWheel.new()
+	_command_wheel.name = "CommandWheel"
+	add_child(_command_wheel)
+	_command_wheel.setup(self, COMMAND_WHEEL_PARAMS)
+	_command_wheel.command_selected.connect(_on_wheel_command)
 	player_aircraft.position = MapBoundary.get_player_start()
 	# 相机初始对准玩家起始点 + 启用跟随
 	camera.global_position = player_aircraft.position
@@ -1343,9 +1353,14 @@ func _handle_mouse_button(event: InputEventMouseButton) -> void:
 				if is_instance_valid(_tutorial): _tutorial.notify_zoom()
 		MOUSE_BUTTON_LEFT:
 			if event.pressed:
-				_on_left_click(event.global_position)
+				_on_left_press(event.global_position)
+			else:
+				_on_left_release()
 		MOUSE_BUTTON_RIGHT:
 			if event.pressed:
+				# 轮盘手势中按右键 = 中止轮盘（不触发取消命令/急刹）
+				if _command_wheel and _command_wheel.abort_if_pending():
+					return
 				_on_right_click()
 				_set_hard_brake(true)
 			else:
@@ -1362,19 +1377,36 @@ func _handle_mouse_motion(event: InputEventMouseMotion) -> void:
 			_tutorial.notify_pan()
 	_camera_ctrl.update_hover(event.global_position, get_children())
 
-func _on_left_click(screen_pos: Vector2) -> void:
+## 左键按下：只做记录 + 交给轮盘手势仲裁（spec command-wheel §3.1）。
+## 快速松开（< 呼出阈值）由 _on_left_release 按普通单击回放，参数以按下瞬间为准。
+func _on_left_press(screen_pos: Vector2) -> void:
 	# 任何左键操作都视为放弃急刹（防止右键 release 事件因 alt-tab 等丢失导致永久减速）
 	_set_hard_brake(false)
-	var world_pos := _camera_ctrl.screen_to_world(screen_pos)
-
-	# 双击窗口检测：窗口内第二次点击 = 冲锋指令（仅敌机有效）
+	# 双击窗口检测保持按下间隔语义（窗口内第二次按下 = 冲锋，仅敌机有效）
 	var now := Time.get_ticks_msec() / 1000.0
-	var is_double_click := (now - _last_left_click_time) <= DOUBLE_CLICK_WINDOW
+	_pending_click_double = (now - _last_left_click_time) <= DOUBLE_CLICK_WINDOW
 	_last_left_click_time = now
-
-	# 优先检测点击附近的敌方飞机 → 玩家点名攻击命令（铁律目标，逻辑在 SquadCommandController）
+	var world_pos := _camera_ctrl.screen_to_world(screen_pos)
 	var enemy := _find_enemy_near(world_pos)
-	if enemy:
+	if _command_wheel:
+		_command_wheel.begin_press(screen_pos, world_pos, enemy)
+	else:
+		_execute_left_click(world_pos, enemy, _pending_click_double)
+
+func _on_left_release() -> void:
+	if not _command_wheel:
+		return
+	var res := _command_wheel.end_press()
+	if res["outcome"] == CommandWheel.Outcome.CLICK:
+		var tgt: CombatUnit = res["target"]
+		if tgt != null and not is_instance_valid(tgt):
+			tgt = null
+		_execute_left_click(res["world_pos"], tgt, _pending_click_double)
+
+## 既有单击语义（原 _on_left_click 的执行体，参数改为按下瞬间快照）
+func _execute_left_click(world_pos: Vector2, enemy: CombatUnit, is_double_click: bool) -> void:
+	# 点名敌方单位 → 玩家点名攻击命令（铁律目标，逻辑在 SquadCommandController）
+	if enemy != null and is_instance_valid(enemy):
 		if _squad_cmd:
 			_squad_cmd.command_attack(enemy)  # 内部 set_combat_target + commanded_target + 清规避
 		if is_double_click:
@@ -1388,6 +1420,64 @@ func _on_left_click(screen_pos: Vector2) -> void:
 	# 无敌机：普通移动指令（自动关闭规避，放弃攻击命令）
 	if _squad_cmd:
 		_squad_cmd.command_move(world_pos)
+
+## 轮盘命令入口：广播命令转发 _squad_cmd（轮盘=永远全队），开关翻转/显式设值 + HUD 同步。
+## option 来自轮盘二级面板（"" = 直接在槽上松开 → 翻转；非空 = 显式选值）。
+## 姿态差异（保持距离/突击）、防守盘旋拦截、撤离禁入区、加速注入按 spec 阶段 3-4 推进。
+func _on_wheel_command(context: int, slot_id: String, world_pos: Vector2, target: CombatUnit, option: String) -> void:
+	match slot_id:
+		# ── 小队命令轮盘：位置命令 ──
+		"regroup":
+			if _squad_cmd: _squad_cmd.command_regroup(world_pos)
+		"evac_area":
+			if _squad_cmd: _squad_cmd.command_evacuate(world_pos)
+		"guard_area":
+			if _squad_cmd: _squad_cmd.command_guard(world_pos)
+		# ── 小队命令轮盘：状态开关（与 HUD 战术栏同源字段，改后同步按钮文案）──
+		"auto_engage":
+			if player_aircraft and not player_aircraft.is_destroyed:
+				var new_ae := not player_aircraft.auto_engage_enabled if option == "" else option == "on"
+				player_aircraft.auto_engage_enabled = new_ae
+				if hud: hud._update_tactical_buttons()
+		"alt_pref":
+			if player_aircraft and not player_aircraft.is_destroyed:
+				var to_climb: bool
+				if option == "":
+					to_climb = player_aircraft.altitude_preference != Aircraft.AltitudePreference.PREFER_CLIMB
+				else:
+					to_climb = option == "climb"
+				player_aircraft.altitude_preference = Aircraft.AltitudePreference.PREFER_CLIMB \
+						if to_climb else Aircraft.AltitudePreference.PREFER_LOW
+				if hud: hud._update_tactical_buttons()
+		"autofire":
+			if player_aircraft and not player_aircraft.is_destroyed:
+				var new_af := not player_aircraft.missile_auto_fire if option == "" else option == "on"
+				player_aircraft.missile_auto_fire = new_af
+				if hud: hud._update_tactical_buttons()
+		# ── 攻击轮盘：广播集火（姿态差异归阶段 4，先统一走铁律集火）──
+		"standoff", "assault":
+			if _squad_cmd: _squad_cmd.command_attack_all(target)
+		# ── 攻击轮盘：队级战术状态 ──
+		"fire_alloc":
+			if _squad_cmd:
+				var to_spread: bool
+				if option == "":
+					to_spread = _squad_cmd.fire_allocation == SquadCommandController.FireAllocation.FOCUS
+				else:
+					to_spread = option == "spread"
+				_squad_cmd.fire_allocation = SquadCommandController.FireAllocation.SPREAD \
+						if to_spread else SquadCommandController.FireAllocation.FOCUS
+		"formation":
+			if _squad_cmd:
+				_squad_cmd.formation_tight = not _squad_cmd.formation_tight if option == "" else option == "tight"
+	# 统一留痕（F9 战报可查每次轮盘操作）
+	var ctx_name := "ATTACK" if context == CommandWheel.Context.ATTACK else "SQUAD"
+	var tgt_name := "-"
+	if target != null and is_instance_valid(target):
+		tgt_name = str(target.callsign) if "callsign" in target else str(target.name)
+	EventLogger.log_event("wheel", "player",
+			"%s wheel -> %s%s @(%.0f, %.0f) target=%s" % [ctx_name, slot_id,
+			("" if option == "" else ":" + option), world_pos.x, world_pos.y, tgt_name])
 
 func _on_right_click() -> void:
 	if _squad_cmd:

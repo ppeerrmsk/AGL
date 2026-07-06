@@ -1651,8 +1651,13 @@ static func draw_target_line(ac: Aircraft) -> void:
 	if ac.team != 0:
 		return
 
-	# 编队僚机不显示预测线/航点：它们跟随长机指令，target_position 只是阵型槽位
-	if ac.formation_mode:
+	# 硬规则（command-wheel spec §3.8）：移动指示线只画在**当前操控机**上，僚机——
+	# 包括带命令、执行编队/巡航移动的僚机——一律不画。
+	# 不能用 formation_mode 之类宽条件：僚机执行命令/交战时 clear_formation() 后照样
+	# 满足旧条件而画线；且 formation_mode / target_position 被 AI 按 tick 频率翻转时，
+	# 线会同频出现消失（闪烁）。player_ref 由 _set_player_aircraft 切控时原子更新，
+	# 天然跟随 1-4 切控。
+	if safe_player_ref() != ac:
 		return
 
 	# 预测线统一用蓝色（与玩家机身 icon_color 解耦）—— 减速着色由 draw_predicted_path 自己根据

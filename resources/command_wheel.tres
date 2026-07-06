@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="CommandWheelParams" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/rts/command_wheel_params.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+hold_threshold_s = 0.15
+drag_threshold_px = 24.0
+dead_zone_radius_px = 30.0
+ring1_outer_px = 110.0
+time_scale_in_wheel = 0.3
+arrival_radius_px = 600.0
+evac_radius_px = 1500.0
+evac_duration_s = 20.0
+guard_radius_px = 1500.0
+orbit_radius_px = 500.0
+leash_exit_mult = 1.15
+spread_cluster_radius_px = 2000.0
+surround_min_axis_sep_deg = 45.0
