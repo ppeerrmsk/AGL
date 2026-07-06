@@ -31,7 +31,7 @@ const BORDER_COLOR := Color(0.35, 0.82, 0.90, 1.0)
 const GRID_COLOR := Color(0.40, 0.40, 0.45, 0.50)
 const GRID_AXIS_COLOR := Color(1.00, 0.30, 0.30, 0.90)
 const GRID_AXIS_COLOR_Y := Color(0.30, 1.00, 0.30, 0.90)
-const WORLD_HALF := 7500.0
+const WORLD_HALF := 15000.0  ## 与 MapBoundary.WORLD_HALF_PX 一致（2026-07-05 扩图 60km）
 const ORIGIN_MARKER_COLOR := Color(1.0, 1.0, 1.0, 1.0)
 
 func _draw() -> void:

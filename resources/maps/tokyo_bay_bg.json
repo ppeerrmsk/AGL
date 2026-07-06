@@ -1,14 +1,14 @@
 {
   "image": "tokyo_bay_bg.png",
   "bbox_ll": {
-    "lat_min": 35.28150065789119,
-    "lat_max": 35.6037187406973,
-    "lon_min": 139.5703125,
-    "lon_max": 139.9658203125
+    "lat_min": 35.137879119634185,
+    "lat_max": 35.746512259918504,
+    "lon_min": 139.39453125,
+    "lon_max": 140.1416015625
   },
   "image_size_px": [
-    4608,
-    4608
+    8704,
+    8704
   ],
   "zoom": 13,
   "source": "CartoDB Light no-labels / OSM",

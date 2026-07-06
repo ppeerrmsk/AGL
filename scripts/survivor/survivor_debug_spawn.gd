@@ -21,7 +21,7 @@ var _coord_label: Label
 ## 挂在 game_scene 下的世界坐标轴 Node2D（X/Y 轴 + 原点 + 刻度）
 var _coord_axes: Node2D
 const COORD_AXES_GRID_PX := 1000.0   ## 刻度间距：1000px ≈ 2km
-const COORD_AXES_HALF_EXTENT := 8000.0  ## 轴向单边长度（世界 ±7500，多画一点点）
+const COORD_AXES_HALF_EXTENT := 15500.0  ## 轴向单边长度（世界 ±15000，多画一点点）
 
 # ── 编队类型枚举（内部）──
 enum FormationType { SINGLE, SQUAD, COMMANDER_SQUAD, TU160_FLOCK, AH64_FLOCK, CH47_FLOCK, F47_SQUAD, CSG_BOSS }

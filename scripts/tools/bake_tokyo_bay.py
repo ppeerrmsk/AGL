@@ -33,7 +33,7 @@ DEFAULT_OUT_JSON = r"C:\Users\noelu\Documents\AGL\resources\maps\tokyo_bay.json"
 FIXED_LAT_C = 35.44
 FIXED_LON_C = 139.76
 FIXED_PX_PER_M = 0.5
-WORLD_HALF_PX = 7500.0
+WORLD_HALF_PX = 15000.0  # 2026-07-05 扩图 30km→60km（spec map-expansion），与 MapBoundary.WORLD_HALF_PX 保持一致
 WORLD_MARGIN_PX = 500.0  # 超出 ±8000 的 feature 直接丢
 
 MAP_USABLE_HALF_PX = 7300.0  # (旧自适应缩放用；现在改成固定投影)

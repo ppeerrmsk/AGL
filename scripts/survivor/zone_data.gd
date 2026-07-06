@@ -18,11 +18,12 @@ const DIFFICULTY_MIN := 1
 const DIFFICULTY_MAX := 3
 
 ## 战区定义（世界坐标 + 半径 + 翻译 key）
-## 位置参考用户手绘：A/C 在西侧（横滨/海滨公园），B/D 在东侧，Boss 位于地图中央偏北
+## 布局沿用用户手绘的相对方位（A/C 西侧、B/D 东侧），2026-07-05 扩图 60km 后中心 ×2 外推
+## （spec map-expansion §2.4：任两区缘距 ≥2000px、离边 ≥1500px；回归见 tests/test_map_expansion.gd）
 ## mission_type 可选值：
 ##   "ground"  → 战区刷 SAM + AA（需要陆地）
 ##   "air"     → 战区刷敌方中队（可设在海上）
-## 战区中心与半径保证 center ± radius 不越界（地图 ±7500）
+## 战区中心与半径保证 center ± radius 不越界（地图 ±15000）
 ##
 ## 可选字段：
 ##   "ground_spawn_polygons": Array  —— 元素为 Array[Vector2]（顶点列表，使用时转 PackedVector2Array）。
@@ -32,40 +33,24 @@ const DIFFICULTY_MAX := 3
 ##     若设置，应让多边形整体中心 ≈ zone center，使战术地图圆圈对齐刷怪区。
 ##     缺省时 SAM/AA 走原 zone center + radius×0.85 散布逻辑。
 ##     注：用嵌套 Vector2 数组而非 PackedVector2Array，因为后者构造调用在 const 字面量里不能展开。
+##     ⚠ 扩图后 A/D 的旧手画多边形（±7500 时代绝对坐标）已作废删除，暂走散布 fallback；
+##       如需精修刷怪区，按 docs/reference/manual-map-editing.md 对新底图重描。
 const ZONES: Array[Dictionary] = [
 	{
 		"id": &"A",
 		"name_key": "ZONE_A_NAME",
 		"label": "A",
-		"center": Vector2(-3200.0, -2500.0),    ## 横滨核心（陆）
+		"center": Vector2(-6400.0, -5000.0),    ## 川崎/横滨北内陆城区（陆）
 		"radius": 2500.0,
 		"mission_type": "ground",
-		"ground_spawn_polygons": [
-			[
-				Vector2(-2512, -2207),
-				Vector2(-2117, -1485),
-				Vector2(-1055, -2099),
-				Vector2(-1468, -2754),
-			],
-			[
-				Vector2(-5424, -4063),
-				Vector2(-5339, -2634),
-				Vector2(-3957, -3096),
-				Vector2(-1441, -4490),
-			],
-			[
-				Vector2(-3212, -4605),
-				Vector2(-1937, -5148),
-				Vector2(-1724, -4199),
-				Vector2(-3078, -3559),
-			],
-		],
 	},
 	{
 		"id": &"B",
 		"name_key": "ZONE_B_NAME",
 		"label": "B",
-		"center": Vector2(3800.0, -3800.0),     ## 木更津北（陆），从 (4500,-4500) 内移避免贴边
+		## ×2 初值 (7600,-7600) 落在湾里（land_mask 占比 0.00，test_map_expansion 抓出），
+		## 网格扫描修正到市川/船桥湾岸城带（占比 0.65；离北边界恰好 1500px 达标）
+		"center": Vector2(6000.0, -11000.0),    ## 市川/船桥湾岸（陆）
 		"radius": 2500.0,
 		"mission_type": "ground",
 	},
@@ -73,7 +58,7 @@ const ZONES: Array[Dictionary] = [
 		"id": &"C",
 		"name_key": "ZONE_C_NAME",
 		"label": "C",
-		"center": Vector2(-4100.0, 3800.0),     ## 三浦东岸 / 湾内南部（海/陆过渡），从 (-4800,4500) 内移避免贴边
+		"center": Vector2(-8200.0, 7600.0),     ## 横须贺/三浦东岸海域（海/陆过渡）
 		"radius": 2500.0,
 		"mission_type": "air",                   ## 海上，改为空战中队
 	},
@@ -81,32 +66,17 @@ const ZONES: Array[Dictionary] = [
 		"id": &"D",
 		"name_key": "ZONE_D_NAME",
 		"label": "D",
-		"center": Vector2(4800.0, 4500.0),      ## 富津基部（陆）
+		"center": Vector2(9600.0, 9000.0),      ## 房总西岸（君津/富津，陆）
 		"radius": 2500.0,
 		"mission_type": "ground",
-		"ground_spawn_polygons": [
-			[
-				Vector2(3697, 4090),
-				Vector2(3930, 3701),
-				Vector2(5591, 4494),
-				Vector2(5270, 5098),
-			],
-			[
-				Vector2(5057, 5032),
-				Vector2(5100, 5961),
-				Vector2(6670, 6080),
-				Vector2(6506, 5047),
-			],
-		],
 	},
 	{
 		"id": &"E",
 		"name_key": "ZONE_E_NAME",
 		"label": "E",
-		## 中央海域偏东 —— 与 C(-4100, 3800)r2500 / D(4800, 4500)r2500 同时拉开间距
-		## 距 C ≈ 4510 → 边缘 gap ≈ 210；距 D ≈ 4512 → 边缘 gap ≈ 212；
-		## y 不动（避免与 BOSS_SOUTH(0,3500) 区域更近），仅 x 东移 400
-		"center": Vector2(400.0, 3500.0),
+		## 中央海域偏南（浦贺水道北口）—— 与 C/D 的缘距 ≈4.7km（扩图前仅 ~210px 贴脸，
+		## 是"战区目标互飞对方区域"的根因；60km 后敌机雷达 3~4.5km 够不到邻区）
+		"center": Vector2(800.0, 7000.0),
 		"radius": 1800.0,
 		## E 专属：mission_type 只 roll "naval" 或 "elite"（见 _roll_mission_type）
 		"mission_type": "naval",
@@ -119,12 +89,12 @@ const ZONES: Array[Dictionary] = [
 ##   - 最后攻克 ∈ {C, D, E}（南部） → BOSS 出现在 **北** (B 位置)，朝西南飞来迎战
 ## 目的：BOSS 出现在玩家上一个战区的对角侧，避免刷脸 + 给玩家赶赴时间
 const BOSS_RADIUS: float = 2200.0
-## 北 BOSS：桥主体以南、靠近桥的位置（视觉上像"舰队从桥下驶出"）
-## 桥线性逼近 y = 0.827x - 5616；center_y = -500 在 x=2500 处留 ~1300 px 离桥
-## 舰队北角（center + (1414, -2546)）= (3914, -3046)，会越过桥线 ~667 px —
-## 这部分船在视觉上贴近桥北侧，由玩家自己判断接受程度；主体（CV + 贴身护航）仍在桥南
-const BOSS_NORTH_CENTER: Vector2 = Vector2(2500.0, -500.0)
-const BOSS_SOUTH_CENTER: Vector2 = Vector2(0.0, 3500.0)      ## E 战区位置（南）
+## 北 BOSS：湾内北部水域、桥主体以南（视觉上像"舰队从桥下驶出"）。
+## 地理坐标未随扩图移动：桥线性逼近仍是 y = 0.827x - 5616（x=2500 处桥在 y≈-3548），
+## center_y = -3000 留 ~550 px 离桥；湾北再往上是东京陆地，CSG 上不了陆，
+## 故北锚点不做 ×2 外推（水域形状是硬约束），靠 _snap_to_water 兜底
+const BOSS_NORTH_CENTER: Vector2 = Vector2(2500.0, -3000.0)
+const BOSS_SOUTH_CENTER: Vector2 = Vector2(0.0, 7000.0)      ## E 战区位置（南，浦贺水道）
 const BOSS_NORTH_HEADING_DEG: float = 225.0                  ## 北 BOSS 朝西南（向玩家所在南部扑来）
 const BOSS_SOUTH_HEADING_DEG: float = 0.0                    ## 南 BOSS 朝正北
 
