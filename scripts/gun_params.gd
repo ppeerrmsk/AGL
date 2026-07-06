@@ -12,5 +12,8 @@ extends Resource
 @export var spread_angle: float = 1.5          ## 度 散布半角（精度）
 @export var fire_cone_half_angle: float = 5.0  ## 度 允许开火的机头偏角
 
+@export_group("梭射")
+@export var burst_count: int = 10              ## 每梭弹数（1 = 匀速点射）；节奏公式见 specs/weapons/gun-burst-fire.md
+
 @export_group("弹药")
 @export var max_ammo: int = 200

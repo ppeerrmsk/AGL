@@ -20,6 +20,11 @@ extends RefCounted
 ##   AircraftWeapons.update_missile(self, delta)
 
 const AUTO_GUN_SCAN_INTERVAL := 0.3
+## 机炮梭射节奏（specs/weapons/gun-burst-fire.md）：梭内间隔 = 平均间隔 × DUTY（触底一帧一发），
+## 梭间 CD 按平均射速守恒推出 —— fire_rate 越高梭内越密、梭间越短，长期 DPS 与匀速点射完全一致
+const GUN_BURST_DUTY := 0.3            ## 梭内射速 ≈ 3.3 × fire_rate
+const GUN_BURST_MIN_INTRA := 1.0 / 60.0  ## 梭内间隔下限（防多弹同帧同点重叠）
+const GUN_BURST_MAX_CATCHUP := 3       ## 累加器一帧最多补发数（防低帧率追帧灾难）
 const ROCKET_FIRE_ALT_DIFF_M := 800.0            ## 火箭弹发射最大高度差（米）
 const LAUNCH_QUALITY_OFFAX_RATIO_SARH := 0.5     ## SARH：目标必须在雷达锥中央 50% 内（F-14 16°）
 const LAUNCH_QUALITY_OFFAX_RATIO_FAF  := 0.55    ## f&f：收紧到 0.55×radar_half（F-14≈19°），给 seeker FOV(±30°) 留 ~11° 发射后漂移余量
@@ -216,8 +221,15 @@ static func auto_gun_scan(ac: Aircraft) -> void:
 
 	ac.is_firing = ac._ai_gun_burst_allowed(best_target != null, ac.get_physics_process_delta_time())
 
+## 机炮梭射状态机（specs/weapons/gun-burst-fire.md）：
+## 空闲 → 梭起始（装填 burst_count 发）→ 梭内（承诺：无视 is_firing 打完整梭）→ 梭间 CD → …
+## 梭承诺根治"火控窗口一闪只漏一发孤弹"；硬中止 = JAM / 弹尽 / 装填 / 规避。
 static func update_gun(ac: Aircraft, delta: float) -> void:
-	ac._fire_cooldown = maxf(ac._fire_cooldown - delta, 0.0)
+	if ac._gun_burst_rounds_left > 0:
+		# 梭内允许 cooldown 负值携带（累加器补帧），保证梭内频率不被帧率量化偷走
+		ac._fire_cooldown -= delta
+	else:
+		ac._fire_cooldown = maxf(ac._fire_cooldown - delta, 0.0)
 	# §C 玩家技能"AB 时回机炮弹"：开 AB 时持续 regen（受 max_ammo 上限）
 	if ac.team == 0 and ac.is_afterburner and ac.ab_gun_regen_per_sec > 0.0 \
 			and ac.params and ac.params.gun:
@@ -243,34 +255,58 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 			ac._gun_reload_timer = 0.0
 			ac.gun_reload_progress = 0.0
 		ac.is_firing = false
+		ac._gun_burst_rounds_left = 0
 		return
-	if not ac.is_firing:
-		return
-	# JAM 干扰：所有武器封锁
+	# JAM 干扰：所有武器封锁（含已承诺的梭）
 	if ac.status_jam_active:
 		ac.is_firing = false
+		ac._gun_burst_rounds_left = 0
 		return
+	# 规避模式：掐断残梭 —— 机头大角度机动中绝不朝旧 lead 方向喷完剩余弹
+	# （同 auto_gun_scan 的规避静默语义，见 2026-06-15 规避盲射根治）
+	if ac.evasion_mode:
+		ac._gun_burst_rounds_left = 0
 	if not ac.params or not ac.params.gun:
 		return
 	if ac.ammo <= 0:
 		ac.is_firing = false
+		ac._gun_burst_rounds_left = 0
+		return
+	# 空闲：无承诺梭且火控未开
+	if ac._gun_burst_rounds_left <= 0 and not ac.is_firing:
 		return
 	if ac._fire_cooldown > 0.0:
 		return
 
 	var gun: GunParams = ac.params.gun
-	# 射速冷却：60 / fire_rate 秒
-	ac._fire_cooldown = 60.0 / gun.fire_rate
+	var base_interval: float = 60.0 / maxf(gun.fire_rate, 1.0)
+	var intra: float = maxf(base_interval * GUN_BURST_DUTY, GUN_BURST_MIN_INTRA)
 
-	# 飞行员瞄准误差（仅玩家）：火控窗口打开时摇一次 burst 级 lead 偏移
-	# skill=0 → ±5° / skill=1 → ±0.5°
-	if ac.use_tactical_preference and ac.is_firing and not ac._was_gun_firing:
-		var skill: float = clampf(ac.pilot_aim_skill, 0.0, 1.0)
-		var base_err_deg: float = lerpf(5.0, 0.5, skill)
-		ac._gun_aim_offset_rad = deg_to_rad(base_err_deg) * randf_range(-1.0, 1.0)
-	if ac.use_tactical_preference:
-		ac._was_gun_firing = ac.is_firing
+	# 梭起始：装填弹数 + 摇一次梭级瞄准误差（仅玩家，skill=0 → ±5° / skill=1 → ±0.5°）
+	if ac._gun_burst_rounds_left <= 0:
+		ac._gun_burst_rounds_left = maxi(gun.burst_count, 1)
+		if ac.use_tactical_preference:
+			var skill: float = clampf(ac.pilot_aim_skill, 0.0, 1.0)
+			var base_err_deg: float = lerpf(5.0, 0.5, skill)
+			ac._gun_aim_offset_rad = deg_to_rad(base_err_deg) * randf_range(-1.0, 1.0)
 
+	# 梭内出弹：累加器一帧可补 ≤ GUN_BURST_MAX_CATCHUP 发（intra 贴帧长时）
+	var fired_this_frame: int = 0
+	while ac._fire_cooldown <= 0.0 and ac._gun_burst_rounds_left > 0 \
+			and fired_this_frame < GUN_BURST_MAX_CATCHUP:
+		_fire_gun_round(ac, gun)
+		fired_this_frame += 1
+		ac._gun_burst_rounds_left -= 1
+		if ac.ammo <= 0 and not ac.infinite_ammo:
+			ac._gun_burst_rounds_left = 0
+		if ac._gun_burst_rounds_left > 0:
+			ac._fire_cooldown += intra
+		else:
+			# 梭间 CD：按平均射速守恒（burst_count × base_interval 的剩余额度）
+			ac._fire_cooldown = maxf(float(maxi(gun.burst_count, 1)) * (base_interval - intra), 0.0)
+
+## 单发出弹：散布/云雾/机动惩罚/多管齐射/音效/弹药，从旧 update_gun 原样抽出
+static func _fire_gun_round(ac: Aircraft, gun: GunParams) -> void:
 	# 生成弹丸：朝前置射击方向发射
 	if ac.bullet_manager and ac.bullet_manager.has_method("spawn_bullet"):
 		var spread_rad := deg_to_rad(gun.spread_angle)

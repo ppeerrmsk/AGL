@@ -110,6 +110,7 @@ var ammo: int = 500
 # 自动扫描机炮目标的节流计时器：60Hz 扫描无意义，且每次扫描都是 O(N) 遍历全场单位
 var _auto_gun_scan_timer: float = 0.0
 var _fire_cooldown: float = 0.0
+var _gun_burst_rounds_left: int = 0  ## 当前梭剩余弹数（>0 = 梭承诺中，打完才停；见 specs/weapons/gun-burst-fire.md）
 var _gun_lead_heading: float = 0.0  ## 前置射击方向（由 _update_combat 计算）
 # ── 武器竞选滞回状态（spec weapon-employment-doctrine §2.2；planner 经 Situation 读、
 #    _apply_tactical_plan 回写；1.5s 滞回在 WeaponSelector.select 内判定）──
@@ -446,9 +447,8 @@ var weapon_preference: int = WeaponPreference.PREFER_MISSILE
 ## 飞行员射击精度（仅玩家用）：0=新手 ±5°lead 误差，1=王牌 ±0.5°
 ## 由 gun_accuracy 升级 / PlayableAircraft.base_pilot_aim_skill 推升
 var pilot_aim_skill: float = 0.3
-## 每次火控窗口（is_firing false→true 边沿）抽一次 lead 偏移，整个 burst 共用
+## 每梭起始抽一次 lead 偏移，整梭共用（梭射节奏见 specs/weapons/gun-burst-fire.md）
 var _gun_aim_offset_rad: float = 0.0
-var _was_gun_firing: bool = false
 var altitude_preference: int = AltitudePreference.PREFER_CLIMB
 var evasion_mode: bool = false
 
