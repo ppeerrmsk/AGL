@@ -81,6 +81,11 @@ Adds（Tu-160/AH-64/CH-47/FA-18）`TOKEN_COST=0`，不占预算。
 
 ### 4.2 刷怪节奏与位置（已核对）
 
+> ⚠ **位置机制已被取代（2026-07-05）**：本节"刷怪距离 3200 / 前方 ±70° 扇形"的**位置**部分
+> 由 [reinforcement-ingress](reinforcement-ingress.md) 取代——增援改从地图边缘成建制入场、
+> 飞向中央锚点驻空、token 饿着时物理飞离；远距清理对增援停用（改 EGRESS）。
+> **节奏**（间隔 45→25s / 单次数量 / gate）仍以本节为准。下表位置两行仅作历史记录。
+
 | 项 | 值 |
 |---|---|
 | 刷怪间隔 | `TRAVEL_SPAWN_INTERVAL_BASE=45.0`（Lv1）→ `TRAVEL_SPAWN_INTERVAL_MIN=25.0`（高等级），按等级插值 |

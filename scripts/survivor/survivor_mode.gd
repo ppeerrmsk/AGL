@@ -1974,6 +1974,15 @@ func _update_offscreen_lod() -> void:
 				is_critical_off = true
 			if not is_critical_off and ac.has_meta("category") and ac.get_meta("category") == "adds":
 				is_critical_off = true
+			#   - 增援（spec reinforcement-ingress）：TRANSIT/EGRESS 是位移任务（同 adds 理由，
+			#     冻结就永远到不了锚点/飞不出边界）；ONSTATION 被点名交战（非 PATROL）也不能冻。
+			#     仅"驻空 + 闲置巡逻"允许冻结省性能——被观察/被 hunter 点名后下一帧自动解冻恢复绕环。
+			if not is_critical_off and ac.has_meta("category") and ac.get_meta("category") == "reinforcement":
+				var rphase: String = str(ac.get_meta("reinf_phase", "onstation"))
+				if rphase != "onstation":
+					is_critical_off = true
+				elif ai_node and ai_node._state != AIController.AIState.PATROL:
+					is_critical_off = true
 			if not is_critical_off and ac.formation_mode and ac._formation_leader and is_instance_valid(ac._formation_leader):
 				is_critical_off = true
 			var freeze: bool = (not is_critical_off) and ac.global_position.distance_squared_to(player_pos) > FAR_FREEZE_DIST_SQ

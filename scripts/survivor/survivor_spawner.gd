@@ -147,6 +147,11 @@ func update(delta: float) -> void:
 	# 检测击杀（比较当前敌人数与上一帧）
 	_detect_kills()
 
+	# 开局驻防：首个 tick 在中央锚点预置中队（spec reinforcement-ingress §3.6）
+	if _opening_garrison_pending:
+		_opening_garrison_pending = false
+		_spawn_opening_garrison()
+
 	# 刷怪
 	_update_spawner(delta)
 
@@ -165,6 +170,9 @@ func update(delta: float) -> void:
 
 	# 远距清理：释放 Token 预算
 	_update_far_cleanup(delta)
+
+	# 增援退场：token 饿着时闲置驻空中队物理飞离（取代远距删除，spec reinforcement-ingress §3.5）
+	_update_reinf_egress(delta)
 
 	# BOSS 阶段清场：把画面外 + 过远的残余敌机全部撤走（保留画面内）
 	if _is_boss_phase():
@@ -593,26 +601,362 @@ func _is_pos_visible(pos: Vector2) -> bool:
 
 ## 玩家当前 heading 换算为标准数学角（0=+X 东，逆时针）。
 ## Aircraft.heading 是 0=北顺时针的弧度 → 数学角 = heading - PI/2。
-## 旅途刷怪 3 个入口统一用这个方向作为"前方扇形"中心。
+## ⚠ 旅途刷怪三入口已改走边缘入场（下方 INGRESS 段），本函数留给事件/任务类"机头沿途"刷出使用。
 func _player_forward_math_angle() -> float:
 	return player_aircraft.heading - PI * 0.5
 
-## 生成单架敌机（不含分队），用于 J-7 截击机
+# ══════════════════════════════════════════════
+#  增援入场（spec reinforcement-ingress）
+#  旅途增援：边界外生成 → TRANSIT 飞向中央锚点 → ONSTATION 绕环驻空 → EGRESS 物理飞离
+#  meta：category="reinforcement" / reinf_phase ∈ {transit,onstation,egress}
+#        / reinf_anchor（全员冗余存，长机继任不丢）/ reinf_ring / reinf_idle_since
+# ══════════════════════════════════════════════
+
+var _opening_garrison_pending: bool = true   ## 开局驻防只做一次
+var _reinf_egress_timer: float = 4.0         ## 退场判定节奏（与远距清理同源 4s）
+
+## 边界周长参数点：t01 ∈ [0,1) 绕世界矩形一圈，返回 [边上点, 外法线]
+func _perimeter_point_normal(t01: float) -> Array:
+	var half := MapBoundary.world_half_px()
+	var u := fposmod(t01, 1.0) * 4.0
+	var side := int(u)
+	var f := u - float(side)
+	match side:
+		0: return [Vector2(-half + f * 2.0 * half, -half), Vector2(0, -1)]   # 上边
+		1: return [Vector2(half, -half + f * 2.0 * half), Vector2(1, 0)]     # 右边
+		2: return [Vector2(half - f * 2.0 * half, half), Vector2(0, 1)]      # 下边
+		_: return [Vector2(-half, half - f * 2.0 * half), Vector2(-1, 0)]    # 左边
+
+## 选边缘入场点：周长均匀取 16 候选（整圈随机相位）→ 过滤（距玩家 ≥5000 / 不在镜头内）
+## → 存活者取距锚点最近（入场走廊自然朝集结方向）。全部候选可见（理论上只有镜头能看
+## 全图时发生）→ 兜底取距玩家最远者。可见性由此从"软约束、8 次失败就放弃"（旧
+## _pick_safe_spawn_angle 的破绽）升格为结构保证：生成点永远在边界线外。
+func _ingress_spawn_point(anchor: Vector2) -> Vector2:
+	var pp := player_aircraft.global_position
+	var jitter := randf()
+	var best := Vector2.ZERO
+	var best_d := INF
+	var fallback := Vector2.ZERO
+	var fallback_d := -1.0
+	for i in range(SurvivorData.INGRESS_EDGE_CANDIDATES):
+		var res := _perimeter_point_normal((float(i) + jitter) / float(SurvivorData.INGRESS_EDGE_CANDIDATES))
+		var edge_pos: Vector2 = res[0]
+		var nrm: Vector2 = res[1]
+		var pt := edge_pos + nrm * SurvivorData.INGRESS_SPAWN_OUTSET_PX
+		var d_player := pt.distance_to(pp)
+		if d_player > fallback_d:
+			fallback_d = d_player
+			fallback = pt
+		if d_player < SurvivorData.INGRESS_MIN_PLAYER_DIST_PX:
+			continue
+		if _is_pos_visible(pt):
+			continue
+		var d_anchor := pt.distance_to(anchor)
+		if d_anchor < best_d:
+			best_d = d_anchor
+			best = pt
+	return best if best_d < INF else fallback
+
+## 选中央巡逻锚点：原点盘（0.35 × 半图）内均匀随机，避开全部战区圆（+800 缘距）与
+## 现存锚点（≥2500 间距）。12 次 roll 全失败则软接受末次候选。
+## 比 spec 的"只避 AVAILABLE/SELECTED"更严：连 LOCKED 战区也避，防止锚点在战区
+## 随后开放时恰好坐在圈里（战区状态是运行时才知道的）。
+func _pick_reinf_anchor(min_player_dist: float = 0.0) -> Vector2:
+	var disc_r := MapBoundary.world_half_px() * SurvivorData.ANCHOR_DISC_RADIUS_FRAC
+	var live := _live_reinf_anchors()
+	var cand := Vector2.ZERO
+	for i in range(12):
+		var a := randf() * TAU
+		cand = Vector2(cos(a), sin(a)) * (sqrt(randf()) * disc_r)
+		if min_player_dist > 0.0 and player_aircraft and is_instance_valid(player_aircraft) \
+				and cand.distance_to(player_aircraft.global_position) < min_player_dist:
+			continue
+		if not _anchor_clears_zones(cand):
+			continue
+		var ok := true
+		for other in live:
+			if cand.distance_to(other) < SurvivorData.ANCHOR_MIN_SEPARATION_PX:
+				ok = false
+				break
+		if ok:
+			return cand
+	return cand
+
+func _anchor_clears_zones(p: Vector2) -> bool:
+	for z in ZoneData.ZONES:
+		var c: Vector2 = z["center"]
+		var r: float = float(z["radius"]) + SurvivorData.ANCHOR_ZONE_CLEARANCE_PX
+		if p.distance_to(c) < r:
+			return false
+	return true
+
+## 现存活跃锚点（只扫小队长机 meta；单机精英的锚点不参与间距约束，软瑕疵可接受）
+func _live_reinf_anchors() -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	for sq in _squads:
+		if sq.leader and is_instance_valid(sq.leader) and not sq.leader.is_destroyed \
+				and sq.leader.has_meta("reinf_anchor"):
+			out.append(sq.leader.get_meta("reinf_anchor"))
+	return out
+
+func _tag_reinforcement(ac: Aircraft, anchor: Vector2, phase: String = "transit") -> void:
+	ac.set_meta("category", "reinforcement")
+	ac.set_meta("reinf_phase", phase)
+	ac.set_meta("reinf_anchor", anchor)
+
+## 朝向 to 的 heading（度，0=北顺时针）
+func _heading_deg_towards(from: Vector2, to: Vector2) -> float:
+	var d := (to - from).normalized()
+	return rad_to_deg(atan2(d.x, -d.y))
+
+## 长机/独立机的入场航线 = 单点 [锚点]（PATROL 直线飞去；到站由 8s 航点 tick 翻 ONSTATION）
+func _set_leader_ingress_waypoints(enemy: Aircraft, anchor: Vector2) -> void:
+	var ai := _get_ai(enemy)
+	if ai:
+		ai.waypoints = PackedVector2Array([anchor])
+		ai.current_waypoint_index = 0
+
+## 驻空环：绕锚点 4 航点，半径 1400 ± 400（每中队 roll 一次，存 meta 复用）
+func _make_patrol_ring(anchor: Vector2) -> PackedVector2Array:
+	var r := SurvivorData.PATROL_RING_RADIUS_BASE_PX \
+			+ randf_range(-SurvivorData.PATROL_RING_RADIUS_JITTER_PX, SurvivorData.PATROL_RING_RADIUS_JITTER_PX)
+	var phase0 := randf() * TAU
+	var ring := PackedVector2Array()
+	for k in range(4):
+		var a := phase0 + TAU * float(k) / 4.0
+		ring.append(anchor + Vector2(cos(a), sin(a)) * r)
+	return ring
+
+func _apply_patrol_ring(ai: AIController, ac: Aircraft, ring: PackedVector2Array) -> void:
+	ai.waypoints = ring
+	# 从最近的环点切入，避免横穿环心
+	var best_i := 0
+	var best_d := INF
+	for i in range(ring.size()):
+		var d := ac.global_position.distance_squared_to(ring[i])
+		if d < best_d:
+			best_d = d
+			best_i = i
+	ai.current_waypoint_index = best_i
+
+## TRANSIT → ONSTATION：全队打 meta + 长机上环
+func _flip_squad_onstation(leader: Aircraft, ai: AIController, anchor: Vector2) -> void:
+	var ring := _make_patrol_ring(anchor)
+	var members: Array = ai.squad.members if ai.squad else [leader]
+	for m in members:
+		if m and is_instance_valid(m):
+			m.set_meta("reinf_phase", "onstation")
+			m.set_meta("reinf_ring", ring)
+	_apply_patrol_ring(ai, leader, ring)
+	EventLogger.log_event("INGRESS", "Arrive",
+		"%s onstation anchor=%s members=%d" % [leader.callsign, anchor.round(), members.size()])
+
+## 8s 航点 tick 的增援分支（取代旧"绕玩家 800~1500px"磁铁环）
+func _tick_reinforcement_waypoints(ac: Aircraft) -> void:
+	var ai := _get_ai(ac)
+	if not ai:
+		return
+	var phase := str(ac.get_meta("reinf_phase", "onstation"))
+	if phase == "egress":
+		return  # 退场航线由 _update_reinf_egress 管理
+	# 只有长机/独立机管理航点；僚机走 SQUAD_FOLLOW（全员带 reinf meta，继任长机自愈）
+	if ai.squad and is_instance_valid(ai.squad.leader) and ai.squad.leader != ac:
+		return
+	var anchor: Vector2 = ac.get_meta("reinf_anchor", Vector2.ZERO)
+	if phase == "transit":
+		if ac.global_position.distance_to(anchor) <= SurvivorData.ANCHOR_ARRIVE_DIST_PX:
+			_flip_squad_onstation(ac, ai, anchor)
+		elif ai._state == AIController.AIState.PATROL \
+				and (ai.waypoints.size() != 1 or ai.waypoints[0] != anchor):
+			# 交战被打断回 PATROL → 幂等重发入场航线
+			ai.waypoints = PackedVector2Array([anchor])
+			ai.current_waypoint_index = 0
+	else:
+		if ai._state != AIController.AIState.PATROL:
+			return
+		var ring: PackedVector2Array = ac.get_meta("reinf_ring", PackedVector2Array())
+		if ring.is_empty():
+			ring = _make_patrol_ring(anchor)
+			ac.set_meta("reinf_ring", ring)
+		if ai.waypoints != ring:
+			_apply_patrol_ring(ai, ac, ring)
+
+## 开局驻防：t≈0 直接以 ONSTATION 预置中队（免 TRANSIT，抹掉首波入场 60~90s 的冷场）。
+## 合法性：锚点距玩家 ≥5000px 且开局镜头（START_ZOOM 可视对角半径 ≈3150px）看不到；
+## 开局前无任何观察历史，不构成凭空出现（spec reinforcement-ingress §3.6）。
+func _spawn_opening_garrison() -> void:
+	if _is_boss_phase():
+		return  # boss debug 直入不铺驻防
+	for i in range(SurvivorData.OPENING_GARRISON_SQUADS):
+		_recalc_token_usage()
+		var budget := _get_token_budget()
+		var etype := _pick_enemy_type()
+		# 驻防一律普通小队建制；roll 到单机精英/Sentinel 则降级为当级杂鱼小队
+		if etype == EnemyType.UAV_COMMANDER or etype == EnemyType.MIG31 \
+				or etype == EnemyType.SU27 or etype == EnemyType.AF03:
+			etype = EnemyType.UAV if survivor_player.level <= SurvivorData.UAV_RETIRE_LEVEL else EnemyType.F86
+		var cost: int = int(SurvivorData.TOKEN_COST.get(int(etype), 1))
+		if not _can_spawn_type(int(etype), budget - _token_used):
+			break
+		var size := randi_range(2, 3)
+		size = mini(size, int(float(budget - _token_used) / maxf(float(cost), 1.0)))
+		if size < 2:
+			break
+		_spawn_squad(etype, size, true)
+		_token_used += cost * size
+		_token_count_by_type[int(etype)] = int(_token_count_by_type.get(int(etype), 0)) + size
+
+## 退场：token 饿着时，闲置驻空中队"像来时一样"物理飞离，全员出界后静默释放。
+## 取代旧远距清理对增援的作用（增援已豁免 FAR_CLEANUP）；绝不在画面内消失，
+## 途中被打立即取消回头应战（不做无敌逃兵）。骑独立 4s timer。
+func _update_reinf_egress(delta: float) -> void:
+	_reinf_egress_timer -= delta
+	if _reinf_egress_timer > 0.0:
+		return
+	_reinf_egress_timer = SurvivorData.FAR_CLEANUP_INTERVAL
+	if not player_aircraft or player_aircraft.is_destroyed or _is_boss_phase():
+		return
+	var pp := player_aircraft.global_position
+	var now: float = mode.game_time
+	var far_d2 := SurvivorData.FAR_CLEANUP_DISTANCE * SurvivorData.FAR_CLEANUP_DISTANCE
+
+	# 按小队分组（独立机单独成组）
+	var groups: Dictionary = {}
+	for child in mode.get_children():
+		if not (child is Aircraft):
+			continue
+		var ac: Aircraft = child
+		if ac.team == 0 or ac.is_destroyed:
+			continue
+		if str(ac.get_meta("category", "")) != "reinforcement":
+			continue
+		var gai := _get_ai(ac)
+		var key: int = gai.squad.get_instance_id() if (gai and gai.squad) else ac.get_instance_id()
+		if not groups.has(key):
+			groups[key] = []
+		(groups[key] as Array).append(ac)
+
+	_recalc_token_usage()
+	var starved := _token_used >= _get_token_budget()
+	var egress_active := 0
+	for key in groups:
+		var g0: Array = groups[key]
+		if not g0.is_empty() and str((g0[0] as Aircraft).get_meta("reinf_phase", "")) == "egress":
+			egress_active += 1
+
+	for key in groups:
+		var g: Array = groups[key]
+		if g.is_empty():
+			continue
+		# 组代表 = 实际小队长机（航点控制权在长机）；独立机 = 自身
+		var lead: Aircraft = g[0]
+		var lead_ai := _get_ai(lead)
+		if lead_ai and lead_ai.squad and is_instance_valid(lead_ai.squad.leader):
+			lead = lead_ai.squad.leader
+			lead_ai = _get_ai(lead)
+		var phase := str(lead.get_meta("reinf_phase", "onstation"))
+
+		# 组内是否有人在打（有目标 / 处于 PATROL、SQUAD_FOLLOW 之外的状态）
+		var engaged := false
+		var hp_sum := 0.0
+		for m_any in g:
+			var m: Aircraft = m_any
+			hp_sum += m.hp
+			var mai := _get_ai(m)
+			if mai and (mai._current_target != null \
+					or (mai._state != AIController.AIState.PATROL and mai._state != AIController.AIState.SQUAD_FOLLOW)):
+				engaged = true
+
+		if phase == "egress":
+			# 被截击（掉血/有人接战）→ 取消退场，回头应战
+			var hp0: float = float(lead.get_meta("reinf_egress_hp", hp_sum))
+			if engaged or hp_sum < hp0 - 0.01:
+				for m_any in g:
+					(m_any as Aircraft).set_meta("reinf_phase", "onstation")
+				EventLogger.log_event("INGRESS", "EgressAbort", "%s 被截击，取消退场" % lead.callsign)
+				continue
+			# 全员出界 + 镜头外 → 静默释放（token 由场景重算自动回收）
+			var all_out := true
+			for m_any in g:
+				var m2: Aircraft = m_any
+				if MapBoundary.distance_to_edge(m2.global_position) > -SurvivorData.EGRESS_FREE_OUTSET_PX \
+						or mode.is_world_pos_visible(m2.global_position):
+					all_out = false
+					break
+			if all_out:
+				for m_any in g:
+					var m3: Aircraft = m_any
+					m3.set_meta("xp_granted", true)
+					m3.queue_free()
+				EventLogger.log_event("INGRESS", "EgressFree", "%s x%d 已离场释放" % [lead.callsign, g.size()])
+			continue
+
+		if phase != "onstation":
+			continue  # TRANSIT 不参与退场
+		if engaged:
+			lead.set_meta("reinf_idle_since", now)
+			continue
+		if not lead.has_meta("reinf_idle_since"):
+			lead.set_meta("reinf_idle_since", now)
+			continue
+		if not starved or egress_active >= SurvivorData.EGRESS_MAX_CONCURRENT:
+			continue
+		if now - float(lead.get_meta("reinf_idle_since", now)) < SurvivorData.EGRESS_STALE_SEC:
+			continue
+		# 全员镜头外 + 距玩家足够远才走（近处撤退玩家会看见"无故离场"）
+		var eligible := true
+		for m_any in g:
+			var m4: Aircraft = m_any
+			if mode.is_world_pos_visible(m4.global_position) \
+					or m4.global_position.distance_squared_to(pp) <= far_d2:
+				eligible = false
+				break
+		if not eligible:
+			continue
+		# 触发退场：长机航线 = 最近边界外送点，僚机 SQUAD_FOLLOW 跟出
+		var exit_wp := _nearest_exit_point(lead.global_position)
+		for m_any in g:
+			(m_any as Aircraft).set_meta("reinf_phase", "egress")
+		lead.set_meta("reinf_egress_hp", hp_sum)
+		if lead_ai:
+			lead_ai.waypoints = PackedVector2Array([exit_wp])
+			lead_ai.current_waypoint_index = 0
+		egress_active += 1
+		EventLogger.log_event("INGRESS", "EgressStart",
+			"%s x%d idle=%.0fs exit=%s" % [lead.callsign, g.size(),
+			now - float(lead.get_meta("reinf_idle_since", now)), exit_wp.round()])
+
+## 最近边界向外的退场点（沿最近轴推到边界外 + 余量）
+func _nearest_exit_point(p: Vector2) -> Vector2:
+	var half := MapBoundary.world_half_px()
+	var out := half + SurvivorData.EGRESS_FREE_OUTSET_PX + 400.0
+	var sx := 1.0 if p.x >= 0.0 else -1.0
+	var sy := 1.0 if p.y >= 0.0 else -1.0
+	if (half - absf(p.x)) < (half - absf(p.y)):
+		return Vector2(sx * out, p.y)
+	return Vector2(p.x, sy * out)
+
+## 生成单架敌机（不含分队），用于单机精英孤狼（MiG-31/Su-27/AF-03/早期 J-7）
 ## 【硬规则】Sentinel 永远不允许单独登场 → 自动改走 _spawn_commander_squad
+## 增援入场（spec reinforcement-ingress）：边缘生成 → TRANSIT 飞向中央锚点
 func _spawn_single(etype: EnemyType) -> void:
 	if etype == EnemyType.UAV_COMMANDER:
 		push_warning("[Spawner] _spawn_single(UAV_COMMANDER) 被拦截 → 改走 _spawn_commander_squad(5)")
 		_spawn_commander_squad(SurvivorData.COMMANDER_SQUAD_MAX)
 		return
-	var spawn_angle := _pick_safe_spawn_angle(player_aircraft.global_position, SurvivorData.SPAWN_DISTANCE, _player_forward_math_angle())
-	var spawn_pos := player_aircraft.global_position + Vector2(cos(spawn_angle), sin(spawn_angle)) * SurvivorData.SPAWN_DISTANCE
-	var to_player := (player_aircraft.global_position - spawn_pos).normalized()
-	var heading := rad_to_deg(atan2(to_player.x, -to_player.y))
-	_create_enemy(etype, spawn_pos, heading)
+	var anchor := _pick_reinf_anchor()
+	var spawn_pos := _ingress_spawn_point(anchor)
+	var heading := _heading_deg_towards(spawn_pos, anchor)
+	var enemy := _create_enemy(etype, spawn_pos, heading)
+	_tag_reinforcement(enemy, anchor)
+	_set_leader_ingress_waypoints(enemy, anchor)
+	EventLogger.log_event("INGRESS", "Spawn",
+		"single %s edge=%s anchor=%s" % [enemy.callsign, spawn_pos.round(), anchor.round()])
 
-## 以分队形式生成一组敌机
+## 以分队形式生成一组敌机；garrison=true 时直接在中央锚点以 ONSTATION 预置（开局驻防）
 ## 【硬规则】Sentinel 不走普通 Squad（同型编队），改走 _spawn_commander_squad（Sentinel + 5 UAV）
-func _spawn_squad(etype: EnemyType, squad_size: int) -> void:
+## 增援入场（spec reinforcement-ingress）：边缘成建制生成 → 整队 TRANSIT 飞向中央锚点
+func _spawn_squad(etype: EnemyType, squad_size: int, garrison: bool = false) -> void:
 	if etype == EnemyType.UAV_COMMANDER:
 		push_warning("[Spawner] _spawn_squad(UAV_COMMANDER) 被拦截 → 改走 _spawn_commander_squad(5)")
 		_spawn_commander_squad(SurvivorData.COMMANDER_SQUAD_MAX)
@@ -622,13 +966,19 @@ func _spawn_squad(etype: EnemyType, squad_size: int) -> void:
 	# 精英/Boss 不走这里（各自建队时显式固定阵型）。
 	sq.formation = Squad.random_formation()
 
-	# 长机生成位置（旅途刷怪：玩家前方扇形）
-	var spawn_angle := _pick_safe_spawn_angle(player_aircraft.global_position, SurvivorData.SPAWN_DISTANCE, _player_forward_math_angle())
-	var leader_pos := player_aircraft.global_position + Vector2(cos(spawn_angle), sin(spawn_angle)) * SurvivorData.SPAWN_DISTANCE
-	var to_player := (player_aircraft.global_position - leader_pos).normalized()
-	var heading := rad_to_deg(atan2(to_player.x, -to_player.y))
+	# 长机生成位置：边缘入场点（驻防则直接铺在锚点附近）
+	var anchor := _pick_reinf_anchor(SurvivorData.INGRESS_MIN_PLAYER_DIST_PX if garrison else 0.0)
+	var leader_pos: Vector2
+	var heading: float
+	if garrison:
+		leader_pos = anchor + Vector2(randf_range(-300.0, 300.0), randf_range(-300.0, 300.0))
+		heading = randf() * 360.0
+	else:
+		leader_pos = _ingress_spawn_point(anchor)
+		heading = _heading_deg_towards(leader_pos, anchor)
 	var heading_rad := deg_to_rad(heading)
 
+	var leader_enemy: Aircraft = null
 	for i in range(squad_size):
 		var spawn_pos: Vector2
 		if i == 0:
@@ -640,7 +990,9 @@ func _spawn_squad(etype: EnemyType, squad_size: int) -> void:
 			spawn_pos = leader_pos + offset.rotated(heading_rad)
 
 		var enemy := _create_enemy(etype, spawn_pos, heading)
+		_tag_reinforcement(enemy, anchor)
 		if i == 0:
+			leader_enemy = enemy
 			SquadFactory.register_leader(sq, enemy)
 		else:
 			# Step 4：显式 set_state=true 直接进 SQUAD_FOLLOW，不再依赖
@@ -648,20 +1000,33 @@ func _spawn_squad(etype: EnemyType, squad_size: int) -> void:
 			SquadFactory.register_wingman(sq, enemy, true)
 
 	_squads.append(sq)
+	if leader_enemy:
+		var lai := _get_ai(leader_enemy)
+		if garrison and lai:
+			_flip_squad_onstation(leader_enemy, lai, anchor)
+		else:
+			_set_leader_ingress_waypoints(leader_enemy, anchor)
+		EventLogger.log_event("INGRESS", "Spawn", "squad %s x%d %s anchor=%s" % [
+			leader_enemy.callsign, squad_size,
+			"garrison" if garrison else "edge=" + str(leader_pos.round()), anchor.round()])
 
 ## 生成指挥 UAV 及其自带小队
 func _spawn_commander_squad(wingman_count: int) -> void:
 	var sq := SquadFactory.create()
 
-	# 指挥机生成位置（旅途刷怪：玩家前方扇形）
-	var spawn_angle := _pick_safe_spawn_angle(player_aircraft.global_position, SurvivorData.SPAWN_DISTANCE, _player_forward_math_angle())
-	var leader_pos := player_aircraft.global_position + Vector2(cos(spawn_angle), sin(spawn_angle)) * SurvivorData.SPAWN_DISTANCE
-	var to_player := (player_aircraft.global_position - leader_pos).normalized()
-	var heading := rad_to_deg(atan2(to_player.x, -to_player.y))
+	# 指挥机生成位置：边缘入场（spec reinforcement-ingress）；Sentinel 是冻结豁免机型，
+	# TRANSIT 全程物理在跑，护卫 UAV 以 orbit_squad_leader 跟队入场
+	var anchor := _pick_reinf_anchor()
+	var leader_pos := _ingress_spawn_point(anchor)
+	var heading := _heading_deg_towards(leader_pos, anchor)
 
 	# 生成指挥 UAV（leader）
 	var commander := _create_enemy(EnemyType.UAV_COMMANDER, leader_pos, heading)
+	_tag_reinforcement(commander, anchor)
 	SquadFactory.register_leader(sq, commander)
+	_set_leader_ingress_waypoints(commander, anchor)
+	EventLogger.log_event("INGRESS", "Spawn",
+		"sentinel %s edge=%s anchor=%s" % [commander.callsign, leader_pos.round(), anchor.round()])
 
 	# 挂载光环 + 视觉覆盖
 	var aura := CommanderAura.new()
@@ -679,6 +1044,7 @@ func _spawn_commander_squad(wingman_count: int) -> void:
 		var rand_dist := randf_range(200.0, 400.0)
 		var spawn_pos := leader_pos + Vector2(cos(rand_angle), sin(rand_angle)) * rand_dist
 		var wingman := _create_enemy(EnemyType.UAV, spawn_pos, heading)
+		_tag_reinforcement(wingman, anchor)
 		SquadFactory.register_wingman(sq, wingman, false)  # simple_ai 路径，不切 SQUAD_FOLLOW
 
 		# 设绕飞标志 + 蓝盾守护行为
@@ -698,6 +1064,7 @@ func _spawn_commander_squad(wingman_count: int) -> void:
 		var laser_angle := PI * 1.0  # 正后方站位
 		var laser_pos := leader_pos + Vector2(cos(laser_angle), sin(laser_angle)) * 320.0
 		var laser_uav := _create_enemy(EnemyType.UAV_LASER, laser_pos, heading)
+		_tag_reinforcement(laser_uav, anchor)
 		SquadFactory.register_wingman(sq, laser_uav, false)
 
 	_squads.append(sq)
@@ -1769,6 +2136,9 @@ func _update_far_cleanup(delta: float) -> void:
 			# Adds 杂兵（Tu-160 等族群）不受远距清理影响，它们沿固定航线飞过战场
 			if ac.has_meta("skip_far_cleanup") and ac.get_meta("skip_far_cleanup"):
 				continue
+			# 增援不受玩家距离清理：回收改走 EGRESS 物理飞离（spec reinforcement-ingress §3.5）
+			if str(ac.get_meta("category", "")) == "reinforcement":
+				continue
 			if ac.global_position.distance_squared_to(pp) > cleanup_d2:
 				# 防止 _detect_kills 在同帧误判为击杀
 				ac.set_meta("xp_granted", true)
@@ -1850,6 +2220,15 @@ func _update_hunters(delta: float) -> void:
 			var cat: String = child.get_meta("category", "")
 			if cat == "adds" or cat == "boss" or cat == "zone_air":
 				continue
+			# 增援：EGRESS 不入池；TRANSIT 只有路过玩家附近才可被就近点名，
+			# 不把横穿半张图的运输队硬拽过来（spec reinforcement-ingress §3.4）
+			if cat == "reinforcement":
+				var rph := str(child.get_meta("reinf_phase", "onstation"))
+				if rph == "egress":
+					continue
+				if rph == "transit" and child.global_position.distance_squared_to(player_aircraft.global_position) \
+						> SurvivorData.HUNTER_TRANSIT_GRAB_DIST_PX * SurvivorData.HUNTER_TRANSIT_GRAB_DIST_PX:
+					continue
 			var ai := _get_ai(child)
 			if ai:
 				if ai._current_target == player_aircraft:
@@ -1908,6 +2287,12 @@ func _update_boundary_discipline(_delta: float) -> void:
 		var cat: String = ac.get_meta("category", "")
 		if cat == "boss" or cat == "adds" or cat == "zone_air":
 			continue
+		# 增援 TRANSIT/EGRESS 跨线飞行是设计内行为，不得被边界纪律 hard clamp/强制转向
+		# 打断（spec reinforcement-ingress §3.4）；ONSTATION/交战照常受纪律约束
+		if cat == "reinforcement":
+			var rph := str(ac.get_meta("reinf_phase", "onstation"))
+			if rph == "transit" or rph == "egress":
+				continue
 
 		var enemy_edge_dist := MapBoundary.distance_to_edge(ac.global_position)
 		var enemy_near_edge := enemy_edge_dist <= BOUNDARY_ENEMY_MARGIN_PX
@@ -1963,6 +2348,11 @@ func _update_enemy_waypoints(delta: float) -> void:
 			# Adds 杂兵和 Boss 有独立航点管理，不被绕玩家航点覆盖
 			var cat2: String = child.get_meta("category", "")
 			if cat2 == "adds" or cat2 == "boss" or cat2 == "zone_air":
+				continue
+			# 增援：锚点生命周期（TRANSIT 到站翻转 / ONSTATION 环维护），
+			# 不再发"绕玩家 800~1500px"磁铁环（spec reinforcement-ingress §3.4）
+			if cat2 == "reinforcement":
+				_tick_reinforcement_waypoints(child)
 				continue
 			var ai := _get_ai(child)
 			if ai and (ai._state == AIController.AIState.PATROL or (ai.simple_ai and ai._current_target == null)):

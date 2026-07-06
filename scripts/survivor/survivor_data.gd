@@ -1390,11 +1390,30 @@ const MIN_SPAWN_INTERVAL := 3.0     ## 最小刷怪间隔（同上）
 ## 旅途刷怪：玩家在战区之间移动时的节奏。比战区驻守放宽，一趟路一波足够。
 const TRAVEL_SPAWN_INTERVAL_BASE := 45.0   ## 玩家等级 1 时的旅途刷怪间隔（秒）
 const TRAVEL_SPAWN_INTERVAL_MIN := 25.0    ## 玩家高等级时的下限
-## 旅途刷怪方向扇形半角（弧度）。刷怪角度限制在玩家 heading ± 本值 = 前方约 140° 扇形。
+## 旅途刷怪方向扇形半角（弧度）。⚠ 旅途增援已改边缘入场不再使用（spec reinforcement-ingress）；
+## 保留给 _pick_safe_spawn_angle 的事件/任务类"机头沿途"刷出备用。
 const TRAVEL_SPAWN_FAN_HALF := PI * 70.0 / 180.0
 const ENEMIES_PER_WAVE_BASE := 1    ## 每波基础敌人数
 const ENEMIES_PER_WAVE_GROWTH := 0.3  ## 每级额外敌人数
-const SPAWN_DISTANCE := 3200.0      ## 刷怪距离（像素）；需 > 最小 zoom 下的可视对角半径 + VIEW_SPAWN_MARGIN_PX（当前 ZOOM_MIN=0.4 下对角半径 ≈ 2750 px）
+const SPAWN_DISTANCE := 3200.0      ## 刷怪距离（像素）。⚠ 旅途增援已不再使用（改走边缘入场，见下方 INGRESS_*）；仍被 ace_squad BOSS 入场 / adds 族群航线 / 沙盒 debug_panel 引用
+
+## ── 增援入场（spec reinforcement-ingress，2026-07-05）─────────────
+## 旅途增援不再刷在玩家周围（根治镜头挪回/拉满时敌机凭空出现），改为：
+## 边界外生成 → TRANSIT 飞向中央锚点 → ONSTATION 绕环驻空 → token 饿着时 EGRESS 物理飞离
+const INGRESS_SPAWN_OUTSET_PX := 400.0        ## 生成点在世界边界线外的推出量
+const INGRESS_EDGE_CANDIDATES := 16           ## 每次入场在边界周长上取的候选点数
+const INGRESS_MIN_PLAYER_DIST_PX := 5000.0    ## 候选边缘点距玩家的硬下限
+const ANCHOR_DISC_RADIUS_FRAC := 0.35         ## 巡逻锚点盘半径 = 本系数 × WORLD_HALF_PX
+const ANCHOR_ZONE_CLEARANCE_PX := 800.0       ## 锚点距任何战区圆边的最小距离
+const ANCHOR_MIN_SEPARATION_PX := 2500.0      ## 新锚点与现存活跃锚点的最小间距
+const ANCHOR_ARRIVE_DIST_PX := 900.0          ## 长机距锚点小于此值 → TRANSIT 转 ONSTATION
+const PATROL_RING_RADIUS_BASE_PX := 1400.0    ## 驻空盘旋环半径基数
+const PATROL_RING_RADIUS_JITTER_PX := 400.0   ## 驻空环半径 ± 抖动（每中队 roll 一次）
+const HUNTER_TRANSIT_GRAB_DIST_PX := 4000.0   ## TRANSIT 途中可被 hunter 就近点名的距离
+const EGRESS_STALE_SEC := 45.0                ## 中队连续无交战达此时长才有退场资格
+const EGRESS_FREE_OUTSET_PX := 800.0          ## 全员飞出边界线外此距离才释放
+const EGRESS_MAX_CONCURRENT := 1              ## 同时处于退场状态的中队数上限
+const OPENING_GARRISON_SQUADS := 2            ## 开局 t≈0 直接以 ONSTATION 预置的中队数
 const MAX_ENEMIES_HARD := 40          ## 绝对上限
 const MAX_ENEMIES_DEFAULT := 30       ## 默认上限
 const MIN_ENEMIES_CAP := 8            ## 动态下限（至少允许这么多敌人）
