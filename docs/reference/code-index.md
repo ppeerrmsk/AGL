@@ -62,7 +62,11 @@
 
 | 功能 | 位置 |
 |------|------|
-| 机炮射击更新 | `aircraft.gd:1422` _update_gun |
+| 机炮射击更新（梭射状态机，spec: gun-burst-fire） | `scripts/aircraft/aircraft_weapons.gd` update_gun |
+| 单发出弹（散布/云雾/多管/音效/弹药） | `scripts/aircraft/aircraft_weapons.gd` _fire_gun_round |
+| 梭射常量（DUTY/MIN_INTRA/帧补上限） | `scripts/aircraft/aircraft_weapons.gd` GUN_BURST_* |
+| 梭计数状态 | `aircraft.gd` _gun_burst_rounds_left（_fire_cooldown 旁） |
+| 每梭弹数参数 | `scripts/gun_params.gd` burst_count |
 | 机炮射程（像素） | `aircraft.gd:1355` _gun_range_px |
 | 子弹生成 | `bullet_manager.gd:23` spawn_bullet |
 | 子弹物理+命中检测 | `bullet_manager.gd` _physics_process |
@@ -404,7 +408,10 @@
 | 功能 | 位置 |
 |------|------|
 | 升级定义表 UPGRADES（常量）| `survivor_data.gd:12` |
-| 刷怪基础常量（BASE/MIN/SPAWN_DISTANCE）| `survivor_data.gd:210-214` |
+| 刷怪基础常量（BASE/MIN/SPAWN_DISTANCE，旅途位置已弃用）| `survivor_data.gd` 刷怪参数段 |
+| 增援入场常量（INGRESS_*/ANCHOR_*/PATROL_RING_*/EGRESS_*/OPENING_GARRISON，spec reinforcement-ingress）| `survivor_data.gd` SPAWN_DISTANCE 之后 |
+| 增援入场逻辑（边缘生成/锚点驻空/EGRESS/开局驻防 + 冻结豁免）| `survivor_spawner.gd` INGRESS 段 + `survivor_mode.gd` LOD 冻结块 reinforcement 分支 |
+| 地图扩展无头回归（几何/陆地占比/BOSS 锚点/入场纯函数）| `scripts/tests/test_map_expansion.gd` |
 | 敌机上限常量（HARD/DEFAULT/MIN/TARGET_FPS）| `survivor_data.gd:215-218` |
 | MiG 解锁/概率常量 | `survivor_data.gd:220-222` |
 | 截击机 J-7 解锁/概率常量 | `survivor_data.gd:223-225` |
@@ -530,6 +537,8 @@
 | 悬停检测 | `main.gd:208` _update_hover |
 | LOD 管理 | `main.gd:455` _update_lod |
 | 地形绘制 | `main.gd:515` _draw_terrain |
+| 命令轮盘手势层（生存，spec command-wheel） | `scripts/rts/command_wheel.gd`（CommandWheel；参数 `command_wheel_params.gd` + `resources/command_wheel.tres`） |
+| 轮盘接线：左键按下/松开仲裁 + 单击回放 | `survivor_mode.gd` `_on_left_press` / `_on_left_release` / `_execute_left_click` / `_on_wheel_command`（阶段 1 stub 打 EventLogger） |
 
 ## 视觉绘制
 

@@ -283,7 +283,10 @@
       "PowerShell(git stash push .claude/settings.local.json -m \"settings.local ��ʱ�ݴ棨�з�֧�ã�\")",
       "PowerShell(git stash pop)",
       "PowerShell(git restore --staged .claude/settings.local.json)",
-      "PowerShell(git stash drop)"
+      "PowerShell(git stash drop)",
+      "Bash(\"/c/Users/noelu/Downloads/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64_console.exe\" --headless --path . --script res://scripts/tests/test_map_expansion.gd)",
+      "Bash(git restore *)",
+      "Bash(git commit *)"
     ]
   },
   "hooks": {
