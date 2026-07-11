@@ -72,6 +72,7 @@
 | [systems/ugc-editor](systems/ugc-editor.md) | system | draft | ✗ | 游戏内 UGC 编辑器 + 创意工坊：飞机/地图/编队可行性高（params 纯数据、JSON+user:// 惯例现成）；安全红线只收 JSON+数值围栏；P0 数据化→P1 地图编辑器（兼扩图工具）→P2 飞机→P3 编队→P4 本地分享→工坊（GodotSteam/mod.io） |
 
 | [systems/player-aircraft-power-curve](systems/player-aircraft-power-curve.md) | balance | draft | ✗ | 玩家机战斗力曲线规范：F-14 最弱锚点 / 档位预算 100-115-130% / 同类进化逐轴不倒退 / 单 tradeoff 轴 / 雷达走廊 2800-5000 / 12 机有效值矩阵 / resources/player/ 数据解耦（mult 归 1，敌机 enemy_* 独立）。**矩阵待用户 review 后实装** |
+| [systems/engagement-discipline](systems/engagement-discipline.md) | system | in-progress | ✅ | 交战纪律（playtest 220858 派生）：A 敌人**无 combat_target → 停火**（去掉 auto_gun_scan 兜底扫 all_units，根治"无意图机炮背刺路过玩家"，人类机独立扫射不变）；B AI 友军**反平面同向缠斗**——对硬盘旋目标(bank>60°)+自己磨到角点(≤corner×1.08)+aspect仍高(>70°)+已兜≥2s → 能量触发 BOOM_ZOOM_OUT 脱出重建能量再攻（仅 AI，不拽人类长机），补 5b 时间触发之外的能量触发。单测 92/92（+2 新 case）。**差 playtest；2s range-grace 脱战循环留后续** |
 
 <!-- 新增 spec 后在此追加一行。保持按 kind 分组、最新在各组顶部。 -->
 

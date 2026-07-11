@@ -31,6 +31,19 @@ const SLOW_TARGET_TURN_G := 7.0        ## 估算最小转弯半径用的持续 G
 const SLOW_TARGET_REATTACK_MULT := 1.5 ## 距离 < 最小转弯半径×此值 → 太近，先 extend 拉开
 const SLOW_TARGET_EXTEND_SEC := 1.5    ## 慢目标贴脸过顶时的 extend 时长（拉开间距，不要太长以免飞远）
 
+## ── 反平面同向缠斗（能量感知 co-turn breaker，spec engagement-discipline §B）──
+## 问题：又快又持久的高 G 盘旋目标（UAV 233m/s / 5.8g 匀速大圈），AI 友军跟着在同一平面圆圈
+## 比拉杆，速度被磨到角点、能量清零，最后被匀速盘旋的对手在某一圈抓到快照反杀（playtest 220858）。
+## 解法：对方硬盘旋 + 我已磨到角点（能量空）+ 还没带到它尾后 + 已兜 ≥2s → 判"正在输掉平面缠斗"，
+## 强制 BOOM_ZOOM_OUT 脱出拉开重建能量再换角度重攻。与 5b（held>8s 时间触发）互补：能量先空的更早走这条。
+## 仅 AI 控制机生效——绝不强拽人类操控的长机（玩家走位是玩家的选择）。
+const COTURN_BREAK_BANK_DEG := 60.0      ## 目标 bank 绝对值超此 → 硬盘旋对手（= HIGH_BANK_DEG）
+const COTURN_BREAK_ENERGY_RATIO := 1.08  ## 本机速度 ≤ 角点速度×此值 → 能量已磨到角点，再耗掉进螺旋
+const COTURN_BREAK_ASPECT_DEG := 70.0    ## 目标 aspect 仍 > 此值（没带到尾后）→ 兜圈没赢角度
+const COTURN_BREAK_HOLD_S := 2.0         ## co-turn 类 intent 已持续 ≥ 此秒才判（防一进弯就误触）
+const COTURN_BREAK_EXTEND_S := 3.0       ## 触发后强制脱离/重建能量时长（同 5b boom-zoom）
+const COTURN_BREAK_AGGR_MAX := 0.85      ## aggression > 此值的 Gladiator 死咬不脱离（同 5b）
+
 ## 参与 hysteresis 的 intent 集合（战斗类）
 static func _is_combat_intent(intent_id: int) -> bool:
 	match intent_id:
@@ -162,6 +175,25 @@ static func _decide(s: Situation, waypoint: Vector2) -> TacticalPlan:
 			s.prev_intent_held_for, s.aspect_angle_deg
 		]
 		return bz_trigger
+
+	# 优先级 5b.2：能量感知 co-turn breaker（spec engagement-discipline §B）——
+	# 不依赖 5b 的"intent 持续 8s"（intent 抖动时永远攒不满），改用能量状态触发：
+	# 对方硬盘旋 + 我已磨到角点（能量空）+ aspect 仍高（没带到尾后）+ 已兜 ≥2s → 脱出重建能量。
+	# 仅 AI 控制机；人类操控长机（is_tactical_preference_user）不受此约束，走位归玩家。
+	if not s.is_tactical_preference_user \
+			and s.ai_aggression <= COTURN_BREAK_AGGR_MAX \
+			and absf(s.tgt_bank_deg) > COTURN_BREAK_BANK_DEG \
+			and s.aspect_angle_deg > COTURN_BREAK_ASPECT_DEG \
+			and (s.my_speed_ms * 3.6) <= s.corner_speed_kmh * COTURN_BREAK_ENERGY_RATIO \
+			and _is_combat_intent(s.prev_intent) and s.prev_intent_held_for > COTURN_BREAK_HOLD_S:
+		var coturn_break := BfmIntent.extend_recover(s)
+		coturn_break.trigger_extend_seconds = COTURN_BREAK_EXTEND_S
+		coturn_break.intent = TacticalPlan.Intent.BOOM_ZOOM_OUT
+		coturn_break.rationale = "能量劣势平面缠斗 → boom-zoom 重建能量再攻 (spd=%.0f≤corner=%.0f×%.2f aspect=%.0f° tgt_bank=%.0f°)" % [
+			s.my_speed_ms * 3.6, s.corner_speed_kmh, COTURN_BREAK_ENERGY_RATIO,
+			s.aspect_angle_deg, s.tgt_bank_deg
+		]
+		return coturn_break
 
 	# ── P5：僚机跟随长机撤离（保持队形完整，避免落单暴露）──
 	# 长机进 EXTEND_RECOVER / BOOM_ZOOM_OUT → 同目标的僚机也跟着撤

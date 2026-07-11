@@ -54,6 +54,8 @@ static func run_all() -> bool:
 	test_boom_zoom_triggers_on_stalemate()
 	test_boom_zoom_skipped_if_aspect_improved()
 	test_boom_zoom_skipped_for_gladiator()
+	test_coturn_break_on_energy_depletion()
+	test_coturn_break_skipped_for_human()
 	test_wingman_lateral_offset()
 	test_wingman_no_offset_solo()
 	test_waypoint_move_allows_passive_fire()
@@ -698,6 +700,43 @@ static func test_boom_zoom_skipped_for_gladiator() -> void:
 	var p := TacticalPlanner.plan(s)
 	# 即使 9 秒咬不上尾也不撤离
 	_assert_true("gladiator.no_bz", p.intent != TacticalPlan.Intent.BOOM_ZOOM_OUT)
+
+## co-turn breaker（spec engagement-discipline §B）：AI 对硬盘旋目标 + 自己已磨到角点（能量空）
+## + aspect 仍高（没带到尾后）+ 已兜 ≥2s → 强制 BOOM_ZOOM_OUT，即使 intent 未持续 8s（5b 不触发）。
+static func test_coturn_break_on_energy_depletion() -> void:
+	var s := Situation.new_for_test({
+		"has_target": true,
+		"my_pos": Vector2.ZERO,
+		"tgt_pos": Vector2(800.0, 0),  # 正东侧翼 → aspect ~90°
+		"my_heading": deg_to_rad(90.0),  # 朝东
+		"tgt_heading": 0.0,  # 朝北
+		"my_speed_ms": 180.0, "tgt_speed_ms": 250.0,  # 我 648km/h ≤ corner700×1.08=756 → 能量空
+		"tgt_bank_deg": 80.0,  # 硬盘旋 > 60°
+		"missiles": 0,
+		"prev_intent": TacticalPlan.Intent.LEAD_PURSUIT,
+		"prev_intent_held_for": 3.0,  # 仅 3s（< 5b 的 8s 阈值，专测能量触发）
+	})
+	var p := TacticalPlanner.plan(s)
+	_assert_eq("coturn.intent", TacticalPlan.Intent.BOOM_ZOOM_OUT, p.intent)
+	_assert_true("coturn.trigger>0", p.trigger_extend_seconds > 0.0)
+
+## 人类操控长机（is_tactical_preference_user）同样几何下【不】被 co-turn breaker 强拽——走位归玩家。
+static func test_coturn_break_skipped_for_human() -> void:
+	var s := Situation.new_for_test({
+		"has_target": true,
+		"my_pos": Vector2.ZERO,
+		"tgt_pos": Vector2(800.0, 0),
+		"my_heading": deg_to_rad(90.0),
+		"tgt_heading": 0.0,
+		"my_speed_ms": 180.0, "tgt_speed_ms": 250.0,
+		"tgt_bank_deg": 80.0,
+		"missiles": 0,
+		"prev_intent": TacticalPlan.Intent.LEAD_PURSUIT,
+		"prev_intent_held_for": 3.0,
+		"is_tactical_preference_user": true,  # 人类机
+	})
+	var p := TacticalPlanner.plan(s)
+	_assert_true("human.no_coturn_break", p.intent != TacticalPlan.Intent.BOOM_ZOOM_OUT)
 
 ## 已经咬到尾后（aspect < 80°）则不触发 boom-zoom
 static func test_boom_zoom_skipped_if_aspect_improved() -> void:

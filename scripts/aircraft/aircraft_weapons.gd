@@ -144,9 +144,12 @@ static func auto_gun_scan(ac: Aircraft) -> void:
 	var planner_locked_target: bool = ac.use_tactical_planner and ac.combat_target != null \
 			and is_instance_valid(ac.combat_target) and not ac.combat_target.is_destroyed
 	if not ac.use_tactical_preference:
-		# AI 分支：保持旧行为——有 combat_target 时整体跳过
-		if ac.combat_target != null and is_instance_valid(ac.combat_target) and not ac.combat_target.is_destroyed:
-			return
+		# AI 分支（spec engagement-discipline §A "无意图不开火"）：机炮开火全权交给
+		# combat_tracking 的追踪解——有 combat_target 时那边判定对准/射程/机会锥后开火，
+		# 无 combat_target 时一律停火。不再兜底扫 all_units 朝"机头前掠过的任意敌对"喷枪
+		# （= 用户反馈"敌人没有攻击意图却无脑机炮背刺路过的玩家"，playtest 220858）。
+		# 人类机（use_tactical_preference）的独立扫射意识不受影响，照走下方 all_units 扫描。
+		return
 	# 对地专用机型：永远不对空中目标开火（_auto_gun_scan 仅扫描 Aircraft）
 	if not ac.attack_air_targets:
 		return
