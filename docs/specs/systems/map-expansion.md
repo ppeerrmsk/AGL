@@ -99,7 +99,9 @@ reconstruction_complete: false
 | BOSS_NORTH / BOSS_SOUTH 锚点 | 同比缩放后重新对地理选点（水面吸附逻辑已有，照常兜底） |
 | A/D 的 `ground_spawn_polygons` | **作废重画**（绝对坐标手画多边形，中心挪了必须在编辑器里重描） |
 
-战区半径维持现值（A~D 2500 / E 1800）——扩的是"之间的空隙"，不是战区本身。
+战区半径本次维持现值（A~D 2500 / E 1800）——扩的是"之间的空隙"，不是战区本身。
+（后记：2026-07-06 [60km-density-pass](60km-density-pass.md) 按 playtest 反馈把半径上调
+A/C/D 3500、B 3000（y 内收 -10500）、E 2500，§2.4 约束复验全绿——空间是本 spec 留出来的。）
 
 ### 2.5 地理重烘焙
 

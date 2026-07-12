@@ -1388,13 +1388,17 @@ static func adds_xp_per_kill(level: int, _flock_size: int = 0) -> int:
 const BASE_SPAWN_INTERVAL := 8.0    ## 初始刷怪间隔（秒，保留作沙盒/无战区 fallback；生存模式走 TRAVEL_SPAWN_INTERVAL_*）
 const MIN_SPAWN_INTERVAL := 3.0     ## 最小刷怪间隔（同上）
 ## 旅途刷怪：玩家在战区之间移动时的节奏。比战区驻守放宽，一趟路一波足够。
-const TRAVEL_SPAWN_INTERVAL_BASE := 45.0   ## 玩家等级 1 时的旅途刷怪间隔（秒）
-const TRAVEL_SPAWN_INTERVAL_MIN := 25.0    ## 玩家高等级时的下限
+const TRAVEL_SPAWN_INTERVAL_BASE := 32.0   ## 玩家等级 1 时的旅途刷怪间隔（秒）（2026-07-06 60km 密度调优：45→32，边缘入场有 60~120s 运输延迟，节奏前移补偿）
+const TRAVEL_SPAWN_INTERVAL_MIN := 18.0    ## 玩家高等级时的下限（25→18）
 ## 旅途刷怪方向扇形半角（弧度）。⚠ 旅途增援已改边缘入场不再使用（spec reinforcement-ingress）；
 ## 保留给 _pick_safe_spawn_angle 的事件/任务类"机头沿途"刷出备用。
 const TRAVEL_SPAWN_FAN_HALF := PI * 70.0 / 180.0
 const ENEMIES_PER_WAVE_BASE := 1    ## 每波基础敌人数
-const ENEMIES_PER_WAVE_GROWTH := 0.3  ## 每级额外敌人数
+const ENEMIES_PER_WAVE_GROWTH := 0.4  ## 每级额外敌人数（2026-07-06 热度二轮：0.3→0.4）
+## 刷怪选型"有效等级"提前量：_pick_enemy_type 按 level+此值 走解锁/概率公式 →
+## 战斗机（成建制小队）更早登场、UAV 杂鱼更早退场（2026-07-06 热度二轮，用户要求
+## "更早的敌机以小队方式出现"）。只影响选型，不影响间隔/预算/缩放。
+const SPAWN_HEAT_LEVEL_SHIFT := 2
 const SPAWN_DISTANCE := 3200.0      ## 刷怪距离（像素）。⚠ 旅途增援已不再使用（改走边缘入场，见下方 INGRESS_*）；仍被 ace_squad BOSS 入场 / adds 族群航线 / 沙盒 debug_panel 引用
 
 ## ── 增援入场（spec reinforcement-ingress，2026-07-05）─────────────
@@ -1413,9 +1417,9 @@ const HUNTER_TRANSIT_GRAB_DIST_PX := 4000.0   ## TRANSIT 途中可被 hunter 就
 const EGRESS_STALE_SEC := 45.0                ## 中队连续无交战达此时长才有退场资格
 const EGRESS_FREE_OUTSET_PX := 800.0          ## 全员飞出边界线外此距离才释放
 const EGRESS_MAX_CONCURRENT := 1              ## 同时处于退场状态的中队数上限
-const OPENING_GARRISON_SQUADS := 2            ## 开局 t≈0 直接以 ONSTATION 预置的中队数
-const MAX_ENEMIES_HARD := 40          ## 绝对上限
-const MAX_ENEMIES_DEFAULT := 30       ## 默认上限
+const OPENING_GARRISON_SQUADS := 3            ## 开局 t≈0 直接以 ONSTATION 预置的中队数（2026-07-06 60km 密度调优：2→3）
+const MAX_ENEMIES_HARD := 48          ## 绝对上限（2026-07-06 60km 密度调优：40→48；FPS 动态降载兜底，须过 Sentinel+Lv5 压测）
+const MAX_ENEMIES_DEFAULT := 36       ## 默认上限（30→36）
 const MIN_ENEMIES_CAP := 8            ## 动态下限（至少允许这么多敌人）
 const TARGET_FPS := 30                ## 目标最低帧率
 ## UAV 与 UCAV 是等权重的杂鱼 adds，1~UAV_RETIRE_LEVEL 级出现，之后不再刷
@@ -1515,9 +1519,9 @@ const CH47_COLUMN_SPACING := 320.0   ## Chinook 体型大，间距更大
 # - 部分敌人设独立实例上限（即使预算够也不再刷）
 # - 远距清理飞出战区的敌机，释放 Token
 
-const TOKEN_BUDGET_BASE := 5           ## 1 级时的 Token 预算
-const TOKEN_BUDGET_PER_LEVEL := 1.5    ## 每级 Token 预算增量
-const TOKEN_BUDGET_MAX := 45           ## Token 预算绝对上限
+const TOKEN_BUDGET_BASE := 8           ## 1 级时的 Token 预算（2026-07-06 60km 密度调优：5→8）
+const TOKEN_BUDGET_PER_LEVEL := 1.8    ## 每级 Token 预算增量（1.5→1.8）
+const TOKEN_BUDGET_MAX := 55           ## Token 预算绝对上限（45→55）
 
 ## 每种敌人的 Token 消耗
 ## key 是 survivor_mode.gd::EnemyType 的 int 值
@@ -1818,38 +1822,46 @@ static func zone_virtual_level(difficulty: int, player_level: int, role: String 
 static func tgt_level_for_zone(difficulty: int, player_level: int) -> int:
 	return zone_virtual_level(difficulty, player_level, "tgt")
 
-## 按战区星级决定空战中队规模
+## 按战区星级决定空战中队规模（2026-07-06 60km 密度调优：3/4/5 → 4/5/6）
 static func air_squadron_count_for_difficulty(difficulty: int) -> int:
 	match difficulty:
-		3: return 5
-		2: return 4
-		_: return 3
+		3: return 6
+		2: return 5
+		_: return 4
 
 ## 地面任务 TGT 数量（仅按星级缩放，单位 HP 不变）
-## 返回 {"sam_count":int, "aa_count":int}
+## 2026-07-06 60km 密度调优：★2+2/★★3+3/★★★5+5 → 3+3/4+4/6+6；
+## 新增 radar_count：★★+ 附带雷达站 TGT（datalink 早期预警，击杀削弱战区感知——任务丰富化）
+## 返回 {"sam_count":int, "aa_count":int, "radar_count":int}
 static func ground_tgt_scale(difficulty: int, _player_level: int) -> Dictionary:
 	var sam_count: int
 	var aa_count: int
+	var radar_count: int
 	match difficulty:
 		3:
-			sam_count = 5
-			aa_count = 5
+			sam_count = 6
+			aa_count = 6
+			radar_count = 2
 		2:
+			sam_count = 4
+			aa_count = 4
+			radar_count = 1
+		_:
 			sam_count = 3
 			aa_count = 3
-		_:
-			sam_count = 2
-			aa_count = 2
+			radar_count = 0
 	return {
 		"sam_count": sam_count,
 		"aa_count": aa_count,
+		"radar_count": radar_count,
 	}
 
 ## 战区驻守预算：基础 + 等级线性加成
-## 基础按难度（1-3 星）：8 / 15 / 30
-## 每级 +8%（10 级时 ≈ ×1.72），让高等级战区实打实变重
-const ZONE_DEFENDER_BASE_BUDGET := {1: 8, 2: 15, 3: 30}
-const ZONE_DEFENDER_BUDGET_PER_LEVEL := 0.08
+## 基础按难度（1-3 星）：12 / 22 / 42（2026-07-06 60km 密度调优，原 8/15/30——
+## 战区半径同批扩到 3500，守军按面积感补量）
+## 每级 +10%（10 级时 ≈ ×1.90），让高等级战区实打实变重
+const ZONE_DEFENDER_BASE_BUDGET := {1: 12, 2: 22, 3: 42}
+const ZONE_DEFENDER_BUDGET_PER_LEVEL := 0.10
 static func zone_defender_budget(difficulty: int, player_level: int) -> int:
 	var base: int = int(ZONE_DEFENDER_BASE_BUDGET.get(difficulty, 8))
 	var scale: float = 1.0 + ZONE_DEFENDER_BUDGET_PER_LEVEL * float(maxi(player_level - 1, 0))

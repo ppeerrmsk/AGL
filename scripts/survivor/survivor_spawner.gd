@@ -287,7 +287,8 @@ func _can_spawn_type(etype_idx: int, remaining_budget: int) -> bool:
 	return true
 
 func _pick_enemy_type() -> EnemyType:
-	var lvl := survivor_player.level
+	# 选型有效等级 = 真实等级 + 热度提前量（2026-07-06 热度二轮：战斗机小队更早登场）
+	var lvl := survivor_player.level + SurvivorData.SPAWN_HEAT_LEVEL_SHIFT
 	var remaining := _get_token_budget() - _token_used
 
 	# MiG-31（顶级 Lancer，单机）：等级 9+ 优先判定，压过普通 MiG
@@ -1403,6 +1404,49 @@ func _spawn_ch47_flock() -> void:
 #  ADBS 事件专用生成（指定起点 + 逃离方向，不穿过玩家）
 # ══════════════════════════════════════════════
 
+## 逃跑组护卫（spec zone-reward-docking §2.7）：2~4 架战斗机在逃跑组后方 600px 伴飞护航。
+## adds 语义（不占 token / 不被远距清理 / hunter·航点 tick·边界纪律不接管）；
+## enable_combat=true → 玩家进雷达圈（或逼近护航对象）自动接敌；护航对象没了/超时
+## 沿 exit 航点飞出（despawn_after 兜底）。击杀走普通 XP（_detect_kills 按 enemy_type
+## 分支，战斗机不吃 adds 满级经验）。选型走有效等级（热度 shift 复用），单机精英降级。
+func _spawn_flee_escort(protectees: Array[Aircraft], flight_dir: Vector2,
+		flight_dist: float, tier: int, lifetime_sec: float) -> void:
+	if protectees.is_empty() or not is_instance_valid(protectees[0]):
+		return
+	var anchor_p: Aircraft = protectees[0]
+	var n := randi_range(2, 4)
+	var etype := _pick_enemy_type()
+	if etype == EnemyType.UAV_COMMANDER or etype == EnemyType.MIG31 \
+			or etype == EnemyType.SU27 or etype == EnemyType.AF03:
+		etype = EnemyType.UAV if survivor_player.level <= SurvivorData.UAV_RETIRE_LEVEL else EnemyType.F86
+	var heading := rad_to_deg(atan2(flight_dir.x, -flight_dir.y))
+	var heading_rad := deg_to_rad(heading)
+	var exit_wp := anchor_p.global_position + flight_dir * (flight_dist + ADDS_EXIT_EXTENSION_PX)
+	var sq := SquadFactory.create()
+	sq.formation = Squad.random_formation()
+	var base := anchor_p.global_position - flight_dir * 600.0
+	for i in range(n):
+		var pos := base
+		if i > 0:
+			pos = base + sq.get_formation_offset(i).rotated(heading_rad)
+		var ac := _create_enemy(etype, pos, heading)
+		ac.set_meta("category", "adds")
+		ac.set_meta("skip_far_cleanup", true)
+		ac.set_meta("despawn_after", mode.game_time + lifetime_sec)
+		ac.set_target_tier(tier)
+		var ai := _get_ai(ac)
+		if ai:
+			ai.enable_combat = true
+			ai.evade_missiles = true
+			ai.waypoints = PackedVector2Array([exit_wp])
+			ai.current_waypoint_index = 0
+		if i == 0:
+			SquadFactory.register_leader(sq, ac)
+		else:
+			SquadFactory.register_wingman(sq, ac, true)
+	_squads.append(sq)
+	EventLogger.log_event("ADBS", "FleeEscort", "x%d etype=%d tier=%d" % [n, int(etype), tier])
+
 ## ADBS：一队轰炸机从 spawn_pos 沿 flee_dir 逃向边界
 func spawn_bomber_flee(spawn_pos: Vector2, flee_dir: Vector2, count: int = 2) -> Array[Aircraft]:
 	var flight_dir := flee_dir.normalized() if flee_dir.length_squared() > 0.001 else Vector2(0, -1)
@@ -1421,6 +1465,9 @@ func spawn_bomber_flee(spawn_pos: Vector2, flee_dir: Vector2, count: int = 2) ->
 		spawned.append(bomber)
 	EventLogger.log_event("ADBS", "BomberFlee",
 		"spawned %d bombers at %s heading %.0f°" % [count, spawn_pos, heading_deg])
+	# 护卫编队（spec zone-reward-docking §2.7）：高空伴飞
+	_spawn_flee_escort(spawned, flight_dir, SurvivorData.TU160_FLIGHT_DISTANCE,
+		Aircraft.AltitudeTier.HIGH, 130.0)
 	return spawned
 
 ## ADBS：一队直升机从 spawn_pos 沿 flee_dir 逃向边界
@@ -1439,6 +1486,9 @@ func spawn_heli_flee(spawn_pos: Vector2, flee_dir: Vector2, count: int = 3) -> A
 		spawned.append(heli)
 	EventLogger.log_event("ADBS", "HeliFlee",
 		"spawned %d helis at %s heading %.0f°" % [count, spawn_pos, heading_deg])
+	# 护卫编队（spec zone-reward-docking §2.7）：低空伴飞
+	_spawn_flee_escort(spawned, flight_dir, SurvivorData.CH47_FLIGHT_DISTANCE,
+		Aircraft.AltitudeTier.LOW, 160.0)
 	return spawned
 
 # ══════════════════════════════════════════════
@@ -2237,8 +2287,9 @@ func _update_hunters(delta: float) -> void:
 					idle_enemies.append(child)
 
 	# 确保至少有一定比例的敌机在追击玩家
-	# 最少2架，随等级增加
-	var desired_hunters := maxi(2, 1 + survivor_player.level / 3)
+	# 最少3架，随等级增加（2026-07-06 60km 密度调优：原 maxi(2, 1+lvl/3)——
+	# 大图 + 中央锚点巡逻后，主动压力全靠 hunter 供给，配额上调）
+	var desired_hunters := maxi(3, 2 + survivor_player.level / 2)
 	var need := desired_hunters - engaging_count
 
 	if need > 0 and not idle_enemies.is_empty():

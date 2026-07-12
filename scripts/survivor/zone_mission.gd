@@ -27,6 +27,10 @@ const MIN_UNIT_SEPARATION_PX := 650.0   ## 地面单位最小间距（≈1.3km�
 const MIN_ROAD_DISTANCE_PX := 180.0     ## 距道路/高速的最小距离（≈360m）
 const MAX_SAMPLE_ATTEMPTS := 80         ## 每个单位最多尝试 N 次随机位置
 
+## 雷达站 TGT（2026-07-06 任务丰富化）：★★+ 地面战区附带，datalink 共享 20km 感知
+const _RADAR_SCENE := preload("res://scenes/radar_station.tscn")
+const _RADAR_PARAMS := preload("res://resources/radar_station_params.tres")
+
 var mode: Node
 var _zones: ZoneData
 var _player: Aircraft
@@ -204,6 +208,17 @@ func _spawn_ground_garrison(zone_id: StringName, zone: Dictionary) -> void:
 		if u:
 			units.append(u)
 			placed_positions.append(pos)
+	## 任务丰富化（2026-07-06 密度调优）：★★+ 附带雷达站 TGT。刷得比 SAM/AA 靠内
+	## （scatter×0.6，受 SAM 环保护），datalink 给全区共享 20km 感知——先打雷达可削弱预警
+	var radar_count: int = int(scale.get("radar_count", 0))
+	for i in range(radar_count):
+		var pos := _find_valid_spawn_pos(center, scatter * 0.6, placed_positions, spawn_polys if use_polys else [])
+		if pos == Vector2.INF:
+			continue
+		var u := _spawn_ground(_RADAR_SCENE, _RADAR_PARAMS, pos, zone_id)
+		if u:
+			units.append(u)
+			placed_positions.append(pos)
 	_spawned_zones[zone_id] = units
 	# TGT 标记在玩家进入战区（mission_triggered）时才打上，预刷阶段不标
 	EventLogger.log_event("ZONE", "PreSpawnGround",
@@ -213,14 +228,16 @@ func _spawn_ground_garrison(zone_id: StringName, zone: Dictionary) -> void:
 ## 空战中队：在战区中心刷一队敌机，绕战区盘旋，不受 Token 限制
 ## 复用 SurvivorSpawner 的 _create_enemy → 然后挂锚定 waypoint + adds 标记
 const AIR_SQUADRON_COUNT := 4
-const AIR_SQUADRON_ORBIT_RADIUS := 1200.0
+const AIR_SQUADRON_ORBIT_RADIUS := 1200.0   ## 地板值；实际取 max(地板, zone.radius × 0.48)（2026-07-06 战区扩到 3500 后随半径撑开）
 const AIR_SQUADRON_SPAWN_RING_RATIO := 0.6  ## 初始生成环 = 轨道半径 × 此值
 const AIR_SQUADRON_PATROL_WAYPOINTS := 4    ## 绕中心的航点数
+const AIR_SQUADRON_ORBIT_RADIUS_FRAC := 0.48  ## 轨道半径 = zone.radius × 此值（与地板取大）
 
 ## 驻守敌机（garrison）：地面战区的空中守卫，不是任务目标，不标 TGT
 ## 难度 → [数量, 敌机池]
 ## 攻克战区后自动撤离（queue_free）
-const GARRISON_ORBIT_RADIUS := 1800.0        ## 比 air_squadron 稍大，避免与 SAM 扎堆
+const GARRISON_ORBIT_RADIUS := 1800.0        ## 地板值；实际取 max(地板, zone.radius × 0.72)，比 air_squadron 稍大避免与 SAM 扎堆
+const GARRISON_ORBIT_RADIUS_FRAC := 0.72     ## 驻守环 = zone.radius × 此值（与地板取大）
 
 func _spawn_air_squadron(zone_id: StringName, zone: Dictionary) -> void:
 	if not _spawner:
@@ -238,12 +255,20 @@ func _spawn_air_squadron(zone_id: StringName, zone: Dictionary) -> void:
 	var pool := SurvivorData.get_zone_enemy_pool(tgt_lvl, true, true)
 	var picked := SurvivorData.pick_zone_enemy(pool, 999, tgt_lvl)  ## 空战中队不受 token 预算限制
 	var etype: int = int(picked.get("type", SurvivorSpawner.EnemyType.F86))
-	## 中队规模也按星级放大：★3 / ★★4 / ★★★5
+	## 中队规模也按星级放大：★4 / ★★5 / ★★★6（2026-07-06 密度调优）
 	var squadron_count: int = SurvivorData.air_squadron_count_for_difficulty(difficulty)
+	## 任务丰富化（2026-07-06）：长机用高一档机型（tgt_lvl+2 选型），僚机维持 tgt_lvl —— "队长机"质感
+	var leader_etype: int = etype
+	var lead_pick := SurvivorData.pick_zone_enemy(
+			SurvivorData.get_zone_enemy_pool(tgt_lvl + 2, true, true), 999, tgt_lvl + 2)
+	if not lead_pick.is_empty():
+		leader_etype = int(lead_pick.get("type", etype))
+	## 轨道半径随战区半径撑开（战区 3500 时 ≈1680，占住扩大后的圈）
+	var orbit_r: float = maxf(AIR_SQUADRON_ORBIT_RADIUS, float(zone["radius"]) * AIR_SQUADRON_ORBIT_RADIUS_FRAC)
 
 	# 长机起始位置：战区生成环上随机一点，朝切线方向飞
 	var leader_angle := randf() * TAU
-	var leader_pos := center + Vector2(cos(leader_angle), sin(leader_angle)) * AIR_SQUADRON_ORBIT_RADIUS * AIR_SQUADRON_SPAWN_RING_RATIO
+	var leader_pos := center + Vector2(cos(leader_angle), sin(leader_angle)) * orbit_r * AIR_SQUADRON_SPAWN_RING_RATIO
 	var heading_deg := rad_to_deg(leader_angle + PI * 0.5)
 	var heading_rad := deg_to_rad(heading_deg)
 
@@ -251,7 +276,7 @@ func _spawn_air_squadron(zone_id: StringName, zone: Dictionary) -> void:
 	var leader_waypoints := PackedVector2Array()
 	for k in range(AIR_SQUADRON_PATROL_WAYPOINTS):
 		var wa := float(k) / float(AIR_SQUADRON_PATROL_WAYPOINTS) * TAU
-		leader_waypoints.append(center + Vector2(cos(wa), sin(wa)) * AIR_SQUADRON_ORBIT_RADIUS)
+		leader_waypoints.append(center + Vector2(cos(wa), sin(wa)) * orbit_r)
 	# 从当前 leader_angle 的下一个扇区开始，使长机往前飞而不是折返
 	var start_idx := int(floor((leader_angle + PI * 0.5) / TAU * AIR_SQUADRON_PATROL_WAYPOINTS)) % AIR_SQUADRON_PATROL_WAYPOINTS
 
@@ -266,7 +291,7 @@ func _spawn_air_squadron(zone_id: StringName, zone: Dictionary) -> void:
 			var offset := sq.get_formation_offset(i)
 			spawn_pos = leader_pos + offset.rotated(heading_rad)
 
-		var ac: Aircraft = _spawner._create_enemy(etype, spawn_pos, heading_deg)
+		var ac: Aircraft = _spawner._create_enemy(leader_etype if i == 0 else etype, spawn_pos, heading_deg)
 		if not ac:
 			continue
 		# 跳过全局 hunter / far_cleanup / boundary_discipline
@@ -335,6 +360,8 @@ func _spawn_zone_defenders(zone_id: StringName, zone: Dictionary, mission_type: 
 		budget = int(budget * 0.5)
 
 	var center: Vector2 = zone["center"]
+	## 驻守环随战区半径撑开（战区 3500 时 ≈2520，填满扩大后的圈）
+	var garrison_r: float = maxf(GARRISON_ORBIT_RADIUS, float(zone["radius"]) * GARRISON_ORBIT_RADIUS_FRAC)
 	var units: Array[Aircraft] = []
 	var squad_index := 0
 	var guard := 12  ## 死循环保险（每循环刷一整队）
@@ -364,7 +391,7 @@ func _spawn_zone_defenders(zone_id: StringName, zone: Dictionary, mission_type: 
 			squad_size = mini(squad_size, room)
 
 		var slot_angle: float = float(squad_index) / 6.0 * TAU + randf_range(-0.3, 0.3)
-		var leader_pos: Vector2 = center + Vector2(cos(slot_angle), sin(slot_angle)) * GARRISON_ORBIT_RADIUS * 0.7
+		var leader_pos: Vector2 = center + Vector2(cos(slot_angle), sin(slot_angle)) * garrison_r * 0.7
 		var heading_rad: float = slot_angle + PI * 0.5
 		var heading_deg: float = rad_to_deg(heading_rad)
 
@@ -373,7 +400,7 @@ func _spawn_zone_defenders(zone_id: StringName, zone: Dictionary, mission_type: 
 		var n_wp := 4
 		for k in range(n_wp):
 			var wa := float(k) / float(n_wp) * TAU
-			wp.append(center + Vector2(cos(wa), sin(wa)) * GARRISON_ORBIT_RADIUS)
+			wp.append(center + Vector2(cos(wa), sin(wa)) * garrison_r)
 		var start_wp_idx: int = int(floor((slot_angle + PI * 0.5) / TAU * n_wp)) % n_wp
 
 		var sq := SquadFactory.create()
@@ -435,8 +462,8 @@ func _player_level() -> int:
 ## 精英任务：Sentinel 作为首领怪 TGT（3 星独占）
 ## Sentinel 永远带 5-8 架 UAV/UCAV 僚机一起出现，绝不单独部署
 ## （Aura 会持续招募路过的 is_unmanned 飞机；但初始必须有固定护卫，防止单架裸奔）
-const ELITE_SENTINEL_ESCORT_MIN := 5  ## 战区首领怪最少护卫数（UAV/UCAV）
-const ELITE_SENTINEL_ESCORT_MAX := 8  ## 战区首领怪最多护卫数
+const ELITE_SENTINEL_ESCORT_MIN := 6   ## 战区首领怪最少护卫数（UAV/UCAV）（2026-07-06 密度调优 5→6）
+const ELITE_SENTINEL_ESCORT_MAX := 10  ## 战区首领怪最多护卫数（8→10）
 func _spawn_elite_target(zone_id: StringName, zone: Dictionary) -> void:
 	if not _spawner:
 		return

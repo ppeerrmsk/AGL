@@ -69,11 +69,12 @@ BOSS 阶段切文字 + 冻结。升级暂停时计时标签仍可见（PROCESS_M
 ### 4.1 Token 预算（已核对）
 
 ```
-budget = TOKEN_BUDGET_BASE(5) + int(level × TOKEN_BUDGET_PER_LEVEL(1.5)) + token_bonus
-budget = min(budget, TOKEN_BUDGET_MAX(45))
+budget = TOKEN_BUDGET_BASE(8) + int(level × TOKEN_BUDGET_PER_LEVEL(1.8)) + token_bonus
+budget = min(budget, TOKEN_BUDGET_MAX(55))
 ```
 
-样例：Lv1=5 · Lv10=20 · Lv20=35 · Lv27+=45（封顶）。补给一次 `token_bonus += SUPPLY_TOKEN_GAIN(2)`。
+样例：Lv1=9 · Lv10=26 · Lv20=44 · Lv27+=55（封顶）。补给一次 `token_bonus += SUPPLY_TOKEN_GAIN(2)`。
+（2026-07-06 [60km-density-pass](60km-density-pass.md) 上调：原 5 / 1.5 / 45）
 
 每个敌人的 `TOKEN_COST` / `TOKEN_INSTANCE_CAP` / 解锁等级 / 加权概率**不在此重列**——
 见 [enemy-index.md](../../reference/enemy-index.md) 大表 + 各敌人 spec（如 [af-03](../enemies/af-03.md)）。
@@ -88,8 +89,8 @@ Adds（Tu-160/AH-64/CH-47/FA-18）`TOKEN_COST=0`，不占预算。
 
 | 项 | 值 |
 |---|---|
-| 刷怪间隔 | `TRAVEL_SPAWN_INTERVAL_BASE=45.0`（Lv1）→ `TRAVEL_SPAWN_INTERVAL_MIN=25.0`（高等级），按等级插值 |
-| 首次延迟 | `BASE × 0.5 = 22.5 s`（让首批巡逻先就位） |
+| 刷怪间隔 | `TRAVEL_SPAWN_INTERVAL_BASE=32.0`（Lv1）→ `TRAVEL_SPAWN_INTERVAL_MIN=18.0`（高等级），按等级插值（07-06 density-pass：原 45/25） |
+| 首次延迟 | `BASE × 0.5 = 16 s`（让首批巡逻先就位） |
 | 刷怪距离 | `SPAWN_DISTANCE=3200 px`（玩家前方；须 > 最小 zoom 可视对角半径） |
 | 刷怪扇形 | `TRAVEL_SPAWN_FAN_HALF = π×70/180`（沿玩家 heading ±70°，前方扇形，**不刷身后**） |
 | 单次数量 | 1–3 架（`_pick_enemy_type` 加权抽取） |
@@ -106,7 +107,7 @@ Lv≥`LATE_GAME_LEVEL(10)` 强制最低 Token ≥3（禁刷杂鱼）；绝对兜
 | 机制 | 值 |
 |---|---|
 | 远距清理 | 距玩家 > `FAR_CLEANUP_DISTANCE=7000 px`，每 `FAR_CLEANUP_INTERVAL=4.0 s` 检查，移除并释放 Token；**Adds 豁免**（`skip_far_cleanup`） |
-| 实例上限 | `MAX_ENEMIES_DEFAULT=30` / `MAX_ENEMIES_HARD=40` / 动态下限 8 |
+| 实例上限 | `MAX_ENEMIES_DEFAULT=36` / `MAX_ENEMIES_HARD=48` / 动态下限 8（07-06 density-pass：原 30/40） |
 | 动态降载 | FPS 采样：avg < TARGET_FPS 降 cap、avg > TARGET_FPS+10 升 cap（+1，封顶 40） |
 
 ## 5. 等级 / XP / 升级（已核对核心）

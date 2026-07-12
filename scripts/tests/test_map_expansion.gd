@@ -53,9 +53,13 @@ func _check_parse() -> void:
 		"res://scripts/survivor/survivor_data.gd",
 		"res://scripts/survivor/zone_data.gd",
 		"res://scripts/survivor/map_boundary.gd",
+		"res://scripts/survivor/zone_mission.gd",
+		"res://scripts/survivor/adbs_manager.gd",
+		"res://scripts/survivor/dock_point.gd",
+		"res://scripts/survivor/tactical_map.gd",
 	]:
 		var s := load(p)
-		_ok(s != null, "load", p)
+		_ok(s != null and (s as GDScript).can_instantiate(), "load+compile", p)
 
 func _check_constants() -> void:
 	print("[const] 世界常量")

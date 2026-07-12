@@ -64,7 +64,7 @@ reconstruction_complete: false
 | `EGRESS_STALE_SEC` | 45 | 中队连续无交战达此时长才有退场资格 |
 | `EGRESS_FREE_OUTSET_PX` | 800 | 全员飞出边界线外此距离才释放（绝不在画面内消失） |
 | `EGRESS_MAX_CONCURRENT` | 1 | 同时处于退场状态的中队数上限（避免"集体大撤退"观感） |
-| `OPENING_GARRISON_SQUADS` | 2 | 开局 t≈0 直接以 ONSTATION 状态预置在锚点上的中队数 |
+| `OPENING_GARRISON_SQUADS` | 3 | 开局 t≈0 直接以 ONSTATION 状态预置在锚点上的中队数（原 2，2026-07-06 [60km-density-pass](60km-density-pass.md) 上调） |
 
 ### 2.2 退役 / 语义变更的旧常量
 

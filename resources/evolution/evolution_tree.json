@@ -1,7 +1,7 @@
 {
 	"schema_version": 1,
-	"_comment": "进化树切片版（spec aircraft-evolution-tree / ace-system；docs/planning/evolution-vertical-slice.md）。护栏1：树=数据文件，代码只读表。category 环：air-ew-attack-range（§3.5 相邻环）；tier 门槛见 tier_min_level（切片调低便于验证）。",
-	"tier_min_level": { "1": 1, "2": 4, "3": 8 },
+	"_comment": "进化树切片版（spec aircraft-evolution-tree / ace-system；docs/planning/evolution-vertical-slice.md）。护栏1：树=数据文件，代码只读表。category 环：air-ew-attack-range（§3.5 相邻环）；tier 门槛 2026-07-06 用户定稿：2 阶需 10 级（原切片值 4/8 调低仅为验证），3 阶 18 暂定随 playtest 调。",
+	"tier_min_level": { "1": 1, "2": 10, "3": 18 },
 	"categories": {
 		"air":    "EVOLUTION_CAT_AIR",
 		"ew":     "EVOLUTION_CAT_EW",

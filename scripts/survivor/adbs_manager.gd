@@ -28,8 +28,10 @@ const TUTORIAL_SPAWN_MARGIN_PX := 1500.0    ## 防越界夹紧余量
 const TUTORIAL_LATERAL_PX := 320.0          ## 左右交替偏置
 const TUTORIAL_COLUMN_BACK_PX := 550.0      ## 每后一档的距离
 const TUTORIAL_COUNT := 3                   ## 轰炸机数量
-## 教程轰炸机锚点（固定世界坐标，与玩家起始点解耦；朝南逃离，因此置于原点北侧）
-const TUTORIAL_BOMBER_ANCHOR := Vector2(0.0, 3000.0)
+## 教程轰炸机锚点：出生点正前方 TUTORIAL_LEAD_DIST_PX（spawn 后世界坐标固定不跟玩家走，
+## 玩家后退 = 真拉开距离）。从 PLAYER_START_OFFSET_PX 派生 —— 2026-07-06 修复：旧值写死
+## (0,3000) 是 30km 图时代的绝对坐标，60km 扩图后出生点挪到 (0,13900)，教程机变到 10.9km 外
+const TUTORIAL_BOMBER_ANCHOR := MapBoundary.PLAYER_START_OFFSET_PX + Vector2(0.0, -TUTORIAL_LEAD_DIST_PX)
 
 ## ── 城区直升机事件 ──
 const CITY_HELI_COUNT := 3
