@@ -17,9 +17,9 @@ const BG_COLOR := Color(0.02, 0.03, 0.04, 0.92)
 const GRID_COLOR := Color(0.15, 0.35, 0.35, 0.35)
 const FRAME_COLOR := Color(0.55, 0.85, 0.85, 0.8)
 const TEXT_COLOR := Color(0.7, 0.95, 0.95, 0.95)
-## 阵营色走 FactionPalette（spec global-awareness-roe §2.7：玩家=亮青 / 第三方=海绿）
-const PLAYER_COLOR := Color(0.243, 0.878, 0.784, 1.0)   ## = GameConstants.COL_FRIEND_PLAYER
-const ALLY_COLOR := Color(0.247, 0.663, 0.557, 1.0)     ## = GameConstants.COL_FRIEND_ALLY
+## 阵营色走 FactionPalette（spec global-awareness-roe §2.7 订正：蓝=玩家直属 / 绿=中立·第三方）
+const PLAYER_COLOR := Color(0.35, 0.65, 1.0, 1.0)   ## 玩家小队 蓝（= COL_FRIEND_PLAYER 系）
+const ALLY_COLOR := Color(0.35, 0.82, 0.42, 1.0)    ## 第三方/中立 绿（= COL_FRIEND_ALLY）
 const NAV_MARKER_COLOR := Color(1.0, 0.85, 0.3, 1.0)  ## 巡航航点标记（琥珀色十字+脉冲环）
 
 # 战区状态颜色

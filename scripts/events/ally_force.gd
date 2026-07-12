@@ -22,7 +22,7 @@ static func convert_aircraft(ac: Aircraft) -> void:
 	ac.set_meta("skip_far_cleanup", true)
 	if ac.params:
 		ac.params.icon_color = GameConstants.COL_FRIEND_ALLY
-		ac.params.wing_color = Color(0.20, 0.50, 0.42)
+		ac.params.wing_color = Color(0.22, 0.50, 0.28)
 
 
 ## 地面版（SAM / AA 等）：翻阵营 + 打 meta（本体绘制/标签色经 FactionPalette 按 team 三分支）
