@@ -32,6 +32,7 @@ func _initialize() -> void:
 	_check_zone_land()
 	_check_boss_anchors()
 	_check_ingress_helpers()
+	_check_reward_dedup()
 	if fails == 0:
 		print("[PASS] test_map_expansion 全部通过")
 	else:
@@ -156,3 +157,20 @@ func _check_ingress_helpers() -> void:
 					clear_ok = false
 	_ok(clear_ok, "_anchor_clears_zones 与几何一致")
 	sp.free()
+
+## 战区奖励去重（spec zone-reward-docking）：同时开放的战区不给同样的奖励。
+## 开局恒有 2 个活跃战区（A/B），5 种奖励 > 2 → 去重后 id 必不同、必不同时航母。
+func _check_reward_dedup() -> void:
+	print("[reward] 同批战区奖励去重")
+	var same := 0
+	var carrier_clash := 0
+	for i in range(200):
+		var zd = _ZD.new()
+		var ra := String((zd.get_reward(&"A") as Dictionary).get("id", ""))
+		var rb := String((zd.get_reward(&"B") as Dictionary).get("id", ""))
+		if ra != "" and ra == rb:
+			same += 1
+		if ra == "reward_carrier" and rb == "reward_carrier":
+			carrier_clash += 1
+	_ok(same == 0, "开局 A/B 奖励 id 200 局无重复", "clash=%d" % same)
+	_ok(carrier_clash == 0, "开局 A/B 从不同时航母", "clash=%d" % carrier_clash)

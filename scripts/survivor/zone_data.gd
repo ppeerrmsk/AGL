@@ -156,10 +156,9 @@ var boss_unlocked: bool = false
 var phase_ended: bool = false
 ## E 战区是否已经尝试过解锁（避免 A+B 清完反复 roll）
 var _e_unlock_rolled: bool = false
-var _rewards: Dictionary = {}                ## id → upgrade dict（该战区攻克后发放的技能）
-## 本局已分配过的奖励技能 id（含已攻克 + 当前 AVAILABLE 的所有战区）。
-## 用途：保证一局游戏中每个奖励技能最多出现在一个战区，不重复
-var _used_reward_ids: Dictionary = {}        ## skill_id → true
+var _rewards: Dictionary = {}                ## id → reward dict（三类实体奖励，spec zone-reward-docking §2.3）
+## （旧 _used_reward_ids"整局去重"已弃用 → 改 _active_reward_ids 同时活跃战区间去重：
+##   同一奖励之后可在别的战区再出现，只是不同时挂两份，spec zone-reward-docking 奖励 roll 重制）
 var _difficulties: Dictionary = {}            ## id → int (DIFFICULTY_MIN..DIFFICULTY_MAX)
 var _mission_types: Dictionary = {}            ## id → String（运行时 mission_type，覆盖 ZONES 默认）
 ## 标记哪些战区是"新开放"的（最近一轮 refresh 打开的），便于 UI 再次提示玩家
@@ -441,19 +440,60 @@ static func category_hint_key(category: StringName) -> String:
 		&"MISSILE": return "ZONE_REWARD_HINT_MISSILE"
 		_: return "ZONE_REWARD_HINT_SURVIVAL"
 
+## 收集当前活跃战区（AVAILABLE/SELECTED，排除 exclude_id）已占用的奖励 id 集合。
+## 用于同时开放的战区之间奖励去重（spec zone-reward-docking：不给两个战区同样的奖励，
+## 尤其航母）。CLEARED 战区的 reward 已在 mark_cleared 时 erase → 不算占用。
+func _active_reward_ids(exclude_id: StringName) -> Dictionary:
+	var used: Dictionary = {}
+	for z in ZONES:
+		var zid: StringName = z["id"]
+		if zid == exclude_id:
+			continue
+		var st := get_state(zid)
+		if (st == State.AVAILABLE or st == State.SELECTED) and _rewards.has(zid):
+			var rid := String((_rewards[zid] as Dictionary).get("id", ""))
+			if rid != "":
+				used[rid] = true
+	return used
+
 ## 给战区 roll 三类实体奖励（spec zone-reward-docking §2.3；如已分配则保留）
-## 前置：应先 _roll_difficulty（权重按星级；本函数幂等兜底再 roll 一次）
+## 前置：应先 _roll_difficulty（权重按星级）。同时活跃的战区之间去重（_active_reward_ids）：
+## 航母/僚机各最多一个、武器按子类避开；种类被占满（≥5 活跃战区各不同）才回退允许重复。
 func _assign_reward(id: StringName) -> void:
 	if _rewards.has(id):
 		return
 	_roll_difficulty(id)
 	var diff: int = get_difficulty(id)
+	var used := _active_reward_ids(id)
+
+	# kind 权重 + 去重门控（航母还受全局登舰余量门）
 	var kind_w: Dictionary = (REWARD_KIND_WEIGHTS.get(diff, REWARD_KIND_WEIGHTS[1]) as Dictionary).duplicate()
-	if carrier_uses_left <= 0:
+	if carrier_uses_left <= 0 or used.has("reward_carrier"):
 		kind_w["carrier"] = 0.0
+	if used.has("reward_wingman"):
+		kind_w["wingman"] = 0.0
+	# 武器子类可用性：逐个避开已占子类；全部被占则整个 weapon 类不可选
+	var weap_w: Dictionary = (REWARD_WEAPON_WEIGHTS.get(diff, REWARD_WEAPON_WEIGHTS[1]) as Dictionary).duplicate()
+	var weap_any := false
+	for w0 in weap_w.keys():
+		if used.has("reward_weapon_%s" % String(w0)):
+			weap_w[w0] = 0.0
+		elif float(weap_w[w0]) > 0.0:
+			weap_any = true
+	if not weap_any:
+		kind_w["weapon"] = 0.0
+
 	var kind := _weighted_pick_str(kind_w)
+	# 兜底：所有类都被占（活跃战区 ≥5 且各不同）→ 允许重复，回退原始权重（仍守航母余量门）
 	if kind == "":
-		kind = "weapon"
+		var fb: Dictionary = (REWARD_KIND_WEIGHTS.get(diff, REWARD_KIND_WEIGHTS[1]) as Dictionary).duplicate()
+		if carrier_uses_left <= 0:
+			fb["carrier"] = 0.0
+		kind = _weighted_pick_str(fb)
+		if kind == "":
+			kind = "weapon"
+		weap_w = (REWARD_WEAPON_WEIGHTS.get(diff, REWARD_WEAPON_WEIGHTS[1]) as Dictionary).duplicate()
+
 	var reward: Dictionary = {"kind": kind, "quality": diff}
 	match kind:
 		"carrier":
@@ -463,7 +503,7 @@ func _assign_reward(id: StringName) -> void:
 			reward["id"] = "reward_wingman"
 			reward["name"] = "REWARD_WINGMAN_NAME"
 		_:
-			var w := _weighted_pick_str(REWARD_WEAPON_WEIGHTS.get(diff, REWARD_WEAPON_WEIGHTS[1]))
+			var w := _weighted_pick_str(weap_w)
 			if w == "":
 				w = "tail_mine"
 			reward["id"] = "reward_weapon_%s" % w
