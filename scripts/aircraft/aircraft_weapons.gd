@@ -269,6 +269,18 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 	# （同 auto_gun_scan 的规避静默语义，见 2026-06-15 规避盲射根治）
 	if ac.evasion_mode:
 		ac._gun_burst_rounds_left = 0
+	# 目标当帧已毁但尚未被 clear_combat_target 摘除（AI 分频检测有 1~3 帧滞后）：
+	# 掐断残梭 + 停火。梭承诺是给"火控窗口一闪只漏单弹"用的，目标一旦被击毁就没有
+	# 承诺对象——否则剩余弹会沿被 _apply_tactical_plan 重置回机头的 _gun_lead_heading
+	# 喷入空域（急转中机头乱扫），= 用户反馈"视野里没有敌机却发射机炮"
+	# （log 204752：Verge 10 发梭中 5 发击杀 UAV-09 后剩 ~5 发对空放枪）。
+	# 正常摘除走 clear_combat_target()（那里同样掐残梭）；这里只兜检测滞后窗口。
+	# 只在 combat_target 非空但已失效/被毁时触发——combat_target==null 不动，
+	# 以免误伤 test 桩里"无目标直接 is_firing"的节奏用例与人类玩家区域扫射。
+	if ac.combat_target != null \
+			and (not is_instance_valid(ac.combat_target) or ac.combat_target.is_destroyed):
+		ac.is_firing = false
+		ac._gun_burst_rounds_left = 0
 	if not ac.params or not ac.params.gun:
 		return
 	if ac.ammo <= 0:

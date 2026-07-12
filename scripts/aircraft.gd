@@ -1516,6 +1516,7 @@ func clear_combat_target() -> void:
 	combat_target = null
 	_committed_turn_sign = 0.0
 	is_firing = false
+	_gun_burst_rounds_left = 0  # 掐断已承诺的机炮梭：目标没了就没有承诺对象，否则残弹对空放枪
 	_strafe_state = 0
 	_overshoot_timer = 0.0
 	_gun_pass_committed = false  # 清目标时解除机炮提交锁定

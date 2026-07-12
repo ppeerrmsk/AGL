@@ -5,7 +5,7 @@ extends RefCounted
 ##   1. 梭结构：burst_count 发按 intra 密集出弹，然后梭间 CD（fire_rate 越高两者越短）
 ##   2. 平均射速守恒：长期出弹速率 = fire_rate（DPS/弹药消耗与旧匀速点射一致）
 ##   3. 梭承诺：火控窗口只开一帧也打完整梭（根治"一闪只漏一发孤弹"）
-##   4. 硬中止：evasion / 弹尽立即掐断残梭
+##   4. 硬中止：evasion / 弹尽 / 目标被毁 立即掐断残梭
 ## 运行：godot --headless --path . -- --bench=gun_burst（或 --bench=all）
 
 var _pass := 0
@@ -89,6 +89,25 @@ func run() -> void:
 	_check("弹尽掐断（仅 4 发弹药）", stub5.shot_times.size() == 4,
 			"出弹 %d 发" % stub5.shot_times.size())
 	_free(ac5)
+
+	# ── 6. 目标被毁掐断残梭（回归：Verge 击杀 UAV-09 后 ~5 发对空放枪，log 204752）──
+	# 梭承诺打满 10 发，但目标 5 发内被击毁 → 剩余弹绝不能沿机头喷入空域。
+	var ac6 := _make_shooter(600.0, 10)
+	var stub6: BulletStub = ac6.bullet_manager
+	var tgt6 := CombatUnit.new()   # 敌方目标桩：只需 is_destroyed / global_position
+	tgt6.team = 0
+	tgt6.global_position = Vector2(0, -300)
+	ac6.combat_target = tgt6
+	ac6.is_firing = true
+	_tick(ac6, DT * 6)             # ~3 发出膛，梭仍承诺中
+	var before6 := stub6.shot_times.size()
+	tgt6.is_destroyed = true       # 目标被这一梭打死
+	ac6.is_firing = false          # _apply_tactical_plan 下一帧会这么写（aim_ok=false）
+	_tick(ac6, 1.0)
+	_check("目标被毁掐断残梭", stub6.shot_times.size() == before6 and before6 < 10,
+			"击毁前 %d 发，击毁后无增发（旧实现会补喷 ~%d 发对空）" % [before6, 10 - before6])
+	tgt6.free()
+	_free(ac6)
 
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")

@@ -102,6 +102,34 @@ LOD 路径里每一步（`_update_combat / _update_bank / _update_visuals / queu
 
 ---
 
+## 2026-07-11 机炮梭承诺在目标被击毁后继续对空放枪
+
+**症状（用户）**：僚机 Verge 视野里没有敌机，却发射了三四发机炮（log 204752）。
+
+**根因**：机炮梭射是"承诺制"——`_gun_burst_rounds_left > 0` 时 `update_gun` 无视
+`is_firing` 打完整梭（设计目的：火控窗口一闪不漏单弹，spec gun-burst-fire）。F-14 机炮
+`burst_count = 10`。Verge 一梭 10 发中 5 发就击杀了 UAV-09（tp_d=261m 正前方，t=95.6），
+剩余 ~5 发仍在承诺中。`update_gun` 的硬中止只覆盖 JAM / 装填 / evasion / 弹尽，**漏了
+"目标被毁"**。目标死后 `_apply_tactical_plan` 把 `_gun_lead_heading` 复位回机头、
+`is_firing=false`，但残梭继续沿机头方向出弹——此时 Verge 正 10G 急转，机头乱扫 →
+残弹喷入空域（= 视野无敌机却放枪）。auto_gun_scan 的 engagement-discipline 拦截、
+planner 火控门都正常（两梭都是对真实正前方敌机的合法交战并击杀），漏的只是击杀后的残梭。
+
+**修复方式**（加守卫，两处兜全路径）：
+1. `aircraft.gd` `clear_combat_target()` 加 `_gun_burst_rounds_left = 0`——目标被摘除
+   （击毁 / 失锁 / 隐身 / disengage）的**统一 choke point**，覆盖 combat_tracking:74/79、
+   ai_controller:974（planner 僚机 TARGET_REL 走这条）、missile_evasion、squad_coordination。
+2. `aircraft_weapons.gd` `update_gun` 加一段：`combat_target != null 且 (失效 or is_destroyed)`
+   → 掐残梭 + 停火。兜 AI 分频检测击毁有 1~3 帧滞后、clear 尚未调用的窗口。刻意只在
+   **非空但已毁**时触发（combat_target==null 不动），避免误伤 test 桩"无目标直接 is_firing"
+   的节奏用例与人类玩家（use_tactical_preference）的区域扫射。
+
+**回归测试要点**：`test_gun_burst.gd` 新增第 6 例"目标被毁掐断残梭"（击毁前 3 发、击毁后 0 增发）。
+改附近代码验证：① 目标被击毁后残梭必须停 ② 但目标仍活着、只是 aim 抖出锥（火控窗口闪烁）时，
+梭承诺必须照常打满（第 3 例"窗口开 1 帧仍打完整梭"不能回归）。`--bench=gun_burst` 全绿（10/10）。
+
+---
+
 ## 2026-06-25 命令铁律豁免 leash/超距脱离：僚机奉命打远目标不再平飞 thrash
 
 **症状（用户）**：僚机 Brute 在平飞，没有追随长机。
