@@ -3,7 +3,7 @@ id: command-wheel
 kind: system
 status: in-progress
 schema_version: 1
-spec_version: 13
+spec_version: 16
 owner: 设计/用户
 depends_on: [rts-command, squad-cohesion, weapon-employment-doctrine]
 reconstruction_complete: false
@@ -54,8 +54,8 @@ reconstruction_complete: false
 | 上 | **紧急集合** | 一次性广播 | 全队立刻中断一切任务（含攻击命令），飞往该点集合（§3.3） |
 | 下 | **防守此区** | 队级持续任务 | 以该点为圆心守 3 km 警戒圈，圈内盘旋、进圈就打（§3.4） |
 | 左 | **自动交战 开/关** | 状态开关 | 镜像 HUD 战术栏同一状态（§2.5） |
-| 右 | **高度偏好 三态循环** | 状态开关 | **默认 → 爬升优先 → 低空优先 → 默认** 循环。合并面板 TACTIC_CLIMB_PRIORITY / TACTIC_LOW_ALT 两个 toggle 为一槽（三态天然互斥）。备选交互：若循环手感差，改用二级分叉——一环松开=默认、深拉左=爬升、深拉右=低空（机制见 §2.1） |
-| 右下 | **自动发射 开/关**（候选） | 状态开关 | 镜像 TACTIC_AUTOFIRE（F 键）。**前提待确认：其作用域须为队级**；若实为自机开关则违反操作语法（轮盘=全队），留在面板/快捷键，本槽改回预留 |
+| 右 | **高度偏好 两态循环** | 状态开关 | **爬升 ↔ 低空** 循环（合并面板 3/4 两个 toggle 为一槽）。"默认"第三档评估后搁置（2026-07-12）：需给 AltitudePreference 加 NONE 且改动面横跨玩家高度自治全路径，收益存疑；playtest 想要再开 |
+| 右下 | **自动发射 开/关** | 状态开关 | **队级广播（2026-07-12 定稿）**：轮盘切换写入全队成员 `missile_auto_fire`（轮盘=全队语法）；F 键保持只切自机——两入口作用域刻意不同 |
 | 左下 | **撤离此区** | 一次性广播 | 全队立刻脱战，以按下点为圆心**径向散出**，直至距该点 ≥ 3 km（§3.7） |
 | 左上 | **取消**（红色） | 轮盘取消 | 取消本次轮盘交互（如同没按过），**不**影响进行中的战斗/移动状态；两轮盘统一位置与配色 |
 | 右上 | 预留 | — | 候选：侦察（待地图扩展/迷雾）、拖刀诱饵 |
@@ -119,6 +119,7 @@ reconstruction_complete: false
 | `evac_duration_s` | 20 s（待调参） | 禁入区持续时间：期间 AI 自主决策不得重新进入撤离圈；到时自动解除 |
 | 圈外成员 | 逃逸机动**不生效**（不打断其当前行为） | 用户定稿；但禁入约束同样约束它们（期间不得进圈） |
 | 逃逸执行 | **直接等同规避模式**（用户定稿）：圈内成员进入规避态全力加速逃出——速度加力/flare 优先级语义与规避完全一致（同一 accessor 注入点），仅方向由径向出圈目标给定（不做威胁向机动） | 出圈即解除规避态 |
+| 实装注记（2026-07-12） | 速度经 `command_sprint` 标志走同 accessor 通道注入 ×1.4（`COMMAND_SPRINT_MULT`，与规避加力同幅）；**未真正置 evasion_mode**——其威胁向机动几何会抢径向出圈方向；flare 反制由既有"被锁自动撒弹"逻辑覆盖 | 紧急集合途中同用此标志（到达 arrival_radius 逐机解除） |
 | 逃逸途中交战 | 圈内逃逸者抑制自动交战、不主动接敌 | 求生规避仍更高（有界 + flare 优先）。圈外成员照常交战，但目标选择过滤圈内敌人 |
 | 禁入约束对象 | **仅 AI 自主决策**（自动交战选目标 / 追击路径 / 编队巡航） | 玩家显式输入不受限：新单点/点名/广播按最新输入覆盖规则处理（§3.2） |
 | UI | 禁入圈线框 + 剩余秒数，仅激活期间绘制 | 性能守则：激活期间才 redraw，平时零开销 |
@@ -222,6 +223,7 @@ on regroup(point):
 | SPREAD 分火 | **各自接敌**：按下目标为锚点，`spread_cluster_radius_px` 内敌方构成目标池；各机在池内按可命中性评分**自主选择、自主切换**（复用既有自由僚机逻辑 + 队友超杀让路，**无中心分配器**）；池清空 → 命令结束回归 |
 
 - FOCUS 包围轴分离只约束**接近方位**，不伪造位置——各机仍靠真实 BFM 转弯绕到自己的扇区（物理优雅）。
+- **实装注记（2026-07-12）**：包围 = "进入门点"实现——距目标 >1.5 km 时追击点改到自己扇区的 1.3 km 门点，进入收敛距后回归正常 BFM；SPREAD 选目标 v1 用"少人打优先 + 距离"轻量代理（完整 engageability 评分器耦合 AIController，playtest 观感不足再深接）。
 - 与 TIGHT 阵型正交兼容：FOCUS+TIGHT = 整队单轴齐射饱和；SPREAD+TIGHT = 齐射窗口内各机朝各自所选目标释放，一波清一片。
 - 典型搭配（自由组合，互不锁定）：突击 + 分火 = 整队冲锋各咬面前一个；保持距离 + 集火（散开）= 多角度游击围猎；保持距离 + 集火 + 紧密 = 齐射饱和硬目标。
 
@@ -307,24 +309,28 @@ exclusion 存续期间（t_left 递减）:
 - [ ] 手感验证（真人 playtest：单击/双击/右键回归 + 两轮盘呼出/高亮/取消）
 
 ### 阶段 2 — 开关镜像 + 广播命令执行端
-- [x] 三开关（自动交战/高度/自动发射）轮盘真切换 + HUD 战术栏同步（`_update_tactical_buttons`）；自动发射暂沿用现状自机作用域，升级队级广播待定
-- [ ] 高度偏好"默认"三态（需 `AltitudePreference` 加 NONE 档 + AI 语义，现为爬升↔低空两态循环）
-- [x] `command_regroup` v1（全队广播清除 + 飞向集合点）
-- [x] `command_evacuate` v1（圈内径向散出 10% 余量 / 圈外不生效）
-- [x] `command_guard` v1（TRANSIT：全队前往圆心）
-- [x] `command_attack_all`（攻击轮盘广播集火，走 commanded_target 铁律通道）+ `fire_allocation` / `formation_tight` 队级状态字段（落 SquadCommandController，轮盘显示真实状态）
-- [ ] 紧急集合/撤离途中加速（accessor 注入）+ 交战锁定 + 到达/出圈恢复（并入阶段 3）
+- [x] 三开关（自动交战/高度/自动发射）轮盘真切换 + HUD 战术栏同步（`_update_tactical_buttons`）
+- [x] 自动发射升级**队级广播**（2026-07-12：轮盘写全队 missile_auto_fire；F 键保持自机）
+- [x] ~~高度偏好"默认"三态~~ **评估后搁置（2026-07-12）**：需 AltitudePreference 加 NONE 档，改动面横跨玩家高度自治全路径（bfm_intent 6 处/physics/HUD 二分逻辑），收益存疑且非用户诉求；维持爬升↔低空两态，playtest 想要再开
+- [x] `command_regroup`（全队广播清除 + 飞向集合点 + **全力加速** ×1.4 accessor 注入 + 到达 arrival_radius 逐机解除；途中 auto-engage 天然不锁敌）
+- [x] `command_evacuate`（圈内径向散出 + **全力加速**出圈逐机解除 / 圈外不生效 + **20s 限时禁入区**：`_find_target` 决策过滤 + 追入圈=拴绳放弃 + 暗红圈框倒计时标记 EvacZoneMarker + 到时/新广播命令/右键解除）
+- [x] `command_guard`（TRANSIT 普通速度前往，防守无加速条款）+ `_tick_guard` 拦截
+- [x] `command_attack_all`（攻击轮盘广播集火，走 commanded_target 铁律通道）+ `fire_allocation` / `formation_tight` 队级状态字段
+- [x] 回归：`--bench=wheel_orders` 12 断言（冲刺置位/accessor 抬升/到达出圈解除/圈外不生效/禁入区过滤/到时解除/广播终止/防守不冲刺）
 - [ ] 最新输入覆盖规则显式验证（现行 command_* 语义天然覆盖，playtest 确认）
 
 ### 阶段 3 — 防守此区
 - [x] GUARD standing order（`_tick_guard`：TRANSIT 途中不接敌 / INTERCEPT 以防守点为心搜圈内 / RETURN 出圈×1.15 放弃回防 / ORBIT 拴绳回圆心自然盘旋；长机驱动、僚机编队跟打；不受自动交战开关约束；任何新命令即覆盖清除）
 - [ ] 盘旋观感调优 + 命令目标死后回防守圈（现回编队）playtest 验证
 
-### 阶段 4 — 交战姿态（依赖武器准则定稿；可先用固定距离带过渡）
-- [ ] `EngagePosture` 字段进 `commanded_target` 通道
-- [ ] STANDOFF 循环（复用 AF-03 打带跑）+ 纯机炮降级 + DRAG 防碰瓷
-- [ ] 攻击轮盘广播端：全队清各自目标 + 统一姿态（双击冲锋保持自机语义不动）
-- [ ] 火力分配：`fire_allocation` 状态 + 左槽切换 + FOCUS 包围轴分离 + SPREAD 目标池内各自接敌（复用 engageability/超杀让路，无中心分配器）
+### 阶段 4 — 交战姿态（2026-07-12 主体落地）
+- [x] 姿态字段进铁律通道：`Aircraft.attack_posture` 随 `commanded_target` 写入/清除（SquadCommandController 各命令 + `_enforce_commanded_target` 维护）+ Situation **门控透传**（无命令恒 AUTO，防残留污染自主交战）
+- [x] 面目标 STANDOFF/ASSAULT：`ground_strafe` 姿态强制分流（spec surface-attack-pass；其病例 2 死锁已修——STANDOFF inner 改固定近距 2.2km + beam break）
+- [x] 空中目标 STANDOFF：路由 joust 打带跑（`_posture_standoff_air`，BFM/simple 双路径钩子）——RUN_IN 进包络 → BREAK 脱离折返 = 一击脱离循环；BREAK 超时转身面对 ≈ DRAG 防碰瓷；纯机炮机由 joust 包络 fallback 自动降级
+- [x] 攻击轮盘广播端带姿态：standoff/assault 槽 → `command_attack_all(target, posture)`（双击冲锋保持自机语义不动）
+- [x] 回归：test_surface_pass 新增 D 段（姿态门控 / 强制 STANDOFF 守距不随竞选摇摆 / 强制 ASSAULT 导弹机也俯冲）→ surface_pass 20/20；--bench=all 其余 17 项全绿
+- [x] 火力分配行为端（2026-07-12）：**FOCUS 包围轴分离**——发令时按"目标→小队质心"基准给每机分配绝对进入方位（0/±45/±90/±135/180 序列，相邻 ≥45°；TIGHT 阵型/单机豁免），`TacticalPlanner._apply_surround_axis` 远于 1.5 km 时把追击点改到自己扇区的 1.3 km 进入门点、近距解除收敛（GROUND_STRAFE/LINE_UP 有几何承诺不叠加）；**SPREAD 目标池各自接敌**——锚点 2 km 池、粘性防乒乓（×1.2 滞回）、"少人打优先"让路、单点点名退出分火管理（铁律保护）、池随锚点漂移、池清空命令结束。`--bench=fire_alloc` 15/15，全量回归门 19 项 PASS
+- [ ] 空中 STANDOFF / 集火包围 / 分火 生存模式 playtest（观感验收）
 
 ### 阶段 5 — 收尾
 - [ ] i18n 三语 + §7 锚点 + reference 索引同步 + §8 变更记录
@@ -337,8 +343,12 @@ exclusion 存续期间（t_left 递减）:
 | 参数资源 | `scripts/rts/command_wheel_params.gd` + `resources/command_wheel.tres` |
 | 输入接线（按下/松开仲裁 + 单击回放 + stub） | `scripts/survivor/survivor_mode.gd`（`_on_left_press` / `_on_left_release` / `_execute_left_click` / `_on_wheel_command`） |
 | 执行端（阶段 2 已接） | `scripts/rts/squad_command_controller.gd`（`command_regroup` / `command_evacuate` / `command_guard` / `command_attack_all` + `fire_allocation` / `formation_tight` / `wheel_params`） |
-| 姿态/防守/撤离 AI（阶段 3-4） | AIController 战术层（计划） |
-| 文案 | `i18n/translations.csv`（WHEEL_* 19 键三语） |
+| 姿态路由（空中 joust） | `scripts/ai_controller.gd`（`_posture_standoff_air` + 双钩子；铁律清除点重置姿态/包围） |
+| 姿态/包围透传 + 消费 | `scripts/ai/tactical/situation.gd`（门控读取）/ `tactical_planner.gd`（`_apply_surround_axis`）/ `bfm_intent.gd`（ground_strafe 姿态分流，归 surface-attack-pass） |
+| 加速注入 | `scripts/aircraft/aircraft_physics.gd`（`COMMAND_SPRINT_MULT` × effective_max/cruise）+ `Aircraft.command_sprint` |
+| 禁入区标记 | `scripts/rts/squad_command_controller.gd` 内部类 `EvacZoneMarker` |
+| 无头回归 | `scripts/tests/test_surface_pass.gd`（D 段姿态）/ `test_fire_allocation.gd` / `test_wheel_orders.gd`（bench_runner 注册 fire_alloc / wheel_orders） |
+| 文案 | `i18n/translations.csv`（WHEEL_* 21 键三语） |
 | reference 索引行 | script-index.md（rts/ 两行）/ code-index.md（主场景/操控 两行） |
 
 ## 8. 变更记录
@@ -358,3 +368,6 @@ exclusion 存续期间（t_left 递减）:
 | 2026-07-05 | 11 | playtest 三轮反馈：①范围圈收窄——**只给空间语义命令**（撤离/防守/集合/自动交战），火力分配等模式开关撤销画圈（无空间意义）；②UI 优先级——轮盘 layer=100 居所有战场 UI 之上 + 激活期间**全屏压暗 35%**，根治边界提示等横幅与轮盘糊在一起（未来新增横幅自动被压暗，免逐个登记） |
 | 2026-07-05 | 12 | 指挥对象高亮（用户需求）：攻击轮盘期间按下目标套高亮层（脉冲柔光圈+主环+4 段旋转括环，黄色与槽位高亮同语言），屏幕空间覆盖实现、跟随目标与镜头、阵亡即消失；§3.9 登记 |
 | 2026-07-05 | 13 | ①撤离圈 5 km → **3 km**（1500px，用户调参：5km 过大，与防守警戒圈统一）；②防守此区语义用户订正定稿（只打圈内、出圈停追、不散阵）并**实装拦截逻辑**：`_tick_guard` standing order（铁律之下自动交战之上、不受自动交战开关约束）——TRANSIT 途中不接敌 / INTERCEPT 以防守点为心 / RETURN 出圈×1.15 放弃 / ORBIT 拴绳自然盘旋；任何新玩家命令即覆盖清除（最新输入覆盖） |
+| 2026-07-12 | 14 | **阶段 4 姿态接线落地——保持距离与突击自此行为分化**：①`Aircraft.attack_posture` 随 commanded_target 走（轮盘广播写入；move/cancel/regroup/evacuate/单点点名/目标阵亡各清除点归 AUTO），Situation 门控透传（无命令不读字段，防残留）；②面目标姿态强制走 surface-attack-pass `ground_strafe` 分流（该线已修病例 2 死锁：STANDOFF inner 固定近距 2.2km + 侧向 beam break + 预减速）；③空中目标 STANDOFF 路由 joust 打带跑（`_posture_standoff_air`，BFM/simple 双钩子，仅空中点名目标生效）；④test_surface_pass 新增 D 段（门控×2 + 强制 STANDOFF 守距 + 强制 ASSAULT 俯冲），surface_pass 20/20、回归门其余全绿。备注：强制姿态暂不强制武器锁（竞选在对应包络内自然收敛，D 段实测 STANDOFF 全程 MISSILE），偏离 surface spec §2.1 原案已在该 spec 注记 |
+| 2026-07-12 | 15 | **阶段 4 收官——火力分配行为端**：①FOCUS 包围轴分离（质心基准 + 0/±45/±90/±135/180 偏移序列，TIGHT/单机豁免；planner 后置门点：>1.5km 飞向自己扇区 1.3km 进入门点、近距收敛、GROUND_STRAFE/LINE_UP 豁免；生命周期同 attack_posture）；②SPREAD 分火（锚点 2km 池各自接敌：粘性 ×1.2 滞回 / 少人打优先让路 / 单点点名退出管理保铁律 / 池随锚点漂移 / 池空命令结束）；③新增 `--bench=fire_alloc` 15 断言并入回归门；**全量回归门 19 项 PASS 0 失败**。实装注记见 §3.6 |
+| 2026-07-12 | 16 | **收尾批：加速/禁入区/开关定稿**——①紧急集合/撤离**全力加速**：`Aircraft.command_sprint` 经 `COMMAND_SPRINT_MULT=1.4` 注入 effective_max/cruise accessor（机动性 buff 规范通道，AI 战术层可感知），集合=到达 600px 逐机解除 / 撤离=出圈逐机解除 / 任何新命令解除；撤离未真正置 evasion_mode（几何冲突，注记 §2.7.1）；②**撤离 20s 限时禁入区**：`_find_target` 决策过滤 + 自动锁目标遁入圈=拴绳放弃 + 暗红圈框倒计时标记（EvacZoneMarker 4Hz 自毁）+ 到时/新广播命令/右键解除；③**自动发射定稿队级广播**（F 键保持自机，双入口作用域刻意不同）；④高度偏好"默认"三态**评估后搁置**（改动面横跨玩家高度自治全路径，非用户诉求）；⑤防守 TRANSIT 明确不加速；新增 `--bench=wheel_orders` 12 断言，**全量回归门 20 项 PASS 0 失败** |
