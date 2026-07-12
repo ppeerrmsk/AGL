@@ -105,6 +105,12 @@ var _tutorial: SurvivorTutorial  ## 首次进入生存模式的浮现式教程
 # ── 大地图边界 / 战术地图（P1）──
 var _map_boundary: MapBoundary
 var _dock_points: Array[DockPoint] = []   ## 停靠点（固定机场 + 航母甲板，spec zone-reward-docking）
+
+## ── ALLY 第三方事件调度（spec global-awareness-roe §2.6）──
+var _awacs_spawn_timer: float = 120.0     ## _ready 里 roll 90~150
+var _awacs_was_active: bool = false
+var _escort_timer: float = 150.0          ## _ready 里 roll 120~180（首次 ≥120s）
+var _escorts_launched: int = 0            ## 每局最多 2 次
 var _friendly_carrier: NavalUnit = null   ## 在场的友军航母（奖励召唤，同时最多一艘）
 var _boundary_ui: BoundaryUI
 var _tactical_map: TacticalMap
@@ -401,6 +407,11 @@ func _ready() -> void:
 
 		# ── 停靠点：固定机场 3 处（spec zone-reward-docking §2.2）──
 		_spawn_airfield_docks()
+		# ── ALLY 机场防空常驻部署（spec global-awareness-roe §2.6b）──
+		_spawn_airfield_garrison()
+		# ALLY 事件首触发窗口
+		_awacs_spawn_timer = randf_range(90.0, 150.0)
+		_escort_timer = randf_range(120.0, 180.0)
 
 		_zone_arrow = ZoneArrow.new()
 		add_child(_zone_arrow)
@@ -1048,7 +1059,7 @@ func _find_topmost_tu160() -> Node2D:
 	var best: Aircraft = null
 	var best_y := INF
 	for child in get_children():
-		if not (child is Aircraft) or child.is_destroyed or child.team == 0:
+		if not (child is Aircraft) or child.is_destroyed or child.team != CombatUnit.TEAM_HOSTILE:
 			continue
 		if not child.has_meta("silhouette") or child.get_meta("silhouette") != "bomber":
 			continue
@@ -1189,7 +1200,7 @@ func _toggle_wingman_formation_debug() -> void:
 		if not child is Aircraft:
 			continue
 		var ac: Aircraft = child
-		if ac == player_aircraft or ac.team != 0 or ac.is_destroyed:
+		if ac == player_aircraft or not ac.is_player_squad() or ac.is_destroyed:
 			continue
 		ac.formation_debug = _wingman_formation_debug
 		ac._dbg_log_timer = 0.0  # 让下一帧立刻打一行
@@ -1217,7 +1228,7 @@ func _dump_wingman_formation_state() -> void:
 		if not child is Aircraft:
 			continue
 		var ac: Aircraft = child
-		if ac == player_aircraft or ac.team != 0 or ac.is_destroyed:
+		if ac == player_aircraft or not ac.is_player_squad() or ac.is_destroyed:
 			continue
 		var slot_dist_str := "?"
 		if ac._dbg_slot_pos != Vector2.INF:
@@ -1520,7 +1531,7 @@ func _find_enemy_near(world_pos: Vector2) -> CombatUnit:
 	var ship_in_range: NavalUnit = null
 	var ship_dist_sq := INF
 	for child in get_children():
-		if child is CombatUnit and child.team != 0 and not child.is_destroyed:
+		if child is CombatUnit and child.team == CombatUnit.TEAM_HOSTILE and not child.is_destroyed:
 			if child is NavalUnit:
 				var dh := _distance_to_ship_hull(child, world_pos)
 				if dh <= 0.0:
@@ -1648,6 +1659,8 @@ func _physics_process(delta: float) -> void:
 	# Boss Debug 模式跳过：不刷杂兵 / 不分配猎手 / 不重写敌机航点（仅 boss 在场）
 	if not _boss_debug_mode:
 		_spawner.update(delta)
+		# ALLY 第三方事件调度（AWACS 支援 / 护送任务，spec global-awareness-roe §2.6）
+		_update_ally_events(delta)
 
 	# 战区阶段倒计时检查（10 分钟到点 → 关闭其他战区 / 解锁 BOSS）
 	if not _boss_debug_mode and not _bench_mode:
@@ -1822,7 +1835,7 @@ func _update_radar_locks(delta: float) -> void:
 
 		for other in all_units:
 			_perf_pairs += 1  # 雷达对计数（含早 filter 部分；后续 reverse-engineer N²/STRIDE 用）
-			if not is_instance_valid(other) or other == unit or other.team == unit.team:
+			if not is_instance_valid(other) or other == unit or not unit.is_hostile_to(other):
 				continue
 			# 锁定免疫期间：无法对该目标累积雷达照射
 			if other.is_lock_immune():
@@ -1838,6 +1851,10 @@ func _update_radar_locks(delta: float) -> void:
 			if in_cone:
 				# 低空飞机更难锁定（地面单位不受此影响）
 				var lock_rate := _lock_rate_for_target(other)
+				# AWACS 支援 buff：区内玩家小队锁定速率 ×3（spec global-awareness-roe §2.6c；
+				# 每帧仅玩家小队 shooter 多一次距离比较，静态注册表 validity 自守卫）
+				if unit is Aircraft and unit.is_player_squad():
+					lock_rate *= AwacsSupportEvent.lock_rate_mult_for(unit)
 				# 云层锁定衰减：
 				#   - 默认：HIGH 档在云里 ×0.5
 				#   - 云雾机动（战区奖励）：任意档位云里 ×0.1（近乎无法锁定）
@@ -1851,12 +1868,12 @@ func _update_radar_locks(delta: float) -> void:
 					lock_rate /= other.lock_resistance_mult
 				# §C 玩家技能"高度变化时更难锁"：仅作用于玩家被锁路径
 				# alt_velocity_norm = clamp(_alt_velocity / max_climb, 0..1)，rate ×= 1 − norm × factor
-				if other is Aircraft and other.team == 0 and other.alt_change_stealth_factor > 0.0 and other.params:
+				if other is Aircraft and other.is_player_squad() and other.alt_change_stealth_factor > 0.0 and other.params:
 					var max_climb: float = maxf(other.params.climb_rate_max, 1.0)
 					var alt_v_norm: float = clampf(other._alt_velocity / max_climb, 0.0, 1.0)
 					lock_rate *= maxf(1.0 - alt_v_norm * other.alt_change_stealth_factor, 0.1)
 				# §C 玩家技能"最高度锁定加快"：仅作用于玩家锁敌路径
-				if unit is Aircraft and unit.team == 0 and unit.high_alt_lock_speed_bonus > 0.0:
+				if unit is Aircraft and unit.is_player_squad() and unit.high_alt_lock_speed_bonus > 0.0:
 					if unit.get_altitude_tier() == CombatUnit.AltitudeTier.HIGH:
 						lock_rate *= (1.0 + unit.high_alt_lock_speed_bonus)
 				# 硬下限：保证 effective_lock_time = threshold / rate ≤ MAX_EFFECTIVE_LOCK_TIME_S
@@ -1872,9 +1889,9 @@ func _update_radar_locks(delta: float) -> void:
 				unit.radar_targets[other] = minf(prev + per_shooter_delta * lock_rate, lock_cap)
 				# §C 玩家技能"被你锁定的敌人累积恐惧"：仅 unit==玩家 + other 是飞机
 				# 累积模式：状态期间不累积；累积满 → 施 FEAR → 归零；状态消退后重新累积
-				if unit is Aircraft and unit.team == 0 \
+				if unit is Aircraft and unit.is_player_squad() \
 						and unit.fear_on_lock_threshold > 0.0 \
-						and other is Aircraft and other.team != 0:
+						and other is Aircraft and unit.is_hostile_to(other):
 					var oid: int = other.get_instance_id()
 					# 关键修复：目标已有 FEAR 时跳过累积，等状态消退后再开始
 					if not other.status_effects.has(StatusEffects.FEAR):
@@ -1896,7 +1913,7 @@ func _update_radar_locks(delta: float) -> void:
 				else:
 					unit.radar_targets.erase(other)
 				# 离开锥外清零累积（让玩家必须持续锁定才能触发）
-				if unit is Aircraft and unit.team == 0 and unit.fear_on_lock_threshold > 0.0 \
+				if unit is Aircraft and unit.is_player_squad() and unit.fear_on_lock_threshold > 0.0 \
 						and other is Aircraft:
 					unit._locked_target_seconds.erase(other.get_instance_id())
 
@@ -1907,7 +1924,7 @@ func _update_radar_locks(delta: float) -> void:
 			and player_aircraft is Aircraft and player_aircraft.aura_skill == &"data_link":
 		var team0_ac: Array = []
 		for u in all_units:
-			if u is Aircraft and u.team == 0 and not u.is_destroyed and not u.status_jam_active:
+			if u is Aircraft and u.is_player_squad() and not u.is_destroyed and not u.status_jam_active:
 				team0_ac.append(u)
 		if team0_ac.size() >= 2:
 			var max_progress: Dictionary = {}
@@ -1929,7 +1946,7 @@ func _update_radar_locks(delta: float) -> void:
 			and player_aircraft is Aircraft and player_aircraft.f14_squad_lock_slow_active:
 		var team0_a: Array = []
 		for u in all_units:
-			if u is Aircraft and u.team == 0 and not u.is_destroyed and not u.status_jam_active:
+			if u is Aircraft and u.is_player_squad() and not u.is_destroyed and not u.status_jam_active:
 				team0_a.append(u)
 		if team0_a.size() >= 2 and player_aircraft.params:
 			# 对每个 team0 飞机收集"已完成锁定的敌人"（accum >= lock_time）
@@ -1937,7 +1954,7 @@ func _update_radar_locks(delta: float) -> void:
 			# 从玩家锁定列表开始求交集
 			var common_locks: Dictionary = {}
 			for tgt in player_aircraft.radar_targets:
-				if not is_instance_valid(tgt) or tgt.team == 0:
+				if not is_instance_valid(tgt) or tgt.team != CombatUnit.TEAM_HOSTILE:
 					continue
 				if float(player_aircraft.radar_targets[tgt]) >= lock_thresh:
 					common_locks[tgt] = true
@@ -2046,8 +2063,8 @@ func _update_offscreen_lod() -> void:
 		var ac: Aircraft = child
 		if ac.is_destroyed:
 			continue
-		# 友方僚机由 _update_friendly_squad_lod 管
-		if ac.team == 0:
+		# 友方僚机由 _update_friendly_squad_lod 管；ALLY 第三方 LOD 由事件系统自管（阶段 5）
+		if ac.team != CombatUnit.TEAM_HOSTILE:
 			continue
 
 		var rel := ac.global_position - cam_pos
@@ -2150,7 +2167,7 @@ func _update_friendly_squad_lod() -> void:
 		if not child is Aircraft:
 			continue
 		var ac: Aircraft = child
-		if ac == player_aircraft or ac.team != 0 or ac.is_destroyed:
+		if ac == player_aircraft or not ac.is_player_squad() or ac.is_destroyed:
 			continue
 
 		var rel := ac.global_position - cam_pos
@@ -2165,7 +2182,7 @@ func _update_friendly_squad_lod() -> void:
 
 func _cleanup_destroyed_enemies() -> void:
 	for child in get_children():
-		if child is Aircraft and child.team != 0 and child.is_destroyed:
+		if child is Aircraft and child.team != CombatUnit.TEAM_PLAYER and child.is_destroyed:
 			if child._destroy_timer > 5.0:
 				child.queue_free()
 
@@ -2270,7 +2287,7 @@ func _get_enemies_without_active_missile_at_player() -> Array[Aircraft]:
 				has_missile[m.source] = true
 	var result: Array[Aircraft] = []
 	for child in get_children():
-		if child is Aircraft and child.team != 0 and not child.is_destroyed:
+		if child is Aircraft and child.team == CombatUnit.TEAM_HOSTILE and not child.is_destroyed:
 			if not has_missile.has(child):
 				result.append(child)
 	return result
@@ -2573,7 +2590,7 @@ func _on_zone_mission_completed(zone_id: StringName) -> void:
 	var hp_gained := 0.0
 	var healed := 0
 	for u in CombatUnit.all_units:
-		if u is Aircraft and u.team == 0 and not u.is_destroyed:
+		if u is Aircraft and u.is_player_squad() and not u.is_destroyed:
 			var acu := u as Aircraft
 			if acu.params:
 				if acu == player_aircraft:
@@ -2581,6 +2598,9 @@ func _on_zone_mission_completed(zone_id: StringName) -> void:
 				acu.hp = acu.params.max_hp
 				healed += 1
 	_zone_data.mark_cleared(zone_id)
+	# 热度：攻克战区（spec global-awareness-roe §2.4）
+	if _spawner and _spawner._roe:
+		_spawner._roe.add_heat(RoeDirector.HEAT_ZONE_CAPTURED)
 	# 清掉 zone_mission 内部对该战区的记录；下次该战区再进入 AVAILABLE 时会重新刷
 	if _zone_mission:
 		_zone_mission.reset_zone(zone_id)
@@ -2696,6 +2716,59 @@ const VIEW_SPAWN_MARGIN_PX := 200.0  ## 屏外 200px 缓冲，避免贴边刷新
 # ══════════════════════════════════════════════
 #  停靠点（spec zone-reward-docking）：固定机场 + 停靠结算入口
 # ══════════════════════════════════════════════
+
+## ALLY 机场防空常驻部署（spec global-awareness-roe §2.6b）：SAM ×1 + AA ×2 / 机场。
+## 停靠着陆（全局最脆弱时刻）的防空伞；参数复用敌版 .tres（性能一致），阵营翻 ALLY。
+## 击杀不给玩家 XP（_detect_kills 只认 HOSTILE）；不移动、无生命周期。
+func _spawn_airfield_garrison() -> void:
+	var offsets: Array = [
+		[_sam_scene, _sam_params, Vector2(240.0, 0.0)],
+		[_aa_scene, _aa_params, Vector2(-170.0, 150.0)],
+		[_aa_scene, _aa_params, Vector2(-170.0, -150.0)],
+	]
+	for dock in _dock_points:
+		if dock.dock_kind != "airfield":
+			continue
+		for d in offsets:
+			var scene: PackedScene = d[0]
+			if scene == null:
+				continue
+			var u: Node = scene.instantiate()
+			u.position = dock.global_position + d[2]
+			if d[1] and "params" in u:
+				u.params = d[1]
+			if "bullet_manager" in u:
+				u.bullet_manager = bullet_manager
+			if "missile_manager" in u:
+				u.missile_manager = missile_manager
+			AllyForce.convert_ground(u)
+			add_child(u)
+	EventLogger.log_event("EVENT", "AirfieldGarrison", "ALLY SAM+AA deployed at airfields")
+
+## ALLY 第三方事件调度（spec global-awareness-roe §2.6）：
+##   AWACS：开局 90~150s 首次入场；被击落后 ≥180s 可再触发
+##   护送：首次 ≥120s、每局最多 2 次、战区任务进行中（selected_id 非空）不触发
+func _update_ally_events(delta: float) -> void:
+	if is_game_over or _is_in_boss_phase() or _event_director == null:
+		return
+	# AWACS
+	var awacs_active := _event_director.find_by_name("awacs_support") != null
+	if _awacs_was_active and not awacs_active:
+		_awacs_spawn_timer = 180.0   # 被击落/结束 → 冷却后可再入场
+	_awacs_was_active = awacs_active
+	if not awacs_active:
+		_awacs_spawn_timer -= delta
+		if _awacs_spawn_timer <= 0.0:
+			_event_director.start(AwacsSupportEvent.new())
+			_awacs_was_active = true
+	# 护送
+	if _escorts_launched < 2 and _event_director.find_by_name("escort_convoy") == null \
+			and _zone_data and _zone_data.selected_id == &"":
+		_escort_timer -= delta
+		if _escort_timer <= 0.0:
+			_event_director.start(EscortConvoyEvent.new())
+			_escorts_launched += 1
+			_escort_timer = randf_range(150.0, 240.0)
 
 ## 固定机场 3 处（用户拍板）：羽田（手画多边形质心，运行时求均值）/ 木更津 / 調布
 ## （后两者=烘焙 aero 多边形质心，见 spec §2.2）。南半图无机场——航母奖励（阶段④）补位。

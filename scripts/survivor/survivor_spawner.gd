@@ -72,6 +72,7 @@ var _spawn_timer: float = SurvivorData.TRAVEL_SPAWN_INTERVAL_BASE * 0.5
 var _hunter_timer: float = 0.0
 var _waypoint_update_timer: float = 0.0
 var _far_cleanup_timer: float = 0.0
+var _roe: RoeDirector = null   ## ROE 指挥部（察觉/姿态/leash，spec global-awareness-roe）
 var _squad_cleanup_timer: float = 0.0
 var _boss_purge_timer: float = 0.0
 
@@ -146,6 +147,11 @@ func _preload_resources() -> void:
 func update(delta: float) -> void:
 	# 检测击杀（比较当前敌人数与上一帧）
 	_detect_kills()
+
+	# ROE 指挥部：中队察觉 + 姿态标记 + leash 纪律（骑 2s tick，spec global-awareness-roe）
+	if _roe == null:
+		_roe = RoeDirector.new(self)
+	_roe.tick(delta)
 
 	# 开局驻防：首个 tick 在中央锚点预置中队（spec reinforcement-ingress §3.6）
 	if _opening_garrison_pending:
@@ -267,7 +273,7 @@ func _recalc_token_usage() -> void:
 	_token_used = 0
 	_token_count_by_type.clear()
 	for child in mode.get_children():
-		if child is Aircraft and child.team != 0 and not child.is_destroyed:
+		if child is Aircraft and child.team == CombatUnit.TEAM_HOSTILE and not child.is_destroyed:
 			var cost: int = int(child.get_meta("token_cost", 1))
 			_token_used += cost
 			var t_idx: int = int(child.get_meta("enemy_type_idx", -1))
@@ -740,9 +746,23 @@ func _apply_patrol_ring(ai: AIController, ac: Aircraft, ring: PackedVector2Array
 			best_i = i
 	ai.current_waypoint_index = best_i
 
-## TRANSIT → ONSTATION：全队打 meta + 长机上环
+## TRANSIT → ONSTATION：全队打 meta + 长机上环。
+## 30% roll 线路巡逻（spec global-awareness-roe §2.3）：与最近的另一活跃锚点连成
+## 2 点往返线（PATROL 循环 2 航点 = 沿线往返）；无合格锚点/间距不足则退化定点环。
 func _flip_squad_onstation(leader: Aircraft, ai: AIController, anchor: Vector2) -> void:
-	var ring := _make_patrol_ring(anchor)
+	var ring := PackedVector2Array()
+	if randf() < SurvivorData.ROE_ROUTE_PATROL_CHANCE:
+		var best := Vector2.INF
+		var best_d := INF
+		for other in _live_reinf_anchors():
+			var d := other.distance_to(anchor)
+			if d >= SurvivorData.ROE_ROUTE_MIN_LEG_PX and d < best_d:
+				best_d = d
+				best = other
+		if best != Vector2.INF:
+			ring = PackedVector2Array([anchor, best])
+	if ring.is_empty():
+		ring = _make_patrol_ring(anchor)
 	var members: Array = ai.squad.members if ai.squad else [leader]
 	for m in members:
 		if m and is_instance_valid(m):
@@ -750,7 +770,9 @@ func _flip_squad_onstation(leader: Aircraft, ai: AIController, anchor: Vector2) 
 			m.set_meta("reinf_ring", ring)
 	_apply_patrol_ring(ai, leader, ring)
 	EventLogger.log_event("INGRESS", "Arrive",
-		"%s onstation anchor=%s members=%d" % [leader.callsign, anchor.round(), members.size()])
+		"%s onstation anchor=%s members=%d mode=%s" % [
+			leader.callsign, anchor.round(), members.size(),
+			"route" if ring.size() == 2 else "ring"])
 
 ## 8s 航点 tick 的增援分支（取代旧"绕玩家 800~1500px"磁铁环）
 func _tick_reinforcement_waypoints(ac: Aircraft) -> void:
@@ -827,7 +849,7 @@ func _update_reinf_egress(delta: float) -> void:
 		if not (child is Aircraft):
 			continue
 		var ac: Aircraft = child
-		if ac.team == 0 or ac.is_destroyed:
+		if ac.team != CombatUnit.TEAM_HOSTILE or ac.is_destroyed:
 			continue
 		if str(ac.get_meta("category", "")) != "reinforcement":
 			continue
@@ -1083,7 +1105,7 @@ func _ensure_sentinels_escorted() -> void:
 		if not (child is Aircraft):
 			continue
 		var ac: Aircraft = child
-		if ac.is_destroyed or ac.team == 0:
+		if ac.is_destroyed or ac.team != CombatUnit.TEAM_HOSTILE:
 			continue
 		if ac.get_meta("enemy_type", "") != "uav_commander":
 			continue
@@ -1160,7 +1182,7 @@ const ADDS_OFFSCREEN_GRACE_SEC := 3.0
 
 func _cleanup_expired_adds() -> void:
 	for child in mode.get_children():
-		if child is Aircraft and child.team != 0 and not child.is_destroyed:
+		if child is Aircraft and child.team == CombatUnit.TEAM_HOSTILE and not child.is_destroyed:
 			var ac: Aircraft = child
 			if not ac.has_meta("despawn_after"):
 				continue
@@ -2181,7 +2203,7 @@ func _update_far_cleanup(delta: float) -> void:
 	var cleanup_d2 := SurvivorData.FAR_CLEANUP_DISTANCE * SurvivorData.FAR_CLEANUP_DISTANCE
 	var removed := 0
 	for child in mode.get_children():
-		if child is Aircraft and child.team != 0 and not child.is_destroyed:
+		if child is Aircraft and child.team == CombatUnit.TEAM_HOSTILE and not child.is_destroyed:
 			var ac: Aircraft = child
 			# Adds 杂兵（Tu-160 等族群）不受远距清理影响，它们沿固定航线飞过战场
 			if ac.has_meta("skip_far_cleanup") and ac.get_meta("skip_far_cleanup"):
@@ -2222,7 +2244,7 @@ func _update_boss_phase_purge(delta: float) -> void:
 		if not (child is Aircraft):
 			continue
 		var ac: Aircraft = child
-		if ac.team == 0 or ac.is_destroyed:
+		if ac.team != CombatUnit.TEAM_HOSTILE or ac.is_destroyed:
 			continue
 		# BOSS 本体（F-47 小队）不动
 		var cat: String = ac.get_meta("category", "")
@@ -2261,49 +2283,59 @@ func _update_hunters(delta: float) -> void:
 	if _is_boss_phase():
 		return
 
-	# 统计当前正在交战玩家的敌机数量
+	# 统计当前正在交战玩家的敌机数量；抽调池 = 仅 PATROL 姿态（增援驻空巡逻，
+	# spec global-awareness-roe §2.3：hunter 只从 PATROL 池抽、按中队为单位整队转 HUNT）
 	var engaging_count := 0
-	var idle_enemies: Array[Aircraft] = []
+	var idle_by_squad: Dictionary = {}   # squad_iid/unit_iid → {members: Array, d2: float}
 	for child in mode.get_children():
-		if child is Aircraft and child.team != 0 and not child.is_destroyed:
-			# Adds 杂兵和 Boss 不参与猎手系统（Adds 沿航线飞，Boss 有独立战术循环）
-			var cat: String = child.get_meta("category", "")
-			if cat == "adds" or cat == "boss" or cat == "zone_air":
-				continue
-			# 增援：EGRESS 不入池；TRANSIT 只有路过玩家附近才可被就近点名，
-			# 不把横穿半张图的运输队硬拽过来（spec reinforcement-ingress §3.4）
-			if cat == "reinforcement":
-				var rph := str(child.get_meta("reinf_phase", "onstation"))
-				if rph == "egress":
-					continue
-				if rph == "transit" and child.global_position.distance_squared_to(player_aircraft.global_position) \
-						> SurvivorData.HUNTER_TRANSIT_GRAB_DIST_PX * SurvivorData.HUNTER_TRANSIT_GRAB_DIST_PX:
-					continue
+		if child is Aircraft and child.team == CombatUnit.TEAM_HOSTILE and not child.is_destroyed:
 			var ai := _get_ai(child)
-			if ai:
-				if ai._current_target == player_aircraft:
-					engaging_count += 1
-				elif ai._state == AIController.AIState.PATROL and ai._cooldown_timer <= 0.0:
-					idle_enemies.append(child)
+			if ai == null:
+				continue
+			if ai._current_target == player_aircraft:
+				engaging_count += 1
+				continue
+			if str(child.get_meta("roe_posture", "")) != "patrol":
+				continue
+			if ai._state != AIController.AIState.PATROL or ai._cooldown_timer > 0.0:
+				continue
+			var key: int = child.get_instance_id()
+			if ai.squad != null:
+				key = ai.squad.get_instance_id()
+			if not idle_by_squad.has(key):
+				idle_by_squad[key] = {"members": [], "d2": INF}
+			var grp: Dictionary = idle_by_squad[key]
+			grp["members"].append(child)
+			grp["d2"] = minf(float(grp["d2"]),
+					child.global_position.distance_squared_to(player_aircraft.global_position))
 
-	# 确保至少有一定比例的敌机在追击玩家
-	# 最少3架，随等级增加（2026-07-06 60km 密度调优：原 maxi(2, 1+lvl/3)——
-	# 大图 + 中央锚点巡逻后，主动压力全靠 hunter 供给，配额上调）
-	var desired_hunters := maxi(3, 2 + survivor_player.level / 2)
+	# 配额 = 热度唯一输出（spec global-awareness-roe §2.4）：round(2 + 10 × heat/100)。
+	# 静默基线（heat 贴等级地板 min(75, 5L)）复刻旧公式 max(3, 2 + level/2) 的曲线，
+	# 活跃度在其上加成（满热 12）。RoeDirector 未就绪时回退旧公式。
+	var desired_hunters: int = _roe.hunter_quota() if _roe != null \
+			else maxi(3, 2 + survivor_player.level / 2)
 	var need := desired_hunters - engaging_count
 
-	if need > 0 and not idle_enemies.is_empty():
-		# 按距离排序，优先指派近的
-		idle_enemies.sort_custom(func(a: Aircraft, b: Aircraft) -> bool:
-			return a.global_position.distance_squared_to(player_aircraft.global_position) < \
-				   b.global_position.distance_squared_to(player_aircraft.global_position)
-		)
-		for i in range(mini(need, idle_enemies.size())):
-			var enemy := idle_enemies[i]
-			var ai := _get_ai(enemy)
-			if ai:
-				# 强制进入交战状态（经 acquire_target(TS_BOSS) 指派，优先级仲裁防抢写）
+	if need > 0 and not idle_by_squad.is_empty():
+		# 整队抽调：距玩家近的中队优先；配额余量 ≥ 队规模才整队转 HUNT，不拆队
+		# （余量不足自然跳到更小的队 / 孤狼单机；全都装不下则本 tick 不抽）
+		var groups: Array = idle_by_squad.values()
+		groups.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+			return float(a["d2"]) < float(b["d2"]))
+		for grp2 in groups:
+			var members: Array = grp2["members"]
+			if members.size() > need:
+				continue
+			for enemy_v in members:
+				var enemy := enemy_v as Aircraft
+				var ai := _get_ai(enemy)
+				if ai == null:
+					continue
+				# 强制进入交战状态（经 acquire_target(TS_BOSS) 指派，优先级仲裁防抢写；
+				# TS_BOSS 天然绕过 ROE 感知门 —— HUNT = GCI 全知引导）
 				if ai.acquire_target(player_aircraft, AIController.TargetSource.TS_BOSS, "hunter assign"):
+					enemy.set_meta(&"roe_hunt", true)
+					enemy.set_meta(&"roe_posture", "hunt")
 					ai._state = AIController.AIState.ENGAGE if not ai.simple_ai else AIController.AIState.PATROL
 					ai._engage_timer = 0.0
 					ai._cooldown_timer = 0.0
@@ -2313,6 +2345,9 @@ func _update_hunters(delta: float) -> void:
 						ai._tactic_min_duration = 0.5
 						ai._target_eval_timer = 0.0
 						enemy.ai_override_pursuit = true
+					need -= 1
+			if need <= 0:
+				break
 
 ## 定期更新敌机巡逻航点，使其围绕玩家当前位置巡逻
 ## 边界纪律：防止敌人越界 + 玩家靠近边缘时敌人放弃攻击
@@ -2332,7 +2367,7 @@ func _update_boundary_discipline(_delta: float) -> void:
 		if not (child is Aircraft):
 			continue
 		var ac: Aircraft = child
-		if ac.team == 0 or ac.is_destroyed:
+		if ac.team != CombatUnit.TEAM_HOSTILE or ac.is_destroyed:
 			continue
 		# Boss / Adds 有独立航点管理，跳过
 		var cat: String = ac.get_meta("category", "")
@@ -2395,7 +2430,7 @@ func _update_enemy_waypoints(delta: float) -> void:
 
 	var pp := player_aircraft.global_position
 	for child in mode.get_children():
-		if child is Aircraft and child.team != 0 and not child.is_destroyed:
+		if child is Aircraft and child.team == CombatUnit.TEAM_HOSTILE and not child.is_destroyed:
 			# Adds 杂兵和 Boss 有独立航点管理，不被绕玩家航点覆盖
 			var cat2: String = child.get_meta("category", "")
 			if cat2 == "adds" or cat2 == "boss" or cat2 == "zone_air":
@@ -2406,15 +2441,18 @@ func _update_enemy_waypoints(delta: float) -> void:
 				_tick_reinforcement_waypoints(child)
 				continue
 			var ai := _get_ai(child)
-			if ai and (ai._state == AIController.AIState.PATROL or (ai.simple_ai and ai._current_target == null)):
-				# 更新航点围绕玩家当前位置，半径略随机化
+			if ai and (ai._state == AIController.AIState.PATROL or (ai.simple_ai and ai._current_target == null)) \
+					and ai.waypoints.is_empty():
+				# 磁吸航点已退役（spec global-awareness-roe §4）：未分类单位落回真巡逻——
+				# 只在没有航线时发一次"绕自身当前位置"的定点环，不再跟着玩家漂
 				var radius := randf_range(800.0, 1500.0)
 				var offset_angle := randf() * TAU
+				var op: Vector2 = child.global_position
 				ai.waypoints = PackedVector2Array([
-					pp + Vector2(cos(offset_angle), sin(offset_angle)) * radius,
-					pp + Vector2(cos(offset_angle + TAU * 0.25), sin(offset_angle + TAU * 0.25)) * radius,
-					pp + Vector2(cos(offset_angle + TAU * 0.5), sin(offset_angle + TAU * 0.5)) * radius,
-					pp + Vector2(cos(offset_angle + TAU * 0.75), sin(offset_angle + TAU * 0.75)) * radius,
+					op + Vector2(cos(offset_angle), sin(offset_angle)) * radius,
+					op + Vector2(cos(offset_angle + TAU * 0.25), sin(offset_angle + TAU * 0.25)) * radius,
+					op + Vector2(cos(offset_angle + TAU * 0.5), sin(offset_angle + TAU * 0.5)) * radius,
+					op + Vector2(cos(offset_angle + TAU * 0.75), sin(offset_angle + TAU * 0.75)) * radius,
 				])
 
 # ══════════════════════════════════════════════
@@ -2424,7 +2462,7 @@ func _update_enemy_waypoints(delta: float) -> void:
 func _detect_kills() -> void:
 	for child in mode.get_children():
 		# ── 飞机击杀检测 ──
-		if child is Aircraft and child.team != 0 and child.is_destroyed:
+		if child is Aircraft and child.team == CombatUnit.TEAM_HOSTILE and child.is_destroyed:
 			if not child.has_meta("xp_granted"):
 				child.set_meta("xp_granted", true)
 				# 恐惧扩散：友方（玩家或僚机）击杀的任意敌机 → 给同小队成员挂 FEAR
@@ -2462,7 +2500,7 @@ func _detect_kills() -> void:
 				if etype == "tu160" and is_instance_valid(mode._tutorial):
 					mode._tutorial.notify_bomber_killed()
 		# ── 地面单位击杀检测（SAM / AA 炮等）──
-		elif child is GroundUnit and child.team != 0 and child.is_destroyed:
+		elif child is GroundUnit and child.team == CombatUnit.TEAM_HOSTILE and child.is_destroyed:
 			if not child.has_meta("xp_granted"):
 				child.set_meta("xp_granted", true)
 				var xp_value := SurvivorData.XP_PER_KILL_GROUND + survivor_player.level * 4
@@ -2472,6 +2510,10 @@ func _detect_kills() -> void:
 				survivor_player.add_xp(xp_value)
 				kill_count += 1
 				_kill_heal()
+				# 热度：击毁地面 TGT（spec global-awareness-roe §2.4；地面击杀现阶段
+				# 必为玩家小队所为——ALLY 按 ROE 不打地面）
+				if _roe:
+					_roe.add_heat(RoeDirector.HEAT_GROUND_KILL)
 
 ## 恐惧扩散：玩家亲自击杀某敌机后，对其同小队幸存成员施加 FEAR
 func _trigger_squad_fear(victim: Aircraft, duration: float) -> void:
@@ -2563,7 +2605,7 @@ func _get_ai(ac: Aircraft) -> AIController:
 func _count_enemies() -> int:
 	var count := 0
 	for child in mode.get_children():
-		if child is Aircraft and child.team != 0 and not child.is_destroyed:
+		if child is Aircraft and child.team == CombatUnit.TEAM_HOSTILE and not child.is_destroyed:
 			count += 1
 	return count
 

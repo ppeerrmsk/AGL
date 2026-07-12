@@ -103,3 +103,15 @@
 | `events/game_event.gd` | `GameEvent extends RefCounted` | [生存] 事件基类（一段剧本/一次刷怪/BOSS 流程）；管理 lifecycle + managed_units + 自动撤销 directive | `_start` `_update(delta)` `_finish` `set_directive(unit, d)` `clear_directive(unit)` `clear_all_directives()` `end()` |
 | `events/event_director.gd` | `EventDirector extends Node` | [生存] 事件调度器（survivor_mode 子节点；非 AutoLoad）；持 mode/player/spawner 引用，每帧 tick 所有 active 事件 | `start(event)` `find_by_name(name)` `active_count()` `_physics_process` |
 | `events/boss_encounter_event.gd` | `BossEncounterEvent extends GameEvent` | [生存] BOSS 战剧本：PRE_STAGE（CSG passive 驻泊 / F-47 远端边缘飞入 + 巡逻）→ ENGAGED（释放 directive，CSG 开火 / F-47 角色分配）→ VICTORY | `_init(anchor, heading_deg, map_id)` `_start` `_update` `_enter_engaged` `_check_engagement_trigger` `_far_map_edge_from` `_apply_pre_stage_directives_csg/_ace` |
+
+## ROE 全图察觉与交战规则（2026-07-12，spec global-awareness-roe）
+
+| 文件 | 职责 | 关键入口 |
+|---|---|---|
+| `scripts/survivor/roe_director.gd` | ROE 指挥部：中队察觉（感知圈/事件/战区聚合/datalink + 15s 记忆）+ 姿态派生标记 + leash 纪律 + 热度账本 → hunter 配额 | `tick()` / `_run_pass()` / `_heat_step()` / 静态 `quota_for_heat()` `heat_floor_for_level()` `step_heat_value()` |
+| `scripts/events/ally_force.gd` | ALLY 第三方通用转换（team=2 / 0 token / 0 XP / 换海绿） | `convert_aircraft()` / `convert_ground()` |
+| `scripts/events/awacs_support_event.gd` | AWACS 支援事件：南带两点往返 + 8km buff 区（锁定×3 / 导弹 G ×1.25）静态注册表 | `lock_rate_mult_for()` / `missile_g_mult_for()` / `active_awacs()` |
+| `scripts/events/escort_convoy_event.gd` | 护送任务事件：CH-47×3 纵队 A→B + 2 波拦截 + 功勋结算 | `_spawn_intercept_wave()` / `_settle()` |
+| `scripts/tests/test_roe_director.gd` | ROE 单测 33 项（热度/配额对拍/姿态派生/感知门/守区 leash），bench key `roe` | `run()` |
+
+改动挂点：`combat_unit.gd`（IFF API + TEAM_* 常量）· `ai_controller.gd`（`_roe_allows_scored_engage` 感知门，acquire_target 内）· `survivor_spawner.gd`（`_roe` 持有 / hunter 整队抽调 / 磁吸退役 / 线路巡逻 roll）· `survivor_data.gd`（ROE_* 常量 7 项）· `survivor_mode.gd`（`_spawn_airfield_garrison` / `_update_ally_events` / 攻克热度钩子 / 锁定 buff 注入）· `game_constants.gd`（FactionPalette Token + 三分支色函数）· `missile.gd`+`missile_manager.gd`（awacs_g_mult 快照）· `merit_ledger.gd`（`award()`）

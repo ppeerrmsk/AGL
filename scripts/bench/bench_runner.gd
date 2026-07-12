@@ -49,6 +49,10 @@ const UNIT_TESTS: Dictionary = {
 	"joust": "res://scripts/tests/test_joust.gd",
 	"state_machine": "res://scripts/tests/test_state_machine.gd",
 	"bfm_intent": "res://scripts/tests/test_bfm_intent.gd",
+	"surface_pass": "res://scripts/tests/test_surface_pass.gd",
+	"fire_alloc": "res://scripts/tests/test_fire_allocation.gd",
+	"wheel_orders": "res://scripts/tests/test_wheel_orders.gd",
+	"roe": "res://scripts/tests/test_roe_director.gd",
 }
 
 var bench_active: bool = false

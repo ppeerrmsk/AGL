@@ -46,6 +46,8 @@ func spawn_missile(source: CombatUnit, target: CombatUnit, missile_params: Missi
 	missile.team = source.team
 	missile.speed = source.speed + 50.0  # 初速 = 发射单位速度 + 50 m/s
 	missile.altitude = source.altitude
+	# AWACS 支援：区内玩家小队发射的导弹追踪 G ×1.25（发射瞬间快照，spec global-awareness-roe §2.6c）
+	missile.awacs_g_mult = AwacsSupportEvent.missile_g_mult_for(source)
 
 	# 初始朝向：
 	#   VLS 齐射弹 → LOS 方向 + 每发随机 ±25° 散布（模拟"一串火柱方向略散"的齐射观感）
@@ -314,7 +316,7 @@ func _physics_process(delta: float) -> void:
 		for unit in target_list:
 			if not is_instance_valid(unit) or unit.is_destroyed:
 				continue
-			if unit.team == missile.team:
+			if not CombatUnit.teams_hostile(unit.team, missile.team):
 				continue
 			# 光学隐形：导弹从隐形目标穿过
 			if unit is Aircraft and unit.is_cloaked:
@@ -448,7 +450,7 @@ func _update_aoe_zones(delta: float) -> void:
 		for unit in target_list:
 			if not is_instance_valid(unit) or unit.is_destroyed:
 				continue
-			if unit.team == zteam:
+			if not CombatUnit.teams_hostile(unit.team, zteam):
 				continue
 			var uid := unit.get_instance_id()
 			if zhit.has(uid):
@@ -625,7 +627,7 @@ func _find_bounce_target(missile: Missile, just_hit: CombatUnit) -> CombatUnit:
 	for unit in target_list:
 		if not is_instance_valid(unit) or unit.is_destroyed:
 			continue
-		if unit == just_hit or unit.team == missile.team:
+		if unit == just_hit or not CombatUnit.teams_hostile(unit.team, missile.team):
 			continue
 		var dist := missile.global_position.distance_to(unit.global_position)
 		if dist < best_dist:

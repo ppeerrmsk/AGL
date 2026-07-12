@@ -633,3 +633,6 @@ CARRIER_USES_LEFT_FMT,航母剩余登舰次数：%d,Carrier landings remaining: 
 CARRIER_LOST_HINT,⚓ 航母被击沉——剩余登舰机会已失去,⚓ Carrier sunk — remaining landings lost,⚓ 空母撃沈——残り着艦機会を喪失
 CARRIER_ALREADY_ON_STATION,航母已在场待命,Carrier already on station,空母は既に展開中
 REWARD_WINGMAN_FULL_HINT,编队已满员（9 机）——奖励转为追加武器,Squad full (9) — reward converted to weapon,編隊満員（9機）——報酬は兵装に変換
+EVENT_ESCORT_TITLE,护送任务：掩护友军直升机抵达对岸,Escort: cover allied helicopters to the far side,護衛任務：友軍ヘリを対岸まで援護せよ
+EVENT_ESCORT_SUCCESS,护送成功,Escort Complete,護衛成功
+EVENT_ESCORT_FAIL,护送失败——运输队全灭,Escort Failed - convoy lost,護衛失敗——輸送隊全滅

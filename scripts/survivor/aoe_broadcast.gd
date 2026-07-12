@@ -65,7 +65,7 @@ static func apply_status_in_radius(
 		if status_id == StatusEffects.FEAR \
 				and u.status_effects.has(StatusEffects.FEAR) \
 				and source is Aircraft \
-				and (source as Aircraft).team == 0 \
+				and (source as Aircraft).is_player_squad() \
 				and (source as Aircraft).fear_applies_slow:
 			u.apply_status(StatusEffects.SLOW, duration)
 	if hit_count > 0:

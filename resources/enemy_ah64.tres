@@ -37,4 +37,4 @@ lock_time = 99.0
 gun = ExtResource("3")
 rocket = ExtResource("4")
 flare = ExtResource("2")
-icon_color = Color(0.35, 0.42, 0.3, 1)
+icon_color = Color(0.46, 0.4, 0.27, 1)

@@ -36,4 +36,4 @@ lock_time = 3.5
 gun = ExtResource("2")
 rocket = ExtResource("4")
 combat = ExtResource("3")
-icon_color = Color(0.5, 0.75, 0.35, 1)
+icon_color = Color(0.72, 0.62, 0.28, 1)

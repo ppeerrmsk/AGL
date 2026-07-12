@@ -173,7 +173,7 @@ func _apply_jam_field(delta: float) -> void:
 			continue
 		if not u is Aircraft:
 			continue
-		if u.team != 0:           ## 只影响玩家方（team=0），UAV/boss 不受波及
+		if not u.is_player_squad():           ## 只影响玩家小队，UAV/boss/ALLY 不受波及
 			continue
 		var ac: Aircraft = u
 		if ac.global_position.distance_to(bp) <= jam_shield.current_radius:

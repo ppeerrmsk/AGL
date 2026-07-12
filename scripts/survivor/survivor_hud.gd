@@ -440,9 +440,11 @@ func _on_kill_recorded(killer: String, victim: String, weapon_kind: String, kill
 		return
 	var col: Color
 	if victim_team == 0:
-		col = ThemeColors.HP_LOW       # 友机被击坠 → 红
+		col = ThemeColors.HP_LOW       # 玩家小队被击坠 → 红
 	elif killer_team == 0:
-		col = ThemeColors.HP_OK        # 友机击坠敌机 → 绿
+		col = ThemeColors.HP_OK        # 玩家小队击坠敌机 → 绿
+	elif victim_team == 2 or killer_team == 2:
+		col = GameConstants.COL_FRIEND_ALLY   # 第三方参战（击坠/被击坠）→ 海绿（友军色）
 	else:
 		col = ThemeColors.TEXT_MUTED   # 敌方内讧 / 中立 → 灰
 	var wpn := _feed_weapon_label(weapon_kind)
@@ -1367,7 +1369,7 @@ func _update_debug_panel() -> void:
 	for child in game_scene.get_children():
 		if child is Aircraft:
 			aircraft_count += 1
-			if child.team != 0 and not child.is_destroyed:
+			if child.team == CombatUnit.TEAM_HOSTILE and not child.is_destroyed:
 				enemy_count += 1
 	if game_scene.missile_manager:
 		missile_count = game_scene.missile_manager.get_child_count()
@@ -1544,6 +1546,8 @@ class RadarDisplay extends Control:
 				blip_color = TGT_COLOR
 			elif unit.team == 0:
 				blip_color = PLAYER_COLOR
+			elif unit.team == 2:
+				blip_color = GameConstants.COL_FRIEND_ALLY   # 第三方友军（FactionPalette）
 			elif unit is Aircraft and player_ac.combat_target == unit:
 				blip_color = LOCKED_COLOR
 			else:
@@ -1726,7 +1730,7 @@ class ThreatOverlay extends Control:
 			if not child is Aircraft:
 				continue
 			var ac: Aircraft = child
-			if ac.team == 0 or ac.is_destroyed:
+			if ac.team != CombatUnit.TEAM_HOSTILE or ac.is_destroyed:
 				continue
 
 			var is_threat := false

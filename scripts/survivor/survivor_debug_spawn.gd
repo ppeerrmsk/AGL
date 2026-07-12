@@ -481,17 +481,17 @@ func _on_clear_pressed() -> void:
 	for child in game_scene.get_children():
 		if child is Aircraft:
 			var ac: Aircraft = child
-			if ac.team != 0 and not ac.is_destroyed:
+			if ac.team == CombatUnit.TEAM_HOSTILE and not ac.is_destroyed:
 				ac._start_destroy()
 				cleared += 1
 		elif child is GroundUnit:
 			var gu: GroundUnit = child
-			if gu.team != 0 and not gu.is_destroyed:
+			if gu.team == CombatUnit.TEAM_HOSTILE and not gu.is_destroyed:
 				gu.take_damage(9999.0)
 				cleared += 1
 		elif child is NavalUnit:
 			var nu: NavalUnit = child
-			if nu.team != 0 and not nu.is_destroyed:
+			if nu.team == CombatUnit.TEAM_HOSTILE and not nu.is_destroyed:
 				# 船没有 take_damage 斩杀路径（船本身不可直接击沉），直接 queue_free + 释放舰名
 				if nu.full_name != "":
 					NavalShipNames.release(nu.full_name)

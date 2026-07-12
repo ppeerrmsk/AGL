@@ -629,3 +629,12 @@
 | 雷达站 | `scenes/radar_station.tscn` | RadarStation + radar_station_params |
 | 主菜单 | `scenes/main_menu.tscn` | MainMenu |
 | 模式选择 | `scenes/survivor_select.tscn` | SurvivorSelect |
+
+## ROE / 阵营 / 第三方（2026-07-12，spec global-awareness-roe）
+
+- **敌我判定唯一 API**：combat_unit.gd `is_hostile_to()` / `teams_hostile()` / `is_player_squad()`（team 0=PLAYER 1=HOSTILE 2=ALLY；散写 team 直比已收口禁止回潮）
+- **感知门**：ai_controller.gd `_roe_allows_scored_engage()`（TS_SCORED 专用；读 roe_posture / roe_aware_until / roe_zone_* meta）
+- **察觉/姿态/热度**：survivor/roe_director.gd（写 meta 的唯一方；2s 感知 tick + 1s 热度 tick）
+- **hunter 配额**：survivor_spawner.gd `_update_hunters`（配额 = `_roe.hunter_quota()`，整队抽调）
+- **第三方事件**：events/ally_force.gd + awacs_support_event.gd + escort_convoy_event.gd；机场防空 survivor_mode `_spawn_airfield_garrison`；调度 `_update_ally_events`
+- **阵营色板**：game_constants.gd FactionPalette（COL_FRIEND_PLAYER/ALLY、COL_ENEMY_REGULAR/ELITE + 全部 team_* 函数三分支）

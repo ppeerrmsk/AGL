@@ -448,7 +448,7 @@ func _spawn_zone_defenders(zone_id: StringName, zone: Dictionary, mission_type: 
 func _count_type_in_scene(etype: int) -> int:
 	var count := 0
 	for child in mode.get_children():
-		if child is Aircraft and child.team != 0 and not child.is_destroyed:
+		if child is Aircraft and child.team == CombatUnit.TEAM_HOSTILE and not child.is_destroyed:
 			if int(child.get_meta("enemy_type_idx", -1)) == etype:
 				count += 1
 	return count

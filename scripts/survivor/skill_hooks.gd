@@ -97,8 +97,8 @@ static func dispatch_on_kill(killer: Aircraft, victim: Aircraft) -> void:
 		return
 	if not is_instance_valid(killer) or not is_instance_valid(victim):
 		return
-	# 仅玩家系（team 0）触发玩家技能
-	if killer.team != 0:
+	# 仅玩家小队触发玩家技能（ALLY 第三方击杀不触发）
+	if not killer.is_player_squad():
 		return
 	var stacks: Dictionary = _get_upgrade_stacks(killer)
 	if stacks.is_empty():
@@ -196,8 +196,8 @@ static func dispatch_on_kill(killer: Aircraft, victim: Aircraft) -> void:
 static func dispatch_on_hit(victim: Aircraft, attacker: Node, kind: String, _amount: float) -> void:
 	if victim == null or not is_instance_valid(victim):
 		return
-	# 仅玩家系（team 0）触发"我方受击"型技能
-	if victim.team != 0:
+	# 仅玩家小队触发"我方受击"型技能
+	if not victim.is_player_squad():
 		return
 	var stacks: Dictionary = _get_upgrade_stacks(victim)
 	if stacks.is_empty():
@@ -228,7 +228,7 @@ static func dispatch_on_hit(victim: Aircraft, attacker: Node, kind: String, _amo
 static func on_evade_missile(evader: Aircraft) -> void:
 	if evader == null or not is_instance_valid(evader):
 		return
-	if evader.team != 0:
+	if not evader.is_player_squad():
 		return
 	var stacks: Dictionary = _get_upgrade_stacks(evader)
 	if stacks.is_empty():
@@ -242,7 +242,7 @@ static func on_evade_missile(evader: Aircraft) -> void:
 static func on_flare_release(ac: Aircraft) -> void:
 	if ac == null or not is_instance_valid(ac):
 		return
-	if ac.team != 0:
+	if not ac.is_player_squad():
 		return
 	var stacks: Dictionary = _get_upgrade_stacks(ac)
 	if stacks.is_empty():
@@ -257,7 +257,7 @@ static func on_flare_release(ac: Aircraft) -> void:
 static func on_player_jam_landed(player: Aircraft, hit_count: int) -> void:
 	if hit_count <= 0:
 		return
-	if player == null or not is_instance_valid(player) or player.team != 0:
+	if player == null or not is_instance_valid(player) or not player.is_player_squad():
 		return
 	var stacks: Dictionary = _get_upgrade_stacks(player)
 	if stacks.is_empty():

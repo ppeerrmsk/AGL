@@ -17,7 +17,9 @@ const BG_COLOR := Color(0.02, 0.03, 0.04, 0.92)
 const GRID_COLOR := Color(0.15, 0.35, 0.35, 0.35)
 const FRAME_COLOR := Color(0.55, 0.85, 0.85, 0.8)
 const TEXT_COLOR := Color(0.7, 0.95, 0.95, 0.95)
-const PLAYER_COLOR := Color(0.4, 1.0, 0.4, 1.0)
+## 阵营色走 FactionPalette（spec global-awareness-roe §2.7：玩家=亮青 / 第三方=海绿）
+const PLAYER_COLOR := Color(0.243, 0.878, 0.784, 1.0)   ## = GameConstants.COL_FRIEND_PLAYER
+const ALLY_COLOR := Color(0.247, 0.663, 0.557, 1.0)     ## = GameConstants.COL_FRIEND_ALLY
 const NAV_MARKER_COLOR := Color(1.0, 0.85, 0.3, 1.0)  ## 巡航航点标记（琥珀色十字+脉冲环）
 
 # 战区状态颜色
@@ -551,6 +553,13 @@ func _draw_adbs_markers(size: Vector2) -> void:
 
 ## 停靠点标记（spec zone-reward-docking）：青绿方框 + 中线（跑道意象）；航母停靠点跟随实时位置
 func _draw_dock_markers(size: Vector2) -> void:
+	# AWACS buff 圈（spec global-awareness-roe §2.6c：海绿圈内玩家锁定 ×3 / 导弹 ×1.25）
+	var awacs: Aircraft = AwacsSupportEvent.active_awacs()
+	if awacs != null:
+		var apos := _world_to_map(awacs.global_position, size)
+		var r_map: float = AwacsSupportEvent.BUFF_RADIUS_PX / _world_rect.size.x * size.x
+		_map_panel.draw_arc(apos, r_map, 0.0, TAU, 64, Color(ALLY_COLOR, 0.55), 1.5)
+		_map_panel.draw_circle(apos, 3.0, ALLY_COLOR)
 	if _docks.is_empty():
 		return
 	var font := ThemeDB.fallback_font

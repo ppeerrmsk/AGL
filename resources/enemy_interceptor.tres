@@ -34,4 +34,4 @@ radar_half_angle = 20.0
 lock_time = 4.0
 gun = ExtResource("2")
 combat = ExtResource("3")
-icon_color = Color(0.4, 0.8, 1.0, 1)
+icon_color = Color(1.0, 0.72, 0.35, 1)

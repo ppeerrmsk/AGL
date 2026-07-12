@@ -110,6 +110,8 @@ BVR 远距协同齐射 BOSS，事件触发：
    - `enemy_<name>.tres` (AircraftParams)
    - 必要时同建对应的 `<name>_gun.tres` / `<name>_missile.tres` / `<name>_rocket.tres`
    - 可复用 `gladiator_combat.tres` / `lancer_combat.tres` / `default_combat.tres` 作为 `combat` 字段
+   - ⚠ **`icon_color` / `wing_color` 必须选自暖色域**（橙→红表威胁层级；冷色蓝/青/绿只属于
+     友好单位，spec global-awareness-roe §2.7 阵营色板规范）
 2. **在 `survivor_mode.gd:843` 的 `EnemyType` 枚举追加新值**（末尾，保持已有值不动）
 3. **在 `survivor_mode.gd:43-51` 声明 `_<name>_params_base: AircraftParams` 成员**
 4. **在 `survivor_mode.gd:104-112` 的 `_ready` 中 `preload(...)` 加载资源**

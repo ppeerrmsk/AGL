@@ -37,6 +37,16 @@ func settle_run(total_xp_earned: int, multiplier: float) -> int:
 		"xp=%d × %.2f → +%d (total=%d)" % [total_xp_earned, multiplier, earned, _total])
 	return earned
 
+## 局内即时奖励入账（护送任务等直接功勋，不走 XP 折算；spec global-awareness-roe §2.6a）
+func award(amount: int, why: String = "") -> int:
+	if amount <= 0:
+		return 0
+	_total += amount
+	_save()
+	merit_changed.emit(_total, amount)
+	EventLogger.log_event("MERIT", "Award", "%s +%d (total=%d)" % [why, amount, _total])
+	return amount
+
 ## 改装系统购买扣费。成功返回 true。
 func spend(amount: int) -> bool:
 	if amount <= 0 or _total < amount:
