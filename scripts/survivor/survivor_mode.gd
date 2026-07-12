@@ -59,6 +59,8 @@ var is_game_over: bool = false
 ## 进化系统（垂直切片，spec ace-system §2.4）：战区结算后置旗，等其他暂停 UI 关完再开进化面板
 var _evolution_ui: EvolutionUI = null
 var _evolution_pending: bool = false
+## 停靠结算（spec zone-reward-docking）：攻克入库的待领奖励，飞到停靠点减速着陆后领取
+var _pending_rewards: Array[Dictionary] = []
 var is_paused_for_upgrade: bool = false
 var upgrade_stacks: Dictionary = {}
 
@@ -102,6 +104,8 @@ var _tutorial: SurvivorTutorial  ## 首次进入生存模式的浮现式教程
 
 # ── 大地图边界 / 战术地图（P1）──
 var _map_boundary: MapBoundary
+var _dock_points: Array[DockPoint] = []   ## 停靠点（固定机场 + 航母甲板，spec zone-reward-docking）
+var _friendly_carrier: NavalUnit = null   ## 在场的友军航母（奖励召唤，同时最多一艘）
 var _boundary_ui: BoundaryUI
 var _tactical_map: TacticalMap
 var _zone_data: ZoneData
@@ -394,6 +398,9 @@ func _ready() -> void:
 		_tactical_map.zone_selected.connect(_on_zone_selected)
 		_tactical_map.nav_point_selected.connect(_on_nav_point_selected)
 		_tactical_map.nav_cleared.connect(_on_nav_cleared)
+
+		# ── 停靠点：固定机场 3 处（spec zone-reward-docking §2.2）──
+		_spawn_airfield_docks()
 
 		_zone_arrow = ZoneArrow.new()
 		add_child(_zone_arrow)
@@ -1452,11 +1459,20 @@ func _on_wheel_command(context: int, slot_id: String, world_pos: Vector2, target
 		"autofire":
 			if player_aircraft and not player_aircraft.is_destroyed:
 				var new_af := not player_aircraft.missile_auto_fire if option == "" else option == "on"
-				player_aircraft.missile_auto_fire = new_af
+				# 轮盘 = 全队语法：广播到全队（F 键保持只切自机，两入口作用域刻意不同）
+				if _squad_cmd:
+					for ac in _squad_cmd._squad_members():
+						if is_instance_valid(ac) and not ac.is_destroyed:
+							ac.missile_auto_fire = new_af
+				else:
+					player_aircraft.missile_auto_fire = new_af
 				if hud: hud._update_tactical_buttons()
-		# ── 攻击轮盘：广播集火（姿态差异归阶段 4，先统一走铁律集火）──
-		"standoff", "assault":
-			if _squad_cmd: _squad_cmd.command_attack_all(target)
+		# ── 攻击轮盘：广播集火 + 姿态（spec §2.9/§3.5：STANDOFF 空中走 joust 打带跑、
+		# 面目标走 surface pass 分流；ASSAULT = 锚定缠斗/俯冲扫射）──
+		"standoff":
+			if _squad_cmd: _squad_cmd.command_attack_all(target, Situation.POSTURE_STANDOFF)
+		"assault":
+			if _squad_cmd: _squad_cmd.command_attack_all(target, Situation.POSTURE_ASSAULT)
 		# ── 攻击轮盘：队级战术状态 ──
 		"fire_alloc":
 			if _squad_cmd:
@@ -1616,12 +1632,9 @@ func _physics_process(delta: float) -> void:
 	_update_offscreen_lod()
 	_update_friendly_squad_lod()
 
-	# 战区结算后的进化面板（spec ace-system §2.4：结算点触发；等升级/其他暂停 UI 关完再开）
-	if _evolution_pending and not is_game_over and not is_paused_for_upgrade \
-			and player_aircraft and is_instance_valid(player_aircraft) and not player_aircraft.is_destroyed:
-		_evolution_pending = false
-		_open_evolution_offer()
-		return
+	# 战区结算改停靠制（spec zone-reward-docking §2.2）：攻克后不再自动弹结算面板——
+	# _evolution_pending 仅作"有新结算内容"标记；面板由停靠点 docked → _on_dock_docked 打开。
+	# （旧行为：此处首个未暂停帧自动 _open_evolution_offer，2026-07-06 移除）
 
 	# 检查玩家是否死亡
 	if player_aircraft and player_aircraft.is_destroyed and not is_game_over:
@@ -2546,23 +2559,27 @@ func _on_zone_mission_completed(zone_id: StringName) -> void:
 	var reward: Dictionary = ZoneRewardRegistry.get_reward_for(zone_id)
 	if reward.is_empty():
 		reward = _zone_data.get_reward(zone_id)
-	# 发放奖励
+	# 停靠结算制（spec zone-reward-docking §2.1）：奖励不再即时发放——入"待领取"栏，
+	# 飞到停靠点（机场/航母）减速着陆后领取（_on_dock_docked）
 	var reward_name := ""
-	if not reward.is_empty() and survivor_player:
-		survivor_player.apply_upgrade(reward)
+	if not reward.is_empty():
 		reward_name = tr(reward.get("name", ""))
-		# 写入 upgrade_stacks，否则右下角 HUD 已激活技能列表不会显示战区奖励
-		var rid: String = reward.get("id", "")
-		if rid != "":
-			upgrade_stacks[rid] = upgrade_stacks.get(rid, 0) + 1
-		SurvivorData.recompute_category_bonuses(player_aircraft, upgrade_stacks)
-	# 基础回血：每攻克一个战区 +ZONE_CLEAR_HP_RESTORE，夹到 max_hp
+		if String(reward.get("kind", "")) == "carrier":
+			# 航母奖励即时触发入场（spec §3——登舰本身就是领取，不入待领栏）
+			_summon_reward_carrier()
+		else:
+			_pending_rewards.append(reward)
+	# 状态恢复（§2.1）：全队满血——当前操控机 + 所有存活友机（含僚机/忠诚僚机）
 	var hp_gained := 0.0
-	if player_aircraft and not player_aircraft.is_destroyed and player_aircraft.params:
-		var max_hp: float = player_aircraft.params.max_hp
-		var before: float = player_aircraft.hp
-		player_aircraft.hp = minf(player_aircraft.hp + ZoneData.ZONE_CLEAR_HP_RESTORE, max_hp)
-		hp_gained = player_aircraft.hp - before
+	var healed := 0
+	for u in CombatUnit.all_units:
+		if u is Aircraft and u.team == 0 and not u.is_destroyed:
+			var acu := u as Aircraft
+			if acu.params:
+				if acu == player_aircraft:
+					hp_gained = acu.params.max_hp - acu.hp
+				acu.hp = acu.params.max_hp
+				healed += 1
 	_zone_data.mark_cleared(zone_id)
 	# 清掉 zone_mission 内部对该战区的记录；下次该战区再进入 AVAILABLE 时会重新刷
 	if _zone_mission:
@@ -2573,26 +2590,24 @@ func _on_zone_mission_completed(zone_id: StringName) -> void:
 		if refreshed.size() > 0 and _zone_hint:
 			_zone_hint.show_temp(tr("ZONE_REFRESHED_AFTER_CLEAR"), 3.0)
 	EventLogger.log_event("ZONE", "Cleared",
-		"id=%s reward=%s hp+%d" % [zone_id, reward.get("id", "-"), int(hp_gained)])
+		"id=%s reward_pending=%s squad_healed=%d hp+%d" % [zone_id, reward.get("id", "-"), healed, int(hp_gained)])
 
-	# 攻克 toast
+	# 攻克 toast（奖励改"待停靠领取"文案）
 	var label := _zone_label(zone_id)
 	if _zone_hint:
 		var msg: String
 		if reward_name != "":
-			msg = tr("ZONE_CLEARED_WITH_REWARD_FMT") % [label, reward_name]
+			msg = tr("ZONE_CLEARED_REWARD_PENDING_FMT") % [label, reward_name]
 		else:
 			msg = tr("ZONE_CLEARED_FMT") % label
 		_zone_hint.show_temp(msg, 4.5)
 
-	# 新战区开放 → 再挂 persistent 提示
-	var opened := _zone_data.peek_newly_opened()
-	if opened.size() > 0:
-		# 用 call_deferred 让 toast 先显示完再闪 persistent（不冲突，zone_hint 支持两者共存）
-		_zone_hint.show_persistent(tr("ZONE_HINT_NEW_OPENED"))
+	# 常驻提示：引导去停靠结算（进化/领奖都在停靠点；压过"新战区开放"提示，后者 Tab 可见）
+	var _opened := _zone_data.peek_newly_opened()
+	if _zone_hint:
+		_zone_hint.show_persistent(tr("DOCK_HINT_GO_SETTLE"))
 
-	# 进化机会（spec ace-system §2.4：每打完一个战区一次）。置旗延后到 _physics_process
-	# 首个未暂停帧再开面板——让战区奖励 toast / 可能同帧的升级 UI 先走完，避免暂停态打架。
+	# 结算内容标记（面板由停靠点打开，spec zone-reward-docking；旧自动弹已移除）
 	_evolution_pending = true
 
 
@@ -2678,6 +2693,251 @@ func _on_settlement_closed() -> void:
 const VIEW_SPAWN_MARGIN_PX := 200.0  ## 屏外 200px 缓冲，避免贴边刷新被玩家瞥见
 ## extra_radius：把以 world_pos 为圆心、半径 extra_radius 的圆视作一个整体来测
 ## 可见（用于"战区整个生成区域是否会露脸"这种判定，而不只是测中心点）
+# ══════════════════════════════════════════════
+#  停靠点（spec zone-reward-docking）：固定机场 + 停靠结算入口
+# ══════════════════════════════════════════════
+
+## 固定机场 3 处（用户拍板）：羽田（手画多边形质心，运行时求均值）/ 木更津 / 調布
+## （后两者=烘焙 aero 多边形质心，见 spec §2.2）。南半图无机场——航母奖励（阶段④）补位。
+func _spawn_airfield_docks() -> void:
+	var haneda := Vector2.ZERO
+	for p in MapGeography.HANEDA_AIRPORT:
+		haneda += p
+	haneda /= float(MapGeography.HANEDA_AIRPORT.size())
+	var defs: Array = [
+		[haneda, "DOCK_HANEDA_NAME"],
+		[Vector2(6844.0, 2381.0), "DOCK_KISARAZU_NAME"],
+		[Vector2(-10434.0, -12864.0), "DOCK_CHOFU_NAME"],
+	]
+	for d in defs:
+		var dock := DockPoint.new()
+		dock.global_position = d[0]
+		dock.display_name_key = d[1]
+		dock.dock_kind = "airfield"
+		dock.mode = self
+		dock.docked.connect(_on_dock_docked)
+		add_child(dock)
+		_dock_points.append(dock)
+	if _tactical_map:
+		_tactical_map.set_docks(_dock_points)
+
+## 航母增援入场（spec zone-reward-docking §2.4）：南界浦贺水道驶入、北上 ~5km 停泊；
+## team0 + CIWS 自卫 + 可被击沉（沉没=剩余登舰机会清零）；甲板挂 DockPoint（登舰=结算+回血）
+func _summon_reward_carrier() -> void:
+	if not _zone_data or _zone_data.carrier_uses_left <= 0:
+		return
+	if _friendly_carrier and is_instance_valid(_friendly_carrier):
+		if _zone_hint:
+			_zone_hint.show_temp(tr("CARRIER_ALREADY_ON_STATION"), 3.0)
+		return
+	var cv_params: NavalParams = load("res://resources/naval/carrier_cv.tres")
+	if cv_params == null:
+		push_warning("[Carrier] carrier_cv.tres 缺失，航母奖励跳过")
+		return
+	# ⚠ carrier_cv.tres 是敌方 BOSS 资源（default_team=1）。NavalUnit._ready 里
+	# `team = params.default_team` 会覆盖外部设的 team → 必须 duplicate 一份把 default_team
+	# 改成 0，否则友军航母被渲染成敌方红、且玩家能锁能打（2026-07-06 playtest 报告）。
+	# duplicate(true) 深拷挂点配置，避免污染共享 BOSS 资源。
+	cv_params = cv_params.duplicate(true)
+	cv_params.default_team = 0
+	var cv := CarrierShip.new()
+	cv.params = cv_params
+	cv.team = 0
+	# 入场点：南界水道（x 夹在湾内水道带，y 贴南界内侧），北上一段后由航点自然停泊
+	var entry_x := 800.0
+	if player_aircraft and is_instance_valid(player_aircraft):
+		entry_x = clampf(player_aircraft.global_position.x, -1500.0, 2500.0)
+	var entry := Vector2(entry_x, MapBoundary.world_half_px() - 600.0)
+	cv.position = entry
+	cv.initial_heading_deg = 0.0   # 朝北
+	cv.waypoints = PackedVector2Array([Vector2(entry_x, entry.y - 5000.0)])
+	cv.set_meta("category", "friendly_carrier")
+	cv.set_meta("skip_far_cleanup", true)
+	add_child(cv)
+	if "bullet_manager" in self:
+		cv.bullet_manager = get("bullet_manager")
+	if "missile_manager" in self:
+		cv.missile_manager = get("missile_manager")
+	cv.tree_exited.connect(_on_friendly_carrier_gone)
+	_friendly_carrier = cv
+	# 甲板停靠点（跟船走；Tab 标记实时位置）
+	var deck := DockPoint.new()
+	deck.dock_kind = "carrier"
+	deck.display_name_key = "DOCK_CARRIER_NAME"
+	deck.radius = 500.0
+	deck.mode = self
+	deck.docked.connect(_on_dock_docked)
+	cv.add_child(deck)
+	_dock_points.append(deck)
+	if _tactical_map:
+		_tactical_map.set_docks(_dock_points)
+	if _zone_hint:
+		_zone_hint.show_temp(tr("CARRIER_INBOUND_HINT"), 5.0)
+	EventLogger.log_event("DOCK", "CarrierSummoned",
+		"entry=%s uses_left=%d" % [entry.round(), _zone_data.carrier_uses_left])
+
+## 航母离场/被击沉：清引用 + 剩余次数>0 时视为机会流失（spec §2.4）
+func _on_friendly_carrier_gone() -> void:
+	if not is_inside_tree():
+		return  # 场景整体退出中，不做游戏逻辑
+	_friendly_carrier = null
+	_dock_points = _dock_points.filter(func(d): return is_instance_valid(d))
+	if _tactical_map and is_instance_valid(_tactical_map):
+		_tactical_map.set_docks(_dock_points)
+	if _zone_data and _zone_data.carrier_uses_left > 0:
+		_zone_data.carrier_uses_left = 0
+		if _zone_hint and is_instance_valid(_zone_hint):
+			_zone_hint.show_temp(tr("CARRIER_LOST_HINT"), 4.0)
+		EventLogger.log_event("DOCK", "CarrierLost", "登舰机会清零")
+
+## 登舰次数用尽 → 航母南撤离场（缓慢驶离；单个单位，任其驶出不强制回收）
+func _depart_friendly_carrier() -> void:
+	if not _friendly_carrier or not is_instance_valid(_friendly_carrier):
+		return
+	_friendly_carrier.waypoints = PackedVector2Array([
+		Vector2(_friendly_carrier.global_position.x, MapBoundary.world_half_px() + 2500.0)
+	])
+	EventLogger.log_event("DOCK", "CarrierDeparting", "uses exhausted")
+
+## +1 僚机奖励（spec §2.5）：ACE 升 1 级 + 侧后爆出同型僚机入队；满编 9 自动降级为武器
+## 切片版 ACE = 玩家长机（spec ace-system 简化）；"升级"= 灌 1 级所需 XP（等级只门控进化）
+func _claim_wingman_reward() -> void:
+	if not _squad or not player_aircraft or not is_instance_valid(player_aircraft) or not _player_profile:
+		_claim_weapon_reward("qmaam")
+		return
+	var alive := 0
+	for m in _squad.members:
+		if is_instance_valid(m) and not m.is_destroyed:
+			alive += 1
+	if alive >= 9:
+		_claim_weapon_reward("qmaam")  # 满编降级（spec §2.5）
+		if _zone_hint:
+			_zone_hint.show_temp(tr("REWARD_WINGMAN_FULL_HINT"), 3.5)
+		return
+	if survivor_player:
+		survivor_player.add_xp(SurvivorData.xp_for_level(survivor_player.level))
+	# 爆出同型僚机（与起始僚机同管线：档案注入 + 完美飞行员 + 编队托管）
+	var wing_base: AircraftParams = _player_profile.wingman_params
+	if wing_base == null:
+		wing_base = _player_profile.base_params
+	if wing_base == null:
+		return
+	var leader: Aircraft = _squad.leader if (_squad.leader and is_instance_valid(_squad.leader)) else player_aircraft
+	var idx := _squad.members.size()
+	var ac: Aircraft = _aircraft_scene.instantiate()
+	ac.squad_slot = idx + 1
+	ac.params = wing_base.duplicate(true)
+	SurvivorPlayableSetup.deep_dup_weapons(ac.params)
+	SurvivorPlayableSetup.apply(ac, _player_profile, true)
+	ac.team = 0
+	var offset := _squad.get_formation_offset(idx)
+	ac.position = leader.global_position + offset.rotated(leader.heading)
+	ac.initial_heading_deg = rad_to_deg(leader.heading)
+	ac.altitude = leader.altitude
+	ac.target_altitude = leader.altitude
+	ac.bullet_manager = bullet_manager
+	ac.missile_manager = missile_manager
+	ac.flat_altitude = true
+	ac.hide_data_label = true
+	ac.set_target_tier(Aircraft.AltitudeTier.MID)
+	if SurvivorData.ENABLE_PLANNER_FOR_REGULAR_AI:
+		ac.use_tactical_planner = true
+	add_child(ac)
+	var ai := AIController.new()
+	ai.name = "AI_Wing%d" % idx
+	ai.aircraft = ac
+	ai.enable_combat = true
+	ai.evade_missiles = true
+	ai.aggression = 1.0
+	ai.skill_level = 1.0
+	ai.composure = 1.0
+	ai.focus = 1.0
+	ai.situational_awareness = 1.0
+	ai.self_preservation = 0.5
+	ai.engage_duration = 99999.0
+	ai.engage_cooldown = 2.0
+	ai.patrol_altitude = leader.altitude
+	ac.add_child(ai)
+	SquadFactory.register_wingman(_squad, ac)
+	ac.set_formation_target(leader, _squad.get_wingman_target(idx))
+	if _wingman_formation_debug:
+		ac.formation_debug = true
+	EventLogger.log_event("DOCK", "WingmanReward",
+		"slot=%d alive=%d ace_xp+lvl" % [ac.squad_slot, alive + 1])
+
+## 追加武器奖励（spec §2.6，副系统类不动主武器）：
+##   loyal_wingman / tail_mine 共用"机尾释放位"（params 互斥约定）→ 已占位时降级 QMAAM；
+##   QMAAM 已有副槽时改为补弹（max_count 叠加）
+func _claim_weapon_reward(weapon: String) -> void:
+	if not player_aircraft or not is_instance_valid(player_aircraft) or player_aircraft.params == null:
+		return
+	var p: AircraftParams = player_aircraft.params
+	match weapon:
+		"loyal_wingman":
+			if p.loyal_wingman != null or p.torpedo != null:
+				_claim_weapon_reward("qmaam")
+				return
+			p.loyal_wingman = load("res://resources/a10_loyal_wingman.tres").duplicate(true)
+		"tail_mine":
+			if p.torpedo != null or p.loyal_wingman != null:
+				_claim_weapon_reward("qmaam")
+				return
+			p.torpedo = load("res://resources/a10_torpedo.tres").duplicate(true)
+		_:
+			var q: MissileParams = load("res://resources/qmaam_missile.tres").duplicate(true)
+			if p.secondary_missile != null:
+				p.secondary_missile.max_count += q.max_count  # 已有副槽 → 补弹
+				if "secondary_missile_count" in player_aircraft:
+					player_aircraft.secondary_missile_count += q.max_count
+			else:
+				p.secondary_missile = q
+				if "secondary_missile_count" in player_aircraft:
+					player_aircraft.secondary_missile_count = q.max_count
+	EventLogger.log_event("DOCK", "WeaponReward", weapon)
+
+## 停靠成功 → 停靠结算（spec zone-reward-docking §2.2）：领取待领奖励 + 打开结算面板（进化/强化）
+func _on_dock_docked(dock: DockPoint) -> void:
+	EventLogger.log_event("DOCK", "SettlementOpen",
+		"%s pending=%d" % [dock.display_name_key, _pending_rewards.size()])
+	# 领取待领奖励（spec §2.3 三类实体奖励；registry 旧 upgrade dict 走兼容分支）
+	var claimed_any := false
+	for reward in _pending_rewards:
+		if reward.is_empty():
+			continue
+		match String(reward.get("kind", "")):
+			"wingman":
+				_claim_wingman_reward()
+			"weapon":
+				_claim_weapon_reward(String(reward.get("weapon", "tail_mine")))
+			_:
+				# 兼容 ZoneRewardRegistry 注册的旧 upgrade dict
+				if survivor_player:
+					survivor_player.apply_upgrade(reward)
+					var rid: String = reward.get("id", "")
+					if rid != "":
+						upgrade_stacks[rid] = upgrade_stacks.get(rid, 0) + 1
+					claimed_any = true
+		if _zone_hint:
+			_zone_hint.show_temp(tr("DOCK_REWARD_CLAIMED_FMT") % tr(reward.get("name", "")), 3.0)
+	if claimed_any:
+		SurvivorData.recompute_category_bonuses(player_aircraft, upgrade_stacks)
+	_pending_rewards.clear()
+	_evolution_pending = false
+	if _zone_hint:
+		_zone_hint.hide_persistent()
+	# 航母停靠：回血 + 扣全局登舰次数（限 2 次，用尽即南撤；spec §2.4）
+	if dock.dock_kind == "carrier":
+		if player_aircraft and is_instance_valid(player_aircraft) and player_aircraft.params:
+			player_aircraft.hp = player_aircraft.params.max_hp
+		if _zone_data:
+			_zone_data.carrier_uses_left = maxi(0, _zone_data.carrier_uses_left - 1)
+			if _zone_hint:
+				_zone_hint.show_temp(tr("CARRIER_USES_LEFT_FMT") % _zone_data.carrier_uses_left, 3.5)
+			EventLogger.log_event("DOCK", "CarrierLanding", "uses_left=%d" % _zone_data.carrier_uses_left)
+			if _zone_data.carrier_uses_left <= 0:
+				_depart_friendly_carrier()
+	_open_evolution_offer()
+
 func is_world_pos_visible(world_pos: Vector2, extra_radius: float = 0.0) -> bool:
 	if not _camera_ctrl:
 		return false

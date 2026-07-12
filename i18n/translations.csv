@@ -614,3 +614,22 @@ WHEEL_TIP_FORMATION,散开＝各自机动包围；紧密＝保持编队一起进
 WHEEL_TIP_CANCEL,取消本次轮盘操作，不执行任何命令（进行中的战斗不受影响）。,Cancel this wheel interaction without issuing any command.,このホイール操作をキャンセルします（進行中の戦闘には影響なし）。
 WHEEL_TIP_CENTER_MOVE,在中心松开＝前往按下的位置（等同普通单击移动）。,Release in the center = move to the pressed point (same as a normal click).,中央で離すと押した地点へ移動します（通常クリックと同じ）。
 WHEEL_TIP_CENTER_ATTACK,在中心松开＝命令攻击该目标（等同普通单击点名）。,Release in the center = attack this target (same as a normal click).,中央で離すとこの目標を攻撃します（通常クリックと同じ）。
+DOCK_HANEDA_NAME,羽田机场,Haneda Airfield,羽田飛行場
+DOCK_KISARAZU_NAME,木更津基地,Kisarazu Base,木更津駐屯地
+DOCK_CHOFU_NAME,調布机场,Chofu Airfield,調布飛行場
+DOCK_CARRIER_NAME,友军航母,Allied Carrier,友軍空母
+DOCK_HINT_SLOW,减速至 %d km/h 以下停靠,Slow below %d km/h to dock,%d km/h 以下に減速して着陸
+DOCK_HINT_DOCKING,停靠中…,Docking…,着陸中…
+DOCK_HINT_GO_SETTLE,✈ 奖励/进化待结算——飞往停靠点（机场/航母）减速着陆,✈ Rewards/evolution pending — fly to a dock (airfield/carrier) and slow to land,✈ 報酬/進化が未精算——基地/空母へ飛び減速して着陸
+DOCK_REWARD_CLAIMED_FMT,已领取：%s,Claimed: %s,受領：%s
+ZONE_CLEARED_REWARD_PENDING_FMT,已攻克 %s！奖励 %s 待停靠领取,%s cleared! Reward %s awaits docking,%s 制圧！報酬 %s は着陸後に受領
+REWARD_CARRIER_NAME,航母增援,Carrier Reinforcement,空母増援
+REWARD_WINGMAN_NAME,王牌僚机 +1,Ace Wingman +1,エース僚機+1
+REWARD_WEAPON_TAILMINE_NAME,尾部漂浮雷,Tail Floating Mines,後方フロートマイン
+REWARD_WEAPON_LOYAL_NAME,忠诚僚机,Loyal Wingman Drone,ロイヤルウィングマン
+REWARD_WEAPON_QMAAM_NAME,QMAAM 格斗弹,QMAAM Missiles,QMAAM ミサイル
+CARRIER_INBOUND_HINT,⚓ 友军航母正从南方水道入场,⚓ Allied carrier inbound from the southern channel,⚓ 友軍空母が南水道から進入中
+CARRIER_USES_LEFT_FMT,航母剩余登舰次数：%d,Carrier landings remaining: %d,空母着艦残り回数：%d
+CARRIER_LOST_HINT,⚓ 航母被击沉——剩余登舰机会已失去,⚓ Carrier sunk — remaining landings lost,⚓ 空母撃沈——残り着艦機会を喪失
+CARRIER_ALREADY_ON_STATION,航母已在场待命,Carrier already on station,空母は既に展開中
+REWARD_WINGMAN_FULL_HINT,编队已满员（9 机）——奖励转为追加武器,Squad full (9) — reward converted to weapon,編隊満員（9機）——報酬は兵装に変換

@@ -41,7 +41,7 @@ const ZONES: Array[Dictionary] = [
 		"name_key": "ZONE_A_NAME",
 		"label": "A",
 		"center": Vector2(-6400.0, -5000.0),    ## 川崎/横滨北内陆城区（陆）
-		"radius": 2500.0,
+		"radius": 3500.0,                        ## 2026-07-06 密度调优 2500→3500（60km 空间充裕）
 		"mission_type": "ground",
 	},
 	{
@@ -49,9 +49,10 @@ const ZONES: Array[Dictionary] = [
 		"name_key": "ZONE_B_NAME",
 		"label": "B",
 		## ×2 初值 (7600,-7600) 落在湾里（land_mask 占比 0.00，test_map_expansion 抓出），
-		## 网格扫描修正到市川/船桥湾岸城带（占比 0.65；离北边界恰好 1500px 达标）
-		"center": Vector2(6000.0, -11000.0),    ## 市川/船桥湾岸（陆）
-		"radius": 2500.0,
+		## 网格扫描修正到市川/船桥湾岸城带；密度调优半径 2500→3000（陆带贴北边界，
+		## y 同步内收 -11000→-10500 保住离边 ≥1500）
+		"center": Vector2(6000.0, -10500.0),    ## 市川/船桥湾岸（陆）
+		"radius": 3000.0,
 		"mission_type": "ground",
 	},
 	{
@@ -59,7 +60,7 @@ const ZONES: Array[Dictionary] = [
 		"name_key": "ZONE_C_NAME",
 		"label": "C",
 		"center": Vector2(-8200.0, 7600.0),     ## 横须贺/三浦东岸海域（海/陆过渡）
-		"radius": 2500.0,
+		"radius": 3500.0,                        ## 2026-07-06 密度调优 2500→3500
 		"mission_type": "air",                   ## 海上，改为空战中队
 	},
 	{
@@ -67,17 +68,17 @@ const ZONES: Array[Dictionary] = [
 		"name_key": "ZONE_D_NAME",
 		"label": "D",
 		"center": Vector2(9600.0, 9000.0),      ## 房总西岸（君津/富津，陆）
-		"radius": 2500.0,
+		"radius": 3500.0,                        ## 2026-07-06 密度调优 2500→3500
 		"mission_type": "ground",
 	},
 	{
 		"id": &"E",
 		"name_key": "ZONE_E_NAME",
 		"label": "E",
-		## 中央海域偏南（浦贺水道北口）—— 与 C/D 的缘距 ≈4.7km（扩图前仅 ~210px 贴脸，
-		## 是"战区目标互飞对方区域"的根因；60km 后敌机雷达 3~4.5km 够不到邻区）
+		## 中央海域偏南（浦贺水道北口）—— 与 C/D 的缘距 ≈3km（扩图前仅 ~210px 贴脸，
+		## 是"战区目标互飞对方区域"的根因；敌机雷达 3~4.5km 略够不到）
 		"center": Vector2(800.0, 7000.0),
-		"radius": 1800.0,
+		"radius": 2500.0,                        ## 2026-07-06 密度调优 1800→2500
 		## E 专属：mission_type 只 roll "naval" 或 "elite"（见 _roll_mission_type）
 		"mission_type": "naval",
 		"restricted_mission_types": ["naval", "elite"],
@@ -173,11 +174,12 @@ func _init() -> void:
 	_states[&"E"] = State.LOCKED
 	_states[&"BOSS"] = State.LOCKED
 	# 给初始可选的两个战区分配奖励 + 难度
-	_assign_reward(&"A")
-	_assign_reward(&"B")
 	## 开局保底：首发两个战区不会直接出 ★★★，避免玩家一上来就被 MiG-29/Su-27 中队压制
+	## （难度先于奖励 roll——三类奖励权重按星级，spec zone-reward-docking §2.3）
 	_roll_difficulty(&"A", 2)
 	_roll_difficulty(&"B", 2)
+	_assign_reward(&"A")
+	_assign_reward(&"B")
 	_roll_mission_type(&"A")
 	_roll_mission_type(&"B")
 	_newly_opened = [&"A", &"B"]
@@ -309,8 +311,8 @@ func _refresh_availability_after_clear() -> void:
 		if get_state(&"E") == State.LOCKED and &"E" != _last_cleared:
 			if randf() < E_ZONE_UNLOCK_CHANCE:
 				_states[&"E"] = State.AVAILABLE
-				_assign_reward(&"E")
 				_roll_difficulty(&"E")
+				_assign_reward(&"E")
 				_roll_mission_type(&"E")
 				_newly_opened.append(&"E")
 				EventLogger.log_event("ZONE", "E_Unlock",
@@ -348,8 +350,8 @@ func _refresh_availability_after_clear() -> void:
 		pool.remove_at(idx)
 		weights.remove_at(idx)
 		_states[open_id] = State.AVAILABLE
-		_assign_reward(open_id)
 		_roll_difficulty(open_id)
+		_assign_reward(open_id)
 		_roll_mission_type(open_id)
 		_newly_opened.append(open_id)
 		EventLogger.log_event("ZONE", "Reactivated" if was_cleared else "Opened",
@@ -394,9 +396,28 @@ func get_selected_world_pos() -> Vector2:
 #  奖励系统
 # ══════════════════════════════════════════════
 
-## 战区奖励池：目前使用所有"进化技能"（UPGRADES 中 evolved=true）
-## 这些技能已从常规升级随机池移除（由 survivor_data.is_upgrade_available_for 控制可用性）
-## 未来可扩展：加入一些非进化技能（稀有生存强化等）
+## 战区奖励池（spec zone-reward-docking §2.3，2026-07-06 重制）：三类实体奖励按难度加权 roll。
+## 旧"进化技能强卡"池已随 evolved 字段退役（_build_reward_pool 留作 registry 兼容参考，恒空）。
+## 奖励 dict：{ kind: "carrier"|"wingman"|"weapon", id, name(tr key), quality(=难度星), weapon?(仅 weapon 类) }
+const REWARD_KIND_WEIGHTS := {
+	1: {"weapon": 60.0, "wingman": 40.0, "carrier": 0.0},
+	2: {"weapon": 35.0, "wingman": 45.0, "carrier": 20.0},
+	3: {"weapon": 15.0, "wingman": 40.0, "carrier": 45.0},
+}
+## 追加武器子池：低星偏尾雷、高星偏忠诚僚机/QMAAM（"难度越高奖励越好"）
+const REWARD_WEAPON_WEIGHTS := {
+	1: {"tail_mine": 50.0, "loyal_wingman": 25.0, "qmaam": 25.0},
+	2: {"tail_mine": 34.0, "loyal_wingman": 33.0, "qmaam": 33.0},
+	3: {"tail_mine": 20.0, "loyal_wingman": 40.0, "qmaam": 40.0},
+}
+const REWARD_WEAPON_NAME_KEYS := {
+	"tail_mine": "REWARD_WEAPON_TAILMINE_NAME",
+	"loyal_wingman": "REWARD_WEAPON_LOYAL_NAME",
+	"qmaam": "REWARD_WEAPON_QMAAM_NAME",
+}
+## 航母登舰全局余量（spec §2.4：全程限 2 次；survivor_mode 登舰时扣减；归零后 carrier 不再进池）
+var carrier_uses_left: int = 2
+
 static func _build_reward_pool() -> Array:
 	var pool: Array = []
 	for u in SurvivorData.UPGRADES:
@@ -420,24 +441,50 @@ static func category_hint_key(category: StringName) -> String:
 		&"MISSILE": return "ZONE_REWARD_HINT_MISSILE"
 		_: return "ZONE_REWARD_HINT_SURVIVAL"
 
-## 随机给某个战区分配一个奖励技能（如已分配则保留）
-## 一局游戏中每个奖励技能只会出现在一个战区 —— 本函数过滤掉已分配过的 id
-## 若候选池被全部用尽，则该战区无奖励（_rewards 不写入），UI 应处理空奖励的情况
+## 给战区 roll 三类实体奖励（spec zone-reward-docking §2.3；如已分配则保留）
+## 前置：应先 _roll_difficulty（权重按星级；本函数幂等兜底再 roll 一次）
 func _assign_reward(id: StringName) -> void:
 	if _rewards.has(id):
 		return
-	var pool := _build_reward_pool()
-	# 过滤已用过的奖励
-	var avail: Array = []
-	for u in pool:
-		var uid := String(u.get("id", ""))
-		if uid != "" and not _used_reward_ids.has(uid):
-			avail.append(u)
-	if avail.is_empty():
-		return
-	var pick: Dictionary = avail[randi() % avail.size()]
-	_rewards[id] = pick
-	_used_reward_ids[String(pick["id"])] = true
+	_roll_difficulty(id)
+	var diff: int = get_difficulty(id)
+	var kind_w: Dictionary = (REWARD_KIND_WEIGHTS.get(diff, REWARD_KIND_WEIGHTS[1]) as Dictionary).duplicate()
+	if carrier_uses_left <= 0:
+		kind_w["carrier"] = 0.0
+	var kind := _weighted_pick_str(kind_w)
+	if kind == "":
+		kind = "weapon"
+	var reward: Dictionary = {"kind": kind, "quality": diff}
+	match kind:
+		"carrier":
+			reward["id"] = "reward_carrier"
+			reward["name"] = "REWARD_CARRIER_NAME"
+		"wingman":
+			reward["id"] = "reward_wingman"
+			reward["name"] = "REWARD_WINGMAN_NAME"
+		_:
+			var w := _weighted_pick_str(REWARD_WEAPON_WEIGHTS.get(diff, REWARD_WEAPON_WEIGHTS[1]))
+			if w == "":
+				w = "tail_mine"
+			reward["id"] = "reward_weapon_%s" % w
+			reward["weapon"] = w
+			reward["name"] = String(REWARD_WEAPON_NAME_KEYS.get(w, "REWARD_WEAPON_TAILMINE_NAME"))
+	_rewards[id] = reward
+
+## 通用字符串键权重抽取（返回 "" = 全零权重）
+func _weighted_pick_str(weights: Dictionary) -> String:
+	var total := 0.0
+	for k in weights:
+		total += maxf(0.0, float(weights[k]))
+	if total <= 0.0:
+		return ""
+	var rr := randf() * total
+	var acc := 0.0
+	for k in weights:
+		acc += maxf(0.0, float(weights[k]))
+		if rr <= acc:
+			return String(k)
+	return ""
 
 ## 获取某战区的奖励 upgrade dict（可能为空）
 func get_reward(id: StringName) -> Dictionary:
@@ -569,10 +616,10 @@ func set_mission_type(id: StringName, mission_type: String) -> void:
 ## 若已经是 AVAILABLE/SELECTED 且已有 reward+difficulty，不会覆盖
 func debug_set_available(id: StringName) -> void:
 	_states[id] = State.AVAILABLE
-	if not _rewards.has(id):
-		_assign_reward(id)
 	if not _difficulties.has(id):
 		_roll_difficulty(id)
+	if not _rewards.has(id):
+		_assign_reward(id)
 	if not _mission_types.has(id):
 		_roll_mission_type(id)
 

@@ -52,7 +52,8 @@
 | 功能 | 位置 |
 |------|------|
 | 战斗追踪主逻辑（空对空） | `aircraft.gd:1107` _update_combat |
-| 对地攻击（跑道进入式） | `aircraft.gd:1274` _update_combat_ground_attack |
+| 对地攻击（Apache 专用 `_strafe_state`，不经 planner） | `aircraft.gd:1274` _update_combat_ground_attack |
+| 对面攻击 pass 循环（planner 路径：玩家指挥机+迁移 AI+舰船，SETUP/RUN/EGRESS + 姿态 STANDOFF/ASSAULT，spec surface-attack-pass） | `ai/tactical/bfm_intent.gd` ground_strafe + `_strafe_pass_phase`（Aircraft 状态位） |
 | 设定战斗目标 | `aircraft.gd:1093` set_combat_target |
 | 清除战斗目标 | `aircraft.gd:1099` clear_combat_target |
 | CombatParams 获取 | `aircraft.gd:1347` _combat_params |
@@ -67,6 +68,8 @@
 | 梭射常量（DUTY/MIN_INTRA/帧补上限） | `scripts/aircraft/aircraft_weapons.gd` GUN_BURST_* |
 | 梭计数状态 | `aircraft.gd` _gun_burst_rounds_left（_fire_cooldown 旁） |
 | 每梭弹数参数 | `scripts/gun_params.gd` burst_count |
+| [GUN_BURST] 梭起始诊断（射向/最近敌机距离快照，追"对空放枪"） | `scripts/aircraft/aircraft_weapons.gd` _log_burst_start |
+| [GUN_SCAN] 被动扫描锁存上升沿诊断 | `scripts/aircraft/aircraft_weapons.gd` auto_gun_scan 尾部 |
 | 机炮射程（像素） | `aircraft.gd:1355` _gun_range_px |
 | 子弹生成 | `bullet_manager.gd:23` spawn_bullet |
 | 子弹物理+命中检测 | `bullet_manager.gd` _physics_process |
@@ -412,6 +415,14 @@
 | 增援入场常量（INGRESS_*/ANCHOR_*/PATROL_RING_*/EGRESS_*/OPENING_GARRISON，spec reinforcement-ingress）| `survivor_data.gd` SPAWN_DISTANCE 之后 |
 | 增援入场逻辑（边缘生成/锚点驻空/EGRESS/开局驻防 + 冻结豁免）| `survivor_spawner.gd` INGRESS 段 + `survivor_mode.gd` LOD 冻结块 reinforcement 分支 |
 | 地图扩展无头回归（几何/陆地占比/BOSS 锚点/入场纯函数）| `scripts/tests/test_map_expansion.gd` |
+| 60km 密度调优旋钮（战区规模/token/间隔/上限/hunter 配额，spec 60km-density-pass）| `survivor_data.gd`（ground_tgt_scale 含 radar_count / ZONE_DEFENDER_* / TOKEN_BUDGET_*）+ `survivor_spawner.gd` _update_hunters + `zone_data.gd` 半径 |
+| 战区雷达站 TGT + 空战中队长机高一档 + 盘旋环随半径缩放 | `zone_mission.gd`（_RADAR_SCENE / _spawn_ground_garrison 尾段 / _spawn_air_squadron leader_etype·orbit_r / _spawn_zone_defenders garrison_r） |
+| 教程轰炸机锚点（出生点前方派生，扩图安全）| `survivor/adbs_manager.gd` TUTORIAL_BOMBER_ANCHOR |
+| 停靠结算（spec zone-reward-docking：DockPoint 组件/机场 3 处/攻克全队满血+奖励入库/领奖分发）| `survivor/dock_point.gd` + `survivor_mode.gd`（_on_dock_docked / _spawn_airfield_docks / _claim_*）|
+| 战区三类奖励 roll（航母/僚机/武器 + carrier_uses_left）| `survivor/zone_data.gd` REWARD_KIND_WEIGHTS / _assign_reward |
+| 友军航母（南入北上/甲板 DockPoint/限 2 次/击沉清零）| `survivor_mode.gd` _summon_reward_carrier / _depart_friendly_carrier |
+| 逃跑组护卫编队（adds 语义、普通 XP）| `survivor/survivor_spawner.gd` _spawn_flee_escort |
+| Tab 停靠/奖励标记 | `survivor/tactical_map.gd` _draw_dock_markers + _draw_one_zone 奖励行 |
 | 敌机上限常量（HARD/DEFAULT/MIN/TARGET_FPS）| `survivor_data.gd:215-218` |
 | MiG 解锁/概率常量 | `survivor_data.gd:220-222` |
 | 截击机 J-7 解锁/概率常量 | `survivor_data.gd:223-225` |

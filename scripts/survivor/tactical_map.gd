@@ -43,6 +43,7 @@ var _hover_zone_id: StringName = &""
 var _nav_marker_world: Vector2 = Vector2.INF  ## 当前巡航航点标记（世界坐标，INF=无）。选战区时清除。
 var _is_open: bool = false
 var _adbs: AdbsManager = null  ## 用于在缩略图上画 ADBS 目标实时位置
+var _docks: Array = []         ## 停靠点列表（DockPoint，spec zone-reward-docking）
 # ── 底部"随机战场简报" + 右下"操作指南" ──
 const _TIP_KEYS: Array[String] = [
 	"TACTICAL_TIP_BOUNDARY",
@@ -93,6 +94,11 @@ func setup(world_rect: Rect2, player: Aircraft, zones: ZoneData, game_scene: Nod
 
 func set_adbs(adbs: AdbsManager) -> void:
 	_adbs = adbs
+
+func set_docks(docks: Array) -> void:
+	_docks = docks
+	if _map_panel:
+		_map_panel.queue_redraw()
 
 func is_open() -> bool:
 	return _is_open
@@ -254,6 +260,9 @@ func _on_map_draw() -> void:
 
 	# ADBS 目标实时位置（黄色菱形 + 朝向短线，带脉冲）
 	_draw_adbs_markers(size)
+
+	# 停靠点（机场/航母，青绿方框 + 短跑道线）
+	_draw_dock_markers(size)
 
 	# 巡航航点标记（玩家点空白处留下的目标点）
 	_draw_nav_marker(size)
@@ -494,6 +503,20 @@ func _draw_one_zone(z: Dictionary, zid: StringName, size: Vector2) -> void:
 		ThemeDB.fallback_font, c + Vector2(-6, 5),
 		label_s, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, color
 	)
+	# 战区奖励前置显示（spec zone-reward-docking §2.8）：图标字符 + 名称（圈下方）
+	if zid != &"BOSS" and _zones \
+			and (state == ZoneData.State.AVAILABLE or state == ZoneData.State.SELECTED):
+		var rw: Dictionary = _zones.get_reward(zid)
+		if not rw.is_empty():
+			var glyph := "◆"
+			match String(rw.get("kind", "")):
+				"carrier": glyph = "⚓"
+				"wingman": glyph = "✚"
+				"weapon": glyph = "⌁"
+			var rtxt := "%s %s" % [glyph, tr(String(rw.get("name", "")))]
+			_map_panel.draw_string(ThemeDB.fallback_font, c + Vector2(-r, r + 13.0),
+				rtxt, HORIZONTAL_ALIGNMENT_CENTER, r * 2.0, 11,
+				Color(0.85, 0.95, 0.90, 0.95))
 	if zid != &"BOSS" and _zones and state != ZoneData.State.CLEARED:
 		var difficulty: int = _zones.get_difficulty(zid)
 		var stars: String = "★".repeat(difficulty)
@@ -525,6 +548,50 @@ func _draw_adbs_markers(size: Vector2) -> void:
 		var hd: float = u.heading if "heading" in u else 0.0
 		var tip := pos + Vector2(sin(hd), -cos(hd)) * 10.0
 		_map_panel.draw_line(pos, tip, color, 1.5)
+
+## 停靠点标记（spec zone-reward-docking）：青绿方框 + 中线（跑道意象）；航母停靠点跟随实时位置
+func _draw_dock_markers(size: Vector2) -> void:
+	if _docks.is_empty():
+		return
+	var font := ThemeDB.fallback_font
+	for d_any in _docks:
+		var d := d_any as DockPoint
+		if not is_instance_valid(d):
+			continue
+		var pos := _world_to_map(d.global_position, size)
+		var is_carrier: bool = d.dock_kind == "carrier"
+		var col := Color(0.55, 0.82, 1.0, 1.0) if is_carrier else Color(0.40, 0.96, 0.72, 1.0)
+		# ── 图标（先画深色描边衬底，再画亮色主体，让它从浅底图跳出来）──
+		if is_carrier:
+			# 蓝青菱形（锚泊母舰）
+			var d0 := 7.5
+			_map_panel.draw_colored_polygon(PackedVector2Array([
+				pos + Vector2(0, -d0), pos + Vector2(d0, 0),
+				pos + Vector2(0, d0), pos + Vector2(-d0, 0)]), Color(0, 0, 0, 0.6))
+			var d1 := 5.5
+			_map_panel.draw_colored_polygon(PackedVector2Array([
+				pos + Vector2(0, -d1), pos + Vector2(d1, 0),
+				pos + Vector2(0, d1), pos + Vector2(-d1, 0)]), col)
+		else:
+			# 机场：跑道方框 + 中线
+			var rw := 6.0
+			var rh := 3.6
+			_map_panel.draw_rect(Rect2(pos - Vector2(rw + 1, rh + 1),
+				Vector2((rw + 1) * 2, (rh + 1) * 2)), Color(0, 0, 0, 0.6), false, 3.0)
+			_map_panel.draw_rect(Rect2(pos - Vector2(rw, rh),
+				Vector2(rw * 2, rh * 2)), col, false, 1.5)
+			_map_panel.draw_line(pos + Vector2(-rw + 2, 0), pos + Vector2(rw - 2, 0), col, 1.5)
+		# ── 名称标签：深色背板 + 亮字（和 HUD 数据标签同风格，保证浅底图上可读）──
+		var txt := tr(d.display_name_key)
+		var fsize := 11
+		var tw: float = font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize).x
+		var lx := pos.x + 10.0
+		if lx + tw + 4.0 > size.x:          # 贴右边界 → 名称改画标记左侧
+			lx = pos.x - 10.0 - tw
+		var ly := pos.y
+		_map_panel.draw_rect(Rect2(lx - 3.0, ly - 8.0, tw + 6.0, 15.0), Color(0.05, 0.11, 0.10, 0.72))
+		_map_panel.draw_string(font, Vector2(lx, ly + 3.5), txt,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, col)
 
 ## 画巡航航点标记：脉冲环 + 十字（琥珀色）。右键清除。
 func _draw_nav_marker(size: Vector2) -> void:
