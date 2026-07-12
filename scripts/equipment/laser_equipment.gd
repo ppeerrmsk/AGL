@@ -135,7 +135,7 @@ func _pick_targets(ac) -> Array:
 	# Aircraft + 地面单位
 	if can_target_aircraft or can_target_ground:
 		for unit in CombatUnit.all_units:
-			if not is_instance_valid(unit) or unit == ac or unit.team == ac.team:
+			if not is_instance_valid(unit) or unit == ac or not CombatUnit.teams_hostile(unit.team, ac.team):
 				continue
 			if unit.is_destroyed:
 				continue
@@ -158,7 +158,7 @@ func _pick_targets(ac) -> Array:
 			if not (child is Missile):
 				continue
 			var m: Missile = child
-			if not m.is_active or m.team == ac.team:
+			if not m.is_active or not CombatUnit.teams_hostile(m.team, ac.team):
 				continue
 			var d: float = origin.distance_to(m.global_position)
 			if d > range_px or d < 1.0:
@@ -203,7 +203,7 @@ func _apply_laser_effect(ac, target, damage: float, damage_skill_active: bool) -
 func _has_damage_skill(ac) -> bool:
 	if ac == null or not is_instance_valid(ac):
 		return false
-	if ac.team != 0:
+	if not ac.is_player_squad():
 		return false
 	if not ac.has_meta("upgrade_stacks"):
 		return false

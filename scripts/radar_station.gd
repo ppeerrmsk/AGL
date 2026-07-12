@@ -180,14 +180,10 @@ func _draw_data_label() -> void:
 	var box_w := max_w + 6.0
 	var box_h := lines.size() * line_height + 4.0
 
-	var text_color: Color
-	var bg_color: Color
-	if team == 0:
-		text_color = Color(0.5, 0.8, 1.0)
-		bg_color = Color(0.0, 0.1, 0.2, 0.6)
-	else:
-		text_color = Color(1.0, 0.6, 0.4)
-		bg_color = Color(0.2, 0.05, 0.0, 0.6)
+	# FactionPalette 统一（友好阵营 0/2 冷色系 / 敌暖色系）
+	var _lc := GameConstants.ground_label_colors(team)
+	var text_color: Color = _lc[0]
+	var bg_color: Color = _lc[1]
 
 	var rotated_offset := label_offset.rotated(inv_rot)
 	draw_set_transform(rotated_offset, inv_rot)

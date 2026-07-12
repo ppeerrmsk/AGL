@@ -52,7 +52,7 @@ static func try_engage(ai: AIController) -> void:
 		if not is_instance_valid(target_key):
 			continue
 		var target_ac: CombatUnit = target_key
-		if target_ac.is_destroyed or target_ac.team == ai.aircraft.team:
+		if target_ac.is_destroyed or not ai.aircraft.is_hostile_to(target_ac):
 			continue
 
 		var score := _score_candidate(ai, target_ac, escort_leader, guard_ctx)
@@ -102,7 +102,7 @@ static func reevaluate_target(ai: AIController) -> void:
 		if not is_instance_valid(target_key):
 			continue
 		var target_ac: CombatUnit = target_key
-		if target_ac.is_destroyed or target_ac.team == ai.aircraft.team:
+		if target_ac.is_destroyed or not ai.aircraft.is_hostile_to(target_ac):
 			continue
 
 		var score := _score_candidate(ai, target_ac, escort_leader, guard_ctx)
@@ -151,7 +151,7 @@ static func disengage(ai: AIController) -> void:
 				# `unit` truthy 仍可能是 freed 实例 → is_instance_valid 守卫（perf R4）
 				if not is_instance_valid(unit):
 					continue
-				if unit is Aircraft and unit.team == 0 and not unit.is_destroyed:
+				if unit is Aircraft and unit.is_player_squad() and not unit.is_destroyed:
 					player = unit as Aircraft
 					break
 		if player and ai.acquire_target(player, AIController.TargetSource.TS_SCORED, "boss re-engage"):

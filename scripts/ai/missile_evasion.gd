@@ -176,7 +176,7 @@ static func should_enter_evade(ai: AIController) -> bool:
 	var m := find_nearest_incoming_missile(ai)
 	if m == null:
 		return false
-	if ai.aircraft.team != 0:
+	if not ai.aircraft.is_player_squad():
 		return true
 	# 导弹穿透窗口期（刚放焰获得的免疫窗）：导弹打不中，无需散开
 	if ai.aircraft.missile_phase_timer > 0.0:
@@ -233,7 +233,7 @@ static func find_nearest_incoming_missile(ai: AIController) -> Missile:
 
 	var nearest: Missile = null
 	var nearest_dist := 99999.0
-	var is_player_side: bool = ai.aircraft.team == 0
+	var is_player_side: bool = ai.aircraft.is_player_squad()
 
 	for child in missile_manager.get_children():
 		if not child is Missile:

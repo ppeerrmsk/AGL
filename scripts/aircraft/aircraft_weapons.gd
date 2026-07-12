@@ -78,8 +78,8 @@ static func _has_stable_launch_window(ac: Aircraft, target_unit: CombatUnit) -> 
 static func _should_apply_launch_quality(ac: Aircraft) -> bool:
 	if ac.use_tactical_preference:
 		return true
-	# 玩家方僚机：team 0 + planner-managed → 与玩家同等纪律
-	if ac.team == 0 and ac.use_tactical_planner:
+	# 玩家方僚机：玩家小队 + planner-managed → 与玩家同等纪律
+	if ac.is_player_squad() and ac.use_tactical_planner:
 		return true
 	return false
 
@@ -195,7 +195,7 @@ static func auto_gun_scan(ac: Aircraft) -> void:
 		if not unit is Aircraft:
 			continue
 		var other: Aircraft = unit
-		if other.team == ac.team or other.is_destroyed or other.is_cloaked:
+		if not ac.is_hostile_to(other) or other.is_destroyed or other.is_cloaked:
 			continue
 
 		var to_ac := other.global_position - my_pos
@@ -222,7 +222,16 @@ static func auto_gun_scan(ac: Aircraft) -> void:
 			best_target = other
 			ac._gun_lead_heading = angle_to_lead
 
+	var _was_firing: bool = ac.is_firing
 	ac.is_firing = ac._ai_gun_burst_allowed(best_target != null, ac.get_physics_process_delta_time())
+	# [GUN_SCAN] 被动扫描锁存上升沿（仅友方/选中机）：无 combat_target 时 is_firing 的唯一
+	# true 来源就是这里 —— 谁被扫进 ±cone 一目了然（配合 [GUN_BURST] 追"对空放枪"）
+	if ac.is_firing and not _was_firing and (ac.is_player_squad() or ac.selected) and best_target != null:
+		EventLogger.log_event("GUN_SCAN", ac._log_name(),
+			"latch tgt=%s dist=%dm angle=%d°" % [
+				ac._log_unit_name(best_target),
+				int(my_pos.distance_to(best_target.global_position) / CombatUnit.PIXELS_PER_METER),
+				int(rad_to_deg(best_angle))])
 
 ## 机炮梭射状态机（specs/weapons/gun-burst-fire.md）：
 ## 空闲 → 梭起始（装填 burst_count 发）→ 梭内（承诺：无视 is_firing 打完整梭）→ 梭间 CD → …
@@ -234,7 +243,7 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 	else:
 		ac._fire_cooldown = maxf(ac._fire_cooldown - delta, 0.0)
 	# §C 玩家技能"AB 时回机炮弹"：开 AB 时持续 regen（受 max_ammo 上限）
-	if ac.team == 0 and ac.is_afterburner and ac.ab_gun_regen_per_sec > 0.0 \
+	if ac.is_player_squad() and ac.is_afterburner and ac.ab_gun_regen_per_sec > 0.0 \
 			and ac.params and ac.params.gun:
 		var max_ammo: int = ac.params.gun.max_ammo
 		if ac.ammo < max_ammo:
@@ -304,6 +313,7 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 			var skill: float = clampf(ac.pilot_aim_skill, 0.0, 1.0)
 			var base_err_deg: float = lerpf(5.0, 0.5, skill)
 			ac._gun_aim_offset_rad = deg_to_rad(base_err_deg) * randf_range(-1.0, 1.0)
+		_log_burst_start(ac, gun)
 
 	# 梭内出弹：累加器一帧可补 ≤ GUN_BURST_MAX_CATCHUP 发（intra 贴帧长时）
 	var fired_this_frame: int = 0
@@ -319,6 +329,32 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 		else:
 			# 梭间 CD：按平均射速守恒（burst_count × base_interval 的剩余额度）
 			ac._fire_cooldown = maxf(float(maxi(gun.burst_count, 1)) * (base_interval - intra), 0.0)
+
+## [GUN_BURST] 梭起始诊断快照（节流 0.5s；仅友方 team 0 / 选中机，敌机静默防刷屏）。
+## 补可观测性缺口（2026-07-07 追"僚机对空放枪"）：打空的梭在 [GUN]（仅命中记录）/
+## [GUN_AIM]（需 combat_target 有效）里零痕迹 —— 这里无条件记录射向与最近敌机距离，
+## 使"射程内无目标却出弹"可以直接从 F9 日志定位触发路径（planner 火控 / auto_gun_scan 锁存）。
+static func _log_burst_start(ac: Aircraft, gun: GunParams) -> void:
+	if not ac.is_player_squad() and not ac.selected:
+		return
+	var now_s: float = Time.get_ticks_msec() / 1000.0
+	if now_s < ac._gun_burst_log_until:
+		return
+	ac._gun_burst_log_until = now_s + 0.5
+	var tgt_name := "none"
+	if ac.combat_target != null and is_instance_valid(ac.combat_target):
+		tgt_name = ac._log_unit_name(ac.combat_target)
+	var lead_off_deg: int = int(rad_to_deg(ac._angle_diff(ac._gun_lead_heading, ac.heading)))
+	# 最近敌机距离（米）：全场 O(N) 扫一次，≤2Hz 且仅开火中友方触发，量级可忽略
+	var nearest_px: float = INF
+	for unit in CombatUnit.all_units:
+		if not is_instance_valid(unit) or unit.is_destroyed or not ac.is_hostile_to(unit):
+			continue
+		nearest_px = minf(nearest_px, ac.global_position.distance_to(unit.global_position))
+	var nearest_m: int = int(nearest_px / CombatUnit.PIXELS_PER_METER) if nearest_px != INF else -1
+	EventLogger.log_event("GUN_BURST", ac._log_name(),
+		"tgt=%s lead_vs_nose=%+d° nearest_enemy=%dm gun_range=%dm ammo=%d" % [
+			tgt_name, lead_off_deg, nearest_m, int(gun.max_range), ac.ammo])
 
 ## 单发出弹：散布/云雾/机动惩罚/多管齐射/音效/弹药，从旧 update_gun 原样抽出
 static func _fire_gun_round(ac: Aircraft, gun: GunParams) -> void:
@@ -349,7 +385,7 @@ static func _fire_gun_round(ac: Aircraft, gun: GunParams) -> void:
 		var muzzle_pos := ac.global_position + Vector2(sin(ac.heading), -cos(ac.heading)) * 20.0
 		ac.bullet_manager.spawn_bullet(muzzle_pos, bullet_dir, gun.muzzle_velocity, ac, gun.bullet_damage)
 		# §C 玩家技能"机炮发射时减伤"：刷新窗口时间戳，下次受伤 _apply_damage 查
-		if ac.team == 0 and ac.gun_fire_dr_window > 0.0:
+		if ac.is_player_squad() and ac.gun_fire_dr_window > 0.0:
 			ac._gun_fire_recently_until = EventLogger.get_game_time() + ac.gun_fire_dr_window
 		# 音效：连射节流 0.5s 一次，防每颗子弹叠声道
 		if ac._sfx_gun_cd <= 0.0:
@@ -399,7 +435,7 @@ static func update_ciws(ac: Aircraft, delta: float) -> void:
 		if not (child is Missile):
 			continue
 		var m: Missile = child as Missile
-		if not m.is_active or m.is_flare_jammed or m.team == ac.team:
+		if not m.is_active or m.is_flare_jammed or not CombatUnit.teams_hostile(m.team, ac.team):
 			continue
 		if m.target != ac:
 			continue
@@ -492,7 +528,7 @@ static func update_rocket(ac: Aircraft, delta: float) -> void:
 	for unit in CombatUnit.all_units:
 		if not is_instance_valid(unit) or unit.is_destroyed:
 			continue
-		if unit == ac or unit.team == ac.team:
+		if unit == ac or not ac.is_hostile_to(unit):
 			continue
 		if unit is Aircraft and (unit as Aircraft).is_cloaked:
 			continue
@@ -563,7 +599,7 @@ static func _launch_rocket(ac: Aircraft, base_heading: float, _queued_pos: Vecto
 			rk.proximity_fuse_radius_m, rk.aoe_radius_m, rk.aoe_damage,
 		)
 	# 玩家技能 SKILL_ROCKET_HOMING：把刚生成的火箭弹标记为追踪型
-	if ac.team == 0 and ac.has_meta("upgrade_stacks"):
+	if ac.is_player_squad() and ac.has_meta("upgrade_stacks"):
 		var stacks: Dictionary = ac.get_meta("upgrade_stacks")
 		if int(stacks.get(SkillHooks.SKILL_ROCKET_HOMING, 0)) > 0:
 			ac.bullet_manager.mark_last_rocket_homing()
@@ -876,7 +912,7 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 		var target_unit: CombatUnit = target_key as CombatUnit
 		if target_unit == null or target_unit.is_destroyed:
 			continue
-		if target_unit.team == ac.team:
+		if not ac.is_hostile_to(target_unit):
 			continue
 		if ac.radar_targets[target_key] < lock_threshold:
 			continue
@@ -982,7 +1018,7 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 ## 玩家技能"燃尽自如"：超载期间发射不消耗导弹弹量
 ## 仅 team 0 + status_overload_active + 持有该技能时返回 true
 static func _overload_ammo_free(ac: Aircraft) -> bool:
-	if ac.team != 0 or not ac.status_overload_active:
+	if not ac.is_player_squad() or not ac.status_overload_active:
 		return false
 	if not ac.has_meta("upgrade_stacks"):
 		return false
@@ -1225,7 +1261,7 @@ static func update_secondary_radar(ac: Aircraft, delta: float) -> void:
 
 	for unit in ac.bullet_manager.combat_unit_list:
 		if unit == null or not is_instance_valid(unit): continue
-		if unit.team == ac.team or unit.is_destroyed: continue
+		if not ac.is_hostile_to(unit) or unit.is_destroyed: continue
 		# filter 不匹配的从累积清掉
 		if (sec.target_filter & _secondary_target_class_bit(unit)) == 0:
 			ac.secondary_radar_targets.erase(unit); continue

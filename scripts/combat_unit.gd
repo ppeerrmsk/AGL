@@ -57,7 +57,26 @@ const TIER_NAMES := {
 }
 
 # --- 基础属性 ---
-@export var team: int = 0  ## 0=友方, 1=敌方
+## 阵营（spec global-awareness-roe §2.1）：
+##   0 = PLAYER 玩家小队（可控友军）  1 = HOSTILE 敌军
+##   2 = ALLY 第三方友军（不可操控）  3 = NEUTRAL 预留未实装
+## 敌我判断一律走 is_hostile_to() / teams_hostile()，禁止散写 team 直比。
+@export var team: int = 0
+const TEAM_PLAYER: int = 0
+const TEAM_HOSTILE: int = 1
+const TEAM_ALLY: int = 2
+
+## 敌我判定唯一 API：HOSTILE 与其它一切阵营互为敌对；非 HOSTILE 阵营之间互为友好。
+func is_hostile_to(other: CombatUnit) -> bool:
+	return (team == TEAM_HOSTILE) != (other.team == TEAM_HOSTILE)
+
+## 整数 team 版（子弹/导弹只携带 source_team int 时用，语义与 is_hostile_to 一致）
+static func teams_hostile(team_a: int, team_b: int) -> bool:
+	return (team_a == TEAM_HOSTILE) != (team_b == TEAM_HOSTILE)
+
+## 玩家小队判定（玩家特权 gate：技能/热诱弹/RTS 指挥/datalink 等；ALLY 不得继承这些特权）
+func is_player_squad() -> bool:
+	return team == TEAM_PLAYER
 var altitude: float = 5000.0        ## 米
 var heading: float = 0.0            ## 弧度, 0=上(北)
 var speed: float = 0.0              ## m/s
@@ -189,7 +208,7 @@ func _lock_line_can_engage_player() -> bool:
 func update_lock_line_state(delta: float) -> void:
 	var pref: Aircraft = AircraftRenderer.player_ref
 	var pref_valid: bool = pref != null and is_instance_valid(pref) and not pref.is_destroyed
-	var skip: bool = is_destroyed or team == 0 or not pref_valid
+	var skip: bool = is_destroyed or team != TEAM_HOSTILE or not pref_valid
 	var locked: bool = pref_valid and pref.locked_by.has(self)
 	var can_engage: bool = pref_valid and _lock_line_can_engage_player()
 	LockWarning.update(lock_warning_state, locked, can_engage, skip, delta)

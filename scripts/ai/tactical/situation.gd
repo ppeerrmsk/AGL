@@ -110,6 +110,14 @@ var prev_intent: int = -1              ## 上一帧选定的 intent，-1 表示�
 var prev_intent_held_for: float = 0.0  ## 上一 intent 已持续秒数
 var extend_remaining: float = 0.0      ## EXTEND_RECOVER 剩余时间，>0 表示强制保持脱离
 
+# ── 对面攻击 pass（spec surface-attack-pass）──
+var strafe_pass_phase: int = 0         ## 上一帧的 pass 相位（TacticalPlan.SurfacePhase：0=SETUP/1=RUN/2=EGRESS）
+const POSTURE_AUTO := 0                ## 姿态：AUTO=按武器竞选结果推导（有弹 STANDOFF / 无弹 ASSAULT）
+const POSTURE_STANDOFF := 1            ## 命令轮盘覆盖（command-wheel phase 4 接入，本期未用）
+const POSTURE_ASSAULT := 2
+var attack_posture: int = POSTURE_AUTO ## 攻击姿态；AUTO=武器推导，非 AUTO=轮盘强制
+var surround_bearing: float = INF      ## FOCUS 包围进入方位（绝对弧度，INF=未分配；command-wheel §3.6）
+
 # ══════════════════════════════════════════════
 #  构造工厂
 # ══════════════════════════════════════════════
@@ -164,6 +172,16 @@ static func from_aircraft(ac) -> Situation:
 		s.prev_intent_held_for = maxf(0.0, s.current_time - ac._bfm_intent_started_at)
 	if "_bfm_extend_until" in ac:
 		s.extend_remaining = maxf(0.0, ac._bfm_extend_until - s.current_time)
+	# 对面攻击 pass 相位（住 Aircraft，_apply_tactical_plan 回写；与 _bfm_prev_intent 同款通道）
+	if "_strafe_pass_phase" in ac:
+		s.strafe_pass_phase = ac._strafe_pass_phase
+	# 攻击姿态 + 包围方位（command-wheel phase 4，已接线）：随 commanded_target 走——仅带点名
+	# 命令时读机上字段；无命令（自动交战/自由僚机）恒 AUTO/INF，防残留污染自主交战
+	if ac.commanded_target != null:
+		if "attack_posture" in ac:
+			s.attack_posture = ac.attack_posture
+		if "surround_bearing_rad" in ac:
+			s.surround_bearing = ac.surround_bearing_rad
 
 	# 玩家意图
 	if "evasion_mode" in ac:
@@ -186,7 +204,7 @@ static func from_aircraft(ac) -> Situation:
 			var t: CombatUnit = tgt as CombatUnit
 			if t == null or t.is_destroyed:
 				continue
-			if t.team == ac.team:
+			if not ac.is_hostile_to(t):
 				continue
 			if ac.radar_targets[tgt] >= lock_threshold:
 				s.has_radar_lock = true

@@ -34,6 +34,14 @@ enum WeaponMode {
 	BOTH,             ## 机炮 + 导弹双开（保留：未来配合 charge）
 }
 
+## 对面攻击 pass 子相位（spec surface-attack-pass）。GROUND_STRAFE intent 内部用，
+## 由 Situation.strafe_pass_phase 读入、本字段写出、Aircraft._apply_tactical_plan 回写。
+enum SurfacePhase {
+	SETUP,            ## 对准进入：corner speed 转弯（未 too_close）
+	RUN,              ## 已对准：俯冲/闭合开火
+	EGRESS,           ## 飞越/脱离：直线拉开到 reentry 再折返
+}
+
 # ── 决策字段 ──
 var intent: int = Intent.CRUISE
 var pursuit_pos: Vector2 = Vector2.INF        ## combat_tracking 写入 ac.target_position
@@ -46,6 +54,8 @@ var primary_weapon: String = ""
 var bank_limit_deg: float = -1.0               ## 坡度上限（武器纪律用，LINE_UP=30；-1=无限制；消费点 update_bank/step_bank）                ## 武器竞选胜者（spec weapon-employment-doctrine；""=全失格/无战斗）
 var target_altitude_m: float = -1.0            ## -1 = 保持，否则覆写 target_altitude
 var target_altitude_tier: int = -1             ## -1 = 保持，否则覆写 target_altitude_tier
+## 对面攻击 pass 下一相位（spec surface-attack-pass）；非 GROUND_STRAFE 的 intent 恒填 SETUP → 复位
+var strafe_pass_phase: int = SurfacePhase.SETUP
 
 ## 调试：每个 intent 函数填一行解释为什么选这个 intent
 var rationale: String = ""
@@ -76,6 +86,13 @@ static func intent_name(intent_id: int) -> String:
 		Intent.GROUND_STRAFE: return "GROUND_STRAFE"
 		Intent.EVADE_MISSILE: return "EVADE_MISSILE"
 		Intent.LINE_UP: return "LINE_UP"
+		_: return "UNKNOWN"
+
+static func surface_phase_name(phase_id: int) -> String:
+	match phase_id:
+		SurfacePhase.SETUP: return "SETUP"
+		SurfacePhase.RUN: return "RUN"
+		SurfacePhase.EGRESS: return "EGRESS"
 		_: return "UNKNOWN"
 
 static func weapon_mode_name(mode_id: int) -> String:

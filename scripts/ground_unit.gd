@@ -123,7 +123,7 @@ func _update_target_selection() -> void:
 		if not is_instance_valid(target_key):
 			continue
 		var target_unit: CombatUnit = target_key
-		if target_unit.is_destroyed or target_unit.team == team:
+		if target_unit.is_destroyed or not is_hostile_to(target_unit):
 			continue
 		var d := global_position.distance_to(target_unit.global_position)
 		if d < best_dist:

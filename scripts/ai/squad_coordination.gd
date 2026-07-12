@@ -277,7 +277,7 @@ static func scan_leader_threat_ground(ai: AIController) -> GroundUnit:
 		if not is_instance_valid(unit) or not (unit is SAMUnit or unit is AAGunUnit):
 			continue
 		var g: GroundUnit = unit as GroundUnit
-		if g.team == ai.aircraft.team or g.is_destroyed:
+		if not ai.aircraft.is_hostile_to(g) or g.is_destroyed:
 			continue
 		if ai._is_target_already_squad_engaged(g):
 			continue
@@ -338,7 +338,7 @@ static func scan_leader_rear(ai: AIController) -> Aircraft:
 		if not is_instance_valid(unit) or not unit is Aircraft:
 			continue
 		var ac: Aircraft = unit
-		if ac.team == ai.aircraft.team or ac.is_destroyed:
+		if not ai.aircraft.is_hostile_to(ac) or ac.is_destroyed:
 			continue
 		# 已被本队其他僚机盯上的后方威胁跳过 → 多架守护者分摊不同威胁，不挤同一个
 		if ai._is_target_already_squad_engaged(ac):
@@ -408,7 +408,7 @@ static func scan_squad_nearby_enemy(ai: AIController) -> Aircraft:
 		if not is_instance_valid(unit) or not unit is Aircraft:
 			continue
 		var ac: Aircraft = unit
-		if ac.team == ai.aircraft.team or ac.is_destroyed:
+		if not ai.aircraft.is_hostile_to(ac) or ac.is_destroyed:
 			continue
 		var d: float
 		if use_2d:

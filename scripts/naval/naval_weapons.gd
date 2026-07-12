@@ -201,7 +201,7 @@ static func _find_incoming_missile_for_ciws(nu: NavalUnit, mount: WeaponMount) -
 	if candidates.is_empty():
 		# 缓存关闭 / BulletManager 未连 → 走原始路径
 		for child in nu.missile_manager.get_children():
-			if (child is Missile) and (child as Missile).is_active and (child as Missile).team != nu.team:
+			if (child is Missile) and (child as Missile).is_active and CombatUnit.teams_hostile((child as Missile).team, nu.team):
 				candidates.append(child)
 
 	for c in candidates:
@@ -253,7 +253,7 @@ static func _find_aircraft_in_range(nu: NavalUnit, mount: WeaponMount,
 	for u in CombatUnit.all_units:
 		if u == null or not is_instance_valid(u):
 			continue
-		if u.is_destroyed or u.team == nu.team:
+		if u.is_destroyed or not nu.is_hostile_to(u):
 			continue
 		if not u is Aircraft:
 			continue
@@ -275,7 +275,7 @@ static func _find_player_in_ciws_range(nu: NavalUnit, mount: WeaponMount) -> Com
 	for u in CombatUnit.all_units:
 		if u == null or not is_instance_valid(u):
 			continue
-		if u.is_destroyed or u.team == nu.team:
+		if u.is_destroyed or not nu.is_hostile_to(u):
 			continue
 		# ⚠ is_instance_valid + is_destroyed 之后再做 `is Aircraft`，防护顺序不能反
 		if not u is Aircraft:
@@ -358,7 +358,7 @@ static func _update_sam_short(nu: NavalUnit, mount: WeaponMount, _delta: float) 
 	for u in CombatUnit.all_units:
 		if u == null or not is_instance_valid(u):
 			continue
-		if u.is_destroyed or u.team == nu.team:
+		if u.is_destroyed or not nu.is_hostile_to(u):
 			continue
 		if not u is Aircraft:
 			continue
@@ -417,7 +417,7 @@ static func _update_vls_salvo(nu: NavalUnit, mount: WeaponMount, delta: float) -
 	for u in CombatUnit.all_units:
 		if u == null or not is_instance_valid(u):
 			continue
-		if u.is_destroyed or u.team == nu.team:
+		if u.is_destroyed or not nu.is_hostile_to(u):
 			continue
 		if not u is Aircraft:
 			continue
@@ -456,7 +456,7 @@ static func _fire_one_vls_missile(nu: NavalUnit, mount: WeaponMount, missile_par
 	for u in CombatUnit.all_units:
 		if u == null or not is_instance_valid(u):
 			continue
-		if u.is_destroyed or u.team == nu.team:
+		if u.is_destroyed or not nu.is_hostile_to(u):
 			continue
 		if not u is Aircraft:
 			continue

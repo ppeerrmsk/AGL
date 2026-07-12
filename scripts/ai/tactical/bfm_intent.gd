@@ -23,6 +23,16 @@ const GUN_TARGET_AHEAD_MIN := 0.7      ## 开火要求目标本体 aim_align ≥
 									   ## 仅靠"前置点在锥内"会在横切高速目标时把机头前方的预测点判进锥，
 									   ## 对着空域零碎喷子弹（用户反馈：面前没敌机也射击）。目标本体 >45° 离轴一律不开火。
 
+# ── 对面攻击 pass（spec surface-attack-pass）几何常量 ──
+const SURFACE_TURN_G := 7.0                 ## 估算最小转弯半径用的持续 G（与 planner SLOW_TARGET_TURN_G 同值）
+const SURFACE_REATTACK_MULT := 1.5          ## dist < min_turn_r×此值 → too_close（转弯圆吃不下目标）
+const SURFACE_REENTRY_MULT := 2.5           ## EGRESS 提交到 dist ≥ min_turn_r×此值 才折返（空间滞回带）
+const SURFACE_REENTRY_FLOOR_M := 1500.0     ## ASSAULT 折返地板：拉出一段真正的 pass
+const SURFACE_STANDOFF_INNER_M := 2200.0    ## STANDOFF 脱离/最小 AA 距离：只防贴近近距 AA，不从良好发射位后撤
+                                            ## （病例2：命令打 6km 对舰不该 flee 到 9km——inner 是"别更近"，不是"退到远环"）
+const SURFACE_INNER_FLOOR_M := 120.0        ## ASSAULT 穿越扫射内缘地板：防撞地
+const SURFACE_EGRESS_OUT_PX := 3000.0       ## EGRESS 直线外推点距离（只给方向）
+
 # ══════════════════════════════════════════════
 #  无目标 / 巡航 / 移动
 # ══════════════════════════════════════════════
@@ -340,72 +350,138 @@ static func extend_recover(s: Situation) -> TacticalPlan:
 	p.rationale = "已穿过目标：直线脱离重整"
 	return p
 
-## 对地攻击（strafing run）：完整 pass 状态机
-## 子状态（无状态纯函数，每帧 Situation 重算）：
-##   SETUP：机头未对准（off_axis>30°）→ corner speed 转弯，关 AB（小半径回头/对准）
-##   RUN  ：机头对准 + 距离够 → 直冲，速度 cap 在 max×0.75（瞄准窗口够长）
-##   BREAK：穿过目标（dist 极近 + closing<0）→ 直线脱离 3km 重整
-## 全部用同一个 GROUND_STRAFE intent（rationale 区分），hysteresis 不受影响
-## 武器：_apply_combat_weapon 在导弹包络内优先 AGM，否则机炮
+## 对面攻击 pass 循环（spec surface-attack-pass）：对地面/舰船等静止目标做俯冲攻击跑
+##   SETUP  ：未对准且有空间 → corner speed 转弯对准（关 AB）
+##   RUN    ：已对准 → 俯冲/闭合开火（ASSAULT 贴地扫射 / STANDOFF 高位导弹）
+##   EGRESS ：飞越或转不回来（太近） → 直线拉开到 reentry 再折返
+## 姿态（attack_posture=AUTO 时按武器竞选结果推导）：
+##   ASSAULT（机炮）  = 俯冲到 tgt_alt 穿越扫射，飞越后拉起折返
+##   STANDOFF（导弹） = 高位进导弹包络就发射，够近前脱离，绝不俯冲进近距 AA
+## 相位状态位住 Aircraft._strafe_pass_phase，经 Situation 读入 / plan 输出 / _apply_tactical_plan 回写。
 static func ground_strafe(s: Situation) -> TacticalPlan:
 	var p := TacticalPlan.new()
 	p.intent = TacticalPlan.Intent.GROUND_STRAFE
-	# pursuit_pos：地面目标静止，直接瞄目标即可（不需要 lead）
+	# pursuit 先临时瞄目标本体（供 _apply_combat_weapon 按真实目标几何算火控锥/开火门），
+	# 相位机随后可能改写 pursuit（EGRESS 外推 / STANDOFF crank）——但开火门恒基于对准目标判定
 	p.pursuit_pos = s.tgt_pos
 	_apply_combat_weapon(s, p)
 
-	# 高度策略：
-	# - 导弹/AGM 模式 → 高空发射即可，**不俯冲进 AA 火力**（守护者打地面 AA 也走这条 → 远射少受伤）
-	#   · 玩家：走 altitude_preference；· 非玩家 AI：保持中空 MID（2026-05-31 改：原来始终俯冲到目标高度，
-	#     导致僚机/守护者打 SAM/AAA 时一头扎进防空火力吃伤害）
-	# - 机炮 strafe → 必须下降贴地才能 hit
-	if p.weapon_mode == TacticalPlan.WeaponMode.MISSILE:
-		if s.is_tactical_preference_user:
-			p.target_altitude_tier = _altitude_tier_from_preference(s.altitude_preference)
-		else:
-			p.target_altitude_tier = CombatUnit.AltitudeTier.MID
+	# ── 姿态解析（AUTO=武器推导；command-wheel phase 4 可经 attack_posture 强制）──
+	var is_standoff: bool
+	match s.attack_posture:
+		Situation.POSTURE_STANDOFF: is_standoff = true
+		Situation.POSTURE_ASSAULT: is_standoff = false
+		_: is_standoff = (p.weapon_mode == TacticalPlan.WeaponMode.MISSILE)
+	var label: String = "STANDOFF" if is_standoff else "ASSAULT"
+
+	# ── 包络解析（禁止烘焙，实时读 live params）──
+	var gun_range_m: float = s.gun_range_m if s.gun_range_m > 0.0 else 1500.0
+	var outer_m: float
+	var inner_m: float
+	if is_standoff:
+		# STANDOFF「保持距离」= 维持"最小 AA 距离"（进到 ~2.2km 才脱离），而非"退到远环"。
+		# 病例2 根因：早期 inner=missile_max×0.5（远环）→ 命令打环内目标（6km 对舰、弹程 16km→环 8km）
+		# 时一进 RUN 就 dist≤inner → 立刻 EGRESS 背身外逃到 reentry(9km) → 20s 绕圈背飞。
+		# 改为固定近距 inner：RUN 从当前距离一路压入开火到 2.2km 才 break（corner 硬 break 已解 coast-through）。
+		outer_m = s.missile_max_range_m
+		inner_m = clampf(SURFACE_STANDOFF_INNER_M, s.missile_min_range_m * 1.5, s.missile_max_range_m * 0.6)
+	else:
+		outer_m = gun_range_m
+		# C2 有效性守卫：防 outer<inner 反向死锁（ASSAULT 贴地穿越）
+		inner_m = minf(SURFACE_INNER_FLOOR_M, outer_m * 0.6)
+
+	# ── 最小转弯半径守卫（根治绕圈）+ 折返距离 ──
+	var corner_ms: float = s.corner_speed_kmh / 3.6
+	var min_turn_r: float = (corner_ms * corner_ms) / (9.81 * SURFACE_TURN_G) if corner_ms > 1.0 else 500.0
+	var too_close: bool = s.dist_m < min_turn_r * SURFACE_REATTACK_MULT
+	var reentry_m: float
+	if is_standoff:
+		# 折返到 inner 外一点即可（再攻从 standoff 环外重新压入），夹在 [inner+500, outer×0.95]
+		reentry_m = clampf(inner_m + maxf(min_turn_r * 2.0, 800.0), inner_m + 500.0, outer_m * 0.95)
+	else:
+		reentry_m = maxf(min_turn_r * SURFACE_REENTRY_MULT, SURFACE_REENTRY_FLOOR_M)
+
+	# ── 相位机（读 prev → 算 next → 按 next 产出动作，同帧）──
+	var aligned: bool = s.aim_align >= TAIL_AIM_THRESHOLD
+	var phase: int = s.strafe_pass_phase
+	match phase:
+		TacticalPlan.SurfacePhase.SETUP:
+			if aligned:
+				phase = TacticalPlan.SurfacePhase.RUN
+			elif too_close:
+				phase = TacticalPlan.SurfacePhase.EGRESS
+		TacticalPlan.SurfacePhase.RUN:
+			if s.dist_m <= inner_m or ((not aligned) and too_close):
+				phase = TacticalPlan.SurfacePhase.EGRESS
+			elif not aligned:
+				phase = TacticalPlan.SurfacePhase.SETUP
+		TacticalPlan.SurfacePhase.EGRESS:
+			if s.dist_m >= reentry_m:
+				phase = TacticalPlan.SurfacePhase.SETUP
+		_:
+			phase = TacticalPlan.SurfacePhase.SETUP
+	p.strafe_pass_phase = phase
+
+	# ── 相位动作 ──
+	match phase:
+		TacticalPlan.SurfacePhase.EGRESS:
+			# EGRESS 方向按姿态（都不沿机头——沿机头在头朝目标时会穿过目标，实测 min 1m）：
+			# - ASSAULT：径向背离 -LOS。飞越后目标已在身后，径向≈机头，顺势拉开（俯冲 pass 已验证）。
+			# - STANDOFF：侧向 beam break = (⟂LOS 朝机头偏侧 − 0.5·LOS) 归一。头朝目标触发 EGRESS 时
+			#   180° 径向反转要 coast 冲进 AA（head-on 实测 min 421m）；beam 只需 ~90-120° 转向，coast 小又开距。
+			# 纯函数无地图边界，靠 reentry 折返避免飞远。
+			var los: Vector2 = s.to_target_dir
+			var egress_dir: Vector2
+			if is_standoff and los.length_squared() > 0.01:
+				var cross: float = s.my_fwd.x * los.y - s.my_fwd.y * los.x
+				var side: float = 1.0 if cross >= 0.0 else -1.0
+				var tangent: Vector2 = Vector2(los.y, -los.x) * side  # ⟂LOS，朝机头当前偏的一侧（最小转向）
+				egress_dir = (tangent - los * 0.5).normalized()       # 偏离目标 → 保证开距
+			else:
+				egress_dir = (-los) if los.length_squared() > 0.01 else s.my_fwd
+			p.pursuit_pos = s.my_pos + egress_dir * SURFACE_EGRESS_OUT_PX
+			# 硬 break：corner speed 收紧转弯半径（最大转率/最小半径）
+			p.target_speed_kmh = s.corner_speed_kmh
+			p.afterburner = false
+			_surface_altitude(s, p, is_standoff)
+			p.rationale = "对面 EGRESS[%s]：硬 break 脱离折返 dist=%.0fm→reentry=%.0fm" % [label, s.dist_m, reentry_m]
+		TacticalPlan.SurfacePhase.RUN:
+			if is_standoff:
+				p.pursuit_pos = _missile_engage_pos(s)  # crank 保锁（保持 standoff 距离）
+				# 逼近脱离环时预减速到 corner：break 是硬 180，高速进 break → 转弯半径大 → coast 冲进 AA
+				# （sim：cruise 速度 head-on break 从 2.2km coast 到 395m）。近环减速使 break 弧收紧。
+				p.target_speed_kmh = s.corner_speed_kmh if s.dist_m < inner_m * 1.6 else s.cruise_speed_kmh * 1.15
+				p.afterburner = false
+				_surface_altitude(s, p, true)            # 保持 MID，不俯冲进 AA
+				p.rationale = "对面 RUN[STANDOFF]：导弹包络推进 dist=%.0fm" % s.dist_m
+			else:
+				p.pursuit_pos = s.tgt_pos                # 静止目标不需提前量
+				var run_kmh: float = clampf(s.cruise_speed_kmh * 1.4, s.cruise_speed_kmh, s.max_speed_kmh * 0.75)
+				p.target_speed_kmh = run_kmh
+				p.afterburner = (s.my_speed_ms * 3.6) < run_kmh * 0.95
+				_surface_altitude(s, p, false)           # 俯冲到 tgt_alt（低空扫射）
+				_apply_squad_lateral_offset(s, p)
+				p.rationale = "对面 RUN[ASSAULT]：俯冲扫射 dist=%.0fm spd=%dkmh" % [s.dist_m, int(run_kmh)]
+		_:  # SETUP
+			p.pursuit_pos = s.tgt_pos
+			p.target_speed_kmh = s.corner_speed_kmh
+			p.afterburner = false
+			_surface_altitude(s, p, is_standoff)
+			var off_deg: float = rad_to_deg(acos(clampf(s.aim_align, -1.0, 1.0)))
+			p.rationale = "对面 SETUP[%s]：转弯对准 (off=%.0f° r=%.0fm) corner=%dkmh" % [
+				label, off_deg, min_turn_r, int(s.corner_speed_kmh)]
+	return p
+
+## 对面 pass 的高度：玩家全程自治（走偏好 tier）；非玩家 STANDOFF 全程保持 MID（高位少受 AA）；
+## ASSAULT 全程俯冲到目标高度并保持低空（贴地扫射——不在脱离时爬回 MID，否则高度churn 永远打不到地面）
+static func _surface_altitude(s: Situation, p: TacticalPlan, is_standoff: bool) -> void:
+	if s.is_tactical_preference_user:
+		p.target_altitude_tier = _altitude_tier_from_preference(s.altitude_preference)
+		return
+	if is_standoff:
+		p.target_altitude_tier = CombatUnit.AltitudeTier.MID
 	else:
 		p.target_altitude_m = s.tgt_alt
-
-	if p.weapon_mode == TacticalPlan.WeaponMode.MISSILE:
-		# 导弹模式：稳定推进保持锁定
-		p.target_speed_kmh = s.cruise_speed_kmh * 1.15
-		p.afterburner = false
-		p.rationale = "对地：导弹包络稳定推进"
-		return p
-
-	# 机炮 strafe：按几何分子状态
-	var off_axis_cos: float = s.aim_align       # 1=正对，0=90°，-1=背对
-	var dist_m: float = s.dist_m
-	var gun_range_m: float = s.gun_range_m if s.gun_range_m > 0.0 else 1500.0
-
-	# BREAK：穿过目标（极近 + 远离）→ 直线脱离 3km
-	if dist_m < gun_range_m * 0.4 and s.closing_rate_ms < -50.0:
-		p.pursuit_pos = s.my_pos + s.my_fwd * 3000.0 * CombatUnit.PIXELS_PER_METER
-		p.target_speed_kmh = s.cruise_speed_kmh * 1.1
-		p.afterburner = false
-		p.rationale = "对地 BREAK：穿过目标 (dist=%.0fm closing=%.0fm/s) → 直线脱离" % [dist_m, s.closing_rate_ms]
-		return p
-
-	# SETUP / REENTRY：机头未对准（含目标在身后 → 等价 REENTRY 回头）
-	if off_axis_cos < TAIL_AIM_THRESHOLD:
-		p.target_speed_kmh = s.corner_speed_kmh
-		p.afterburner = false
-		var off_deg: float = rad_to_deg(acos(clampf(off_axis_cos, -1.0, 1.0)))
-		var label: String = "REENTRY" if off_axis_cos < 0.0 else "SETUP"
-		p.rationale = "对地 %s：转弯对准目标 (off=%.0f°) corner=%dkmh" % [label, off_deg, int(s.corner_speed_kmh)]
-		return p
-
-	# RUN：机头对准 → 直冲。速度 cap 在 max×0.75 让瞄准窗口够长
-	var run_target_kmh: float = clampf(
-		s.cruise_speed_kmh * 1.4,
-		s.cruise_speed_kmh,
-		s.max_speed_kmh * 0.75
-	)
-	p.target_speed_kmh = run_target_kmh
-	p.afterburner = (s.my_speed_ms * 3.6) < run_target_kmh * 0.95
-	p.rationale = "对地 RUN：机头对准 → strafe 直冲 (target=%dkmh)" % int(run_target_kmh)
-	return p
 
 ## hdg 偏差 >90° → 大角度修正
 static func wide_turn(s: Situation) -> TacticalPlan:

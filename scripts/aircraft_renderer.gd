@@ -213,12 +213,8 @@ static func draw_radar_cone(ac: Aircraft) -> void:
 	var end_angle := center_angle + half_rad
 	var segments := 24
 
-	# 扇形颜色
-	var cone_color: Color
-	if ac.team == 0:
-		cone_color = Color(0.2, 0.7, 0.8, 0.12)
-	else:
-		cone_color = Color(0.8, 0.2, 0.2, 0.12)
+	# 扇形颜色（FactionPalette 三分支：玩家青 / ALLY 海绿 / 敌红）
+	var cone_color: Color = GameConstants.team_radar_color(ac.team, 0.12)
 
 	# 构建扇形多边形（圆心 + 弧线上的点）
 	var points := PackedVector2Array()

@@ -1418,6 +1418,15 @@ const EGRESS_STALE_SEC := 45.0                ## 中队连续无交战达此时�
 const EGRESS_FREE_OUTSET_PX := 800.0          ## 全员飞出边界线外此距离才释放
 const EGRESS_MAX_CONCURRENT := 1              ## 同时处于退场状态的中队数上限
 const OPENING_GARRISON_SQUADS := 3            ## 开局 t≈0 直接以 ONSTATION 预置的中队数（2026-07-06 60km 密度调优：2→3）
+
+## ── ROE 全图察觉与交战规则（spec global-awareness-roe）──
+const ROE_TICK_S := 2.0                       ## 中队察觉判定 tick 间隔
+const ROE_AWARE_MEMORY_S := 15.0              ## 察觉记忆：连续无感知刷新此时长 → 回未察觉
+const ROE_GARRISON_LEASH_PX := 750.0          ## 守区 leash：交战对象须在 zone.radius + 此值内（=1500m）
+const ROE_PATROL_LEASH_PX := 3000.0           ## 巡逻 leash：追击距锚点/巡逻线超此值放弃返航（=6000m）
+const ROE_DATALINK_RANGE_PX := 10000.0        ## 敌雷达站 datalink 察觉半径（=20km，收编 60km-density-pass）
+const ROE_ROUTE_PATROL_CHANCE := 0.3          ## 增援到站 roll 线路巡逻（而非定点环）的概率
+const ROE_ROUTE_MIN_LEG_PX := 2000.0          ## 线路巡逻两锚点最小间距（=4000m），不足退化定点环
 const MAX_ENEMIES_HARD := 48          ## 绝对上限（2026-07-06 60km 密度调优：40→48；FPS 动态降载兜底，须过 Sentinel+Lv5 压测）
 const MAX_ENEMIES_DEFAULT := 36       ## 默认上限（30→36）
 const MIN_ENEMIES_CAP := 8            ## 动态下限（至少允许这么多敌人）

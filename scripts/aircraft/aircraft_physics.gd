@@ -261,7 +261,7 @@ static func update_speed(ac: Aircraft, delta: float) -> void:
 	if ac.status_overload_active:
 		accel_rate *= StatusEffects.OVERLOAD_ACCEL_MULT
 	var decel_rate: float = (ac.params.deceleration if ac.params else 80.0) * ac._executioner_decel_mult()
-	if ac.team == 0 and ac.status_bloodlust_active and ac.has_meta("upgrade_stacks"):
+	if ac.is_player_squad() and ac.status_bloodlust_active and ac.has_meta("upgrade_stacks"):
 		var bl_stacks: Dictionary = ac.get_meta("upgrade_stacks")
 		if int(bl_stacks.get(SkillHooks.SKILL_BLOODLUST_ARMOR_MOBILITY, 0)) > 0:
 			accel_rate *= SkillHooks.BLOODLUST_ACCEL_MULT
@@ -345,7 +345,7 @@ static func update_altitude(ac: Aircraft, delta: float) -> void:
 	ac.vertical_speed = lerpf(ac.vertical_speed, target_vs, delta * smooth_rate)
 	ac.altitude += ac.vertical_speed * delta
 	ac.altitude = maxf(ac.altitude, 0.0)
-	if ac.team == 0 and ac.alt_change_stealth_factor > 0.0:
+	if ac.is_player_squad() and ac.alt_change_stealth_factor > 0.0:
 		var instant_v: float = absf(ac.vertical_speed)
 		ac._alt_velocity = lerpf(ac._alt_velocity, instant_v, clampf(delta * 4.0, 0.0, 1.0))
 
@@ -447,7 +447,7 @@ static func _g_buff_mult(ac: Aircraft) -> float:
 	if ac.is_locked and ac.lock_panic_g_mult != 1.0:
 		m *= ac.lock_panic_g_mult
 	# 玩家技能"血怒护甲"：BLOODLUST 期间 max_g ×1.2
-	if ac.team == 0 and ac.status_bloodlust_active and ac.has_meta("upgrade_stacks"):
+	if ac.is_player_squad() and ac.status_bloodlust_active and ac.has_meta("upgrade_stacks"):
 		var stacks: Dictionary = ac.get_meta("upgrade_stacks")
 		if int(stacks.get(SkillHooks.SKILL_BLOODLUST_ARMOR_MOBILITY, 0)) > 0:
 			m *= SkillHooks.BLOODLUST_G_MULT
@@ -495,8 +495,12 @@ static func corner_speed_kmh(ac: Aircraft) -> float:
 #      物理 cap 仍走 max_speed_at_altitude，AI 目标走 effective_*
 # ══════════════════════════════════════════════════════════════════════
 
+## 紧急集合/撤离途中全力加速倍率（spec command-wheel §2.7/§2.7.1，与规避加力同幅同语义）
+const COMMAND_SPRINT_MULT := 1.4
+
 ## AI 战术层用的"有效顶速"。零 buff = ac.params.max_speed
 ## buff 注入点：executioner（永久 stack）+ evasion_modifiers.cruise_speed_mult（模式）
+## + command_sprint（紧急集合/撤离途中，command-wheel）
 static func effective_max_speed_kmh(ac: Aircraft) -> float:
 	var v := ac.params.max_speed if ac.params else 2100.0
 	v *= ac._executioner_speed_mult()  # 侩子手 stack：每层 +5%
@@ -504,6 +508,8 @@ static func effective_max_speed_kmh(ac: Aircraft) -> float:
 		var cm: float = float(ac.evasion_modifiers.get("cruise_speed_mult", 1.0))
 		if cm > 1.0:
 			v *= cm
+	if ac.command_sprint:
+		v *= COMMAND_SPRINT_MULT  # 紧急集合/撤离全力加速（command-wheel §2.7）
 	# Mother Goose 干扰场减速走标准 SLOW 状态（cap 至 SLOW_SPEED_CAP_KMH，
 	# 由 update_speed 内的 status_slow_active 分支处理 + HUD 显示蓝条）
 	return v
@@ -516,6 +522,8 @@ static func effective_cruise_speed_kmh(ac: Aircraft) -> float:
 		var cm: float = float(ac.evasion_modifiers.get("cruise_speed_mult", 1.0))
 		if cm > 1.0:
 			v *= cm
+	if ac.command_sprint:
+		v *= COMMAND_SPRINT_MULT  # 紧急集合/撤离全力加速（command-wheel §2.7）
 	return v
 
 
@@ -659,7 +667,7 @@ static func compute_target_bank(
 ## 让低速也能拉满 G 加成（min_safe_ms × 1.05 已在 update_speed 守底，5% 余量保证不立即失速抽搐）
 ## ⚠ 物理 max_bank_angle 与预测线 max_bank_angle_at_speed 必须用同一个值，否则预测路径撕裂
 static func _dynamic_safe_margin(ac: Aircraft) -> float:
-	if ac.team == 0:
+	if ac.is_player_squad():
 		if ac.status_bloodlust_active and ac.has_meta("upgrade_stacks"):
 			var stacks: Dictionary = ac.get_meta("upgrade_stacks")
 			if int(stacks.get(SkillHooks.SKILL_BLOODLUST_ARMOR_MOBILITY, 0)) > 0:
@@ -1340,7 +1348,7 @@ static func step_altitude(st: FlightState, delta: float) -> void:
 	st.altitude += st.vertical_speed * delta
 	st.altitude = maxf(st.altitude, 0.0)
 	# §C 玩家"高度变化更难锁"副作用：仅 real tick 写回，prediction 跳过
-	if not st.is_prediction and st.ac.team == 0 and st.ac.alt_change_stealth_factor > 0.0:
+	if not st.is_prediction and st.ac.is_player_squad() and st.ac.alt_change_stealth_factor > 0.0:
 		var instant_v: float = absf(st.vertical_speed)
 		st.ac._alt_velocity = lerpf(st.ac._alt_velocity, instant_v, clampf(delta * 4.0, 0.0, 1.0))
 
@@ -1391,7 +1399,7 @@ static func step_speed(st: FlightState, delta: float) -> void:
 	if ac.status_overload_active:
 		accel_rate *= StatusEffects.OVERLOAD_ACCEL_MULT
 	var decel_rate: float = (ac.params.deceleration if ac.params else 80.0) * ac._executioner_decel_mult()
-	if ac.team == 0 and ac.status_bloodlust_active and ac.has_meta("upgrade_stacks"):
+	if ac.is_player_squad() and ac.status_bloodlust_active and ac.has_meta("upgrade_stacks"):
 		var bl_stacks: Dictionary = ac.get_meta("upgrade_stacks")
 		if int(bl_stacks.get(SkillHooks.SKILL_BLOODLUST_ARMOR_MOBILITY, 0)) > 0:
 			accel_rate *= SkillHooks.BLOODLUST_ACCEL_MULT

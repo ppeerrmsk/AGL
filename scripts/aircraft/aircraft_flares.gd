@@ -80,7 +80,7 @@ static func update(ac: Aircraft, delta: float) -> void:
 
 	# 释放冷却（§C 玩家技能：hp<50% 时按 low_hp_flare_reload_mult 加快倒计时；mult<1 = 加快）
 	var cd_decrement: float = delta
-	if ac.team == 0 and ac.low_hp_flare_reload_mult != 1.0 and ac.params:
+	if ac.is_player_squad() and ac.low_hp_flare_reload_mult != 1.0 and ac.params:
 		var hp_ratio: float = ac.hp / maxf(ac.params.max_hp, 1.0)
 		if hp_ratio < 0.5 and ac.low_hp_flare_reload_mult > 0.0:
 			cd_decrement = delta / ac.low_hp_flare_reload_mult  # mult=0.5 → 倒计时 ×2 速度
@@ -121,7 +121,7 @@ static func update(ac: Aircraft, delta: float) -> void:
 	var nearest_dist := 99999.0
 	var player_trigger_missile: Missile = null
 	var player_trigger_dist := 99999.0
-	var is_player_side: bool = ac.team == 0
+	var is_player_side: bool = ac.is_player_squad()
 	for child in ac.missile_manager.get_children():
 		if not child is Missile:
 			continue
@@ -236,8 +236,8 @@ static func release(ac: Aircraft, target_missile: Missile = null) -> void:
 		"deployed %d flares (remaining=%d)" % [count, ac.flares_remaining])
 
 	# §1.3 + §1.4 玩家技能：发射 flare 给周围敌方施加 JAM
-	# 早退检查：仅 team 0 + 持有 SKILL_FLARE_AOE_JAM
-	if ac.team == 0 and ac.has_meta("upgrade_stacks"):
+	# 早退检查：仅玩家小队 + 持有 SKILL_FLARE_AOE_JAM
+	if ac.is_player_squad() and ac.has_meta("upgrade_stacks"):
 		var stacks: Dictionary = ac.get_meta("upgrade_stacks")
 		if int(stacks.get(SkillHooks.SKILL_FLARE_AOE_JAM, 0)) > 0:
 			var fa_hits: int = AOEBroadcast.apply_status_in_radius(
@@ -249,7 +249,7 @@ static func release(ac: Aircraft, target_missile: Missile = null) -> void:
 			SkillHooks.on_player_jam_landed(ac, fa_hits)
 
 	# 玩家技能"焰诱共振"：释放热诱弹后获得 OVERLOAD（与 jam 是否成功无关）
-	if ac.team == 0:
+	if ac.is_player_squad():
 		SkillHooks.on_flare_release(ac)
 
 	# 导弹穿透窗口：玩家 / BOSS 享有
@@ -360,7 +360,7 @@ static func escort_jam_chance(d_leader_m: float) -> float:
 static func flare_ready(ac: Aircraft) -> bool:
 	if ac == null or not is_instance_valid(ac) or ac.is_destroyed:
 		return false
-	if ac.team != 0 or not ac.params or not ac.params.flare or not ac.missile_manager:
+	if not ac.is_player_squad() or not ac.params or not ac.params.flare or not ac.missile_manager:
 		return false
 	if ac.flares_remaining <= 0 or ac._flare_cooldown > 0.0:
 		return false

@@ -105,6 +105,17 @@ var combat_target: CombatUnit = null  ## 锁定追踪的敌机/地面单位
 ## AI / 自动交战一律不得覆盖；只在目标阵亡、或玩家对本机另下移动/取消/新攻击命令时清除。
 ## 默认 null（无玩家命令），仅玩家方使用。见 docs/specs/systems/rts-command.md。
 var commanded_target: CombatUnit = null
+## 攻击姿态（spec command-wheel §2.9）：随 commanded_target 走的铁律附加字段，
+## 值域与 Situation.POSTURE_* 一致（0=AUTO 武器推导 / 1=STANDOFF 保持距离 / 2=ASSAULT 突击）。
+## 轮盘广播时随命令写入；命令清除/新命令时归 AUTO（SquadCommandController / _enforce_commanded_target 维护）
+var attack_posture: int = 0
+## FOCUS 包围进入方位（spec command-wheel §3.6）：轮盘集火广播时分配的绝对进入方位（弧度，
+## 相邻队友 ≥45°），INF=未分配；生命周期与 attack_posture 相同（随 commanded_target 清理）
+var surround_bearing_rad: float = INF
+## 紧急集合/撤离途中全力加速（command-wheel §2.7/§2.7.1）：SquadCommandController 设/清
+## （集合=到达解除 / 撤离=出圈解除 / 任何新命令解除）；速度经 AircraftPhysics
+## effective_max/cruise_speed_kmh 注入 ×COMMAND_SPRINT_MULT（机动性 buff 规范 accessor 通道）
+var command_sprint: bool = false
 var is_firing: bool = false
 var ammo: int = 500
 # 自动扫描机炮目标的节流计时器：60Hz 扫描无意义，且每次扫描都是 O(N) 遍历全场单位
@@ -188,6 +199,7 @@ const AC_TICK_LOG_INTERVAL: float = 0.1
 ## deg。默认 60° 只抓硬机动；reversal bench 把它调低到 ~20° 以完整记录每次 180° 反转的全弧（含过零段）
 static var AC_TICK_BANK_THRESHOLD := 60.0
 var _gun_aim_log_until: float = 0.0  # 节流 [GUN_AIM] 诊断：0.5s 一次
+var _gun_burst_log_until: float = 0.0  # 节流 [GUN_BURST] 诊断：0.5s 一次（梭起始快照，见 aircraft_weapons）
 
 # Bank 翻转抗振守卫阈值 / 失速物理 / 空气密度常量 已搬到 scripts/aircraft/aircraft_physics.gd
 
@@ -437,6 +449,9 @@ var _bfm_prev_intent: int = -1                   ## 上次 plan 选定的 intent
 var _bfm_intent_started_at: float = 0.0          ## 当前 intent 开始时间（Time.get_ticks_msec/1000）
 ## P2：EXTEND_RECOVER 计时戳，未到此时刻前 planner 强制保持 EXTEND
 var _bfm_extend_until: float = 0.0
+## 对面攻击 pass 相位（spec surface-attack-pass；TacticalPlan.SurfacePhase 0=SETUP/1=RUN/2=EGRESS）
+## Situation 读入 → ground_strafe 决策 → _apply_tactical_plan 回写（与 _bfm_prev_intent 同款）
+var _strafe_pass_phase: int = 0
 ## 战术激进度 [0..1]：
 ##   - 1.0 = 完全激进（解除 G 限制，维持角点速度，最小转弯半径）
 ##   - 0.0 = 保守（沿用原 70% 持续 G 限制与 turn_slow_speed 能量策略）
@@ -1008,7 +1023,7 @@ func _resolve_intents(delta: float) -> void:
 	if win_a >= 0:
 		AircraftPhysics.set_afterburner(self, _intent_slots[win_a].afterburner == 1)
 	# 可解释性：胜者集合变化时打一行（"飞机为什么这么飞"从翻代码变成看日志）
-	if team == 0 or selected:
+	if is_player_squad() or selected:
 		var sig := "p%d/s%d/a%d" % [win_p, win_s, win_a]
 		if sig != _intent_winner_sig and _intent_log_cd <= 0.0:
 			_intent_winner_sig = sig
@@ -1051,8 +1066,8 @@ func _run_tactical_planner_if_enabled() -> void:
 	# intent 切换时戳时间（用于下一帧的 hysteresis 判定）+ 诊断日志
 	if plan.intent != _bfm_prev_intent:
 		# 切换瞬间打 PLAN log，便于追溯"飞机为什么这帧选了这个 intent"
-		# 玩家 + 玩家方友军（team=0）+ 选中机都记录，敌机仍 silenced 避免刷爆日志
-		if (team == 0 or selected) and not is_destroyed:
+		# 玩家 + 玩家方友军 + 选中机都记录，敌机仍 silenced 避免刷爆日志
+		if (is_player_squad() or selected) and not is_destroyed:
 			var tgt_name: String = "none"
 			if combat_target and is_instance_valid(combat_target):
 				tgt_name = _log_unit_name(combat_target)
@@ -1091,6 +1106,8 @@ func _apply_tactical_plan(plan: TacticalPlan) -> void:
 		_primary_weapon_hold_s = 0.0
 	# plan 级坡度上限（LINE_UP 充能平台等武器纪律；update_bank/step_bank 消费）
 	_plan_bank_limit_rad = deg_to_rad(plan.bank_limit_deg) if plan.bank_limit_deg > 0.0 else -1.0
+	# 对面攻击 pass 相位回写（spec surface-attack-pass）；非 GROUND_STRAFE 的 plan 恒填 SETUP → 复位
+	_strafe_pass_phase = plan.strafe_pass_phase
 
 	# 武器模式
 	# NONE 显式重置为 GUN（防止 weapon_mode 残留 MISSILE 让 salvo 路径在 CRUISE/EVADE 期间走漏发射）
@@ -1122,7 +1139,7 @@ func _apply_tactical_plan(plan: TacticalPlan) -> void:
 		_gun_lead_heading = heading
 	# is_firing：plan 允许 + 提前点在机头锥内 + AI burst 节奏 gate（team != 0 才节流）
 	is_firing = _ai_gun_burst_allowed(plan.allow_gun_fire and aim_ok, get_physics_process_delta_time())
-	if is_firing and (team == 0 or selected) \
+	if is_firing and (is_player_squad() or selected) \
 			and combat_target != null and is_instance_valid(combat_target) and not combat_target.is_destroyed:
 		var now_s: float = Time.get_ticks_msec() / 1000.0
 		if now_s >= _gun_aim_log_until:
@@ -1373,7 +1390,7 @@ func _herbst_pick_turn_direction() -> float:
 			# `.team` 访问 freed 实例会爆 "previously freed instance"
 			if not is_instance_valid(u):
 				continue
-			if u == self or u.team == team or u.is_destroyed or not u is Aircraft:
+			if u == self or not is_hostile_to(u) or u.is_destroyed or not u is Aircraft:
 				continue
 			var enemy: Aircraft = u as Aircraft
 			if not enemy.is_firing:
@@ -1397,7 +1414,7 @@ func _cobra_detect_tail_gun() -> bool:
 	var trigger_sq: float = COBRA_TAIL_DETECT_PX * COBRA_TAIL_DETECT_PX
 	var my_fwd := Vector2(sin(heading), -cos(heading))
 	for u in CombatUnit.all_units:
-		if u == self or u.team == team or u.is_destroyed:
+		if u == self or not is_hostile_to(u) or u.is_destroyed:
 			continue
 		if not u is Aircraft:
 			continue
@@ -1529,7 +1546,7 @@ func clear_combat_target() -> void:
 ## AI 机炮 burst 节奏：仅对敌方 AI（team != 0）生效；玩家/玩家僚机直接放行 want_fire。
 ## want_fire = 本帧战术层希望开火与否。返回是否实际允许开火（含 burst/pause 自洽 tick）。
 func _ai_gun_burst_allowed(want_fire: bool, delta: float) -> bool:
-	if team == 0:
+	if is_player_squad():
 		return want_fire
 	if _ai_gun_pause_timer > 0.0:
 		_ai_gun_pause_timer -= delta
@@ -1786,7 +1803,7 @@ func _update_evasion(delta: float) -> void:
 		_prev_missiles_remaining = -1
 
 	# §C 玩家技能"对头干扰"：扫 radar_targets，双向 dot > 0.7 的目标累积秒数 → 阈值施 JAM
-	if team == 0 and head_on_jam_threshold > 0.0 and not radar_targets.is_empty():
+	if is_player_squad() and head_on_jam_threshold > 0.0 and not radar_targets.is_empty():
 		var my_fwd_h: Vector2 = Vector2(sin(heading), -cos(heading))
 		var to_remove_h: Array = []
 		for tgt_key in radar_targets.keys():
@@ -1829,7 +1846,7 @@ func _update_evasion(delta: float) -> void:
 	# - 累积期不生效，每个目标在我后半球 + 距离内累加 → 满 8s 时施 SLOW 4s
 	# - SLOW 期间不再累积；状态消退后从 0 重新累积
 	# - 触发 debuff 后整段锁 AURA_INTERNAL_CD 秒，避免短时间内多次 VFX 脉冲叠加（性能）
-	if team == 0 and rear_aura_slow_radius_px > 0.0:
+	if is_player_squad() and rear_aura_slow_radius_px > 0.0:
 		if _rear_aura_cd_remaining > 0.0:
 			_rear_aura_cd_remaining -= delta
 		else:
@@ -1840,7 +1857,7 @@ func _update_evasion(delta: float) -> void:
 				_rear_aura_cd_remaining = AURA_INTERNAL_CD
 
 	# §C 玩家技能"全向 JAM 光环"：累积模式 + 内置 CD
-	if team == 0 and jam_aura_radius_px > 0.0:
+	if is_player_squad() and jam_aura_radius_px > 0.0:
 		if _jam_aura_cd_remaining > 0.0:
 			_jam_aura_cd_remaining -= delta
 		else:
@@ -1878,7 +1895,7 @@ func _tick_aura_accumulator(accum_dict: Dictionary,
 			continue
 		if not (u is Aircraft):
 			continue
-		if u.team == team:
+		if not is_hostile_to(u):
 			continue
 		var d_sq: float = u.global_position.distance_squared_to(global_position)
 		if d_sq > r_sq:
@@ -1993,7 +2010,7 @@ func _tick_aura_accumulator(accum_dict: Dictionary,
 ## 同一 reason 连续触发时不重复记录，直到 reason 改变或间隔到期
 ## 范围：玩家 + 玩家方友军（team=0），以便排查"僚机决定 combat_target 却不开火"类问题
 func _log_msl_block(reason: String, detail: String) -> void:
-	if team != 0:
+	if not is_player_squad():
 		return
 	if combat_target == null or not is_instance_valid(combat_target):
 		return
@@ -2032,7 +2049,7 @@ func _log_threat_picture(context: String) -> void:
 	for unit in missile_manager.target_list:
 		if not is_instance_valid(unit) or unit.is_destroyed:
 			continue
-		if unit.team == team:
+		if not is_hostile_to(unit):
 			continue
 		var their_lock: float = unit.radar_targets.get(self, 0.0)
 		if their_lock <= 0.0:
@@ -2070,7 +2087,7 @@ func _select_best_missile_target() -> CombatUnit:
 		var target_unit: CombatUnit = target_key as CombatUnit
 		if target_unit == null or target_unit.is_destroyed:
 			continue
-		if target_unit.team == team:
+		if not is_hostile_to(target_unit):
 			continue
 		# 必须有一定锁定累积（至少在锥内待过一会儿）
 		var lock_progress: float = radar_targets[target_key]
@@ -2117,7 +2134,7 @@ func apply_status(id: String, duration: float, mode: String = "max") -> void:
 	# 玩家技能"过载共振"系列：OVERLOAD 时长 / 联动嗜血
 	# 仅影响走 apply_status 的 timed 来源；云中常驻 _in_cloud_overload 派生 OR 不经此路径
 	var also_bloodlust: bool = false
-	if id == StatusEffects.OVERLOAD and team == 0 and has_meta("upgrade_stacks"):
+	if id == StatusEffects.OVERLOAD and is_player_squad() and has_meta("upgrade_stacks"):
 		var stacks: Dictionary = get_meta("upgrade_stacks")
 		# 时长 ×4
 		if int(stacks.get(SkillHooks.SKILL_OVERLOAD_DURATION_4X, 0)) > 0:
@@ -2210,13 +2227,13 @@ func take_bullet_damage(amount: float, attacker: Node = null) -> void:
 	if get_altitude_tier() == AltitudeTier.HIGH:
 		effective_dodge += 0.20  # HIGH 高度加成
 	# §C 玩家技能"低空机炮闪避"：LOW/GROUND 档位时加 bonus
-	if team == 0 and low_alt_gun_dodge_bonus > 0.0:
+	if is_player_squad() and low_alt_gun_dodge_bonus > 0.0:
 		var t: int = get_altitude_tier()
 		if t == AltitudeTier.LOW or t == AltitudeTier.GROUND:
 			effective_dodge += low_alt_gun_dodge_bonus
 	# 对头机炮闪避（玩家技能）：仅 team==0 + 持有 SKILL_HEAD_ON_GUN_DODGE
 	# 几何门槛 head_on_dot > 0.7（双方机头对冲 ≲ 53°）
-	if team == 0 and head_on_gun_dodge_bonus > 0.0 and attacker is Aircraft:
+	if is_player_squad() and head_on_gun_dodge_bonus > 0.0 and attacker is Aircraft:
 		var atk: Aircraft = attacker
 		if is_instance_valid(atk):
 			var to_atk: Vector2 = (atk.global_position - global_position).normalized()
@@ -2250,7 +2267,7 @@ const ARMOR_K: float = 100.0
 const MISSILE_ARMOR_PENETRATION: float = 0.5
 func _apply_armor(amount: float, penetration: float) -> float:
 	# 玩家技能"血怒护甲"：BLOODLUST 期间额外减伤（叠在护甲层之外，独立乘）
-	if team == 0 and status_bloodlust_active and has_meta("upgrade_stacks"):
+	if is_player_squad() and status_bloodlust_active and has_meta("upgrade_stacks"):
 		var bl_stacks: Dictionary = get_meta("upgrade_stacks")
 		if int(bl_stacks.get(SkillHooks.SKILL_BLOODLUST_ARMOR_MOBILITY, 0)) > 0:
 			amount *= (1.0 - SkillHooks.BLOODLUST_ARMOR_DR)
@@ -2264,15 +2281,15 @@ func _apply_armor(amount: float, penetration: float) -> float:
 
 func _apply_damage(amount: float) -> void:
 	# §C 玩家技能"机炮发射时减伤"：在窗口期内乘伤害减免比例
-	if team == 0 and gun_fire_dr_amount > 0.0 and _gun_fire_recently_until > EventLogger.get_game_time():
+	if is_player_squad() and gun_fire_dr_amount > 0.0 and _gun_fire_recently_until > EventLogger.get_game_time():
 		amount *= maxf(1.0 - gun_fire_dr_amount, 0.0)
 	var old_hp := hp
 	hp -= amount
 	EventLogger.log_event("DAMAGE", _log_name(),
 		"took %.0f damage (hp=%.0f→%.0f)" % [amount, old_hp, hp])
 	# 受击钩子链（玩家系技能：受伤进嗜血 / 被导弹击中无敌 / 周围 JAM 等）
-	# early-return：only Aircraft team==0 + has upgrade_stacks → 不命中开销 ≈ 1 dict.has
-	if hp > 0.0 and team == 0:
+	# early-return：only Aircraft 玩家小队 + has upgrade_stacks → 不命中开销 ≈ 1 dict.has
+	if hp > 0.0 and is_player_squad():
 		var atk: Node = get_meta("_pending_attacker", null)
 		var kind: String = String(get_meta("_last_damage_kind", ""))
 		SkillHooks.dispatch_on_hit(self, atk, kind, amount)
@@ -2544,7 +2561,7 @@ func _update_cloud_state(delta: float) -> void:
 		cloud_state = 1
 	# §C 玩家技能：进/出云边界事件（在云中=cloud_state>=1 即视为入云，便于 LOW/MID 也能享受）
 	# 仅玩家走这条路径（敌机不需要这些 buff）
-	if team == 0:
+	if is_player_squad():
 		var in_cloud: bool = cloud_state >= 1
 		if in_cloud != _was_in_cloud_last_frame:
 			_on_cloud_boundary(in_cloud)
@@ -2610,7 +2627,7 @@ func _update_visuals() -> void:
 ## 敌方对玩家提交机炮攻击时累计计时；持续 ≥0.3s 显示红色机炮锥威胁提示。
 ## 条件中断立即归零，避免 weapon_mode GUN/MISSILE 抖动时锥反复闪烁。
 func _update_gun_threat_indicator(delta: float) -> void:
-	if team == 0 or is_destroyed or is_cloaked:
+	if team != TEAM_HOSTILE or is_destroyed or is_cloaked:
 		_gun_threat_timer = 0.0
 		return
 	if not params or not params.gun:

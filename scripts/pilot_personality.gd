@@ -121,7 +121,7 @@ func update_situational_awareness(ai: AIController, delta: float) -> void:
 		for target_key in aircraft.radar_targets:
 			if is_instance_valid(target_key):
 				var t: CombatUnit = target_key
-				if not t.is_destroyed and t.team != aircraft.team:
+				if not t.is_destroyed and aircraft.is_hostile_to(t):
 					actual_threats += 1
 	# 高SA感知全部，低SA可能少算（只关注眼前那个）
 	var perceive_ratio := 0.5 + esa * 0.5

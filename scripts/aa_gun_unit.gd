@@ -51,7 +51,7 @@ func _update_aa_target_selection(delta: float) -> void:
 	for child in get_parent().get_children():
 		if not child is CombatUnit:
 			continue
-		if child == self or child.team == team or child.is_destroyed:
+		if child == self or not is_hostile_to(child) or child.is_destroyed:
 			continue
 		var d := global_position.distance_to(child.global_position)
 		if d < best_dist:

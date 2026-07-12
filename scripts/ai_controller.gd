@@ -219,6 +219,17 @@ const COMBAT_ZONE_TARGET_SLACK := 1.3
 var _joust_phase: int = 0                          ## JoustController.Phase
 var _joust_run_timer: float = 0.0
 var _joust_lowclose_timer: float = 0.0
+
+## command-wheel 姿态路由（spec command-wheel §3.5）：玩家点名 + 保持距离姿态时，
+## **空中目标**交战改走 joust 打带跑（RUN_IN 进入包络 → BREAK 脱离 → 折返循环）——
+## 即"一击脱离"的空中实现；面目标不走此路（由 bfm_intent.ground_strafe 的 STANDOFF pass
+## 分流，见 spec surface-attack-pass）。纯机炮机由 joust 包络解析自动退化为机炮 pass
+## （_resolve_outer_px fallback），姿态语义保持成立。
+func _posture_standoff_air() -> bool:
+	return aircraft != null and aircraft.attack_posture == Situation.POSTURE_STANDOFF \
+			and aircraft.commanded_target != null and is_instance_valid(aircraft.commanded_target) \
+			and aircraft.commanded_target is Aircraft
+
 const KAMIKAZE_DETONATE_DIST_PX: float = 120.0   ## 60m，drone 与导弹距离 ≤ 此值即同归于尽
 const KAMIKAZE_INTERCEPT_RANGE_PX: float = 2400.0 ## 1200m，开始飞向导弹拦截
 
@@ -546,7 +557,7 @@ func _ready() -> void:
 func _compute_scaling_class() -> int:
 	if not aircraft:
 		return AIScaleClass.NORMAL
-	if aircraft.team == 0:
+	if aircraft.is_player_squad():
 		return AIScaleClass.IMMUNE
 	var cat: String = str(aircraft.get_meta("category", ""))
 	if cat == "boss":
@@ -590,7 +601,7 @@ static func _maintains_engaging_me(target) -> bool:
 	if not target is Aircraft:
 		return false
 	var ac: Aircraft = target
-	if ac.team == 0:
+	if ac.is_player_squad():
 		return true
 	# squad 引用住在目标自己的 AIController（_ai_ref，由 AIController._ready 回写）
 	var sq: Squad = ac._ai_ref.squad if ac._ai_ref else null
@@ -932,6 +943,28 @@ var _target_source: int = TargetSource.TS_NONE
 const _TS_NAMES := ["none", "SCORED", "BOSS", "DIRECTIVE", "COMMANDED"]
 
 
+## ROE 感知门（spec global-awareness-roe §2.5）：中队察觉 + GARRISON 圈判定。
+## 只【读】单位 meta（roe_posture / roe_aware_until / roe_zone_*），写入方是生存层
+## RoeDirector —— 共享层不 import 生存模块、不写 if in_survivor。
+func _roe_allows_scored_engage(tgt: CombatUnit) -> bool:
+	if aircraft == null:
+		return true
+	var posture := str(aircraft.get_meta(&"roe_posture", ""))
+	if posture == "" or posture == "hunt":
+		return true   # 豁免类（无姿态）与狩猎（全知）不受门约束
+	# garrison / patrol / transit / egress：中队察觉必须在有效期内
+	if EventLogger.get_game_time() > float(aircraft.get_meta(&"roe_aware_until", -1.0)):
+		return false
+	# 守区：交战对象必须在战区圈 + leash 内（§3.2，出圈目标不追）
+	if posture == "garrison" and tgt != null and is_instance_valid(tgt):
+		var zc: Vector2 = aircraft.get_meta(&"roe_zone_center", Vector2.INF)
+		if zc != Vector2.INF:
+			var zr: float = float(aircraft.get_meta(&"roe_zone_radius_px", 0.0))
+			if tgt.global_position.distance_to(zc) > zr + SurvivorData.ROE_GARRISON_LEASH_PX:
+				return false
+	return true
+
+
 ## 当前持有优先级；目标死/失效即不再受保护
 func _target_holder_pri() -> int:
 	if _current_target == null or not is_instance_valid(_current_target) \
@@ -948,12 +981,19 @@ func acquire_target(tgt: CombatUnit, source: int, why: String = "") -> bool:
 		return false
 	if tgt != _current_target and source < _target_holder_pri():
 		return false
+	# ROE 感知门（spec global-awareness-roe §2.5/§3.1）：自发评分交战（TS_SCORED）受
+	# 中队察觉门约束；指挥部指派（TS_BOSS）/ 事件（TS_DIRECTIVE）/ 玩家命令（TS_COMMANDED）
+	# 天然绕过。姿态/察觉 meta 由生存层 RoeDirector 写入，无 meta 的单位不受约束
+	# （沙盒 / F5 调试 / adds / boss / 玩家方 —— 共享层零模式分支）。
+	if source == TargetSource.TS_SCORED and tgt != _current_target \
+			and not _roe_allows_scored_engage(tgt):
+		return false
 	var changed := tgt != _current_target
 	_current_target = tgt
 	if changed or source >= _target_source:
 		_target_source = source
 	aircraft.set_combat_target(tgt)
-	if changed and (aircraft.team == 0 or aircraft.selected):
+	if changed and (aircraft.is_player_squad() or aircraft.selected):
 		EventLogger.log_event("TARGET_ACQ", _log_name(), "%s ← %s%s" % [
 			_log_target_name(tgt), _TS_NAMES[source],
 			(" (" + why + ")") if why != "" else ""])
@@ -965,7 +1005,7 @@ func acquire_target(tgt: CombatUnit, source: int, why: String = "") -> bool:
 func release_target(source: int, why: String = "") -> bool:
 	if source < _target_holder_pri():
 		return false
-	if _current_target != null and (aircraft.team == 0 or aircraft.selected):
+	if _current_target != null and (aircraft.is_player_squad() or aircraft.selected):
 		EventLogger.log_event("TARGET_REL", _log_name(), "%s by %s%s" % [
 			_log_target_name(_current_target), _TS_NAMES[source],
 			(" (" + why + ")") if why != "" else ""])
@@ -993,6 +1033,8 @@ func _enforce_commanded_target() -> bool:
 		return false
 	if not is_instance_valid(cmd) or cmd.is_destroyed:
 		aircraft.commanded_target = null  # 命令目标已亡 → 解除命令，回正常 AI
+		aircraft.attack_posture = Situation.POSTURE_AUTO  # 姿态/包围方位随命令走（command-wheel §2.9/§3.6）
+		aircraft.surround_bearing_rad = INF
 		return false
 	# 设置/维持对命令目标的交战（已在打它就只是空转一次比较）
 	if _current_target != cmd or _state != AIState.ENGAGE:
@@ -1172,7 +1214,7 @@ func _process_simple(delta: float) -> void:
 				var m: Missile = child
 				if not m.is_active or m.is_flare_jammed:
 					continue
-				if m.team == _leader.team:
+				if not CombatUnit.teams_hostile(m.team, _leader.team):
 					continue
 				var msl_to_leader := leader_pos - m.global_position
 				var dist_to_leader := msl_to_leader.length()
@@ -1231,7 +1273,7 @@ func _process_simple(delta: float) -> void:
 			if parent_node:
 				var closest_threat_dist := SHIELD_ENGAGE_RANGE
 				for child in parent_node.get_children():
-					if not child is Aircraft or child.team == _leader.team or child.is_destroyed:
+					if not child is Aircraft or not _leader.is_hostile_to(child) or child.is_destroyed:
 						continue
 					var ac := child as Aircraft
 					var dist_to_leader := ac.global_position.distance_to(_leader.global_position)
@@ -1318,7 +1360,7 @@ func _process_simple(delta: float) -> void:
 						var best_edist := INF
 						# 用共享列表代替 get_parent().get_children() (perf: 节点数 N >> 单位数)
 						for unit in CombatUnit.all_units:
-							if unit and unit.team != aircraft.team and not unit.is_destroyed:
+							if unit and aircraft.is_hostile_to(unit) and not unit.is_destroyed:
 								var d: float = unit.global_position.distance_to(aircraft.global_position)
 								if d < best_edist:
 									best_edist = d
@@ -1577,7 +1619,8 @@ func _process_simple(delta: float) -> void:
 		# 攻击跑优先（spec joust-attack-run）：RUN_IN 对准/BREAK 脱离循环接管走位+速度。
 		# 切向轨道与"锁定/充能要机头对准"结构矛盾（MQ-112 全场 0 充能死锁，log 183044），
 		# joust 机型（MQ-110/112）不再走 standoff 轨道。
-		if joust_enabled:
+		# command-wheel 保持距离姿态：空中点名目标同样路由 joust（simple 路径侧）。
+		if joust_enabled or _posture_standoff_air():
 			_joust_handled = JoustController.update(self, delta)
 		if not _joust_handled:
 			if preferred_standoff_range_px > 0.0 and dist < preferred_standoff_range_px * 1.5 and dist > 1.0:
@@ -1671,7 +1714,7 @@ func _try_engage_in_tether_range() -> void:
 	var best_dist := SHIELD_ENGAGE_RANGE
 	# 用共享列表代替 get_parent().get_children() (perf)
 	for unit in CombatUnit.all_units:
-		if unit and unit.team != aircraft.team and not unit.is_destroyed:
+		if unit and aircraft.is_hostile_to(unit) and not unit.is_destroyed:
 			var d: float = unit.global_position.distance_to(leader_pos)
 			if d < best_dist:
 				best_dist = d
@@ -1689,7 +1732,7 @@ func _try_engage_simple() -> void:
 		# 列表是上一帧末尾建的，其间可能有单位被 queue_free，先保护性过滤
 		if not is_instance_valid(unit):
 			continue
-		if unit.team == aircraft.team or unit.is_destroyed:
+		if not aircraft.is_hostile_to(unit) or unit.is_destroyed:
 			continue
 		# 对地专用机型：跳过所有空中目标（飞机/UAV）
 		if ground_combat_only and not (unit is GroundUnit):
@@ -1699,12 +1742,13 @@ func _try_engage_simple() -> void:
 			best_dist = d
 			best = unit
 	# Hunter detect range = combat_zone × 1.3，与雷达解耦，让 MQ-110（750px 雷达）也能在
-	# 整个 boss 战斗圈内识别玩家；普通 UAV 仍按雷达 × 1.2
+	# 整个 boss 战斗圈内识别玩家；普通 UAV 按雷达距离全向（= 中队感知圈半径，
+	# spec global-awareness-roe §2.2：simple_ai 旧 ×1.2 系数退役，收编进统一感知语义）
 	var detect_range: float
 	if combat_zone_anchor != null and combat_zone_radius > 0.0:
 		detect_range = combat_zone_radius * 1.3
 	else:
-		detect_range = (aircraft.effective_radar_range_px() * 1.2) if aircraft.params else 2500.0
+		detect_range = aircraft.effective_radar_range_px() if aircraft.params else 2500.0
 	# 低空 / 云中目标更难被发现 —— 连续插值，无 tier 跳变
 	#   贴地    → detect_range × 0.80
 	#   3500m+ → detect_range × 1.00
@@ -1966,7 +2010,8 @@ func _process_engage(delta: float) -> void:
 	# RUN_IN 对准冲锋 → BREAK 脱离拉开 → 折返循环，取代"engage_duration 定时器伪打带跑"。
 	# 防御行为（Herbst 反咬 / 躲弹 / 机炮防御）的 return 都在上方——防御永远压过攻击跑；
 	# 目标重评估保留在上方。武器（机炮锥门/导弹锁定）由 Aircraft 系统在对准姿态下自然开火。
-	if joust_enabled and JoustController.update(self, delta):
+	# command-wheel 保持距离姿态：空中点名目标也走 joust（_posture_standoff_air 路由）。
+	if (joust_enabled or _posture_standoff_air()) and JoustController.update(self, delta):
 		aircraft.ai_override_pursuit = true
 		current_tactic_name = "JOUST_RUN_IN" if _joust_phase == JoustController.Phase.RUN_IN else "JOUST_BREAK"
 		return
@@ -2169,7 +2214,7 @@ func _try_kamikaze_intercept(_delta: float) -> bool:
 		var m: Missile = child
 		if not m.is_active or m.is_flare_jammed:
 			continue
-		if m.team == aircraft.team:
+		if not CombatUnit.teams_hostile(m.team, aircraft.team):
 			continue
 		# 只拦瞄向 leader 的（target == leader 或航向指向 leader）
 		var msl_to_leader: Vector2 = leader_pos - m.global_position

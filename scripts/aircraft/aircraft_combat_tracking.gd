@@ -407,7 +407,7 @@ static func _log_enemy_squads_engaging_player(ac: Aircraft) -> void:
 	for unit in CombatUnit.all_units:
 		if not is_instance_valid(unit) or unit.is_destroyed:
 			continue
-		if unit.team == ac.team:
+		if not ac.is_hostile_to(unit):
 			continue
 		if not (unit is Aircraft):
 			continue

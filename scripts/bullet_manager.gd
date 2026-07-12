@@ -82,10 +82,11 @@ func _build_frame_cache() -> void:
 			if hm and hm.is_active:
 				immune = true
 		_frame_unit_immune[ac.get_instance_id()] = immune
-	# 敌方活跃导弹按 "射手 team" 视角分桶（每个 team key 存"对方导弹"）
+	# 敌方活跃导弹按 "射手 team" 视角分桶（每个 team key 存"敌对阵营的导弹"）
+	# 阵营语义（IFF）：HOSTILE(1) 的导弹威胁 PLAYER(0)/ALLY(2)；0/2 的导弹威胁 1
 	if missile_manager != null and is_instance_valid(missile_manager):
-		var t0: Array = []  # team 0 视角下的敌方导弹（即 team != 0 的活跃导弹）
-		var t1: Array = []
+		var t_friendly_side: Array = []  # 对 0/2 阵营构成威胁的导弹（即 HOSTILE 发射的）
+		var t_hostile_side: Array = []   # 对 1 阵营构成威胁的导弹（即 0/2 发射的）
 		for child in missile_manager.get_children():
 			if not (child is Missile):
 				continue
@@ -93,12 +94,13 @@ func _build_frame_cache() -> void:
 			# 渐隐中的导弹（_fading_out=true）已注定坠毁，CIWS 不再瞄它
 			if not m.is_active or m._fading_out:
 				continue
-			if m.team == 0:
-				t1.append(m)
+			if m.team == CombatUnit.TEAM_HOSTILE:
+				t_friendly_side.append(m)
 			else:
-				t0.append(m)
-		_frame_enemy_missiles_by_team[0] = t0
-		_frame_enemy_missiles_by_team[1] = t1
+				t_hostile_side.append(m)
+		_frame_enemy_missiles_by_team[CombatUnit.TEAM_PLAYER] = t_friendly_side
+		_frame_enemy_missiles_by_team[CombatUnit.TEAM_ALLY] = t_friendly_side
+		_frame_enemy_missiles_by_team[CombatUnit.TEAM_HOSTILE] = t_hostile_side
 	_frame_cache_filled = true
 
 ## visual_only: 视觉装饰弹 —— 正常飞行 / 渲染 / 寿命结束，但跳过所有命中判定
@@ -312,7 +314,7 @@ func _update_torpedoes(delta: float) -> void:
 		for u in combat_unit_list:
 			if not is_instance_valid(u) or u.is_destroyed:
 				continue
-			if u.team == src_team:
+			if not CombatUnit.teams_hostile(u.team, src_team):
 				continue
 			if u is Aircraft and (u as Aircraft).is_cloaked:
 				continue
@@ -344,7 +346,7 @@ func _torpedo_pick_target_in_range(t: Dictionary, src_team: int, scan_range_m: f
 	for u in combat_unit_list:
 		if not is_instance_valid(u) or u.is_destroyed:
 			continue
-		if u.team == src_team:
+		if not CombatUnit.teams_hostile(u.team, src_team):
 			continue
 		if u is Aircraft and (u as Aircraft).is_cloaked:
 			continue
@@ -370,7 +372,7 @@ func _explode_torpedo(t: Dictionary) -> void:
 
 	# 玩家技能：漂浮雷引爆后范围干扰（类似热诱弹的 SKILL_FLARE_AOE_JAM）
 	var src: CombatUnit = t["source"]
-	if not is_instance_valid(src) or src.team != 0 or not src is Aircraft:
+	if not is_instance_valid(src) or not src.is_player_squad() or not src is Aircraft:
 		return
 	var ac: Aircraft = src as Aircraft
 	if not ac.has_meta("upgrade_stacks"):
@@ -408,7 +410,7 @@ func _explode_rocket(b: Dictionary, world_pos: Vector2, exclude_unit: CombatUnit
 			continue
 		if unit == exclude_unit:
 			continue
-		if unit.team == src_team:
+		if not CombatUnit.teams_hostile(unit.team, src_team):
 			continue
 		# 跳过免疫（cobra/herbst 等）
 		if unit is Aircraft:
@@ -505,7 +507,7 @@ func _physics_process(delta: float) -> void:
 				for u_check in combat_unit_list:
 					if not is_instance_valid(u_check) or u_check.is_destroyed:
 						continue
-					if u_check.team == src_team_p:
+					if not CombatUnit.teams_hostile(u_check.team, src_team_p):
 						continue
 					if u_check is Aircraft and (u_check as Aircraft).is_cloaked:
 						continue
@@ -557,8 +559,8 @@ func _physics_process(delta: float) -> void:
 			# 射手还活着：跳过打到自己
 			if source_alive and ac == source_raw:
 				continue
-			# 跳过同队（无论射手死活都用快照 team 判定）
-			if ac.team == source_team:
+			# 跳过非敌对阵营（无论射手死活都用快照 team 判定；PLAYER↔ALLY 互不误伤）
+			if not CombatUnit.teams_hostile(ac.team, source_team):
 				continue
 			# 光学隐形：子弹/火箭弹穿过隐形目标
 			if ac is Aircraft and ac.is_cloaked:
@@ -675,7 +677,7 @@ func _physics_process(delta: float) -> void:
 			else:
 				enemy_missiles = []
 				for child in missile_manager.get_children():
-					if (child is Missile) and (child as Missile).is_active and (child as Missile).team != source_team:
+					if (child is Missile) and (child as Missile).is_active and CombatUnit.teams_hostile((child as Missile).team, source_team):
 						enemy_missiles.append(child)
 			for m_var in enemy_missiles:
 				if not is_instance_valid(m_var):

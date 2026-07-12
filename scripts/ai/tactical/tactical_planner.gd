@@ -44,6 +44,13 @@ const COTURN_BREAK_HOLD_S := 2.0         ## co-turn 类 intent 已持续 ≥ 此
 const COTURN_BREAK_EXTEND_S := 3.0       ## 触发后强制脱离/重建能量时长（同 5b boom-zoom）
 const COTURN_BREAK_AGGR_MAX := 0.85      ## aggression > 此值的 Gladiator 死咬不脱离（同 5b）
 
+## ── FOCUS 包围轴分离（spec command-wheel §3.6）──
+## 轮盘集火广播给每机分配绝对进入方位（surround_bearing，相邻 ≥45°）。距目标较远时
+## 先飞向自己扇区的"进入门点"（绕到自己的方位再压入），近了解除偏置收敛攻击——
+## 只约束接近方位，位置全程真实转弯（物理优雅）。杜绝集火"一字长蛇追尾"。
+const SURROUND_CONVERGE_M := 1500.0   ## 距目标近于此 → 解除偏置收敛攻击
+const SURROUND_GATE_M := 1300.0       ## 进入门点半径（略小于收敛距，交接平滑）
+
 ## 参与 hysteresis 的 intent 集合（战斗类）
 static func _is_combat_intent(intent_id: int) -> bool:
 	match intent_id:
@@ -84,9 +91,28 @@ static func plan(s: Situation, waypoint: Vector2 = Vector2.INF) -> TacticalPlan:
 		held.rationale += " | held %.2fs (was %s)" % [
 			s.prev_intent_held_for, TacticalPlan.intent_name(fresh.intent)
 		]
-		return _apply_weapon_lock(s, held)
+		return _apply_surround_axis(s, _apply_weapon_lock(s, held))
 
-	return fresh
+	return _apply_surround_axis(s, fresh)
+
+
+## FOCUS 包围门点后置（command-wheel §3.6）：仅空中追击类战斗 intent + 远于收敛距时生效；
+## EVADE/巡航不受影响；GROUND_STRAFE（面攻击 pass）与 LINE_UP（电磁炮直线充能）有自己的
+## 几何承诺，不叠加包围门。开火门（allow_*_fire）按真实目标几何算好在先，改 pursuit 不影响。
+static func _apply_surround_axis(s: Situation, p: TacticalPlan) -> TacticalPlan:
+	if not is_finite(s.surround_bearing):
+		return p
+	if not s.has_target or s.dist_m < SURROUND_CONVERGE_M:
+		return p
+	if not _is_combat_intent(p.intent):
+		return p
+	if p.intent == TacticalPlan.Intent.GROUND_STRAFE or p.intent == TacticalPlan.Intent.LINE_UP:
+		return p
+	var gate: Vector2 = s.tgt_pos + Vector2(sin(s.surround_bearing), -cos(s.surround_bearing)) \
+			* (SURROUND_GATE_M * CombatUnit.PIXELS_PER_METER)
+	p.pursuit_pos = gate
+	p.rationale += " | surround brg=%d°" % int(round(rad_to_deg(s.surround_bearing)))
+	return p
 
 ## 内部决策树（不含 hysteresis）
 ##

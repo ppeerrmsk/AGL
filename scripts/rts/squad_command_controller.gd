@@ -28,6 +28,28 @@ var formation_tight: bool = false                  ## 阵型纪律 FREE/TIGHT（
 ## 用户订正（2026-07-05）：到点后只打圈内敌人，出圈立刻放弃回防——不深追、不散阵。
 var _guard_point := Vector2.INF
 
+## ── 分火 SPREAD standing order（command-wheel §3.6：目标池内各自接敌）──
+var _spread_active := false
+var _spread_anchor: CombatUnit = null       ## 锚点单位（存活时池随其漂移，阵亡锚定最后位置）
+var _spread_anchor_pos := Vector2.ZERO
+var _spread_posture: int = 0                ## 分火命令携带的姿态（随各自目标写入）
+var _spread_owned := {}                     ## instance_id -> true：由分火管理目标的成员；
+											## 单点点名即退出管理（铁律保护，spread 绝不覆盖玩家显式点名）
+
+## FOCUS 包围轴偏移表（spec §3.6：相邻攻击轴 ≥45°，杜绝一字长蛇追尾）
+const SURROUND_OFFSETS_DEG: Array = [0.0, 45.0, -45.0, 90.0, -90.0, 135.0, -135.0, 180.0]
+
+## ── 全力加速 transit（紧急集合/撤离途中，command-wheel §2.7/§2.7.1）──
+## 速度注入见 AircraftPhysics.effective_max/cruise_speed_kmh（COMMAND_SPRINT_MULT=1.4）
+enum SprintMode { NONE, REGROUP, EVAC }
+var _sprint_mode: int = SprintMode.NONE
+var _sprint_point := Vector2.ZERO   ## REGROUP=集合点（到达解除）/ EVAC=圈心（出圈解除）
+
+## ── 撤离限时禁入区（command-wheel §2.7.1/§3.7：决策层过滤，非物理墙）──
+var _evac_zone_center := Vector2.INF
+var _evac_zone_until_ms: int = 0
+var _zone_marker: Node2D = null
+
 func setup(mode: Node, p: RtsCommandParams) -> void:
 	_mode = mode
 	params = p if p != null else RtsCommandParams.new()
@@ -48,27 +70,40 @@ func command_attack(enemy: CombatUnit) -> void:
 				ac.set_evasion_mode(false)
 			ac.set_combat_target(enemy)
 			ac.commanded_target = enemy   # 逐机持久命令
+			ac.attack_posture = Situation.POSTURE_AUTO  # 单点点名不带姿态
+			ac.surround_bearing_rad = INF
+			ac.command_sprint = false                   # 单点新命令解除本机冲刺
+			_spread_owned.erase(ac.get_instance_id())   # 单点点名 → 该机退出分火管理（铁律保护）
 	_auto_engage_target = null
 
 ## 玩家下巡航航点：放弃攻击命令，全队飞向世界坐标点。
 func command_move(world_pos: Vector2) -> void:
 	_guard_point = Vector2.INF   # 最新输入覆盖 standing order
+	_end_spread()
 	_auto_engage_target = null
 	for ac in _selected():
 		if is_instance_valid(ac) and not ac.is_destroyed:
 			if ac.evasion_mode:
 				ac.set_evasion_mode(false)
 			ac.commanded_target = null
+			ac.attack_posture = Situation.POSTURE_AUTO
+			ac.surround_bearing_rad = INF
+			ac.command_sprint = false   # 单点移动解除本机冲刺（其余僚机继续执行原广播命令）
 			ac.clear_combat_target()
 			ac.target_position = world_pos
 
-## 玩家取消（右键 / 地图右键）：放弃攻击命令 + 清航向。
+## 玩家取消（右键 / 地图右键）：放弃攻击命令 + 清航向 + 终止一切轮盘 standing order。
 func cancel() -> void:
 	_guard_point = Vector2.INF
+	_end_spread()
+	_clear_sprint()
+	_clear_evac_zone()
 	_auto_engage_target = null
 	for ac in _selected():
 		if is_instance_valid(ac) and not ac.is_destroyed:
 			ac.commanded_target = null
+			ac.attack_posture = Situation.POSTURE_AUTO
+			ac.surround_bearing_rad = INF
 			ac.clear_combat_target()
 			ac.target_position = Vector2.INF
 
@@ -86,10 +121,22 @@ func _squad_members() -> Array:
 			return sq.members.duplicate()
 	return _selected()
 
-## 紧急集合：全队中断一切任务（含攻击命令），飞往集合点（spec §3.3）。
-## 阶段 3 待补：途中全力加速（effective_*() accessor 注入）+ 到达判定/交战锁定。
+## 紧急集合：全队中断一切任务（含攻击命令），**全力加速**飞往集合点（spec §3.3）。
+## 到达（arrival_radius）逐机解除加速；auto-engage 在途中天然不锁敌（target_position 非 INF）。
 func command_regroup(point: Vector2) -> void:
+	_broadcast_move_all(point)
+	_clear_evac_zone()   # 新广播命令终止禁入区（spec §3.7）
+	_sprint_mode = SprintMode.REGROUP
+	_sprint_point = point
+	for ac in _squad_members():
+		if is_instance_valid(ac) and not ac.is_destroyed:
+			ac.command_sprint = true
+
+## 全队广播"清一切任务 + 飞向点"（紧急集合/防守 TRANSIT 共用骨架）
+func _broadcast_move_all(point: Vector2) -> void:
 	_guard_point = Vector2.INF   # 最新输入覆盖 standing order
+	_end_spread()
+	_clear_sprint()
 	_auto_engage_target = null
 	for ac in _squad_members():
 		if not is_instance_valid(ac) or ac.is_destroyed:
@@ -97,15 +144,20 @@ func command_regroup(point: Vector2) -> void:
 		if ac.evasion_mode:
 			ac.set_evasion_mode(false)
 		ac.commanded_target = null
+		ac.attack_posture = Situation.POSTURE_AUTO
+		ac.surround_bearing_rad = INF
 		ac.clear_combat_target()
 		ac.target_position = point
 
-## 撤离此区：圈内成员径向散出至圈外，圈外成员不生效（spec §3.7）。
-## 阶段 3 待补：20s 限时禁入区（AI 决策过滤）+ 规避态全力加速 + 圈框 UI。
+## 撤离此区：圈内成员**全力加速**径向散出至圈外（出圈逐机解除加速），圈外成员不生效；
+## 圈本身成为限时禁入区（evac_duration_s，AI 决策过滤 + 圈框倒计时标记）。spec §3.7。
 func command_evacuate(point: Vector2) -> void:
 	var radius := wheel_params.evac_radius_px if wheel_params != null else 1500.0
 	_guard_point = Vector2.INF   # 最新输入覆盖 standing order
+	_end_spread()
+	_clear_sprint()
 	_auto_engage_target = null
+	var any_fleeing := false
 	for ac in _squad_members():
 		if not is_instance_valid(ac) or ac.is_destroyed:
 			continue
@@ -119,23 +171,46 @@ func command_evacuate(point: Vector2) -> void:
 		if ac.evasion_mode:
 			ac.set_evasion_mode(false)
 		ac.commanded_target = null
+		ac.attack_posture = Situation.POSTURE_AUTO
+		ac.surround_bearing_rad = INF
 		ac.clear_combat_target()
 		ac.target_position = point + dir * radius * 1.1  # 10% 余量防出圈判定抖动
+		ac.command_sprint = true   # 全力逃出（用户定稿"等同规避加速"，同 accessor 注入通道）
+		any_fleeing = true
+	if any_fleeing:
+		_sprint_mode = SprintMode.EVAC
+		_sprint_point = point
+	# 限时禁入区：期间 AI 自主决策过滤圈内（_find_target / 拴绳），玩家显式输入不受限
+	var dur_s := wheel_params.evac_duration_s if wheel_params != null else 20.0
+	_evac_zone_center = point
+	_evac_zone_until_ms = Time.get_ticks_msec() + int(dur_s * 1000.0)
+	_spawn_zone_marker(point, radius)
 
 ## 防守此区（spec §3.4，用户订正定稿）：全队前往该点驻防，只打警戒圈内敌人，
 ## 敌机飞出圈 × 滞回立刻放弃回防——不深追、不散阵；与点名攻击的区别就在"只守这片区域"。
 ## 拦截逻辑在 _tick_guard（standing order，铁律之下、自动交战之上，不受自动交战开关约束）。
+## TRANSIT 为普通巡航速度（防守无加速条款，区别于紧急集合）。
 func command_guard(point: Vector2) -> void:
-	command_regroup(point)       # TRANSIT：清任务飞向圆心（内部会先清旧 guard）
+	_broadcast_move_all(point)   # TRANSIT：清任务飞向圆心（内部先清旧 guard/spread/sprint）
+	_clear_evac_zone()           # 新广播命令终止禁入区
 	_guard_point = point
 
-## 攻击轮盘广播：全队清各自目标、统一咬 target（内建集火，走铁律通道）。
-## posture 姿态（STANDOFF/ASSAULT 行为差异）与分火 SPREAD 分配归阶段 4。
-func command_attack_all(target: CombatUnit) -> void:
+## 攻击轮盘广播（spec §3.6 按 fire_allocation 分流）：
+##   FOCUS  = 全队统一咬 target（铁律通道）+ 包围轴分离（≥2 机、散开阵型时分配进入方位）；
+##   SPREAD = 以 target 为锚点的目标池内各自接敌（_begin_spread）。
+## posture = Situation.POSTURE_*：空中 STANDOFF 走 joust 打带跑；面目标走 ground_strafe 分流。
+func command_attack_all(target: CombatUnit, posture: int = Situation.POSTURE_AUTO) -> void:
 	if target == null or not is_instance_valid(target) or target.is_destroyed:
 		return
 	_guard_point = Vector2.INF   # 最新输入覆盖 standing order
+	_clear_sprint()
+	_clear_evac_zone()           # 新广播命令终止禁入区
 	_auto_engage_target = null
+	if fire_allocation == FireAllocation.SPREAD:
+		_begin_spread(target, posture)
+		return
+	_end_spread()
+	var members: Array = []
 	for ac in _squad_members():
 		if not is_instance_valid(ac) or ac.is_destroyed:
 			continue
@@ -143,6 +218,195 @@ func command_attack_all(target: CombatUnit) -> void:
 			ac.set_evasion_mode(false)
 		ac.set_combat_target(target)
 		ac.commanded_target = target   # 逐机持久命令；非操控机由 _enforce_commanded_target 死咬
+		ac.attack_posture = posture
+		ac.surround_bearing_rad = INF
+		members.append(ac)
+	_assign_surround_axes(members, target)
+
+## FOCUS 包围轴分配（spec §3.6）：基准 = 发令瞬间"目标 → 小队质心"方位，第 i 机偏移
+## SURROUND_OFFSETS_DEG[i]（相邻 ≥45°）。TIGHT 阵型不包围（整队单轴，归 formation-discipline）；
+## 单机不包围。消费端 = TacticalPlanner._apply_surround_axis（远于收敛距时飞向自己扇区门点）。
+func _assign_surround_axes(members: Array, target: CombatUnit) -> void:
+	if formation_tight or members.size() < 2:
+		return
+	var centroid := Vector2.ZERO
+	for ac in members:
+		centroid += ac.global_position
+	centroid /= float(members.size())
+	var d: Vector2 = centroid - target.global_position
+	var base: float = atan2(d.x, -d.y) if d.length_squared() > 1.0 else 0.0
+	for i in members.size():
+		var off_deg: float = SURROUND_OFFSETS_DEG[mini(i, SURROUND_OFFSETS_DEG.size() - 1)]
+		members[i].surround_bearing_rad = base + deg_to_rad(off_deg)
+
+# ══════════════════════════════════════════════
+#  全力加速 transit + 撤离禁入区（command-wheel §2.7/§2.7.1/§3.7）
+# ══════════════════════════════════════════════
+
+func _clear_sprint() -> void:
+	if _sprint_mode == SprintMode.NONE:
+		return
+	_sprint_mode = SprintMode.NONE
+	for ac in _squad_members():
+		if is_instance_valid(ac) and not ac.is_destroyed:
+			ac.command_sprint = false
+
+## 冲刺解除判定（挂主 tick，0.3s 分频）：集合=进 arrival_radius / 撤离=出 evac 圈，逐机先到先解除
+func _tick_sprint() -> void:
+	if _sprint_mode == SprintMode.NONE:
+		return
+	var arrival := wheel_params.arrival_radius_px if wheel_params != null else 600.0
+	var evac_r := wheel_params.evac_radius_px if wheel_params != null else 1500.0
+	var any_active := false
+	for ac in _squad_members():
+		if not is_instance_valid(ac) or ac.is_destroyed or not ac.command_sprint:
+			continue
+		var d: float = ac.global_position.distance_to(_sprint_point)
+		var done: bool = (d <= arrival) if _sprint_mode == SprintMode.REGROUP else (d >= evac_r)
+		if done:
+			ac.command_sprint = false
+		else:
+			any_active = true
+	if not any_active:
+		_sprint_mode = SprintMode.NONE
+
+func _evac_zone_active() -> bool:
+	return _evac_zone_center != Vector2.INF and Time.get_ticks_msec() < _evac_zone_until_ms
+
+## 禁入区过滤（决策层，非物理墙）：AI 自主目标选择跳过圈内；玩家显式点名不经此处（铁律不受限）
+func _in_evac_zone(pos: Vector2) -> bool:
+	if not _evac_zone_active():
+		return false
+	var radius := wheel_params.evac_radius_px if wheel_params != null else 1500.0
+	return pos.distance_to(_evac_zone_center) < radius
+
+func _clear_evac_zone() -> void:
+	_evac_zone_center = Vector2.INF
+	if _zone_marker != null and is_instance_valid(_zone_marker):
+		_zone_marker.queue_free()
+	_zone_marker = null
+
+func _spawn_zone_marker(point: Vector2, radius: float) -> void:
+	if _zone_marker != null and is_instance_valid(_zone_marker):
+		_zone_marker.queue_free()
+	if _mode == null:
+		return
+	var m := EvacZoneMarker.new()
+	m.radius = radius
+	m.until_ms = _evac_zone_until_ms
+	m.position = point
+	_mode.add_child(m)
+	_zone_marker = m
+
+## 撤离禁入圈标记：暗红圈框 + 中心剩余秒数。到时自毁；4Hz 重绘（倒计时驱动，
+## 生命周期 ≤ evac_duration_s，符合性能守则 R1"状态变化才重绘"精神）
+class EvacZoneMarker extends Node2D:
+	var radius: float = 0.0
+	var until_ms: int = 0
+	var _accum: float = 0.0
+
+	func _process(delta: float) -> void:
+		if Time.get_ticks_msec() >= until_ms:
+			queue_free()
+			return
+		_accum += delta
+		if _accum >= 0.25:
+			_accum = 0.0
+			queue_redraw()
+
+	func _draw() -> void:
+		draw_circle(Vector2.ZERO, radius, Color(0.95, 0.35, 0.3, 0.04))
+		draw_arc(Vector2.ZERO, radius, 0.0, TAU, 96, Color(0.95, 0.35, 0.3, 0.5), 2.0)
+		var secs := ceili(float(until_ms - Time.get_ticks_msec()) / 1000.0)
+		draw_string(ThemeDB.fallback_font, Vector2(-40.0, 10.0), str(secs),
+				HORIZONTAL_ALIGNMENT_CENTER, 80.0, 28, Color(0.95, 0.4, 0.35, 0.8))
+
+# ══════════════════════════════════════════════
+#  分火 SPREAD（spec command-wheel §3.6：锚点目标池内各自接敌）
+# ══════════════════════════════════════════════
+
+func _spread_radius() -> float:
+	return wheel_params.spread_cluster_radius_px if wheel_params != null else 2000.0
+
+func _begin_spread(anchor: CombatUnit, posture: int) -> void:
+	_spread_active = true
+	_spread_anchor = anchor
+	_spread_anchor_pos = anchor.global_position
+	_spread_posture = posture
+	_spread_owned.clear()
+	for ac in _squad_members():
+		if not is_instance_valid(ac) or ac.is_destroyed:
+			continue
+		if ac.evasion_mode:
+			ac.set_evasion_mode(false)
+		ac.commanded_target = null
+		ac.attack_posture = Situation.POSTURE_AUTO
+		ac.surround_bearing_rad = INF
+		ac.clear_combat_target()
+		_spread_owned[ac.get_instance_id()] = true
+	_tick_spread()   # 发令瞬间立即各自选目标，不等下个 tick
+
+func _end_spread() -> void:
+	_spread_active = false
+	_spread_anchor = null
+	_spread_owned.clear()
+
+## 分火 tick：池 = 锚点周边 spread_cluster_radius 内有效敌方。
+## 每机"自主粘性"——现目标活着且没漂出池（×1.2 滞回）就不换；死/出池才重挑：
+## 少人打的优先（超杀让路的轻量代理），并列取离自己最近。池清空 → 命令结束回归。
+## 玩家单点点名过的成员已退出 _spread_owned，本函数绝不碰它们（铁律）。
+func _tick_spread() -> void:
+	if _spread_anchor != null and is_instance_valid(_spread_anchor) and not _spread_anchor.is_destroyed:
+		_spread_anchor_pos = _spread_anchor.global_position   # 池随锚点漂移
+	else:
+		_spread_anchor = null                                  # 锚点亡 → 锚定最后位置
+	var radius := _spread_radius()
+	var pool: Array = []
+	for u in CombatUnit.all_units:
+		if not is_instance_valid(u) or u.team != CombatUnit.TEAM_HOSTILE or u.is_destroyed:
+			continue
+		if u.is_lock_immune():
+			continue
+		if u.global_position.distance_to(_spread_anchor_pos) <= radius:
+			pool.append(u)
+	if pool.is_empty():
+		_end_spread()
+		return
+	var members := _squad_members()
+	# 让路记账：各池目标已被几名受管成员选中
+	var claim := {}
+	for ac in members:
+		if not is_instance_valid(ac) or ac.is_destroyed or not _spread_owned.has(ac.get_instance_id()):
+			continue
+		var cur: CombatUnit = ac.commanded_target
+		if cur != null and is_instance_valid(cur) and not cur.is_destroyed \
+				and cur.global_position.distance_to(_spread_anchor_pos) <= radius * 1.2:
+			claim[cur] = int(claim.get(cur, 0)) + 1
+	for ac in members:
+		if not is_instance_valid(ac) or ac.is_destroyed or not _spread_owned.has(ac.get_instance_id()):
+			continue
+		var cur: CombatUnit = ac.commanded_target
+		if cur != null and is_instance_valid(cur) and not cur.is_destroyed \
+				and cur.global_position.distance_to(_spread_anchor_pos) <= radius * 1.2:
+			if ac.combat_target != cur:
+				ac.set_combat_target(cur)   # 与铁律 tick 同款重指回
+			continue
+		var best: CombatUnit = null
+		var best_claims: int = 1 << 30
+		var best_d := INF
+		for t in pool:
+			var c := int(claim.get(t, 0))
+			var dd: float = ac.global_position.distance_to(t.global_position)
+			if c < best_claims or (c == best_claims and dd < best_d):
+				best_claims = c
+				best_d = dd
+				best = t
+		if best != null:
+			ac.set_combat_target(best)
+			ac.commanded_target = best
+			ac.attack_posture = _spread_posture
+			ac.surround_bearing_rad = INF
+			claim[best] = int(claim.get(best, 0)) + 1
 
 # ══════════════════════════════════════════════
 #  自动交战 tick（每 params.auto_engage_interval_s）
@@ -158,12 +422,22 @@ func tick(delta: float) -> void:
 		_auto_engage_target = null
 		return
 
+	# ── 冲刺解除判定（集合到达 / 撤离出圈，逐机先到先解除）──
+	_tick_sprint()
+
+	# ── 分火 SPREAD standing order（各自接敌；单点点名成员已退出管理，铁律各自生效）──
+	if _spread_active:
+		_tick_spread()
+		return
+
 	# ── 铁律：玩家命令目标存活 → 死咬，重新指回，绝不被自动交战夺走 ──
 	var cmd: CombatUnit = leader.commanded_target
 	if cmd != null:
 		if not is_instance_valid(cmd) or cmd.is_destroyed:
 			# 命令目标阵亡 → 解除命令 + 回待命（不飞向死敌 lead 点），落到下面自动交战
 			leader.commanded_target = null
+			leader.attack_posture = Situation.POSTURE_AUTO
+			leader.surround_bearing_rad = INF
 			leader.clear_combat_target()
 			leader.target_position = Vector2.INF
 		else:
@@ -184,10 +458,12 @@ func tick(delta: float) -> void:
 		return
 	var ct: CombatUnit = leader.combat_target
 	if ct != null and is_instance_valid(ct) and not ct.is_destroyed:
-		# 拴绳只对自动锁的目标生效；玩家命令目标已在上面 return，走不到这里
+		# 拴绳只对自动锁的目标生效；玩家命令目标已在上面 return，走不到这里。
+		# 目标遁入撤离禁入区 = 视同出拴绳（spec §3.7：AI 不追进禁入圈）
 		if ct == _auto_engage_target \
-				and leader.global_position.distance_to(ct.global_position) \
-					> params.auto_engage_radius_px * params.auto_engage_leash_mult:
+				and (leader.global_position.distance_to(ct.global_position) \
+					> params.auto_engage_radius_px * params.auto_engage_leash_mult \
+					or _in_evac_zone(ct.global_position)):
 			leader.clear_combat_target()
 			leader.target_position = Vector2.INF
 			_auto_engage_target = null
@@ -237,15 +513,18 @@ func _tick_guard(leader: Aircraft) -> void:
 	if leader.global_position.distance_to(gp) > orbit_r:
 		leader.target_position = gp
 
-## 半径内最近的有效敌方目标（飞机/地面/船挂点）。跳过锁定免疫的 NavalUnit 船体。
+## 半径内最近的有效敌方目标（飞机/地面/船挂点）。跳过锁定免疫的 NavalUnit 船体
+## 与撤离禁入区内的目标（决策层过滤，spec §3.7；玩家显式点名不经此处）。
 ## 用 CombatUnit.all_units（perf 友好共享表），不扫 mode.get_children()。
 func _find_target(center: Vector2, radius: float) -> CombatUnit:
 	var best: CombatUnit = null
 	var best_d := radius
 	for u in CombatUnit.all_units:
-		if not is_instance_valid(u) or u.team == 0 or u.is_destroyed:
+		if not is_instance_valid(u) or u.team != CombatUnit.TEAM_HOSTILE or u.is_destroyed:
 			continue
 		if u.is_lock_immune():
+			continue
+		if _in_evac_zone(u.global_position):
 			continue
 		var d := center.distance_to(u.global_position)
 		if d < best_d:

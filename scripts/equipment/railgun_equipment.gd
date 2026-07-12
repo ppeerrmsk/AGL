@@ -423,7 +423,7 @@ func _apply_hitscan_damage(ac, beam_start: Vector2, beam_end: Vector2) -> void:
 			continue
 		if unit == ac:
 			continue
-		if unit.team == ac.team:
+		if not CombatUnit.teams_hostile(unit.team, ac.team):
 			continue
 		if unit.is_destroyed:
 			continue
@@ -440,7 +440,7 @@ func _apply_hitscan_damage(ac, beam_start: Vector2, beam_end: Vector2) -> void:
 			if not (child is Missile):
 				continue
 			var m: Missile = child
-			if not m.is_active or m.team == ac.team:
+			if not m.is_active or not CombatUnit.teams_hostile(m.team, ac.team):
 				continue
 			var d := _point_to_segment_distance(m.global_position, beam_start, beam_end)
 			if d <= hit_radius_px:

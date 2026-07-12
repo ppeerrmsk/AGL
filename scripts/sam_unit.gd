@@ -184,7 +184,7 @@ func _draw_data_label() -> void:
 	var parent_node := get_parent()
 	if parent_node:
 		for node in parent_node.get_children():
-			if node is Aircraft and node.team == 0 and not node.is_destroyed:
+			if node is Aircraft and node.is_player_squad() and not node.is_destroyed:
 				dist_m = global_position.distance_to(node.global_position) / PIXELS_PER_METER
 				break
 
@@ -212,14 +212,10 @@ func _draw_data_label() -> void:
 	var box_w := max_w + 6.0
 	var box_h := lines.size() * line_height + 4.0
 
-	var text_color: Color
-	var bg_color: Color
-	if team == 0:
-		text_color = Color(0.5, 0.8, 1.0)
-		bg_color = Color(0.0, 0.1, 0.2, 0.6)
-	else:
-		text_color = Color(1.0, 0.6, 0.4)
-		bg_color = Color(0.2, 0.05, 0.0, 0.6)
+	# FactionPalette 统一（友好阵营 0/2 冷色系 / 敌暖色系）
+	var _lc := GameConstants.ground_label_colors(team)
+	var text_color: Color = _lc[0]
+	var bg_color: Color = _lc[1]
 
 	var rotated_offset := (label_offset * inv_zoom).rotated(inv_rot)
 	var scale_v := Vector2(inv_zoom, inv_zoom)

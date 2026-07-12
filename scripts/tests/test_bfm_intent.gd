@@ -45,6 +45,9 @@ static func run_all() -> bool:
 	test_ground_strafe_setup_when_off_axis()
 	test_ground_strafe_break_when_overshoot()
 	test_naval_target_uses_strafe()
+	test_surface_orbit_breaks_out()
+	test_surface_standoff_no_dive()
+	test_surface_reattack_loop()
 	test_missile_mode_uses_crank_geometry()
 	test_hysteresis_holds_combat_intent()
 	test_hysteresis_doesnt_lock_evade()
@@ -409,9 +412,9 @@ static func test_ground_strafe_setup_when_off_axis() -> void:
 	_assert_eq("setup.spd=corner", s.corner_speed_kmh, p.target_speed_kmh)
 	_assert_eq("setup.no_ab", false, p.afterburner)
 
-## 对地 BREAK：极近距离 + 远离 → 直线脱离 3km，关 AB
+## 对面 EGRESS：飞越目标（身后 + 太近）→ 直线脱离，关 AB（spec surface-attack-pass）
 static func test_ground_strafe_break_when_overshoot() -> void:
-	# 飞机朝北，目标在身后 200m → closing 极负
+	# 飞机朝北，目标在身后 200m → 已飞越 + too_close
 	var s := Situation.new_for_test({
 		"has_target": true, "tgt_is_surface": true,
 		"my_pos": Vector2.ZERO,
@@ -421,11 +424,71 @@ static func test_ground_strafe_break_when_overshoot() -> void:
 		"gun_range_m": 1500.0,
 	})
 	var p := TacticalPlanner.plan(s)
-	_assert_eq("break.intent", TacticalPlan.Intent.GROUND_STRAFE, p.intent)
-	_assert_eq("break.no_ab", false, p.afterburner)
+	_assert_eq("egress.intent", TacticalPlan.Intent.GROUND_STRAFE, p.intent)
+	_assert_eq("egress.phase", TacticalPlan.SurfacePhase.EGRESS, p.strafe_pass_phase)
+	_assert_eq("egress.no_ab", false, p.afterburner)
 	# pursuit_pos 应在我前方而不是 tgt 处
 	var to_pursuit: Vector2 = (p.pursuit_pos - s.my_pos).normalized()
-	_assert_true("break.pursuit_in_front", to_pursuit.dot(s.my_fwd) > 0.9)
+	_assert_true("egress.pursuit_in_front", to_pursuit.dot(s.my_fwd) > 0.9)
+
+## 绕圈根治（本 spec 主验收）：贴脸 SAM + 机头偏 → EGRESS 拉开，绝不原地绕圈 SETUP 硬转
+static func test_surface_orbit_breaks_out() -> void:
+	# 飞机朝北（my_fwd=(0,-1)），SAM 在正东 376m —— 目标钻进转弯圆内（too_close）
+	var s := Situation.new_for_test({
+		"has_target": true, "tgt_is_surface": true,
+		"my_pos": Vector2.ZERO,
+		"tgt_pos": Vector2(188.0, 0.0),   # 正东 376m（PIXELS_PER_METER=0.5 → 188px）
+		"my_heading": 0.0, "my_speed_ms": 250.0, "tgt_speed_ms": 0.0,
+		"missiles": 0, "gun_range_m": 1500.0, "corner_speed_kmh": 700.0,
+	})
+	var p := TacticalPlanner.plan(s)
+	_assert_eq("orbit.intent", TacticalPlan.Intent.GROUND_STRAFE, p.intent)
+	# 关键：off-axis + too_close 必须走 EGRESS（拉开），不是 SETUP（原地绕圈）
+	_assert_eq("orbit.phase=EGRESS", TacticalPlan.SurfacePhase.EGRESS, p.strafe_pass_phase)
+	# pursuit 背离目标拉开（-to_target_dir），而不是瞄目标本体转圈
+	var to_pursuit: Vector2 = (p.pursuit_pos - s.my_pos).normalized()
+	_assert_true("orbit.pursuit_away_from_target", to_pursuit.dot(s.to_target_dir) < -0.5)
+
+## 导弹 STANDOFF：有弹对地 → 保持 MID，不俯冲到目标高度（不进近距 AA）
+static func test_surface_standoff_no_dive() -> void:
+	var s := Situation.new_for_test({
+		"has_target": true, "tgt_is_surface": true,
+		"my_pos": Vector2.ZERO,
+		"tgt_pos": Vector2(0, -2500.0),   # 前方 5000m 对准（standoff 环外）→ RUN
+		"my_heading": 0.0, "my_speed_ms": 250.0, "tgt_speed_ms": 0.0,
+		"tgt_alt": 0.0,   # 地面目标高度 0
+		"missiles": 4, "missile_min_range_m": 500.0, "missile_max_range_m": 8000.0,
+	})
+	var p := TacticalPlanner.plan(s)
+	_assert_eq("standoff.weapon=MSL", TacticalPlan.WeaponMode.MISSILE, p.weapon_mode)
+	_assert_eq("standoff.phase=RUN", TacticalPlan.SurfacePhase.RUN, p.strafe_pass_phase)
+	# 非玩家 STANDOFF → 保持 MID tier，不写 target_altitude_m（不俯冲到 tgt_alt=0）
+	_assert_eq("standoff.alt_tier=MID", CombatUnit.AltitudeTier.MID, p.target_altitude_tier)
+	_assert_eq("standoff.no_dive_m", -1.0, p.target_altitude_m)
+
+## 折返循环：EGRESS 提交到 reentry 才转 SETUP；未到 reentry 保持 EGRESS（空间滞回）
+static func test_surface_reattack_loop() -> void:
+	# 机炮 ASSAULT：reentry = max(min_turn_r×2.5, 1500) = 1500m
+	# Case A —— prev=EGRESS 且 dist=3000m ≥ reentry → 折返 SETUP
+	var s_far := Situation.new_for_test({
+		"has_target": true, "tgt_is_surface": true,
+		"my_pos": Vector2.ZERO, "tgt_pos": Vector2(0, -1500.0),  # 前方 3000m
+		"my_heading": 0.0, "my_speed_ms": 250.0, "tgt_speed_ms": 0.0,
+		"missiles": 0, "gun_range_m": 1500.0, "corner_speed_kmh": 700.0,
+		"strafe_pass_phase": TacticalPlan.SurfacePhase.EGRESS,
+	})
+	var p_far := TacticalPlanner.plan(s_far)
+	_assert_eq("reattack.far=SETUP", TacticalPlan.SurfacePhase.SETUP, p_far.strafe_pass_phase)
+	# Case B —— prev=EGRESS 且 dist=1000m < reentry → 保持 EGRESS
+	var s_near := Situation.new_for_test({
+		"has_target": true, "tgt_is_surface": true,
+		"my_pos": Vector2.ZERO, "tgt_pos": Vector2(0, -500.0),   # 前方 1000m
+		"my_heading": 0.0, "my_speed_ms": 250.0, "tgt_speed_ms": 0.0,
+		"missiles": 0, "gun_range_m": 1500.0, "corner_speed_kmh": 700.0,
+		"strafe_pass_phase": TacticalPlan.SurfacePhase.EGRESS,
+	})
+	var p_near := TacticalPlanner.plan(s_near)
+	_assert_eq("reattack.near=EGRESS", TacticalPlan.SurfacePhase.EGRESS, p_near.strafe_pass_phase)
 
 ## 已锁定 + 在 crank 包络内 → pursuit_pos 必须用 crank 几何（远离 LOS）
 ## 未锁定时不 crank，避免目标飞出锥
