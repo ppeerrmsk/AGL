@@ -72,6 +72,36 @@ func consume_level_up_display() -> void:
 	xp = 0
 	xp_to_next = SurvivorData.xp_for_level(level + 1)
 
+# ── 三轴属性点（spec evolution-attribute-gates §2.2）──
+## 斗士/骑士/策士技能点：每 3 级卡片三选一，选卡 = 该轴 +1（卡片流阶段 3 接线写入）。
+## 纯局内状态，本节点每局新建自然清零；进化门槛与里程碑都查这里。
+var axis_points: Dictionary = {
+	SurvivorData.AXIS_GLADIATOR: 0,
+	SurvivorData.AXIS_KNIGHT: 0,
+	SurvivorData.AXIS_SCHEMER: 0,
+}
+## 已生效的里程碑档位（axis → 已应用的 points 档数组）；
+## 里程碑应用器（阶段 2）用它做增量应用与换型重放，本阶段仅占位。
+var applied_milestones: Dictionary = {}
+
+func add_axis_point(axis: StringName) -> void:
+	if not axis_points.has(axis):
+		push_warning("SurvivorPlayer.add_axis_point: 未知属性轴 %s" % axis)
+		return
+	axis_points[axis] = int(axis_points[axis]) + 1
+	EventLogger.log_event("AXIS", "Player", "%s +1 → %d（合计 %d / 可得 %d）" % [
+		axis, int(axis_points[axis]), total_axis_points(),
+		SurvivorData.axis_points_earnable(level)])
+
+func get_axis_points(axis: StringName) -> int:
+	return int(axis_points.get(axis, 0))
+
+func total_axis_points() -> int:
+	var t: int = 0
+	for v in axis_points.values():
+		t += int(v)
+	return t
+
 func apply_upgrade(upgrade: Dictionary) -> void:
 	if not aircraft or not aircraft.params:
 		return

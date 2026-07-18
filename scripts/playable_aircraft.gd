@@ -79,7 +79,16 @@ extends Resource
 ## 等级节点表。每项 = {"level": int, "hp": int, "missile": int}
 ## hp/missile 是该等级"累计"加成（不是单级 delta）。空 → 走 SurvivorData.DEFAULT_GROWTH_CURVE
 ## 例：[{"level": 4, "hp": 20, "missile": 1}, {"level": 8, "hp": 40, "missile": 2}]
+## ⚠ 退役中（spec player-aircraft-power-curve §6 阶段 2）：等级只做门槛，成长改走三轴里程碑
 @export var growth_curve: Array[Dictionary] = []
+
+# ── 生存模式：三轴里程碑覆写（spec evolution-attribute-gates §2.6 按起手机分化） ──
+@export_group("生存模式 / 三轴里程碑覆写")
+## 覆写基准表（SurvivorData.MILESTONE_TABLE）中 (axis, points) 相同的档位；空 = 全走基准表。
+## 条目形如 {"axis": "gladiator", "points": 2, "stat": "max_hp", "kind": "add", "value": 40.0}
+## axis ∈ gladiator/knight/schemer；kind ∈ add/mult；stat 键见 SurvivorData.MILESTONE_TABLE 注释。
+## 四起手机分表由用户后续平衡时填（本槽只立机制）。
+@export var milestone_overrides: Array[Dictionary] = []
 
 # ── 生存模式：配件槽位预算 ──
 @export_group("生存模式 / 配件槽位")

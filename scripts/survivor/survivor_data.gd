@@ -1369,6 +1369,66 @@ static func player_growth_at(level: int, profile: PlayableAircraft = null) -> Di
 	return {"hp": hp, "missile": missile}
 
 
+# ── 玩家三轴属性与里程碑（spec evolution-attribute-gates）─────────
+
+## 三轴 id。玩家可见名走 i18n（ATTR_* key，阶段 2+ 接 UI）；
+## 敌机 AI 的 Gladiator/Lancer/Schemer 内部 archetype 词汇不上 UI 的既有约定不受影响。
+const AXIS_GLADIATOR: StringName = &"gladiator"   ## 斗士：突击&近战 / 机炮 / 狗斗
+const AXIS_KNIGHT: StringName = &"knight"          ## 骑士：机动力生存 / 雷达导弹
+const AXIS_SCHEMER: StringName = &"schemer"        ## 策士：心理战 / 电子战
+const AXES: Array[StringName] = [AXIS_GLADIATOR, AXIS_KNIGHT, AXIS_SCHEMER]
+
+## 可获得点数上限 = floor(LV/3)：每 3 级一次卡片三选一（三卡=三轴各一），选卡=该轴 +1 点；
+## 错过不补发，所以实际点数 ≤ 本值。满级 LV26 → 8 点。
+static func axis_points_earnable(level: int) -> int:
+	return floori(level / 3.0)
+
+## 里程碑基准表（spec §2.6 v5）：每线 2/4/6/8 档 + 10 点预留（当前收入上限摸不到，等级上限抬高后启用）。
+## 铁律：纯属性修改、陡递减（相对价值 100/60/25/15）——均衡 3/3/2 摊三首档 > 专精 8/0/0 吃单线。
+## kind: "add"=加算 / "mult"=乘算。stat 键由里程碑应用器（阶段 2）统一解释，换型重放走同一入口：
+##   max_hp / gun_damage / gun_range / max_g / gun_ammo / missile_count / radar_range /
+##   speed（极速+巡航同乘）/ alt_speed（高度变化速度）/ flare_count / lock_time / flare_cd / radar_cone_deg
+const MILESTONE_TABLE: Dictionary = {
+	AXIS_GLADIATOR: [
+		{"points": 2,  "stat": "max_hp",        "kind": "add",  "value": 25.0},
+		{"points": 4,  "stat": "gun_damage",    "kind": "mult", "value": 1.08},
+		{"points": 6,  "stat": "gun_range",     "kind": "mult", "value": 1.06},
+		{"points": 8,  "stat": "max_g",         "kind": "add",  "value": 0.2},
+		{"points": 10, "stat": "gun_ammo",      "kind": "mult", "value": 1.20},
+	],
+	AXIS_KNIGHT: [
+		{"points": 2,  "stat": "missile_count", "kind": "add",  "value": 1.0},
+		{"points": 4,  "stat": "radar_range",   "kind": "mult", "value": 1.10},
+		{"points": 6,  "stat": "speed",         "kind": "mult", "value": 1.02},
+		{"points": 8,  "stat": "alt_speed",     "kind": "mult", "value": 1.10},
+		{"points": 10, "stat": "missile_count", "kind": "add",  "value": 1.0},
+	],
+	AXIS_SCHEMER: [
+		{"points": 2,  "stat": "flare_count",   "kind": "add",  "value": 2.0},
+		{"points": 4,  "stat": "lock_time",     "kind": "mult", "value": 0.90},
+		{"points": 6,  "stat": "flare_cd",      "kind": "mult", "value": 0.92},
+		{"points": 8,  "stat": "radar_cone_deg","kind": "add",  "value": 2.0},
+		{"points": 10, "stat": "flare_count",   "kind": "add",  "value": 1.0},
+	],
+}
+
+## 取某轴的里程碑表。起手机覆写（PlayableAircraft.milestone_overrides）：
+## (axis, points) 相同的条目替换基准档；只替换、不新增档位（保持 2/4/6/8/10 骨架统一）。
+static func milestones_for(axis: StringName, profile: PlayableAircraft = null) -> Array:
+	var base: Array = MILESTONE_TABLE.get(axis, [])
+	if profile == null or profile.milestone_overrides.is_empty():
+		return base
+	var merged: Array = []
+	for entry in base:
+		var use: Dictionary = entry
+		for ov in profile.milestone_overrides:
+			if StringName(str(ov.get("axis", ""))) == axis and int(ov.get("points", -1)) == int(entry["points"]):
+				use = ov
+				break
+		merged.append(use)
+	return merged
+
+
 # ── 经验曲线 ─────────────────────────────────────────────
 
 ## 基数 15（之前 20）：全局节奏提速 ~25%，配合 Adds 全额 XP，让玩家进 BOSS 战时能到 L16-18

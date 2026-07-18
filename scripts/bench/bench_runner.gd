@@ -54,6 +54,7 @@ const UNIT_TESTS: Dictionary = {
 	"wheel_orders": "res://scripts/tests/test_wheel_orders.gd",
 	"roe": "res://scripts/tests/test_roe_director.gd",
 	"fire_discipline": "res://scripts/tests/test_fire_discipline.gd",
+	"attr_gates": "res://scripts/tests/test_attribute_gates.gd",
 }
 
 var bench_active: bool = false
