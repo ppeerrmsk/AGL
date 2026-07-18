@@ -1337,36 +1337,8 @@ static func _weighted_pick(items: Array, steering: Dictionary, picked_ids: Dicti
 	return {}
 
 
-# ── 玩家自然成长（节点式，按等级累计） ─────────────────────
-
-## 默认成长曲线：HP 每 3 级 +20、导弹 L4 +1 / L8 +2
-## 每项 = {"level": int, "hp": int, "missile": int}（hp/missile 是该等级"累计"加成）
-## 设计意图见计划 C1：对症敌人机炮 +8%/级 + 弹量 +floor(L/4) 的 DPS 通胀
-const DEFAULT_GROWTH_CURVE: Array[Dictionary] = [
-	{"level": 3,  "hp": 20,  "missile": 0},
-	{"level": 4,  "hp": 20,  "missile": 1},
-	{"level": 6,  "hp": 40,  "missile": 1},
-	{"level": 8,  "hp": 40,  "missile": 2},
-	{"level": 9,  "hp": 60,  "missile": 2},
-	{"level": 12, "hp": 80,  "missile": 2},
-	{"level": 15, "hp": 100, "missile": 2},
-]
-
-## 返回到达 level 时的累计成长加成 {hp, missile}。
-## profile 提供自定义 growth_curve 时走它，否则走默认。
-## 算法：取 curve 中最大的 entry.level <= level 的那一项；不存在则返回零。
-static func player_growth_at(level: int, profile: PlayableAircraft = null) -> Dictionary:
-	var curve: Array = DEFAULT_GROWTH_CURVE
-	if profile != null and not profile.growth_curve.is_empty():
-		curve = profile.growth_curve
-	var hp: int = 0
-	var missile: int = 0
-	for entry in curve:
-		var l: int = int(entry.get("level", 0))
-		if l <= level:
-			hp = int(entry.get("hp", hp))
-			missile = int(entry.get("missile", missile))
-	return {"hp": hp, "missile": missile}
+# ──（旧"玩家自然成长"已退役，2026-07-19 spec player-aircraft-power-curve §6 阶段2：
+#    等级只做门槛；成长改走下方三轴里程碑——卡片加点跨档触发，换型重放不丢失。）─────
 
 
 # ── 玩家三轴属性与里程碑（spec evolution-attribute-gates）─────────

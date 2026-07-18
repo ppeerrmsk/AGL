@@ -535,29 +535,8 @@ func _set_evasion_modifier(ac: Aircraft, key: String, mult: float) -> void:
 		ac.set_evasion_mode(true)   # 再按新倍率 scale 当前 cd
 
 
-## 应用自然成长差量：把 from_level → to_level 的累计 HP/导弹增量加到飞机上
-## 由 survivor_mode 在 leveled_up 时调用（profile 可空走默认曲线）
-## 同步刷 aircraft.hp（升级回血对应量）和 missiles_remaining（含主+副槽）
-func apply_natural_growth(from_level: int, to_level: int, profile: PlayableAircraft = null) -> void:
-	if not aircraft or not aircraft.params or to_level <= from_level:
-		return
-	var prev: Dictionary = SurvivorData.player_growth_at(from_level, profile)
-	var curr: Dictionary = SurvivorData.player_growth_at(to_level, profile)
-	var hp_delta: int = int(curr["hp"]) - int(prev["hp"])
-	var missile_delta: int = int(curr["missile"]) - int(prev["missile"])
-	if hp_delta == 0 and missile_delta == 0:
-		return
-	var p := aircraft.params
-	if hp_delta > 0:
-		p.max_hp += float(hp_delta)
-		aircraft.hp += float(hp_delta)
-	if missile_delta > 0:
-		# 玩家只有主导弹槽（2026-04-29 决策），副槽逻辑已移除
-		if p.missile:
-			p.missile.max_count += missile_delta
-			aircraft.missiles_remaining += missile_delta
-	EventLogger.log_event("GROWTH", "Player",
-		"L%d → L%d: +%d HP, +%d missile(s)" % [from_level, to_level, hp_delta, missile_delta])
+## （自然成长 apply_natural_growth 已退役，2026-07-19 spec player-aircraft-power-curve §6 阶段2：
+##   等级只做门槛；HP/导弹成长由三轴里程碑 apply_crossed_milestones 承担，换型可重放不丢失。）
 
 
 func get_hp() -> float:

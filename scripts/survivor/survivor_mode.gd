@@ -48,7 +48,7 @@ var _last_left_click_time: float = -1000.0
 # ── 生存模式状态 ──
 var player_aircraft: Aircraft
 var _player_profile_id: StringName = &""  ## 当前主角的 PlayableAircraft.id（用于专属技能筛选）
-var _player_profile: PlayableAircraft = null  ## 当前主角档案引用（自然成长读 growth_curve）
+var _player_profile: PlayableAircraft = null  ## 当前主角档案引用（三轴里程碑覆写表 / 专属技能筛选）
 var _wingman_formation_debug: bool = false  ## F11 切换：友方僚机编队调试覆盖层
 ## 当前玩家小队（spec squad-control-switching）：数字键 1-4 切换操控 / 击落接管 / 换帅监听。
 ## 仅有起始僚机的主角（如 F-14）会建立；单机主角为 null（无切换）。
@@ -486,8 +486,8 @@ func _setup_boss_debug_scenario() -> void:
 	survivor_player.xp = 0
 	survivor_player.xp_to_next = SurvivorData.xp_for_level(BOSS_DEBUG_LEVEL + 1)
 	survivor_player._awaiting_level_up = false
-	# 跳级时手动补一次自然成长（leveled_up 信号被绕过，差量按 1→15 一次性结算）
-	survivor_player.apply_natural_growth(1, BOSS_DEBUG_LEVEL, _player_profile)
+	# 自然成长已退役——跳级不再补 HP/导弹（等级纯门槛）。
+	# boss debug 的三轴点数补发（floor(15/3)=5 点随机/主题分配）随属性门槛豁免一并接（gates §3.4）。
 
 	# 2. 主题化 roll
 	var roll: Dictionary = BossDebugBuilds.roll_build(
@@ -2382,8 +2382,8 @@ func _spawn_ground_unit(scene: PackedScene, params_res: Resource, team_id: int, 
 # ══════════════════════════════════════════════
 
 func _on_player_leveled_up(_new_level: int) -> void:
-	# 自然成长：应用 HP/导弹累计差量（玩家看到 HUD 数字先涨）
-	survivor_player.apply_natural_growth(_new_level - 1, _new_level, _player_profile)
+	# 自然成长已退役（spec player-aircraft-power-curve §6 阶段2）：等级只做门槛，
+	# 成长全部由三轴里程碑（卡片加点跨档）+ 进化换档承担。
 
 	# Bench 模式：随机自动拿一张升级（压力放大器：越强→杀越快→负载越大）
 	if _bench_mode:

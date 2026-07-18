@@ -74,13 +74,7 @@ extends Resource
 @export var bullet_damage_cap: float = 5.0     ## 收到的子弹伤害上限（0 = 不限）
 @export var bullet_dodge_chance: float = 0.10  ## 基础子弹闪避率
 
-# ── 生存模式：自然成长曲线 ──
-@export_group("生存模式 / 自然成长")
-## 等级节点表。每项 = {"level": int, "hp": int, "missile": int}
-## hp/missile 是该等级"累计"加成（不是单级 delta）。空 → 走 SurvivorData.DEFAULT_GROWTH_CURVE
-## 例：[{"level": 4, "hp": 20, "missile": 1}, {"level": 8, "hp": 40, "missile": 2}]
-## ⚠ 退役中（spec player-aircraft-power-curve §6 阶段 2）：等级只做门槛，成长改走三轴里程碑
-@export var growth_curve: Array[Dictionary] = []
+# （自然成长 growth_curve export 已退役删除，2026-07-19：等级只做门槛，成长走三轴里程碑）
 
 # ── 生存模式：三轴里程碑覆写（spec evolution-attribute-gates §2.6 按起手机分化） ──
 @export_group("生存模式 / 三轴里程碑覆写")
