@@ -351,7 +351,10 @@
       "Bash(\"/c/Users/noelu/Downloads/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64_console.exe\" --headless --path . -- --bench=fire_discipline)",
       "Bash(python build_balance_xlsx.py)",
       "Bash(pip install *)",
-      "Bash(git log *)"
+      "Bash(git log *)",
+      "PowerShell(Remove-Item -LiteralPath \"����ƽ���.xlsx\" -Confirm:$false)",
+      "Bash(ls \"C:/Users/noelu/Downloads\" | grep -i godot)",
+      "Bash(\"C:/Users/noelu/Downloads/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64_console.exe\" --headless --script res://scripts/tests/test_evolution_tree.gd)"
     ]
   },
   "hooks": {

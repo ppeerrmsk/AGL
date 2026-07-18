@@ -22,20 +22,26 @@ reconstruction_complete: false
 4. **跨国系穿插**：苏 / 美 / 欧 / 中机型混编，进化中途可换系（玩法乐趣 > 血统考据）。
 5. **顶端虚构超凡档**：六代机之上再留一档玩家"期待机"，纯虚构、可自由编名。
 
-## 2. 档位划分（⚠ 2026-07-03 改 4 档，随 [player-aircraft-power-curve](player-aircraft-power-curve.md) 定稿）
+## 2. 档位划分（⚠ 2026-07-19 恢复 5 档，随 [player-aircraft-power-curve](player-aircraft-power-curve.md) v7 定稿）
 
-| 档位 | 世代定位 | 门槛等级（切片值） | 预算 |
+| 档位 | 世代定位 | LV 带宽（逐机设定，见 power-curve §1.8） | 预算 |
 |---|---|---|---|
-| **T1** | 初始起手 | LV1 | 100% |
-| **T2** | 四代半 / 机体大改（F-16 档） | LV4 | ≈112% |
-| **T3** | 现代顶尖世代（F-22 / Su-57 档） | LV7 | ≈125% |
-| **T4** | **原创机 + 科幻实验 + 现今最顶级**（F-47 / MiG-41 / X 系合并档） | LV10 | ≈140% |
+| **T1** | 初始起手（四角色四选一：F-15/F-14/A-6E/幻影 III） | LV1 | 100% |
+| **T2** | 四代 / 四代半 / 机体大改（F-16 档） | LV4~9 | ≈112% |
+| **T3** | 现代顶尖五代（F-22 / Su-57 档） | LV10~15 | ≈125% |
+| **T4** | **现实六代 / 试验最顶**（F-47 / MiG-41 / YF-23 / FCAS / GCAP / J-36） | LV16~20 | ≈138% |
+| **T5** | **原创超凡（纯虚构期待机，X 系 + AX-00）** | LV21~26 | ≈150% |
 
-> 旧 5 档（六代与虚构分列）作废：用户定 T4 合并"现实最顶 + 原创科幻"。
-> **§4 的完整树（节点/出口）待按 power-curve §2 的 20 机矩阵重排**（roster：F-15 出 C/E 变种、
-> 新增 Su-57/F-35/J-20/A-12/F-47/MiG-41；每步仍 ≥3 选 + 相邻环不变）。矩阵 review 定稿后一并改。
+> 2026-07-03 的 4 档合并作废（用户 2026-07-19"增加阶级"）：T4 拆回"现实六代/试验"与"原创超凡"两档，
+> 即回归本 spec v1 的 5 档结构；X-02 保持 LV22 锚点，**AX-00 织星者 = 新满级压轴 LV26**。
+> **§4 的完整树（节点/出口）待按 power-curve §2 的 41 机矩阵重排**（欧系 11 款入树：幻影 III→幻影 2000
+> 家族链、鹰狮 C→E 家族链、狂风/雷/鹞入攻击线、FCAS/GCAP 入六代档；每步仍 ≥3 选 + 相邻环不变；
+> X-90 天鲸=跨类专属边）。矩阵 review 定稿后一并改。
 
-> 门槛等级留待 [survivor-loop](survivor-loop.md) 经济/曲线定稿后回填；等级**只做门槛、不加属性**（aircraft-evolution §2.3）。
+> 门槛等级留待 [survivor-loop](survivor-loop.md) 经济/曲线定稿后回填；等级**只做门槛、不加属性**（aircraft-evolution §2.3；
+> 旧"自然成长"违规残留随 power-curve §6 阶段 2 退役）。
+> **2026-07-19 起进化 = 双门**：`LV 达标 且 三轴属性达标`（斗士/骑士/策士加点，逐机门槛公式/特例见
+> [evolution-attribute-gates](evolution-attribute-gates.md)）——纯等级门槛下每局可复刻同一路线，进化无意义（用户）。
 
 ## 3. 升级亲和绑定（接 squad-upgrade-ownership）
 
@@ -48,8 +54,9 @@ reconstruction_complete: false
 
 进化换线 = 换 affinity 主轴；绑机型规则见 [squad-upgrade-ownership](squad-upgrade-ownership.md)。
 
-> ⚠ **武器绑机型、不继承**（用户定 2026-06-28）：每个机型自带其武器（进化到 A-10 即配机炮+火箭弹），
-> 换机型即换整套武器、旧武器丢弃。详见 [squad-upgrade-ownership §2.6](squad-upgrade-ownership.md) / [aircraft-evolution §2.5](aircraft-evolution.md)。
+> ~~⚠ **武器绑机型、不继承**（用户定 2026-06-28）~~ —— **2026-07-19 作废**：特殊武器改为局内玩家外部装备，
+> 换机/进化**全继承**（含强化）；机体只保底线武器（机炮/导弹/flare）。权威修订见
+> [inrun-weapon-inventory](inrun-weapon-inventory.md)（squad-upgrade-ownership §2.6 / aircraft-evolution §2.5 同此作废）。
 
 ## 3.5 种类相邻环（横跨规则，✅ 用户定 2026-06-28：先试成环）
 
@@ -164,3 +171,6 @@ reconstruction_complete: false
 |---|---|---|
 | 2026-06-28 | 1 | 初稿：5 档位完整进化树。修正 Su-57/F-22 同档平级（档位=世代）；每架 ≥3 出口全列；剔除侦察机；苏美欧中系穿插；新增档位 5 虚构超凡/期待机 7 款占位（X-09/X-13/X-21/X-44/X-77/X-90/AX-00）。名单/门槛/虚构名待定。 |
 | 2026-06-28 | 1 | 用户定两案：①**种类相邻成环**（制空—电战—攻击—远程，§3.5，先试）；②**武器绑机型不继承**（§3.5 注，同步 squad-upgrade-ownership §2.6 / aircraft-evolution §2.5）。 |
+| 2026-07-19 | 2 | **恢复 5 档**（用户"增加阶级"，§2 表重写）：T4 拆回 现实六代/试验（+YF-23/FCAS/GCAP/J-36）与 T5 原创超凡（X 系 8 款）；LV 带宽 1 / 4~9 / 10~15 / 16~20 / 21~26，AX-00=新压轴 LV26。T1 起手补第 4 位 幻影 III（电战角，四角色四选一复位）。§4 出口重连待 power-curve v7 矩阵 review 定稿后一并做（欧系 11 款入树 + X-90 跨类专属边）。 |
+| 2026-07-19 | 3 | **进化改双门**（用户："只靠等级每局可选同一架机，进化无意义"）：LV 且 三轴属性（斗士/骑士/策士）；门槛公式/特例/收支归新 spec [evolution-attribute-gates](evolution-attribute-gates.md)，本 spec §2 加指针；树节点实装时加 `gates` 字段。 |
+| 2026-07-19 | 4 | **武器绑机型作废**（用户重点调整）：特殊武器改局内玩家外部装备、换机/进化全继承，§3.5 注划线作废，权威源 [inrun-weapon-inventory](inrun-weapon-inventory.md)。 |
