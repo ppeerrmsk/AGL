@@ -19,6 +19,7 @@ func run() -> void:
 	_test_axis_point_counting()
 	_test_milestone_apply_and_replay()
 	_test_card_axis_mapping()
+	_test_weapon_inventory()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
 
@@ -222,6 +223,76 @@ func _test_card_axis_mapping() -> void:
 			break
 	_check("轴内抽卡结果在池内", not picked.is_empty() and in_pool, str(picked.get("id")))
 	_check("空池返回空 dict", SurvivorData.pick_card_for_axis([], {}, 5).is_empty(), "")
+
+
+# ── G. 局内武器库（spec inrun-weapon-inventory：快照/补挂/互斥/不重复/底线不入库）──
+func _test_weapon_inventory() -> void:
+	print("── G. 武器库：换型继承（含强化引用）/ 机尾互斥 / 同类不重复 / 底线不入库 ──")
+	var sp := SurvivorPlayer.new()
+	var ac := _make_test_aircraft()
+	sp.aircraft = ac
+	# 机上挂电磁炮（display_name 当强化标记：强化长在资源上，引用迁移=强化随行）
+	var rg := EquipmentParams.new()
+	rg.equipment_kind = "railgun"
+	rg.display_name = "MK2_UPGRADED"
+	var arr: Array[EquipmentParams] = [rg]
+	ac.params.equipment = arr
+	# 副槽 QMAAM
+	var sm := MissileParams.new()
+	sm.max_count = 6
+	ac.params.secondary_missile = sm
+
+	sp.record_special_weapons()
+	_check("电磁炮入库", sp.weapon_inventory.has(&"railgun"), str(sp.weapon_inventory.keys()))
+	_check("QMAAM 入库", sp.weapon_inventory.has(&"secondary_missile"), "")
+	_check("底线武器不入库（无 gun/missile/flare key）",
+		not sp.weapon_inventory.has(&"gun") and not sp.weapon_inventory.has(&"missile")
+		and not sp.weapon_inventory.has(&"flare"), str(sp.weapon_inventory.keys()))
+
+	# 换全新机（无装备无副槽）→ 补挂
+	ac.params = _make_fresh_params(120.0, 3, 8, 3200.0)
+	sp.remount_weapons()
+	var mounted_rg := ac.params.get_equipment_of_kind("railgun")
+	_check("新机补挂电磁炮", mounted_rg != null, "")
+	_check("强化随引用迁移（标记不丢）", mounted_rg != null and mounted_rg.display_name == "MK2_UPGRADED",
+		str(mounted_rg.display_name) if mounted_rg else "null")
+	_check("新机补挂 QMAAM 且弹量=6", ac.params.secondary_missile != null
+		and ac.secondary_missiles_remaining == 6, "got %d" % ac.secondary_missiles_remaining)
+
+	# 新机自带同类 → 不重复挂
+	var innate := EquipmentParams.new()
+	innate.equipment_kind = "railgun"
+	innate.display_name = "INNATE"
+	var arr2: Array[EquipmentParams] = [innate]
+	var p3 := _make_fresh_params(100.0, 2, 6, 3000.0)
+	p3.equipment = arr2
+	ac.params = p3
+	sp.remount_weapons()
+	_check("新机自带电磁炮 → 不重复挂（数组仍 1 件）", ac.params.equipment.size() == 1,
+		"got %d" % ac.params.equipment.size())
+
+	# 机尾位互斥：库存漂浮雷，但新机已带忠诚僚机 → 不挂
+	var torp := TorpedoParams.new()
+	var ac2 := _make_test_aircraft()
+	var sp2 := SurvivorPlayer.new()
+	sp2.aircraft = ac2
+	ac2.params.torpedo = torp
+	sp2.record_special_weapons()
+	_check("漂浮雷入库", sp2.weapon_inventory.has(&"torpedo"), "")
+	var p4 := _make_fresh_params(100.0, 2, 6, 3000.0)
+	p4.loyal_wingman = LoyalWingmanParams.new()
+	ac2.params = p4
+	sp2.remount_weapons()
+	_check("机尾位被忠诚僚机占用 → 漂浮雷不挂（互斥守住）", ac2.params.torpedo == null, "")
+	# 换到机尾位空的机 → 挂回
+	ac2.params = _make_fresh_params(100.0, 2, 6, 3000.0)
+	sp2.remount_weapons()
+	_check("机尾位空 → 漂浮雷挂回", ac2.params.torpedo == torp, "")
+
+	ac.free()
+	ac2.free()
+	sp.free()
+	sp2.free()
 
 
 func _make_test_aircraft() -> Aircraft:

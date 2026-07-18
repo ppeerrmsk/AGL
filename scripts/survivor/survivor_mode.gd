@@ -2501,6 +2501,29 @@ func _on_upgrade_selected(upgrade: Dictionary) -> void:
 		if survivor_player.aircraft:
 			survivor_player.aircraft.show_tactic_popup(tr("POPUP_EVOLUTION_FMT") % evolved_name)
 
+## 换型后重放玩家已选升级（spec evolution-attribute-gates §2.7：卡片技能记玩家层，换机不丢）。
+## category=="weapon" 的强化跳过：其效果长在武器资源上、已随武器库引用迁移，重放会双重叠加。
+## 序言重置两个存活于 aircraft 实例的乘法字段（SurvivorPlayableSetup 不管它们）——
+## 其余实例字段要么被 setup 重置（bullet_dodge_chance）要么是幂等赋值（extra_barrels 等）。
+func _replay_player_upgrades() -> void:
+	if survivor_player == null or player_aircraft == null:
+		return
+	player_aircraft.missile_reload_duration = 20.0  # aircraft.gd 字段默认值
+	player_aircraft.gun_reload_duration = 25.0
+	var replayed: int = 0
+	for u in SurvivorData.UPGRADES:
+		var stacks: int = int(upgrade_stacks.get(u["id"], 0))
+		if stacks <= 0:
+			continue
+		if str(u.get("category", "")) == "weapon":
+			continue
+		for i in stacks:
+			survivor_player.apply_upgrade(u)
+		replayed += stacks
+	SurvivorData.recompute_category_bonuses(player_aircraft, upgrade_stacks)
+	if replayed > 0:
+		EventLogger.log_event("UPGRADE", "Player", "换型重放 %d 层升级（weapon 类强化随武器库迁移已跳过）" % replayed)
+
 ## 长机被击坠时立即尝试接管存活僚机（不等 spawner 3s 周期 cleanup）。
 ## `_squad.cleanup()` 过滤死亡成员 + 晋升存活僚机为新长机 → 同步发 leader_changed →
 ## `_on_squad_leader_changed` 把 player_aircraft 重指派到新长机。
@@ -2721,15 +2744,22 @@ func _on_settlement_evolution(node_id: StringName) -> void:
 	var nd: Dictionary = EvolutionSystem.node_of(node_id)
 	if nd.is_empty():
 		return
+	# 武器库快照（spec inrun-weapon-inventory）：换型前把机上特殊武器（含强化）收进玩家武器库
+	survivor_player.record_special_weapons()
 	if not EvolutionSystem.evolve(player_aircraft, node_id, false):
 		return
-	# 主角档案引用同步（自然成长曲线 / 专属技能筛选跟新机型走）
+	# 主角档案引用同步（三轴里程碑覆写 / 专属技能筛选跟新机型走）
 	var prof := AircraftDB.get_profile(StringName(nd.get("profile", "")))
 	if prof:
 		_player_profile = prof
 		_player_profile_id = prof.id
-	# 三轴里程碑换型重放（spec evolution-attribute-gates §2.7）：加成跟玩家不跟机体，
-	# 新机 params 重挂全部已达成档位——根治旧自然成长"换型即丢"的路径依赖病
+	# ── 玩家层换型重放三连（顺序敏感）──
+	# ①武器补挂（先挂，后面 railgun 类升级过滤要查装备在位）
+	survivor_player.remount_weapons()
+	# ②已选升级卡重放（spec evolution-attribute-gates §2.7 "卡片技能记玩家层"；
+	#   作废旧"升级绑机型随 params 失效"设计——squad-upgrade-ownership §2.6 同批作废）
+	_replay_player_upgrades()
+	# ③三轴里程碑重放：新机 params 重挂全部已达成档位——加成跟玩家不跟机体
 	survivor_player.reapply_all_milestones(_player_profile)
 	# 僚机默认跟随王牌 → 直接同款（切片版："最终变同款"的最短路径）
 	if _squad:

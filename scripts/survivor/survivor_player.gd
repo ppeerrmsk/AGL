@@ -103,6 +103,67 @@ func total_axis_points() -> int:
 		t += int(v)
 	return t
 
+# ── 局内武器库（spec inrun-weapon-inventory）──
+## 特殊武器 = 玩家的外部装备，到手即永久（局内）：进化前快照当前机上的特殊武器
+## （存资源**引用**——railgun_charge 等强化就长在资源上，引用即强化载体），换型后补挂到新机。
+## equipment 数组类 = railgun/laser；机尾位 = loyal_wingman/torpedo（互斥）；副槽 = QMAAM。
+## 底线武器（gun/missile/rocket/ciws/flare）随机体走，不入库。
+const SPECIAL_EQUIPMENT_KINDS: Array[String] = ["railgun", "laser"]
+
+var weapon_inventory: Dictionary = {}  # StringName → Resource
+
+## 进化换型前调用：扫当前 params，把特殊武器（含其强化状态）收进武器库。
+## 同 key 用当前引用覆盖（当前 = 强化最全的版本）。
+func record_special_weapons() -> void:
+	if not aircraft or not aircraft.params:
+		return
+	var p := aircraft.params
+	if p.equipment != null:
+		for eq in p.equipment:
+			if eq != null and SPECIAL_EQUIPMENT_KINDS.has(eq.equipment_kind):
+				weapon_inventory[StringName(eq.equipment_kind)] = eq
+	if p.loyal_wingman != null:
+		weapon_inventory[&"loyal_wingman"] = p.loyal_wingman
+	if p.torpedo != null:
+		weapon_inventory[&"torpedo"] = p.torpedo
+	if p.secondary_missile != null:
+		weapon_inventory[&"secondary_missile"] = p.secondary_missile
+
+## 进化换型后调用：把武器库补挂到新机（新机已有同类的不重复；机尾位守互斥）。
+func remount_weapons() -> void:
+	if not aircraft or not aircraft.params or weapon_inventory.is_empty():
+		return
+	var p := aircraft.params
+	var mounted: Array = []
+	for key in weapon_inventory:
+		var res: Resource = weapon_inventory[key]
+		if res == null:
+			continue
+		match key:
+			&"loyal_wingman":
+				if p.loyal_wingman == null and p.torpedo == null:
+					p.loyal_wingman = res
+					mounted.append(key)
+			&"torpedo":
+				if p.torpedo == null and p.loyal_wingman == null:
+					p.torpedo = res
+					mounted.append(key)
+			&"secondary_missile":
+				if p.secondary_missile == null:
+					p.secondary_missile = res
+					aircraft.secondary_missiles_remaining = res.max_count
+					mounted.append(key)
+			_:
+				if p.get_equipment_of_kind(String(key)) == null:
+					if p.equipment == null:
+						var arr: Array[EquipmentParams] = []
+						p.equipment = arr
+					p.equipment.append(res as EquipmentParams)
+					mounted.append(key)
+	if not mounted.is_empty():
+		EventLogger.log_event("WEAPON_INV", "Player", "换型补挂：%s（库存 %s）" % [
+			str(mounted), str(weapon_inventory.keys())])
+
 # ── 三轴里程碑应用器（spec evolution-attribute-gates §2.6/§2.7，阶段 2）──
 
 ## 加点后应用该轴新跨过的里程碑档（增量、幂等：applied_milestones 记账防重复）。
