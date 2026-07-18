@@ -2686,6 +2686,9 @@ func _on_settlement_evolution(node_id: StringName) -> void:
 	if prof:
 		_player_profile = prof
 		_player_profile_id = prof.id
+	# 三轴里程碑换型重放（spec evolution-attribute-gates §2.7）：加成跟玩家不跟机体，
+	# 新机 params 重挂全部已达成档位——根治旧自然成长"换型即丢"的路径依赖病
+	survivor_player.reapply_all_milestones(_player_profile)
 	# 僚机默认跟随王牌 → 直接同款（切片版："最终变同款"的最短路径）
 	if _squad:
 		for m in _squad.members:

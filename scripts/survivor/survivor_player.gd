@@ -84,7 +84,7 @@ var axis_points: Dictionary = {
 ## 里程碑应用器（阶段 2）用它做增量应用与换型重放，本阶段仅占位。
 var applied_milestones: Dictionary = {}
 
-func add_axis_point(axis: StringName) -> void:
+func add_axis_point(axis: StringName, profile: PlayableAircraft = null) -> void:
 	if not axis_points.has(axis):
 		push_warning("SurvivorPlayer.add_axis_point: 未知属性轴 %s" % axis)
 		return
@@ -92,6 +92,7 @@ func add_axis_point(axis: StringName) -> void:
 	EventLogger.log_event("AXIS", "Player", "%s +1 → %d（合计 %d / 可得 %d）" % [
 		axis, int(axis_points[axis]), total_axis_points(),
 		SurvivorData.axis_points_earnable(level)])
+	apply_crossed_milestones(axis, profile)
 
 func get_axis_points(axis: StringName) -> int:
 	return int(axis_points.get(axis, 0))
@@ -101,6 +102,95 @@ func total_axis_points() -> int:
 	for v in axis_points.values():
 		t += int(v)
 	return t
+
+# ── 三轴里程碑应用器（spec evolution-attribute-gates §2.6/§2.7，阶段 2）──
+
+## 加点后应用该轴新跨过的里程碑档（增量、幂等：applied_milestones 记账防重复）。
+## 无飞机时不应用也不记账——等飞机就位后重放补上。profile = 起手机覆写表来源。
+func apply_crossed_milestones(axis: StringName, profile: PlayableAircraft = null) -> void:
+	if not aircraft or not aircraft.params:
+		return
+	var pts: int = get_axis_points(axis)
+	var done: Array = applied_milestones.get(axis, [])
+	for m in SurvivorData.milestones_for(axis, profile):
+		var need: int = int(m["points"])
+		if pts >= need and not done.has(need):
+			_apply_milestone_effect(m)
+			done.append(need)
+			EventLogger.log_event("MILESTONE", "Player",
+				"%s %d点 里程碑生效：%s %s" % [axis, need, str(m.get("stat")), str(m.get("value"))])
+	applied_milestones[axis] = done
+
+## 换型重放（spec §2.7 玩家层持有）：evolve() 换新 params 后调用——
+## 清应用记录、把三轴已达成的全部档位重挂到新机。加成跟玩家不跟机体。
+func reapply_all_milestones(profile: PlayableAircraft = null) -> void:
+	applied_milestones = {}
+	for axis in SurvivorData.AXES:
+		apply_crossed_milestones(axis, profile)
+	EventLogger.log_event("MILESTONE", "Player", "换型重放完成（斗%d/骑%d/策%d 点）" % [
+		get_axis_points(SurvivorData.AXIS_GLADIATOR),
+		get_axis_points(SurvivorData.AXIS_KNIGHT),
+		get_axis_points(SurvivorData.AXIS_SCHEMER)])
+
+## 应用一档里程碑到当前飞机（语义与 apply_upgrade 同源；表结构见 SurvivorData.MILESTONE_TABLE）。
+## mult 类 stat 的 value 是乘数（1.08）；add 类是增量。子资源先 duplicate 防共享污染。
+func _apply_milestone_effect(m: Dictionary) -> void:
+	if not aircraft or not aircraft.params:
+		return
+	var p := aircraft.params
+	var v: float = float(m.get("value", 0.0))
+	match str(m.get("stat", "")):
+		"max_hp":
+			p.max_hp += v
+			aircraft.hp += v  # 达成时也恢复对应量（与升级同语义）
+		"gun_damage":
+			if p.gun:
+				p.gun = p.gun.duplicate()
+				p.gun.bullet_damage *= v
+		"gun_range":
+			if p.gun:
+				p.gun = p.gun.duplicate()
+				p.gun.max_range *= v
+		"gun_ammo":
+			if p.gun:
+				p.gun = p.gun.duplicate()
+				var add_ammo: int = int(round(p.gun.max_ammo * (v - 1.0)))
+				p.gun.max_ammo += add_ammo
+				aircraft.ammo += add_ammo
+		"max_g":
+			# 持续/结构极限同步抬，保持瞬时超越空间不缩水（CLAUDE.md 永久升级=直改 params，AI 经 effective_* 可见）
+			p.max_g += v
+			p.max_g_structural += v
+		"missile_count":
+			if p.missile:
+				p.missile = p.missile.duplicate()
+				p.missile.max_count += int(v)
+				aircraft.missiles_remaining += int(v)
+		"radar_range":
+			p.radar_range *= v
+		"speed":
+			# 沿用 apply_upgrade("speed") 教训：只抬极速 + 半比例加速，不动 cruise
+			# （cruise 同步放大会抬高转弯最低速度地板，堆层后压在高速上转不动弯）
+			p.max_speed *= v
+			p.acceleration *= (1.0 + (v - 1.0) * 0.5)
+		"alt_speed":
+			p.climb_rate_max *= v
+		"flare_count":
+			if p.flare:
+				p.flare = p.flare.duplicate()
+				p.flare.max_flares += int(v)
+				aircraft.flares_remaining += int(v)
+		"lock_time":
+			p.lock_time = maxf(p.lock_time * v, 0.5)  # 地板 0.5s 与升级路径一致
+		"flare_cd":
+			if p.flare:
+				p.flare = p.flare.duplicate()
+				p.flare.cooldown *= v
+				p.flare.reload_time *= v
+		"radar_cone_deg":
+			p.radar_half_angle += v  # 矩阵"锥"口径 = 半角（params.radar_half_angle）
+		_:
+			push_warning("未知里程碑 stat: %s" % str(m.get("stat")))
 
 func apply_upgrade(upgrade: Dictionary) -> void:
 	if not aircraft or not aircraft.params:
