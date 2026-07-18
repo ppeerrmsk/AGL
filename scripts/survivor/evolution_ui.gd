@@ -59,8 +59,9 @@ func _ready() -> void:
 	_root.add_theme_constant_override("separation", 10)
 	_panel.add_child(_root)
 
-## current = 当前节点（可空）；exits = 出口；choices = 升级三选一；history = 爬线历史（节点 id 序列）
-func show_offer(current: Dictionary, exits: Array, team_level: int, choices: Array, history: Array = []) -> void:
+## current = 当前节点（可空）；exits = 出口；choices = 升级三选一；history = 爬线历史（节点 id 序列）；
+## axis_points = 三轴属性点（属性门槛缺口显示，spec evolution-attribute-gates）
+func show_offer(current: Dictionary, exits: Array, team_level: int, choices: Array, history: Array = [], axis_points: Dictionary = {}) -> void:
 	_evo_picked = false
 	_up_picked = false
 	_evo_selected = &""
@@ -92,7 +93,7 @@ func show_offer(current: Dictionary, exits: Array, team_level: int, choices: Arr
 
 	# 左：进化树视图（皇牌空战式，自下而上）
 	_tree = EvolutionTreeView.new()
-	_tree.setup(EvolutionSystem.all_nodes(), StringName(current.get("id", "")), history, team_level)
+	_tree.setup(EvolutionSystem.all_nodes(), StringName(current.get("id", "")), history, team_level, axis_points)
 	_tree.node_selected.connect(_on_tree_node_selected)
 	_evo_pane.add_child(_tree)
 	var hint := Label.new()

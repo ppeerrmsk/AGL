@@ -20,6 +20,7 @@ func run() -> void:
 	_test_milestone_apply_and_replay()
 	_test_card_axis_mapping()
 	_test_weapon_inventory()
+	_test_evolution_gates()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
 
@@ -223,6 +224,57 @@ func _test_card_axis_mapping() -> void:
 			break
 	_check("轴内抽卡结果在池内", not picked.is_empty() and in_pool, str(picked.get("id")))
 	_check("空池返回空 dict", SurvivorData.pick_card_for_axis([], {}, 5).is_empty(), "")
+
+
+# ── H. 进化属性门槛（spec evolution-attribute-gates §2.3：双门判定 + 树 JSON 完备性）──
+func _test_evolution_gates() -> void:
+	print("── H. 属性门槛：判定逻辑 / sum_gk 合计门 / 树 JSON 完备性 ──")
+	# 判定逻辑（合成节点）
+	var nd_single: Dictionary = {"gates": {"knight": 2}}
+	_check("单轴门：1/2 不过", not EvolutionSystem.gates_passed(nd_single, {&"knight": 1}), "")
+	_check("单轴门：2/2 过", EvolutionSystem.gates_passed(nd_single, {&"knight": 2}), "")
+	var miss: Array = EvolutionSystem.gates_missing(nd_single, {&"knight": 0})
+	_check("缺口结构 {key,have,need}", miss.size() == 1 and str(miss[0]["key"]) == "knight"
+		and int(miss[0]["have"]) == 0 and int(miss[0]["need"]) == 2, str(miss))
+	var nd_air: Dictionary = {"gates": {"gladiator": 1, "knight": 1, "sum_gk": 3}}
+	_check("合计门：斗2骑0 不过（骑各1未满足）",
+		not EvolutionSystem.gates_passed(nd_air, {&"gladiator": 2, &"knight": 0}), "")
+	_check("合计门：斗2骑1 过（合计3 且各1）",
+		EvolutionSystem.gates_passed(nd_air, {&"gladiator": 2, &"knight": 1}), "")
+	_check("无 gates 字段 = 无门槛", EvolutionSystem.gates_passed({}, {}), "")
+	# 树 JSON 完备性：tier1 无门槛、tier≥2 全部有门槛、x02 三轴各2
+	var t1_clean := true
+	var t2plus_gated := true
+	for nd in EvolutionSystem.all_nodes():
+		var tier: int = int(nd.get("tier", 1))
+		var g: Dictionary = EvolutionSystem.gates_of(nd)
+		if tier <= 1 and not g.is_empty():
+			t1_clean = false
+		if tier >= 2 and g.is_empty():
+			t2plus_gated = false
+			print("    ! 缺门槛节点：%s" % nd.get("id"))
+	_check("tier1 起手机无门槛", t1_clean, "")
+	_check("tier≥2 节点全部有门槛", t2plus_gated, "")
+	var x02: Dictionary = EvolutionSystem.node_of(&"x02")
+	var g02: Dictionary = EvolutionSystem.gates_of(x02)
+	_check("x02 omni 三轴各 2", int(g02.get("gladiator", 0)) == 2 and int(g02.get("knight", 0)) == 2
+		and int(g02.get("schemer", 0)) == 2, str(g02))
+	# 可行性：tier 门槛消耗 ≤ 该 tier 最低等级的点数收入（LV10→3 / LV18→6）
+	var feasible := true
+	for nd in EvolutionSystem.all_nodes():
+		var g2: Dictionary = EvolutionSystem.gates_of(nd)
+		if g2.is_empty():
+			continue
+		var cost: int = 0
+		for k in g2:
+			if String(k) != "sum_gk":
+				cost += int(g2[k])
+		cost = maxi(cost, int(g2.get("sum_gk", 0)))
+		var income: int = SurvivorData.axis_points_earnable(EvolutionSystem.min_level_of(nd))
+		if cost > income:
+			feasible = false
+			print("    ! 门槛超收入：%s cost=%d income=%d" % [nd.get("id"), cost, income])
+	_check("全节点门槛消耗 ≤ 解锁等级点数收入（专注可达）", feasible, "")
 
 
 # ── G. 局内武器库（spec inrun-weapon-inventory：快照/补挂/互斥/不重复/底线不入库）──

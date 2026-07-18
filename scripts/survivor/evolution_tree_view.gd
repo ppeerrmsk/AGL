@@ -22,13 +22,15 @@ var _current: StringName = &""
 var _history: Array = []           ## 爬线历史节点 id（顺序）
 var _exit_lv: Dictionary = {}      ## 当前节点出口 id → 解锁等级
 var _team_level: int = 1
+var _axis_points: Dictionary = {}  ## 三轴属性点（属性门槛检查，spec evolution-attribute-gates）
 var _selected: StringName = &""
 
-func setup(all_nodes: Array, current: StringName, history: Array, team_level: int) -> void:
+func setup(all_nodes: Array, current: StringName, history: Array, team_level: int, axis_points: Dictionary = {}) -> void:
 	_nodes = all_nodes
 	_current = current
 	_history = history.duplicate()
 	_team_level = team_level
+	_axis_points = axis_points
 	_selected = &""
 	_exit_lv.clear()
 	var cur_nd := EvolutionSystem.node_of(current)
@@ -89,10 +91,10 @@ func _draw() -> void:
 			if _edge_in_history(from_id, to_id):
 				col = Color(1.0, 0.8, 0.3, 0.9); width = 2.5                          # 爬过的线：金
 			elif from_id == _current and _exit_lv.has(to_id):
-				if _team_level >= int(_exit_lv[to_id]):
+				if _team_level >= int(_exit_lv[to_id]) and _gate_gap_text(to_id) == "":
 					col = Color(0.4, 1.0, 0.4, 0.8); width = 2.0                      # 可进化：亮绿
 				else:
-					col = Color(0.55, 0.6, 0.55, 0.5)                                 # 等级不够：灰
+					col = Color(0.55, 0.6, 0.55, 0.5)                                 # 等级/属性门槛不够：灰
 			else:
 				col = Color(0.3, 0.35, 0.3, 0.18)                                     # 远处：暗
 			draw_line(a, b, col, width)
@@ -124,16 +126,18 @@ func _draw() -> void:
 			sub = tr("EVOLUTION_TREE_CURRENT")
 			sub_col = ThemeColors.TEXT_ACCENT
 		elif _exit_lv.has(nid):
-			if _team_level >= int(_exit_lv[nid]):
+			var gap := _gate_gap_text(nid)
+			if _team_level >= int(_exit_lv[nid]) and gap == "":
 				bg = Color(0.05, 0.11, 0.05, 0.95)
 				border = ThemeColors.HP_OK                                            # 亮色=可进化
 				txt_col = ThemeColors.TEXT_PRIMARY
 				sub = "LV %d ✓" % lv
 				sub_col = ThemeColors.HP_OK
 			else:
-				border = Color(0.5, 0.55, 0.5, 0.6)                                   # 灰=不能进化
+				border = Color(0.5, 0.55, 0.5, 0.6)                                   # 灰=不能进化（LV/属性双门）
 				txt_col = ThemeColors.TEXT_LOCKED
-				sub = "LV %d" % lv
+				# 等级先行显示；等级已够只差属性 → 显示轴缺口徽记（"斗士 1/2"，spec §3.3）
+				sub = ("LV %d" % lv) if _team_level < int(_exit_lv[nid]) else gap
 				sub_col = ThemeColors.TEXT_LOCKED
 		elif _history.has(nid) or _history.has(String(nid)):
 			border = Color(1.0, 0.8, 0.3, 0.5)                                        # 走过的机
@@ -172,9 +176,23 @@ func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		for nid in _rects:
 			if (_rects[nid] as Rect2).has_point(event.position):
-				# 只有"亮色可进化"节点可选
-				if _exit_lv.has(nid) and _team_level >= int(_exit_lv[nid]):
+				# 只有"亮色可进化"节点可选（LV 且 属性双门，spec evolution-attribute-gates）
+				if _exit_lv.has(nid) and _team_level >= int(_exit_lv[nid]) and _gate_gap_text(nid) == "":
 					_selected = nid
 					queue_redraw()
 					node_selected.emit(nid)
 				return
+
+## 属性门槛缺口短文本（缺口徽记）："斗士 1/2"（多条缺口取第一条 + "+N"）；无缺口返回 ""。
+func _gate_gap_text(nid: StringName) -> String:
+	var missing: Array = EvolutionSystem.gates_missing(EvolutionSystem.node_of(nid), _axis_points)
+	if missing.is_empty():
+		return ""
+	var m: Dictionary = missing[0]
+	var label: String
+	if String(m["key"]) == "sum_gk":
+		label = "%s+%s" % [tr("ATTR_GLADIATOR"), tr("ATTR_KNIGHT")]
+	else:
+		label = tr(str(SurvivorData.AXIS_I18N_KEY.get(StringName(String(m["key"])), "")))
+	var extra: String = ("+%d" % (missing.size() - 1)) if missing.size() > 1 else ""
+	return "%s %d/%d%s" % [label, int(m["have"]), int(m["need"]), extra]

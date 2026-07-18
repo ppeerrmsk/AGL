@@ -66,6 +66,33 @@ static func all_nodes() -> Array:
 	_ensure_loaded()
 	return _nodes.values()
 
+# ── 属性门槛（spec evolution-attribute-gates §2.3/§2.4）──
+## 节点 gates 字段形如 {"gladiator": 2} / air 类 {"gladiator":1,"knight":1,"sum_gk":3}
+## / omni 三轴各写；"sum_gk" = 斗士+骑士合计（制空混合门）。无字段 = 无门槛（T1 起手）。
+## 当前 12 机树为临时缩放值（tier2≈设计T3 / tier3≈设计T5），41 机重排时重生成。
+
+static func gates_of(nd: Dictionary) -> Dictionary:
+	return nd.get("gates", {})
+
+## 进化 = LV 且 属性双门；本函数只查属性侧。axis_points = SurvivorPlayer.axis_points。
+static func gates_passed(nd: Dictionary, axis_points: Dictionary) -> bool:
+	return gates_missing(nd, axis_points).is_empty()
+
+## 缺口列表 [{key, have, need}]（key = 轴名或 "sum_gk"），空 = 全过。UI 缺口徽记数据源。
+static func gates_missing(nd: Dictionary, axis_points: Dictionary) -> Array:
+	var out: Array = []
+	var g := gates_of(nd)
+	for k in g:
+		var need: int = int(g[k])
+		var have: int
+		if String(k) == "sum_gk":
+			have = int(axis_points.get(&"gladiator", 0)) + int(axis_points.get(&"knight", 0))
+		else:
+			have = int(axis_points.get(StringName(String(k)), 0))
+		if have < need:
+			out.append({"key": String(k), "have": have, "need": need})
+	return out
+
 static func category_key_of(nd: Dictionary) -> String:
 	_ensure_loaded()
 	return _category_keys.get(nd.get("category", ""), "")

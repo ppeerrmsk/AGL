@@ -1,28 +1,196 @@
 {
-	"schema_version": 1,
-	"_comment": "进化树切片版（spec aircraft-evolution-tree / ace-system；docs/planning/evolution-vertical-slice.md）。护栏1：树=数据文件，代码只读表。category 环：air-ew-attack-range（§3.5 相邻环）；tier 门槛 2026-07-06 用户定稿：2 阶需 10 级（原切片值 4/8 调低仅为验证），3 阶 18 暂定随 playtest 调。",
-	"tier_min_level": { "1": 1, "2": 10, "3": 18 },
-	"categories": {
-		"air":    "EVOLUTION_CAT_AIR",
-		"ew":     "EVOLUTION_CAT_EW",
-		"range":  "EVOLUTION_CAT_RANGE",
-		"attack": "EVOLUTION_CAT_ATTACK",
-		"omni":   "EVOLUTION_CAT_OMNI"
-	},
-	"nodes": [
-		{ "id": "f15",   "tier": 1, "category": "air",    "profile": "f15",   "name_key": "AIRCRAFT_F15_DISPLAY",   "exits": ["f22", "f16", "mig31"] },
-		{ "id": "f14",   "tier": 1, "category": "range",  "profile": "f14",   "name_key": "AIRCRAFT_F14_DISPLAY",   "exits": ["mig31", "su34", "f22"] },
-		{ "id": "a10",   "tier": 1, "category": "attack", "profile": "a10",   "name_key": "AIRCRAFT_A10_DISPLAY",   "exits": ["su34", "f16", "mig31"] },
-
-		{ "id": "f22",   "tier": 2, "category": "air",    "profile": "f22",   "name_key": "AIRCRAFT_F22_DISPLAY",   "exits": ["x09", "x13", "x21", "x02"] },
-		{ "id": "f16",   "tier": 2, "category": "ew",     "profile": "f16",   "name_key": "AIRCRAFT_F16_DISPLAY",   "exits": ["x13", "x09", "x44", "x02"] },
-		{ "id": "mig31", "tier": 2, "category": "range",  "profile": "mig31", "name_key": "AIRCRAFT_MIG31_DISPLAY", "exits": ["x21", "x44", "x09", "x02"] },
-		{ "id": "su34",  "tier": 2, "category": "attack", "profile": "su34",  "name_key": "AIRCRAFT_SU34_DISPLAY",  "exits": ["x44", "x13", "x21", "x02"] },
-
-		{ "id": "x09",   "tier": 3, "category": "air",    "profile": "x09",   "name_key": "AIRCRAFT_X09_DISPLAY",   "exits": [] },
-		{ "id": "x13",   "tier": 3, "category": "ew",     "profile": "x13",   "name_key": "AIRCRAFT_X13_DISPLAY",   "exits": [] },
-		{ "id": "x21",   "tier": 3, "category": "range",  "profile": "x21",   "name_key": "AIRCRAFT_X21_DISPLAY",   "exits": [] },
-		{ "id": "x44",   "tier": 3, "category": "attack", "profile": "x44",   "name_key": "AIRCRAFT_X44_DISPLAY",   "exits": [] },
-		{ "id": "x02",   "tier": 3, "category": "omni",   "profile": "x02",   "name_key": "AIRCRAFT_X02_DISPLAY",   "exits": [] }
-	]
+  "schema_version": 1,
+  "_comment": "进化树切片版（spec aircraft-evolution-tree / ace-system；docs/planning/evolution-vertical-slice.md）。护栏1：树=数据文件，代码只读表。category 环：air-ew-attack-range（§3.5 相邻环）；tier 门槛 2026-07-06 用户定稿：2 阶需 10 级（原切片值 4/8 调低仅为验证），3 阶 18 暂定随 playtest 调。",
+  "tier_min_level": {
+    "1": 1,
+    "2": 10,
+    "3": 18
+  },
+  "categories": {
+    "air": "EVOLUTION_CAT_AIR",
+    "ew": "EVOLUTION_CAT_EW",
+    "range": "EVOLUTION_CAT_RANGE",
+    "attack": "EVOLUTION_CAT_ATTACK",
+    "omni": "EVOLUTION_CAT_OMNI"
+  },
+  "nodes": [
+    {
+      "id": "f15",
+      "tier": 1,
+      "category": "air",
+      "profile": "f15",
+      "name_key": "AIRCRAFT_F15_DISPLAY",
+      "exits": [
+        "f22",
+        "f16",
+        "f35",
+        "mig31"
+      ]
+    },
+    {
+      "id": "f14",
+      "tier": 1,
+      "category": "range",
+      "profile": "f14",
+      "name_key": "AIRCRAFT_F14_DISPLAY",
+      "exits": [
+        "mig31",
+        "su34",
+        "f22"
+      ]
+    },
+    {
+      "id": "a10",
+      "tier": 1,
+      "category": "attack",
+      "profile": "a10",
+      "name_key": "AIRCRAFT_A10_DISPLAY",
+      "exits": [
+        "su34",
+        "f16",
+        "f35",
+        "mig31"
+      ]
+    },
+    {
+      "id": "f22",
+      "tier": 2,
+      "category": "air",
+      "profile": "f22",
+      "name_key": "AIRCRAFT_F22_DISPLAY",
+      "exits": [
+        "x09",
+        "x13",
+        "x21",
+        "x02"
+      ],
+      "gates": {
+        "gladiator": 1,
+        "knight": 1,
+        "sum_gk": 3
+      }
+    },
+    {
+      "id": "f16",
+      "tier": 2,
+      "category": "ew",
+      "profile": "f16",
+      "name_key": "AIRCRAFT_F16_DISPLAY",
+      "exits": [
+        "x13",
+        "x09",
+        "x44",
+        "x02"
+      ],
+      "gates": {
+        "schemer": 2
+      }
+    },
+    {
+      "id": "f35",
+      "tier": 2,
+      "category": "ew",
+      "profile": "f35",
+      "name_key": "AIRCRAFT_F35_DISPLAY",
+      "exits": [
+        "x13",
+        "x09",
+        "x02"
+      ],
+      "gates": {
+        "schemer": 2
+      }
+    },
+    {
+      "id": "mig31",
+      "tier": 2,
+      "category": "range",
+      "profile": "mig31",
+      "name_key": "AIRCRAFT_MIG31_DISPLAY",
+      "exits": [
+        "x21",
+        "x44",
+        "x09",
+        "x02"
+      ],
+      "gates": {
+        "knight": 2
+      }
+    },
+    {
+      "id": "su34",
+      "tier": 2,
+      "category": "attack",
+      "profile": "su34",
+      "name_key": "AIRCRAFT_SU34_DISPLAY",
+      "exits": [
+        "x44",
+        "x13",
+        "x21",
+        "x02"
+      ],
+      "gates": {
+        "gladiator": 2
+      }
+    },
+    {
+      "id": "x09",
+      "tier": 3,
+      "category": "air",
+      "profile": "x09",
+      "name_key": "AIRCRAFT_X09_DISPLAY",
+      "exits": [],
+      "gates": {
+        "gladiator": 2,
+        "knight": 2,
+        "sum_gk": 6
+      }
+    },
+    {
+      "id": "x13",
+      "tier": 3,
+      "category": "ew",
+      "profile": "x13",
+      "name_key": "AIRCRAFT_X13_DISPLAY",
+      "exits": [],
+      "gates": {
+        "schemer": 5
+      }
+    },
+    {
+      "id": "x21",
+      "tier": 3,
+      "category": "range",
+      "profile": "x21",
+      "name_key": "AIRCRAFT_X21_DISPLAY",
+      "exits": [],
+      "gates": {
+        "knight": 5
+      }
+    },
+    {
+      "id": "x44",
+      "tier": 3,
+      "category": "attack",
+      "profile": "x44",
+      "name_key": "AIRCRAFT_X44_DISPLAY",
+      "exits": [],
+      "gates": {
+        "gladiator": 5
+      }
+    },
+    {
+      "id": "x02",
+      "tier": 3,
+      "category": "omni",
+      "profile": "x02",
+      "name_key": "AIRCRAFT_X02_DISPLAY",
+      "exits": [],
+      "gates": {
+        "gladiator": 2,
+        "knight": 2,
+        "schemer": 2
+      }
+    }
+  ]
 }

@@ -507,6 +507,15 @@ func _setup_boss_debug_scenario() -> void:
 	# 重算战区 bonus（与正常升级链一致，确保派生倍率/category aura 同步）
 	SurvivorData.recompute_category_bonuses(player_aircraft, upgrade_stacks)
 
+	# 3.5 三轴点数补发（自然成长退役后跳级点数为 0）：按主题 build 的轴分布补满
+	# floor(15/3)=5 点，里程碑随加点自动生效——回填 debug 机体强度；debug 不查进化门槛
+	var _earnable: int = SurvivorData.axis_points_earnable(BOSS_DEBUG_LEVEL)
+	for pi in _earnable:
+		var ax: StringName = SurvivorData.AXIS_GLADIATOR
+		if not _boss_debug_picks.is_empty():
+			ax = SurvivorData.axis_of_upgrade(_boss_debug_picks[pi % _boss_debug_picks.size()])
+		survivor_player.add_axis_point(ax, _player_profile)
+
 	# 4. 启动 BossEncounterEvent（PRE_STAGE → 玩家飞近自动 ENGAGED → VICTORY）
 	if _event_director == null:
 		push_error("Boss Debug: _event_director is null")
@@ -2737,12 +2746,18 @@ func _open_evolution_offer() -> void:
 	var history: Array = player_aircraft.get_meta("evo_history", [])
 	if history.is_empty() and cur_id != &"":
 		history = [cur_id]
-	_evolution_ui.show_offer(EvolutionSystem.node_of(cur_id), exits, lvl, choices, history)
+	_evolution_ui.show_offer(EvolutionSystem.node_of(cur_id), exits, lvl, choices, history,
+		survivor_player.axis_points if survivor_player else {})
 
 ## 规划站·进化栏：ACE 手动进化 + 僚机自动跟随同款（spec ace-system §2.3）。面板保持打开。
 func _on_settlement_evolution(node_id: StringName) -> void:
 	var nd: Dictionary = EvolutionSystem.node_of(node_id)
 	if nd.is_empty():
+		return
+	# 进化双门兜底（spec evolution-attribute-gates §2.3：LV 且 属性；树视图已过滤，此处防御性复查）
+	if survivor_player.level < EvolutionSystem.min_level_of(nd):
+		return
+	if not EvolutionSystem.gates_passed(nd, survivor_player.axis_points):
 		return
 	# 武器库快照（spec inrun-weapon-inventory）：换型前把机上特殊武器（含强化）收进玩家武器库
 	survivor_player.record_special_weapons()
