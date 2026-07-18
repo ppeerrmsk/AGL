@@ -636,3 +636,8 @@ REWARD_WINGMAN_FULL_HINT,编队已满员（9 机）——奖励转为追加武�
 EVENT_ESCORT_TITLE,护送任务：掩护友军直升机抵达对岸,Escort: cover allied helicopters to the far side,護衛任務：友軍ヘリを対岸まで援護せよ
 EVENT_ESCORT_SUCCESS,护送成功,Escort Complete,護衛成功
 EVENT_ESCORT_FAIL,护送失败——运输队全灭,Escort Failed - convoy lost,護衛失敗——輸送隊全滅
+ATTR_GLADIATOR,斗士,Gladiator,闘士
+ATTR_KNIGHT,骑士,Knight,騎士
+ATTR_SCHEMER,策士,Schemer,策士
+CARD_AXIS_FOCUS_NAME,方向专注,Focus Training,方向鍛錬
+CARD_AXIS_FOCUS_DESC,本轴暂无新技能——纯粹磨练方向（该轴属性点 +1）,No new skill on this path - pure focus (+1 point on this axis),この軸に新スキルなし——純粋な鍛錬（+1ポイント）

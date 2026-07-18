@@ -1428,6 +1428,73 @@ static func milestones_for(axis: StringName, profile: PlayableAircraft = null) -
 		merged.append(use)
 	return merged
 
+## 升级卡 → 轴归属：默认按 category 映射；跨界卡走逐 id 覆写；带显式 "axis" 字段的卡（专注卡）最优先
+const AXIS_BY_CATEGORY: Dictionary = {
+	"survival": AXIS_GLADIATOR,            # 突击近战的肉与回复
+	"secondary": AXIS_GLADIATOR,           # 机炮系
+	"mobility": AXIS_KNIGHT,               # 机动力生存
+	"missile": AXIS_KNIGHT,                # 雷达导弹
+	"weapon": AXIS_KNIGHT,                 # 特殊武器强化（电磁炮等远程件）
+	"electronic_warfare": AXIS_SCHEMER,    # 电子战
+}
+const AXIS_OVERRIDE_BY_ID: Dictionary = {
+	"dogfight": AXIS_GLADIATOR,                 # 狗斗能力=斗士定义轴（category=mobility）
+	"fear_squad_spread": AXIS_SCHEMER,          # 心理战（category=secondary）
+	"fear_chills": AXIS_SCHEMER,
+	"skill_gun_kill_flare_drop": AXIS_SCHEMER,  # 效果主体是 jam（category=secondary）
+	"laser_cooldown": AXIS_SCHEMER,             # 能量/电子系（category=weapon）
+	"laser_range": AXIS_SCHEMER,
+	"laser_heat": AXIS_SCHEMER,
+}
+## 轴 → 玩家可见名 i18n key（卡片标签 / Tab 面板用）
+const AXIS_I18N_KEY: Dictionary = {
+	AXIS_GLADIATOR: "ATTR_GLADIATOR",
+	AXIS_KNIGHT: "ATTR_KNIGHT",
+	AXIS_SCHEMER: "ATTR_SCHEMER",
+}
+
+static func axis_of_upgrade(u: Dictionary) -> StringName:
+	if u.has("axis"):
+		return StringName(str(u["axis"]))
+	var uid := str(u.get("id", ""))
+	if AXIS_OVERRIDE_BY_ID.has(uid):
+		return AXIS_OVERRIDE_BY_ID[uid]
+	return AXIS_BY_CATEGORY.get(str(u.get("category", "")), AXIS_GLADIATOR)
+
+## 轴内抽一张卡：稀有度基础权重 × keyword 流派引导（每 3 级卡片事件用）。
+## pity 不参与——三卡一轴一张的结构本身保证多样性，保底需要时再接。
+static func pick_card_for_axis(pool: Array, owned_stacks: Dictionary, level: int) -> Dictionary:
+	if pool.is_empty():
+		return {}
+	var steering: Dictionary = compute_keyword_steering_weights(owned_stacks, level)
+	var weights: Array[float] = []
+	var total := 0.0
+	for u in pool:
+		var w: float = RARITY_BASE_WEIGHT[get_rarity(u)] * _keyword_weight_mult(u, steering)
+		weights.append(w)
+		total += w
+	var roll := randf() * total
+	for i in pool.size():
+		roll -= weights[i]
+		if roll <= 0.0:
+			return pool[i]
+	return pool[pool.size() - 1]
+
+## 轴池抽空时的兜底"专注"卡：无技能、纯 +1 点（stat=axis_focus 由 survivor_mode 特判不走 apply）
+static func make_axis_focus_card(axis: StringName) -> Dictionary:
+	return {
+		"id": "axis_focus_%s" % axis,
+		"name": "CARD_AXIS_FOCUS_NAME",
+		"desc": "CARD_AXIS_FOCUS_DESC",
+		"stat": "axis_focus",
+		"value": 0.0,
+		"max_stacks": 999,
+		"category": "",
+		"axis": String(axis),
+		"rarity": Rarity.STABLE,
+		"keywords": [],
+	}
+
 
 # ── 经验曲线 ─────────────────────────────────────────────
 

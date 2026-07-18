@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\"/c/Users/noelu/Downloads/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64_console.exe\" --headless --path . *)",
+      "Bash(\"/c/Users/noelu/Downloads/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64_console.exe\" --headless --path \"/c/Users/noelu/Documents/AGL\" *)",
+      "Bash(\"/c/Users/noelu/Downloads/Godot_v4.4.1-stable_win64/Godot_v4.4.1-stable_win64_console.exe\" --headless --path . *)",
+      "PowerShell(& \"C:\\Users\\noelu\\Downloads\\Godot_v4.6.2-stable_mono_win64\\Godot_v4.6.2-stable_mono_win64\\Godot_v4.6.2-stable_mono_win64_console.exe\" --headless *)",
+      "PowerShell(& $env:USERPROFILE\\Downloads\\Godot_v4.6.2-stable_mono_win64\\Godot_v4.6.2-stable_mono_win64\\Godot_v4.6.2-stable_mono_win64_console.exe --headless *)",
+      "PowerShell(Select-String *)",
+      "PowerShell(Get-ChildItem *)",
+      "PowerShell(Get-Content *)",
+      "mcp__godot__run_project",
+      "mcp__godot__get_debug_output",
+      "mcp__godot__stop_project",
+      "mcp__godot__get_godot_version",
+      "mcp__godot__get_project_info"
+    ]
+  }
+}

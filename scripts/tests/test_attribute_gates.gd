@@ -18,6 +18,7 @@ func run() -> void:
 	_test_milestone_override_merge()
 	_test_axis_point_counting()
 	_test_milestone_apply_and_replay()
+	_test_card_axis_mapping()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
 
@@ -160,6 +161,67 @@ func _test_milestone_apply_and_replay() -> void:
 	ac2.free()
 	sp.free()
 	sp2.free()
+
+
+# ── F. 卡片轴映射与轴内抽卡（阶段 3）──
+func _test_card_axis_mapping() -> void:
+	print("── F. 卡片轴映射：全池覆盖 / 覆写 / 专注卡 / 轴内抽卡 ──")
+	# 全池覆盖：每张升级卡都映射到三轴之一
+	var counts: Dictionary = {
+		SurvivorData.AXIS_GLADIATOR: 0, SurvivorData.AXIS_KNIGHT: 0, SurvivorData.AXIS_SCHEMER: 0,
+	}
+	var all_mapped := true
+	for u in SurvivorData.UPGRADES:
+		var a: StringName = SurvivorData.axis_of_upgrade(u)
+		if not counts.has(a):
+			all_mapped = false
+			print("    ! 未映射卡：%s（axis=%s）" % [u.get("id"), a])
+		else:
+			counts[a] = int(counts[a]) + 1
+	_check("全部升级卡映射到三轴之一", all_mapped, "")
+	_check("三轴池皆非空（斗%d/骑%d/策%d）" % [
+		counts[SurvivorData.AXIS_GLADIATOR], counts[SurvivorData.AXIS_KNIGHT], counts[SurvivorData.AXIS_SCHEMER]],
+		int(counts[SurvivorData.AXIS_GLADIATOR]) > 0 and int(counts[SurvivorData.AXIS_KNIGHT]) > 0
+		and int(counts[SurvivorData.AXIS_SCHEMER]) > 0, "")
+	# 抽查：category 默认映射 + 逐 id 覆写
+	var samples: Array = [
+		["gun_damage", SurvivorData.AXIS_GLADIATOR],   # secondary → 斗士
+		["hp_up", SurvivorData.AXIS_GLADIATOR],        # survival → 斗士
+		["missile_count", SurvivorData.AXIS_KNIGHT],   # missile → 骑士
+		["speed_up", SurvivorData.AXIS_KNIGHT],        # mobility → 骑士
+		["flare_shield", SurvivorData.AXIS_SCHEMER],   # electronic_warfare → 策士
+		["dogfight", SurvivorData.AXIS_GLADIATOR],     # 覆写：狗斗归斗士
+		["fear_chills", SurvivorData.AXIS_SCHEMER],    # 覆写：心理战归策士
+		["laser_range", SurvivorData.AXIS_SCHEMER],    # 覆写：激光归策士
+	]
+	for s in samples:
+		var found := false
+		for u in SurvivorData.UPGRADES:
+			if str(u.get("id", "")) == str(s[0]):
+				found = true
+				_check("%s → %s" % [s[0], s[1]], SurvivorData.axis_of_upgrade(u) == s[1],
+					"got %s" % SurvivorData.axis_of_upgrade(u))
+				break
+		if not found:
+			_check("%s 存在于 UPGRADES" % s[0], false, "id 不存在")
+	# 专注卡：显式 axis 字段最优先 + stat 特判标记
+	var focus := SurvivorData.make_axis_focus_card(SurvivorData.AXIS_SCHEMER)
+	_check("专注卡显式 axis 生效", SurvivorData.axis_of_upgrade(focus) == SurvivorData.AXIS_SCHEMER,
+		str(focus))
+	_check("专注卡 stat=axis_focus（不走 apply）", str(focus.get("stat")) == "axis_focus", "")
+	# 轴内抽卡：结果必在池内；空池返回空
+	var pool: Array = []
+	for u in SurvivorData.UPGRADES:
+		if SurvivorData.axis_of_upgrade(u) == SurvivorData.AXIS_KNIGHT:
+			pool.append(u)
+	var picked: Dictionary = SurvivorData.pick_card_for_axis(pool, {}, 5)
+	var in_pool := false
+	for u in pool:
+		if str(u.get("id")) == str(picked.get("id")):
+			in_pool = true
+			break
+	_check("轴内抽卡结果在池内", not picked.is_empty() and in_pool, str(picked.get("id")))
+	_check("空池返回空 dict", SurvivorData.pick_card_for_axis([], {}, 5).is_empty(), "")
 
 
 func _make_test_aircraft() -> Aircraft:

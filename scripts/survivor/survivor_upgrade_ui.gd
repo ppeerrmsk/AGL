@@ -120,7 +120,10 @@ func show_choices(choices: Array[Dictionary]) -> void:
 			_buttons[i].visible = true
 			var cat: String = choices[i].get("category", "")
 			var cat_prefix := _axis_prefix(cat)
-			_buttons[i].text = "%s%s\n\n%s" % [cat_prefix, tr(choices[i]["name"]), tr(choices[i]["desc"])]
+			# 三轴标签（spec evolution-attribute-gates §2.2）：选卡=该轴 +1 点，卡面第一行直接可见
+			var axis: StringName = SurvivorData.axis_of_upgrade(choices[i])
+			var axis_tag := "【%s +1】" % tr(str(SurvivorData.AXIS_I18N_KEY.get(axis, "")))
+			_buttons[i].text = "%s %s%s\n\n%s" % [axis_tag, cat_prefix, tr(choices[i]["name"]), tr(choices[i]["desc"])]
 
 			# §5 稀有度边框 + 徽章（覆盖原 5 轴边框颜色，让稀有度成为主视觉）
 			var rarity: int = SurvivorData.get_rarity(choices[i])

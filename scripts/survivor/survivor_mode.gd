@@ -2390,9 +2390,17 @@ func _on_player_leveled_up(_new_level: int) -> void:
 		_bench_auto_pick_upgrade()
 		return
 
-	# Phase 2（用户反馈 2026-07-02）：等级升级**不再暂停/弹三选一**——
-	# 升级选择搬进战区结算规划站（_open_settlement_panel），等级只做进化门槛。
-	# 仅 toast 提示，不打断节奏（spec squad-upgrade-ownership §0 "升级只提示已升级"）。
+	# 卡片三选一回归（用户 2026-07-19，spec evolution-attribute-gates §2.2）：
+	# 每 3 级触发——三卡 = 斗士/骑士/策士各一张，选卡 = 得技能 + 该轴 +1 属性点。
+	# 恢复旧暂停弹窗节奏（1/3 频率的低频打断）；非 3 倍数等级仍只 toast 不打断。
+	if _new_level % 3 == 0:
+		var cards: Array[Dictionary] = _roll_axis_cards()
+		if not cards.is_empty():
+			is_paused_for_upgrade = true
+			get_tree().paused = true
+			AudioManager.set_music_muffled(true)
+			upgrade_ui.show_choices(cards)
+			return  # consume_level_up_display 由 _on_upgrade_selected 收
 	survivor_player.consume_level_up_display()
 	if _zone_hint:
 		_zone_hint.show_temp(tr("LEVEL_UP_TOAST_FMT") % _new_level, 2.5)
@@ -2416,6 +2424,32 @@ func _roll_upgrade_choices() -> Array[Dictionary]:
 		return []
 	var level: int = survivor_player.level if survivor_player else 1
 	return SurvivorData.pick_3_upgrades(available, upgrade_stacks, _pity_counter, level)
+
+## 每 3 级卡片三选一（spec evolution-attribute-gates §2.2）：三轴各抽一张。
+## 可用池过滤规则与 _roll_upgrade_choices 完全一致；某轴无可用卡 → 合成"专注"卡（纯 +1 点）。
+func _roll_axis_cards() -> Array[Dictionary]:
+	var by_axis: Dictionary = {}
+	for a in SurvivorData.AXES:
+		by_axis[a] = []
+	var p: AircraftParams = player_aircraft.params if player_aircraft else null
+	for u in SurvivorData.UPGRADES:
+		if u.get("evolved", false):
+			continue  # 战区奖励池技能不进随机池
+		if not SurvivorData.is_upgrade_available_for(u, _player_profile_id, p, upgrade_stacks):
+			continue
+		if LoadoutLedger.is_upgrade_gated(u):
+			continue
+		if int(upgrade_stacks.get(u["id"], 0)) >= int(u["max_stacks"]):
+			continue
+		(by_axis[SurvivorData.axis_of_upgrade(u)] as Array).append(u)
+	var cards: Array[Dictionary] = []
+	var lvl: int = survivor_player.level if survivor_player else 1
+	for a in SurvivorData.AXES:
+		var c: Dictionary = SurvivorData.pick_card_for_axis(by_axis[a], upgrade_stacks, lvl)
+		if c.is_empty():
+			c = SurvivorData.make_axis_focus_card(a)
+		cards.append(c)
+	return cards
 
 ## 应用一条升级（apply + 记栈 + 旧进化链检测 + 分类加成重算）。返回触发的旧进化技能名（无则 ""）。
 ## 供 结算规划站 / 旧 upgrade_ui 信号 两个入口共用（不含暂停/恢复）。
@@ -2445,7 +2479,12 @@ func _apply_upgrade_choice(upgrade: Dictionary) -> String:
 	return evolved_name
 
 func _on_upgrade_selected(upgrade: Dictionary) -> void:
-	var evolved_name := _apply_upgrade_choice(upgrade)
+	var evolved_name := ""
+	if str(upgrade.get("stat", "")) != "axis_focus":
+		evolved_name = _apply_upgrade_choice(upgrade)
+	# 三轴加点（spec evolution-attribute-gates §2.2）：选卡 = 该轴 +1，
+	# 跨档里程碑在 add_axis_point 内自动应用（含起手机覆写表）
+	survivor_player.add_axis_point(SurvivorData.axis_of_upgrade(upgrade), _player_profile)
 
 	survivor_player.consume_level_up_display()
 	is_paused_for_upgrade = false
@@ -2647,7 +2686,10 @@ func _open_evolution_offer() -> void:
 	var exits: Array = []
 	if cur_id != &"":
 		exits = EvolutionSystem.exits_of(cur_id)
-	var choices: Array[Dictionary] = _roll_upgrade_choices()
+	# 强化三选一已回归等级流（每 3 级卡片事件，spec evolution-attribute-gates）——
+	# 结算站强化栏让位（空数组 → evolution_ui 显示 SETTLEMENT_NO_UPGRADE 空态），
+	# 结算站保留进化栏；_roll_upgrade_choices 暂留作后备入口（rarity 分槽+pity 全套抽法）
+	var choices: Array[Dictionary] = []
 	if exits.is_empty() and choices.is_empty():
 		return  # 两栏都空 → 不开面板
 	if _evolution_ui == null:
