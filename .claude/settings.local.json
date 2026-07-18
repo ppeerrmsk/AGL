@@ -344,7 +344,14 @@
       "PowerShell(git -C \"C:\\\\Users\\\\noelu\\\\Documents\\\\AGL\" add docs/changelogs/2026-07-07-surface-attack-pass.md docs/specs/systems/surface-attack-pass.md scripts/tests/test_surface_pass.gd scripts/tests/test_surface_pass.gd.uid scripts/tests/test_fire_allocation.gd scripts/tests/test_wheel_orders.gd docs/specs/systems/command-wheel.md .claude/settings.local.json)",
       "PowerShell(& \"C:\\\\Users\\\\noelu\\\\Downloads\\\\Godot_v4.6.2-stable_mono_win64\\\\Godot_v4.6.2-stable_mono_win64\\\\Godot_v4.6.2-stable_mono_win64_console.exe\" --headless --path \"C:\\\\Users\\\\noelu\\\\Documents\\\\AGL\" --import 2>&1 | Select-String -Pattern \"SCRIPT ERROR|Parse Error|Failed to load\" | Select-Object -First 8; \"import=$LASTEXITCODE\"; & \"C:\\\\Users\\\\noelu\\\\Downloads\\\\Godot_v4.6.2-stable_mono_win64\\\\Godot_v4.6.2-stable_mono_win64\\\\Godot_v4.6.2-stable_mono_win64_console.exe\" --headless --path \"C:\\\\Users\\\\noelu\\\\Documents\\\\AGL\" -- --bench=all 2>&1 | Select-String -Pattern \"FAIL|✗|SCRIPT ERROR|回归门\" | Select-Object -First 8)",
       "PowerShell(git -C \"C:\\\\Users\\\\noelu\\\\Documents\\\\AGL\" add -A)",
-      "PowerShell(git -C \"C:\\\\Users\\\\noelu\\\\Documents\\\\AGL\" log --oneline -2)"
+      "PowerShell(git -C \"C:\\\\Users\\\\noelu\\\\Documents\\\\AGL\" log --oneline -2)",
+      "Bash(awk '/\\\\[11[7-9]|\\\\[1[2-7][0-9]\\\\./' combat_log_20260712_181952.txt)",
+      "Bash(awk -F'[][]' '$2+0>=117 && $2+0<=172' combat_log_20260712_181952.txt)",
+      "Bash(awk -F'[][]' '{print int\\($2\\)}')",
+      "Bash(\"/c/Users/noelu/Downloads/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64_console.exe\" --headless --path . -- --bench=fire_discipline)",
+      "Bash(python build_balance_xlsx.py)",
+      "Bash(pip install *)",
+      "Bash(git log *)"
     ]
   },
   "hooks": {

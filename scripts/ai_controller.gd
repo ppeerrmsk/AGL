@@ -230,6 +230,19 @@ func _posture_standoff_air() -> bool:
 			and aircraft.commanded_target != null and is_instance_valid(aircraft.commanded_target) \
 			and aircraft.commanded_target is Aircraft
 
+## 慢速空中目标（直升机档）判定 → joust pass 路由（2026-07-12，log 181952 实证：
+## 4×F-14 对 CH-47 在 extend/wide-turn 循环里空转 53s 零命中，最后靠运气窗口收）。
+## RUN_IN 的对准承诺给出高质量机炮窗口，BREAK 折返成 pass 节奏——"直升机 = 会飞的面目标"。
+## 阈值只抓直升机档（100 m/s = 360 km/h）：UAV(233m/s)/轰炸机/喷气机不受影响；
+## 喷气机瞬时失速掉进阈值会短暂路由 joust，速度恢复即退出（movement 级切换，无状态残留）。
+const SLOW_AIR_JOUST_MAX_SPEED_MS := 100.0
+
+func _slow_air_joust() -> bool:
+	var tgt = _current_target
+	if tgt == null or not is_instance_valid(tgt) or not (tgt is Aircraft) or tgt.is_destroyed:
+		return false
+	return tgt.speed <= SLOW_AIR_JOUST_MAX_SPEED_MS
+
 const KAMIKAZE_DETONATE_DIST_PX: float = 120.0   ## 60m，drone 与导弹距离 ≤ 此值即同归于尽
 const KAMIKAZE_INTERCEPT_RANGE_PX: float = 2400.0 ## 1200m，开始飞向导弹拦截
 
@@ -1619,8 +1632,8 @@ func _process_simple(delta: float) -> void:
 		# 攻击跑优先（spec joust-attack-run）：RUN_IN 对准/BREAK 脱离循环接管走位+速度。
 		# 切向轨道与"锁定/充能要机头对准"结构矛盾（MQ-112 全场 0 充能死锁，log 183044），
 		# joust 机型（MQ-110/112）不再走 standoff 轨道。
-		# command-wheel 保持距离姿态：空中点名目标同样路由 joust（simple 路径侧）。
-		if joust_enabled or _posture_standoff_air():
+		# command-wheel 保持距离姿态 / 慢速空目标（直升机档）同样路由 joust（simple 路径侧）。
+		if joust_enabled or _posture_standoff_air() or _slow_air_joust():
 			_joust_handled = JoustController.update(self, delta)
 		if not _joust_handled:
 			if preferred_standoff_range_px > 0.0 and dist < preferred_standoff_range_px * 1.5 and dist > 1.0:
@@ -2011,7 +2024,8 @@ func _process_engage(delta: float) -> void:
 	# 防御行为（Herbst 反咬 / 躲弹 / 机炮防御）的 return 都在上方——防御永远压过攻击跑；
 	# 目标重评估保留在上方。武器（机炮锥门/导弹锁定）由 Aircraft 系统在对准姿态下自然开火。
 	# command-wheel 保持距离姿态：空中点名目标也走 joust（_posture_standoff_air 路由）。
-	if (joust_enabled or _posture_standoff_air()) and JoustController.update(self, delta):
+	# 慢速空目标（直升机档）：同样路由 joust——对准承诺 pass 取代 extend/wide-turn 空转。
+	if (joust_enabled or _posture_standoff_air() or _slow_air_joust()) and JoustController.update(self, delta):
 		aircraft.ai_override_pursuit = true
 		current_tactic_name = "JOUST_RUN_IN" if _joust_phase == JoustController.Phase.RUN_IN else "JOUST_BREAK"
 		return

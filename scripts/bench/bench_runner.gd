@@ -53,6 +53,7 @@ const UNIT_TESTS: Dictionary = {
 	"fire_alloc": "res://scripts/tests/test_fire_allocation.gd",
 	"wheel_orders": "res://scripts/tests/test_wheel_orders.gd",
 	"roe": "res://scripts/tests/test_roe_director.gd",
+	"fire_discipline": "res://scripts/tests/test_fire_discipline.gd",
 }
 
 var bench_active: bool = false

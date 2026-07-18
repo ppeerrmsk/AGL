@@ -801,7 +801,11 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 	# 的设计对蜂群是 bug 而非 feature）
 	var _is_swarm_attacker: bool = ac.has_meta(&"saturation_attacker")
 	if not _is_swarm_attacker and not (ac.use_tactical_preference and not ac.missile_auto_fire):
-		var team_inbound: float = ac.missile_manager.team_inbound_damage(ac.combat_target, ac.team, ac)
+		# 2026-07-12（log 181952 溢出实证）：记账**含自己的在飞弹**（exclude=null）——
+		# 原先排除自己 + max_inflight=2 允许对 70hp 小目标连发 2×80 纯浪费。
+		# 连发的合法价值保留：第一枚被 flare 干扰（jammed 不计账）→ 仍可补射；
+		# 高 HP 目标（BOSS/船）单弹不超杀 → 连发照常。
+		var team_inbound: float = ac.missile_manager.team_inbound_damage(ac.combat_target, ac.team, null)
 		# 电磁炮必中：队友正在充能/待发射锁定同一目标 → 预期伤害计入超杀记账
 		# （修"发射后目标被电磁炮蒸发 → MRM 目标已消失"类浪费，log 122049 实证 46%）
 		team_inbound += RailgunEquipment.team_charging_damage(ac.combat_target, ac.team, ac)
@@ -812,6 +816,12 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 	# 机炮正在对 combat_target 开火时不发射导弹（避免机炮击毁后还补一发）
 	if ac.use_tactical_preference and ac.is_firing:
 		ac._log_msl_block("GUN_ACTIVE", "shooting combat_target with gun")
+		return
+	# AI 机炮让路（2026-07-12，log 181952"机炮快打死了还发导弹"实证）：
+	# 自机机炮正在输出且目标"一枚导弹即超杀"的小目标 → 让机炮收、省导弹；
+	# 高 HP 目标（BOSS/船）不触发——保饱和火力不削 DPS
+	if ac.is_firing and ac.combat_target.hp <= msl.damage:
+		ac._log_msl_block("GUN_ACTIVE", "AI gun finishing small target (hp=%.0f <= msl=%.0f)" % [ac.combat_target.hp, msl.damage])
 		return
 
 	var _dist_m := ac.global_position.distance_to(ac.combat_target.global_position) / CombatUnit.PIXELS_PER_METER
