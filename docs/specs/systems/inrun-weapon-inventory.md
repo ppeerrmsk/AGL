@@ -76,11 +76,15 @@ reconstruction_complete: true
 
 ## 6. 实施计划（与 gates/power-curve 实施交错）
 
-- [ ] 阶段 1：`PlayerWeaponInventory`（SurvivorData 局内字段：武器 id 集合 + 逐武器强化状态）。
-- [ ] 阶段 2：特殊武器挂载通用化——railgun/laser/忠诚僚机现为 X-02/奖励专属接线，改为"任意 Aircraft 可挂"的装备器（equipment update 已全自动开火，通用化主要是挂载点）。
-- [ ] 阶段 3：入手钩子（进化/选机首次驾驶 + 战区奖励发放）+ 换型重放钩子（与 gates 玩家层重放同批）。
-- [ ] 阶段 4：进化结算武器清单分段显示 + Tab 武器库图标行 + i18n。
-- [ ] 阶段 5：debug 面板武器勾选 + 验收断言并入 bench。
+- [x] 阶段 1：武器库落在 `SurvivorPlayer.weapon_inventory`（局内玩家层，与三轴点数同宿主）：
+      key→**资源引用**——强化长在资源上，引用迁移=强化随行，无需单独强化状态表。✅ 2026-07-19
+- [x] 阶段 2：挂载通用化即数据本身——`params.equipment` 数组/机尾位/副槽对任意 Aircraft 生效，
+      补挂=把引用写回新 params（同类不重复、机尾位互斥守卫、副槽弹量重置满额）。✅ 2026-07-19
+- [x] 阶段 3：入手语义简化为**进化前快照**（record_special_weapons 扫当前 params，
+      比逐 grant 钩子更简且天然捕获强化后的资源）+ 换型后 remount_weapons（与 gates 重放同批同点）。
+      同批带上**升级卡重放**（_replay_player_upgrades：卡片技能记玩家层；weapon 类强化跳过防双叠）。✅ 2026-07-19
+- [ ] 阶段 4：进化结算武器清单分段显示 + Tab 武器库图标行 + i18n（⏳ UI 润色，随 playtest 批）。
+- [ ] 阶段 5：debug 面板武器勾选（⏳ 随 debug 全谱选机批）；bench 断言已并入 `--bench=attr_gates` §G ✅。
 
 ## 4. 开放点（⏳ review 时定）
 
