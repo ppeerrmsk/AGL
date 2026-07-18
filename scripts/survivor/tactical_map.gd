@@ -74,6 +74,7 @@ var _last_tip_idx: int = -1
 var _game_scene: Node = null              ## survivor_mode，提供 upgrade_stacks
 var _upgrades_list: VBoxContainer
 var _upgrade_detail: RichTextLabel
+var _axis_panel: VBoxContainer            ## 三轴常驻面板（spec evolution-attribute-gates §3.2）
 
 func _ready() -> void:
 	layer = 15
@@ -744,6 +745,11 @@ func _build_upgrades_panel() -> void:
 	title.add_theme_color_override("font_color", TEXT_COLOR)
 	panel.add_child(title)
 
+	# 三轴常驻面板（spec evolution-attribute-gates §3.2：点数/里程碑/下一档/路线倾向，只读）
+	_axis_panel = VBoxContainer.new()
+	_axis_panel.add_theme_constant_override("separation", 1)
+	panel.add_child(_axis_panel)
+
 	# 滚动列表（占大部分空间）
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -882,11 +888,69 @@ func _build_controls_panel() -> void:
 		inner.add_child(row)
 
 func _refresh_upgrades_list() -> void:
+	_refresh_axis_panel()
 	if not _upgrades_list:
 		return
 	for child in _upgrades_list.get_children():
 		child.queue_free()
 	_clear_upgrade_detail()
+
+## 三轴常驻面板（spec evolution-attribute-gates §3.2）：
+## 每轴一行 = 轴名 + 点数 + ●○ 进度（到下一档刻度）+ 下一档预览；标题行 = 总点数 + 路线倾向。
+func _refresh_axis_panel() -> void:
+	if not _axis_panel:
+		return
+	for c in _axis_panel.get_children():
+		c.queue_free()
+	if not _game_scene or not "survivor_player" in _game_scene or _game_scene.survivor_player == null:
+		return
+	var sp = _game_scene.survivor_player
+	var profile = _game_scene._player_profile if "_player_profile" in _game_scene else null
+	# 标题：总点数/可得 + 路线倾向（最高轴；全 0 = 未定）
+	var best: StringName = &""
+	var best_v: int = 0
+	for axis in SurvivorData.AXES:
+		if sp.get_axis_points(axis) > best_v:
+			best_v = sp.get_axis_points(axis)
+			best = axis
+	var route: String = tr("ATTR_ROUTE_NONE") if best == &"" \
+		else tr("ATTR_ROUTE_FMT") % tr(str(SurvivorData.AXIS_I18N_KEY[best]))
+	var head := Label.new()
+	head.text = "%s %d/%d · %s" % [tr("ATTR_PANEL_TITLE"), sp.total_axis_points(),
+		SurvivorData.axis_points_earnable(sp.level), route]
+	head.add_theme_font_size_override("font_size", 12)
+	head.add_theme_color_override("font_color", TEXT_COLOR)
+	_axis_panel.add_child(head)
+	# 每轴一行
+	for axis in SurvivorData.AXES:
+		var pts: int = sp.get_axis_points(axis)
+		var tiers: Array = SurvivorData.milestones_for(axis, profile)
+		var lit: int = 0
+		var next_need: int = -1
+		var next_stat: String = ""
+		for m in tiers:
+			if pts >= int(m["points"]):
+				lit += 1
+			elif next_need < 0:
+				next_need = int(m["points"])
+				next_stat = str(m["stat"])
+		var bar := ""
+		var cap: int = next_need if next_need > 0 else pts
+		for i in cap:
+			bar += "●" if i < pts else "○"
+		var next_txt: String
+		if next_need > 0:
+			next_txt = tr("ATTR_NEXT_FMT") % [next_need,
+				tr(str(SurvivorData.MILESTONE_STAT_I18N.get(next_stat, "")))]
+		else:
+			next_txt = tr("ATTR_MAXED")
+		var row := Label.new()
+		row.text = "  %s %d ｜%s｜ %s（%d/%d）" % [
+			tr(str(SurvivorData.AXIS_I18N_KEY[axis])), pts, bar, next_txt, lit, tiers.size()]
+		row.add_theme_font_size_override("font_size", 11)
+		row.add_theme_color_override("font_color",
+			Color(TEXT_COLOR.r, TEXT_COLOR.g, TEXT_COLOR.b, 0.8 if pts > 0 else 0.45))
+		_axis_panel.add_child(row)
 
 	if not _game_scene or not "upgrade_stacks" in _game_scene:
 		var empty := Label.new()

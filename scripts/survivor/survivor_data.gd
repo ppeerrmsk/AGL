@@ -1425,6 +1425,17 @@ const AXIS_I18N_KEY: Dictionary = {
 	AXIS_SCHEMER: "ATTR_SCHEMER",
 }
 
+## 里程碑 stat → 短名 i18n key（Tab 面板下一档预览 / 里程碑达成提示共用）
+const MILESTONE_STAT_I18N: Dictionary = {
+	"max_hp": "ATTR_STAT_MAX_HP", "gun_damage": "ATTR_STAT_GUN_DAMAGE",
+	"gun_range": "ATTR_STAT_GUN_RANGE", "max_g": "ATTR_STAT_MAX_G",
+	"gun_ammo": "ATTR_STAT_GUN_AMMO", "missile_count": "ATTR_STAT_MISSILE_COUNT",
+	"radar_range": "ATTR_STAT_RADAR_RANGE", "speed": "ATTR_STAT_SPEED",
+	"alt_speed": "ATTR_STAT_ALT_SPEED", "flare_count": "ATTR_STAT_FLARE_COUNT",
+	"lock_time": "ATTR_STAT_LOCK_TIME", "flare_cd": "ATTR_STAT_FLARE_CD",
+	"radar_cone_deg": "ATTR_STAT_RADAR_CONE",
+}
+
 static func axis_of_upgrade(u: Dictionary) -> StringName:
 	if u.has("axis"):
 		return StringName(str(u["axis"]))

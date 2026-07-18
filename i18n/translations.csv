@@ -641,3 +641,21 @@ ATTR_KNIGHT,骑士,Knight,騎士
 ATTR_SCHEMER,策士,Schemer,策士
 CARD_AXIS_FOCUS_NAME,方向专注,Focus Training,方向鍛錬
 CARD_AXIS_FOCUS_DESC,本轴暂无新技能——纯粹磨练方向（该轴属性点 +1）,No new skill on this path - pure focus (+1 point on this axis),この軸に新スキルなし——純粋な鍛錬（+1ポイント）
+ATTR_PANEL_TITLE,三轴路线,Attribute Axes,三軸ルート
+ATTR_ROUTE_FMT,路线：%s,Route: %s,ルート：%s
+ATTR_ROUTE_NONE,路线未定,Route undecided,ルート未定
+ATTR_NEXT_FMT,下一档 %d 点：%s,Next at %d: %s,次の段階 %d pt：%s
+ATTR_MAXED,已满档,Maxed,最大段階
+ATTR_STAT_MAX_HP,血量,Hull HP,耐久
+ATTR_STAT_GUN_DAMAGE,机炮伤害,Gun damage,機関砲威力
+ATTR_STAT_GUN_RANGE,机炮射程,Gun range,機関砲射程
+ATTR_STAT_MAX_G,G 力,G limit,G限界
+ATTR_STAT_GUN_AMMO,机炮备弹,Gun ammo,機関砲弾数
+ATTR_STAT_MISSILE_COUNT,导弹挂载,Missile racks,ミサイル搭載数
+ATTR_STAT_RADAR_RANGE,雷达距离,Radar range,レーダー距離
+ATTR_STAT_SPEED,极速,Top speed,最高速度
+ATTR_STAT_ALT_SPEED,高度变化速度,Climb rate,高度変更速度
+ATTR_STAT_FLARE_COUNT,热诱弹,Flares,フレア数
+ATTR_STAT_LOCK_TIME,锁定速度,Lock speed,ロック速度
+ATTR_STAT_FLARE_CD,热诱弹冷却,Flare cooldown,フレアCD
+ATTR_STAT_RADAR_CONE,雷达锥角,Radar cone,レーダー角
