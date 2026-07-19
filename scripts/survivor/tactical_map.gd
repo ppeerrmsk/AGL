@@ -921,35 +921,30 @@ func _refresh_axis_panel() -> void:
 	head.add_theme_font_size_override("font_size", 12)
 	head.add_theme_color_override("font_color", TEXT_COLOR)
 	_axis_panel.add_child(head)
-	# 每轴一行
+	# 三轴量表（竖条分格视觉，2026-07-19 用户 mockup；里程碑刻度圈随档位亮起）
+	var bars := AxisBarsPanel.new()
+	bars.show_state(sp.axis_points, profile)
+	bars.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_axis_panel.add_child(bars)
+	# 每轴下一档一行紧凑预览（量表管"到哪了"，这里管"下一档给什么"）
 	for axis in SurvivorData.AXES:
 		var pts: int = sp.get_axis_points(axis)
-		var tiers: Array = SurvivorData.milestones_for(axis, profile)
-		var lit: int = 0
 		var next_need: int = -1
 		var next_stat: String = ""
-		for m in tiers:
-			if pts >= int(m["points"]):
-				lit += 1
-			elif next_need < 0:
+		for m in SurvivorData.milestones_for(axis, profile):
+			if pts < int(m["points"]):
 				next_need = int(m["points"])
 				next_stat = str(m["stat"])
-		var bar := ""
-		var cap: int = next_need if next_need > 0 else pts
-		for i in cap:
-			bar += "●" if i < pts else "○"
-		var next_txt: String
-		if next_need > 0:
-			next_txt = tr("ATTR_NEXT_FMT") % [next_need,
-				tr(str(SurvivorData.MILESTONE_STAT_I18N.get(next_stat, "")))]
-		else:
-			next_txt = tr("ATTR_MAXED")
+				break
 		var row := Label.new()
-		row.text = "  %s %d ｜%s｜ %s（%d/%d）" % [
-			tr(str(SurvivorData.AXIS_I18N_KEY[axis])), pts, bar, next_txt, lit, tiers.size()]
-		row.add_theme_font_size_override("font_size", 11)
-		row.add_theme_color_override("font_color",
-			Color(TEXT_COLOR.r, TEXT_COLOR.g, TEXT_COLOR.b, 0.8 if pts > 0 else 0.45))
+		var col: Color = SurvivorData.AXIS_COLORS.get(axis, TEXT_COLOR)
+		if next_need > 0:
+			row.text = "  %s → %s" % [tr(str(SurvivorData.AXIS_I18N_KEY[axis])),
+				tr("ATTR_NEXT_FMT") % [next_need, tr(str(SurvivorData.MILESTONE_STAT_I18N.get(next_stat, "")))]]
+		else:
+			row.text = "  %s → %s" % [tr(str(SurvivorData.AXIS_I18N_KEY[axis])), tr("ATTR_MAXED")]
+		row.add_theme_font_size_override("font_size", 10)
+		row.add_theme_color_override("font_color", Color(col.r, col.g, col.b, 0.75 if pts > 0 else 0.4))
 		_axis_panel.add_child(row)
 
 	if not _game_scene or not "upgrade_stacks" in _game_scene:

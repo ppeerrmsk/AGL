@@ -91,6 +91,13 @@ func show_offer(current: Dictionary, exits: Array, team_level: int, choices: Arr
 	_evo_pane = _make_pane(cols, tr("SETTLEMENT_EVO_HEADER"), 0.0)  # 宽度随树自适应
 	_up_pane = _make_pane(cols, tr("SETTLEMENT_UPGRADE_HEADER"), PANE_WIDTH)
 
+	# 三轴量表（竖条分格 + 里程碑刻度圈，2026-07-19 用户 mockup）：
+	# 强化栏迁回等级流后，右栏顶部改陈列点数分配现状——选进化目标时门槛差多少一目了然
+	var bars := AxisBarsPanel.new()
+	bars.show_state(axis_points)
+	bars.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_up_pane.add_child(bars)
+
 	# 左：进化树视图（皇牌空战式，自下而上）
 	_tree = EvolutionTreeView.new()
 	_tree.setup(EvolutionSystem.all_nodes(), StringName(current.get("id", "")), history, team_level, axis_points)

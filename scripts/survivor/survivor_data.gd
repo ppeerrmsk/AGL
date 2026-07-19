@@ -1425,6 +1425,14 @@ const AXIS_I18N_KEY: Dictionary = {
 	AXIS_SCHEMER: "ATTR_SCHEMER",
 }
 
+## 三轴正式配色（2026-07-19 用户 mockup 定调：斗士琥珀 / 骑士青绿 / 策士紫）
+## 卡片染色 / 三轴量表（AxisBarsPanel）/ 树缺口徽记共用同一套
+const AXIS_COLORS: Dictionary = {
+	AXIS_GLADIATOR: Color(0.95, 0.62, 0.18),   # 琥珀橙
+	AXIS_KNIGHT: Color(0.38, 0.85, 0.58),      # 青绿
+	AXIS_SCHEMER: Color(0.68, 0.45, 0.95),     # 紫
+}
+
 ## 里程碑 stat → 短名 i18n key（Tab 面板下一档预览 / 里程碑达成提示共用）
 const MILESTONE_STAT_I18N: Dictionary = {
 	"max_hp": "ATTR_STAT_MAX_HP", "gun_damage": "ATTR_STAT_GUN_DAMAGE",
