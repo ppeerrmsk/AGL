@@ -11,6 +11,8 @@ var _btn_container: HBoxContainer
 var _buttons: Array[Button] = []
 ## §5 稀有度徽章：每张卡片右上角悬浮的"STABLE / ADV / EXP / CLA / NEXT"标签
 var _rarity_badges: Array[Label] = []
+## 三轴归属徽章：每张卡片左上角的轴色 chip（"斗士 +1"，spec evolution-attribute-gates §3.1）
+var _axis_badges: Array[Label] = []
 var _choices: Array[Dictionary] = []
 
 func _ready() -> void:
@@ -108,6 +110,24 @@ func _build_ui() -> void:
 		btn.add_child(badge)
 		_rarity_badges.append(badge)
 
+		# 三轴归属徽章：左上角轴色 chip——大一号字 + 轴色左粗边 + 轴色文字，
+		# "属于哪个轴"一眼可辨（2026-07-19 用户令；颜色 = SurvivorData.AXIS_COLORS）
+		var axis_badge := Label.new()
+		axis_badge.text = ""
+		axis_badge.add_theme_font_size_override("font_size", 15)
+		var axis_bg := StyleBoxFlat.new()
+		axis_bg.bg_color = Color(0.0, 0.0, 0.0, 0.6)
+		axis_bg.set_corner_radius_all(3)
+		axis_bg.set_content_margin_all(4)
+		axis_bg.content_margin_left = 8.0
+		axis_badge.add_theme_stylebox_override("normal", axis_bg)
+		axis_badge.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+		axis_badge.position = Vector2(6, 6)
+		axis_badge.size = Vector2(108, 22)
+		axis_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		btn.add_child(axis_badge)
+		_axis_badges.append(axis_badge)
+
 	# 下部空白
 	var spacer_bottom := Control.new()
 	spacer_bottom.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -120,10 +140,20 @@ func show_choices(choices: Array[Dictionary]) -> void:
 			_buttons[i].visible = true
 			var cat: String = choices[i].get("category", "")
 			var cat_prefix := _axis_prefix(cat)
-			# 三轴标签（spec evolution-attribute-gates §2.2）：选卡=该轴 +1 点，卡面第一行直接可见
+			# 轴归属交给左上角轴色徽章（大字+轴色），正文不再重复轴名——首行留白给徽章行
 			var axis: StringName = SurvivorData.axis_of_upgrade(choices[i])
-			var axis_tag := "【%s +1】" % tr(str(SurvivorData.AXIS_I18N_KEY.get(axis, "")))
-			_buttons[i].text = "%s %s%s\n\n%s" % [axis_tag, cat_prefix, tr(choices[i]["name"]), tr(choices[i]["desc"])]
+			var axis_color: Color = SurvivorData.AXIS_COLORS.get(axis, Color.WHITE)
+			_buttons[i].text = "\n%s%s\n\n%s" % [cat_prefix, tr(choices[i]["name"]), tr(choices[i]["desc"])]
+			if i < _axis_badges.size():
+				var ab := _axis_badges[i]
+				ab.text = "%s +1" % tr(str(SurvivorData.AXIS_I18N_KEY.get(axis, "")))
+				ab.add_theme_color_override("font_color", axis_color)
+				var ab_bg: StyleBoxFlat = ab.get_theme_stylebox("normal")
+				if ab_bg is StyleBoxFlat:
+					ab_bg.border_color = axis_color
+					ab_bg.border_width_left = 4
+					ab_bg.bg_color = Color(axis_color.r, axis_color.g, axis_color.b, 0.14)
+				ab.visible = true
 
 			# §5 稀有度边框 + 徽章（覆盖原 5 轴边框颜色，让稀有度成为主视觉）
 			var rarity: int = SurvivorData.get_rarity(choices[i])
@@ -157,6 +187,8 @@ func show_choices(choices: Array[Dictionary]) -> void:
 			_buttons[i].visible = false
 			if i < _rarity_badges.size():
 				_rarity_badges[i].visible = false
+			if i < _axis_badges.size():
+				_axis_badges[i].visible = false
 	visible = true
 
 ## 5 轴前缀（i18n key）
