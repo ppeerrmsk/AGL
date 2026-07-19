@@ -1,0 +1,63 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/default_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/default_flare.tres" id="4"]
+[ext_resource type="Script" path="res://scripts/missile_params.gd" id="5"]
+
+[sub_resource type="Resource" id="msl"]
+script = ExtResource("5")
+display_name = "MRM"
+max_speed = 1400.0
+motor_burn_time = 6.0
+motor_acceleration = 200.0
+drag_deceleration = 35.0
+max_g = 45.0
+nav_constant = 4.0
+max_range_rear = 15000.0
+front_rear_ratio = 4.0
+min_range = 500.0
+max_lifetime = 30.0
+damage = 80.0
+proximity_fuse_radius = 20.0
+proximity_fuse_alt = 200.0
+seeker_fov = 90.0
+guidance_delay = 0.5
+cooldown = 2.0
+fire_and_forget = true
+max_count = 3
+
+[resource]
+script = ExtResource("1")
+display_name = "Mirage 2000"
+max_hp = 100.0
+armor = 0.0
+max_speed = 2280.0
+cruise_speed = 930.0
+stall_speed_base = 220.0
+acceleration = 56.0
+deceleration = 80.0
+g_drag_factor = 3.0
+max_g = 9.8
+max_g_structural = 12.8
+roll_rate = 4.0
+pilot_stamina = 100.0
+stamina_drain_rate = 25.0
+stamina_recovery_rate = 10.0
+max_altitude = 15000.0
+climb_rate_max = 450.0
+thrust_to_weight = 1.1
+drag_coefficient = 0.02
+afterburner_thrust_mult = 1.5
+fuel_capacity = 3000.0
+fuel_rate_normal = 1.5
+fuel_rate_afterburner = 8.0
+radar_range = 3300.0
+radar_half_angle = 36.0
+lock_time = 2.4
+gun = ExtResource("2")
+missile = SubResource("msl")
+flare = ExtResource("4")
+combat = ExtResource("3")
+icon_color = Color(0.15, 0.35, 0.85, 1)
