@@ -656,7 +656,12 @@ ATTR_STAT_RADAR_RANGE,雷达距离,Radar range,レーダー距離
 ATTR_STAT_SPEED,极速,Top speed,最高速度
 ATTR_STAT_ALT_SPEED,高度变化速度,Climb rate,高度変更速度
 ATTR_STAT_FLARE_COUNT,热诱弹,Flares,フレア数
-ATTR_STAT_LOCK_TIME,锁定速度,Lock speed,ロック速度
+ATTR_STAT_LOCK_TIME,锁定耗时,Lock time,ロック時間
+ATTR_STAT_CRUISE,巡航速度,Cruise,巡航速度
+ATTR_MILESTONE_DETAIL,里程碑明细,MILESTONE TRACK,マイルストーン明細
+ATTR_CURRENT_BONUS,当前加成,ACTIVE BONUS,現在の強化
+ATTR_AIRCRAFT_DATA,机体状态,AIRFRAME STATUS,機体ステータス
+ATTR_BONUS_NONE,暂无加成——选卡加点解锁,No bonus yet - pick cards to unlock,強化なし——カードで解放
 ATTR_STAT_FLARE_CD,热诱弹冷却,Flare cooldown,フレアCD
 ATTR_STAT_RADAR_CONE,雷达锥角,Radar cone,レーダー角
 ATTR_SUM_ALL,三轴合计,Total points,三軸合計
@@ -692,3 +697,52 @@ AIRCRAFT_J36_DISPLAY,歼-36,J-36,J-36
 AIRCRAFT_X77_DISPLAY,X-77 幻影渡鸦,X-77 Phantom Raven,X-77 ファントムレイヴン
 AIRCRAFT_X90_DISPLAY,X-90 天鲸,X-90 Skywhale,X-90 スカイホエール
 AIRCRAFT_AX00_DISPLAY,AX-00 织星者,AX-00 Starweaver,AX-00 スターウィーバー
+RADIO_SPEAKER_ENEMY_COMMAND,敌指挥部,ENEMY COMMAND,敵司令部
+RADIO_TARGET_GENERIC,目标,the target,目標
+RADIO_SPLASH_1,击落一架！,Splash one!,一機撃墜！
+RADIO_SPLASH_2,目标击落，干得漂亮。,Target down. Nice work.,目標撃墜。よくやった。
+RADIO_SPLASH_3,又少了一个。,Scratch one more.,また一機減った。
+RADIO_SPLASH_4,命中确认，目标解体。,Hit confirmed. He's coming apart.,命中確認、目標分解。
+RADIO_EJECT_1,我中弹了！准备弹射！,I'm hit! Ejecting!,被弾！ベイルアウトする！
+RADIO_EJECT_2,操纵失效……我要跳了！,Controls are gone... I'm punching out!,操縦不能……脱出する！
+RADIO_EJECT_3,不行了，我出去了！,Can't hold her! Bailing out!,もう保たない、脱出！
+RADIO_EJECT_4,发动机着火，弹射弹射弹射！,Engine's on fire — eject eject eject!,エンジン火災、ベイルアウト！
+RADIO_BREAK_1,导弹！break break break！,Missile inbound! Break break break!,ミサイル！ブレイク ブレイク！
+RADIO_BREAK_2,被咬住了，正在规避！,He's on me! Evading!,喰いつかれた、回避中！
+RADIO_BREAK_3,来袭导弹，我在甩！,Inbound missile — shaking him off!,ミサイル接近、振り切る！
+RADIO_JOIN_1,归队完毕，听候指示。,Joining up. Awaiting orders.,編隊に合流、指示を待つ。
+RADIO_JOIN_2,已就位，我在你右后方。,In position. On your right wing.,配置完了、右後方につく。
+RADIO_JOIN_3,增援到位，我掩护你。,Reinforcement on station. I've got your back.,増援到着、援護する。
+RADIO_ACK_PURSUE_1_FMT,收到，正在追击 %s。,Roger. Pursuing %s.,了解、%s を追撃する。
+RADIO_ACK_PURSUE_2_FMT,咬住 %s 了，开始交战。,Locked onto %s. Engaging.,%s を捕捉、交戦開始。
+RADIO_ACK_SURROUND_1_FMT,明白，正在包围 %s。,Copy. Surrounding %s.,了解、%s を包囲する。
+RADIO_ACK_SURROUND_2_FMT,分散包抄 %s，切断退路。,Splitting to flank %s. Cutting off his escape.,展開して %s を挟撃、退路を断つ。
+RADIO_ACK_COVER_1,收到，正在掩护你。,Roger. Covering you.,了解、援護に入る。
+RADIO_ACK_COVER_2,进入防区，这片天空归我们。,On station. This airspace is ours.,防空区域に到達、この空域は我々のものだ。
+RADIO_ACK_REGROUP_1,收到，正在向集合点靠拢。,Copy. Regrouping on your position.,了解、集合点へ向かう。
+RADIO_ACK_REGROUP_2,全速归队中。,Forming up at full throttle.,全速で編隊に戻る。
+RADIO_ACK_EVAC_1,明白，脱离中！,Understood — clearing the area!,了解、離脱する！
+RADIO_ACK_EVAC_2,正在撤出该区域。,Evacuating the zone.,当該区域から退避中。
+RADIO_ATTRITION_T1_1,我们遭遇敌方战斗机，请求支援。,We have hostile fighters. Requesting support.,敵戦闘機と接触、支援を要請する。
+RADIO_ATTRITION_T1_2,报告接触，敌机火力凶猛。,Contact report — enemy fire is heavy.,接敵報告、敵の火力が激しい。
+RADIO_ATTRITION_T1_3,这不是普通的巡逻机。,This is no ordinary patrol.,通常の哨戒機ではない。
+RADIO_ATTRITION_T2_1,我们正在承受巨大损失！,We are taking heavy losses!,甚大な損害を受けている！
+RADIO_ATTRITION_T2_2,多个编队失去联络，重复，失去联络。,Multiple flights are off the net. Repeat — off the net.,複数の編隊と連絡途絶、繰り返す、連絡途絶。
+RADIO_ATTRITION_T2_3,那家伙一个人就撕开了我们的阵线。,One aircraft is tearing our line apart.,あの一機が我々の戦線を切り裂いている。
+RADIO_ATTRITION_T3_1,防线崩溃了！我们撑不住了！,The line has collapsed! We can't hold!,戦線が崩壊した！保たない！
+RADIO_ATTRITION_T3_2,请求撤退许可，重复，请求撤退许可！,Requesting permission to withdraw! Repeat — permission to withdraw!,撤退許可を要請！繰り返す、撤退許可を要請！
+RADIO_ATTRITION_T3_3,别管编队了……各自逃命吧。,Forget the formation... every man for himself.,編隊は忘れろ……各自生き延びろ。
+RADIO_BOSS_WRAITH_SPAWN_1,所有单位注意，猎物已进入我方空域。,All units — the prey has entered our airspace.,全機に告ぐ、獲物が我々の空域に入った。
+RADIO_BOSS_WRAITH_SPAWN_2,雷达上什么都没有……长机，我们是隐形的。,Nothing on their scopes... Lead — we're ghosts.,レーダーには何も映らない……隊長、我々は幽霊だ。
+RADIO_BOSS_WRAITH_SPAWN_3,享受最后这几分钟吧。幽灵中队，交战自由。,Enjoy your last few minutes. Wraith Squadron — weapons free.,最後の数分を楽しめ。レイス中隊、攻撃自由。
+RADIO_BOSS_WRAITH_ENGAGE_1,你找到我们了。可惜，太迟了。,So you found us. Unfortunately for you — too late.,見つけたか。だが残念、遅すぎた。
+RADIO_BOSS_CSG_SPAWN_1,舰队防空进入战斗状态，目标单机来袭。,Fleet air defense to battle stations. Single bogey inbound.,艦隊防空、戦闘配置。単機接近中。
+RADIO_BOSS_CSG_SPAWN_2,一架飞机？他们就派了一架飞机？,One aircraft? They sent one aircraft?,一機だと？たった一機を寄越したのか？
+RADIO_BOSS_CSG_SPAWN_3,那就让他看看什么叫钢铁之墙。全炮开火。,Then show him what a wall of steel looks like. All batteries — open fire.,では鋼鉄の壁を見せてやれ。全砲門、撃ち方始め。
+RADIO_BOSS_CSG_ENGAGE_1,他进入火力网了。锁定，开火。,He's inside the envelope. Lock him up and fire.,火網に入った。ロックオン、撃て。
+RADIO_BOSS_GOOSE_SPAWN_1,母鹅呼叫，全巢出动。,Mother Goose calling — the whole nest is airborne.,マザーグース発、巣の全機が発進。
+RADIO_BOSS_GOOSE_SPAWN_2,孩子们，去把那个闯进来的东西撕碎。,Children — go tear that intruder apart.,子供たち、あの侵入者を引き裂いてこい。
+RADIO_BOSS_GOOSE_ENGAGE_1,你飞得不错。可惜我的孩子比你多。,You fly well. Unfortunately I have more children than you have missiles.,いい飛び方だ。だが私の子はお前の弾より多い。
+RADIO_BOSS_DEFAULT_SPAWN_1,目标已确认，全队进入交战阵位。,Target confirmed. All elements to engagement stations.,目標確認、全機交戦配置につけ。
+RADIO_BOSS_DEFAULT_SPAWN_2,这将会很短暂。,This won't take long.,すぐに終わる。
+RADIO_BOSS_DEFAULT_ENGAGE_1,交战开始。别让他活着离开。,Engaging. He doesn't leave this airspace.,交戦開始。生きて帰すな。

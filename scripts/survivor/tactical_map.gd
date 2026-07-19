@@ -75,6 +75,7 @@ var _game_scene: Node = null              ## survivor_mode，提供 upgrade_stac
 var _upgrades_list: VBoxContainer
 var _upgrade_detail: RichTextLabel
 var _axis_panel: VBoxContainer            ## 三轴常驻面板（spec evolution-attribute-gates §3.2）
+var _status_panel: VBoxContainer          ## 底部状态块：当前加成汇总 + 机体数据（y2k 终端风）
 
 func _ready() -> void:
 	layer = 15
@@ -750,10 +751,10 @@ func _build_upgrades_panel() -> void:
 	_axis_panel.add_theme_constant_override("separation", 1)
 	panel.add_child(_axis_panel)
 
-	# 滚动列表（占大部分空间）
+	# 滚动列表（压缩给三轴明细/机体状态腾空间，2026-07-19 y2k 面板改版）
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.custom_minimum_size = Vector2(0, 380)
+	scroll.custom_minimum_size = Vector2(0, 170)
 	panel.add_child(scroll)
 
 	_upgrades_list = VBoxContainer.new()
@@ -772,11 +773,16 @@ func _build_upgrades_panel() -> void:
 	_upgrade_detail.bbcode_enabled = true
 	_upgrade_detail.scroll_active = false
 	_upgrade_detail.fit_content = true
-	_upgrade_detail.custom_minimum_size = Vector2(0, 140)
+	_upgrade_detail.custom_minimum_size = Vector2(0, 90)
 	_upgrade_detail.add_theme_font_size_override("normal_font_size", 12)
 	_upgrade_detail.add_theme_color_override("default_color", TEXT_COLOR)
 	panel.add_child(_upgrade_detail)
 	_clear_upgrade_detail()
+
+	# 底部状态块（2026-07-19 用户令）：当前加成汇总 + 机体实时数据（y2k 终端风）
+	_status_panel = VBoxContainer.new()
+	_status_panel.add_theme_constant_override("separation", 1)
+	panel.add_child(_status_panel)
 
 ## 底部红色"战场简报"横幅：带红边、半透明深色背景，内嵌一行随机提示
 func _build_tip_banner() -> void:
@@ -889,6 +895,7 @@ func _build_controls_panel() -> void:
 
 func _refresh_upgrades_list() -> void:
 	_refresh_axis_panel()
+	_refresh_status_panel()
 	if not _upgrades_list:
 		return
 	for child in _upgrades_list.get_children():
@@ -926,26 +933,47 @@ func _refresh_axis_panel() -> void:
 	bars.show_state(sp.axis_points, profile)
 	bars.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_axis_panel.add_child(bars)
-	# 每轴下一档一行紧凑预览（量表管"到哪了"，这里管"下一档给什么"）
+	# 里程碑明细三列（2026-07-19 用户令：每档写明具体强化什么，不只留标题）
+	# 三态：■ 已达成（轴色亮）｜▶ 下一档（白色高亮）｜□ 远档（轴色暗）
+	_axis_panel.add_child(_y2k_header(tr("ATTR_MILESTONE_DETAIL")))
+	var grid := HBoxContainer.new()
+	grid.add_theme_constant_override("separation", 5)
+	grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_axis_panel.add_child(grid)
 	for axis in SurvivorData.AXES:
-		var pts: int = sp.get_axis_points(axis)
-		var next_need: int = -1
-		var next_stat: String = ""
-		for m in SurvivorData.milestones_for(axis, profile):
-			if pts < int(m["points"]):
-				next_need = int(m["points"])
-				next_stat = str(m["stat"])
-				break
-		var row := Label.new()
 		var col: Color = SurvivorData.AXIS_COLORS.get(axis, TEXT_COLOR)
-		if next_need > 0:
-			row.text = "  %s → %s" % [tr(str(SurvivorData.AXIS_I18N_KEY[axis])),
-				tr("ATTR_NEXT_FMT") % [next_need, tr(str(SurvivorData.MILESTONE_STAT_I18N.get(next_stat, "")))]]
-		else:
-			row.text = "  %s → %s" % [tr(str(SurvivorData.AXIS_I18N_KEY[axis])), tr("ATTR_MAXED")]
-		row.add_theme_font_size_override("font_size", 10)
-		row.add_theme_color_override("font_color", Color(col.r, col.g, col.b, 0.75 if pts > 0 else 0.4))
-		_axis_panel.add_child(row)
+		var pts: int = sp.get_axis_points(axis)
+		var vb := VBoxContainer.new()
+		vb.custom_minimum_size = Vector2(114, 0)
+		vb.add_theme_constant_override("separation", 0)
+		grid.add_child(vb)
+		var head_l := Label.new()
+		head_l.text = "◤%s" % tr(str(SurvivorData.AXIS_I18N_KEY[axis]))
+		head_l.add_theme_font_size_override("font_size", 11)
+		head_l.add_theme_color_override("font_color", col)
+		vb.add_child(head_l)
+		var next_marked := false
+		for m in SurvivorData.milestones_for(axis, profile):
+			var tier: int = int(m["points"])
+			var reached: bool = pts >= tier
+			var mark: String
+			var c: Color
+			if reached:
+				mark = "■"
+				c = col
+			elif not next_marked:
+				next_marked = true
+				mark = "▶"
+				c = Color(1.0, 1.0, 1.0, 0.95)
+			else:
+				mark = "□"
+				c = Color(col.r, col.g, col.b, 0.35)
+			var row := Label.new()
+			row.text = "%s%d│%s" % [mark, tier, _fmt_milestone_bonus(m)]
+			row.add_theme_font_size_override("font_size", 10)
+			row.add_theme_color_override("font_color", c)
+			row.clip_text = true
+			vb.add_child(row)
 
 	if not _game_scene or not "upgrade_stacks" in _game_scene:
 		var empty := Label.new()
@@ -1020,6 +1048,99 @@ func _make_upgrade_row(u: Dictionary, stacks: Dictionary) -> Control:
 	row.mouse_entered.connect(func(): _show_upgrade_detail(u_capture))
 	row.mouse_exited.connect(func(): _clear_upgrade_detail())
 	return row
+
+## 底部状态块（2026-07-19 用户令，y2k 终端风）：当前已生效加成汇总（按 stat 聚合）+ 机体实时数据
+func _refresh_status_panel() -> void:
+	if not _status_panel:
+		return
+	for c in _status_panel.get_children():
+		c.queue_free()
+	if not _game_scene or not "survivor_player" in _game_scene or _game_scene.survivor_player == null:
+		return
+	var sp = _game_scene.survivor_player
+	var profile = _game_scene._player_profile if "_player_profile" in _game_scene else null
+	# ── 当前加成（里程碑聚合：add 求和 / mult 连乘）──
+	_status_panel.add_child(_y2k_header(tr("ATTR_CURRENT_BONUS")))
+	var agg_add: Dictionary = {}
+	var agg_mult: Dictionary = {}
+	for axis in SurvivorData.AXES:
+		var done: Array = sp.applied_milestones.get(axis, [])
+		for m in SurvivorData.milestones_for(axis, profile):
+			if not done.has(int(m["points"])):
+				continue
+			var stat := str(m["stat"])
+			if str(m.get("kind", "add")) == "mult":
+				agg_mult[stat] = float(agg_mult.get(stat, 1.0)) * float(m["value"])
+			else:
+				agg_add[stat] = float(agg_add.get(stat, 0.0)) + float(m["value"])
+	if agg_add.is_empty() and agg_mult.is_empty():
+		var none := Label.new()
+		none.text = "  ── %s ──" % tr("ATTR_BONUS_NONE")
+		none.add_theme_font_size_override("font_size", 10)
+		none.add_theme_color_override("font_color", Color(TEXT_COLOR.r, TEXT_COLOR.g, TEXT_COLOR.b, 0.4))
+		_status_panel.add_child(none)
+	else:
+		var parts: Array[String] = []
+		for stat in agg_add:
+			parts.append("%s %+d" % [tr(str(SurvivorData.MILESTONE_STAT_I18N.get(stat, ""))), int(agg_add[stat])])
+		for stat in agg_mult:
+			parts.append("%s %+d%%" % [tr(str(SurvivorData.MILESTONE_STAT_I18N.get(stat, ""))),
+				int(round((float(agg_mult[stat]) - 1.0) * 100.0))])
+		var idx := 0
+		while idx < parts.size():
+			var row := Label.new()
+			row.text = "  ▸ " + parts[idx] + (("    ▸ " + parts[idx + 1]) if idx + 1 < parts.size() else "")
+			row.add_theme_font_size_override("font_size", 10)
+			row.add_theme_color_override("font_color", TEXT_COLOR)
+			_status_panel.add_child(row)
+			idx += 2
+	# ── 机体数据（live params：一切加成落地后的最终值）──
+	var ac = _game_scene.player_aircraft if "player_aircraft" in _game_scene else null
+	if ac == null or not is_instance_valid(ac) or ac.params == null:
+		return
+	var p = ac.params
+	_status_panel.add_child(_y2k_header(tr("ATTR_AIRCRAFT_DATA")))
+	var cells: Array[String] = [
+		"HP %d/%d" % [int(ac.hp), int(p.max_hp)],
+		"%s %d" % [tr("ATTR_STAT_SPEED"), int(p.max_speed)],
+		"%s %d" % [tr("ATTR_STAT_CRUISE"), int(p.cruise_speed)],
+		"G %.1f" % p.max_g,
+		"%s %.1fkm ±%d°" % [tr("ATTR_STAT_RADAR_RANGE"), p.radar_range * 2.0 / 1000.0, int(p.radar_half_angle)],
+		"%s %.1fs" % [tr("ATTR_STAT_LOCK_TIME"), p.lock_time],
+		"%s %d/%d" % [tr("ATTR_STAT_MISSILE_COUNT"), int(ac.missiles_remaining),
+			int(p.missile.max_count) if p.missile else 0],
+		"%s %d/%d" % [tr("ATTR_STAT_FLARE_COUNT"), int(ac.flares_remaining),
+			int(p.flare.max_flares) if p.flare else 0],
+	]
+	var i2 := 0
+	while i2 < cells.size():
+		var row2 := Label.new()
+		row2.text = "  " + cells[i2] + (("  ┊  " + cells[i2 + 1]) if i2 + 1 < cells.size() else "")
+		row2.add_theme_font_size_override("font_size", 10)
+		row2.add_theme_color_override("font_color", Color(TEXT_COLOR.r, TEXT_COLOR.g, TEXT_COLOR.b, 0.85))
+		row2.clip_text = true
+		_status_panel.add_child(row2)
+		i2 += 2
+
+
+## y2k 终端风小节头："─ ⟦ 名称 ⟧ ────────"
+func _y2k_header(txt: String) -> Label:
+	var l := Label.new()
+	l.text = "─ ⟦ %s ⟧ %s" % [txt, "─".repeat(16)]
+	l.add_theme_font_size_override("font_size", 10)
+	l.add_theme_color_override("font_color", Color(TEXT_COLOR.r, TEXT_COLOR.g, TEXT_COLOR.b, 0.6))
+	l.clip_text = true
+	return l
+
+
+## 里程碑效果 → 明细短文（"HP+25" / "机炮伤害+8%" / "锁定耗时-10%"）
+func _fmt_milestone_bonus(m: Dictionary) -> String:
+	var stat_name := tr(str(SurvivorData.MILESTONE_STAT_I18N.get(str(m.get("stat", "")), "")))
+	var v := float(m.get("value", 0.0))
+	if str(m.get("kind", "add")) == "mult":
+		return "%s%+d%%" % [stat_name, int(round((v - 1.0) * 100.0))]
+	return "%s%+d" % [stat_name, int(v)]
+
 
 func _show_upgrade_detail(u: Dictionary) -> void:
 	if not _upgrade_detail:
