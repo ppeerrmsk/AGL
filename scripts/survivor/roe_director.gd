@@ -73,7 +73,7 @@ func add_heat(amount: float) -> void:
 
 
 func _on_kill_recorded(_killer: String, _victim: String, _kind: String,
-		killer_team: int, victim_team: int) -> void:
+		killer_team: int, victim_team: int, _victim_voiced: bool) -> void:
 	# 场景已重开（旧 director 残留连接）→ 自摘
 	if sp == null or sp.mode == null or not is_instance_valid(sp.mode):
 		if EventLogger.kill_recorded.is_connected(_on_kill_recorded):

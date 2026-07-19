@@ -117,6 +117,7 @@ var _tactical_map: TacticalMap
 var _zone_data: ZoneData
 var _zone_arrow: ZoneArrow
 var _zone_hint: ZoneHint
+var _radio: RadioChatter          ## 无线电通讯（spec radio-chatter）
 var _zone_mission: ZoneMission
 var _adbs: AdbsManager
 var _event_director: EventDirector
@@ -389,6 +390,14 @@ func _ready() -> void:
 	_boundary_ui.retreat_confirmed.connect(_on_retreat_confirmed)
 	_boundary_ui.supply_confirmed.connect(_on_supply_confirmed)
 	_boundary_ui.cancelled.connect(_on_retreat_cancelled)
+
+	# ── 无线电通讯（spec radio-chatter）──
+	# 刻意建在战区 if 之外：boss_debug 模式就是用来看 BOSS 登场台词的，不能被跳过。
+	_radio = RadioChatter.new()
+	add_child(_radio)
+	EventLogger.kill_recorded.connect(_on_radio_kill_recorded)
+	EventLogger.evasion_started.connect(_on_radio_evasion_started)
+	EventLogger.wingman_joined.connect(_on_radio_wingman_joined)
 
 	# ── 战术地图 + 战区系统（P2）──
 	# Boss Debug / Bench 模式跳过：bench 不要战区任务/ADBS 干扰压力测试样本
@@ -3171,13 +3180,60 @@ func _update_boss_phase() -> void:
 # ── BossEncounterEvent 回调（事件层主动调用）──
 
 ## ENGAGED：进入 boss phase（停摆常规系统）+ 临时提示
-func on_boss_engaged(_ev) -> void:
+func on_boss_engaged(ev) -> void:
 	_boss_spawned = true
 	if _zone_data and _zone_data.selected_id != &"BOSS":
 		_zone_data.select_zone(&"BOSS")
 	if _zone_hint:
 		_zone_hint.hide_persistent()
 		_zone_hint.show_temp(tr("ZONE_HINT_BOSS_ARRIVAL"), 5.0)
+	# 无线电：BOSS 进入交战的第二段挑衅（spec radio-chatter §3.3）
+	if _radio and ev != null and "encounter" in ev and ev.encounter != null:
+		_radio.say_boss_sequence(ev.encounter.boss_id, "engage", ev.encounter.callsign_prefix)
+
+# ══════════════════════════════════════════════
+#  无线电：击杀触发（spec radio-chatter §3.3）
+# ══════════════════════════════════════════════
+##
+## 订阅 EventLogger.kill_recorded。注意该信号只带【呼号字符串 + team】，不带单位引用 ——
+## 正合本系统"入队即快照、绝不持有 Aircraft 引用"的契约（spec §4）。
+## 一次击杀最多产生 2 条（阵亡者弹射 + 击坠者回报），实际频率由全局冷却 + 自身冷却 + 概率三层压制。
+func _on_radio_kill_recorded(killer: String, victim: String, _weapon_kind: String,
+		killer_team: int, victim_team: int, victim_voiced: bool) -> void:
+	if _radio == null or not is_instance_valid(_radio):
+		return
+
+	# 1) 敌方累计减员 → 阶段性哀嚎。
+	# 无人机损失【照常计数】—— 说话的是敌方指挥部（有人），它一样会为损失无人机而哀嚎。
+	if victim_team == CombatUnit.TEAM_HOSTILE:
+		_radio.notify_enemy_loss()
+
+	# 2) 阵亡者的弹射呼叫。自家人优先级远高于敌方（spec §2.3）。
+	# 无人机不喊弹射（没有飞行员可弹射）——spec §2.8 等级门。
+	if victim_voiced:
+		var eject_trigger := "eject_friendly" if victim_team == CombatUnit.TEAM_PLAYER else "eject"
+		_radio.say(eject_trigger, victim, RadioChatter.color_for_team(victim_team))
+
+	# 3) 击坠回报：只有僚机报，玩家本机不自己报给自己听
+	if killer_team == CombatUnit.TEAM_PLAYER and killer != "Ultra":
+		_radio.say("splash", killer, RadioChatter.color_for_team(killer_team))
+
+## 队友被导弹咬住 → "break break break"。只播自家人的，敌机规避不值得占用频道。
+func _on_radio_evasion_started(callsign: String, team: int) -> void:
+	if _radio == null or not is_instance_valid(_radio):
+		return
+	if team != CombatUnit.TEAM_PLAYER:
+		return
+	_radio.say("break", callsign, RadioChatter.color_for_team(team))
+
+## 新僚机编入。开局 RADIO_JOIN_SUPPRESS_SEC 内的编入是"建队"不是"归队"，不播。
+const RADIO_JOIN_SUPPRESS_SEC := 5.0
+func _on_radio_wingman_joined(callsign: String, team: int) -> void:
+	if _radio == null or not is_instance_valid(_radio):
+		return
+	if team != CombatUnit.TEAM_PLAYER or game_time < RADIO_JOIN_SUPPRESS_SEC:
+		return
+	_radio.say("wingman_join", callsign, RadioChatter.color_for_team(team))
 
 ## VICTORY：触发胜利
 func on_boss_victory(_ev) -> void:

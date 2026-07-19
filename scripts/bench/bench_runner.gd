@@ -56,6 +56,7 @@ const UNIT_TESTS: Dictionary = {
 	"fire_discipline": "res://scripts/tests/test_fire_discipline.gd",
 	"attr_gates": "res://scripts/tests/test_attribute_gates.gd",
 	"player_params": "res://scripts/tests/test_player_params.gd",
+	"chatter": "res://scripts/tests/test_radio_chatter.gd",
 }
 
 var bench_active: bool = false

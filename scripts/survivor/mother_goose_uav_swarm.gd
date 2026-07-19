@@ -246,6 +246,8 @@ func _spawn_one(angle_offset: float) -> void:
 	params_dup.display_name = designation
 	uav.params = params_dup
 	uav.team = 1
+	uav.no_pilot = true          # 无人机：不吃 FEAR、无无线电人声（spec radio-chatter §2.8）
+	uav.has_radio_voice = false
 	# 呼号即型号名（占位让 Aircraft._ready 不再走 CallsignDB.allocate 抢通用 ID）
 	uav.callsign = designation
 	uav.position = spawn_pos

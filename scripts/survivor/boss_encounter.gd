@@ -13,6 +13,8 @@ class_name BossEncounter
 extends RefCounted
 
 # ── 身份 / 音乐 ──
+var boss_id: String = ""                  ## BossRegistry.BOSS_DEFS 的 key；由 instantiate 印上。
+                                          ## 供按 BOSS 查表的下游系统用（无线电台词序列等）
 var display_name: String = "BOSS"         ## HUD 标题（可直接塞 tr key）
 var callsign_prefix: String = "BOSS"      ## 成员呼号前缀（HUD 阵亡显示 / EventLogger）
 var bgm_track: String = "boss"            ## AudioManager music id；spawn 时切歌

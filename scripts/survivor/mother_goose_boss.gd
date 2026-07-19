@@ -439,6 +439,8 @@ func _make_mqx(base_params: AircraftParams, spawn_pos: Vector2, callsign: String
 	var uav: Aircraft = _aircraft_scene.instantiate()
 	uav.params = params_dup
 	uav.team = 1
+	uav.no_pilot = true          # MQ-X 无人机：不吃 FEAR、无无线电人声（spec radio-chatter §2.8）
+	uav.has_radio_voice = false
 	uav.callsign = callsign
 	uav.position = spawn_pos
 	uav.initial_heading_deg = rad_to_deg(boss_unit.heading)

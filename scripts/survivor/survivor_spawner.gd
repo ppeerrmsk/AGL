@@ -1791,6 +1791,10 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tie
 			or etype == EnemyType.UAV_COMMANDER or etype == EnemyType.UAV_LASER:
 		enemy.no_pilot = true
 
+	# 无线电等级门（spec radio-chatter §2.8）：只有登记在册的机型配无线电。
+	# 未登记 = 沉默；无人机另有 no_pilot 硬规则兜底（见 Aircraft.can_speak_on_radio）。
+	enemy.has_radio_voice = ChatterLines.type_has_voice(type_tag)
+
 	# UAV 类不使用代号库，直接用类型+编号
 	if etype == EnemyType.UAV or etype == EnemyType.UCAV or etype == EnemyType.UAV_COMMANDER:
 		_uav_serial += 1

@@ -1,0 +1,276 @@
+{
+  "_doc": [
+    "无线电通讯台词表（spec docs/specs/systems/radio-chatter.md）。",
+    "",
+    "★ 这是无线电系统的唯一数据源。加台词 / 调频率 / 调权重都改这里，不用碰代码。",
+    "",
+    "── 加一条新台词的两步 ──",
+    "  1. 在本文件对应 trigger 的 lines 数组里加一个 key，例如 \"RADIO_SPLASH_5\"",
+    "  2. 在 i18n/translations.csv 加一行：RADIO_SPLASH_5,中文,English,日本語",
+    "  （文本统一住在 translations.csv，本地化同事只需要看那一个文件；",
+    "    本文件只管结构。跑 --bench=chatter 会校验每个 key 都有译文。）",
+    "",
+    "── 加一个全新 trigger ──",
+    "  在 triggers 里加一项，然后在代码的对应事件点调 RadioChatter.say(\"你的_trigger_id\", ...)",
+    "",
+    "── 字段说明 ──",
+    "  class          scripted = 剧情关键节点（BOSS 登场等），【不受任何冷却与概率限制，必定播出】",
+    "                 ambient  = 普通战场无线电，受全局冷却 + 自身冷却 + 概率三重限制",
+    "  weight         多条同时满足时，权重高的先播（只影响排队顺序，永不打断正在播的）",
+    "  cooldown_group 共享冷却的桶名。省略则用 trigger 自己的 id。",
+    "                 例：所有 ack_* 共享 \"ack\" 桶 → 下任何一条命令都走同一个冷却",
+    "  cooldown_sec   同桶内两次播出的最小间隔",
+    "  chance         通过冷却后仍然要过的概率骰（0~1）。这是\"偶尔出现一下\"的主要旋钮 —— ",
+    "                 调低 = 更沉默，调高 = 更聒噪。scripted 类忽略此项",
+    "  lines          i18n key 数组，随机取一条（不会连续重复同一条）",
+    "  lines_ref      复用另一个 trigger 的 lines，避免重复粘贴"
+  ],
+
+  "global": {
+    "_doc": "全局节流。ambient_cooldown_sec 是最重要的旋钮：任何一条普通语音播出后，全场普通语音静默这么久。",
+    "ambient_cooldown_sec": 12.0,
+    "line_gap_sec": 0.30,
+    "queue_max": 3,
+    "queue_stale_sec": 6.0,
+    "line_duration_base_sec": 2.6,
+    "line_duration_per_char_sec": 0.035,
+    "line_duration_max_sec": 5.0
+  },
+
+  "triggers": {
+    "boss_spawn": {
+      "_doc": "BOSS 登场挑衅序列。剧情关键节点，强制播出。台词见 boss_sequences。",
+      "class": "scripted",
+      "weight": 100,
+      "lines": []
+    },
+    "boss_engage": {
+      "_doc": "BOSS 进入交战。剧情关键节点，强制播出。台词见 boss_sequences。",
+      "class": "scripted",
+      "weight": 100,
+      "lines": []
+    },
+
+    "eject_friendly": {
+      "_doc": "自家僚机被击坠的弹射呼叫。自己人阵亡是重要事件，概率给高。",
+      "class": "ambient",
+      "weight": 80,
+      "cooldown_sec": 8.0,
+      "chance": 0.9,
+      "lines": [
+        "RADIO_EJECT_1",
+        "RADIO_EJECT_2",
+        "RADIO_EJECT_3",
+        "RADIO_EJECT_4"
+      ]
+    },
+    "eject": {
+      "_doc": "敌方 / 中立被击坠的弹射呼叫。氛围性质，概率压低。",
+      "class": "ambient",
+      "weight": 30,
+      "cooldown_sec": 9.0,
+      "chance": 0.45,
+      "lines_ref": "eject_friendly"
+    },
+
+    "break": {
+      "_doc": "队友被导弹咬住的规避呼叫。",
+      "class": "ambient",
+      "weight": 60,
+      "cooldown_sec": 12.0,
+      "chance": 0.6,
+      "lines": [
+        "RADIO_BREAK_1",
+        "RADIO_BREAK_2",
+        "RADIO_BREAK_3"
+      ]
+    },
+
+    "splash": {
+      "_doc": "僚机击坠回报。击杀是最高频事件，概率必须压住。",
+      "class": "ambient",
+      "weight": 40,
+      "cooldown_sec": 10.0,
+      "chance": 0.4,
+      "lines": [
+        "RADIO_SPLASH_1",
+        "RADIO_SPLASH_2",
+        "RADIO_SPLASH_3",
+        "RADIO_SPLASH_4"
+      ]
+    },
+
+    "ack_pursue": {
+      "_doc": "RTS 点名攻击 / 分火接敌的回令。所有 ack_* 共享一个冷却桶。",
+      "class": "ambient",
+      "weight": 50,
+      "cooldown_group": "ack",
+      "cooldown_sec": 8.0,
+      "chance": 0.35,
+      "lines": [
+        "RADIO_ACK_PURSUE_1_FMT",
+        "RADIO_ACK_PURSUE_2_FMT"
+      ]
+    },
+    "ack_surround": {
+      "class": "ambient",
+      "weight": 50,
+      "cooldown_group": "ack",
+      "cooldown_sec": 8.0,
+      "chance": 0.35,
+      "lines": [
+        "RADIO_ACK_SURROUND_1_FMT",
+        "RADIO_ACK_SURROUND_2_FMT"
+      ]
+    },
+    "ack_cover": {
+      "class": "ambient",
+      "weight": 50,
+      "cooldown_group": "ack",
+      "cooldown_sec": 8.0,
+      "chance": 0.35,
+      "lines": [
+        "RADIO_ACK_COVER_1",
+        "RADIO_ACK_COVER_2"
+      ]
+    },
+    "ack_regroup": {
+      "class": "ambient",
+      "weight": 50,
+      "cooldown_group": "ack",
+      "cooldown_sec": 8.0,
+      "chance": 0.35,
+      "lines": [
+        "RADIO_ACK_REGROUP_1",
+        "RADIO_ACK_REGROUP_2"
+      ]
+    },
+    "ack_evac": {
+      "class": "ambient",
+      "weight": 50,
+      "cooldown_group": "ack",
+      "cooldown_sec": 8.0,
+      "chance": 0.35,
+      "lines": [
+        "RADIO_ACK_EVAC_1",
+        "RADIO_ACK_EVAC_2"
+      ]
+    },
+
+    "attrition_t1": {
+      "_doc": "敌方累计减员哀嚎第一档（12~35 架）。本身已由里程碑门控，概率给满。",
+      "class": "ambient",
+      "weight": 20,
+      "cooldown_group": "enemy_attrition",
+      "cooldown_sec": 30.0,
+      "chance": 1.0,
+      "lines": [
+        "RADIO_ATTRITION_T1_1",
+        "RADIO_ATTRITION_T1_2",
+        "RADIO_ATTRITION_T1_3"
+      ]
+    },
+    "attrition_t2": {
+      "_doc": "第二档（36~71 架）：承受重大损失。",
+      "class": "ambient",
+      "weight": 20,
+      "cooldown_group": "enemy_attrition",
+      "cooldown_sec": 30.0,
+      "chance": 1.0,
+      "lines": [
+        "RADIO_ATTRITION_T2_1",
+        "RADIO_ATTRITION_T2_2",
+        "RADIO_ATTRITION_T2_3"
+      ]
+    },
+    "attrition_t3": {
+      "_doc": "第三档（≥72 架）：防线崩溃。",
+      "class": "ambient",
+      "weight": 20,
+      "cooldown_group": "enemy_attrition",
+      "cooldown_sec": 30.0,
+      "chance": 1.0,
+      "lines": [
+        "RADIO_ATTRITION_T3_1",
+        "RADIO_ATTRITION_T3_2",
+        "RADIO_ATTRITION_T3_3"
+      ]
+    },
+
+    "wingman_join": {
+      "_doc": "新僚机编入。事件本身稀有，不压概率。",
+      "class": "ambient",
+      "weight": 10,
+      "cooldown_sec": 0.0,
+      "chance": 1.0,
+      "lines": [
+        "RADIO_JOIN_1",
+        "RADIO_JOIN_2",
+        "RADIO_JOIN_3"
+      ]
+    }
+  },
+
+  "boss_sequences": {
+    "_doc_": "BOSS 专属登场/交战对话。slot = 中队内序号（0 基），合成呼号 <前缀>-01/02/…。spawn 是多条构成的队内对话，依次播出、彼此不打断。未登记的 BOSS 走 _default。",
+    "WRAITH_SQUADRON": {
+      "spawn": [
+        { "slot": 0, "key": "RADIO_BOSS_WRAITH_SPAWN_1" },
+        { "slot": 1, "key": "RADIO_BOSS_WRAITH_SPAWN_2" },
+        { "slot": 0, "key": "RADIO_BOSS_WRAITH_SPAWN_3" }
+      ],
+      "engage": [
+        { "slot": 0, "key": "RADIO_BOSS_WRAITH_ENGAGE_1" }
+      ]
+    },
+    "CARRIER_STRIKE_GROUP": {
+      "spawn": [
+        { "slot": 0, "key": "RADIO_BOSS_CSG_SPAWN_1" },
+        { "slot": 1, "key": "RADIO_BOSS_CSG_SPAWN_2" },
+        { "slot": 0, "key": "RADIO_BOSS_CSG_SPAWN_3" }
+      ],
+      "engage": [
+        { "slot": 0, "key": "RADIO_BOSS_CSG_ENGAGE_1" }
+      ]
+    },
+    "MOTHER_GOOSE": {
+      "spawn": [
+        { "slot": 0, "key": "RADIO_BOSS_GOOSE_SPAWN_1" },
+        { "slot": 0, "key": "RADIO_BOSS_GOOSE_SPAWN_2" }
+      ],
+      "engage": [
+        { "slot": 0, "key": "RADIO_BOSS_GOOSE_ENGAGE_1" }
+      ]
+    },
+    "_default": {
+      "spawn": [
+        { "slot": 0, "key": "RADIO_BOSS_DEFAULT_SPAWN_1" },
+        { "slot": 1, "key": "RADIO_BOSS_DEFAULT_SPAWN_2" }
+      ],
+      "engage": [
+        { "slot": 0, "key": "RADIO_BOSS_DEFAULT_ENGAGE_1" }
+      ]
+    }
+  },
+
+  "voiced_enemy_types": {
+    "_doc_": "哪一级敌人配有无线电（spec §2.8 等级门）。opt-in：没列在这里的机型一律沉默，所以以后新增敌人默认不会突然开口。无人机另有 no_pilot 硬规则兜底，即使误列在此也不会说话。",
+    "types": [
+      "mig",
+      "interceptor",
+      "f86",
+      "mig31",
+      "mig23",
+      "f100",
+      "su27",
+      "a7",
+      "q5",
+      "f4",
+      "f104",
+      "su35",
+      "fa18",
+      "f47",
+      "f14_poltergeist"
+    ]
+  }
+}

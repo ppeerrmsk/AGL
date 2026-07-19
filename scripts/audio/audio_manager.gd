@@ -57,6 +57,12 @@ const SFX_FILES := {
 
 const UI_FILES := {}
 
+## 无线电通讯音效（spec radio-chatter §2.7）。挂 Radio 总线（频带切割 + 轻失真）。
+## 素材尚未到位 —— 文件缺失时 play_radio 静默跳过，不 push_warning（视觉部分独立可验收）。
+const RADIO_FILES := {
+	"radio_beep": "res://audio/sfx/radio_beep.wav",
+}
+
 # ────── Bus 默认音量（dB）──────
 const DEFAULT_BUS_DB := {
 	"Music": -12.0,  # BGM 存在感低
@@ -73,6 +79,7 @@ var _layer_players: Array[AudioStreamPlayer] = []  ## 层叠 BGM 专用池，独
 var _layer_active: bool = false                    ## 当前是否处于层叠模式
 var _layer_active_index: int = 0                   ## 当前激活层索引（其他层静音但同步播放）
 var _ui_player: AudioStreamPlayer
+var _radio_player: AudioStreamPlayer   ## 无线电台词底噪专用（Radio 总线）
 var _sfx_pool: Array[AudioStreamPlayer2D] = []
 var _sfx_pool_idx := 0
 var _tweens: Dictionary = {}  # player(instance_id) → Tween
@@ -111,6 +118,11 @@ func _ready() -> void:
 	_ui_player.bus = UI_BUS
 	_ui_player.process_mode = Node.PROCESS_MODE_ALWAYS
 	add_child(_ui_player)
+	# 无线电专用播放器：独占一个，不与 UI 抢 _ui_player（否则点按钮会截断台词底噪）
+	_radio_player = AudioStreamPlayer.new()
+	_radio_player.bus = RADIO_BUS
+	_radio_player.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(_radio_player)
 	for i in SFX_POOL_SIZE:
 		var p := AudioStreamPlayer2D.new()
 		p.bus = SFX_BUS
@@ -556,6 +568,22 @@ func _is_on_screen(world_pos: Vector2) -> bool:
 # ═══════════════════════════════════════════════════
 #  UI API
 # ═══════════════════════════════════════════════════
+
+## 无线电台词底噪（spec radio-chatter §2.7）。
+## 与 play_ui 分开：UI 点击不得截断台词底噪，反之亦然。
+## 素材缺失 = 静默 no-op，且【不 push_warning】—— 每条台词都会调一次，warning 会刷屏。
+func play_radio(id: String, volume_db: float = 0.0) -> void:
+	if _radio_player == null:
+		return
+	var path: String = RADIO_FILES.get(id, "")
+	if path == "" or not ResourceLoader.exists(path):
+		return
+	var stream := load(path) as AudioStream
+	if stream == null:
+		return
+	_radio_player.stream = stream
+	_radio_player.volume_db = volume_db
+	_radio_player.play()
 
 func play_ui(id: String, volume_db: float = 0.0) -> void:
 	var stream := _get_ui(id)

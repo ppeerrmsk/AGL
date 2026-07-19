@@ -77,6 +77,7 @@ static func instantiate(boss_id: String) -> BossEncounter:
 		push_error("BossRegistry: failed to load '%s'" % def["class_path"])
 		return null
 	var enc: BossEncounter = script.new()
+	enc.boss_id = boss_id
 	# 用注册表的元数据覆盖（子类可在 _init 自己再设，但 registry 是 single source of truth）
 	if def.has("display_name"):
 		enc.display_name = String(def["display_name"])

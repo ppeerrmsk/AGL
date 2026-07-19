@@ -50,10 +50,15 @@ static func register_leader(sq: Squad, leader: Aircraft) -> void:
 static func register_wingman(sq: Squad, ac: Aircraft, set_state: bool = true) -> int:
 	if not sq or not ac:
 		return -1
-	if ac not in sq.members:
+	var was_member := ac in sq.members
+	if not was_member:
 		sq.add_member(ac)
 	var idx := sq.members.find(ac)
 	_attach_ai(ac, sq, idx, set_state)
+	# 无线电 "归队" 呼叫（spec radio-chatter §3.3）：只在真正新增成员时 emit。
+	# 开局建队也会走这里 —— 订阅方按开局时间过滤，本层不做业务判断。
+	if not was_member and ac.callsign != "" and ac.can_speak_on_radio():
+		EventLogger.wingman_joined.emit(ac.callsign, ac.team)
 	return idx
 
 ## 高级一行版：把已有 Aircraft 编为一队（leader 必须已实例化，wingmen 已实例化）

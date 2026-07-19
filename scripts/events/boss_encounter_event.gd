@@ -87,6 +87,13 @@ func _start() -> void:
 	if hint:
 		hint.show_warning_banner("WARNING  WARNING")
 		hint.show_persistent(tr("ZONE_HINT_BOSS_UNLOCKED"))
+
+	# 4. 无线电：BOSS 中队登场挑衅（spec radio-chatter §3.3）
+	# 说话人呼号由 encounter 的 callsign_prefix 合成，不依赖机体 _ready() 是否已分配呼号。
+	var radio = director.mode.get("_radio") if director and director.mode else null
+	if radio:
+		radio.say_boss_sequence(encounter.boss_id, "spawn", encounter.callsign_prefix)
+
 	EventLogger.log_event("EVENT", name,
 		"PRE_STAGE: %s staged at %s" % [encounter.display_name, anchor])
 

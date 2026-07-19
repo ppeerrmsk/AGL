@@ -435,7 +435,7 @@ func _update_display() -> void:
 	_update_status_panel()
 
 ## 收到击杀信号 → 战况栏顶部插入一条（友机击坠=绿 / 友机阵亡=红 / 中立=灰），超上限移除最旧
-func _on_kill_recorded(killer: String, victim: String, weapon_kind: String, killer_team: int, victim_team: int) -> void:
+func _on_kill_recorded(killer: String, victim: String, weapon_kind: String, killer_team: int, victim_team: int, _victim_voiced: bool) -> void:
 	if not _kill_feed_container:
 		return
 	var col: Color

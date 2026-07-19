@@ -75,6 +75,7 @@ func command_attack(enemy: CombatUnit) -> void:
 			ac.command_sprint = false                   # 单点新命令解除本机冲刺
 			_spread_owned.erase(ac.get_instance_id())   # 单点点名 → 该机退出分火管理（铁律保护）
 	_auto_engage_target = null
+	_ack("ack_pursue", [_target_label(enemy)])
 
 ## 玩家下巡航航点：放弃攻击命令，全队飞向世界坐标点。
 func command_move(world_pos: Vector2) -> void:
@@ -131,6 +132,7 @@ func command_regroup(point: Vector2) -> void:
 	for ac in _squad_members():
 		if is_instance_valid(ac) and not ac.is_destroyed:
 			ac.command_sprint = true
+	_ack("ack_regroup")
 
 ## 全队广播"清一切任务 + 飞向点"（紧急集合/防守 TRANSIT 共用骨架）
 func _broadcast_move_all(point: Vector2) -> void:
@@ -180,6 +182,7 @@ func command_evacuate(point: Vector2) -> void:
 	if any_fleeing:
 		_sprint_mode = SprintMode.EVAC
 		_sprint_point = point
+		_ack("ack_evac")   # 圈外成员不受影响时不回令（没人真的在撤）
 	# 限时禁入区：期间 AI 自主决策过滤圈内（_find_target / 拴绳），玩家显式输入不受限
 	var dur_s := wheel_params.evac_duration_s if wheel_params != null else 20.0
 	_evac_zone_center = point
@@ -194,6 +197,7 @@ func command_guard(point: Vector2) -> void:
 	_broadcast_move_all(point)   # TRANSIT：清任务飞向圆心（内部先清旧 guard/spread/sprint）
 	_clear_evac_zone()           # 新广播命令终止禁入区
 	_guard_point = point
+	_ack("ack_cover")
 
 ## 攻击轮盘广播（spec §3.6 按 fire_allocation 分流）：
 ##   FOCUS  = 全队统一咬 target（铁律通道）+ 包围轴分离（≥2 机、散开阵型时分配进入方位）；
@@ -208,6 +212,7 @@ func command_attack_all(target: CombatUnit, posture: int = Situation.POSTURE_AUT
 	_auto_engage_target = null
 	if fire_allocation == FireAllocation.SPREAD:
 		_begin_spread(target, posture)
+		_ack("ack_pursue", [_target_label(target)])   # 分火 = 各自接敌，语义是追击不是包围
 		return
 	_end_spread()
 	var members: Array = []
@@ -222,6 +227,9 @@ func command_attack_all(target: CombatUnit, posture: int = Situation.POSTURE_AUT
 		ac.surround_bearing_rad = INF
 		members.append(ac)
 	_assign_surround_axes(members, target)
+	# 包围只在 ≥2 机且非紧密阵型时真的发生（见 _assign_surround_axes）；否则语义退回追击
+	var surrounding := not formation_tight and members.size() >= 2
+	_ack("ack_surround" if surrounding else "ack_pursue", [_target_label(target)])
 
 ## FOCUS 包围轴分配（spec §3.6）：基准 = 发令瞬间"目标 → 小队质心"方位，第 i 机偏移
 ## SURROUND_OFFSETS_DEG[i]（相邻 ≥45°）。TIGHT 阵型不包围（整队单轴，归 formation-discipline）；
@@ -557,3 +565,48 @@ func _player_aircraft() -> Aircraft:
 	if pa == null or not is_instance_valid(pa) or pa.is_destroyed:
 		return null
 	return pa
+
+# ══════════════════════════════════════════════
+#  无线电回令（spec radio-chatter §3.4）
+# ══════════════════════════════════════════════
+##
+## 中队级粒度：一条命令只回【一句】，由随机一名存活僚机代表全队应答，
+## 绝不 4 架各喊一句。玩家不会自己回自己的令 —— 队里只剩玩家时静默。
+
+## 随机选一名可以应答的僚机（存活 + 非当前操控机）
+func _ack_speaker() -> Aircraft:
+	var pa := _player_aircraft()
+	var pool: Array = []
+	for ac in _squad_members():
+		if not is_instance_valid(ac) or ac.is_destroyed or ac == pa:
+			continue
+		if not ac.can_speak_on_radio():   # 无人僚机不回令（spec radio-chatter §2.8）
+			continue
+		pool.append(ac)
+	if pool.is_empty():
+		return null
+	return pool[randi() % pool.size()]
+
+func _ack(trigger: String, fmt_args: Array = []) -> void:
+	if _mode == null:
+		return
+	var radio = _mode.get("_radio")
+	if radio == null or not is_instance_valid(radio):
+		return
+	var speaker := _ack_speaker()
+	if speaker == null:
+		return
+	# 所有 ack_* 共享 "ack" 冷却桶 + 概率骰（见 resources/chatter/radio_chatter.json）：
+	# 连点下令不会每次都有人应答，这是刻意的稀疏感。
+	radio.say_unit(trigger, speaker, fmt_args)
+
+## 被指目标的可读名（呼号 → display_name → 泛指"目标"）
+func _target_label(target: CombatUnit) -> String:
+	if target == null or not is_instance_valid(target):
+		return tr("RADIO_TARGET_GENERIC")
+	if "callsign" in target and String(target.callsign) != "":
+		return String(target.callsign)
+	if "params" in target and target.params != null and "display_name" in target.params \
+			and String(target.params.display_name) != "":
+		return String(target.params.display_name)
+	return tr("RADIO_TARGET_GENERIC")

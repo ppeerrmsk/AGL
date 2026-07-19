@@ -491,6 +491,30 @@
 | Debug 面板文字更新 | `survivor_hud.gd:555` _update_debug_panel |
 | 游戏结束画面 | `survivor_hud.gd:587` show_game_over |
 
+### radio_chatter.gd — 无线电通讯（spec radio-chatter）
+
+CanvasLayer layer=19。一次一条、绝不打断；优先级只管排队与满队淘汰。
+
+| 功能 | 位置 |
+|------|------|
+| 入队（含冷却门 + 满队淘汰） | `radio_chatter.gd` say_text |
+| 按 trigger 入队（选词 + 格式化） | `radio_chatter.gd` say / say_unit |
+| BOSS 登场/交战序列 | `radio_chatter.gd` say_boss_sequence |
+| 敌方减员里程碑 | `radio_chatter.gd` notify_enemy_loss |
+| 说话人呼号 / 阵营色解析 | `radio_chatter.gd` speaker_name_of / color_of / color_for_team |
+| 队列状态机（IDLE/SPEAKING/GAP） | `radio_chatter.gd` _process / _pump / _begin |
+| **★ 全部台词/权重/冷却/概率数据** | `resources/chatter/radio_chatter.json`（调手感改这里，不用碰代码） |
+| 数据加载器（零数值，纯查表） | `chatter_lines.gd` _ensure_loaded / weight_of / cooldown_of / chance_of / kind_of / lines_of / pick |
+| 三层节流（全局冷却/冷却桶/概率骰） | `radio_chatter.gd` say_text 开头 |
+| **说话资格门**（哪级敌人配无线电） | JSON `voiced_enemy_types` → `chatter_lines.gd` type_has_voice |
+| 无人机硬规则（no_pilot 永不说话） | `aircraft.gd` can_speak_on_radio / has_radio_voice |
+| 资格门赋值 | `survivor_spawner.gd`（`_create_enemy` 内，与 no_pilot 同处）；MG 蜂群在 `mother_goose_uav_swarm.gd` / `mother_goose_boss.gd` |
+| 触发接线：击杀/规避/归队 | `survivor_mode.gd` _on_radio_kill_recorded / _on_radio_evasion_started / _on_radio_wingman_joined |
+| 触发接线：BOSS 登场 | `boss_encounter_event.gd` _start |
+| 触发接线：RTS 回令 | `squad_command_controller.gd` _ack / _ack_speaker / _target_label |
+| 音频 | `audio_manager.gd` play_radio / RADIO_FILES（Radio 总线） |
+| 无头测试 | `scripts/tests/test_radio_chatter.gd`（`--bench=chatter`） |
+
 ### survivor_upgrade_ui.gd — 升级选择界面（124 行）
 
 | 功能 | 位置 |

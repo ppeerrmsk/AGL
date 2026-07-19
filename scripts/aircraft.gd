@@ -302,6 +302,16 @@ var status_fear_active: bool = false       ## FEAR debuff 派生标记
 ## survivor_spawner 在创建时根据 enemy_type 设置；玩家 + 载人战机默认 false
 var no_pilot: bool = false
 
+## 是否配有无线电（spec radio-chatter §2.8 等级门）。
+## survivor_spawner 按 ChatterLines.VOICED_ENEMY_TYPES 在创建时设置；
+## 玩家 / 僚机 / ALLY 默认 true。与 no_pilot 是【与】关系，见 can_speak_on_radio。
+var has_radio_voice: bool = true
+
+## 能否在无线电里说话。硬规则：无人机永远不能 —— 没有飞行员就没有人声，
+## 这条不可被 has_radio_voice 覆盖（漏设 has_radio_voice 的无人机也不会开口）。
+func can_speak_on_radio() -> bool:
+	return has_radio_voice and not no_pilot
+
 ## ── 便利贴技能字段（C 阶段批量实装）──
 ## 各字段由 SurvivorPlayer.apply_upgrade 写入；消费点在对应模块 early-check
 var lock_panic_g_mult: float = 1.0          ## 被锁时 effective_max_g 倍率（physics）
@@ -1704,6 +1714,12 @@ func set_evasion_mode(enabled: bool) -> void:
 	if use_tactical_preference and enabled != was_enabled:
 		_propagate_evasion_to_squad(enabled)
 
+	# ── 无线电 "break" 呼叫（spec radio-chatter §3.3）──
+	# 只在 false→true 上升沿广播；走 EventLogger 全局总线，Aircraft 不认识生存模式/UI 层。
+	# 频率控制（冷却）全在订阅方，这里只是一个 O(1) 的信号 emit。
+	if enabled and not was_enabled and callsign != "" and can_speak_on_radio():
+		EventLogger.evasion_started.emit(callsign, team)
+
 ## 把规避状态广播给本机为长机的所有僚机（仅玩家调用）
 ## spec wingman-escort-evasion：广播置位的是僚机的 escort_cover_active（护卫姿态），
 ## 不再直接置 evasion_mode —— 否则 planner 的 evasion_intent 会让待命僚机 max+AB 散开。
@@ -2353,7 +2369,8 @@ func _record_kill_attribution() -> void:
 		# ── 战况栏（kill feed）信号：呼号 + 武器种类 + 双方阵营，survivor_hud 订阅显示 ──
 		var atk_call: String = attacker.callsign if ("callsign" in attacker and attacker.callsign != "") else String(attacker.name)
 		var atk_team_i: int = attacker.team if ("team" in attacker) else -1
-		EventLogger.kill_recorded.emit(atk_call, callsign, dk, atk_team_i, team)
+		EventLogger.kill_recorded.emit(atk_call, callsign, dk, atk_team_i, team,
+			can_speak_on_radio())
 	remove_meta("_pending_attacker")
 	if not is_instance_valid(attacker) or not (attacker is Aircraft):
 		return

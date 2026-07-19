@@ -7,7 +7,17 @@ const BUFFER_DURATION := 300.0  ## 保留最近多少秒的事件（5 分钟，�
 
 ## 击杀战况信号 → survivor_hud 的 kill feed 订阅。在 Aircraft._record_kill_attribution 致死瞬间 emit。
 ## killer/victim = 可读呼号；weapon_kind ∈ gun/missile/rocket/aoe/ground_crash；team: 0=友方。
-signal kill_recorded(killer: String, victim: String, weapon_kind: String, killer_team: int, victim_team: int)
+## victim_voiced = 阵亡者是否配有无线电（spec radio-chatter §2.8）——无人机为 false，
+## 用于抑制"无人机喊弹射"。kill feed 不消费此字段，只有无线电用。
+signal kill_recorded(killer: String, victim: String, weapon_kind: String, killer_team: int, victim_team: int, victim_voiced: bool)
+
+## 进入规避（导弹咬住）信号 → 无线电 "break" 呼叫订阅。
+## 在 Aircraft.set_evasion_mode 的 false→true 上升沿 emit，只带呼号与阵营（不带单位引用）。
+signal evasion_started(callsign: String, team: int)
+
+## 新僚机编入编队信号 → 无线电 "归队" 呼叫订阅。
+## 在 SquadFactory.register_wingman 真正新增成员时 emit（开局建队也会触发，订阅方自行过滤）。
+signal wingman_joined(callsign: String, team: int)
 
 var _events: Array[Dictionary] = []
 var _game_time: float = 0.0
