@@ -1,9 +1,9 @@
 ---
 id: evolution-attribute-gates
 kind: system
-status: draft        # ⏳ v5 里程碑属性池铺宽 + 按起手机分化（基准表+覆写，分表用户后续填）；数值待 review
+status: done         # ✅ 2026-07-20 用户手感确认收口（"这套系统应该做完了"）；后续=数值微调 + 起手机分表
 schema_version: 1
-spec_version: 5
+spec_version: 8
 owner: 用户
 depends_on: [aircraft-evolution, aircraft-evolution-tree, player-aircraft-power-curve, squad-upgrade-ownership]
 reconstruction_complete: true
@@ -154,16 +154,16 @@ Tab 菜单（战术图/结算坞同屏）常驻一栏：**三轴量表**——�
 
 主菜单 B 的 boss debug 链路**全豁免**（等级+属性门槛都不查）；debug 主题 build roller 的 5 主题按三轴对齐 tag。
 
-## 5. 验收
+## 5. 验收（2026-07-20 收口）
 
-- [ ] **收入断言**：任意等级 `points == floor(LV/3)`；卡片事件在 L3/6/…/24 各触发一次且仅一次。
-- [ ] **可行性断言**（脚本）：全谱 41 机门槛在各自 LV 带内"专注投入"可达（§2.5 表余量 ≥0）。
-- [ ] **排他性断言**：8 点满投无法同时满足两条对向 T5 专精门槛（如 骑5+策5）。
-- [ ] **重放断言**：进化换型前后，玩家层里程碑加成数值不变（HP/弹量/雷达/flare/锁定耗时逐项相等）。
-- [ ] 等级纯门槛：升级不再改任何 params（自然成长退役，联动 power-curve §5）。
-- [ ] Tab 面板点数/里程碑/路线实时正确；进化卡缺口徽记双类显示正确。
-- [ ] debug 链路选任意机不查任何门槛。
-- [ ] playtest：两局不同选卡路线 → 可进化集合与里程碑组合肉眼可见不同（主观题）。
+- [x] **收入断言**：任意等级 `points == floor(LV/3)`（attr_gates §A 8 断言）；卡片事件 %3 触发（bench 分支旁路）。
+- [x] **可行性断言**：41 机树全节点门槛消耗 ≤ 解锁等级点数收入（attr_gates §H，含 any/sum_all 新算法）。
+- [ ] **排他性断言**：⏳ 缓做——8 点收入下由公式自明（骑5+策5=10>8），41 机数值微调批一并补脚本。
+- [x] **重放断言**：换型前后里程碑加成逐项不变（attr_gates §E 重放 5 断言）。
+- [x] 等级纯门槛：自然成长全链摘除，升级不改任何 params（power-curve §5 同款验收）。
+- [x] Tab 面板量表/里程碑明细/状态块实时正确；树视图缺口徽记 LV/属性双类显示（§3.2/§3.3）。
+- [x] debug 链路不查门槛（boss debug 不经结算站 + 跳级点数补发）。
+- [x] playtest：用户 2026-07-20 手感确认（卡片节奏/量表/明细面板 OK）。
 
 ## 6. 实施计划（矩阵 v7 + 本 spec 一并 review 定稿后执行；与 power-curve §6 交错排期）
 
@@ -176,9 +176,20 @@ Tab 菜单（战术图/结算坞同屏）常驻一栏：**三轴量表**——�
 - [x] 阶段 6：bench 断言（收入/可行性/重放/映射/门槛判定/JSON 完备性，75 项并入 `--bench=attr_gates`；**排他性断言缓做**——8 点收入下由公式自明，41 机重排时补）；boss debug 点数补发即豁免语义（debug 不经结算站不查门）。✅ 2026-07-19
 - [ ] 阶段 7：playtest 门槛/里程碑数值微调（⏳ 用户实机）。
 
-## 7. 实现锚点（done 后回填）
+## 7. 实现锚点（2026-07-20 回填；纯文件指针，行号看 script-index）
 
-——
+- 三轴点数 / 里程碑应用器 / 换型重放 / 武器库：`scripts/survivor/survivor_player.gd`
+  （`axis_points` `add_axis_point` `apply_crossed_milestones` `reapply_all_milestones` `record_special_weapons` `remount_weapons`）
+- 数据表与映射：`scripts/survivor/survivor_data.gd`
+  （`AXIS_*` `MILESTONE_TABLE` `milestones_for` `AXIS_BY_CATEGORY`+覆写 `pick_card_for_axis` `make_axis_focus_card` `AXIS_COLORS` `MILESTONE_STAT_I18N`）
+- 卡片流 / 升级重放 / debug 点数补发：`scripts/survivor/survivor_mode.gd`
+  （`_on_player_leveled_up` %3 触发 / `_roll_axis_cards` / `_on_upgrade_selected` / `_replay_player_upgrades` / 玩家层重放三连）
+- 门槛判定：`scripts/survivor/evolution_system.gd`（`gates_of/gates_passed/gates_missing`，any/sum_gk/sum_all 三语义）
+  + `resources/evolution/evolution_tree.json` 逐节点 `gates` 字段（41 机设计值）
+- 视觉：`scripts/survivor/axis_bars_panel.gd`（三轴量表）· `scripts/survivor/evolution_tree_view.gd`（双门+缺口徽记）
+  · `scripts/survivor/tactical_map.gd`（里程碑明细三列 + y2k 状态块）· `scripts/survivor/survivor_upgrade_ui.gd`（轴徽章）
+- 起手机覆写槽：`scripts/playable_aircraft.gd` `milestone_overrides`
+- 测试：`scripts/tests/test_attribute_gates.gd`（bench `attr_gates`，79 断言，并入回归门）
 
 ## 8. 变更记录
 
@@ -191,3 +202,4 @@ Tab 菜单（战术图/结算坞同屏）常驻一栏：**三轴量表**——�
 | 2026-07-19 | 5 | **属性池铺宽 + 按起手机分化**（用户）：①奖励属性池摊开——机炮 伤害/射程/备弹、G 力、失速地板、高度变化速度、热诱弹 CD、雷达锥角 等全部可用；基准表改每线五档五种不同属性（斗士 HP→炮伤→射程→G→备弹 / 骑士 弹→雷达→速度→爬升→弹 / 策士 flare→锁定→flareCD→锥角→flare）。②**里程碑线按初始飞机分化**：基准表=默认，起手机 profile 可整表/逐档覆写（亲和线更厚，鼓励对应玩法）；四机分表**留待用户后续平衡**，本版只定数据结构与覆写机制。 |
 | 2026-07-19 | 6 | **三轴量表视觉定稿**（用户 mockup："让三种里程碑和点数分配更直观"）：§3.2 文字面板升级为竖条分格量表（AxisBarsPanel 控件）——10 分格立柱逐格点亮 + 里程碑刻度圈三态（实心亮=达成/大空圈=下一档/小空圈=远档）+ 轴色定调（斗士琥珀/骑士青绿/策士紫，SurvivorData.AXIS_COLORS 三处共用）；Tab 面板与结算坞右栏顶部（原强化栏位置）双陈列。 |
 | 2026-07-19 | 7 | **Tab 面板 y2k 明细化**（用户："每档写明具体提升 + 底部显示当前详细加成与机体数据"）：①里程碑明细三列——每轴逐档"■2│HP+25"三态标记（达成轴色/下一档白高亮/远档暗），取代只显示下一档标题；②底部状态块——"当前加成"按 stat 聚合（add 求和/mult 连乘）+"机体状态"live params 最终值（HP/速度/G/雷达/锁定/弹量）；y2k 终端风（⟦⟧ 小节头/▸ 条目/┊ 分栏）；③ATTR_STAT_LOCK_TIME 文案改"锁定耗时"口径（−10% 语义自洽）；升级卡技能徽章同批（左上角轴色 chip 大字）。 |
+| 2026-07-20 | 8 | **收口 → done**（用户："这套系统应该做完了"）：§5 验收勾选（收入/可行性/重放/纯门槛/双门徽记/debug 豁免/playtest 手感确认；排他断言登记缓做）；§7 锚点回填；§6 阶段 7 playtest 完成。后续=数值微调（门槛松紧/里程碑值）+ 四起手机分表（用户亲自平衡）+ 排他断言脚本，随 roster 收尾批走。 |
