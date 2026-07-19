@@ -1,10 +1,12 @@
-[gd_resource type="Resource" script_class="AircraftParams" load_steps=7 format=3]
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=9 format=3]
 
 [ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
 [ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
 [ext_resource type="Resource" path="res://resources/default_combat.tres" id="3"]
 [ext_resource type="Resource" path="res://resources/default_flare.tres" id="4"]
 [ext_resource type="Script" path="res://scripts/missile_params.gd" id="5"]
+[ext_resource type="Resource" path="res://resources/x02_railgun.tres" id="7"]
+[ext_resource type="Resource" path="res://resources/x02_laser.tres" id="8"]
 
 [sub_resource type="Resource" id="msl"]
 script = ExtResource("5")
@@ -60,4 +62,5 @@ gun = ExtResource("2")
 missile = SubResource("msl")
 flare = ExtResource("4")
 combat = ExtResource("3")
+equipment = [ExtResource("7"), ExtResource("8")]
 icon_color = Color(0.15, 0.35, 0.85, 1)

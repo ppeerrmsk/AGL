@@ -267,14 +267,33 @@ func _test_evolution_gates() -> void:
 			continue
 		var cost: int = 0
 		for k in g2:
-			if String(k) != "sum_gk":
-				cost += int(g2[k])
+			var ks := String(k)
+			if ks == "sum_gk" or ks == "sum_all":
+				continue
+			if ks == "any":
+				var mn := 999
+				for ak in (g2[k] as Dictionary):
+					mn = mini(mn, int(g2[k][ak]))
+				cost += mn
+				continue
+			cost += int(g2[k])
 		cost = maxi(cost, int(g2.get("sum_gk", 0)))
+		cost = maxi(cost, int(g2.get("sum_all", 0)))
 		var income: int = SurvivorData.axis_points_earnable(EvolutionSystem.min_level_of(nd))
 		if cost > income:
 			feasible = false
 			print("    ! 门槛超收入：%s cost=%d income=%d" % [nd.get("id"), cost, income])
 	_check("全节点门槛消耗 ≤ 解锁等级点数收入（专注可达）", feasible, "")
+	# 新门语义（41 机树）："any" 或门 + "sum_all" 三轴合计
+	var fa18e: Dictionary = EvolutionSystem.node_of(&"fa18e")
+	_check("F/A-18E 或门：单轴 1 点即过", EvolutionSystem.gates_passed(fa18e, {&"knight": 1}),
+		str(EvolutionSystem.gates_of(fa18e)))
+	_check("F/A-18E 或门：零点不过", not EvolutionSystem.gates_passed(fa18e, {}), "")
+	var ax00: Dictionary = EvolutionSystem.node_of(&"ax00")
+	_check("AX-00 各2且合计7：3/2/2 过", EvolutionSystem.gates_passed(ax00,
+		{&"gladiator": 3, &"knight": 2, &"schemer": 2}), str(EvolutionSystem.gates_of(ax00)))
+	_check("AX-00 各2且合计7：2/2/2 不过（合计 6）", not EvolutionSystem.gates_passed(ax00,
+		{&"gladiator": 2, &"knight": 2, &"schemer": 2}), "")
 
 
 # ── G. 局内武器库（spec inrun-weapon-inventory：快照/补挂/互斥/不重复/底线不入库）──

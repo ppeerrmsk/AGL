@@ -1,7 +1,7 @@
 [gd_resource type="Resource" script_class="PlayableAircraft" load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://scripts/playable_aircraft.gd" id="1"]
-[ext_resource type="Resource" path="res://resources/default_fighter.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/player/player_f35.tres" id="2"]
 [ext_resource type="Resource" path="res://resources/playable_f16_combat.tres" id="3"]
 [ext_resource type="Resource" path="res://resources/playable_f16_flare.tres" id="4"]
 
@@ -11,14 +11,7 @@ id = &"f35"
 display_name = "AIRCRAFT_F35_DISPLAY"
 codename = "Lightning"
 base_params = ExtResource("2")
-radar_range_mult = 0.92
-max_speed_mult = 1.1
-cruise_speed_mult = 1.08
-acceleration_mult = 1.15
 roll_rate_mult = 1.15
-lock_time_mult = 0.5
-max_g_bonus = 0.5
-missile_count_override = 3
 base_pilot_aim_skill = 0.6
 combat_override = ExtResource("3")
 flare_override = ExtResource("4")

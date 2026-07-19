@@ -1,7 +1,7 @@
 [gd_resource type="Resource" script_class="PlayableAircraft" load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/playable_aircraft.gd" id="1"]
-[ext_resource type="Resource" path="res://resources/playable_f14_base.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/player/player_x21.tres" id="2"]
 
 [resource]
 script = ExtResource("1")
@@ -9,7 +9,3 @@ id = &"x21"
 display_name = "AIRCRAFT_X21_DISPLAY"
 codename = "Longreach"
 base_params = ExtResource("2")
-max_speed_mult = 1.45
-cruise_speed_mult = 1.35
-radar_range_mult = 1.5
-lock_time_mult = 0.7

@@ -6,6 +6,8 @@ extends RefCounted
 ## 将来 UgcLoader 只需调 register() 注入 user:// 内容，进化/生成代码零改动。
 
 ## id → 档案资源路径（官方内容内置表；UGC 运行时经 register() 追加）
+## 41 机全谱（spec player-aircraft-power-curve §2 v7）：老 13 机保留原路径（base_params 已重指向
+## resources/player/），新 28 机 profile 与 params 同住 resources/player/
 static var _paths: Dictionary = {
 	&"f15": "res://resources/playable_f15.tres",
 	&"f16": "res://resources/playable_f16.tres",
@@ -21,6 +23,35 @@ static var _paths: Dictionary = {
 	&"x13": "res://resources/evolution/playable_x13.tres",
 	&"x21": "res://resources/evolution/playable_x21.tres",
 	&"x44": "res://resources/evolution/playable_x44.tres",
+	# 41 机扩谱（resources/player/，2026-07-19）
+	&"a6e": "res://resources/player/playable_a6e.tres",
+	&"mirage3": "res://resources/player/playable_mirage3.tres",
+	&"mirage2000": "res://resources/player/playable_mirage2000.tres",
+	&"f15c": "res://resources/player/playable_f15c.tres",
+	&"f15e": "res://resources/player/playable_f15e.tres",
+	&"fa18e": "res://resources/player/playable_fa18e.tres",
+	&"gripen_c": "res://resources/player/playable_gripen_c.tres",
+	&"su27": "res://resources/player/playable_su27.tres",
+	&"rafale": "res://resources/player/playable_rafale.tres",
+	&"tornado": "res://resources/player/playable_tornado.tres",
+	&"typhoon": "res://resources/player/playable_typhoon.tres",
+	&"viggen": "res://resources/player/playable_viggen.tres",
+	&"harrier": "res://resources/player/playable_harrier.tres",
+	&"f15smtd": "res://resources/player/playable_f15smtd.tres",
+	&"su35": "res://resources/player/playable_su35.tres",
+	&"gripen_e": "res://resources/player/playable_gripen_e.tres",
+	&"su57": "res://resources/player/playable_su57.tres",
+	&"j20": "res://resources/player/playable_j20.tres",
+	&"a12": "res://resources/player/playable_a12.tres",
+	&"yf23": "res://resources/player/playable_yf23.tres",
+	&"f47": "res://resources/player/playable_f47.tres",
+	&"mig41": "res://resources/player/playable_mig41.tres",
+	&"fcas": "res://resources/player/playable_fcas.tres",
+	&"gcap": "res://resources/player/playable_gcap.tres",
+	&"j36": "res://resources/player/playable_j36.tres",
+	&"x77": "res://resources/player/playable_x77.tres",
+	&"x90": "res://resources/player/playable_x90.tres",
+	&"ax00": "res://resources/player/playable_ax00.tres",
 }
 
 static var _cache: Dictionary = {}

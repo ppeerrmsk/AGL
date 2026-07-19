@@ -1,7 +1,7 @@
 [gd_resource type="Resource" script_class="PlayableAircraft" load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://scripts/playable_aircraft.gd" id="1"]
-[ext_resource type="Resource" path="res://resources/playable_f14_base.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/player/player_f14.tres" id="2"]
 [ext_resource type="Resource" path="res://resources/playable_f14_combat.tres" id="3"]
 [ext_resource type="Resource" path="res://resources/playable_f14_wingman.tres" id="4"]
 
@@ -14,14 +14,7 @@ card_tags = PackedStringArray("TAG_SQUAD_LEADER", "TAG_HEAVY_INTERCEPT")
 card_desc = "AIRCRAFT_F14_CARDDESC"
 base_params = ExtResource("2")
 combat_override = ExtResource("3")
-radar_range_mult = 0.333333
-max_speed_mult = 1.0
-cruise_speed_mult = 1.0
-acceleration_mult = 1.0
 roll_rate_mult = 1.0
-lock_time_mult = 1.0
-max_g_bonus = 0.0
-missile_count_override = 2
 gun_damage_mult = 1.0
 gun_range_override = 800.0
 gun_cone_override = 0.0

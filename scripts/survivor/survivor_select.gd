@@ -20,21 +20,23 @@ var _selected_index: int = -1
 # 加新主角的工作流程见 docs/reference/playable-aircraft-workflow.md
 const PLAYABLE_LIST: Array[Dictionary] = [
 	{
-		# F-15 起手（综合基底，spec aircraft-evolution §2.6：取代 F-16 成为初始起手机；
-		# F-16 降为进化树 T2 电战形态，经进化获得）
+		# F-15 起手（制空/综合，路线最多；spec player-aircraft-power-curve §2 T1）
 		"resource": "res://resources/playable_f15.tres",
 		"locked": false,
 	},
 	{
+		# F-14 起手（远程/团队，开局送 3 僚机；全谱最弱锚点）
 		"resource": "res://resources/playable_f14.tres",
 		"locked": false,
 	},
 	{
-		"resource": "res://resources/playable_x02.tres",
+		# A-6E 起手（攻击/肉，轻火箭；矩阵 v7 新建，取代旧 A-10 起手位——A-10 降为 T2 进化获得）
+		"resource": "res://resources/player/playable_a6e.tres",
 		"locked": false,
 	},
 	{
-		"resource": "res://resources/playable_a10.tres",
+		# 幻影 III 起手（电战线之根，补齐四角色四选一；X-02 移入 T5 树内 LV22 进化获得）
+		"resource": "res://resources/player/playable_mirage3.tres",
 		"locked": false,
 	},
 ]

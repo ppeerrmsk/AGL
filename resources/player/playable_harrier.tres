@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="PlayableAircraft" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/playable_aircraft.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/player/player_harrier.tres" id="2"]
+
+[resource]
+script = ExtResource("1")
+id = &"harrier"
+display_name = "AIRCRAFT_HARRIER_DISPLAY"
+codename = "Harrier"
+base_params = ExtResource("2")
+base_pilot_aim_skill = 0.6
+flares_guaranteed = true
+enable_missile_reload = true
+enable_flare_reload = true
+enable_gun_reload = true
+infinite_fuel = true
+missile_damage_cap = 30.0
+bullet_damage_cap = 5.0
+bullet_dodge_chance = 0.10
+wingman_count = 0

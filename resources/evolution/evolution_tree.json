@@ -1,17 +1,23 @@
 {
   "schema_version": 1,
-  "_comment": "进化树切片版（spec aircraft-evolution-tree / ace-system；docs/planning/evolution-vertical-slice.md）。护栏1：树=数据文件，代码只读表。category 环：air-ew-attack-range（§3.5 相邻环）；tier 门槛 2026-07-06 用户定稿：2 阶需 10 级（原切片值 4/8 调低仅为验证），3 阶 18 暂定随 playtest 调。",
+  "_comment": "41 机全谱树 v2（spec aircraft-evolution-tree §4 v2 / player-aircraft-power-curve §2 v7）。min_level 逐机（§1.8）；gates=evolution-attribute-gates §2.3/§2.4 设计值（any=或门/sum_gk=斗骑合计/sum_all=三轴合计）；T5 终端档（x02→ax00 / x44→x90 特殊边除外）。生成器：scratchpad gen_roster_stage2.py",
   "tier_min_level": {
     "1": 1,
-    "2": 10,
-    "3": 18
+    "2": 4,
+    "3": 10,
+    "4": 16,
+    "5": 21
   },
   "categories": {
     "air": "EVOLUTION_CAT_AIR",
     "ew": "EVOLUTION_CAT_EW",
     "range": "EVOLUTION_CAT_RANGE",
     "attack": "EVOLUTION_CAT_ATTACK",
-    "omni": "EVOLUTION_CAT_OMNI"
+    "omni": "EVOLUTION_CAT_OMNI",
+    "bridge": "EVOLUTION_CAT_BRIDGE",
+    "stealth": "EVOLUTION_CAT_STEALTH",
+    "carrier": "EVOLUTION_CAT_CARRIER",
+    "legend": "EVOLUTION_CAT_LEGEND"
   },
   "nodes": [
     {
@@ -20,10 +26,12 @@
       "category": "air",
       "profile": "f15",
       "name_key": "AIRCRAFT_F15_DISPLAY",
+      "min_level": 1,
       "exits": [
-        "f22",
+        "f15c",
+        "f15e",
+        "mirage2000",
         "f16",
-        "f35",
         "mig31"
       ]
     },
@@ -33,35 +41,388 @@
       "category": "range",
       "profile": "f14",
       "name_key": "AIRCRAFT_F14_DISPLAY",
+      "min_level": 1,
       "exits": [
         "mig31",
+        "fa18e",
         "su34",
-        "f22"
+        "su27"
       ]
     },
     {
-      "id": "a10",
+      "id": "a6e",
       "tier": 1,
       "category": "attack",
-      "profile": "a10",
-      "name_key": "AIRCRAFT_A10_DISPLAY",
+      "profile": "a6e",
+      "name_key": "AIRCRAFT_A6E_DISPLAY",
+      "min_level": 1,
       "exits": [
-        "su34",
-        "f16",
-        "f35",
+        "a10",
+        "tornado",
+        "viggen",
+        "harrier",
         "mig31"
       ]
     },
     {
-      "id": "f22",
+      "id": "mirage3",
+      "tier": 1,
+      "category": "ew",
+      "profile": "mirage3",
+      "name_key": "AIRCRAFT_MIRAGE3_DISPLAY",
+      "min_level": 1,
+      "exits": [
+        "f16",
+        "gripen_c",
+        "rafale",
+        "mirage2000",
+        "typhoon"
+      ]
+    },
+    {
+      "id": "mirage2000",
       "tier": 2,
+      "category": "air",
+      "profile": "mirage2000",
+      "name_key": "AIRCRAFT_MIRAGE2000_DISPLAY",
+      "min_level": 4,
+      "exits": [
+        "f22",
+        "f35",
+        "j20"
+      ],
+      "gates": {
+        "sum_gk": 1
+      }
+    },
+    {
+      "id": "f15c",
+      "tier": 2,
+      "category": "air",
+      "profile": "f15c",
+      "name_key": "AIRCRAFT_F15C_DISPLAY",
+      "min_level": 5,
+      "exits": [
+        "f15smtd",
+        "f22",
+        "f35",
+        "j20"
+      ],
+      "gates": {
+        "sum_gk": 1
+      }
+    },
+    {
+      "id": "f15e",
+      "tier": 2,
+      "category": "attack",
+      "profile": "f15e",
+      "name_key": "AIRCRAFT_F15E_DISPLAY",
+      "min_level": 5,
+      "exits": [
+        "a12",
+        "f15smtd",
+        "f35"
+      ],
+      "gates": {
+        "gladiator": 1
+      }
+    },
+    {
+      "id": "fa18e",
+      "tier": 2,
+      "category": "bridge",
+      "profile": "fa18e",
+      "name_key": "AIRCRAFT_FA18E_DISPLAY",
+      "min_level": 6,
+      "exits": [
+        "a12",
+        "f22",
+        "f35"
+      ],
+      "gates": {
+        "any": {
+          "gladiator": 1,
+          "knight": 1
+        }
+      }
+    },
+    {
+      "id": "f16",
+      "tier": 2,
+      "category": "ew",
+      "profile": "f16",
+      "name_key": "AIRCRAFT_F16_DISPLAY",
+      "min_level": 6,
+      "exits": [
+        "f35",
+        "gripen_e",
+        "f22",
+        "a12"
+      ],
+      "gates": {
+        "schemer": 1
+      }
+    },
+    {
+      "id": "gripen_c",
+      "tier": 2,
+      "category": "ew",
+      "profile": "gripen_c",
+      "name_key": "AIRCRAFT_GRIPEN_C_DISPLAY",
+      "min_level": 6,
+      "exits": [
+        "gripen_e",
+        "f35",
+        "a12"
+      ],
+      "gates": {
+        "schemer": 1
+      }
+    },
+    {
+      "id": "su27",
+      "tier": 2,
+      "category": "air",
+      "profile": "su27",
+      "name_key": "AIRCRAFT_SU27_DISPLAY",
+      "min_level": 6,
+      "exits": [
+        "su35",
+        "f35",
+        "j20"
+      ],
+      "gates": {
+        "sum_gk": 1
+      }
+    },
+    {
+      "id": "a10",
+      "tier": 2,
+      "category": "attack",
+      "profile": "a10",
+      "name_key": "AIRCRAFT_A10_DISPLAY",
+      "min_level": 6,
+      "exits": [
+        "a12",
+        "gripen_e",
+        "j20"
+      ],
+      "gates": {
+        "gladiator": 1
+      }
+    },
+    {
+      "id": "rafale",
+      "tier": 2,
+      "category": "ew",
+      "profile": "rafale",
+      "name_key": "AIRCRAFT_RAFALE_DISPLAY",
+      "min_level": 7,
+      "exits": [
+        "f35",
+        "gripen_e",
+        "su57",
+        "j20"
+      ],
+      "gates": {
+        "schemer": 1
+      }
+    },
+    {
+      "id": "tornado",
+      "tier": 2,
+      "category": "attack",
+      "profile": "tornado",
+      "name_key": "AIRCRAFT_TORNADO_DISPLAY",
+      "min_level": 7,
+      "exits": [
+        "a12",
+        "gripen_e",
+        "j20"
+      ],
+      "gates": {
+        "gladiator": 1
+      }
+    },
+    {
+      "id": "typhoon",
+      "tier": 2,
+      "category": "air",
+      "profile": "typhoon",
+      "name_key": "AIRCRAFT_TYPHOON_DISPLAY",
+      "min_level": 8,
+      "exits": [
+        "f22",
+        "su57",
+        "f35"
+      ],
+      "gates": {
+        "sum_gk": 1
+      }
+    },
+    {
+      "id": "su34",
+      "tier": 2,
+      "category": "attack",
+      "profile": "su34",
+      "name_key": "AIRCRAFT_SU34_DISPLAY",
+      "min_level": 8,
+      "exits": [
+        "a12",
+        "su57",
+        "j20"
+      ],
+      "gates": {
+        "gladiator": 1
+      }
+    },
+    {
+      "id": "viggen",
+      "tier": 2,
+      "category": "attack",
+      "profile": "viggen",
+      "name_key": "AIRCRAFT_VIGGEN_DISPLAY",
+      "min_level": 8,
+      "exits": [
+        "a12",
+        "gripen_e",
+        "j20"
+      ],
+      "gates": {
+        "gladiator": 1
+      }
+    },
+    {
+      "id": "mig31",
+      "tier": 2,
+      "category": "range",
+      "profile": "mig31",
+      "name_key": "AIRCRAFT_MIG31_DISPLAY",
+      "min_level": 9,
+      "exits": [
+        "j20",
+        "su57",
+        "a12"
+      ],
+      "gates": {
+        "knight": 1
+      }
+    },
+    {
+      "id": "harrier",
+      "tier": 2,
+      "category": "attack",
+      "profile": "harrier",
+      "name_key": "AIRCRAFT_HARRIER_DISPLAY",
+      "min_level": 9,
+      "exits": [
+        "a12",
+        "f35",
+        "j20"
+      ],
+      "gates": {
+        "gladiator": 1
+      }
+    },
+    {
+      "id": "f15smtd",
+      "tier": 3,
+      "category": "air",
+      "profile": "f15smtd",
+      "name_key": "AIRCRAFT_F15SMTD_DISPLAY",
+      "min_level": 10,
+      "exits": [
+        "f47",
+        "yf23",
+        "fcas"
+      ],
+      "gates": {
+        "gladiator": 1,
+        "knight": 1,
+        "sum_gk": 3
+      }
+    },
+    {
+      "id": "su35",
+      "tier": 3,
+      "category": "air",
+      "profile": "su35",
+      "name_key": "AIRCRAFT_SU35_DISPLAY",
+      "min_level": 11,
+      "exits": [
+        "f47",
+        "mig41",
+        "fcas"
+      ],
+      "gates": {
+        "gladiator": 1,
+        "knight": 1,
+        "sum_gk": 3
+      }
+    },
+    {
+      "id": "f35",
+      "tier": 3,
+      "category": "ew",
+      "profile": "f35",
+      "name_key": "AIRCRAFT_F35_DISPLAY",
+      "min_level": 12,
+      "exits": [
+        "fcas",
+        "yf23",
+        "f47"
+      ],
+      "gates": {
+        "schemer": 2
+      }
+    },
+    {
+      "id": "gripen_e",
+      "tier": 3,
+      "category": "ew",
+      "profile": "gripen_e",
+      "name_key": "AIRCRAFT_GRIPEN_E_DISPLAY",
+      "min_level": 12,
+      "exits": [
+        "fcas",
+        "yf23",
+        "f47"
+      ],
+      "gates": {
+        "schemer": 2
+      }
+    },
+    {
+      "id": "f22",
+      "tier": 3,
       "category": "air",
       "profile": "f22",
       "name_key": "AIRCRAFT_F22_DISPLAY",
+      "min_level": 13,
       "exits": [
-        "x09",
-        "x13",
-        "x21",
+        "f47",
+        "yf23",
+        "mig41",
+        "fcas"
+      ],
+      "gates": {
+        "gladiator": 1,
+        "knight": 1,
+        "sum_gk": 3
+      }
+    },
+    {
+      "id": "su57",
+      "tier": 3,
+      "category": "air",
+      "profile": "su57",
+      "name_key": "AIRCRAFT_SU57_DISPLAY",
+      "min_level": 13,
+      "exits": [
+        "f47",
+        "mig41",
+        "gcap",
         "x02"
       ],
       "gates": {
@@ -71,46 +432,17 @@
       }
     },
     {
-      "id": "f16",
-      "tier": 2,
-      "category": "ew",
-      "profile": "f16",
-      "name_key": "AIRCRAFT_F16_DISPLAY",
-      "exits": [
-        "x13",
-        "x09",
-        "x44",
-        "x02"
-      ],
-      "gates": {
-        "schemer": 2
-      }
-    },
-    {
-      "id": "f35",
-      "tier": 2,
-      "category": "ew",
-      "profile": "f35",
-      "name_key": "AIRCRAFT_F35_DISPLAY",
-      "exits": [
-        "x13",
-        "x09",
-        "x02"
-      ],
-      "gates": {
-        "schemer": 2
-      }
-    },
-    {
-      "id": "mig31",
-      "tier": 2,
+      "id": "j20",
+      "tier": 3,
       "category": "range",
-      "profile": "mig31",
-      "name_key": "AIRCRAFT_MIG31_DISPLAY",
+      "profile": "j20",
+      "name_key": "AIRCRAFT_J20_DISPLAY",
+      "min_level": 14,
       "exits": [
-        "x21",
-        "x44",
-        "x09",
+        "j36",
+        "mig41",
+        "gcap",
+        "yf23",
         "x02"
       ],
       "gates": {
@@ -118,15 +450,16 @@
       }
     },
     {
-      "id": "su34",
-      "tier": 2,
+      "id": "a12",
+      "tier": 3,
       "category": "attack",
-      "profile": "su34",
-      "name_key": "AIRCRAFT_SU34_DISPLAY",
+      "profile": "a12",
+      "name_key": "AIRCRAFT_A12_DISPLAY",
+      "min_level": 14,
       "exits": [
         "x44",
-        "x13",
-        "x21",
+        "j36",
+        "fcas",
         "x02"
       ],
       "gates": {
@@ -134,11 +467,112 @@
       }
     },
     {
+      "id": "yf23",
+      "tier": 4,
+      "category": "air",
+      "profile": "yf23",
+      "name_key": "AIRCRAFT_YF23_DISPLAY",
+      "min_level": 16,
+      "exits": [
+        "x77",
+        "x09",
+        "ax00"
+      ],
+      "gates": {
+        "gladiator": 1,
+        "knight": 1,
+        "sum_gk": 5
+      }
+    },
+    {
+      "id": "f47",
+      "tier": 4,
+      "category": "air",
+      "profile": "f47",
+      "name_key": "AIRCRAFT_F47_DISPLAY",
+      "min_level": 17,
+      "exits": [
+        "x09",
+        "x13",
+        "ax00"
+      ],
+      "gates": {
+        "gladiator": 1,
+        "knight": 1,
+        "sum_gk": 5
+      }
+    },
+    {
+      "id": "mig41",
+      "tier": 4,
+      "category": "range",
+      "profile": "mig41",
+      "name_key": "AIRCRAFT_MIG41_DISPLAY",
+      "min_level": 18,
+      "exits": [
+        "x21",
+        "x09",
+        "ax00"
+      ],
+      "gates": {
+        "knight": 4
+      }
+    },
+    {
+      "id": "fcas",
+      "tier": 4,
+      "category": "ew",
+      "profile": "fcas",
+      "name_key": "AIRCRAFT_FCAS_DISPLAY",
+      "min_level": 19,
+      "exits": [
+        "x13",
+        "x77",
+        "ax00"
+      ],
+      "gates": {
+        "schemer": 4
+      }
+    },
+    {
+      "id": "gcap",
+      "tier": 4,
+      "category": "range",
+      "profile": "gcap",
+      "name_key": "AIRCRAFT_GCAP_DISPLAY",
+      "min_level": 19,
+      "exits": [
+        "x21",
+        "x90",
+        "ax00"
+      ],
+      "gates": {
+        "knight": 4
+      }
+    },
+    {
+      "id": "j36",
+      "tier": 4,
+      "category": "range",
+      "profile": "j36",
+      "name_key": "AIRCRAFT_J36_DISPLAY",
+      "min_level": 20,
+      "exits": [
+        "x21",
+        "x13",
+        "ax00"
+      ],
+      "gates": {
+        "knight": 4
+      }
+    },
+    {
       "id": "x09",
-      "tier": 3,
+      "tier": 5,
       "category": "air",
       "profile": "x09",
       "name_key": "AIRCRAFT_X09_DISPLAY",
+      "min_level": 21,
       "exits": [],
       "gates": {
         "gladiator": 2,
@@ -148,21 +582,39 @@
     },
     {
       "id": "x13",
-      "tier": 3,
+      "tier": 5,
       "category": "ew",
       "profile": "x13",
       "name_key": "AIRCRAFT_X13_DISPLAY",
+      "min_level": 21,
       "exits": [],
       "gates": {
         "schemer": 5
       }
     },
     {
+      "id": "x02",
+      "tier": 5,
+      "category": "omni",
+      "profile": "x02",
+      "name_key": "AIRCRAFT_X02_DISPLAY",
+      "min_level": 22,
+      "exits": [
+        "ax00"
+      ],
+      "gates": {
+        "gladiator": 2,
+        "knight": 2,
+        "schemer": 2
+      }
+    },
+    {
       "id": "x21",
-      "tier": 3,
+      "tier": 5,
       "category": "range",
       "profile": "x21",
       "name_key": "AIRCRAFT_X21_DISPLAY",
+      "min_level": 22,
       "exits": [],
       "gates": {
         "knight": 5
@@ -170,26 +622,57 @@
     },
     {
       "id": "x44",
-      "tier": 3,
+      "tier": 5,
       "category": "attack",
       "profile": "x44",
       "name_key": "AIRCRAFT_X44_DISPLAY",
-      "exits": [],
+      "min_level": 23,
+      "exits": [
+        "x90"
+      ],
       "gates": {
         "gladiator": 5
       }
     },
     {
-      "id": "x02",
-      "tier": 3,
-      "category": "omni",
-      "profile": "x02",
-      "name_key": "AIRCRAFT_X02_DISPLAY",
+      "id": "x77",
+      "tier": 5,
+      "category": "stealth",
+      "profile": "x77",
+      "name_key": "AIRCRAFT_X77_DISPLAY",
+      "min_level": 24,
+      "exits": [],
+      "gates": {
+        "knight": 4,
+        "schemer": 2
+      }
+    },
+    {
+      "id": "x90",
+      "tier": 5,
+      "category": "carrier",
+      "profile": "x90",
+      "name_key": "AIRCRAFT_X90_DISPLAY",
+      "min_level": 25,
+      "exits": [],
+      "gates": {
+        "gladiator": 3,
+        "knight": 3
+      }
+    },
+    {
+      "id": "ax00",
+      "tier": 5,
+      "category": "legend",
+      "profile": "ax00",
+      "name_key": "AIRCRAFT_AX00_DISPLAY",
+      "min_level": 26,
       "exits": [],
       "gates": {
         "gladiator": 2,
         "knight": 2,
-        "schemer": 2
+        "schemer": 2,
+        "sum_all": 7
       }
     }
   ]

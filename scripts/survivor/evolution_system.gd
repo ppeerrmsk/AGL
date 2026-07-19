@@ -78,19 +78,43 @@ static func gates_of(nd: Dictionary) -> Dictionary:
 static func gates_passed(nd: Dictionary, axis_points: Dictionary) -> bool:
 	return gates_missing(nd, axis_points).is_empty()
 
-## 缺口列表 [{key, have, need}]（key = 轴名或 "sum_gk"），空 = 全过。UI 缺口徽记数据源。
+## 缺口列表 [{key, have, need}]，空 = 全过。UI 缺口徽记数据源。
+## key 语义：轴名（≥）/ "sum_gk"（斗+骑合计）/ "sum_all"（三轴合计）/ "any"（值为 {轴:门槛}，任一满足即过）。
 static func gates_missing(nd: Dictionary, axis_points: Dictionary) -> Array:
 	var out: Array = []
 	var g := gates_of(nd)
 	for k in g:
+		var ks := String(k)
+		if ks == "any":
+			var alt: Dictionary = g[k]
+			var any_ok := false
+			var best_key := ""
+			var best_have := 0
+			var best_need := 0
+			for ak in alt:
+				var need_a: int = int(alt[ak])
+				var have_a: int = int(axis_points.get(StringName(String(ak)), 0))
+				if have_a >= need_a:
+					any_ok = true
+					break
+				if best_key == "" or need_a - have_a < best_need - best_have:
+					best_key = String(ak)
+					best_have = have_a
+					best_need = need_a
+			if not any_ok:
+				out.append({"key": best_key, "have": best_have, "need": best_need})
+			continue
 		var need: int = int(g[k])
 		var have: int
-		if String(k) == "sum_gk":
+		if ks == "sum_gk":
 			have = int(axis_points.get(&"gladiator", 0)) + int(axis_points.get(&"knight", 0))
+		elif ks == "sum_all":
+			have = int(axis_points.get(&"gladiator", 0)) + int(axis_points.get(&"knight", 0)) \
+				+ int(axis_points.get(&"schemer", 0))
 		else:
-			have = int(axis_points.get(StringName(String(k)), 0))
+			have = int(axis_points.get(StringName(ks), 0))
 		if have < need:
-			out.append({"key": String(k), "have": have, "need": need})
+			out.append({"key": ks, "have": have, "need": need})
 	return out
 
 static func category_key_of(nd: Dictionary) -> String:

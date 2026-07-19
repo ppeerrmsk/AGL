@@ -1,7 +1,7 @@
 [gd_resource type="Resource" script_class="PlayableAircraft" load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://scripts/playable_aircraft.gd" id="1"]
-[ext_resource type="Resource" path="res://resources/default_fighter.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/player/player_f15.tres" id="2"]
 [ext_resource type="Resource" path="res://resources/playable_f16_combat.tres" id="3"]
 [ext_resource type="Resource" path="res://resources/playable_f16_flare.tres" id="4"]
 
@@ -13,14 +13,7 @@ codename = "Eagle"
 card_tags = PackedStringArray("TAG_HEAT_FLARE", "TAG_BALANCED_MANEUVER", "TAG_SARH_MISSILE")
 card_desc = "AIRCRAFT_F15_CARDDESC"
 base_params = ExtResource("2")
-radar_range_mult = 0.3333333
-max_speed_mult = 1.05
-cruise_speed_mult = 1.05
-acceleration_mult = 1.1
 roll_rate_mult = 1.2
-lock_time_mult = 0.7
-max_g_bonus = 1.0
-missile_count_override = 2
 gun_damage_mult = 1.25
 gun_range_override = 800.0
 gun_cone_override = 8.0

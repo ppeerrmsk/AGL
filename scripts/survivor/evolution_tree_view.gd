@@ -192,6 +192,8 @@ func _gate_gap_text(nid: StringName) -> String:
 	var label: String
 	if String(m["key"]) == "sum_gk":
 		label = "%s+%s" % [tr("ATTR_GLADIATOR"), tr("ATTR_KNIGHT")]
+	elif String(m["key"]) == "sum_all":
+		label = tr("ATTR_SUM_ALL")
 	else:
 		label = tr(str(SurvivorData.AXIS_I18N_KEY.get(StringName(String(m["key"])), "")))
 	var extra: String = ("+%d" % (missing.size() - 1)) if missing.size() > 1 else ""

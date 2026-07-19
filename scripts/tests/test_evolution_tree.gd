@@ -30,7 +30,8 @@ func _initialize() -> void:
 		for eid in exits:
 			if not nodes.has(StringName(eid)):
 				fails.append("%s: 悬空出口 '%s'" % [nid, eid])
-		if not exits.is_empty() and exits.size() < 3:
+		# T5 终端档豁免 ≥3（x02→ax00 / x44→x90 单出口特殊边，tree spec §4 v2）
+		if not exits.is_empty() and exits.size() < 3 and int(nd.get("tier", 1)) < 5:
 			fails.append("%s: 出口仅 %d 个（ACE 三选铁律要求 ≥3）" % [nid, exits.size()])
 	# ⑤ name_key 粗验（翻译 CSV 里有这一行）
 	var csv := FileAccess.open("res://i18n/translations.csv", FileAccess.READ)

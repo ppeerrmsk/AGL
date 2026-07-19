@@ -1,7 +1,7 @@
 [gd_resource type="Resource" script_class="PlayableAircraft" load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/playable_aircraft.gd" id="1"]
-[ext_resource type="Resource" path="res://resources/playable_a10_base.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/player/player_x44.tres" id="2"]
 
 [resource]
 script = ExtResource("1")
@@ -10,6 +10,3 @@ display_name = "AIRCRAFT_X44_DISPLAY"
 codename = "Anvil"
 base_params = ExtResource("2")
 gun_damage_mult = 1.5
-max_speed_mult = 1.25
-acceleration_mult = 1.2
-max_g_bonus = 1.5
