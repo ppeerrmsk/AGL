@@ -216,58 +216,68 @@ reconstruction_complete: false
 | 不跨局 | 升级/强化**绝不**写入 `user://`（MeritLedger 局外货币是另一套，不在此 spec） |
 | 重开 | 新一局从头 roll/养 |
 
-### 2.8 生效范围二分：全队 vs 王牌（2026-07-20 用户令，**权威版**——取代 §2.2 的 GLOBAL/PER_TYPE 生效范围语义；affinity 归类仍用于卡片三轴映射）
+### 2.8 生效范围（2026-07-20 用户定调 v2，**权威版**——取代 §2.2 的 GLOBAL/PER_TYPE 生效范围语义；affinity 归类仍用于卡片三轴映射）
 
-> 背景（用户实测）：现状全部技能只写当前操控机 params → 长机吃了速度/机动强化后**僚机物理追不上、掉队**
-> （编队跟随速度被各自 max_speed_at_altitude 钳制）。二分原则：
+> **基本原则（用户）：默认大多数技能全队生效**——长机独强会导致僚机物理掉队
+> （编队跟随速度被各自 max_speed_at_altitude 钳制，用户实测吻合）。
+> 本节 = **危险叠加排查**：哪些技能"每架都有 + 效果重叠"会把数值弄坏 → 单独处理。
 
-| 原则 | 归属 |
-|---|---|
-| **物理机动性能**（速度/加速/G/roll/失速）——决定"编队能否一起飞"，长机独享必掉队 | **全队** |
-| **基础生存底盘**（HP/装甲/闪避/热诱弹量/受击缓冲）——僚机太脆则编队无意义 | **全队** |
-| **全局经济**（XP）——本来就无实体 | **全队** |
-| **武器输出强化**（机炮/导弹数值）——×4 火力膨胀太猛，火力预算集中王牌 | **王牌** |
-| **触发型个人技**（bloodlust/回血/无敌/恐惧触发 skill_*）——表演型，跟操作走 | **王牌** |
-| **规避/操作型**（cobra/herbst/evasion_*/vapor/ecm）——只有玩家机在按 E | **王牌** |
-| **特殊武器强化**（railgun/laser/torpedo/rocket）——随局内武器库跟玩家 | **王牌** |
-| **光环类**（jam/slow/fear 光环）——挂王牌身上，全队在圈内自然受益 | **王牌** |
+#### A. 危险叠加名单（×N 后 degenerate，**不入全队默认**）
 
-#### 全队生效（9 条）
-
-| 技能 | 效果 | 理由 |
+| 技能 | 全员持有会发生什么 | 处置 |
 |---|---|---|
-| speed_up | 极速 +30% / 加速 +20% | ★掉队痛点本尊 |
-| maneuver_up | roll +45% / G +2.5 | 转弯跟不上同样掉队 |
-| dogfight ×3 | 狗斗/失速强化 | 机动一致性 |
-| hp_up | +80 HP | 生存底盘 |
-| armor_up | +120 装甲 | 生存底盘 |
-| bullet_dodge ×2 | 机炮闪避 +20%/层 | 生存底盘 |
-| flare_shield | 热诱弹 +3 | 僚机护卫 flare 机制共用弹量 |
-| shock_absorb | 受击缓冲 | 生存底盘（被动无操作性） |
-| xp_mult ×2 | XP +20%/层 | 全局经济 |
+| **jam_aura**（2.6km JAM 圈） | 4~9 个光环叠盖 ≈ 全场永久 JAM，敌雷达/导弹系统性瘫痪 | **王牌专属**（光环挂王牌，全队圈内受益） |
+| **rear_aura_slow**（2.4km 后半球 SLOW） | 多机朝向各异 → 后半球拼成全向圈，全场常驻减速 | **王牌专属**（同上） |
+| **gun_ciws**（自动近防拦弹） | 4~9 门自动 CIWS → 敌导弹全灭，导弹威胁归零 | **王牌专属**（旗舰防御性格） |
+| **skill_missile_hit_invul**（被弹→INVUL） | AI 僚机被弹频率高 → 全队轮流无敌，敌 DPS 结构性归零 | **王牌专属** |
+| **skill_lowest_alt_kill_invul** | 低空队全员轮流无敌，同上 | **王牌专属** |
+| **missile_swarm**（+4 弹多锁齐射） | ×N = 30+ 弹饱和 alpha：BOSS 相位秒融 + 超杀记账崩 + 弹幕性能 | **王牌专属**（王牌大招定位） |
+| **executioner**（击杀 streak 提速） | 逐机独立 streak → 编队速度持续发散（掉队问题换皮回归） | **王牌专属** |
+| **AoE 控场触发 ×5**：skill_gun_kill_fear / head_on_aoe_fear / flare_aoe_jam / missile_hit_aoe_jam / torpedo_aoe_jam | 触发源 ×N → FEAR/JAM uptime 逼近 100%，敌 AI 永久瘫痪（数值意义上最坏的一档） | **王牌专属**（控场权集中在玩家操作） |
+| **skill_gun_kill_flare_drop** | 全队机炮击杀掉 flare ×N → flare 经济无限 | **王牌专属** |
+| **fear_squad_spread / fear_chills** | 效果**本来就是队级**（全小队成为恐惧源/修饰）——全员持有=重复实例 | **全队·队级单实例**（选一次=全队激活，重复选无效=max_stacks 已保证） |
+| **xp_mult** | XP 是全局池：若逐机相乘 = +20%→+80% 通胀 | **全队·队级单实例**（stacks 记队级，不逐机相乘） |
 
-#### 王牌生效（其余全部，48 条）
+#### B. 空转名单（全员持有**不坏但没用**——挂玩家 evasion_mode/E 键，僚机没有 E）
 
-| 类 | 技能 |
+evasion_overstock / evasion_stealth / evasion_herbst / evasion_speed_boost / evasion_weapon_cd / cobra_skill / vapor_dodge
+→ **暂标王牌专属**；待"AI 规避语义接线"（evasion_mode ↔ AI `_evading` 等价映射）后可转全队，届时 herbst/眼镜蛇 AI 版复用既有模块。⏳ 接线是否值得做，随 playtest 定。
+
+#### C. 武器门控自限（**放心全队**——只有装备该武器的机受益，天然限幅）
+
+railgun_charge/range/damage · laser_cooldown/range/heat/extra_beams · skill_laser_damage · rocket_firerate_range · torpedo_tracking_boost
+→ 全队语义 + `requires_equipment_kind` 现成门控：僚机没有电磁炮/激光/火箭 = 自然无效；武器库武器跟王牌走，强化随资源引用迁移（inrun-weapon-inventory）。
+
+#### D. 观察名单（全队放行，bench/playtest 盯量级）
+
+| 技能 | 关注点 |
 |---|---|
-| 武器数值 | missile_count / missile_swarm / missile_boost / missile_bounce / proximity_fuze / gun_damage / gun_multishot / gun_accuracy / aim_assist / gun_ciws |
-| 特殊武器强化 | railgun_charge/range/damage · laser_cooldown/range/heat/extra_beams · rocket_firerate_range · torpedo_tracking_boost · skill_laser_damage |
-| 规避/操作 | cobra_skill / vapor_dodge / ecm_pod / low_alt_gun_dodge / executioner / evasion_overstock / evasion_stealth / evasion_herbst / evasion_speed_boost / evasion_weapon_cd |
-| 光环（挂王牌） | jam_aura / rear_aura_slow / fear_squad_spread / fear_chills |
-| 触发技 skill_* | kill_bloodlust / damaged_bloodlust / head_on_perma_hp / head_on_aoe_fear / missile_hit_invul / lowest_alt_kill_invul / gun_kill_fear / kill_status_heal / flare_aoe_jam / gun_kill_flare_drop / missile_hit_aoe_jam / torpedo_aoe_jam / kill_heal |
+| gun_multishot（+2 管/机） | 子弹生成量 ×3/机 ×N 机 ≈ 12× 基线 → BulletManager 压测（性能守则 6） |
+| proximity_fuze / missile_bounce | AoE/链爆 ×N 对蜂群的清场速度（数值强但线性，先放行） |
+| skill_head_on_perma_hp | AI 僚机 joust 对头频率高 → 永久 HP farm 速度 ×N（考虑加单局 cap） |
+| skill_kill_bloodlust / damaged_bloodlust | FRENZY 临时 G/速度 buff 逐机异步 → 交战中编队松散可接受，盯 rejoin 收敛 |
+
+#### E. 其余全部：**默认全队**（线性数值，×N = 预期的全队成长）
+
+hp_up · armor_up · bullet_dodge · speed_up · maneuver_up · dogfight · flare_shield · shock_absorb · kill_heal ·
+missile_count · missile_boost · gun_damage · gun_accuracy · aim_assist · ecm_pod · low_alt_gun_dodge ·
+skill_kill_status_heal ·（+后续新技能默认入此类，除非命中 A 类模式）
+
+> **A 类识别模式**（新技能自检）：①光环/AoE 控场 ×N 覆盖全场；②无敌/拦截类防御 uptime ×N 归零敌威胁；
+> ③逐机异步速度 buff 破编队；④全局池经济逐机相乘；⑤饱和 alpha 弹幕。命中任一 → 王牌专属或队级单实例。
 
 #### 附带裁定项（⏳ 用户点头后生效）
 
-1. **三轴里程碑加成建议同样全队**（HP+25/导弹+1/极速+2% 等纯属性，数值小；骑士 6 档极速 +2% 有同款掉队问题）。
-2. **王牌技能的跟随语义**：沿用 gates §2.7"记玩家层"——进化/切控重放到**当前操控机**（顺带根治现状"技能散落在选卡当时那架"的怪癖）；不采用"跟机身锁死"。
+1. **三轴里程碑加成同样全队**（纯属性小额，含速度/G——编队一致性同款理由）。
+2. **王牌专属技能的跟随语义**：记玩家层——切控/进化重放到当前操控机（根治"技能散落在选卡当时那架"怪癖）。
 
 #### 实装草图（用户 review 本表后执行）
 
-1. `SurvivorData.UPGRADES` 逐条加 `"scope": "squad" | "ace"`（9 条 squad，缺省 ace）。
-2. `apply_upgrade` 分流：squad → 遍历小队成员逐机应用（params 已各自 duplicate）；ace → 现状（玩家机）。
-3. 重放扩展：僚机进化/补员入队 → 重放全部 squad 层 stacks；王牌切控/进化 → 重放 ace 层到新操控机。
-4. 卡面标注：全队卡加"◈ 全队"角标（i18n），玩家选卡时知道买的是谁的强化。
-5. bench：squad 技能后全队 params 一致性断言 + 掉队回归（长机 speed_up 后编队 rejoin 仍收敛）。
+1. `SurvivorData.UPGRADES` 逐条加 `"scope"`：`"squad"`（默认，E/C/D 类）/ `"ace"`（A 类 13 条 + B 类暂 7 条）/ `"squad_once"`（队级单实例 3 条：fear_squad_spread/fear_chills/xp_mult）。
+2. `apply_upgrade` 分流：squad → 遍历小队成员逐机应用；squad_once → 只记队级 stacks 不逐机写；ace → 玩家机（现状）。
+3. 重放扩展：僚机进化/补员入队 → 重放全部 squad 层；王牌切控/进化 → ace 层重放到当前操控机。
+4. 卡面角标：`◈ 全队` / `◆ 王牌`（i18n 三语），选卡时归属可见。
+5. bench：squad 技能全队 params 一致性 + 长机 speed_up 后编队 rejoin 收敛 + gun_multishot ×9 机弹幕压测。
 
 ## 3. 行为与公式（How）
 
@@ -392,3 +402,4 @@ on 进化 cur: 机型 X → 机型 Y:                 # 实例不销毁，只换
 | 2026-06-28 | 2 | **整体重写**（用户定调绑机型）：①三归类字段 `ownership/affinity/flavor/inheritable`；②全 41 技能归类总表（GLOBAL 4 / GUN / EW / MISSILE / UNIVERSAL / HARDWARE）；③绑机型语义（同型共享、战损不丢 build、抽卡按机型武器系门控）；④僚机生产+编入+build 重放、编队上限 9、1-9 接管；⑤UI 机型标签+图标；⑥Session 内 Roguelike 不跨局。 |
 | 2026-06-28 | 2 | §2.6 定案（用户）：**武器/升级一律绑机型、不跨机型继承**。取消 `inheritable` 字段；HARDWARE（电磁炮/激光）改为"机型自带特色武器"非玩家携带物；§3.3 进化时换整套新机型武器、旧武器丢弃。取代 aircraft-evolution §2.5 旧"槽位继承"。 |
 | 2026-07-20 | 3 | **§2.8 生效范围二分（用户令，权威）**：现状查实=全部技能只写当前操控机（长机吃速度/机动强化 → 僚机被 max_speed 钳制物理掉队）。新二分：**全队 9 条**（speed_up/maneuver_up/dogfight 机动一致性 + hp/armor/dodge/flare_shield/shock_absorb 生存底盘 + xp_mult 经济）/ **王牌 48 条**（武器数值/特殊武器强化/规避操作/光环挂王牌/触发技）。附带裁定项待用户点头：①里程碑同样全队；②王牌技随玩家层（切控/进化重放到当前操控机，根治"技能散落在选卡当时那架"怪癖）。取代 §2.2 的 GLOBAL/PER_TYPE 生效范围语义（affinity 仍用于三轴卡片映射）；实装草图 5 条待 review 后执行。 |
+| 2026-07-20 | 4 | **§2.8 v2 方向反转（用户）："默认全队 + 排查危险叠加"**取代 v3 的 9/48 保守二分。A 危险叠加 13 条→王牌专属（光环×N 全场覆盖 jam_aura/rear_aura_slow、防御 uptime×N 归零威胁 gun_ciws/双 invul、AoE 控场触发×5+flare_drop 的 FEAR/JAM 永久 uptime、饱和 alpha missile_swarm、编队速度发散 executioner）+ 队级单实例 3 条（fear_squad_spread/chills 天然队级、xp_mult 不逐机相乘）；B 空转 7 条（evasion_*/cobra/vapor 挂玩家 E 键）暂王牌、待 AI 规避接线转全队；C 武器门控自限全队放行（railgun/laser/rocket/torpedo 强化）；D 观察名单 4 条（multishot 弹幕性能/perma_hp farm cap/bloodlust 编队松散）；E 其余默认全队。附 A 类识别模式 5 条（新技能自检）。scope 三值 squad/ace/squad_once。 |
