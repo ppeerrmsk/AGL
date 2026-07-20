@@ -241,33 +241,32 @@ reconstruction_complete: false
 | 隐身渗透（X-77） | 骑士+策士 |
 | omni（X-02）· 传说（AX-00） | 三系全通 |
 
-#### A. 品类限定表（强技/稀有技归系——全队下发、仅品类身份匹配的飞机生效）
+#### A. 品类限定表（**只收强技/稀有技**——全队下发、仅品类身份匹配的飞机生效）
 
-> 原"危险叠加"由品类数量天然限幅：混编队同系 1~2 架 = 安全；满编单系队 = 刻意 build 收益。
-> 用户三例定调：CIWS→攻击机 · 光环→骑士 · 电战技→电战机；其余为同逻辑扩展（可挪）。
+> **收窄原则（v5 用户）**：不是所有技能都归品类——玩家得**先加点进化**才能拿到品类机，
+> 锁太多 = 前期卡池荒。品类限定只收 ★强技/稀有技（危险叠加档 + 品类招牌技）；
+> 中坚触发技与数值技一律通用保卡池厚度（目标：每轴卡池中品类限定占比 ≤ ⅓）。
+> 危险叠加由品类数量天然限幅：混编队同系 1~2 架 = 安全；满编单系队 = 刻意 build 收益（D 观察）。
 
-**斗士系**（攻击/制空/桥接/母舰/omni 持有斗士身份的机）：
+**斗士系**（攻击/制空/桥接/母舰/omni 持有斗士身份的机，4 条）：
 
 | 技能 | 原危险点 | 归系理由 |
 |---|---|---|
 | gun_ciws | CIWS ×N 敌导弹全灭 | ★用户点名"攻击机才有"——攻击机队近防网=品类特色 |
-| skill_missile_hit_invul | 全队轮流无敌 | 近战肉的保命技，斗士性格 |
-| skill_lowest_alt_kill_invul | 同上 | 低空=攻击机地盘，flavor 完美 |
-| executioner | 逐机 streak 速度发散 | 击杀狂热=斗士性格（攻击机速度基线低，发散幅度可控，入 D 观察） |
-| skill_kill_bloodlust / skill_damaged_bloodlust | FRENZY ×N 异步 buff | 嗜血=斗士定义轴 |
-| skill_head_on_perma_hp | 对头 farm ×N | 对头胆量=斗士（AI joust 频率高，cap 议题入 D） |
-| low_alt_gun_dodge | — | 低空强化归攻击机 |
+| skill_missile_hit_invul | 全队轮流无敌 | 强技：近战肉的保命底牌 |
+| skill_lowest_alt_kill_invul | 同上 | 强技：低空=攻击机地盘 |
+| executioner | 逐机 streak 速度发散 | 稀有技；攻击机速度基线低发散可控（D 观察） |
 
-**骑士系**（远程/制空/桥接/母舰/隐身/omni 持有骑士身份的机）：
+**骑士系**（远程/制空/桥接/母舰/隐身/omni 持有骑士身份的机，10 条）：
 
 | 技能 | 原危险点 | 归系理由 |
 |---|---|---|
-| jam_aura | 光环 ×N 全场覆盖 | ★用户点名"光环给骑士"——护卫光环=骑士性格 |
+| jam_aura | 光环 ×N 全场覆盖 | ★用户点名"光环给骑士" |
 | rear_aura_slow | 同上 | 同上 |
 | missile_swarm | 饱和 alpha | 远程弹雨=骑士大招（大弹舱机型才玩得转） |
-| evasion_speed_boost / weapon_cd / overstock / herbst / cobra_skill | 双体现 uptime | 机动生存=骑士定义轴（双体现见 B 表） |
+| **超载家族 ×7**：skill_evade_missile_overload / skill_flare_overload / jam_self_overload / cloud_overload / overload_duration_4x / overload_extended_ammo / overload_to_bloodlust | OVERLOAD uptime ×N | ★用户点名"超载类给骑士"——机动生存爆发=骑士性格 |
 
-**策士系**（电战/隐身/omni 持有策士身份的机）：
+**策士系**（电战/隐身/omni 持有策士身份的机，11 条）：
 
 | 技能 | 原危险点 | 归系理由 |
 |---|---|---|
@@ -275,8 +274,11 @@ reconstruction_complete: false
 | skill_flare_aoe_jam / missile_hit_aoe_jam / torpedo_aoe_jam | JAM uptime ×N | 电子战触发技 |
 | skill_gun_kill_flare_drop | flare 经济无限 | 电子对抗资源技 |
 | fear_squad_spread / fear_chills | 天然队级 | **策士系 + 队级单实例**：只有策士系成员成为恐惧源=双重限幅 |
-| ecm_pod / evasion_stealth / vapor_dodge | — | ★用户点名"电战技只给电战机"（stealth/vapor 双体现见 B 表） |
-| skill_kill_status_heal | — | 收割异常状态=策士收尾技 |
+| ecm_pod / evasion_stealth / vapor_dodge | — | ★用户点名"电战技只给电战机" |
+
+**v5 退回通用**（从 v4 品类表收窄回 E 层，保卡池厚度）：skill_kill_bloodlust · skill_damaged_bloodlust ·
+skill_head_on_perma_hp · low_alt_gun_dodge · skill_kill_status_heal · evasion_speed_boost / weapon_cd /
+overstock / herbst · cobra_skill（双体现语义不变，见 B 表）。
 
 **层 4·队级单实例**：xp_mult（XP 全局池，stacks 记队级不逐机相乘）。
 
@@ -285,8 +287,8 @@ reconstruction_complete: false
 > **代码现状（查实）**：`MissileEvasion.enter_evade` 已让 AI 躲导弹时 `set_evasion_mode(true)`——
 > 与玩家 E 键走**同一个门**（`ac.evasion_mode`），技能全队下发后僚机自动吃到，**零新接线**。
 > 双体现 = 同一技能、同一效果门，两套触发源，逐条写明。
-> **品类叠加（v4）**：本表 7 条已归系——骑士系（speed_boost/weapon_cd/overstock/herbst/cobra）、
-> 策士系（stealth/vapor）；即"品类内的机 × 各自触发源"双重过滤。
+> **品类标注（v5 收窄后）**：机动五件套 + cobra = **通用**（全队双体现，保卡池厚度）；
+> stealth / vapor = **策士系**（用户点名电战技）——即"策士系的机 × 各自触发源"双重过滤。
 
 | 技能 | 玩家体现（E 键手动开关） | 僚机体现（AI 自动） |
 |---|---|---|
@@ -315,10 +317,13 @@ railgun_charge/range/damage · laser_cooldown/range/heat/extra_beams · skill_la
 | skill_head_on_perma_hp | AI 僚机 joust 对头频率高 → 永久 HP farm 速度 ×N（考虑加单局 cap） |
 | skill_kill_bloodlust / damaged_bloodlust | FRENZY 临时 G/速度 buff 逐机异步 → 交战中编队松散可接受，盯 rejoin 收敛 |
 
-#### E. 通用标配：**默认全队直给**（基础数值，每架都有不奇怪——用户裁定）
+#### E. 通用标配：**默认全队直给**（基础数值 + 中坚触发技，卡池厚度的基本盘——用户裁定）
 
 hp_up · armor_up · bullet_dodge · speed_up · maneuver_up · dogfight · flare_shield · shock_absorb · kill_heal ·
-missile_count · missile_boost · gun_damage · gun_accuracy · aim_assist ·（+后续新技能默认入此类，除非命中识别模式）
+missile_count · missile_boost · gun_damage · gun_accuracy · aim_assist ·
+skill_kill_bloodlust · skill_damaged_bloodlust · skill_head_on_perma_hp · low_alt_gun_dodge · skill_kill_status_heal ·
+evasion_speed_boost · evasion_weapon_cd · evasion_overstock · evasion_herbst · cobra_skill（后五条=全队双体现，B 表）
+（+后续新技能默认入此类，除非命中识别模式）
 
 > **归系识别模式**（新技能自检）：①光环/AoE 控场 ×N 覆盖全场；②无敌/拦截类防御 uptime ×N 归零敌威胁；
 > ③逐机异步速度 buff 破编队；④全局池经济逐机相乘；⑤饱和 alpha 弹幕；⑥效果有明确品类性格（心理战/机动/近战）。
@@ -467,3 +472,4 @@ on 进化 cur: 机型 X → 机型 Y:                 # 实例不销毁，只换
 | 2026-07-20 | 4 | **§2.8 v2 方向反转（用户）："默认全队 + 排查危险叠加"**取代 v3 的 9/48 保守二分。A 危险叠加 13 条→王牌专属（光环×N 全场覆盖 jam_aura/rear_aura_slow、防御 uptime×N 归零威胁 gun_ciws/双 invul、AoE 控场触发×5+flare_drop 的 FEAR/JAM 永久 uptime、饱和 alpha missile_swarm、编队速度发散 executioner）+ 队级单实例 3 条（fear_squad_spread/chills 天然队级、xp_mult 不逐机相乘）；B 空转 7 条（evasion_*/cobra/vapor 挂玩家 E 键）暂王牌、待 AI 规避接线转全队；C 武器门控自限全队放行（railgun/laser/rocket/torpedo 强化）；D 观察名单 4 条（multishot 弹幕性能/perma_hp farm cap/bloodlust 编队松散）；E 其余默认全队。附 A 类识别模式 5 条（新技能自检）。scope 三值 squad/ace/squad_once。 |
 | 2026-07-20 | 5 | **§2.8 v3 双体现定义（用户："回避类在僚机身上不依赖 E 键自动触发"）**：查实 MissileEvasion.enter_evade 已让 AI 躲弹时 set_evasion_mode(true)（与玩家 E 同门）→ 原 B"空转名单"判断作废，7 条回避/机动技全部转**全队·双体现**（表格逐条写明 玩家=手动 E / 僚机=AI 躲弹自动；herbst/cobra 复用既有 AI 模块，零新接线）。三类定义定稿：①数值强化=全队直给 ②触发/模式强化=全队双体现 ③专属强化=王牌显式清单（A 表 13 条）。僚机躲弹频率高 → overstock/weapon_cd 全队 uptime 入 D 观察名单。 |
 | 2026-07-20 | 6 | **§2.8 v4 品类限定系统（用户："强技只出现在特定品类飞机上"）**：王牌专属层退役 → 四层归属=①通用标配全队直给 ②品类限定（全队下发、按机种类过滤生效：CIWS→斗士系攻击机[用户点名]/光环→骑士系[用户点名]/电战·心理战技→策士系[用户点名]+同逻辑扩展 bloodlust·无敌·executioner→斗/missile_swarm·evasion 机动五件套→骑/AoE 控场·stealth 系→策）③装备门控自限 ④队级单实例（xp_mult；fear 双条=策士系+单实例双重限幅）。飞机品类身份=其进化门槛的轴（attack=斗/range=骑/ew=策/air=斗骑/stealth=骑策/omni·legend=三系，零新概念）。危险叠加靠品类数量天然限幅，单系满编=刻意 build 收益入 D 观察。抽卡门控=队里存在该品类机才进池；切控散落怪癖随全队下发自然消解。实装草图 v4（classes 数组/身份查询/过滤分流/品类角标/过滤断言）。 |
+| 2026-07-20 | 7 | **§2.8 v5 品类收窄 + 超载归骑士（用户）**：①"不是所有技能都归品类——先加点才能到品类机，锁太多=前期卡荒"→ 品类限定只收强技/稀有技（每轴卡池占比目标 ≤⅓）；v4 过度扩展的 10 条退回通用（嗜血双条/对头永久HP/低空闪避/异常收割/机动五件套/cobra——双体现语义保留）。②**超载家族 ×7 → 骑士系**（用户点名；含 cloud_overload）。终版：斗士系 4（CIWS/双无敌/executioner）· 骑士系 10（双光环/swarm/超载×7）· 策士系 11（AoE 控场×6/恐惧双条/ecm·stealth·vapor）· 通用 24+ · 装备门控 · xp 单实例。 |
