@@ -352,13 +352,30 @@ func _draw() -> void:
 		if pts.size() >= 2:
 			var pcol := Color(1.0, 0.5, 0.4, 0.8) if _shape_erase else CURSOR_COLOR
 			draw_polyline(pts, pcol, 2.0, true)
-	# 笔刷光标（仅笔刷/橡皮模式）
+	# 笔刷光标（仅笔刷/橡皮模式）：所见即所得——按落印同一几何谓词
+	# 半透明填出将被涂到的每个格子（橡皮=红色调），外加范围圈
 	if _hover_cell.x >= 0 and cur_tool < Tool.RECT:
 		var cs2 := MapDocument.CELL_SIZE_PX
 		var origin2 := MapDocument.grid_origin()
-		var rect := Rect2(origin2 + Vector2(_hover_cell) * cs2, Vector2(cs2, cs2))
-		draw_rect(rect, CURSOR_COLOR, false, 2.0)
-		draw_arc(rect.get_center(), brush_cells * 0.5 * cs2, 0, TAU, 32, CURSOR_COLOR, 1.5, true)
+		var fill_col: Color
+		if cur_tool == Tool.ERASER:
+			fill_col = Color(1.0, 0.45, 0.35, 0.35)
+		else:
+			fill_col = _canvas.layer_color(active_layer)
+			fill_col.a = 0.4
+		var r := brush_cells * 0.5
+		var ri := int(ceilf(r))
+		for dy in range(-ri, ri + 1):
+			for dx in range(-ri, ri + 1):
+				if Vector2(dx, dy).length() > r:
+					continue
+				var cx := _hover_cell.x + dx
+				var cy := _hover_cell.y + dy
+				if cx < 0 or cy < 0 or cx >= MapDocument.GRID_W or cy >= MapDocument.GRID_H:
+					continue
+				draw_rect(Rect2(origin2 + Vector2(cx, cy) * cs2, Vector2(cs2, cs2)), fill_col, true)
+		var center := origin2 + (Vector2(_hover_cell) + Vector2(0.5, 0.5)) * cs2
+		draw_arc(center, r * cs2, 0, TAU, 32, CURSOR_COLOR, 1.5, true)
 
 
 # ══════════════════════════════════════════════
