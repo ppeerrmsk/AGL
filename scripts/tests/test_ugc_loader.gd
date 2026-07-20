@@ -60,6 +60,12 @@ func _initialize() -> void:
 	_check(BuildingRenderer._cache_entries.size() == official_count,
 		"建筑 entries %d ≠ 官方管线 %d（注入路径零差异铁律）" % [BuildingRenderer._cache_entries.size(), official_count])
 	_check(BuildingRenderer._cache_max_h_global > 0.0, "全局最高楼未计算")
+	# 幽灵楼回归：空建筑 UGC 图必须"忠实地空"，_load_data 不得回退官方 JSON
+	UgcLoader.apply_buildings(MapDocument.new())
+	var br := BuildingRenderer.new()
+	br._load_data()
+	_check((br._districts as Array).is_empty(), "空建筑 UGC 图回退加载了官方建筑（幽灵楼 bug）")
+	br.free()
 
 	# ④ 云注入
 	var w := WeatherSystem.new()

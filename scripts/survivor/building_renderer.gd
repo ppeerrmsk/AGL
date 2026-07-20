@@ -78,11 +78,16 @@ static func cache_progress() -> float:
 	return float(_cache_idx) / float(_cache_raw_districts.size())
 
 
+## UGC 注入生效标志：置位后 _load_data 不得回退官方 JSON（空建筑图也要"忠实地空"——
+## 曾因空缓存触发兜底同步加载，官方 193 楼按官方坐标出现在用户图的海上）
+static var _ugc_active := false
+
 static func cache_reset() -> void:
 	_cache_entries.clear()
 	_cache_raw_districts.clear()
 	_cache_idx = 0
 	_cache_phase = 0
+	_ugc_active = false
 
 
 ## UGC 注入口（UgcLoader 调用）：跳过 JSON 读取，直接给 raw districts，
@@ -90,6 +95,7 @@ static func cache_reset() -> void:
 ## districts 元素结构与官方 JSON 相同：{footprint: [[x,y]...], max_real_h: float}
 static func inject_ugc_districts(districts: Array) -> void:
 	cache_reset()
+	_ugc_active = true
 	_cache_raw_districts = districts
 	_cache_phase = 2 if districts.size() > 0 else 3
 	if districts.is_empty():
@@ -172,9 +178,10 @@ func _load_data() -> void:
 	_loaded = true
 
 	# 优先使用预热缓存（BuildingPreloader 在进游戏前已经准备好）
-	if cache_is_ready() and not _cache_entries.is_empty():
+	# UGC 注入生效时即使为空也用缓存 —— 绝不回退官方 JSON（幽灵楼 bug）
+	if cache_is_ready() and (_ugc_active or not _cache_entries.is_empty()):
 		_districts = _cache_entries
-		print("[BuildingRenderer] using prewarmed cache (%d districts)" % _districts.size())
+		print("[BuildingRenderer] using prewarmed cache (%d districts%s)" % [_districts.size(), " / UGC" if _ugc_active else ""])
 		return
 
 	# 兜底：没有预热（如直接打开 survivor_mode 调试）— 同步处理
