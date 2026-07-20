@@ -220,32 +220,73 @@ reconstruction_complete: false
 
 > **基本原则（用户）：默认大多数技能全队生效**——长机独强会导致僚机物理掉队
 > （编队跟随速度被各自 max_speed_at_altitude 钳制，用户实测吻合）。
-> **三类定义（2026-07-20 用户两分法 + 危险名单）**：
-> 1. **数值强化 → 全队直给**（写 params，无条件；E 类 + C 武器门控自限类）
-> 2. **触发/模式强化 → 全队·双体现**（同一效果门，玩家=手动 E / 僚机=AI 自动触发，B 表逐条写明两套体现）
-> 3. **专属强化（王牌 only）→ 显式列出**（A 危险叠加表，每条写明"为什么不能全队"）
+> **四层归属（2026-07-20 用户 v4："品类限定"系统取代"王牌专属"）**：
+> 1. **通用标配 → 全队直给**（基础数值，每架都有不奇怪；含双体现触发类 B 表）
+> 2. **品类限定 → 全队下发、按机种类过滤生效**（强技/稀有技只在特定品类飞机上生效——
+>    CIWS 只给攻击机、光环只给骑士系、电战技只给电战机；队里无该品类机 = 该卡不进池）
+> 3. **装备门控 → 天然自限**（railgun/laser/rocket/torpedo 强化：没装备=无效）
+> 4. **队级单实例**（xp_mult：全局池不逐机相乘）
+> —— 原"王牌专属"层**退役**：危险叠加靠品类数量天然限幅（混编队同系只有 1~2 架）；
+>    满编单系队吃到全系强化 = 刻意凑 build 的收益，保留（D 观察名单盯量级）。
 
-#### A. 危险叠加名单（×N 后 degenerate，**不入全队默认**）
+**飞机品类身份 = 其进化门槛的轴**（与 gates / 卡片三轴同一套词汇，零新概念）：
 
-| 技能 | 全员持有会发生什么 | 处置 |
+| 机种类 | 品类身份 |
+|---|---|
+| 攻击 | 斗士系 |
+| 远程 | 骑士系 |
+| 电战 | 策士系 |
+| 制空 | 斗士+骑士 双系 |
+| 桥接（F/A-18E）· 母舰（X-90） | 斗士+骑士 |
+| 隐身渗透（X-77） | 骑士+策士 |
+| omni（X-02）· 传说（AX-00） | 三系全通 |
+
+#### A. 品类限定表（强技/稀有技归系——全队下发、仅品类身份匹配的飞机生效）
+
+> 原"危险叠加"由品类数量天然限幅：混编队同系 1~2 架 = 安全；满编单系队 = 刻意 build 收益。
+> 用户三例定调：CIWS→攻击机 · 光环→骑士 · 电战技→电战机；其余为同逻辑扩展（可挪）。
+
+**斗士系**（攻击/制空/桥接/母舰/omni 持有斗士身份的机）：
+
+| 技能 | 原危险点 | 归系理由 |
 |---|---|---|
-| **jam_aura**（2.6km JAM 圈） | 4~9 个光环叠盖 ≈ 全场永久 JAM，敌雷达/导弹系统性瘫痪 | **王牌专属**（光环挂王牌，全队圈内受益） |
-| **rear_aura_slow**（2.4km 后半球 SLOW） | 多机朝向各异 → 后半球拼成全向圈，全场常驻减速 | **王牌专属**（同上） |
-| **gun_ciws**（自动近防拦弹） | 4~9 门自动 CIWS → 敌导弹全灭，导弹威胁归零 | **王牌专属**（旗舰防御性格） |
-| **skill_missile_hit_invul**（被弹→INVUL） | AI 僚机被弹频率高 → 全队轮流无敌，敌 DPS 结构性归零 | **王牌专属** |
-| **skill_lowest_alt_kill_invul** | 低空队全员轮流无敌，同上 | **王牌专属** |
-| **missile_swarm**（+4 弹多锁齐射） | ×N = 30+ 弹饱和 alpha：BOSS 相位秒融 + 超杀记账崩 + 弹幕性能 | **王牌专属**（王牌大招定位） |
-| **executioner**（击杀 streak 提速） | 逐机独立 streak → 编队速度持续发散（掉队问题换皮回归） | **王牌专属** |
-| **AoE 控场触发 ×5**：skill_gun_kill_fear / head_on_aoe_fear / flare_aoe_jam / missile_hit_aoe_jam / torpedo_aoe_jam | 触发源 ×N → FEAR/JAM uptime 逼近 100%，敌 AI 永久瘫痪（数值意义上最坏的一档） | **王牌专属**（控场权集中在玩家操作） |
-| **skill_gun_kill_flare_drop** | 全队机炮击杀掉 flare ×N → flare 经济无限 | **王牌专属** |
-| **fear_squad_spread / fear_chills** | 效果**本来就是队级**（全小队成为恐惧源/修饰）——全员持有=重复实例 | **全队·队级单实例**（选一次=全队激活，重复选无效=max_stacks 已保证） |
-| **xp_mult** | XP 是全局池：若逐机相乘 = +20%→+80% 通胀 | **全队·队级单实例**（stacks 记队级，不逐机相乘） |
+| gun_ciws | CIWS ×N 敌导弹全灭 | ★用户点名"攻击机才有"——攻击机队近防网=品类特色 |
+| skill_missile_hit_invul | 全队轮流无敌 | 近战肉的保命技，斗士性格 |
+| skill_lowest_alt_kill_invul | 同上 | 低空=攻击机地盘，flavor 完美 |
+| executioner | 逐机 streak 速度发散 | 击杀狂热=斗士性格（攻击机速度基线低，发散幅度可控，入 D 观察） |
+| skill_kill_bloodlust / skill_damaged_bloodlust | FRENZY ×N 异步 buff | 嗜血=斗士定义轴 |
+| skill_head_on_perma_hp | 对头 farm ×N | 对头胆量=斗士（AI joust 频率高，cap 议题入 D） |
+| low_alt_gun_dodge | — | 低空强化归攻击机 |
+
+**骑士系**（远程/制空/桥接/母舰/隐身/omni 持有骑士身份的机）：
+
+| 技能 | 原危险点 | 归系理由 |
+|---|---|---|
+| jam_aura | 光环 ×N 全场覆盖 | ★用户点名"光环给骑士"——护卫光环=骑士性格 |
+| rear_aura_slow | 同上 | 同上 |
+| missile_swarm | 饱和 alpha | 远程弹雨=骑士大招（大弹舱机型才玩得转） |
+| evasion_speed_boost / weapon_cd / overstock / herbst / cobra_skill | 双体现 uptime | 机动生存=骑士定义轴（双体现见 B 表） |
+
+**策士系**（电战/隐身/omni 持有策士身份的机）：
+
+| 技能 | 原危险点 | 归系理由 |
+|---|---|---|
+| skill_gun_kill_fear / head_on_aoe_fear | FEAR uptime ×N | ★心理战=策士定义 |
+| skill_flare_aoe_jam / missile_hit_aoe_jam / torpedo_aoe_jam | JAM uptime ×N | 电子战触发技 |
+| skill_gun_kill_flare_drop | flare 经济无限 | 电子对抗资源技 |
+| fear_squad_spread / fear_chills | 天然队级 | **策士系 + 队级单实例**：只有策士系成员成为恐惧源=双重限幅 |
+| ecm_pod / evasion_stealth / vapor_dodge | — | ★用户点名"电战技只给电战机"（stealth/vapor 双体现见 B 表） |
+| skill_kill_status_heal | — | 收割异常状态=策士收尾技 |
+
+**层 4·队级单实例**：xp_mult（XP 全局池，stacks 记队级不逐机相乘）。
 
 #### B. 触发/模式强化——**全队·双体现**（2026-07-20 用户裁定：僚机不依赖玩家 E 键，自动触发）
 
 > **代码现状（查实）**：`MissileEvasion.enter_evade` 已让 AI 躲导弹时 `set_evasion_mode(true)`——
 > 与玩家 E 键走**同一个门**（`ac.evasion_mode`），技能全队下发后僚机自动吃到，**零新接线**。
-> 双体现 = 同一技能、同一效果门，两套触发源，逐条写明：
+> 双体现 = 同一技能、同一效果门，两套触发源，逐条写明。
+> **品类叠加（v4）**：本表 7 条已归系——骑士系（speed_boost/weapon_cd/overstock/herbst/cobra）、
+> 策士系（stealth/vapor）；即"品类内的机 × 各自触发源"双重过滤。
 
 | 技能 | 玩家体现（E 键手动开关） | 僚机体现（AI 自动） |
 |---|---|---|
@@ -274,27 +315,31 @@ railgun_charge/range/damage · laser_cooldown/range/heat/extra_beams · skill_la
 | skill_head_on_perma_hp | AI 僚机 joust 对头频率高 → 永久 HP farm 速度 ×N（考虑加单局 cap） |
 | skill_kill_bloodlust / damaged_bloodlust | FRENZY 临时 G/速度 buff 逐机异步 → 交战中编队松散可接受，盯 rejoin 收敛 |
 
-#### E. 其余全部：**默认全队**（线性数值，×N = 预期的全队成长）
+#### E. 通用标配：**默认全队直给**（基础数值，每架都有不奇怪——用户裁定）
 
 hp_up · armor_up · bullet_dodge · speed_up · maneuver_up · dogfight · flare_shield · shock_absorb · kill_heal ·
-missile_count · missile_boost · gun_damage · gun_accuracy · aim_assist · ecm_pod · low_alt_gun_dodge ·
-skill_kill_status_heal ·（+后续新技能默认入此类，除非命中 A 类模式）
+missile_count · missile_boost · gun_damage · gun_accuracy · aim_assist ·（+后续新技能默认入此类，除非命中识别模式）
 
-> **A 类识别模式**（新技能自检）：①光环/AoE 控场 ×N 覆盖全场；②无敌/拦截类防御 uptime ×N 归零敌威胁；
-> ③逐机异步速度 buff 破编队；④全局池经济逐机相乘；⑤饱和 alpha 弹幕。命中任一 → 王牌专属或队级单实例。
+> **归系识别模式**（新技能自检）：①光环/AoE 控场 ×N 覆盖全场；②无敌/拦截类防御 uptime ×N 归零敌威胁；
+> ③逐机异步速度 buff 破编队；④全局池经济逐机相乘；⑤饱和 alpha 弹幕；⑥效果有明确品类性格（心理战/机动/近战）。
+> 命中任一 → 归入对应品类（A 表）或队级单实例；实在无法归系的超模技才考虑削数值。
 
 #### 附带裁定项（⏳ 用户点头后生效）
 
 1. **三轴里程碑加成同样全队**（纯属性小额，含速度/G——编队一致性同款理由）。
-2. **王牌专属技能的跟随语义**：记玩家层——切控/进化重放到当前操控机（根治"技能散落在选卡当时那架"怪癖）。
+2. **切控散落怪癖自然消解**：技能改全队/品类下发后与"选卡当时开哪架"无关；原"王牌层记玩家层重放"方案随王牌层退役一并作废。
 
-#### 实装草图（用户 review 本表后执行）
+#### 实装草图（用户 review 本表后执行；v4 品类模型）
 
-1. `SurvivorData.UPGRADES` 逐条加 `"scope"`：`"squad"`（默认，E/C/D 类）/ `"ace"`（A 类 13 条 + B 类暂 7 条）/ `"squad_once"`（队级单实例 3 条：fear_squad_spread/fear_chills/xp_mult）。
-2. `apply_upgrade` 分流：squad → 遍历小队成员逐机应用；squad_once → 只记队级 stacks 不逐机写；ace → 玩家机（现状）。
-3. 重放扩展：僚机进化/补员入队 → 重放全部 squad 层；王牌切控/进化 → ace 层重放到当前操控机。
-4. 卡面角标：`◈ 全队` / `◆ 王牌`（i18n 三语），选卡时归属可见。
-5. bench：squad 技能全队 params 一致性 + 长机 speed_up 后编队 rejoin 收敛 + gun_multishot ×9 机弹幕压测。
+1. `SurvivorData.UPGRADES` 逐条加 `"classes": ["gladiator"|"knight"|"schemer", ...]`（品类数组；
+   缺省/空 = 通用标配全队）+ `"squad_once": true`（xp_mult / fear_squad_spread / fear_chills）。
+2. **飞机品类身份查询**：按其进化节点的 gates 轴导出（机种类映射表：attack=斗 / range=骑 / ew=策 /
+   air·bridge·carrier=斗骑 / stealth=骑策 / omni·legend=三系）——挂 EvolutionSystem 静态函数。
+3. `apply_upgrade` 分流：通用 → 全队逐机；品类 → 全队中**身份匹配**的机；squad_once → 队级记账不逐机写。
+4. **抽卡门控**：品类技能只有"队里存在该品类机"才进对应轴的卡池（复用 is_upgrade_available_for 通道）。
+5. 重放扩展：僚机补员/进化 → 按新机品类重算生效子集再重放；换型后品类变了 = 技能生效集自然增减。
+6. 卡面角标：通用 `◈ 全队` / 品类 = 系名+轴色（AXIS_COLORS 同源），选卡时"谁吃得到"可见。
+7. bench：品类过滤断言（策士技不落攻击机）+ 单系满编 uptime 压测（CIWS×N/光环×N）+ 编队 rejoin 收敛。
 
 ## 3. 行为与公式（How）
 
@@ -421,3 +466,4 @@ on 进化 cur: 机型 X → 机型 Y:                 # 实例不销毁，只换
 | 2026-07-20 | 3 | **§2.8 生效范围二分（用户令，权威）**：现状查实=全部技能只写当前操控机（长机吃速度/机动强化 → 僚机被 max_speed 钳制物理掉队）。新二分：**全队 9 条**（speed_up/maneuver_up/dogfight 机动一致性 + hp/armor/dodge/flare_shield/shock_absorb 生存底盘 + xp_mult 经济）/ **王牌 48 条**（武器数值/特殊武器强化/规避操作/光环挂王牌/触发技）。附带裁定项待用户点头：①里程碑同样全队；②王牌技随玩家层（切控/进化重放到当前操控机，根治"技能散落在选卡当时那架"怪癖）。取代 §2.2 的 GLOBAL/PER_TYPE 生效范围语义（affinity 仍用于三轴卡片映射）；实装草图 5 条待 review 后执行。 |
 | 2026-07-20 | 4 | **§2.8 v2 方向反转（用户）："默认全队 + 排查危险叠加"**取代 v3 的 9/48 保守二分。A 危险叠加 13 条→王牌专属（光环×N 全场覆盖 jam_aura/rear_aura_slow、防御 uptime×N 归零威胁 gun_ciws/双 invul、AoE 控场触发×5+flare_drop 的 FEAR/JAM 永久 uptime、饱和 alpha missile_swarm、编队速度发散 executioner）+ 队级单实例 3 条（fear_squad_spread/chills 天然队级、xp_mult 不逐机相乘）；B 空转 7 条（evasion_*/cobra/vapor 挂玩家 E 键）暂王牌、待 AI 规避接线转全队；C 武器门控自限全队放行（railgun/laser/rocket/torpedo 强化）；D 观察名单 4 条（multishot 弹幕性能/perma_hp farm cap/bloodlust 编队松散）；E 其余默认全队。附 A 类识别模式 5 条（新技能自检）。scope 三值 squad/ace/squad_once。 |
 | 2026-07-20 | 5 | **§2.8 v3 双体现定义（用户："回避类在僚机身上不依赖 E 键自动触发"）**：查实 MissileEvasion.enter_evade 已让 AI 躲弹时 set_evasion_mode(true)（与玩家 E 同门）→ 原 B"空转名单"判断作废，7 条回避/机动技全部转**全队·双体现**（表格逐条写明 玩家=手动 E / 僚机=AI 躲弹自动；herbst/cobra 复用既有 AI 模块，零新接线）。三类定义定稿：①数值强化=全队直给 ②触发/模式强化=全队双体现 ③专属强化=王牌显式清单（A 表 13 条）。僚机躲弹频率高 → overstock/weapon_cd 全队 uptime 入 D 观察名单。 |
+| 2026-07-20 | 6 | **§2.8 v4 品类限定系统（用户："强技只出现在特定品类飞机上"）**：王牌专属层退役 → 四层归属=①通用标配全队直给 ②品类限定（全队下发、按机种类过滤生效：CIWS→斗士系攻击机[用户点名]/光环→骑士系[用户点名]/电战·心理战技→策士系[用户点名]+同逻辑扩展 bloodlust·无敌·executioner→斗/missile_swarm·evasion 机动五件套→骑/AoE 控场·stealth 系→策）③装备门控自限 ④队级单实例（xp_mult；fear 双条=策士系+单实例双重限幅）。飞机品类身份=其进化门槛的轴（attack=斗/range=骑/ew=策/air=斗骑/stealth=骑策/omni·legend=三系，零新概念）。危险叠加靠品类数量天然限幅，单系满编=刻意 build 收益入 D 观察。抽卡门控=队里存在该品类机才进池；切控散落怪癖随全队下发自然消解。实装草图 v4（classes 数组/身份查询/过滤分流/品类角标/过滤断言）。 |
