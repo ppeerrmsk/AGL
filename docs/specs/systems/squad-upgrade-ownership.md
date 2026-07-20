@@ -220,7 +220,10 @@ reconstruction_complete: false
 
 > **基本原则（用户）：默认大多数技能全队生效**——长机独强会导致僚机物理掉队
 > （编队跟随速度被各自 max_speed_at_altitude 钳制，用户实测吻合）。
-> 本节 = **危险叠加排查**：哪些技能"每架都有 + 效果重叠"会把数值弄坏 → 单独处理。
+> **三类定义（2026-07-20 用户两分法 + 危险名单）**：
+> 1. **数值强化 → 全队直给**（写 params，无条件；E 类 + C 武器门控自限类）
+> 2. **触发/模式强化 → 全队·双体现**（同一效果门，玩家=手动 E / 僚机=AI 自动触发，B 表逐条写明两套体现）
+> 3. **专属强化（王牌 only）→ 显式列出**（A 危险叠加表，每条写明"为什么不能全队"）
 
 #### A. 危险叠加名单（×N 后 degenerate，**不入全队默认**）
 
@@ -238,10 +241,24 @@ reconstruction_complete: false
 | **fear_squad_spread / fear_chills** | 效果**本来就是队级**（全小队成为恐惧源/修饰）——全员持有=重复实例 | **全队·队级单实例**（选一次=全队激活，重复选无效=max_stacks 已保证） |
 | **xp_mult** | XP 是全局池：若逐机相乘 = +20%→+80% 通胀 | **全队·队级单实例**（stacks 记队级，不逐机相乘） |
 
-#### B. 空转名单（全员持有**不坏但没用**——挂玩家 evasion_mode/E 键，僚机没有 E）
+#### B. 触发/模式强化——**全队·双体现**（2026-07-20 用户裁定：僚机不依赖玩家 E 键，自动触发）
 
-evasion_overstock / evasion_stealth / evasion_herbst / evasion_speed_boost / evasion_weapon_cd / cobra_skill / vapor_dodge
-→ **暂标王牌专属**；待"AI 规避语义接线"（evasion_mode ↔ AI `_evading` 等价映射）后可转全队，届时 herbst/眼镜蛇 AI 版复用既有模块。⏳ 接线是否值得做，随 playtest 定。
+> **代码现状（查实）**：`MissileEvasion.enter_evade` 已让 AI 躲导弹时 `set_evasion_mode(true)`——
+> 与玩家 E 键走**同一个门**（`ac.evasion_mode`），技能全队下发后僚机自动吃到，**零新接线**。
+> 双体现 = 同一技能、同一效果门，两套触发源，逐条写明：
+
+| 技能 | 玩家体现（E 键手动开关） | 僚机体现（AI 自动） |
+|---|---|---|
+| evasion_speed_boost | E 期间 cruise ×1.4 冲刺 | 躲导弹自动进 evasion_mode，期间同款冲刺 |
+| evasion_weapon_cd | E 期间武器 CD ×0.5 | 同上——躲弹期间反击更快 |
+| evasion_stealth | E 期间隐身 | 躲弹期间隐身（甩锁更强） |
+| evasion_overstock | E 期间每 4s 补 1 弹 | 躲弹期间自动补弹 |
+| evasion_herbst | E 触发 Herbst J-Turn | 躲弹时 AI 自动 Herbst（复用 F-47 模块） |
+| cobra_skill | E/评估触发眼镜蛇 | 被咬尾/机炮防御时 AI 自动眼镜蛇 |
+| vapor_dodge | 入云隐身 + 切高度 ×2（被动条件） | 同款被动（条件型，无需任何模式） |
+
+⚠ 数值观察点：僚机躲弹频率远高于玩家手动 E → overstock/weapon_cd 的**全队 uptime** 明显高于单人手感，
+量级入 D 观察名单随 playtest 盯；玩法上"全队被弹幕逼出集体隐身/冲刺"是想要的戏剧性，保留。
 
 #### C. 武器门控自限（**放心全队**——只有装备该武器的机受益，天然限幅）
 
@@ -403,3 +420,4 @@ on 进化 cur: 机型 X → 机型 Y:                 # 实例不销毁，只换
 | 2026-06-28 | 2 | §2.6 定案（用户）：**武器/升级一律绑机型、不跨机型继承**。取消 `inheritable` 字段；HARDWARE（电磁炮/激光）改为"机型自带特色武器"非玩家携带物；§3.3 进化时换整套新机型武器、旧武器丢弃。取代 aircraft-evolution §2.5 旧"槽位继承"。 |
 | 2026-07-20 | 3 | **§2.8 生效范围二分（用户令，权威）**：现状查实=全部技能只写当前操控机（长机吃速度/机动强化 → 僚机被 max_speed 钳制物理掉队）。新二分：**全队 9 条**（speed_up/maneuver_up/dogfight 机动一致性 + hp/armor/dodge/flare_shield/shock_absorb 生存底盘 + xp_mult 经济）/ **王牌 48 条**（武器数值/特殊武器强化/规避操作/光环挂王牌/触发技）。附带裁定项待用户点头：①里程碑同样全队；②王牌技随玩家层（切控/进化重放到当前操控机，根治"技能散落在选卡当时那架"怪癖）。取代 §2.2 的 GLOBAL/PER_TYPE 生效范围语义（affinity 仍用于三轴卡片映射）；实装草图 5 条待 review 后执行。 |
 | 2026-07-20 | 4 | **§2.8 v2 方向反转（用户）："默认全队 + 排查危险叠加"**取代 v3 的 9/48 保守二分。A 危险叠加 13 条→王牌专属（光环×N 全场覆盖 jam_aura/rear_aura_slow、防御 uptime×N 归零威胁 gun_ciws/双 invul、AoE 控场触发×5+flare_drop 的 FEAR/JAM 永久 uptime、饱和 alpha missile_swarm、编队速度发散 executioner）+ 队级单实例 3 条（fear_squad_spread/chills 天然队级、xp_mult 不逐机相乘）；B 空转 7 条（evasion_*/cobra/vapor 挂玩家 E 键）暂王牌、待 AI 规避接线转全队；C 武器门控自限全队放行（railgun/laser/rocket/torpedo 强化）；D 观察名单 4 条（multishot 弹幕性能/perma_hp farm cap/bloodlust 编队松散）；E 其余默认全队。附 A 类识别模式 5 条（新技能自检）。scope 三值 squad/ace/squad_once。 |
+| 2026-07-20 | 5 | **§2.8 v3 双体现定义（用户："回避类在僚机身上不依赖 E 键自动触发"）**：查实 MissileEvasion.enter_evade 已让 AI 躲弹时 set_evasion_mode(true)（与玩家 E 同门）→ 原 B"空转名单"判断作废，7 条回避/机动技全部转**全队·双体现**（表格逐条写明 玩家=手动 E / 僚机=AI 躲弹自动；herbst/cobra 复用既有 AI 模块，零新接线）。三类定义定稿：①数值强化=全队直给 ②触发/模式强化=全队双体现 ③专属强化=王牌显式清单（A 表 13 条）。僚机躲弹频率高 → overstock/weapon_cd 全队 uptime 入 D 观察名单。 |
