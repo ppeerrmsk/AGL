@@ -746,3 +746,30 @@ RADIO_BOSS_GOOSE_ENGAGE_1,你飞得不错。可惜我的孩子比你多。,You f
 RADIO_BOSS_DEFAULT_SPAWN_1,目标已确认，全队进入交战阵位。,Target confirmed. All elements to engagement stations.,目標確認、全機交戦配置につけ。
 RADIO_BOSS_DEFAULT_SPAWN_2,这将会很短暂。,This won't take long.,すぐに終わる。
 RADIO_BOSS_DEFAULT_ENGAGE_1,交战开始。别让他活着离开。,Engaging. He doesn't leave this airspace.,交戦開始。生きて帰すな。
+MENU_MODE_EDITOR_NAME,地图工坊,Map Workshop,マップ工房
+MENU_MODE_EDITOR_DESC,涂格画地图，做完直接试飞,Paint a map with grid brushes and test-fly it instantly,グリッドブラシでマップを描いてすぐ試飛行
+EDITOR_PALETTE_TITLE,[ 素材库 ],[ Palette ],[ パレット ]
+EDITOR_LAYER_LAND,陆地,Land,陸地
+EDITOR_LAYER_MOUNTAIN,山地,Mountains,山地
+EDITOR_LAYER_FOREST,森林,Forest,森林
+EDITOR_LAYER_FARMLAND,农田,Farmland,農地
+EDITOR_LAYER_BEACH,沙滩,Beach,砂浜
+EDITOR_LAYER_URBAN,城区,Urban,市街地
+EDITOR_TOOL_BRUSH,笔刷,Brush,ブラシ
+EDITOR_TOOL_ERASER,橡皮,Eraser,消しゴム
+EDITOR_UNDO,撤销,Undo,元に戻す
+EDITOR_NEW_BLANK,新建,New,新規
+EDITOR_NEW_FROM_OFFICIAL,从官方地图新建,New from Official,公式マップから新規
+EDITOR_OPEN,打开,Open,開く
+EDITOR_SAVE,保存,Save,保存
+EDITOR_SAVE_AS,另存为,Save As,名前を付けて保存
+EDITOR_TEST_FLY,试飞,Test Flight,試飛行
+EDITOR_BACK,返回主菜单,Back to Menu,メニューへ戻る
+EDITOR_HINT,左键涂格 · 右键擦除 · 中键/WASD 平移 · 滚轮缩放 · Ctrl+Z 撤销 · Ctrl+S 保存,LMB paint · RMB erase · MMB/WASD pan · Wheel zoom · Ctrl+Z undo · Ctrl+S save,左クリック描画 · 右クリック消去 · 中ボタン/WASD 移動 · ホイールズーム · Ctrl+Z 取消 · Ctrl+S 保存
+EDITOR_NAME_PROMPT,地图名称,Map Name,マップ名
+EDITOR_UNSAVED_TITLE,未保存的改动,Unsaved Changes,未保存の変更
+EDITOR_UNSAVED_MSG,有未保存的改动。要保存吗？,You have unsaved changes. Save them?,未保存の変更があります。保存しますか？
+EDITOR_BTN_SAVE_EXIT,保存并退出,Save and Exit,保存して終了
+EDITOR_BTN_DISCARD,丢弃改动,Discard,破棄
+EDITOR_RECOVER_TITLE,恢复自动保存,Recover Autosave,自動保存の復元
+EDITOR_RECOVER_MSG,检测到更新的自动保存。要恢复吗？,A newer autosave was found. Restore it?,より新しい自動保存が見つかりました。復元しますか？

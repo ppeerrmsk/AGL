@@ -63,7 +63,11 @@ user://ugc/
 - [ ] 战区布局 JSON 化（与 [map-expansion](map-expansion.md) §2.4 同一件事，一次做完两边受益）。
 
 ### P1 — 地图编辑器（最先见效，且是扩图的工具）
-- [ ] 游戏内编辑场景：俯视画布 + 顶点点击画地块多边形 + 拖放战区圆 + 出生点。
+
+**已细化为独立 spec：[map-editor](map-editor.md)（2026-07-04，draft）**。要点：格子笔刷交互 +
+矢量多边形存储（marching squares + Chaikin 与官方地图同保真）；可编辑图层扩为 8 类
+（陆地/城区/机场/道路/建筑/云 mask/战区/出生点）；三区 UI（素材库左上 + 中间画布 +
+工具栏笔刷/橡皮/线条）。原要点保留：
 - [ ] 存/读 `user://ugc/maps/`；"试飞"按钮直接开一局加载该图。
 - [ ] 用它铺 [map-expansion](map-expansion.md) 的官方大图（工具先行）。
 

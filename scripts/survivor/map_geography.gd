@@ -290,6 +290,12 @@ static func ensure_ready() -> void:
 		URBAN_DISTRICTS.size(), HIGHWAYS.size(), COASTLINE_LINES.size(),
 	])
 
+
+## UGC 注入后强制重建派生缓存（UgcLoader 调用；官方路径不走这里）
+static func rebuild_from_data() -> void:
+	_initialized = false
+	ensure_ready()
+
 ## === 以下为被 OSM 替换的旧手画数据，保留注释以便回溯历史 ===
 static var _LEGACY_URBAN_DISTRICTS: Array = [
 	# 川崎市区
@@ -401,11 +407,32 @@ static var AQUALINE_PATH := PackedVector2Array([
 #  工具
 # ══════════════════════════════════════════════
 
+## UGC 地图模式守卫（UgcLoader.apply_geography 置 true / clear 复位）
+## 官方路径（ugc_mode=false）行为与历史完全一致。
+static var ugc_mode := false
+## UGC 陆地层判定语义（spec map-editor §3.4）：
+##   true  = 偶奇计数（编辑器烘焙环组，孔洞=独立环）
+##   false = union 任一命中（官方转换直通多边形，与官方判定一字不差）
+static var ugc_land_even_odd := true
+
 ## 判断某世界坐标是否在陆地上（包括羽田机场）
 ## 同时检查 OSM 烘焙的 land mask（城区+道路外扩并集，精度高）+ 手画 LAND 轮廓（覆盖广）
 ## 任一命中即视为陆地
 static func is_on_land(pos: Vector2) -> bool:
 	ensure_ready()
+	if ugc_mode:
+		if ugc_land_even_odd:
+			# 编辑器烘焙环组：偶奇计数（支持湖泊等孔洞）
+			var hits := 0
+			for poly in MapGeographyData.LAND_MASK_POLYGONS:
+				if Geometry2D.is_point_in_polygon(pos, poly):
+					hits += 1
+			return hits % 2 == 1
+		# 官方转换直通：任一命中即陆地（与官方逻辑同构）
+		for poly in MapGeographyData.LAND_MASK_POLYGONS:
+			if Geometry2D.is_point_in_polygon(pos, poly):
+				return true
+		return false
 	# OSM 陆地 mask 优先（对玩家活动区精确）
 	for poly in MapGeographyData.LAND_MASK_POLYGONS:
 		if Geometry2D.is_point_in_polygon(pos, poly):
@@ -422,6 +449,8 @@ static func is_on_land(pos: Vector2) -> bool:
 ## 用来给地面单位选位、判定战区是否有足够陆地。
 static func is_on_land_strict(pos: Vector2) -> bool:
 	ensure_ready()
+	if ugc_mode:
+		return is_on_land(pos)  # UGC 只有一层并集后的陆地，严格/宽松同源
 	for poly in MapGeographyData.LAND_MASK_POLYGONS:
 		if Geometry2D.is_point_in_polygon(pos, poly):
 			return true
