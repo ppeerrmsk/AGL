@@ -58,6 +58,23 @@ static func apply_geography(doc: MapDocument) -> void:
 	MapGeography.rebuild_from_data()
 
 
+## 生成地形覆盖渲染层（山地/森林/农田/沙滩，调色板取色）→ MapFeatureRenderer.ugc_overlay_layers
+static func overlay_layers_from(doc: MapDocument) -> Array:
+	const OVERLAY_KEYS := {"mountain": "terrain_mountain", "forest": "terrain_forest",
+		"farmland": "terrain_farmland", "beach": "terrain_beach"}
+	var out: Array = []
+	var palette: Dictionary = doc.style.get("palette", {})
+	for layer in OVERLAY_KEYS:
+		var polys: Array = doc.layer_polygons.get(layer, [])
+		if polys.is_empty():
+			continue
+		var arr = palette.get(OVERLAY_KEYS[layer], [0.5, 0.5, 0.5, 1.0])
+		var col := Color(float(arr[0]), float(arr[1]), float(arr[2]),
+			float(arr[3]) if arr.size() >= 4 else 1.0)
+		out.append({"color": col, "polys": polys})
+	return out
+
+
 ## 注入建筑（doc.buildings {footprint, h_m} → 官方 districts 结构）
 static func apply_buildings(doc: MapDocument) -> void:
 	var districts: Array = []

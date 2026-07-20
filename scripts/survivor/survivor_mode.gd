@@ -127,6 +127,8 @@ var _boss_unlock_announced: bool = false  ## 已提示过"BOSS 出现"
 var _boss_spawned: bool = false            ## BOSS 已激活进入战斗
 var _map_id: String = "default"            ## 当前地图 id（BOSS 池 lookup 用）
 var _is_victory: bool = false              ## 已胜利，阻止重复触发
+## F6 Debug 面板指定的关底 BOSS id（空 = 按地图池随机）。仅 debug_skip_to_boss 写入
+var debug_boss_id_override: String = ""
 
 # ── Boss Debug 模式 ──
 ## 进入路径：survivor_map_select 按 B → boss_debug_select 选 boss → set_meta → 此处读取
@@ -222,6 +224,8 @@ func _ready() -> void:
 		_map_features = MapFeatureRenderer.new()
 		_map_features.show_behind_parent = true
 		_map_features.ugc_vector_only = _ugc_doc != null  # UGC 图跳过官方底图/手画层
+		if _ugc_doc != null:
+			_map_features.ugc_overlay_layers = UgcLoader.overlay_layers_from(_ugc_doc)
 		add_child(_map_features)
 		move_child(_map_features, 0)
 		# _map_features.setup() 会在 _map_boundary 创建后调用（见下方）
@@ -3186,6 +3190,30 @@ func _check_warzone_phase_timeout() -> void:
 	EventLogger.log_event("PHASE", "WarzoneTimeout",
 		"game_time=%.1f → all zones cancelled, BOSS unlocked" % game_time)
 
+## F6 Debug：跳到 BOSS 战。boss_id 为空则按地图池随机
+##
+## 实现刻意【不复制解锁逻辑】—— 只把 game_time 推到阈值，然后调用真实的
+## _check_warzone_phase_timeout()，由它走完取消任务 / 关战区 / finalize_boss_placement /
+## boss_unlocked 全套。旧版 debug 只标了 A/B/C cleared 却从没设 boss_unlocked，
+## 所以 _update_boss_phase() 永远不触发——按钮点了等于没点。
+func debug_skip_to_boss(boss_id: String = "") -> void:
+	if _zone_data == null:
+		push_warning("debug_skip_to_boss: ZoneData 未初始化")
+		return
+	if _is_in_boss_phase():
+		EventLogger.log_event("ZONE", "DebugSkipBoss", "已在 BOSS 阶段，忽略")
+		return
+
+	debug_boss_id_override = boss_id
+	# 计时器清零：HUD 的 remaining = WARZONE_PHASE_DURATION - game_time
+	game_time = WARZONE_PHASE_DURATION
+	# 立即执行（而非等下一物理帧），让按下按钮到 BOSS 出场之间没有不确定的延迟
+	_check_warzone_phase_timeout()
+	_update_boss_phase()
+
+	EventLogger.log_event("ZONE", "DebugSkipBoss",
+		"boss=%s game_time→%.0f" % [boss_id if boss_id != "" else "(random)", game_time])
+
 ## BOSS 阶段（P4）—— 10 分钟到点（或当前 SELECTED 战区结算后）→ 启动 BossEncounterEvent（事件层接管全部生命周期）
 ## 本函数职责单一：检测解锁 → 启动事件。所有 PRE_STAGE/ENGAGED/VICTORY 状态流转、
 ## directive 下发、UI/BGM 切换都收敛到 BossEncounterEvent；事件回调见 on_boss_*。
@@ -3201,7 +3229,9 @@ func _update_boss_phase() -> void:
 		push_error("BOSS unlock: EventDirector not initialized")
 		return
 	var bz := _zone_data.boss_zone
-	var ev := BossEncounterEvent.new(bz["center"], _zone_data.boss_heading_deg, _map_id)
+	# debug_boss_id_override 非空 → 绕过地图池随机，强制指定关底 BOSS（F6 面板写入）
+	var ev := BossEncounterEvent.new(bz["center"], _zone_data.boss_heading_deg, _map_id,
+		debug_boss_id_override)
 	_event_director.start(ev)
 
 # ── BossEncounterEvent 回调（事件层主动调用）──

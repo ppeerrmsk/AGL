@@ -9,10 +9,15 @@ extends RefCounted
 ## 坐标约定：格子 (cx, cy) 的世界范围 = origin + [cx, cx+1]×[cy, cy+1] × cell_size；
 ## 轮廓顶点落在格点上，再经抽稀/平滑变成任意点。
 
-## 抽稀阈值 = 该系数 × 格边长（spec §3.1：0.4）
-const SIMPLIFY_EPS_FACTOR := 0.4
-## Chaikin 迭代次数（与 MapGeography 手画地块同参数）
-const SMOOTH_ITERATIONS := 2
+## 抽稀阈值 = 该系数 × 格边长（v6 调参：0.4→0.8，先杀掉格子尺度的阶梯细节）
+const SIMPLIFY_EPS_FACTOR := 0.8
+## Taubin 无收缩平滑（v6 新增）：λ/μ 正负交替的拉普拉斯低通——
+## 扫掉格距抖动但不缩水（纯拉普拉斯会把细长笔画缩没，环形/往返测试抓过）
+const TAUBIN_PAIRS := 3
+const TAUBIN_LAMBDA := 0.5
+const TAUBIN_MU := -0.53
+## Chaikin 迭代次数（v6：2→3，角切更圆润；数学与 MapGeography 同款）
+const SMOOTH_ITERATIONS := 3
 
 
 ## 主入口：把一层涂格位图烘焙成多边形数组。
@@ -30,8 +35,31 @@ static func bake_layer(cells: PackedByteArray, grid_w: int, grid_h: int,
 		var simplified := simplify_closed(world, eps)
 		if simplified.size() < 3:
 			continue
-		result.append(chaikin_closed(simplified, SMOOTH_ITERATIONS))
+		var relaxed := taubin_closed(simplified, TAUBIN_PAIRS, TAUBIN_LAMBDA, TAUBIN_MU)
+		result.append(chaikin_closed(relaxed, SMOOTH_ITERATIONS))
 	return result
+
+
+## Taubin 无收缩平滑（闭合多边形）：λ 正向松弛 + μ 负向回胀 交替
+## v_i ← v_i + f × ((v_{i-1}+v_{i+1})/2 − v_i)，f 交替取 λ / μ
+static func taubin_closed(poly: PackedVector2Array, pairs: int, lam: float, mu: float) -> PackedVector2Array:
+	if poly.size() < 4:
+		return poly
+	var cur := poly
+	for _pair in range(pairs):
+		cur = _laplace_step(cur, lam)
+		cur = _laplace_step(cur, mu)
+	return cur
+
+
+static func _laplace_step(poly: PackedVector2Array, f: float) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	var n := poly.size()
+	out.resize(n)
+	for i in range(n):
+		var avg := (poly[(i - 1 + n) % n] + poly[(i + 1) % n]) * 0.5
+		out[i] = poly[i] + (avg - poly[i]) * f
+	return out
 
 
 ## 逆向：多边形组 → 涂格位图（格心判定）。官方图转换用；一次性调用，bbox 剪枝。

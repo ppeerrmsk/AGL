@@ -93,6 +93,10 @@ var _basemap_loaded := false
 ## 跳过官方底图 PNG 与手画覆盖层（都是官方东京湾专属素材），只走矢量渲染路径
 var ugc_vector_only := false
 
+## UGC 地形覆盖层（山地/森林/农田/沙滩，UgcLoader.overlay_layers_from 生成）
+## 元素 {color: Color, polys: Array[PackedVector2Array]}；空 = 官方图零影响
+var ugc_overlay_layers: Array = []
+
 func _draw() -> void:
 	if not _camera:
 		return
@@ -106,6 +110,7 @@ func _draw() -> void:
 	# 底图由 Sprite2D + ShaderMaterial 自行渲染（见 _ensure_basemap_loaded）
 	if _basemap_sprite == null or not basemap_covers_vectors:
 		_draw_land_mask()
+		_draw_ugc_overlays()
 		_draw_urban_districts()
 		_draw_highways()
 	_draw_manual_overlays()        # 手画 Polygon2D 叠加层
@@ -285,6 +290,15 @@ func _draw_urban_districts() -> void:
 		var n: int = poly.size()
 		for i in range(n):
 			draw_line(poly[i], poly[(i + 1) % n], BUILDING_EDGE_COLOR, BUILDING_EDGE_WIDTH)
+
+## UGC 地形覆盖层（叠在陆地 mask 上、城区之下；官方图此数组为空 → 零开销）
+func _draw_ugc_overlays() -> void:
+	for entry in ugc_overlay_layers:
+		var col: Color = entry.get("color", Color.GRAY)
+		for poly in entry.get("polys", []):
+			if (poly as PackedVector2Array).size() >= 3:
+				draw_colored_polygon(poly, col)
+
 
 ## 道路：Tacview 战术琥珀色，发光感（宽带底 + 细亮线）
 const ROAD_GLOW_COLOR := Color(1.00, 0.70, 0.25, 0.35)

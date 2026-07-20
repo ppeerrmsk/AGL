@@ -773,3 +773,11 @@ EDITOR_BTN_SAVE_EXIT,保存并退出,Save and Exit,保存して終了
 EDITOR_BTN_DISCARD,丢弃改动,Discard,破棄
 EDITOR_RECOVER_TITLE,恢复自动保存,Recover Autosave,自動保存の復元
 EDITOR_RECOVER_MSG,检测到更新的自动保存。要恢复吗？,A newer autosave was found. Restore it?,より新しい自動保存が見つかりました。復元しますか？
+EDITOR_TOOL_RECT,矩形,Rectangle,矩形
+EDITOR_TOOL_ELLIPSE,圆形,Ellipse,円形
+EDITOR_TOOL_TRI,三角形,Triangle,三角形
+EDITOR_IMPORT_IMAGE,导入图片,Import Image,画像を読み込み
+EDITOR_UNDERLAY_TOGGLE,垫图显隐,Toggle Underlay,下絵の表示切替
+EDITOR_EXTRACT,提取到当前图层,Extract to Layer,現在のレイヤーへ抽出
+EDITOR_EXTRACT_DARK,提取暗色区域,Extract dark areas,暗い領域を抽出
+EDITOR_THRESHOLD,亮度阈值,Brightness Threshold,輝度しきい値

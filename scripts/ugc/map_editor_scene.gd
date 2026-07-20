@@ -25,12 +25,21 @@ var current_path := ""            ## 当前存档路径（"" = 未命名）
 var doc_dirty := false            ## 有未保存改动（标题栏 *）
 
 ## 工具状态
+enum Tool { BRUSH, ERASER, RECT, ELLIPSE, TRI }
 var active_layer := "land"
-var tool_eraser := false
+var cur_tool: Tool = Tool.BRUSH
 var brush_cells := 3              ## 笔刷直径（格），§2.1：1/3/5/9
 var _painting := false
 var _last_paint_cell := Vector2i(-1, -1)
 var _hover_cell := Vector2i(-1, -1)
+## 图形拖拽状态（RECT/ELLIPSE/TRI）
+var _shape_dragging := false
+var _shape_erase := false
+var _shape_anchor := Vector2.ZERO   ## 世界坐标
+var _shape_cur := Vector2.ZERO
+## PNG 垫图
+var _underlay: Sprite2D = null
+var _underlay_image: Image = null
 
 var _camera: Camera2D
 var _cam_ctrl: CameraController
@@ -40,9 +49,13 @@ var _autosave_timer: Timer
 ## UI 引用
 var _title_label: Label
 var _layer_buttons: Dictionary = {}
-var _tool_brush_btn: Button
-var _tool_eraser_btn: Button
+var _tool_buttons: Dictionary = {}   ## Tool → Button
 var _size_buttons: Dictionary = {}
+var _image_dialog: FileDialog
+var _extract_dialog: ConfirmationDialog
+var _extract_slider: HSlider
+var _extract_dark: CheckButton
+var _underlay_btn: Button
 var _hint_label: Label
 var _saveas_dialog: ConfirmationDialog
 var _saveas_edit: LineEdit
@@ -110,15 +123,23 @@ func _unhandled_input(event: InputEvent) -> void:
 			_zoom(1.0 / 1.15)
 		elif mb.button_index == MOUSE_BUTTON_LEFT:
 			if mb.pressed:
-				_begin_stroke(false)
+				if cur_tool >= Tool.RECT:
+					_begin_shape(false)
+				else:
+					_begin_stroke(cur_tool == Tool.ERASER)
 			else:
 				_end_stroke()
+				_commit_shape()
 		elif mb.button_index == MOUSE_BUTTON_RIGHT:
-			# 右键 = 临时橡皮（快捷擦除，不切工具）
+			# 右键 = 快捷擦除（笔刷模式下临时橡皮；图形模式下擦除图形）
 			if mb.pressed:
-				_begin_stroke(true)
+				if cur_tool >= Tool.RECT:
+					_begin_shape(true)
+				else:
+					_begin_stroke(true)
 			else:
 				_end_stroke()
+				_commit_shape()
 	elif event is InputEventMouseMotion:
 		var mm := event as InputEventMouseMotion
 		if Input.is_mouse_button_pressed(MOUSE_BUTTON_MIDDLE):
@@ -130,6 +151,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		if _painting and cell.x >= 0:
 			_paint_line(_last_paint_cell, cell)
 			_last_paint_cell = cell
+		if _shape_dragging:
+			_shape_cur = _mouse_world()
+			queue_redraw()
 	elif event is InputEventKey and event.pressed and not event.echo:
 		var key := event as InputEventKey
 		if key.keycode == KEY_S and key.ctrl_pressed:
@@ -137,7 +161,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif key.keycode == KEY_Z and key.ctrl_pressed:
 			_undo()
 		elif key.keycode == KEY_ESCAPE:
-			_request_exit()
+			if _shape_dragging:
+				_shape_dragging = false  # 先取消进行中的图形，不弹退出
+				queue_redraw()
+			else:
+				_request_exit()
 
 
 var _stroke_erase := false
@@ -147,7 +175,7 @@ func _begin_stroke(erase: bool) -> void:
 	if cell.x < 0 or _painting:
 		return
 	_painting = true
-	_stroke_erase = erase or tool_eraser
+	_stroke_erase = erase
 	doc.push_undo(active_layer)
 	_last_paint_cell = cell
 	_stamp(cell)
@@ -191,13 +219,95 @@ func _stamp(center: Vector2i) -> void:
 			cells[cy * MapDocument.GRID_W + cx] = value
 
 
+func _mouse_world() -> Vector2:
+	return _cam_ctrl.screen_to_world(get_viewport().get_mouse_position())
+
+
 func _mouse_cell() -> Vector2i:
-	var world := _cam_ctrl.screen_to_world(get_viewport().get_mouse_position())
-	var f := (world - MapDocument.grid_origin()) / MapDocument.CELL_SIZE_PX
+	var f := (_mouse_world() - MapDocument.grid_origin()) / MapDocument.CELL_SIZE_PX
 	var cell := Vector2i(int(floorf(f.x)), int(floorf(f.y)))
 	if cell.x < 0 or cell.y < 0 or cell.x >= MapDocument.GRID_W or cell.y >= MapDocument.GRID_H:
 		return Vector2i(-1, -1)
 	return cell
+
+
+# ══════════════════════════════════════════════
+#  图形工具（矩形/圆形/三角形 → 精确谓词写格 → 同一平滑管线）
+# ══════════════════════════════════════════════
+
+func _begin_shape(erase: bool) -> void:
+	if _shape_dragging or _painting:
+		return
+	_shape_dragging = true
+	_shape_erase = erase
+	_shape_anchor = _mouse_world()
+	_shape_cur = _shape_anchor
+
+
+func _commit_shape() -> void:
+	if not _shape_dragging:
+		return
+	_shape_dragging = false
+	var rect := Rect2(_shape_anchor, _shape_cur - _shape_anchor).abs()
+	if rect.size.x < MapDocument.CELL_SIZE_PX * 0.5 and rect.size.y < MapDocument.CELL_SIZE_PX * 0.5:
+		queue_redraw()
+		return
+	doc.push_undo(active_layer)
+	var cells: PackedByteArray = doc.editor_cells[active_layer]
+	var value := 0 if _shape_erase else 1
+	var origin := MapDocument.grid_origin()
+	var cs := MapDocument.CELL_SIZE_PX
+	var c0 := Vector2i(((rect.position - origin) / cs).floor())
+	var c1 := Vector2i(((rect.end - origin) / cs).ceil())
+	for cy in range(maxi(c0.y, 0), mini(c1.y, MapDocument.GRID_H)):
+		for cx in range(maxi(c0.x, 0), mini(c1.x, MapDocument.GRID_W)):
+			var p := origin + Vector2(cx + 0.5, cy + 0.5) * cs
+			if _shape_contains(rect, p):
+				cells[cy * MapDocument.GRID_W + cx] = value
+	doc.mark_dirty_and_rebake(active_layer)
+	doc_dirty = true
+	_refresh_title()
+	_canvas.notify_changed()
+	queue_redraw()
+
+
+## 当前图形工具在 rect 框内的形状判定
+func _shape_contains(rect: Rect2, p: Vector2) -> bool:
+	match cur_tool:
+		Tool.RECT:
+			return rect.has_point(p)
+		Tool.ELLIPSE:
+			var c := rect.get_center()
+			var rx := maxf(rect.size.x * 0.5, 0.001)
+			var ry := maxf(rect.size.y * 0.5, 0.001)
+			var dx := (p.x - c.x) / rx
+			var dy := (p.y - c.y) / ry
+			return dx * dx + dy * dy <= 1.0
+		Tool.TRI:
+			# 等腰三角形：顶点=框上边中点，底边=框下边
+			var apex := Vector2(rect.get_center().x, rect.position.y)
+			var bl := Vector2(rect.position.x, rect.end.y)
+			var br := rect.end
+			return Geometry2D.point_is_inside_triangle(p, apex, bl, br)
+	return false
+
+
+## 图形预览轮廓点集（拖拽中 _draw 用）
+func _shape_preview_points(rect: Rect2) -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	match cur_tool:
+		Tool.RECT:
+			pts.append_array([rect.position, Vector2(rect.end.x, rect.position.y),
+				rect.end, Vector2(rect.position.x, rect.end.y), rect.position])
+		Tool.ELLIPSE:
+			var c := rect.get_center()
+			for i in range(33):
+				var a := TAU * i / 32.0
+				pts.append(c + Vector2(cos(a) * rect.size.x * 0.5, sin(a) * rect.size.y * 0.5))
+		Tool.TRI:
+			var apex := Vector2(rect.get_center().x, rect.position.y)
+			pts.append_array([apex, rect.end, Vector2(rect.position.x, rect.end.y), apex])
+	return pts
 
 
 func _zoom(factor: float) -> void:
@@ -235,8 +345,15 @@ func _draw() -> void:
 					draw_rect(Rect2(origin + Vector2(run_start, cy) * cs,
 						Vector2((cx - run_start) * cs, cs)), col, true)
 					run_start = -1
-	# 笔刷光标
-	if _hover_cell.x >= 0:
+	# 图形拖拽预览
+	if _shape_dragging:
+		var srect := Rect2(_shape_anchor, _shape_cur - _shape_anchor).abs()
+		var pts := _shape_preview_points(srect)
+		if pts.size() >= 2:
+			var pcol := Color(1.0, 0.5, 0.4, 0.8) if _shape_erase else CURSOR_COLOR
+			draw_polyline(pts, pcol, 2.0, true)
+	# 笔刷光标（仅笔刷/橡皮模式）
+	if _hover_cell.x >= 0 and cur_tool < Tool.RECT:
 		var cs2 := MapDocument.CELL_SIZE_PX
 		var origin2 := MapDocument.grid_origin()
 		var rect := Rect2(origin2 + Vector2(_hover_cell) * cs2, Vector2(cs2, cs2))
@@ -266,10 +383,15 @@ func _build_ui() -> void:
 	bar.add_child(_title_label)
 	bar.add_child(_vsep())
 
-	_tool_brush_btn = _bar_button(tr("EDITOR_TOOL_BRUSH"), func(): _set_tool(false))
-	bar.add_child(_tool_brush_btn)
-	_tool_eraser_btn = _bar_button(tr("EDITOR_TOOL_ERASER"), func(): _set_tool(true))
-	bar.add_child(_tool_eraser_btn)
+	var tool_defs := {
+		Tool.BRUSH: "EDITOR_TOOL_BRUSH", Tool.ERASER: "EDITOR_TOOL_ERASER",
+		Tool.RECT: "EDITOR_TOOL_RECT", Tool.ELLIPSE: "EDITOR_TOOL_ELLIPSE",
+		Tool.TRI: "EDITOR_TOOL_TRI",
+	}
+	for t in tool_defs:
+		var tb := _bar_button(tr(tool_defs[t]), func(): _set_tool(t))
+		_tool_buttons[t] = tb
+		bar.add_child(tb)
 	bar.add_child(_vsep())
 
 	for size in [1, 3, 5, 9]:
@@ -285,6 +407,13 @@ func _build_ui() -> void:
 	bar.add_child(_bar_button(tr("EDITOR_OPEN"), _open))
 	bar.add_child(_bar_button(tr("EDITOR_SAVE"), _save))
 	bar.add_child(_bar_button(tr("EDITOR_SAVE_AS"), _save_as))
+	bar.add_child(_vsep())
+	bar.add_child(_bar_button(tr("EDITOR_IMPORT_IMAGE"), _import_image))
+	_underlay_btn = _bar_button(tr("EDITOR_UNDERLAY_TOGGLE"), _toggle_underlay)
+	_underlay_btn.visible = false
+	bar.add_child(_underlay_btn)
+	var extract_btn := _bar_button(tr("EDITOR_EXTRACT"), _open_extract)
+	bar.add_child(extract_btn)
 	bar.add_child(_vsep())
 	bar.add_child(_bar_button(tr("EDITOR_TEST_FLY"), _test_fly))
 
@@ -359,7 +488,37 @@ func _build_ui() -> void:
 	_recover_dialog.confirmed.connect(_do_recover)
 	ui.add_child(_recover_dialog)
 
-	_set_tool(false)
+	# PNG 垫图导入（系统文件对话框；参考图仅编辑态，不写入成品，spec §2.5）
+	_image_dialog = FileDialog.new()
+	_image_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	_image_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	_image_dialog.filters = ["*.png, *.jpg, *.jpeg, *.webp, *.bmp ; Image"]
+	_image_dialog.file_selected.connect(_do_import_image)
+	ui.add_child(_image_dialog)
+
+	# 按亮度阈值把垫图提取到当前图层
+	_extract_dialog = ConfirmationDialog.new()
+	_extract_dialog.title = tr("EDITOR_EXTRACT")
+	var ev := VBoxContainer.new()
+	var thr_label := Label.new()
+	thr_label.text = tr("EDITOR_THRESHOLD")
+	ev.add_child(thr_label)
+	_extract_slider = HSlider.new()
+	_extract_slider.min_value = 0.05
+	_extract_slider.max_value = 0.95
+	_extract_slider.step = 0.05
+	_extract_slider.value = 0.5
+	_extract_slider.custom_minimum_size = Vector2(240, 0)
+	ev.add_child(_extract_slider)
+	_extract_dark = CheckButton.new()
+	_extract_dark.text = tr("EDITOR_EXTRACT_DARK")
+	_extract_dark.button_pressed = true
+	ev.add_child(_extract_dark)
+	_extract_dialog.add_child(ev)
+	_extract_dialog.confirmed.connect(_do_extract)
+	ui.add_child(_extract_dialog)
+
+	_set_tool(Tool.BRUSH)
 	_set_brush(3)
 	_set_layer("land")
 
@@ -385,10 +544,11 @@ func _vsep() -> VSeparator:
 	return VSeparator.new()
 
 
-func _set_tool(eraser: bool) -> void:
-	tool_eraser = eraser
-	_tool_brush_btn.disabled = not eraser
-	_tool_eraser_btn.disabled = eraser
+func _set_tool(t: Tool) -> void:
+	cur_tool = t
+	for k in _tool_buttons:
+		(_tool_buttons[k] as Button).disabled = k == t
+	queue_redraw()
 
 
 func _set_brush(size: int) -> void:
@@ -511,6 +671,75 @@ func _test_fly() -> void:
 		return
 	get_tree().set_meta("ugc_map_path", TESTFLIGHT_PATH)
 	get_tree().change_scene_to_file("res://scenes/survivor_mode.tscn")
+
+
+# ══════════════════════════════════════════════
+#  PNG 垫图 + 阈值提取（spec §2.5 参考图仅编辑态 / v6 提取到图层）
+# ══════════════════════════════════════════════
+
+func _import_image() -> void:
+	_image_dialog.popup_centered_ratio(0.6)
+
+
+func _do_import_image(path: String) -> void:
+	var img := Image.load_from_file(path)
+	if img == null:
+		return
+	_underlay_image = img
+	if _underlay != null:
+		_underlay.queue_free()
+	_underlay = Sprite2D.new()
+	_underlay.texture = ImageTexture.create_from_image(img)
+	_underlay.centered = false
+	_underlay.position = MapDocument.grid_origin()
+	var world := MapDocument.WORLD_HALF_PX * 2.0
+	_underlay.scale = Vector2(world / img.get_width(), world / img.get_height())
+	_underlay.self_modulate = Color(1, 1, 1, 0.4)
+	add_child(_underlay)
+	move_child(_underlay, 1)  # 画布(0)之上、光标绘制之下
+	_underlay_btn.visible = true
+
+
+func _toggle_underlay() -> void:
+	if _underlay != null:
+		_underlay.visible = not _underlay.visible
+
+
+func _open_extract() -> void:
+	if _underlay_image == null:
+		_import_image()  # 还没垫图 → 先走导入
+		return
+	_extract_dialog.popup_centered()
+
+
+## 逐格心采样垫图亮度 → 命中格并入当前图层（叠加不清除）→ 重烘焙平滑
+func _do_extract() -> void:
+	if _underlay_image == null:
+		return
+	doc.push_undo(active_layer)
+	var cells: PackedByteArray = doc.editor_cells[active_layer]
+	var thr := float(_extract_slider.value)
+	var want_dark := _extract_dark.button_pressed
+	var world := MapDocument.WORLD_HALF_PX * 2.0
+	var iw := _underlay_image.get_width()
+	var ih := _underlay_image.get_height()
+	for cy in range(MapDocument.GRID_H):
+		for cx in range(MapDocument.GRID_W):
+			var u := (cx + 0.5) * MapDocument.CELL_SIZE_PX / world
+			var v := (cy + 0.5) * MapDocument.CELL_SIZE_PX / world
+			var px := clampi(int(u * iw), 0, iw - 1)
+			var py := clampi(int(v * ih), 0, ih - 1)
+			var c := _underlay_image.get_pixel(px, py)
+			if c.a < 0.5:
+				continue  # 透明像素不参与
+			var lum := c.get_luminance()
+			if (lum < thr) if want_dark else (lum > thr):
+				cells[cy * MapDocument.GRID_W + cx] = 1
+	doc.mark_dirty_and_rebake(active_layer)
+	doc_dirty = true
+	_refresh_title()
+	_canvas.notify_changed()
+	queue_redraw()
 
 
 func _request_exit() -> void:

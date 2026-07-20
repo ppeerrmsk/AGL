@@ -3,7 +3,7 @@ id: map-editor
 kind: system
 status: approved     # ✅ 用户定稿 2026-07-04（spec_version 4）；待按 §6 派生代码
 schema_version: 1
-spec_version: 5
+spec_version: 6
 owner: noelu
 depends_on: [ugc-editor, map-system, map-expansion]
 reconstruction_complete: false
@@ -124,8 +124,9 @@ reconstruction_complete: false
 ```
 涂格 bitmap（随主开关的 N×N bool per 图层，60km 现值 300×300）
   → marching squares 提取闭合轮廓（外环+孔洞）
-  → Douglas-Peucker 抽稀（epsilon = 0.4 × 格边长）
-  → Chaikin 平滑 ×2 轮（与现有手画地块同参数）
+  → Douglas-Peucker 抽稀（epsilon = 0.8 × 格边长，v6：0.4→0.8 先杀格距阶梯）
+  → Taubin 无收缩平滑 ×3 对（λ=0.5 / μ=−0.53，v6 新增：消格距抖动且不缩水）
+  → Chaikin 平滑 ×3 轮（v6：2→3；数学与现有手画地块同款）
   → 多边形数组（运行时格式）
 ```
 
@@ -149,6 +150,9 @@ density(pos)   = clamp(noise(pos) × mask_mult(pos), 0, 1)
 |---|---|
 | 笔刷 | 按住拖动连续涂当前素材图层的格子；Shift = 直线涂 |
 | 橡皮 | 同笔刷，置空格子；只作用当前图层 |
+| 矩形/圆形/三角形（v6） | 拖拽拉出图形 → 精确谓词写格 → 同一平滑管线；左键画/右键擦；Esc 取消拖拽中图形 |
+| 导入图片（v6） | 系统对话框选 PNG/JPG → 铺满全图的半透明垫图（仅编辑态，不入成品）；可显隐 |
+| 提取到当前图层（v6） | 按亮度阈值把垫图暗（或亮）区域逐格心采样并入当前图层 → 重烘焙平滑。黑白剪影图即"画好形状导入即得"，兜底"PNG 定义形状"需求 |
 | 线条 | 点击落顶点 → 折线，双击/Esc 结束；用于道路；拖动已有顶点可修形 |
 | 放置 | 素材库选中建筑/战区/出生点后点画布放置；拖动移动、滚轮转角度/改半径、Del 删除 |
 | 试飞 | 触发自动保存 → 以本图开一局生存模式（战区/出生点缺省时用默认模板） |
@@ -302,3 +306,4 @@ editor_cells             → 由多边形栅格化反推（格心 point-in-polyg
 | 2026-07-04 | 4 | **底图 PNG 退役**（用户定）：编辑器产出一律纯矢量；PNG 视觉职能矢量化承接（新增地形覆盖图层山/林/田/滩 + post.grain 噪声颗粒 + land_outline 描边）；§2.5 删 basemap 键（参考图仅编辑态）；新增 §3.5 矢量渲染性能预算（静态 canvas 零 queue_redraw / 三角合并，上位法=性能守则 1/2/3）；新增阶段 5 官方图矢量化切换；验收加静态性证明 + 并排对比主观验收 |
 | 2026-07-04 | 4 | status: draft → **approved**（用户定稿） |
 | 2026-07-20 | 5 | 并入 main（60km 扩图之后）适配：编辑网格从 MapBoundary 主开关派生（300×300）；**判定语义改 layer_mode**（union=官方直通一字不差 / even_odd=烘焙环组，废弃 v4 布尔并集——重烘焙数据上有浮点精度斑点）；转换图陆地/城区恢复逐顶点直通；rasterize bbox 剪枝 grow(0.5) 修边缘排除；编辑器缩放下限按世界尺寸自适应 |
+| 2026-07-20 | 6 | 用户首测反馈落地：①平滑管线重做（DP 0.8×格 + Taubin 无收缩 3 对 + Chaikin ×3；纯拉普拉斯会缩水被环形/往返测试否决）②图形工具矩形/圆形/三角形（拖拽+预览+右键擦）③PNG 垫图导入 + 亮度阈值提取到图层④地形覆盖层游戏内渲染（UgcLoader.overlay_layers_from → MapFeatureRenderer.ugc_overlay_layers，官方图零影响）。城区层游戏内已有建筑块渲染（既有 _draw_urban_districts 白拿）；道路线条工具仍归阶段 3 |
