@@ -1,9 +1,9 @@
 ---
 id: skills-720-rework
 kind: system
-status: in-progress  # 三项开工确认按推荐值定案（+1 cap=2 / 王牌=仅操控机 / 机炮吊舱两道翼挂）；T0~T5 已闭环，T6 收尾中
+status: in-progress  # T0~T6 工程侧全闭环（104 条表 / 回归门 32 项绿 / skills720 66 断言）；余 playtest 调数值（§5 末条清单）→ 过后转 done
 schema_version: 1
-spec_version: 7
+spec_version: 8
 owner: 用户
 depends_on: [evolution-attribute-gates, squad-upgrade-ownership, afterburner-mode, inrun-weapon-inventory, command-wheel, zone-reward-docking]
 reconstruction_complete: true
@@ -201,12 +201,12 @@ reconstruction_complete: true
 
 ## 5. 验收
 
-- [ ] +1 轴进度：选带 milestone_plus 的卡 → 对应轴里程碑进度 +1（cap 2）、量表加成格可见、gates 点数不变（双计数断言）。
-- [ ] 品类/王牌/单实例过滤：策士限定不落攻击机、王牌技只在操控机、单实例不逐机（bench 断言）。
-- [ ] 新技能 27 条逐条烟测（触发钩子类打 EventLogger 标记）；移除电磁炮强化后旧存档/奖励池无悬空引用。
-- [ ] 数值 delta 全表三语 desc 同步（⚠ feedback 铁律）；重跑 dump_skill_table 与 720 表零 diff。
-- [ ] 排查双项闭环（数据链结论写回本 spec；寒蝉 team 过滤修复）。
-- [ ] 回归门全绿 + playtest。
+- [x] +1 轴进度：选带 milestone_plus 的卡 → 对应轴里程碑进度 +1（cap 2）、量表加成格可见、gates 点数不变（双计数断言）。✅ bench `skills720` C 组
+- [x] 品类/王牌/单实例过滤：策士限定不落攻击机、王牌技只在操控机、单实例不逐机（bench 断言）。✅ bench B/D 组 + 王牌 strip 往返 F 组
+- [x] 新技能 27 条逐条烟测（触发钩子类打 EventLogger 标记）；移除电磁炮强化后旧存档/奖励池无悬空引用。✅ 核心钩子 bench E/G/H 组覆盖 + 全部触发点带 EventLogger 标记（F4 面板可逐条灌注实测）；railgun_damage 全仓零残引
+- [x] 数值 delta 全表三语 desc 同步（⚠ feedback 铁律）；重跑 dump_skill_table 与 720 表零 diff。✅ 三语 63 改/46 新键；生成表 104 条与数据零 diff（720 原始表未入库，按 §2 明细执行）
+- [x] 排查双项闭环（数据链结论写回本 spec；寒蝉 team 过滤修复）。✅ §4
+- [ ] 回归门全绿 ✅（32 项）+ **playtest ⏳（待用户：吊舱手感/胆大妄为时机窗/保守暂定数值调档——历练 ×1.5、适应 +3s、保卫 30%/15%、转移 15%/50%、全速 +5%/条、专家 +100m/条、QAAM +10%、僚机 +30%/20%、子弹寿命 +20%）**
 
 ## 6. 任务拆分（依赖序）
 
@@ -216,16 +216,33 @@ reconstruction_complete: true
 - [x] **T3 钩子批**：僚机阵亡事件（3 技共用）/ 弹尽事件（2 技）/ 升级回复 / 轮盘联动 ×2 / 地勤优化 / 检讨·适应·强化加力（AB 钩子）/ QAAM 嗜血。✅ 2026-07-22（14 条新技能 + headon_xp；skills720 bench 45 断言全绿）
 - [x] **T4 计数缩放批**：历战者/全速推进/电子战专家/武器大师（recompute 扩展一次做四条）。✅ 2026-07-22（recompute_axis_count_skills 挂 recompute_category_bonuses 尾部；skills720 bench 54 断言）
 - [x] **T5 新机制批**：胆大妄为 R 手动闪避 → 机炮吊舱 rework → 电磁炮双发 → 导弹二段推进（各自独立可拆单）。✅ 2026-07-22（§2.2 全部 27 行到位 → 全表 104 条；skills720 bench 66 断言）
-- [ ] **T6 收尾**：bench 断言全套 + 表重生成 + spec §7 锚点 + playtest 调数值。
+- [x] **T6 收尾**：bench 断言全套 + 表重生成 + spec §7 锚点 + playtest 调数值。✅ 2026-07-22 工程侧闭环（skills720 66 断言 / 104 条表 / §7 回填 / changelog）；**playtest 调数值待用户**（暂定值清单见 §5 末条）
 
-## 7. 实现锚点（done 后回填）
+## 7. 实现锚点（Where —— 纯指针，行号见 reference 索引）
 
-——
+| 关注点 | 位置 |
+|---|---|
+| 归属四字段文档 + 查询/谓词/池门控/ACE 白名单 | `scripts/survivor/survivor_data.gd`（UPGRADES 头注释、`upgrade_scope` `upgrade_classes` `milestone_plus_of` `upgrade_applies_to_machine` `is_upgrade_available_for(squad_classes)` `ACE_FIELD_STATS`） |
+| 品类身份映射（机种类→轴） | `scripts/survivor/evolution_system.gd`（`CLASS_IDENTITY_BY_CATEGORY` `class_identity_of_profile`） |
+| 归属分流 / 生效子集 meta / 王牌迁移 / 入队补挂 | `scripts/survivor/survivor_mode.gd`（`_distribute_upgrade` `_refresh_squad_effective_stacks` `_migrate_ace_field_upgrades` `_apply_build_to_new_member`，chokepoint `_set_player_aircraft`） |
+| +1 轴进度双计数（cap=2） | `scripts/survivor/survivor_player.gd`（`milestone_bonus` `add_milestone_bonus` `get_milestone_progress`）＋发放点 `survivor_mode._grant_milestone_plus` |
+| 定向应用 / 王牌剥离 | `scripts/survivor/survivor_player.gd`（`apply_upgrade_to` `strip_upgrade_from`） |
+| 计数缩放四技 | `scripts/survivor/survivor_data.gd`（`recompute_axis_count_skills` `count_owned_by_axis`）＋ `scripts/aircraft.gd` 四字段＋消费点（`get_radar_range` / CD 赋值点 / physics accessor） |
+| 僚机阵亡 / 弹尽 / 升级回复 / 奖励升级 | `scripts/survivor/survivor_mode.gd`（`_tick_squad_watch` `_on_squad_member_down` `_queue_bonus_upgrade` `_try_present_bonus_upgrade`）＋ `scripts/survivor/skill_hooks.gd`（`try_gun_reserve_mag` `in_free_missile_window`） |
+| AB 三技（检讨/强化加力/适应） | `scripts/survivor/afterburner_charge.gd`（`kill_charge_bonus` `window_duration_mult`）＋ `skill_hooks.gd`（`afterburner` 静态引用、dispatch_on_kill 适应段） |
+| 轮盘联动（保卫阵地/阵地转移） | `scripts/rts/squad_command_controller.gd`（`_update_guard_zone_buff`）＋ `scripts/aircraft/aircraft_physics.gd`（`GUARD_ZONE_G_MULT` `EVAC_SHIFT_SPRINT_BONUS`）＋ `scripts/aircraft.gd`（`_apply_damage` 720 段） |
+| 地勤优化 | `scripts/survivor/dock_point.gd`（hold 减半）＋ `survivor_mode._on_settlement_closed` |
+| QAAM 归因链 | `scripts/missile_manager.gd`（`spawn_missile(is_secondary)`）＋ `scripts/missile.gd`（`is_secondary_weapon`）＋ kind `"qmaam"` |
+| 新机制四件 | `scripts/aircraft/aircraft_weapons.gd`（机炮吊舱翼挂段）/ `scripts/equipment/railgun_equipment.gd`（`double_shot` followup）/ `scripts/missile.gd`（`second_stage` `_second_stage_g_mult`）/ `scripts/aircraft.gd`（`do_manual_dodge`）＋ R 键入口 `survivor_mode` |
+| 量表加成格 / 卡面归属角标 | `scripts/survivor/axis_bars_panel.gd`（`show_state(…, milestone_bonus)`）/ `scripts/survivor/survivor_upgrade_ui.gd`（`_scope_badges`） |
+| 生成器 / 现状全表 | `tools/dump_skill_table.py` → `docs/reference/skill-table.md`（104 条） |
+| 验收 bench | `scripts/tests/test_skills_720.gd`（`--bench=skills720`，66 断言；随 `--bench=all` 回归门） |
 
 ## 8. 变更记录
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-07-22 | 8 | T6 收尾：§5 验收逐项回填（工程侧全过；余 playtest 调数值——保守暂定值清单列于 §5 末条）；§7 实现锚点表回填（纯符号指针）；survivor-skills.md 挂"数值段被本批取代"横幅指向本 spec 与 skill-table；changelog `docs/changelogs/2026-07-22-skills-720-rework.md`（提交序列 bddc8bd→d21789c + 系统级变化 + 已知余项：evolved 战区注册表沿用空表待映射批 / 共振反馈前置组合观察 / 阵亡 watcher 同周期单发）。 |
 | 2026-07-22 | 7 | T5 新机制批落地（+3 条 → 104 条；§2.2 的 27 行全部到位）：①机炮吊舱 rework——两道翼挂（±14px 横向偏移）朝前齐射替代旧"机头+左右15°"三道扇形，弹耗 3→2/次（已拿档案表现变化按开工确认接受）；②电磁炮双发——RailgunEquipment.double_shot，首发后 0.22s 沿同一承诺弹道补射（不重蓄力/不再滚 miss，锁定线所见即所得承诺保持）；③导弹二段推进——Missile.second_stage：一段燃尽后温和续推（0.4×加速度，cap ×1.2）+ 转弯 G 随飞行时间渐强（+8%/s cap +50%）→"距离越远越准"；④胆大妄为（王牌）——manual_dodge_active 禁自动 flare + flare+6，R 键手动闪避=规避滚转动画 + 0.25s no_refresh 严格 i-frame + 有 flare 同时投放（is_flare_jammed 契约照走），CD 2s；ACE_FIELD_STATS 登记 + strip 收回 flare。skills720 bench 扩到 66 断言（i-frame/CD/往返/渐强曲线/双发装备位）。 |
 | 2026-07-22 | 6 | T4 计数缩放批落地（+4 条 → 101 条）：recompute_axis_count_skills 挂 recompute_category_bonuses 尾部（"每次拿技能都重算"同一重算点；stacks 传生效子集 → 王牌两条天然只算操控机）。历战者=斗士轴技能数 ×+5HP cap100（差量幂等记账，换型重放序言清零后整额补回）；全速推进=骑士轴 ×+5% 顶速 cap40%（effective_max_speed_kmh accessor 注入）；电子战专家=策士轴 ×+100m 雷达 cap1km（get_radar_range 消费）；武器大师=装备武器数 ×−5% 全武器 CD cap30%（gun/missile/齐射/rocket/QAAM 五处 CD 赋值点统一乘，起手 gun+msl=−10% 与表一致）。未定量按 +5%/+100m 落，T6 playtest 调。skills720 bench 扩到 54 断言。 |
 | 2026-07-22 | 5 | T3 钩子批落地（+14 条 → 97 条）：①僚机阵亡事件=survivor_mode 0.5s watcher（alive→destroyed 沿；复仇之战 嗜血+无敌15s / 刺客复仇 超载+隐身15s / 黑匣子回收 奖励升级，团灭同周期只触发一次）；②机炮弹尽事件=进装填转换点钩子（备用弹仓 30%/50% 概率回满跳装填；副武器=装填期发射导弹免耗，主/副/齐射三路扣弹口统一过 in_free_missile_window）；③升级回复（leveled_up 全队+10HP）；④轮盘联动：保卫阵地（防守圈内 buff 标志——减伤30% walk _apply_damage、回转+15% 走 _g_buff_mult accessor）+ 阵地转移（撤离冲刺 +15% 速度走 accessor、受伤减半）；⑤地勤优化（停靠判定减半 + 起飞后奖励升级）；⑥AB 三技=队级账本同步（检讨 kill_charge_bonus +3s/层、强化加力窗口 6→9→12s、适应=dispatch_on_kill 静态引用回能/回血）；⑦QAAM 嗜血=导弹归因链新增 is_secondary_weapon → kind"qmaam"；⑧骑士心脏·历练（对头击杀 XP ×1.5，spawner）；⑨群猎注视稀有度按 §2.2 修正（次世代→实验）。奖励升级=复用三选一卡片流（选卡得点语义一致），暂停/结算中顺延。数值未定项按保守值：历练 ×1.5、适应回能 +3s、保卫阵地 30%/15%、阵地转移 15%/50%（T6 playtest 调）。skills720 bench 扩到 45 断言。 |

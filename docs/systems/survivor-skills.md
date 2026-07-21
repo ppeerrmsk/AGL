@@ -1,5 +1,10 @@
 # 生存模式技能系统
 
+> ⚠ **2026-07-22 起本文数值段已被"720 技能整改批"部分取代**：数值/归属/新技能以
+> [spec skills-720-rework](../specs/systems/skills-720-rework.md) 为权威、
+> 现状全表（104 条，自动生成）见 [skill-table.md](../reference/skill-table.md)。
+> 本文的设计哲学/系统机制章节仍有效；图鉴数值段待整批 playtest 定稿后重写。
+
 完整技能图鉴 + 设计哲学 + 待实现技能规划。
 所有技能定义见 [scripts/survivor/survivor_data.gd](../../scripts/survivor/survivor_data.gd) `UPGRADES` 表，运行时应用见 [scripts/survivor/survivor_player.gd](../../scripts/survivor/survivor_player.gd) `apply_upgrade()`。
 
