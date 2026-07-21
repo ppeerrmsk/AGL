@@ -523,6 +523,7 @@ const EVAC_SHIFT_SPRINT_BONUS := 1.15   ## 阵地转移：撤离冲刺追加提�
 static func effective_max_speed_kmh(ac: Aircraft) -> float:
 	var v := ac.params.max_speed if ac.params else 2100.0
 	v *= ac._executioner_speed_mult()  # 侩子手 stack：每层 +5%
+	v *= ac.speed_by_knight_mult       # 全速推进（720 批 T4）：按骑士轴技能数，cap +40%
 	if ac.evasion_mode:
 		var cm: float = float(ac.evasion_modifiers.get("cruise_speed_mult", 1.0))
 		if cm > 1.0:

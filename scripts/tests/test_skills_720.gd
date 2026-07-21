@@ -20,6 +20,7 @@ func run() -> void:
 	_test_pool_class_gate()
 	_test_t3_hooks()
 	_test_ace_strip_roundtrip()
+	_test_axis_count_scaling()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
 
@@ -199,6 +200,50 @@ func _test_ace_strip_roundtrip() -> void:
 	_check("剥离：锁数回 1", ac.max_simultaneous_locks == 1, "")
 	ac.free()
 	sp.free()
+
+
+# ── G. T4 按轴计数缩放（recompute_axis_count_skills；spec §6 T4）──
+func _test_axis_count_scaling() -> void:
+	print("── G. T4 计数缩放：历战者 / 全速推进 / 电子战专家 / 武器大师 ──")
+	var ac := _make_test_aircraft()
+	ac.params.gun = GunParams.new()
+	ac.params.missile = MissileParams.new()
+	# 历战者：斗士轴 3 技（veteran_hp 自身 + hp_up + gun_damage）→ +15 HP
+	var stacks: Dictionary = {"veteran_hp": 1, "hp_up": 1, "gun_damage": 1}
+	SurvivorData.recompute_axis_count_skills(ac, stacks)
+	_check("历战者：斗士轴 3 技 → max_hp 100→115", is_equal_approx(ac.params.max_hp, 115.0),
+		"got %.1f" % ac.params.max_hp)
+	SurvivorData.recompute_axis_count_skills(ac, stacks)
+	_check("历战者：重算幂等（仍 115）", is_equal_approx(ac.params.max_hp, 115.0),
+		"got %.1f" % ac.params.max_hp)
+	stacks["kill_heal"] = 1
+	SurvivorData.recompute_axis_count_skills(ac, stacks)
+	_check("历战者：+1 斗士技 → 120", is_equal_approx(ac.params.max_hp, 120.0),
+		"got %.1f" % ac.params.max_hp)
+	# 全速推进：骑士轴 2 技（speed_by_knight 自身 + missile_count）→ ×1.10
+	stacks["speed_by_knight"] = 1
+	stacks["missile_count"] = 1
+	SurvivorData.recompute_axis_count_skills(ac, stacks)
+	_check("全速推进：骑士轴 2 技 → ×1.10", is_equal_approx(ac.speed_by_knight_mult, 1.10),
+		"got %.2f" % ac.speed_by_knight_mult)
+	# 电子战专家：策士轴 1 技（自身）→ +50px（=100m）
+	stacks["ew_expert"] = 1
+	SurvivorData.recompute_axis_count_skills(ac, stacks)
+	_check("电子战专家：策士轴 1 技 → +50px", is_equal_approx(ac.ew_expert_radar_bonus_px, 50.0),
+		"got %.0f" % ac.ew_expert_radar_bonus_px)
+	# 武器大师：gun+missile 2 件 → CD ×0.90（起手 -10% 与 spec 一致）
+	stacks["weapon_master"] = 1
+	SurvivorData.recompute_axis_count_skills(ac, stacks)
+	_check("武器大师：起手 gun+msl → CD ×0.90", is_equal_approx(ac.weapon_master_cd_mult, 0.90),
+		"got %.2f" % ac.weapon_master_cd_mult)
+	# 清空 → 全部回默认（零 buff 行为不变 + 历战者差量收回）
+	SurvivorData.recompute_axis_count_skills(ac, {})
+	_check("清空：速度/雷达/CD 回默认", is_equal_approx(ac.speed_by_knight_mult, 1.0)
+		and is_equal_approx(ac.ew_expert_radar_bonus_px, 0.0)
+		and is_equal_approx(ac.weapon_master_cd_mult, 1.0), "")
+	_check("清空：历战者差量收回（HP 回 100）", is_equal_approx(ac.params.max_hp, 100.0),
+		"got %.1f" % ac.params.max_hp)
+	ac.free()
 
 
 func _make_test_aircraft() -> Aircraft:

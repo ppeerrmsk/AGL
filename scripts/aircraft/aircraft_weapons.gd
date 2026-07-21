@@ -330,7 +330,8 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 			ac._fire_cooldown += intra
 		else:
 			# 梭间 CD：按平均射速守恒（burst_count × base_interval 的剩余额度）
-			ac._fire_cooldown = maxf(float(maxi(gun.burst_count, 1)) * (base_interval - intra), 0.0)
+			ac._fire_cooldown = maxf(float(maxi(gun.burst_count, 1)) * (base_interval - intra), 0.0) \
+			* ac.weapon_master_cd_mult   # 武器大师（720 批 T4）
 
 ## [GUN_BURST] 梭起始诊断快照（节流 0.5s；仅友方 team 0 / 选中机，敌机静默防刷屏）。
 ## 补可观测性缺口（2026-07-07 追"僚机对空放枪"）：打空的梭在 [GUN]（仅命中记录）/
@@ -575,7 +576,7 @@ static func update_rocket(ac: Aircraft, delta: float) -> void:
 			"pos": ac.global_position,
 			"pylon": -1 if (n % 2 == 0) else 1,
 		})
-	ac._rocket_burst_cooldown = rk.burst_cooldown
+	ac._rocket_burst_cooldown = rk.burst_cooldown * ac.weapon_master_cd_mult
 
 ## 真正把一发火箭弹交给 BulletManager
 ## pylon: -1 = 左挂点 / 1 = 右挂点 / 0 = 机身中线
@@ -915,7 +916,7 @@ static func _fire_missile_at(ac: Aircraft, target_unit: CombatUnit, msl: Missile
 	# 主弹路径：写共享 _missile_cooldown / _crank_timer / 装填触发
 	# 副槽路径：cooldown / reload 全在 update_secondary_missile 自管，这里不动
 	if not is_secondary:
-		ac._missile_cooldown = msl.cooldown
+		ac._missile_cooldown = msl.cooldown * ac.weapon_master_cd_mult
 		ac._crank_timer = Aircraft.CRANK_DURATION
 		if ac.enable_missile_reload and ac.missiles_remaining <= 0:
 			ac._missile_reload_active = true
@@ -1077,7 +1078,7 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 		# 多目标追踪升级下跳过冷却，允许新锁定好的目标下一帧立刻开火；
 		# 单锁定模式仍保留正常冷却
 		if ac.max_simultaneous_locks <= 1:
-			ac._missile_cooldown = msl.cooldown
+			ac._missile_cooldown = msl.cooldown * ac.weapon_master_cd_mult
 		ac._crank_timer = Aircraft.CRANK_DURATION
 		if ac.enable_missile_reload and ac.missiles_remaining <= 0:
 			ac._missile_reload_active = true
@@ -1409,7 +1410,7 @@ static func update_secondary_missile(ac: Aircraft, delta: float) -> void:
 		return
 
 	_fire_missile_at(ac, best, sec, true)
-	ac._secondary_cooldown = sec.cooldown
+	ac._secondary_cooldown = sec.cooldown * ac.weapon_master_cd_mult
 	ac.secondary_combat_target = best
 
 ## 武器特定的目标优先级分发器

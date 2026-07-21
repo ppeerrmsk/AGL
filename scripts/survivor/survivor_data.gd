@@ -1358,6 +1358,53 @@ const UPGRADES: Array[Dictionary] = [
 		"keywords": ["missile", "bloodlust"],
 		"requires": ["secondary_missile"],
 	},
+	# ── 720 批 T4 新增：按轴计数缩放四技（recompute_axis_count_skills）──
+	{
+		"id": "veteran_hp",
+		"name": "UPGRADE_VETERAN_HP_NAME",
+		"desc": "UPGRADE_VETERAN_HP_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "survival",
+		"rarity": Rarity.STABLE,
+		"keywords": ["hp"],
+	},
+	{
+		"id": "speed_by_knight",
+		"name": "UPGRADE_SPEED_BY_KNIGHT_NAME",
+		"desc": "UPGRADE_SPEED_BY_KNIGHT_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "mobility",
+		"rarity": Rarity.STABLE,
+		"keywords": ["speed"],
+	},
+	{
+		"id": "ew_expert",
+		"name": "UPGRADE_EW_EXPERT_NAME",
+		"desc": "UPGRADE_EW_EXPERT_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"rarity": Rarity.STABLE,
+		"scope": "ace",                ## 王牌：只在操控机生效（meta 生效子集驱动，切控自动迁移）
+		"keywords": ["radar"],
+	},
+	{
+		"id": "weapon_master",
+		"name": "UPGRADE_WEAPON_MASTER_NAME",
+		"desc": "UPGRADE_WEAPON_MASTER_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "secondary",
+		"rarity": Rarity.ADVANCED,
+		"scope": "ace",
+		"keywords": ["gun", "missile"],
+	},
 ]
 
 # ── 词条联动：某类技能数量 → 某个参数 ────────────────────
@@ -1371,6 +1418,56 @@ const CATEGORY_BONUSES: Array[Dictionary] = [
 		"per_skill": 0.10,                ## 每持有 1 个该类技能 +10%
 	},
 ]
+
+## 某轴"已拥有的不同技能 id 数"（720 批 T4 按轴计数缩放用；不看堆叠层数）
+static func count_owned_by_axis(stacks: Dictionary, axis: StringName) -> int:
+	var n: int = 0
+	for u in UPGRADES:
+		if int(stacks.get(str(u.get("id", "")), 0)) > 0 and axis_of_upgrade(u) == axis:
+			n += 1
+	return n
+
+
+## 720 批 T4：按轴计数缩放技能（历战者/全速推进/电子战专家/武器大师）。
+## 由 recompute_category_bonuses 尾部调用（"每次拿到技能都要重算"= 同一重算点）；
+## stacks 传"该机生效子集"→ 王牌两条（ew_expert/weapon_master）天然只在操控机 meta 里。
+## 零技能路径：全部字段回默认值，行为与 baseline 一致。
+static func recompute_axis_count_skills(ac: Aircraft, stacks: Dictionary) -> void:
+	# 历战者：按斗士轴技能数 +5 HP/条，cap +100。差量幂等（applied 记账）；
+	# 换型重放把 applied 清零后由本函数整额补回（挂 _replay_player_upgrades 序言）。
+	var want_hp: float = 0.0
+	if int(stacks.get("veteran_hp", 0)) > 0:
+		want_hp = minf(5.0 * float(count_owned_by_axis(stacks, AXIS_GLADIATOR)), 100.0)
+	var delta_hp: float = want_hp - ac.veteran_hp_bonus_applied
+	if absf(delta_hp) > 0.01 and ac.params:
+		ac.params.max_hp += delta_hp
+		if delta_hp > 0.0:
+			ac.hp = minf(ac.hp + delta_hp, ac.params.max_hp)
+		else:
+			ac.hp = minf(ac.hp, ac.params.max_hp)
+		ac.veteran_hp_bonus_applied = want_hp
+	# 全速推进：按骑士轴技能数顶速 +5%/条，cap +40%（effective_max_speed_kmh 消费）
+	ac.speed_by_knight_mult = 1.0
+	if int(stacks.get("speed_by_knight", 0)) > 0:
+		ac.speed_by_knight_mult = 1.0 + minf(0.05 * float(count_owned_by_axis(stacks, AXIS_KNIGHT)), 0.40)
+	# 电子战专家（王牌）：按策士轴技能数雷达 +100m/条（50px），cap +1km（500px）
+	ac.ew_expert_radar_bonus_px = 0.0
+	if int(stacks.get("ew_expert", 0)) > 0:
+		ac.ew_expert_radar_bonus_px = minf(50.0 * float(count_owned_by_axis(stacks, AXIS_SCHEMER)), 500.0)
+	# 武器大师（王牌）：按装备武器数全武器 CD −5%/件，cap −30%（起手 gun+msl = −10%）
+	ac.weapon_master_cd_mult = 1.0
+	if int(stacks.get("weapon_master", 0)) > 0 and ac.params:
+		var wn: int = 0
+		if ac.params.gun: wn += 1
+		if ac.params.missile: wn += 1
+		if ac.params.secondary_missile: wn += 1
+		if ac.params.rocket: wn += 1
+		if ac.params.torpedo: wn += 1
+		if ac.params.loyal_wingman: wn += 1
+		if ac.params.has_equipment_of_kind("railgun"): wn += 1
+		if ac.params.has_equipment_of_kind("laser"): wn += 1
+		ac.weapon_master_cd_mult = 1.0 - minf(0.05 * float(wn), 0.30)
+
 
 ## 重算所有 CATEGORY_BONUSES 规则，把结果写入 aircraft 对应字段。
 ##   stacks: survivor_mode.upgrade_stacks（id → 层数）
@@ -1389,6 +1486,8 @@ static func recompute_category_bonuses(aircraft: Aircraft, stacks: Dictionary) -
 				count += 1
 		var mult := 1.0 + float(rule["per_skill"]) * float(count)
 		aircraft.set(rule["field"], mult)
+	# 720 批 T4：按轴计数缩放四技（同一重算点，历战者/全速推进/电子战专家/武器大师）
+	recompute_axis_count_skills(aircraft, stacks)
 
 
 # ── 升级筛选 ─────────────────────────────────────────────

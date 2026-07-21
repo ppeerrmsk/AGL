@@ -848,3 +848,11 @@ UPGRADE_BLACKBOX_RECOVERY_NAME,黑匣子回收,Black Box Recovery,ブラック�
 UPGRADE_BLACKBOX_RECOVERY_DESC,僚机或王牌被击坠时，获得一个升级,Gain a free upgrade when a squadmate is shot down,僚機かエースの撃墜時にアップグレード1回獲得
 UPGRADE_QMAAM_BLOODLUST_NAME,QAAM 嗜血,QAAM Bloodlust,QAAM血の渇望
 UPGRADE_QMAAM_BLOODLUST_DESC,格斗弹击杀后进入嗜血状态 10 秒,QAAM kills trigger 10s of Bloodlust,格闘ミサイル撃墜で血の渇望10秒
+UPGRADE_VETERAN_HP_NAME,历战者,Veteran,歴戦者
+UPGRADE_VETERAN_HP_DESC,按已持有的【斗士轴】技能数提升全队血量（+5 HP/条，上限 +100）,+5 max HP per Gladiator-axis skill owned (cap +100),闘士軸スキル数×+5HP（上限+100）
+UPGRADE_SPEED_BY_KNIGHT_NAME,全速推进,Full Throttle,全速前進
+UPGRADE_SPEED_BY_KNIGHT_DESC,按已持有的【骑士轴】技能数提升最高速度（+5%/条，上限 +40%）,+5% top speed per Knight-axis skill owned (cap +40%),騎士軸スキル数×+5%最高速度（上限+40%）
+UPGRADE_EW_EXPERT_NAME,电子战专家,EW Expert,電子戦エキスパート
+UPGRADE_EW_EXPERT_DESC,按已持有的【策士轴】技能数提升雷达距离（+100m/条，上限 +1km）,+100m radar range per Schemer-axis skill owned (cap +1km),策士軸スキル数×+100mレーダー（上限+1km）
+UPGRADE_WEAPON_MASTER_NAME,武器大师,Weapon Master,ウェポンマスター
+UPGRADE_WEAPON_MASTER_DESC,按装备武器数降低全武器冷却（每件 -5%，上限 -30%）,-5% weapon cooldowns per equipped weapon (cap -30%),装備武器数×-5%全武器CD（上限-30%）

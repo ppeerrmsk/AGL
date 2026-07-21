@@ -2813,6 +2813,7 @@ func _replay_player_upgrades() -> void:
 	for m in _squad_members_alive():
 		m.missile_reload_duration = 20.0  # aircraft.gd 字段默认值
 		m.gun_reload_duration = 25.0
+		m.veteran_hp_bonus_applied = 0.0  # 历战者差量记账清零：换型后由 recompute 整额补回（720 T4）
 	var replayed: int = 0
 	for u in SurvivorData.UPGRADES:
 		var stacks: int = int(upgrade_stacks.get(u["id"], 0))

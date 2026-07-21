@@ -35,7 +35,7 @@
 
 | 功能 | 位置 |
 |------|------|
-| 物理主循环 | `aircraft.gd:765` _physics_process |
+| 物理主循环 | `aircraft.gd:773` _physics_process |
 | 目标航向计算 | `aircraft/aircraft_physics.gd:71` update_target_heading |
 | 滚转角更新（G 限制由 tactical_aggression 插值调节）| `aircraft/aircraft_physics.gd:88` update_bank |
 | 航向更新 ω=g×tan(bank)/speed | `aircraft/aircraft_physics.gd:203` update_heading |
@@ -51,7 +51,7 @@
 | 失速速度 V_stall×√G | `aircraft/aircraft_physics.gd:555` stall_speed |
 | 高空最大速度衰减 | `aircraft/aircraft_physics.gd:587` max_speed_at_altitude |
 | 空气密度比 σ=e^(-alt/8500) | `aircraft/aircraft_physics.gd:609` air_density_ratio |
-| 高度档位切换（生存模式） | `aircraft.gd:1287` set_target_tier |
+| 高度档位切换（生存模式） | `aircraft.gd:1295` set_target_tier |
 
 ## 能量管理
 
@@ -72,9 +72,9 @@
 | 碰撞航路拦截点（解交会时刻，SETUP 段引导；区别于按弹速算的机炮提前点） | `ai/tactical/bfm_intent.gd` `_intercept_point`（对照 `_gun_lead_point`） |
 | 导弹相位坡度软化的适用门（锁定满但仍在发射锥外 → 不降转弯权限，破"锁上了转不动"死锁） | `aircraft.gd` `_get_missile_phase` + `_target_within_launch_cone` |
 | planner 统一时钟源（无头 sim 可拨快；intent hysteresis / EXTEND 倒计时都读它） | `ai/tactical/situation.gd` `now` + `sim_time_override`（`aircraft.gd` 写 `_bfm_extend_until` 也走它） |
-| 设定战斗目标 | `aircraft.gd:1555` set_combat_target |
-| 清除战斗目标 | `aircraft.gd:1567` clear_combat_target |
-| CombatParams 获取 | `aircraft.gd:1631` _combat_params |
+| 设定战斗目标 | `aircraft.gd:1563` set_combat_target |
+| 清除战斗目标 | `aircraft.gd:1575` clear_combat_target |
+| CombatParams 获取 | `aircraft.gd:1639` _combat_params |
 | 自动扫描机炮目标 | `aircraft/aircraft_weapons.gd:107` auto_gun_scan |
 
 ## 武器系统 — 机炮
@@ -88,7 +88,7 @@
 | 每梭弹数参数 | `scripts/gun_params.gd` burst_count |
 | [GUN_BURST] 梭起始诊断（射向/最近敌机距离快照，追"对空放枪"） | `scripts/aircraft/aircraft_weapons.gd` _log_burst_start |
 | [GUN_SCAN] 被动扫描锁存上升沿诊断 | `scripts/aircraft/aircraft_weapons.gd` auto_gun_scan 尾部 |
-| 机炮射程（像素） | `aircraft.gd:1639` _gun_range_px |
+| 机炮射程（像素） | `aircraft.gd:1647` _gun_range_px |
 | 子弹生成 | `bullet_manager.gd:108` spawn_bullet |
 | 子弹物理+命中检测 | `bullet_manager.gd` _physics_process |
 | 曳光弹绘制 | `bullet_manager.gd` _draw（区分 is_rocket）|
@@ -132,18 +132,18 @@
 | 机炮冲锋：进入承诺判定 | `aircraft/aircraft_combat_tracking.gd:611` should_commit_gun_pass |
 | 机炮冲锋：冲锋完成判定 | `aircraft/aircraft_combat_tracking.gd:619` is_gun_pass_finished |
 | 导弹发射主逻辑 | `aircraft/aircraft_weapons.gd:711` update_missile |
-| 导弹阻断日志（被锁/RNG/能量等原因） | `aircraft.gd:2079` _log_msl_block |
-| 齐射空手日志（auto_fire 实际值 + 各过滤踢除计数） | `aircraft.gd:2097` _log_salvo_skip |
+| 导弹阻断日志（被锁/RNG/能量等原因） | `aircraft.gd:2087` _log_msl_block |
+| 齐射空手日志（auto_fire 实际值 + 各过滤踢除计数） | `aircraft.gd:2105` _log_salvo_skip |
 | 单枚发射 | `aircraft/aircraft_weapons.gd:885` _fire_missile_at |
-| 多目标齐射 | `aircraft/aircraft_weapons.gd:925` _fire_multi_lock_salvo |
-| 最优目标选择（评分） | `aircraft.gd:2157` _select_best_missile_target |
+| 多目标齐射 | `aircraft/aircraft_weapons.gd:929` _fire_multi_lock_salvo |
+| 最优目标选择（评分） | `aircraft.gd:2165` _select_best_missile_target |
 | 射程包线检查 | `aircraft/aircraft_combat_tracking.gd:632` is_in_missile_envelope |
-| 导弹阶段判定（接近/照射/保持） | `aircraft.gd:1673` _get_missile_phase |
-| 是否应该用机炮 | `aircraft.gd:1700` _should_use_gun |
-| Crank 状态查询 | `aircraft.gd:1711` is_cranking |
-| 导弹射程（像素） | `aircraft.gd:1645` _missile_range_px |
-| 有效导弹射程=min(导弹,雷达)像素 | `aircraft.gd:1655` _effective_missile_range_px |
-| 有效射程（像素） | `aircraft.gd:1667` _effective_range_px |
+| 导弹阶段判定（接近/照射/保持） | `aircraft.gd:1681` _get_missile_phase |
+| 是否应该用机炮 | `aircraft.gd:1708` _should_use_gun |
+| Crank 状态查询 | `aircraft.gd:1719` is_cranking |
+| 导弹射程（像素） | `aircraft.gd:1653` _missile_range_px |
+| 有效导弹射程=min(导弹,雷达)像素 | `aircraft.gd:1663` _effective_missile_range_px |
+| 有效射程（像素） | `aircraft.gd:1675` _effective_range_px |
 | 导弹飞行物理+PN制导 | `missile.gd:94` _physics_process |
 | 导弹低空制导衰减 | `missile.gd:516` _guidance_degradation |
 | 导弹生成 | `missile_manager.gd:41` spawn_missile |
@@ -163,10 +163,10 @@
 | 干扰成功率计算 | `aircraft/aircraft_flares.gd:451` calc_jam_chance |
 | 粒子更新 | `aircraft/aircraft_flares.gd:484` _update_particles |
 | 失误概率 / 对头减免（FlareParams 字段） | `flare_params.gd:19-22` fail_chance / head_on_fail_reduction |
-| 规避模式（导弹来袭 S 型 + 降高度）| `aircraft.gd:1831` _update_evasion |
-| 规避模式开关（AI → Aircraft） | `aircraft.gd:1733` set_evasion_mode |
+| 规避模式（导弹来袭 S 型 + 降高度）| `aircraft.gd:1839` _update_evasion |
+| 规避模式开关（AI → Aircraft） | `aircraft.gd:1741` set_evasion_mode |
 | 加力模式充能资源（30s 满 / 击杀 +4s / 6s 窗口，spec afterburner-mode） | `survivor/afterburner_charge.gd:40` try_activate |
-| 加力窗口标志（全队 6s 强 buff，生存层写入） | `aircraft.gd:509` afterburner_window_active |
+| 加力窗口标志（全队 6s 强 buff，生存层写入） | `aircraft.gd:517` afterburner_window_active |
 | 加力窗口机炮 100% 闪避（绕 dodge cap 短路） | `aircraft.gd:2339` effective_dodge |
 | 加力窗口滚转甩导弹（90% → is_flare_jammed） | `missile_manager.gd:354` AB_MISSILE_DODGE |
 | 加力窗口速度地板 + 加速 ×3 | `aircraft/aircraft_physics.gd:513` AB_WINDOW_ACCEL_MULT |
@@ -176,25 +176,25 @@
 | 战术机动查询（通用） | `aircraft.gd` get_maneuver |
 | AI 控制器查询 | `aircraft.gd` _get_ai_controller |
 | 眼镜蛇后方判定（AI） | `ai_controller.gd` _is_missile_from_rear |
-| 锁定免疫检查 | `aircraft.gd:2720` is_lock_immune |
+| 锁定免疫检查 | `aircraft.gd:2726` is_lock_immune |
 
 ## 伤害与击毁
 
 | 功能 | 位置 |
 |------|------|
 | 受伤（导弹） | `aircraft.gd:2239` take_damage |
-| 受伤（机炮，含闪避） | `aircraft.gd:2285` take_bullet_damage |
-| 内部伤害应用 | `aircraft.gd:2374` _apply_damage |
-| 地面撞击检查 | `aircraft.gd:2498` _check_ground_crash |
+| 受伤（机炮，含闪避） | `aircraft.gd:2293` take_bullet_damage |
+| 内部伤害应用 | `aircraft.gd:2382` _apply_damage |
+| 地面撞击检查 | `aircraft.gd:2503` _check_ground_crash |
 | 击毁流程 | `aircraft.gd:2508` _start_destroy |
-| 坠落动画 | `aircraft.gd:2515` _update_destroy |
+| 坠落动画 | `aircraft.gd:2520` _update_destroy |
 | 基类伤害 | `combat_unit.gd:160` take_damage |
 
 ## 雷达系统
 
 | 功能 | 位置 |
 |------|------|
-| 雷达锥判定（飞机） | `aircraft.gd:2553` is_in_radar_cone |
+| 雷达锥判定（飞机） | `aircraft.gd:2559` is_in_radar_cone |
 | 雷达锥判定（地面单位） | `ground_unit.gd:247` is_in_radar_cone |
 | 雷达锥判定（SAM，360°） | `sam_unit.gd:80` is_in_radar_cone |
 | 全局锁定计算循环 | `main.gd:198` _update_radar_locks |
@@ -320,7 +320,7 @@
 | 状态常量（INVINCIBLE/STEALTH/BLOODLUST/OVERLOAD/JAM/SLOW/FEAR）| `scripts/status_effects.gd:11-22` |
 | 通用 tick（倒计时 + 写 status_jam_active）| `scripts/status_effects.gd:99` tick |
 | Aircraft 专用 update（所有派生标记 + 副作用）| `scripts/status_effects.gd:115` update |
-| Aircraft.apply_status 覆写（UAV 滤 FEAR / OVERLOAD 钩子）| `aircraft.gd:2208` apply_status |
+| Aircraft.apply_status 覆写（UAV 滤 FEAR / OVERLOAD 钩子）| `aircraft.gd:2216` apply_status |
 | NavalUnit.apply_status 覆写（只接受 JAM）| `scripts/naval/naval_unit.gd:486` apply_status |
 | AOE 状态广播（fear_applies_slow 联动）| `scripts/survivor/aoe_broadcast.gd` apply_status_in_radius |
 
@@ -536,11 +536,11 @@
 | 功能 | 位置 |
 |------|------|
 | 归属字段文档（scope/classes/milestone_plus） | `survivor/survivor_data.gd:79` 附近 UPGRADES 头注释 |
-| scope 查询 | `survivor/survivor_data.gd:1466` upgrade_scope |
-| 品类数组查询 | `survivor/survivor_data.gd:1471` upgrade_classes |
-| "+1 轴进度"目标轴查询 | `survivor/survivor_data.gd:1477` milestone_plus_of |
-| 王牌字段型 stat 白名单 | `survivor/survivor_data.gd:1485` ACE_FIELD_STATS |
-| 归属生效纯谓词 | `survivor/survivor_data.gd:1499` upgrade_applies_to_machine |
+| scope 查询 | `survivor/survivor_data.gd:1565` upgrade_scope |
+| 品类数组查询 | `survivor/survivor_data.gd:1570` upgrade_classes |
+| "+1 轴进度"目标轴查询 | `survivor/survivor_data.gd:1576` milestone_plus_of |
+| 王牌字段型 stat 白名单 | `survivor/survivor_data.gd:1584` ACE_FIELD_STATS |
+| 归属生效纯谓词 | `survivor/survivor_data.gd:1598` upgrade_applies_to_machine |
 | 品类身份映射表 | `survivor/evolution_system.gd:73` CLASS_IDENTITY_BY_CATEGORY |
 | 档案 → 品类身份 | `survivor/evolution_system.gd:87` class_identity_of_profile |
 | 定向应用（借指针走同 match） | `survivor/survivor_player.gd:291` apply_upgrade_to |
@@ -569,7 +569,7 @@
 | 复仇之战/刺客复仇/黑匣子分发 | `survivor/survivor_mode.gd:2711` _on_squad_member_down |
 | 奖励升级队列/呈现 | `survivor/survivor_mode.gd:2728` _queue_bonus_upgrade |
 | 保卫阵地圈内 buff 维护 | `rts/squad_command_controller.gd:640` _update_guard_zone_buff |
-| 阵地转移/保卫阵地/座舱护甲减伤 | `aircraft.gd:2377` _apply_damage 720 批段 |
+| 阵地转移/保卫阵地/座舱护甲减伤 | `aircraft.gd:2382` _apply_damage 720 批段 |
 | 撤离/防守物理注入 | `aircraft/aircraft_physics.gd:453` _g_buff_mult 与 EVAC_SHIFT_SPRINT_BONUS |
 | QAAM 击杀归因（kind="qmaam"） | `missile_manager.gd:41` spawn_missile is_secondary |
 | 对头击杀经验 ×1.5（历练） | `survivor/survivor_spawner.gd:2514` 附近 headon_xp 段 |
@@ -683,8 +683,8 @@
 
 | 关注点 | 位置 |
 |------|------|
-| **硬规则**：no_pilot 永不说话 | `aircraft.gd:323` can_speak_on_radio |
-| 等级门字段 | `aircraft.gd:324` has_radio_voice |
+| **硬规则**：no_pilot 永不说话 | `aircraft.gd:333` can_speak_on_radio |
+| 等级门字段 | `aircraft.gd:329` has_radio_voice |
 | 常规敌机赋值（与 no_pilot 同处） | `survivor/survivor_spawner.gd:1796` |
 | Mother Goose 蜂群 UAV | `survivor/mother_goose_uav_swarm.gd:250` |
 | Mother Goose MQ-X | `survivor/mother_goose_boss.gd:443` |
@@ -748,7 +748,7 @@
 
 | 功能 | 位置 |
 |------|------|
-| 飞机绘制入口 | `aircraft.gd:2573` _draw |
+| 飞机绘制入口 | `aircraft.gd:2579` _draw |
 | 飞机线框图标 | `aircraft_renderer.gd:658` draw_aircraft_icon |
 | 指挥型图标 | `aircraft_renderer.gd:798` draw_commander_icon |
 | 雷达锥绘制 | `aircraft_renderer.gd:204` draw_radar_cone |

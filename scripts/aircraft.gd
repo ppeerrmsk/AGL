@@ -302,6 +302,11 @@ var altitude_authority_mult: float = 1.0  ## 高度操纵权威（云雾机动�
 var cloud_lock_stealth: bool = false      ## 云雾隐身（云雾机动战区奖励）：云中任意高度档 lock_rate ×0.1
 var ecm_range_mult: float = 1.0           ## ECM 吊舱（战区奖励）：敌人雷达对我的有效距离 × 此值（0.75 = 缩短 25%）
 var category_radar_mult: float = 1.0      ## 词条联动：电子战类技能数量 → 雷达/锁定范围。由 SurvivorData.recompute_category_bonuses 写
+## ── 720 批 T4 按轴计数缩放（同由 recompute_category_bonuses 写；零技能=默认值零变化）──
+var veteran_hp_bonus_applied: float = 0.0 ## 历战者：已应用的 HP 加成（差量幂等；换型重放序言清零）
+var speed_by_knight_mult: float = 1.0     ## 全速推进：顶速倍率（aircraft_physics.effective_max_speed_kmh 消费）
+var ew_expert_radar_bonus_px: float = 0.0 ## 电子战专家：雷达距离加成（王牌；get_radar_range 消费）
+var weapon_master_cd_mult: float = 1.0    ## 武器大师：全武器 CD 倍率（王牌；各 CD 赋值点消费）
 
 # ── 状态效果系统（StatusEffects 模块管理）──
 ## 容器 status_effects + JAM 派生标记 status_jam_active 在 CombatUnit 基类，敌我对称
@@ -2536,7 +2541,8 @@ const RADAR_RANGE_ALT_KEYS := [
 ## 雷达有效距离（params.radar_range × 当前高度连续倍率）
 ## 是否要 ECM/buff 由调用方决定，这里只算"我的雷达高度修正"
 func effective_radar_range_px() -> float:
-	var base: float = (params.radar_range if params else 300.0) * category_radar_mult
+	var base: float = (params.radar_range if params else 300.0) * category_radar_mult \
+		+ ew_expert_radar_bonus_px   # 电子战专家（720 批 T4）：按策士轴技能数加距，cap 1km
 	var alt: float = altitude
 	# 锚点表线性插值 — 与 AircraftRenderer.altitude_base_scale 同思路
 	for i in range(RADAR_RANGE_ALT_KEYS.size() - 1):
