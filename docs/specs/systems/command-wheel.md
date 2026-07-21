@@ -3,7 +3,7 @@ id: command-wheel
 kind: system
 status: in-progress
 schema_version: 1
-spec_version: 16
+spec_version: 17
 owner: 设计/用户
 depends_on: [rts-command, squad-cohesion, weapon-employment-doctrine]
 reconstruction_complete: false
@@ -33,8 +33,9 @@ reconstruction_complete: false
 
 | 字段 | 默认值 | 说明 |
 |---|---|---|
-| `hold_threshold_s` | 0.15 s | 按住超过此时长呼出轮盘；短于此 = 普通单击（双击冲锋窗口不受影响） |
-| `drag_threshold_px` | 24 px | 按住期间指针位移超过此值**立即**呼出（拖动意图明确，不等时长） |
+| `hold_threshold_s` | 0.35 s（2026-07-20 用户调参，原 0.15 快速双击就会误呼） | 按住超过此时长呼出轮盘；短于此 = 普通单击（双击冲锋窗口不受影响）。按住期间显示**蓄力指示圈**（§3.9），转满即呼出 |
+| `drag_threshold_px` | 36 px（原 24，防双击带小位移误触） | 按住期间指针位移超过此值**立即**呼出（主动拖拽意图明确，不等蓄力） |
+| `charge_visual_delay_s` | 0.08 s | 按住多久后开始显示蓄力圈——普通快速单击零 UI 噪音 |
 | `dead_zone_radius_px` | 30 px | 中心死区；松开在死区内 = 取消，不执行 |
 | `ring1_outer_px` | 110 px | 一环选择区外沿（30~110 为一环；指针进入扇区即高亮） |
 | `ring2_gesture` | 悬停开关槽即弹出二级面板；指针拉出 176 px 进入选项区，按角度选项 | **二级面板（已启用，用户定稿）**：开关槽显式选值（开/关、爬升/低空、集火/分火、散开/紧密），拉到选项上松开=设为该值，直接在槽上松开=翻转；当前生效值带标记点 |
@@ -266,6 +267,7 @@ exclusion 存续期间（t_left 递减）:
 - **功能说明条（tooltip）**：轮盘下方常驻说明条（视口边缘钳制），显示悬停项的教程文本（`WHEEL_TIP_*`，13 条三语：含"什么是游击/打带跑"等概念解释）；未悬停时解释中心默认行为（前往此处 / 攻击目标）。
 - **UI 优先级**：轮盘 CanvasLayer=100，高于全部战场 UI（HUD=10 / 战术地图=15 / 战区提示=18 / 边界提示·教程·升级=20 / debug=30-31）；激活期间绘制**全屏压暗背景（黑 35%）**，边界警告等横幅统一淡出，轮盘 + 范围圈成为唯一视觉焦点（与 0.3x 子弹时间配套）。
 - **指挥对象高亮**（用户定稿）：攻击轮盘期间按下的目标（敌机/地面单位通用）套高亮标记层——脉冲柔光圈 + 主环 + 4 段慢旋括环，与槽位高亮同色系（黄），跟随目标移动、随镜头缩放；屏幕空间覆盖实现（不改单位本体渲染），目标阵亡即消失。明确"我现在正针对这个目标下令"。
+- **呼出蓄力指示圈**（用户定稿 2026-07-20，仿机场停靠引导灯）：按住 0.08 s 后在按点出现小圈——外圈 12 枚引导灯随蓄力进度顺时针依次点亮 + 进度弧 + 一段追逐流动的扫描光带；>80% 整体切高亮色预告"即将进入"；**转满（0.35 s）才呼出轮盘**。快速单击在静默期内结束，零 UI 噪音；主动拖拽（>36 px）仍即时呼出不等蓄力。
 
 ## 4. 结构与组成（Structure）
 
@@ -371,3 +373,4 @@ exclusion 存续期间（t_left 递减）:
 | 2026-07-12 | 14 | **阶段 4 姿态接线落地——保持距离与突击自此行为分化**：①`Aircraft.attack_posture` 随 commanded_target 走（轮盘广播写入；move/cancel/regroup/evacuate/单点点名/目标阵亡各清除点归 AUTO），Situation 门控透传（无命令不读字段，防残留）；②面目标姿态强制走 surface-attack-pass `ground_strafe` 分流（该线已修病例 2 死锁：STANDOFF inner 固定近距 2.2km + 侧向 beam break + 预减速）；③空中目标 STANDOFF 路由 joust 打带跑（`_posture_standoff_air`，BFM/simple 双钩子，仅空中点名目标生效）；④test_surface_pass 新增 D 段（门控×2 + 强制 STANDOFF 守距 + 强制 ASSAULT 俯冲），surface_pass 20/20、回归门其余全绿。备注：强制姿态暂不强制武器锁（竞选在对应包络内自然收敛，D 段实测 STANDOFF 全程 MISSILE），偏离 surface spec §2.1 原案已在该 spec 注记 |
 | 2026-07-12 | 15 | **阶段 4 收官——火力分配行为端**：①FOCUS 包围轴分离（质心基准 + 0/±45/±90/±135/180 偏移序列，TIGHT/单机豁免；planner 后置门点：>1.5km 飞向自己扇区 1.3km 进入门点、近距收敛、GROUND_STRAFE/LINE_UP 豁免；生命周期同 attack_posture）；②SPREAD 分火（锚点 2km 池各自接敌：粘性 ×1.2 滞回 / 少人打优先让路 / 单点点名退出管理保铁律 / 池随锚点漂移 / 池空命令结束）；③新增 `--bench=fire_alloc` 15 断言并入回归门；**全量回归门 19 项 PASS 0 失败**。实装注记见 §3.6 |
 | 2026-07-12 | 16 | **收尾批：加速/禁入区/开关定稿**——①紧急集合/撤离**全力加速**：`Aircraft.command_sprint` 经 `COMMAND_SPRINT_MULT=1.4` 注入 effective_max/cruise accessor（机动性 buff 规范通道，AI 战术层可感知），集合=到达 600px 逐机解除 / 撤离=出圈逐机解除 / 任何新命令解除；撤离未真正置 evasion_mode（几何冲突，注记 §2.7.1）；②**撤离 20s 限时禁入区**：`_find_target` 决策过滤 + 自动锁目标遁入圈=拴绳放弃 + 暗红圈框倒计时标记（EvacZoneMarker 4Hz 自毁）+ 到时/新广播命令/右键解除；③**自动发射定稿队级广播**（F 键保持自机，双入口作用域刻意不同）；④高度偏好"默认"三态**评估后搁置**（改动面横跨玩家高度自治全路径，非用户诉求）；⑤防守 TRANSIT 明确不加速；新增 `--bench=wheel_orders` 12 断言，**全量回归门 20 项 PASS 0 失败** |
+| 2026-07-20 | 17 | **呼出手感修正**（用户 playtest：快速双击误呼轮盘）：①`hold_threshold_s` 0.15→**0.35 s**、`drag_threshold_px` 24→**36 px**（主动拖拽仍即时呼出不等蓄力）；②新增**蓄力指示圈**（仿机场停靠引导灯）：按住 0.08 s（`charge_visual_delay_s`，快速单击零噪音）后出现——12 枚引导灯按进度顺时针点亮 + 进度弧 + 追逐扫描光带，>80% 切高亮预告，**转满才呼出**；PRESS_PENDING 期间才逐帧重绘（守则 R1） |

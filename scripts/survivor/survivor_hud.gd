@@ -33,6 +33,14 @@ var _btn_altitude: Button
 var _btn_evasion: Button
 var _btn_auto_fire: Button
 var _btn_auto_engage: Button
+## ── 加力模式（spec afterburner-mode）──
+## survivor_mode 注入的小队充能资源 + 充能条控件（每帧 _update_display 刷三态）
+var afterburner_charge: AfterburnerCharge
+var _ab_bar: ProgressBar
+var _ab_bar_fill: StyleBoxFlat
+const AB_BAR_CHARGING := Color(0.72, 0.5, 0.15)   ## 充能中：暗橙
+const AB_BAR_READY := Color(1.0, 0.78, 0.25)      ## 就绪：亮橙
+const AB_BAR_ACTIVE := Color(0.4, 0.9, 1.0)       ## 激活窗口：亮青（倒计时收缩）
 var _tooltip_panel: PanelContainer
 var _tooltip_label: RichTextLabel
 var _tooltip_key: String = ""  # 当前悬停的按钮标识
@@ -193,6 +201,27 @@ func _build_ui() -> void:
 	_btn_altitude.mouse_entered.connect(_on_tac_hover.bind("altitude"))
 	_btn_altitude.mouse_exited.connect(_on_tac_hover_exit)
 	tac_vbox.add_child(_btn_altitude)
+
+	# ── 加力充能条（spec afterburner-mode）：紧贴加力按钮上方，三态变色显眼提示 ──
+	_ab_bar = ProgressBar.new()
+	_ab_bar.custom_minimum_size = Vector2(STATUS_PANEL_WIDTH - 16, 12)
+	_ab_bar.min_value = 0.0
+	_ab_bar.max_value = 1.0
+	_ab_bar.value = 1.0
+	_ab_bar.show_percentage = false
+	_ab_bar.focus_mode = Control.FOCUS_NONE
+	_ab_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var ab_bg := StyleBoxFlat.new()
+	ab_bg.bg_color = Color(0.08, 0.07, 0.05, 0.7)
+	ab_bg.border_color = Color(0.62, 0.48, 0.22)
+	ab_bg.set_border_width_all(1)
+	ab_bg.set_corner_radius_all(2)
+	_ab_bar.add_theme_stylebox_override("background", ab_bg)
+	_ab_bar_fill = StyleBoxFlat.new()
+	_ab_bar_fill.bg_color = AB_BAR_READY
+	_ab_bar_fill.set_corner_radius_all(2)
+	_ab_bar.add_theme_stylebox_override("fill", _ab_bar_fill)
+	tac_vbox.add_child(_ab_bar)
 
 	_btn_evasion = _create_tac_button(tr("TACTIC_EVADE_FMT") % tr("STATE_OFF"))
 	_btn_evasion.pressed.connect(_on_evasion_pressed)
@@ -434,6 +463,9 @@ func _update_display() -> void:
 	# 右下角状态面板
 	_update_status_panel()
 
+	# 加力充能条 + 按钮三态（每帧：条要随时间/击杀充能流动）
+	_update_afterburner_ui()
+
 ## 收到击杀信号 → 战况栏顶部插入一条（友机击坠=绿 / 友机阵亡=红 / 中立=灰），超上限移除最旧
 func _on_kill_recorded(killer: String, victim: String, weapon_kind: String, killer_team: int, victim_team: int, _victim_voiced: bool) -> void:
 	if not _kill_feed_container:
@@ -633,7 +665,7 @@ func _update_status_panel() -> void:
 			if ac.evasion_mode:
 				text += "[color=#%s]TORP READY[/color]\n" % torp_color
 			else:
-				text += "[color=#%s]TORP (Evade)[/color]\n" % torp_color
+				text += "[color=#%s]TORP (AB)[/color]\n" % torp_color
 
 	# ── 忠诚僚机（WMN，规避模式下自动释放，与 TORP 互斥槽位）──
 	if ac.params and ac.params.loyal_wingman:
@@ -657,7 +689,7 @@ func _update_status_panel() -> void:
 			if ac.evasion_mode:
 				text += "[color=#%s]WMN  %d/%d  READY[/color]\n" % [wmn_color, alive, lw.max_simultaneous]
 			else:
-				text += "[color=#%s]WMN  %d/%d  (Evade)[/color]\n" % [wmn_color, alive, lw.max_simultaneous]
+				text += "[color=#%s]WMN  %d/%d  (AB)[/color]\n" % [wmn_color, alive, lw.max_simultaneous]
 
 	# ── 热诱弹 ──
 	if ac.params and ac.params.flare:
@@ -840,7 +872,12 @@ func _on_evasion_pressed() -> void:
 	if not survivor_player or not survivor_player.aircraft:
 		return
 	var ac := survivor_player.aircraft
-	ac.set_evasion_mode(not ac.evasion_mode)
+	# 加力模式：走充能资源 gate（spec afterburner-mode）；未满/激活中点击无操作。
+	# 无资源注入（防御性兜底）时退回旧开关行为。
+	if afterburner_charge:
+		afterburner_charge.try_activate(ac)
+	else:
+		ac.set_evasion_mode(not ac.evasion_mode)
 	_update_tactical_buttons()
 	if _tooltip_panel.visible:
 		_update_tooltip()
@@ -901,7 +938,8 @@ func _update_tooltip() -> void:
 				body_key = "TOOLTIP_ALT_LOW_BODY"
 				hint_key = "TOOLTIP_ALT_LOW_HINT"
 		"evasion":
-			if ac.evasion_mode:
+			# 加力模式：ON 文案 = 窗口激活中（或兜底旧 evasion 开关）
+			if (afterburner_charge != null and afterburner_charge.is_window_active()) or ac.evasion_mode:
 				title_key = "TOOLTIP_EVADE_ON_TITLE"
 				body_key = "TOOLTIP_EVADE_ON_BODY"
 				hint_key = "TOOLTIP_EVADE_ON_HINT"
@@ -948,9 +986,31 @@ func _update_tactical_buttons() -> void:
 		_btn_altitude.text = tr("TACTIC_CLIMB_PRIORITY")
 	else:
 		_btn_altitude.text = tr("TACTIC_LOW_ALT")
-	_btn_evasion.text = tr("TACTIC_EVADE_FMT") % (tr("STATE_ON") if ac.evasion_mode else tr("STATE_OFF"))
+	_update_afterburner_ui()
 	_btn_auto_fire.text = tr("TACTIC_AUTOFIRE_FMT") % (tr("STATE_ON") if ac.missile_auto_fire else tr("STATE_OFF"))
 	_btn_auto_engage.text = tr("TACTIC_AUTO_ENGAGE_FMT") % (tr("STATE_ON") if ac.auto_engage_enabled else tr("STATE_OFF"))
+
+## 加力充能条 + 按钮三态（spec afterburner-mode）：READY 亮橙满格 / 充能暗橙百分比 /
+## 激活亮青倒计时收缩。资源未注入（防御性兜底）时退回旧 ON/OFF 文案。
+func _update_afterburner_ui() -> void:
+	if _btn_evasion == null:
+		return
+	if afterburner_charge == null:
+		if survivor_player and survivor_player.aircraft:
+			_btn_evasion.text = tr("TACTIC_EVADE_FMT") % (tr("STATE_ON") if survivor_player.aircraft.evasion_mode else tr("STATE_OFF"))
+		return
+	if afterburner_charge.is_window_active():
+		_btn_evasion.text = tr("TACTIC_EVADE_FMT") % (tr("AB_STATE_ACTIVE_FMT") % afterburner_charge.window_left)
+		_ab_bar.value = afterburner_charge.window_ratio()
+		_ab_bar_fill.bg_color = AB_BAR_ACTIVE
+	elif afterburner_charge.is_ready():
+		_btn_evasion.text = tr("TACTIC_EVADE_FMT") % tr("AB_STATE_READY")
+		_ab_bar.value = 1.0
+		_ab_bar_fill.bg_color = AB_BAR_READY
+	else:
+		_btn_evasion.text = tr("TACTIC_EVADE_FMT") % (tr("AB_STATE_CHARGING_FMT") % int(afterburner_charge.ratio() * 100.0))
+		_ab_bar.value = afterburner_charge.ratio()
+		_ab_bar_fill.bg_color = AB_BAR_CHARGING
 
 # ══════════════════════════════════════════════
 #  小队指挥面板（仅主角有僚机时存在）

@@ -114,17 +114,27 @@ func toggle() -> void:
 func open() -> void:
 	_is_open = true
 	_root.visible = true
-	get_tree().paused = true
 	AudioManager.set_music_muffled(true)
 	_refresh_upgrades_list()
 	_roll_random_tip()
+	# 暂停与淡入统一交给表演导演（时间的唯一入口，spec ui-transition §2.2）
+	Presentation.present(self, "panel_in")
 
 func close() -> void:
 	_is_open = false
-	_root.visible = false
-	get_tree().paused = false
 	AudioManager.set_music_muffled(false)
 	_roll_random_tip()
+	# 状态恢复已全部完成，dismiss 只是视觉尾巴（解暂停在 panel_out 第 0 帧）
+	Presentation.dismiss(self, "panel_out")
+
+## 表演导演的错开出入场元素（spec ui-transition §4.3）
+func get_transition_elements() -> Array[Control]:
+	# 必须显式构造 typed array —— `[_root] if _root else []` 的无类型字面量
+	# 无法转成 Array[Control]，运行时报错后会静默退化到导演的兜底路径
+	var out: Array[Control] = []
+	if _root:
+		out.append(_root)
+	return out
 
 ## 从 _TIP_KEYS 随机抽一条，尽量不与上次重复
 func _roll_random_tip() -> void:

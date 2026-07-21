@@ -2,36 +2,40 @@ class_name EvolutionUI
 extends CanvasLayer
 
 ## 战区结算规划站（Phase 2/3，spec ace-system §2.4 + 用户反馈 2026-07-03）
-## 左栏 = 机体进化树（EvolutionTreeView，皇牌空战式自下而上：亮色可进化/灰色未解锁/金色爬线历史），
-## 点击亮色机体 → 底部显示 机型·种类·档位·LV·武器清单 → [进化] 确认。
-## 右栏 = 强化当前机体（三选一升级）。各限一次；"继续出击"关闭。
+## 三栏布局（2026-07-20 用户反馈重排）：
+##   左 = 机体进化树（EvolutionTreeView，皇牌空战式自下而上：亮色可进化/灰色未解锁/金色爬线历史），
+##        套 ScrollContainer —— 树宽随节点数增长，禁止再让它撑爆面板。
+##   中 = 机体详情卡（EvolutionDetailPanel）：开局摊开**当前机**，点树上任意已揭示机体即切换；
+##        含 特性对比（相对当前机的属性增减）+ 进化需求（等级门 / 三轴属性门 逐条 have/need）。
+##   右 = 三轴量表 + 强化当前机体（三选一升级）。
+## 进化与强化各限一次；"继续出击"关闭。
+## 面板本身铺满视口（PRESET_FULL_RECT + 留边），不做手动居中——旧的 _center() 在树超宽时给出负坐标，
+## 导致"进化到第二架后画面整体上移"（用户 2026-07-20 反馈的 bug）。
 
 signal evolution_chosen(node_id: StringName)
 signal upgrade_chosen(upgrade: Dictionary)
 signal closed()
 
 const PANE_WIDTH := 340.0
+const DETAIL_WIDTH := 440.0
+const SCREEN_MARGIN := 32.0    ## 面板四边留白（面板本身铺满视口，靠内部滚动容纳大树）
 
 var _panel: PanelContainer
 var _root: VBoxContainer
 var _evo_pane: VBoxContainer
+var _detail_pane: VBoxContainer
 var _up_pane: VBoxContainer
 var _tree: EvolutionTreeView
-var _evo_info: Label
+var _detail: EvolutionDetailPanel
 var _evo_confirm: Button
 var _evo_selected: StringName = &""
+var _current_id: StringName = &""
+var _team_level: int = 1
+var _axis_points: Dictionary = {}
 var _evo_picked: bool = false
 var _up_picked: bool = false
 var _up_buttons: Array = []
 
-## 进化种类 → 主题色（详情行染色）
-const EVO_CAT_COLORS := {
-	"air": ThemeColors.CATEGORY_MOBILITY,
-	"ew": ThemeColors.CATEGORY_SYSTEM,
-	"range": ThemeColors.CATEGORY_DEFENSE,
-	"attack": ThemeColors.CATEGORY_WEAPON,
-	"omni": ThemeColors.TEXT_ACCENT,
-}
 ## 升级 category → 主题色（右栏卡片，对齐 HUD 分类色）
 const UP_CAT_COLORS := {
 	"survival": ThemeColors.CATEGORY_DEFENSE,
@@ -55,6 +59,14 @@ func _ready() -> void:
 	style.set_content_margin_all(18)
 	_panel.add_theme_stylebox_override("panel", style)
 	add_child(_panel)
+	# 面板铺满视口（留边），大树靠内部 ScrollContainer 滚动。
+	# ⚠ 不要退回"按 size 手动居中"：树宽随档位节点数增长（T2 已 15 格 ≈1.6k px），
+	# 一旦超出视口，居中公式给出负坐标 → 画面整体上移/左移（用户 2026-07-20 反馈的 bug）
+	_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_panel.offset_left = SCREEN_MARGIN
+	_panel.offset_top = SCREEN_MARGIN
+	_panel.offset_right = -SCREEN_MARGIN
+	_panel.offset_bottom = -SCREEN_MARGIN
 	_root = VBoxContainer.new()
 	_root.add_theme_constant_override("separation", 10)
 	_panel.add_child(_root)
@@ -66,8 +78,12 @@ func show_offer(current: Dictionary, exits: Array, team_level: int, choices: Arr
 	_up_picked = false
 	_evo_selected = &""
 	_up_buttons.clear()
+	_current_id = StringName(current.get("id", ""))
+	_team_level = team_level
+	_axis_points = axis_points
 	for c in _root.get_children():
 		c.queue_free()
+		_root.remove_child(c)  # 立即摘出：queue_free 是延迟的，留着会让容器按旧内容算尺寸
 
 	# ── 标题区 ──
 	var title := Label.new()
@@ -84,11 +100,14 @@ func show_offer(current: Dictionary, exits: Array, team_level: int, choices: Arr
 		sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		_root.add_child(sub)
 
-	# ── 双栏 ──
+	# ── 三栏：进化树 / 机体详情 / 强化 ──
 	var cols := HBoxContainer.new()
 	cols.add_theme_constant_override("separation", 18)
+	cols.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_root.add_child(cols)
-	_evo_pane = _make_pane(cols, tr("SETTLEMENT_EVO_HEADER"), 0.0)  # 宽度随树自适应
+	_evo_pane = _make_pane(cols, tr("SETTLEMENT_EVO_HEADER"), 0.0)  # 宽度吃剩余空间
+	_evo_pane.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_detail_pane = _make_pane(cols, tr("SETTLEMENT_DETAIL_HEADER"), DETAIL_WIDTH)
 	_up_pane = _make_pane(cols, tr("SETTLEMENT_UPGRADE_HEADER"), PANE_WIDTH)
 
 	# 三轴量表（竖条分格 + 里程碑刻度圈，2026-07-19 用户 mockup）：
@@ -98,22 +117,21 @@ func show_offer(current: Dictionary, exits: Array, team_level: int, choices: Arr
 	bars.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_up_pane.add_child(bars)
 
-	# 左：进化树视图（皇牌空战式，自下而上）
+	# 左：进化树视图（皇牌空战式，自下而上）——套 ScrollContainer，树再大也不顶飞面板
 	_tree = EvolutionTreeView.new()
-	_tree.setup(EvolutionSystem.all_nodes(), StringName(current.get("id", "")), history, team_level, axis_points)
+	_tree.setup(EvolutionSystem.all_nodes(), _current_id, history, team_level, axis_points)
 	_tree.node_selected.connect(_on_tree_node_selected)
-	_evo_pane.add_child(_tree)
+	var tree_scroll := ScrollContainer.new()
+	tree_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tree_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	tree_scroll.custom_minimum_size = Vector2(520, 340)
+	tree_scroll.add_child(_tree)
+	_evo_pane.add_child(tree_scroll)
 	var hint := Label.new()
 	hint.text = tr("EVOLUTION_TREE_HINT") if not exits.is_empty() else tr("SETTLEMENT_NO_EVO")
 	hint.add_theme_font_size_override("font_size", 11)
 	hint.add_theme_color_override("font_color", ThemeColors.TEXT_MUTED)
 	_evo_pane.add_child(hint)
-	_evo_info = Label.new()
-	_evo_info.text = ""
-	_evo_info.add_theme_font_size_override("font_size", 12)
-	_evo_info.add_theme_color_override("font_color", ThemeColors.TEXT_PRIMARY)
-	_evo_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_evo_pane.add_child(_evo_info)
 	_evo_confirm = Button.new()
 	_evo_confirm.text = tr("EVOLUTION_CONFIRM")
 	_evo_confirm.disabled = true
@@ -122,6 +140,17 @@ func show_offer(current: Dictionary, exits: Array, team_level: int, choices: Arr
 	_evo_confirm.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_evo_confirm.pressed.connect(_confirm_evolution)
 	_evo_pane.add_child(_evo_confirm)
+
+	# 中：机体详情卡（默认先摊开当前机——"我现在开的是什么、什么水平"，用户 2026-07-20）
+	_detail = EvolutionDetailPanel.new()
+	var detail_scroll := ScrollContainer.new()
+	detail_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	detail_scroll.custom_minimum_size = Vector2(DETAIL_WIDTH, 0)
+	detail_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	detail_scroll.add_child(_detail)
+	_detail_pane.add_child(detail_scroll)
+	if _current_id != &"":
+		_detail.show_node(_current_id, _current_id, team_level, axis_points)
 
 	# 右：强化当前机体（升级三选一 + 描述）
 	if choices.is_empty():
@@ -150,9 +179,7 @@ func show_offer(current: Dictionary, exits: Array, team_level: int, choices: Arr
 	done.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	done.pressed.connect(_close)
 	_root.add_child(done)
-
-	visible = true
-	_center.call_deferred()
+	# 显示与入场动画由 Presentation.present() 驱动（survivor_mode._open_evolution_offer）
 
 func _make_pane(parent: HBoxContainer, header_text: String, min_w: float) -> VBoxContainer:
 	var pane := VBoxContainer.new()
@@ -187,23 +214,17 @@ func _add_empty_hint(pane: VBoxContainer, text_: String) -> void:
 	lbl.add_theme_color_override("font_color", ThemeColors.TEXT_LOCKED)
 	pane.add_child(lbl)
 
-## 树上点了亮色机体 → 底部详情 + 解锁确认按钮
+## 树上点了任意已揭示机体 → 中栏详情卡（特性 + 需求）；只有真能进化时才放行确认按钮
 func _on_tree_node_selected(node_id: StringName) -> void:
 	if _evo_picked:
 		return
-	_evo_selected = node_id
-	var nd := EvolutionSystem.node_of(node_id)
-	var prof := AircraftDB.get_profile(StringName(nd.get("profile", "")))
-	var wpn := AircraftDB.weapons_summary(prof)
-	_evo_info.text = "%s ｜ %s · T%d ｜ LV %d\n%s" % [
-		tr(String(nd.get("name_key", ""))),
-		tr(EvolutionSystem.category_key_of(nd)),
-		int(nd.get("tier", 0)),
-		EvolutionSystem.min_level_of(nd),
-		wpn]
-	_evo_info.add_theme_color_override("font_color",
-		EVO_CAT_COLORS.get(nd.get("category", ""), ThemeColors.TEXT_PRIMARY))
-	_evo_confirm.disabled = false
+	_detail.show_node(node_id, _current_id, _team_level, _axis_points)
+	if _tree.can_evolve(node_id):
+		_evo_selected = node_id
+		_evo_confirm.disabled = false
+	else:
+		_evo_selected = &""
+		_evo_confirm.disabled = true
 
 func _confirm_evolution() -> void:
 	if _evo_picked or _evo_selected == &"":
@@ -223,10 +244,13 @@ func _pick_upgrade(upgrade: Dictionary, btn: Button) -> void:
 	btn.text = tr("SETTLEMENT_PICKED_FMT") % btn.text
 	upgrade_chosen.emit(upgrade)
 
-func _center() -> void:
-	var vp := _panel.get_viewport_rect().size
-	_panel.position = (vp - _panel.size) * 0.5
-
+## 只发信号，【不自己隐藏】——退场由 survivor_mode 走 Presentation.dismiss() 驱动
 func _close() -> void:
-	visible = false
 	closed.emit()
+
+## 表演导演的错开出入场元素（spec ui-transition §4.3）
+func get_transition_elements() -> Array[Control]:
+	var out: Array[Control] = []
+	if _root:
+		out.append(_root)
+	return out

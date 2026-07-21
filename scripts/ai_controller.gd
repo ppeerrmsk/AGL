@@ -1076,7 +1076,9 @@ func _effective_sa() -> float:
 
 ## 给目标位置加上漂移偏差
 func _apply_position_error(pos: Vector2) -> Vector2:
-	return personality.apply_position_error(pos, _current_target, is_boss_attacker())
+	# _current_target 是跨帧成员字段，BFM 各分支的 is_instance_valid 守卫并不齐（SEAM-015 同类）。
+	# apply_position_error 内部已按 target==null 走无漂移分支，净化成 null 是安全降级。
+	return personality.apply_position_error(pos, CombatUnit.safe_unit(_current_target), is_boss_attacker())
 
 ## 给速度加上误差
 func _apply_speed_error(speed_kmh: float) -> float:
@@ -1192,7 +1194,18 @@ func _directive_follow_path_step() -> void:
 	var wp := wps[idx]
 	aircraft.target_position = wp
 	aircraft.keep_target_on_arrival = false
-	if aircraft.global_position.distance_to(wp) < 300.0:
+	# 指定速度可配（表演导演的交汇按距离逐机反解速度，保证四机【同时】抵达）。
+	# 直写 target_speed_kmh 是本文件既有惯用法（出界回返同款）；AIController 是
+	# Aircraft 的子节点、每帧后于父级执行 —— 本写入覆盖 planner 同帧产出，次帧生效
+	if d.params.has("target_speed"):
+		var spd: float = float(d.params["target_speed"])
+		aircraft.target_speed_kmh = spd
+		# 超巡航必须点加力，否则物理层够不到反解速度、同步抵达失效
+		if aircraft.params:
+			aircraft.is_afterburner = spd > aircraft.params.cruise_speed + 1.0
+	# 到点半径可配（表演导演的编队交汇需要 80px；300 下四条线交不成一个点）
+	var arrive_r: float = float(d.params.get("arrive_radius", 300.0))
+	if aircraft.global_position.distance_to(wp) < arrive_r:
 		idx += 1
 	_directive_state["idx"] = idx
 
@@ -1302,7 +1315,11 @@ func _process_simple(delta: float) -> void:
 		_shield_threat_dir = _threat_bias
 
 	# 巡逻：走航点 or 绕长机飞行
-	if not _current_target or not is_instance_valid(_current_target) or _current_target.is_destroyed:
+	# is_lock_immune()（光学隐形 / 锁定免疫）也算失效 —— 否则本函数末尾会无条件
+	# set_combat_target(_current_target)，把 aircraft_combat_tracking 的隐形清除每帧顶回去
+	# （spec ace-squadron-tier §3.5）
+	if not _current_target or not is_instance_valid(_current_target) \
+			or _current_target.is_destroyed or _current_target.is_lock_immune():
 		if _current_target != null:
 			release_target(TargetSource.TS_SCORED, "simple target invalid")
 
@@ -1373,7 +1390,9 @@ func _process_simple(delta: float) -> void:
 						var best_edist := INF
 						# 用共享列表代替 get_parent().get_children() (perf: 节点数 N >> 单位数)
 						for unit in CombatUnit.all_units:
-							if unit and aircraft.is_hostile_to(unit) and not unit.is_destroyed:
+							# 光学隐形 / 锁定免疫：不可索敌（spec ace-squadron-tier §3.5）
+							if unit and aircraft.is_hostile_to(unit) and not unit.is_destroyed \
+									and not unit.is_lock_immune():
 								var d: float = unit.global_position.distance_to(aircraft.global_position)
 								if d < best_edist:
 									best_edist = d
@@ -1727,7 +1746,9 @@ func _try_engage_in_tether_range() -> void:
 	var best_dist := SHIELD_ENGAGE_RANGE
 	# 用共享列表代替 get_parent().get_children() (perf)
 	for unit in CombatUnit.all_units:
-		if unit and aircraft.is_hostile_to(unit) and not unit.is_destroyed:
+		# 光学隐形 / 锁定免疫：不可索敌（spec ace-squadron-tier §3.5）
+		if unit and aircraft.is_hostile_to(unit) and not unit.is_destroyed \
+				and not unit.is_lock_immune():
 			var d: float = unit.global_position.distance_to(leader_pos)
 			if d < best_dist:
 				best_dist = d
@@ -1746,6 +1767,9 @@ func _try_engage_simple() -> void:
 		if not is_instance_valid(unit):
 			continue
 		if not aircraft.is_hostile_to(unit) or unit.is_destroyed:
+			continue
+		# 光学隐形 / 锁定免疫：不可索敌（spec ace-squadron-tier §3.5）
+		if unit.is_lock_immune():
 			continue
 		# 对地专用机型：跳过所有空中目标（飞机/UAV）
 		if ground_combat_only and not (unit is GroundUnit):
@@ -1958,7 +1982,12 @@ func _process_engage(delta: float) -> void:
 				_tactic_timer = _tactic_min_duration  # 强制允许战术切换
 
 	# 目标有效性检查
-	if not _current_target or not is_instance_valid(_current_target) or _current_target.is_destroyed:
+	# is_lock_immune()（光学隐形 / 锁定免疫窗口）也算失效 —— 否则 BFM 层会继续读
+	# _current_target.global_position，对"隐形"目标保持零误差跟踪，解除隐形瞬间零延迟重连，
+	# 隐形在战术上完全没有价值。与雷达累积循环 erase(is_lock_immune) 的既有语义一致。
+	# （spec ace-squadron-tier §3.5）
+	if not _current_target or not is_instance_valid(_current_target) \
+			or _current_target.is_destroyed or _current_target.is_lock_immune():
 		TargetSelection.disengage(self)
 		return
 

@@ -416,6 +416,11 @@ func _pursuit_update(delta: float) -> void:
 		var dist := m.global_position.distance_to(pp)
 		if dist > force_pursuit_distance and m.fuel > 0.0:
 			m.is_afterburner = true
+		else:
+			# ⚠ 必须有 else：原先只置 true 从不置 false，一旦拉开就永久点着加力，
+			# 速度上去后盘旋半径爆炸 → 再也回不到能咬住的距离 → 自锁死绕圈
+			# （playtest log 20260720_172222：g 全程钉死 max_g）
+			m.is_afterburner = false
 
 # ── CLOAK ──
 

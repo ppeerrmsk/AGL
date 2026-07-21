@@ -237,6 +237,10 @@ static func update_speed(ac: Aircraft, delta: float) -> void:
 			var cruise_mult: float = float(ac.evasion_modifiers.get("cruise_speed_mult", 1.0))
 			if cruise_mult != 1.0:
 				t_kmh *= cruise_mult
+		# 加力窗口（spec afterburner-mode）：目标速度地板 = 有效顶速——
+		# 无论有无移动命令都全速（含僚机；玩家中途下令退出 evasion 后地板仍在）
+		if ac.afterburner_window_active:
+			t_kmh = maxf(t_kmh, effective_max_speed_kmh(ac))
 		if ac.status_slow_active and t_kmh > StatusEffects.SLOW_SPEED_CAP_KMH:
 			t_kmh = StatusEffects.SLOW_SPEED_CAP_KMH
 		target_ms = t_kmh / 3.6
@@ -250,6 +254,9 @@ static func update_speed(ac: Aircraft, delta: float) -> void:
 			var cm: float = float(ac.evasion_modifiers.get("cruise_speed_mult", 1.0))
 			if cm > 1.0:
 				max_speed_ms *= cm
+		# 加力窗口：物理 cap 放开到有效顶速（与 evasion cruise_mult 抬 cap 同语义）
+		if ac.afterburner_window_active:
+			max_speed_ms = maxf(max_speed_ms, effective_max_speed_kmh(ac) / 3.6)
 		target_ms = minf(target_ms, max_speed_ms)
 
 		var stall_base_kmh: float = ac.params.stall_speed_base if ac.params else 220.0
@@ -260,6 +267,9 @@ static func update_speed(ac: Aircraft, delta: float) -> void:
 	var accel_rate: float = ac.params.acceleration if ac.params else 50.0
 	if ac.status_overload_active:
 		accel_rate *= StatusEffects.OVERLOAD_ACCEL_MULT
+	# 加力窗口：加速度 ×3（spec afterburner-mode；replace_all 同步实物理与预测镜像两处）
+	if ac.afterburner_window_active:
+		accel_rate *= AB_WINDOW_ACCEL_MULT
 	var decel_rate: float = (ac.params.deceleration if ac.params else 80.0) * ac._executioner_decel_mult()
 	if ac.is_player_squad() and ac.status_bloodlust_active and ac.has_meta("upgrade_stacks"):
 		var bl_stacks: Dictionary = ac.get_meta("upgrade_stacks")
@@ -497,6 +507,10 @@ static func corner_speed_kmh(ac: Aircraft) -> float:
 
 ## 紧急集合/撤离途中全力加速倍率（spec command-wheel §2.7/§2.7.1，与规避加力同幅同语义）
 const COMMAND_SPRINT_MULT := 1.4
+
+## 加力窗口加速度倍率（spec afterburner-mode）：与 AB 推力乘数叠乘，
+## 让 6s 窗口内全队可见地冲到顶速（无此项典型机加满速需 ≈7s，窗口刚提速就结束）
+const AB_WINDOW_ACCEL_MULT := 3.0
 
 ## AI 战术层用的"有效顶速"。零 buff = ac.params.max_speed
 ## buff 注入点：executioner（永久 stack）+ evasion_modifiers.cruise_speed_mult（模式）
@@ -1375,6 +1389,9 @@ static func step_speed(st: FlightState, delta: float) -> void:
 			var cruise_mult: float = float(ac.evasion_modifiers.get("cruise_speed_mult", 1.0))
 			if cruise_mult != 1.0:
 				t_kmh *= cruise_mult
+		# 加力窗口速度地板（与实物理 update_speed 镜像同步，spec afterburner-mode）
+		if ac.afterburner_window_active:
+			t_kmh = maxf(t_kmh, effective_max_speed_kmh(ac))
 		if ac.status_slow_active and t_kmh > StatusEffects.SLOW_SPEED_CAP_KMH:
 			t_kmh = StatusEffects.SLOW_SPEED_CAP_KMH
 		target_ms = t_kmh / 3.6
@@ -1388,6 +1405,9 @@ static func step_speed(st: FlightState, delta: float) -> void:
 			var cm: float = float(ac.evasion_modifiers.get("cruise_speed_mult", 1.0))
 			if cm > 1.0:
 				max_speed_ms *= cm
+		# 加力窗口 cap 放开（与实物理 update_speed 镜像同步，spec afterburner-mode）
+		if ac.afterburner_window_active:
+			max_speed_ms = maxf(max_speed_ms, effective_max_speed_kmh(ac) / 3.6)
 		target_ms = minf(target_ms, max_speed_ms)
 
 		var stall_base_kmh: float = ac.params.stall_speed_base if ac.params else 220.0
@@ -1398,6 +1418,9 @@ static func step_speed(st: FlightState, delta: float) -> void:
 	var accel_rate: float = ac.params.acceleration if ac.params else 50.0
 	if ac.status_overload_active:
 		accel_rate *= StatusEffects.OVERLOAD_ACCEL_MULT
+	# 加力窗口：加速度 ×3（spec afterburner-mode；replace_all 同步实物理与预测镜像两处）
+	if ac.afterburner_window_active:
+		accel_rate *= AB_WINDOW_ACCEL_MULT
 	var decel_rate: float = (ac.params.deceleration if ac.params else 80.0) * ac._executioner_decel_mult()
 	if ac.is_player_squad() and ac.status_bloodlust_active and ac.has_meta("upgrade_stacks"):
 		var bl_stacks: Dictionary = ac.get_meta("upgrade_stacks")

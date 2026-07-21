@@ -1,0 +1,298 @@
+{
+  "_comment": "表演序列定义（spec ui-transition §2.12）。编辑器模式下按 F8 热重载。ch=通道 op=动作 at=起始秒 dur=时长(缺省瞬时) ease=缓动(缺省linear) from=起点(缺省取通道当前值)",
+  "upgrade_in": {
+    "steps": [
+      {
+        "at": 0.0,
+        "ch": "time",
+        "op": "request",
+        "id": "upgrade",
+        "to": 0.05,
+        "dur": 0.15,
+        "ease": "expo_out"
+      },
+      {
+        "at": 0.06,
+        "ch": "camera",
+        "op": "zoom",
+        "from": 1.0,
+        "to": 1.12,
+        "dur": 0.3,
+        "ease": "back_out"
+      },
+      {
+        "at": 0.1,
+        "ch": "overlay",
+        "op": "dim",
+        "from": 0.0,
+        "to": 0.6,
+        "dur": 0.18,
+        "ease": "cubic_out"
+      },
+      {
+        "at": 0.15,
+        "ch": "time",
+        "op": "pause",
+        "to": 1
+      },
+      {
+        "at": 0.16,
+        "ch": "panel",
+        "op": "stagger_in",
+        "stagger": 0.06,
+        "elem_dur": 0.2,
+        "dur": 0.38,
+        "ease": "back_out"
+      }
+    ]
+  },
+  "upgrade_out": {
+    "steps": [
+      {
+        "at": 0.0,
+        "ch": "time",
+        "op": "pause",
+        "to": 0
+      },
+      {
+        "at": 0.0,
+        "ch": "panel",
+        "op": "stagger_out",
+        "stagger": 0.0,
+        "dur": 0.12,
+        "ease": "cubic_in"
+      },
+      {
+        "at": 0.0,
+        "ch": "time",
+        "op": "release",
+        "id": "upgrade",
+        "dur": 0.2
+      },
+      {
+        "at": 0.02,
+        "ch": "overlay",
+        "op": "dim",
+        "to": 0.0,
+        "dur": 0.16,
+        "ease": "cubic_in"
+      },
+      {
+        "at": 0.02,
+        "ch": "camera",
+        "op": "zoom",
+        "to": 1.0,
+        "dur": 0.28,
+        "ease": "cubic_out"
+      }
+    ]
+  },
+  "panel_in": {
+    "steps": [
+      {
+        "at": 0.0,
+        "ch": "time",
+        "op": "pause",
+        "to": 1
+      },
+      {
+        "at": 0.0,
+        "ch": "overlay",
+        "op": "dim",
+        "from": 0.0,
+        "to": 0.45,
+        "dur": 0.14,
+        "ease": "cubic_out"
+      },
+      {
+        "at": 0.02,
+        "ch": "panel",
+        "op": "stagger_in",
+        "stagger": 0.0,
+        "elem_dur": 0.16,
+        "dur": 0.16,
+        "ease": "cubic_out"
+      }
+    ]
+  },
+  "panel_out": {
+    "steps": [
+      {
+        "at": 0.0,
+        "ch": "time",
+        "op": "pause",
+        "to": 0
+      },
+      {
+        "at": 0.0,
+        "ch": "panel",
+        "op": "stagger_out",
+        "stagger": 0.0,
+        "elem_dur": 0.1,
+        "dur": 0.1,
+        "ease": "cubic_in"
+      },
+      {
+        "at": 0.0,
+        "ch": "overlay",
+        "op": "dim",
+        "to": 0.0,
+        "dur": 0.14,
+        "ease": "cubic_in"
+      }
+    ]
+  },
+  "wraith_squadron_arrival": {
+    "max_sec": 7.0,
+    "steps": [
+      {
+        "at": 0.0,
+        "ch": "time",
+        "op": "pause",
+        "to": 1
+      },
+      {
+        "at": 0.0,
+        "ch": "stage",
+        "op": "clear",
+        "dur": 0.5,
+        "ease": "cubic_out"
+      },
+      {
+        "at": 0.2,
+        "ch": "audio",
+        "op": "boss_bgm",
+        "fade": 2.0
+      },
+      {
+        "at": 0.0,
+        "ch": "actor",
+        "op": "echelon_ingress",
+        "speed": 1600,
+        "alt_step": 120,
+        "offsets": [
+          [
+            0,
+            0
+          ],
+          [
+            -70,
+            85
+          ],
+          [
+            -140,
+            170
+          ],
+          [
+            -210,
+            255
+          ]
+        ],
+        "ingress_dist": 730,
+        "stagger": 0.35,
+        "fade": 0.6,
+        "dur": 1.65
+      },
+      {
+        "at": 0.0,
+        "ch": "camera",
+        "op": "cut_to",
+        "zoom": 0.85,
+        "follow": true,
+        "actor": 0
+      },
+      {
+        "at": 0.0,
+        "ch": "actor",
+        "op": "trail_boost"
+      },
+      {
+        "at": 0.6,
+        "ch": "radio",
+        "op": "line",
+        "key": "RADIO_BOSS_WRAITH_SPAWN_1",
+        "actor": 0,
+        "dur": 1.8
+      },
+      {
+        "at": 2.5,
+        "ch": "radio",
+        "op": "line",
+        "key": "RADIO_BOSS_WRAITH_SPAWN_2",
+        "actor": 1,
+        "dur": 0.9
+      },
+      {
+        "at": 3.4,
+        "ch": "radio",
+        "op": "line",
+        "key": "RADIO_BOSS_WRAITH_SPAWN_3",
+        "actor": 0,
+        "dur": 1.8
+      },
+      {
+        "at": 3.4,
+        "ch": "actor",
+        "op": "converge",
+        "dur": 2.0,
+        "arrive_radius": 80
+      },
+      {
+        "at": 4.2,
+        "ch": "camera",
+        "op": "zoom",
+        "from": 1.0,
+        "to": 1.3,
+        "dur": 1.4,
+        "ease": "cubic_in_out"
+      },
+      {
+        "at": 3.4,
+        "ch": "actor",
+        "op": "cloak_on_meet",
+        "radius": 100,
+        "fade": 0.35,
+        "dur": 2.5
+      },
+      {
+        "at": 5.9,
+        "ch": "actor",
+        "op": "scatter",
+        "dist": 2600,
+        "fan_deg": 135
+      },
+      {
+        "at": 5.9,
+        "ch": "actor",
+        "op": "trail_fade",
+        "dur": 0.7,
+        "ease": "cubic_in"
+      },
+      {
+        "at": 5.9,
+        "ch": "stage",
+        "op": "restore",
+        "dur": 0.8,
+        "ease": "cubic_in_out"
+      },
+      {
+        "at": 5.9,
+        "ch": "camera",
+        "op": "return_to_player",
+        "dur": 0.8,
+        "ease": "cubic_in_out"
+      },
+      {
+        "at": 6.6,
+        "ch": "time",
+        "op": "pause",
+        "to": 0
+      },
+      {
+        "at": 6.6,
+        "ch": "actor",
+        "op": "release"
+      }
+    ]
+  }
+}

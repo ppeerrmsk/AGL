@@ -5,7 +5,6 @@ extends CanvasLayer
 
 signal upgrade_selected(upgrade: Dictionary)
 
-var _overlay: ColorRect
 var _title: Label
 var _btn_container: HBoxContainer
 var _buttons: Array[Button] = []
@@ -22,11 +21,8 @@ func _ready() -> void:
 	_build_ui()
 
 func _build_ui() -> void:
-	# 半透明遮罩
-	_overlay = ColorRect.new()
-	_overlay.color = ThemeColors.PANEL_BG_OVERLAY
-	_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(_overlay)
+	# 遮罩已收归表演导演的全局压暗层（CanvasLayer 16，spec ui-transition §2.1）——
+	# 面板不再自持 ColorRect，避免两套遮罩打架、也让无线电条不被一起压暗
 
 	# 主容器
 	var root := VBoxContainer.new()
@@ -133,7 +129,32 @@ func _build_ui() -> void:
 	spacer_bottom.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	root.add_child(spacer_bottom)
 
+## 错开出入场的元素顺序（表演导演协议，spec ui-transition §4.3）。
+## 遮罩不在此列——它归导演的全局压暗通道统一管
+func get_transition_elements() -> Array[Control]:
+	var out: Array[Control] = [_title]
+	for b in _buttons:
+		if b.visible:
+			out.append(b)
+	return out
+
+## 只填内容、【不负责显示】——显示与入场动画由 Presentation.present() 驱动。
+## 旧的 show_choices() 保留为兼容入口（内部 populate + 直接 visible），
+## 供无导演场景（bench / 单测）使用
 func show_choices(choices: Array[Dictionary]) -> void:
+	populate(choices)
+	# 重置导演退场时留下的 alpha/scale —— 否则上一轮 dismiss 把元素压到 alpha 0 后，
+	# 这条无导演路径会显示一个"空面板"
+	_reset_transition_state()
+	visible = true
+
+## 把出入场动画改过的属性恢复原状（无导演路径 / 异常兜底用）
+func _reset_transition_state() -> void:
+	for c in get_transition_elements():
+		c.modulate.a = 1.0
+		c.scale = Vector2.ONE
+
+func populate(choices: Array[Dictionary]) -> void:
 	_choices = choices
 	for i in range(3):
 		if i < choices.size():
@@ -189,7 +210,6 @@ func show_choices(choices: Array[Dictionary]) -> void:
 				_rarity_badges[i].visible = false
 			if i < _axis_badges.size():
 				_axis_badges[i].visible = false
-	visible = true
 
 ## 5 轴前缀（i18n key）
 func _axis_prefix(axis: String) -> String:
@@ -211,7 +231,8 @@ static func _axis_colors(axis: String) -> Array:
 		"electronic_warfare": return [Color(0.6, 0.35, 0.7, 0.5), Color(0.8, 0.5, 1.0, 0.8)]
 		_: return [Color(0.5, 0.5, 0.5, 0.5), Color(0.7, 0.7, 0.7, 0.8)]
 
+## 只发信号，【不自己隐藏】——退场由 survivor_mode 走 Presentation.dismiss() 驱动。
+## 若无导演（bench / 单测），survivor_mode 的兜底分支会直接置 visible = false
 func _on_choice_pressed(index: int) -> void:
 	if index < _choices.size():
 		upgrade_selected.emit(_choices[index])
-	visible = false

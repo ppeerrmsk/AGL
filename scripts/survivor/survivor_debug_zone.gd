@@ -8,7 +8,7 @@ extends CanvasLayer
 ##   2. 为每个战区选择新的 mission_type（ground/air/squadron/elite/naval）
 ##   3. 一键 "Set & Spawn"：强制战区变为 AVAILABLE + 设定新类型 + 清旧单位 + 刷新内容
 ##   4. "Mark Cleared" / "Mark Locked" 改战区状态
-##   5. "Skip to BOSS"：清 3 次战区解锁 BOSS
+##   5. "跳到 BOSS 战"：选定关底 BOSS + 计时器清零 → BOSS 立即出场
 ##
 ## 面板每 0.5s 刷新一次状态显示，避免卡顿
 
@@ -18,6 +18,11 @@ var game_scene: Node           ## survivor_mode（从这里拿 zone_mission / _z
 var _panel: PanelContainer
 var _content: VBoxContainer
 var _zones_list_container: VBoxContainer
+var _boss_opt: OptionButton    ## 关底 BOSS 选择器
+var _boss_status: Label        ## BOSS 阶段状态行
+
+## BOSS 下拉选项：id 空串 = 按地图池随机。其余取自 BossRegistry.BOSS_DEFS
+var _boss_ids: Array[String] = []
 
 # ── 节流 + 状态指纹（只在战区真正变化时重建，避免把玩家正在操作的下拉覆盖掉）──
 const REBUILD_INTERVAL: float = 0.5
@@ -58,6 +63,8 @@ func _process(delta: float) -> void:
 	if _rebuild_accum < REBUILD_INTERVAL:
 		return
 	_rebuild_accum = 0.0
+	# BOSS 状态行每 tick 都刷（倒计时在连续变化，不能挂在指纹上）
+	_refresh_boss_status()
 	# 仅当战区状态真的变化时才重建列表（避免覆盖玩家正在操作的 OptionButton popup）
 	var h: String = _compute_state_hash()
 	if h == _last_state_hash:
@@ -74,6 +81,8 @@ func _compute_state_hash() -> String:
 	var parts: PackedStringArray = PackedStringArray()
 	for zid in ZoneData.get_all_zone_ids():
 		parts.append("%s:%d:%s:%d" % [zid, zd.get_state(zid), zd.get_mission_type(zid), zd.get_difficulty(zid)])
+	# BOSS 解锁也要进指纹 —— 否则跳转后战区列表不刷新，看不到"全部战区已关闭"
+	parts.append("boss:%s" % str(zd.boss_unlocked))
 	return "|".join(parts)
 
 
@@ -109,18 +118,52 @@ func _build_ui() -> void:
 
 	_content.add_child(_make_sep())
 
+	# ── BOSS 战区块：选关底 BOSS + 一键跳转 ──
+	var boss_title := Label.new()
+	boss_title.text = "[ BOSS 战 ]"
+	boss_title.add_theme_font_size_override("font_size", 13)
+	boss_title.add_theme_color_override("font_color", Color(1.0, 0.6, 0.5))
+	boss_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_content.add_child(boss_title)
+
+	_boss_status = Label.new()
+	_boss_status.add_theme_font_size_override("font_size", 11)
+	_boss_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_content.add_child(_boss_status)
+
+	var boss_row := HBoxContainer.new()
+	boss_row.add_theme_constant_override("separation", 4)
+	_content.add_child(boss_row)
+
+	# 关底 BOSS 选择器：第 0 项随机，其余枚举 BossRegistry（含不在地图池里的 MOTHER_GOOSE）
+	_boss_opt = OptionButton.new()
+	_boss_opt.add_theme_font_size_override("font_size", 10)
+	_boss_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_boss_ids.clear()
+	_boss_ids.append("")
+	_boss_opt.add_item("🎲 按地图池随机", 0)
+	for boss_id in BossRegistry.BOSS_DEFS.keys():
+		var def: Dictionary = BossRegistry.BOSS_DEFS[boss_id]
+		var in_pool: bool = _is_boss_in_map_pool(String(boss_id))
+		# 池外 BOSS 标 ✱ —— 正常流程刷不到，只有这里能测（例如 MOTHER_GOOSE）
+		var label: String = "%s%s" % [String(def.get("display_name", boss_id)), "" if in_pool else "  ✱池外"]
+		_boss_opt.add_item(label, _boss_ids.size())
+		_boss_ids.append(String(boss_id))
+	boss_row.add_child(_boss_opt)
+
+	var skip_btn := Button.new()
+	skip_btn.text = "⚡ 跳到 BOSS 战"
+	skip_btn.add_theme_font_size_override("font_size", 11)
+	_apply_btn_style(skip_btn, Color(0.9, 0.25, 0.25))
+	skip_btn.pressed.connect(_on_skip_to_boss)
+	boss_row.add_child(skip_btn)
+
+	_content.add_child(_make_sep())
+
 	# 全局操作
 	var global_row := HBoxContainer.new()
 	global_row.add_theme_constant_override("separation", 8)
 	_content.add_child(global_row)
-
-	var skip_btn := Button.new()
-	skip_btn.text = "⚡ Skip to BOSS"
-	skip_btn.add_theme_font_size_override("font_size", 12)
-	skip_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_apply_btn_style(skip_btn, Color(0.9, 0.25, 0.25))
-	skip_btn.pressed.connect(_on_skip_to_boss)
-	global_row.add_child(skip_btn)
 
 	var unlock_e_btn := Button.new()
 	unlock_e_btn.text = "🔓 强制解锁 E"
@@ -129,6 +172,15 @@ func _build_ui() -> void:
 	_apply_btn_style(unlock_e_btn, Color(0.4, 0.75, 0.4))
 	unlock_e_btn.pressed.connect(func(): _apply_zone_change(&"E", "naval"))
 	global_row.add_child(unlock_e_btn)
+
+	# 战区计时快进 60s：测"时间到点自动进 BOSS"的自然路径，不绕过任何逻辑
+	var fast_btn := Button.new()
+	fast_btn.text = "⏩ 战区计时 +60s"
+	fast_btn.add_theme_font_size_override("font_size", 12)
+	fast_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_apply_btn_style(fast_btn, Color(0.8, 0.7, 0.3))
+	fast_btn.pressed.connect(_on_fast_forward)
+	global_row.add_child(fast_btn)
 
 	_content.add_child(_make_sep())
 
@@ -145,7 +197,7 @@ func _build_ui() -> void:
 	_content.add_child(_zones_list_container)
 
 	var hint := Label.new()
-	hint.text = "F6 关闭  |  Set & Spawn: 强制 AVAILABLE + 换类型 + 刷新内容"
+	hint.text = "F6 关闭  |  Set & Spawn: 强制 AVAILABLE + 换类型 + 刷新内容  |  跳 BOSS 会清掉全部战区残兵"
 	hint.add_theme_font_size_override("font_size", 10)
 	hint.add_theme_color_override("font_color", Color(0.5, 0.6, 0.65, 0.6))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -300,25 +352,65 @@ func _apply_zone_change(zid: StringName, new_mission_type: String) -> void:
 		"id=%s new_mt=%s prev_state=%d" % [zid, new_mission_type, state])
 	_rebuild_zones_list()
 
-## 解锁 BOSS（清够 3 次），简单粗暴
+## 跳到 BOSS 战：选定关底 BOSS → 计时器清零 → BOSS 立即出场
+##
+## 旧实现只标 A/B/C cleared + cleared_count=3，但【从没设 boss_unlocked】，
+## 而真正的解锁只发生在 survivor_mode._check_warzone_phase_timeout()（要求 game_time ≥ 600）。
+## 于是 _update_boss_phase() 永远不触发 —— 按钮点了没反应。
+## 现改为把解锁全权交给 survivor_mode.debug_skip_to_boss()，此处只负责清场 + 选 BOSS。
 func _on_skip_to_boss() -> void:
 	var zd := _get_zone_data()
 	var zm := _get_zone_mission()
-	if zd == null:
+	if zd == null or game_scene == null:
+		return
+	if not game_scene.has_method("debug_skip_to_boss"):
+		push_error("SurvivorDebugZone: survivor_mode 缺 debug_skip_to_boss()")
 		return
 
-	# 把 A、B、C 强制标 cleared（确保 cleared_count >= 3 触发 BOSS 解锁）
-	for zid in [&"A", &"B", &"C"]:
-		zd.debug_mark_cleared(zid)
-		if zm:
-			zm.debug_purge_zone(zid)  # 真清敌人（视线外延迟 free）
+	# 先清掉战区残兵，避免 BOSS 战里混着上一阶段的杂兵干扰测试
+	if zm:
+		for zid in ZoneData.get_all_zone_ids():
+			zm.debug_purge_zone(zid)
 
-	zd.cleared_count = maxi(zd.cleared_count, 3)
-	zd._ever_cleared[&"A"] = true
-	zd._ever_cleared[&"B"] = true
-	zd._refresh_availability_after_clear()
-	EventLogger.log_event("ZONE", "DebugSkipBoss", "forced BOSS unlock")
+	var idx: int = _boss_opt.selected if _boss_opt else 0
+	var boss_id: String = _boss_ids[idx] if idx >= 0 and idx < _boss_ids.size() else ""
+	game_scene.debug_skip_to_boss(boss_id)
 	_rebuild_zones_list()
+
+## 战区计时 +60s —— 走自然到点路径，用于验证"时间到 → 自动进 BOSS"本身没坏
+func _on_fast_forward() -> void:
+	if game_scene == null or not ("game_time" in game_scene):
+		return
+	game_scene.game_time += 60.0
+	EventLogger.log_event("ZONE", "DebugFastForward", "game_time=%.0f" % game_scene.game_time)
+	_rebuild_zones_list()
+
+## BOSS 阶段状态行：剩余时间 / 是否已解锁 / 实际出场的 BOSS
+func _refresh_boss_status() -> void:
+	if _boss_status == null:
+		return
+	if game_scene == null or not ("game_time" in game_scene):
+		_boss_status.text = "(未在生存模式)"
+		_boss_status.add_theme_color_override("font_color", Color(0.7, 0.4, 0.4))
+		return
+	var gt: float = game_scene.game_time
+	# survivor_mode.gd 无 class_name，常量只能经实例取
+	var total: float = float(game_scene.get("WARZONE_PHASE_DURATION"))
+	var in_boss: bool = game_scene._is_in_boss_phase() if game_scene.has_method("_is_in_boss_phase") else false
+	if in_boss:
+		var forced: String = String(game_scene.debug_boss_id_override) if "debug_boss_id_override" in game_scene else ""
+		_boss_status.text = "▶ BOSS 阶段进行中  (%s)" % [forced if forced != "" else "地图池随机"]
+		_boss_status.add_theme_color_override("font_color", Color(1.0, 0.5, 0.4))
+	else:
+		var remain: float = maxf(0.0, total - gt)
+		_boss_status.text = "战区剩余 %d:%02d  →  到点自动进 BOSS" % [int(remain) / 60, int(remain) % 60]
+		_boss_status.add_theme_color_override("font_color", Color(0.7, 0.8, 0.85))
+
+## 该 BOSS 是否在当前地图的随机池里（不在池里的只能靠本面板强制指定）
+func _is_boss_in_map_pool(boss_id: String) -> bool:
+	var map_id: String = String(game_scene._map_id) if game_scene and "_map_id" in game_scene else "default"
+	var pool: Array = BossRegistry.MAP_POOLS.get(map_id, BossRegistry.MAP_POOLS.get("default", []))
+	return pool.has(boss_id)
 
 func _on_mark_cleared(zid: StringName) -> void:
 	var zd := _get_zone_data()

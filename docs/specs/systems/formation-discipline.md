@@ -1,9 +1,9 @@
 ---
 id: formation-discipline
 kind: system
-status: draft
+status: in-progress
 schema_version: 1
-spec_version: 4
+spec_version: 5
 owner: 设计/用户
 depends_on: [command-wheel, squad-cohesion, weapon-employment-doctrine]
 reconstruction_complete: false
@@ -100,17 +100,20 @@ reconstruction_complete: false
 ## 6. 实现计划（Task Pipeline）
 
 ### 阶段 1 — 开关 + 收紧编队
-- [ ] `formation_discipline` 字段 + 轮盘左下槽 + HUD 第 6 toggle 双入口镜像
-- [ ] TIGHT 下巡航/待命收紧编队（防游走 leash 归零）+ 抑制个体脱队交战
+- [x] `formation_tight` 队级字段（SquadCommandController）+ 攻击轮盘右槽切换 + 轮盘状态显示
+- [ ] HUD 第 6 toggle 镜像——**暂未做**：用户方向已定"开关长期收束进轮盘"，轮盘为唯一入口；若 playtest 想要面板镜像再补
+- [ ] TIGHT 巡航/待命收紧编队（防游走 leash 归零）——v1 未做（攻击时僚机"不发目标"已保证不脱队；巡航收紧待 playtest 观感决定）
 
-### 阶段 2 — 队级齐射循环
-- [ ] FORM_INGRESS/VOLLEY/FORM_EGRESS/FORM_DRAG 状态机（复用 STANDOFF 骨架）
-- [ ] 齐射门控（锁定提前 + 窗口广播 + 禁补射）
-- [ ] ASSAULT 临时豁免 + 战后收拢
+### 阶段 2 — 队级齐射循环（2026-07-12 v1 落地，设计变体见 §8 v5）
+- [x] **齐射触发器 = 长机开火**（v1 设计变体）：TIGHT 集火时只有长机接命令目标（含玩家亲自带队——你扣扳机的瞬间全队齐射，指挥官仪式感）；僚机全程编队跟随，"整队进入/拉开"由编队复现长机轨迹自然涌现，未做显式 FORM_* 队级状态机
+- [x] 齐射门控：开窗 `volley_window_s=1.5s` → 僚机临时授予 combat_target（`volley_fire_active` 豁免 SquadCoordination 编队防御清除，**在槽位里开火不脱队**）→ 到时回收 = 禁补射（构造保证）→ 长机停火 ≥`volley_rearm_quiet_s=2s` 才允许下轮开窗（防连环开窗）；锁定提前由编队机头几何在进入段自然积累（未做显式 1.3× 参数）
+- [x] ASSAULT 豁免（发令级：TIGHT+突击 = 普通集火广播）；战后收拢 = 目标亡自动清理回编队
+- [ ] SPREAD+TIGHT 齐射（分火暂忽略阵型纪律）/ 防守·自动交战接 TIGHT——后续按 playtest 需求
 
 ### 阶段 3 — 收尾
-- [ ] `--bench` 无头验证（齐射时间戳聚合断言）+ 生存 playtest
-- [ ] i18n 三语 + §7 锚点 + reference 索引 + §8 变更记录
+- [x] `--bench=tight_volley` 10 断言（长机独持/僚机不脱队/开火开窗/到时禁补射/安静期再武装/目标亡清理/ASSAULT 豁免）
+- [ ] 生存 playtest（TIGHT 集火观感：整队进入-齐射-拉开）
+- [x] 参数落 CommandWheelParams（volley_window_s / volley_rearm_quiet_s）+ §7 锚点 + reference 索引
 
 ## 7. 索引锚点（Where —— 实现后填）
 
@@ -129,3 +132,4 @@ reconstruction_complete: false
 | 2026-07-05 | 2 | 用户确认：ASSAULT 临时豁免定稿；HUD 双入口都做（长期收束进轮盘、战术栏后撤）。VOLLEY 阶段接火力分配（command-wheel §3.6）：FOCUS 饱和同一目标 / SPREAD 各机朝各自分配目标齐射，超杀问题由分火开关解决、不做 AI 自动干预 |
 | 2026-07-05 | 3 | 同步火力分配语义定稿：分火=目标池内各自接敌（自主选择，无中心分配器）；集火在 FREE 阵型下带包围轴分离、TIGHT 下阵型优先于包围（详见 command-wheel §3.6） |
 | 2026-07-05 | 4 | 入口改为**攻击轮盘右槽**（用户：阵型纪律决定"怎么打"，归攻击语境；小队命令轮盘左下让位给撤离此区） |
+| 2026-07-12 | 5 | **用户确认 → v1 实装（status: in-progress）**，设计变体：①齐射触发器 = **长机开火**（原设计"长机进包络+锁定"改为可观察的开火事件——玩家亲自带队扣扳机即全队齐射，指挥官仪式感；AI 长机 pass 循环同样适用）；②未做显式 FORM_* 队级状态机——TIGHT 集火时长机独持命令目标飞攻击几何，僚机全程编队跟随，"整队进入/拉开"由编队复现长机轨迹自然涌现（零新编队代码）；③齐射窗口 = 临时授予僚机 combat_target + `Aircraft.volley_fire_active` 豁免 SquadCoordination 编队防御清除（僚机在槽位里开火不脱队），到时回收=禁补射（构造保证），停火 ≥2s 再武装防连环开窗；④锁定提前由编队机头几何自然积累（未做显式 1.3× 参数）；⑤参数 volley_window_s=1.5/volley_rearm_quiet_s=2.0 落 CommandWheelParams；⑥HUD 第 6 toggle 暂不做（用户"开关长期收束进轮盘"）。`--bench=tight_volley` 10/10。剩巡航收紧/SPREAD+TIGHT/playtest |

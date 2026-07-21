@@ -1,0 +1,515 @@
+extends RefCounted
+
+## 表演导演系统回归（spec ui-transition）
+## 覆盖：时间栈求解/配平 · 三类泄漏 · 序列时序与 step 边界 · 缓动端点 ·
+##       unscaled 推进 · 坏 JSON 容错 · 超时收尾
+## 运行：godot --headless --path . -- --bench=presentation（或 --bench=all）
+##
+## 说明：本测试【不启动 survivor_mode 场景】。TimeAuthority 与 SequencePlayer 都是纯
+## RefCounted，可脱离引擎逐帧手动步进——时序因此完全确定，不受帧率影响。
+
+const DT := 1.0 / 60.0
+
+var _pass := 0
+var _fail := 0
+
+
+func run() -> void:
+	print("\n════════ 表演导演（时间栈/序列/缓动/泄漏） ════════")
+
+	_test_ease_endpoints()
+	_test_ease_back_overshoot()
+	_test_time_stack_min_wins()
+	_test_time_stack_same_id_overwrite()
+	_test_time_release_returns_to_one()
+	_test_time_blend_unscaled()
+	_test_time_clear_all()
+	_test_sequence_durations()
+	_test_step_boundaries()
+	_test_instant_step_fires_once()
+	_test_unknown_channel_does_not_abort()
+	_test_force_finish()
+	_test_timeout_detection()
+	_test_upgrade_sequences_wellformed()
+	_test_wraith_sequence_wellformed()
+	_test_converge_speed_solve()
+	_test_dim_layer_placement()
+	_test_arrival_seq_names_match_registry()
+
+	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
+	print("══════════════════════════════════════════════════\n")
+
+
+# ══════════════════════════════════════════════
+#  1. 缓动（spec §2.5）
+# ══════════════════════════════════════════════
+
+func _test_ease_endpoints() -> void:
+	for name in ["linear", "cubic_out", "cubic_in", "cubic_in_out", "expo_out", "back_out"]:
+		_assert_near("ease.%s(0)" % name, EaseLib.apply(name, 0.0), 0.0)
+		_assert_near("ease.%s(1)" % name, EaseLib.apply(name, 1.0), 1.0)
+	# 未知曲线名回退 linear（热重载写错不该崩）
+	_assert_near("ease.unknown→linear", EaseLib.apply("nope", 0.42), 0.42)
+
+## back_out 必须真的过冲——这是"弹入"手感的来源
+func _test_ease_back_overshoot() -> void:
+	_assert_true("ease.back_out 过冲 >1", EaseLib.back_out(0.7) > 1.0)
+	_assert_true("ease.back_out 峰值 <1.2", EaseLib.back_out(0.7) < 1.2)
+
+
+# ══════════════════════════════════════════════
+#  2. 时间栈（spec §2.2 / §3.8）
+# ══════════════════════════════════════════════
+
+func _new_time() -> TimeAuthority:
+	return TimeAuthority.new(null)   # 不需要 SceneTree：本组不测 hard_pause
+
+func _test_time_stack_min_wins() -> void:
+	var t := _new_time()
+	t.request(&"wheel", 0.3)
+	t.request(&"upgrade", 0.05)
+	_assert_near("time.min_wins", t.solve(), 0.05)
+	# 释放小的 → 回到大的那档，而不是直接回 1.0
+	t.release(&"upgrade")
+	_assert_near("time.release_small→次小", t.solve(), 0.3)
+	t.clear_all()
+
+func _test_time_stack_same_id_overwrite() -> void:
+	var t := _new_time()
+	t.request(&"upgrade", 0.5)
+	t.request(&"upgrade", 0.2)
+	_assert_near("time.same_id 覆盖不叠加", t.solve(), 0.2)
+	t.release(&"upgrade")
+	_assert_near("time.same_id 一次释放即净空", t.solve(), 1.0)
+	t.clear_all()
+
+func _test_time_release_returns_to_one() -> void:
+	var t := _new_time()
+	t.request(&"a", 0.1)
+	t.request(&"b", 0.4)
+	t.release(&"a")
+	t.release(&"b")
+	_assert_near("time.栈空回 1.0", t.solve(), 1.0)
+	_assert_near("time.Engine.time_scale 回 1.0", Engine.time_scale, 1.0)
+	t.clear_all()
+
+## 混合必须按 unscaled 时间推进：喂 unscaled delta 时，混合时长应与 time_scale 无关
+func _test_time_blend_unscaled() -> void:
+	var t := _new_time()
+	t.request(&"upgrade", 0.05, 0.15)
+	var steps := 0
+	while t.is_blending() and steps < 600:
+		t.tick(DT)
+		steps += 1
+	_assert_true("time.blend 在 ~0.15s 内收敛", steps <= 10 and steps >= 8)
+	_assert_near("time.blend 终值精确", t.current_scale(), 0.05)
+	t.clear_all()
+
+## 泄漏防护：clear_all 必须让 Engine.time_scale 干净回 1.0
+func _test_time_clear_all() -> void:
+	var t := _new_time()
+	t.request(&"upgrade", 0.05, 0.2)
+	t.tick(DT)   # 混合到一半
+	t.clear_all()
+	_assert_near("leak.clear_all → time_scale 1.0", Engine.time_scale, 1.0)
+	_assert_near("leak.clear_all → 栈空", t.solve(), 1.0)
+	_assert_true("leak.clear_all → 无残留混合", not t.is_blending())
+
+
+# ══════════════════════════════════════════════
+#  3. 序列时序（spec §2.3 / §2.4 / §3.1）
+# ══════════════════════════════════════════════
+
+func _load_real_sequences() -> Dictionary:
+	var f := FileAccess.open("res://resources/presentation/sequences.json", FileAccess.READ)
+	if f == null:
+		return {}
+	var txt := f.get_as_text()
+	f.close()
+	var parsed: Variant = JSON.parse_string(txt)
+	return parsed if typeof(parsed) == TYPE_DICTIONARY else {}
+
+func _test_sequence_durations() -> void:
+	var defs := _load_real_sequences()
+	_assert_true("seq.JSON 可解析", not defs.is_empty())
+	if defs.is_empty():
+		return
+	var p := SequencePlayer.new()
+	p.load_sequence("upgrade_in", defs.get("upgrade_in", {}))
+	_assert_near("seq.upgrade_in 总时长 0.54", p.total_duration(), 0.54)
+	p.load_sequence("upgrade_out", defs.get("upgrade_out", {}))
+	_assert_near("seq.upgrade_out 总时长 0.30", p.total_duration(), 0.30)
+	_test_stagger_span_invariant(defs)
+
+## 错开动画的跨度不变式：dur ≥ elem_dur + stagger*(n-1)。
+## 违反则最后一个元素的进度跑不满，会永久停在半透明——本项目已经踩过一次
+func _test_stagger_span_invariant(defs: Dictionary) -> void:
+	const PANEL_ELEMS := 4    ## 标题 + 3 张卡
+	for seq_name in defs.keys():
+		if typeof(defs[seq_name]) != TYPE_DICTIONARY:
+			continue
+		for s in defs[seq_name].get("steps", []):
+			if String(s.get("ch", "")) != "panel":
+				continue
+			var span := float(s.get("dur", 0.0))
+			var elem := float(s.get("elem_dur", span))
+			var stag := float(s.get("stagger", 0.0))
+			var need: float = elem + stag * (PANEL_ELEMS - 1)
+			_assert_true("stagger.%s 跨度足够（%.2f ≥ %.2f）" % [seq_name, span, need],
+				span >= need - 0.001)
+
+## step 必须在 at 激活、在 at+dur 恰好抵达终值
+func _test_step_boundaries() -> void:
+	var p := SequencePlayer.new()
+	p.load_sequence("t", {"steps": [
+		{"at": 0.10, "ch": "overlay", "op": "dim", "dur": 0.20, "ease": "linear"},
+	]})
+	# t=0.05：尚未激活
+	p.advance(0.05)
+	_assert_true("step.at 之前不激活", p.advance(0.0).is_empty())
+	# 推到 0.15（step 内部进度 0.05/0.20 = 0.25）
+	var ticks := p.advance(0.10)
+	_assert_true("step.at 之后激活", ticks.size() == 1)
+	if ticks.size() == 1:
+		_assert_near("step.中段进度", ticks[0].raw_t, 0.25)
+		_assert_true("step.首帧 first=true", ticks[0].first)
+	# 推到终点
+	var last: Variant = null
+	for i in range(30):
+		var arr := p.advance(DT)
+		if arr.size() > 0:
+			last = arr[0]
+		if p.is_done():
+			break
+	_assert_true("step.抵达终点 last=true", last != null and last.last)
+	_assert_near("step.终值 t=1.0", last.raw_t if last else -1.0, 1.0)
+
+## 瞬时 step（无 dur）只发一次，且 t=1.0
+func _test_instant_step_fires_once() -> void:
+	var p := SequencePlayer.new()
+	p.load_sequence("t", {"steps": [{"at": 0.05, "ch": "time", "op": "pause", "to": 1}]})
+	p.advance(0.10)                       # 跨过 at
+	var second := p.advance(DT)
+	_assert_true("step.瞬时只发一次", second.is_empty())
+
+## 坏数据容错：未知 ch/op 不该中断整条序列（SequencePlayer 层原样透传，由导演跳过）
+func _test_unknown_channel_does_not_abort() -> void:
+	var p := SequencePlayer.new()
+	p.load_sequence("t", {"steps": [
+		{"at": 0.00, "ch": "bogus_channel", "op": "nope"},
+		{"at": 0.05, "ch": "overlay", "op": "dim", "dur": 0.10},
+	]})
+	var seen_overlay := false
+	for i in range(30):
+		for tk in p.advance(DT):
+			if String(tk.step.get("ch", "")) == "overlay":
+				seen_overlay = true
+		if p.is_done():
+			break
+	_assert_true("seq.坏 step 之后的 step 仍执行", seen_overlay)
+	_assert_true("seq.坏 step 序列仍能跑完", p.is_done())
+
+## 超时/打断收尾：force_finish 把未完成的 step 全推到终点
+func _test_force_finish() -> void:
+	var p := SequencePlayer.new()
+	p.load_sequence("t", {"steps": [
+		{"at": 0.00, "ch": "overlay", "op": "dim", "dur": 1.00},
+		{"at": 0.50, "ch": "camera", "op": "zoom", "dur": 1.00},
+	]})
+	p.advance(0.10)
+	var forced := p.force_finish()
+	_assert_true("seq.force_finish 覆盖全部未完成 step", forced.size() == 2)
+	for tk in forced:
+		_assert_near("seq.force_finish 推到终值", tk.t, 1.0)
+	_assert_true("seq.force_finish 后无残留", p.force_finish().is_empty())
+
+func _test_timeout_detection() -> void:
+	var p := SequencePlayer.new()
+	p.load_sequence("t", {"max_sec": 0.20, "steps": [
+		{"at": 0.00, "ch": "overlay", "op": "dim", "dur": 5.00},
+	]})
+	p.advance(0.10)
+	_assert_true("seq.未超时", not p.is_timed_out())
+	p.advance(0.20)
+	_assert_true("seq.超时可检出", p.is_timed_out())
+
+
+# ══════════════════════════════════════════════
+#  4. 真实序列的结构约束（spec §2.3 / §2.4）
+# ══════════════════════════════════════════════
+
+func _test_upgrade_sequences_wellformed() -> void:
+	var defs := _load_real_sequences()
+	if defs.is_empty():
+		return
+
+	# 入场：必须先请求缩放、再 hard_pause（顺序反了会在正常速度下直接冻住，急刹感全失）
+	var in_steps: Array = defs.get("upgrade_in", {}).get("steps", [])
+	var t_request := -1.0
+	var t_pause := -1.0
+	for s in in_steps:
+		if String(s.get("ch", "")) == "time":
+			if String(s.get("op", "")) == "request":
+				t_request = float(s.get("at", 0.0)) + float(s.get("dur", 0.0))
+			elif String(s.get("op", "")) == "pause":
+				t_pause = float(s.get("at", 0.0))
+	_assert_true("upgrade_in: 有 time.request", t_request >= 0.0)
+	_assert_true("upgrade_in: 有 time.pause", t_pause >= 0.0)
+	_assert_true("upgrade_in: 缩放跑完才 hard_pause", t_pause >= t_request - 0.001)
+
+	# 退场：解除暂停与释放缩放都必须在 at=0（状态恢复不得延后，守 Litmus #2）
+	var out_steps: Array = defs.get("upgrade_out", {}).get("steps", [])
+	var unpause_at := -1.0
+	var release_at := -1.0
+	for s in out_steps:
+		if String(s.get("ch", "")) != "time":
+			continue
+		if String(s.get("op", "")) == "pause" and int(s.get("to", 1)) == 0:
+			unpause_at = float(s.get("at", 0.0))
+		elif String(s.get("op", "")) == "release":
+			release_at = float(s.get("at", 0.0))
+	_assert_near("upgrade_out: 第 0 帧解除暂停", unpause_at, 0.0)
+	_assert_near("upgrade_out: 第 0 帧释放缩放", release_at, 0.0)
+
+	# 入场请求的 id 必须与退场释放的 id 一致，否则时间缩放永久泄漏
+	var in_id := ""
+	var out_id := ""
+	for s in in_steps:
+		if String(s.get("ch", "")) == "time" and String(s.get("op", "")) == "request":
+			in_id = String(s.get("id", ""))
+	for s in out_steps:
+		if String(s.get("ch", "")) == "time" and String(s.get("op", "")) == "release":
+			out_id = String(s.get("id", ""))
+	_assert_true("leak.请求/释放 id 配平（%s vs %s）" % [in_id, out_id],
+		in_id != "" and in_id == out_id)
+
+
+# ══════════════════════════════════════════════
+#  5. Wraith 登场演出（spec §2.8~§2.11）
+# ══════════════════════════════════════════════
+
+func _test_wraith_sequence_wellformed() -> void:
+	var defs := _load_real_sequences()
+	var seq: Dictionary = defs.get("wraith_squadron_arrival", {})
+	_assert_true("wraith: 序列存在", not seq.is_empty())
+	if seq.is_empty():
+		return
+
+	var p := SequencePlayer.new()
+	p.load_sequence("wraith_squadron_arrival", seq)
+	var total := p.total_duration()
+	_assert_true("wraith: 总时长 ≤ 硬上限 7.0s（实际 %.2f）" % total, total <= 7.0)
+	_assert_true("wraith: max_sec 已设为 7.0", absf(p.max_sec - 7.0) < 0.001)
+
+	var steps: Array = seq.get("steps", [])
+	var t_of := func(ch: String, op: String) -> float:
+		for s in steps:
+			if String(s.get("ch", "")) == ch and String(s.get("op", "")) == op:
+				return float(s.get("at", -1.0))
+		return -1.0
+
+	# 幕序：清舞台 → 进场 → 交汇 → 隐身 → 散开/淡回 → 解暂停+释放
+	var t_clear: float = t_of.call("stage", "clear")
+	var t_ingress: float = t_of.call("actor", "echelon_ingress")
+	var t_conv: float = t_of.call("actor", "converge")
+	var t_cloak: float = t_of.call("actor", "cloak_on_meet")
+	var t_scatter: float = t_of.call("actor", "scatter")
+	var t_restore: float = t_of.call("stage", "restore")
+	var t_release: float = t_of.call("actor", "release")
+	_assert_true("wraith: 清舞台在最前", t_clear >= 0.0 and t_clear <= t_ingress)
+	_assert_true("wraith: 进场 → 交汇", t_ingress < t_conv)
+	# 交汇即隐身：隐身窗与交汇同启（贴上长机才触发，非定时）
+	_assert_true("wraith: 隐身窗与交汇同启", absf(t_cloak - t_conv) < 0.11)
+	var cloak_end := -1.0
+	for st in steps:
+		if String(st.get("op", "")) == "cloak_on_meet":
+			cloak_end = float(st.get("at", 0.0)) + float(st.get("dur", 0.0))
+			_assert_true("wraith: 交汇触发半径合理（%.0f ≥ 到点半径 80）" % float(st.get("radius", 0.0)),
+				float(st.get("radius", 0.0)) >= 80.0)
+	_assert_true("wraith: 隐身窗覆盖到散开（%.2f ≥ %.2f）" % [cloak_end, t_scatter],
+		cloak_end >= t_scatter - 0.001)
+	_assert_true("wraith: 散开与世界淡回同步（散开无观众）", absf(t_scatter - t_restore) < 0.001)
+	_assert_true("wraith: release 在最后", t_release >= t_restore)
+
+	# 收拢必须在第 3 句台词之后起（「交战自由」卡住收拢起点）
+	var t_line3 := -1.0
+	for s in steps:
+		if String(s.get("ch", "")) == "radio" and String(s.get("key", "")).ends_with("SPAWN_3"):
+			t_line3 = float(s.get("at", -1.0))
+	_assert_true("wraith: 第 3 句台词卡在收拢起点", t_line3 >= 0.0 and t_line3 <= t_conv)
+
+	# 三句台词都必须给编排时长（否则走 2.6s 封底，三句连播 8.5s 撑爆演出）
+	var radio_n := 0
+	for s in steps:
+		if String(s.get("ch", "")) != "radio":
+			continue
+		radio_n += 1
+		_assert_true("wraith: 台词 %s 有编排时长" % String(s.get("key", "")),
+			float(s.get("dur", 0.0)) > 0.0)
+	_assert_true("wraith: 三句台词齐全", radio_n == 3)
+
+	# 演出必须自带配乐（playtest 反馈：大阵仗登场配巡航曲 = 气氛断档）
+	var has_bgm := false
+	for st in steps:
+		if String(st.get("ch", "")) == "audio" and String(st.get("op", "")) == "boss_bgm":
+			has_bgm = true
+	_assert_true("wraith: 演出开场切 BOSS 曲（audio.boss_bgm）", has_bgm)
+
+	# 演出必须自带收尾（release），否则演员永远停在免战脚本模式
+	_assert_true("leak.wraith 有 actor.release 收尾", t_release >= 0.0)
+
+	# 镜头必须跟随长机而非定点（playtest 回归："镜头看着战区正中央的空气"）。
+	# 且进场 step 必须排在 cut_to 之前 —— 切镜要读演员传送后的定位，数组序即执行序
+	var idx_ingress := -1
+	var idx_cut := -1
+	var cut_follow := false
+	for i in range(steps.size()):
+		match String(steps[i].get("op", "")):
+			"echelon_ingress":
+				idx_ingress = i
+			"cut_to":
+				idx_cut = i
+				cut_follow = bool(steps[i].get("follow", false))
+	_assert_true("wraith: cut_to 开启跟随长机（follow=true）", cut_follow)
+	_assert_true("wraith: 进场先于切镜（idx %d < %d）" % [idx_ingress, idx_cut],
+		idx_ingress >= 0 and idx_ingress < idx_cut)
+	# 交汇到点半径必须收紧，300px 下四条线交不成一个点
+	for s in steps:
+		if String(s.get("op", "")) == "converge":
+			_assert_true("wraith: 交汇到点半径已收紧（%.0f ≤ 100）" % float(s.get("arrive_radius", 999)),
+				float(s.get("arrive_radius", 999)) <= 100.0)
+
+## 同时抵达要按距离反解速度：远的必须更快，否则四线依次穿过而非汇于一点。
+## 且【全部机位的所需速度必须落在机体包线内】—— 超出会被钳速，同时抵达随之失效。
+## 这条断言就是为了守住"空间尺度必须从速度反推"这个教训（早期 5200px 进场需 41 秒）
+const F47_MAX_KMH := 2800.0     ## resources/enemy_f47.tres
+const F47_CRUISE_KMH := 1600.0
+
+func _test_converge_speed_solve() -> void:
+	var defs := _load_real_sequences()
+	var steps: Array = defs.get("wraith_squadron_arrival", {}).get("steps", [])
+	var offsets: Array = []
+	var ingress_dist := 0.0
+	var ingress_speed := 0.0
+	var conv_dur := 0.0
+	var ingress_at := 0.0
+	var conv_at := 0.0
+	for s in steps:
+		match String(s.get("op", "")):
+			"echelon_ingress":
+				offsets = s.get("offsets", [])
+				ingress_dist = float(s.get("ingress_dist", 0.0))
+				ingress_speed = float(s.get("speed", 0.0))
+				ingress_at = float(s.get("at", 0.0))
+			"converge":
+				conv_dur = float(s.get("dur", 0.0))
+				conv_at = float(s.get("at", 0.0))
+	if offsets.is_empty() or conv_dur <= 0.0:
+		_assert_true("converge: 序列参数可读", false)
+		return
+
+	var px_per_sec := func(kmh: float) -> float:
+		return kmh / 3.6 * CombatUnit.PIXELS_PER_METER
+	var kmh_for := func(dist: float, t: float) -> float:
+		return (dist / t) / CombatUnit.PIXELS_PER_METER * 3.6
+
+	# 进场段：ingress_dist 必须约等于 速度 × 可见时长，否则演出结束时飞机还没到位
+	var ingress_time: float = conv_at - ingress_at
+	var reachable: float = px_per_sec.call(ingress_speed) * ingress_time
+	_assert_true("ingress: %.0fpx 在 %.1fs 内飞得完（可达 %.0fpx）" % [
+		ingress_dist, ingress_time, reachable], ingress_dist <= reachable * 1.05)
+	_assert_true("ingress: 速度不超包线（%.0f ≤ %.0f）" % [ingress_speed, F47_MAX_KMH],
+		ingress_speed <= F47_MAX_KMH)
+
+	# 交汇段：CP 取锚点前方 250px（与 boss_encounter_event 的 cp 保持一致）
+	const CP_AHEAD := 250.0
+	var slowest := 1e9
+	var fastest := 0.0
+	for o in offsets:
+		var dx: float = CP_AHEAD - float(o[0])
+		var dy: float = -float(o[1])
+		var dist: float = sqrt(dx * dx + dy * dy)
+		var need: float = kmh_for.call(dist, conv_dur)
+		slowest = minf(slowest, need)
+		fastest = maxf(fastest, need)
+		_assert_true("converge: 机位 %s 所需 %.0f km/h 在包线内" % [str(o), need],
+			need <= F47_MAX_KMH)
+	_assert_true("converge: 远机比近机快（%.0f > %.0f）" % [fastest, slowest], fastest > slowest)
+
+
+# ══════════════════════════════════════════════
+#  6. 压暗层高度（playtest 回归：战术地图被自己的遮罩压黑）
+# ══════════════════════════════════════════════
+
+## 压暗层必须【永远低于】被展示的面板，否则面板被自己的转场遮罩盖住。
+## 实测踩过：战术图在 CanvasLayer 15，而压暗层固定 16 → 打开 Tab 地图整个变黑。
+## 规则：dim_layer = min(DIM_LAYER, panel.layer - 1)
+func _test_dim_layer_placement() -> void:
+	const DIM_DEFAULT := 16
+	var solve := func(panel_layer: int) -> int:
+		return mini(DIM_DEFAULT, maxi(panel_layer - 1, 1))
+	# 各面板的实际 layer（与各自 _ready 中的赋值一致）
+	var cases := {
+		"战术图": 15,
+		"升级面板": 20,
+		"进化站": 20,
+		"边界菜单": 20,
+	}
+	for label in cases:
+		var pl: int = cases[label]
+		var dim: int = solve.call(pl)
+		_assert_true("dim.%s(layer %d) 压暗层 %d 在其下" % [label, pl, dim], dim < pl)
+	# 面板高于默认值时，压暗层不该被抬上去 —— 否则会盖住无线电(19)/战区提示(18)
+	_assert_true("dim.面板在 20 时压暗层仍为 16（留无线电在亮处）", solve.call(20) == 16)
+	# 极端：面板在 layer 1，压暗层不得降到 0 以下
+	_assert_true("dim.面板在最低层时压暗层 ≥ 1", solve.call(1) >= 1)
+
+
+# ══════════════════════════════════════════════
+#  7. 登场演出的命名契约（playtest 回归：演出没播，静默回落旧路径）
+# ══════════════════════════════════════════════
+
+## BossEncounterEvent 按 `boss_id.to_lower() + "_arrival"` 找序列，找不到就【静默】
+## 回落到"横幅+无线电"的旧路径 —— 表现是"只听见无线电、镜头不动"，不报任何错。
+## 实测踩过：序列命名 `wraith_arrival`，而 boss_id 是 `WRAITH_SQUADRON`，
+## 派生名 `wraith_squadron_arrival` 对不上 → 演出从未播出。
+## 本测试双向校验：每个 *_arrival 序列都要对应真实 BOSS，且命名必须可被派生出来。
+func _test_arrival_seq_names_match_registry() -> void:
+	var defs := _load_real_sequences()
+	var valid_names: Array[String] = []
+	for boss_id in BossRegistry.BOSS_DEFS.keys():
+		valid_names.append("%s_arrival" % String(boss_id).to_lower())
+
+	var found_any := false
+	for seq_name in defs.keys():
+		var n := String(seq_name)
+		if not n.ends_with("_arrival"):
+			continue
+		found_any = true
+		_assert_true("arrival.'%s' 能被某个 boss_id 派生出来" % n, valid_names.has(n))
+	_assert_true("arrival: 至少有一个登场演出", found_any)
+
+	# 反向：已写的演出必须真的挂得上（否则等于没写）
+	_assert_true("arrival: WRAITH 演出已就位（%s）" % "wraith_squadron_arrival",
+		defs.has("wraith_squadron_arrival"))
+
+
+# ══════════════════════════════════════════════
+#  断言辅助
+# ══════════════════════════════════════════════
+
+func _assert_true(label: String, cond: bool) -> void:
+	if cond:
+		_pass += 1
+		print("  ✓ %s" % label)
+	else:
+		_fail += 1
+		printerr("  ✗ %s" % label)
+
+func _assert_near(label: String, actual: float, expected: float, tol: float = 0.002) -> void:
+	if absf(actual - expected) <= tol:
+		_pass += 1
+		print("  ✓ %s" % label)
+	else:
+		_fail += 1
+		printerr("  ✗ %s: 期望 %.4f 实际 %.4f" % [label, expected, actual])

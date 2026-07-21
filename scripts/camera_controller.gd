@@ -25,6 +25,24 @@ const FOLLOW_LERP := 7.0        ## 跟随模式下相机追赶目标的速率
 var camera: Camera2D
 var target_zoom: float = 1.0
 
+# ── 电影层（表演导演驱动，spec ui-transition §2.6）──
+## ⚠ zoom 反馈环：原实现回读 camera.zoom.x 作 lerp 起点。若把 cine_zoom_mult 直接乘进
+##   camera.zoom，下一帧回读值已含系数 → 自乘发散。故拆出 _base_zoom 只跟 target_zoom 走，
+##   系数在写 camera.zoom 的最后一步才乘。
+var _base_zoom: float = 1.0
+var cine_zoom_mult: float = 1.0        ## 乘到基础 zoom 上（zoom 越大越推近）
+## 镜头偏移写 camera.offset 而【不是】global_position ——
+## 后者会被 _clamp_camera_position 钳制并污染跟随逻辑
+var cine_offset: Vector2 = Vector2.ZERO
+var cine_shake_trauma: float = 0.0
+## 演出期间的临时跟随目标（Node2D）。非空时接管 _update_follow，演出结束置 null 即还原
+var cine_target: Node2D = null
+var cine_follow_lerp: float = 7.0      ## 演出跟随速率（同 FOLLOW_LERP 手感）
+var _saved_target_zoom: float = -1.0   ## cut_to 前的玩家 zoom，return_to_player 用
+
+const CINE_SHAKE_DECAY := 1.8          ## trauma 每秒衰减
+const CINE_SHAKE_MAX_PX := 14.0        ## 位移幅度 = MAX_PX * trauma²（平方使尾部收干净）
+
 ## 当前悬停的战斗单位（由父场景通过 update_hover 更新）
 var hovered_unit: CombatUnit = null
 
@@ -45,17 +63,82 @@ func setup(p_camera: Camera2D) -> void:
 	# 初始镜头用 START_ZOOM（俯瞰但飞机不至于太小）；上限放宽到 ZOOM_MIN 供玩家拉远看全场
 	camera.zoom = Vector2(START_ZOOM, START_ZOOM)
 	target_zoom = START_ZOOM
+	_base_zoom = START_ZOOM
 
 ## 启用相机位置钳制（传入世界矩形；生存模式传 MapBoundary.get_world_rect()）
 func set_world_bounds(rect: Rect2) -> void:
 	_world_bounds = rect
 
-## 每帧调用：平滑缩放 + 位置钳制
+## 每帧调用：平滑缩放 + 电影层叠加 + 位置钳制
+## _base_zoom 只跟 target_zoom 走（不回读 camera.zoom，避免与 cine_zoom_mult 形成自乘反馈环）；
+## camera.zoom = _base_zoom × cine_zoom_mult。_clamp_camera_position 仍读实际 zoom ——
+## 这是对的，钳制应基于真实视野
 func update_zoom(delta: float) -> void:
-	var current_zoom := camera.zoom.x
-	var new_zoom := lerpf(current_zoom, target_zoom, delta * 10.0)
-	camera.zoom = Vector2(new_zoom, new_zoom)
+	_base_zoom = lerpf(_base_zoom, target_zoom, delta * 10.0)
+	var eff: float = _base_zoom * cine_zoom_mult
+	camera.zoom = Vector2(eff, eff)
+	_update_cine_offset(delta)
 	_clamp_camera_position()
+
+## 电影层偏移 + 抖动 → camera.offset（不碰 global_position）
+func _update_cine_offset(delta: float) -> void:
+	var off := cine_offset
+	if cine_shake_trauma > 0.0:
+		cine_shake_trauma = maxf(cine_shake_trauma - CINE_SHAKE_DECAY * delta, 0.0)
+		var amp: float = CINE_SHAKE_MAX_PX * cine_shake_trauma * cine_shake_trauma
+		off += Vector2(randf_range(-amp, amp), randf_range(-amp, amp))
+	camera.offset = off
+
+## 触发一次抖动（trauma 叠加并封顶 1.0）
+func cine_shake(amount: float) -> void:
+	cine_shake_trauma = clampf(cine_shake_trauma + amount, 0.0, 1.0)
+
+## 演出切镜：瞬移到世界坐标 + 指定 zoom。保存玩家原本的 zoom 供归位
+func cine_cut_to(world_pos: Vector2, zoom: float) -> void:
+	if _saved_target_zoom < 0.0:
+		_saved_target_zoom = target_zoom
+	cine_target = null
+	target_zoom = zoom
+	_base_zoom = zoom          # 瞬切不留 lerp 拖尾
+	if camera:
+		camera.global_position = world_pos
+		camera.zoom = Vector2(zoom * cine_zoom_mult, zoom * cine_zoom_mult)
+		_clamp_camera_position()
+
+## 演出跟随泵：hard_pause 期间 survivor_mode 的 update() 不跑，导演代泵本函数
+## 让镜头持续咬住 cine_target（手感 = 空格跟随，同 FOLLOW_LERP 量级的 lerp）
+func cine_follow_tick(delta: float) -> void:
+	if camera == null or cine_target == null or not is_instance_valid(cine_target):
+		return
+	var lt: float = clampf(delta * cine_follow_lerp, 0.0, 1.0)
+	camera.global_position = camera.global_position.lerp(cine_target.global_position, lt)
+	_clamp_camera_position()
+
+## 演出收尾：还原玩家 zoom 与跟随。t 为 0..1 进度，用于平滑过渡回去
+func cine_return_to_player(t: float) -> void:
+	# 归位一开始就停止追演员 —— 此刻演员多半已隐身/散开，镜头不该追着看不见的目标跑
+	cine_target = null
+	if _saved_target_zoom < 0.0:
+		return
+	target_zoom = lerpf(target_zoom, _saved_target_zoom, clampf(t, 0.0, 1.0))
+	if t >= 1.0:
+		target_zoom = _saved_target_zoom
+		_saved_target_zoom = -1.0
+		cine_target = null
+		follow_enabled = true
+
+## 电影层归位。演出结束 / 场景切换 / 导演 clear_all 必调
+func cine_reset() -> void:
+	cine_zoom_mult = 1.0
+	cine_offset = Vector2.ZERO
+	cine_shake_trauma = 0.0
+	cine_target = null
+	if _saved_target_zoom >= 0.0:
+		target_zoom = _saved_target_zoom
+		_saved_target_zoom = -1.0
+	follow_enabled = true
+	if camera:
+		camera.offset = Vector2.ZERO
 
 ## 每帧综合更新：缩放 + WASD 自由镜头 + 跟随。调用方不需要再单独调 update_zoom。
 func update(delta: float) -> void:
@@ -105,6 +188,12 @@ func _update_wasd(delta: float) -> void:
 		_clamp_camera_position()
 
 func _update_follow(delta: float) -> void:
+	# 演出接管：cine_target 非空时优先跟它（无视 follow_enabled，演出期间玩家没有输入权）
+	if cine_target != null and is_instance_valid(cine_target):
+		var lt: float = clampf(delta * cine_follow_lerp, 0.0, 1.0)
+		camera.global_position = camera.global_position.lerp(cine_target.global_position, lt)
+		_clamp_camera_position()
+		return
 	if not follow_enabled or follow_target == null or not is_instance_valid(follow_target):
 		return
 	var target_pos: Vector2 = follow_target.global_position

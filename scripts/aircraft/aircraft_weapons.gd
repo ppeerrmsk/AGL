@@ -129,7 +129,8 @@ static func auto_gun_scan(ac: Aircraft) -> void:
 	# combat_target 已清 → 这里会扫到前方任意敌机并锁存 is_firing，朝 0.3s 前的旧 lead
 	# 方向狂喷子弹（= 用户反馈"规避中朝没有目标的地方开火"）。与 cobra/herbst 同款静默。
 	# 见 docs/changelogs/player-ai-log.md（2026-06-15 规避盲射根治）
-	if ac.evasion_mode:
+	# afterburner_window_active：加力窗口全队禁攻击（僚机不置 evasion_mode，需独立盖到）
+	if ac.evasion_mode or ac.afterburner_window_active:
 		ac.is_firing = false
 		return
 	# 注意：不要在这里加 "if ac.is_firing: return" 早返 —— 那会绕过下面的
@@ -276,7 +277,8 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 		return
 	# 规避模式：掐断残梭 —— 机头大角度机动中绝不朝旧 lead 方向喷完剩余弹
 	# （同 auto_gun_scan 的规避静默语义，见 2026-06-15 规避盲射根治）
-	if ac.evasion_mode:
+	# afterburner_window_active：加力窗口全队禁攻击（spec afterburner-mode）
+	if ac.evasion_mode or ac.afterburner_window_active:
 		ac._gun_burst_rounds_left = 0
 	# 目标当帧已毁但尚未被 clear_combat_target 摘除（AI 分频检测有 1~3 帧滞后）：
 	# 掐断残梭 + 停火。梭承诺是给"火控窗口一闪只漏单弹"用的，目标一旦被击毁就没有
@@ -358,6 +360,9 @@ static func _log_burst_start(ac: Aircraft, gun: GunParams) -> void:
 
 ## 单发出弹：散布/云雾/机动惩罚/多管齐射/音效/弹药，从旧 update_gun 原样抽出
 static func _fire_gun_round(ac: Aircraft, gun: GunParams) -> void:
+	# 加力窗口全队禁攻击硬断（spec afterburner-mode）；CIWS 拦截弹不走本函数、照常防御
+	if ac.afterburner_window_active:
+		return
 	# 生成弹丸：朝前置射击方向发射
 	if ac.bullet_manager and ac.bullet_manager.has_method("spawn_bullet"):
 		var spread_rad := deg_to_rad(gun.spread_angle)
@@ -574,6 +579,9 @@ static func update_rocket(ac: Aircraft, delta: float) -> void:
 ## pylon: -1 = 左挂点 / 1 = 右挂点 / 0 = 机身中线
 ## base_heading 已包含 update_rocket 在扇形齐射时计算的角度偏移，这里不再随机 spread
 static func _launch_rocket(ac: Aircraft, base_heading: float, _queued_pos: Vector2, pylon: int = 0) -> void:
+	# 加力窗口全队禁攻击硬断（spec afterburner-mode）：含已入队的延迟出膛弹
+	if ac.afterburner_window_active:
+		return
 	if not ac.params or not ac.params.rocket:
 		return
 	var rk: RocketParams = ac.params.rocket
@@ -705,6 +713,7 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 	ac._sfx_gun_cd = maxf(ac._sfx_gun_cd - delta, 0.0)
 	ac._crank_timer = maxf(ac._crank_timer - delta, 0.0)
 	ac._msl_block_log_timer = maxf(ac._msl_block_log_timer - delta, 0.0)
+	ac._salvo_skip_log_timer = maxf(ac._salvo_skip_log_timer - delta, 0.0)
 
 	# JAM 干扰：完全无法发射导弹（仍允许 cooldown 走完，恢复后立刻能打）
 	if ac.status_jam_active:
@@ -770,6 +779,10 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 	# 这条路径无需玩家点击 combat_target，完全自动
 	# 关闭自动发射时跳过这里，直接走下方单发路径——多锁定升级因此被临时禁用，
 	# 玩家只会对手点的 combat_target 开火
+	# 诊断（2026-07-20，log 123250 "auto_fire 显示 ON 却走单发路径" 排查）：
+	# 玩家机走到这里但齐射闸门没开 → 记录运行时开关实际值，用于坐实 UI/运行时脱节
+	if ac.use_tactical_preference and not ac.missile_auto_fire and ac._salvo_skip_log_timer <= 0.0:
+		ac._log_salvo_skip("GATE 齐射闸门关闭：missile_auto_fire=false（若 HUD 显示 ON 即为脱节）")
 	if ac.use_tactical_preference and ac.missile_auto_fire:
 		if _fire_multi_lock_salvo(ac, msl):
 			return
@@ -878,6 +891,9 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 
 ## 对指定目标发射一枚导弹
 static func _fire_missile_at(ac: Aircraft, target_unit: CombatUnit, msl: MissileParams, is_secondary: bool = false) -> void:
+	# 加力窗口全队禁攻击硬断（spec afterburner-mode）：主/副导弹发射统一收口
+	if ac.afterburner_window_active:
+		return
 	var dist_m := ac.global_position.distance_to(target_unit.global_position) / CombatUnit.PIXELS_PER_METER
 	var remaining := (ac.secondary_missiles_remaining - 1) if is_secondary else (ac.missiles_remaining - 1)
 	EventLogger.log_event("MISSILE", ac._log_name(),
@@ -907,6 +923,9 @@ static func _fire_missile_at(ac: Aircraft, target_unit: CombatUnit, msl: Missile
 ## 多目标齐射：选出多个已锁定目标，每个目标发射一枚
 ## 返回是否至少发射了一枚导弹
 static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
+	# 加力窗口全队禁攻击硬断（spec afterburner-mode）：齐射路径内部直接 spawn，需独立盖到
+	if ac.afterburner_window_active:
+		return false
 	var locked_targets: Array[CombatUnit] = []
 	# 锁定阈值：AI 模式额外加 1 秒稳定缓冲；玩家战术偏好模式直接用 lock_time，
 	# 与单发路径保持一致——否则齐射路径要求更高，combat_target 经常 fall-through
@@ -916,6 +935,12 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 	if not ac.use_tactical_preference and not ac.use_tactical_planner:
 		lock_threshold += Aircraft.LOCK_STABLE_BUFFER
 
+	# 诊断（2026-07-20）：统计各道过滤踢掉的候选数，齐射空手时打进 [SALVO_SKIP]。
+	# 只对玩家机开启（全场 1 架），循环内只做字典计数、不做字符串格式化 —— 见性能守则第 6 条
+	var diag: bool = ac.use_tactical_preference
+	var skip: Dictionary = {}
+	var ct_reason: String = ""   ## combat_target 自己被哪道踢掉（最相关的一条）
+
 	for target_key in ac.radar_targets:
 		if not is_instance_valid(target_key):
 			continue
@@ -924,31 +949,66 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 			continue
 		if not ac.is_hostile_to(target_unit):
 			continue
+		var is_ct: bool = diag and target_unit == ac.combat_target
 		if ac.radar_targets[target_key] < lock_threshold:
+			if diag:
+				skip["LOCK"] = int(skip.get("LOCK", 0)) + 1
+				if is_ct: ct_reason = "LOCK"
 			continue
 		# 锁定框 = 完整雷达锥：只要目标当前在雷达锥内且锁定已稳定，就算"在射击位置"
 		if not ac.is_in_radar_cone(target_unit.global_position):
+			if diag:
+				skip["OFF_CONE"] = int(skip.get("OFF_CONE", 0)) + 1
+				if is_ct: ct_reason = "OFF_CONE"
 			continue
 		if not ac._is_in_missile_envelope(target_unit, msl):
+			if diag:
+				skip["ENVELOPE"] = int(skip.get("ENVELOPE", 0)) + 1
+				if is_ct: ct_reason = "ENVELOPE"
 			continue
 		if ac.missile_manager.has_active_missile_at(ac, target_unit):
+			if diag:
+				skip["ACTIVE_MSL"] = int(skip.get("ACTIVE_MSL", 0)) + 1
+				if is_ct: ct_reason = "ACTIVE_MSL"
 			continue
 		# 队友已发足够伤害（含自己已发的）→ 跳过该目标，避免浪费
 		# 过滤掉 exclude_source=ac 自己，因为上一行已经查过自己；这里就是看队友贡献
 		# saturation 蜂群（Mother Goose UAV 等）跳过此检查，必须打满火力
 		if not ac.has_meta(&"saturation_attacker") \
 				and ac.missile_manager.team_inbound_damage(target_unit, ac.team, ac) >= target_unit.hp:
+			if diag:
+				skip["TEAM_OVERKILL"] = int(skip.get("TEAM_OVERKILL", 0)) + 1
+				if is_ct: ct_reason = "TEAM_OVERKILL"
 			continue
 		# 机炮正在射击 combat_target 时，不给 combat_target 发导弹（避免浪费）；
 		# 齐射仍可打其他锁定目标
 		if ac.use_tactical_preference and ac.is_firing and target_unit == ac.combat_target:
+			if diag:
+				skip["GUN_ACTIVE"] = int(skip.get("GUN_ACTIVE", 0)) + 1
+				if is_ct: ct_reason = "GUN_ACTIVE"
 			continue
 		# 发射窗口质量过滤（玩家 + 玩家方 planner 僚机）：目标在锥边缘 / 急转中 → 跳过该目标
 		if _should_apply_launch_quality(ac) and not _has_stable_launch_window(ac, target_unit):
+			if diag:
+				skip["UNSTABLE_WIN"] = int(skip.get("UNSTABLE_WIN", 0)) + 1
+				if is_ct: ct_reason = "UNSTABLE_WIN"
 			continue
 		locked_targets.append(target_unit)
 
 	if locked_targets.is_empty():
+		# 诊断：齐射一发未发 → 记录候选池规模 + 各道过滤的踢除计数 + combat_target 的归宿。
+		# 字符串拼接只在节流窗口到期时执行（每 2s 至多一次），不进热路径
+		if diag and ac._salvo_skip_log_timer <= 0.0:
+			var parts: Array[String] = []
+			for k in skip:
+				parts.append("%s×%d" % [k, int(skip[k])])
+			var ct_note: String = "none" if ac.combat_target == null \
+					else "%s→%s" % [ac._log_unit_name(ac.combat_target),
+							ct_reason if not ct_reason.is_empty() else "通过(但齐射仍空)"]
+			ac._log_salvo_skip("EMPTY auto_fire=on radar_tgts=%d locks=%d skip=[%s] combat_target=%s" % [
+					ac.radar_targets.size(), ac.max_simultaneous_locks,
+					", ".join(parts) if not parts.is_empty() else "无候选进入过滤",
+					ct_note])
 		return false
 
 	# 玩家战术偏好 + 显式指定了 combat_target：
@@ -1272,6 +1332,11 @@ static func update_secondary_radar(ac: Aircraft, delta: float) -> void:
 	for unit in ac.bullet_manager.combat_unit_list:
 		if unit == null or not is_instance_valid(unit): continue
 		if not ac.is_hostile_to(unit) or unit.is_destroyed: continue
+		# 光学隐形 / 锁定免疫：清掉累积（与主雷达 erase(is_lock_immune) 对称）。
+		# 缺此门时隐形目标能积满副雷达锁 → 被 QMAAM 打 + 被画锁定框
+		# （spec ace-squadron-tier §3.5）
+		if unit.is_lock_immune():
+			ac.secondary_radar_targets.erase(unit); continue
 		# filter 不匹配的从累积清掉
 		if (sec.target_filter & _secondary_target_class_bit(unit)) == 0:
 			ac.secondary_radar_targets.erase(unit); continue
@@ -1309,7 +1374,8 @@ static func update_secondary_missile(ac: Aircraft, delta: float) -> void:
 	# 仅凭距离包络对锁定目标盲发——规避机动中机头乱摆时会朝错误几何乱射副弹
 	# （= 用户反馈"规避中朝没有目标的地方发射导弹"）。cooldown 继续倒数，退出规避即可发。
 	# 见 docs/changelogs/player-ai-log.md（2026-06-15 规避盲射根治）
-	if ac.evasion_mode: return
+	# afterburner_window_active：加力窗口全队禁攻击（spec afterburner-mode）
+	if ac.evasion_mode or ac.afterburner_window_active: return
 
 	# 装填（独立计时器，与主弹无关）
 	if ac._secondary_reload_active:

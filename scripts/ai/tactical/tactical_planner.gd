@@ -23,13 +23,9 @@ const HYSTERESIS_MIN_HOLD := 0.5
 ## ── 慢速目标交战（按目标速度决定打法，与武器无关）──
 ## 问题：快机在角点速度下最小转弯半径 ~ corner²/(g·G)。当目标近乎静止、且交战距离 ≲ 该半径时，
 ## 快机绕着目标空转（aspect 永远 ~90°，机头带不到目标 → 枪打不准、导弹也对不准）。
-## 解法：目标够慢时，过顶/正横（hdg>90°）不绕大圈 WIDE_TURN，而是按距离分流：
-##   太近（转不回来）→ 短 extend 拉开间距；有间距 → wide turn 从远处转回。
-## 配合"指向接近（hdg<90°）走正常 lead/tail 决策对准开火"形成清晰的 pass-攻击-脱离-重攻循环。
-const SLOW_TARGET_SPEED_RATIO := 0.5   ## 目标速度 < 本机角点速度×此值 → 视为"慢速目标"
-const SLOW_TARGET_TURN_G := 7.0        ## 估算最小转弯半径用的持续 G（近似）
-const SLOW_TARGET_REATTACK_MULT := 1.5 ## 距离 < 最小转弯半径×此值 → 太近，先 extend 拉开
-const SLOW_TARGET_EXTEND_SEC := 1.5    ## 慢目标贴脸过顶时的 extend 时长（拉开间距，不要太长以免飞远）
+## 解法（2026-07-20 重写）：整场交战交给 BfmIntent.ground_strafe 的 pass 相位机，
+## 判定条件与包络常量分别在 Situation.SLOW_AIR_SPEED_RATIO 与 BfmIntent.SLOW_AIR_* 。
+## 旧的 extend/wide_turn 两行补丁及其四个常量已删除——见优先级 5.9 处的失败分析。
 
 ## ── 反平面同向缠斗（能量感知 co-turn breaker，spec engagement-discipline §B）──
 ## 问题：又快又持久的高 G 盘旋目标（UAV 233m/s / 5.8g 匀速大圈），AI 友军跟着在同一平面圆圈
@@ -168,6 +164,29 @@ static func _decide(s: Situation, waypoint: Vector2) -> TacticalPlan:
 	if s.tgt_is_surface:
 		return _apply_weapon_lock(s, BfmIntent.ground_strafe(s))
 
+	# 优先级 4.5：慢速空中目标（直升机等）→ 与地面目标同一台攻击 pass 相位机
+	#（spec slow-air-target-pass）
+	#
+	# 2026-07-20 重写。旧实现是"hdg>90° 才拦截，然后 extend 1.5s 或 wide_turn"的两行补丁，
+	# 治不了病（log 20260720_115041 实证）：1.5s extend 在 700km/h 下只拉开 ~290m，
+	# 而重攻门槛是 825m —— 拉完还在圈内，立刻再触发，形成
+	# WIDE_TURN→LEAD_TURN→CLOSE_TAIL→overshoot→EXTEND→WIDE_TURN 的极限环（"绕好多圈打不中"）。
+	# 绕圈本身又持续把目标扫出雷达锥（出锥 0.3s 锁定清零）→ 4.3s 连续照射永远攒不满
+	# （"锁定上了却不发射" = 满锁后再被 off-axis 发射门拒绝，因为 LEAD_TURN 主动偏轴 27~31°）。
+	#
+	# 根因是几何：corner speed 下最小转弯半径 550m，目标 1 秒只走 60m —— 尾追不成立。
+	# 与地面目标同构，故直接复用已验证的 ground_strafe 相位机（SETUP→RUN→EGRESS），
+	# 由 tgt_is_slow_air 在其内部切换包络常量。
+	#
+	# ⚠ 位置必须在 5a/5b（overshoot / boom-zoom / co-turn breaker）**之前**——它们全是为
+	# "又快又能拉 G 的战斗机"设计的能量学规则，对直升机语义不成立却会抢先命中：
+	# 飞越直升机必然满足 overshoot（近距 + 负闭合），高 aspect 也必然满足 co-turn breaker，
+	# 于是每趟 pass 刚脱离就被塞进 2~3 秒强制 EXTEND，把相位机踢回起点（无头 sim 实证：
+	# 放在 5.9 时 B 段全程在 ~1200m 环上摆头 78°↔140°，45s 打不出一次机炮窗）。
+	# 与优先级 4 并列 = "按目标类别分流"，语义上本来就该在同一层。
+	if s.tgt_is_slow_air:
+		return _apply_weapon_lock(s, BfmIntent.ground_strafe(s))
+
 	# 优先级 5a：overshoot 检测 — 距离极近 + 正在远离 → 已穿过目标
 	if s.dist_m < s.gun_range_m * 0.4 and s.closing_rate_ms < -50.0:
 		var ext_trigger := BfmIntent.extend_recover(s)
@@ -230,23 +249,6 @@ static func _decide(s: Situation, waypoint: Vector2) -> TacticalPlan:
 		var follow_ext := BfmIntent.extend_recover(s)
 		follow_ext.rationale += " | 僚机跟随长机撤离"
 		return _apply_weapon_lock(s, follow_ext)
-
-	# 优先级 5.9：慢速空中目标过顶/正横（hdg>90°）—— 别绕大圈空转，按距离分流（与武器无关）
-	# 仅拦截 hdg>90° 的"绕圈"病态；hdg<90°（正在指向接近）继续走下面正常决策对准开火。
-	if not s.tgt_is_surface and s.heading_diff_to_target_deg > 90.0 \
-			and (s.tgt_speed_ms * 3.6) < s.corner_speed_kmh * SLOW_TARGET_SPEED_RATIO:
-		var corner_ms: float = s.corner_speed_kmh / 3.6
-		var min_turn_r: float = (corner_ms * corner_ms) / (9.81 * SLOW_TARGET_TURN_G)
-		if s.dist_m < min_turn_r * SLOW_TARGET_REATTACK_MULT:
-			# 太近（半径 > 距离，转不回来）→ 短 extend 拉开间距，下次从远处转回做 pass
-			var ext: TacticalPlan = BfmIntent.extend_recover(s)
-			ext.trigger_extend_seconds = SLOW_TARGET_EXTEND_SEC
-			ext.rationale = "慢目标贴脸过顶 → extend 拉开重攻（绕不动：半径%.0fm vs 距%.0fm）" % [min_turn_r, s.dist_m]
-			return _apply_weapon_lock(s, ext)
-		# 有间距 → wide turn 从远处转回（机头能带到目标，不空转）
-		var wt: TacticalPlan = BfmIntent.wide_turn(s)
-		wt.rationale += " | 慢目标远距转回"
-		return _apply_weapon_lock(s, wt)
 
 	# 优先级 6：hdg 偏差 >90° — 先把头转回来
 	if s.heading_diff_to_target_deg > 90.0:

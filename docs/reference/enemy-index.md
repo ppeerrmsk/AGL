@@ -39,7 +39,7 @@
 | `TU160(12)` | Tu-160 "白天鹅" | **Adds 杂兵** | `enemy_tu160.tres`（无武器） | **0** | ∞ | 事件触发 | **族群 Flock**（横列 4 架） | `_create_enemy` Tu160 case | AI 简化(simple_ai) |
 | `AH64(13)` | AH-64 Apache | **Adds 直升机（对地）** | `enemy_ah64.tres` + `ah64_gun.tres`（M230 30mm）+ `ah64_rocket.tres`（Hydra 70）+ 1 枚热诱弹 | **0** | ∞ | 事件触发 | **菱形 Flock** 4 架（队长前 + 左右两翼 + 殿后） | `_create_enemy` AH64 case | simple_ai + `ground_combat_only=true` + `attack_air_targets=false` |
 | `CH47(14)` | CH-47 Chinook | **Adds 运输直升机** | `enemy_ch47.tres`（1 枚热诱弹，50% 失误概率） | **0** | ∞ | 事件触发 | **纵阵 Flock** 3 架 | `_create_enemy` CH47 case | AI 简化(simple_ai, 与 Tu-160 同) |
-| `F47(15)` | F-47 | **BOSS 王牌狙击小队** | `enemy_f47.tres` + `default_gun.tres` + `f47_missile.tres`（AIM-260）+ `f47_flare.tres`（40 枚电子战）+ `ace_combat.tres` | **10** | **4** | 事件触发 | **菱形编队** 4 架（队长+两翼+殿后）| `_create_enemy` F47 case + `_spawn_f47_squad` | BVR 狙击模式(bvr_only) + 协同齐射(salvo_leader) + 距离切换由 `aircraft_weapons.update_weapon_mode` GUN/MISSILE 枚举管 |
+| `F47(15)` | F-47 | **BOSS 王牌狙击小队** | `enemy_f47.tres` + `default_gun.tres` + `f47_missile.tres`（AIM-260）+ `f47_flare.tres`（**实际 max_flares=2 / burst=3 → 整场只够投一次**，见下方细节）+ `ace_combat.tres` | **10** | **4** | 事件触发 | **菱形编队** 4 架（队长+两翼+殿后）| `_create_enemy` F47 case + `_spawn_f47_squad` | BVR 狙击模式(bvr_only) + 协同齐射(salvo_leader) + 距离切换由 `aircraft_weapons.update_weapon_mode` GUN/MISSILE 枚举管 |
 | `AF03(17)` | AF-03 | **Schemer 电磁炮狙击** | `enemy_af03.tres` + `enemy_railgun.tres`（充能 2.0s + 锁定 0.5s, AT_FIRE_TIME 预测命中, dmg 60, range 14000m, base+cloud+lowalt miss 加成）| **7** | **1** | **8**（随机刷新 + 事件触发）| 单机 | `_create_enemy` AF03 case + `_pick_enemy_type` 优先级 ≈ Su-27 | bvr_only @ 5-8km + prefer_nose_aligned_weapon (SNIPER_HOLD) + Lancer 节奏（10s/7s）+ 等级缩放 |
 | `UAV_LASER(18)` | Aegis UAV | **拦截支援 Schemer** | `enemy_uav_laser.tres` + `enemy_laser_interceptor.tres`（target_filter 仅 missiles, dps_max=80, range 1200m）| **2** | 2 | 跟随 Sentinel 自动出现 | Sentinel 编队的一部分 | `_create_enemy` UAV_LASER case + `_spawn_commander_squad` 末尾追加 2 架 | simple_ai + `enable_combat=false`（laser 自己扫描，AI 不开火）+ `attack_air_targets=false` |
 | `F4(19)` | F-4 Phantom | Gladiator 中段（导弹卡车） | `enemy_f4.tres` + `default_gun.tres` + `default_missile.tres` + `agm_missile.tres`（双弹种 sparrow+sidewinder 总弹量大）| **5** | ∞ | **6** | 编队 2-3 架 | `_create_enemy` F4 case | gladiator_combat + 中等 aggression / engage_cooldown 2.5s（重而不灵活但导弹齐射强） |
@@ -84,11 +84,14 @@
 
 BVR 远距协同齐射 BOSS，事件触发：
 
-- **核心战术循环**（`F47Tactic` 状态机）：INTRO → ORBIT（环形站位 8-12s）→ ATTACK_RUN（冲向玩家齐射）→ SCATTER（散开到不同方位）→ REGROUP → ORBIT...
-- **赫尔贝特轮**（`herbst_maneuver.gd`）：被玩家近距追逐时触发 180° J-Turn 急转反杀。BOSS 专属可重复使用（15s 冷却），由 `ai_controller.gd` bvr_only 分支自动触发
+> 设计权威源：[docs/specs/systems/ace-squadron-tier.md](../specs/systems/ace-squadron-tier.md)（王牌中队分层标准）。
+> 本节只记"代码在哪 + 当前实际值"；数值该是多少以 spec 为准。
+
+- **核心状态机**（`ace_squad.gd` `SquadState`）：INTRO（通场 4s）→ PURSUIT（各自跑 BFM，不干预战术树）；PURSUIT 可切 CLOAK（隐形 5.5s）或 ANCHOR_HOLD（玩家飞离锚点 4500px → 下 PATROL_RING 绕锚点）
+- **赫尔贝特轮**（`herbst_maneuver.gd`）：被玩家近距追逐时触发 180° J-Turn 急转反杀。BOSS 专属可重复使用（15s 冷却），由 `ai_controller.gd` bvr_only 分支自动触发。**注**：F-47 现已不挂 Herbst（转移到 F-14 Poltergeist），见 `f47_ace_squad.gd` 注释
 - **协同齐射**：`salvo_leader` 队长发射后广播齐射信号给僚机，0.1-0.4s 内 4 枚导弹齐射
-- **光学隐形**：每 60 秒激活 5.5 秒全队隐形（`is_cloaked`）。效果：淡出消失 + 雷达锁定清除 + 导弹丢失制导 + 无法选中。`_update_f47_cloak()` 管理，全队共享计时器
-- **热诱弹豁免**：不受敌机 1 枚限制（BOSS 特权），使用完整 f47_flare.tres（40 枚，burst 3）
+- **光学隐形**：基础 CD **110s** + 随机抖动 **0~25s**（`SurvivorData.F47_CLOAK_CYCLE` / `F47_CLOAK_CYCLE_JITTER`），持续 5.5s，淡入淡出各 0.5s。效果：淡出消失 + 雷达锁定清除 + 导弹丢失制导 + 无法选中 + 子弹穿透。由 `ace_squad.gd` 的 `_cloak_enter/_cloak_update/_cloak_exit` 管理，全队共享计时器
+- **热诱弹豁免**：不受敌机 `burst_count=1 / max_flares=1` 限制（BOSS 特权）。⚠ **但 `f47_flare.tres` 实际只有 `max_flares = 2` / `burst_count = 3`**，且敌机永不设 `enable_flare_reload` —— 净效果是**整场只能投放一次（2 枚）后永久耗尽**。豁免分支保护的值比它要防的限制还小，等同空转。修正方案见 spec §2.2
 - **不走随机刷新**：不在 `_pick_enemy_type` 中，不被 `_update_spawner` 管理；由 `_spawn_f47_squad()` 专用函数触发（Debug 面板 / 未来事件系统）
 - **独立航点**：`category="boss"` meta 使之跳过 `_update_hunters` 和 `_update_enemy_waypoints`
 - **不受远距清理**：`skip_far_cleanup` meta
@@ -106,27 +109,37 @@ BVR 远距协同齐射 BOSS，事件触发：
 
 **为避免通读数千行代码**，以下列出新增一个敌人必须同步修改的所有位置。按顺序操作：
 
+> ⚠ **2026-07-20 订正**：刷怪逻辑早已从 `survivor_mode.gd` 搬到 **`survivor_spawner.gd`**，
+> 本清单此前 7 步指向的文件都是错的。下列行号已用 `tools/verify_doc_anchors.py` 校验。
+
 1. **创建 `.tres` 参数资源**（`resources/` 下）：
    - `enemy_<name>.tres` (AircraftParams)
    - 必要时同建对应的 `<name>_gun.tres` / `<name>_missile.tres` / `<name>_rocket.tres`
    - 可复用 `gladiator_combat.tres` / `lancer_combat.tres` / `default_combat.tres` 作为 `combat` 字段
    - ⚠ **`icon_color` / `wing_color` 必须选自暖色域**（橙→红表威胁层级；冷色蓝/青/绿只属于
      友好单位，spec global-awareness-roe §2.7 阵营色板规范）
-2. **在 `survivor_mode.gd:843` 的 `EnemyType` 枚举追加新值**（末尾，保持已有值不动）
-3. **在 `survivor_mode.gd:43-51` 声明 `_<name>_params_base: AircraftParams` 成员**
-4. **在 `survivor_mode.gd:104-112` 的 `_ready` 中 `preload(...)` 加载资源**
-5. **在 `survivor_data.gd:220-244` 加解锁/概率常量**（`<NAME>_UNLOCK_LEVEL` / `_CHANCE_PER_LEVEL` / `_CHANCE_MAX`）
-6. **在 `survivor_data.gd:TOKEN_COST`（`:261`）和 `TOKEN_INSTANCE_CAP`（`:276`）表里补新枚举值**
-7. **在 `survivor_mode.gd:874 _pick_enemy_type` 按威胁等级插入新类型的概率判定分支**
-8. **在 `survivor_mode.gd:1038 _create_enemy` 的 5 个 match 全部补新 case**：
-   - `match etype` 选基础参数（`:1042`）
-   - `enemy_scale_for_level` 适用判定（`:1076`）
-   - `no_stamina` 排除判定（`:1103`）
-   - `type_tag` 映射（`:1109`）
-   - AI 配置分支（`:1157` 起 — 仿照 F-86/MiG-23 写 `aggression`/`engage_cooldown` 等）
-9. **在 `survivor_mode.gd:722 _update_spawner` 的 "载人战机编队列表" 判定里追加**（`:808-812`）
-10. **更新 `survivor_debug_spawn.gd:_build_ui` 的类型下拉列表**（让调试面板能手动刷这个敌人）
-11. **更新本文件（enemy-index.md）的 Enemy Index 表追加一行**
-12. **更新 `docs/reference/code-index.md` 对应段落**（如新文件/新函数）
+2. **`survivor_spawner.gd:16` 的 `EnemyType` 枚举追加新值**（末尾，保持已有值不动）
+3. **`survivor_spawner.gd:42` 起声明 `_<name>_params_base: AircraftParams` 成员**
+4. **`survivor_spawner.gd:119` 起 `preload(...)` 加载资源**
+5. **`survivor_data.gd:1554` 起加解锁/概率常量**（`<NAME>_UNLOCK_LEVEL` / `_CHANCE_PER_LEVEL` / `_CHANCE_MAX`）
+6. **`survivor_data.gd:1656` `TOKEN_COST` 和 `:1685` `TOKEN_INSTANCE_CAP` 表补新枚举值**
+7. **`survivor_spawner.gd:295` `_pick_enemy_type` 按威胁等级插入概率判定分支**
+8. **`survivor_spawner.gd:1579` `_create_enemy` 的各 match 全部补新 case**：
+   - `match etype` 选基础参数（`:1577`）
+   - `enemy_scale_for_level` 适用判定（`:1646` 起）
+   - 热诱弹失误概率 match（`:1689`）—— 越低级失误率越高
+   - `type_tag` 映射（`:1759`）—— 第 10 步的无线电白名单要用这个 tag
+   - AI 配置分支（`:1840` 起 — 仿照 F-86/MiG-23 写 `aggression`/`engage_cooldown` 等）
+9. **`survivor_spawner.gd:432` `_update_spawner` 的编队/单机判定里追加**（精英单机 vs 成建制编队）
+10. **决定它配不配无线电**（spec radio-chatter §2.8）：
+    - 有人驾驶且够格说话 → 在 `resources/chatter/radio_chatter.json` 的 `voiced_enemy_types.types`
+      加上第 8 步的 `type_tag`
+    - **无人机** → 除了不加白名单，还要在 `_create_enemy` 里设 `enemy.no_pilot = true`
+      （硬规则，同时让它免疫 FEAR 心理状态）
+    - ⚠ 白名单是 **opt-in**：什么都不做 = 该敌人永远沉默。这是安全默认，但**别忘了给有人机开**
+11. **更新 `survivor_debug_spawn.gd:42` 的 `ENEMY_TYPE_LABELS`**（让 F5 调试面板能手动刷）
+12. **更新本文件（enemy-index.md）的 Enemy Index 表追加一行**
+13. **更新 `docs/reference/code-index.md` 对应段落**，然后跑
+    `python tools/verify_doc_anchors.py` 确认没写错行号
 
 操作时用 Read 的 offset/limit 精确定位，不要通读整个 survivor_mode.gd（1450 行）。每一步改完就 commit 或至少 git diff 看一眼，防止漏 case 导致 NullRef 崩溃。

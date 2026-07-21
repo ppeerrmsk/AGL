@@ -181,12 +181,18 @@ func _open_menu() -> void:
 	_menu_visible = true
 	_menu_root.visible = true
 	_warn_bg.visible = false
-	get_tree().paused = true
+	Presentation.present(self, "panel_in")
 
 func _close_menu() -> void:
 	_menu_visible = false
-	_menu_root.visible = false
-	get_tree().paused = false
+	# 只隐藏 _menu_root 而非整个 CanvasLayer —— 后者还要继续画越界警告
+	Presentation.dismiss(self, "panel_out", _menu_root)
+
+func get_transition_elements() -> Array[Control]:
+	var out: Array[Control] = []
+	if _menu_root:
+		out.append(_menu_root)
+	return out
 
 func _on_retreat_pressed() -> void:
 	_close_menu()

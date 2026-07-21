@@ -64,8 +64,10 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 		AircraftFlares.try_cover_flare(ai.aircraft, leader)
 
 	# ── 正常编队跟随 ──
-	# 防御性清除：确保编队中无残留战斗目标干扰
-	if ai.aircraft.combat_target != null:
+	# 防御性清除：确保编队中无残留战斗目标干扰。
+	# 例外：TIGHT 齐射窗口（volley_fire_active，spec formation-discipline）——窗口期僚机
+	# 在编队槽位里持目标开火（movement 仍归编队，武器链读 combat_target），不清。
+	if ai.aircraft.combat_target != null and not ai.aircraft.volley_fire_active:
 		ai.aircraft.clear_combat_target()
 		ai.aircraft.ai_override_pursuit = false
 	ai._cover_target = null
@@ -340,6 +342,9 @@ static func scan_leader_rear(ai: AIController) -> Aircraft:
 		var ac: Aircraft = unit
 		if not ai.aircraft.is_hostile_to(ac) or ac.is_destroyed:
 			continue
+		# 光学隐形 / 锁定免疫：不可索敌（spec ace-squadron-tier §3.5 隐形一致性铁律）
+		if ac.is_lock_immune():
+			continue
 		# 已被本队其他僚机盯上的后方威胁跳过 → 多架守护者分摊不同威胁，不挤同一个
 		if ai._is_target_already_squad_engaged(ac):
 			continue
@@ -409,6 +414,11 @@ static func scan_squad_nearby_enemy(ai: AIController) -> Aircraft:
 			continue
 		var ac: Aircraft = unit
 		if not ai.aircraft.is_hostile_to(ac) or ac.is_destroyed:
+			continue
+		# 光学隐形 / 锁定免疫：不可索敌。⚠ 本扫描刻意绕开雷达锥 + 锁定门槛（见函数注释），
+		# 而隐形语义原本只在雷达累积循环里执行 —— 不在这里补门，隐形对小队自由交战完全失效
+		# （spec ace-squadron-tier §3.5）
+		if ac.is_lock_immune():
 			continue
 		var d: float
 		if use_2d:

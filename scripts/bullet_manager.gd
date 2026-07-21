@@ -434,7 +434,7 @@ func _explode_rocket(b: Dictionary, world_pos: Vector2, exclude_unit: CombatUnit
 				(unit as NavalUnit).set_meta("_last_damage_kind", "rocket")
 			(unit as NavalUnit).take_damage_at(aoe_dmg, world_pos, 0.5, true)
 		else:
-			unit.take_damage(aoe_dmg, b["source"], "rocket")
+			unit.take_damage(aoe_dmg, CombatUnit.safe_attacker(b["source"]), "rocket")
 
 func _physics_process(delta: float) -> void:
 	# ── 帧级缓存：每帧重建一次，所有子弹共用 ──
@@ -645,11 +645,11 @@ func _physics_process(delta: float) -> void:
 							(ac as NavalUnit).set_meta("_last_damage_kind", "rocket")
 						(ac as NavalUnit).take_damage_at(actual_dmg, b["pos"], 0.5, true)
 					else:
-						ac.take_damage(actual_dmg, b["source"], "rocket")
+						ac.take_damage(actual_dmg, CombatUnit.safe_attacker(b["source"]), "rocket")
 				elif ac is Aircraft:
 					# take_bullet_damage 内部 set_meta("_last_damage_kind", "gun")，这里继续保留旧入口
 					# attacker 传入用于"对头机炮闪避"几何检查
-					ac.take_bullet_damage(b["damage"] * dmg_mult, b["source"])
+					ac.take_bullet_damage(b["damage"] * dmg_mult, CombatUnit.safe_attacker(b["source"]))
 				elif ac is NavalUnit:
 					# 机炮子弹：
 					#   - 总血削 15%（高射速高伤害 → 低总血贡献，避免一梭子秒船）
@@ -660,7 +660,7 @@ func _physics_process(delta: float) -> void:
 						(ac as NavalUnit).set_meta("_last_damage_kind", "gun")
 					(ac as NavalUnit).take_damage_at(b["damage"] * dmg_mult, b["pos"], 0.15, true)
 				else:
-					ac.take_damage(b["damage"] * dmg_mult, b["source"], "gun")
+					ac.take_damage(b["damage"] * dmg_mult, CombatUnit.safe_attacker(b["source"]), "gun")
 				hit = true
 				break
 

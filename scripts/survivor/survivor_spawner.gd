@@ -1527,6 +1527,11 @@ func _spawn_boss(encounter: BossEncounter, anchor: Vector2 = Vector2.INF, skip_b
 		return
 	if _boss and _boss.active:
 		return
+	# 防御守卫：切控/换帅后若 player_aircraft 未被重定向（见 survivor_mode._set_player_aircraft），
+	# 这里会把已 free 的实例传进 encounter.spawn → 引擎硬崩。宁可跳过本次 BOSS 生成。
+	if player_aircraft == null or not is_instance_valid(player_aircraft):
+		push_error("_spawn_boss: player_aircraft invalid (stale ref?) — 跳过生成")
+		return
 	_boss = encounter
 
 	# 按 encounter 类型派发 spawn 参数
@@ -1657,9 +1662,9 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tie
 	elif etype == EnemyType.TU160 or etype == EnemyType.AH64 or etype == EnemyType.CH47:
 		# Adds 杂兵：无缩放（一击必杀才有设计意义）
 		scale = {"hp_mult": 1.0, "missile_add": 0, "gun_damage_mult": 1.0}
-	elif etype == EnemyType.F47 or etype == EnemyType.F14_POLTERGEIST:
-		# BOSS 飞机（F-47 / F-14 Poltergeist）：无缩放（按满级玩家平衡，固定参数）
-		scale = {"hp_mult": 1.0, "missile_add": 0, "gun_damage_mult": 1.0}
+	elif AceTier.is_ace_type(etype):
+		# 王牌中队：无等级缩放，按满级玩家平衡（spec ace-squadron-tier §2.1）
+		scale = AceTier.no_scale()
 	elif etype == EnemyType.UAV_LASER:
 		# 拦截支援机：固定参数（不需要按等级提升 HP/伤害）
 		scale = {"hp_mult": 1.0, "missile_add": 0, "gun_damage_mult": 1.0}
@@ -1667,9 +1672,13 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tie
 		scale = SurvivorData.uav_scale_for_level(survivor_player.level)
 
 	enemy_params.max_hp *= float(scale["hp_mult"])
-	# 导弹一击必杀：除 Sentinel 外，HP 不得超过导弹伤害（确保任何等级被导弹命中即死）
-	if etype != EnemyType.UAV_COMMANDER:
+	# 导弹一击必杀：HP 不得超过导弹伤害（确保任何等级被导弹命中即死）。
+	# 两类显式例外 —— Sentinel（指挥官自带血条）、王牌中队（防御靠热诱弹命数而非血量，
+	# 且必须高于全部玩家导弹伤害以保证残血阶段，spec ace-squadron-tier §2.3）
+	if etype != EnemyType.UAV_COMMANDER and not AceTier.exempt_from_hp_cap(etype):
 		enemy_params.max_hp = minf(enemy_params.max_hp, SurvivorData.ENEMY_HP_MISSILE_CAP)
+	if AceTier.is_ace_type(etype):
+		AceTier.apply_hp(enemy_params)
 	if enemy_params.missile:
 		enemy_params.missile.max_count += int(scale["missile_add"])
 	if enemy_params.gun:
@@ -2079,7 +2088,10 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tie
 		EnemyType.F47:
 			# F-47 = BOSS 王牌狙击小队：第一要务是消灭玩家
 			# bvr_only 由 _update_f47_squad 动态控制（被盯上的逃，其他攻击）
-			ai.evade_missiles = true
+			# ⚠ 不设 evade_missiles：王牌中队的防御手段是热诱弹（=命数）+ 隐形，不做 beam/notch
+			# 规避机动（规避会破坏"咬住玩家不放"的 tier 特质）。所有规避入口都被
+			# `not is_boss_attacker()` 挡掉，写 evade_missiles = true 只会骗人。
+			# 见 docs/specs/systems/ace-squadron-tier.md §3.4
 			ai.bvr_only = false                           # 默认不逃——主动攻击
 			ai.boss_attacker = true                       # F-47 全员攻击手（EVADER 角色已废弃）
 			ai.aggression = randf_range(0.90, 1.0)        # 极高攻击欲
@@ -2095,7 +2107,7 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tie
 			# 性格：Lancer 骑士型 — 偏好高速对头突击 + 一次发射后脱离换 BVR 站位
 			# 与 Gladiator 区分：不缠斗，喜欢和玩家正面对穿（merge pass）
 			# Lancer 节奏由 lancer_combat.tres 提供（intercept_range_mult 3.5 / closing_rate 0.20 → 不抱尾，闭合率不足即拉开）
-			ai.evade_missiles = true
+			# ⚠ 同 F-47：boss_attacker 挡掉全部规避入口，故不设 evade_missiles（死配置）
 			ai.bvr_only = false
 			ai.boss_attacker = true
 			ai.aggression = randf_range(0.75, 0.9)         # 高但比 Gladiator 略克制（突击型）
@@ -2185,6 +2197,12 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tie
 		]
 		if is_planner_eligible:
 			enemy.use_tactical_planner = true
+
+	# 王牌中队 tier 标记（唯一打标处）。LOD 豁免 / 远距清理等"关键单位"语义
+	# 全部走 AceTier.is_ace() 查这个标记，不再各自看 category=="boss"
+	# —— 否则将来的非 BOSS 王牌中队拿不到 tier 待遇（spec ace-squadron-tier §2.1）
+	if AceTier.is_ace_type(etype):
+		AceTier.mark(enemy)
 
 	enemy.add_child(ai)
 	return enemy
@@ -2518,6 +2536,8 @@ func _detect_kills() -> void:
 				# 必为玩家小队所为——ALLY 按 ROE 不打地面）
 				if _roe:
 					_roe.add_heat(RoeDirector.HEAT_GROUND_KILL)
+				# 加力充能：地面击杀同样 +4s（spec afterburner-mode §3.6，与空中击杀同权）
+				mode.afterburner_charge.on_kill_charge()
 
 ## 恐惧扩散：玩家亲自击杀某敌机后，对其同小队幸存成员施加 FEAR
 func _trigger_squad_fear(victim: Aircraft, duration: float) -> void:

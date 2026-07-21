@@ -4,10 +4,14 @@ extends Resource
 ## 手势组均为屏幕像素（UI 层）；命令组为世界坐标像素（PIXELS_PER_METER=0.5）。
 
 @export_group("手势")
-## 按住超过此时长呼出轮盘；短于此 = 普通单击
-@export var hold_threshold_s: float = 0.15
-## 按住期间指针位移超过此值立即呼出（拖动意图明确，不等时长）
-@export var drag_threshold_px: float = 24.0
+## 按住超过此时长呼出轮盘；短于此 = 普通单击。
+## 2026-07-20 用户调参 0.15→0.35：0.15 太灵敏，快速双击就会误呼轮盘；
+## 0.35 配合蓄力指示圈（转满才呼出）给出明确的"正在进入菜单"预期
+@export var hold_threshold_s: float = 0.35
+## 按住期间指针位移超过此值立即呼出（拖动意图明确，不等蓄力）；24→36 防双击带小位移误触
+@export var drag_threshold_px: float = 36.0
+## 按住多久后开始显示蓄力指示圈（普通快速单击完全不见任何 UI 噪音）
+@export var charge_visual_delay_s: float = 0.08
 ## 中心死区半径：松开在死区内 = 取消
 @export var dead_zone_radius_px: float = 30.0
 ## 一环选择区外沿
@@ -38,3 +42,9 @@ extends Resource
 @export var spread_cluster_radius_px: float = 2000.0
 ## FOCUS 包围：相邻攻击机接近轴最小方位分离角（度）
 @export var surround_min_axis_sep_deg: float = 45.0
+
+@export_group("TIGHT 齐射（formation-discipline）")
+## 齐射窗口时长：长机开火触发开窗，窗口内僚机在编队槽位里释放
+@export var volley_window_s: float = 1.5
+## 再武装安静期：窗口关闭后长机须停火 ≥ 此时长，下一轮开火才再开窗（防连环开窗=变相持续开火权）
+@export var volley_rearm_quiet_s: float = 2.0

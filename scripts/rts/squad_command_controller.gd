@@ -50,6 +50,15 @@ var _evac_zone_center := Vector2.INF
 var _evac_zone_until_ms: int = 0
 var _zone_marker: Node2D = null
 
+## ── TIGHT 整队齐射（formation-discipline §3.1）──
+## 长机独自持命令目标飞攻击几何，僚机全程编队跟随（整队进入/拉开由编队跟随自然涌现）；
+## **齐射触发器 = 长机开火**：长机（含玩家手动开火）射击瞬间开 1.5s 窗口，窗口内僚机被临时
+## 授予 combat_target（volley_fire_active 豁免编队防御清除）在槽位里释放；窗口关即回收=禁补射。
+var _tight_target: CombatUnit = null
+var _volley_open := false
+var _volley_until_ms: int = 0
+var _volley_quiet_s: float = 999.0   ## 长机连续停火累计；≥ rearm_quiet 才允许下一轮开窗（首轮立即）
+
 func setup(mode: Node, p: RtsCommandParams) -> void:
 	_mode = mode
 	params = p if p != null else RtsCommandParams.new()
@@ -63,6 +72,7 @@ func command_attack(enemy: CombatUnit) -> void:
 	if enemy == null:
 		return
 	_guard_point = Vector2.INF   # 最新输入覆盖 standing order
+	_end_tight()                 # 单点新命令终止整队齐射（长机换目标，齐射语境失效）
 	_auto_engage_target = null
 	for ac in _selected():
 		if is_instance_valid(ac) and not ac.is_destroyed:
@@ -97,6 +107,7 @@ func command_move(world_pos: Vector2) -> void:
 func cancel() -> void:
 	_guard_point = Vector2.INF
 	_end_spread()
+	_end_tight()
 	_clear_sprint()
 	_clear_evac_zone()
 	_auto_engage_target = null
@@ -138,6 +149,7 @@ func command_regroup(point: Vector2) -> void:
 func _broadcast_move_all(point: Vector2) -> void:
 	_guard_point = Vector2.INF   # 最新输入覆盖 standing order
 	_end_spread()
+	_end_tight()
 	_clear_sprint()
 	_auto_engage_target = null
 	for ac in _squad_members():
@@ -157,6 +169,7 @@ func command_evacuate(point: Vector2) -> void:
 	var radius := wheel_params.evac_radius_px if wheel_params != null else 1500.0
 	_guard_point = Vector2.INF   # 最新输入覆盖 standing order
 	_end_spread()
+	_end_tight()
 	_clear_sprint()
 	_auto_engage_target = null
 	var any_fleeing := false
@@ -215,6 +228,12 @@ func command_attack_all(target: CombatUnit, posture: int = Situation.POSTURE_AUT
 		_ack("ack_pursue", [_target_label(target)])   # 分火 = 各自接敌，语义是追击不是包围
 		return
 	_end_spread()
+	# TIGHT 紧密阵型（formation-discipline）：整队齐射路径；ASSAULT 豁免（缠斗物理上不成阵）
+	if formation_tight and posture != Situation.POSTURE_ASSAULT:
+		_begin_tight_engage(target, posture)
+		_ack("ack_pursue", [_target_label(target)])
+		return
+	_end_tight()
 	var members: Array = []
 	for ac in _squad_members():
 		if not is_instance_valid(ac) or ac.is_destroyed:
@@ -330,6 +349,92 @@ class EvacZoneMarker extends Node2D:
 				HORIZONTAL_ALIGNMENT_CENTER, 80.0, 28, Color(0.95, 0.4, 0.35, 0.8))
 
 # ══════════════════════════════════════════════
+#  TIGHT 整队齐射（spec formation-discipline §3.1）
+# ══════════════════════════════════════════════
+
+## TIGHT 集火：只有长机接命令目标（飞攻击几何/玩家亲自带队），僚机保持编队跟随——
+## "整队进入/整队拉开"由编队跟随对长机轨迹的复现自然涌现，零新编队代码。
+func _begin_tight_engage(target: CombatUnit, posture: int) -> void:
+	_end_tight()
+	var leader := _leader()
+	if leader == null:
+		return
+	_tight_target = target
+	_volley_quiet_s = 999.0   # 首轮：长机一开火立即开窗
+	for ac in _squad_members():
+		if not is_instance_valid(ac) or ac.is_destroyed:
+			continue
+		if ac.evasion_mode:
+			ac.set_evasion_mode(false)
+		if ac == leader:
+			ac.set_combat_target(target)
+			ac.commanded_target = target
+			ac.attack_posture = posture
+			ac.surround_bearing_rad = INF
+		else:
+			# 僚机不接目标：留在编队里随长机整队机动（齐射窗口内才临时授予开火权）
+			ac.commanded_target = null
+			ac.attack_posture = Situation.POSTURE_AUTO
+			ac.surround_bearing_rad = INF
+			ac.volley_fire_active = false
+			ac.clear_combat_target()
+
+func _end_tight() -> void:
+	if _volley_open:
+		_close_volley()
+	_tight_target = null
+	_volley_open = false
+
+## 齐射窗口状态机（挂主 tick）：长机开火（机炮 is_firing / 对目标有在飞弹）→ 开窗
+## volley_window_s；窗口内僚机持临时 combat_target 在编队槽位里释放（锁定由编队机头
+## 几何在进入段自然积累）；到时回收（禁补射）；长机停火 ≥ rearm_quiet 后才允许下一轮开窗。
+func _tick_tight_volley(step_s: float) -> void:
+	if _tight_target == null:
+		return
+	if not is_instance_valid(_tight_target) or _tight_target.is_destroyed:
+		_end_tight()   # 目标亡 → 齐射结束；长机命令由铁律块清理回待命
+		return
+	var leader := _leader()
+	if leader == null:
+		_end_tight()
+		return
+	if _volley_open:
+		if Time.get_ticks_msec() >= _volley_until_ms:
+			_close_volley()
+		return
+	var leader_firing: bool = leader.is_firing \
+			or (leader.missile_manager != null \
+				and leader.missile_manager.count_active_missiles_at(leader, _tight_target) > 0)
+	if leader_firing:
+		var quiet_need := wheel_params.volley_rearm_quiet_s if wheel_params != null else 2.0
+		if _volley_quiet_s >= quiet_need:
+			_open_volley(leader)
+		_volley_quiet_s = 0.0
+	else:
+		_volley_quiet_s += step_s
+
+func _open_volley(leader: Aircraft) -> void:
+	_volley_open = true
+	var window_s := wheel_params.volley_window_s if wheel_params != null else 1.5
+	_volley_until_ms = Time.get_ticks_msec() + int(window_s * 1000.0)
+	for ac in _squad_members():
+		if not is_instance_valid(ac) or ac.is_destroyed or ac == leader:
+			continue
+		ac.volley_fire_active = true
+		ac.set_combat_target(_tight_target)   # 临时开火权；编队防御清除因标志跳过本机
+
+func _close_volley() -> void:
+	_volley_open = false
+	var leader := _leader()
+	for ac in _squad_members():
+		if not is_instance_valid(ac) or ac.is_destroyed or ac == leader:
+			continue
+		if ac.volley_fire_active:
+			ac.volley_fire_active = false
+			if ac.commanded_target == null:   # 玩家点名过的不回收（铁律）
+				ac.clear_combat_target()
+
+# ══════════════════════════════════════════════
 #  分火 SPREAD（spec command-wheel §3.6：锚点目标池内各自接敌）
 # ══════════════════════════════════════════════
 
@@ -337,6 +442,7 @@ func _spread_radius() -> float:
 	return wheel_params.spread_cluster_radius_px if wheel_params != null else 2000.0
 
 func _begin_spread(anchor: CombatUnit, posture: int) -> void:
+	_end_tight()
 	_spread_active = true
 	_spread_anchor = anchor
 	_spread_anchor_pos = anchor.global_position
@@ -424,6 +530,7 @@ func tick(delta: float) -> void:
 	_accum += delta
 	if _accum < params.auto_engage_interval_s:
 		return
+	var step := _accum   # 本 tick 实际步长（齐射安静期累计用）
 	_accum = 0.0
 	var leader := _leader()
 	if leader == null:
@@ -432,6 +539,9 @@ func tick(delta: float) -> void:
 
 	# ── 冲刺解除判定（集合到达 / 撤离出圈，逐机先到先解除）──
 	_tick_sprint()
+
+	# ── TIGHT 整队齐射窗口管理（不 return：长机命令仍由下方铁律块维持）──
+	_tick_tight_volley(step)
 
 	# ── 分火 SPREAD standing order（各自接敌；单点点名成员已退出管理，铁律各自生效）──
 	if _spread_active:

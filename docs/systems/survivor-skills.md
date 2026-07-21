@@ -105,7 +105,7 @@ static func xp_for_level(level: int) -> int:
 | speed_up | UPGRADE_SPEED_UP_NAME | mobility | 0.18 (+18%) | 4 | — | — | — | — | accel_ratio=0.5 | 加速 = value × 0.5 同步提升 |
 | maneuver_up | UPGRADE_MANEUVER_UP_NAME | mobility | 0.25 (+25%) | 3 | — | — | — | — | max_g_bonus=1.0, structural_g_bonus=0.5 | 每层 +1 G / +0.5 结构 G |
 | dogfight | UPGRADE_DOGFIGHT_NAME | mobility | 1 (开关，按层叠) | 3 | — | — | — | — | stall×0.88, decel×1.3, g_drag×1.2, overshoot×0.97, turn_slow×0.9 | 综合格斗包 |
-| cobra_skill | UPGRADE_COBRA_SKILL_NAME | mobility | 1 (开关) | 1 | — | — | — | ✅ | 给玩家挂 CobraManeuver 子节点 | 战区奖励；规避模式下来袭/追尾自动触发 |
+| cobra_skill | UPGRADE_COBRA_SKILL_NAME | mobility | 1 (开关) | 1 | — | — | — | ✅ | 给玩家挂 CobraManeuver 子节点 | 战区奖励；加力模式下来袭/追尾自动触发 |
 | executioner | UPGRADE_EXECUTIONER_NAME | mobility | 1 (开关) | 1 | — | — | — | ✅ | 每 2 杀 +1 层（max 5）；每层 speed+5%/decel+10%/reload×0.92/lock×0.90 | 战区奖励；任意伤害清零层数 |
 | flare_cooldown | UPGRADE_FLARE_COOLDOWN_NAME | electronic_warfare | 0.20 (-20%) | 3 | flare | — | — | — | evolves_to=flare_shield（已弃用链） | 热诱弹冷却 |
 | flare_shield | UPGRADE_FLARE_SHIELD_NAME | electronic_warfare | 3.0 (持续秒) | 1 | flare | — | — | ✅ | bonus_flares=2 | 战区奖励；自动护盾 + 赠送 2 枚 |
@@ -276,9 +276,9 @@ static func xp_for_level(level: int) -> int:
 
 ### ⏳ 战吼（War Cry）
 
-规避模式开关切换瞬间释放一次脉冲，玩家半径 1200px 内敌机 stress = 0.6。
-- 冷却 15s（防滥用）
-- 设计意图：给规避模式额外一层主动控制价值，鼓励玩家在被群殴时主动切档反压
+加力模式激活瞬间释放一次脉冲，玩家半径 1200px 内敌机 stress = 0.6。
+- 冷却 15s（防滥用；加力窗口本身 30s 充能一次，天然不撞冷却）
+- 设计意图：给加力模式额外一层主动控制价值，鼓励玩家在被群殴时主动开加力反压
 
 ---
 
@@ -354,9 +354,9 @@ func is_emp_disabled() -> bool:
 
 | 升级 / 机制 | 效果 | 位置 |
 |---|---|---|
-| `cloud_lock_stealth`（`vapor_dodge` 战区奖励内含） | 玩家在云中被锁定速率 ×0.1 | [main.gd:243](../../scripts/main.gd:243) |
-| 导弹云中丢制导 | 导弹进入云区域 → `has_guidance = false` | [missile.gd:83](../../scripts/missile.gd:83) |
-| AOE 云中衰减 | 近炸引信 AOE 在云内伤害衰减 | [missile_manager.gd:192](../../scripts/missile_manager.gd:192) |
+| `cloud_lock_stealth`（`vapor_dodge` 战区奖励内含） | 玩家在云中被锁定速率 ×0.1 | [main.gd:249 cloud_lock_stealth](../../scripts/main.gd:249) |
+| 导弹云中丢制导 | 导弹进入云区域 → `has_guidance = false` | [missile.gd:211 has_guidance](../../scripts/missile.gd:211) |
+| AOE 云中衰减 | 近炸引信 AOE 在云内伤害衰减 | [missile_manager.gd:29 _CLOUD_SNAP_GRID_PX](../../scripts/missile_manager.gd:29) |
 
 所有现有 hook 都通过 `WeatherSystem.sample_density(pos)` / `is_in_cloud(pos)` 查询。**任何"云"系扩展只要密度走这套接口，战斗逻辑零改动**。
 
@@ -364,7 +364,7 @@ func is_emp_disabled() -> bool:
 
 云系统**不在性能预算 top 20**，可放心扩展：
 - 渲染：`REDRAW_INTERVAL = 0.12s` 即 8Hz，每次扫视口网格 60-100 个单元格、每格 ≤1 次 `draw_texture_rect`，约 800 draws/s
-- 战斗查询：`is_in_cloud` 按单位缓存 0.3s（[combat_unit.gd:76](../../scripts/combat_unit.gd:76)），30 架飞机 ≈ 100 次噪声采样/s
+- 战斗查询：`is_in_cloud` 按单位缓存 0.3s（[combat_unit.gd:95 云层采样缓存](../../scripts/combat_unit.gd:95)），30 架飞机 ≈ 100 次噪声采样/s
 - 启动烘焙：4 张 256² 贴图 ~200ms，一次性
 
 ### ⏳ 局部云团基础设施（Local Cloud Puffs）

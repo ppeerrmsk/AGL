@@ -374,18 +374,25 @@ BOSS 序列的说话人由 `encounter` 提供：`"<callsign_prefix>-%02d" % (slo
 
 ## 7. 索引锚点（Where —— 唯一允许放指针的地方）
 
+> 本节只列文件，**不写行号**（spec 硬约定，`tools/verify_doc_anchors.py` 会把 spec 里的行号
+> 当分层违规报出来）。带行号、按"我要改什么 → 去哪"组织的导航在
+> [code-index.md「无线电通讯」段](../../reference/code-index.md)。
+
 | 关注点 | 文件 |
 |---|---|
-| 显示 + 队列主逻辑 | `scripts/survivor/radio_chatter.gd` |
-| 台词数据表 | `scripts/survivor/chatter_lines.gd` |
-| 音频入口 | `scripts/audio/audio_manager.gd`（`play_radio` / `RADIO_FILES`） |
-| BOSS 登场/交战接线 | `scripts/events/boss_encounter_event.gd`, `scripts/survivor/survivor_mode.gd` |
-| 击杀/减员接线 | `scripts/survivor/survivor_mode.gd`（订阅 `EventLogger.kill_recorded`） |
-| break 接线 | `scripts/aircraft.gd`（`set_evasion_mode`） |
-| RTS 回令接线 | `scripts/rts/squad_command_controller.gd` |
-| 台词文本 | `i18n/translations.csv`（`RADIO_*` 前缀） |
-| 无头测试 | `scripts/tests/test_radio_chatter.gd`，注册于 `scripts/bench/bench_runner.gd` |
-| reference 索引行 | script-index.md / code-index.md 的"无线电通讯"条目 |
+| **★ 唯一数据源**（台词 key / 权重 / 冷却 / 概率 / BOSS 对话 / 说话白名单） | `resources/chatter/radio_chatter.json` |
+| 台词文本三语 | `i18n/translations.csv`（`RADIO_*` 前缀） |
+| 显示 + 队列 + 三层节流 | `scripts/survivor/radio_chatter.gd` |
+| 数据加载器（零数值） | `scripts/survivor/chatter_lines.gd` |
+| 说话资格硬规则 | `scripts/aircraft.gd`（`can_speak_on_radio` / `has_radio_voice`） |
+| 资格赋值 | `scripts/survivor/survivor_spawner.gd`、`mother_goose_uav_swarm.gd`、`mother_goose_boss.gd` |
+| 触发接线 | `scripts/survivor/survivor_mode.gd`、`scripts/events/boss_encounter_event.gd`、`scripts/rts/squad_command_controller.gd` |
+| 信号声明 | `scripts/event_logger.gd`（`kill_recorded` / `evasion_started` / `wingman_joined`） |
+| 信号发出 | `scripts/aircraft.gd`、`scripts/squad_factory.gd` |
+| 音频 | `scripts/audio/audio_manager.gd`（`play_radio` / `RADIO_FILES` / Radio 总线） |
+| 无头测试 | `scripts/tests/test_radio_chatter.gd`（`--bench=chatter`），注册于 `scripts/bench/bench_runner.gd` |
+| 导出配置 | `export_presets.cfg`（`include_filter` 须含 `*.json`） |
+| reference 索引 | code-index.md「无线电通讯」段 / script-index.md 三行 / playbook.md §10 / enemy-index.md 13 步清单第 10 步 |
 
 ## 8. 变更记录
 

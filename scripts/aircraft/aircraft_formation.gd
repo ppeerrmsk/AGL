@@ -390,6 +390,12 @@ static func _update_speed(ac: Aircraft, ctx: Dictionary, delta: float) -> void:
 		chase_target = ldr.speed + jitter_speed
 		chase_rate = 3.0 + b * 3.0
 
+	# AA 火力冲刺（spec aa-fire-awareness §3.2）：编队内被地面/舰船机炮命中 → 不变向、
+	# 不脱队，满速直线冲出火区；警觉窗口（2.5s）结束自然回落到上面的正常速度匹配
+	if ac.aa_fire_timer > 0.0:
+		chase_target = max_ms
+		chase_rate = 4.0
+
 	chase_target = clampf(chase_target, 0.0, max_ms)
 	ac.speed = lerpf(ac.speed, chase_target, chase_rate * delta)
 	ac.target_speed_kmh = ac.speed * 3.6  # 同步避免 LOD 切换残留（bug #6）

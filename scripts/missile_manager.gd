@@ -343,6 +343,17 @@ func _physics_process(delta: float) -> void:
 						if density > 0.0 and randf() < 0.35 * density:
 							continue  # 擦身而过，导弹继续飞
 				var msl_name: String = missile.params.display_name if missile.params else "MSL"
+				# 加力窗口滚转躲弹（spec afterburner-mode）：命中瞬间 90% 甩偏——
+				# 弹置 is_flare_jammed 走既有偏飞契约（不再参与命中/CIWS 拦截/补射计伤），
+				# 目标触发滚转动画；10% = "非常极限的情况"照常命中。jam 后本弹不会再进
+				# 此分支、失败当帧即爆 → 每弹天然只 roll 一次。与热诱弹无关（无 flare 兜底层）。
+				if unit is Aircraft and unit.afterburner_window_active:
+					if randf() < 0.90:
+						missile.is_flare_jammed = true
+						unit._trigger_evasion_roll()
+						EventLogger.log_event("AB_MISSILE_DODGE", unit._log_name(),
+							"rolled off %s" % msl_name)
+						continue
 				var hit_unit: CombatUnit = unit as CombatUnit
 				var tgt_name: String = hit_unit.callsign if hit_unit.callsign != "" else hit_unit.name
 				if unit is Aircraft and unit.params:
@@ -372,7 +383,7 @@ func _physics_process(delta: float) -> void:
 					# 船走位置感知路由：伤害给最近的挂点或弱点
 					(unit as NavalUnit).take_damage_at(missile.params.damage, missile.global_position)
 				else:
-					unit.take_damage(missile.params.damage, missile.source, "missile")
+					unit.take_damage(missile.params.damage, CombatUnit.safe_attacker(missile.source), "missile")
 				# 近炸引信：在爆炸点产生 AOE 区域
 				if missile.proximity_aoe:
 					_spawn_aoe(missile.global_position, missile.altitude,
@@ -465,7 +476,9 @@ func _update_aoe_zones(delta: float) -> void:
 				# AOE 仍在飞机本体位置画爆炸（不在 AOE 中心），击中/击毁均只此一次
 				var u_head: float = unit.heading if "heading" in unit else 0.0
 				ExplosionVFXScript.emit(get_tree(), unit.global_position, u_head, 1.0)
-				var zsrc: Node = zone.get("source", null)
+				# AOE 区域在导弹爆炸后还要存活 AOE_DURATION 秒，这期间发射者被击落是常态
+				# → 必须净化，否则 take_damage_from 的实参类型检查直接崩
+				var zsrc: Node = CombatUnit.safe_attacker(zone.get("source", null))
 				if unit is GroundUnit:
 					unit.take_missile_damage(zdmg)
 				elif unit is NavalUnit:

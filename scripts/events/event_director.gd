@@ -52,6 +52,11 @@ func active_count() -> int:
 func _physics_process(delta: float) -> void:
 	if _events.is_empty():
 		return
+	# ⚠ 这里【必须用原始 delta】（2026-07-20 审计修正，作废 spec §3.2 的旧论述）：
+	# _physics_process 的 delta 是固定步长（1/60，不随 Engine.time_scale 缩放——
+	# time_scale 缩的是 tick 频率），累加它天然跟踪【游戏时间】，与飞机物理同一时钟。
+	# 若除以 time_scale 改成实时，命令轮盘 0.3× 期间事件计时会比世界快 3.3 倍 ——
+	# 护航拦截波次相对航线位置提前触发。hard_pause 期间物理根本不 tick，也无漂移可言。
 	# 先 update 所有活跃事件
 	for e in _events:
 		if e.active:

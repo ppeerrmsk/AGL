@@ -153,6 +153,23 @@ static func effective_distance_px(pos_a: Vector2, alt_a: float, pos_b: Vector2, 
 	var alt_diff_px := (alt_a - alt_b) * PIXELS_PER_METER
 	return sqrt(dist_2d * dist_2d + alt_diff_px * alt_diff_px)
 
+## 攻击者引用净化：把"已释放的攻击者"折叠成 null。
+##
+## ⚠ 为什么必须在**调用点**净化而不能在 take_damage 内部判：
+## Godot 对已 free 对象做**实参类型检查**时就直接报
+## `Invalid type in function 'take_damage' ... argument 2 (previously freed)` 并崩溃，
+## 函数体根本没机会执行。所以 `if is_instance_valid(attacker)` 写在里面是没用的。
+##
+## 典型场景：子弹/导弹在飞行途中发射者被击落（BOSS 混战里非常常见），
+## 弹丸字典里的 `source` 就成了野指针，命中瞬间传进 take_damage 即崩。
+## 归因丢失（attacker=null）只是"这个击杀不记功"，远好过整局闪退。
+static func safe_attacker(n: Variant) -> Node:
+	return n if is_instance_valid(n) else null
+
+## 同上，但返回 CombatUnit —— 给形参类型是 CombatUnit 的调用点用，避免 Node→CombatUnit 的隐式下转。
+static func safe_unit(n: Variant) -> CombatUnit:
+	return n if is_instance_valid(n) else null
+
 ## 受到伤害（子类可覆写）
 ## damage_kind 枚举字符串："gun" / "missile" / "aoe" / "rocket" / "laser" / "railgun" / "ground_crash" / "collision" / ""(未知)
 ## 写入 `_last_damage_kind` meta 供 _apply_damage / on_kill / on_hit 钩子链消费

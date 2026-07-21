@@ -57,6 +57,12 @@ const UNIT_TESTS: Dictionary = {
 	"attr_gates": "res://scripts/tests/test_attribute_gates.gd",
 	"player_params": "res://scripts/tests/test_player_params.gd",
 	"chatter": "res://scripts/tests/test_radio_chatter.gd",
+	"tight_volley": "res://scripts/tests/test_tight_volley.gd",
+	"ace_tier": "res://scripts/tests/test_ace_tier.gd",
+	"speed_governor": "res://scripts/tests/test_speed_governor.gd",
+	"slow_air_pass": "res://scripts/tests/test_slow_air_pass.gd",
+	"presentation": "res://scripts/tests/test_presentation.gd",
+	"evo_detail": "res://scripts/tests/test_evolution_detail.gd",
 }
 
 var bench_active: bool = false

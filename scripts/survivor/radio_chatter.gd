@@ -87,6 +87,10 @@ var _attrition_milestone: int = 0      ## 已触发过的最高 12 倍数
 
 func _ready() -> void:
 	layer = LAYER_INDEX
+	# 演出期间世界 hard_pause，但台词泵必须继续跑 —— 否则 Wraith 登场的三句对话
+	# 全部积压到演出结束后才连播（审计实锤 2026-07-20）。副作用：Tab/升级暂停期间
+	# ambient 也会照常播出与过期淘汰，这是可接受的（无线电本就是"环境音"性质）
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	_build()
 
 func _build() -> void:
@@ -169,6 +173,11 @@ func say_text(trigger: String, speaker: String, color: Color, text: String) -> b
 
 	var scripted := ChatterLines.is_scripted(trigger)
 
+	# 演出期间压制 ambient：scripted 照常放行，闲聊一律拒收，
+	# 免得积压的喊话把演出台词挤到演出结束之后才出声
+	if _ambient_suppressed and not scripted:
+		return false
+
 	# ── 三层节流：剧情语音（scripted）全部跳过，必定入队 ──
 	if not scripted:
 		# ① 全局冷却：任何一条普通语音播出后，全场普通语音静默一段时间
@@ -192,7 +201,11 @@ func say_text(trigger: String, speaker: String, color: Color, text: String) -> b
 		"text": text,
 		"weight": ChatterLines.weight_of(trigger),
 		"at": _clock,
+		# 演出台词的编排时长（0 = 走 line_duration 公式）。入队即快照，
+		# 与"绝不持有 Aircraft 引用"同样的理由：出声时刻不确定，覆写值必须跟着条目走
+		"dur": _dur_override,
 	}
+	_dur_override = 0.0   # 一次性：只作用于紧接的这一条
 
 	var qmax := ChatterLines.queue_max()
 	if _queue.size() >= qmax:
@@ -234,6 +247,30 @@ func say_unit(trigger: String, unit: Object, fmt_args: Array = []) -> bool:
 
 ## BOSS 登场/交战序列：多条台词依次入队，构成一段队内对话（spec §3.3）。
 ## 返回实际入队条数。
+## 演出台词时长覆写（spec ui-transition §2.8.2）。
+## >0 时下一条入队的台词用该时长，绕开 line_duration() 的 2.6s 封底。
+## ⚠ 仅演出可用 —— ambient 喊话必须保留封底，那是战斗中分心时的可读性下限
+var _dur_override: float = 0.0
+## ambient 压制（演出期间）：scripted 照常，ambient 一律拒收
+var _ambient_suppressed: bool = false
+
+func set_duration_override(sec: float) -> void:
+	_dur_override = maxf(sec, 0.0)
+
+## 演出期间压制 ambient 喊话。开启时顺带清空队列里尚未播出的 ambient，
+## 否则积压的闲聊会把演出台词挤到演出结束后才出声
+func suppress_ambient(on: bool) -> void:
+	_ambient_suppressed = on
+	if on:
+		var kept: Array[Dictionary] = []
+		for e in _queue:
+			if ChatterLines.is_scripted(String(e.get("trigger", ""))):
+				kept.append(e)
+		_queue = kept
+
+func is_ambient_suppressed() -> bool:
+	return _ambient_suppressed
+
 func say_boss_sequence(boss_id: String, phase: String, callsign_prefix: String) -> int:
 	var seq := ChatterLines.boss_sequence(boss_id, phase)
 	var prefix := callsign_prefix if callsign_prefix != "" else "BOSS"
@@ -363,7 +400,9 @@ func _begin(entry: Dictionary) -> void:
 	_current = entry
 	_state = State.SPEAKING
 	var text := String(entry["text"])
-	_timer = line_duration(text)
+	# 演出台词用编排时长；ambient 走公式（含 2.6s 可读性封底）
+	var override_dur: float = float(entry.get("dur", 0.0))
+	_timer = override_dur if override_dur > 0.0 else line_duration(text)
 
 	var faction: Color = entry["color"]
 	_name_label.text = String(entry["speaker"])

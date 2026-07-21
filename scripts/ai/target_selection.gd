@@ -143,7 +143,10 @@ static func disengage(ai: AIController) -> void:
 	# 让正在跑的 BFM 战术自然完成最小持续时间（否则每帧重置 → BOSS 决策瘫痪）
 	if ai.is_boss_attacker():
 		var player: Aircraft = null
-		if ai._current_target and is_instance_valid(ai._current_target) and not ai._current_target.is_destroyed:
+		# is_lock_immune()（光学隐形 / 锁定免疫）→ 不可再锁，走下面的扫描；扫描同样过滤，
+		# 全场无可锁玩家机时 player 保持 null → 落到正常 disengage（spec ace-squadron-tier §3.5）
+		if ai._current_target and is_instance_valid(ai._current_target) \
+				and not ai._current_target.is_destroyed and not ai._current_target.is_lock_immune():
 			player = ai._current_target as Aircraft
 		else:
 			# 用共享列表代替 get_parent().get_children() (perf)
@@ -151,7 +154,8 @@ static func disengage(ai: AIController) -> void:
 				# `unit` truthy 仍可能是 freed 实例 → is_instance_valid 守卫（perf R4）
 				if not is_instance_valid(unit):
 					continue
-				if unit is Aircraft and unit.is_player_squad() and not unit.is_destroyed:
+				if unit is Aircraft and unit.is_player_squad() and not unit.is_destroyed \
+						and not unit.is_lock_immune():
 					player = unit as Aircraft
 					break
 		if player and ai.acquire_target(player, AIController.TargetSource.TS_SCORED, "boss re-engage"):

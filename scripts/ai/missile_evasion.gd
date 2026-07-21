@@ -142,7 +142,10 @@ static func exit_evade(ai: AIController) -> void:
 		ai.aircraft.set_evasion_mode(false)
 	# 三路重定：躲弹期间目标/长机可能已亡，按当下上下文重选背景状态。
 	# 字段清单收口到 AIController 的过渡函数（Phase 2），本处只补各路特有字段。
-	if ai._current_target and is_instance_valid(ai._current_target) and not ai._current_target.is_destroyed:
+	# is_lock_immune()（光学隐形 / 锁定免疫）视同目标已失效 → 落到编队/巡逻分支，
+	# 否则退出 EVADE 会把隐形目标重新写回 combat_target（spec ace-squadron-tier §3.5）
+	if ai._current_target and is_instance_valid(ai._current_target) \
+			and not ai._current_target.is_destroyed and not ai._current_target.is_lock_immune():
 		ai.aircraft.set_combat_target(ai._current_target)
 		BFMTactics.set_patrol_altitude(ai)
 		ai.enter_engage_state(false)  # 恢复交战：不打断躲弹前的战术选择

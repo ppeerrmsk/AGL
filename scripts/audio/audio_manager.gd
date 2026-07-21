@@ -227,6 +227,7 @@ func _play_music_internal(id: String, fade_in: float, loop: bool) -> void:
 	var stream := _get_music(id)
 	if stream == null:
 		return
+	_current_music_id = id
 	_apply_loop(stream, loop)
 	_kill_tween(_active_music)
 	_active_music.stop()
@@ -245,6 +246,13 @@ func stop_music(fade_out: float = 2.0) -> void:
 	_fade_to(p, -80.0, fade_out, func(): if is_instance_valid(p): p.stop())
 
 ## 交叉淡化：新曲从 -80 dB 淡入，旧曲同时淡出后停止
+## 当前播放的音乐 id（crossfade / layered 都记）。供"演出已切过 BOSS 曲，
+## 交战时不要重启同一首"这类幂等判断用 —— crossfade_music 本身没有同曲早退
+var _current_music_id: String = ""
+
+func current_music_id() -> String:
+	return _current_music_id
+
 func crossfade_music(id: String, duration: float = 2.0, loop: bool = true) -> void:
 	_playlist_active = false
 	_stop_layered_internal(duration)
@@ -254,6 +262,7 @@ func _crossfade_music_internal(id: String, duration: float, loop: bool) -> void:
 	var stream := _get_music(id)
 	if stream == null:
 		return
+	_current_music_id = id
 	_apply_loop(stream, loop)
 	var old_player := _active_music
 	var new_player := _music_player_b if _active_music == _music_player_a else _music_player_a
@@ -352,6 +361,8 @@ func is_music_playing() -> bool:
 
 ## 同帧启动所有层，active_index 那层淡入到 0 dB，其他层保持 -80 dB 静音同步播放
 func play_layered_music(ids: Array, fade_in: float = 2.0, active_index: int = 0) -> void:
+	if not ids.is_empty():
+		_current_music_id = String(ids[0])
 	if ids.is_empty():
 		return
 	# 先关掉 a/b 主轨（层叠期间独占 BGM）

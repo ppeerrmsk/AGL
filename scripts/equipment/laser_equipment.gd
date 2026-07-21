@@ -193,10 +193,11 @@ func _apply_laser_effect(ac, target, damage: float, damage_skill_active: bool) -
 	if damage_skill_active:
 		# 玩家解锁"激光致伤"：飞机 + 地面单位都吃完整 DPS
 		# take_damage_from 走归因入口 — 触发恐惧扩散 / 寒颤 / 击杀回血等下游技能
+		var laser_src: Node = CombatUnit.safe_attacker(ac)
 		if target.has_method("take_damage_from"):
-			target.take_damage_from(damage, ac, "laser")
+			target.take_damage_from(damage, laser_src, "laser")
 		else:
-			target.take_damage(damage, ac, "laser")
+			target.take_damage(damage, laser_src, "laser")
 
 
 ## 检测 source 飞机是否持有"激光致伤"技能（仅玩家系 team 0 生效）

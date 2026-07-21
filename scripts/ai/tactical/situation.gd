@@ -35,6 +35,27 @@ var tgt_speed_ms: float = 0.0
 var tgt_alt: float = 0.0
 var tgt_bank_deg: float = 0.0
 var tgt_is_surface: bool = false   ## 地面单位 / 舰船：非机动表面目标，走 strafe 高速掠过
+var tgt_is_slow_air: bool = false  ## 慢速空中目标（直升机 / 螺旋桨运输机）：见 SLOW_AIR_SPEED_RATIO
+                                   ## 与 tgt_is_surface 互斥，_recompute 派生，外部只读
+
+## 目标速度 < 本机角点速度 × 此值 → 判定"慢速空中目标"。
+## 物理理由：角点速度下最小转弯半径 r = v²/(g·G) ≈ 550m（F-14, 7G）。目标 1 秒位移只有
+## 60m 时，尾追是几何不可能的——绕一圈回来目标几乎还在原地，机头永远扫过它而咬不住。
+## 唯一可行解是"攻击跑"（pass）：对准进入 → 打一波 → 飞越 → 折返。与地面目标同构，
+## 故复用 BfmIntent.ground_strafe 的相位机（spec: slow-air-target-pass）。
+## 0.4：F-14 corner≈700km/h → 门槛 280km/h。CH-47(216) 命中；慢速喷气机(>400) 不误判。
+const SLOW_AIR_SPEED_RATIO := 0.4
+
+## ── planner 时钟源（唯一入口）──
+## 战术层所有时序状态（intent hysteresis / EXTEND 倒计时）都必须读这里，不得直接调 Time。
+## 理由：无头 sim 以固定 DT 步进，60Hz 循环跑完 45 "秒"只花约 0.2 秒墙上时间。
+## 若时序读墙上时钟，一个 2 秒的 EXTEND 会横跨整场仿真永不到期（实测：extend_remaining
+## 40 个仿真秒里只从 1.99 掉到 1.89），行为断言全部失真。
+## 用法：测试在每步设 Situation.sim_time_override = 仿真秒；游戏内保持 -1.0 走真实时钟。
+static var sim_time_override: float = -1.0
+
+static func now() -> float:
+	return sim_time_override if sim_time_override >= 0.0 else Time.get_ticks_msec() / 1000.0
 
 # ── 玩家意图（可空，仅玩家飞机有）──
 var weapon_lock: int = WEAPON_LOCK_NONE   ## 玩家对武器的强制要求
@@ -63,6 +84,10 @@ const WEAPON_LOCK_FORCE_MISSILE := 2
 
 # ── 武器射程（米，由 params 注入）──
 var gun_range_m: float = 1000.0
+## 机炮初速（m/s）。机炮前置解（_gun_lead_point）用它算子弹飞行时间。
+## 必须与扳机判定侧（aircraft.gd 用 params.gun.muzzle_velocity 算 _gun_lead_heading）同源，
+## 否则机头瞄的点和扳机认可的点不是同一个，非默认初速的机炮会系统性瞄偏。
+var gun_muzzle_mps: float = 1050.0
 var missile_max_range_m: float = 8000.0
 var missile_min_range_m: float = 500.0
 
@@ -77,6 +102,10 @@ var primary_weapon_hold_s: float = 999.0 ## 上次胜者已保持秒数
 var max_speed_kmh: float = 2100.0
 var cruise_speed_kmh: float = 900.0
 var corner_speed_kmh: float = 700.0
+## 有效最大过载（G）。交战速度治理反解盘旋半径要用。
+## ⚠ 必须经 AircraftPhysics.effective_max_g() 注入，不得直读 params.max_g
+## （否则 BLOODLUST / OVERLOAD 等拉 G buff 对治理层失明，见 CLAUDE.md 机动性 buff 规范）
+var max_g: float = 8.0
 var stall_speed_kmh: float = 220.0
 var radar_half_angle_deg: float = 30.0   ## 雷达扇形半角（度），决定 crank 角度上限
 
@@ -118,6 +147,11 @@ const POSTURE_ASSAULT := 2
 var attack_posture: int = POSTURE_AUTO ## 攻击姿态；AUTO=武器推导，非 AUTO=轮盘强制
 var surround_bearing: float = INF      ## FOCUS 包围进入方位（绝对弧度，INF=未分配；command-wheel §3.6）
 
+# ── 地面机炮火力警觉（spec aa-fire-awareness）──
+var aa_fire_active: bool = false       ## 被地面/舰船机炮命中警觉窗口内（对面 pass 强转 EGRESS）
+var target_aa_range_m: float = 0.0     ## 目标对空机炮火力半径（米；无对空能力=0）
+var fpole_hold: bool = false           ## F-Pole：弹在飞/团队火力已足 → STANDOFF 不压入环内
+
 # ══════════════════════════════════════════════
 #  构造工厂
 # ══════════════════════════════════════════════
@@ -144,10 +178,12 @@ static func from_aircraft(ac) -> Situation:
 		s.cruise_speed_kmh = AircraftPhysics.effective_cruise_speed_kmh(ac)
 		s.stall_speed_kmh = AircraftPhysics.effective_stall_speed_kmh(ac)
 		s.corner_speed_kmh = AircraftPhysics.effective_corner_speed_kmh(ac)
+		s.max_g = AircraftPhysics.effective_max_g(ac)
 		s.radar_half_angle_deg = ac.params.radar_half_angle
 		s.lock_time_threshold = ac.params.lock_time
 		if ac.params.gun:
 			s.gun_range_m = ac.params.gun.max_range
+			s.gun_muzzle_mps = ac.params.gun.muzzle_velocity
 		if ac.params.missile:
 			s.missile_max_range_m = ac.params.missile.max_range_rear
 			s.missile_min_range_m = ac.params.missile.min_range
@@ -165,7 +201,7 @@ static func from_aircraft(ac) -> Situation:
 	s.primary_weapon_hold_s = ac._primary_weapon_hold_s
 
 	# 时序状态（防抖动用）
-	s.current_time = Time.get_ticks_msec() / 1000.0
+	s.current_time = Situation.now()
 	if "_bfm_prev_intent" in ac:
 		s.prev_intent = ac._bfm_prev_intent
 	if "_bfm_intent_started_at" in ac and ac._bfm_intent_started_at > 0.0:
@@ -182,6 +218,10 @@ static func from_aircraft(ac) -> Situation:
 			s.attack_posture = ac.attack_posture
 		if "surround_bearing_rad" in ac:
 			s.surround_bearing = ac.surround_bearing_rad
+
+	# 地面机炮火力警觉窗口（spec aa-fire-awareness §3.1，住 Aircraft，take_bullet_damage 刷新）
+	if "aa_fire_timer" in ac:
+		s.aa_fire_active = ac.aa_fire_timer > 0.0
 
 	# 玩家意图
 	if "evasion_mode" in ac:
@@ -237,6 +277,21 @@ static func from_aircraft(ac) -> Situation:
 		if "radar_targets" in ac:
 			s.target_lock_progress = ac.radar_targets.get(tgt, 0.0)
 			s.target_locked = s.target_lock_progress >= s.lock_time_threshold
+		# 地面机炮火力警觉（spec aa-fire-awareness §2.3/§3.4）：仅面目标才算
+		if s.tgt_is_surface:
+			# 目标对空火力半径：GroundUnit 读其机炮 live 射程；舰船/挂点 = CIWS 对空扫射 2000m
+			if tgt is GroundUnit:
+				if tgt.params and tgt.params.gun:
+					s.target_aa_range_m = tgt.params.gun.max_range
+			elif tgt is NavalUnit or tgt is MountTarget:
+				s.target_aa_range_m = 2000.0
+			# F-Pole 判定（与 TEAM_OVERKILL 同源记账，只计仍制导的在飞弹）：
+			# 自己有弹在飞向该目标 或 团队在飞火力已足杀 → STANDOFF RUN 不压入
+			if "missile_manager" in ac and ac.missile_manager != null:
+				var _inb_all: float = ac.missile_manager.team_inbound_damage(tgt, ac.team, null)
+				if _inb_all > 0.0:
+					s.fpole_hold = _inb_all >= tgt.hp \
+							or _inb_all > ac.missile_manager.team_inbound_damage(tgt, ac.team, ac)
 
 	# 小队协同 + AI 性格：从子节点 AIController 读
 	for child in ac.get_children():
@@ -297,6 +352,11 @@ func _recompute() -> void:
 
 	# 敌人是否在我的后半球（用于"被咬尾"判定，仅空战目标有意义）
 	tgt_in_my_rear = my_fwd.dot(to_target_dir) < 0.0 and not tgt_is_surface
+
+	# 慢速空中目标：与 surface 互斥（surface 已有自己的 pass 路径，不重复标记）
+	tgt_is_slow_air = (not tgt_is_surface) \
+			and corner_speed_kmh > 1.0 \
+			and (tgt_speed_ms * 3.6) < corner_speed_kmh * SLOW_AIR_SPEED_RATIO
 
 	# 闭合率（沿 LOS 投影，正=接近）
 	closing_rate_ms = aim_align * my_speed_ms + head_on_dot * tgt_speed_ms

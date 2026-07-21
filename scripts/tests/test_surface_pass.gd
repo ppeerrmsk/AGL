@@ -31,6 +31,7 @@ func run() -> void:
 	_test_standoff_keeps_distance()
 	_test_standoff_longrange_offaxis_ship()
 	_test_wheel_posture_override()
+	_test_aa_fire_awareness()
 	_root.free()
 	_root = null
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
@@ -272,6 +273,90 @@ func _run_posture_case(label: String, posture: int, expect_standoff: bool) -> vo
 
 
 # ── 工具 ──
+
+# ── E. AA 火力警觉（spec aa-fire-awareness）——planner 纯函数断言 ──
+# 直接构造 Situation 调 BfmIntent.ground_strafe，逐条验证四个新行为：
+# inner 环随目标对空火力半径抬升 / F-Pole 弹在飞不压入 / 中弹强转 EGRESS / EGRESS 转出后 AB
+func _test_aa_fire_awareness() -> void:
+	print("── E. AA 火力警觉（inner 抬升 / F-Pole / 中弹脱离 / EGRESS AB）──")
+	# 共用底座：STANDOFF 姿态、机头正对北方目标（对准 → RUN 维持）
+	var base := {
+		"has_target": true, "tgt_is_surface": true,
+		"my_pos": Vector2.ZERO, "my_heading": 0.0,
+		"attack_posture": Situation.POSTURE_STANDOFF,
+		"missiles": 4,
+		"missile_max_range_m": 16000.0, "missile_min_range_m": 500.0,
+		"max_speed_kmh": 2100.0, "cruise_speed_kmh": 900.0,
+		"corner_speed_kmh": 700.0, "stall_speed_kmh": 200.0,
+		"strafe_pass_phase": TacticalPlan.SurfacePhase.RUN,
+	}
+
+	# E1: CIWS 舰（对空 2000m）→ inner 抬到 2500：dist=2400m 的 RUN 应触发 EGRESS
+	var d1 := base.duplicate()
+	d1["tgt_pos"] = Vector2(0, -2400.0 * CombatUnit.PIXELS_PER_METER)
+	d1["target_aa_range_m"] = 2000.0
+	var p1 := BfmIntent.ground_strafe(Situation.new_for_test(d1))
+	_check("E1 CIWS 舰 inner=2500：dist 2400m RUN→EGRESS",
+		p1.strafe_pass_phase == TacticalPlan.SurfacePhase.EGRESS, p1.rationale)
+
+	# E1b 对照：无对空火力（aa=0）→ inner 仍 2200：dist 2400m 维持 RUN 压入
+	var d1b := base.duplicate()
+	d1b["tgt_pos"] = Vector2(0, -2400.0 * CombatUnit.PIXELS_PER_METER)
+	var p1b := BfmIntent.ground_strafe(Situation.new_for_test(d1b))
+	_check("E1b 无 AA 目标对照：dist 2400m 维持 RUN（inner 2200 不变）",
+		p1b.strafe_pass_phase == TacticalPlan.SurfacePhase.RUN, p1b.rationale)
+
+	# E2: F-Pole——弹在飞（fpole_hold）→ RUN 不压入，环外等待（pursuit 距目标 ≥ inner）
+	var d2 := base.duplicate()
+	d2["tgt_pos"] = Vector2(0, -5000.0 * CombatUnit.PIXELS_PER_METER)
+	d2["target_aa_range_m"] = 2000.0
+	d2["fpole_hold"] = true
+	var s2 := Situation.new_for_test(d2)
+	var p2 := BfmIntent.ground_strafe(s2)
+	var hold_dist_m: float = p2.pursuit_pos.distance_to(s2.tgt_pos) / CombatUnit.PIXELS_PER_METER
+	_check("E2 F-Pole：弹在飞不压入（rationale 标记）", "F-Pole" in p2.rationale, p2.rationale)
+	_check("E2b F-Pole：等待点在 inner 环外", hold_dist_m >= 2500.0,
+		"pursuit 距目标 %.0fm（inner=2500）" % hold_dist_m)
+
+	# E3: 中弹强转脱离——aa_fire_active 时 RUN（dist 5000m，远在 inner 外）强转 EGRESS
+	var d3 := base.duplicate()
+	d3["tgt_pos"] = Vector2(0, -5000.0 * CombatUnit.PIXELS_PER_METER)
+	d3["aa_fire_active"] = true
+	var p3 := BfmIntent.ground_strafe(Situation.new_for_test(d3))
+	_check("E3 中弹：RUN 强转 EGRESS（dist 5000m 仍脱离）",
+		p3.strafe_pass_phase == TacticalPlan.SurfacePhase.EGRESS, p3.rationale)
+
+	# E3b 玩家自治对照：is_tactical_preference_user 不强转
+	var d3b := d3.duplicate()
+	d3b["is_tactical_preference_user"] = true
+	var p3b := BfmIntent.ground_strafe(Situation.new_for_test(d3b))
+	_check("E3b 玩家自治：中弹不强转（维持 RUN）",
+		p3b.strafe_pass_phase == TacticalPlan.SurfacePhase.RUN, p3b.rationale)
+
+	# E4: EGRESS 加速——ASSAULT 姿态（egress_dir=径向背离），机头已背对目标 → AB 全速
+	var d4 := {
+		"has_target": true, "tgt_is_surface": true,
+		"my_pos": Vector2.ZERO, "my_heading": PI,   # 机头朝南
+		"tgt_pos": Vector2(0, -800.0 * CombatUnit.PIXELS_PER_METER),  # 目标在北 → 背离方向=南
+		"attack_posture": Situation.POSTURE_ASSAULT,
+		"gun_range_m": 1200.0,
+		"max_speed_kmh": 2100.0, "cruise_speed_kmh": 900.0,
+		"corner_speed_kmh": 700.0, "stall_speed_kmh": 200.0,
+		"strafe_pass_phase": TacticalPlan.SurfacePhase.EGRESS,
+	}
+	var p4 := BfmIntent.ground_strafe(Situation.new_for_test(d4))
+	_check("E4 EGRESS 机头已转出 → AB 全速",
+		p4.afterburner and p4.target_speed_kmh >= 2100.0 - 1.0,
+		"ab=%s spd=%dkmh" % [p4.afterburner, int(p4.target_speed_kmh)])
+
+	# E4b 对照：机头仍朝目标（转向段）→ corner 硬 break、无 AB
+	var d4b := d4.duplicate()
+	d4b["my_heading"] = 0.0   # 机头朝北 = 朝目标
+	var p4b := BfmIntent.ground_strafe(Situation.new_for_test(d4b))
+	_check("E4b EGRESS 转向段 → corner 无 AB",
+		(not p4b.afterburner) and absf(p4b.target_speed_kmh - 700.0) < 1.0,
+		"ab=%s spd=%dkmh" % [p4b.afterburner, int(p4b.target_speed_kmh)])
+
 
 func _fighter_params(gun_range_m: float, with_missile: bool) -> AircraftParams:
 	var p := AircraftParams.new()

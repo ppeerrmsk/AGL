@@ -101,6 +101,9 @@ var _pending_click_double := false
 # ── HUD / UI ──
 var hud: SurvivorHUD
 var upgrade_ui: SurvivorUpgradeUI
+## 加力模式充能资源（spec afterburner-mode）：小队级单实例，字段初始化即就绪（开局满格）。
+## _physics_process 驱动（升级暂停/游戏结束自然冻结）；E 键与 HUD 按钮走 try_activate。
+var afterburner_charge := AfterburnerCharge.new()
 var _tutorial: SurvivorTutorial  ## 首次进入生存模式的浮现式教程
 
 # ── 大地图边界 / 战术地图（P1）──
@@ -252,6 +255,9 @@ func _ready() -> void:
 	_camera_ctrl = CameraController.new()
 	add_child(_camera_ctrl)
 	_camera_ctrl.setup(camera)
+	# 表演导演接管镜头电影层（zoom 系数 / offset / shake）。退出时 clear_all 会 unbind
+	Presentation.clear_all()
+	Presentation.bind_camera(_camera_ctrl)
 
 	_aircraft_scene = preload("res://scenes/aircraft.tscn")
 	_sam_scene = preload("res://scenes/sam_unit.tscn")
@@ -375,6 +381,7 @@ func _ready() -> void:
 	hud = SurvivorHUD.new()
 	hud.survivor_player = survivor_player
 	hud.game_scene = self
+	hud.afterburner_charge = afterburner_charge
 	add_child(hud)
 
 	# 升级UI
@@ -426,6 +433,8 @@ func _ready() -> void:
 	# 刻意建在战区 if 之外：boss_debug 模式就是用来看 BOSS 登场台词的，不能被跳过。
 	_radio = RadioChatter.new()
 	add_child(_radio)
+	# 演出的 radio 通道走它渲染（编排权归演出、渲染权归无线电，spec ui-transition §3.5）
+	Presentation.bind_radio(_radio)
 	EventLogger.kill_recorded.connect(_on_radio_kill_recorded)
 	EventLogger.evasion_started.connect(_on_radio_evasion_started)
 	EventLogger.wingman_joined.connect(_on_radio_wingman_joined)
@@ -1091,7 +1100,8 @@ func _boss_debug_respawn_reroll() -> void:
 	get_tree().set_meta("survivor_map_id", "boss_debug")
 	get_tree().set_meta("survivor_aircraft_resource", _player_profile_path)
 	# 立刻关掉游戏暂停态（升级 UI 占了暂停时不重置会卡住）
-	get_tree().paused = false
+	# 走导演的全清：同时兜掉时间缩放 / 遮罩 / 镜头系数三类泄漏
+	Presentation.clear_all()
 	is_game_over = false
 	is_paused_for_upgrade = false
 	EventLogger.log_event("BOSS_DEBUG", "Respawn", "reload+reroll boss=%s" % _boss_debug_id)
@@ -1324,16 +1334,18 @@ func _unhandled_input(event: InputEvent) -> void:
 		_tactical_map.close()
 		return
 	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
-		get_tree().paused = false
+		# 场景切换前必须全清表演层：否则时间缩放 / 遮罩 / 镜头系数会带进主菜单
+		Presentation.clear_all()
 		AudioManager.stop_music(1.0)
 		get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
 		return
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F9:
 		# 消费事件，避免编辑器调试器捕获 F9 进入断点/暂停状态
 		get_viewport().set_input_as_handled()
-		# 保险：若被其他机制设为暂停，立即解除
+		# 保险：若被其他机制设为暂停，立即解除。走时间栈而非直写 ——
+		# 直写会让 TimeAuthority 仍以为处于暂停态，下次 hard_pause(true) 因状态相同被跳过
 		if get_tree().paused and not is_paused_for_upgrade:
-			get_tree().paused = false
+			Presentation.time.hard_pause(false)
 		var path := EventLogger.dump_to_file()
 		if path != "":
 			print("Combat log saved: %s" % path)
@@ -1387,8 +1399,10 @@ func _unhandled_input(event: InputEvent) -> void:
 					player_aircraft.altitude_preference = Aircraft.AltitudePreference.PREFER_CLIMB
 				return
 			KEY_E:
-				# 进入规避会清空当前指令（内部实现等同右键"解除任务"）
-				player_aircraft.set_evasion_mode(not player_aircraft.evasion_mode)
+				# 加力模式（spec afterburner-mode）：满格才能激活，6s 固定窗口自动退出；
+				# 未满/激活中按下无操作（充能条状态即反馈）。激活内部仍走 set_evasion_mode
+				# 既有链路（清指令 + planner max/AB + 僚机护卫广播 + radio break）
+				afterburner_charge.try_activate(player_aircraft)
 				return
 			KEY_F:
 				player_aircraft.missile_auto_fire = not player_aircraft.missile_auto_fire
@@ -1675,6 +1689,9 @@ func _process(delta: float) -> void:
 func _physics_process(delta: float) -> void:
 	if is_game_over or is_paused_for_upgrade:
 		return
+
+	# 加力充能/窗口计时（spec afterburner-mode）：放早退之后 → 升级暂停/游戏结束自然冻结
+	afterburner_charge.update(delta)
 
 	# BOSS 阶段后 game_time 不再累加（HUD 自然停在 00:00 / "BOSS PHASE"）
 	if not _is_in_boss_phase():
@@ -2138,7 +2155,10 @@ func _update_offscreen_lod() -> void:
 			#     就永远走不到目标 → 表现为"没移动"+"V 阵型崩塌"（玩家 2026-05-07 报告）
 			#   - formation_mode follower：必须跟 leader，冻结会跑到 leader 后面距离爆炸，
 			#     视觉上 UAV 飞出 Sentinel 圈外（同上报告）
-			var is_critical_off: bool = ac.has_meta("category") and ac.get_meta("category") == "boss"
+			# 王牌中队（含 BOSS）不吃 LOD —— 走 AceTier 而非 category=="boss"，
+			# 让将来的非 BOSS 王牌中队也拿到豁免（spec ace-squadron-tier §2.1）
+			var is_critical_off: bool = AceTier.is_ace(ac) \
+					or (ac.has_meta("category") and ac.get_meta("category") == "boss")
 			if not is_critical_off and ac.has_meta("enemy_type") and ac.get_meta("enemy_type") == "uav_commander":
 				is_critical_off = true
 			if not is_critical_off and ac.has_meta("category") and ac.get_meta("category") == "adds":
@@ -2169,8 +2189,9 @@ func _update_offscreen_lod() -> void:
 		# 详见 docs/changelogs/player-ai-log.md 2026-04-20 (11)
 		ac.visible = true
 		ac.lod_level = 0
-		# BOSS 之类关键目标强制全速，不参与预算排队
-		var is_critical: bool = ac.has_meta("category") and ac.get_meta("category") == "boss"
+		# 王牌中队 / BOSS 之类关键目标强制全速，不参与预算排队（spec ace-squadron-tier §2.1）
+		var is_critical: bool = AceTier.is_ace(ac) \
+				or (ac.has_meta("category") and ac.get_meta("category") == "boss")
 		if is_critical or not (ai_node and ai_node.simple_ai):
 			ac.set_physics_process(true)
 			if ai_node:
@@ -2300,6 +2321,28 @@ func _set_player_aircraft(ac: Aircraft) -> void:
 	if _camera_ctrl:
 		_camera_ctrl.set_follow_target(ac)
 		_camera_ctrl.snap_to_follow()
+	# ⚠ 下面这批消费者在 _ready 里 setup(player_aircraft) 缓存了初始机引用。
+	# 漏掉任何一个 → 切控/换帅后旧机被击落释放，消费者持有已 free 实例：
+	# spawner 曾因此在 BOSS 生成时把 freed Aircraft 当 arg4 传进 CarrierStrikeGroup.spawn 崩溃。
+	if _spawner:
+		_spawner.player_aircraft = ac
+	if zone_manager:
+		zone_manager.player_ref = ac
+	if _map_boundary:
+		_map_boundary.player = ac
+	if _tactical_map:
+		_tactical_map._player = ac
+	if _zone_arrow:
+		_zone_arrow._player = ac
+	if _zone_mission:
+		_zone_mission._player = ac
+	if _adbs:
+		_adbs._player = ac
+	if _event_director:
+		_event_director.player = ac
+	# AudioManager._engine_host 同样是缓存：不重绑的话引擎声会留在旧机上，
+	# 旧机被击落后 is_instance_valid 守卫让它静默消音（不崩，但玩家侧"没声了"）。
+	AudioManager.start_player_engine(ac)
 
 ## 换帅信号回调（spec §3.7 击落自动接管）：当前操控机阵亡 → 自动接管新长机。
 func _on_squad_leader_changed(new_leader: Aircraft) -> void:
@@ -2446,9 +2489,11 @@ func _on_player_leveled_up(_new_level: int) -> void:
 		var cards: Array[Dictionary] = _roll_axis_cards()
 		if not cards.is_empty():
 			is_paused_for_upgrade = true
-			get_tree().paused = true
 			AudioManager.set_music_muffled(true)
-			upgrade_ui.show_choices(cards)
+			# 急刹车转场（spec ui-transition §2.3）：导演负责时间缩放 → hard_pause →
+			# 镜头推近 → 卡片错开弹入。面板只填内容
+			upgrade_ui.populate(cards)
+			Presentation.present(upgrade_ui, "upgrade_in")
 			return  # consume_level_up_display 由 _on_upgrade_selected 收
 	survivor_player.consume_level_up_display()
 	if _zone_hint:
@@ -2537,13 +2582,17 @@ func _on_upgrade_selected(upgrade: Dictionary) -> void:
 
 	survivor_player.consume_level_up_display()
 	is_paused_for_upgrade = false
-	get_tree().paused = false
 	AudioManager.set_music_muffled(false)
 
 	# 归零暂停期间被吞掉 release 事件的鼠标按键状态，
 	# 防止"右键急刹/中键拖图卡住 → 升级后飞机永远朝某方向直飞"
 	_set_hard_brake(false)
 	is_dragging = false
+
+	# ⚠ 以上全部状态恢复必须在 dismiss【之前】完成（spec ui-transition §3.9）：
+	# 退场动画只是视觉尾巴，绝不延后任何玩法状态变更或输入恢复（守 Litmus #2）。
+	# 解除暂停由 upgrade_out 的第 0 帧 pause=0 完成
+	Presentation.dismiss(upgrade_ui, "upgrade_out")
 
 	# 进化提示
 	if evolved_name != "":
@@ -2771,8 +2820,9 @@ func _open_evolution_offer() -> void:
 		_evolution_ui.upgrade_chosen.connect(_on_settlement_upgrade)
 		_evolution_ui.closed.connect(_on_settlement_closed)
 	is_paused_for_upgrade = true
-	get_tree().paused = true
 	AudioManager.set_music_muffled(true)
+	# 暂停与淡入交给表演导演（时间的唯一入口）
+	Presentation.present(_evolution_ui, "panel_in")
 	# 暂停期 HUD timer 不刷新 → 同步一次
 	if hud:
 		var _remaining: float = maxf(0.0, WARZONE_PHASE_DURATION - game_time)
@@ -2833,10 +2883,11 @@ func _on_settlement_upgrade(upgrade: Dictionary) -> void:
 ## 规划站关闭：恢复游戏（镜像升级 UI 的收尾：解暂停 + 鼠标状态归零防直飞）
 func _on_settlement_closed() -> void:
 	is_paused_for_upgrade = false
-	get_tree().paused = false
 	AudioManager.set_music_muffled(false)
 	_set_hard_brake(false)
 	is_dragging = false
+	# 状态恢复已全部完成，dismiss 只是视觉尾巴（解暂停在 panel_out 第 0 帧）
+	Presentation.dismiss(_evolution_ui, "panel_out")
 
 ## 系统铁则：世界坐标是否在玩家屏幕可见范围内
 ## 供 spawner / zone_mission / adbs_manager 刷新前做可见性检查
@@ -3257,6 +3308,10 @@ func on_boss_engaged(ev) -> void:
 ## 一次击杀最多产生 2 条（阵亡者弹射 + 击坠者回报），实际频率由全局冷却 + 自身冷却 + 概率三层压制。
 func _on_radio_kill_recorded(killer: String, victim: String, _weapon_kind: String,
 		killer_team: int, victim_team: int, victim_voiced: bool) -> void:
+	# 加力充能：小队空中击杀 +4s（spec afterburner-mode §3.6；不依赖 radio 是否存活。
+	# ALLY 番队 team ≠ TEAM_PLAYER 自动排除；地面击杀在 spawner 的 roe 热度挂点同步 +4s）
+	if killer_team == CombatUnit.TEAM_PLAYER and victim_team == CombatUnit.TEAM_HOSTILE:
+		afterburner_charge.on_kill_charge()
 	if _radio == null or not is_instance_valid(_radio):
 		return
 

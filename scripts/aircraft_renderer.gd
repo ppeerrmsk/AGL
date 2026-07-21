@@ -306,6 +306,9 @@ static func draw_secondary_lock_indicators(ac: Aircraft) -> void:
 		if unit == null or not is_instance_valid(unit): continue
 		var prog: float = ac.secondary_radar_targets[unit]
 		if prog < lock_time_val: continue  # 仅锁满显示
+		# 光学隐形：不得在隐形机位置画锁定框（否则等于把隐形目标的精确坐标画给玩家）。
+		# 累积侧已在 update_secondary_radar 清除，但那是 0.5s tick —— 这里兜住 tick 间隙
+		if unit is Aircraft and (unit as Aircraft).is_cloaked: continue
 		# 用本地坐标（_draw 在 ac 本地空间）
 		var local_pos: Vector2 = ac.to_local(unit.global_position)
 		# 4 个角的 corner brackets（开口朝内）

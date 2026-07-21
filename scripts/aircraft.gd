@@ -116,6 +116,10 @@ var surround_bearing_rad: float = INF
 ## （集合=到达解除 / 撤离=出圈解除 / 任何新命令解除）；速度经 AircraftPhysics
 ## effective_max/cruise_speed_kmh 注入 ×COMMAND_SPRINT_MULT（机动性 buff 规范 accessor 通道）
 var command_sprint: bool = false
+## TIGHT 齐射窗口开火权（spec formation-discipline §3.1）：窗口期 SquadCommandController
+## 临时授予编队僚机 combat_target；置位时 SquadCoordination 的"编队防御性清目标"跳过本机
+## ——僚机在编队槽位里开火、不脱队。窗口关闭即回收（禁补射由构造保证）
+var volley_fire_active: bool = false
 var is_firing: bool = false
 var ammo: int = 500
 # 自动扫描机炮目标的节流计时器：60Hz 扫描无意义，且每次扫描都是 O(N) 遍历全场单位
@@ -181,6 +185,9 @@ const LOCK_STABLE_BUFFER: float = 0.3  ## 锁定后额外稳定时间才允许�
 var _msl_block_log_timer: float = 0.0
 var _msl_last_block_reason: String = ""
 const MSL_BLOCK_LOG_INTERVAL: float = 2.0  ## 最多每 2 秒记录一次阻塞原因
+## 齐射路径空手诊断节流（见 _log_salvo_skip）
+const SALVO_SKIP_LOG_INTERVAL: float = 2.0
+var _salvo_skip_log_timer: float = 0.0
 
 # 诊断：玩家机炮追击决策追踪（仅 use_tactical_preference=true 时写入）
 # 设计意图见 docs/changelogs/player-ai-log.md — 用于复现"绕圈方向错"类 bug
@@ -250,6 +257,13 @@ var flock_scatter_dir: Vector2 = Vector2.ZERO
 ## 队友引用（flock_members[0..N-1] 共享同一数组）
 ## set_meta("scatter_on_damage", true) 时，_apply_damage 会向所有队友传播 scatter
 var flock_members: Array[Aircraft] = []
+
+# --- 地面机炮火力警觉（spec aa-fire-awareness）---
+## 被地面/舰船机炮弹幕命中时刷新（闪避成功也算——弹幕已跨过机体 = 身处火力网）。
+## 消费方：bfm_intent 对面 pass 强转 EGRESS + AB 加速脱离；AircraftFormation 编队 AB 冲刺
+const AA_FIRE_REACT_S: float = 2.5   ## 警觉窗口时长（秒），每次中弹刷新
+var aa_fire_timer: float = 0.0
+var aa_fire_source_pos: Vector2 = Vector2.INF
 
 ## 装备运行时状态（commit 8/13 起）：每件 EquipmentParams 子类用 equipment_kind 作 key
 ## 写入 / 读出自己的状态字典。避免 Aircraft 字段污染。
@@ -486,6 +500,13 @@ var escort_cover_active: bool = false
 ## 护卫 flare 单弹单次记录（导弹 instance_id → true）：每枚导弹本机只护卫尝试一次，
 ## 防止多架僚机/多帧轮流 jam 同一弹让长机无敌。由 AircraftFlares 清理失效引用。
 var _escort_flare_tried: Dictionary = {}
+
+## ── 加力窗口（spec afterburner-mode）──
+## 玩家小队充能资源激活的 6s 强 buff 窗口标志（生存层 AfterburnerCharge 写入全队快照；
+## 沙盒/敌机/友军番队恒 false）。与 evasion_mode 解耦：窗口内玩家中途下令会照旧退出
+## evasion_mode，但本标志独立倒计时满 6s——强 buff（100% 机炮闪避 / 90% 甩导弹 /
+## 武器静默 / 满速地板 + 加速 ×3）不因指挥操作而中断。
+var afterburner_window_active: bool = false
 
 ## ── §1.2 evasion_modifiers：模式切换时按差量缩放运行时倒计时（避免每帧重算） ──
 ## 技能 apply 时往该 dict 写倍率（< 1.0 = cd 缩短，> 1.0 = cd 延长）；
@@ -753,6 +774,8 @@ func _physics_process_impl(delta: float) -> void:
 	_lod_frame += 1
 	if _tactic_popup_timer > 0.0:
 		_tactic_popup_timer -= delta
+	if aa_fire_timer > 0.0:
+		aa_fire_timer -= delta
 	if is_destroyed:
 		_update_destroy(delta)
 		queue_redraw()
@@ -1073,6 +1096,10 @@ func _run_tactical_planner_if_enabled() -> void:
 	var waypoint: Vector2 = target_position
 	var s: Situation = Situation.from_aircraft(self)
 	var plan: TacticalPlan = TacticalPlanner.plan(s, waypoint)
+	# 交战速度治理：压掉"盘旋半径 > 交战距离 → 机头几何上指不到目标 → 满 G 绕圈"的死结。
+	# 逻辑全在模块内，这里只有接线（目前只对王牌中队生效，见模块 is_governed）
+	if EngagementSpeedGovernor.is_governed(self):
+		EngagementSpeedGovernor.apply(s, plan)
 	# intent 切换时戳时间（用于下一帧的 hysteresis 判定）+ 诊断日志
 	if plan.intent != _bfm_prev_intent:
 		# 切换瞬间打 PLAN log，便于追溯"飞机为什么这帧选了这个 intent"
@@ -1087,10 +1114,11 @@ func _run_tactical_planner_if_enabled() -> void:
 					prev_name, TacticalPlan.intent_name(plan.intent), tgt_name, plan.rationale
 				])
 		_bfm_prev_intent = plan.intent
-		_bfm_intent_started_at = Time.get_ticks_msec() / 1000.0
+		# 时钟统一走 Situation.now()：与 Situation 读时序状态同源，无头 sim 才能拨快时间
+		_bfm_intent_started_at = Situation.now()
 	# extend 触发：本帧 plan 标记触发就把 _bfm_extend_until 推到 now + 触发秒数
 	if plan.trigger_extend_seconds > 0.0:
-		_bfm_extend_until = Time.get_ticks_msec() / 1000.0 + plan.trigger_extend_seconds
+		_bfm_extend_until = Situation.now() + plan.trigger_extend_seconds
 	_apply_tactical_plan(plan)
 	_last_plan = plan
 
@@ -1643,6 +1671,8 @@ func _effective_range_px() -> float:
 
 ## 导弹交战阶段：0=接近（积极机动），1=照射（目标在锥内），2=保持（已锁定/crank）
 func _get_missile_phase() -> int:
+	# crank 是**发射后**的支援照射（_crank_timer 由 _fire_missile_at 置位），几何本就该是
+	# 稳定的侧偏保持 → 维持柔坡不变
 	if is_cranking():
 		return 2
 	if combat_target == null or not is_instance_valid(combat_target):
@@ -1650,7 +1680,15 @@ func _get_missile_phase() -> int:
 	var lock_progress: float = radar_targets.get(combat_target, 0.0)
 	var lock_time_val: float = params.lock_time if params else 3.0
 	if lock_progress >= lock_time_val:
-		# 已锁定
+		# 已锁定。但"锁定"不等于"能打"——发射还要求目标进离轴门
+		# （aircraft_weapons._has_stable_launch_window：radar_half × 0.55）。
+		# 若此刻机头离目标仍在门外，就**不能**降到 phase 2 的柔坡（cap 35%）：
+		# 那正好锁死在"锁上了→转不动→进不了发射锥→打不出去→机头继续飘→丢锁"的闭环里。
+		# 实测（test_slow_air_pass C 段）：满锁 3.30s 时 nose 27°，坡度被压到 27.6°/1.1G
+		# （可用 7.5G），离轴角随后 27°→31°→43° 越飘越远，一枪未发。
+		# 门外一律按"接近段"给满转弯权限，把机头带进锥内；进锥后再柔化保锁。
+		if not _target_within_launch_cone():
+			return 0
 		return 2
 	if lock_progress > 0.0:
 		# 目标在锥内，正在累积
@@ -1672,6 +1710,19 @@ func _should_use_gun() -> bool:
 ## 是否正在保持照射（发射后维持锁定阶段）
 func is_cranking() -> bool:
 	return _crank_timer > 0.0
+
+## 目标是否已进入导弹发射离轴门（与 aircraft_weapons._has_stable_launch_window 的 off-axis
+## 判据同源；此处只关心角度，bank/roll 由那边负责）。供 _get_missile_phase 判断
+## "锁定了但还打不出去"，避免过早降低转弯权限。
+func _target_within_launch_cone() -> bool:
+	if combat_target == null or not is_instance_valid(combat_target) or params == null:
+		return false
+	var is_faf: bool = params.missile != null and params.missile.fire_and_forget
+	var ratio: float = AircraftWeapons.LAUNCH_QUALITY_OFFAX_RATIO_FAF if is_faf \
+			else AircraftWeapons.LAUNCH_QUALITY_OFFAX_RATIO_SARH
+	var to_tgt: Vector2 = combat_target.global_position - global_position
+	var off_axis: float = absf(_angle_diff(atan2(to_tgt.x, -to_tgt.y), heading))
+	return off_axis <= deg_to_rad(params.radar_half_angle * ratio)
 
 ## 切换规避模式：进入时清空当前指令（等同右键"解除任务"），离开时不动作
 ## 供 HUD 按钮 / 键位 / 点击逻辑统一调用
@@ -2038,6 +2089,17 @@ func _log_msl_block(reason: String, detail: String) -> void:
 	EventLogger.log_event("MSL_BLOCK", _log_name(),
 		"%s → %s: %s" % [reason, tgt_name, detail])
 
+## 节流记录齐射路径"为何一发没打"（每 SALVO_SKIP_LOG_INTERVAL 最多一次）
+## 与 _log_msl_block 分开的原因：后者要求 combat_target 非空，而本诊断要覆盖的正是
+## "玩家没点目标 → 齐射本该自己找目标却不开火" 这个场景（此时 combat_target 为 null）。
+## 记录内容：auto_fire 开关的**运行时实际值** + 每个候选目标被哪道过滤踢掉。
+## 用于区分两种病因：开关显示 ON 但运行时 false（UI 脱节） vs 开关真 ON 但过滤器踢光候选。
+func _log_salvo_skip(detail: String) -> void:
+	if not is_player_squad():
+		return
+	_salvo_skip_log_timer = SALVO_SKIP_LOG_INTERVAL
+	EventLogger.log_event("SALVO_SKIP", _log_name(), detail)
+
 ## 威胁态势快照：转储所有正在攻击玩家的导弹 + 所有正在锁定/已锁定玩家的敌方单位
 ## 在导弹开火时打到日志，便于事后排查"为什么打了这一发"
 func _log_threat_picture(context: String) -> void:
@@ -2234,6 +2296,16 @@ func take_bullet_damage(amount: float, attacker: Node = null) -> void:
 			set_meta("_last_damage_kind", "gun")
 			router.call(&"route_damage", amount, global_position)
 			return
+	# 地面机炮火力警觉（spec aa-fire-awareness §3.1）：被地面/舰船机炮弹幕命中 = 已身处
+	# 火力网（放在闪避判定之前——闪避掉的弹同样是"正被弹幕覆盖"信号）。
+	# 只认地面/舰船源；空对空中弹是 BFM 层的事。
+	if attacker != null and is_instance_valid(attacker) \
+			and (attacker is GroundUnit or attacker is NavalUnit):
+		if aa_fire_timer <= 0.0 and (team == 0 or selected):
+			EventLogger.log_event("AA_FIRE", _log_name(),
+				"hit by %s → egress boost %.1fs" % [attacker.name, AA_FIRE_REACT_S])
+		aa_fire_timer = AA_FIRE_REACT_S
+		aa_fire_source_pos = attacker.global_position
 	# Adds 杂兵（Tu-160/AH-64/CH-47）按设计被击中无任何反应——
 	# 不参与闪避也不触发桶滚动画，否则重型轰炸机会像战斗机一样在高空翻滚
 	var is_adds: bool = has_meta("category") and get_meta("category") == "adds"
@@ -2261,6 +2333,10 @@ func take_bullet_damage(amount: float, attacker: Node = null) -> void:
 				effective_dodge += head_on_gun_dodge_bonus
 	# 全局 cap：避免叠 build 后 100%+ 永闪避
 	effective_dodge = clampf(effective_dodge, 0.0, MAX_BULLET_DODGE_CAP)
+	# 加力窗口（spec afterburner-mode）：唯一绕 cap 通道——6s 限时 + 30s 充能代价，
+	# 换取窗口内机炮完全打不中（100%）。敌机永不置窗口标志，不影响敌方规避闪避。
+	if afterburner_window_active:
+		effective_dodge = 1.0
 	if not is_adds and effective_dodge > 0.0 and randf() < effective_dodge:
 		_trigger_evasion_roll()  # 闪避滚转动画
 		return  # 闪避成功，无视伤害
@@ -2306,7 +2382,10 @@ func _apply_damage(amount: float) -> void:
 	# 受击钩子链（玩家系技能：受伤进嗜血 / 被导弹击中无敌 / 周围 JAM 等）
 	# early-return：only Aircraft 玩家小队 + has upgrade_stacks → 不命中开销 ≈ 1 dict.has
 	if hp > 0.0 and is_player_squad():
-		var atk: Node = get_meta("_pending_attacker", null)
+		# `_pending_attacker` meta 会一直留到 _record_kill_attribution 才清，
+		# 期间攻击者可能已被击落 → 读出来的是野指针，dispatch_on_hit 的 attacker: Node
+		# 实参类型检查会直接崩。归因失效只是"这次受击不记凶手"，可以接受。
+		var atk: Node = CombatUnit.safe_attacker(get_meta("_pending_attacker", null))
 		var kind: String = String(get_meta("_last_damage_kind", ""))
 		SkillHooks.dispatch_on_hit(self, atk, kind, amount)
 	# 侩子手：受到任意伤害 → 清零连击与层数

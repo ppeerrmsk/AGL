@@ -176,12 +176,17 @@ func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		for nid in _rects:
 			if (_rects[nid] as Rect2).has_point(event.position):
-				# 只有"亮色可进化"节点可选（LV 且 属性双门，spec evolution-attribute-gates）
-				if _exit_lv.has(nid) and _team_level >= int(_exit_lv[nid]) and _gate_gap_text(nid) == "":
+				# 已揭示的节点都可点开详情（含"差什么才能进化"）；能否真进化由 can_evolve 判定，
+				# 确认按钮据此开关（用户 2026-07-20：灰色机体也要看得到需求）
+				if _is_revealed(nid):
 					_selected = nid
 					queue_redraw()
 					node_selected.emit(nid)
 				return
+
+## 该节点现在能不能进化：当前机直接出口 且 LV 达标 且 属性门全过（spec evolution-attribute-gates）
+func can_evolve(nid: StringName) -> bool:
+	return _exit_lv.has(nid) and _team_level >= int(_exit_lv[nid]) and _gate_gap_text(nid) == ""
 
 ## 属性门槛缺口短文本（缺口徽记）："斗士 1/2"（多条缺口取第一条 + "+N"）；无缺口返回 ""。
 func _gate_gap_text(nid: StringName) -> String:

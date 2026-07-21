@@ -53,6 +53,10 @@ func _update_aa_target_selection(delta: float) -> void:
 			continue
 		if child == self or not is_hostile_to(child) or child.is_destroyed:
 			continue
+		# 光学隐形 / 锁定免疫：不可索敌（对齐 sam_unit / naval_weapons）。
+		# 不加此门时 AA 会可见地追瞄一个子弹必定穿透的目标（bullet_manager 已过滤隐形）
+		if child.is_lock_immune():
+			continue
 		var d := global_position.distance_to(child.global_position)
 		if d < best_dist:
 			best_dist = d

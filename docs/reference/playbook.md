@@ -24,7 +24,7 @@
 
 | 你要加的 | 看哪一节 | 已有详细 doc |
 |---|---|---|
-| 普通敌机 / 王牌 / Adds 杂兵 | [§1 加敌机](#1-加敌机) | [enemy-index.md 12 步清单](enemy-index.md#创建新敌人的完整清单加一个敌人触发短语) |
+| 普通敌机 / 王牌 / Adds 杂兵 | [§1 加敌机](#1-加敌机) | [enemy-index.md 13 步清单](enemy-index.md#创建新敌人的完整清单加一个敌人触发短语) |
 | BOSS（飞机型 / 海军型 / 复合型） | [§2 加 BOSS](#2-加-boss) | spec 样板 [bosses/mother-goose.md](../specs/bosses/mother-goose.md) |
 | 武器 / 装备（gun/missile/rocket/laser/railgun/flare） | [§3 加武器装备](#3-加武器装备) | 暂无 |
 | 玩家技能 / 升级 | [§4 加技能升级](#4-加技能升级) | [survivor-skills.md](../systems/survivor-skills.md) |
@@ -33,12 +33,14 @@
 | 地面单位（AA/SAM/雷达站） | [§7 加地面单位](#7-加地面单位) | [ground-units.md](../systems/ground-units.md) |
 | 地图 / 地形 | [§8 加地图](#8-加地图) | [map-pipeline.md](map-pipeline.md) + [manual-map-editing.md](manual-map-editing.md) |
 | 状态效果（FEAR / SLOW / JAM 类新型） | [§9 加状态效果](#9-加状态效果) | 暂无 |
+| **无线电台词 / 剧情对话** | [§10 加无线电台词](#10-加无线电台词) | spec [systems/radio-chatter.md](../specs/systems/radio-chatter.md) |
+| **演出 / 转场 / BOSS 登场镜头** | 直接看方法论 doc → | [cinematic-authoring.md](cinematic-authoring.md)（陷阱清单 + 最短路径）；数值权威 spec [systems/ui-transition.md](../specs/systems/ui-transition.md) |
 
 ---
 
 ## §1 加敌机
 
-走 **[enemy-index.md 12 步清单](enemy-index.md#创建新敌人的完整清单加一个敌人触发短语)**。
+走 **[enemy-index.md 13 步清单](enemy-index.md#创建新敌人的完整清单加一个敌人触发短语)**。
 要点摘要：
 
 1. `resources/enemy_<name>.tres` AircraftParams + 必要的 gun/missile/rocket .tres
@@ -285,6 +287,44 @@ RadarStation 都继承 `GroundUnit extends CombatUnit`。
 6. 玩家技能联动钩子在 AOEBroadcast 内集中（见 SEAM-004）
 
 ---
+
+## §10 加无线电台词
+
+**多数情况完全不用碰代码** —— 数据全在 `resources/chatter/radio_chatter.json`。
+带行号的详细导航见 [code-index.md「无线电通讯」段](code-index.md)。
+
+### 加一条台词（最常见）
+
+1. `resources/chatter/radio_chatter.json` → 对应 trigger 的 `lines` 数组加一个 key
+2. `i18n/translations.csv` 加一行：`RADIO_XXX,中文,English,日本語`
+3. 跑 `--bench=chatter` 校验（会检查每个 key 都有译文）
+
+⚠ 加了 key 之后**必须让 Godot 导入一次**（编辑器打开一次，或 `godot --headless --path . --import`），
+否则 `tr()` 会原样返回 key，台词显示成 `RADIO_XXX`。
+
+### 加一个 BOSS 的专属登场对话
+
+在 JSON 的 `boss_sequences` 加一项，**key 用 `BossRegistry.BOSS_DEFS` 里的 boss id**；
+`slot` 是队内序号（0 基），决定这句由谁说，多句交替即成队内对话。
+不加则自动走 `_default` 兜底，不会静默。
+
+### 加一个全新触发场景
+
+1. JSON `triggers` 加一项（`class` / `weight` / `cooldown_sec` / `chance` / `lines`）
+2. 在事件点调 `RadioChatter.say("<trigger_id>", speaker, color)`
+   - 拿得到单位就用 `say_unit("<id>", unit)`，呼号与阵营色自动解析
+   - 生存模式内经 `_radio`；其它模块经 `mode.get("_radio")` 并判空
+
+**必读约束**：
+
+- **`class` 决定要不要受节流**：`scripted` = 剧情关键节点，豁免全局冷却/自身冷却/概率骰，
+  必定播出；`ambient` = 普通语音，受三层限制。**不写默认按 `ambient`**（保守，不会意外强插）。
+- **绝不打断**是硬契约：`weight` 只管排队顺序与满队淘汰，永远不截断正在播的那条。
+- **说话人资格**：无人机永不说话（`no_pilot` 硬规则）；机型还要在 `voiced_enemy_types.types`
+  白名单里（opt-in，未列 = 沉默）。加新敌人时见 enemy-index 13 步清单第 10 步。
+- **文本一律走 `tr()`**，不许把中文字面量写进 JSON 或代码。
+- 改完跑 `--bench=chatter` + `--bench=all` 不回归。
+
 
 ## 通用约束（**所有改动都要看的**）
 

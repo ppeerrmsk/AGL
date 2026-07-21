@@ -218,14 +218,14 @@ BOSS 只识别 JAM，其它状态仅对 Aircraft 生效"。但 NavalUnit 实现�
 三处：`max_climb` / `gain` / `smooth_rate`。其中 `max_climb` 被放大到 500+ m/s 后，PE↔KE
 公式 `gravity_effect = GRAVITY · vs / spd · PE_KE_BOOST(2.5)` 反向抽 spd，每秒 ≈ 110 m/s
 速度损失，加力推力（≈ 17 m/s²）完全顶不住。
-[scripts/aircraft/aircraft_physics.gd:267 update_altitude](../../scripts/aircraft/aircraft_physics.gd:267)
-× [scripts/aircraft/aircraft_physics.gd:255 PE↔KE](../../scripts/aircraft/aircraft_physics.gd:255)
+[scripts/aircraft/aircraft_physics.gd:325 update_altitude](../../scripts/aircraft/aircraft_physics.gd:315)
+× [scripts/aircraft/aircraft_physics.gd:317 gravity_effect](../../scripts/aircraft/aircraft_physics.gd:307)
 两段都涉及 vs，缺一个出血点。
 
 **踩到次数**：2（这次 + 用户记忆中至少一次同样症状）
 
-**解法**（2026-05-12）：在 [aircraft_physics.gd:273](../../scripts/aircraft/aircraft_physics.gd:273)
-和 [aircraft_physics.gd:1207 step_altitude](../../scripts/aircraft/aircraft_physics.gd:1207)
+**解法**（2026-05-12）：在 [aircraft_physics.gd:322](../../scripts/aircraft/aircraft_physics.gd:322)
+和 [aircraft_physics.gd:1332 step_altitude](../../scripts/aircraft/aircraft_physics.gd:1318)
 两处把 `max_climb` 改为 `base_climb * minf(alt_mult, 1.3)`。`gain` / `smooth_rate` 仍由
 `alt_mult` 全幅放大（响应度保留），物理顶速最多 +30%（PE↔KE 损耗回到可承受档）。
 
@@ -453,6 +453,120 @@ instant G 时忘改预测侧）；②`step_speed` 只守卫 Cobra 不守卫 Herb
 改完跑 `--bench=all`。
 
 ---
+
+## SEAM-018 · "锁定进度"同时驱动发射门与转弯权限，两者阈值不一致会自锁
+
+**耦合点**：`Aircraft._get_missile_phase()` 用 `radar_targets[target] >= lock_time` 判"已锁定"→
+返回 phase 2 → `AircraftPhysics.compute_target_bank` 把坡度上限压到 **35%**（为 crank 保稳设计）。
+但**能不能发射**由另一套判据决定：`AircraftWeapons._has_stable_launch_window` 要求离轴
+≤ `radar_half × 0.55`（F-14 = 19.25°）。
+
+**为什么绊倒 fix**：两个阈值分属不同模块、语义看起来无关，但共享同一个前提——
+"锁定完成 ⇒ 机头已经在目标上"。该前提在慢速/横切目标上不成立。一旦锁定满而机头仍在
+19.25° 门外，就形成闭环：**锁上了 → 坡度被压到 35% → 转不进发射锥 → 打不出去 →
+机头继续飘 → 出锥丢锁 → 重来**。表现为玩家侧的"锁定上了却不发射导弹"，
+但改发射门那一侧永远修不好，因为病根在转弯权限那一侧。
+
+**实证**：`--bench=slow_air_pass` C 段——满锁 3.30s/3.00s 时 nose 27°，坡度仅 27.6°/1.1G
+（可用 7.5G），随后离轴 27°→31°→43° 越飘越远，45s 一枪未发。
+
+**现状（2026-07-20 已修）**：`_get_missile_phase` 增加 `_target_within_launch_cone()` 门——
+锁定满但仍在发射锥外时返回 0（满转弯权限），语义 = "还在对准段"；
+`is_cranking()`（发射后支援照射）不受影响，维持柔坡。
+
+**约束**：今后若再引入"按锁定/交战阶段调机动权限"的旋钮，**必须与发射门同源判据**，
+或显式验证"权限降低时飞机已经能开火"。否则同一类自锁会换个形式复现。
+
+**踩到次数**：1（表现为长期"AI 打直升机锁上了不发射"，spec slow-air-target-pass §0 第 4 层）
+
+## SEAM-019 · "谁是玩家机" 有 9 个缓存持有者，chokepoint 曾只覆盖 5 个
+
+**耦合点**：`survivor_mode._ready()` 里至少 9 个子系统在 setup 时**缓存**了初始
+`player_aircraft` 引用：`_spawner.player_aircraft` / `zone_manager.player_ref` /
+`_map_boundary.player` / `_tactical_map._player` / `_zone_arrow._player` /
+`_zone_mission._player` / `_adbs._player` / `_event_director.player`，外加
+`AircraftRenderer.player_ref` / `survivor_player.aircraft` / `_camera_ctrl` 跟随目标。
+
+`_set_player_aircraft()` 自称"操控真源单一 chokepoint"，但只重定向了后面那 3 个 + 自身 +
+`selected_aircraft`。前面 8 个 setup-time 缓存**全部漏掉**。
+
+**为什么绊倒 fix**：漏掉的引用在切控（1-4 切槽）/ 换帅（长机被击落自动接管）/ 进化换机
+之后仍指向旧机。旧机后续被击落 → `queue_free()` → 持有者拿到的是**已释放实例**。
+GDScript 读已 free 对象的字段常常"看起来能跑"（返回 null / 假值），所以问题会潜伏很久，
+直到某处把它**当强类型参数传出去**才炸。
+
+**实证（2026-07-20 玩家闪退）**：
+`Invalid type in function 'spawn' in base 'RefCounted (CarrierStrikeGroup)'.
+The Object-derived class of argument 4 (previously freed) is not a subclass of the expected argument class.`
+—— arg 4 = `player: Aircraft`，来自 `survivor_spawner._spawn_boss` 传的
+`player_aircraft`。切控后旧机阵亡，spawner 缓存变野指针，下一个 BOSS 生成即硬崩。
+
+**现状（2026-07-20 已修 + 已上抗体）**：
+1. `_set_player_aircraft` 补齐全部 8 个缓存持有者的重定向；
+2. `_spawn_boss` 加 `is_instance_valid` 防御守卫（宁可跳过生成也不硬崩）；
+3. 新增 `tools/verify_player_ref_holders.py` —— 静态扫 `survivor_mode.gd`，
+   把"把 `player_aircraft` 交出去的接收方"与 chokepoint 函数体比对，漏登记即退出码 1。
+   已挂进 CLAUDE.md 的 commit 前流程。
+
+**校验器顺手抓到的第二个洞**：`AudioManager._engine_host` 同样是 setup-time 缓存且未重定向。
+它有 `is_instance_valid` 守卫所以不崩，但切控后引擎声会**静默消失**——
+典型的"缓存腐烂不一定表现为崩溃"，也说明人工 review 靠不住、必须上自动化。
+
+**约束**：今后任何在 `_ready` 里 `setup(..., player_aircraft, ...)` 的新子系统，**必须**同步
+在 `_set_player_aircraft` 里加一行重定向（校验器会拦）。理想解是改成子系统按需回读
+`mode.player_aircraft`（像 `zone_manager._process` 已有的自愈逻辑），
+彻底消灭缓存 → 排进 Phase 4 refactor；在那之前校验器是防线。
+
+**校验器的已知边界**（别误以为它覆盖了全部）：
+- 只扫 `survivor_mode.gd`。若将来别的文件也分发 `player_aircraft`，需扩 `SOURCE`。
+- 局部/循环变量（`ac` / `ai` / `leader_ai`）会被识别但不判定——它们生命周期在函数内，
+  chokepoint 无从登记。**若某个局部变量把引用存进了长寿对象，脚本抓不到**。
+  已人工确认现存 3 处安全：`ac.set_formation_target(player_aircraft, ...)` 会被
+  `ai_controller` 每 tick 从 `squad.leader` 重设覆盖，属自愈。
+- 判定的是"有没有登记"，不是"登记得对不对"——写错字段名它看不出来。
+
+**踩到次数**：1
+
+## SEAM-020 · 已释放引用传进"带类型的 Object 形参"即硬崩，守卫写在函数体里是无效的
+
+**耦合点**：Godot 对实参做**类型检查发生在进入函数之前**。把一个已 `queue_free()` 的对象
+传进 `func take_damage(amount, attacker: Node, ...)` 这类形参，引擎直接报：
+
+    Invalid type in function 'take_damage' in base 'Node2D (Aircraft)'.
+    The Object-derived class of argument 2 (previously freed) is not a subclass of ...
+
+**为什么绊倒 fix**：直觉是"在 `take_damage` 里加 `if is_instance_valid(attacker)`"——
+**完全无效**，函数体根本没机会执行。必须在**调用点**净化。
+
+第二个陷阱是**守卫矩阵不对称**（同 SEAM-015）：这些调用点大多**已经**写了
+`is_instance_valid`，但只护住了紧邻的 `set_meta(...)` 归因行，**漏掉了下一行的
+`take_damage(..., source, ...)`**。看起来"已经防过了"，实际防的是不会崩的那半边
+（`set_meta` 收 Variant，不做类型检查，存野指针也不报错）。
+
+**根因场景**：弹丸/AOE 的生命周期**长于发射者**。
+子弹与导弹在飞行途中射手被击落、AOE 区域在导弹爆炸后还要存活 `AOE_DURATION` 秒——
+BOSS 混战里这是常态而非边缘情况。`_pending_attacker` meta 同理：它一直留到
+`_record_kill_attribution` 才清，期间攻击者随时可能阵亡。
+
+**实证（2026-07-20 玩家 BOSS 战闪退）**：CSG + Poltergeist 中队混战，多艘舰船已沉。
+
+**现状（2026-07-20 已修）**：新增 `CombatUnit.safe_attacker()` / `safe_unit()` 静态净化入口
+（名字可 grep，注释写明"为什么不能在函数体里判"），并修掉 8 个裸传点：
+`missile_manager` 直接命中 + AOE 区域、`bullet_manager` 火箭 AOE / 火箭直击 / 机炮 ×2、
+`aircraft` 的 `dispatch_on_hit`、`laser_equipment`、`mother_goose_controller`、
+`ai_controller._apply_position_error`。
+
+**约束**：新增任何"武器命中 → 结算"路径时，凡是把**跨帧存下来的**单位引用
+（弹丸字典的 `source`、`missile.source`、meta 里的 `_pending_attacker`、AI 的 `_current_target`）
+传给带 Object 类型形参的函数，一律经 `CombatUnit.safe_attacker()` / `safe_unit()`。
+归因丢失（attacker=null）只是"这次不记凶手"，远好过整局闪退。
+
+**排查手段**：见本条 commit 里的一次性扫描脚本思路——
+收集全仓 `func` 的 Object 类型形参 → 找出用长寿引用调用它们且同行无 `is_instance_valid` 的点。
+**没有做成常驻校验器**：静态判断"这个引用是否可能已释放"需要跨帧生命周期分析，
+误报率会高到没人看。这条靠的是 code review 时的模式识别，不是自动化。
+
+**踩到次数**：1
 
 ## 维护约定
 

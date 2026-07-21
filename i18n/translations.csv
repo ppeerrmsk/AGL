@@ -1,4 +1,4 @@
-keys,zh,en,ja
+﻿keys,zh,en,ja
 MENU_TITLE,A G L,A G L,A G L
 MENU_SUBTITLE,AIR  GROUND  LINK  //  俯视战斗机模拟,AIR  GROUND  LINK  //  Top-Down Fighter Sim,AIR  GROUND  LINK  //  トップダウン戦闘機シム
 MENU_MODE_LABEL,[ 选择模式 ],[ Select Mode ],[ モード選択 ]
@@ -28,7 +28,10 @@ TACTIC_MISSILE_PRIORITY,1 导弹优先,1 Missile Priority,1 ミサイル優先
 TACTIC_GUN_PRIORITY,2 机炮优先,2 Gun Priority,2 ガン優先
 TACTIC_CLIMB_PRIORITY,3 爬升优先,3 Climb High,3 高高度優先
 TACTIC_LOW_ALT,4 低空优先,4 Fly Low,4 低空優先
-TACTIC_EVADE_FMT,E 规避: %s,E Evade: %s,E 回避: %s
+TACTIC_EVADE_FMT,E 加力: %s,E Afterburner: %s,E アフターバーナー: %s
+AB_STATE_READY,就绪,READY,準備完了
+AB_STATE_CHARGING_FMT,充能 %d%%,CHG %d%%,充填 %d%%
+AB_STATE_ACTIVE_FMT,%.1fs,%.1fs,%.1fs
 TACTIC_AUTOFIRE_FMT,F 自动发射: %s,F Auto-Fire: %s,F 自動発射: %s
 TACTIC_AUTO_ENGAGE_FMT,自动交战: %s,Auto-Engage: %s,自動交戦: %s
 UPGRADE_HEADER,[ 选择升级 ],[ Select Upgrade ],[ アップグレード選択 ]
@@ -61,8 +64,28 @@ SETTLEMENT_NO_UPGRADE,暂无可用强化,No upgrades available,強化なし
 SETTLEMENT_PICKED_FMT,✓ %s,✓ %s,✓ %s
 EVOLUTION_TREE_CURRENT,当前,Current,現在
 EVOLUTION_TREE_UNKNOWN,？？？,???,？？？
-EVOLUTION_TREE_HINT,点击亮色机体查看详情并进化；灰色 = 等级未到,Click a lit airframe to inspect & evolve; gray = level locked,明るい機体をクリックで詳細·進化；灰色 = レベル不足
+EVOLUTION_TREE_HINT,点击任意已知机体查看详情与需求；亮色 = 现在可进化,Click any known airframe for details & requirements; lit = evolvable now,既知の機体をクリックで詳細と条件；明色 = 今すぐ進化可能
 EVOLUTION_CONFIRM,进化到该机体,Evolve to this airframe,この機体に進化
+SETTLEMENT_DETAIL_HEADER,机体详情,Airframe details,機体詳細
+EVOLUTION_DETAIL_CURRENT,当前机体,Current,現行機
+EVOLUTION_DETAIL_TARGET,可进化,Evolvable,進化可能
+EVOLUTION_DETAIL_LOCKED,未解锁,Locked,未解放
+EVOLUTION_DETAIL_WEAPONS,武器,Armament,武装
+EVOLUTION_DETAIL_PERKS,机体特性,Airframe traits,機体特性
+EVOLUTION_DETAIL_PERKS_VS,机体特性（对比当前机）,Airframe traits (vs current),機体特性（現行機比）
+EVOLUTION_DETAIL_SAME,与当前机体持平,Identical to current airframe,現行機と同等
+EVOLUTION_DETAIL_REQ,进化需求,Requirements,進化条件
+EVOLUTION_REQ_LEVEL,等级,Level,レベル
+EVOLUTION_REQ_ALL_MET,需求已满足,All requirements met,条件を満たしています
+EVOLUTION_GATE_ANY_FMT,%s 任一,%s (any),%s いずれか
+EVO_STAT_HP,结构强度,Airframe HP,構造強度
+EVO_STAT_SPEED,最大速度,Top speed,最大速度
+EVO_STAT_ACCEL,加速,Acceleration,加速
+EVO_STAT_G,持续过载,Sustained G,持続G
+EVO_STAT_ROLL,滚转速率,Roll rate,ロール率
+EVO_STAT_RADAR,雷达范围,Radar range,レーダー範囲
+EVO_STAT_LOCK,锁定时间,Lock time,ロック時間
+EVO_STAT_MISSILE,导弹挂载,Missile load,ミサイル搭載
 LEVEL_UP_TOAST_FMT,LV %d — 进化解锁进度已累计,LV %d — evolution unlock progress,LV %d — 進化解放が進行
 EVOLUTION_SUBTITLE_FMT,王牌 %s — 选择进化路线（僚机将跟随）,Ace %s — choose an evolution (wingmen follow),エース %s — 進化先を選択（僚機は追従）
 EVOLUTION_SKIP,暂不进化,Not now,今回は見送る
@@ -120,12 +143,12 @@ TOOLTIP_ALT_CLIMB_HINT,按 [color=#ffdd66]3[/color] 切换到低空优先,Press 
 TOOLTIP_ALT_LOW_TITLE,低空优先,Fly Low,低空優先
 TOOLTIP_ALT_LOW_BODY,巡航时自动降至低空\n[color=#66ff66]更难被远距雷达锁定[/color]\n[color=#ff9966]空气稠密阻力大，顶速较低[/color]\n[color=#66ff66]但从高空俯冲过来可短暂保留速度优势[/color]\n自身锁定距离也较短,Auto-descends to low altitude while cruising\n[color=#66ff66]Harder for long-range radar to lock[/color]\n[color=#ff9966]Dense air = more drag — lower top speed[/color]\n[color=#66ff66]Diving from high altitude briefly preserves speed[/color]\nYour own lock-on range is shorter too,巡航時に自動で低空へ降下\n[color=#66ff66]長距離レーダーに捕捉されにくい[/color]\n[color=#ff9966]空気が濃く抵抗が大きい — 最高速度が低下[/color]\n[color=#66ff66]高高度から降下時は速度を一時的に維持可能[/color]\n自機のロック距離も短くなる
 TOOLTIP_ALT_LOW_HINT,按 [color=#ffdd66]3[/color] 切换到爬升优先,Press [color=#ffdd66]3[/color] to switch to Climb High,[color=#ffdd66]3[/color] で高高度優先へ
-TOOLTIP_EVADE_ON_TITLE,规避模式: 开,Evasion: ON,回避モード: ON
-TOOLTIP_EVADE_ON_BODY,检测到来袭导弹时自动规避\n垂直于导弹轨迹急转+变换高度\n无导弹威胁时做S型机动\n点击目标或地面会自动关闭规避,Auto-evades incoming missiles\nPerpendicular break + altitude change\nS-curve when no missile threat\nClicking a target or ground disables evasion,来襲ミサイル検知で自動回避\nミサイル軌道に垂直急旋回＋高度変更\n脅威なし時はS字機動\nターゲットや地面クリックで回避解除
-TOOLTIP_EVADE_ON_HINT,按 [color=#ffdd66]E[/color] 关闭规避,Press [color=#ffdd66]E[/color] to disable evasion,[color=#ffdd66]E[/color] で回避を無効化
-TOOLTIP_EVADE_OFF_TITLE,规避模式: 关,Evasion: OFF,回避モード: OFF
-TOOLTIP_EVADE_OFF_BODY,飞机不会主动进行规避机动\n完全听从玩家的移动指令,Aircraft will not evade automatically\nFollows player movement commands only,機体は自動回避しません\nプレイヤーの移動指示に完全追従
-TOOLTIP_EVADE_OFF_HINT,按 [color=#ffdd66]E[/color] 开启规避,Press [color=#ffdd66]E[/color] to enable evasion,[color=#ffdd66]E[/color] で回避を有効化
+TOOLTIP_EVADE_ON_TITLE,加力模式: 激活中,Afterburner: ACTIVE,アフターバーナー: 作動中
+TOOLTIP_EVADE_ON_BODY,全队极速冲刺 6 秒\n[color=#66ff66]机炮完全打不中·滚转甩掉导弹[/color]\n[color=#ff9966]期间无法攻击（鱼雷/无人机照常投放）[/color]\n检测到来袭导弹时自动规避机动,Full-squad max-speed sprint for 6s\n[color=#66ff66]Immune to guns · rolls off missiles[/color]\n[color=#ff9966]Cannot attack (torpedo/drone still deploy)[/color]\nAuto-evades incoming missiles,全隊6秒間フルスピード\n[color=#66ff66]機関砲完全回避・ロールでミサイル振り切り[/color]\n[color=#ff9966]攻撃不可（魚雷/ドローンは投下可）[/color]\n来襲ミサイルは自動回避
+TOOLTIP_EVADE_ON_HINT,6 秒后自动结束,Ends automatically after 6s,6秒後に自動終了
+TOOLTIP_EVADE_OFF_TITLE,加力模式,Afterburner,アフターバーナー
+TOOLTIP_EVADE_OFF_BODY,充能满后按 E 激活：全队 6 秒极速冲刺\n[color=#66ff66]机炮完全打不中·滚转甩掉导弹[/color]\n[color=#ff9966]期间无法攻击[/color]\n随时间充能（约 30 秒）·小队击杀 +4 秒,Press E when charged: full-squad 6s max-speed sprint\n[color=#66ff66]Immune to guns · rolls off missiles[/color]\n[color=#ff9966]Cannot attack during it[/color]\nCharges over ~30s · squad kills +4s each,充填完了後Eで発動：全隊6秒フルスピード\n[color=#66ff66]機関砲完全回避・ロールでミサイル振り切り[/color]\n[color=#ff9966]発動中は攻撃不可[/color]\n約30秒で充填・キル毎+4秒
+TOOLTIP_EVADE_OFF_HINT,按 [color=#ffdd66]E[/color] 激活（需满充能）,Press [color=#ffdd66]E[/color] to activate (full charge required),[color=#ffdd66]E[/color] で発動（要フル充填）
 TOOLTIP_AUTOFIRE_ON_TITLE,自动发射: 开,Auto-Fire: ON,自動発射: ON
 TOOLTIP_AUTOFIRE_ON_BODY,飞机自动选择最佳角度发射导弹\n锁定任意敌机即自动开火\n[color=#66ccff]多目标追踪升级下一次发多枚[/color]\n无需玩家手动点击目标,Aircraft picks best firing angle automatically\nFires on any locked target\n[color=#66ccff]Multi-lock upgrade fires multiple at once[/color]\nNo manual targeting needed,最適角度で自動ミサイル発射\nロックした敵機へ即射撃\n[color=#66ccff]マルチロック時は複数同時発射[/color]\n手動ターゲット不要
 TOOLTIP_AUTOFIRE_ON_HINT,按 [color=#ffdd66]F[/color] 关闭自动发射,Press [color=#ffdd66]F[/color] to disable auto-fire,[color=#ffdd66]F[/color] で自動発射を無効化
@@ -406,10 +429,10 @@ RARITY_ADVANCED,先进,Advanced,先進
 RARITY_EXPERIMENTAL,实验,Experimental,実験
 RARITY_CLASSIFIED,机密,Classified,機密
 RARITY_NEXT_GEN,跨代,Next-Gen,次世代
-UPGRADE_EVASION_SPEED_BOOST_NAME,规避加力,Evasion Boost,回避ブースト
-UPGRADE_EVASION_SPEED_BOOST_DESC,规避模式巡航速度 +40%,Evasion mode cruise speed +40%,回避モード巡航速度+40%
-UPGRADE_EVASION_WEAPON_CD_NAME,规避狂暴,Evasion Frenzy,回避フレンジー
-UPGRADE_EVASION_WEAPON_CD_DESC,规避模式所有武器 cd ×0.5,All weapon cooldowns ×0.5 in evasion,回避モード武器CD×0.5
+UPGRADE_EVASION_SPEED_BOOST_NAME,超频加力,Overdrive Burner,オーバードライブAB
+UPGRADE_EVASION_SPEED_BOOST_DESC,加力模式顶速 +40%,Afterburner mode top speed +40%,ABモード最高速+40%
+UPGRADE_EVASION_WEAPON_CD_NAME,蓄势狂暴,Primed Frenzy,チャージフレンジー
+UPGRADE_EVASION_WEAPON_CD_DESC,加力模式中武器冷却流逝 ×2（出加力即就绪）,Weapon cooldowns tick 2× during Afterburner,ABモード中武器CD進行2倍
 UPGRADE_SKILL_KILL_STATUS_HEAL_NAME,虐弱,Prey on Weakness,弱者狩り
 UPGRADE_SKILL_KILL_STATUS_HEAL_DESC,击杀有异常状态的敌人后回 30 HP,Killing afflicted enemies restores 30 HP,異常敵を撃墜で30HP回復
 UPGRADE_SKILL_FLARE_AOE_JAM_NAME,扰乱投弹,Flare Static,フレア妨害
@@ -441,11 +464,11 @@ UPGRADE_CLOUD_OVERLOAD_DESC,在云中获得超载状态,Overload while in clouds
 UPGRADE_CLOUD_WEAPON_CD_NAME,云隙快攻,Cloud Cover Tempo,雲中速攻
 UPGRADE_CLOUD_WEAPON_CD_DESC,云中所有武器 cd ×0.5,All weapon cooldowns ×0.5 in clouds,雲中武器CD×0.5
 UPGRADE_EVASION_STEALTH_NAME,雾隐机动,Phantom Veil,霧隠機動
-UPGRADE_EVASION_STEALTH_DESC,规避模式中获得隐身效果,Stealth while in evasion mode,回避モード中ステルス
+UPGRADE_EVASION_STEALTH_DESC,加力模式中获得隐身效果,Stealth while in Afterburner mode,ABモード中ステルス
 UPGRADE_EVASION_HERBST_NAME,危机赫尔贝特,Crisis J-Turn,危機Jターン
-UPGRADE_EVASION_HERBST_DESC,规避模式下来袭导弹/后方机炮追尾时自动启动赫尔贝特轮（J-Turn）,Evasion mode auto-triggers J-Turn vs incoming missile / rear gun chase,回避モードで来襲ミサイル/後方追尾時にJターン自動発動
+UPGRADE_EVASION_HERBST_DESC,加力模式下来袭导弹/后方机炮追尾时自动启动赫尔贝特轮（J-Turn）,Afterburner mode auto-triggers J-Turn vs incoming missile / rear gun chase,ABモードで来襲ミサイル/後方追尾時にJターン自動発動
 UPGRADE_EVASION_OVERSTOCK_NAME,弹仓过载,Overstock Bay,弾倉オーバーロード
-UPGRADE_EVASION_OVERSTOCK_DESC,规避模式中每 4s 装填 1 发导弹（突破上限至 2 倍）,Evasion mode reloads +1 missile per 4s up to 2× cap,回避モード4秒毎ミサイル+1（上限2倍）
+UPGRADE_EVASION_OVERSTOCK_DESC,加力模式中每 4s 装填 1 发导弹（突破上限至 2 倍）,Afterburner mode reloads +1 missile per 4s up to 2× cap,ABモード4秒毎ミサイル+1（上限2倍）
 UPGRADE_OVERLOAD_DURATION_4X_NAME,过载共振,Surge Resonance,オーバーロード共鳴
 UPGRADE_OVERLOAD_DURATION_4X_DESC,超载持续时间 ×2,Overload duration ×2,オーバーロード持続×2
 UPGRADE_MISSILE_CD_STEALTH_NAME,弹后潜匿,Silent Reload,弾後潜匿
@@ -732,14 +755,15 @@ RADIO_ATTRITION_T2_3,那家伙一个人就撕开了我们的阵线。,One aircra
 RADIO_ATTRITION_T3_1,防线崩溃了！我们撑不住了！,The line has collapsed! We can't hold!,戦線が崩壊した！保たない！
 RADIO_ATTRITION_T3_2,请求撤退许可，重复，请求撤退许可！,Requesting permission to withdraw! Repeat — permission to withdraw!,撤退許可を要請！繰り返す、撤退許可を要請！
 RADIO_ATTRITION_T3_3,别管编队了……各自逃命吧。,Forget the formation... every man for himself.,編隊は忘れろ……各自生き延びろ。
-RADIO_BOSS_WRAITH_SPAWN_1,所有单位注意，猎物已进入我方空域。,All units — the prey has entered our airspace.,全機に告ぐ、獲物が我々の空域に入った。
-RADIO_BOSS_WRAITH_SPAWN_2,雷达上什么都没有……长机，我们是隐形的。,Nothing on their scopes... Lead — we're ghosts.,レーダーには何も映らない……隊長、我々は幽霊だ。
-RADIO_BOSS_WRAITH_SPAWN_3,享受最后这几分钟吧。幽灵中队，交战自由。,Enjoy your last few minutes. Wraith Squadron — weapons free.,最後の数分を楽しめ。レイス中隊、攻撃自由。
+RADIO_BOSS_WRAITH_SPAWN_1,目标发现，准备交战,Target sighted. Prepare to engage.,目標発見。交戦準備。
+RADIO_BOSS_WRAITH_SPAWN_2,收到,Roger.,了解。
+RADIO_BOSS_WRAITH_SPAWN_3,让我们来找点乐子吧,Let's have some fun.,楽しませてもらおうか。
 RADIO_BOSS_WRAITH_ENGAGE_1,你找到我们了。可惜，太迟了。,So you found us. Unfortunately for you — too late.,見つけたか。だが残念、遅すぎた。
 RADIO_BOSS_CSG_SPAWN_1,舰队防空进入战斗状态，目标单机来袭。,Fleet air defense to battle stations. Single bogey inbound.,艦隊防空、戦闘配置。単機接近中。
 RADIO_BOSS_CSG_SPAWN_2,一架飞机？他们就派了一架飞机？,One aircraft? They sent one aircraft?,一機だと？たった一機を寄越したのか？
 RADIO_BOSS_CSG_SPAWN_3,那就让他看看什么叫钢铁之墙。全炮开火。,Then show him what a wall of steel looks like. All batteries — open fire.,では鋼鉄の壁を見せてやれ。全砲門、撃ち方始め。
 RADIO_BOSS_CSG_ENGAGE_1,他进入火力网了。锁定，开火。,He's inside the envelope. Lock him up and fire.,火網に入った。ロックオン、撃て。
+RADIO_BOSS_CSG_PHASE2_1,优先把他们弹射出去！只要他们升空就是我们的胜利！,"Get them airborne — priority one! If they launch, we've won!",最優先で射出しろ！奴らが上がればこちらの勝ちだ！
 RADIO_BOSS_GOOSE_SPAWN_1,母鹅呼叫，全巢出动。,Mother Goose calling — the whole nest is airborne.,マザーグース発、巣の全機が発進。
 RADIO_BOSS_GOOSE_SPAWN_2,孩子们，去把那个闯进来的东西撕碎。,Children — go tear that intruder apart.,子供たち、あの侵入者を引き裂いてこい。
 RADIO_BOSS_GOOSE_ENGAGE_1,你飞得不错。可惜我的孩子比你多。,You fly well. Unfortunately I have more children than you have missiles.,いい飛び方だ。だが私の子はお前の弾より多い。

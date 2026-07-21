@@ -116,6 +116,7 @@ func begin_press(screen_pos: Vector2, world_pos: Vector2, target: CombatUnit) ->
 	_press_target = target
 	_context = Context.ATTACK if target != null else Context.SQUAD
 	_press_at_s = Time.get_ticks_msec() / 1000.0
+	_canvas.visible = true   # PRESS_PENDING 期间绘制蓄力指示圈（有 charge_visual_delay 静默期）
 	set_process(true)
 
 
@@ -179,6 +180,8 @@ func _process(_delta: float) -> void:
 			var dragged := mouse.distance_to(_press_screen) >= params.drag_threshold_px
 			if held >= params.hold_threshold_s or dragged:
 				_activate()
+			else:
+				_canvas.queue_redraw()   # 蓄力指示圈动画（仅按住期间，快速单击几乎不可见）
 		State.ACTIVE:
 			_update_hover(mouse)
 			_canvas.queue_redraw()  # 指针连线/高亮/范围圈跟随指针，仅激活期间有此成本
@@ -198,7 +201,9 @@ func _activate() -> void:
 	_state = State.ACTIVE
 	_hover_slot = ""
 	_hover_option = ""
-	Engine.time_scale = params.time_scale_in_wheel
+	# 走时间栈而非直写 Engine.time_scale —— 与升级急刹叠加时按"最小值获胜"仲裁，
+	# 谁先释放都不会把对方的缩放一起撤掉（spec ui-transition §2.2）
+	Presentation.time.request(&"wheel", params.time_scale_in_wheel, 0.0)
 	_time_scale_applied = true
 	_canvas.visible = true
 	_canvas.queue_redraw()
@@ -209,7 +214,7 @@ func _reset() -> void:
 	_hover_slot = ""
 	_hover_option = ""
 	if _time_scale_applied:
-		Engine.time_scale = 1.0
+		Presentation.time.release(&"wheel", 0.0)
 		_time_scale_applied = false
 	if _canvas:
 		_canvas.visible = false
@@ -217,10 +222,16 @@ func _reset() -> void:
 
 
 func _exit_tree() -> void:
-	# 场景切换保险：绝不把 0.3x 时间流速带出本场景
+	# 场景切换保险：绝不把 0.3x 时间流速带出本场景。
+	# 必须走时间栈释放而非直写 —— 直写会让栈里仍记着 wheel 的请求，
+	# 下一次任何 request/release 重算时 0.3x 会被"复活"
 	if _time_scale_applied:
-		Engine.time_scale = 1.0
 		_time_scale_applied = false
+		var pres = Engine.get_main_loop().root.get_node_or_null("Presentation")
+		if pres and pres.time:
+			pres.time.release(&"wheel", 0.0)
+		else:
+			Engine.time_scale = 1.0
 
 
 func _active_slots() -> Array[Dictionary]:
@@ -382,6 +393,9 @@ func _tip_key() -> String:
 # ══════════════════════════════════════════════
 
 func _draw_wheel(c: Control) -> void:
+	if _state == State.PRESS_PENDING:
+		_draw_charge_ring(c)
+		return
 	if _state != State.ACTIVE:
 		return
 	var center := _press_screen
@@ -456,6 +470,36 @@ func _draw_target_highlight(c: Control) -> void:
 	for i in 4:
 		var a0 := spin + float(i) * TAU * 0.25
 		c.draw_arc(sp, r + 7.0, a0, a0 + 0.55, 10, Color(COL_TGT_HILIT, 0.9), 2.5)
+
+
+## 呼出蓄力指示圈（用户需求 2026-07-20）：按住时"转一个小圈"表示正在进入菜单，转满才呼出。
+## 视觉仿机场停靠引导灯：外圈 12 枚引导灯按蓄力进度顺时针依次点亮 + 进度弧 +
+## 一段追逐扫描弧（导引灯流动感）；接近转满（>80%）整体切到高亮色预告"即将进入"。
+## charge_visual_delay 静默期内不画——普通快速单击零 UI 噪音。
+func _draw_charge_ring(c: Control) -> void:
+	var held := Time.get_ticks_msec() / 1000.0 - _press_at_s
+	var delay := params.charge_visual_delay_s if "charge_visual_delay_s" in params else 0.08
+	if held < delay:
+		return
+	var t := clampf((held - delay) / maxf(params.hold_threshold_s - delay, 0.01), 0.0, 1.0)
+	var center := _press_screen
+	var near_done := t > 0.8
+	var main_col := COL_HILIT if near_done else COL_DEAD
+	# 12 枚停靠引导灯：进度点亮（12 点方向起顺时针）
+	var lit := int(floor(t * 12.0 + 0.001))
+	for i in 12:
+		var a := -PI * 0.5 + TAU * float(i) / 12.0
+		var dir := Vector2(cos(a), sin(a))
+		var col := main_col if i < lit else Color(COL_DEAD, 0.18)
+		c.draw_line(center + dir * 16.0, center + dir * 24.0, col, 2.0)
+	# 进度弧（外环，12 点方向起顺时针扫满）
+	if t > 0.02:
+		c.draw_arc(center, 29.0, -PI * 0.5, -PI * 0.5 + TAU * t, 40, main_col, 2.0)
+	# 追逐扫描弧：绕圈流动的导引光带
+	var spin := held * 5.0
+	c.draw_arc(center, 29.0, spin, spin + 0.8, 10, Color(COL_POINTER, 0.45), 1.5)
+	# 中心锚点
+	c.draw_circle(center, 2.5, main_col)
 
 
 func _draw_slot(c: Control, font: Font, pos: Vector2, s: Dictionary, hovered: bool) -> void:

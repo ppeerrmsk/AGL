@@ -277,8 +277,21 @@ func _enter_phase2() -> void:
 	_poltergeist.engage()
 	# 切 Phase 2 BGM：层叠模式下只压音量，两轨继续同步播放 —— 无缝衔接
 	AudioManager.set_music_layer(1, 2.5)
+	# 转阶段无线电：航母沉没瞬间的最后命令（boss_sequences 的 phase2，走 scripted 豁免节流）
+	_say_phase2_radio()
 	EventLogger.log_event("BOSS", display_name,
 			"Phase 2: CV sunk, F-14 catapult launch begins at %s heading=%.0f°" % [_cv_death_position, rad_to_deg(_cv_death_heading)])
+
+## Phase 2 转阶段台词：航母沉没瞬间下达的最后命令。
+## 说话人仍是 CSG-01（舰队指挥）——此刻 Poltergeist 尚未升空，还轮不到 PLTGST 呼号。
+## trigger 落到 boss_engage（scripted），豁免全部节流且不被队列淘汰，保证必定播出。
+func _say_phase2_radio() -> void:
+	if _mode == null or not is_instance_valid(_mode):
+		return
+	var radio = _mode.get("_radio")
+	if radio == null or not is_instance_valid(radio):
+		return
+	radio.say_boss_sequence("CARRIER_STRIKE_GROUP", "phase2", callsign_prefix)
 
 ## 把战术小地图的 boss_zone 中心移到 F-14 群质心（已揭幕的成员位置平均）。
 ## 没有揭幕成员时退回 _cv_death_position（FROZEN 期 / 弹射中）。

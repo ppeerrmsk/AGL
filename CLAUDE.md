@@ -12,7 +12,7 @@
 
 两个模式：
 - **沙盒**（`scenes/main.tscn`，**已废弃**，只打生存模式包）— 自由飞行/战斗测试，F1-F5 快捷键
-- **生存模式**（`scenes/survivor_mode.tscn`）— 无尽波次，击杀升级，20+ 种升级含进化技能
+- **生存模式**（`scenes/survivor_mode.tscn`）— 战区推进 → BOSS 战 → **击败 BOSS 即过关**（`BossEncounterEvent` VICTORY 相 → `survivor_mode._on_victory` 结算 + 功勋入账）。击杀升级，20+ 种升级含进化技能。**不是无尽波次**
 
 ## Running the Game
 
@@ -48,8 +48,8 @@ Resource:   AircraftParams / GunParams / RocketParams / MissileParams / CombatPa
 
 ## 关键常量与坐标系
 
-- `PIXELS_PER_METER = 0.5`（`combat_unit.gd:9`，1 像素 = 2 米）
-- `GRAVITY = 9.81`（`combat_unit.gd:8`）
+- `PIXELS_PER_METER = 0.5`（`combat_unit.gd:8` PIXELS_PER_METER，1 像素 = 2 米）
+- `GRAVITY = 9.81`（`combat_unit.gd:7` GRAVITY）
 - `heading`: 弧度，0=北（屏幕上方），顺时针
 - 世界坐标：Y 向下为正，绘制时通过 `rotation = heading` 让图标头朝 heading 方向
 - 高度档位：`AltitudeTier { GROUND=-1, LOW=0(<3500m), MID=1(<7500m), HIGH=2(>=7500m) }`
@@ -128,8 +128,17 @@ script-index / code-index）只写"代码在哪"（纯指针）。样板见 [bos
 修改代码时必须同步：
 - **新增/删除函数** → 更新 [docs/reference/script-index.md](docs/reference/script-index.md) + [docs/reference/code-index.md](docs/reference/code-index.md)
 - **大幅移位**（> 50 行）→ 更新受影响的行号
-- **加新敌人** → 同步 [docs/reference/enemy-index.md](docs/reference/enemy-index.md) 表 + 12 步清单
-- **commit 前** 检查索引与代码一致性
+- **加新敌人** → 同步 [docs/reference/enemy-index.md](docs/reference/enemy-index.md) 表 + 13 步清单
+- **commit 前** 跑 `python tools/verify_player_ref_holders.py` 校验"谁是玩家机"的缓存持有者
+  都在 `survivor_mode._set_player_aircraft()` 登记了（SEAM-019；漏登记 → 切控/换帅后攥住已释放旧机）
+  - 加新子系统时若 `setup(..., player_aircraft, ...)`，**必须**去 chokepoint 补一行重定向
+  - 若确认对方只是传参不存引用 → 加进脚本的 `NON_HOLDERS` 并写明理由（显式裁定，不要注释掉检查）
+- **commit 前** 跑 `python tools/verify_doc_anchors.py` 校验索引锚点没写错行号
+  （`--doc <file>` / `--section <标题>` 可只校验你动过的那段；退出码 1 = 有腐烂）
+  - ✅ 2026-07-20 已全量修复历史腐烂（218 处，来自 2026-04-22 拆子模块重构）。
+    **现在报红就是真出事了**，请当场修掉，别让它重新积累
+  - 写锚点**带上符号名**（`aircraft/aircraft_physics.gd:222 update_speed`）才能强校验；
+    只写行号只能验"没越界"—— 历史上正是弱锚点掩盖了指错文件的错误
 
 ### 触发短语
 
@@ -179,9 +188,9 @@ script-index / code-index）只写"代码在哪"（纯指针）。样板见 [bos
 - [known-seams.md](docs/architecture/known-seams.md) — **反复绊倒 fix 的耦合点登记**。修 bug 时撞到地基先来这里看，未记则加新条目。下一轮 refactor 排期的输入。
 
 **查询手册**（docs/reference/）
-- [playbook.md](docs/reference/playbook.md) — **"加新 X" 总入口索引**（敌机 / BOSS / 武器 / 技能 / 主角飞机 / 事件 / 地面单位 / 地图 / 状态 9 类，每类带清单 + 必读约束）
+- [playbook.md](docs/reference/playbook.md) — **"加新 X" 总入口索引**（敌机 / BOSS / 武器 / 技能 / 主角飞机 / 事件 / 地面单位 / 地图 / 状态 / 无线电台词 10 类，每类带清单 + 必读约束）
 - [script-index.md](docs/reference/script-index.md) — **关键文件职责大表**（按文件，含行号 + 入口）
-- [enemy-index.md](docs/reference/enemy-index.md) — **敌人索引大表 + Adds/F-47 细节 + 创建新敌人 12 步清单 + AI Archetype**
+- [enemy-index.md](docs/reference/enemy-index.md) — **敌人索引大表 + Adds/F-47 细节 + 创建新敌人 13 步清单 + AI Archetype**
 - [repo-layout.md](docs/reference/repo-layout.md) — 完整目录树
 - [code-index.md](docs/reference/code-index.md) — 功能主题索引（按武器/物理/AI/视觉等分类）
 - [scripts-reference.md](docs/reference/scripts-reference.md) — 脚本 API 参考（变量/方法说明）
@@ -190,6 +199,7 @@ script-index / code-index）只写"代码在哪"（纯指针）。样板见 [bos
 - [i18n.md](docs/reference/i18n.md) — 本地化 / 翻译 key 约定
 - [features.md](docs/reference/features.md) — 已实现功能清单
 - [performance-guidelines.md](docs/reference/performance-guidelines.md) — 8 条性能硬规则 + 历史教训
+- `tools/verify_doc_anchors.py` — 索引锚点校验器（把"commit 前查索引"变成一条命令；覆盖 reference/systems/architecture/specs + CLAUDE.md，刻意不扫 changelogs）
 - [map-pipeline.md](docs/reference/map-pipeline.md) — 地图流水线（OSM 烘焙 / 底图 / `is_on_land`）
 - [manual-map-editing.md](docs/reference/manual-map-editing.md) — Godot 编辑器手画地块流程
 

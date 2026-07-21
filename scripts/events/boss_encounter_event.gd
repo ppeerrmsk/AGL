@@ -82,7 +82,14 @@ func _start() -> void:
 		end()
 		return
 
-	# 3. UI：WARNING + 持久提示
+	# 3. 登场演出（spec ui-transition §2.8）。成功则台词与镜头全部由序列编排，
+	#    跳过下面的横幅/无线电旧路径；失败（无演出定义 / 缺演员）则回落原行为
+	if _try_play_arrival_cinematic():
+		EventLogger.log_event("EVENT", name,
+			"PRE_STAGE: %s 走登场演出" % encounter.display_name)
+		return
+
+	# 3b. UI：WARNING + 持久提示
 	var hint = director.mode.get("_zone_hint") if director and director.mode else null
 	if hint:
 		hint.show_warning_banner("WARNING  WARNING")
@@ -96,6 +103,78 @@ func _start() -> void:
 
 	EventLogger.log_event("EVENT", name,
 		"PRE_STAGE: %s staged at %s" % [encounter.display_name, anchor])
+
+## 尝试播 <boss_id 小写>_arrival 演出。返回 false 表示没有该 BOSS 的演出定义，
+## 调用方回落到"横幅 + 无线电"的旧登场路径。
+##
+## ⚠ 演员指令的所有权【留在本事件】：只把 self 作为 owner 传给导演，导演转手调
+##    self.set_directive() 下发。事件结束时 EventDirector 会自动 clear_all_directives()
+##    兜底 —— 绝不让导演自建第二套所有权（spec §3.3）
+func _try_play_arrival_cinematic() -> bool:
+	if not (encounter is AceSquad):
+		return false
+	var seq_name: String = "%s_arrival" % encounter.boss_id.to_lower()
+	var members: Array = (encounter as AceSquad).get_all_members()
+	if members.is_empty():
+		return false
+	var pres = Engine.get_main_loop().root.get_node_or_null("Presentation")
+	if pres == null or not pres.has_method("play_cinematic"):
+		return false
+	if not pres.has_sequence(seq_name):
+		return false
+
+	# 进场方向：从玩家指向锚点的【反】向 —— 让 BOSS 从玩家机头前方飞来，
+	# 而不是从背后冒出来（守"事件刷在沿途"约定）
+	var player = director.player if director else null
+	var inbound := Vector2.RIGHT
+	if player and is_instance_valid(player):
+		var to_anchor: Vector2 = anchor - player.global_position
+		if to_anchor.length_squared() > 1.0:
+			inbound = to_anchor.normalized()
+	var extra: Array = []
+	if director and director.mode:
+		for key in ["_map_features", "hud", "_zone_arrow"]:
+			var n = director.mode.get(key)
+			if n != null and is_instance_valid(n):
+				extra.append(n)
+
+	var ok: bool = pres.play_cinematic(seq_name, {
+		"owner": self,
+		"actors": members,
+		"anchor": anchor,
+		"cp": anchor + inbound * 250.0,      ## 交汇点：锚点前方 250px（按 1.8s 交汇窗 × 机体包线反推）
+		"inbound": inbound,
+		"extra_layers": extra,
+		"callsign_prefix": encounter.callsign_prefix,
+		"scatter_seed": inbound.angle(),
+		# BGM 快照：audio 通道在演出开场切 BOSS 曲（导演只拿字符串，不认识 encounter）
+		"bgm_layers": encounter.bgm_layers,
+		"bgm_track": encounter.bgm_track,
+	})
+	if ok:
+		# 演出收尾时恢复 PRE_STAGE 契约（见 _on_arrival_cinematic_done）。
+		# release 步骤会 clear_all_directives —— 不接这钩子，事件仍在 PRE_STAGE
+		# 但四机既无 directive 又没 engage()，AceSquad 状态机停摆、AI 乱飞
+		pres.sequence_finished.connect(_on_arrival_cinematic_done.bind(seq_name),
+			CONNECT_ONE_SHOT)
+	return ok
+
+## 登场演出结束：重下 PRE_STAGE 巡逻指令（飞回锚点绕环，隐身状态下自然完成
+## 分镜的"散开 → 重新合并成阵型"），并补上被演出路径跳过的持久提示
+func _on_arrival_cinematic_done(finished_name: String, expected_name: String) -> void:
+	if finished_name != expected_name:
+		# 理论上不可能（演出期间世界冻结、无其他序列），防御性重挂
+		var pres = Engine.get_main_loop().root.get_node_or_null("Presentation")
+		if pres:
+			pres.sequence_finished.connect(_on_arrival_cinematic_done.bind(expected_name),
+				CONNECT_ONE_SHOT)
+		return
+	if not active or phase != Phase.PRE_STAGE or encounter == null:
+		return
+	_apply_pre_stage_directives_ace()
+	var hint = director.mode.get("_zone_hint") if director and director.mode else null
+	if hint:
+		hint.show_persistent(tr("ZONE_HINT_BOSS_UNLOCKED"))
 
 func _update(delta: float) -> void:
 	if encounter == null:
@@ -134,12 +213,15 @@ func _enter_engaged() -> void:
 	clear_all_directives()
 	# 通用 engage()：AceSquad → PURSUIT；CSG → 启动 F/A-18 弹射循环；其他子类按需覆盖
 	encounter.engage()
-	# HUD + BGM
+	# HUD + BGM。幂等守卫：登场演出可能已切过 BOSS 曲（audio 通道），
+	# crossfade_music 没有同曲早退 —— 不守卫会把正在播的 BOSS 曲重启一遍
 	encounter.hud_visible = true
-	if not encounter.bgm_layers.is_empty():
-		AudioManager.play_layered_music(encounter.bgm_layers, 2.0, 0)
-	elif encounter.bgm_track != "":
-		AudioManager.crossfade_music(encounter.bgm_track, 2.0)
+	var want_bgm: String = String(encounter.bgm_layers[0]) if not encounter.bgm_layers.is_empty() 			else encounter.bgm_track
+	if want_bgm != "" and AudioManager.current_music_id() != want_bgm:
+		if not encounter.bgm_layers.is_empty():
+			AudioManager.play_layered_music(encounter.bgm_layers, 2.0, 0)
+		else:
+			AudioManager.crossfade_music(encounter.bgm_track, 2.0)
 	# 进入 boss phase（mode 切 selected_id）
 	if director and director.mode and director.mode.has_method("on_boss_engaged"):
 		director.mode.on_boss_engaged(self)

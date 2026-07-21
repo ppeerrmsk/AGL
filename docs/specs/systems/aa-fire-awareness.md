@@ -1,9 +1,9 @@
 ---
 id: aa-fire-awareness
 kind: system
-status: draft
+status: in-progress
 schema_version: 1
-spec_version: 1
+spec_version: 2
 owner: 用户
 depends_on: [surface-attack-pass, command-wheel, rts-command, wingman-escort-evasion]
 reconstruction_complete: true
@@ -143,29 +143,35 @@ RUN 相位中（STANDOFF）:
 ## 6. 实现计划（Task Pipeline）
 
 ### 阶段 1 — 感知钩子 + 诊断（先行）
-- [ ] Aircraft 字段 + take_bullet_damage 钩子 + timer 递减
-- [ ] EventLogger `AA_FIRE` 事件（hit / interrupt / hold_enter / hold_exit）
+- [x] Aircraft 字段 + take_bullet_damage 钩子 + timer 递减
+- [x] EventLogger `AA_FIRE` 事件（hit 触发；interrupt/hold 经 PLAN rationale 归因——planner 纯函数内不落独立事件防 tick 级刷屏）
 
 ### 阶段 2 — EGRESS 加速 + 相位打断
-- [ ] bfm_intent EGRESS 对准判定 → AB/max_speed
-- [ ] aa_fire_active 时 SETUP/RUN → EGRESS 强制转移
+- [x] bfm_intent EGRESS 对准判定 → AB/max_speed
+- [x] aa_fire_active 时 SETUP/RUN → EGRESS 强制转移
 
 ### 阶段 3 — STANDOFF 火圈
-- [ ] Situation.target_aa_range_m 推导（§2.3 表）
-- [ ] inner_m 公式替换 + F-Pole hold（team_inbound_damage 复用）
+- [x] Situation.target_aa_range_m 推导（§2.3 表）
+- [x] inner_m 公式替换 + F-Pole hold（team_inbound_damage 复用）
 
 ### 阶段 4 — 编队冲刺 + 验收
-- [ ] squad follow 速度层 AB 窗口
-- [ ] §5 场景 A–E + sim 断言 + 压测
+- [x] squad follow 速度层 AB 窗口（AircraftFormation._update_speed，编队 LOD 满速冲刺）
+- [x] planner 纯函数 sim 断言 8 项（test_surface_pass §E，滚进 --bench=all；连同存量 20 项 28/28 绿）
+- [ ] §5 场景 A–E 生存模式 playtest + Sentinel 压测
 
 ## 7. 索引锚点（Where）
 
 | 关注点 | 文件 |
 |---|---|
-| 待实现 | — |
+| 中弹感知字段/钩子/递减 | `scripts/aircraft.gd`（AA_FIRE_REACT_S / aa_fire_timer / take_bullet_damage / _physics_process_impl） |
+| 感知透传 | `scripts/ai/tactical/situation.gd`（aa_fire_active / target_aa_range_m / fpole_hold） |
+| 相位打断 + EGRESS AB + inner 公式 + F-Pole | `scripts/ai/tactical/bfm_intent.gd`（ground_strafe + AA_* 常量） |
+| 编队冲刺 | `scripts/aircraft/aircraft_formation.gd`（_update_speed） |
+| sim 断言 | `scripts/tests/test_surface_pass.gd`（§E，--bench=surface_pass） |
 
 ## 8. 变更记录
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
 | 2026-07-13 | 1 | 初稿（draft，待用户定稿） |
+| 2026-07-20 | 2 | 用户确认三取舍（EGRESS 加速敌我通用 / 不做火力圈预判 / 编队只加速不变向）→ 全量实现落地 + §E sim 断言 8 项（28/28 绿）。status: in-progress，差 §5 playtest/压测 |

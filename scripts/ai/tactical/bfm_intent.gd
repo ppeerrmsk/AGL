@@ -32,6 +32,28 @@ const SURFACE_STANDOFF_INNER_M := 2200.0    ## STANDOFF 脱离/最小 AA 距离�
                                             ## （病例2：命令打 6km 对舰不该 flee 到 9km——inner 是"别更近"，不是"退到远环"）
 const SURFACE_INNER_FLOOR_M := 120.0        ## ASSAULT 穿越扫射内缘地板：防撞地
 const SURFACE_EGRESS_OUT_PX := 3000.0       ## EGRESS 直线外推点距离（只给方向）
+const AA_STANDOFF_SAFETY_MULT := 1.25       ## STANDOFF inner 相对目标对空火力半径的安全系数（spec aa-fire-awareness）
+const AA_EGRESS_AB_ALIGN := 0.707           ## EGRESS 机头对准脱离方向 cos 阈值（45°内）→ AB 全速拉出
+const AA_FPOLE_RING_PAD_M := 400.0          ## F-Pole 等待环 = inner + 此余量（米）
+
+# ── 慢速空中目标 pass（spec slow-air-target-pass）──
+# 与地面 pass 同一台相位机，只换三个包络常量。差异的物理来源：
+# 目标在**空中且会缓慢移动**（要提前量），但**不还击对空火力**（inner 不必留 AA 安全圈）。
+const SLOW_AIR_STANDOFF_INNER_M := 800.0    ## 慢速空中 STANDOFF 脱离环。远小于地面的 2200——
+                                            ## 直升机没有对空火网，inner 的唯一约束是导弹 min_range。
+                                            ## 2200 会让 RUN 在锁定攒满前就 EGRESS（雷达 3500m 起锁，
+                                            ## 低空目标需 lock_time/0.7≈4.3s 连续照射 → 至少 1.3km 进场余量）。
+const SLOW_AIR_ASSAULT_INNER_M := 250.0     ## 慢速空中 ASSAULT 穿越内缘：防空中相撞（地面版是 120m 防撞地）
+## 折返距离 = inner + max(最小转弯半径×此值, 地板)。地面版（reentry≈1500m）对空中不够用：
+## EGRESS 后机头背对目标，要先做 ~180° 掉头（corner 下 ~7.5s、横向偏移 2r），**再**留出
+## 进场段把机头稳定到目标上。1500m 时掉头刚完成就已冲到目标脸上，全程卡在 SETUP 30° 门外
+## 一路穿过去（无头 sim 实证：C 段 1161m→307m 全程 SETUP，off 卡 32°，从未进 RUN）。
+const SLOW_AIR_REENTRY_TURN_MULT := 4.0
+const SLOW_AIR_REENTRY_FLOOR_M := 1200.0
+## RUN 退回 SETUP 的对准滞回（cos45°）。进 RUN 用 TAIL_AIM_THRESHOLD(30°)，退出放宽到 45°：
+## 目标在动，纯 30° 单阈值会在边界上抖（无头 sim 实证：29.2°进 RUN → 30.0°退 SETUP →
+## 34.5°… 相位每 1.5s 翻一次，锁定攒满了却始终没稳定几何去满足发射门）。
+const SLOW_AIR_RUN_EXIT_ALIGN := 0.707
 
 # ══════════════════════════════════════════════
 #  无目标 / 巡航 / 移动
@@ -378,13 +400,26 @@ static func ground_strafe(s: Situation) -> TacticalPlan:
 	var gun_range_m: float = s.gun_range_m if s.gun_range_m > 0.0 else 1500.0
 	var outer_m: float
 	var inner_m: float
-	if is_standoff:
+	if s.tgt_is_slow_air:
+		# 慢速空中目标：同一相位机，换掉为地面 AA 火网设计的 inner（见常量注释）
+		if is_standoff:
+			outer_m = s.missile_max_range_m
+			inner_m = maxf(SLOW_AIR_STANDOFF_INNER_M, s.missile_min_range_m * 1.5)
+		else:
+			outer_m = gun_range_m
+			inner_m = minf(SLOW_AIR_ASSAULT_INNER_M, outer_m * 0.6)
+	elif is_standoff:
 		# STANDOFF「保持距离」= 维持"最小 AA 距离"（进到 ~2.2km 才脱离），而非"退到远环"。
 		# 病例2 根因：早期 inner=missile_max×0.5（远环）→ 命令打环内目标（6km 对舰、弹程 16km→环 8km）
 		# 时一进 RUN 就 dist≤inner → 立刻 EGRESS 背身外逃到 reentry(9km) → 20s 绕圈背飞。
 		# 改为固定近距 inner：RUN 从当前距离一路压入开火到 2.2km 才 break（corner 硬 break 已解 coast-through）。
 		outer_m = s.missile_max_range_m
-		inner_m = clampf(SURFACE_STANDOFF_INNER_M, s.missile_min_range_m * 1.5, s.missile_max_range_m * 0.6)
+		# AA 火圈感知（spec aa-fire-awareness §3.4）：inner 下限抬到目标对空火力半径 ×1.25。
+		# CIWS 舰 2000→2500m（旧固定 2200 会被脱离 break 的惯性滑行擦进扫射圈磨血，
+		# surface-attack-pass 验收实测 STANDOFF 最近逼到 1168m——已进 CIWS 近距反飞机圈）；
+		# ZU-23 阵地 600×1.25=750 仍由 2200 地板兜底，行为不变。
+		inner_m = clampf(maxf(SURFACE_STANDOFF_INNER_M, s.target_aa_range_m * AA_STANDOFF_SAFETY_MULT),
+				s.missile_min_range_m * 1.5, s.missile_max_range_m * 0.6)
 	else:
 		outer_m = gun_range_m
 		# C2 有效性守卫：防 outer<inner 反向死锁（ASSAULT 贴地穿越）
@@ -395,7 +430,10 @@ static func ground_strafe(s: Situation) -> TacticalPlan:
 	var min_turn_r: float = (corner_ms * corner_ms) / (9.81 * SURFACE_TURN_G) if corner_ms > 1.0 else 500.0
 	var too_close: bool = s.dist_m < min_turn_r * SURFACE_REATTACK_MULT
 	var reentry_m: float
-	if is_standoff:
+	if s.tgt_is_slow_air:
+		# 掉头 + 进场段都要留够（见 SLOW_AIR_REENTRY_* 注释）；两种姿态同式
+		reentry_m = inner_m + maxf(min_turn_r * SLOW_AIR_REENTRY_TURN_MULT, SLOW_AIR_REENTRY_FLOOR_M)
+	elif is_standoff:
 		# 折返到 inner 外一点即可（再攻从 standoff 环外重新压入），夹在 [inner+500, outer×0.95]
 		reentry_m = clampf(inner_m + maxf(min_turn_r * 2.0, 800.0), inner_m + 500.0, outer_m * 0.95)
 	else:
@@ -411,15 +449,21 @@ static func ground_strafe(s: Situation) -> TacticalPlan:
 			elif too_close:
 				phase = TacticalPlan.SurfacePhase.EGRESS
 		TacticalPlan.SurfacePhase.RUN:
+			# 退出阈值对慢速空目标放宽（见 SLOW_AIR_RUN_EXIT_ALIGN）；静止面目标维持原单阈值
+			var run_exit_align: float = SLOW_AIR_RUN_EXIT_ALIGN if s.tgt_is_slow_air else TAIL_AIM_THRESHOLD
 			if s.dist_m <= inner_m or ((not aligned) and too_close):
 				phase = TacticalPlan.SurfacePhase.EGRESS
-			elif not aligned:
+			elif s.aim_align < run_exit_align:
 				phase = TacticalPlan.SurfacePhase.SETUP
 		TacticalPlan.SurfacePhase.EGRESS:
 			if s.dist_m >= reentry_m:
 				phase = TacticalPlan.SurfacePhase.SETUP
 		_:
 			phase = TacticalPlan.SurfacePhase.SETUP
+	# 中弹强转脱离（spec aa-fire-awareness §3.2）：警觉窗口内不做慢速 SETUP 对准 / RUN 压入——
+	# 身处火力网时它们是最危险姿态。玩家（tactical preference 自治）不强转。
+	if s.aa_fire_active and not s.is_tactical_preference_user:
+		phase = TacticalPlan.SurfacePhase.EGRESS
 	p.strafe_pass_phase = phase
 
 	# ── 相位动作 ──
@@ -440,13 +484,55 @@ static func ground_strafe(s: Situation) -> TacticalPlan:
 			else:
 				egress_dir = (-los) if los.length_squared() > 0.01 else s.my_fwd
 			p.pursuit_pos = s.my_pos + egress_dir * SURFACE_EGRESS_OUT_PX
-			# 硬 break：corner speed 收紧转弯半径（最大转率/最小半径）
-			p.target_speed_kmh = s.corner_speed_kmh
-			p.afterburner = false
+			# 加速脱离（spec aa-fire-awareness §3.3，敌我通用）：机头已转出（对准脱离方向
+			# 45° 内）→ AB 全速拉出，不再慢速爬行泡在火网里。
+			# 转向段维持 corner speed 硬 break（最大转率/最小半径），转出即松开。
+			if s.my_fwd.dot(egress_dir) >= AA_EGRESS_AB_ALIGN:
+				p.target_speed_kmh = s.max_speed_kmh
+				p.afterburner = true
+			else:
+				p.target_speed_kmh = s.corner_speed_kmh
+				p.afterburner = false
 			_surface_altitude(s, p, is_standoff)
 			p.rationale = "对面 EGRESS[%s]：硬 break 脱离折返 dist=%.0fm→reentry=%.0fm" % [label, s.dist_m, reentry_m]
 		TacticalPlan.SurfacePhase.RUN:
-			if is_standoff:
+			if is_standoff and s.fpole_hold:
+				# F-Pole 等待（spec aa-fire-awareness §3.4）：弹已在飞（自己的弹在制导中，
+				# 或团队在飞火力已足杀）→ 不再压入，环外切向绕行等命中；
+				# 弹命中/失效后 fpole_hold 消失，恢复正常 RUN 压入。
+				# 堵住"弹已出手还傻傻往里飞进 AA 圈"。
+				var hold_radial: Vector2 = (s.my_pos - s.tgt_pos).normalized() if s.dist_px > 1.0 else -s.my_fwd
+				var hold_tangent := Vector2(hold_radial.y, -hold_radial.x)
+				var hold_r_px: float = (inner_m + AA_FPOLE_RING_PAD_M) * CombatUnit.PIXELS_PER_METER
+				p.pursuit_pos = s.tgt_pos + hold_radial * hold_r_px + hold_tangent * (hold_r_px * 0.5)
+				p.target_speed_kmh = s.cruise_speed_kmh
+				p.afterburner = false
+				_surface_altitude(s, p, true)
+				p.rationale = "对面 RUN[STANDOFF/F-Pole]：弹在飞环外等待 dist=%.0fm ring=%.0fm" % [
+						s.dist_m, inner_m + AA_FPOLE_RING_PAD_M]
+			elif is_standoff and s.tgt_is_slow_air:
+				# 慢速空中目标不 crank：crank 是为了对**会还击的**目标做 F-Pole 侧偏，
+				# 直升机没有反击弹，侧偏只有代价——机头离轴 30~40° 会同时
+				# ①拖慢/清空雷达锁积分（出锥 0.3s 清零）②撞上发射窗口的 off-axis 门。
+				# 直接压向碰撞航路交会点 = 机头最快稳定在目标上 = 锁定最快攒满 = 最早开火。
+				# 终端导弹跑瞄目标本体（纯追踪），不瞄交会点——与机炮跑瞄机炮解同理：
+				# 发射门量的是"机头 vs 目标本体"的离轴角（≤ radar_half×0.55 ≈ 19°），
+				# 而交会点带 asin(v_t/v_m) 的常驻前置偏置，close-in 段动态滞后还会放大到 30°+。
+				# 结果是锁定攒满了却卡在发射门外，正是用户报的"锁定上了却不发射"
+				# （无头 sim C 段实证：21.0s lock=3.30/3.00 满锁、nose=34.5° → 拒发，随后出锥清零）。
+				# SETUP 段仍用交会点收敛；只有终端这一段切成纯追踪把离轴角压到 0。
+				p.pursuit_pos = s.tgt_pos
+				# 全程 corner speed（不加速到 cruise×1.15）：纯追踪要求的转率随距离按 1/R 发散
+				# （LOS 率 = v·sin(off)/R），高速下转弯半径变大反而追不上——无头 sim 实证
+				# 加速版在 RUN 里离轴角一路 29°→38°→54° 越追越偏，从没进过 19° 发射门。
+				# corner speed 是最大转率点，纯追踪必收敛。慢速目标不还击，也没有"快点冲进去"的理由：
+				# 关键路径是"把离轴角压进发射门"，不是"尽快抵达"。
+				p.target_speed_kmh = s.corner_speed_kmh
+				p.afterburner = false
+				_surface_altitude(s, p, true)
+				p.rationale = "慢速空目标 RUN[STANDOFF]：拦截航路压入攒锁 dist=%.0fm inner=%.0fm" % [
+						s.dist_m, inner_m]
+			elif is_standoff:
 				p.pursuit_pos = _missile_engage_pos(s)  # crank 保锁（保持 standoff 距离）
 				# 逼近脱离环时预减速到 corner：break 是硬 180，高速进 break → 转弯半径大 → coast 冲进 AA
 				# （sim：cruise 速度 head-on break 从 2.2km coast 到 395m）。近环减速使 break 弧收紧。
@@ -455,7 +541,13 @@ static func ground_strafe(s: Situation) -> TacticalPlan:
 				_surface_altitude(s, p, true)            # 保持 MID，不俯冲进 AA
 				p.rationale = "对面 RUN[STANDOFF]：导弹包络推进 dist=%.0fm" % s.dist_m
 			else:
-				p.pursuit_pos = s.tgt_pos                # 静止目标不需提前量
+				# 地面目标静止 → 不需提前量。慢速空目标的**终端机炮跑**要瞄机炮提前点，
+				# 不是碰撞航路交会点：交会点按**本机**速度求解（前置角可达 asin(60/167)≈21°），
+				# 而机炮解按**弹速** 1050m/s 求（前置角 ~3°）。拿交会点当机炮跑的引导点，
+				# 机头会稳定停在离目标 ~10° 处掠过——雷达/导弹够用，但机炮 5° 火控锥永远不开门
+				# （无头 sim 实证：B 段两趟 pass 分别掠到 174m / 254m，nose 恒 8.5~10°，0 次开火）。
+				# SETUP 段仍用交会点收敛，只有终端这一段切到机炮解。
+				p.pursuit_pos = _gun_lead_point(s) if s.tgt_is_slow_air else s.tgt_pos
 				var run_kmh: float = clampf(s.cruise_speed_kmh * 1.4, s.cruise_speed_kmh, s.max_speed_kmh * 0.75)
 				p.target_speed_kmh = run_kmh
 				p.afterburner = (s.my_speed_ms * 3.6) < run_kmh * 0.95
@@ -463,7 +555,7 @@ static func ground_strafe(s: Situation) -> TacticalPlan:
 				_apply_squad_lateral_offset(s, p)
 				p.rationale = "对面 RUN[ASSAULT]：俯冲扫射 dist=%.0fm spd=%dkmh" % [s.dist_m, int(run_kmh)]
 		_:  # SETUP
-			p.pursuit_pos = s.tgt_pos
+			p.pursuit_pos = _intercept_point(s) if s.tgt_is_slow_air else s.tgt_pos
 			p.target_speed_kmh = s.corner_speed_kmh
 			p.afterburner = false
 			_surface_altitude(s, p, is_standoff)
@@ -478,7 +570,11 @@ static func _surface_altitude(s: Situation, p: TacticalPlan, is_standoff: bool) 
 	if s.is_tactical_preference_user:
 		p.target_altitude_tier = _altitude_tier_from_preference(s.altitude_preference)
 		return
-	if is_standoff:
+	# 慢速空中目标：两种姿态都同高。MID 硬档是为躲地面 AA 而设，对直升机没有意义，
+	# 反而制造高度差——雷达锥是水平锥，高度差会拉大真实离轴角，拖慢锁定。
+	if s.tgt_is_slow_air:
+		p.target_altitude_m = s.tgt_alt
+	elif is_standoff:
 		p.target_altitude_tier = CombatUnit.AltitudeTier.MID
 	else:
 		p.target_altitude_m = s.tgt_alt
@@ -742,11 +838,56 @@ static func _apply_squad_lateral_offset(s: Situation, p: TacticalPlan) -> void:
 	p.rationale += " | wing#%d lat=%.0fm" % [s.squad_index, slot_side * slot_distance_m]
 
 ## 机炮前置射击点（两轮迭代）
+## 碰撞航路拦截点：解"我以自身速度直飞 / 目标匀速直飞"的交会点。
+##
+## 为什么不能用 _gun_lead_point 做机动引导：那个函数按**子弹**飞行时间算提前量（~1000 m/s 量级），
+## 对 1.6km 外的直升机只有 ~3° 偏置 ≈ 纯追踪。而纯追踪对横切目标存在**常驻滞后角**——
+## 转弯率恰好被方位变化率吃光，机头稳定停在某个偏差上永不收敛。
+## 实测（test_slow_air_pass C 段）：nose 从 1639m 一路压到 498m 全程卡死 35.0°，
+## 而进 RUN 的门槛是 30°（TAIL_AIM_THRESHOLD）→ 差 5° 永远进不去 → 白飞一趟再 EGRESS。
+##
+## 解 |tgt_pos + tgt_v·t − my_pos| = my_speed·t 的最小正根 t，返回 t 时刻的目标位置。
+## 追不上（目标更快）或退化时回落到目标本体，行为等同旧的纯追踪。
+static func _intercept_point(s: Situation) -> Vector2:
+	if not s.has_target:
+		return s.my_pos + s.my_fwd * 1000.0
+	var my_speed_px: float = s.my_speed_ms * CombatUnit.PIXELS_PER_METER
+	if my_speed_px < 1.0:
+		return s.tgt_pos
+	var r: Vector2 = s.tgt_pos - s.my_pos
+	var tv: Vector2 = s.tgt_fwd * (s.tgt_speed_ms * CombatUnit.PIXELS_PER_METER)
+	var a: float = tv.length_squared() - my_speed_px * my_speed_px
+	var b: float = 2.0 * r.dot(tv)
+	var c: float = r.length_squared()
+	var t: float = -1.0
+	if absf(a) < 0.001:
+		# 同速：退化成一次方程
+		if absf(b) > 0.001:
+			t = -c / b
+	else:
+		var disc: float = b * b - 4.0 * a * c
+		if disc >= 0.0:
+			var sq: float = sqrt(disc)
+			# 取两根中最小的正根 = 最早交会
+			var t1: float = (-b + sq) / (2.0 * a)
+			var t2: float = (-b - sq) / (2.0 * a)
+			if t1 > 0.0 and t2 > 0.0:
+				t = minf(t1, t2)
+			else:
+				t = maxf(t1, t2)
+	if t <= 0.0 or not is_finite(t):
+		return s.tgt_pos   # 无解（追不上）→ 纯追踪
+	return s.tgt_pos + tv * t
+
+
 static func _gun_lead_point(s: Situation) -> Vector2:
 	if not s.has_target:
 		return s.my_pos + s.my_fwd * 1000.0
 	# 目标 fwd × 速度 × 飞行时间
-	var bullet_speed_ms: float = 1050.0  # 默认机炮，未来从 params 读
+	# 从 params 读实际初速（Situation 注入）。曾硬编码 1050 —— 与 aircraft.gd 扳机侧用
+	# params.gun.muzzle_velocity 算的 lead 不一致，导致挂非 1050 初速机炮的飞机
+	# 机头永远瞄在扳机认可点旁边（spec ace-squadron-tier 阶段 1）
+	var bullet_speed_ms: float = s.gun_muzzle_mps if s.gun_muzzle_mps > 0.0 else 1050.0
 	var bullet_speed_px: float = bullet_speed_ms * CombatUnit.PIXELS_PER_METER
 	var t1: float = s.dist_px / maxf(bullet_speed_px, 100.0)
 	var lead1: Vector2 = s.tgt_pos + s.tgt_fwd * (s.tgt_speed_ms * CombatUnit.PIXELS_PER_METER) * t1

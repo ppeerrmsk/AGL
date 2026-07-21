@@ -181,7 +181,7 @@ func _apply_jam_field(delta: float) -> void:
 			ac.apply_status(StatusEffects.JAM, JAM_REFRESH_DURATION)
 			ac.apply_status(StatusEffects.SLOW, JAM_REFRESH_DURATION)
 			# AOE 滴血（按 delta 精确累计，hp 是 float，无需 1.0 阈值）
-			ac.take_damage(dmg, boss_unit, "jam_field")
+			ac.take_damage(dmg, CombatUnit.safe_attacker(boss_unit), "jam_field")
 
 
 ## boss 死亡时调；状态栏的 JAM/SLOW 会自动衰减消失，无需主动清理

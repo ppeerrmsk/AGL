@@ -4,8 +4,9 @@
 
 [resource]
 script = ExtResource("1")
-hold_threshold_s = 0.15
-drag_threshold_px = 24.0
+hold_threshold_s = 0.35
+drag_threshold_px = 36.0
+charge_visual_delay_s = 0.08
 dead_zone_radius_px = 30.0
 ring1_outer_px = 110.0
 time_scale_in_wheel = 0.3
@@ -17,3 +18,5 @@ orbit_radius_px = 500.0
 leash_exit_mult = 1.15
 spread_cluster_radius_px = 2000.0
 surround_min_axis_sep_deg = 45.0
+volley_window_s = 1.5
+volley_rearm_quiet_s = 2.0

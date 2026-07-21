@@ -426,7 +426,11 @@ static func test_ground_strafe_break_when_overshoot() -> void:
 	var p := TacticalPlanner.plan(s)
 	_assert_eq("egress.intent", TacticalPlan.Intent.GROUND_STRAFE, p.intent)
 	_assert_eq("egress.phase", TacticalPlan.SurfacePhase.EGRESS, p.strafe_pass_phase)
-	_assert_eq("egress.no_ab", false, p.afterburner)
+	# 2026-07-20 断言反转：本夹具机头朝北、目标在正南 200m → ASSAULT 的 egress_dir=-LOS=正北
+	# ＝已与机头对齐（dot=1 ≥ AA_EGRESS_AB_ALIGN），按 spec aa-fire-awareness §3.3
+	# "EGRESS 机头已转出 → AB 全速拉出"应当开 AB。旧的 no_ab 断言写于该 spec 之前，
+	# 与 test_surface_pass E4（"EGRESS 机头已转出 → AB 全速"）直接冲突，属陈旧断言。
+	_assert_eq("egress.ab_when_nose_out", true, p.afterburner)
 	# pursuit_pos 应在我前方而不是 tgt 处
 	var to_pursuit: Vector2 = (p.pursuit_pos - s.my_pos).normalized()
 	_assert_true("egress.pursuit_in_front", to_pursuit.dot(s.my_fwd) > 0.9)
@@ -564,19 +568,38 @@ static func test_hysteresis_doesnt_lock_evade() -> void:
 ## 几何：玩家朝北高速直飞，目标在玩家右后方近距 → 已"穿过"目标
 ## planner 顺序保证 overshoot 在 wide_turn 之前触发，即使 heading_diff > 90
 static func test_overshoot_triggers_extend() -> void:
+	# ⚠ 目标必须是**真战斗机速度**（2026-07-20）：原夹具写 tgt_speed_ms=50（=180km/h，
+	# 直升机速域）。慢速空目标现在走 pass 相位机（优先级 4.5，spec slow-air-target-pass），
+	# 会先于 5a overshoot 命中——overshoot 规则本来就只对"又快又能拉 G 的战斗机"成立。
+	# 改成 200m/s 反向分离，保持本测试原意（已飞越 → 2s EXTEND）且不与慢速分流打架。
 	var s := Situation.new_for_test({
 		"has_target": true,
 		"my_pos": Vector2.ZERO,
 		"tgt_pos": Vector2(50.0, 100.0),  # 右后方 ~111px ≈ 223m，gun_range×0.4=400 内
 		"my_heading": 0.0,
-		"tgt_heading": 0.0, "tgt_speed_ms": 50.0,
+		"tgt_heading": PI, "tgt_speed_ms": 200.0,  # 反向飞离 → 强负闭合
 		"my_speed_ms": 250.0,  # 高速远离
 		"gun_range_m": 1000.0,
 	})
-	# closing_ms ≈ -179（远离），dist_m ≈ 223 < 400 → 触发
+	# closing_ms ≈ -402（远离），dist_m ≈ 223 < 400 → 触发
 	var p := TacticalPlanner.plan(s)
 	_assert_eq("overshoot.intent", TacticalPlan.Intent.EXTEND_RECOVER, p.intent)
 	_assert_true("overshoot.trigger>0", p.trigger_extend_seconds > 0.0)
+
+	# 边界守卫：同一几何、只把目标换成直升机速度 → 必须改走 pass 相位机而不是 overshoot EXTEND。
+	# 这正是老 bug 的入口：对直升机反复触发 2s EXTEND，拉开 ~290m 又立刻回来（log 20260720_115041）。
+	var s_slow := Situation.new_for_test({
+		"has_target": true,
+		"my_pos": Vector2.ZERO,
+		"tgt_pos": Vector2(50.0, 100.0),
+		"my_heading": 0.0,
+		"tgt_heading": PI, "tgt_speed_ms": 60.0,   # CH-47 216km/h
+		"my_speed_ms": 250.0,
+		"gun_range_m": 1000.0,
+	})
+	var p_slow := TacticalPlanner.plan(s_slow)
+	_assert_true("overshoot.slow_air_is_flagged", s_slow.tgt_is_slow_air)
+	_assert_eq("overshoot.slow_air_goes_pass", TacticalPlan.Intent.GROUND_STRAFE, p_slow.intent)
 
 ## extend_remaining > 0 → 强制返回 EXTEND_RECOVER（即使重新有目标）
 static func test_extend_remaining_holds_intent() -> void:
