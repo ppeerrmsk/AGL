@@ -39,7 +39,7 @@ PlayableAircraft (.tres)             ← 档案：装载 base + 生存模式调�
 | `rocket` | 没有火箭弹，不进入火箭决策分支 | `aircraft.gd:1536` `1599` |
 | `missile` | 没有主导弹，武器模式自动锁定 GUN | `aircraft.gd:1622` `1683` |
 | `secondary_missile` | 没有副导弹，仅用主导弹 | `aircraft.gd:1963` |
-| `flare` | 没有热诱弹，`AircraftFlares.release` 直接 return | `aircraft/aircraft_flares.gd:226` release |
+| `flare` | 没有热诱弹，`AircraftFlares.release` 直接 return | `aircraft/aircraft_flares.gd:230` release |
 
 **结论**：要给新机型不同的武器组合，**只需要调整 AircraftParams 上的字段是否为 null + 指向哪个 .tres**。无需改 aircraft.gd。
 

@@ -118,6 +118,12 @@ var surround_bearing_rad: float = INF
 var command_sprint: bool = false
 var evac_shift_active: bool = false      ## 720 批"阵地转移"：撤离冲刺加成 + 受伤减半（apply_upgrade 置位）
 var guard_zone_buff_active: bool = false ## 720 批"保卫阵地"：防守圈内 buff（SquadCommandController 维护）
+var missile_second_stage_active: bool = false ## 720 批"二段推进"：本机发射的导弹续推+转弯渐强
+## 720 批"胆大妄为"（王牌）：禁自动 flare，R 键手动闪避（flare+滚转；无 flare 严格时机 i-frame）
+var manual_dodge_active: bool = false
+var _manual_dodge_cd: float = 0.0
+const MANUAL_DODGE_CD: float = 2.0
+const MANUAL_DODGE_IFRAME: float = 0.25
 ## TIGHT 齐射窗口开火权（spec formation-discipline §3.1）：窗口期 SquadCommandController
 ## 临时授予编队僚机 combat_target；置位时 SquadCoordination 的"编队防御性清目标"跳过本机
 ## ——僚机在编队槽位里开火、不脱队。窗口关闭即回收（禁补射由构造保证）
@@ -1835,10 +1841,24 @@ func _trigger_evasion_roll() -> void:
 		if bullet_dodge_chance >= HIGH_DODGE_THRESH:
 			_evade_roll_cooldown = BOSS_EVADE_ROLL_CD  # 4 秒才能再次滚转
 
+## 胆大妄为（720 批王牌技）：R 键手动闪避——滚转动画 + 严格时机 i-frame + 有 flare 则同时投放。
+## i-frame 用 no_refresh 短窗（0.25s）：必须掐在命中瞬间才躲得掉，按早了白按。
+func do_manual_dodge() -> void:
+	if not manual_dodge_active or _manual_dodge_cd > 0.0 or is_destroyed:
+		return
+	_manual_dodge_cd = MANUAL_DODGE_CD
+	_evade_roll_remaining = _EVADE_ROLL_DURATION   # 复用规避滚转动画（绘制叠加 bank）
+	apply_status(StatusEffects.INVINCIBLE, MANUAL_DODGE_IFRAME, "no_refresh")
+	if flares_remaining > 0 and missile_manager != null:
+		AircraftFlares.release(self)               # 投焰甩导弹（is_flare_jammed 契约照走）
+	EventLogger.log_event("MANUAL_DODGE", _log_name(),
+		"R 手动闪避（flare=%d, iframe=%.2fs）" % [flares_remaining, MANUAL_DODGE_IFRAME])
+
 ## 规避模式更新（生存模式玩家）
 func _update_evasion(delta: float) -> void:
 	# 冷却与动画倒计时
 	_evade_roll_cooldown = maxf(_evade_roll_cooldown - delta, 0.0)
+	_manual_dodge_cd = maxf(_manual_dodge_cd - delta, 0.0)   # 胆大妄为 R 闪避冷却（720 批）
 	# §C 玩家技能"evasion 4s 装填"：仅 evasion ON 时累加 timer，退出 evasion 不进入此分支
 	if evasion_mode and evasion_overstock_interval > 0.0 and params and params.missile:
 		_evasion_overstock_timer += delta

@@ -856,3 +856,9 @@ UPGRADE_EW_EXPERT_NAME,电子战专家,EW Expert,電子戦エキスパート
 UPGRADE_EW_EXPERT_DESC,按已持有的【策士轴】技能数提升雷达距离（+100m/条，上限 +1km）,+100m radar range per Schemer-axis skill owned (cap +1km),策士軸スキル数×+100mレーダー（上限+1km）
 UPGRADE_WEAPON_MASTER_NAME,武器大师,Weapon Master,ウェポンマスター
 UPGRADE_WEAPON_MASTER_DESC,按装备武器数降低全武器冷却（每件 -5%，上限 -30%）,-5% weapon cooldowns per equipped weapon (cap -30%),装備武器数×-5%全武器CD（上限-30%）
+UPGRADE_RAILGUN_DOUBLE_NAME,双发,Double Tap,二連射
+UPGRADE_RAILGUN_DOUBLE_DESC,电磁炮蓄力完成后沿同一弹道连发两发,Railgun fires twice along the same trajectory per charge,レールガンが同一弾道で二連射
+UPGRADE_MISSILE_SECOND_STAGE_NAME,二段推进,Second Stage,二段推進
+UPGRADE_MISSILE_SECOND_STAGE_DESC,导弹一段燃尽后持续加速（上限 ×1.2）且转弯渐强（最高 +50%），距离越远越准,Missiles keep accelerating after burnout (cap x1.2) with growing turn G (up to +50%),ミサイル燃焼後も加速（×1.2）・旋回G漸増（最大+50%）
+UPGRADE_MANUAL_DODGE_NAME,胆大妄为,Reckless Abandon,大胆不敵
+UPGRADE_MANUAL_DODGE_DESC,禁用自动热诱弹；热诱弹 +6；R 键手动闪避（滚转+投焰）；无热诱弹也可滚转，命中瞬间 0.25s 无敌窗口时机严格,No auto flares; +6 flares; R triggers a manual dodge roll (flare included); strict 0.25s i-frame window,自動フレア禁止・フレア+6・Rキー手動回避（厳格な0.25秒無敵窓）

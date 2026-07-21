@@ -116,6 +116,10 @@ static func update(ac: Aircraft, delta: float) -> void:
 	if ac.is_cloaked or ac.suppress_flares:
 		return
 
+	# 胆大妄为（720 批王牌技）：禁自动 flare——释放全权交给 R 键手动闪避
+	if ac.manual_dodge_active:
+		return
+
 	# 检测最近来袭导弹（玩家方同时挑选"会命中且即将到达"的最近一枚作为放焰目标）
 	var nearest_missile: Missile = null
 	var nearest_dist := 99999.0

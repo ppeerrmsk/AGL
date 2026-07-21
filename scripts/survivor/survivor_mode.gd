@@ -1368,6 +1368,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		BfmIntentTest.run_all()
 		return
 	# F11：切换友方僚机的编队调试覆盖层
+	# R：胆大妄为手动闪避（720 批王牌技；未持有/冷却中在 do_manual_dodge 内自过滤）
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_R:
+		if player_aircraft and is_instance_valid(player_aircraft) and not is_paused_for_upgrade:
+			player_aircraft.do_manual_dodge()
+
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F11:
 		get_viewport().set_input_as_handled()
 		_toggle_wingman_formation_debug()

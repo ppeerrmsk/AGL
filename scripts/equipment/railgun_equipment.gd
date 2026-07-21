@@ -34,6 +34,8 @@ enum LockTrajectory {
 @export var min_engage_range_m: float = 0.0
 
 @export_group("充能")
+## 双发（720 批 railgun_double 升级写 true）：蓄力完成开火后 0.22s 沿同一承诺弹道补射一发
+@export var double_shot: bool = false
 @export var charge_duration: float = 2.5         ## 秒 telegraph 时长（玩家 1.2 / 敌人 2.5）
 @export var lock_trajectory_at: LockTrajectory = LockTrajectory.AT_CHARGE_START
 @export var cooldown: float = 6.0                ## 秒 单发后冷却
@@ -127,6 +129,16 @@ func update(ac, delta: float) -> void:
 	# 冷却减时
 	if s["cooldown"] > 0.0:
 		s["cooldown"] = maxf(s["cooldown"] - delta, 0.0)
+
+	# 双发补射（720 批）：首发后沿同一承诺弹道 0.22s 再射一发（不重蓄力、不再滚 miss）
+	if s.get("followup_pending", false):
+		s["followup_timer"] = maxf(float(s.get("followup_timer", 0.0)) - delta, 0.0)
+		if s["followup_timer"] <= 0.0:
+			s["followup_pending"] = false
+			s["is_followup"] = true
+			_fire(ac, s)
+			s["is_followup"] = false
+		return
 
 	if s.get("awaiting_fire", false):
 		_tick_awaiting_fire(ac, s, delta)
@@ -410,8 +422,15 @@ func _fire(ac, s: Dictionary) -> void:
 	s["charge_target"] = null
 	s["cooldown"] = cooldown
 
+	# 双发（720 批）：首发后排队补射（locked_aim_pos 保留 → 补射消费同一承诺点）
+	if double_shot and not bool(s.get("is_followup", false)):
+		s["followup_pending"] = true
+		s["followup_timer"] = 0.22
+
 	EventLogger.log_event("RAILGUN", ac.callsign,
-		"fire team=%d range=%dm" % [ac.team, int(beam_end.distance_to(muzzle) / CombatUnit.PIXELS_PER_METER)])
+		"fire team=%d range=%dm%s" % [ac.team,
+			int(beam_end.distance_to(muzzle) / CombatUnit.PIXELS_PER_METER),
+			"（双发补射）" if bool(s.get("is_followup", false)) else ""])
 
 
 # ─────────── 命中检测 ───────────

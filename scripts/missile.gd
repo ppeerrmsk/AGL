@@ -62,6 +62,12 @@ var _fade_timer: float = 0.0
 ## 8000m 圈内 → 追踪 G ×1.25，弹全程生效（快照式，spawn_missile 写入，不逐帧查询）
 var awacs_g_mult: float = 1.0
 var is_secondary_weapon: bool = false  ## 副槽 QAAM 发射（kind 归因 "qmaam"，720 批）
+var second_stage: bool = false         ## 二段推进（720 批）：一段燃尽后续推 + 转弯渐强
+
+
+## 二段推进转弯渐强：飞行时间线性升到 +50%（~6s 拉满）——"距离越远越准"
+func _second_stage_g_mult() -> float:
+	return (1.0 + minf(age * 0.08, 0.5)) if second_stage else 1.0
 
 ## ── 云层穿越累计衰减 ──
 var _cloud_guidance_loss: float = 0.0   ## 0~(1-FLOOR) 累加不回复
@@ -157,6 +163,10 @@ func _physics_process(delta: float) -> void:
 	# 2) 动力阶段
 	if age < params.motor_burn_time:
 		speed = minf(speed + params.motor_acceleration * delta, params.max_speed * _laser_speed_mult)
+	elif second_stage:
+		# 二段推进（720 批）：一段燃尽后温和续推——越飞越快（cap ×1.2），远射反而更凶
+		speed = minf(speed + params.motor_acceleration * 0.4 * delta,
+			params.max_speed * 1.2 * _laser_speed_mult)
 	else:
 		speed = maxf(speed - params.drag_deceleration * delta, 0.0)
 	# 激光减速生效时强制 cap（即使在制动段也限上限，防止突然脱离激光后速度暴涨）
@@ -258,11 +268,11 @@ func _physics_process(delta: float) -> void:
 			# 对静止目标直接纯追踪，不用 PN（避免数值误差）
 			var pure_heading := atan2(los.x, -los.y)
 			var diff := _angle_diff(pure_heading, heading)
-			var max_turn := params.max_g * _laser_g_mult * awacs_g_mult * GRAVITY / maxf(speed, 50.0) * delta
+			var max_turn := params.max_g * _second_stage_g_mult() * _laser_g_mult * awacs_g_mult * GRAVITY / maxf(speed, 50.0) * delta
 			heading += clampf(diff, -max_turn, max_turn)
 		else:
 			# 低空目标：地面杂波干扰导引头，降低追踪过载
-			var effective_max_g := params.max_g * _guidance_degradation_for(t_flat_altitude, t_alt_tier) * _laser_g_mult * awacs_g_mult
+			var effective_max_g := params.max_g * _second_stage_g_mult() * _guidance_degradation_for(t_flat_altitude, t_alt_tier) * _laser_g_mult * awacs_g_mult
 
 			if dist_m < 200.0:
 				# 近距纯追踪，避免 PN 振荡

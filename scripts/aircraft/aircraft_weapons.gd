@@ -389,7 +389,14 @@ static func _fire_gun_round(ac: Aircraft, gun: GunParams) -> void:
 			maneuver_err_rad = deg_to_rad(bank_penalty_deg + tgt_bank_penalty_deg) * randf_range(-1.0, 1.0)
 		var bullet_dir := ac._gun_lead_heading + ac._gun_aim_offset_rad + maneuver_err_rad + randf_range(-spread_rad, spread_rad)
 		var muzzle_pos := ac.global_position + Vector2(sin(ac.heading), -cos(ac.heading)) * 20.0
-		ac.bullet_manager.spawn_bullet(muzzle_pos, bullet_dir, gun.muzzle_velocity, ac, gun.bullet_damage)
+		# 机炮吊舱（720 批 rework）：两道翼挂朝前齐射，替代旧"机头 + 左右 15°"三道扇形
+		if ac.gun_extra_barrels >= 2:
+			var wing_off := Vector2(cos(ac.heading), sin(ac.heading)) * 14.0
+			var dir_r2 := ac._gun_lead_heading + ac._gun_aim_offset_rad + maneuver_err_rad + randf_range(-spread_rad, spread_rad)
+			ac.bullet_manager.spawn_bullet(muzzle_pos + wing_off, bullet_dir, gun.muzzle_velocity, ac, gun.bullet_damage)
+			ac.bullet_manager.spawn_bullet(muzzle_pos - wing_off, dir_r2, gun.muzzle_velocity, ac, gun.bullet_damage)
+		else:
+			ac.bullet_manager.spawn_bullet(muzzle_pos, bullet_dir, gun.muzzle_velocity, ac, gun.bullet_damage)
 		# §C 玩家技能"机炮发射时减伤"：刷新窗口时间戳，下次受伤 _apply_damage 查
 		if ac.is_player_squad() and ac.gun_fire_dr_window > 0.0:
 			ac._gun_fire_recently_until = EventLogger.get_game_time() + ac.gun_fire_dr_window
@@ -398,18 +405,8 @@ static func _fire_gun_round(ac: Aircraft, gun: GunParams) -> void:
 			ac._sfx_gun_cd = 0.5
 			var gun_sfx := "gun_long" if ac.gun_extra_barrels >= 2 else "gun_fire"
 			AudioManager.play_sfx_2d(gun_sfx, muzzle_pos, 7.0)
-		# 多管齐射：额外射出左右偏角子弹
-		if ac.gun_extra_barrels >= 2:
-			var fan_angle := deg_to_rad(15.0)
-			var dir_l := ac._gun_lead_heading - fan_angle + randf_range(-spread_rad, spread_rad)
-			var dir_r := ac._gun_lead_heading + fan_angle + randf_range(-spread_rad, spread_rad)
-			ac.bullet_manager.spawn_bullet(muzzle_pos, dir_l, gun.muzzle_velocity, ac, gun.bullet_damage)
-			ac.bullet_manager.spawn_bullet(muzzle_pos, dir_r, gun.muzzle_velocity, ac, gun.bullet_damage)
-
 	if not ac.infinite_ammo:
-		ac.ammo -= 1
-		if ac.gun_extra_barrels >= 2:
-			ac.ammo -= 2
+		ac.ammo -= 2 if ac.gun_extra_barrels >= 2 else 1
 		ac.ammo = maxi(ac.ammo, 0)
 	# 弹药耗尽 → 进入装填 CD（生存模式）；备用弹仓概率回满则跳过（720 批）
 	if ac.enable_gun_reload and ac.ammo <= 0 and not ac._gun_reload_active:

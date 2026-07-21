@@ -1405,6 +1405,44 @@ const UPGRADES: Array[Dictionary] = [
 		"scope": "ace",
 		"keywords": ["gun", "missile"],
 	},
+	# ── 720 批 T5 新增：新机制四技 ──
+	{
+		"id": "railgun_double",
+		"name": "UPGRADE_RAILGUN_DOUBLE_NAME",
+		"desc": "UPGRADE_RAILGUN_DOUBLE_DESC",
+		"stat": "railgun_double",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "weapon",
+		"rarity": Rarity.CLASSIFIED,
+		"keywords": ["railgun"],
+		"requires": ["railgun"],
+	},
+	{
+		"id": "missile_second_stage",
+		"name": "UPGRADE_MISSILE_SECOND_STAGE_NAME",
+		"desc": "UPGRADE_MISSILE_SECOND_STAGE_DESC",
+		"stat": "missile_second_stage",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "missile",
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["missile"],
+		"requires": ["missile"],
+	},
+	{
+		"id": "manual_dodge",
+		"name": "UPGRADE_MANUAL_DODGE_NAME",
+		"desc": "UPGRADE_MANUAL_DODGE_DESC",
+		"stat": "manual_dodge",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "mobility",
+		"rarity": Rarity.EXPERIMENTAL,
+		"scope": "ace",                ## 王牌：R 是操控输入，只对在操作的飞机有意义
+		"keywords": ["flare"],
+		"requires": ["flare"],
+	},
 ]
 
 # ── 词条联动：某类技能数量 → 某个参数 ────────────────────
@@ -1588,6 +1626,7 @@ const ACE_FIELD_STATS: Array[String] = [
 	"head_on_jam",         # 对锋干扰：head_on_jam_threshold 字段
 	"rear_aura_slow",      # 后半球减速光环：rear_aura_slow_radius_px 字段
 	"cloud_overload",      # 云中超载：cloud_overload_active 开关
+	"manual_dodge",        # 胆大妄为：manual_dodge_active + flare +6（T5）
 ]
 
 

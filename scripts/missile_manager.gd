@@ -43,6 +43,9 @@ func spawn_missile(source: CombatUnit, target: CombatUnit, missile_params: Missi
 	missile.params = missile_params
 	missile.source = source
 	missile.is_secondary_weapon = is_secondary   # QAAM 归因（720 批 qmaam_bloodlust 判 kind）
+	# 二段推进（720 批）：发射方持有技能 → 本弹全程续推 + 转弯渐强
+	if source is Aircraft and (source as Aircraft).missile_second_stage_active:
+		missile.second_stage = true
 	missile.target = target
 	missile.team = source.team
 	missile.speed = source.speed + 50.0  # 初速 = 发射单位速度 + 50 m/s

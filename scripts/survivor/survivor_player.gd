@@ -330,6 +330,13 @@ func strip_upgrade_from(target: Aircraft, upgrade: Dictionary) -> void:
 		"cloud_overload":
 			target.cloud_overload_active = false
 			target._in_cloud_overload = false
+		"manual_dodge":
+			# 逆操作：恢复自动 flare + 收回 +6 flare（在场数夹回新上限）
+			target.manual_dodge_active = false
+			if target.params.flare:
+				target.params.flare = target.params.flare.duplicate()
+				target.params.flare.max_flares = maxi(target.params.flare.max_flares - 6, 0)
+				target.flares_remaining = mini(target.flares_remaining, target.params.flare.max_flares)
 		_:
 			push_warning("strip_upgrade_from: ACE_FIELD_STATS 登记了 %s 但未实现逆操作" % stat)
 
@@ -572,6 +579,21 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 			if rg2:
 				rg2.max_range_m += float(upgrade["value"])
 		# （railgun_damage 电磁炮强化已随 720 批移除——spec skills-720-rework §2.3）
+		"railgun_double":
+			# 双发（720 批）：蓄力完成连发两发（RailgunEquipment 发射序列）
+			var rgd := p.get_equipment_of_kind("railgun") as RailgunEquipment
+			if rgd:
+				rgd.double_shot = true
+		"missile_second_stage":
+			# 二段推进（720 批）：本机导弹燃尽后续推 + 转弯渐强（missile_manager spawn 打标）
+			aircraft.missile_second_stage_active = true
+		"manual_dodge":
+			# 胆大妄为（720 批王牌）：禁自动 flare + flare +6 + R 键手动闪避
+			aircraft.manual_dodge_active = true
+			if p.flare:
+				p.flare = p.flare.duplicate()
+				p.flare.max_flares += 6
+				aircraft.flares_remaining += 6
 		# ── X-02 激光升级 ──
 		"laser_cooldown":
 			# 散热效率 +25%（每层）

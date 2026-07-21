@@ -355,7 +355,7 @@ func is_emp_disabled() -> bool:
 | 升级 / 机制 | 效果 | 位置 |
 |---|---|---|
 | `cloud_lock_stealth`（`vapor_dodge` 战区奖励内含） | 玩家在云中被锁定速率 ×0.1 | [main.gd:249 cloud_lock_stealth](../../scripts/main.gd:249) |
-| 导弹云中丢制导 | 导弹进入云区域 → `has_guidance = false` | [missile.gd:211 has_guidance](../../scripts/missile.gd:211) |
+| 导弹云中丢制导 | 导弹进入云区域 → `has_guidance = false` | [missile.gd:17 has_guidance](../../scripts/missile.gd:17) |
 | AOE 云中衰减 | 近炸引信 AOE 在云内伤害衰减 | [missile_manager.gd:29 _CLOUD_SNAP_GRID_PX](../../scripts/missile_manager.gd:29) |
 
 所有现有 hook 都通过 `WeatherSystem.sample_density(pos)` / `is_in_cloud(pos)` 查询。**任何"云"系扩展只要密度走这套接口，战斗逻辑零改动**。

@@ -21,6 +21,7 @@ func run() -> void:
 	_test_t3_hooks()
 	_test_ace_strip_roundtrip()
 	_test_axis_count_scaling()
+	_test_t5_mechanisms()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
 
@@ -244,6 +245,71 @@ func _test_axis_count_scaling() -> void:
 	_check("清空：历战者差量收回（HP 回 100）", is_equal_approx(ac.params.max_hp, 100.0),
 		"got %.1f" % ac.params.max_hp)
 	ac.free()
+
+
+# ── H. T5 新机制（spec §6 T5：胆大妄为 / 二段推进 / 电磁炮双发；机炮吊舱走 playtest）──
+func _test_t5_mechanisms() -> void:
+	print("── H. T5 新机制：胆大妄为 / 二段推进 / 电磁炮双发 ──")
+	# 胆大妄为：无 flare → 严格 i-frame + 冷却 + 滚转动画
+	var ac := _make_test_aircraft()
+	ac.manual_dodge_active = true
+	ac.flares_remaining = 0
+	ac.do_manual_dodge()
+	_check("R 闪避：0.25s 无敌窗", ac.status_effects.has(StatusEffects.INVINCIBLE), "")
+	_check("R 闪避：进入冷却", ac._manual_dodge_cd > 0.0, "got %.2f" % ac._manual_dodge_cd)
+	_check("R 闪避：滚转动画激活", ac._evade_roll_remaining > 0.0, "")
+	ac.free()
+	# 胆大妄为 apply/strip 往返：flare +6 收回 + 自动 flare 恢复
+	var sp := SurvivorPlayer.new()
+	var ac2 := _make_test_aircraft()
+	ac2.params.flare = FlareParams.new()
+	ac2.params.flare.max_flares = 10
+	ac2.flares_remaining = 10
+	sp.aircraft = ac2
+	var md: Dictionary = {}
+	for u in SurvivorData.UPGRADES:
+		if str(u.get("id", "")) == "manual_dodge":
+			md = u
+			break
+	sp.apply_upgrade_to(ac2, md)
+	_check("胆大妄为应用：flare 10→16 + 禁自动",
+		ac2.params.flare.max_flares == 16 and ac2.manual_dodge_active,
+		"got %d" % ac2.params.flare.max_flares)
+	sp.strip_upgrade_from(ac2, md)
+	_check("胆大妄为剥离：flare 回 10 + 恢复自动",
+		ac2.params.flare.max_flares == 10 and not ac2.manual_dodge_active,
+		"got %d" % ac2.params.flare.max_flares)
+	ac2.free()
+	sp.free()
+	# 二段推进：转弯渐强曲线（关=×1 / 0s=×1 / ≥6.25s=×1.5 封顶）
+	var m := Missile.new()
+	m.second_stage = false
+	m.age = 10.0
+	_check("二段关闭：G ×1", is_equal_approx(m._second_stage_g_mult(), 1.0), "")
+	m.second_stage = true
+	m.age = 0.0
+	_check("二段 0s：×1", is_equal_approx(m._second_stage_g_mult(), 1.0), "")
+	m.age = 10.0
+	_check("二段 10s：×1.5 封顶", is_equal_approx(m._second_stage_g_mult(), 1.5),
+		"got %.2f" % m._second_stage_g_mult())
+	m.free()
+	# 电磁炮双发：升级写到装备资源位
+	var sp2 := SurvivorPlayer.new()
+	var ac3 := _make_test_aircraft()
+	var rg := RailgunEquipment.new()
+	var eq_arr: Array[EquipmentParams] = [rg]
+	ac3.params.equipment = eq_arr
+	sp2.aircraft = ac3
+	var rd: Dictionary = {}
+	for u in SurvivorData.UPGRADES:
+		if str(u.get("id", "")) == "railgun_double":
+			rd = u
+			break
+	_check("双发：默认关闭", not rg.double_shot, "")
+	sp2.apply_upgrade_to(ac3, rd)
+	_check("双发：升级后装备 double_shot=true", rg.double_shot, "")
+	ac3.free()
+	sp2.free()
 
 
 func _make_test_aircraft() -> Aircraft:
