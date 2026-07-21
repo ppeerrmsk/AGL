@@ -1,9 +1,9 @@
 ---
 id: skills-720-rework
 kind: system
-status: draft        # ⏳ 2026-07-20 用户"720 技能表"整改批：+1 轴进度系统 + 新增 27 / 改动 ~35 / 移除 1；待 review 后按 §6 实施
+status: in-progress  # 2026-07-21 开工：三项开工确认按推荐值定案（+1 cap=2 / 王牌=仅操控机 / 机炮吊舱两道翼挂）；T0 已闭环
 schema_version: 1
-spec_version: 1
+spec_version: 2
 owner: 用户
 depends_on: [evolution-attribute-gates, squad-upgrade-ownership, afterburner-mode, inrun-weapon-inventory, command-wheel, zone-reward-docking]
 reconstruction_complete: true
@@ -23,7 +23,7 @@ reconstruction_complete: true
    - 跨轴 +1（斗士卡带"策士+1"）让偏科 build 也能蹭到他轴首档，呼应"里程碑拉平衡"立意。
    - ⚠ 收支护栏：全表 +1 计 13 条（骑士+1 ×7 / 斗士+1 ×4 / 策士+1 ×2）。同轴全收 = 进度 +7，
      叠 8 点收入远超 10 满档 → **每轴 milestone_bonus 上限 cap = 2**（超出浪费，量表画到顶）。
-     ⏳ 备选案：不 cap、把预留档抬到 12——用户 review 时二选一（推荐 cap 2，保"预留档=稀罕"）。
+     ✅ 2026-07-21 定案：采用 **cap = 2**（开工确认按推荐值直采；备选"不 cap、抬 12 档"废弃）。
 2. **归属词汇 v6**（表中实际使用的全集，取代 §2.8 v5 的四层）：
    | 归属 | 语义 | 实现载体 |
    |---|---|---|
@@ -181,7 +181,23 @@ reconstruction_complete: true
 ## 4. 排查项（阶段 0 先行）
 
 1. **数据链生效性**：确认锁定共享是否真生效；**关键问题：玩家能否对僚机锁定的目标发射导弹**（武器发射门是否认队友锁）——结论决定"取消 F-14 专属"后它的实际价值。
+   - ✅ **结论（2026-07-21）：共享真生效，且玩家可对僚机锁定的目标直接发射。**
+     机制：雷达主更新（survivor_mode）每 tick 把全队（team 0、未被 JAM）radar_targets 里同一目标的
+     照射进度取最大值互相拉平；导弹发射门（aircraft_weapons 单发与多锁齐射两路）读的正是自机
+     radar_targets 累积值 → 共享写入即算自己锁满。发射仍要过三关：导弹包线（min/max range）、
+     自机雷达锥（目标须在机头锥内）、发射窗口质量（急转/锥边缘不射）。
+     → **实际价值 = 省掉整段锁定累积时间（lock_time 连续照射数秒）**：僚机锁住后，机头一指即射。
+     取消 F-14 专属后价值成立，转"队级单实例"合理。
+   - ⚠ 顺带查出两个生效性缺口（T1 squad_once 落地时一并根治）：
+     ① aura 判定读"当前操控机"的 aura_skill 字段，而该字段只写在拿技能那一架上 → **切控后共享静默关闭**；
+     ② 僚机雷达 ×1.5 只应用于拿技能瞬间在场的僚机 → 之后入队的新僚机吃不到。
+     squad_once 语义落地 = 标记迁队级账本 + 新成员入队 re-apply，两洞同根治。
 2. **寒蝉效应友军误伤 bug**（用户实测）：被弹 AoE JAM 疑似波及队友——查实现加 team 过滤。
+   - ✅ **实锤并已修复（2026-07-21）**：AOE 广播（aoe_broadcast.apply_status_in_radius）的 team_filter
+     传了 -1（语义=不过滤队伍）→ 半径内友军全中，连受害者自己（圆心距离 0）也被 JAM；顺带把
+     on_player_jam_landed 命中计数灌水（jam_self_overload"JAM 命中≥1 敌→自身超载"因自己算 1 发而必触发）。
+     修复：改传 TEAM_HOSTILE。**同病同修**：机炮击杀落 flare（skill_gun_kill_flare_drop）的 JAM
+     同样传 -1，一并修复；对照组 flare_aoe_jam / torpedo_aoe_jam 本来就传敌方过滤，无恙。
 
 ## 5. 验收
 
@@ -194,7 +210,7 @@ reconstruction_complete: true
 
 ## 6. 任务拆分（依赖序）
 
-- [ ] **T0 排查批**：数据链生效性 + 僚机锁可射性结论；寒蝉效应 team 过滤修复。（½ 天级）
+- [x] **T0 排查批**：数据链生效性 + 僚机锁可射性结论；寒蝉效应 team 过滤修复。（½ 天级）✅ 2026-07-21
 - [ ] **T1 归属底座**：`classes`/`scope:"ace"`/`squad_once`/`milestone_plus` 四字段 + apply_upgrade 品类过滤分流 + 品类身份查询（squad-upgrade-ownership §2.8 实装并入）+ milestone_bonus 双计数与量表加成格 + 卡面角标。**本批地基，先行。**
 - [ ] **T2 纯数据批**：§2.3 全部 delta（value/stacks/rarity/轴迁移/A10 限定/需要词条/奖励池迁移/移除 railgun_damage）+ 27 条新表条目中零代码可落的（QAAM/漂浮雷/忠诚僚机强化组、座舱护甲字段版）+ i18n 三语全同步 + 重跑生成器。
 - [ ] **T3 钩子批**：僚机阵亡事件（3 技共用）/ 弹尽事件（2 技）/ 升级回复 / 轮盘联动 ×2 / 地勤优化 / 检讨·适应·强化加力（AB 钩子）/ QAAM 嗜血。
@@ -210,4 +226,5 @@ reconstruction_complete: true
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-07-21 | 2 | 开工：三项确认按推荐值定案（+1 轴进度 cap=2；王牌=仅当前操控机；机炮吊舱两道翼挂、旧档表现变化接受）。§4 排查双项闭环——①数据链结论：共享真生效、玩家可对僚机锁目标发射（价值=免锁定累积），另记两个 squad_once 缺口（切控失效/晚入队缺加成）留 T1 根治；②寒蝉效应 JAM 误伤实锤修复（team_filter -1→TEAM_HOSTILE），同病的机炮落雷 JAM 一并修。§6 T0 勾选。 |
 | 2026-07-20 | 1 | 初稿：结构化用户 720 表——①"+1 轴进度"系统设计评估（合理；预留档通道；cap 2 护栏待二选一）；②归属词汇 v6（王牌层为 AoE 控场强技收敛回归；A10 限定=exclusive_to 复用；需要词条=requires_skill 复用；队级单实例 1→8 条）；③新增 27 条（含 id 拟名与挂点）/ 改动 ~35 条 delta / 移除 railgun_damage；④实现对照四档（纯数据/复用钩子/追加功能/全新机制）——加力模式充能钩子(07-20 现成)、combat-feed 击杀归因、轮盘 guard/sprint 状态、recompute 重算点、AB 滚转偏飞契约全复用；⑤排查双项（数据链生效+僚机锁可射、寒蝉友军 JAM bug）；⑥任务拆分 T0~T6。 |

@@ -133,7 +133,7 @@ static func dispatch_on_kill(killer: Aircraft, victim: Aircraft) -> void:
 	if kind == "gun" and stacks.get(SKILL_GUN_KILL_FLARE_DROP, 0) > 0:
 		var jam_hits: int = AOEBroadcast.apply_status_in_radius(
 			victim.global_position, GUN_KILL_FLARE_DROP_JAM_RADIUS_PX,
-			-1, StatusEffects.JAM, GUN_KILL_FLARE_DROP_JAM_DURATION, killer)
+			CombatUnit.TEAM_HOSTILE, StatusEffects.JAM, GUN_KILL_FLARE_DROP_JAM_DURATION, killer)
 		on_player_jam_landed(killer, jam_hits)
 
 	# ── 钩子：击杀进入 BLOODLUST ──
@@ -216,7 +216,7 @@ static func dispatch_on_hit(victim: Aircraft, attacker: Node, kind: String, _amo
 	if (kind == "missile" or kind == "aoe") and stacks.get(SKILL_MISSILE_HIT_AOE_JAM, 0) > 0:
 		var hj_hits: int = AOEBroadcast.apply_status_in_radius(
 			victim.global_position, MISSILE_HIT_AOE_JAM_RADIUS_PX,
-			-1, StatusEffects.JAM, MISSILE_HIT_AOE_JAM_DURATION, victim)
+			CombatUnit.TEAM_HOSTILE, StatusEffects.JAM, MISSILE_HIT_AOE_JAM_DURATION, victim)
 		on_player_jam_landed(victim, hj_hits)
 
 	# 注：危机赫尔贝特（evasion_herbst）改为预测式触发，逻辑迁移到 aircraft.gd._update_evasion_herbst_skill
