@@ -501,10 +501,12 @@ func _on_add_skill_by_id(uid: String) -> void:
 		return
 	for u in SurvivorData.UPGRADES:
 		if u["id"] == uid:
-			survivor_player.apply_upgrade(u)
+			# 与正式获得路径同语义（skills-720 T1）：归属分流 + "+1 轴进度" + 生效子集重建
+			game_scene._distribute_upgrade(u)
 			game_scene.upgrade_stacks[uid] = game_scene.upgrade_stacks.get(uid, 0) + 1
+			game_scene._grant_milestone_plus(u)
 			break
-	SurvivorData.recompute_category_bonuses(survivor_player.aircraft, game_scene.upgrade_stacks)
+	game_scene._refresh_squad_effective_stacks()
 	_refresh()
 
 func _on_add_skill() -> void:
@@ -515,13 +517,14 @@ func _on_add_skill() -> void:
 		return
 	var uid: String = _add_option.get_item_metadata(idx)
 
-	# 查找升级定义
+	# 查找升级定义（与正式获得路径同语义：归属分流 + "+1 轴进度" + 生效子集重建）
 	for u in SurvivorData.UPGRADES:
 		if u["id"] == uid:
-			survivor_player.apply_upgrade(u)
+			game_scene._distribute_upgrade(u)
 			game_scene.upgrade_stacks[uid] = game_scene.upgrade_stacks.get(uid, 0) + 1
+			game_scene._grant_milestone_plus(u)
 			break
-	SurvivorData.recompute_category_bonuses(survivor_player.aircraft, game_scene.upgrade_stacks)
+	game_scene._refresh_squad_effective_stacks()
 	_refresh()
 
 func _status_label_for(sid: String) -> String:

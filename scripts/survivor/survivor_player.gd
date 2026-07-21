@@ -103,6 +103,34 @@ func total_axis_points() -> int:
 		t += int(v)
 	return t
 
+# ── "+1 轴进度"加成（spec skills-720-rework §1.1）──
+## 带 milestone_plus 的技能给对应轴的**里程碑进度** +1——不是进化门槛点数：
+## gates 仍只查 axis_points（双计数隔离），里程碑判档用 get_milestone_progress()。
+## 每轴 cap = 2（2026-07-21 定案）：超出部分浪费（量表画到顶），保"预留档=稀罕"。
+const MILESTONE_BONUS_CAP: int = 2
+var milestone_bonus: Dictionary = {
+	SurvivorData.AXIS_GLADIATOR: 0,
+	SurvivorData.AXIS_KNIGHT: 0,
+	SurvivorData.AXIS_SCHEMER: 0,
+}
+
+func add_milestone_bonus(axis: StringName, profile: PlayableAircraft = null) -> void:
+	if not milestone_bonus.has(axis):
+		push_warning("SurvivorPlayer.add_milestone_bonus: 未知属性轴 %s" % axis)
+		return
+	if int(milestone_bonus[axis]) >= MILESTONE_BONUS_CAP:
+		EventLogger.log_event("AXIS", "Player",
+			"%s 里程碑加成已满 cap %d，本次 +1 浪费" % [axis, MILESTONE_BONUS_CAP])
+		return
+	milestone_bonus[axis] = int(milestone_bonus[axis]) + 1
+	EventLogger.log_event("AXIS", "Player", "%s 里程碑进度 +1（加成 %d/%d，门槛点不变）" % [
+		axis, int(milestone_bonus[axis]), MILESTONE_BONUS_CAP])
+	apply_crossed_milestones(axis, profile)
+
+## 里程碑进度 = 门槛点数 + 加成（量表 / 里程碑判档用；进化 gates 仍读 axis_points 纯点）
+func get_milestone_progress(axis: StringName) -> int:
+	return get_axis_points(axis) + int(milestone_bonus.get(axis, 0))
+
 # ── 局内武器库（spec inrun-weapon-inventory）──
 ## 特殊武器 = 玩家的外部装备，到手即永久（局内）：进化前快照当前机上的特殊武器
 ## （存资源**引用**——railgun_charge 等强化就长在资源上，引用即强化载体），换型后补挂到新机。
@@ -171,7 +199,7 @@ func remount_weapons() -> void:
 func apply_crossed_milestones(axis: StringName, profile: PlayableAircraft = null) -> void:
 	if not aircraft or not aircraft.params:
 		return
-	var pts: int = get_axis_points(axis)
+	var pts: int = get_milestone_progress(axis)   # 点数 + "+1 轴进度"加成（gates 不走这里）
 	var done: Array = applied_milestones.get(axis, [])
 	for m in SurvivorData.milestones_for(axis, profile):
 		var need: int = int(m["points"])
@@ -252,6 +280,32 @@ func _apply_milestone_effect(m: Dictionary) -> void:
 			p.radar_half_angle += v  # 矩阵"锥"口径 = 半角（params.radar_half_angle）
 		_:
 			push_warning("未知里程碑 stat: %s" % str(m.get("stat")))
+
+## 对指定飞机应用一条升级（全队/品类下发用，spec skills-720-rework T1）。
+## 借用 self.aircraft 指针走同一份 match 逻辑后还原——与单机路径语义逐字节一致，
+## 避免 400 行 match 全量改名；同步调用链内无人读 self.aircraft 之外的机引用。
+func apply_upgrade_to(target: Aircraft, upgrade: Dictionary) -> void:
+	if target == null or not is_instance_valid(target) or target.params == null:
+		return
+	if target == aircraft:
+		apply_upgrade(upgrade)
+		return
+	var saved := aircraft
+	aircraft = target
+	apply_upgrade(upgrade)
+	aircraft = saved
+
+## 从指定飞机上剥离一条升级（王牌切控迁移用；仅 SurvivorData.ACE_FIELD_STATS 白名单 stat 有意义，
+## 触发型技能走 meta 生效子集天然迁移不经此）。T2 数据批标 ace 的字段型技能必须在此实现逆操作。
+func strip_upgrade_from(target: Aircraft, upgrade: Dictionary) -> void:
+	if target == null or not is_instance_valid(target) or target.params == null:
+		return
+	var stat: String = str(upgrade.get("stat", ""))
+	if not SurvivorData.ACE_FIELD_STATS.has(stat):
+		return
+	match stat:
+		_:
+			push_warning("strip_upgrade_from: ACE_FIELD_STATS 登记了 %s 但未实现逆操作" % stat)
 
 func apply_upgrade(upgrade: Dictionary) -> void:
 	if not aircraft or not aircraft.params:

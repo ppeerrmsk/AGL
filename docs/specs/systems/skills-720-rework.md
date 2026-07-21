@@ -1,9 +1,9 @@
 ---
 id: skills-720-rework
 kind: system
-status: in-progress  # 2026-07-21 开工：三项开工确认按推荐值定案（+1 cap=2 / 王牌=仅操控机 / 机炮吊舱两道翼挂）；T0 已闭环
+status: in-progress  # 2026-07-21 开工：三项开工确认按推荐值定案（+1 cap=2 / 王牌=仅操控机 / 机炮吊舱两道翼挂）；T0/T1 已闭环
 schema_version: 1
-spec_version: 2
+spec_version: 3
 owner: 用户
 depends_on: [evolution-attribute-gates, squad-upgrade-ownership, afterburner-mode, inrun-weapon-inventory, command-wheel, zone-reward-docking]
 reconstruction_complete: true
@@ -211,7 +211,7 @@ reconstruction_complete: true
 ## 6. 任务拆分（依赖序）
 
 - [x] **T0 排查批**：数据链生效性 + 僚机锁可射性结论；寒蝉效应 team 过滤修复。（½ 天级）✅ 2026-07-21
-- [ ] **T1 归属底座**：`classes`/`scope:"ace"`/`squad_once`/`milestone_plus` 四字段 + apply_upgrade 品类过滤分流 + 品类身份查询（squad-upgrade-ownership §2.8 实装并入）+ milestone_bonus 双计数与量表加成格 + 卡面角标。**本批地基，先行。**
+- [x] **T1 归属底座**：`classes`/`scope:"ace"`/`squad_once`/`milestone_plus` 四字段 + apply_upgrade 品类过滤分流 + 品类身份查询（squad-upgrade-ownership §2.8 实装并入）+ milestone_bonus 双计数与量表加成格 + 卡面角标。**本批地基，先行。**✅ 2026-07-21（bench `skills720` 31 断言 + 回归门 32 项全绿；含 T0 缺口根治：数据链/集火改队级账本判定、切控王牌迁移 chokepoint、新僚机入队补挂钩子、F4 面板同语义）
 - [ ] **T2 纯数据批**：§2.3 全部 delta（value/stacks/rarity/轴迁移/A10 限定/需要词条/奖励池迁移/移除 railgun_damage）+ 27 条新表条目中零代码可落的（QAAM/漂浮雷/忠诚僚机强化组、座舱护甲字段版）+ i18n 三语全同步 + 重跑生成器。
 - [ ] **T3 钩子批**：僚机阵亡事件（3 技共用）/ 弹尽事件（2 技）/ 升级回复 / 轮盘联动 ×2 / 地勤优化 / 检讨·适应·强化加力（AB 钩子）/ QAAM 嗜血。
 - [ ] **T4 计数缩放批**：历战者/全速推进/电子战专家/武器大师（recompute 扩展一次做四条）。
@@ -226,5 +226,6 @@ reconstruction_complete: true
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-07-21 | 3 | T1 归属底座落地：①四字段（scope/classes/milestone_plus + ACE_FIELD_STATS 白名单）与纯谓词 upgrade_applies_to_machine；②品类身份=进化节点机种类映射（EvolutionSystem.class_identity_of_profile，9 机种类全覆盖）；③归属分流 _distribute_upgrade 接管全部获得点（选卡/结算/战区奖励/boss debug/bench/F4 面板/换型重放），僚机 meta 记"生效子集"而非共享整本账；④milestone_bonus 双计数（cap=2）+ 量表加成格（半透明+亮边）+ 战术地图明细同判档 + 卡面归属角标（i18n 5 键三语）；⑤王牌切控迁移挂 _set_player_aircraft chokepoint（触发型走 meta 重建、字段型走 strip 白名单）；⑥进化顺序修正：僚机先 evolve 再全队重放（否则重放被 params 重置抹掉）；⑦数据链/集火锁 SLOW 改队级账本判定（T0 缺口①）+ 新僚机入队补挂 _apply_build_to_new_member（缺口②）。bench 新增 `skills720` 31 断言。 |
 | 2026-07-21 | 2 | 开工：三项确认按推荐值定案（+1 轴进度 cap=2；王牌=仅当前操控机；机炮吊舱两道翼挂、旧档表现变化接受）。§4 排查双项闭环——①数据链结论：共享真生效、玩家可对僚机锁目标发射（价值=免锁定累积），另记两个 squad_once 缺口（切控失效/晚入队缺加成）留 T1 根治；②寒蝉效应 JAM 误伤实锤修复（team_filter -1→TEAM_HOSTILE），同病的机炮落雷 JAM 一并修。§6 T0 勾选。 |
 | 2026-07-20 | 1 | 初稿：结构化用户 720 表——①"+1 轴进度"系统设计评估（合理；预留档通道；cap 2 护栏待二选一）；②归属词汇 v6（王牌层为 AoE 控场强技收敛回归；A10 限定=exclusive_to 复用；需要词条=requires_skill 复用；队级单实例 1→8 条）；③新增 27 条（含 id 拟名与挂点）/ 改动 ~35 条 delta / 移除 railgun_damage；④实现对照四档（纯数据/复用钩子/追加功能/全新机制）——加力模式充能钩子(07-20 现成)、combat-feed 击杀归因、轮盘 guard/sprint 状态、recompute 重算点、AB 滚转偏飞契约全复用；⑤排查双项（数据链生效+僚机锁可射、寒蝉友军 JAM bug）；⑥任务拆分 T0~T6。 |

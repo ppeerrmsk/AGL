@@ -76,6 +76,17 @@ const PITY_THRESHOLD: Dictionary = {
 #   excludes: Array[String] — 互斥技能；列表中任一技能 stacks>0 时，本升级不再出现在抽卡池
 #               例：cobra_skill ↔ evasion_herbst（激活条件相同，二选一）
 #
+# ── 归属词汇 v6（spec skills-720-rework §1.2 / squad-upgrade-ownership §2.8）──
+#   scope: "" 缺省 = 通用全队（全队逐机生效）
+#          "ace" = 王牌：仅当前操控机生效（AoE 控场/操作型强技；切控随人迁移）
+#          "squad_once" = 队级单实例：只记 upgrade_stacks 账本、不逐机应用
+#                         （消费点直接读账本，如数据链锁定共享 / xp_mult）
+#   classes: Array[String] — 品类限定（"gladiator"/"knight"/"schemer"）；
+#            非空 = 全队下发、仅品类身份匹配的机生效（身份=进化节点机种类，
+#            见 EvolutionSystem.CLASS_IDENTITY_BY_CATEGORY）；可与 scope:"ace" 叠加（过滤∩操控机）
+#   milestone_plus: "gladiator"/"knight"/"schemer" — 获得该技能时对应轴**里程碑进度** +1
+#            （不给进化门槛点数；每轴 cap=2，见 SurvivorPlayer.MILESTONE_BONUS_CAP）
+#
 # 技能可用性判定见 SurvivorData.is_upgrade_available_for()
 
 const UPGRADES: Array[Dictionary] = [
@@ -1123,7 +1134,7 @@ static func recompute_category_bonuses(aircraft: Aircraft, stacks: Dictionary) -
 ## 拒绝条件：
 ##   - upgrade.requires 中列出的硬件，主角缺失任意一项
 ##   - upgrade.exclusive_to 非空，且 aircraft_id 不在其中
-static func is_upgrade_available_for(upgrade: Dictionary, aircraft_id: StringName, p: AircraftParams, owned_stacks: Dictionary = {}) -> bool:
+static func is_upgrade_available_for(upgrade: Dictionary, aircraft_id: StringName, p: AircraftParams, owned_stacks: Dictionary = {}, squad_classes: Array = []) -> bool:
 	# ── 硬件要求 ──
 	# 走 AircraftParams.has_equipment_of_kind：双查 equipment 数组 + 老字段（gun/missile/...）
 	# 自动支持任意 equipment_kind（railgun / laser / cobra / herbst / ecm 未来扩展）
@@ -1142,6 +1153,19 @@ static func is_upgrade_available_for(upgrade: Dictionary, aircraft_id: StringNam
 				matched = true
 				break
 		if not matched:
+			return false
+
+	# ── 品类池门控（squad-upgrade-ownership §2.8 实装草图 4）──
+	# classes 非空时：队伍现有品类身份并集须与之相交，否则全队没人吃得到 → 不进池。
+	# squad_classes 传空数组 = 调用方不启用该过滤（debug 通道 / 兼容旧调用）。
+	var cls: Variant = upgrade.get("classes", null)
+	if cls != null and not (cls as Array).is_empty() and not squad_classes.is_empty():
+		var cls_hit := false
+		for c in cls:
+			if squad_classes.has(StringName(str(c))):
+				cls_hit = true
+				break
+		if not cls_hit:
 			return false
 
 	# ── 互斥技能（excludes）──
@@ -1166,6 +1190,53 @@ static func is_upgrade_available_for(upgrade: Dictionary, aircraft_id: StringNam
 		if not has_any:
 			return false
 
+	return true
+
+
+# ── 归属词汇 v6 查询与生效谓词（spec skills-720-rework §1.2）─────────
+
+## 技能 scope（"" = 通用全队 / "ace" 王牌 / "squad_once" 队级单实例）
+static func upgrade_scope(u: Dictionary) -> String:
+	return str(u.get("scope", ""))
+
+
+## 技能品类限定数组（空 = 不限品类）
+static func upgrade_classes(u: Dictionary) -> Array:
+	var cls: Variant = u.get("classes", null)
+	return (cls as Array) if cls != null else []
+
+
+## 技能的 "+1 轴进度" 目标轴（&"" = 无）
+static func milestone_plus_of(u: Dictionary) -> StringName:
+	return StringName(str(u.get("milestone_plus", "")))
+
+
+## 王牌 scope 中"写飞机字段/params"的 stat 白名单：切控迁移需要显式剥离（strip）→ 重应用。
+## 触发型（skill_flag 走 meta 生效子集）不登记——meta 重建天然迁移。
+## ⚠ 把技能标为 scope:"ace" 时：若其 stat 写字段/params，必须同步登记到这里，
+## 并在 SurvivorPlayer.strip_upgrade_from 实现对应逆操作（否则切控双重叠加）。
+const ACE_FIELD_STATS: Array[String] = []
+
+
+## 一条技能是否对某架机生效（纯谓词——全队下发过滤 / 生效子集 meta 重建共用）。
+##   identity: 该机品类身份轴数组（EvolutionSystem.class_identity_of_profile）
+##   is_controlled: 该机是否当前操控机（scope:"ace" 只落操控机）
+## squad_once 恒 false：队级记账不落任何单机（效果由队级消费点读账本）。
+static func upgrade_applies_to_machine(u: Dictionary, identity: Array, is_controlled: bool) -> bool:
+	var scope := upgrade_scope(u)
+	if scope == "squad_once":
+		return false
+	if scope == "ace" and not is_controlled:
+		return false
+	var cls: Array = upgrade_classes(u)
+	if not cls.is_empty():
+		var matched := false
+		for c in cls:
+			if identity.has(StringName(str(c))):
+				matched = true
+				break
+		if not matched:
+			return false
 	return true
 
 

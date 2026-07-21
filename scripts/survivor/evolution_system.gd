@@ -66,6 +66,32 @@ static func all_nodes() -> Array:
 	_ensure_loaded()
 	return _nodes.values()
 
+# ── 飞机品类身份（spec skills-720-rework §1.2 / squad-upgrade-ownership §2.8）──
+## 机种类（树节点 category）→ 品类身份轴集合。与进化 gates / 卡片三轴同一套词汇：
+## 攻击=斗士 / 远程=骑士 / 电战=策士 / 制空·桥接·母舰=斗骑 / 隐身=骑策 / omni·传说=三系全通。
+## 品类限定技能（UPGRADES.classes）按此过滤生效对象。
+const CLASS_IDENTITY_BY_CATEGORY: Dictionary = {
+	"attack": [&"gladiator"],
+	"air": [&"gladiator", &"knight"],
+	"bridge": [&"gladiator", &"knight"],
+	"carrier": [&"gladiator", &"knight"],
+	"range": [&"knight"],
+	"stealth": [&"knight", &"schemer"],
+	"ew": [&"schemer"],
+	"omni": [&"gladiator", &"knight", &"schemer"],
+	"legend": [&"gladiator", &"knight", &"schemer"],
+}
+
+## 机型档案 id → 品类身份（轴 StringName 数组）。
+## 未知档案 / 不在进化树上的机返回空数组（不吃任何品类限定技，通用技不受影响）。
+static func class_identity_of_profile(profile_id: StringName) -> Array:
+	_ensure_loaded()
+	var nid: StringName = node_id_for_profile(profile_id)
+	if nid == &"":
+		return []
+	var cat := str(node_of(nid).get("category", ""))
+	return CLASS_IDENTITY_BY_CATEGORY.get(cat, [])
+
 # ── 属性门槛（spec evolution-attribute-gates §2.3/§2.4）──
 ## 节点 gates 字段形如 {"gladiator": 2} / air 类 {"gladiator":1,"knight":1,"sum_gk":3}
 ## / omni 三轴各写；"sum_gk" = 斗士+骑士合计（制空混合门）。无字段 = 无门槛（T1 起手）。

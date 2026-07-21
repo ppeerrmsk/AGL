@@ -73,7 +73,7 @@ func _ready() -> void:
 
 ## current = 当前节点（可空）；exits = 出口；choices = 升级三选一；history = 爬线历史（节点 id 序列）；
 ## axis_points = 三轴属性点（属性门槛缺口显示，spec evolution-attribute-gates）
-func show_offer(current: Dictionary, exits: Array, team_level: int, choices: Array, history: Array = [], axis_points: Dictionary = {}) -> void:
+func show_offer(current: Dictionary, exits: Array, team_level: int, choices: Array, history: Array = [], axis_points: Dictionary = {}, milestone_bonus: Dictionary = {}) -> void:
 	_evo_picked = false
 	_up_picked = false
 	_evo_selected = &""
@@ -113,7 +113,7 @@ func show_offer(current: Dictionary, exits: Array, team_level: int, choices: Arr
 	# 三轴量表（竖条分格 + 里程碑刻度圈，2026-07-19 用户 mockup）：
 	# 强化栏迁回等级流后，右栏顶部改陈列点数分配现状——选进化目标时门槛差多少一目了然
 	var bars := AxisBarsPanel.new()
-	bars.show_state(axis_points)
+	bars.show_state(axis_points, null, milestone_bonus)
 	bars.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_up_pane.add_child(bars)
 

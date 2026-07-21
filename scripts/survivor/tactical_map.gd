@@ -940,7 +940,7 @@ func _refresh_axis_panel() -> void:
 	_axis_panel.add_child(head)
 	# 三轴量表（竖条分格视觉，2026-07-19 用户 mockup；里程碑刻度圈随档位亮起）
 	var bars := AxisBarsPanel.new()
-	bars.show_state(sp.axis_points, profile)
+	bars.show_state(sp.axis_points, profile, sp.milestone_bonus)
 	bars.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_axis_panel.add_child(bars)
 	# 里程碑明细三列（2026-07-19 用户令：每档写明具体强化什么，不只留标题）
@@ -952,7 +952,7 @@ func _refresh_axis_panel() -> void:
 	_axis_panel.add_child(grid)
 	for axis in SurvivorData.AXES:
 		var col: Color = SurvivorData.AXIS_COLORS.get(axis, TEXT_COLOR)
-		var pts: int = sp.get_axis_points(axis)
+		var pts: int = sp.get_milestone_progress(axis)   # 判档含 "+1 轴进度"加成（与量表一致）
 		var vb := VBoxContainer.new()
 		vb.custom_minimum_size = Vector2(114, 0)
 		vb.add_theme_constant_override("separation", 0)

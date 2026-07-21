@@ -63,6 +63,7 @@ const UNIT_TESTS: Dictionary = {
 	"slow_air_pass": "res://scripts/tests/test_slow_air_pass.gd",
 	"presentation": "res://scripts/tests/test_presentation.gd",
 	"evo_detail": "res://scripts/tests/test_evolution_detail.gd",
+	"skills720": "res://scripts/tests/test_skills_720.gd",
 }
 
 var bench_active: bool = false

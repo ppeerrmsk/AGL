@@ -12,6 +12,8 @@ var _buttons: Array[Button] = []
 var _rarity_badges: Array[Label] = []
 ## 三轴归属徽章：每张卡片左上角的轴色 chip（"斗士 +1"，spec evolution-attribute-gates §3.1）
 var _axis_badges: Array[Label] = []
+## 归属角标：每张卡片左下角（skills-720 §1.2：通用◈全队 / 品类限定 / 王牌 / 队级单件 + "+1 轴进度"）
+var _scope_badges: Array[Label] = []
 var _choices: Array[Dictionary] = []
 
 func _ready() -> void:
@@ -124,6 +126,22 @@ func _build_ui() -> void:
 		btn.add_child(axis_badge)
 		_axis_badges.append(axis_badge)
 
+		# 归属角标：左下角小标签——"这条强化谁吃得到"选卡时可见（skills-720 §1.2）
+		var scope_badge := Label.new()
+		scope_badge.text = ""
+		scope_badge.add_theme_font_size_override("font_size", 11)
+		var scope_bg := StyleBoxFlat.new()
+		scope_bg.bg_color = Color(0.0, 0.0, 0.0, 0.55)
+		scope_bg.set_corner_radius_all(3)
+		scope_bg.set_content_margin_all(4)
+		scope_badge.add_theme_stylebox_override("normal", scope_bg)
+		scope_badge.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
+		scope_badge.position = Vector2(6, -26)
+		scope_badge.size = Vector2(200, 18)
+		scope_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		btn.add_child(scope_badge)
+		_scope_badges.append(scope_badge)
+
 	# 下部空白
 	var spacer_bottom := Control.new()
 	spacer_bottom.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -204,12 +222,44 @@ func populate(choices: Array[Dictionary]) -> void:
 				badge.text = rarity_label
 				badge.add_theme_color_override("font_color", rarity_color)
 				badge.visible = rarity_label != ""
+
+			# 归属角标（skills-720 §1.2）：通用◈全队 / 品类=系名+轴色 / 王牌金色 / 队级单件
+			# + "+1 轴进度"提示（milestone_plus）
+			if i < _scope_badges.size():
+				var sb := _scope_badges[i]
+				var parts: Array = []
+				var sb_color := Color(0.72, 0.76, 0.8)
+				var scope: String = SurvivorData.upgrade_scope(choices[i])
+				var cls: Array = SurvivorData.upgrade_classes(choices[i])
+				if scope == "ace":
+					sb_color = Color(1.0, 0.84, 0.3)
+					parts.append(tr("UPGRADE_SCOPE_ACE"))
+				elif scope == "squad_once":
+					sb_color = Color(0.5, 0.85, 0.95)
+					parts.append(tr("UPGRADE_SCOPE_SQUAD_ONCE"))
+				if not cls.is_empty():
+					var cls_names: Array = []
+					for c in cls:
+						cls_names.append(tr(str(SurvivorData.AXIS_I18N_KEY.get(StringName(str(c)), ""))))
+					if scope != "ace":
+						sb_color = SurvivorData.AXIS_COLORS.get(StringName(str(cls[0])), sb_color)
+					parts.append(tr("UPGRADE_CLASS_LIMITED_FMT") % "/".join(PackedStringArray(cls_names)))
+				if parts.is_empty():
+					parts.append(tr("UPGRADE_SCOPE_SQUAD"))
+				var mp: StringName = SurvivorData.milestone_plus_of(choices[i])
+				if mp != &"":
+					parts.append(tr("UPGRADE_MILESTONE_PLUS_FMT") % tr(str(SurvivorData.AXIS_I18N_KEY.get(mp, ""))))
+				sb.text = " · ".join(PackedStringArray(parts))
+				sb.add_theme_color_override("font_color", sb_color)
+				sb.visible = true
 		else:
 			_buttons[i].visible = false
 			if i < _rarity_badges.size():
 				_rarity_badges[i].visible = false
 			if i < _axis_badges.size():
 				_axis_badges[i].visible = false
+			if i < _scope_badges.size():
+				_scope_badges[i].visible = false
 
 ## 5 轴前缀（i18n key）
 func _axis_prefix(axis: String) -> String:

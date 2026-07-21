@@ -351,10 +351,12 @@ func _ready() -> void:
 	player_aircraft.bullet_manager = bullet_manager
 	player_aircraft.missile_manager = missile_manager
 	player_aircraft.selected = true
-	# 把 upgrade_stacks 通过 meta 暴露给 SkillHooks（钩子链 dispatch_on_kill / dispatch_on_hit
-	# 用此字段判断玩家是否已选某技能）。Dictionary 是引用类型，后续 upgrade_stacks[id]+=1
-	# 自动反映在 meta 上，无需重复 set_meta。
-	player_aircraft.set_meta("upgrade_stacks", upgrade_stacks)
+	# 机型档案 stamp（skills-720 §1.2 品类身份查询用；进化换型时同步重打）
+	player_aircraft.set_meta("profile_id", profile.id)
+	# 生效技能子集 meta（skill_hooks / aircraft_flares / bullet_manager 读它判触发技能）
+	# 由 _refresh_squad_effective_stacks() 维护：获得升级/切控/进化/入队时重建。
+	# 王牌技只在操控机、品类技只落身份匹配机——不再把整本队级账本共享引用给单机。
+	player_aircraft.set_meta("upgrade_stacks", {})
 	add_child(player_aircraft)
 	AircraftRenderer.player_ref = player_aircraft
 	# 引擎环境音：只给玩家一个循环源，按缩放+视野动态调音量
@@ -548,13 +550,14 @@ func _setup_boss_debug_scenario() -> void:
 		"level=%d theme=%s picks=%d boss=%s" % [
 			BOSS_DEBUG_LEVEL, _boss_debug_theme, _boss_debug_picks.size(), _boss_debug_id])
 
-	# 3. 批量 apply 每张升级（与升级 UI 选择路径走同一份逻辑）
+	# 3. 批量 apply 每张升级（与升级 UI 选择路径走同一份逻辑：归属分流 + "+1 轴进度"）
 	for upgrade in _boss_debug_picks:
-		survivor_player.apply_upgrade(upgrade)
+		_distribute_upgrade(upgrade)
 		var uid: String = String(upgrade["id"])
 		upgrade_stacks[uid] = int(upgrade_stacks.get(uid, 0)) + 1
-	# 重算战区 bonus（与正常升级链一致，确保派生倍率/category aura 同步）
-	SurvivorData.recompute_category_bonuses(player_aircraft, upgrade_stacks)
+		_grant_milestone_plus(upgrade)
+	# 生效子集 + 词条联动逐机重建（与正常升级链一致）
+	_refresh_squad_effective_stacks()
 
 	# 3.5 三轴点数补发（自然成长退役后跳级点数为 0）：按主题 build 的轴分布补满
 	# floor(15/3)=5 点，里程碑随加点自动生效——回填 debug 机体强度；debug 不查进化门槛
@@ -1052,11 +1055,12 @@ func _bench_auto_pick_upgrade() -> void:
 		survivor_player.consume_level_up_display()
 		return
 	var pick: Dictionary = pool[randi() % pool.size()]
-	survivor_player.apply_upgrade(pick)
+	_distribute_upgrade(pick)
 	var uid: String = String(pick["id"])
 	upgrade_stacks[uid] = int(upgrade_stacks.get(uid, 0)) + 1
-	# 重算战区 / category aura（与正常升级链一致）
-	SurvivorData.recompute_category_bonuses(player_aircraft, upgrade_stacks)
+	_grant_milestone_plus(pick)
+	# 生效子集 + 词条联动重建（与正常升级链一致）
+	_refresh_squad_effective_stacks()
 	# 解除"等待升级 UI"，让 SurvivorPlayer._process 继续排空 _pending_xp 触发下次 leveled_up
 	survivor_player.consume_level_up_display()
 
@@ -1179,9 +1183,10 @@ func _spawn_starting_wingmen(profile: PlayableAircraft) -> void:
 		SurvivorPlayableSetup.deep_dup_weapons(ac.params)
 		# 僚机走与长机完全相同的档案应用，确保起始属性（雷达/速度/G/武器/装填/伤害上限/
 		# 闪避/无限燃油 等）完全一致；is_wingman=true 仅跳过 codename 后缀。
-		# 升级仍然只作用于长机，所以僚机不会随玩家成长。
+		# 升级按归属分流全队下发（skills-720 T1）：通用/品类匹配技僚机同样吃到。
 		SurvivorPlayableSetup.apply(ac, profile, true)
 		ac.team = 0
+		ac.set_meta("profile_id", profile.id)   # 品类身份 stamp（与长机同型）
 
 		# 阵型槽位
 		var offset := sq.get_formation_offset(i)
@@ -1986,8 +1991,9 @@ func _update_radar_locks(delta: float) -> void:
 	# ── 数据链光环（F-14）：team 0 飞机间共享 radar_targets（取每个目标最大照射时间） ──
 	# 队友锁的玩家也算锁；玩家锁的队友也算锁。jam 中的飞机不参与共享（被干扰雷达失能）。
 	# 注意：发射仍受 cone / envelope / range 校验（aircraft_weapons.gd），不会出现"看不见就开火"。
+	# 队级账本判定（skills-720 T0 缺口①根治：切控/换帅后共享不再静默关闭）
 	if player_aircraft and not player_aircraft.is_destroyed \
-			and player_aircraft is Aircraft and player_aircraft.aura_skill == &"data_link":
+			and player_aircraft is Aircraft and int(upgrade_stacks.get("data_link", 0)) > 0:
 		var team0_ac: Array = []
 		for u in all_units:
 			if u is Aircraft and u.is_player_squad() and not u.is_destroyed and not u.status_jam_active:
@@ -2008,8 +2014,9 @@ func _update_radar_locks(delta: float) -> void:
 						ally.radar_targets[t] = v
 
 	# §C F-14 专属技能：全僚机锁定同一敌机 → 给该敌机 SLOW（专门加在 data_link 之后；要 ≥2 架在场）
+	# 同上：队级账本判定，切控/换帅不掉效果
 	if player_aircraft and not player_aircraft.is_destroyed \
-			and player_aircraft is Aircraft and player_aircraft.f14_squad_lock_slow_active:
+			and player_aircraft is Aircraft and int(upgrade_stacks.get("f14_squad_lock_slow", 0)) > 0:
 		var team0_a: Array = []
 		for u in all_units:
 			if u is Aircraft and u.is_player_squad() and not u.is_destroyed and not u.status_jam_active:
@@ -2313,6 +2320,7 @@ func _switch_player_to(new_ac: Aircraft) -> void:
 func _set_player_aircraft(ac: Aircraft) -> void:
 	if not ac or not is_instance_valid(ac):
 		return
+	var prev_controlled: Aircraft = player_aircraft
 	player_aircraft = ac
 	AircraftRenderer.player_ref = ac
 	if survivor_player:
@@ -2343,6 +2351,10 @@ func _set_player_aircraft(ac: Aircraft) -> void:
 	# AudioManager._engine_host 同样是缓存：不重绑的话引擎声会留在旧机上，
 	# 旧机被击落后 is_instance_valid 守卫让它静默消音（不崩，但玩家侧"没声了"）。
 	AudioManager.start_player_engine(ac)
+	# 王牌技随操控机迁移 + 全队生效子集重建（skills-720 T1；切控/换帅统一走本 chokepoint）
+	if prev_controlled != ac:
+		_migrate_ace_field_upgrades(prev_controlled, ac)
+		_refresh_squad_effective_stacks()
 
 ## 换帅信号回调（spec §3.7 击落自动接管）：当前操控机阵亡 → 自动接管新长机。
 func _on_squad_leader_changed(new_leader: Aircraft) -> void:
@@ -2504,10 +2516,11 @@ func _on_player_leveled_up(_new_level: int) -> void:
 func _roll_upgrade_choices() -> Array[Dictionary]:
 	var available: Array[Dictionary] = []
 	var p: AircraftParams = player_aircraft.params if player_aircraft else null
+	var present_classes: Array = _squad_present_classes()
 	for u in SurvivorData.UPGRADES:
 		if u.get("evolved", false):
 			continue  # 战区奖励池技能不进随机池
-		if not SurvivorData.is_upgrade_available_for(u, _player_profile_id, p, upgrade_stacks):
+		if not SurvivorData.is_upgrade_available_for(u, _player_profile_id, p, upgrade_stacks, present_classes):
 			continue
 		if LoadoutLedger.is_upgrade_gated(u):
 			continue  # Doctrine 门控：需先在配件商店解锁
@@ -2526,10 +2539,11 @@ func _roll_axis_cards() -> Array[Dictionary]:
 	for a in SurvivorData.AXES:
 		by_axis[a] = []
 	var p: AircraftParams = player_aircraft.params if player_aircraft else null
+	var present_classes: Array = _squad_present_classes()
 	for u in SurvivorData.UPGRADES:
 		if u.get("evolved", false):
 			continue  # 战区奖励池技能不进随机池
-		if not SurvivorData.is_upgrade_available_for(u, _player_profile_id, p, upgrade_stacks):
+		if not SurvivorData.is_upgrade_available_for(u, _player_profile_id, p, upgrade_stacks, present_classes):
 			continue
 		if LoadoutLedger.is_upgrade_gated(u):
 			continue
@@ -2545,16 +2559,128 @@ func _roll_axis_cards() -> Array[Dictionary]:
 		cards.append(c)
 	return cards
 
-## 应用一条升级（apply + 记栈 + 旧进化链检测 + 分类加成重算）。返回触发的旧进化技能名（无则 ""）。
-## 供 结算规划站 / 旧 upgrade_ui 信号 两个入口共用（不含暂停/恢复）。
+## ════════════════════════════════════════════════
+##  升级归属分流（spec skills-720-rework T1 / squad-upgrade-ownership §2.8 实装）
+## ════════════════════════════════════════════════
+
+## 玩家小队存活成员（含长机）。无编队主角 = [player_aircraft]。
+func _squad_members_alive() -> Array:
+	var out: Array = []
+	if _squad:
+		for m in _squad.members:
+			if m is Aircraft and is_instance_valid(m) and not m.is_destroyed:
+				out.append(m)
+	if out.is_empty() and player_aircraft and is_instance_valid(player_aircraft) \
+			and not player_aircraft.is_destroyed:
+		out.append(player_aircraft)
+	return out
+
+## 某架玩家小队机的品类身份（进化节点机种类 → 轴集合）。
+## 档案 id 读 meta "profile_id"（出生/进化时 stamp）；长机兜底 _player_profile_id。
+func _class_identity_of(ac: Aircraft) -> Array:
+	if ac == null or not is_instance_valid(ac):
+		return []
+	var pid := StringName(str(ac.get_meta("profile_id", "")))
+	if pid == &"" and ac == player_aircraft:
+		pid = _player_profile_id
+	return EvolutionSystem.class_identity_of_profile(pid)
+
+## 队伍现有品类身份并集（卡池品类门控用：全队没人吃得到的品类技不进池）。
+func _squad_present_classes() -> Array:
+	var got: Dictionary = {}
+	for m in _squad_members_alive():
+		for c in _class_identity_of(m):
+			got[c] = true
+	return got.keys()
+
+## 按归属把一条升级下发到应生效的机上：通用→全队逐机；品类→身份匹配机；
+## 王牌→仅当前操控机；squad_once→只应用一次长机侧效果（队级效果由消费点读账本）。
+## 调用方负责 upgrade_stacks 记账，批量结束后调 _refresh_squad_effective_stacks()。
+func _distribute_upgrade(upgrade: Dictionary) -> void:
+	if survivor_player == null:
+		return
+	if SurvivorData.upgrade_scope(upgrade) == "squad_once":
+		survivor_player.apply_upgrade(upgrade)
+		return
+	for m in _squad_members_alive():
+		if SurvivorData.upgrade_applies_to_machine(
+				upgrade, _class_identity_of(m), m == player_aircraft):
+			survivor_player.apply_upgrade_to(m, upgrade)
+
+## 获得技能时的"+1 轴进度"（spec skills-720-rework §1.1；cap 逻辑在 SurvivorPlayer）。
+## 只挂在获得点（选卡/战区奖励/debug 灌注）；换型重放不重发。
+func _grant_milestone_plus(upgrade: Dictionary) -> void:
+	var axis: StringName = SurvivorData.milestone_plus_of(upgrade)
+	if axis != &"" and survivor_player:
+		survivor_player.add_milestone_bonus(axis, _player_profile)
+
+## 重建全队"生效技能子集"meta + 逐机重算词条联动。
+## skill_hooks / aircraft_flares / bullet_manager 读各机 meta 判触发技能：
+## 王牌技随当前操控机走、品类技只落身份匹配机、squad_once 不落单机（账本级）。
+## 调用点：upgrade_stacks 变更后 / 切控换帅后 / 进化重放后 / 新僚机入队后。
+func _refresh_squad_effective_stacks() -> void:
+	for m in _squad_members_alive():
+		var eff: Dictionary = {}
+		var identity: Array = _class_identity_of(m)
+		var is_ctrl: bool = (m == player_aircraft)
+		for u in SurvivorData.UPGRADES:
+			var uid: String = str(u.get("id", ""))
+			var n: int = int(upgrade_stacks.get(uid, 0))
+			if n > 0 and SurvivorData.upgrade_applies_to_machine(u, identity, is_ctrl):
+				eff[uid] = n
+		m.set_meta("upgrade_stacks", eff)
+		SurvivorData.recompute_category_bonuses(m, eff)
+
+## 王牌 scope 中"写飞机字段/params"的技能在切控/换帅时迁移（旧机剥离 → 新机应用）。
+## 触发型王牌技（skill_flag 走 meta）由 _refresh_squad_effective_stacks 覆盖，不走这里。
+## 白名单 SurvivorData.ACE_FIELD_STATS + 逆操作 SurvivorPlayer.strip_upgrade_from 配对登记。
+func _migrate_ace_field_upgrades(prev: Aircraft, next: Aircraft) -> void:
+	if prev == next or survivor_player == null:
+		return
+	for u in SurvivorData.UPGRADES:
+		if SurvivorData.upgrade_scope(u) != "ace":
+			continue
+		if not SurvivorData.ACE_FIELD_STATS.has(str(u.get("stat", ""))):
+			continue
+		var n: int = int(upgrade_stacks.get(str(u.get("id", "")), 0))
+		for i in n:
+			if prev and is_instance_valid(prev) and not prev.is_destroyed:
+				survivor_player.strip_upgrade_from(prev, u)
+			survivor_player.apply_upgrade_to(next, u)
+
+## 新僚机入队（生产/增援/换补）：按队级账本补挂对其生效的技能层 + 刷新生效子集。
+## 开局建队时账本为空 = 天然 no-op。weapon 类跳过（效果长在长机武器资源上，随武器库迁移）。
+func _apply_build_to_new_member(ac: Aircraft) -> void:
+	if survivor_player == null or ac == null or not is_instance_valid(ac):
+		return
+	var identity: Array = _class_identity_of(ac)
+	for u in SurvivorData.UPGRADES:
+		if str(u.get("category", "")) == "weapon":
+			continue
+		var n: int = int(upgrade_stacks.get(str(u.get("id", "")), 0))
+		if n <= 0 or not SurvivorData.upgrade_applies_to_machine(u, identity, ac == player_aircraft):
+			continue
+		for i in n:
+			survivor_player.apply_upgrade_to(ac, u)
+	# squad_once 的逐机成分：数据链的僚机雷达加成（T0 排查缺口②——晚入队补挂）
+	if int(upgrade_stacks.get("data_link", 0)) > 0 and ac != player_aircraft and ac.params:
+		for u in SurvivorData.UPGRADES:
+			if str(u.get("id", "")) == "data_link":
+				ac.params.radar_range *= (1.0 + float(u.get("value", 0.0)))
+				break
+	_refresh_squad_effective_stacks()
+
+## 应用一条升级（归属分流 + 记栈 + "+1 轴进度" + 旧进化链检测 + 生效子集重建）。
+## 返回触发的旧进化技能名（无则 ""）。供 结算规划站 / 旧 upgrade_ui 信号 两个入口共用（不含暂停/恢复）。
 func _apply_upgrade_choice(upgrade: Dictionary) -> String:
 	var stk: int = upgrade_stacks.get(upgrade["id"], 0) + 1
 	EventLogger.log_event("UPGRADE", "Player",
 		"selected '%s' (stack %d/%d)" % [
 			tr(upgrade["name"]), stk, int(upgrade["max_stacks"])])
-	survivor_player.apply_upgrade(upgrade)
+	_distribute_upgrade(upgrade)
 	var uid: String = upgrade["id"]
 	upgrade_stacks[uid] = upgrade_stacks.get(uid, 0) + 1
+	_grant_milestone_plus(upgrade)
 
 	# ── 旧进化链检测（evolves_to 残留机制）──
 	var evolved_name := ""
@@ -2564,12 +2690,13 @@ func _apply_upgrade_choice(upgrade: Dictionary) -> String:
 			var evo_id: String = upgrade["evolves_to"]
 			for u in SurvivorData.UPGRADES:
 				if u["id"] == evo_id:
-					survivor_player.apply_upgrade(u)
+					_distribute_upgrade(u)
 					upgrade_stacks[evo_id] = 1
+					_grant_milestone_plus(u)
 					evolved_name = tr(u["name"])
 					break
 
-	SurvivorData.recompute_category_bonuses(player_aircraft, upgrade_stacks)
+	_refresh_squad_effective_stacks()
 	return evolved_name
 
 func _on_upgrade_selected(upgrade: Dictionary) -> void:
@@ -2599,15 +2726,17 @@ func _on_upgrade_selected(upgrade: Dictionary) -> void:
 		if survivor_player.aircraft:
 			survivor_player.aircraft.show_tactic_popup(tr("POPUP_EVOLUTION_FMT") % evolved_name)
 
-## 换型后重放玩家已选升级（spec evolution-attribute-gates §2.7：卡片技能记玩家层，换机不丢）。
+## 换型后重放已选升级（spec evolution-attribute-gates §2.7：技能记玩家层，换机不丢；
+## skills-720 T1 起走归属分流——通用/品类落全队、王牌落操控机，僚机进化后同步吃满）。
 ## category=="weapon" 的强化跳过：其效果长在武器资源上、已随武器库引用迁移，重放会双重叠加。
-## 序言重置两个存活于 aircraft 实例的乘法字段（SurvivorPlayableSetup 不管它们）——
+## 序言重置每架机上存活于 aircraft 实例的乘法字段（SurvivorPlayableSetup 不管它们）——
 ## 其余实例字段要么被 setup 重置（bullet_dodge_chance）要么是幂等赋值（extra_barrels 等）。
 func _replay_player_upgrades() -> void:
 	if survivor_player == null or player_aircraft == null:
 		return
-	player_aircraft.missile_reload_duration = 20.0  # aircraft.gd 字段默认值
-	player_aircraft.gun_reload_duration = 25.0
+	for m in _squad_members_alive():
+		m.missile_reload_duration = 20.0  # aircraft.gd 字段默认值
+		m.gun_reload_duration = 25.0
 	var replayed: int = 0
 	for u in SurvivorData.UPGRADES:
 		var stacks: int = int(upgrade_stacks.get(u["id"], 0))
@@ -2616,11 +2745,11 @@ func _replay_player_upgrades() -> void:
 		if str(u.get("category", "")) == "weapon":
 			continue
 		for i in stacks:
-			survivor_player.apply_upgrade(u)
+			_distribute_upgrade(u)
 		replayed += stacks
-	SurvivorData.recompute_category_bonuses(player_aircraft, upgrade_stacks)
+	_refresh_squad_effective_stacks()
 	if replayed > 0:
-		EventLogger.log_event("UPGRADE", "Player", "换型重放 %d 层升级（weapon 类强化随武器库迁移已跳过）" % replayed)
+		EventLogger.log_event("UPGRADE", "Player", "换型重放 %d 层升级（归属分流全队；weapon 类随武器库迁移已跳过）" % replayed)
 
 ## 长机被击坠时立即尝试接管存活僚机（不等 spawner 3s 周期 cleanup）。
 ## `_squad.cleanup()` 过滤死亡成员 + 晋升存活僚机为新长机 → 同步发 leader_changed →
@@ -2837,7 +2966,8 @@ func _open_evolution_offer() -> void:
 	if history.is_empty() and cur_id != &"":
 		history = [cur_id]
 	_evolution_ui.show_offer(EvolutionSystem.node_of(cur_id), exits, lvl, choices, history,
-		survivor_player.axis_points if survivor_player else {})
+		survivor_player.axis_points if survivor_player else {},
+		survivor_player.milestone_bonus if survivor_player else {})
 
 ## 规划站·进化栏：ACE 手动进化 + 僚机自动跟随同款（spec ace-system §2.3）。面板保持打开。
 func _on_settlement_evolution(node_id: StringName) -> void:
@@ -2853,24 +2983,28 @@ func _on_settlement_evolution(node_id: StringName) -> void:
 	survivor_player.record_special_weapons()
 	if not EvolutionSystem.evolve(player_aircraft, node_id, false):
 		return
-	# 主角档案引用同步（三轴里程碑覆写 / 专属技能筛选跟新机型走）
+	# 主角档案引用同步（三轴里程碑覆写 / 专属技能筛选 / 品类身份跟新机型走）
 	var prof := AircraftDB.get_profile(StringName(nd.get("profile", "")))
 	if prof:
 		_player_profile = prof
 		_player_profile_id = prof.id
-	# ── 玩家层换型重放三连（顺序敏感）──
-	# ①武器补挂（先挂，后面 railgun 类升级过滤要查装备在位）
-	survivor_player.remount_weapons()
-	# ②已选升级卡重放（spec evolution-attribute-gates §2.7 "卡片技能记玩家层"；
-	#   作废旧"升级绑机型随 params 失效"设计——squad-upgrade-ownership §2.6 同批作废）
-	_replay_player_upgrades()
-	# ③三轴里程碑重放：新机 params 重挂全部已达成档位——加成跟玩家不跟机体
-	survivor_player.reapply_all_milestones(_player_profile)
-	# 僚机默认跟随王牌 → 直接同款（切片版："最终变同款"的最短路径）
+		player_aircraft.set_meta("profile_id", prof.id)
+	# 僚机默认跟随王牌 → 直接同款（切片版："最终变同款"的最短路径）。
+	# ⚠ 必须先于升级重放：evolve 会重置僚机 params，晚了会把刚重放下发的强化抹掉
 	if _squad:
 		for m in _squad.members:
 			if m != player_aircraft and is_instance_valid(m) and not m.is_destroyed:
 				EvolutionSystem.evolve(m, node_id, true)
+				if prof:
+					m.set_meta("profile_id", prof.id)
+	# ── 换型重放三连（顺序敏感）──
+	# ①武器补挂（先挂，后面 railgun 类升级过滤要查装备在位）
+	survivor_player.remount_weapons()
+	# ②已选升级重放（归属分流全队下发，skills-720 T1；
+	#   作废旧"升级绑机型随 params 失效"设计——squad-upgrade-ownership §2.6 同批作废）
+	_replay_player_upgrades()
+	# ③三轴里程碑重放：新机 params 重挂全部已达成档位——加成跟玩家不跟机体
+	survivor_player.reapply_all_milestones(_player_profile)
 	if _zone_hint:
 		_zone_hint.show_temp(tr("EVOLUTION_DONE_FMT") % tr(String(nd.get("name_key", ""))), 4.0)
 
@@ -3164,17 +3298,18 @@ func _on_dock_docked(dock: DockPoint) -> void:
 			"weapon":
 				_claim_weapon_reward(String(reward.get("weapon", "tail_mine")))
 			_:
-				# 兼容 ZoneRewardRegistry 注册的旧 upgrade dict
+				# 兼容 ZoneRewardRegistry 注册的旧 upgrade dict（归属分流 + "+1 轴进度"同选卡）
 				if survivor_player:
-					survivor_player.apply_upgrade(reward)
+					_distribute_upgrade(reward)
 					var rid: String = reward.get("id", "")
 					if rid != "":
 						upgrade_stacks[rid] = upgrade_stacks.get(rid, 0) + 1
+					_grant_milestone_plus(reward)
 					claimed_any = true
 		if _zone_hint:
 			_zone_hint.show_temp(tr("DOCK_REWARD_CLAIMED_FMT") % tr(reward.get("name", "")), 3.0)
 	if claimed_any:
-		SurvivorData.recompute_category_bonuses(player_aircraft, upgrade_stacks)
+		_refresh_squad_effective_stacks()
 	_pending_rewards.clear()
 	_evolution_pending = false
 	if _zone_hint:

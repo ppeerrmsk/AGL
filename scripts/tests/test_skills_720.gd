@@ -1,0 +1,144 @@
+extends RefCounted
+
+## 无头行为验收：720 技能整改批（spec skills-720-rework）
+##
+## T1 归属底座：品类身份映射 / 归属生效谓词（scope/classes/ace/squad_once）/
+##             "+1 轴进度"双计数（cap=2、gates 隔离、判档、换型重放）/ 卡池品类门控
+## 后续批（T2 数据表约定 / T4 计数缩放 / T5 新机制）在此文件持续追加断言。
+##
+## 运行：godot --headless --path . -- --bench=skills720（或 --bench=all）
+
+var _pass := 0
+var _fail := 0
+
+
+func run() -> void:
+	print("\n════════ 720 技能整改批（品类身份 / 归属谓词 / +1 轴进度 / 池门控） ════════")
+	_test_class_identity()
+	_test_applies_to_predicate()
+	_test_milestone_bonus_double_count()
+	_test_pool_class_gate()
+	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
+	print("══════════════════════════════════════════════════\n")
+
+
+# ── A. 品类身份映射（机种类 → 轴集合，spec §1.2 / ownership §2.8）──
+func _test_class_identity() -> void:
+	print("── A. 品类身份：attack=斗 / ew=策 / range=骑 / air·bridge·carrier=斗骑 / stealth=骑策 / omni·legend=三系 ──")
+	var cases: Array = [
+		["a10", [&"gladiator"]],
+		["f16", [&"schemer"]],
+		["f14", [&"knight"]],
+		["f15", [&"gladiator", &"knight"]],
+		["fa18e", [&"gladiator", &"knight"]],
+		["x90", [&"gladiator", &"knight"]],
+		["x77", [&"knight", &"schemer"]],
+		["x02", [&"gladiator", &"knight", &"schemer"]],
+		["ax00", [&"gladiator", &"knight", &"schemer"]],
+	]
+	for c in cases:
+		var got: Array = EvolutionSystem.class_identity_of_profile(StringName(str(c[0])))
+		_check("%s → %s" % [c[0], c[1]], got == (c[1] as Array), "got %s" % [got])
+	_check("未知档案 → 空身份（不吃品类技）",
+		EvolutionSystem.class_identity_of_profile(&"nope").is_empty(), "")
+
+
+# ── B. 归属生效谓词（纯函数，_distribute / 生效子集 meta 重建共用）──
+func _test_applies_to_predicate() -> void:
+	print("── B. upgrade_applies_to_machine：通用 / 品类 / 王牌 / 单实例 / 组合 ──")
+	var glad_id: Array = [&"gladiator"]
+	var sch_id: Array = [&"schemer"]
+	var u_plain: Dictionary = {"id": "x", "stat": "s"}
+	_check("通用：任何机生效", SurvivorData.upgrade_applies_to_machine(u_plain, [], false), "")
+	var u_cls: Dictionary = {"id": "x", "classes": ["schemer"]}
+	_check("策士限定：斗士机不生效",
+		not SurvivorData.upgrade_applies_to_machine(u_cls, glad_id, true), "")
+	_check("策士限定：策士僚机生效",
+		SurvivorData.upgrade_applies_to_machine(u_cls, sch_id, false), "")
+	var u_ace: Dictionary = {"id": "x", "scope": "ace"}
+	_check("王牌：操控机生效", SurvivorData.upgrade_applies_to_machine(u_ace, [], true), "")
+	_check("王牌：僚机不生效", not SurvivorData.upgrade_applies_to_machine(u_ace, glad_id, false), "")
+	var u_combo: Dictionary = {"id": "x", "scope": "ace", "classes": ["knight"]}
+	_check("骑士∩王牌：骑士操控机生效",
+		SurvivorData.upgrade_applies_to_machine(u_combo, [&"knight"], true), "")
+	_check("骑士∩王牌：斗士操控机不生效",
+		not SurvivorData.upgrade_applies_to_machine(u_combo, glad_id, true), "")
+	var u_once: Dictionary = {"id": "x", "scope": "squad_once"}
+	_check("队级单实例：不落任何单机（账本级消费）",
+		not SurvivorData.upgrade_applies_to_machine(u_once, glad_id, true), "")
+
+
+# ── C. "+1 轴进度"双计数（spec §1.1：cap=2 定案；gates 只认纯点）──
+func _test_milestone_bonus_double_count() -> void:
+	print("── C. milestone_bonus：cap=2 / gates 隔离 / 判档=点+加成 / 换型重放含加成 ──")
+	var sp := SurvivorPlayer.new()
+	var ac := _make_test_aircraft()
+	sp.aircraft = ac
+	# 1 点 + 1 加成 → 进度 2 跨首档（斗士 2 档 = max_hp +25）
+	sp.add_axis_point(SurvivorData.AXIS_GLADIATOR)
+	_check("1 点未跨档（hp 100）", is_equal_approx(ac.params.max_hp, 100.0),
+		"got %.1f" % ac.params.max_hp)
+	sp.add_milestone_bonus(SurvivorData.AXIS_GLADIATOR)
+	_check("加成 +1 → 进度 2 跨首档（hp 125）", is_equal_approx(ac.params.max_hp, 125.0),
+		"got %.1f" % ac.params.max_hp)
+	_check("门槛点数不变（双计数隔离）",
+		sp.get_axis_points(SurvivorData.AXIS_GLADIATOR) == 1, "")
+	_check("里程碑进度 = 2", sp.get_milestone_progress(SurvivorData.AXIS_GLADIATOR) == 2, "")
+	# gates 用 axis_points 纯点：2 点门 1点+1加成不过
+	var nd: Dictionary = {"gates": {"gladiator": 2}}
+	_check("gates 只认纯点：1点+1加成过不了 2 点门",
+		not EvolutionSystem.gates_passed(nd, sp.axis_points), "")
+	# cap=2：第 3 次浪费
+	sp.add_milestone_bonus(SurvivorData.AXIS_GLADIATOR)
+	sp.add_milestone_bonus(SurvivorData.AXIS_GLADIATOR)
+	_check("cap=2（第 3 次 +1 浪费）",
+		int(sp.milestone_bonus[SurvivorData.AXIS_GLADIATOR]) == 2,
+		"got %d" % int(sp.milestone_bonus[SurvivorData.AXIS_GLADIATOR]))
+	_check("进度 = 3（1点+2加成）", sp.get_milestone_progress(SurvivorData.AXIS_GLADIATOR) == 3, "")
+	# 换型重放：全新 params 重挂时加成计入
+	ac.params = _make_fresh_params(200.0)
+	ac.hp = 200.0
+	sp.reapply_all_milestones()
+	_check("换型重放含加成（hp 200→225）", is_equal_approx(ac.params.max_hp, 225.0),
+		"got %.1f" % ac.params.max_hp)
+	# 未知轴防御
+	sp.add_milestone_bonus(&"bogus")
+	_check("未知轴不崩不计", sp.get_milestone_progress(SurvivorData.AXIS_GLADIATOR) == 3, "")
+	ac.free()
+	sp.free()
+
+
+# ── D. 卡池品类门控（ownership §2.8 实装草图 4）──
+func _test_pool_class_gate() -> void:
+	print("── D. is_upgrade_available_for：squad_classes 相交判定 ──")
+	var u: Dictionary = {"id": "x", "classes": ["schemer"]}
+	_check("队里无策士机 → 不进池",
+		not SurvivorData.is_upgrade_available_for(u, &"f15", null, {}, [&"gladiator", &"knight"]), "")
+	_check("队里有策士机 → 进池",
+		SurvivorData.is_upgrade_available_for(u, &"f15", null, {}, [&"schemer"]), "")
+	_check("未提供 squad_classes → 不过滤（debug 兼容通道）",
+		SurvivorData.is_upgrade_available_for(u, &"f15", null, {}, []), "")
+	_check("无 classes 技能不受门控影响",
+		SurvivorData.is_upgrade_available_for({"id": "y"}, &"f15", null, {}, [&"gladiator"]), "")
+
+
+func _make_test_aircraft() -> Aircraft:
+	var ac := Aircraft.new()
+	ac.params = _make_fresh_params(100.0)
+	ac.hp = 100.0
+	return ac
+
+
+func _make_fresh_params(hp: float) -> AircraftParams:
+	var p := AircraftParams.new()
+	p.max_hp = hp
+	return p
+
+
+func _check(label: String, ok: bool, detail: String) -> void:
+	if ok:
+		_pass += 1
+		print("  ✓ %s" % label)
+	else:
+		_fail += 1
+		print("  ✗ %s — %s" % [label, detail])

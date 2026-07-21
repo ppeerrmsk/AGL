@@ -805,3 +805,8 @@ EDITOR_UNDERLAY_TOGGLE,垫图显隐,Toggle Underlay,下絵の表示切替
 EDITOR_EXTRACT,提取到当前图层,Extract to Layer,現在のレイヤーへ抽出
 EDITOR_EXTRACT_DARK,提取暗色区域,Extract dark areas,暗い領域を抽出
 EDITOR_THRESHOLD,亮度阈值,Brightness Threshold,輝度しきい値
+UPGRADE_SCOPE_SQUAD,◈ 全队,◈ Squad-wide,◈ 全隊
+UPGRADE_SCOPE_ACE,★ 王牌专属,★ Ace only,★ エース専用
+UPGRADE_SCOPE_SQUAD_ONCE,◇ 队级单件,◇ Squad single,◇ 隊単位
+UPGRADE_CLASS_LIMITED_FMT,%s限定,%s only,%s限定
+UPGRADE_MILESTONE_PLUS_FMT,%s进度+1,+1 %s milestone,%s進度+1
