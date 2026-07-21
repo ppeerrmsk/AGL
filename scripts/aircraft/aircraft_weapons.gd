@@ -410,10 +410,11 @@ static func _fire_gun_round(ac: Aircraft, gun: GunParams) -> void:
 		if ac.gun_extra_barrels >= 2:
 			ac.ammo -= 2
 		ac.ammo = maxi(ac.ammo, 0)
-	# 弹药耗尽 → 进入装填 CD（生存模式）
+	# 弹药耗尽 → 进入装填 CD（生存模式）；备用弹仓概率回满则跳过（720 批）
 	if ac.enable_gun_reload and ac.ammo <= 0 and not ac._gun_reload_active:
-		ac._gun_reload_active = true
-		ac._gun_reload_timer = 0.0
+		if not SkillHooks.try_gun_reserve_mag(ac):
+			ac._gun_reload_active = true
+			ac._gun_reload_timer = 0.0
 		ac.gun_reload_progress = 0.0
 
 ## ========== CIWS 近防炮（进化技能：自动拦截正面来袭导弹） ==========
@@ -480,9 +481,10 @@ static func update_ciws(ac: Aircraft, delta: float) -> void:
 	ac.ammo -= 1
 	ac.ammo = maxi(ac.ammo, 0)
 	if ac.enable_gun_reload and ac.ammo <= 0 and not ac._gun_reload_active:
-		ac._gun_reload_active = true
-		ac._gun_reload_timer = 0.0
-		ac.gun_reload_progress = 0.0
+		if not SkillHooks.try_gun_reserve_mag(ac):
+			ac._gun_reload_active = true
+			ac._gun_reload_timer = 0.0
+			ac.gun_reload_progress = 0.0
 
 ## ========== 火箭弹（无制导副武器） ==========
 ## 对空中或地面目标发射一串无制导火箭。散布很大，命中率故意调低。
@@ -901,10 +903,11 @@ static func _fire_missile_at(ac: Aircraft, target_unit: CombatUnit, msl: Missile
 			msl.display_name if msl.display_name else "missile",
 			ac._log_unit_name(target_unit), dist_m, remaining])
 	EventLogger.tally(ac._log_name(), "msl_fired")
-	ac.missile_manager.spawn_missile(ac, target_unit, msl)
+	ac.missile_manager.spawn_missile(ac, target_unit, msl, is_secondary)
 	ac.notify_missile_fired_at(target_unit)
 	AudioManager.play_sfx_2d("missile_launch" if randf() < 0.5 else "missile_launch_alt", ac.global_position, -12.0)
-	if not ac.infinite_ammo and not _overload_ammo_free(ac):
+	# 720 批"副武器"：机炮弹尽装填期内发射导弹不消耗弹药
+	if not ac.infinite_ammo and not _overload_ammo_free(ac) and not SkillHooks.in_free_missile_window(ac):
 		if is_secondary:
 			ac.secondary_missiles_remaining -= 1
 		else:
@@ -1066,7 +1069,8 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 		# 音效：齐射整体只响一下
 		if i == 0:
 			AudioManager.play_sfx_2d("missile_launch" if randf() < 0.5 else "missile_launch_alt", ac.global_position, -12.0)
-		if not ac.infinite_ammo and not _overload_ammo_free(ac):
+		if not ac.infinite_ammo and not _overload_ammo_free(ac) \
+				and not SkillHooks.in_free_missile_window(ac):
 			ac.missiles_remaining -= 1
 
 	if fire_count > 0:

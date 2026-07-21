@@ -62,7 +62,11 @@ func _process(delta: float) -> void:
 	if _armed and speed_kmh <= _land_threshold_kmh(pl):
 		_hold += delta
 		queue_redraw()
-		if _hold >= HOLD_SEC:
+		# 地勤优化（720 批）：停靠判定耗时减半
+		var hold_need: float = HOLD_SEC
+		if mode and "upgrade_stacks" in mode and int(mode.upgrade_stacks.get("ground_crew", 0)) > 0:
+			hold_need = HOLD_SEC * 0.5
+		if _hold >= hold_need:
 			_hold = 0.0
 			_armed = false
 			EventLogger.log_event("DOCK", "Docked", "%s kind=%s" % [display_name_key, dock_kind])

@@ -1,9 +1,9 @@
 ---
 id: skills-720-rework
 kind: system
-status: in-progress  # 2026-07-21 开工：三项开工确认按推荐值定案（+1 cap=2 / 王牌=仅操控机 / 机炮吊舱两道翼挂）；T0/T1/T2 已闭环
+status: in-progress  # 三项开工确认按推荐值定案（+1 cap=2 / 王牌=仅操控机 / 机炮吊舱两道翼挂）；T0~T3 已闭环
 schema_version: 1
-spec_version: 4
+spec_version: 5
 owner: 用户
 depends_on: [evolution-attribute-gates, squad-upgrade-ownership, afterburner-mode, inrun-weapon-inventory, command-wheel, zone-reward-docking]
 reconstruction_complete: true
@@ -213,7 +213,7 @@ reconstruction_complete: true
 - [x] **T0 排查批**：数据链生效性 + 僚机锁可射性结论；寒蝉效应 team 过滤修复。（½ 天级）✅ 2026-07-21
 - [x] **T1 归属底座**：`classes`/`scope:"ace"`/`squad_once`/`milestone_plus` 四字段 + apply_upgrade 品类过滤分流 + 品类身份查询（squad-upgrade-ownership §2.8 实装并入）+ milestone_bonus 双计数与量表加成格 + 卡面角标。**本批地基，先行。**✅ 2026-07-21（bench `skills720` 31 断言 + 回归门 32 项全绿；含 T0 缺口根治：数据链/集火改队级账本判定、切控王牌迁移 chokepoint、新僚机入队补挂钩子、F4 面板同语义）
 - [x] **T2 纯数据批**：§2.3 全部 delta（value/stacks/rarity/轴迁移/A10 限定/需要词条/奖励池迁移/移除 railgun_damage）+ 27 条新表条目中零代码可落的（QAAM/漂浮雷/忠诚僚机强化组、座舱护甲字段版）+ i18n 三语全同步 + 重跑生成器。✅ 2026-07-21（83 条；+1 分布 骑8/斗4/策2 按 §2.1 表；生成器 v6 化直读 scope/classes/milestone_plus）
-- [ ] **T3 钩子批**：僚机阵亡事件（3 技共用）/ 弹尽事件（2 技）/ 升级回复 / 轮盘联动 ×2 / 地勤优化 / 检讨·适应·强化加力（AB 钩子）/ QAAM 嗜血。
+- [x] **T3 钩子批**：僚机阵亡事件（3 技共用）/ 弹尽事件（2 技）/ 升级回复 / 轮盘联动 ×2 / 地勤优化 / 检讨·适应·强化加力（AB 钩子）/ QAAM 嗜血。✅ 2026-07-22（14 条新技能 + headon_xp；skills720 bench 45 断言全绿）
 - [ ] **T4 计数缩放批**：历战者/全速推进/电子战专家/武器大师（recompute 扩展一次做四条）。
 - [ ] **T5 新机制批**：胆大妄为 R 手动闪避 → 机炮吊舱 rework → 电磁炮双发 → 导弹二段推进（各自独立可拆单）。
 - [ ] **T6 收尾**：bench 断言全套 + 表重生成 + spec §7 锚点 + playtest 调数值。
@@ -226,6 +226,7 @@ reconstruction_complete: true
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-07-22 | 5 | T3 钩子批落地（+14 条 → 97 条）：①僚机阵亡事件=survivor_mode 0.5s watcher（alive→destroyed 沿；复仇之战 嗜血+无敌15s / 刺客复仇 超载+隐身15s / 黑匣子回收 奖励升级，团灭同周期只触发一次）；②机炮弹尽事件=进装填转换点钩子（备用弹仓 30%/50% 概率回满跳装填；副武器=装填期发射导弹免耗，主/副/齐射三路扣弹口统一过 in_free_missile_window）；③升级回复（leveled_up 全队+10HP）；④轮盘联动：保卫阵地（防守圈内 buff 标志——减伤30% walk _apply_damage、回转+15% 走 _g_buff_mult accessor）+ 阵地转移（撤离冲刺 +15% 速度走 accessor、受伤减半）；⑤地勤优化（停靠判定减半 + 起飞后奖励升级）；⑥AB 三技=队级账本同步（检讨 kill_charge_bonus +3s/层、强化加力窗口 6→9→12s、适应=dispatch_on_kill 静态引用回能/回血）；⑦QAAM 嗜血=导弹归因链新增 is_secondary_weapon → kind"qmaam"；⑧骑士心脏·历练（对头击杀 XP ×1.5，spawner）；⑨群猎注视稀有度按 §2.2 修正（次世代→实验）。奖励升级=复用三选一卡片流（选卡得点语义一致），暂停/结算中顺延。数值未定项按保守值：历练 ×1.5、适应回能 +3s、保卫阵地 30%/15%、阵地转移 15%/50%（T6 playtest 调）。skills720 bench 扩到 45 断言。 |
 | 2026-07-21 | 4 | T2 纯数据批落地（83 条）：①§2.3 数值/归属 delta 全表（26 项）+ hooks 常量 6 处（嗜血 8→9s / 寒颤号令 3km→2km / 寒蝉 2km / 弹后潜匿 5→4s / 火力护盾窗 0.5s / 血誓不竭去满血前置）；②§2.1 "+1 轴"14 条落库（骑8/斗4/策2——§1.1 计 13 为笔误，以 §2.1 表为准）；③v5 品类基线一并落库（未被 720 点名的项按 v5 归类）；④移除 railgun_damage（表+apply 分支）；⑤新增 5 条零代码技能 + apply 分支（漂浮雷额外/QAAM 强化/忠诚僚机额外·武装/座舱护甲字段版——地面减伤消费点 T3 接 take_damage）；⑥xp_mult 倍率迁 SurvivorPlayer 层（切控不丢）；⑦ACE_FIELD_STATS 6 项 + strip 逆操作（蜂群/凝视/惊鸿/对锋/后半球/云超载）；⑧数据链去 F-14 专属+squad_once+雷达+20%；集火枷锁改名群猎注视；⑨i18n 29 改 + 10 新 ×三语；生成器 v6 化重跑。⚠ 未定数值按保守值落（QAAM 射程+10%/忠诚僚机+30%·20%/子弹寿命+20%），T6 playtest 调；稀有度"全表重标"以 §2.3 已列明细为准（720 原始表未入库）；evolved 技能的战区注册表（ZoneRewardRegistry）沿用现状空表待战区映射批。 |
 | 2026-07-21 | 3 | T1 归属底座落地：①四字段（scope/classes/milestone_plus + ACE_FIELD_STATS 白名单）与纯谓词 upgrade_applies_to_machine；②品类身份=进化节点机种类映射（EvolutionSystem.class_identity_of_profile，9 机种类全覆盖）；③归属分流 _distribute_upgrade 接管全部获得点（选卡/结算/战区奖励/boss debug/bench/F4 面板/换型重放），僚机 meta 记"生效子集"而非共享整本账；④milestone_bonus 双计数（cap=2）+ 量表加成格（半透明+亮边）+ 战术地图明细同判档 + 卡面归属角标（i18n 5 键三语）；⑤王牌切控迁移挂 _set_player_aircraft chokepoint（触发型走 meta 重建、字段型走 strip 白名单）；⑥进化顺序修正：僚机先 evolve 再全队重放（否则重放被 params 重置抹掉）；⑦数据链/集火锁 SLOW 改队级账本判定（T0 缺口①）+ 新僚机入队补挂 _apply_build_to_new_member（缺口②）。bench 新增 `skills720` 31 断言。 |
 | 2026-07-21 | 2 | 开工：三项确认按推荐值定案（+1 轴进度 cap=2；王牌=仅当前操控机；机炮吊舱两道翼挂、旧档表现变化接受）。§4 排查双项闭环——①数据链结论：共享真生效、玩家可对僚机锁目标发射（价值=免锁定累积），另记两个 squad_once 缺口（切控失效/晚入队缺加成）留 T1 根治；②寒蝉效应 JAM 误伤实锤修复（team_filter -1→TEAM_HOSTILE），同病的机炮落雷 JAM 一并修。§6 T0 勾选。 |

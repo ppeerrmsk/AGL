@@ -461,6 +461,9 @@ static func _g_buff_mult(ac: Aircraft) -> float:
 		var stacks: Dictionary = ac.get_meta("upgrade_stacks")
 		if int(stacks.get(SkillHooks.SKILL_BLOODLUST_ARMOR_MOBILITY, 0)) > 0:
 			m *= SkillHooks.BLOODLUST_G_MULT
+	# 玩家技能"保卫阵地"：防守圈内回转强化（720 批；squad_cmd 维护 flag）
+	if ac.guard_zone_buff_active:
+		m *= GUARD_ZONE_G_MULT
 	return m
 
 
@@ -511,6 +514,8 @@ const COMMAND_SPRINT_MULT := 1.4
 ## 加力窗口加速度倍率（spec afterburner-mode）：与 AB 推力乘数叠乘，
 ## 让 6s 窗口内全队可见地冲到顶速（无此项典型机加满速需 ≈7s，窗口刚提速就结束）
 const AB_WINDOW_ACCEL_MULT := 3.0
+const GUARD_ZONE_G_MULT := 1.15         ## 保卫阵地：防守圈内 G 强化（720 批）
+const EVAC_SHIFT_SPRINT_BONUS := 1.15   ## 阵地转移：撤离冲刺追加提速（720 批）
 
 ## AI 战术层用的"有效顶速"。零 buff = ac.params.max_speed
 ## buff 注入点：executioner（永久 stack）+ evasion_modifiers.cruise_speed_mult（模式）
@@ -524,6 +529,8 @@ static func effective_max_speed_kmh(ac: Aircraft) -> float:
 			v *= cm
 	if ac.command_sprint:
 		v *= COMMAND_SPRINT_MULT  # 紧急集合/撤离全力加速（command-wheel §2.7）
+		if ac.evac_shift_active:
+			v *= EVAC_SHIFT_SPRINT_BONUS  # 阵地转移：撤离冲刺再提速（720 批）
 	# Mother Goose 干扰场减速走标准 SLOW 状态（cap 至 SLOW_SPEED_CAP_KMH，
 	# 由 update_speed 内的 status_slow_active 分支处理 + HUD 显示蓝条）
 	return v
@@ -538,6 +545,8 @@ static func effective_cruise_speed_kmh(ac: Aircraft) -> float:
 			v *= cm
 	if ac.command_sprint:
 		v *= COMMAND_SPRINT_MULT  # 紧急集合/撤离全力加速（command-wheel §2.7）
+		if ac.evac_shift_active:
+			v *= EVAC_SHIFT_SPRINT_BONUS  # 阵地转移：撤离冲刺再提速（720 批）
 	return v
 
 

@@ -2511,6 +2511,11 @@ func _detect_kills() -> void:
 					elif etype == "f47":
 						base_xp = SurvivorData.XP_PER_KILL_F47
 					xp_value = base_xp + survivor_player.level * 8
+				# 骑士心脏·历练（720 批）：对头击杀经验 ×1.5（先乘，再叠 xp_mult）
+				if int(mode.upgrade_stacks.get("headon_xp", 0)) > 0 \
+						and float(child.get_meta("kill_head_on_dot", 0.0)) >= HEAD_ON_DOT_THRESHOLD \
+						and float(child.get_meta("kill_attacker_aim", 0.0)) >= HEAD_ON_DOT_THRESHOLD:
+					xp_value = int(round(float(xp_value) * 1.5))
 				# xp_mult 升级（队级单实例：倍率在 SurvivorPlayer 层，切控不丢——720 T2）
 				xp_value = int(round(float(xp_value) * survivor_player.xp_multiplier))
 				survivor_player.add_xp(xp_value)

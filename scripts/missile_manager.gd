@@ -38,10 +38,11 @@ func _ready() -> void:
 	# 让 MissileManager._physics_process 早于其 Missile 子节点运行 → 子节点能读到当帧快照
 	process_priority = -10
 
-func spawn_missile(source: CombatUnit, target: CombatUnit, missile_params: MissileParams) -> Missile:
+func spawn_missile(source: CombatUnit, target: CombatUnit, missile_params: MissileParams, is_secondary: bool = false) -> Missile:
 	var missile: Missile = _missile_scene.instantiate()
 	missile.params = missile_params
 	missile.source = source
+	missile.is_secondary_weapon = is_secondary   # QAAM 归因（720 批 qmaam_bloodlust 判 kind）
 	missile.target = target
 	missile.team = source.team
 	missile.speed = source.speed + 50.0  # 初速 = 发射单位速度 + 50 m/s
@@ -376,14 +377,15 @@ func _physics_process(delta: float) -> void:
 				# 归因：把发射单位写到目标 meta，aircraft._record_kill_attribution 在致死时读取
 				if is_instance_valid(missile.source):
 					unit.set_meta("_pending_attacker", missile.source)
-					unit.set_meta("_last_damage_kind", "missile")
+					unit.set_meta("_last_damage_kind", "qmaam" if missile.is_secondary_weapon else "missile")
 				if unit is GroundUnit:
 					unit.take_missile_damage(missile.params.damage)
 				elif unit is NavalUnit:
 					# 船走位置感知路由：伤害给最近的挂点或弱点
 					(unit as NavalUnit).take_damage_at(missile.params.damage, missile.global_position)
 				else:
-					unit.take_damage(missile.params.damage, CombatUnit.safe_attacker(missile.source), "missile")
+					unit.take_damage(missile.params.damage, CombatUnit.safe_attacker(missile.source),
+						"qmaam" if missile.is_secondary_weapon else "missile")
 				# 近炸引信：在爆炸点产生 AOE 区域
 				if missile.proximity_aoe:
 					_spawn_aoe(missile.global_position, missile.altitude,

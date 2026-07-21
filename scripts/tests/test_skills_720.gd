@@ -18,6 +18,8 @@ func run() -> void:
 	_test_applies_to_predicate()
 	_test_milestone_bonus_double_count()
 	_test_pool_class_gate()
+	_test_t3_hooks()
+	_test_ace_strip_roundtrip()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
 
@@ -120,6 +122,83 @@ func _test_pool_class_gate() -> void:
 		SurvivorData.is_upgrade_available_for(u, &"f15", null, {}, []), "")
 	_check("无 classes 技能不受门控影响",
 		SurvivorData.is_upgrade_available_for({"id": "y"}, &"f15", null, {}, [&"gladiator"]), "")
+
+
+# ── E. T3 钩子（spec §6 T3：AB 修正 / 免耗弹窗 / QAAM 嗜血 / 适应回能 / 升级回复挂点在 mode）──
+func _test_t3_hooks() -> void:
+	print("── E. T3 钩子：AB 账本修正 / 免耗弹窗口 / QAAM 嗜血 / 适应回能 ──")
+	var ab := AfterburnerCharge.new()
+	ab.kill_charge_bonus = 3.0
+	ab.charge = 0.0
+	ab.on_kill_charge()
+	_check("检讨：击杀充能 4+3=7", is_equal_approx(ab.charge, 7.0), "got %.1f" % ab.charge)
+	ab.window_duration_mult = 1.5
+	ab.charge = AfterburnerCharge.CHARGE_MAX
+	var ldr := _make_test_aircraft()
+	var ok_act := ab.try_activate(ldr)
+	_check("强化加力：窗口 6→9s", ok_act and is_equal_approx(ab.window_left, 9.0),
+		"act=%s left=%.1f" % [ok_act, ab.window_left])
+	ldr.free()
+
+	var ac := _make_test_aircraft()
+	ac.params.gun = GunParams.new()
+	_check("免耗弹窗口：无技能 → false", not SkillHooks.in_free_missile_window(ac), "")
+	ac.set_meta("upgrade_stacks", {"gun_out_free_missile": 1})
+	ac._gun_reload_active = true
+	_check("免耗弹窗口：技能+装填中 → true", SkillHooks.in_free_missile_window(ac), "")
+	ac._gun_reload_active = false
+	_check("免耗弹窗口：装填结束 → false", not SkillHooks.in_free_missile_window(ac), "")
+	ac.free()
+
+	var killer := _make_test_aircraft()
+	killer.set_meta("upgrade_stacks", {"qmaam_bloodlust": 1, "adapt_energy": 1})
+	killer.altitude = 5000.0
+	var victim := _make_test_aircraft()
+	victim.team = 1
+	victim.set_meta("_last_damage_kind", "qmaam")
+	victim.altitude = 1000.0
+	var ab2 := AfterburnerCharge.new()
+	ab2.charge = 0.0
+	SkillHooks.afterburner = ab2
+	SkillHooks.dispatch_on_kill(killer, victim)
+	_check("QAAM 嗜血：格斗弹击杀 → BLOODLUST",
+		killer.status_effects.has(StatusEffects.BLOODLUST), "")
+	_check("适应：低位击杀 → 充能 +3", is_equal_approx(ab2.charge, 3.0), "got %.1f" % ab2.charge)
+	victim.altitude = 9000.0
+	killer.hp = 50.0
+	SkillHooks.dispatch_on_kill(killer, victim)
+	_check("适应：高位击杀 → +20 HP", is_equal_approx(killer.hp, 70.0), "got %.1f" % killer.hp)
+	SkillHooks.afterburner = null
+	killer.free()
+	victim.free()
+
+
+# ── F. 王牌字段技 strip 往返（T2 落库 + T1 迁移机制的配对验证）──
+func _test_ace_strip_roundtrip() -> void:
+	print("── F. 王牌字段技 strip：missile_swarm 应用→剥离 参数还原 ──")
+	var sp := SurvivorPlayer.new()
+	var ac := _make_test_aircraft()
+	ac.params.missile = MissileParams.new()
+	ac.params.missile.max_count = 4
+	ac.params.missile.max_g = 35.0
+	ac.missiles_remaining = 4
+	sp.aircraft = ac
+	var swarm: Dictionary = {}
+	for u in SurvivorData.UPGRADES:
+		if str(u.get("id", "")) == "missile_swarm":
+			swarm = u
+			break
+	_check("表中存在 missile_swarm", not swarm.is_empty(), "")
+	sp.apply_upgrade_to(ac, swarm)
+	_check("应用：弹舱 4→8", ac.params.missile.max_count == 8, "got %d" % ac.params.missile.max_count)
+	_check("应用：齐射锁数 ≥8", ac.max_simultaneous_locks >= 8, "got %d" % ac.max_simultaneous_locks)
+	sp.strip_upgrade_from(ac, swarm)
+	_check("剥离：弹舱回 4", ac.params.missile.max_count == 4, "got %d" % ac.params.missile.max_count)
+	_check("剥离：追踪罚回吐（max_g≈35）", is_equal_approx(ac.params.missile.max_g, 35.0),
+		"got %.2f" % ac.params.missile.max_g)
+	_check("剥离：锁数回 1", ac.max_simultaneous_locks == 1, "")
+	ac.free()
+	sp.free()
 
 
 func _make_test_aircraft() -> Aircraft:

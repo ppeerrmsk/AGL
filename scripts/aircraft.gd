@@ -116,6 +116,8 @@ var surround_bearing_rad: float = INF
 ## （集合=到达解除 / 撤离=出圈解除 / 任何新命令解除）；速度经 AircraftPhysics
 ## effective_max/cruise_speed_kmh 注入 ×COMMAND_SPRINT_MULT（机动性 buff 规范 accessor 通道）
 var command_sprint: bool = false
+var evac_shift_active: bool = false      ## 720 批"阵地转移"：撤离冲刺加成 + 受伤减半（apply_upgrade 置位）
+var guard_zone_buff_active: bool = false ## 720 批"保卫阵地"：防守圈内 buff（SquadCommandController 维护）
 ## TIGHT 齐射窗口开火权（spec formation-discipline §3.1）：窗口期 SquadCommandController
 ## 临时授予编队僚机 combat_target；置位时 SquadCoordination 的"编队防御性清目标"跳过本机
 ## ——僚机在编队槽位里开火、不脱队。窗口关闭即回收（禁补射由构造保证）
@@ -2376,6 +2378,17 @@ func _apply_damage(amount: float) -> void:
 	# §C 玩家技能"机炮发射时减伤"：在窗口期内乘伤害减免比例
 	if is_player_squad() and gun_fire_dr_amount > 0.0 and _gun_fire_recently_until > EventLogger.get_game_time():
 		amount *= maxf(1.0 - gun_fire_dr_amount, 0.0)
+	# 座舱护甲（720 批）：地面/舰面火力（SAM/AA/CIWS）来源伤害减免
+	if is_player_squad() and ground_damage_taken_mult < 1.0:
+		var ground_atk: Node = CombatUnit.safe_attacker(get_meta("_pending_attacker", null))
+		if ground_atk is GroundUnit or ground_atk is NavalUnit or ground_atk is MountTarget:
+			amount *= ground_damage_taken_mult
+	# 阵地转移（720 批）：撤离冲刺中受到伤害 -50%
+	if is_player_squad() and command_sprint and evac_shift_active:
+		amount *= 0.5
+	# 保卫阵地（720 批）：防守圈内受到伤害 -30%
+	if is_player_squad() and guard_zone_buff_active:
+		amount *= 0.7
 	var old_hp := hp
 	hp -= amount
 	EventLogger.log_event("DAMAGE", _log_name(),

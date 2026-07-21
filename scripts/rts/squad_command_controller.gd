@@ -565,6 +565,7 @@ func tick(delta: float) -> void:
 			return
 
 	# ── 防守此区 standing order（铁律之下、自动交战之上；显式命令不受自动交战开关约束）──
+	_update_guard_zone_buff(_guard_point != Vector2.INF)
 	if _guard_point != Vector2.INF:
 		_tick_guard(leader)
 		return
@@ -630,6 +631,29 @@ func _tick_guard(leader: Aircraft) -> void:
 	# ORBIT：无敌时拴在圆心附近，超出盘旋半径就飞回（转弯物理自然形成绕圈）
 	if leader.global_position.distance_to(gp) > orbit_r:
 		leader.target_position = gp
+
+## 保卫阵地技能（720 批，队级单实例）：防守命令激活时给圈内小队成员打 buff 标志
+## （减伤 30% 走 _apply_damage / 回转 +15% 走 effective_max_g 的 _g_buff_mult）。
+## 命令解除或未持有技能 → 一次性清全部标志（_guard_buff_applied 守闲置零开销）。
+var _guard_buff_applied: bool = false
+
+func _update_guard_zone_buff(guard_active: bool) -> void:
+	var want: bool = guard_active and _mode != null \
+			and int(_mode.upgrade_stacks.get("guard_zone_buff", 0)) > 0
+	if not want:
+		if _guard_buff_applied:
+			_guard_buff_applied = false
+			for u in CombatUnit.all_units:
+				if u is Aircraft and (u as Aircraft).guard_zone_buff_active:
+					(u as Aircraft).guard_zone_buff_active = false
+		return
+	_guard_buff_applied = true
+	var gr: float = wheel_params.guard_radius_px if wheel_params != null else 1500.0
+	for u in CombatUnit.all_units:
+		if u is Aircraft and (u as Aircraft).is_player_squad() and not u.is_destroyed:
+			(u as Aircraft).guard_zone_buff_active = \
+				u.global_position.distance_to(_guard_point) <= gr
+
 
 ## 半径内最近的有效敌方目标（飞机/地面/船挂点）。跳过锁定免疫的 NavalUnit 船体
 ## 与撤离禁入区内的目标（决策层过滤，spec §3.7；玩家显式点名不经此处）。

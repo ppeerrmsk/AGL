@@ -655,6 +655,9 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 		"cloud_overload":
 			# 进/出云事件 toggle OVERLOAD（aircraft._on_cloud_boundary）
 			aircraft.cloud_overload_active = true
+		"evac_shift":
+			# 阵地转移（720 批）：撤离冲刺提速 + 受伤减半（physics accessor / _apply_damage 消费）
+			aircraft.evac_shift_active = true
 		"cloud_weapon_cd":
 			# 进/出云事件按倍率 scale 武器 cd（同 evasion_modifiers 模式）
 			aircraft.cloud_weapon_cd_mult = float(upgrade["value"])

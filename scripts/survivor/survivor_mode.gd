@@ -64,6 +64,11 @@ var _evolution_pending: bool = false
 var _pending_rewards: Array[Dictionary] = []
 var is_paused_for_upgrade: bool = false
 var upgrade_stacks: Dictionary = {}
+## ── 720 批 T3：僚机阵亡事件 watcher + 奖励升级队列 ──
+var _squad_watch_timer: float = 0.0        ## 0.5s 周期的阵亡检测/弹窗顺延计时
+var _squad_known_alive: Array = []         ## 上周期存活成员快照（检测 alive→destroyed 沿）
+var _pending_bonus_upgrades: int = 0       ## 待弹的奖励升级数（黑匣子回收/地勤优化）
+var _dock_settlement_open: bool = false    ## 本次结算面板是否由停靠打开（地勤优化判起飞）
 
 ## ── 阶段制（2026-05-09）──
 ## 战区阶段时长（10 分钟，2026-06-28 从 8 分钟延长；后续模式重做时可能再调）。到点后关闭其他战区，玩家在打的可结算后进 BOSS。
@@ -384,6 +389,8 @@ func _ready() -> void:
 	hud.survivor_player = survivor_player
 	hud.game_scene = self
 	hud.afterburner_charge = afterburner_charge
+	# 720 批："适应"击杀回能经静态引用触达队级充能（场景重建时覆盖旧引用）
+	SkillHooks.afterburner = afterburner_charge
 	add_child(hud)
 
 	# 升级UI
@@ -1698,6 +1705,9 @@ func _physics_process(delta: float) -> void:
 	# 加力充能/窗口计时（spec afterburner-mode）：放早退之后 → 升级暂停/游戏结束自然冻结
 	afterburner_charge.update(delta)
 
+	# 720 批：僚机阵亡事件（复仇之战/刺客复仇/黑匣子回收）+ 奖励升级弹窗顺延
+	_tick_squad_watch(delta)
+
 	# BOSS 阶段后 game_time 不再累加（HUD 自然停在 00:00 / "BOSS PHASE"）
 	if not _is_in_boss_phase():
 		game_time += delta
@@ -2489,6 +2499,13 @@ func _on_player_leveled_up(_new_level: int) -> void:
 	# 自然成长已退役（spec player-aircraft-power-curve §6 阶段2）：等级只做门槛，
 	# 成长全部由三轴里程碑（卡片加点跨档）+ 进化换档承担。
 
+	# 升级回复（720 批，队级单实例）：每次升级全队回 10 HP
+	if int(upgrade_stacks.get("levelup_heal", 0)) > 0:
+		for m in _squad_members_alive():
+			if m.params:
+				m.hp = minf(m.hp + 10.0, m.params.max_hp)
+		EventLogger.log_event("SKILL_HOOK", "Squad", "levelup_heal → 全队 +10 HP")
+
 	# Bench 模式：随机自动拿一张升级（压力放大器：越强→杀越快→负载越大）
 	if _bench_mode:
 		_bench_auto_pick_upgrade()
@@ -2630,6 +2647,10 @@ func _refresh_squad_effective_stacks() -> void:
 				eff[uid] = n
 		m.set_meta("upgrade_stacks", eff)
 		SurvivorData.recompute_category_bonuses(m, eff)
+	# 加力队级资源的账本同步（720 批：检讨/强化加力——队级单实例语义，不逐机应用）
+	if afterburner_charge:
+		afterburner_charge.kill_charge_bonus = 3.0 * float(upgrade_stacks.get("ab_kill_charge", 0))
+		afterburner_charge.window_duration_mult = 1.0 + 0.5 * float(upgrade_stacks.get("ab_duration", 0))
 
 ## 王牌 scope 中"写飞机字段/params"的技能在切控/换帅时迁移（旧机剥离 → 新机应用）。
 ## 触发型王牌技（skill_flag 走 meta）由 _refresh_squad_effective_stacks 覆盖，不走这里。
@@ -2669,6 +2690,61 @@ func _apply_build_to_new_member(ac: Aircraft) -> void:
 				ac.params.radar_range *= (1.0 + float(u.get("value", 0.0)))
 				break
 	_refresh_squad_effective_stacks()
+
+## ── 720 批 T3：僚机阵亡事件 + 奖励升级弹窗 ─────────────────
+
+## 0.5s 周期：检测小队成员 alive→destroyed 沿（复仇三技共用钩子）+ 顺延奖励升级弹窗。
+## 同周期多人阵亡只触发一次（团灭不连发）；暂停中物理帧停走、天然冻结。
+func _tick_squad_watch(delta: float) -> void:
+	_squad_watch_timer -= delta
+	if _squad_watch_timer > 0.0:
+		return
+	_squad_watch_timer = 0.5
+	for m in _squad_known_alive:
+		if m == null or not is_instance_valid(m) or (m as Aircraft).is_destroyed:
+			_on_squad_member_down()
+			break
+	_squad_known_alive = _squad_members_alive()
+	_try_present_bonus_upgrade()
+
+## 僚机/王牌被击坠 → 三技钩子（spec skills-720-rework §3.3 僚机阵亡事件）
+func _on_squad_member_down() -> void:
+	if is_game_over:
+		return
+	var alive: Array = _squad_members_alive()
+	if int(upgrade_stacks.get("squad_revenge", 0)) > 0:
+		for m in alive:
+			m.apply_status(StatusEffects.BLOODLUST, 15.0)
+			m.apply_status(StatusEffects.INVINCIBLE, 15.0)
+		EventLogger.log_event("SKILL_HOOK", "Squad", "squad_revenge → 全队嗜血+无敌 15s")
+	if int(upgrade_stacks.get("assassin_revenge", 0)) > 0:
+		for m in alive:
+			m.apply_status(StatusEffects.OVERLOAD, 15.0)
+			m.apply_status(StatusEffects.STEALTH, 15.0)
+		EventLogger.log_event("SKILL_HOOK", "Squad", "assassin_revenge → 全队超载+隐身 15s")
+	if int(upgrade_stacks.get("blackbox_recovery", 0)) > 0:
+		_queue_bonus_upgrade("blackbox_recovery")
+
+func _queue_bonus_upgrade(reason: String) -> void:
+	_pending_bonus_upgrades += 1
+	EventLogger.log_event("UPGRADE", "Player",
+		"奖励升级 +1（%s，待弹 %d）" % [reason, _pending_bonus_upgrades])
+
+## 奖励升级与升级弹窗同一呈现（卡片三选一 + 选卡得点）；暂停/结算面板打开时顺延
+func _try_present_bonus_upgrade() -> void:
+	if _pending_bonus_upgrades <= 0 or is_paused_for_upgrade or is_game_over or _bench_mode:
+		return
+	if _evolution_ui and _evolution_ui.visible:
+		return
+	var cards: Array[Dictionary] = _roll_axis_cards()
+	if cards.is_empty():
+		_pending_bonus_upgrades = 0
+		return
+	_pending_bonus_upgrades -= 1
+	is_paused_for_upgrade = true
+	AudioManager.set_music_muffled(true)
+	upgrade_ui.populate(cards)
+	Presentation.present(upgrade_ui, "upgrade_in")
 
 ## 应用一条升级（归属分流 + 记栈 + "+1 轴进度" + 旧进化链检测 + 生效子集重建）。
 ## 返回触发的旧进化技能名（无则 ""）。供 结算规划站 / 旧 upgrade_ui 信号 两个入口共用（不含暂停/恢复）。
@@ -3020,6 +3096,11 @@ func _on_settlement_closed() -> void:
 	AudioManager.set_music_muffled(false)
 	_set_hard_brake(false)
 	is_dragging = false
+	# 地勤优化（720 批）：停靠结算关闭（=起飞）后获得一个升级
+	if _dock_settlement_open:
+		_dock_settlement_open = false
+		if int(upgrade_stacks.get("ground_crew", 0)) > 0:
+			_queue_bonus_upgrade("ground_crew")
 	# 状态恢复已全部完成，dismiss 只是视觉尾巴（解暂停在 panel_out 第 0 帧）
 	Presentation.dismiss(_evolution_ui, "panel_out")
 
@@ -3287,6 +3368,7 @@ func _claim_weapon_reward(weapon: String) -> void:
 func _on_dock_docked(dock: DockPoint) -> void:
 	EventLogger.log_event("DOCK", "SettlementOpen",
 		"%s pending=%d" % [dock.display_name_key, _pending_rewards.size()])
+	_dock_settlement_open = true   # 地勤优化（720 批）：结算关闭=起飞时发奖励升级
 	# 领取待领奖励（spec §2.3 三类实体奖励；registry 旧 upgrade dict 走兼容分支）
 	var claimed_any := false
 	for reward in _pending_rewards:

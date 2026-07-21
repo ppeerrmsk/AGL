@@ -61,6 +61,7 @@ var _fade_timer: float = 0.0
 ## AWACS 支援 buff（spec global-awareness-roe §2.6c）：发射瞬间 shooter 在预警机
 ## 8000m 圈内 → 追踪 G ×1.25，弹全程生效（快照式，spawn_missile 写入，不逐帧查询）
 var awacs_g_mult: float = 1.0
+var is_secondary_weapon: bool = false  ## 副槽 QAAM 发射（kind 归因 "qmaam"，720 批）
 
 ## ── 云层穿越累计衰减 ──
 var _cloud_guidance_loss: float = 0.0   ## 0~(1-FLOOR) 累加不回复

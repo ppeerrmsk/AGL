@@ -122,7 +122,7 @@ BVR 远距协同齐射 BOSS，事件触发：
 3. **`survivor_spawner.gd:42` 起声明 `_<name>_params_base: AircraftParams` 成员**
 4. **`survivor_spawner.gd:119` 起 `preload(...)` 加载资源**
 5. **`survivor_data.gd:1554` 起加解锁/概率常量**（`<NAME>_UNLOCK_LEVEL` / `_CHANCE_PER_LEVEL` / `_CHANCE_MAX`）
-6. **`survivor_data.gd:1835` `TOKEN_COST` 和 `:1685` `TOKEN_INSTANCE_CAP` 表补新枚举值**
+6. **`survivor_data.gd:2001` `TOKEN_COST` 和 `:1685` `TOKEN_INSTANCE_CAP` 表补新枚举值**
 7. **`survivor_spawner.gd:295` `_pick_enemy_type` 按威胁等级插入概率判定分支**
 8. **`survivor_spawner.gd:1579` `_create_enemy` 的各 match 全部补新 case**：
    - `match etype` 选基础参数（`:1577`）

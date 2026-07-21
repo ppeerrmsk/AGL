@@ -87,6 +87,21 @@ const ROCKET_HOMING_SCAN_PX := 1200.0
 const ROCKET_HOMING_TURN_DPS := 35.0     ## 比鱼雷略快但比导弹弱很多
 const ROCKET_HOMING_RETARGET_INTERVAL := 0.4
 
+## ── 720 批 T3：钩子技能常量 ──
+const SKILL_QMAAM_BLOODLUST := "qmaam_bloodlust"
+const QMAAM_BLOODLUST_DURATION := 10.0      ## 格斗弹击杀 → 嗜血 10s
+const SKILL_ADAPT_ENERGY := "adapt_energy"
+const ADAPT_ENERGY_CHARGE := 3.0            ## 击杀低于自己高度的敌人 → 加力充能 +3s
+const ADAPT_ENERGY_HEAL := 20.0             ## 击杀高于自己高度的敌人 → 回 20 HP
+const SKILL_GUN_RESERVE_MAG := "gun_reserve_mag"
+const GUN_RESERVE_MAG_BASE_CHANCE := 0.30   ## 首层 30%，双层 50%
+const GUN_RESERVE_MAG_PER_STACK := 0.20
+const SKILL_GUN_OUT_FREE_MISSILE := "gun_out_free_missile"
+
+## 加力充能队级实例引用（survivor_mode 建场时注入；"适应"击杀回能经此触达。
+## 场景重建时重新注入覆盖旧引用，RefCounted 由 mode 持有不悬空）
+static var afterburner: AfterburnerCharge = null
+
 
 ## ── 击杀钩子分发入口 ──
 ## 由 StatusEffects.on_kill 调用。在 BLOODLUST 已处理之后追加跑技能链。
@@ -182,6 +197,48 @@ static func dispatch_on_kill(killer: Aircraft, victim: Aircraft) -> void:
 		var tier: int = killer.get_altitude_tier()
 		if tier == CombatUnit.AltitudeTier.LOW or tier == CombatUnit.AltitudeTier.GROUND:
 			killer.apply_status(StatusEffects.INVINCIBLE, LOWEST_ALT_KILL_INVUL_DURATION)
+
+	# ── 720 批：QAAM 嗜血——格斗弹（副槽 QMAAM）击杀 → 嗜血 10s ──
+	if kind == "qmaam" and stacks.get(SKILL_QMAAM_BLOODLUST, 0) > 0:
+		killer.apply_status(StatusEffects.BLOODLUST, QMAAM_BLOODLUST_DURATION)
+
+	# ── 720 批：适应——击杀不高于自己的敌人回加力能量；高于自己的回 20 HP ──
+	if stacks.get(SKILL_ADAPT_ENERGY, 0) > 0:
+		if victim.altitude <= killer.altitude:
+			if afterburner != null:
+				afterburner.charge = minf(afterburner.charge + ADAPT_ENERGY_CHARGE, AfterburnerCharge.CHARGE_MAX)
+				EventLogger.log_event("SKILL_HOOK", killer.callsign, "adapt_energy → 加力充能 +%.0fs" % ADAPT_ENERGY_CHARGE)
+		elif killer.params:
+			killer.hp = minf(killer.hp + ADAPT_ENERGY_HEAL, killer.params.max_hp)
+			EventLogger.log_event("SKILL_HOOK", killer.callsign, "adapt_energy → +%.0f HP" % ADAPT_ENERGY_HEAL)
+
+
+## ── 720 批：机炮弹尽钩子 ──
+## 备用弹仓：弹尽瞬间按概率立刻回满（30%/首层 +20%/层）。返回 true = 已回满，跳过装填。
+## 由 aircraft_weapons 在"ammo 归零 → 进装填"转换点调用。
+static func try_gun_reserve_mag(ac: Aircraft) -> bool:
+	if ac == null or not is_instance_valid(ac) or not ac.is_player_squad():
+		return false
+	var stacks: Dictionary = _get_upgrade_stacks(ac)
+	var n: int = int(stacks.get(SKILL_GUN_RESERVE_MAG, 0))
+	if n <= 0 or ac.params == null or ac.params.gun == null:
+		return false
+	var chance: float = GUN_RESERVE_MAG_BASE_CHANCE + GUN_RESERVE_MAG_PER_STACK * float(n - 1)
+	if randf() >= chance:
+		return false
+	ac.ammo = ac.params.gun.max_ammo
+	EventLogger.log_event("SKILL_HOOK", ac.callsign,
+		"gun_reserve_mag → 弹尽立即回满（判定 %.0f%%）" % (chance * 100.0))
+	return true
+
+
+## 副武器：机炮弹尽装填期内发射导弹不消耗弹药（_fire_missile_at / 齐射扣弹前查）
+static func in_free_missile_window(ac: Aircraft) -> bool:
+	if ac == null or not is_instance_valid(ac) or not ac.is_player_squad():
+		return false
+	if not ac._gun_reload_active:
+		return false
+	return int(_get_upgrade_stacks(ac).get(SKILL_GUN_OUT_FREE_MISSILE, 0)) > 0
 
 
 ## ── 受击钩子分发入口 ──

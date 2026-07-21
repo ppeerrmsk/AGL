@@ -820,3 +820,31 @@ UPGRADE_WINGMAN_ARMED_NAME,忠诚僚机·武装,Loyal Wingman: Armed,ロイヤ�
 UPGRADE_WINGMAN_ARMED_DESC,无人机武器伤害 +30%、射程 +20%，自爆威力提升,Drone weapon damage +30%; range +20%; stronger self-destruct,ドローン火力+30%・射程+20%・自爆威力向上
 UPGRADE_COCKPIT_ARMOR_NAME,座舱护甲,Cockpit Armor,コックピット装甲
 UPGRADE_COCKPIT_ARMOR_DESC,来自地面火力（SAM/高炮/CIWS）的伤害 -50%（每层）,-50% damage from ground fire (SAM/AA/CIWS) per stack,地上火力（SAM/対空砲/CIWS）被ダメージ-50%/層
+UPGRADE_SQUAD_REVENGE_NAME,复仇之战,War of Vengeance,復讐の戦い
+UPGRADE_SQUAD_REVENGE_DESC,僚机或王牌被击坠时，全队进入嗜血与无敌状态 15 秒,When a squadmate falls the whole squad gains Bloodlust and invulnerability for 15s,僚機かエースが撃墜されると全隊が15秒間血の渇望＋無敵
+UPGRADE_GUARD_ZONE_BUFF_NAME,保卫阵地,Hold the Line,陣地防衛
+UPGRADE_GUARD_ZONE_BUFF_DESC,【防守此区】圈内全队受伤 -30%，转弯 G +15%,Inside the guard zone the squad takes -30% damage with +15% turn G,【防衛エリア】圏内で全隊被ダメージ-30%・旋回G+15%
+UPGRADE_GUN_RESERVE_MAG_NAME,备用弹仓,Reserve Magazine,予備弾倉
+UPGRADE_GUN_RESERVE_MAG_DESC,机炮弹尽时有 30%（双层 50%）概率立刻回满弹药,30% chance (50% at two stacks) to instantly refill guns when dry,弾切れ時30%（2層で50%）で即座に全弾補充
+UPGRADE_GUN_OUT_FREE_MISSILE_NAME,副武器,Sidearm Protocol,サイドアーム
+UPGRADE_GUN_OUT_FREE_MISSILE_DESC,机炮装填期间发射导弹不消耗弹药,Missiles fired while guns are reloading cost no ammo,機関砲装填中はミサイル消費なし
+UPGRADE_HEADON_XP_NAME,骑士心脏·历练,Knight's Heart: Tempering,騎士の心・鍛錬
+UPGRADE_HEADON_XP_DESC,对头击杀获得的经验 +50%,Head-on kills grant +50% XP,正面撃墜の経験値+50%
+UPGRADE_AB_KILL_CHARGE_NAME,检讨,Debrief,戦訓
+UPGRADE_AB_KILL_CHARGE_DESC,击杀的加力充能奖励 +3s（每层；基线 +4s）,Kill afterburner charge bonus +3s per stack (base +4s),撃墜時のアフターバーナー充填+3s/層（基準+4s）
+UPGRADE_AB_DURATION_NAME,强化加力,Extended Burn,強化バーナー
+UPGRADE_AB_DURATION_DESC,加力窗口时长 +50%（每层：6s→9s→12s）,Afterburner window +50% per stack (6s→9s→12s),バーナー時間+50%/層（6→9→12秒）
+UPGRADE_ADAPT_ENERGY_NAME,适应,Adaptation,適応
+UPGRADE_ADAPT_ENERGY_DESC,击杀不高于自己高度的敌人回复加力充能；击杀高于自己的回 20 HP,Kills at or below your altitude restore afterburner charge; kills above you restore 20 HP,自機以下の高度の敵撃墜でバーナー充填回復・上の敵で20HP回復
+UPGRADE_ASSASSIN_REVENGE_NAME,刺客复仇,Assassin's Reprisal,暗殺者の報復
+UPGRADE_ASSASSIN_REVENGE_DESC,僚机或王牌被击坠时，全队获得超载与隐身 15 秒,When a squadmate falls the squad gains Overload and stealth for 15s,僚機かエースが撃墜されると全隊が15秒間オーバーロード＋ステルス
+UPGRADE_EVAC_SHIFT_NAME,阵地转移,Tactical Relocation,陣地転換
+UPGRADE_EVAC_SHIFT_DESC,【撤离此区】冲刺追加提速 15%，且撤离中受到伤害 -50%,Evac sprint gains +15% speed and -50% damage taken while withdrawing,【離脱】スプリント+15%・離脱中の被ダメージ-50%
+UPGRADE_LEVELUP_HEAL_NAME,升级回复,Level-Up Recovery,レベルアップ回復
+UPGRADE_LEVELUP_HEAL_DESC,每次升级时全队回复 10 HP,The squad restores 10 HP on every level-up,レベルアップごとに全隊HP10回復
+UPGRADE_GROUND_CREW_NAME,地勤优化,Ground Crew Drill,地上クルー熟練
+UPGRADE_GROUND_CREW_DESC,机场／航母停靠判定耗时减半；起飞后获得一个升级,Docking takes half the time; gain a free upgrade after takeoff,着艦判定時間半減・離陸後にアップグレード1回獲得
+UPGRADE_BLACKBOX_RECOVERY_NAME,黑匣子回收,Black Box Recovery,ブラックボックス回収
+UPGRADE_BLACKBOX_RECOVERY_DESC,僚机或王牌被击坠时，获得一个升级,Gain a free upgrade when a squadmate is shot down,僚機かエースの撃墜時にアップグレード1回獲得
+UPGRADE_QMAAM_BLOODLUST_NAME,QAAM 嗜血,QAAM Bloodlust,QAAM血の渇望
+UPGRADE_QMAAM_BLOODLUST_DESC,格斗弹击杀后进入嗜血状态 10 秒,QAAM kills trigger 10s of Bloodlust,格闘ミサイル撃墜で血の渇望10秒

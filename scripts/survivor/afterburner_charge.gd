@@ -15,6 +15,11 @@ var charge: float = CHARGE_MAX        ## 当前充能（开局满格，让新机
 var window_left: float = 0.0          ## 加力窗口剩余时间（>0 = ACTIVE）
 var _window_members: Array = []       ## 激活瞬间全队快照（Aircraft），窗口结束统一清 flag
 
+## ── 720 批技能修正（队级单实例语义：survivor_mode 按账本同步，不逐机应用）──
+var kill_charge_bonus: float = 0.0    ## 检讨：击杀充能奖励 +3s/层（基线 KILL_CHARGE=4）
+var window_duration_mult: float = 1.0 ## 强化加力：窗口时长 ×(1+0.5/层)，6→9→12s
+var _window_total: float = WINDOW_DURATION  ## 本窗口总时长（HUD 比例分母）
+
 ## 主循环驱动：ACTIVE 倒计时（期间被动充能暂停），否则被动充能
 func update(delta: float) -> void:
 	if window_left > 0.0:
@@ -27,7 +32,7 @@ func update(delta: float) -> void:
 ## 击杀充能（空中走 kill_recorded / 地面走 spawner 击杀检测，挂点见 survivor_mode）
 ## 窗口内击杀同样入账（为下一轮攒，ACTIVE 只暂停被动充能）
 func on_kill_charge() -> void:
-	charge = minf(charge + KILL_CHARGE, CHARGE_MAX)
+	charge = minf(charge + KILL_CHARGE + kill_charge_bonus, CHARGE_MAX)
 
 ## 玩家触发（E 键 / HUD 按钮）。满格且不在窗口中才生效；失败静默（条/按钮状态即反馈）。
 ## 激活链路：全队快照置窗口标志（强 buff 层）+ 长机走既有 set_evasion_mode(true)
@@ -38,7 +43,8 @@ func try_activate(leader: Aircraft) -> bool:
 	if window_left > 0.0 or charge < CHARGE_MAX:
 		return false
 	charge = 0.0
-	window_left = WINDOW_DURATION
+	_window_total = WINDOW_DURATION * maxf(window_duration_mult, 0.01)
+	window_left = _window_total
 	_window_members = [leader]
 	# 与 Aircraft._propagate_evasion_to_squad 同判据收集僚机（squad.leader == 长机；drone 除外）
 	for u in CombatUnit.all_units:
@@ -59,7 +65,7 @@ func try_activate(leader: Aircraft) -> bool:
 		m.afterburner_window_active = true
 	leader.set_evasion_mode(true)
 	EventLogger.log_event("AFTERBURNER", leader._log_name(),
-		"window %.0fs, squad size %d" % [WINDOW_DURATION, _window_members.size()])
+		"window %.0fs, squad size %d" % [_window_total, _window_members.size()])
 	return true
 
 ## 窗口到期：清全队标志 + 长机对称退出 evasion（玩家中途下令已退出则为 no-op）
@@ -88,4 +94,4 @@ func ratio() -> float:
 
 ## 窗口剩余进度 1→0（非 ACTIVE 返回 0）
 func window_ratio() -> float:
-	return clampf(window_left / WINDOW_DURATION, 0.0, 1.0)
+	return clampf(window_left / maxf(_window_total, 0.01), 0.0, 1.0)
