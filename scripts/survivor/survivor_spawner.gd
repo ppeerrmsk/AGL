@@ -2511,9 +2511,8 @@ func _detect_kills() -> void:
 					elif etype == "f47":
 						base_xp = SurvivorData.XP_PER_KILL_F47
 					xp_value = base_xp + survivor_player.level * 8
-				# xp_mult 升级（累加，硬顶 1.4）
-				if survivor_player.aircraft:
-					xp_value = int(round(float(xp_value) * survivor_player.aircraft.xp_multiplier))
+				# xp_mult 升级（队级单实例：倍率在 SurvivorPlayer 层，切控不丢——720 T2）
+				xp_value = int(round(float(xp_value) * survivor_player.xp_multiplier))
 				survivor_player.add_xp(xp_value)
 				kill_count += 1
 				_kill_heal()
@@ -2526,9 +2525,8 @@ func _detect_kills() -> void:
 			if not child.has_meta("xp_granted"):
 				child.set_meta("xp_granted", true)
 				var xp_value := SurvivorData.XP_PER_KILL_GROUND + survivor_player.level * 4
-				# xp_mult 升级
-				if survivor_player.aircraft:
-					xp_value = int(round(float(xp_value) * survivor_player.aircraft.xp_multiplier))
+				# xp_mult 升级（队级单实例，SurvivorPlayer 层）
+				xp_value = int(round(float(xp_value) * survivor_player.xp_multiplier))
 				survivor_player.add_xp(xp_value)
 				kill_count += 1
 				_kill_heal()

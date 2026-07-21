@@ -429,13 +429,13 @@
 | 功能 | 位置 |
 |------|------|
 | 信号 leveled_up | `survivor_player.gd:7` |
-| 经验累加/升级触发 | `survivor/survivor_player.gd:33` add_xp |
-| 应用升级（修改 aircraft.params）| `survivor/survivor_player.gd:310` apply_upgrade |
+| 经验累加/升级触发 | `survivor/survivor_player.gd:37` add_xp |
+| 应用升级（修改 aircraft.params）| `survivor/survivor_player.gd:336` apply_upgrade |
 | └ max_hp / missile_count / tracking | `survivor_player.gd:37-50` |
 | └ gun_damage / multishot / ammo / regen / firerate | `survivor_player.gd:58-72` |
 | └ radar_range / lock_time / speed / maneuver | `survivor_player.gd:73-85` |
 | └ flare / pilot_stamina / kill_heal / dogfight | `survivor_player.gd:86-112` |
-| HP 查询 | `survivor/survivor_player.gd:657` get_hp |
+| HP 查询 | `survivor/survivor_player.gd:720` get_hp |
 
 ### survivor_data.gd — 参数表（322 行）
 
@@ -536,17 +536,17 @@
 | 功能 | 位置 |
 |------|------|
 | 归属字段文档（scope/classes/milestone_plus） | `survivor/survivor_data.gd:79` 附近 UPGRADES 头注释 |
-| scope 查询 | `survivor/survivor_data.gd:1199` upgrade_scope |
-| 品类数组查询 | `survivor/survivor_data.gd:1204` upgrade_classes |
-| "+1 轴进度"目标轴查询 | `survivor/survivor_data.gd:1210` milestone_plus_of |
-| 王牌字段型 stat 白名单 | `survivor/survivor_data.gd:1218` ACE_FIELD_STATS |
-| 归属生效纯谓词 | `survivor/survivor_data.gd:1225` upgrade_applies_to_machine |
+| scope 查询 | `survivor/survivor_data.gd:1300` upgrade_scope |
+| 品类数组查询 | `survivor/survivor_data.gd:1305` upgrade_classes |
+| "+1 轴进度"目标轴查询 | `survivor/survivor_data.gd:1311` milestone_plus_of |
+| 王牌字段型 stat 白名单 | `survivor/survivor_data.gd:1319` ACE_FIELD_STATS |
+| 归属生效纯谓词 | `survivor/survivor_data.gd:1333` upgrade_applies_to_machine |
 | 品类身份映射表 | `survivor/evolution_system.gd:73` CLASS_IDENTITY_BY_CATEGORY |
 | 档案 → 品类身份 | `survivor/evolution_system.gd:87` class_identity_of_profile |
-| 定向应用（借指针走同 match） | `survivor/survivor_player.gd:287` apply_upgrade_to |
-| 王牌剥离（切控迁移逆操作） | `survivor/survivor_player.gd:300` strip_upgrade_from |
-| "+1 轴进度"加成（cap=2） | `survivor/survivor_player.gd:117` add_milestone_bonus |
-| 里程碑进度=点+加成 | `survivor/survivor_player.gd:131` get_milestone_progress |
+| 定向应用（借指针走同 match） | `survivor/survivor_player.gd:291` apply_upgrade_to |
+| 王牌剥离（切控迁移逆操作） | `survivor/survivor_player.gd:304` strip_upgrade_from |
+| "+1 轴进度"加成（cap=2） | `survivor/survivor_player.gd:121` add_milestone_bonus |
+| 里程碑进度=点+加成 | `survivor/survivor_player.gd:135` get_milestone_progress |
 | 队存活成员枚举 | `survivor/survivor_mode.gd:2567` _squad_members_alive |
 | 单机品类身份（meta profile_id） | `survivor/survivor_mode.gd:2580` _class_identity_of |
 | 队品类并集（卡池门控） | `survivor/survivor_mode.gd:2589` _squad_present_classes |

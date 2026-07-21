@@ -96,8 +96,8 @@ const UPGRADES: Array[Dictionary] = [
 		"name": "UPGRADE_HP_UP_NAME",
 		"desc": "UPGRADE_HP_UP_DESC",
 		"stat": "max_hp",
-		"value": 80.0,             ## 单层 +80 HP（C2 重构：从 5×30 → 1×80，特化加成）
-		"max_stacks": 1,
+		"value": 30.0,  ## 720 批：+80→+30/层
+		"max_stacks": 2,
 		"category": "survival",
 		"rarity": Rarity.STABLE,
 		"keywords": ["hp"],
@@ -118,25 +118,25 @@ const UPGRADES: Array[Dictionary] = [
 		"name": "UPGRADE_SPEED_UP_NAME",
 		"desc": "UPGRADE_SPEED_UP_DESC",
 		"stat": "speed",
-		"value": 0.30,             ## C2 重构：1×30% max_speed（原 4×18%），accel 同步 +20%
-		"max_stacks": 1,
+		"value": 0.20,  ## 720 批：+30%→+20%/层
+		"max_stacks": 2,  ## 720 批 1→2
 		"category": "mobility",
 		"rarity": Rarity.STABLE,
 		"keywords": ["speed"],
-		"accel_ratio": 0.667,      ## 加速提升 = value × 此值（0.30 × 0.667 ≈ 0.20）
+		"accel_ratio": 0.5,  ## 加速 +10%/层（value×0.5）
 	},
 	{
 		"id": "maneuver_up",
 		"name": "UPGRADE_MANEUVER_UP_NAME",
 		"desc": "UPGRADE_MANEUVER_UP_DESC",
 		"stat": "maneuver",
-		"value": 0.45,             ## C2 重构：1×45% roll（原 3×25%）+ +2.5 G 持续 + +2.5 结构
-		"max_stacks": 1,
+		"value": 0.30,  ## 滚转 +30%/层（720 批 45%→30%）
+		"max_stacks": 2,  ## 720 批 1→2
 		"category": "mobility",
 		"rarity": Rarity.STABLE,
 		"keywords": ["maneuver"],
-		"max_g_bonus": 2.5,
-		"structural_g_bonus": 2.5,
+		"max_g_bonus": 1.5,  ## 720 批 2.5→1.5
+		"structural_g_bonus": 1.5,  ## 720 批 2.5→1.5
 	},
 	## flare_cooldown 已删除（C2：迁移到局外配件 ecm_t2/ecm_aegis_t3）
 	{
@@ -173,8 +173,8 @@ const UPGRADES: Array[Dictionary] = [
 		"name": "UPGRADE_KILL_HEAL_NAME",
 		"desc": "UPGRADE_KILL_HEAL_DESC",
 		"stat": "kill_heal",
-		"value": 10.0,
-		"max_stacks": 3,
+		"value": 5.0,  ## 720 批：10→5
+		"max_stacks": 1,  ## 720 批 3→1
 		"category": "survival",
 		"rarity": Rarity.ADVANCED,
 		"keywords": ["heal", "kill"],
@@ -186,7 +186,7 @@ const UPGRADES: Array[Dictionary] = [
 		"desc": "UPGRADE_MISSILE_COUNT_DESC",
 		"stat": "missile_count",
 		"value": 2,                ## C2 重构：1×+2（主+副槽各 +2，与自然成长叠加）
-		"max_stacks": 1,
+		"max_stacks": 3,  ## 720 批 1→3
 		"category": "missile",
 		"rarity": Rarity.ADVANCED,
 		"keywords": ["missile"],
@@ -233,14 +233,17 @@ const UPGRADES: Array[Dictionary] = [
 		"requires": ["missile"],
 		## 解锁同时锁定 + 齐射；负面效果：导弹 max_g ×0.85（轻微追踪减劣，弹群压火力不靠精度）
 		"tracking_penalty": 0.85,
+		"classes": ["knight"],
+		"scope": "ace",  ## 720 批：王牌专属（ACE_FIELD_STATS 配对 strip）
+		"evolved": true,  ## 720 批：进战区奖励池
 	},
 	{
 		"id": "gun_damage",
 		"name": "UPGRADE_GUN_DAMAGE_NAME",
 		"desc": "UPGRADE_GUN_DAMAGE_DESC",
 		"stat": "gun_damage",
-		"value": 0.55,             ## C2 重构：1×55%（原 5×20% 累乘 = ×2.49；现单层 ×1.55）
-		"max_stacks": 1,
+		"value": 0.30,  ## 720 批：+55%→+30%/层
+		"max_stacks": 2,
 		"category": "secondary",
 		"rarity": Rarity.STABLE,
 		"keywords": ["gun"],
@@ -259,6 +262,7 @@ const UPGRADES: Array[Dictionary] = [
 		"keywords": ["gun", "swarm"],
 		# evolved 字段已弃用（§4 战区奖励降级；后续按战区映射注册）
 		"requires": ["gun"],
+		"classes": ["gladiator"],  ## 720 批：机炮吊舱，斗士限定·全队
 	},
 	## gun_ammo / gun_reload / gun_firerate / gun_range 已删除（C2：全部迁移到配件
 	## gun_dmg_t1 / gun_combat_t2 / gun_assault_t3）
@@ -274,18 +278,21 @@ const UPGRADES: Array[Dictionary] = [
 		"keywords": ["gun", "ciws"],
 		# evolved 字段已弃用（§4 战区奖励降级；后续按战区映射注册）
 		"requires": ["gun"],
+		"classes": ["gladiator"],  ## v5：CIWS 归斗士系攻击机
 	},
 	{
 		"id": "fear_squad_spread",
 		"name": "UPGRADE_FEAR_SQUAD_SPREAD_NAME",
 		"desc": "UPGRADE_FEAR_SQUAD_SPREAD_DESC",
 		"stat": "fear_squad_spread",
-		"value": 10.0,                ## 给同小队成员施加 FEAR 的持续时间（秒）
+		"value": 5.0,  ## FEAR 持续秒数（720 批 →5s）
 		"max_stacks": 1,
 		"category": "secondary",
 		"rarity": Rarity.EXPERIMENTAL,
 		"keywords": ["fear"],
 		## 自身就是"能施加恐惧的技能"，不需要前置
+		"classes": ["schemer"],
+		"scope": "ace",  ## 720 批：惊鸿扩散，策士限定＋王牌
 	},
 	{
 		"id": "fear_chills",
@@ -344,6 +351,7 @@ const UPGRADES: Array[Dictionary] = [
 		"rarity": Rarity.STABLE,
 		"keywords": ["xp"],
 		"xp_cap": 1.4,             ## 硬顶 ×1.4
+		"scope": "squad_once",  ## 队级单实例：倍率记 SurvivorPlayer 层（720 T2 迁移）
 	},
 	## radar_angle / seeker_fov 已删除（C2：迁移到配件 radar_aegis_t3 / missile_seeker_t2/apex_t3）
 	{
@@ -352,13 +360,14 @@ const UPGRADES: Array[Dictionary] = [
 		"desc": "UPGRADE_GUN_ACCURACY_DESC",
 		"stat": "gun_accuracy",
 		"value": 0.20,             ## 每层 spread ×(1-value)=×0.80
-		"max_stacks": 4,
+		"max_stacks": 2,  ## 720 批 4→2
 		"category": "secondary",
 		"rarity": Rarity.STABLE,
 		"keywords": ["gun"],
 		"requires": ["gun"],
 		"min_deg": 0.1,            ## 散布下限 0.1°
 		"aim_skill_boost": 0.18,   ## 每层飞行员 aim_skill +0.18，4 层 = +0.72（基础 0.3 → 1.02 cap 1.0）
+		"lifetime_bonus": 0.20,  ## 720 批追加：子弹生存时间 +20%/层
 	},
 	{
 		"id": "aim_assist",
@@ -379,7 +388,7 @@ const UPGRADES: Array[Dictionary] = [
 		"desc": "UPGRADE_MISSILE_BOOST_DESC",
 		"stat": "missile_boost",
 		"value": 1,
-		"max_stacks": 3,
+		"max_stacks": 2,  ## 720 批 3→2
 		"category": "missile",
 		"rarity": Rarity.ADVANCED,
 		"keywords": ["missile"],
@@ -405,6 +414,7 @@ const UPGRADES: Array[Dictionary] = [
 		##      —— cap 是为了不让 PE↔KE (g·vs/spd·2.5) 把横速吃光，详见 known-seams 与 aircraft_physics.gd:273
 		##   ② cloud_lock_stealth = true — 云中任意档位 lock_rate ×0.1
 		"altitude_mult": 2.0,
+		"classes": ["schemer"],  ## v5：电战技归策士
 	},
 	{
 		"id": "ecm_pod",
@@ -420,6 +430,7 @@ const UPGRADES: Array[Dictionary] = [
 		## 效果：ecm_range_mult = 0.75 — 敌方雷达对我的有效距离缩短 25%
 		## 在 main.gd / survivor_mode.gd 的雷达循环中，若 dist > radar_range × 此值 则视同脱锥
 		"range_mult": 0.75,
+		"classes": ["schemer"],  ## v5：电战技归策士
 	},
 	# fire_and_forget 升级已废除（2026-04-29）：下放为玩家飞机标配。
 	# 见 survivor_playable_setup.gd `apply()` 末段的导弹处理。
@@ -445,13 +456,14 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 1,
 		"max_stacks": 1,
 		"category": "mobility",
-		"rarity": Rarity.CLASSIFIED,
+		"rarity": Rarity.ADVANCED,  ## 720 批：机密→先进
 		"keywords": ["kill", "streak"],
 		# evolved 字段已弃用（§4 战区奖励降级；后续按战区映射注册）
 		## 效果：连续不受伤击杀，每 2 杀 +1 层（max 5 层）
 		## 每层加成（详见 aircraft.gd _executioner_*_mult）：
 		##   max_speed +5%、deceleration +10%、missile_reload ×0.92、lock_time ×0.90
 		## 受到任意伤害立即清零所有层数 + 计数
+		"classes": ["knight"],  ## 720 批：斗士限定→骑士限定
 	},
 	# ── X-02 专属：电磁炮 ──────────────────────────────────────
 	{
@@ -459,8 +471,8 @@ const UPGRADES: Array[Dictionary] = [
 		"name": "UPGRADE_RAILGUN_CHARGE_NAME",
 		"desc": "UPGRADE_RAILGUN_CHARGE_DESC",
 		"stat": "railgun_charge",
-		"value": 0.20,
-		"max_stacks": 3,
+		"value": 0.30,  ## 720 批：-20%→-30%/层
+		"max_stacks": 2,  ## 720 批 3→2
 		"category": "weapon",
 		"rarity": Rarity.ADVANCED,
 		"keywords": ["railgun"],
@@ -471,22 +483,10 @@ const UPGRADES: Array[Dictionary] = [
 		"name": "UPGRADE_RAILGUN_RANGE_NAME",
 		"desc": "UPGRADE_RAILGUN_RANGE_DESC",
 		"stat": "railgun_range",
-		"value": 500.0,
+		"value": 1500.0,  ## 720 批：+500m→+1500m/层
 		"max_stacks": 3,
 		"category": "weapon",
 		"rarity": Rarity.STABLE,
-		"keywords": ["railgun"],
-		"requires": ["railgun"],
-	},
-	{
-		"id": "railgun_damage",
-		"name": "UPGRADE_RAILGUN_DAMAGE_NAME",
-		"desc": "UPGRADE_RAILGUN_DAMAGE_DESC",
-		"stat": "railgun_damage",
-		"value": 0.25,
-		"max_stacks": 3,
-		"category": "weapon",
-		"rarity": Rarity.ADVANCED,
 		"keywords": ["railgun"],
 		"requires": ["railgun"],
 	},
@@ -496,8 +496,8 @@ const UPGRADES: Array[Dictionary] = [
 		"name": "UPGRADE_LASER_COOLDOWN_NAME",
 		"desc": "UPGRADE_LASER_COOLDOWN_DESC",
 		"stat": "laser_cooldown",
-		"value": 0.25,
-		"max_stacks": 3,
+		"value": 0.40,  ## 720 批：+25%→+40%/层
+		"max_stacks": 2,  ## 720 批 3→2
 		"category": "weapon",
 		"rarity": Rarity.ADVANCED,
 		"keywords": ["laser"],
@@ -509,7 +509,7 @@ const UPGRADES: Array[Dictionary] = [
 		"desc": "UPGRADE_LASER_RANGE_DESC",
 		"stat": "laser_range",
 		"value": 0.20,
-		"max_stacks": 3,
+		"max_stacks": 2,  ## 720 批 3→2
 		"category": "weapon",
 		"rarity": Rarity.STABLE,
 		"keywords": ["laser"],
@@ -520,8 +520,8 @@ const UPGRADES: Array[Dictionary] = [
 		"name": "UPGRADE_LASER_HEAT_NAME",
 		"desc": "UPGRADE_LASER_HEAT_DESC",
 		"stat": "laser_heat",
-		"value": 0.30,
-		"max_stacks": 3,
+		"value": 0.50,  ## 720 批：+30%→+50%
+		"max_stacks": 1,  ## 720 批 3→1
 		"category": "weapon",
 		"rarity": Rarity.ADVANCED,
 		"keywords": ["laser"],
@@ -567,6 +567,7 @@ const UPGRADES: Array[Dictionary] = [
 		"category": "electronic_warfare",
 		"rarity": Rarity.CLASSIFIED,
 		"keywords": ["jam", "aura"],
+		"classes": ["gladiator"],  ## 720 批：骑士限定→斗士限定
 	},
 	{
 		"id": "rear_aura_slow",
@@ -578,6 +579,9 @@ const UPGRADES: Array[Dictionary] = [
 		"category": "electronic_warfare",
 		"rarity": Rarity.CLASSIFIED,
 		"keywords": ["slow", "aura"],
+		"classes": ["gladiator"],
+		"scope": "ace",  ## 720 批：斗士限定＋王牌
+		"milestone_plus": "gladiator",
 	},
 	{
 		"id": "evasion_stealth",
@@ -589,6 +593,8 @@ const UPGRADES: Array[Dictionary] = [
 		"category": "electronic_warfare",
 		"rarity": Rarity.NEXT_GEN,
 		"keywords": ["evasion_mode", "stealth"],
+		"milestone_plus": "knight",
+		"evolved": true,  ## 720 批：雾隐机动进战区奖励池
 	},
 	{
 		"id": "evasion_herbst",
@@ -656,6 +662,7 @@ const UPGRADES: Array[Dictionary] = [
 		"category": "survival",
 		"rarity": Rarity.CLASSIFIED,
 		"keywords": ["head_on", "chivalry"],
+		"axis": "knight",  ## 720 批：斗士轴→骑士轴（对头=骑士武德）
 	},
 	{
 		"id": "skill_head_on_aoe_fear",
@@ -667,6 +674,8 @@ const UPGRADES: Array[Dictionary] = [
 		"category": "electronic_warfare",
 		"rarity": Rarity.CLASSIFIED,
 		"keywords": ["head_on", "fear"],
+		"scope": "ace",  ## 720 批：寒颤号令归王牌（AoE 控场强技）
+		"milestone_plus": "knight",
 	},
 	{
 		"id": "skill_missile_hit_invul",
@@ -678,6 +687,7 @@ const UPGRADES: Array[Dictionary] = [
 		"category": "survival",
 		"rarity": Rarity.EXPERIMENTAL,
 		"keywords": ["panic_save"],
+		"classes": ["gladiator"],  ## v5：无敌保命归斗士
 	},
 	{
 		"id": "skill_lowest_alt_kill_invul",
@@ -689,6 +699,7 @@ const UPGRADES: Array[Dictionary] = [
 		"category": "survival",
 		"rarity": Rarity.EXPERIMENTAL,
 		"keywords": ["low_alt", "chivalry"],
+		"exclusive_to": ["a10"],  ## 720 批：空中战车，A-10 限定
 	},
 	{
 		"id": "skill_gun_kill_fear",
@@ -701,6 +712,7 @@ const UPGRADES: Array[Dictionary] = [
 		"rarity": Rarity.EXPERIMENTAL,
 		"keywords": ["fear", "gun"],
 		"requires": ["gun"],
+		"scope": "ace",  ## 720 批：机炮震慑归王牌
 	},
 	# ── 已有 SkillHooks 但缺 UPGRADES 入口的钩子激活技能 ──
 	{
@@ -713,6 +725,7 @@ const UPGRADES: Array[Dictionary] = [
 		"category": "survival",
 		"rarity": Rarity.ADVANCED,
 		"keywords": ["heal", "kill", "fear"],   ## 门控在【恐惧】doctrine 后——异常状态最常见的来源就是 FEAR
+		"milestone_plus": "schemer",  ## 720 批：策士+1
 	},
 	{
 		"id": "skill_flare_aoe_jam",
@@ -725,6 +738,7 @@ const UPGRADES: Array[Dictionary] = [
 		"rarity": Rarity.ADVANCED,
 		"keywords": ["flare", "jam"],
 		"requires": ["flare"],
+		"classes": ["schemer"],  ## v5：电子战触发技归策士
 	},
 	{
 		"id": "skill_gun_kill_flare_drop",
@@ -737,6 +751,8 @@ const UPGRADES: Array[Dictionary] = [
 		"rarity": Rarity.EXPERIMENTAL,
 		"keywords": ["gun", "jam"],
 		"requires": ["gun"],
+		"classes": ["gladiator"],  ## 720 批：策士限定→斗士限定
+		"milestone_plus": "gladiator",
 	},
 	{
 		"id": "skill_missile_hit_aoe_jam",
@@ -767,7 +783,7 @@ const UPGRADES: Array[Dictionary] = [
 		"name": "UPGRADE_LASER_EXTRA_BEAMS_NAME",
 		"desc": "UPGRADE_LASER_EXTRA_BEAMS_DESC",
 		"stat": "laser_extra_beams",
-		"value": 2,                    ## 每层 max_simultaneous_targets +2
+		"value": 1,  ## 每层 max_simultaneous_targets +1（720 批 2→1）
 		"max_stacks": 2,               ## 最多 2 层 = +4 束
 		"category": "secondary",
 		"rarity": Rarity.STABLE,
@@ -788,6 +804,7 @@ const UPGRADES: Array[Dictionary] = [
 		"rarity": Rarity.ADVANCED,
 		"keywords": ["torpedo", "jam"],
 		"requires": ["torpedo"],
+		"classes": ["schemer"],  ## v5：电子战触发技归策士
 	},
 	{
 		"id": "rocket_firerate_range",
@@ -824,6 +841,7 @@ const UPGRADES: Array[Dictionary] = [
 		"rarity": Rarity.ADVANCED,
 		"keywords": ["torpedo", "tracking"],
 		"requires": ["torpedo"],
+		"milestone_plus": "schemer",  ## 720 批：策士+1
 	},
 	# ── 数值类便利贴技能（直接改 Aircraft / params 字段）──
 	{
@@ -836,6 +854,7 @@ const UPGRADES: Array[Dictionary] = [
 		"category": "mobility",
 		"rarity": Rarity.STABLE,
 		"keywords": ["maneuver", "panic"],
+		"milestone_plus": "gladiator",  ## 720 批：斗士+1
 	},
 	{
 		"id": "low_hp_flare_reload",
@@ -848,6 +867,7 @@ const UPGRADES: Array[Dictionary] = [
 		"rarity": Rarity.ADVANCED,
 		"keywords": ["flare", "low_hp"],
 		"requires": ["flare"],
+		"axis": "knight",  ## 720 批：策士轴→骑士轴
 	},
 	{
 		"id": "high_alt_lock_speed",
@@ -859,6 +879,7 @@ const UPGRADES: Array[Dictionary] = [
 		"category": "electronic_warfare",
 		"rarity": Rarity.ADVANCED,
 		"keywords": ["radar", "altitude"],
+		"axis": "knight",  ## 720 批：策士轴→骑士轴
 	},
 	{
 		"id": "ab_gun_regen",
@@ -871,6 +892,7 @@ const UPGRADES: Array[Dictionary] = [
 		"rarity": Rarity.EXPERIMENTAL,
 		"keywords": ["gun", "afterburner"],
 		"requires": ["gun"],
+		"milestone_plus": "knight",  ## 720 批：骑士+1
 	},
 	{
 		"id": "head_on_gun_dodge",
@@ -883,6 +905,7 @@ const UPGRADES: Array[Dictionary] = [
 		"rarity": Rarity.EXPERIMENTAL,
 		"keywords": ["gun", "head_on", "chivalry"],
 		"requires": ["gun"],
+		"axis": "knight",  ## 720 批：斗士轴→骑士轴
 	},
 	{
 		"id": "gun_fire_dr",
@@ -890,7 +913,7 @@ const UPGRADES: Array[Dictionary] = [
 		"desc": "UPGRADE_GUN_FIRE_DR_DESC",
 		"stat": "gun_fire_dr",
 		"value": 0.5,                 ## 减伤比例 50%
-		"window": 0.4,                ## 时间窗 0.4s（开火后 0.4s 内）
+		"window": 0.5,  ## 时间窗 0.5s（720 批 0.4→0.5）
 		"max_stacks": 1,
 		"category": "secondary",
 		"rarity": Rarity.CLASSIFIED,
@@ -905,8 +928,9 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 6.0,                 ## 累积 6s（FEAR 期间不累积，消退后重置）
 		"max_stacks": 1,
 		"category": "electronic_warfare",
-		"rarity": Rarity.EXPERIMENTAL,
+		"rarity": Rarity.NEXT_GEN,  ## 720 批：实验→次世代
 		"keywords": ["fear", "radar", "lock"],
+		"scope": "ace",  ## 720 批：凝视压迫归王牌
 	},
 	{
 		"id": "cloud_overload",
@@ -918,6 +942,9 @@ const UPGRADES: Array[Dictionary] = [
 		"category": "electronic_warfare",
 		"rarity": Rarity.CLASSIFIED,
 		"keywords": ["cloud", "overload"],
+		"classes": ["knight"],
+		"scope": "ace",
+		"milestone_plus": "knight",
 	},
 	{
 		"id": "cloud_weapon_cd",
@@ -952,6 +979,7 @@ const UPGRADES: Array[Dictionary] = [
 		"rarity": Rarity.CLASSIFIED,
 		"keywords": ["flare", "overload"],
 		"requires": ["flare"],
+		"classes": ["knight"],  ## v5：超载家族归骑士
 	},
 	{
 		"id": "skill_flare_overload",
@@ -964,6 +992,8 @@ const UPGRADES: Array[Dictionary] = [
 		"rarity": Rarity.ADVANCED,
 		"keywords": ["flare", "overload"],
 		"requires": ["flare"],
+		"classes": ["knight"],  ## v5：超载家族归骑士
+		"milestone_plus": "knight",
 	},
 	{
 		"id": "missile_cd_stealth",
@@ -1013,6 +1043,7 @@ const UPGRADES: Array[Dictionary] = [
 		"rarity": Rarity.EXPERIMENTAL,
 		"keywords": ["overload", "bloodlust"],
 		"requires_skill": ["cloud_overload", "skill_evade_missile_overload", "skill_flare_overload"],
+		"milestone_plus": "gladiator",  ## 720 批：噬血共振 斗士+1
 	},
 	{
 		"id": "bloodlust_armor_mobility",
@@ -1034,7 +1065,7 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 1,
 		"max_stacks": 1,
 		"category": "survival",
-		"rarity": Rarity.CLASSIFIED,
+		"rarity": Rarity.EXPERIMENTAL,  ## 720 批：机密→实验（去掉满血前置后降档）
 		"keywords": ["bloodlust", "hp"],
 		"requires_skill": ["skill_kill_bloodlust", "skill_damaged_bloodlust", "overload_to_bloodlust"],
 	},
@@ -1048,6 +1079,9 @@ const UPGRADES: Array[Dictionary] = [
 		"category": "electronic_warfare",
 		"rarity": Rarity.EXPERIMENTAL,
 		"keywords": ["head_on", "jam"],
+		"classes": ["knight"],
+		"scope": "ace",  ## 720 批：骑士限定＋王牌
+		"milestone_plus": "knight",
 	},
 	{
 		"id": "jam_self_overload",
@@ -1060,7 +1094,8 @@ const UPGRADES: Array[Dictionary] = [
 		"rarity": Rarity.EXPERIMENTAL,
 		"keywords": ["jam", "overload"],
 		## 必须先有"能施加 JAM"的来源；否则技能形同空
-		"requires_skill": ["skill_flare_aoe_jam", "skill_gun_kill_flare_drop", "skill_missile_hit_aoe_jam", "jam_aura", "head_on_jam"],
+		"requires_skill": ["cloud_overload", "skill_evade_missile_overload", "skill_flare_overload"],  ## 720 批：需要词条改超载入门技
+		"classes": ["knight"],
 	},
 	# ── F-14 专属：数据链 ──
 	# 队友锁定的目标 = 玩家完成锁定（反之亦然）；同时强化僚机雷达范围
@@ -1070,12 +1105,12 @@ const UPGRADES: Array[Dictionary] = [
 		"name": "UPGRADE_DATA_LINK_NAME",
 		"desc": "UPGRADE_DATA_LINK_DESC",
 		"stat": "data_link",
-		"value": 0.50,                  ## 僚机雷达范围 ×1.5
+		"value": 0.20,  ## 僚机雷达范围 ×1.2（720 批 +50%→+20%，取消 F-14 专属）
 		"max_stacks": 1,
 		"category": "electronic_warfare",
 		"rarity": Rarity.NEXT_GEN,
 		"keywords": ["radar", "wingman", "f14"],
-		"exclusive_to": ["f14"],
+		"scope": "squad_once",  ## 队级单实例：锁定共享读账本（survivor_mode 雷达循环）
 	},
 	{
 		"id": "f14_squad_lock_slow",
@@ -1090,6 +1125,72 @@ const UPGRADES: Array[Dictionary] = [
 		"exclusive_to": ["f14"],
 		## 前置：必须先有数据链；不然全队雷达不共享，锁同目标极难
 		"requires_skill": ["data_link"],
+		"scope": "squad_once",  ## 720 批：群猎注视（改名），队级单实例
+	},
+	# ── 720 批新增：装备门控强化组 + 座舱护甲（spec skills-720-rework §2.2）──
+	{
+		"id": "torpedo_extra",
+		"name": "UPGRADE_TORPEDO_EXTRA_NAME",
+		"desc": "UPGRADE_TORPEDO_EXTRA_DESC",
+		"stat": "torpedo_extra",
+		"value": 1,                    ## 每层投放数量 +1
+		"max_stacks": 2,
+		"category": "secondary",
+		"rarity": Rarity.STABLE,
+		"keywords": ["torpedo"],
+		"requires": ["torpedo"],
+		"milestone_plus": "knight",
+	},
+	{
+		"id": "qmaam_boost",
+		"name": "UPGRADE_QMAAM_BOOST_NAME",
+		"desc": "UPGRADE_QMAAM_BOOST_DESC",
+		"stat": "qmaam_boost",
+		"value": 1,                    ## 每层格斗弹 +1
+		"range_bonus": 0.10,           ## 射程 +10%/层
+		"max_stacks": 2,
+		"category": "missile",
+		"axis": "gladiator",           ## §2.2 归斗士轴（近距格斗弹）
+		"rarity": Rarity.STABLE,
+		"keywords": ["missile"],
+		"requires": ["secondary_missile"],
+	},
+	{
+		"id": "wingman_extra",
+		"name": "UPGRADE_WINGMAN_EXTRA_NAME",
+		"desc": "UPGRADE_WINGMAN_EXTRA_DESC",
+		"stat": "wingman_extra",
+		"value": 1,                    ## 每层同屏上限 +1
+		"max_stacks": 2,
+		"category": "electronic_warfare",
+		"rarity": Rarity.STABLE,
+		"keywords": ["wingman"],
+		"requires": ["loyal_wingman"],
+	},
+	{
+		"id": "wingman_armed",
+		"name": "UPGRADE_WINGMAN_ARMED_NAME",
+		"desc": "UPGRADE_WINGMAN_ARMED_DESC",
+		"stat": "wingman_armed",
+		"value": 0.30,                 ## 无人机武器/自爆伤害 +30%
+		"range_bonus": 0.20,           ## 无人机武器射程 +20%
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"rarity": Rarity.STABLE,
+		"keywords": ["wingman"],
+		"requires": ["loyal_wingman"],
+		"milestone_plus": "knight",
+	},
+	{
+		"id": "cockpit_armor",
+		"name": "UPGRADE_COCKPIT_ARMOR_NAME",
+		"desc": "UPGRADE_COCKPIT_ARMOR_DESC",
+		"stat": "cockpit_armor",
+		"value": 0.5,                  ## 每层地面火力（SAM/AA/CIWS）伤害 ×0.5
+		"max_stacks": 2,
+		"category": "survival",
+		"rarity": Rarity.ADVANCED,
+		"keywords": ["hp"],
 	},
 ]
 
@@ -1215,7 +1316,14 @@ static func milestone_plus_of(u: Dictionary) -> StringName:
 ## 触发型（skill_flag 走 meta 生效子集）不登记——meta 重建天然迁移。
 ## ⚠ 把技能标为 scope:"ace" 时：若其 stat 写字段/params，必须同步登记到这里，
 ## 并在 SurvivorPlayer.strip_upgrade_from 实现对应逆操作（否则切控双重叠加）。
-const ACE_FIELD_STATS: Array[String] = []
+const ACE_FIELD_STATS: Array[String] = [
+	"missile_swarm",       # 导弹蜂群：params.missile 弹舱/追踪罚 + 齐射锁数
+	"fear_on_lock",        # 凝视压迫：fear_on_lock_threshold 字段
+	"fear_squad_spread",   # 惊鸿扩散：fear_squad_spread_duration 字段
+	"head_on_jam",         # 对锋干扰：head_on_jam_threshold 字段
+	"rear_aura_slow",      # 后半球减速光环：rear_aura_slow_radius_px 字段
+	"cloud_overload",      # 云中超载：cloud_overload_active 开关
+]
 
 
 ## 一条技能是否对某架机生效（纯谓词——全队下发过滤 / 生效子集 meta 重建共用）。

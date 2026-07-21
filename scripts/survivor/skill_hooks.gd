@@ -46,14 +46,14 @@ const SKILL_LASER_DAMAGE := "skill_laser_damage"           ## 激光恢复 DPS �
 const HEAD_ON_DOT_THRESHOLD := 0.7
 const HEAD_ON_RANGE_PX := 1500.0   ## 3km；超过此距离的"对头几何"不算对头（PIXELS_PER_METER=0.5）
 const HEAD_ON_PERMA_HP_BONUS := 5.0
-const HEAD_ON_AOE_FEAR_RADIUS_PX := 1500.0  # 3km
+const HEAD_ON_AOE_FEAR_RADIUS_PX := 1000.0  # 2km（720 批：3km→2km）
 const HEAD_ON_AOE_FEAR_DURATION := 6.0
 ## 玩家 buff 时长（INVINCIBLE / BLOODLUST / OVERLOAD）统一 +2s 调长，
 ## 让"两秒就没了"的体验改善；debuff 类（FEAR / JAM / SLOW）不受影响
 const LOWEST_ALT_KILL_INVUL_DURATION := 8.0
 const MISSILE_HIT_INVUL_DURATION := 8.0
-const KILL_BLOODLUST_DURATION := 8.0
-const DAMAGED_BLOODLUST_DURATION := 8.0
+const KILL_BLOODLUST_DURATION := 9.0        ## 720 批：8→9s
+const DAMAGED_BLOODLUST_DURATION := 9.0     ## 720 批：8→9s
 const EVADE_MISSILE_OVERLOAD_DURATION := 8.0
 const FLARE_OVERLOAD_DURATION := 8.0
 const OVERLOAD_DURATION_MULT := 2.0
@@ -68,7 +68,7 @@ const FLARE_AOE_JAM_RADIUS_PX := 600.0
 const FLARE_AOE_JAM_DURATION := 5.0
 const GUN_KILL_FLARE_DROP_JAM_RADIUS_PX := 700.0
 const GUN_KILL_FLARE_DROP_JAM_DURATION := 4.0
-const MISSILE_HIT_AOE_JAM_RADIUS_PX := 1200.0
+const MISSILE_HIT_AOE_JAM_RADIUS_PX := 1000.0  ## 2km（720 批定稿；旧 desc 800px 与旧值 1200 皆废）
 const MISSILE_HIT_AOE_JAM_DURATION := 5.0
 const GUN_KILL_FEAR_RADIUS_PX := 1200.0
 const GUN_KILL_FEAR_DURATION := 5.0
@@ -168,15 +168,12 @@ static func dispatch_on_kill(killer: Aircraft, victim: Aircraft) -> void:
 		_refresh_status(killer, StatusEffects.OVERLOAD)
 		_refresh_status(killer, StatusEffects.BLOODLUST)
 
-	# ── 钩子：满血 + BLOODLUST 期间击杀 → 永久 +8 max_hp ──
-	if stacks.get(SKILL_FULL_HP_KILL_PERMA_HP, 0) > 0 and killer.status_bloodlust_active:
-		var max_hp_now: float = killer.params.max_hp if killer.params else 100.0
-		# 满血判定（容差 0.5 以容纳 BLOODLUST_HEAL_PER_KILL clamp 误差）
-		if killer.hp >= max_hp_now - 0.5 and killer.params:
-			killer.params.max_hp += FULL_HP_KILL_HP_BONUS
-			killer.hp = minf(killer.hp + FULL_HP_KILL_HP_BONUS, killer.params.max_hp)
-			EventLogger.log_event("SKILL_HOOK", killer.callsign,
-				"full_hp_kill_perma_hp → max_hp+%d (now %.0f)" % [int(FULL_HP_KILL_HP_BONUS), killer.params.max_hp])
+	# ── 钩子：BLOODLUST 期间击杀 → 永久 +8 max_hp（720 批：去掉"满血"前置）──
+	if stacks.get(SKILL_FULL_HP_KILL_PERMA_HP, 0) > 0 and killer.status_bloodlust_active and killer.params:
+		killer.params.max_hp += FULL_HP_KILL_HP_BONUS
+		killer.hp = minf(killer.hp + FULL_HP_KILL_HP_BONUS, killer.params.max_hp)
+		EventLogger.log_event("SKILL_HOOK", killer.callsign,
+			"full_hp_kill_perma_hp → max_hp+%d (now %.0f)" % [int(FULL_HP_KILL_HP_BONUS), killer.params.max_hp])
 
 	# ── 钩子：最低空击杀 INVINCIBLE（自身） ──
 	# 用 max 模式（不是 no_refresh）：击杀是奖励，应该能延长已有 INVINCIBLE，

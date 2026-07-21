@@ -337,6 +337,7 @@ var head_on_gun_dodge_bonus: float = 0.0    ## 对头时机炮闪避加成（tak
 var low_alt_gun_dodge_bonus: float = 0.0    ## 低空时机炮闪避加成（take_bullet_damage 在 LOW/GROUND 档位加）
 var gun_fire_dr_window: float = 0.0         ## 机炮发射后 N 秒内受到伤害减免（_apply_damage 查）
 var gun_fire_dr_amount: float = 0.0         ## 该时间窗内伤害减免比例（0.5 = -50%）
+var ground_damage_taken_mult: float = 1.0   ## 座舱护甲：地面火力（SAM/AA/CIWS）伤害倍率（_apply_damage 按来源过滤）
 var _gun_fire_recently_until: float = 0.0   ## 时间戳：本时刻以前在开火窗口内
 var fear_on_lock_threshold: float = 0.0     ## 锁定累积达 N 秒后给目标施加 FEAR（0=禁用）
 var _locked_target_seconds: Dictionary = {} ## { instance_id → 累积秒数 }（玩家专用）
@@ -379,7 +380,7 @@ var _evasion_stealth_timer: float = 0.0       ## evasion 进入后累计（仅�
 
 ## 弹药打空后获得 5 秒 STEALTH（玩家技能 missile_cd_stealth）
 ## 与 evasion_stealth 同模式：解锁标记 + 运行时派生标记，status_effects.gd 里 OR 进派生
-const MISSILE_DEPLETED_STEALTH_DURATION: float = 5.0
+const MISSILE_DEPLETED_STEALTH_DURATION: float = 4.0   ## 720 批：5→4s
 var missile_cd_stealth_active: bool = false   ## 解锁标记：玩家是否选了"弹后潜匿"
 var _in_missile_cd_stealth: bool = false       ## 运行时：当前是否处于打空隐身窗口
 var _missile_cd_stealth_timer: float = 0.0    ## 残余隐身时间（秒）
@@ -404,7 +405,7 @@ var _alt_velocity_prev: float = 0.0         ## 上一帧 altitude，用于差分
 ## 防止状态结束时把别的系统（航母弹射 / F-47 BOSS cloak）的设值也清掉
 var _status_owns_invul: bool = false
 var _status_owns_cloak: bool = false
-var xp_multiplier: float = 1.0            ## 经验倍率（xp_mult 升级）：击杀获得 XP × 此值，硬顶 1.4
+# （xp_multiplier 已迁 SurvivorPlayer.xp_multiplier——队级单实例，切控不丢；720 T2）
 # ── 战区奖励 v2 ──
 ## 冲击吸收（战区奖励）：受到 ≥2 dmg 时，floor(dmg × SHOCK_ABSORB_RATIO) HP 缓慢回复
 ## 一击致死时不触发（必死）。1 dmg 时 floor(0.4)=0，自然不触发。

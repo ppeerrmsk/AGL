@@ -18,6 +18,10 @@ var xp_to_next: int = 30
 ## 用于 Game Over / 撤退时折算成功勋（MeritLedger）
 var total_xp_gained: int = 0
 
+## 经验倍率（xp_mult 升级，队级单实例）：击杀 XP × 此值，硬顶 1.4。
+## 720 T2 起从 Aircraft 实例字段迁到这里——切控/换帅/换型都不丢
+var xp_multiplier: float = 1.0
+
 # ── 经验动态填充动画 ──
 ## 未注入显示条的经验，按 XP_DRAIN_DURATION 内排空的速率回填到 xp
 const XP_DRAIN_DURATION := 0.6
@@ -304,6 +308,28 @@ func strip_upgrade_from(target: Aircraft, upgrade: Dictionary) -> void:
 	if not SurvivorData.ACE_FIELD_STATS.has(stat):
 		return
 	match stat:
+		"missile_swarm":
+			# 逆操作：弹舱 −N / 追踪罚回吐 / 齐射锁数回 1 / 在场弹不超新上限
+			var swarm_n: int = int(upgrade["value"])
+			var penalty: float = float(upgrade.get("tracking_penalty", 0.85))
+			if target.params.missile:
+				target.params.missile = target.params.missile.duplicate()
+				target.params.missile.max_count = maxi(target.params.missile.max_count - swarm_n, 1)
+				target.params.missile.max_g /= penalty
+				target.missiles_remaining = mini(target.missiles_remaining, target.params.missile.max_count)
+			target.max_simultaneous_locks = 1
+		"fear_on_lock":
+			target.fear_on_lock_threshold = 0.0
+		"fear_squad_spread":
+			target.fear_squad_spread_duration = 0.0
+		"head_on_jam":
+			target.head_on_jam_threshold = 0.0
+			target._head_on_jam_seconds.clear()
+		"rear_aura_slow":
+			target.rear_aura_slow_radius_px = 0.0
+		"cloud_overload":
+			target.cloud_overload_active = false
+			target._in_cloud_overload = false
 		_:
 			push_warning("strip_upgrade_from: ACE_FIELD_STATS 登记了 %s 但未实现逆操作" % stat)
 
@@ -412,6 +438,42 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 				var v2: float = float(upgrade["value"])
 				p.torpedo.tracking_scan_range_m *= (1.0 + v2)
 				p.torpedo.tracking_turn_rate_dps *= (1.0 + v2 + v2)  ## 1 + 0.6 + 0.6 = ×2.2，第二层 ×3.4 阈值递增明显
+		# ── 720 批：装备门控强化组（spec skills-720-rework §2.2，同 railgun 模式 params 直改）──
+		"torpedo_extra":
+			# 漂浮雷·额外：每层单次投放数量 +1
+			if p.torpedo:
+				p.torpedo = p.torpedo.duplicate()
+				p.torpedo.drop_count += int(upgrade["value"])
+		"qmaam_boost":
+			# QAAM 强化：格斗弹 +1/层，射程 +10%/层（后向包线与锁定距离同乘）
+			if p.secondary_missile:
+				p.secondary_missile = p.secondary_missile.duplicate()
+				p.secondary_missile.max_count += int(upgrade["value"])
+				var qr: float = 1.0 + float(upgrade.get("range_bonus", 0.10))
+				p.secondary_missile.max_range_rear *= qr
+				if p.secondary_missile.lock_max_range_px > 0.0:
+					p.secondary_missile.lock_max_range_px *= qr
+				aircraft.secondary_missiles_remaining += int(upgrade["value"])
+		"wingman_extra":
+			# 忠诚僚机·额外：同屏上限 +1/层（释放 cap 在 spawn 入口读 max_simultaneous）
+			if p.loyal_wingman:
+				p.loyal_wingman = p.loyal_wingman.duplicate()
+				p.loyal_wingman.max_simultaneous += int(upgrade["value"])
+		"wingman_armed":
+			# 忠诚僚机·武装：无人机武器伤害/射程 + 自爆 AOE 伤害提升
+			if p.loyal_wingman:
+				p.loyal_wingman = p.loyal_wingman.duplicate()
+				var wd: float = 1.0 + float(upgrade["value"])
+				if p.loyal_wingman.drone_aircraft_params:
+					p.loyal_wingman.drone_aircraft_params = p.loyal_wingman.drone_aircraft_params.duplicate(true)
+					var dp := p.loyal_wingman.drone_aircraft_params
+					if dp.gun:
+						dp.gun.bullet_damage *= wd
+						dp.gun.max_range *= (1.0 + float(upgrade.get("range_bonus", 0.20)))
+				p.loyal_wingman.kamikaze_aoe_damage *= wd
+		"cockpit_armor":
+			# 座舱护甲：地面火力（SAM/AA/CIWS）伤害倍率 ×value/层（消费点 take_damage 地面来源过滤）
+			aircraft.ground_damage_taken_mult *= float(upgrade["value"])
 		"laser_extra_beams":
 			# 激光：可同时照射的目标数 +N
 			# 装备数组已由 SurvivorPlayableSetup.deep_dup_weapons 深拷贝，直接改即可
@@ -436,8 +498,9 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 			# 复合装甲：DR 软上限公式 armor/(armor+100)；导弹按 50% 穿甲计算
 			p.armor += float(upgrade["value"])
 		"xp_mult":
-			# 经验倍率：每层 +20% 累加，硬顶 ×1.4
-			aircraft.xp_multiplier = minf(aircraft.xp_multiplier + float(upgrade["value"]), float(upgrade.get("xp_cap", 1.4)))
+			# 经验倍率（队级单实例）：每层 +20% 累加，硬顶 ×1.4。
+			# 720 T2 起记在 SurvivorPlayer 层（切控/换帅不丢；消费点 survivor_spawner 折算 XP）
+			xp_multiplier = minf(xp_multiplier + float(upgrade["value"]), float(upgrade.get("xp_cap", 1.4)))
 		"radar_angle":
 			# 广角扫描：radar_half_angle ×(1+value)，硬 cap max_deg
 			p.radar_half_angle = minf(p.radar_half_angle * (1.0 + float(upgrade["value"])), float(upgrade.get("max_deg", 90.0)))
@@ -458,6 +521,9 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 			var aim_boost: float = float(upgrade.get("aim_skill_boost", 0.0))
 			if aim_boost > 0.0:
 				aircraft.pilot_aim_skill = clampf(aircraft.pilot_aim_skill + aim_boost, 0.0, 1.0)
+			# 720 批追加：子弹生存时间加长（远端弹道延伸，bullet_manager 用 gun.lifetime 定寿命）
+			if p.gun and float(upgrade.get("lifetime_bonus", 0.0)) > 0.0:
+				p.gun.lifetime *= (1.0 + float(upgrade["lifetime_bonus"]))
 		"aim_assist":
 			# 瞄准辅助：fire_cone_half_angle ×(1+value)，硬 cap max_deg
 			if p.gun:
@@ -505,10 +571,7 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 			var rg2 := p.get_equipment_of_kind("railgun") as RailgunEquipment
 			if rg2:
 				rg2.max_range_m += float(upgrade["value"])
-		"railgun_damage":
-			var rg3 := p.get_equipment_of_kind("railgun") as RailgunEquipment
-			if rg3:
-				rg3.damage *= (1.0 + float(upgrade["value"]))
+		# （railgun_damage 电磁炮强化已随 720 批移除——spec skills-720-rework §2.3）
 		# ── X-02 激光升级 ──
 		"laser_cooldown":
 			# 散热效率 +25%（每层）

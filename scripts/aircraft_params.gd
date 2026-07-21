@@ -99,6 +99,8 @@ func has_equipment_of_kind(kind: String) -> bool:
 			return torpedo != null
 		"loyal_wingman":
 			return loyal_wingman != null
+		"secondary_missile":
+			return secondary_missile != null   # QAAM 副槽（720 批：qmaam_* 强化门控）
 	return false
 
 
