@@ -52,7 +52,8 @@ Resource:   AircraftParams / GunParams / RocketParams / MissileParams / CombatPa
 - `GRAVITY = 9.81`（`combat_unit.gd:7` GRAVITY）
 - `heading`: 弧度，0=北（屏幕上方），顺时针
 - 世界坐标：Y 向下为正，绘制时通过 `rotation = heading` 让图标头朝 heading 方向
-- 高度档位：`AltitudeTier { GROUND=-1, LOW=0(<3500m), MID=1(<7500m), HIGH=2(>=7500m) }`
+- 高度档位：`AltitudeTier { GROUND=-1, LOW=0(<3500m), MID=1(<7500m), HIGH=2(>=7500m) }`；
+  切档目标高度 `TIER_ALTITUDE`：LOW 2000 / MID 5500 / HIGH 10000（判定边界 ≠ 目标值，HIGH 在 7500m 翻档后还会继续爬到 10000m）
 
 ## ⚠ 性能守则（强制）
 
@@ -116,7 +117,7 @@ script-index / code-index）只写"代码在哪"（纯指针）。样板见 [bos
 
 1. **先查 Script Index**（[docs/reference/script-index.md](docs/reference/script-index.md)）找文件 + 关键入口
 2. **用 Read 的 `offset`/`limit` 只读需要的行段**（通常 50~100 行）
-3. **不要通读整个 .gd 文件**（`aircraft.gd` 1445 行 + 4 个子模块 274~873 行；`ai_controller.gd` 1235 行 + 4 个子模块 165~574 行）
+3. **不要通读整个 .gd 文件**（`aircraft.gd` ~3000 行 + `scripts/aircraft/` 7 个子模块（最大 `aircraft_physics.gd` ~1600 / `aircraft_weapons.gd` ~1500）；`ai_controller.gd` ~2400 行 + `scripts/ai/` 子模块 + `scripts/ai/tactical/` 战术层（最大 `bfm_intent.gd` ~900））
 4. **不要对已索引的功能用 Grep/Glob 全文搜索**
 
 只有这些情况才用 Grep：查找 Script Index 里没覆盖的新功能 / 验证符号是否仍然存在 / 跨文件的引用关系。
@@ -168,16 +169,18 @@ script-index / code-index）只写"代码在哪"（纯指针）。样板见 [bos
 - [docs/architecture.md](docs/architecture.md) — 物理公式 / 架构决策 / 核心设计取舍
 
 **规划**（docs/planning/）
-- [roadmap-overview.md](docs/planning/roadmap-overview.md) — 阶段 / 玩家视角，用于排期
-- [roadmap.md](docs/planning/roadmap.md) — 技术向（模式边界 / 反馈修复）
+- [physics-ai-control-refactor.md](docs/planning/physics-ai-control-refactor.md) — 操控权限重构计划（分支布局 / 回归门 / 交接）
+- [evolution-vertical-slice.md](docs/planning/evolution-vertical-slice.md) — 进化循环垂直切片
+- ⚠ `roadmap.md` / `roadmap-overview.md` 是 **2026-04 历史快照，不反映现状**。
+  在办事项与设计现状一律看 [docs/specs/_INDEX.md](docs/specs/_INDEX.md)
 
 **子系统设计**（docs/systems/）
-- [ai-system.md](docs/systems/ai-system.md) — AI 状态机 / 8 战术 / TacticalPlanner P4 / 压力系统
+- [ai-system.md](docs/systems/ai-system.md) — AI 三状态机 / 9 战术 / TacticalPlanner / 压力系统
 - [aircraft-system.md](docs/systems/aircraft-system.md) — Aircraft 物理流程（LOD 三档）+ 战斗追踪 + 武器模式
 - [event-system.md](docs/systems/event-system.md) — GameEvent + AIDirective + EventDirector（剧本系统）
 - [squad-tactics-design.md](docs/systems/squad-tactics-design.md) — 编队战术 / 三段式托管
 - [survivor-mode.md](docs/systems/survivor-mode.md) — 生存模式波次/升级表
-- [survivor-skills.md](docs/systems/survivor-skills.md) — 完整技能图鉴 + 设计哲学 + 战区奖励池
+- [survivor-skills.md](docs/systems/survivor-skills.md) — 技能设计哲学 + 系统概念 + 需求 backlog（设计层）
 - [missile-system.md](docs/systems/missile-system.md) — 导弹系统
 - [radar-system.md](docs/systems/radar-system.md) — 雷达系统 + 锁定算法
 - [ground-units.md](docs/systems/ground-units.md) — 地面单位
@@ -193,6 +196,7 @@ script-index / code-index）只写"代码在哪"（纯指针）。样板见 [bos
 - [enemy-index.md](docs/reference/enemy-index.md) — **敌人索引大表 + Adds/F-47 细节 + 创建新敌人 13 步清单 + AI Archetype**
 - [repo-layout.md](docs/reference/repo-layout.md) — 完整目录树
 - [code-index.md](docs/reference/code-index.md) — 功能主题索引（按武器/物理/AI/视觉等分类）
+- [skill-implementation-index.md](docs/reference/skill-implementation-index.md) — **技能系统总入口**：配置字段全解 + 实装八模式 + 全 144 条 stat→消费点速查 + 铁律（查/加技能不必通读 survivor_data/player/skill_hooks）；数值现状看 [skill-table.md](docs/reference/skill-table.md)（自动生成）
 - [scripts-reference.md](docs/reference/scripts-reference.md) — 脚本 API 参考（变量/方法说明）
 - [resources-catalog.md](docs/reference/resources-catalog.md) — 所有 .tres 参数总表
 - [playable-aircraft-workflow.md](docs/reference/playable-aircraft-workflow.md) — 加新主角飞机的完整流程

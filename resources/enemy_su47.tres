@@ -1,0 +1,47 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/gladiator_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/qmaam_missile.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/default_flare.tres" id="5"]
+
+[resource]
+script = ExtResource("1")
+display_name = "Su-47"
+; ── 敌用 Su-47 Berkut（王牌中队 GOOFIGHTERS，spec events/ace-goofighters §2.2）──
+; 前掠翼怪机：Su-35 档横向微调——更敏不更快（+G +roll −速度）。
+; 纯狗斗武库：无中距弹（missile 留空），格斗弹走副槽 QMAAM（敌用降档留 playtest）；
+; 眼镜蛇 CobraManeuver 在 spawner AI 配置分支挂载（同 Su-27/Su-35 惯例），
+; 王牌 flare 耗尽后才解锁（tier §3.4 装备件机动归类，CobraManeuver 内 AceTier 门）。
+; 王牌专属机型：不进随机刷怪池
+max_hp = 70.0
+armor = 0.0
+max_speed = 2500.0
+cruise_speed = 1000.0
+stall_speed_base = 175.0
+acceleration = 62.0
+deceleration = 92.0
+g_drag_factor = 2.7
+max_g = 9.5
+max_g_structural = 12.0
+roll_rate = 4.8
+pilot_stamina = 95.0
+stamina_drain_rate = 22.0
+stamina_recovery_rate = 11.0
+max_altitude = 18000.0
+climb_rate_max = 330.0
+thrust_to_weight = 1.22
+drag_coefficient = 0.021
+afterburner_thrust_mult = 1.6
+fuel_capacity = 3600.0
+fuel_rate_normal = 2.0
+fuel_rate_afterburner = 10.0
+radar_range = 4600.0
+radar_half_angle = 32.0
+lock_time = 2.6
+gun = ExtResource("2")
+secondary_missile = ExtResource("4")
+flare = ExtResource("5")
+combat = ExtResource("3")
+icon_color = Color(1.0, 0.45, 0.35, 1)

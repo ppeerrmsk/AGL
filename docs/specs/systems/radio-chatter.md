@@ -3,7 +3,7 @@ id: radio-chatter
 kind: system
 status: approved
 schema_version: 1
-spec_version: 3
+spec_version: 4
 owner: noelu
 depends_on: [combat-feed, command-wheel, global-awareness-roe]
 reconstruction_complete: true
@@ -78,7 +78,7 @@ reconstruction_complete: true
 
 | class | 含义 | 节流 | 典型 |
 |---|---|---|---|
-| `scripted` | **剧情关键节点** | **完全豁免**全局冷却 / 自身冷却 / 概率骰，**必定播出** | BOSS 登场对话、BOSS 交战 |
+| `scripted` | **剧情关键节点** | **完全豁免**全局冷却 / 自身冷却 / 概率骰，**必定播出** | BOSS 登场对话、BOSS 交战、王牌中队登场（`ace_spawn`） |
 | `ambient` | 普通战场无线电 | 受**三层节流**全部限制 | 击坠回报、弹射、回令、哀嚎、归队 |
 
 未登记 class 的 trigger **保守按 `ambient` 处理** —— 新加的东西不会意外获得强插特权。
@@ -92,6 +92,7 @@ reconstruction_complete: true
 | trigger | 权重 |
 |---|---|
 | `boss_spawn` / `boss_engage` | `100` |
+| `ace_spawn`（王牌中队登场） | `90` |
 | `eject_friendly`（自家人阵亡） | `80` |
 | `break` | `60` |
 | `ack_*`（RTS 回令） | `50` |
@@ -152,10 +153,10 @@ reconstruction_complete: true
 
 | 类别 | 机型 |
 |---|---|
-| 常规有人战斗机 | MiG-29 / J-7 / F-86 / MiG-31 / MiG-23 / F-100 / Su-27 / A-7 / Q-5 / F-4 / F-104 / Su-35 / F/A-18 |
+| 常规有人战斗机 | MiG-29 / J-7 / F-86 / MiG-31 / MiG-23 / F-100 / Su-27 / A-7 / Q-5 / F-4 / **F-4E** / F-104 / Su-35 / F/A-18 |
 | BOSS 王牌 | F-47（WRAITH）/ F-14（POLTERGEIST） |
 
-**沉默**：UAV / UCAV / Sentinel(uav_commander) / Aegis(uav_laser) / AF-03（均为无人机）、Tu-160 / AH-64 / CH-47（被动杂兵，无交战能力）、Mother Goose 蜂群 UAV 与 MQ-X。
+**沉默**：MQ-109(uav) / MQ-110(ucav) / Sentinel(uav_commander) / Aegis(uav_laser) / AF-03（均为无人机）、Tu-160 / AH-64 / CH-47（被动杂兵，无交战能力）、Mother Goose 蜂群 UAV 与 MQ-X。
 
 **各触发的具体表现**：
 
@@ -225,7 +226,7 @@ reconstruction_complete: true
 | `eject` | 自身 | `9.0` | `0.45` | 敌方阵亡，氛围性质 |
 | `break` | 自身 | `12.0` | `0.60` | |
 | `splash` | 自身 | `10.0` | `0.40` | 击杀是最高频事件，压得最狠 |
-| `ack_pursue` / `ack_surround` / `ack_cover` / `ack_regroup` / `ack_evac` | **共享 `ack`** | `8.0` | `0.35` | **用户反馈的重灾区**：连点下令不会每次都有人应答 |
+| `ack_pursue` / `ack_strike` / `ack_surround` / `ack_cover` / `ack_regroup` / `ack_evac` | **共享 `ack`** | `8.0` | `0.35` | **用户反馈的重灾区**：连点下令不会每次都有人应答 |
 | `attrition_t1/t2/t3` | **共享 `enemy_attrition`** | `30.0` | `1.00` | 本身已由里程碑门控 |
 | `wingman_join` | 自身 | `0.0` | `1.00` | 事件本身稀有 |
 
@@ -270,10 +271,12 @@ BOSS 序列的说话人由 `encounter` 提供：`"<callsign_prefix>-%02d" % (slo
 |---|---|---|---|
 | `boss_spawn` | BOSS 遭遇事件开场（与 WARNING 横幅同处） | BOSS 队 slot 0/1 | 按 boss id 取专属序列 |
 | `boss_engage` | BOSS 进入交战阶段 | BOSS 队 slot 0 | 按 boss id |
+| `ace_spawn` | 非 BOSS 王牌中队入场（`AceReinforcementEvent._start`；红色警告横幅已收回 BOSS 专属，此台词即王牌入场**主信号**） | 王牌长机（`say_unit`） | `RADIO_ACE_SPAWN_*` 单条池（**台词内容权威在 [ace-squadron-tier](ace-squadron-tier.md) §2.6**；单条即可——多句对话序列是 BOSS 专属） |
 | `splash` | `EventLogger.kill_recorded`，killer_team==0 且 killer 非玩家本机 | killer | `RADIO_SPLASH_*` |
 | `eject` | `EventLogger.kill_recorded` | victim | `RADIO_EJECT_*` |
-| `break` | `Aircraft.set_evasion_mode(true)` 的 **false→true 沿**，且单位属玩家小队 | 该机 | `RADIO_BREAK_*` |
-| `ack` | `SquadCommandController.command_attack / command_attack_all / command_guard / command_regroup / command_evacuate` | 队内随机一名非玩家僚机 | 见 3.4 |
+| `break` | `Aircraft.set_evasion_mode(true)` 的 **false→true 沿**（`suppress_radio=false`，即真·躲导弹），且单位属玩家小队 | 该机 | `RADIO_BREAK_*` |
+| `afterburner` | `AfterburnerCharge.toggle` 成功启动加力（充能制，玩家主动脱离/占位；此路径的 evasion break emit 被 `suppress_radio` 抑制） | 长机 | `RADIO_AFTERBURNER_*` |
+| `ack`（含 `ack_pursue` / `ack_strike` / `ack_surround` / …） | `SquadCommandController.command_attack / command_attack_all / command_guard / command_regroup / command_evacuate` | 队内随机一名非玩家僚机 | 见 3.4 |
 | `enemy_attrition` | 同 `kill_recorded`，victim_team==1，累计计数 | 敌方泛指呼号 | `RADIO_ATTRITION_T{1,2,3}_*` |
 | `wingman_join` | 僚机加入玩家小队 | 新成员 | `RADIO_JOIN_*` |
 
@@ -283,13 +286,16 @@ BOSS 序列的说话人由 `encounter` 提供：`"<callsign_prefix>-%02d" % (slo
 
 | 指令 | 台词语义 | key |
 |---|---|---|
-| `command_attack`（单点点名） | "正在追击 <目标>" | `RADIO_ACK_PURSUE_FMT` |
-| `command_attack_all`（轮盘集火，带包围轴） | "正在包围 <目标>" | `RADIO_ACK_SURROUND_FMT` |
+| `command_attack`（单点点名，**空中目标**） | "正在追击 <目标>" | `RADIO_ACK_PURSUE_*_FMT` |
+| `command_attack` / `command_attack_all`（**地面/水面目标**） | "锁定 <目标>，发起打击" | `RADIO_ACK_STRIKE_*_FMT` |
+| `command_attack_all`（轮盘集火，带包围轴，**空中目标**） | "正在包围 <目标>" | `RADIO_ACK_SURROUND_*_FMT` |
 | `command_guard` | "正在掩护你" | `RADIO_ACK_COVER_*` |
 | `command_regroup` | "正在向集合点靠拢" | `RADIO_ACK_REGROUP_*` |
 | `command_evacuate` | "脱离中" | `RADIO_ACK_EVAC_*` |
 
 `<目标>` 取被指目标的 `callsign`（空则退回其 `display_name`，再空则 `"目标"` 的 i18n key）。
+
+**空/地分流**（`SquadCommandController._strike_or_pursue`）：目标 `is Aircraft` → 走空战词（追击/包围）；否则（地面单位/舰船等）→ 走 `ack_strike`（打击语义），**不喊空战的"咬住/追击/包围/切断退路"**。集火包围分支对地面目标同样一律退回 `ack_strike`。
 
 **说话人选取**：从玩家小队成员里挑一名**非玩家操控机**且存活者（随机）。全队只剩玩家本人 → **不发**回令（玩家不会自己回自己的令）。
 
@@ -387,7 +393,7 @@ BOSS 序列的说话人由 `encounter` 提供：`"<callsign_prefix>-%02d" % (slo
 | 说话资格硬规则 | `scripts/aircraft.gd`（`can_speak_on_radio` / `has_radio_voice`） |
 | 资格赋值 | `scripts/survivor/survivor_spawner.gd`、`mother_goose_uav_swarm.gd`、`mother_goose_boss.gd` |
 | 触发接线 | `scripts/survivor/survivor_mode.gd`、`scripts/events/boss_encounter_event.gd`、`scripts/rts/squad_command_controller.gd` |
-| 信号声明 | `scripts/event_logger.gd`（`kill_recorded` / `evasion_started` / `wingman_joined`） |
+| 信号声明 | `scripts/event_logger.gd`（`kill_recorded` / `evasion_started` / `afterburner_engaged` / `wingman_joined`） |
 | 信号发出 | `scripts/aircraft.gd`、`scripts/squad_factory.gd` |
 | 音频 | `scripts/audio/audio_manager.gd`（`play_radio` / `RADIO_FILES` / Radio 总线） |
 | 无头测试 | `scripts/tests/test_radio_chatter.gd`（`--bench=chatter`），注册于 `scripts/bench/bench_runner.gd` |
@@ -400,4 +406,5 @@ BOSS 序列的说话人由 `encounter` 提供：`"<callsign_prefix>-%02d" % (slo
 |---|---|---|
 | 2026-07-20 | 3 | 用户订正三项：① **全局冷却**（普通语音总闸 12s）+ **概率骰**（"偶尔出现一下"的主旋钮），解决"每次点 combat target 僚机必然说话"；② **分类 scripted / ambient** —— 剧情关键节点豁免全部节流、必定播出，普通语音受三层限制；③ **文本与数值全部外置到 `resources/chatter/radio_chatter.json`**，`chatter_lines.gd` 退化为纯加载器，加台词/调手感不用碰代码（新增 §2.9 / §2.10，§2.2~§2.4 重写） |
 | 2026-07-20 | 2 | 用户订正：**无人机不得有台词，只有一定等级的敌人配无线电**（新增 §2.8 双门规则 + `VOICED_ENEMY_TYPES` 表 + `kill_recorded` 增 `victim_voiced` 参数）。同批按用户提供的皇牌空战截图重做版式（§2.1：呼号独立成行 / `<< >>` 标记 / 正文向白淡化 / 渐变淡出底 / 自动换行增高） |
+| 2026-07-26 | 4 | 新增 `ace_spawn` trigger（scripted / 权重 90）：非 BOSS 王牌中队入场主信号（红横幅收回 BOSS 专属后的替代演出，ace-squadron-tier §2.6 规范化批）。台词池 5 条三语、说话人=王牌长机、单条不成序列（多句对话序列维持 BOSS 专属） |
 | 2026-07-20 | 1 | 初稿 + 阶段 1 实装（管线 + BOSS 登场范例 + 8 类触发）。实装期两处修正：① 冷却改为**入队时**起算（防洪，原设计的播出时起算会让队列被同类台词占满）；② 新增 `NEVER_STALE`，BOSS 剧本序列豁免过期丢弃（否则登场挑衅的收尾句会被砍） |

@@ -11,6 +11,8 @@ extends Resource
 @export var max_range: float = 1000.0          ## 米 最大有效射程
 @export var spread_angle: float = 1.5          ## 度 散布半角（精度）
 @export var fire_cone_half_angle: float = 5.0  ## 度 允许开火的机头偏角
+@export var lifetime: float = 2.0              ## 秒 子弹存活时间（远端弹道长度）；bullet_manager 据此定 life
+                                               ## 720 技能"枪械精度·子弹寿命"按 lifetime_bonus ×(1+n) 加长本值
 
 @export_group("梭射")
 @export var burst_count: int = 10              ## 每梭弹数（1 = 匀速点射）；节奏公式见 specs/weapons/gun-burst-fire.md

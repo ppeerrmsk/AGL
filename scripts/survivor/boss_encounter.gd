@@ -46,6 +46,18 @@ func engage() -> void:
 func get_display_members() -> Array:
 	return []
 
+## 玩家机换人时由事件层每帧调用（spec boss-hunter-doctrine §3.6 / SEAM-019）。
+##
+## 每个 encounter 都在 spawn 时缓存了玩家引用，而 survivor_mode._set_player_aircraft()
+## 那个 chokepoint **扫不到它们**（校验脚本只扫 survivor_mode.gd，够不着经 spawner 传参的
+## 缓存）。旧的"守圈"模型下这是慢性病；猎手模型下 BOSS 全程追玩家，玩家一按 1-4 切控或
+## 长机阵亡换帅，BOSS 就会去追一架不再是玩家的飞机，甚至一个已释放的实例（SEAM-020 硬崩）。
+##
+## **子类契约**：覆写时必须把自己缓存的【每一个】玩家引用都重定向，包括转交给子控制器 /
+## 子 encounter 的那些。漏一个就是一个野指针。
+func set_player_ref(_p: Aircraft) -> void:
+	pass
+
 ## 当前激活的飞机小队（用于呼号分配 / HUD 兼容）
 ## AceSquad 子类返回 self；纯舰队 BOSS 返回 null；
 ## CSG 这类"舰队 + 飞机阶段"的组合 BOSS 返回内部的飞机子小队

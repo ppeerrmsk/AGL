@@ -311,7 +311,7 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 	# 梭起始：装填弹数 + 摇一次梭级瞄准误差（仅玩家，skill=0 → ±5° / skill=1 → ±0.5°）
 	if ac._gun_burst_rounds_left <= 0:
 		ac._gun_burst_rounds_left = maxi(gun.burst_count, 1)
-		if ac.use_tactical_preference:
+		if ac.gun_aim_error_enabled:
 			var skill: float = clampf(ac.pilot_aim_skill, 0.0, 1.0)
 			var base_err_deg: float = lerpf(5.0, 0.5, skill)
 			ac._gun_aim_offset_rad = deg_to_rad(base_err_deg) * randf_range(-1.0, 1.0)
@@ -378,7 +378,7 @@ static func _fire_gun_round(ac: Aircraft, gun: GunParams) -> void:
 			spread_rad *= 1.8
 		# 机动惩罚（仅玩家）：自身 bank>30° / 目标 bank>60° → 加额外 per-bullet 误差
 		var maneuver_err_rad: float = 0.0
-		if ac.use_tactical_preference:
+		if ac.gun_aim_error_enabled:
 			var own_bank_deg: float = absf(rad_to_deg(ac.bank_angle))
 			var bank_penalty_deg: float = clampf((own_bank_deg - 30.0) / 60.0, 0.0, 1.0) * 2.0
 			var tgt_bank_penalty_deg: float = 0.0
@@ -393,10 +393,10 @@ static func _fire_gun_round(ac: Aircraft, gun: GunParams) -> void:
 		if ac.gun_extra_barrels >= 2:
 			var wing_off := Vector2(cos(ac.heading), sin(ac.heading)) * 14.0
 			var dir_r2 := ac._gun_lead_heading + ac._gun_aim_offset_rad + maneuver_err_rad + randf_range(-spread_rad, spread_rad)
-			ac.bullet_manager.spawn_bullet(muzzle_pos + wing_off, bullet_dir, gun.muzzle_velocity, ac, gun.bullet_damage)
-			ac.bullet_manager.spawn_bullet(muzzle_pos - wing_off, dir_r2, gun.muzzle_velocity, ac, gun.bullet_damage)
+			ac.bullet_manager.spawn_bullet(muzzle_pos + wing_off, bullet_dir, gun.muzzle_velocity, ac, gun.bullet_damage, false, false, gun.lifetime)
+			ac.bullet_manager.spawn_bullet(muzzle_pos - wing_off, dir_r2, gun.muzzle_velocity, ac, gun.bullet_damage, false, false, gun.lifetime)
 		else:
-			ac.bullet_manager.spawn_bullet(muzzle_pos, bullet_dir, gun.muzzle_velocity, ac, gun.bullet_damage)
+			ac.bullet_manager.spawn_bullet(muzzle_pos, bullet_dir, gun.muzzle_velocity, ac, gun.bullet_damage, false, false, gun.lifetime)
 		# §C 玩家技能"机炮发射时减伤"：刷新窗口时间戳，下次受伤 _apply_damage 查
 		if ac.is_player_squad() and ac.gun_fire_dr_window > 0.0:
 			ac._gun_fire_recently_until = EventLogger.get_game_time() + ac.gun_fire_dr_window
@@ -789,7 +789,8 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 		# 多锁定升级下齐射就是完整路径：齐射没找到目标也不要 fall-through，
 		# 否则下一帧（齐射不设冷却）单发路径会绕过 has_active_missile_at 检查
 		# 对 combat_target 重复开火，造成同一目标连发两枚的浪费 bug。
-		if ac.max_simultaneous_locks > 1:
+		# （722 sig_f22：隐身期间临时多锁走 effective_max_locks）
+		if ac.effective_max_locks() > 1:
 			return
 		# 无升级时允许 fall-through 到单发（让玩家手点的目标仍能由单发路径打中）
 
@@ -848,7 +849,10 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 		ac._log_msl_block("ENVELOPE", envelope_detail)
 		return
 
-	if not ac.is_in_radar_cone(ac.combat_target.global_position):
+	# 722 sig_f35·传感器融合：僚机对 ACE 满锁目标越肩发射（豁免自机锥门与锁定门；
+	# 包线与发射窗口质量照查——见下方两门的 or 分支）
+	var f35_relay: bool = _sig_f35_relay_ok(ac, ac.combat_target)
+	if not ac.is_in_radar_cone(ac.combat_target.global_position) and not f35_relay:
 		var to_tgt := ac.combat_target.global_position - ac.global_position
 		var hdg_to_tgt := atan2(to_tgt.x, -to_tgt.y)
 		var off_axis_deg := absf(rad_to_deg(ac._angle_diff(hdg_to_tgt, ac.heading)))
@@ -862,7 +866,7 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 	var lock_threshold: float = ac.params.lock_time
 	if not ac.use_tactical_preference and not ac.use_tactical_planner:
 		lock_threshold += Aircraft.LOCK_STABLE_BUFFER
-	if lock_progress < lock_threshold:
+	if lock_progress < lock_threshold and not f35_relay:
 		ac._log_msl_block("LOCK", "dist=%.0fm lock=%.2fs/%.2fs" % [
 			_dist_m, lock_progress, lock_threshold])
 		return
@@ -888,6 +892,22 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 	var ai_salvo: AIController = ac._get_ai_controller()
 	if ai_salvo and ai_salvo.salvo_leader:
 		SquadCoordination.broadcast_salvo(ai_salvo)
+
+## 722 sig_f35·传感器融合（队级账本位，SkillHooks.sig_f35_active）：
+## 僚机可对 ACE 满锁的目标直接发射——"越肩发射"。豁免调用方的锥门/锁定门；不豁免包线/窗口质量。
+static func _sig_f35_relay_ok(ac: Aircraft, target: CombatUnit) -> bool:
+	if not SkillHooks.sig_f35_active:
+		return false
+	if not ac.is_player_squad():
+		return false
+	var ace: Aircraft = AircraftRenderer.player_ref
+	if ace == null or not is_instance_valid(ace) or ace == ac or ace.is_destroyed:
+		return false
+	if target != ace.combat_target and target != ace.commanded_target:
+		return false
+	var thr: float = ace.params.lock_time if ace.params else 3.0
+	return float(ace.radar_targets.get(target, 0.0)) >= thr
+
 
 ## 对指定目标发射一枚导弹
 static func _fire_missile_at(ac: Aircraft, target_unit: CombatUnit, msl: MissileParams, is_secondary: bool = false) -> void:
@@ -942,6 +962,26 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 	var skip: Dictionary = {}
 	var ct_reason: String = ""   ## combat_target 自己被哪道踢掉（最相关的一条）
 
+	# ── 玩家命令铁律在武器层的延伸（SEAM-021，2026-07-23）──
+	# 病根：commanded_target（玩家显式点名的攻击命令）在整条导弹发射链里没有代表权——
+	# salvo 扫全部 radar_targets 自主选目标，命令目标只在最后"提到队首"（还得先过 6 道过滤）。
+	# 于是玩家点名打地面 RADAR/SAM 时，salvo 却把弹发给远处（屏幕外）稳定锁着的敌机：
+	# 对地攻击要压坡度+冲近，恰好触满 UNSTABLE_WIN/LOCK/ENVELOPE/TEAM_OVERKILL 几道门被踢出候选，
+	# 而 10km 外迎头飞来的敌机（正前方±5°、平飞、锁满、超 min_range、高 hp）反成唯一合法候选
+	# → "按距离排序打近的"排的是幸存者里最近的，玩家面前的目标根本没进名单（log 0723 004212：
+	#   522-528s [Ultra] 四发 MRM 全打 11–12.6km 外，同期 SALVO_SKIP 里近敌 LOCK×11/UNSTABLE_WIN×6 被筛光）。
+	# 修法：命令存活时，salvo 候选池收窄到命令目标一个——打不到就这一帧不发（留弹），
+	#   绝不散射去打屏幕外的自动锁定目标。命令目标自己被过滤门挡下 → salvo 空手 return false，
+	#   （单锁机型）落到下方单发路径同样只打 combat_target(==commanded)、同样被挡 → 净结果=不发不散。
+	# 语义边界：这只作用于**显式命令**（commanded_target），不碰无命令时的 RTS auto-fire 散射——
+	#   SPREAD 分火/巡航/集合都置 commanded_target=null（见 squad_command_controller），本门天然不触发，
+	#   自动散射行为保持不变。与 2026-05-07"combat_target 仅作优先级提示"的修复不冲突：那放开的是
+	#   软锁 combat_target，这收紧的是玩家点名的 commanded_target（[[feedback_player_command_iron_rule]]）。
+	var cmd_lock: CombatUnit = null
+	if ac.commanded_target != null and is_instance_valid(ac.commanded_target) \
+			and not ac.commanded_target.is_destroyed and ac.is_hostile_to(ac.commanded_target):
+		cmd_lock = ac.commanded_target
+
 	for target_key in ac.radar_targets:
 		if not is_instance_valid(target_key):
 			continue
@@ -949,6 +989,9 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 		if target_unit == null or target_unit.is_destroyed:
 			continue
 		if not ac.is_hostile_to(target_unit):
+			continue
+		# 命令收窄门：有显式命令时，非命令目标一律不进候选（不计入过滤诊断——它不是"打不了"，是"不该打"）
+		if cmd_lock != null and target_unit != cmd_lock:
 			continue
 		var is_ct: bool = diag and target_unit == ac.combat_target
 		if ac.radar_targets[target_key] < lock_threshold:
@@ -1038,8 +1081,9 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 
 	# 有多目标追踪升级（max_simultaneous_locks > 1）时，对所有锁定目标一起发射，
 	# 只受剩余导弹数限制；无升级时仍按老逻辑只打 1 枚。
+	# （722 sig_f22·先敌开火：隐身期间 effective_max_locks 临时 ≥8 → 齐射生效）
 	var max_fire: int
-	if ac.max_simultaneous_locks > 1:
+	if ac.effective_max_locks() > 1:
 		max_fire = locked_targets.size()
 	else:
 		max_fire = 1
@@ -1074,7 +1118,7 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 	if fire_count > 0:
 		# 多目标追踪升级下跳过冷却，允许新锁定好的目标下一帧立刻开火；
 		# 单锁定模式仍保留正常冷却
-		if ac.max_simultaneous_locks <= 1:
+		if ac.effective_max_locks() <= 1:
 			ac._missile_cooldown = msl.cooldown * ac.weapon_master_cd_mult
 		ac._crank_timer = Aircraft.CRANK_DURATION
 		if ac.enable_missile_reload and ac.missiles_remaining <= 0:

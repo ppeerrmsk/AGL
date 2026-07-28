@@ -13,7 +13,12 @@ signal kill_recorded(killer: String, victim: String, weapon_kind: String, killer
 
 ## 进入规避（导弹咬住）信号 → 无线电 "break" 呼叫订阅。
 ## 在 Aircraft.set_evasion_mode 的 false→true 上升沿 emit，只带呼号与阵营（不带单位引用）。
+## 注意：加力模式（玩家主动）走 afterburner_engaged，不复用此信号——语义已从"躲导弹"分离。
 signal evasion_started(callsign: String, team: int)
+
+## 加力模式激活信号（玩家主动，非躲导弹）→ 无线电 "加力冲刺" 呼叫订阅。
+## 在 AfterburnerCharge.toggle 成功启动时 emit；同一时刻 set_evasion_mode 的 break emit 被抑制。
+signal afterburner_engaged(callsign: String, team: int)
 
 ## 新僚机编入编队信号 → 无线电 "归队" 呼叫订阅。
 ## 在 SquadFactory.register_wingman 真正新增成员时 emit（开局建队也会触发，订阅方自行过滤）。

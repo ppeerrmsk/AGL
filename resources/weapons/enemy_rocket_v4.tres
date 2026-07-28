@@ -6,10 +6,10 @@
 script = ExtResource("1")
 display_name = "Rocket V4"
 burst_count_min = 3
-burst_count_max = 6
+burst_count_max = 4
 burst_interval = 0.08
 burst_cooldown = 3.6
-rocket_damage = 16.0
+rocket_damage = 12.0
 muzzle_velocity = 365.0
 max_range = 1750.0
 spread_angle = 6.0

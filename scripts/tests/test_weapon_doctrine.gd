@@ -6,6 +6,10 @@ extends RefCounted
 var _pass := 0
 var _fail := 0
 
+const DT := 1.0 / 60.0
+const AI_PERIOD := 3   ## 20Hz planner，与真实分频一致
+var _TRACE := false    ## 诊断：逐秒打印 off/bank/spd/turn_rate（临时）
+
 
 func run() -> void:
 	print("\n════════ 武器竞选器（weapon-employment-doctrine §2.2） ════════")
@@ -13,6 +17,7 @@ func run() -> void:
 	_test_dynamic_candidates()
 	_test_planner_integration()
 	_test_line_up()
+	_test_line_up_endtoend()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
 
@@ -183,6 +188,22 @@ func _test_line_up() -> void:
 	var to_tgt: Vector2 = (s.tgt_pos - s.my_pos).normalized()
 	_check("pursuit 指向提前点（含外推）", dir.dot(to_tgt) > 0.99 and dir.x > 0.0,
 			"直线对准 + 持续追踪航点（外推 0.4s 偏目标运动方向）")
+	# 两相对准（2026-07-24）：机头偏轴 >8° → 猛拧相（高坡度 + 角点速），非恒 30°。
+	# 修"恒 30° 巡航下只 ~1.3°/s，切 15° 要 11s，充能永远起不来"。
+	var s_acq := Situation.new_for_test({
+		"has_target": true,
+		"my_pos": Vector2.ZERO, "tgt_pos": Vector2(-3000, 0),  # 正左方偏轴 90°
+		"my_heading": 0.0, "tgt_heading": 0.0, "tgt_speed_ms": 200.0,
+		"missiles": 4, "ammo": 500,
+		"railgun_band_min_m": 1200.0, "railgun_band_max_m": 8000.0, "railgun_ready": true,
+	})
+	var p_acq := TacticalPlanner.plan(s_acq)
+	_check("偏轴仍竞选 railgun → LINE_UP", p_acq.intent == TacticalPlan.Intent.LINE_UP,
+			"LINE_UP 优先级在 WIDE_TURN 之前")
+	_check("对准相猛拧坡度 65°", absf(p_acq.bank_limit_deg - 65.0) < 0.01,
+			"机头偏 %d°>4° → 高坡度主动对准（非稳定相 30°）" % int(s_acq.heading_diff_to_target_deg))
+	_check("对准相降角点速抢转向率", p_acq.target_speed_kmh == s_acq.corner_speed_kmh,
+			"角点速 = 最大转向率，快速把机头拧上目标")
 	# 电磁炮 CD 中 → 不进 LINE_UP，回落导弹
 	var s2 := Situation.new_for_test({
 		"has_target": true, "my_pos": Vector2.ZERO, "tgt_pos": Vector2(0, -2500),
@@ -215,6 +236,152 @@ func _test_line_up() -> void:
 		AircraftPhysics.update_bank(ac, 1.0 / 60.0)
 	_check("解除上限恢复全坡度", true, "-1 = 无限制（对照组跑通即可）")
 	ac.free()
+
+
+## 端到端闭环 sim（裸物理步进，范本 test_slow_air_pass）：驱动 planner→物理→railgun 状态机，
+## 验两相对准真能把机头拧进 ±5° 火控锥并完成 1.2s 充能开火。纯 plan 快照断言漏掉的正是这个
+## 闭环行为（fable 评审 2026-07-24：原 3 条断言只验 bank/速度字段，没碰"到底打不打得出来"）。
+func _test_line_up_endtoend() -> void:
+	print("── 阶段3：LINE_UP 端到端闭环（两相对准 → 起充 → 开火）──")
+	# 15° 偏轴：一般对准场景（_TRACE=true 可开逐秒诊断）
+	var r15 := _sim_railgun_fire(15.0, 8.0)
+	_check("15°偏轴 → 开火", bool(r15.fired),
+			"对准相把机头拧进锥、稳定相放电（t=%.1fs）" % float(r15.fire_t))
+	_check("15°偏轴 起充过", bool(r15.charged), "充能确实开始（旧版恒 30° 巡航从不起充）")
+	_check("15°偏轴 无甩头中断", int(r15.aborts) == 0,
+			"abort=%d（应 0：ω 全程 <25°/s）" % int(r15.aborts))
+	_check("15°偏轴 转速守阈值", float(r15.max_tr_deg) < 25.0,
+			"峰值 %.1f°/s < 25°/s 甩头中断线" % float(r15.max_tr_deg))
+	# 7° 偏轴：死区回归——原 8° 相位边界会让 5~8° 落进弱转向相永远切不进 5° 锥；4° 边界应快速开火
+	var r7 := _sim_railgun_fire(7.0, 6.0)
+	_check("7°偏轴 → 开火（死区回归）", bool(r7.fired),
+			"原 5~8° 死区已消除（t=%.1fs）" % float(r7.fire_t))
+
+
+## 单次仿真：目标置于机头右侧 initial_off_deg、3000m 外向北平飞，返回
+## {fired, fire_t, charged, aborts, max_tr_deg}。fired=beam_fade 跳升；abort=charging
+## true→false 但没 fire（beam_fade 未升）。
+func _sim_railgun_fire(initial_off_deg: float, budget_s: float) -> Dictionary:
+	var root := Node2D.new()
+	var ac = _make_railgun_ac(root)
+	var tgt = _make_target(root)
+	var off := deg_to_rad(initial_off_deg)
+	var range_px: float = 3000.0 * CombatUnit.PIXELS_PER_METER
+	tgt.position = Vector2(sin(off), -cos(off)) * range_px  # 机头右侧 off°、3km
+	tgt.heading = 0.0
+	tgt.speed = 200.0   # 720km/h > slow_air 阈值(285)，不被 ground_strafe 抢
+	ac.combat_target = tgt
+	var res := {"fired": false, "fire_t": -1.0, "charged": false, "aborts": 0, "max_tr_deg": 0.0}
+	var prev_bf := 0.0
+	var prev_ch := false
+	var steps := int(budget_s / DT)
+	for i in range(steps):
+		Situation.sim_time_override = float(i) * DT
+		tgt.is_locked = true              # 满足 require_radar_lock
+		ac.radar_targets[tgt] = 3.0       # 维持雷达可见
+		if i % AI_PERIOD == 0:
+			ac._run_tactical_planner_if_enabled()
+		ac._resolve_intents(DT)
+		_step_phys(ac)
+		ac._update_equipment(DT)          # 驱动 railgun 充能状态机
+		_move_straight(tgt)
+		var st: Dictionary = ac.equipment_state.get("railgun", {})
+		var bf: float = float(st.get("beam_fade", 0.0))
+		var ch: bool = bool(st.get("charging", false))
+		if ch:
+			res.charged = true
+		if bf > prev_bf + 0.001 and not bool(res.fired):
+			res.fired = true
+			res.fire_t = float(i) * DT
+		if prev_ch and not ch and bf <= prev_bf + 0.001:
+			res.aborts = int(res.aborts) + 1
+		res.max_tr_deg = maxf(float(res.max_tr_deg), rad_to_deg(absf(ac._turn_rate_filt)))
+		if _TRACE and i % 30 == 0:
+			var offd: float = _nose_off_deg(ac, tgt)
+			var pd_err: float = rad_to_deg(wrapf(ac._cached_target_heading - ac.heading, -PI, PI))
+			var tp_off: float = 999.0
+			if ac.target_position != Vector2.INF:
+				tp_off = rad_to_deg(wrapf(atan2((ac.target_position - ac.global_position).x, -(ac.target_position - ac.global_position).y) - ac.heading, -PI, PI))
+			print("    [%.2fs] off=%.1f° pd_err=%.1f° tp_off=%.1f° bank=%.0f° spd=%.0f tr=%.1f°/s blim=%.0f" % [
+				float(i) * DT, offd, pd_err, tp_off, rad_to_deg(ac.bank_angle), ac.speed * 3.6,
+				rad_to_deg(absf(ac._turn_rate_filt)),
+				rad_to_deg(ac._plan_bank_limit_rad) if ac._plan_bank_limit_rad > 0.0 else -1.0])
+		prev_bf = bf
+		prev_ch = ch
+		if bool(res.fired):
+			break
+	Situation.sim_time_override = -1.0
+	root.free()
+	return res
+
+
+func _railgun_params() -> AircraftParams:
+	var p := AircraftParams.new()
+	p.max_speed = 2650.0
+	p.cruise_speed = 1150.0
+	p.stall_speed_base = 220.0
+	p.radar_range = 5000.0
+	p.radar_half_angle = 30.0
+	p.lock_time = 2.0
+	var arr: Array[EquipmentParams] = [load("res://resources/x02_railgun.tres").duplicate(true)]
+	p.equipment = arr
+	return p
+
+
+func _make_railgun_ac(root: Node2D):
+	var ac = load("res://scripts/aircraft.gd").new()
+	ac.params = _railgun_params()
+	ac.team = 0
+	ac.heading = 0.0
+	ac.bank_angle = 0.0
+	ac.altitude = 5000.0
+	ac.speed = ac.params.cruise_speed / 3.6
+	ac.target_speed_kmh = ac.params.cruise_speed
+	ac.g_load = 1.0
+	ac.use_tactical_planner = true
+	ac.use_tactical_preference = true   # 玩家机（survivor_mode 对 player_aircraft 置 true）——
+	                                    # 决定 compute_target_bank 走激进档（否则 railgun weapon_mode=MISSILE
+	                                    # 触发导弹 crank 的 cap_frac=0.35，坡度被砍到 1/3，猛拧相形同虚设）
+	ac.position = Vector2.ZERO
+	root.add_child(ac)
+	return ac
+
+
+func _make_target(root: Node2D):
+	var tp := AircraftParams.new()
+	tp.max_speed = 1000.0
+	tp.cruise_speed = 720.0
+	tp.stall_speed_base = 200.0
+	tp.radar_range = 4000.0
+	var t = load("res://scripts/aircraft.gd").new()
+	t.params = tp
+	t.team = 1
+	t.heading = 0.0
+	t.altitude = 5000.0
+	t.speed = 200.0
+	t.g_load = 1.0
+	root.add_child(t)
+	return t
+
+
+func _step_phys(ac) -> void:
+	AircraftPhysics.update_target_heading(ac)
+	AircraftPhysics.update_bank(ac, DT)
+	AircraftPhysics.update_heading(ac, DT)
+	AircraftPhysics.update_speed(ac, DT)
+	AircraftPhysics.update_g_load(ac)
+	AircraftPhysics.apply_movement(ac, DT)
+
+
+func _move_straight(tgt) -> void:
+	var v: Vector2 = Vector2(sin(tgt.heading), -cos(tgt.heading)) * float(tgt.speed) * CombatUnit.PIXELS_PER_METER
+	tgt.position += v * DT
+
+
+func _nose_off_deg(ac, tgt) -> float:
+	var to_tgt: Vector2 = tgt.global_position - ac.global_position
+	var brg := atan2(to_tgt.x, -to_tgt.y)
+	return absf(rad_to_deg(wrapf(brg - ac.heading, -PI, PI)))
 
 
 func _check(name: String, got: bool, note: String) -> void:

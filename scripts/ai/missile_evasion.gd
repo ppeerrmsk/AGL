@@ -248,6 +248,10 @@ static func find_nearest_incoming_missile(ai: AIController) -> Missile:
 			continue
 		if m.is_flare_jammed:
 			continue  # 已被热诱弹干扰，不再构成威胁
+		# 722 sig_x09·夜枭：静默弹对目标不可见——不进规避判定、不触发投焰
+		# （规避与 flare 触发共用本检测：一处过滤全覆盖；玩家机不会是己方弹的 target，无副作用）
+		if m.sig_silent:
+			continue
 		# 过滤"已经飞过头、正在远离"的导弹——否则僚机做完第一次横滚规避后，
 		# 还未失效的过头导弹会让 missile_aware 一直为 true，AI 反复 _enter_evade
 		# 持续横滚脱队，直到导弹燃料/寿命耗尽（几十秒）才恢复，表现为"发呆平飞+飞离很远"。

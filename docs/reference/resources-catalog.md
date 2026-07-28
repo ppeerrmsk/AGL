@@ -1,12 +1,26 @@
 # 资源配置目录
 
-所有 .tres 资源文件的参数值汇总。
+> 最后校订：2026-07-26。
+>
+> ⚠ **本文是选摘，不是全量**。飞机部分只覆盖**早期的几个基准 .tres**，
+> 后来加的大量机型不在这里：
+> - **玩家机（41 机）** → `resources/player/player_*.tres`；配平规范看
+>   [specs/systems/player-aircraft-power-curve](../specs/systems/player-aircraft-power-curve.md)，
+>   进化树看 [specs/systems/aircraft-evolution-tree](../specs/systems/aircraft-evolution-tree.md)
+> - **敌机（22+ 种）** → [enemy-index.md](enemy-index.md) 的 Enemy Index 表（含每种敌人的 .tres / Token / 上限 / 解锁等级）
+> - **舰船** → `resources/naval/`
+>
+> 单一机型的准确数值请直接读对应 `.tres`。本文只保留仍有参考价值的**基准值 + 通用子资源**表。
 
 ---
 
-## 飞机参数总表
+## 飞机参数总表（基准 .tres 选摘）
 
-### 友方机型
+### `default_fighter`（早期 F-16 基准）
+
+⚠ 这是**沙盒时代的通用基准**，不是当前玩家起手机。生存模式的玩家机走
+`resources/player/` + PlayableAircraft 档案注入。保留它是因为多处默认值和文档
+（尤其"雷达 5000px 是弱基准"这条设计语言）仍以它为锚。
 
 | 参数 | F-16 (default_fighter) |
 |------|------------------------|
@@ -18,20 +32,23 @@
 | G力阻力 | 3.0 |
 | 持续G/结构G | 9.0 / 12.0 |
 | 滚转速率 | 4.0 rad/s |
-| 耐力(上限/消耗/恢复) | 100 / 25 / 10 |
 | 升限/爬升率 | 15000m / 250 m/s |
 | AB倍率 | 1.5 |
 | 燃油(容量/正常/AB) | 3000 / 1.5 / 8.0 kg |
 | 雷达(范围/半角/锁定) | 5000px=10km / ±30° / 2.5s |
 | 机炮 | M61A1 |
 | 主导弹 | AIM-7M |
-| 副导弹 | AGM-65 |
+| 副武器槽 SP | AGM-65（字段名 `secondary_missile` 是历史遗留；现在是**通用特殊武器槽**，不是"空对地导弹"）|
 | 热诱弹 | 30枚 |
 | 颜色 | 蓝色 (0.15, 0.35, 0.85) |
 
-### 敌方机型
+### 敌方机型（**仅早期 5 种**，完整 22+ 种见 [enemy-index.md](enemy-index.md)）
 
-| 参数 | MiG-29 | J-7 截击机 | UAV | UCAV | Sentinel指挥 |
+> 2026-07-26 更名批：UAV 显示名改 **MQ-109**、UCAV 改 **MQ-110**（同族导弹版，正常在役）；
+> 另新增有人导弹杂鱼 **F-4E**（`enemy_f4e.tres`，无机炮，HP 45 / 1700 km/h / 雷达 4200m），
+> 全量数值见 [specs/enemies/f-4e](../specs/enemies/f-4e.md)。
+
+| 参数 | MiG-29 | J-7 截击机 | MQ-109 | MQ-110 | Sentinel指挥 |
 |------|--------|-----------|-----|------|-------------|
 | .tres | enemy_fighter | enemy_interceptor | enemy_uav | enemy_uav_missile | enemy_uav_commander |
 | HP | 50 | 35 | 40 | 35 | 55 |
@@ -41,7 +58,7 @@
 | 加速/减速 | 45/75 | 55/60 | 25/40 | 20/35 | 20/30 |
 | 持续G/结构G | 6/9 | 9/12 | 4/5 | 3.5/4.5 | 3/4 |
 | 滚转 | 3.0 | 4.5 | 1.8 | 1.5 | 1.2 |
-| 雷达范围 | 4000px | 2500px | 800px | 1500px | 1200px |
+| 雷达范围 | 3600px | 2500px | 800px | 3600px | 1200px |
 | 锁定时间 | 3.5s | 4.0s | 5.0s | 4.0s | 99s(不锁) |
 | 武器 | M61+AIM7+AGM | M61 | UAV MG | UAV-SAM | 无 |
 | 特殊 | - | 快+脆弱 | 低速低G | 导弹型 | 编队指挥 |
@@ -58,7 +75,11 @@
 
 ---
 
-## 机炮参数总表
+## 机炮参数总表（选摘）
+
+> 另有多种专用机炮：`ace_gun`（王牌中队）/ `a10_gun` / `a7_gun` / `f86_gun` / `ah64_gun` 等。
+> ⚠ 机炮现在是**梭射节奏**（burst 制，非匀速滴弹），见
+> [specs/weapons/gun-burst-fire](../specs/weapons/gun-burst-fire.md)。
 
 | 参数 | M61A1 (default_gun) | ZU-23 (aa_gun) | UAV MG (uav_gun) |
 |------|------|-------|--------|
@@ -72,7 +93,10 @@
 
 ---
 
-## 导弹参数总表
+## 导弹参数总表（选摘）
+
+> 另有 `f47_missile`(AIM-260) / `qmaam_missile`（副槽近距格斗弹）/ 舰船 VLS 等，见
+> `resources/weapons/` 与各自 spec。
 
 | 参数 | AIM-7M | AGM-65 | HQ-7 (SAM) | UAV-SAM |
 |------|--------|--------|------------|---------|
@@ -94,7 +118,9 @@
 
 ---
 
-## 热诱弹参数 (default_flare)
+## 热诱弹参数 —— 敌我两族（2026-07-23 解耦，spec player-aircraft-power-curve §2.6）
+
+**敌用 `default_flare`**（玩家机不得引用；多数敌机还会被 spawner 强制压到 `max_flares=1`）
 
 | 参数 | 值 |
 |------|-----|
@@ -108,9 +134,31 @@
 | 低能量导弹加成 | +20% |
 | 飞行员焦虑度 | 0.5 |
 
+**玩家族 `resources/player/flare_t1~t5.tres`**（41 机按进化树 tier 引用）
+
+| 参数 | 值 |
+|------|-----|
+| 携带量 | **T1=2 / T2=3 / T3=4 / T4=5 / T5=6**（分档唯一变量） |
+| 每次释放 | 1 枚（"1 枚 = 1 次机会"记账） |
+| 冷却 / 装填 | 1.5s / 12.0s（装填是否启用看 `PlayableAircraft.enable_flare_reload`） |
+| 基础干扰率 | 90% |
+| 侧/后方追来加成 | +30% |
+| 大机动加成 | +25% |
+| 极近距惩罚 | -15% |
+| 低能量导弹加成 | +20% |
+| 飞行员焦虑度 | 0.0（冷静型：等逼近才投） |
+
+> 技能/里程碑加成（`flare_shield` +2 / 策士里程碑 +2、预留档 +1 / `manual_dodge` +6）叠在**新机档位基数**之上，
+> 换机后 `max_flares` 与 `flares_remaining` 同步 = 基数 + Σ加成。验收 bench `player_params`。
+> 其它专用变体：`ace_flare`(4，命数语义) / `ace_support_flare`(2) / `f47_flare`(2) / `uav_mqx_flare`(1)。
+
 ---
 
 ## 战斗风格参数 (default_combat)
+
+> 另有 AI 原型预设 `gladiator_combat` / `lancer_combat` / `ace_combat`，见
+> [enemy-index.md](enemy-index.md) 的 AI 原型段。⚠ 原型名是**内部词汇**，不进玩家可见 UI。
+
 
 | 分组 | 参数 | 值 |
 |------|------|-----|

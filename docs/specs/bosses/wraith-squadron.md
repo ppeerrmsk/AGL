@@ -1,9 +1,9 @@
 ---
 id: wraith-squadron
 kind: boss
-status: draft
+status: in-progress
 schema_version: 1
-spec_version: 1
+spec_version: 3
 owner: 用户（设计） / Claude（落地）
 depends_on: [ace-squadron-tier, circle-cut-entry]
 reconstruction_complete: false
@@ -64,8 +64,9 @@ reconstruction_complete: false
 | 2 | WRAITH-03 | **SNIPER**（狙击手） | 导弹 | 远距站位，惩罚玩家的每一次承诺 |
 | 3 | WRAITH-04 | **SNIPER** | 导弹 | 同上 |
 
-> ⚠ 现状问题：`combat_specialty` meta 只写不读、`f47_role` meta 只读不写，两者都是死代码。
-> 本 spec 要求**用一个真正被消费的角色字段取代它们**，并删除死 meta。
+> ✅ 已落地（2026-07-22）：`AceSquad.AceRole { NONE, KNIGHT, SNIPER }` + `ROLE_META` +
+> `role_of()`。此前的 `combat_specialty`（只写不读）与 `f47_role`（只读不写）两个死 meta
+> 已删除；`is_boss_attacker()` 的兜底分支与 HUD 标签都改读真正被写入的角色字段。
 
 ### 2.2 角色行为参数
 
@@ -74,9 +75,20 @@ reconstruction_complete: false
 | 期望交战距离 | 400~1500 m | **4000~6000 m** | SNIPER 被压到 4km 内即视为站位失败，需拉开 |
 | 主武器 | 机炮 | 导弹 | `prefer_gun_mode` |
 | 高度偏好 | 与玩家同层 | 玩家 **+1500 m** | SNIPER 常驻高位 |
-| 交战欲 `aggression` | 0.95 | 0.75 | SNIPER 不贪战 |
-| 自保 `self_preservation` | 0.15 | 0.35 | SNIPER 更早脱离 |
-| 被咬时行为 | 转身对抗 | **拉开，交给 KNIGHT 反咬** | |
+| 交战欲 `aggression` | 0.95 | **0.95** | 见下方"与 tier 的冲突裁决" |
+| 自保 `self_preservation` | 0.15 | **0.25** | 同上 |
+| 被咬时行为 | 转身对抗 | **拉开，交给 KNIGHT 反咬** | 靠 BVR 站位机制实现，不靠调低交战欲 |
+
+**与 tier 的冲突裁决（2026-07-22）**：本表 v1 给 SNIPER 写的是 `aggression 0.75` /
+`self_preservation 0.35`，与 [ace-squadron-tier](../systems/ace-squadron-tier.md) §2.1 的
+tier 级铁律（`aggression ≥ 0.90`、`self_preservation ≤ 0.25`）直接冲突，而本 spec §2.5 又
+声明"不覆盖 tier"。裁决：**tier 赢**。
+
+理由是"SNIPER 不贪战"这个设计意图本来就**不该由交战欲实现** —— 调低 aggression 会让它
+在**所有**情境下都消极（包括该开火的时候），这正是 tier 想禁止的"BOSS 不上头"反面。
+真正要的是**空间行为**："被压近了就拉开"。这由 BVR 站位机制表达（低于 4000 m 强制脱离、
+拉到 6000 m 重新站位），与交战欲正交 —— SNIPER 因此既保持 tier 级的攻击欲，
+又严格守住自己的距离带。
 
 ### 2.3 队级战术状态机数值
 
@@ -101,10 +113,12 @@ reconstruction_complete: false
 | **机动瞄准惩罚** | 自身 bank > 30° 时最多 +2.0°；目标 bank > 60° 时最多 +1.5° | 与玩家侧同公式 |
 | **减速迟滞** | 每次进入近距 pass 时，**25% 概率**延迟 `0.6~1.2 s` 才开始减速 → 冲过头 | 制造可被玩家利用的过头窗口 |
 
-> **现状**：敌方 AI 目前**零瞄准误差** —— `_gun_aim_offset_rad` 与机动惩罚都被
-> `use_tactical_preference` 门死，只对玩家生效。敌机永远打一个完美居中的散布锥。
-> 本 spec 要求把这条通路对王牌中队打开。这在观感上是**削弱**（他们现在是完美枪手），
-> 但配合战术层的整体提升，净效果是"更强但更可读"。
+> ✅ 已落地（2026-07-22）：瞄准误差与机动惩罚此前被 `use_tactical_preference` 门死
+> ——那是个"玩家有战术偏好面板"的**操控模式**标志，与枪法毫无关系，兼任的后果是
+> 全部 AI 敌机（含 BOSS）永远打一个完美居中的散布锥。现已拆出独立开关
+> `Aircraft.gun_aim_error_enabled`，由 `AceTier.mark()` 在打 tier 标记时一并开启并写入
+> `pilot_aim_skill = 0.85`。减速迟滞落在 `EngagementSpeedGovernor.apply_with_lag()`
+> （该模块本就只对王牌中队生效）。
 
 ### 2.5 与 tier 的关系
 
@@ -181,11 +195,26 @@ reconstruction_complete: false
 
 ## 4. 结构与组成（Structure）
 
-- **`F47AceSquad`**（现有）承载队级战术状态机 —— 按用户决定先做 **Wraith 专属窄井**，
-  不下沉为通用小队战术模块。若后续有第二个王牌中队需要同样的编排，再考虑抽取。
+- **队级战术状态机**住在独立模块 `WraithTactics`，由 `F47AceSquad` 持有并转发 ——
+  按用户决定是 **Wraith 专属窄井**，不下沉为通用小队战术模块。若后续有第二个王牌中队
+  需要同样的编排，再考虑抽取。
+  基类 `AceSquad` 只提供三个空钩子（`_tactics_enter/update/exit`），不实现任何 Wraith 逻辑：
+  其它王牌中队不覆写就退化为"各自跑 BFM"的现状行为，零影响。
+- **相位与 AI 层的分工**（本层的硬约束）：本层**不每帧覆盖 AI 字段**，只在相位切换时下一次配置。
+  - 需要"走到某个位置"（PERCH 爬升 / BAIT 拉开 / RESET 脱离）→ 下 `AIDirective`
+  - 需要"从某个方位打进来"（BRACKET 两翼）→ 写包围轴 `surround_bearing`，
+    由 `TacticalPlanner` 执行"先飞到自己扇区的进入门点、近于 1500 m 解除偏置收敛"——
+    **全程真实转弯**，绝不直接挪坐标
+  - **PRESS 相完全不干预**，撤掉一切 directive 与偏置，让 BFM 决策树自己打
+- **包围轴通道的复用**：`surround_bearing` 原为命令轮盘 FOCUS 集火（相邻 ≥45°）而建，
+  与本 spec 的包夹是同一个几何概念，故复用而非另造。`Situation` 侧原本以
+  `commanded_target != null` 为读取门（那是玩家点名专用，敌机没有），
+  为王牌中队开了一个窄口子：`tier == ace` 时同样读取，仍以 `INF` 作"未分配"哨兵。
 - **角色字段**：取代 `combat_specialty`（只写不读）与 `f47_role`（只读不写），两者都要删。
-- **战术状态机**与 tier 的 `AceSquad.SquadState`（INTRO/PURSUIT/CLOAK/ANCHOR_HOLD）是**两层**：
+- **战术状态机**与 tier 的 `AceSquad.SquadState`（INTRO/PURSUIT/CLOAK）是**两层**：
   tier 层管"是否交战 / 是否隐形"，本 spec 的战术层在 PURSUIT 之内运转。
+  进 CLOAK 时战术层整个撤场（撤 directive + 清包围轴），回 PURSUIT 时从 PERCH 重新起手 ——
+  否则隐形期间四机还在执行上一相的站位，出隐形时相位与实际脱节。
 - **依赖** `EngagementSpeedGovernor`：没有它，任何战术都执行不了（半径 > 距离时机头指不到目标）。
 - **依赖** [circle-cut-entry](../systems/circle-cut-entry.md)：PRESS 阶段的收网执行层 ——
   KNIGHT 把玩家拖进转弯圈后，另一架从圈外横切收网走该共享几何，本 spec 不重复实现。
@@ -206,29 +235,32 @@ reconstruction_complete: false
 
 ## 6. 实现计划（Task Pipeline）
 
-### 阶段 1 — 角色真实化（清死代码）
-- [ ] 定义被真正消费的角色字段，取代 `combat_specialty` / `f47_role`
-- [ ] 删除两个死 meta 及其悬空读（`is_boss_attacker` 里的 `f47_role` 分支、HUD 的读取）
-- [ ] 角色接入三个消费点（交战距离 / 武器偏好 / 被咬反应）
-- [ ] 无头断言：KNIGHT 与 SNIPER 的稳态交战距离分离
+### 阶段 1 — 角色真实化（清死代码）✅ 2026-07-22
+- [x] 定义被真正消费的角色字段，取代 `combat_specialty` / `f47_role`
+      （`AceSquad.AceRole` + `ROLE_META` + `role_of()`）
+- [x] 删除两个死 meta 及其悬空读（`is_boss_attacker` 里的 `f47_role` 分支、HUD 的读取）
+- [x] 角色接入三个消费点（交战距离 / 武器偏好 / 被咬反应）
+- [x] 无头断言：KNIGHT 与 SNIPER 的距离带分离（`--bench=boss_hunter` §C）
 
-### 阶段 2 — 队级战术状态机
-- [ ] PERCH / BRACKET / PRESS / RESET 四状态 + 转移条件
-- [ ] 退化检测（平均机头偏角 > 50° 持续 6 s）
-- [ ] BAIT 指定与继任顺位
-- [ ] 包夹几何：两翼分离轴 ≥ 60° 的分配与校验
-- [ ] 无头断言：包夹几何成立、退化必触发 RESET
+### 阶段 2 — 队级战术状态机 ✅ 2026-07-22
+- [x] PERCH / BRACKET / PRESS / RESET 四状态 + 转移条件（独立模块 `wraith_tactics.gd`）
+- [x] 退化检测（平均机头偏角 > 50° 持续 6 s，0.5s 采样）
+- [x] BAIT 指定与继任顺位（默认二号机 KNIGHT → 存活 KNIGHT → SNIPER）
+- [x] 包夹几何：两翼分离轴 ≥ 60° 的分配与校验（复用 `surround_bearing` 包围轴通道）
+- [x] 无头断言：`--bench=boss_hunter` §H/§I（包夹几何左右分侧且 ≥60°、四相闭环、
+      收网需咬住 4s、退化必触发 RESET）
 
-### 阶段 3 — 执行精度失误
-- [ ] 机炮瞄准误差通路对王牌中队开门（技能 0.85 → ±1.2°）
-- [ ] 机动瞄准惩罚同步开门
-- [ ] 减速迟滞（25% 概率延迟 0.6~1.2 s）
-- [ ] 无头断言：命中率显著低于无误差基线，但仍高于普通杂兵
+### 阶段 3 — 执行精度失误 ✅ 2026-07-22
+- [x] 机炮瞄准误差通路对王牌中队开门（技能 0.85 → ±1.2°）
+- [x] 机动瞄准惩罚同步开门（与 §1 共用 `gun_aim_error_enabled` 一个开关）
+- [x] 减速迟滞（25% 概率延迟 0.6~1.2 s，落在 `EngagementSpeedGovernor.apply_with_lag`）
+- [x] 无头断言：`--bench=boss_hunter` §F/§G（开关默认关 / tier 标记开门 / 迟滞锁存与解除）
+- [ ] 命中率对比测量（无误差基线 vs 现状 vs 杂兵）—— 需 playtest 数据，不能靠断言假设
 
 ### 阶段 4 — 收尾
 - [ ] 跑 §5 全部验收项 + playtest
-- [ ] 更新 §7 锚点 + 同步 reference 索引 + `_INDEX.md`
-- [ ] 跑 `python tools/verify_doc_anchors.py`
+- [x] 更新 §7 锚点 + 同步 reference 索引 + `_INDEX.md`
+- [x] 跑 `python tools/verify_doc_anchors.py`
 
 ## 7. 索引锚点（Where）
 
@@ -236,13 +268,24 @@ reconstruction_complete: false
 
 | 关注点 | 文件 |
 |---|---|
-| 队级战术状态机 | `scripts/survivor/f47_ace_squad.gd`（待实现） |
-| tier 基座 | `scripts/survivor/ace_squad.gd`、`scripts/survivor/ace_tier.gd` |
-| 速度治理（前置依赖） | `scripts/ai/tactical/engagement_speed_governor.gd` |
-| 机炮误差通路 | `scripts/aircraft/aircraft_weapons.gd` |
+| 角色枚举 / `ROLE_META` / `role_of()` / `_apply_role` | `scripts/survivor/ace_squad.gd` |
+| tier 基座 + 王牌枪法与误差开关的落地点 | `scripts/survivor/ace_tier.gd` |
+| 队级战术状态机（PERCH/BRACKET/PRESS/RESET + 退化检测） | `scripts/survivor/wraith_tactics.gd` |
+| 战术层持有与转发（`_tactics_enter/update/exit` 钩子实现） | `scripts/survivor/f47_ace_squad.gd` |
+| 战术层钩子的基类虚方法 | `scripts/survivor/ace_squad.gd` |
+| 包夹的包围轴执行端（进入门点 → 近距收敛） | `scripts/ai/tactical/tactical_planner.gd`、`scripts/ai/tactical/situation.gd` |
+| 速度治理（前置依赖）+ 减速迟滞 | `scripts/ai/tactical/engagement_speed_governor.gd` |
+| 机炮误差通路（两处门） | `scripts/aircraft/aircraft_weapons.gd` |
+| 误差开关字段 `gun_aim_error_enabled` | `scripts/aircraft.gd` |
+| 角色驱动的 `is_boss_attacker()` 兜底 | `scripts/ai_controller.gd` |
+| HUD 角色标签（只显示行为，不暴露角色代号） | `scripts/survivor/survivor_hud.gd` |
+| 王牌专属热诱弹资源 | `resources/ace_flare.tres` |
+| 无头断言（`--bench=boss_hunter`） | `scripts/tests/test_boss_hunter.gd` |
 
 ## 8. 变更记录
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-07-22 | 3 | **阶段 2 落地**：队级战术状态机 `WraithTactics`（独立模块，F47AceSquad 持有转发；基类只留三个空钩子）。PERCH（爬到玩家+2000m 档、高度差 1500m 或 12s 超时）→ BRACKET（BAIT=二号机不开火、拉到玩家机头前方 3000m 保持在雷达锥内，三翼经 `surround_bearing` 从 ≥60° 离轴方位切入，咬住 4s 收网或 20s 超时）→ PRESS（15s，完全放手给 BFM）→ RESET（8s 脱离 3000m + 爬升，`combat_disabled=false` 脱离是几何行为不是缴械）→ 回 PERCH。退化检测 0.5s 采样、平均机头偏角 >50° 持续 6s 强制 RESET。**包夹复用命令轮盘的包围轴通道**（同一几何概念，不另造），为此在 `Situation` 给 tier=ace 开了窄读取口。顺带修 `_pursuit_enter` 无脑置 `bvr_only=false` 会抹掉 SNIPER 站位带的 bug。`--bench=boss_hunter` 97 断言 + 回归门 34 项 PASS |
+| 2026-07-22 | 2 | **阶段 1 + 阶段 3 落地**。角色真实化（`AceRole{KNIGHT,SNIPER}` 取代两个死 meta，KNIGHT 转身对抗 / SNIPER `bvr_only` 站位带 4~6km）；执行失误落地（拆出 `gun_aim_error_enabled` 开关根治"敌机零瞄准误差"、王牌枪法 0.85 → ±1.2°、减速迟滞 25%×0.6~1.2s）。**冲突裁决**：§2.2 原给 SNIPER 的 `aggression 0.75`/`self_preservation 0.35` 违反 tier §2.1 铁律，判 tier 赢 —— "不贪战"改由 BVR 站位（空间行为）表达，不靠调低交战欲。阶段 2（PERCH/BRACKET/PRESS/RESET）仍未动 | 
 | 2026-07-20 | 1 | 初稿。目标=本作最强敌人之一，强度来源定为**四机协同的两难**而非数值。角色 KNIGHT×2/SNIPER×2 真实化（取代两个死 meta）；队级战术 PERCH→BRACKET→PRESS→RESET 四状态 + 退化检测；执行精度失误三项（用户定档"执行失误"而非"决策失误"）。范围=Wraith 专属窄井（用户定档） |

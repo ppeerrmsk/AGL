@@ -1,168 +1,146 @@
-# 生存模式参考
+# 生存模式参考（架构叙述）
+
+> 最后校订：2026-07-28。
+>
+> **分层约定**（见 [specs/_INDEX.md](../specs/_INDEX.md)）：本文属 `docs/systems/`，只写**跨系统的架构叙述与流程**。
+> **全部数值 / 公式 / 触发条件的权威源在 specs**：
+> - 核心循环、Token 经济、刷怪、时间税 → [specs/systems/survivor-loop](../specs/systems/survivor-loop.md)
+> - 战区奖励与停靠结算 → [specs/systems/zone-reward-docking](../specs/systems/zone-reward-docking.md)
+> - 进化树与属性门槛 → [specs/systems/aircraft-evolution-tree](../specs/systems/aircraft-evolution-tree.md) · [evolution-attribute-gates](../specs/systems/evolution-attribute-gates.md)
+> - 技能系统 → [systems/survivor-skills.md](survivor-skills.md)（设计层）+ [reference/skill-implementation-index.md](../reference/skill-implementation-index.md)（实装层）
+> - 敌人谱 → [reference/enemy-index.md](../reference/enemy-index.md)
+>
+> 本文**刻意不重列具体常量**——重列必然腐烂（本文 2026-07 前就因此把阶段时长、XP 曲线、
+> 刷怪表全写错过一轮）。要数字请去上面的 spec。
+
+---
 
 ## 概述
 
-生存模式是类吸血鬼幸存者的无尽战斗模式。玩家操控一架 F-16 面对不断增强的敌机波次，击杀获取经验升级，选择升级强化飞机。
+生存模式是 AGL 的**主玩法**（也是唯一出包的模式）。
+
+一局的形状是**有终点的攻坚**，不是无尽波次：
+
+```
+起飞（起手机型四选一）
+  → 战区阶段：Token 预算持续刷怪 + 打战区任务 + 击杀升级
+      · 攻克战区 → 飞到停靠点减速着陆结算 → 领奖励 / 换机进化 / 全队满血
+      · 每升 3 级 → 三轴卡片三选一（斗士 / 骑士 / 策士各一张）
+  → game_time 跨过 WARZONE_PHASE_DURATION → 战区全部关闭，BOSS 解锁
+  → BOSS 阶段：game_time 冻结、停刷、决战
+  → 击败 BOSS = 过关（VICTORY）→ 局内 XP 按系数折算成局外功勋（MeritLedger）
+```
+
+⚠ 常见误解澄清：
+- **不是无尽模式**。`BossEncounterEvent` 进 VICTORY 相 → `survivor_mode._on_victory` 结算。
+- **不是单机模式**。玩家操控的是**小队**：数字键 1-4 接管任意一号机，命令轮盘对全队广播。
+- **不是"每级弹一次三选一"**。等级升级只出 toast，选卡归**每 3 级**的三轴卡片（见 evolution-attribute-gates）。
 
 ---
 
-## 文件结构
+## 文件结构（主干）
+
+完整清单见 [reference/script-index.md](../reference/script-index.md)，此处只列主干骨架。
 
 | 文件 | 说明 |
 |------|------|
-| `scripts/survivor/survivor_mode.gd` | 主控制器（操控/波次/刷怪/雷达/地形） |
-| `scripts/survivor/survivor_player.gd` | 经验/等级/升级应用 |
-| `scripts/survivor/survivor_data.gd` | 静态数据（升级定义/波次参数/经验曲线） |
-| `scripts/survivor/survivor_hud.gd` | HUD 界面（HP/经验条/导弹/弹药/计时等） |
-| `scripts/survivor/survivor_upgrade_ui.gd` | 升级选择 UI |
-| `scripts/survivor/survivor_select.gd` | 模式选择界面 |
-| `scripts/survivor/commander_aura.gd` | 指挥 UAV 光环效果 |
-| `scripts/survivor/commander_overlay.gd` | 指挥 UAV 覆盖层 |
-| `scripts/survivor/survivor_debug_skills.gd` | 调试用技能面板 |
-| `scenes/survivor_mode.tscn` | 场景（BulletManager + MissileManager + Camera2D） |
-| `scenes/survivor_select.tscn` | 选择界面场景 |
+| `survivor/survivor_mode.gd` | 主控：帧循环调度 / 阶段闸 / 玩家机登记（SEAM-019 chokepoint）/ 胜负 |
+| `survivor/survivor_spawner.gd` | 刷怪总管：Token 预算 / 猎手指派 / 增援入场 / FPS 动态降载 |
+| `survivor/survivor_data.gd` | 静态数据：技能表 / Token 成本 / 波次与缩放常量 / XP 曲线 |
+| `survivor/survivor_player.gd` | 经验 / 等级 / 升级应用（`apply_upgrade`）|
+| `survivor/skill_hooks.gd` | 事件触发型技能的钩子层 |
+| `survivor/zone_data.gd` / `zone_mission.gd` / `dock_point.gd` | 战区状态机 / 任务 / 停靠点 |
+| `survivor/evolution_system.gd` / `evolution_ui.gd` / `evolution_tree_view.gd` | 进化树与结算规划站 |
+| `survivor/boss_registry.gd` / `boss_encounter.gd` | BOSS 注册与遭遇战基类 |
+| `survivor/ace_tier.gd` / `ace_squad.gd` | 王牌中队分层（LOD 豁免 / 无缩放 / HP cap 豁免）|
+| `survivor/roe_director.gd` | 全图察觉与交战规则（热度即难度）|
+| `survivor/survivor_hud.gd` / `tactical_map.gd` | HUD / 战术地图 |
+| `scenes/survivor_mode.tscn` | 场景（BulletManager + MissileManager + Camera2D）|
+
+RTS 指挥逻辑**不在** `survivor/` 下，独立在 `scripts/rts/`（`SquadCommandController` + 参数 Resource）。
 
 ---
 
-## 与沙盒模式的差异
+## 阶段制
 
-| 方面 | 沙盒模式 (main.gd) | 生存模式 (survivor_mode.gd) |
-|------|-------|-------|
-| 高度系统 | 连续高度（米） | 扁平三/四档位（flat_altitude） |
-| 弹药 | 有限 | 自动装填（gun/missile/flare） |
-| 燃油 | 有限 | 无限（infinite_fuel） |
-| 敌机 | 固定放置 | 按等级波次自动生成 |
-| 升级 | 无 | 经验→等级→选择升级 |
-| 机炮 | 标准命中半径 | 扩大命中半径 |
-| 目标限制 | 无 | 同时飞向玩家的导弹上限 3 |
-| 伤害上限 | 无 | 可设置导弹/机炮伤害上限 |
-
----
-
-## 阶段制（2026-05-09 起）
-
-| 阶段 | 时长 | 行为 |
+| 阶段 | 区间 | 行为 |
 |------|------|------|
-| 战区阶段 | 0–8 分钟（`WARZONE_PHASE_DURATION = 480.0`） | 战区可循环刷新；攻克 1 个 → 立即开 2 个新战区 |
-| BOSS 阶段 | 8 分钟到点之后 | `game_time` 冻结；其他战区关闭，BOSS 可用 |
+| 战区阶段 | `game_time` 0 → `WARZONE_PHASE_DURATION` | 战区可循环刷新；攻克 1 个 → 立即开新战区 |
+| 过渡 | 到点瞬时（一次性闸 `_warzone_phase_ended`） | 取消全部 zone 任务、锁所有战区、`boss_unlocked = true`；敌人留场（继续给 XP，不再给奖励）|
+| BOSS 阶段 | 到点之后 | `game_time` 冻结；`_update_boss_phase` 启动 `BossEncounterEvent` |
 
-**触发流程（即时切换）**：
-1. 8 分钟到点（`survivor_mode._check_warzone_phase_timeout`）：
-   - `zone_mission.cancel_all_zone_missions()` → 清所有 TGT 标记 / `_spawned_zones` / `_triggered_zones` / `_completed_zones`，敌人留场（继续给经验，但不再给奖励）
-   - 关所有 AVAILABLE/SELECTED 战区为 LOCKED
-   - `boss_unlocked = true`
-2. 下一帧 `_update_boss_phase` 启动 `BossEncounterEvent`
+**`game_time` 是可倒拨的时间轴，不等于真实秒表**：
+- 出界补给回血 → `game_time += SUPPLY_TIME_COST`（把 BOSS 拉近的"时间税"；BOSS 阶段已屏蔽）
+- 王牌支援中队全灭 → `game_time -= 60`（整局延长 1 分钟）
+- 城区 CH-47 直升机三架全歼 → 走同一个 `grant_time_extension` 注入点再延长一段
 
-**已攻克战区再激活**：`_refresh_availability_after_clear` 用加权抽取（CLEARED 1.5×，LOCKED 1.0×）从候选池开 2 个新战区 → 已攻克战区有显著概率被重新激活并刷新敌人。
+所以"BOSS 什么时候来"取决于玩家怎么打，不是固定钟点。
 
-**出界回血时间税**：玩家点 SUPPLY 满血但 `game_time += 15.0`（`SUPPLY_TIME_COST`），把 BOSS 拉近。BOSS 阶段 SUPPLY 已被 `_on_supply_confirmed` L1978 早 return 屏蔽。
+**已攻克战区再激活**：`_refresh_availability_after_clear` 用加权抽取（CLEARED 权重高于 LOCKED）
+从候选池开新战区 → 已攻克战区有显著概率被重新激活并刷新敌人。
 
-**HUD 显示**：[survivor_hud.gd](../../scripts/survivor/survivor_hud.gd) `set_warzone_remaining(seconds, in_boss_phase)`：顶部最上方常驻 Label，PROCESS_MODE_ALWAYS 保证升级面板暂停时也显示；升级面板打开前 survivor_mode 同步刷新一次。
+**HUD**：`survivor_hud.set_warzone_remaining(seconds, in_boss_phase)`，顶部常驻，
+`PROCESS_MODE_ALWAYS` 保证升级面板暂停时也显示。
 
-**已废弃**：旧的 `cleared_count >= 3` 触发 BOSS 路径已删除（`zone_data.gd:_refresh_availability_after_clear`），改由 `survivor_mode._check_warzone_phase_timeout` 时间驱动。
-
----
-
-## 经验与等级系统 (SurvivorPlayer)
-
-### 经验曲线
-
-```gdscript
-static func xp_for_level(level: int) -> int:
-    return int(20.0 * pow(level, 1.15))
-```
-
-### 经验来源
-
-| 来源 | 经验值 |
-|------|--------|
-| 击杀 MiG | 40 |
-| 击杀 UAV | 25 |
-| 击杀指挥 UAV | 50 |
-
-### 升级流程
-
-```
-击杀敌机 → add_xp()
-├── xp >= xp_to_next → level up
-│   ├── leveled_up 信号
-│   ├── 暂停游戏 (is_paused_for_upgrade)
-│   ├── 显示 3 个随机升级选项
-│   └── 玩家选择 → apply_upgrade() → 恢复游戏
-```
+**已废弃路径**：旧的 `cleared_count >= 3` 触发 BOSS 已删除，改由时间闸驱动。
 
 ---
 
-## 升级系统
+## 与沙盒模式的关系
 
-完整技能图鉴 / 设计哲学 / 战区奖励池 / 骑士精神系列规划见 **[survivor-skills.md](survivor-skills.md)**。
-本文档只描述升级**机制**：
-- 升级池由 `SurvivorData.UPGRADES` 定义；筛选走 `is_upgrade_available_for(upgrade, aircraft_id, params)`（处理 `requires` 硬件依赖、`exclusive_to` 主角专属、`max_stacks` 上限）
-- 进化机制：基础技能满级时 `evolves_to` 字段触发自动进化为指定技能；进化技能 `evolved: true` 不出现在常规随机池，仅通过进化或战区奖励发放
-- 应用入口：[survivor_player.gd](../../scripts/survivor/survivor_player.gd) `apply_upgrade()` 把 stat 写到 Aircraft / AircraftParams（已 `duplicate(true)`）
+**沙盒模式（`scenes/main.tscn`）已废弃**，只作物理 / AI 调试留存，不打包、不加新内容。
+不要再按"两个模式都要测"的旧规矩排期——但**共享层代码的模式隔离铁律仍然有效**：
 
----
+> 禁止在共享层（`aircraft.gd` / `ai_controller.gd` / `missile.gd` 等）写
+> `if in_survivor_mode` / `if in_sandbox`。模式差异必须走参数资源 `duplicate(true)`
+> 或 PlayableAircraft 档案注入。
 
-## 敌机波次系统
-
-### 刷怪参数
-
-| 常量 | 值 | 说明 |
-|------|-----|------|
-| BASE_SPAWN_INTERVAL | 8.0s | 初始刷怪间隔 |
-| MIN_SPAWN_INTERVAL | 3.0s | 最小间隔 |
-| ENEMIES_PER_WAVE_BASE | 1 | 每波基础敌人数 |
-| ENEMIES_PER_WAVE_GROWTH | 0.3 | 每级增长 |
-| SPAWN_DISTANCE | 3000px | 距玩家刷怪距离 |
-| MAX_ENEMIES_HARD | 40 | 绝对上限 |
-| MAX_ENEMIES_DEFAULT | 30 | 默认上限 |
-
-### 敌机类型解锁
-
-| 类型 | 解锁等级 | 出现概率增长 | 最大概率 |
-|------|----------|-------------|----------|
-| UAV（基础） | 1 | 始终出现 | - |
-| UCAV（导弹无人机） | 3 | +10%/级 | 40% |
-| 指挥 UAV（Sentinel） | 4 | +6%/级（基础12%） | 25% |
-| J-7 截击机 | 5 | +12%/级 | 35% |
-| MiG-29 | 7 | +8%/级 | 50% |
-
-### 敌人属性缩放
-
-随玩家等级提升：
-
-**MiG**: HP ×(1 + (level-1)×0.15), 每4级+1导弹, 机炮伤害 ×(1 + (level-1)×0.08)
-
-**UAV**: HP ×(1 + (level-1)×0.08), 机炮伤害 ×(1 + (level-1)×0.05)
-
-**指挥UAV**: HP ×(1 + (level-1)×0.10), 无武装
-
-### 指挥 UAV 机制
-
-- 自带 2-3 架僚机编队
-- 最多可招募 6 架（含自己）
-- 击杀给 50 经验
-- 无武装但 HP 较高
+生存模式相对沙盒的行为差异（弹药自动装填、无限燃油、扁平高度档、伤害上限、
+同时飞向玩家的导弹上限等）全部是**通过参数注入实现的**，不是分支判断。
 
 ---
 
-## 动态性能控制
+## 经验与升级
 
-- 每 0.5s 采样 FPS，保留最近 6 次
-- 平均 FPS < TARGET_FPS (30) → 降低敌机上限
-- FPS 恢复 → 逐渐恢复上限
-- 下限 MIN_ENEMIES_CAP = 8
+- XP 曲线、乘区、功勋折算系数 → [survivor-skills.md 经验曲线段](survivor-skills.md)
+- 击杀 XP 与 Adds 特例 → [specs/systems/survivor-loop](../specs/systems/survivor-loop.md)
+- 升级池筛选：`is_upgrade_available_for(upgrade, aircraft_id, params)` 处理
+  `requires`（装备门控）/ `requires_skill`（词条依赖）/ `exclusive_to`（机型签名）/ `max_stacks`
+- 应用入口：`survivor_player.apply_upgrade()` 把 stat 写到 Aircraft / AircraftParams（已 `duplicate(true)`）
+- ⚠ **进化链 `evolves_to` 已废弃**，新技能不做"满级自动进化"
 
----
-
-## 猎手指派系统
-
-每 5 秒检查一次（HUNTER_INTERVAL），从空闲敌机中指派猎手追踪玩家，确保持续有压力。
-
-每 8 秒更新一次敌机巡逻航点（WAYPOINT_UPDATE_INTERVAL），让巡逻敌机向玩家方向移动。
+三轴点数 / 里程碑 / 已选技能全部**记玩家层，换机重放不丢**（局内 roguelike，局外清零）。
 
 ---
 
-## 导弹限制
+## 刷怪与压力
 
-`MAX_MISSILES_TARGETING_PLAYER = 3`：同时飞向玩家的导弹不超过 3 枚，防止玩家被瞬间秒杀。
+- **Token 预算制**：每个敌人有 Token 成本与实例上限，预算随等级爬升；Adds 杂兵不占 Token
+- **前方扇形刷出**：沿玩家机头前方扇形，不刷身后（feedback 铁律）
+- **BOSS 专属机型不进常规池**：F-47 / F-14 Poltergeist 只由 BOSS 遭遇战投放，随机桶里显式排除
+- **作战高度按机型分档**：不再是所有机型均匀随机 LOW/MID/HIGH，改为按 EnemyType 加权抽档
+  （攻击机偏低空 / 截击机偏高空 / 多用途机偏中空），且 `patrol_altitude` 跟随抽到的档位——
+  否则档位分化只影响巡逻段、交战高度仍是老样子。未登记的类型（BOSS / Adds / 事件单位，
+  高度由各自 spawn 代码事后覆写）维持原来的均匀随机行为
+- **增援入场**：不再离屏凭空刷，改为边缘中队涌入 → 中央锚点驻空 → token 饿时物理飞离
+- **猎手指派**：定期从空闲敌机中指派猎手追踪玩家，配额由 ROE 热度驱动
+- **动态性能控制**：周期采样 FPS，低于目标即收敛敌机上限，恢复后逐步放开
+- **导弹上限**：同时飞向玩家的导弹数量有硬上限，防止瞬间秒杀
+
+全部具体数值见 [specs/systems/survivor-loop](../specs/systems/survivor-loop.md) §4 与
+[specs/systems/60km-density-pass](../specs/systems/60km-density-pass.md)、
+[specs/systems/reinforcement-ingress](../specs/systems/reinforcement-ingress.md)。
+
+---
+
+## 敌人强度铁律
+
+除 BOSS 外，**所有空中敌人一发死**：普通敌机 HP 被 `ENEMY_HP_MISSILE_CAP` 强制夹取，
+保证任何导弹都能一发解决（DESIGN_PHILOSOPHY 原则 1）。
+
+**王牌中队（AceTier）是显式豁免层**，不是"数值堆高的杂兵"：
+- 不吃 LOD 降频、不吃等级缩放
+- HP cap 豁免（但只到"残血"档）
+- 生存靠**热诱弹即命数**：固定枚数、必定成功、不补充、耗尽即必死
+
+见 [specs/systems/ace-squadron-tier](../specs/systems/ace-squadron-tier.md)。

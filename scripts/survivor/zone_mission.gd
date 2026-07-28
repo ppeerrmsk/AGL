@@ -19,6 +19,9 @@ signal mission_completed(zone_id: StringName)
 
 const SAM_COUNT := 3
 const AA_COUNT := 3
+## 机场解放战区地面防空编成（spec airfield-liberation-zones §2.2）：固定 1 SAM + 2 AA
+const AIRFIELD_SAM_COUNT := 1
+const AIRFIELD_AA_COUNT := 2
 const BOSS_DESPAWN_INTERVAL := 1.0     ## BOSS 阶段视线外清理节拍（秒）
 
 var _boss_despawn_timer: float = 0.0
@@ -151,7 +154,7 @@ func _ensure_spawned_for_active_zones() -> void:
 		_spawn_zone_units(zid, z)
 
 func _spawn_zone_units(zone_id: StringName, zone: Dictionary) -> void:
-	# runtime mission_type（可能被 zone_data 动态滚过：ground / squadron / elite / air）
+	# runtime mission_type（可能被 zone_data 动态滚过：ground / squadron / air / naval / airfield）
 	var mission_type: String = _zones.get_mission_type(zone_id) if _zones else zone.get("mission_type", "ground")
 	# 最后一道防线：若 mission_type 是 ground 但战区几乎没有陆地（可能是旧存档、
 	# 基础定义改成"海上"战区、或采样抖动），改为空战中队，避免 SAM/AA 刷到海面
@@ -160,13 +163,18 @@ func _spawn_zone_units(zone_id: StringName, zone: Dictionary) -> void:
 		_zones.set_mission_type(zone_id, "squadron")
 		EventLogger.log_event("ZONE", "OverrideGroundToAir",
 			"id=%s reason=water_zone" % [zone_id])
+	# 机场解放战区（spec airfield-liberation-zones §2.3）：首刷时按当前热度定档，
+	# 使战术地图星级 / 升空迎战规模 / 机型选型三者一致。
+	if mission_type == "airfield" and _zones:
+		var star := _airfield_difficulty_from_heat()
+		_zones.set_airfield_difficulty(zone_id, star)
 	match mission_type:
 		"air", "squadron":
 			_spawn_air_squadron(zone_id, zone)
-		"elite":
-			_spawn_elite_target(zone_id, zone)
 		"naval":
 			_spawn_naval_fleet(zone_id, zone)
+		"airfield":
+			_spawn_airfield_ground(zone_id, zone)
 		_:
 			_spawn_ground_garrison(zone_id, zone)
 	# 所有战区：按难度刷驻守敌机（守卫者，非 TGT，攻克后撤离）
@@ -224,6 +232,47 @@ func _spawn_ground_garrison(zone_id: StringName, zone: Dictionary) -> void:
 	EventLogger.log_event("ZONE", "PreSpawnGround",
 		"id=%s lvl=%d diff=%d units=%d center=%s"
 		% [zone_id, lvl, difficulty, units.size(), center])
+
+## 机场难度定档（spec airfield-liberation-zones §2.3）：读 ROE 热度 → 1/2/3★。
+## heat<34→1★，<67→2★，≥67→3★。_roe 未就绪则回退 1★。
+func _airfield_difficulty_from_heat() -> int:
+	var heat: float = 0.0
+	if _spawner and _spawner._roe:
+		heat = _spawner._roe.heat
+	if heat < 34.0:
+		return 1
+	if heat < 67.0:
+		return 2
+	return 3
+
+## 机场地面防空（spec airfield-liberation-zones §2.2）：固定 1 SAM + 2 AA（敌方 TGT），
+## 复刻原 ALLY 驻军编成。HP 不缩放。打光这 3 门＝解放机场。升空迎战由 _spawn_zone_defenders 另刷。
+func _spawn_airfield_ground(zone_id: StringName, zone: Dictionary) -> void:
+	var units: Array = []
+	var placed_positions: Array[Vector2] = []
+	var center: Vector2 = zone["center"]
+	var scatter: float = float(zone["radius"]) * SCATTER_RADIUS_SCALE
+	for i in range(AIRFIELD_SAM_COUNT):
+		var pos := _find_valid_spawn_pos(center, scatter, placed_positions, [])
+		if pos == Vector2.INF:
+			continue
+		var u := _spawn_ground(_sam_scene, _sam_params, pos, zone_id)
+		if u:
+			units.append(u)
+			placed_positions.append(pos)
+	for i in range(AIRFIELD_AA_COUNT):
+		var pos := _find_valid_spawn_pos(center, scatter, placed_positions, [])
+		if pos == Vector2.INF:
+			continue
+		var u := _spawn_ground(_aa_scene, _aa_params, pos, zone_id)
+		if u:
+			units.append(u)
+			placed_positions.append(pos)
+	_spawned_zones[zone_id] = units
+	# TGT 标记在玩家进入战区（mission_triggered）时才打上，预刷阶段不标
+	EventLogger.log_event("ZONE", "PreSpawnAirfield",
+		"id=%s heat_star=%d ground=%d center=%s"
+		% [zone_id, _zones.get_difficulty(zone_id) if _zones else 1, units.size(), center])
 
 ## 空战中队：在战区中心刷一队敌机，绕战区盘旋，不受 Token 限制
 ## 复用 SurvivorSpawner 的 _create_enemy → 然后挂锚定 waypoint + adds 标记
@@ -329,15 +378,15 @@ func _spawn_air_squadron(zone_id: StringName, zone: Dictionary) -> void:
 ## 以"中队"为单位切分预算：每次从等级加权池抽一种机型，按 cost 决定中队规模
 ## （便宜的杂鱼 4 架 / 中价 3 架 / 精英 2 架），够预算就组一队，不够就缩减或停止。
 ##
-## 【硬规则】Sentinel 绝不出现在驻守池里，永远通过 _spawn_commander_squad /
-## _spawn_elite_target 带队登场，不允许以单架驻守机形式出现。
+## 【硬规则】Sentinel 绝不出现在驻守池里，永远通过 _spawn_commander_squad（随机刷新）/
+## _spawn_sentinel_garrison（战区驻守障碍）带队登场，不允许以单架驻守机形式出现。
 ##
 ## 【原则】Token 不必占满，优先让玩家能应对当前等级（超纲敌人由等级钟形权重过滤）。
 
 ## 按 cost 决定"中队"规模（包括长机）
 static func _squad_size_for_cost(cost: int) -> int:
 	if cost <= 2:
-		return 4  ## UAV/UCAV：4 架杂鱼群
+		return 4  ## MQ-109/MQ-110/F-4E：4 架杂鱼群
 	if cost <= 3:
 		return 3  ## F-86/A-7：3 架轻量编队
 	if cost <= 4:
@@ -351,12 +400,18 @@ func _spawn_zone_defenders(zone_id: StringName, zone: Dictionary, mission_type: 
 		return
 	var difficulty: int = _zones.get_difficulty(zone_id)
 	var lvl: int = _player_level()
-	## 驻守虚拟等级：★★/★★★ 提升护卫池子等级，避免低级玩家满屏 UAV/UCAV
+	## 驻守虚拟等级：★★/★★★ 提升护卫池子等级，避免低级玩家满屏 MQ-109/MQ-110/F-4E
 	var g_vlvl: int = SurvivorData.zone_virtual_level(difficulty, lvl, "garrison")
 	var budget: int = SurvivorData.zone_defender_budget(difficulty, lvl)  ## 预算仍按真实等级（让强敌自然减量）
 	var exclude_sentinel: bool = true  ## 驻守池硬规则：Sentinel 永不单刷
-	## elite 任务本身已出 Sentinel，驻守预算减半（避免护卫 + 驻守双倍叠加）
-	if mission_type == "elite":
+
+	## Sentinel 战区驻守障碍（spec early-game-uav-rework §2.4B）：elite 任务移除后，
+	## Sentinel 偶尔以"驻守障碍"形式带 MQ-109 小队出现——非 TGT，可绕可打。
+	## 唯一性：场上已有 Sentinel（含随机刷新的）就不出；出现时驻守预算减半防双倍叠加。
+	if mission_type != "naval" and mission_type != "airfield" \
+			and randf() < SENTINEL_GARRISON_CHANCE \
+			and _count_type_in_scene(int(SurvivorSpawner.EnemyType.UAV_COMMANDER)) == 0:
+		_spawn_sentinel_garrison(zone_id, zone)
 		budget = int(budget * 0.5)
 
 	var center: Vector2 = zone["center"]
@@ -459,20 +514,23 @@ func _player_level() -> int:
 		return int(_spawner.survivor_player.level)
 	return 1
 
-## 精英任务：Sentinel 作为首领怪 TGT（3 星独占）
-## Sentinel 永远带 5-8 架 UAV/UCAV 僚机一起出现，绝不单独部署
+## Sentinel 战区驻守障碍（spec early-game-uav-rework §2.4B，取代已移除的 elite 任务）：
+## Sentinel + 6-10 架 MQ-109 作为驻守小队绕区盘旋——**非 TGT**，完成判定不看它，
+## 玩家可以全程无视绕开。攻克战区后随驻守撤离。
+## Sentinel 永远带小队出现，绝不单独部署
 ## （Aura 会持续招募路过的 is_unmanned 飞机；但初始必须有固定护卫，防止单架裸奔）
-const ELITE_SENTINEL_ESCORT_MIN := 6   ## 战区首领怪最少护卫数（UAV/UCAV）（2026-07-06 密度调优 5→6）
-const ELITE_SENTINEL_ESCORT_MAX := 10  ## 战区首领怪最多护卫数（8→10）
-func _spawn_elite_target(zone_id: StringName, zone: Dictionary) -> void:
+const SENTINEL_GARRISON_CHANCE := 0.25       ## 每个战区首刷时 roll 一次（待 playtest 校准）
+const SENTINEL_GARRISON_ESCORT_MIN := 6      ## 最少护卫数（MQ-109）（沿用 2026-07-06 密度调优值）
+const SENTINEL_GARRISON_ESCORT_MAX := 10     ## 最多护卫数
+func _spawn_sentinel_garrison(zone_id: StringName, zone: Dictionary) -> void:
 	if not _spawner:
 		return
 	var center: Vector2 = zone["center"]
-	var units: Array = []
+	var garrison: Array = _garrison_zones.get(zone_id, [])
 	var ac: Aircraft = _spawner._create_enemy(SurvivorSpawner.EnemyType.UAV_COMMANDER, center, 0.0)
 	if not ac:
 		return
-	ac.set_meta("zone_mission", zone_id)
+	ac.set_meta("zone_garrison", zone_id)
 	ac.set_meta("category", "zone_air")
 	ac.set_meta("skip_far_cleanup", true)
 	# 挂载光环 + 视觉覆盖（仿照 survivor_spawner._spawn_commander_squad）
@@ -487,24 +545,21 @@ func _spawn_elite_target(zone_id: StringName, zone: Dictionary) -> void:
 	SquadFactory.register_leader(sq, ac)
 	var leader_ai := _get_ai_of(ac)
 	if leader_ai:
+		## 长机绕驻守环盘旋（与普通驻守机同一半径规则）
+		var garrison_r: float = maxf(GARRISON_ORBIT_RADIUS, float(zone["radius"]) * GARRISON_ORBIT_RADIUS_FRAC)
 		var wp := PackedVector2Array()
 		var n_wp := 4
 		for k in range(n_wp):
 			var wa := float(k) / float(n_wp) * TAU
-			wp.append(center + Vector2(cos(wa), sin(wa)) * AIR_SQUADRON_ORBIT_RADIUS)
+			wp.append(center + Vector2(cos(wa), sin(wa)) * garrison_r)
 		leader_ai.waypoints = wp
 		leader_ai.current_waypoint_index = 0
-	units.append(ac)
-	_spawned_zones[zone_id] = units  ## 只有 Sentinel 是任务目标（TGT）；护卫走驻守池
+	garrison.append(ac)
 
-	# Sentinel 自带 UAV 小队（光环 buff 的作用对象，硬性 ≥ 5 架，纯 UAV）
-	# 设计约束：Sentinel 作为 UAV 群的指挥机，出场必带自己的小队 —— 跟它随机
-	#   刷怪路径 `SurvivorSpawner._spawn_commander_squad` 保持完全一致（纯 UAV）。
+	# Sentinel 自带 MQ-109 小队（光环 buff 的作用对象，硬性 ≥ 5 架，纯 MQ-109）
+	# 设计约束：与随机刷怪路径 `SurvivorSpawner._spawn_commander_squad` 保持一致。
 	#   战区的通用混编护卫由 `_spawn_zone_defenders` 另外独立刷出，与此无关。
-	var garrison: Array = _garrison_zones.get(zone_id, [])
-	var escort_count := randi_range(ELITE_SENTINEL_ESCORT_MIN, ELITE_SENTINEL_ESCORT_MAX)
-	var lvl_e: int = _player_level()
-	var diff_e: int = _zones.get_difficulty(zone_id) if _zones else 3
+	var escort_count := randi_range(SENTINEL_GARRISON_ESCORT_MIN, SENTINEL_GARRISON_ESCORT_MAX)
 	for i in range(escort_count):
 		var rand_angle := randf() * TAU
 		var rand_dist := randf_range(220.0, 420.0)
@@ -512,7 +567,7 @@ func _spawn_elite_target(zone_id: StringName, zone: Dictionary) -> void:
 		var wingman: Aircraft = _spawner._create_enemy(SurvivorSpawner.EnemyType.UAV, spawn_pos, rad_to_deg(rand_angle))
 		if not wingman:
 			continue
-		wingman.set_meta("zone_mission", zone_id)
+		wingman.set_meta("zone_garrison", zone_id)
 		wingman.set_meta("category", "zone_air")
 		wingman.set_meta("skip_far_cleanup", true)
 		sq.add_member(wingman)
@@ -528,9 +583,10 @@ func _spawn_elite_target(zone_id: StringName, zone: Dictionary) -> void:
 			wai.waypoints = PackedVector2Array()
 		garrison.append(wingman)
 	_garrison_zones[zone_id] = garrison
-	EventLogger.log_event("ZONE", "PreSpawnElite",
-		"id=%s center=%s sentinel_uav_squad=%d lvl=%d diff=%d (garrison spawned separately)"
-		% [zone_id, center, escort_count, lvl_e, diff_e])
+	EventLogger.log_event("ZONE", "SentinelGarrison",
+		"id=%s center=%s escorts=%d lvl=%d diff=%d (obstacle, not TGT)"
+		% [zone_id, center, escort_count, _player_level(),
+		_zones.get_difficulty(zone_id) if _zones else 1])
 
 ## 海上舰队 —— 按难度缩放编队组成
 ##   1★ = 3 FFG 直线巡逻（第一艘 FFG = 旗舰）
@@ -701,6 +757,27 @@ func is_player_in_active_mission() -> bool:
 		if not _completed_zones.has(zid):
 			return true
 	return false
+
+## 战场引力（spec battlefield-gravity §2.4）：距 from_pos 最近的 triggered 未完成战区。
+## 多战区并发时的单槽选择规则=最近；返回 {"center": Vector2, "units": Array}，无 → 空字典。
+## units = 该战区任务目标（TGT）+ 驻守敌机（皆为"战区里的目标"，同吃任务层 +40）。
+func get_nearest_triggered_objective(from_pos: Vector2) -> Dictionary:
+	var best := {}
+	var best_d := INF
+	for z_any in ZoneData.ZONES:
+		var z: Dictionary = z_any
+		var zid: StringName = z["id"]
+		if not _triggered_zones.has(zid) or _completed_zones.has(zid):
+			continue
+		var c: Vector2 = z["center"]
+		var d := from_pos.distance_to(c)
+		if d < best_d:
+			best_d = d
+			var units: Array = []
+			units.append_array(_spawned_zones.get(zid, []))
+			units.append_array(_garrison_zones.get(zid, []))
+			best = {"center": c, "units": units}
+	return best
 
 ## 8 分钟战区阶段结束时调用（由 survivor_mode._check_warzone_phase_timeout）：
 ## 取消所有战区任务 —— 已刷的 TGT 单位继续存活、可击杀给 XP，但不再发完成信号、

@@ -3,7 +3,7 @@ id: squad-control-switching
 kind: system
 status: in-progress   # 代码全落地（数字键切换/换帅/休眠AI/击落接管），仅差 §5 playtest 验收 → done
 schema_version: 1
-spec_version: 3
+spec_version: 4
 owner: noelu
 depends_on: [survivor-loop, squad-upgrade-ownership]
 reconstruction_complete: false
@@ -63,11 +63,14 @@ AGL 正在 RTS 化。本功能让"小队"成为可操控单位池：玩家随时
 
 | 项 | 值 | 说明 |
 |---|---|---|
-| 切换操控 | `KEY_1` / `KEY_2` / `KEY_3` / `KEY_4` | 键 N → 选中 squad_slot==N 的存活友机；无对应/已死/即当前机 → no-op |
-| **武器偏好切换（迁移）** | `KEY_Q`（原 KEY_1/KEY_2，**腾给切换**） | 现状 KEY_1/KEY_2 切武器偏好 → 改绑 KEY_Q（导弹↔机炮 toggle）。同步改键位帮助文本 |
+| 切换操控 | `KEY_1` .. `KEY_9` | 键 N → 选中 squad_slot==N 的存活友机；无对应/已死/即当前机 → no-op。上限 9 = 编队上限（zone-reward-docking §2.5，奖励僚机可堆满） |
+| 高度偏好切换 | `KEY_Q`（原 KEY_3/4 → KEY_Z → Q） | 爬升↔低空 toggle；HUD 标签 + 悬浮提示同步 |
+| 武器偏好切换 | `KEY_T`（原 KEY_1/2 → KEY_Q → T，Q 腾给高度） | 导弹↔机炮 toggle；HUD 标签 + 悬浮提示同步 |
+| 小队交战模式 | `KEY_C`（原 KEY_6，被 1..9 切控拦截成死键后迁移） | 三态循环：自由交战 → 跟随长机 → 守护后方 |
+| 小队武器偏好 | `KEY_V`（原 KEY_7，同上） | 小队导弹↔机炮 toggle |
 | `TAKEOVER_TRANSITION_GRACE` | 6.0 s（**兜底上限**，非固定延迟） | 降级过渡**事件驱动**为主："打完再归队"——原长机保持当前 combat_target/target_position 直到**目标消失或到达**才融入编队；此常量只是防呆兜底（万一目标长期不消失，最多 6s 后归队），正常情况由事件触发，不是定时 |
 | 相机切换 | 即时（snap） | 接管后相机位置直接置到新机，不做 follow 渐入插值 |
-| 可选切换键上限 | 4 | squad > 4 时第 5+ 架无数字键直选（生存模式玩家队规模小，暂不扩展；如需再加键） |
+| 可选切换键上限 | 9 | 编队上限 9（zone-reward-docking §2.5）；1-9 全留给切控，战术/小队命令键一律走字母键 |
 
 ### 2.4 AI 模型字段（"全机常挂 AI，操控机休眠"）
 
@@ -80,7 +83,7 @@ AGL 正在 RTS 化。本功能让"小队"成为可操控单位池：玩家随时
 
 ### 3.1 数字键切换触发
 
-`_unhandled_input` 监听 KEY_1..KEY_4：
+`_unhandled_input` 监听 KEY_1..KEY_9：
 ```
 按下键 N：
   target = squad.members 中 squad_slot == N 且存活的那架
@@ -88,7 +91,7 @@ AGL 正在 RTS 化。本功能让"小队"成为可操控单位池：玩家随时
   否则 → switch_player_to(target)   (§3.2)
 ```
 - 鼠标左键语义**不变**：点敌机=当前操控机攻击、点空地=当前操控机移动指令。右键清目标不变。
-- 武器偏好键从 KEY_1/KEY_2 迁到 KEY_Q（§2.3）。
+- 武器/高度/小队命令键位见 §2.3 键位表（数字键已全部让位给切控，战术键走字母键）。
 
 ### 3.2 接管流程（switch_player_to(new_ac)）
 
@@ -178,13 +181,13 @@ func set_leader(new_leader):
 
 ## 5. 验收标准（Acceptance / Litmus）
 
-- [ ] **数字键即时切换**：按 1-4 → 相机即时切到对应号机、该机变白底、原机变蓝底。键对应同一架物理飞机（接管后再按同键回切到原机）。
+- [ ] **数字键即时切换**：按 1-9 → 相机即时切到对应号机、该机变白底、原机变蓝底。键对应同一架物理飞机（接管后再按同键回切到原机）。
 - [ ] **号机号稳定**：接管使某机成长机后，它的 squad_slot（号机号）不变；数字键映射不漂移。
 - [ ] **行为延续**：切到一架正在追打某敌机的僚机，接管后它继续朝该敌机机动（combat_target/target_position 未清）。
 - [ ] **打完再归队**：原长机变僚机后不瞬间甩头归队，**先打完当前目标 / 飞完当前航路**（事件驱动）再融入编队；目标消失即归队，不是死等定时。肉眼可见过渡。
 - [ ] **★最小扰动**：1、4 号机在 FREE 各自交战时，玩家在 2、3 号机间反复/长时间切换，**1、4 号机的战斗轨迹与目标完全不受影响**（不归位、不甩头、不换目标）。只有处于归位跟随的僚机才把跟随对象切到新长机。
 - [ ] **底色三态**：全场至多一架白底；友方其余蓝底；敌机始终红底（敌我识别不丢）。
-- [ ] **武器偏好迁移**：KEY_Q 切导弹/机炮正常；KEY_1/2 不再切武器（已让位给操控切换）；键位帮助/HUD 文本同步。
+- [ ] **战术键位真相化**：T 切导弹/机炮、Q 切爬升/低空、C/V 切小队交战/小队武器均正常；数字键 1-9 只切控不再碰战术；HUD 标签与悬浮提示显示的键与实际一致。
 - [ ] **休眠反射**：亲控时来袭导弹仍自动闪避、武器仍自动开火；仅主动战术导航交玩家。
 - [ ] **击落接管**：操控机被击落 → 自动接管下一存活号机、相机 snap；全队覆灭才 Game Over。
 - [ ] **边界**：按当前机的键=no-op；按对应已死/不存在号机的键=忽略；单机无僚机时无异常。
@@ -224,7 +227,7 @@ func set_leader(new_leader):
 
 | 关注点 | 文件 |
 |---|---|
-| 键切换入口 / 操控 chokepoint（内联）/ 击落接管 | `scripts/survivor/survivor_mode.gd`（`_unhandled_input` KEY_1..4 → `_switch_control_to_slot`；player_aircraft/player_ref 原子重定向） |
+| 键切换入口 / 操控 chokepoint（内联）/ 击落接管 | `scripts/survivor/survivor_mode.gd`（`_unhandled_input` KEY_1..9 → `_switch_control_to_slot`；战术键 Q/T/C/V 同函数；player_aircraft/player_ref 原子重定向） |
 | squad_slot 号机号字段 | `scripts/aircraft.gd`（`squad_slot`）；spawn 赋值在 `survivor_mode.gd`（长机=1、僚机 `ac.squad_slot = i+1`） |
 | 换帅 API | `scripts/squad.gd`（`func set_leader`） |
 | manual_control / 降级 grace | `scripts/ai_controller.gd`（`manual_control` 字段 + 休眠分支 + `_takeover_transition_timer`） |
@@ -240,3 +243,4 @@ func set_leader(new_leader):
 | 2026-05-30 | 2 | 切换机制定为**数字键 1-4**（非点选）；引入稳定 `squad_slot` 号机号与编队 squad_index 解耦（键永远对应同一物理机）；武器偏好键 KEY_1/2 迁移到 KEY_Q 腾位。 |
 | 2026-05-30 | 3 | 降级过渡改为**"打完再归队"事件驱动**（目标消失/到达即归队，grace 6s 仅兜底）；新增 §3.5 **换帅最小扰动原则**——set_leader 只换引用不强制归位，FREE 各自为战的僚机切换时完全不受影响（用户场景：在 2/3 间切换不扰动 1/4）。待用户 review → approved。 |
 | 2026-06-07 | 3 | **文档对齐代码**（status draft→in-progress）：核对确认 §6 阶段 1-4 **早前会话已全部派生**（commit 04a7a44）——`Aircraft.squad_slot`、`Squad.set_leader`、`AIController.manual_control` + `_takeover_transition_timer`、KEY_1..4 切换 + `_switch_control_to_slot`、KEY_Q 武器偏好迁移、白底 + 击落接管。实现命名与 spec 略有出入（chokepoint 内联在 `_switch_control_to_slot` 而非独立 `set_player_aircraft`/`switch_player_to`，功能等价）。回填 §6 勾 + §7 真实文件锚点。**唯一未尽**：§5 验收为 playtest 项（需 Godot 内目测 + Lv5+ 压测），未代跑 → 故 status 暂停在 in-progress，验收通过后转 done。 |
+| 2026-07-27 | 4 | **键位真相化批**（文档对齐代码 + 换绑）：切控键实际早已扩至 **1-9**（zone-reward-docking §2.5 编队上限 9），导致原 KEY_6/7 小队命令分支被切控拦截成**死键**，且 HUD 标签仍显示 1/3/6/7 与实际按键不符。换绑：高度偏好 KEY_Z→**Q**（用户指定）、武器偏好 KEY_Q→**T**、小队交战 KEY_6→**C**、小队武器 KEY_7→**V**；E 加力 / F 自动发射 / R 手动闪避 / WASD 相机不变。i18n 三语标签（TACTIC_*/SQUAD_*）+ 悬浮提示（TOOLTIP_*_HINT）同步。§2.3 键位表重写为唯一真源。 |

@@ -25,7 +25,9 @@ var wind_speed: float = 18.0                  ## m/s
 
 ## ── 云密度场（供战斗系统查询）──
 var cloud_seed: int = 0
-var cloud_frequency: float = 0.00055
+## 0.00028：云团特征尺度 ~7km（2026-07-28 从 0.00055 减半）。
+## 碎云对战术无意义 —— 要的是"大块云系飘过战场"，玩家能围绕它规划航线。
+var cloud_frequency: float = 0.00028
 var cloud_coverage: float = 0.35
 
 ## ── UGC 云 mask（spec map-editor §3.2）──

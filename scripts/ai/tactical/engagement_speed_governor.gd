@@ -73,3 +73,47 @@ static func apply(s: Situation, p: TacticalPlan) -> bool:
 ## 本问题最严重的实例。是否推广到 Lancer 系（MiG-31 / F-104 同样高速）留待 playtest。
 static func is_governed(ac: Node) -> bool:
 	return AceTier.is_ace(ac)
+
+
+# ══════════════════════════════════════════════
+#  减速迟滞（执行精度失误，spec bosses/wraith-squadron §2.4）
+# ══════════════════════════════════════════════
+
+## 每次【新进入】治理区（上一帧没被压、这一帧要被压）时掷一次骰：
+## DECEL_LAG_CHANCE 概率延迟 DECEL_LAG_MIN~MAX 秒才开始减速 —— 结果就是冲过头，
+## 给玩家一个可利用的反咬窗口。
+##
+## ⚠ 这是**执行层的物理偏差，不是决策层放水**。他们的判断永远正确（该减速就是该减速），
+##   只是手慢了半拍。禁止把随机放进战术决策（"这次不包夹了"）—— 那会让 BOSS 显得愚蠢
+##   而不是显得像人。
+const DECEL_LAG_CHANCE := 0.25
+const DECEL_LAG_MIN := 0.6
+const DECEL_LAG_MAX := 1.2
+
+## 带迟滞的治理接线。返回是否实际压制了速度。
+## 状态（计时器 / 上一帧是否受压）存在 Aircraft 上 —— 本模块保持无状态纯函数。
+static func apply_with_lag(ac: Aircraft, s: Situation, p: TacticalPlan, delta: float) -> bool:
+	var wants_cap: bool = s.has_target and s.dist_m <= MAX_GOVERN_DIST_M \
+			and p.target_speed_kmh > speed_cap_kmh(s.dist_m, s.max_g, s.corner_speed_kmh)
+
+	if not wants_cap:
+		# 离开治理区：解除锁存，下次进入重新掷骰
+		ac._ace_decel_lag_latched = false
+		ac._ace_decel_lag_timer = 0.0
+		return false
+
+	# 新进入治理区 → 掷一次骰（本次进入内只掷一次，靠 latched 锁住）
+	if not ac._ace_decel_lag_latched:
+		ac._ace_decel_lag_latched = true
+		if randf() < DECEL_LAG_CHANCE:
+			ac._ace_decel_lag_timer = randf_range(DECEL_LAG_MIN, DECEL_LAG_MAX)
+			EventLogger.log_event("ACE", ac._log_name(),
+				"减速迟滞 %.2fs（执行失误 → 会冲过头）" % ac._ace_decel_lag_timer)
+		else:
+			ac._ace_decel_lag_timer = 0.0
+
+	if ac._ace_decel_lag_timer > 0.0:
+		ac._ace_decel_lag_timer -= delta
+		return false   # 迟滞期间不压速 —— 保持高速冲进去
+
+	return apply(s, p)

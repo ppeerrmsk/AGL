@@ -6,7 +6,7 @@
 
 [resource]
 script = ExtResource("1")
-display_name = "UCAV"
+display_name = "MQ-110"
 is_unmanned = true
 max_hp = 35.0
 armor = 0.0
@@ -30,7 +30,7 @@ afterburner_thrust_mult = 2.5
 fuel_capacity = 600.0
 fuel_rate_normal = 0.6
 fuel_rate_afterburner = 0.6
-radar_range = 4000.0
+radar_range = 3600.0
 radar_half_angle = 35.0
 lock_time = 1.0
 missile = ExtResource("2")

@@ -18,6 +18,7 @@ func run() -> void:
 	_test_milestone_override_merge()
 	_test_axis_point_counting()
 	_test_milestone_apply_and_replay()
+	_test_milestone_squad_wide()
 	_test_card_axis_mapping()
 	_test_weapon_inventory()
 	_test_evolution_gates()
@@ -27,8 +28,9 @@ func run() -> void:
 
 # ── A. 收入公式 ──
 func _test_earnable_formula() -> void:
-	print("── A. 收入公式 points = floor(LV/3) ──")
-	var cases: Array = [[1, 0], [3, 1], [4, 1], [9, 3], [10, 3], [22, 7], [25, 8], [26, 8]]
+	print("── A. 收入公式 points = min(floor(LV/3), 8)（v9 封顶，spec §2.2）──")
+	var cases: Array = [[1, 0], [3, 1], [4, 1], [9, 3], [10, 3], [22, 7], [24, 8], [25, 8],
+		[26, 8], [27, 8], [30, 8], [60, 8]]
 	for c in cases:
 		var got: int = SurvivorData.axis_points_earnable(int(c[0]))
 		_check("LV%d → %d 点" % [c[0], c[1]], got == int(c[1]), "got %d" % got)
@@ -109,25 +111,30 @@ func _test_milestone_apply_and_replay() -> void:
 	_check("斗士 2 点 → max_hp 100→125", is_equal_approx(ac.params.max_hp, 125.0),
 		"got %.1f" % ac.params.max_hp)
 	_check("当前 hp 同步 +25", is_equal_approx(ac.hp, 125.0), "got %.1f" % ac.hp)
-	# 幂等：第 3 点未跨档，不重复应用
-	sp.add_axis_point(SurvivorData.AXIS_GLADIATOR)
-	_check("第 3 点未跨档不重复（hp 仍 125）", is_equal_approx(ac.params.max_hp, 125.0),
-		"got %.1f" % ac.params.max_hp)
 	# 骑士 2 点 → 导弹 +1；4 点 → 雷达 ×1.10
 	sp.add_axis_point(SurvivorData.AXIS_KNIGHT)
 	sp.add_axis_point(SurvivorData.AXIS_KNIGHT)
 	_check("骑士 2 点 → 导弹 4→5", ac.params.missile.max_count == 5,
 		"got %d" % ac.params.missile.max_count)
 	_check("在场弹数同步 +1", ac.missiles_remaining == 5, "got %d" % ac.missiles_remaining)
+	# 幂等：骑士第 3 点未跨档，不重复应用
 	sp.add_axis_point(SurvivorData.AXIS_KNIGHT)
+	_check("第 3 点未跨档不重复（雷达仍 3000）", is_equal_approx(ac.params.radar_range, 3000.0),
+		"got %.0f" % ac.params.radar_range)
 	sp.add_axis_point(SurvivorData.AXIS_KNIGHT)
 	_check("骑士 4 点 → 雷达 3000→3300", is_equal_approx(ac.params.radar_range, 3300.0),
 		"got %.0f" % ac.params.radar_range)
-	# 策士 2 点 → flare +2
+	# 策士 2 点 → flare +2（合计到 8 = 触顶）
 	sp.add_axis_point(SurvivorData.AXIS_SCHEMER)
 	sp.add_axis_point(SurvivorData.AXIS_SCHEMER)
 	_check("策士 2 点 → 热诱弹 10→12", ac.params.flare.max_flares == 12,
 		"got %d" % ac.params.flare.max_flares)
+	# 收入封顶（spec §2.2 v9）：合计 8 后第 9 点被闸
+	sp.add_axis_point(SurvivorData.AXIS_GLADIATOR)
+	_check("封顶：第 9 点跳过（斗士仍 2）",
+		sp.get_axis_points(SurvivorData.AXIS_GLADIATOR) == 2,
+		"got %d" % sp.get_axis_points(SurvivorData.AXIS_GLADIATOR))
+	_check("封顶：合计恒 = 8", sp.total_axis_points() == 8, "got %d" % sp.total_axis_points())
 
 	# 换型重放：模拟 evolve() 换全新 params（新基线），重放后加成全部重挂
 	var fresh := _make_fresh_params(130.0, 2, 6, 3500.0)
@@ -163,6 +170,56 @@ func _test_milestone_apply_and_replay() -> void:
 	ac2.free()
 	sp.free()
 	sp2.free()
+
+
+# ── E2. 里程碑全队下发（2026-07-28：三轴加成跟玩家不跟机体，僚机同吃）──
+func _test_milestone_squad_wide() -> void:
+	print("── E2. 里程碑全队下发：僚机同吃 / 逐机记账 / 晚入队补挂 / 换帅不丢 ──")
+	var sp := SurvivorPlayer.new()
+	var lead := _make_test_aircraft()
+	var wing := _make_test_aircraft()
+	sp.aircraft = lead
+	var roster: Array = [lead, wing]
+	sp.milestone_targets_provider = func(): return roster
+
+	# 跨档 → 长机与僚机同时吃到
+	sp.add_axis_point(SurvivorData.AXIS_GLADIATOR)
+	sp.add_axis_point(SurvivorData.AXIS_GLADIATOR)
+	_check("长机 max_hp 100→125", is_equal_approx(lead.params.max_hp, 125.0),
+		"got %.1f" % lead.params.max_hp)
+	_check("僚机 max_hp 100→125（同吃）", is_equal_approx(wing.params.max_hp, 125.0),
+		"got %.1f" % wing.params.max_hp)
+	_check("僚机当前 hp 同步 +25", is_equal_approx(wing.hp, 125.0), "got %.1f" % wing.hp)
+
+	# 逐机幂等：再跨同一档不重复叠
+	sp.apply_crossed_milestones(SurvivorData.AXIS_GLADIATOR)
+	_check("重复下发不叠加（僚机仍 125）", is_equal_approx(wing.params.max_hp, 125.0),
+		"got %.1f" % wing.params.max_hp)
+
+	# 晚入队：新僚机按当前进度全量补挂
+	var late := _make_test_aircraft()
+	sp.apply_all_milestones_to(late)
+	_check("晚入队僚机补挂 100→125", is_equal_approx(late.params.max_hp, 125.0),
+		"got %.1f" % late.params.max_hp)
+	sp.apply_all_milestones_to(late)
+	_check("补挂幂等（仍 125）", is_equal_approx(late.params.max_hp, 125.0),
+		"got %.1f" % late.params.max_hp)
+
+	# 换帅：操控权移到僚机后，记账视图跟着走，且不会因"账已记满"漏挂新档
+	sp.aircraft = wing
+	var wing_done: Array = sp.applied_milestones.get(SurvivorData.AXIS_GLADIATOR, [])
+	_check("换帅后记账视图 = 新操控机那本（含 2 档）", wing_done.has(2), str(wing_done))
+	sp.add_axis_point(SurvivorData.AXIS_KNIGHT)
+	sp.add_axis_point(SurvivorData.AXIS_KNIGHT)
+	_check("换帅后新跨档仍下发（僚机导弹 4→5）", wing.params.missile.max_count == 5,
+		"got %d" % wing.params.missile.max_count)
+	_check("换帅后新跨档也给旧长机（导弹 4→5）", lead.params.missile.max_count == 5,
+		"got %d" % lead.params.missile.max_count)
+
+	lead.free()
+	wing.free()
+	late.free()
+	sp.free()
 
 
 # ── F. 卡片轴映射与轴内抽卡（阶段 3）──
@@ -312,10 +369,17 @@ func _test_weapon_inventory() -> void:
 	var sm := MissileParams.new()
 	sm.max_count = 6
 	ac.params.secondary_missile = sm
+	# 火箭（无 inrun_reward meta —— 模拟"机上就有的火箭"；2026-07-23 起一律入库跟人走，
+	# 修 log 20260724_222103：Su-34→J-20 换型把火箭摘掉的 bug）
+	var rk := RocketParams.new()
+	rk.max_ammo = 24
+	ac.params.rocket = rk
 
 	sp.record_special_weapons()
 	_check("电磁炮入库", sp.weapon_inventory.has(&"railgun"), str(sp.weapon_inventory.keys()))
 	_check("QMAAM 入库", sp.weapon_inventory.has(&"secondary_missile"), "")
+	_check("火箭入库（无 meta 门，一律跟人走）", sp.weapon_inventory.has(&"rocket"),
+		str(sp.weapon_inventory.keys()))
 	_check("底线武器不入库（无 gun/missile/flare key）",
 		not sp.weapon_inventory.has(&"gun") and not sp.weapon_inventory.has(&"missile")
 		and not sp.weapon_inventory.has(&"flare"), str(sp.weapon_inventory.keys()))
@@ -329,6 +393,8 @@ func _test_weapon_inventory() -> void:
 		str(mounted_rg.display_name) if mounted_rg else "null")
 	_check("新机补挂 QMAAM 且弹量=6", ac.params.secondary_missile != null
 		and ac.secondary_missiles_remaining == 6, "got %d" % ac.secondary_missiles_remaining)
+	_check("新机补挂火箭且弹量=24（进化不再摘火箭）", ac.params.rocket != null
+		and ac.rockets_remaining == 24, "got %d" % ac.rockets_remaining)
 
 	# 新机自带同类 → 不重复挂
 	var innate := EquipmentParams.new()

@@ -1,12 +1,16 @@
 ## F-14 Poltergeist 中队 —— CarrierStrikeGroup BOSS 第二阶段子 encounter
 ##
 ## 继承 AceSquad 基类复用：
-##   - 角色分配（CLOSE_FIGHTER + RANGED_STRIKER 二分 pincer）
-##   - anchor_position 盘旋模式（让 4 架紧贴航母，玩家远离即回守）
+##   - 角色分配（KNIGHT 机炮 + SNIPER 导弹二分 pincer）
+##   - PURSUIT 战斗常态（各机跑自己的激进 BFM）+ EngagementSpeedGovernor 速度几何治理
+##   （⚠ 曾有 anchor_position 归巢盘旋模式，2026-07-22 按 boss-hunter-doctrine 删除；PURSUIT
+##     是唯一战斗常态，玩家跑到天涯海角也追）
 ##
 ## 与 F-47 (WRAITH) 的差异：
 ##   - 无隐形、无 J-Turn、无协同齐射 —— 标准 BFM
 ##   - 攻击欲极强、自保极低（誓死保护航母）
+##   - 队级战术走**自己的**一套：死锁单机换手（PoltergeistTactics），区别于 Wraith 全队 RESET
+##     （spec docs/specs/bosses/poltergeist-squadron.md）
 ##   - CV 沉没时沿 CV heading 依次弹射起飞（staggered catapult launch），
 ##     每架走 FROZEN → FADING → CATAPULT → FLYING 四阶段，避免剧透 + 营造起飞仪式感
 class_name PoltergeistSquad
@@ -35,6 +39,9 @@ const COMBAT_READY_ALT: float = 1500.0    ## 达到此高度即提前结束保�
 var _launch_phases: Array[int] = []       ## 与 all_members 对齐的阶段数组
 var _launch_timers: Array[float] = []     ## 每架当前阶段已过时长
 var _catapult_queue_timer: float = 0.0    ## 距下一架解冻的倒计时累计
+
+## 队级战术层（死锁单机换手，见 poltergeist_tactics.gd）。由 AceSquad 的 _tactics_* 钩子驱动
+var tactics: PoltergeistTactics = null
 
 func _init() -> void:
 	squad_size = 4
@@ -272,6 +279,25 @@ func get_display_members() -> Array:
 			continue
 		out.append(all_members[i])
 	return out
+
+# ══════════════════════════════════════════════
+#  队级战术层（AceSquad 钩子实现 → 转发 PoltergeistTactics）
+#  与 F47AceSquad 转发 WraithTactics 同构；机制本身是 Poltergeist 专属（死锁单机换手）
+# ══════════════════════════════════════════════
+
+func _tactics_enter() -> void:
+	if tactics == null:
+		tactics = PoltergeistTactics.new()
+		tactics.setup(self)
+	tactics.start()
+
+func _tactics_update(delta: float) -> void:
+	if tactics != null:
+		tactics.update(delta)
+
+func _tactics_exit() -> void:
+	if tactics != null:
+		tactics.stop()
 
 ## 每架 F-14 Poltergeist 挂载赫尔贝特轮（J-Turn 反咬）+ 队长设 salvo_leader
 ## J-Turn 由 F-47 转移过来：F-47 现在专注 Cloak 隐身特性，F-14 走机动反杀路线

@@ -153,3 +153,5 @@ func _physics_process(delta: float) -> void:
 				visual_offset = 0.0
 				cooldown_remaining = COOLDOWN
 				counterattack_timer = COUNTERATTACK_WINDOW  # 反击窗口激活
+				# 722 签名技能：特殊机动完成事件（急停机动 Su-27 / 落叶飘 Su-35）
+				SkillHooks.on_special_maneuver_done(_aircraft)

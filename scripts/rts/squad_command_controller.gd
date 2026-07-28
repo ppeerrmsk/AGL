@@ -85,7 +85,7 @@ func command_attack(enemy: CombatUnit) -> void:
 			ac.command_sprint = false                   # 单点新命令解除本机冲刺
 			_spread_owned.erase(ac.get_instance_id())   # 单点点名 → 该机退出分火管理（铁律保护）
 	_auto_engage_target = null
-	_ack("ack_pursue", [_target_label(enemy)])
+	_ack(_strike_or_pursue(enemy), [_target_label(enemy)])
 
 ## 玩家下巡航航点：放弃攻击命令，全队飞向世界坐标点。
 func command_move(world_pos: Vector2) -> void:
@@ -219,19 +219,23 @@ func command_guard(point: Vector2) -> void:
 func command_attack_all(target: CombatUnit, posture: int = Situation.POSTURE_AUTO) -> void:
 	if target == null or not is_instance_valid(target) or target.is_destroyed:
 		return
+	# 722 sig_j36·三发推力：突击姿态命令触发（FOCUS/SPREAD/TIGHT 全分支统一在此）
+	if posture == Situation.POSTURE_ASSAULT:
+		for j36_ac in _squad_members():
+			SkillHooks.try_trigger_j36_assault(j36_ac)
 	_guard_point = Vector2.INF   # 最新输入覆盖 standing order
 	_clear_sprint()
 	_clear_evac_zone()           # 新广播命令终止禁入区
 	_auto_engage_target = null
 	if fire_allocation == FireAllocation.SPREAD:
 		_begin_spread(target, posture)
-		_ack("ack_pursue", [_target_label(target)])   # 分火 = 各自接敌，语义是追击不是包围
+		_ack(_strike_or_pursue(target), [_target_label(target)])   # 分火 = 各自接敌，语义是追击/对地打击
 		return
 	_end_spread()
 	# TIGHT 紧密阵型（formation-discipline）：整队齐射路径；ASSAULT 豁免（缠斗物理上不成阵）
 	if formation_tight and posture != Situation.POSTURE_ASSAULT:
 		_begin_tight_engage(target, posture)
-		_ack("ack_pursue", [_target_label(target)])
+		_ack(_strike_or_pursue(target), [_target_label(target)])
 		return
 	_end_tight()
 	var members: Array = []
@@ -246,9 +250,15 @@ func command_attack_all(target: CombatUnit, posture: int = Situation.POSTURE_AUT
 		ac.surround_bearing_rad = INF
 		members.append(ac)
 	_assign_surround_axes(members, target)
-	# 包围只在 ≥2 机且非紧密阵型时真的发生（见 _assign_surround_axes）；否则语义退回追击
+	# 包围只在 ≥2 机且非紧密阵型时真的发生（见 _assign_surround_axes）；否则语义退回追击。
+	# 地面/水面目标一律走"打击"语义——对地不喊空战的"分散包抄/切断退路"。
 	var surrounding := not formation_tight and members.size() >= 2
-	_ack("ack_surround" if surrounding else "ack_pursue", [_target_label(target)])
+	var attack_trigger: String
+	if not (target is Aircraft):
+		attack_trigger = "ack_strike"
+	else:
+		attack_trigger = "ack_surround" if surrounding else "ack_pursue"
+	_ack(attack_trigger, [_target_label(target)])
 
 ## FOCUS 包围轴分配（spec §3.6）：基准 = 发令瞬间"目标 → 小队质心"方位，第 i 机偏移
 ## SURROUND_OFFSETS_DEG[i]（相邻 ≥45°）。TIGHT 阵型不包围（整队单轴，归 formation-discipline）；
@@ -733,6 +743,11 @@ func _ack(trigger: String, fmt_args: Array = []) -> void:
 	# 所有 ack_* 共享 "ack" 冷却桶 + 概率骰（见 resources/chatter/radio_chatter.json）：
 	# 连点下令不会每次都有人应答，这是刻意的稀疏感。
 	radio.say_unit(trigger, speaker, fmt_args)
+
+## 攻击回令 trigger 分流：空中目标走"追击"（ack_pursue），地面/水面目标走"打击"（ack_strike）。
+## 对地不用空战"咬住/追击/包围"的词。target 非 Aircraft（地面单位/舰船等）即视作对面打击。
+func _strike_or_pursue(target: CombatUnit) -> String:
+	return "ack_pursue" if (target is Aircraft) else "ack_strike"
 
 ## 被指目标的可读名（呼号 → display_name → 泛指"目标"）
 func _target_label(target: CombatUnit) -> String:

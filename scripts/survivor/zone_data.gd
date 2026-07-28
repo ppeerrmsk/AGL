@@ -79,11 +79,69 @@ const ZONES: Array[Dictionary] = [
 		## 是"战区目标互飞对方区域"的根因；敌机雷达 3~4.5km 略够不到）
 		"center": Vector2(800.0, 7000.0),
 		"radius": 2500.0,                        ## 2026-07-06 密度调优 1800→2500
-		## E 专属：mission_type 只 roll "naval" 或 "elite"（见 _roll_mission_type）
+		## E 专属：mission_type 只 roll "naval" 或 "squadron"（见 _roll_mission_type；
+		## elite 任务已移除——spec early-game-uav-rework §2.3，squadron 可在水上刷）
 		"mission_type": "naval",
-		"restricted_mission_types": ["naval", "elite"],
+		"restricted_mission_types": ["naval", "squadron"],
+	},
+	{
+		"id": &"F",
+		"name_key": "ZONE_F_NAME",
+		"label": "F",
+		## 都心北内陆（荒川北岸，A/B 之间的北中空档）—— spec battlefield-tempo-pass §2.2
+		## 几何：离边 1800；F↔A 缘距 ≈2047（压 2000 下限，动 F 前先跑 test_map_expansion）
+		"center": Vector2(-1500.0, -11000.0),
+		"radius": 2200.0,
+		"mission_type": "ground",
+	},
+	{
+		"id": &"G",
+		"name_key": "ZONE_G_NAME",
+		"label": "G",
+		## 千叶中部（东侧中带空档）—— spec battlefield-tempo-pass §2.2
+		## air 型不查陆地占比；离边 1700，与 B/D/E 缘距 4400+
+		"center": Vector2(10800.0, -1800.0),
+		"radius": 2500.0,
+		"mission_type": "air",
+	},
+	## ── 机场解放战区（spec airfield-liberation-zones §2.1）──
+	## 三座固定机场：敌占战区，打光地面防空＝解放 → 圆心开一次性友军补给点。
+	## 开局全部 AVAILABLE；不 roll 奖励/难度/任务类型（难度靠热度首刷定档）。
+	## 圆心与旧 _spawn_airfield_docks 三处机场坐标一致（羽田＝HANEDA_AIRPORT 质心烘焙字面量）。
+	{
+		"id": &"AF_HANEDA",
+		"name_key": "DOCK_HANEDA_NAME",
+		"label": "✈",
+		"center": Vector2(1030.0, -6080.0),      ## HANEDA_AIRPORT 十顶点均值（烘焙）
+		"radius": 2000.0,
+		"mission_type": "airfield",
+		"airfield": true,
+		"dock_name_key": "DOCK_HANEDA_NAME",
+	},
+	{
+		"id": &"AF_KISARAZU",
+		"name_key": "DOCK_KISARAZU_NAME",
+		"label": "✈",
+		"center": Vector2(6844.0, 2381.0),
+		"radius": 2000.0,
+		"mission_type": "airfield",
+		"airfield": true,
+		"dock_name_key": "DOCK_KISARAZU_NAME",
+	},
+	{
+		"id": &"AF_CHOFU",
+		"name_key": "DOCK_CHOFU_NAME",
+		"label": "✈",
+		"center": Vector2(-10434.0, -12864.0),
+		"radius": 2000.0,
+		"mission_type": "airfield",
+		"airfield": true,
+		"dock_name_key": "DOCK_CHOFU_NAME",
 	},
 ]
+
+## 机场战区 id（固定三座；开局全部 AVAILABLE）
+const AIRFIELD_IDS: Array[StringName] = [&"AF_HANEDA", &"AF_KISARAZU", &"AF_CHOFU"]
 
 ## BOSS 战区：不再固定中央位置，根据玩家最后攻克的战区动态选南北
 ##   - 最后攻克 ∈ {A, B}（北部） → BOSS 出现在 **南** (E 位置)，朝北飞来迎战
@@ -145,10 +203,12 @@ var _mission_type_history: Array[String] = []
 
 ## 各难度下各 mission_type 的基础权重（数值是相对值，会按历史衰减后再归一）
 ## 与旧 _roll_mission_type 的概率近似一致，便于回归
+## elite（Sentinel TGT）任务已移除（spec early-game-uav-rework §2.3）：作为战区目标
+## 分量不足；Sentinel 改为普通地图刷新 + 战区驻守障碍（zone_mission._spawn_sentinel_garrison）
 const MISSION_TYPE_BASE_WEIGHTS := {
-	1: {"ground": 45.0, "squadron": 30.0, "elite": 25.0},   ## ★ 提一些 elite，玩家早期能见 Sentinel
-	2: {"ground": 35.0, "squadron": 35.0, "elite": 30.0},   ## ★★ 三类均衡
-	3: {"ground": 40.0, "squadron": 60.0},                    ## ★★★ 无 elite（分量不够）
+	1: {"ground": 45.0, "squadron": 30.0},   ## ★
+	2: {"ground": 35.0, "squadron": 35.0},   ## ★★ 两类均衡
+	3: {"ground": 40.0, "squadron": 60.0},   ## ★★★
 }
 var boss_unlocked: bool = false
 ## 战区阶段是否已结束（survivor_mode 在 10 分钟到点时置 true）
@@ -157,8 +217,15 @@ var phase_ended: bool = false
 ## E 战区是否已经尝试过解锁（避免 A+B 清完反复 roll）
 var _e_unlock_rolled: bool = false
 var _rewards: Dictionary = {}                ## id → reward dict（三类实体奖励，spec zone-reward-docking §2.3）
-## （旧 _used_reward_ids"整局去重"已弃用 → 改 _active_reward_ids 同时活跃战区间去重：
-##   同一奖励之后可在别的战区再出现，只是不同时挂两份，spec zone-reward-docking 奖励 roll 重制）
+## 整局奖励去重（用户 2026-07-24 重定：武器/技能/航母**每种整局只出现一次**，出现过即永久移出池）。
+## 僚机(reward_wingman)**刻意不入此表** = 可重复出现的保底奖励（与"每次停靠必送僚机"呼应）。
+## 记录的是"已出现过的 reward id"（roll 时写入，不因清区/换区而清除）。
+var _used_reward_ids: Dictionary = {}
+## 航母奖励整局保证（用户 2026-07-24）：确保每局一定出现一次航母奖励。
+## pity——前 CARRIER_PITY_ROLLS 次奖励 roll 内航母仍未自然出现 → 下一次 roll 强制发航母。
+var _carrier_reward_assigned: bool = false
+var _reward_roll_count: int = 0
+const CARRIER_PITY_ROLLS: int = 4
 var _difficulties: Dictionary = {}            ## id → int (DIFFICULTY_MIN..DIFFICULTY_MAX)
 var _mission_types: Dictionary = {}            ## id → String（运行时 mission_type，覆盖 ZONES 默认）
 ## 标记哪些战区是"新开放"的（最近一轮 refresh 打开的），便于 UI 再次提示玩家
@@ -171,6 +238,8 @@ func _init() -> void:
 	_states[&"C"] = State.LOCKED
 	_states[&"D"] = State.LOCKED
 	_states[&"E"] = State.LOCKED
+	_states[&"F"] = State.LOCKED
+	_states[&"G"] = State.LOCKED
 	_states[&"BOSS"] = State.LOCKED
 	# 给初始可选的两个战区分配奖励 + 难度
 	## 开局保底：首发两个战区不会直接出 ★★★，避免玩家一上来就被 MiG-29/Su-27 中队压制
@@ -182,6 +251,10 @@ func _init() -> void:
 	_roll_mission_type(&"A")
 	_roll_mission_type(&"B")
 	_newly_opened = [&"A", &"B"]
+	# 机场解放战区（spec airfield-liberation-zones）：开局全部 AVAILABLE，
+	# 不 roll 奖励/难度/任务类型（难度由 ZoneMission 首刷时按当前热度定档）
+	for af in AIRFIELD_IDS:
+		_states[af] = State.AVAILABLE
 
 ## BOSS 阶段：玩家已选中 BOSS（在战术地图点了 BOSS 圈）。
 ## 进入此阶段后：常规战区 A/B/C/D 的地图显示 + 任务推进全部停止，专心打 BOSS。
@@ -193,6 +266,26 @@ func get_state(id: StringName) -> State:
 
 func set_state(id: StringName, state: State) -> void:
 	_states[id] = state
+
+## 是否机场解放战区（spec airfield-liberation-zones）
+func is_airfield(id: StringName) -> bool:
+	return AIRFIELD_IDS.has(id)
+
+## 机场战区难度定档（ZoneMission 首刷时按当前热度写入；不走 _roll_difficulty 随机）
+func set_airfield_difficulty(id: StringName, star: int) -> void:
+	_difficulties[id] = clampi(star, DIFFICULTY_MIN, DIFFICULTY_MAX)
+
+## 解放机场（spec airfield-liberation-zones §3.1）：独立于普通战区 mark_cleared 的
+## churn（不改 _last_cleared / 不进重开池 / 不 erase 奖励 / 不触发 _refresh_availability）。
+## 机场一次性、彼此独立，只把状态置 CLEARED + 记 _ever_cleared。
+func liberate_airfield(id: StringName) -> void:
+	if not is_airfield(id):
+		return
+	_states[id] = State.CLEARED
+	_ever_cleared[id] = true
+	if selected_id == id:
+		selected_id = &""
+	EventLogger.log_event("ZONE", "AirfieldLiberated", "id=%s" % id)
 
 ## 查找战区数据（不含 Boss）
 func get_zone_by_id(id: StringName) -> Dictionary:
@@ -330,6 +423,9 @@ func _refresh_availability_after_clear() -> void:
 		var zid: StringName = z["id"]
 		if zid == _last_cleared:
 			continue
+		# 机场解放战区一次性、独立，不进随机战区重开池（spec airfield-liberation-zones §3.1）
+		if is_airfield(zid):
+			continue
 		var st := get_state(zid)
 		if st == State.AVAILABLE or st == State.SELECTED:
 			continue
@@ -396,33 +492,77 @@ func get_selected_world_pos() -> Vector2:
 # ══════════════════════════════════════════════
 
 ## 战区奖励池（spec zone-reward-docking §2.3，2026-07-06 重制）：三类实体奖励按难度加权 roll。
-## 旧"进化技能强卡"池已随 evolved 字段退役（_build_reward_pool 留作 registry 兼容参考，恒空）。
 ## 奖励 dict：{ kind: "carrier"|"wingman"|"weapon", id, name(tr key), quality(=难度星), weapon?(仅 weapon 类) }
+## nextgen = 次世代技术（spec zone-reward-arsenal §2.1）：NEXT_GEN 稀有度技能只经战区奖励发放
 const REWARD_KIND_WEIGHTS := {
-	1: {"weapon": 60.0, "wingman": 40.0, "carrier": 0.0},
-	2: {"weapon": 35.0, "wingman": 45.0, "carrier": 20.0},
-	3: {"weapon": 15.0, "wingman": 40.0, "carrier": 45.0},
+	1: {"weapon": 60.0, "wingman": 40.0, "carrier": 0.0, "nextgen": 15.0},
+	2: {"weapon": 35.0, "wingman": 45.0, "carrier": 20.0, "nextgen": 30.0},
+	3: {"weapon": 15.0, "wingman": 40.0, "carrier": 45.0, "nextgen": 40.0},
 }
-## 追加武器子池：低星偏尾雷、高星偏忠诚僚机/QMAAM（"难度越高奖励越好"）
+## 追加武器子池：低星偏尾雷、高星偏忠诚僚机/QMAAM（"难度越高奖励越好"）。
+## 2026-07-22 军械库扩容（spec zone-reward-arsenal §2.2）：+火箭弹/电磁炮/激光
+## （equipment 泛化，全机型可挂；电磁炮/激光属高价值件，★ 区不出）
 const REWARD_WEAPON_WEIGHTS := {
-	1: {"tail_mine": 50.0, "loyal_wingman": 25.0, "qmaam": 25.0},
-	2: {"tail_mine": 34.0, "loyal_wingman": 33.0, "qmaam": 33.0},
-	3: {"tail_mine": 20.0, "loyal_wingman": 40.0, "qmaam": 40.0},
+	1: {"tail_mine": 45.0, "loyal_wingman": 30.0, "qmaam": 25.0, "rocket": 20.0, "railgun": 0.0, "laser": 0.0},
+	2: {"tail_mine": 25.0, "loyal_wingman": 30.0, "qmaam": 25.0, "rocket": 20.0, "railgun": 15.0, "laser": 10.0},
+	3: {"tail_mine": 15.0, "loyal_wingman": 25.0, "qmaam": 20.0, "rocket": 15.0, "railgun": 20.0, "laser": 15.0},
 }
 const REWARD_WEAPON_NAME_KEYS := {
 	"tail_mine": "REWARD_WEAPON_TAILMINE_NAME",
 	"loyal_wingman": "REWARD_WEAPON_LOYAL_NAME",
 	"qmaam": "REWARD_WEAPON_QMAAM_NAME",
+	"rocket": "REWARD_WEAPON_ROCKET_NAME",
+	"railgun": "REWARD_WEAPON_RAILGUN_NAME",
+	"laser": "REWARD_WEAPON_LASER_NAME",
+}
+## 奖励说明文案 key（Tab 战术地图信息面板在奖励名下方多显示一行"它到底是什么"）。
+## 实体奖励（航母/僚机/武器件）各配一条 REWARD_*_DESC；技能类直接沿用升级表自己的 desc。
+const REWARD_WEAPON_DESC_KEYS := {
+	"tail_mine": "REWARD_WEAPON_TAILMINE_DESC",
+	"loyal_wingman": "REWARD_WEAPON_LOYAL_DESC",
+	"qmaam": "REWARD_WEAPON_QMAAM_DESC",
+	"rocket": "REWARD_WEAPON_ROCKET_DESC",
+	"railgun": "REWARD_WEAPON_RAILGUN_DESC",
+	"laser": "REWARD_WEAPON_LASER_DESC",
 }
 ## 航母登舰全局余量（spec §2.4：全程限 2 次；survivor_mode 登舰时扣减；归零后 carrier 不再进池）
 var carrier_uses_left: int = 2
 
-static func _build_reward_pool() -> Array:
-	var pool: Array = []
+## 战区奖励 roll 的玩家上下文提供器（spec zone-reward-arsenal §3.1，survivor_mode 注入）。
+## 返回 {aircraft_id, params, stacks, squad_classes} 快照，用于 nextgen 候选过滤与
+## "已持有武器件"过滤。未注入（开局 _init 首 roll / debug）→ 保守跳过机型/stacks 过滤。
+var nextgen_context: Callable = Callable()
+
+## 次世代技术候选（spec zone-reward-arsenal §2.3/§3.1）：NEXT_GEN 稀有度 + 跨活跃区去重
+## + stacks 未满 + 机型/品类可用（后两项需上下文）。
+func _nextgen_candidates(used: Dictionary, ctx: Dictionary) -> Array:
+	var out: Array = []
 	for u in SurvivorData.UPGRADES:
-		if u.get("evolved", false):
-			pool.append(u)
-	return pool
+		if int(u.get("rarity", -1)) != SurvivorData.Rarity.NEXT_GEN:
+			continue
+		if MetaShop.is_upgrade_gated(u):
+			continue  # Doctrine 门控（spec doctrine-unlocks §3.3：战区奖励池同样不发无证牌）
+		var uid := String(u["id"])
+		if used.has(uid):
+			continue
+		if not ctx.is_empty():
+			var stacks: Dictionary = ctx.get("stacks", {})
+			if int(stacks.get(uid, 0)) >= int(u.get("max_stacks", 1)):
+				continue
+			if not SurvivorData.is_upgrade_available_for(u, StringName(str(ctx.get("aircraft_id", ""))),
+					ctx.get("params", null) as AircraftParams, stacks, ctx.get("squad_classes", [])):
+				continue
+		out.append(u)
+	return out
+
+## 玩家是否已持有某武器件（roll 侧过滤；rocket 走 legacy 字段、railgun/laser 走 equipment）
+static func _ctx_owns_weapon(p: AircraftParams, w: String) -> bool:
+	if p == null:
+		return false
+	match w:
+		"rocket": return p.rocket != null
+		"railgun", "laser": return p.get_equipment_of_kind(w) != null
+		_: return false
 
 static func _infer_category(skill_id: String) -> StringName:
 	if skill_id.contains("flare"):
@@ -457,42 +597,63 @@ func _active_reward_ids(exclude_id: StringName) -> Dictionary:
 	return used
 
 ## 给战区 roll 三类实体奖励（spec zone-reward-docking §2.3；如已分配则保留）
-## 前置：应先 _roll_difficulty（权重按星级）。同时活跃的战区之间去重（_active_reward_ids）：
-## 航母/僚机各最多一个、武器按子类避开；种类被占满（≥5 活跃战区各不同）才回退允许重复。
+## 前置：应先 _roll_difficulty（权重按星级）。去重两层（用户 2026-07-24 重定）：
+## ① 整局去重 `_used_reward_ids`——武器/技能/航母每种整局只出现一次（僚机豁免=可重复保底）；
+## ② 同时活跃战区去重 `_active_reward_ids`——避免两个在开战区同时挂同一奖励。
+## 航母整局保证：pity（_reward_roll_count ≥ CARRIER_PITY_ROLLS 仍未出航母 → 强制发）。
 func _assign_reward(id: StringName) -> void:
 	if _rewards.has(id):
 		return
 	_roll_difficulty(id)
 	var diff: int = get_difficulty(id)
+	_reward_roll_count += 1
+	# 去重集合 = 同时活跃战区已占 ∪ 整局已出现过（后者只含武器/技能/航母，僚机不入表）
 	var used := _active_reward_ids(id)
+	for rid in _used_reward_ids:
+		used[rid] = true
+	var ctx: Dictionary = nextgen_context.call() if nextgen_context.is_valid() else {}
+	var own_p: AircraftParams = ctx.get("params", null)
 
-	# kind 权重 + 去重门控（航母还受全局登舰余量门）
+	# 航母整局保证（用户 2026-07-24）：前 N 次 roll 内仍未自然出航母 → 本次强制发
+	var force_carrier := (not _carrier_reward_assigned) and carrier_uses_left > 0 \
+			and _reward_roll_count >= CARRIER_PITY_ROLLS
+
+	# kind 权重 + 去重门控（航母还受全局登舰余量门 + 整局唯一）
 	var kind_w: Dictionary = (REWARD_KIND_WEIGHTS.get(diff, REWARD_KIND_WEIGHTS[1]) as Dictionary).duplicate()
 	if carrier_uses_left <= 0 or used.has("reward_carrier"):
 		kind_w["carrier"] = 0.0
-	if used.has("reward_wingman"):
+	if used.has("reward_wingman"):  # 僚机仅活跃战区去重（不入 _used_reward_ids → 整局可重复）
 		kind_w["wingman"] = 0.0
-	# 武器子类可用性：逐个避开已占子类；全部被占则整个 weapon 类不可选
+	# 武器子类可用性：逐个避开已出现过的子类（整局唯一）+ 已持有同类件（签名机自带，
+	# spec zone-reward-arsenal §2.2）；全部被占则整个 weapon 类不可选
 	var weap_w: Dictionary = (REWARD_WEAPON_WEIGHTS.get(diff, REWARD_WEAPON_WEIGHTS[1]) as Dictionary).duplicate()
 	var weap_any := false
 	for w0 in weap_w.keys():
 		if used.has("reward_weapon_%s" % String(w0)):
 			weap_w[w0] = 0.0
+		elif _ctx_owns_weapon(own_p, String(w0)):
+			weap_w[w0] = 0.0
+		elif String(w0) == "loyal_wingman" and not bool(ctx.get("loyal_wingman_unlocked", true)):
+			# 成就门控（spec career-archive §3.3）：无人机猎手未解锁 → 忠诚僚机不进 roll。
+			# 缺键 fail-open（= 旧行为），正式局由 _build_reward_roll_context 传真值
+			weap_w[w0] = 0.0
 		elif float(weap_w[w0]) > 0.0:
 			weap_any = true
 	if not weap_any:
 		kind_w["weapon"] = 0.0
+	# 次世代技术候选（spec zone-reward-arsenal §3.2 降级链）：候选空 → 类权重清零
+	var ng_pool := _nextgen_candidates(used, ctx)
+	if ng_pool.is_empty():
+		kind_w["nextgen"] = 0.0
 
-	var kind := _weighted_pick_str(kind_w)
-	# 兜底：所有类都被占（活跃战区 ≥5 且各不同）→ 允许重复，回退原始权重（仍守航母余量门）
-	if kind == "":
-		var fb: Dictionary = (REWARD_KIND_WEIGHTS.get(diff, REWARD_KIND_WEIGHTS[1]) as Dictionary).duplicate()
-		if carrier_uses_left <= 0:
-			fb["carrier"] = 0.0
-		kind = _weighted_pick_str(fb)
+	var kind: String
+	if force_carrier:
+		kind = "carrier"
+	else:
+		kind = _weighted_pick_str(kind_w)
+		# 兜底：武器/技能/航母都用尽或被占 → 回退僚机（可重复保底，不再回退重复武器）
 		if kind == "":
-			kind = "weapon"
-		weap_w = (REWARD_WEAPON_WEIGHTS.get(diff, REWARD_WEAPON_WEIGHTS[1]) as Dictionary).duplicate()
+			kind = "wingman"
 
 	var reward: Dictionary = {"kind": kind, "quality": diff}
 	match kind:
@@ -502,6 +663,11 @@ func _assign_reward(id: StringName) -> void:
 		"wingman":
 			reward["id"] = "reward_wingman"
 			reward["name"] = "REWARD_WINGMAN_NAME"
+		"nextgen":
+			# 次世代技术：奖励 id = 技能 id（整局去重自动生效），领取走升级分发链
+			var pick: Dictionary = ng_pool[randi() % ng_pool.size()]
+			reward["id"] = String(pick["id"])
+			reward["name"] = String(pick["name"])
 		_:
 			var w := _weighted_pick_str(weap_w)
 			if w == "":
@@ -510,6 +676,11 @@ func _assign_reward(id: StringName) -> void:
 			reward["weapon"] = w
 			reward["name"] = String(REWARD_WEAPON_NAME_KEYS.get(w, "REWARD_WEAPON_TAILMINE_NAME"))
 	_rewards[id] = reward
+	# 整局去重登记（僚机豁免=可重复保底）；航母整局保证标记
+	if kind != "wingman":
+		_used_reward_ids[String(reward["id"])] = true
+	if kind == "carrier":
+		_carrier_reward_assigned = true
 
 ## 通用字符串键权重抽取（返回 "" = 全零权重）
 func _weighted_pick_str(weights: Dictionary) -> String:
@@ -529,6 +700,30 @@ func _weighted_pick_str(weights: Dictionary) -> String:
 ## 获取某战区的奖励 upgrade dict（可能为空）
 func get_reward(id: StringName) -> Dictionary:
 	return _rewards.get(id, {})
+
+## 奖励说明文案的 tr key（空串 = 无说明）。四类来源：
+## ① reward 自带 desc（ZoneRewardRegistry 注册的 upgrade dict）→ 直接用；
+## ② 实体奖励（carrier/wingman/weapon）→ 查 REWARD_*_DESC 常量；
+## ③ nextgen 技能 → 按 id 回查升级表的 desc（技能介绍与选卡完全一致）；
+## ④ 兜底：id 能在升级表里查到就用它的 desc。
+static func reward_desc_key(reward: Dictionary) -> String:
+	if reward.is_empty():
+		return ""
+	var own := String(reward.get("desc", ""))
+	if own != "":
+		return own
+	match String(reward.get("kind", "")):
+		"carrier":
+			return "REWARD_CARRIER_DESC"
+		"wingman":
+			return "REWARD_WINGMAN_DESC"
+		"weapon":
+			return String(REWARD_WEAPON_DESC_KEYS.get(String(reward.get("weapon", "")), ""))
+	var uid := String(reward.get("id", ""))
+	if uid == "":
+		return ""
+	var up: Dictionary = SurvivorData.upgrade_by_id(uid)
+	return String(up.get("desc", "")) if not up.is_empty() else ""
 
 ## 获取某战区的奖励"类别提示 key"（用于 UI 翻译）
 func get_reward_category_key(id: StringName) -> String:

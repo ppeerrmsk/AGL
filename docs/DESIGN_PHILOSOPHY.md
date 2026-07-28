@@ -3,7 +3,12 @@
 > 这份文档规定了 AGL **不变的灵魂**。所有"加新机制 / 选数值 / 加敌人 / 加技能"前必读。
 > 修改这份文档 = 调整整个游戏给人的感觉。所以每条改动都要慎重，但也是**唯一应该被改的源头**。
 >
-> 本文档由 [CLAUDE.md](../CLAUDE.md) 顶部强制每次会话加载。配合 [roadmap-overview.md](planning/roadmap-overview.md)（阶段排期）和 [survivor-skills.md](systems/survivor-skills.md)（技能层哲学）一起使用。
+> 本文档由 [CLAUDE.md](../CLAUDE.md) 顶部强制每次会话加载。配合
+> [specs/_INDEX.md](specs/_INDEX.md)（设计现状 SSOT）和
+> [survivor-skills.md](systems/survivor-skills.md)（技能层哲学）一起使用。
+>
+> **校订记录**：2026-07-26 只修了事实性腐烂（条数、沙盒状态、失效链接、待用户拍板的标注），
+> 11 条哲学与反模式列表本身**未改动**——那需要用户主动调整设计方向。
 
 ---
 
@@ -15,7 +20,7 @@
 
 ---
 
-## 核心设计哲学（9 条）
+## 核心设计哲学（11 条）
 
 每条配 ✅ 好例 / ❌ 坏例，方便对照。
 
@@ -68,6 +73,11 @@
 | 单局时长 | **20 - 30 分钟** | 经验曲线据此调 |
 
 **(c) 节奏**：等级曲线让玩家在 5 / 10 / 15 / 20 级遇到节点（解锁新敌人 / Boss 触发 / 战区任务结算 / 新机制揭示）。
+
+> ⚠ **待用户校准**（2026-07-26）：上表的"单局时长 20-30 分钟"写于时间制战区循环之前。
+> 现在的一局 = 战区阶段（`WARZONE_PHASE_DURATION`，当前 600s，可被时间税/支援中队倒拨）
+> \+ BOSS 决战。实际时长与本区间是否仍一致，需要 playtest 数据 + 用户拍板，
+> 未经确认**不擅自改这个区间**。
 
 **(d) 雷达距离基准（F-16 = 比较弱）**：
 
@@ -169,7 +179,7 @@ AGL 的核心交互是**操控笨重的飞机去预判和走位**，不是手忙
 
 为什么硬性卡 60：低于 60 FPS 时，"笨重 + 延迟快感"立刻退化成"延迟 + 卡顿不爽"——玩家点击点位后飞机不仅要花时间转过去，还要在掉帧中转，整个核心循环垮掉。60 FPS 不是性能指标，**是设计底线**。
 
-具体做法见 [docs/reference/performance-guidelines.md](reference/performance-guidelines.md)（7 条硬规则 + 历史教训）。
+具体做法见 [docs/reference/performance-guidelines.md](reference/performance-guidelines.md)（8 条硬规则 R1–R8 + 历史教训）。
 
 - ✅ 新增机制前估算"每实体 × 实体数 × 60Hz" 的总频率
 - ✅ AI 决策默认 1-3Hz 起步，不到必要不加快
@@ -181,15 +191,26 @@ AGL 的核心交互是**操控笨重的飞机去预判和走位**，不是手忙
 
 ## 模式哲学
 
-### 沙盒模式（即将弃用）
-实验场，已**冻结**。不要给它加新机制、新内容、新 UI。新功能只为生存模式服务。沙盒只用于：物理调试、AI 行为可视化、开发者快速验证。
+### 沙盒模式（**已废弃**）
+`scenes/main.tscn`。只作物理调试 / AI 行为可视化留存，**不打包、不加任何新内容**。
+新功能一律只为生存模式服务。
 
 ### 生存模式（主玩法）
 **Build-focused roguelike**。每局开始的差异应该来自**"我这局 roll 到了什么 build"**，而不是"我开局选了什么飞机"。
 
 机型选择决定**底色和起手感**（笨重导弹机 vs 灵活机炮机），但 Build 决定**这局的高潮**（暴雨齐射 / 对头狙击 / 电磁炮远射 / 心理战压制）。一局结束后玩家应该能讲出一个故事："这局我堆了 XX 流，遇到 YY 战区，最后 ZZ 收尾。"
 
-模式间**禁止互相污染**。共享层（aircraft / ai / weapons）不允许 `if in_survivor` / `if in_sandbox` 分支。详见 [roadmap.md §0](planning/roadmap.md)。
+> ⚠ **待用户校准**（2026-07-26）：上面两段写于 41 机进化树与 RTS 化转向之前。
+> 现在"开局选了什么飞机"**恰恰是核心成长轴**（T1 起手四选一 → 沿进化树换机 → 三轴属性门槛），
+> 而且玩家操控的是**小队**而不是单机。这与"差异只来自 build，不来自机型"的原措辞存在张力。
+> 相关落地设计见 [aircraft-evolution-tree](specs/systems/aircraft-evolution-tree.md) ·
+> [evolution-attribute-gates](specs/systems/evolution-attribute-gates.md) ·
+> [squad-upgrade-ownership](specs/systems/squad-upgrade-ownership.md)。
+> **本段需要用户重新定调后再改**，不擅自改写核心哲学。
+
+模式间**禁止互相污染**。共享层（aircraft / ai / weapons）不允许 `if in_survivor` / `if in_sandbox` 分支——
+模式差异必须走参数资源 `duplicate(true)` 或 PlayableAircraft 档案注入。
+（这条铁律在沙盒废弃后**依然有效**：它保护的是共享层的干净，不是两个模式的对等。）
 
 ---
 
@@ -237,9 +258,9 @@ AGL 的核心交互是**操控笨重的飞机去预判和走位**，不是手忙
 
 ## 引用与延伸
 
-- [planning/roadmap-overview.md](planning/roadmap-overview.md) — 阶段目标 / 排期决策
-- [planning/roadmap.md](planning/roadmap.md) — 技术向实施清单 / 模式边界规则
+- [specs/_INDEX.md](specs/_INDEX.md) — **设计现状 SSOT**（每个机制的数值 / 行为 / 状态）
 - [systems/survivor-skills.md](systems/survivor-skills.md) — 技能层设计哲学（两曲线 / 几何门槛）
+- ~~planning/roadmap-overview.md · planning/roadmap.md~~ — 2026-04 历史快照，**已不反映现状**
 - [systems/ai-system.md](systems/ai-system.md) — AI 状态机与压力系统
 - [architecture.md](architecture.md) — 物理与单位系统
 - [../CLAUDE.md](../CLAUDE.md) — 代码地图 / 性能守则 / 工作约定
@@ -251,4 +272,5 @@ AGL 的核心交互是**操控笨重的飞机去预判和走位**，不是手忙
 - 这份文档**只在用户主动调整设计方向时才改**，不要因为某次具体争论就增删条款
 - 新加条目前先确认它是**长期不变的设计意图**，不是阶段性策略（阶段策略放 roadmap）
 - 修改后做一次"反向触发"测试：让 Claude 加个违反原则的东西，看它能不能主动反驳
-- 文档里的具体例子可以更新（机型 / 数值 / 招式），但 9 条核心哲学和反模式列表应该保持稳定
+- 文档里的具体例子可以更新（机型 / 数值 / 招式），但 11 条核心哲学和反模式列表应该保持稳定
+- 遇到"哲学与实际做法对不上"时：**先标注冲突并找用户拍板**，不要单方面改哲学去迁就代码

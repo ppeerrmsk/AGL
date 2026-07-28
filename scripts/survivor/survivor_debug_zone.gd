@@ -5,7 +5,7 @@ extends CanvasLayer
 ##
 ## 核心能力：
 ##   1. 列出所有战区 (A/B/C/D/E)，显示当前状态 + mission_type
-##   2. 为每个战区选择新的 mission_type（ground/air/squadron/elite/naval）
+##   2. 为每个战区选择新的 mission_type（ground/air/squadron/naval）
 ##   3. 一键 "Set & Spawn"：强制战区变为 AVAILABLE + 设定新类型 + 清旧单位 + 刷新内容
 ##   4. "Mark Cleared" / "Mark Locked" 改战区状态
 ##   5. "跳到 BOSS 战"：选定关底 BOSS + 计时器清零 → BOSS 立即出场
@@ -31,12 +31,11 @@ var _last_state_hash: String = ""
 
 # ── 类型选项 ──
 ## 所有可用的 mission_type（Debug 用，跨越 zone 原本的限制）
-const MISSION_TYPES: Array[String] = ["ground", "air", "squadron", "elite", "naval"]
+const MISSION_TYPES: Array[String] = ["ground", "air", "squadron", "naval"]
 const MISSION_TYPE_LABELS: Dictionary = {
 	"ground": "陆基（SAM+AA）",
 	"air": "空战（海上）",
 	"squadron": "敌机中队",
-	"elite": "精英（Sentinel）",
 	"naval": "海军舰队（DDG+FFG）",
 }
 

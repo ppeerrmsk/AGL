@@ -13,11 +13,12 @@ extends Node
 ## - Adds（杂兵，category="adds"）：无反击能力，只沿直线飞行，不走 _update_spawner
 ##     / Token 预算系统，通过独立 flock 波次刷新，不受远距清理影响。
 ##     目前成员：TU160, AH64, CH47。敌人参数的 meta("category")="adds" 标识。
-enum EnemyType { UAV, UCAV, MIG, INTERCEPTOR, UAV_COMMANDER, F86, MIG31, MIG23, F100, SU27, A7, Q5, TU160, AH64, CH47, F47, F14_POLTERGEIST, AF03, UAV_LASER, F4, F104, SU35, FA18 }
+enum EnemyType { UAV, UCAV, MIG, INTERCEPTOR, UAV_COMMANDER, F86, MIG31, MIG23, F100, SU27, A7, Q5, TU160, AH64, CH47, F47, F14_POLTERGEIST, AF03, UAV_LASER, F4, F104, SU35, FA18, F4E, F15, F16, MIRAGE2000, SU47, CRE }
 
 # ── 经验常量 ──
 const XP_PER_KILL := 40  ## 基础经验值（MiG）
-const XP_PER_KILL_UAV := 25  ## UAV 击杀经验
+const XP_PER_KILL_UAV := 25  ## MQ-109 击杀经验
+const XP_PER_KILL_F4E := 32  ## F-4E 击杀经验（杂鱼与普通机之间，spec enemies/f-4e §2.2）
 const MAX_MISSILES_TARGETING_PLAYER := 3  ## 同时飞向玩家的导弹上限
 
 # ── 计时器常量 ──
@@ -62,6 +63,12 @@ var _f4_params_base: AircraftParams           ## F-4 Phantom（Gladiator 中段�
 var _f104_params_base: AircraftParams         ## F-104 Starfighter（Lancer 纯速度截击）
 var _su35_params_base: AircraftParams         ## Su-35 Super Flanker（Gladiator 顶级，Su-27 强化版）
 var _fa18_params_base: AircraftParams         ## F/A-18C Hornet（Gladiator 均衡舰载机，CSG BOSS 弹射）
+var _f4e_params_base: AircraftParams          ## F-4E（前期导弹杂鱼，无机炮，spec enemies/f-4e）
+var _f15_params_base: AircraftParams          ## F-15（王牌专属：2NDWAVE 学员骑士）
+var _f16_params_base: AircraftParams          ## F-16（王牌专属：GIMMICK 狙击 element）
+var _mirage2000_params_base: AircraftParams   ## Mirage 2000（王牌专属：GIMMICK 斗士 element）
+var _su47_params_base: AircraftParams         ## Su-47（王牌专属：GOOFIGHTERS 眼镜蛇斗士）
+var _cre_params_base: AircraftParams          ## Cre 原型机（宿敌 ORION，跨局成长）
 
 # ── 王牌中队 BOSS ──
 var _boss: BossEncounter = null               ## 当前活跃的 BOSS encounter（F-47 / CSG / ...）
@@ -139,6 +146,13 @@ func _preload_resources() -> void:
 	_f104_params_base = preload("res://resources/enemy_f104.tres")
 	_su35_params_base = preload("res://resources/enemy_su35.tres")
 	_fa18_params_base = preload("res://resources/enemy_fa18.tres")
+	_f4e_params_base = preload("res://resources/enemy_f4e.tres")
+	# 王牌专属机型（不进随机刷怪池，只经 AceSquadProfiles / OrionNemesisEvent 生成）
+	_f15_params_base = preload("res://resources/enemy_f15.tres")
+	_f16_params_base = preload("res://resources/enemy_f16.tres")
+	_mirage2000_params_base = preload("res://resources/enemy_mirage2000.tres")
+	_su47_params_base = preload("res://resources/enemy_su47.tres")
+	_cre_params_base = preload("res://resources/enemy_cre.tres")
 
 # ══════════════════════════════════════════════
 #  每帧更新（由 survivor_mode._physics_process 调用）
@@ -405,22 +419,31 @@ func _pick_enemy_type() -> EnemyType:
 	if lvl >= SurvivorData.LATE_GAME_LEVEL:
 		var candidates: Array[EnemyType] = []
 		for etype_int in SurvivorData.TOKEN_COST:
+			# BOSS / 事件专属机型不得从常规通道漏出（F-47 / F-14 Poltergeist 曾靠 cost 10 混进来）
+			if SurvivorData.BOSS_ONLY_TYPES.has(etype_int):
+				continue
 			if SurvivorData.TOKEN_COST[etype_int] >= SurvivorData.LATE_GAME_MIN_TOKEN \
 					and _can_spawn_type(etype_int, remaining):
 				candidates.append(etype_int as EnemyType)
 		if candidates.size() > 0:
 			return candidates[randi() % candidates.size()]
-	# UAV/UCAV 是前期杂鱼，达到退场等级后不再使用
+	# F-4E（前期导弹杂鱼，有人机）：Lv1~F4E_RETIRE_LEVEL 填补无人机之外的前期空间
+	# （让开局不是满屏 MQ-109/MQ-110——spec enemies/f-4e §3.4）
+	if lvl >= SurvivorData.F4E_UNLOCK_LEVEL and lvl <= SurvivorData.F4E_RETIRE_LEVEL \
+			and _can_spawn_type(int(EnemyType.F4E), remaining):
+		if randf() < SurvivorData.F4E_CHANCE:
+			return EnemyType.F4E
+	# MQ-109/MQ-110 是最初期无人机杂鱼，达到退场等级后不再使用
 	if lvl <= SurvivorData.UAV_RETIRE_LEVEL:
 		if _can_spawn_type(int(EnemyType.UCAV), remaining):
 			if randf() < 0.5:
 				return EnemyType.UCAV
 		return EnemyType.UAV
-	# 5 级起 UAV 退场：fallback 到已解锁的低 Token 机型
+	# 5 级起 MQ-109 退场：fallback 到已解锁的低 Token 机型
 	for fallback in [EnemyType.F86, EnemyType.A7, EnemyType.INTERCEPTOR, EnemyType.MIG23]:
 		if _can_spawn_type(int(fallback), remaining):
 			return fallback
-	# 最坏情况（所有类型被 cap）保底仍返回 UAV，避免上层死循环
+	# 最坏情况（所有类型被 cap）保底仍返回 MQ-109，避免上层死循环
 	return EnemyType.UAV
 
 ## BOSS 阶段统一闸门：玩家选了 BOSS → 旅途刷怪 / 猎手指派 / Sentinel 护卫看门狗 全部停摆
@@ -470,10 +493,19 @@ func _update_spawner(delta: float) -> void:
 	var count := SurvivorData.ENEMIES_PER_WAVE_BASE + int(survivor_player.level * SurvivorData.ENEMIES_PER_WAVE_GROWTH)
 	count = mini(count, _dynamic_enemy_cap - current_enemies)
 
+	# 拦截波判定（spec battlefield-tempo-pass §3.1）：hunter 配额缺口 ≥ 阈值 → 本波增援
+	# 不去中央锚点，改从玩家前方扇区边缘入场、航点持续指向玩家。单杠杆自平衡：
+	# 冷场（缺口大）必来拦截，交战中（配额被占满）必不来 → 增援照旧补给中央战场。
+	# 在途拦截队计入占额（_count_hunter_pressure），防 TRANSIT 窗口连刷多波到脸过压。
+	var intercept_wave := false
+	if _roe != null:
+		intercept_wave = (_roe.hunter_quota() - _count_hunter_pressure()) >= SurvivorData.INTERCEPT_QUOTA_GAP
+
 	EventLogger.log_event("WAVE", "Spawner",
-		"wave lvl=%d token=%d/%d cap=%d/%d" % [
+		"wave lvl=%d token=%d/%d cap=%d/%d%s" % [
 			survivor_player.level, _token_used, budget,
-			current_enemies, _dynamic_enemy_cap])
+			current_enemies, _dynamic_enemy_cap,
+			" INTERCEPT" if intercept_wave else ""])
 
 	var spawned := 0
 	while spawned < count:
@@ -489,14 +521,17 @@ func _update_spawner(delta: float) -> void:
 		var is_late_game := survivor_player.level >= SurvivorData.LATE_GAME_LEVEL
 
 		# MiG-31 永远单机精英；J-7 在后期改走编队（视作低级 Lancer）
+		# F-4E：35% 单机、其余小队——"杂鱼一律成建制"规则的显式例外
+		# （spec enemies/f-4e §3.4：填空间的孤机，用户指令"既可以单架也可以小队"）
 		var spawn_as_single := etype == EnemyType.MIG31 \
 				or etype == EnemyType.SU27 \
 				or etype == EnemyType.AF03 \
-				or (etype == EnemyType.INTERCEPTOR and not is_late_game)
+				or (etype == EnemyType.INTERCEPTOR and not is_late_game) \
+				or (etype == EnemyType.F4E and randf() < SurvivorData.F4E_SINGLE_CHANCE)
 
 		if spawn_as_single:
 			# 单机精英 Lancer：一架一架地刷
-			_spawn_single(etype)
+			_spawn_single(etype, intercept_wave)
 			_token_used += cost
 			_token_count_by_type[int(etype)] = int(_token_count_by_type.get(int(etype), 0)) + 1
 			spawned += 1
@@ -516,14 +551,14 @@ func _update_spawner(delta: float) -> void:
 			spawned += 1 + wingman_count
 
 		else:
-			# MiG / F86 / MiG-23 / F-100 / UCAV / UAV / J-7(后期) ：分队生成
+			# MiG / F86 / MiG-23 / F-100 / F-4E / MQ-109 / MQ-110 / J-7(后期) ：分队生成
 			var squad_size: int
 			if etype == EnemyType.MIG or etype == EnemyType.F86 \
 					or etype == EnemyType.MIG23 or etype == EnemyType.F100 \
 					or etype == EnemyType.INTERCEPTOR \
 					or etype == EnemyType.A7 or etype == EnemyType.Q5 \
 					or etype == EnemyType.F4 or etype == EnemyType.F104 \
-					or etype == EnemyType.SU35:
+					or etype == EnemyType.SU35 or etype == EnemyType.F4E:
 				squad_size = randi_range(2, 3)
 			else:
 				squad_size = randi_range(2, 4)
@@ -546,9 +581,9 @@ func _update_spawner(delta: float) -> void:
 				break
 
 			if squad_size == 1:
-				_spawn_single(etype)
+				_spawn_single(etype, intercept_wave)
 			else:
-				_spawn_squad(etype, squad_size)
+				_spawn_squad(etype, squad_size, false, intercept_wave)
 			_token_used += cost * squad_size
 			_token_count_by_type[int(etype)] = int(_token_count_by_type.get(int(etype), 0)) + squad_size
 			spawned += squad_size
@@ -638,11 +673,16 @@ func _perimeter_point_normal(t01: float) -> Array:
 ## → 存活者取距锚点最近（入场走廊自然朝集结方向）。全部候选可见（理论上只有镜头能看
 ## 全图时发生）→ 兜底取距玩家最远者。可见性由此从"软约束、8 次失败就放弃"（旧
 ## _pick_safe_spawn_angle 的破绽）升格为结构保证：生成点永远在边界线外。
-func _ingress_spawn_point(anchor: Vector2) -> Vector2:
+func _ingress_spawn_point(anchor: Vector2, ahead_of_player: bool = false) -> Vector2:
 	var pp := player_aircraft.global_position
+	# 拦截波扇区约束（spec battlefield-tempo-pass §2.1）：候选限玩家 heading ±90° 前半球
+	# （不从身后出兵，玩家看得见来路）；扇区内无合法候选 → 回退全周长；再无 → 距玩家最远兜底
+	var hdg_dir := Vector2(sin(player_aircraft.heading), -cos(player_aircraft.heading))
 	var jitter := randf()
 	var best := Vector2.ZERO
 	var best_d := INF
+	var behind := Vector2.ZERO      # ahead 模式下的全周长回退（扇区外合法候选）
+	var behind_d := INF
 	var fallback := Vector2.ZERO
 	var fallback_d := -1.0
 	for i in range(SurvivorData.INGRESS_EDGE_CANDIDATES):
@@ -659,10 +699,19 @@ func _ingress_spawn_point(anchor: Vector2) -> Vector2:
 		if _is_pos_visible(pt):
 			continue
 		var d_anchor := pt.distance_to(anchor)
+		if ahead_of_player and hdg_dir.dot((pt - pp).normalized()) <= 0.0:
+			if d_anchor < behind_d:
+				behind_d = d_anchor
+				behind = pt
+			continue
 		if d_anchor < best_d:
 			best_d = d_anchor
 			best = pt
-	return best if best_d < INF else fallback
+	if best_d < INF:
+		return best
+	if behind_d < INF:
+		return behind
+	return fallback
 
 ## 选中央巡逻锚点：原点盘（0.35 × 半图）内均匀随机，避开全部战区圆（+800 缘距）与
 ## 现存锚点（≥2500 间距）。12 次 roll 全失败则软接受末次候选。
@@ -706,10 +755,27 @@ func _live_reinf_anchors() -> Array[Vector2]:
 			out.append(sq.leader.get_meta("reinf_anchor"))
 	return out
 
-func _tag_reinforcement(ac: Aircraft, anchor: Vector2, phase: String = "transit") -> void:
+func _tag_reinforcement(ac: Aircraft, anchor: Vector2, phase: String = "transit", intercept: bool = false) -> void:
 	ac.set_meta("category", "reinforcement")
 	ac.set_meta("reinf_phase", phase)
 	ac.set_meta("reinf_anchor", anchor)
+	if intercept:
+		# 拦截使命（spec battlefield-tempo-pass）：与 reinf_phase 正交——phase 表生命周期，
+		# intercept 表使命。全员打标：长机阵亡后继任僚机继续拦截
+		ac.set_meta("reinf_intercept", true)
+
+## hunter 压力在册数 = 正在交战玩家的敌机 + 在途拦截队成员（TRANSIT 未接敌）。
+## 拦截波判定专用（spec battlefield-tempo-pass §3.3）；骑 spawn tick（18~32s 一次），O(N) 可接受
+func _count_hunter_pressure() -> int:
+	var n := 0
+	for child in mode.get_children():
+		if child is Aircraft and child.team == CombatUnit.TEAM_HOSTILE and not child.is_destroyed:
+			var ai := _get_ai(child)
+			if ai != null and ai._current_target == player_aircraft:
+				n += 1
+			elif child.get_meta("reinf_intercept", false):
+				n += 1
+	return n
 
 ## 朝向 to 的 heading（度，0=北顺时针）
 func _heading_deg_towards(from: Vector2, to: Vector2) -> float:
@@ -787,6 +853,16 @@ func _tick_reinforcement_waypoints(ac: Aircraft) -> void:
 		return
 	var anchor: Vector2 = ac.get_meta("reinf_anchor", Vector2.ZERO)
 	if phase == "transit":
+		# 拦截使命（spec battlefield-tempo-pass §3.2）：航点 = 玩家当前位置持续修正，
+		# 永不转 ONSTATION（无到站判定 → 天然无 EGRESS 资格，使命即咬住）。
+		# 接敌由 ROE 感知圈 / hunter 收编自然发生；交战中（非 PATROL）不打扰
+		if ac.get_meta("reinf_intercept", false):
+			if ai._state == AIController.AIState.PATROL:
+				var icp := player_aircraft.global_position
+				if ai.waypoints.size() != 1 or ai.waypoints[0] != icp:
+					ai.waypoints = PackedVector2Array([icp])
+					ai.current_waypoint_index = 0
+			return
 		if ac.global_position.distance_to(anchor) <= SurvivorData.ANCHOR_ARRIVE_DIST_PX:
 			_flip_squad_onstation(ac, ai, anchor)
 		elif ai._state == AIController.AIState.PATROL \
@@ -962,24 +1038,26 @@ func _nearest_exit_point(p: Vector2) -> Vector2:
 ## 生成单架敌机（不含分队），用于单机精英孤狼（MiG-31/Su-27/AF-03/早期 J-7）
 ## 【硬规则】Sentinel 永远不允许单独登场 → 自动改走 _spawn_commander_squad
 ## 增援入场（spec reinforcement-ingress）：边缘生成 → TRANSIT 飞向中央锚点
-func _spawn_single(etype: EnemyType) -> void:
+func _spawn_single(etype: EnemyType, intercept: bool = false) -> void:
 	if etype == EnemyType.UAV_COMMANDER:
 		push_warning("[Spawner] _spawn_single(UAV_COMMANDER) 被拦截 → 改走 _spawn_commander_squad(5)")
 		_spawn_commander_squad(SurvivorData.COMMANDER_SQUAD_MAX)
 		return
-	var anchor := _pick_reinf_anchor()
-	var spawn_pos := _ingress_spawn_point(anchor)
+	# 拦截使命（spec battlefield-tempo-pass §3.2）：锚点 = 玩家当前位置（后续由 8s 航点
+	# tick 持续修正），入场点偏玩家前方扇区
+	var anchor := player_aircraft.global_position if intercept else _pick_reinf_anchor()
+	var spawn_pos := _ingress_spawn_point(anchor, intercept)
 	var heading := _heading_deg_towards(spawn_pos, anchor)
 	var enemy := _create_enemy(etype, spawn_pos, heading)
-	_tag_reinforcement(enemy, anchor)
+	_tag_reinforcement(enemy, anchor, "transit", intercept)
 	_set_leader_ingress_waypoints(enemy, anchor)
-	EventLogger.log_event("INGRESS", "Spawn",
+	EventLogger.log_event("INGRESS", "Intercept" if intercept else "Spawn",
 		"single %s edge=%s anchor=%s" % [enemy.callsign, spawn_pos.round(), anchor.round()])
 
 ## 以分队形式生成一组敌机；garrison=true 时直接在中央锚点以 ONSTATION 预置（开局驻防）
 ## 【硬规则】Sentinel 不走普通 Squad（同型编队），改走 _spawn_commander_squad（Sentinel + 5 UAV）
 ## 增援入场（spec reinforcement-ingress）：边缘成建制生成 → 整队 TRANSIT 飞向中央锚点
-func _spawn_squad(etype: EnemyType, squad_size: int, garrison: bool = false) -> void:
+func _spawn_squad(etype: EnemyType, squad_size: int, garrison: bool = false, intercept: bool = false) -> void:
 	if etype == EnemyType.UAV_COMMANDER:
 		push_warning("[Spawner] _spawn_squad(UAV_COMMANDER) 被拦截 → 改走 _spawn_commander_squad(5)")
 		_spawn_commander_squad(SurvivorData.COMMANDER_SQUAD_MAX)
@@ -989,15 +1067,19 @@ func _spawn_squad(etype: EnemyType, squad_size: int, garrison: bool = false) -> 
 	# 精英/Boss 不走这里（各自建队时显式固定阵型）。
 	sq.formation = Squad.random_formation()
 
-	# 长机生成位置：边缘入场点（驻防则直接铺在锚点附近）
-	var anchor := _pick_reinf_anchor(SurvivorData.INGRESS_MIN_PLAYER_DIST_PX if garrison else 0.0)
+	# 长机生成位置：边缘入场点（驻防则直接铺在锚点附近；拦截则锚点=玩家、入场偏前方扇区）
+	var anchor: Vector2
+	if intercept:
+		anchor = player_aircraft.global_position
+	else:
+		anchor = _pick_reinf_anchor(SurvivorData.INGRESS_MIN_PLAYER_DIST_PX if garrison else 0.0)
 	var leader_pos: Vector2
 	var heading: float
 	if garrison:
 		leader_pos = anchor + Vector2(randf_range(-300.0, 300.0), randf_range(-300.0, 300.0))
 		heading = randf() * 360.0
 	else:
-		leader_pos = _ingress_spawn_point(anchor)
+		leader_pos = _ingress_spawn_point(anchor, intercept)
 		heading = _heading_deg_towards(leader_pos, anchor)
 	var heading_rad := deg_to_rad(heading)
 
@@ -1013,7 +1095,7 @@ func _spawn_squad(etype: EnemyType, squad_size: int, garrison: bool = false) -> 
 			spawn_pos = leader_pos + offset.rotated(heading_rad)
 
 		var enemy := _create_enemy(etype, spawn_pos, heading)
-		_tag_reinforcement(enemy, anchor)
+		_tag_reinforcement(enemy, anchor, "transit", intercept)
 		if i == 0:
 			leader_enemy = enemy
 			SquadFactory.register_leader(sq, enemy)
@@ -1029,9 +1111,10 @@ func _spawn_squad(etype: EnemyType, squad_size: int, garrison: bool = false) -> 
 			_flip_squad_onstation(leader_enemy, lai, anchor)
 		else:
 			_set_leader_ingress_waypoints(leader_enemy, anchor)
-		EventLogger.log_event("INGRESS", "Spawn", "squad %s x%d %s anchor=%s" % [
-			leader_enemy.callsign, squad_size,
-			"garrison" if garrison else "edge=" + str(leader_pos.round()), anchor.round()])
+		EventLogger.log_event("INGRESS", "Intercept" if intercept else "Spawn",
+			"squad %s x%d %s anchor=%s" % [
+				leader_enemy.callsign, squad_size,
+				"garrison" if garrison else "edge=" + str(leader_pos.round()), anchor.round()])
 
 ## 生成指挥 UAV 及其自带小队
 func _spawn_commander_squad(wingman_count: int) -> void:
@@ -1447,6 +1530,7 @@ func _spawn_flee_escort(protectees: Array[Aircraft], flight_dir: Vector2,
 	var sq := SquadFactory.create()
 	sq.formation = Squad.random_formation()
 	var base := anchor_p.global_position - flight_dir * 600.0
+	var escorts: Array[Aircraft] = []
 	for i in range(n):
 		var pos := base
 		if i > 0:
@@ -1466,11 +1550,18 @@ func _spawn_flee_escort(protectees: Array[Aircraft], flight_dir: Vector2,
 			SquadFactory.register_leader(sq, ac)
 		else:
 			SquadFactory.register_wingman(sq, ac, true)
+		escorts.append(ac)
+	# 护卫登记：被护送对象挨打时经 Aircraft.escort_guards 把护卫扑向攻击者。
+	# 不登记的话护卫会看着运输机被一架一架点掉却毫无反应（护卫学说不对敌方开）。
+	for p in protectees:
+		if is_instance_valid(p):
+			p.escort_guards = escorts
 	_squads.append(sq)
-	EventLogger.log_event("ADBS", "FleeEscort", "x%d etype=%d tier=%d" % [n, int(etype), tier])
+	EventLogger.log_event("ADBS", "FleeEscort", "x%d etype=%d tier=%d guards=%d" % [
+		n, int(etype), tier, escorts.size()])
 
 ## ADBS：一队轰炸机从 spawn_pos 沿 flee_dir 逃向边界
-func spawn_bomber_flee(spawn_pos: Vector2, flee_dir: Vector2, count: int = 2) -> Array[Aircraft]:
+func spawn_bomber_flee(spawn_pos: Vector2, flee_dir: Vector2, count: int = 2, with_escort: bool = true) -> Array[Aircraft]:
 	var flight_dir := flee_dir.normalized() if flee_dir.length_squared() > 0.001 else Vector2(0, -1)
 	var point_b := spawn_pos + flight_dir * SurvivorData.TU160_FLIGHT_DISTANCE
 	var lateral_axis := Vector2(-flight_dir.y, flight_dir.x)
@@ -1487,13 +1578,15 @@ func spawn_bomber_flee(spawn_pos: Vector2, flee_dir: Vector2, count: int = 2) ->
 		spawned.append(bomber)
 	EventLogger.log_event("ADBS", "BomberFlee",
 		"spawned %d bombers at %s heading %.0f°" % [count, spawn_pos, heading_deg])
-	# 护卫编队（spec zone-reward-docking §2.7）：高空伴飞
-	_spawn_flee_escort(spawned, flight_dir, SurvivorData.TU160_FLIGHT_DISTANCE,
-		Aircraft.AltitudeTier.HIGH, 130.0)
+	# 护卫编队（spec zone-reward-docking §2.7）：高空伴飞。
+	# ⚠ 教程轰炸机（开局 3 架）传 with_escort=false —— 纯教学靶机，刷玩家面前练锁定/攻击，不带护卫
+	if with_escort:
+		_spawn_flee_escort(spawned, flight_dir, SurvivorData.TU160_FLIGHT_DISTANCE,
+			Aircraft.AltitudeTier.HIGH, 130.0)
 	return spawned
 
 ## ADBS：一队直升机从 spawn_pos 沿 flee_dir 逃向边界
-func spawn_heli_flee(spawn_pos: Vector2, flee_dir: Vector2, count: int = 3) -> Array[Aircraft]:
+func spawn_heli_flee(spawn_pos: Vector2, flee_dir: Vector2, count: int = 3, with_escort: bool = true) -> Array[Aircraft]:
 	var flight_dir := flee_dir.normalized() if flee_dir.length_squared() > 0.001 else Vector2(0, -1)
 	var point_b := spawn_pos + flight_dir * SurvivorData.CH47_FLIGHT_DISTANCE
 	var heading_deg := rad_to_deg(atan2(flight_dir.x, -flight_dir.y))
@@ -1506,11 +1599,17 @@ func spawn_heli_flee(spawn_pos: Vector2, flee_dir: Vector2, count: int = 3) -> A
 		var heli := _create_enemy(EnemyType.CH47, sp, heading_deg)
 		_configure_adds_unit(heli, tp, tier, 215.0, "chinook", "heli", 150.0)
 		spawned.append(heli)
+	# 受击散开：任一架挨打 → 整列急停侧跨 jink（此前只有 AH-64 编队挂了这个，
+	# 运输直升机被一架架点掉时纹丝不动，毫无"被打了"的反应）
+	for h in spawned:
+		h.set_meta("scatter_on_damage", true)
+		h.flock_members = spawned
 	EventLogger.log_event("ADBS", "HeliFlee",
 		"spawned %d helis at %s heading %.0f°" % [count, spawn_pos, heading_deg])
 	# 护卫编队（spec zone-reward-docking §2.7）：低空伴飞
-	_spawn_flee_escort(spawned, flight_dir, SurvivorData.CH47_FLIGHT_DISTANCE,
-		Aircraft.AltitudeTier.LOW, 160.0)
+	if with_escort:
+		_spawn_flee_escort(spawned, flight_dir, SurvivorData.CH47_FLIGHT_DISTANCE,
+			Aircraft.AltitudeTier.LOW, 160.0)
 	return spawned
 
 # ══════════════════════════════════════════════
@@ -1575,6 +1674,49 @@ func _spawn_f47_squad(anchor: Vector2 = Vector2.INF) -> void:
 #  敌机创建（核心工厂函数）
 # ══════════════════════════════════════════════
 
+## EnemyType → type_tag 字符串（`enemy_type` meta / 生涯档案键 / 无线电白名单 / 敌人图鉴
+## 共用的**唯一**机型标识源）。加新敌人必须在此登记，否则会落进 "uav" 兜底。
+static func type_tag_of(etype: int) -> String:
+	match etype:
+		EnemyType.MIG: return "mig"
+		EnemyType.INTERCEPTOR: return "interceptor"
+		EnemyType.F86: return "f86"
+		EnemyType.MIG31: return "mig31"
+		EnemyType.MIG23: return "mig23"
+		EnemyType.F100: return "f100"
+		EnemyType.SU27: return "su27"
+		EnemyType.A7: return "a7"
+		EnemyType.Q5: return "q5"
+		EnemyType.UCAV: return "ucav"
+		EnemyType.UAV_COMMANDER: return "uav_commander"
+		EnemyType.TU160: return "tu160"
+		EnemyType.AH64: return "ah64"
+		EnemyType.CH47: return "ch47"
+		EnemyType.F47: return "f47"
+		EnemyType.F14_POLTERGEIST: return "f14_poltergeist"
+		EnemyType.AF03: return "af03"
+		EnemyType.UAV_LASER: return "uav_laser"
+		EnemyType.F4: return "f4"
+		EnemyType.F104: return "f104"
+		EnemyType.SU35: return "su35"
+		EnemyType.FA18: return "fa18"
+		EnemyType.F4E: return "f4e"
+		EnemyType.F15: return "f15"
+		EnemyType.F16: return "f16"
+		EnemyType.MIRAGE2000: return "mirage2000"
+		EnemyType.SU47: return "su47"
+		EnemyType.CRE: return "cre"
+		_: return "uav"
+
+## 全部已登记的 type_tag（敌人图鉴对齐校验用）
+static func all_type_tags() -> Array:
+	var out: Array = []
+	for i in range(EnemyType.size()):
+		var t := type_tag_of(i)
+		if t not in out:
+			out.append(t)
+	return out
+
 ## 创建单架敌机并添加到场景（公共逻辑）
 func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tier_override: int = -1) -> Aircraft:
 	# 选择基础参数
@@ -1624,6 +1766,18 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tie
 			base_params = _su35_params_base
 		EnemyType.FA18:
 			base_params = _fa18_params_base
+		EnemyType.F4E:
+			base_params = _f4e_params_base
+		EnemyType.F15:
+			base_params = _f15_params_base
+		EnemyType.F16:
+			base_params = _f16_params_base
+		EnemyType.MIRAGE2000:
+			base_params = _mirage2000_params_base
+		EnemyType.SU47:
+			base_params = _su47_params_base
+		EnemyType.CRE:
+			base_params = _cre_params_base
 		_:
 			base_params = _uav_params_base
 
@@ -1655,7 +1809,7 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tie
 			or etype == EnemyType.SU27 or etype == EnemyType.A7 or etype == EnemyType.Q5 \
 			or etype == EnemyType.AF03 \
 			or etype == EnemyType.F4 or etype == EnemyType.F104 or etype == EnemyType.SU35 \
-			or etype == EnemyType.FA18:
+			or etype == EnemyType.FA18 or etype == EnemyType.F4E:
 		scale = SurvivorData.enemy_scale_for_level(survivor_player.level)
 	elif etype == EnemyType.UAV_COMMANDER:
 		scale = SurvivorData.commander_scale_for_level(survivor_player.level)
@@ -1664,6 +1818,10 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tie
 		scale = {"hp_mult": 1.0, "missile_add": 0, "gun_damage_mult": 1.0}
 	elif AceTier.is_ace_type(etype):
 		# 王牌中队：无等级缩放，按满级玩家平衡（spec ace-squadron-tier §2.1）
+		scale = AceTier.no_scale()
+	elif etype == EnemyType.F15 or etype == EnemyType.F16 or etype == EnemyType.MIRAGE2000 \
+			or etype == EnemyType.SU47 or etype == EnemyType.CRE:
+		# 王牌专属机型（非 BOSS 型）：不进随机池、无等级缩放；强度全在 ace/宿敌层实例配置
 		scale = AceTier.no_scale()
 	elif etype == EnemyType.UAV_LASER:
 		# 拦截支援机：固定参数（不需要按等级提升 HP/伤害）
@@ -1683,9 +1841,8 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tie
 		enemy_params.missile.max_count += int(scale["missile_add"])
 	if enemy_params.gun:
 		enemy_params.gun.bullet_damage *= float(scale["gun_damage_mult"])
-	# 火箭弹伤害随等级轻度增长（命中率低，整体威胁还是有限）
-	if (etype == EnemyType.F86 or etype == EnemyType.A7 or etype == EnemyType.Q5) and enemy_params.rocket:
-		enemy_params.rocket.rocket_damage *= 1.0 + (survivor_player.level - 1) * 0.04
+	# 火箭弹的等级成长完全由武器 tier 表（enemy_rocket_v1~v8）承担 —— 2026-07-28 移除了
+	# 叠在 tier 之上的 F-86/A-7/Q-5 额外 +4%/级，避免同一维度两根成长杠杆互相放大。
 
 	# 敌机热诱弹限制：整个生命周期只允许释放一次，且只释放 1 枚
 	# （只够干扰玩家第一枚导弹，之后就没弹了，玩家第二发会命中）
@@ -1728,14 +1885,13 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tie
 			EnemyType.CH47:
 				# 运输直升机：机组偏向飞行而非战斗，50% 概率未能释放
 				enemy_params.flare.fail_chance = 0.50
-			EnemyType.F47:
-				# F-47 王牌：6 代电子战套件，不限制为 1 枚（BOSS 豁免热诱弹削弱）
-				enemy_params.flare.fail_chance = 0.05
-				enemy_params.flare.head_on_fail_reduction = 0.05
-			EnemyType.F14_POLTERGEIST:
-				# F-14 Poltergeist：舰载 BOSS，标准电子战，比 F-47 弱
-				enemy_params.flare.fail_chance = 0.15
-				enemy_params.flare.head_on_fail_reduction = 0.10
+			EnemyType.F47, EnemyType.F14_POLTERGEIST:
+				# 王牌中队：失误率恒 0（spec ace-squadron-tier §2.2 / §3.3）。
+				# "热诱弹即命数"要求 4 枚 = 4 条命严格成立、玩家能从骗掉几发推断剩余命数；
+				# fail_chance 是"对来袭导弹完全不反应"的骰子，它会让一条命随机蒸发 ——
+				# 与 §3.3 判定 jam 恒为 1.00 的理由完全相同，故一并归零
+				enemy_params.flare.fail_chance = 0.0
+				enemy_params.flare.head_on_fail_reduction = 0.0
 
 	enemy.params = enemy_params
 	enemy.team = 1
@@ -1764,31 +1920,7 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tie
 			if enemy_params.missile:
 				enemy_params.missile.cooldown = 2.5
 
-	var type_tag: String
-	match etype:
-		EnemyType.MIG: type_tag = "mig"
-		EnemyType.INTERCEPTOR: type_tag = "interceptor"
-		EnemyType.F86: type_tag = "f86"
-		EnemyType.MIG31: type_tag = "mig31"
-		EnemyType.MIG23: type_tag = "mig23"
-		EnemyType.F100: type_tag = "f100"
-		EnemyType.SU27: type_tag = "su27"
-		EnemyType.A7: type_tag = "a7"
-		EnemyType.Q5: type_tag = "q5"
-		EnemyType.UCAV: type_tag = "ucav"
-		EnemyType.UAV_COMMANDER: type_tag = "uav_commander"
-		EnemyType.TU160: type_tag = "tu160"
-		EnemyType.AH64: type_tag = "ah64"
-		EnemyType.CH47: type_tag = "ch47"
-		EnemyType.F47: type_tag = "f47"
-		EnemyType.F14_POLTERGEIST: type_tag = "f14_poltergeist"
-		EnemyType.AF03: type_tag = "af03"
-		EnemyType.UAV_LASER: type_tag = "uav_laser"
-		EnemyType.F4: type_tag = "f4"
-		EnemyType.F104: type_tag = "f104"
-		EnemyType.SU35: type_tag = "su35"
-		EnemyType.FA18: type_tag = "fa18"
-		_: type_tag = "uav"
+	var type_tag := type_tag_of(etype)
 	enemy.set_meta("enemy_type", type_tag)
 	# Token 系统元数据：便于重算占用与实例计数
 	enemy.set_meta("enemy_type_idx", int(etype))
@@ -1797,17 +1929,25 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tie
 	# 无驾驶员标记：UAV / UCAV / Sentinel / Aegis UAV 不受心理类状态（FEAR）影响
 	# 配套 Aircraft.apply_status 覆写，对 no_pilot=true 的飞机静默丢弃 FEAR
 	if etype == EnemyType.UAV or etype == EnemyType.UCAV \
-			or etype == EnemyType.UAV_COMMANDER or etype == EnemyType.UAV_LASER:
+			or etype == EnemyType.UAV_COMMANDER or etype == EnemyType.UAV_LASER \
+			or etype == EnemyType.CRE:
+		# CRE：宿敌 ORION 无人对抗学习原型机（spec events/ace-orion——全程静默 + FEAR 免疫）
 		enemy.no_pilot = true
 
 	# 无线电等级门（spec radio-chatter §2.8）：只有登记在册的机型配无线电。
 	# 未登记 = 沉默；无人机另有 no_pilot 硬规则兜底（见 Aircraft.can_speak_on_radio）。
 	enemy.has_radio_voice = ChatterLines.type_has_voice(type_tag)
 
-	# UAV 类不使用代号库，直接用类型+编号
+	# UAV 类不使用代号库，直接用型号+编号（MQ-109 更名批：呼号用型号名，不用类别词）
 	if etype == EnemyType.UAV or etype == EnemyType.UCAV or etype == EnemyType.UAV_COMMANDER:
 		_uav_serial += 1
-		enemy.callsign = "%s-%02d" % [type_tag.to_upper(), _uav_serial]
+		var serial_prefix: String
+		match etype:
+			EnemyType.UAV: serial_prefix = "MQ109"
+			EnemyType.UCAV: serial_prefix = "MQ110"
+			EnemyType.UAV_COMMANDER: serial_prefix = "SENTINEL"
+			_: serial_prefix = type_tag.to_upper()
+		enemy.callsign = "%s-%02d" % [serial_prefix, _uav_serial]
 	elif etype == EnemyType.TU160:
 		# Tu-160 北约代号 Blackjack
 		_tu160_serial += 1
@@ -1839,16 +1979,23 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tie
 	# 注入管理器
 	enemy.bullet_manager = bullet_manager
 	enemy.missile_manager = missile_manager
-	# 三档高度模式
+	# 三档高度模式：按机型定位抽档（截击机偏高空 / 攻击机偏低空，见 ENEMY_ALTITUDE_WEIGHTS）
 	enemy.flat_altitude = true
 	var enemy_tiers := [Aircraft.AltitudeTier.LOW, Aircraft.AltitudeTier.MID, Aircraft.AltitudeTier.HIGH]
-	enemy.set_target_tier(enemy_tiers[randi() % enemy_tiers.size()])
+	var tier_idx: int = SurvivorData.pick_altitude_tier(int(etype))
+	enemy.set_target_tier(enemy_tiers[tier_idx])
 
 	# AI 控制器
 	var ai := AIController.new()
 	ai.name = "AI_%s" % enemy.name
 	ai.aircraft = enemy
-	ai.patrol_altitude = randf_range(4000.0, 8000.0)
+	# 作战偏好高度跟随上面抽到的高度档，否则战术层交战时又被拉回中空，档位分化白做。
+	# 未登记类型（BOSS / adds / 事件单位，档位由各自 spawn 代码事后覆写）维持原 4000~8000，
+	# 免得 patrol_altitude 和被覆写的档位对不上。
+	if SurvivorData.ENEMY_ALTITUDE_WEIGHTS.has(int(etype)):
+		ai.patrol_altitude = SurvivorData.patrol_altitude_for_tier(tier_idx)
+	else:
+		ai.patrol_altitude = randf_range(4000.0, 8000.0)
 	var pp := player_aircraft.global_position
 	ai.waypoints = PackedVector2Array([
 		pp + Vector2(1200, -1200),
@@ -1989,6 +2136,13 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tie
 			var cobra_su35 := CobraManeuver.new()
 			cobra_su35.name = "CobraManeuver"
 			enemy.add_child(cobra_su35)
+		EnemyType.SU47:
+			# Su-47 = 王牌专属眼镜蛇斗士（GOOFIGHTERS，spec events/ace-goofighters）。
+			# AI 四维/闪避/装备由 ace 层（AceSquadProfiles + _configure_spawn）实例配置，
+			# 此处只挂前掠翼的招牌：眼镜蛇模块（王牌 flare 耗尽后才解锁，门在 CobraManeuver）
+			var cobra_su47 := CobraManeuver.new()
+			cobra_su47.name = "CobraManeuver"
+			enemy.add_child(cobra_su47)
 		EnemyType.FA18:
 			# F/A-18 = Gladiator 均衡舰载机（CSG BOSS 弹射出现）
 			# 海军飞行员训练扎实：技能 / 专注 / 心理素质都比常规敌机高
@@ -2017,6 +2171,19 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tie
 			ai.focus = clampf(randf_range(0.6, 0.85) + lbonus_f4 * 0.5, 0.6, 0.95)
 			ai.self_preservation = randf_range(0.25, 0.5)
 			ai.situational_awareness = randf_range(0.5, 0.75)
+		EnemyType.F4E:
+			# F-4E = 前期导弹杂鱼（有人机）：贴近 → 放导弹 → 笨重再进入
+			# 低技袍机组，不 joust 不规避；威胁只有导弹一张牌（spec enemies/f-4e §3.1）
+			ai.evade_missiles = false
+			ai.aggression = randf_range(0.5, 0.7)
+			ai.engage_cooldown = 4.0
+			ai.engage_duration = 25.0
+			var lbonus_f4e := clampf(float(survivor_player.level) / 20.0, 0.0, 0.2)
+			ai.skill_level = clampf(randf_range(0.25, 0.45) + lbonus_f4e, 0.25, 0.65)
+			ai.composure = clampf(randf_range(0.2, 0.4) + lbonus_f4e, 0.2, 0.6)
+			ai.focus = clampf(randf_range(0.35, 0.55) + lbonus_f4e * 0.5, 0.35, 0.7)
+			ai.self_preservation = randf_range(0.3, 0.5)
+			ai.situational_awareness = randf_range(0.3, 0.5)
 		EnemyType.F104:
 			# F-104 = Lancer 纯速度截击（"载人导弹"）：极速通过 + 一次发射后脱离
 			# 比 J-7 更激进（更高 aggression / 短 cooldown），但 HP 极低
@@ -2198,9 +2365,10 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tie
 		if is_planner_eligible:
 			enemy.use_tactical_planner = true
 
-	# 王牌中队 tier 标记（唯一打标处）。LOD 豁免 / 远距清理等"关键单位"语义
-	# 全部走 AceTier.is_ace() 查这个标记，不再各自看 category=="boss"
-	# —— 否则将来的非 BOSS 王牌中队拿不到 tier 待遇（spec ace-squadron-tier §2.1）
+	# 王牌中队 tier 标记（按 etype 的打标处；通用机型的非 BOSS 王牌走**实例打标**——
+	# AceSupportSquad._configure_spawn 里 AceTier.mark，勿把 SU35 整机型加进 is_ace_type）。
+	# LOD 豁免 / 远距清理等"关键单位"语义全部走 AceTier.is_ace() 查标记，
+	# 不再各自看 category=="boss"（spec ace-squadron-tier §2.1/§4.1）
 	if AceTier.is_ace_type(etype):
 		AceTier.mark(enemy)
 
@@ -2391,9 +2559,10 @@ func _update_boundary_discipline(_delta: float) -> void:
 		var ac: Aircraft = child
 		if ac.team != CombatUnit.TEAM_HOSTILE or ac.is_destroyed:
 			continue
-		# Boss / Adds 有独立航点管理，跳过
+		# Boss / Adds / 王牌支援中队 有独立航点管理，跳过
+		# （ace_support：猎手语义永追玩家，不受边界纪律拽回；出入界由事件层管理）
 		var cat: String = ac.get_meta("category", "")
-		if cat == "boss" or cat == "adds" or cat == "zone_air":
+		if cat == "boss" or cat == "adds" or cat == "zone_air" or cat == "ace_support":
 			continue
 		# 增援 TRANSIT/EGRESS 跨线飞行是设计内行为，不得被边界纪律 hard clamp/强制转向
 		# 打断（spec reinforcement-ingress §3.4）；ONSTATION/交战照常受纪律约束
@@ -2453,9 +2622,9 @@ func _update_enemy_waypoints(delta: float) -> void:
 	var pp := player_aircraft.global_position
 	for child in mode.get_children():
 		if child is Aircraft and child.team == CombatUnit.TEAM_HOSTILE and not child.is_destroyed:
-			# Adds 杂兵和 Boss 有独立航点管理，不被绕玩家航点覆盖
+			# Adds 杂兵 / Boss / 王牌支援中队 有独立航点管理，不被绕玩家航点覆盖
 			var cat2: String = child.get_meta("category", "")
-			if cat2 == "adds" or cat2 == "boss" or cat2 == "zone_air":
+			if cat2 == "adds" or cat2 == "boss" or cat2 == "zone_air" or cat2 == "ace_support":
 				continue
 			# 增援：锚点生命周期（TRANSIT 到站翻转 / ONSTATION 环维护），
 			# 不再发"绕玩家 800~1500px"磁铁环（spec reinforcement-ingress §3.4）
@@ -2481,6 +2650,13 @@ func _update_enemy_waypoints(delta: float) -> void:
 #  击杀检测 & 经验球
 # ══════════════════════════════════════════════
 
+## 机体特性经验倍率（PlayableAircraft.xp_gain_mult；幻影 III 电战数据链 = 1.1）。
+## 读 mode._player_profile = 与专属技能筛选同一身份源，进化换机后自动切换
+func _aircraft_xp_mult() -> float:
+	if mode and mode._player_profile:
+		return mode._player_profile.xp_gain_mult
+	return 1.0
+
 func _detect_kills() -> void:
 	for child in mode.get_children():
 		# ── 飞机击杀检测 ──
@@ -2492,33 +2668,46 @@ func _detect_kills() -> void:
 				if pl_ac and pl_ac.fear_squad_spread_duration > 0.0 \
 						and child.get_meta("kill_attacker_team", -1) == 0:
 					_trigger_squad_fear(child as Aircraft, pl_ac.fear_squad_spread_duration)
-				# UAV/UCAV 给较少经验，MiG 给完整经验
-				# Adds（Tu-160/AH-64/CH-47）用 flock 感知公式：整组击杀 ≈ +1 级
+				# UAV/UCAV 给较少经验，MiG 给完整经验；Adds（Tu-160/AH-64/CH-47）
+				# 与普通敌机同公式（2026-07-28 等级计价废除，spec survivor-loop §5）
 				var etype: String = child.get_meta("enemy_type", "mig")
-				var xp_value: int
-				if etype == "tu160":
-					xp_value = SurvivorData.adds_xp_per_kill(survivor_player.level, SurvivorData.TU160_FLOCK_SIZE)
+				# 生涯档案：玩家小队归因的空中击坠入档（spec career-archive §3.2；
+				# 无归因的坠地与第三方 ALLY 击坠不计）
+				if mode.archive_enabled() \
+						and int(child.get_meta("kill_attacker_team", -1)) == CombatUnit.TEAM_PLAYER:
+					CareerArchive.record_air_kill(etype)
+				var base_xp := XP_PER_KILL
+				if etype == "uav" or etype == "ucav":
+					base_xp = XP_PER_KILL_UAV
+				elif etype == "f4e":
+					base_xp = XP_PER_KILL_F4E
+				elif etype == "uav_commander":
+					base_xp = SurvivorData.XP_PER_KILL_COMMANDER
+				elif etype == "tu160":
+					base_xp = SurvivorData.XP_PER_KILL_TU160
 				elif etype == "ah64":
-					xp_value = SurvivorData.adds_xp_per_kill(survivor_player.level, SurvivorData.AH64_FLOCK_SIZE)
+					base_xp = SurvivorData.XP_PER_KILL_AH64
 				elif etype == "ch47":
-					xp_value = SurvivorData.adds_xp_per_kill(survivor_player.level, SurvivorData.CH47_FLOCK_SIZE)
-				else:
-					var base_xp := XP_PER_KILL
-					if etype == "uav" or etype == "ucav":
-						base_xp = XP_PER_KILL_UAV
-					elif etype == "uav_commander":
-						base_xp = SurvivorData.XP_PER_KILL_COMMANDER
-					elif etype == "f47":
-						base_xp = SurvivorData.XP_PER_KILL_F47
-					xp_value = base_xp + survivor_player.level * 8
+					base_xp = SurvivorData.XP_PER_KILL_CH47
+				elif etype == "f47" or AceTier.is_ace(child):
+					# 王牌 tier 统一 100 XP 档（F-47 / 支援中队 Su-35 实例打标，
+					# spec events/ace-support-squadron §2.5）
+					base_xp = SurvivorData.XP_PER_KILL_F47
+				var xp_value: int = base_xp + survivor_player.level * 8
 				# 骑士心脏·历练（720 批）：对头击杀经验 ×1.5（先乘，再叠 xp_mult）
 				if int(mode.upgrade_stacks.get("headon_xp", 0)) > 0 \
 						and float(child.get_meta("kill_head_on_dot", 0.0)) >= HEAD_ON_DOT_THRESHOLD \
 						and float(child.get_meta("kill_attacker_aim", 0.0)) >= HEAD_ON_DOT_THRESHOLD:
 					xp_value = int(round(float(xp_value) * 1.5))
 				# xp_mult 升级（队级单实例：倍率在 SurvivorPlayer 层，切控不丢——720 T2）
-				xp_value = int(round(float(xp_value) * survivor_player.xp_multiplier))
+				# 智能鹰（722 sig_f16）第二乘区独立叠乘，不占 xp_mult 硬顶
+				# + 机体特性乘区（PlayableAircraft.xp_gain_mult，幻影 III 电战数据链 1.1）
+				xp_value = int(round(float(xp_value) * survivor_player.xp_multiplier \
+					* survivor_player.sig_xp_mult * _aircraft_xp_mult()))
 				survivor_player.add_xp(xp_value)
+				# 表现层：+N 沉入底部经验条（bench 压测跳过，省负载）
+				if not mode._bench_mode and mode.hud:
+					mode.hud.spawn_xp_gain(xp_value)
 				kill_count += 1
 				_kill_heal()
 				_check_head_on_kill_bonus(child)
@@ -2529,10 +2718,23 @@ func _detect_kills() -> void:
 		elif child is GroundUnit and child.team == CombatUnit.TEAM_HOSTILE and child.is_destroyed:
 			if not child.has_meta("xp_granted"):
 				child.set_meta("xp_granted", true)
+				# 生涯档案：地面摧毁（总数 + 逐型 tag，敌人图鉴按型显示；spec career-archive §2.2）
+				if mode.archive_enabled():
+					var gtag := "aa"
+					if child is SAMUnit:
+						gtag = "sam"
+					elif child is RadarStation:
+						gtag = "radar"
+					CareerArchive.record_ground_kill(gtag)
 				var xp_value := SurvivorData.XP_PER_KILL_GROUND + survivor_player.level * 4
-				# xp_mult 升级（队级单实例，SurvivorPlayer 层）
-				xp_value = int(round(float(xp_value) * survivor_player.xp_multiplier))
+				# xp_mult 升级（队级单实例，SurvivorPlayer 层）+ 智能鹰第二乘区（722 sig_f16）
+				# + 机体特性乘区（PlayableAircraft.xp_gain_mult）
+				xp_value = int(round(float(xp_value) * survivor_player.xp_multiplier \
+					* survivor_player.sig_xp_mult * _aircraft_xp_mult()))
 				survivor_player.add_xp(xp_value)
+				# 表现层：+N 沉入底部经验条（bench 压测跳过）
+				if not mode._bench_mode and mode.hud:
+					mode.hud.spawn_xp_gain(xp_value)
 				kill_count += 1
 				_kill_heal()
 				# 热度：击毁地面 TGT（spec global-awareness-roe §2.4；地面击杀现阶段

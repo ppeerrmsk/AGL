@@ -17,6 +17,10 @@ var is_active: bool = true
 var has_guidance: bool = true
 var is_flare_jammed: bool = false  ## 被热诱弹干扰，永久失去制导
 var _guidance_ever_lost: bool = false  ## 飞行中曾丢制导(出 FOV/照射中断)——脱靶日志区分"末段丢锁"vs"全程制导仍脱靶"
+## ── 722 批签名技能（spec aircraft-signature-skills，spawn_missile 按发射者技能打标）──
+var sig_silent: bool = false          ## 夜枭（X-09）：敌机对本弹无警觉（不规避、不投焰）
+var sig_retarget_armed: bool = false  ## 超越地平（X-21）：被 flare 偏转后可重索敌（每弹一次）
+var _sig_retarget_timer: float = 0.0  ## 超越地平：偏转后直飞累计秒数（≥2s 触发重索敌）
 var bounces_remaining: int = 0     ## 剩余弹跳次数（连锁弹头进化）
 var proximity_aoe: bool = false    ## 近炸引信：爆炸时产生 AOE 区域
 
@@ -226,6 +230,18 @@ func _physics_process(delta: float) -> void:
 		# SARH 照射检查 + 热诱弹干扰
 		if is_flare_jammed:
 			has_guidance = false
+			# 722 sig_x21·超越地平：被偏转后直飞 2s → 导引头 FOV 内重索敌（每弹一次）
+			if sig_retarget_armed:
+				_sig_retarget_timer += get_physics_process_delta_time()
+				if _sig_retarget_timer >= 2.0:
+					sig_retarget_armed = false
+					var new_tgt: CombatUnit = _sig_find_retarget()
+					if new_tgt != null:
+						target = new_tgt
+						is_flare_jammed = false
+						has_guidance = true
+						EventLogger.log_event("MISSILE", _unit_name(new_tgt),
+							"超越地平：被偏转导弹重索敌 → %s" % _unit_name(new_tgt))
 		elif not t_valid or t_destroyed:
 			has_guidance = false
 		elif t_is_cloaked:
@@ -319,6 +335,29 @@ func _physics_process(delta: float) -> void:
 	_prev_heading = heading
 
 	queue_redraw()
+
+## 722 sig_x21·超越地平：重索敌——导引头 FOV 内、4000px 内最近的敌方单位（TEAM_HOSTILE）
+func _sig_find_retarget() -> CombatUnit:
+	var fov_rad: float = deg_to_rad(params.seeker_fov if params else 30.0)
+	var fwd := Vector2(sin(heading), -cos(heading))
+	var best: CombatUnit = null
+	var best_d: float = INF
+	for u in CombatUnit.all_units:
+		if u == null or not is_instance_valid(u) or u.is_destroyed:
+			continue
+		if u.team != CombatUnit.TEAM_HOSTILE or u.is_lock_immune():
+			continue
+		var to_u: Vector2 = u.global_position - global_position
+		var d: float = to_u.length()
+		if d < 1.0 or d > 4000.0:
+			continue
+		if absf(fwd.angle_to(to_u)) > fov_rad:
+			continue
+		if d < best_d:
+			best_d = d
+			best = u
+	return best
+
 
 ## 进入渐隐滑行状态：寿命到期 / 能量耗尽时调用，替代瞬间 is_active=false。
 ## 命中爆炸路径不走这里（MissileManager 直接 queue_free，由 ExplosionVFX 替代视觉）

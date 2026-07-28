@@ -20,26 +20,64 @@ var _selected_index: int = -1
 # 加新主角的工作流程见 docs/reference/playable-aircraft-workflow.md
 const PLAYABLE_LIST: Array[Dictionary] = [
 	{
-		# F-15 起手（制空/综合，路线最多；spec player-aircraft-power-curve §2 T1）
+		# F-15 起手（制空/综合，路线最多；spec player-aircraft-power-curve §2 T1）——恒解锁
+		"id": "f15",
 		"resource": "res://resources/playable_f15.tres",
 		"locked": false,
 	},
 	{
-		# F-14 起手（远程/团队，开局送 3 僚机；全谱最弱锚点）
+		# F-14 起手（远程/团队，开局送 3 僚机；全谱最弱锚点）——首败航母 BOSS 解锁（career-shop §2.1）
+		"id": "f14",
 		"resource": "res://resources/playable_f14.tres",
 		"locked": false,
 	},
 	{
 		# A-6E 起手（攻击/肉，轻火箭；矩阵 v7 新建，取代旧 A-10 起手位——A-10 降为 T2 进化获得）
+		# ——30 地面击杀解锁（career-shop §2.1）
+		"id": "a6e",
 		"resource": "res://resources/player/playable_a6e.tres",
 		"locked": false,
 	},
 	{
 		# 幻影 III 起手（电战线之根，补齐四角色四选一；X-02 移入 T5 树内 LV22 进化获得）
+		# ——生涯商店购买解锁（career-shop §2.1）
+		"id": "mirage3",
 		"resource": "res://resources/player/playable_mirage3.tres",
 		"locked": false,
 	},
 ]
+
+## 本次渲染实际使用的名单（PLAYABLE_LIST 经生涯解锁门控后的副本）
+var _list: Array[Dictionary] = []
+
+## 生涯解锁门控（spec career-shop §2.1，2026-07-26 用户改版）：未解锁机型走 locked
+## 占位形态——**不加载档案、不显示任何机体数据**（名字 ???、无武器/数值/描述），
+## 只在按钮位显示解锁条件句。boss debug 链路全谱放行（debug 测试场必须全谱选机）。
+func _effective_list() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	var debug_bypass: bool = get_tree().has_meta("boss_debug_mode")
+	for entry in PLAYABLE_LIST:
+		var e: Dictionary = entry.duplicate()
+		var aid := String(e.get("id", ""))
+		if not debug_bypass and aid != "" and not MetaShop.is_aircraft_unlocked(aid):
+			e["locked"] = true
+			e["slot_desc"] = ""   # 压掉占位卡默认的"新机型开发中"文案（这不是开发中）
+			e["unlock_text"] = _unlock_hint_for(aid)
+		out.append(e)
+	return out
+
+## 锁定卡按钮上的解锁条件句（career-shop §2.4）
+func _unlock_hint_for(aircraft_id: String) -> String:
+	match aircraft_id:
+		"f14":
+			return tr("UNLOCK_HINT_F14")
+		"a6e":
+			return tr("UNLOCK_HINT_A6E_FMT") % mini(
+				CareerArchive.get_ground_kills(), MetaShop.A6E_GROUND_KILLS_REQUIRED)
+		"mirage3":
+			return tr("UNLOCK_HINT_MIRAGE3")
+		_:
+			return tr("SLOT_DEV_LOCKED_BUTTON")
 
 func _ready() -> void:
 	RenderingServer.set_default_clear_color(BG_COLOR)
@@ -134,7 +172,8 @@ func _build_ui() -> void:
 	_cards_container.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	root.add_child(_cards_container)
 
-	for i in range(PLAYABLE_LIST.size()):
+	_list = _effective_list()
+	for i in range(_list.size()):
 		_build_aircraft_card(i)
 
 	# 下方提示
@@ -156,8 +195,9 @@ func _build_ui() -> void:
 	root.add_child(spacer_bottom)
 
 func _build_aircraft_card(index: int) -> void:
-	var data: Dictionary = PLAYABLE_LIST[index]
+	var data: Dictionary = _list[index]
 	var locked: bool = data.get("locked", false)
+	var dev_locked: bool = data.get("dev_locked", false)
 
 	# 加载档案（仅未锁定项）
 	var profile: PlayableAircraft = null
@@ -265,6 +305,19 @@ func _build_aircraft_card(index: int) -> void:
 			wpn_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 			inner.add_child(wpn_label)
 
+	# 机体特性行（card_perks：数值级差异如强化机炮/经验加成；
+	# 未解锁卡不展示——用户 2026-07-27，只给已解锁玩家看细账）
+	if not locked and not dev_locked and profile:
+		for perk_key in profile.card_perks:
+			var perk := Label.new()
+			perk.text = tr(perk_key)
+			perk.add_theme_font_size_override("font_size", 11)
+			perk.add_theme_color_override("font_color", Color(0.6, 0.95, 0.6, 0.8))
+			perk.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			perk.custom_minimum_size = Vector2(220, 0)
+			perk.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			inner.add_child(perk)
+
 	# 描述
 	var desc_label := Label.new()
 	if locked:
@@ -303,9 +356,13 @@ func _build_aircraft_card(index: int) -> void:
 	btn.custom_minimum_size = Vector2(220, 40)
 	btn.add_theme_font_size_override("font_size", 16)
 
-	var dev_locked: bool = data.get("dev_locked", false)
 	if locked or dev_locked:
-		btn.text = tr("SLOT_DEV_LOCKED_BUTTON") if dev_locked else tr("SLOT_LOCKED_BUTTON")
+		# 生涯门控卡（career-shop）：按钮显示解锁条件句；无条件句才落回"开发中/未解锁"
+		if data.has("unlock_text"):
+			btn.text = String(data["unlock_text"])
+			btn.add_theme_font_size_override("font_size", 13)
+		else:
+			btn.text = tr("SLOT_DEV_LOCKED_BUTTON") if dev_locked else tr("SLOT_LOCKED_BUTTON")
 		btn.disabled = true
 		var dis_style := StyleBoxFlat.new()
 		dis_style.bg_color = ThemeColors.SELECT_BTN_DISABLED_BG
@@ -353,14 +410,10 @@ func _build_aircraft_card(index: int) -> void:
 # ══════════════════════════════════════════════
 
 func _on_aircraft_selected(index: int) -> void:
-	var data: Dictionary = PLAYABLE_LIST[index]
+	var data: Dictionary = _list[index] if index < _list.size() else PLAYABLE_LIST[index]
 	if data.get("locked", false) or data.get("dev_locked", false):
 		return
 	# 通过 scene tree meta 传递选择的 PlayableAircraft 资源路径
 	get_tree().set_meta("survivor_aircraft_resource", data["resource"])
-	# 进配件机库；机库的"出击"按钮会接力到 building_preloader → survivor_mode
-	# Boss Debug 模式跳过机库（直接出击，配件预设由 BossDebugBuilds 管）
-	if get_tree().has_meta("boss_debug_mode"):
-		get_tree().change_scene_to_file("res://scenes/building_preloader.tscn")
-	else:
-		get_tree().change_scene_to_file("res://scenes/survivor_loadout.tscn")
+	# 直接出击（配件机库已随槽位配件系统退役，spec doctrine-unlocks §3.5）
+	get_tree().change_scene_to_file("res://scenes/building_preloader.tscn")

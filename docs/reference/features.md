@@ -1,196 +1,199 @@
-# 已实现功能
+# 已实现功能清单
 
-## 操控
+> 最后校订：2026-07-26。本文回答"**这个游戏现在有什么**"，是给人看的粗粒度盘点。
+>
+> - 想知道**数值/公式/为什么** → [docs/specs/](../specs/_INDEX.md)（权威源）
+> - 想知道**代码在哪** → [script-index.md](script-index.md) / [code-index.md](code-index.md)
+> - 想知道**某次改动当时做了什么** → `docs/changelogs/`
+>
+> ⚠ 本文只标"有没有"，不标数值。相当多的系统状态是"代码已落地、差 playtest 调参"，
+> 精确状态看 [specs/_INDEX.md](../specs/_INDEX.md) 总表的 status 列。
 
-- **左键点击空地** → 选中飞机飞向该点，显示航向指示线
-- **左键点击敌机** → 锁定目标，飞机自动追踪交战（优先检测敌机）
-- **右键点击** → 取消目标/航路点，飞机回正直飞
-- **滚轮**缩放地图（0.1x ~ 5.0x）
-- **中键拖拽**平移相机
-- 启动时自动选中第一架友方飞机
+---
 
-## 飞机物理
+## 操控与指挥
 
-- 不使用 Godot 物理引擎，全部在 `_physics_process` 中自行演算
-- 内部单位：米、m/s；显示单位：km/h
-- 地图比例：1 像素 = 2 米（`PIXELS_PER_METER = 0.5`）
-- **转弯**：标准协调转弯，`ω = g × tan(bank_angle) / speed`
-- **战斗模式激进转弯**：战斗中根据 `combat_bank_aggression` 参数决定转弯力度，小偏差也拉大 G
-- **巡航模式温和转弯**：无目标时轻柔修正，接近目标时衰减力度防振荡
-- **滚转速率限制**：bank 角变化受 `roll_rate`（rad/s）限制
-- **G 载荷**：`G = 1 / cos(bank_angle)`
-- **非对称加减速**：加速用 `acceleration`，减速用 `deceleration`（更高），模拟减速板
-- **高 G 阻力**：拉 G 时额外减速 `(G-1) × g_drag_factor`，9G 转弯时减速率翻倍
-- **高度⇌速度耦合**：`dV/dt ≈ -g × sin(γ)`，俯冲自然加速，爬升自然减速
-- **失速**：`V_stall = V_stall_base × √G`，低于失速速度时丢高度、逐渐恢复速度
-- **高度影响**：空气密度比 `σ = e^(-alt/8500)`，影响最大速度
-- **初始航向**：`initial_heading_deg` 导出属性，可在编辑器/场景中配置
+- **RTS 点选操控**：左键点空地 → 飞向该点；左键点敌机 → 设为战斗目标并自动交战；右键取消
+- **玩家命令铁律**：玩家点名的 `commanded_target` AI 绝不覆盖，逐机持久、跨切控保留
+- **切控**：数字键 1-4 接管小队任意一号机（`squad_slot` 稳定），被接管机的 AI 休眠，原操控机交还 AI
+- **换帅**：`set_leader` 切换长机
+- **命令轮盘**（按住左键拖拽呼出 marking menu，带子弹时间）
+  - 小队轮盘（按空地）：紧急集合 / 撤离此区 / 防守此区 + 三个开关（自动交战 / 高度偏好 / 自动发射）
+  - 攻击轮盘（按敌机）：姿态（STANDOFF 打带跑 / ASSAULT 突击）× 火力分配（集火 / 分火）× 阵型纪律
+  - **输入语法**：单点 = 只管自机 / 轮盘 = 永远全队广播
+- **加力模式**（E 键）：小队级充能资源，激活期全队强 buff（机炮闪避 / 滚转甩导弹 / 满速地板），禁攻击
+- 相机：滚轮缩放、中键拖拽平移、战术地图
 
-## 机炮系统
+权威源：[specs/systems/command-wheel](../specs/systems/command-wheel.md) ·
+[specs/systems/rts-command](../specs/systems/rts-command.md) ·
+[specs/systems/squad-control-switching](../specs/systems/squad-control-switching.md) ·
+[specs/systems/afterburner-mode](../specs/systems/afterburner-mode.md)
 
-- **GunParams 资源**：独立配置射速、伤害、初速、射程、散布角、开火锥角、弹药量
-- **自动开火**：进入射程 + 机头对准前置点时自动射击，无需手动操作
-- **前置射击**：计算子弹飞行时间 × 敌机速度得出前置点，子弹朝前置方向发射
-- **后半球标准射击**：在敌机后方时使用精确角度 + 满射程
-- **机会射击**：追不上时放宽角度、缩短射程，只在近距离抓射击窗口
-- **距离伤害衰减**：前 30% 飞行距离满伤害，之后线性衰减到 20%
-- **高度差检查**：高度差 > 500m 时不开火 / 不命中
-- **曳光弹可视化**：亮黄色短线段
-- **机头闪光**：开火时机头橙色闪光效果
-- **弹药显示**：数据标签显示 `AMM` 剩余弹药
+---
 
-## 燃油与加力燃烧
+## 飞行物理
 
-- **燃油系统**：有限油量，巡航/加力分别消耗不同油率
-- **Afterburner**：战斗时自动管理，加速度乘以 `afterburner_thrust_mult`
-- **AB 冷却**：开关切换有 `ab_cooldown` 秒最短间隔，防止反复抖动
-- **AB 视觉**：尾喷口橙色闪烁火焰 + 数据标签 `AB` 标记
-- **燃油显示**：数据标签显示 `FUEL` 剩余油量
+不使用 Godot 物理引擎，全部在 `_physics_process` 手动演算。按 LOD 分三档调度。
 
-## 战斗 AI — 追踪与交战
+- 标准协调转弯 `ω = g × tan(bank) / speed`；G 载荷 `G = 1/cos(bank)`
+- 滚转速率限制、非对称加减速（减速板语义）、高 G 阻力
+- 高度⇌速度能量耦合（俯冲加速 / 爬升减速）
+- 失速 `V_stall = V_stall_base × √G`；**角点速度地板**保证不会"转弯转到失速"
+- 空气密度比 `σ = e^(-alt/8500)` 影响高空最大速度
+- 转弯控制器为**临界阻尼 PD**（2026 重写，见 SEAM-012）
+- 机动性 buff 统一走 `effective_*()` accessor 层，AI 战术层自动感知（CLAUDE.md 强制约定）
 
-### 三阶段追踪策略
+权威源：[architecture.md](../architecture.md) · [specs/systems/flight-model-realism](../specs/systems/flight-model-realism.md)
 
-1. **远距离拦截**（> 射程 × `intercept_range_mult`）：计算前置拦截点，限制最大预判时间
-2. **咬六点钟**（闭合率充裕）：飞向敌机正后方偏移位置
-3. **纯追击**（追不上/速度相近）：直接追向敌机 + 少量前置量
+---
 
-### 能量管理 AI
+## 武器系统
 
-根据战斗状态自动管理速度和高度：
+全部武器**自动开火**，不存在玩家手动扳机（设计原则 10）。
 
-| 状态 | 速度 | 加力 | 高度 |
-|---|---|---|---|
-| 正在开火 | 格斗速度 | 关 | 匹配敌机 |
-| 冲过敌机 | 敌速 × 85%（急刹） | 关 | 爬升消耗动能 |
-| 大角度转向 | 巡航 × 85%（收紧转弯） | 关 | 小幅爬升辅助减速 |
-| 后半球优势 | 距离动态上限 | 未到上限就开 | 匹配敌机 |
-| 远距离拦截 | 接近速度 | 闭合慢就开 | 匹配敌机 |
-| 射程内调整 | 格斗速度 | 关 | 匹配敌机 |
-
-### 高度⇌速度能量转换
-
-- **速度过高** → 爬升消耗动能（速度→高度），超速越多爬越猛
-- **速度过低** → 俯冲获取动能（高度→速度）
-- **冲过敌机** → 全力爬升 + 急刹
-- **大转弯辅助** → 小幅爬升帮助减速
-- 所有高度变化以敌机高度为锚点，每帧重置，不会漂移
-
-### 防冲过系统
-
-- **距离动态限速**：远距离允许高速，近距离严格限制为敌速 × `overshoot_speed_margin`
-- **冲过检测**：近距离 + 不在后半球 → 判定为冲过
-- **冲过恢复**：急减速到敌速 85% + 爬升消耗动能，让敌机追上后重新进攻
-
-### 闭合率与后半球判定
-
-- **闭合率**：两机速度在视线方向的投影差，判断是否在接近
-- **后半球**：计算自机相对敌机尾部的夹角（aspect angle < 90°），决定射击规则和加速策略
-
-## 伤害与击毁
-
-- **take_damage()**：扣减 HP，HP ≤ 0 触发击毁
-- **坠落动画**：失控旋转下坠 3 秒后 `queue_free()`
-- **击毁解除**：目标被击毁后自动清除战斗目标
-- **击毁视觉**：灰色闪烁简化图标
-
-## CombatParams — 战斗风格配置
-
-独立 Resource，控制飞行员 AI 行为风格，支持不同性格配置：
-
-- **追踪策略**：拦截距离、预判时间、闭合率阈值、六点钟偏移、纯追击前置量
-- **开火纪律**：机会射击角度放宽倍率、射程缩减比
-- **机动激进度**：转弯激进度、压满坡度的航向偏差阈值
-- **转向减速**：开始减速的偏差角、最大减速角、减速速度倍率
-- **速度管理**：接近/格斗/咬尾速度倍率、AB 冷却、防冲过参数
-- **能量管理**：俯冲/爬升触发条件、深度、高度上下限
-
-## 雷达
-
-- **锥形探测**：以飞机航向为轴的扇形区域，参数化半径和角度
-- **锁定计算**：目标在锥内持续 `lock_time` 秒后锁定
-- **悬停显示**：鼠标悬停飞机时显示雷达锥
-- **锁定警告**：被锁定时四周闪烁红色三角
-
-## 视觉
-
-- **飞机图标**：代码绘制（`_draw()`）的极简线框战斗机轮廓
-- **阵营颜色**：友方蓝色、敌方红色
-- **滚转变形**：转弯时水平压缩图标（`scale.x *= cos(bank_angle)`）
-- **高度缩放**：`scale = lerp(0.7, 1.3, altitude / max_altitude)`
-- **选中环**：选中飞机周围显示半透明圆环
-- **追踪线**：锁定敌机时橙红色连接线 + 十字标记；普通航点时阵营色菱形标记
-- **加力火焰**：AB 开启时尾喷口闪烁橙色三角火焰
-- **机头闪光**：开火时机头黄色闪光
-- **数据标签**：机名、航向、速度(kt)、马赫数、高度、G力、弹药、燃油、AB/STALL 状态
-- **地形**：FastNoiseLite 生成的纸质航图风格地形 + 薄雾叠加
-- **网格**：200px 间距半透明网格
-
-## AI 巡逻
-
-- `AIController` 附加到敌机节点，按航路点巡逻
-- 支持自定义航路点、巡逻高度、到达距离
-- 默认生成以初始位置为中心的矩形路线
-- 飞机被击毁后停止 AI 巡逻
-
-## 资源架构
-
-| 资源 | 说明 |
-|---|---|
-| `AircraftParams` | 飞机性能：速度/机动/引擎/燃油/雷达/机炮/战斗风格/视觉 |
-| `GunParams` | 机炮参数：射速/伤害/初速/射程/散布/弹药 |
-| `CombatParams` | 战斗风格：追踪/开火/机动/速度/能量管理 |
-
-所有参数通过 `.tres` 资源文件配置，支持不同机型和飞行员性格组合。
-
-## 测试场景
-
-6 架敌机覆盖不同场景：
-
-| 敌机 | 初始航向 | 行为 |
+| 武器 | 状态 | 备注 |
 |---|---|---|
-| EnemyHeadOn | 180°（朝南） | 迎面飞来，南北往返 |
-| EnemyFlyAway | 0°（朝北） | 背对逃跑 |
-| EnemyCrossLeft | 90°（朝东） | 从左向右横穿 |
-| EnemyCrossRight | 270°（朝西） | 从右向左横穿 |
-| EnemyOrbit1 | 90°（朝东） | 菱形盘旋（左前方） |
-| EnemyOrbit2 | 270°（朝西） | 菱形盘旋（右前方） |
+| 机炮 | ✅ | 前置射击 / 距离伤害衰减 / 高度差检查 / **梭射节奏**（burst 制，非匀速滴弹）|
+| 主导弹 | ✅ | PN 比例导引 / 智能目标选择 / 单目标不重复补射 / crank 保持照射 |
+| 副武器槽 SP | ✅ | 独立锁定锥/距离/CD 的第二套武器子系统（首个样本 QMAAM）|
+| 火箭弹 | ✅ | 扇形锥内自动一波速发（A-10 Hydra 70 等）|
+| 电磁炮 | ✅ | 充能 + 预测狙击 + **承诺弹道**（指示线即发射线）；两相对准 |
+| 激光 | ✅ | 拦截型（Aegis UAV 打导弹）|
+| 热诱弹 | ✅ | 概率失误 `fail_chance`；对王牌中队而言**热诱弹即命数** |
+| 忠诚僚机 / 漂浮雷 / 空射鱼雷 | ✅ | 特殊装备类 |
+| 武器竞选 | ✅ | "什么距离用什么武器"的统一准则 + 机头指向路径提前点瞄准语义 |
 
-## 导弹系统
+⚠ **不做**现实武器分类（红外/半主动/主动）的差异化逻辑——武器只是一组性能参数。
 
-- **MissileParams 资源**：独立配置速度、推力、射程、弹头、制导参数、挂载数量
-- **SARH 制导**：半主动雷达制导，发射机必须持续雷达照射目标
-- **比例导引（PN）**：`A_cmd = N × V_closure × ω_LOS`，近距 < 200m 切换纯追踪
-- **自动发射**：雷达锁定稳定后自动发射，无需手动操作
-- **智能目标选择**：多目标在锥内时，评分选出最优（偏差小、距离近、闭合率高、锁定久）
-- **单目标约束**：同一目标已有导弹在飞 → 等结果再决定是否补射
-- **三阶段机动**：接近（积极拦截）→ 照射（稳定跟踪）→ 保持（极稳定 crank）
-- **武器优先级**：有导弹优先导弹，非常近才切机炮；模式切换有滞后防震荡
-- **导弹可视化**：菱形弹体 + 灰白烟迹 + 发动机火焰
-- **数据标签**：显示 `MSL X` 剩余导弹数
-- **近炸引信**：2D 距离 + 高度容差命中检测
-- **发射后保持照射**：Crank 阶段 8 秒，极稳定飞行维持锁定
+权威源：[specs/systems/weapon-employment-doctrine](../specs/systems/weapon-employment-doctrine.md) ·
+[specs/weapons/](../specs/_INDEX.md) · [systems/missile-system.md](../systems/missile-system.md)
 
-## 资源架构
+---
 
-| 资源 | 说明 |
-|---|---|
-| `AircraftParams` | 飞机性能：速度/机动/引擎/燃油/雷达/机炮/导弹/战斗风格/视觉 |
-| `GunParams` | 机炮参数：射速/伤害/初速/射程/散布/弹药 |
-| `MissileParams` | 导弹参数：速度/推力/射程/弹头/制导/装载 |
-| `CombatParams` | 战斗风格：追踪/开火/机动/速度/能量管理 |
+## 雷达与锁定
 
-所有参数通过 `.tres` 资源文件配置，支持不同机型和飞行员性格组合。
+- 锥形探测（航向为轴的扇形），参数化半径 + 半角
+- 锁定累积 `lock_time`；被锁警告；照射共享
+- JAM 状态清空照射并禁止累积；云层内锁定衰减
+- 隐形（STEALTH）机制 + **隐形一致性铁律**（所有索敌通路都要过 `is_lock_immune`）
 
-## 尚未实现
+权威源：[systems/radar-system.md](../systems/radar-system.md)
 
-- 编队操控（框选、多选、阵型）
-- 主动雷达导弹（ARH，发射后不管）
-- 红外导弹
-- 导弹规避 AI
-- 箔条/曳光弹反制
-- 飞行员性格 AI（利用 CombatParams 配置不同风格）
-- 敌机主动交战 AI
-- 地图边界
-- 音效
-- 更多机型
+---
+
+## AI
+
+- 状态机 `AIState { PATROL, ENGAGE, SQUAD_FOLLOW }` + 导弹规避子行为
+- **TacticalPlanner**（P4 重构）：玩家 / 僚机 / 全部敌机走统一决策路径，输出 intent
+- BFM 战术族：lead/lag pursuit、lead turn、high/low yoyo、破 S、boom-zoom、overshoot 处理
+- 行为原语：攻击跑（joust）/ 对面攻击 pass / 慢速空中目标 pass / 圈外切入
+- AI 原型预设（内部词汇，**不对玩家暴露**）：Gladiator / Lancer / Schemer / Adds
+- 飞行员心理：`stress` / SA（FEAR 状态的底层）
+- 交战纪律：无 combat_target 即停火；能量触发的脱出重建
+- 全图察觉与 ROE：中队级感知圈 + 任务姿态五型 + **热度即难度**（内部量，不上 HUD）
+- 目标选择：可命中性评分（对正度/包络/锁定/邻近）+ **战场引力**三带
+
+权威源：[systems/ai-system.md](../systems/ai-system.md) ·
+[specs/systems/global-awareness-roe](../specs/systems/global-awareness-roe.md) ·
+[specs/systems/target-engageability-selection](../specs/systems/target-engageability-selection.md)
+
+---
+
+## 编队与小队
+
+- Squad 结构 + 阵型槽位；三段式托管航向控制（LOD 1）
+- 阵型纪律开关：FREE 自由散开 / TIGHT 紧密队形 + 齐射（长机开火 = 全队开窗）
+- 小队凝聚学说：焦点开火、维持阵型、防游走 leash、GUARD_REAR 守后
+- 僚机护卫：反杀咬长机者 + 投护卫 flare 替长机挡导弹
+- 敌方同享编队学说（成建制 / 随机阵型）
+- 调试：F11 编队覆盖层、F12 编队快照
+
+权威源：[systems/squad-tactics-design.md](../systems/squad-tactics-design.md) ·
+[specs/systems/squad-cohesion](../specs/systems/squad-cohesion.md) ·
+[specs/systems/formation-discipline](../specs/systems/formation-discipline.md)
+
+---
+
+## 生存模式（主玩法）
+
+- **战区推进 → BOSS 战 → 击败 BOSS 即过关**（不是无尽波次）
+- 战区任务：地面 TGT 打光 / 空中中队歼灭 / 机场解放；攻克后开新战区
+- **停靠结算**：飞到停靠点减速着陆 → 领奖励 / 换机进化 / 全队满血
+- **进化树**：41 节点宝可梦式机型进化（T1 起手四选一 → T5 原创超凡），带 LV + 三轴属性双门槛
+- **三轴卡片制**：每升 3 级三选一（斗士 / 骑士 / 策士各一张），选卡 = 技能 + 该轴 1 点
+- **技能系统**：144 条技能表，含 41 条机型签名技（驾驶该机型才刷出，到手跟玩家走）
+- **局内武器库**：特殊武器到手即永久，换机 / 进化全继承
+- **局外功勋**（MeritLedger）：局内 XP 按系数折算，节制原则（局内 90% / 局外 10%）
+- 敌人谱 22+ 种（含直升机 / 轰炸机 / 无人机 / 舰载机 / 王牌中队）
+- Token 预算刷怪 + 热度驱动的增援入场（边缘中队涌入 → 驻空 → 物理飞离）
+- 王牌中队分层（AceTier）：不吃 LOD / 无等级缩放 / 热诱弹即命数
+- BOSS：Mother Goose 飞行翼母舰 / WRAITH 中队 / POLTERGEIST 中队（CSG 二阶段）/ F-47
+- 第三方事件：机场防空 / AWACS 支援 / 王牌支援中队（友军护送直升机事件 2026-07-28 已删除）
+- 动态性能控制：FPS 采样 → 自动收敛敌机上限
+
+权威源：[systems/survivor-mode.md](../systems/survivor-mode.md) ·
+[specs/systems/survivor-loop](../specs/systems/survivor-loop.md) ·
+[enemy-index.md](enemy-index.md) · [skill-implementation-index.md](skill-implementation-index.md)
+
+---
+
+## 地面 / 海上单位
+
+- 地面：SAMUnit（防空导弹车）/ AAGunUnit（高射炮）/ RadarStation（雷达站）/ 地面车队
+- 海上：航母 / 巡洋舰 / 驱逐舰 / 护卫舰 / 潜艇；**挂点 + 弱点**伤害路由（`MountTarget`）
+- Ladon 战斗群（CSG）：接战即弹射舰载机
+
+权威源：[systems/ground-units.md](../systems/ground-units.md)
+
+---
+
+## 地图
+
+- 60×60km 战场（2026-07 扩图），矢量地理 + OSM 烘焙 + 底图三层
+- 手画东京湾地理，`is_on_land` 陆判 API
+- 战区分布 A–G，含机场解放战区（羽田 / 木更津 / 調布）
+- 天气系统：云层影响锁定与导弹制导
+- **地图编辑器**（UGC P1）：格子笔刷 + 矢量后端 + 9 图层，官方图一键转换
+
+权威源：[specs/systems/map-system](../specs/systems/map-system.md) ·
+[specs/systems/map-expansion](../specs/systems/map-expansion.md) ·
+[specs/systems/map-editor](../specs/systems/map-editor.md) · [map-pipeline.md](map-pipeline.md)
+
+---
+
+## 表现层
+
+- 极简线框飞机图标（代码 `_draw()`），阵营色板统一（蓝=玩家 / 绿=中立第三方 / 橙红=敌）
+- 滚转变形、高度缩放、尾迹、加力火焰、机头闪光、爆炸分级、解体动画
+- **无线电通讯**：屏幕上方"呼号 ▸ << 台词 >>"，一次一条绝不打断，三层节流，数据全外置 JSON
+- **战况栏 / kill feed**：左上角"谁用什么武器击坠谁"
+- **表演导演系统**：TimeAuthority 时间栈 + SequencePlayer 时间线 + 空舞台隔离（升级急刹车 / BOSS 登场演出）
+- 音频：总线 + BGM + SFX + UI + 播放列表
+- **i18n 三语**：中 / 英 / 日，玩家可见文本一律 `tr("KEY")`
+
+权威源：[specs/systems/radio-chatter](../specs/systems/radio-chatter.md) ·
+[specs/systems/ui-transition](../specs/systems/ui-transition.md) ·
+[systems/audio.md](../systems/audio.md) · [i18n.md](i18n.md)
+
+---
+
+## 开发基础设施
+
+- **EventLogger**：60 秒环形缓冲，F9 导出战斗日志
+- **无头 bench**：`--bench=<name>` 跑断言（转弯物理 / 战术几何 / 技能 / 回归门等），`--bench=all` 全跑
+- **文档校验**：`tools/verify_doc_anchors.py`（索引锚点）+ `tools/verify_player_ref_holders.py`（SEAM-019）
+- **技能表生成**：`tools/dump_skill_table.py` 重刷 [skill-table.md](skill-table.md)
+- Debug：主菜单 B → BOSS 测试场（全机型 × 技能组合）；F11/F12 编队调试
+
+---
+
+## 明确不做的方向
+
+见 [DESIGN_PHILOSOPHY.md](../DESIGN_PHILOSOPHY.md) 反模式段。摘要：
+
+- ❌ RPG 式 HP 海 / 数值膨胀（除 BOSS 外空中敌人一发死）
+- ❌ 玩家察觉不到的 +5% 暗 buff
+- ❌ 需要玩家手动按键开火的武器
+- ❌ 长期局外解锁的进度墙
+- ❌ 让帧数掉到 60 以下的新内容
+- ❌ 引入现实武器分类作为机制约束

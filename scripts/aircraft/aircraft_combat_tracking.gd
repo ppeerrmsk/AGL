@@ -661,10 +661,15 @@ static func is_in_missile_envelope(ac: Aircraft, target_unit: CombatUnit, msl: M
 	if dist_m > max_range:
 		return false
 
-	# 高度差限制（扁平模式下忽略）
+	# 高度差限制（扁平模式下忽略）——**仅对空中目标**：
 	# 5000m 上限：use_combat_altitude 把 AI 高度 clamp 到 ±2500m，正常情况下不会触底；
 	# 触发本限制说明 AI 处在 yoyo / extension 等过渡状态，应当禁火等高度回落。
-	if not ac.flat_altitude and absf(ac.altitude - target_unit.altitude) > 5000.0:
+	# 面目标（非 Aircraft：地面/舰船 altitude≈0）豁免（2026-07-26，log 20260726_165536）：
+	# STANDOFF 学说命令 MID(3500~7500) 高位打带跑，其上半带（>5000m）+ 玩家 PREFER_CLIMB
+	# （HIGH≥7500）会恒触此门 → 对地导弹永拒且无声（高度落哪半带决定发/不发 = 玄学复发）。
+	# 对空语义原样保留。
+	if not ac.flat_altitude and target_unit is Aircraft \
+			and absf(ac.altitude - target_unit.altitude) > 5000.0:
 		return false
 
 	return true

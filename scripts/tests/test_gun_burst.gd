@@ -19,7 +19,8 @@ class BulletStub:
 	extends Node2D
 	var shot_times: Array[float] = []
 	var now: float = 0.0
-	func spawn_bullet(_pos: Vector2, _dir: float, _speed: float, _shooter: Node, _dmg: float) -> void:
+	# 签名对齐真身 BulletManager.spawn_bullet（含 is_ciws / visual_only / life_seconds 可选参）
+	func spawn_bullet(_pos: Vector2, _dir: float, _speed: float, _shooter: Node, _dmg: float, _is_ciws: bool = false, _visual_only: bool = false, _life: float = 2.0) -> void:
 		shot_times.append(now)
 
 

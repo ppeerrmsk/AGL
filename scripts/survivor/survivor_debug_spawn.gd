@@ -24,7 +24,7 @@ const COORD_AXES_GRID_PX := 1000.0   ## 刻度间距：1000px ≈ 2km
 const COORD_AXES_HALF_EXTENT := 15500.0  ## 轴向单边长度（世界 ±15000，多画一点点）
 
 # ── 编队类型枚举（内部）──
-enum FormationType { SINGLE, SQUAD, COMMANDER_SQUAD, TU160_FLOCK, AH64_FLOCK, CH47_FLOCK, F47_SQUAD, CSG_BOSS }
+enum FormationType { SINGLE, SQUAD, COMMANDER_SQUAD, TU160_FLOCK, AH64_FLOCK, CH47_FLOCK, F47_SQUAD, CSG_BOSS, ACE_SUPPORT, ACE_VULTURE, ACE_2NDWAVE, ACE_GIMMICK, ACE_GOOFIGHTERS, ACE_ORION }
 
 const FORMATION_NAMES := {
 	FormationType.SINGLE: "单机",
@@ -35,6 +35,12 @@ const FORMATION_NAMES := {
 	FormationType.CH47_FLOCK: "CH-47 纵阵波次",
 	FormationType.F47_SQUAD: "F-47 王牌小队",
 	FormationType.CSG_BOSS: "航母战斗群 BOSS",
+	FormationType.ACE_SUPPORT: "王牌中队 MARATHON（敌军支援事件）",
+	FormationType.ACE_VULTURE: "王牌中队 VULTURE（MiG-31×8 掠袭）",
+	FormationType.ACE_2NDWAVE: "王牌中队 2NDWAVE（Teacher+F-15×4）",
+	FormationType.ACE_GIMMICK: "王牌中队 GIMMICK（F-16 狙击+幻影）",
+	FormationType.ACE_GOOFIGHTERS: "王牌中队 GOOFIGHTERS（Su-47×2）",
+	FormationType.ACE_ORION: "宿敌 ORION（Cre 单机，按生涯计数）",
 }
 
 # ── 敌机类型标签（与 SurvivorSpawner.EnemyType 对应）──
@@ -52,9 +58,10 @@ const ENEMY_TYPE_LABELS := [
 	{"label": "F-104 Starfighter", "enum_idx": 20},   # EnemyType.F104
 	{"label": "A-7 攻击机", "enum_idx": 10},             # EnemyType.A7
 	{"label": "Q-5 攻击机", "enum_idx": 11},             # EnemyType.Q5
-	{"label": "UAV 机炮无人机", "enum_idx": 0},           # EnemyType.UAV
-	{"label": "UCAV 导弹无人机", "enum_idx": 1},          # EnemyType.UCAV
-	{"label": "Sentinel 指挥 UAV", "enum_idx": 4},      # EnemyType.UAV_COMMANDER
+	{"label": "MQ-109 机炮无人机", "enum_idx": 0},        # EnemyType.UAV
+	{"label": "MQ-110 导弹无人机", "enum_idx": 1},        # EnemyType.UCAV
+	{"label": "F-4E 导弹杂鱼", "enum_idx": 23},          # EnemyType.F4E
+	{"label": "Sentinel 指挥机（带 MQ-109）", "enum_idx": 4},   # EnemyType.UAV_COMMANDER
 	{"label": "Tu-160 白天鹅（Adds）", "enum_idx": 12}, # EnemyType.TU160
 	{"label": "AH-64（Adds 攻击直升机）", "enum_idx": 13}, # EnemyType.AH64
 	{"label": "CH-47（Adds 运输直升机）", "enum_idx": 14}, # EnemyType.CH47
@@ -397,12 +404,37 @@ func _on_spawn_pressed() -> void:
 				if enc and game_scene and "player_aircraft" in game_scene and game_scene.player_aircraft:
 					var anchor := _find_water_anchor(game_scene.player_aircraft.global_position)
 					spawner._spawn_boss(enc, anchor)
+			FormationType.ACE_SUPPORT:
+				# 王牌中队事件（spec events/ace-support-squadron）：走事件调度器，
+				# 同场已有一支时跳过（与正式调度同约束）
+				_start_ace_event("marathon")
+			FormationType.ACE_VULTURE:
+				_start_ace_event("vulture")
+			FormationType.ACE_2NDWAVE:
+				_start_ace_event("2ndwave")
+			FormationType.ACE_GIMMICK:
+				_start_ace_event("gimmick")
+			FormationType.ACE_GOOFIGHTERS:
+				_start_ace_event("goofighters")
+			FormationType.ACE_ORION:
+				# 宿敌独立轨道：同场已有一只时跳过
+				if game_scene and "_event_director" in game_scene and game_scene._event_director \
+						and game_scene._event_director.find_by_name("orion_nemesis") == null:
+					game_scene._event_director.start(OrionNemesisEvent.new())
 
 	print("[DebugSpawn] spawned %d × %s [%s]" % [
 		repeats,
 		FORMATION_NAMES.get(formation, "?"),
 		ENEMY_TYPE_LABELS[_type_option.selected]["label"],
 	])
+
+## 王牌中队事件 debug 入口（profile 注入；同场 ≤1 支与正式调度同约束）
+func _start_ace_event(pid: String) -> void:
+	if game_scene and "_event_director" in game_scene and game_scene._event_director \
+			and game_scene._event_director.find_by_name("ace_support") == null:
+		var ev := AceReinforcementEvent.new()
+		ev.profile_id = pid
+		game_scene._event_director.start(ev)
 
 func _on_spawn_enemy_sam() -> void:
 	if not game_scene or not is_instance_valid(game_scene):
@@ -495,6 +527,7 @@ func _on_clear_pressed() -> void:
 				# 船没有 take_damage 斩杀路径（船本身不可直接击沉），直接 queue_free + 释放舰名
 				if nu.full_name != "":
 					NavalShipNames.release(nu.full_name)
+				CombatUnit.release_target_refs(nu)
 				nu.queue_free()
 				cleared += 1
 	print("[DebugSpawn] cleared %d enemies" % cleared)

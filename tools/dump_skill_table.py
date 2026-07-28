@@ -50,7 +50,10 @@ for body in chunks:
         "evolved": '"evolved": true' in body,
         "requires": garr("requires"), "exclusive_to": garr("exclusive_to"),
         "classes": garr("classes"), "scope": g("scope"),
-        "milestone_plus": g("milestone_plus"), "axis": g("axis"),
+        # 722 批起 milestone_plus 允许数组（AX-00 双轴）：统一归一化成 list
+        "milestone_plus": (garr("milestone_plus")
+                           or ([g("milestone_plus")] if g("milestone_plus") else [])),
+        "axis": g("axis"),
     })
 
 AXIS_BY_CAT = {"survival": "斗士", "secondary": "斗士", "mobility": "骑士",
@@ -80,7 +83,9 @@ def scope(e):
 
 
 def plus_axis(e):
-    return AXIS_ZH.get(e["milestone_plus"], "—") + ("+1" if e["milestone_plus"] else "")
+    if not e["milestone_plus"]:
+        return "—"
+    return "/".join(AXIS_ZH.get(a, a) for a in e["milestone_plus"]) + "+1"
 
 
 by_axis = collections.defaultdict(list)
@@ -117,7 +122,7 @@ out.append("| 归属 | 条数 |")
 out.append("|---|---|")
 for k, v in sorted(cnt.items(), key=lambda x: -x[1]):
     out.append("| %s | %d |" % (k, v))
-mp = collections.Counter(AXIS_ZH.get(e["milestone_plus"], "") for e in entries if e["milestone_plus"])
+mp = collections.Counter(AXIS_ZH.get(a, a) for e in entries for a in e["milestone_plus"])
 out.append("\n**+1 轴进度分布**：" + " · ".join("%s+1 ×%d" % (k, v) for k, v in sorted(mp.items(), key=lambda x: -x[1])))
 
 io.open("docs/reference/skill-table.md", "w", encoding="utf-8", newline="\n").write("\n".join(out) + "\n")

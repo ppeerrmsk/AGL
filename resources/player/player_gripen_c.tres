@@ -3,7 +3,7 @@
 [ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
 [ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
 [ext_resource type="Resource" path="res://resources/default_combat.tres" id="3"]
-[ext_resource type="Resource" path="res://resources/default_flare.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/player/flare_t2.tres" id="4"]
 [ext_resource type="Script" path="res://scripts/missile_params.gd" id="5"]
 
 [sub_resource type="Resource" id="msl"]
@@ -53,7 +53,7 @@ afterburner_thrust_mult = 1.5
 fuel_capacity = 3000.0
 fuel_rate_normal = 1.5
 fuel_rate_afterburner = 8.0
-radar_range = 4000.0
+radar_range = 3400.0
 radar_half_angle = 40.0
 lock_time = 1.9
 gun = ExtResource("2")

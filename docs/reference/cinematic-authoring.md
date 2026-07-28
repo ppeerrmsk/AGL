@@ -82,26 +82,135 @@ release / 超时 / clear_all 三条路径都必须复原全部四类状态，且
 **规律：本次 15+ 个 bug 里，凡是"暂停下谁在跑"“属性存不存在”“方向对不对"这类引擎事实，
 无头层全部漏过。** 所以新演出**必须**走完第三层才算完成，前两层绿≠能玩。
 
-## 6. 新增一段登场演出的最短路径
+## 6. 序列文法（sequences.json）
 
-1. 序列名 = `<boss_id 小写>_arrival`（命名契约，断言会查）
-2. 在 `sequences.json` 里编排（照抄 `wraith_squadron_arrival` 骨架：
-   pause → stage.clear → 演员定位 → cut_to(follow) → **audio.boss_bgm（演出即配乐，
-   别让大阵仗配巡航曲）** → 台词(带 `dur`) → 动作 → restore →
-   return_to_player → unpause → release）
-3. 空间尺度按 §1-1 反推；台词时长用编排值（ambient 的 2.6s 封底不适用于演出）
-4. 需要新演员动作 → 加进 `cinematic_cast.gd`（只下航路点，真物理，禁 K 帧）
+一段演出 = 一个顶层键 + `steps` 数组。编辑器内 **F8 热重载**（改完存盘即看），
+`Presentation.debug_replay("名字")` 可反复重放。
+
+```json
+"my_cinematic": {
+  "max_sec": 7.0,          // 硬超时（可选）：到点强制收尾，防演出卡死锁死一局
+  "steps": [ { "at": 0.0, "ch": "通道", "op": "动作", ...参数 }, ... ]
+}
+```
+
+| 字段 | 语义 |
+|---|---|
+| `at` | 起始秒（演出内时钟，unscaled —— 不受暂停/时间缩放影响） |
+| `dur` | 时长；**缺省 = 瞬时**（只在跨过 `at` 那帧发一次） |
+| `ease` | 缓动名（`linear / cubic_in / cubic_out / cubic_in_out / expo_out / back_out`），缺省 linear |
+| `from` | 插值起点；**缺省 = 通道当前值**（被打断时从现值续插，不跳变） |
+
+**两条文法铁律**：
+- 同一 `at` 的多个 step 按**数组顺序**执行 —— 依赖别人产出的 step 必须排在后面
+  （例：`cut_to(follow)` 要读演员传送后的位置，必须排在 `echelon_ingress` 之后）
+- 未知 `ch` / `op` → `push_warning` 后跳过，**不中断序列**（热重载写错不会把游戏卡死）
+
+## 7. 通道与动作全参考
+
+### `time` —— 时间（唯一写入口）
+| op | 参数 | 说明 |
+|---|---|---|
+| `request` | `id, to, dur` | 申请时间缩放（栈内最小值获胜；同 id 覆盖不叠加） |
+| `release` | `id, dur` | 释放。**必须与 request 的 id 配平**，否则永久慢动作 |
+| `pause` | `to`（1/0） | `get_tree().paused` 开/关。演出骨架首尾各一个 |
+
+### `camera` —— 镜头（暂停期由导演代泵）
+| op | 参数 | 说明 |
+|---|---|---|
+| `cut_to` | `zoom, follow, actor` | 瞬切。`follow=true` 咬住 `actors[actor]` 持续跟随（空格跟随手感）；否则定点 ctx.anchor —— **定点几乎总是错的**（§3） |
+| `zoom` | `from?, to, dur, ease` | 推近/拉远，乘法系数（1.3 = 推近 30%） |
+| `shake` | `to` | 一次抖动（trauma 叠加，自然衰减） |
+| `return_to_player` | `dur, ease` | 松开跟随 + 平滑还原玩家 zoom。放在世界淡回同拍 |
+
+### `overlay` —— 全屏遮罩
+| op | 参数 | 说明 |
+|---|---|---|
+| `dim` | `from?, to, dur, ease` | 黑色压暗层（layer 随面板动态取位，演出中在 16） |
+| `flash` | `to, dur, ease` | 白色闪光层（layer 25，盖住一切面板） |
+
+### `stage` —— 空舞台
+| op | 参数 | 说明 |
+|---|---|---|
+| `clear` | `dur, ease` | 冻世界 + 非演员淡出 + 地图压暗 + HUD 隐藏 + **演员唤醒**（ALWAYS + visible + LOD 满档） |
+| `restore` | `dur, ease` | 世界淡回（重扫全场，幂等，自动覆盖演出中生灭的单位） |
+
+### `actor` —— 演员（指令全部经 ctx.owner 下发，真物理，禁 K 帧）
+| op | 参数 | 说明 |
+|---|---|---|
+| `trail_boost` | — | 尾迹 80→240 点 / 8→14 宽（长线交汇的视觉基础）。release 自动还原 |
+| `echelon_ingress` | `offsets, ingress_dist, speed, alt_step, stagger, fade, dur` | 编队定位 + 传送（自动清尾迹）+ 逐机错开淡入 + 平飞进场。`offsets` = [[沿进场轴, 横向], ...] 沿 inbound 旋转；`dur = fade + stagger×(n−1)` |
+| `converge` | `dur, arrive_radius` | 全员同时抵达 ctx.cp：逐机按距离反解速度（超巡航自动加力，超机体上限报 warning = 几何过大） |
+| `cloak_on_meet` | `radius, fade, dur` | **交汇即隐身**：僚机贴上长机（`actors[0]`）即各自淡出，长机随首次交汇淡出，窗口末强制兜底。`radius` 必须 **< 编队最小间距** |
+| `cloak_vanish` | `dur, ease` | 备用：定时集体淡出（当前未用）。均为**演出专属视觉**，release 全解除 |
+| `scatter` | `fan_deg, dist` | 背向玩家（inbound 方向）的扇面散开，速度归还巡航。**永不朝玩家甩**（误触 ENGAGED） |
+| `release` | — | 收尾：清指令 / 还原尾迹 / 解除演出隐身。**每段演出必须有** |
+
+### `radio` —— 台词（渲染走 RadioChatter 显示带）
+| op | 参数 | 说明 |
+|---|---|---|
+| `line` | `key, actor, dur` | 说话人 = `ctx.callsign_prefix + "-%02d" % (actor+1)`。`dur` = 编排时长（**必填**，绕开 ambient 的 2.6s 可读性封底）。发射后不管，演出时序不得依赖出声准点；演出期间 ambient 自动压制 |
+
+### `audio` —— 配乐
+| op | 参数 | 说明 |
+|---|---|---|
+| `boss_bgm` | `fade` | 按 ctx 的 `bgm_layers` / `bgm_track` 切 BOSS 曲。交战侧切歌点有 `current_music_id()` 幂等守卫，不会重启同曲 |
+
+### `panel` —— 面板元素（UI 转场用，演出一般不碰）
+`stagger_in / stagger_out`（`stagger, elem_dur, dur, ease`）—— 见 spec §2.3；
+面板出入场走 `Presentation.present / dismiss`，不走 `play_cinematic`。
+
+## 8. 从事件触发演出（ctx 契约）
+
+```gdscript
+# 必须由一个 GameEvent 发起 —— 它是演员指令的所有权持有者，
+# 事件结束时 EventDirector 的 clear_all_directives 是最后一道兜底
+var ok: bool = Presentation.play_cinematic("my_cinematic", {
+    "owner": self,                    # 必填：GameEvent（无 owner 导演直接拒绝）
+    "actors": members,                # 必填：Array[Aircraft]，actors[0] = 长机（镜头/交汇的基准）
+    "anchor": anchor,                 # 集结点（cut_to 无 follow 时的定点）
+    "cp": anchor + inbound * 250.0,   # 交汇点（converge / scatter 的圆心）
+    "inbound": inbound,               # 进场方向 = (anchor - player).normalized()，散开扇面的中轴
+    "extra_layers": [地图, hud, ...], # stage 要一起压暗的层（CanvasLayer 自动走 visible）
+    "callsign_prefix": "WRAITH",      # radio 说话人前缀
+    "bgm_layers": [...], "bgm_track": "boss",   # audio.boss_bgm 的快照
+})
+if ok:
+    # 收尾钩子：重建事件自己的阶段契约（PRE_STAGE 要重下巡逻指令 + 补持久提示）
+    pres.sequence_finished.connect(_on_done.bind("my_cinematic"), CONNECT_ONE_SHOT)
+```
+
+三条契约：
+1. **ctx 全是快照**（字符串/坐标/数组），导演不认识 encounter —— 新演出别把活对象塞进 ctx
+2. `play_cinematic` 返回 false（无 owner / 无演员 / 序列不存在）时**必须有回落路径**
+   （boss 登场的回落 = 旧横幅+无线电；参考 `_try_play_arrival_cinematic`）
+3. `sequence_finished` 在 release 之后发 —— 钩子里做"演出后世界该是什么样"的重建，
+   不要做视觉清理（那是导演的活，已经做完了）
+
+## 9. 新增一段剧情演出的最短路径
+
+1. 序列名：BOSS 登场固定 `<boss_id 小写>_arrival`（断言双向校验）；其他剧情演出自由命名，
+   但触发方自己负责 `has_sequence` 检查 + 回落
+2. 在 `sequences.json` 里编排，照抄 `wraith_squadron_arrival` 骨架：
+   `pause → stage.clear → 演员定位 → cut_to(follow) → audio.boss_bgm → 台词(带 dur) →
+   动作 → stage.restore + return_to_player → unpause → actor.release`
+3. 空间尺度按 §1-1 反推；台词时长用编排值；**演出必带配乐**
+4. 需要新演员动作 → 加进 `cinematic_cast.gd`（只下航路点；新参数记得同时写消费方，§1-3）
 5. 过一遍 §1 四问 + §2 陷阱表 + §4 收尾四类
-6. `--bench=presentation` 绿 → **引擎内看一遍**（F6 跳 BOSS + F8 热重载调参）
-7. spec §8 记变更
+6. `--bench=presentation` 绿 → **引擎内看一遍**（F6 跳 BOSS + F8 热重载调参）——
+   前两层绿 ≠ 能玩（§5）
+7. spec §8 记变更；踩了新坑回填 §2 陷阱表
 
-## 7. 锚点
+## 10. 锚点
 
 | 关注点 | 文件 |
 |---|---|
 | 序列数据 | `resources/presentation/sequences.json` |
-| 导演/通道 | `scripts/presentation/presentation_director.gd` |
+| 导演/通道分发 | `scripts/presentation/presentation_director.gd` |
 | 演员动作 | `scripts/presentation/cinematic_cast.gd` |
 | 空舞台 | `scripts/presentation/stage_isolator.gd` |
-| 接入样板 | `scripts/events/boss_encounter_event.gd`（`_try_play_arrival_cinematic`） |
-| 回归门 | `scripts/tests/test_presentation.gd`（`--bench=presentation`） |
+| 时间栈 | `scripts/presentation/time_authority.gd` |
+| 缓动函数 | `scripts/presentation/ease_lib.gd` |
+| 接入样板 | `scripts/events/boss_encounter_event.gd`（`_try_play_arrival_cinematic` + 收尾钩子） |
+| 回归门 | `scripts/tests/test_presentation.gd`（`--bench=presentation`，并入 `--bench=all`） |
+| 设计权威（数值/时序） | `docs/specs/systems/ui-transition.md` |

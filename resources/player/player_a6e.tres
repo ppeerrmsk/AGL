@@ -1,12 +1,10 @@
-[gd_resource type="Resource" script_class="AircraftParams" load_steps=8 format=3]
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
 [ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
 [ext_resource type="Resource" path="res://resources/default_combat.tres" id="3"]
-[ext_resource type="Resource" path="res://resources/default_flare.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/player/flare_t1.tres" id="4"]
 [ext_resource type="Script" path="res://scripts/missile_params.gd" id="5"]
-[ext_resource type="Resource" path="res://resources/a10_rocket.tres" id="6"]
-
 [sub_resource type="Resource" id="msl"]
 script = ExtResource("5")
 display_name = "MRM"
@@ -34,8 +32,8 @@ script = ExtResource("1")
 display_name = "A-6E Intruder"
 max_hp = 140.0
 armor = 0.0
-max_speed = 1000.0
-cruise_speed = 750.0
+max_speed = 1150.0
+cruise_speed = 780.0
 stall_speed_base = 220.0
 acceleration = 55.0
 deceleration = 80.0
@@ -54,12 +52,11 @@ afterburner_thrust_mult = 1.5
 fuel_capacity = 3000.0
 fuel_rate_normal = 1.5
 fuel_rate_afterburner = 8.0
-radar_range = 2800.0
+radar_range = 2200.0
 radar_half_angle = 28.0
 lock_time = 3.0
 gun = ExtResource("2")
 missile = SubResource("msl")
-rocket = ExtResource("6")
 flare = ExtResource("4")
 combat = ExtResource("3")
 icon_color = Color(0.15, 0.35, 0.85, 1)

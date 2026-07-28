@@ -69,6 +69,9 @@ var _game_over_panel: PanelContainer
 var _game_over_label: RichTextLabel
 var _threat_overlay: Control
 
+# ── 经验表现层（击杀 +N 飞入经验条 / 升级 LEVEL UP 弹字）──
+var _xp_vfx: XpGainVfx
+
 # Debug 性能面板
 var _debug_panel: PanelContainer
 var _debug_label: Label
@@ -249,6 +252,9 @@ func _build_ui() -> void:
 	# ── BOSS 小队状态面板 ──
 	_build_boss_panel()
 
+	# ── 王牌中队交战血条（分段命条，spec ace-squadron-tier §2.8）──
+	_build_ace_panel()
+
 	# ── 战术提示面板 ──
 	_tooltip_panel = PanelContainer.new()
 	_tooltip_panel.visible = false
@@ -306,6 +312,10 @@ func _build_ui() -> void:
 	_threat_overlay.hud = self
 	add_child(_threat_overlay)
 
+	# ── 经验表现层（叠在经验条之上；击杀 +N 飞入 / 升级 LEVEL UP）──
+	_xp_vfx = XpGainVfx.new()
+	add_child(_xp_vfx)
+
 	# ── Debug 性能面板（F3）──
 	_debug_panel = PanelContainer.new()
 	_debug_panel.visible = false
@@ -339,6 +349,7 @@ func _process(delta: float) -> void:
 	_update_tactical_buttons()
 	_update_squad_panel()
 	_update_boss_panel()
+	_update_ace_panel()
 	_update_kill_feed(delta)
 	if _debug_visible:
 		_debug_update_timer -= delta
@@ -376,6 +387,12 @@ func _layout_ui() -> void:
 			vp.x * 0.5 - _boss_panel.size.x * 0.5,
 			78
 		)
+	# 王牌中队血条：与 BOSS 面板同一锚位（两者互斥，BOSS 条优先，tier §2.8）
+	if _ace_panel and _ace_panel.visible:
+		_ace_panel.position = Vector2(
+			vp.x * 0.5 - _ace_panel.size.x * 0.5,
+			78
+		)
 
 	var xp_x := (vp.x - XP_BAR_WIDTH) * 0.5
 	var xp_y := vp.y - XP_BAR_HEIGHT - 20
@@ -383,6 +400,8 @@ func _layout_ui() -> void:
 	_xp_bar_fill.position = Vector2(xp_x, xp_y)
 	_xp_label.position = Vector2(xp_x, xp_y)
 	_xp_label.size = Vector2(XP_BAR_WIDTH, XP_BAR_HEIGHT)
+	if _xp_vfx:
+		_xp_vfx.bar_rect = Rect2(xp_x, xp_y, XP_BAR_WIDTH, XP_BAR_HEIGHT)
 
 	# 状态面板：右下角，经验条上方
 	_status_panel.position = Vector2(
@@ -580,7 +599,8 @@ func _update_status_panel() -> void:
 		var stall_color := "ff3322" if flash else "ff7733"
 		text += "[color=#%s][b]⚠ STALL[/b][/color]\n" % stall_color
 
-	# ── 高度档位 ──（HUD 只显示 tier 名；箭头在数据标签上展示）
+	# ── 高度档位 ──（tier 名 + 实际米数；切档目标 ≠ 档位判定线，爬升在翻 HIGH 后仍会继续，
+	# 只看 tier 名会显得"爬了很久没变化"，故补数字 + 升降箭头让进度可见）
 	# 颜色用 vs 判定（与数据标签同步）：vs > 5 m/s 视为升降中 → 过渡色，否则 tier 静态色
 	if ac.flat_altitude:
 		var tier_cur: int = ac.get_altitude_tier()
@@ -588,7 +608,10 @@ func _update_status_panel() -> void:
 		var vs_abs: float = absf(ac.vertical_speed)
 		var changing: bool = vs_abs > 5.0
 		var hex_col := AircraftRenderer.altitude_tier_color_hex(tier_cur, changing)
-		text += "[color=#%s]ALT  %s[/color]\n" % [hex_col, tier_name]
+		var arrow := ""
+		if changing:
+			arrow = "  ↑" if ac.vertical_speed > 0.0 else "  ↓"
+		text += "[color=#%s]ALT  %s  %dm%s[/color]\n" % [hex_col, tier_name, roundi(ac.altitude), arrow]
 
 	# ── 导弹 ──
 	var max_msl := ac.params.missile.max_count if ac.params and ac.params.missile else 0
@@ -872,10 +895,10 @@ func _on_evasion_pressed() -> void:
 	if not survivor_player or not survivor_player.aircraft:
 		return
 	var ac := survivor_player.aircraft
-	# 加力模式：走充能资源 gate（spec afterburner-mode）；未满/激活中点击无操作。
+	# 加力模式：走充能资源（spec afterburner-mode，充能制）；有能量即启动，激活中再点关闭。
 	# 无资源注入（防御性兜底）时退回旧开关行为。
 	if afterburner_charge:
-		afterburner_charge.try_activate(ac)
+		afterburner_charge.toggle(ac)
 	else:
 		ac.set_evasion_mode(not ac.evasion_mode)
 	_update_tactical_buttons()
@@ -938,8 +961,8 @@ func _update_tooltip() -> void:
 				body_key = "TOOLTIP_ALT_LOW_BODY"
 				hint_key = "TOOLTIP_ALT_LOW_HINT"
 		"evasion":
-			# 加力模式：ON 文案 = 窗口激活中（或兜底旧 evasion 开关）
-			if (afterburner_charge != null and afterburner_charge.is_window_active()) or ac.evasion_mode:
+			# 加力模式：ON 文案 = 加力激活中（或兜底旧 evasion 开关）
+			if (afterburner_charge != null and afterburner_charge.is_active()) or ac.evasion_mode:
 				title_key = "TOOLTIP_EVADE_ON_TITLE"
 				body_key = "TOOLTIP_EVADE_ON_BODY"
 				hint_key = "TOOLTIP_EVADE_ON_HINT"
@@ -990,8 +1013,9 @@ func _update_tactical_buttons() -> void:
 	_btn_auto_fire.text = tr("TACTIC_AUTOFIRE_FMT") % (tr("STATE_ON") if ac.missile_auto_fire else tr("STATE_OFF"))
 	_btn_auto_engage.text = tr("TACTIC_AUTO_ENGAGE_FMT") % (tr("STATE_ON") if ac.auto_engage_enabled else tr("STATE_OFF"))
 
-## 加力充能条 + 按钮三态（spec afterburner-mode）：READY 亮橙满格 / 充能暗橙百分比 /
-## 激活亮青倒计时收缩。资源未注入（防御性兜底）时退回旧 ON/OFF 文案。
+## 加力充能条 + 按钮三态（spec afterburner-mode，充能制）：条恒为当前能量 charge/CHARGE_MAX。
+## 激活=亮青（放空剩余可烧秒数）/ 满能量=亮橙 READY / 部分能量=暗橙百分比。
+## 资源未注入（防御性兜底）时退回旧 ON/OFF 文案。
 func _update_afterburner_ui() -> void:
 	if _btn_evasion == null:
 		return
@@ -999,17 +1023,15 @@ func _update_afterburner_ui() -> void:
 		if survivor_player and survivor_player.aircraft:
 			_btn_evasion.text = tr("TACTIC_EVADE_FMT") % (tr("STATE_ON") if survivor_player.aircraft.evasion_mode else tr("STATE_OFF"))
 		return
-	if afterburner_charge.is_window_active():
-		_btn_evasion.text = tr("TACTIC_EVADE_FMT") % (tr("AB_STATE_ACTIVE_FMT") % afterburner_charge.window_left)
-		_ab_bar.value = afterburner_charge.window_ratio()
+	_ab_bar.value = afterburner_charge.ratio()
+	if afterburner_charge.is_active():
+		_btn_evasion.text = tr("TACTIC_EVADE_FMT") % (tr("AB_STATE_ACTIVE_FMT") % afterburner_charge.remaining_seconds())
 		_ab_bar_fill.bg_color = AB_BAR_ACTIVE
-	elif afterburner_charge.is_ready():
+	elif afterburner_charge.is_full():
 		_btn_evasion.text = tr("TACTIC_EVADE_FMT") % tr("AB_STATE_READY")
-		_ab_bar.value = 1.0
 		_ab_bar_fill.bg_color = AB_BAR_READY
 	else:
 		_btn_evasion.text = tr("TACTIC_EVADE_FMT") % (tr("AB_STATE_CHARGING_FMT") % int(afterburner_charge.ratio() * 100.0))
-		_ab_bar.value = afterburner_charge.ratio()
 		_ab_bar_fill.bg_color = AB_BAR_CHARGING
 
 # ══════════════════════════════════════════════
@@ -1121,6 +1143,96 @@ func _build_boss_panel() -> void:
 
 	add_child(_boss_panel)
 
+# ══════════════════════════════════════════════
+#  王牌中队交战血条（spec ace-squadron-tier §2.8：分段命条）
+#  入场不亮（入场信号=无线电三件套）；首次开火/受击后由事件层翻 _battle_joined 才亮。
+#  段=编成机数、一段一架（段位绑 squad 槽位，0 号段=长机、带顶边三角色标）；
+#  非 BOSS 王牌一发死 → 命条即存活数条。BOSS 条优先：同屏时本条隐藏。
+# ══════════════════════════════════════════════
+
+var _ace_panel: PanelContainer
+var _ace_title_label: Label
+var _ace_emblem: AceEmblemIcon
+var _ace_seg_box: HBoxContainer
+var _ace_segments: Array[Panel] = []
+
+const ACE_SEG_W := 26.0
+const ACE_SEG_H := 9.0
+const ACE_SEG_DEAD := Color(0.22, 0.20, 0.22)
+
+func _build_ace_panel() -> void:
+	_ace_panel = PanelContainer.new()
+	_ace_panel.visible = false
+	var style := StyleBoxFlat.new()
+	style.bg_color = ThemeColors.BOSS_PANEL_BG
+	style.border_color = ThemeColors.BOSS_PANEL_BORDER
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(3)
+	style.content_margin_left = 10
+	style.content_margin_right = 10
+	style.content_margin_top = 3
+	style.content_margin_bottom = 5
+	_ace_panel.add_theme_stylebox_override("panel", style)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 2)
+	_ace_panel.add_child(vbox)
+
+	# 代号行（徽章小图 + 代号，颜色随中队主色，_update 时设）
+	var title_row := HBoxContainer.new()
+	title_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	title_row.add_theme_constant_override("separation", 6)
+	vbox.add_child(title_row)
+	_ace_emblem = AceEmblemIcon.new("", Color.WHITE, 7.0)
+	_ace_emblem.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	title_row.add_child(_ace_emblem)
+	_ace_title_label = Label.new()
+	_ace_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_ace_title_label.add_theme_font_size_override("font_size", 11)
+	title_row.add_child(_ace_title_label)
+
+	# 分段条（段数随编成 2~8 变化，_update 时按需重建）
+	_ace_seg_box = HBoxContainer.new()
+	_ace_seg_box.add_theme_constant_override("separation", 3)
+	_ace_seg_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_child(_ace_seg_box)
+
+	add_child(_ace_panel)
+
+func _update_ace_panel() -> void:
+	if _ace_panel == null:
+		return
+	var info: Dictionary = AceReinforcementEvent.battle_bar_info()
+	# BOSS 条优先（同屏窗口极小：BOSS 阶段王牌已撤离）
+	if info.is_empty() or (_boss_panel and _boss_panel.visible):
+		_ace_panel.visible = false
+		return
+	_ace_panel.visible = true
+	var alive: Array = info.get("alive", [])
+	var col: Color = info.get("color", Color(1.0, 0.3, 0.3))
+	_ace_title_label.text = String(info.get("codename", ""))
+	_ace_title_label.add_theme_color_override("font_color", col.lightened(0.25))
+	_ace_emblem.set_emblem(String(info.get("id", "")), col.lightened(0.15))
+	# 段数变化（换队/首建）→ 重建
+	if _ace_segments.size() != alive.size():
+		for seg in _ace_segments:
+			seg.queue_free()
+		_ace_segments.clear()
+		for i in range(alive.size()):
+			var seg := Panel.new()
+			seg.custom_minimum_size = Vector2(ACE_SEG_W, ACE_SEG_H)
+			_ace_seg_box.add_child(seg)
+			_ace_segments.append(seg)
+	# 段状态：存活=主色 / 阵亡=暗；0 号段（长机）顶边亮色描边作三角位标
+	for i in range(_ace_segments.size()):
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = col if bool(alive[i]) else ACE_SEG_DEAD
+		sb.set_corner_radius_all(1)
+		if i == 0:
+			sb.border_width_top = 2
+			sb.border_color = col.lightened(0.55) if bool(alive[i]) else Color(0.45, 0.42, 0.45)
+		_ace_segments[i].add_theme_stylebox_override("panel", sb)
+
 func _update_boss_panel() -> void:
 	if _boss_panel == null:
 		return
@@ -1210,11 +1322,13 @@ func _boss_action_text(ac: Aircraft, ai: AIController) -> String:
 		return "EVADE"
 	match ai._state:
 		AIController.AIState.ENGAGE:
-			var role: int = ac.get_meta("f47_role", 0)
-			if role == 2:  # CLOSE_FIGHTER
-				return "CLOSE"
-			elif role == 3:  # RANGED_STRIKER
-				return "STRIKE"
+			# 王牌角色标签。只显示【行为】而不是角色代号（KNIGHT/SNIPER 是内部设计词汇，
+			# 与 Gladiator/Lancer 等 AI 原型同类，不对玩家暴露）
+			match AceSquad.role_of(ac):
+				AceSquad.AceRole.KNIGHT:
+					return "CLOSE"
+				AceSquad.AceRole.SNIPER:
+					return "STRIKE"
 			return "ENGAGE"
 		AIController.AIState.PATROL:
 			return "RETURN"
@@ -1454,6 +1568,18 @@ func _count_nodes(node: Node) -> int:
 		count += _count_nodes(child)
 	return count
 
+## ── 经验表现层公开入口（spawner / survivor_mode 调用）──
+
+## 击杀掉落经验：在底部经验条上生成"+N"沉入效果（落点固定在条上，纯表现）。
+func spawn_xp_gain(amount: int) -> void:
+	if _xp_vfx:
+		_xp_vfx.add_gain(amount)
+
+## 升级弹字：经验条正上方弹出"LEVEL UP"。纯表现。
+func show_level_up(level: int) -> void:
+	if _xp_vfx:
+		_xp_vfx.show_level_up(level)
+
 func show_game_over(level: int, time: float, kills: int,
 		xp_gained: int = 0, merit_earned: int = 0) -> void:
 	var mins := int(time) / 60
@@ -1467,12 +1593,16 @@ func show_game_over(level: int, time: float, kills: int,
 	_game_over_label.text = text
 	_game_over_panel.visible = true
 
+## boss_id 决定副标题里的 BOSS 名（空 / 未注册 id → 通用文案，沙盒与老调用方安全）
 func show_victory(level: int, time: float, kills: int,
-		xp_gained: int = 0, merit_earned: int = 0) -> void:
+		xp_gained: int = 0, merit_earned: int = 0, boss_id: String = "") -> void:
 	var mins := int(time) / 60
 	var secs := int(time) % 60
+	var name_key := BossRegistry.name_key_for(boss_id)
+	var subtitle := tr("HUD_VICTORY_SUBTITLE_GENERIC") if name_key.is_empty() \
+		else tr("HUD_VICTORY_SUBTITLE_FMT") % tr(name_key)
 	var text := "[center][color=#55ffaa][b]%s[/b][/color]\n\n" % tr("HUD_VICTORY_TITLE")
-	text += "[color=#ddffee]%s[/color]\n\n" % tr("HUD_VICTORY_SUBTITLE")
+	text += "[color=#ddffee]%s[/color]\n\n" % subtitle
 	text += "[color=#aaddaa]%s\n" % (tr("HUD_GAMEOVER_LEVEL_FMT") % level)
 	text += "%s\n" % (tr("HUD_GAMEOVER_TIME_FMT") % [mins, secs])
 	text += "%s[/color]\n\n" % (tr("HUD_GAMEOVER_KILLS_FMT") % kills)

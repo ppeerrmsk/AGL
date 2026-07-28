@@ -38,7 +38,7 @@ fuel_capacity = 2800.0
 fuel_rate_normal = 2.1
 fuel_rate_afterburner = 11.0
 ; ── 雷达（中段标准）──
-radar_range = 4000.0
+radar_range = 3600.0
 radar_half_angle = 25.0
 lock_time = 3.4
 gun = ExtResource("2")

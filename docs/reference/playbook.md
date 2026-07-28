@@ -105,7 +105,9 @@
 ### 第五步：接入 spawn 流程
 
 - `scripts/survivor/boss_registry.gd`：注册 id → class_path / bgm / display_name /
-  callsign_prefix / requires_water
+  name_key / callsign_prefix / requires_water
+  （`name_key` = 玩家可见名的 i18n key，复用图鉴的 `CODEX_<ID>_NAME`；漏填 → 通关结算副标题
+  退回通用文案"敌方主力已被击毁"）
 - `scripts/events/boss_encounter_event.gd`：`encounter is <Boss>` 分支调 `_spawn_<boss>`
 - `scripts/survivor/boss_debug_select.gd`：调试菜单加条目（含 i18n key）
 - `scripts/survivor/survivor_spawner.gd:_spawn_boss`：分支调 `<boss>.spawn(...)`
@@ -170,53 +172,34 @@ HUD/log 拼接）。详见 [i18n.md](i18n.md)。
 
 ## §4 加技能升级
 
-走 [survivor-skills.md](../systems/survivor-skills.md) 设计哲学。技能分两类：
+**总入口 = [skill-implementation-index.md](skill-implementation-index.md)**（2026-07-24 起）：
+§5 决策树选实装模式（八模式：纯 params / 字段置位 / skill_flag 钩子 / squad_once / 王牌 ace /
+计数缩放 / 一次性 dispatch / 武器资源）→ 照该模式"新增步骤"落地 → §6 铁律过一遍。
+设计哲学与需求 backlog 在 [survivor-skills.md](../systems/survivor-skills.md)；
+数值现状查 [skill-table.md](skill-table.md)。
 
-### 永久数值升级（升级一次永久生效）
+速记三条最常用模式（细节以实装索引为准）：
 
-→ 在 `scripts/survivor/survivor_player.gd:apply_upgrade` 加 case 分支，**直接改
-`params.*` 字段或 aircraft 字段**。例：
-```
-"executioner":
-    p.max_speed_kmh *= 1.15
-"dogfight_stall":
-    p.stall_speed_base *= 0.85
-```
-
-### 状态 / 模式 buff（运行时启停）
-
-→ 不改 params，改 aircraft 字段或 status_effects。在
-`scripts/aircraft/aircraft_physics.gd` 的 `effective_*()` accessor 里加 if 块（不超 5 行）：
-- `effective_max_g(ac)` — G 力相关
-- `effective_max_speed_kmh(ac)` — 顶速相关
-- `effective_cruise_speed_kmh(ac)` — 巡航速度相关
-- `effective_stall_speed_kmh(ac)` — 失速基数相关
-- `effective_corner_speed_kmh(ac)` — 自动随 effective_max_g 抬升
-
-→ **必经 [SEAM-001 effective_*() accessor 注入](../architecture/known-seams.md#seam-001--机动性-buff-必须走-effective_-accessor)**。
-这是唯一让 AI 战术层感知 buff 的路径。
-
-### 击杀 / 受击触发型
-
-→ `scripts/survivor/skill_hooks.gd` `dispatch_on_kill` / `dispatch_on_hit` 加钩子。
-**FEAR / SLOW / JAM 联动**类技能要走集中 helper：
-- AOE FEAR 入口必经 `AOEBroadcast.apply_status_in_radius` —— 联动检查在 helper 内统一
-- 单体 FEAR by 玩家走 `_apply_player_fear` helper —— 同上
-
-→ **必读 [SEAM-004 FEAR 入口分散](../architecture/known-seams.md#seam-004--fear-状态有-4-个入口分散在-3-个文件)**。
+- **永久数值** → `apply_upgrade` 加 case 直改 `params.*`。机动类（速度/G/失速/转弯）必须直改
+  params 或 `effective_*()` 注入 —— **必经 [SEAM-001](../architecture/known-seams.md#seam-001--机动性-buff-必须走-effective_-accessor)**，
+  这是唯一让 AI 战术层感知 buff 的路径。
+- **条件态** → Aircraft 字段置位 + 消费点 if 块（高频判定读字段不读 meta）。
+- **事件触发** → `stat: "skill_flag"`（apply 无操作）+ `skill_hooks.gd` 钩子读 meta。
+  **FEAR / SLOW / JAM 联动**必走集中 helper（`AOEBroadcast.apply_status_in_radius`，
+  team_filter 传 `TEAM_HOSTILE`；单体玩家 FEAR 走 `_apply_player_fear`）——
+  **必读 [SEAM-004](../architecture/known-seams.md#seam-004--fear-状态有-4-个入口分散在-3-个文件)**。
 
 ### onboarding checklist（任何新升级都跑一遍）
 
-- [ ] 决定升级类别（永久 / 状态 / 模式 / 触发）
-- [ ] `scripts/survivor/survivor_data.gd:UPGRADES` 加 dict 条目（id / name_key / desc_key /
-      category / value / 解锁条件 / 稀有度 等）
-- [ ] 永久升级 → `apply_upgrade` 加 case；状态升级 → effective_*() 注入；触发升级 → skill_hooks 钩子
-- [ ] 机动性 buff → effective_*() 注入（不在物理 tick 散点 if-else）
-- [ ] i18n CSV 加 SKILL_<NAME>_NAME / DESC（中英日三语）
-- [ ] [docs/systems/survivor-skills.md](../systems/survivor-skills.md) 技能图鉴登记
-- [ ] [docs/planning/roadmap.md](../planning/roadmap.md) 完成项归档（如果在待办池）
-- [ ] 验证：升满该升级，EventLogger 看 AI 设的 `target_speed_kmh` / G 应可见抬升
-- [ ] 验证：零升级下行为不变（accessor 内 if 块未触发时返回 baseline）
+- [ ] 实装索引 §5 决策树定模式；spec-first：非平凡技能先进 spec（批量走集中式 spec，样板 skills-720-rework）
+- [ ] `survivor_data.gd:UPGRADES` 加条目（id / name / desc / stat / value / max_stacks / category /
+      **axis** / rarity / 归属字段 scope·classes·exclusive_to·requires·requires_skill·milestone_plus 按需）
+- [ ] 按模式落效果（M5 王牌字段型必登记 ACE_FIELD_STATS + strip；M4 静态位必配 _ready 清零；M6 必差量幂等）
+- [ ] i18n CSV 加 `UPGRADE_<ID>_NAME/_DESC` 三语（列序 keys,zh,en,ja）
+- [ ] `python tools/dump_skill_table.py` 重刷全表 + [实装索引 §4](skill-implementation-index.md) 加一行
+- [ ] bench 断言（skills720 / sig_skills / attr_gates 择近追加）→ `--bench=all` 回归门
+- [ ] 需求 backlog 如相关 → [survivor-skills.md](../systems/survivor-skills.md) 系列表更新状态
+- [ ] 验证：升满该升级，EventLogger 可见效果；零升级下行为与 baseline 一致
 
 ---
 
@@ -342,12 +325,14 @@ RadarStation 都继承 `GroundUnit extends CombatUnit`。
 
 ### 模式边界（共享层改动必读）
 
-→ [docs/planning/roadmap.md §0](../planning/roadmap.md) 模式边界硬规则。
+**沙盒模式已废弃**——验证只需跑生存模式（`scenes/survivor_mode.tscn`）。
+但共享层的隔离铁律**依然有效**（保护的是共享层干净，不是两模式对等）：
 
-- 共享层（aircraft.gd / ai_controller.gd / combat_unit.gd / missile.gd 等）改后
-  **两个模式都启动一次**（沙盒 F5 + 生存 F5）
-- **禁止**在共享层写 `if game_mode == ...`
-- 模式专属 buff 通过参数资源 `duplicate(true)` 或 PlayableAircraft 档案注入
+- **禁止**在共享层（aircraft.gd / ai_controller.gd / combat_unit.gd / missile.gd 等）
+  写 `if in_survivor_mode` / `if in_sandbox` / `if game_mode == ...`
+- 模式/机型专属 buff 通过参数资源 `duplicate(true)` 或 PlayableAircraft 档案注入
+- 新文件放哪：生存专属 → `scripts/survivor/`；RTS 指挥 → `scripts/rts/`；
+  共享层 → `scripts/` 根或对应子系统目录
 
 ### i18n
 

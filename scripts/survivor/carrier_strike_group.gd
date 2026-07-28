@@ -1,4 +1,4 @@
-## Carrier Strike Group BOSS —— 航母战斗群
+## Carrier Strike Group BOSS —— Ladon 战斗群（内部 id / 类名保留 CARRIER_STRIKE_GROUP）
 ##
 ## 设计流程：
 ##   Phase 1: CV 航母（旗舰）+ 2 CG + 2 DDG + 6 FFG 刚体舰队航行
@@ -48,7 +48,7 @@ const ESCORT_OFFSETS: Array[Vector2] = [
 
 # ── 身份默认值（可被 BossRegistry 覆盖）──
 func _init() -> void:
-	display_name = "CARRIER STRIKE GROUP"
+	display_name = "LADON STRIKE GROUP"
 	callsign_prefix = "CSG"
 	bgm_track = ""                            ## 层叠模式下 bgm_track 不使用，置空避免误调
 	bgm_layers = ["boss_csg", "boss_csg_phase2"]  ## Phase 1 + Phase 2 同步层叠
@@ -117,15 +117,25 @@ func spawn(mode: Node2D, aircraft_scene: PackedScene, create_enemy_func: Callabl
 		active = false
 		return
 
-	# 旗舰 CV 走直线往返：沿 initial_heading_deg 方向前进，到端点 180° U-turn
+	# 摆位地形校验：BOSS 锚点只保证圆心在水面，整支舰队还要摆得下（见 _pick_water_placement）
+	var placement: Dictionary = _pick_water_placement(anchor, initial_heading_deg)
+	var place_anchor: Vector2 = placement["anchor"]
+	var place_heading: float = placement["heading"]
+	var land_hits: int = int(placement["land"])
+	EventLogger.log_event("BOSS", display_name,
+		"placement anchor=(%d,%d) hdg=%.0f land=%d" % [place_anchor.x, place_anchor.y, place_heading, land_hits])
+	if land_hits > 0:
+		push_warning("CarrierStrikeGroup: 舰队仍有 %d 个落点在陆地（锚点 %s）" % [land_hits, str(place_anchor)])
+
+	# 旗舰 CV 走直线往返：沿 place_heading 方向前进，到端点 180° U-turn
 	# heading 约定：0°=北=-Y 世界方向
-	var heading_rad: float = deg_to_rad(initial_heading_deg)
+	var heading_rad: float = deg_to_rad(place_heading)
 	var fwd: Vector2 = Vector2(sin(heading_rad), -cos(heading_rad))
 	var cv_wps := PackedVector2Array([
-		anchor + fwd * CV_PATROL_HALF_SPAN,
-		anchor - fwd * CV_PATROL_HALF_SPAN,
+		place_anchor + fwd * CV_PATROL_HALF_SPAN,
+		place_anchor - fwd * CV_PATROL_HALF_SPAN,
 	])
-	_cv = _make_ship(CarrierShipScript, cv_params, anchor, initial_heading_deg, cv_wps)
+	_cv = _make_ship(CarrierShipScript, cv_params, place_anchor, place_heading, cv_wps)
 	_cv.is_mission_target = true
 
 	# CV 甲板停 2 架舰载机（可选：不和 Phase 2 的 4 架 F-14 冲突，留空）
@@ -180,8 +190,8 @@ func update(delta: float) -> void:
 	if _phase == 2 and _poltergeist and _poltergeist.active:
 		_poltergeist.anchor_position = _cv_death_position
 		_poltergeist.update(delta)
-		# 小地图 BOSS 圈跟随 F-14 群质心（已 FLYING 的成员），让玩家在远距能看见 BOSS 在哪
-		_sync_boss_zone_to_poltergeist()
+		# BOSS 圈跟随质心的逻辑已上提为通用规则，由 BossEncounterEvent 单一所有
+		# （spec boss-hunter-doctrine §2.6）—— 猎手模型下每个 BOSS 都需要它，不止 CSG 二阶段
 
 	# 胜利判定
 	_check_victory()
@@ -189,6 +199,15 @@ func update(delta: float) -> void:
 # ══════════════════════════════════════════════
 #  接战入口（boss_encounter_event PRE_STAGE → ENGAGED 时调用）
 # ══════════════════════════════════════════════
+
+## 玩家机换人时重定向（基类契约，见 BossEncounter.set_player_ref）。
+## CSG 自持一份 _player（弹射的舰载机据此挂目标），二阶段还有一支 Poltergeist 小队
+func set_player_ref(p: Aircraft) -> void:
+	if p == null or not is_instance_valid(p):
+		return
+	_player = p
+	if _poltergeist != null:
+		_poltergeist.set_player_ref(p)
 
 ## 玩家进入 BOSS 圈瞬间触发 — 先弹射两架 F/A-18 见面礼，并启动 2 分钟定期补充
 func engage() -> void:
@@ -244,8 +263,26 @@ func _launch_fa18(lateral_offset: float) -> void:
 	# 标识为 CSG 派生（survivor_spawner 远距清理跳过 + HUD 不显示血条）
 	hornet.set_meta("category", "boss_csg_aircraft")
 	hornet.set_meta("skip_far_cleanup", true)
-	# 让玩家成为目标 — combat_target 由 AI 雷达扫描自动获取，这里不强设
+	# 猎手化（spec boss-hunter-doctrine §3.5）：舰载机起飞即挂玩家为目标。
+	# 旧版靠"AI 雷达扫描自然获取"—— F/A-18 雷达锥有限，玩家在 5km 外绕开就永远不被发现，
+	# 整个舰队于是变成一个不会反击的固定靶。舰船追不动玩家，CSG 的猎手性全靠这些飞机
+	_assign_player_target(hornet, "CSG F/A-18 launch")
 	_fa18_alive.append(hornet)
+
+## 给一架 CSG 舰载机挂玩家目标。走 acquire_target(TS_BOSS) —— 与既有猎手系统同一条通路，
+## 优先级仲裁防抢写，且 TS_BOSS 天然绕过 ROE 感知门（= 地面指挥所全知引导）
+func _assign_player_target(ac: Aircraft, why: String) -> void:
+	if ac == null or not is_instance_valid(ac):
+		return
+	if _player == null or not is_instance_valid(_player) or _player.is_destroyed:
+		return
+	var ai: AIController = ac._get_ai_controller()
+	if ai == null:
+		return
+	ai.enable_combat = true
+	ai.boss_attacker = true
+	if ai.acquire_target(_player, AIController.TargetSource.TS_BOSS, why):
+		ai.enter_engage_state()
 
 ## 调 spawner._create_enemy（保留为内部辅助，防止 spawner 接口变化时一处定位）
 func director_create_enemy(etype: int, spawn_pos: Vector2, heading_deg: float) -> Aircraft:
@@ -293,34 +330,6 @@ func _say_phase2_radio() -> void:
 		return
 	radio.say_boss_sequence("CARRIER_STRIKE_GROUP", "phase2", callsign_prefix)
 
-## 把战术小地图的 boss_zone 中心移到 F-14 群质心（已揭幕的成员位置平均）。
-## 没有揭幕成员时退回 _cv_death_position（FROZEN 期 / 弹射中）。
-## 不修改 boss_zone radius —— 让玩家依旧看到完整 BOSS 圈范围。
-## 调用频次：每帧 update() 一次（CSG.update 每帧调一次本函数）；写入 Dictionary 是廉价操作，
-## minimap 在 _on_map_draw 里读取，自然反映最新值。
-func _sync_boss_zone_to_poltergeist() -> void:
-	if _mode == null or not is_instance_valid(_mode):
-		return
-	var zd: ZoneData = null
-	if "_zone_data" in _mode:
-		zd = _mode._zone_data
-	if zd == null:
-		return
-	# 取已揭幕 F-14 质心；没有则用 CV 死亡位置
-	var center: Vector2 = _cv_death_position
-	if _poltergeist:
-		var sum := Vector2.ZERO
-		var n := 0
-		for m in _poltergeist.get_display_members():
-			if not is_instance_valid(m) or (m as CombatUnit).is_destroyed:
-				continue
-			sum += (m as Node2D).global_position
-			n += 1
-		if n > 0:
-			center = sum / float(n)
-	zd.boss_zone["center"] = center
-
-
 ## 胜利：CV 死 AND（Phase 2 未触发 OR Poltergeist 全灭）
 func _check_victory() -> void:
 	var cv_dead: bool = _cv == null or not is_instance_valid(_cv) or _cv.is_destroyed
@@ -353,6 +362,54 @@ func get_display_members() -> Array:
 ## 呼号分配：Phase 2 时 _create_enemy 要知道当前 AceSquad 是 Poltergeist
 func get_active_ace_squad() -> AceSquad:
 	return _poltergeist
+
+# ══════════════════════════════════════════════
+#  摆位地形校验
+# ══════════════════════════════════════════════
+#
+# zone_data._snap_to_water 只保证 BOSS 圈的圆心在水面，但整支舰队 bbox ≈1950×2200 px、
+# CV 还要沿航向来回跑 ±1500 px —— 锚点靠岸时护卫舰会直接刷在陆地上。
+# 下水前先扫一遍"候选朝向 × 候选锚点"，取落地点最少的一组；找到全水面解立即采用。
+
+const PLACEMENT_HEADING_STEP_DEG: float = 45.0
+## 锚点候选偏移（按顺序试，Vector2.ZERO = 原锚点优先）
+const PLACEMENT_ANCHOR_NUDGES: Array[Vector2] = [
+	Vector2.ZERO,
+	Vector2(1800, 0), Vector2(-1800, 0), Vector2(0, 1800), Vector2(0, -1800),
+]
+
+## 数一组(锚点, 朝向)下有多少关键落点在陆地上：CV 巡逻两端 + 10 个护卫位
+func _score_placement(anchor: Vector2, heading_deg: float) -> int:
+	var heading_rad: float = deg_to_rad(heading_deg)
+	var fwd: Vector2 = Vector2(sin(heading_rad), -cos(heading_rad))
+	var stb: Vector2 = Vector2(cos(heading_rad), sin(heading_rad))
+	var land: int = 0
+	if MapGeography.is_on_land(anchor + fwd * CV_PATROL_HALF_SPAN):
+		land += 1
+	if MapGeography.is_on_land(anchor - fwd * CV_PATROL_HALF_SPAN):
+		land += 1
+	for off in ESCORT_OFFSETS:
+		if MapGeography.is_on_land(anchor + fwd * off.x + stb * off.y):
+			land += 1
+	return land
+
+## 选出落地点最少的摆位 → { anchor, heading, land }
+func _pick_water_placement(anchor: Vector2, heading_deg: float) -> Dictionary:
+	var best := {"anchor": anchor, "heading": heading_deg, "land": _score_placement(anchor, heading_deg)}
+	if int(best["land"]) == 0:
+		return best
+	for nudge in PLACEMENT_ANCHOR_NUDGES:
+		var a: Vector2 = anchor + nudge
+		var h: float = 0.0
+		while h < 360.0:
+			var land: int = _score_placement(a, h)
+			if land < int(best["land"]):
+				best = {"anchor": a, "heading": h, "land": land}
+				if land == 0:
+					return best
+			h += PLACEMENT_HEADING_STEP_DEG
+	return best
+
 
 # ══════════════════════════════════════════════
 #  舰船 spawn 工具

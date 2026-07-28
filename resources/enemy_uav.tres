@@ -6,7 +6,7 @@
 
 [resource]
 script = ExtResource("1")
-display_name = "UAV"
+display_name = "MQ-109"
 is_unmanned = true
 max_hp = 40.0
 armor = 0.0

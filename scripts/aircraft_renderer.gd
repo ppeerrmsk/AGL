@@ -363,7 +363,7 @@ static func draw_aura_ranges(ac: Aircraft) -> void:
 static func draw_gun_cone(ac: Aircraft) -> void:
 	if not ac.params or not ac.params.gun:
 		return
-	# 友方 hover 时显示黄色参考锥；敌方对玩家提交机炮攻击 ≥0.3s 显示红色威胁锥
+	# 友方 hover 时显示参考锥；敌方对玩家提交机炮攻击 ≥0.3s 显示威胁锥（同为橙黄）
 	var show_friendly: bool = (ac.team == 0 and ac.is_hovered)
 	var show_enemy_threat: bool = (ac.team != 0 and ac._gun_threat_timer >= Aircraft.GUN_THREAT_DISPLAY_DELAY)
 	# UAV 蜂群一群飞机各自显示锥子太碍眼，玩家根本看不过来 —— 抑制 UAV / 无人机
@@ -371,6 +371,10 @@ static func draw_gun_cone(ac: Aircraft) -> void:
 	if show_enemy_threat and ac.params.is_unmanned:
 		show_enemy_threat = false
 	if not show_friendly and not show_enemy_threat:
+		return
+	# 敌方锥开火期间淡出（见 Aircraft._update_gun_threat_indicator）；全透时直接跳过绘制
+	var fade: float = ac._gun_threat_fade if show_enemy_threat else 1.0
+	if fade <= 0.01:
 		return
 	var gun_r := ac.params.gun.max_range * Aircraft.PIXELS_PER_METER
 	var half_rad := deg_to_rad(ac.params.gun.fire_cone_half_angle)
@@ -380,8 +384,10 @@ static func draw_gun_cone(ac: Aircraft) -> void:
 	var end_angle := center_angle + half_rad
 	var segments := 16
 
-	# 友方/敌方威胁都用同一橙黄色锥，仅敌方威胁时不透明度略高便于注意
-	var cone_color: Color = Color(0.9, 0.7, 0.2, 0.22) if show_enemy_threat else Color(0.9, 0.7, 0.2, 0.15)
+	# 友方/敌方威胁同一橙黄色锥。敌方锥会同时挂在多架敌机上，太实会糊住战场 ——
+	# 2026-07-28 从 0.22 调淡到 0.12，再乘开火淡出系数
+	var cone_alpha: float = (0.12 * fade) if show_enemy_threat else 0.15
+	var cone_color := Color(0.9, 0.7, 0.2, cone_alpha)
 
 	var points := PackedVector2Array()
 	points.append(Vector2.ZERO)
@@ -391,7 +397,7 @@ static func draw_gun_cone(ac: Aircraft) -> void:
 
 	ac.draw_colored_polygon(points, cone_color)
 
-	var edge_color := Color(cone_color, 0.4)
+	var edge_color := Color(cone_color, (0.24 * fade) if show_enemy_threat else 0.4)
 	ac.draw_line(Vector2.ZERO, points[1], edge_color, 1.0, true)
 	ac.draw_line(Vector2.ZERO, points[points.size() - 1], edge_color, 1.0, true)
 	for i in range(1, points.size() - 1):
@@ -1948,9 +1954,12 @@ static func draw_railgun_telegraph(ac: Aircraft) -> void:
 	var dist: float = to_tgt.length()
 	if dist < 1.0:
 		return
-	# 不在射程内不画（仅 charging 阶段；awaiting 已锁定不再校验）
-	# fire_along_nose 模式下 dist == range_px，必通过
-	if charging and dist > range_px:
+	# 不在射程内不画（仅 charging 阶段；awaiting 已锁定不再校验）。
+	# ⚠ fire_along_nose 必须排除：其 aim_anchor = nose_dir × range_px，dist = |nose_dir|×range_px，
+	# 而 |Vector2(sin,-cos)| 有 float epsilon（≈1±1e-7）→ dist 每帧在 range_px 上下微跳，约半数帧
+	# dist > range_px 成立 → 扇形隔帧被 return 掉 → ~30Hz 频闪（用户实测 MQ-112 telegraph"伤眼睛"）。
+	# 该模式弹道恒 = 机头线满射程，本就无需射程校验（原注释"必通过"的假设被浮点打破）。
+	if charging and not rg.fire_along_nose and dist > range_px:
 		return
 	var aim_dir: Vector2 = to_tgt.normalized()
 	# awaiting_fire 阶段 progress 视觉上为 1.0（fan 完全收缩成线）

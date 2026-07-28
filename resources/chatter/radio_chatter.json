@@ -48,6 +48,38 @@
       "weight": 100,
       "lines": []
     },
+    "ace_spawn": {
+      "_doc": "非 BOSS 王牌中队入场（红色警告横幅是 BOSS 专属，这条语音即王牌入场的主信号，spec ace-squadron-tier §2.6）。全部王牌中队共享此台词池，单条随机；新队可扩充带风格的行（三语齐全）。",
+      "class": "scripted",
+      "weight": 90,
+      "lines": [
+        "RADIO_ACE_SPAWN_1",
+        "RADIO_ACE_SPAWN_2",
+        "RADIO_ACE_SPAWN_3",
+        "RADIO_ACE_SPAWN_4",
+        "RADIO_ACE_SPAWN_5"
+      ]
+    },
+    "awacs_onstation": {
+      "_doc": "预警机进入战区上空开始提供支援。玩家必须知道光环什么时候到位（否则只能靠 Tab 图自己发现），强制播出。",
+      "class": "scripted",
+      "weight": 88,
+      "lines": [
+        "RADIO_AWACS_ONSTATION_1",
+        "RADIO_AWACS_ONSTATION_2",
+        "RADIO_AWACS_ONSTATION_3"
+      ]
+    },
+    "awacs_egress": {
+      "_doc": "预警机在站时间用尽，转向撤离。与入场对称：光环即将消失是战术信息，强制播出。",
+      "class": "scripted",
+      "weight": 88,
+      "lines": [
+        "RADIO_AWACS_EGRESS_1",
+        "RADIO_AWACS_EGRESS_2",
+        "RADIO_AWACS_EGRESS_3"
+      ]
+    },
     "eject_friendly": {
       "_doc": "自家僚机被击坠的弹射呼叫。自己人阵亡是重要事件，概率给高。",
       "class": "ambient",
@@ -81,6 +113,18 @@
         "RADIO_BREAK_3"
       ]
     },
+    "afterburner": {
+      "_doc": "玩家主动启动加力模式（充能制）——全队极速冲刺脱离/占位，不是躲导弹。",
+      "class": "ambient",
+      "weight": 55,
+      "cooldown_sec": 8.0,
+      "chance": 0.85,
+      "lines": [
+        "RADIO_AFTERBURNER_1",
+        "RADIO_AFTERBURNER_2",
+        "RADIO_AFTERBURNER_3"
+      ]
+    },
     "splash": {
       "_doc": "僚机击坠回报。击杀是最高频事件，概率必须压住。",
       "class": "ambient",
@@ -95,7 +139,7 @@
       ]
     },
     "ack_pursue": {
-      "_doc": "RTS 点名攻击 / 分火接敌的回令。所有 ack_* 共享一个冷却桶。",
+      "_doc": "RTS 点名攻击 / 分火接敌【空中目标】的回令。所有 ack_* 共享一个冷却桶。",
       "class": "ambient",
       "weight": 50,
       "cooldown_group": "ack",
@@ -104,6 +148,18 @@
       "lines": [
         "RADIO_ACK_PURSUE_1_FMT",
         "RADIO_ACK_PURSUE_2_FMT"
+      ]
+    },
+    "ack_strike": {
+      "_doc": "RTS 点名攻击【地面/水面目标】的回令。对地不用空战'咬住/追击/包围'词，改'打击'语义。",
+      "class": "ambient",
+      "weight": 50,
+      "cooldown_group": "ack",
+      "cooldown_sec": 8.0,
+      "chance": 0.35,
+      "lines": [
+        "RADIO_ACK_STRIKE_1_FMT",
+        "RADIO_ACK_STRIKE_2_FMT"
       ]
     },
     "ack_surround": {
@@ -304,11 +360,16 @@
       "a7",
       "q5",
       "f4",
+      "f4e",
       "f104",
       "su35",
       "fa18",
       "f47",
-      "f14_poltergeist"
+      "f14_poltergeist",
+      "f15",
+      "f16",
+      "mirage2000",
+      "su47"
     ]
   }
 }

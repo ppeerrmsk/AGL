@@ -5,6 +5,11 @@ extends CanvasLayer
 
 signal upgrade_selected(upgrade: Dictionary)
 
+## 机体签名技（sig_*）专属卡框色 —— 洋红。
+## 刻意避开五档稀有度色（灰白/蓝/紫/金/红）与三轴色（琥珀/青绿/紫），
+## 让"这是当前机体的看家本领"在一排卡里一眼可辨；边框同时加粗一档作为非色彩线索。
+const SIG_FRAME_COLOR := Color(1.00, 0.25, 0.75)
+
 var _title: Label
 var _btn_container: HBoxContainer
 var _buttons: Array[Button] = []
@@ -172,7 +177,9 @@ func _reset_transition_state() -> void:
 		c.modulate.a = 1.0
 		c.scale = Vector2.ONE
 
-func populate(choices: Array[Dictionary]) -> void:
+## points_capped：三轴点数已封顶（spec evolution-attribute-gates §2.2 v9）——
+## 选卡仍得技能但不再加点，徽章去掉"+1"避免撒谎
+func populate(choices: Array[Dictionary], points_capped: bool = false) -> void:
 	_choices = choices
 	for i in range(3):
 		if i < choices.size():
@@ -185,7 +192,8 @@ func populate(choices: Array[Dictionary]) -> void:
 			_buttons[i].text = "\n%s%s\n\n%s" % [cat_prefix, tr(choices[i]["name"]), tr(choices[i]["desc"])]
 			if i < _axis_badges.size():
 				var ab := _axis_badges[i]
-				ab.text = "%s +1" % tr(str(SurvivorData.AXIS_I18N_KEY.get(axis, "")))
+				var axis_name := tr(str(SurvivorData.AXIS_I18N_KEY.get(axis, "")))
+				ab.text = axis_name if points_capped else "%s +1" % axis_name
 				ab.add_theme_color_override("font_color", axis_color)
 				var ab_bg: StyleBoxFlat = ab.get_theme_stylebox("normal")
 				if ab_bg is StyleBoxFlat:
@@ -203,16 +211,25 @@ func populate(choices: Array[Dictionary]) -> void:
 			# 高稀有度更粗边框，更醒目
 			var border_w: int = 1 + clampi(rarity, 0, 4) / 2 + (1 if rarity >= SurvivorData.Rarity.CLASSIFIED else 0)
 
+			# 签名技走独立卡框色：sig_* 全是 CLASSIFIED，混在一堆金框里认不出来，
+			# 而"只有开这台机才拿得到"比稀有度更值得一眼看见。徽章仍保留真稀有度色。
+			var is_sig: bool = SurvivorData.is_signature_upgrade(choices[i])
+			var frame_color: Color = SIG_FRAME_COLOR if is_sig else rarity_color
+			if is_sig:
+				border_w += 1
+
 			var style_normal: StyleBoxFlat = _buttons[i].get_theme_stylebox("normal").duplicate()
 			var style_hover: StyleBoxFlat = _buttons[i].get_theme_stylebox("hover").duplicate()
-			# normal 用 70% 不透明的稀有度色，hover 满色 + 更粗
-			style_normal.border_color = Color(rarity_color, 0.7)
-			style_hover.border_color = rarity_color
+			# normal 用 70% 不透明的框色，hover 满色 + 更粗
+			style_normal.border_color = Color(frame_color, 0.7)
+			style_hover.border_color = frame_color
 			style_normal.set_border_width_all(border_w)
 			style_hover.set_border_width_all(border_w + 1)
-			# Next-Gen 给一点微微的发光底色（让"顶级"卡视觉就能区分）
-			if rarity == SurvivorData.Rarity.NEXT_GEN:
-				style_normal.bg_color = Color(rarity_color, 0.10).blend(style_normal.bg_color)
+			# 签名技 / Next-Gen 给一点发光底色（让"这张不一样"视觉就能区分）
+			if is_sig:
+				style_normal.bg_color = Color(frame_color, 0.16).blend(style_normal.bg_color)
+			elif rarity == SurvivorData.Rarity.NEXT_GEN:
+				style_normal.bg_color = Color(frame_color, 0.10).blend(style_normal.bg_color)
 			_buttons[i].add_theme_stylebox_override("normal", style_normal)
 			_buttons[i].add_theme_stylebox_override("hover", style_hover)
 

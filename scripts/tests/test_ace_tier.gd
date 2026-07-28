@@ -28,6 +28,9 @@ func run() -> void:
 	_test_hp_cap_exemption()
 	_test_residual_hp_guarantee()
 	_test_marking()
+	_test_profiles()
+	_test_callsign_reservation()
+	_test_ace_archive()
 
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 
@@ -103,6 +106,93 @@ func _test_marking() -> void:
 	_check("标记后可查", AceTier.is_ace(n), "meta tier=ace")
 	_check("null 安全", not AceTier.is_ace(null), "不崩")
 	n.free()
+
+
+# ── 6. 编成 profile 注册表（spec ace-squadron-tier §2.7 / §2.9，728 实装批）──
+func _test_profiles() -> void:
+	print("── profile 注册表 ──")
+	# 六队齐 + 字段完整
+	var expected := ["marathon", "2ndwave", "orion", "gimmick", "goofighters", "vulture"]
+	for id in expected:
+		var p: Dictionary = AceSquadProfiles.get_profile(id)
+		_check("profile %s 存在且字段齐" % id,
+			not p.is_empty() and p.has("codename") and p.has("name_key") and p.has("lore_key") \
+			and p.has("color") and p.has("pool_time") and p.has("callsigns") and p.has("dodge"),
+			String(p.get("codename", "MISSING")))
+	# 呼号铁律：不与 CALLSIGNS 800 池撞名、全表不重复
+	var seen: Dictionary = {}
+	var pool_clash: Array = []
+	var dup: Array = []
+	for id in AceSquadProfiles.PROFILES:
+		for cs_any in AceSquadProfiles.PROFILES[id].get("callsigns", []):
+			var cs := String(cs_any)
+			if cs in CallsignDB.CALLSIGNS:
+				pool_clash.append(cs)
+			if seen.has(cs):
+				dup.append(cs)
+			seen[cs] = true
+	_check("固定呼号不在 800 池内", pool_clash.is_empty(), "撞名=%s" % str(pool_clash))
+	_check("固定呼号全表无重复", dup.is_empty(), "重复=%s" % str(dup))
+	# 时段档（728 用户改档：Marathon 中期 320s；宿敌不进池；未实装不进池）
+	_check("250s 池不含 marathon（改档中期）", not AceSquadProfiles.pool_at(250.0).has("marathon"),
+		str(AceSquadProfiles.pool_at(250.0)))
+	_check("330s 池含 marathon", AceSquadProfiles.pool_at(330.0).has("marathon"),
+		str(AceSquadProfiles.pool_at(330.0)))
+	_check("宿敌 orion 永不进轮换池", not AceSquadProfiles.pool_at(9999.0).has("orion"),
+		str(AceSquadProfiles.pool_at(9999.0)))
+	var unimplemented_leak := false
+	for id in AceSquadProfiles.pool_at(9999.0):
+		if not bool(AceSquadProfiles.PROFILES[id].get("implemented", false)):
+			unimplemented_leak = true
+	_check("未实装队不进池", not unimplemented_leak, str(AceSquadProfiles.pool_at(9999.0)))
+
+
+# ── 7. 呼号永久保留（tier §2.7：杂鱼抽不到、死亡不回池）──
+func _test_callsign_reservation() -> void:
+	print("── 呼号永久保留 ──")
+	AceSquadProfiles.reserve_callsigns()
+	_check("Pacer 已永久保留", CallsignDB.is_permanent("Pacer"), "")
+	_check("池内代号词 Vulture 一并保留", CallsignDB.is_permanent("Vulture"), "EXTRA_RESERVED")
+	# recycle 不放行
+	CallsignDB.recycle("Pacer")
+	var re_allocated := false
+	for i in 900:   # 抽干整池也抽不到 Pacer
+		if CallsignDB.allocate() == "Pacer":
+			re_allocated = true
+			break
+	_check("recycle 后仍抽不到王牌呼号", not re_allocated, "永不回池")
+	CallsignDB.reset()   # 清掉本测试污染的 _used
+	_check("reset 后仍占位", not re_allocated and CallsignDB.is_permanent("Pacer"), "")
+
+
+# ── 8. 生涯留档（tier §2.7：encounter/defeat + 首破日期；orion 计数=成长轴）──
+func _test_ace_archive() -> void:
+	print("── 生涯留档 ──")
+	var archive = load("res://scripts/meta/career_archive.gd").new()
+	archive.config_path = "user://_test_ace_career.cfg"
+	archive.record_ace_encounter("marathon")
+	archive.record_ace_defeat("marathon")
+	archive.record_ace_defeat("marathon")
+	_check("遭遇计数", archive.get_ace_encounters("marathon") == 1,
+		"%d" % archive.get_ace_encounters("marathon"))
+	_check("击破计数", archive.get_ace_defeats("marathon") == 2,
+		"%d" % archive.get_ace_defeats("marathon"))
+	_check("首破日期只记一次", archive.get_ace_first_defeat_date("marathon") != "",
+		archive.get_ace_first_defeat_date("marathon"))
+	_check("未击破队为剪影态", not archive.has_defeated_ace("vulture"), "")
+	archive.record_ace_defeat("orion")
+	_check("orion 击破即成长轴计数", archive.get_orion_kills() == 1,
+		"%d" % archive.get_orion_kills())
+	# 落盘→重读闭环
+	var archive2 = load("res://scripts/meta/career_archive.gd").new()
+	archive2.config_path = "user://_test_ace_career.cfg"
+	archive2.reload_from_disk()
+	_check("落盘重读一致", archive2.get_ace_defeats("marathon") == 2 \
+		and archive2.get_orion_kills() == 1, "defeats=%d orion=%d" \
+		% [archive2.get_ace_defeats("marathon"), archive2.get_orion_kills()])
+	DirAccess.remove_absolute("user://_test_ace_career.cfg")
+	archive.free()
+	archive2.free()
 
 
 func _check(name: String, got: bool, note: String) -> void:

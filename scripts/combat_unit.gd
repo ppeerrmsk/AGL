@@ -117,6 +117,12 @@ func apply_status(id: String, duration: float, mode: String = "max") -> void:
 	# 例：fear_immune meta（Mother Goose UAV 等硬件平台无飞行员 → FEAR 无来源）
 	if id == "fear" and has_meta(&"fear_immune"):
 		return
+	# 722 sig_gripen_e·电战预算：免疫一切负面状态（JAM/SLOW/FEAR）。
+	# get() 对无此字段的子类（MountTarget 等）返回 null，null == true 为 false，仅 Aircraft 持技能时生效。
+	# ⚠ 不要写 bool(get(...))：Godot 4 无 Nil→bool 构造器，会抛 "Nonexistent 'bool' constructor" 崩溃
+	if (id == StatusEffects.JAM or id == StatusEffects.SLOW or id == StatusEffects.FEAR) \
+			and get("sig_status_immune") == true:
+		return
 	var prev: float = float(status_effects.get(id, 0.0))
 	if mode == "no_refresh" and prev > 0.0:
 		# 状态仍在持续 → 不刷新、不延长
@@ -169,6 +175,44 @@ static func safe_attacker(n: Variant) -> Node:
 ## 同上，但返回 CombatUnit —— 给形参类型是 CombatUnit 的调用点用，避免 Node→CombatUnit 的隐式下转。
 static func safe_unit(n: Variant) -> CombatUnit:
 	return n if is_instance_valid(n) else null
+
+## 释放前净化：把全场对 `unit` 的战斗引用（combat_target / commanded_target /
+## secondary_combat_target / AIController._current_target）清成 null。
+## **所有 free CombatUnit 的地方**（沉船 / 挂点代理 / 撤离出界 / 事件静默回收）
+## 都必须在 queue_free 之前调它一次。
+##
+## ⚠ 为什么不能靠持有者自查：
+## 1. Godot 里**已释放对象与 null 相等** —— `freed_obj != null` 求值为 false。所以
+##    `if combat_target != null and not is_instance_valid(combat_target)` 这类守卫对野指针
+##    整条失效（aircraft.gd 的 planner 目标死亡守卫就这么空转了一整轮）。
+##    而 `is` 判定 / 属性访问 / 传进带类型的形参照样会报 "previously freed instance"，
+##    最后一种更是直接崩（机制同上面 safe_attacker 的注释）。
+## 2. AI / 物理有 LOD 分频 —— "标 is_destroyed 的那一帧"和"queue_free 生效的那一帧"之间
+##    持有者可能一次都没 tick 到，`is_destroyed` 守卫同样拦不住。
+##
+## 结论：谁 free 谁负责在 free 之前把引用摘干净。O(N) 全场扫描，但只在退场瞬间跑一次。
+static func release_target_refs(unit: CombatUnit) -> void:
+	if unit == null or not is_instance_valid(unit):
+		return
+	for u in all_units:
+		if u == null or not is_instance_valid(u) or u == unit:
+			continue
+		if u is Aircraft:
+			var ac: Aircraft = u
+			if ac.commanded_target == unit:
+				ac.commanded_target = null
+			if ac.secondary_combat_target == unit:
+				ac.secondary_combat_target = null
+			if ac.combat_target == unit:
+				ac.clear_combat_target()
+			for child in ac.get_children():
+				if child is AIController:
+					var ai: AIController = child
+					if ai._current_target == unit:
+						ai._current_target = null
+					break
+		elif "combat_target" in u and u.combat_target == unit:
+			u.combat_target = null
 
 ## 受到伤害（子类可覆写）
 ## damage_kind 枚举字符串："gun" / "missile" / "aoe" / "rocket" / "laser" / "railgun" / "ground_crash" / "collision" / ""(未知)

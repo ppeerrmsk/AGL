@@ -3,7 +3,7 @@
 [ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
 [ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
 [ext_resource type="Resource" path="res://resources/default_combat.tres" id="3"]
-[ext_resource type="Resource" path="res://resources/default_flare.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/player/flare_t5.tres" id="4"]
 [ext_resource type="Script" path="res://scripts/missile_params.gd" id="5"]
 
 [sub_resource type="Resource" id="msl"]

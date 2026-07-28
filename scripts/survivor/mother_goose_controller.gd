@@ -189,6 +189,16 @@ func _clear_jam_field() -> void:
 	pass
 
 
+## 玩家机换人时重定向（BossEncounter.set_player_ref 契约的下游一环）。
+## 本控制器自己持一份 player_ref（VLS 齐射目标 / 指定猎杀几何），
+## 且把它传给了 SwarmDirector —— 两处都要改，漏一个就是一个野指针。
+func set_player_ref(p: Aircraft) -> void:
+	if p == null or not is_instance_valid(p):
+		return
+	player_ref = p
+	if swarm_director != null:
+		swarm_director.set_player_ref(p)
+
 ## 构造 SwarmDirector + 加载 params .tres
 func _init_swarm_director() -> void:
 	if uav_swarm == null or player_ref == null or not is_instance_valid(player_ref):
@@ -447,6 +457,9 @@ func _update_far_cull(delta: float) -> void:
 		if ai_ref != null:
 			_designation_overrides.erase(ai_ref)
 			_designation_interceptors.erase(ai_ref)
+		# is_destroyed 只对"下一帧还会 tick 到"的持有者管用；AI LOD 分频下可能整个跳过，
+		# 所以再主动广播摘一次引用（combat_target / commanded_target / _current_target）
+		CombatUnit.release_target_refs(uav)
 		uav.queue_free()
 		culled += 1
 	if culled > 0:

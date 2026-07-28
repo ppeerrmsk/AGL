@@ -10,6 +10,8 @@ extends RefCounted
 ##    不再原地绕圈：≥3 次完整通场（EGRESS 进入）+ 距离大幅震荡（飞出再回，非定半径绕圈）+
 ##    真实机炮对准窗（对准 + 进射程）+ 俯冲（掉高扫射后拉起）
 ## B. STANDOFF 保持距离：导弹 vs SAM —— 全程 MISSILE + 不俯冲进 AA（保持高空 + 最近距离守住 standoff）
+##    + **必须真出弹**（log 20260726_165536 回归）：复刻实机发射门序列（包络→锥→锁→发射窗质量），
+##    旧 crank 版把机头稳态钉在离轴 radar_half×0.5 = 发射门外沿 → UNSTABLE_WIN 永拒 → 40s 0 发
 ## D. 命令轮盘姿态强制（spec command-wheel phase 4）：attack_posture 经 Situation 门控透传——
 ##    强制 STANDOFF = 不随武器竞选摇摆、守住距离不俯冲；强制 ASSAULT = 导弹机也俯冲进机炮 pass；
 ##    无 commanded_target 时姿态字段不透传（恒 AUTO，防残留污染自主交战）
@@ -116,6 +118,9 @@ func _test_standoff_keeps_distance() -> void:
 	var missile_ticks := 0
 	var total_ticks := 0
 	var lock_t := 0.0   # 雷达锁积分模拟（同 test_joust）：喂 crank 几何保持 standoff
+	var fired := 0
+	var first_fire_t := -1.0
+	var fire_cd := 0.0
 
 	for i in range(45 * 60):
 		var dist_m: float = ac.global_position.distance_to(tgt.global_position) / CombatUnit.PIXELS_PER_METER
@@ -134,18 +139,29 @@ func _test_standoff_keeps_distance() -> void:
 					missile_ticks += 1
 		ac._resolve_intents(DT)
 		_step(ac)
+		fire_cd = maxf(fire_cd - DT, 0.0)
+		if fire_cd <= 0.0 and _launch_gate_open(ac, tgt, lock_t):
+			fired += 1
+			fire_cd = p.missile.cooldown
+			if first_fire_t < 0.0:
+				first_fire_t = float(i) * DT
 		min_dist_m = minf(min_dist_m, dist_m)
 		min_alt = minf(min_alt, ac.altitude)
 		if i % 120 == 0:
-			print("    [%5.1fs] dist=%5.0fm nose=%5.1f° ph=%s wpn=%s" % [
+			print("    [%5.1fs] dist=%5.0fm nose=%5.1f° ph=%s wpn=%s fired=%d" % [
 				float(i) * DT, dist_m, _nose_off_deg(ac, tgt),
 				TacticalPlan.surface_phase_name(ac._last_plan.strafe_pass_phase) if ac._last_plan else "-",
-				TacticalPlan.weapon_mode_name(ac._last_plan.weapon_mode) if ac._last_plan else "-"])
+				TacticalPlan.weapon_mode_name(ac._last_plan.weapon_mode) if ac._last_plan else "-",
+				fired])
 
 	var msl_ratio: float = float(missile_ticks) / float(maxi(total_ticks, 1))
 	_check("全程用导弹（STANDOFF）", msl_ratio > 0.9, "MISSILE 占比 %.0f%%" % (msl_ratio * 100.0))
 	_check("不俯冲进近距 AA（守住 standoff）", min_dist_m >= 900.0, "最近 %.0fm" % min_dist_m)
 	_check("不掉低空（保持高位发射）", min_alt >= 3000.0, "最低高度 %.0fm" % min_alt)
+	# log 20260726_165536 回归核心：旧 crank 版此计数恒 0（离轴钉在发射门外沿 UNSTABLE_WIN 永拒）
+	_check("必须真出弹（发射门通过 ≥2 次）", fired >= 2, "fired=%d" % fired)
+	_check("首发不拖沓（< 30s）", first_fire_t >= 0.0 and first_fire_t < 30.0,
+		("首发 @%.1fs" % first_fire_t) if first_fire_t >= 0.0 else "45s 未开火")
 	_free_pair(ac, tgt)
 
 
@@ -156,6 +172,7 @@ func _test_standoff_longrange_offaxis_ship() -> void:
 	p.missile.max_range_rear = 16000.0   # 远程反舰弹 → standoff 环 inner=8000m > 起始 6200m（起手就在环内）
 	var ac = _make_ac(p, Vector2.ZERO, PI)   # 朝南（heading=PI），目标在北 → 初始 off≈180°
 	ac.use_tactical_preference = true        # 玩家机（病例2 是 Ultra 本机）
+	ac.gun_aim_error_enabled = true          # 玩家侧瞄准误差（2026-07-22 从上一行拆出）
 	ac.missiles_remaining = 6
 	var tgt = _make_ground_target(Vector2(0.0, -3100.0))  # 正北 6200m（对舰）
 	ac.combat_target = tgt
@@ -168,6 +185,8 @@ func _test_standoff_longrange_offaxis_ship() -> void:
 	var total_ticks := 0
 	var lock_t := 0.0
 	var start_dist := 6200.0
+	var fired := 0
+	var fire_cd := 0.0
 
 	for i in range(40 * 60):
 		var dist_m: float = ac.global_position.distance_to(tgt.global_position) / CombatUnit.PIXELS_PER_METER
@@ -187,6 +206,10 @@ func _test_standoff_longrange_offaxis_ship() -> void:
 					egress_ticks += 1
 		ac._resolve_intents(DT)
 		_step(ac)
+		fire_cd = maxf(fire_cd - DT, 0.0)
+		if fire_cd <= 0.0 and _launch_gate_open(ac, tgt, lock_t):
+			fired += 1
+			fire_cd = p.missile.cooldown
 		min_dist_m = minf(min_dist_m, dist_m)
 		max_dist_m = maxf(max_dist_m, dist_m)
 		min_nose = minf(min_nose, nose_off)
@@ -204,6 +227,8 @@ func _test_standoff_longrange_offaxis_ship() -> void:
 		"最远 %.0fm（起始 %.0f）" % [max_dist_m, start_dist])
 	_check("压入到发射/脱离距（min dist ≤ 3.5km）", min_dist_m <= 3500.0, "最近 %.0fm" % min_dist_m)
 	_check("不长时间背飞 EGRESS（占比 < 40%）", egress_ratio < 0.4, "EGRESS 占比 %.0f%%" % (egress_ratio * 100.0))
+	# 玩家长机（use_tactical_preference）同病回归：对舰 STANDOFF 也必须真出弹
+	_check("玩家长机必须真出弹（≥1 次）", fired >= 1, "fired=%d" % fired)
 	_free_pair(ac, tgt)
 
 
@@ -218,10 +243,17 @@ func _test_wheel_posture_override() -> void:
 	var s0: Situation = Situation.from_aircraft(ac0)
 	_check("无命令时姿态不透传（恒 AUTO）", s0.attack_posture == Situation.POSTURE_AUTO,
 		"posture=%d" % s0.attack_posture)
+	# 门收紧（ace-squadron-tier §3.5）：正打命令目标本身才透传
 	ac0.commanded_target = tgt0
+	ac0.combat_target = tgt0
 	var s1: Situation = Situation.from_aircraft(ac0)
-	_check("带命令时姿态透传", s1.attack_posture == Situation.POSTURE_STANDOFF,
+	_check("带命令且正打它时姿态透传", s1.attack_posture == Situation.POSTURE_STANDOFF,
 		"posture=%d" % s1.attack_posture)
+	# 让位期（命令目标隐形）临时交战别的目标：点名姿态不泄漏到临时目标
+	ac0.combat_target = null
+	var s2: Situation = Situation.from_aircraft(ac0)
+	_check("有命令但未打它时不透传（AUTO）", s2.attack_posture == Situation.POSTURE_AUTO,
+		"posture=%d" % s2.attack_posture)
 	_free_pair(ac0, tgt0)
 
 	# D1：强制 STANDOFF——导弹机不随武器竞选摇摆、守住距离不俯冲（对照 B 段 AUTO 的近距塌陷）
@@ -372,8 +404,27 @@ func _fighter_params(gun_range_m: float, with_missile: bool) -> AircraftParams:
 		var m := MissileParams.new()
 		m.max_range_rear = 8000.0
 		m.min_range = 500.0
+		# 对齐生存模式主角机现实（survivor_playable_setup 全员 f&f + F-15C cooldown=2.0）——
+		# log 20260726_165536 的病例就是 f&f MRM 被 UNSTABLE_WIN 卡死
+		m.fire_and_forget = true
+		m.cooldown = 2.0
 		p.missile = m
 	return p
+
+
+## 复刻实机单发路径的发射门尾段（aircraft_weapons.try_fire 同序：包络 → 雷达锥 → 锁满 →
+## 发射窗口质量）。planner 机不加 LOCK_STABLE_BUFFER（与实机 lock_threshold 逻辑一致）。
+## 冷却由调用方模拟。旧 crank bug 下此门在 STANDOFF RUN 全程打不开（离轴 21~31° > radar_half×0.55）。
+func _launch_gate_open(ac, tgt, lock_t: float) -> bool:
+	if not ac._is_in_missile_envelope(tgt, ac.params.missile):
+		return false
+	if not ac.is_in_radar_cone(tgt.global_position):
+		return false
+	if lock_t < ac.params.lock_time:
+		return false
+	if not AircraftWeapons._has_stable_launch_window(ac, tgt):
+		return false
+	return true
 
 
 func _make_ac(params: AircraftParams, pos: Vector2, hdg: float):

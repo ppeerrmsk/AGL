@@ -161,10 +161,16 @@ static func evolve(ac: Aircraft, node_id: StringName, is_wingman: bool) -> bool:
 	var old_name: String = ac.params.display_name if ac.params else "?"
 	# ── 换档案：与出生注入完全同路（survivor_playable_setup 头注释约定）──
 	ac.params = profile.base_params.duplicate(true)
+	# ⚠ duplicate(true) **不会**深拷 gun/combat 等子资源（本引擎版本实测：换机后 params.gun
+	# 仍指向磁盘上的共享 default_gun.tres）。玩家机炮/战斗风格升级是直改 params 字段的，
+	# 不补这一行 → 升级会写进共享 .tres → 同引用该资源的 12 个敌机型当场一起变强，
+	# 且 load 缓存不重置 → 污染跨局残留。与出生路径（survivor_mode 三处）保持同一深拷契约。
+	# 回归守卫：bench `player_params` 的"共享武器库隔离"组。
+	SurvivorPlayableSetup.deep_dup_weapons(ac.params)
 	SurvivorPlayableSetup.apply(ac, profile, is_wingman)
 	# HP 按比例折算（避免换机瞬间白血/暴毙）
 	ac.hp = clampf(hp_ratio * ac.params.max_hp, 1.0, ac.params.max_hp)
-	# 武器 = 新机型自带，载弹/热诱弹重置为新机满额（充能/CD 由 apply 内 LoadoutLedger 处理）
+	# 武器 = 新机型自带，载弹/热诱弹重置为新机满额
 	if ac.params.missile:
 		ac.missiles_remaining = ac.params.missile.max_count
 	if ac.params.secondary_missile:

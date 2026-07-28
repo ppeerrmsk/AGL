@@ -188,6 +188,9 @@ static func update_bank(ac: Aircraft, delta: float) -> void:
 		roll_rate_val *= ctrl
 	var alt_factor := clampf(ac.altitude / 15000.0, 0.0, 1.0)
 	roll_rate_val *= 1.0 + alt_factor * 0.30
+	# 722 sig_j36·三发推力：突击 buff 期间滚转 ×1.3
+	if ac.sig_j36_assault_active:
+		roll_rate_val *= 1.3
 
 	var bank_diff := target_bank - ac.bank_angle
 	var max_roll := roll_rate_val * delta
@@ -247,7 +250,9 @@ static func update_speed(ac: Aircraft, delta: float) -> void:
 
 		var max_climb_norm: float = ac.params.climb_rate_max if ac.params else 250.0
 		var vs_norm: float = clampf(ac.vertical_speed / maxf(max_climb_norm, 1.0), -1.0, 1.0)
-		target_ms *= 1.0 - vs_norm * 0.10
+		# 722 sig_typhoon·超巡爬升：爬升不削目标速度（俯冲增速照旧；PE↔KE 物理不豁免）
+		if not (ac.sig_typhoon_active and vs_norm > 0.0):
+			target_ms *= 1.0 - vs_norm * 0.10
 
 		var max_speed_ms := max_speed_at_altitude(ac) / 3.6
 		if ac.evasion_mode:
@@ -276,6 +281,12 @@ static func update_speed(ac: Aircraft, delta: float) -> void:
 		if int(bl_stacks.get(SkillHooks.SKILL_BLOODLUST_ARMOR_MOBILITY, 0)) > 0:
 			accel_rate *= SkillHooks.BLOODLUST_ACCEL_MULT
 			decel_rate *= SkillHooks.BLOODLUST_ACCEL_MULT
+	# 722 签名：三发推力（J-36 突击 buff）加/减速 ×1.4；近太空冲刺（MiG-41）俯冲加速 ×1.5
+	if ac.sig_j36_assault_active:
+		accel_rate *= 1.4
+		decel_rate *= 1.4
+	if ac._sig_mig41_dive_timer > 0.0:
+		accel_rate *= 1.5
 	if ac.is_afterburner and not ac.hard_brake:
 		var ab_mult: float = ac.params.afterburner_thrust_mult if ac.params else 1.5
 		accel_rate *= ab_mult
@@ -332,6 +343,9 @@ static func update_altitude(ac: Aircraft, delta: float) -> void:
 	# alt_mult 只放大响应度(gain/smooth)，物理顶速最多 +30% —— 防止 PE↔KE 反抽吃光横速
 	# (vapor_dodge × HIGH 档 target_altitude 翻车点，见 docs/architecture/known-seams.md)
 	var base_climb: float = ac.params.climb_rate_max if ac.params else 250.0
+	# 722 sig_typhoon·超巡爬升：高度调整速率 ×1.5（直接抬物理爬升顶速）
+	if ac.sig_typhoon_active:
+		base_climb *= 1.5
 	var max_climb := base_climb * minf(alt_mult, 1.3)
 	var gain := 0.4 * alt_mult
 	var smooth_rate := 8.0 * alt_mult
@@ -470,6 +484,9 @@ static func _g_buff_mult(ac: Aircraft) -> float:
 static func effective_max_g(ac: Aircraft) -> float:
 	## 持续 G（可长期维持）：稳态转弯 / AI 战术规划 / corner speed / 稳态 bank cap 的依据
 	var g := ac.params.max_g if ac.params else 9.0
+	# 722 sig_j36·三发推力：突击 buff 期间 +2G（加法先于乘 buff，AI 经本 accessor 自动感知）
+	if ac.sig_j36_assault_active:
+		g += 2.0
 	return g * _g_buff_mult(ac)
 
 
@@ -477,6 +494,9 @@ static func effective_max_g_instant(ac: Aircraft) -> float:
 	## 瞬时结构 G（猛拉入弯短暂可达）：仅 max_bank_angle 物理瞬时上限消费；
 	## 能量自限（update_speed struct_loss）会靠掉速把速度拽回持续 G 对应的稳态转弯
 	var g := ac.params.max_g_structural if ac.params else 12.0
+	# 722 sig_j36·三发推力：瞬时结构 G 同步 +2（与持续 G 同源加法）
+	if ac.sig_j36_assault_active:
+		g += 2.0
 	return g * _g_buff_mult(ac)
 
 
@@ -524,6 +544,9 @@ static func effective_max_speed_kmh(ac: Aircraft) -> float:
 	var v := ac.params.max_speed if ac.params else 2100.0
 	v *= ac._executioner_speed_mult()  # 侩子手 stack：每层 +5%
 	v *= ac.speed_by_knight_mult       # 全速推进（720 批 T4）：按骑士轴技能数，cap +40%
+	# 722 sig_tornado·地形跟随：低空 +8%（低空突防增速）
+	if ac.sig_tornado_active and ac.get_altitude_tier() == CombatUnit.AltitudeTier.LOW:
+		v *= 1.08
 	if ac.evasion_mode:
 		var cm: float = float(ac.evasion_modifiers.get("cruise_speed_mult", 1.0))
 		if cm > 1.0:
@@ -540,6 +563,9 @@ static func effective_max_speed_kmh(ac: Aircraft) -> float:
 ## AI 战术层用的"有效巡航速度"。零 buff = ac.params.cruise_speed
 static func effective_cruise_speed_kmh(ac: Aircraft) -> float:
 	var v := ac.params.cruise_speed if ac.params else 800.0
+	# 722 sig_tornado·地形跟随：低空 +8%（与顶速同源）
+	if ac.sig_tornado_active and ac.get_altitude_tier() == CombatUnit.AltitudeTier.LOW:
+		v *= 1.08
 	if ac.evasion_mode:
 		var cm: float = float(ac.evasion_modifiers.get("cruise_speed_mult", 1.0))
 		if cm > 1.0:
@@ -1437,6 +1463,12 @@ static func step_speed(st: FlightState, delta: float) -> void:
 		if int(bl_stacks.get(SkillHooks.SKILL_BLOODLUST_ARMOR_MOBILITY, 0)) > 0:
 			accel_rate *= SkillHooks.BLOODLUST_ACCEL_MULT
 			decel_rate *= SkillHooks.BLOODLUST_ACCEL_MULT
+	# 722 签名：三发推力（J-36 突击 buff）加/减速 ×1.4；近太空冲刺（MiG-41）俯冲加速 ×1.5
+	if ac.sig_j36_assault_active:
+		accel_rate *= 1.4
+		decel_rate *= 1.4
+	if ac._sig_mig41_dive_timer > 0.0:
+		accel_rate *= 1.5
 	# AB 也走 st 而非 ac（同上 prediction 内联 planner 的需要）
 	if st.is_afterburner and not ac.hard_brake:
 		var ab_mult: float = ac.params.afterburner_thrust_mult if ac.params else 1.5

@@ -128,15 +128,18 @@ func set_event_directive(directive: AIDirective) -> void:
 		# 释放时清掉事件期间留下的强制目标，让正常 AI 重新选目标
 		aircraft.clear_combat_target()
 
-## 实际 boss_attacker 状态（综合 boss_attacker 标志 + F-47 角色 meta）
+## 实际 boss_attacker 状态（综合 boss_attacker 标志 + 王牌角色 meta）
 ## 即使标志延迟一帧未更新，角色 meta 实时检查也能正确判断
+##
+## ⚠ 本兜底此前读的是 `f47_role` —— 一个**从来没有任何代码写过**的 meta，
+##   即整条分支是死代码（2026-07-22 按 wraith spec §2.1 换成真正被写的 AceSquad.ROLE_META）
 func is_boss_attacker() -> bool:
 	if boss_attacker:
 		return true
-	# 兜底检查：F-47 的 CLOSE_FIGHTER(2) 或 RANGED_STRIKER(3) 角色始终是攻击手
-	if aircraft and aircraft.has_meta("f47_role"):
-		var role: int = aircraft.get_meta("f47_role")
-		return role == 2 or role == 3  # CLOSE_FIGHTER or RANGED_STRIKER
+	# 兜底检查：有王牌角色（KNIGHT / SNIPER）的一律是攻击手
+	if aircraft:
+		var role: int = AceSquad.role_of(aircraft)
+		return role == AceSquad.AceRole.KNIGHT or role == AceSquad.AceRole.SNIPER
 	return false
 
 # ── BVR 狙击模式常量 ──
@@ -307,6 +310,27 @@ func effective_squad_leash() -> float:
 			return SQUAD_LEASH_DIST
 		return REAR_GUARD_LEASH_DIST
 	return SQUAD_LEASH_DIST
+
+## 战场引力 leash 松绑（spec battlefield-gravity §3.4）：返回 [锚点 Vector2, 限距 float]。
+## ① 正在打"咬操控机"的 survival 目标 → 锚=操控机、限距=SURVIVAL_RANGE+BRACKET_SLACK(4200px 常数)；
+##    有界性天然成立：追击者逃出 SURVIVAL_RANGE → 不再是 survival → 下一 tick 即回旧 leash。
+## ② 有 active objective（BOSS/战区）→ 锚从长机改引力锚（向战场中心收拢，玩家单飞不拖走全队）。
+## ③ 其余（无引力/沙盒/敌方）→ 旧行为逐位不变（锚=长机，限距=effective_squad_leash）。
+## 调用方保证 squad.leader 有效。
+func leash_anchor_and_limit() -> Array:
+	var anchor_pos: Vector2 = squad.leader.global_position
+	var limit := effective_squad_leash()
+	if ObjectiveContext.enabled and aircraft.is_player_squad():
+		if ObjectiveContext.is_survival_threat(_current_target):
+			limit = ObjectiveContext.SURVIVAL_RANGE_PX + ObjectiveContext.BRACKET_SLACK_PX
+			var p: Aircraft = ObjectiveContext.protectee
+			if p != null and is_instance_valid(p) and not p.is_destroyed:
+				anchor_pos = p.global_position
+		elif ObjectiveContext.has_objective:
+			var a := ObjectiveContext.effective_anchor()
+			if a != Vector2.INF:
+				anchor_pos = a
+	return [anchor_pos, limit]
 var _squad_leash_timer: float = 0.0  ## leash 越界累计计时
 
 # ── 编队护盾/导弹拦截 ──
@@ -512,6 +536,8 @@ var _prev_tactic: EngageTactic = EngageTactic.LEAD_PURSUIT ## 上一个战术（
 var _defensive_time: float = 0.0        ## 持续处于防御态势的累计时间
 var _break_phase: int = 0               ## Break Turn 阶段：0=急转, 1=反转迎头
 var _target_eval_timer: float = 0.0     ## 交战中目标重评估计时器
+var _gravity_low_evals: int = 0         ## 战场引力：顺手目标连续低于交战地板的评估次数（spec battlefield-gravity §2.1.1，≥2 脱离）
+var _defense_scan_timer: float = 0.0    ## 战场引力：生存层回防扫描节流（spec battlefield-gravity §3.3，1Hz；独立于 _scan_timer 防抢 FREE 扫描节奏）
 
 # ── FEAR 状态机（边沿检测 + 解除冷却）──
 var _fear_was_active: bool = false      ## 上一帧 FEAR 状态（用于边沿检测）
@@ -915,8 +941,9 @@ func _apply_constraints(delta: float) -> bool:
 			or (_state == AIState.ENGAGE and not _cmd_engage_active())
 	if leash_applicable and squad and is_instance_valid(squad.leader) and squad.leader != aircraft \
 			and not bvr_only and not is_boss_attacker() and combat_zone_anchor == null:
-		var leash_d := aircraft.global_position.distance_to(squad.leader.global_position)
-		if leash_d > effective_squad_leash():
+		var al := leash_anchor_and_limit()
+		var leash_d := aircraft.global_position.distance_to(al[0])
+		if leash_d > al[1]:
 			_squad_leash_timer += delta
 			if _squad_leash_timer >= SQUAD_LEASH_HYSTERESIS:
 				_squad_leash_timer = 0.0
@@ -1049,6 +1076,16 @@ func _enforce_commanded_target() -> bool:
 		aircraft.attack_posture = Situation.POSTURE_AUTO  # 姿态/包围方位随命令走（command-wheel §2.9/§3.6）
 		aircraft.surround_bearing_rad = INF
 		return false
+	# 隐形让位（spec ace-squadron-tier §3.5 铁律通路"commanded_target"）：命令目标光学隐形期间
+	# 铁律【挂起】—— 不清 commanded_target 指针，只主动交出目标持有权，落回 match 分发归队/临时交战。
+	# 必须用 TS_COMMANDED release：否则 _process_engage 的 disengage 走 TS_SCORED release 会被
+	# _target_holder_pri（仅 is_destroyed 降级）以 4>1 拒绝 → 每 tick acquire↔disengage 死锁空转。
+	# 只认 is_cloaked（真隐形）不认整个 is_lock_immune()：弹射/出场免疫窗与 MountTarget 不该丢命令。
+	# 解除隐形后本函数下一 tick 自动 acquire 重接 ENGAGE，玩家无需重新点名。
+	if cmd is Aircraft and (cmd as Aircraft).is_cloaked:
+		if _current_target == cmd:
+			release_target(TargetSource.TS_COMMANDED, "commanded target cloaked (yield)")
+		return false
 	# 设置/维持对命令目标的交战（已在打它就只是空转一次比较）
 	if _current_target != cmd or _state != AIState.ENGAGE:
 		acquire_target(cmd, TargetSource.TS_COMMANDED, "iron rule")
@@ -1099,7 +1136,7 @@ func _cb() -> CombatParams:
 #  执行期间完全跳过正常 AI 路由。
 # ══════════════════════════════════════════════
 
-func _process_directive(_delta: float) -> void:
+func _process_directive(delta: float) -> void:
 	var d := _directive
 	# 通用：不交战时清掉 combat_target，避免残留目标牵制 AI
 	if d.combat_disabled:
@@ -1128,6 +1165,8 @@ func _process_directive(_delta: float) -> void:
 					aircraft.target_position = t.global_position
 		AIDirective.Type.PASSIVE:
 			pass   # 啥也不做，飞机沿 waypoints 飞或保持 target_position
+		AIDirective.Type.PURSUE_UNIT:
+			_directive_pursue_unit_step(delta)
 
 ## FLY_TO_POINT 抵达分派
 func _directive_arrival_dispatch() -> void:
@@ -1175,6 +1214,35 @@ func _directive_patrol_ring_step() -> void:
 	if aircraft.global_position.distance_to(wp) < 250.0:
 		idx = (idx + 1) % n
 	_directive_state["idx"] = idx
+
+## PURSUE_UNIT：持续追击一个【会动的单位】（spec boss-hunter-doctrine §3.1）
+##
+## 与 FLY_TO_POINT 的根本区别是【没有抵达态】——"追到了"这件事由上层的接战触发器裁定，
+## 导航层只负责一直朝目标飞，绝不自行结束。目标失效（已释放 / 已击毁）→ 自动释放本
+## directive，AI 无缝回归常规路由。
+##
+## 节流：目标点每 refresh_interval 秒重取一次，期间飞既有的快照点。数公里外的目标逐帧
+## 重取毫无意义，且 target_position 每帧抖动会让转弯控制器反复重规划（SEAM-012 的
+## 临界阻尼 PD 依赖参考量连续）。
+func _directive_pursue_unit_step(delta: float) -> void:
+	var d := _directive
+	# ⚠ SEAM-020：`as Node2D` 对【已释放】的对象求值会直接抛错，守卫必须写在转型【之前】。
+	#    猎手全程持有玩家机引用，玩家阵亡/切控时这条路径是常态而非边缘情况
+	var tgt_raw: Variant = d.params.get("target", null)
+	if not is_instance_valid(tgt_raw):
+		set_event_directive(null)
+		return
+	var tgt := tgt_raw as Node2D
+	if tgt == null or (tgt is CombatUnit and (tgt as CombatUnit).is_destroyed):
+		set_event_directive(null)
+		return
+	var timer: float = float(_directive_state.get("t", 0.0)) - delta
+	if timer <= 0.0 or not _directive_state.has("pt"):
+		timer = maxf(float(d.params.get("refresh_interval", 0.5)), 0.05)
+		_directive_state["pt"] = tgt.global_position
+	_directive_state["t"] = timer
+	aircraft.target_position = _directive_state["pt"]
+	aircraft.keep_target_on_arrival = false
 
 ## FOLLOW_PATH：沿 waypoints 一路飞，可循环
 func _directive_follow_path_step() -> void:

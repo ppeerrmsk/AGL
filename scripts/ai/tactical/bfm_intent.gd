@@ -533,7 +533,15 @@ static func ground_strafe(s: Situation) -> TacticalPlan:
 				p.rationale = "慢速空目标 RUN[STANDOFF]：拦截航路压入攒锁 dist=%.0fm inner=%.0fm" % [
 						s.dist_m, inner_m]
 			elif is_standoff:
-				p.pursuit_pos = _missile_engage_pos(s)  # crank 保锁（保持 standoff 距离）
+				# 纯追踪压入，**不 crank**（2026-07-26，log 20260726_165536 根治）：
+				# crank 的稳态离轴 = radar_half×0.5，而发射门（aircraft_weapons
+				# LAUNCH_QUALITY_OFFAX_RATIO_*）要求 ≤ radar_half×0.5(SARH)/0.55(f&f)——
+				# crank 把机头恒钉在发射门外沿，UNSTABLE_WIN 永拒（实测长机+僚机对
+				# SAM/AAA 40s 离轴恒 21~31° > 20.35°，0 发；SETUP 对准后一进 RUN 反被
+				# 拧出发射门）。与慢速空目标同病同修（见上分支注释）：静止面目标纯追踪
+				# LOS 零旋转，机头收敛 0 离轴即稳态 → 锁最快攒满、发射门必过。
+				# 发射后的保距/不傻冲由 fpole_hold 环外等待接管（上方分支），不靠 crank。
+				p.pursuit_pos = s.tgt_pos
 				# 逼近脱离环时预减速到 corner：break 是硬 180，高速进 break → 转弯半径大 → coast 冲进 AA
 				# （sim：cruise 速度 head-on break 从 2.2km coast 到 395m）。近环减速使 break 弧收紧。
 				p.target_speed_kmh = s.corner_speed_kmh if s.dist_m < inner_m * 1.6 else s.cruise_speed_kmh * 1.15
@@ -628,8 +636,13 @@ static func run_weapon_election(s: Situation) -> Dictionary:
 ## 每 tick 重算 → 充能期间持续追踪敌机航点（用户定稿 2a，小幅修正不触发甩头中断）；
 ## 恒巡航速稳定射击平台；坡度上限 30°（plan.bank_limit_deg → update_bank 消费）。
 ## 甩头中断充能的守卫在 RailgunEquipment 侧；射空可接受（定稿 2b，不抑制发射）。
-const LINE_UP_EXTRAPOLATE_S := 0.4    ## 提前点外推秒数（微小：跟住目标航点趋势）
-const LINE_UP_BANK_LIMIT_DEG := 30.0  ## 充能平台坡度上限
+const LINE_UP_EXTRAPOLATE_S := 0.4      ## 提前点外推秒数（微小：跟住目标航点趋势）
+const LINE_UP_HOLD_BANK_DEG := 30.0     ## 已对准 → 稳定射击平台坡度上限（转速掉到 25°/s 甩头阈值下才能放电）
+const LINE_UP_ACQUIRE_BANK_DEG := 65.0  ## 机头未对准 → 猛拧对准相坡度上限（~2.37G；corner 速下 ω≈6°/s，远低于 25°/s 甩头中断）
+## heading_diff > 此值 = 对准相（猛拧）。⚠ 必须 < 最窄电磁炮火控锥（玩家 X-02=5°），否则
+## (此值, cone] 这段落进稳定相的弱转向（30° bank ~1°/s）= 死区，横穿目标永远切不进锥
+## （fable 评审 2026-07-24：原 8° > 5° 锥正是此病 → 5~8° 死区；改 4° 让猛拧相一路把机头送进锥）。
+const LINE_UP_ACQUIRE_CONE_DEG := 4.0
 static func line_up(s: Situation) -> TacticalPlan:
 	var p := TacticalPlan.new()
 	p.intent = TacticalPlan.Intent.LINE_UP
@@ -640,10 +653,19 @@ static func line_up(s: Situation) -> TacticalPlan:
 		dir = s.my_fwd
 	# 远点直线航线：pursuit 放提前点方向远处 → heading_diff 恒小量，PD 自然平直跟踪
 	p.pursuit_pos = s.my_pos + dir.normalized() * 5000.0
-	p.target_speed_kmh = s.cruise_speed_kmh
+	# 两相对准（2026-07-24 修"电磁炮永远够不进 ±5° 火控锥 → 从不开火"；fable 评审后收紧边界）：
+	#   问题：恒 30° 坡度 + 巡航速在巡航下转向率只有 ~1°/s，从尾追切进来机头偏 15° 要 11s
+	#   才对上，几何早漂走 → 充能永远起不来（用户实测：锁死不动的 Tu-160 盯 9.7s 零充能）。
+	#   对准相（heading_diff > 4°，即火控锥内 1° 之外）：65° 坡度 + 降到角点速抢最大转向率，
+	#     主动把机头猛拧向目标——"电磁炮当主武器就该优先对准敌人"的优先级修正，不放宽锥。
+	#     猛拧相一路把机头送进 ±5° 锥（起充在 ≤5° 仍属对准相，此时 ω≈6°/s ≪ 25°/s 不会中断）。
+	#   稳定相（≤ 4°，机头已基本对正）：收回 30° 坡度 + 巡航速当稳定射击平台完成放电。
+	var acquiring: bool = s.heading_diff_to_target_deg > LINE_UP_ACQUIRE_CONE_DEG
+	p.bank_limit_deg = LINE_UP_ACQUIRE_BANK_DEG if acquiring else LINE_UP_HOLD_BANK_DEG
+	p.target_speed_kmh = s.corner_speed_kmh if acquiring else s.cruise_speed_kmh
 	p.afterburner = false
-	p.bank_limit_deg = LINE_UP_BANK_LIMIT_DEG
-	p.rationale = "LINE_UP：电磁炮直线对准（dist=%dm）" % int(s.dist_m)
+	p.rationale = "LINE_UP：电磁炮%s（dist=%dm hdiff=%d°）" % [
+			"猛拧对准" if acquiring else "稳定放电", int(s.dist_m), int(s.heading_diff_to_target_deg)]
 	_apply_combat_weapon(s, p)
 	return p
 
@@ -691,9 +713,14 @@ static func _apply_combat_weapon(s: Situation, p: TacticalPlan) -> void:
 			p.allow_gun_fire = gun_in_cone and in_gun_envelope
 			p.allow_missile_fire = false
 		"railgun":
-			# 阶段2 过渡：LINE_UP intent 在阶段3 落地。先按导弹纪律 crank 保锁——
-			# 电磁炮射程 = 本机雷达距离，crank 维持锁定的几何对它同样有效；发射时机
-			# 暂仍由 RailgunEquipment 状态机自理。导弹包络内允许并射（现状不变）。
+			# 电磁炮射程 = 本机雷达距离，crank 维持锁定的几何有效；导弹包络内允许并射。
+			# ⚠ weapon_mode=MISSILE 会让 compute_target_bank 走导弹 crank 档 cap_frac=0.35——
+			#   坡度被砍到 1/3（LINE_UP 猛拧相 65° → 实际只有 23°，转向率 ~1.3°/s，够不进锥）。
+			#   例外：use_tactical_preference（玩家机）→ aggressive_ok → cap_frac=1.0，猛拧相全速生效。
+			#   ∴ 玩家电磁炮能对准**依赖** use_tactical_preference=true 绕过此 cap（2026-07-24 fable
+			#   评审 + 闭环 sim 实证：preference 机 3.2s 起充，非 preference 机卡 23° 坡度）。
+			#   非 preference 的电磁炮机（敌 AF-03 / 玩家僚机）仍走 crank 档慢转——目前刻意保守
+			#   （敌方狙击手不宜太准；僚机带电磁炮属边缘场景）。见 known-seams SEAM「railgun-bank-cap」。
 			p.weapon_mode = TacticalPlan.WeaponMode.MISSILE
 			p.allow_gun_fire = false
 			p.allow_missile_fire = in_msl_envelope

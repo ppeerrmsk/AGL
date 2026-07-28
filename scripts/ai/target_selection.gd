@@ -59,9 +59,9 @@ static func try_engage(ai: AIController) -> void:
 		if score < 0.0:
 			continue  # 未过最低锁定门
 
-		# 目标粘性：当前目标获得专注度加成
+		# 目标粘性：当前目标获得专注度加成（生存带用 SURVIVAL_STICKY 防带内横跳，§2.1.3）
 		if target_ac == ai._current_target:
-			score += STICKY_BONUS
+			score += _sticky_for(ai)
 			current_target_score = score
 
 		if score > best_score:
@@ -69,6 +69,12 @@ static func try_engage(ai: AIController) -> void:
 			best_target = target_ac
 
 	if best_target:
+		# §2.1.1 交战地板（spec battlefield-gravity）：最佳候选也不值得打 → 不进战。
+		# 引力只压分，argmax 仍会选出唯一的远杂鱼——地板才是"留在编队/巡逻贴着锚"的机制。
+		# survival(≥60)/objective(≥40) 恒过地板，天然豁免。仅玩家小队生效。
+		if ObjectiveContext.enabled and ai.aircraft.is_player_squad() \
+				and best_score < ObjectiveContext.ENGAGE_MIN_SCORE:
+			return
 		# 切换目标需要超越当前目标的粘性阈值
 		if ai._current_target and is_instance_valid(ai._current_target) and not ai._current_target.is_destroyed:
 			if best_target != ai._current_target and current_target_score > 0.0:
@@ -109,14 +115,29 @@ static func reevaluate_target(ai: AIController) -> void:
 		if score < 0.0:
 			continue  # 未过最低锁定门
 
-		# 当前目标获得专注度粘性加成
+		# 当前目标获得专注度粘性加成（生存带用 SURVIVAL_STICKY 防带内横跳，§2.1.3）
 		if target_ac == ai._current_target:
-			score += STICKY_BONUS
+			score += _sticky_for(ai)
 			current_score = score
 
 		if score > best_score:
 			best_score = score
 			best_target = target_ac
+
+	# §2.1.1 地板脱离（spec battlefield-gravity，reevaluate 侧）：顺手目标已不值得打
+	# （远离战场/引力压穿地板）连续 2 次评估 → 主动脱离归队，治"存量僚机挂在远杂鱼上"。
+	# survival/objective 候选分 ≥40，数值上永不触发（无需显式豁免）；只动 TS_SCORED 自主目标。
+	if ObjectiveContext.enabled and ai.aircraft.is_player_squad() \
+			and ai._target_source == AIController.TargetSource.TS_SCORED \
+			and current_score > 0.0 \
+			and current_score < ObjectiveContext.ENGAGE_MIN_SCORE + _sticky_for(ai):
+		ai._gravity_low_evals += 1
+		if ai._gravity_low_evals >= 2:
+			ai._gravity_low_evals = 0
+			disengage(ai)
+			return
+	else:
+		ai._gravity_low_evals = 0
 
 	if not best_target or best_target == ai._current_target:
 		return
@@ -174,6 +195,7 @@ static func disengage(ai: AIController) -> void:
 	ai.aircraft.ai_override_pursuit = false
 	ai.aircraft.keep_target_on_arrival = false
 	ai._cooldown_timer = ai.engage_cooldown
+	ai._gravity_low_evals = 0  # 地板脱离计数复位（spec battlefield-gravity §2.1.1）
 	ai.current_tactic_name = ""
 	ai._squad_attacking_leader_target = false
 	ai._squad_lateral_role = AIController.SquadRole.NONE
@@ -196,6 +218,16 @@ static func disengage(ai: AIController) -> void:
 # ══════════════════════════════════════════════
 #  可命中性评分（try_engage / reevaluate 共用，杜绝两份公式漂移）
 # ══════════════════════════════════════════════
+
+## 带感知粘性（spec battlefield-gravity §2.1.3）：当前目标是生存候选 → SURVIVAL_STICKY(8.0)。
+## threat01 随距离连续变化（Δ300px≈4 分），base 尺度的 0.10/0.18 在 60~100 带内形同虚设，
+## 无此滞回则防守僚机在两个追击者间每秒横跳、_tactic_timer 狂重置。
+## objective 带刻意不加：+40 是常数，带内分差回落 base 尺度 → 现有阈值继续管用（设计的不对称）。
+static func _sticky_for(ai: AIController) -> float:
+	if ObjectiveContext.enabled and ai.aircraft.is_player_squad() \
+			and ObjectiveContext.is_survival_threat(ai._current_target):
+		return ObjectiveContext.SURVIVAL_STICKY
+	return STICKY_BONUS
 
 ## 单个候选打分：返回 score（base + 修饰 + 加分），或 -1.0 表示未过最低锁定门。
 ## 不含粘性加成（STICKY_BONUS 由调用方在 target == current 时加）。
@@ -238,6 +270,24 @@ static func _score_candidate(ai: AIController, target_ac: CombatUnit,
 	if ai.preferred_altitude_tier != -99 and target_ac.get_altitude_tier() == ai.preferred_altitude_tier:
 		score *= PREFERRED_ALT_MULT
 
+	# ── 战场引力（spec battlefield-gravity §2/§3.2；仅玩家小队 AI 自主评分，沙盒/敌方零变化）──
+	# 三带项只用 instance_id + global_position，候选可为任意 CombatUnit（不 cast Aircraft）
+	var grav_on := ObjectiveContext.enabled and ai.aircraft.is_player_squad()
+	var grav_surv := false
+	var grav_obj := false
+	if grav_on:
+		grav_surv = ObjectiveContext.is_survival_threat(target_ac)
+		grav_obj = ObjectiveContext.is_objective(target_ac)
+		if not grav_surv and not grav_obj:
+			# §2.1.2 可行性门：编队僚机不选"追出 leash 必被拽回"的目标（log① 45 次 engage↔rejoin 根因）
+			if ai.squad and is_instance_valid(ai.squad.leader) and ai.squad.leader != ai.aircraft \
+					and not ai.squad.leader.is_destroyed:
+				var d_leader := ai.squad.leader.global_position.distance_to(target_ac.global_position)
+				if d_leader > ai.effective_squad_leash() * ObjectiveContext.LEASH_FEAS_MARGIN:
+					return -1.0
+			# §2.2 顺手层引力衰减（只乘 base 修饰段；下方护卫/守后/三带加性项不衰减）
+			score *= ObjectiveContext.gravity_mult(target_ac.global_position)
+
 	# 护卫加权（绝对加分，量级远大于 base → 咬长机者主导）
 	if escort_leader != null and target_ac is Aircraft:
 		score += SquadCoordination.escort_target_bonus(escort_leader, target_ac as Aircraft)
@@ -245,6 +295,12 @@ static func _score_candidate(ai: AIController, target_ac: CombatUnit,
 	# 守后优先：仅守后语境，长机后半球且咬/逼近长机的敌机主导本次选择
 	if guard_ctx and target_ac is Aircraft and ai.squad and is_instance_valid(ai.squad.leader):
 		score += REAR_GUARD_PRIORITY * SquadCoordination.rear_threat_score(ai.squad.leader, target_ac as Aircraft)
+
+	# ── 三带加性（§2.1：生存 60~100 > 任务 40 > 顺手 ≤1，可叠加）──
+	if grav_obj:
+		score += ObjectiveContext.OBJECTIVE_BONUS
+	if grav_surv:
+		score += ObjectiveContext.SURVIVAL_BONUS * ObjectiveContext.threat01(target_ac)
 
 	return score
 

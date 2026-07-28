@@ -38,7 +38,7 @@ fuel_capacity = 3500.0
 fuel_rate_normal = 2.2
 fuel_rate_afterburner = 14.0
 ; ── 雷达：全场最强 ──
-radar_range = 6000.0
+radar_range = 5200.0
 radar_half_angle = 35.0
 lock_time = 2.5
 gun = ExtResource("2")

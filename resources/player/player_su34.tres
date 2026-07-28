@@ -1,12 +1,10 @@
-[gd_resource type="Resource" script_class="AircraftParams" load_steps=8 format=3]
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
 [ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
 [ext_resource type="Resource" path="res://resources/default_combat.tres" id="3"]
-[ext_resource type="Resource" path="res://resources/default_flare.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/player/flare_t2.tres" id="4"]
 [ext_resource type="Script" path="res://scripts/missile_params.gd" id="5"]
-[ext_resource type="Resource" path="res://resources/a10_rocket.tres" id="6"]
-
 [sub_resource type="Resource" id="msl"]
 script = ExtResource("5")
 display_name = "MRM"
@@ -54,12 +52,11 @@ afterburner_thrust_mult = 1.5
 fuel_capacity = 3000.0
 fuel_rate_normal = 1.5
 fuel_rate_afterburner = 8.0
-radar_range = 3200.0
+radar_range = 2500.0
 radar_half_angle = 30.0
 lock_time = 2.6
 gun = ExtResource("2")
 missile = SubResource("msl")
-rocket = ExtResource("6")
 flare = ExtResource("4")
 combat = ExtResource("3")
 icon_color = Color(0.15, 0.35, 0.85, 1)

@@ -1,50 +1,65 @@
 ## 加力模式充能资源（spec afterburner-mode）
-## 小队级单实例：满格才能激活，窗口 6s 固定不可提前退出，击杀 +4s，约 30s 被动充满。
+## 小队级单实例·充能制（电池模型）：只要有能量就能一键启动，激活中持续耗能，
+## 耗尽自动结束，玩家可随时再按 E 提前关闭（剩余能量保留）。被动充能 + 击杀充能。
 ## 由 survivor_mode 建实例并驱动 update(delta)（升级 UI 暂停时不被驱动 → 计时自然冻结）。
-## 不缓存长机引用（SEAM-019：try_activate 传参即用）；窗口成员是激活瞬间快照，
-## 中途换帅/新僚机入场不改变本窗口 buff 归属。
+## 不缓存长机引用（SEAM-019：toggle 传参即用）；窗口成员是激活瞬间快照，
+## 中途换帅/新僚机入场不改变本次加力的 buff 归属。
 class_name AfterburnerCharge
 extends RefCounted
 
-const CHARGE_MAX: float = 30.0        ## 满格容量（秒）；激活条件 = 满格
-const CHARGE_RATE: float = 1.0        ## 被动充能速率（/s），空格 → 满 ≈ 30s
-const KILL_CHARGE: float = 4.0        ## 小队击杀 1 个敌人（空中/地面）的充能反馈
-const WINDOW_DURATION: float = 6.0    ## 加力窗口时长，固定；激活中再按无效
+const CHARGE_MAX: float = 6.0         ## 能量池上限（秒）= 满能量下最多连烧 6s 加力（对齐旧窗口时长）
+const CHARGE_RATE: float = 0.2        ## 被动充能速率（/s），空 → 满 ≈ 30s（6 ÷ 0.2）
+const DRAIN_RATE: float = 1.0         ## 激活时耗能速率（/s），能量按秒 1:1 消耗
+const KILL_CHARGE: float = 0.8        ## 小队击杀 1 个敌人（空中/地面）+0.8s（占满池 13%，满池仍需 ~7.5 杀）
 
-var charge: float = CHARGE_MAX        ## 当前充能（开局满格，让新机制第一时间可用）
-var window_left: float = 0.0          ## 加力窗口剩余时间（>0 = ACTIVE）
-var _window_members: Array = []       ## 激活瞬间全队快照（Aircraft），窗口结束统一清 flag
+var charge: float = CHARGE_MAX        ## 当前能量（开局满格，让新机制第一时间可用）
+var active: bool = false              ## 加力是否正在启用（true = 正在耗能）
+var _window_members: Array = []       ## 激活瞬间全队快照（Aircraft），关闭时统一清 flag
 
 ## ── 720 批技能修正（队级单实例语义：survivor_mode 按账本同步，不逐机应用）──
-var kill_charge_bonus: float = 0.0    ## 检讨：击杀充能奖励 +3s/层（基线 KILL_CHARGE=4）
-var window_duration_mult: float = 1.0 ## 强化加力：窗口时长 ×(1+0.5/层)，6→9→12s
-var _window_total: float = WINDOW_DURATION  ## 本窗口总时长（HUD 比例分母）
+var kill_charge_bonus: float = 0.0    ## 检讨：击杀充能奖励 +0.6s/层（基线 KILL_CHARGE=0.8）
+var duration_mult: float = 1.0        ## 强化加力：耗能减慢 ×(1+0.5/层)，同能量烧更久
 
-## 主循环驱动：ACTIVE 倒计时（期间被动充能暂停），否则被动充能
-func update(delta: float) -> void:
-	if window_left > 0.0:
-		window_left -= delta
-		if window_left <= 0.0:
-			_end_window()
+## 有效耗能速率：duration_mult 越大 → 耗得越慢 → 加力越持久
+func _effective_drain() -> float:
+	return DRAIN_RATE / maxf(duration_mult, 0.01)
+
+## 主循环驱动：激活中耗能（期间被动充能暂停）→ 耗尽自动关闭；否则被动充能。
+## rate_mult：722 签名技能的充能倍率（公路机场·未被锁 ×1.5 / 地形跟随·低空 ×1.5，
+## 由 survivor_mode 每帧按 ACE 状态计算传入；默认 1.0 = baseline 不变）
+func update(delta: float, rate_mult: float = 1.0) -> void:
+	if active:
+		charge -= _effective_drain() * delta
+		# 722 sig_su34·鸭嘴兽厨房：加力期间成员每秒回 2 HP（逐机字段判定）
+		for m in _window_members:
+			if m != null and is_instance_valid(m) and not m.is_destroyed \
+					and m.sig_su34_active and m.params:
+				m.hp = minf(m.hp + 2.0 * delta, m.params.max_hp)
+		if charge <= 0.0:
+			charge = 0.0
+			_deactivate()  # 能量耗尽 → 自动结束
 		return
-	charge = minf(charge + CHARGE_RATE * delta, CHARGE_MAX)
+	charge = minf(charge + CHARGE_RATE * rate_mult * delta, CHARGE_MAX)
 
 ## 击杀充能（空中走 kill_recorded / 地面走 spawner 击杀检测，挂点见 survivor_mode）
-## 窗口内击杀同样入账（为下一轮攒，ACTIVE 只暂停被动充能）
+## 激活中击杀同样入账（边烧边攒，只是被动充能暂停）
 func on_kill_charge() -> void:
 	charge = minf(charge + KILL_CHARGE + kill_charge_bonus, CHARGE_MAX)
 
-## 玩家触发（E 键 / HUD 按钮）。满格且不在窗口中才生效；失败静默（条/按钮状态即反馈）。
-## 激活链路：全队快照置窗口标志（强 buff 层）+ 长机走既有 set_evasion_mode(true)
-## （planner EVADE max+AB、escort_cover_active 广播、radio break、§1.2 技能钩子全保留）
-func try_activate(leader: Aircraft) -> bool:
+## 玩家触发（E 键 / HUD 按钮）——开关切换。
+##   激活中按下 → 立即关闭（剩余能量保留），返回 false。
+##   未激活且有能量（charge > 0）→ 启动，返回 true；能量为 0 时失败静默（条状态即反馈）。
+## 启动链路：全队快照置窗口标志（强 buff 层）+ 长机走既有 set_evasion_mode(true, suppress_radio=true)
+## （planner EVADE max+AB、escort_cover_active 广播、§1.2 技能钩子全保留；无线电改喊"加力冲刺"而非"break"）
+func toggle(leader: Aircraft) -> bool:
 	if leader == null or not is_instance_valid(leader) or leader.is_destroyed:
 		return false
-	if window_left > 0.0 or charge < CHARGE_MAX:
+	if active:
+		_deactivate()  # 玩家提前关闭
 		return false
-	charge = 0.0
-	_window_total = WINDOW_DURATION * maxf(window_duration_mult, 0.01)
-	window_left = _window_total
+	if charge <= 0.0:
+		return false   # 无能量，启动失败
+	active = true
 	_window_members = [leader]
 	# 与 Aircraft._propagate_evasion_to_squad 同判据收集僚机（squad.leader == 长机；drone 除外）
 	for u in CombatUnit.all_units:
@@ -63,14 +78,18 @@ func try_activate(leader: Aircraft) -> bool:
 				break
 	for m in _window_members:
 		m.afterburner_window_active = true
-	leader.set_evasion_mode(true)
+	leader.set_evasion_mode(true, true)  # suppress_radio：加力另走 afterburner_engaged，不喊 break
+	# 无线电"加力冲刺"呼叫（玩家主动，语义非躲导弹）——上升沿只播一次，冷却/概率在订阅方
+	if leader.callsign != "" and leader.can_speak_on_radio():
+		EventLogger.afterburner_engaged.emit(leader.callsign, leader.team)
 	EventLogger.log_event("AFTERBURNER", leader._log_name(),
-		"window %.0fs, squad size %d" % [_window_total, _window_members.size()])
+		"activate, charge %.1fs, squad size %d" % [charge, _window_members.size()])
 	return true
 
-## 窗口到期：清全队标志 + 长机对称退出 evasion（玩家中途下令已退出则为 no-op）
-func _end_window() -> void:
-	window_left = 0.0
+## 关闭加力：清全队标志 + 长机对称退出 evasion（玩家中途下令已退出则为 no-op）
+## 由玩家提前关闭 / 能量耗尽 / 长机销毁（成员数组有 valid 守卫）共用
+func _deactivate() -> void:
+	active = false
 	for m in _window_members:
 		if m != null and is_instance_valid(m):
 			m.afterburner_window_active = false
@@ -82,16 +101,16 @@ func _end_window() -> void:
 
 # ── HUD 查询器 ──
 
-func is_ready() -> bool:
-	return window_left <= 0.0 and charge >= CHARGE_MAX
+func is_active() -> bool:
+	return active
 
-func is_window_active() -> bool:
-	return window_left > 0.0
+func is_full() -> bool:
+	return not active and charge >= CHARGE_MAX
 
-## 充能进度 0..1（ACTIVE 期间 = 0 起步的击杀存量）
+## 充能进度 0..1（激活中随耗能实时收缩，做电池放空的可视）
 func ratio() -> float:
 	return clampf(charge / CHARGE_MAX, 0.0, 1.0)
 
-## 窗口剩余进度 1→0（非 ACTIVE 返回 0）
-func window_ratio() -> float:
-	return clampf(window_left / maxf(_window_total, 0.01), 0.0, 1.0)
+## 当前能量还能烧多少秒加力（考虑 duration_mult 减耗）
+func remaining_seconds() -> float:
+	return charge / _effective_drain()

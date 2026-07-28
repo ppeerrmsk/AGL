@@ -437,6 +437,13 @@ func _fire(ac, s: Dictionary) -> void:
 
 func _apply_hitscan_damage(ac, beam_start: Vector2, beam_end: Vector2) -> void:
 	# 1) 所有 CombatUnit（敌机 / 地面单位）
+	#
+	# 同一发炮弹对同一艘舰只结算一次：船体和它的挂点 / 弱点代理同时挂在 all_units 里，
+	# 而代理的 take_damage 会把伤害原样转发母舰 —— 一条 hit_radius_px 半径的射线能同时
+	# 扫到船体 + 多个 CIWS 代理，一发就打出 N×damage（航母"被一炮秒"的真正来源）。
+	# 这里按母舰归并，只保留沿弹道最靠前的那个命中点：炮弹先撞上什么就打什么。
+	var naval_hit: Dictionary = {}    ## NavalUnit → 该舰被命中的节点（船体或某个代理）
+	var naval_hit_t: Dictionary = {}  ## NavalUnit → 该命中点在弹道上的归一化位置 0~1
 	for unit in CombatUnit.all_units:
 		if not is_instance_valid(unit):
 			continue
@@ -449,8 +456,20 @@ func _apply_hitscan_damage(ac, beam_start: Vector2, beam_end: Vector2) -> void:
 		if unit is Aircraft and (unit as Aircraft).is_cloaked:
 			continue
 		var d := _point_to_segment_distance(unit.global_position, beam_start, beam_end)
-		if d <= hit_radius_px:
+		if d > hit_radius_px:
+			continue
+		var ship: Node = _naval_damage_sink(unit)
+		if ship == null:
 			unit.take_damage_from(damage, ac, "railgun")
+			continue
+		var t := _segment_param(unit.global_position, beam_start, beam_end)
+		if not naval_hit.has(ship) or t < float(naval_hit_t[ship]):
+			naval_hit[ship] = unit
+			naval_hit_t[ship] = t
+	for ship in naval_hit:
+		var hit_node = naval_hit[ship]
+		if is_instance_valid(hit_node):
+			hit_node.take_damage_from(damage, ac, "railgun")
 
 	# 2) 在飞导弹（如果当前 ac 持有 missile_manager 引用）
 	var mm = ac.missile_manager
@@ -465,6 +484,25 @@ func _apply_hitscan_damage(ac, beam_start: Vector2, beam_end: Vector2) -> void:
 			if d <= hit_radius_px:
 				# 导弹被电磁炮命中 → 直接销毁
 				m.queue_free()
+
+
+## 该单位的伤害最终落到哪艘舰上（用于一发一舰去重）；非海军单位返回 null
+static func _naval_damage_sink(unit) -> Node:
+	if unit is MountTarget:
+		var ps = (unit as MountTarget).parent_ship
+		return ps if (ps != null and is_instance_valid(ps)) else null
+	if unit is NavalUnit:
+		return unit
+	return null
+
+
+## 点在弹道线段上的归一化投影位置（0=炮口，1=弹道末端）
+static func _segment_param(p: Vector2, a: Vector2, b: Vector2) -> float:
+	var ab := b - a
+	var len_sq := ab.length_squared()
+	if len_sq <= 0.001:
+		return 0.0
+	return clampf((p - a).dot(ab) / len_sq, 0.0, 1.0)
 
 
 static func _point_to_segment_distance(p: Vector2, a: Vector2, b: Vector2) -> float:

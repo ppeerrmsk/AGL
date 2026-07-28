@@ -1,0 +1,44 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/default_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/default_missile.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/default_flare.tres" id="5"]
+
+[resource]
+script = ExtResource("1")
+display_name = "F-16"
+; ── 敌用 F-16（王牌中队 GIMMICK 狙击 element，spec events/ace-gimmick §4）──
+; 轻快多用途：狙击位（AceRole.SNIPER 站位带 4~6km）在 ace 层配置，机体只给底子。
+; 王牌专属机型：不进随机刷怪池
+max_hp = 55.0
+armor = 0.0
+max_speed = 2400.0
+cruise_speed = 1150.0
+stall_speed_base = 195.0
+acceleration = 55.0
+deceleration = 88.0
+g_drag_factor = 2.8
+max_g = 9.0
+max_g_structural = 12.0
+roll_rate = 4.5
+pilot_stamina = 95.0
+stamina_drain_rate = 24.0
+stamina_recovery_rate = 11.0
+max_altitude = 17000.0
+climb_rate_max = 290.0
+thrust_to_weight = 1.1
+drag_coefficient = 0.022
+afterburner_thrust_mult = 1.6
+fuel_capacity = 3200.0
+fuel_rate_normal = 2.0
+fuel_rate_afterburner = 10.0
+radar_range = 5000.0
+radar_half_angle = 30.0
+lock_time = 2.4
+gun = ExtResource("2")
+missile = ExtResource("4")
+flare = ExtResource("5")
+combat = ExtResource("3")
+icon_color = Color(1.0, 0.55, 0.3, 1)

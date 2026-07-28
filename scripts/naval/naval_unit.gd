@@ -370,6 +370,33 @@ func is_in_radar_cone(target_global_pos: Vector2) -> bool:
 func is_lock_immune() -> bool:
 	return true
 
+## ============ BOSS 接战触发聚合（boss_encounter_event.gd 的 T3/T4）============
+## 船体锁定免疫 + 伤害走 hull_hp/部件、不碰 CombatUnit.hp —— 通用触发器直读
+## is_locked / hp 时对舰队 BOSS 全盲（玩家 10km 外锁舰齐射，事件层却毫无察觉，
+## 违背 spec boss-hunter-doctrine §2.2 的"打第一枪即接战"验收）。下面两个方法把
+## "是否已被玩家锁定 / 当前总血量"从锁定代理与部件聚合出来，供事件层统一查询。
+
+## T3：任一锁定代理（挂点 / 暴露弱点）被玩家方锁定 → 视为整船被锁定
+func is_engaged_by_lock() -> bool:
+	for mt in _mount_targets:
+		if is_instance_valid(mt) and not mt.is_destroyed and mt.is_locked:
+			return true
+	var wp := _weak_point_target
+	if wp != null and is_instance_valid(wp) and not wp.is_destroyed and wp.is_locked:
+		return true
+	return false
+
+## T4：船体总血量 = hull_hp + 存活挂点 HP + 暴露弱点 HP。任何命中都会拉低其一，
+## 单调下降，事件层拿它与接战前快照比较即可判定"挨打了"
+func boss_hp_pool() -> float:
+	var total := hull_hp
+	for m in mounts:
+		if not m.destroyed:
+			total += m.hp
+	if weak_point != null and weak_point.revealed:
+		total += weak_point.hp
+	return total
+
 ## ============ 锁定代理节点管理 ============
 
 ## 为每个存活挂点 spawn 一个 MountTarget；弱点暂不 spawn（等 reveal 时再 spawn）
@@ -410,10 +437,14 @@ func _despawn_all_lock_targets() -> void:
 	for mt in _mount_targets:
 		if mt and is_instance_valid(mt):
 			mt.is_destroyed = true
+			# 标记 + queue_free 同帧，中间没有给持有者 tick 的机会（还叠了 AI LOD 分频），
+			# 必须主动广播摘引用，否则下一帧 `combat_target is Aircraft` 撞野指针
+			CombatUnit.release_target_refs(mt)
 			mt.queue_free()
 	_mount_targets.clear()
 	if _weak_point_target and is_instance_valid(_weak_point_target):
 		_weak_point_target.is_destroyed = true
+		CombatUnit.release_target_refs(_weak_point_target)
 		_weak_point_target.queue_free()
 		_weak_point_target = null
 
@@ -530,6 +561,7 @@ func _update_destroy(delta: float) -> void:
 		# 动画完成
 		if full_name != "":
 			NavalShipNames.release(full_name)
+		CombatUnit.release_target_refs(self)
 		queue_free()
 
 func _on_destroyed() -> void:

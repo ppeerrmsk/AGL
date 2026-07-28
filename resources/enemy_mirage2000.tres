@@ -1,0 +1,44 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/gladiator_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/default_missile.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/default_flare.tres" id="5"]
+
+[resource]
+script = ExtResource("1")
+display_name = "Mirage 2000"
+; ── 敌用幻影 2000（王牌中队 GIMMICK 斗士 element，spec events/ace-gimmick §4）──
+; 三角翼近距缠斗手：瞬盘凶、滚转快，贴脸咬尾的屏障位。
+; 王牌专属机型：不进随机刷怪池
+max_hp = 55.0
+armor = 0.0
+max_speed = 2350.0
+cruise_speed = 1100.0
+stall_speed_base = 180.0
+acceleration = 52.0
+deceleration = 86.0
+g_drag_factor = 2.7
+max_g = 9.0
+max_g_structural = 11.5
+roll_rate = 4.6
+pilot_stamina = 95.0
+stamina_drain_rate = 24.0
+stamina_recovery_rate = 11.0
+max_altitude = 17000.0
+climb_rate_max = 285.0
+thrust_to_weight = 1.05
+drag_coefficient = 0.022
+afterburner_thrust_mult = 1.6
+fuel_capacity = 3000.0
+fuel_rate_normal = 2.0
+fuel_rate_afterburner = 10.0
+radar_range = 4400.0
+radar_half_angle = 30.0
+lock_time = 2.6
+gun = ExtResource("2")
+missile = ExtResource("4")
+flare = ExtResource("5")
+combat = ExtResource("3")
+icon_color = Color(1.0, 0.48, 0.32, 1)

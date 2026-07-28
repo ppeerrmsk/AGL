@@ -6,6 +6,7 @@ extends RefCounted
 ##       ② 属性对比语义（越小越好的锁定时间不能被算成"变差"）
 ##       ③ 需求行 = 等级门 + 全部 gates（含已达标项，不只缺口）
 ##       ④ 可进化判定 = 直接出口 且 LV 达标 且 属性门全过
+##       ⑤ 树视图 pip 徽记槽位（spec evolution-attribute-gates §3.3 v9）
 ##
 ## 运行：godot --headless --path . -- --bench=evo_detail（或 --bench=all）
 
@@ -22,6 +23,7 @@ func run() -> void:
 	_test_requirement_rows()
 	_test_can_evolve()
 	_test_panel_never_drifts_offscreen()
+	_test_gate_pips()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
 
@@ -146,6 +148,49 @@ func _test_panel_never_drifts_offscreen() -> void:
 			_find_tree_scroll(panel) != null, "树没有滚动容器包裹，超宽会顶飞面板")
 	ui.free()
 	print("  （树节点 %d，最宽档位由 ScrollContainer 吸收）" % nodes.size())
+
+
+# ── F. 树视图 pip 徽记（spec evolution-attribute-gates §3.3 v9）──
+## 槽位算法纯逻辑可无头验：单轴门=轴色纯色 pip / 合计门自由余量=分瓣 pip / 或门=一枚分瓣；
+## 实心随 _axis_points 实时判定（_draw 本身依赖渲染，无头不跑）。
+func _test_gate_pips() -> void:
+	print("── F. pip 槽位：单轴纯色 / 合计门分瓣 / 或门 / 填充随点数 ──")
+	var tv := EvolutionTreeView.new()
+	# YF-23：斗1 + 骑1 + sum_gk 5 → 1斗 + 1骑 + 3 自由分瓣 = 5 枚
+	var g_yf23: Dictionary = EvolutionSystem.gates_of(EvolutionSystem.node_of(&"yf23"))
+	tv._axis_points = {&"gladiator": 1, &"knight": 1, &"schemer": 0}
+	var slots: Array = tv._pip_slots(g_yf23)
+	_check("yf23 共 5 枚 pip（1斗+1骑+3自由）", slots.size() == 5, "got %d" % slots.size())
+	_check("yf23 自由余量为双色分瓣", (slots[2]["colors"] as Array).size() == 2, "")
+	_check("yf23 斗1骑1 → 实心 2 枚", _filled_count(slots) == 2, "got %d" % _filled_count(slots))
+	tv._axis_points = {&"gladiator": 3, &"knight": 2, &"schemer": 0}
+	_check("yf23 斗3骑2 → 5 枚全实心", _filled_count(tv._pip_slots(g_yf23)) == 5, "")
+	# F/A-18E 或门：一枚双色分瓣，任一轴 1 点即实心
+	var g_fa18e: Dictionary = EvolutionSystem.gates_of(EvolutionSystem.node_of(&"fa18e"))
+	tv._axis_points = {}
+	var s18: Array = tv._pip_slots(g_fa18e)
+	_check("fa18e 或门 = 1 枚双色分瓣", s18.size() == 1 and (s18[0]["colors"] as Array).size() == 2, "")
+	_check("fa18e 零点空心", _filled_count(s18) == 0, "")
+	tv._axis_points = {&"knight": 1}
+	_check("fa18e 骑1 → 实心", _filled_count(tv._pip_slots(g_fa18e)) == 1, "")
+	# AX-00：各2 + sum_all 7 → 2+2+2 纯色 + 1 三色分瓣 = 7 枚
+	var g_ax: Dictionary = EvolutionSystem.gates_of(EvolutionSystem.node_of(&"ax00"))
+	tv._axis_points = {&"gladiator": 2, &"knight": 2, &"schemer": 3}
+	var sax: Array = tv._pip_slots(g_ax)
+	_check("ax00 共 7 枚（各2 + 1 三色）", sax.size() == 7, "got %d" % sax.size())
+	_check("ax00 末枚三色分瓣", (sax[6]["colors"] as Array).size() == 3, "")
+	_check("ax00 2/2/3 → 全实心", _filled_count(sax) == 7, "got %d" % _filled_count(sax))
+	# 无 gates（T1 起手机）：不画
+	_check("无门槛 → 无 pip", tv._pip_slots({}).is_empty(), "")
+	tv.free()
+
+
+func _filled_count(slots: Array) -> int:
+	var n := 0
+	for s in slots:
+		if bool(s["filled"]):
+			n += 1
+	return n
 
 
 ## 递归找 EvolutionTreeView 的 ScrollContainer 祖先

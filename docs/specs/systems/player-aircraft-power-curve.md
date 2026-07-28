@@ -46,8 +46,12 @@ reconstruction_complete: false
 5. **每机最多 1 条 tradeoff 轴**（角色特色的代价，如 MiG-31 雷达锥窄），降幅 ≤ 前代的 -20%。
 6. **雷达范围全谱走廊**：2800 ~ 5000（px）。**同类边**跳变 ≤ +25%；**跨类进入该类签名轴**放宽到 ≤ +40%（专业化跳变，如 综合→电战 的雷达）——杜绝再翻倍。
 7. **基础武器底线**：所有玩家机必带 机炮 + 导弹 + 热诱弹（2026-07-03 用户令；特色装备叠加其上）。
-   **特殊武器（2026-07-19）**：矩阵里的签名武器（X-02 电磁炮+激光、X-90 UAV 僚机等）= 该机的**固有入手源**——
-   首次驾驶即录入局内玩家武器库，此后换机/进化全继承（见 [inrun-weapon-inventory](inrun-weapon-inventory.md)）。
+   ⚠ **特殊武器一律不自带（2026-07-23 用户令，反转 07-19 决定）**："所有飞机都不要自带特殊武器，要从战区获取。"
+   → 火箭 / 电磁炮 / 激光 / 忠诚僚机 / 漂浮雷 / QMAAM **不再烤进任何 `player_*.tres`**（原先 7 攻击线机自带火箭、
+   X-02 自带电磁炮+激光已剥离）；获取来源收敛为 **① 战区奖励**（zone-reward-arsenal，按星级 roll）
+   **② 签名技能**（如 sig_x02 突击翼龙给电磁炮、sig_f47/x90 给忠诚僚机——玩家选卡换来，非自带）。
+   矩阵"特色"列里提到火箭/电磁炮的机型，指的是**该机适配该武器的定位倾向**，不再是开局烤入。
+   （原 07-19 的"固有入手源/首驾入库"作废，见 [inrun-weapon-inventory](inrun-weapon-inventory.md) §2.1.4 修订。）
 8. **档位 ≠ 解锁等级（2026-07-03 用户定）**：档位只定**战力带宽**；解锁等级**逐机设定**。
    同族/近亲变种（F-15→F-15C、Su-27→Su-35、幻影 III→幻影 2000、鹰狮 C→E）门槛压低 → 家族路径平滑易达；
    异族/横跨机型门槛抬高。
@@ -74,8 +78,8 @@ reconstruction_complete: false
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | **F-14** | 1 | 远程/团队 | 110 | 2000 | 850 | 42 | 7.5 | 3600 | 32° | 2.8 | **4** | 最弱锚点；开局送 3 僚机 |
 | **F-15** | 1 | 制空/综合 | 105 | **2150** | 900 | 50 | **9.0** | 3000 | 35° | 2.6 | 2 | 机炮好；路线最多 |
-| **A-6E** | 1 | 攻击/肉（新建） | **140** | ～1000～ | 750 | 55 | 6.5 | 2800 | 28° | 3.0 | 2 | 攻击起手：轻火箭+机炮；速度=tradeoff |
-| **幻影 III**（欧法，新建） | 1 | 电战/多用途 | ～95～ | 2100 | 880 | 48 | 8.5 | **3800** | **38°** | **2.4** | 2 | **电战线之根**：T1 眼睛尖；HP 全谱最脆=tradeoff |
+| **A-6E** | 1 | 攻击/肉（新建） | **140** | ～1150～ | 780 | 55 | 6.5 | 2800 | 28° | 3.0 | 2 | 攻击起手：轻火箭+**强化机炮**（伤 ×1.25/程 1150，profile 杠杆）；速度仍=tradeoff（T1 最慢，居直系 A-10 之下） |
+| **幻影 III**（欧法，新建） | 1 | 电战/多用途 | ～95～ | 2100 | 880 | 48 | 8.5 | **3800** | **38°** | **2.4** | 2 | **电战线之根**：T1 眼睛尖；**击杀经验 +10%**（xp_gain_mult 1.1）；HP 全谱最脆=tradeoff |
 
 ### T2 四代 / 四代半（≈112%，LV4~9）
 | 机 | LV | 角色 | HP | 极速 | 巡航 | 加速 | G | 雷达 | 锥 | 锁 | 导弹 | 特色 |
@@ -145,6 +149,71 @@ reconstruction_complete: false
 > ⚠ **树结构连带**：aircraft-evolution-tree §4 需按本表重排（档位 4→5、41 节点出口重连、每步仍 ≥3 选、
 > X-90 跨类专属边、AX-00 多线汇聚）。等本矩阵 review 定稿后一并实装。
 
+### 2.6 热诱弹分档（全谱统一规则，2026-07-23 用户令）
+
+**背景**：扩谱到 41 机时，`player_*.tres` 的 flare 槽全部填了共享的敌用 `default_flare.tres`
+（`max_flares=30` / `burst_count=2` / `jam=0.55` / `nervousness=0.5`）——玩家拿到的是**敌机口味的热诱弹**，
+数量还是引擎默认的 30（叠技能可到 32+）。只有 F-15/F-16/F-35 三架靠 `flare_override` 拿到调过的 2 发版本。
+用户令：**玩家单独定一档、按机体强度分配、不与敌人耦合。**
+
+**分档表**（唯一变量 = `max_flares`，按 tier 递增）：
+
+| tier | 机数 | max_flares | 覆盖 |
+|---|---|---|---|
+| T1 | 4 | **2** | F-15 / F-14 / A-6E / 幻影 III（起手四机，沿用既有调优锚点） |
+| T2 | 15 | **3** | 四代 / 四代半 |
+| T3 | 8 | **4** | 五代 |
+| T4 | 6 | **5** | 现实六代 |
+| T5 | 8 | **6** | 原创超凡 |
+
+**全族统一特性**（与敌用 `default_flare` 的核心区别，即"解耦"的实质）：
+
+| 字段 | 玩家族 | 敌用 default | 说明 |
+|---|---|---|---|
+| `burst_count` | **1** | 2 | 玩家按"1 枚 = 1 次机会"记账，与王牌中队的命数语义同尺度 |
+| `base_jam_chance` | **0.90** | 0.55 | 玩家干扰率显著高于敌机 |
+| `nervousness` | **0.0** | 0.5 | 冷静型：等导弹逼近才投，不一被锁就浪费 |
+| `cooldown` | 1.5s | 1.5s | 同 |
+| `reload_time` | 12.0s | 12.0s | 耗尽后装填；是否启用由 `PlayableAircraft.enable_flare_reload` 决定（现 32 档案为 true） |
+| 其余概率修正 | aspect .3 / maneuver .25 / close −.15 / low_energy .2 | .2 / .15 / −.35 / .2 | 玩家侧全面优于敌机 |
+
+**载体**：`resources/player/flare_t1.tres` ~ `flare_t5.tres` 五份，41 个 `player_<id>.tres` 按 tier 引用。
+**硬约束**：玩家机**不得**再引用 `default_flare.tres`（bench `player_params` 有解耦断言守着）；
+敌机侧 `default_flare` 保持原值不动（且 spawner 对多数敌机强制 `max_flares=1`），两侧从此互不牵动。
+
+**与加成来源的关系**（用户 2026-07-23 明确要求）：技能/里程碑给的 flare 加成是**叠在新机自身基数之上**的，
+换机后 `max_flares = 新机档位基数 + Σ加成`，且 `flares_remaining` 必须同步（三处加成源
+`flare_shield +2` / 策士里程碑 `flare_count +2`（10 点预留档再 +1）/ `manual_dodge +6` 均已 max 与 remaining 同步递增）。
+分档前 41 机同为 30 发时这条不可见，分档后成为可观测契约 → bench 断言锁死。
+
+**刻意没做**：按机种类（电战线）再 +1。理由=单杠杆（DESIGN_PHILOSOPHY 设计往简单收敛）——
+电战机已通过策士里程碑（flare +2/+1）与签名技（幻影延长窗口 / SPECTRA 反击 / 电战预算免疫）拿到 flare 向收益，
+基数再分化会变成第二个旋钮。若 playtest 觉得电战线该更强，再单独开这一档。
+
+### 2.7 共享武器资源的隔离契约（2026-07-23 用户令："改玩家机炮的技能不能对敌人生效"）
+
+**问题**：`default_gun.tres` / `default_combat.tres` 被 41 玩家机与 12 敌机**同时引用**。
+玩家的机炮类升级（`gun_damage` 等）是**直改 `params.gun` 字段**的，若该 params 上的 `gun` 仍指向磁盘资源实例，
+升级就会写进共享 `.tres` → 同引用的敌机当场一起变强；且 `load()` 有缓存、跨局不重置 → **污染累积并跨局残留**。
+
+**引擎事实（本版本实测，写进 spec 免得后人再踩）**：`Resource.duplicate(true)` **不会**深拷子资源——
+`base_params.duplicate(true)` 之后 `params.gun` 仍是那个共享实例。
+因此隔离**必须**显式调 `SurvivorPlayableSetup.deep_dup_weapons(params)`（逐个 dup gun/missile/secondary/rocket/flare/combat/equipment）。
+
+**契约：每一条"玩家机产生"路径都必须在挂载 params 后立刻深拷。** 现有四条：
+
+| 路径 | 入口 | 状态 |
+|---|---|---|
+| 起手机出生 | `survivor_mode` 初始化 | ✅ 一直有 |
+| 起始僚机 | `survivor_mode` 建队 | ✅ 一直有 |
+| 奖励僚机 / 双子星克隆 | `_spawn_reward_wingman` | ✅ 一直有 |
+| **进化换机** | `EvolutionSystem.evolve` | ⚠ **原本缺失，2026-07-23 补上** |
+
+敌机侧本就有等价的手工深拷（spawner 逐字段 `duplicate()`），不受影响；沙盒模式（已废弃）不在契约内。
+
+**回归守卫**：bench `player_params` 的"共享武器库隔离"组——含端到端污染断言（应用 `gun_damage` 后
+`default_gun.bullet_damage` 必须纹丝不动）+ 源码断言（`evolve()` 里的 `deep_dup_weapons` 被删就红）。
+
 ## 3. 数据解耦落地（How）
 
 1. **新目录 `resources/player/`**：每个树节点一份完整 `player_<id>.tres`（AircraftParams，按 §2 有效值直写）。
@@ -153,7 +222,11 @@ reconstruction_complete: false
    身份/卡片/wingman_count/装填开关等。**数值单一权威源 = player params 文件**，消灭"乘异基数"病根。
 3. 旧 `default_fighter / playable_*_base` 退役为参考（或迁移后删除）；命名约定写入 playbook：
    **玩家机数值只改 resources/player/，敌机只改 enemy_\*，武器库 default_\* 共享只读**。
-4. 武器资源（default_gun/missile/flare）作为共享**只读**库仍可引用；若某机要改武器数值 → 在 player/ 下开专属副本。
+4. 武器资源（default_gun/missile）作为共享**只读**库仍可引用；若某机要改武器数值 → 在 player/ 下开专属副本。
+   ⚠ **热诱弹已于 2026-07-23 退出共享库**（§2.6）：玩家机一律引用 `resources/player/flare_t<1-5>.tres`，
+   `default_flare.tres` 从此只服务敌机。教训——共享只读库这条口子正是"38 架玩家机拿着敌机口味 30 发热诱弹"
+   的成因：批量生成新机时 flare 槽默认填了共享资源，而共享资源的默认值是按敌机调的。
+   **其余共享武器库（gun/missile）需按同一标准复查**（见 §7 Backlog）。
 
 ## 4. X-02 专项（log 实证）
 
@@ -168,6 +241,9 @@ reconstruction_complete: false
 - [ ] X-02 打 UAV：机炮可清杂；导弹命中率（本人）≥70%。
 - [ ] 全体玩家机 ≥ F-14 锚点（逐轴或加权）。
 - [ ] 调任意 enemy_*.tres 不影响玩家机数值（解耦断言）。
+- [x] **热诱弹分档（§2.6，2026-07-23）**：41 机 `max_flares` 按 tier = 2/3/4/5/6；全族 `burst_count=1`/
+      `jam=0.90`/`nervousness=0`；无一引用敌用 `default_flare`；换机后 `max_flares` 与 `flares_remaining`
+      = 新机基数 + Σ技能加成。✅ bench `player_params` 9 断言（回归门 34 项全绿）
 - [ ] **解锁覆盖（v7）**：LV4~26 空档 ≤1 级（脚本断言）；相邻解锁战力步长 ≈2%（§1.10 档内内插）。
 - [ ] **欧系存在感（v7）**：欧系 11 机全部可沿树到达；幻影 III 起手 → 幻影 2000 为全谱最早 T2 入口（LV4）。
 - [ ] **王冠独占（v7）**：每档内签名轴王冠不重叠（表内粗体互斥）；AX-00 不夺任何单项冠军。
@@ -198,6 +274,19 @@ reconstruction_complete: false
 - 僚机导弹命中率 30%（AI 发射窗口/pilot skill 层，走 AI 调参）。
 - 激光定位改造（§4 查明后另起）。
 - 敌机数值自己的规范表（本 spec 只管玩家侧；敌侧沿用 enemy-index）。
+- **机炮基数的敌我共用**（2026-07-23 查出；⚠ 与之相关的**运行时污染已在同日修复**，见 §2.7）：
+  41 份 `player_*.tres` 全部引用共享的 `default_gun.tres`，而该文件同时被 **12 个 `enemy_*.tres` 引用**。
+  运行时污染（玩家升级写进共享 .tres）已修；**剩余的是设计期耦合**——为调敌机而编辑
+  `default_gun.tres` 会同时改掉玩家机的机炮基数。缓解因素：profile 侧有 `gun_damage_mult`(9 机) /
+  `gun_range_override`(5 机) / `gun_cone_override`(4 机) 做逐机差异化（2026-07-27 A-6E 入列），**但仍有
+  32 架玩家机的机炮基数 = 敌机默认值**。`default_combat.tres` 同样 41 机共用。**导弹已解耦**（`player_*.tres` 内联 SubResource）。
+  处理建议：照 §2.6 开 `resources/player/gun_t<1-5>.tres` 或逐机内联；但**机炮基数直接冲击手感**，
+  需先 playtest 立基线再动，故列 backlog。
+- ~~**`GunParams` 缺 `lifetime` 字段**~~ ✅ **已修（2026-07-24，修法A，用户拍板）**：
+  给 `GunParams` 加 `@export var lifetime := 2.0`（默认 = 旧硬编码值），`bullet_manager.spawn_bullet`
+  新增可选 `life_seconds` 参数据此定 life，`aircraft_weapons` 主机炮三处调用传 `gun.lifetime`。
+  720"枪械精度·子弹寿命 +20%/层"（`lifetime_bonus`）现按设计生效——**这是一次平衡改动，数值待 playtest 调**。
+  不选该技能时行为与旧版逐字节一致（默认 2.0）。详见 changelog 2026-07-24-perf-bullet-broadphase。
 
 ## 8. 变更记录
 
@@ -212,3 +301,6 @@ reconstruction_complete: false
 | 2026-07-19 | 7 | **五档 41 机 + 欧系铺量 + 档内平滑**（用户："飞机太少/升级不平滑/增加阶级/欧洲飞机/每机特色"）：①T4 拆回两档——T4=现实六代/试验（F-47/MiG-41+新 YF-23/FCAS/GCAP/J-36）、**T5=原创超凡**（X 系 8 款，补 X-77/X-90/AX-00 入矩阵）；预算 100/112/125/138/150；带宽 T2=4~9/T3=10~15/T4=16~20/T5=21~26。②**欧系 2→11 款**：新建 幻影 III（T1 电战起手，补齐四角色起手位）/幻影 2000/鹰狮 C/狂风/雷 Viggen/鹞（T2）/鹰狮 E（T3）/FCAS/GCAP（T4）。③新规则 §1.10 档内 LV 内插 ±3% + 解锁覆盖 LV4~26 空档 ≤1（实收 LV15 一个）。④王冠互斥自检（每档签名轴不重叠、AX-00 全轴第二不夺冠）。⑤X-02 LV22 锚点保持，**新压轴 AX-00 织星者 LV26**；S/MTD 11→10 填空档；狂风夺"攻击线极速王"、Su-34 文案让位改"最肉的快机"。⑥**debug 测试场全谱开放**（用户令：主菜单 B 链路只能选起手机 → 改为枚举树全部节点 × 主题技能 build，见 §5/§6 阶段 5）。诊断补第 4 条（实装 12 机/3 层平树=断崖根源）。 |
 | 2026-07-19 | 8 | **自然成长退役 + 属性门槛联动**（用户查证确认）：①旧"等级改基础性能"链路仍在生效（DEFAULT_GROWTH_CURVE L3~15 累计 +100HP/+2弹 → apply_natural_growth 直写 params，survivor_mode 逐级 + boss debug 两处调用；进化换型时累计成长丢失=路径依赖病），违反"等级只做门槛"与本矩阵逐机设计值 → 列入 §6 阶段 2 摘除、§5 加"等级纯门槛"验收。②进化改双门：LV 且 三轴属性（斗士/骑士/策士），门槛公式/特例/收支见新 spec [evolution-attribute-gates](evolution-attribute-gates.md)；§1.8 补注。 |
 | 2026-07-19 | 9 | **签名武器=固有入手源**（§1.7 补注）：矩阵特色武器保留在机上，但首驾入局内玩家武器库、换机/进化全继承（spec [inrun-weapon-inventory](inrun-weapon-inventory.md)；"武器绑机型"作废对矩阵的影响仅此一句，数值不动）。 |
+| 2026-07-23 | 11 | **共享武器资源隔离契约（新 §2.7，用户令"改玩家机炮的技能不能对敌人生效"）**：实测确认 `Resource.duplicate(true)` **不深拷子资源** → `EvolutionSystem.evolve` 只做 `base_params.duplicate(true)` 而没跟 `deep_dup_weapons`，**换机后玩家的机炮升级会直接写进共享 `default_gun.tres`**，同引用该资源的 12 个敌机型当场一起变强，且 `load` 缓存不重置导致污染跨局残留（实测 `bullet_damage` 8.00 → 10.40）。修复=evolve 补一行深拷；四条玩家机产生路径的深拷契约写进 §2.7。回归守卫 bench `player_params` 新增"共享武器库隔离"7 断言（端到端污染 + 源码守卫）。顺带炸出 `GunParams` 缺 `lifetime` 字段（720 批"枪械精度"第二段效果从未生效且每次抛错）→ 记 §7 待拍板。 |
+| 2026-07-23 | 10 | **热诱弹分档 + 敌我解耦（新 §2.6，用户令）**：起因=用户发现有玩家机带 32 发热诱弹。查实 41 份 `player_*.tres` **全部**引用敌用 `default_flare.tres`（30 发 / burst 2 / jam 0.55 / nervousness 0.5=慌张型），只有 F-15/F-16/F-35 靠 `flare_override` 拿到调过的 2 发版本——即 38 架玩家机在用敌机口味的热诱弹，且叠 `flare_shield`+2 或策士里程碑+2 正好 32。落地：①新建玩家专属族 `resources/player/flare_t1~t5.tres`，`max_flares` 按 tier = **2/3/4/5/6**，全族统一 burst 1 / jam 0.90 / nervousness 0 / reload 12s；②41 份基参按进化树 tier 重指向，摘除 3 处 `flare_override`（否则覆盖分档）；③`default_flare` 保持原值只服务敌机，**玩家侧不得再引用**（bench 解耦断言）；④换机继承契约明文化——`max_flares` 与 `flares_remaining` 均 = 新机档位基数 + Σ技能加成（三处加成源本就 max/remaining 同步递增，分档后成为可观测契约并加断言锁死）。刻意没做按机种类再分化（单杠杆）。§3.4 共享武器库口径同批修订（flare 退出共享库）+ §7 记机炮同病 backlog。验收：bench `player_params` 27 断言（新增 9 条）+ 回归门 34 项全绿。 |
+| 2026-07-27 | 12 | **起手卡平衡批（用户令）**：①A-6E 提速——极速 1000→**1150** / 巡航 750→**780**（直改 `player_a6e.tres`；仍居直系 T2 A-10（1200/800）之下，速度保留 tradeoff 定位）；②A-6E 强化机炮——profile 杠杆 `gun_damage_mult 1.25`（弹伤 8→10）+ `gun_range_override 1150`（+15%），走 F-15 同款差异化机制，不动共享 `default_gun.tres`（§2.7 隔离契约 / §7 机炮共基 backlog 均不受影响）；③幻影 III 机体特性**击杀经验 +10%**——新 `PlayableAircraft.xp_gain_mult`（默认 1.0，幻影 III=1.1），消费点 `survivor_spawner._detect_kills` 空/地两处与 `xp_multiplier`/`sig_xp_mult` 同乘区，身份源读 `_player_profile` = 进化换机后自动失效/切换；④选机卡新增 `card_perks` 机体特性行（i18n 三语 `AIRCRAFT_<ID>_PERK_*`），**未解锁（dev_locked）卡不渲染**——生涯门控卡保持"全信息展示"仅指基础参数，数值细账解锁后可见。 |

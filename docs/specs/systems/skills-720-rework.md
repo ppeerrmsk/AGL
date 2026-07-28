@@ -69,8 +69,8 @@ reconstruction_complete: true
 **骑士轴（9）**
 | id（拟） | 技能 | 归属 | 稀 | 层 | 效果 |
 |---|---|---|---|---|---|
-| ab_kill_charge | 检讨 | 通用 | 1 | ×2 | 击杀的加力充能奖励 +3s/层（基线 +4s） |
-| ab_duration | 强化加力 | 通用 | 1 | ×2 | 加力窗口时长 +50%/层（6s→9s→12s） |
+| ab_kill_charge | 检讨 | 通用 | 1 | ×2 | 击杀的加力充能奖励 +0.6s/层（基线 +0.8s） |
+| ab_duration | 强化加力 | 通用 | 1 | ×2 | 加力耗能减慢，续航 +50%/层（满能量 6s→9s→12s） |
 | headon_xp | 骑士心脏·历练 | 通用 | 1 | ×1 | 对头击杀获得更多经验 |
 | railgun_double | 双发 | 装备门控 | 4 | ×1 | 电磁炮蓄力完成后连发两发 |
 | missile_second_stage | 二段推进 | 通用 | 3 | ×1 | 导弹越飞越快、转弯渐强（距离越远越准） |
@@ -150,7 +150,7 @@ reconstruction_complete: true
 | 技能 | 复用点 |
 |---|---|
 | 检讨/适应 | `afterburner_charge` 击杀充能钩子（2026-07-20 现成）+ 高度比较 |
-| 强化加力 | 加力窗口时长参数 |
+| 强化加力 | 加力耗能减慢参数（`duration_mult`） |
 | QAAM 嗜血 | 击杀归因含武器类型（combat-feed 已做）→ apply_status BLOODLUST |
 | 升级回复 | `leveled_up` 信号 → 全队回血 |
 | 保卫阵地 | SquadCommandController `_tick_guard` 圈内状态现成 → 注入队 buff |
@@ -229,7 +229,7 @@ reconstruction_complete: true
 | 定向应用 / 王牌剥离 | `scripts/survivor/survivor_player.gd`（`apply_upgrade_to` `strip_upgrade_from`） |
 | 计数缩放四技 | `scripts/survivor/survivor_data.gd`（`recompute_axis_count_skills` `count_owned_by_axis`）＋ `scripts/aircraft.gd` 四字段＋消费点（`get_radar_range` / CD 赋值点 / physics accessor） |
 | 僚机阵亡 / 弹尽 / 升级回复 / 奖励升级 | `scripts/survivor/survivor_mode.gd`（`_tick_squad_watch` `_on_squad_member_down` `_queue_bonus_upgrade` `_try_present_bonus_upgrade`）＋ `scripts/survivor/skill_hooks.gd`（`try_gun_reserve_mag` `in_free_missile_window`） |
-| AB 三技（检讨/强化加力/适应） | `scripts/survivor/afterburner_charge.gd`（`kill_charge_bonus` `window_duration_mult`）＋ `skill_hooks.gd`（`afterburner` 静态引用、dispatch_on_kill 适应段） |
+| AB 三技（检讨/强化加力/适应） | `scripts/survivor/afterburner_charge.gd`（`kill_charge_bonus` `duration_mult`）＋ `skill_hooks.gd`（`afterburner` 静态引用、dispatch_on_kill 适应段） |
 | 轮盘联动（保卫阵地/阵地转移） | `scripts/rts/squad_command_controller.gd`（`_update_guard_zone_buff`）＋ `scripts/aircraft/aircraft_physics.gd`（`GUARD_ZONE_G_MULT` `EVAC_SHIFT_SPRINT_BONUS`）＋ `scripts/aircraft.gd`（`_apply_damage` 720 段） |
 | 地勤优化 | `scripts/survivor/dock_point.gd`（hold 减半）＋ `survivor_mode._on_settlement_closed` |
 | QAAM 归因链 | `scripts/missile_manager.gd`（`spawn_missile(is_secondary)`）＋ `scripts/missile.gd`（`is_secondary_weapon`）＋ kind `"qmaam"` |

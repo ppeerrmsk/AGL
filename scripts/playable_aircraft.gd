@@ -19,6 +19,9 @@ extends Resource
 @export var codename: String = "SmartFalcon"  ## 副名（HUD 显示为 "F-16 SmartFalcon"）
 @export var card_tags: PackedStringArray      ## 短标签（["热诱弹","均衡机动",...]）
 @export_multiline var card_desc: String       ## 卡片描述
+## 机体特性行（i18n key 数组）：写数值级差异（强化机炮/经验加成等）。
+## 选机卡逐行渲染；未解锁（dev_locked）卡不展示——只给已解锁玩家看细账
+@export var card_perks: PackedStringArray
 
 # ── 基础机体 ──
 @export_group("基础机体")
@@ -35,6 +38,9 @@ extends Resource
 @export var roll_rate_mult: float = 1.0       ## 滚转速率倍率
 @export var lock_time_mult: float = 1.0       ## 锁定时间倍率
 @export var max_g_bonus: float = 0.0          ## 持续 G 力加成
+## 击杀经验倍率（机体特性；幻影 III 电战数据链 = 1.1）。
+## 消费点 survivor_spawner._detect_kills，读 survivor_mode._player_profile —— 进化换机后自动切换
+@export var xp_gain_mult: float = 1.0
 
 # ── 生存模式：主导弹 ──
 @export_group("生存模式 / 主导弹")
@@ -83,11 +89,6 @@ extends Resource
 ## axis ∈ gladiator/knight/schemer；kind ∈ add/mult；stat 键见 SurvivorData.MILESTONE_TABLE 注释。
 ## 四起手机分表由用户后续平衡时填（本槽只立机制）。
 @export var milestone_overrides: Array[Dictionary] = []
-
-# ── 生存模式：配件槽位预算 ──
-@export_group("生存模式 / 配件槽位")
-## 总槽位预算（默认 6 格）。配件占 1/2/3 格不等。≤0 时走 LoadoutLedger.DEFAULT_SLOT_BUDGET
-@export var slot_budget: int = 6
 
 # ── 起始僚机（小队主控） ──
 ## 僚机的飞行员属性固定为"完美执行"（skill=1, composure=1, focus=1, SA=1）；

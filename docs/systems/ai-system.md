@@ -2,22 +2,32 @@
 
 ## 概述
 
-`AIController`（`scripts/ai_controller.gd`，~1500 行）作为子节点附加到 Aircraft 上，通过状态机控制飞机行为。
+`AIController`（`scripts/ai_controller.gd`）作为子节点附加到 Aircraft 上，通过状态机控制飞机行为。
+主体已拆成子模块：战术执行 `ai/bfm_tactics.gd`、导弹规避 `ai/missile_evasion.gd`、
+目标选择 `ai/target_selection.gd`、编队协同 `ai/squad_coordination.gd`、战术层 `ai/tactical/`。
+
+> ⚠ 本文是**架构叙述**。具体数值 / 触发阈值以 [docs/specs/](../specs/_INDEX.md) 为准
+> （尤其 [global-awareness-roe](../specs/systems/global-awareness-roe.md) ·
+> [target-engageability-selection](../specs/systems/target-engageability-selection.md) ·
+> [engagement-discipline](../specs/systems/engagement-discipline.md)）。
 
 ---
 
 ## 状态机
 
 ```gdscript
-enum AIState { PATROL, ENGAGE, EVADE_MISSILE, SQUAD_FOLLOW }
+enum AIState { PATROL, ENGAGE, SQUAD_FOLLOW }
 ```
 
 | 状态 | 说明 |
 |------|------|
 | PATROL | 按航路点巡逻，定期扫描敌机 |
 | ENGAGE | 交战中，运行 BFM 战术决策树 |
-| EVADE_MISSILE | 规避来袭导弹（释放热诱弹+机动） |
 | SQUAD_FOLLOW | 编队跟随长机，掩护扫描 |
+
+⚠ **导弹规避不是状态**，是叠加在任意状态之上的一个标志位 `_evading`
+（`is_evading()` 查询，`MissileEvasion.enter_evade/exit_evade/process_evade` 驱动）。
+早期版本曾有 `AIState.EVADE_MISSILE` 枚举值，**已删除**——规避结束后不需要"回到哪个状态"的记账。
 
 ---
 
@@ -31,6 +41,15 @@ enum AIState { PATROL, ENGAGE, EVADE_MISSILE, SQUAD_FOLLOW }
 | `waypoints` | PackedVector2Array | 巡逻航路点 |
 | `patrol_altitude` | float | 巡逻高度 |
 | `arrival_distance` | float | 到达判定半径 |
+
+⚠ `patrol_altitude` **不只管巡逻段**：它经 `Situation.combat_altitude_m` 一路传到战术层，
+决定这架 AI 的交战高度。所以生存模式给敌人抽高度档时必须**连 `patrol_altitude` 一起跟着档位改**，
+只改档位不改它 → 分化只在巡逻时看得见，一交战全都回到同一层。
+
+高度档现按机型分化（2026-07-28 起，此前是所有机型均匀 1/3 随机 LOW/MID/HIGH）：
+攻击机（A-7 / Q-5）偏低空、截击机（MiG-31 / F-104 / J-7）与 AF-03 偏高空（取射界）、
+多用途机偏中空，无人机偏低 / 中空。未登记的类型（BOSS / Adds / 事件单位，高度由各自 spawn
+代码事后覆写）维持均匀随机 + 原来的巡逻高度区间。权重表与档位高度区间在 `SurvivorData`。
 
 ### 战斗 AI
 
@@ -69,8 +88,12 @@ enum EngageTactic {
     BREAK_TURN,      # 急转：被咬尾时防御
     EXTENSION,       # 加速脱离：拉开距离
     SCISSORS,        # 剪刀机动：近距反复交叉
+    SNIPER_HOLD,     # 狙击稳瞄：减速 + 不取 lead，机头死锁目标当前位置
 }
 ```
+
+`SNIPER_HOLD` 是机头对准型武器（电磁炮 / 激光）专用：AI 通过
+`prefer_nose_aligned_weapon = true` 启用，给装备稳定的锁定 + 充能窗口。
 
 ### 战术决策逻辑（简化）
 
@@ -139,12 +162,12 @@ _stress: float (0~1)
 
 ## Simple AI 模式
 
-`simple_ai = true` 用于 UAV 等低能力单位：
+`simple_ai = true` 用于 MQ-109/MQ-110 等低能力单位：
 
 - 仅使用前置追踪（跳过 BFM 决策树）
 - 跳过压力系统和态势感知
 - 近距绕圈疲劳：持续盘旋超过阈值后进入"发呆"状态，直飞一段时间再恢复
-- 适用于 UAV/UCAV 等自动化程度高但战术能力低的单位
+- 适用于 MQ-109/MQ-110（EnemyType.UAV/UCAV）等自动化程度高但战术能力低的无人单位
 
 ---
 
@@ -157,7 +180,7 @@ SQUAD_FOLLOW
 ├── 正常跟随 → 飞向阵型位置
 ├── 掩护扫描 → 每 0.5s 检查队友后半球威胁
 │   └── 发现威胁 → ENGAGE（掩护交战）
-├── 导弹来袭 → EVADE_MISSILE
+├── 导弹来袭 → 置 _evading（不切状态）
 └── 交战/规避结束 → _rejoining（全速归队）→ SQUAD_FOLLOW
 ```
 
@@ -168,13 +191,22 @@ SQUAD_FOLLOW
 - 0.0 = 自主飞行（交战/规避时）
 - 过渡：`_formation_blend` 平滑趋近目标值
 
+### 敌方护卫的反应通道（Adds 护送编组）
+
+上面的掩护扫描 + 护卫学说（`Squad.escort_doctrine_enabled` / `try_defend_protectee`）**只对玩家队开**，
+Adds 类还被 ROE 察觉体系整体排除——结果是敌方护卫机长期对"被自己护送的对象正在挨打"完全无反应。
+
+2026-07-28 补上唯一的反应通道：护卫机在组队时登记到被护送对象的 `escort_guards` 列表上，
+被护送对象在受伤结算里回头唤醒护卫，护卫以 **`TS_DIRECTIVE` 目标来源**（优先级高于自主选目标）
+`acquire_target(攻击者)` 扑过去。这条路不经过 ROE / 掩护扫描，是纯粹的"挨打→点名"。
+
 ---
 
-## 导弹规避 (EVADE_MISSILE)
+## 导弹规避（`_evading` 标志，非状态）
 
 ```
-检测: 每帧扫描 MissileManager 中针对本机的在飞导弹
-进入条件: evade_missiles = true 且检测到来袭导弹
+检测: 扫描 MissileManager 中针对本机的在飞导弹
+进入条件: evade_missiles = true 且 personality.missile_aware 且过分层门（should_enter_evade）
 
 规避策略:
 1. 释放热诱弹（如果有）
@@ -204,19 +236,17 @@ SQUAD_FOLLOW
 
 ---
 
-## AI 状态机（CLAUDE.md 摘出，2026-05-05）
+## 状态机小结
 
-`ai_controller.gd` 四状态 + 8 战术机动（战术执行委托 `ai/bfm_tactics.gd`，规避 `ai/missile_evasion.gd`，目标选择 `ai/target_selection.gd`，编队 `ai/squad_coordination.gd`）：
+`ai_controller.gd` **三状态** + 9 战术机动 + 叠加式规避标志：
 
 - **PATROL** — 航路点巡逻，周期性扫描
-- **ENGAGE** — BFM 决策树选择战术机动
-  - LEAD_PURSUIT / LAG_PURSUIT / LEAD_TURN / HIGH_YOYO / LOW_YOYO / BREAK_TURN / EXTENSION / SCISSORS
-  - **SNIPER_HOLD** — 机头对准型武器专用（电磁炮 / 激光剑等）。直瞄目标当前位置（不取 lead）+ 减速 → 给装备稳定锁定+充能窗口。AI 通过 `prefer_nose_aligned_weapon=true` 启用，目标在前 80° 锥内+不太近+未被咬尾时自动选用
-- **EVADE_MISSILE** — 释放热诱弹 + 急转
+- **ENGAGE** — BFM 决策树选择战术机动（9 种，见上）
 - **SQUAD_FOLLOW** — 编队跟随 + 掩护扫描（每 0.5s 扫长机后半球）
   - 子状态：`_rejoining`（归队）/ `_formation_react_timer`（阵型调整）/ `_squad_attacking_leader_target`（协同攻击）
+- **`_evading`** — 与状态正交的规避标志
 
-## TacticalPlanner（P4 重构，玩家 + 僚机 + 9 种敌机走的统一决策路径）
+## TacticalPlanner（P4 重构，玩家 + 僚机 + 常规敌机走的统一决策路径）
 
 新设计核心：**决策（planner） / 执行（physics/weapons/combat_tracking）分离**。详见 [scripts/ai/tactical/](../../scripts/ai/tactical/) 4 文件。
 
@@ -226,11 +256,15 @@ SQUAD_FOLLOW
 3. `_apply_tactical_plan(plan)` 写入 `target_position` / `target_speed_kmh` / `is_afterburner` / `weapon_mode` / `is_firing` / `_gun_lead_heading`
 4. 后续 `update_weapon_mode` / `update_combat` / `update_energy_management` 全部检查 `use_tactical_planner` early-return
 
-**已迁移**：玩家 / 玩家僚机 / MIG / INTERCEPTOR / F86 / MIG23 / F100 / A7 / Q5 / MIG31 / SU27（9 种常规战机）
+**已迁移**：玩家 / 玩家僚机 / 全部常规战机（MIG / INTERCEPTOR / F86 / MIG23 / F100 / A7 / Q5 / MIG31 / SU27 / SU35 / F4 / F104 / FA18 等）
 
-**未迁移**（保留旧 BFMTactics 路径）：F-47 / F-14_Poltergeist BOSS（特殊：BVR/Herbst/cloak/salvo）/ Adds（Tu-160/AH-64/CH-47，simple_ai）/ Sentinel（commander_aura buff）
+**未迁移**（保留旧 BFMTactics 路径）：BOSS 王牌中队（特殊：BVR / Herbst / cloak / salvo，另有各自的队级战术模块）/ Adds（Tu-160 / AH-64 / CH-47，simple_ai）/ Sentinel（commander_aura buff）
 
-**主开关**：`SurvivorData.ENABLE_PLANNER_FOR_REGULAR_AI`（默认 false，flip 即启用所有迁移机型）
+⚠ 已迁移机型的**准确清单**看 [enemy-index.md](../reference/enemy-index.md) 与代码，
+不要依赖本文的举例——敌人谱一直在扩。
+
+**主开关**：`SurvivorData.ENABLE_PLANNER_FOR_REGULAR_AI` —— **现已默认 `true`**
+（旧文档写"默认 false"是 P4 迁移期的状态，早已 flip）
 
 **13 种 intent**（按优先级）：EVADE_MISSILE / EXTEND_RECOVER（残余）/ CRUISE / WAYPOINT_MOVE / PASSIVE_AUTO_FIRE / GROUND_STRAFE / 5b: overshoot 触发 EXTEND / 5b: BOOM_ZOOM_OUT 触发 EXTEND / WIDE_TURN / MERGE_PASS / TAIL_CHASE / CLOSE_TAIL / LEAD_TURN / LAG_PURSUIT / LEAD_PURSUIT
 
@@ -240,4 +274,6 @@ SQUAD_FOLLOW
 - Lock-aware crank：`target_locked = false` 时强制 LOS 直瞄不 crank（防止甩出雷达锥）
 - Launch quality（仅玩家）：cone 边缘 + bank > 60° 时跳过发射；`fire_and_forget` 导弹绕过此检查
 
-**单元测试**：[scripts/tests/test_bfm_intent.gd](../../scripts/tests/test_bfm_intent.gd) 共 73 个 case，调用 `BfmIntentTest.run_all()` 跑（无框架，console 输出 PASS/FAIL）
+**单元测试**：[scripts/tests/test_bfm_intent.gd](../../scripts/tests/test_bfm_intent.gd)，
+跑 `--bench=bfm_intent`（或 `--bench=all`）。case 数持续增长，**不在此写死数字**——以实际跑出的
+PASS 计数为准。相关行为 sim 还有 `--bench=surface_pass` / `slow_air_pass` / `joust` 等。

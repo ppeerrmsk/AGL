@@ -3,7 +3,7 @@ id: aa-fire-awareness
 kind: system
 status: in-progress
 schema_version: 1
-spec_version: 2
+spec_version: 3
 owner: 用户
 depends_on: [surface-attack-pass, command-wheel, rts-command, wingman-escort-evasion]
 reconstruction_complete: true
@@ -35,10 +35,19 @@ reconstruction_complete: true
 | 威胁源 | 对空火力半径 | 单发伤害 | 有效射速 | 备注 |
 |---|---|---|---|---|
 | AAGunUnit（ZU-23） | 600 m | 4 | 1200 发/min | `GunParams.max_range`，射程判定 ×1.2 |
-| CIWS 对空扫射 | 2000 m（1000 px） | 3 | ~11 Hz 真弹 | "远距装饰"档 |
-| CIWS 近距反飞机 | 1300 m（650 px） | 8 | ~11 Hz 真弹 | 紧散布，贴脸会被撕碎 |
+| CIWS 对空扫射 | 2000 m（1000 px） | 3 | **~16.7 Hz 真弹** | "远距装饰"档 |
+| CIWS 近距反飞机 | 1300 m（650 px） | 8 | **~16.7 Hz 真弹** | 紧散布，贴脸会被撕碎 |
 
 > CIWS 打的是**任意最近敌对飞机**（不只玩家），僚机同样会被近距模式撕碎——这是本 spec 的直接动机。
+
+**CIWS 真弹周期（2026-07-28 调整）**：CIWS 每 `N` 发弹里只有 1 发是**结算伤害的真弹**
+（其余为纯视觉曳光），`N` 由 **3 → 2**。有效伤害射速 ~11 Hz → **~16.7 Hz**，**拦截 DPS ×1.5**。
+
+- CIWS **依然是真实弹道碰撞拦截，不是概率判定** —— 真弹要**真的飞到**目标身上才算数。
+- 三重压制**全部不变**：散布 ±5°、命中半径 12 px、距离衰减（≥800 px 无伤）。
+- 60 HP 的导弹**仍需 6 发真弹**命中才被拦下 —— 改的是"多久能打出这 6 发"，不是"几发能打掉"。
+- 对本 spec 的影响：舰船火力圈内的停留成本变高，§2.3 的 STANDOFF 安全环（CIWS 舰 2500 m）
+  与"被命中即脱离"规则**更值钱**，但常量一个未动。
 
 ### 2.2 新增常量（本 spec 权威）
 
@@ -163,6 +172,7 @@ RUN 相位中（STANDOFF）:
 
 | 关注点 | 文件 |
 |---|---|
+| CIWS 真弹周期 / 散布 / 命中半径 / 距离衰减 | `scripts/naval/naval_weapons.gd`（CIWS_REAL_BULLET_CYCLE 等） |
 | 中弹感知字段/钩子/递减 | `scripts/aircraft.gd`（AA_FIRE_REACT_S / aa_fire_timer / take_bullet_damage / _physics_process_impl） |
 | 感知透传 | `scripts/ai/tactical/situation.gd`（aa_fire_active / target_aa_range_m / fpole_hold） |
 | 相位打断 + EGRESS AB + inner 公式 + F-Pole | `scripts/ai/tactical/bfm_intent.gd`（ground_strafe + AA_* 常量） |
@@ -174,4 +184,5 @@ RUN 相位中（STANDOFF）:
 | 日期 | spec_version | 改动 |
 |---|---|---|
 | 2026-07-13 | 1 | 初稿（draft，待用户定稿） |
+| 2026-07-28 | 3 | **CIWS 真弹周期 3 → 2**（§2.1）：每 2 发 1 发真弹，有效伤害射速 ~11 Hz → ~16.7 Hz、**拦截 DPS ×1.5**。仍是真实弹道碰撞拦截而非概率判定；散布 ±5° / 命中半径 12 px / ≥800 px 无伤三重压制不变；60 HP 导弹仍需 6 发真弹命中。本 spec 的常量（2.5 km 安全环 / 2.5 s 警觉窗 / 45° 脱离门）一个未动，但舰船火力圈的停留成本随之上升 |
 | 2026-07-20 | 2 | 用户确认三取舍（EGRESS 加速敌我通用 / 不做火力圈预判 / 编队只加速不变向）→ 全量实现落地 + §E sim 断言 8 项（28/28 绿）。status: in-progress，差 §5 playtest/压测 |

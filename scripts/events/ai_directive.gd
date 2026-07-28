@@ -26,6 +26,7 @@ enum Type {
 	HOLD_POSITION,   ## 保持当前位置不动（极少飞机用，主要给舰船 / 地面单位）
 	ENGAGE_TARGET,   ## 强制 combat_target = params.target，进入 ENGAGE 状态（不锁其他敌方）
 	PASSIVE,         ## 不开火、不交战，仍按 waypoints 飞行（裸 directive，常用于"驻泊"）
+	PURSUE_UNIT,     ## 持续飞向 params.target 这个【会动的单位】；无抵达态，目标失效则自动释放
 }
 
 ## 抵达后行为（仅 FLY_TO_POINT 用）
@@ -100,6 +101,18 @@ static func engage_target(target: CombatUnit) -> AIDirective:
 static func passive() -> AIDirective:
 	var d := AIDirective.new()
 	d.type = Type.PASSIVE
+	return d
+
+## PURSUE_UNIT 工厂：持续追击一个【会动的单位】（spec boss-hunter-doctrine §3.1）
+##
+## 与 FLY_TO_POINT 的区别 —— 追的是单位不是坐标，故【没有抵达态】：
+##   - 不触发 on_arrival 分派（"追到了"这件事由上层的接战触发器裁定，不由导航层）
+##   - 不需要每隔 N 秒重下一条新 directive（重下会重置 _directive_state）
+## combat_disabled 默认 true：接近相武器冷；目标失效时执行分支自动释放本 directive。
+static func pursue(target: CombatUnit, refresh_interval: float = 0.5) -> AIDirective:
+	var d := AIDirective.new()
+	d.type = Type.PURSUE_UNIT
+	d.params = {"target": target, "refresh_interval": refresh_interval}
 	return d
 
 # ──────────────── 查询 ────────────────

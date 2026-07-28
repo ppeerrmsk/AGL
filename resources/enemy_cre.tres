@@ -1,0 +1,47 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/default_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/default_missile.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/default_flare.tres" id="5"]
+
+[resource]
+script = ExtResource("1")
+display_name = "Cre"
+; ── Cre 系对抗学习原型机（宿敌 ORION，spec events/ace-orion §2.1）──
+; "看上去普通"：机体基线 = 初始敌机级别（杂鱼下位档），伪装用普通敌方橙。
+; 强度成长不改本资源——OrionNemesisEvent 按生涯击坠数查档位表，spawn 时
+; 覆写 AI 四维 / 武器挂载 / 闪避 / 性能乘数（×1.0→×1.4）。
+; 武器/热诱弹在此为满配占位，低档位由事件层清零（档 I 仅机炮、无 flare）。
+; 王牌专属机型：不进随机刷怪池；无人原型机（no_pilot，全程无线电静默）
+max_hp = 45.0
+armor = 0.0
+max_speed = 1900.0
+cruise_speed = 950.0
+stall_speed_base = 200.0
+acceleration = 40.0
+deceleration = 60.0
+g_drag_factor = 3.0
+max_g = 7.0
+max_g_structural = 9.0
+roll_rate = 3.4
+pilot_stamina = 90.0
+stamina_drain_rate = 25.0
+stamina_recovery_rate = 10.0
+max_altitude = 15000.0
+climb_rate_max = 210.0
+thrust_to_weight = 0.95
+drag_coefficient = 0.026
+afterburner_thrust_mult = 1.5
+fuel_capacity = 3000.0
+fuel_rate_normal = 2.0
+fuel_rate_afterburner = 10.0
+radar_range = 4400.0
+radar_half_angle = 28.0
+lock_time = 2.6
+gun = ExtResource("2")
+missile = ExtResource("4")
+flare = ExtResource("5")
+combat = ExtResource("3")
+icon_color = Color(1.0, 0.541, 0.239, 1)

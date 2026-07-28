@@ -22,6 +22,9 @@ var total_xp_gained: int = 0
 ## 720 T2 起从 Aircraft 实例字段迁到这里——切控/换帅/换型都不丢
 var xp_multiplier: float = 1.0
 
+## 722 批 F-16 签名技·智能鹰：XP 第二乘区（独立于 xp_mult 硬顶，两区叠乘）
+var sig_xp_mult: float = 1.0
+
 # ── 经验动态填充动画 ──
 ## 未注入显示条的经验，按 XP_DRAIN_DURATION 内排空的速率回填到 xp
 const XP_DRAIN_DURATION := 0.6
@@ -84,13 +87,28 @@ var axis_points: Dictionary = {
 	SurvivorData.AXIS_KNIGHT: 0,
 	SurvivorData.AXIS_SCHEMER: 0,
 }
-## 已生效的里程碑档位（axis → 已应用的 points 档数组）；
-## 里程碑应用器（阶段 2）用它做增量应用与换型重放，本阶段仅占位。
-var applied_milestones: Dictionary = {}
+## 当前操控机已生效的里程碑档位（axis → 已应用的 points 档数组）。
+## 实际记账逐机存在飞机 meta 上（见 _milestone_record）——里程碑要下发全队，
+## 且换帅后新操控机必须带着自己那本账，玩家级单账本做不到。这里只是"当前机那本"的视图。
+var applied_milestones: Dictionary:
+	get:
+		return _milestone_record(aircraft)
+	set(value):
+		_set_milestone_record(aircraft, value)
+
+## 里程碑下发目标提供器（survivor_mode 注入，返回全部应吃里程碑加成的飞机）。
+## 未注入时退化为"只有当前操控机"——单测与沙盒路径行为不变。
+var milestone_targets_provider: Callable = Callable()
 
 func add_axis_point(axis: StringName, profile: PlayableAircraft = null) -> void:
 	if not axis_points.has(axis):
 		push_warning("SurvivorPlayer.add_axis_point: 未知属性轴 %s" % axis)
+		return
+	# 收入封顶（spec evolution-attribute-gates §2.2 v9）：8 点拿满后选卡只得技能不再加点，
+	# 保 §2.5 排他性数学在无等级上限的局内曲线下永久成立。一切加点来源共用本闸。
+	if total_axis_points() >= SurvivorData.AXIS_POINT_CAP:
+		EventLogger.log_event("AXIS", "Player", "%s 加点跳过：合计 %d 已达封顶" % [
+			axis, total_axis_points()])
 		return
 	axis_points[axis] = int(axis_points[axis]) + 1
 	EventLogger.log_event("AXIS", "Player", "%s +1 → %d（合计 %d / 可得 %d）" % [
@@ -160,6 +178,12 @@ func record_special_weapons() -> void:
 		weapon_inventory[&"torpedo"] = p.torpedo
 	if p.secondary_missile != null:
 		weapon_inventory[&"secondary_missile"] = p.secondary_missile
+	# 火箭 = 外部装备，跟人走（用户 2026-07-23："特殊武器都从战区获取、换机继承"）。
+	# 旧版只收 inrun_reward meta 的火箭（区分战区火箭 vs 机型自带火箭）——机体自带火箭
+	# 已全部剥离（inrun-weapon-inventory §2.2），此门作废：所有火箭一律入库继承，
+	# 否则进化换机会把火箭摘掉（log 20260724_222103：Su-34→J-20 火箭丢失）。
+	if p.rocket != null:
+		weapon_inventory[&"rocket"] = p.rocket
 
 ## 进化换型后调用：把武器库补挂到新机（新机已有同类的不重复；机尾位守互斥）。
 func remount_weapons() -> void:
@@ -185,6 +209,12 @@ func remount_weapons() -> void:
 					p.secondary_missile = res
 					aircraft.secondary_missiles_remaining = res.max_count
 					mounted.append(key)
+			&"rocket":
+				# 战区奖励火箭补挂（新机自带火箭则不覆盖——自带优先，库存留待下次换型）
+				if p.rocket == null:
+					p.rocket = res
+					aircraft.rockets_remaining = res.max_ammo
+					mounted.append(key)
 			_:
 				if p.get_equipment_of_kind(String(key)) == null:
 					if p.equipment == null:
@@ -198,32 +228,85 @@ func remount_weapons() -> void:
 
 # ── 三轴里程碑应用器（spec evolution-attribute-gates §2.6/§2.7，阶段 2）──
 
-## 加点后应用该轴新跨过的里程碑档（增量、幂等：applied_milestones 记账防重复）。
+## 逐机里程碑记账：档位记录挂在飞机 meta 上而不是玩家身上。
+## 无飞机时落到 _orphan_milestone_record（构建早期 / 单测里 aircraft 尚未就位）。
+const MILESTONE_RECORD_META := &"_applied_milestones"
+var _orphan_milestone_record: Dictionary = {}
+
+func _milestone_record(target) -> Dictionary:
+	if target == null or not is_instance_valid(target):
+		return _orphan_milestone_record
+	if not target.has_meta(MILESTONE_RECORD_META):
+		target.set_meta(MILESTONE_RECORD_META, {})
+	return target.get_meta(MILESTONE_RECORD_META)
+
+func _set_milestone_record(target, value: Dictionary) -> void:
+	if target == null or not is_instance_valid(target):
+		_orphan_milestone_record = value
+		return
+	target.set_meta(MILESTONE_RECORD_META, value)
+
+## 本次里程碑要下发到哪些飞机（默认只有当前操控机）
+func _milestone_targets() -> Array:
+	if milestone_targets_provider.is_valid():
+		var arr = milestone_targets_provider.call()
+		if arr is Array:
+			return arr
+	return [aircraft] if aircraft != null else []
+
+## 加点后把该轴新跨过的里程碑档下发全队（增量、逐机幂等）。
 ## 无飞机时不应用也不记账——等飞机就位后重放补上。profile = 起手机覆写表来源。
 func apply_crossed_milestones(axis: StringName, profile: PlayableAircraft = null) -> void:
-	if not aircraft or not aircraft.params:
+	for t in _milestone_targets():
+		apply_crossed_milestones_to(t, axis, profile)
+
+## 对单机应用该轴新跨过的档（逐机记账防重复）。
+func apply_crossed_milestones_to(target, axis: StringName, profile: PlayableAircraft = null) -> void:
+	if target == null or not is_instance_valid(target) or target.params == null:
 		return
 	var pts: int = get_milestone_progress(axis)   # 点数 + "+1 轴进度"加成（gates 不走这里）
-	var done: Array = applied_milestones.get(axis, [])
+	var rec: Dictionary = _milestone_record(target)
+	var done: Array = rec.get(axis, [])
 	for m in SurvivorData.milestones_for(axis, profile):
 		var need: int = int(m["points"])
 		if pts >= need and not done.has(need):
-			_apply_milestone_effect(m)
+			_apply_milestone_effect_to(target, m)
 			done.append(need)
-			EventLogger.log_event("MILESTONE", "Player",
+			EventLogger.log_event("MILESTONE", str(target.callsign),
 				"%s %d点 里程碑生效：%s %s" % [axis, need, str(m.get("stat")), str(m.get("value"))])
-	applied_milestones[axis] = done
+	rec[axis] = done
+
+## 把三轴已达成的全部档补挂到指定飞机（新僚机入队 / 僚机换型后重放）。逐机幂等。
+func apply_all_milestones_to(target, profile: PlayableAircraft = null) -> void:
+	for axis in SurvivorData.AXES:
+		apply_crossed_milestones_to(target, axis, profile)
 
 ## 换型重放（spec §2.7 玩家层持有）：evolve() 换新 params 后调用——
-## 清应用记录、把三轴已达成的全部档位重挂到新机。加成跟玩家不跟机体。
+## 清该机记录、把三轴已达成的全部档位重挂上去。加成跟玩家不跟机体。
 func reapply_all_milestones(profile: PlayableAircraft = null) -> void:
-	applied_milestones = {}
-	for axis in SurvivorData.AXES:
-		apply_crossed_milestones(axis, profile)
+	reapply_all_milestones_to(aircraft, profile)
 	EventLogger.log_event("MILESTONE", "Player", "换型重放完成（斗%d/骑%d/策%d 点）" % [
 		get_axis_points(SurvivorData.AXIS_GLADIATOR),
 		get_axis_points(SurvivorData.AXIS_KNIGHT),
 		get_axis_points(SurvivorData.AXIS_SCHEMER)])
+
+## 指定机换型重放：params 被 evolve 换掉后旧记账作废，清空再全量重挂。
+func reapply_all_milestones_to(target, profile: PlayableAircraft = null) -> void:
+	_set_milestone_record(target, {})
+	apply_all_milestones_to(target, profile)
+
+## 应用一档里程碑到指定飞机。借用 self.aircraft 指针走同一份 match 逻辑后还原 ——
+## 与 apply_upgrade_to 同一手法，保证单机路径与全队路径语义逐字节一致。
+func _apply_milestone_effect_to(target, m: Dictionary) -> void:
+	if target == null or not is_instance_valid(target) or target.params == null:
+		return
+	if target == aircraft:
+		_apply_milestone_effect(m)
+		return
+	var saved := aircraft
+	aircraft = target
+	_apply_milestone_effect(m)
+	aircraft = saved
 
 ## 应用一档里程碑到当前飞机（语义与 apply_upgrade 同源；表结构见 SurvivorData.MILESTONE_TABLE）。
 ## mult 类 stat 的 value 是乘数（1.08）；add 类是增量。子资源先 duplicate 防共享污染。
@@ -532,10 +615,12 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 			if p.gun and float(upgrade.get("lifetime_bonus", 0.0)) > 0.0:
 				p.gun.lifetime *= (1.0 + float(upgrade["lifetime_bonus"]))
 		"aim_assist":
-			# 瞄准辅助：fire_cone_half_angle ×(1+value)，硬 cap max_deg
+			# 瞄准辅助：fire_cone_half_angle ×(1+value)，硬 cap max_deg。
+			# cap 对"已超 cap"的锥角不倒退（722 sig_x44 置 90° 后再拿本技能不得缩回 45°）
 			if p.gun:
 				p.gun = p.gun.duplicate()
-				p.gun.fire_cone_half_angle = minf(p.gun.fire_cone_half_angle * (1.0 + float(upgrade["value"])), float(upgrade.get("max_deg", 45.0)))
+				var aa_cap: float = maxf(float(upgrade.get("max_deg", 45.0)), p.gun.fire_cone_half_angle)
+				p.gun.fire_cone_half_angle = minf(p.gun.fire_cone_half_angle * (1.0 + float(upgrade["value"])), aa_cap)
 		"missile_boost":
 			# 火箭助推：cooldown ×0.85 + burn_time ×1.15 + motor_accel ×1.10（每层复合）
 			if p.missile:
@@ -723,6 +808,68 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 				var hm := HerbstManeuver.new()
 				hm.name = "HerbstManeuver"
 				aircraft.add_child(hm)
+		# ── 722 批：机体签名技能（spec aircraft-signature-skills；skill_flag 型走 meta 无需分支）──
+		"sig_relaxed_stability":
+			# 幻影 2000·静不稳定：永久 G+2 / 滚转 ×1.3（类别 1：AI 经 effective_*() 自动感知）
+			p.max_g += 2.0
+			p.roll_rate *= 1.3
+		"sig_lock_retention":
+			# 维京·唯一的锁定：雷达 +250px（=500m）；出锥锁定保持 3s（锁定循环读字段）
+			p.radar_range += float(upgrade["value"])
+			aircraft.sig_lock_retention_sec = 3.0
+		"sig_viffing":
+			# 鹞·VIFFing：减速效率 ×1.5；低速无敌判定走 aircraft 字段（tick 消费）
+			p.deceleration *= 1.5
+			aircraft.sig_viffing_active = true
+		"sig_vectored_canard":
+			# S/MTD·矢量鸭翼：G+2 收紧转弯半径；拉 G 掉速惩罚 ×0.65
+			p.max_g += 2.0
+			p.g_drag_factor *= 0.65
+		"sig_status_immunity":
+			# 鹰狮 E·电战预算：免疫 JAM/SLOW/FEAR（combat_unit.apply_status 早退）
+			aircraft.sig_status_immune = true
+		"sig_multiband":
+			# Su-57·多波段搜索：雷达锥半角 +40°（签名特权 cap 120°，可破常规 90°）
+			p.radar_half_angle = minf(p.radar_half_angle + float(upgrade["value"]), 120.0)
+		"sig_long_spear":
+			# J-20·霹雳长矛：导弹 +1 / 包线射程 ×1.4 / 生存时间 ×1.5
+			if p.missile:
+				p.missile = p.missile.duplicate()
+				p.missile.max_count += 1
+				p.missile.max_range_rear *= 1.4
+				if p.missile.lock_max_range_px > 0.0:
+					p.missile.lock_max_range_px *= 1.4
+				p.missile.max_lifetime *= 1.5
+				aircraft.missiles_remaining += 1
+		"sig_xp_wisdom":
+			# F-16·智能鹰：XP 第二乘区 ×1.25（SurvivorPlayer 层，切控/换机不丢；不占 xp_mult 硬顶）
+			sig_xp_mult = 1.0 + float(upgrade["value"])
+		# 高频判定组：apply 只置位字段，效果在锁定循环 / physics accessor / 武器扫描消费
+		"sig_f15":
+			aircraft.sig_f15_active = true
+		"sig_f15c":
+			aircraft.sig_f15c_active = true
+		"sig_f15e":
+			aircraft.sig_f15e_active = true
+		"sig_a6e":
+			aircraft.sig_a6e_active = true
+		"sig_mig41":
+			aircraft.sig_mig41_active = true
+		"sig_tornado":
+			aircraft.sig_tornado_active = true
+		"sig_typhoon":
+			aircraft.sig_typhoon_active = true
+		"sig_su34":
+			aircraft.sig_su34_active = true
+		"sig_mig31":
+			aircraft.sig_mig31_active = true
+		"sig_x44":
+			# 高速炮艇：机炮开火锥半角抬到 90°（前方 180° 扇区）。直改 params →
+			# 扫描/物理锥门/渲染扇形/AI 开火判定全消费点自动生效；已超 90 的不缩
+			if p.gun:
+				p.gun = p.gun.duplicate()
+				p.gun.fire_cone_half_angle = maxf(p.gun.fire_cone_half_angle, float(upgrade["value"]))
+		# sig_wyvern（X-02·突击翼龙）在 survivor_mode 获得点特判（railgun 入库走武器库）
 
 ## §1.2 写 evasion_modifiers 倍率
 ## 关键：若玩家正处于 evasion 模式，先切出再切回 → 让 set_evasion_mode 重新按新倍率

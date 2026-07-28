@@ -42,6 +42,88 @@ const SKILL_ROCKET_HOMING := "skill_rocket_homing"         ## 火箭弹弱追踪
 ## ── 激光技能 ──
 const SKILL_LASER_DAMAGE := "skill_laser_damage"           ## 激光恢复 DPS 伤害（默认只减速）
 
+## ── 722 批：机体签名技能（spec aircraft-signature-skills）──
+## 作战云（FCAS sig_fcas，squad_once 账本位，由 survivor_mode._refresh_squad_effective_stacks 同步）
+static var sig_fcas_active: bool = false
+## 传感器融合（F-35 sig_f35，同上账本位）：僚机对 ACE 满锁目标越肩发射
+static var sig_f35_active: bool = false
+## 鲸群（X-90 sig_x90，同上账本位）：血量共享光环
+static var sig_x90_active: bool = false
+
+## 722 sig_x90·鲸群：血量共享——1500m（750px）内玩家方友军均摊承伤。
+## 其他成员经 _apply_damage 直伤（relay meta 防递归；均摊份额不再二次均摊）。
+## 返回承伤者自己应吃的份额。
+static func whale_pod_share(victim: Aircraft, amount: float) -> float:
+	var pool: Array = []
+	for u in CombatUnit.all_units:
+		if u is Aircraft and u.is_player_squad() and not u.is_destroyed \
+				and is_instance_valid(u) \
+				and u.global_position.distance_squared_to(victim.global_position) <= 750.0 * 750.0:
+			pool.append(u)
+	if pool.size() <= 1:
+		return amount
+	var share: float = amount / float(pool.size())
+	for u in pool:
+		if u == victim:
+			continue
+		u.set_meta("_sig_share_relay", true)
+		u._apply_damage(share)
+		u.set_meta("_sig_share_relay", false)
+	EventLogger.log_event("SKILL", victim._log_name(),
+		"鲸群：%.0f 伤害由 %d 机均摊（各 %.1f）" % [amount, pool.size(), share])
+	return share
+## 作战云中继守卫：广播落地时 true → Aircraft.apply_status 覆写直通 super（防递归/防乘区双乘）
+static var cloud_relaying: bool = false
+
+## 作战云广播：把 ACE 刚获得的增益原样同步给全队（duration 已过 ACE 侧乘区）。
+static func broadcast_combat_cloud(src: Aircraft, id: String, duration: float, mode: String) -> void:
+	if cloud_relaying:
+		return
+	cloud_relaying = true
+	var relayed: int = 0
+	for u in CombatUnit.all_units:
+		if u is Aircraft and u != src and u.is_player_squad() and not u.is_destroyed:
+			u.apply_status(id, duration, mode)
+			relayed += 1
+	cloud_relaying = false
+	if relayed > 0:
+		EventLogger.log_event("SKILL", src._log_name(),
+			"作战云：%s ×%.1fs → %d 名队友" % [id, duration, relayed])
+
+
+## 722 sig_j36·三发推力：突击命令触发（攻击轮盘 ASSAULT 姿态 / 双击攻击线冲锋 两入口共用）。
+## buff = +2G / 加减速 ×1.4 / 滚转 ×1.3（physics accessor 消费）；
+## 解除 = commanded_target 消灭或命令清除（aircraft._update_sig_skills 管理）；重触发 CD 15s。
+static func try_trigger_j36_assault(ac: Aircraft) -> void:
+	if ac == null or not is_instance_valid(ac) or ac.is_destroyed or not ac.is_player_squad():
+		return
+	if ac._sig_j36_cd > 0.0 or ac.sig_j36_assault_active:
+		return
+	if int(_get_upgrade_stacks(ac).get("sig_j36", 0)) <= 0:
+		return
+	ac.sig_j36_assault_active = true
+	ac._sig_j36_cd = 15.0
+	EventLogger.log_event("SKILL", ac._log_name(), "三发推力：突击命令 → 机动强化（至目标消灭；CD 15s）")
+
+
+## 722 批：特殊机动完成事件（眼镜蛇 RECOVER 完成 / 破 S ACCEL 完成时调用）。
+## 急停机动（Su-27 sig_su27）：对 1500m 内敌机施加 FEAR 4s。
+## 落叶飘（Su-35 sig_su35）：自身获得 6s 无敌。
+static func on_special_maneuver_done(ac: Aircraft) -> void:
+	if ac == null or not is_instance_valid(ac) or ac.is_destroyed or not ac.is_player_squad():
+		return
+	var stacks: Dictionary = _get_upgrade_stacks(ac)
+	if stacks.is_empty():
+		return
+	if int(stacks.get("sig_su27", 0)) > 0:
+		var hits: int = AOEBroadcast.apply_status_in_radius(
+			ac.global_position, 750.0, CombatUnit.TEAM_HOSTILE,
+			StatusEffects.FEAR, 4.0, ac)
+		EventLogger.log_event("SKILL", ac._log_name(), "急停机动：机动完成 → %d 敌恐惧 4s" % hits)
+	if int(stacks.get("sig_su35", 0)) > 0:
+		ac.apply_status(StatusEffects.INVINCIBLE, 6.0)
+		EventLogger.log_event("SKILL", ac._log_name(), "落叶飘：机动完成 → 6s 无敌")
+
 # 数值常量（粗调，后续按手感）
 const HEAD_ON_DOT_THRESHOLD := 0.7
 const HEAD_ON_RANGE_PX := 1500.0   ## 3km；超过此距离的"对头几何"不算对头（PIXELS_PER_METER=0.5）
@@ -91,7 +173,7 @@ const ROCKET_HOMING_RETARGET_INTERVAL := 0.4
 const SKILL_QMAAM_BLOODLUST := "qmaam_bloodlust"
 const QMAAM_BLOODLUST_DURATION := 10.0      ## 格斗弹击杀 → 嗜血 10s
 const SKILL_ADAPT_ENERGY := "adapt_energy"
-const ADAPT_ENERGY_CHARGE := 3.0            ## 击杀低于自己高度的敌人 → 加力充能 +3s
+const ADAPT_ENERGY_CHARGE := 0.6            ## 击杀低于自己高度的敌人 → 加力充能 +0.6s（6s 池比例，随 CHARGE_MAX 缩放）
 const ADAPT_ENERGY_HEAL := 20.0             ## 击杀高于自己高度的敌人 → 回 20 HP
 const SKILL_GUN_RESERVE_MAG := "gun_reserve_mag"
 const GUN_RESERVE_MAG_BASE_CHANCE := 0.30   ## 首层 30%，双层 50%
@@ -140,6 +222,11 @@ static func dispatch_on_kill(killer: Aircraft, victim: Aircraft) -> void:
 		AOEBroadcast.apply_status_in_radius(
 			victim.global_position, GUN_KILL_FEAR_RADIUS_PX,
 			1, StatusEffects.FEAR, GUN_KILL_FEAR_DURATION, killer)
+
+	# ── 722 sig_x77·引渡人：导弹击杀（含 QAAM）→ 5s STEALTH ──
+	if (kind == "missile" or kind == "qmaam") and stacks.get("sig_x77", 0) > 0:
+		killer.apply_status(StatusEffects.STEALTH, 5.0)
+		EventLogger.log_event("SKILL", killer._log_name(), "引渡人：导弹击杀 → 5s 隐身")
 
 	# 注：击杀小队成员 FEAR 由 fear_squad_spread 走 survivor_spawner._trigger_squad_fear 触发
 	# （已删除原 skill_kill_squad_fear 冗余路径，避免双发）
@@ -207,7 +294,7 @@ static func dispatch_on_kill(killer: Aircraft, victim: Aircraft) -> void:
 		if victim.altitude <= killer.altitude:
 			if afterburner != null:
 				afterburner.charge = minf(afterburner.charge + ADAPT_ENERGY_CHARGE, AfterburnerCharge.CHARGE_MAX)
-				EventLogger.log_event("SKILL_HOOK", killer.callsign, "adapt_energy → 加力充能 +%.0fs" % ADAPT_ENERGY_CHARGE)
+				EventLogger.log_event("SKILL_HOOK", killer.callsign, "adapt_energy → 加力充能 +%.1fs" % ADAPT_ENERGY_CHARGE)
 		elif killer.params:
 			killer.hp = minf(killer.hp + ADAPT_ENERGY_HEAL, killer.params.max_hp)
 			EventLogger.log_event("SKILL_HOOK", killer.callsign, "adapt_energy → +%.0f HP" % ADAPT_ENERGY_HEAL)

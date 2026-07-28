@@ -1,0 +1,23 @@
+[gd_resource type="Resource" script_class="FlareParams" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/flare_params.gd" id="1"]
+
+; 王牌中队专属热诱弹 —— "热诱弹即命数"（spec systems/ace-squadron-tier §2.2 / §3.3）
+;   max_flares = 4 / burst_count = 1  → 1 枚 = 1 条命，整场 4 条命，严格对应
+;   干扰成功率恒定 1.00（在 aircraft_flares.calc 分支里按 AceTier.is_ace 强制，
+;   下面的概率字段对王牌不生效，留着只为资源结构完整）
+;   enable_flare_reload 恒 false → 耗尽永不补充，之后下一发导弹必定命中
+;   nervousness = 0.5 → 投放距离 lerp(200, 600, 0.5) = 400 m
+[resource]
+script = ExtResource("1")
+max_flares = 4
+burst_count = 1
+cooldown = 1.2
+base_jam_chance = 1.0
+aspect_bonus = 0.0
+maneuvering_bonus = 0.0
+close_range_penalty = 0.0
+low_energy_bonus = 0.0
+nervousness = 0.5
+panic_distance = 600.0
+calm_distance = 200.0

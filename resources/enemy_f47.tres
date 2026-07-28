@@ -4,7 +4,7 @@
 [ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
 [ext_resource type="Resource" path="res://resources/ace_combat.tres" id="3"]
 [ext_resource type="Resource" path="res://resources/f47_missile.tres" id="4"]
-[ext_resource type="Resource" path="res://resources/f47_flare.tres" id="5"]
+[ext_resource type="Resource" path="res://resources/ace_flare.tres" id="5"]
 [ext_resource type="Resource" path="res://resources/agm_missile.tres" id="6"]
 
 [resource]

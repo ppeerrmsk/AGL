@@ -209,6 +209,12 @@ func _build_ui() -> void:
 	# 地图工坊（UGC 地图编辑器，spec map-editor）
 	_add_mode_button(tr("MENU_MODE_EDITOR_NAME"), tr("MENU_MODE_EDITOR_DESC"), _on_editor_pressed)
 
+	# 生涯商店（局外功勋购买：起手机/持久商品，spec career-shop）
+	_add_mode_button(tr("MENU_META_SHOP_NAME"), tr("MENU_META_SHOP_DESC"), _on_meta_shop_pressed)
+
+	# 资料库（敌人图鉴 + 游戏信息两分类；spec career-archive §2.6 / §2.7）
+	_add_mode_button(tr("MENU_ARCHIVE_NAME"), tr("MENU_ARCHIVE_DESC"), _on_archive_pressed)
+
 	# 未来模式占位（灰色不可用）
 	_add_mode_button(tr("MENU_MODE_MISSION_NAME"), tr("MENU_MODE_MISSION_DESC"), Callable(), true)
 
@@ -372,7 +378,9 @@ func _on_reset_save_pressed() -> void:
 		# AutoLoad 已在内存里持有这些 ledger 状态，单删 cfg 不够，必须调 debug_reset
 		MeritLedger.debug_reset()
 		removed += 1
-		LoadoutLedger.debug_reset()
+		CareerArchive.debug_reset()
+		removed += 1
+		MetaShop.debug_reset()
 		removed += 1
 		_show_toast(tr("MENU_RESET_SAVE_OK") % removed)
 		dlg.queue_free())
@@ -464,6 +472,12 @@ func _add_mode_button(title: String, desc: String, callback: Callable, disabled 
 
 func _on_sandbox_pressed() -> void:
 	get_tree().change_scene_to_file("res://scenes/main.tscn")
+
+func _on_meta_shop_pressed() -> void:
+	get_tree().change_scene_to_file("res://scenes/meta_shop.tscn")
+
+func _on_archive_pressed() -> void:
+	get_tree().change_scene_to_file("res://scenes/archive.tscn")
 
 ## 测试版：把沙盒入口做成右下角小按钮（不走主菜单 VBox）
 func _build_sandbox_corner_button() -> void:

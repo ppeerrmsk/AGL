@@ -249,7 +249,7 @@ func _bind_panel_elements(panel: CanvasLayer) -> void:
 	if panel.has_method("get_transition_elements"):
 		var arr: Array = panel.get_transition_elements()
 		for e in arr:
-			if e is Control and is_instance_valid(e):
+			if is_instance_valid(e) and e is Control:
 				_panel_elements.append(e)
 	if _panel_elements.is_empty():
 		# 退化：没实现协议的面板整体淡入（取第一个 Control 子节点）

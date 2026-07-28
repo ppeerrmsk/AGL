@@ -1,6 +1,14 @@
 # 脚本 API 参考
 
-所有脚本的类结构、关键变量、公开方法及交互关系。
+> 最后校订：2026-07-26。
+>
+> ⚠ **本文是选摘，不是全量 API**。它覆盖的是**核心实体层**（CombatUnit / Aircraft / Missile /
+> 管理器 / Squad / Resource 基础类）的关键变量与方法。后来加的大量子系统
+> （rts / presentation / naval / zones / equipment / survivor 的绝大部分）**不在这里**。
+>
+> 找文件与入口 → [script-index.md](script-index.md)（全量、按文件）
+> 找某个功能的实现 → [code-index.md](code-index.md)（按功能主题）
+> 找数值与设计意图 → [docs/specs/](../specs/_INDEX.md)
 
 ---
 
@@ -14,6 +22,9 @@ Node2D
 │       ├── SAMUnit                # 防空导弹车
 │       ├── AAGunUnit              # 高射炮
 │       └── RadarStation           # 雷达站
+│   └── NavalUnit                  # 舰船基类
+│       ├── CarrierShip / CruiserShip / DestroyerShip / FrigateShip / SubmarineShip
+│       └── （挂点 WeaponMount / MountTarget / WeakPoint 承担伤害路由）
 ├── Missile                        # 导弹飞行实体
 ├── BulletManager                  # 机炮子弹管理器
 ├── MissileManager                 # 导弹管理器
@@ -21,20 +32,27 @@ Node2D
 
 Node
 ├── AIController                   # AI 状态机（附加到飞机子节点）
-└── SurvivorPlayer                 # 生存模式经验/等级系统
+├── SurvivorPlayer                 # 生存模式经验/等级系统
+└── EventDirector                  # 剧本调度器（survivor_mode 子节点）
 
 RefCounted
 ├── Squad                          # 编队数据与阵型计算
-├── SurvivorData                   # 生存模式静态数据（升级/波次定义）
-└── CallsignDB                     # 呼号分配器
+├── SurvivorData                   # 生存模式静态数据（技能表 / 波次定义 / XP 曲线）
+├── CallsignDB                     # 呼号分配器
+├── GameEvent                      # 剧本基类
+└── AIDirective                    # 声明式 AI 覆盖指令
 
 Resource
 ├── AircraftParams                 # 飞机性能参数
-├── GunParams                      # 机炮参数
-├── MissileParams                  # 导弹参数
+├── GunParams / MissileParams / RocketParams / TorpedoParams / FlareParams
+├── LoyalWingmanParams / NavalParams / WeaponMountParams
+├── EquipmentParams                # 模块化装备基类（gun/rocket/missile/flare/railgun/laser/evasion）
 ├── CombatParams                   # 战斗 AI 行为参数
-└── FlareParams                    # 热诱弹参数
+└── PlayableAircraft               # 主角机档案
 ```
+
+> 静态工具模块（`aircraft/` · `ai/` · `ai/tactical/` 下的 RefCounted 静态类）不在此树中，
+> 它们不是实体类型，只是 Aircraft / AIController 的实现拆分。
 
 ---
 
@@ -55,8 +73,14 @@ Resource
 
 ```gdscript
 enum AltitudeTier { GROUND = -1, LOW = 0, MID = 1, HIGH = 2 }
-# GROUND: 0m, LOW: <3500m, MID: 3500-7500m, HIGH: >7500m
+# 档位判定边界（get_altitude_tier）: LOW: <3500m, MID: 3500-7500m, HIGH: >=7500m
+const TIER_ALTITUDE  # 切档目标高度（set_target_tier）: GROUND 0 / LOW 2000 / MID 5500 / HIGH 10000
 ```
+
+⚠ **判定边界 ≠ 切档目标**：切到 HIGH 后飞机以 10000m 为目标爬升，但 7500m 起 UI 就显示
+HIGH——tier 门控效果（+20% 机炮闪避、AA 散布 ×3 等）在 7500m 已全部生效，7500→10000m
+段的收益是连续量（雷达距离 ×1.22→×1.40、图标放大、高空 G 阻力折减）。降 LOW 同理
+（3500m 翻档、2000m 到位，俯冲段是加速所以体感无碍）。
 
 ### 关键属性
 
@@ -93,7 +117,7 @@ enum AltitudeTier { GROUND = -1, LOW = 0, MID = 1, HIGH = 2 }
 
 ## Aircraft（飞机）
 
-**文件**: `scripts/aircraft.gd`（~2500 行）  
+**文件**: `scripts/aircraft.gd`  
 **继承**: CombatUnit
 
 核心实体，包含飞行物理、战斗 AI、武器系统、热诱弹、视觉绘制。
@@ -112,7 +136,6 @@ enum AltitudeTier { GROUND = -1, LOW = 0, MID = 1, HIGH = 2 }
 | `bank_angle` | 滚转角（弧度） |
 | `g_load` | 当前 G 力 |
 | `is_stalled` | 失速状态 |
-| `pilot_stamina` | 飞行员当前耐力 |
 | `target_position` | 目标航路点（Vector2，INF=无目标） |
 | `target_altitude` | 目标高度（米） |
 | `target_speed_kmh` | 目标速度 (km/h) |
@@ -145,7 +168,7 @@ enum AltitudeTier { GROUND = -1, LOW = 0, MID = 1, HIGH = 2 }
 | `gun_extra_barrels` | 多管齐射额外管数 |
 | `missile_bounce_count` | 连锁弹头弹跳次数 |
 | `infinite_fuel` | 无限燃油 |
-| `no_stamina` | 跳过耐力系统（UAV 用） |
+| ~~`no_stamina`~~ | **已移除**（耐力系统撤下后无意义）|
 | `lod_level` | LOD 等级 (0=完整, 1=简化, 2=屏幕外) |
 
 ### 物理演算流程 (_physics_process)
@@ -162,7 +185,7 @@ enum AltitudeTier { GROUND = -1, LOW = 0, MID = 1, HIGH = 2 }
 9. _update_fuel(delta)          燃油消耗
 10. _update_stall()             失速检查
 11. _update_g_load()            G 力计算
-12. _update_pilot_stamina(delta) 飞行员耐力
+12. ~~_update_pilot_stamina(delta)~~ —— **已移除**（耐力系统撤下）
 13. _apply_movement(delta)      位移应用
 14. _update_gun(delta)          机炮射击
 15. _update_missile(delta)      导弹发射
@@ -282,9 +305,14 @@ Crank 阶段 → 强制 MISSILE
 
 ---
 
-## main.gd（沙盒模式主场景）
+## main.gd（沙盒模式主场景 —— **已废弃**）
 
 **文件**: `scripts/main.gd`
+
+> ⚠ **沙盒模式已废弃**，只作物理 / AI 调试留存，不打包、不加新内容。
+> 生存模式的对应职责在 `scripts/survivor/survivor_mode.gd`（主控）+
+> `scripts/camera_controller.gd`（相机）+ `scripts/rts/`（指挥）。
+> 本段仅供调试时参考。
 
 ### 职责
 

@@ -35,6 +35,10 @@ const TUTORIAL_BOMBER_ANCHOR := MapBoundary.PLAYER_START_OFFSET_PX + Vector2(0.0
 
 ## ── 城区直升机事件 ──
 const CITY_HELI_COUNT := 3
+## 全歼本次运输队的奖励：作战时间 +20s（走 survivor_mode.grant_time_extension，
+## 与王牌中队全灭 +60s 同一注入点）。给的是"局内时间"而不是功勋 ——
+## 玩家要有当场去打它的理由，而不是打完才发现只加了点局外货币。
+const CITY_HELI_TIME_BONUS_S := 20.0
 
 var mode: Node                 ## SurvivorMode
 var _spawner: SurvivorSpawner
@@ -44,6 +48,9 @@ var _zone_hint: ZoneHint       ## 用于弹 toast
 var _event_timer: float = 0.0
 ## 当前所有 ADBS 事件刷出的存活单位（供战术地图显示实时位置）
 var active_units: Array[Aircraft] = []
+## 本次城区直升机事件的编队与已确认击落数（全灭 → 奖励作战时间）
+var _city_heli_group: Array[Aircraft] = []
+var _city_heli_killed: int = 0
 
 func setup(p_mode: Node, spawner: SurvivorSpawner, player: Aircraft, hint: ZoneHint) -> void:
 	mode = p_mode
@@ -57,7 +64,8 @@ func setup(p_mode: Node, spawner: SurvivorSpawner, player: Aircraft, hint: ZoneH
 func _physics_process(delta: float) -> void:
 	if not mode or not _player or _player.is_destroyed:
 		return
-	# 清理已死亡/已 free 的单位
+	# 清理已死亡/已 free 的单位（先结算直升机战果，_cleanup_units 会把尸体过滤掉）
+	_track_city_heli_kills()
 	_cleanup_units()
 
 	# BOSS 阶段（玩家在战术地图选了 BOSS）停止所有新随机奖励事件 ——
@@ -99,7 +107,7 @@ func _spawn_tutorial_bombers() -> void:
 	# 教程轰炸机：不挂 TGT 标记（爱打不打；打了有额外奖励）
 	for o in offsets:
 		var pos: Vector2 = lead_pos + o
-		var arr := _spawner.spawn_bomber_flee(pos, flee_dir, 1)
+		var arr := _spawner.spawn_bomber_flee(pos, flee_dir, 1, false)  # 教程靶机：不带护卫
 		if arr.size() > 0:
 			active_units.append(arr[0])
 	EventLogger.log_event("ADBS", "Tutorial",
@@ -131,6 +139,8 @@ func _trigger_city_heli_event() -> void:
 		return
 	var flee_dir := _direction_to_nearest_border(city_center)
 	var spawned := _spawner.spawn_heli_flee(city_center, flee_dir, CITY_HELI_COUNT)
+	_city_heli_group = spawned
+	_city_heli_killed = 0
 	for h in spawned:
 		h.is_mission_target = true
 		active_units.append(h)
@@ -189,6 +199,46 @@ func _polygon_centroid(poly: PackedVector2Array) -> Vector2:
 	for p in poly:
 		s += p
 	return s / poly.size()
+
+## 城区直升机战果结算：全歼 → 作战时间 +20s。
+## 用轮询而非信号，与 survivor_spawner._detect_kills 同一模式 ——
+## 被击毁的机体会带着 is_destroyed=true 存活若干帧播放坠毁表演，轮询足够可靠。
+## 逃出地图被回收的（instance 失效）不算战果，也不阻塞结算。
+func _track_city_heli_kills() -> void:
+	if _city_heli_group.is_empty():
+		return
+	var still_flying := 0
+	for h in _city_heli_group:
+		if not is_instance_valid(h):
+			continue
+		if h.is_destroyed:
+			if not h.has_meta("adbs_heli_counted"):
+				h.set_meta("adbs_heli_counted", true)
+				_city_heli_killed += 1
+		else:
+			still_flying += 1
+	if _city_heli_killed >= CITY_HELI_COUNT:
+		_award_city_heli_bonus()
+	elif still_flying == 0:
+		# 剩下的都跑出地图了 —— 本次事件没打完，静默收摊
+		_city_heli_group = []
+		_city_heli_killed = 0
+
+func _award_city_heli_bonus() -> void:
+	_city_heli_group = []
+	_city_heli_killed = 0
+	if mode == null or not mode.has_method("grant_time_extension"):
+		return
+	# grant_time_extension 在 BOSS 阶段是 no-op（战区计时已冻结）。
+	# 用 game_time 实际位移判断是否真给了时间 —— 没给就别弹"+20s"骗玩家。
+	var before: float = float(mode.game_time)
+	mode.grant_time_extension(CITY_HELI_TIME_BONUS_S)
+	var granted: float = before - float(mode.game_time)
+	if granted <= 0.0:
+		EventLogger.log_event("ADBS", "CityHeli", "运输队全歼，但计时已冻结（BOSS 阶段）→ 无加时")
+		return
+	_show_toast(tr("ADBS_CITY_HELIS_CLEARED_FMT") % int(round(granted)), 4.5)
+	EventLogger.log_event("ADBS", "CityHeli", "运输队全歼 → 作战时间 +%.0fs" % granted)
 
 func _cleanup_units() -> void:
 	var alive: Array[Aircraft] = []

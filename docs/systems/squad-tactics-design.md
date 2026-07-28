@@ -1,14 +1,25 @@
 # 小队战术系统设计文档
 
 > 参考：Robert L. Shaw《Fighter Combat: Tactics and Maneuvering》第5-8章
-> 适用模式：沙盒模式（Sandbox）
-> 状态：设计草案
+> 适用模式：**生存模式**（沙盒模式已废弃）
+> 状态：早期设计文档（2026-05）——**编队学说的思想来源**，不是当前实装规格
+>
+> ⚠ 本文写于沙盒时代，当时的设想是"玩家指挥一个编队"。这个方向后来成为项目主线
+> （RTS 化转向），但**实装规格已迁移到 specs**：
+> [squad-cohesion](../specs/systems/squad-cohesion.md)（小队凝聚学说）·
+> [formation-discipline](../specs/systems/formation-discipline.md)（阵型纪律与齐射）·
+> [squad-control-switching](../specs/systems/squad-control-switching.md)（切控）·
+> [rts-command](../specs/systems/rts-command.md) + [command-wheel](../specs/systems/command-wheel.md)（指挥）·
+> [wingman-escort-evasion](../specs/systems/wingman-escort-evasion.md)（僚机护卫）。
+>
+> 读本文是为了理解**为什么这么设计**（Shaw 的互相支援 / 交战机-自由机分工等原则）；
+> 要数值和当前行为请去上面的 spec。
 
 ---
 
 ## 一、设计目标
 
-在沙盒模式中引入 **2-4 机小队协同作战**，使玩家可以指挥一个编队执行空战任务，AI 僚机根据战术学说自主配合。系统应体现以下核心空战原则：
+引入 **2-4 机小队协同作战**，使玩家可以指挥一个编队执行空战任务，AI 僚机根据战术学说自主配合。系统应体现以下核心空战原则：
 
 1. **互相支援**（Mutual Support）——编队存在的根本目的
 2. **角色分工**（Engaged / Free Fighter）——交战机与自由机的动态切换

@@ -22,7 +22,8 @@ LocaleManager="*res://scripts/locale_manager.gd"
 AudioManager="*res://scripts/audio/audio_manager.gd"
 Presentation="*res://scripts/presentation/presentation_director.gd"
 MeritLedger="*res://scripts/meta/merit_ledger.gd"
-LoadoutLedger="*res://scripts/meta/loadout_ledger.gd"
+CareerArchive="*res://scripts/meta/career_archive.gd"
+MetaShop="*res://scripts/meta/meta_shop.gd"
 PerfBuckets="*res://scripts/util/perf_buckets.gd"
 BenchRunner="*res://scripts/bench/bench_runner.gd"
 RuntimeTuner="*res://addons/runtime_tuner/runtime_tuner.gd"
@@ -41,6 +42,7 @@ locale/fallback="zh"
 
 [physics]
 
+common/max_physics_steps_per_frame=3
 3d/physics_engine="Jolt Physics"
 
 [rendering]

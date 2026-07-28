@@ -1,0 +1,46 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_missile.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/default_combat.tres" id="4"]
+
+[resource]
+script = ExtResource("1")
+display_name = "F-4E"
+; ── 前期导弹杂鱼（spec enemies/f-4e）──
+; 比 MQ-109 强一点点的第一种有人敌机：只带导弹、没有机炮，本质仍是杂鱼。
+; 真实 F-4E ~2370 km/h → 前期定位压低取 1700（平飞快、盘旋笨的 Phantom 灵魂）
+max_hp = 45.0
+armor = 0.0
+; ── 速度（平飞快、加速迟钝）──
+max_speed = 1700.0
+cruise_speed = 850.0
+stall_speed_base = 230.0
+acceleration = 35.0
+deceleration = 55.0
+g_drag_factor = 3.2
+; ── 机动（重机身，比 F-4 Phantom 再低半档）──
+max_g = 6.0
+max_g_structural = 8.0
+roll_rate = 2.2
+pilot_stamina = 80.0
+stamina_drain_rate = 28.0
+stamina_recovery_rate = 8.0
+; ── 高度 ──
+max_altitude = 15000.0
+climb_rate_max = 180.0
+thrust_to_weight = 0.85
+drag_coefficient = 0.03
+afterburner_thrust_mult = 1.5
+fuel_capacity = 2800.0
+fuel_rate_normal = 2.1
+fuel_rate_afterburner = 11.0
+; ── 雷达（弱于 F-16 基准，杂鱼档；锁定迟钝给玩家反应窗口）──
+radar_range = 4200.0
+radar_half_angle = 30.0
+lock_time = 2.6
+; ── 武器：只有导弹（用户硬性指令：无机炮、无热诱弹——初始敌机，玩家导弹必中）──
+; missile 为占位，运行时被 V-tier 注入覆盖
+missile = ExtResource("2")
+combat = ExtResource("4")
+icon_color = Color(0.85, 0.55, 0.25, 1)

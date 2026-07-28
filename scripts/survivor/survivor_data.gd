@@ -45,6 +45,12 @@ const RARITY_BASE_WEIGHT: Array[float] = [
 	0.02,   # NEXT_GEN
 ]
 
+## 机体签名技（sig_*）抽卡权重倍率。
+## 40 条 sig 全是 CLASSIFIED（base 0.08），且驾驶门控保证同一时刻池里最多 1 条自机专属 ——
+## 只吃通用稀有度权重的话基本抽不到，"每机一条看家本领"名存实亡。
+## ×2.5 后等效 0.20（≈ADVANCED 档），让"换机 → 玩到这台机的招牌"成为可预期体验。
+const SIG_SKILL_WEIGHT_MULT: float = 2.5
+
 ## Pity 阈值：连续 N 次升级未出该档则下次保底必出
 ## advanced 不设 pity（base 25% 足够），exp/cla/next 强保底
 const PITY_THRESHOLD: Dictionary = {
@@ -931,6 +937,7 @@ const UPGRADES: Array[Dictionary] = [
 		"rarity": Rarity.NEXT_GEN,  ## 720 批：实验→次世代
 		"keywords": ["fear", "radar", "lock"],
 		"scope": "ace",  ## 720 批：凝视压迫归王牌
+		"evolved": true,  ## 2026-07-22 zone-reward-arsenal：次世代只经战区奖励，不进升级卡池
 	},
 	{
 		"id": "cloud_overload",
@@ -1111,6 +1118,7 @@ const UPGRADES: Array[Dictionary] = [
 		"rarity": Rarity.NEXT_GEN,
 		"keywords": ["radar", "wingman", "f14"],
 		"scope": "squad_once",  ## 队级单实例：锁定共享读账本（survivor_mode 雷达循环）
+		"evolved": true,  ## 2026-07-22 zone-reward-arsenal：次世代只经战区奖励，不进升级卡池
 	},
 	{
 		"id": "f14_squad_lock_slow",
@@ -1120,7 +1128,7 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 1,
 		"max_stacks": 1,
 		"category": "electronic_warfare",
-		"rarity": Rarity.EXPERIMENTAL,  ## 720 批：群猎注视，次世代→实验（§2.2 稀 3）
+		"rarity": Rarity.CLASSIFIED,  ## 722 批：围猎（群猎注视改名）＝F-14 签名技能，统一稀 4
 		"keywords": ["slow", "wingman", "f14"],
 		"exclusive_to": ["f14"],
 		## 前置：必须先有数据链；不然全队雷达不共享，锁同目标极难
@@ -1250,7 +1258,9 @@ const UPGRADES: Array[Dictionary] = [
 		"max_stacks": 1,
 		"category": "mobility",        ## 骑士轴（对头=骑士武德；survivor_spawner XP ×1.5）
 		"rarity": Rarity.STABLE,
-		"keywords": ["head_on"],
+		## head_on=触发词（不门控），chivalry=家族词（受骑士学说门控）。720 批曾漏标家族词，
+		## 导致未购学说也能抽到本技（playtest 2026-07-28 用户上报）——对头技必须双词齐全
+		"keywords": ["head_on", "chivalry"],
 	},
 	{
 		"id": "ab_kill_charge",
@@ -1258,7 +1268,7 @@ const UPGRADES: Array[Dictionary] = [
 		"desc": "UPGRADE_AB_KILL_CHARGE_DESC",
 		"stat": "skill_flag",
 		"value": 1,
-		"max_stacks": 2,               ## +3s/层（AfterburnerCharge.kill_charge_bonus 账本同步）
+		"max_stacks": 2,               ## +0.6s/层（AfterburnerCharge.kill_charge_bonus 账本同步）
 		"category": "mobility",
 		"rarity": Rarity.STABLE,
 		"keywords": ["afterburner"],
@@ -1443,6 +1453,556 @@ const UPGRADES: Array[Dictionary] = [
 		"keywords": ["flare"],
 		"requires": ["flare"],
 	},
+	# ══ 722 批：机体签名技能（spec aircraft-signature-skills）══════════
+	## 41 机每机一条（F-14 围猎=上方 f14_squad_lock_slow 改档，不重复建条）。
+	## 规则：全部 CLASSIFIED ×1；exclusive_to=驾驶该机型时才刷出；
+	## 获得后进玩家层账本、换机重放不查门控 → 永久跟玩家（用户 722 定案）。
+	{
+		"id": "sig_f15",
+		"name": "UPGRADE_SIG_F15_NAME",
+		"desc": "UPGRADE_SIG_F15_DESC",
+		"stat": "sig_f15",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "secondary",
+		"axis": "gladiator",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["f15"],
+		"milestone_plus": "knight",
+		"keywords": ["gun", "radar"],
+	},
+	{
+		"id": "sig_a6e",
+		"name": "UPGRADE_SIG_A6E_NAME",
+		"desc": "UPGRADE_SIG_A6E_DESC",
+		"stat": "sig_a6e",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "survival",
+		"axis": "gladiator",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["a6e"],
+		"milestone_plus": "schemer",
+		"keywords": ["stealth"],
+	},
+	{
+		"id": "sig_mirage3",
+		"name": "UPGRADE_SIG_MIRAGE3_NAME",
+		"desc": "UPGRADE_SIG_MIRAGE3_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"axis": "schemer",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["mirage3"],
+		"keywords": ["flare"],
+		"requires": ["flare"],
+	},
+	{
+		"id": "sig_mirage2000",
+		"name": "UPGRADE_SIG_MIRAGE2000_NAME",
+		"desc": "UPGRADE_SIG_MIRAGE2000_DESC",
+		"stat": "sig_relaxed_stability",  ## 永久 params：max_g +2 / roll ×1.3
+		"value": 1,
+		"max_stacks": 1,
+		"category": "mobility",
+		"axis": "gladiator",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["mirage2000"],
+		"keywords": ["g_force"],
+	},
+	{
+		"id": "sig_f15c",
+		"name": "UPGRADE_SIG_F15C_NAME",
+		"desc": "UPGRADE_SIG_F15C_DESC",
+		"stat": "sig_f15c",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"axis": "knight",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["f15c"],
+		"keywords": ["radar"],
+	},
+	{
+		"id": "sig_f15e",
+		"name": "UPGRADE_SIG_F15E_NAME",
+		"desc": "UPGRADE_SIG_F15E_DESC",
+		"stat": "sig_f15e",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "secondary",
+		"axis": "gladiator",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["f15e"],
+		"keywords": ["ground"],
+	},
+	{
+		"id": "sig_fa18e",
+		"name": "UPGRADE_SIG_FA18E_NAME",
+		"desc": "UPGRADE_SIG_FA18E_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "survival",
+		"axis": "knight",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["fa18e"],
+		"keywords": ["hp", "squad"],
+	},
+	{
+		"id": "sig_f16",
+		"name": "UPGRADE_SIG_F16_NAME",
+		"desc": "UPGRADE_SIG_F16_DESC",
+		"stat": "sig_xp_wisdom",  ## SurvivorPlayer 第二 XP 乘区 ×1.25（不占 xp_mult 硬顶）
+		"value": 0.25,
+		"max_stacks": 1,
+		"category": "survival",
+		"axis": "schemer",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["f16"],
+		"scope": "squad_once",
+		"keywords": ["xp"],
+	},
+	{
+		"id": "sig_gripen_c",
+		"name": "UPGRADE_SIG_GRIPEN_C_NAME",
+		"desc": "UPGRADE_SIG_GRIPEN_C_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "mobility",
+		"axis": "schemer",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["gripen_c"],
+		"scope": "squad_once",  ## 加力槽是队级资源：充能消费点读账本 + ACE 被锁状态
+		"keywords": ["afterburner"],
+	},
+	{
+		"id": "sig_su27",
+		"name": "UPGRADE_SIG_SU27_NAME",
+		"desc": "UPGRADE_SIG_SU27_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "mobility",
+		"axis": "gladiator",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["su27"],
+		"requires_skill": ["cobra_skill", "evasion_herbst"],  ## 需要特殊机动类技能
+		"keywords": ["fear"],
+	},
+	{
+		"id": "sig_a10",
+		"name": "UPGRADE_SIG_A10_NAME",
+		"desc": "UPGRADE_SIG_A10_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "survival",
+		"axis": "gladiator",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["a10"],
+		"keywords": ["defense"],
+	},
+	{
+		"id": "sig_rafale",
+		"name": "UPGRADE_SIG_RAFALE_NAME",
+		"desc": "UPGRADE_SIG_RAFALE_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"axis": "schemer",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["rafale"],
+		"keywords": ["flare", "jam"],
+		"requires": ["flare"],
+	},
+	{
+		"id": "sig_tornado",
+		"name": "UPGRADE_SIG_TORNADO_NAME",
+		"desc": "UPGRADE_SIG_TORNADO_DESC",
+		"stat": "sig_tornado",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "mobility",
+		"axis": "gladiator",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["tornado"],
+		"keywords": ["speed", "afterburner"],
+	},
+	{
+		"id": "sig_typhoon",
+		"name": "UPGRADE_SIG_TYPHOON_NAME",
+		"desc": "UPGRADE_SIG_TYPHOON_DESC",
+		"stat": "sig_typhoon",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "mobility",
+		"axis": "knight",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["typhoon"],
+		"keywords": ["altitude"],
+	},
+	{
+		"id": "sig_su34",
+		"name": "UPGRADE_SIG_SU34_NAME",
+		"desc": "UPGRADE_SIG_SU34_DESC",
+		"stat": "sig_su34",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "survival",
+		"axis": "gladiator",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["su34"],
+		"keywords": ["heal", "afterburner"],
+	},
+	{
+		"id": "sig_viggen",
+		"name": "UPGRADE_SIG_VIGGEN_NAME",
+		"desc": "UPGRADE_SIG_VIGGEN_DESC",
+		"stat": "sig_lock_retention",  ## 永久 params：radar_range +250px（=500m）；grace 走 skill 判定
+		"value": 250.0,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"axis": "schemer",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["viggen"],
+		"keywords": ["radar"],
+	},
+	{
+		"id": "sig_mig31",
+		"name": "UPGRADE_SIG_MIG31_NAME",
+		"desc": "UPGRADE_SIG_MIG31_DESC",
+		"stat": "sig_mig31",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "missile",
+		"axis": "knight",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["mig31"],
+		"keywords": ["missile", "afterburner"],
+		"requires": ["missile"],
+	},
+	{
+		"id": "sig_harrier",
+		"name": "UPGRADE_SIG_HARRIER_NAME",
+		"desc": "UPGRADE_SIG_HARRIER_DESC",
+		"stat": "sig_viffing",  ## 永久 params：减速效率 ×1.5；低速无敌走 skill 判定
+		"value": 1,
+		"max_stacks": 1,
+		"category": "mobility",
+		"axis": "gladiator",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["harrier"],
+		"keywords": ["speed", "defense"],
+	},
+	{
+		"id": "sig_f15smtd",
+		"name": "UPGRADE_SIG_F15SMTD_NAME",
+		"desc": "UPGRADE_SIG_F15SMTD_DESC",
+		"stat": "sig_vectored_canard",  ## 永久 params：max_g +2 / 拉 G 掉速 ×0.65
+		"value": 1,
+		"max_stacks": 1,
+		"category": "mobility",
+		"axis": "knight",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["f15smtd"],
+		"keywords": ["g_force"],
+	},
+	{
+		"id": "sig_su35",
+		"name": "UPGRADE_SIG_SU35_NAME",
+		"desc": "UPGRADE_SIG_SU35_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "mobility",
+		"axis": "gladiator",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["su35"],
+		"requires_skill": ["cobra_skill", "evasion_herbst"],  ## 需要特殊机动类技能
+		"keywords": ["defense"],
+	},
+	{
+		"id": "sig_f35",
+		"name": "UPGRADE_SIG_F35_NAME",
+		"desc": "UPGRADE_SIG_F35_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"axis": "schemer",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["f35"],
+		"scope": "squad_once",  ## 队级：僚机对 ACE 满锁目标的越肩发射（发射门读账本）
+		"keywords": ["radar", "wingman"],
+	},
+	{
+		"id": "sig_gripen_e",
+		"name": "UPGRADE_SIG_GRIPEN_E_NAME",
+		"desc": "UPGRADE_SIG_GRIPEN_E_DESC",
+		"stat": "sig_status_immunity",  ## Aircraft 字段：免疫 JAM/SLOW/FEAR
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"axis": "schemer",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["gripen_e"],
+		"keywords": ["defense"],
+	},
+	{
+		"id": "sig_f22",
+		"name": "UPGRADE_SIG_F22_NAME",
+		"desc": "UPGRADE_SIG_F22_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "missile",
+		"axis": "knight",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["f22"],
+		## 需要任一 STEALTH 来源技（弹后潜匿/刺客复仇/雾隐机动/落选者/引渡人）
+		"requires_skill": ["missile_cd_stealth", "assassin_revenge", "evasion_stealth", "sig_yf23", "sig_x77"],
+		"keywords": ["stealth", "missile"],
+	},
+	{
+		"id": "sig_su57",
+		"name": "UPGRADE_SIG_SU57_NAME",
+		"desc": "UPGRADE_SIG_SU57_DESC",
+		"stat": "sig_multiband",  ## 永久 params：radar_half_angle +40°（本条可破 90° 常规 cap，封顶 120°）
+		"value": 40.0,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"axis": "schemer",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["su57"],
+		"keywords": ["radar"],
+	},
+	{
+		"id": "sig_j20",
+		"name": "UPGRADE_SIG_J20_NAME",
+		"desc": "UPGRADE_SIG_J20_DESC",
+		"stat": "sig_long_spear",  ## 永久 params：导弹 +1 / 射程 ×1.4 / 生存时间 ×1.5
+		"value": 1,
+		"max_stacks": 1,
+		"category": "missile",
+		"axis": "knight",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["j20"],
+		"keywords": ["missile"],
+		"requires": ["missile"],
+	},
+	{
+		"id": "sig_a12",
+		"name": "UPGRADE_SIG_A12_NAME",
+		"desc": "UPGRADE_SIG_A12_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "survival",
+		"axis": "gladiator",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["a12"],
+		"keywords": ["defense"],
+	},
+	{
+		"id": "sig_yf23",
+		"name": "UPGRADE_SIG_YF23_NAME",
+		"desc": "UPGRADE_SIG_YF23_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"axis": "schemer",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["yf23"],
+		"keywords": ["stealth"],
+	},
+	{
+		"id": "sig_f47",
+		"name": "UPGRADE_SIG_F47_NAME",
+		"desc": "UPGRADE_SIG_F47_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "survival",
+		"axis": "gladiator",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["f47"],
+		"scope": "squad_once",  ## 一次性：立即生成 2 架永久忠诚僚机（获得点特判 dispatch）
+		"keywords": ["wingman"],
+	},
+	{
+		"id": "sig_mig41",
+		"name": "UPGRADE_SIG_MIG41_NAME",
+		"desc": "UPGRADE_SIG_MIG41_DESC",
+		"stat": "sig_mig41",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "mobility",
+		"axis": "knight",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["mig41"],
+		"keywords": ["altitude", "stealth"],
+	},
+	{
+		"id": "sig_fcas",
+		"name": "UPGRADE_SIG_FCAS_NAME",
+		"desc": "UPGRADE_SIG_FCAS_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"axis": "schemer",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["fcas"],
+		"scope": "squad_once",  ## ACE 四类增益（超载/嗜血/隐身/无敌）广播全队
+		"keywords": ["squad"],
+	},
+	{
+		"id": "sig_gcap",
+		"name": "UPGRADE_SIG_GCAP_NAME",
+		"desc": "UPGRADE_SIG_GCAP_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "missile",
+		"axis": "knight",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["gcap"],
+		"keywords": ["missile", "wingman"],
+		"requires": ["missile"],
+	},
+	{
+		"id": "sig_j36",
+		"name": "UPGRADE_SIG_J36_NAME",
+		"desc": "UPGRADE_SIG_J36_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "mobility",
+		"axis": "gladiator",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["j36"],
+		"keywords": ["speed", "g_force"],
+	},
+	{
+		"id": "sig_x09",
+		"name": "UPGRADE_SIG_X09_NAME",
+		"desc": "UPGRADE_SIG_X09_DESC",
+		"stat": "skill_flag",
+		"value": 0.40,  ## 静默弹概率
+		"max_stacks": 1,
+		"category": "missile",
+		"axis": "knight",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["x09"],
+		"keywords": ["missile", "stealth"],
+		"requires": ["missile"],
+	},
+	{
+		"id": "sig_x13",
+		"name": "UPGRADE_SIG_X13_NAME",
+		"desc": "UPGRADE_SIG_X13_DESC",
+		"stat": "skill_flag",
+		"value": 0.60,  ## 被锁敌人的负面状态倒计时流速
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"axis": "schemer",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["x13"],
+		"scope": "squad_once",  ## 队级：敌单位 status tick 读账本判"被我方锁定"
+		"keywords": ["jam"],
+	},
+	{
+		"id": "sig_x02",
+		"name": "UPGRADE_SIG_X02_NAME",
+		"desc": "UPGRADE_SIG_X02_DESC",
+		"stat": "sig_wyvern",  ## 电磁炮入库（已有则跳过）+ min_range=0 + 充能 ×0.7
+		"value": 1,
+		"max_stacks": 1,
+		"category": "weapon",  ## weapon 类：改动长在武器资源上，随武器库迁移（重放跳过防双叠）
+		"axis": "gladiator",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["x02"],
+		"scope": "squad_once",
+		"keywords": ["railgun"],
+	},
+	{
+		"id": "sig_x21",
+		"name": "UPGRADE_SIG_X21_NAME",
+		"desc": "UPGRADE_SIG_X21_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "missile",
+		"axis": "knight",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["x21"],
+		"keywords": ["missile"],
+		"requires": ["missile"],
+	},
+	{
+		"id": "sig_x44",
+		"name": "UPGRADE_SIG_X44_NAME",
+		"desc": "UPGRADE_SIG_X44_DESC",
+		"stat": "sig_x44",
+		"value": 90.0,  ## 机炮自动开火扇区半角（度）
+		"max_stacks": 1,
+		"category": "secondary",
+		"axis": "gladiator",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["x44"],
+		"keywords": ["gun"],
+		"requires": ["gun"],
+	},
+	{
+		"id": "sig_x77",
+		"name": "UPGRADE_SIG_X77_NAME",
+		"desc": "UPGRADE_SIG_X77_DESC",
+		"stat": "skill_flag",
+		"value": 5.0,  ## 导弹击杀后 STEALTH 秒数
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"axis": "schemer",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["x77"],
+		"milestone_plus": "knight",
+		"keywords": ["stealth", "missile"],
+		"requires": ["missile"],
+	},
+	{
+		"id": "sig_x90",
+		"name": "UPGRADE_SIG_X90_NAME",
+		"desc": "UPGRADE_SIG_X90_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "survival",
+		"axis": "schemer",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["x90"],
+		"scope": "squad_once",  ## 队级：周期生成忠诚僚机 + 血量共享光环
+		"keywords": ["wingman", "defense"],
+	},
+	{
+		"id": "sig_ax00",
+		"name": "UPGRADE_SIG_AX00_NAME",
+		"desc": "UPGRADE_SIG_AX00_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "survival",
+		"axis": "gladiator",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["ax00"],
+		"scope": "squad_once",  ## 一次性：复制 3 架同型僚机入队（获得点特判 dispatch）
+		"milestone_plus": ["knight", "schemer"],  ## 双轴 +1（milestone_plus 数组扩展）
+		"keywords": ["wingman", "squad"],
+	},
 ]
 
 # ── 词条联动：某类技能数量 → 某个参数 ────────────────────
@@ -1600,6 +2160,13 @@ static func is_upgrade_available_for(upgrade: Dictionary, aircraft_id: StringNam
 # ── 归属词汇 v6 查询与生效谓词（spec skills-720-rework §1.2）─────────
 
 ## 技能 scope（"" = 通用全队 / "ace" 王牌 / "squad_once" 队级单实例）
+## 按 id 查升级全条目（战区 nextgen 奖励领取用；未命中返回 {}）
+static func upgrade_by_id(uid: String) -> Dictionary:
+	for u in UPGRADES:
+		if String(u.get("id", "")) == uid:
+			return u
+	return {}
+
 static func upgrade_scope(u: Dictionary) -> String:
 	return str(u.get("scope", ""))
 
@@ -1610,9 +2177,24 @@ static func upgrade_classes(u: Dictionary) -> Array:
 	return (cls as Array) if cls != null else []
 
 
-## 技能的 "+1 轴进度" 目标轴（&"" = 无）
+## 技能的 "+1 轴进度" 目标轴（&"" = 无）。
+## 722 批起字段允许 String 或 Array[String]（AX-00 双子星双轴 +1）；单值口径保留给旧调用。
 static func milestone_plus_of(u: Dictionary) -> StringName:
-	return StringName(str(u.get("milestone_plus", "")))
+	var lst := milestone_plus_list_of(u)
+	return lst[0] if not lst.is_empty() else &""
+
+
+## "+1 轴进度" 目标轴列表（发放点用；空数组 = 无）
+static func milestone_plus_list_of(u: Dictionary) -> Array[StringName]:
+	var out: Array[StringName] = []
+	var raw: Variant = u.get("milestone_plus", null)
+	if raw is Array:
+		for a in raw:
+			if str(a) != "":
+				out.append(StringName(str(a)))
+	elif raw != null and str(raw) != "":
+		out.append(StringName(str(raw)))
+	return out
 
 
 ## 王牌 scope 中"写飞机字段/params"的 stat 白名单：切控迁移需要显式剥离（strip）→ 重应用。
@@ -1686,6 +2268,17 @@ static func compute_keyword_steering_weights(owned_stacks: Dictionary, level: in
 		var bump: float = minf(float(n), 5.0) * 0.20
 		steering[kw] = 1.0 + bump * phase_mult
 	return steering
+
+
+## 是否机体签名技（sig_*）。抽卡加权与卡面高亮共用同一判别式，
+## 避免两处各自判断走偏（另见 MetaShop.is_upgrade_gated 的 sig_ 豁免）。
+static func is_signature_upgrade(upgrade: Dictionary) -> bool:
+	return str(upgrade.get("id", "")).begins_with("sig_")
+
+
+## 签名技权重倍率：sig_* 取 SIG_SKILL_WEIGHT_MULT，其余 1.0
+static func _sig_weight_mult(upgrade: Dictionary) -> float:
+	return SIG_SKILL_WEIGHT_MULT if is_signature_upgrade(upgrade) else 1.0
 
 
 ## 取技能"流派权重倍率"——若技能挂多个 keyword，取最高 steering（鼓励同流派多归一）
@@ -1802,7 +2395,7 @@ static func _weighted_pick(items: Array, steering: Dictionary, picked_ids: Dicti
 		var r: int = get_rarity(u)
 		var base_w: float = RARITY_BASE_WEIGHT[r] if r < RARITY_BASE_WEIGHT.size() else 0.1
 		var kw_w: float = _keyword_weight_mult(u, steering)
-		var w: float = base_w * kw_w
+		var w: float = base_w * kw_w * _sig_weight_mult(u)
 		weights.append(w)
 		total += w
 	if total <= 0.0:
@@ -1833,10 +2426,14 @@ const AXIS_KNIGHT: StringName = &"knight"          ## 骑士：机动力生存 /
 const AXIS_SCHEMER: StringName = &"schemer"        ## 策士：心理战 / 电子战
 const AXES: Array[StringName] = [AXIS_GLADIATOR, AXIS_KNIGHT, AXIS_SCHEMER]
 
-## 可获得点数上限 = floor(LV/3)：每 3 级一次卡片三选一（三卡=三轴各一），选卡=该轴 +1 点；
-## 错过不补发，所以实际点数 ≤ 本值。满级 LV26 → 8 点。
+## 收入封顶（spec evolution-attribute-gates §2.2 v9）：局内无等级上限，不封顶则 LV30=10 点起
+## §2.5 排他性数学失效（双专精可行）。封顶后卡片事件照发、技能照拿，只是不再加点。
+const AXIS_POINT_CAP := 8
+
+## 可获得点数上限 = min(floor(LV/3), 8)：每 3 级一次卡片三选一（三卡=三轴各一），选卡=该轴 +1 点；
+## 错过不补发，所以实际点数 ≤ 本值。LV24 起触顶 8 点。
 static func axis_points_earnable(level: int) -> int:
-	return floori(level / 3.0)
+	return mini(floori(level / 3.0), AXIS_POINT_CAP)
 
 ## 里程碑基准表（spec §2.6 v5）：每线 2/4/6/8 档 + 10 点预留（当前收入上限摸不到，等级上限抬高后启用）。
 ## 铁律：纯属性修改、陡递减（相对价值 100/60/25/15）——均衡 3/3/2 摊三首档 > 专精 8/0/0 吃单线。
@@ -1944,7 +2541,7 @@ static func pick_card_for_axis(pool: Array, owned_stacks: Dictionary, level: int
 	var weights: Array[float] = []
 	var total := 0.0
 	for u in pool:
-		var w: float = RARITY_BASE_WEIGHT[get_rarity(u)] * _keyword_weight_mult(u, steering)
+		var w: float = RARITY_BASE_WEIGHT[get_rarity(u)] * _keyword_weight_mult(u, steering) * _sig_weight_mult(u)
 		weights.append(w)
 		total += w
 	var roll := randf() * total
@@ -1972,17 +2569,11 @@ static func make_axis_focus_card(axis: StringName) -> Dictionary:
 
 # ── 经验曲线 ─────────────────────────────────────────────
 
-## 基数 15（之前 20）：全局节奏提速 ~25%，配合 Adds 全额 XP，让玩家进 BOSS 战时能到 L16-18
+## 指数 1.3（2026-07-28 等级通胀整治，spec survivor-loop §5）：击杀 XP 带 +level×8 缩放，
+## 旧指数 1.15 与之近同速 → 每级恒定 2~3 杀、LV21 中局即到、进化等级门形同虚设。
+## 1.3 让每级击杀数随等级爬升（LV10≈2.8 → LV25≈4.1），平均局收 LV18~22，顶级机不保底。
 static func xp_for_level(level: int) -> int:
-	return int(15.0 * pow(level, 1.15))
-
-## Adds 类（Tu-160/AH-64/CH-47）经验：单只 = 当前等级所需经验全额
-## 设计意图（已撤销之前 /3 的削弱）：
-##   - 轰炸机 / 直升机在事件波次整组出现，给足经验让玩家升级感强
-##   - flock（3-4 架）全杀一次可升 3-4 级，显著推进等级曲线
-const ADDS_XP_DIVISOR := 1
-static func adds_xp_per_kill(level: int, _flock_size: int = 0) -> int:
-	return int(ceil(float(xp_for_level(level)) / float(ADDS_XP_DIVISOR)))
+	return int(15.0 * pow(level, 1.3))
 
 # ── 刷怪参数 ─────────────────────────────────────────────
 
@@ -2008,6 +2599,7 @@ const SPAWN_DISTANCE := 3200.0      ## 刷怪距离（像素）。⚠ 旅途增�
 const INGRESS_SPAWN_OUTSET_PX := 400.0        ## 生成点在世界边界线外的推出量
 const INGRESS_EDGE_CANDIDATES := 16           ## 每次入场在边界周长上取的候选点数
 const INGRESS_MIN_PLAYER_DIST_PX := 5000.0    ## 候选边缘点距玩家的硬下限
+const INTERCEPT_QUOTA_GAP := 2                ## 拦截波触发阈值（spec battlefield-tempo-pass §2.1）：hunter 配额缺口 ≥ 此值 → 本波增援转拦截使命（从玩家前方扇区边缘入场、航点指向玩家）
 const ANCHOR_DISC_RADIUS_FRAC := 0.35         ## 巡逻锚点盘半径 = 本系数 × WORLD_HALF_PX
 const ANCHOR_ZONE_CLEARANCE_PX := 800.0       ## 锚点距任何战区圆边的最小距离
 const ANCHOR_MIN_SEPARATION_PX := 2500.0      ## 新锚点与现存活跃锚点的最小间距
@@ -2032,8 +2624,14 @@ const MAX_ENEMIES_HARD := 48          ## 绝对上限（2026-07-06 60km 密度�
 const MAX_ENEMIES_DEFAULT := 36       ## 默认上限（30→36）
 const MIN_ENEMIES_CAP := 8            ## 动态下限（至少允许这么多敌人）
 const TARGET_FPS := 30                ## 目标最低帧率
-## UAV 与 UCAV 是等权重的杂鱼 adds，1~UAV_RETIRE_LEVEL 级出现，之后不再刷
-const UAV_RETIRE_LEVEL := 4  ## 玩家达到此等级后，UAV/UCAV 不再出现
+## MQ-109（EnemyType.UAV，机炮）与 MQ-110（EnemyType.UCAV，导弹）是等权重的
+## 最初期无人机杂鱼，1~UAV_RETIRE_LEVEL 级出现，之后不再刷。
+const UAV_RETIRE_LEVEL := 4  ## 玩家达到此等级后，MQ-109/MQ-110 不再出现
+## F-4E（前期导弹杂鱼，有人机，spec enemies/f-4e）：Lv1 起出现，单机或 2-3 机小队
+const F4E_UNLOCK_LEVEL := 1   ## 最初期即出
+const F4E_RETIRE_LEVEL := 6   ## 比 MQ-109 晚两级退场，衔接 F-86/A-7
+const F4E_CHANCE := 0.40      ## 前期兜底层平坦概率（杂鱼不随级爬升）
+const F4E_SINGLE_CHANCE := 0.35  ## 单机出现概率（squad-cohesion 成建制规则的显式例外）
 const MIG_UNLOCK_LEVEL := 7         ## MiG 解锁等级
 const MIG_CHANCE_PER_LEVEL := 0.08  ## 每超过解锁等级，MiG 出现概率增加
 const MIG_CHANCE_MAX := 0.5         ## MiG 最大出现概率
@@ -2052,9 +2650,13 @@ const F100_CHANCE_MAX := 0.30        ## F-100 最大出现概率
 const MIG31_UNLOCK_LEVEL := 9        ## MiG-31（最强 Lancer，单机）解锁等级
 const MIG31_CHANCE_PER_LEVEL := 0.08 ## 每超过解锁等级，MiG-31 出现概率增加
 const MIG31_CHANCE_MAX := 0.25       ## MiG-31 最大出现概率
-const AF03_UNLOCK_LEVEL := 8         ## AF-03（电磁炮狙击 Schemer，单机）解锁等级
-const AF03_CHANCE_PER_LEVEL := 0.05  ## 每超过解锁等级，AF-03 出现概率增加（稀有）
-const AF03_CHANCE_MAX := 0.18        ## AF-03 最大出现概率
+## AF-03（电磁炮狙击 Schemer，单机）——2026-07-28 可见性修正：
+## 原 unlock 8 / max 0.18 且不在战区池，实测整局打不到一次，"电磁炮试验机"形同不存在。
+## 下调解锁 + 抬上限 + 进战区池（见 ZONE_ENEMY_TABLE type 17）三管齐下；
+## 实例上限仍为 1，保住"稀有精英"的身份，不做成常规杂鱼。
+const AF03_UNLOCK_LEVEL := 7         ## AF-03 解锁等级（选型有效等级 = 真实等级 + 2）
+const AF03_CHANCE_PER_LEVEL := 0.06  ## 每超过解锁等级，AF-03 出现概率增加
+const AF03_CHANCE_MAX := 0.26        ## AF-03 最大出现概率
 const SU27_UNLOCK_LEVEL := 8         ## Su-27（主力威胁 + 眼镜蛇机动）解锁等级
 const SU27_CHANCE_PER_LEVEL := 0.07  ## 每超过解锁等级，Su-27 出现概率增加
 const SU27_CHANCE_MAX := 0.25        ## Su-27 最大出现概率
@@ -2074,9 +2676,11 @@ const Q5_UNLOCK_LEVEL := 5           ## Q-5（Lancer 超音速攻击机，机炮
 const Q5_CHANCE_PER_LEVEL := 0.10    ## 每超过解锁等级，Q-5 出现概率增加
 const Q5_CHANCE_MAX := 0.30          ## Q-5 最大出现概率
 const COMMANDER_UNLOCK_LEVEL := 4    ## 指挥 UAV 解锁等级
-const COMMANDER_CHANCE_BASE := 0.04  ## 解锁时的基础出现概率（稀有首领，一个战区约一架）
+## elite 战区任务移除后（spec early-game-uav-rework §2.4），随机刷新是 Sentinel 的
+## 主要出场通道，概率补偿上调：base 0.04→0.06 / max 0.08→0.12（待 playtest 校准）
+const COMMANDER_CHANCE_BASE := 0.06  ## 解锁时的基础出现概率（稀有首领）
 const COMMANDER_CHANCE_PER_LEVEL := 0.015  ## 每超过解锁等级，指挥 UAV 出现概率增加
-const COMMANDER_CHANCE_MAX := 0.08   ## 指挥 UAV 最大出现概率
+const COMMANDER_CHANCE_MAX := 0.12   ## 指挥 UAV 最大出现概率
 const COMMANDER_SQUAD_MIN := 5       ## 指挥 UAV 自带僚机数量（固定 5 架，Sentinel 不会单独出现）
 const COMMANDER_SQUAD_MAX := 5       ## 指挥 UAV 自带僚机数量（固定 5 架，Sentinel 不会单独出现）
 const COMMANDER_MAX_SQUAD := 9       ## 指挥 UAV 分队总上限（含自己；实际招募限制在 CommanderAura.MAX_WINGMEN=8）
@@ -2088,8 +2692,13 @@ const XP_PER_KILL_COMMANDER := 50    ## 指挥 UAV 击杀经验
 # Adds（杂兵）类敌人不走随机刷新，由未来的事件系统触发 spawn。
 # 以下常量只定义"单次波次生成什么样的阵型" — 不再有解锁等级/刷新间隔/首次延迟。
 
+## Adds 击杀经验（2026-07-28 用户裁决，spec survivor-loop §5）：废除"单只=当前等级全额"
+## 的等级计价（对 XP 曲线免疫、一组跳 3-4 级），改与普通敌机同公式 base + level×8。
+const XP_PER_KILL_TU160 := 80    ## 战略轰炸机，全谱最肥单体（王牌 tier 100 之下）
+const XP_PER_KILL_AH64 := 50     ## 攻击直升机
+const XP_PER_KILL_CH47 := 40     ## 运输直升机（慢、易截）
+
 ## Tu-160 白天鹅（横列 4 架）
-## Adds 类经验改走 adds_xp_per_kill()（整组击杀恰好 +1 级），不再用固定值
 const TU160_FLOCK_SIZE := 4          ## 每次波次的轰炸机数量
 const TU160_FLIGHT_DISTANCE := 8000.0  ## Tu-160 从起点到终点的直线距离（像素）
 const TU160_LATERAL_SPACING := 260.0 ## 编队成员之间的横向间距（像素）
@@ -2138,7 +2747,7 @@ const TOKEN_BUDGET_MAX := 55           ## Token 预算绝对上限（45→55）
 ## UAV=0, UCAV=1, MIG=2, INTERCEPTOR=3, UAV_COMMANDER=4, F86=5, MIG31=6, MIG23=7, F100=8, SU27=9, A7=10, Q5=11, TU160=12, AH64=13, CH47=14, F47=15
 const TOKEN_COST := {
 	0: 1,   ## UAV        — 最便宜的杂鱼
-	1: 2,   ## UCAV       — 导弹杂鱼
+	1: 2,   ## MQ-110     — 导弹无人机杂鱼
 	2: 4,   ## MiG-29     — 主力威胁
 	3: 5,   ## J-7        — Lancer 打带跑，单次冲锋威胁高
 	4: 6,   ## Sentinel   — Schemer 带光环+buff 僚机（首领级稀有，必带 5 架 UAV 僚机）
@@ -2154,20 +2763,80 @@ const TOKEN_COST := {
 	14: 0,  ## CH-47      — Adds 重型直升机（纵阵，独立波次）
 	15: 10, ## F-47       — BOSS 王牌狙击小队（全敌人最高 Token，事件触发）
 	16: 10, ## F-14 Poltergeist — BOSS（CSG Phase 2，事件触发）
-	17: 7,  ## AF-03      — Schemer 电磁炮狙击手（中后期，事件触发）
+	17: 7,  ## AF-03      — Schemer 电磁炮狙击手（中后期，旅途随机池 + 战区池）
 	18: 2,  ## Aegis UAV  — 激光拦截器，跟随 Sentinel 出现
 	19: 5,  ## F-4 Phantom — Gladiator 中段（双弹种导弹卡车）
 	20: 4,  ## F-104       — Lancer 纯速度截击（BOOM-ZOOM 专家）
 	21: 8,  ## Su-35       — Gladiator 顶级（Su-27 强化版 + TVC，单/双机出现）
 	22: 0,  ## F/A-18      — CSG 航母舰载机（事件弹射，不占 Token；CSG Phase 1 期间定期出现）
+	23: 2,  ## F-4E        — 前期导弹杂鱼（有人机，与 MQ-110 同价位并存）
 }
+
+## BOSS / 事件专属机型：绝不能从常规刷怪通道漏出来。
+## 后期随机桶（survivor_spawner._pick_enemy_type 末尾）会遍历整张 TOKEN_COST 取
+## cost >= LATE_GAME_MIN_TOKEN 的类型，F-47 与 F-14 Poltergeist 因此曾作为普通旅途敌机刷出
+## （与 enemy-index 记载不符）。这里显式列黑名单，别再靠 cost 数值偶然挡住。
+const BOSS_ONLY_TYPES := [15, 16]   ## 15 = F-47（BOSS 王牌小队）, 16 = F-14 Poltergeist（CSG Phase 2）
+
+## 敌人巡逻高度档偏好权重 [LOW, MID, HIGH]（spawn 时按权重抽一档）。
+## 2026-07-28：此前全部机型共用均匀 1/3 随机 —— 高空高速截击机和贴地攻击机掷同一颗骰子，
+## 战场纵向毫无层次，"爬高躲攻击机 / 下低避截击机"这类走位决策不成立。这里按机型定位分化。
+## 未登记的类型（BOSS / adds / 事件单位）不查此表，走各自 spawn 代码的显式设定。
+const ENEMY_ALTITUDE_WEIGHTS := {
+	0:  [3.0, 2.0, 0.0],  ## MQ-109   低空机炮无人机
+	1:  [2.0, 3.0, 0.0],  ## MQ-110   低中空导弹无人机
+	23: [1.0, 3.0, 1.0],  ## F-4E     前期多用途
+	5:  [2.0, 3.0, 1.0],  ## F-86     亚音速缠斗
+	10: [4.0, 1.5, 0.0],  ## A-7      亚音速攻击机（贴地打击）
+	11: [4.0, 1.5, 0.0],  ## Q-5      超音速攻击机（贴地打击）
+	7:  [1.5, 3.0, 1.0],  ## MiG-23   综合型
+	19: [1.0, 3.0, 1.5],  ## F-4      导弹卡车
+	8:  [1.0, 2.5, 2.0],  ## F-100    打带跑编队
+	3:  [0.5, 2.0, 3.5],  ## J-7      截击打带跑
+	20: [0.0, 1.5, 4.0],  ## F-104    纯速度截击（BOOM-ZOOM）
+	2:  [1.0, 3.0, 1.5],  ## MiG-29   主力威胁
+	9:  [1.0, 2.5, 2.0],  ## Su-27    精英
+	21: [1.0, 2.5, 2.0],  ## Su-35    顶级 Gladiator
+	6:  [0.0, 1.0, 4.5],  ## MiG-31   高空高速截击
+	17: [0.0, 1.0, 4.0],  ## AF-03    电磁炮狙击（高空取射界）
+	4:  [0.5, 2.5, 2.0],  ## Sentinel 指挥官
+	18: [1.0, 3.0, 1.0],  ## Aegis UAV（随 Sentinel）
+}
+
+## 各高度档对应的作战偏好高度区间（米）。AIController.patrol_altitude 走这里取值 ——
+## 它经 Situation.combat_altitude_m 决定战术层的交战高度，若仍用统一的 4000~8000 随机，
+## 高度档分化就只影响巡逻段，一进交战全被拉回中空，等于白分。
+const TIER_PATROL_ALTITUDE := [
+	[1500.0, 3000.0],    ## LOW
+	[4500.0, 6500.0],    ## MID
+	[8500.0, 11000.0],   ## HIGH
+]
+
+static func patrol_altitude_for_tier(tier_idx: int) -> float:
+	var r = TIER_PATROL_ALTITUDE[clampi(tier_idx, 0, 2)]
+	return randf_range(float(r[0]), float(r[1]))
+
+## 按机型权重抽一个高度档（0=LOW / 1=MID / 2=HIGH）；未登记类型回退均匀随机
+static func pick_altitude_tier(etype: int) -> int:
+	var w = ENEMY_ALTITUDE_WEIGHTS.get(etype, null)
+	if w == null:
+		return randi() % 3
+	var total: float = float(w[0]) + float(w[1]) + float(w[2])
+	if total <= 0.0:
+		return randi() % 3
+	var roll: float = randf() * total
+	if roll < float(w[0]):
+		return 0
+	if roll < float(w[0]) + float(w[1]):
+		return 1
+	return 2
 
 ## 每种敌人的同时存在上限（-1 = 无限制）
 ## 即使 Token 够也不会超过此数；保证 schemer/lancer 稀有度
 ## 注意：J-7 后期会改走编队（LATE_GAME_LEVEL+），故不再限制实例数
 const TOKEN_INSTANCE_CAP := {
 	0: -1,  ## UAV
-	1: -1,  ## UCAV
+	1: -1,  ## UCAV (MQ-110)
 	2: -1,  ## MiG
 	3: -1,  ## J-7 截击机（早期单机/后期编队，无硬上限）
 	4: 1,   ## Sentinel 指挥机：唯一单位
@@ -2189,6 +2858,7 @@ const TOKEN_INSTANCE_CAP := {
 	20: -1, ## F-104：编队出现，无硬上限
 	21: 3,  ## Su-35：精英单/双机，一次最多 3 台（含编队）
 	22: -1, ## F/A-18：航母 BOSS 持续弹射，不限同时存在数（CV 死时停刷）
+	23: -1, ## F-4E：前期杂鱼，无硬上限
 }
 
 ## 远距清理
@@ -2196,13 +2866,13 @@ const FAR_CLEANUP_DISTANCE := 7000.0   ## 超过此像素距离的敌机被静�
 const FAR_CLEANUP_INTERVAL := 4.0      ## 清理检查间隔（秒）
 
 ## 后期分水岭：达到此等级后，杂鱼/低级飞机统一以编队形式出现，单机精英才允许单架
-## - UAV / UCAV / F-86 / J-7 等不再有"落单 1 架"的尾巴
+## - MQ-109 / MQ-110 / F-4E / F-86 / J-7 等不再有"落单 1 架"的尾巴
 ## - J-7 截击机由单机出现改为 2-3 编队
 ## - MiG-31 / Sentinel 不受影响（设计上保留单机出场）
 const LATE_GAME_LEVEL := 10
 
 ## 后期刷怪最低 Token 门槛：等级 >= LATE_GAME_LEVEL 后，
-## 不再生成 Token 消耗低于此值的敌人（UAV=1, UCAV=2 被淘汰）
+## 不再生成 Token 消耗低于此值的敌人（MQ-109=1, MQ-110/F-4E=2 被淘汰）
 const LATE_GAME_MIN_TOKEN := 3
 
 ## 导弹一击必杀：敌机 HP 上限（低于最弱玩家导弹 80 伤害），Sentinel 除外
@@ -2237,8 +2907,9 @@ const PLAYER_LEVEL_TO_TIER: Dictionary = {
 ## 同等级下 UAV 永远比 MiG 弱一截；BOSS / 精英带正偏移。
 ## 列表外的种类（Adds/无武器单位）默认 0。
 const ENEMY_TIER_OFFSET: Dictionary = {
-	0: -2,    # UAV
-	1: -1,    # UCAV
+	0: -2,    # UAV (MQ-109)
+	1: -1,    # UCAV (MQ-110)
+	23: -1,   # F-4E（前期导弹杂鱼，与 MQ-110 同档）
 	5: -1,    # F-86
 	18: -1,   # UAV_LASER (Aegis)
 	3:  0,    # INTERCEPTOR (J-7)
@@ -2305,7 +2976,7 @@ static func get_weapon_tier(etype: int, player_level: int) -> int:
 
 # ── 战区敌情曲线 ─────────────────────────────────────────
 # 设计原则（2026-04-21 修订，详见 docs/changelogs/2026-04-21-zone-level-curve.md）：
-#   1. 玩家等级决定战区敌人池（不是单纯 Token），让开局能撞到 UAV/UCAV
+#   1. 玩家等级决定战区敌人池（不是单纯 Token），让开局能撞到 MQ-109/MQ-110/F-4E
 #   2. 每种敌人有钟形权重：preview(解锁前 1 级) / peak(首发+2) / decay(衰减) / retire(淡出)
 #   3. "能打就用" — 不硬塞预算，预算不够就少刷，宁缺毋滥
 #   4. 护卫优先以"中队"整体出现 — 见 zone_mission._spawn_zone_defenders
@@ -2317,8 +2988,9 @@ static func get_weapon_tier(etype: int, player_level: int) -> int:
 # retire:  >0 时到该等级权重开始衰减；-1 = 不淘汰
 const ZONE_ENEMY_TABLE: Array[Dictionary] = [
 	## type 对应 SurvivorSpawner.EnemyType 的 int 值
-	{"type": 0,  "unlock": 1, "peak": 1,  "retire": 5,  "base_weight": 1.6},  ## UAV        杂鱼（早期主力）
-	{"type": 1,  "unlock": 1, "peak": 2,  "retire": 6,  "base_weight": 1.4},  ## UCAV       带弹杂鱼
+	{"type": 0,  "unlock": 1, "peak": 1,  "retire": 5,  "base_weight": 1.6},  ## MQ-109     机炮无人机杂鱼（早期主力）
+	{"type": 1,  "unlock": 1, "peak": 2,  "retire": 6,  "base_weight": 1.4},  ## MQ-110     导弹无人机杂鱼
+	{"type": 23, "unlock": 1, "peak": 2,  "retire": 7,  "base_weight": 1.4},  ## F-4E       前期导弹杂鱼（有人机）
 	{"type": 5,  "unlock": 2, "peak": 3,  "retire": 9,  "base_weight": 1.2},  ## F-86       入门 Gladiator
 	{"type": 10, "unlock": 3, "peak": 4,  "retire": 10, "base_weight": 1.0},  ## A-7        亚音速攻击机
 	{"type": 7,  "unlock": 4, "peak": 5,  "retire": -1, "base_weight": 1.0},  ## MiG-23     综合 Gladiator
@@ -2331,6 +3003,7 @@ const ZONE_ENEMY_TABLE: Array[Dictionary] = [
 	{"type": 9,  "unlock": 8, "peak": 10, "retire": -1, "base_weight": 0.6},  ## Su-27      精英+眼镜蛇
 	{"type": 6,  "unlock": 9, "peak": 11, "retire": -1, "base_weight": 0.4},  ## MiG-31     顶级 Lancer
 	{"type": 21, "unlock": 9, "peak": 11, "retire": -1, "base_weight": 0.4},  ## Su-35      顶级 Gladiator+TVC
+	{"type": 17, "unlock": 7, "peak": 10, "retire": -1, "base_weight": 0.5},  ## AF-03      电磁炮狙击 Schemer（2026-07-28 补进战区池）
 ]
 
 ## 等级钟形权重：
@@ -2363,7 +3036,8 @@ static func _zone_pool_level_factor(level: int, unlock: int, peak: int, retire: 
 
 ## 战区敌人池（按玩家等级加权）
 ##   player_level:     当前玩家等级
-##   exclude_sentinel: elite 任务的 Sentinel 作为 TGT 已独占，守卫池排除 UAV_COMMANDER
+##   exclude_sentinel: Sentinel 永不以单架驻守机形式出现（必带小队），守卫池排除 UAV_COMMANDER；
+##                     战区里的 Sentinel 走 zone_mission._spawn_sentinel_garrison 专刷
 ##   squad_friendly:   true 时排除强制单机的机型（MiG-31），供中队批量使用
 ## 返回 [{type:int, cost:int, weight:float}, ...]，weight>0 的项
 static func get_zone_enemy_pool(player_level: int, exclude_sentinel: bool = true,
@@ -2374,7 +3048,7 @@ static func get_zone_enemy_pool(player_level: int, exclude_sentinel: bool = true
 		var etype: int = int(row["type"])
 		if exclude_sentinel and etype == 4:
 			continue
-		## 中队只收允许编队的机型（MiG-31 单机上限 2，强制排除；Sentinel 走独立 elite 流程）
+		## 中队只收允许编队的机型（MiG-31 单机上限 2，强制排除；Sentinel 走独立小队流程）
 		if squad_friendly and etype == 6:
 			continue
 		var f: float = _zone_pool_level_factor(player_level,
@@ -2392,7 +3066,7 @@ static func get_zone_enemy_pool(player_level: int, exclude_sentinel: bool = true
 ## 战区角色虚拟等级 — 用于选敌人池子。
 ## role "tgt" 永远比 "garrison" 高 ≥ 2 级，保证 TGT 比护卫硬。
 ## floor 机制的目的：低等级玩家（Lv 1-3）打 ★★/★★★ 战区时，护卫池不再
-## 被 UAV/UCAV 淹没 —— 因为 UAV retire=5、UCAV retire=6，把虚拟等级顶到
+## 被 MQ-109/MQ-110/F-4E 淹没 —— 因为 retire 分别为 5/6/7，把虚拟等级顶到
 ## floor 以上就让它们进入衰减/淡出区间，自然腾出空间给中级敌人。
 ##
 ## | 星级 | TGT boost / floor | Garrison boost / floor |
@@ -2402,8 +3076,8 @@ static func get_zone_enemy_pool(player_level: int, exclude_sentinel: bool = true
 ## | ★★★  | +5 / 8            | +3 / 6                 |
 ##
 ## 例：Lv 1 玩家
-##   ★   TGT/Gar = 3    → F-86 / UAV / UCAV 混合池
-##   ★★  TGT = 6 / Gar = 4 → TGT 是 J-7 / Q-5 级；护卫 A-7 / F-86 / MiG-23，UAV 稀少
+##   ★   TGT/Gar = 3    → F-86 / MQ-109 / MQ-110 / F-4E 混合池
+##   ★★  TGT = 6 / Gar = 4 → TGT 是 J-7 / Q-5 级；护卫 A-7 / F-86 / MiG-23，无人机稀少
 ##   ★★★ TGT = 8 / Gar = 6 → TGT 可到 F-100 / MiG-29；护卫 J-7 / Q-5 / A-7 / MiG-23
 static func zone_virtual_level(difficulty: int, player_level: int, role: String = "garrison") -> int:
 	var boost: int

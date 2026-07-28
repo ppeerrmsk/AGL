@@ -57,6 +57,13 @@ func setup(boss_unit: Aircraft, player_ref: Aircraft, swarm, designation,
 	_started = true
 
 
+## 玩家机换人时重定向（BossEncounter.set_player_ref 契约的末端一环）
+func set_player_ref(p: Aircraft) -> void:
+	if p == null or not is_instance_valid(p):
+		return
+	_player_ref = p
+
+
 ## 每帧调用，1Hz 触发战略 tick；玩家无效则跳过
 func update(delta: float) -> void:
 	if not _started or _params == null:

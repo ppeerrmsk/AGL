@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash 'C:\\Users\\noelu\\Documents\\AGL\\.codex\\hooks\\open-latest-log.sh'"
+          }
+        ]
+      }
+    ]
+  }
+}

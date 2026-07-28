@@ -36,7 +36,7 @@ var tgt_alt: float = 0.0
 var tgt_bank_deg: float = 0.0
 var tgt_is_surface: bool = false   ## 地面单位 / 舰船：非机动表面目标，走 strafe 高速掠过
 var tgt_is_slow_air: bool = false  ## 慢速空中目标（直升机 / 螺旋桨运输机）：见 SLOW_AIR_SPEED_RATIO
-                                   ## 与 tgt_is_surface 互斥，_recompute 派生，外部只读
+								   ## 与 tgt_is_surface 互斥，_recompute 派生，外部只读
 
 ## 目标速度 < 本机角点速度 × 此值 → 判定"慢速空中目标"。
 ## 物理理由：角点速度下最小转弯半径 r = v²/(g·G) ≈ 550m（F-14, 7G）。目标 1 秒位移只有
@@ -213,11 +213,19 @@ static func from_aircraft(ac) -> Situation:
 		s.strafe_pass_phase = ac._strafe_pass_phase
 	# 攻击姿态 + 包围方位（command-wheel phase 4，已接线）：随 commanded_target 走——仅带点名
 	# 命令时读机上字段；无命令（自动交战/自由僚机）恒 AUTO/INF，防残留污染自主交战
-	if ac.commanded_target != null:
+	# 附加门 combat_target == commanded_target（ace-squadron-tier §3.5 隐形让位）：命令目标隐形挂起
+	# 期间僚机可能临时交战别的目标（combat_target != commanded_target），此时不得把点名姿态/包围方位
+	# 泄漏到临时目标；重接命令目标后二者重新相等，姿态自动恢复
+	if ac.commanded_target != null and ac.combat_target == ac.commanded_target:
 		if "attack_posture" in ac:
 			s.attack_posture = ac.attack_posture
 		if "surround_bearing_rad" in ac:
 			s.surround_bearing = ac.surround_bearing_rad
+	elif "surround_bearing_rad" in ac and AceTier.is_ace(ac):
+		# 王牌中队的 BRACKET 包夹复用同一条包围轴通道（spec wraith-squadron §3.2）。
+		# 敌机没有 commanded_target（那是玩家点名专用），故这里显式开一个窄口子：
+		# 只对 tier=ace 生效，且仍以 INF 作"未分配"哨兵 —— 对友军侧零影响
+		s.surround_bearing = ac.surround_bearing_rad
 
 	# 地面机炮火力警觉窗口（spec aa-fire-awareness §3.1，住 Aircraft，take_bullet_damage 刷新）
 	if "aa_fire_timer" in ac:
@@ -257,7 +265,16 @@ static func from_aircraft(ac) -> Situation:
 			s.weapon_lock = WEAPON_LOCK_FORCE_GUN if ac.weapon_preference == 1 else WEAPON_LOCK_NONE
 
 	# 目标
-	var tgt = ac.combat_target
+	# ⚠ safe_unit 净化必须在任何 `is` 判定之前：Godot 4 里 freed 对象与 null 比较相等，
+	# 上游 aircraft.gd 的 `combat_target != null` 死亡守卫拦不住野指针，但 `is` 运算符
+	# 对 freed 实例会直接报 "previously freed instance"（0728 停机闪退的根因）
+	var tgt: CombatUnit = CombatUnit.safe_unit(ac.combat_target)
+	# 隐形失效（ace-squadron-tier §3.5"玩家亲控机 planner"通路）：planner 路径下 combat_tracking
+	# 的隐形清除被 use_tactical_planner early-return 跳过，若不在此拦，玩家亲控机会对隐形目标保持
+	# 零误差位置跟踪（只扳机哑火）。只认 is_cloaked（与 combat_tracking:78 同款），不认 is_lock_immune()
+	# —— MountTarget（船挂点）合法可打，不能因其 lock_immune 路由 trick 丢目标
+	if tgt is Aircraft and (tgt as Aircraft).is_cloaked:
+		tgt = null
 	if tgt != null and is_instance_valid(tgt) and not tgt.is_destroyed:
 		s.has_target = true
 		s.tgt_pos = tgt.global_position

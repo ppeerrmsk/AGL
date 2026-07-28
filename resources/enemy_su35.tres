@@ -39,7 +39,7 @@ fuel_capacity = 3800.0
 fuel_rate_normal = 2.0
 fuel_rate_afterburner = 10.0
 ; ── 雷达（精英级，比 Su-27 略强）──
-radar_range = 5500.0
+radar_range = 4600.0
 radar_half_angle = 30.0
 lock_time = 2.7
 gun = ExtResource("2")

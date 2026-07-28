@@ -10,17 +10,19 @@
 ##   INTRO        经典通场进场（4s）→ PURSUIT
 ##   PURSUIT      默认战斗：每架走自己 BFM；不干预战术决策树
 ##   CLOAK        隐形 5.5s（仅切视觉 + suppress flares，不改 AI）→ PURSUIT
-##   ANCHOR_HOLD  玩家飞远了 → 给每架下 PATROL_RING directive 绕锚点 → 玩家回来切 PURSUIT
 ##
-## ── 战斗专长（CombatSpecialty）──
-## 在 spawn 时**静态分配**，运行时不变：
-##   - 前 2 架（队长 + 第一僚机）= CLOSE_FIGHTER（机炮 + 高度激进近距参数）
-##   - 后 2 架 = RANGED_STRIKER（导弹 + 远距冲刺参数）
+## ⚠ 曾有第四个状态 ANCHOR_HOLD（玩家飞远 → 回锚点绕圈等）。2026-07-22 按
+##    spec boss-hunter-doctrine 删除：王牌中队是猎手，没有归巢、没有 leash，
+##    玩家跑到天涯海角它也追。PURSUIT 现在是唯一的战斗常态。
+##
+## ── 角色（AceRole）──
+## 在 spawn 时**静态分配**，运行时不变（spec bosses/wraith-squadron §2.1）：
+##   - 前 2 架（队长 + 第一僚机）= KNIGHT（机炮 + 高度激进近距参数）
+##   - 后 2 架 = SNIPER（导弹 + BVR 站位，被压进 4km 就拉开）
 ##
 ## ── 与事件系统的关系 ──
-## - PRE_STAGE 阶段：BossEncounterEvent 通过 AIDirective.FLY_TO_POINT 驱动飞入 + PATROL_RING 巡逻
+## - PRE_STAGE(INBOUND) 阶段：BossEncounterEvent 通过 AIDirective.PURSUE_UNIT 驱动追击玩家
 ## - ENGAGED 触发：事件 clear_all_directives() + AceSquad.engage() → 进 PURSUIT 状态
-## - ANCHOR_HOLD 状态：AceSquad 自己下 PATROL_RING directive（owner_event=null，永久直到清除）
 
 class_name AceSquad
 extends BossEncounter
@@ -29,8 +31,15 @@ extends BossEncounter
 #  状态机
 # ══════════════════════════════════════════════
 
-enum SquadState { INTRO, PURSUIT, CLOAK, ANCHOR_HOLD }
-enum CombatSpecialty { NONE, CLOSE_FIGHTER, RANGED_STRIKER }
+enum SquadState { INTRO, PURSUIT, CLOAK }
+## 王牌中队角色（spec bosses/wraith-squadron §2.1）。spawn 时静态分配，运行时不变。
+##   KNIGHT（骑士）—— 机炮近战，逼玩家进入转弯
+##   SNIPER（狙击手）—— 导弹远距，惩罚玩家的每一次承诺
+## 取代此前的两个死 meta：combat_specialty（只写不读）与 f47_role（只读不写）
+enum AceRole { NONE, KNIGHT, SNIPER }
+
+## 角色 meta 键。值 = AceRole 枚举。这是**唯一**的角色真源，HUD 与 AI 都读它
+const ROLE_META := &"ace_role"
 
 # ══════════════════════════════════════════════
 #  配置（子类在 _init 中覆盖）
@@ -54,10 +63,6 @@ var standoff_radius_min: float = 1800.0
 var standoff_radius_max: float = 2500.0
 var ranged_max_distance: float = 3500.0
 var force_pursuit_distance: float = 2500.0  ## 距玩家 > 此值时开加力（PURSUIT 软维护检查）
-
-## 锚点
-const ANCHOR_ENGAGEMENT_RADIUS := 4500.0  ## 玩家在此半径内 → PURSUIT；外 → ANCHOR_HOLD
-const ANCHOR_ORBIT_RADIUS := 1600.0       ## ANCHOR_HOLD 状态下盘旋半径
 
 ## PURSUIT 软维护节流：每 N 秒一次"成员是否还在 ENGAGE"检查
 const PURSUIT_MAINTAIN_INTERVAL := 0.5
@@ -84,9 +89,9 @@ var entry_angle_override: float = NAN
 ## 子类或外部可覆盖进场起点（BossEncounterEvent 设为"离玩家最远的地图边缘"）
 var entry_origin_override: Vector2 = Vector2.INF
 
-## 锚点（事件层注入）；INF = 不启用 ANCHOR_HOLD 状态
+## 锚点（事件层注入）。猎手化后不再是"巡逻中心 / 归巢点"，只剩两个用途：
+## ①与 entry_origin_override 一起判定是否走远端进场 ②经典进场时的出生基准
 var anchor_position: Vector2 = Vector2.INF
-var _anchor_orbit_phase: float = 0.0  ## ANCHOR_HOLD 进入时记录的相位（不再每帧动）
 
 ## 隐形（CD 节奏管理 —— 状态机决定何时进 CLOAK 状态）
 var _cloak_cd_timer: float = 0.0   ## 距下次允许进 CLOAK 的剩余秒数
@@ -129,10 +134,10 @@ func spawn(scene_root: Node, aircraft_scene: PackedScene, create_enemy_func: Cal
 	members.clear()
 	all_members.clear()
 	# 远端进场（BossEncounterEvent 设了 entry_origin_override + anchor）：
-	#   spawn 时不进 INTRO，事件层会用 directive 驱动飞入 + 巡逻；engage() 才切 PURSUIT
+	#   spawn 时不进 INTRO，事件层用 PURSUE_UNIT directive 驱动追击玩家；engage() 才切 PURSUIT
 	# 经典进场：进 INTRO 状态走通场逻辑
-	var use_far_edge_entry: bool = entry_origin_override != Vector2.INF and anchor_position != Vector2.INF
-	if use_far_edge_entry:
+	var use_remote_entry: bool = entry_origin_override != Vector2.INF and anchor_position != Vector2.INF
+	if use_remote_entry:
 		squad_state = SquadState.PURSUIT  ## 占位，combat_phase_active=false 时不会跑
 		combat_phase_active = false
 	else:
@@ -152,12 +157,13 @@ func spawn(scene_root: Node, aircraft_scene: PackedScene, create_enemy_func: Cal
 	var side := 1.0 if randf() > 0.5 else -1.0
 	var entry_angle: float
 	var spawn_origin: Vector2
-	if use_far_edge_entry:
+	if use_remote_entry:
 		spawn_origin = entry_origin_override
-		var to_anchor := (anchor_position - spawn_origin)
-		if to_anchor.length_squared() < 1.0:
-			to_anchor = Vector2(0, -1)
-		var dir := to_anchor.normalized()
+		# 猎手：机头朝【玩家】，不是朝锚点 —— 出生即已经在往玩家方向压
+		var to_player := (pp - spawn_origin)
+		if to_player.length_squared() < 1.0:
+			to_player = Vector2(0, -1)
+		var dir := to_player.normalized()
 		entry_angle = atan2(dir.x, -dir.y)
 	elif is_nan(entry_angle_override):
 		entry_angle = player_hdg + side * PI / 2.0
@@ -165,7 +171,7 @@ func spawn(scene_root: Node, aircraft_scene: PackedScene, create_enemy_func: Cal
 		entry_angle = entry_angle_override
 	var entry_dir := Vector2(sin(entry_angle), -cos(entry_angle))
 	var lateral_axis := Vector2(sin(entry_angle + PI / 2.0), -cos(entry_angle + PI / 2.0))
-	if not use_far_edge_entry:
+	if not use_remote_entry:
 		if anchor_position != Vector2.INF:
 			spawn_origin = anchor_position + entry_dir * 800.0
 		else:
@@ -178,8 +184,8 @@ func spawn(scene_root: Node, aircraft_scene: PackedScene, create_enemy_func: Cal
 					entry_angle = atan2(entry_dir.x, -entry_dir.y)
 					lateral_axis = Vector2(sin(entry_angle + PI / 2.0), -cos(entry_angle + PI / 2.0))
 					spawn_origin = pp + entry_dir * SurvivorData.SPAWN_DISTANCE
-	# 远端进场机头朝 anchor，其他模式延用旧逻辑（entry_angle 反向）
-	var heading_deg: float = rad_to_deg(entry_angle) if use_far_edge_entry else rad_to_deg(entry_angle + PI)
+	# 远端进场机头朝玩家，其他模式延用旧逻辑（entry_angle 反向）
+	var heading_deg: float = rad_to_deg(entry_angle) if use_remote_entry else rad_to_deg(entry_angle + PI)
 
 	# ── 菱形编队偏移 ──
 	var offsets := _get_formation_offsets(entry_dir, lateral_axis)
@@ -189,7 +195,7 @@ func spawn(scene_root: Node, aircraft_scene: PackedScene, create_enemy_func: Cal
 	sq.escort_doctrine_enabled = true  # 精英 BOSS 队吃护卫学说（spec squad-ai-escort §1）：护旗舰/反杀威胁者
 	for i in range(squad_size):
 		var pos := spawn_origin + (offsets[i] if i < offsets.size() else Vector2.ZERO)
-		var ac: Aircraft = create_enemy_func.call(enemy_type, pos, heading_deg)
+		var ac: Aircraft = create_enemy_func.call(_member_type(i), pos, heading_deg)
 
 		# 通用 BOSS meta
 		ac.set_meta("boss_intro", true)
@@ -197,15 +203,15 @@ func spawn(scene_root: Node, aircraft_scene: PackedScene, create_enemy_func: Cal
 		ac.set_meta("skip_far_cleanup", true)
 		ac.set_target_tier(Aircraft.AltitudeTier.HIGH)
 
-		# 静态分配战斗专长：前 2 架近战 + 机炮，后 2 架远距 + 导弹
-		var spec: int = CombatSpecialty.CLOSE_FIGHTER if i < 2 else CombatSpecialty.RANGED_STRIKER
-		ac.set_meta("combat_specialty", spec)
+		# 静态分配角色（默认：前 2 架 KNIGHT 近战，后排 SNIPER 远距；混编子类按 element 覆写）
+		var role: int = _member_role(i)
+		ac.set_meta(ROLE_META, role)
 
 		var ai_node: AIController = ac._get_ai_controller()
 		if ai_node:
 			ai_node.enable_combat = false   ## 由 INTRO 完成 / engage() 打开
 			# 经典 INTRO 才设通场航点；远端进场航点由 directive 接管
-			if not use_far_edge_entry:
+			if not use_remote_entry:
 				var pass_point := pp - entry_dir * intro_pass_dist
 				var exit_point := pp - entry_dir * standoff_radius_min
 				ai_node.waypoints = PackedVector2Array([pass_point, exit_point])
@@ -216,7 +222,7 @@ func spawn(scene_root: Node, aircraft_scene: PackedScene, create_enemy_func: Cal
 			if i == 0:
 				sq.leader = ac
 			# 静态写一次战斗参数（spec → AI 配置）
-			_apply_specialty(ac, ai_node, spec)
+			_apply_role(ac, ai_node, role)
 
 		# 子类钩子（挂 Herbst / 设 salvo_leader 等）
 		_configure_spawn(ac, i, sq, ai_node)
@@ -282,23 +288,14 @@ func _decide_next_state(delta: float) -> int:
 			if state_timer >= intro_duration:
 				return SquadState.PURSUIT
 		SquadState.PURSUIT:
-			if _is_player_far_from_anchor():
-				return SquadState.ANCHOR_HOLD
+			# 猎手：不因玩家跑远而脱战。PURSUIT 只会被隐形打断，之后必回 PURSUIT
 			if cloak_enabled and _should_enter_cloak():
 				return SquadState.CLOAK
 		SquadState.CLOAK:
 			_cloak_remaining -= delta
 			if _cloak_remaining <= 0.0:
 				return SquadState.PURSUIT
-		SquadState.ANCHOR_HOLD:
-			if not _is_player_far_from_anchor():
-				return SquadState.PURSUIT
 	return squad_state
-
-func _is_player_far_from_anchor() -> bool:
-	if anchor_position == Vector2.INF:
-		return false
-	return _player.global_position.distance_to(anchor_position) > ANCHOR_ENGAGEMENT_RADIUS
 
 ## CLOAK 触发条件：CD 到了 OR 紧急（CD 已过最短间隔且有导弹来袭）
 func _should_enter_cloak() -> bool:
@@ -324,15 +321,15 @@ func _enter_state(s: int, _prev: int) -> void:
 			_pursuit_enter()
 		SquadState.CLOAK:
 			_cloak_enter()
-		SquadState.ANCHOR_HOLD:
-			_anchor_hold_enter()
 
 func _exit_state(s: int) -> void:
 	match s:
 		SquadState.CLOAK:
 			_cloak_exit()
-		SquadState.ANCHOR_HOLD:
-			_anchor_hold_exit()
+		SquadState.PURSUIT:
+			# 离开 PURSUIT（进隐形）→ 撤掉战术层的 directive 与包围偏置，
+			# 否则隐形期间四机还在执行上一相的站位，回来时相位与实际脱节
+			_tactics_exit()
 		_:
 			pass
 
@@ -342,10 +339,29 @@ func _update_state(s: int, delta: float) -> void:
 			_intro_update(delta)
 		SquadState.PURSUIT:
 			_pursuit_update(delta)
+			_tactics_update(delta)
 		SquadState.CLOAK:
 			_cloak_update(delta)
-		SquadState.ANCHOR_HOLD:
-			pass   # directive 已下，每帧无需操作
+
+# ══════════════════════════════════════════════
+#  队级战术层钩子（子类可选实现）
+# ══════════════════════════════════════════════
+#
+# tier 层（本类）管"是否交战 / 是否隐形"；**队级战术编排**是子类的事。
+# Wraith 在 PURSUIT 之内跑一套 PERCH→BRACKET→PRESS→RESET 状态机（见 wraith_tactics.gd）；
+# 其它王牌中队不实现这三个钩子就退化为"各自跑 BFM"的现状行为，零影响。
+
+## 进入 PURSUIT：战术层起手
+func _tactics_enter() -> void:
+	pass
+
+## PURSUIT 每帧：推进战术状态机
+func _tactics_update(_delta: float) -> void:
+	pass
+
+## 离开 PURSUIT（进隐形 / 全灭 / 事件结束）：撤掉战术层下过的一切
+func _tactics_exit() -> void:
+	pass
 
 # ── INTRO ──
 
@@ -368,14 +384,23 @@ func _pursuit_enter() -> void:
 			continue
 		ai.set_event_directive(null)   ## 清掉 PRE_STAGE 残留的 directive
 		ai.enable_combat = true
-		ai.boss_attacker = true
-		ai.bvr_only = false
+		# ace_evader（零 flare 机动规避型个体，tier §3.4 例外条款）：不打 boss_attacker，
+		# 让既有规避入口（被 not is_boss_attacker() 挡）对其放行
+		ai.boss_attacker = not m.has_meta(&"ace_evader")
+		# ace_tactics_owned：该成员的交战状态整体归队级战术模块管（骑士掠袭等），
+		# 基类不下 ENGAGE 锁玩家（下了会把 PATROL 相位打回缠斗）
+		if m.has_meta(&"ace_tactics_owned"):
+			continue
+		# ⚠ 不在这里写 bvr_only —— 它是**角色属性**（SNIPER=true / KNIGHT=false），
+		#   在 spawn 期由 _apply_role 静态写死。此处若无脑置 false 会把 SNIPER 的
+		#   站位带（4~6km）当场抹掉，角色分化名存实亡
 		# 经 acquire_target(TS_BOSS) 指派，优先级仲裁防抢写；过渡走 API 不碰私有 _state
 		if ai.acquire_target(_player, AIController.TargetSource.TS_BOSS, "ace PURSUIT enter"):
 			ai.enter_engage_state()
 			m.tactical_aggression = 1.0
 	_maintain_timer = 0.0
 	EventLogger.log_event("BOSS", display_name, "→ PURSUIT")
+	_tactics_enter()
 
 ## 软维护：每 PURSUIT_MAINTAIN_INTERVAL 秒检查一次，**只补不破坏**。
 ##   - 成员被打掉 ENGAGE → 重新设 ENGAGE + combat_target（不重置任何 timer）
@@ -389,6 +414,8 @@ func _pursuit_update(delta: float) -> void:
 	for m in members:
 		if not is_instance_valid(m):
 			continue
+		if m.has_meta(&"ace_tactics_owned"):
+			continue   # 战术模块全权成员：软维护不得抢写（见 _pursuit_enter 注释）
 		var ai: AIController = m._get_ai_controller()
 		if not ai:
 			continue
@@ -408,7 +435,7 @@ func _pursuit_update(delta: float) -> void:
 			# 经 acquire_target(TS_BOSS) 指派，优先级仲裁防抢写；软重连不打断战术选择
 			if ai.acquire_target(_player, AIController.TargetSource.TS_BOSS, "ace PURSUIT maintain"):
 				ai.enter_engage_state(false)  # reset_tactic=false：只补状态+engage_timer
-				ai.boss_attacker = true
+				ai.boss_attacker = not m.has_meta(&"ace_evader")
 				if herbst_just_exited:
 					ai._tactic_timer = 0.0   ## Herbst 退出后让 BFM 重新挑战术（避免一路 EXTEND）
 		# 远距加力（燃油守卫 2026-07-03：裸写发生在该机 update_fuel 之后，无检查会
@@ -473,32 +500,15 @@ func _cloak_exit() -> void:
 		m.suppress_flares = false
 	EventLogger.log_event("BOSS", display_name, "cloak deactivated")
 
-# ── ANCHOR_HOLD ──
-
-## 玩家飞远了 → 给每架下 PATROL_RING directive 绕锚点慢飞
-## directive owner_event=null（永久），_anchor_hold_exit 时清除
-func _anchor_hold_enter() -> void:
-	for m in members:
-		if not is_instance_valid(m):
-			continue
-		var ai: AIController = m._get_ai_controller()
-		if not ai:
-			continue
-		var d := AIDirective.patrol_ring(anchor_position, ANCHOR_ORBIT_RADIUS)
-		ai.set_event_directive(d)
-	EventLogger.log_event("BOSS", display_name, "→ ANCHOR_HOLD (player far from anchor)")
-
-func _anchor_hold_exit() -> void:
-	for m in members:
-		if not is_instance_valid(m):
-			continue
-		var ai: AIController = m._get_ai_controller()
-		if ai:
-			ai.set_event_directive(null)
-
 # ══════════════════════════════════════════════
 #  外部触发（BossEncounterEvent 调用）
 # ══════════════════════════════════════════════
+
+## 玩家机换人时重定向（基类契约，见 BossEncounter.set_player_ref）
+func set_player_ref(p: Aircraft) -> void:
+	if p == null or not is_instance_valid(p):
+		return
+	_player = p
 
 ## 玩家进入 BOSS 圈或贴近成员 → 进入 PURSUIT 状态
 ## 远端进场模式（PRE_STAGE）下，combat_phase_active=false；这里翻 true 启动状态机
@@ -512,23 +522,48 @@ func engage() -> void:
 		_enter_state(SquadState.PURSUIT, SquadState.INTRO)
 
 # ══════════════════════════════════════════════
-#  战斗专长（spawn 时静态写一次）
+#  角色（spawn 时静态写一次）
 # ══════════════════════════════════════════════
 
-func _apply_specialty(member: Aircraft, ai: AIController, spec: int) -> void:
+## SNIPER 的距离带（spec bosses/wraith-squadron §2.2）：4000~6000 m。
+## PIXELS_PER_METER = 0.5 → 1 px = 2 m，故 4000 m = 2000 px、6000 m = 3000 px。
+## 这两个数恰好等于 AIController 的 BVR 全局默认值，此处显式写出以免默认值将来变动时
+## 悄悄改掉 Wraith 的站位设计
+const SNIPER_STANDOFF_MIN_PX := 2000.0   ## 4000 m —— 被压进这个距离即视为站位失败，拉开
+const SNIPER_FLEE_DIST_PX := 3000.0      ## 6000 m —— 拉开后重新站位的距离
+
+## 角色 → AI 配置（spec bosses/wraith-squadron §3.5 的三个消费点）
+##   ①期望交战距离  ②武器竞选偏好  ③被咬时的反应
+##
+## ⚠ aggression / self_preservation 守 ace-squadron-tier §2.1 的 tier 级铁律
+##   （≥0.90 / ≤0.25）。SNIPER 的"不贪战"**不靠调低交战欲实现** —— 那会让它在该开火时
+##   也消极，正是 tier 想禁止的。真正要的是空间行为"被压近了就拉开"，由 bvr_only 表达，
+##   与交战欲正交（裁决记录见 wraith spec §2.2）
+func _apply_role(member: Aircraft, ai: AIController, role: int) -> void:
 	ai.boss_attacker = true
-	ai.bvr_only = false
-	match spec:
-		CombatSpecialty.CLOSE_FIGHTER:
+	match role:
+		AceRole.KNIGHT:
+			# ②机炮优先 ③被咬转身对抗（不脱离）
 			member.prefer_gun_mode = true
+			ai.bvr_only = false
 			ai.aggression = 0.95
 			ai.self_preservation = 0.15
 			_configure_close_fighter_combat(member)
-		CombatSpecialty.RANGED_STRIKER:
+		AceRole.SNIPER:
+			# ②导弹优先 ①③低于 4km 强制脱离、拉到 6km 重新站位
 			member.prefer_gun_mode = false
+			ai.bvr_only = true
+			ai.bvr_standoff_min_px_override = SNIPER_STANDOFF_MIN_PX
+			ai.bvr_flee_distance_px_override = SNIPER_FLEE_DIST_PX
 			ai.aggression = 0.95
-			ai.self_preservation = 0.10
+			ai.self_preservation = 0.25
 			_configure_ranged_striker_combat(member)
+
+## 读一架飞机的王牌角色（无 meta = NONE）
+static func role_of(ac: Aircraft) -> int:
+	if ac == null or not is_instance_valid(ac):
+		return AceRole.NONE
+	return int(ac.get_meta(ROLE_META, AceRole.NONE))
 
 # ══════════════════════════════════════════════
 #  HUD / 工具方法
@@ -574,6 +609,14 @@ func _get_formation_offsets(entry_dir: Vector2, lateral_axis: Vector2) -> Array[
 ## 每架飞机生成后的额外配置（挂载机动模块、设 salvo_leader 等）
 func _configure_spawn(_member: Aircraft, _index: int, _squad: Squad, _ai: AIController) -> void:
 	pass
+
+## 第 i 架成员的机型（混编子类按 element 覆写；默认全队同型）
+func _member_type(_i: int) -> int:
+	return enemy_type
+
+## 第 i 架成员的角色（默认基类规则：前 2 架 KNIGHT，其余 SNIPER）
+func _member_role(i: int) -> int:
+	return AceRole.KNIGHT if i < 2 else AceRole.SNIPER
 
 ## 近距纠缠组战斗参数
 func _configure_close_fighter_combat(_member: Aircraft) -> void:

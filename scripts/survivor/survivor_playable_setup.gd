@@ -101,11 +101,6 @@ static func apply(aircraft: Node, profile: PlayableAircraft, is_wingman: bool = 
 	aircraft.survivor_bullet_damage_cap = profile.bullet_damage_cap
 	aircraft.bullet_dodge_chance = profile.bullet_dodge_chance
 
-	# ── 局外配件（Loadout）──
-	# 仅长机生效——僚机不应继承玩家局外装备（保留与基础档案一致的纯净参数）
-	if not is_wingman:
-		LoadoutLedger.apply_to_aircraft(aircraft, profile)
-
 
 ## 工具：把 AircraftParams 上的所有外部子资源 deep duplicate 一份，
 ## 防止生存模式的运行时修改污染原 .tres

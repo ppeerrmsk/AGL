@@ -25,7 +25,9 @@ extends BossEncounter
 const PARAMS_PATH := "res://resources/enemy_mother_goose.tres"
 ## UAV 三型号资源路径定义在 [mother_goose_uav_swarm.gd] VARIANT_PARAMS
 
-const PATROL_RADIUS_PX: float = 4000.0    ## 绕地图中心巡逻半径（像素）
+const PATROL_RADIUS_PX: float = 4000.0    ## 绕玩家巡逻的环半径（像素）
+const PATROL_FOLLOW_INTERVAL: float = 2.0 ## 环心跟随玩家的重算间隔（秒）
+const PATROL_RECENTER_MIN_PX: float = 800.0 ## 环心位移小于此值就不重下航点
 const PATROL_WAYPOINTS: int = 8            ## 8 点环形路径
 const BOSS_ALTITUDE: float = 5500.0        ## MID 档位中部
 
@@ -90,6 +92,9 @@ var _initial_total_hp: float = 0.0           ## 用作 MQX_SPAWN_HP_RATIO 触发
 var _scene_root: Node = null
 var _aircraft_scene: PackedScene = null
 var _player: Aircraft = null
+## 巡逻环心跟随玩家的节流计时与上次环心（见 _update_patrol_follow）
+var _patrol_follow_timer: float = 0.0
+var _patrol_center_last: Vector2 = Vector2.INF
 var _bullet_mgr: BulletManager = null
 var _missile_mgr: MissileManager = null
 
@@ -321,9 +326,14 @@ func alive_vls_mounts() -> Array[WeaponMount]:
 	return out
 
 
-## 巡逻环形：以地图中心为环心（限制不出界），8 点正多边形
+## 巡逻环形：**以玩家实时位置为环心**（限制不出界），8 点正多边形。
+##
+## 猎手化（spec boss-hunter-doctrine §3.4）：旧版环心钉死在地图中心 Vector2.ZERO ——
+## 玩家躲到地图角落就再也见不到母舰。母舰不是战斗机、不做 BFM，它的"猎手性"就是
+## **环心跟着玩家走**：始终在玩家外围 4000px 盘旋，你甩不掉它，但它也不会贴脸
+## （贴脸会毁掉挂点/弱点的攻击窗口设计，故半径不变）。
 func _assign_patrol_ring(ai: AIController, spawn_pos: Vector2) -> void:
-	var center: Vector2 = Vector2.ZERO
+	var center: Vector2 = _patrol_center()
 	# 半径限制：不超过 (MAP_HALF - 1500) 以保证 UAV 也不贴边
 	var max_r: float = MapBoundary.world_half_px() - 1500.0
 	var r: float = minf(PATROL_RADIUS_PX, max_r)
@@ -336,6 +346,40 @@ func _assign_patrol_ring(ai: AIController, spawn_pos: Vector2) -> void:
 		wps.append(wp)
 	ai.waypoints = wps
 	ai.current_waypoint_index = 0
+
+## 玩家机换人时重定向（基类契约，见 BossEncounter.set_player_ref）。
+## 母舰把玩家引用转交给了 controller（VLS 齐射 / 指定猎杀），controller 又转交给
+## SwarmDirector —— 整条链都要跟着换
+func set_player_ref(p: Aircraft) -> void:
+	if p == null or not is_instance_valid(p):
+		return
+	_player = p
+	if controller != null and is_instance_valid(controller):
+		controller.set_player_ref(p)
+
+## 巡逻环心 = 玩家实时位置；玩家不可用时退回地图中心
+func _patrol_center() -> Vector2:
+	if _player != null and is_instance_valid(_player) and not _player.is_destroyed:
+		return _player.global_position
+	return Vector2.ZERO
+
+## 环心跟随节流（spec §3.4）：2.0s 重算一次。8 航点重算是几十次三角函数，而母舰速度慢、
+## 玩家 2 秒内的位移远小于 4000px 半径 —— 更高频纯属浪费
+func _update_patrol_follow(delta: float) -> void:
+	_patrol_follow_timer -= delta
+	if _patrol_follow_timer > 0.0:
+		return
+	_patrol_follow_timer = PATROL_FOLLOW_INTERVAL
+	if boss_unit == null or not is_instance_valid(boss_unit) or boss_unit.is_destroyed:
+		return
+	var center := _patrol_center()
+	# 环心没怎么动就不重下航点（避免每 2s 打断正在飞的那一段）
+	if center.distance_squared_to(_patrol_center_last) < PATROL_RECENTER_MIN_PX * PATROL_RECENTER_MIN_PX:
+		return
+	_patrol_center_last = center
+	var ai: AIController = boss_unit._get_ai_controller()
+	if ai:
+		_assign_patrol_ring(ai, boss_unit.global_position)
 
 
 # ──────────────────────── 接战 ────────────────────────
@@ -351,7 +395,7 @@ func engage() -> void:
 
 # ──────────────────────── 帧循环 ────────────────────────
 
-func update(_delta: float) -> void:
+func update(delta: float) -> void:
 	if not active:
 		return
 	# 胜利判定：弱点暴露后被打死 OR 主体直接被击毁（兜底，理论上 lock_immune 阻止）
@@ -359,6 +403,9 @@ func update(_delta: float) -> void:
 		active = false
 		EventLogger.log_event("BOSS", display_name, "Mother Goose defeated")
 		return
+
+	# 猎手：巡逻环心跟着玩家走（spec boss-hunter-doctrine §3.4）
+	_update_patrol_follow(delta)
 
 	# 每帧把主体 HP 同步到所有子系统剩余 HP 总和（HUD 血条由此驱动）
 	var hp_sum: float = 0.0

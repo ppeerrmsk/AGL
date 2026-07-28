@@ -1,0 +1,45 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/lancer_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/default_missile.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/default_flare.tres" id="5"]
+
+[resource]
+script = ExtResource("1")
+display_name = "F-15"
+; ── 敌用 F-15（王牌中队 2NDWAVE 学员机，spec events/ace-2ndwave §4）──
+; 四代半制空档：快、稳、素质全面——"最新锐"的学员座机。
+; 王牌专属机型：不进随机刷怪池，只经 AceSquadProfiles elements 生成；
+; 装备覆写（无机炮/载弹 6）在 ace_support_squad._configure_spawn，此处为机体基线
+max_hp = 60.0
+armor = 0.0
+max_speed = 2650.0
+cruise_speed = 1250.0
+stall_speed_base = 210.0
+acceleration = 58.0
+deceleration = 85.0
+g_drag_factor = 2.9
+max_g = 9.0
+max_g_structural = 12.0
+roll_rate = 4.0
+pilot_stamina = 95.0
+stamina_drain_rate = 22.0
+stamina_recovery_rate = 11.0
+max_altitude = 18500.0
+climb_rate_max = 310.0
+thrust_to_weight = 1.15
+drag_coefficient = 0.021
+afterburner_thrust_mult = 1.65
+fuel_capacity = 3600.0
+fuel_rate_normal = 2.0
+fuel_rate_afterburner = 10.0
+radar_range = 5200.0
+radar_half_angle = 32.0
+lock_time = 2.5
+gun = ExtResource("2")
+missile = ExtResource("4")
+flare = ExtResource("5")
+combat = ExtResource("3")
+icon_color = Color(1.0, 0.5, 0.25, 1)

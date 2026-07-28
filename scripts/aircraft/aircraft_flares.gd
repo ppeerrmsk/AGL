@@ -256,13 +256,16 @@ static func release(ac: Aircraft, target_missile: Missile = null) -> void:
 	if ac.is_player_squad():
 		SkillHooks.on_flare_release(ac)
 
+	# 722 sig_mirage3·幻影：flare 保护窗（穿透窗 + 锁定豁免）时长 ×1.6
+	var sig_m3: bool = ac.has_meta("upgrade_stacks") \
+			and int((ac.get_meta("upgrade_stacks") as Dictionary).get("sig_mirage3", 0)) > 0
 	# 导弹穿透窗口：玩家 / BOSS 享有
 	if ac.flares_guaranteed or ac.boss_flare_immunity:
-		ac.missile_phase_timer = MISSILE_PHASE_DURATION
+		ac.missile_phase_timer = MISSILE_PHASE_DURATION * (1.6 if sig_m3 else 1.0)
 
 	# 电子对抗升级：清除所有雷达锁定 + 锁定免疫
 	if ac.flare_lock_immunity > 0.0:
-		ac._lock_immunity_timer = ac.flare_lock_immunity
+		ac._lock_immunity_timer = ac.flare_lock_immunity * (1.6 if sig_m3 else 1.0)
 		for ac_ref in ac.locked_by.duplicate():
 			if is_instance_valid(ac_ref):
 				ac_ref.radar_targets.erase(ac)
@@ -286,7 +289,12 @@ static func release(ac: Aircraft, target_missile: Missile = null) -> void:
 		return
 
 	var jam_chance: float
-	if ac.flares_guaranteed:
+	if AceTier.is_ace(ac):
+		# 王牌中队：热诱弹即命数，干扰恒定 100%（spec ace-squadron-tier §3.3）。
+		# 引入概率会让"1 枚 = 1 条命"不成立 —— 玩家无法从"骗掉几发"推断剩余命数，
+		# 且迎头交战时命数会随机蒸发（正是 Wraith"偶尔一发就死"的体感来源）
+		jam_chance = 1.0
+	elif ac.flares_guaranteed:
 		# 后侧方 + 斜前方 100% 干扰，只有正面对冲走概率
 		var missile_to_me := (ac.global_position - target_missile.global_position).normalized()
 		var my_fwd := Vector2(sin(ac.heading), -cos(ac.heading))
@@ -308,6 +316,19 @@ static func release(ac: Aircraft, target_missile: Missile = null) -> void:
 			ac._evade_roll_remaining = Aircraft._EVADE_ROLL_DURATION
 		# §1.4 玩家技能钩子：成功回避导弹 → 给自己 OVERLOAD 4s
 		SkillHooks.on_evade_missile(ac)
+		# 722 签名技能（低频事件，就地读 meta；此处独有 target_missile 上下文）：
+		if ac.is_player_squad() and ac.has_meta("upgrade_stacks"):
+			var sig_stacks: Dictionary = ac.get_meta("upgrade_stacks")
+			# 幻影（Mirage III）：成功偏转瞬间 1.5s 无敌（no_refresh 严格窗）
+			if int(sig_stacks.get("sig_mirage3", 0)) > 0:
+				ac.apply_status(StatusEffects.INVINCIBLE, 1.5, "no_refresh")
+			# SPECTRA（Rafale）：对该弹发射者施加 5s JAM
+			if int(sig_stacks.get("sig_rafale", 0)) > 0 \
+					and is_instance_valid(target_missile.source) \
+					and target_missile.source is CombatUnit:
+				(target_missile.source as CombatUnit).apply_status(StatusEffects.JAM, 5.0)
+				EventLogger.log_event("SKILL", ac._log_name(),
+					"SPECTRA: jam shooter %s for 5s" % target_missile.source.callsign)
 	else:
 		# 失败也记日志（2026-07-03 补观测盲区：旧版只记成功，"投了焰仍被命中"无法归因）
 		var msl_name_f: String = target_missile.params.display_name if target_missile.params else "MSL"

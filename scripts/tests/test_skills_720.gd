@@ -130,16 +130,20 @@ func _test_pool_class_gate() -> void:
 func _test_t3_hooks() -> void:
 	print("── E. T3 钩子：AB 账本修正 / 免耗弹窗口 / QAAM 嗜血 / 适应回能 ──")
 	var ab := AfterburnerCharge.new()
-	ab.kill_charge_bonus = 3.0
+	ab.kill_charge_bonus = 0.6
 	ab.charge = 0.0
 	ab.on_kill_charge()
-	_check("检讨：击杀充能 4+3=7", is_equal_approx(ab.charge, 7.0), "got %.1f" % ab.charge)
-	ab.window_duration_mult = 1.5
+	_check("检讨：击杀充能 0.8+0.6=1.4", is_equal_approx(ab.charge, 1.4), "got %.1f" % ab.charge)
+	ab.duration_mult = 1.5
 	ab.charge = AfterburnerCharge.CHARGE_MAX
 	var ldr := _make_test_aircraft()
-	var ok_act := ab.try_activate(ldr)
-	_check("强化加力：窗口 6→9s", ok_act and is_equal_approx(ab.window_left, 9.0),
-		"act=%s left=%.1f" % [ok_act, ab.window_left])
+	var ok_act := ab.toggle(ldr)
+	# 充能制：满能量(6s)在 ×1.5 减耗下可烧 9s；再 toggle 关闭
+	_check("强化加力：满能量续航 6→9s", ok_act and ab.is_active() \
+		and is_equal_approx(ab.remaining_seconds(), 9.0),
+		"act=%s rem=%.1f" % [ok_act, ab.remaining_seconds()])
+	ab.toggle(ldr)
+	_check("充能制：激活中再按 → 关闭", not ab.is_active(), "active=%s" % ab.is_active())
 	ldr.free()
 
 	var ac := _make_test_aircraft()
@@ -165,7 +169,7 @@ func _test_t3_hooks() -> void:
 	SkillHooks.dispatch_on_kill(killer, victim)
 	_check("QAAM 嗜血：格斗弹击杀 → BLOODLUST",
 		killer.status_effects.has(StatusEffects.BLOODLUST), "")
-	_check("适应：低位击杀 → 充能 +3", is_equal_approx(ab2.charge, 3.0), "got %.1f" % ab2.charge)
+	_check("适应：低位击杀 → 充能 +0.6", is_equal_approx(ab2.charge, 0.6), "got %.1f" % ab2.charge)
 	victim.altitude = 9000.0
 	killer.hp = 50.0
 	SkillHooks.dispatch_on_kill(killer, victim)

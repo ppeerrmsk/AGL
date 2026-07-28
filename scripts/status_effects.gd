@@ -92,15 +92,24 @@ static func short_label(id: String) -> String:
 	return id
 
 # ── 主循环 ───────────────────────────────────────────────
+## 722 sig_x13·全频段压制（队级账本位，survivor_mode._refresh_squad_effective_stacks 同步）：
+## 被锁定的敌单位身上的负面状态（FEAR/JAM/SLOW）倒计时流速 ×0.6
+static var sig_x13_active: bool = false
+
 ## 通用入口：任何 CombatUnit 子类（地面单位 / 船 / 巨型 BOSS）都可以调。
 ## 只做两件事：① 倒计时 + 自动移除；② 写 status_jam_active（唯一对所有单位生效的标记）。
 ## 其它派生状态全是 Aircraft 专属（INVINCIBLE/STEALTH/BLOODLUST/OVERLOAD/SLOW/FEAR），
 ## 由 update_aircraft 在调完本函数后再算 + 应用副作用。
 static func tick(unit: CombatUnit, delta: float) -> void:
 	if not unit.status_effects.is_empty():
+		var x13_suppress: bool = sig_x13_active \
+			and unit.team == CombatUnit.TEAM_HOSTILE and unit.is_locked
 		var to_remove: Array[String] = []
 		for id in unit.status_effects.keys():
-			var remaining: float = float(unit.status_effects[id]) - delta
+			var eff_delta: float = delta
+			if x13_suppress and (id == FEAR or id == JAM or id == SLOW):
+				eff_delta = delta * 0.6
+			var remaining: float = float(unit.status_effects[id]) - eff_delta
 			if remaining <= 0.0:
 				to_remove.append(id)
 			else:

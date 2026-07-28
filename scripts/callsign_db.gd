@@ -6,10 +6,15 @@ class_name CallsignDB
 
 # ── 已使用的代号集合（局内去重）──
 static var _used: Dictionary = {}  # callsign -> true
+## 永久保留区（王牌中队固定呼号，spec ace-squadron-tier §2.7）：
+## reset 后仍占用、recycle 不放行 —— 名字属于角色，不属于尸体
+static var _permanent: Dictionary = {}  # callsign -> true
 
-## 重置（重启/返回主菜单时调用）
+## 重置（重启/返回主菜单时调用）。永久保留区不清，随手重新占位
 static func reset() -> void:
 	_used.clear()
+	for cs in _permanent:
+		_used[cs] = true
 
 ## 分配一个随机不重复的代号
 static func allocate() -> String:
@@ -28,13 +33,23 @@ static func allocate() -> String:
 	# 全部用完，返回带编号的
 	return "Unit%03d" % _used.size()
 
-## 回收代号（单位死亡时调用，允许后续复用）
+## 回收代号（单位死亡时调用，允许后续复用）。永久保留的王牌呼号不放行
 static func recycle(cs: String) -> void:
+	if _permanent.has(cs):
+		return
 	_used.erase(cs)
 
 ## 标记某个代号为已使用（固定代号场景）
 static func reserve(cs: String) -> void:
 	_used[cs] = true
+
+## 永久保留（王牌中队固定呼号）：占用 + 免 recycle + 免 reset。幂等
+static func reserve_permanent(cs: String) -> void:
+	_permanent[cs] = true
+	_used[cs] = true
+
+static func is_permanent(cs: String) -> bool:
+	return _permanent.has(cs)
 
 # ── 800 个代号 ──
 const CALLSIGNS: PackedStringArray = [

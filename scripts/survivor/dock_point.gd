@@ -14,6 +14,7 @@ signal docked(dock: DockPoint)
 const LAND_SPEED_FLOOR_KMH := 300.0  ## 着陆阈值地板（km/h）
 const LAND_STALL_MULT := 1.3         ## 阈值 = max(地板, 本机失速基数 × 此系数)
 const HOLD_SEC := 1.0                ## 达标须持续时间（秒）
+const HOLD_DECAY_MULT := 2.0         ## 超阈时进度衰减速率（×累积，2026-07-24 容错：不清零防 G 抖动打回原点）
 const REARM_LEAVE_MULT := 1.15       ## 重新武装需离开的半径倍数
 
 @export var radius: float = 600.0
@@ -25,6 +26,10 @@ var player: Aircraft = null        ## 兜底/手动注入（mode 为空时用）
 var _hold: float = 0.0
 var _player_inside: bool = false
 var _armed: bool = true
+## 一次性机场（spec zone-reward-docking §2.2 修订）：airfield 停靠一次即失效——
+## 标记消失（主图/Tab 都不再画）+ 不再判定停靠。carrier 不置 spent（走自己的限 2 次登舰机制）。
+## 机场的 ALLY 防空驻军（_spawn_airfield_garrison 独立实体）不受影响，原地保留。
+var _spent: bool = false
 
 # ── 视觉 ──
 const RING_COLOR := Color(0.45, 0.90, 0.78, 0.55)       ## 友军青绿
@@ -37,7 +42,20 @@ func _ready() -> void:
 	z_index = 40  # 地形之上、飞机之下
 	add_to_group("dock_points")
 
+## 机场用尽：停靠一次后由 survivor_mode._on_dock_docked 调用。
+## 立即清空主图标记（之后 _draw 早返回不再绘制），停判定。
+func mark_spent() -> void:
+	_spent = true
+	_player_inside = false
+	_hold = 0.0
+	queue_redraw()
+
+func is_spent() -> bool:
+	return _spent
+
 func _process(delta: float) -> void:
+	if _spent:
+		return
 	var pl: Aircraft = player
 	if mode and "player_aircraft" in mode and mode.player_aircraft:
 		pl = mode.player_aircraft
@@ -58,8 +76,12 @@ func _process(delta: float) -> void:
 			_armed = true
 		return
 	# 圈内：速度判定 + 停靠倒计时（单节点圈内每帧重绘，成本可忽略）
-	var speed_kmh: float = player.speed * 3.6
-	if _armed and speed_kmh <= _land_threshold_kmh(pl):
+	# g 中和（2026-07-24 修订）：飞机转弯拉 G 时物理最低速被抬到角点速度（500~790km/h），
+	# 用绝对 300 判定则绕圈永远够不到（旧 bug：明明写 300、到了 300 却不触发）。改比"是否已减到
+	# 本机当前 G 下的最低速"——实测速度除以 g^0.4 折回 1G 当量再比阈值（物理最低速 = stall_base×g^0.4×1.05，
+	# 除掉 g^0.4 后直线/绕圈的"减到底"都映射回同一 ~231 当量）。1G 直飞时 g^0.4=1，行为与旧实现一致。
+	var eff_speed_kmh: float = _dock_speed_kmh(pl)
+	if _armed and eff_speed_kmh <= _land_threshold_kmh(pl):
 		_hold += delta
 		queue_redraw()
 		# 地勤优化（720 批）：停靠判定耗时减半
@@ -72,11 +94,14 @@ func _process(delta: float) -> void:
 			EventLogger.log_event("DOCK", "Docked", "%s kind=%s" % [display_name_key, dock_kind])
 			docked.emit(self)
 	else:
+		# 容错：不清零、改快速衰减——防绕圈时瞬时 G 抖动把进度环打回原点
 		if _hold > 0.0:
+			_hold = maxf(_hold - delta * HOLD_DECAY_MULT, 0.0)
 			queue_redraw()
-		_hold = 0.0
 
 func _draw() -> void:
+	if _spent:
+		return  # 一次性机场用尽 → 标记消失
 	var ring_col := RING_COLOR_ACTIVE if _player_inside else RING_COLOR
 	# 虚线停靠圈（32 段取半）
 	var segs := 32
@@ -118,3 +143,12 @@ func _land_threshold_kmh(pl: Aircraft) -> float:
 	if pl and is_instance_valid(pl) and pl.params:
 		return maxf(LAND_SPEED_FLOOR_KMH, pl.params.stall_speed_base * LAND_STALL_MULT)
 	return LAND_SPEED_FLOOR_KMH
+
+## 停靠判定用的 g 中和速度（km/h）：实测速度 ÷ g^0.4，折回 1G 当量。
+## 飞机转弯时物理最低速随 G 抬升（= stall_base × g^0.4 × 1.05，见 aircraft_physics.update_speed），
+## 除以 g^0.4 后恰好把"已减到当前 G 最低速"的状态映射回 1G 最低速当量（≈231），
+## 使直线进近与绕圈进近都能在减速到底时触发停靠（2026-07-24 放宽判定容错，用户拍板）。
+func _dock_speed_kmh(pl: Aircraft) -> float:
+	var raw := pl.speed * 3.6
+	var g := maxf(pl.g_load, 1.0)
+	return raw / pow(g, 0.4)

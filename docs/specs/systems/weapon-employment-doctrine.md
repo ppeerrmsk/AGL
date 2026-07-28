@@ -36,7 +36,7 @@
 
 | 武器 | 距离带来源（动态，m） | 命中率优先级 | 瞄准纪律（提前点偏机头锥角） | 前置条件 | 机动含义（intent 倾向） |
 |---|---|---|---|---|---|
-| 电磁炮 railgun | `min_engage_range_m` ~ 本机 `radar_range`（已是动态设计） | **100（必中，最高）** | **±3°**（直线 hitscan 最苛刻）；充能全程维持 + 持续追踪航点 | 冷却就绪 | LINE_UP：平直对准提前点，bank ≤ ~30°，甩头中断充能 |
+| 电磁炮 railgun | `min_engage_range_m` ~ 本机 `radar_range`（已是动态设计；玩家 X-02=1200m） | **100（必中，最高）** | **±5°**（直线 hitscan 最苛刻）；充能全程维持 + 持续追踪航点 | 冷却就绪 | LINE_UP 两相：偏轴猛拧对准（bank 55°+角点速）→ 对准后稳定放电（bank 30°+巡航），甩头中断充能 |
 | 主导弹 missile | `missile.min_range` ~ `missile.max_range`（锁定距离升级即时反映） | 70（可被 flare/机动躲） | 宽松：雷达锁即可，crank ≤ crank_deg | 雷达锁定完成 + 弹药 | LEAD_PURSUIT/crank 几何（现行为不变） |
 | 机炮 gun | 60 ~ `gun.max_range` | 50 | ±`fire_cone_half_angle`（已实装锥门） | 弹药 | CLOSE_TAIL 咬尾（现行为不变）；近带唯一候选 = "近距固定机炮"（1e） |
 | 火箭弹 rocket | `rocket.min_fire_range` ~ `rocket.max_fire_range` | 40（无制导最低） | ±8°（需对准路径点） | 弹药 + 冷却 | TAIL_CHASE 直线逼近段顺势齐射 |
@@ -103,9 +103,25 @@ TacticalPlan{weapon_mode, allow_*_fire} → _apply_tactical_plan（统一提前�
 
 - 进入：主武器竞选出 railgun 且冷却就绪。
 - 行为：pursuit_pos = **目标提前点（持续追踪，每 tick 更新）**——充能期间不是冻结
-  航向，而是持续小幅修正机头跟住敌机的航点；target_speed = 巡航（稳定射击平台）；
-  bank 上限收紧（≤ ~30°）；heading 变化率超阈值 → 中断充能（防"充能中甩头白费冷却"
-  ——小幅跟踪修正在阈值内，不触发中断）。
+  航向，而是持续小幅修正机头跟住敌机的航点。**两相对准**（2026-07-24 修订 + fable 评审收紧，见下）：
+  - **对准相**（机头偏目标 `heading_diff > 4°`，即火控锥 ±5° 内 1° 之外）：bank 上限放到
+    **65°** + target_speed 降到**角点速**（最大转向率）→ 主动把机头猛拧向目标。这是"电磁炮当
+    主武器就该优先对准敌人"的**优先级**修正，不是放宽火控锥。猛拧相一路把机头送进 ±5° 锥
+    （起充在 ≤5° 仍属对准相，此时 ω≈6°/s ≪ 25°/s 不会中断）。
+  - **稳定相**（`heading_diff ≤ 4°`，机头已基本对正）：收回 **30°** bank + **巡航速**当稳定射击
+    平台完成放电。
+  - **边界为何 4°（< 火控锥 5°）**：若边界 ≥ 锥（原写 8°），则 5°~边界这段落进稳定相的弱转向
+    （30° bank ~1°/s），横穿目标永远切不进锥 = 死区（fable 评审）。必须让猛拧相覆盖到锥内。
+  - heading 变化率超阈值 → 中断充能（防"充能中甩头白费冷却"；稳定相的小幅跟踪修正在阈值内）。
+  - **修订缘由 + 闭环实证**：原恒 30° bank + 巡航速转向率仅 ~1°/s，机头偏 15° 要 ~11s 才对上、
+    几何早漂走 → **充能永远起不来**（用户实测：Tu-160 盯 9.7s 零充能，看似"宁等导弹 CD 也不用
+    电磁炮"，实为 ±5° 火控锥每帧静默失败）。修后闭环 sim（`test_weapon_doctrine` 端到端）：
+    15° 偏轴 3.2s 起充开火、7° 偏轴 1.9s，0 甩头中断，峰值 6.6°/s。
+  - **⚠ cap_frac 耦合坑**：railgun 竞选胜出时 `_apply_combat_weapon` 置 `weapon_mode=MISSILE`，
+    使 `compute_target_bank` 走导弹 crank 档 `cap_frac=0.35`——坡度砍到 1/3（65°→23°），猛拧相
+    形同虚设。**例外**：`use_tactical_preference`（玩家机）→ aggressive_ok → cap_frac=1.0。
+    ∴ 玩家电磁炮能对准**依赖** use_tactical_preference=true；非 preference 机（敌 AF-03 / 玩家
+    僚机带电磁炮）仍走慢转档，目前刻意保守。见 known-seams「railgun-bank-cap」。
 - **射空可接受**（用户定稿 2b）：不因目标临近出带而抑制发射——按当前提前点打，
   脱靶认了（有 MISSILE 脱靶同款日志归因即可）。
 - 退出：发射完成 / 目标出带 / 被迫规避（EVADE 优先级高于一切武器纪律——保命第一，
@@ -123,7 +139,11 @@ TacticalPlan{weapon_mode, allow_*_fire} → _apply_tactical_plan（统一提前�
 
 - [ ] 无头测试 `--bench=weapon_doctrine`：距离 6000/2500/900/300m 四档 × 满装备机，
   断言竞选结果 = railgun/railgun 或 missile/missile/gun；滞回防抖（边界往返不换武器）。
-- [ ] 电磁炮机充能期间 bank ≤ 30°、heading 甩头中断充能（无"边急转边充能"）。
+- [x] 电磁炮机**对准后**（稳定相）充能期间 bank ≤ 30°、heading 甩头中断充能（无"边急转边充能"）；
+  **对准前**（偏轴 >4°）用 65° bank + 角点速主动拧机头，能在几何漂走前把机头切进 ±5° 火控锥。
+  闭环 sim（`test_weapon_doctrine` 端到端，use_tactical_preference=true 代表玩家机）：15° 偏轴
+  3.2s 起充开火、7° 偏轴 1.9s（死区回归）、0 甩头中断、峰值 6.6°/s < 25°/s；plan 快照：偏轴
+  坡度=65°/角点速、正前坡度=30°/巡航速。
 - [ ] GUN_AIM 日志开火时 aim_vs_tgt ≈ 0 恒成立（全武器）。
 - [ ] 生存模式 playtest：满装备僚机行为可读——远距先电磁炮、进带切导弹、贴脸机炮。
 - [ ] 现有 12 项回归门全绿（尤其 bfm_intent 89 case 与 weapon 7 case）。
@@ -201,6 +221,7 @@ bench + playtest + §7 锚点回填 + survivor-skills/enemy-index 相关行同�
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-07-24 | 8 | **LINE_UP 两相对准 + 玩家 X-02 min_engage 降 1200m**（用户实测两局：电磁炮从不开火）。真因：恒 30° bank + 巡航速转向率仅 ~1°/s，机头切不进 ±5° 火控锥 → 充能每帧静默失败，看似"宁等导弹 CD"。修法（用户定稿：**优先级**问题，非火控锥太小）：`line_up` 按 `heading_diff_to_target_deg` 分两相——偏轴 >4° 用 65° bank + 角点速主动猛拧对准，≤4° 收回 30° bank + 巡航速稳定放电。X-02 `min_engage_range_m` 2000→1200。**fable 评审 + 闭环 sim 修正**：①相位边界 8°→4°（原 8° > 5° 锥 → 5~8° 弱转向死区）；②bank 55°→65°（55° 仅 ~2.5°/s 太保守）；③加端到端闭环 sim（原 3 条只验 plan 字段快照，漏掉"到底打不打得出来"）——sim 揪出真正的坡度杀手是 `weapon_mode=MISSILE` 触发 cap_frac=0.35（玩家靠 use_tactical_preference 绕过，记 known-seams「railgun-bank-cap」）。验收：15° 3.2s 起充、7° 1.9s、0 中断、峰值 6.6°/s；weapon_doctrine 34 断言 + bfm_intent 104 + slow_air 14 全绿。待用户 playtest。 |
 | 2026-07-04 | 1 | 初稿（draft）：现状摸底 + 包络/纪律表 + 竞选规则 + LINE_UP intent 设计。待用户定稿。 |
 | 2026-07-04 | 2 | **用户定稿（approved）**：①距离带改为动态数值（实时读装备 live params，升级即时生效）；②重叠区竞选从"射程上界优先"改为**命中率优先**（电磁炮必中 > 导弹 > 机炮 > 火箭），电磁炮最近射程使近距自然归机炮；③充能期间持续追踪敌机航点（非冻结），射空可接受；④阵营分级：瞄准纪律同一套，难度差异全放执行层（敌机节流/误差）；⑤兜底改"维持追击 + 按导弹纪律 crank 等待 CD"。 |
 | 2026-07-05 | 4 | 阶段 3 落地：LINE_UP intent（竞选驱动、bank_limit_deg 双侧镜像钳制、boom-zoom 之前插枝）+ 电磁炮充能 planner 门 + 甩头中断（25°/s，取消不进 CD）+ AF-03 摘旗迁 planner + 统一提前点 lead_heading 上移。weapon_doctrine 26 断言 + 回归门 13 项全绿。剩阶段 4 playtest。 |

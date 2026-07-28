@@ -20,15 +20,16 @@ const CIWS_ACQUIRE_INTERVAL: float = 0.15
 const CIWS_INTERCEPT_RANGE_PX: float = 1400.0    ## CIWS 拦截导弹射程
 const CIWS_TRACER_RANGE_PX: float = 1000.0       ## CIWS 对空扫射射程
 const CIWS_FIRE_INTERVAL: float = 0.030          ## 视觉射速：~33 Hz 连射（接近真 Phalanx）
-const CIWS_REAL_BULLET_CYCLE: int = 3            ## 每 3 发里 1 发真弹（有效伤害射速 ~11 Hz）
+const CIWS_REAL_BULLET_CYCLE: int = 2            ## 每 2 发里 1 发真弹（有效伤害射速 ~16.7 Hz）
 const CIWS_BULLET_SPEED_MS: float = 900.0        ## 子弹初速
 const CIWS_ENGAGE_COOLDOWN: float = 0.6          ## 导弹拦截结束后冷却
 
 # 拦截导弹参数
 # 目标平衡：玩家连发两枚时 CIWS 只拦得住第一发，第二发穿防
-#   60HP 导弹 × 约 3.2Hz 真弹 × ~15% 命中率 × 10HP ≈ 4.8HP/sec
-#   → 单发拦截要 ~12 秒才能打完（导弹飞完全程只需 ~4 秒，所以单发也经常漏）
-#   → 需要 CIWS 在导弹很近时才真正能打中，观感："拦不下来，但一直在试"
+#   2026-07-28：真弹周期 3→2，有效拦截 DPS ×1.5，让 CIWS 从"几乎拦不住"抬到"能吃掉第一发"
+#   60HP 导弹需 6 发真弹命中；命中率受 ±5° 散布 + 12px 命中半径 + 距离衰减
+#   （bullet_manager 的 800/550 factor，≥800px 完全无伤）三重压制
+#   → 观感仍是"近了才拦得下"，而不是远距无脑清空来袭弹
 const CIWS_MISSILE_SPREAD_DEG: float = 5.0       ## 锁定导弹时 ±5° 散布
 const CIWS_DAMAGE_PER_BULLET: float = 10.0       ## 每发真弹命中导弹 10 HP
 
@@ -55,6 +56,9 @@ static func update(nu: NavalUnit, delta: float) -> void:
 	if nu.status_jam_active:
 		return
 
+	# 性能埋点（此前舰船火控全无 PerfBuckets 覆盖）：全挂点武器更新耗时，
+	# 12 艘舰每帧各累加一次到同一桶 → per_frame = 整支舰队火控总开销
+	var _t0 := Time.get_ticks_usec()
 	for m in nu.mounts:
 		if m.destroyed or m.params == null:
 			continue
@@ -67,6 +71,7 @@ static func update(nu: NavalUnit, delta: float) -> void:
 				_update_vls_salvo(nu, m, delta)
 			WeaponMountParams.WeaponType.NAVAL_AA:
 				_update_naval_aa(nu, m, delta)
+	PerfBuckets.tick("naval_weapons", Time.get_ticks_usec() - _t0)
 
 # ==================================================
 #  CIWS — 双模式（导弹拦截优先 / 对空扫射兜底）
@@ -105,10 +110,14 @@ static func _update_ciws(nu: NavalUnit, mount: WeaponMount, _delta: float) -> vo
 				2:
 					_ciws_fire_single(nu, mount, cached.global_position, CIWS_TRACER_SPREAD_DEG, CIWS_TRACER_DAMAGE, false)
 			return
-		# 缓存的飞机目标失效 → 让本帧落到下方完整扫描分支去刷新（清掉 cooldown）
+		# 缓存的飞机目标失效 → 清缓存并结束本帧。
+		# ⚠ 不再在此清零 acquire_cooldown：原来无条件清零会让"没有任何目标"的空闲 CIWS
+		#    每帧都落到下方完整扫描（_find_aircraft_in_range + _find_player_in_ciws_range
+		#    两次 all_units 全扫），38 挂点同时空转 = 数千次/帧无谓遍历（航母群登场即触发）。
+		#    改为尊重 cooldown：重新捕获延迟 ≤ CIWS_ACQUIRE_INTERVAL(0.15s)，对 CIWS 无感。
 		mount.cached_aircraft_target = null
 		mount.cached_aircraft_kind = 0
-		mount.acquire_cooldown = 0.0
+		return
 
 	# ── 完整扫描路径（acquire_cooldown == 0）──
 	# 重置缓存，下面分支会按需写回

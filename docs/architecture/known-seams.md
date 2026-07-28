@@ -218,14 +218,14 @@ BOSS 只识别 JAM，其它状态仅对 Aircraft 生效"。但 NavalUnit 实现�
 三处：`max_climb` / `gain` / `smooth_rate`。其中 `max_climb` 被放大到 500+ m/s 后，PE↔KE
 公式 `gravity_effect = GRAVITY · vs / spd · PE_KE_BOOST(2.5)` 反向抽 spd，每秒 ≈ 110 m/s
 速度损失，加力推力（≈ 17 m/s²）完全顶不住。
-[scripts/aircraft/aircraft_physics.gd:325 update_altitude](../../scripts/aircraft/aircraft_physics.gd:315)
-× [scripts/aircraft/aircraft_physics.gd:317 gravity_effect](../../scripts/aircraft/aircraft_physics.gd:307)
+[scripts/aircraft/aircraft_physics.gd:336 update_altitude](../../scripts/aircraft/aircraft_physics.gd:336)
+× [scripts/aircraft/aircraft_physics.gd:328 gravity_effect](../../scripts/aircraft/aircraft_physics.gd:328)
 两段都涉及 vs，缺一个出血点。
 
 **踩到次数**：2（这次 + 用户记忆中至少一次同样症状）
 
 **解法**（2026-05-12）：在 [aircraft_physics.gd:322](../../scripts/aircraft/aircraft_physics.gd:322)
-和 [aircraft_physics.gd:1341 step_altitude](../../scripts/aircraft/aircraft_physics.gd:1318)
+和 [aircraft_physics.gd:1368 step_altitude](../../scripts/aircraft/aircraft_physics.gd:1318)
 两处把 `max_climb` 改为 `base_climb * minf(alt_mult, 1.3)`。`gain` / `smooth_rate` 仍由
 `alt_mult` 全幅放大（响应度保留），物理顶速最多 +30%（PE↔KE 损耗回到可承受档）。
 
@@ -567,6 +567,110 @@ BOSS 混战里这是常态而非边缘情况。`_pending_attacker` meta 同理�
 误报率会高到没人看。这条靠的是 code review 时的模式识别，不是自动化。
 
 **踩到次数**：1
+
+## SEAM-021 · "玩家显式命令"在移动层是铁律，在武器发射层却没有代表权
+
+**耦合点**：`commanded_target`（玩家点名的攻击命令）被 AI **移动/交战路由**当铁律死咬
+（`ai_controller._enforce_commanded_target` 绕过评分强制 ENGAGE），但**导弹发射选择**
+（`aircraft_weapons._fire_multi_lock_salvo`）**完全不读它**——salvo 扫全部 `radar_targets`
+自主选目标，命令目标只在最后按距离排序时"提到队首"，且必须先过 6 道过滤（LOCK / OFF_CONE /
+ENVELOPE / TEAM_OVERKILL / GUN_ACTIVE / UNSTABLE_WIN）才有资格进名单。
+
+**为什么绊倒 fix**：直觉认为"命令铁律已经保证了打命令目标"——只在移动层成立。武器层是**另一套
+独立的目标选择**，两套各写各的。加任何"纪律/防浪费"过滤门（如 2026-07 的 UNSTABLE_WIN
+发射窗口质量门、TEAM_OVERKILL 超杀记账）都是**全局无差别**生效，没有给"玩家显式意图"留豁免，
+于是命令目标被这些门踢出候选后，salvo 转头把弹发给幸存名单里的其他目标。
+
+**根因场景**：对地攻击的动作（压坡度 + 冲近 + 大 off-axis）恰好触满这几道门 →
+命令的地面目标被踢出；而屏幕外迎头飞来的敌机（正前方 ±5°、平飞、锁满、超 min_range、高 hp）
+反成唯一合法候选。"按距离排序打近的"排的是**幸存者**里最近的，玩家面前的目标根本没进名单。
+
+**实证（2026-07-23，log combat_log_20260723_004212）**：玩家命令打地面 RADAR/SAM 期间，
+`[Ultra]` 522–528s 四发 MRM 全打 11–12.6km 外的 AAA/F-104/F-4；同期 `[SALVO_SKIP]`
+显示近敌 `LOCK×11` / `LOCK×15` / `UNSTABLE_WIN×6` 被过滤门筛光。用户观感=
+"命令打面前目标却熟视无睹，自动发弹打屏幕外敌机"。
+
+**现状（2026-07-23 已修，最小侵入）**：`_fire_multi_lock_salvo` 顶部加"命令收窄门"——
+`commanded_target` 存活时候选池只保留它一个，打不到就这一帧不发（留弹），绝不散射。
+命令目标自己被过滤门挡下 → salvo 空手，（单锁机型）落到单发路径同样只打 `combat_target`
+(==commanded) 同样被挡 → 净结果=不发不散。语义边界：只作用于**显式命令**，无命令时的
+RTS auto-fire 散射不变（SPREAD 分火/巡航/集合都置 `commanded_target=null`，本门天然不触发）。
+
+**未修的同类隐患**（本条只堵了 salvo 散射，过滤门本身对命令目标仍是硬门）：
+- 命令目标被 `UNSTABLE_WIN` / `TEAM_OVERKILL`(按满血 hp 记账) 挡下 → 仍是"这一帧不发"，
+  近距对地攻击可能长时间发不出弹（现状=让位机炮，但玩家可能预期导弹）。
+- `GROUND_STRAFE` 相位机武器竞选选 gun 时 `weapon_mode=GUN`，导弹通道整段关闭（log 里
+  378–393s 连续 8 次 `WEAPON_MODE mode=1` 静默）。
+- 放宽这些门对命令目标的判定 = 动 [weapon-employment-doctrine] / [rts-command] 定稿，
+  按 spec-first 需先补 spec，未做。
+
+**约束**：新增任何"武器发射选择 / 防浪费过滤"逻辑时，先问"玩家显式命令（commanded_target）
+是否应豁免这道门"。武器层与移动层是两套独立的目标选择，别假设移动层的铁律会自动传导到发射层。
+
+**踩到次数**：1
+
+## SEAM-022 · railgun-bank-cap：`weapon_mode=MISSILE` 把电磁炮 LINE_UP 坡度砍到 35%，靠一个无关的玩家标志才绕过
+
+**耦合点**：`bfm_intent._apply_combat_weapon` 里 railgun 竞选胜出时置 `p.weapon_mode = MISSILE`
+（阶段 2 遗留的 crank 保锁写法）。`compute_target_bank` 见 `weapon_mode==MISSILE` 且非"激进档"
+就把坡度上限乘 `cap_frac=0.35`（SEAM-018 同一个乘数）。于是 LINE_UP 猛拧相声明的 65° 坡度
+实际只剩 **23°** → 转向率 ~1.3°/s → 机头永远够不进 ±5° 火控锥 → 充能每帧静默失败。
+
+**为什么绊倒 fix**：改 `line_up` 的 bank_limit_deg（30→65）在 plan 快照层看完全生效，纯几何
+单测也全绿——但 `cap_frac` 在 `compute_target_bank` 内部二次砍坡，plan 层完全看不到。
+只有**裸物理步进闭环 sim**（驱动 planner→物理→railgun 状态机）才暴露"bank 卡 23°、tr 1.3°/s、
+9.7s 打不出"。**教训**：坡度/转弯权限类改动**必须**配闭环 sim 断言，plan 字段快照会骗人
+（fable 评审 2026-07-24 独立指出"3 条断言只验字段没碰闭环"）。
+
+**唯一绕过路径**：`use_tactical_preference`（玩家机）→ `aggressive_ok=true` → `cap_frac=1.0`。
+∴ **玩家电磁炮能对准纯属"恰好玩家有 preference 标志"**——而该标志语义是"玩家有战术偏好面板 +
+机炮瞄准误差"，与电磁炮转弯权限毫无关系。非 preference 的电磁炮机（敌 AF-03 / 玩家僚机带
+电磁炮）仍卡 35% 慢转档。
+
+**实证（2026-07-24，闭环 sim `test_weapon_doctrine` 端到端）**：preference=false → bank 卡 23°、
+15° 偏轴 8s 打不出；preference=true → bank 65°、3.2s 起充开火。
+
+**现状（2026-07-24 未修，仅文档 + 依赖绕过）**：玩家路径已验证可用（走 preference 绕过），
+故只加注释 + 本条 seam，未动 `weapon_mode=MISSILE`（改 GUN 会连带敌 AF-03 变准 + 触动
+auto-fire/HUD 通道，超出"修玩家电磁炮"范围）。**根治**（若日后僚机带电磁炮成常态 / 想去掉对
+preference 的隐性依赖）：railgun LINE_UP 不该复用导弹 crank 的 weapon_mode，应有独立"直射对准"
+语义让 cap_frac=1.0 对所有阵营生效——属 [weapon-employment-doctrine] 定稿改动，spec-first 先补。
+
+**约束**：新增"按武器模式/交战阶段调机动权限"的旋钮时，先查它会不会被 `cap_frac` 二次砍；
+且**必须**配闭环 sim 验证，别只信 plan 快照。与 SEAM-018 同族（cap_frac 前提"该模式下机头已对准"
+在慢转/横切目标上不成立）。
+
+**踩到次数**：1（与 SEAM-018 同一乘数的第 2 种触发形式）
+
+## SEAM-023 · planner 追踪几何与武器发射门数值耦合但互不知情 → "无声拒发"反复复发
+
+**症状**：飞机看起来在正常执行攻击战术（锁定、绕target、保持包络），但导弹/机炮一发不出，
+无任何 UI 反馈，只有 EventLogger `MSL_BLOCK` 能看出被门拒。同一类病已独立复发 **3 次**：
+1. 慢速空目标（直升机）：交会点引导常驻前置偏置 → 锁攒满但机头卡在发射门外（slow-air spec 修）；
+2. 慢速空目标机炮跑：交会点 vs 机炮解 10° 稳态偏差 → 机炮锥永不开门（slow-air spec 修）；
+3. **地面/舰船 STANDOFF（2026-07-26，log 20260726_165536）**：crank 稳态离轴
+   `radar_half×0.5` 恰在发射窗质量门（`×0.5(SARH)/0.55(f&f)`）外沿 → UNSTABLE_WIN 永拒；
+   同批还撞出包络"高度差>5000m"门被 STANDOFF MID 学说高度恒触（面目标已豁免）。
+
+**耦合点**：追踪点几何住 `bfm_intent`（crank/交会点/机炮解），发射门住
+`aircraft_weapons._has_stable_launch_window`（离轴 `radar_half×0.5/0.55`）+
+`aircraft_combat_tracking.is_in_missile_envelope`（距离/TAA/高度差）。两层各自演化、
+无共享常量：planner 让机头停在哪里，与武器层"机头必须在哪里才肯开火"没有任何编译期/测试期约束。
+**行为验收若只断言运动几何（保距/相位/收敛），武器层门永远不在环内 → bug 全绿穿过验收**。
+
+**踩到次数**：3
+
+**解法状态**（模式已成文，2026-07-26）：
+- 引导点原则：**终端段（意图开火的相位）必须让机头稳态收敛进发射门**——静止/慢速目标直接
+  纯追踪瞄目标本体（LOS 零/低旋转，离轴→0）；crank/F-Pole 这类"故意离轴"几何只允许在
+  **发射后**（fpole_hold）或**明确不打算开火**的相位使用。
+- 验收原则：任何攻击类战术的行为 sim **必须带"真出弹"断言**（复刻发射门序列：
+  包络→锥→锁→发射窗质量+冷却），范本 `test_surface_pass.gd _launch_gate_open`。
+- 未根治的残留：`_missile_engage_pos` 的空对空 crank 上限仍 = SARH 发射门（`radar_half×0.5`
+  两者相等），空战靠目标机动让 LOS 摆过零点才有发射窗——对空若再出"锁着不发射"，先查这里。
+
+**约束**：新增/修改任何"武器就绪期的追踪点"几何时，先对照发射门数值算稳态离轴；
+配套 sim 必须含出弹断言，别只信运动几何全绿。
 
 ## 维护约定
 

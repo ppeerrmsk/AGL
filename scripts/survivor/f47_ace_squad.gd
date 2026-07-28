@@ -1,11 +1,18 @@
-## F-47 王牌狙击小队
+## F-47 王牌狙击小队（WRAITH 中队）
 ## 继承 AceSquad 基类，定义 F-47 特有的配置和行为：
-## - 赫尔贝特轮 J-Turn 机动
 ## - 光学隐形
 ## - 协同齐射
-## - 近距狗斗 / 远距导弹打击的二二组合战术参数
+## - KNIGHT×2 / SNIPER×2 的二二角色分工（基类 _apply_role 落地）
+## - **队级战术状态机** PERCH→BRACKET→PRESS→RESET（spec bosses/wraith-squadron §2.3）
+##
+## 战术状态机住在独立模块 [wraith_tactics.gd]，本类只做持有与转发 ——
+## 按 spec §4 的决定，它是 **Wraith 专属窄井**，不下沉为通用小队战术模块。
+## 若将来出现第二个需要同款编排的王牌中队，再考虑抽取。
 class_name F47AceSquad
 extends AceSquad
+
+## 队级战术状态机（PURSUIT 之内运转；tier 层只管是否交战/是否隐形）
+var tactics: WraithTactics = null
 
 func _init() -> void:
 	squad_size = SurvivorData.F47_SQUAD_SIZE
@@ -35,6 +42,24 @@ func _configure_spawn(_member: Aircraft, index: int, _squad: Squad, ai: AIContro
 	# 队长指挥齐射
 	if index == 0 and ai:
 		ai.salvo_leader = true
+
+# ══════════════════════════════════════════════
+#  队级战术层（基类钩子实现）
+# ══════════════════════════════════════════════
+
+func _tactics_enter() -> void:
+	if tactics == null:
+		tactics = WraithTactics.new()
+		tactics.setup(self)
+	tactics.start()
+
+func _tactics_update(delta: float) -> void:
+	if tactics != null:
+		tactics.update(delta)
+
+func _tactics_exit() -> void:
+	if tactics != null:
+		tactics.stop()
 
 ## 近距纠缠组：最大 G 力转弯 + 减速拉到最紧
 func _configure_close_fighter_combat(member: Aircraft) -> void:

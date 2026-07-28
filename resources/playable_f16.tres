@@ -1,10 +1,8 @@
-[gd_resource type="Resource" script_class="PlayableAircraft" load_steps=5 format=3]
+[gd_resource type="Resource" script_class="PlayableAircraft" load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://scripts/playable_aircraft.gd" id="1"]
 [ext_resource type="Resource" path="res://resources/player/player_f16.tres" id="2"]
 [ext_resource type="Resource" path="res://resources/playable_f16_combat.tres" id="3"]
-[ext_resource type="Resource" path="res://resources/playable_f16_flare.tres" id="4"]
-
 [resource]
 script = ExtResource("1")
 id = &"f16"
@@ -19,7 +17,6 @@ gun_range_override = 800.0
 gun_cone_override = 8.0
 base_pilot_aim_skill = 0.6
 combat_override = ExtResource("3")
-flare_override = ExtResource("4")
 flares_guaranteed = true
 enable_missile_reload = true
 enable_flare_reload = true

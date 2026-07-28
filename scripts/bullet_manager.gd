@@ -19,6 +19,17 @@ var flat_altitude_mode: bool = false       ## 扁平高度模式：跳过高度�
 ## 弹丸数据：{ pos: Vector2, vel: Vector2, owner: CombatUnit, damage: float, life: float }
 var _bullets: Array[Dictionary] = []
 
+## 装饰弹软上限（②，2026-07-24 航母群掉帧修复）：
+## 到达上限后**只拒绝新的 visual_only 装饰弹**，真弹 / 火箭永远照常生成（不影响平衡与命中）。
+## 装饰弹占 CIWS 出弹的 2/3，封住它就封住了弹幕洪峰；真弹本就受 1/3 射速 + 2s 寿命自然限量。
+const MAX_BULLETS: int = 1200
+
+## 命中广相网格（③）：把命中循环从"每弹扫全场"降到"每弹扫 3×3 邻格 + 少量大单位"。
+## 详见 scripts/util/unit_grid.gd。GRID_CELL_SIZE 必须 >= 最大小单位命中半径（当前 friendly 20px）。
+const GRID_CELL_SIZE: float = 256.0
+var _unit_grid: UnitGrid = UnitGrid.new()
+var _grid_buf: Array = []   ## 命中循环复用的候选缓冲（大单位 + 邻格小单位），每弹 clear 后重填
+
 ## 空中漂浮雷（独立数组，不污染子弹热路径）
 ## 数据结构：{ pos, drift_vel_px, source, source_team, params, target_id,
 ##            retarget_timer, life, altitude }
@@ -105,7 +116,10 @@ func _build_frame_cache() -> void:
 
 ## visual_only: 视觉装饰弹 —— 正常飞行 / 渲染 / 寿命结束，但跳过所有命中判定
 ## 用于制造"CIWS 密集弹幕"的观感，同时不影响平衡（真实伤害由另一部分子弹承担）
-func spawn_bullet(origin: Vector2, direction: float, speed_ms: float, source: CombatUnit, damage: float, is_ciws: bool = false, visual_only: bool = false) -> void:
+func spawn_bullet(origin: Vector2, direction: float, speed_ms: float, source: CombatUnit, damage: float, is_ciws: bool = false, visual_only: bool = false, life_seconds: float = 2.0) -> void:
+	# 装饰弹软上限：弹幕洪峰时丢弃多余的纯视觉弹，真弹不受影响（②）
+	if visual_only and _bullets.size() >= MAX_BULLETS:
+		return
 	var speed_px := speed_ms * PIXELS_PER_METER
 	var vel := Vector2(sin(direction), -cos(direction)) * speed_px
 	# ⚠ 快照 team 到 dict：弹丸寿命中射手可能被释放，
@@ -129,8 +143,8 @@ func spawn_bullet(origin: Vector2, direction: float, speed_ms: float, source: Co
 		"source": source,
 		"source_team": source.team if is_instance_valid(source) else -1,
 		"damage": damage,
-		"life": 2.0,
-		"max_life": 2.0,
+		"life": life_seconds,
+		"max_life": life_seconds,
 		"altitude": source.altitude if is_instance_valid(source) else 5000.0,
 		"is_rocket": false,
 		"is_ciws": is_ciws,
@@ -437,10 +451,15 @@ func _explode_rocket(b: Dictionary, world_pos: Vector2, exclude_unit: CombatUnit
 			unit.take_damage(aoe_dmg, CombatUnit.safe_attacker(b["source"]), "rocket")
 
 func _physics_process(delta: float) -> void:
+	var _t0 := Time.get_ticks_usec()
 	# ── 帧级缓存：每帧重建一次，所有子弹共用 ──
 	_frame_cache_filled = false
 	if SurvivorData.ENABLE_BULLET_FRAME_CACHE:
 		_build_frame_cache()
+
+	# ── 命中广相网格：每物理帧按当前单位位置重建一次，所有真弹共用（③）──
+	# 小单位入格 / 大单位（NavalUnit）进 large_units 线性表。命中循环只查邻格 + 大单位。
+	_unit_grid.rebuild(combat_unit_list, GRID_CELL_SIZE)
 
 	# ── 空中鱼雷（独立循环，不污染子弹热路径）──
 	_update_torpedoes(delta)
@@ -553,7 +572,13 @@ func _physics_process(delta: float) -> void:
 		var source_raw: Variant = b["source"]
 		var source_alive: bool = is_instance_valid(source_raw)
 		var source_team: int = int(b.get("source_team", -1))
-		for ac in combat_unit_list:
+		# 广相候选集（③）：大单位（NavalUnit）恒扫 + 本弹位置 3×3 邻格的小单位。
+		# 等价于旧的"遍历 combat_unit_list"，但候选从全场缩到近邻（无漏判证明见 test_bullet_grid）。
+		# ⚠ 候选是本帧快照，循环内仍保留 is_instance_valid + is_destroyed 守卫（同帧可能已被别的弹击毁）。
+		_grid_buf.clear()
+		_grid_buf.append_array(_unit_grid.large_units)
+		_unit_grid.query_into(b["pos"], _grid_buf)
+		for ac in _grid_buf:
 			if not is_instance_valid(ac) or ac.is_destroyed:
 				continue
 			# 射手还活着：跳过打到自己
@@ -611,6 +636,14 @@ func _physics_process(delta: float) -> void:
 					# 火箭：按 RocketParams.min_damage_mult 在 [1.0, min_mult] 间线性衰减
 					# 默认（敌方 AI 火箭）= 1.0 不衰减；玩家版 0.6-0.8 让贴脸高伤、远端略低
 					dmg_mult = _rocket_falloff_mult(b)
+				# 722 签名技能：无败之鹰（F-15 满血机炮 ×1.2）/ 对地特化（F-15E 对地面 ×1.3）
+				if source_alive and source_raw is Aircraft:
+					var sig_src := source_raw as Aircraft
+					if sig_src.sig_f15_active and not is_rocket and sig_src.params \
+							and sig_src.hp >= sig_src.params.max_hp:
+						dmg_mult *= 1.2
+					if sig_src.sig_f15e_active and not (ac is Aircraft):
+						dmg_mult *= 1.3
 				var actual_dmg: float = float(b["damage"]) * dmg_mult
 				var src_name := "???"
 				if source_alive:
@@ -711,22 +744,37 @@ func _physics_process(delta: float) -> void:
 		i -= 1
 
 	queue_redraw()
+	# 性能埋点（此前 BulletManager 全无 PerfBuckets 覆盖 → 帧时间盲区）：
+	# 物理+命中循环耗时 + 当前子弹总数（CIWS 弹幕高峰用于诊断）
+	PerfBuckets.tick("bullet_phys", Time.get_ticks_usec() - _t0)
+	PerfBuckets.set_value("bullet_count", _bullets.size())
 
 func _draw() -> void:
+	var _t0 := Time.get_ticks_usec()
+	# 曳光弹批量绘制（性能守则 R3）：CIWS 弹幕高峰 ~1400 颗，原先逐颗 draw_line(抗锯齿)
+	# = 1400 次 draw call/帧。收集成线段对，一次 draw_multiline 提交（与 naval_unit
+	# 边缘线"48 段一调用"同款、已验证可用的 API）。火箭数量少且带圆头/淡出 → 保留逐颗。
+	# ⚠ 用单色 draw_multiline，不用 draw_multiline_colors —— 后者 colors 数组长度语义
+	#   （逐点 vs 逐段）在不同 Godot 版本不一致，长度不匹配会【静默不画】(曾致曳光弹全消失)。
+	#   代价：曳光弹放弃逐颗末段淡出（改为寿命到点瞬间消失，密集弹幕里几乎不可见）。
+	var tracer_pts := PackedVector2Array()
 	for b in _bullets:
 		var dir: Vector2 = b["vel"].normalized()
-		# 寿命末段淡出（替代瞬间消失）
-		var life_left: float = float(b["life"])
-		var fade: float = clampf(life_left / FADE_OUT_DURATION, 0.0, 1.0)
 		if b.get("is_rocket", false):
-			# 火箭：橙红色较长尾迹 + 亮白头
+			# 火箭：橙红色较长尾迹 + 亮白头（逐颗——数量少、保留末段淡出）
+			var life_left: float = float(b["life"])
+			var fade: float = clampf(life_left / FADE_OUT_DURATION, 0.0, 1.0)
 			var tail: Vector2 = b["pos"] - dir * ROCKET_TRAIL_LENGTH
 			draw_line(b["pos"], tail, Color(1.0, 0.45, 0.15, 0.85 * fade), 2.2, true)
 			draw_circle(b["pos"], 2.0, Color(1.0, 0.95, 0.8, fade))
 		else:
-			# 曳光弹：亮黄色短线
+			# 曳光弹：亮黄色短线（收集，循环后一次性提交）
 			var tail: Vector2 = b["pos"] - dir * TRACER_LENGTH
-			draw_line(b["pos"], tail, Color(1.0, 0.95, 0.4, 0.9 * fade), 1.5, true)
+			tracer_pts.push_back(b["pos"])
+			tracer_pts.push_back(tail)
+	if not tracer_pts.is_empty():
+		draw_multiline(tracer_pts, Color(1.0, 0.95, 0.4, 0.9), 1.5)
+	PerfBuckets.tick("bullet_draw", Time.get_ticks_usec() - _t0)
 
 	# 空中漂浮雷：弹体 + 上方降落伞罩（半圆 + 两根伞线）
 	for t in _torpedoes:

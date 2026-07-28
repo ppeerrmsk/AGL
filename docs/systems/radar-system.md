@@ -8,7 +8,7 @@
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `radar_range` | float | 300.0 | 探测距离（像素，1px = 2m） |
+| `radar_range` | float | 300.0 | 探测距离**基础值**（像素，1px = 2m）；实际有效距离随本机高度乘 0.5~1.5 连续倍率，见下"高度对雷达的影响" |
 | `radar_half_angle` | float | 30.0 | 扇形半角（度），总张角 = 2 × half_angle |
 | `lock_time` | float | 3.0 | 持续照射多久后判定锁定（秒） |
 
@@ -85,19 +85,51 @@
 |------|------|
 | `scripts/aircraft_params.gd` | 定义 radar_range / radar_half_angle / lock_time 导出参数 |
 | `scripts/aircraft.gd` | 雷达状态变量、锥体判定方法、锥体与锁定指示绘制 |
-| `scripts/main.gd` | 鼠标悬停检测、每帧锁定计算循环 |
-| `resources/default_fighter.tres` | F-16 雷达参数配置 |
-| `resources/enemy_fighter.tres` | MiG-29 雷达参数配置 |
+| `scripts/survivor/survivor_mode.gd` | 每帧锁定计算循环（生存模式，主路径）|
+| `scripts/camera_controller.gd` | 鼠标悬停检测 |
+| `scripts/main.gd` | 同上（沙盒，**已废弃**，仅调试留存）|
+| `resources/*.tres` | 各机型雷达参数；数值见 [resources-catalog.md](../reference/resources-catalog.md) |
 
 ---
 
 ## 雷达锁定计算（CLAUDE.md 摘出，2026-05-05）
 
-主循环位置：`main.gd:_update_radar_locks:226`（沙盒）/ `survivor_mode.gd:_update_radar_locks`（生存）。
+主循环位置：`survivor_mode.gd:_update_radar_locks`（生存，主路径）/ `main.gd:_update_radar_locks`（沙盒，已废弃）。
+
+⚠ 生存模式下这是 O(N²) 循环，走分帧 strided 摊销 + `_all_combat_units_cache` 共享列表。
 
 全局循环每帧：
 1. 遍历所有 CombatUnit，重置 `is_locked`
 2. 对每单位，检查其雷达锥内的敌方单位
-3. 在锥内 → 按 `_lock_rate_for_tier` 速率累加照射时间（地面 ×0.5, 低空 ×0.7）
+3. 在锥内 → 按 `_lock_rate_for_target` 速率累加照射时间（LOW 档**飞机**目标 ×0.7；地面/舰船目标不折减 ×1.0）
 4. 不在锥内 → 1.5 秒衰减窗口（防边缘震荡）
-5. 累计 ≥ `params.lock_time` → 锁定
+5. 累计 ≥ `params.lock_time` → 锁定（进度封顶 threshold + 稳定缓冲；速率有硬下限保证有效锁定时间 ≤ 12s）
+
+---
+
+## 高度对雷达的影响（survivor 主路径，以代码为准 2026-07-26）
+
+**雷达锥判定本身是纯 2D**：`is_in_radar_cone` 只看平面距离 + 方位角，高度差不影响进锥。
+高度通过以下乘数间接起作用：
+
+### 本机有效雷达距离（`aircraft.gd effective_radar_range_px`，锚点线性插值）
+
+| 高度 | 倍率 |
+|------|------|
+| 0 m | ×0.50 |
+| 2000 m（LOW 切档目标） | ×0.60 |
+| 5500 m（MID 切档目标） | ×1.00 |
+| 10000 m（HIGH 切档目标） | ×1.40 |
+| 15000 m | ×1.50 |
+
+爬得越高看得越远——这是 HIGH 档位目标高度定在 10000m（而非 7500m 判定线）的主要连续收益。
+
+### 锁定速率修正（`survivor_mode.gd` 锁定循环内，按目标/射手高度）
+
+| 条件 | 效果 |
+|------|------|
+| 目标为 LOW 档飞机 | lock_rate ×0.7（地面杂波） |
+| 目标 HIGH 档且在云中 | ×0.5（云雾机动奖励持有者任意档 ×0.1） |
+| 玩家技能"爬降隐身"（alt_change_stealth_factor） | 升降越快被锁越慢，最低 ×0.1 |
+| 玩家技能"平流层雷达"（high_alt_lock_speed_bonus） | 本机 HIGH 档时锁敌速率 +30% |
+| 签名技（A-6E 低空 / MiG-41 高空） | 被锁 ×0.6 |

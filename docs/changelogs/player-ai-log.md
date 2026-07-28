@@ -102,6 +102,39 @@ LOD 路径里每一步（`_update_combat / _update_bank / _update_visuals / queu
 
 ---
 
+## 2026-07-26 对地 STANDOFF 一发不出：crank 钉死发射门 + 包络高度差门恒触（长机僚机同病）
+
+**症状（用户）**：僚机 ace 对地面单位"没有反应"，切控点名命令它打 SAM 也不发射导弹，
+一直慢慢平飞；反复复发，长机对地也有类似症状（log 20260726_165536）。
+
+**根因**（两道互相独立的"无声拒发"门叠加，日志实证）：
+1. **crank 钉死发射门**：`ground_strafe` RUN[STANDOFF] 用 `_missile_engage_pos` crank 保锁，
+   crank 稳态离轴 `radar_half×0.5`（F-15C=18.5°）恰在发射窗质量门
+   （f&f `radar_half×0.55`=20.35°）外沿，几何漂移让实测离轴恒 21~31° → UNSTABLE_WIN 永拒。
+   SETUP 是纯追踪（能对准），一进 RUN 反被 crank 拧出发射门——只有相位切换瞬间偶尔蹭出一发，
+   所以"时好时坏"。每 ~20s 一轮 SETUP→RUN→EGRESS 空转（EGRESS 出锥还清锁）。
+2. **包络高度差门**：`is_in_missile_envelope` 的"高度差>5000m 拒发"（本意拦空战 yoyo 过渡态）
+   对地面目标（高度 0）在 STANDOFF 学说的 MID（3500~7500m）上半带恒触；玩家爬升偏好（HIGH）
+   必触。高度落哪半带决定发/不发 = 玄学复发的另一半。
+
+**修复方式**（改公式，两处，各 1 行语义 + 注释）：
+- [bfm_intent.gd](../../scripts/ai/tactical/bfm_intent.gd) `ground_strafe` RUN[STANDOFF]：
+  `pursuit_pos` 从 `_missile_engage_pos(s)` 改 `s.tgt_pos` 纯追踪（与慢速空目标终端同修；
+  静止目标 LOS 零旋转，离轴收敛 0 稳态）。发射后保距由 fpole_hold 环外等待接管，不靠 crank。
+- [aircraft_combat_tracking.gd](../../scripts/aircraft/aircraft_combat_tracking.gd)
+  `is_in_missile_envelope`：高度差门加 `target_unit is Aircraft` 条件，面目标豁免（对空语义不变）。
+
+**为什么改公式不加守卫**：crank 在"意图开火的相位"本身就是错的几何——它的稳态离轴数学上
+≥ 发射门上限（SARH 两者相等），任何守卫都救不回来；慢速空目标同病已用同方案根治有先例。
+
+**回归测试要点**：`--bench=surface_pass` 32/32（新增"必须真出弹"断言 ×3：sim B 首发 3.2s/12 发、
+sim C 玩家长机 9 发，修复前均 0 发；复刻实机发射门序列的 `_launch_gate_open` 范本在
+`test_surface_pass.gd`）+ `--bench=all` 39 项全绿（missile_env/slow_air_pass/joust 未破）。
+**验收教训已入 SEAM-023**：攻击类战术行为 sim 必须带出弹断言——此前验收只断言运动几何，
+武器层从不在环内，正是本 bug 三次穿过验收的原因。改"武器就绪期追踪点"几何前先对照发射门算稳态离轴。
+
+---
+
 ## 2026-07-11 机炮梭承诺在目标被击毁后继续对空放枪
 
 **症状（用户）**：僚机 Verge 视野里没有敌机，却发射了三四发机炮（log 204752）。

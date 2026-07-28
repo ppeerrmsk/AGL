@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="GunParams" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/gun_params.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+; 王牌中队专属机炮（spec ace-squadron-tier §2.4）：每项指标 ≥ 杂兵天花板 enemy_gun_v8
+; （修正"BOSS 火力不如小兵"——王牌共享 default_gun 时射程/伤害/精度全面被杂兵碾压）。
+; 独立资源顺带根治 gun_accuracy 玩家升级原地改 Resource 污染共享参数的问题（spec §4.2）。
+display_name = "ACE M61A2"
+fire_rate = 3000.0
+bullet_damage = 15.0
+muzzle_velocity = 1200.0
+max_range = 1400.0
+spread_angle = 1.0
+fire_cone_half_angle = 5.0
+burst_count = 10
+max_ammo = 600

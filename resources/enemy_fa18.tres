@@ -40,7 +40,7 @@ fuel_capacity = 3200.0
 fuel_rate_normal = 1.7
 fuel_rate_afterburner = 9.0
 ; ── 雷达（APG-73：射程不及 F-14 AWG-9 / Phoenix）──
-radar_range = 4500.0
+radar_range = 3800.0
 radar_half_angle = 30.0
 lock_time = 2.6
 gun = ExtResource("2")

@@ -38,7 +38,7 @@ fuel_capacity = 2200.0
 fuel_rate_normal = 1.8
 fuel_rate_afterburner = 9.5
 ; ── 雷达（发射 AIM-7M 雷达弹需要稳定照射）──
-radar_range = 4200.0
+radar_range = 3400.0
 radar_half_angle = 28.0
 lock_time = 3.0
 gun = ExtResource("2")

@@ -1,0 +1,28 @@
+[gd_resource type="Resource" script_class="FlareParams" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/flare_params.gd" id="1"]
+
+; 玩家机热诱弹 —— T3 档（spec systems/player-aircraft-power-curve §2.6）
+;   与敌机 default_flare.tres 彻底解耦：本族只服务玩家机（长机 + 僚机），
+;   敌机改数值不再牵动玩家手感，反之亦然。
+;   分档唯一变量 = max_flares（按机体 tier 递增 2/3/4/5/6）；
+;   其余特性全族统一（玩家侧已调过的手感）：
+;     burst_count = 1     每次投放 1 枚（敌用 default 是 2，玩家按"1 枚 = 1 次机会"记账）
+;     base_jam_chance .90 玩家干扰率显著高于敌机 0.55
+;     nervousness = 0.0   冷静型：等导弹逼近才投，不一被锁就浪费
+;     reload_time = 12s   耗尽后装填（enable_flare_reload 由 PlayableAircraft 档案开关）
+
+[resource]
+script = ExtResource("1")
+max_flares = 4
+burst_count = 1
+cooldown = 1.5
+reload_time = 12.0
+base_jam_chance = 0.90
+aspect_bonus = 0.3
+maneuvering_bonus = 0.25
+close_range_penalty = 0.15
+low_energy_bonus = 0.2
+nervousness = 0.0
+panic_distance = 800.0
+calm_distance = 250.0

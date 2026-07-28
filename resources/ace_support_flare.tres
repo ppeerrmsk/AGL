@@ -1,0 +1,24 @@
+[gd_resource type="Resource" script_class="FlareParams" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/flare_params.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+; 王牌支援中队热诱弹（spec events/ace-support-squadron §2.2）：**1 枚，必定躲**（2026-07-23 用户改）。
+; 支援中队本体一发死（HP ≤ cap，不豁免一击必杀——那是 BOSS 专属）；这枚 flare 必定骗掉玩家
+; 第一发导弹（fail_chance=0 必放 + AceTier.is_ace → jam 恒 1.00），第二发命中即死 → 严格 2 发/架。
+; 对比 BOSS 档 4 枚 + HP 100 豁免（6 发/架 + 隐形）。enable_flare_reload=false → 耗尽永不补充。
+max_flares = 1
+burst_count = 1
+cooldown = 1.2
+reload_time = 12.0
+base_jam_chance = 1.0
+aspect_bonus = 0.0
+maneuvering_bonus = 0.0
+close_range_penalty = 0.0
+low_energy_bonus = 0.0
+fail_chance = 0.0
+head_on_fail_reduction = 0.0
+nervousness = 0.5
+panic_distance = 600.0
+calm_distance = 200.0

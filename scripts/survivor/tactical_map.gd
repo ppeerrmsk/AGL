@@ -56,7 +56,6 @@ const _TIP_KEYS: Array[String] = [
 	"TACTICAL_TIP_ALT_LOW",
 	"TACTICAL_TIP_ALT_CLOUDS",
 	"TACTICAL_TIP_SENTINEL",
-	"TACTICAL_TIP_STAMINA",
 	"TACTICAL_TIP_TURN_RADIUS",
 	"TACTICAL_TIP_CORNER_SPEED",
 	"TACTICAL_TIP_MISSILE_RANGE",
@@ -70,10 +69,10 @@ const CONTROLS_BORDER := Color(0.35, 0.75, 1.0, 0.9)
 const CONTROLS_FILL := Color(0.04, 0.09, 0.14, 0.55)
 var _tip_label: RichTextLabel
 var _last_tip_idx: int = -1
-# ── 左侧"已激活技能"面板 ──
+# ── 左栏（三轴/机体状态）+ 右缘"已激活技能"面板 ──
 var _game_scene: Node = null              ## survivor_mode，提供 upgrade_stacks
-var _upgrades_list: VBoxContainer
-var _upgrade_detail: RichTextLabel
+var _upgrades_list: VBoxContainer         ## 右缘技能清单（2026-07-27 用户令从左栏移出）
+var _upgrade_detail: RichTextLabel        ## 右缘 hover 详情框
 var _axis_panel: VBoxContainer            ## 三轴常驻面板（spec evolution-attribute-gates §3.2）
 var _status_panel: VBoxContainer          ## 底部状态块：当前加成汇总 + 机体数据（y2k 终端风）
 
@@ -225,8 +224,9 @@ func _build_ui() -> void:
 	_root.add_child(_info_label)
 	_refresh_info()
 
-	# 左侧"已激活技能"面板（镜像右侧 info_label 的位置）
-	_build_upgrades_panel()
+	# 左栏三轴/机体状态（镜像右侧 info_label 的位置）+ 右缘"已激活技能"面板
+	_build_axis_column()
+	_build_skills_panel()
 
 	# 底部"随机战场简报"红框（每次开关面板换一条）
 	_build_tip_banner()
@@ -482,6 +482,10 @@ func _should_hide_zone(zid: StringName) -> bool:
 		return true
 	if _zones.boss_unlocked and zid != &"BOSS":
 		return true
+	# 机场解放战区（spec airfield-liberation-zones §3.3）：解放后隐藏红圈，
+	# 改由 _draw_dock_markers 画激活后的机场补给点图标
+	if _zones.is_airfield(zid) and _zones.get_state(zid) == ZoneData.State.CLEARED:
+		return true
 	return _zones.get_state(zid) == ZoneData.State.LOCKED
 
 func _draw_one_zone(z: Dictionary, zid: StringName, size: Vector2) -> void:
@@ -520,14 +524,20 @@ func _draw_one_zone(z: Dictionary, zid: StringName, size: Vector2) -> void:
 	# 战区奖励前置显示（spec zone-reward-docking §2.8）：图标字符 + 名称（圈下方）
 	if zid != &"BOSS" and _zones \
 			and (state == ZoneData.State.AVAILABLE or state == ZoneData.State.SELECTED):
-		var rw: Dictionary = _zones.get_reward(zid)
-		if not rw.is_empty():
-			var glyph := "◆"
-			match String(rw.get("kind", "")):
-				"carrier": glyph = "⚓"
-				"wingman": glyph = "✚"
-				"weapon": glyph = "⌁"
-			var rtxt := "%s %s" % [glyph, tr(String(rw.get("name", "")))]
+		var rtxt := ""
+		if _zones.is_airfield(zid):
+			# 机场解放战区：奖励＝机场本身（spec airfield-liberation-zones §3.3）
+			rtxt = "✈ %s" % tr("ZONE_REWARD_AIRFIELD")
+		else:
+			var rw: Dictionary = _zones.get_reward(zid)
+			if not rw.is_empty():
+				var glyph := "◆"
+				match String(rw.get("kind", "")):
+					"carrier": glyph = "⚓"
+					"wingman": glyph = "✚"
+					"weapon": glyph = "⌁"
+				rtxt = "%s %s" % [glyph, tr(String(rw.get("name", "")))]
+		if rtxt != "":
 			_map_panel.draw_string(ThemeDB.fallback_font, c + Vector2(-r, r + 13.0),
 				rtxt, HORIZONTAL_ALIGNMENT_CENTER, r * 2.0, 11,
 				Color(0.85, 0.95, 0.90, 0.95))
@@ -570,8 +580,26 @@ func _draw_dock_markers(size: Vector2) -> void:
 	if awacs != null:
 		var apos := _world_to_map(awacs.global_position, size)
 		var r_map: float = AwacsSupportEvent.BUFF_RADIUS_PX / _world_rect.size.x * size.x
-		_map_panel.draw_arc(apos, r_map, 0.0, TAU, 64, Color(ALLY_COLOR, 0.55), 1.5)
-		_map_panel.draw_circle(apos, 3.0, ALLY_COLOR)
+		# 淡填充 + 粗描边：玩家要能一眼判断"我在不在锁定加速圈里"，
+		# 原来只有一条 1.5px 细弧，在全图缩放下几乎看不见（2026-07-28）
+		_map_panel.draw_circle(apos, r_map, Color(ALLY_COLOR, 0.07))
+		_map_panel.draw_arc(apos, r_map, 0.0, TAU, 64, Color(ALLY_COLOR, 0.75), 2.5)
+		_map_panel.draw_circle(apos, 3.5, ALLY_COLOR)
+	# 王牌中队标记（spec ace-squadron-tier §2.7）：中队主色菱形 + 代号标签
+	var ace_lead: Aircraft = AceReinforcementEvent.active_leader()
+	if ace_lead != null:
+		var ace_col: Color = AceReinforcementEvent.active_color()
+		var lpos := _world_to_map(ace_lead.global_position, size)
+		var dd := 6.0
+		_map_panel.draw_colored_polygon(PackedVector2Array([
+			lpos + Vector2(0, -dd - 1.5), lpos + Vector2(dd + 1.5, 0),
+			lpos + Vector2(0, dd + 1.5), lpos + Vector2(-dd - 1.5, 0)]), Color(0, 0, 0, 0.6))
+		_map_panel.draw_colored_polygon(PackedVector2Array([
+			lpos + Vector2(0, -dd), lpos + Vector2(dd, 0),
+			lpos + Vector2(0, dd), lpos + Vector2(-dd, 0)]), ace_col)
+		_map_panel.draw_string(ThemeDB.fallback_font, lpos + Vector2(9, 4),
+			AceReinforcementEvent.active_codename(), HORIZONTAL_ALIGNMENT_LEFT, -1, 11,
+			ace_col.lightened(0.35))
 	if _docks.is_empty():
 		return
 	var font := ThemeDB.fallback_font
@@ -579,6 +607,8 @@ func _draw_dock_markers(size: Vector2) -> void:
 		var d := d_any as DockPoint
 		if not is_instance_valid(d):
 			continue
+		if d.is_spent():
+			continue  # 一次性机场用尽 → Tab 标记消失（spec zone-reward-docking §2.2 修订）
 		var pos := _world_to_map(d.global_position, size)
 		var is_carrier: bool = d.dock_kind == "carrier"
 		var col := Color(0.55, 0.82, 1.0, 1.0) if is_carrier else Color(0.40, 0.96, 0.72, 1.0)
@@ -737,16 +767,43 @@ const _AXIS_COLORS := {
 	"electronic_warfare": Color(0.7, 0.45, 0.85),
 }
 
-func _build_upgrades_panel() -> void:
-	# 容器：左侧镜像 _info_label 的位置（offset_left=-720..-360）
+## 左栏：三轴量表/里程碑明细 + 机体状态块（镜像 _info_label 位置，offset_left=-720..-360）。
+## "已激活技能"清单已移到右缘 _build_skills_panel（2026-07-27 用户令）。
+func _build_axis_column() -> void:
 	var panel := VBoxContainer.new()
 	panel.anchor_left = 0.5
 	panel.anchor_right = 0.5
 	panel.anchor_top = 0.5
+	panel.anchor_bottom = 0.5
 	panel.offset_left = -720
 	panel.offset_right = -360
 	panel.offset_top = -340
 	panel.offset_bottom = 340
+	panel.add_theme_constant_override("separation", 8)
+	_root.add_child(panel)
+
+	# 三轴常驻面板（spec evolution-attribute-gates §3.2：点数/里程碑/下一档/路线倾向，只读）
+	_axis_panel = VBoxContainer.new()
+	_axis_panel.add_theme_constant_override("separation", 1)
+	panel.add_child(_axis_panel)
+
+	# 底部状态块（2026-07-19 用户令）：当前加成汇总 + 机体实时数据（y2k 终端风）
+	_status_panel = VBoxContainer.new()
+	_status_panel.add_theme_constant_override("separation", 1)
+	panel.add_child(_status_panel)
+
+## 右缘"已激活技能"面板：标题 + 滚动清单 + hover 详情框。
+## 贴屏幕右缘（anchor=1.0），上缘与缩略图对齐、下缘避开右下"操作指南"框（其顶为 -260）。
+func _build_skills_panel() -> void:
+	var panel := VBoxContainer.new()
+	panel.anchor_left = 1.0
+	panel.anchor_right = 1.0
+	panel.anchor_top = 0.5
+	panel.anchor_bottom = 1.0
+	panel.offset_left = -240
+	panel.offset_right = -20
+	panel.offset_top = -340
+	panel.offset_bottom = -270
 	panel.add_theme_constant_override("separation", 8)
 	_root.add_child(panel)
 
@@ -756,12 +813,7 @@ func _build_upgrades_panel() -> void:
 	title.add_theme_color_override("font_color", TEXT_COLOR)
 	panel.add_child(title)
 
-	# 三轴常驻面板（spec evolution-attribute-gates §3.2：点数/里程碑/下一档/路线倾向，只读）
-	_axis_panel = VBoxContainer.new()
-	_axis_panel.add_theme_constant_override("separation", 1)
-	panel.add_child(_axis_panel)
-
-	# 滚动列表（压缩给三轴明细/机体状态腾空间，2026-07-19 y2k 面板改版）
+	# 滚动列表（吃掉剩余高度）
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.custom_minimum_size = Vector2(0, 170)
@@ -788,11 +840,6 @@ func _build_upgrades_panel() -> void:
 	_upgrade_detail.add_theme_color_override("default_color", TEXT_COLOR)
 	panel.add_child(_upgrade_detail)
 	_clear_upgrade_detail()
-
-	# 底部状态块（2026-07-19 用户令）：当前加成汇总 + 机体实时数据（y2k 终端风）
-	_status_panel = VBoxContainer.new()
-	_status_panel.add_theme_constant_override("separation", 1)
-	panel.add_child(_status_panel)
 
 ## 底部红色"战场简报"横幅：带红边、半透明深色背景，内嵌一行随机提示
 func _build_tip_banner() -> void:
@@ -912,6 +959,51 @@ func _refresh_upgrades_list() -> void:
 		child.queue_free()
 	_clear_upgrade_detail()
 
+	# 重建清单必须在清空之后（历史 bug：建行代码曾被劈进 _refresh_axis_panel 尾部、
+	# 先建后清 → 清单恒空，2026-07-27 修复）
+	if not _game_scene or not "upgrade_stacks" in _game_scene:
+		var empty := Label.new()
+		empty.text = tr("TACTICAL_MAP_UPGRADES_EMPTY")
+		empty.add_theme_font_size_override("font_size", 12)
+		empty.add_theme_color_override("font_color", Color(0.5, 0.5, 0.5))
+		_upgrades_list.add_child(empty)
+		return
+
+	var stacks: Dictionary = _game_scene.upgrade_stacks
+	# 按 5 轴分桶
+	var buckets: Dictionary = {}
+	for axis in _AXIS_ORDER:
+		buckets[axis] = []
+	for u in SurvivorData.UPGRADES:
+		var uid: String = u["id"]
+		if stacks.get(uid, 0) <= 0:
+			continue
+		var cat: String = u.get("category", "survival")
+		if not buckets.has(cat):
+			buckets[cat] = []
+		buckets[cat].append(u)
+
+	var any_added := false
+	for axis in _AXIS_ORDER:
+		var bucket: Array = buckets.get(axis, [])
+		if bucket.is_empty():
+			continue
+		any_added = true
+		var axis_title := Label.new()
+		axis_title.text = _AXIS_TITLES.get(axis, axis)
+		axis_title.add_theme_font_size_override("font_size", 12)
+		axis_title.add_theme_color_override("font_color", _AXIS_COLORS.get(axis, TEXT_COLOR))
+		_upgrades_list.add_child(axis_title)
+		for u in bucket:
+			_upgrades_list.add_child(_make_upgrade_row(u, stacks))
+
+	if not any_added:
+		var empty := Label.new()
+		empty.text = tr("TACTICAL_MAP_UPGRADES_EMPTY")
+		empty.add_theme_font_size_override("font_size", 12)
+		empty.add_theme_color_override("font_color", Color(0.5, 0.5, 0.5))
+		_upgrades_list.add_child(empty)
+
 ## 三轴常驻面板（spec evolution-attribute-gates §3.2）：
 ## 每轴一行 = 轴名 + 点数 + ●○ 进度（到下一档刻度）+ 下一档预览；标题行 = 总点数 + 路线倾向。
 func _refresh_axis_panel() -> void:
@@ -984,49 +1076,6 @@ func _refresh_axis_panel() -> void:
 			row.add_theme_color_override("font_color", c)
 			row.clip_text = true
 			vb.add_child(row)
-
-	if not _game_scene or not "upgrade_stacks" in _game_scene:
-		var empty := Label.new()
-		empty.text = tr("TACTICAL_MAP_UPGRADES_EMPTY")
-		empty.add_theme_font_size_override("font_size", 12)
-		empty.add_theme_color_override("font_color", Color(0.5, 0.5, 0.5))
-		_upgrades_list.add_child(empty)
-		return
-
-	var stacks: Dictionary = _game_scene.upgrade_stacks
-	# 按 5 轴分桶
-	var buckets: Dictionary = {}
-	for axis in _AXIS_ORDER:
-		buckets[axis] = []
-	for u in SurvivorData.UPGRADES:
-		var uid: String = u["id"]
-		if stacks.get(uid, 0) <= 0:
-			continue
-		var cat: String = u.get("category", "survival")
-		if not buckets.has(cat):
-			buckets[cat] = []
-		buckets[cat].append(u)
-
-	var any_added := false
-	for axis in _AXIS_ORDER:
-		var bucket: Array = buckets.get(axis, [])
-		if bucket.is_empty():
-			continue
-		any_added = true
-		var axis_title := Label.new()
-		axis_title.text = _AXIS_TITLES.get(axis, axis)
-		axis_title.add_theme_font_size_override("font_size", 12)
-		axis_title.add_theme_color_override("font_color", _AXIS_COLORS.get(axis, TEXT_COLOR))
-		_upgrades_list.add_child(axis_title)
-		for u in bucket:
-			_upgrades_list.add_child(_make_upgrade_row(u, stacks))
-
-	if not any_added:
-		var empty := Label.new()
-		empty.text = tr("TACTICAL_MAP_UPGRADES_EMPTY")
-		empty.add_theme_font_size_override("font_size", 12)
-		empty.add_theme_color_override("font_color", Color(0.5, 0.5, 0.5))
-		_upgrades_list.add_child(empty)
 
 func _make_upgrade_row(u: Dictionary, stacks: Dictionary) -> Control:
 	var uid: String = u["id"]
@@ -1202,21 +1251,32 @@ func _refresh_info() -> void:
 	var stars: String = "★".repeat(difficulty) + "☆".repeat(ZoneData.DIFFICULTY_MAX - difficulty)
 	lines.append("[color=#aaaaaa]%s[/color] [color=#ff9966]%s[/color]" % [tr("ZONE_INFO_DIFFICULTY"), stars])
 
-	# 奖励详情（类别标签 + 具体技能名 + 描述）
+	# 奖励详情（按 reward.kind 渲染，spec airfield-liberation-zones §3.4：
+	# 修正旧 desc/category 死路径——新奖励字典只有 kind/quality/id/name/weapon，
+	# 读 desc/category 会恒显空描述 + "▸ 生存" 死词）
+	# reward_desc = 奖励名下方那行"它到底是个什么"（技能类＝技能介绍，实体奖励＝效果说明）
 	var reward_block: String
-	var reward := _zones.get_reward(_hover_zone_id)
-	if reward.is_empty():
-		reward_block = "  %s" % tr("ZONE_REWARD_HINT_UNKNOWN")
+	var reward_desc: String = ""
+	if _zones.is_airfield(_hover_zone_id):
+		# 机场解放战区：奖励＝机场本身（ZONE_REWARD_AIRFIELD 自身已说明用途，不另加副行）
+		reward_block = "  [color=#ffd864]✈ %s[/color]" % tr("ZONE_REWARD_AIRFIELD")
 	else:
-		var rname: String = tr(reward.get("name", ""))
-		var rdesc: String = tr(reward.get("desc", ""))
-		var axis: String = reward.get("category", "survival")
-		var axis_title: String = _AXIS_TITLES.get(axis, axis)
-		var axis_color: Color = _AXIS_COLORS.get(axis, TEXT_COLOR)
-		var axis_hex := "#%02x%02x%02x" % [int(axis_color.r * 255), int(axis_color.g * 255), int(axis_color.b * 255)]
-		reward_block = "  [color=%s][font_size=10]%s[/font_size][/color]\n  [color=#ffd864]%s[/color]\n  [color=#aaccaa]%s[/color]" % [axis_hex, axis_title, rname, rdesc]
+		var reward := _zones.get_reward(_hover_zone_id)
+		if reward.is_empty():
+			reward_block = "  %s" % tr("ZONE_REWARD_HINT_UNKNOWN")
+		else:
+			var glyph := "◆"
+			match String(reward.get("kind", "")):
+				"carrier": glyph = "⚓"
+				"wingman": glyph = "✚"
+				"weapon": glyph = "⌁"
+			var rname: String = tr(String(reward.get("name", "")))
+			reward_block = "  [color=#ffd864]%s %s[/color]" % [glyph, rname]
+			var dkey := ZoneData.reward_desc_key(reward)
+			if dkey != "":
+				reward_desc = tr(dkey)
 
-	# 任务描述（按 ground / air / boss 区分）
+	# 任务描述（按 ground / air / airfield / boss 区分）
 	var mission_desc_key: String
 	if _hover_zone_id == &"BOSS":
 		mission_desc_key = "ZONE_MISSION_BOSS"
@@ -1225,13 +1285,15 @@ func _refresh_info() -> void:
 		match mission_type:
 			"air":       mission_desc_key = "ZONE_MISSION_AIR"
 			"squadron":  mission_desc_key = "ZONE_MISSION_SQUADRON"
-			"elite":     mission_desc_key = "ZONE_MISSION_ELITE"
 			"naval":     mission_desc_key = "ZONE_MISSION_NAVAL"
+			"airfield":  mission_desc_key = "ZONE_MISSION_AIRFIELD"
 			_:           mission_desc_key = "ZONE_MISSION_GROUND"
 
 	lines.append("")
 	lines.append("[color=#aaaaaa]%s[/color]" % tr("ZONE_INFO_REWARD"))
 	lines.append(reward_block)
+	if reward_desc != "":
+		lines.append("  [font_size=11][color=#9aa0a6]%s[/color][/font_size]" % reward_desc)
 	lines.append("")
 	lines.append("[color=#aaaaaa]%s[/color]" % tr("ZONE_INFO_MISSION"))
 	lines.append("  %s" % tr(mission_desc_key))

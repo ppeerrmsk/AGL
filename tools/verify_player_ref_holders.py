@@ -58,9 +58,14 @@ NON_HOLDERS = {
     'MapBoundary':           '静态查询（get_player_start），不接收 player_aircraft',
     'AOEBroadcast':          '静态范围结算（apply_status_in_radius），source 参数不落库',
     'radar_targets':         '字典 .get() 查表，player_aircraft 是 key 不是被持有的引用',
+    'AircraftPhysics':       '静态物理 accessor（effective_max_speed_kmh 等）传参算 float 即返回，不存引用',
     'afterburner_charge':    'try_activate(leader) 传参即用不存字段；窗口成员为 6s 激活快照'
                              '（带 is_instance_valid 守卫、到期清空），刻意不追换帅'
                              '（spec afterburner-mode §3.2）',
+    'AircraftWeapons':       '静态武器函数（_spawn_loyal_wingman_drone 等）传参即用不存字段；'
+                             'drone 的编队引用落到 Squad/formation_leader（既有编队体系自带'
+                             '失效处理）；签名 drone 跟随生成时的 ACE 与既有忠诚僚机语义一致'
+                             '（spec aircraft-signature-skills §4 生成层）',
 }
 
 # 接收方标识符：允许 `_foo` / `foo` / `Foo`，但不吃掉链式调用的中间段

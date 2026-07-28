@@ -3,7 +3,7 @@ id: map-expansion
 kind: system
 status: in-progress  # 60×60 km 已手改落地（用户 2026-07-05 二次复审决定保留，见 §3.1 尾注）；无头回归绿，差 playtest 节奏项；编辑器整合留待 OfficialMapConverter 吃现状
 schema_version: 1
-spec_version: 5
+spec_version: 6
 owner: noelu
 depends_on: [map-system, map-editor]
 reconstruction_complete: false
@@ -62,7 +62,7 @@ reconstruction_complete: false
 
 **2026-07-05 用户拍板 ×2 = 60×60 km**：优先保证战区间隙（9.4 km 真实航路，敌机雷达
 3~4.5 km 远够不到邻区）与增援入场走廊的空旷感。**节奏风险显式登记**：横穿全图 180 s +
-增援入场 ~120 s，若 playtest 发现 8 分钟阶段完不成 ≥3 个战区（§5 验收项），调节手段
+增援入场 ~120 s，若 playtest 发现战区阶段（`WARZONE_PHASE_DURATION`）完不成 ≥3 个战区（§5 验收项），调节手段
 按序尝试 = 战区分布向中环收拢 → 阶段时长 → 巡航速度，另行开单，不回退尺寸。
 
 ### 2.2 常量改动清单
@@ -102,6 +102,12 @@ reconstruction_complete: false
 战区半径本次维持现值（A~D 2500 / E 1800）——扩的是"之间的空隙"，不是战区本身。
 （后记：2026-07-06 [60km-density-pass](60km-density-pass.md) 按 playtest 反馈把半径上调
 A/C/D 3500、B 3000（y 内收 -10500）、E 2500，§2.4 约束复验全绿——空间是本 spec 留出来的。）
+
+**适用范围裁决（2026-07-26）**：本表 2000/1500 只约束**可自由布点的随机战区**
+（A–G + BOSS 锚点）。机场解放战区（AF_*，圆心＝现实机场烘焙质心，不可挪）**豁免**，
+改按弱化下限（凡机场参与的组合缘距 ≥1000 / 机场圆离边 ≥0）——完整裁决与实测值见
+[airfield-liberation-zones §2.5](airfield-liberation-zones.md)；`test_map_expansion.gd`
+按 `airfield` 字段分派双阈值强校验。
 
 ### 2.5 地理重烘焙
 
@@ -174,7 +180,7 @@ A/D 旧手画 ground_spawn_polygons 已作废删除（走 center+0.85R 散布 fa
 - [ ] ground 战区在新地理上正常刷 SAM/AA（`zone_has_land` 通过 + 落点全在陆地）
 - [ ] `is_on_land` 新外圈抽查正确（海岸线 / 战区新址）
 - [ ] 玩家出生位置语义不变（南侧、距边 1100 px、警戒带外、Tab 图定位正确）
-- [ ] 8 分钟战区阶段节奏可玩：单局能完成 ≥3 个战区（playtest 主观确认不发闷）
+- [ ] 战区阶段节奏可玩：单局能完成 ≥3 个战区（playtest 主观确认不发闷）
 - [ ] 性能：更大世界不引入新的每帧成本（边界绘制 tick 数随周长增加，确认无掉帧）；Sentinel + Lv5 压测 FPS 掉幅 < 15
 - [ ] i18n：无新增玩家可见文本
 
@@ -223,3 +229,4 @@ A/D 旧手画 ground_spawn_polygons 已作废删除（走 center+0.85R 散布 fa
 | 2026-07-05 | 3 | **定稿 approved**：用户拍板 ×2 = 60×60 km（节奏风险显式登记 + 调节序列）；出生点/清单数值按 ×2 落定 |
 | 2026-07-05 | 4 | **落地路径复审**：发现与 map-editor v4（07-04 approved）撞车（PNG 退役 / zones 进地图 JSON / 官方大图 dogfood），阶段 1 手改（主开关+烘焙+战区 ×2 初值）整体回滚；60km 烘焙产物归档 Downloads\agl_60km_bake；候选布局表存档 §3.1；后续经编辑器授权落地 |
 | 2026-07-05 | 5 | **二次复审：保留手改落地**（用户决定）——回滚重放；B 战区初值落湾里由无头回归抓出、网格扫描修正 (6000,-11000)；无头回归 `tests/test_map_expansion.gd` 全绿；PNG 定性过渡资产；status → in-progress，差 playtest 节奏验收 |
+| 2026-07-26 | 6 | §2.4 适用范围裁决：2000/1500 只管随机战区（A–G+BOSS）；机场解放战区（AF_*，现实坐标不可挪）豁免为 缘距 ≥1000 / 离边 ≥0，裁决全文见 airfield-liberation-zones §2.5 |

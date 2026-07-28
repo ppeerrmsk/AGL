@@ -63,6 +63,16 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 	if ai.aircraft.escort_cover_active:
 		AircraftFlares.try_cover_flare(ai.aircraft, leader)
 
+	# ── 生存层主动回防（spec battlefield-gravity §3.3，常开）──
+	# 操控机被咬 → 就近指派僚机反咬追击者（≤MAX_DEFENDERS，绕开雷达锥）。
+	# 优先于 GUARD_REAR/FREE/跟打长机所有分支——玩家活命第一（North Star）。
+	ai._defense_scan_timer -= delta
+	if ai._defense_scan_timer <= 0.0:
+		ai._defense_scan_timer = 1.0
+		if ai.enable_combat and ai._cooldown_timer <= 0.0 \
+				and try_defend_protectee(ai):
+			return
+
 	# ── 正常编队跟随 ──
 	# 防御性清除：确保编队中无残留战斗目标干扰。
 	# 例外：TIGHT 齐射窗口（volley_fire_active，spec formation-discipline）——窗口期僚机
@@ -192,6 +202,69 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 				ai.current_tactic_name = "TACTIC_TEAM_ATTACK"
 	else:
 		ai._engage_delay = 0.0  # 长机无目标时重置延迟
+
+# ══════════════════════════════════════════════
+#  生存层主动回防（spec battlefield-gravity §3.3，面 B）
+# ══════════════════════════════════════════════
+
+## 回防僚机数上限（§3.3：防"一架 MiG 咬你、全队放弃 BOSS"的火力涣散；活命第一由带优先级裁决）
+const MAX_DEFENDERS := 2
+
+## 常开的操控机防御扫描：把"咬当前操控机"的追击者捞出来指派僚机反咬。
+## 与 GUARD_REAR 的差异：①锚=操控机（非长机，切控随迁）②不要求模式开关/长机正在攻击
+## ③绕开雷达锥+锁定门（直读 engaging_me 反向索引，追击者常在僚机锥外——log① 病根之一）。
+## 距离门/威胁强度统一走 ObjectiveContext §2.3 判据（与面 A 评分同源，防公式漂移）。
+## 返回 true = 已指派交战（调用方直接 return）。
+static func try_defend_protectee(ai: AIController) -> bool:
+	if not ObjectiveContext.enabled or not ai.aircraft.is_player_squad():
+		return false
+	var protectee: Aircraft = ObjectiveContext.protectee
+	if protectee == null or not is_instance_valid(protectee) or protectee.is_destroyed:
+		return false
+	if protectee.engaging_me.is_empty():
+		return false
+	if _count_defenders(ai, protectee) >= MAX_DEFENDERS:
+		return false
+	# 挑最高威胁且未被队友分摊的追击者
+	var best: Aircraft = null
+	var best_t := 0.0
+	for atk in protectee.engaging_me.values():
+		if typeof(atk) != TYPE_OBJECT or not is_instance_valid(atk):
+			continue
+		if not ObjectiveContext.is_survival_threat(atk):
+			continue  # 类型门（只对空）+ SURVIVAL_RANGE 距离门 + 存活，全在 §2.3 判据里
+		var a: Aircraft = atk
+		if a.is_lock_immune():
+			continue  # 隐形一致性铁律（spec ace-squadron-tier §3.5）：不可索敌
+		if ai._is_target_already_squad_engaged(a):
+			continue
+		var t := ObjectiveContext.threat01(a)
+		if t > best_t:
+			best_t = t
+			best = a
+	if best == null:
+		return false
+	_enter_autonomous_engage(ai, best, "TACTIC_GUARD_REAR")
+	if ai.aircraft.combat_target != best:
+		return false  # acquire 被更高优先级拒绝
+	EventLogger.log_event("AI_STATE", ai._log_name(),
+		"DEFEND protectee → %s" % ai._log_target_name(best))
+	return true
+
+## 数小队里已在打"咬操控机者"的僚机（无新增状态字段：按当前目标反查 engaging_me）
+static func _count_defenders(ai: AIController, protectee: Aircraft) -> int:
+	if not ai.squad:
+		return 0
+	var n := 0
+	for m in ai.squad.members:
+		if not is_instance_valid(m) or m.is_destroyed or m == ai.aircraft:
+			continue
+		var mai: AIController = m._ai_ref
+		if mai == null or mai._current_target == null or not is_instance_valid(mai._current_target):
+			continue
+		if protectee.engaging_me.has(mai._current_target.get_instance_id()):
+			n += 1
+	return n
 
 # ══════════════════════════════════════════════
 #  护卫学说（spec squad-ai-escort §2.2 / §3.1-3.2）—— 目标评分加权
@@ -436,6 +509,11 @@ static func scan_squad_nearby_enemy(ai: AIController) -> Aircraft:
 		var score := 1.0 / maxf(d, 100.0) * 1000.0
 		if escort_leader != null:
 			score += escort_target_bonus(escort_leader, ac)
+		# 战场引力三带（spec battlefield-gravity §3.2 共享 helper，与 _score_candidate 同源）：
+		# 纯就近选会在"BOSS 成员 1400px / 杂鱼 600px"时选杂鱼——任务/生存候选必须压过纯就近。
+		# 本扫描 range ≤1500px（锚近旁），引力衰减/可行性门在此无意义，只叠带加分。
+		if ObjectiveContext.enabled and ai.aircraft.is_player_squad():
+			score += ObjectiveContext.band_bonus(ac)
 		if score > best_score:
 			best_score = score
 			best = ac

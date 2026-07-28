@@ -365,7 +365,7 @@ func _test_i18n_coverage() -> void:
 
 	# 带 %s 的 key 必须真的含占位符，否则回令里的目标名会凭空消失
 	var fmt_bad: Array[String] = []
-	for trigger in ["ack_pursue", "ack_surround"]:
+	for trigger in ["ack_pursue", "ack_surround", "ack_strike"]:
 		for key in ChatterLines.lines_of(trigger):
 			if not tr(String(key)).contains("%s"):
 				fmt_bad.append(String(key))

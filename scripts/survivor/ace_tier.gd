@@ -35,6 +35,15 @@ const TIER_ACE := "ace"
 ## 这是与普通飞机"导弹一击必杀"铁律的本质区别（spec §2.3）。
 const MAX_HP := 100.0
 
+## 王牌飞行员枪法（spec bosses/wraith-squadron §2.4）。
+## 机炮梭起手误差 = lerp(5.0°, 0.5°, skill)，故 0.85 → ±1.175° ≈ ±1.2°。
+##
+## ⚠ 这不是削弱，是**补上一个从来没生效过的机制**：瞄准误差通路此前被
+##   `use_tactical_preference` 门死（那是"玩家有战术偏好面板"的操控标志），
+##   全部 AI 敌机——包括 BOSS——一直在打一个完美居中的散布锥。王牌飞行员
+##   打得比杂兵准，但**不是机器人**：玩家的胜利应该来自抓住失误的瞬间。
+const PILOT_AIM_SKILL := 0.85
+
 # ══════════════════════════════════════════════
 #  成员判定
 # ══════════════════════════════════════════════
@@ -44,10 +53,19 @@ static func is_ace_type(etype: int) -> bool:
 	return etype == SurvivorSpawner.EnemyType.F47 \
 			or etype == SurvivorSpawner.EnemyType.F14_POLTERGEIST
 
-## 给已生成的单位打 tier 标记（spawn 时调用一次）
+## 给已生成的单位打 tier 标记（spawn 时调用一次）+ 落地 tier 级的单位属性。
+##
+## 目前只有"执行精度失误"一项：开瞄准误差通路 + 写王牌枪法。放在这里而不是散到
+## f47_ace_squad / poltergeist_squad，是因为本模块是 tier 语义的单一归属地 ——
+## 将来加第三个王牌中队不用再想起这件事。
 static func mark(unit: Node) -> void:
-	if unit != null:
-		unit.set_meta(TIER_META, TIER_ACE)
+	if unit == null:
+		return
+	unit.set_meta(TIER_META, TIER_ACE)
+	if unit is Aircraft:
+		var ac := unit as Aircraft
+		ac.gun_aim_error_enabled = true
+		ac.pilot_aim_skill = PILOT_AIM_SKILL
 
 ## 运行时查询：这个单位是不是王牌中队？
 ## LOD / 清理 / 任何需要"关键单位"语义的地方都走这里，不要自己看 meta。

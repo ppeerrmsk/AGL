@@ -5,7 +5,9 @@ extends SceneTree
 ## 覆盖：
 ##   1. 关键脚本 parse 冒烟（spawner / survivor_mode 等 load 不报错）
 ##   2. 世界常量派生（WORLD_HALF_PX=15000 / 出生点距南边界 1100px）
-##   3. 战区几何约束（两两缘距 ≥2000 / 离边 ≥1500，spec map-expansion §2.4）
+##   3. 战区几何约束（随机战区两两缘距 ≥2000 / 离边 ≥1500，spec map-expansion §2.4；
+##      机场战区圆心=现实机场烘焙坐标不可挪，豁免为 缘距 ≥1000 / 离边 ≥0，
+##      裁决见 spec airfield-liberation-zones §2.5）
 ##   4. ground 战区在新烘焙地理上的陆地占比（zone_has_land 同法采样）
 ##   5. BOSS 南北锚点水面吸附结果在水面
 ##   6. is_on_land 抽查（湾心=水 / 旧横滨核心=陆 + 新外圈参考读数）
@@ -33,6 +35,7 @@ func _initialize() -> void:
 	_check_boss_anchors()
 	_check_ingress_helpers()
 	_check_reward_dedup()
+	_check_reward_desc()
 	if fails == 0:
 		print("[PASS] test_map_expansion 全部通过")
 	else:
@@ -58,6 +61,10 @@ func _check_parse() -> void:
 		"res://scripts/survivor/adbs_manager.gd",
 		"res://scripts/survivor/dock_point.gd",
 		"res://scripts/survivor/tactical_map.gd",
+		"res://scripts/survivor/ace_support_squad.gd",
+		"res://scripts/events/ace_reinforcement_event.gd",
+		"res://scripts/survivor/survivor_player.gd",
+		"res://scripts/survivor/survivor_debug_spawn.gd",
 	]:
 		var s := load(p)
 		_ok(s != null and (s as GDScript).can_instantiate(), "load+compile", p)
@@ -69,19 +76,24 @@ func _check_constants() -> void:
 	_ok(is_equal_approx(edge, 1100.0), "出生点距南边界 1100px", str(edge))
 
 func _check_zone_geometry() -> void:
-	print("[zone] 几何约束（spec map-expansion §2.4）")
+	print("[zone] 几何约束（spec map-expansion §2.4；机场豁免见 airfield-liberation-zones §2.5）")
 	var half := MapBoundary.WORLD_HALF_PX
 	var zones: Array = _ZD.ZONES
 	for i in range(zones.size()):
 		var zi: Dictionary = zones[i]
 		var ci: Vector2 = zi["center"]
 		var ri: float = zi["radius"]
+		var i_af := bool(zi.get("airfield", false))
 		var border_clear := half - maxf(absf(ci.x), absf(ci.y)) - ri
-		_ok(border_clear >= 1500.0, "%s 离边 ≥1500" % zi["label"], "%.0f" % border_clear)
+		## 机场圆心是现实机场烘焙质心（不可挪），豁免 1500 警戒带，只保"圆整体在图内"
+		var border_min := 0.0 if i_af else 1500.0
+		_ok(border_clear >= border_min, "%s 离边 ≥%d" % [zi["id"], int(border_min)], "%.0f" % border_clear)
 		for j in range(i + 1, zones.size()):
 			var zj: Dictionary = zones[j]
 			var gap := ci.distance_to(zj["center"]) - ri - float(zj["radius"])
-			_ok(gap >= 2000.0, "%s↔%s 缘距 ≥2000" % [zi["label"], zj["label"]], "%.0f" % gap)
+			## 机场参与的组合豁免到 ≥1000（不重叠 + 最小走廊）；随机战区之间仍 ≥2000
+			var gap_min := 1000.0 if (i_af or bool(zj.get("airfield", false))) else 2000.0
+			_ok(gap >= gap_min, "%s↔%s 缘距 ≥%d" % [zi["id"], zj["id"], int(gap_min)], "%.0f" % gap)
 
 func _check_known_points() -> void:
 	print("[land] is_on_land 抽查")
@@ -174,3 +186,45 @@ func _check_reward_dedup() -> void:
 			carrier_clash += 1
 	_ok(same == 0, "开局 A/B 奖励 id 200 局无重复", "clash=%d" % same)
 	_ok(carrier_clash == 0, "开局 A/B 从不同时航母", "clash=%d" % carrier_clash)
+
+## 战区奖励说明文案（Tab 面板奖励名下方那行）：每种奖励都要解析出 desc key 且 key 在 CSV 里有行。
+## 守的是"加了新武器件/新 NEXT_GEN 技能却忘了配说明" → 面板只显示一个光秃秃的名字。
+func _check_reward_desc() -> void:
+	print("[reward] 奖励说明文案覆盖")
+	var csv_keys := {}
+	var f := FileAccess.open("res://i18n/translations.csv", FileAccess.READ)
+	if f:
+		while not f.eof_reached():
+			var line := f.get_line()
+			var comma := line.find(",")
+			if comma > 0:
+				csv_keys[line.substr(0, comma)] = true
+		f.close()
+	_ok(csv_keys.size() > 100, "translations.csv 可读", "keys=%d" % csv_keys.size())
+
+	var missing_key: Array[String] = []
+	var missing_row: Array[String] = []
+	# ① 实体奖励：航母 / 僚机 / 六种武器件
+	var probes: Array[Dictionary] = [
+		{"kind": "carrier", "id": "reward_carrier"},
+		{"kind": "wingman", "id": "reward_wingman"},
+	]
+	for w in _ZD.REWARD_WEAPON_NAME_KEYS.keys():
+		probes.append({"kind": "weapon", "weapon": String(w), "id": "reward_weapon_%s" % String(w)})
+	for pr in probes:
+		var k: String = _ZD.reward_desc_key(pr)
+		if k == "":
+			missing_key.append(String(pr.get("weapon", pr["kind"])))
+		elif not csv_keys.has(k):
+			missing_row.append(k)
+	# ② 次世代技术（战区奖励唯一发放口）：desc 直接沿用升级表条目
+	for u in _SD.UPGRADES:
+		if int(u.get("rarity", -1)) != _SD.Rarity.NEXT_GEN:
+			continue
+		var k2: String = _ZD.reward_desc_key({"kind": "nextgen", "id": String(u["id"])})
+		if k2 == "":
+			missing_key.append(String(u["id"]))
+		elif not csv_keys.has(k2):
+			missing_row.append(k2)
+	_ok(missing_key.is_empty(), "每种奖励都能解析出说明 key", "缺=%s" % str(missing_key))
+	_ok(missing_row.is_empty(), "说明 key 在 translations.csv 里都有行", "缺=%s" % str(missing_row))

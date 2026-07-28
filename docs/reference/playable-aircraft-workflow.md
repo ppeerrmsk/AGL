@@ -1,6 +1,6 @@
 # 主角飞机制作工作流程（Playable Aircraft Workflow）
 
-> 目标：把"加一个新的可玩主角"变成纯粹的 .tres 编辑工作 + 一行 PLAYABLE_LIST 追加。
+> 目标：把"加一个新的可玩主角"变成纯粹的 .tres 编辑工作 + 两处一行注册（`AircraftDB._paths` + 进化树节点）。只有起手卡才额外动 `PLAYABLE_LIST`。
 
 ## 一、系统概览
 
@@ -90,7 +90,7 @@ resources/<name>_flare.tres     # FlareParams
 
 ### 步骤 3：（可选）准备战斗风格 / 热诱弹覆盖
 
-如果你想让生存模式下的这架主角有特殊的 AI 战斗倾向（比 base 更激进/更保守），不要改 `base_params.combat`——而是新建一个 CombatParams .tres 作为 `combat_override`。这样 base 还能被沙盒模式或敌方 AI 复用。
+如果你想让生存模式下的这架主角有特殊的 AI 战斗倾向（比 base 更激进/更保守），不要改 `base_params.combat`——而是新建一个 CombatParams .tres 作为 `combat_override`。这样 base 还能被敌方 AI（或调试场景）复用。
 
 ```bash
 resources/playable_<name>_combat.tres   # CombatParams（参考 playable_f16_combat.tres）
@@ -118,6 +118,8 @@ display_name = "<显示名>"
 codename = "<副名，可空>"
 card_tags = PackedStringArray("特性1", "特性2", "特性3")
 card_desc = "卡片描述..."
+# card_perks = PackedStringArray("AIRCRAFT_<NAME>_PERK_*")  # 机体特性行（数值级差异，i18n key；
+#   仅已解锁卡渲染——dev_locked 卡不展示。范例：A-6E 强化机炮 / 幻影 III 经验 +10%
 base_params = ExtResource("2")
 # 默认所有 mult/bonus 为 0/1，不写就用默认值
 # 想要生存模式特殊化时再加：
@@ -130,22 +132,62 @@ base_params = ExtResource("2")
 # wingman_params = ExtResource("5")
 ```
 
-### 步骤 5：注册到选择界面
+### 步骤 5：注册到 AircraftDB（必需）
 
-`scripts/survivor/survivor_select.gd` 顶部的 `PLAYABLE_LIST`：
+`scripts/survivor/aircraft_db.gd` 顶部的 `_paths` 注册表加一行：
+
+```gdscript
+static var _paths: Dictionary = {
+    # ...
+    &"<name>": "res://resources/player/playable_<name>.tres",
+}
+```
+
+所有"按 id 取档案"的链路（进化换机 / 生涯商店 / debug 选机 / 换机技能重放）都走 `AircraftDB.get_profile(id)`，禁止散落 preload（UGC 护栏 2）。**漏掉这行 = 机型对整个进化/商店体系不存在。**
+
+### 步骤 6：登记进化树节点（必需）
+
+41 机全谱中除起手四卡外全部经进化树获得。`resources/evolution/evolution_tree.json` 的 `nodes` 数组追加节点（加载方 `scripts/survivor/evolution_system.gd` 只读表）：
+
+```json
+{
+  "id": "<name>",
+  "tier": 2,
+  "category": "air",
+  "profile": "<name>",
+  "name_key": "AIRCRAFT_<NAME>_DISPLAY",
+  "min_level": 4,
+  "exits": ["f22", "f35", "j20"],
+  "gates": { "sum_gk": 1 }
+}
+```
+
+- `profile` = 步骤 5 在 AircraftDB 注册的 id；`name_key` 要在 `i18n/translations.csv` 有行
+- `gates`（T2+ 必填）：`gladiator`/`knight`/`schemer` 单轴、`any`（或门）、`sum_gk`（斗骑合计）、`sum_all`（三轴合计）；设计值查 spec `evolution-attribute-gates` §2.3/§2.4
+- **同时把上游机型节点的 `exits` 数组补上本机 id**——没有入边的节点玩家永远换不到
+- 非终点节点出口 ≥3（ACE 手动三选铁律，T5 终端档豁免）；tier/角色定位查 spec `player-aircraft-power-curve` §2
+- 改完跑无头冒烟测试校验（profile 可加载 / 出口无悬空 / ≥3 选 / i18n 行齐全）：
+
+```bash
+godot --headless --script res://scripts/tests/test_evolution_tree.gd
+```
+
+### 步骤 7：（仅起手卡）注册到选择界面
+
+`scripts/survivor/survivor_select.gd` 顶部的 `PLAYABLE_LIST` 只放**起手四卡**，普通机型不进这里。条目带 `"id"` 字段——生涯解锁门控按它查 `MetaShop.is_aircraft_unlocked`：
 
 ```gdscript
 const PLAYABLE_LIST: Array[Dictionary] = [
-    { "resource": "res://resources/playable_f16.tres", "locked": false },
-    { "resource": "res://resources/playable_<name>.tres", "locked": false },  # ← 解锁这一格
-    { "resource": "", "locked": true, "slot_name": "??? / TBA", "slot_desc": "..." },
-    { "resource": "", "locked": true, "slot_name": "??? / TBA", "slot_desc": "..." },
+    { "id": "f15", "resource": "res://resources/playable_f15.tres", "locked": false },
+    { "id": "<name>", "resource": "res://resources/player/playable_<name>.tres", "locked": false },
 ]
 ```
 
-把第 N 个占位符的 dictionary 替换成新档案。卡片显示用的所有信息都从 `PlayableAircraft` 字段读取——不需要重复填写 name/tags/desc。
+- 卡片显示用的所有信息都从 `PlayableAircraft` 字段读取——不需要重复填写 name/tags/desc
+- 运行时实际名单走 `_effective_list()`：未解锁条目翻 `dev_locked` 标志（全信息展示 + 按钮禁用，按钮文本换成 `_unlock_hint_for()` 的解锁条件句）；boss debug 链路全谱放行
+- 新起手卡若带解锁条件：`scripts/meta/meta_shop.gd::is_aircraft_unlocked` 加分支 + `_unlock_hint_for` 加提示句 + i18n 三语 key（spec `career-shop` §2.1/§2.4）
 
-### 步骤 6：测试
+### 步骤 8：测试
 
 1. F5 启动游戏 → 主菜单 → 生存模式 → 地图选择 → 机型选择
 2. 检查卡片：名称、副名、标签、描述、属性栏是否正确
@@ -218,7 +260,7 @@ combat_override.approach_speed_mult = 1.2    # 慢速接敌
 
 ### 6.2 为什么 apply() 对僚机也调用？
 
-因为 `PlayableAircraft.base_params` 是"裸"参数（沙盒模式 / 敌机也可以复用），生存模式特有的调味（雷达 1/3 cut、伤害上限、闪避率等）写在 `PlayableAircraft` 的 mult/override/flag 字段里。如果僚机只 duplicate base_params 而不 apply()，它们就会拿到沙盒级别的属性（比如完整 radar_range = 3500），与生存模式的玩家不对齐。`apply(ac, profile, true)` 是把"生存模式调味"统一刷到长机和僚机上的入口。
+因为 `PlayableAircraft.base_params` 是"裸"参数（敌机 / 调试场景也可以复用），生存模式特有的调味（雷达 1/3 cut、伤害上限、闪避率等）写在 `PlayableAircraft` 的 mult/override/flag 字段里。如果僚机只 duplicate base_params 而不 apply()，它们就会拿到未调味的裸属性（比如完整 radar_range = 3500），与生存模式的玩家不对齐。`apply(ac, profile, true)` 是把"生存模式调味"统一刷到长机和僚机上的入口。
 
 ## 七、调试技巧
 
@@ -255,7 +297,7 @@ combat_override.approach_speed_mult = 1.2    # 慢速接敌
 
 | 类别 | requires | exclusive_to | 例子 |
 |---|---|---|---|
-| **通用基础** | 缺 | 缺 | `hp_up`（装甲）`speed_up`（引擎）`maneuver_up`（飞控）`pilot_stamina`（体能）`kill_heal`（战场急救）`radar_range`（雷达升级）`lock_time`（火控）`dogfight`（格斗大师）|
+| **通用基础** | 缺 | 缺 | `hp_up`（装甲）`speed_up`（引擎）`maneuver_up`（飞控）`kill_heal`（战场急救）`radar_range`（雷达升级）`lock_time`（火控）`dogfight`（格斗大师）|
 | **硬件依赖** | 有 | 缺 | `gun_*` 系列（要求 gun）`missile_*` 系列（要求 missile）`flare_cooldown` `flare_shield`（要求 flare）|
 | **机型专属** | 任意 | 有 | （F-14 的专属升级待用户后续定义；模板见下） |
 
@@ -315,11 +357,13 @@ SurvivorData.is_upgrade_available_for(upgrade, aircraft_id, params) -> bool
 3. （如有）`resources/playable_<name>_combat.tres` (CombatParams override)
 4. （如有）`resources/playable_<name>_flare.tres` (FlareParams override)
 5. `resources/playable_<name>.tres` (PlayableAircraft) ← 主档案，**记得设 `id = &"<name>"`**
-6. `scripts/survivor/survivor_select.gd::PLAYABLE_LIST` 追加/替换条目
-7. （如有专属技能）在 `SurvivorData.UPGRADES` 末尾追加专属条目，`exclusive_to = ["<name>"]`
-8. （如有专属技能）在 `survivor_player.gd::apply_upgrade` 的 `match stat:` 中加对应分支
-9. （如新文件较多）更新 `docs/playable-aircraft-workflow.md` 的"现有主角清单"
-10. （重大变更）更新 `CLAUDE.md` Script Index
+6. **`scripts/survivor/aircraft_db.gd::_paths` 注册一行**（必需，漏了 = 进化/商店取不到档案）
+7. **`resources/evolution/evolution_tree.json` 追加节点 + 上游 `exits` 补边**（必需，除起手卡外唯一获取途径）→ 跑 `test_evolution_tree.gd` 冒烟
+8. （仅起手卡）`scripts/survivor/survivor_select.gd::PLAYABLE_LIST` 追加条目（**带 `"id"` 字段**；解锁门控同步 `meta_shop.gd::is_aircraft_unlocked` + `_unlock_hint_for`）
+9. （如有专属技能）在 `SurvivorData.UPGRADES` 末尾追加专属条目，`exclusive_to = ["<name>"]`
+10. （如有专属技能）在 `survivor_player.gd::apply_upgrade` 的 `match stat:` 中加对应分支
+11. （如新文件较多）更新 `docs/reference/playable-aircraft-workflow.md` 的"现有主角清单"
+12. （重大变更）更新 `CLAUDE.md` Script Index
 
 **完全不需要改的**：
 - `aircraft.gd`（武器是 null-safe 的）
@@ -329,8 +373,25 @@ SurvivorData.is_upgrade_available_for(upgrade, aircraft_id, params) -> bool
 
 ## 十、现有主角清单
 
-| ID | 显示名 | 档案 | 武器 | 起始僚机 | 备注 |
-|---|---|---|---|---|---|
-| `f16` | F-16C Block 50 / SmartFalcon | `playable_f16.tres` | M61A1 / AIM-7M ×2 / 热诱弹 ×2 | 0 | 入门均衡，全属性强化 |
-| `f14` | F-14A Tomcat / TopGun | `playable_f14.tres` | M61A1（半弹） / AIM-54 ×1 / 热诱弹 ×1 | 3 | 小队主控，单机弱依赖编队 |
-| `a10` | A-10 Warthog | `playable_a10.tres` | GAU-A 加强机炮 / Hydra 70 火箭弹（无限弹/手动 KEY_R 平行齐射 6 发）| 0 | 实验机型：玩家手动 RKT 入口，无导弹/无热诱弹/重装甲 |
+### 10.1 起手四卡（`survivor_select.gd::PLAYABLE_LIST`）
+
+| ID | 起手定位 | 档案 | 解锁条件（spec `career-shop` §2.1） |
+|---|---|---|---|
+| `f15` | 制空/综合，进化路线最多 | `resources/playable_f15.tres` | 恒解锁 |
+| `f14` | 远程/团队，开局送 3 僚机（全谱最弱锚点） | `resources/playable_f14.tres` | 首败航母 BOSS |
+| `a6e` | 攻击/肉，轻火箭 | `resources/player/playable_a6e.tres` | 累计 30 地面击杀（`CareerArchive.get_ground_kills`，进度实时显示在锁定卡按钮上） |
+| `mirage3` | 电战线之根 | `resources/player/playable_mirage3.tres` | 生涯商店购买 |
+
+门控实现在 `survivor_select.gd::_effective_list()`：按 `MetaShop.is_aircraft_unlocked(id)` 给未解锁条目翻 `dev_locked` 标志，不删条目；boss debug 链路全谱放行。
+
+旧起手位变迁：F-16 降为进化分支、A-10 降为 T2 进化获得（起手位由 A-6E 取代）、X-02 移入 T5 树内 LV22 进化获得。
+
+### 10.2 41 机全谱注册表（`aircraft_db.gd::_paths`）
+
+**权威注册表是 `scripts/survivor/aircraft_db.gd`，本表只是快照**；tier/角色/数值矩阵查 spec `player-aircraft-power-curve` §2（v7），树结构查 `resources/evolution/evolution_tree.json`。除起手四卡外全部经进化树获得。
+
+| 批次 | 档案目录 | 机型 id |
+|---|---|---|
+| 老 13 机（根目录 5） | `resources/`（base_params 已重指向 `resources/player/`） | `f15` `f16` `f14` `a10` `x02` |
+| 老 13 机（进化切片 8） | `resources/evolution/` | `f22` `f35` `mig31` `su34` `x09` `x13` `x21` `x44` |
+| 扩谱 28 机（2026-07-19） | `resources/player/`（profile 与 params 同住） | `a6e` `mirage3` `mirage2000` `f15c` `f15e` `fa18e` `gripen_c` `su27` `rafale` `tornado` `typhoon` `viggen` `harrier` `f15smtd` `su35` `gripen_e` `su57` `j20` `a12` `yf23` `f47` `mig41` `fcas` `gcap` `j36` `x77` `x90` `ax00` |

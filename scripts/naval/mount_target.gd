@@ -98,16 +98,11 @@ func _self_destruct() -> void:
 	_notify_clear_combat_target_refs()
 	queue_free()
 
-## 广播：任何 Aircraft.combat_target == self 的都要清掉（防止下一帧访问已释放实例）
+## 广播：任何持有 self 的战斗引用都要清掉（防止下一帧访问已释放实例）
+## 实现已上收到 CombatUnit.release_target_refs（全场统一入口，还覆盖 commanded_target /
+## secondary_combat_target / AIController._current_target），这里只留薄壳
 func _notify_clear_combat_target_refs() -> void:
-	for u in CombatUnit.all_units:
-		if u == null or not is_instance_valid(u):
-			continue
-		if not u is Aircraft:
-			continue
-		var ac: Aircraft = u
-		if ac.combat_target == self:
-			ac.clear_combat_target()
+	CombatUnit.release_target_refs(self)
 
 
 ## 把自身位置对齐到对应挂点 / 弱点的世界坐标，同时同步 heading

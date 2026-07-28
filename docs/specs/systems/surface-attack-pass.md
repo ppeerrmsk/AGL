@@ -3,7 +3,7 @@ id: surface-attack-pass
 kind: system
 status: in-progress
 schema_version: 1
-spec_version: 4
+spec_version: 5
 owner: 用户 + Claude
 depends_on: [joust-attack-run, weapon-employment-doctrine, command-wheel, rts-command]
 reconstruction_complete: false
@@ -188,9 +188,15 @@ phase 状态位 `strafe_pass_phase ∈ {SETUP=0, RUN=1, EGRESS=2}`，住 `Aircra
 **相位动作**：
 - **SETUP**：`pursuit_pos = tgt_pos`，corner speed，关 AB。（几何上等于"朝目标转"，
   但因非 too_close，转弯圆能带到目标 → aim_align 会收敛。）
-- **RUN**：`pursuit_pos = tgt_pos`（ASSAULT，静止目标不需提前量）或 `_missile_engage_pos(s)`
-  （STANDOFF，crank 保锁）。按 2.4 设速度/高度/AB。开火由既有 `_apply_combat_weapon`
-  设的 `allow_gun_fire / allow_missile_fire` + `update_gun/update_missile` 自理。
+- **RUN**：`pursuit_pos = tgt_pos`（ASSAULT 与 STANDOFF **均为纯追踪**）。按 2.4 设速度/高度/AB。
+  开火由既有 `_apply_combat_weapon` 设的 `allow_gun_fire / allow_missile_fire` +
+  `update_gun/update_missile` 自理。
+  **STANDOFF 不 crank（2026-07-26 定案，spec v5）**：曾用 `_missile_engage_pos(s)` crank 保锁，
+  但 crank 稳态离轴 = `radar_half×0.5` 恰在发射窗口质量门（`radar_half×0.5(SARH)/0.55(f&f)`）
+  外沿——SETUP 刚对准、一进 RUN 反被拧出发射门，UNSTABLE_WIN 永拒（log 20260726_165536：
+  长机+僚机对 SAM/AAA 40s 离轴恒 21~31°、0 发）。静止面目标纯追踪 LOS 零旋转 → 机头收敛
+  0 离轴即稳态，锁最快攒满、发射门必过；发射后保距由 F-Pole 环外等待接管（§aa-fire-awareness）。
+  与慢速空目标终端纯追踪（slow-air pass）同病同修。
 - **EGRESS**：`pursuit_pos = my_pos + (−to_target_dir) × EGRESS_OUT_PX`（**背离目标径向**，
   不是沿机头——STANDOFF 头朝目标触发时沿机头会穿过目标，实测 min 1m）；corner speed 硬 break（收紧半径）。
   纯函数无地图边界，不做 edge lerp；靠 reentry 折返避免飞出图（若 playtest 出现贴边飞出再注入 map 边界）。
@@ -240,7 +246,14 @@ Apache 专用的 `aircraft_combat_tracking.update_combat_ground_attack`（`_stra
 - [x] **默认姿态**：有导弹 → STANDOFF；无导弹 → ASSAULT（由武器竞选推导，单测覆盖）。
 - [ ] **舰船同款**：对 NavalUnit（`tgt_is_surface`）行为与地面一致（sim 用裸 CombatUnit 代理已验证 surface 分支；生存实战待 playtest）。
 - [x] **不自陷失速**：全程 target_speed 地板 ≥ corner speed（sim 未见失速）。
-- [x] 已知 seam：不触碰 SEAM-013（crank 翻号）——STANDOFF 复用现成 `_missile_engage_pos` 连续 crank。
+- [x] ~~已知 seam：不触碰 SEAM-013（crank 翻号）——STANDOFF 复用现成 `_missile_engage_pos` 连续 crank。~~
+  **v5 废止**：STANDOFF RUN 已去 crank 改纯追踪（crank 稳态离轴钉在发射门外沿 → 永不出弹，见 §3.1）。
+- [x] **必须真出弹（v5 新增，log 20260726_165536 回归）**：sim B（STANDOFF vs SAM）复刻实机发射门
+  序列（包络→锥→锁→发射窗质量），首发 **3.2s**、45s 内 ≥2 发（修复前 0 发）；sim C（玩家长机
+  `use_tactical_preference` 对 6.2km 舰）≥1 发（实测 9 发，修复前 0 发）。
+- [x] **包络高度差门对面目标豁免（v5）**：`is_in_missile_envelope` 的"高度差>5000m 拒发"收窄为
+  仅对空中目标——STANDOFF MID 上半带（>5000m）/玩家爬升偏好曾恒触此门 → 对地导弹无声永拒
+  且随高度玄学复发。对空语义不变（`--bench=missile_env` 4/4 绿）。
 - [x] 回归门：`--bench=surface_pass` 9/9 + `--bench=bfm_intent` 102/102 + `--bench=all` 18 项全绿。
 - [x] i18n：无新增玩家可见 UI 文本（rationale 是 debug 日志，不走 tr）。
 - [ ] 性能：生存模式 Sentinel + Lv5+ 压测 FPS 掉幅 < 15（纯几何 + 1 int 状态位，无新增每帧扫描；待 playtest 顺带确认）。
@@ -290,6 +303,7 @@ Apache 专用的 `aircraft_combat_tracking.update_combat_ground_attack`（`_stra
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-07-26 | 5 | **病例3 修复（log 20260726_165536，僚机+长机 STANDOFF 对 SAM/AAA 40s 0 发导弹）**：两道互相独立的"无声拒发"门叠加。①**crank 钉死发射门**：RUN[STANDOFF] 用 `_missile_engage_pos` crank，稳态离轴 `radar_half×0.5` 恰在发射窗质量门（`×0.5(SARH)/0.55(f&f)`）外沿 → SETUP 对准后一进 RUN 反被拧出发射门，UNSTABLE_WIN 永拒；每 20s 一轮 SETUP→RUN→EGRESS 空转。修：RUN[STANDOFF] 改**纯追踪**（与 slow-air 终端同修），发射后保距走 F-Pole 环外等待。②**包络高度差门**：`is_in_missile_envelope` "高度差>5000m 拒发"对面目标恒触（STANDOFF MID 上半带/玩家爬升偏好 → 高度落哪半带决定发/不发 = 玄学复发）。修：该门收窄为仅对空中目标。**回归加固**：sim B/C 新增"必须真出弹"断言（复刻实机发射门序列：包络→锥→锁→发射窗质量+冷却）——此前验收只断言运动几何、武器层从不在环内，正是 bug 反复穿过验收的原因。sim 32/32 + `--bench=all` 39 项全绿（missile_env 4/4 对空语义不变）。 |
 | 2026-07-11 | 4 | **病例2 修复**（log 20260711_205142，命令打 6km 对舰 STANDOFF 绕圈背飞）：无头 sim 证明 SETUP 本身 9s 收敛，根因是 STANDOFF `inner` 误设远环 `missile_max×0.5` → 命令打环内目标一进 RUN 即 `dist≤inner` → EGRESS 外逃绕圈。修：①`inner` 改固定近距 `STANDOFF_INNER_M=2200m`（"别更近"语义，非"退到远环"）；②STANDOFF EGRESS 改**侧向 beam break**（原 180 径向反转 head-on coast min 421m）；③STANDOFF RUN 逼近脱离环预减速 corner（收紧 break 弧）。新增 sim 场景 C（6km 对舰 off-axis）作回归。sim 14/14 + bfm_intent 102/102 + all 18 绿。 |
 | 2026-07-07 | 3 | 无头行为 sim（`--bench=surface_pass`，模型同 test_joust）暴露并修 3 处物理 bug：①ASSAULT 全程贴 tgt_alt 不爬回 MID（原高度 churn 打不到地面，sim min 4211m→9m）；②EGRESS 方向改**背离目标径向**（原沿机头，STANDOFF 头朝目标触发时穿过目标 min 1m）；③EGRESS 用 **corner 硬 break** 收紧半径 + STANDOFF 改**远距 standoff 环脱离**（原近环 180 coast 冲进 AA，min 156→1395m）。sim 9/9 + bfm_intent 102/102 + all 18 项绿。 |
 | 2026-07-07 | 2 | 实现前自审修 3 处数值 bug：C1 SETUP→RUN 去掉 `dist≤outer` 门（远距对准也全速闭合）；C2 加包络有效性守卫 `inner=min(inner, outer×0.6)`（防短射程 AGM 反向带宽死锁）；C3 reentry 分姿态、去掉 `outer×1.3`（STANDOFF outer=8km 会算出 10km 折返）。status → in-progress。**全量落地**：plumbing 4 处 + ground_strafe 重写 + 3 新单测；`--bench=bfm_intent` 102/102 绿。差生存 playtest。 |

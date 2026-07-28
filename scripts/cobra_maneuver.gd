@@ -39,6 +39,12 @@ func activate() -> bool:
 		return false
 	if not _aircraft:
 		return false
+	# 王牌分层防御门（spec ace-squadron-tier §3.4 装备件机动归类，2026-07-27 用户定档）：
+	# 王牌中队成员**用完热诱弹以后**才解锁眼镜蛇——第一层"1 枚必躲"命数读数保持纯净，
+	# 耗尽后防御不归零、换上这件一次性备胎（"骗掉它的 flare，它才开始跳舞"）。
+	# 杂兵 Su-27/Su-35 不是 AceTier 实例，不受影响
+	if AceTier.is_ace(_aircraft) and _aircraft.flares_remaining > 0:
+		return false
 	is_used = true
 	phase = Phase.PITCH_UP
 	_timer = 0.0
@@ -93,6 +99,8 @@ func _physics_process(delta: float) -> void:
 			if _timer >= RECOVER_DURATION:
 				phase = Phase.NONE
 				visual_offset = 0.0
+				# 722 签名技能：特殊机动完成事件（急停机动 Su-27 / 落叶飘 Su-35）
+				SkillHooks.on_special_maneuver_done(_aircraft)
 				_aircraft.is_afterburner = false
 				_aircraft._flare_cooldown = FLARE_COOLDOWN_AFTER
 				# 加力冷却：阻止能量管理在 cobra 后的几秒内立刻重新点 AB

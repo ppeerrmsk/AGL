@@ -46,6 +46,13 @@ func spawn_missile(source: CombatUnit, target: CombatUnit, missile_params: Missi
 	# 二段推进（720 批）：发射方持有技能 → 本弹全程续推 + 转弯渐强
 	if source is Aircraft and (source as Aircraft).missile_second_stage_active:
 		missile.second_stage = true
+	# 722 签名技能：夜枭（X-09 每弹 40% 静默）/ 超越地平（X-21 偏转后重索敌）
+	if source is Aircraft and source.is_player_squad() and source.has_meta("upgrade_stacks"):
+		var sig_stacks: Dictionary = source.get_meta("upgrade_stacks")
+		if int(sig_stacks.get("sig_x09", 0)) > 0 and randf() < 0.40:
+			missile.sig_silent = true
+		if int(sig_stacks.get("sig_x21", 0)) > 0:
+			missile.sig_retarget_armed = true
 	missile.target = target
 	missile.team = source.team
 	missile.speed = source.speed + 50.0  # 初速 = 发射单位速度 + 50 m/s
@@ -274,6 +281,7 @@ func get_in_cloud(world_pos: Vector2) -> bool:
 	return in_c
 
 func _physics_process(delta: float) -> void:
+	var _t0 := Time.get_ticks_usec()
 	# ── 导弹命中检测 ──
 	for child in get_children():
 		if not child is Missile:
@@ -381,11 +389,16 @@ func _physics_process(delta: float) -> void:
 				if is_instance_valid(missile.source):
 					unit.set_meta("_pending_attacker", missile.source)
 					unit.set_meta("_last_damage_kind", "qmaam" if missile.is_secondary_weapon else "missile")
+				var sig_msl_dmg: float = missile.params.damage
+				# 722 sig_f15e·对地特化：对地面/舰船单位导弹伤害 ×1.3（发射者持有技能时）
+				if is_instance_valid(missile.source) and missile.source is Aircraft \
+						and (missile.source as Aircraft).sig_f15e_active and not (unit is Aircraft):
+					sig_msl_dmg *= 1.3
 				if unit is GroundUnit:
-					unit.take_missile_damage(missile.params.damage)
+					unit.take_missile_damage(sig_msl_dmg)
 				elif unit is NavalUnit:
 					# 船走位置感知路由：伤害给最近的挂点或弱点
-					(unit as NavalUnit).take_damage_at(missile.params.damage, missile.global_position)
+					(unit as NavalUnit).take_damage_at(sig_msl_dmg, missile.global_position)
 				else:
 					unit.take_damage(missile.params.damage, CombatUnit.safe_attacker(missile.source),
 						"qmaam" if missile.is_secondary_weapon else "missile")
@@ -419,6 +432,8 @@ func _physics_process(delta: float) -> void:
 	# ── 帧级共享快照构建（放在命中检测之后；保证击杀已结算的目标 is_destroyed=true 写入快照，
 	#    供同帧后运行的 Missile._physics_process 读取，与改动前直接读 target.is_destroyed 一致）──
 	_build_frame_snapshot()
+	# 性能埋点（此前 MissileManager 全无 PerfBuckets 覆盖）：命中检测 + AOE + 命中闪光 + 快照
+	PerfBuckets.tick("missile_phys", Time.get_ticks_usec() - _t0)
 
 ## 创建 AOE 区域
 func _spawn_aoe(pos: Vector2, alt: float, damage: float, team: int, direct_hit: CombatUnit, source: Node = null) -> void:
@@ -603,7 +618,13 @@ func _draw_hit_flash(flash: Dictionary) -> void:
 	# 从远到近（y 小到大）画侧面
 	faces.sort_custom(func(a, b): return a["y"] < b["y"])
 	for f in faces:
-		draw_colored_polygon(f["v"], f["c"])
+		# 退化守卫：heading 轴对齐（sin/cos≈0）时侧面四边形塌成线段，
+		# draw_colored_polygon 三角化失败刷 "Invalid polygon data" 错误 → 面积近零直接跳过
+		var v: PackedVector2Array = f["v"]
+		var area2: float = absf((v[1] - v[0]).cross(v[3] - v[0])) + absf((v[1] - v[2]).cross(v[3] - v[2]))
+		if area2 < 0.5:
+			continue
+		draw_colored_polygon(v, f["c"])
 	# 顶面（最后画，在侧面之上）
 	var top_verts := PackedVector2Array([t_fr, t_fl, t_bl, t_br])
 	draw_colored_polygon(top_verts, col_top)
