@@ -141,15 +141,15 @@ BVR 远距协同齐射 BOSS，事件触发：
 3. **`survivor_spawner.gd:42` 起声明 `_<name>_params_base: AircraftParams` 成员**
 4. **`survivor_spawner.gd:119` 起 `preload(...)` 加载资源**
 5. **`survivor_data.gd:1554` 起加解锁/概率常量**（`<NAME>_UNLOCK_LEVEL` / `_CHANCE_PER_LEVEL` / `_CHANCE_MAX`）
-6. **`survivor_data.gd:2746` `TOKEN_COST` 和 `:2753` `TOKEN_INSTANCE_CAP` 表补新枚举值**
+6. **`survivor_data.gd:2806` `TOKEN_COST` 和 `:2753` `TOKEN_INSTANCE_CAP` 表补新枚举值**
 7. **`survivor_spawner.gd:309` `_pick_enemy_type` 按威胁等级插入概率判定分支**
-8. **`survivor_spawner.gd:1721` `_create_enemy` 的各 match 全部补新 case**：
+8. **`survivor_spawner.gd:1725` `_create_enemy` 的各 match 全部补新 case**：
    - `match etype` 选基础参数（`:1577`）
    - `enemy_scale_for_level` 适用判定（`:1646` 起）
    - 热诱弹失误概率 match（`:1689`）—— 越低级失误率越高
    - `type_tag` 映射（`:1759`）—— 第 10 步的无线电白名单要用这个 tag
    - AI 配置分支（`:1840` 起 — 仿照 F-86/MiG-23 写 `aggression`/`engage_cooldown` 等）
-9. **`survivor_spawner.gd:452` `_update_spawner` 的编队/单机判定里追加**（精英单机 vs 成建制编队）
+9. **`survivor_spawner.gd:459` `_update_spawner` 的编队/单机判定里追加**（精英单机 vs 成建制编队）
 10. **决定它配不配无线电**（spec radio-chatter §2.8）：
     - 有人驾驶且够格说话 → 在 `resources/chatter/radio_chatter.json` 的 `voiced_enemy_types.types`
       加上第 8 步的 `type_tag`

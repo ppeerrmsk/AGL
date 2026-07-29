@@ -1244,6 +1244,12 @@ func _ensure_player_squad() -> Squad:
 	player_aircraft.clear_formation()
 	_squad = sq
 	sq.leader_changed.connect(_on_squad_leader_changed)
+	# 登记进 spawner 队伍表：HUD 小队指挥面板经 _spawner.get_squads() 反查"玩家为长机的队"，
+	# 定期 _cleanup_squads() 也只清理表内队伍。登记点必须在这条**公共**装配链上——
+	# 原先只挂在 _spawn_starting_wingmen 末尾，导致懒建队机型（40/41 机）拿到僚机后
+	# 小队指挥 UI 永不出现、阵亡僚机也永不从 members 剔除（只有起手带僚机的 F-14 正常）。
+	if _spawner and not _spawner.get_squads().has(sq):
+		_spawner.get_squads().append(sq)
 	return _squad
 
 ## 分配一个稳定号机号：取当前**存活**成员里最小的未占用正整数（1=玩家长机）。
@@ -1349,8 +1355,7 @@ func _spawn_starting_wingmen(profile: PlayableAircraft) -> void:
 		# 若 F11 编队调试已开启，新生成的僚机也跟着开
 		if _wingman_formation_debug:
 			ac.formation_debug = true
-
-	_spawner.get_squads().append(sq)
+	# 队伍登记已上移到 _ensure_player_squad（懒建队路径同样需要），此处不再重复 append
 
 # ══════════════════════════════════════════════
 #  编队调试（F11 切换覆盖层 / F12 状态快照）
@@ -1720,6 +1725,7 @@ func _find_enemy_near(world_pos: Vector2) -> CombatUnit:
 	# 直接锁船会导致导弹发射逻辑看不到锁定进度。船体由下面的 ship_in_range 单独处理。
 	var ship_in_range: NavalUnit = null
 	var ship_dist_sq := INF
+	var mother_goose_in_range: Aircraft = null
 	for child in get_children():
 		if child is CombatUnit and child.team == CombatUnit.TEAM_HOSTILE and not child.is_destroyed:
 			if child is NavalUnit:
@@ -1731,17 +1737,32 @@ func _find_enemy_near(world_pos: Vector2) -> CombatUnit:
 						ship_dist_sq = dc2
 						ship_in_range = child
 				continue
+			if child is Aircraft and child.get_meta("enemy_type", "") == "mother_goose" \
+					and _is_inside_mother_goose_hull(child, world_pos):
+				mother_goose_in_range = child
+				continue
 			if child.is_lock_immune():
 				continue
 			var d := world_pos.distance_to(child.global_position)
 			if d < best_dist:
 				best_dist = d
 				best = child
+	## 巨型飞翼本体覆盖其上的普通 UAV：用户明确点中机身时，优先解释为攻坚挂点命令。
+	if mother_goose_in_range != null:
+		return _find_nearest_mount_target_on(mother_goose_in_range, world_pos)
 	if best != null:
 		return best
 	if ship_in_range != null:
 		return _find_nearest_mount_target_on(ship_in_range, world_pos)
 	return null
+
+## Mother Goose 飞翼可点击区域（与 renderer 的 9× 图标近似包围盒一致）。
+## 本体锁定免疫时，点击机身只用于把命令转发到最近的可攻击 MountTarget。
+func _is_inside_mother_goose_hull(goose: Aircraft, world_pos: Vector2) -> bool:
+	var local: Vector2 = world_pos - goose.global_position
+	var fwd := Vector2(sin(goose.heading), -cos(goose.heading))
+	var stb := Vector2(cos(goose.heading), sin(goose.heading))
+	return absf(local.dot(stb)) <= 225.0 and absf(local.dot(fwd)) <= 85.0
 
 ## 点击位置到舰船船体矩形（hull_length × hull_width）的最短距离
 ## 落在矩形内返回 0，外面返回正距离
@@ -1759,9 +1780,9 @@ func _distance_to_ship_hull(ship: NavalUnit, world_pos: Vector2) -> float:
 	var dy := maxf(0.0, absf(local_y) - half_l)
 	return sqrt(dx * dx + dy * dy)
 
-## 在指定船的所有 MountTarget 代理（挂点 + 暴露弱点）中找离 world_pos 最近的
-## MountTarget 是 survivor_mode 的子节点（不挂在 NavalUnit 下，避免 rotation 干扰）
-func _find_nearest_mount_target_on(ship: NavalUnit, world_pos: Vector2) -> CombatUnit:
+## 在指定母体的所有 MountTarget 代理（挂点 + 暴露弱点）中找离 world_pos 最近的。
+## MountTarget 是 survivor_mode 的子节点（不挂在母体下，避免 rotation 干扰）。
+func _find_nearest_mount_target_on(ship: CombatUnit, world_pos: Vector2) -> CombatUnit:
 	var best: CombatUnit = null
 	var best_d2 := INF
 	for child in get_children():
@@ -2451,24 +2472,24 @@ func _get_ai(ac: Aircraft) -> AIController:
 # 操控对象切换（spec squad-control-switching）
 # ──────────────────────────────────────────────
 
-## 数字键入口（动态号机号，spec §3.1）：键 1 = 当前操控机（长机），
-## 键 2..N = 存活僚机按 HUD 小队面板顺序（members 序，排除长机）压缩排列 —— 键 N = 第 N 架存活友机。
-## 不再按固定 squad_slot 直接匹配：僚机阵亡后固定号机号会留空洞（如队里只剩一架 squad_slot=5 的
-## 僚机时，按 2 匹配不到、按 5 才行，违反"有僚机就能选中"）。动态映射保证号机号永远连续、无空洞。
+## 数字键入口（固定号机号，spec §3.1）：键 N 永远接管 squad_slot == N 的存活飞机。
+## squad_slot 是飞机出生时分配的稳定身份，不随换帅或列表顺序变化；阵亡后的空号保持为空。
 func _switch_control_to_slot(slot: int) -> void:
 	if not _squad or slot < 1:
 		return
-	if slot == 1:
-		return  # 键 1 = 当前操控机自身，no-op
-	# 存活僚机（排除长机=当前操控机），保持 members 顺序 = HUD 小队面板自上而下的顺序
-	var wingmen: Array = []
-	for ac in _squad.members:
-		if is_instance_valid(ac) and not ac.is_destroyed and ac != _squad.leader:
-			wingmen.append(ac)
-	var idx := slot - 2   # 键 2 → 第 0 架僚机
-	if idx < 0 or idx >= wingmen.size():
+	var target := _aircraft_for_squad_slot(slot)
+	if target == null or target == player_aircraft:
 		return
-	_switch_player_to(wingmen[idx])
+	_switch_player_to(target)
+
+## 固定号机号查询。独立成纯查询入口，供输入与无头回归测试共用。
+func _aircraft_for_squad_slot(slot: int) -> Aircraft:
+	if not _squad or slot < 1:
+		return null
+	for ac in _squad.members:
+		if is_instance_valid(ac) and not ac.is_destroyed and ac.squad_slot == slot:
+			return ac
+	return null
 
 ## 接管流程（spec §3.2）：新机上手 + 换帅 + 旧机降级 + 重定向操控真源。
 func _switch_player_to(new_ac: Aircraft) -> void:
@@ -2876,12 +2897,15 @@ func _dispatch_sig_oneshot(uid: String) -> void:
 			# 新僚机经 _spawn_reward_wingman 尾部 build 补挂 →"复制技能"
 			_sig_oneshot_done[uid] = true
 			var cloned: int = 0
-			for i in 3:
-				var alive_n: int = _squad_members_alive().size()
-				if alive_n >= 9:
-					break
-				_spawn_reward_wingman()
-				cloned += 1
+			# 懒建队：AX-00 起手无僚机（wingman_count=0），不先装配长机则
+			# _spawn_reward_wingman 整段静默 early-return（复制 0 架却记 3 架）
+			if _ensure_player_squad() != null:
+				for i in 3:
+					var alive_n: int = _squad_members_alive().size()
+					if alive_n >= 9:
+						break
+					_spawn_reward_wingman()
+					cloned += 1
 			EventLogger.log_event("SKILL", "Player", "双子星：复制 %d 架同型僚机（含全套 build）" % cloned)
 
 ## 722 签名：生成签名忠诚僚机 drone（f47 一次性 / x90 周期）。
@@ -3220,7 +3244,9 @@ func _on_retreat_confirmed() -> void:
 func _on_supply_confirmed() -> void:
 	# BOSS 阶段禁用补给 —— 防止玩家反复贴边回血刷 BOSS
 	# 显示 toast 告诉玩家「无法补给，返回战场」，并把机头转回内部
-	if _zone_data and _zone_data.is_boss_phase():
+	# 闸门与其他 BOSS 阶段停摆项同源（spec survivor-loop §3.1/§6）：解锁即禁用，
+	# 不是"玩家选中 BOSS 圈后才禁用"（旧写法在 PRE_STAGE 段仍可无限回血）
+	if _is_in_boss_phase():
 		if _zone_hint:
 			_zone_hint.show_temp(tr("BOUNDARY_SUPPLY_BLOCKED_BOSS"), 4.0)
 		_turn_player_inward()
@@ -3882,8 +3908,8 @@ func _claim_weapon_reward(weapon: String) -> void:
 func _on_dock_docked(dock: DockPoint) -> void:
 	EventLogger.log_event("DOCK", "SettlementOpen", dock.display_name_key)
 	_dock_settlement_open = true
-	# 生涯档案：停机计数（按 dock_kind 分机场/航母；spec career-archive §2.2）
-	if archive_enabled():
+	# 生涯档案：停机计数（按 dock_kind 分机场/航母；Debug 临时机场不污染档案）
+	if archive_enabled() and dock.dock_kind != "debug_airfield":
 		CareerArchive.record_docking(dock.dock_kind)
 	# 回血（spec 修订 2026-07-24：回血 = 停靠功能，与进化同在机场/航母）：全队满血
 	var healed := 0
@@ -3944,6 +3970,14 @@ func _is_in_boss_phase() -> bool:
 	if _zone_data and (_zone_data.is_boss_phase() or _zone_data.boss_unlocked):
 		return true
 	return false
+
+## BOSS 阶段的【唯一对外真源】（spec survivor-loop §3）——
+## 子系统（spawner / adbs / 事件层）一律问这里，不要各自读 ZoneData.is_boss_phase()。
+## 语义差异是历史 bug 的根：ZoneData.is_boss_phase() 只在玩家把 BOSS 圈设为 selected 后才为真，
+## 而 BOSS 一解锁（boss_unlocked=true，BossEncounterEvent 已在 PRE_STAGE 接近中）就该停摆全部
+## 常规刷怪 / 随机事件。旧闸门让整个 PRE_STAGE 段仍在刷杂鱼 + 触发城区直升机事件。
+func is_boss_phase() -> bool:
+	return _is_in_boss_phase()
 
 ## 战区奖励 roll 的玩家上下文快照（spec zone-reward-arsenal §3.1，注入给 ZoneData）
 func _build_reward_roll_context() -> Dictionary:
@@ -4012,6 +4046,24 @@ func _check_warzone_phase_timeout() -> void:
 		_zone_hint.show_temp(tr("BOSS_ZONE_READY"), 5.0)
 	EventLogger.log_event("PHASE", "WarzoneTimeout",
 		"game_time=%.1f → all zones cancelled, BOSS unlocked" % game_time)
+
+## F6 Debug：通过独立的临时机场进入正式停靠结算链。
+## 不读取、解放或消费地图上的三座机场；每次调用创建一个临时 DockPoint，用完即释放，因而无限可用。
+func debug_visit_airfield() -> void:
+	if _zone_data == null or player_aircraft == null or not is_instance_valid(player_aircraft):
+		push_warning("debug_visit_airfield: 战局或玩家机未初始化")
+		return
+	if _evolution_ui and _evolution_ui.visible:
+		return
+	var target_dock := DockPoint.new()
+	target_dock.global_position = player_aircraft.global_position
+	target_dock.display_name_key = "DOCK_HANEDA_NAME"
+	target_dock.dock_kind = "debug_airfield"
+	target_dock.mode = self
+	add_child(target_dock)
+	EventLogger.log_event("DOCK", "DebugVisitAirfield", "temporary=true map_airfields_untouched=true")
+	_on_dock_docked(target_dock)
+	target_dock.queue_free()
 
 ## F6 Debug：跳到 BOSS 战。boss_id 为空则按地图池随机
 ##

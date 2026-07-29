@@ -1,7 +1,7 @@
 ---
 id: f-4e
 kind: enemy
-status: in-progress   # 设计要点来自用户 2026-07-26 指令；数值为派生值，差 playtest 校准
+status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
 spec_version: 3
 owner: user + Claude

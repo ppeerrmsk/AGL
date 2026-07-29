@@ -528,6 +528,13 @@ LOADOUT_BTN_NO_FUNDS,功勋不足,INSUFFICIENT MERIT,功勲不足
 LOADOUT_DOCTRINE_HEADER,▼ 解锁研究,▼ DOCTRINES,▼ 研究
 LOADOUT_BADGE_DOCTRINE,[ 解锁 ],[ UNLOCK ],[ 解放 ]
 LOADOUT_DOCTRINE_UNLOCKS_FMT,▸ 解锁【%s】词条的技能,▸ Unlocks 【%s】 upgrades,▸ 【%s】系を解禁
+STATUS_NOTE_OVERLOAD,▸ 超载：装填 / 锁定 ×0.4 · 加速与顶速 ×1.6,▸ Overload: reload / lock ×0.4 · accel & top speed ×1.6,▸ オーバーロード：装填/ロック×0.4・加速と最高速×1.6
+STATUS_NOTE_BLOODLUST,▸ 嗜血：每次击杀回复 20 HP,▸ Bloodlust: each kill restores 20 HP,▸ ブラッドラスト：撃墜ごとにHP20回復
+STATUS_NOTE_INVINCIBLE,▸ 无敌：免疫全部伤害,▸ Invincible: immune to all damage,▸ 無敵：全ダメージ無効
+STATUS_NOTE_STEALTH,▸ 隐身：无法被锁定 · 敌方丢失目标,▸ Stealth: cannot be locked · enemies lose you,▸ ステルス：ロック不可・敵が目標を見失う
+STATUS_NOTE_FEAR,▸ 恐惧：敌机压力拉满 · 被迫脱离交战,▸ Fear: target panics · breaks off the engagement,▸ 恐怖：敵はパニックし交戦から離脱
+STATUS_NOTE_JAM,▸ 干扰：目标全武器封锁 · 雷达冻结,▸ Jam: target's weapons blocked · radar frozen,▸ ジャミング：全武器封鎖・レーダー凍結
+STATUS_NOTE_SLOW,▸ 减速：限速 350 km/h · 禁用加力 · 滚转 ×0.6,▸ Slow: capped at 350 km/h · no afterburner · roll ×0.6,▸ 減速：350km/h制限・AB禁止・ロール×0.6
 LOADOUT_KEYWORD_FEAR,恐惧,Fear,恐怖
 LOADOUT_KEYWORD_OVERLOAD,超载,Overload,オーバーロード
 LOADOUT_KEYWORD_BLOODLUST,嗜血,Bloodlust,血戦
@@ -976,6 +983,7 @@ INFO_CAMERA_TITLE,镜头：平移与缩放,Camera: pan and zoom,カメラ：移�
 INFO_CAMERA_BODY,WASD 或按住中键拖动可自由平移视野，滚轮缩放。看远了想回来，按空格重新锁定跟随自机。,WASD or middle-drag pans the view freely; the wheel zooms. Press Space to re-lock the camera on your aircraft.,WASD または中ボタンドラッグで視点を自由移動、ホイールでズーム。スペースで自機追尾に復帰。
 INFO_KEY_NUM_TITLE,切换操控的飞机,Switch which jet you fly,操作機の切替
 INFO_KEY_NUM_BODY,数字键切换到对应号机，直接接管它。原本操控的那架会交给 AI，并把手上的任务打完再归队。你的点名目标是逐机保存的，切回来时还在。,"Number keys take over the corresponding wingman. The jet you leave goes back to the AI and finishes its current job before rejoining. Assigned targets are kept per aircraft, so they are still there when you switch back.",数字キーで対応する僚機に乗り移る。手放した機体は AI に戻り、進行中の任務を終えてから編隊に復帰する。指定目標は機体ごとに保持され、戻れば残っている。
+SQUAD_CONTROLLED,操控中,CONTROLLED,操作中
 INFO_KEY_E_TITLE,加力模式,Afterburner mode,アフターバーナーモード
 INFO_KEY_E_BODY,全队进入极速冲刺：**机炮打不中你**（100% 闪避）、导弹极难命中（靠滚转甩脱），代价是**期间不能攻击**。这是脱离险境与抢占位置的保命键，不是输出键。\n能量池上限 6 秒，被动回充约 30 秒充满，每次击杀 +0.8 秒，开局满格。**有能量就能启动**，不必等满；激活中再按一次可提前关闭、保住剩余能量。,"The whole squad sprints: **cannon fire cannot touch you** (100% dodge) and missiles are shaken off by rolling — at the price of **not being able to attack** while it lasts. It is an escape-and-reposition button, not a damage button.\nThe pool holds 6 seconds, refills passively in about 30, and gains +0.8s per kill; you start a run with a full tank. **Any charge is enough to start** — press again to end early and bank the rest.",全機が全速スプリントに入る：**機関砲は当たらず**（回避100%）、ミサイルもロールで振り切る。代償は**発動中は攻撃できない**こと。撃つためではなく、離脱と位置取りのためのキーだ。\nエネルギーは上限6秒、自然回復で約30秒、撃墜ごとに+0.8秒、開始時は満タン。**残量があれば発動可能**で、もう一度押せば早期終了して残りを温存できる。
 INFO_KEY_R_TITLE,手动闪避,Manual dodge,手動回避

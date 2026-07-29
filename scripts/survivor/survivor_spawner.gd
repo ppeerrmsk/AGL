@@ -446,9 +446,13 @@ func _pick_enemy_type() -> EnemyType:
 	# 最坏情况（所有类型被 cap）保底仍返回 MQ-109，避免上层死循环
 	return EnemyType.UAV
 
-## BOSS 阶段统一闸门：玩家选了 BOSS → 旅途刷怪 / 猎手指派 / Sentinel 护卫看门狗 全部停摆
-## 系统资源让给 BOSS（F-47 王牌中队），已刷的常规敌机由 zone_mission 在视线外悄悄撤离
+## BOSS 阶段统一闸门：BOSS **一解锁**（不必等玩家在战术地图选中 BOSS 圈）→
+## 旅途刷怪 / 猎手指派 / Sentinel 护卫看门狗 / 开局驻防 全部停摆，残余敌机走 _update_boss_phase_purge 撤离。
+## 真源是 survivor_mode.is_boss_phase()（boss_unlocked ∪ selected==BOSS ∪ _boss_spawned）；
+## 旧实现只看 ZoneData.is_boss_phase()（= selected==BOSS），导致 BOSS 接近的整个 PRE_STAGE 段还在刷杂鱼。
 func _is_boss_phase() -> bool:
+	if mode and mode.has_method("is_boss_phase"):
+		return bool(mode.is_boss_phase())
 	return mode and "_zone_data" in mode and mode._zone_data \
 			and mode._zone_data.is_boss_phase()
 
@@ -2410,14 +2414,15 @@ func _update_far_cleanup(delta: float) -> void:
 	if removed > 0:
 		EventLogger.log_event("TOKEN", "FarCleanup", "despawned %d distant enemies" % removed)
 
-## BOSS 阶段清场：只保留画面内的残余敌机；画面外或距离过远的都撤走。
+## BOSS 阶段清场：舞台只留 BOSS —— 全部残余敌机（含画面内的）撤离战场。
 ## 铁则：不在玩家画面内消失。
-##   - 画面外（+ margin 200 px）→ 立即 queue_free
-##   - 画面内但距离玩家 > BOSS_PURGE_NEAR_DISTANCE → 入 zone_mission._pending_despawn
-##     队列（飘出画面后才 free；不会瞬消）
-## BOSS 本体（category="boss"）和 adds（skip_far_cleanup meta）不受此影响。
+##   - 画面外 → 立即静默 free（释放 Token）
+##   - 画面内 → 转"撤离"：清 AI 目标 + PATROL + 最近出界点航线 + AB 全速拉出
+##     （与王牌支援中队 / 宿敌 Orion 的 withdraw 同一契约：物理飞出去，不瞬移不瞬消；
+##      玩家追打照样还手 —— 不做无敌逃兵），飘出画面后由本函数的画面外分支 free。
+## 不动的：BOSS 本体与 BOSS 自带单位（category 前缀 "boss"）、事件层自管撤离的王牌支援 /
+## 宿敌（ace_support / ace_nemesis）、**全部舰船与地面单位**（战区里的船原样保留，不是飞机不撤离）。
 const BOSS_PURGE_INTERVAL := 1.0
-const BOSS_PURGE_NEAR_DISTANCE := 4000.0  ## 超过此距离的残余敌机强制进入延迟撤离队列
 func _update_boss_phase_purge(delta: float) -> void:
 	_boss_purge_timer -= delta
 	if _boss_purge_timer > 0.0:
@@ -2426,41 +2431,58 @@ func _update_boss_phase_purge(delta: float) -> void:
 	if not mode or not player_aircraft or player_aircraft.is_destroyed:
 		return
 
-	var pp := player_aircraft.global_position
-	var near_d2 := BOSS_PURGE_NEAR_DISTANCE * BOSS_PURGE_NEAR_DISTANCE
 	var freed := 0
-	var scheduled := 0
+	var started := 0
 	for child in mode.get_children():
 		if not (child is Aircraft):
 			continue
 		var ac: Aircraft = child
 		if ac.team != CombatUnit.TEAM_HOSTILE or ac.is_destroyed:
 			continue
-		# BOSS 本体（F-47 小队）不动
+		# BOSS 本体 + BOSS 自带单位（boss / boss_csg / boss_csg_aircraft / boss_mother_goose_*）
 		var cat: String = ac.get_meta("category", "")
-		if cat == "boss":
+		if cat.begins_with("boss"):
 			continue
-		# Adds（Tu-160/AH-64/CH-47）按固定航线飞过战场，保留观感
-		if ac.has_meta("skip_far_cleanup") and ac.get_meta("skip_far_cleanup"):
+		# 王牌支援中队 / 宿敌 Orion：各自事件层已在 BOSS 解锁时转撤离，别抢它们的单位
+		if cat == "ace_support" or cat == "ace_nemesis":
+			continue
+		# 停在甲板上的舰载机（parent_carrier meta，起飞时会摘）＝ 保留舰船的一部分，不动
+		if ac.has_meta("parent_carrier"):
 			continue
 
-		# 画面外 → 立即静默 free（释放 Token）
+		# 画面外 → 立即静默 free（释放 Token；xp_granted 防 _detect_kills 同帧误判击杀）
 		if not mode.is_world_pos_visible(ac.global_position, 0.0):
 			ac.set_meta("xp_granted", true)
+			CombatUnit.release_target_refs(ac)
 			ac.queue_free()
 			freed += 1
 			continue
 
-		# 画面内但距离过远 → 入延迟撤离队列（飘出画面才 free）
-		if ac.global_position.distance_squared_to(pp) > near_d2:
-			if zone_mission and zone_mission.has_method("_schedule_despawn"):
-				ac.set_meta("xp_granted", true)
-				zone_mission._schedule_despawn(ac)
-				scheduled += 1
+		# 画面内 → 物理撤离（每 tick 续写出界航线，防 PATROL 自己 roll 新航点绕回来）
+		if _begin_boss_evacuation(ac):
+			started += 1
 
-	if freed > 0 or scheduled > 0:
-		EventLogger.log_event("BOSS", "PhasePurge",
-			"offscreen_freed=%d far_deferred=%d" % [freed, scheduled])
+	if freed > 0 or started > 0:
+		EventLogger.log_event("BOSS", "PhaseEvacuation",
+			"offscreen_freed=%d evacuating=%d" % [freed, started])
+
+## 让一架残余敌机转入"撤离"：清目标 → PATROL → 最近出界点航线 → AB。
+## 返回 true 表示这是它第一次被下撤离令（仅用于日志计数）。
+func _begin_boss_evacuation(ac: Aircraft) -> bool:
+	var first := not ac.has_meta("boss_evac")
+	ac.set_meta("boss_evac", true)
+	ac.is_mission_target = false      # 战区 TGT 标记随撤离一起摘掉
+	ac.is_afterburner = true
+	var ai := _get_ai(ac)
+	if ai == null:
+		return first
+	if first:
+		ai.release_target(AIController.TargetSource.TS_BOSS, "boss phase evacuation")
+		ai._state = AIController.AIState.PATROL
+		ac.ai_override_pursuit = false
+	ai.waypoints = PackedVector2Array([_nearest_exit_point(ac.global_position)])
+	ai.current_waypoint_index = 0
+	return first
 
 ## 猎手系统：定期指派空闲敌机主动追击玩家
 func _update_hunters(delta: float) -> void:
@@ -2564,6 +2586,9 @@ func _update_boundary_discipline(_delta: float) -> void:
 		var cat: String = ac.get_meta("category", "")
 		if cat == "boss" or cat == "adds" or cat == "zone_air" or cat == "ace_support":
 			continue
+		# BOSS 阶段撤离中：飞出地图正是目的，边界纪律不得把它们拽回来
+		if ac.has_meta("boss_evac"):
+			continue
 		# 增援 TRANSIT/EGRESS 跨线飞行是设计内行为，不得被边界纪律 hard clamp/强制转向
 		# 打断（spec reinforcement-ingress §3.4）；ONSTATION/交战照常受纪律约束
 		if cat == "reinforcement":
@@ -2658,6 +2683,9 @@ func _aircraft_xp_mult() -> float:
 	return 1.0
 
 func _detect_kills() -> void:
+	# BOSS 解锁即进入决战阶段：击杀仍保留战斗内语义（计数、回血、连击），
+	# 但所有空中/地面目标统一不再产出 XP。必须读统一闸门，不能等 ENGAGED。
+	var boss_phase_no_xp: bool = _is_boss_phase()
 	for child in mode.get_children():
 		# ── 飞机击杀检测 ──
 		if child is Aircraft and child.team == CombatUnit.TEAM_HOSTILE and child.is_destroyed:
@@ -2671,9 +2699,14 @@ func _detect_kills() -> void:
 				# UAV/UCAV 给较少经验，MiG 给完整经验；Adds（Tu-160/AH-64/CH-47）
 				# 与普通敌机同公式（2026-07-28 等级计价废除，spec survivor-loop §5）
 				var etype: String = child.get_meta("enemy_type", "mig")
+				# 【无限补充单位不计价】no_kill_reward meta（Mother Goose 蜂群 / MQ-X 对）：
+				# BOSS 打光了还会再刷，任何"按击杀结算的成长/进度"都会变成无限刷的农场
+				# —— XP / 生涯档案(图鉴+成就) / 对头永久 +max_hp 三项一律跳过。
+				# 仍算 kill_count、仍触发击杀回血 / 侩子手连击（局内战斗资源，玩家 build 换的）。
+				var no_reward: bool = bool(child.get_meta("no_kill_reward", false))
 				# 生涯档案：玩家小队归因的空中击坠入档（spec career-archive §3.2；
 				# 无归因的坠地与第三方 ALLY 击坠不计）
-				if mode.archive_enabled() \
+				if mode.archive_enabled() and not no_reward \
 						and int(child.get_meta("kill_attacker_team", -1)) == CombatUnit.TEAM_PLAYER:
 					CareerArchive.record_air_kill(etype)
 				var base_xp := XP_PER_KILL
@@ -2704,13 +2737,17 @@ func _detect_kills() -> void:
 				# + 机体特性乘区（PlayableAircraft.xp_gain_mult，幻影 III 电战数据链 1.1）
 				xp_value = int(round(float(xp_value) * survivor_player.xp_multiplier \
 					* survivor_player.sig_xp_mult * _aircraft_xp_mult()))
-				survivor_player.add_xp(xp_value)
-				# 表现层：+N 沉入底部经验条（bench 压测跳过，省负载）
-				if not mode._bench_mode and mode.hud:
-					mode.hud.spawn_xp_gain(xp_value)
+				if no_reward or boss_phase_no_xp:
+					xp_value = 0
+				if xp_value > 0:
+					survivor_player.add_xp(xp_value)
+					# 表现层：+N 沉入底部经验条（bench 压测跳过，省负载）
+					if not mode._bench_mode and mode.hud:
+						mode.hud.spawn_xp_gain(xp_value)
 				kill_count += 1
 				_kill_heal()
-				_check_head_on_kill_bonus(child)
+				if not no_reward:
+					_check_head_on_kill_bonus(child)
 				## 教程钩子：Tu-160 击落通知（前 3 架击落后首次教程整体淡出）
 				if etype == "tu160" and is_instance_valid(mode._tutorial):
 					mode._tutorial.notify_bomber_killed()
@@ -2731,10 +2768,11 @@ func _detect_kills() -> void:
 				# + 机体特性乘区（PlayableAircraft.xp_gain_mult）
 				xp_value = int(round(float(xp_value) * survivor_player.xp_multiplier \
 					* survivor_player.sig_xp_mult * _aircraft_xp_mult()))
-				survivor_player.add_xp(xp_value)
-				# 表现层：+N 沉入底部经验条（bench 压测跳过）
-				if not mode._bench_mode and mode.hud:
-					mode.hud.spawn_xp_gain(xp_value)
+				if not boss_phase_no_xp:
+					survivor_player.add_xp(xp_value)
+					# 表现层：+N 沉入底部经验条（bench 压测跳过）
+					if not mode._bench_mode and mode.hud:
+						mode.hud.spawn_xp_gain(xp_value)
 				kill_count += 1
 				_kill_heal()
 				# 热度：击毁地面 TGT（spec global-awareness-roe §2.4；地面击杀现阶段

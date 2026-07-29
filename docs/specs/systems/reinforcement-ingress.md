@@ -1,7 +1,7 @@
 ---
 id: reinforcement-ingress
 kind: system
-status: in-progress  # 阶段 1~3 代码落地 + 无头回归绿（test_map_expansion 入场段）；差 §5 playtest/性能验收
+status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
 spec_version: 1
 owner: noelu

@@ -1,7 +1,7 @@
 ---
 id: zone-reward-docking
 kind: system
-status: in-progress   # 阶段 1~6 代码落地 + parse 回归绿（2026-07-06 同日）；差 §5 playtest 验收
+status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
 spec_version: 1
 owner: noelu
@@ -206,7 +206,7 @@ ACE 等级修正（"等级越高的飞机奖励越好"）：
 |---|---|
 | 停靠组件 | `scripts/survivor/dock_point.gd`（DockPoint：判定/绘制/信号；`_process` 速度判定 / `_land_threshold_kmh` 阈值 / `_dock_speed_kmh` g 中和当量速度） |
 | 攻克流程 / 即时领奖分发 / 停靠回血+进化 / 航母召唤 / ACE 僚机 / 武器授予 | `scripts/survivor/survivor_mode.gd`（`_on_zone_mission_completed` / `_grant_reward_now`（攻克即领分发）/ `_on_dock_docked`（回血+进化）/ `_summon_reward_carrier` / `_claim_wingman_reward` / `_claim_weapon_reward` / `_spawn_airfield_docks`） |
-| 操控切换（动态号机号，键 N=第 N 架存活友机） | `scripts/survivor/survivor_mode.gd`（`_switch_control_to_slot` / `_switch_player_to` / `_ensure_player_squad` / `_next_free_squad_slot`） |
+| 操控切换（固定号机号，键 N=`squad_slot==N`） | `scripts/survivor/survivor_mode.gd`（`_switch_control_to_slot` / `_aircraft_for_squad_slot` / `_switch_player_to` / `_ensure_player_squad` / `_next_free_squad_slot`） |
 | 奖励 roll | `scripts/survivor/zone_data.gd`（REWARD_KIND_WEIGHTS / `_assign_reward` / `carrier_uses_left`） |
 | Tab 奖励/停靠标记 | `scripts/survivor/tactical_map.gd`（`_draw_dock_markers` + `_draw_one_zone` 奖励行） |
 | 逃跑护卫 | `scripts/survivor/survivor_spawner.gd`（`_spawn_flee_escort` + 两 flee 入口） |
@@ -227,6 +227,7 @@ ACE 等级修正（"等级越高的飞机奖励越好"）：
 | 2026-07-06 | 6 | **playtest 修复：友军航母显示红色 + 玩家能攻击**——根因 carrier_cv.tres 是敌方 BOSS 资源（default_team=1），`NavalUnit._ready` 里 `team=params.default_team` 覆盖了外部设的 0。修法：duplicate params 把 default_team 改 0，team 全链贯通（船体友方色 / CIWS 只打敌方 / MountTarget 继承 team=0 玩家锁不上 / 敌方 AI 仍可击沉）|
 | 2026-07-23 | 6 | **playtest 修复：+1 僚机奖励切不了控/收不到**——三坑同修。① 34 机里 33 架 `wingman_count=0` 起手无 `_squad`，`_claim_wingman_reward` 遇 `_squad==null` 静默降级成 QMAAM，僚机压根拿不到；抽出 `_ensure_player_squad()`（起手僚机 + 奖励僚机共用长机装配，含休眠 AIController → RTS 轮盘广播入口 `_ai_ref.squad`），奖励时懒创建单机小队。② 奖励僚机号机号 `members.size()+1` 在阵亡 cleanup 后撞号/满编超范围 → 改 `_next_free_squad_slot()` 取最小空位。③ 数字键切控从 KEY_1-4 扩到 KEY_1-9（编队上限 9，奖励可堆满，键须够到）。回归门 34/0 绿 |
 | 2026-07-24 | 7 | **playtest 修复：切控留空洞 + 奖励与停靠解耦**（用户拍板，两项）。① **动态号机号**：固定 `squad_slot` 匹配在僚机阵亡后留空洞（队里只剩 squad_slot=5 的僚机时按 2 选不到）；`_switch_control_to_slot` 改为"键 N = 第 N 架存活友机"（members 序、排除长机，与 HUD 小队面板一致），号机号永远连续无空洞。② **奖励攻克即领**：僚机/武器/技能类奖励从"入待领栏→飞机场领取"改为**攻克瞬间即领**（抽 `_grant_reward_now`，`_pending_rewards` 队列废除）；**停靠点只保留进化 + 回血**，回血从"攻克即回"移到"停靠回"；toast 改 `ZONE_CLEARED_WITH_REWARD_FMT`、`DOCK_HINT_GO_SETTLE` 文案改"进化/回血待结算"。§2.1/§2.2 同步。回归门 34/0 绿；§9.1 奖励搁浅顾虑随此解除 |
+| 2026-07-29 | 8 | **按用户反馈恢复固定号机号**：动态压缩映射在反复换帅后让同一数字指向不同飞机，认知成本过高。数字键重新严格匹配出生时的稳定 `squad_slot`；阵亡号位允许留空，新奖励机仍由 `_next_free_squad_slot` 回填最小空号。小队面板显式显示每架飞机的固定数字。 |
 | 2026-07-24 | 9 | **playtest 修复：绕圈进近永远停不了**（用户拍板"放宽判定容错"）。根因：着陆速度用绝对 300 判定，但飞机转弯拉 G 时物理最低速被抬到角点速度（`stall_base×1.2×√max_g` = 528~792 km/h），而 RTS 下停到一点会自然绕圈=持续 2~3G→速度地板顶在 500+，`≤300 持续 1s` 永远凑不齐（体感=明明写 300、到了 300 却不触发）。修法：`dock_point._dock_speed_kmh` 用 **g 中和当量**（实测速度 ÷ `g^0.4`）比阈值——物理最低速 = `stall_base×g^0.4×1.05`，除掉 `g^0.4` 后直线/绕圈的"减到底"都映射回同一 ~231 当量；`_hold` 超阈改快速衰减（`HOLD_DECAY_MULT=2.0`）不清零防 G 抖动。1G 直飞 `g^0.4=1` 行为不变。`--import` 零错误 |
 | 2026-07-24 | 8 | **奖励系统四调整**（用户拍板）。① **整局去重**：武器/技能/航母每种整局唯一（`_used_reward_ids`，roll 即登记、永不再出）；**僚机豁免=可重复保底**（修 `_ctx_owns_weapon` 漏过滤 tail_mine/loyal/qmaam 导致的重复武器）；兜底从"重复 tail_mine"改"僚机"。② **航母整局保证**：pity `CARRIER_PITY_ROLLS=4`——前 4 次 roll 未出航母则强制发，确保每局必现一次。③ **+1 僚机奖励改一次给 2 架**（`_claim_wingman_reward(count=2)`，满编能塞几架塞几架）。④ **停靠必送 1 架僚机**（机场/航母不除外，`_on_dock_docked` 复制王牌机 + `DOCK_WINGMAN_GRANTED` i18n）。新增 bench `zone_rewards`（去重/保底/航母保证 3 断言）；回归门 37/0 绿 |
 

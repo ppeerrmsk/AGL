@@ -100,6 +100,10 @@ static func reevaluate_target(ai: AIController) -> void:
 	var best_target: CombatUnit = null
 	var best_score := -1.0
 	var current_score := -1.0
+	var current_is_overkilled := false
+	if ai._current_target and is_instance_valid(ai._current_target) and ai.aircraft.missile_manager:
+		current_is_overkilled = ai.aircraft.missile_manager.team_inbound_damage(
+			ai._current_target, ai.aircraft.team, null) >= ai._current_target.hp
 	# 护卫编队僚机：交战中重评估也吃护卫加权——新出现的"咬长机者"能抢回护卫优先级
 	var escort_leader: Aircraft = ai.squad.leader if SquadCoordination.is_escort_wingman(ai) else null
 	var guard_ctx := _is_guard_rear_context(ai)
@@ -116,8 +120,10 @@ static func reevaluate_target(ai: AIController) -> void:
 			continue  # 未过最低锁定门
 
 		# 当前目标获得专注度粘性加成（生存带用 SURVIVAL_STICKY 防带内横跳，§2.1.3）
-		if target_ac == ai._current_target:
+		if target_ac == ai._current_target and not current_is_overkilled:
 			score += _sticky_for(ai)
+			current_score = score
+		elif target_ac == ai._current_target:
 			current_score = score
 
 		if score > best_score:
@@ -143,7 +149,7 @@ static func reevaluate_target(ai: AIController) -> void:
 		return
 
 	# 必须显著优于当前目标才切换（交战中更黏，防横跳）
-	if current_score > 0.0 and best_score < current_score + SWITCH_MARGIN_REEVAL:
+	if not current_is_overkilled and current_score > 0.0 and best_score < current_score + SWITCH_MARGIN_REEVAL:
 		return
 
 	# 切换目标

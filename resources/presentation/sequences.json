@@ -294,5 +294,36 @@
         "op": "release"
       }
     ]
+  },
+  "carrier_strike_group_arrival": {
+    "max_sec": 7.0,
+    "steps": [
+      { "at": 0.0, "ch": "time", "op": "pause", "to": 1 },
+      { "at": 0.0, "ch": "stage", "op": "clear", "dur": 0.45, "ease": "cubic_out" },
+      { "at": 0.1, "ch": "audio", "op": "boss_bgm", "fade": 2.0 },
+      { "at": 0.0, "ch": "camera", "op": "cut_to", "zoom": 0.68, "follow": true, "actor": 0 },
+      { "at": 0.55, "ch": "radio", "op": "line", "key": "RADIO_BOSS_CSG_SPAWN_1", "actor": 0, "dur": 1.8 },
+      { "at": 2.35, "ch": "radio", "op": "line", "key": "RADIO_BOSS_CSG_SPAWN_2", "actor": 0, "dur": 1.8 },
+      { "at": 4.2, "ch": "radio", "op": "line", "key": "RADIO_BOSS_CSG_SPAWN_3", "actor": 0, "dur": 1.8 },
+      { "at": 6.0, "ch": "stage", "op": "restore", "dur": 0.7, "ease": "cubic_in_out" },
+      { "at": 6.0, "ch": "camera", "op": "return_to_player", "dur": 0.7, "ease": "cubic_in_out" },
+      { "at": 6.7, "ch": "time", "op": "pause", "to": 0 },
+      { "at": 6.7, "ch": "actor", "op": "release" }
+    ]
+  },
+  "mother_goose_arrival": {
+    "max_sec": 7.0,
+    "steps": [
+      { "at": 0.0, "ch": "time", "op": "pause", "to": 1 },
+      { "at": 0.0, "ch": "stage", "op": "clear", "dur": 0.45, "ease": "cubic_out" },
+      { "at": 0.1, "ch": "audio", "op": "boss_bgm", "fade": 2.0 },
+      { "at": 0.0, "ch": "camera", "op": "cut_to", "zoom": 0.78, "follow": true, "actor": 0 },
+      { "at": 0.65, "ch": "radio", "op": "line", "key": "RADIO_BOSS_GOOSE_SPAWN_1", "actor": 0, "dur": 1.8 },
+      { "at": 2.5, "ch": "radio", "op": "line", "key": "RADIO_BOSS_GOOSE_SPAWN_2", "actor": 0, "dur": 1.8 },
+      { "at": 4.4, "ch": "stage", "op": "restore", "dur": 0.7, "ease": "cubic_in_out" },
+      { "at": 4.4, "ch": "camera", "op": "return_to_player", "dur": 0.7, "ease": "cubic_in_out" },
+      { "at": 5.1, "ch": "time", "op": "pause", "to": 0 },
+      { "at": 5.1, "ch": "actor", "op": "release" }
+    ]
   }
 }

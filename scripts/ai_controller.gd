@@ -536,6 +536,7 @@ var _prev_tactic: EngageTactic = EngageTactic.LEAD_PURSUIT ## 上一个战术（
 var _defensive_time: float = 0.0        ## 持续处于防御态势的累计时间
 var _break_phase: int = 0               ## Break Turn 阶段：0=急转, 1=反转迎头
 var _target_eval_timer: float = 0.0     ## 交战中目标重评估计时器
+var _overkill_retarget_cd: float = 0.0 ## 超杀让路重评冷却；避免武器 tick 反复触发全候选扫描
 var _gravity_low_evals: int = 0         ## 战场引力：顺手目标连续低于交战地板的评估次数（spec battlefield-gravity §2.1.1，≥2 脱离）
 var _defense_scan_timer: float = 0.0    ## 战场引力：生存层回防扫描节流（spec battlefield-gravity §3.3，1Hz；独立于 _scan_timer 防抢 FREE 扫描节奏）
 
@@ -647,6 +648,7 @@ static func _maintains_engaging_me(target) -> bool:
 	return sq != null and sq.escort_doctrine_enabled
 
 func _physics_process(delta: float) -> void:
+	_overkill_retarget_cd = maxf(0.0, _overkill_retarget_cd - delta)
 	# Perf 包装：所有 early-return 也计入耗时 → 真实"AI 占了多少帧预算"
 	# 包含 throttled-skip 的便宜 return；用 calls_per_frame 可以反推降频是否生效
 	var _perf_t0: int = Time.get_ticks_usec()
@@ -842,6 +844,18 @@ func _physics_process_impl(delta: float) -> void:
 			_process_engage(delta)
 		AIState.SQUAD_FOLLOW:
 			SquadCoordination.process_squad_follow(self, delta)
+
+
+## 自动评分目标已有足够在飞伤害时，催促下一次 AI tick 立即重评。
+## 玩家 commanded/FOCUS 目标是铁律，不允许火力纪律擅自改写。
+func request_overkill_retarget() -> void:
+	if _overkill_retarget_cd > 0.0 or _target_source != TargetSource.TS_SCORED:
+		return
+	if aircraft.commanded_target != null and is_instance_valid(aircraft.commanded_target) \
+			and not aircraft.commanded_target.is_destroyed:
+		return
+	_overkill_retarget_cd = 1.0
+	_target_eval_timer = TARGET_EVAL_INTERVAL_MAX
 
 # ══════════════════════════════════════════════
 #  模态过渡函数（Phase 2 状态正交化，2026-07-05）

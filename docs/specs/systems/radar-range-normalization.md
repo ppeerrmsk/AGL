@@ -1,7 +1,7 @@
 ---
 id: radar-range-normalization
 kind: balance
-status: in-progress  # 数值全落地 + 回归门 39 项 PASS，差 §5 playtest（波次进攻性 + 电磁炮体感）
+status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
 spec_version: 2
 owner: noelu

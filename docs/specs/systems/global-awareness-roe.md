@@ -1,7 +1,7 @@
 ---
 id: global-awareness-roe
 kind: system
-status: in-progress   # 2026-07-12 用户定稿 approved，同日开工 §6
+status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
 spec_version: 5
 owner: noelu

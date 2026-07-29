@@ -15,7 +15,7 @@ const TRAIL_BOOST_WIDTH := 14.0   ## 演出尾迹宽度（常规 8.0 在广角�
 const TRAIL_BASE_POINTS := 80
 const TRAIL_BASE_WIDTH := 8.0
 
-var actors: Array = []            ## Array[Aircraft]
+var actors: Array = []            ## Array[CombatUnit]；飞行动作只用于 Aircraft，简单特写可绑定舰船
 var owner_event = null            ## GameEvent，指令下发的所有权持有者
 var _trail_boosted: bool = false
 var _ingress_started: bool = false
@@ -226,12 +226,13 @@ func scatter(cp: Vector2, away_dir: Vector2, fan_deg: float, dist: float) -> voi
 ## 释放全部演员指令 + 还原尾迹 + 解除演出隐身。演出结束 / 超时收尾 / clear_all 都必调
 func release() -> void:
 	trail_restore()
-	# 演出隐身只活在演出里：剧情结束当帧解除（用户裁定）。
-	# 三个字段一起复位 —— 只复位 alpha 会留下隐身副作用的尾巴
+	# 演出隐身只活在飞机演出里：剧情结束当帧解除（用户裁定）。
+	# CSG 的镜头演员是 NavalUnit，没有这些字段，必须按类型收窄。
 	for a in alive_actors():
-		a._cloak_alpha = 1.0
-		a.is_cloaked = false
-		a.suppress_flares = false
+		if a is Aircraft:
+			a._cloak_alpha = 1.0
+			a.is_cloaked = false
+			a.suppress_flares = false
 	if owner_event and owner_event.has_method("clear_all_directives"):
 		owner_event.clear_all_directives()
 	actors.clear()

@@ -37,7 +37,7 @@
 | `category` | 必 | 旧分类（survival/mobility/electronic_warfare/missile/secondary/weapon）。现存两个作用：①无显式 `axis` 时经 `AXIS_BY_CATEGORY` 兜底归轴 ②`category=="weapon"` 的技能**换机重放跳过**（效果长在武器资源上随武器库迁移）③电子战词条联动 `CATEGORY_BONUSES` 按它计数 | `axis_of_upgrade` / `_replay_player_upgrades` / `recompute_category_bonuses` |
 | `axis` | 选 | 显式轴归属（`gladiator/knight/schemer`），优先级最高（> `AXIS_OVERRIDE_BY_ID` > category 兜底）。决定进哪张三选一轴卡 | `SurvivorData.axis_of_upgrade` |
 | `rarity` | 选 | 五档 `Rarity` 枚举（稳定/先进/实验/机密/次世代），权重 0.50/0.25/0.15/0.08/0.02 + pity 5/8/12 | `pick_card_for_axis` / `_pick_3_upgrades` |
-| `keywords` | 选 | ①流派引导：已持有同关键词技能越多，同词新卡权重越高（+20%/stack，cap +100%）②**doctrine 门控**：6 词（fear/overload/bloodlust/chivalry/jam/stealth）需在生涯商店购入对应学说才进池（AND 语义；`sig_*` 豁免；spec doctrine-unlocks） | `compute_keyword_steering_weights` / `MetaShop.is_upgrade_gated` |
+| `keywords` | 选 | ①流派引导：已持有同关键词技能越多，同词新卡权重越高（+20%/stack，cap +100%）②**doctrine 门控**：6 词（fear/overload/bloodlust/chivalry/jam/stealth）需在生涯商店购入对应学说才进池（AND 语义；`sig_*` 豁免；spec doctrine-unlocks）③**升级卡状态脚注**：写了 `overload/bloodlust/stealth/fear/jam/slow` 的技能，卡片下方自动多一行"这个词条本身干什么" | `compute_keyword_steering_weights` / `MetaShop.is_upgrade_gated` / `SurvivorData.status_notes_of` |
 | `requires` | 选 | 硬件门（`gun/missile/flare/rocket/railgun/laser`…走 `has_equipment_of_kind`），缺硬件不进池 | `is_upgrade_available_for` |
 | `requires_skill` | 选 | 前置技能（列表内**任一** stacks>0 即解锁） | 同上 |
 | `exclusive_to` | 选 | **机型门**：仅当前 ACE 机型（`_player_profile_id`）在列表内才刷出。⚠ 只管**抽卡**，已获得的换机重放**不查**（=签名技能"跟人走"的机制基础） | 同上 |
@@ -189,6 +189,12 @@ is_upgrade_available_for → pick_card_for_axis →  upgrade_stacks[id]+=1
 | fear_on_lock / head_on_jam | M5 | 阈值字段 → 锁定循环（fear）/ `aircraft` 对头累计 tick（jam）；ACE_FIELD_STATS |
 
 **状态/buff 系**（`status_effects.gd` + `skill_hooks.gd` + `aircraft.apply_status` 覆写）
+
+> ⚠ 新加"会施加状态词条"的技能：卡片脚注走 `SurvivorData.status_notes_of`。
+> keywords 里写了状态名就自动带上；**只有两种情况要手动登记**——
+> ① 施加状态但关键词里没写（INVINCIBLE 没有对应关键词，全走 `STATUS_NOTE_EXTRA`）；
+> ② 关键词与实际状态不符（`STATUS_NOTE_OVERRIDE`，如 sig_mig41）。
+> 文案 = `StatusEffects.NOTE_I18N_KEY`；回归门 `--bench=status_notes`。
 
 | stat | M | 消费点 |
 |---|---|---|

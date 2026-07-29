@@ -3,7 +3,7 @@ id: survivor-loop
 kind: system
 status: done
 schema_version: 1
-spec_version: 3
+spec_version: 4
 owner: design
 depends_on: [token-economy, zone-missions, upgrade-pool]
 reconstruction_complete: partial
@@ -54,7 +54,60 @@ reconstruction_complete: partial
 |---|---|---|---|
 | **战区 WARZONE** | 0 → 600.0 s（10:00） | Token 预算刷怪、接 zone 任务、升级选卡 | 开局即入 |
 | **过渡 TRANSITION** | 600.0s 瞬时（一次性） | `cancel_all_zone_missions()` 清 TGT 标记/已完成区；现存敌机留着给 XP 但**无奖励**；所有可选区置 LOCKED；`boss_unlocked=true` | `game_time >= 600` 且 `not _warzone_phase_ended` |
-| **BOSS 阶段** | 600s → 胜/负 | game_time 冻结、停刷、BOSS 决战 | 过渡后下一帧 `_update_boss_phase()` 起 BossEncounterEvent |
+| **BOSS 阶段** | 600s → 胜/负 | game_time 冻结、停刷、**全场撤离**、BOSS 决战 | 过渡后下一帧 `_update_boss_phase()` 起 BossEncounterEvent |
+
+### 3.1 BOSS 阶段闸门与清场（2026-07-28 修订）
+
+**闸门真源**：`survivor_mode.is_boss_phase()` = `boss_unlocked ∪ selected_id==BOSS ∪ BOSS 已 spawn`。
+**BOSS 一解锁就为真**——不要求玩家在战术地图上把 BOSS 圈设为 selected。全部子系统（刷怪总管 /
+随机奖励事件 / 战区任务 / 第三方事件）一律问这一个入口。
+
+> ⚠ 历史 bug：闸门原先各自读 `ZoneData.is_boss_phase()`（= `selected_id==BOSS`，只有玩家点了
+> BOSS 圈才真），于是 BOSS 已解锁、BossEncounterEvent 正在 PRE_STAGE 接近的整段时间里，旅途刷怪 /
+> 猎手指派 / 城区直升机事件 **照常运转**。
+
+闸门为真时的行为（**全部即时生效**）：
+
+| 子系统 | 行为 |
+|---|---|
+| 旅途刷怪 / 猎手指派 / Sentinel 护卫看门狗 / 开局驻防 | 停摆 |
+| 城区直升机等随机奖励事件（ADBS）| 不再触发新事件 |
+| 常规战区 A/B/C/D 任务 | 停止刷怪 / 触发 / 完成判定 |
+| 王牌支援中队 / 宿敌 Orion / AWACS | 各自事件层转撤离（飞出图外静默释放）|
+| 出界补给 | 禁用（见 §6）|
+
+**全场撤离**（`survivor_spawner._update_boss_phase_purge`，1 Hz）——舞台只留 BOSS：
+
+- 残余敌机 **画面外** → 立即静默 free（标 `xp_granted`，不算击杀不给 XP）
+- 残余敌机 **画面内** → 转撤离：清 AI 目标 + 回 PATROL + 航线改最近出界点 + 开加力，
+  **物理飞出去**（铁则：不在玩家画面内瞬消；玩家追打照样还手，不做无敌逃兵）；
+  撤离中的机体豁免边界纪律（`boss_evac` meta），飘出画面后由画面外分支释放
+- **不动的**：BOSS 本体与 BOSS 自带单位（category 前缀 `boss`）、事件层自管撤离的
+  `ace_support` / `ace_nemesis`、停在甲板上的舰载机（`parent_carrier` meta）
+- **舰船与地面单位一概保留**：撤离只针对飞机，战区里的船 / SAM / AA 原样留在场上
+
+### 3.2 BOSS 阶段不产 XP（反"决战中继续运营"，2026-07-29）
+
+**设计裁决**：BOSS 阶段是**决战**，不是运营局。玩家不该能靠打 BOSS 的随行小怪继续升级
+/ 攒进度 —— 那会让"打不过就绕圈刷怪变强再打"成为最优解，把攻坚战稀释成消耗战。
+
+三条硬规则：
+
+1. **阶段总闸**：从 `is_boss_phase()` 首次为真（即 `boss_unlocked`，包含 PRE_STAGE 演出/接近段）
+   开始，任何空中或地面击杀都不再给 XP。击杀计数、击杀回血、侩子手连击、生涯档案仍按
+   各自规则处理；这里只封锁经验成长。该闸门不等 `ENGAGED`，因此不存在演出期间刷残敌升级的窗口。
+2. **BOSS 自带单位一律不计价**（`no_kill_reward` meta，消费点 `_detect_kills` 唯一一处）：
+   无 XP、不入生涯档案（图鉴 + 成就）、不给对头击杀的永久 +max_hp。
+   仍算 `kill_count`、仍触发击杀回血 / 侩子手连击 —— 那是玩家用 build 换的**局内**战斗资源。
+   名单：Mother Goose 蜂群 UAV、Goose MQ-X 精英对、CSG F/A-18。
+   （Wraith 中队 / Poltergeist 是**有限**的 BOSS 本体编成，照常计价——它们就是通关奖励）
+3. **任何随 BOSS 补充的单位必须有硬上限**：不许出现"拖时间 = 无限敌机"。
+   - Goose 蜂群：同场上限 30（每 12s 补 2）—— 场上封顶，但可无限补，故靠规则 1 归零产出
+   - **CSG F/A-18：整场累计上限 8 架**（含开局 2 架，每 120s 补 1）。
+     **累计**而非同场：击落不退还名额，弹完机库就空了
+
+配合 §3.1 的闸门（BOSS 解锁即停摆刷怪 / 随机事件 / 战区任务）+ 全场撤离，
+BOSS 阶段没有任何击杀 XP 来源；玩家以进入阶段时已经成型的 build 完成决战。
 
 核心常量（已核对 2026-07-26）：
 - `WARZONE_PHASE_DURATION = 600.0`（survivor_mode.gd）—— 2026-07-02 由 480.0 上调为 600.0
@@ -219,6 +272,10 @@ Lv≥`LATE_GAME_LEVEL(10)` 强制最低 Token ≥3（禁刷杂鱼）；绝对兜
 ## 9. 验收标准（Acceptance / Litmus）
 
 - [x] game_time 在 BOSS 阶段冻结；600s 一次性过渡（不重复触发）
+- [x] BOSS **解锁**（不是"玩家选中 BOSS 圈"）即停摆刷怪 / 猎手 / 随机奖励事件 / 战区任务（§3.1）
+- [x] BOSS 阶段全场撤离：画面外敌机静默释放、画面内物理飞出图外；舰船与地面单位保留
+- [x] BOSS 阶段不产出（§3.2）：Goose 蜂群 / MQ-X / CSG F/A-18 击杀 0 XP、不入档、不给永久 +max_hp；
+      CSG F/A-18 整场累计上限 8 架（无头回归 `--bench=boss_phase`，26 断言）
 - [x] Token 预算 = 8 + int(level×1.8) + bonus，封顶 55（60km 密度调优后的值，见 §4.1）
 - [x] 刷怪沿玩家前方 ±70° 扇形、距 3200px，不刷身后
 - [x] 远距 7000px/4s 清理，Adds 豁免
@@ -265,6 +322,7 @@ Lv≥`LATE_GAME_LEVEL(10)` 强制最低 Token ≥3（禁刷杂鱼）；绝对兜
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-07-29 | 4 | BOSS 阶段从 `boss_unlocked`（含演出 PRE_STAGE）起统一封锁全部空中/地面击杀 XP；击杀计数、回血与连击保留。CSG F/A-18 整场累计上限 8 架，击落不返还机库名额。 |
 | 2026-05-09 | — | 时间制战区循环落地（8 分钟阶段 + 加权抽取 + 出界时间税，见 changelog） |
 | 2026-05-30 | 1 | 回填为 system spec + 扩展接入图；核对 headline 常量；修正 xp_for_level=15（非 20）、UAV_RETIRE=4 |
 | 2026-07-28 | 3 | **时间税加倍 + 敌人高度分档**：①出界补给时间税 `SUPPLY_TIME_COST` 15.0 → **30.0**（10 分钟战区里 15s 太便宜，来回补给近乎无痛；边界按钮文案同步写明"战区时间 −30 秒"）；②新增 §4.4 **敌人作战高度分档**——18 型按 `[LOW,MID,HIGH]` 权重抽档（攻击机偏低 / 截击机与 AF-03 偏高 / 多用途偏中 / 无人机按定位），巡逻高度随档取值（1500~3000 / 4500~6500 / 8500~11000），**档位与巡逻高度必须同步**否则分化只作用于巡逻段；未登记类型（BOSS/Adds/事件单位）维持均匀随机 + 4000~8000；③同批修 **F-47 / F-14 Poltergeist 漏进常规刷怪**（后期随机桶按 cost≥3 遍历时靠 cost 10 混入，与 enemy-index 记载不符），改按 BOSS 专属名单显式排除 |

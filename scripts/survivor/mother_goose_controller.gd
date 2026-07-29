@@ -66,7 +66,10 @@ const SIDE_DAMAGE_MULT: float = 0.3
 const SALVO_INTERVAL: float = 20.0
 const SALVO_PER_VLS: int = 4
 const INTRA_SALVO_DELAY: float = 0.25
-const VLS_MISSILE_PATH: String = "res://resources/naval/cg_vls_missile.tres"
+## 母舰专属 VLS 弹（数值 = cg_vls_missile 克隆，只改 display_name）。
+## 别再借用巡洋舰那份：导弹 HUD 标签会写成 "CG-VLS"，玩家看到一串"巡洋舰"跟着无人机
+## 飞过陆地，会读成"有船开到岸上"（2026-07-28 playtest 报告）
+const VLS_MISSILE_PATH: String = "res://resources/goose_vls_missile.tres"
 var _salvo_timer: float = 0.0
 ## 进行中的齐射队列：每个元素 [mount_world_pos, missile_count_left, delay_left]
 ## 用 Array 而非每个 mount 一个独立计时器，简单且 O(N) 处理
@@ -144,7 +147,7 @@ func _process(delta: float) -> void:
 		_update_vls_salvo(delta)
 		# 流浪 UAV 召回（boss 死后不再召回 —— 残存 UAV 自然战斗到死）
 		_update_stray_recall(delta)
-		# 远距 + 离屏 UAV 周期清除（让 boss 补刷新鲜 UAV，永远在画面内压迫玩家）
+		# 远距 + 离屏 UAV 周期清除；仅指定猎杀 ACTIVE 会把清除量送入补刷队列
 		_update_far_cull(delta)
 		# DESIGNATION 阶段调度（boss 死后停止，残存 UAV 维持上次设置自然战斗）
 		_update_designation(delta)
@@ -518,6 +521,8 @@ func _update_designation(delta: float) -> void:
 func _designation_begin() -> void:
 	_designation_overrides.clear()
 	_designation_interceptors.clear()
+	if uav_swarm != null:
+		uav_swarm.set_replenishing(true)
 	if uav_swarm == null or player_ref == null or not is_instance_valid(player_ref):
 		EventLogger.log_event("BOSS", "MOTHER GOOSE", "DESIGNATION: target acquired (no swarm/player)")
 		return
@@ -596,6 +601,8 @@ func _designation_begin() -> void:
 
 
 func _designation_end() -> void:
+	if uav_swarm != null:
+		uav_swarm.set_replenishing(false)
 	var n_restored: int = 0
 	var bp: Vector2 = boss_unit.global_position if (boss_unit and is_instance_valid(boss_unit)) else Vector2.ZERO
 	for key in _designation_overrides.keys():

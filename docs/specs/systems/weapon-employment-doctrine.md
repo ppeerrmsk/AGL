@@ -1,6 +1,6 @@
 # 武器使用准则（Weapon Employment Doctrine）
 
-> status: **done（2026-07-05 验收通过）** · spec_version: 6 · 日期：2026-07-05
+> status: **done（2026-07-05 验收通过）** · spec_version: 9 · 日期：2026-07-29
 > 上游：重构计划 [physics-ai-control-refactor.md](../../planning/physics-ai-control-refactor.md)
 > （用户提出："武器使用的 AI 比较乱，需要规范僚机装备各种武器后，什么时候发射什么武器、
 > 怎么瞄准、怎么机动"）。姊妹 spec：[wingman-escort-evasion](wingman-escort-evasion.md)。
@@ -146,6 +146,7 @@ TacticalPlan{weapon_mode, allow_*_fire} → _apply_tactical_plan（统一提前�
   坡度=65°/角点速、正前坡度=30°/巡航速。
 - [ ] GUN_AIM 日志开火时 aim_vs_tgt ≈ 0 恒成立（全武器）。
 - [ ] 生存模式 playtest：满装备僚机行为可读——远距先电磁炮、进带切导弹、贴脸机炮。
+- [x] 电磁炮开始充能前消费全队承诺伤害；Mother Goose 与普通舰船的 MountTarget 已有致死量在飞弹/充能炮时，僚机不再重复充能超杀。
 - [ ] 现有 12 项回归门全绿（尤其 bfm_intent 89 case 与 weapon 7 case）。
 
 ## 6. 实现计划（Task Pipeline）
@@ -214,7 +215,7 @@ bench + playtest + §7 锚点回填 + survivor-skills/enemy-index 相关行同�
 | 电磁炮 planner 门 + 甩头中断 | `scripts/equipment/railgun_equipment.gd` · `_try_start_charging` / `_tick_charging`（CHARGE_ABORT_TURN_RATE_DEG） |
 | 承诺弹道（指示线=发射线） | `scripts/equipment/railgun_equipment.gd` · `_commit_fire_solution`；`scripts/aircraft_renderer.gd` · `draw_railgun_telegraph` |
 | 机头直射提前点瞄准销 | `scripts/equipment/railgun_equipment.gd` · `_nose_lead_point`；消费方 `scripts/ai_controller.gd` · "Railgun 充能稳头守卫" |
-| 超杀让路（电磁炮充能记账） | `scripts/equipment/railgun_equipment.gd` · `team_charging_damage`；消费方 `scripts/aircraft/aircraft_weapons.gd` 导弹发射纪律 |
+| 超杀让路（导弹 + 电磁炮双向消费） | `scripts/equipment/railgun_equipment.gd` · `team_charging_damage` / `_try_start_charging`；导弹消费方 `scripts/aircraft/aircraft_weapons.gd` |
 | 验收 bench | `scripts/tests/test_weapon_doctrine.gd`（--bench=weapon_doctrine 26 断言）；--bench=missile_env（MRM 包络仲裁）；--bench=weapon_demo（观察场） |
 
 ## 8. 变更记录
@@ -222,6 +223,7 @@ bench + playtest + §7 锚点回填 + survivor-skills/enemy-index 相关行同�
 | 日期 | spec_version | 改动 |
 |---|---|---|
 | 2026-07-24 | 8 | **LINE_UP 两相对准 + 玩家 X-02 min_engage 降 1200m**（用户实测两局：电磁炮从不开火）。真因：恒 30° bank + 巡航速转向率仅 ~1°/s，机头切不进 ±5° 火控锥 → 充能每帧静默失败，看似"宁等导弹 CD"。修法（用户定稿：**优先级**问题，非火控锥太小）：`line_up` 按 `heading_diff_to_target_deg` 分两相——偏轴 >4° 用 65° bank + 角点速主动猛拧对准，≤4° 收回 30° bank + 巡航速稳定放电。X-02 `min_engage_range_m` 2000→1200。**fable 评审 + 闭环 sim 修正**：①相位边界 8°→4°（原 8° > 5° 锥 → 5~8° 弱转向死区）；②bank 55°→65°（55° 仅 ~2.5°/s 太保守）；③加端到端闭环 sim（原 3 条只验 plan 字段快照，漏掉"到底打不打得出来"）——sim 揪出真正的坡度杀手是 `weapon_mode=MISSILE` 触发 cap_frac=0.35（玩家靠 use_tactical_preference 绕过，记 known-seams「railgun-bank-cap」）。验收：15° 3.2s 起充、7° 1.9s、0 中断、峰值 6.6°/s；weapon_doctrine 34 断言 + bfm_intent 104 + slow_air 14 全绿。待用户 playtest。 |
+| 2026-07-29 | 9 | 电磁炮充能入口补齐全队超杀门：统计同一目标的有效在飞导弹 + 队友充能/待发电磁炮；承诺伤害达到当前 HP 即不再充能。目标按 CombatUnit 身份统一，覆盖 Mother Goose 与普通舰船的 MountTarget。 |
 | 2026-07-04 | 1 | 初稿（draft）：现状摸底 + 包络/纪律表 + 竞选规则 + LINE_UP intent 设计。待用户定稿。 |
 | 2026-07-04 | 2 | **用户定稿（approved）**：①距离带改为动态数值（实时读装备 live params，升级即时生效）；②重叠区竞选从"射程上界优先"改为**命中率优先**（电磁炮必中 > 导弹 > 机炮 > 火箭），电磁炮最近射程使近距自然归机炮；③充能期间持续追踪敌机航点（非冻结），射空可接受；④阵营分级：瞄准纪律同一套，难度差异全放执行层（敌机节流/误差）；⑤兜底改"维持追击 + 按导弹纪律 crank 等待 CD"。 |
 | 2026-07-05 | 4 | 阶段 3 落地：LINE_UP intent（竞选驱动、bank_limit_deg 双侧镜像钳制、boom-zoom 之前插枝）+ 电磁炮充能 planner 门 + 甩头中断（25°/s，取消不进 CD）+ AF-03 摘旗迁 planner + 统一提前点 lead_heading 上移。weapon_doctrine 26 断言 + 回归门 13 项全绿。剩阶段 4 playtest。 |

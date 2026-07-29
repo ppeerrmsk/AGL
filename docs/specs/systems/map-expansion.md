@@ -1,7 +1,7 @@
 ---
 id: map-expansion
 kind: system
-status: in-progress  # 60×60 km 已手改落地（用户 2026-07-05 二次复审决定保留，见 §3.1 尾注）；无头回归绿，差 playtest 节奏项；编辑器整合留待 OfficialMapConverter 吃现状
+status: done  # 2026-07-29 用户确认工程落地可收口；编辑器整合由 map-editor 承接
 schema_version: 1
 spec_version: 6
 owner: noelu

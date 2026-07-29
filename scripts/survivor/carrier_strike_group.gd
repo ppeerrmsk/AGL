@@ -28,7 +28,10 @@ const CarrierShipScript   := preload("res://scripts/naval/carrier_ship.gd")
 ## 捕获 CV 死亡时的位置和朝向，Poltergeist 沿该方向依次起飞
 
 # ── 舰队几何（BOSS 战区像素尺度；BOSS_ZONE radius ≈ 2200 px，舰队要能装进去）──
-const CV_PATROL_HALF_SPAN: float = 1500.0     ## CV 往返直线半程（紧贴 zone 中心，舰队不脱环）
+## 旗舰盘旋半径：舰队绕锚点恒定转圈，角速度 = CV 航速 / 半径 = 3.5/750 ≈ 0.0047 rad/s（0.27°/s）
+## 不能再用"直线往返 + 端点 180° U-turn"：僚舰是刚体跟随，一次掉头 = 整支舰队原地旋转 60 s
+## 半径下限受 NavalUnit.FORMATION_TANGENTIAL_CAP_PXS 约束（太小 → 转速被截断，船画不出这个圆）
+const CV_PATROL_RING_RADIUS: float = 750.0    ## 舰队外缘 750 + 1556 ≈ 2306 px，约等于 BOSS_ZONE 半径
 const ESCORT_OFFSETS: Array[Vector2] = [
 	# (前后, 左右) 相对旗舰本地坐标；+X 船头，+Y 右舷
 	# 舰队 bbox 约 1950×2200 px（≈3.9 km × 4.4 km）—— 11 舰双层护卫队形
@@ -68,11 +71,16 @@ var _cv_death_heading: float = 0.0
 # ── F/A-18 持续弹射（Phase 1 战斗期间）──
 const FA18_INITIAL_COUNT: int = 2             ## engage() 瞬间弹射数（一对编队）
 const FA18_PERIODIC_INTERVAL: float = 120.0   ## 每 2 分钟弹射一架补充
+## 【全场累计上限】整场 BOSS 战最多弹射 8 架（含开局 2 架）——弹完就不再补。
+## 旧版无上限：拖时间 = 无限舰载机 = 无限经验/连击农场，BOSS 战变成"运营局"。
+## 舰载机是压制手段，不是产出来源；连同 no_kill_reward 一起封死这条运营路子。
+const FA18_TOTAL_CAP: int = 8
 const FA18_TAKEOFF_GRACE: float = 4.0         ## 起飞保护期（与 Poltergeist 同步）
 const FA18_INITIAL_LATERAL_OFFSET: float = 220.0 ## 初始两架左右分开像素距离
 var _fa18_engaged: bool = false               ## engage() 是否已经触发（防止重复）
 var _fa18_periodic_timer: float = 0.0         ## 距离下一次定期弹射的剩余秒数
 var _fa18_alive: Array[Aircraft] = []         ## 跟踪存活的 F/A-18，用于胜利判定 / 清理
+var _fa18_launched_total: int = 0             ## 本场累计弹射数（对 FA18_TOTAL_CAP 计数，死了也不退还）
 
 # ── spawn 时注入的外部依赖（Phase 2 要用）──
 var _mode: Node2D = null
@@ -121,21 +129,23 @@ func spawn(mode: Node2D, aircraft_scene: PackedScene, create_enemy_func: Callabl
 	var placement: Dictionary = _pick_water_placement(anchor, initial_heading_deg)
 	var place_anchor: Vector2 = placement["anchor"]
 	var place_heading: float = placement["heading"]
+	var place_ring: float = float(placement["ring"])
 	var land_hits: int = int(placement["land"])
 	EventLogger.log_event("BOSS", display_name,
-		"placement anchor=(%d,%d) hdg=%.0f land=%d" % [place_anchor.x, place_anchor.y, place_heading, land_hits])
+		"placement anchor=(%d,%d) hdg=%.0f ring=%d land=%d" % [
+			place_anchor.x, place_anchor.y, place_heading, roundi(place_ring), land_hits])
 	if land_hits > 0:
 		push_warning("CarrierStrikeGroup: 舰队仍有 %d 个落点在陆地（锚点 %s）" % [land_hits, str(place_anchor)])
 
-	# 旗舰 CV 走直线往返：沿 place_heading 方向前进，到端点 180° U-turn
+	# 旗舰 CV 绕锚点恒定盘旋（顺时针，圆心在右舷）：全程不掉头，整支舰队只有 0.27°/s 的缓慢转位
+	# 出生点放在圆周上（锚点左舷 R 处），初始 heading 恰好是该点的切线 → 无入圈瞬态
 	# heading 约定：0°=北=-Y 世界方向
 	var heading_rad: float = deg_to_rad(place_heading)
-	var fwd: Vector2 = Vector2(sin(heading_rad), -cos(heading_rad))
-	var cv_wps := PackedVector2Array([
-		place_anchor + fwd * CV_PATROL_HALF_SPAN,
-		place_anchor - fwd * CV_PATROL_HALF_SPAN,
-	])
-	_cv = _make_ship(CarrierShipScript, cv_params, place_anchor, place_heading, cv_wps)
+	var cv_spawn: Vector2 = NavalPlacement.leader_pos(place_anchor, place_ring, heading_rad)
+	_cv = _make_ship(CarrierShipScript, cv_params, cv_spawn, place_heading, PackedVector2Array())
+	# place_ring = 0（窄水域降级）→ patrol 模式关闭，舰队原地驻泊
+	_cv.patrol_center = place_anchor if place_ring > 1.0 else Vector2.INF
+	_cv.patrol_radius = place_ring
 	_cv.is_mission_target = true
 
 	# CV 甲板停 2 架舰载机（可选：不和 Phase 2 的 4 架 F-14 冲突，留空）
@@ -233,18 +243,25 @@ func _update_fa18_periodic_launch(delta: float) -> void:
 	# CV 已死或正在死 → 不再刷
 	if _cv == null or not is_instance_valid(_cv) or _cv.is_destroyed:
 		return
+	# 累计上限用尽 → 机库空了，永不再刷（不看存活数：击落即消耗，不许"打一架补一架"）
+	if _fa18_launched_total >= FA18_TOTAL_CAP:
+		return
 	_fa18_periodic_timer -= delta
 	if _fa18_periodic_timer <= 0.0:
 		_fa18_periodic_timer = FA18_PERIODIC_INTERVAL
 		_launch_fa18(0.0)
 		EventLogger.log_event("BOSS", display_name,
-				"periodic F/A-18 catapult (1 launched, %d alive)" % _fa18_alive.size())
+				"periodic F/A-18 catapult (%d/%d launched, %d alive)" % [
+					_fa18_launched_total, FA18_TOTAL_CAP, _fa18_alive.size()])
 
 ## 单架 F/A-18 弹射：CV 位置 + CV 当前朝向 + lateral 偏移（米/像素同尺度）
 ## 起飞后立即开火（不像 Poltergeist 走 4 秒滑跑动画 — 设计上"补充梯队"节奏快）
 ## 给一段 takeoff grace，玩家短暂内无法锁定 + 飞机自爬到作战高度
 func _launch_fa18(lateral_offset: float) -> void:
 	if _cv == null or not is_instance_valid(_cv):
+		return
+	# 机库上限（唯一守卫处；engage() 的开局 2 架也走这里计数）
+	if _fa18_launched_total >= FA18_TOTAL_CAP:
 		return
 	var heading: float = _cv.heading
 	var fwd := Vector2(sin(heading), -cos(heading))
@@ -263,11 +280,15 @@ func _launch_fa18(lateral_offset: float) -> void:
 	# 标识为 CSG 派生（survivor_spawner 远距清理跳过 + HUD 不显示血条）
 	hornet.set_meta("category", "boss_csg_aircraft")
 	hornet.set_meta("skip_far_cleanup", true)
+	## BOSS 自带单位不计价（同 Goose 蜂群 / MQ-X）：无 XP / 不入生涯档案 / 不给对头永久 +max_hp。
+	## 奖励挂在 BOSS 本体上，舰载机是压制手段不是产出来源（消费点 survivor_spawner._detect_kills）
+	hornet.set_meta("no_kill_reward", true)
 	# 猎手化（spec boss-hunter-doctrine §3.5）：舰载机起飞即挂玩家为目标。
 	# 旧版靠"AI 雷达扫描自然获取"—— F/A-18 雷达锥有限，玩家在 5km 外绕开就永远不被发现，
 	# 整个舰队于是变成一个不会反击的固定靶。舰船追不动玩家，CSG 的猎手性全靠这些飞机
 	_assign_player_target(hornet, "CSG F/A-18 launch")
 	_fa18_alive.append(hornet)
+	_fa18_launched_total += 1
 
 ## 给一架 CSG 舰载机挂玩家目标。走 acquire_target(TS_BOSS) —— 与既有猎手系统同一条通路，
 ## 优先级仲裁防抢写，且 TS_BOSS 天然绕过 ROE 感知门（= 地面指挥所全知引导）
@@ -368,47 +389,27 @@ func get_active_ace_squad() -> AceSquad:
 # ══════════════════════════════════════════════
 #
 # zone_data._snap_to_water 只保证 BOSS 圈的圆心在水面，但整支舰队 bbox ≈1950×2200 px、
-# CV 还要沿航向来回跑 ±1500 px —— 锚点靠岸时护卫舰会直接刷在陆地上。
-# 下水前先扫一遍"候选朝向 × 候选锚点"，取落地点最少的一组；找到全水面解立即采用。
+# 还要绕锚点盘旋（一圈约 20 分钟内扫过半径 ≈2300 px 的圆盘）—— 锚点靠岸时护卫舰会直接
+# 刷在陆地上、或转着转着开上岸。下水前先扫候选锚点，取落地点最少的一组；全水面解立即采用。
 
-const PLACEMENT_HEADING_STEP_DEG: float = 45.0
-## 锚点候选偏移（按顺序试，Vector2.ZERO = 原锚点优先）
-const PLACEMENT_ANCHOR_NUDGES: Array[Vector2] = [
-	Vector2.ZERO,
-	Vector2(1800, 0), Vector2(-1800, 0), Vector2(0, 1800), Vector2(0, -1800),
-]
+## 锚点候选偏移（由近及远，八方向；原锚点由 pick_center 自己先试）
+const PLACEMENT_NUDGE_RADII: Array = [1800.0, 3200.0]
+## 盘旋半径降级序列：湾北桥下的全水圆只有 ~1750 px，装不下"编队 1421 + 盘旋 750"，
+## 与其让护卫舰开上岸，不如缩巡航圈乃至就地抛锚（0 = 静止）
+const PLACEMENT_RING_CANDIDATES: Array = [CV_PATROL_RING_RADIUS, 400.0, 0.0]
 
-## 数一组(锚点, 朝向)下有多少关键落点在陆地上：CV 巡逻两端 + 10 个护卫位
-func _score_placement(anchor: Vector2, heading_deg: float) -> int:
-	var heading_rad: float = deg_to_rad(heading_deg)
-	var fwd: Vector2 = Vector2(sin(heading_rad), -cos(heading_rad))
-	var stb: Vector2 = Vector2(cos(heading_rad), sin(heading_rad))
-	var land: int = 0
-	if MapGeography.is_on_land(anchor + fwd * CV_PATROL_HALF_SPAN):
-		land += 1
-	if MapGeography.is_on_land(anchor - fwd * CV_PATROL_HALF_SPAN):
-		land += 1
-	for off in ESCORT_OFFSETS:
-		if MapGeography.is_on_land(anchor + fwd * off.x + stb * off.y):
-			land += 1
-	return land
-
-## 选出落地点最少的摆位 → { anchor, heading, land }
+## 选出落地点最少的摆位 → { anchor, heading, ring, land }
+## 落地计分委托 NavalPlacement（沿每艘船的轨道同心圆细采）——舰队整体绕锚点转，
+## 只查出生那一刻的朝向正是"转过去以后搁浅"的来源
+## 评分对朝向不变（舰队绕锚点盘旋），因此只挪锚点、不扫朝向；heading 原样透传给 F-14 弹射方向
 func _pick_water_placement(anchor: Vector2, heading_deg: float) -> Dictionary:
-	var best := {"anchor": anchor, "heading": heading_deg, "land": _score_placement(anchor, heading_deg)}
-	if int(best["land"]) == 0:
-		return best
-	for nudge in PLACEMENT_ANCHOR_NUDGES:
-		var a: Vector2 = anchor + nudge
-		var h: float = 0.0
-		while h < 360.0:
-			var land: int = _score_placement(a, h)
-			if land < int(best["land"]):
-				best = {"anchor": a, "heading": h, "land": land}
-				if land == 0:
-					return best
-			h += PLACEMENT_HEADING_STEP_DEG
-	return best
+	var picked: Dictionary = NavalPlacement.pick_placement(
+			anchor, NavalPlacement.ring_nudges(PLACEMENT_NUDGE_RADII),
+			PLACEMENT_RING_CANDIDATES, ESCORT_OFFSETS, deg_to_rad(heading_deg))
+	return {
+		"anchor": picked["center"], "heading": heading_deg,
+		"ring": picked["ring"], "land": picked["land"],
+	}
 
 
 # ══════════════════════════════════════════════

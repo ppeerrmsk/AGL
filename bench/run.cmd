@@ -8,7 +8,25 @@ REM
 REM Output: bench\results\<scenario>_<UTC>.txt
 
 setlocal
-set "GODOT=C:\Users\noelu\Downloads\Godot_v4.6.2-stable_mono_win64\Godot_v4.6.2-stable_mono_win64\Godot_v4.6.2-stable_mono_win64_console.exe"
+if not defined GODOT set "GODOT=D:\Program Files (x86)\Steam\steamapps\common\Godot Engine\godot.windows.opt.tools.64.exe"
+if not exist "%GODOT%" goto GODOT_MISSING
+set "VERSION_FILE=%TEMP%\agl_godot_version_%RANDOM%.txt"
+"%GODOT%" --headless --version > "%VERSION_FILE%"
+set /p GODOT_VERSION=<"%VERSION_FILE%"
+del /q "%VERSION_FILE%" >nul 2>&1
+echo %GODOT_VERSION%| findstr /b /c:"4.7" >nul
+if errorlevel 1 goto GODOT_WRONG_VERSION
+goto GODOT_OK
+
+:GODOT_MISSING
+echo [bench] ERROR: GODOT does not exist: %GODOT%
+exit /b 2
+
+:GODOT_WRONG_VERSION
+echo [bench] ERROR: project.godot requires Godot 4.7; found %GODOT_VERSION%.
+exit /b 2
+
+:GODOT_OK
 set "SCENARIO=%~1"
 if "%SCENARIO%"=="" set "SCENARIO=stress_40"
 set "DURATION=%~2"
@@ -30,5 +48,4 @@ dir /B /O:-D bench\results\%SCENARIO%_*.txt 2>nul
 
 popd
 echo.
-pause
 exit /b %EXIT_CODE%

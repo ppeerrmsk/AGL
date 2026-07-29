@@ -3,7 +3,7 @@ id: mother-goose
 kind: boss
 status: done
 schema_version: 1
-spec_version: 1
+spec_version: 3
 owner: design
 depends_on: [jam-status, vls-salvo, uav-swarm-roles]
 reconstruction_complete: true
@@ -117,12 +117,19 @@ ACTIVE 细节：所有 team 1 强制 `current_target = player`；GUARD→HUNTER 
 |---|---|
 | 初始数 | 12 |
 | 上限 | 30 |
-| 补充批量 | 2 / 间隔 |
-| 补充间隔 | 12.0 s |
+| 补充批量 | 2 / 间隔（仅 Designation ACTIVE） |
+| 补充间隔 | 12.0 s；进入 ACTIVE 立即允许首批，离开 ACTIVE 停止且清空补刷队列 |
 | 出生半径（绕 boss） | 250 px |
 | Hunter 牵引半径 | 4500 px（超出回收） |
 | 远距剔除距离 | 距玩家 3500 px 且离屏（+400 px 余量），每 5 s 检查 |
 | 迷途召回 | 距 boss 5000 px 且无目标 → 每 4 s 强制返航 |
+| **击杀计价** | **无**（`no_kill_reward`）：不给 XP、不入生涯档案、不给对头永久 +max_hp |
+
+> **为什么蜂群击杀不计价**：母舰每 12s 补 2 架、上限 30、只有母舰死才停 —— 任何"按击杀
+> 结算的成长/进度"在这里都是无限农场（Lv20 时一架 UAV = 185 XP，蜂群等于一台经验永动机）。
+> 奖励挂在 BOSS 本体上，随行无人机不另开一份计价。MQ-X 精英对（§2.8）同规则。
+> 全局裁决见 [survivor-loop §3.2](../systems/survivor-loop.md)「BOSS 阶段不产出」。
+> 仍算击杀数、仍触发击杀回血 / 侩子手连击 —— 那是玩家用 build 换来的局内战斗资源，不是进度奖励。
 
 四变体（加权随机）：
 
@@ -131,7 +138,7 @@ ACTIVE 细节：所有 team 1 强制 `current_target = player`；GUARD→HUNTER 
 | MQ-109 | 机炮 | `enemy_uav.tres` | 45% | — | 近战 |
 | MQ-110 | 导弹 | `enemy_uav_missile.tres` | 25% | — | 1500 px |
 | MQ-111 | 激光 | `enemy_uav_mg_laser.tres` | 15% | **2** | 0（贴身对空） |
-| MQ-112 | 电磁炮 | `enemy_uav_railgun.tres` | 15% | — | 2000 px |
+| MQ-112 | 电磁炮 | `enemy_uav_railgun.tres` | 15% | **2–3** | 2000 px |
 
 角色分配：MQ-110/112 恒 HUNTER；MQ-111 恒 GUARD（对空，`no_kamikaze`）；
 MQ-109 按 50% 概率 GUARD / 50% HUNTER。
@@ -164,12 +171,18 @@ MQ-109 按 50% 概率 GUARD / 50% HUNTER。
 - JAM 力场：60s 周期（40 cd → 4 warn → 8 expand → 8 sustain）
 - 指定猎杀：180s 周期（180 cd → 3 warn → 15 active）
 - VLS 齐射：每 20s 一轮
-- UAV 补充：每 12s 补 2，封顶 30
+- UAV 补充：仅指定猎杀 ACTIVE 期间每 12s 补 2（入阶段立即允许首批），封顶 30；离屏剔除补刷走同一闸门
 
 ### 3.3 伤害路由
 
 挂点不是独立 CombatUnit，伤害经 `MotherGooseController.route_damage`：命中点 → 找 400px 内最近挂点 →
 按 §2.3 角度倍率结算 → 扣该挂点 HP → 同步 boss 血条。本体直接受击在弱点暴露前被 lock_immune 挡掉。
+
+### 3.4 本体点击选点
+
+玩家点击 Mother Goose 飞翼机身时，不把锁定免疫的本体作为 `combat_target`，而是在该母体当前存活、
+可攻击的 `MountTarget`（挂点；核心暴露后含核心）中选择**离点击世界坐标最近**的一项。机身上的普通 UAV
+不得抢走这次点击；机身范围外仍沿用常规敌人近点选择。
 
 ## 4. 结构与组成（Structure）
 
@@ -192,7 +205,12 @@ BGM：循环歌单 `["boss_mothergoose_1", "boss_mothergoose_2"]`（优先于 bg
 - [x] 10 挂点全毁前本体锁不上；全毁后核心可锁可击杀
 - [x] JAM SUSTAIN 内玩家被 JAM+SLOW、限速、吃 5 DPS；WARNING/EXPANDING 有逃逸窗口
 - [x] 指定 ACTIVE 内全体敌机锁玩家、GUARD 转 HUNTER、前方设伏
+- [x] 非指定猎杀阶段不发生周期补充或离屏补刷；进入 ACTIVE 后才按 2 架/批恢复，退出立即停
+- [x] 每次生成决策把 MQ-112 电磁炮 UAV 补到至少 2、封顶 3；阵亡后可暂低于 2，待下次 ACTIVE 补充
+- [x] 点击飞翼本体时选择离点击点最近的存活 MountTarget，机身上的普通 UAV 不抢点击
 - [x] HP 跌破 50% 恰好一次性刷 2 架 MQ-X
+- [x] 蜂群 / MQ-X 击杀 **不给 XP、不入生涯档案、不给对头永久 +max_hp**；仍计击杀数
+      （无头回归 `--bench=boss_phase` F 组，含"普通 MQ-109 照常计价"对照）
 - [x] 性能：UAV 30 上限 + 远距剔除 + 迷途召回生效，Lv5+ 压测 FPS 掉幅 < 15（bench/results/boss_mother_goose_*.txt）
 - [x] MountTarget 保留在 all_units（SEAM 未触碰）
 - [x] i18n：display_name 走 HUD 拼接例外；无其它玩家可见硬编码文本
@@ -239,3 +257,4 @@ BGM：循环歌单 `["boss_mothergoose_1", "boss_mothergoose_2"]`（优先于 bg
 | 2026-05-12 | — | MQ-X 精英 + 收尾（见 changelogs/2026-05-12-mqx-elite-uav.md） |
 | 2026-05-30 | 1 | 回填为 reconstruction-grade spec（本文件，从源码逆向提取全部数值） |
 | 2026-07-05 | 2 | MQ-110/112 hunter 走位改 joust 攻击跑（spec joust-attack-run）：退役 standoff 切向轨道（其 1.5×standoff=6000m 触发圈盖住整个 5000m 电磁炮包络 → 机头永远侧身 → 全场 0 充能死锁，log 183044）。preferred_standoff_range_px 不再设置，包络由 joust 动态读装备。 |
+| 2026-07-29 | 3 | UAV 补充统一收口到指定猎杀 ACTIVE；MQ-112 活体配额改 2–3；点击飞翼本体自动转发到离点击点最近的可攻击 MountTarget。 |

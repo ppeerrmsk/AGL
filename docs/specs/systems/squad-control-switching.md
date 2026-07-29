@@ -1,9 +1,9 @@
 ---
 id: squad-control-switching
 kind: system
-status: in-progress   # 代码全落地（数字键切换/换帅/休眠AI/击落接管），仅差 §5 playtest 验收 → done
+status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 4
+spec_version: 5
 owner: noelu
 depends_on: [survivor-loop, squad-upgrade-ownership]
 reconstruction_complete: false
@@ -244,3 +244,4 @@ func set_leader(new_leader):
 | 2026-05-30 | 3 | 降级过渡改为**"打完再归队"事件驱动**（目标消失/到达即归队，grace 6s 仅兜底）；新增 §3.5 **换帅最小扰动原则**——set_leader 只换引用不强制归位，FREE 各自为战的僚机切换时完全不受影响（用户场景：在 2/3 间切换不扰动 1/4）。待用户 review → approved。 |
 | 2026-06-07 | 3 | **文档对齐代码**（status draft→in-progress）：核对确认 §6 阶段 1-4 **早前会话已全部派生**（commit 04a7a44）——`Aircraft.squad_slot`、`Squad.set_leader`、`AIController.manual_control` + `_takeover_transition_timer`、KEY_1..4 切换 + `_switch_control_to_slot`、KEY_Q 武器偏好迁移、白底 + 击落接管。实现命名与 spec 略有出入（chokepoint 内联在 `_switch_control_to_slot` 而非独立 `set_player_aircraft`/`switch_player_to`，功能等价）。回填 §6 勾 + §7 真实文件锚点。**唯一未尽**：§5 验收为 playtest 项（需 Godot 内目测 + Lv5+ 压测），未代跑 → 故 status 暂停在 in-progress，验收通过后转 done。 |
 | 2026-07-27 | 4 | **键位真相化批**（文档对齐代码 + 换绑）：切控键实际早已扩至 **1-9**（zone-reward-docking §2.5 编队上限 9），导致原 KEY_6/7 小队命令分支被切控拦截成**死键**，且 HUD 标签仍显示 1/3/6/7 与实际按键不符。换绑：高度偏好 KEY_Z→**Q**（用户指定）、武器偏好 KEY_Q→**T**、小队交战 KEY_6→**C**、小队武器 KEY_7→**V**；E 加力 / F 自动发射 / R 手动闪避 / WASD 相机不变。i18n 三语标签（TACTIC_*/SQUAD_*）+ 悬浮提示（TOOLTIP_*_HINT）同步。§2.3 键位表重写为唯一真源。 |
+| 2026-07-29 | 5 | **固定号机号重新收口**：撤销后续曾引入的“按存活列表动态压缩”实现，数字键恢复严格匹配稳定 `squad_slot`。小队面板显示当前操控机与全部僚机的固定数字；阵亡号位留空，新入队飞机回填最小空号。 |

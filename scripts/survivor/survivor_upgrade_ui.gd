@@ -19,7 +19,13 @@ var _rarity_badges: Array[Label] = []
 var _axis_badges: Array[Label] = []
 ## 归属角标：每张卡片左下角（skills-720 §1.2：通用◈全队 / 品类限定 / 王牌 / 队级单件 + "+1 轴进度"）
 var _scope_badges: Array[Label] = []
+## 状态词条脚注：卡片【下方】的小字，解释这条技能给的 buff/debuff 本身干什么
+## （0729；内容由 SurvivorData.status_notes_of + StatusEffects.NOTE_I18N_KEY 决定）
+var _status_notes: Array[Label] = []
 var _choices: Array[Dictionary] = []
+
+## 脚注文字色：比正文暗一档，不跟卡框/轴色抢视觉
+const NOTE_COLOR := Color(0.62, 0.68, 0.74)
 
 func _ready() -> void:
 	layer = 20
@@ -58,8 +64,15 @@ func _build_ui() -> void:
 	_btn_container.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	root.add_child(_btn_container)
 
-	# 3个按钮
+	# 3个按钮：每张卡是一列 VBox = [按钮][状态词条脚注]，
+	# 脚注放在按钮【外面】而不是塞进 Button.text —— 按钮内部靠 anchor 定位的三个角标
+	# 已经把四角占满，再往正文里加行会顶到左下角归属标签上
 	for i in range(3):
+		var card := VBoxContainer.new()
+		card.add_theme_constant_override("separation", 4)
+		card.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		_btn_container.add_child(card)
+
 		var btn := Button.new()
 		btn.custom_minimum_size = Vector2(220, 120)
 		btn.add_theme_font_size_override("font_size", 14)
@@ -90,7 +103,7 @@ func _build_ui() -> void:
 
 		var idx := i
 		btn.pressed.connect(func(): _on_choice_pressed(idx))
-		_btn_container.add_child(btn)
+		card.add_child(btn)
 		_buttons.append(btn)
 
 		# §5 稀有度徽章：右上角小标签（pos 由 _layout_rarity_badge 在 show_choices 设置）
@@ -147,6 +160,19 @@ func _build_ui() -> void:
 		btn.add_child(scope_badge)
 		_scope_badges.append(scope_badge)
 
+		# 状态词条脚注：卡片下方的小字。autowrap + 与按钮同宽的最小宽度，
+		# 保证长句往下折行而不是把整排卡撑宽
+		var note := Label.new()
+		note.text = ""
+		note.custom_minimum_size = Vector2(220, 0)
+		note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		note.add_theme_font_size_override("font_size", 11)
+		note.add_theme_color_override("font_color", NOTE_COLOR)
+		note.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		note.visible = false
+		card.add_child(note)
+		_status_notes.append(note)
+
 	# 下部空白
 	var spacer_bottom := Control.new()
 	spacer_bottom.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -156,9 +182,13 @@ func _build_ui() -> void:
 ## 遮罩不在此列——它归导演的全局压暗通道统一管
 func get_transition_elements() -> Array[Control]:
 	var out: Array[Control] = [_title]
-	for b in _buttons:
-		if b.visible:
-			out.append(b)
+	for i in range(_buttons.size()):
+		if not _buttons[i].visible:
+			continue
+		out.append(_buttons[i])
+		# 脚注跟着自己那张卡一起出入场，否则卡片淡入时脚注会先满亮地杵在那里
+		if i < _status_notes.size() and _status_notes[i].visible:
+			out.append(_status_notes[i])
 	return out
 
 ## 只填内容、【不负责显示】——显示与入场动画由 Presentation.present() 驱动。
@@ -269,8 +299,21 @@ func populate(choices: Array[Dictionary], points_capped: bool = false) -> void:
 				sb.text = " · ".join(PackedStringArray(parts))
 				sb.add_theme_color_override("font_color", sb_color)
 				sb.visible = true
+
+			# 状态词条脚注（0729）：这条技能给的 buff/debuff 本身干什么
+			if i < _status_notes.size():
+				var nb := _status_notes[i]
+				var note_lines: Array = []
+				for sid in SurvivorData.status_notes_of(choices[i]):
+					var nk: String = StatusEffects.note_i18n_key(sid)
+					if nk != "":
+						note_lines.append(tr(nk))
+				nb.text = "\n".join(PackedStringArray(note_lines))
+				nb.visible = not note_lines.is_empty()
 		else:
 			_buttons[i].visible = false
+			if i < _status_notes.size():
+				_status_notes[i].visible = false
 			if i < _rarity_badges.size():
 				_rarity_badges[i].visible = false
 			if i < _axis_badges.size():

@@ -32,6 +32,7 @@ func run() -> void:
 	_test_timeout_detection()
 	_test_upgrade_sequences_wellformed()
 	_test_wraith_sequence_wellformed()
+	_test_simple_boss_sequences_wellformed()
 	_test_converge_speed_solve()
 	_test_dim_layer_placement()
 	_test_arrival_seq_names_match_registry()
@@ -379,6 +380,42 @@ func _test_wraith_sequence_wellformed() -> void:
 			_assert_true("wraith: 交汇到点半径已收紧（%.0f ≤ 100）" % float(s.get("arrive_radius", 999)),
 				float(s.get("arrive_radius", 999)) <= 100.0)
 
+func _test_simple_boss_sequences_wellformed() -> void:
+	var defs := _load_real_sequences()
+	for seq_name in ["carrier_strike_group_arrival", "mother_goose_arrival"]:
+		var seq: Dictionary = defs.get(seq_name, {})
+		_assert_true("%s: 序列存在" % seq_name, not seq.is_empty())
+		if seq.is_empty():
+			continue
+		var p := SequencePlayer.new()
+		p.load_sequence(seq_name, seq)
+		_assert_true("%s: 总时长 ≤ 7s（%.2f）" % [seq_name, p.total_duration()],
+			p.total_duration() <= 7.0)
+		var has_cut := false
+		var has_return := false
+		var has_radio := false
+		var has_release := false
+		var return_at := -1.0
+		var release_at := -1.0
+		for s in seq.get("steps", []):
+			var ch := String(s.get("ch", ""))
+			var op := String(s.get("op", ""))
+			if ch == "camera" and op == "cut_to":
+				has_cut = bool(s.get("follow", false))
+			if ch == "camera" and op == "return_to_player":
+				has_return = true
+				return_at = float(s.get("at", -1.0))
+			if ch == "radio" and op == "line":
+				has_radio = true
+			if ch == "actor" and op == "release":
+				has_release = true
+				release_at = float(s.get("at", -1.0))
+		_assert_true("%s: 镜头跟随 BOSS 主体" % seq_name, has_cut)
+		_assert_true("%s: 播放登场无线电" % seq_name, has_radio)
+		_assert_true("%s: 镜头回玩家" % seq_name, has_return)
+		_assert_true("%s: 回镜后释放演出" % seq_name,
+			has_release and release_at >= return_at)
+
 ## 同时抵达要按距离反解速度：远的必须更快，否则四线依次穿过而非汇于一点。
 ## 且【全部机位的所需速度必须落在机体包线内】—— 超出会被钳速，同时抵达随之失效。
 ## 这条断言就是为了守住"空间尺度必须从速度反推"这个教训（早期 5200px 进场需 41 秒）
@@ -489,9 +526,9 @@ func _test_arrival_seq_names_match_registry() -> void:
 		_assert_true("arrival.'%s' 能被某个 boss_id 派生出来" % n, valid_names.has(n))
 	_assert_true("arrival: 至少有一个登场演出", found_any)
 
-	# 反向：已写的演出必须真的挂得上（否则等于没写）
-	_assert_true("arrival: WRAITH 演出已就位（%s）" % "wraith_squadron_arrival",
-		defs.has("wraith_squadron_arrival"))
+	# 反向：每个注册 BOSS 都必须有演出；缺一个就会退化成无镜头直接接战。
+	for expected in valid_names:
+		_assert_true("arrival: 注册 BOSS 演出已就位（%s）" % expected, defs.has(expected))
 
 
 # ══════════════════════════════════════════════

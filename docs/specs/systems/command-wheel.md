@@ -1,7 +1,7 @@
 ---
 id: command-wheel
 kind: system
-status: in-progress
+status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
 spec_version: 17
 owner: 设计/用户

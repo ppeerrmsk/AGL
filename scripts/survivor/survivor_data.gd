@@ -1101,7 +1101,12 @@ const UPGRADES: Array[Dictionary] = [
 		"rarity": Rarity.EXPERIMENTAL,
 		"keywords": ["jam", "overload"],
 		## 必须先有"能施加 JAM"的来源；否则技能形同空
-		"requires_skill": ["cloud_overload", "skill_evade_missile_overload", "skill_flare_overload"],  ## 720 批：需要词条改超载入门技
+		## 729 修：720 批误把前置改成"超载入门技"，导致只拿焰诱共振也能刷出本卡但永远不触发。
+		## 本条自身就是超载来源，前置只应看 JAM 来源（即会调 SkillHooks.on_player_jam_landed 的技能）。
+		"requires_skill": [
+			"skill_flare_aoe_jam", "skill_gun_kill_flare_drop", "skill_missile_hit_aoe_jam",
+			"skill_torpedo_aoe_jam", "head_on_jam", "jam_aura", "sig_rafale",
+		],
 		"classes": ["knight"],
 	},
 	# ── F-14 专属：数据链 ──
@@ -2169,6 +2174,59 @@ static func upgrade_by_id(uid: String) -> Dictionary:
 
 static func upgrade_scope(u: Dictionary) -> String:
 	return str(u.get("scope", ""))
+
+
+# ── 升级卡"状态词条脚注"（0729）───────────────────────────
+## 卡片下方那行小字：这条技能给的 buff/debuff 本身干什么。
+## 主路径 = keywords ∩ 状态 id（keywords 已经是 doctrine 家族分类的权威源，
+## 新技能只要按惯例写上 fear/jam/stealth/bloodlust/overload/slow 就自动带脚注）。
+## EXTRA  = 确实施加状态但关键词里没写的漏网（INVINCIBLE 没有对应关键词，全靠这里）。
+## OVERRIDE = 关键词与实际状态不符的个例（整条替换，不与 keywords 合并）。
+const STATUS_NOTE_KEYWORDS: Array[String] = [
+	"overload", "bloodlust", "invincible", "stealth", "fear", "jam", "slow",
+]
+
+const STATUS_NOTE_EXTRA := {
+	"squad_revenge": ["invincible"],            ## 嗜血 + 无敌 15s（keywords 只写了 bloodlust）
+	"assassin_revenge": ["stealth"],            ## 超载 + 隐身 15s（keywords 只写了 overload）
+	"skill_missile_hit_invul": ["invincible"],
+	"skill_lowest_alt_kill_invul": ["invincible"],
+	"manual_dodge": ["invincible"],             ## R 闪避 i-frame
+	"sig_su35": ["invincible"],                 ## 落叶飘：机动完成 6s 无敌
+	"sig_harrier": ["invincible"],              ## VIFFing：低速 4s 无敌
+}
+
+const STATUS_NOTE_OVERRIDE := {
+	"sig_mig41": ["overload"],                  ## keywords 写的是 altitude/stealth，实际给的是 OVERLOAD
+}
+
+## 一张卡最多挂几行脚注（再多卡片就撑变形了）
+const STATUS_NOTE_MAX := 2
+
+## 这条升级涉及哪些状态词条（按 StatusEffects.DISPLAY_ORDER 排序，最多 STATUS_NOTE_MAX 条）
+static func status_notes_of(u: Dictionary) -> Array[String]:
+	var uid: String = str(u.get("id", ""))
+	var ids: Dictionary = {}
+	if STATUS_NOTE_OVERRIDE.has(uid):
+		for s in STATUS_NOTE_OVERRIDE[uid]:
+			ids[str(s)] = true
+	else:
+		var kws: Variant = u.get("keywords", null)
+		if kws is Array:
+			for k in kws:
+				var ks: String = str(k)
+				if STATUS_NOTE_KEYWORDS.has(ks):
+					ids[ks] = true
+		if STATUS_NOTE_EXTRA.has(uid):
+			for s in STATUS_NOTE_EXTRA[uid]:
+				ids[str(s)] = true
+	var out: Array[String] = []
+	for sid in StatusEffects.DISPLAY_ORDER:
+		if ids.has(sid):
+			out.append(sid)
+			if out.size() >= STATUS_NOTE_MAX:
+				break
+	return out
 
 
 ## 技能品类限定数组（空 = 不限品类）

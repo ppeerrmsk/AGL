@@ -1448,6 +1448,10 @@ func _update_squad_panel() -> void:
 		_squad_panel.visible = false
 		return
 	_squad_panel.visible = true
+	var sq := _get_player_squad()
+	if sq == null:
+		_squad_panel.visible = false
+		return
 
 	# 继任者标记（spec ace-system §3）：击坠数最高的僚机 = 王牌阵亡时的继任者，标 ★
 	var heir: Aircraft = null
@@ -1457,7 +1461,10 @@ func _update_squad_panel() -> void:
 	if heir and heir.kill_tally <= 0:
 		heir = null  # 零杀不标（无有意义的继任排序）
 
-	var bbcode := ""
+	# 当前操控机也列在小队面板中；固定 squad_slot 就是数字键，换帅后不会漂移。
+	var controlled: Aircraft = game_scene.player_aircraft
+	var bbcode := "[color=#ffe08a][b][%d] %s[/b]  ◀ %s[/color]\n\n" % [
+		controlled.squad_slot, controlled.callsign, tr("SQUAD_CONTROLLED")]
 	for i in range(wingmen.size()):
 		var wm: Aircraft = wingmen[i]
 		var max_hp: float = wm.params.max_hp if wm.params else 100.0
@@ -1471,7 +1478,7 @@ func _update_squad_panel() -> void:
 
 		var heir_mark := "[color=#ffcc44]★[/color] " if wm == heir else ""
 		var kills_str := "  [color=#8899aa]✕%d[/color]" % wm.kill_tally if wm.kill_tally > 0 else ""
-		bbcode += "%s[b]%s[/b]%s  [color=#%s]HP %3d%%[/color]\n" % [heir_mark, wm.callsign, kills_str, hp_color, int(hp_ratio * 100)]
+		bbcode += "%s[b][%d] %s[/b]%s  [color=#%s]HP %3d%%[/color]\n" % [heir_mark, wm.squad_slot, wm.callsign, kills_str, hp_color, int(hp_ratio * 100)]
 		bbcode += "  [color=#%s]%s[/color]\n" % [hp_color, bar_str]
 		bbcode += "  %s\n" % _wingman_weapon_status(wm)
 		bbcode += "  [color=#6ab4e8]• %s[/color]" % _wingman_action_text(wm)

@@ -438,7 +438,7 @@ Phase 0 (安全网)  ──►  Phase 1 (意图仲裁)  ──►  Phase 2 (状�
 - backup/map-editor-premix：分支手术前的保险，确认无误可删。
 - 回归门：`godot --headless --path . -- --bench=all`（14 项，当前全绿）；跨分支切换后先
   `--headless --import` 刷类缓存，否则新 class_name 报 not declared。
-- Godot: Downloads/Godot_v4.6.2-stable_mono_win64/。观察场：`godot --path . -- --bench=weapon_demo`。
+- Godot 路径与版本以根目录 `AGENTS.md` 为准（当前要求 4.7+）；观察场通过 `bench/run.cmd weapon_demo` 启动。
 
 ### ✅ 电磁炮锁定线 bug（2026-07-05 已修，待用户 playtest 确认）
 真因与上一版快照假设不同：enemy_railgun.tres 实为 **AT_FIRE_TIME**（tres 值 1；注释

@@ -74,6 +74,11 @@ const UNIT_TESTS: Dictionary = {
 	"career_archive": "res://scripts/tests/test_career_archive.gd",
 	"meta_shop": "res://scripts/tests/test_meta_shop.gd",
 	"spawn_pool": "res://scripts/tests/test_spawn_pool.gd",
+	"boss_phase": "res://scripts/tests/test_boss_phase.gd",
+	"naval_formation": "res://scripts/tests/test_naval_formation.gd",
+	"naval_zone_water": "res://scripts/tests/test_naval_zone_water.gd",
+	"status_notes": "res://scripts/tests/test_status_notes.gd",
+	"squad_cmd_ui": "res://scripts/tests/test_squad_command_ui.gd",
 }
 
 var bench_active: bool = false

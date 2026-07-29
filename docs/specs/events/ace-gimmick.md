@@ -1,7 +1,7 @@
 ---
 id: ace-gimmick
 kind: event
-status: in-progress         # 728 实装批核心落地（bench 混编断言绿 + 回归门 41 项），差 playtest
+status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
 spec_version: 3
 owner: noelu（设计输入 2026-07-27）/ Claude（细化）

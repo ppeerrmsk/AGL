@@ -1,7 +1,7 @@
 ---
 id: aircraft-signature-skills
 kind: system
-status: in-progress   # 工程侧全闭环（41 条落地 / sig_skills 47 断言 / 回归门 34 项绿）；余 playtest 调数值 → 过后转 done
+status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
 spec_version: 3
 owner: 用户
@@ -224,6 +224,7 @@ _apply_damage 结算后 hp ≤ 0 时（按序判定，命中一条即止）：
 - [x] 窗口禁火豁免：sig_mig31 走独立发射通道（不经 `_fire_missile_at` 硬断），其余武器路径六处禁火未动 ✅
 - [x] 全表 i18n 三语齐（80 键 + 围猎改名）；重跑 dump_skill_table → 144 条（104+40），milestone_plus 数组已兼容 ✅
 - [x] 性能：全部判定 O(1) 字段读 / 复用既有 tick（锁定循环集中注入、0.5s squad watch、25s 周期生成）；无新增每帧扫描 ✅
+- [x] 传感器融合行为门：技能关闭/ACE 未满锁/非 ACE 当前目标均拒绝；ACE 满锁同目标时僚机越肩门放行（bench `sig_skills` §J）✅
 - [x] 回归门：`--bench=all` 34 项 PASS（含新 sig_skills 47 断言；skills720 未破坏）✅
 - [ ] **出率（2026-07-28）**：`sig_*` 权重 = 基础 0.08 × 2.5 = 等效 0.20，两条抽卡路径（轴内 / 三选一）
       都生效；驾驶某机型一局内**明显能刷到**它的签名技（旧版常常一局零刷出）

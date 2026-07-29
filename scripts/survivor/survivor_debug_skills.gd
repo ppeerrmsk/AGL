@@ -331,22 +331,18 @@ func _apply_btn_style(btn: Button, accent: Color) -> void:
 	h.border_color = Color(accent, 0.8)
 	btn.add_theme_stylebox_override("hover", h)
 
-## 5 轴显示顺序与中文标题
-const _AXIS_ORDER: Array[String] = ["survival", "mobility", "missile", "secondary", "electronic_warfare"]
-const _AXIS_TITLES := {
-	"survival": "▸ 生存",
-	"mobility": "▸ 机动",
-	"missile": "▸ 导弹",
-	"secondary": "▸ 副武器",
-	"electronic_warfare": "▸ 电子战",
-}
-const _AXIS_COLORS := {
-	"survival": Color(0.3, 0.7, 0.4),
-	"mobility": Color(0.3, 0.6, 0.9),
-	"missile": Color(0.9, 0.55, 0.25),
-	"secondary": Color(0.9, 0.45, 0.45),
-	"electronic_warfare": Color(0.7, 0.45, 0.85),
-}
+## 当前正式三轴显示顺序；分类与颜色只读 SurvivorData 的 SSOT，避免旧五类再次腐烂。
+const _AXIS_ORDER: Array[StringName] = [
+	SurvivorData.AXIS_GLADIATOR,
+	SurvivorData.AXIS_KNIGHT,
+	SurvivorData.AXIS_SCHEMER,
+]
+
+func _axis_title(axis: StringName) -> String:
+	return "▸ %s" % tr(String(SurvivorData.AXIS_I18N_KEY.get(axis, String(axis))))
+
+func _axis_color(axis: StringName) -> Color:
+	return SurvivorData.AXIS_COLORS.get(axis, Color.WHITE)
 
 func _refresh() -> void:
 	if not survivor_player or not game_scene:
@@ -370,13 +366,13 @@ func _refresh() -> void:
 	for axis in _AXIS_ORDER:
 		buckets[axis] = {"regular": [], "evolved": []}
 	for u in SurvivorData.UPGRADES:
-		var cat: String = u.get("category", "survival")
-		if not buckets.has(cat):
-			buckets[cat] = {"regular": [], "evolved": []}
+		var axis: StringName = SurvivorData.axis_of_upgrade(u)
+		if not buckets.has(axis):
+			buckets[axis] = {"regular": [], "evolved": []}
 		if u.get("evolved", false):
-			buckets[cat]["evolved"].append(u)
+			buckets[axis]["evolved"].append(u)
 		else:
-			buckets[cat]["regular"].append(u)
+			buckets[axis]["regular"].append(u)
 
 	# 按轴顺序渲染
 	for axis in _AXIS_ORDER:
@@ -386,9 +382,9 @@ func _refresh() -> void:
 
 		# 轴标题
 		var title := Label.new()
-		title.text = _AXIS_TITLES.get(axis, axis)
+		title.text = _axis_title(axis)
 		title.add_theme_font_size_override("font_size", 13)
-		title.add_theme_color_override("font_color", _AXIS_COLORS.get(axis, Color.WHITE))
+		title.add_theme_color_override("font_color", _axis_color(axis))
 		_skill_list.add_child(title)
 
 		# 常规技能
@@ -409,7 +405,7 @@ func _refresh() -> void:
 	_add_option.add_item("(已合并至上方列表)")
 	_add_option.disabled = true
 
-func _build_skill_row(u: Dictionary, stacks: Dictionary, pid: StringName, p: AircraftParams, axis: String, is_evolved: bool) -> void:
+func _build_skill_row(u: Dictionary, stacks: Dictionary, pid: StringName, p: AircraftParams, axis: StringName, is_evolved: bool) -> void:
 	var uid: String = u["id"]
 	var count: int = stacks.get(uid, 0)
 	var available: bool = SurvivorData.is_upgrade_available_for(u, pid, p, stacks)
@@ -425,7 +421,7 @@ func _build_skill_row(u: Dictionary, stacks: Dictionary, pid: StringName, p: Air
 		tag.add_theme_color_override("font_color", Color(1.0, 0.8, 0.2))
 	else:
 		tag.text = "  •"
-		tag.add_theme_color_override("font_color", _AXIS_COLORS.get(axis, Color.WHITE))
+		tag.add_theme_color_override("font_color", _axis_color(axis))
 	tag.add_theme_font_size_override("font_size", 11)
 	row.add_child(tag)
 
@@ -505,6 +501,7 @@ func _on_add_skill_by_id(uid: String) -> void:
 			game_scene._distribute_upgrade(u)
 			game_scene.upgrade_stacks[uid] = game_scene.upgrade_stacks.get(uid, 0) + 1
 			game_scene._grant_milestone_plus(u)
+			survivor_player.add_axis_point(SurvivorData.axis_of_upgrade(u), game_scene._player_profile)
 			break
 	game_scene._refresh_squad_effective_stacks()
 	_refresh()
@@ -523,6 +520,7 @@ func _on_add_skill() -> void:
 			game_scene._distribute_upgrade(u)
 			game_scene.upgrade_stacks[uid] = game_scene.upgrade_stacks.get(uid, 0) + 1
 			game_scene._grant_milestone_plus(u)
+			survivor_player.add_axis_point(SurvivorData.axis_of_upgrade(u), game_scene._player_profile)
 			break
 	game_scene._refresh_squad_effective_stacks()
 	_refresh()
@@ -605,6 +603,13 @@ func _refresh_live_state() -> void:
 		if int(v) > 0:
 			skill_count += 1
 	lines.append("[color=#888]已选技能数: %d[/color]" % skill_count)
+	if survivor_player:
+		lines.append("三轴: [color=#f29e2e]斗士 %d[/color]  [color=#61d994]骑士 %d[/color]  [color=#ad73f2]策士 %d[/color]  (合计 %d/%d)" % [
+			survivor_player.get_axis_points(SurvivorData.AXIS_GLADIATOR),
+			survivor_player.get_axis_points(SurvivorData.AXIS_KNIGHT),
+			survivor_player.get_axis_points(SurvivorData.AXIS_SCHEMER),
+			survivor_player.total_axis_points(), SurvivorData.AXIS_POINT_CAP,
+		])
 
 	# ── pity / steering（穿透找 survivor_mode）──
 	var sm := game_scene

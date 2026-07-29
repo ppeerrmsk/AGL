@@ -217,6 +217,13 @@ func _try_start_charging(ac, s: Dictionary) -> void:
 	var tgt = ac.combat_target
 	if tgt == null or not is_instance_valid(tgt) or tgt.is_destroyed:
 		return
+	# 电磁炮也必须消费全队超杀账本：否则多个僚机会同时对同一舰船/Mother Goose 挂点充能，
+	# 导弹端虽会让路，电磁炮端自己却继续叠加必中伤害。统一按目标代理当前 hp 截断。
+	var committed: float = team_charging_damage(tgt, ac.team, ac)
+	if ac.missile_manager != null and is_instance_valid(ac.missile_manager):
+		committed += ac.missile_manager.team_inbound_damage(tgt, ac.team, null)
+	if committed >= tgt.hp:
+		return
 	# 射程检查
 	var dist: float = ac.global_position.distance_to(tgt.global_position)
 	var range_px: float = _effective_max_range_m(ac) * CombatUnit.PIXELS_PER_METER

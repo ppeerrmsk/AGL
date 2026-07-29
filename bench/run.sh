@@ -11,7 +11,16 @@
 
 set -e
 
-GODOT="${GODOT:-/c/Users/noelu/Downloads/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64/Godot_v4.6.2-stable_mono_win64_console.exe}"
+GODOT="${GODOT:-/d/Program Files (x86)/Steam/steamapps/common/Godot Engine/godot.windows.opt.tools.64.exe}"
+if [ ! -x "$GODOT" ]; then
+  echo "[bench] ERROR: GODOT is not executable: $GODOT" >&2
+  exit 2
+fi
+GODOT_VERSION=$("$GODOT" --version)
+case "$GODOT_VERSION" in
+  4.7*) ;;
+  *) echo "[bench] ERROR: project.godot requires Godot 4.7; found $GODOT_VERSION" >&2; exit 2 ;;
+esac
 SCENARIO="${1:-stress_40}"
 DURATION="${2:-30}"
 MODE="${3:-headless}"

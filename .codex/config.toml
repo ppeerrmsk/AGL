@@ -1,7 +1,4 @@
-[mcp_servers.godot]
-command = "node"
-args = ['C:\Users\noelu\tools\godot-mcp\build\index.js']
-
-[mcp_servers.godot.env]
-GODOT_PATH = 'C:\Users\noelu\Downloads\Godot_v4.6.2-stable_mono_win64\Godot_v4.6.2-stable_mono_win64\Godot_v4.6.2-stable_mono_win64.exe'
-DEBUG = "false"
+# 不在 Codex 启动时加载 godot-mcp。
+# 该 MCP 会为路径校验和每次操作反复启动 GODOT_PATH；此前它指向 GUI 版
+# Godot 4.6.2 Mono，而本项目 config/features 要求 4.7，导致原生进程访问冲突弹窗。
+# 需要运行项目或 benchmark 时，显式调用与项目版本匹配的 console/headless 可执行文件。

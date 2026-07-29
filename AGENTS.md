@@ -8,7 +8,7 @@
 
 ## Project Overview
 
-**AGL** 是俯视 2D 战斗机模拟沙盒，用 **Godot 4.6** + **GDScript** + **GL Compatibility** 渲染器。玩家以 RTS 方式点击操控战斗机（点击地图位置 → 飞机自主转弯飞向目标），飞机遵循较真实的航空物理。极简线框美术。2D 场景 + 虚拟高度（高度仅作为数值存在，通过图标缩放可视化）。
+**AGL** 是俯视 2D 战斗机模拟沙盒，用 **Godot 4.7** + **GDScript** + **GL Compatibility** 渲染器。玩家以 RTS 方式点击操控战斗机（点击地图位置 → 飞机自主转弯飞向目标），飞机遵循较真实的航空物理。极简线框美术。2D 场景 + 虚拟高度（高度仅作为数值存在，通过图标缩放可视化）。
 
 两个模式：
 - **沙盒**（`scenes/main.tscn`，**已废弃**，只打生存模式包）— 自由飞行/战斗测试，F1-F5 快捷键
@@ -16,7 +16,9 @@
 
 ## Running the Game
 
-- 在 Godot 4.6+ 打开 `project.godot`，F5 运行，入口场景 `scenes/main_menu.tscn`
+- 在 Godot 4.7+ 打开 `project.godot`，F5 运行，入口场景 `scenes/main_menu.tscn`
+- **禁止用 Godot 4.6.2 跑本项目**：`project.godot` 的 feature tag 是 4.7；旧版 Mono 在无头 bench 中已发生原生访问冲突并卡住崩溃弹窗。CLI/bench 只用 4.7+ 的 `*_console.exe --headless`，命令必须设有限超时；不得把 GUI exe 配进 Codex/MCP 自动启动项
+- 本机已验证的 4.7.1 Steam 可执行文件：`D:\Program Files (x86)\Steam\steamapps\common\Godot Engine\godot.windows.opt.tools.64.exe`。Steam 包没有单独的 `*_console.exe`，CLI 时必须加 `--headless`；优先通过 `bench/run.cmd` / `bench/run.sh` 调用，禁止复用 `.claude/settings*.json` 或历史 changelog 中的 4.6.2 命令
 - F9 导出战斗日志。**编辑器模式**写到项目内 `logs/combat_log_*.txt`（`/logs/` 被 .gitignore 排除）；**导出包**写到 `user://combat_log_*.txt`。路径切换逻辑在 `event_logger.gd:dump_to_file`。配合 `.Codex/hooks/open-latest-log.sh`（UserPromptSubmit hook）在下次消息时自动打开最新 log
 - 生存模式 F11 切换友方僚机编队调试覆盖层（橙线 → 阵型槽位 / 蓝射线 → 当前 hdg / 黄射线 → 目标 hdg / 文本: branch + slot_d + bank delta）；F12 抓一帧编队状态快照到控制台 + EventLogger
 - 无正式测试框架，通过运行时观察 + EventLogger 日志调试

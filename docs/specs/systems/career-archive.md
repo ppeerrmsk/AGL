@@ -1,7 +1,7 @@
 ---
 id: career-archive
 kind: system
-status: in-progress
+status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
 spec_version: 2
 owner: 用户（设计）+ Claude（起草）

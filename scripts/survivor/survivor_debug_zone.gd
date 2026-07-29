@@ -181,6 +181,15 @@ func _build_ui() -> void:
 	fast_btn.pressed.connect(_on_fast_forward)
 	global_row.add_child(fast_btn)
 
+	# 机场 Debug：复用正式停靠结算链，立即解放/访问机场并打开进化树。
+	var visit_airfield_btn := Button.new()
+	visit_airfield_btn.text = "✈ 立即访问机场 / 进化树"
+	visit_airfield_btn.add_theme_font_size_override("font_size", 12)
+	visit_airfield_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_apply_btn_style(visit_airfield_btn, Color(0.25, 0.75, 0.65))
+	visit_airfield_btn.pressed.connect(_on_visit_airfield)
+	_content.add_child(visit_airfield_btn)
+
 	_content.add_child(_make_sep())
 
 	# 战区列表容器
@@ -382,6 +391,17 @@ func _on_fast_forward() -> void:
 		return
 	game_scene.game_time += 60.0
 	EventLogger.log_event("ZONE", "DebugFastForward", "game_time=%.0f" % game_scene.game_time)
+	_rebuild_zones_list()
+
+## 立即访问机场：由 survivor_mode 选择已开放机场或解放一座机场，
+## 最终统一走正式 _on_dock_docked 停靠结算（回血 / 机场消费 / 进化树）。
+func _on_visit_airfield() -> void:
+	if game_scene == null or not game_scene.has_method("debug_visit_airfield"):
+		push_error("SurvivorDebugZone: survivor_mode 缺 debug_visit_airfield()")
+		return
+	# F6 layer=31 高于进化面板；先收起，避免 Debug 面板盖住结算 UI。
+	visible = false
+	game_scene.debug_visit_airfield()
 	_rebuild_zones_list()
 
 ## BOSS 阶段状态行：剩余时间 / 是否已解锁 / 实际出场的 BOSS

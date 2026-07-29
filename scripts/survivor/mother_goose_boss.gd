@@ -498,6 +498,9 @@ func _make_mqx(base_params: AircraftParams, spawn_pos: Vector2, callsign: String
 	uav.infinite_ammo = true   ## 与其它 MQ 系列一致：导弹槽 4 发循环用，绕 missile_remaining 衰减
 	uav.set_meta("enemy_type", "uav")
 	uav.set_meta("category", "boss_mother_goose_mqx")
+	## 同蜂群一视同仁：BOSS 自带无人机击杀不计价（无 XP / 不入档 / 不给永久 +max_hp）——
+	## 奖励在 BOSS 本体上，随行 UAV 不另开一份计价（MQ-X 本身是 50% HP 一次性弹射，不补充）
+	uav.set_meta("no_kill_reward", true)
 	uav.set_meta("skip_far_cleanup", true)
 	uav.set_meta("silhouette", "drone")
 	uav.set_meta(&"fear_immune", true)

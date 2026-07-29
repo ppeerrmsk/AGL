@@ -825,6 +825,9 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 		team_inbound += RailgunEquipment.team_charging_damage(ac.combat_target, ac.team, ac)
 		if team_inbound >= ac.combat_target.hp:
 			ac._log_msl_block("TEAM_OVERKILL", "team inbound dmg=%.0f >= tgt hp=%.0f" % [team_inbound, ac.combat_target.hp])
+			var ai_overkill: AIController = ac._get_ai_controller()
+			if ai_overkill:
+				ai_overkill.request_overkill_retarget()
 			return
 
 	# 机炮正在对 combat_target 开火时不发射导弹（避免机炮击毁后还补一发）

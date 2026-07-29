@@ -1,7 +1,7 @@
 ---
 id: ace-lancer-mig31
 kind: event
-status: in-progress         # 728 用户"开始执行"→ 核心落地（bench 19 断言绿），差 playtest
+status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
 spec_version: 3
 owner: noelu（设计输入 2026-07-26）/ Claude（细化）

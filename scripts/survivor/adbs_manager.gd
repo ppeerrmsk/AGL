@@ -68,11 +68,14 @@ func _physics_process(delta: float) -> void:
 	_track_city_heli_kills()
 	_cleanup_units()
 
-	# BOSS 阶段（玩家在战术地图选了 BOSS）停止所有新随机奖励事件 ——
-	# 已经在场上的奖励事件让它跑完，不暴力 free，符合"维持现状"原则。
-	# 同时兼容旧的 _boss_spawned 兜底（极少数路径绕过 select_zone 也覆盖到）
-	var boss_phase: bool = mode != null and "_zone_data" in mode \
-			and mode._zone_data != null and mode._zone_data.is_boss_phase()
+	# BOSS 阶段停止所有新随机奖励事件（城区直升机等）——
+	# 已经在场上的奖励事件让它跑完，不暴力 free，符合"维持现状"原则
+	# （残余单位由 spawner 的 BOSS 阶段撤离扫描接管）。
+	# 闸门走 survivor_mode.is_boss_phase()（BOSS 解锁即为真）：旧实现只看
+	# ZoneData.is_boss_phase()（= 玩家把 BOSS 圈设为 selected），导致 BOSS 接近的整个
+	# PRE_STAGE 段还在刷直升机事件。留 _boss_spawned 兜底给没有该方法的旧调用方。
+	var boss_phase: bool = mode != null and mode.has_method("is_boss_phase") \
+			and bool(mode.is_boss_phase())
 	var boss_spawned: bool = mode != null and "_boss_spawned" in mode \
 			and bool(mode._boss_spawned)
 	if boss_phase or boss_spawned:

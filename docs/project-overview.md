@@ -5,7 +5,7 @@
 
 ## 是什么
 
-俯视 2D 空战游戏，Godot 4.6 + GDScript + GL Compatibility 渲染器。极简线框美术。
+俯视 2D 空战游戏，Godot 4.7 + GDScript + GL Compatibility 渲染器。极简线框美术。
 2D 场景 + 虚拟高度（`altitude` 只是数值，通过图标缩放可视化）。
 
 **操控语法是 RTS 式的**：玩家点击地图位置 → 飞机按较真实的航空物理自主转弯飞过去；

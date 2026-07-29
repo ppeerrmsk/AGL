@@ -1,7 +1,7 @@
 ---
 id: wraith-squadron
 kind: boss
-status: in-progress
+status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
 spec_version: 3
 owner: 用户（设计） / Claude（落地）

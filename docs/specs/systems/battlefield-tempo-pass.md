@@ -1,7 +1,7 @@
 ---
 id: battlefield-tempo-pass
 kind: balance
-status: in-progress         # 代码落地 + test_map_expansion 全绿；差 §5 playtest 项
+status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
 spec_version: 1
 owner: noelu（设计输入）/ Claude（细化 + 落地）

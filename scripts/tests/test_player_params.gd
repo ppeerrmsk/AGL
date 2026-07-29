@@ -56,8 +56,9 @@ func run() -> void:
 		return
 
 	# 锚点抽查（矩阵 §2 直写值；雷达列按 radar-range-normalization §2.3）
-	_check("F-14 锚点（110HP/2000/雷达2600/锥32/锁2.8/弹4）",
-		_row_eq(p["f14"], 110, 2000, 2600, 32, 2.8, 4), _row_str(p["f14"]))
+	# 弹 2：F-14 是 T1 起手机，弹数与其余三张起手卡（F-15/A-6E/幻影 III）对齐（2026-07-29 用户定）
+	_check("F-14 锚点（110HP/2000/雷达2600/锥32/锁2.8/弹2）",
+		_row_eq(p["f14"], 110, 2000, 2600, 32, 2.8, 2), _row_str(p["f14"]))
 	_check("X-13 航电王（雷达5000/锥46/锁1.4）",
 		is_equal_approx(p["x13"].radar_range, 5000.0) and is_equal_approx(p["x13"].radar_half_angle, 46.0)
 		and is_equal_approx(p["x13"].lock_time, 1.4), _row_str(p["x13"]))
@@ -103,9 +104,13 @@ func run() -> void:
 	_check("AX-00 不夺肉冠（HP < X-44）", p["ax00"].max_hp < p["x44"].max_hp, "")
 
 	# 弹数（内联 missile 单一权威源）+ 攻击线火箭
-	_check("弹数抽查（F-14=4 / MiG-41=6 / F-15=2）",
-		p["f14"].missile.max_count == 4 and p["mig41"].missile.max_count == 6
+	_check("弹数抽查（F-14=2 / MiG-41=6 / F-15=2）",
+		p["f14"].missile.max_count == 2 and p["mig41"].missile.max_count == 6
 		and p["f15"].missile.max_count == 2, "")
+	# T1 四张起手卡弹数一致（F-14 曾是 4，卡面写"导弹缩水"却比 F-16 多，2026-07-29 拉平为 2）
+	_check("T1 起手四卡弹数齐平 = 2",
+		p["f14"].missile.max_count == 2 and p["f15"].missile.max_count == 2
+		and p["a6e"].missile.max_count == 2 and p["mirage3"].missile.max_count == 2, "")
 	# 特殊武器不自带（用户 2026-07-23 令："所有飞机都不要自带特殊武器，要从战区获取"）
 	# 底线武器（机炮/导弹/热诱弹）仍随机体；火箭/电磁炮/激光/僚机/漂浮雷/QMAAM 一律战区+签名技获取
 	var carries_special: String = ""

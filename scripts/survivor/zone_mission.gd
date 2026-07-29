@@ -22,9 +22,6 @@ const AA_COUNT := 3
 ## 机场解放战区地面防空编成（spec airfield-liberation-zones §2.2）：固定 1 SAM + 2 AA
 const AIRFIELD_SAM_COUNT := 1
 const AIRFIELD_AA_COUNT := 2
-const BOSS_DESPAWN_INTERVAL := 1.0     ## BOSS 阶段视线外清理节拍（秒）
-
-var _boss_despawn_timer: float = 0.0
 const SCATTER_RADIUS_SCALE := 0.85      ## 散布半径 = zone.radius × 此值
 const MIN_UNIT_SEPARATION_PX := 650.0   ## 地面单位最小间距（≈1.3km）
 const MIN_ROAD_DISTANCE_PX := 180.0     ## 距道路/高速的最小距离（≈360m）
@@ -54,7 +51,8 @@ var _triggered_zones: Dictionary = {}
 ## 已发完成信号的战区（防止重复）
 var _completed_zones: Dictionary = {}
 ## 待撤离单位：等玩家视线外才 queue_free（铁则：敌人不在玩家画面里消失）
-## 由 _despawn_garrison / refresh_active_zones_for_level / _despawn_zone_units_offscreen 共用
+## 由 _despawn_garrison / refresh_active_zones_for_level 等共用
+## （BOSS 阶段清场已改由 survivor_spawner._update_boss_phase_purge 统一负责，不再走本队列）
 var _pending_despawn: Array = []
 
 func setup(p_mode: Node, zones: ZoneData, player: Aircraft,
@@ -82,14 +80,11 @@ func _physics_process(delta: float) -> void:
 		_flush_pending_despawn()
 
 	# BOSS 阶段：常规战区 A/B/C/D 任务全部停止（不再刷怪、不再触发、不再判定完成）
-	# 已经刷出来的 TGT/驻守敌机在玩家视线外悄悄 free（不做飞出动画）
-	# 节流到 1Hz —— 单位都飞着，玩家几秒后才注意到根本看不出来
-	# BOSS 由 ace_squad/F-47 系统单独管理，不走本类
-	if _zones.is_boss_phase():
-		_boss_despawn_timer -= delta
-		if _boss_despawn_timer <= 0.0:
-			_boss_despawn_timer = BOSS_DESPAWN_INTERVAL
-			_despawn_zone_units_offscreen()
+	# 闸门走 survivor_mode.is_boss_phase()（BOSS 解锁即为真，不必等玩家选中 BOSS 圈）。
+	# 残余单位的清场【单一归属】= survivor_spawner._update_boss_phase_purge：
+	# 敌机物理撤离出图、舰船原样保留。本类不再自己 despawn 战区单位
+	# （旧行为会把战区舰船也一起偷偷 free，与"战区里的船保留"冲突）。
+	if _is_boss_phase():
 		return
 
 	# 1. 为所有当前 AVAILABLE/SELECTED 的战区确保已刷怪
@@ -597,6 +592,27 @@ const _NAVAL_FLEET_DDG_PARAMS_PATH := "res://resources/naval/destroyer_ddg.tres"
 const _NAVAL_FLEET_FFG_PARAMS_PATH := "res://resources/naval/frigate_ffg.tres"
 const _NAVAL_FLEET_CG_PARAMS_PATH := "res://resources/naval/cruiser_cg.tres"
 
+# ── 舰队几何（2026-07-28 重做：直线往返 → 恒定盘旋 + 水域校验）──
+## 旧写法：旗舰沿 `center.x ± radius×0.7~0.85` 走东西直线、端点 180° U-turn，僚舰偏移最大 2600 px，
+## 且**一次水域校验都没有**。战区 E（浦贺水道，radius 2500）实测舰队扫过半径 3331/3897/4725 px，
+## 采样点 9.7% / 15.7% / 16.0% 落在陆地上 —— 玩家看到的"船开到陆地上"就是这个。
+## 该水域能容下的最大全水圆只有 ~2750 px 半径，所以**编队必须缩到装得进去**，挪位置解决不了。
+## 新写法：旗舰绕摆位圆心恒定盘旋（不掉头，见 NavalUnit.patrol_center），僚舰刚体跟随，
+## 摆位圆心经 NavalPlacement 按"6 个转位 × 全部船位"打分挑水面最干净的一处。
+const NAVAL_RING_RADIUS: float = 900.0        ## 旗舰盘旋半径（各档统一）
+## 盘旋半径降级序列：水域装不下就缩圈，最后 0 = 原地驻泊（宁可不动，也不许开上岸）
+const NAVAL_RING_CANDIDATES: Array = [NAVAL_RING_RADIUS, 450.0, 0.0]
+const NAVAL_LEADER_HEADING_DEG: float = 90.0  ## 旗舰初始朝向（正东）；驻泊降级时决定整队摆放朝向
+## 摆位候选圆心偏移（由近及远，八方向）—— 原位优先，不行才往外挪
+const NAVAL_PLACEMENT_NUDGE_RADII: Array = [900.0, 1800.0]
+## 各难度的僚舰偏移（旗舰本地系：+X 船头 / +Y 右舷）
+## 占地半径 = NAVAL_RING_RADIUS + max|offset|，必须 ≤ 战区可用水域半径
+const NAVAL_ESCORT_OFFSETS: Dictionary = {
+	1: [Vector2(-675, -975), Vector2(-675, 975)],                        ## 占地 900+1186 = 2086
+	2: [Vector2(-420, -1260), Vector2(-420, 1260)],                      ## 占地 900+1328 = 2228
+	3: [Vector2(1364, 0), Vector2(-620, -1488), Vector2(-620, 1488)],    ## 占地 900+1612 = 2512
+}
+
 func _spawn_naval_fleet(zone_id: StringName, zone: Dictionary) -> void:
 	var center: Vector2 = zone["center"]
 	var radius: float = float(zone["radius"])
@@ -607,104 +623,79 @@ func _spawn_naval_fleet(zone_id: StringName, zone: Dictionary) -> void:
 		push_error("ZoneMission _spawn_naval_fleet: missing FFG params")
 		return
 
-	match difficulty:
-		3: _spawn_naval_3star(zone_id, center, radius, ffg_params)
-		2: _spawn_naval_2star(zone_id, center, radius, ffg_params)
-		_: _spawn_naval_1star(zone_id, center, radius, ffg_params)
+	_spawn_naval_formation(zone_id, center, difficulty, ffg_params)
 
 	EventLogger.log_event("ZONE", "PreSpawnNaval",
 		"id=%s star=%d" % [zone_id, difficulty])
 
-## 编队设计：
-##   旗舰沿 waypoints 巡航，其他船 formation_leader = 旗舰，保持相对偏移
-##   偏移约定：+X = 船头方向，+Y = 右舷
-##   → 典型 CSG 护航阵型：前哨在旗舰前方，两翼在左右，后卫在后
-
-## 1★ 海上任务：3 FFG —— 旗舰在前，2 僚舰在后两翼
-func _spawn_naval_1star(zone_id: StringName, center: Vector2, radius: float, ffg_params: Resource) -> void:
-	var half_span: float = radius * 0.7
-	var leader_spawn := Vector2(center.x, center.y)
-	var leader_wps := PackedVector2Array([
-		Vector2(center.x + half_span, center.y),
-		Vector2(center.x - half_span, center.y),
-	])
-	# 旗舰 FFG（唯一 TGT）
-	var leader: NavalUnit = _make_zone_ship(FrigateShip.new(), ffg_params, leader_spawn, 90.0, leader_wps, zone_id)
-	leader.is_mission_target = true
-	_spawned_zones[zone_id] = [leader]
-
-	# 2 僚舰左右后 quarter（旗舰本地系：-X=船尾，±Y=左右舷）
-	var escort_offsets: Array[Vector2] = [
-		Vector2(-900, -1300),   # 后左
-		Vector2(-900, 1300),    # 后右
-	]
-	var escort: Array = []
-	for off in escort_offsets:
-		var initial_pos: Vector2 = _compute_formation_world_pos(leader, off)
-		var ffg: NavalUnit = _make_zone_ship(FrigateShip.new(), ffg_params, initial_pos, 90.0, PackedVector2Array(), zone_id)
-		ffg.formation_leader = leader
-		ffg.formation_offset = off
-		escort.append(ffg)
-	_garrison_zones[zone_id] = escort
-
-## 2★ 海上任务：1 DDG 旗舰 + 2 FFG —— 一字护航阵型（左右两舷）
-func _spawn_naval_2star(zone_id: StringName, center: Vector2, radius: float, ffg_params: Resource) -> void:
-	var ddg_params: Resource = load(_NAVAL_FLEET_DDG_PARAMS_PATH)
-	if ddg_params == null:
-		push_error("missing DDG params"); return
-
-	# 直线往返：让整支舰队朝船头方向直线航行，U-turn 时一起转弯
-	var half_span: float = radius * 0.8
-	var linear_wps := PackedVector2Array([
-		Vector2(center.x + half_span, center.y),
-		Vector2(center.x - half_span, center.y),
-	])
-	var leader: NavalUnit = _make_zone_ship(DestroyerShip.new(), ddg_params, center, 90.0, linear_wps, zone_id)
-	leader.is_mission_target = true
-	_spawned_zones[zone_id] = [leader]
-
-	# 2 FFG 在旗舰的左右两舷（classic combat V，拉开足够周旋空间）
-	var escort_offsets: Array[Vector2] = [
-		Vector2(-600, -1800),   # 左后
-		Vector2(-600, 1800),    # 右后
-	]
-	var escort: Array = []
-	for off in escort_offsets:
-		var initial_pos: Vector2 = _compute_formation_world_pos(leader, off)
-		var ffg: NavalUnit = _make_zone_ship(FrigateShip.new(), ffg_params, initial_pos, 90.0, PackedVector2Array(), zone_id)
-		ffg.formation_leader = leader
-		ffg.formation_offset = off
-		escort.append(ffg)
-	_garrison_zones[zone_id] = escort
-
-## 3★ 海上任务：1 CG 旗舰 + 1 DDG 前哨 + 2 FFG 两翼后卫（钻石阵）
-func _spawn_naval_3star(zone_id: StringName, center: Vector2, radius: float, ffg_params: Resource) -> void:
+## 编队设计（2026-07-28 重做）：
+##   旗舰绕摆位圆心**恒定盘旋**（NavalUnit.patrol_center/patrol_radius，全程不掉头），
+##   僚舰 formation_leader = 旗舰、刚体跟随固定偏移（+X = 船头方向，+Y = 右舷）
+##   摆位圆心经 NavalPlacement 打分（6 个转位 × 全部船位）挑水面最干净的一处
+##
+## 为什么不再走"直线往返 + U-turn"：僚舰是刚体跟随，掉头一次 = 整队原地旋转
+## （见 changelog 2026-07-28 naval-formation-spin-fix）；而直线往返的航程 + 编队偏移
+## 会把舰队甩出战区、开到陆地上（战区 E 实测 16% 采样点在岸上）。
+##
+## 编成：1★ = 3 FFG / 2★ = DDG 旗舰 + 2 FFG / 3★ = CG 旗舰 + DDG 前哨 + 2 FFG 两翼
+## 旗舰击毁 = 任务完成；护卫舰不是 TGT，攻克后自动撤离
+func _spawn_naval_formation(zone_id: StringName, center: Vector2, difficulty: int,
+		ffg_params: Resource) -> void:
 	var ddg_params: Resource = load(_NAVAL_FLEET_DDG_PARAMS_PATH)
 	var cg_params: Resource = load(_NAVAL_FLEET_CG_PARAMS_PATH)
 	if ddg_params == null or cg_params == null:
-		push_error("missing DDG / CG params"); return
+		push_error("ZoneMission naval: missing DDG / CG params")
+		return
 
-	# 旗舰 CG 走直线往返 —— CSG 作为整体巨型刚体缓慢航行
-	var half_span: float = radius * 0.85
-	var leader_wps := PackedVector2Array([
-		Vector2(center.x + half_span, center.y),
-		Vector2(center.x - half_span, center.y),
-	])
-	var leader: NavalUnit = _make_zone_ship(CruiserShip.new(), cg_params, center, 90.0, leader_wps, zone_id)
+	var leader_cls = FrigateShip
+	var leader_params: Resource = ffg_params
+	var escort_cls: Array = [FrigateShip, FrigateShip]
+	var escort_params: Array = [ffg_params, ffg_params]
+	match difficulty:
+		2:
+			leader_cls = DestroyerShip
+			leader_params = ddg_params
+		3:
+			leader_cls = CruiserShip
+			leader_params = cg_params
+			escort_cls = [DestroyerShip, FrigateShip, FrigateShip]
+			escort_params = [ddg_params, ffg_params, ffg_params]
+
+	var offsets: Array = NAVAL_ESCORT_OFFSETS.get(difficulty, NAVAL_ESCORT_OFFSETS[1])
+
+	# 摆位：挑落地采样点最少的盘旋圆心（原位优先，不行才往外挪；水域太窄就降级缩圈/驻泊）
+	var placement: Dictionary = NavalPlacement.pick_placement(
+			center, NavalPlacement.ring_nudges(NAVAL_PLACEMENT_NUDGE_RADII),
+			NAVAL_RING_CANDIDATES, offsets, deg_to_rad(NAVAL_LEADER_HEADING_DEG))
+	var ring_center: Vector2 = placement["center"]
+	var ring: float = float(placement["ring"])
+	var land_hits: int = int(placement["land"])
+	EventLogger.log_event("ZONE", "NavalPlacement",
+			"id=%s star=%d center=(%d,%d) ring=%d reach=%d land=%d" % [zone_id, difficulty,
+			roundi(ring_center.x), roundi(ring_center.y), roundi(ring),
+			roundi(NavalPlacement.fleet_reach(ring, offsets)), land_hits])
+	if land_hits > 0:
+		push_warning("ZoneMission naval %s: 舰队仍有 %d 个采样点在陆地（圆心 %s）" % [
+				zone_id, land_hits, str(ring_center)])
+
+	# 旗舰：出生点落在盘旋圆上（圆心在右舷），初始 heading 恰好是切线 → 无入圈瞬态
+	var heading_deg: float = NAVAL_LEADER_HEADING_DEG
+	var leader_spawn: Vector2 = NavalPlacement.leader_pos(
+			ring_center, ring, deg_to_rad(heading_deg))
+	var leader: NavalUnit = _make_zone_ship(leader_cls.new(), leader_params, leader_spawn,
+			heading_deg, PackedVector2Array(), zone_id)
+	# ring = 0（窄水域降级）→ patrol 模式关闭，舰队原地驻泊
+	leader.patrol_center = ring_center if ring > 1.0 else Vector2.INF
+	leader.patrol_radius = ring
 	leader.is_mission_target = true
 	_spawned_zones[zone_id] = [leader]
 
-	# 钻石护航阵：DDG 前哨、2 FFG 左右后翼（拉开间距留周旋空间）
-	var escort_plan: Array = [
-		{"cls": DestroyerShip, "params": ddg_params, "off": Vector2(2200, 0)},       # 前哨
-		{"cls": FrigateShip,   "params": ffg_params, "off": Vector2(-1000, -2400)},  # 左翼
-		{"cls": FrigateShip,   "params": ffg_params, "off": Vector2(-1000, 2400)},   # 右翼
-	]
 	var escort: Array = []
-	for e in escort_plan:
-		var off: Vector2 = e["off"]
-		var initial_pos: Vector2 = _compute_formation_world_pos(leader, off)
-		var ship: NavalUnit = _make_zone_ship(e["cls"].new(), e["params"], initial_pos, 90.0, PackedVector2Array(), zone_id)
+	for i in range(escort_cls.size()):
+		var off: Vector2 = offsets[i]
+		var pos: Vector2 = _compute_formation_world_pos(leader, off)
+		var ship: NavalUnit = _make_zone_ship(escort_cls[i].new(), escort_params[i], pos,
+				heading_deg, PackedVector2Array(), zone_id)
 		ship.formation_leader = leader
 		ship.formation_offset = off
 		escort.append(ship)
@@ -1005,16 +996,12 @@ func _random_pos_in_circle(center: Vector2, radius: float) -> Vector2:
 	var r := sqrt(randf()) * radius
 	return center + Vector2(cos(a), sin(a)) * r
 
-## BOSS 阶段下：把战区已刷的 TGT (_spawned_zones) + 驻守敌机 (_garrison_zones)
-## 转交 _pending_despawn 队列（由 _flush_pending_despawn 每帧检查视线外才 free）。
-## 系统资源让给 BOSS（F-47 王牌中队），不做飞出动画。
-func _despawn_zone_units_offscreen() -> void:
-	for tracker in [_spawned_zones, _garrison_zones]:
-		for zid in tracker.keys():
-			var arr: Array = tracker[zid]
-			for u in arr:
-				_schedule_despawn(u)
-			tracker[zid] = []
+## BOSS 阶段闸门（真源 = survivor_mode.is_boss_phase()：boss_unlocked ∪ selected==BOSS ∪ 已 spawn）。
+## 缺方法的旧调用方（测试挂具）回落到 ZoneData 的旧语义。
+func _is_boss_phase() -> bool:
+	if mode and mode.has_method("is_boss_phase"):
+		return bool(mode.is_boss_phase())
+	return _zones != null and _zones.is_boss_phase()
 
 ## 加入待撤离队列：offscreen 立即 free，onscreen 入队等它飘出屏外
 ## 【铁则】敌人不允许在玩家画面内凭空消失

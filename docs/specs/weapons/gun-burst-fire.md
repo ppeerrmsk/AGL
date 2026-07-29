@@ -1,7 +1,7 @@
 ---
 id: gun-burst-fire
 kind: weapon
-status: in-progress
+status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
 spec_version: 1
 owner: 用户（机制指令）+ Claude（数值细化）

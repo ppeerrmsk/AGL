@@ -1,7 +1,7 @@
 ---
 id: rts-command
 kind: system
-status: approved
+status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
 spec_version: 5
 owner: 设计/用户
@@ -176,3 +176,4 @@ tgt = 半径内最近有效敌方(CombatUnit.all_units, radius)
 | 2026-06-14 | 4 | 修 bug：拴绳误清玩家手动命令的远目标 → 自动交战改抓最近杂兵（来回切 combat target）。新增 `_player_commanded_target` 粘性命令：手动指定目标凌驾自动交战、不被拴绳、丢了重新指回；拴绳改为只对 `_auto_engage_target` 生效 |
 | 2026-06-14 | 5 | 重构 + 铁律：①RTS 逻辑抽出独立模块 `SquadCommandController` + 参数 Resource `RtsCommandParams`（去硬编码），survivor_mode 瘦身为接线；②玩家命令升级为**逐机持久铁律** `Aircraft.commanded_target`，跨 1/2/3/4 切控持久，AIController `_enforce_commanded_target` 保证非操控机也死咬命令、跳过 reevaluate；③自由僚机有限度切目标细则归 [[target-engageability-selection]]，本 spec 不做 |
 | 2026-07-03 | 6 | 右键长按急刹重定义（用户定稿）：仍作用全体 selected（整队一起减速），但物理端加**失速软地板**——减到 stall×1.05 最小可控速度为止、刹不进失速，任何高度档都**无法通过减速自杀坠机**；减速率 = 各机 params.deceleration × 随速度衰减的阻力因子（高速刹得动、低速效率变差、低级机天然刹得肉，"轻按一秒到底"消失）。预测线 step_speed 镜像同步。验收 `--bench=hard_brake` 5 断言（1 秒不到底/软地板/收敛/阻力衰减/机型差异化） |
+| 2026-07-29 | 7 | **小队指挥 UI 与机型解绑（用户报"只有 F-14 时才有用"）**：面板本身没有机型门，真源是"玩家队有没有登记进 `SurvivorSpawner._squads`"——这一步原先只挂在 `_spawn_starting_wingmen` 末尾，而那条路只有 `wingman_count>0` 的机型（41 机里仅 F-14）会走。其余 40 机走 `_ensure_player_squad` 懒建队路径（战区 +1 僚机奖励 / 停靠送僚机 / 双子星克隆），队伍建了却从不入表 → `SurvivorHUD._get_player_squad()` 反查恒为 null（面板永不显示），且 `_cleanup_squads` 不清理它（阵亡僚机永不从 members 剔除）。修法=登记点上移到 `_ensure_player_squad` 这条**公共**装配链（幂等，`_spawn_starting_wingmen` 不再重复 append）。顺带修同源缺口：`sig_ax00`（双子星）在无 `_squad` 时整段静默 early-return，复制 0 架却记 3 架 → 补先 `_ensure_player_squad`。验收 `--bench=squad_cmd_ui` 10 断言（登记 4 / 幂等 2 / HUD 反查 4）；回归门 47 项全绿。 |

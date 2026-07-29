@@ -1,9 +1,9 @@
 ---
 id: airfield-liberation-zones
 kind: system
-status: in-progress
+status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 3
+spec_version: 4
 owner: ppeerrmsk
 depends_on: [zone-reward-docking, survivor-loop]
 reconstruction_complete: false
@@ -212,6 +212,9 @@ on 首次 _spawn_zone_units(airfield_zone):
   `_refresh_info`（§3.4 kind 化 + airfield 文案）、`_TIP_KEYS`（去 stamina）。
 - **`DockPoint`**：无需改（一次性 `_spent` 语义已具备）。
 - **i18n**：`ZONE_MISSION_AIRFIELD`、`ZONE_REWARD_AIRFIELD`（三语）。机场/战区名复用 `DOCK_*_NAME`。
+- **F6 Debug 访问**：按钮“立即访问机场 / 进化树”每次创建一个独立临时 Debug 停靠点，复用
+  正式停靠的回血与进化结算，但不读取、解放、消费地图上的三座机场，也不写生涯停靠记录；
+  临时点用完即释放，因此可无限访问，正式玩法不受影响。
 
 ## 5. 验收标准（Acceptance / Litmus）
 
@@ -278,3 +281,4 @@ on 首次 _spawn_zone_units(airfield_zone):
 | 2026-07-24 | 1 | 初稿（三机场解放战区：敌占→解放→一次性补给点；难度＝热度；Tab 奖励块去"生存"死词；BOSS 纯时间闸澄清） |
 | 2026-07-24 | 2 | 用户订正：友军防空伞在**解放即刻渐进刷出**（每 4s 一个，不 dock 门控）；status → approved |
 | 2026-07-26 | 3 | 新增 §2.5：裁决机场豁免 map-expansion §2.4 几何约束（缩半径方案否决，因击穿 §2.1 半径预算）；弱化下限 缘距 ≥1000 / 离边 ≥0 进 test_map_expansion 强校验 |
+| 2026-07-29 | 4 | F6 战区 Debug 新增“立即访问机场 / 进化树”；用户复核后修订为完全独立、无限次的临时 Debug 机场：不触碰地图三机场、不写生涯停靠记录，只复用回血与进化结算。 |

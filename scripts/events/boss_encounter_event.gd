@@ -2,16 +2,15 @@
 ##
 ## 三段生命周期（用 phase 驱动 + AIDirective 命令各成员）：
 ##
-##   PRE_STAGE：BOSS 区诞生瞬间触发
+##   PRE_STAGE：BOSS 实体生成后立即触发登场演出
 ##     - 选 encounter（CSG / AceSquad）
 ##     - 刷出全员
 ##     - 给所有成员下 directive：
 ##         · CSG 舰船 → HOLD_POSITION（不开火、保持当前点；旗舰沿初始 waypoints 缓行）
-##         · AceSquad → FLY_TO_POINT(anchor, on_arrival=PATROL)（飞到 BOSS 区→巡逻）
-##     - 显示 WARNING 横幅 + "BOSS 区域已出现"持久提示
-##     - 不切 BGM、不亮血条
+##         · AceSquad → PASSIVE（同帧由演出 actor 指令接管）
+##     - 表演导演清舞台、切镜、播无线电、回玩家；演出开场切 BOSS 曲，血条暂隐
 ##
-##   ENGAGED：玩家进入 BOSS 圆 OR 贴近 BOSS 成员（< BOSS_ENGAGE_DISTANCE）
+##   ENGAGED：登场演出收尾后立即进入
 ##     - 释放所有 directive → CSG 开火 / AceSquad 进入角色分配（CLOSE_FIGHTER/RANGED_STRIKER）
 ##     - 切 BOSS 曲、亮 HUD 血条
 ##     - encounter.hud_visible = true
@@ -33,12 +32,10 @@ extends GameEvent
 enum Phase { PRE_STAGE, ENGAGED, VICTORY }
 
 # ── 配置（director 启动时由 mode 注入）──
-const BOSS_ENGAGE_DISTANCE_PX := 2500.0   ## 玩家距 BOSS 成员的交战触发距离（触发器 T2）
 ## 猎手进场（spec boss-hunter-doctrine §2.4）：出生在玩家【机头前方】扇面内的固定距离上。
 ## 取代旧的"离玩家最远的地图角落"—— 60km 图上那能有 40km+，纯粹的空转时间。
 const INBOUND_SPAWN_DISTANCE_PX := 6000.0 ## 12 km；F-47 巡航下约 27s 闭合
 const INBOUND_SPAWN_FAN_DEG := 30.0       ## 机头前方 ±30° 扇面（守"事件刷在沿途"约定）
-const INBOUND_PURSUE_REFRESH_S := 0.5     ## 猎手指令重取玩家位置的间隔
 
 var phase: int = Phase.PRE_STAGE
 var encounter: BossEncounter = null
@@ -50,13 +47,6 @@ var boss_id_override: String = ""    ## Boss Debug 强制指定 boss id，绕过
 ## 空 = 旧纯随机。事件层不直读 CareerArchive autoload，保持可测）
 var boss_history: Dictionary = {}
 var _was_active: bool = false
-## INBOUND 相开始时的全员 HP 总和；掉下去就说明挨打了（接战触发器 T4）。
-## -1 = 尚未快照。用总和而不是逐机记录：一个 float 就够，且对舰队 BOSS 同样成立
-var _inbound_hp_snapshot: float = -1.0
-## 当前猎手指令追的那架玩家机。玩家换人（1-4 切控 / 阵亡换帅）时用它检测并重下指令
-var _pursue_target: Aircraft = null
-## 登场演出进行中：演出自己在下演员指令，此期间猎手软维护必须让位，否则会互相覆盖
-var _cinematic_running: bool = false
 ## 上次推给 encounter 的玩家引用（换人检测，避免每帧重复下推）
 var _last_pushed_player: Aircraft = null
 
@@ -99,7 +89,9 @@ func _start() -> void:
 		end()
 		return
 
-	# 3. 登场演出（spec ui-transition §2.8）。成功则台词与镜头全部由序列编排，
+	# 3. 登场演出（spec ui-transition §2.8/2.13）。所有 BOSS 都走同一表演导演：
+	#    Wraith 有专属飞行分镜；CSG / Mother Goose 为镜头切主体 + 无线电 + 回玩家。
+	#    成功则台词与镜头全部由序列编排，
 	#    跳过下面的横幅/无线电旧路径；失败（无演出定义 / 缺演员）则回落原行为
 	if _try_play_arrival_cinematic():
 		EventLogger.log_event("EVENT", name,
@@ -120,6 +112,8 @@ func _start() -> void:
 
 	EventLogger.log_event("EVENT", name,
 		"PRE_STAGE: %s staged at %s" % [encounter.display_name, anchor])
+	# 序列缺失只允许退化表现，不能把玩法卡死在 PRE_STAGE；无演出时立即接战。
+	_enter_engaged()
 
 ## 尝试播 <boss_id 小写>_arrival 演出。返回 false 表示没有该 BOSS 的演出定义，
 ## 调用方回落到"横幅 + 无线电"的旧登场路径。
@@ -128,10 +122,10 @@ func _start() -> void:
 ##    self.set_directive() 下发。事件结束时 EventDirector 会自动 clear_all_directives()
 ##    兜底 —— 绝不让导演自建第二套所有权（spec §3.3）
 func _try_play_arrival_cinematic() -> bool:
-	if not (encounter is AceSquad):
-		return false
 	var seq_name: String = "%s_arrival" % encounter.boss_id.to_lower()
-	var members: Array = (encounter as AceSquad).get_all_members()
+	# get_display_members 是 BossEncounter 的通用演员协议：Wraith=全中队，
+	# CSG=旗舰航母，Mother Goose=母机主体。简单镜头演出不要求演员一定是 Aircraft。
+	var members: Array = encounter.get_display_members()
 	if members.is_empty():
 		return false
 	var pres = Engine.get_main_loop().root.get_node_or_null("Presentation")
@@ -169,17 +163,15 @@ func _try_play_arrival_cinematic() -> bool:
 		"bgm_track": encounter.bgm_track,
 	})
 	if ok:
-		# 演出期间猎手软维护让位（否则两套指令互相覆盖，编队飞入被打散）
-		_cinematic_running = true
-		# 演出收尾时恢复 PRE_STAGE 契约（见 _on_arrival_cinematic_done）。
-		# release 步骤会 clear_all_directives —— 不接这钩子，事件仍在 PRE_STAGE
-		# 但四机既无 directive 又没 engage()，AceSquad 状态机停摆、AI 乱飞
+		# 演出收尾即接战（见 _on_arrival_cinematic_done）。release 会先还原舞台/镜头/指令，
+		# 然后 callback 统一打开武器、血条和战斗状态。
 		pres.sequence_finished.connect(_on_arrival_cinematic_done.bind(seq_name),
 			CONNECT_ONE_SHOT)
 	return ok
 
-## 登场演出结束：重下 PRE_STAGE 巡逻指令（飞回锚点绕环，隐身状态下自然完成
-## 分镜的"散开 → 重新合并成阵型"），并补上被演出路径跳过的持久提示
+## 登场演出结束：所有 BOSS 统一立即进入 ENGAGED。
+## 镜头与舞台已由 Presentation 在 sequence_finished 之前还原，因此玩家看到的是
+## "镜头回到自己 → 战斗开始"，不会在 BOSS 特写镜头中突然开火。
 func _on_arrival_cinematic_done(finished_name: String, expected_name: String) -> void:
 	if finished_name != expected_name:
 		# 理论上不可能（演出期间世界冻结、无其他序列），防御性重挂
@@ -188,13 +180,9 @@ func _on_arrival_cinematic_done(finished_name: String, expected_name: String) ->
 			pres.sequence_finished.connect(_on_arrival_cinematic_done.bind(expected_name),
 				CONNECT_ONE_SHOT)
 		return
-	_cinematic_running = false
 	if not active or phase != Phase.PRE_STAGE or encounter == null:
 		return
-	_apply_pre_stage_directives_ace()
-	var hint = director.mode.get("_zone_hint") if director and director.mode else null
-	if hint:
-		hint.show_persistent(tr("ZONE_HINT_BOSS_UNLOCKED"))
+	_enter_engaged()
 
 func _update(delta: float) -> void:
 	if encounter == null:
@@ -218,12 +206,9 @@ func _update(delta: float) -> void:
 	# 阶段推进
 	match phase:
 		Phase.PRE_STAGE:
-			# 首帧快照全员 HP（触发器 T4 的基准）。此刻 BOSS 还在 12km 外，不可能已挨打
-			if _inbound_hp_snapshot < 0.0:
-				_inbound_hp_snapshot = _members_hp_total()
-			_maintain_inbound_pursuit()
-			if _check_engagement_trigger():
-				_enter_engaged()
+			# 演出是 PRE_STAGE 的唯一出口；演出收尾回调统一切 ENGAGED。
+			# Wraith 演出期间演员指令自管，简单特写演出则世界硬暂停，无需猎手软维护。
+			pass
 		Phase.ENGAGED:
 			pass
 
@@ -267,69 +252,6 @@ func _on_victory() -> void:
 	if director and director.mode and director.mode.has_method("on_boss_victory"):
 		director.mode.on_boss_victory(self)
 	end()
-
-# ──────────────── 触发判定 ────────────────
-
-## 接战触发器（spec boss-hunter-doctrine §2.2）：四条，任一满足即切 ENGAGED。
-##   T1 玩家进 BOSS 圈  T2 玩家贴近成员  T3 任一成员被锁定  T4 任一成员受伤
-##
-## T3/T4 是猎手化的核心修复 —— 旧版只认几何距离，玩家用射程 10km+ 的中距弹站在
-## 苏醒半径外白嫖，BOSS 连"我被锁定了"都不知道（playtest log 20260722_005100：
-## 651.7s 开火 → 660.1s 才苏醒，中间白挨 8.4 秒）。
-## T3 取"被锁定"而非"被击中"：锁定发生在发射【之前】，给 BOSS 留出反应时间。
-func _check_engagement_trigger() -> bool:
-	var player: Aircraft = _live_player()
-	# ── T3/T4 不依赖玩家引用：BOSS 挨打就是挨打，哪怕玩家机此刻正在切换 ──
-	var hp_now := _members_hp_total()
-	if _inbound_hp_snapshot >= 0.0 and hp_now < _inbound_hp_snapshot - 0.01:
-		EventLogger.log_event("BOSS", encounter.display_name,
-			"engage trigger T4: 成员受伤 (hp %.0f → %.0f)" % [_inbound_hp_snapshot, hp_now])
-		return true
-	for m in encounter.get_display_members():
-		if not is_instance_valid(m) or not (m is CombatUnit):
-			continue
-		var cu := m as CombatUnit
-		if cu.is_destroyed:
-			continue
-		# 船体锁定免疫的成员（舰队 BOSS）玩家锁的是挂点/弱点代理，直读 is_locked 全盲 ——
-		# 用聚合查询把代理锁定态收上来（普通飞机无此方法，回落 is_locked）
-		var locked: bool = cu.is_engaged_by_lock() if cu.has_method("is_engaged_by_lock") else cu.is_locked
-		if locked:
-			EventLogger.log_event("BOSS", encounter.display_name,
-				"engage trigger T3: %s 被锁定" % cu.callsign)
-			return true
-
-	if player == null:
-		return false
-	# ── T1 玩家在 BOSS 圈圆内 ──
-	var bz_radius: float = 2200.0   ## 兜底值与 ZoneData.BOSS_RADIUS 一致
-	if director.mode and "_zone_data" in director.mode and director.mode._zone_data:
-		bz_radius = float(director.mode._zone_data.boss_zone.get("radius", 2200.0))
-	if player.global_position.distance_to(anchor) <= bz_radius:
-		return true
-	# ── T2 玩家贴近任一 BOSS 成员 ──
-	for m in encounter.get_display_members():
-		if not is_instance_valid(m):
-			continue
-		if "is_destroyed" in m and m.is_destroyed:
-			continue
-		if player.global_position.distance_to(m.global_position) <= BOSS_ENGAGE_DISTANCE_PX:
-			return true
-	return false
-
-## 存活成员 HP 总和（触发器 T4 的比较量）
-func _members_hp_total() -> float:
-	var total := 0.0
-	for m in encounter.get_display_members():
-		if not is_instance_valid(m) or not (m is CombatUnit):
-			continue
-		var cu := m as CombatUnit
-		if cu.is_destroyed:
-			continue
-		# 舰队 BOSS：船体伤害走 hull_hp/部件，不碰 CombatUnit.hp —— 读聚合池，否则 T4 全盲
-		var member_hp: float = cu.boss_hp_pool() if cu.has_method("boss_hp_pool") else cu.hp
-		total += member_hp
-	return total
 
 ## 玩家机的【活引用】（spec boss-hunter-doctrine §3.6 / SEAM-019）。
 ## 猎手全程追玩家，绝不能读 spawn 时的快照 —— 玩家按 1-4 切控或长机阵亡换帅后，
@@ -414,41 +336,13 @@ func _apply_pre_stage_directives_csg() -> void:
 	for ship in csg.get_all_ships():
 		set_directive(ship, AIDirective.passive())
 
-## AceSquad 全员：PURSUE_UNIT(玩家)（spec boss-hunter-doctrine §2.1 INBOUND 相）
-##
-## 旧版是 FLY_TO_POINT(anchor) → PATROL_RING —— BOSS 飞到 BOSS 区绕圈等玩家上门。
-## 用户裁定取消"去圈里等"这个概念：BOSS 知道玩家在哪，它朝玩家来。
-## combat_disabled=true：接近相武器仍冷，但这不是"和平期"—— 玩家一锁定它（触发器 T3）
-## 就立刻切 ENGAGED 开火。
+## AceSquad 全员：PASSIVE。演出在 spawn 同帧立即接管演员走位；这里仅提供一层
+## combat_disabled 安全垫，避免镜头/actor step 接管前抢先开火。
 func _apply_pre_stage_directives_ace() -> void:
 	var ace := encounter as AceSquad
-	var player := _live_player()
-	_pursue_target = player
-	if player == null:
-		# 玩家此刻不可用（切控中 / 已阵亡）：下 PASSIVE 占位，玩家一回来软维护就重下猎手指令
-		for member in ace.get_all_members():
-			set_directive(member, AIDirective.passive())
-		return
 	for member in ace.get_all_members():
-		set_directive(member, AIDirective.pursue(player, INBOUND_PURSUE_REFRESH_S))
+		set_directive(member, AIDirective.passive())
 
-## INBOUND 相软维护：玩家机换人（1-4 切控 / 阵亡换帅）时，把猎手指令重新指向新玩家机。
-## 【只在真的换人时重下】—— 每帧重下会清掉 _directive_state 里的目标点快照与节流计时。
-## 登场演出期间让位：演出自己在下演员指令（follow_path 编队飞入），两者会互相覆盖。
-func _maintain_inbound_pursuit() -> void:
-	if _cinematic_running or not (encounter is AceSquad):
-		return
-	var player := _live_player()
-	# 旧目标可能已被释放：先净化再比较，绝不对野指针做属性访问（SEAM-020）
-	if _pursue_target != null and not is_instance_valid(_pursue_target):
-		_pursue_target = null
-	if player == _pursue_target:
-		return
-	EventLogger.log_event("BOSS", encounter.display_name,
-		"猎手目标重定向 → %s" % (player.callsign if player else "(无玩家机)"))
-	_apply_pre_stage_directives_ace()
-
-## Mother Goose：v1 简单处理 — 自身已在 patrol ring 上飞，不下 directive；
-## UAV 蜂群在 spawn() 时已起飞，自然奔向玩家。事件系统不干预。
+## Mother Goose：spawn 后同帧立刻硬暂停演出；母机与蜂群冻结到回镜，随后统一 ENGAGED。
 func _apply_pre_stage_directives_mother_goose() -> void:
 	pass

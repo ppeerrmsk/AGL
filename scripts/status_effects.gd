@@ -91,6 +91,22 @@ static func short_label(id: String) -> String:
 		SLOW:       return "减速"
 	return id
 
+## 词条一句话说明（i18n key）。升级卡脚注用——玩家在选卡时就该知道
+## "这条技能给的超载 / 嗜血到底干什么"，不必等打完一局去猜（0729）。
+## 文案里的数值必须与本文件的常量段同步改。
+const NOTE_I18N_KEY := {
+	OVERLOAD:   "STATUS_NOTE_OVERLOAD",
+	BLOODLUST:  "STATUS_NOTE_BLOODLUST",
+	INVINCIBLE: "STATUS_NOTE_INVINCIBLE",
+	STEALTH:    "STATUS_NOTE_STEALTH",
+	FEAR:       "STATUS_NOTE_FEAR",
+	JAM:        "STATUS_NOTE_JAM",
+	SLOW:       "STATUS_NOTE_SLOW",
+}
+
+static func note_i18n_key(id: String) -> String:
+	return str(NOTE_I18N_KEY.get(id, ""))
+
 # ── 主循环 ───────────────────────────────────────────────
 ## 722 sig_x13·全频段压制（队级账本位，survivor_mode._refresh_squad_effective_stacks 同步）：
 ## 被锁定的敌单位身上的负面状态（FEAR/JAM/SLOW）倒计时流速 ×0.6

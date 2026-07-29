@@ -3,7 +3,7 @@ id: ui-transition
 kind: system
 status: in-progress
 schema_version: 1
-spec_version: 12
+spec_version: 13
 owner: noelu
 depends_on: [command-wheel, survivor-loop, zone-reward-docking, radio-chatter, event-system]
 reconstruction_complete: true
@@ -12,14 +12,14 @@ reconstruction_complete: true
 # 表演导演系统（转场 / 镜头 / 时间 / 演出）
 
 > 界面不再"啪"地跳出来，BOSS 也不再默默飘进战场。升级时世界急刹、卡片错开弹入；
-> Wraith 登场时舞台清空成一片空旷的天空，四架 F-47 列队飞入、台词逐句响起，
-> 然后世界在他们周围重新组装 —— 玩家回到战场时，敌人已经在那儿了。
+> 所有 BOSS 生成后都立即进入同一表演导演：镜头切到 BOSS、播放登场无线电、再回到玩家。
+> Wraith 在这个统一骨架上追加四机列队、交汇与尾迹分镜；航母和 Mother Goose 使用简洁特写。
 
 ## 1. 设计意图（Why）
 
 - **体验目标**：把"界面出入场 / 镜头 / 时间缩放 / 台词编排 / 演员走位"从各面板与各 BOSS 子类的
   私有逻辑里抽出来，收成一个**可编排、可调参、数据驱动**的表演层。
-  两个落地实例：升级面板的**急刹车转场**（最小闭环）与 **Wraith 中队登场演出**（完整闭环）。
+  落地实例：升级面板的**急刹车转场**，以及 Wraith / 航母 / Mother Goose 三套 BOSS 登场演出。
   之后加新演出只写 JSON，不写系统。
 
 - **Litmus 自检**（引 DESIGN_PHILOSOPHY）：
@@ -43,6 +43,21 @@ reconstruction_complete: true
     （见 §3.6），代价必须用时长来还 —— BOSS 演出硬上限 **7 秒**。
 
 ## 2. 数据定义（What —— 全部数值，权威源）
+
+### 2.0 BOSS 登场统一契约（2026-07-29 用户定稿）
+
+所有注册 BOSS 在实体生成后**立即**调用 `<boss_id 小写>_arrival`：
+
+1. 硬暂停战场并清空舞台；
+2. 镜头切到 BOSS 主体并持续跟随；
+3. 播放该 BOSS 的 `SPAWN` 无线电；
+4. 舞台恢复、镜头回玩家；
+5. 演出释放后，`BossEncounterEvent` **立即进入 ENGAGED**。
+
+这是一套共同系统，不要求相同分镜。Wraith 保留专属四机飞行表演；CSG 只拍旗舰航母，使用
+3 句既有台词，总时长 6.7s；Mother Goose 只拍母机主体，使用 2 句既有台词，总时长 5.1s。
+三者都受 `CINE_MAX_SEC=7.0` 限制。若序列意外缺失，表现层退化为横幅+无线电，玩法层仍立即
+ENGAGED，绝不滞留 PRE_STAGE。
 
 ### 2.1 系统级常量
 
@@ -659,10 +674,13 @@ func get_transition_elements() -> Array[Control]
 - [x] 命令轮盘 `Engine.time_scale` 收编进时间栈
 - [ ] **引擎内 playtest** —— 交汇是否真汇成一点 / 尾迹余韵观感 / 隐身接续战斗
 
-### 阶段 3 — 待 playtest 后决定（本批不做）
+### 阶段 3 — 通用 BOSS 特写（代码已落地 2026-07-29，待引擎内 playtest）
 - [ ] 编队特技（分裂 / 交叉 / 拉起）—— 需先给 `FOLLOW_PATH` 加编队相对路径 + 可配到点半径 + 速度时序
 - [ ] `PoltergeistSquad` 反向迁移到序列驱动
-- [ ] 其余 BOSS 登场演出（Mother Goose / Carrier Strike Group）
+- [x] CSG 登场演出：镜头切旗舰 → 3 句无线电 → 回玩家 → ENGAGED
+- [x] Mother Goose 登场演出：镜头切母机 → 2 句无线电 → 回玩家 → ENGAGED
+- [x] `BossEncounterEvent` 演员协议泛化到 `get_display_members()`，支持 NavalUnit 特写
+- [x] 所有 BOSS 的演出收尾统一立即 ENGAGED；缺序列时 fail-open 直接接战
 - [ ] 场景切换淡出淡入（主菜单 ↔ 生存模式）
 - [ ] `tactical_map` / `boundary_ui` / `evolution_ui` 接入转场
 - [ ] 击杀特写 / `shake` 接入受击反馈
@@ -692,6 +710,7 @@ func get_transition_elements() -> Array[Control]
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-07-29 | 13 | **所有 BOSS 统一接入表演导演**（用户定稿）：不是复刻 Wraith 分镜，而是统一系统契约“生成→镜头切 BOSS→登场无线电→回玩家→立即 ENGAGED”。新增 `carrier_strike_group_arrival`（旗舰特写、3 句、6.7s）与 `mother_goose_arrival`（母机特写、2 句、5.1s）；演员协议从 Aircraft 泛化为 CombatUnit，`release()` 仅对 Aircraft 复位隐身字段，支持 NavalUnit 安全作为镜头演员；三个注册 BOSS 的序列命名与收尾契约加入无头断言。 |
 | 2026-07-20 | 1 | 初稿。三块结构（时间栈 / 序列运行器 / 通道）+ 升级急刹转场定稿 |
 | 2026-07-21 | 12 | **演出配乐**（playtest 反馈：debug 跳 BOSS 后没有 BOSS 曲）。查证：音乐切换本来只在 ENGAGED（玩家进圈 2200px / 贴近成员 2500px），PRE_STAGE 刻意不切 —— 非 bug；但登场演出出现后该设计成了气氛断档（6.7s 大阵仗配巡航曲）。新增 **audio 通道**（op `boss_bgm`，ctx 快照 `bgm_layers/bgm_track`，导演不认识 encounter），wraith 序列 0.2s 即切 BOSS 曲；`_enter_engaged` 原切歌点保留（服务无演出 BOSS）但加幂等守卫 —— `crossfade_music` **没有同曲早退**，不守卫会把在播的 BOSS 曲重启。AudioManager 新增 `current_music_id()`（crossfade/layered 均记录）作为幂等依据 |
 | 2026-07-21 | 11 | **playtest 三轮（探针驱动）**。①全程隐形根因终于实锤：演员被离屏 LOD 藏着（`visible=false + lod_level=2`），该扫描在演出 hard_pause 期间不跑 —— alpha 全对但 visible 永远 false。`_set_actor_awake` 唤醒时强制 `visible=true + lod_level=0`，演出后 LOD 自行接管；②收尾瞬移根因：scatter 四向均布必有一架朝玩家甩 → 贴脸误触 ENGAGED → engage 摆位瞬移。散开改**背向玩家 135° 扇面**（fan_deg），兼收'往战区深处包抄'；③隐身触发改**交汇驱动**（用户分镜 v2）：新 op `cloak_on_meet`（radius=100 / fade=0.35 / 窗口 3.4~5.9）—— 每架僚机贴上长机即各自淡出、长机随首次交汇淡出、未触发者窗口末强制兜底，替换定时 `cloak_vanish`；④物理教训：交汇反解 2400 km/h 时转弯半径 ~2500px、僚机切不进 CP —— 编队间距减半 + 交汇窗口 1.8→2.0s 把速度压回巡航量级；**触发半径必须 < 编队最小间距**（160>110 时收拢刚开始就误触发）。探针复核：visible 全程 true、镜头咬住长机 11~50px、无瞬移、PRE_STAGE 不误触、四机淡出集中在 5.5±0.3s |

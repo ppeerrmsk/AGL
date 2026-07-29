@@ -393,7 +393,9 @@ static func on_flare_release(ac: Aircraft) -> void:
 
 
 ## ── JAM 命中钩子：玩家施加的 JAM 至少命中 1 个敌人 → 自身 OVERLOAD ──
-## 各 JAM 来源（flare_aoe_jam / gun_kill_flare_drop / missile_hit_aoe_jam / jam_aura / head_on_jam）
+## 各 JAM 来源（flare_aoe_jam / gun_kill_flare_drop / missile_hit_aoe_jam / torpedo_aoe_jam /
+## jam_aura / head_on_jam / sig_rafale）——这份名单同时是 jam_self_overload 的 requires_skill，
+## 新增 JAM 来源时两处必须一起改，否则要么前置漏放行、要么放行了却不触发
 ## 在 apply 之后调用本函数，传入命中数；命中 0 不触发
 static func on_player_jam_landed(player: Aircraft, hit_count: int) -> void:
 	if hit_count <= 0:

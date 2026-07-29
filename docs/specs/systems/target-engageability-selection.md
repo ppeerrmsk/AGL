@@ -1,9 +1,9 @@
 ---
 id: target-engageability-selection
 kind: system
-status: in-progress
+status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 3
+spec_version: 4
 owner: ppeerrmsk
 depends_on: [squad-ai-escort]
 reconstruction_complete: false
@@ -70,6 +70,8 @@ reconstruction_complete: false
 | 护卫加权 | `+= escort_target_bonus(leader, tgt)` | 既有：护卫僚机咬"咬长机者"，绝对加分（叠在 base[0,1] 同尺度上，需复核量级，见 §6 阶段3） |
 | **守后优先** | `+= REAR_GUARD_PRIORITY * rear_threat_score` | **仅守后语境**（见 §2.4）：长机后半球且准备攻击长机的敌机大幅提权，主导本次选择。`REAR_GUARD_PRIORITY = 100.0`（与 escort 同加性尺度，远大于 base[0,1]） |
 | 目标粘性 | `+= STICKY_BONUS` | 当前目标加 `STICKY_BONUS = 0.10`（替代旧 `focus*5`，适配新 [0,1] 尺度） |
+
+**超杀即时让路**：武器层命中 `TEAM_OVERKILL` 时，仅对 `TS_SCORED` 自动目标催促下一 AI tick 重评（每机 1s 冷却）；本次重评不给已超杀当前目标叠粘性，也不套切换迟滞。玩家显式 `commanded_target` / FOCUS 是铁律，绝不触发自动让路。
 
 #### 2.4 守后优先（守护后方战术专属加权）
 
@@ -243,3 +245,4 @@ func rear_threat_score(leader, cand) -> float:   # 返回 [0,1]
 | 2026-06-14 | 1 | 初稿（draft）：起因诊断 + 可命中性四因子评分 + 超杀让路 + 锁定封顶前置 |
 | 2026-06-14 | 2 | 加 §2.4 守后优先：守后语境下长机后半球且咬/逼近长机的敌机 +REAR_GUARD_PRIORITY 主导选择（已咬=1.0 / 逼近=0.6），与 scan_leader_rear 同源；补场景 D/D-边界 验收 + 阶段3 接入任务 |
 | 2026-06-16 | 3 | **代码落地**（status→in-progress）：四因子评分 + 超杀 + 守后优先全实现并单测 7/7；scan_leader_rear 改按 rear_threat_score 排序；锁定封顶在 lock_time+LOCK_STABLE_BUFFER；实测常量 REAR_GUARD_PRIORITY=100/SWITCH 0.12/0.18；env01 复用 _is_in_missile_envelope；回归套件全绿。差生存 playtest 调参 → done |
+| 2026-07-29 | 4 | combat log 230005 实证：自动僚机虽被 `TEAM_OVERKILL` 禁火，生存粘性仍让必死目标滞留 3~10s。新增仅限 `TS_SCORED` 的 1s 冷却即时重评；超杀当前目标在该次重评中不吃粘性/迟滞。commanded/FOCUS 铁律保持不变。 |

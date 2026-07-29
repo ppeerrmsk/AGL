@@ -119,6 +119,11 @@ func _update(delta: float) -> void:
 	if _awacs == null or not is_instance_valid(_awacs) or _awacs.is_destroyed:
 		end()
 		return
+	# BOSS 解锁 → 提前撤离（同王牌支援中队 / 宿敌 Orion 契约：BOSS 独享舞台，场上不留闲机）
+	if not _egressing and director.mode and director.mode.has_method("is_boss_phase") \
+			and director.mode.is_boss_phase():
+		_begin_egress()
+		return
 	if not _egressing:
 		if not _arrived:
 			_ingress_t += delta

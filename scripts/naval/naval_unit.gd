@@ -70,6 +70,24 @@ var formation_leader: NavalUnit = null
 ## 相对 leader 的编队偏移（leader 本地坐标系：+X = 船头方向, +Y = 右舷）
 var formation_offset: Vector2 = Vector2.ZERO
 
+# ── 编队旗舰的转向角速度上限（治"整支舰队原地打转"）──
+## 僚舰是**刚体跟随**：旗舰转 ω，偏移 r 处的僚舰切向线速度就是 ω·r。
+## CSG 最外圈僚舰 r ≈ 1556 px，旗舰按 params.turn_rate=0.05 做 180° U-turn 时，
+## 外圈护卫舰会以 78 px/s（≈560 km/h、自身航速的 20 倍）绕圈 —— 视觉上就是
+## "航母舰队全体在旋转"。因此旗舰实际转速再按最外圈僚舰的切向速度上限收一次。
+## 8 px/s ≈ 16 m/s ≈ 31 kn（护卫舰全速量级）；CSG r_max=1421 → 整队转位 ≤ 0.32°/s（约 19 分钟一圈）
+const FORMATION_TANGENTIAL_CAP_PXS: float = 8.0
+## 由僚舰每帧自注册（_update_formation_follow），旗舰据此算 r_max
+var _followers: Array = []
+
+# ── 环形巡航（编队旗舰专用）──
+## 直线往返 waypoints 在端点必然出现 180° U-turn，刚体编队因此整体原地旋转。
+## 旗舰改成绕 patrol_center 恒定盘旋后角速度恒为 v / patrol_radius，永不掉头。
+## patrol_center = INF 时该模式关闭，走原来的 waypoints 逻辑。
+var patrol_center: Vector2 = Vector2.INF
+var patrol_radius: float = 0.0
+const PATROL_LOOKAHEAD_RAD: float = 0.25   ## 圆周前视 carrot 角（≈14°），越小越贴圆、越大越平滑
+
 # ── 视觉 ──
 var _font: Font
 var _weak_pulse_time: float = 0.0       ## 弱点脉动计时
@@ -286,8 +304,15 @@ func _update_movement(delta: float) -> void:
 			_update_formation_follow(delta)
 			return
 
+	# ──── 环形巡航模式（旗舰恒定盘旋，无掉头）────
+	# carrot 点取"当前所在圆周角 + 前视角"处的圆上点：稳态角速度恒为 v / patrol_radius，
+	# 偏离圆周时 carrot 自动把船拉回来，不需要额外的到达判定。
+	if patrol_center != Vector2.INF and patrol_radius > 1.0:
+		var to_c := global_position - patrol_center
+		var ang := atan2(to_c.y, to_c.x) + PATROL_LOOKAHEAD_RAD
+		target_position = patrol_center + Vector2(cos(ang), sin(ang)) * patrol_radius
 	# ──── waypoints 模式（独立巡航：旗舰 / 无主船）────
-	if not waypoints.is_empty():
+	elif not waypoints.is_empty():
 		var wp := waypoints[current_waypoint_index]
 		if global_position.distance_to(wp) < arrival_distance:
 			current_waypoint_index = (current_waypoint_index + 1) % waypoints.size()
@@ -305,7 +330,7 @@ func _update_movement(delta: float) -> void:
 
 	var target_heading := atan2(to_target.x, -to_target.y)
 	var diff := angle_difference(heading, target_heading)
-	var turn_rate := params.turn_rate
+	var turn_rate := _effective_turn_rate()
 	heading += clampf(diff, -turn_rate * delta, turn_rate * delta)
 
 	speed = params.max_sea_speed
@@ -318,6 +343,10 @@ func _update_movement(delta: float) -> void:
 ## 这样整支舰队作为一个整体移动，船头始终朝航行方向，转弯时一起转
 func _update_formation_follow(_delta: float) -> void:
 	var leader: NavalUnit = formation_leader
+	# 自注册到 leader：让旗舰知道最外圈僚舰有多远，据此收紧自己的转向角速度
+	# （不在 formation_leader 赋值处注册 —— 5 个调用点直接写字段，这里统一兜住）
+	if not leader._followers.has(self):
+		leader._followers.append(self)
 	var lead_fwd := Vector2(sin(leader.heading), -cos(leader.heading))
 	var lead_stb := Vector2(cos(leader.heading), sin(leader.heading))
 
@@ -331,6 +360,21 @@ func _update_formation_follow(_delta: float) -> void:
 	# 速度：跟 leader（HUD KTS 一致）
 	speed = leader.speed
 	target_position = global_position
+
+## 实际可用转向角速度 —— 有僚舰时按"最外圈僚舰切向线速度不超过 FORMATION_TANGENTIAL_CAP_PXS"收紧
+## 无僚舰（独立船 / 僚舰自己）时原样返回 params.turn_rate，行为不变
+func _effective_turn_rate() -> float:
+	var base: float = params.turn_rate
+	var r_max: float = 0.0
+	for i in range(_followers.size() - 1, -1, -1):
+		var f = _followers[i]
+		if not is_instance_valid(f) or f.is_destroyed or f.formation_leader != self:
+			_followers.remove_at(i)
+			continue
+		r_max = maxf(r_max, f.formation_offset.length())
+	if r_max < 1.0:
+		return base
+	return minf(base, FORMATION_TANGENTIAL_CAP_PXS / r_max)
 
 ## ============ 子系统 ============
 ## 每帧先推进所有挂点冷却，再调用 NavalWeapons.update 做开火判定

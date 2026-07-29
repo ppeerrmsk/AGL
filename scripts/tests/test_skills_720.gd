@@ -22,6 +22,7 @@ func run() -> void:
 	_test_ace_strip_roundtrip()
 	_test_axis_count_scaling()
 	_test_t5_mechanisms()
+	_test_requires_skill_chain()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
 
@@ -314,6 +315,43 @@ func _test_t5_mechanisms() -> void:
 	_check("双发：升级后装备 double_shot=true", rg.double_shot, "")
 	ac3.free()
 	sp2.free()
+
+
+# ── I. 前置链（requires_skill）自洽性 —— 派生技必须挂在"能产生该状态的根技"上 ──
+#     729 回归：共振反馈曾把前置写成超载入门技，只拿焰诱共振也会刷出，但玩家无 JAM 手段 → 永不触发。
+func _test_requires_skill_chain() -> void:
+	print("── I. requires_skill：id 有效性 + 共振反馈需 JAM 来源 ──")
+	var all_ids: Dictionary = {}
+	for u in SurvivorData.UPGRADES:
+		all_ids[str(u.get("id", ""))] = true
+	for u in SurvivorData.UPGRADES:
+		var pre: Variant = u.get("requires_skill", null)
+		if pre == null:
+			continue
+		for pid in pre:
+			_check("%s 前置 %s 存在于表中" % [u.get("id", ""), pid],
+				all_ids.has(str(pid)), "未知 id")
+
+	# 全部会调 SkillHooks.on_player_jam_landed 的技能 = 合法 JAM 来源
+	var jam_sources: Array = ["skill_flare_aoe_jam", "skill_gun_kill_flare_drop",
+		"skill_missile_hit_aoe_jam", "skill_torpedo_aoe_jam", "head_on_jam",
+		"jam_aura", "sig_rafale"]
+	var jso: Dictionary = SurvivorData.upgrade_by_id("jam_self_overload")
+	_check("共振反馈存在", not jso.is_empty(), "")
+	var pre_list: Array = jso.get("requires_skill", []) as Array
+	for s in jam_sources:
+		_check("共振反馈前置含 JAM 来源 %s" % s, pre_list.has(s), "缺失")
+	_check("共振反馈前置不含超载入门技（自身即超载来源）",
+		not (pre_list.has("skill_flare_overload") or pre_list.has("cloud_overload")
+			or pre_list.has("skill_evade_missile_overload")), "仍挂着超载前置")
+
+	var knight: Array = [&"knight"]
+	_check("只有焰诱共振（超载来源，无 JAM 手段）→ 不进池",
+		not SurvivorData.is_upgrade_available_for(
+			jso, &"f15", null, {"skill_flare_overload": 1}, knight), "")
+	_check("持有寒蝉效应（JAM 来源）→ 进池",
+		SurvivorData.is_upgrade_available_for(
+			jso, &"f15", null, {"skill_missile_hit_aoe_jam": 1}, knight), "")
 
 
 func _make_test_aircraft() -> Aircraft:

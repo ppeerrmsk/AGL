@@ -1,7 +1,7 @@
 ---
 id: doctrine-unlocks
 kind: system
-status: in-progress
+status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
 spec_version: 3
 owner: 用户（2026-07-27 拍板：移除槽位配件系统，只保留 doctrine 词条解锁件并搬进功勋商店）

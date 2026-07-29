@@ -54,7 +54,9 @@ func _process(_delta: float) -> void:
 func on_approach(active: bool, distance_m: float) -> void:
 	if active:
 		_warn_bg.visible = true
-		var boss_phase: bool = zones != null and zones.is_boss_phase()
+		# 与补给禁用闸同源（spec survivor-loop §3.1）：BOSS **解锁**就换"无法补给"文案，
+		# 不等玩家在战术地图选中 BOSS 圈——否则 PRE_STAGE 段文案会承诺一个已经被拒的补给
+		var boss_phase: bool = zones != null and (zones.is_boss_phase() or zones.boss_unlocked)
 		var key := "BOUNDARY_APPROACH_WARN_BOSS" if boss_phase else "BOUNDARY_APPROACH_WARN"
 		_warn_label.text = tr(key) % (distance_m / 1000.0)
 	else:

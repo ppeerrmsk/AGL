@@ -3,7 +3,7 @@ id: event-system
 kind: system
 status: done
 schema_version: 1
-spec_version: 2
+spec_version: 3
 owner: design
 depends_on: [survivor-loop, boss-encounter, zone-missions]
 reconstruction_complete: true
@@ -80,18 +80,16 @@ PATROL/ENGAGE/SQUAD_FOLLOW）；`NavalUnit._update_subsystems` 顶层 `if _direc
 
 | 事件类 | 文件 | 触发 | 生命周期 | 做什么 |
 |---|---|---|---|---|
-| **BossEncounterEvent** | `events/boss_encounter_event.gd` | survivor_mode 在战区阶段结束（`boss_unlocked`）手动 `director.start(...)` | INBOUND(PRE_STAGE) → ENGAGED → VICTORY | 经 BossRegistry 选 encounter（CSG/AceSquad/MotherGoose）→ spawn → **猎手追玩家** → 四条触发器任一满足即交战 → 击杀判胜 |
+| **BossEncounterEvent** | `events/boss_encounter_event.gd` | survivor_mode 在战区阶段结束（`boss_unlocked`）手动 `director.start(...)` | CINEMATIC(PRE_STAGE) → ENGAGED → VICTORY | 经 BossRegistry 选 encounter（CSG/AceSquad/MotherGoose）→ spawn → 立即播放 `<boss_id>_arrival` → 镜头回玩家后立即交战 → 击杀判胜 |
 | **AwacsSupportEvent** | `events/awacs_support_event.gd` | survivor_mode 的第三方事件调度（开局 90~150s；被击落/撤离后 ≥180s 可再触发） | 入场 → 在站盘旋 180s → 撤离（超时 90s 兜底）→ end | ALLY 预警机绕**当前战区南侧**跑道形盘旋，给玩家小队锁定 ×3 / 导弹追踪 G ×1.25 的光环；进离场各播一条 scripted 无线电。数值与轨道规格见 [global-awareness-roe §2.6c](global-awareness-roe.md) |
 | **AceReinforcementEvent** | `events/ace_reinforcement_event.gd` | 按时段档调度（早期 240s / 中期 320s / 后期 400s，同场 1 支） | 入场 → 交战 → 全灭或 BOSS 闸撤离 | 敌方**王牌中队**（MARATHON / 2NDWAVE / GIMMICK / GOOFIGHTERS / VULTURE）的登场载体；全灭 → `game_time -= 60`。规格见 [ace-squadron-tier](ace-squadron-tier.md) + `events/ace-*` 各队 spec |
 | **OrionNemesisEvent** | `events/orion_nemesis_event.gd` | 中期 ~300s 独立轨道，每局一次，不占王牌轮换名额 | 静默入场 → 死咬玩家当前操控机 → 击坠/撤离 | 宿敌 **ORION**（单机、无任何入场提示、跨局成长）。规格见 [events/ace-orion](../events/ace-orion.md) |
 | ~~EscortConvoyEvent~~ | ~~`events/escort_convoy_event.gd`~~ | — | — | **2026-07-28 整体删除**（友军直升机护送）：玩家既看不见也没有局内理由去打。废弃记载见 [global-awareness-roe §2.6a](global-awareness-roe.md) |
 
-BossEncounterEvent 关键常量：`BOSS_ENGAGE_DISTANCE_PX=2500`（近身触发交战 T2）、
-`INBOUND_SPAWN_DISTANCE_PX=6000`（猎手出生距离 12km）、`INBOUND_SPAWN_FAN_DEG=30`（玩家机头前方扇面）、
-`INBOUND_PURSUE_REFRESH_S=0.5`（猎手重取玩家位置间隔）、`BOSS_ZONE_RADIUS` 默认 2200（可读 zone_data，触发器 T1）。
-INBOUND 初始指令：CSG → `passive()`；AceSquad → `pursue(player)`；MotherGoose → 无（自管巡逻环，环心跟随玩家）。
-接战触发器四条（任一满足，见 [boss-hunter-doctrine](boss-hunter-doctrine.md) §2.2）：
-T1 玩家进 BOSS 圈 / T2 玩家贴近成员 / T3 任一成员被锁定 / T4 任一成员受伤。
+BossEncounterEvent 关键常量：`INBOUND_SPAWN_DISTANCE_PX=6000`（Wraith 演出/出生距离 12km）、
+`INBOUND_SPAWN_FAN_DEG=30`（玩家机头前方扇面）。PRE_STAGE 初始指令：CSG / AceSquad → `passive()`
+安全垫；Mother Goose → 无；随后演出硬暂停冻结全场，Wraith 的 actor 指令再接管专属飞行分镜。
+接战唯一触发器是登场演出收尾；旧 T1~T4 已废止（见 [boss-hunter-doctrine](boss-hunter-doctrine.md) §2.2）。
 ENGAGED → `clear_all_directives()` + `encounter.engage()` + HUD 血条 + BGM 交叉淡入 + `mode.on_boss_engaged`。
 VICTORY → `mode.on_boss_victory()` + `end()`。详见 [bosses/mother-goose](../bosses/mother-goose.md)。
 
@@ -201,5 +199,6 @@ func _finish() -> void: pass  # 收尾
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-07-29 | 3 | BossEncounterEvent 相位统一：PRE_STAGE 只承载生成后立即播放的 arrival 演出；镜头回玩家后立即 ENGAGED。旧进圈/贴近/被锁/受伤 T1~T4 退出主流程，序列缺失 fail-open 直接接战。 |
 | 2026-07-28 | 2 | **事件目录去腐**（原文"当前只有 BOSS 事件这一种 GameEvent 子类 / 随机事件尚未实现"已严重过时）：①§3 事件目录补齐在役子类 **AwacsSupportEvent / AceReinforcementEvent / OrionNemesisEvent**，并登记 **EscortConvoyEvent 已删除**；②新增 §3.1 **ADBS 随机事件体系**（并行、不经 EventDirector：开局教程轰炸机 / 城区直升机）+ 城区直升机三条新规则（**护卫反应**：被护送对象挨打→护卫指令级扑向攻击者，敌方护卫唯一反应通道；**CH-47 受击散开**：从 AH-64 专属泛化；**全歼 3 架 → 作战时间 +20s** + 横幅，与王牌全灭 +60s 同一注入点，逃出者不计不阻塞）；③§5 接入图的"随机事件系统（当前缺）"改写为 GameEvent / ADBS 二选一的选路指引；④§8 锚点补四个事件类 + adbs_manager |
 | 2026-05-30 | 1 | 首版 system spec + 扩展接入图；核对 GameEvent/AIDirective 全 API（6 verb + 生命周期 + owner_event 失效） |

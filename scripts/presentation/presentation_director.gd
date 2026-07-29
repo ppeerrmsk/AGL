@@ -153,8 +153,9 @@ func bind_radio(r: Node) -> void:
 # ============================================================
 
 ## 播一段演出。
-## ctx 必填：owner（GameEvent，演员指令的所有权持有者）、actors（Array[Aircraft]）、
+## ctx 必填：owner（GameEvent，演员指令的所有权持有者）、actors（Array[CombatUnit]）、
 ##          anchor（集结点）、player_pos（用于反推进场方向）
+## 简单 BOSS 特写可绑定 NavalUnit；只有 actor 飞行动作要求演员是 Aircraft。
 ## 选填：extra_layers（地图/HUD 等要一起压暗的 CanvasItem）
 ##
 ## ⚠ 无 owner 则【拒绝】演出：actor 通道会往 AI 写指令，没有所有权就没有 cleanup 兜底，

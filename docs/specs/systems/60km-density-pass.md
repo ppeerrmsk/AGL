@@ -1,7 +1,7 @@
 ---
 id: 60km-density-pass
 kind: balance
-status: in-progress   # 代码落地 + 无头回归绿；差 playtest 手感确认 + Sentinel+Lv5 压测
+status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
 spec_version: 1
 owner: noelu

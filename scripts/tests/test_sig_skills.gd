@@ -4,7 +4,8 @@ extends RefCounted
 ##
 ## A 表完整性（41 条约定）/ B 驾驶门控与前置 / C milestone_plus 数组化 /
 ## D apply 分支（params 类）/ E 致死拦截判序 / F 负面状态免疫 /
-## G 全频段压制流速 / H 先敌开火（锁数+装填）/ I 机动 accessor 注入
+## G 全频段压制流速 / H 先敌开火（锁数+装填）/ I 机动 accessor 注入 /
+## J 传感器融合越肩发射门 / K 静态账本清零
 ##
 ## 运行：godot --headless --path . -- --bench=sig_skills（或 --bench=all）
 
@@ -23,6 +24,7 @@ func run() -> void:
 	_test_x13_suppress()
 	_test_f22_first_look()
 	_test_mobility_accessors()
+	_test_f35_relay_gate()
 	_test_static_ledger_reset()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
@@ -241,7 +243,35 @@ func _test_mobility_accessors() -> void:
 	ac.free()
 
 
-# ── J. 队级账本位（static）跨局清零：survivor_mode._ready 必须显式重置 ──
+# ── J. 传感器融合：ACE 满锁后僚机豁免自身锥门/锁定门 ──
+func _test_f35_relay_gate() -> void:
+	print("── J. 传感器融合：ACE 满锁 → 僚机越肩发射门放行 ──")
+	var ace := _make_combat_aircraft()
+	var wing := _make_combat_aircraft()
+	var tgt := CombatUnit.new()
+	ace.team = CombatUnit.TEAM_PLAYER
+	wing.team = CombatUnit.TEAM_PLAYER
+	tgt.team = CombatUnit.TEAM_HOSTILE
+	ace.params.lock_time = 2.6
+	ace.set_combat_target(tgt)
+	AircraftRenderer.player_ref = ace
+	SkillHooks.sig_f35_active = true
+	_check("ACE 未满锁 → 不放行", not AircraftWeapons._sig_f35_relay_ok(wing, tgt), "")
+	ace.radar_targets[tgt] = 2.6
+	_check("ACE 满锁同目标 → 僚机放行", AircraftWeapons._sig_f35_relay_ok(wing, tgt), "")
+	var other := CombatUnit.new()
+	other.team = CombatUnit.TEAM_HOSTILE
+	_check("非 ACE 当前目标 → 不放行", not AircraftWeapons._sig_f35_relay_ok(wing, other), "")
+	SkillHooks.sig_f35_active = false
+	_check("技能关闭 → 不放行", not AircraftWeapons._sig_f35_relay_ok(wing, tgt), "")
+	AircraftRenderer.player_ref = null
+	ace.free()
+	wing.free()
+	tgt.free()
+	other.free()
+
+
+# ── K. 队级账本位（static）跨局清零：survivor_mode._ready 必须显式重置 ──
 func _test_static_ledger_reset() -> void:
 	print("── J. 静态账本位：源码含新局清零（跨局残留防回归）──")
 	var src: String = FileAccess.get_file_as_string("res://scripts/survivor/survivor_mode.gd")

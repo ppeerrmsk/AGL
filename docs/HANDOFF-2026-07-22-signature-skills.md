@@ -151,7 +151,7 @@ python tools/verify_doc_anchors.py
 python tools/dump_skill_table.py       # → docs/reference/skill-table.md，当前 144 条
 ```
 
-Godot 可执行文件在 `C:\Users\noelu\Downloads\Godot_v4.6.2-stable_mono_win64\...\Godot_v4.6.2-stable_mono_win64_console.exe`。
+Godot 运行路径以根目录 `AGENTS.md` 的 Running the Game 为准；禁止使用历史 4.6.2 路径。
 
 **当前状态**：上述四项全绿（锚点 426 个全部一致）。
 **没跑的**：生存模式 playtest、Sentinel + Lv5+ 性能压测、Godot 编辑器 `--import`（改了 i18n csv，**进引擎前需要 import 一次**否则 `tr()` 原样返回 key）。

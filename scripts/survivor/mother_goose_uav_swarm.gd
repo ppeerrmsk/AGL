@@ -1,6 +1,6 @@
 ## Mother Goose 无人机蜂群管理
 ##
-## 起始 spawn 12 架围绕 boss 一圈；之后每 12s 检查 alive_count，<30 则 spawn 2。
+## 起始 spawn 12 架围绕 boss 一圈；仅在指定猎杀 ACTIVE 期间每 12s 补 2，封顶 30。
 ## 四种型号 + 两种角色：
 ##   GUARD（保镖）—— simple_ai + orbit + shield_leader，护卫 boss + 自爆拦截导弹
 ##     45% MQ-109（机炮 UAV，近战）
@@ -46,7 +46,10 @@ const VARIANT_WEIGHTS: Array = [45, 25, 15, 15]
 ## MQ-111 激光太强需限量，避免一群激光把玩家锁死
 const VARIANT_ALIVE_CAP: Dictionary = {
 	Variant.MQ_111_LASER: 2,
+	Variant.MQ_112_RAILGUN: 3,
 }
+## MQ-112 是指定猎杀的远距 telegraph 压力源：蜂群中至少保留 2 架，但绝不超过 3 架。
+const RAILGUN_MIN_ALIVE: int = 2
 
 ## 角色：HUNTER（追猎玩家） / GUARD（护卫 boss + 自爆拦截）
 ## 由 variant 决定（spawn 时配置）—— MQ-109 按概率分裂，其它型号固定
@@ -80,6 +83,7 @@ var _missile_mgr: MissileManager = null
 var _uavs: Array[Aircraft] = []
 var _spawn_timer: float = 0.0
 var _initial_done: bool = false
+var _replenishing: bool = false
 
 # ── 远距 cull 后的补刷队列（绕开 SPAWN_INTERVAL 但仍走小批次节流，避免一帧刷 12 架掉 FPS）──
 var _respawn_pending: int = 0
@@ -122,6 +126,8 @@ func update(delta: float) -> void:
 		if is_instance_valid(u) and not u.is_destroyed:
 			alive.append(u)
 	_uavs = alive
+	if not _replenishing:
+		return
 
 	_spawn_timer += delta
 	if _spawn_timer >= SPAWN_INTERVAL:
@@ -155,12 +161,27 @@ func update(delta: float) -> void:
 ## 主体死亡时调；让 UAV 不再补充（残存 UAV 自然战斗）
 func stop_replenishing() -> void:
 	_initial_done = false   ## 不再 spawn_initial 也不再补给
+	_replenishing = false
+	_respawn_pending = 0
+
+## 指定猎杀阶段闸门：只有 ACTIVE 期间允许周期补充 / 远距 cull 补刷。
+func set_replenishing(enabled: bool) -> void:
+	if _replenishing == enabled:
+		return
+	_replenishing = enabled
+	_respawn_pending = 0
+	_respawn_drain_timer = 0.0
+	if enabled:
+		## 入阶段即允许首批补充；仍受 SPAWN_BATCH=2 限流，不会一帧灌满。
+		_spawn_timer = SPAWN_INTERVAL
+	else:
+		_spawn_timer = 0.0
 
 ## 远距 cull 后请求补刷：加进 pending 队列，由 update() 按 RESPAWN_DRAIN_BATCH/INTERVAL 节流刷出
 ## 一次性刷 10+ 架会一帧创建 10 个 Aircraft + AIController + Squad → FPS 掉得明显，
 ## 改成 2 架/3s 起步（pending 多则间隔缩短到 1.5s），帧时间分摊
 func request_respawn(count: int) -> void:
-	if not _initial_done or count <= 0:
+	if not _initial_done or not _replenishing or count <= 0:
 		return
 	_respawn_pending += count
 	# 让下一帧 update() 立即处理首批（首次拉满 drain_timer 等价于 timer >= interval）
@@ -176,6 +197,8 @@ func get_uavs() -> Array[Aircraft]:
 
 ## 加权抽 variant，过滤已到 alive cap 的型号（如 MQ-111 限量 2）
 func _roll_variant() -> int:
+	if _alive_count_of_variant(Variant.MQ_112_RAILGUN) < RAILGUN_MIN_ALIVE:
+		return Variant.MQ_112_RAILGUN
 	var weights: Array = VARIANT_WEIGHTS.duplicate()
 	for v in VARIANT_ALIVE_CAP:
 		var cap: int = int(VARIANT_ALIVE_CAP[v])
@@ -259,6 +282,9 @@ func _spawn_one(angle_offset: float) -> void:
 	uav.infinite_ammo = true
 	uav.set_meta("enemy_type", "uav")
 	uav.set_meta("category", "boss_mother_goose_uav")
+	## 蜂群会被母舰无限补充 → 击杀不计价：不给 XP / 不入生涯档案 / 不吃对头永久 +max_hp
+	## （消费点 survivor_spawner._detect_kills；否则 BOSS 战 = 无限经验农场）
+	uav.set_meta("no_kill_reward", true)
 	uav.set_meta("skip_far_cleanup", true)
 	uav.set_meta("silhouette", "drone")  ## 复用紧凑无人机外观
 	## 硬件平台 = 无情绪 = 无恐惧 —— 跳过 [status_effects.gd] FEAR 应用，

@@ -1,7 +1,7 @@
 ---
 id: early-game-uav-rework
 kind: system
-status: in-progress   # 代码落地完成；差 playtest（Sentinel 驻守出现率 / F-4E 密度手感）
+status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
 spec_version: 2
 owner: user + Claude
