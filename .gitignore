@@ -22,3 +22,6 @@ __pycache__/
 .claude/scheduled_tasks.lock
 .mcp.json
 
+# Agent/工具临时产物：保留目录内的 .gdignore，让 Godot 不扫描正在写入的图片/脚本。
+/tmp/*
+!/tmp/.gdignore

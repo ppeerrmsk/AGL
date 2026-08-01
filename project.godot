@@ -35,6 +35,12 @@ window/size/viewport_height=1080
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 
+[debug]
+
+; Godot 4.7.1 无头启动时可能在 RotatedFileLogger 内空指针崩溃。
+; AGL 使用 EventLogger 与 bench stdout/results，不依赖引擎文件日志。
+file_logging/enable_file_logging.pc=false
+
 [internationalization]
 
 locale/translations=PackedStringArray("res://i18n/translations.zh.translation", "res://i18n/translations.en.translation", "res://i18n/translations.ja.translation")

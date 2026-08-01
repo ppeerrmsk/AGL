@@ -1,52 +1,30 @@
 #!/usr/bin/env bash
-# AGL headless 性能压测启动器
-#
-# 用法:
-#   bench/run.sh                       # 默认 stress_40 / 30s
-#   bench/run.sh stress_40 60          # 跑 60 秒
-#   bench/run.sh stress_40 30 windowed # 带窗口（保留 _draw 桶数据）
-#
-# 输出文件: bench/results/<scenario>_<UTC>.txt
-# 看输出: ls -t bench/results/*.txt | head -1 | xargs cat
+# AGL crash-safe Godot bench launcher for Git Bash on Windows.
+# Usage: bench/run.sh [scenario] [duration_seconds] [timeout_seconds]
 
 set -e
 
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 GODOT="${GODOT:-/d/Program Files (x86)/Steam/steamapps/common/Godot Engine/godot.windows.opt.tools.64.exe}"
-if [ ! -x "$GODOT" ]; then
-  echo "[bench] ERROR: GODOT is not executable: $GODOT" >&2
-  exit 2
-fi
-GODOT_VERSION=$("$GODOT" --version)
-case "$GODOT_VERSION" in
-  4.7*) ;;
-  *) echo "[bench] ERROR: project.godot requires Godot 4.7; found $GODOT_VERSION" >&2; exit 2 ;;
-esac
 SCENARIO="${1:-stress_40}"
 DURATION="${2:-30}"
-MODE="${3:-headless}"
+TIMEOUT="${3:-0}"
 
-PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+PROJECT_WIN="$(cygpath -w "$PROJECT_DIR")"
+GODOT_WIN="$(cygpath -w "$GODOT")"
+RUNNER_WIN="$(cygpath -w "$PROJECT_DIR/bench/invoke_godot.ps1")"
 
-# headless / windowed 切换
-DISPLAY_ARGS=()
-if [ "$MODE" = "headless" ]; then
-  DISPLAY_ARGS+=(--headless)
-fi
-
-echo "[bench] godot=$GODOT"
-echo "[bench] scenario=$SCENARIO duration=${DURATION}s mode=$MODE"
-echo "[bench] project=$PROJECT_DIR"
-
-cd "$PROJECT_DIR"
-"$GODOT" "${DISPLAY_ARGS[@]}" --path . -- --bench="$SCENARIO" --duration="$DURATION"
+set +e
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$RUNNER_WIN" \
+  -GodotExe "$GODOT_WIN" \
+  -ProjectDir "$PROJECT_WIN" \
+  -Scenario "$SCENARIO" \
+  -DurationSeconds "$DURATION" \
+  -TimeoutSeconds "$TIMEOUT" \
+  -ProcDumpExe "${AGL_PROCDUMP:-}"
 EXIT_CODE=$?
+set -e
 
-# 显示最新一份结果
-LATEST=$(ls -t bench/results/${SCENARIO}_*.txt 2>/dev/null | head -1 || true)
-if [ -n "$LATEST" ]; then
-  echo ""
-  echo "[bench] === LATEST RESULT: $LATEST ==="
-  cat "$LATEST"
-fi
-
-exit $EXIT_CODE
+echo ""
+echo "[bench] godot exited with code $EXIT_CODE"
+exit "$EXIT_CODE"
