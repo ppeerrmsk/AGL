@@ -3,7 +3,7 @@ id: skills-720-rework
 kind: system
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 10
+spec_version: 11
 owner: 用户
 depends_on: [evolution-attribute-gates, squad-upgrade-ownership, afterburner-mode, inrun-weapon-inventory, command-wheel, zone-reward-docking]
 reconstruction_complete: true
@@ -77,7 +77,7 @@ reconstruction_complete: true
 | adapt_energy | 适应 | 通用 | 4 | ×1 | 击杀低于自己高度的敌人回加力能量；高于自己回 20 HP |
 | evac_shift | 阵地转移 | 通用 | 2 | ×1 | 轮盘【撤离此区】后移速更快 + 全伤害 −50% |
 | assassin_revenge | 刺客复仇 | 队级单实例 | 2 | ×1 | 僚机/王牌被击坠 → 全队 15s 超载+隐身 |
-| manual_dodge | 胆大妄为 | 王牌 | 3 | ×1 | 禁自动 flare；flare +6；R 键手动闪避（flare+滚转甩机炮/导弹）；无 flare 也可滚转、命中瞬间 i-frame 时机严格 |
+| manual_dodge | 胆大妄为 | 通用全队 | 3 | ×1 | 全队禁普通自动 flare、flare +6；受控机 R 手动闪避，AI 僚机受威胁自动；无 flare 也可滚转，命中瞬间 i-frame 时机严格 |
 | speed_by_knight | 全速推进 | 通用 | 1 | ×1 | 按已持有【骑士轴】技能数提升最高速度，上限 +40% |
 
 **策士轴（8）**
@@ -233,15 +233,16 @@ reconstruction_complete: true
 | 轮盘联动（保卫阵地/阵地转移） | `scripts/rts/squad_command_controller.gd`（`_update_guard_zone_buff`）＋ `scripts/aircraft/aircraft_physics.gd`（`GUARD_ZONE_G_MULT` `EVAC_SHIFT_SPRINT_BONUS`）＋ `scripts/aircraft.gd`（`_apply_damage` 720 段） |
 | 地勤优化 | `scripts/survivor/dock_point.gd`（hold 减半）＋ `survivor_mode._on_settlement_closed` |
 | QAAM 归因链 | `scripts/missile_manager.gd`（`spawn_missile(is_secondary)`）＋ `scripts/missile.gd`（`is_secondary_weapon`）＋ kind `"qmaam"` |
-| 新机制四件 | `scripts/aircraft/aircraft_weapons.gd`（机炮吊舱翼挂段）/ `scripts/equipment/railgun_equipment.gd`（`double_shot` followup）/ `scripts/missile.gd`（`second_stage` `_second_stage_g_mult`）/ `scripts/aircraft.gd`（`do_manual_dodge`）＋ R 键入口 `survivor_mode` |
+| 新机制四件 | `scripts/aircraft/aircraft_weapons.gd`（机炮吊舱翼挂段）/ `scripts/equipment/railgun_equipment.gd`（`double_shot` followup）/ `scripts/missile.gd`（`second_stage` `_second_stage_g_mult`）/ `scripts/aircraft.gd`（`try_manual_maneuver` / `do_manual_dodge`）＋ R 键入口 `survivor_mode` |
 | 量表加成格 / 卡面归属角标 | `scripts/survivor/axis_bars_panel.gd`（`show_state(…, milestone_bonus)`）/ `scripts/survivor/survivor_upgrade_ui.gd`（`_scope_badges`） |
 | 生成器 / 现状全表 | `tools/dump_skill_table.py` → `docs/reference/skill-table.md`（104 条） |
-| 验收 bench | `scripts/tests/test_skills_720.gd`（`--bench=skills720`，110 断言；随 `--bench=all` 回归门） |
+| 验收 bench | `scripts/tests/test_skills_720.gd`（`--bench=skills720`，123 断言；本批新增 13 条覆盖 R 手动/AI 自动/三向互斥/全队下发；随 `--bench=all` 回归门） |
 
 ## 8. 变更记录
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-01 | 11 | R 升格为统一机动入口：当前操控机手动、AI 僚机自动，特殊机动不再要求先开加力。眼镜蛇/J-Turn/胆大妄为组成三向互斥组，任取其一后另两张不再出现；代码优先级只作旧档/debug 共存兜底。胆大妄为从 ace scope 改为全队下发：AI 僚机在近弹/后方机炮威胁下自动滚转投焰，数值与“禁普通自动 flare”代价不变。 |
 | 2026-07-29 | 10 | F4 技能 Debug 面板从已腐烂的五类（生存/机动/导弹/副武器/电子战）改为读取 `axis_of_upgrade` 的正式三轴（斗士/骑士/策士）分组与 SSOT 配色；Debug `+` 获得技能时补齐正式选卡的对应轴 +1（仍受全局 8 点 cap），实时状态显示三轴计数。 |
 | 2026-07-29 | 9 | **共振反馈前置修正**（720 批遗留"前置组合观察"结案）：`jam_self_overload` 的 `requires_skill` 从"超载入门技（云中超载/规避超载/焰诱共振）"改为**全部 JAM 来源技**（扰乱投弹 / 机炮撒焰 / 寒蝉效应 / 雷阵警讯 / 对锋干扰 / 全向干扰场 / SPECTRA）。原写法把因果写反了——本条自身就是 OVERLOAD 的**来源**，需要的是"能把 JAM 打出去"的手段；玩家只拿焰诱共振就会刷出这张卡，而全局无任何 JAM 手段 → 技能永不触发（实测复现）。同批补：SPECTRA（`sig_rafale`）打出的 5s JAM 此前漏调 `on_player_jam_landed`，现补上（否则它作为前置仍不生效）。bench：skills720 新增 §I 前置链自洽段（全表 requires_skill id 有效性 + 共振反馈正反例），110 断言。 |
 | 2026-07-22 | 8 | T6 收尾：§5 验收逐项回填（工程侧全过；余 playtest 调数值——保守暂定值清单列于 §5 末条）；§7 实现锚点表回填（纯符号指针）；survivor-skills.md 挂"数值段被本批取代"横幅指向本 spec 与 skill-table；changelog `docs/changelogs/2026-07-22-skills-720-rework.md`（提交序列 bddc8bd→d21789c + 系统级变化 + 已知余项：evolved 战区注册表沿用空表待映射批 / 共振反馈前置组合观察 / 阵亡 watcher 同周期单发）。 |

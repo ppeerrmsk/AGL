@@ -5,10 +5,10 @@
 [resource]
 script = ExtResource("1")
 director_hz = 1.0
-attacker_pct = 0.60
-shooter_count = 3
-decoy_pct = 0.10
-guard_pct = 0.20
+attacker_pct = 0.25
+shooter_count = 1
+decoy_pct = 0.05
+guard_pct = 0.50
 designation_attacker_pct = 0.85
 wedge_half_deg = 30.0
 converge_distance_far = 1500.0

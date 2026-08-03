@@ -1,7 +1,7 @@
 extends RefCounted
 
 ## ROE 全图察觉与交战规则回归（spec global-awareness-roe）
-## 覆盖：热度纯函数（配额/地板/衰减/连续性）+ 姿态派生 + 感知门（察觉/守区 leash）
+## 覆盖：热度纯函数、直属小队 XP/Token/出击规模 + 姿态派生 + 感知门（察觉/守区 leash）
 ## 运行：godot --headless --path . -- --bench=roe（或 --bench=all）
 
 var _pass := 0
@@ -12,6 +12,7 @@ func run() -> void:
 	print("\n════════ ROE 察觉与交战规则（热度/姿态/感知门） ════════")
 
 	_test_heat_math()
+	_test_squad_balance_math()
 	_test_posture_derive()
 	_test_scored_engage_gate()
 
@@ -54,6 +55,40 @@ func _test_heat_math() -> void:
 	d.add_heat(999.0)
 	_check("heat 封顶 100", d.heat == 100.0, "")
 	_check("实例配额取 heat", d.hunter_quota() == 12, "")
+
+
+func _test_squad_balance_math() -> void:
+	_check("单机 XP 倍率 = 1", is_equal_approx(SurvivorData.squad_xp_multiplier(1), 1.0), "")
+	_check("3 机 XP 倍率 = 0.5", is_equal_approx(SurvivorData.squad_xp_multiplier(3), 0.5), "")
+	_check("9 机 XP 倍率 = 0.2", is_equal_approx(SurvivorData.squad_xp_multiplier(9), 0.2), "")
+	_check("9 机 Token 加成 = 24", SurvivorData.squad_token_bonus(9) == 24, "")
+	_check("Lv5 / 9 机热度地板 = 73", SurvivorData.squad_heat_floor(5, 9) == 73.0, "")
+	_check("高等级大队热度地板封顶 100", SurvivorData.squad_heat_floor(15, 9) == 100.0, "")
+	_check("响应层级取等级与热度较高者", SurvivorData.response_level(5, 73.0) == 15, "")
+	_check("Hunter 优先承压最低目标", SurvivorData.least_pressure_target_index([3, 1, 2], [10.0, 999.0, 1.0]) == 1, "")
+	_check("Hunter 同压优先最近目标", SurvivorData.least_pressure_target_index([1, 1, 1], [30.0, 10.0, 20.0]) == 1, "")
+
+	# 无扰动时对拍表格累计阈值；扰动本身由实现钳在 [0.85, 1.15]。
+	_check("单机玩家 roll .59 → 敌单机", SurvivorData.pick_enemy_formation_class(1, 1.0, 1.0, 1.0, 0.59) == 1, "")
+	_check("单机玩家 roll .61 → 敌双机", SurvivorData.pick_enemy_formation_class(1, 1.0, 1.0, 1.0, 0.61) == 2, "")
+	_check("单机玩家 roll .90 → 敌 flight", SurvivorData.pick_enemy_formation_class(1, 1.0, 1.0, 1.0, 0.90) == 3, "")
+	_check("9 机玩家 roll .14 → 敌单机", SurvivorData.pick_enemy_formation_class(9, 1.0, 1.0, 1.0, 0.14) == 1, "")
+	_check("9 机玩家 roll .40 → 敌 flight", SurvivorData.pick_enemy_formation_class(9, 1.0, 1.0, 1.0, 0.40) == 3, "")
+	_check("flight 65% 为 3 机", SurvivorData.pick_enemy_flight_size(0.64) == 3, "")
+	_check("flight 35% 为 4 机", SurvivorData.pick_enemy_flight_size(0.65) == 4, "")
+	_check("静默衰减不破小队地板", RoeDirector.step_heat_value(70.0, 999.0, 5, 1.0, 9) == 73.0, "")
+
+	var attacker: Aircraft = load("res://scripts/aircraft.gd").new()
+	attacker.team = CombatUnit.TEAM_ALLY
+	var ground: GroundUnit = load("res://scripts/ground_unit.gd").new()
+	ground.take_damage(999.0, attacker, "gun")
+	_check("地面目标保留第三方攻击队伍", int(ground.get_meta("kill_attacker_team", -1)) == CombatUnit.TEAM_ALLY, "")
+	var natural_ground: GroundUnit = load("res://scripts/ground_unit.gd").new()
+	natural_ground.take_damage(999.0)
+	_check("地面目标自然毁伤无击杀归因", not natural_ground.has_meta("kill_attacker_team"), "")
+	natural_ground.free()
+	ground.free()
+	attacker.free()
 
 
 # ── 2. 姿态派生 ──

@@ -13,6 +13,7 @@ STATE_ON,开,ON,ON
 STATE_OFF,关,OFF,OFF
 HUD_HEADING_FMT,HDG %03d  M%.2f%s,HDG %03d  M%.2f%s,HDG %03d  M%.2f%s
 HUD_STALL,  STALL,  STALL,  STALL
+HUD_MISSILE_WARNING,!! 导弹来袭 !!,!! MISSILE !!,!! ミサイル接近 !!
 HUD_KILLS_FMT,击杀: %d,Kills: %d,撃墜: %d
 HUD_LEVEL_FMT,LV %d    %d / %d,LV %d    %d / %d,LV %d    %d / %d
 HUD_GAMEOVER_TITLE,[ GAME OVER ],[ GAME OVER ],[ GAME OVER ]
@@ -180,35 +181,35 @@ UPGRADE_MANEUVER_UP_DESC,滚转速率 +30%，持续G +1.5，结构G +1.5（每�
 UPGRADE_FLARE_COOLDOWN_NAME,红外对抗优化,IR Countermeasure,IR対策最適化
 UPGRADE_FLARE_COOLDOWN_DESC,热诱弹冷却时间 -20%,Flare Cooldown -20%,フレアクールダウン -20%
 UPGRADE_FLARE_SHIELD_NAME,★ 电子对抗套件,★ ECM Suite,★ ECMスイート
-UPGRADE_FLARE_SHIELD_DESC,释放热诱弹时解除所有敌方锁定，并短暂免疫被锁定,Flares break all enemy locks and grant brief lock immunity,フレア使用で全ロック解除、短時間ロック無効
+UPGRADE_FLARE_SHIELD_DESC,热诱弹 +2；释放时解除全部敌方锁定，并在 3 秒内免疫锁定,"+2 flares; releasing them breaks all enemy locks and grants 3s lock immunity",フレア+2・使用時に全敵ロックを解除し3秒間ロック無効
 UPGRADE_PILOT_STAMINA_NAME,体能强化,Pilot Stamina,体力強化
 UPGRADE_PILOT_STAMINA_DESC,飞行员耐力上限×2，恢复速率×2,"Stamina cap ×2, recovery ×2",スタミナ上限×2、回復×2
 UPGRADE_KILL_HEAL_NAME,战场急救,Battlefield First Aid,戦場救護
 UPGRADE_KILL_HEAL_DESC,击杀敌机时回复 5 HP,Restore 5 HP per kill,撃墜ごとにHP5回復
 UPGRADE_ARMOR_UP_NAME,复合装甲,Composite Armor,複合装甲
-UPGRADE_ARMOR_UP_DESC,装备复合装甲，大幅减少机炮伤害，对导弹也有减伤,"Composite armor greatly reduces gun damage, partial reduction vs missiles",複合装甲で機銃ダメージを大幅軽減、ミサイルも一部軽減
+UPGRADE_ARMOR_UP_DESC,机炮伤害 -55%，导弹伤害 -38%,Gun damage -55%; missile damage -38%,機関砲ダメージ-55%・ミサイルダメージ-38%
 UPGRADE_STEALTH_POD_NAME,强化吊舱,Stealth Pod,ステルスポッド
 UPGRADE_STEALTH_POD_DESC,降低雷达反射截面，敌人锁定你所需的时间显著延长,Reduces radar signature — enemies take significantly longer to lock you,レーダー反射面を低減、敵のロック所要時間が大幅に延長
 UPGRADE_XP_MULT_NAME,经验倍率,XP Multiplier,経験値倍率
-UPGRADE_XP_MULT_DESC,击杀获得的经验值提高,More XP per kill,撃墜時の獲得経験値アップ
+UPGRADE_XP_MULT_DESC,击杀经验 +20%（每层，最多 +40%）,Kill XP +20% per stack (max +40%),撃墜経験値+20%/層（最大+40%）
 UPGRADE_RADAR_ANGLE_NAME,广角扫描,Wide Scan,広角スキャン
 UPGRADE_RADAR_ANGLE_DESC,雷达扫描扇形更宽，侧前方目标也能捕捉,Wider radar scan — side targets now detectable,レーダー走査範囲が拡大、側方の目標も捕捉可能
 UPGRADE_SEEKER_FOV_NAME,广角导引头,Wide Seeker,広角シーカー
 UPGRADE_SEEKER_FOV_DESC,导弹导引头视野更宽，目标大角度机动时也难以脱锁,Wider missile seeker — targets harder to shake off with sharp maneuvers,ミサイルシーカー視野拡大、目標の大角度機動にも追従
 UPGRADE_GUN_ACCURACY_NAME,枪械精度,Gun Accuracy,機銃精度
-UPGRADE_GUN_ACCURACY_DESC,机炮精度提升，子弹存留时间 +20%，远距离命中率显著提高,Gun accuracy up; bullet lifetime +20%; better long-range hits,機関砲精度向上・弾寿命+20%・遠距離命中率大幅増
+UPGRADE_GUN_ACCURACY_DESC,机炮散布 -20%、瞄准精度 +18%、子弹存留时间 +20%（每层）,Gun spread -20%; aim accuracy +18%; bullet lifetime +20% per stack,機関砲散布-20%・照準精度+18%・弾寿命+20%/層
 UPGRADE_AIM_ASSIST_NAME,瞄准辅助,Aim Assist,照準補助
-UPGRADE_AIM_ASSIST_DESC,机炮开火容错提升，稍微瞄歪也会自动开火,Relaxed firing angle — gun fires even when slightly off-target,機銃の許容発射角が緩和、多少ずれていても発射
+UPGRADE_AIM_ASSIST_DESC,机炮自动开火允许角度 +25%（每层，上限半角 45°）,Automatic gun-fire cone +25% per stack (45° half-angle cap),機関砲の自動射撃許容角+25%/層（半角45°上限）
 UPGRADE_MISSILE_BOOST_NAME,火箭助推,Missile Boost,ミサイルブースト
-UPGRADE_MISSILE_BOOST_DESC,导弹发射间隔缩短，推进段更长飞行性能增强,Shorter missile cooldown; longer burn phase and improved flight performance,ミサイル発射間隔短縮、ブースト延長で飛行性能強化
+UPGRADE_MISSILE_BOOST_DESC,导弹冷却 -15%、推进时间 +15%、加速度 +10%（每层）,Missile cooldown -15%; burn time +15%; acceleration +10% per stack,ミサイルCD-15%・燃焼時間+15%・加速度+10%/層
 UPGRADE_VAPOR_DODGE_NAME,★ 云雾机动,★ Vapor Dodge,★ ベイパードッジ
-UPGRADE_VAPOR_DODGE_DESC,高度切换更迅捷；藏身云层时敌人几乎无法锁定你,Faster altitude changes; nearly unlockable while hidden in clouds,高度変更が高速化、雲中に隠れれば敵のロックはほぼ不可能
+UPGRADE_VAPOR_DODGE_DESC,高度切换响应 ×2；云中敌人锁定你的速度 -90%,Altitude-change response ×2; enemy lock speed against you in clouds -90%,高度変更応答×2・雲中では敵のロック速度-90%
 UPGRADE_ECM_POD_NAME,★ 电子战吊舱,★ ECM Pod,★ ECMポッド
-UPGRADE_ECM_POD_DESC,主动干扰敌方雷达，敌人必须靠得更近才能探测到你,Jam enemy radar — they must close in to detect you,敵レーダーを妨害、敵はより接近しないと探知不可
+UPGRADE_ECM_POD_DESC,敌方雷达对你的有效探测距离 -25%,Enemy radar detection range against you -25%,敵レーダーの対自機有効探知距離-25%
 UPGRADE_SHOCK_ABSORB_NAME,★ 冲击吸收,★ Shock Absorber,★ 衝撃吸収
-UPGRADE_SHOCK_ABSORB_DESC,部分受伤值会慢慢回复，但一击致死无效,A portion of incoming damage slowly regenerates — lethal hits unaffected,被ダメージの一部が時間経過で回復、即死攻撃は対象外
+UPGRADE_SHOCK_ABSORB_DESC,非致命伤害的 40% 会以每秒 1 HP 回复；致命一击不触发,Regenerate 40% of nonlethal damage at 1 HP/s; lethal hits do not trigger it,非致死ダメージの40%を毎秒1HP回復・致死攻撃では発動しない
 UPGRADE_EXECUTIONER_NAME,★ 侩子手,★ Executioner,★ 処刑人
-UPGRADE_EXECUTIONER_DESC,不受伤连续击杀敌机可堆叠层数，全面强化速度、减速、装填与锁定,"Consecutive kills without damage stack a buff — boosts speed, decel, reload and lock",無被弾連撃で層を重ね、速度・減速・装填・ロックを総合強化
+UPGRADE_EXECUTIONER_DESC,连续无伤第 2 杀起每杀叠 1 层（最多 5 层）；每层速度 +5%、减速 +10%、装填 -8%、锁定时间 -10%,"From the 2nd consecutive no-hit kill, gain 1 stack per kill (max 5); each stack: speed +5%, decel +10%, reload -8%, lock time -10%",無被弾連続撃墜の2機目から1機ごとに1層（最大5）・1層ごと速度+5%・減速+10%・装填-8%・ロック時間-10%
 UPGRADE_MISSILE_COUNT_NAME,导弹挂架扩展,Missile Rack,ミサイル増設
 UPGRADE_MISSILE_COUNT_DESC,导弹携带量 +2（每层，最多 3 层）,Missile capacity +2 per stack (up to 3),ミサイル搭載数+2/層（最大3層）
 UPGRADE_MISSILE_TRACKING_NAME,制导升级,Guidance Upgrade,誘導強化
@@ -220,9 +221,9 @@ UPGRADE_MISSILE_BOUNCE_DESC,导弹命中后弹跳至最近的另一个敌机,Mis
 UPGRADE_MISSILE_RELOAD_NAME,快速挂载,Quick Mount,高速装填
 UPGRADE_MISSILE_RELOAD_DESC,导弹装填时间 -15%,Missile reload -15%,ミサイル装填 -15%
 UPGRADE_MULTI_LOCK_NAME,多目标追踪,Multi-Target Tracking,マルチロック
-UPGRADE_MULTI_LOCK_DESC,自动对所有锁定目标同时发射导弹,Fire missiles at all locked targets simultaneously,全ロックターゲットへ同時発射
+UPGRADE_MULTI_LOCK_DESC,导弹锁定目标数 +1（每层，最多 3 层）,Missile target locks +1 per stack (max 3),ミサイルロック対象数+1（1スタック毎・最大3）
 UPGRADE_MISSILE_SWARM_NAME,导弹蜂群,Missile Swarm,ミサイルスウォーム
-UPGRADE_MISSILE_SWARM_DESC,导弹挂载 +4 且自动对所有锁定目标齐射；导弹追踪能力轻微下降,"+4 missile slots, salvo-fire all locked targets; slight tracking penalty",ミサイル+4＆全ロック同時発射；追跡性能微減
+UPGRADE_MISSILE_SWARM_DESC,导弹挂载 +4、锁定目标数 +3；导弹追踪能力轻微下降,"+4 missile slots, +3 target locks; slight tracking penalty",ミサイル+4・ロック対象数+3；追跡性能微減
 UPGRADE_GUN_DAMAGE_NAME,穿甲弹药,AP Rounds,徹甲弾
 UPGRADE_GUN_DAMAGE_DESC,机炮伤害 +30%（每层）,Gun damage +30% per stack,機関砲ダメージ+30%/層
 UPGRADE_GUN_MULTISHOT_NAME,机炮吊舱,Gun Pods,ガンポッド
@@ -246,9 +247,9 @@ UPGRADE_RADAR_RANGE_DESC,雷达探测距离 +20%,Radar range +20%,レーダー�
 UPGRADE_LOCK_TIME_NAME,火控优化,Fire Control,火器管制最適化
 UPGRADE_LOCK_TIME_DESC,锁定时间 -0.5秒,Lock time -0.5s,ロック時間 -0.5秒
 UPGRADE_DOGFIGHT_NAME,格斗大师,Dogfight Master,格闘戦の達人
-UPGRADE_DOGFIGHT_DESC,失速性能改善，减速能力增强，低速狗斗与咬尾更易得手,Better stall behavior and deceleration — easier low-speed dogfights and tail chases,失速特性改善・減速性能向上、低速格闘戦と追尾が容易に
+UPGRADE_DOGFIGHT_DESC,失速速度 -12%、减速 +30%、急转掉速 -15%（每层）,Stall speed -12%; deceleration +30%; high-G speed loss -15% per stack,失速速度-12%・減速+30%・高G旋回の速度損失-15%/層
 UPGRADE_COBRA_SKILL_NAME,眼镜蛇机动,Cobra Maneuver,コブラ機動
-UPGRADE_COBRA_SKILL_DESC,仅在规避模式下生效。被导弹接近或后方追尾时自动触发眼镜蛇机动，短时间无敌,Active in evasion mode only. Auto-triggers Cobra maneuver when missile closes in or enemy gun-tails from behind — brief invulnerability,回避モード時のみ有効。ミサイル接近時または後方ガン追尾時に自動でコブラ機動を発動、短時間無敵
+UPGRADE_COBRA_SKILL_DESC,当前操控机按 R 手动释放眼镜蛇（无需加力）；AI 僚机受威胁时自动释放；与 J-Turn、胆大妄为互斥,Press R to trigger a Cobra in the controlled jet (no Afterburner required); AI wingmen auto-trigger when threatened; exclusive with J-Turn and Reckless Abandon,操作中の機体はRでコブラを手動発動（AB不要）；AI僚機は被脅威時に自動発動；Jターン・大胆不敵とは排他
 AIRCRAFT_F16_DISPLAY,F-16C Block 50,F-16C Block 50,F-16C Block 50
 AIRCRAFT_F16_CARDDESC,多用途战斗机。携带热诱弹可 100% 规避来袭导弹，攻守兼备的入门之选。,Multirole fighter. Flares grant 100% evasion on incoming missiles. A balanced starter pick.,マルチロール戦闘機。フレアで来襲ミサイルを100%回避可能、攻守バランスの入門機。
 AIRCRAFT_F14_DISPLAY,F-14A Ghost,F-14A Ghost,F-14A Ghost
@@ -397,9 +398,13 @@ TUTORIAL_RULE_AUTOFLY,• 飞机会自动向前飞行，不会停下,• Your ai
 TUTORIAL_RULE_CLICKMOVE,• 点击地图任意位置，飞机会转向并飞往该标记点,• Click anywhere on the map — your aircraft turns and flies toward the marker,• マップをクリックすると、機体はその地点に向かって旋回・飛行します
 TUTORIAL_CLICK_ATTACK,[color=#ffe08a][左键点击敌机][/color]  下达攻击指令,[color=#ffe08a][Left-click enemy][/color]  Issue attack order,[color=#ffe08a][左クリック][/color]  敵機に攻撃指示
 TUTORIAL_AUTO_FIRE,[color=#ffe08a][雷达锁定完成][/color]  自动发射导弹,[color=#ffe08a][Radar lock complete][/color]  Missile auto-fires,[color=#ffe08a][ロックオン完了][/color]  ミサイル自動発射
+TUTORIAL_AFTERBURNER,[color=#ffe08a][E 加力模式][/color]  全队极速脱离并闪避火力，但期间无法攻击；再按 E 提前关闭,[color=#ffe08a][E Afterburner][/color]  Squad-wide escape burst that evades fire but disables attacks; press E again to stop,[color=#ffe08a][E アフターバーナー][/color]  全隊で高速離脱し攻撃を回避（使用中は攻撃不可）；Eでもう一度停止
+TUTORIAL_ASSAULT,[color=#ffe08a][双击敌机][/color]  突击模式：强制机炮贴身追击，直到目标被消灭,[color=#ffe08a][Double-click enemy][/color]  Assault mode: force a close-range gun attack until the target is destroyed,[color=#ffe08a][敵機をダブルクリック][/color]  突撃モード：目標撃破まで機銃で接近追撃
 TUTORIAL_CAMERA,[color=#ffe08a][WASD / 中键拖动][/color]  自由平移（默认跟随玩家，[color=#ffe08a]空格[/color]重新锁定）,"[color=#ffe08a][WASD / MMB drag][/color]  Free-pan (follows you by default, [color=#ffe08a]Space[/color] to re-lock)",[color=#ffe08a][WASD / 中ドラッグ][/color]  自由移動（既定は追尾、[color=#ffe08a]スペース[/color]で再ロック）
 TUTORIAL_ZOOM,[color=#ffe08a][滚轮][/color]  缩放视野,[color=#ffe08a][Wheel][/color]  Zoom view,[color=#ffe08a][ホイール][/color]  ズーム
 TUTORIAL_WORLD_CLICK,点击攻击,CLICK TO ATTACK,クリックで攻撃
+TUTORIAL_WINGMAN_HEADER,[ 僚机已加入 ],[ Wingman Joined ],[ 僚機が合流 ]
+TUTORIAL_WINGMAN_SWITCH_FMT,[color=#ffe08a][按数字键 %d][/color]  接管对应号机；数字永远绑定同一架飞机。完成一次切换后本提示消失。,[color=#ffe08a][Press %d][/color]  Take control of that aircraft; each number always stays bound to the same plane. This hint disappears after one switch.,[color=#ffe08a][数字キー %d][/color]  対応する機体を操作。番号は常に同じ機体に固定され、一度切り替えるとこの案内は消えます。
 AIRCRAFT_X02_DISPLAY,X-02 Wraith,X-02 Wraith,X-02 Wraith
 AIRCRAFT_X02_CARDDESC,实验型武器平台。无传统机炮导弹热诱弹。装备电磁炮（远距高伤）+ 360° 激光（贴脸 DoT）。云中激光威力锐减，电磁炮不受影响。,Experimental weapon platform. No conventional gun/missile/flare. Equipped with railgun (long-range high-dmg) + 360° laser (close-range DoT). Laser weakens in clouds; railgun unaffected.,試作型兵器プラットフォーム。従来の機関砲/ミサイル/フレアなし。電磁砲（遠距離高威力）+ 360°レーザー（近接DoT）装備。雲中はレーザー威力低下、電磁砲は影響なし。
 TAG_RAILGUN,电磁炮,Railgun,電磁砲
@@ -432,7 +437,7 @@ UPGRADE_SKILL_MISSILE_HIT_INVUL_DESC,被导弹命中后 8s 无敌（无敌期间
 UPGRADE_SKILL_LOWEST_ALT_KILL_INVUL_NAME,空中战车,Sky Chariot,空中戦車
 UPGRADE_SKILL_LOWEST_ALT_KILL_INVUL_DESC,在低空击杀敌人后无敌 8 秒,Killing an enemy at low altitude grants 8s invulnerability,低空で敵を撃墜すると8秒間無敵
 UPGRADE_SKILL_GUN_KILL_FEAR_NAME,机炮震慑,Gun Strike Terror,機関砲威圧
-UPGRADE_SKILL_GUN_KILL_FEAR_DESC,机炮击杀使周围敌方恐惧 3s,Gun kill applies 3s Fear in nearby enemies,機関砲撃墜で周囲敵に3秒恐怖
+UPGRADE_SKILL_GUN_KILL_FEAR_DESC,机炮击杀使目标周围 2.4km 内敌方恐惧 5 秒,Gun kills inflict 5s Fear on enemies within 2.4km of the target,機関砲撃墜で目標の周囲2.4kmの敵に5秒恐怖
 RARITY_STABLE,稳定,Stable,安定
 RARITY_ADVANCED,先进,Advanced,先進
 RARITY_EXPERIMENTAL,实验,Experimental,実験
@@ -445,7 +450,7 @@ UPGRADE_EVASION_WEAPON_CD_DESC,加力模式中武器冷却流逝 ×2（出加力
 UPGRADE_SKILL_KILL_STATUS_HEAL_NAME,虐弱,Prey on Weakness,弱者狩り
 UPGRADE_SKILL_KILL_STATUS_HEAL_DESC,击杀有异常状态的敌人后回 30 HP,Killing afflicted enemies restores 30 HP,異常敵を撃墜で30HP回復
 UPGRADE_SKILL_FLARE_AOE_JAM_NAME,扰乱投弹,Flare Static,フレア妨害
-UPGRADE_SKILL_FLARE_AOE_JAM_DESC,发射热诱弹后周围敌方进入干扰 3s,Releasing flares jams nearby enemies for 3s,フレア投下で周囲を3秒妨害
+UPGRADE_SKILL_FLARE_AOE_JAM_DESC,释放热诱弹后使周围 1.2km 内敌方干扰 3 秒,Releasing flares jams enemies within 1.2km for 3s,フレア使用で周囲1.2kmの敵を3秒ジャミング
 UPGRADE_SKILL_GUN_KILL_FLARE_DROP_NAME,机炮余烬,Gun Embers,機関砲の残光
 UPGRADE_SKILL_GUN_KILL_FLARE_DROP_DESC,机炮击杀产生 flare 区域，干扰附近导弹,Gun kills drop a JAM zone deflecting nearby missiles,機関砲撃墜で妨害域を生成
 UPGRADE_SKILL_MISSILE_HIT_AOE_JAM_NAME,寒蝉效应,Hit-and-Hush,被弾静寂
@@ -458,6 +463,8 @@ UPGRADE_LOW_HP_FLARE_RELOAD_NAME,绝境装填,Last-Stand Reload,絶境装填
 UPGRADE_LOW_HP_FLARE_RELOAD_DESC,HP < 50% 时热诱弹装填速度翻倍,Flare reload ×2 below 50% HP,HP<50%でフレア装填×2
 UPGRADE_HIGH_ALT_LOCK_SPEED_NAME,平流层雷达,Stratosphere Radar,成層圏レーダー
 UPGRADE_HIGH_ALT_LOCK_SPEED_DESC,在最高度档锁定速率 +30%,Lock speed +30% at HIGH altitude,最高度ロック速度+30%
+UPGRADE_CLOSE_RANGE_LOCK_NAME,近距捕获,Close-Range Acquisition,近距離捕捉
+UPGRADE_CLOSE_RANGE_LOCK_DESC,距离目标越近主雷达锁定越快：雷达边缘 ×1 / 半程 ×1.5 / 贴身最高 ×2,Primary radar locks faster at close range: ×1 at radar edge / ×1.5 at half range / up to ×2 point-blank,対象に近いほど主レーダーのロックが加速：レーダー端×1・半距離×1.5・至近距離で最大×2
 UPGRADE_AB_GUN_REGEN_NAME,加力供弹,Burner Feeder,アフターバーナー給弾
 UPGRADE_AB_GUN_REGEN_DESC,加力时机炮弹药每秒回复 25 发,AB regenerates 25 gun rounds/s,AB中機関砲弾25発/秒回復
 UPGRADE_ALT_CHANGE_STEALTH_NAME,垂直机动隐身,Vertical Slip,垂直機動ステルス
@@ -467,15 +474,15 @@ UPGRADE_HEAD_ON_GUN_DODGE_DESC,对头交锋时机炮闪避 +60%,Gun dodge +60% i
 UPGRADE_GUN_FIRE_DR_NAME,火力护盾,Suppression Shield,制圧シールド
 UPGRADE_GUN_FIRE_DR_DESC,机炮发射后 0.5s 内受到伤害 -50%,-50% damage taken for 0.5s after firing guns,発砲後0.5秒間の被ダメージ-50%
 UPGRADE_FEAR_ON_LOCK_NAME,凝视压迫,Lock Stare,ロック圧迫
-UPGRADE_FEAR_ON_LOCK_DESC,持续锁定敌人 8s 后给其施加恐惧（恐惧消退后重新累积）,Continuous lock 8s applies Fear (resets after Fear expires),8秒間ロック継続で恐怖（恐怖解除後再蓄積）
+UPGRADE_FEAR_ON_LOCK_DESC,持续锁定敌人 4 秒后使其恐惧 4 秒；恐惧消退后可重新累积,Lock an enemy continuously for 4s to inflict 4s Fear; buildup restarts after Fear expires,敵を4秒連続ロックすると4秒恐怖・解除後に再蓄積可能
 UPGRADE_CLOUD_OVERLOAD_NAME,云中超载,Cloud Surge,雲中サージ
 UPGRADE_CLOUD_OVERLOAD_DESC,在云中获得超载状态,Overload while in clouds,雲中でオーバーロード
 UPGRADE_CLOUD_WEAPON_CD_NAME,云隙快攻,Cloud Cover Tempo,雲中速攻
 UPGRADE_CLOUD_WEAPON_CD_DESC,云中所有武器 cd ×0.5,All weapon cooldowns ×0.5 in clouds,雲中武器CD×0.5
 UPGRADE_EVASION_STEALTH_NAME,雾隐机动,Phantom Veil,霧隠機動
-UPGRADE_EVASION_STEALTH_DESC,加力模式中获得隐身效果,Stealth while in Afterburner mode,ABモード中ステルス
+UPGRADE_EVASION_STEALTH_DESC,加力持续 2 秒后进入隐身，直至加力结束,Enter stealth after 2s of continuous Afterburner; lasts until Afterburner ends,ABを2秒継続するとステルス化しAB終了まで持続
 UPGRADE_EVASION_HERBST_NAME,危机赫尔贝特,Crisis J-Turn,危機Jターン
-UPGRADE_EVASION_HERBST_DESC,加力模式下来袭导弹/后方机炮追尾时自动启动赫尔贝特轮（J-Turn）,Afterburner mode auto-triggers J-Turn vs incoming missile / rear gun chase,ABモードで来襲ミサイル/後方追尾時にJターン自動発動
+UPGRADE_EVASION_HERBST_DESC,当前操控机按 R 手动释放 J-Turn（无需加力）；AI 僚机受威胁时自动释放；与眼镜蛇、胆大妄为互斥,Press R to trigger a J-Turn in the controlled jet (no Afterburner required); AI wingmen auto-trigger when threatened; exclusive with Cobra and Reckless Abandon,操作中の機体はRでJターンを手動発動（AB不要）；AI僚機は被脅威時に自動発動；コブラ・大胆不敵とは排他
 UPGRADE_EVASION_OVERSTOCK_NAME,弹仓过载,Overstock Bay,弾倉オーバーロード
 UPGRADE_EVASION_OVERSTOCK_DESC,加力模式中每 4s 装填 1 发导弹（突破上限至 2 倍）,Afterburner mode reloads +1 missile per 4s up to 2× cap,ABモード4秒毎ミサイル+1（上限2倍）
 UPGRADE_OVERLOAD_DURATION_4X_NAME,过载共振,Surge Resonance,オーバーロード共鳴
@@ -568,7 +575,7 @@ UPGRADE_SKILL_ROCKET_HOMING_DESC,火箭弹发射后获得弱追踪能力（1200m
 UPGRADE_TORPEDO_TRACKING_BOOST_NAME,漂浮雷·猎手感应,Drift Mine Hunter,浮遊機雷ハンター
 UPGRADE_TORPEDO_TRACKING_BOOST_DESC,漂浮雷扫描距离 ×1.6 + 转向速率 ×2.2。每层叠加。,Drift mine scan ×1.6 + turn rate ×2.2 per stack,浮遊機雷の索敵 ×1.6・旋回 ×2.2（積み重ね可）
 UPGRADE_SKILL_LASER_DAMAGE_NAME,激光·致命输出,Lethal Lasing,致死照射
-UPGRADE_SKILL_LASER_DAMAGE_DESC,激光在减速基础上叠加完整 DPS 伤害（贴脸 dps_max → 满射程 dps_min 衰减），让光束从压制武器变成实质杀伤,Lasers also deal full DPS damage on top of the slow effect (close-range dps_max → max-range dps_min falloff),激光は減速に加えて完全な DPS ダメージも与える（密着 dps_max → 最大射程 dps_min で減衰）
+UPGRADE_SKILL_LASER_DAMAGE_DESC,激光在保留减速效果的同时开始造成伤害；近距离伤害最高，随距离衰减,Lasers begin dealing damage while retaining their slow; damage is highest up close and falls with distance,レーザーが減速効果を保ったままダメージを与える・近距離で最大、距離で減衰
 UPGRADE_LASER_EXTRA_BEAMS_NAME,激光·分束扩容,Laser Splitter,レーザー分岐拡張
 UPGRADE_LASER_EXTRA_BEAMS_DESC,激光可同时照射的目标数 +1（每层叠加，最多 +2）。每束独立衰减，多目标覆盖更强,+1 simultaneous laser target per stack (max +2); each beam attenuates independently,レーザー同時照射目標+1/層（最大+2）。各ビームは独立減衰
 WHEEL_REGROUP,紧急集合,Regroup,緊急集合
@@ -594,7 +601,7 @@ WHEEL_CENTER_MOVE,前往此处,Move Here,ここへ移動
 WHEEL_CENTER_ATTACK,攻击目标,Attack,目標攻撃
 WHEEL_TIP_REGROUP,全队立即中断当前任务（含攻击命令），飞向该点集合。,All units abort current tasks (incl. attack orders) and regroup at this point.,全機が現在の任務（攻撃命令含む）を中断し、この地点に集合します。
 WHEEL_TIP_EVAC,3 公里圈内的队员立刻脱战、向圈外撤离；已在圈外的队员不受影响。,Units inside the 3 km circle disengage and evacuate outward; units already outside are unaffected.,3km圏内の機体は即座に離脱し圏外へ退避。圏外の機体には影響しません。
-WHEEL_TIP_GUARD,全队前往该点驻防：在 3 公里警戒圈内盘旋，攻击进圈之敌，不追出圈外。,Squad garrisons this point: orbit inside the 3 km circle and engage intruders without chasing out.,全機がこの地点を防衛：3km警戒圏内を旋回し、侵入する敵のみ攻撃します。
+WHEEL_TIP_GUARD,全队前往该点清剿：自主搜索并分头攻击 3 公里圈内全部敌人，击杀后继续接敌；不追出圈外，清空后继续守备。,"Squad clears this area: independently find and engage every enemy inside the 3 km circle, chaining targets until clear; never chase outside and keep guarding afterward.",全機がこの地点を掃討：3km圏内の全敵を自律索敵して分担攻撃し、撃破後も次の敵へ移行。圏外へは追わず、掃討後も防衛を続けます。
 WHEEL_TIP_AUTO_ENGAGE,开启后空闲时自动攻击靠近小队的敌人（圈内为搜敌范围）。,When ON idle units automatically engage enemies near the squad (circle = search range).,ONにすると待機中に接近する敵を自動攻撃します（円は索敵範囲）。
 WHEEL_TIP_ALT_PREF,设定全队高度偏好：爬升抢占高位，低空贴地飞行。,Set squad altitude preference: climb for high ground or hug the deck.,高度設定：上昇で高位を確保、低空で低高度を維持します。
 WHEEL_TIP_AUTOFIRE,开启后导弹有射击解算即自动发射，无需手动开火。,When ON missiles fire automatically whenever a firing solution exists.,ONにすると射撃解が得られ次第ミサイルを自動発射します。
@@ -622,7 +629,7 @@ REWARD_WINGMAN_DESC,立即 2 架同型王牌僚机入队（编队上限 9），�
 REWARD_WEAPON_TAILMINE_NAME,尾部漂浮雷,Tail Floating Mines,後方フロートマイン
 REWARD_WEAPON_TAILMINE_DESC,向后方一次布 3 枚漂浮雷，弱追踪 1500m 内敌机，近炸 130m 范围 80 伤害——甩掉咬尾用,Drops 3 drifting mines behind you; they weakly home on aircraft within 1500m and detonate for 80 damage in a 130m blast — a bite-back for tailers,後方にフロートマイン3発を投下。1500m内の敵を緩く追尾し130m範囲に80ダメージ——追尾機の引き剥がし用
 REWARD_WEAPON_LOYAL_NAME,忠诚僚机,Loyal Wingman Drone,ロイヤルウィングマン
-REWARD_WEAPON_LOYAL_DESC,每 8 秒放出 1 架自主无人机（同场最多 2 架），逼近至 80m 自爆（60m 范围 30 伤害）,Launches an autonomous drone every 8s (2 airborne max); it engages on its own and kamikazes within 80m for 30 damage in a 60m blast,8秒ごとに自律無人機を1機射出（同時2機まで）。敵に80mまで接近して自爆（60m範囲30ダメージ）
+REWARD_WEAPON_LOYAL_DESC,加力模式中每 8 秒放出 1 架自主无人机（同场最多 2 架），逼近至 80m 自爆（60m 范围 30 伤害）,"While Afterburner is active, launches an autonomous drone every 8s (2 airborne max); it engages on its own and kamikazes within 80m for 30 damage in a 60m blast",加力モード中、8秒ごとに自律無人機を1機射出（同時2機まで）。敵に80mまで接近して自爆（60m範囲30ダメージ）
 REWARD_WEAPON_QMAAM_NAME,QMAAM 格斗弹,QMAAM Missiles,QMAAM ミサイル
 REWARD_WEAPON_QMAAM_DESC,副弹槽装填高机动格斗弹：60G / 120° 导引头 / 8 秒冷却，专打近距缠斗；已有则补弹,Loads a high-agility dogfight missile in the secondary rack: 60G / 120° seeker / 8s cooldown for knife-fight range; adds ammo if you already have one,副兵装に高機動格闘ミサイルを搭載：60G旋回・120°シーカー・CD8秒。所持済みなら弾数追加
 CARRIER_INBOUND_HINT,⚓ 友军航母正从南方水道入场,⚓ Allied carrier inbound from the southern channel,⚓ 友軍空母が南水道から進入中
@@ -644,6 +651,7 @@ ATTR_STAT_MAX_HP,血量,Hull HP,耐久
 ATTR_STAT_GUN_DAMAGE,机炮伤害,Gun damage,機関砲威力
 ATTR_STAT_GUN_RANGE,机炮射程,Gun range,機関砲射程
 ATTR_STAT_MAX_G,G 力,G limit,G限界
+ATTR_STAT_STALL_SPEED,失速速度,Stall speed,失速速度
 ATTR_STAT_GUN_AMMO,机炮备弹,Gun ammo,機関砲弾数
 ATTR_STAT_MISSILE_COUNT,导弹挂载,Missile racks,ミサイル搭載数
 ATTR_STAT_RADAR_RANGE,雷达距离,Radar range,レーダー距離
@@ -658,6 +666,9 @@ ATTR_AIRCRAFT_DATA,机体状态,AIRFRAME STATUS,機体ステータス
 ATTR_BONUS_NONE,暂无加成——选卡加点解锁,No bonus yet - pick cards to unlock,強化なし——カードで解放
 ATTR_STAT_FLARE_CD,热诱弹冷却,Flare cooldown,フレアCD
 ATTR_STAT_RADAR_CONE,雷达锥角,Radar cone,レーダー角
+ATTR_STAT_DAMAGE_REDUCTION,伤害减免,Damage reduction,ダメージ軽減
+ATTR_STAT_MISSILE_LOCKS,导弹锁定目标数,Missile target locks,ミサイルロック対象数
+ATTR_STAT_XP_GAIN,经验值,XP gain,経験値
 ATTR_SUM_ALL,三轴合计,Total points,三軸合計
 EVOLUTION_CAT_BRIDGE,桥接,Bridge,ブリッジ
 EVOLUTION_CAT_STEALTH,隐身渗透,Stealth,ステルス
@@ -806,7 +817,7 @@ UPGRADE_QMAAM_BOOST_DESC,格斗弹 +1，射程 +10%（每层）,+1 dogfight miss
 UPGRADE_WINGMAN_EXTRA_NAME,忠诚僚机·额外,Loyal Wingman: Extra,ロイヤルウィングマン・増機
 UPGRADE_WINGMAN_EXTRA_DESC,可同时存在的忠诚僚机数量 +1（每层）,+1 max simultaneous drone per stack,同時展開ドローン数+1/層
 UPGRADE_WINGMAN_ARMED_NAME,忠诚僚机·武装,Loyal Wingman: Armed,ロイヤルウィングマン・武装
-UPGRADE_WINGMAN_ARMED_DESC,无人机武器伤害 +30%、射程 +20%，自爆威力提升,Drone weapon damage +30%; range +20%; stronger self-destruct,ドローン火力+30%・射程+20%・自爆威力向上
+UPGRADE_WINGMAN_ARMED_DESC,无人机武器伤害 +30%、射程 +20%、自爆伤害 +30%,Drone weapon damage +30%; range +20%; self-destruct damage +30%,ドローン火力+30%・射程+20%・自爆ダメージ+30%
 UPGRADE_COCKPIT_ARMOR_NAME,座舱护甲,Cockpit Armor,コックピット装甲
 UPGRADE_COCKPIT_ARMOR_DESC,来自地面火力（SAM/高炮/CIWS）的伤害 -50%（每层）,-50% damage from ground fire (SAM/AA/CIWS) per stack,地上火力（SAM/対空砲/CIWS）被ダメージ-50%/層
 UPGRADE_SQUAD_REVENGE_NAME,复仇之战,War of Vengeance,復讐の戦い
@@ -844,13 +855,13 @@ UPGRADE_SPEED_BY_KNIGHT_DESC,按已持有的【骑士轴】技能数提升最高
 UPGRADE_EW_EXPERT_NAME,电子战专家,EW Expert,電子戦エキスパート
 UPGRADE_EW_EXPERT_DESC,按已持有的【策士轴】技能数提升雷达距离（+100m/条，上限 +1km）,+100m radar range per Schemer-axis skill owned (cap +1km),策士軸スキル数×+100mレーダー（上限+1km）
 UPGRADE_WEAPON_MASTER_NAME,武器大师,Weapon Master,ウェポンマスター
-UPGRADE_WEAPON_MASTER_DESC,按装备武器数降低全武器冷却（每件 -5%，上限 -30%）,-5% weapon cooldowns per equipped weapon (cap -30%),装備武器数×-5%全武器CD（上限-30%）
+UPGRADE_WEAPON_MASTER_DESC,全武器冷却 -5%/件（机炮+导弹起步 -10%，上限 -30%）,-5% all-weapon cooldown per weapon (gun + missiles start at -10%; cap -30%),全武器CD -5%/個（機関砲+ミサイルで初期 -10%、上限 -30%）
 UPGRADE_RAILGUN_DOUBLE_NAME,双发,Double Tap,二連射
 UPGRADE_RAILGUN_DOUBLE_DESC,电磁炮蓄力完成后沿同一弹道连发两发,Railgun fires twice along the same trajectory per charge,レールガンが同一弾道で二連射
 UPGRADE_MISSILE_SECOND_STAGE_NAME,二段推进,Second Stage,二段推進
 UPGRADE_MISSILE_SECOND_STAGE_DESC,导弹一段燃尽后持续加速（上限 ×1.2）且转弯渐强（最高 +50%），距离越远越准,Missiles keep accelerating after burnout (cap x1.2) with growing turn G (up to +50%),ミサイル燃焼後も加速（×1.2）・旋回G漸増（最大+50%）
 UPGRADE_MANUAL_DODGE_NAME,胆大妄为,Reckless Abandon,大胆不敵
-UPGRADE_MANUAL_DODGE_DESC,禁用自动热诱弹；热诱弹 +6；R 键手动闪避（滚转+投焰）；无热诱弹也可滚转，命中瞬间 0.25s 无敌窗口时机严格,No auto flares; +6 flares; R triggers a manual dodge roll (flare included); strict 0.25s i-frame window,自動フレア禁止・フレア+6・Rキー手動回避（厳格な0.25秒無敵窓）
+UPGRADE_MANUAL_DODGE_DESC,全队禁用普通自动热诱弹且热诱弹 +6；当前操控机按 R 滚转+投焰；AI 僚机受威胁自动释放；0.25s 严格无敌窗；与眼镜蛇、J-Turn 互斥,Disables normal auto flares squad-wide and grants +6 flares; R rolls and drops flares in the controlled jet while AI wingmen auto-trigger under threat; strict 0.25s i-frame; exclusive with Cobra and J-Turn,全隊の通常自動フレアを無効化しフレア+6；操作中はRでロール＋投射、AI僚機は被脅威時に自動発動；厳格な0.25秒無敵窓；コブラ/Jターンとは排他
 UPGRADE_SIG_F15_NAME,无败之鹰,Flawless Eagle,無敗の鷲
 UPGRADE_SIG_F15_DESC,生命值全满时：机炮伤害 +20%、锁定速度 +20%,While at full HP: gun damage +20% and lock speed +20%,HP満タン時：機関砲ダメージ+20%・ロック速度+20%
 UPGRADE_SIG_A6E_NAME,盲飞入侵,All-Weather Intruder,全天候侵入
@@ -884,7 +895,7 @@ UPGRADE_SIG_SU34_DESC,加力窗口期间每秒回复 2 点生命,Regenerate 2 HP
 UPGRADE_SIG_VIGGEN_NAME,唯一的锁定,The Only Lock,唯一のロック
 UPGRADE_SIG_VIGGEN_DESC,目标脱离雷达后锁定保持 3 秒；雷达距离 +500m,Locks persist for 3s after the target leaves your radar; radar range +500m,目標がレーダーから外れてもロックを3秒維持・レーダー距離+500m
 UPGRADE_SIG_MIG31_NAME,超速截击,Overspeed Intercept,超速迎撃
-UPGRADE_SIG_MIG31_DESC,加力窗口中自动向锁定目标发射导弹且弹速 +30%,During the afterburner window missiles auto-fire at locked targets with +30% speed,アフターバーナー中ロック目標へ自動ミサイル発射・弾速+30%
+UPGRADE_SIG_MIG31_DESC,加力窗口中自动向机头前半球雷达锥内的锁定目标发射导弹且弹速 +30%,During the afterburner window missiles auto-fire at locked targets inside both the forward hemisphere and radar cone with +30% speed,アフターバーナー中は機首前方半球かつレーダーコーン内のロック目標へ自動ミサイル発射・弾速+30%
 UPGRADE_SIG_HARRIER_NAME,VIFFing,VIFFing,VIFFing
 UPGRADE_SIG_HARRIER_DESC,减速效率 +50%；降到 200 km/h 以下时获得 4 秒无敌（冷却 20 秒）,Deceleration +50%; dropping below 200 km/h grants 4s invincibility (20s cooldown),減速効率+50%・200km/h未満で4秒無敵（CD20秒）
 UPGRADE_SIG_F15SMTD_NAME,矢量鸭翼,Vectored Canard,ベクタードカナード
@@ -896,7 +907,7 @@ UPGRADE_SIG_F35_DESC,僚机可以直接对你锁定的目标发射导弹,Wingmen
 UPGRADE_SIG_GRIPEN_E_NAME,电战预算,Budget EW,低コスト電子戦
 UPGRADE_SIG_GRIPEN_E_DESC,免疫干扰、减速与恐惧等一切异常状态,Immune to jamming / slow / fear and all other debuffs,ジャミング・減速・恐怖など全ての状態異常を無効化
 UPGRADE_SIG_F22_NAME,先敌开火,First Look First Kill,先制撃破
-UPGRADE_SIG_F22_DESC,进入隐身的瞬间装填所有武器；隐身期间导弹可多重齐射,Entering stealth instantly reloads all weapons; multi-lock salvo while stealthed,ステルス突入時に全武装を即装填・ステルス中はミサイル一斉発射可能
+UPGRADE_SIG_F22_DESC,进入隐身的瞬间装填所有武器；隐身期间导弹锁定目标数 +2,Entering stealth instantly reloads all weapons; +2 missile target locks while stealthed,ステルス突入時に全武装を即装填・ステルス中はミサイルロック対象数+2
 UPGRADE_SIG_SU57_NAME,多波段搜索,Multi-band Search,マルチバンド索敵
 UPGRADE_SIG_SU57_DESC,雷达锥角 +40°,Radar cone +40°,レーダー角+40°
 UPGRADE_SIG_J20_NAME,霹雳长矛,Long Spear,霹靂の長槍
@@ -914,7 +925,7 @@ UPGRADE_SIG_FCAS_DESC,你获得的超载、嗜血、隐身与无敌会同步施�
 UPGRADE_SIG_GCAP_NAME,联合突击,Joint Assault,統合突撃
 UPGRADE_SIG_GCAP_DESC,每有 1 名僚机存活：导弹挂载 +1、雷达距离 +5%（最多 4 层）,For each living wingman: missile capacity +1 and radar range +5% (max 4),生存僚機1機ごとにミサイル+1・レーダー距離+5%（最大4）
 UPGRADE_SIG_J36_NAME,三发推力,Triple Thrust,三発推力
-UPGRADE_SIG_J36_DESC,下达突击命令后机动性与加减速大幅提升直到目标被消灭（冷却 15 秒）,Issuing an assault order greatly boosts agility and acceleration until the target is destroyed (15s cooldown),突撃命令後は目標撃破まで機動性と加減速が大幅向上（CD15秒）
+UPGRADE_SIG_J36_DESC,下达突击命令后持续 G +2、滚转 +30%、加减速 +40%，直到目标被消灭（冷却 15 秒）,After an assault order: sustained G +2; roll +30%; acceleration/deceleration +40% until the target is destroyed (15s cooldown),突撃命令後は目標撃破まで持続G+2・ロール+30%・加減速+40%（CD15秒）
 UPGRADE_SIG_X09_NAME,夜枭,Silent Owl,夜梟
 UPGRADE_SIG_X09_DESC,你的导弹有 40% 概率不被敌人察觉（不规避、不投热诱弹）,Your missiles have a 40% chance to go unnoticed with no evasion and no flares,自軍ミサイルは40%の確率で敵に察知されない（回避もフレアもなし）
 UPGRADE_SIG_X13_NAME,全频段压制,Full-Spectrum,全周波数制圧
@@ -928,7 +939,7 @@ UPGRADE_SIG_X44_DESC,机炮可朝前方 180° 范围开火,The gun can fire acro
 UPGRADE_SIG_X77_NAME,引渡人,The Ferryman,渡し守
 UPGRADE_SIG_X77_DESC,导弹击杀敌机后进入 5 秒隐身,Missile kills grant 5s of stealth,ミサイル撃墜後5秒間ステルス
 UPGRADE_SIG_X90_NAME,鲸群,Whale Pod,鯨群
-UPGRADE_SIG_X90_DESC,持续生成忠诚僚机；与 1500m 内的友军共享血量、伤害平分,Continuously spawns loyal wingmen; damage is shared evenly with allies within 1500m,忠実僚機を継続生成・1500m内の友軍とダメージを均等分担
+UPGRADE_SIG_X90_DESC,每 25 秒生成 1 架忠诚僚机（最多 3 架）；与 1500m 内友军平分所受伤害,Spawn 1 loyal wingman every 25s (max 3); incoming damage is split with allies within 1500m,25秒ごとに忠実僚機を1機生成（最大3）・1500m内の友軍と被ダメージを均等分担
 UPGRADE_SIG_AX00_NAME,双子星,Gemini,ジェミニ
 UPGRADE_SIG_AX00_DESC,立即复制 3 架同型僚机并继承全部技能,Instantly clones three wingmen of your aircraft inheriting your full build,同型僚機3機を即時複製・全スキルを継承
 ZONE_F_NAME,荒川北岸,Arakawa North,荒川北岸
@@ -948,11 +959,13 @@ ACE_SQUAD_ORION_NAME,猎户座,Orion,オリオン
 ACE_SQUAD_GIMMICK_NAME,把戏,Gimmick,ギミック
 ACE_SQUAD_GOOFIGHTERS_NAME,怪火,Goo Fighters,怪火
 ACE_SQUAD_VULTURE_NAME,秃鹫,Vulture,ハゲワシ
+ACE_SQUAD_WHITETEA_NAME,WhiteTea,WhiteTea,WhiteTea
 ACE_SQUAD_MARATHON_LORE,佣兵中队，只接消耗战合同。队规只有一条：猎物会先累。保持着 42 分钟不间断咬尾追击的战区纪录——那一单雇主付了双倍，因为目标是在第 41 分钟自己栽进海里的。,A mercenary squadron that only takes attrition contracts. One standing rule: the prey tires first. Holds the theater record — a 42-minute uninterrupted tail chase. The client paid double: the target ditched itself into the sea at minute 41.,消耗戦の依頼だけを受ける傭兵飛行隊。隊訓はただ一つ——先にバテるのは獲物の方だ。42分間ノンストップの追撃という戦域記録を持つ。その依頼の報酬は倍額だった。獲物は41分目に自分から海へ墜ちたからだ。
 ACE_SQUAD_2NDWAVE_LORE,敌军高等战术学校的毕业考核编队。四名学员驾驶最新锐的 F-15，而教官那架 F-4E 比他们的座机整整老两代。开课三十年，没有任何学员在毕业考核里击落过 Teacher——这一届的考题，是你。,The graduation-exam flight of the enemy's advanced tactics school. Four cadets fly factory-new F-15s; the instructor's F-4E is two full generations older. In thirty years no student has ever scored a kill on Teacher. This year's exam question is you.,敵軍高等戦術学校の卒業試験編隊。四人の学生は最新鋭のF-15を、教官は二世代も古いF-4Eを駆る。開校三十年、卒業試験でTeacherを墜とした学生は一人もいない。今年の試験問題は——君だ。
 ACE_SQUAD_ORION_LORE,Cre 系对抗学习原型机。制造者只写了一条需求：输了就学，学了就再来。每一架被击落的 Cre，都会把最后三十秒的数据留给下一架。合同排到第 99 架为止——按测算，到那时它应该已经赢了。,"The Cre-series adversarial learning prototype. Its maker wrote a single requirement: lose, learn, return. Every Cre shot down bequeaths its final thirty seconds of data to the next airframe. The contract runs to unit 99 — by then, the projections say, it should already have won.",Cre系対抗学習試作機。発注書の要求はただ一行——負けたら学べ。学んだら戻れ。撃墜された機体は最後の三十秒のデータを次の機体へ残す。契約は99号機まで。試算では、その頃にはもう勝っているはずだった。
 ACE_SQUAD_GIMMICK_LORE,一支只会一套把戏的中队：远处两架让你追，追到一半、幻影从侧面咬住你。情报部门早把这套路写进了新兵教材。所有人都知道，所有人还是会上当——因为知道和做到之间，隔着一整场空战。,"A squadron with exactly one trick: two fighters at range daring you to chase, and two Mirages on your six the moment you do. Intelligence put the routine in the cadet handbook years ago. Everyone knows it. Everyone still falls for it — because between knowing and doing lies an entire air battle.",たった一つの手品しか持たない飛行隊。遠くの二機を追えば、その瞬間ミラージュが横から食らいつく。この手口はとっくに新兵教本に載っている。誰もが知っていて、誰もが引っかかる——知ることと出来ることの間には、空戦一回分の距離があるからだ。
 ACE_SQUAD_GOOFIGHTERS_LORE,"雷达兵拒绝在报告里写""敌机""，因为没有敌机那样飞：垂直悬停半秒、原地调头、出现在刚刚还不可能出现的方位。上一个时代的飞行员管这种光叫""怪火""。他们只有两架。到目前为止，够用。","The radar operators refuse to log them as aircraft, because no aircraft flies like that — hanging vertical for half a second, turning on a point, appearing where nothing could be. Pilots of an older war had a name for lights like these: foo fighters. There are only two of them. So far, that has been enough.",レーダー手は報告書に「敵機」と書くのを拒む。敵機はあんな飛び方をしないからだ——半秒の垂直静止、その場での転回、ありえない方位への出現。昔の戦争のパイロットはこういう光を「怪火」と呼んだ。彼らは二機だけ。今のところ、それで足りている。
+ACE_SQUAD_WHITETEA_LORE,"情报员最初以为 WhiteTea 是通讯误录：Tea、Cola、Bottle，怎么听都不像同一支中队。直到三架 F-CK-1 用完全相同的方式穿过交战区——一轮机炮、一次脱离；谁追上去，谁就会看见那架飞机在眼前把航向翻转一百八十度。名字很随意，动作从不随意。","Intelligence first dismissed WhiteTea as a transcription error: Tea, Cola, Bottle hardly sounded like one squadron. Then three F-CK-1s crossed the fight the same way—one gun pass, one extension. Whoever followed saw the aircraft reverse its heading in front of them. The names are casual. The flying never is.",情報員は当初、WhiteTea を通信記録の誤りだと思った。Tea、Cola、Bottle——同じ飛行隊の名には聞こえない。だが三機の F-CK-1 は全く同じやり方で戦域を横切った。機関砲を一連射し、離脱する。追った者は目の前で百八十度反転する機体を見ることになる。名前は気軽だ。飛び方は決してそうではない。
 MENU_ARCHIVE_NAME,资料库,Archive,資料庫
 MENU_ARCHIVE_DESC,敌人图鉴与全部游戏机制说明,Enemy codex and the full manual of game mechanics,敵機名鑑とゲームシステム解説
 ARCHIVE_TITLE,[ 资料库 ],[ ARCHIVE ],[ 資料庫 ]
@@ -986,8 +999,8 @@ INFO_KEY_NUM_BODY,数字键切换到对应号机，直接接管它。原本操�
 SQUAD_CONTROLLED,操控中,CONTROLLED,操作中
 INFO_KEY_E_TITLE,加力模式,Afterburner mode,アフターバーナーモード
 INFO_KEY_E_BODY,全队进入极速冲刺：**机炮打不中你**（100% 闪避）、导弹极难命中（靠滚转甩脱），代价是**期间不能攻击**。这是脱离险境与抢占位置的保命键，不是输出键。\n能量池上限 6 秒，被动回充约 30 秒充满，每次击杀 +0.8 秒，开局满格。**有能量就能启动**，不必等满；激活中再按一次可提前关闭、保住剩余能量。,"The whole squad sprints: **cannon fire cannot touch you** (100% dodge) and missiles are shaken off by rolling — at the price of **not being able to attack** while it lasts. It is an escape-and-reposition button, not a damage button.\nThe pool holds 6 seconds, refills passively in about 30, and gains +0.8s per kill; you start a run with a full tank. **Any charge is enough to start** — press again to end early and bank the rest.",全機が全速スプリントに入る：**機関砲は当たらず**（回避100%）、ミサイルもロールで振り切る。代償は**発動中は攻撃できない**こと。撃つためではなく、離脱と位置取りのためのキーだ。\nエネルギーは上限6秒、自然回復で約30秒、撃墜ごとに+0.8秒、開始時は満タン。**残量があれば発動可能**で、もう一度押せば早期終了して残りを温存できる。
-INFO_KEY_R_TITLE,手动闪避,Manual dodge,手動回避
-INFO_KEY_R_BODY,瞬间做一次规避动作躲开机炮弹流。**需要先获得对应技能**，且有冷却——没有技能时按下无效。,Snaps into an evasive jink that beats incoming cannon fire. **Requires the corresponding skill** and has a cooldown; without the skill the key does nothing.,瞬間的な回避機動で機関砲弾を外す。**対応スキルの取得が前提**でクールダウンあり。未取得なら押しても無反応。
+INFO_KEY_R_TITLE,手动机动,Manual maneuver,手動機動
+INFO_KEY_R_BODY,释放当前已获得的规避机动：眼镜蛇、J-Turn 或胆大妄为。三者互相排斥，拿到一个后另两个不再出现。眼镜蛇/J-Turn **无需先开加力**；没有对应技能或冷却中时按下无效。,"Triggers your acquired evasive maneuver: Cobra, J-Turn, or Reckless Abandon. The three are mutually exclusive; taking one removes the other two from the pool. Cobra and J-Turn **do not require Afterburner**. The key does nothing without a maneuver or while it is cooling down.",取得した回避機動（コブラ・Jターン・大胆不敵）を発動。3つは相互排他で、1つ取得すると残りは出現しない。コブラ/Jターンは**AB不要**。未取得またはクールダウン中は無効。
 INFO_KEY_F_TITLE,导弹自动发射,Missile auto-fire,ミサイル自動発射
 INFO_KEY_F_BODY,开关自机的导弹自动发射。关掉后即使锁定完成也不会自己射，适合攒弹打关键目标。,"Toggles automatic missile launch for your jet. With it off, a completed lock will not fire on its own — useful for saving shots for a target that matters.",自機のミサイル自動発射を切替。オフならロック完了でも自動発射せず、重要目標に温存できる。
 INFO_KEY_Q_TITLE,高度偏好,Altitude preference,高度選好
@@ -1007,7 +1020,7 @@ INFO_KEY_ESC_BODY,打开暂停菜单（冻结全场）。战术地图打开时�
 INFO_SQUAD_GRAMMAR_TITLE,一条操作语法：单点管自己，轮盘管全队,"One rule: click commands you, wheel commands everyone",操作の原則：単クリックは自機、ホイールは全機
 INFO_SQUAD_GRAMMAR_BODY,记住这条就不会下错命令——**单击只指挥你当前操控的那一架**，**轮盘命令永远广播给整个小队**。,"Remember this and you will never mis-issue an order: **a single click commands only the jet you are flying**, while **wheel orders always broadcast to the entire squad**.",これさえ覚えれば誤命令はない——**単クリックは操作中の一機のみ**、**ホイール命令は常に小隊全体へ**。
 INFO_SQUAD_WHEEL_TITLE,小队命令轮盘,Squad command wheel,小隊コマンドホイール
-INFO_SQUAD_WHEEL_BODY,在空域按住拖拽呼出：紧急集合（全力靠拢）、撤离此区（从圈内径向散出并短时禁入）、防守此区（只打圈内目标、出圈不追）。还有几个常驻开关：自动交战、高度偏好、自动发射。,"Hold-drag over empty space: regroup (everyone closes up at full power), evacuate area (scatter radially out of the circle and stay out briefly), guard area (engage only inside the circle, never chase beyond it). It also carries standing toggles: auto-engage, altitude preference, auto-fire.",空域で長押しドラッグ：緊急集合（全力で集結）、エリア退避（円内から放射状に離脱し一時進入禁止）、エリア防衛（円内の敵のみ交戦、円外は追わない）。常設トグル（自動交戦・高度選好・自動発射）も備える。
+INFO_SQUAD_WHEEL_BODY,在空域按住拖拽呼出：紧急集合（全力靠拢）、撤离此区（从圈内径向散出并短时禁入）、防守此区（全队自主清剿圈内全部目标，出圈不追，清空后继续守备）。还有几个常驻开关：自动交战、高度偏好、自动发射。,"Hold-drag over empty space: regroup (everyone closes up at full power), evacuate area (scatter radially out of the circle and stay out briefly), guard area (the squad autonomously clears every target inside, never chases outside, and keeps guarding afterward). It also carries standing toggles: auto-engage, altitude preference, auto-fire.",空域で長押しドラッグ：緊急集合（全力で集結）、エリア退避（円内から放射状に離脱し一時進入禁止）、エリア防衛（全機が圏内の全目標を自律掃討し、圏外へは追わず、掃討後も防衛継続）。常設トグル（自動交戦・高度選好・自動発射）も備える。
 INFO_SQUAD_ATTACK_TITLE,攻击轮盘,Attack wheel,攻撃ホイール
 INFO_SQUAD_ATTACK_BODY,在敌人身上按住拖拽呼出，两个维度自由组合：**姿态**（保持距离＝打了就拉开 / 突击＝贴身缠住）×**火力分配**（集火＝全队同一目标并自动从不同方位切入 / 分火＝各自挑目标、不重复超杀）。,"Hold-drag on a hostile. Two independent axes: **stance** (stand off — shoot and separate / assault — stay glued) × **fire allocation** (focus — everyone on one target, entering from separated bearings / spread — pick individual targets and avoid overkill).",敵機上で長押しドラッグ。二軸を自由に組み合わせる：**姿勢**（距離維持＝撃って離脱／突撃＝密着）×**火力配分**（集中＝全機同一目標へ別方位から／分散＝各自別目標でオーバーキル回避）。
 INFO_SQUAD_IRON_TITLE,点名目标是铁律,Assigned targets are law,指定目標は絶対
@@ -1105,6 +1118,56 @@ CODEX_AF03_NAME,AF-03 电磁炮无人机,AF-03 Railgun Drone,AF-03 レールガ�
 CODEX_AF03_DESC,远距狙击无人机。在视距边缘充能、预判你的航迹开火。,Long-range sniper drone. Charges at the edge of detection and fires where you'll be.,遠距離狙撃ドローン。視程の端で充電し、進路を先読みして撃つ。
 CODEX_UAV_LASER_NAME,Aegis 拦截无人机,Aegis Interceptor UAV,イージス迎撃UAV
 CODEX_UAV_LASER_DESC,激光拦截平台。不打你——专门烧掉你射出去的导弹。,Laser interception platform. It doesn't shoot you — it burns down your missiles.,レーザー迎撃機。君を撃たず、放ったミサイルを焼き落とす。
+CODEX_MIRAGE3_NAME,Mirage III 幻影三式,Mirage III,Mirage III ミラージュIII
+CODEX_MIRAGE3_DESC,高速截击机。只做一次干净的攻击航线然后脱离。,High-speed interceptor. It makes one clean attack pass and leaves.,高速迎撃機。一度の攻撃航過を終えると離脱する。
+CODEX_A6E_NAME,A-6E 入侵者,A-6E Intruder,A-6E イントルーダー
+CODEX_A6E_DESC,低空攻击机。贴地突进后投完火力立即撤离。,Low-level attacker. It rushes in low and withdraws after delivering its payload.,低空攻撃機。低空で突入し攻撃後は直ちに離脱する。
+CODEX_A10_NAME,A-10 雷电二式,A-10 Thunderbolt II,A-10 サンダーボルトII
+CODEX_A10_DESC,低速强攻机。血量厚且喜欢用机炮压住近空。,Slow assault aircraft. Tough and eager to dominate close airspace with its gun.,低速強襲機。頑丈で機関砲により近距離を制圧する。
+CODEX_F16_NAME,F-16 战隼,F-16 Fighting Falcon,F-16 ファイティング・ファルコン
+CODEX_F16_DESC,轻型格斗机。灵活而积极地进入持续缠斗。,Light dogfighter. Agile and willing to commit to a sustained turning fight.,軽量格闘機。機敏で継続的な旋回戦を好む。
+CODEX_VIGGEN_NAME,Saab 37 雷式,Saab 37 Viggen,Saab 37 ビゲン
+CODEX_VIGGEN_DESC,高速截击机。冲锋射击后沿直线迅速拉开。,Fast interceptor. It attacks on the charge then extends away in a straight line.,高速迎撃機。突進攻撃の後は直線で素早く距離を取る。
+CODEX_HARRIER_NAME,Harrier 鹞式,Harrier,ハリアー
+CODEX_HARRIER_DESC,高鼻向近战机。速度不高但近距离转头很快。,High-nose close fighter. It lacks speed but points quickly at short range.,高迎角の近接機。速度は低いが近距離では素早く機首を向ける。
+CODEX_MIRAGE2000_NAME,Mirage 2000 幻影,Mirage 2000,Mirage 2000 ミラージュ2000
+CODEX_MIRAGE2000_DESC,三角翼格斗机。靠高速盘旋反复争夺尾位。,Delta-wing dogfighter. It uses fast turns to keep contesting the rear quarter.,デルタ翼格闘機。高速旋回で後方位置を奪い続ける。
+CODEX_GRIPEN_C_NAME,JAS 39C 鹰狮,JAS 39C Gripen,JAS 39C グリペン
+CODEX_GRIPEN_C_DESC,协同导弹机。三机分配不同目标后同时开火。,Cooperative missile fighter. A three-ship flight divides targets before firing together.,協同ミサイル機。三機で別々の目標を分担して同時に発射する。
+CODEX_TORNADO_NAME,Tornado 狂风,Tornado,トーネード
+CODEX_TORNADO_DESC,重型突击机。高速掠袭并拒绝陷入盘旋战。,Heavy strike fighter. It raids at speed and refuses to remain in a turning fight.,重攻撃機。高速で襲撃し旋回戦には留まらない。
+CODEX_F15_NAME,F-15 鹰,F-15 Eagle,F-15 イーグル
+CODEX_F15_DESC,重型格斗机。能量充足且会持续追逐近战目标。,Heavy dogfighter. It carries ample energy and stays on a close target.,重戦闘機。豊富なエネルギーで近距離目標を追い続ける。
+CODEX_F14_NAME,F-14 雄猫,F-14 Tomcat,F-14 トムキャット
+CODEX_F14_DESC,远程舰载截击机。完成导弹攻击后会拉开重新布置。,Long-range carrier interceptor. It extends after its missile pass to reset.,長距離艦上迎撃機。ミサイル攻撃後は距離を取り再配置する。
+CODEX_FA18E_NAME,F/A-18E 超级大黄蜂,F/A-18E Super Hornet,F/A-18E スーパーホーネット
+CODEX_FA18E_DESC,舰载多用途格斗机。均衡但明确偏好近距离缠斗。,Carrier multirole fighter. Balanced but clearly committed to close combat.,艦上多用途戦闘機。均整が取れているが近接戦を明確に好む。
+CODEX_F15E_NAME,F-15E 攻击鹰,F-15E Strike Eagle,F-15E ストライクイーグル
+CODEX_F15E_DESC,重载突击机。一次投射大量火力后脱离战区。,Heavy strike fighter. It delivers a large attack package then exits.,重武装攻撃機。一度に大火力を投射して離脱する。
+CODEX_SU34_NAME,Su-34 鸭嘴兽,Su-34 Fullback,Su-34 フルバック
+CODEX_SU34_DESC,重型打击机。耐打但只执行高速攻击航线。,Heavy strike aircraft. Durable but disciplined around high-speed attack runs.,重打撃機。頑丈だが高速攻撃航過だけを遂行する。
+CODEX_SNOWBLIND_NAME,SNOWBLIND 雪幕,SNOWBLIND,SNOWBLIND スノーブラインド
+CODEX_SNOWBLIND_DESC,无武装支援机。灰色雪幕遮住范围内全部敌机；圈外只能看见不可交互的核心轮廓，进入幕内才能揭露实体。,Unarmed support aircraft. Its grey shroud hides every enemy inside; from outside only a non-interactive core silhouette is visible. Enter the shroud to reveal the aircraft.,非武装支援機。灰色の幕は範囲内の敵をすべて隠す。幕外では操作不能な本体の輪郭だけが見え、侵入すると実体が露見する。
+CODEX_F15C_NAME,F-15C 鹰,F-15C Eagle,F-15C イーグル
+CODEX_F15C_DESC,高能制空机。会把速度换成持续近战优势。,High-energy air-superiority fighter. It turns speed into a sustained close-combat advantage.,高エネルギー制空機。速度を継続的な近接戦の優位に変える。
+CODEX_RAFALE_NAME,Rafale 阵风,Rafale,ラファール
+CODEX_RAFALE_DESC,双目标导弹机。每轮同时压制两架飞机然后撤出。,Dual-target missile fighter. It pressures two aircraft per cycle then withdraws.,二目標ミサイル機。一巡で二機を同時に圧迫して離脱する。
+CODEX_TYPHOON_NAME,Eurofighter Typhoon,Eurofighter Typhoon,ユーロファイター タイフーン
+CODEX_TYPHOON_DESC,高速格斗机。保存能量并主动把战斗拉进近距。,Fast dogfighter. It preserves energy and deliberately drags the fight close.,高速格闘機。エネルギーを保ち戦闘を近距離へ持ち込む。
+CODEX_GRIPEN_E_NAME,JAS 39E 鹰狮,JAS 39E Gripen,JAS 39E グリペン
+CODEX_GRIPEN_E_DESC,新型协同导弹机。队级三目标齐射后强制重新站位。,Modern cooperative missile fighter. The flight attacks three targets then resets.,新型協同ミサイル機。編隊で三目標を攻撃した後に再配置する。
+CODEX_F15SMTD_NAME,F-15 S/MTD,F-15 S/MTD,F-15 S/MTD
+CODEX_F15SMTD_DESC,推力矢量格斗实验机。能用后失速机动惩罚追尾者。,Thrust-vectoring dogfight demonstrator. Post-stall moves punish anyone chasing its tail.,推力偏向格闘実験機。ポストストール機動で追尾者を罰する。
+CODEX_F35_NAME,F-35 闪电二式,F-35 Lightning II,F-35 ライトニングII
+CODEX_F35_DESC,隐身双锁导弹机。静默入位后同时攻击两个目标。,Stealth dual-lock fighter. It approaches quietly then attacks two targets together.,ステルス二重ロック機。静かに接近して二目標を同時攻撃する。
+CODEX_SU57_NAME,Su-57 重罪犯,Su-57 Felon,Su-57 フェロン
+CODEX_SU57_DESC,隐身矢量格斗机。贴近后用后失速机动强迫玩家过冲。,Stealth vectoring dogfighter. It closes in and uses post-stall moves to force overshoots.,ステルス偏向格闘機。接近してポストストール機動でオーバーシュートを誘う。
+CODEX_J20_NAME,J-20 威龙,J-20 Mighty Dragon,J-20 威龍
+CODEX_J20_DESC,远程隐身截击机。完成高速导弹突击后绝不留下缠斗。,Long-range stealth interceptor. It never stays to turn after a high-speed missile pass.,長距離ステルス迎撃機。高速ミサイル攻撃後は決して格闘に残らない。
+CODEX_F22_NAME,F-22 猛禽,F-22 Raptor,F-22 ラプター
+CODEX_F22_DESC,四目标远程导弹机。编队会先分配不同目标并在齐射后强制脱离。,Four-target missile fighter. Its flight distributes targets then disengages after the salvo.,四目標ミサイル機。編隊で目標を分担し斉射後は強制離脱する。
+CODEX_A12_NAME,A-12 复仇者二式,A-12 Avenger II,A-12 アベンジャーII
+CODEX_A12_DESC,隐身远程攻击机。完成单目标重击后会在远处重新站位。,Stealth ranged attacker. It repositions at distance after a heavy single-target strike.,ステルス遠距離攻撃機。単一目標への重撃後は遠方で再配置する。
 CODEX_TU160_NAME,Tu-160 白天鹅,Tu-160 Blackjack,Tu-160 ブラックジャック
 CODEX_TU160_DESC,战略轰炸机。毫无还手之力，横穿战场的活靶子。,Strategic bomber. Zero return fire — a target of opportunity crossing the map.,戦略爆撃機。反撃能力ゼロ、戦場を横切る的。
 CODEX_AH64_NAME,AH-64 阿帕奇,AH-64 Apache,AH-64 アパッチ
@@ -1129,6 +1192,23 @@ ACHIEVEMENT_UAV_HUNTER_TOAST,成就解锁：无人机猎手 —— 战区奖励�
 MENU_META_SHOP_NAME,生涯商店,Career Shop,キャリアショップ
 MENU_META_SHOP_DESC,用功勋购买飞机与持久强化,Spend merit on aircraft and permanent perks,功績で機体と永続強化を購入
 METASHOP_TITLE,── 生涯商店 ──,── CAREER SHOP ──,── キャリアショップ ──
+METASHOP_TAB_DOCTRINE,战术学说,Doctrines,戦術ドクトリン
+METASHOP_TAB_SIGNATURE,机体专属,Aircraft Signatures,機体専用
+METASHOP_TAB_SUPPORT,战场支援,Battlefield Support,戦場支援
+METASHOP_TAB_CAREER,机体与后勤,Aircraft & Logistics,機体・兵站
+UPGRADE_SIGNATURE_BADGE,机体专属,AIRCRAFT SIGNATURE,機体専用
+UPGRADE_SIGNATURE_AIRCRAFT_FMT,当前机体：%s,Current aircraft: %s,現在の機体：%s
+METASHOP_SIGNATURE_UNKNOWN,？？？,???,？？？
+METASHOP_ITEM_AWACS_NAME,预警支援协定,AWACS Support Accord,AWACS 支援協定
+METASHOP_ITEM_AWACS_DESC,允许友军预警机在正式行动中进场支援,Enables allied AWACS support during formal operations,正式作戦で友軍 AWACS の支援を解禁
+METASHOP_ITEM_ZONE_AIR_SUPPORT_NAME,战区制空支援协定,Warzone Air Support Accord,戦域制空支援協定
+METASHOP_ITEM_ZONE_AIR_SUPPORT_DESC,对空战区激活后派遣 2～4 架 F-86 友军,Dispatches 2–4 allied F-86s when an air mission activates,対空戦域の開始後に友軍 F-86 を 2～4 機派遣
+METASHOP_ITEM_ZONE_GROUND_SUPPORT_NAME,战区对地支援协定,Warzone Ground Support Accord,戦域対地支援協定
+METASHOP_ITEM_ZONE_GROUND_SUPPORT_DESC,非机场清剿战区激活后派遣 2 架 A-10 攻击地面单位,Dispatches two allied A-10s against ground units when a non-airfield ground mission activates,飛行場以外の地上掃討戦域の開始後に友軍 A-10 を 2 機派遣
+METASHOP_ITEM_ACE_F15_SUPPORT_NAME,王牌截击支援协定,Ace Intercept Support Accord,エース迎撃支援協定
+METASHOP_ITEM_ACE_F15_SUPPORT_DESC,敌军王牌增援登场时派遣 2 架 F-15；王牌事件结束后撤离,Dispatches two allied F-15s when an enemy ace reinforcement arrives; they withdraw when the ace event ends,敵エース増援の出現時に友軍 F-15 を2機派遣しイベント終了後に撤収
+METASHOP_ITEM_AIRFIELD_SAM_NAME,机场防空网授权,Airfield SAM Network Authorization,飛行場SAM網許可
+METASHOP_ITEM_AIRFIELD_SAM_DESC,每次解放机场时在友军 AA×2 之外追加 1 座一次性 SAM,Each liberated airfield deploys one single-use SAM in addition to two allied AA guns,飛行場を解放するたび友軍対空砲2基に加えて使い切りのSAM1基を配備
 METASHOP_SECTION_ITEMS,▼ 生涯商品,▼ CAREER ITEMS,▼ キャリア商品
 METASHOP_LOCKED_HINT_DOCTRINE,先掌握两门入门学说（嗜血 / 骑士）后上架,Listed after mastering both starter doctrines (Bloodlust / Chivalry),入門ドクトリン2種（血戦/騎士）の取得後に入荷
 METASHOP_ITEM_MIRAGE3_NAME,幻影 III 采购案,Mirage III Procurement,ミラージュ III 調達計画

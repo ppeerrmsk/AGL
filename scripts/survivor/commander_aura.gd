@@ -235,12 +235,16 @@ func _try_recruit() -> void:
 			# 出界强制回返 + 目标飘出 × SLACK 即放弃，防 hunter 漂走不归
 			ai.combat_zone_anchor = _commander
 			ai.combat_zone_radius = HUNTER_LEASH_RADIUS
+			ac.set_meta("sentinel_hunter", true)
+			ac.remove_meta("sentinel_native_escort")
 		else:
 			# Guard：保持 simple_ai，开启绕长机飞行 + 自爆拦截导弹
 			ai.orbit_squad_leader = true
 			ai.shield_leader = true
 			ai.enable_combat = true
 			ai.evade_missiles = false
+			ac.set_meta("sentinel_native_escort", true)
+			ac.remove_meta("sentinel_hunter")
 
 		# 清理旧航点：它们可能围绕玩家刷出的位置，与绕长机飞行冲突
 		ai.waypoints = PackedVector2Array()

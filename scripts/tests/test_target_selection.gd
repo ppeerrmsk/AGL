@@ -10,7 +10,7 @@ extends RefCounted
 ##   A. 近偏轴 vs 远正对 → 选正对（align 主导，修"放着锁定的不打去够远的"）
 ##   C. 全等只差距离 → 选近（prox tiebreaker）
 ##   runaway. 锁定进度封顶 → 盯久(10×lock_time)不再碾压新锁(1×)
-##   B. 队友超杀 → 强降权（×OVERKILL_MULT）
+##   B. 队友超杀 → 导弹优先强降权；机炮优先不降权、不触发即时换目标
 ##   D. 守后优先 rear_threat_score：已咬 > 逼近 > 前方(0)
 ##
 ## 做法：裸构造对象（不入树），直接调 TargetSelection._score_candidate / SquadCoordination.rear_threat_score。
@@ -33,6 +33,7 @@ func run() -> void:
 	_test_gravity_feasibility_gate()
 	_test_gravity_cloak_anchor()
 	_test_gravity_nonaircraft_safety()
+	_test_gravity_freed_reference_safety()
 	_test_gravity_survival_sticky()
 	_test_gravity_disabled_baseline()
 	# ── 阶段 2：面 B 回防 + leash 松绑 ──
@@ -168,10 +169,41 @@ func _test_overkill_deprioritize() -> void:
 	mm.add_child(m)
 	var s_overkill := TargetSelection._score_candidate(ai, tgt, null, false)
 
-	_check("超杀目标分骤降", s_overkill < s_base * 0.5,
+	_check("导弹优先：超杀目标分骤降", s_overkill < s_base * 0.5,
 			"s_base=%.3f s_overkill=%.3f (×%.2f)" % [s_base, s_overkill, s_overkill / maxf(s_base, 0.001)])
+
+	# 机炮优先：同一枚在途导弹不把目标标成“已死”，评分与无在途基线一致。
+	me.weapon_preference = Aircraft.WeaponPreference.PREFER_GUN
+	var s_gun_priority := TargetSelection._score_candidate(ai, tgt, null, false)
+	_check("机炮优先：忽略目标超杀降权", is_equal_approx(s_gun_priority, s_base),
+			"s_base=%.3f s_gun=%.3f" % [s_base, s_gun_priority])
+
+	# 武器层即使因 TEAM_OVERKILL 请求重评，机炮优先也不丢粘性；切回导弹优先才响应。
+	ai._target_source = AIController.TargetSource.TS_SCORED
+	ai._overkill_retarget_cd = 0.0
+	ai._target_eval_timer = 0.0
+	ai.request_overkill_retarget()
+	_check("机炮优先：忽略即时换目标请求",
+			is_zero_approx(ai._overkill_retarget_cd) and is_zero_approx(ai._target_eval_timer))
+	me.weapon_preference = Aircraft.WeaponPreference.PREFER_MISSILE
+	ai.request_overkill_retarget()
+	_check("导弹优先：仍响应即时换目标请求",
+			ai._overkill_retarget_cd > 0.0 and ai._target_eval_timer > 0.0)
+
+	# 交战中重评闭环：机炮优先保留已超杀当前目标；导弹优先才转向等价的新鲜目标。
+	var rival := _mk_ac(Vector2(0.0, -1000.0), 1, PI)
+	rival.altitude = 8000.0
+	rival.hp = 60.0
+	me.radar_targets[rival] = 3.0
+	ai.acquire_target(tgt, AIController.TargetSource.TS_SCORED, "test overkill sticky")
+	me.weapon_preference = Aircraft.WeaponPreference.PREFER_GUN
+	TargetSelection.reevaluate_target(ai)
+	_check("机炮优先：交战重评仍咬当前目标", ai._current_target == tgt)
+	me.weapon_preference = Aircraft.WeaponPreference.PREFER_MISSILE
+	TargetSelection.reevaluate_target(ai)
+	_check("导弹优先：交战重评让给新鲜目标", ai._current_target == rival)
 	mm.free()  # 连带 free 子弹
-	_free_all([me, tgt, mate, ai])
+	_free_all([me, tgt, rival, mate, ai])
 
 
 ## ── D. 守后优先 rear_threat_score：已咬 > 逼近 > 前方 ──
@@ -349,6 +381,23 @@ func _test_gravity_nonaircraft_safety() -> void:
 			"bonus=%.1f" % ObjectiveContext.band_bonus(g))
 	ObjectiveContext.reset()
 	_free_all([me, g, ai])
+
+
+## ── G6b. 已释放引用安全：生命周期边界谓词必须返回 false，不能在形参类型检查阶段硬崩 ──
+func _test_gravity_freed_reference_safety() -> void:
+	print("── G6b. 已释放引用边界安全 ──")
+	ObjectiveContext.reset()
+	var me := _mk_ac(Vector2.ZERO, CombatUnit.TEAM_PLAYER, 0.0)
+	var ai := _mk_ai(me)
+	var freed_target: Aircraft = Aircraft.new()
+	ai._current_target = freed_target
+	ObjectiveContext.enabled = true
+	freed_target.free()
+	_check("粘性读取已释放当前目标不崩且回落默认值",
+			is_equal_approx(TargetSelection._sticky_for(ai), TargetSelection.STICKY_BONUS), "")
+	_check("已释放目标不算任务成员", not ObjectiveContext.is_objective(freed_target), "")
+	ObjectiveContext.reset()
+	_free_all([me, ai])
 
 
 ## ── G7. 带感知粘性（§2.1.3）：当前目标是生存候选 → SURVIVAL_STICKY，否则原 STICKY_BONUS ──

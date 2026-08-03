@@ -1,0 +1,38 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=6 format=3]
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/gladiator_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/default_missile.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/enemy_high_flare.tres" id="5"]
+[resource]
+script = ExtResource("1")
+display_name = "F-15C Eagle"
+max_hp = 65.0
+max_speed = 2450.0
+cruise_speed = 1050.0
+stall_speed_base = 205.0
+acceleration = 55.0
+deceleration = 84.0
+g_drag_factor = 3.0
+max_g = 7.5
+max_g_structural = 10.5
+roll_rate = 3.6
+pilot_stamina = 88.0
+stamina_drain_rate = 25.0
+stamina_recovery_rate = 10.0
+max_altitude = 16500.0
+climb_rate_max = 285.0
+thrust_to_weight = 1.10
+drag_coefficient = 0.022
+afterburner_thrust_mult = 1.55
+fuel_capacity = 3200.0
+fuel_rate_normal = 2.0
+fuel_rate_afterburner = 9.5
+radar_range = 4400.0
+radar_half_angle = 30.0
+lock_time = 2.8
+gun = ExtResource("2")
+missile = ExtResource("4")
+flare = ExtResource("5")
+combat = ExtResource("3")
+icon_color = Color(0.95, 0.24, 0.17, 1)

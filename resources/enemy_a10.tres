@@ -1,0 +1,36 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=5 format=3]
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/a10_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/gladiator_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/a10_rocket.tres" id="4"]
+[resource]
+script = ExtResource("1")
+display_name = "A-10 Thunderbolt II"
+max_hp = 55.0
+max_speed = 750.0
+cruise_speed = 560.0
+stall_speed_base = 165.0
+acceleration = 24.0
+deceleration = 48.0
+g_drag_factor = 2.7
+max_g = 5.0
+max_g_structural = 8.0
+roll_rate = 2.8
+pilot_stamina = 78.0
+stamina_drain_rate = 29.0
+stamina_recovery_rate = 8.5
+max_altitude = 11000.0
+climb_rate_max = 150.0
+thrust_to_weight = 0.62
+drag_coefficient = 0.032
+afterburner_thrust_mult = 1.0
+fuel_capacity = 2600.0
+fuel_rate_normal = 1.6
+fuel_rate_afterburner = 1.6
+radar_range = 3200.0
+radar_half_angle = 35.0
+lock_time = 3.5
+gun = ExtResource("2")
+rocket = ExtResource("4")
+combat = ExtResource("3")
+icon_color = Color(0.78, 0.30, 0.20, 1)

@@ -29,6 +29,8 @@ func run() -> void:
 	_test_residual_hp_guarantee()
 	_test_marking()
 	_test_profiles()
+	_test_rotation_balance()
+	_test_herbst_profile_gate()
 	_test_callsign_reservation()
 	_test_ace_archive()
 
@@ -111,8 +113,8 @@ func _test_marking() -> void:
 # ── 6. 编成 profile 注册表（spec ace-squadron-tier §2.7 / §2.9，728 实装批）──
 func _test_profiles() -> void:
 	print("── profile 注册表 ──")
-	# 六队齐 + 字段完整
-	var expected := ["marathon", "2ndwave", "orion", "gimmick", "goofighters", "vulture"]
+	# 七队齐 + 字段完整
+	var expected := ["marathon", "2ndwave", "orion", "gimmick", "goofighters", "vulture", "whitetea"]
 	for id in expected:
 		var p: Dictionary = AceSquadProfiles.get_profile(id)
 		_check("profile %s 存在且字段齐" % id,
@@ -133,11 +135,11 @@ func _test_profiles() -> void:
 			seen[cs] = true
 	_check("固定呼号不在 800 池内", pool_clash.is_empty(), "撞名=%s" % str(pool_clash))
 	_check("固定呼号全表无重复", dup.is_empty(), "重复=%s" % str(dup))
-	# 时段档（728 用户改档：Marathon 中期 320s；宿敌不进池；未实装不进池）
-	_check("250s 池不含 marathon（改档中期）", not AceSquadProfiles.pool_at(250.0).has("marathon"),
-		str(AceSquadProfiles.pool_at(250.0)))
-	_check("330s 池含 marathon", AceSquadProfiles.pool_at(330.0).has("marathon"),
-		str(AceSquadProfiles.pool_at(330.0)))
+	# 统一轮换窗（2026-08-02）：六支非宿敌 240s 同池；宿敌/未实装仍排除
+	_check("239s 池为空", AceSquadProfiles.pool_at(239.0).is_empty(),
+		str(AceSquadProfiles.pool_at(239.0)))
+	_check("240s 池含 marathon", AceSquadProfiles.pool_at(240.0).has("marathon"),
+		str(AceSquadProfiles.pool_at(240.0)))
 	_check("宿敌 orion 永不进轮换池", not AceSquadProfiles.pool_at(9999.0).has("orion"),
 		str(AceSquadProfiles.pool_at(9999.0)))
 	var unimplemented_leak := false
@@ -145,6 +147,72 @@ func _test_profiles() -> void:
 		if not bool(AceSquadProfiles.PROFILES[id].get("implemented", false)):
 			unimplemented_leak = true
 	_check("未实装队不进池", not unimplemented_leak, str(AceSquadProfiles.pool_at(9999.0)))
+
+
+# ── 6b. 新局轮换 + 标准化击破时间预算 ──
+func _test_rotation_balance() -> void:
+	print("── 随机轮换 / TTK 预算 ──")
+	var ids := ["marathon", "2ndwave", "gimmick", "goofighters", "vulture", "whitetea"]
+	var pool := AceSquadProfiles.pool_at(240.0)
+	for id in ids:
+		_check("240s 统一池含 %s" % id, pool.has(id), str(pool))
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 20260801
+	var order := AceSquadProfiles.build_run_order(rng, "marathon")
+	var unique := {}
+	for id in order:
+		unique[id] = true
+	_check("局内顺序无放回", order.size() == ids.size() and unique.size() == ids.size(), str(order))
+	_check("连续两局首队不重复", not order.is_empty() and String(order[0]) != "marathon", str(order))
+	for id in ids:
+		var ttk := AceSquadProfiles.estimated_ttk_s(id)
+		_check("%s 估算 TTK 在 60~90s" % id,
+			ttk >= AceSquadProfiles.TTK_TARGET_MIN_S and ttk <= AceSquadProfiles.TTK_TARGET_MAX_S,
+			"%.0fs / %.0f DU" % [ttk, AceSquadProfiles.defeat_units(id)])
+	_check("VULTURE 8 机零 flare = 8 DU",
+		is_equal_approx(AceSquadProfiles.defeat_units("vulture"), 8.0),
+		"%.0f DU" % AceSquadProfiles.defeat_units("vulture"))
+	_check("WhiteTea 三机三层防御 = 9 DU",
+		is_equal_approx(AceSquadProfiles.defeat_units("whitetea"), 9.0),
+		"%.0f DU" % AceSquadProfiles.defeat_units("whitetea"))
+	_check("WhiteTea 标准化 TTK = 70s",
+		is_equal_approx(AceSquadProfiles.estimated_ttk_s("whitetea"), 70.0),
+		"%.0fs" % AceSquadProfiles.estimated_ttk_s("whitetea"))
+	var wt: Dictionary = AceSquadProfiles.PROFILES["whitetea"]
+	var wt_herbst: Dictionary = wt.get("herbst", {})
+	_check("WhiteTea 机炮骑士 + J-turn 分层配置",
+		String(wt.get("tactics", "")) == "gun_lancer" \
+		and String(wt.get("gun", "")) == "ace" \
+		and int(wt.get("missile_count", -1)) == 0 \
+		and int(wt_herbst.get("max_uses", 0)) == 1 \
+		and bool(wt_herbst.get("requires_flares_empty", false)), str(wt))
+	_check("Teacher 改为 1 flare 且不叠机动规避",
+		int(AceSquadProfiles.PROFILES["2ndwave"]["elements"][0].get("flares", 0)) == 1 \
+		and not AceSquadProfiles.PROFILES["2ndwave"]["elements"][0].has("evade"),
+		str(AceSquadProfiles.PROFILES["2ndwave"]["elements"][0]))
+
+
+# ── 6c. WhiteTea J-turn 分层门 / 次数上限 ──
+func _test_herbst_profile_gate() -> void:
+	print("── WhiteTea J-turn 门 ──")
+	var ac := Aircraft.new()
+	var hm := HerbstManeuver.new()
+	hm._aircraft = ac
+	hm.max_uses = 1
+	hm.requires_flares_empty = true
+	ac.flares_remaining = 1
+	_check("flare 尚存时禁止 J-turn", not hm.can_activate, "flares=1")
+	ac.flares_remaining = 0
+	_check("flare 耗尽后解锁 J-turn", hm.can_activate, "flares=0")
+	hm.uses_consumed = 1
+	_check("单次用尽后永久禁止", not hm.can_activate, "uses=1/1")
+	# 默认值保持 Poltergeist / 玩家既有可重复语义。
+	hm.max_uses = -1
+	hm.requires_flares_empty = false
+	hm.uses_consumed = 99
+	_check("默认无限次回归", hm.can_activate, "max_uses=-1")
+	hm.free()
+	ac.free()
 
 
 # ── 7. 呼号永久保留（tier §2.7：杂鱼抽不到、死亡不回池）──

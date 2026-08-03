@@ -150,7 +150,8 @@ static func category_key_of(nd: Dictionary) -> String:
 ## 整机进化执行（aircraft-evolution §3.1：实例不销毁，只换档案）。
 ## 保：位置/heading/速度/高度（不动即保）、HP 比例；换：params 整套 + 武器载弹（武器绑机型 §2.5）。
 ## 升级绑机型（squad-upgrade-ownership）：旧机型局内升级随 params 换掉而失效 = 设计使然。
-static func evolve(ac: Aircraft, node_id: StringName, is_wingman: bool) -> bool:
+static func evolve(ac: Aircraft, node_id: StringName, is_wingman: bool,
+		record_discovery: bool) -> bool:
 	var nd := node_of(node_id)
 	if nd.is_empty() or ac == null or not is_instance_valid(ac) or ac.is_destroyed:
 		return false
@@ -185,7 +186,8 @@ static func evolve(ac: Aircraft, node_id: StringName, is_wingman: bool) -> bool:
 	hist.append(node_id)
 	ac.set_meta("evo_history", hist)
 	ac.set_meta("evo_node", node_id)
-	AircraftCodex.mark_discovered(node_id)  # 跨局图鉴：拥有过=永久揭示（树视图迷雾）
+	if record_discovery:
+		AircraftCodex.mark_discovered(node_id)  # 正式局跨局图鉴：拥有过=永久揭示
 	EventLogger.log_event("EVOLVE", ac._log_name(),
 		"%s → %s (tier=%d, wingman=%s)" % [old_name, ac.params.display_name, int(nd.get("tier", 0)), str(is_wingman)])
 	return true

@@ -3,7 +3,7 @@ id: squad-upgrade-ownership
 kind: system
 status: draft        # ⏳ 新模型成稿待 review→approved。绑机型 + 全 41 技能归类 + 僚机生产 + Session-only。
 schema_version: 1
-spec_version: 2
+spec_version: 4
 owner: noelu
 depends_on: [squad-control-switching, aircraft-evolution, survivor-loop, survivor-skills]
 reconstruction_complete: false
@@ -123,7 +123,7 @@ reconstruction_complete: false
 | `missile_reload` | STAT | |
 | `missile_boost` | STAT | |
 | `seeker_fov` | STAT | |
-| `multi_lock` | TRANSFORM | 多锁齐射 |
+| `multi_lock` | STAT | 锁定目标数 +1/层（最多 3 层），全队下发 |
 | `proximity_fuze` ★ | TRANSFORM | 近炸 AOE |
 | `missile_bounce` ★ | TRANSFORM | 命中弹跳 |
 
@@ -263,7 +263,6 @@ reconstruction_complete: false
 |---|---|---|
 | jam_aura | 光环 ×N 全场覆盖 | ★用户点名"光环给骑士" |
 | rear_aura_slow | 同上 | 同上 |
-| missile_swarm | 饱和 alpha | 远程弹雨=骑士大招（大弹舱机型才玩得转） |
 | **超载家族 ×7**：skill_evade_missile_overload / skill_flare_overload / jam_self_overload / cloud_overload / overload_duration_4x / overload_extended_ammo / overload_to_bloodlust | OVERLOAD uptime ×N | ★用户点名"超载类给骑士"——机动生存爆发=骑士性格 |
 
 **策士系**（电战/隐身/omni 持有策士身份的机，11 条）：
@@ -296,12 +295,15 @@ overstock / herbst · cobra_skill（双体现语义不变，见 B 表）。
 | evasion_weapon_cd | E 期间武器 CD ×0.5 | 同上——躲弹期间反击更快 |
 | evasion_stealth | E 期间隐身 | 躲弹期间隐身（甩锁更强） |
 | evasion_overstock | E 期间每 4s 补 1 弹 | 躲弹期间自动补弹 |
-| evasion_herbst | E 触发 Herbst J-Turn | 躲弹时 AI 自动 Herbst（复用 F-47 模块） |
-| cobra_skill | E/评估触发眼镜蛇 | 被咬尾/机炮防御时 AI 自动眼镜蛇 |
+| evasion_herbst | R 手动触发 Herbst J-Turn（无需 E/加力） | 躲弹/被追时 AI 自动 Herbst（复用同一模块） |
+| cobra_skill | R 手动触发眼镜蛇（无需 E/加力） | 被咬尾/机炮防御时 AI 自动眼镜蛇 |
+| manual_dodge | R 手动滚转 + 投焰 + 0.25s i-frame | 近弹/后方机炮威胁时 AI 自动滚转投焰 |
 | vapor_dodge | 入云隐身 + 切高度 ×2（被动条件） | 同款被动（条件型，无需任何模式） |
 
 ⚠ 数值观察点：僚机躲弹频率远高于玩家手动 E → overstock/weapon_cd 的**全队 uptime** 明显高于单人手感，
 量级入 D 观察名单随 playtest 盯；玩法上"全队被弹幕逼出集体隐身/冲刺"是想要的戏剧性，保留。
+
+> **2026-08-01 输入修订**：上表两项特殊机动不再属于玩家 E/加力触发链。当前操控机统一按 R 主动释放；AI 僚机仍以威胁评估自动释放。切控由 `AIController.manual_control` 真源自然反转两种体现。
 
 #### C. 武器门控自限（**放心全队**——只有装备该武器的机受益，天然限幅）
 
@@ -322,7 +324,7 @@ railgun_charge/range/damage · laser_cooldown/range/heat/extra_beams · skill_la
 hp_up · armor_up · bullet_dodge · speed_up · maneuver_up · dogfight · flare_shield · shock_absorb · kill_heal ·
 missile_count · missile_boost · gun_damage · gun_accuracy · aim_assist ·
 skill_kill_bloodlust · skill_damaged_bloodlust · skill_head_on_perma_hp · low_alt_gun_dodge · skill_kill_status_heal ·
-evasion_speed_boost · evasion_weapon_cd · evasion_overstock · evasion_herbst · cobra_skill（后五条=全队双体现，B 表）
+evasion_speed_boost · evasion_weapon_cd · evasion_overstock · evasion_herbst · cobra_skill · manual_dodge（后六条=全队双体现，B 表）
 （+后续新技能默认入此类，除非命中识别模式）
 
 > **归系识别模式**（新技能自检）：①光环/AoE 控场 ×N 覆盖全场；②无敌/拦截类防御 uptime ×N 归零敌威胁；
@@ -465,6 +467,7 @@ on 进化 cur: 机型 X → 机型 Y:                 # 实例不销毁，只换
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-01 | 4 | 眼镜蛇/J-Turn/胆大妄为统一 R 且三向互斥；当前操控机手动且不依赖加力，AI 僚机保留威胁自动释放。 |
 | 2026-05-30 | 1 | 初稿：数值跟队共享 + 独特武器跟机实例（旧模型）。后标 §0 前提失效待重构。 |
 | 2026-06-28 | 2 | **整体重写**（用户定调绑机型）：①三归类字段 `ownership/affinity/flavor/inheritable`；②全 41 技能归类总表（GLOBAL 4 / GUN / EW / MISSILE / UNIVERSAL / HARDWARE）；③绑机型语义（同型共享、战损不丢 build、抽卡按机型武器系门控）；④僚机生产+编入+build 重放、编队上限 9、1-9 接管；⑤UI 机型标签+图标；⑥Session 内 Roguelike 不跨局。 |
 | 2026-06-28 | 2 | §2.6 定案（用户）：**武器/升级一律绑机型、不跨机型继承**。取消 `inheritable` 字段；HARDWARE（电磁炮/激光）改为"机型自带特色武器"非玩家携带物；§3.3 进化时换整套新机型武器、旧武器丢弃。取代 aircraft-evolution §2.5 旧"槽位继承"。 |
@@ -473,3 +476,4 @@ on 进化 cur: 机型 X → 机型 Y:                 # 实例不销毁，只换
 | 2026-07-20 | 5 | **§2.8 v3 双体现定义（用户："回避类在僚机身上不依赖 E 键自动触发"）**：查实 MissileEvasion.enter_evade 已让 AI 躲弹时 set_evasion_mode(true)（与玩家 E 同门）→ 原 B"空转名单"判断作废，7 条回避/机动技全部转**全队·双体现**（表格逐条写明 玩家=手动 E / 僚机=AI 躲弹自动；herbst/cobra 复用既有 AI 模块，零新接线）。三类定义定稿：①数值强化=全队直给 ②触发/模式强化=全队双体现 ③专属强化=王牌显式清单（A 表 13 条）。僚机躲弹频率高 → overstock/weapon_cd 全队 uptime 入 D 观察名单。 |
 | 2026-07-20 | 6 | **§2.8 v4 品类限定系统（用户："强技只出现在特定品类飞机上"）**：王牌专属层退役 → 四层归属=①通用标配全队直给 ②品类限定（全队下发、按机种类过滤生效：CIWS→斗士系攻击机[用户点名]/光环→骑士系[用户点名]/电战·心理战技→策士系[用户点名]+同逻辑扩展 bloodlust·无敌·executioner→斗/missile_swarm·evasion 机动五件套→骑/AoE 控场·stealth 系→策）③装备门控自限 ④队级单实例（xp_mult；fear 双条=策士系+单实例双重限幅）。飞机品类身份=其进化门槛的轴（attack=斗/range=骑/ew=策/air=斗骑/stealth=骑策/omni·legend=三系，零新概念）。危险叠加靠品类数量天然限幅，单系满编=刻意 build 收益入 D 观察。抽卡门控=队里存在该品类机才进池；切控散落怪癖随全队下发自然消解。实装草图 v4（classes 数组/身份查询/过滤分流/品类角标/过滤断言）。 |
 | 2026-07-20 | 7 | **§2.8 v5 品类收窄 + 超载归骑士（用户）**：①"不是所有技能都归品类——先加点才能到品类机，锁太多=前期卡荒"→ 品类限定只收强技/稀有技（每轴卡池占比目标 ≤⅓）；v4 过度扩展的 10 条退回通用（嗜血双条/对头永久HP/低空闪避/异常收割/机动五件套/cobra——双体现语义保留）。②**超载家族 ×7 → 骑士系**（用户点名；含 cloud_overload）。终版：斗士系 4（CIWS/双无敌/executioner）· 骑士系 10（双光环/swarm/超载×7）· 策士系 11（AoE 控场×6/恐惧双条/ecm·stealth·vapor）· 通用 24+ · 装备门控 · xp 单实例。 |
+| 2026-08-01 | 3 | **多目标锁定数统一机制覆盖旧归属**：`multi_lock` 作为稳定级骑士轴普通卡，但生效范围为默认全队；`missile_swarm` 移除骑士机种 class 与 ace scope，改为通用全队锁数 +3。两者均不再属于王牌字段迁移白名单。 |

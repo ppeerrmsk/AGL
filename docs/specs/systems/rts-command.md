@@ -3,7 +3,7 @@ id: rts-command
 kind: system
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 5
+spec_version: 8
 owner: 设计/用户
 depends_on: []
 reconstruction_complete: true
@@ -40,6 +40,8 @@ reconstruction_complete: true
 |---|---|---|
 | `commanded_target` | `Aircraft`（逐机一个） | 玩家对**这架机**显式点名的攻击命令目标。跨 1/2/3/4 切控持久。AI / 自动交战**一律不得覆盖**（铁律）。只在：目标阵亡 / 玩家对本机另下移动·取消·新攻击命令 时清。 |
 
+僚机不复制长机的 `commanded_target` 所有权；但当它正在跟打“长机 `combat_target == commanded_target`”时，继承该玩家命令的执行优先级。普通归队 leash、雷达超距、交战超时和自主重评估都不得中断；长机取消、改点或目标失效后，继承立即结束并按正常宽限归队。导弹规避仍高于攻击命令。
+
 ### 2.2 巡航目标语义（复用既有字段，无新字段）
 
 | 来源 | 设定的 `target_position` | 备注 |
@@ -70,6 +72,7 @@ reconstruction_complete: true
 |---|---|---|
 | 被操控机（manual + planner） | `SquadCommandController.tick` | tick 见 `commanded_target` 非空即跳过自动交战；若 `combat_target != commanded_target` 重新指回。命令绝不被拴绳/最近目标夺走。 |
 | 非操控带命令机（切走后） | `AIController._enforce_commanded_target`（路由顶部，manual/simple/规避之后） | 命令目标存活 → 强制 ENGAGE 它、`clear_formation`、绕过 `try_engage` 评分与编队路由；`_process_engage` 跳过 `reevaluate_target`。命令目标死/被清 → 解除 `commanded_target` 回正常 AI（disengage 回编队）。 |
+| 跟打长机命令的僚机 | `SquadCoordination` + `AIController._cmd_engage_active` | 不取得命令所有权，但在长机仍点名同一目标期间继承命令优先级：归队 leash / 超距 / 超时 / 自主换目标均让位；长机取消或改点后恢复正常归队。 |
 
 **清除时机**：目标阵亡（持有者检测）/ 玩家对本机下移动·取消·新攻击命令。求生规避优先于命令（规避结束下一 tick 自动重接命令目标）。
 
@@ -92,7 +95,7 @@ tgt = 半径内最近有效敌方(CombatUnit.all_units, radius)
 若 tgt: set_combat_target(tgt); _auto_engage_target = tgt
 ```
 
-- **僚机**：无需新代码，`SquadCoordination.process_squad_follow` 把 `leader.combat_target` 传播给僚机；带命令机由其自身 `_enforce_commanded_target` 死咬。
+- **僚机**：`SquadCoordination.process_squad_follow` 把 `leader.combat_target` 传播给僚机；若该目标同时是长机的玩家点名目标，僚机只继承命令优先级、不复制 `commanded_target` 所有权。
 - **搜敌**：用 `CombatUnit.all_units`（perf 友好共享表），不扫 `mode.get_children()`。
 - **目标选择（v1）**：半径内**最近**。未被点名的"自由僚机"的有限度自主切目标（必中让路/不偏太远）归 [target-engageability-selection](target-engageability-selection.md)，本 spec 不做。
 
@@ -131,6 +134,7 @@ tgt = 半径内最近有效敌方(CombatUnit.all_units, radius)
 - [ ] **铁律**：点名打 Sentinel（远）→ 全程死咬，AI/自动交战都不夺走。
 - [ ] **逐机持久**：操控 2 号机点名打 B → 切 1 号机点名打 A → 两机各打各的，切来切去命令不丢，直到各自目标死。
 - [ ] **解除**：对某机下移动/右键 → 放弃攻击命令；命令目标死 → 回编队（不飞向死敌点）。
+- [ ] **命令高于归队**：长机点名敌机后，已跟打该目标的僚机即使越过普通 leash，也继续攻击；长机取消/改点后，僚机在既有宽限后正常归队。
 - [ ] **自由僚机回归**：未点名僚机行为与改动前一致。
 - [ ] **去硬编码**：改 `rts_command.tres` 的 `auto_engage_radius_px` 无需改代码即生效。
 - [ ] 性能：Sentinel + Lv5+ 压测，0.3s tick FPS 掉幅 < 15（见 performance-guidelines）。
@@ -177,3 +181,4 @@ tgt = 半径内最近有效敌方(CombatUnit.all_units, radius)
 | 2026-06-14 | 5 | 重构 + 铁律：①RTS 逻辑抽出独立模块 `SquadCommandController` + 参数 Resource `RtsCommandParams`（去硬编码），survivor_mode 瘦身为接线；②玩家命令升级为**逐机持久铁律** `Aircraft.commanded_target`，跨 1/2/3/4 切控持久，AIController `_enforce_commanded_target` 保证非操控机也死咬命令、跳过 reevaluate；③自由僚机有限度切目标细则归 [[target-engageability-selection]]，本 spec 不做 |
 | 2026-07-03 | 6 | 右键长按急刹重定义（用户定稿）：仍作用全体 selected（整队一起减速），但物理端加**失速软地板**——减到 stall×1.05 最小可控速度为止、刹不进失速，任何高度档都**无法通过减速自杀坠机**；减速率 = 各机 params.deceleration × 随速度衰减的阻力因子（高速刹得动、低速效率变差、低级机天然刹得肉，"轻按一秒到底"消失）。预测线 step_speed 镜像同步。验收 `--bench=hard_brake` 5 断言（1 秒不到底/软地板/收敛/阻力衰减/机型差异化） |
 | 2026-07-29 | 7 | **小队指挥 UI 与机型解绑（用户报"只有 F-14 时才有用"）**：面板本身没有机型门，真源是"玩家队有没有登记进 `SurvivorSpawner._squads`"——这一步原先只挂在 `_spawn_starting_wingmen` 末尾，而那条路只有 `wingman_count>0` 的机型（41 机里仅 F-14）会走。其余 40 机走 `_ensure_player_squad` 懒建队路径（战区 +1 僚机奖励 / 停靠送僚机 / 双子星克隆），队伍建了却从不入表 → `SurvivorHUD._get_player_squad()` 反查恒为 null（面板永不显示），且 `_cleanup_squads` 不清理它（阵亡僚机永不从 members 剔除）。修法=登记点上移到 `_ensure_player_squad` 这条**公共**装配链（幂等，`_spawn_starting_wingmen` 不再重复 append）。顺带修同源缺口：`sig_ax00`（双子星）在无 `_squad` 时整段静默 early-return，复制 0 架却记 3 架 → 补先 `_ensure_player_squad`。验收 `--bench=squad_cmd_ui` 10 断言（登记 4 / 幂等 2 / HUD 反查 4）；回归门 47 项全绿。 |
+| 2026-08-03 | 8 | 玩家点名目标优先级补全到跟打僚机：僚机不复制逐机命令所有权，但跟随长机同一 `commanded_target` 时，普通归队 leash、超距、交战超时和自主换目标均让位；长机取消/改点后恢复正常归队，规避仍优先。 |

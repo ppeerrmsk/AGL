@@ -117,15 +117,17 @@ static func gravity_mult(pos: Vector2) -> float:
 
 
 ## 候选 ∈ objective 成员集？（类型无关：Aircraft/NavalUnit/MountTarget/GroundUnit 皆可，只查 id）
-static func is_objective(unit: Object) -> bool:
-	return unit != null and is_instance_valid(unit) and member_ids.has(unit.get_instance_id())
+## 生命周期边界必须收 Variant：Object 类型检查早于函数体，已释放引用会在进入守卫前硬崩（SEAM-020）。
+static func is_objective(unit: Variant) -> bool:
+	if typeof(unit) != TYPE_OBJECT or not is_instance_valid(unit):
+		return false
+	return member_ids.has(unit.get_instance_id())
 
 
 ## 候选是生存威胁？（§2.3：敌方**飞机** + 正在咬操控机 + SURVIVAL_RANGE 内）
-static func is_survival_threat(cand: Object) -> bool:
-	# ⚠ is_instance_valid 必须在 `is` 之前（同 setter）：_sticky_for 传入的 ai._current_target
-	# 可能已 freed，freed 实例过 `is` 直接抛错中断
-	if cand == null or not is_instance_valid(cand):
+## 生命周期边界必须收 Variant：_sticky_for 传入的 ai._current_target 可能已经释放。
+static func is_survival_threat(cand: Variant) -> bool:
+	if typeof(cand) != TYPE_OBJECT or not is_instance_valid(cand):
 		return false
 	if not (cand is Aircraft):
 		return false  # 只对空：地面/航母不写 engaging_me，走各自既有路径

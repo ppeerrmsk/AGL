@@ -14,7 +14,7 @@
 
 | 你想知道的 | 去哪 |
 |---|---|
-| 某技能的数值 / 层数 / 稀有度 / 归属 / 轴 / +1 进度 | [skill-table.md](skill-table.md)（自动生成，144 条，`python tools/dump_skill_table.py` 重刷） |
+| 某技能的数值 / 层数 / 稀有度 / 归属 / 轴 / +1 进度 | [skill-table.md](skill-table.md)（自动生成，147 条，`python tools/dump_skill_table.py` 重刷） |
 | 某技能的**效果代码在哪** | 本文 **§4**（先在 skill-table 查到它的 stat / id，再来查消费点） |
 | UPGRADES 条目某字段什么意思 | 本文 **§1** |
 | 技能从抽卡到生效的整条链路 | 本文 **§2** |
@@ -36,12 +36,12 @@
 | `value` / `max_stacks` | 必 | 单层量 / 可堆层数（×1=开关型）。比例、绝对、开关三种口径见 skill-table 效果列 | apply 分支 |
 | `category` | 必 | 旧分类（survival/mobility/electronic_warfare/missile/secondary/weapon）。现存两个作用：①无显式 `axis` 时经 `AXIS_BY_CATEGORY` 兜底归轴 ②`category=="weapon"` 的技能**换机重放跳过**（效果长在武器资源上随武器库迁移）③电子战词条联动 `CATEGORY_BONUSES` 按它计数 | `axis_of_upgrade` / `_replay_player_upgrades` / `recompute_category_bonuses` |
 | `axis` | 选 | 显式轴归属（`gladiator/knight/schemer`），优先级最高（> `AXIS_OVERRIDE_BY_ID` > category 兜底）。决定进哪张三选一轴卡 | `SurvivorData.axis_of_upgrade` |
-| `rarity` | 选 | 五档 `Rarity` 枚举（稳定/先进/实验/机密/次世代），权重 0.50/0.25/0.15/0.08/0.02 + pity 5/8/12 | `pick_card_for_axis` / `_pick_3_upgrades` |
+| `rarity` | 选 | 五档 `Rarity` 枚举（稳定/先进/实验/机密/次世代），基础权重 0.50/0.25/0.15/0.08/0.02；自然三轴三卡的 4 级金卡走软 pity：连续未出 `m` 次时 `CLASSIFIED` 候选权重 ×`(1+2m)`，普通三卡见金清零（专属第四槽/奖励升级隔离） | `classified_pity_weight_multiplier` / `classified_pity_next_misses` / `pick_card_for_axis` / `_roll_axis_cards` |
 | `keywords` | 选 | ①流派引导：已持有同关键词技能越多，同词新卡权重越高（+20%/stack，cap +100%）②**doctrine 门控**：6 词（fear/overload/bloodlust/chivalry/jam/stealth）需在生涯商店购入对应学说才进池（AND 语义；`sig_*` 豁免；spec doctrine-unlocks）③**升级卡状态脚注**：写了 `overload/bloodlust/stealth/fear/jam/slow` 的技能，卡片下方自动多一行"这个词条本身干什么" | `compute_keyword_steering_weights` / `MetaShop.is_upgrade_gated` / `SurvivorData.status_notes_of` |
 | `requires` | 选 | 硬件门（`gun/missile/flare/rocket/railgun/laser`…走 `has_equipment_of_kind`），缺硬件不进池 | `is_upgrade_available_for` |
 | `requires_skill` | 选 | 前置技能（列表内**任一** stacks>0 即解锁） | 同上 |
 | `exclusive_to` | 选 | **机型门**：仅当前 ACE 机型（`_player_profile_id`）在列表内才刷出。⚠ 只管**抽卡**，已获得的换机重放**不查**（=签名技能"跟人走"的机制基础） | 同上 |
-| （无字段，靠 `sig_` id 前缀） | — | **签名技识别**：判别式 `SurvivorData.is_signature_upgrade(u)`。抽卡权重乘区 `SurvivorData.SIG_SKILL_WEIGHT_MULT`（经 `SurvivorData._sig_weight_mult(u)`）与卡面高亮共用同一判别式 | `pick_card_for_axis` / `_weighted_pick` / `SurvivorUpgradeUI` 卡框 |
+| （无字段，靠 `sig_` id 前缀） | — | **签名技识别**：判别式 `SurvivorData.is_signature_upgrade(u)`；正式局普通三轴池统一排除，已购当前机型许可时走每机每局一次的独立第四槽；洋红卡框仍共用该判别式 | `is_normal_random_candidate` / `_append_signature_offer` / `SurvivorUpgradeUI` 卡框 |
 | `excludes` | 选 | 互斥：列表内任一已持有 → 本条不再出现（如 cobra ↔ herbst） | 同上 |
 | `evolved` | 选 | true = **不进随机池**，走战区奖励发放（获取渠道标记，不是实装模式；字段名是历史遗留，进化链已废） | 池过滤 + `zone_data` 奖励 roll |
 | `scope` | 选 | 归属词汇 v6：`""`=通用全队逐机 / `"ace"`=仅当前操控机（切控迁移）/ `"squad_once"`=队级单实例（不落单机，消费点读账本） | `_distribute_upgrade` / `upgrade_applies_to_machine` |
@@ -63,7 +63,7 @@
 is_upgrade_available_for → pick_card_for_axis →  upgrade_stacks[id]+=1
 (requires/exclusive_to/     (稀有度权重×keyword    + add_axis_point(轴+1)
  excludes/requires_skill/    steering；每3级       + _grant_milestone_plus
- classes/evolved/max_stacks)  三轴各一张)           (milestone_plus 逐轴+1, cap2)
+ classes/evolved/max_stacks)  三轴各一张；金卡软pity) (milestone_plus 逐轴+1, cap2)
         │                                              │
         ▼                                              ▼
 ④分发 _distribute_upgrade                    ⑤生效 apply_upgrade(_to)
@@ -84,10 +84,13 @@ is_upgrade_available_for → pick_card_for_axis →  upgrade_stacks[id]+=1
 下发目标由 `SurvivorPlayer.milestone_targets_provider`（survivor_mode 注 `_squad_members_alive`）提供，
 逐机 API = `apply_crossed_milestones_to` / `apply_all_milestones_to` / `reapply_all_milestones_to` / `_apply_milestone_effect_to`。
 
-**②的签名技分支**：`sig_*` 的出率与卡面走专属乘区/配色，两处消费点是
-`SurvivorData.pick_card_for_axis` 与 `SurvivorData._weighted_pick`（都乘 `_sig_weight_mult`，常量
-`SurvivorData.SIG_SKILL_WEIGHT_MULT`）；卡框色 `SurvivorUpgradeUI.SIG_FRAME_COLOR`
-（判别式同为 `SurvivorData.is_signature_upgrade`；稀有度徽章仍显示真稀有度色）。
+**②的金卡软 pity**：仅自然等级升级的普通三卡读取 `_classified_pity_misses`，三轴共享同一倍率；
+三卡生成后见 `CLASSIFIED` 即清零，否则 +1。随后才执行签名技第四槽分支，因此第四槽不会消费累计。
+奖励升级调用 `_roll_axis_cards()` 的缺省分支，倍率恒 1.0 且不改累计。权威数值见
+[classified-card-pity](../specs/systems/classified-card-pity.md)。
+
+**②的签名技分支**：`sig_*` 已从普通池排除；已购当前机型许可时，每机每局第一次符合的自然卡片事件
+独立以 90% 概率追加第四槽。卡框色 `SurvivorUpgradeUI.SIG_FRAME_COLOR`，稀有度徽章仍显示真稀有度色。
 
 ---
 
@@ -126,7 +129,7 @@ is_upgrade_available_for → pick_card_for_axis →  upgrade_stacks[id]+=1
 ### M5 · 王牌 ace（只随操控机，切控迁移）
 - **识别**：`scope: "ace"`。触发型（skill_flag）走 meta 子集天然迁移；**字段/params 型必须登记 `ACE_FIELD_STATS` 白名单 + 在 `strip_upgrade_from` 写逆操作**，否则切控双重叠加（720 铁律）。
 - **改哪**：`survivor_data.ACE_FIELD_STATS` + `survivor_player.strip_upgrade_from` + 迁移点 `survivor_mode._migrate_ace_field_upgrades`。
-- **成员**：missile_swarm / fear_on_lock / fear_squad_spread / head_on_jam / rear_aura_slow / cloud_overload / manual_dodge（=白名单全集）＋触发型王牌若干（weapon_master/ew_expert/凝视类，走 meta 不登记）。
+- **成员**：fear_on_lock / fear_squad_spread / head_on_jam / rear_aura_slow / cloud_overload（=白名单全集）＋触发型王牌若干（weapon_master/ew_expert/凝视类，走 meta 不登记）。
 
 ### M6 · 计数缩放（recompute 幂等重算）
 - **识别**：效果=「按某个动态数量 × 每单位加成」；apply 是 skill_flag，真身在 `recompute_axis_count_skills`（挂 `recompute_category_bonuses` 尾部，拿技能/换机/入队都会重跑）或专用 watch 重算。
@@ -144,12 +147,12 @@ is_upgrade_available_for → pick_card_for_axis →  upgrade_stacks[id]+=1
 
 ---
 
-## 4. 全 stat 消费点速查（144 条全覆盖）
+## 4. 全 stat 消费点速查（147 条全覆盖）
 
 > 用法：skill-table 查到技能的 id → 在 4.1 按 stat（专用 stat 名≈id）或 4.2 按 id 找行。
 > 消费点 = "效果真正发生"的文件+函数/字段。`survivor_player.gd apply_upgrade` 是所有条目的公共 apply 处，不重复写。
 
-### 4.1 专用 stat（84 条；M=模式）
+### 4.1 专用 stat（85 条；M=模式）
 
 **生存/伤害管线**（消费集中在 `aircraft.gd`）
 
@@ -183,6 +186,7 @@ is_upgrade_available_for → pick_card_for_axis →  upgrade_stacks[id]+=1
 | sig_lock_retention | M1+M2 | params.radar_range+250px + 出锥 grace 冻结窗（`_sig_lock_grace` 字典） |
 | sig_f15c / sig_f15e / sig_a6e / sig_mig41 / sig_f15 | M2 | 锁定循环 722 段（f15/f15e 的伤害半段在 bullet_manager / missile_manager 命中处） |
 | high_alt_lock_speed | M2 | 锁定循环（HIGH 档我方锁敌加速） |
+| close_range_lock | M2 | Aircraft 缓存贴身倍率上限 → 锁定循环按“当前距离 / 当前有效雷达射程”线性计算（边缘 ×1、贴身最高 ×2） |
 | ecm_pod | M2 | `ecm_range_mult` → 锁定循环（敌雷达对我有效距离缩短） |
 | data_link / f14_squad_lock_slow | M4 | 锁定循环尾部两个队级账本段（照射共享拉平 / 共锁 SLOW） |
 | sig_multiband | M1 | params.radar_half_angle+40°（cap120） |
@@ -212,8 +216,8 @@ is_upgrade_available_for → pick_card_for_axis →  upgrade_stacks[id]+=1
 |---|---|---|
 | flare_shield | M2 | `flare_lock_immunity` → flares release 清锁+豁免窗；bonus_flares 直改 params |
 | low_hp_flare_reload | M2 | flares 低血装填加速段 |
-| manual_dodge | M5 | `aircraft.do_manual_dodge`（R 键）+ flares 禁自动早退；ACE_FIELD_STATS |
-| cobra_skill / evasion_herbst | M2 | `aircraft._update_cobra_skill / _update_evasion_herbst_skill`（挂机动子节点自动触发） |
+| manual_dodge | M5 | 全队下发；`aircraft.try_manual_maneuver → do_manual_dodge`（受控机 R）/ `_update_manual_dodge_skill`（AI 威胁自动）+ flares 禁普通自动早退；与 cobra/herbst 三向互斥 |
+| cobra_skill / evasion_herbst / manual_dodge | M2 | 当前操控机：`aircraft.try_manual_maneuver` 由 R 统一触发；AI 僚机：`_update_cobra_skill / _update_evasion_herbst_skill` 按威胁自动触发；三技能 `excludes` 三向互斥 |
 | evasion_overstock | M2 | `aircraft` evasion 期间周期装填 tick |
 | sig_mirage3（skill_flag，见 4.2） | — | flares 保护窗 ×1.6 + 偏转瞬间无敌（release 722 段） |
 
@@ -226,14 +230,14 @@ is_upgrade_available_for → pick_card_for_axis →  upgrade_stacks[id]+=1
 | gun_ciws | M2 | weapons CIWS 自动拦截段 |
 | ab_gun_regen | M2 | 加力时机炮回弹（aircraft + weapons） |
 | missile_count / missile_boost / sig_long_spear | M1 | 直改 params.missile |
-| missile_swarm | M5 | params 弹舱+`max_simultaneous_locks`≥8 → `_fire_multi_lock_salvo`；ACE_FIELD_STATS |
+| multi_lock / missile_swarm | M1 | 全队加算 `max_simultaneous_locks`（每层 +1 / 一次 +3）；蜂群另有弹舱 +4、追踪 G ×0.85；`_fire_multi_lock_salvo` 按有效锁数截断且正常冷却 |
 | proximity_fuze / missile_bounce | M2 | `missile_proximity_aoe / missile_bounce_count` → `missile_manager` 命中分支 |
 | missile_second_stage | M2 | `missile.second_stage`（spawn 打标）→ missile 续推/渐强曲线 |
 | rocket_firerate_range | M1/M8 | 直改 rocket params（A-10 族；火箭现属外部装备） |
 
 **特殊武器/装备（M8 全组）**：railgun_charge/range/double → `equipment/railgun_equipment.gd`；laser_cooldown/range/heat/extra_beams → `equipment/laser_equipment.gd`；torpedo_extra/tracking_boost → torpedo params；qmaam_boost → secondary_missile params；wingman_extra/armed → loyal_wingman params（消费 `aircraft_weapons.update_loyal_wingman`）；sig_wyvern → M7 dispatch + railgun 参数。
 
-### 4.2 skill_flag 60 条（apply 无操作，按消费点分组）
+### 4.2 skill_flag 61 条（apply 无操作，按消费点分组）
 
 **SkillHooks 击杀/受击/状态钩子**（`survivor/skill_hooks.gd`，入口 `dispatch_on_kill` / `dispatch_on_hit` / `on_player_jam_landed` / `on_evade_missile` / `on_flare_release`）：
 skill_kill_bloodlust · skill_damaged_bloodlust · skill_head_on_perma_hp · skill_head_on_aoe_fear ·
@@ -274,7 +278,7 @@ sig_mirage3 / sig_rafale（flares release 722 段）· sig_su27 / sig_su35（`on
 ```
 
 每条新技能收尾四件套：i18n 三语（`UPGRADE_<ID>_NAME/_DESC`）→ `python tools/dump_skill_table.py` 重刷表 →
-bench 断言（skills720 / sig_skills / attr_gates 择近追加）→ 本文 §4 加一行。完整检查单见 [playbook §4](playbook.md)。
+bench 断言（单机制优先追加 skills720 / sig_skills / attr_gates；全表契约跑 skill_audit）→ 本文 §4 加一行。完整检查单见 [playbook §4](playbook.md)。
 
 ---
 

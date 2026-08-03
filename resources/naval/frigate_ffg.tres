@@ -8,8 +8,8 @@
 script = ExtResource("1")
 ship_class = 0
 display_name_prefix = "FFG"
-hull_length = 130.0
-hull_width = 26.0
+hull_length = 75.6
+hull_width = 10.0
 icon_color = Color(0.75, 0.28, 0.22, 1)
 max_sea_speed = 9.0
 turn_rate = 0.12

@@ -1,6 +1,6 @@
 ## Mother Goose 无人机蜂群管理
 ##
-## 起始 spawn 12 架围绕 boss 一圈；仅在指定猎杀 ACTIVE 期间每 12s 补 2，封顶 30。
+## 起始 spawn 12 架围绕 boss 一圈；常态每 20s 补 2 架，指定猎杀 ACTIVE 内再追加两波 6 架，封顶 30。
 ## 四种型号 + 两种角色：
 ##   GUARD（保镖）—— simple_ai + orbit + shield_leader，护卫 boss + 自爆拦截导弹
 ##     45% MQ-109（机炮 UAV，近战）
@@ -19,14 +19,14 @@ extends RefCounted
 const INITIAL_COUNT: int = 12
 const MAX_COUNT: int = 30
 const SPAWN_BATCH: int = 2
-const SPAWN_INTERVAL: float = 12.0
+const SPAWN_INTERVAL: float = 20.0
 ## UAV 初始相对 boss 的环形半径（像素）—— 紧贴机身，看起来像从 boss 上"涌出"
 const SPAWN_RADIUS: float = 250.0
 
 ## 四种 UAV 型号（display_name → params 资源路径）
 enum Variant { MQ_109_GUN, MQ_110_MISSILE, MQ_111_LASER, MQ_112_RAILGUN }
 const VARIANT_PARAMS: Dictionary = {
-	Variant.MQ_109_GUN:      "res://resources/enemy_uav.tres",
+	Variant.MQ_109_GUN:      "res://resources/enemy_uav_mg_gun.tres",
 	Variant.MQ_110_MISSILE:  "res://resources/enemy_uav_missile.tres",
 	## MQ-111 用专属双用途激光（intercepts missiles + can_target_aircraft=true）
 	## 而非 enemy_uav_laser（仅反导，Sentinel 共用）
@@ -71,7 +71,9 @@ const MQ_109_HUNTER_RATIO := 0.5
 ## 丢目标后沿残留方向直线漂走。给一个 boss 牵引点让它们打不到玩家就回 boss 附近重新交战。
 ## 2026-05-12 抬到 4500：原 2500 会在玩家拉远后立刻中断交战（玩家 3000px 处 = 立即脱锁），
 ## 配合 SwarmDirector 的 ATTACKER 角色（director 指派下不召回）避免中断式来回拉扯。
-const HUNTER_LEASH_RADIUS := 4500.0
+## 常态出击只允许短暂越出 1500px 强化圈；越过 1800px 立即放弃目标返巢。
+## Designation ACTIVE 会由 MotherGooseController 临时覆写成 DESIG_HUNT_RADIUS，不受此限制。
+const HUNTER_LEASH_RADIUS := 1800.0
 
 var _scene_root: Node = null
 var _aircraft_scene: PackedScene = null
@@ -81,25 +83,28 @@ var _boss_squad: Squad = null        ## UAV 加入此 squad → CommanderAura �
 var _bullet_mgr: BulletManager = null
 var _missile_mgr: MissileManager = null
 var _uavs: Array[Aircraft] = []
+var _advanced_variants_enabled: bool = true ## 首败后才开放 MQ-111/112；默认 true 保持独立测试兼容
 var _spawn_timer: float = 0.0
 var _initial_done: bool = false
 var _replenishing: bool = false
 
-# ── 远距 cull 后的补刷队列（绕开 SPAWN_INTERVAL 但仍走小批次节流，避免一帧刷 12 架掉 FPS）──
+# ── 指定猎杀增援队列（绕开 SPAWN_INTERVAL，但仍按固定小批次节流）──
 var _respawn_pending: int = 0
 var _respawn_drain_timer: float = 0.0
 const RESPAWN_DRAIN_BATCH: int = 2          ## 每次 drain 最多刷 2 架（与 SPAWN_BATCH 同）
-const RESPAWN_DRAIN_INTERVAL_BASE: float = 3.0  ## 基础间隔；pending 越多间隔越短（最少 1.5s）
+const RESPAWN_DRAIN_INTERVAL: float = 2.0   ## 固定 2s 节拍，玩家可预测且避免单帧整波生成
 
 
 func setup(scene_root: Node, aircraft_scene: PackedScene, boss_unit: Aircraft,
-		boss_squad: Squad, bullet_mgr: BulletManager, missile_mgr: MissileManager) -> void:
+		boss_squad: Squad, bullet_mgr: BulletManager, missile_mgr: MissileManager,
+		allow_advanced_variants: bool = true) -> void:
 	_scene_root = scene_root
 	_aircraft_scene = aircraft_scene
 	_boss_unit = boss_unit
 	_boss_squad = boss_squad
 	_bullet_mgr = bullet_mgr
 	_missile_mgr = missile_mgr
+	_advanced_variants_enabled = allow_advanced_variants
 	# 预加载三种 UAV 资源（spawn 热路径上 duplicate 即可）
 	for variant in VARIANT_PARAMS:
 		var p: Resource = load(VARIANT_PARAMS[variant])
@@ -126,9 +131,7 @@ func update(delta: float) -> void:
 		if is_instance_valid(u) and not u.is_destroyed:
 			alive.append(u)
 	_uavs = alive
-	if not _replenishing:
-		return
-
+	# 常态补充从 boss 出现起保持固定 20s 节拍；猎杀相切换不重置该计时器。
 	_spawn_timer += delta
 	if _spawn_timer >= SPAWN_INTERVAL:
 		_spawn_timer = 0.0
@@ -139,12 +142,10 @@ func update(delta: float) -> void:
 				var angle: float = randf() * TAU
 				_spawn_one(angle)
 
-	# Cull 补刷队列：每 RESPAWN_DRAIN_INTERVAL（pending 越多越短）刷 RESPAWN_DRAIN_BATCH 架
-	if _respawn_pending > 0:
+	# 猎杀增援波：固定每 2s 一批，每批最多 2 架。
+	if _replenishing and _respawn_pending > 0:
 		_respawn_drain_timer += delta
-		# pending 1-4: 3s 间隔；5-8: 2.25s；9+: 1.5s（下限）
-		var drain_interval: float = maxf(RESPAWN_DRAIN_INTERVAL_BASE - float(_respawn_pending - 1) * 0.2, 1.5)
-		if _respawn_drain_timer >= drain_interval:
+		if _respawn_drain_timer >= RESPAWN_DRAIN_INTERVAL:
 			_respawn_drain_timer = 0.0
 			var slots: int = MAX_COUNT - _uavs.size()
 			var spawn_n: int = mini(mini(RESPAWN_DRAIN_BATCH, _respawn_pending), slots)
@@ -164,28 +165,22 @@ func stop_replenishing() -> void:
 	_replenishing = false
 	_respawn_pending = 0
 
-## 指定猎杀阶段闸门：只有 ACTIVE 期间允许周期补充 / 远距 cull 补刷。
+## 指定猎杀阶段闸门：只控制两波大补队列；常态 20s 补充不受相切换影响。
 func set_replenishing(enabled: bool) -> void:
 	if _replenishing == enabled:
 		return
 	_replenishing = enabled
 	_respawn_pending = 0
 	_respawn_drain_timer = 0.0
-	if enabled:
-		## 入阶段即允许首批补充；仍受 SPAWN_BATCH=2 限流，不会一帧灌满。
-		_spawn_timer = SPAWN_INTERVAL
-	else:
-		_spawn_timer = 0.0
 
-## 远距 cull 后请求补刷：加进 pending 队列，由 update() 按 RESPAWN_DRAIN_BATCH/INTERVAL 节流刷出
-## 一次性刷 10+ 架会一帧创建 10 个 Aircraft + AIController + Squad → FPS 掉得明显，
-## 改成 2 架/3s 起步（pending 多则间隔缩短到 1.5s），帧时间分摊
-func request_respawn(count: int) -> void:
+## 指定猎杀的显式增援波：只入队，不在一帧内整波实例化。
+## 统一走 2 架/批 drain，遵守性能守则的单帧生成预算。
+func request_reinforcement_wave(count: int) -> void:
 	if not _initial_done or not _replenishing or count <= 0:
 		return
 	_respawn_pending += count
-	# 让下一帧 update() 立即处理首批（首次拉满 drain_timer 等价于 timer >= interval）
-	_respawn_drain_timer = RESPAWN_DRAIN_INTERVAL_BASE
+	# 让下一帧 update() 立即处理首批；后续批次严格每 2s 一次。
+	_respawn_drain_timer = RESPAWN_DRAIN_INTERVAL
 
 ## 当前存活数量（HUD 用）
 func alive_count() -> int:
@@ -197,9 +192,10 @@ func get_uavs() -> Array[Aircraft]:
 
 ## 加权抽 variant，过滤已到 alive cap 的型号（如 MQ-111 限量 2）
 func _roll_variant() -> int:
-	if _alive_count_of_variant(Variant.MQ_112_RAILGUN) < RAILGUN_MIN_ALIVE:
+	if _advanced_variants_enabled \
+			and _alive_count_of_variant(Variant.MQ_112_RAILGUN) < RAILGUN_MIN_ALIVE:
 		return Variant.MQ_112_RAILGUN
-	var weights: Array = VARIANT_WEIGHTS.duplicate()
+	var weights: Array = variant_weights_for_progression(1 if _advanced_variants_enabled else 0)
 	for v in VARIANT_ALIVE_CAP:
 		var cap: int = int(VARIANT_ALIVE_CAP[v])
 		if _alive_count_of_variant(int(v)) >= cap:
@@ -216,6 +212,12 @@ func _roll_variant() -> int:
 		if r < acc:
 			return i
 	return Variant.MQ_109_GUN
+
+## 通关层对应的基础型号权重（纯函数，供无头回归）。0 次仅 109/110；首败后恢复四型号。
+static func variant_weights_for_progression(defeat_count: int) -> Array:
+	if defeat_count <= 0:
+		return [VARIANT_WEIGHTS[0], VARIANT_WEIGHTS[1], 0, 0]
+	return VARIANT_WEIGHTS.duplicate()
 
 ## 当前存活的某 variant UAV 数量
 func _alive_count_of_variant(variant: int) -> int:

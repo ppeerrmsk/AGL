@@ -194,6 +194,11 @@ func _dump_skill_snapshot(file: FileAccess) -> void:
 	var sm := get_tree().current_scene
 	if sm and "_pity_counter" in sm:
 		file.store_line("Pity counter: %s" % str(sm._pity_counter))
+	if sm and "_classified_pity_misses" in sm:
+		file.store_line("Classified pity misses: %d (next weight x%.1f)" % [
+			int(sm._classified_pity_misses),
+			SurvivorData.classified_pity_weight_multiplier(int(sm._classified_pity_misses)),
+		])
 	if sm and "upgrade_stacks" in sm:
 		var steering: Dictionary = SurvivorData.compute_keyword_steering_weights(sm.upgrade_stacks, sm.survivor_player.level if sm.survivor_player else 1)
 		file.store_line("Keyword steering: %s" % str(steering))

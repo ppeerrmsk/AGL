@@ -1,0 +1,36 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+display_name = "B-1B"
+is_unmanned = false
+max_hp = 70.0
+armor = 0.0
+max_speed = 1150.0
+cruise_speed = 820.0
+stall_speed_base = 250.0
+acceleration = 24.0
+deceleration = 30.0
+g_drag_factor = 5.0
+max_g = 3.0
+max_g_structural = 3.8
+roll_rate = 0.9
+pilot_stamina = 100.0
+stamina_drain_rate = 10.0
+stamina_recovery_rate = 5.0
+max_altitude = 13000.0
+climb_rate_max = 60.0
+thrust_to_weight = 0.45
+drag_coefficient = 0.04
+afterburner_thrust_mult = 1.1
+fuel_capacity = 5000.0
+fuel_rate_normal = 3.0
+fuel_rate_afterburner = 3.0
+radar_range = 0.0
+radar_half_angle = 5.0
+lock_time = 99.0
+icon_color = Color(0.45, 0.85, 1.0, 1)
+visual_length_m = 44.5
+visual_span_m = 41.8

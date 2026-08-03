@@ -132,9 +132,12 @@ func is_achievement_unlocked(achievement_id: String) -> bool:
 ## BOSS 轮换的 history 快照（BossRegistry.rotation_candidates 输入；spec §3.1）
 func build_boss_history() -> Dictionary:
 	var defeated: Dictionary = {}
+	var defeat_counts: Dictionary = {}
 	for id in _boss_defeats:
-		defeated[id] = int(_boss_defeats[id]) > 0
-	return {"last": _last_boss, "defeated": defeated}
+		var count: int = maxi(0, int(_boss_defeats[id]))
+		defeated[id] = count > 0
+		defeat_counts[id] = count
+	return {"last": _last_boss, "defeated": defeated, "defeat_counts": defeat_counts}
 
 # ── 记录 API（调用方负责正式局守卫 archive_enabled()）──
 

@@ -3,7 +3,7 @@ id: airfield-liberation-zones
 kind: system
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 4
+spec_version: 6
 owner: ppeerrmsk
 depends_on: [zone-reward-docking, survivor-loop]
 reconstruction_complete: false
@@ -24,8 +24,9 @@ reconstruction_complete: false
   每局同样的三座、同样的位置、目标恒为"解放"。两套并存互不干扰。
 - **Litmus 自检**（DESIGN_PHILOSOPHY）：
   - *单杠杆 / 效果即反馈*：解放的反馈就是"机场亮了、能降落了"，不加 HUD 中介、不发抽象奖励卡。
-  - *复用既有数值*：地面防空＝复刻原 ALLY 驻军编成（SAM×1 + AA×2）、升空迎战＝复用战区
-    驻守机（garrison）刷怪链、降落补给＝复用 DockPoint。**零新机制，全是既有件重接线**。
+  - *复用既有数值*：敌占地面防空沿用 SAM×1 + AA×2；解放后的基础驻军为 AA×2，
+    [机场防空网授权](airfield-sam-network.md) 可追加 SAM×1。升空迎战复用战区驻守机
+    （garrison）刷怪链、降落补给复用 DockPoint；所有单位参数仍走既有资源。
   - *中队级粒度*：升空迎战按当前热度出一支符合难度的编队，不做逐机微操。
 - **反模式规避**：不给机场战区塞军械库奖励（避免"目标即抽奖"）；不让机场解放去驱动 BOSS
   解锁（BOSS 早已改为**纯时间闸**，见 §3.5）——机场是独立目标层，不碰进度主线。
@@ -95,12 +96,14 @@ reconstruction_complete: false
 | `radius` | 600 | DockPoint 默认 |
 | 一次性 | 是（`_spent` after 1 landing） | 用户："一次性"；降落一次即关闭、标记消失 |
 | 着陆功能 | 全队回血 + 进化结算 + 送 1 架僚机 | 复用 `_on_dock_docked` 既有全套 |
-| 友军防空伞 | 解放**即刻**逐个刷出 SAM×1 + AA×2（ALLY） | 复用 `_spawn_airfield_garrison` 编成；**渐进刷出**，不 dock 门控 |
+| 友军防空伞 | 基础 AA×2（ALLY）；已购“机场防空网授权”时追加 SAM×1 | **渐进刷出**，不 dock 门控；永久授权细则见依赖 spec |
 
-- **友军防空伞（用户 2026-07-24 订正）**：一旦机场被打下来（解放），就在该机场**逐渐刷出**
-  友军防空单位（SAM×1 + AA×2，ALLY），**不要求玩家降落 / 停靠**才出现。
+- **友军防空伞（2026-08-02 永久授权化）**：一旦机场被打下来（解放），就在该机场**逐渐刷出**
+  基础友军 AA×2；正式局已购 [机场防空网授权](airfield-sam-network.md) 时再追加 SAM×1。
+  **不要求玩家降落 / 停靠**才出现。
   - "渐进刷出"＝逐个入场而非一次性全出：解放起每 `AIRFIELD_ALLY_SPAWN_INTERVAL = 4.0s`
-    刷出一个（顺序 SAM → AA → AA，共 ~8s 布防完成），营造"友军接管、防空陆续到位"的观感。
+    刷出一个；基础顺序 AA → AA（~4s），授权生效时为 AA → AA → SAM（~8s）。
+  - 生涯商店只能在局外购买，不存在本局后拿补部署；每座只部署一次，战损不重生。
   - 与降落解耦：即使玩家打完就飞走、从不降落，防空伞照样刷齐并原地驻守。
   - 落点：机场圆心附近的原 ALLY 驻军偏移（`(240,0)` / `(-170,±150)`，复刻原编成）。
   - 敌占期间机场只有敌方地面防空；解放后才有友军防空伞。
@@ -146,7 +149,7 @@ map-expansion §2.4 已同步标注适用范围与本裁决指针。
 |---|---|---|
 | **敌占（AVAILABLE）** | 开局 | 战术地图红圈 + ✈ + "解放机场" 目标；玩家靠近（off-screen 时）刷 3 门地面防空 + 升空迎战 |
 | **交战（SELECTED / triggered）** | 玩家进圆 或 击中任一地面 TGT | 地面 TGT 打 TGT 标记；升空迎战编队接战 |
-| **解放（CLEARED）** | 3 门地面 TGT 全灭 | 红圈消失；圆心生成一次性友军补给点；**即刻起逐个刷出 ALLY 防空伞**（每 4s 一个，不 dock 门控）；升空迎战残余撤离（视线外 free）；`+HEAT_ZONE_CAPTURED` |
+| **解放（CLEARED）** | 3 门地面 TGT 全灭 | 红圈消失；圆心生成一次性友军补给点；**即刻起逐个刷出 ALLY AA×2**，已购机场防空网授权则追加 SAM×1（每 4s 一个，不 dock 门控）；升空迎战残余撤离（视线外 free）；`+HEAT_ZONE_CAPTURED` |
 | **补给点用尽（spent）** | 玩家降落一次 | 补给点标记消失、不再判定（ALLY 防空伞原地保留） |
 
 - 解放**不触发** `_refresh_availability_after_clear` 的战区重开逻辑（机场一次性，不进重开池）。
@@ -205,8 +208,8 @@ on 首次 _spawn_zone_units(airfield_zone):
   （1 SAM + 2 AA，TGT）+ `_spawn_zone_defenders`。完成判定 / 触发复用现链。
 - **`survivor_mode`**：
   - 删除开局 `_spawn_airfield_docks` 造 3 个 active dock + 全场 `_spawn_airfield_garrison`；
-  - 改为 `_liberate_airfield(zone_id)`：造该机场 DockPoint（active，一次性）+ 部署该机场 ALLY 防空伞 +
-    `_tactical_map.set_docks` 刷新；
+  - 改为 `_liberate_airfield(zone_id)`：造该机场 DockPoint（active，一次性）+ 部署该机场 ALLY 基础 AA×2 +
+    按 MetaShop 机场防空网永久授权可选追加 SAM×1 + `_tactical_map.set_docks` 刷新；
   - `_on_zone_mission_completed` 分流：`is_airfield` → `liberate_airfield()` + `_liberate_airfield()`；否则原奖励流。
 - **`TacticalMap`**：`_should_hide_zone`（airfield+CLEARED→隐藏）、`_draw_one_zone`（airfield 目标/奖励文案）、
   `_refresh_info`（§3.4 kind 化 + airfield 文案）、`_TIP_KEYS`（去 stamina）。
@@ -222,7 +225,8 @@ on 首次 _spawn_zone_units(airfield_zone):
 - [ ] 靠近某机场：刷出 1 SAM + 2 AA（地面 TGT）+ 一支符合当前热度难度的升空迎战编队。
 - [ ] 低热度靠近＝1★ 小编队；高热度靠近＝3★ 编队（EventLogger `PreSpawnAirfield` 可见 star）。
 - [ ] 打光 3 门地面防空 → 红圈消失、圆心出现友军机场补给点。
-- [ ] 解放后即使**不降落**，ALLY 防空伞（SAM×1+AA×2）也逐个刷出（~每 4s 一个，~8s 布防齐）。
+- [ ] 解放后即使**不降落**，未购授权也只逐个刷出 ALLY AA×2（0s / 4s），不会出现友军 SAM。
+- [ ] 已购机场防空网永久授权时追加 SAM×1（8s）；每局每座机场均生效，战损不重生。
 - [ ] 降落该机场一次 → 全队回血 + 进化结算 + 送僚机；补给点随即标记消失（一次性）。
 - [ ] 三座机场互相独立；解放一座不影响另两座；均**不**改变 BOSS 解锁时机（仍 600s 时间闸）。
 - [ ] Tab 悬停任意战区：奖励块正确显示 kind（航母/僚机/武器/次世代），**不再出现"生存"死词**。
@@ -244,7 +248,7 @@ on 首次 _spawn_zone_units(airfield_zone):
 
 ### 阶段 3 — 解放 + 补给点（survivor_mode）
 - [x] 删开局 `_spawn_airfield_docks` 造 active dock + 全场 ALLY 驻军
-- [x] `_liberate_airfield(zone_id)`：造一次性 DockPoint + set_docks 刷新 + 启动**渐进** ALLY 防空伞刷出（每 4s 一个，与 dock 解耦）
+- [x] `_liberate_airfield(zone_id)`：造一次性 DockPoint + set_docks 刷新 + 启动**渐进** ALLY 基础 AA×2；MetaShop 机场防空网授权可追加一次性 SAM×1（每 4s 一个，与 dock 解耦）
 - [x] `_on_zone_mission_completed` 分流 airfield → 解放路径（不发奖励、不 mark_cleared churn）
 - [x] `_zone_label` 机场 toast 显示机场名（非 ✈ 圆心字符）
 
@@ -282,3 +286,5 @@ on 首次 _spawn_zone_units(airfield_zone):
 | 2026-07-24 | 2 | 用户订正：友军防空伞在**解放即刻渐进刷出**（每 4s 一个，不 dock 门控）；status → approved |
 | 2026-07-26 | 3 | 新增 §2.5：裁决机场豁免 map-expansion §2.4 几何约束（缩半径方案否决，因击穿 §2.1 半径预算）；弱化下限 缘距 ≥1000 / 离边 ≥0 进 test_map_expansion 强校验 |
 | 2026-07-29 | 4 | F6 战区 Debug 新增“立即访问机场 / 进化树”；用户复核后修订为完全独立、无限次的临时 Debug 机场：不触碰地图三机场、不写生涯停靠记录，只复用回血与进化结算。 |
+| 2026-08-01 | 5 | 友军机场 SAM 技能化：基础驻防改 AA×2；队级“机场防空网”令每座已解放/今后解放机场追加一次性 SAM×1，后拿立即补部署、战损不重生。敌占 SAM×1+AA×2 不变。 |
+| 2026-08-02 | 6 | 用户裁定：机场 SAM 从局内技能改为生涯商店永久授权；未购仍为 AA×2，购入后每局每座解放机场自动追加一次性 SAM×1。 |

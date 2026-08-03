@@ -9,6 +9,13 @@ const TRACER_LENGTH: float = 8.0  ## 曳光弹绘制长度（像素）
 const ROCKET_TRAIL_LENGTH: float = 16.0  ## 火箭尾迹绘制长度
 const FADE_OUT_DURATION: float = 0.25  ## 寿命最后 0.25s 内逐帧淡出（替代瞬间消失）
 const ExplosionVFXScript = preload("res://scripts/explosion_vfx.gd")
+const StrategicTargetScript = preload("res://scripts/strategic_target.gd")
+
+## 机炮命中火星：每目标独立节流、单管理器批量绘制，不创建粒子节点。
+const HIT_SPARK_DURATION: float = 0.16
+const HIT_SPARK_COOLDOWN_MS: int = 110
+const MAX_HIT_SPARKS: int = 12
+const HIT_SPARK_READY_META: StringName = &"_gun_hit_spark_ready_ms"
 
 ## 友方（team 0）弹丸覆盖参数，由生存模式设置
 var friendly_hit_radius: float = HIT_RADIUS
@@ -18,6 +25,7 @@ var flat_altitude_mode: bool = false       ## 扁平高度模式：跳过高度�
 
 ## 弹丸数据：{ pos: Vector2, vel: Vector2, owner: CombatUnit, damage: float, life: float }
 var _bullets: Array[Dictionary] = []
+var _hit_sparks: Array[Dictionary] = []  ## {pos, age, angle, scale}
 
 ## 装饰弹软上限（②，2026-07-24 航母群掉帧修复）：
 ## 到达上限后**只拒绝新的 visual_only 装饰弹**，真弹 / 火箭永远照常生成（不影响平衡与命中）。
@@ -34,6 +42,10 @@ var _grid_buf: Array = []   ## 命中循环复用的候选缓冲（大单位 + �
 ## 数据结构：{ pos, drift_vel_px, source, source_team, params, target_id,
 ##            retarget_timer, life, altitude }
 var _torpedoes: Array[Dictionary] = []
+## 重型炸弹 / 空爆弹独立数组，避免向普通子弹热路径堆叠分支。
+var _bombs: Array[Dictionary] = []
+var _airburst_shells: Array[Dictionary] = []
+var _area_flashes: Array[Dictionary] = []
 ## 同屏上限：每个 source 各自最多 21 颗（玩家有技能减 CD 后的极限值）
 const MAX_TORPEDOES_PER_SOURCE: int = 21
 
@@ -152,6 +164,34 @@ func spawn_bullet(origin: Vector2, direction: float, speed_ms: float, source: Co
 		"spawn_in_building": spawn_in_b,
 		"source_tier": src_tier,
 		"was_in_building": spawn_in_b,
+	})
+
+## 轰炸机炸弹：保留释放瞬间 85% 平面速度，定时落地后只伤敌对地面单位。
+func spawn_bomber_bomb(origin: Vector2, horizontal_velocity_px: Vector2, source: CombatUnit,
+		fall_time: float = 3.2, radius_m: float = 160.0, damage: float = 75.0) -> void:
+	_bombs.append({
+		"pos": origin,
+		"vel": horizontal_velocity_px,
+		"source": source,
+		"source_team": source.team if is_instance_valid(source) else -1,
+		"life": fall_time,
+		"max_life": fall_time,
+		"start_altitude": source.altitude if is_instance_valid(source) else 10000.0,
+		"radius_px": radius_m * PIXELS_PER_METER,
+		"damage": damage,
+	})
+
+## 远距高炮空爆弹：冻结方向和引信时间，飞行中不再修正。
+func spawn_airburst_shell(origin: Vector2, direction: float, speed_ms: float, source: CombatUnit,
+		fuse_time: float, burst_altitude: float, radius_m: float = 220.0,
+		damage: float = 75.0, burst_id: int = 0) -> void:
+	var vel := Vector2(sin(direction), -cos(direction)) * speed_ms * PIXELS_PER_METER
+	_airburst_shells.append({
+		"pos": origin, "vel": vel, "source": source,
+		"source_team": source.team if is_instance_valid(source) else -1,
+		"life": maxf(fuse_time, 0.1), "max_life": maxf(fuse_time, 0.1),
+		"altitude": burst_altitude, "radius_px": radius_m * PIXELS_PER_METER,
+		"damage": damage, "burst_id": burst_id,
 	})
 
 ## 生成无制导火箭弹
@@ -450,8 +490,91 @@ func _explode_rocket(b: Dictionary, world_pos: Vector2, exclude_unit: CombatUnit
 		else:
 			unit.take_damage(aoe_dmg, CombatUnit.safe_attacker(b["source"]), "rocket")
 
+func _update_special_projectiles(delta: float) -> void:
+	var i := _bombs.size() - 1
+	while i >= 0:
+		var b: Dictionary = _bombs[i]
+		b["pos"] = Vector2(b["pos"]) + Vector2(b["vel"]) * delta
+		b["life"] = float(b["life"]) - delta
+		if float(b["life"]) <= 0.0:
+			_explode_bomber_bomb(b)
+			_bombs.remove_at(i)
+		i -= 1
+
+	i = _airburst_shells.size() - 1
+	while i >= 0:
+		var shell: Dictionary = _airburst_shells[i]
+		shell["pos"] = Vector2(shell["pos"]) + Vector2(shell["vel"]) * delta
+		shell["life"] = float(shell["life"]) - delta
+		if float(shell["life"]) <= 0.0:
+			_explode_airburst_shell(shell)
+			_airburst_shells.remove_at(i)
+		i -= 1
+
+	i = _area_flashes.size() - 1
+	while i >= 0:
+		_area_flashes[i]["age"] = float(_area_flashes[i]["age"]) + delta
+		if float(_area_flashes[i]["age"]) >= float(_area_flashes[i]["duration"]):
+			_area_flashes.remove_at(i)
+		i -= 1
+
+
+func _explode_bomber_bomb(b: Dictionary) -> void:
+	var pos: Vector2 = b["pos"]
+	var radius_px: float = float(b["radius_px"])
+	var source_team: int = int(b["source_team"])
+	var attacker: Node = CombatUnit.safe_attacker(b.get("source"))
+	_grid_buf.clear()
+	_unit_grid.query_into(pos, _grid_buf)
+	for unit in _grid_buf:
+		if not is_instance_valid(unit) or unit.is_destroyed or not (unit is GroundUnit):
+			continue
+		if not CombatUnit.teams_hostile(source_team, unit.team):
+			continue
+		if pos.distance_to(unit.global_position) > radius_px:
+			continue
+		if unit.get_script() == StrategicTargetScript:
+			unit.take_bomber_damage(float(b["damage"]), source_team, attacker)
+		else:
+			unit.take_damage(float(b["damage"]), attacker, "bomber_bomb")
+	_area_flashes.append({"pos": pos, "radius": radius_px, "age": 0.0, "duration": 0.85, "kind": "bomb"})
+	ExplosionVFXScript.emit(get_tree(), pos, 0.0, 1.2)
+	AudioManager.play_sfx_2d("bomb_distant", pos, 7.0)
+	EventLogger.log_event("BOMB", "Impact", "pos=%s r=%.0fm team=%d" % [pos, radius_px / PIXELS_PER_METER, source_team])
+
+
+func _explode_airburst_shell(shell: Dictionary) -> void:
+	var pos: Vector2 = shell["pos"]
+	var radius_px: float = float(shell["radius_px"])
+	var source_team: int = int(shell["source_team"])
+	var burst_altitude: float = float(shell["altitude"])
+	var attacker: Node = CombatUnit.safe_attacker(shell.get("source"))
+	_grid_buf.clear()
+	_unit_grid.query_into(pos, _grid_buf)
+	for unit in _grid_buf:
+		if not is_instance_valid(unit) or unit.is_destroyed or not (unit is Aircraft):
+			continue
+		if not CombatUnit.teams_hostile(source_team, unit.team):
+			continue
+		if pos.distance_to(unit.global_position) > radius_px or absf(unit.altitude - burst_altitude) > 1000.0:
+			continue
+		unit.take_damage(float(shell["damage"]), attacker, "airburst")
+	_area_flashes.append({
+		"pos": pos,
+		"radius": radius_px,
+		"age": 0.0,
+		"duration": 1.2,
+		"kind": "airburst",
+		# 三连发共用 burst_id，但爆点不同；把坐标混入后可得到逐弹稳定、不跳动的烟团形状。
+		"visual_seed": int(shell["burst_id"]) * 31 + int(round(pos.x * 3.0 + pos.y * 5.0)),
+	})
+	AudioManager.play_sfx_2d("bomb_distant", pos, 5.0)
+	EventLogger.log_event("AIRBURST", "Flak", "burst=%d pos=%s alt=%.0f" % [int(shell["burst_id"]), pos, burst_altitude])
+
+
 func _physics_process(delta: float) -> void:
 	var _t0 := Time.get_ticks_usec()
+	_update_hit_sparks(delta)
 	# ── 帧级缓存：每帧重建一次，所有子弹共用 ──
 	_frame_cache_filled = false
 	if SurvivorData.ENABLE_BULLET_FRAME_CACHE:
@@ -460,6 +583,7 @@ func _physics_process(delta: float) -> void:
 	# ── 命中广相网格：每物理帧按当前单位位置重建一次，所有真弹共用（③）──
 	# 小单位入格 / 大单位（NavalUnit）进 large_units 线性表。命中循环只查邻格 + 大单位。
 	_unit_grid.rebuild(combat_unit_list, GRID_CELL_SIZE)
+	_update_special_projectiles(delta)
 
 	# ── 空中鱼雷（独立循环，不污染子弹热路径）──
 	_update_torpedoes(delta)
@@ -640,8 +764,8 @@ func _physics_process(delta: float) -> void:
 				if source_alive and source_raw is Aircraft:
 					var sig_src := source_raw as Aircraft
 					if sig_src.sig_f15_active and not is_rocket and sig_src.params \
-							and sig_src.hp >= sig_src.params.max_hp:
-						dmg_mult *= 1.2
+							and sig_src.hp >= sig_src.params.max_hp * Aircraft.SIG_F15_HP_RATIO:
+						dmg_mult *= Aircraft.SIG_F15_BONUS_MULT
 					if sig_src.sig_f15e_active and not (ac is Aircraft):
 						dmg_mult *= 1.3
 				var actual_dmg: float = float(b["damage"]) * dmg_mult
@@ -658,15 +782,10 @@ func _physics_process(delta: float) -> void:
 				if ac is Aircraft and ac.params:
 					var side2 := "Friend" if ac.team == 0 else "Enemy"
 					tgt_name = "%s/%s[%s]" % [side2, ac.params.display_name, ac.callsign]
-				var evt_tag := "ROCKET" if is_rocket else "GUN"
-				EventLogger.log_event(evt_tag, src_name,
-					"hit %s (dmg=%.1f)" % [tgt_name, actual_dmg])
-				# 战报：机炮命中计数（火箭弹不计入机炮命中率）
-				if not is_rocket:
-					EventLogger.tally(src_name, "gun_hits")
 				# 归因：把射手写到目标 meta，aircraft._record_kill_attribution 在致死时读取
 				if is_instance_valid(b["source"]) and ac is Aircraft:
 					ac.set_meta("_pending_attacker", b["source"])
+				var damage_applied: bool = true
 				if is_rocket:
 					# 火箭不进入子弹闪避系统
 					# 爆炸 + AOE 一并处理（_explode_rocket 内部判断 aoe_radius，无 AOE 时仅出 VFX）
@@ -680,9 +799,10 @@ func _physics_process(delta: float) -> void:
 					else:
 						ac.take_damage(actual_dmg, CombatUnit.safe_attacker(b["source"]), "rocket")
 				elif ac is Aircraft:
-					# take_bullet_damage 内部 set_meta("_last_damage_kind", "gun")，这里继续保留旧入口
+					# false = 本发被闪避；此时不记命中、不出火星。
 					# attacker 传入用于"对头机炮闪避"几何检查
-					ac.take_bullet_damage(b["damage"] * dmg_mult, CombatUnit.safe_attacker(b["source"]))
+					damage_applied = ac.take_bullet_damage(
+						b["damage"] * dmg_mult, CombatUnit.safe_attacker(b["source"]))
 				elif ac is NavalUnit:
 					# 机炮子弹：
 					#   - 总血削 15%（高射速高伤害 → 低总血贡献，避免一梭子秒船）
@@ -694,6 +814,13 @@ func _physics_process(delta: float) -> void:
 					(ac as NavalUnit).take_damage_at(b["damage"] * dmg_mult, b["pos"], 0.15, true)
 				else:
 					ac.take_damage(b["damage"] * dmg_mult, CombatUnit.safe_attacker(b["source"]), "gun")
+				if is_rocket or damage_applied:
+					var evt_tag := "ROCKET" if is_rocket else "GUN"
+					EventLogger.log_event(evt_tag, src_name,
+						"hit %s (dmg=%.1f)" % [tgt_name, actual_dmg])
+					if not is_rocket:
+						EventLogger.tally(src_name, "gun_hits")
+						_emit_hit_spark(b["pos"], b["vel"], tgt_unit)
 				hit = true
 				break
 
@@ -749,6 +876,35 @@ func _physics_process(delta: float) -> void:
 	PerfBuckets.tick("bullet_phys", Time.get_ticks_usec() - _t0)
 	PerfBuckets.set_value("bullet_count", _bullets.size())
 
+## 只推进当前短寿命火星；无火星时零循环开销。
+func _update_hit_sparks(delta: float) -> void:
+	var i := _hit_sparks.size() - 1
+	while i >= 0:
+		_hit_sparks[i]["age"] = float(_hit_sparks[i]["age"]) + delta
+		if float(_hit_sparks[i]["age"]) >= HIT_SPARK_DURATION:
+			_hit_sparks.remove_at(i)
+		i -= 1
+
+
+## 每个目标独立 CD，密集梭射只在弹流命中的开头给一次反馈。
+func _emit_hit_spark(pos: Vector2, velocity: Vector2, target: CombatUnit) -> void:
+	if not is_instance_valid(target):
+		return
+	var now_ms: int = Time.get_ticks_msec()
+	var ready_ms: int = int(target.get_meta(HIT_SPARK_READY_META, 0))
+	if now_ms < ready_ms:
+		return
+	target.set_meta(HIT_SPARK_READY_META, now_ms + HIT_SPARK_COOLDOWN_MS)
+	if _hit_sparks.size() >= MAX_HIT_SPARKS:
+		_hit_sparks.remove_at(0)
+	_hit_sparks.append({
+		"pos": pos,
+		"age": 0.0,
+		"angle": (-velocity).angle() + randf_range(-0.16, 0.16),
+		"scale": randf_range(7.0, 10.0),
+	})
+
+
 func _draw() -> void:
 	var _t0 := Time.get_ticks_usec()
 	# 曳光弹批量绘制（性能守则 R3）：CIWS 弹幕高峰 ~1400 颗，原先逐颗 draw_line(抗锯齿)
@@ -758,6 +914,63 @@ func _draw() -> void:
 	#   （逐点 vs 逐段）在不同 Godot 版本不一致，长度不匹配会【静默不画】(曾致曳光弹全消失)。
 	#   代价：曳光弹放弃逐颗末段淡出（改为寿命到点瞬间消失，密集弹幕里几乎不可见）。
 	var tracer_pts := PackedVector2Array()
+	# 重型炸弹：随落地进度略微放大；空爆弹使用冷白短曳光，和普通黄弹流区分。
+	for bomb in _bombs:
+		var progress: float = 1.0 - float(bomb["life"]) / maxf(float(bomb["max_life"]), 0.01)
+		draw_circle(bomb["pos"], lerpf(2.0, 4.5, progress), Color(0.95, 0.72, 0.28, 0.95))
+		draw_line(bomb["pos"], bomb["pos"] - Vector2(bomb["vel"]).normalized() * 10.0,
+			Color(0.35, 0.25, 0.15, 0.7), 2.0)
+	for shell in _airburst_shells:
+		var sdir: Vector2 = Vector2(shell["vel"]).normalized()
+		draw_line(shell["pos"], shell["pos"] - sdir * 12.0, Color(0.78, 0.9, 1.0, 0.9), 1.8)
+	for flash in _area_flashes:
+		var ft: float = clampf(float(flash["age"]) / maxf(float(flash["duration"]), 0.01), 0.0, 1.0)
+		var flash_pos: Vector2 = flash["pos"]
+		if flash["kind"] == "bomb":
+			var fr: float = float(flash["radius"]) * ease(ft, -1.5)
+			var fc := Color(1.0, 0.58, 0.18, (1.0 - ft) * 0.75)
+			draw_arc(flash_pos, maxf(fr, 2.0), 0, TAU, 36, fc, 2.0)
+			draw_arc(flash_pos, maxf(fr * 0.65, 1.0), 0, TAU, 28, fc, 1.0)
+			continue
+
+		# Flak 不能画成水波：先给一个短促放射爆心，再留下不规则黑灰烟团。
+		# AOE 半径只以 0.22s 的断续危险圈提示一次，不做持续扩张同心圆。
+		var visual_seed: int = int(flash.get("visual_seed", 0))
+		var base_angle := fposmod(float(visual_seed) * 2.399963, TAU)
+		var blast_t := clampf(ft / 0.22, 0.0, 1.0)
+		if ft < 0.22:
+			var danger_segments := PackedVector2Array()
+			var danger_radius: float = float(flash["radius"])
+			for seg in range(24):
+				if seg % 4 == 3:
+					continue
+				var a0 := float(seg) / 24.0 * TAU
+				var a1 := float(seg + 1) / 24.0 * TAU
+				danger_segments.push_back(flash_pos + Vector2.from_angle(a0) * danger_radius)
+				danger_segments.push_back(flash_pos + Vector2.from_angle(a1) * danger_radius)
+			draw_multiline(danger_segments, Color(1.0, 0.42, 0.12, (1.0 - blast_t) * 0.7), 1.2, true)
+
+			var blast_rays := PackedVector2Array()
+			for ray in range(10):
+				var ray_angle := base_angle + float(ray) / 10.0 * TAU + sin(float(ray * 17 + visual_seed)) * 0.09
+				var ray_dir := Vector2.from_angle(ray_angle)
+				var ray_len := lerpf(7.0, 34.0 + float(ray % 3) * 3.0, ease(blast_t, -1.6))
+				blast_rays.push_back(flash_pos + ray_dir * 3.0)
+				blast_rays.push_back(flash_pos + ray_dir * ray_len)
+			draw_multiline(blast_rays, Color(1.0, 0.55, 0.16, (1.0 - blast_t) * 0.95), 2.0, true)
+			draw_circle(flash_pos, lerpf(8.0, 2.0, blast_t),
+				Color(1.0, 0.96, 0.72, (1.0 - blast_t) * 0.95))
+
+		var smoke_in := clampf((ft - 0.04) / 0.16, 0.0, 1.0)
+		var smoke_alpha := smoke_in * (1.0 - ft) * 0.72
+		var smoke_spread := lerpf(7.0, 20.0, ft)
+		for puff in range(7):
+			var puff_angle := base_angle + float(puff) / 7.0 * TAU + sin(float(puff * 23 + visual_seed)) * 0.22
+			var puff_dist := smoke_spread * (0.45 + 0.08 * float(puff % 4))
+			var puff_pos := flash_pos + Vector2.from_angle(puff_angle) * puff_dist
+			var puff_radius := (7.0 + float((puff * 5 + absi(visual_seed)) % 6)) * lerpf(0.75, 1.35, ft)
+			draw_circle(puff_pos, puff_radius, Color(0.28, 0.31, 0.34, smoke_alpha))
+		draw_circle(flash_pos, lerpf(8.0, 14.0, ft), Color(0.12, 0.14, 0.16, smoke_alpha * 0.9))
 	for b in _bullets:
 		var dir: Vector2 = b["vel"].normalized()
 		if b.get("is_rocket", false):
@@ -774,6 +987,23 @@ func _draw() -> void:
 			tracer_pts.push_back(tail)
 	if not tracer_pts.is_empty():
 		draw_multiline(tracer_pts, Color(1.0, 0.95, 0.4, 0.9), 1.5)
+	# 命中火星最多 12 组，每组 3 道；亮芯/橙边各一次批量提交，固定 2 draw calls。
+	var spark_outer := PackedVector2Array()
+	var spark_inner := PackedVector2Array()
+	for spark in _hit_sparks:
+		var life_ratio: float = clampf(1.0 - float(spark["age"]) / HIT_SPARK_DURATION, 0.0, 1.0)
+		var reach: float = float(spark["scale"]) * life_ratio
+		var origin: Vector2 = spark["pos"]
+		var base_angle: float = float(spark["angle"])
+		for ray in range(3):
+			var dir := Vector2.from_angle(base_angle + (float(ray) - 1.0) * 0.68)
+			spark_outer.push_back(origin + dir * 1.2)
+			spark_outer.push_back(origin + dir * reach)
+			spark_inner.push_back(origin + dir * 1.2)
+			spark_inner.push_back(origin + dir * reach * 0.55)
+	if not spark_outer.is_empty():
+		draw_multiline(spark_outer, Color(1.0, 0.42, 0.08, 0.9), 2.0, true)
+		draw_multiline(spark_inner, Color(1.0, 0.96, 0.65, 1.0), 1.0, true)
 	PerfBuckets.tick("bullet_draw", Time.get_ticks_usec() - _t0)
 
 	# 空中漂浮雷：弹体 + 上方降落伞罩（半圆 + 两根伞线）

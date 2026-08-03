@@ -48,8 +48,9 @@ static func ship_orbit_radii(ring_radius: float, offsets: Array) -> PackedFloat3
 		out.append((p as Vector2).length())
 	return out
 
-## 沿轨道圆的采样步长（px）——取值 ≈ 舰体半长，保证不会从两个采样点之间"跳过"一小块陆地
-const ORBIT_SAMPLE_STEP_PX: float = 150.0
+## 沿轨道圆的采样步长（px）。40px 与独立水域回归同精度：这是一次性生成成本，
+## 宁可多采样也不能让两个疏采样点之间的一小块陆地漏过去。
+const ORBIT_SAMPLE_STEP_PX: float = 40.0
 
 ## 数一个盘旋圆心下有多少采样点撞岸（每艘船一个同心圆，按步长细采）
 ## ring_radius ≤ 1 = 原地驻泊（舰队完全不动）→ 只查出生那一组位置，不扫圆

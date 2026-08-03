@@ -55,8 +55,10 @@ func remove_member(ac: Aircraft) -> void:
 	members.erase(ac)
 	if ac == leader and members.size() > 0:
 		leader = members[0]
-		_sync_leader_squad_index(leader)
+		_sync_member_bindings()
 		leader_changed.emit(leader)
+	elif leader:
+		_sync_member_bindings()
 
 ## 显式换帅（玩家切换操控对象时调用）——只换 leader 引用 + 重排 squad_index 记账。
 ## ★最小扰动原则（spec squad-control-switching §3.5）：禁止遍历 members 强制设
@@ -67,18 +69,7 @@ func set_leader(new_leader: Aircraft) -> void:
 	if new_leader == leader or new_leader not in members:
 		return
 	leader = new_leader
-	# 重排 squad_index：new_leader=0，其余成员按原 members 顺序补 1..N
-	var idx := 1
-	for ac in members:
-		if not is_instance_valid(ac):
-			continue
-		var target_index := 0 if ac == new_leader else idx
-		if ac != new_leader:
-			idx += 1
-		for child in ac.get_children():
-			if child is AIController:
-				(child as AIController).squad_index = target_index
-				break
+	_sync_member_bindings()
 	leader_changed.emit(new_leader)
 
 ## 清理无效成员
@@ -88,6 +79,7 @@ func cleanup() -> void:
 		if is_instance_valid(ac) and not ac.is_destroyed:
 			valid.append(ac)
 	members = valid
+	var leader_changed_now := false
 	if leader and (not is_instance_valid(leader) or leader.is_destroyed):
 		# ACE 继任（spec ace-system §3）：长机阵亡 → **击坠数最高**的存活成员继任
 		# （kill_tally 在 _record_kill_attribution 记账；平手取 members 靠前 = 资历序）。
@@ -100,18 +92,38 @@ func cleanup() -> void:
 		if leader:
 			EventLogger.log_event("ACE", leader.callsign,
 				"继任长机/王牌 (kills=%d)" % leader.kill_tally)
-			_sync_leader_squad_index(leader)
-			leader_changed.emit(leader)
+			leader_changed_now = true
+	# cleanup 是成员结构的权威收口：AI 可能已在发现旧长机阵亡时临时把 squad 置空，
+	# 继任必须把所有幸存成员重新绑定并重排角色，否则全队指令会退化成只作用当前操控机。
+	if leader:
+		_sync_member_bindings()
+	if leader_changed_now:
+		leader_changed.emit(leader)
 
-## 晋升新长机后同步其 AIController.squad_index = 0（防止僚机带旧 index 进 SQUAD_FOLLOW 自转）
-## TODO Step 2 起由 SquadFactory 监听 leader_changed 接管，本方法可删
-static func _sync_leader_squad_index(ac: Aircraft) -> void:
-	if not ac:
-		return
-	for child in ac.get_children():
-		if child is AIController:
-			(child as AIController).squad_index = 0
-			return
+## 原子恢复全队 AI 反向引用与角色序号：leader=0，其余按 members 原顺序连续编号。
+## `Squad.members/leader` 是结构真源；AIController.squad/squad_index 只是可修复缓存。
+func _sync_member_bindings() -> void:
+	var next_wingman_index := 1
+	for ac in members:
+		if not is_instance_valid(ac) or ac.is_destroyed:
+			continue
+		var target_index := 0 if ac == leader else next_wingman_index
+		if ac != leader:
+			next_wingman_index += 1
+		for child in ac.get_children():
+			if child is AIController:
+				var ai := child as AIController
+				ai.squad = self
+				ai.squad_index = target_index
+				break
+		# 不强制改变 AI 状态；只刷新已经处于编队托管中的缓存长机。
+		if ac == leader:
+			# cleanup 会周期调用；正常长机的巡航/战斗 target 不能每次被清空。
+			# 仅新晋升者仍带僚机托管标志时退出编队，正式接管回调另有完整兜底。
+			if ac.formation_mode or ac._formation_leader != null:
+				ac.clear_formation()
+		elif ac.formation_mode:
+			ac._formation_leader = leader
 
 ## 获取成员在编队中的序号（0=长机）
 func get_index(ac: Aircraft) -> int:

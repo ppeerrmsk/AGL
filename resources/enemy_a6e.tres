@@ -1,0 +1,36 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=5 format=3]
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/lancer_combat.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/default_missile.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/a7_rocket.tres" id="4"]
+[resource]
+script = ExtResource("1")
+display_name = "A-6E Intruder"
+max_hp = 45.0
+max_speed = 1000.0
+cruise_speed = 650.0
+stall_speed_base = 205.0
+acceleration = 30.0
+deceleration = 52.0
+g_drag_factor = 3.1
+max_g = 5.0
+max_g_structural = 7.5
+roll_rate = 2.7
+pilot_stamina = 72.0
+stamina_drain_rate = 30.0
+stamina_recovery_rate = 8.0
+max_altitude = 12000.0
+climb_rate_max = 180.0
+thrust_to_weight = 0.78
+drag_coefficient = 0.028
+afterburner_thrust_mult = 1.0
+fuel_capacity = 2400.0
+fuel_rate_normal = 1.8
+fuel_rate_afterburner = 6.0
+radar_range = 2800.0
+radar_half_angle = 25.0
+lock_time = 4.0
+missile = ExtResource("3")
+rocket = ExtResource("4")
+combat = ExtResource("2")
+icon_color = Color(0.78, 0.31, 0.20, 1)

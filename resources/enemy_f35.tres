@@ -1,0 +1,36 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=5 format=3]
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/lancer_combat.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/default_missile.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/enemy_high_flare.tres" id="4"]
+[resource]
+script = ExtResource("1")
+display_name = "F-35 Lightning II"
+max_hp = 65.0
+max_speed = 2050.0
+cruise_speed = 1000.0
+stall_speed_base = 180.0
+acceleration = 54.0
+deceleration = 84.0
+g_drag_factor = 2.8
+max_g = 7.5
+max_g_structural = 10.5
+roll_rate = 3.8
+pilot_stamina = 90.0
+stamina_drain_rate = 24.0
+stamina_recovery_rate = 10.0
+max_altitude = 17000.0
+climb_rate_max = 285.0
+thrust_to_weight = 1.10
+drag_coefficient = 0.021
+afterburner_thrust_mult = 1.52
+fuel_capacity = 3200.0
+fuel_rate_normal = 1.9
+fuel_rate_afterburner = 9.2
+radar_range = 4600.0
+radar_half_angle = 32.0
+lock_time = 3.2
+missile = ExtResource("3")
+flare = ExtResource("4")
+combat = ExtResource("2")
+icon_color = Color(0.88, 0.22, 0.18, 1)

@@ -10,8 +10,8 @@
 script = ExtResource("1")
 ship_class = 3
 display_name_prefix = "CV"
-hull_length = 420.0
-hull_width = 70.0
+hull_length = 166.4
+hull_width = 38.4
 icon_color = Color(0.9, 0.15, 0.12, 1)
 max_sea_speed = 7.0
 turn_rate = 0.05

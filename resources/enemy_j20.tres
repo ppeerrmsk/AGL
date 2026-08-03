@@ -1,0 +1,36 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=5 format=3]
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/lancer_combat.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/default_missile.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/enemy_f22_flare.tres" id="4"]
+[resource]
+script = ExtResource("1")
+display_name = "J-20 Mighty Dragon"
+max_hp = 70.0
+max_speed = 2750.0
+cruise_speed = 1100.0
+stall_speed_base = 205.0
+acceleration = 56.0
+deceleration = 84.0
+g_drag_factor = 3.0
+max_g = 7.5
+max_g_structural = 10.5
+roll_rate = 3.5
+pilot_stamina = 90.0
+stamina_drain_rate = 24.0
+stamina_recovery_rate = 10.0
+max_altitude = 18000.0
+climb_rate_max = 300.0
+thrust_to_weight = 1.15
+drag_coefficient = 0.021
+afterburner_thrust_mult = 1.58
+fuel_capacity = 3800.0
+fuel_rate_normal = 2.1
+fuel_rate_afterburner = 10.0
+radar_range = 4600.0
+radar_half_angle = 26.0
+lock_time = 3.2
+missile = ExtResource("3")
+flare = ExtResource("4")
+combat = ExtResource("2")
+icon_color = Color(0.94, 0.20, 0.15, 1)

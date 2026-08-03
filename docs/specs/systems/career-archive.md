@@ -3,7 +3,7 @@ id: career-archive
 kind: system
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 2
+spec_version: 7
 owner: 用户（设计）+ Claude（起草）
 depends_on: []
 reconstruction_complete: true
@@ -122,6 +122,9 @@ reconstruction_complete: true
 | 击败数 = 0 但遭遇过（仅王牌 / BOSS 有遭遇计数） | 剪影行 + "已遭遇 N 次——它认识你了" |
 | 击败数 > 0 | 名称 + 一行简介 + 战绩 + 右侧 `×N` 大字计数 |
 
+**Debug 覆盖**：Debug build 在主菜单按 `Ctrl+U` 后，本次进程内将全部敌人条目视为已解锁；
+`Ctrl+Shift+U` 恢复按真实战绩判定。覆盖只改变图鉴呈现与完成度，不改写任何击败、遭遇、首破日期或成就数据，重启游戏后自动失效。
+
 **分组与计数口径**（顺序 = 页面渲染顺序）：
 
 | 组 | 条目 | 计数口径 | 措辞 |
@@ -152,7 +155,7 @@ reconstruction_complete: true
 | 组 | 覆盖 |
 |---|---|
 | 鼠标操作 | 点空域移动 / 点敌人点名 / 双击冲锋 / 按住拖拽呼出轮盘 / 右键解除任务 / 长按右键急刹 / 镜头平移缩放 |
-| 键盘 | 1-9 切控 · **E 加力模式**（含充能数值与"期间不能攻击"的代价）· R 手动闪避 · F 自动发射 · Q 高度偏好 · T 武器优先 · C 小队姿态 · V 小队武器 · Tab · Space · ESC |
+| 键盘 | 1-9 切控 · **E 加力模式**（含充能数值与"期间不能攻击"的代价）· R 手动机动（眼镜蛇/J-Turn/胆大妄为三选一）· F 自动发射 · Q 高度偏好 · T 武器优先 · C 小队姿态 · V 小队武器 · Tab · Space · ESC |
 | 小队指挥 | **单点管自己 / 轮盘管全队** 的操作语法 · 小队命令轮盘 · 攻击轮盘（姿态 × 火力分配）· 点名铁律 · 换机不换命令 |
 | 飞行与机动 | 角点速度 · 转弯半径 · 三个高度档 · 高低空取舍 · 云层 · 失速安全地板 |
 | 武器与交战 | **除 BOSS 外一发即杀** · 雷达锁定 · 导弹射程/最佳发射距离/发射后照射 · 热诱弹 · 机炮 · 装填 · 武器切换 |
@@ -191,7 +194,11 @@ bench 断言 tip 条目必须指向**轮播表在用**的 key（写错 = 手册�
 轮换只在**正式局的 BOSS 事件选型时**生效；debug 覆盖（F6 / boss debug 场）绕过不受影响，也不写档案。
 
 ```
-输入 history = { last: boss.last_encountered, defeated: {id: defeats[id] > 0} }
+输入 history = {
+  last: boss.last_encountered,
+  defeated: {id: defeats[id] > 0},
+  defeat_counts: {id: defeats[id]}
+}
 n = len(BOSS_ROTATION)
 
 候选序 candidates(history, roll):
@@ -211,6 +218,8 @@ n = len(BOSS_ROTATION)
 
 - **地形过滤兜底**：CSG 要求出生点在水面。BOSS 锚点本就会吸附海面；若吸附失败导致 CSG 被滤掉，则顺延候选序取下一个（雷斯/Goose 无水面要求，候选序必非空）。实际刷出谁就记谁为 `last_encountered`——轮换指针永远跟随事实，不会因过滤"跳档"。
 - **纯随机回退**：不传 history（bench / 老调用方）时保持原纯随机行为不变。
+- **职责边界**：轮换算法只消费 `last/defeated`；`defeat_counts` 保留完整非负整数，供
+  `BossEncounterEvent` 在实体生成前注入 [BOSS 通关强化层](boss-clear-progression.md)。
 - **推演样例**（全部打赢的玩家）：局1 雷斯 → 局2 航母 → 局3 Goose → 局4 雷斯（环绕）。
   （一直打不赢雷斯的玩家）：局1 雷斯 → 局2 50% 雷斯 / 50% 航母 → …（每局独立 roll，期望 2 局内见到新 BOSS，不会被卡死）。
 - **地图池变更**：`MAP_POOLS.default` 由 `[WRAITH, CSG]` 扩为**全部三个 BOSS**（MOTHER_GOOSE 正式上线，这是本设计的有意变更）。
@@ -226,7 +235,7 @@ n = len(BOSS_ROTATION)
 
 - 每次 UAV 族击坠入档后即时求和判门槛；达标一次性解锁（幂等，二次达标无事发生），立即写盘 + 发信号 → 局内 toast。
 - 战区奖励 roll 的上下文 ctx 增加 `loyal_wingman_unlocked` 布尔；武器子池抽取时该值为 false 则将 `loyal_wingman` 权重清零。
-- **缺省 fail-open**：ctx 里没有这个键时视为已解锁（= 旧行为）。正式局的 ctx 构建点是唯一真源，负责传真实值；bench / 旧调用方不传则行为与门控前完全一致，保住既有 zone_rewards 回归断言。
+- **缺省 fail-closed**：ctx 里没有这个键时视为**未解锁**。正式局必须在构造 `ZoneData` 时注入真实值，使开局 A/B 的首轮奖励也经过门控；禁止先构造、待首轮 roll 完成后再补上下文。bench / debug 若要放行，必须显式传 `true`。
 
 ### 3.4 写盘策略（性能守则）
 
@@ -280,7 +289,7 @@ n = len(BOSS_ROTATION)
 - [x] 无头单测：首遇序 / 击败必换 / 未败 roll 推进 / 环绕 / 地形过滤顺延
 
 ### 阶段 4 — 成就与奖池门控
-- [x] roll ctx 加 loyal_wingman_unlocked（fail-open 缺省）+ 武器子池过滤
+- [x] roll ctx 加 loyal_wingman_unlocked（fail-closed 缺省）+ 武器子池过滤；构造时注入，覆盖开局 A/B 首轮 roll
 - [x] 成就 toast（ZoneHint 临时条，非红横幅）+ EventLogger 打点
 - [x] translations.csv 三语 key
 
@@ -332,3 +341,6 @@ n = len(BOSS_ROTATION)
 | 2026-07-28 | 2 | §0 全表（Race=Wraith / 打过=击败 / 撤离=撤退结算 / 0.5 推进概率等 8 条）获用户批准（"可以执行"）；余项仅 §5 playtest |
 | 2026-07-28 | 4 | **游戏信息手册**（用户："再写一个档案库写清所有机制——左键右键每个操作、E 加力模式等；Tab 的小技巧也收进来；与敌人图鉴分成两个分类"）：新增 §2.7——资料库改**双分类页签**（敌人图鉴 / 游戏信息），手册 7 分组 47 条覆盖鼠标·键盘·小队指挥·飞行·武器·一局流程·情报；**Tab 小技巧不复制文本、由条目 `tip` 字段复用译文**（单一数据源，bench 断言对齐轮播表）。顺带修 `TACTICAL_TIP_WEAPON_SWAP` 过期键位（[1/2]→[T]）。**新增 CSV 列数断言**并据此修复 36 行含逗号未加引号的译文错位（含 2 行历史遗留）。career_archive 48 断言 + 回归门 42 项 PASS |
 | 2026-07-28 | 3 | **敌人图鉴**（用户："档案显示所有敌人，包括小杂兵和 BOSS，打败过就有计数"）：新增 §2.6 呈现层规格——原「王牌档案」页泛化为全局图鉴（34 条目 / 5 分组 / 统一"击败即解锁"语义 / 右侧 ×N 计数 / 收录进度）；§2.2 记录表补**逐型地面计数** `ground_by_type`（sam/aa/radar，旧档兼容）与王牌 encounter/defeat 行；收录边界显式裁定（王牌/BOSS 专属机型与舰船不单列）；防腐烂断言 13 条入 bench（career_archive 44 断言 PASS，回归门 41 项 PASS）。附带 `type_tag_of()` 静态化收口机型标识 |
+| 2026-08-01 | 5 | `build_boss_history()` 增加逐 BOSS 完整 `defeat_counts`，旧 `last/defeated` 轮换契约不变；事件层据此驱动 BOSS 通关强化。`career_archive` 56/56 PASS。 |
+| 2026-08-01 | 6 | 修复未达成 `uav_hunter` 时开局战区仍可出现忠诚僚机：正式局改为构造 `ZoneData` 时注入成就上下文，覆盖 A/B 首轮 roll；缺键从 fail-open 收紧为 fail-closed，并补锁定/缺键/已解锁三路回归断言。 |
+| 2026-08-02 | 7 | 增加资料库 Debug 全解锁覆盖：主菜单 `Ctrl+U` 显示全部敌人资料，`Ctrl+Shift+U` 恢复；仅影响本次运行的呈现，不伪造生涯统计。 |

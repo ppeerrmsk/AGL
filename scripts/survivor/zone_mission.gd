@@ -27,9 +27,31 @@ const MIN_UNIT_SEPARATION_PX := 650.0   ## 地面单位最小间距（≈1.3km�
 const MIN_ROAD_DISTANCE_PX := 180.0     ## 距道路/高速的最小距离（≈360m）
 const MAX_SAMPLE_ATTEMPTS := 80         ## 每个单位最多尝试 N 次随机位置
 
+## 战区第三方支援（spec zone-air-support-naval-safety）：任务 ACTIVE 后一次性入场。
+## 对空按星级生成 2/3/4 架 F-86；非机场对地固定生成 2 架 A-10；结束后物理飞出地图。
+enum SupportPhase { INGRESS_PENDING, ON_STATION, EGRESS }
+const SUPPORT_TICK_S := 0.5
+const SUPPORT_SPAWN_CANDIDATES := 8
+const SUPPORT_SPAWN_MIN_RADIUS_PX := 2400.0
+const SUPPORT_SPAWN_RADIUS_FRAC := 0.9
+const SUPPORT_SPAWN_VISUAL_REACH_PX := 600.0
+const SUPPORT_ORBIT_MIN_RADIUS_PX := 1200.0
+const SUPPORT_ORBIT_RADIUS_FRAC := 0.48
+const SUPPORT_ZONE_LEASH_EXTRA_PX := 1500.0
+const SUPPORT_EXIT_OUTSET_PX := 1200.0
+const SUPPORT_FREE_OUTSET_PX := 800.0
+const SUPPORT_WITHDRAW_REENGAGE_S := 4.0
+const SUPPORT_FIGHTER_TYPE := SurvivorSpawner.EnemyType.F86
+const SUPPORT_GROUND_COUNT := 2
+const SUPPORT_A10_ALTITUDE_M := 3200.0
+const _SUPPORT_AIRCRAFT_SCENE := preload("res://scenes/aircraft.tscn")
+const _SUPPORT_A10_PARAMS := preload("res://resources/playable_a10_base.tres")
+
 ## 雷达站 TGT（2026-07-06 任务丰富化）：★★+ 地面战区附带，datalink 共享 20km 感知
 const _RADAR_SCENE := preload("res://scenes/radar_station.tscn")
 const _RADAR_PARAMS := preload("res://resources/radar_station_params.tres")
+const _AIRBURST_AA_SCENE := preload("res://scenes/airburst_aa_unit.tscn")
+const _AIRBURST_AA_PARAMS := preload("res://resources/airburst_aa_params.tres")
 
 var mode: Node
 var _zones: ZoneData
@@ -54,6 +76,12 @@ var _completed_zones: Dictionary = {}
 ## 由 _despawn_garrison / refresh_active_zones_for_level 等共用
 ## （BOSS 阶段清场已改由 survivor_spawner._update_boss_phase_purge 统一负责，不再走本队列）
 var _pending_despawn: Array = []
+## 支援飞行队生命周期。允许旧队 EGRESS 时同战区重开并生成新队，故用 generation id
+## 区分，而不是只存 zone_id → members。
+var _support_flights: Array[Dictionary] = []
+var _active_support_by_zone: Dictionary = {}  ## zone_id → generation id
+var _support_generation: int = 0
+var _support_tick_accum: float = 0.0
 
 func setup(p_mode: Node, zones: ZoneData, player: Aircraft,
 		sam_scene: PackedScene, sam_params: Resource,
@@ -78,6 +106,8 @@ func _physics_process(delta: float) -> void:
 	# 每帧处理待撤离队列：单位飘到视线外就 free（与 BOSS 阶段共用机制）
 	if not _pending_despawn.is_empty():
 		_flush_pending_despawn()
+	# 支援撤离必须在 BOSS 闸门之前继续推进，否则战区阶段结束后绿色飞机会冻结在场内。
+	_update_air_support(delta)
 
 	# BOSS 阶段：常规战区 A/B/C/D 任务全部停止（不再刷怪、不再触发、不再判定完成）
 	# 闸门走 survivor_mode.is_boss_phase()（BOSS 解锁即为真，不必等玩家选中 BOSS 圈）。
@@ -110,12 +140,14 @@ func _physics_process(delta: float) -> void:
 			if _should_trigger(zid, z):
 				_triggered_zones[zid] = true
 				_mark_as_target(_spawned_zones.get(zid, []))
+				_start_air_support_if_needed(zid, z)
 				mission_triggered.emit(zid)
 		# 已触发 → 查完成
 		if _triggered_zones.has(zid):
 			if _all_zone_units_destroyed(zid):
 				_completed_zones[zid] = true
 				_despawn_garrison(zid)      ## 撤离驻守敌机
+				_begin_air_support_egress(zid, "mission completed")
 				mission_completed.emit(zid)
 
 # ══════════════════════════════════════════════
@@ -167,7 +199,12 @@ func _spawn_zone_units(zone_id: StringName, zone: Dictionary) -> void:
 		"air", "squadron":
 			_spawn_air_squadron(zone_id, zone)
 		"naval":
-			_spawn_naval_fleet(zone_id, zone)
+			# 水域硬闸：完整舰队/缩编/单旗舰都找不到全水解时，零舰船落地并退化为空战。
+			if not _spawn_naval_fleet(zone_id, zone):
+				mission_type = "squadron"
+				if _zones:
+					_zones.set_mission_type(zone_id, mission_type)
+				_spawn_air_squadron(zone_id, zone)
 		"airfield":
 			_spawn_airfield_ground(zone_id, zone)
 		_:
@@ -207,7 +244,10 @@ func _spawn_ground_garrison(zone_id: StringName, zone: Dictionary) -> void:
 		var pos := _find_valid_spawn_pos(center, scatter, placed_positions, spawn_polys if use_polys else [])
 		if pos == Vector2.INF:
 			continue
-		var u := _spawn_ground(_aa_scene, _aa_params, pos, zone_id)
+		# 普通地面战区最多一门空爆炮，替换首个 AA 槽而不增加总单位数。
+		var aa_scene := _AIRBURST_AA_SCENE if i == 0 else _aa_scene
+		var aa_params := _AIRBURST_AA_PARAMS if i == 0 else _aa_params
+		var u := _spawn_ground(aa_scene, aa_params, pos, zone_id)
 		if u:
 			units.append(u)
 			placed_positions.append(pos)
@@ -259,7 +299,11 @@ func _spawn_airfield_ground(zone_id: StringName, zone: Dictionary) -> void:
 		var pos := _find_valid_spawn_pos(center, scatter, placed_positions, [])
 		if pos == Vector2.INF:
 			continue
-		var u := _spawn_ground(_aa_scene, _aa_params, pos, zone_id)
+		# 仅 3★ 机场把第一门 AA 替换为空爆炮；低星级和解放后的友军防御仍是 ZU-23。
+		var use_airburst := i == 0 and (_zones.get_difficulty(zone_id) if _zones else 1) >= 3
+		var aa_scene := _AIRBURST_AA_SCENE if use_airburst else _aa_scene
+		var aa_params := _AIRBURST_AA_PARAMS if use_airburst else _aa_params
+		var u := _spawn_ground(aa_scene, aa_params, pos, zone_id)
 		if u:
 			units.append(u)
 			placed_positions.append(pos)
@@ -565,6 +609,7 @@ func _spawn_sentinel_garrison(zone_id: StringName, zone: Dictionary) -> void:
 		wingman.set_meta("zone_garrison", zone_id)
 		wingman.set_meta("category", "zone_air")
 		wingman.set_meta("skip_far_cleanup", true)
+		wingman.set_meta("sentinel_native_escort", true)
 		sq.add_member(wingman)
 		var wai := _get_ai_of(wingman)
 		if wai:
@@ -613,20 +658,24 @@ const NAVAL_ESCORT_OFFSETS: Dictionary = {
 	3: [Vector2(1364, 0), Vector2(-620, -1488), Vector2(-620, 1488)],    ## 占地 900+1612 = 2512
 }
 
-func _spawn_naval_fleet(zone_id: StringName, zone: Dictionary) -> void:
+func _spawn_naval_fleet(zone_id: StringName, zone: Dictionary) -> bool:
 	var center: Vector2 = zone["center"]
-	var radius: float = float(zone["radius"])
 	var difficulty: int = _zones.get_difficulty(zone_id) if _zones else 1
 
 	var ffg_params: Resource = load(_NAVAL_FLEET_FFG_PARAMS_PATH)
 	if ffg_params == null:
 		push_error("ZoneMission _spawn_naval_fleet: missing FFG params")
-		return
+		return false
 
-	_spawn_naval_formation(zone_id, center, difficulty, ffg_params)
+	var spawned := _spawn_naval_formation(zone_id, center, difficulty, ffg_params)
+	if not spawned:
+		EventLogger.log_event("ZONE", "NavalFallbackAir",
+			"id=%s star=%d reason=no_zero_land_placement" % [zone_id, difficulty])
+		return false
 
 	EventLogger.log_event("ZONE", "PreSpawnNaval",
 		"id=%s star=%d" % [zone_id, difficulty])
+	return true
 
 ## 编队设计（2026-07-28 重做）：
 ##   旗舰绕摆位圆心**恒定盘旋**（NavalUnit.patrol_center/patrol_radius，全程不掉头），
@@ -640,12 +689,12 @@ func _spawn_naval_fleet(zone_id: StringName, zone: Dictionary) -> void:
 ## 编成：1★ = 3 FFG / 2★ = DDG 旗舰 + 2 FFG / 3★ = CG 旗舰 + DDG 前哨 + 2 FFG 两翼
 ## 旗舰击毁 = 任务完成；护卫舰不是 TGT，攻克后自动撤离
 func _spawn_naval_formation(zone_id: StringName, center: Vector2, difficulty: int,
-		ffg_params: Resource) -> void:
+		ffg_params: Resource) -> bool:
 	var ddg_params: Resource = load(_NAVAL_FLEET_DDG_PARAMS_PATH)
 	var cg_params: Resource = load(_NAVAL_FLEET_CG_PARAMS_PATH)
 	if ddg_params == null or cg_params == null:
 		push_error("ZoneMission naval: missing DDG / CG params")
-		return
+		return false
 
 	var leader_cls = FrigateShip
 	var leader_params: Resource = ffg_params
@@ -661,22 +710,27 @@ func _spawn_naval_formation(zone_id: StringName, center: Vector2, difficulty: in
 			escort_cls = [DestroyerShip, FrigateShip, FrigateShip]
 			escort_params = [ddg_params, ffg_params, ffg_params]
 
-	var offsets: Array = NAVAL_ESCORT_OFFSETS.get(difficulty, NAVAL_ESCORT_OFFSETS[1])
-
-	# 摆位：挑落地采样点最少的盘旋圆心（原位优先，不行才往外挪；水域太窄就降级缩圈/驻泊）
-	var placement: Dictionary = NavalPlacement.pick_placement(
-			center, NavalPlacement.ring_nudges(NAVAL_PLACEMENT_NUDGE_RADII),
-			NAVAL_RING_CANDIDATES, offsets, deg_to_rad(NAVAL_LEADER_HEADING_DEG))
+	var full_offsets: Array = NAVAL_ESCORT_OFFSETS.get(difficulty, NAVAL_ESCORT_OFFSETS[1])
+	# 先完成全部水域计算，再实例化任何舰船：完整编成无解就逐艘移除最外侧护卫，
+	# 最终宁可单旗舰驻泊；连单舰都无解则返回 false，由调用方原子退化为空战。
+	var plan := safe_naval_plan(center, difficulty)
+	if plan.is_empty():
+		return false
+	var placement: Dictionary = plan["placement"]
+	var kept_indices: Array = plan["escort_indices"]
+	var offsets: Array = plan["offsets"]
 	var ring_center: Vector2 = placement["center"]
 	var ring: float = float(placement["ring"])
 	var land_hits: int = int(placement["land"])
 	EventLogger.log_event("ZONE", "NavalPlacement",
-			"id=%s star=%d center=(%d,%d) ring=%d reach=%d land=%d" % [zone_id, difficulty,
+			"id=%s star=%d center=(%d,%d) ring=%d reach=%d land=%d escorts=%d/%d" % [zone_id, difficulty,
 			roundi(ring_center.x), roundi(ring_center.y), roundi(ring),
-			roundi(NavalPlacement.fleet_reach(ring, offsets)), land_hits])
-	if land_hits > 0:
-		push_warning("ZoneMission naval %s: 舰队仍有 %d 个采样点在陆地（圆心 %s）" % [
-				zone_id, land_hits, str(ring_center)])
+			roundi(NavalPlacement.fleet_reach(ring, offsets)), land_hits,
+			kept_indices.size(), full_offsets.size()])
+	# safe_naval_plan 的唯一成功契约；保留断言防未来调用路径绕过硬闸。
+	if land_hits != 0:
+		push_error("ZoneMission naval hard gate violated: %s land=%d" % [zone_id, land_hits])
+		return false
 
 	# 旗舰：出生点落在盘旋圆上（圆心在右舷），初始 heading 恰好是切线 → 无入圈瞬态
 	var heading_deg: float = NAVAL_LEADER_HEADING_DEG
@@ -691,15 +745,59 @@ func _spawn_naval_formation(zone_id: StringName, center: Vector2, difficulty: in
 	_spawned_zones[zone_id] = [leader]
 
 	var escort: Array = []
-	for i in range(escort_cls.size()):
-		var off: Vector2 = offsets[i]
+	for local_i in range(kept_indices.size()):
+		var source_i: int = int(kept_indices[local_i])
+		var off: Vector2 = offsets[local_i]
 		var pos: Vector2 = _compute_formation_world_pos(leader, off)
-		var ship: NavalUnit = _make_zone_ship(escort_cls[i].new(), escort_params[i], pos,
+		var ship: NavalUnit = _make_zone_ship(escort_cls[source_i].new(), escort_params[source_i], pos,
 				heading_deg, PackedVector2Array(), zone_id)
 		ship.formation_leader = leader
 		ship.formation_offset = off
 		escort.append(ship)
 	_garrison_zones[zone_id] = escort
+	return true
+
+## 对舰摆位纯规划：完整编成无全水解时，每轮移除轨道半径最大的护卫再试。
+## 返回空字典 = 连单旗舰原地驻泊都没有安全位置，调用方必须零舰船 fallback。
+static func safe_naval_plan(center: Vector2, difficulty: int,
+		placement_picker: Callable = Callable()) -> Dictionary:
+	var full_offsets: Array = NAVAL_ESCORT_OFFSETS.get(difficulty, NAVAL_ESCORT_OFFSETS[1])
+	var kept_indices: Array = []
+	for i in range(full_offsets.size()):
+		kept_indices.append(i)
+	var nudges := NavalPlacement.ring_nudges(NAVAL_PLACEMENT_NUDGE_RADII)
+	var heading_rad := deg_to_rad(NAVAL_LEADER_HEADING_DEG)
+	while true:
+		var offsets: Array = []
+		for source_i in kept_indices:
+			offsets.append(full_offsets[int(source_i)])
+		var placement: Dictionary
+		if placement_picker.is_valid():
+			# 测试 seam：注入人工海岸几何的摆位结果，不参与运行时路径。
+			placement = placement_picker.call(offsets)
+		else:
+			placement = NavalPlacement.pick_placement(
+					center, nudges, NAVAL_RING_CANDIDATES, offsets, heading_rad)
+		if int(placement.get("land", -1)) == 0:
+			return {
+				"placement": placement,
+				"escort_indices": kept_indices.duplicate(),
+				"offsets": offsets,
+			}
+		if kept_indices.is_empty():
+			return {}
+		var drop_at := 0
+		var farthest := -1.0
+		for j in range(kept_indices.size()):
+			var source_i: int = int(kept_indices[j])
+			var r: float = (full_offsets[source_i] as Vector2).length()
+			# >= 让同半径时优先移除数组尾部，保留编成表前面的高价值护卫。
+			if r >= farthest:
+				farthest = r
+				drop_at = j
+		kept_indices.remove_at(drop_at)
+	# GDScript 的静态返回分析不把 while true 视为穷尽；运行时不会抵达这里。
+	return {}
 
 ## 根据 leader 当前位置 / 朝向 + 编队偏移算出僚舰初始世界坐标
 func _compute_formation_world_pos(leader: NavalUnit, offset: Vector2) -> Vector2:
@@ -741,6 +839,322 @@ func _get_ai_of(ac: Aircraft) -> AIController:
 			return child
 	return null
 
+## 星级 → 支援规模的单杠杆映射（1★/2★/3★ = 2/3/4）。
+static func support_count_for_difficulty(difficulty: int) -> int:
+	return clampi(difficulty + 1, 2, 4)
+
+## 合资格任务首次 ACTIVE 时登记一支待入场友军；未触发任务绝不预刷。
+func _start_air_support_if_needed(zone_id: StringName, zone: Dictionary) -> void:
+	if not _spawner or _active_support_by_zone.has(zone_id):
+		return
+	var mission_type := _zones.get_mission_type(zone_id) if _zones else String(zone.get("mission_type", ""))
+	var formal_run: bool = mode != null and mode.has_method("archive_enabled") \
+			and bool(mode.call("archive_enabled"))
+	var support_kind := ""
+	var support_count := 0
+	if mission_type == "air" or mission_type == "squadron":
+		if not MetaShop.is_zone_air_support_entitled(formal_run):
+			return
+		support_kind = "fighter"
+		support_count = support_count_for_difficulty(_zones.get_difficulty(zone_id))
+	elif mission_type == "ground":
+		if not MetaShop.is_zone_ground_support_entitled(formal_run):
+			return
+		support_kind = "attack"
+		support_count = SUPPORT_GROUND_COUNT
+	else:
+		return
+	_support_generation += 1
+	var flight := {
+		"id": _support_generation,
+		"zone_id": zone_id,
+		"zone": zone.duplicate(true),
+		"phase": SupportPhase.INGRESS_PENDING,
+		"members": [],
+		"anchor": null,
+		"hp_watch": 0.0,
+		"reengage_s": 0.0,
+		"support_kind": support_kind,
+		"support_count": support_count,
+	}
+	_support_flights.append(flight)
+	_active_support_by_zone[zone_id] = _support_generation
+	EventLogger.log_event("ZONE", "AirSupportRequested",
+		"id=%s kind=%s star=%d count=%d" % [zone_id, support_kind,
+		_zones.get_difficulty(zone_id), support_count])
+
+## 生命周期统一低频 tick：只扫每支 2~4 架的持有数组，不做全场扫描。
+func _update_air_support(delta: float) -> void:
+	if _support_flights.is_empty():
+		return
+	_support_tick_accum += delta
+	if _support_tick_accum < SUPPORT_TICK_S:
+		return
+	var step := _support_tick_accum
+	_support_tick_accum = 0.0
+	for i in range(_support_flights.size() - 1, -1, -1):
+		var flight: Dictionary = _support_flights[i]
+		var phase: int = int(flight.get("phase", SupportPhase.INGRESS_PENDING))
+		match phase:
+			SupportPhase.INGRESS_PENDING:
+				if _try_spawn_air_support(flight):
+					flight["phase"] = SupportPhase.ON_STATION
+			SupportPhase.ON_STATION:
+				if _support_live_members(flight).is_empty():
+					_finish_air_support_flight(i, flight)
+					continue
+			SupportPhase.EGRESS:
+				if _tick_air_support_egress(flight, step):
+					_finish_air_support_flight(i, flight)
+					continue
+		_support_flights[i] = flight
+
+## 从战区外缘附近的镜头外点物理入场。优先玩家机头前半球；八点全可见就下次 tick 重试。
+func _support_spawn_point(zone: Dictionary) -> Vector2:
+	var center: Vector2 = zone["center"]
+	var spawn_r := maxf(SUPPORT_SPAWN_MIN_RADIUS_PX,
+		float(zone["radius"]) * SUPPORT_SPAWN_RADIUS_FRAC)
+	var player_pos := _player.global_position
+	var player_fwd := Vector2(sin(_player.heading), -cos(_player.heading))
+	var jitter := randf() * TAU
+	var best_forward := Vector2.INF
+	var best_forward_d := INF
+	var best_any := Vector2.INF
+	var best_any_d := INF
+	for k in range(SUPPORT_SPAWN_CANDIDATES):
+		var a := jitter + TAU * float(k) / float(SUPPORT_SPAWN_CANDIDATES)
+		var cand := center + Vector2(cos(a), sin(a)) * spawn_r
+		if mode and mode.has_method("is_world_pos_visible") \
+				and mode.is_world_pos_visible(cand, SUPPORT_SPAWN_VISUAL_REACH_PX):
+			continue
+		var d := cand.distance_to(player_pos)
+		if d < best_any_d:
+			best_any_d = d
+			best_any = cand
+		var from_player := (cand - player_pos).normalized()
+		if player_fwd.dot(from_player) > 0.0 and d < best_forward_d:
+			best_forward_d = d
+			best_forward = cand
+	return best_forward if best_forward != Vector2.INF else best_any
+
+func _try_spawn_air_support(flight: Dictionary) -> bool:
+	var zone: Dictionary = flight["zone"]
+	var spawn_center := _support_spawn_point(zone)
+	if spawn_center == Vector2.INF:
+		return false
+	var center: Vector2 = zone["center"]
+	var to_center := (center - spawn_center).normalized()
+	var heading_rad := atan2(to_center.x, -to_center.y)
+	var heading_deg := rad_to_deg(heading_rad)
+	var zone_id: StringName = flight["zone_id"]
+	var count := int(flight.get("support_count", 0))
+	var support_kind := String(flight.get("support_kind", "fighter"))
+
+	var anchor := Node2D.new()
+	anchor.name = "ZoneAirSupportAnchor_%s_%d" % [zone_id, int(flight["id"])]
+	anchor.position = center
+	mode.add_child(anchor)
+
+	var orbit_r := maxf(SUPPORT_ORBIT_MIN_RADIUS_PX,
+		float(zone["radius"]) * SUPPORT_ORBIT_RADIUS_FRAC)
+	var waypoints := PackedVector2Array()
+	var entry_angle := (spawn_center - center).angle()
+	for k in range(AIR_SQUADRON_PATROL_WAYPOINTS):
+		var a := entry_angle + TAU * float(k + 1) / float(AIR_SQUADRON_PATROL_WAYPOINTS)
+		waypoints.append(center + Vector2(cos(a), sin(a)) * orbit_r)
+
+	var sq := SquadFactory.create()
+	sq.formation = Squad.random_formation()
+	var members: Array = []
+	for i in range(count):
+		var spawn_pos := spawn_center
+		if i > 0:
+			spawn_pos += sq.get_formation_offset(i).rotated(heading_rad)
+		var ac: Aircraft
+		if support_kind == "attack":
+			ac = _create_a10_support(spawn_pos, heading_deg)
+		else:
+			ac = _spawner._create_enemy(SUPPORT_FIGHTER_TYPE, spawn_pos, heading_deg)
+		if ac == null:
+			continue
+		if ac.team != CombatUnit.TEAM_ALLY:
+			AllyForce.convert_aircraft(ac)
+		ac.callsign = "ALLY-%s" % ac.callsign
+		ac.set_meta("zone_support", zone_id)
+		ac.set_meta("air_targets_only", support_kind == "fighter")
+		ac.set_meta("ground_targets_only", support_kind == "attack")
+		# F-86 保持既有编队；两架 A-10 各自搜索 GroundUnit，避免跟随态让僚机闲置，
+		# 也避免临时支援结束时留下 Aircraft ↔ Squad 的引用环。
+		if support_kind == "fighter":
+			if i == 0 or members.is_empty():
+				SquadFactory.register_leader(sq, ac)
+			else:
+				SquadFactory.register_wingman(sq, ac, true)
+		var ai := _get_ai_of(ac)
+		if ai:
+			ai.enable_combat = true
+			ai.waypoints = waypoints
+			ai.current_waypoint_index = i % waypoints.size()
+			ai.combat_zone_anchor = anchor
+			ai.combat_zone_radius = float(zone["radius"]) + SUPPORT_ZONE_LEASH_EXTRA_PX
+		members.append(ac)
+
+	if members.is_empty():
+		anchor.queue_free()
+		return false
+	flight["members"] = members
+	flight["anchor"] = anchor
+	flight["hp_watch"] = _support_members_hp(members)
+	EventLogger.log_event("ZONE", "AirSupportOnStation",
+		"id=%s kind=%s aircraft=%d spawn=%s" % [zone_id, support_kind,
+		members.size(), str(spawn_center.round())])
+	return true
+
+## 支援 A-10 走独立轻量工厂：基础机体参数 + GAU-8，去掉火箭/鱼雷并锁为只对地。
+func _create_a10_support(spawn_pos: Vector2, heading_deg: float) -> Aircraft:
+	if mode == null:
+		return null
+	var ac := _SUPPORT_AIRCRAFT_SCENE.instantiate() as Aircraft
+	if ac == null:
+		return null
+	ac.params = _SUPPORT_A10_PARAMS.duplicate(true)
+	SurvivorPlayableSetup.deep_dup_weapons(ac.params)
+	ac.params.rocket = null
+	ac.params.torpedo = null
+	ac.position = spawn_pos
+	ac.initial_heading_deg = heading_deg
+	ac.bullet_manager = _bullet_manager
+	ac.missile_manager = _missile_manager
+	ac.flat_altitude = true
+	ac.attack_air_targets = false
+	ac.set_meta("ground_targets_only", true)
+	AllyForce.convert_aircraft(ac)
+	mode.add_child(ac)
+	ac.altitude = SUPPORT_A10_ALTITUDE_M
+	ac.target_altitude_tier = Aircraft.AltitudeTier.LOW
+	ac.target_altitude = SUPPORT_A10_ALTITUDE_M
+
+	var ai := AIController.new()
+	ai.name = "AI_%s" % ac.name
+	ai.aircraft = ac
+	ai.simple_ai = true
+	ai.ground_combat_only = true
+	ai.enable_combat = true
+	ai.patrol_altitude = SUPPORT_A10_ALTITUDE_M
+	ai.engage_cooldown = 2.0
+	ai.engage_duration = 30.0
+	ac._ai_ref = ai
+	ac.add_child(ai)
+	# AIController._ready 会按 LOW 档重写一次目标高度；支援攻击机保持 3200m 驻留高度。
+	ac.target_altitude = SUPPORT_A10_ALTITUDE_M
+	return ac
+
+func _support_live_members(flight: Dictionary) -> Array:
+	var live: Array = []
+	for m in flight.get("members", []):
+		if is_instance_valid(m) and not m.is_destroyed:
+			live.append(m)
+	return live
+
+func _support_members_hp(members: Array) -> float:
+	var total := 0.0
+	for m in members:
+		if is_instance_valid(m) and not m.is_destroyed:
+			total += float(m.hp)
+	return total
+
+func _begin_air_support_egress(zone_id: StringName, reason: String) -> void:
+	if not _active_support_by_zone.has(zone_id):
+		return
+	var generation: int = int(_active_support_by_zone[zone_id])
+	_active_support_by_zone.erase(zone_id)
+	for i in range(_support_flights.size()):
+		var flight: Dictionary = _support_flights[i]
+		if int(flight.get("id", -1)) != generation:
+			continue
+		flight["phase"] = SupportPhase.EGRESS
+		flight["reengage_s"] = 0.0
+		flight["hp_watch"] = _support_members_hp(flight.get("members", []))
+		_command_air_support_exit(flight)
+		_support_flights[i] = flight
+		EventLogger.log_event("ZONE", "AirSupportEgress",
+			"id=%s aircraft=%d reason=%s" % [zone_id, _support_live_members(flight).size(), reason])
+		return
+
+func _begin_all_air_support_egress(reason: String) -> void:
+	for zid in _active_support_by_zone.keys().duplicate():
+		_begin_air_support_egress(zid, reason)
+
+func _command_air_support_exit(flight: Dictionary) -> void:
+	var anchor = flight.get("anchor")
+	if is_instance_valid(anchor):
+		anchor.queue_free()
+	flight["anchor"] = null
+	for m in _support_live_members(flight):
+		var ac: Aircraft = m
+		var ai := _get_ai_of(ac)
+		if ai:
+			ai.release_target(AIController.TargetSource.TS_COMMANDED, "zone support egress")
+			ai.combat_zone_anchor = null
+			ai.combat_zone_radius = 0.0
+			ai.enable_combat = false
+			ai.enter_patrol_state(false)
+			ai.waypoints = PackedVector2Array([_support_exit_point(ac.global_position)])
+			ai.current_waypoint_index = 0
+		ac.clear_formation()
+		ac.is_afterburner = true
+		if ac.params:
+			ac.target_speed_kmh = ac.params.max_speed
+
+func _support_exit_point(from: Vector2) -> Vector2:
+	var half := MapBoundary.world_half_px()
+	var out := half + SUPPORT_EXIT_OUTSET_PX
+	var sx := 1.0 if from.x >= 0.0 else -1.0
+	var sy := 1.0 if from.y >= 0.0 else -1.0
+	if (half - absf(from.x)) < (half - absf(from.y)):
+		return Vector2(sx * out, from.y)
+	return Vector2(from.x, sy * out)
+
+## 返回 true = 该队已经全灭/全部飞出，可从生命周期数组删除。
+func _tick_air_support_egress(flight: Dictionary, delta: float) -> bool:
+	var live := _support_live_members(flight)
+	if live.is_empty():
+		return true
+	var hp_now := _support_members_hp(live)
+	var reengage_s := float(flight.get("reengage_s", 0.0))
+	if hp_now < float(flight.get("hp_watch", hp_now)) - 0.01 and reengage_s <= 0.0:
+		reengage_s = SUPPORT_WITHDRAW_REENGAGE_S
+		for m in live:
+			var ai := _get_ai_of(m)
+			if ai:
+				ai.enable_combat = true
+	flight["hp_watch"] = hp_now
+	if reengage_s > 0.0:
+		reengage_s -= delta
+		if reengage_s <= 0.0:
+			_command_air_support_exit(flight)
+	flight["reengage_s"] = maxf(reengage_s, 0.0)
+
+	var survivors := 0
+	for m in live:
+		var ac: Aircraft = m
+		if MapBoundary.distance_to_edge(ac.global_position) <= -SUPPORT_FREE_OUTSET_PX:
+			ac.set_meta("xp_granted", true)
+			CombatUnit.release_target_refs(ac)
+			ac.queue_free()
+		else:
+			survivors += 1
+	return survivors == 0
+
+func _finish_air_support_flight(index: int, flight: Dictionary) -> void:
+	var anchor = flight.get("anchor")
+	if is_instance_valid(anchor):
+		anchor.queue_free()
+	var zid: StringName = flight.get("zone_id", &"")
+	if _active_support_by_zone.get(zid, -1) == flight.get("id", -2):
+		_active_support_by_zone.erase(zid)
+	_support_flights.remove_at(index)
+
 ## 玩家是否正在至少一个活跃战区任务中（触发过但未完成）。
 ## 用于旅途刷怪系统判断"玩家当前是否有战区任务在身"。
 func is_player_in_active_mission() -> bool:
@@ -776,6 +1190,7 @@ func get_nearest_triggered_objective(from_pos: Vector2) -> Dictionary:
 ##
 ## 注意：本函数只清记录 + TGT 标记，不 despawn 单位。units 由 spawner 击杀流自然回收。
 func cancel_all_zone_missions() -> void:
+	_begin_all_air_support_egress("all missions cancelled")
 	var canceled_count := 0
 	for zid in _spawned_zones.keys():
 		var units: Array = _spawned_zones.get(zid, [])
@@ -793,6 +1208,7 @@ func cancel_all_zone_missions() -> void:
 ## 清掉该战区的 spawn/trigger/completion 记录，让下一次该战区重新 AVAILABLE
 ## 时能干净地重刷一批单位。
 func reset_zone(zone_id: StringName) -> void:
+	_begin_air_support_egress(zone_id, "zone reset")
 	_spawned_zones.erase(zone_id)
 	_garrison_zones.erase(zone_id)
 	_triggered_zones.erase(zone_id)
@@ -801,6 +1217,7 @@ func reset_zone(zone_id: StringName) -> void:
 ## Debug: 彻底把一个战区的敌人从世界里擦掉（不只是改 state，是真的 queue_free 单位）
 ## 走"视线外延迟 free"队列，铁则依然遵守
 func debug_purge_zone(zone_id: StringName) -> void:
+	_begin_air_support_egress(zone_id, "debug purge")
 	# 任务目标（_spawned_zones）
 	var tgts: Array = _spawned_zones.get(zone_id, [])
 	for u in tgts:
@@ -832,6 +1249,7 @@ func debug_force_respawn_zone(id: StringName) -> void:
 		return
 
 	# 撤走旧驻守 + 旧 TGT（视线内的延迟 free）
+	_begin_air_support_egress(id, "debug respawn")
 	_despawn_garrison(id)
 	var tgts: Array = _spawned_zones.get(id, [])
 	for u in tgts:
@@ -853,6 +1271,7 @@ func debug_force_unlock_zone(id: StringName) -> void:
 	if z.is_empty():
 		return
 	# 先清旧
+	_begin_air_support_egress(id, "debug unlock")
 	_despawn_garrison(id)
 	var tgts: Array = _spawned_zones.get(id, [])
 	for u in tgts:

@@ -216,7 +216,7 @@ var boss_unlocked: bool = false
 var phase_ended: bool = false
 ## E 战区是否已经尝试过解锁（避免 A+B 清完反复 roll）
 var _e_unlock_rolled: bool = false
-var _rewards: Dictionary = {}                ## id → reward dict（三类实体奖励，spec zone-reward-docking §2.3）
+var _rewards: Dictionary = {}                ## id → reward dict（四类奖励，spec zone-reward-arsenal §2.1）
 ## 整局奖励去重（用户 2026-07-24 重定：武器/技能/航母**每种整局只出现一次**，出现过即永久移出池）。
 ## 僚机(reward_wingman)**刻意不入此表** = 可重复出现的保底奖励（与"每次停靠必送僚机"呼应）。
 ## 记录的是"已出现过的 reward id"（roll 时写入，不因清区/换区而清除）。
@@ -226,12 +226,19 @@ var _used_reward_ids: Dictionary = {}
 var _carrier_reward_assigned: bool = false
 var _reward_roll_count: int = 0
 const CARRIER_PITY_ROLLS: int = 4
+## 每局类别保底：开局 A/B 随机各占一槽，确保玩家一开 Tab 就能看到一件武器 + 一项次世代技能。
+## 这里只保证“至少一件”，后续战区仍按 REWARD_KIND_WEIGHTS 正常抽取。
+const RUN_GUARANTEED_REWARD_KINDS: Array[String] = ["weapon", "nextgen"]
+var _guaranteed_reward_kinds: Array[String] = []
 var _difficulties: Dictionary = {}            ## id → int (DIFFICULTY_MIN..DIFFICULTY_MAX)
 var _mission_types: Dictionary = {}            ## id → String（运行时 mission_type，覆盖 ZONES 默认）
 ## 标记哪些战区是"新开放"的（最近一轮 refresh 打开的），便于 UI 再次提示玩家
 var _newly_opened: Array[StringName] = []
 
-func _init() -> void:
+func _init(reward_context: Callable = Callable()) -> void:
+	nextgen_context = reward_context
+	_guaranteed_reward_kinds.assign(RUN_GUARANTEED_REWARD_KINDS)
+	_guaranteed_reward_kinds.shuffle()  # A/B 每局换位，避免固定“一区必武器、二区必技能”
 	# 初始：A、B 可选；C、D、E 锁定；Boss 锁定
 	_states[&"A"] = State.AVAILABLE
 	_states[&"B"] = State.AVAILABLE
@@ -243,7 +250,7 @@ func _init() -> void:
 	_states[&"BOSS"] = State.LOCKED
 	# 给初始可选的两个战区分配奖励 + 难度
 	## 开局保底：首发两个战区不会直接出 ★★★，避免玩家一上来就被 MiG-29/Su-27 中队压制
-	## （难度先于奖励 roll——三类奖励权重按星级，spec zone-reward-docking §2.3）
+	## （难度先于奖励 roll——四类奖励权重按星级，spec zone-reward-arsenal §2.1）
 	_roll_difficulty(&"A", 2)
 	_roll_difficulty(&"B", 2)
 	_assign_reward(&"A")
@@ -491,8 +498,8 @@ func get_selected_world_pos() -> Vector2:
 #  奖励系统
 # ══════════════════════════════════════════════
 
-## 战区奖励池（spec zone-reward-docking §2.3，2026-07-06 重制）：三类实体奖励按难度加权 roll。
-## 奖励 dict：{ kind: "carrier"|"wingman"|"weapon", id, name(tr key), quality(=难度星), weapon?(仅 weapon 类) }
+## 战区奖励池（spec zone-reward-arsenal §2.1）：四类奖励按难度加权 roll。
+## 奖励 dict：{ kind: "carrier"|"wingman"|"weapon"|"nextgen", id, name(tr key), quality(=难度星), weapon?(仅 weapon 类) }
 ## nextgen = 次世代技术（spec zone-reward-arsenal §2.1）：NEXT_GEN 稀有度技能只经战区奖励发放
 const REWARD_KIND_WEIGHTS := {
 	1: {"weapon": 60.0, "wingman": 40.0, "carrier": 0.0, "nextgen": 15.0},
@@ -530,7 +537,7 @@ var carrier_uses_left: int = 2
 
 ## 战区奖励 roll 的玩家上下文提供器（spec zone-reward-arsenal §3.1，survivor_mode 注入）。
 ## 返回 {aircraft_id, params, stacks, squad_classes} 快照，用于 nextgen 候选过滤与
-## "已持有武器件"过滤。未注入（开局 _init 首 roll / debug）→ 保守跳过机型/stacks 过滤。
+## "已持有武器件"过滤。未注入时跳过机型/stacks 过滤，但成就型奖励一律 fail-closed。
 var nextgen_context: Callable = Callable()
 
 ## 次世代技术候选（spec zone-reward-arsenal §2.3/§3.1）：NEXT_GEN 稀有度 + 跨活跃区去重
@@ -540,6 +547,8 @@ func _nextgen_candidates(used: Dictionary, ctx: Dictionary) -> Array:
 	for u in SurvivorData.UPGRADES:
 		if int(u.get("rarity", -1)) != SurvivorData.Rarity.NEXT_GEN:
 			continue
+		if not SurvivorData.is_normal_random_candidate(u):
+			continue  # 专属技只走每机每局一次的第四槽，禁止其它奖励池旁路
 		if MetaShop.is_upgrade_gated(u):
 			continue  # Doctrine 门控（spec doctrine-unlocks §3.3：战区奖励池同样不发无证牌）
 		var uid := String(u["id"])
@@ -596,10 +605,11 @@ func _active_reward_ids(exclude_id: StringName) -> Dictionary:
 				used[rid] = true
 	return used
 
-## 给战区 roll 三类实体奖励（spec zone-reward-docking §2.3；如已分配则保留）
+## 给战区 roll 四类奖励（spec zone-reward-arsenal §3.1；如已分配则保留）
 ## 前置：应先 _roll_difficulty（权重按星级）。去重两层（用户 2026-07-24 重定）：
 ## ① 整局去重 `_used_reward_ids`——武器/技能/航母每种整局只出现一次（僚机豁免=可重复保底）；
 ## ② 同时活跃战区去重 `_active_reward_ids`——避免两个在开战区同时挂同一奖励。
+## 开局 A/B 类别保证：随机各出 1 个 weapon / nextgen；后续恢复权重随机。
 ## 航母整局保证：pity（_reward_roll_count ≥ CARRIER_PITY_ROLLS 仍未出航母 → 强制发）。
 func _assign_reward(id: StringName) -> void:
 	if _rewards.has(id):
@@ -633,9 +643,9 @@ func _assign_reward(id: StringName) -> void:
 			weap_w[w0] = 0.0
 		elif _ctx_owns_weapon(own_p, String(w0)):
 			weap_w[w0] = 0.0
-		elif String(w0) == "loyal_wingman" and not bool(ctx.get("loyal_wingman_unlocked", true)):
+		elif String(w0) == "loyal_wingman" and not bool(ctx.get("loyal_wingman_unlocked", false)):
 			# 成就门控（spec career-archive §3.3）：无人机猎手未解锁 → 忠诚僚机不进 roll。
-			# 缺键 fail-open（= 旧行为），正式局由 _build_reward_roll_context 传真值
+			# 缺键 fail-closed：解锁型奖励宁可少发，不能因调用方漏注入而提前泄漏。
 			weap_w[w0] = 0.0
 		elif float(weap_w[w0]) > 0.0:
 			weap_any = true
@@ -645,10 +655,20 @@ func _assign_reward(id: StringName) -> void:
 	var ng_pool := _nextgen_candidates(used, ctx)
 	if ng_pool.is_empty():
 		kind_w["nextgen"] = 0.0
+	# 每局类别保底只在候选有效时消费；正常新局会由 A/B 两次首 roll 恰好清空队列。
+	# 若 debug/特殊上下文暂时没有可用候选，则保留到后续战区重试，绝不发空奖励。
+	var guaranteed_kind := ""
+	if not _guaranteed_reward_kinds.is_empty():
+		var scheduled_kind: String = _guaranteed_reward_kinds[0]
+		if float(kind_w.get(scheduled_kind, 0.0)) > 0.0:
+			guaranteed_kind = scheduled_kind
 
 	var kind: String
 	if force_carrier:
 		kind = "carrier"
+	elif guaranteed_kind != "":
+		kind = guaranteed_kind
+		_guaranteed_reward_kinds.pop_front()
 	else:
 		kind = _weighted_pick_str(kind_w)
 		# 兜底：武器/技能/航母都用尽或被占 → 回退僚机（可重复保底，不再回退重复武器）

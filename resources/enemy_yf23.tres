@@ -1,0 +1,40 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/f47_missile.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/ace_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/default_flare.tres" id="4"]
+
+[resource]
+script = ExtResource("1")
+display_name = "YF-23 Black Widow II"
+max_hp = 75.0
+armor = 0.0
+max_speed = 2200.0
+cruise_speed = 1100.0
+stall_speed_base = 220.0
+acceleration = 72.0
+deceleration = 90.0
+g_drag_factor = 2.5
+max_g = 10.0
+max_g_structural = 13.0
+roll_rate = 4.5
+pilot_stamina = 100.0
+stamina_drain_rate = 22.0
+stamina_recovery_rate = 11.0
+max_altitude = 18000.0
+climb_rate_max = 380.0
+thrust_to_weight = 1.1
+drag_coefficient = 0.02
+afterburner_thrust_mult = 1.5
+fuel_capacity = 4000.0
+fuel_rate_normal = 1.5
+fuel_rate_afterburner = 8.0
+radar_range = 5000.0
+radar_half_angle = 35.0
+lock_time = 1.8
+missile = ExtResource("2")
+flare = ExtResource("4")
+combat = ExtResource("3")
+icon_color = Color(0.85, 0.18, 0.12, 1)
+wing_color = Color(1.0, 0.45, 0.12, 1)

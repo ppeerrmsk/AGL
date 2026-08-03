@@ -4,8 +4,7 @@
 
 [resource]
 script = ExtResource("1")
-hold_threshold_s = 0.35
-drag_threshold_px = 36.0
+hold_threshold_s = 0.65
 charge_visual_delay_s = 0.08
 dead_zone_radius_px = 30.0
 ring1_outer_px = 110.0

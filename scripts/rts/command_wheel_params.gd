@@ -5,11 +5,9 @@ extends Resource
 
 @export_group("手势")
 ## 按住超过此时长呼出轮盘；短于此 = 普通单击。
-## 2026-07-20 用户调参 0.15→0.35：0.15 太灵敏，快速双击就会误呼轮盘；
-## 0.35 配合蓄力指示圈（转满才呼出）给出明确的"正在进入菜单"预期
-@export var hold_threshold_s: float = 0.35
-## 按住期间指针位移超过此值立即呼出（拖动意图明确，不等蓄力）；24→36 防双击带小位移误触
-@export var drag_threshold_px: float = 36.0
+## 2026-07-30 用户 playtest 调参 0.35→0.50→0.65：进一步降低误触面板选项/开关的概率；
+## 2026-08-02 取消位移立即呼出：快速连点/双击移动指针时不得绕过长按阈值
+@export var hold_threshold_s: float = 0.65
 ## 按住多久后开始显示蓄力指示圈（普通快速单击完全不见任何 UI 噪音）
 @export var charge_visual_delay_s: float = 0.08
 ## 中心死区半径：松开在死区内 = 取消

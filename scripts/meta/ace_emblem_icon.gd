@@ -79,6 +79,26 @@ func _draw() -> void:
 			draw_line(c + Vector2(r * 0.9, -r * 0.4), apex, col, w)
 			draw_line(apex, c + Vector2(0, -r * 0.15), col, w)
 			draw_circle(c + Vector2(0, r * 0.75), r * 0.1, col)
+		"whitetea":
+			# 三片茶叶围绕中心，叶脉末端折成 J 形，呼应三机编队与 J-turn。
+			draw_circle(c, r * 0.09, col)
+			for i in range(3):
+				var a := -PI * 0.5 + TAU * float(i) / 3.0
+				var outward := Vector2(cos(a), sin(a))
+				var sideways := Vector2(-outward.y, outward.x)
+				var root := c + outward * r * 0.12
+				var tip := c + outward * r * 0.86
+				var shoulder := c + outward * r * 0.52
+				draw_line(root, tip, col, w * 0.75)
+				draw_polyline(PackedVector2Array([
+					tip,
+					shoulder + sideways * r * 0.30,
+					root,
+					shoulder - sideways * r * 0.30,
+					tip,
+				]), col, w)
+				var hook_center := tip - outward * r * 0.08 + sideways * r * 0.10
+				draw_arc(hook_center, r * 0.16, a - PI * 0.15, a + PI * 0.85, 8, col, w)
 		_:
 			draw_arc(c, r * 0.7, 0.0, TAU, 24, col, w)
 

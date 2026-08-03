@@ -101,7 +101,7 @@ BOSS 演出**不用时间栈**，走 `hard_pause` + 演员豁免（见 §3.4）�
 
 ### 2.3 升级转场序列 `upgrade_in`
 
-总时长 **0.54s**（= 面板 step 的 `at 0.16` + 跨度 `0.38`）。
+总时长 **0.60s**（= 面板 step 的 `at 0.16` + 最大 4 卡布局跨度 `0.44`）。
 
 | # | at (s) | 通道 | 动作 | from → to | dur (s) | ease |
 |---|---|---|---|---|---|---|
@@ -109,15 +109,15 @@ BOSS 演出**不用时间栈**，走 `hard_pause` + 演员豁免（见 §3.4）�
 | 2 | 0.06 | `camera` | `zoom_punch`（推近） | ×1.0 → ×1.12 | 0.30 | `back_out` |
 | 3 | 0.10 | `overlay` | `dim` 遮罩透明度 | 0.0 → 0.60 | 0.18 | `cubic_out` |
 | 4 | 0.15 | `time` | `hard_pause(true)` | — | 瞬时 | — |
-| 5 | 0.16 | `panel` | `stagger_in` 元素错开弹入 | 见下 | **0.38**（跨度） | `back_out` |
+| 5 | 0.16 | `panel` | `stagger_in` 元素错开弹入 | 见下 | **0.44**（跨度） | `back_out` |
 
 `stagger_in`：`stagger = 0.06`，`elem_dur = 0.20`。
 单元素 = `modulate.a: 0 → 1`（`cubic_out`）**并行** `scale: 0.92 → 1.0`（`back_out`）。
-元素表见 §4.3（标题 + 3 张卡 = 4 个）。
+元素表见 §4.3（标题 + 最多 4 张卡 = 最多 5 个）。
 
 > ⚠ **错开跨度不变式**：`dur ≥ elem_dur + stagger × (n−1)`。
 > `dur` 是**整组跨度**（序列运行器据此计时），`elem_dur` 才是单元素时长。
-> 4 个元素时：`0.20 + 0.06×3 = 0.38`。
+> 5 个元素时：`0.20 + 0.06×4 = 0.44`。
 > 违反则最后一个元素的进度跑不满 —— 它会**永久停在半透明**，看起来像"第三张卡没出来"。
 > 本项目首次实现就踩了这个坑（把 `dur` 当成单元素时长），已加无头断言 `stagger.*跨度足够` 守门。
 
@@ -345,7 +345,7 @@ BOSS 演出期间把世界"清空"成一片空旷天空的参数。**不新建�
       {"at": 0.06, "ch": "camera",  "op": "zoom",    "to": 1.12, "dur": 0.30, "ease": "back_out"},
       {"at": 0.10, "ch": "overlay", "op": "dim",     "from": 0.0, "to": 0.60, "dur": 0.18, "ease": "cubic_out"},
       {"at": 0.15, "ch": "time",    "op": "pause",   "to": 1},
-      {"at": 0.16, "ch": "panel",   "op": "stagger_in", "stagger": 0.07, "dur": 0.22, "ease": "back_out"}
+      {"at": 0.16, "ch": "panel",   "op": "stagger_in", "stagger": 0.06, "elem_dur": 0.20, "dur": 0.44, "ease": "back_out"}
     ]
   },
   "wraith_arrival": {
@@ -605,7 +605,7 @@ func get_transition_elements() -> Array[Control]
 - [ ] **舞台泄漏**：`clear` → `restore` 后全部非演员 `modulate.a == 1.0`；演出中途单位失效不阻断 restore
 - [ ] **演员泄漏**：演出结束后全部演员 `_directive == null`；超时路径同样释放
 - [ ] 超时：`_elapsed > max_sec` 触发强制收尾，三类状态全复原
-- [ ] 序列：`upgrade_in` 总时长 0.44s、`wraith_arrival` 6.40s；每 step 在 `at` 激活、`at+dur` 到终值
+- [ ] 序列：`upgrade_in` 总时长 0.60s、`wraith_arrival` 6.40s；每 step 在 `at` 激活、`at+dur` 到终值
 - [ ] 缓动：6 个函数 `f(0)=0` / `f(1)=1`；`back_out` 在 `t≈0.7` 处 > 1.0（确有过冲）
 - [ ] unscaled：`Engine.time_scale = 0.05` 下序列推进速度与 1.0 时一致（误差 < 1 帧）
 - [ ] 坏 JSON：未知 ch/op 被跳过且序列仍跑完

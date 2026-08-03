@@ -3,7 +3,7 @@ id: battlefield-gravity
 kind: system
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 2
+spec_version: 3
 owner: 设计对话 2026-07-24（noelu + Claude）
 depends_on: [target-engageability-selection, squad-cohesion, squad-ai-escort, boss-hunter-doctrine]
 reconstruction_complete: false
@@ -242,7 +242,7 @@ leash（squad-cohesion _apply_constraints 约束 2）保留做硬兜底，但需
   - `ace_support` 中队（category=="ace_support"）**不**被判为 objective（不吃 +40）——用 BossEncounter 成员表而非字符串。
   - 航母 BOSS：NavalUnit/MountTarget 成员正确吃 +40，质心锚只算存活成员（击毁成员剔除）。
 - [ ] **回防不掏空火力**：sim —— 单个追击者咬玩家时回防僚机数 ≤ `MAX_DEFENDERS`，且 active objective 下至少 1 架仍在任务目标上。
-- [x] 单测断言并入 `--bench=target_sel`（G1~G11 共 28 断言：曲线/三带/地板/可行性门/隐形锚/非飞机/粘性/关闭基线/回防指派/上限/leash 三态；35/35 PASS）。物理步进 sim（detached Aircraft 逐帧验证指派后确实飞向追击者）**playtest 前补**。
+- [x] 单测断言并入 `--bench=target_sel`（G1~G11 + G6b 共 30 断言：曲线/三带/地板/可行性门/隐形锚/非飞机/已释放引用/粘性/关闭基线/回防指派/上限/leash 三态；修复前基线 35/35 PASS，G6b 新增 2 断言待本机 Godot 隔离可用时复跑）。物理步进 sim（detached Aircraft 逐帧验证指派后确实飞向追击者）**playtest 前补**。
 - [x] 性能：`--bench=stress_40` 三轮对照（基线 20260724 vs 引力 live 两轮）——ai_tick 6.25→7.15→**6.09**µs/call、aircraft_phys 33.7→38.7→**32.6**µs/call；未触碰的 aircraft_phys 桶与 ai_tick 同幅波动 → ±15% 为场景随机噪声，引力开销在噪声地板内。相邻回归：fire_discipline 10/10、rejoin 指标与基线一致。
 - [x] 已知 seam：SEAM-019——protectee 赋值就在 `_set_player_aircraft` chokepoint 内，`verify_player_ref_holders.py` ✓（26 接收方 / 漏登记 0）。
 - [x] i18n：零新增玩家可见文本（回防 tactic 标签复用既有 TACTIC_GUARD_REAR key）。
@@ -281,7 +281,7 @@ leash（squad-cohesion _apply_constraints 约束 2）保留做硬兜底，但需
 | 地板脱离计数字段 `_gravity_low_evals` | `scripts/ai_controller.gd` |
 | 战区 objective 查询（`get_nearest_triggered_objective`） | `scripts/survivor/zone_mission.gd` |
 | 生存模式填充（`_update_objective_context`）/ protectee 重定向（`_set_player_aircraft`）/ 新局启用（`_ready`）/ 退局清理（`_exit_tree`） | `scripts/survivor/survivor_mode.gd`（SEAM-019 chokepoint） |
-| 单测 G1~G8 | `scripts/tests/test_target_selection.gd`（并入 bench `target_sel`） |
+| 单测 G1~G11 + G6b 已释放引用回归 | `scripts/tests/test_target_selection.gd`（并入 bench `target_sel`） |
 | 面 B 扫描 / leash 松绑（阶段 2 待落地） | `scripts/ai/squad_coordination.gd` / `scripts/ai_controller.gd` |
 | reference 索引行 | script-index.md 的 objective_context / target_selection 行 |
 
@@ -289,6 +289,7 @@ leash（squad-cohesion _apply_constraints 约束 2）保留做硬兜底，但需
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-03 | 3 | **生命周期边界修正（SEAM-020 第二次实证）**。`_sticky_for` 可持有上一帧已释放的 `_current_target`；`is_survival_threat(cand: Object)` 的函数体守卫来不及执行，Godot 会先在形参类型检查阶段硬崩。`is_survival_threat` / `is_objective` 形参改为 `Variant`，函数内先判 `TYPE_OBJECT + is_instance_valid`，G6b 新增已释放 Aircraft 的 2 条回归断言。 |
 | 2026-07-24 | 1 | 初稿。由 log 20260724_222238（①包抄被拽回）+ 20260724_222827（②BOSS 战打远杂鱼）驱动。三带模型 + 引力锚定档：生存层护当前操控机 / 任务层单槽 BOSS 优先 / 引力锚=当前任务目标位置。 |
 | 2026-07-24 | 1 | 落地前边界审查（用户要求"多做检查、别造 bug"）。核实锁定链：`engaging_me` 仅飞机 AIController 写，地面/航母（NavalUnit SAM/VLS/CIWS 确会打玩家）走各自 combat_target 不进反查。定档**生存层保持对空**（地面→scan_leader_threat_ground，航母→任务层）。修真 bug：objective 判定改用 `BossEncounter.get_display_members()` 实例表（原"category 含 ace"会误伤 ace_support）。收窄：面 B 加 `MAX_DEFENDERS` 防全队回防、leash 重锚只在 active objective 时生效、候选类型安全（不 cast Aircraft）。补边界验收 4 项。 |
 | 2026-07-26 | 2 | **验证收口 + 挂具排障**。误用未注册 bench 名 `formation_rejoin`（正名 `rejoin`）踩进通用场景路径并暴露挂具既有 bug：bench 玩家机阵亡 → `is_game_over` 早退冻结倒计时 → 进程永久挂死（已登记独立修复任务，不混本 spec）。正确回归全绿：target_sel 35/35 / fire_discipline 10/10 / rejoin 指标一致 / stress_40 三轮证引力开销在噪声地板内 / 双校验脚本 ✓。§5 除物理 sim 断言与 playtest 项外全部勾除。 |

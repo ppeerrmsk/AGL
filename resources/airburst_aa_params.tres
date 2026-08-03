@@ -1,0 +1,27 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/airburst_aa_gun.tres" id="2"]
+
+[resource]
+script = ExtResource("1")
+display_name = "FLAK"
+max_hp = 60.0
+max_speed = 0.0
+cruise_speed = 0.0
+stall_speed_base = 0.0
+acceleration = 0.0
+deceleration = 0.0
+max_g = 1.0
+max_g_structural = 1.0
+roll_rate = 0.0
+max_altitude = 0.0
+climb_rate_max = 0.0
+fuel_capacity = 99999.0
+fuel_rate_normal = 0.0
+fuel_rate_afterburner = 0.0
+radar_range = 3000.0
+radar_half_angle = 180.0
+lock_time = 0.5
+gun = ExtResource("2")
+icon_color = Color(0.45, 0.72, 0.95, 1)

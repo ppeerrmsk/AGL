@@ -13,6 +13,7 @@ codename = "Warhound"
 card_tags = PackedStringArray("TAG_SQUAD_LEADER", "TAG_HEAVY_INTERCEPT")
 card_desc = "AIRCRAFT_F14_CARDDESC"
 base_params = ExtResource("2")
+missile_count_override = 2
 combat_override = ExtResource("3")
 roll_rate_mult = 1.0
 gun_damage_mult = 1.0

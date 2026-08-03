@@ -20,6 +20,7 @@ func run() -> void:
 	_test_milestone_apply_and_replay()
 	_test_milestone_squad_wide()
 	_test_card_axis_mapping()
+	_test_classified_card_pity()
 	_test_weapon_inventory()
 	_test_evolution_gates()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
@@ -38,11 +39,11 @@ func _test_earnable_formula() -> void:
 
 # ── B. 里程碑基准表结构 ──
 func _test_milestone_table_shape() -> void:
-	print("── B. 里程碑基准表：三轴各 5 档、档位 2/4/6/8/10、字段齐全 ──")
+	print("── B. 里程碑基准表：三轴各 6 档、档位 2/3/4/6/8/10、字段齐全 ──")
 	for axis in SurvivorData.AXES:
 		var tiers: Array = SurvivorData.milestones_for(axis)
-		_check("%s 线共 5 档" % axis, tiers.size() == 5, "got %d" % tiers.size())
-		var expected_pts: Array = [2, 4, 6, 8, 10]
+		_check("%s 线共 6 档" % axis, tiers.size() == 6, "got %d" % tiers.size())
+		var expected_pts: Array = [2, 3, 4, 6, 8, 10]
 		var pts_ok := true
 		var fields_ok := true
 		for i in tiers.size():
@@ -51,16 +52,32 @@ func _test_milestone_table_shape() -> void:
 				pts_ok = false
 			if not (t.has("stat") and t.has("kind") and t.has("value")):
 				fields_ok = false
-		_check("%s 档位序列 2/4/6/8/10" % axis, pts_ok, "")
+		_check("%s 档位序列 2/3/4/6/8/10" % axis, pts_ok, "")
 		_check("%s 每档含 stat/kind/value" % axis, fields_ok, "")
-	# 抽查陡递减排布：斗士首档=厚 HP、骑士首档=导弹资源
+	# 抽查 v13 时间曲线：斗士早兑现、骑士后兑现。
 	var glad: Array = SurvivorData.milestones_for(SurvivorData.AXIS_GLADIATOR)
-	_check("斗士首档 = max_hp +25（厚基础前置）",
-		str(glad[0]["stat"]) == "max_hp" and is_equal_approx(float(glad[0]["value"]), 25.0),
+	_check("斗士首档 = 机炮射程 ×1.20（早期享受）",
+		str(glad[0]["stat"]) == "gun_range" and is_equal_approx(float(glad[0]["value"]), 1.20),
 		str(glad[0]))
 	var kni: Array = SurvivorData.milestones_for(SurvivorData.AXIS_KNIGHT)
-	_check("骑士首档 = missile_count +1（大额资源只在首档/预留）",
-		str(kni[0]["stat"]) == "missile_count", str(kni[0]))
+	_check("骑士首档 = 雷达 ×1.10（前期铺垫）",
+		str(kni[0]["stat"]) == "radar_range", str(kni[0]))
+	_check("三条 3 点档 = HP/高度变化/经验",
+		str(glad[1]["stat"]) == "max_hp" and is_equal_approx(float(glad[1]["value"]), 25.0) \
+		and str(kni[1]["stat"]) == "alt_speed" \
+		and str(SurvivorData.milestones_for(SurvivorData.AXIS_SCHEMER)[1]["stat"]) == "xp_mult", "")
+	_check("骑士导弹资源延后到 6/8 点",
+		str(kni[3]["stat"]) == "missile_count" and str(kni[4]["stat"]) == "missile_locks", "")
+	var map := TacticalMap.new()
+	_check("斗士 6 点 G 档 = +2.0",
+		str(glad[3]["stat"]) == "max_g" and is_equal_approx(float(glad[3]["value"]), 2.0), str(glad[3]))
+	_check("G +2.0 保留一位小数",
+		map._fmt_milestone_value("max_g", 2.0, "add", false).ends_with("+2.0"), "")
+	_check("armor +25 显示为伤害减免 +20%",
+		map._fmt_milestone_value("armor", 25.0, "add", false).ends_with("+20%"), "")
+	_check("失速速度 ×0.95 显示为 -5%",
+		map._fmt_milestone_value("stall_speed", 0.95, "mult", false).ends_with("-5%"), "")
+	map.free()
 
 
 # ── C. 起手机覆写合并 ──
@@ -73,13 +90,13 @@ func _test_milestone_override_merge() -> void:
 	var merged: Array = SurvivorData.milestones_for(SurvivorData.AXIS_GLADIATOR, profile)
 	_check("覆写档生效（斗士 2 点 → +40）", is_equal_approx(float(merged[0]["value"]), 40.0),
 		str(merged[0]))
-	_check("未覆写档保持基准（斗士 4 点仍 gun_damage）",
-		str(merged[1]["stat"]) == "gun_damage", str(merged[1]))
+	_check("未覆写档保持基准（斗士 4 点仍 armor）",
+		str(merged[2]["stat"]) == "armor", str(merged[2]))
 	var kni: Array = SurvivorData.milestones_for(SurvivorData.AXIS_KNIGHT, profile)
-	_check("他轴不受影响（骑士首档仍 missile_count）",
-		str(kni[0]["stat"]) == "missile_count", str(kni[0]))
+	_check("他轴不受影响（骑士首档仍 radar_range）",
+		str(kni[0]["stat"]) == "radar_range", str(kni[0]))
 	_check("空覆写走基准表（不构造 profile 时同引用语义）",
-		SurvivorData.milestones_for(SurvivorData.AXIS_SCHEMER).size() == 5, "")
+		SurvivorData.milestones_for(SurvivorData.AXIS_SCHEMER).size() == 6, "")
 
 
 # ── D. 轴点计数 ──
@@ -105,25 +122,32 @@ func _test_milestone_apply_and_replay() -> void:
 	var ac := _make_test_aircraft()
 	sp.aircraft = ac
 
-	# 增量应用：斗士 2 点 → HP +25（max 与当前同涨）
+	# 增量应用：斗士 2 点 → 机炮射程 ×1.20。
+	var base_gun_range: float = ac.params.gun.max_range
 	sp.add_axis_point(SurvivorData.AXIS_GLADIATOR)
 	sp.add_axis_point(SurvivorData.AXIS_GLADIATOR)
-	_check("斗士 2 点 → max_hp 100→125", is_equal_approx(ac.params.max_hp, 125.0),
+	_check("斗士 2 点 → 机炮射程 ×1.20",
+		is_equal_approx(ac.params.gun.max_range, base_gun_range * 1.20),
+		"got %.1f" % ac.params.gun.max_range)
+	_check("斗士首档不再抬 HP", is_equal_approx(ac.params.max_hp, 100.0),
 		"got %.1f" % ac.params.max_hp)
-	_check("当前 hp 同步 +25", is_equal_approx(ac.hp, 125.0), "got %.1f" % ac.hp)
-	# 骑士 2 点 → 导弹 +1；4 点 → 雷达 ×1.10
+
+	# 骑士 2/3/4 点只铺雷达、高度变化与速度；导弹资源尚未兑现。
+	var base_climb: float = ac.params.climb_rate_max
+	var base_speed: float = ac.params.max_speed
 	sp.add_axis_point(SurvivorData.AXIS_KNIGHT)
 	sp.add_axis_point(SurvivorData.AXIS_KNIGHT)
-	_check("骑士 2 点 → 导弹 4→5", ac.params.missile.max_count == 5,
-		"got %d" % ac.params.missile.max_count)
-	_check("在场弹数同步 +1", ac.missiles_remaining == 5, "got %d" % ac.missiles_remaining)
-	# 幂等：骑士第 3 点未跨档，不重复应用
-	sp.add_axis_point(SurvivorData.AXIS_KNIGHT)
-	_check("第 3 点未跨档不重复（雷达仍 3000）", is_equal_approx(ac.params.radar_range, 3000.0),
+	_check("骑士 2 点 → 雷达 3000→3300", is_equal_approx(ac.params.radar_range, 3300.0),
 		"got %.0f" % ac.params.radar_range)
 	sp.add_axis_point(SurvivorData.AXIS_KNIGHT)
-	_check("骑士 4 点 → 雷达 3000→3300", is_equal_approx(ac.params.radar_range, 3300.0),
-		"got %.0f" % ac.params.radar_range)
+	_check("骑士 3 点 → 高度变化速度 ×1.10",
+		is_equal_approx(ac.params.climb_rate_max, base_climb * 1.10),
+		"got %.1f" % ac.params.climb_rate_max)
+	sp.add_axis_point(SurvivorData.AXIS_KNIGHT)
+	_check("骑士 4 点 → 极速 ×1.02", is_equal_approx(ac.params.max_speed, base_speed * 1.02),
+		"got %.1f" % ac.params.max_speed)
+	_check("骑士 4 点仍无导弹/锁数奖励",
+		ac.params.missile.max_count == 4 and ac.max_simultaneous_locks == 1, "")
 	# 策士 2 点 → flare +2（合计到 8 = 触顶）
 	sp.add_axis_point(SurvivorData.AXIS_SCHEMER)
 	sp.add_axis_point(SurvivorData.AXIS_SCHEMER)
@@ -142,19 +166,28 @@ func _test_milestone_apply_and_replay() -> void:
 	ac.hp = 130.0
 	ac.missiles_remaining = 2
 	ac.flares_remaining = 6
+	ac.max_simultaneous_locks = 1  # 模拟换型重放入口先归基础值
+	var fresh_gun_range: float = fresh.gun.max_range
+	var fresh_climb: float = fresh.climb_rate_max
+	var fresh_speed: float = fresh.max_speed
 	sp.reapply_all_milestones()
-	_check("重放：新机 HP 130→155（+25 跟人走）", is_equal_approx(ac.params.max_hp, 155.0),
-		"got %.1f" % ac.params.max_hp)
-	_check("重放：新机导弹 2→3", ac.params.missile.max_count == 3,
-		"got %d" % ac.params.missile.max_count)
+	_check("重放：新机机炮射程 ×1.20",
+		is_equal_approx(ac.params.gun.max_range, fresh_gun_range * 1.20),
+		"got %.1f" % ac.params.gun.max_range)
 	_check("重放：新机雷达 3500→3850（×1.10）", is_equal_approx(ac.params.radar_range, 3850.0),
 		"got %.0f" % ac.params.radar_range)
+	_check("重放：新机高度变化 ×1.10 / 极速 ×1.02",
+		is_equal_approx(ac.params.climb_rate_max, fresh_climb * 1.10)
+		and is_equal_approx(ac.params.max_speed, fresh_speed * 1.02), "")
 	_check("重放：新机热诱弹 6→8", ac.params.flare.max_flares == 8,
 		"got %d" % ac.params.flare.max_flares)
+	_check("重放：4 点骑士仍不增加导弹/锁数",
+		ac.params.missile.max_count == 2 and ac.max_simultaneous_locks == 1, "")
 	# 重放后幂等：再 apply_crossed 不重复
 	sp.apply_crossed_milestones(SurvivorData.AXIS_GLADIATOR)
-	_check("重放后 apply_crossed 幂等", is_equal_approx(ac.params.max_hp, 155.0),
-		"got %.1f" % ac.params.max_hp)
+	_check("重放后 apply_crossed 幂等",
+		is_equal_approx(ac.params.gun.max_range, fresh_gun_range * 1.20),
+		"got %.1f" % ac.params.gun.max_range)
 
 	# 无机补挂：没飞机时加的点不丢——飞机就位后 apply_crossed 补应用
 	var sp2 := SurvivorPlayer.new()
@@ -163,13 +196,42 @@ func _test_milestone_apply_and_replay() -> void:
 	var ac2 := _make_test_aircraft()
 	sp2.aircraft = ac2
 	sp2.apply_crossed_milestones(SurvivorData.AXIS_GLADIATOR)
-	_check("无机加点 → 就位补挂 HP 100→125", is_equal_approx(ac2.params.max_hp, 125.0),
-		"got %.1f" % ac2.params.max_hp)
+	_check("无机加点 → 就位补挂机炮射程 ×1.20",
+		is_equal_approx(ac2.params.gun.max_range, base_gun_range * 1.20),
+		"got %.1f" % ac2.params.gun.max_range)
+
+	# 骑士专精到 8 点，才依次兑现挂弹与多目标锁定。
+	var sp3 := SurvivorPlayer.new()
+	var ac3 := _make_test_aircraft()
+	sp3.aircraft = ac3
+	for _i in 8:
+		sp3.add_axis_point(SurvivorData.AXIS_KNIGHT)
+	_check("骑士 6 点后导弹 4→5", ac3.params.missile.max_count == 5
+		and ac3.missiles_remaining == 5, "")
+	_check("骑士 8 点后锁数 1→2", ac3.max_simultaneous_locks == 2,
+		"got %d" % ac3.max_simultaneous_locks)
+
+	# 斗士 6 点深投：持续/结构 G 同步 +2.0，跨过可感知门槛。
+	var sp4 := SurvivorPlayer.new()
+	var ac4 := _make_test_aircraft()
+	sp4.aircraft = ac4
+	var base_g: float = ac4.params.max_g
+	var base_structural_g: float = ac4.params.max_g_structural
+	for _i in 6:
+		sp4.add_axis_point(SurvivorData.AXIS_GLADIATOR)
+	_check("斗士 6 点 → 持续/结构 G 均 +2.0",
+		is_equal_approx(ac4.params.max_g, base_g + 2.0)
+		and is_equal_approx(ac4.params.max_g_structural, base_structural_g + 2.0),
+		"got %.1f/%.1f" % [ac4.params.max_g, ac4.params.max_g_structural])
 
 	ac.free()
 	ac2.free()
+	ac3.free()
+	ac4.free()
 	sp.free()
 	sp2.free()
+	sp3.free()
+	sp4.free()
 
 
 # ── E2. 里程碑全队下发（2026-07-28：三轴加成跟玩家不跟机体，僚机同吃）──
@@ -181,29 +243,52 @@ func _test_milestone_squad_wide() -> void:
 	sp.aircraft = lead
 	var roster: Array = [lead, wing]
 	sp.milestone_targets_provider = func(): return roster
+	var base_gun_range: float = lead.params.gun.max_range
 
 	# 跨档 → 长机与僚机同时吃到
 	sp.add_axis_point(SurvivorData.AXIS_GLADIATOR)
 	sp.add_axis_point(SurvivorData.AXIS_GLADIATOR)
-	_check("长机 max_hp 100→125", is_equal_approx(lead.params.max_hp, 125.0),
-		"got %.1f" % lead.params.max_hp)
-	_check("僚机 max_hp 100→125（同吃）", is_equal_approx(wing.params.max_hp, 125.0),
-		"got %.1f" % wing.params.max_hp)
-	_check("僚机当前 hp 同步 +25", is_equal_approx(wing.hp, 125.0), "got %.1f" % wing.hp)
+	_check("长机机炮射程 ×1.20", is_equal_approx(lead.params.gun.max_range, base_gun_range * 1.20),
+		"got %.1f" % lead.params.gun.max_range)
+	_check("僚机机炮射程 ×1.20（同吃）", is_equal_approx(wing.params.gun.max_range, base_gun_range * 1.20),
+		"got %.1f" % wing.params.gun.max_range)
 
 	# 逐机幂等：再跨同一档不重复叠
 	sp.apply_crossed_milestones(SurvivorData.AXIS_GLADIATOR)
-	_check("重复下发不叠加（僚机仍 125）", is_equal_approx(wing.params.max_hp, 125.0),
-		"got %.1f" % wing.params.max_hp)
+	_check("重复下发不叠加（僚机仍 ×1.20）",
+		is_equal_approx(wing.params.gun.max_range, base_gun_range * 1.20),
+		"got %.1f" % wing.params.gun.max_range)
+	sp.add_axis_point(SurvivorData.AXIS_GLADIATOR)
+	_check("斗士 3 点全队 HP +25（长机）", is_equal_approx(lead.params.max_hp, 125.0)
+		and is_equal_approx(lead.hp, 125.0), "")
+	_check("斗士 3 点全队 HP +25（僚机）", is_equal_approx(wing.params.max_hp, 125.0)
+		and is_equal_approx(wing.hp, 125.0), "")
+	sp.add_axis_point(SurvivorData.AXIS_GLADIATOR)
+	_check("斗士 4 点全队 armor +25（长机）", is_equal_approx(lead.params.armor, 25.0),
+		"got %.2f" % lead.params.armor)
+	_check("斗士 4 点全队 armor +25（僚机）", is_equal_approx(wing.params.armor, 25.0),
+		"got %.2f" % wing.params.armor)
+	_check("长机复用复合装甲管线：100 机炮伤害减至 80",
+		is_equal_approx(lead._apply_armor(100.0, 0.0), 80.0),
+		"got %.2f" % lead._apply_armor(100.0, 0.0))
+	_check("僚机复用复合装甲管线：100 机炮伤害减至 80",
+		is_equal_approx(wing._apply_armor(100.0, 0.0), 80.0),
+		"got %.2f" % wing._apply_armor(100.0, 0.0))
 
 	# 晚入队：新僚机按当前进度全量补挂
 	var late := _make_test_aircraft()
 	sp.apply_all_milestones_to(late)
-	_check("晚入队僚机补挂 100→125", is_equal_approx(late.params.max_hp, 125.0),
-		"got %.1f" % late.params.max_hp)
+	_check("晚入队僚机补挂射程 ×1.20 + HP 100→125",
+		is_equal_approx(late.params.gun.max_range, base_gun_range * 1.20)
+		and is_equal_approx(late.params.max_hp, 125.0), "")
+	_check("晚入队僚机补挂 armor +25", is_equal_approx(late.params.armor, 25.0),
+		"got %.2f" % late.params.armor)
 	sp.apply_all_milestones_to(late)
-	_check("补挂幂等（仍 125）", is_equal_approx(late.params.max_hp, 125.0),
-		"got %.1f" % late.params.max_hp)
+	_check("补挂幂等（射程仍 ×1.20 / HP 仍 125）",
+		is_equal_approx(late.params.gun.max_range, base_gun_range * 1.20)
+		and is_equal_approx(late.params.max_hp, 125.0), "")
+	_check("armor 补挂幂等（仍 25）", is_equal_approx(late.params.armor, 25.0),
+		"got %.2f" % late.params.armor)
 
 	# 换帅：操控权移到僚机后，记账视图跟着走，且不会因"账已记满"漏挂新档
 	sp.aircraft = wing
@@ -211,15 +296,44 @@ func _test_milestone_squad_wide() -> void:
 	_check("换帅后记账视图 = 新操控机那本（含 2 档）", wing_done.has(2), str(wing_done))
 	sp.add_axis_point(SurvivorData.AXIS_KNIGHT)
 	sp.add_axis_point(SurvivorData.AXIS_KNIGHT)
-	_check("换帅后新跨档仍下发（僚机导弹 4→5）", wing.params.missile.max_count == 5,
-		"got %d" % wing.params.missile.max_count)
-	_check("换帅后新跨档也给旧长机（导弹 4→5）", lead.params.missile.max_count == 5,
-		"got %d" % lead.params.missile.max_count)
+	_check("换帅后新跨档仍下发（僚机雷达 3000→3300）",
+		is_equal_approx(wing.params.radar_range, 3300.0), "got %.0f" % wing.params.radar_range)
+	_check("换帅后新跨档也给旧长机（雷达 3000→3300）",
+		is_equal_approx(lead.params.radar_range, 3300.0), "got %.0f" % lead.params.radar_range)
+	sp.add_axis_point(SurvivorData.AXIS_KNIGHT)
+	_check("骑士 3 点高度变化全队 ×1.10",
+		is_equal_approx(lead.params.climb_rate_max, wing.params.climb_rate_max), "")
+	sp.add_axis_point(SurvivorData.AXIS_KNIGHT)
+	_check("骑士 4 点仍无导弹/锁数奖励",
+		lead.params.missile.max_count == 4 and wing.params.missile.max_count == 4
+		and lead.max_simultaneous_locks == 1 and wing.max_simultaneous_locks == 1, "")
+
+	# 策士 XP 是玩家级单乘区：不按 roster 里的飞机数量重复相乘。
+	sp.axis_points[SurvivorData.AXIS_SCHEMER] = 3
+	_check("策士 3 点 XP ×1.10（全队仍只算一次）",
+		is_equal_approx(sp.milestone_xp_multiplier(), 1.10),
+		"got %.2f" % sp.milestone_xp_multiplier())
+
+	# 6 点斗士深投独立 roster：验证新 G 档确实全队下发，而不只在单机应用器生效。
+	var sp_g := SurvivorPlayer.new()
+	var lead_g := _make_test_aircraft()
+	var wing_g := _make_test_aircraft()
+	sp_g.aircraft = lead_g
+	sp_g.milestone_targets_provider = func(): return [lead_g, wing_g]
+	var lead_base_g: float = lead_g.params.max_g
+	var wing_base_g: float = wing_g.params.max_g
+	for _i in 6:
+		sp_g.add_axis_point(SurvivorData.AXIS_GLADIATOR)
+	_check("斗士 6 点 G+2.0 下发长机", is_equal_approx(lead_g.params.max_g, lead_base_g + 2.0), "")
+	_check("斗士 6 点 G+2.0 下发僚机", is_equal_approx(wing_g.params.max_g, wing_base_g + 2.0), "")
 
 	lead.free()
 	wing.free()
 	late.free()
+	lead_g.free()
+	wing_g.free()
 	sp.free()
+	sp_g.free()
 
 
 # ── F. 卡片轴映射与轴内抽卡（阶段 3）──
@@ -281,6 +395,83 @@ func _test_card_axis_mapping() -> void:
 			break
 	_check("轴内抽卡结果在池内", not picked.is_empty() and in_pool, str(picked.get("id")))
 	_check("空池返回空 dict", SurvivorData.pick_card_for_axis([], {}, 5).is_empty(), "")
+
+
+# ── I. 4 级金卡软 pity（spec classified-card-pity）──
+func _test_classified_card_pity() -> void:
+	print("── I. 4 级金卡软 pity：倍率 / 清零 / 入口隔离 / 10 分钟标定 ──")
+	_check("未出 0 次 → ×1",
+		is_equal_approx(SurvivorData.classified_pity_weight_multiplier(0), 1.0), "")
+	_check("未出 1 次 → ×3",
+		is_equal_approx(SurvivorData.classified_pity_weight_multiplier(1), 3.0), "")
+	_check("未出 2 次 → ×5",
+		is_equal_approx(SurvivorData.classified_pity_weight_multiplier(2), 5.0), "")
+	_check("未出 3 次 → ×7",
+		is_equal_approx(SurvivorData.classified_pity_weight_multiplier(3), 7.0), "")
+
+	var stable := {"id": "stable", "rarity": SurvivorData.Rarity.STABLE}
+	var gold := {"id": "gold", "rarity": SurvivorData.Rarity.CLASSIFIED}
+	var nextgen := {"id": "nextgen", "rarity": SurvivorData.Rarity.NEXT_GEN}
+	_check("普通三卡未见金 → 累计 +1",
+		SurvivorData.classified_pity_next_misses([stable], 2) == 3, "")
+	_check("任一普通卡见金 → 累计清零",
+		SurvivorData.classified_pity_next_misses([stable, gold], 4) == 0, "")
+	_check("NEXT_GEN 不冒充 4 级金卡清零",
+		SurvivorData.classified_pity_next_misses([nextgen], 3) == 4, "")
+
+	# 结构守门：自然升级必须显式开启 pity，且先结算普通三卡再追加第四槽；奖励升级走缺省关闭。
+	var mode_src := FileAccess.get_file_as_string("res://scripts/survivor/survivor_mode.gd")
+	var level_start := mode_src.find("func _on_player_leveled_up")
+	var level_end := mode_src.find("func _roll_upgrade_choices", level_start)
+	var level_flow := mode_src.substr(level_start, level_end - level_start) \
+		if level_start >= 0 and level_end > level_start else ""
+	var roll_pos := level_flow.find("_roll_axis_cards(true)")
+	var signature_pos := level_flow.find("_append_signature_offer(cards)")
+	_check("自然升级显式开启金卡 pity", roll_pos >= 0, "")
+	_check("普通三卡 pity 先结算，专属第四槽后追加",
+		roll_pos >= 0 and signature_pos > roll_pos, "")
+	var bonus_start := mode_src.find("func _try_present_bonus_upgrade")
+	var bonus_end := mode_src.find("func _apply_upgrade_choice", bonus_start)
+	var bonus_flow := mode_src.substr(bonus_start, bonus_end - bonus_start) \
+		if bonus_start >= 0 and bonus_end > bonus_start else ""
+	_check("奖励升级走缺省关闭，不读写累计",
+		bonus_flow.contains("_roll_axis_cards()") and not bonus_flow.contains("_roll_axis_cards(true)"), "")
+
+	# 当前非专属普通初始池的固定种子统计；不套硬件/学说/流派过滤，复现 spec §3.3 标定口径。
+	var avg_6 := _simulate_classified_pity_average(6, 2000)
+	var avg_7 := _simulate_classified_pity_average(7, 2000)
+	_check("LV18 六轮平均见金 1.90～2.20", avg_6 >= 1.90 and avg_6 <= 2.20,
+		"got %.3f" % avg_6)
+	_check("LV21 七轮平均见金 2.25～2.60", avg_7 >= 2.25 and avg_7 <= 2.60,
+		"got %.3f" % avg_7)
+
+
+func _simulate_classified_pity_average(event_count: int, runs: int) -> float:
+	var by_axis: Dictionary = {}
+	for axis in SurvivorData.AXES:
+		by_axis[axis] = []
+	for u in SurvivorData.UPGRADES:
+		if bool(u.get("evolved", false)) or not SurvivorData.is_normal_random_candidate(u):
+			continue
+		var exclusive: Array = u.get("exclusive_to", [])
+		if not exclusive.is_empty():
+			continue
+		(by_axis[SurvivorData.axis_of_upgrade(u)] as Array).append(u)
+
+	seed(0xC1A551F1 + event_count)
+	var gold_offers := 0
+	for _run in runs:
+		var misses := 0
+		for _event in event_count:
+			var cards: Array[Dictionary] = []
+			var mult := SurvivorData.classified_pity_weight_multiplier(misses)
+			for axis in SurvivorData.AXES:
+				cards.append(SurvivorData.pick_card_for_axis(by_axis[axis], {}, 5, mult))
+			var next_misses := SurvivorData.classified_pity_next_misses(cards, misses)
+			if next_misses == 0:
+				gold_offers += 1
+			misses = next_misses
+	return float(gold_offers) / float(runs)
 
 
 # ── H. 进化属性门槛（spec evolution-attribute-gates §2.3：双门判定 + 树 JSON 完备性）──

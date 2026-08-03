@@ -228,6 +228,15 @@ func take_missile_damage(_amount: float) -> void:
 	_start_destroy()
 
 func _start_destroy() -> void:
+	# 与飞机击杀归因保持同一语义：只有有效攻击者才写入 team；自然销毁不伪装成玩家击杀。
+	var attacker: Node = null
+	if has_meta("_pending_attacker"):
+		attacker = CombatUnit.safe_attacker(get_meta("_pending_attacker"))
+	if attacker is CombatUnit:
+		set_meta("kill_attacker_team", (attacker as CombatUnit).team)
+		set_meta("kill_attacker_id", attacker.get_instance_id())
+	if has_meta("_pending_attacker"):
+		remove_meta("_pending_attacker")
 	is_destroyed = true
 	is_firing = false
 	combat_target = null

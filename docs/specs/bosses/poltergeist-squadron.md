@@ -3,7 +3,7 @@ id: poltergeist-squadron
 kind: boss
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 1
+spec_version: 2
 owner: 用户
 depends_on: [wraith-squadron, boss-hunter-doctrine, ace-squadron-tier]
 reconstruction_complete: true
@@ -104,6 +104,9 @@ Poltergeist 死锁 → **只有最咬不住的那一架**换手，其余继续�
 - **走位靠真实转弯**：换手用 `AIDirective.fly_to` + `set_target_tier`，绝不直接挪坐标。
 - **`EngagementSpeedGovernor` 不变**：治理层继续管速度几何；本层只管"咬不住时把人拽出来"。
 - **起飞保护期优先**：保护期内的成员（`combat_target==null`）天然被排除，不会被换手打断爬升。
+- **世界边缘由基类收容**：继承 [boss-hunter-doctrine §2.4.1](../systems/boss-hunter-doctrine.md)；
+  收容期间 Relay Break 暂停，回到安全带后重新开始采样。越线时的 40 px 硬钳位是世界外框
+  最终保险，不属于 Relay Break，也不恢复已废除的锚点归巢。
 
 ## 4. 结构与组成（Structure）
 
@@ -122,6 +125,8 @@ Poltergeist 死锁 → **只有最咬不住的那一架**换手，其余继续�
       KNIGHT 能拿到机炮开火机会。
 - [ ] 性能：本层每 0.5s 采样一次、O(4)，不新增 `_process`/`_draw`；跑 Sentinel FPS 掉幅 < 15。
 - [ ] 已知 seam 未触碰：只读 `members`/`_player`，不缓存玩家机引用（SEAM-019）。
+- [x] 世界边缘回归：PLTGST 成员进入 2000 px 边缘带即收到内向返场指令；越线立即回到边内，
+      到达 3000 px 安全带后恢复 Relay Break / PURSUIT（目标置于 3500 px，避免先触发抵达 HOLD）。
 - [ ] i18n：本层仅出 EventLogger 调试日志（非玩家可见 UI），无需 tr()。
 
 ## 6. 实现计划（Task Pipeline）
@@ -152,4 +157,5 @@ Poltergeist 死锁 → **只有最咬不住的那一架**换手，其余继续�
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-01 | 2 | 用户截图回归：LADON 二阶段 `PLTGST-01` 飞出地图左界。根因是全局边界纪律按设计豁免 boss，而 `AceSquad` 没有自己的世界外框收容。继承 boss-hunter-doctrine v4 的基类级收容；保持“无锚点归巢、永追玩家”不变。 |
 | 2026-07-24 | 1 | 初稿。由 playtest log 20260724_004256（F-14 死锁绕圈、KNIGHT 0 开火）驱动。定义 Poltergeist 专属「死锁单机换手」机制，区别于 Wraith 全队 RESET。 |

@@ -5,9 +5,20 @@ extends CanvasLayer
 
 const ITEM_CLICK_ATTACK := 0
 const ITEM_AUTO_FIRE := 1
-const ITEM_CAMERA := 2
-const ITEM_ZOOM := 3
-const ITEM_COUNT := 4
+const ITEM_AFTERBURNER := 2
+const ITEM_ASSAULT := 3
+const ITEM_CAMERA := 4
+const ITEM_ZOOM := 5
+const ITEM_COUNT := 6
+
+const FIRST_RUN_ITEM_KEYS := [
+	"TUTORIAL_CLICK_ATTACK",
+	"TUTORIAL_AUTO_FIRE",
+	"TUTORIAL_AFTERBURNER",
+	"TUTORIAL_ASSAULT",
+	"TUTORIAL_CAMERA",
+	"TUTORIAL_ZOOM",
+]
 
 const PER_ITEM_TIMEOUT := 14.0
 const FADE_OUT := 0.6
@@ -18,9 +29,10 @@ const BOMBER_KILL_REQUIRED := 3
 const PREF_FILE := "user://tutorial.cfg"
 const PREF_SECTION := "survivor"
 const PREF_KEY_FIRST_RUN_DONE := "first_run_done"
+const PREF_KEY_WINGMAN_SWITCH_DONE := "wingman_switch_done"
 
-var _items_done: Array[bool] = [false, false, false, false]
-var _items_fade: Array[float] = [1.0, 1.0, 1.0, 1.0]
+var _items_done: Array[bool] = [false, false, false, false, false, false]
+var _items_fade: Array[float] = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 var _panel: PanelContainer
 var _item_labels: Array[RichTextLabel] = []
 var _item_check: Array[Label] = []
@@ -50,6 +62,18 @@ static func mark_done() -> void:
 	var cfg := ConfigFile.new()
 	cfg.load(PREF_FILE)
 	cfg.set_value(PREF_SECTION, PREF_KEY_FIRST_RUN_DONE, true)
+	cfg.save(PREF_FILE)
+
+static func should_show_wingman_switch() -> bool:
+	var cfg := ConfigFile.new()
+	if cfg.load(PREF_FILE) != OK:
+		return true
+	return not cfg.get_value(PREF_SECTION, PREF_KEY_WINGMAN_SWITCH_DONE, false)
+
+static func mark_wingman_switch_done() -> void:
+	var cfg := ConfigFile.new()
+	cfg.load(PREF_FILE)
+	cfg.set_value(PREF_SECTION, PREF_KEY_WINGMAN_SWITCH_DONE, true)
 	cfg.save(PREF_FILE)
 
 func _build_ui() -> void:
@@ -98,12 +122,6 @@ func _build_ui() -> void:
 	sep.add_theme_constant_override("separation", 6)
 	vb.add_child(sep)
 
-	var keys := [
-		"TUTORIAL_CLICK_ATTACK",
-		"TUTORIAL_AUTO_FIRE",
-		"TUTORIAL_CAMERA",
-		"TUTORIAL_ZOOM",
-	]
 	for i in range(ITEM_COUNT):
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 8)
@@ -121,10 +139,10 @@ func _build_ui() -> void:
 		rtl.bbcode_enabled = true
 		rtl.fit_content = true
 		rtl.scroll_active = false
-		rtl.autowrap_mode = TextServer.AUTOWRAP_OFF
-		rtl.text = tr(keys[i])
+		rtl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		rtl.text = tr(FIRST_RUN_ITEM_KEYS[i])
 		rtl.add_theme_font_size_override("normal_font_size", 14)
-		rtl.custom_minimum_size = Vector2(360, 0)
+		rtl.custom_minimum_size = Vector2(520, 0)
 		row.add_child(rtl)
 		_item_labels.append(rtl)
 
@@ -152,6 +170,12 @@ func notify_pan_or_zoom() -> void:
 
 func notify_missile_fired() -> void:
 	_complete_item(ITEM_AUTO_FIRE)
+
+func notify_afterburner() -> void:
+	_complete_item(ITEM_AFTERBURNER)
+
+func notify_assault() -> void:
+	_complete_item(ITEM_ASSAULT)
 
 ## 外部通知：一架轰炸机（Tu-160）被击落。累计 3 架后整个教程淡出
 func notify_bomber_killed() -> void:

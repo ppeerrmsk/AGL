@@ -10,8 +10,8 @@
 script = ExtResource("1")
 ship_class = 1
 display_name_prefix = "DDG"
-hull_length = 180.0
-hull_width = 30.0
+hull_length = 77.6
+hull_width = 10.0
 icon_color = Color(0.8, 0.25, 0.2, 1)
 max_sea_speed = 10.0
 turn_rate = 0.10

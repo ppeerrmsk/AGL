@@ -24,7 +24,7 @@ const COORD_AXES_GRID_PX := 1000.0   ## 刻度间距：1000px ≈ 2km
 const COORD_AXES_HALF_EXTENT := 15500.0  ## 轴向单边长度（世界 ±15000，多画一点点）
 
 # ── 编队类型枚举（内部）──
-enum FormationType { SINGLE, SQUAD, COMMANDER_SQUAD, TU160_FLOCK, AH64_FLOCK, CH47_FLOCK, F47_SQUAD, CSG_BOSS, ACE_SUPPORT, ACE_VULTURE, ACE_2NDWAVE, ACE_GIMMICK, ACE_GOOFIGHTERS, ACE_ORION }
+enum FormationType { SINGLE, SQUAD, COMMANDER_SQUAD, TU160_FLOCK, AH64_FLOCK, CH47_FLOCK, F47_SQUAD, CSG_BOSS, ACE_SUPPORT, ACE_VULTURE, ACE_2NDWAVE, ACE_GIMMICK, ACE_GOOFIGHTERS, ACE_ORION, ACE_WHITETEA }
 
 const FORMATION_NAMES := {
 	FormationType.SINGLE: "单机",
@@ -41,6 +41,7 @@ const FORMATION_NAMES := {
 	FormationType.ACE_GIMMICK: "王牌中队 GIMMICK（F-16 狙击+幻影）",
 	FormationType.ACE_GOOFIGHTERS: "王牌中队 GOOFIGHTERS（Su-47×2）",
 	FormationType.ACE_ORION: "宿敌 ORION（Cre 单机，按生涯计数）",
+	FormationType.ACE_WHITETEA: "王牌中队 WhiteTea（F-CK-1×3 J-turn）",
 }
 
 # ── 敌机类型标签（与 SurvivorSpawner.EnemyType 对应）──
@@ -68,6 +69,32 @@ const ENEMY_TYPE_LABELS := [
 	{"label": "F-47 王牌小队（BOSS）", "enum_idx": 15},      # EnemyType.F47
 	{"label": "AF-03 电磁炮狙击手", "enum_idx": 17},   # EnemyType.AF03
 	{"label": "Aegis UAV 激光拦截器", "enum_idx": 18},        # EnemyType.UAV_LASER
+	{"label": "YF-23 雷达静默狙击支援", "enum_idx": 29},       # EnemyType.YF23（事件专属）
+	{"label": "F-22 四锁狙击编队", "enum_idx": 30},             # EnemyType.F22
+	{"label": "Snowblind 传感器幕支援机", "enum_idx": 31},     # EnemyType.SNOWBLIND
+	{"label": "F-15 常规型", "enum_idx": 32},
+	{"label": "F-14 远程截击型", "enum_idx": 33},
+	{"label": "A-6E 低空突击", "enum_idx": 34},
+	{"label": "Mirage III 截击", "enum_idx": 35},
+	{"label": "Mirage 2000 常规型", "enum_idx": 36},
+	{"label": "F/A-18E 常规型", "enum_idx": 37},
+	{"label": "F-16 常规型", "enum_idx": 38},
+	{"label": "A-10 低空强攻型", "enum_idx": 39},
+	{"label": "F-15C 高能格斗型", "enum_idx": 40},
+	{"label": "F-15E 重载突击型", "enum_idx": 41},
+	{"label": "Gripen C 数据链三机", "enum_idx": 42},
+	{"label": "Rafale 双锁远程型", "enum_idx": 43},
+	{"label": "Tornado 低空突防", "enum_idx": 44},
+	{"label": "Typhoon 高能格斗型", "enum_idx": 45},
+	{"label": "Su-34 重载突击型", "enum_idx": 46},
+	{"label": "Viggen 低空截击", "enum_idx": 47},
+	{"label": "Harrier 高鼻向格斗型", "enum_idx": 48},
+	{"label": "F-15 S/MTD 推力矢量型", "enum_idx": 49},
+	{"label": "F-35 双锁远程型", "enum_idx": 50},
+	{"label": "Gripen E 队级三锁", "enum_idx": 51},
+	{"label": "Su-57 隐身格斗型", "enum_idx": 52},
+	{"label": "J-20 远距截击型", "enum_idx": 53},
+	{"label": "A-12 窄锥远距型", "enum_idx": 54},
 ]
 
 func _ready() -> void:
@@ -156,6 +183,13 @@ func _build_ui() -> void:
 	_formation_option.add_item("CH-47 纵阵波次", FormationType.CH47_FLOCK)
 	_formation_option.add_item("F-47 王牌小队", FormationType.F47_SQUAD)
 	_formation_option.add_item("航母战斗群 BOSS", FormationType.CSG_BOSS)
+	_formation_option.add_item("王牌中队 MARATHON（F-16×4）", FormationType.ACE_SUPPORT)
+	_formation_option.add_item("王牌中队 VULTURE（MiG-31×8）", FormationType.ACE_VULTURE)
+	_formation_option.add_item("王牌中队 2NDWAVE（Teacher+F-15×4）", FormationType.ACE_2NDWAVE)
+	_formation_option.add_item("王牌中队 GIMMICK（F-16+幻影）", FormationType.ACE_GIMMICK)
+	_formation_option.add_item("王牌中队 GOOFIGHTERS（Su-47×2）", FormationType.ACE_GOOFIGHTERS)
+	_formation_option.add_item("宿敌 ORION（Cre 单机）", FormationType.ACE_ORION)
+	_formation_option.add_item("王牌中队 WhiteTea（F-CK-1×3 J-turn）", FormationType.ACE_WHITETEA)
 	_formation_option.selected = 0
 	_formation_option.item_selected.connect(_on_formation_changed)
 	formation_row.add_child(_formation_option)
@@ -364,7 +398,9 @@ func _on_formation_changed(idx: int) -> void:
 			and idx != FormationType.TU160_FLOCK \
 			and idx != FormationType.AH64_FLOCK \
 			and idx != FormationType.CH47_FLOCK \
-			and idx != FormationType.F47_SQUAD)
+			and idx != FormationType.F47_SQUAD \
+			and idx != FormationType.CSG_BOSS \
+			and idx < FormationType.ACE_SUPPORT)
 
 func _on_spawn_pressed() -> void:
 	if not game_scene or not is_instance_valid(game_scene):
@@ -421,6 +457,8 @@ func _on_spawn_pressed() -> void:
 				if game_scene and "_event_director" in game_scene and game_scene._event_director \
 						and game_scene._event_director.find_by_name("orion_nemesis") == null:
 					game_scene._event_director.start(OrionNemesisEvent.new())
+			FormationType.ACE_WHITETEA:
+				_start_ace_event("whitetea")
 
 	print("[DebugSpawn] spawned %d × %s [%s]" % [
 		repeats,
@@ -434,6 +472,7 @@ func _start_ace_event(pid: String) -> void:
 			and game_scene._event_director.find_by_name("ace_support") == null:
 		var ev := AceReinforcementEvent.new()
 		ev.profile_id = pid
+		ev.debug_force_battle_bar = true
 		game_scene._event_director.start(ev)
 
 func _on_spawn_enemy_sam() -> void:

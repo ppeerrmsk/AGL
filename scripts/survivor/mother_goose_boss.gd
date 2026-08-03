@@ -227,7 +227,9 @@ func spawn(scene_root: Node, aircraft_scene: PackedScene, _create_enemy_func: Ca
 	boss_unit.set_meta(&"damage_router", controller)
 	# UAV swarm（四型号 MQ-109/110/111/112 加权随机由 swarm 内部抽签）
 	var swarm := MotherGooseUAVSwarm.new()
-	swarm.setup(_scene_root, _aircraft_scene, boss_unit, boss_squad, _bullet_mgr, _missile_mgr)
+	# 初见只教机炮/导弹蜂群；首败后才开放激光反导与电磁炮狙击（spec boss-clear-progression）。
+	swarm.setup(_scene_root, _aircraft_scene, boss_unit, boss_squad, _bullet_mgr, _missile_mgr,
+		prior_defeats >= 1)
 	controller.uav_swarm = swarm
 	# Jam shield 在 controller._ready 内自动 new()
 	boss_unit.add_child(controller)

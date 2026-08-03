@@ -3,7 +3,7 @@ id: zone-reward-arsenal
 kind: balance
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 1
+spec_version: 4
 owner: noelu（设计输入）/ Claude（细化 + 落地）
 depends_on: [zone-reward-docking, inrun-weapon-inventory, skills-720-rework]
 reconstruction_complete: true
@@ -62,14 +62,14 @@ reconstruction_complete: true
 - 领取 = 资产 `duplicate(true)` 挂载 + 进 `weapon_inventory` 记账（inrun-weapon-inventory
   既有机制）→ **换机/进化全继承**；重复获得同件：有弹药语义的补弹，否则按既有互斥降级
   （沿用 zone-reward-docking §6.1 规则）。
-- 签名机型重复项：X-02 自带电磁炮/激光、A-10 自带火箭 → roll 时过滤"当前已持有同类
-  equipment"的件，避免发废奖（过滤后子池空 → 回退既有三件）。
+- 重复项按玩家武器库过滤：A-10 默认不自带火箭；只有本局已经从奖励取得火箭时，才过滤
+  "当前已持有同类 equipment"的件，避免发废奖（过滤后子池空 → 回退既有三件）。
 
 ### 2.3 次世代技能池（nextgen 类别候选，全仓恰好 4 条）
 
 | id | 中文名 | 归属 | 效果（权威在技能表，此处摘要） | 现状 → 本批 |
 |---|---|---|---|---|
-| missile_swarm | 导弹蜂群 | 骑士限定 + 王牌 | 挂载 +4 且对所有锁定目标自动齐射 | 已出卡池（孤儿）→ 接入 nextgen roll |
+| missile_swarm | 导弹蜂群 | 通用全队 | 挂载 +4、导弹锁定目标数 +3、导弹追踪 G ×0.85 | 已出卡池（孤儿）→ 接入 nextgen roll |
 | evasion_stealth | 雾隐机动 | 通用全队 | 加力模式中获得隐身 | 已出卡池（孤儿）→ 接入 nextgen roll |
 | fear_on_lock | 凝视压迫 | 王牌 | 持续锁定 8 s 施加恐惧 | **补 `evolved:true` 出卡池** → 接入 |
 | data_link | 数据链 | 队级单实例 | 队友锁定共享 + 僚机雷达 +20% | **补 `evolved:true` 出卡池** → 接入 |
@@ -84,6 +84,10 @@ reconstruction_complete: true
 ### 3.1 战区奖励 roll（战区开放时，一次定档）
 
 ```
+开局 A/B 两个奖励位先随机排入 [weapon, nextgen]：
+    → 每局至少出现 1 个武器类 + 1 个技能类，A/B 对应关系每局洗牌
+    → 两类仍走各自的持有/学说/机型/stacks/整局去重过滤，不发不可用奖励
+    → 只保证“至少一个”；后续战区继续按 §2.1 权重正常 roll，可再出 weapon / nextgen
 kind = 按 §2.1 难度权重 roll（carrier 余量 0 → 移出；nextgen 候选空 → 移出，见 §3.2）
 kind == weapon  → 按 §2.2 难度权重 roll 一件（过滤"已持有同类"；空 → 回退既有三件）
 kind == nextgen → 候选 = 4 条中满足全部条件者：
@@ -98,6 +102,9 @@ Tab 展示照旧：战区圈下亮出具体奖励名 + 质量星
 
 `nextgen 候选空`（全拿满/全不可用）→ 该区改 roll weapon；`carrier` 余量尽 → 权重摊给其余类。
 保证任何战区在任何 build 下都有有效奖励。
+
+开局类别保底仅在对应子池存在有效候选时消费；若 debug/特殊上下文暂时为空，则保留该类别，
+在后续新战区继续尝试。正式新局至少有通用 nextgen 候选，正常由 A/B 两次首 roll 直接完成保底。
 
 ### 3.3 领取（停靠结算，机制不变）
 
@@ -115,7 +122,9 @@ Tab 展示照旧：战区圈下亮出具体奖励名 + 质量星
 - [ ] **卡池纯净**：任意机型连续 roll 三选一升级 200 次，不出现 4 条次世代技能中的任何一条
 - [ ] **战区可得**：战区奖励能 roll 出 nextgen 类；停靠领取后效果生效且 stacks/里程碑记账
       与卡池获取完全一致
-- [ ] **可用性过滤**：非骑士系 build 下不 roll 出 missile_swarm；data_link 已持有（队级单实例）
+- [x] **每局类别保底**：连续初始化 100 局，开局 A/B 奖励恰含 1 个 weapon + 1 个 nextgen；
+      A/B 对应关系随机，后续奖励仍按原权重抽取
+- [ ] **可用性过滤**：无主导弹机型不 roll 出 missile_swarm；data_link 已持有（队级单实例）
       后不再 roll 出
 - [ ] **武器三件**：电磁炮/激光/火箭弹可被 roll 出（★ 区无电磁炮/激光）、领取后自动开火可用、
       换机型后仍在（weapon_inventory 继承）；X-02 在驾时不 roll 出电磁炮/激光
@@ -129,8 +138,8 @@ Tab 展示照旧：战区圈下亮出具体奖励名 + 质量星
 ### 阶段 1 — 次世代出池 + 接入
 - [x] fear_on_lock / data_link 补 `evolved: true`
 - [x] 奖励 roll 加 nextgen 类别（§2.1 权重 + §3.1 候选过滤 + §3.2 降级；玩家上下文经
-      `nextgen_context` Callable 注入——开局 A/B 首 roll 早于注入走无上下文保守路径，
-      领取侧可用性兜底补位）
+      `nextgen_context` Callable 在 `ZoneData` 构造时注入，开局 A/B 首 roll 即走完整过滤；
+      领取侧仍保留可用性兜底补位）
 - [x] 停靠领取 → 升级分发链接通（`upgrade_by_id` 取全条目 → 分发/记账/里程碑与选卡一致；
       roll 后换机不可用 → 转发 tail_mine 兜底）
 
@@ -146,6 +155,7 @@ Tab 展示照旧：战区圈下亮出具体奖励名 + 质量星
 ### 阶段 3 — 收尾
 - [x] i18n 三语（REWARD_WEAPON_{ROCKET,RAILGUN,LASER}_NAME）
 - [x] zone-reward-docking §0/§2.6 加修订指针（本 spec 取代其武器边界与 §2.3 强卡悬案）
+- [x] 每局类别保底：A/B 随机各占 weapon / nextgen 一槽；构造期注入玩家上下文，首 roll 即过滤可用性
 - [ ] §5 验收 playtest 项（领取生效 / 换机继承 / 降级链）→ status: done
 
 ## 7. 索引锚点（Where —— 指针，会腐烂，非权威）
@@ -166,6 +176,8 @@ Tab 展示照旧：战区圈下亮出具体奖励名 + 质量星
 | 2026-07-22 | 1 | 初稿并定稿：用户需求（武器进池 + 次世代仅战区奖励）；确认修订 zone-reward-docking §0 武器边界（依据 inrun-weapon-inventory 既定方向）；修复 missile_swarm/evasion_stealth 孤儿；数值细化项见 §9 |
 | 2026-07-22 | 2 | **同日代码落地**（阶段 1~3 无头项全勾）：nextgen 第四类 + 三件武器进池 + 火箭继承（inrun_reward meta 方案）；200 局奖励 roll 去重回归绿；status → in-progress 差 playtest |
 | 2026-07-24 | 2 | **去重语义收紧（用户拍板）**：§3.1 的"跨活跃区去重"升级为**整局去重**——武器/技能/航母每种整局唯一（`_used_reward_ids`，roll 即登记）。修复 `_ctx_owns_weapon` 只过滤 rocket/railgun/laser、漏过 tail_mine/loyal_wingman/qmaam 导致的重复武器奖励。僚机豁免=可重复保底（兜底奖励）。航母加 pity 整局保证。数值权威仍在本 spec，落地细节见 zone-reward-docking §2.3/§8 v8。新增 bench `zone_rewards`|
+| 2026-08-01 | 3 | 导弹蜂群从“骑士限定 + 王牌、对所有目标齐射”改为“通用全队、锁定目标数 +3”；保留挂载 +4 与追踪 G ×0.85。 |
+| 2026-08-01 | 4 | **每局奖励类别保底**：开局 A/B 随机各出 1 个武器类与 1 个次世代技能类（至少各一，不限制后续再出）；首 roll 改为带玩家上下文，保持学说/机型/持有过滤。新增 100 局回归断言。 |
 
 ## 9. 自拍板项（playtest 重点复核）
 

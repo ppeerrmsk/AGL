@@ -2,7 +2,7 @@ extends RefCounted
 
 ## 目标所有权仲裁单元测试（Phase 1 目标仲裁器，2026-07-04）
 ## 验证 AIController.acquire_target / release_target 的核心契约：
-##   1. 四级优先级：低级源不得抢占/清除高级源持有的存活目标（军备竞赛终结）
+##   1. 五级优先级：SCORED < BOSS < ASSET < DIRECTIVE < COMMANDED
 ##   2. 同级/更高级可换目标；同目标重申不降级来源
 ##   3. 目标死亡自动降级：不再受保护，任何源可接管
 ##   4. release 对称：高级源可清低级源的目标
@@ -17,6 +17,8 @@ func run() -> void:
 	var ai := _make_ai()
 	var t_scored := _make_target()
 	var t_boss := _make_target()
+	var t_asset := _make_target()
+	var t_directive := _make_target()
 	var t_cmd := _make_target()
 
 	# ── 1. 基本 acquire + 来源记账 ──
@@ -35,30 +37,47 @@ func run() -> void:
 			"disengage 不能踢掉 BOSS 指派")
 	_check("目标仍在", ai._current_target == t_boss, "")
 
-	# ── 4. COMMANDED 压一切 ──
-	_check("COMMANDED 抢 BOSS", ai.acquire_target(t_cmd, AIController.TargetSource.TS_COMMANDED), "4 > 2")
+	# ── 4. ASSET 位于 BOSS 与 DIRECTIVE 之间 ──
+	t_asset.set_meta(CombatUnit.META_FRIENDLY_ASSET_GROUP, &"test_asset")
+	t_asset.set_meta(CombatUnit.META_FRIENDLY_ASSET_ACTIVE, true)
+	_check("ASSET 抢 BOSS", ai.acquire_target(t_asset, AIController.TargetSource.TS_ASSET), "3 > 2")
+	_check("BOSS 抢 ASSET 被拒", not ai.acquire_target(t_boss, AIController.TargetSource.TS_BOSS), "2 < 3")
+	_check("DIRECTIVE 抢 ASSET", ai.acquire_target(t_directive, AIController.TargetSource.TS_DIRECTIVE), "4 > 3")
+	_check("ASSET 抢 DIRECTIVE 被拒", not ai.acquire_target(t_asset, AIController.TargetSource.TS_ASSET), "3 < 4")
+
+	# ── 5. COMMANDED 压一切 ──
+	_check("COMMANDED 抢 DIRECTIVE", ai.acquire_target(t_cmd, AIController.TargetSource.TS_COMMANDED), "5 > 4")
 	_check("BOSS 抢 COMMANDED 被拒", not ai.acquire_target(t_boss, AIController.TargetSource.TS_BOSS),
 			"玩家命令铁律从约定变成代码保证")
 
-	# ── 5. 同目标重申不降级 ──
+	# ── 6. 同目标重申不降级 ──
 	_check("SCORED 重申同目标允许", ai.acquire_target(t_cmd, AIController.TargetSource.TS_SCORED),
 			"同目标 re-acquire 放行")
 	_check("来源保持 COMMANDED", ai._target_source == AIController.TargetSource.TS_COMMANDED,
 			"acquire 只升不降")
 
-	# ── 6. 目标死亡自动降级保护 ──
+	# ── 7. 目标死亡自动降级保护 ──
 	t_cmd.is_destroyed = true
 	_check("死目标不再受保护", ai.acquire_target(t_scored, AIController.TargetSource.TS_SCORED),
 			"_target_holder_pri 自动降级 → 评分交战可接管")
 	_check("来源更新为 SCORED", ai._target_source == AIController.TargetSource.TS_SCORED, "")
 
-	# ── 7. release 对称 ──
+	# ── 8. 设施 ACTIVE 硬门；DIRECTIVE/COMMANDED 显式绕过 ──
+	t_asset.set_meta(CombatUnit.META_FRIENDLY_ASSET_ACTIVE, false)
+	_check("DORMANT 设施拒绝 SCORED", not ai.acquire_target(t_asset, AIController.TargetSource.TS_SCORED), "自主选靶硬门")
+	_check("DORMANT 设施拒绝 BOSS", not ai.acquire_target(t_asset, AIController.TargetSource.TS_BOSS), "软指派硬门")
+	_check("DORMANT 设施拒绝 ASSET", not ai.acquire_target(t_asset, AIController.TargetSource.TS_ASSET), "调度器不得越权")
+	_check("DORMANT 设施允许 DIRECTIVE", ai.acquire_target(t_asset, AIController.TargetSource.TS_DIRECTIVE), "剧本例外")
+	ai.release_target(AIController.TargetSource.TS_DIRECTIVE)
+
+	# ── 9. release 对称 ──
+	ai.acquire_target(t_scored, AIController.TargetSource.TS_SCORED)
 	_check("COMMANDED 清 SCORED 允许", ai.release_target(AIController.TargetSource.TS_COMMANDED),
 			"HUD 强制脱战可清任何 AI 目标")
 	_check("清空后 combat_target 同步", ai.aircraft.combat_target == null, "")
 	_check("空目标 acquire 无效", not ai.acquire_target(null, AIController.TargetSource.TS_BOSS), "判空")
 
-	t_scored.free(); t_boss.free(); t_cmd.free()
+	t_scored.free(); t_boss.free(); t_asset.free(); t_directive.free(); t_cmd.free()
 	ai.aircraft.free()  # 连同子节点 AIController
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")

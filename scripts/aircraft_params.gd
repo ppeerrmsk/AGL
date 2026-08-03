@@ -1,9 +1,16 @@
 class_name AircraftParams
 extends Resource
 
+enum FlightModel { FIXED_WING, ROTORCRAFT }
+enum RotorcraftRole { NONE, ATTACK, TRANSPORT }
+
 @export_group("基本信息")
 @export var display_name: String = "F-16"
 @export var is_unmanned: bool = false       ## 无人驾驶标识（可被 Sentinel 招募）
+
+@export_group("飞行模型")
+@export var flight_model: FlightModel = FlightModel.FIXED_WING
+@export var rotorcraft_role: RotorcraftRole = RotorcraftRole.NONE
 
 @export_group("生存性")
 @export var max_hp: float = 100.0
@@ -68,6 +75,8 @@ extends Resource
 
 @export_group("视觉")
 @export var icon_color: Color = Color.GREEN
+@export var visual_length_m: float = 18.0   ## 真机长度，仅用于统一战场视觉尺度
+@export var visual_span_m: float = 12.0     ## 固定翼翼展 / 旋翼机旋翼直径
 ## 机翼配色（可选）—— 设为非零 alpha 时替换机翼为另一种颜色（例如黑机身 + 红翼）
 ## 默认全透明 → 机翼用 icon_color 绘制
 @export var wing_color: Color = Color(0, 0, 0, 0)

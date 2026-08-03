@@ -59,6 +59,11 @@ static func run_all() -> bool:
 	test_boom_zoom_skipped_for_gladiator()
 	test_coturn_break_on_energy_depletion()
 	test_coturn_break_skipped_for_human()
+	test_dogfight_capability_profiles()
+	test_energy_profile_holds_physical_corner()
+	test_tight_profile_commits_and_cuts_inside()
+	test_tight_wingman_releases_role_early()
+	test_tight_wingman_offset_is_compact()
 	test_wingman_lateral_offset()
 	test_wingman_no_offset_solo()
 	test_waypoint_move_allows_passive_fire()
@@ -823,6 +828,101 @@ static func test_coturn_break_skipped_for_human() -> void:
 	})
 	var p := TacticalPlanner.plan(s)
 	_assert_true("human.no_coturn_break", p.intent != TacticalPlan.Intent.BOOM_ZOOM_OUT)
+
+
+## 属性感知画像：同属性=基线；只有 G 优势=能量型；低角点+强刹=紧半径型。
+static func test_dogfight_capability_profiles() -> void:
+	var common := {
+		"has_target": true,
+		"my_pos": Vector2.ZERO, "tgt_pos": Vector2(800.0, 0.0),
+		"my_heading": deg_to_rad(90.0), "tgt_heading": 0.0,
+		"my_speed_ms": 220.0, "tgt_speed_ms": 220.0,
+	}
+	var balanced := Situation.new_for_test(common)
+	_assert_eq("dogfight_profile.balanced", Situation.DOGFIGHT_BALANCED, balanced.dogfight_mode)
+	var energy_data: Dictionary = common.duplicate()
+	energy_data["max_g"] = 10.0
+	var energy := Situation.new_for_test(energy_data)
+	_assert_eq("dogfight_profile.energy", Situation.DOGFIGHT_ENERGY, energy.dogfight_mode)
+	var tight_data: Dictionary = common.duplicate()
+	tight_data["max_g"] = 9.0
+	tight_data["corner_speed_kmh"] = 520.0
+	tight_data["deceleration"] = 120.0
+	var tight := Situation.new_for_test(tight_data)
+	_assert_eq("dogfight_profile.tight", Situation.DOGFIGHT_TIGHT, tight.dogfight_mode)
+
+
+## G/滚转占优但低速包络普通：转弯 intent 不得把能量压到物理角点（AI corner×1.2）以下。
+static func test_energy_profile_holds_physical_corner() -> void:
+	var s := Situation.new_for_test({
+		"has_target": true,
+		"my_pos": Vector2.ZERO, "tgt_pos": Vector2(800.0, 0.0),
+		"my_heading": deg_to_rad(90.0), "tgt_heading": 0.0,
+		"my_speed_ms": 220.0, "tgt_speed_ms": 220.0,
+		"max_g": 10.0, "corner_speed_kmh": 700.0,
+		"missiles": 0,
+	})
+	var p := TacticalPlanner.plan(s)
+	_assert_eq("energy_floor.profile", Situation.DOGFIGHT_ENERGY, s.dogfight_mode)
+	_assert_true("energy_floor.speed", p.target_speed_kmh >= 840.0)
+
+
+## 紧半径型不会把低速硬转误判成能量失败；观测到半径占优时由固定 LAG 改为 LEAD 内切。
+static func test_tight_profile_commits_and_cuts_inside() -> void:
+	var s := Situation.new_for_test({
+		"has_target": true,
+		"my_pos": Vector2.ZERO, "tgt_pos": Vector2(800.0, 0.0),
+		"my_heading": deg_to_rad(90.0), "tgt_heading": 0.0,
+		"my_speed_ms": 160.0, "tgt_speed_ms": 250.0,
+		"tgt_bank_deg": 75.0,
+		"max_g": 9.0, "corner_speed_kmh": 520.0, "deceleration": 120.0,
+		"missiles": 0,
+		"prev_intent": TacticalPlan.Intent.LEAD_PURSUIT,
+		"prev_intent_held_for": 9.0,
+	})
+	var p := TacticalPlanner.plan(s)
+	_assert_eq("tight_commit.profile", Situation.DOGFIGHT_TIGHT, s.dogfight_mode)
+	_assert_eq("tight_commit.inside_lead", TacticalPlan.Intent.LEAD_PURSUIT, p.intent)
+	_assert_true("tight_commit.no_extend", p.trigger_extend_seconds <= 0.0)
+
+
+## 强狗斗僚机在 1.5 倍炮距已经离开固定 FLANK 角色，进入直接 BFM；普通机仍在外围角色。
+static func test_tight_wingman_releases_role_early() -> void:
+	var base := {
+		"has_target": true,
+		"my_pos": Vector2.ZERO, "tgt_pos": Vector2(750.0, 0.0), # 1500m
+		"my_heading": deg_to_rad(90.0), "tgt_heading": 0.0,
+		"my_speed_ms": 220.0, "tgt_speed_ms": 220.0,
+		"gun_range_m": 1000.0, "missiles": 0,
+		"is_wingman": true, "following_leader_target": true, "squad_index": 1,
+		"squad_role": AIController.SquadRole.FLANK_LEFT,
+	}
+	var normal := Situation.new_for_test(base)
+	var normal_plan := TacticalPlanner.plan(normal)
+	_assert_true("wing_role.normal_flank", normal_plan.rationale.contains("翼侧#"))
+	var tight_data: Dictionary = base.duplicate()
+	tight_data["max_g"] = 9.0
+	tight_data["corner_speed_kmh"] = 520.0
+	tight_data["deceleration"] = 120.0
+	var tight := Situation.new_for_test(tight_data)
+	var tight_plan := TacticalPlanner.plan(tight)
+	_assert_true("wing_role.tight_direct_bfm", not tight_plan.rationale.contains("翼侧#"))
+
+
+## 紧半径型协同机炮仍错位，但横移步长由 250m 缩至 100m（=50px）。
+static func test_tight_wingman_offset_is_compact() -> void:
+	var s := Situation.new_for_test({
+		"has_target": true,
+		"my_pos": Vector2.ZERO, "tgt_pos": Vector2(0.0, -400.0),
+		"my_heading": 0.0, "tgt_heading": 0.0,
+		"my_speed_ms": 220.0, "tgt_speed_ms": 100.0,
+		"max_g": 9.0, "corner_speed_kmh": 520.0, "deceleration": 120.0,
+		"missiles": 0,
+		"is_wingman": true, "following_leader_target": true, "squad_index": 1,
+	})
+	var p := BfmIntent.tail_chase(s)
+	_assert_eq("wing_offset_tight.profile", Situation.DOGFIGHT_TIGHT, s.dogfight_mode)
+	_assert_true("wing_offset_tight.100m", absf(p.pursuit_pos.x + 50.0) < 0.1)
 
 ## 已经咬到尾后（aspect < 80°）则不触发 boom-zoom
 static func test_boom_zoom_skipped_if_aspect_improved() -> void:

@@ -1,6 +1,6 @@
 class_name CommandWheel
 extends CanvasLayer
-## 命令轮盘（权威源：docs/specs/systems/command-wheel.md）——按住左键拖拽呼出的 marking menu。
+## 命令轮盘（权威源：docs/specs/systems/command-wheel.md）——长按左键呼出的 marking menu。
 ## 操作语法：单点 = 只操控自机（survivor_mode 处理），轮盘 = 永远全队广播。
 ## 交互（用户定稿）：
 ##   扇区松开 = 执行；中心死区松开 = 回退普通单击（前往/攻击）；左上角红色"取消"槽 = 取消本次
@@ -177,8 +177,7 @@ func _process(_delta: float) -> void:
 	match _state:
 		State.PRESS_PENDING:
 			var held := Time.get_ticks_msec() / 1000.0 - _press_at_s
-			var dragged := mouse.distance_to(_press_screen) >= params.drag_threshold_px
-			if held >= params.hold_threshold_s or dragged:
+			if held >= params.hold_threshold_s:
 				_activate()
 			else:
 				_canvas.queue_redraw()   # 蓄力指示圈动画（仅按住期间，快速单击几乎不可见）

@@ -36,7 +36,7 @@ const LAUNCH_QUALITY_MAX_ROLL_RATE_DEG_S := 30.0 ## 滚转率超此判为"急速
 
 ## 发射窗口质量过滤：返回 true 表示当前几何稳定可发，false 跳过这一帧
 ##
-## 适用范围：玩家自动发射 + 玩家方僚机（team==0 + use_tactical_planner）
+## 适用范围：玩家自动发射 + 玩家方 planner/编队僚机
 ## 不过滤敌方 AI（保持游戏难度）；不过滤玩家手动 set_combat_target 后的单发
 ##
 ## 三条几何约束：
@@ -73,13 +73,13 @@ static func _has_stable_launch_window(ac: Aircraft, target_unit: CombatUnit) -> 
 		return false
 	return true
 
-## 是否对该飞机执行发射窗口质量过滤：玩家 + 玩家方 planner 僚机受限
-## 敌方 AI 跳过本检查（维持原有游戏难度）；老 BFM 路径的 AI（无 planner）也跳过
+## 是否对该飞机执行发射窗口质量过滤：玩家 + 玩家方 planner/编队僚机受限
+## 敌方 AI 跳过本检查（维持原有游戏难度）；非编队的老 BFM 路径 AI（无 planner）也跳过
 static func _should_apply_launch_quality(ac: Aircraft) -> bool:
 	if ac.use_tactical_preference:
 		return true
-	# 玩家方僚机：玩家小队 + planner-managed → 与玩家同等纪律
-	if ac.is_player_squad() and ac.use_tactical_planner:
+	# 玩家方僚机：planner 交战或编队机会射击都与玩家同等纪律，避免跟随时盲发。
+	if ac.is_player_squad() and (ac.use_tactical_planner or ac.formation_mode):
 		return true
 	return false
 
@@ -196,7 +196,8 @@ static func auto_gun_scan(ac: Aircraft) -> void:
 		if not unit is Aircraft:
 			continue
 		var other: Aircraft = unit
-		if not ac.is_hostile_to(other) or other.is_destroyed or other.is_cloaked:
+		if not ac.is_hostile_to(other) or other.is_destroyed or other.is_cloaked \
+				or ac.is_sensor_engagement_obscured(other):
 			continue
 
 		var to_ac := other.global_position - my_pos
@@ -243,6 +244,12 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 		ac._fire_cooldown -= delta
 	else:
 		ac._fire_cooldown = maxf(ac._fire_cooldown - delta, 0.0)
+	# 敌机“一次机会一梭”：pause 从上一梭结束/硬中止后开始走；梭内冻结，保证完整
+	# burst_count 出膛后再给玩家至少 3 秒挣脱窗口。计时只住武器执行层，避免 planner /
+	# tracking / scan 同帧多次查询 gate 导致重复扣时或覆盖许可。
+	if ac.team == CombatUnit.TEAM_HOSTILE and ac._gun_burst_rounds_left <= 0 \
+			and ac._ai_gun_pause_timer > 0.0:
+		ac._ai_gun_pause_timer = maxf(ac._ai_gun_pause_timer - delta, 0.0)
 	# §C 玩家技能"AB 时回机炮弹"：开 AB 时持续 regen（受 max_ammo 上限）
 	if ac.is_player_squad() and ac.is_afterburner and ac.ab_gun_regen_per_sec > 0.0 \
 			and ac.params and ac.params.gun:
@@ -298,6 +305,12 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 		ac.is_firing = false
 		ac._gun_burst_rounds_left = 0
 		return
+	# 统一执行层兜底：即使某条 AI 路径绕过 _ai_gun_burst_allowed 持续置真，敌机也不能
+	# 在强制停火期启动第二梭。PLAYER / ALLY 不受影响。
+	if ac.team == CombatUnit.TEAM_HOSTILE and ac._gun_burst_rounds_left <= 0 \
+			and ac._ai_gun_pause_timer > 0.0:
+		ac.is_firing = false
+		return
 	# 空闲：无承诺梭且火控未开
 	if ac._gun_burst_rounds_left <= 0 and not ac.is_firing:
 		return
@@ -311,6 +324,8 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 	# 梭起始：装填弹数 + 摇一次梭级瞄准误差（仅玩家，skill=0 → ±5° / skill=1 → ±0.5°）
 	if ac._gun_burst_rounds_left <= 0:
 		ac._gun_burst_rounds_left = maxi(gun.burst_count, 1)
+		if ac.team == CombatUnit.TEAM_HOSTILE:
+			ac._ai_gun_pause_timer = Aircraft.AI_GUN_PAUSE_DURATION
 		if ac.gun_aim_error_enabled:
 			var skill: float = clampf(ac.pilot_aim_skill, 0.0, 1.0)
 			var base_err_deg: float = lerpf(5.0, 0.5, skill)
@@ -535,6 +550,13 @@ static func update_rocket(ac: Aircraft, delta: float) -> void:
 			continue
 		if unit == ac or not ac.is_hostile_to(unit):
 			continue
+		if unit.is_lock_immune():
+			continue
+		# AH-64 等对地专用平台的第三道防火门：火箭扫描同样不得选择飞机。
+		if not ac.attack_air_targets and unit is Aircraft:
+			continue
+		if ac.is_sensor_engagement_obscured(unit):
+			continue
 		if unit is Aircraft and (unit as Aircraft).is_cloaked:
 			continue
 		var dist_px: float = ac.global_position.distance_to(unit.global_position)
@@ -708,12 +730,27 @@ static func _update_weapon_mode_tactical(ac: Aircraft) -> void:
 			ac.weapon_mode = Aircraft.WeaponMode.GUN
 			ac._gun_pass_committed = false
 
+
+## 编队跟随中的玩家方僚机只借用火控，不接管导航目标。
+## 调用方固定 20Hz；所有锁定、包线、射界、稳定窗口和过杀闸门仍由 update_missile 统一判定。
+static func update_formation_passive_missile(ac: Aircraft, delta: float) -> void:
+	if not ac.is_player_squad() or not ac.formation_mode:
+		return
+	var previous_mode: int = ac.weapon_mode
+	var fire_allowed: bool = ac.missile_auto_fire \
+			and not ac.evasion_mode and not ac.afterburner_window_active
+	ac.weapon_mode = Aircraft.WeaponMode.MISSILE if fire_allowed else Aircraft.WeaponMode.GUN
+	update_missile(ac, delta)
+	ac.weapon_mode = previous_mode
+
+
 static func update_missile(ac: Aircraft, delta: float) -> void:
 	ac._missile_cooldown = maxf(ac._missile_cooldown - delta, 0.0)
 	ac._sfx_gun_cd = maxf(ac._sfx_gun_cd - delta, 0.0)
 	ac._crank_timer = maxf(ac._crank_timer - delta, 0.0)
 	ac._msl_block_log_timer = maxf(ac._msl_block_log_timer - delta, 0.0)
 	ac._salvo_skip_log_timer = maxf(ac._salvo_skip_log_timer - delta, 0.0)
+	var formation_opportunity_fire: bool = ac.is_player_squad() and ac.formation_mode
 
 	# JAM 干扰：完全无法发射导弹（仍允许 cooldown 走完，恢复后立刻能打）
 	if ac.status_jam_active:
@@ -733,6 +770,8 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 			ac._missile_reload_active = false
 			ac._missile_reload_timer = 0.0
 			ac.missile_reload_progress = 0.0
+		return
+	if ac.external_missile_control:
 		return
 
 	# 机炮优先模式下不自动发射导弹（双击冲锋同样阻断：双击 = 纯机炮专注）
@@ -754,13 +793,15 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 	# ── 协同齐射：僚机收到信号后发射（需在射程+雷达锥内）──
 	var ai_sv: AIController = ac._get_ai_controller()
 	if ai_sv and SquadCoordination.process_salvo(ai_sv, delta):
-		if ac.params and ac.params.missile and ac.missiles_remaining > 0 and ac.combat_target \
-				and is_instance_valid(ac.combat_target) and not ac.combat_target.is_destroyed:
-			# 必须满足射击条件：在射程内 + 在雷达锥内
-			if ac._is_in_missile_envelope(ac.combat_target, ac.params.missile) \
-					and ac.is_in_radar_cone(ac.combat_target.global_position):
-				_fire_missile_at(ac, ac.combat_target, ac.params.missile, false)
-			return
+		# 玩家方编队只消费旧齐射信号，不允许它强制发射；继续走下方严格候选过滤器。
+		if not formation_opportunity_fire:
+			if ac.params and ac.params.missile and ac.missiles_remaining > 0 and ac.combat_target \
+					and is_instance_valid(ac.combat_target) and not ac.combat_target.is_destroyed:
+				# 必须满足射击条件：在射程内 + 在雷达锥内
+				if ac._is_in_missile_envelope(ac.combat_target, ac.params.missile) \
+						and ac.is_in_radar_cone(ac.combat_target.global_position):
+					_fire_missile_at(ac, ac.combat_target, ac.params.missile, false)
+				return
 
 	# 统一导弹：所有目标共享 params.missile + ac.missiles_remaining 计数
 	# secondary_missile / secondary_missiles_remaining 字段保留但底层不再使用
@@ -773,9 +814,9 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 		ac._log_msl_block("NO_MSL", "missiles_remaining=%d" % ac.missiles_remaining)
 		return
 
-	# 战术偏好模式 + 自动发射开启：走齐射路径
-	# - 无多目标追踪升级：齐射循环自动挑一枚最合适的目标开火
-	# - 有升级：对所有锁定目标同时发射
+	# 玩家机，或玩家方编队僚机 + 自动发射开启：走齐射路径
+	# - 无锁数升级：齐射循环自动挑一枚最合适的目标开火
+	# - 有锁数升级：最多对 effective_max_locks 个不同目标同时发射
 	# 这条路径无需玩家点击 combat_target，完全自动
 	# 关闭自动发射时跳过这里，直接走下方单发路径——多锁定升级因此被临时禁用，
 	# 玩家只会对手点的 combat_target 开火
@@ -783,11 +824,13 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 	# 玩家机走到这里但齐射闸门没开 → 记录运行时开关实际值，用于坐实 UI/运行时脱节
 	if ac.use_tactical_preference and not ac.missile_auto_fire and ac._salvo_skip_log_timer <= 0.0:
 		ac._log_salvo_skip("GATE 齐射闸门关闭：missile_auto_fire=false（若 HUD 显示 ON 即为脱节）")
-	if ac.use_tactical_preference and ac.missile_auto_fire:
+	var passive_auto_fire: bool = ac.missile_auto_fire and (
+			ac.use_tactical_preference or formation_opportunity_fire)
+	if passive_auto_fire:
 		if _fire_multi_lock_salvo(ac, msl):
 			return
 		# 多锁定升级下齐射就是完整路径：齐射没找到目标也不要 fall-through，
-		# 否则下一帧（齐射不设冷却）单发路径会绕过 has_active_missile_at 检查
+		# 否则单发路径会绕过 has_active_missile_at 检查
 		# 对 combat_target 重复开火，造成同一目标连发两枚的浪费 bug。
 		# （722 sig_f22：隐身期间临时多锁走 effective_max_locks）
 		if ac.effective_max_locks() > 1:
@@ -916,6 +959,9 @@ static func _sig_f35_relay_ok(ac: Aircraft, target: CombatUnit) -> bool:
 static func _fire_missile_at(ac: Aircraft, target_unit: CombatUnit, msl: MissileParams, is_secondary: bool = false) -> void:
 	# 加力窗口全队禁攻击硬断（spec afterburner-mode）：主/副导弹发射统一收口
 	if ac.afterburner_window_active:
+		return
+	# Snowblind 只拦截新交战/发射；已经离架的实体导弹仍按物理链飞行和命中。
+	if ac.is_sensor_engagement_obscured(target_unit):
 		return
 	var dist_m := ac.global_position.distance_to(target_unit.global_position) / CombatUnit.PIXELS_PER_METER
 	var remaining := (ac.secondary_missiles_remaining - 1) if is_secondary else (ac.missiles_remaining - 1)
@@ -1060,7 +1106,7 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 
 	# 玩家战术偏好 + 显式指定了 combat_target：
 	# 旧版（< 2026-05-07）：combat_target 不在 locked_targets 时整个齐射 return false。
-	# 这与 missile_swarm 升级（max_simultaneous_locks > 1，齐射成为唯一发射路径）冲突——
+	# 这与锁数升级（max_simultaneous_locks > 1，齐射成为唯一发射路径）冲突——
 	# 玩家点远处一艘还没锁定的船 / 还没进包络的敌机时，所有已锁定目标也跟着不开火，
 	# 导致用户感受到的"不点船它不打、点了又卡死"。修复：combat_target 仅作为"优先级提示"
 	# （由下方排序逻辑提到队首），不再作为"独占发射许可"。
@@ -1082,15 +1128,10 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 			locked_targets.remove_at(idx)
 			locked_targets.insert(0, ac.combat_target)
 
-	# 有多目标追踪升级（max_simultaneous_locks > 1）时，对所有锁定目标一起发射，
-	# 只受剩余导弹数限制；无升级时仍按老逻辑只打 1 枚。
-	# （722 sig_f22·先敌开火：隐身期间 effective_max_locks 临时 ≥8 → 齐射生效）
-	var max_fire: int
-	if ac.effective_max_locks() > 1:
-		max_fire = locked_targets.size()
-	else:
-		max_fire = 1
-	var fire_count := mini(max_fire, ac.missiles_remaining)
+	# 锁定目标数是连续上限：一轮最多覆盖 N 个不同目标，不再把 N>1 当作“全列表齐射”开关。
+	# （722 sig_f22·先敌开火：隐身期间在当前锁数上临时 +2）
+	var fire_count: int = _salvo_fire_count(ac.effective_max_locks(), locked_targets.size(),
+		ac.missiles_remaining)
 	var msl_display: String = msl.display_name if msl.display_name else "missile"
 	# 规范化到 [0, 360°)，与游戏内 HDG 显示一致
 	var hdg_deg := fposmod(rad_to_deg(ac.heading), 360.0)
@@ -1119,10 +1160,8 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 			ac.missiles_remaining -= 1
 
 	if fire_count > 0:
-		# 多目标追踪升级下跳过冷却，允许新锁定好的目标下一帧立刻开火；
-		# 单锁定模式仍保留正常冷却
-		if ac.effective_max_locks() <= 1:
-			ac._missile_cooldown = msl.cooldown * ac.weapon_master_cd_mult
+		# 一次齐射只消耗一轮正常冷却；锁数提升覆盖面，不提供免冷却。
+		ac._missile_cooldown = msl.cooldown * ac.weapon_master_cd_mult
 		ac._crank_timer = Aircraft.CRANK_DURATION
 		if ac.enable_missile_reload and ac.missiles_remaining <= 0:
 			ac._missile_reload_active = true
@@ -1132,6 +1171,11 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 			ac._log_threat_picture("after salvo x%d" % fire_count)
 		return true
 	return false
+
+
+## 一轮齐射覆盖量：锁数、合法目标数、现有弹量三者的最小值。
+static func _salvo_fire_count(lock_limit: int, eligible_targets: int, available_missiles: int) -> int:
+	return mini(maxi(lock_limit, 1), mini(maxi(eligible_targets, 0), maxi(available_missiles, 0)))
 
 
 ## 玩家技能"燃尽自如"：超载期间发射不消耗导弹弹量
@@ -1381,6 +1425,8 @@ static func update_secondary_radar(ac: Aircraft, delta: float) -> void:
 	for unit in ac.bullet_manager.combat_unit_list:
 		if unit == null or not is_instance_valid(unit): continue
 		if not ac.is_hostile_to(unit) or unit.is_destroyed: continue
+		if ac.is_sensor_engagement_obscured(unit):
+			ac.secondary_radar_targets.erase(unit); continue
 		# 光学隐形 / 锁定免疫：清掉累积（与主雷达 erase(is_lock_immune) 对称）。
 		# 缺此门时隐形目标能积满副雷达锁 → 被 QMAAM 打 + 被画锁定框
 		# （spec ace-squadron-tier §3.5）
@@ -1468,6 +1514,7 @@ static func _pick_secondary_target(ac: Aircraft, sec: MissileParams) -> CombatUn
 ## 共用前置过滤：锁定满 + 有效 + 主 MSL 没在打它（不抢主弹目标）
 static func _is_valid_secondary_candidate(ac: Aircraft, unit: CombatUnit) -> bool:
 	if unit == null or not is_instance_valid(unit) or unit.is_destroyed: return false
+	if ac.is_sensor_engagement_obscured(unit): return false
 	if ac.secondary_radar_targets.get(unit, 0.0) < ac.params.lock_time: return false
 	# 主 MSL 已经有在飞导弹瞄这个目标 → QMAAM 跳过，避免双杀浪费
 	if ac.missile_manager and ac.missile_manager.count_active_missiles_at(ac, unit) > 0:

@@ -1,6 +1,6 @@
 @echo off
 REM AGL crash-safe Godot bench launcher for Windows.
-REM Usage: bench\run.cmd [scenario] [duration_seconds] [timeout_seconds]
+REM Usage: bench\run.cmd [scenario] [duration_seconds] [timeout_seconds] [shadow^|inplace]
 
 setlocal EnableExtensions
 set "PROJECT_DIR=%~dp0.."
@@ -11,14 +11,17 @@ set "DURATION=%~2"
 if "%DURATION%"=="" set "DURATION=30"
 set "TIMEOUT=%~3"
 if "%TIMEOUT%"=="" set "TIMEOUT=0"
-
+set "RUN_MODE=%~4"
+if "%RUN_MODE%"=="" set "RUN_MODE=%AGL_BENCH_MODE%"
+if "%RUN_MODE%"=="" set "RUN_MODE=Shadow"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0invoke_godot.ps1" ^
   -GodotExe "%GODOT%" ^
   -ProjectDir "%PROJECT_DIR%" ^
   -Scenario "%SCENARIO%" ^
   -DurationSeconds "%DURATION%" ^
   -TimeoutSeconds "%TIMEOUT%" ^
-  -ProcDumpExe "%AGL_PROCDUMP%"
+  -ProcDumpExe "%AGL_PROCDUMP%" ^
+  -RunMode "%RUN_MODE%"
 set "EXIT_CODE=%ERRORLEVEL%"
 
 echo.

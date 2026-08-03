@@ -61,7 +61,8 @@ const ROTATION_ADVANCE_CHANCE := 0.5
 ## 未知 map_id 或空池子回退 default 池
 ## spawn_pos != INF 时会按地形过滤（陆地位置跳过 requires_water=true 的 BOSS）
 ## history 非空时走生涯档案轮换（CareerArchive.build_boss_history() 的形状：
-## { "last": String, "defeated": {boss_id: bool} }）；空 = 旧纯随机（bench/debug 兼容）
+## { "last": String, "defeated": {boss_id: bool}, "defeat_counts": {boss_id: int} }）；
+## 轮换只消费前两项，完整次数由 BossEncounterEvent 注入通关强化层；空 = 旧纯随机（bench/debug 兼容）
 static func pick_for_map(map_id: String, spawn_pos: Vector2 = Vector2.INF,
 		history: Dictionary = {}) -> BossEncounter:
 	var pool: Array = MAP_POOLS.get(map_id, [])

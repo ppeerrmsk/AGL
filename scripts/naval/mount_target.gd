@@ -40,6 +40,13 @@ func _ready() -> void:
 	altitude = 0.0
 	if parent_ship and is_instance_valid(parent_ship):
 		team = parent_ship.team
+		# 友军设施归组由母舰持有；动态生成的挂点/弱点代理继承通用 meta，
+		# 让 AI 的 ACTIVE 硬门在代理出现的第一帧就生效。
+		if parent_ship.has_meta(CombatUnit.META_FRIENDLY_ASSET_GROUP):
+			set_meta(CombatUnit.META_FRIENDLY_ASSET_GROUP,
+				parent_ship.get_meta(CombatUnit.META_FRIENDLY_ASSET_GROUP))
+			set_meta(CombatUnit.META_FRIENDLY_ASSET_ACTIVE,
+				parent_ship.get_meta(CombatUnit.META_FRIENDLY_ASSET_ACTIVE, false))
 	# 初次位置对齐，避免首帧出现在原点
 	_sync_position()
 

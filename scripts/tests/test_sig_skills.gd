@@ -5,7 +5,7 @@ extends RefCounted
 ## A 表完整性（41 条约定）/ B 驾驶门控与前置 / C milestone_plus 数组化 /
 ## D apply 分支（params 类）/ E 致死拦截判序 / F 负面状态免疫 /
 ## G 全频段压制流速 / H 先敌开火（锁数+装填）/ I 机动 accessor 注入 /
-## J 传感器融合越肩发射门 / K 静态账本清零
+## J 超速截击正面发射门 / K 传感器融合越肩发射门 / L 静态账本清零
 ##
 ## 运行：godot --headless --path . -- --bench=sig_skills（或 --bench=all）
 
@@ -16,6 +16,7 @@ var _fail := 0
 func run() -> void:
 	print("\n════════ 722 机体签名技能（门控 / 继承底座 / 效果注入） ════════")
 	_test_table_conventions()
+	_test_offer_rules()
 	_test_pool_gating()
 	_test_milestone_plus_list()
 	_test_apply_branches()
@@ -24,6 +25,7 @@ func run() -> void:
 	_test_x13_suppress()
 	_test_f22_first_look()
 	_test_mobility_accessors()
+	_test_mig31_forward_gate()
 	_test_f35_relay_gate()
 	_test_static_ledger_reset()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
@@ -60,6 +62,37 @@ func _test_table_conventions() -> void:
 	var gaze := _find_upgrade("f14_squad_lock_slow")
 	_check("围猎（f14_squad_lock_slow）改档 CLASSIFIED",
 		SurvivorData.get_rarity(gaze) == SurvivorData.Rarity.CLASSIFIED, "")
+
+
+func _test_offer_rules() -> void:
+	print("── B. 第四槽规则：90% 边界 / 41 机映射 / 前置不阻断出示 ──")
+	_check("专属第四槽概率 = 90%",
+		is_equal_approx(SurvivorData.SIGNATURE_OFFER_CHANCE, 0.90), "")
+	_check("roll=0 命中", SurvivorData.signature_offer_hit(0.0), "")
+	_check("roll<0.90 命中", SurvivorData.signature_offer_hit(0.899999), "")
+	_check("roll=0.90 不命中", not SurvivorData.signature_offer_hit(0.90), "")
+	_check("越界 roll 不命中",
+		not SurvivorData.signature_offer_hit(-0.01)
+		and not SurvivorData.signature_offer_hit(1.0), "")
+
+	var mapped_count := 0
+	var mapped_ok := true
+	for raw in EvolutionSystem.all_nodes():
+		var node: Dictionary = raw
+		var node_id := StringName(str(node.get("id", "")))
+		var upgrade := SurvivorData.signature_upgrade_for_aircraft(node_id)
+		if not upgrade.is_empty():
+			mapped_count += 1
+			mapped_ok = mapped_ok and SurvivorData.is_signature_upgrade(upgrade)
+	_check("41 个进化节点均映射到专属技能", mapped_count == 41 and mapped_ok,
+		"mapped=%d" % mapped_count)
+	_check("F-14 映射围猎",
+		SurvivorData.signature_upgrade_id_for_aircraft(&"f14") == "f14_squad_lock_slow", "")
+
+	var gated := _find_upgrade("sig_su27")
+	_check("技能前置仍由效果层自然等待，不改变专属身份",
+		SurvivorData.is_signature_upgrade(gated)
+		and not SurvivorData.is_upgrade_available_for(gated, &"su27", null, {}, []), "")
 
 
 # ── B. 驾驶门控：exclusive_to 按当前 ACE 机型过滤 + requires_skill 前置 ──
@@ -205,18 +238,24 @@ func _test_x13_suppress() -> void:
 
 # ── H. 先敌开火：隐身锁数 / STEALTH 上升沿装填 ──
 func _test_f22_first_look() -> void:
-	print("── H. 先敌开火：STEALTH 期间锁数 ≥8 / 上升沿全装填 / 沿内不重复 ──")
+	print("── H. 先敌开火：STEALTH 期间锁数 +2 / 上升沿全装填 / 沿内不重复 ──")
+	var sig: Dictionary = SurvivorData.upgrade_by_id("sig_f22")
+	_check("先敌开火为默认全队范围（僚机也持有效果）",
+		str(sig.get("scope", "")) == "" and not sig.has("classes") \
+		and SurvivorData.upgrade_applies_to_machine(sig, [], false), str(sig))
 	var ac := _make_combat_aircraft()
 	ac.team = 0
 	ac.set_meta("upgrade_stacks", {"sig_f22": 1})
-	_check("无 STEALTH → 锁数 = 1", ac.effective_max_locks() == 1, "")
+	ac.max_simultaneous_locks = 4
+	_check("无 STEALTH → 保持当前锁数 4", ac.effective_max_locks() == 4, "")
 	ac.ammo = 3
 	ac.missiles_remaining = 1
 	ac.apply_status(StatusEffects.STEALTH, 5.0)
 	ac.status_stealth_active = true  # 无头下代跑 StatusEffects.update 的派生
 	_check("上升沿：机炮回满", ac.ammo == ac.params.gun.max_ammo, "got %d" % ac.ammo)
 	_check("上升沿：导弹回满", ac.missiles_remaining == ac.params.missile.max_count, "")
-	_check("STEALTH 中锁数 ≥8", ac.effective_max_locks() >= 8, "")
+	_check("STEALTH 中锁数 4→6（加算 +2）", ac.effective_max_locks() == 6,
+		"got %d" % ac.effective_max_locks())
 	ac.ammo = 5
 	ac.apply_status(StatusEffects.STEALTH, 8.0)  # 沿内刷新：不再装填
 	_check("沿内刷新不重复装填", ac.ammo == 5, "got %d" % ac.ammo)
@@ -243,9 +282,42 @@ func _test_mobility_accessors() -> void:
 	ac.free()
 
 
-# ── J. 传感器融合：ACE 满锁后僚机豁免自身锥门/锁定门 ──
+# ── J. 超速截击：只从正面雷达锥选满锁目标 ──
+func _test_mig31_forward_gate() -> void:
+	print("── J. 超速截击：正面满锁可发 / 后半球残留满锁不可发 ──")
+	var ac := _make_combat_aircraft()
+	var manager := MissileManager.new()
+	var front := CombatUnit.new()
+	var rear := CombatUnit.new()
+	ac.team = CombatUnit.TEAM_PLAYER
+	ac.heading = 0.0
+	ac.global_position = Vector2.ZERO
+	ac.params.lock_time = 2.0
+	ac.params.radar_range = 2000.0
+	ac.params.radar_half_angle = 120.0  # 模拟继承“多波段搜索”后的超宽雷达锥
+	ac.params.missile.min_range = 0.0
+	ac.missile_manager = manager
+	front.team = CombatUnit.TEAM_HOSTILE
+	front.global_position = Vector2(0.0, -300.0)
+	rear.team = CombatUnit.TEAM_HOSTILE
+	rear.global_position = Vector2(100.0, 20.0)  # 更近、偏轴约 101°：仍在 ±120° 雷达锥，但已属后半球
+	ac.radar_targets[front] = 2.0
+	ac.radar_targets[rear] = 2.0
+	_check("正面目标胜过更近且仍在宽雷达锥内的后半球满锁",
+		ac._sig_mig31_pick_target() == front, "应选择 front")
+	ac.radar_targets.erase(front)
+	_check("宽雷达锥内只有后半球满锁 → 不发射", ac._sig_mig31_pick_target() == null, "")
+	ac.radar_targets.clear()
+	ac.missile_manager = null
+	ac.free()
+	manager.free()
+	front.free()
+	rear.free()
+
+
+# ── K. 传感器融合：ACE 满锁后僚机豁免自身锥门/锁定门 ──
 func _test_f35_relay_gate() -> void:
-	print("── J. 传感器融合：ACE 满锁 → 僚机越肩发射门放行 ──")
+	print("── K. 传感器融合：ACE 满锁 → 僚机越肩发射门放行 ──")
 	var ace := _make_combat_aircraft()
 	var wing := _make_combat_aircraft()
 	var tgt := CombatUnit.new()
@@ -271,9 +343,9 @@ func _test_f35_relay_gate() -> void:
 	other.free()
 
 
-# ── K. 队级账本位（static）跨局清零：survivor_mode._ready 必须显式重置 ──
+# ── L. 队级账本位（static）跨局清零：survivor_mode._ready 必须显式重置 ──
 func _test_static_ledger_reset() -> void:
-	print("── J. 静态账本位：源码含新局清零（跨局残留防回归）──")
+	print("── L. 静态账本位：源码含新局清零（跨局残留防回归）──")
 	var src: String = FileAccess.get_file_as_string("res://scripts/survivor/survivor_mode.gd")
 	var ready_idx: int = src.find("func _ready()")
 	var head: String = src.substr(ready_idx, 2000) if ready_idx >= 0 else ""

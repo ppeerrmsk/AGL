@@ -2,9 +2,10 @@
 ##
 ## 与 BOSS（F47AceSquad / PoltergeistSquad）的区别：
 ##   - category = "ace_support"（不打 "boss" —— 不触发 BOSS 血条 / BGM / 击败过关语义）
-##   - tier 待遇（LOD 豁免 / 无等级缩放 / HP 100 / jam=1.00）全部走 AceTier **实例打标**
+##   - tier 待遇（LOD 豁免 / 无等级缩放 / 王牌枪法 / jam=1.00）走 AceTier **实例打标**；
+##     非 BOSS 仍服从一击必杀 HP cap
 ##     （spec ace-squadron-tier §4.1：非 BOSS 王牌不得假设 category=="boss"）
-##   - 生存档位：热诱弹 **2 命**（BOSS 档 4 命的支援降档 —— 命数是 tier 唯一强度杠杆）
+##   - 生存档位：flare 数由 profile 声明（默认 1；VULTURE 因追击成本为 0）
 ##   - 通用机型 Su-35：_create_enemy 按杂兵路径生成 → _configure_spawn 后处理覆写
 ##     （血量 / 机炮 / 热诱弹 / 涂装 / 导弹挂载），普通旅途杂兵 Su-35 不受任何影响
 class_name AceSupportSquad
@@ -76,13 +77,13 @@ func _member_type(i: int) -> int:
 	return int(e.get("type", enemy_type))
 
 ## 风格 → 基类角色：斗士=KNIGHT（近战死咬）/ 狙击=SNIPER（bvr_only 站位带 4~6km，
-## 复用 Wraith SNIPER 基建）/ 骑士=NONE（中性掠袭，专属配置在 _apply_role）。
+## 复用 Wraith SNIPER 基建）/ 导弹骑士与机炮骑士=NONE（中性掠袭，专属配置在 _apply_role）。
 ## 无混编且非骑士（MARATHON）沿用基类"前 2 KNIGHT 后排 SNIPER"既有行为
 func _member_role(i: int) -> int:
 	if _elements.is_empty() and _tactics == "gladiator":
 		return super._member_role(i)
 	match _style_of(i):
-		"lancer":
+		"lancer", "gun_lancer":
 			return AceRole.NONE
 		"schemer":
 			return AceRole.SNIPER
@@ -93,6 +94,7 @@ func _member_role(i: int) -> int:
 func _configure_spawn(ac: Aircraft, i: int, _sq: Squad, _ai: AIController) -> void:
 	# ── 非 BOSS 化：改写基类打的 boss category ──
 	ac.set_meta("category", "ace_support")
+	ac.set_meta("token_cost", 0)   # 事件供给，不挤占普通敌机 Token 预算（tier 契约）
 	ac.remove_meta("boss_intro")   # 无 INTRO 演出（事件 spawn 后立即 engage）
 	AceTier.mark(ac)
 
@@ -119,12 +121,15 @@ func _configure_spawn(ac: Aircraft, i: int, _sq: Squad, _ai: AIController) -> vo
 	# ── element 覆写（tier §3.7 混编条款）：无混编时回落 profile 级默认 ──
 	var e := _element_of(i)
 	var style := _style_of(i)
+	var prof_d: Dictionary = AceSquadProfiles.get_profile(profile_id)
 	var gun_mode := String(e.get("gun", _gun_mode))
+	var gun_res := String(e.get("gun_res", prof_d.get("gun_res", ACE_GUN_RES)))
 	var mcount := int(e.get("missile_count", _missile_count))
 	var base_res := String(e.get("base_res", _base_res))
-	var flares := int(e.get("flares", -1))          # -1 = 默认（1 枚必躲）
-	var prof_d: Dictionary = AceSquadProfiles.get_profile(profile_id)
+	var flares := int(e.get("flares", prof_d.get("flares", 1))) # profile 默认，可按 element 覆写
 	var ai_level := float(e.get("ai_level", prof_d.get("ai_level", 0.0)))
+	var joust: Dictionary = e.get("joust", prof_d.get("joust", {}))
+	var herbst: Dictionary = e.get("herbst", prof_d.get("herbst", {}))
 	# element 级机炮闪避覆写（tier §2.2 分档：Teacher 特高 0.50 等）
 	if e.has("dodge"):
 		ac.bullet_dodge_chance = float(e["dodge"])
@@ -132,6 +137,17 @@ func _configure_spawn(ac: Aircraft, i: int, _sq: Squad, _ai: AIController) -> vo
 	# 骑士成员：交战状态归队级掠袭战术全权（基类 PURSUIT 不下 ENGAGE、软维护跳过）
 	if style == "lancer":
 		ac.set_meta(&"ace_tactics_owned", true)
+	elif style == "gun_lancer" and _ai:
+		# WhiteTea：逐机走既有空对空 joust，保留 ENGAGE 才能让 J-turn 在 joust 前抢占。
+		ac.prefer_gun_mode = true
+		_ai.boss_attacker = true
+		_ai.bvr_only = false
+		_ai.aggression = 0.95
+		_ai.self_preservation = 0.20
+		_ai.joust_enabled = bool(joust.get("enabled", true))
+		_ai.joust_run_speed_kmh = p.max_speed * float(joust.get("run_speed_mult", 0.90))
+		_ai.joust_giveup_closing_mps = float(joust.get("giveup_closing_mps", 60.0))
+		_ai.joust_run_max_s = float(joust.get("run_max_s", 15.0))
 
 	# ── 导弹载量：显式覆写（骑士波次预算，弹尽即弹尽）或撤销等级加弹回 base 原值 ──
 	if p.missile != null:
@@ -147,24 +163,25 @@ func _configure_spawn(ac: Aircraft, i: int, _sq: Squad, _ai: AIController) -> vo
 	#    骑士无炮豁免（纯导弹，火力表达在齐射节奏）──
 	match gun_mode:
 		"ace":
-			p.gun = load(ACE_GUN_RES).duplicate(true)
+			p.gun = load(gun_res).duplicate(true)
 			ac.ammo = p.gun.max_ammo
 		"none":
 			p.gun = null
 			ac.ammo = 0
 		_:
 			pass   # "keep"：保留原装
-	# ── 生存模型：默认 1 枚必躲 flare；flares==0 = 零 flare 机动规避型（Teacher，
-	#    tier §3.4 例外条款——防御预算换轴到机动，evade 键配套开）──
-	if flares == 0:
+	# ── 生存模型：flare 数量完全由 profile/element 声明；0 = 无 flare。
+	#    VULTURE 用速度/回转窗口支付接近成本，因此不再叠确定性命数。──
+	if flares <= 0:
 		p.flare = null
 		ac.flares_remaining = 0
 	else:
 		p.flare = load(SUPPORT_FLARE_RES).duplicate(true)
+		p.flare.max_flares = flares
 		ac.flares_remaining = p.flare.max_flares
 	ac.enable_flare_reload = false
-	# ── 机动规避个体（tier §3.4）：ace_evader 让基类不打 boss_attacker，
-	#    既有规避行为链（beam/notch）对其放行；被机炮追也会闪（高档 dodge 在上面）──
+	# ── 机动规避个体（保留扩展口；当前六支非宿敌队无人声明 evade）：
+	#    ace_evader 让基类不打 boss_attacker，既有 beam/notch 行为链对其放行。──
 	if bool(e.get("evade", false)) and _ai:
 		ac.set_meta(&"ace_evader", true)
 		_ai.boss_attacker = false
@@ -175,6 +192,13 @@ func _configure_spawn(ac: Aircraft, i: int, _sq: Squad, _ai: AIController) -> vo
 		_ai.composure = clampf(ai_level, 0.0, 1.0)
 		_ai.focus = clampf(ai_level, 0.0, 1.0)
 		_ai.situational_awareness = clampf(ai_level, 0.0, 1.0)
+	# ── 可配置 J-turn：默认配置空，不影响既有队；WhiteTea 每机一次且 flare 耗尽后解锁。──
+	if not herbst.is_empty():
+		var hm := HerbstManeuver.new()
+		hm.name = "HerbstManeuver"
+		hm.max_uses = int(herbst.get("max_uses", -1))
+		hm.requires_flares_empty = bool(herbst.get("requires_flares_empty", false))
+		ac.add_child(hm)
 	# ── 专属涂装：中队主色（727 包装批紫红系，金橙退役）──
 	p.icon_color = AceSquadProfiles.color(profile_id)
 

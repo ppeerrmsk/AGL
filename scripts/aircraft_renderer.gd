@@ -48,14 +48,14 @@ static func _digit_stable(s: String) -> String:
 ## 尾焰 / 枪口闪光 / 其他附件都必须乘这个值，否则图标变大后附件还停在原位
 ##
 ## 不再因 flat_altitude 走离散 tier 跳变 —— 始终走连续插值，跟着真实 altitude 米数走
-## 关键锚点对齐 TIER_ALTITUDE 中心（LOW=2000 → 0.70, MID=5500 → 1.05, HIGH=10000 → 1.55）
+## 高度只提供温和空间感；机型真实尺寸由 visual_model_scale 独立处理。
 ## 这样玩家爬升/俯冲时图标会平滑放大缩小，能直观看到高度变化
 const ALT_SCALE_KEYS := [
-	[0.0, 0.55],
-	[2000.0, 0.70],   # CombatUnit.TIER_ALTITUDE.LOW
-	[5500.0, 1.05],   # CombatUnit.TIER_ALTITUDE.MID
-	[10000.0, 1.55],  # CombatUnit.TIER_ALTITUDE.HIGH
-	[15000.0, 1.70],  # 接近 max_altitude 上限
+	[0.0, 0.85],
+	[2000.0, 0.90],   # CombatUnit.TIER_ALTITUDE.LOW
+	[5500.0, 1.00],   # CombatUnit.TIER_ALTITUDE.MID
+	[10000.0, 1.15],  # CombatUnit.TIER_ALTITUDE.HIGH
+	[15000.0, 1.20],  # 接近 max_altitude 上限
 ]
 
 
@@ -70,6 +70,21 @@ static func altitude_base_scale(ac: Aircraft) -> float:
 			return lerpf(float(lo[1]), float(hi[1]), clampf(t, 0.0, 1.0))
 	# 超出最高锚点
 	return float(ALT_SCALE_KEYS[ALT_SCALE_KEYS.size() - 1][1])
+
+## 世界真实尺寸经过压缩幂律映射，既保留轰炸机/直升机的相对比例，又保证缩放后可读。
+## 目标像素 = 7.9 × max(长度, 翼展/旋翼直径)^0.55；再除以各轮廓的原生最大尺寸。
+static func visual_model_scale(ac: Aircraft) -> float:
+	if ac.params == null or ac.get_meta("silhouette", "") == "mother_goose":
+		return 1.0
+	var real_extent_m: float = maxf(ac.params.visual_length_m, ac.params.visual_span_m)
+	var desired_px: float = 7.9 * pow(maxf(real_extent_m, 1.0), 0.55)
+	var silhouette: String = str(ac.get_meta("silhouette", ""))
+	var native_px: float = 36.0
+	match silhouette:
+		"bomber": native_px = 70.0
+		"apache": native_px = 32.0
+		"chinook": native_px = 44.0
+	return desired_px / native_px
 
 static func altitude_tier_color(tier: int, transitioning: bool) -> Color:
 	if transitioning:
@@ -98,7 +113,8 @@ static func _wpn_color(tag: String, ctx: Dictionary = {}) -> Color:
 	elif tag == "GUN_RELOAD":
 		return Color.html("#aa7733")
 	elif tag == "FLR_RELOAD":
-		return Color.html("#aa8833")
+		var empty_flash: bool = int(Time.get_ticks_msec() / 180) % 2 == 0
+		return Color.html("#ff4433") if empty_flash else Color.html("#ffbb33")
 	elif tag == "FLR_READY":
 		return Color.html("#ffdd66")
 	elif tag == "FLR_EMPTY":
@@ -360,16 +376,19 @@ static func draw_aura_ranges(ac: Aircraft) -> void:
 		ac.draw_line(Vector2.ZERO, edge_a, fear_col, 1.0, true)
 		ac.draw_line(Vector2.ZERO, edge_b, fear_col, 1.0, true)
 
+## 敌方机炮意图锥身份门：Mother Goose 蜂群降噪，其他敌机（含普通无人机/MQ-X）照常显示。
+static func should_show_enemy_gun_threat(ac: Aircraft) -> bool:
+	if ac.team == 0 or ac._gun_threat_timer < Aircraft.GUN_THREAT_DISPLAY_DELAY:
+		return false
+	return ac.get_meta(&"category", "") != "boss_mother_goose_uav"
+
+
 static func draw_gun_cone(ac: Aircraft) -> void:
 	if not ac.params or not ac.params.gun:
 		return
 	# 友方 hover 时显示参考锥；敌方对玩家提交机炮攻击 ≥0.3s 显示威胁锥（同为橙黄）
 	var show_friendly: bool = (ac.team == 0 and ac.is_hovered)
-	var show_enemy_threat: bool = (ac.team != 0 and ac._gun_threat_timer >= Aircraft.GUN_THREAT_DISPLAY_DELAY)
-	# UAV 蜂群一群飞机各自显示锥子太碍眼，玩家根本看不过来 —— 抑制 UAV / 无人机
-	# 类别（参与 Mother Goose 蜂群）与无人机 silhouette 的锥显示
-	if show_enemy_threat and ac.params.is_unmanned:
-		show_enemy_threat = false
+	var show_enemy_threat: bool = should_show_enemy_gun_threat(ac)
 	if not show_friendly and not show_enemy_threat:
 		return
 	# 敌方锥开火期间淡出（见 Aircraft._update_gun_threat_indicator）；全透时直接跳过绘制
@@ -520,7 +539,7 @@ static func draw_target_bracket(node: Node2D, is_target: bool) -> void:
 static func draw_muzzle_flash(ac: Aircraft) -> void:
 	var flash_alpha := randf_range(0.6, 1.0)
 	var flash_color := Color(1.0, 0.9, 0.3, flash_alpha)
-	var s := altitude_base_scale(ac)
+	var s := altitude_base_scale(ac) * visual_model_scale(ac)
 	# 机头前方小闪光
 	var tip := Vector2(0, -20.0 * s)
 	ac.draw_circle(tip, 4.0 * s, flash_color)
@@ -532,7 +551,7 @@ static func draw_afterburner_glow(ac: Aircraft) -> void:
 	var glow_color := Color(1.0, 0.5, 0.1, 0.8 * flicker)
 	var core_color := Color(1.0, 0.85, 0.4, 0.9 * flicker)
 	# 基础大小与机身图标一致（乘 altitude_base_scale）
-	var s := altitude_base_scale(ac)
+	var s := altitude_base_scale(ac) * visual_model_scale(ac)
 	# 再叠 cobra/herbst 各向同性收缩
 	var sy_compress: float = s
 	var _mv := ac.get_maneuver()
@@ -671,7 +690,7 @@ static func draw_aircraft_icon(ac: Aircraft) -> void:
 	var size := 16.0
 
 	# 高度缩放（档位离散 / 沙盒连续，见 altitude_base_scale）
-	var base_scale: float = altitude_base_scale(ac)
+	var base_scale: float = altitude_base_scale(ac) * visual_model_scale(ac)
 
 	# 滚转变形（常规 bank + 规避时的原地滚转相位）
 	var bank_compress := cos(ac.bank_angle + ac._evade_roll_phase)
@@ -771,6 +790,35 @@ static func draw_aircraft_icon(ac: Aircraft) -> void:
 		Vector2(-size * 0.45, size * 0.85),
 		Vector2(-size * 0.18, size * 0.80),
 	])
+
+	# 常规科技树敌版只替换既有 5 个多边形的顶点；不增加 CanvasItem/draw 次数或逐帧扫描。
+	match silhouette:
+		"delta":
+			wing_r = PackedVector2Array([Vector2(size * 0.15, -size * 0.35), Vector2(size * 1.2, size * 0.55), Vector2(size * 0.18, size * 0.38)])
+			wing_l = PackedVector2Array([Vector2(-size * 0.15, -size * 0.35), Vector2(-size * 1.2, size * 0.55), Vector2(-size * 0.18, size * 0.38)])
+		"canard_delta":
+			wing_r = PackedVector2Array([Vector2(size * 0.14, -size * 0.48), Vector2(size * 0.55, -size * 0.30), Vector2(size * 0.25, -size * 0.18), Vector2(size * 1.15, size * 0.48), Vector2(size * 0.18, size * 0.35)])
+			wing_l = PackedVector2Array([Vector2(-size * 0.14, -size * 0.48), Vector2(-size * 0.55, -size * 0.30), Vector2(-size * 0.25, -size * 0.18), Vector2(-size * 1.15, size * 0.48), Vector2(-size * 0.18, size * 0.35)])
+		"swing_wing":
+			wing_r = PackedVector2Array([Vector2(size * 0.18, -size * 0.05), Vector2(size * 1.25, size * 0.50), Vector2(size * 0.85, size * 0.58), Vector2(size * 0.18, size * 0.20)])
+			wing_l = PackedVector2Array([Vector2(-size * 0.18, -size * 0.05), Vector2(-size * 1.25, size * 0.50), Vector2(-size * 0.85, size * 0.58), Vector2(-size * 0.18, size * 0.20)])
+		"attacker":
+			body = PackedVector2Array([Vector2(0, -size), Vector2(size * 0.24, -size * 0.55), Vector2(size * 0.28, size * 0.75), Vector2(0, size), Vector2(-size * 0.28, size * 0.75), Vector2(-size * 0.24, -size * 0.55)])
+			wing_r = PackedVector2Array([Vector2(size * 0.22, -size * 0.05), Vector2(size * 1.25, size * 0.02), Vector2(size * 1.15, size * 0.28), Vector2(size * 0.22, size * 0.25)])
+			wing_l = PackedVector2Array([Vector2(-size * 0.22, -size * 0.05), Vector2(-size * 1.25, size * 0.02), Vector2(-size * 1.15, size * 0.28), Vector2(-size * 0.22, size * 0.25)])
+		"stealth":
+			body = PackedVector2Array([Vector2(0, -size * 1.1), Vector2(size * 0.34, -size * 0.28), Vector2(size * 0.28, size * 0.75), Vector2(0, size * 0.9), Vector2(-size * 0.28, size * 0.75), Vector2(-size * 0.34, -size * 0.28)])
+			wing_r = PackedVector2Array([Vector2(size * 0.20, -size * 0.25), Vector2(size * 1.25, size * 0.28), Vector2(size * 0.55, size * 0.52), Vector2(size * 0.22, size * 0.32)])
+			wing_l = PackedVector2Array([Vector2(-size * 0.20, -size * 0.25), Vector2(-size * 1.25, size * 0.28), Vector2(-size * 0.55, size * 0.52), Vector2(-size * 0.22, size * 0.32)])
+		"vtol":
+			wing_r = PackedVector2Array([Vector2(size * 0.18, -size * 0.10), Vector2(size * 0.90, size * 0.08), Vector2(size * 0.78, size * 0.35), Vector2(size * 0.18, size * 0.22)])
+			wing_l = PackedVector2Array([Vector2(-size * 0.18, -size * 0.10), Vector2(-size * 0.90, size * 0.08), Vector2(-size * 0.78, size * 0.35), Vector2(-size * 0.18, size * 0.22)])
+		"light_fighter":
+			wing_r = PackedVector2Array([Vector2(size * 0.17, -size * 0.02), Vector2(size * 0.92, size * 0.28), Vector2(size * 0.70, size * 0.38), Vector2(size * 0.18, size * 0.20)])
+			wing_l = PackedVector2Array([Vector2(-size * 0.17, -size * 0.02), Vector2(-size * 0.92, size * 0.28), Vector2(-size * 0.70, size * 0.38), Vector2(-size * 0.18, size * 0.20)])
+		"twin_tail":
+			tail_r = PackedVector2Array([Vector2(size * 0.15, size * 0.48), Vector2(size * 0.65, size * 0.68), Vector2(size * 0.48, size * 0.90), Vector2(size * 0.18, size * 0.78)])
+			tail_l = PackedVector2Array([Vector2(-size * 0.15, size * 0.48), Vector2(-size * 0.65, size * 0.68), Vector2(-size * 0.48, size * 0.90), Vector2(-size * 0.18, size * 0.78)])
 
 	# 机翼可选副色（黑机身 + 红翼 等；alpha=0 时走主色）
 	var wing_color: Color = color
@@ -1612,28 +1660,24 @@ static func draw_target_line(ac: Aircraft) -> void:
 
 	# 有战斗目标时：连接线指向敌机
 	if ac.combat_target and is_instance_valid(ac.combat_target) and not ac.combat_target.is_destroyed:
-		# 冲锋攻击（双击触发）→ 橙色 + 加粗，与单击维距打导弹的常规线区分开
-		var ct_color: Color
-		var ct_width: float
-		if ac.charge_attack:
-			ct_color = Color(1.0, 0.55, 0.2, 0.85)
-			ct_width = 2.2
-		else:
-			ct_color = Color(GameConstants.team_color(ac.team), 0.6)
-			ct_width = 1.5
+		# 普通线跟随当前操控机线框色；双击突击保留独立黄线语义。
+		var body_color: Color = ac.params.icon_color if ac.params else GameConstants.team_color(ac.team)
+		var ct_color := Color(1.0, 0.78, 0.2, 0.84) if ac.charge_attack else Color(body_color, 0.68)
+		var ct_width: float = 1.8 if ac.charge_attack else 1.5
 		var ct_local := ac.to_local(ac.combat_target.global_position)
+		# 单层中细线：兼顾地图上的可读性与轻量感，不恢复深色粗描边。
 		ac.draw_line(Vector2.ZERO, ct_local, ct_color, ct_width, true)
 		var ct_d := 8.0
-		ac.draw_line(ct_local + Vector2(-ct_d, 0), ct_local + Vector2(ct_d, 0), ct_color, ct_width)
-		ac.draw_line(ct_local + Vector2(0, -ct_d), ct_local + Vector2(0, ct_d), ct_color, ct_width)
-		ac.draw_circle(ct_local, ct_d, Color(ct_color, 0.2))
+		var marker_width: float = 1.6 if ac.charge_attack else 1.3
+		ac.draw_line(ct_local + Vector2(-ct_d, 0), ct_local + Vector2(ct_d, 0), ct_color, marker_width)
+		ac.draw_line(ct_local + Vector2(0, -ct_d), ct_local + Vector2(0, ct_d), ct_color, marker_width)
 
-		# 战斗目标外围方框：4 个 L 角"瞄准框"风格，浅蓝色，不喧宾夺主
+		# 战斗目标外围方框：4 个 L 角"瞄准框"风格，跟随当前连线色。
 		# 仅玩家（team=0）画，因为 AI 的 combat_target 不需要 UI 指示
 		if ac.team == 0:
 			var box_half: float = 18.0   # 方框半边长
 			var corner_len: float = 6.0  # 每个 L 角的边长
-			var box_col := Color(0.4, 0.75, 1.0, 0.55)   # 浅蓝半透明
+			var box_col := Color(ct_color, 0.66 if ac.charge_attack else 0.62)
 			var box_w: float = 1.4
 			var corners: Array = [
 					Vector2(-box_half, -box_half),  # 左上

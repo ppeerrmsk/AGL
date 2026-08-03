@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="GunParams" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/gun_params.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+; WhiteTea 三机集火专用受控短梭（spec events/ace-whitetea-fck1 v5）。
+; 4×5=20 伤/机/梭；三机理论同步首梭 60 伤，不秒满血玩家。
+; 360 rpm 经通用 burst 公式得到约 0.15s 梭内时长 + 0.47s 梭间隔。
+display_name = "F-CK-1 M61A1"
+fire_rate = 360.0
+bullet_damage = 5.0
+muzzle_velocity = 1200.0
+max_range = 1400.0
+spread_angle = 1.2
+fire_cone_half_angle = 5.0
+burst_count = 4
+max_ammo = 360

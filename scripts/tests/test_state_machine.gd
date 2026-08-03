@@ -155,6 +155,17 @@ func _test_constraints() -> void:
 	ai.combat_zone_anchor = null
 	ai.combat_zone_radius = 0.0
 
+	# BOSS 释放与 hunter AI tick 不同步：已释放锚点必须在 `is` 判断前净化。
+	var freed_anchor := Node2D.new()
+	_root.add_child(freed_anchor)
+	ai.combat_zone_anchor = freed_anchor
+	ai.combat_zone_radius = 1000.0
+	freed_anchor.free()
+	handled = ai._apply_constraints(DT)
+	_check("zone 锚点已释放：安全解除区域约束",
+		not handled and ai.combat_zone_anchor == null and is_zero_approx(ai.combat_zone_radius),
+		"通关后 hunter AI 不得对 freed BOSS 做类型判断")
+
 	# leash · ENGAGE：越界 + 滞回 → 拽回归队 + 冷却
 	var leader := _make_enemy()
 	leader.team = ai.aircraft.team
@@ -189,6 +200,33 @@ func _test_constraints() -> void:
 	_check("leash·命令豁免：玩家点名不拽回", not fired,
 		"玩家要打多远就追多远")
 	ai.aircraft.commanded_target = null
+
+	# 僚机不拥有 commanded_target，但跟打长机点名目标时继承命令优先级。
+	ai._state = AIController.AIState.ENGAGE
+	ai._current_target = tgt
+	ai.aircraft.set_combat_target(tgt)
+	ai._squad_attacking_leader_target = true
+	leader.set_combat_target(tgt)
+	leader.commanded_target = tgt
+	ai._squad_leash_timer = 0.0
+	fired = false
+	for i in range(40):
+		if ai._apply_constraints(DT):
+			fired = true
+			break
+	_check("leash·跟打命令豁免：归队不覆盖玩家点名", not fired and ai._cmd_engage_active(),
+		"僚机跟打长机点名目标时继续攻击")
+
+	# 长机取消点名后，继承优先级立即消失，普通 leash 恢复生效。
+	leader.commanded_target = null
+	ai._squad_leash_timer = 0.0
+	fired = false
+	for i in range(40):
+		if ai._apply_constraints(DT):
+			fired = true
+			break
+	_check("leash·长机取消命令：恢复归队", fired and not ai._cmd_engage_active(),
+		"取消点名后不再豁免 leash")
 
 	# leash · EVADE：躲弹同样被拽回（SEAM-010 根治核心）+ 再入冷却
 	ai._state = AIController.AIState.SQUAD_FOLLOW

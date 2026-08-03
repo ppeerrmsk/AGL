@@ -3,7 +3,7 @@ id: survivor-loop
 kind: system
 status: done
 schema_version: 1
-spec_version: 4
+spec_version: 5
 owner: design
 depends_on: [token-economy, zone-missions, upgrade-pool]
 reconstruction_complete: partial
@@ -46,7 +46,7 @@ reconstruction_complete: partial
 12. HUD 同步（战区倒计时 + 击杀数）
 
 一局运行态标志：`game_time`（0–600，BOSS 阶段冻结）、`is_game_over`、`is_paused_for_upgrade`、
-`_warzone_phase_ended`（600s 跨越一次性闸）、`upgrade_stacks{id→次数}`、稀有度 pity 计数。
+`_warzone_phase_ended`（600s 跨越一次性闸）、`upgrade_stacks{id→次数}`、4 级金卡连续未出计数。
 
 ## 3. 时间制战区时间线（What —— 全部数值，权威源）
 
@@ -159,7 +159,8 @@ Adds（Tu-160/AH-64/CH-47/FA-18）`TOKEN_COST=0`，不占预算。
 逐级回落到前线机（F-86/A-7/J-7）→ F-4E（Lv1~6 平坦 40%，单机 35%/小队，
 spec [enemies/f-4e](../enemies/f-4e.md)）；Lv≤`UAV_RETIRE_LEVEL(4)` 循环 MQ-109/MQ-110
 无人机杂鱼（更名见 spec [early-game-uav-rework](early-game-uav-rework.md)）；
-Lv≥`LATE_GAME_LEVEL(10)` 强制最低 Token ≥3（禁刷杂鱼）；绝对兜底 MQ-109（永不空转）。
+Lv≥`LATE_GAME_LEVEL(10)` 强制最低 Token ≥3（禁刷杂鱼）；若剩余 Token 无法容纳任何
+合格机型则本轮不刷，**不得**用 MQ-109 穿透退役门补空。
 
 ### 4.3 清理与性能（已核对）
 
@@ -219,10 +220,10 @@ Lv≥`LATE_GAME_LEVEL(10)` 强制最低 Token ≥3（禁刷杂鱼）；绝对兜
     的等级计价设计**废除**——它对 XP 曲线免疫（曲线改多陡都白调），是等级通胀最大源头。
     Adds 改与普通敌机同一公式，整组击杀 ≈ 1~1.5 级，仍是全场最肥经验事件，但不再一波跳 3–4 级。
 - `xp_mult` 升级：每层 +20%，封顶 ×1.4。
-- 升级流程：击杀 add_xp → 逐帧把 `_pending_xp` 灌进可见 xp 条 → 满则暂停弹 UI → 三选一 →
+- 升级流程：击杀 add_xp → 逐帧把 `_pending_xp` 灌进可见 xp 条 → 每 3 级暂停弹三轴三选一 →
   `apply_upgrade()` 写入 → `upgrade_stacks[id]++`。
-- 稀有度 + pity：STABLE/ADVANCED/EXPERIMENTAL/CLASSIFIED/NEXT_GEN，高稀有度有 pity 保底
-  （具体权重/保底数见 survivor-skills.md，不在此重列）。
+- 稀有度：STABLE/ADVANCED/EXPERIMENTAL/CLASSIFIED/NEXT_GEN；4 级金卡仅自然三轴三卡走
+  [classified-card-pity](classified-card-pity.md) 的隐性递增权重，普通三卡见金清零；专属第四槽与奖励升级隔离。
 
 ### 5.1 敌人随等级缩放
 
@@ -292,7 +293,7 @@ Lv≥`LATE_GAME_LEVEL(10)` 强制最低 Token ≥3（禁刷杂鱼）；绝对兜
 
 - [x] 战区阶段（初版 8 分钟，2026-07-02 改 10 分钟）+ 一次性过渡闸 + BOSS 阶段冻结
 - [x] Token 预算 + 加权抽取 + 实例上限 + 前方扇形刷怪
-- [x] XP 曲线 + 击杀 XP + 三选一升级 + 稀有度 pity
+- [x] XP 曲线 + 击杀 XP + 三轴三选一升级 + 4 级金卡软 pity
       （⚠ 升级选卡时机后被 [evolution-attribute-gates](evolution-attribute-gates.md) 改为**每 3 级**
       触发三轴卡片，等级升级本身不再弹窗；本 spec 只管循环骨架，选卡规则以那份 spec 为准）
 - [x] 出界回血时间税 + 补给 token 补偿
@@ -315,7 +316,7 @@ Lv≥`LATE_GAME_LEVEL(10)` 强制最低 Token ≥3（禁刷杂鱼）；绝对兜
 ## 12. 已知不确定 / 待补
 
 - 逐 archetype 缩放 mult（UAV/Sentinel 的 HP/dmg 系数）未逐一核对——用前请验源码。
-- 进化技能具体清单、稀有度权重/pity 数值以 survivor-skills.md 为准。
+- 进化技能具体清单见 survivor-skills.md；4 级金卡 pity 数值以 classified-card-pity spec 为准。
 - 多阶段战区状态机尚未实现（当前仅"战区→BOSS"两段）。
 
 ## 13. 变更记录
@@ -327,3 +328,4 @@ Lv≥`LATE_GAME_LEVEL(10)` 强制最低 Token ≥3（禁刷杂鱼）；绝对兜
 | 2026-05-30 | 1 | 回填为 system spec + 扩展接入图；核对 headline 常量；修正 xp_for_level=15（非 20）、UAV_RETIRE=4 |
 | 2026-07-28 | 3 | **时间税加倍 + 敌人高度分档**：①出界补给时间税 `SUPPLY_TIME_COST` 15.0 → **30.0**（10 分钟战区里 15s 太便宜，来回补给近乎无痛；边界按钮文案同步写明"战区时间 −30 秒"）；②新增 §4.4 **敌人作战高度分档**——18 型按 `[LOW,MID,HIGH]` 权重抽档（攻击机偏低 / 截击机与 AF-03 偏高 / 多用途偏中 / 无人机按定位），巡逻高度随档取值（1500~3000 / 4500~6500 / 8500~11000），**档位与巡逻高度必须同步**否则分化只作用于巡逻段；未登记类型（BOSS/Adds/事件单位）维持均匀随机 + 4000~8000；③同批修 **F-47 / F-14 Poltergeist 漏进常规刷怪**（后期随机桶按 cost≥3 遍历时靠 cost 10 混入，与 enemy-index 记载不符），改按 BOSS 专属名单显式排除 |
 | 2026-07-28 | 2 | **等级通胀整治（用户裁决）**：①XP 曲线指数 1.15→1.3（温和档）——每级击杀数随等级爬升，平均局收 LV18~22，顶级机不保底；②Adds 等级计价废除（单只=一级全额 → 普通公式 Tu-160 80 / AH-64 50 / CH-47 40 + level×8）；③联动 evolution-attribute-gates v9 三轴点数收入封顶 8 |
+| 2026-08-03 | 5 | **空池退役门修复**：常规选型无合格候选时跳过本轮，不再绝对兜底 MQ-109；ADBS 逃跑护卫使用独立零 Token 候选池，避免事件护卫被常规 Token 余量污染。 |

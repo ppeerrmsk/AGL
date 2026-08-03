@@ -241,27 +241,35 @@ BOSS 只识别 JAM，其它状态仅对 Aircraft 生效"。但 NavalUnit 实现�
   反复打、一路 max+AB 躲到 7km 脱队，"守护后方"名存实亡。leash 只覆盖了一个状态。
 - 长机被击坠**没接管、直接 GameOver**：`survivor_mode._process` 的死亡检查（→`_on_player_died`）
   排在 spawner 周期 squad cleanup（晋升新长机 + leader_changed 接管）**之前**且节流 → 当帧先 GameOver。
+- 长机在 `survivor_mode` 本帧死亡检查之后被武器击毁时，僚机 `SQUAD_FOLLOW` 会先看到死长机并
+  把自己的 `AIController.squad` 清成 null；下一帧虽然 `Squad.cleanup()` 晋升了新长机，却只修
+  leader/index、不恢复全员反向引用 → 轮盘全队命令退化为只作用当前操控机，数字键仍能逐架切控。
 
 **根因**：小队的**横切关注点**（containment/leash、长机阵亡接管、凝聚模式行为）天然要作用于
 **多个 AI 状态**（PATROL / ENGAGE / EVADE_MISSILE / SQUAD_FOLLOW）和 **survivor `_process` 的多个阶段**，
 但实现是按"单个状态 / 单个 _process 位置"散点加的 → 加在一处就以为齐了，漏掉另一状态/另一阶段时静默失效。
 
-**踩到次数**：2（EVADE 漏 leash + 接管 race，同根）
+**踩到次数**：3（EVADE 漏 leash + GameOver 接管 race + AI.squad 解绑 race，同根）
 
 **解法**（2026-05-31，临时）：
 - leash 抽成 `AIController.effective_squad_leash()`，在 `_process_engage` **和** `MissileEvasion.process_evade`
   **两处**都查（覆盖 ENGAGE + EVADE）。守后模式用更紧的 `REAR_GUARD_LEASH_DIST`、打地面时放宽。
 - 长机阵亡：`_process` 死亡检查改为**先 `_try_takeover_after_leader_down()`**（立即 `_squad.cleanup()`
   同步晋升 + leader_changed 接管），全队覆灭才 `_on_player_died()` —— 不依赖 spawner 周期 cleanup 的时序。
+- 2026-08-03：`Squad.cleanup()` / `set_leader()` / `remove_member()` 统一经过
+  `_sync_member_bindings()`；`Squad.members/leader` 是结构真源，继任时原子恢复所有幸存
+  `AIController.squad`、连续重排 `squad_index`、刷新现有 formation leader 缓存。自动接管的新长机
+  走完整 `clear_formation()`，不再残留僚机托管状态。
 
 **根治**（2026-07-05，Phase 2 约束层）：leash / combat_zone 收口到
 `AIController._apply_constraints()`——分发前每 tick 统一执行、对所有模态生效（EVADE 已是
 modifier，天然被覆盖），两份 leash 拷贝退役。**AI 侧的"按状态散点加约束"模式就此结束**：
 新 containment（如 anchor 区域保护）直接加进约束层即可。survivor `_process` 阶段顺序的
-另一半（长机接管时序）解法不变。
+另一半（长机接管时序）除 survivor 早检查外，必须由 Squad 结构层原子修复成员反向引用。
 
 **约束**（更新）：给小队加"无论僚机在干什么都该生效"的行为——AI 侧一律进
-`_apply_constraints`；survivor `_process` 侧仍需列阶段顺序逐一确认。
+`_apply_constraints`；survivor `_process` 侧仍需列阶段顺序逐一确认。小队成员关系以
+`Squad.members/leader` 为真源，AI 层不得假定自己的 `squad` 缓存不可恢复。
 
 ---
 
@@ -536,7 +544,9 @@ The Object-derived class of argument 4 (previously freed) is not a subclass of t
     The Object-derived class of argument 2 (previously freed) is not a subclass of ...
 
 **为什么绊倒 fix**：直觉是"在 `take_damage` 里加 `if is_instance_valid(attacker)`"——
-**完全无效**，函数体根本没机会执行。必须在**调用点**净化。
+**完全无效**，函数体根本没机会执行。若 API 的语义只接受活对象，必须在**调用点**净化；若 API
+本来就是生命周期边界谓词、职责是把失效引用判成 `false`，则形参必须收 `Variant`，进入函数后先做
+`typeof(x) == TYPE_OBJECT and is_instance_valid(x)`，再做 `is` / 字段读取。
 
 第二个陷阱是**守卫矩阵不对称**（同 SEAM-015）：这些调用点大多**已经**写了
 `is_instance_valid`，但只护住了紧邻的 `set_meta(...)` 归因行，**漏掉了下一行的
@@ -566,7 +576,18 @@ BOSS 混战里这是常态而非边缘情况。`_pending_attacker` meta 同理�
 **没有做成常驻校验器**：静态判断"这个引用是否可能已释放"需要跨帧生命周期分析，
 误报率会高到没人看。这条靠的是 code review 时的模式识别，不是自动化。
 
-**踩到次数**：1
+**2026-08-03 第二次实证**：`ObjectiveContext.is_survival_threat(cand: Object)` 虽在函数体第一段写了
+`is_instance_valid(cand)`，但 `_sticky_for` 把已释放的 `ai._current_target` 传入时，仍在形参类型检查阶段
+报 `argument 1 (previously freed)`。`is_survival_threat` / `is_objective` 改为 `Variant` 生命周期边界，
+并用 `target_sel` 的已释放 Aircraft 回归覆盖。
+
+**2026-08-03 第三次实证**：BOSS 通关释放本体后，hunter UAV 的
+`AIController.combat_zone_anchor` 仍持有已释放引用。`_apply_constraints` 先做
+`combat_zone_anchor is CombatUnit` 导致 `Left operand of 'is' is a previously freed instance`。
+对跨帧 Object 引用的约束同样适用于**类型判断**：必须先用 `is_instance_valid`
+净化，再做 `is` / `as` / 字段读取。
+
+**踩到次数**：3
 
 ## SEAM-021 · "玩家显式命令"在移动层是铁律，在武器发射层却没有代表权
 
@@ -671,6 +692,44 @@ preference 的隐性依赖）：railgun LINE_UP 不该复用导弹 crank 的 wea
 
 **约束**：新增/修改任何"武器就绪期的追踪点"几何时，先对照发射门数值算稳态离轴；
 配套 sim 必须含出弹断言，别只信运动几何全绿。
+
+## SEAM-024 · RefCounted 事件被静态 UI 注册表强持有，场景退出不等于事件终态
+
+**症状**：上一局已亮起的王牌中队分段血条，在新开一局后仍显示；Tab 的王牌标记也可能读到
+上一局代号。正常全灭/撤离路径没有问题，只有玩家在事件进行中结束一局或直接换场景时复现。
+
+**根因**：`GameEvent extends RefCounted`，`EventDirector` 虽是场景节点，但
+`AceReinforcementEvent._active_ref` 是静态强引用。场景退出销毁 EventDirector 后，事件仍被静态字段
+续命，因而不会经 EventDirector 的正常回收循环调用 `_finish()`；依赖 `_finish()` 清静态注册表的设计
+在换场景路径上失效。HUD 又直接消费这张注册表，于是跨局残留。
+
+**解法状态（2026-08-01 已修）**：事件提供 `reset_runtime_state()`，SurvivorMode 在 `_ready` 与
+`_exit_tree` 两端显式清理；前者保证新局入口不信任旧状态，后者及时断开强引用。`lancer_squad`
+bench 加回归断言，先构造已交战血条，再验证 reset 后数据源为空。
+
+**约束**：任何 static 字段若强持有 `RefCounted` 的局内对象，不能把“场景节点销毁”当成其终态；
+必须提供显式 reset，并在模式开局/退局两端接线。若 UI 读取该字段，测试至少覆盖一次跨局清理。
+
+**踩到次数**：1
+
+## SEAM-025 · 零 Token 事件复用常规选型器，空池兜底穿透退役门
+
+**症状**：高响应等级、常规 Token 接近耗尽时，城区 CH-47 的事件护卫仍成批生成已退役
+MQ-109；同一绝对兜底也可能让普通波次用 1~2 个残余 Token 填入退役杂鱼。
+
+**根因**：ADBS 护卫虽是 `token_cost=0` 的 Adds，却直接调用读取常规剩余 Token 的
+`_pick_enemy_type()`；候选为空后该函数又无条件返回 `EnemyType.UAV`，绕过注册表的
+unlock/retire 门。事件计费语义与常规预算语义被一个 picker 隐式耦合。
+
+**解法状态（2026-08-03 已修）**：注册表新增 `escort_rows(response_level)`，以无限预算只应用
+解锁/退役和专用编成排除；ADBS 走 `_pick_flee_escort_type()`。常规 picker 空池返回 `-1`，调用方
+跳过本轮。`spawn_pool` 同时覆盖“常规零预算不刷”与“ADBS 零预算仍选当级非 MQ-109 护卫”。
+
+**约束**：新增 Token 豁免事件时不得复用读取 `_token_used` 的常规 picker；先明确事件自己的
+计费域，再从注册表构造对应候选池。任何空池 fail-soft 都必须继续服从 unlock/retire，不能写死
+某个低价敌人。
+
+**踩到次数**：1
 
 ## 维护约定
 

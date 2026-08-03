@@ -3,7 +3,7 @@ id: ace-2ndwave
 kind: event
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 2
+spec_version: 3
 owner: noelu（设计输入 2026-07-27）/ Claude（细化）
 depends_on: [ace-squadron-tier, ace-support-squadron, ace-lancer-mig31, joust-attack-run]
 reconstruction_complete: false
@@ -11,16 +11,16 @@ reconstruction_complete: false
 
 # 王牌中队 2NDWAVE / 第二波（F-4E ×1 + F-15 ×4）—— 混编首例
 
-> 玩家视角：一架老得不该出现在这个战场的 F-4E 咬住了你，而且**甩不掉**——你打它，它躲；
-> 你锁它，它没有热诱弹可骗，它直接从你的导弹底下滚出去。等你终于沉下心跟这位老先生
+> 玩家视角：一架老得不该出现在这个战场的 F-4E 咬住了你，而且**甩不掉**——它有一发
+> 热诱弹，也有顶格枪法和机炮闪避。等你终于沉下心跟这位老先生
 > 单挑，四架崭新的 F-15 已经排成一线，从你的缠斗圈外侧压了进来。
 > 无线电里那个平静的声音说：开始上课。
 
 ## 1. 设计意图（Why）
 
-- **用户需求（2026-07-27）**：早期登场的第二支王牌中队。F-4E 后面带四架 F-15：
+- **用户需求（2026-07-27，2026-08-01 平衡修订）**：F-4E 后面带四架 F-15：
   F-4 是斗士型、F-15 是骑士型；F-4 代号固定 **Teacher**，AI 很高操作很好，
-  **没有 flare 也会靠机动躲避玩家攻击，被机炮追也会闪避**；玩家和 F-4 缠斗时
+  AI 顶格、被机炮追会闪避；Teacher 的 flare 于 2026-08-01 改为 **1 枚**；玩家和 F-4 缠斗时
   会被 F-15 围攻。
 - **考核命题**：MARATHON 考"被咬住怎么办"、VULTURE 考"追不上怎么办"，2NDWAVE 考
   **注意力分配**——最硬的目标（Teacher）在你脸上，但你不能只看它。是先杀了绕圈的
@@ -28,14 +28,13 @@ reconstruction_complete: false
 - **混编合法性**：tier §3.7 混编条款首例——2 个 element 静态分工（Teacher 斗士 /
   学员骑士），全程**无相位切换**（那是 BOSS 专属）。
 - **Litmus 自检**：
-  - 单杠杆：Teacher 的强度只有**闪避**一根杠杆（导弹机动规避 + 特高档机炮闪避），
+  - 单杠杆：Teacher 的强度来自顶格 AI + 特高档机炮闪避 + 1 枚可数 flare，
     HP 仍一发死、机体不魔改；学员的强度只有掠袭协同，机体不魔改；
-  - 确定性让位声明：Teacher 是 tier §3.4 例外条款的首个个体——零 flare 机动规避型，
-    防御预算从"确定命数"换轴到"持续周旋"（用户显式定档）；学员维持 1 枚必躲的确定性；
-  - 效果即反馈：Teacher 从导弹下滚出去本身就是演出；学员横列压圈可肉眼预读；
+  - 确定性：Teacher 与学员都维持 1 枚必躲的可数读数；Teacher 不再叠持续导弹规避；
+  - 效果即反馈：Teacher 的紧咬与机炮闪避可观察；学员横列压圈可肉眼预读；
   - 可学习：反制答案见 §2.4。
 - **反模式规避**：无二阶机制、无等级缩放、不占 token；Teacher 的"难缠"全部来自
-  可观察的机动，不加隐藏减伤。
+  可观察的操控与编队分工，不加隐藏减伤。
 
 ## 2. 数据定义（What —— 全部数值，权威源）
 
@@ -50,21 +49,19 @@ reconstruction_complete: false
 | Teacher AI | `skill_level / composure / focus / situational_awareness = 1.0`（**顶格**，高于王牌门槛 0.90）；aggression 0.95 | 用户："AI 很高操作很好" |
 | 学员 AI | 王牌档（同 MARATHON：≥0.90 / aggression 0.95） | — |
 | 涂装 | **电紫 `#B44DFF`**（tier §2.7 主色表） | 紫/红系；与 MARATHON 猩红、VULTURE 酒红可区分 |
-| 登场时段档 | **早期**（240 s 门槛，tier §2.9；2026-07-28 Marathon 改中期后为**唯一早期队**——本局第一支王牌总是 2NDWAVE） | 用户标注早期登场 |
+| 登场 | **统一轮换窗**（240 s，与其余四队一同洗牌） | 2026-08-01 轮换修订 |
 
-### 2.2 生存模型（双轨）
+### 2.2 生存模型（统一可数）
 
 | 项 | Teacher（F-4E） | 学员（F-15 ×4） |
 |---|---|---|
 | `max_hp` | 不豁免 cap（≤75）→ **一发死** | 同左，一发死 |
-| flare | **0 枚**（tier §2.2 统一铁律的"特别声明"例外） | **1 枚必定躲**（默认档：jam 1.00 / fail 0 / 不补充） |
-| 导弹防御 | **机动规避开启**（tier §3.4 例外条款：beam/notch 等既有规避行为对其解锁） | 不做规避机动（默认） |
-| 机炮闪避 | **特高档 0.50**（tier §2.2 分档——被机炮追也会闪，这是它唯一的防御轴） | 基线档 0.20 |
+| flare | **1 枚必定躲**（jam 1.00 / fail 0 / 不补充） | 同左 |
+| 导弹防御 | 不做持续机动规避 | 同左 |
+| 机炮闪避 | **特高档 0.50** | 基线档 0.20 |
 
-**Teacher 击杀读数**：没有"骗 N 发"的确定序列——它的防御是**概率与几何**。反制不是
-堆弹，是**质量**：好角度的迎头/大离轴发射、缠斗中贴到它规避半径以内再开火、或者用
-机炮弹流磨（0.50 闪避在弹流尺度 = 稳定 50% DPS 折减，不是免疫）。命中一发即坠
-（一发死不豁免）——**难打中，不难打死**。
+**Teacher 击杀读数**：第 1 个有效导弹解消耗 flare，第 2 发命中即坠；机炮仍可直接击杀，
+但 0.50 闪避让弹流命中率约减半。全队共 10 DU，`access_s=20`，预计击破时间 70 秒。
 
 ### 2.3 火力
 
@@ -99,8 +96,8 @@ reconstruction_complete: false
 
 ### 2.5 触发与调度
 
-早期档（tier §2.9）：`game_time ≥ 240 s` 进池。2026-07-28 Marathon 改中期后本队为
-**唯一早期队**；320 s 起中期三队进池，轮换指针在已进池队伍间轮转（同局不重复同队）。
+统一轮换窗：`game_time ≥ 240 s` 与其余四支非宿敌队同时进池；新局无放回洗牌，连续两局
+首队不同，同局不重复。
 间隔 150 s / 540 s 截止 / 同场 ≤1 支 / BOSS 阶段不触发——全部沿用。BOSS 闸落下：全队转撤离（含 Teacher），
 撤离中击败无时间奖励（tier §2.9 通用契约）。
 
@@ -159,12 +156,11 @@ VULTURE 掠袭状态机（§2.4 参数覆写 + 掠袭轴改指缠斗圈）。**�
 阶段逻辑**——Teacher 阵亡后学员**不改变行为**（继续掠袭循环直到全灭/弹尽/BOSS 闸），
 学员全灭后 Teacher 也不改变行为。这是混编条款"静态分工"的字面执行。
 
-### 3.2 Teacher 的规避（例外条款的行为面）
+### 3.2 Teacher 的防御
 
-- 导弹：走既有敌机规避行为链（beam/notch），解锁方式 = 不打 boss_attacker 型
-  "规避禁用"标记（实装细节在落地批查既有开关，原则：**复用既有规避行为，不新写机动**）；
+- 导弹：1 枚 flare 必定骗开第一个有效解；不开放 beam/notch 持续规避；
 - 机炮：`bullet_dodge_chance = 0.50`，闪避判定既有；
-- 无 flare：`max_flares = 0`，`enable_flare_reload = false`。
+- flare：`max_flares = 1`，`enable_flare_reload = false`。
 
 ### 3.3 与既有系统关系
 
@@ -179,13 +175,12 @@ VULTURE 掠袭状态机（§2.4 参数覆写 + 掠袭轴改指缠斗圈）。**�
 - **需新建 `resources/enemy_f15.tres`**（敌用 F-15 档案，当前只有可驾驶版）。数值草案：
   以 Su-27 敌档为基线上调速度档（max_speed ~2650 / cruise ~1350 / max_g 9.0），
   细表落地批定；
-- Teacher 直接吃 `enemy_f4e.tres` + spawn 后处理覆写（AI 顶格 / flare 0 / dodge 0.50 /
+- Teacher 直接吃 `enemy_f4e.tres` + spawn 后处理覆写（AI 顶格 / flare 1 / dodge 0.50 /
   ace_gun）。
 
 ## 5. 验收标准（Acceptance / Litmus）
 
-- [ ] **Teacher 难打中不难打死**：顶格 AI + 规避下，尾追平射导弹大概率被机动甩脱；
-      贴近/大离轴/迎头质量弹可命中；命中任意一发即坠
+- [ ] **Teacher 可数**：第 1 发有效导弹解必骗 flare，第 2 发命中即坠；不出现 beam/notch 叠层
 - [ ] **机炮闪避可感**：机炮弹流打 Teacher，命中率≈无闪避对照的一半（0.50 骰）；
       打学员≈八成（0.20）
 - [ ] **围攻成立**：玩家与 Teacher 缠斗 ≥20 s 内，至少一波学员齐射穿过缠斗圈、
@@ -194,7 +189,7 @@ VULTURE 掠袭状态机（§2.4 参数覆写 + 掠袭轴改指缠斗圈）。**�
 - [ ] **学员=标准骑士**：1 骗 + 第 2 发死；回转窗口可强杀；弹尽 element 撤离
 - [ ] **包装合规**：血条 5 段 + Teacher 段三角标；代号提示条；固定呼号出现在 kill feed；
       全灭入档 `2ndwave`
-- [ ] **轮换**：与 MARATHON 交替，同局不连出同一队
+- [x] **轮换**：240 s 五队同池，新局洗牌且同局无重复
 - [ ] tier 待遇全套（LOD/缩放/token/实例打标——杂兵 F-4E 零影响）
 - [ ] 性能：5 机 LOD 豁免过 Sentinel + Lv5 压测；i18n 三语
 
@@ -205,21 +200,21 @@ VULTURE 掠袭状态机（§2.4 参数覆写 + 掠袭轴改指缠斗圈）。**�
 - [ ] `resources/enemy_f15.tres` 新建
 
 ### 阶段 1 — Teacher
-- [ ] spawn 后处理（AI 顶格 / flare 0 / dodge 0.50 / ace_gun / 涂装）
-- [ ] 规避解锁接线（复用既有规避行为链，删"王牌不规避"对其的拦截）
+- [x] spawn 后处理（AI 顶格 / flare 1 / dodge 0.50 / ace_gun / 涂装）
+- [x] 不写 `ace_evader`，保持 tier 默认不做持续导弹规避
 
 ### 阶段 2 — 学员 element
 - [ ] `lancer_squad_tactics.gd` 参数注入化（R_volley/D_extend/掠袭轴外置）
 - [ ] 掠袭轴 = 缠斗圈锚（Teacher 当前对手位置，0.5 s 软更新）
 
 ### 阶段 3 — 包装与调度
-- [ ] 早期档轮换指针（MARATHON ↔ 2NDWAVE）
+- [x] 统一 240 s 新局洗牌轮换
 - [ ] 血条 / 呼号 / 徽章 / lore / 提示条 / 留档（tier §6 阶段 7 通用件就位后接线）
 - [ ] Teacher 专属入场行（可选）
 - [ ] F5 debug 面板加项
 
 ### 阶段 4 — 收尾
-- [ ] `--bench` 断言（Teacher 规避 sim + 学员分配复用 lancer bench）+ §5 验收 + playtest
+- [x] `--bench` 静态断言（Teacher 1 flare/无 evade + 学员分配复用 lancer bench）；差 §5 playtest
 
 ## 7. 索引锚点（Where —— 实装后填写）
 
@@ -233,6 +228,7 @@ VULTURE 掠袭状态机（§2.4 参数覆写 + 掠袭轴改指缠斗圈）。**�
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-01 | 3 | Teacher 改为 1 枚 flare 并撤下持续 evade；五队统一 240s 洗牌；2NDWAVE=10 DU+20s access=预计 70s。 |
 | 2026-07-28 | 2 | **核心落地**（用户"开始执行"）：enemy_f15.tres 新建；AceSquadProfiles elements 混编（tier §3.7 条款首个实装：Teacher=F-4E KNIGHT+ace_gun+零 flare+evade 解锁[ace_evader meta 免 boss_attacker]+dodge 0.50+AI 顶格 1.0；学员=F-15×4 骑士 element 复用 lancer_squad_tactics、载弹 6 硬预算）。**落地修订四则**：①掠袭轴 v1 = 玩家小队质心（spec §9 备选案，"轴指缠斗圈"留 playtest 升级）②Teacher XP 溢价未做（统一 100/架）③学员弹尽不单独撤离——is_ammo_dry 只在"存活成员全为骑士且弹尽"时真（Teacher 死战不退的字面执行；Teacher 阵亡后学员弹尽自然转撤离）④Teacher 专属台词行未加（可选项）。bench：--bench=lancer_squad B2 混编解析断言 + 回归门 41 项 PASS。差 §5 playtest |
 | 2026-07-27 | 1 | 初稿（draft）：用户需求（F-4E "Teacher" 带 4× F-15 / 斗士+骑士混编 / Teacher 零 flare 高 AI 靠机动闪避 / 缠斗时被 F-15 围攻 / 早期登场）→ tier §3.7 混编条款首例 + §3.4 零 flare 机动规避型首例。包装（2NDWAVE / 电紫 / 双叠浪 / 学籍呼号）与数值草案待定稿 |
 

@@ -19,6 +19,7 @@ var _window_members: Array = []       ## 激活瞬间全队快照（Aircraft）�
 ## ── 720 批技能修正（队级单实例语义：survivor_mode 按账本同步，不逐机应用）──
 var kill_charge_bonus: float = 0.0    ## 检讨：击杀充能奖励 +0.6s/层（基线 KILL_CHARGE=0.8）
 var duration_mult: float = 1.0        ## 强化加力：耗能减慢 ×(1+0.5/层)，同能量烧更久
+const SIG_SU34_HEAL_PER_SEC: float = 2.0
 
 ## 有效耗能速率：duration_mult 越大 → 耗得越慢 → 加力越持久
 func _effective_drain() -> float:
@@ -34,7 +35,7 @@ func update(delta: float, rate_mult: float = 1.0) -> void:
 		for m in _window_members:
 			if m != null and is_instance_valid(m) and not m.is_destroyed \
 					and m.sig_su34_active and m.params:
-				m.hp = minf(m.hp + 2.0 * delta, m.params.max_hp)
+				m.hp = minf(m.hp + SIG_SU34_HEAL_PER_SEC * delta, m.params.max_hp)
 		if charge <= 0.0:
 			charge = 0.0
 			_deactivate()  # 能量耗尽 → 自动结束

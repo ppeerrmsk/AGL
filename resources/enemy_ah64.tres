@@ -9,6 +9,8 @@
 script = ExtResource("1")
 display_name = "AH-64"
 is_unmanned = false
+flight_model = 1
+rotorcraft_role = 1
 max_hp = 45.0
 armor = 0.0
 max_speed = 290.0
@@ -38,3 +40,5 @@ gun = ExtResource("3")
 rocket = ExtResource("4")
 flare = ExtResource("2")
 icon_color = Color(0.46, 0.4, 0.27, 1)
+visual_length_m = 14.7
+visual_span_m = 14.6

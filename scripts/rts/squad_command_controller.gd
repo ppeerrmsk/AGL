@@ -25,8 +25,11 @@ var fire_allocation: int = FireAllocation.FOCUS   ## 集火/分火（command-whe
 var formation_tight: bool = false                  ## 阵型纪律 FREE/TIGHT（formation-discipline）
 
 ## 防守此区 standing order（command-wheel §3.4）：INF = 未激活。
-## 用户订正（2026-07-05）：到点后只打圈内敌人，出圈立刻放弃回防——不深追、不散阵。
+## v2（2026-08-01）：到区成员逐机自主领圈内目标，击杀后继续接敌直至清空；
+## 出圈立刻放弃回防——不深追、不散阵。字典记录防守任务借用的 commanded_target 所有权，
+## 使任务结束时只回收自己的目标，不误清玩家显式点名。
 var _guard_point := Vector2.INF
+var _guard_owned := {}   ## aircraft instance_id -> 本任务分配的 CombatUnit
 
 ## ── 分火 SPREAD standing order（command-wheel §3.6：目标池内各自接敌）──
 var _spread_active := false
@@ -71,7 +74,7 @@ func setup(mode: Node, p: RtsCommandParams) -> void:
 func command_attack(enemy: CombatUnit) -> void:
 	if enemy == null:
 		return
-	_guard_point = Vector2.INF   # 最新输入覆盖 standing order
+	_end_guard()                 # 最新输入覆盖 standing order
 	_end_tight()                 # 单点新命令终止整队齐射（长机换目标，齐射语境失效）
 	_auto_engage_target = null
 	for ac in _selected():
@@ -89,7 +92,7 @@ func command_attack(enemy: CombatUnit) -> void:
 
 ## 玩家下巡航航点：放弃攻击命令，全队飞向世界坐标点。
 func command_move(world_pos: Vector2) -> void:
-	_guard_point = Vector2.INF   # 最新输入覆盖 standing order
+	_end_guard()                 # 最新输入覆盖 standing order
 	_end_spread()
 	_auto_engage_target = null
 	for ac in _selected():
@@ -105,7 +108,7 @@ func command_move(world_pos: Vector2) -> void:
 
 ## 玩家取消（右键 / 地图右键）：放弃攻击命令 + 清航向 + 终止一切轮盘 standing order。
 func cancel() -> void:
-	_guard_point = Vector2.INF
+	_end_guard()
 	_end_spread()
 	_end_tight()
 	_clear_sprint()
@@ -147,7 +150,7 @@ func command_regroup(point: Vector2) -> void:
 
 ## 全队广播"清一切任务 + 飞向点"（紧急集合/防守 TRANSIT 共用骨架）
 func _broadcast_move_all(point: Vector2) -> void:
-	_guard_point = Vector2.INF   # 最新输入覆盖 standing order
+	_end_guard()                 # 最新输入覆盖 standing order
 	_end_spread()
 	_end_tight()
 	_clear_sprint()
@@ -167,7 +170,7 @@ func _broadcast_move_all(point: Vector2) -> void:
 ## 圈本身成为限时禁入区（evac_duration_s，AI 决策过滤 + 圈框倒计时标记）。spec §3.7。
 func command_evacuate(point: Vector2) -> void:
 	var radius := wheel_params.evac_radius_px if wheel_params != null else 1500.0
-	_guard_point = Vector2.INF   # 最新输入覆盖 standing order
+	_end_guard()                 # 最新输入覆盖 standing order
 	_end_spread()
 	_end_tight()
 	_clear_sprint()
@@ -202,15 +205,38 @@ func command_evacuate(point: Vector2) -> void:
 	_evac_zone_until_ms = Time.get_ticks_msec() + int(dur_s * 1000.0)
 	_spawn_zone_marker(point, radius)
 
-## 防守此区（spec §3.4，用户订正定稿）：全队前往该点驻防，只打警戒圈内敌人，
-## 敌机飞出圈 × 滞回立刻放弃回防——不深追、不散阵；与点名攻击的区别就在"只守这片区域"。
-## 拦截逻辑在 _tick_guard（standing order，铁律之下、自动交战之上，不受自动交战开关约束）。
+## 防守此区（spec §3.4）：全队前往该点后自主搜索并清剿警戒圈内全部敌人；
+## 逐机分头领目标、击杀后自动接续，敌机飞出圈 × 滞回立刻放弃回防。
+## 清剿逻辑在 _tick_guard（standing order，高于自动交战，不受自动交战开关约束）。
 ## TRANSIT 为普通巡航速度（防守无加速条款，区别于紧急集合）。
 func command_guard(point: Vector2) -> void:
 	_broadcast_move_all(point)   # TRANSIT：清任务飞向圆心（内部先清旧 guard/spread/sprint）
 	_clear_evac_zone()           # 新广播命令终止禁入区
 	_guard_point = point
 	_ack("ack_cover")
+
+## 终止区域清剿：只回收本任务分配的铁律目标，避免残留成无限追击。
+## 玩家显式点名若已替换 commanded_target，则所有权自动失效，不碰玩家的新目标。
+func _end_guard() -> void:
+	if _guard_point == Vector2.INF and _guard_owned.is_empty():
+		return
+	_guard_point = Vector2.INF
+	for ac in _squad_members():
+		if not is_instance_valid(ac):
+			continue
+		var id: int = ac.get_instance_id()
+		if not _guard_owned.has(id):
+			continue
+		var owned: CombatUnit = _guard_owned[id]
+		if ac.commanded_target == owned:
+			ac.commanded_target = null
+			ac.attack_posture = Situation.POSTURE_AUTO
+			ac.surround_bearing_rad = INF
+		if ac.combat_target == owned:
+			ac.clear_combat_target()
+		ac.target_position = Vector2.INF
+	_guard_owned.clear()
+	_update_guard_zone_buff(false)
 
 ## 攻击轮盘广播（spec §3.6 按 fire_allocation 分流）：
 ##   FOCUS  = 全队统一咬 target（铁律通道）+ 包围轴分离（≥2 机、散开阵型时分配进入方位）；
@@ -223,7 +249,7 @@ func command_attack_all(target: CombatUnit, posture: int = Situation.POSTURE_AUT
 	if posture == Situation.POSTURE_ASSAULT:
 		for j36_ac in _squad_members():
 			SkillHooks.try_trigger_j36_assault(j36_ac)
-	_guard_point = Vector2.INF   # 最新输入覆盖 standing order
+	_end_guard()                 # 最新输入覆盖 standing order
 	_clear_sprint()
 	_clear_evac_zone()           # 新广播命令终止禁入区
 	_auto_engage_target = null
@@ -558,6 +584,12 @@ func tick(delta: float) -> void:
 		_tick_spread()
 		return
 
+	# ── 防守此区：队级区域清剿（高于普通铁律检查，因为任务会逐机借用 commanded_target）──
+	_update_guard_zone_buff(_guard_point != Vector2.INF)
+	if _guard_point != Vector2.INF:
+		_tick_guard(leader)
+		return
+
 	# ── 铁律：玩家命令目标存活 → 死咬，重新指回，绝不被自动交战夺走 ──
 	var cmd: CombatUnit = leader.commanded_target
 	if cmd != null:
@@ -573,12 +605,6 @@ func tick(delta: float) -> void:
 				leader.set_combat_target(cmd)
 			_auto_engage_target = null
 			return
-
-	# ── 防守此区 standing order（铁律之下、自动交战之上；显式命令不受自动交战开关约束）──
-	_update_guard_zone_buff(_guard_point != Vector2.INF)
-	if _guard_point != Vector2.INF:
-		_tick_guard(leader)
-		return
 
 	# ── 自动交战（受 auto_engage_enabled 开关；玩家命令优先级已在上面处理）──
 	var pa: Aircraft = _player_aircraft()
@@ -611,36 +637,86 @@ func tick(delta: float) -> void:
 		leader.set_combat_target(tgt)
 		_auto_engage_target = tgt
 
-## 防守此区拦截 tick（spec §3.4 状态机的执行体，长机驱动、僚机经编队传播跟打）：
-## TRANSIT = 未到圈（regroup 已设航点，途中不接敌）；
-## INTERCEPT = 敌进警戒圈（以防守点为心，非长机位置）→ 打；
-## RETURN = 目标死 / 飞出圈×滞回 → 放弃回圆心；
-## ORBIT = 无敌时拴在盘旋半径内（超出即飞回圆心，自然形成盘旋）。
-func _tick_guard(leader: Aircraft) -> void:
+## 防守此区区域清剿 tick（spec §3.4）：一次建圈内目标池，逐机维持/领取目标。
+## 认领数优先、距离次优先，让最多 9 架小队先分头覆盖全部敌人，再按需重复压制；
+## 当前目标阵亡/越界后同 tick 接续，池清空则各机回圆心盘旋。仅挂既有低频指挥 tick。
+func _tick_guard(_leader: Aircraft) -> void:
 	var gp := _guard_point
 	var guard_r := wheel_params.guard_radius_px if wheel_params != null else 1500.0
 	var leash := wheel_params.leash_exit_mult if wheel_params != null else 1.15
 	var orbit_r := wheel_params.orbit_radius_px if wheel_params != null else 500.0
-	# TRANSIT：长机未进圈前不接敌，保证抵达（航点已由 command_guard 设好）
-	if leader.global_position.distance_to(gp) > guard_r:
-		return
-	var ct: CombatUnit = leader.combat_target
-	if ct != null and is_instance_valid(ct) and not ct.is_destroyed:
-		# 用户订正核心：目标飞出警戒圈 × 滞回 → 立刻放弃、回防圆心（不深追、不散阵）
-		if ct.global_position.distance_to(gp) > guard_r * leash:
-			leader.clear_combat_target()
-			leader.target_position = gp
-		return
-	if ct != null:
-		leader.clear_combat_target()
-	# INTERCEPT：以防守点为圆心搜圈内入侵者（不是以长机位置——守区域不守自己）
-	var tgt := _find_target(gp, guard_r)
-	if tgt != null:
-		leader.set_combat_target(tgt)
-		return
-	# ORBIT：无敌时拴在圆心附近，超出盘旋半径就飞回（转弯物理自然形成绕圈）
-	if leader.global_position.distance_to(gp) > orbit_r:
-		leader.target_position = gp
+	var pool: Array = []
+	for u in CombatUnit.all_units:
+		if not is_instance_valid(u) or u.team != CombatUnit.TEAM_HOSTILE or u.is_destroyed:
+			continue
+		if u.is_lock_immune() or _in_evac_zone(u.global_position):
+			continue
+		if u.global_position.distance_to(gp) <= guard_r:
+			pool.append(u)
+
+	var members := _squad_members()
+	var claim := {}
+	# 第一遍：回收阵亡/越界目标，保留仍合法的粘性目标并累计认领数。
+	for ac in members:
+		if not is_instance_valid(ac) or ac.is_destroyed:
+			continue
+		var id: int = ac.get_instance_id()
+		var owned: CombatUnit = _guard_owned.get(id, null)
+		# commanded_target 已被别的显式输入替换：立即交出所有权，不覆盖玩家命令。
+		if owned != null and ac.commanded_target != owned:
+			_guard_owned.erase(id)
+			owned = null
+		if owned == null:
+			continue
+		var valid_owned: bool = is_instance_valid(owned) and not owned.is_destroyed \
+				and owned.global_position.distance_to(gp) <= guard_r * leash
+		if valid_owned:
+			claim[owned] = int(claim.get(owned, 0)) + 1
+			if ac.combat_target != owned:
+				ac.set_combat_target(owned)
+			continue
+		if ac.commanded_target == owned:
+			ac.commanded_target = null
+			ac.attack_posture = Situation.POSTURE_AUTO
+			ac.surround_bearing_rad = INF
+		if ac.combat_target == owned:
+			ac.clear_combat_target()
+		ac.target_position = gp
+		_guard_owned.erase(id)
+
+	# 第二遍：到区且没有其它显式命令的成员自主领取目标；目标少时允许重复认领压制。
+	for ac in members:
+		if not is_instance_valid(ac) or ac.is_destroyed:
+			continue
+		var id: int = ac.get_instance_id()
+		if _guard_owned.has(id):
+			continue
+		if ac.commanded_target != null:
+			continue
+		# TRANSIT：逐机抵达后才参战，避免快机先到导致仍在路上的慢机掉队转向。
+		if ac.global_position.distance_to(gp) > guard_r:
+			ac.target_position = gp
+			continue
+		var best: CombatUnit = null
+		var best_claims: int = 1 << 30
+		var best_d := INF
+		for t in pool:
+			var c := int(claim.get(t, 0))
+			var d: float = ac.global_position.distance_to(t.global_position)
+			if c < best_claims or (c == best_claims and d < best_d):
+				best_claims = c
+				best_d = d
+				best = t
+		if best != null:
+			ac.set_combat_target(best)
+			ac.commanded_target = best
+			ac.attack_posture = Situation.POSTURE_AUTO
+			ac.surround_bearing_rad = INF
+			_guard_owned[id] = best
+			claim[best] = int(claim.get(best, 0)) + 1
+		elif ac.global_position.distance_to(gp) > orbit_r:
+			# ORBIT：清空后仍维持 standing order，转弯物理围绕圆心自然盘旋。
+			ac.target_position = gp
 
 ## 保卫阵地技能（720 批，队级单实例）：防守命令激活时给圈内小队成员打 buff 标志
 ## （减伤 30% 走 _apply_damage / 回转 +15% 走 effective_max_g 的 _g_buff_mult）。

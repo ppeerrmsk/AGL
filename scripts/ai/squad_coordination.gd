@@ -189,7 +189,12 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 		ai._engage_delay -= delta
 		if ai._engage_delay <= 0.0:
 			ai._engage_delay = 0.0
-			if ai.acquire_target(leader.combat_target, AIController.TargetSource.TS_SCORED, "follow leader target"):
+			var follows_player_command: bool = leader.commanded_target != null \
+					and is_instance_valid(leader.commanded_target) \
+					and not leader.commanded_target.is_destroyed \
+					and leader.commanded_target == leader.combat_target
+			var acquire_reason := "follow player commanded target" if follows_player_command else "follow leader target"
+			if ai.acquire_target(leader.combat_target, AIController.TargetSource.TS_SCORED, acquire_reason):
 				ai.aircraft.clear_formation()  # formation_mode/leader/keep_arrival/lod=0/ai_override
 				ai.aircraft.ai_override_pursuit = true
 				ai._formation_blend = 0.0  # 下次回归编队时从 0 开始混合

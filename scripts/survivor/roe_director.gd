@@ -37,6 +37,9 @@ var _prev_hp: Dictionary = {}          ## instance_id → 上个 tick 的 hp（�
 var _prev_player_hp: Dictionary = {}   ## instance_id → 上个热度 tick 的 hp（玩家小队被命中检测）
 var _last_logged_quota: int = -1
 var _zone_lookup: Dictionary = {}      ## zone_id(String) → {center: Vector2, radius: float}
+var _squad_heat_component: float = 0.0 ## 僚机规模产生的动态地板分量
+var _last_squad_size: int = 1
+var _squad_heat_initialized: bool = false
 
 
 func _init(spawner) -> void:
@@ -50,17 +53,21 @@ func _init(spawner) -> void:
 
 ## ── 热度纯函数（单测入口，test_roe_director.gd）──
 
-static func heat_floor_for_level(level: int) -> float:
-	return minf(75.0, float(level) * 5.0)
+static func heat_floor_for_level(level: int, squad_size: int = 1) -> float:
+	return SurvivorData.squad_heat_floor(level, squad_size)
 
 static func quota_for_heat(h: float) -> int:
 	return int(round(2.0 + 10.0 * clampf(h, 0.0, 100.0) / 100.0))
 
 ## 一步热度演化：quiet_s = 距最近一次玩家小队交战事件的秒数
-static func step_heat_value(h: float, quiet_s: float, level: int, dt: float) -> float:
+static func step_heat_with_floor(h: float, quiet_s: float, floor_value: float, dt: float) -> float:
 	if quiet_s > HEAT_QUIET_GRACE_S:
 		h -= HEAT_DECAY_PER_S * dt
-	return clampf(h, heat_floor_for_level(level), 100.0)
+	return clampf(h, floor_value, SurvivorData.SQUAD_HEAT_MAX)
+
+
+static func step_heat_value(h: float, quiet_s: float, level: int, dt: float, squad_size: int = 1) -> float:
+	return step_heat_with_floor(h, quiet_s, heat_floor_for_level(level, squad_size), dt)
 
 
 func hunter_quota() -> int:
@@ -116,15 +123,32 @@ func _heat_step(dt: float) -> void:
 
 	var quiet_s: float = EventLogger.get_game_time() - _last_combat_event_s
 	var level: int = sp.survivor_player.level if sp.survivor_player else 1
-	heat = step_heat_value(heat, quiet_s, level, dt)
+	var squad_size: int = maxi(1, seen.size())
+	var squad_target: float = SurvivorData.SQUAD_HEAT_PER_WINGMAN * float(squad_size - 1)
+	if not _squad_heat_initialized:
+		# 开局既有编队直接建立正确基线；仅局中增员需要缓升。
+		_squad_heat_component = squad_target
+		_squad_heat_initialized = true
+	elif squad_size < _last_squad_size:
+		# 每损失一架直属僚机，当前热度与地板同步回落 6 点。
+		heat = maxf(0.0, heat - SurvivorData.SQUAD_HEAT_PER_WINGMAN * float(_last_squad_size - squad_size))
+		_squad_heat_component = squad_target
+	else:
+		_squad_heat_component = move_toward(
+			_squad_heat_component, squad_target, SurvivorData.SQUAD_HEAT_RAMP_PER_SEC * dt)
+	_last_squad_size = squad_size
+	var level_floor: float = minf(75.0, float(level) * 5.0)
+	var effective_floor: float = minf(
+		SurvivorData.SQUAD_HEAT_MAX, level_floor + _squad_heat_component)
+	heat = step_heat_with_floor(heat, quiet_s, effective_floor, dt)
 
 	# EventLogger 打点（配额变化时一行，F9 回放调参；玩家不可见）
 	var q := hunter_quota()
 	if q != _last_logged_quota:
 		_last_logged_quota = q
 		EventLogger.log_event("ROE", "Heat",
-			"heat=%.0f floor=%.0f quota=%d quiet=%.1fs" % [
-				heat, heat_floor_for_level(level), q, maxf(quiet_s, 0.0)])
+			"heat=%.0f floor=%.0f squad=%d quota=%d quiet=%.1fs" % [
+				heat, effective_floor, squad_size, q, maxf(quiet_s, 0.0)])
 
 
 func _run_pass() -> void:

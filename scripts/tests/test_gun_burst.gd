@@ -6,6 +6,8 @@ extends RefCounted
 ##   2. 平均射速守恒：长期出弹速率 = fire_rate（DPS/弹药消耗与旧匀速点射一致）
 ##   3. 梭承诺：火控窗口只开一帧也打完整梭（根治"一闪只漏一发孤弹"）
 ##   4. 硬中止：evasion / 弹尽 / 目标被毁 立即掐断残梭
+##   5. 敌机安全门：一次机会只打一梭，末发后至少停火 3 秒；同帧多入口查询不吞许可
+##   6. 机炮意图锥：普通 MQ-109 / MQ-X 显示，仅 Mother Goose 蜂群隐藏
 ## 运行：godot --headless --path . -- --bench=gun_burst（或 --bench=all）
 
 var _pass := 0
@@ -96,7 +98,7 @@ func run() -> void:
 	var ac6 := _make_shooter(600.0, 10)
 	var stub6: BulletStub = ac6.bullet_manager
 	var tgt6 := CombatUnit.new()   # 敌方目标桩：只需 is_destroyed / global_position
-	tgt6.team = 0
+	tgt6.team = CombatUnit.TEAM_HOSTILE
 	tgt6.global_position = Vector2(0, -300)
 	ac6.combat_target = tgt6
 	ac6.is_firing = true
@@ -110,6 +112,74 @@ func run() -> void:
 	tgt6.free()
 	_free(ac6)
 
+	# ── 7. 敌机安全门：持续满足火控也只能一梭，末发后至少停火 3 秒 ──
+	var enemy := _make_shooter(600.0, 10, CombatUnit.TEAM_HOSTILE)
+	var enemy_stub: BulletStub = enemy.bullet_manager
+	_tick_enemy_intent(enemy, 2.0)
+	_check("敌机持续瞄准 2 秒仍只打一梭", enemy_stub.shot_times.size() == 10,
+			"实际 %d 发（旧 2.5s 窗口会连续多梭）" % enemy_stub.shot_times.size())
+	_tick_enemy_intent(enemy, 2.0)
+	var enemy_gap: float = enemy_stub.shot_times[10] - enemy_stub.shot_times[9] \
+			if enemy_stub.shot_times.size() >= 20 else 0.0
+	_check("敌机末发后强制停火至少 3 秒",
+			enemy_stub.shot_times.size() == 20 and enemy_gap >= Aircraft.AI_GUN_PAUSE_DURATION,
+			"4 秒内 %d 发，梭间末发→首发 %.2fs" % [enemy_stub.shot_times.size(), enemy_gap])
+	_free(enemy)
+
+	var ally := _make_shooter(600.0, 10, CombatUnit.TEAM_ALLY)
+	var ally_stub: BulletStub = ally.bullet_manager
+	ally.is_firing = true
+	_tick(ally, 3.0)
+	_check("第三方友军不吃敌机安全门", absf(ally_stub.shot_times.size() - 30) <= 2,
+			"3 秒实际 %d 发" % ally_stub.shot_times.size())
+	_free(ally)
+
+	# ── 8. 真命中反馈：闪避不结算；火星按目标节流并自动回收 ──
+	var hit_ac := Aircraft.new()
+	hit_ac.team = 1
+	hit_ac.params = AircraftParams.new()
+	hit_ac.hp = 100.0
+	# 普通闪避有 0.85 全局 cap，测试用加力窗口的合法 100% 通道获得确定性结果。
+	hit_ac.afterburner_window_active = true
+	var dodged: bool = not hit_ac.take_bullet_damage(5.0)
+	_check("闪避弹不算真命中", dodged and is_equal_approx(hit_ac.hp, 100.0),
+			"applied=%s hp=%.0f" % [str(not dodged), hit_ac.hp])
+	hit_ac.afterburner_window_active = false
+	var applied: bool = hit_ac.take_bullet_damage(5.0)
+	_check("未闪避弹返回已结算", applied and is_equal_approx(hit_ac.hp, 95.0),
+			"applied=%s hp=%.0f" % [str(applied), hit_ac.hp])
+
+	var fx := BulletManager.new()
+	fx._emit_hit_spark(Vector2.ZERO, Vector2.RIGHT, hit_ac)
+	fx._emit_hit_spark(Vector2.ONE, Vector2.RIGHT, hit_ac)
+	_check("同目标火星 CD 合并密集命中", fx._hit_sparks.size() == 1,
+			"连续请求 2 次，存活 %d 组" % fx._hit_sparks.size())
+	fx._update_hit_sparks(BulletManager.HIT_SPARK_DURATION)
+	_check("火星寿命到点自动回收", fx._hit_sparks.is_empty(),
+			"剩余 %d 组" % fx._hit_sparks.size())
+	fx.free()
+	hit_ac.free()
+
+	# ── 9. 机炮意图锥身份门：只隐藏 Mother Goose 蜂群 ──
+	var mq109 := _make_threat_probe("res://resources/enemy_uav.tres")
+	_check("普通 MQ-109 显示机炮攻击意图",
+			mq109.params.is_unmanned and mq109.params.gun != null
+			and AircraftRenderer.should_show_enemy_gun_threat(mq109),
+			"unmanned=%s category=%s" % [str(mq109.params.is_unmanned), str(mq109.get_meta(&"category", ""))])
+	mq109.free()
+
+	var mqx := _make_threat_probe("res://resources/enemy_uav_mqx.tres", "boss_mother_goose_mqx")
+	_check("MQ-X 显示机炮攻击意图",
+			mqx.params.gun != null and AircraftRenderer.should_show_enemy_gun_threat(mqx),
+			"category=%s" % str(mqx.get_meta(&"category", "")))
+	mqx.free()
+
+	var goose_swarm := _make_threat_probe("res://resources/enemy_uav_mg_gun.tres", "boss_mother_goose_uav")
+	_check("Mother Goose 蜂群隐藏机炮攻击意图",
+			goose_swarm.params.gun != null and not AircraftRenderer.should_show_enemy_gun_threat(goose_swarm),
+			"category=%s" % str(goose_swarm.get_meta(&"category", "")))
+	goose_swarm.free()
+
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
 
@@ -122,9 +192,21 @@ func _tick(ac: Aircraft, seconds: float) -> void:
 		AircraftWeapons.update_gun(ac, DT)
 
 
-func _make_shooter(fire_rate: float, burst_count: int) -> Aircraft:
+## 模拟 planner + scan 同帧都查询火控门：查询必须无副作用，最终仍只允许一梭。
+func _tick_enemy_intent(ac: Aircraft, seconds: float) -> void:
+	var stub: BulletStub = ac.bullet_manager
+	var steps := int(round(seconds / DT))
+	for i in range(steps):
+		stub.now += DT
+		ac._ai_gun_burst_allowed(true, DT)  # 第一入口只查询，结果随后可能被另一入口覆盖
+		ac.is_firing = ac._ai_gun_burst_allowed(true, DT)
+		AircraftWeapons.update_gun(ac, DT)
+
+
+func _make_shooter(fire_rate: float, burst_count: int,
+		team: int = CombatUnit.TEAM_PLAYER) -> Aircraft:
 	var ac: Aircraft = load("res://scripts/aircraft.gd").new()
-	ac.team = 1  # 敌方：绕开玩家侧 regen/减伤窗口分支，纯测节奏
+	ac.team = team
 	ac.heading = 0.0
 	ac.global_position = Vector2.ZERO
 	var p = AircraftParams.new()
@@ -136,6 +218,16 @@ func _make_shooter(fire_rate: float, burst_count: int) -> Aircraft:
 	ac.params = p
 	ac.ammo = 10000
 	ac.bullet_manager = BulletStub.new()
+	return ac
+
+
+func _make_threat_probe(params_path: String, category: String = "") -> Aircraft:
+	var ac := Aircraft.new()
+	ac.team = 1
+	ac.params = load(params_path)
+	ac._gun_threat_timer = Aircraft.GUN_THREAT_DISPLAY_DELAY
+	if not category.is_empty():
+		ac.set_meta(&"category", category)
 	return ac
 
 

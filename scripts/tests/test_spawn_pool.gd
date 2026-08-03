@@ -1,11 +1,36 @@
 extends RefCounted
 
+const EnemyPoolRegistry = preload("res://scripts/survivor/enemy_pool_registry.gd")
+const F22Multilock = preload("res://scripts/survivor/f22_multilock.gd")
+const SnowblindController = preload("res://scripts/survivor/snowblind_controller.gd")
+const SnowblindShroudVisual = preload("res://scripts/survivor/snowblind_shroud_visual.gd")
+
+class SentinelWatchdogProbe extends SurvivorSpawner:
+	var spawned_escort_count := 0
+
+	func _spawn_sentinel_escort_uavs(_commander: Aircraft, _sq: Squad, count: int) -> void:
+		spawned_escort_count += count
+
+
+class SpawnPickProbe extends SurvivorSpawner:
+	var probe_response := 9
+	var probe_budget := 0
+
+	func get_response_level() -> int:
+		return probe_response
+
+	func _get_token_budget() -> int:
+		return probe_budget
+
 ## 无头行为验收：刷怪池配置（2026-07-28 平衡批）
 ##
 ## A 敌人高度分档表（按机型定位分化，不再全员均匀随机）
 ## B BOSS 专属机型不得从常规刷怪通道漏出
 ## C AF-03 可见性（旅途池门槛 + 战区池在册）
-## D 签名技 sig_* 抽卡权重乘区
+## D 机体专属技能普通池排除
+## E ADBS 护卫零 Token 选型与退役门
+## F 全部 56 型敌机的常规池/专用入口覆盖
+## G 常规池数学可达性与五响应截面产出率
 ##
 ## 运行：godot --headless --path . -- --bench=spawn_pool（或 --bench=all）
 
@@ -14,16 +39,55 @@ var _fail := 0
 
 ## 抽样次数：够大以让"从不出现某档"的断言稳定，又不至于拖慢回归门
 const SAMPLES := 3000
+const POOL_RATE_SAMPLES := 30000
+const POOL_RATE_LEVELS: Array[int] = [1, 4, 7, 10, 13]
+
+## 不进常规池的 14 型必须有明确专用入口；这里同时钉住资源、工厂映射和入口源码。
+const DEDICATED_ENEMY_ROUTES: Array[Dictionary] = [
+	{"type": 12, "id": "tu160", "resource": "res://resources/enemy_tu160.tres",
+		"route": "res://scripts/survivor/survivor_spawner.gd", "route_token": "_create_enemy(EnemyType.TU160"},
+	{"type": 13, "id": "ah64", "resource": "res://resources/enemy_ah64.tres",
+		"route": "res://scripts/survivor/survivor_spawner.gd", "route_token": "_create_enemy(EnemyType.AH64"},
+	{"type": 14, "id": "ch47", "resource": "res://resources/enemy_ch47.tres",
+		"route": "res://scripts/survivor/survivor_spawner.gd", "route_token": "_create_enemy(EnemyType.CH47"},
+	{"type": 15, "id": "f47", "resource": "res://resources/enemy_f47.tres",
+		"route": "res://scripts/survivor/f47_ace_squad.gd", "route_token": "enemy_type = 15"},
+	{"type": 16, "id": "f14_poltergeist", "resource": "res://resources/enemy_f14_poltergeist.tres",
+		"route": "res://scripts/survivor/poltergeist_squad.gd", "route_token": "EnemyType.F14_POLTERGEIST"},
+	{"type": 18, "id": "uav_laser", "resource": "res://resources/enemy_uav_laser.tres",
+		"route": "res://scripts/survivor/survivor_spawner.gd", "route_token": "_create_enemy(EnemyType.UAV_LASER"},
+	{"type": 22, "id": "fa18", "resource": "res://resources/enemy_fa18.tres",
+		"route": "res://scripts/survivor/carrier_strike_group.gd", "route_token": "EnemyType.FA18"},
+	{"type": 24, "id": "f15", "resource": "res://resources/enemy_f15.tres",
+		"route": "res://scripts/survivor/ace_squad_profiles.gd", "route_token": "EnemyType.F15"},
+	{"type": 25, "id": "f16", "resource": "res://resources/enemy_f16.tres",
+		"route": "res://scripts/survivor/ace_squad_profiles.gd", "route_token": "EnemyType.F16"},
+	{"type": 26, "id": "mirage2000", "resource": "res://resources/enemy_mirage2000.tres",
+		"route": "res://scripts/survivor/ace_squad_profiles.gd", "route_token": "EnemyType.MIRAGE2000"},
+	{"type": 27, "id": "su47", "resource": "res://resources/enemy_su47.tres",
+		"route": "res://scripts/survivor/ace_squad_profiles.gd", "route_token": "EnemyType.SU47"},
+	{"type": 28, "id": "cre", "resource": "res://resources/enemy_cre.tres",
+		"route": "res://scripts/events/orion_nemesis_event.gd", "route_token": "EnemyType.CRE"},
+	{"type": 29, "id": "yf23", "resource": "res://resources/enemy_yf23.tres",
+		"route": "res://scripts/survivor/f47_ace_squad.gd", "route_token": "EnemyType.YF23"},
+	{"type": 55, "id": "fck1", "resource": "res://resources/enemy_fck1.tres",
+		"route": "res://scripts/survivor/ace_squad_profiles.gd", "route_token": "EnemyType.FCK1"},
+]
 
 
 func run() -> void:
-	print("\n════════ 刷怪池配置（高度分档 / BOSS 隔离 / AF-03 / sig 权重） ════════")
+	print("\n════════ 刷怪池配置（常规池 / ADBS 护卫 / 高度 / BOSS 隔离） ════════")
 	_test_altitude_table_shape()
 	_test_altitude_role_bias()
 	_test_patrol_altitude_bands()
 	_test_boss_only_isolation()
 	_test_af03_visibility()
-	_test_sig_weight()
+	_test_signature_random_exclusion()
+	_test_regular_enemy_registry()
+	_test_enemy_type_route_coverage()
+	_test_regular_pool_reachability_and_rates()
+	_test_adbs_escort_pool()
+	_test_sentinel_escort_cohesion()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
 
@@ -129,7 +193,7 @@ func _test_boss_only_isolation() -> void:
 	# 它们的 cost ≥ LATE_GAME_MIN_TOKEN，所以**只能**靠黑名单挡住 ——
 	# 这条断言就是在钉死"别再退回用 cost 数值偶然过滤"
 	var by_cost_would_leak := true
-	for t in SurvivorData.BOSS_ONLY_TYPES:
+	for t in [15, 16]:
 		if int(SurvivorData.TOKEN_COST.get(t, 0)) < SurvivorData.LATE_GAME_MIN_TOKEN:
 			by_cost_would_leak = false
 	_check("光靠 cost 门槛挡不住它们（故黑名单不可删）", by_cost_would_leak, "")
@@ -174,40 +238,505 @@ func _test_af03_visibility() -> void:
 		"got %s" % str(SurvivorData.TOKEN_INSTANCE_CAP.get(17, -1)))
 
 
-# ── F. 签名技抽卡权重 ──
-func _test_sig_weight() -> void:
-	print("── F. sig_* 抽卡权重：×2.5 乘区 + 判别式共用 ──")
-	_check("SIG_SKILL_WEIGHT_MULT = 2.5",
-		is_equal_approx(SurvivorData.SIG_SKILL_WEIGHT_MULT, 2.5),
-		"got %.2f" % SurvivorData.SIG_SKILL_WEIGHT_MULT)
+# ── F. 签名技普通池排除 ──
+func _test_signature_random_exclusion() -> void:
+	print("── F. 机体专属：普通随机池排除 + 第四槽 90% ──")
+	_check("专属第四槽概率 = 0.90",
+		is_equal_approx(SurvivorData.SIGNATURE_OFFER_CHANCE, 0.90), "")
 	_check("is_signature_upgrade 认 sig_ 前缀",
 		SurvivorData.is_signature_upgrade({"id": "sig_f15"}), "")
+	_check("is_signature_upgrade 认 F-14 围猎特例",
+		SurvivorData.is_signature_upgrade({"id": "f14_squad_lock_slow"}), "")
 	_check("is_signature_upgrade 不误伤普通技",
 		not SurvivorData.is_signature_upgrade({"id": "gun_damage"}), "")
 	_check("is_signature_upgrade 容忍缺 id 字段",
 		not SurvivorData.is_signature_upgrade({}), "")
-	# 等效权重：CLASSIFIED 0.08 × 2.5 = 0.20，应落在 ADVANCED(0.25) 与 EXPERIMENTAL(0.15) 之间
-	var eff: float = SurvivorData.RARITY_BASE_WEIGHT[SurvivorData.Rarity.CLASSIFIED] \
-		* SurvivorData.SIG_SKILL_WEIGHT_MULT
-	_check("sig 等效权重落在 EXPERIMENTAL 与 ADVANCED 之间",
-		eff > SurvivorData.RARITY_BASE_WEIGHT[SurvivorData.Rarity.EXPERIMENTAL]
-		and eff < SurvivorData.RARITY_BASE_WEIGHT[SurvivorData.Rarity.ADVANCED],
-		"eff=%.3f" % eff)
-	# 轴内抽卡：一张 sig + 一张同稀有度普通技，sig 应显著更常被抽中
-	var sig_card := {"id": "sig_test", "axis": "gladiator",
-		"rarity": SurvivorData.Rarity.CLASSIFIED, "keywords": []}
-	var plain_card := {"id": "plain_test", "axis": "gladiator",
-		"rarity": SurvivorData.Rarity.CLASSIFIED, "keywords": []}
-	var sig_hits := 0
-	for i in SAMPLES:
-		var picked: Dictionary = SurvivorData.pick_card_for_axis(
-			[sig_card, plain_card], {}, 10)
-		if str(picked.get("id", "")) == "sig_test":
-			sig_hits += 1
-	var ratio: float = float(sig_hits) / float(SAMPLES)
-	# 理论 2.5/3.5 ≈ 0.714；给足抽样噪声余量
-	_check("同稀有度对拉时 sig 命中率约 0.71（实测 %.3f）" % ratio,
-		ratio > 0.65 and ratio < 0.78, "hits=%d/%d" % [sig_hits, SAMPLES])
+	_check("sig_* 不进普通随机池",
+		not SurvivorData.is_normal_random_candidate({"id": "sig_f15"}), "")
+	_check("F-14 围猎不进普通随机池",
+		not SurvivorData.is_normal_random_candidate({"id": "f14_squad_lock_slow"}), "")
+	_check("普通技能仍进普通随机池",
+		SurvivorData.is_normal_random_candidate({"id": "gun_damage"}), "")
+
+
+# ── G. 常规敌机数据注册表 ──
+func _test_regular_enemy_registry() -> void:
+	print("── G. 常规敌机注册表：原型/角色/过滤/三队防重复 ──")
+	var ids: Dictionary = {}
+	var types: Dictionary = {}
+	var rows_valid := true
+	var detail := ""
+	for row in EnemyPoolRegistry.ROWS:
+		var id: String = str(row["id"])
+		var type_idx: int = int(row["type"])
+		if ids.has(id) or types.has(type_idx):
+			rows_valid = false
+			detail += "duplicate=%s/%d " % [id, type_idx]
+		ids[id] = true
+		types[type_idx] = true
+		if str(row["archetype"]) not in EnemyPoolRegistry.ARCHETYPES \
+				or str(row["role"]) not in EnemyPoolRegistry.ROLES:
+			rows_valid = false
+			detail += "invalid=%s " % id
+		if SurvivorData.BOSS_ONLY_TYPES.has(type_idx):
+			rows_valid = false
+			detail += "boss_leak=%s " % id
+		if int(row["token_cost"]) != int(SurvivorData.TOKEN_COST.get(type_idx, -999)):
+			rows_valid = false
+			detail += "token_mismatch=%s " % id
+	_check("注册行 id/type 唯一，原型角色合法，BOSS 隔离，Token 对拍", rows_valid, detail)
+
+	for level in [1, 5, 10]:
+		var total := 0.0
+		for weight in EnemyPoolRegistry.role_weights(level).values():
+			total += float(weight)
+		_check("响应等级 %d 角色权重归一" % level, is_equal_approx(total, 1.0), "sum=%.3f" % total)
+
+	var lv1: Array[Dictionary] = EnemyPoolRegistry.eligible_rows(1, 99, {})
+	var lv1_types: Array[int] = []
+	for row in lv1:
+		lv1_types.append(int(row["type"]))
+	_check("Lv1 只解锁 UAV/UCAV/F-4E", lv1_types.size() == 3 \
+		and lv1_types.has(0) and lv1_types.has(1) and lv1_types.has(23), str(lv1_types))
+	var lv5: Array[Dictionary] = EnemyPoolRegistry.eligible_rows(5, 99, {})
+	var lv5_types: Array[int] = []
+	for row in lv5:
+		lv5_types.append(int(row["type"]))
+	_check("Lv5 淘汰早期 UAV/UCAV", not lv5_types.has(0) and not lv5_types.has(1), str(lv5_types))
+	_check("预算过滤高成本机", EnemyPoolRegistry.eligible_rows(20, 0, {}).is_empty(), "")
+	_check("实例上限过滤 Sentinel", EnemyPoolRegistry.row_for_type(4) not in \
+		EnemyPoolRegistry.eligible_rows(10, 99, {4: 1}), "")
+
+	var same_role: Array[Dictionary] = [EnemyPoolRegistry.row_for_type(7), EnemyPoolRegistry.row_for_type(2)]
+	var picked: Dictionary = EnemyPoolRegistry.pick_row(same_role, 10, [7], 0.5, 0.0)
+	_check("最近三支同型在有替代时被排除", int(picked.get("type", -1)) == 2, str(picked))
+
+	var audited: AircraftParams = load("res://resources/enemy_su35.tres").duplicate(true)
+	audited.flare = audited.flare.duplicate()
+	audited.flare.max_flares = 1
+	audited.flare.burst_count = 1
+	audited.flare.fail_chance = 0.10
+	var audit_errors: Array[String] = EnemyPoolRegistry.audit_enemy_params(
+		EnemyPoolRegistry.row_for_type(21), audited)
+	_check("Su-35 普通敌机走廊样本通过审计", audit_errors.is_empty(), str(audit_errors))
+	audited.radar_range = 6000.0
+	_check("未特批 6000px 雷达被审计拒绝",
+		not EnemyPoolRegistry.audit_enemy_params(EnemyPoolRegistry.row_for_type(21), audited).is_empty(), "")
+
+	var f22: AircraftParams = load("res://resources/enemy_f22.tres")
+	var f22_errors: Array[String] = EnemyPoolRegistry.audit_enemy_params(
+		EnemyPoolRegistry.row_for_type(30), f22)
+	_check("F-22 敌版参数走廊与资源依赖审计通过", f22_errors.is_empty(), str(f22_errors))
+	_check("F-22 无机炮且只有一枚不补充热诱弹",
+		f22.gun == null and f22.flare.max_flares == 1 and f22.flare.burst_count == 1, "")
+	var solo_alloc: Array = F22Multilock.allocate_unique_targets([
+		[true, true, true, true, true, true, true, true, true]], 9)
+	_check("单架 F-22 每轮最多四个不同目标", solo_alloc[0].size() == 4, str(solo_alloc))
+	var squad_alloc: Array = F22Multilock.allocate_unique_targets([
+		[true, true, true, true, true, true, true, true, true],
+		[true, true, true, true, true, true, true, true, true],
+		[true, true, true, true, true, true, true, true, true]], 9)
+	var allocated_ids: Dictionary = {}
+	var allocated_total := 0
+	for member_targets in squad_alloc:
+		for target_idx in member_targets:
+			allocated_ids[int(target_idx)] = true
+			allocated_total += 1
+	_check("三架 F-22 对九机分配九个且不重复", allocated_total == 9 and allocated_ids.size() == 9, str(squad_alloc))
+	var single_target_alloc: Array = F22Multilock.allocate_unique_targets([[true], [true], [true]], 1)
+	var single_target_shots := 0
+	for member_targets in single_target_alloc:
+		single_target_shots += member_targets.size()
+	_check("三架 F-22 对单机每轮仍只分配一锁", single_target_shots == 1, str(single_target_alloc))
+	var f22_source := FileAccess.get_file_as_string("res://scripts/survivor/f22_multilock.gd")
+	_check("F-22 控制器按生成登记且不做 5Hz 场景子节点全扫",
+		f22_source.contains("func register(aircraft: Aircraft)") \
+			and not f22_source.contains("spawner.mode.get_children()"), "")
+
+	var snowblind_row := EnemyPoolRegistry.row_for_type(31)
+	_check("Snowblind Lv8 解锁且 13 Token 才允许完整编成",
+		snowblind_row in EnemyPoolRegistry.eligible_rows(8, 13, {}) \
+			and snowblind_row not in EnemyPoolRegistry.eligible_rows(7, 99, {}) \
+			and snowblind_row not in EnemyPoolRegistry.eligible_rows(8, 12, {}), "")
+	_check("Snowblind 同场上限一架",
+		snowblind_row not in EnemyPoolRegistry.eligible_rows(20, 99, {31: 1}), "")
+	var snowblind: AircraftParams = load("res://resources/enemy_snowblind.tres")
+	var snowblind_errors := EnemyPoolRegistry.audit_enemy_params(snowblind_row, snowblind)
+	_check("Snowblind 精确复用 Sentinel 支援机体且无武器/热诱弹",
+		snowblind_errors.is_empty(), str(snowblind_errors))
+
+	var state := SnowblindController.next_reveal_state(false, true, false, 0.0, 0.0, 0.2)
+	_check("玩家进入 4000m 幕立即揭露", bool(state["revealed"]), str(state))
+	state = SnowblindController.next_reveal_state(true, true, false, 2.8, 0.0, 0.2)
+	state = SnowblindController.next_reveal_state(true, false, true,
+		float(state["reveal_elapsed"]), 1.8, 0.2)
+	_check("已揭露满 3s 且离开 4500m 满 2s 后重新隐蔽", not bool(state["revealed"]), str(state))
+	state = SnowblindController.next_reveal_state(true, false, true, 1.0, 1.8, 0.2)
+	_check("离场满 2s 但最低揭露时间未满仍保持可见", bool(state["revealed"]), str(state))
+
+	var outside := CombatUnit.new()
+	var inside := CombatUnit.new()
+	inside.sensor_shroud_id = 42
+	inside.sensor_hidden = true
+	_check("未揭露幕阻断跨边界交战但不改变阵营/物理对象",
+		outside.is_sensor_engagement_obscured(inside) \
+			and inside.is_sensor_engagement_obscured(outside), "")
+	inside.sensor_shroud_id = 0
+	inside.sensor_hidden = false
+	_check("揭露后跨边界门立即解除", not outside.is_sensor_engagement_obscured(inside), "")
+	outside.free()
+	inside.free()
+	var visual_instance = SnowblindShroudVisual.new()
+	var visual_methods: Array = visual_instance.get_script().get_script_method_list()
+	var visual_method_names: Array[String] = []
+	for method in visual_methods:
+		visual_method_names.append(str(method["name"]))
+	_check("Snowblind 雪花圈无 _process/_physics_process/_draw",
+		not visual_method_names.has("_process") and not visual_method_names.has("_physics_process") \
+			and not visual_method_names.has("_draw"), str(visual_method_names))
+	_check("Snowblind 雪幕半径削弱为 4000m 且保留 500m 复隐滞回",
+		is_equal_approx(SnowblindController.RADIUS_PX, 2000.0) \
+			and is_equal_approx(SnowblindController.EXIT_RADIUS_PX, 2250.0) \
+			and is_equal_approx(SnowblindShroudVisual.RADIUS_PX, 2000.0), "")
+	var snowblind_controller_source := FileAccess.get_file_as_string(
+		"res://scripts/survivor/snowblind_controller.gd")
+	_check("Snowblind 本体仍由雪幕隐藏，圆心只显示不可交互 shader 轮廓",
+		snowblind_controller_source.contains("if ac == host:") \
+			and SnowblindShroudVisual.SHADER_CODE.contains("core_outline"), "")
+	var spawner_source := FileAccess.get_file_as_string("res://scripts/survivor/survivor_spawner.gd")
+	_check("Snowblind 创建当帧主动登记且编成后立即刷新，不依赖 Token 重算",
+		spawner_source.contains("_snowblind_controller.register(enemy)") \
+			and spawner_source.contains("_snowblind_controller.refresh_now()") \
+			and not spawner_source.contains("_snowblind_controller.has_active_state()"), "")
+	_check("Snowblind 未破幕为实体高遮蔽层，破幕后才降为低透明度",
+		SnowblindShroudVisual.SHADER_CODE.contains("solid_alpha = 1.0") \
+			and SnowblindShroudVisual.SHADER_CODE.contains("uniform float concealment"), "")
+
+	var batch_a_ok := true
+	var batch_a_detail := ""
+	for type_idx in range(32, 40):
+		var row := EnemyPoolRegistry.row_for_type(type_idx)
+		var params: AircraftParams = load(str(row.get("resource_path", "")))
+		var errors := EnemyPoolRegistry.audit_enemy_params(row, params)
+		if not errors.is_empty():
+			batch_a_ok = false
+			batch_a_detail += "%s=%s; " % [row.get("id", type_idx), errors]
+	_check("批 A 八架敌版全部通过 Token 参数走廊与 player 依赖审计", batch_a_ok, batch_a_detail)
+	var batch_b_ok := true
+	var batch_b_detail := ""
+	for type_idx in range(40, 49):
+		var row := EnemyPoolRegistry.row_for_type(type_idx)
+		var params: AircraftParams = load(str(row.get("resource_path", "")))
+		var errors := EnemyPoolRegistry.audit_enemy_params(row, params)
+		if not errors.is_empty():
+			batch_b_ok = false
+			batch_b_detail += "%s=%s; " % [row.get("id", type_idx), errors]
+	_check("批 B 九架敌版全部通过 Token 参数走廊与 player 依赖审计", batch_b_ok, batch_b_detail)
+	_check("Gripen C 多锁为队级 3 且每机 1；Rafale 为单机 2",
+		EnemyPoolRegistry.row_for_type(42).get("multilock_mode") == "team3" \
+			and int(EnemyPoolRegistry.row_for_type(42).get("lock_count")) == 1 \
+			and EnemyPoolRegistry.row_for_type(43).get("multilock_mode") == "per2" \
+			and int(EnemyPoolRegistry.row_for_type(43).get("lock_count")) == 2, "")
+	var batch_c_ok := true
+	var batch_c_detail := ""
+	for type_idx in range(49, 55):
+		var row := EnemyPoolRegistry.row_for_type(type_idx)
+		var params: AircraftParams = load(str(row.get("resource_path", "")))
+		var errors := EnemyPoolRegistry.audit_enemy_params(row, params)
+		if not errors.is_empty():
+			batch_c_ok = false
+			batch_c_detail += "%s=%s; " % [row.get("id", type_idx), errors]
+	_check("批 C 余下六架敌版全部通过 Token 参数走廊与 player 依赖审计", batch_c_ok, batch_c_detail)
+
+	var tech_types := [9, 6, 21, 32, 33, 34, 35, 36, 37, 38, 39,
+		40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 30, 52, 53, 54]
+	var archetype_counts := {"Gladiator": 0, "Lancer": 0, "Schemer": 0}
+	var tech_ids: Dictionary = {}
+	for type_idx in tech_types:
+		var row := EnemyPoolRegistry.row_for_type(type_idx)
+		tech_ids[str(row.get("id", ""))] = true
+		var archetype := str(row.get("archetype", ""))
+		archetype_counts[archetype] = int(archetype_counts.get(archetype, 0)) + 1
+	_check("T1–T3 科技树 27 架全部有唯一常规敌版 profile",
+		tech_types.size() == 27 and tech_ids.size() == 27, str(tech_ids.keys()))
+	_check("27 架互斥原型统计为 Gladiator12/Lancer9/Schemer6",
+		int(archetype_counts["Gladiator"]) == 12 and int(archetype_counts["Lancer"]) == 9 \
+			and int(archetype_counts["Schemer"]) == 6, str(archetype_counts))
+	_check("F-35 双锁、Gripen E 队级三锁；Su-57/F-15SMTD 挂后失速身份",
+		EnemyPoolRegistry.row_for_type(50).get("multilock_mode") == "per2" \
+			and EnemyPoolRegistry.row_for_type(51).get("multilock_mode") == "team3" \
+			and bool(EnemyPoolRegistry.row_for_type(52).get("post_stall")) \
+			and bool(EnemyPoolRegistry.row_for_type(49).get("post_stall")), "")
+
+
+# ── H. 全机型产出路径：常规池 42 型 + 专用入口 14 型 ──
+func _test_enemy_type_route_coverage() -> void:
+	print("── H. 全机型路径：常规池资源/工厂 + 专用事件入口 ──")
+	var covered: Dictionary = {}
+	var regular_ok := true
+	var regular_detail := ""
+	var spawner_source := FileAccess.get_file_as_string("res://scripts/survivor/survivor_spawner.gd")
+	for row in EnemyPoolRegistry.ROWS:
+		var type_idx := int(row["type"])
+		var resource_path := _regular_resource_path(row)
+		var params := load(resource_path) as AircraftParams
+		var enum_name := str(SurvivorSpawner.EnemyType.keys()[type_idx])
+		if covered.has(type_idx) or params == null or not spawner_source.contains(resource_path):
+			regular_ok = false
+			regular_detail += "%s(res=%s,preload=%s); " % [
+				row["id"], str(params != null), str(spawner_source.contains(resource_path))]
+		# UAV 是工厂默认基底；其它类型必须在显式 match 或注册表预加载中留有枚举映射。
+		if type_idx != int(SurvivorSpawner.EnemyType.UAV) \
+				and not spawner_source.contains("EnemyType.%s" % enum_name):
+			regular_ok = false
+			regular_detail += "%s(factory); " % row["id"]
+		covered[type_idx] = "regular"
+	_check("42 型常规池均有可加载敌版资源且接入 Spawner 工厂", regular_ok, regular_detail)
+
+	var dedicated_ok := true
+	var dedicated_detail := ""
+	for route in DEDICATED_ENEMY_ROUTES:
+		var type_idx := int(route["type"])
+		var params := load(str(route["resource"])) as AircraftParams
+		var route_source := FileAccess.get_file_as_string(str(route["route"]))
+		var enum_name := str(SurvivorSpawner.EnemyType.keys()[type_idx])
+		if covered.has(type_idx) or params == null \
+				or not spawner_source.contains("EnemyType.%s" % enum_name) \
+				or not route_source.contains(str(route["route_token"])):
+			dedicated_ok = false
+			dedicated_detail += "%s(res=%s,factory=%s,route=%s); " % [
+				route["id"], str(params != null),
+				str(spawner_source.contains("EnemyType.%s" % enum_name)),
+				str(route_source.contains(str(route["route_token"])))]
+		covered[type_idx] = "dedicated"
+	_check("14 型专用敌机均有资源、工厂映射与实际事件/BOSS/王牌入口",
+		dedicated_ok, dedicated_detail)
+	_check("EnemyType 56 型无遗漏且常规/专用分类互斥",
+		covered.size() == SurvivorSpawner.EnemyType.size(),
+		"covered=%d enum=%d" % [covered.size(), SurvivorSpawner.EnemyType.size()])
+
+
+## 常规池旧类型没有 resource_path 字段；文件名仅有四个历史特例。
+func _regular_resource_path(row: Dictionary) -> String:
+	if row.has("resource_path"):
+		return str(row["resource_path"])
+	match int(row["type"]):
+		SurvivorSpawner.EnemyType.UAV:
+			return "res://resources/enemy_uav.tres"
+		SurvivorSpawner.EnemyType.UCAV:
+			return "res://resources/enemy_uav_missile.tres"
+		SurvivorSpawner.EnemyType.MIG:
+			return "res://resources/enemy_fighter.tres"
+		SurvivorSpawner.EnemyType.UAV_COMMANDER:
+			return "res://resources/enemy_uav_commander.tres"
+		_:
+			return "res://resources/enemy_%s.tres" % str(row["id"])
+
+
+# ── I. 常规池可达性与真实防重复抽样率 ──
+func _test_regular_pool_reachability_and_rates() -> void:
+	print("── I. 常规池产出率：数学可达 + 最近三队防重复蒙特卡洛 ──")
+	var reachable: Dictionary = {}
+	var reach_detail := ""
+	for row in EnemyPoolRegistry.ROWS:
+		var level := int(row["unlock"])
+		var candidates: Array[Dictionary] = EnemyPoolRegistry.eligible_rows(level, 1_000_000, {})
+		var probability := float(_raw_selection_probabilities(candidates, level).get(int(row["type"]), 0.0))
+		var rolls := _midpoint_rolls_for_row(candidates, level, row)
+		var picked := EnemyPoolRegistry.pick_row(candidates, level, [], rolls.x, rolls.y)
+		if probability > 0.0 and int(picked.get("type", -1)) == int(row["type"]):
+			reachable[int(row["type"])] = true
+		else:
+			reach_detail += "%s(p=%.6f,picked=%s); " % [row["id"], probability, picked.get("id", "none")]
+	_check("42 型常规敌机各自在解锁等级拥有非零概率且选型区间可命中",
+		reachable.size() == EnemyPoolRegistry.ROWS.size(), reach_detail)
+
+	var sampled_all: Dictionary = {}
+	var sample_ok := true
+	var sample_detail := ""
+	for level in POOL_RATE_LEVELS:
+		var candidates: Array[Dictionary] = EnemyPoolRegistry.eligible_rows(level, 1_000_000, {})
+		var raw_rates := _raw_selection_probabilities(candidates, level)
+		var hits: Dictionary = {}
+		var recent: Array[int] = []
+		var rng := RandomNumberGenerator.new()
+		rng.seed = 0xA61 + level
+		for i in POOL_RATE_SAMPLES:
+			var picked := EnemyPoolRegistry.pick_row(candidates, level, recent, rng.randf(), rng.randf())
+			var type_idx := int(picked.get("type", -1))
+			hits[type_idx] = int(hits.get(type_idx, 0)) + 1
+			sampled_all[type_idx] = true
+			recent.append(type_idx)
+			if recent.size() > 3:
+				recent.pop_front()
+		var rate_parts: Array[String] = []
+		for row in candidates:
+			var type_idx := int(row["type"])
+			var sampled_rate := 100.0 * float(hits.get(type_idx, 0)) / POOL_RATE_SAMPLES
+			var raw_rate := 100.0 * float(raw_rates.get(type_idx, 0.0))
+			rate_parts.append("%s=%.2f/%.2f%%" % [row["id"], raw_rate, sampled_rate])
+			if int(hits.get(type_idx, 0)) == 0:
+				sample_ok = false
+				sample_detail += "Lv%d:%s; " % [level, row["id"]]
+		print("  · Lv%d 原始/防重复抽样：%s" % [level, ", ".join(rate_parts)])
+	_check("五个响应截面中所有合格类型在 3 万次真实选型内均实际出现", sample_ok, sample_detail)
+	_check("五个响应截面合计覆盖全部 42 型常规敌机",
+		sampled_all.size() == EnemyPoolRegistry.ROWS.size(),
+		"sampled=%d/%d" % [sampled_all.size(), EnemyPoolRegistry.ROWS.size()])
+
+
+## 不考虑最近三队时的单次中队抽取率：P(role) × P(type | role)。
+func _raw_selection_probabilities(candidates: Array[Dictionary], response_level: int) -> Dictionary:
+	var result: Dictionary = {}
+	var weights := EnemyPoolRegistry.role_weights(response_level)
+	var role_totals: Dictionary = {}
+	for row in candidates:
+		var role := str(row["role"])
+		role_totals[role] = float(role_totals.get(role, 0.0)) + float(row["weight"])
+	var available_role_total := 0.0
+	for role in role_totals:
+		available_role_total += float(weights.get(role, 0.0))
+	for row in candidates:
+		var role := str(row["role"])
+		var probability := float(weights.get(role, 0.0)) / available_role_total \
+			* float(row["weight"]) / float(role_totals[role])
+		result[int(row["type"])] = probability
+	return result
+
+
+## 取目标角色区间和目标机型区间的中点，直接证明 pick_row 存在能命中该行的骰值。
+func _midpoint_rolls_for_row(candidates: Array[Dictionary], response_level: int,
+		target: Dictionary) -> Vector2:
+	var weights := EnemyPoolRegistry.role_weights(response_level)
+	var roles: Array[String] = []
+	for row in candidates:
+		var role := str(row["role"])
+		if role not in roles:
+			roles.append(role)
+	var role_total := 0.0
+	var role_before := 0.0
+	for role in roles:
+		var weight := float(weights.get(role, 0.0))
+		if role == str(target["role"]):
+			role_before = role_total
+		role_total += weight
+	var type_total := 0.0
+	var type_before := 0.0
+	for row in candidates:
+		if str(row["role"]) != str(target["role"]):
+			continue
+		if int(row["type"]) == int(target["type"]):
+			type_before = type_total
+		type_total += float(row["weight"])
+	return Vector2(
+		(role_before + float(weights[str(target["role"])]) * 0.5) / role_total,
+		(type_before + float(target["weight"]) * 0.5) / type_total)
+
+
+# ── J. ADBS 护卫池：不吃常规 Token，不穿透退役门 ──
+func _test_adbs_escort_pool() -> void:
+	print("── J. ADBS 护卫池：零 Token 选型 / 退役门 / 专用编成隔离 ──")
+	var early_types: Array[int] = []
+	for row in EnemyPoolRegistry.escort_rows(1):
+		early_types.append(int(row["type"]))
+	_check("响应 1 的护卫池保留 MQ-109/MQ-110/F-4E",
+		early_types.has(0) and early_types.has(1) and early_types.has(23), str(early_types))
+
+	var late_types: Array[int] = []
+	for row in EnemyPoolRegistry.escort_rows(9):
+		late_types.append(int(row["type"]))
+	var forbidden := [0, 1, 4, 6, 9, 17, 31]
+	var late_clean := true
+	for type_idx in forbidden:
+		if late_types.has(type_idx):
+			late_clean = false
+	_check("响应 9 不含退役 UAV、Sentinel、支援体或单机精英", late_clean, str(late_types))
+	_check("响应 1/9/20 的零 Token 护卫池始终有合格战机",
+		not EnemyPoolRegistry.escort_rows(1).is_empty() \
+			and not EnemyPoolRegistry.escort_rows(9).is_empty() \
+			and not EnemyPoolRegistry.escort_rows(20).is_empty(), "")
+
+	var probe := SpawnPickProbe.new()
+	_check("常规池预算为零时返回不刷，不再兜底 MQ-109", probe._pick_enemy_type() == -1, "")
+	var escort_type := int(probe._pick_flee_escort_type())
+	_check("同为零 Token 时 ADBS 护卫仍按等级选出非 MQ-109 战机",
+		escort_type >= 0 and escort_type != int(SurvivorSpawner.EnemyType.UAV),
+		"etype=%d" % escort_type)
+	probe.free()
+
+
+# ── K. Sentinel 原生护卫凝聚 ──
+func _test_sentinel_escort_cohesion() -> void:
+	print("── K. Sentinel：原生护卫脱队召回 / hunter 豁免 ──")
+	var watchdog := SentinelWatchdogProbe.new()
+	var watchdog_mode := Node2D.new()
+	watchdog.mode = watchdog_mode
+	var solo := _sentinel_probe_aircraft("uav_commander", Vector2.ZERO)
+	solo.team = CombatUnit.TEAM_HOSTILE
+	var solo_sq := SquadFactory.create()
+	SquadFactory.register_leader(solo_sq, solo)
+	watchdog_mode.add_child(solo)
+	watchdog._ensure_sentinels_escorted()
+	watchdog._ensure_sentinels_escorted()
+	_check("已有空 Squad 的 Sentinel 也补足 5 架，且只补一次",
+		watchdog.spawned_escort_count == SurvivorSpawner.SENTINEL_MIN_ESCORT \
+			and solo.has_meta("escort_watchdog_done"),
+		"spawned=%d" % watchdog.spawned_escort_count)
+	watchdog_mode.free()
+	watchdog.free()
+
+	var spawner := SurvivorSpawner.new()
+	var commander := _sentinel_probe_aircraft("uav_commander", Vector2.ZERO)
+	var escort := _sentinel_probe_aircraft("uav", Vector2(2000.0, 0.0))
+	var sq := SquadFactory.create()
+	SquadFactory.register_leader(sq, commander)
+	SquadFactory.register_wingman(sq, escort, false)
+	var escort_ai := _sentinel_probe_ai(escort)
+	escort.set_meta("sentinel_native_escort", true)
+	escort_ai.orbit_squad_leader = false
+	escort_ai.shield_leader = false
+	escort_ai.combat_zone_anchor = commander
+	escort_ai.combat_zone_radius = 2500.0
+	spawner._recall_detached_sentinel_escort(commander, sq, escort)
+	_check("原生 MQ-109 超过 1800px 后恢复贴身护驾并清掉 hunter 锚",
+		escort_ai.orbit_squad_leader and escort_ai.shield_leader \
+			and escort_ai.combat_zone_anchor == null and escort.has_meta("sentinel_recall_active"), "")
+
+	var hunter := _sentinel_probe_aircraft("uav", Vector2(2200.0, 0.0))
+	SquadFactory.register_wingman(sq, hunter, false)
+	var hunter_ai := _sentinel_probe_ai(hunter)
+	hunter.set_meta("sentinel_native_escort", true)
+	hunter.set_meta("sentinel_hunter", true)
+	hunter_ai.combat_zone_anchor = commander
+	hunter_ai.combat_zone_radius = 2500.0
+	spawner._recall_detached_sentinel_escort(commander, sq, hunter)
+	_check("CommanderAura 明确标记的 hunter 可离轴出击",
+		not hunter_ai.orbit_squad_leader and not hunter_ai.shield_leader \
+			and hunter_ai.combat_zone_anchor == commander \
+			and not hunter.has_meta("sentinel_recall_active"), "")
+
+	commander.free()
+	escort.free()
+	hunter.free()
+	spawner.free()
+
+
+func _sentinel_probe_aircraft(type_tag: String, pos: Vector2) -> Aircraft:
+	var ac := Aircraft.new()
+	ac.params = AircraftParams.new()
+	ac.global_position = pos
+	ac.set_meta("enemy_type", type_tag)
+	var ai := AIController.new()
+	ai.aircraft = ac
+	ac.add_child(ai)
+	return ac
+
+
+func _sentinel_probe_ai(ac: Aircraft) -> AIController:
+	for child in ac.get_children():
+		if child is AIController:
+			return child
+	return null
 
 
 func _check(label: String, ok: bool, detail: String) -> void:

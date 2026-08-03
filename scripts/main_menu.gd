@@ -29,11 +29,21 @@ func _ready() -> void:
 ## Ctrl + M           → +1000 功勋
 ## Ctrl + Shift + M   → -1000 功勋（夹底 0）
 ## Ctrl + Alt + M     → 功勋归零
-## 注：仅在主菜单生效；不入正式发布的 build 时可去掉本函数
+## Ctrl + U           → 本次运行解锁全部敌人图鉴（不改战绩）
+## Ctrl + Shift + U   → 恢复按真实战绩解锁
+## 注：仅在主菜单的 Debug build 生效。
 func _unhandled_key_input(event: InputEvent) -> void:
 	if not (event is InputEventKey) or not event.pressed or event.echo:
 		return
-	if event.keycode != KEY_M or not event.ctrl_pressed:
+	if not OS.is_debug_build() or not event.ctrl_pressed:
+		return
+	if event.keycode == KEY_U:
+		var unlock_all: bool = not event.shift_pressed
+		EnemyCodex.debug_set_unlock_all(unlock_all)
+		_show_toast("[debug] codex %s" % ("unlock all" if unlock_all else "restore progress"))
+		get_viewport().set_input_as_handled()
+		return
+	if event.keycode != KEY_M:
 		return
 	var delta: int = 1000
 	var msg: String = ""

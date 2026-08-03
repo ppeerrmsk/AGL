@@ -1,0 +1,38 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=6 format=3]
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/lancer_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/default_missile.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/enemy_standard_flare.tres" id="5"]
+[resource]
+script = ExtResource("1")
+display_name = "F-14 Tomcat"
+max_hp = 60.0
+max_speed = 2300.0
+cruise_speed = 980.0
+stall_speed_base = 220.0
+acceleration = 48.0
+deceleration = 76.0
+g_drag_factor = 3.3
+max_g = 6.0
+max_g_structural = 9.0
+roll_rate = 3.0
+pilot_stamina = 82.0
+stamina_drain_rate = 29.0
+stamina_recovery_rate = 8.5
+max_altitude = 15500.0
+climb_rate_max = 245.0
+thrust_to_weight = 1.02
+drag_coefficient = 0.025
+afterburner_thrust_mult = 1.48
+fuel_capacity = 3000.0
+fuel_rate_normal = 2.0
+fuel_rate_afterburner = 9.5
+radar_range = 3800.0
+radar_half_angle = 25.0
+lock_time = 3.2
+gun = ExtResource("2")
+missile = ExtResource("4")
+flare = ExtResource("5")
+combat = ExtResource("3")
+icon_color = Color(0.92, 0.30, 0.20, 1)

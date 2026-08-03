@@ -1,34 +1,36 @@
 ---
 id: aircraft-signature-skills
 kind: system
-status: done  # 2026-07-29 用户确认工程落地可收口
+status: done  # 2026-08-03 v6：超速截击补机头前半球+雷达锥双硬门，禁止向后发射
 schema_version: 1
-spec_version: 3
+spec_version: 6
 owner: 用户
 depends_on: [skills-720-rework, evolution-attribute-gates, aircraft-evolution-tree, inrun-weapon-inventory, afterburner-mode, zone-reward-docking, rts-command]
 reconstruction_complete: true
 ---
 
-# 机体签名技能 —— 41 机每机一条专属技能（驾驶门控刷出 / 换机永久继承）
+# 机体签名技能 —— 41 机每机一条专属技能（效果表 / 换机永久继承）
 
 > 来源：用户 2026-07-22《722机体原创技能》表。每架可驾驶机型（进化树 41 节点）各配一条**签名技能**：
-> 只有正在驾驶该机型时升级才可能刷出；一旦获得就**跟玩家走**，换机/进化后继续生效、不断往下带。
+> 一旦获得就**跟玩家走**，换机/进化后继续生效、不断往下带。2026-08-01 起，获取方式由
+> `aircraft-signature-progression` 接管：亲自驾驶后在功勋商店揭示并购买，局内从额外第四槽取得；
+> 本文仍是 41 条技能效果、归属与继承语义的权威源。
 
 ## 1. 设计意图（Why）
 
 - **体验目标**：进化选机不只是换参数——每架机附带一条"只有开过它才能拿到"的 build 词条。
   一局的进化路线 = 一串签名技能的收集顺序，"我这局开过什么机"直接写进 build 里。
-- **获取机制（用户定案）**：驾驶该机型时升级才有概率刷出；稀有度一律 **4 级 = CLASSIFIED（机密/金）**
-  （基础权重 0.08 + pity 8 次保底）。
+- **获取机制（用户定案）**：专属技不再进入普通随机池。购买对应机体许可后，首次符合条件的
+  三轴升级事件以 90% 概率追加第四槽；稀有度一律 **4 级 = CLASSIFIED（机密/金）**。
 - **继承机制（用户定案）**：获得后永久跟玩家（换机种延续到下一架，不会被移除）。
   实现上零成本成立：升级账本记玩家层，换机重放不查机型门控（`exclusive_to` 只在抽卡时过滤）。
-- **Meta 预留（用户）**：后续可能把这批技能上锁进局外 Meta Progression（功勋购买解锁后才进池）。
-  本批**先全部直接实装进池**；上锁只需将来在池过滤处加一层"局外解锁表"查询，数据结构不动。
+- **Meta 获取**：41 条许可全部进入功勋商店；只有亲自驾驶过对应机体才揭示并可购买。
+  未发现机体只显示匿名 `???`，完整规则见 `aircraft-signature-progression`。
 - **Litmus 自检**（DESIGN_PHILOSOPHY）：
   - 信息察觉：每条都有明确触发条件（满血/低空/加力窗口/停靠/机动完成）或直观状态（STEALTH/INVINCIBLE/FEAR 均有既有视觉）；无纯暗数值。
   - 一击毙命：伤害类 buff 只作用于机炮（多发武器）与地面单位（HP 池），不做"导弹伤害+%"这类无意义项。
   - 全自动开火：超速截击/传感器融合等新发射通道都是**条件自动触发**，不引入手动扳机。
-  - 局内 90/10：本批全部是局内 roguelike 获取；meta 上锁只是未来的"进池资格"层。
+  - 局内 90/10：功勋购买只开放第四槽机会，技能仍须在局内主动选取，不直接赠送属性。
 - **反模式规避**：不做无感知微调（最小可感知档 ±20% 起）；单条技能单杠杆，复合效果 ≤2 段；
   不为签名技能新造平行系统——全部复用 720 批归属底座（`exclusive_to`/轴/里程碑/重放）。
 
@@ -38,37 +40,22 @@ reconstruction_complete: true
 
 | 规则 | 值 |
 |---|---|
-| 数量 | 41 条（进化树 41 机每机一条；F-14 围猎=既有 pack_gaze 改档，不新建） |
+| 数量 | 41 条（进化树 41 机每机一条；F-14 围猎=既有 `f14_squad_lock_slow` 改档，不新建） |
 | id 约定 | `sig_<机型id>`（如 `sig_f15`），i18n `UPGRADE_SIG_<ID>_NAME/_DESC` |
-| 稀有度 | 全部 CLASSIFIED（**显示与实际稀有度都是 CLASSIFIED**，出率另有乘区，见 §2.1.1） |
+| 稀有度 | 全部 CLASSIFIED（**显示与实际稀有度都是 CLASSIFIED**；第四槽出示率独立为 90%，见 §2.1.1） |
 | max_stacks | 全部 ×1 |
-| 刷出门控 | `exclusive_to: [<机型id>]`——抽卡过滤按**当前 ACE 机型**判；换机后旧机签名技不再刷出、新机的开始刷出 |
+| 出示门控 | `exclusive_to: [<机型id>]` 保留为身份约束；实际获取由对应功勋商品 + 每机每局一次第四槽状态机控制 |
 | 继承 | 已获得的进玩家层账本 `upgrade_stacks`，换机重放**无条件**重挂（永久跟玩家） |
 | 轴归属 | 显式 `axis` 字段（斗士/骑士/策士，按 §2.2 表）；选卡照常 +1 该轴技能点 |
 | +1 轴进度 | `milestone_plus` 按表：sig_f15→骑士、sig_a6e→策士、sig_x77→骑士、sig_ax00→骑士+策士（字段扩展支持数组，cap=2 语义不变） |
 | scope | 按表逐条：自身条件类=通用全队（同机种僚机同享）；队级机制=squad_once |
 | 卡面标识 | 签名技能卡面加"签名"角标 + 机型代号（复用 720 归属角标机制） |
 
-#### 2.1.1 出率与卡面标识（2026-07-28 新增）
+#### 2.1.1 第四槽与卡面标识（2026-08-01 替代旧权重方案）
 
-**问题**：签名技能是"只有开过这架机才能拿到"的核心承诺，但 CLASSIFIED 基础权重 0.08
-落在轴家系池里被稀释——一局里开着某架机升好几次级也常常一次都不刷出来，
-承诺兑现不了，进化选机的"收集"叙事就断了。
-
-**签名技能出率乘区**：
-
-| 项 | 值 |
-|---|---|
-| 基础稀有度权重 | **CLASSIFIED 0.08**（不变——稀有度本身没被改档） |
-| **签名技乘区** | **×2.5**（`sig_*` 专属） |
-| 等效权重 | **0.20 ≈ ADVANCED 档**（"稀有度仍是机密，抽取概率提到进阶档"） |
-| 生效路径 | **两条都生效**：①三轴卡片的**轴内抽卡** ②普通**三选一**加权抽取 |
-| 判别式 | id 以 `sig_` 开头即为签名技能（抽卡加权与卡面高亮**共用同一判别式**，不维护第二张名单） |
-| pity | 沿用 CLASSIFIED 既有保底（不另设签名技 pity） |
-
-> 刻意**不改稀有度档位**（不把 sig_* 提成 ADVANCED）：稀有度还承担着卡面徽章、
-> 战区奖励池、门控等一堆语义，动它会牵一串。只在抽取权重上乘一个专属系数，
-> 是改动面最小的单杠杆。
+旧的 CLASSIFIED 权重 ×2.5 方案已废弃。签名技能从三轴卡池、普通三选一与战区 NEXT_GEN
+候选中全部排除；购买许可后，每机每局在首次符合条件的三轴升级事件独立掷 90%，命中时
+追加为第四卡。不选即本局放弃，详细状态机、价格与未知陈列见 `aircraft-signature-progression` §2~3。
 
 **卡面：洋红专属边框**：
 
@@ -92,7 +79,7 @@ reconstruction_complete: true
 | id | 机型 | 技能名 | 轴 | scope | 效果（数值定稿） |
 |---|---|---|---|---|---|
 | sig_f15 | F-15 Eagle | 无败之鹰 | 斗士(+骑士进度1) | 通用 | HP 全满时：机炮伤害 ×1.20、锁定速率 ×1.20（逐机判定） |
-| （pack_gaze） | F-14 Tomcat | 围猎 | 策士 | squad_once | 既有"群猎注视"改名+改档：全僚机共同锁定的敌机持续 SLOW；稀有度 实验→机密 |
+| （f14_squad_lock_slow） | F-14 Tomcat | 围猎 | 策士 | squad_once | 既有"群猎注视"改名+改档：全僚机共同锁定的敌机持续 SLOW；稀有度 实验→机密 |
 | sig_a6e | A-6E Intruder | 盲飞入侵 | 斗士(+策士进度1) | 通用 | 低空（LOW 档）时敌方对本机锁定速率 ×0.60 |
 | sig_mirage3 | Mirage III | 幻影 | 策士 | 通用 | flare 保护窗（锁定豁免+导弹穿透窗）时长 ×1.6；flare 成功偏转导弹瞬间 1.5s 无敌（no_refresh） |
 
@@ -112,7 +99,7 @@ reconstruction_complete: true
 | sig_typhoon | Typhoon | 超巡爬升 | 骑士 | 通用 | 高度调整速率 ×1.5；爬升不再削目标速度（豁免爬升速度惩罚）；高度调整进行中机炮闪避 +30%（与既有 dodge 合并后封顶 70%） |
 | sig_su34 | Su-34 | 鸭嘴兽厨房 | 斗士 | 通用 | 加力窗口激活期间每秒回复 2 HP |
 | sig_viggen | AJ 37 Viggen | 唯一的锁定 | 策士 | 通用 | 我方对目标的锁定在其脱离雷达锥后保持 3s 不衰减（宽限窗）；雷达距离 +500m |
-| sig_mig31 | MiG-31 | 超速截击 | 骑士 | 通用 | 加力窗口内对已满锁且在包线内的目标每 1.2s 自动发射 1 枚导弹（唯一绕开窗口禁火的通道）；该弹初速/极速 ×1.3 |
+| sig_mig31 | MiG-31 | 超速截击 | 骑士 | 通用 | 加力窗口内对**当前同时位于机头前半球（偏轴 ≤90°）与本机雷达锥内**、已满锁且在包线内的目标每 1.2s 自动发射 1 枚导弹（唯一绕开窗口禁火的通道）；雷达锥即使被扩至 >90° 也不得覆盖后半球，离锥后的残留满锁/锁定宽限同样不得触发；该弹初速/极速 ×1.3 |
 | sig_harrier | Harrier GR.7 | VIFFing | 斗士 | 通用 | 减速效率 ×1.5；速度降至 200 km/h 以下瞬间获得 4s 无敌（内置 CD 20s） |
 
 **T3（8）**
@@ -122,7 +109,7 @@ reconstruction_complete: true
 | sig_su35 | Su-35 | 落叶飘 | 斗士 | 通用 | 前置：持有特殊机动技（任一）。特殊机动完成瞬间获得 6s 无敌 |
 | sig_f35 | F-35 | 传感器融合 | 策士 | squad_once | 僚机可对 ACE 满锁的目标直接发射导弹（豁免自机雷达锥/锁定门；包线与发射窗口质量照查） |
 | sig_gripen_e | JAS 39E | 电战预算 | 策士 | 通用 | 免疫一切负面状态（JAM / SLOW / FEAR） |
-| sig_f22 | F-22 | 先敌开火 | 骑士 | 通用 | 前置：持有任一隐身来源技。进入 STEALTH 瞬间全武器立即装填完毕（机炮弹回满/导弹装填清零/电磁炮 CD 清零）；STEALTH 期间导弹多重齐射生效（等效 multi_lock） |
+| sig_f22 | F-22 | 先敌开火 | 骑士 | 通用 | 前置：持有任一隐身来源技。进入 STEALTH 瞬间全武器立即装填完毕（机炮弹回满/导弹装填清零/电磁炮 CD 清零）；STEALTH 期间导弹锁定目标数 +2（加算） |
 | sig_su57 | Su-57 | 多波段搜索 | 策士 | 通用 | 雷达锥半角 +40°（本技能允许突破常规 90° 上限，封顶 120°） |
 | sig_j20 | J-20 | 霹雳长矛 | 骑士 | 通用 | 导弹挂载 +1、导弹射程 ×1.40、导弹生存时间（燃烧+滑翔寿命）×1.5 |
 | sig_a12 | A-12 | 不被期待的计划 | 斗士 | 通用 | 被击坠瞬间原地复活：HP 恢复至 30% + 2s 无敌（每局一次，逐机各一次） |
@@ -151,7 +138,7 @@ reconstruction_complete: true
 
 ### 2.3 语义精化与偏差说明（逐条歧义裁定）
 
-1. **围猎（f14）**：即 720 批 pack_gaze（集火枷锁→群猎注视）。本批动作=改名"围猎"（三语）+ 稀有度 实验→机密。效果不动。
+1. **围猎（f14）**：即 720 批 `f14_squad_lock_slow`（集火枷锁→群猎注视）。本批动作=改名"围猎"（三语）+ 稀有度 实验→机密。效果不动。
 2. **地形跟随（tornado）**：原文"低空飞行时速度没有惩罚"——当前游戏**不存在**低空速度惩罚机制（只有爬升惩罚与低空杂波难锁），
    该半句落地为"低空反而更快"（+8%），保留原文意图的"低空突防"风味。
 3. **甲板周转（fa18e）**：过量装填=离开停靠点时一次性填到 2×上限，战斗中耗掉不回超；装填计时正常（装填回到 1×上限为止）。
@@ -161,6 +148,7 @@ reconstruction_complete: true
    "机动完成瞬间"=机动状态机相位回落到 NONE 的下降沿（新增统一钩子）。
 6. **先敌开火（f22）**：`requires_skill` 至少持有任一 STEALTH 来源技（弹后潜匿/刺客复仇；后续隐身来源入池自动扩列）。
    "进入隐身"以 STEALTH 状态上升沿判定，来源不限（作战云广播/落选者起飞隐身同样触发）。
+   STEALTH 期间的锁数是在当前有效永久锁数上加 2，不设固定下限、不替换其它来源；齐射仍受正常冷却约束。
 7. **钛浴缸 vs 复活（a10/a12）**：共用同一"致死拦截"底座。钛浴缸=HP<30% 才生效、保 1 HP、CD 60s 可反复；
    A-12=无血线前提、直接回 30% HP、每局每机一次。两者同机时钛浴缸先判（CD 好则先保 1，复活留底）。
 8. **作战云（fcas）**：广播源=ACE 获得四类增益瞬间；广播用 max 模式（已有者=刷新到更长者）；防递归（广播落地不再二次广播）。
@@ -177,12 +165,9 @@ reconstruction_complete: true
 ### 3.1 获取与继承流
 
 ```
-升级抽卡（每 3 级三轴各一张）
-  └─ 轴家系池 = 既有池 ∪ {axis 匹配的签名技}
-       └─ is_upgrade_available_for: exclusive_to 含当前 ACE 机型 → 进池
-          （CLASSIFIED 权重 0.08 × 签名技乘区 2.5 = 等效 0.20 ≈ ADVANCED；pity 8 照旧）
-          ※ 轴内抽卡与普通三选一两条路径都乘这个系数（§2.1.1）
-选卡 → upgrade_stacks[sig_*] = 1（玩家层账本）→ 照常 +1 轴点 → milestone_plus 逐轴 +1 进度（cap 2）
+亲自驾驶机体 → 功勋商店揭示该机专属许可 → 购买
+每 3 级升级 → 正常三轴各一张 + 该机每局一次 90% 第四槽机会
+选专属卡 → upgrade_stacks[signature_id] = 1（玩家层账本）→ 照常 +1 轴点 → milestone_plus 逐轴 +1 进度（cap 2）
 进化换机 → _replay_player_upgrades 无条件重放（不查 exclusive_to）→ 技能延续到新机
 ```
 
@@ -208,7 +193,7 @@ _apply_damage 结算后 hp ≤ 0 时（按序判定，命中一条即止）：
 
 ## 4. 结构与组成（Structure）
 
-- **数据层**：UPGRADES 表追加 40 条 `sig_*`（+pack_gaze 改档）；每条带 `axis`/`exclusive_to`/`rarity: CLASSIFIED`/`scope`/`milestone_plus`。
+- **数据层**：UPGRADES 表追加 40 条 `sig_*`（+`f14_squad_lock_slow` 改档）；每条带 `axis`/`exclusive_to`/`rarity: CLASSIFIED`/`scope`/`milestone_plus`。
 - **milestone_plus 扩展**：字段允许 `String` 或 `Array[String]`（ax00 双轴）；发放点循环发放，cap=2 语义不变。
 - **钩子层**：`skill_hooks.gd` 新增 `on_special_maneuver_done` / `on_takeoff` / STEALTH 上升沿分发；flare 偏转钩子 `on_evade_missile` 复用。
 - **拦截层**：`aircraft.gd` 致死拦截（§3.2）；`combat_unit.apply_status` 负面免疫早退 + 作战云广播。
@@ -217,24 +202,24 @@ _apply_damage 结算后 hp ≤ 0 时（按序判定，命中一条即止）：
 
 ## 5. 验收标准（Acceptance / Litmus）
 
-- [x] 门控：驾驶 F-15 时可刷出 sig_f15、驾驶其它机永不出现（bench §B）；requires_skill 前置（特殊机动/隐身来源）双向断言 ✅
+- [x] 身份约束：`exclusive_to` 仍确保 41 条映射与机型一一对应；第四槽许可与每局状态机验收见 `aircraft-signature-progression` ✅
 - [x] 继承：升级账本记玩家层 + `_replay_player_upgrades` 无条件重放（既有机制，bench attr_gates §E 重放断言覆盖底座；params 类 apply 断言 §D）✅
 - [x] milestone_plus 数组：ax00 双轴 list、单值口径兼容（bench §C；cap=2 语义不变——沿用 skills720 §C 双计数断言）✅
 - [x] 致死拦截：钛浴缸 CD/血线、A-12 每局一次、共存判序（bench §E 8 断言）✅
 - [x] 窗口禁火豁免：sig_mig31 走独立发射通道（不经 `_fire_missile_at` 硬断），其余武器路径六处禁火未动 ✅
+- [ ] 超速截击发射几何：只从当前机头前半球与雷达锥的交集挑选目标；后半球满锁即使仍落在扩宽至 ±120° 的雷达锥内且距离更近也不得发射（bench `sig_skills` 对照；代码与用例已落地，等待 Godot 空闲后执行）
 - [x] 全表 i18n 三语齐（80 键 + 围猎改名）；重跑 dump_skill_table → 144 条（104+40），milestone_plus 数组已兼容 ✅
 - [x] 性能：全部判定 O(1) 字段读 / 复用既有 tick（锁定循环集中注入、0.5s squad watch、25s 周期生成）；无新增每帧扫描 ✅
 - [x] 传感器融合行为门：技能关闭/ACE 未满锁/非 ACE 当前目标均拒绝；ACE 满锁同目标时僚机越肩门放行（bench `sig_skills` §J）✅
-- [x] 回归门：`--bench=all` 34 项 PASS（含新 sig_skills 47 断言；skills720 未破坏）✅
-- [ ] **出率（2026-07-28）**：`sig_*` 权重 = 基础 0.08 × 2.5 = 等效 0.20，两条抽卡路径（轴内 / 三选一）
-      都生效；驾驶某机型一局内**明显能刷到**它的签名技（旧版常常一局零刷出）
+- [ ] 本批 F-22 加算锁数、全队范围与超速截击正面发射门由 sig_skills 66 断言覆盖（新增 2 条尚待 Godot 空闲后执行）。
+- [ ] **第四槽（2026-08-01）**：已购许可的当前机体在首次符合条件事件独立掷 90%；普通池不漏出，放弃后本局不重来
 - [ ] **卡面**：sig 卡洋红边框（加粗一档 + 0.16 alpha 底色）与五档稀有度色、三轴色**均不撞色**；
       稀有度徽章仍显示真实稀有度（CLASSIFIED）
 - [ ] playtest：出现率手感 / 各条数值调档 / Sentinel+Lv5 压测（⏳ 用户实机）
 
 ## 6. 任务拆分（依赖序）
 
-- [x] **S0 底座批**：milestone_plus 数组化 + pack_gaze 改档改名"围猎" + 40 条表条目 + i18n 三语。✅ 2026-07-22（卡面签名角标缓做——归属角标机制已有，专属标识随 playtest 反馈定）
+- [x] **S0 底座批**：milestone_plus 数组化 + `f14_squad_lock_slow` 改档改名"围猎" + 40 条表条目 + i18n 三语。✅ 2026-07-22（卡面签名角标缓做——归属角标机制已有，专属标识随 playtest 反馈定）
 - [x] **S1 纯数据/单点注入批**：14 条全落地（锁定管线集中注入 `_update_radar_locks`；对地伤害两处：bullet_manager + missile_manager）✅ 2026-07-22
 - [x] **S2 钩子批**：14 条全落地（新事件点三个：机动完成 `on_special_maneuver_done` / 起飞=停靠结算关闭分支 / STEALTH 上升沿=apply_status 覆写快照）✅ 2026-07-22
 - [x] **S3 新行为批**：9 条全落地（超速截击独立发射通道 / f35 越肩发射两门豁免 / 夜枭静默弹一处过滤全覆盖 / x21 重索敌 / 作战云中继直通防双乘）✅ 2026-07-22
@@ -245,7 +230,7 @@ _apply_damage 结算后 hp ≤ 0 时（按序判定，命中一条即止）：
 
 | 关注点 | 位置 |
 |---|---|
-| 数据表 40 条 + milestone_plus_list_of + 出率乘区/判别式（`SIG_SKILL_WEIGHT_MULT` `is_signature_upgrade` `pick_card_for_axis` `_weighted_pick`） | `scripts/survivor/survivor_data.gd`（表尾 722 段） |
+| 数据表 40 条 + milestone_plus_list_of + 41 机映射/判别式（`signature_upgrade_id_for_aircraft` `is_signature_upgrade`） | `scripts/survivor/survivor_data.gd`（表尾 722 段） |
 | 卡面洋红专属边框（`SIG_FRAME_COLOR`） | `scripts/survivor/survivor_upgrade_ui.gd` |
 | apply 专用分支（8+10 条）+ sig_xp_mult | `scripts/survivor/survivor_player.gd`（match 尾 722 段） |
 | 事件钩子（机动完成/引渡人/三发推力/作战云/鲸群均摊） | `scripts/survivor/skill_hooks.gd`（722 段：`on_special_maneuver_done` `try_trigger_j36_assault` `broadcast_combat_cloud` `whale_pod_share` + 静态账本位） |
@@ -260,13 +245,15 @@ _apply_damage 结算后 hp ≤ 0 时（按序判定，命中一条即止）：
 | physics 注入（typhoon/j36/mig41/tornado） | `scripts/aircraft/aircraft_physics.gd`（update_speed/update_altitude/effective_* 722 段） |
 | 机动完成事件发射点 | `scripts/cobra_maneuver.gd` / `scripts/herbst_maneuver.gd`（phase→NONE 处） |
 | 加力充能倍率入参 + 窗口回血 | `scripts/survivor/afterburner_charge.gd`（update rate_mult） |
-| 验收 bench | `scripts/tests/test_sig_skills.gd`（`--bench=sig_skills`，47 断言；随 `--bench=all` 回归门） |
+| 验收 bench | `scripts/tests/test_sig_skills.gd`（`--bench=sig_skills`，66 断言；随 `--bench=all` 回归门） |
 | 生成器（milestone_plus 数组兼容） | `tools/dump_skill_table.py` → `docs/reference/skill-table.md`（144 条） |
 
 ## 8. 变更记录
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-03 | 6 | **超速截击正面发射门**：目标除满锁/包线外，必须同时位于机头前半球（偏轴 ≤90°）和当前雷达锥；即使“多波段搜索”将雷达扩至 ±120°，后方 90°~120° 仍禁止发射；离锥后的残留满锁（含“唯一的锁定”宽限）也不得触发。同步卡面三语，并给 `sig_skills` 增加宽锥下正/后半球回归。 |
+| 2026-08-01 | 4 | F-22“先敌开火”从等效多重齐射开关改为 STEALTH 期间导弹锁定目标数 +2（加算），接入统一锁数机制。 |
 | 2026-07-28 | 3 | **出率乘区 + 卡面专属边框（§2.1.1）**：①`sig_*` 新增 **×2.5 签名技权重乘区**（基础 CLASSIFIED 0.08 → 等效 0.20 ≈ ADVANCED 档），**轴内抽卡与三选一两条路径都生效**；刻意不改稀有度档位（稀有度还挂着徽章/奖励池/门控多重语义），只动抽取权重=最小单杠杆；抽卡加权与卡面高亮共用同一判别式（id 前缀 `sig_`）。②卡面新增**洋红专属边框** `(1.00, 0.25, 0.75)`：边框加粗一档 + 0.16 alpha 同色底；**刻意避开五档稀有度色与三轴色**（斗士琥珀/骑士青绿/策士紫），三条信息各占一个视觉通道；**稀有度徽章仍显示真稀有度**。理由=签名技是"开过这架机才拿得到"的核心承诺，旧出率下一局常常零刷出，承诺兑现不了 |
 | 2026-07-22 | 2 | S0~S5 全量落地（工程闭环）：①40 条入表 + 围猎改档改名 + i18n 三语 80 键；②milestone_plus 数组化（发放循环 + 生成器兼容）；③锁定管线集中注入 6 技 + viggen 出锥 grace（per-pair 冻结窗）；④致死拦截底座（钛浴缸/复活共用判序）；⑤三个新事件点（机动完成/起飞/STEALTH 上升沿）；⑥超速截击=绕窗口禁火的独立发射通道（duplicate params ×1.3 弹速）；⑦作战云中继直通（cloud_relaying 守卫防 OVERLOAD 乘区双乘/防递归）；⑧f35 越肩发射（锥门+锁定门豁免、包线/窗口质量照查）；⑨夜枭静默弹（missile_evasion 单点过滤覆盖规避+投焰）；⑩x21 被偏转重索敌（2s 直飞 + FOV 内 TEAM_HOSTILE 最近）；⑪f47/x90 drone 不进离屏 despawn 体系=天然永久、ax00 复用奖励僚机管线；⑫**顺手修复既有缺口：`_apply_build_to_new_member` 零调用（720 T1 缺口②漏接线）——现挂 `_spawn_reward_wingman` 尾部，奖励僚机/双子星克隆均吃全队 build**；⑬x44 直改 params 锥角（全消费点自动生效）+ aim_assist cap 防倒退；⑭typhoon 闪避走全局 85% cap（§2.2 的"70%"上翻为全局 cap 兜底，与其余 dodge 技能一致）。验收：sig_skills 47 断言 + 回归门 34 项 PASS + 锚点修复 35 处 + verify 双脚本绿；余 playtest（§5 末条）。 |
 | 2026-07-22 | 1 | 初稿：结构化用户 722 表——41 机签名技能全表数值定稿；系统规则（驾驶门控/CLASSIFIED/换机继承/轴+milestone_plus 数组化）；歧义裁定 14 条（§2.3）；实现分档 S0~S5。设计源=用户，数值细化=Claude（保守值，playtest 调）。 |

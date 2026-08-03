@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # AGL crash-safe Godot bench launcher for Git Bash on Windows.
-# Usage: bench/run.sh [scenario] [duration_seconds] [timeout_seconds]
+# Usage: bench/run.sh [scenario] [duration_seconds] [timeout_seconds] [Shadow|InPlace]
 
 set -e
 
@@ -9,6 +9,7 @@ GODOT="${GODOT:-/d/Program Files (x86)/Steam/steamapps/common/Godot Engine/godot
 SCENARIO="${1:-stress_40}"
 DURATION="${2:-30}"
 TIMEOUT="${3:-0}"
+RUN_MODE="${4:-${AGL_BENCH_MODE:-Shadow}}"
 
 PROJECT_WIN="$(cygpath -w "$PROJECT_DIR")"
 GODOT_WIN="$(cygpath -w "$GODOT")"
@@ -21,7 +22,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$RUNNER_WIN" \
   -Scenario "$SCENARIO" \
   -DurationSeconds "$DURATION" \
   -TimeoutSeconds "$TIMEOUT" \
-  -ProcDumpExe "${AGL_PROCDUMP:-}"
+  -ProcDumpExe "${AGL_PROCDUMP:-}" \
+  -RunMode "$RUN_MODE"
 EXIT_CODE=$?
 set -e
 

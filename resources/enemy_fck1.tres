@@ -1,0 +1,42 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/lancer_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/default_flare.tres" id="4"]
+
+[resource]
+script = ExtResource("1")
+display_name = "F-CK-1"
+; ── 敌用 F-CK-1（王牌中队 WhiteTea，spec events/ace-whitetea-fck1）──
+; 轻型纯机炮骑士：高速 joust 切入扫射 / 穿越脱离；一次性 J-turn 由王牌 profile 注入。
+; 王牌专属机型：不进普通 Token 刷怪池，也不挂导弹。
+max_hp = 55.0
+armor = 0.0
+max_speed = 2100.0
+cruise_speed = 1050.0
+stall_speed_base = 180.0
+acceleration = 58.0
+deceleration = 90.0
+g_drag_factor = 2.7
+max_g = 9.0
+max_g_structural = 11.5
+roll_rate = 4.7
+pilot_stamina = 96.0
+stamina_drain_rate = 23.0
+stamina_recovery_rate = 11.0
+max_altitude = 15700.0
+climb_rate_max = 275.0
+thrust_to_weight = 1.05
+drag_coefficient = 0.022
+afterburner_thrust_mult = 1.6
+fuel_capacity = 3000.0
+fuel_rate_normal = 2.0
+fuel_rate_afterburner = 10.0
+radar_range = 5000.0
+radar_half_angle = 30.0
+lock_time = 2.5
+gun = ExtResource("2")
+flare = ExtResource("4")
+combat = ExtResource("3")
+icon_color = Color(0.78, 0.208, 0.404, 1)

@@ -1,0 +1,38 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=6 format=3]
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/gladiator_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/default_missile.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/enemy_high_flare.tres" id="5"]
+[resource]
+script = ExtResource("1")
+display_name = "F-15 S/MTD"
+max_hp = 70.0
+max_speed = 2600.0
+cruise_speed = 1080.0
+stall_speed_base = 185.0
+acceleration = 58.0
+deceleration = 88.0
+g_drag_factor = 2.8
+max_g = 8.5
+max_g_structural = 11.5
+roll_rate = 4.1
+pilot_stamina = 92.0
+stamina_drain_rate = 23.0
+stamina_recovery_rate = 10.5
+max_altitude = 17500.0
+climb_rate_max = 310.0
+thrust_to_weight = 1.18
+drag_coefficient = 0.020
+afterburner_thrust_mult = 1.58
+fuel_capacity = 3400.0
+fuel_rate_normal = 2.0
+fuel_rate_afterburner = 9.8
+radar_range = 4600.0
+radar_half_angle = 30.0
+lock_time = 2.7
+gun = ExtResource("2")
+missile = ExtResource("4")
+flare = ExtResource("5")
+combat = ExtResource("3")
+icon_color = Color(0.96, 0.21, 0.16, 1)

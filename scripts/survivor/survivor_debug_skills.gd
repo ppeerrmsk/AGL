@@ -620,6 +620,11 @@ func _refresh_live_state() -> void:
 			var rname: String = ["S","A","E","C","N"][int(r)] if int(r) < 5 else "?"
 			pc_parts.append("%s:%d" % [rname, int(pc[r])])
 		lines.append("[color=#fc5]Pity[/color] " + (", ".join(pc_parts) if pc_parts.size() > 0 else "(空)"))
+	if sm and "_classified_pity_misses" in sm:
+		var misses: int = int(sm._classified_pity_misses)
+		lines.append("[color=#fc5]金卡软保底[/color] 未出 %d 次 / 下轮 ×%.1f" % [
+			misses, SurvivorData.classified_pity_weight_multiplier(misses),
+		])
 	if sm and "upgrade_stacks" in sm:
 		var lvl: int = sm.survivor_player.level if sm.survivor_player else 1
 		var steer: Dictionary = SurvivorData.compute_keyword_steering_weights(sm.upgrade_stacks, lvl)

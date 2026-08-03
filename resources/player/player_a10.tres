@@ -56,6 +56,7 @@ radar_range = 2400.0
 radar_half_angle = 30.0
 lock_time = 2.8
 gun = ExtResource("2")
+; 火箭属于局内战区奖励，A-10 默认不挂载
 missile = SubResource("msl")
 flare = ExtResource("4")
 combat = ExtResource("3")

@@ -147,7 +147,7 @@ const FULL_HP_KILL_HP_BONUS := 8.0          ## 满血 + BL 击杀 +8 max_hp/+8 h
 const JAM_SELF_OVERLOAD_DURATION := 8.0     ## JAM 命中至少 1 个敌人 -> 自身 OVERLOAD 8s
 const KILL_STATUS_HEAL_AMOUNT := 30.0
 const FLARE_AOE_JAM_RADIUS_PX := 600.0
-const FLARE_AOE_JAM_DURATION := 5.0
+const FLARE_AOE_JAM_DURATION := 3.0
 const GUN_KILL_FLARE_DROP_JAM_RADIUS_PX := 700.0
 const GUN_KILL_FLARE_DROP_JAM_DURATION := 4.0
 const MISSILE_HIT_AOE_JAM_RADIUS_PX := 1000.0  ## 2km（720 批定稿；旧 desc 800px 与旧值 1200 皆废）
@@ -172,6 +172,7 @@ const ROCKET_HOMING_RETARGET_INTERVAL := 0.4
 ## ── 720 批 T3：钩子技能常量 ──
 const SKILL_QMAAM_BLOODLUST := "qmaam_bloodlust"
 const QMAAM_BLOODLUST_DURATION := 10.0      ## 格斗弹击杀 → 嗜血 10s
+const SIG_X77_STEALTH_DURATION := 5.0       ## 引渡人：导弹击杀隐身
 const SKILL_ADAPT_ENERGY := "adapt_energy"
 const ADAPT_ENERGY_CHARGE := 0.6            ## 击杀低于自己高度的敌人 → 加力充能 +0.6s（6s 池比例，随 CHARGE_MAX 缩放）
 const ADAPT_ENERGY_HEAL := 20.0             ## 击杀高于自己高度的敌人 → 回 20 HP
@@ -225,7 +226,7 @@ static func dispatch_on_kill(killer: Aircraft, victim: Aircraft) -> void:
 
 	# ── 722 sig_x77·引渡人：导弹击杀（含 QAAM）→ 5s STEALTH ──
 	if (kind == "missile" or kind == "qmaam") and stacks.get("sig_x77", 0) > 0:
-		killer.apply_status(StatusEffects.STEALTH, 5.0)
+		killer.apply_status(StatusEffects.STEALTH, SIG_X77_STEALTH_DURATION)
 		EventLogger.log_event("SKILL", killer._log_name(), "引渡人：导弹击杀 → 5s 隐身")
 
 	# 注：击杀小队成员 FEAR 由 fear_squad_spread 走 survivor_spawner._trigger_squad_fear 触发
@@ -251,6 +252,8 @@ static func dispatch_on_kill(killer: Aircraft, victim: Aircraft) -> void:
 	# ── 钩子：对头击杀 +5 max_hp + +5 hp（永久局内） ──
 	if is_head_on and stacks.get(SKILL_HEAD_ON_PERMA_HP, 0) > 0:
 		if killer.params:
+			var earned: float = float(killer.get_meta("head_on_perma_hp_gained", 0.0))
+			killer.set_meta("head_on_perma_hp_gained", earned + HEAD_ON_PERMA_HP_BONUS)
 			killer.params.max_hp += HEAD_ON_PERMA_HP_BONUS
 			killer.hp = minf(killer.hp + HEAD_ON_PERMA_HP_BONUS, killer.params.max_hp)
 			EventLogger.log_event("SKILL_HOOK", killer.callsign,
@@ -272,6 +275,8 @@ static func dispatch_on_kill(killer: Aircraft, victim: Aircraft) -> void:
 
 	# ── 钩子：BLOODLUST 期间击杀 → 永久 +8 max_hp（720 批：去掉"满血"前置）──
 	if stacks.get(SKILL_FULL_HP_KILL_PERMA_HP, 0) > 0 and killer.status_bloodlust_active and killer.params:
+		var earned_bl: float = float(killer.get_meta("bloodlust_perma_hp_gained", 0.0))
+		killer.set_meta("bloodlust_perma_hp_gained", earned_bl + FULL_HP_KILL_HP_BONUS)
 		killer.params.max_hp += FULL_HP_KILL_HP_BONUS
 		killer.hp = minf(killer.hp + FULL_HP_KILL_HP_BONUS, killer.params.max_hp)
 		EventLogger.log_event("SKILL_HOOK", killer.callsign,
@@ -430,5 +435,3 @@ static func _get_upgrade_stacks(ac: Aircraft) -> Dictionary:
 	if ac.has_meta("upgrade_stacks"):
 		return ac.get_meta("upgrade_stacks")
 	return {}
-
-

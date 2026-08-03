@@ -1,0 +1,36 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=5 format=3]
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/lancer_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/default_missile.tres" id="4"]
+[resource]
+script = ExtResource("1")
+display_name = "Mirage III"
+max_hp = 42.0
+max_speed = 2200.0
+cruise_speed = 900.0
+stall_speed_base = 225.0
+acceleration = 43.0
+deceleration = 68.0
+g_drag_factor = 3.5
+max_g = 5.8
+max_g_structural = 8.5
+roll_rate = 3.4
+pilot_stamina = 74.0
+stamina_drain_rate = 31.0
+stamina_recovery_rate = 8.0
+max_altitude = 14500.0
+climb_rate_max = 235.0
+thrust_to_weight = 0.96
+drag_coefficient = 0.026
+afterburner_thrust_mult = 1.45
+fuel_capacity = 2200.0
+fuel_rate_normal = 1.8
+fuel_rate_afterburner = 8.5
+radar_range = 2800.0
+radar_half_angle = 22.0
+lock_time = 3.8
+gun = ExtResource("2")
+missile = ExtResource("4")
+combat = ExtResource("3")
+icon_color = Color(0.96, 0.32, 0.21, 1)

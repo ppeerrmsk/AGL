@@ -1,9 +1,9 @@
 ---
 id: gun-burst-fire
 kind: weapon
-status: done  # 2026-07-29 用户确认工程落地可收口
+status: done  # v3 全敌机一次机会一梭已落地；gun_burst 20/20
 schema_version: 1
-spec_version: 1
+spec_version: 3
 owner: 用户（机制指令）+ Claude（数值细化）
 depends_on: []
 reconstruction_complete: true
@@ -19,7 +19,7 @@ reconstruction_complete: true
 - **两条铁律**（用户指令）：
   1. 射速（fire_rate）越高 → 两梭之间的 CD 越短；
   2. 射速越高 → 同一梭内的出弹频率越快。
-- **平衡不变式**：长时间平均射速严格等于 `fire_rate`（发/分）。DPS、弹药消耗、装填节奏与旧版一致——本 spec 只重排出弹的**时间分布**，不动总量，无需任何数值重平衡。
+- **武器层平衡不变式**：玩家小队与第三方友军持续扣扳机时，长时间平均射速严格等于 `fire_rate`（发/分）。敌方飞机另受 §3.3 的“一次机会一梭”安全门约束，实际平均射速会更低，避免尾追窗口内连续多梭秒杀玩家。
 - **Litmus 自检**：纯视觉/手感真实性修复，不新增系统、不加数值膨胀（反模式"数值叠数值"不适用）。
 - **反模式规避**：不给梭射加独立可升级维度；`gun_firerate` 升级仍只乘 `fire_rate`，梭内频率与梭间 CD 自动同步缩放（两条铁律天然满足）。
 
@@ -85,13 +85,16 @@ gap           = max(burst_count × (base_interval − intra), 0)  # 梭间 CD
 | 弹药耗尽 | 无弹可出，触发整匣装填 |
 | 整匣装填开始 | 装填期禁射（既有语义） |
 | 进入 evasion_mode | 沿用"规避盲射根治"（2026-06-15）：规避中机头大角度机动，绝不允许朝旧 lead 方向喷完剩余整梭 |
+| 当前目标被毁/失效 | 承诺对象已消失，禁止把剩余弹沿旧提前方向喷入空域 |
 | 飞机摧毁 | 上游不再 tick |
 
-### 3.3 与敌方 AI 宏观节奏门的关系（分层，互不替代）
+### 3.3 敌方飞机“一次机会一梭”安全门
 
-- **战术层**（已存在，不动）：敌方 AI `2.5s 允许开火 / 3.0s 强制停火`，目的是给玩家挣脱尾追的窗口。
-- **武器层**（本 spec）：上面窗口内部的微观出弹节奏。以 1400 发/分为例，2.5s 窗口内呈现 ~6 个微梭。
-- 玩家与玩家僚机无战术层节流，只有武器层梭射。
+- **适用范围**：所有 `team == HOSTILE` 且挂载机炮的 `Aircraft`，不区分普通敌机、王牌、无人机、旋翼机或 AI 原型。CIWS / 地面炮仍不在本 spec 范围。
+- **开火机会**：敌方飞机在无强制停火且火控请求开火时，只能启动 **1 个完整 `burst_count` 梭**。梭承诺保证第一发出膛后打完整梭，但同一次机会绝不能衔接第二梭。
+- **强制停火**：该梭结束（或被 JAM / 弹尽 / 装填 / 规避 / 目标被毁硬中止）后，进入 **3.0s** 强制停火；计时从梭结束/中止后的武器 tick 开始。计时结束且火控条件仍满足，才能启动下一梭。
+- **统一执行层兜底**：安全门由 `update_gun` 执行，不依赖某一种 AI 调用路径；即使战术规划、旧 combat tracking、自动扫描或旋翼机路径持续把 `is_firing` 置真，也不能绕过停火期。
+- **友方不受限**：玩家小队（PLAYER）与第三方友军（ALLY）不吃该敌方安全门，继续按 §2.3 的武器层平均射速循环梭射。
 
 ### 3.4 保留语义（重排不改动）
 
@@ -104,6 +107,12 @@ gap           = max(burst_count × (base_interval − intra), 0)  # 梭间 CD
 | AB 回弹 / 机炮发射减伤窗口 / 整匣装填 | 不变 |
 | evasion `weapon_cd_mult` 对 `_fire_cooldown` 的进出缩放 | 不变（作用于梭间 CD） |
 | CIWS / 地面炮（ground_unit、AA） | **不在本 spec 范围**，维持匀速射流 |
+
+### 3.5 命中火星反馈
+
+- 机炮弹真正结算伤害后，在接触点产生 3 道短促小火星；被机炮闪避、无敌拦截的弹不触发，也不计入 `gun_hits`。
+- 同一目标的火星独立 CD 为 **110ms**，一梭密集弹流不会逐发重复播放；不同目标互不压制。
+- 火星寿命 **0.16s**，同屏最多 **12 组**。全部状态住 `BulletManager` 的轻量数组，亮芯/橙边分别合并成一次线段批量提交；禁止为每次命中创建 Node/粒子节点。
 
 ## 4. 结构与组成（Structure）
 
@@ -119,9 +128,14 @@ gap           = max(burst_count × (base_interval − intra), 0)  # 梭间 CD
 - [x] 弹尽立即掐断（`--bench=gun_burst`）；JAM / 装填掐断同一代码路径（同 pattern 置零）
 - [x] fire_rate 上升 → 梭内更密 + 梭间 CD 更短（`--bench=gun_burst`：1800/分 vs 600/分，0.15s/0.18s vs 0.28s/0.70s）
 - [x] 平均射速守恒（`--bench=gun_burst`：3s 内 600/分 出 32 发、1800/分 出 90 发）
+- [x] 敌方飞机持续满足火控时，每次机会只打 1 个完整 `burst_count` 梭；首梭与次梭之间从上一梭末发起至少间隔 3.0s（`--bench=gun_burst`：3.03s）
+- [x] 敌方安全门在同帧被多个 AI 火控入口重复查询时不消耗/覆盖许可；武器执行层仍只能启动一梭（`--bench=gun_burst`）
+- [x] PLAYER / ALLY 不受敌方安全门影响，继续按武器层节奏循环梭射（`--bench=gun_burst`）
 - [ ] 目视确认：低射速炮（UAV/AH-64）观感为"一串一停"，高射速炮近似连续弹链（需进引擎）
 - [ ] 性能：跑生存模式 Sentinel + Lv5+ 压测，FPS 掉幅 < 15（无新增每帧扫描；仅重排出弹时刻）
-- [ ] 已知 seam 未触碰（不动 Situation / 战术层；机动性 accessor 无涉）
+- [x] 真命中才出火星：机炮闪避返回未结算，既不触发火星也不累计 `gun_hits`
+- [x] 火星节流与上限：同目标 110ms CD、0.16s 寿命、同屏 12 组上限、固定两次批量线段提交
+- [x] 已知 seam 未触碰（不动 Situation / 战术决策；机动性 accessor 无涉）
 - [ ] i18n：无玩家可见新文本，不适用
 
 ## 6. 实现计划（Task Pipeline）
@@ -136,10 +150,16 @@ gap           = max(burst_count × (base_interval − intra), 0)  # 梭间 CD
 - [x] 玩家梭级瞄准误差改挂梭起始
 
 ### 阶段 3 — 验证
-- [x] 新增 `--bench=gun_burst` 无头回归测试（9 断言：梭结构 / 守恒 / 铁律缩放 / 承诺 / 规避与弹尽掐断），入 `--bench=all` 回归门
+- [x] `--bench=gun_burst` 无头回归测试（14 断言：梭结构 / 守恒 / 铁律缩放 / 承诺 / 硬中止 / 真命中返回值 / 火星节流回收），入 `--bench=all` 回归门
 - [x] `--bench=all` 全量回归门 15 项 0 失败（weapon / gun_aim / weapon_doctrine 等均未受影响）
 - [x] 同步 reference 索引（code-index 机炮段 + script-index aircraft_weapons 行）+ §7 锚点
 - [ ] 进引擎目视 + Sentinel Lv5+ 压测后 status: done
+
+### 阶段 4 — 敌机致死连射收紧
+- [x] 删除敌机“2.5s 内可连续多梭”的宏观窗口，改为一次火控机会只启动一梭
+- [x] 3.0s 停火计时统一放在武器执行层，覆盖全部敌方 Aircraft 开火路径
+- [x] 增加敌我阵营分流与同帧多入口回归断言
+- [x] `--bench=gun_burst` 20/20
 
 ## 7. 索引锚点（Where）
 
@@ -150,6 +170,8 @@ gap           = max(burst_count × (base_interval − intra), 0)  # 梭间 CD
 | 梭计数状态 | `scripts/aircraft.gd`（_gun_burst_rounds_left，_fire_cooldown 旁） |
 | 参数资源 | `resources/*gun*.tres`（均不覆写，吃默认 burst_count=10） |
 | 无头回归测试 | `scripts/tests/test_gun_burst.gd`（--bench=gun_burst，注册于 scripts/bench/bench_runner.gd） |
+| 机炮命中火星 | `scripts/bullet_manager.gd`（_emit_hit_spark / _update_hit_sparks / _draw） |
+| 敌方一梭安全门 | `scripts/aircraft.gd`（_ai_gun_burst_allowed / _ai_gun_pause_timer）+ `scripts/aircraft/aircraft_weapons.gd`（update_gun） |
 | reference 索引行 | code-index.md「武器系统 — 机炮」段 |
 
 ## 8. 变更记录
@@ -157,3 +179,5 @@ gap           = max(burst_count × (base_interval − intra), 0)  # 梭间 CD
 | 日期 | spec_version | 改动 |
 |---|---|---|
 | 2026-07-05 | 1 | 初稿 + 实现（用户指令：机炮改梭射，射速同时缩短梭间 CD 与加快梭内频率） |
+| 2026-08-01 | 2 | 强化真命中反馈：闪避不计命中；火星按目标 110ms 节流、0.16s 短寿命、12 组封顶并批量绘制 |
+| 2026-08-02 | 3 | 敌方飞机全局改为“一次机会只打一梭，梭后强制停火 3.0s”；安全门下沉武器执行层，堵住不同 AI 路径连续多梭秒杀玩家 |

@@ -67,6 +67,14 @@ var force_pursuit_distance: float = 2500.0  ## 距玩家 > 此值时开加力（
 ## PURSUIT 软维护节流：每 N 秒一次"成员是否还在 ENGAGE"检查
 const PURSUIT_MAINTAIN_INTERVAL := 0.5
 
+## 世界边缘收容（boss-hunter-doctrine §2.4.1）。这是世界外框硬约束，不是已删除的锚点 leash。
+const BOUNDARY_TRIGGER_PX := 2000.0
+const BOUNDARY_RECOVER_MARGIN_PX := 3000.0
+const BOUNDARY_TARGET_MARGIN_PX := 3500.0
+const BOUNDARY_ARRIVAL_RADIUS_PX := 300.0  ## 目标比解除线深 500px，保证抵达 HOLD 前已释放
+const BOUNDARY_HARD_CLAMP_MARGIN_PX := 40.0
+const BOUNDARY_DIRECTIVE_PRIORITY := 100
+
 ## 奖励
 var xp_per_kill: int = 100
 
@@ -100,6 +108,10 @@ var _cloak_remaining: float = 0.0  ## CLOAK 状态剩余时间
 
 ## PURSUIT 软维护节流
 var _maintain_timer: float = 0.0
+
+## instance_id → 本层下发的返场 directive。只在进入/退出边缘带时变更，不每帧重建。
+var _boundary_recoveries: Dictionary = {}
+var _boundary_recovery_active: bool = false
 
 ## 呼号序号（由 survivor_spawner._create_enemy F-47/F-14 分支递增使用）
 ## 不能省 —— spawner 用它生成 WRAITH-01 / PLTGST-01 等
@@ -263,6 +275,11 @@ func update(delta: float) -> void:
 	if not _player or _player.is_destroyed:
 		return
 
+	# 全局敌机边界纪律会跳过 category=boss，飞机类 BOSS 在基类自行守世界外框。
+	# 收容期间暂停专属战术，避免 Relay Break / Wraith 相位 directive 与返场指令抢写；
+	# 其它成员的常规 BFM 仍继续，返场成员也保持火控开启。
+	_update_boundary_recovery()
+
 	# 推进状态机
 	state_timer += delta
 	if cloak_enabled and not _cloak_in_state:
@@ -277,6 +294,96 @@ func update(delta: float) -> void:
 		_enter_state(next_state, prev)
 
 	_update_state(squad_state, delta)
+
+
+## 飞机类 BOSS 的世界边缘收容。返回 true 表示至少一架仍在返场；同名状态位暂停专属战术层。
+func _update_boundary_recovery() -> bool:
+	var should_start := false
+	var has_boss_member := false
+	for m in members:
+		if not is_instance_valid(m) or m.is_destroyed \
+				or String(m.get_meta("category", "")) != "boss":
+			continue
+		has_boss_member = true
+		if MapBoundary.distance_to_edge(m.global_position) <= BOUNDARY_TRIGGER_PX:
+			should_start = true
+			break
+	# AceSupportSquad 也继承本类，但 category=ace_support 的物理出入场/撤离由事件层管理。
+	if not has_boss_member and not _boundary_recovery_active:
+		return false
+	# 常态热路径只做至多 4 次标量距离判断；Dictionary/keys 分配仅在罕见返场期间发生。
+	if not should_start and not _boundary_recovery_active:
+		return false
+
+	if should_start and not _boundary_recovery_active:
+		# 先撤专属战术下过的 directive，再给越界成员下高优先级返场；恢复后从干净相位重启。
+		if squad_state == SquadState.PURSUIT:
+			_tactics_exit()
+		_boundary_recovery_active = true
+
+	var alive_ids: Dictionary = {}
+	for m in members:
+		if not is_instance_valid(m) or m.is_destroyed \
+				or String(m.get_meta("category", "")) != "boss":
+			continue
+		var id := m.get_instance_id()
+		alive_ids[id] = true
+		var edge_dist := MapBoundary.distance_to_edge(m.global_position)
+		var recovery: AIDirective = _boundary_recoveries.get(id, null)
+
+		if recovery != null and edge_dist >= BOUNDARY_RECOVER_MARGIN_PX:
+			var recovered_ai := m._get_ai_controller()
+			if recovered_ai != null and recovered_ai._directive == recovery:
+				recovered_ai.set_event_directive(null)
+			_boundary_recoveries.erase(id)
+			EventLogger.log_event("BOSS", display_name,
+					"%s boundary recovery complete" % m.callsign)
+			continue
+
+		if recovery == null and edge_dist > BOUNDARY_TRIGGER_PX:
+			continue
+
+		# 预测转弯仍越线时才硬钳回；正常路径始终靠 fly_to 真实转弯。
+		if edge_dist <= 0.0:
+			m.global_position = MapBoundary.clamp_inside(
+					m.global_position, BOUNDARY_HARD_CLAMP_MARGIN_PX)
+			m.clear_trail()
+
+		var target := boundary_recovery_point(m.global_position)
+		if recovery == null:
+			recovery = AIDirective.fly_to(
+					target, AIDirective.OnArrival.HOLD, BOUNDARY_ARRIVAL_RADIUS_PX)
+			recovery.combat_disabled = false
+			recovery.priority = BOUNDARY_DIRECTIVE_PRIORITY
+			_boundary_recoveries[id] = recovery
+			EventLogger.log_event("BOSS", display_name,
+					"%s boundary recovery start edge=%.0fpx" % [m.callsign, edge_dist])
+
+		var ai := m._get_ai_controller()
+		if ai != null and ai._directive != recovery:
+			ai.set_event_directive(recovery)
+		if edge_dist <= 0.0:
+			var inward := target - m.global_position
+			if inward.length_squared() > 1.0:
+				m.heading = atan2(inward.x, -inward.y)
+
+	# 死亡成员的 RefCounted directive 不应驻留到 encounter 结束。
+	for id in _boundary_recoveries.keys():
+		if not alive_ids.has(id):
+			_boundary_recoveries.erase(id)
+
+	if _boundary_recoveries.is_empty():
+		if _boundary_recovery_active:
+			_boundary_recovery_active = false
+			if squad_state == SquadState.PURSUIT:
+				_tactics_enter()
+		return false
+	return true
+
+
+## 纯几何：保留与边缘平行的坐标，只把越界轴推回安全带。
+static func boundary_recovery_point(pos: Vector2) -> Vector2:
+	return MapBoundary.clamp_inside(pos, BOUNDARY_TARGET_MARGIN_PX)
 
 # ══════════════════════════════════════════════
 #  状态机：决策
@@ -339,7 +446,8 @@ func _update_state(s: int, delta: float) -> void:
 			_intro_update(delta)
 		SquadState.PURSUIT:
 			_pursuit_update(delta)
-			_tactics_update(delta)
+			if not _boundary_recovery_active:
+				_tactics_update(delta)
 		SquadState.CLOAK:
 			_cloak_update(delta)
 

@@ -135,8 +135,27 @@ func _test_ui_binding() -> void:
 	_check("双状态卡两行脚注",
 		ui._status_notes[2].visible and ui._status_notes[2].text.count("\n") == 1,
 		ui._status_notes[2].text.replace("\n", " | "))
-	_check("脚注进出入场元素表",
-		ui.get_transition_elements().has(ui._status_notes[0]))
+	_check("脚注随整列进入进出场元素表",
+		ui.get_transition_elements().has(ui._cards[0])
+		and not ui.get_transition_elements().has(ui._status_notes[0]))
+
+	var signature := SurvivorData.upgrade_by_id("sig_f15").duplicate(true)
+	signature["signature_offer"] = true
+	signature["signature_aircraft_name_key"] = "AIRCRAFT_F15_NAME"
+	ui.populate([cards[0], cards[1], cards[2], signature] as Array[Dictionary])
+	_check("第四槽完整显示且进入转场",
+		ui._buttons[3].visible and ui._cards[3].visible
+		and ui.get_transition_elements().size() == 5
+		and ui.get_transition_elements().has(ui._cards[3]))
+	_check("四卡布局统一放大", ui._buttons[0].custom_minimum_size == Vector2(240, 180)
+		and ui._buttons[3].custom_minimum_size == Vector2(240, 180))
+	_check("专属卡显示专属徽章", ui._axis_badges[3].text == tr("UPGRADE_SIGNATURE_BADGE"))
+	_check("普通 CLASSIFIED 卡需要闪边",
+		SurvivorUpgradeUI.should_flash_entry(SurvivorData.upgrade_by_id("f14_squad_lock_slow")))
+	_check("低于 CLASSIFIED 的普通卡不闪边",
+		not SurvivorUpgradeUI.should_flash_entry(SurvivorData.upgrade_by_id("hp_up")))
+	_check("专属卡闪边使用洋红优先色",
+		SurvivorUpgradeUI.entry_flash_color(signature) == SurvivorUpgradeUI.SIG_FRAME_COLOR)
 
 	# 只有 2 张卡时第三个位置整列隐藏（含脚注）
 	ui.populate([cards[0], cards[1]] as Array[Dictionary])

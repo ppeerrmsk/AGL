@@ -13,6 +13,7 @@ const EscortBehavior := preload("res://scripts/ai/escort_behavior.gd")
 # 躲弹期间背景 _state 保持原值，分发层短路到 process_evade；退出时按上下文三路重定。
 # 同理 directive / manual_control 本就是分发层旁路（正交模态），只是没占 _state 轴。
 enum AIState { PATROL, ENGAGE, SQUAD_FOLLOW }
+enum RotorcraftState { TRANSIT, REPOSITION, ORBIT, BRAKE, HOVER, EGRESS }
 enum EngageTactic {
 	LEAD_PURSUIT,    ## 前置追踪：积极闭合
 	LAG_PURSUIT,     ## 滞后追踪：保持后半球不冲过
@@ -566,6 +567,19 @@ var _simple_confused: bool = false        ## 是否进入"发呆"状态
 var _simple_confused_timer: float = 0.0   ## 发呆剩余时间
 var _simple_confused_heading: Vector2 = Vector2.ZERO ## 发呆时的固定飞行方向
 
+# ── 旋翼机独立状态（20Hz simple_ai 消费）──
+const ROTOR_SEARCH_RANGE_PX := 900.0       ## 1800m
+const ROTOR_ORBIT_RADIUS_PX := 250.0       ## 500m
+const ROTOR_ORBIT_TOLERANCE_PX := 40.0     ## ±80m
+const ROTOR_REPOSITION_OUTER_PX := 425.0   ## 850m
+const ROTOR_ORBIT_SPEED_KMH := 180.0
+const ROTOR_HOVER_MAX_SPEED_MS := 15.0 / 3.6
+var _rotor_state: int = RotorcraftState.TRANSIT
+var _rotor_state_timer: float = 0.0
+var _rotor_orbit_sign: float = 1.0
+var _rotor_fire_timer: float = 0.0
+var _rotor_fire_on: bool = false
+
 ## 当前战术名称（供 DebugPanel 读取）
 var current_tactic_name: String = ""
 ## 压力/SA 读取：DebugPanel 通过 ctrl.personality.current_stress / current_sa_level 访问
@@ -851,6 +865,9 @@ func _physics_process_impl(delta: float) -> void:
 func request_overkill_retarget() -> void:
 	if _overkill_retarget_cd > 0.0 or _target_source != TargetSource.TS_SCORED:
 		return
+	# 机炮是可中断的持续火力：在途导弹只阻止重复补弹，不得催机炮手放弃目标。
+	if aircraft.weapon_preference == Aircraft.WeaponPreference.PREFER_GUN:
+		return
 	if aircraft.commanded_target != null and is_instance_valid(aircraft.commanded_target) \
 			and not aircraft.commanded_target.is_destroyed:
 		return
@@ -907,11 +924,21 @@ func is_evading() -> bool:
 #  未来 anchor 区域保护（命令轮盘"防守此区"，重构计划 §7.1）在此层接入。
 # ══════════════════════════════════════════════
 
-## 玩家命令交战判定（铁律豁免共用：leash / 超距脱离都不得拽回玩家点名的交战）
+## 玩家命令交战判定（铁律豁免共用：leash / 超距 / 超时 / 重评估均不得覆盖）。
+## 僚机不复制 commanded_target 所有权，但跟打长机当前点名目标时继承命令优先级。
 func _cmd_engage_active() -> bool:
-	return aircraft.commanded_target != null \
+	var own_command: bool = aircraft.commanded_target != null \
 			and aircraft.commanded_target == _current_target \
 			and is_instance_valid(aircraft.commanded_target) and not aircraft.commanded_target.is_destroyed
+	if own_command:
+		return true
+	if not _squad_attacking_leader_target or not squad or not is_instance_valid(squad.leader):
+		return false
+	var leader_command: CombatUnit = squad.leader.commanded_target
+	return leader_command != null and is_instance_valid(leader_command) \
+			and not leader_command.is_destroyed \
+			and leader_command == squad.leader.combat_target \
+			and leader_command == _current_target
 
 
 ## 统一约束执行点。返回 true = 本 tick 已被约束接管（调用方直接 return）。
@@ -919,16 +946,22 @@ func _cmd_engage_active() -> bool:
 ## simple 有自己的 escort tether；drone 的 kamikaze 分支在更上游 return）。
 func _apply_constraints(delta: float) -> bool:
 	# ── 约束 1：战斗偏好区域（combat_zone containment，hunter UAV 专用）──
+	# 先净化已释放引用再做 `is` 类型判断：BOSS queue_free 后 hunter AI
+	# 仍会独立 tick，对 freed Object 求 `is CombatUnit` 会直接报错（SEAM-020）。
+	if not is_instance_valid(combat_zone_anchor):
+		combat_zone_anchor = null
+		combat_zone_radius = 0.0
 	# 锚点是飞机/单位且已被击坠：解除区域，回退到正常 AI（追玩家 / 自由扫描）
-	if combat_zone_anchor is CombatUnit and (combat_zone_anchor as CombatUnit).is_destroyed:
+	elif combat_zone_anchor is CombatUnit and (combat_zone_anchor as CombatUnit).is_destroyed:
 		combat_zone_anchor = null
 		combat_zone_radius = 0.0
 	if combat_zone_anchor != null and is_instance_valid(combat_zone_anchor) and combat_zone_radius > 0.0:
 		var zone_center: Vector2 = combat_zone_anchor.global_position
 		var self_dist := aircraft.global_position.distance_to(zone_center)
 		if self_dist > combat_zone_radius:
-			# 出界：强制回返（release 被高优先级拒绝时跳过整段回返）
-			if release_target(TargetSource.TS_SCORED, "combat zone exit"):
+			# 出界：战区约束至少拥有 BOSS 指派权限，否则 SwarmDirector 用 TS_BOSS
+			# 锁住玩家后，旧 TS_SCORED 回收会被优先级守卫拒绝，UAV 会一路追出母巢。
+			if release_target(TargetSource.TS_BOSS, "combat zone exit"):
 				enter_patrol_state(false)  # 航点自带（下方 zone_center）
 				waypoints = PackedVector2Array([zone_center])
 				current_waypoint_index = 0
@@ -941,14 +974,15 @@ func _apply_constraints(delta: float) -> bool:
 		elif _current_target != null and is_instance_valid(_current_target):
 			var target_dist := _current_target.global_position.distance_to(zone_center)
 			if target_dist > combat_zone_radius * COMBAT_ZONE_TARGET_SLACK:
-				if release_target(TargetSource.TS_SCORED, "target left combat zone"):
+				if release_target(TargetSource.TS_BOSS, "target left combat zone"):
 					aircraft.ai_override_pursuit = false
 
 	# ── 约束 2：小队 leash（spec squad-cohesion §3.2，交战/躲弹一视同仁）──
 	# 根治"飞着飞着绕一大圈查无此人"（SEAM-010：旧实现散在 _process_engage 与
 	# process_evade 两份拷贝，漏一个状态就是一个脱队 bug）。
 	# 豁免：simple(有 escort tether) / bvr_only / boss / hunter(zone 管) /
-	# 命令铁律（玩家点名打远目标不许拽回；躲弹中无此豁免——保持旧 evade-leash 语义）。
+	# 命令铁律（含跟打长机点名目标；玩家点名打远目标不许拽回；
+	# 躲弹中无此豁免——保持旧 evade-leash 语义）。
 	if simple_ai:
 		return false
 	var leash_applicable: bool = _evading \
@@ -986,15 +1020,22 @@ func _apply_constraints(delta: float) -> bool:
 # ══════════════════════════════════════════════
 #  目标所有权仲裁（Phase 1 目标仲裁器，2026-07-04，重构计划 §5）
 # ══════════════════════════════════════════════
-## 四级优先级（大者胜）：commanded > directive > boss/swarm > scored。
+## 五级优先级（大者胜）：commanded > directive > friendly asset > boss/swarm > scored。
 ## 低优先级请求不得抢占/清除高优先级持有的**存活**目标——终结"谁后写谁赢"：
 ## 此前 spawner/SwarmDirector/BOSS 的注释都在描述与 AIController 守卫的军备竞赛
 ## （survivor_spawner ~1917 / swarm_director ~165 / poltergeist ~251），根因就是
 ## 目标写入无来源标记。目标已死/失效 = 不再受保护（_target_holder_pri 自动降级）。
-enum TargetSource { TS_NONE = 0, TS_SCORED = 1, TS_BOSS = 2, TS_DIRECTIVE = 3, TS_COMMANDED = 4 }
+enum TargetSource {
+	TS_NONE = 0,
+	TS_SCORED = 1,
+	TS_BOSS = 2,
+	TS_ASSET = 3,
+	TS_DIRECTIVE = 4,
+	TS_COMMANDED = 5,
+}
 var _target_source: int = TargetSource.TS_NONE
 
-const _TS_NAMES := ["none", "SCORED", "BOSS", "DIRECTIVE", "COMMANDED"]
+const _TS_NAMES := ["none", "SCORED", "BOSS", "ASSET", "DIRECTIVE", "COMMANDED"]
 
 
 ## ROE 感知门（spec global-awareness-roe §2.5）：中队察觉 + GARRISON 圈判定。
@@ -1027,16 +1068,38 @@ func _target_holder_pri() -> int:
 	return _target_source
 
 
+## 当前有效目标的来源；目标已失效时不暴露陈旧的来源记账。
+func get_target_source() -> int:
+	return _target_holder_pri()
+
+
 ## 设目标唯一入口：目标字段 + 来源记账 + 归因日志。
 ## ⚠ 只管目标本身——状态切换/计时器/编队清理等副作用仍由调用方处理（Phase 2 再收口）。
 ## 返回 false = 被更高优先级持有者拒绝，调用方应放弃本次指派（不要绕过直写！）。
 func acquire_target(tgt: CombatUnit, source: int, why: String = "") -> bool:
 	if tgt == null or not is_instance_valid(tgt) or tgt.is_destroyed:
 		return false
+	if aircraft.is_sensor_engagement_obscured(tgt):
+		return false
+	# 战区临时空中支援：只参与对空，不因附近机场/地面战区的目标被跨区拽去舔地。
+	# 用通用 meta 收口在目标唯一入口，避免在各套评分/编队扫描里散落生存模式判断。
+	if aircraft.get_meta("air_targets_only", false) == true and not (tgt is Aircraft):
+		return false
+	# 战区 A-10 支援：只攻击真正的 GroundUnit，不把附近飞机/舰船当作替代目标。
+	if aircraft.get_meta("ground_targets_only", false) == true and not (tgt is GroundUnit):
+		return false
+	# 友军设施硬门（spec friendly-asset-aggro §3.3）：共享 AI 只认通用 meta，
+	# 不知道机场/航母/生存模式。自主评分、BOSS 软指派和 ASSET 调度都只能攻击
+	# ACTIVE 组；明确事件指令与玩家命令可按设计绕过。
+	if tgt.has_meta(CombatUnit.META_FRIENDLY_ASSET_GROUP) \
+			and source <= TargetSource.TS_ASSET \
+			and tgt.get_meta(CombatUnit.META_FRIENDLY_ASSET_ACTIVE, false) != true:
+		return false
 	if tgt != _current_target and source < _target_holder_pri():
 		return false
 	# ROE 感知门（spec global-awareness-roe §2.5/§3.1）：自发评分交战（TS_SCORED）受
-	# 中队察觉门约束；指挥部指派（TS_BOSS）/ 事件（TS_DIRECTIVE）/ 玩家命令（TS_COMMANDED）
+	# 中队察觉门约束；指挥部指派（TS_BOSS）/ 据点分流（TS_ASSET）/
+	# 事件（TS_DIRECTIVE）/ 玩家命令（TS_COMMANDED）
 	# 天然绕过。姿态/察觉 meta 由生存层 RoeDirector 写入，无 meta 的单位不受约束
 	# （沙盒 / F5 调试 / adds / boss / 玩家方 —— 共享层零模式分支）。
 	if source == TargetSource.TS_SCORED and tgt != _current_target \
@@ -1296,8 +1359,140 @@ func _directive_follow_path_step() -> void:
 #  跳过压力/SA/BFM 决策树，只做巡逻+直线追踪
 # ══════════════════════════════════════════════
 
+## 旋翼机专用 AI：运输型沿航线平飞；攻击型在地面目标外圈重新定位，随后
+## 以切向速度环绕并周期性刹停悬停。机头始终独立指向目标，绝不进入固定翼 BFM。
+func _process_rotorcraft(delta: float) -> void:
+	var attack_role: bool = aircraft.params.rotorcraft_role == AircraftParams.RotorcraftRole.ATTACK
+	if not attack_role or not enable_combat:
+		_rotor_follow_route()
+		return
+
+	# 目标只能是真正可交战的 GroundUnit；战略硬目标 is_lock_immune，自动排除。
+	if _current_target == null or not is_instance_valid(_current_target) \
+			or _current_target.is_destroyed or not (_current_target is GroundUnit) \
+			or _current_target.is_lock_immune():
+		if _current_target != null:
+			release_target(TargetSource.TS_SCORED, "rotor target invalid")
+		_scan_timer -= delta
+		if _scan_timer <= 0.0:
+			_scan_timer = 0.5
+			var best: GroundUnit = null
+			var best_d: float = ROTOR_SEARCH_RANGE_PX
+			for unit in CombatUnit.all_units:
+				if not is_instance_valid(unit) or not (unit is GroundUnit) or unit.is_destroyed:
+					continue
+				if not aircraft.is_hostile_to(unit) or unit.is_lock_immune():
+					continue
+				var d: float = aircraft.global_position.distance_to(unit.global_position)
+				if d < best_d:
+					best_d = d
+					best = unit
+			if best != null and acquire_target(best, TargetSource.TS_SCORED, "rotor ground scan"):
+				_rotor_state = RotorcraftState.REPOSITION
+				_rotor_orbit_sign = -1.0 if randf() < 0.5 else 1.0
+				_rotor_state_timer = 0.0
+		if _current_target == null:
+			_rotor_follow_route()
+			return
+
+	var target: GroundUnit = _current_target as GroundUnit
+	if target == null:
+		_rotor_follow_route()
+		return
+	aircraft.set_combat_target(target)
+	aircraft.rotorcraft_aim_position = target.global_position
+	aircraft.set_target_tier(CombatUnit.AltitudeTier.LOW)
+	var offset: Vector2 = aircraft.global_position - target.global_position
+	var dist: float = offset.length()
+	var radial: Vector2 = offset / dist if dist > 1.0 else Vector2.RIGHT
+
+	# 目标跑出任务搜索圈就回航线，不跨地图追逐。
+	if dist > ROTOR_SEARCH_RANGE_PX * 1.2:
+		release_target(TargetSource.TS_SCORED, "rotor target out of range")
+		aircraft.clear_combat_target()
+		_rotor_state = RotorcraftState.TRANSIT
+		_rotor_follow_route()
+		return
+
+	match _rotor_state:
+		RotorcraftState.REPOSITION:
+			var orbit_slot := target.global_position + radial * ROTOR_ORBIT_RADIUS_PX
+			aircraft.target_position = orbit_slot
+			aircraft.target_speed_kmh = aircraft.params.cruise_speed
+			if absf(dist - ROTOR_ORBIT_RADIUS_PX) <= ROTOR_ORBIT_TOLERANCE_PX:
+				_rotor_state = RotorcraftState.ORBIT
+				_rotor_state_timer = randf_range(7.0, 11.0)
+		RotorcraftState.ORBIT:
+			var tangent := Vector2(-radial.y, radial.x) * _rotor_orbit_sign
+			# 切向前视点 + 径向误差回正，产生平移绕飞而不是固定翼式大半径转弯。
+			var radial_error := dist - ROTOR_ORBIT_RADIUS_PX
+			aircraft.target_position = aircraft.global_position + tangent * 180.0 - radial * radial_error * 1.5
+			aircraft.target_speed_kmh = ROTOR_ORBIT_SPEED_KMH
+			_rotor_state_timer -= delta
+			if dist > ROTOR_REPOSITION_OUTER_PX:
+				_rotor_state = RotorcraftState.REPOSITION
+			elif _rotor_state_timer <= 0.0:
+				_rotor_state = RotorcraftState.BRAKE
+		RotorcraftState.BRAKE:
+			aircraft.target_position = aircraft.global_position
+			aircraft.target_speed_kmh = 0.0
+			if aircraft.speed <= ROTOR_HOVER_MAX_SPEED_MS:
+				_rotor_state = RotorcraftState.HOVER
+				_rotor_state_timer = randf_range(3.5, 6.0)
+		RotorcraftState.HOVER:
+			aircraft.target_position = aircraft.global_position
+			aircraft.target_speed_kmh = 0.0
+			_rotor_state_timer -= delta
+			if _rotor_state_timer <= 0.0:
+				_rotor_state = RotorcraftState.ORBIT
+				_rotor_state_timer = randf_range(7.0, 11.0)
+		_:
+			_rotor_state = RotorcraftState.REPOSITION
+
+	_update_rotorcraft_fire(target, delta)
+
+
+func _rotor_follow_route() -> void:
+	aircraft.is_firing = false
+	aircraft.rotorcraft_aim_position = Vector2.INF
+	if waypoints.is_empty():
+		aircraft.target_position = aircraft.global_position
+		aircraft.target_speed_kmh = 0.0
+		return
+	if current_waypoint_index >= waypoints.size():
+		current_waypoint_index = 0
+	var wp: Vector2 = waypoints[current_waypoint_index]
+	if aircraft.global_position.distance_to(wp) < arrival_distance:
+		current_waypoint_index = (current_waypoint_index + 1) % waypoints.size()
+		wp = waypoints[current_waypoint_index]
+	aircraft.target_position = wp
+	aircraft.target_speed_kmh = aircraft.params.cruise_speed
+
+
+func _update_rotorcraft_fire(target: GroundUnit, delta: float) -> void:
+	if target == null or not is_instance_valid(target) or target.is_destroyed \
+			or aircraft.params.gun == null:
+		aircraft.is_firing = false
+		return
+	_rotor_fire_timer -= delta
+	if _rotor_fire_timer <= 0.0:
+		_rotor_fire_on = not _rotor_fire_on
+		_rotor_fire_timer = randf_range(0.45, 0.8) if _rotor_fire_on else randf_range(0.8, 1.4)
+	var to_target: Vector2 = target.global_position - aircraft.global_position
+	var aim_heading: float = atan2(to_target.x, -to_target.y)
+	aircraft._gun_lead_heading = aim_heading
+	var range_px: float = aircraft.params.gun.max_range * CombatUnit.PIXELS_PER_METER
+	var aligned: bool = absf(angle_difference(aircraft.heading, aim_heading)) \
+			<= deg_to_rad(aircraft.params.gun.fire_cone_half_angle)
+	var firing_state: bool = _rotor_state == RotorcraftState.ORBIT \
+			or _rotor_state == RotorcraftState.BRAKE or _rotor_state == RotorcraftState.HOVER
+	aircraft.is_firing = _rotor_fire_on and firing_state and aligned and to_target.length() <= range_px
+
 func _process_simple(delta: float) -> void:
 	aircraft.keep_target_on_arrival = false
+	if aircraft.params and aircraft.params.flight_model == AircraftParams.FlightModel.ROTORCRAFT:
+		_process_rotorcraft(delta)
+		return
 
 	# ── 护驾长机失效检测（Sentinel 被击坠）──
 	# 一旦长机不再有效，立即清除 orbit flag 和 squad 引用，回退为独立 simple AI
@@ -2081,7 +2276,10 @@ func _process_engage(delta: float) -> void:
 	# （因为 FREE 扫描本身就是在 leader.combat_target == null 时才触发的，
 	#  这个 check 第一帧就开始累积，1.5 秒后必定触发 disengage）。
 	if _squad_attacking_leader_target and squad and squad.leader and is_instance_valid(squad.leader):
-		if not squad.leader.combat_target:
+		var leader_still_on_target: bool = squad.leader.combat_target != null \
+				and is_instance_valid(squad.leader.combat_target) \
+				and squad.leader.combat_target == _current_target
+		if not leader_still_on_target:
 			_leader_target_lost_timer += delta
 			if _leader_target_lost_timer >= LEADER_TARGET_LOST_GRACE:
 				_leader_target_lost_timer = 0.0
@@ -2116,17 +2314,15 @@ func _process_engage(delta: float) -> void:
 		else:
 			_squad_range_grace_timer = 0.0
 
-	# 交战时间限制（BOSS 攻击手无限制）
-	if not is_boss_attacker() and _engage_timer > engage_duration:
+	# 交战时间限制（BOSS 攻击手 / 玩家命令无限制）
+	if not is_boss_attacker() and not _cmd_engage and _engage_timer > engage_duration:
 		TargetSelection.disengage(self)
 		return
 
 	# ── 交战中目标重评估（受 focus 影响） ──
-	# 玩家命令铁律：本机带存活 commanded_target 时跳过独立重评估，AI 不得改打别的。
-	var _has_cmd: bool = aircraft.commanded_target != null \
-			and is_instance_valid(aircraft.commanded_target) and not aircraft.commanded_target.is_destroyed
+	# 玩家命令铁律：本机点名或跟打长机点名目标时，AI 都不得自主改打别的。
 	var eval_interval := lerpf(TARGET_EVAL_INTERVAL_MIN, TARGET_EVAL_INTERVAL_MAX, focus)  # 低专注=3秒重评，高专注=10秒
-	if not _has_cmd and _target_eval_timer >= eval_interval:
+	if not _cmd_engage and _target_eval_timer >= eval_interval:
 		_target_eval_timer = 0.0
 		TargetSelection.reevaluate_target(self)
 

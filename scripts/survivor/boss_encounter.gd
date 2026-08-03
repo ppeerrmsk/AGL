@@ -21,11 +21,18 @@ var bgm_track: String = "boss"            ## AudioManager music id；spawn 时�
 var bgm_layers: Array[String] = []        ## 非空 = 层叠 BGM 模式（多轨同步，按音量切层），忽略 bgm_track
 var bgm_playlist: Array[String] = []      ## 非空 = 顺序播放列表（首曲完接下一首，列表循环），优先级高于 layers/track
 var initial_heading_deg: float = 90.0     ## 出场朝向（度，0=北）；由 ZoneData.boss_heading_deg 决定
+## 本 BOSS 在本局生成前已经被玩家击败的生涯累计次数。
+## 只在 spawn 前注入；胜利写档不会让本场战斗中途跳层（spec boss-clear-progression）。
+var prior_defeats: int = 0
 
 # ── 运行时状态 ──
 var active: bool = false                  ## false = encounter 结束（全灭或未激活）
 ## true 时 HUD BOSS 血条面板显示。预驻 / 巡逻阶段为 false，玩家真正进入战斗才亮血条
 var hud_visible: bool = false
+
+## 由 BossEncounterEvent 在 spawn 前统一注入。保留完整次数，当前各 BOSS 只消费 0 / >=1 两层。
+func configure_progression(defeat_count: int) -> void:
+	prior_defeats = maxi(0, defeat_count)
 
 ## encounter 是否已结束（胜利判定：曾 active → 变 inactive）
 func is_defeated() -> bool:

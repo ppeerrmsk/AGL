@@ -3,7 +3,7 @@ id: zone-reward-docking
 kind: system
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 1
+spec_version: 10
 owner: noelu
 depends_on: [aircraft-evolution, ace-system, survivor-loop, event-system]
 reconstruction_complete: false
@@ -129,7 +129,7 @@ ACE 等级修正（"等级越高的飞机奖励越好"）：
 | 项 | 规则 |
 |---|---|
 | 适用 | 事件轰炸机（Tu-160 flee）、城区直升机（CH-47/AH-64 flee）。⚠ **开局教程轰炸机（3 架）豁免**——纯教学靶机，刷玩家面前练锁定/攻击，不带护卫（`spawn_bomber_flee(..., with_escort=false)`） |
-| 编成 | 每个逃跑组附 **2~4 架战斗机护卫**（机型按当前有效等级选型，成建制小队） |
+| 编成 | 每个逃跑组附 **2~4 架战斗机护卫**（机型按当前有效响应等级选型，成建制小队；独立零 Token 候选池，不读取常规战场剩余 Token） |
 | 行为 | 随队伴飞（跟随 flee 航线）；玩家进入 ~3km 或攻击护航对象 → 护卫转向交战玩家；护航对象全灭/逃出 → 护卫转 EGRESS 飞离 |
 | 计费 | 同 adds：不占 token、skip_far_cleanup、击杀给正常 XP（不给 adds 满级 XP） |
 
@@ -230,6 +230,7 @@ ACE 等级修正（"等级越高的飞机奖励越好"）：
 | 2026-07-29 | 8 | **按用户反馈恢复固定号机号**：动态压缩映射在反复换帅后让同一数字指向不同飞机，认知成本过高。数字键重新严格匹配出生时的稳定 `squad_slot`；阵亡号位允许留空，新奖励机仍由 `_next_free_squad_slot` 回填最小空号。小队面板显式显示每架飞机的固定数字。 |
 | 2026-07-24 | 9 | **playtest 修复：绕圈进近永远停不了**（用户拍板"放宽判定容错"）。根因：着陆速度用绝对 300 判定，但飞机转弯拉 G 时物理最低速被抬到角点速度（`stall_base×1.2×√max_g` = 528~792 km/h），而 RTS 下停到一点会自然绕圈=持续 2~3G→速度地板顶在 500+，`≤300 持续 1s` 永远凑不齐（体感=明明写 300、到了 300 却不触发）。修法：`dock_point._dock_speed_kmh` 用 **g 中和当量**（实测速度 ÷ `g^0.4`）比阈值——物理最低速 = `stall_base×g^0.4×1.05`，除掉 `g^0.4` 后直线/绕圈的"减到底"都映射回同一 ~231 当量；`_hold` 超阈改快速衰减（`HOLD_DECAY_MULT=2.0`）不清零防 G 抖动。1G 直飞 `g^0.4=1` 行为不变。`--import` 零错误 |
 | 2026-07-24 | 8 | **奖励系统四调整**（用户拍板）。① **整局去重**：武器/技能/航母每种整局唯一（`_used_reward_ids`，roll 即登记、永不再出）；**僚机豁免=可重复保底**（修 `_ctx_owns_weapon` 漏过滤 tail_mine/loyal/qmaam 导致的重复武器）；兜底从"重复 tail_mine"改"僚机"。② **航母整局保证**：pity `CARRIER_PITY_ROLLS=4`——前 4 次 roll 未出航母则强制发，确保每局必现一次。③ **+1 僚机奖励改一次给 2 架**（`_claim_wingman_reward(count=2)`，满编能塞几架塞几架）。④ **停靠必送 1 架僚机**（机场/航母不除外，`_on_dock_docked` 复制王牌机 + `DOCK_WINGMAN_GRANTED` i18n）。新增 bench `zone_rewards`（去重/保底/航母保证 3 断言）；回归门 37/0 绿 |
+| 2026-08-03 | 10 | **ADBS 护卫退役门修复**：逃跑组护卫改用独立零 Token 候选池，只服从响应等级解锁/退役与专用编成排除；不再因常规 Token 耗尽触发 MQ-109 绝对兜底。常规池无合格候选时改为跳过本轮。`spawn_pool` 新增零 Token + 高响应等级回归。 |
 
 ## 9.1 一次性机场设计后果（2026-07-23，待 playtest 复核）
 

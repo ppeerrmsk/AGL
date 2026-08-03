@@ -1141,10 +1141,9 @@ func _refresh_status_panel() -> void:
 	else:
 		var parts: Array[String] = []
 		for stat in agg_add:
-			parts.append("%s %+d" % [tr(str(SurvivorData.MILESTONE_STAT_I18N.get(stat, ""))), int(agg_add[stat])])
+			parts.append(_fmt_milestone_value(str(stat), float(agg_add[stat]), "add", true))
 		for stat in agg_mult:
-			parts.append("%s %+d%%" % [tr(str(SurvivorData.MILESTONE_STAT_I18N.get(stat, ""))),
-				int(round((float(agg_mult[stat]) - 1.0) * 100.0))])
+			parts.append(_fmt_milestone_value(str(stat), float(agg_mult[stat]), "mult", true))
 		var idx := 0
 		while idx < parts.size():
 			var row := Label.new()
@@ -1194,11 +1193,22 @@ func _y2k_header(txt: String) -> Label:
 
 ## 里程碑效果 → 明细短文（"HP+25" / "机炮伤害+8%" / "锁定耗时-10%"）
 func _fmt_milestone_bonus(m: Dictionary) -> String:
-	var stat_name := tr(str(SurvivorData.MILESTONE_STAT_I18N.get(str(m.get("stat", "")), "")))
-	var v := float(m.get("value", 0.0))
-	if str(m.get("kind", "add")) == "mult":
-		return "%s%+d%%" % [stat_name, int(round((v - 1.0) * 100.0))]
-	return "%s%+d" % [stat_name, int(v)]
+	return _fmt_milestone_value(str(m.get("stat", "")), float(m.get("value", 0.0)),
+		str(m.get("kind", "add")), false)
+
+
+func _fmt_milestone_value(stat: String, value: float, kind: String, spaced: bool) -> String:
+	var stat_name := tr(str(SurvivorData.MILESTONE_STAT_I18N.get(stat, "")))
+	var gap := " " if spaced else ""
+	if kind == "mult":
+		return "%s%s%+d%%" % [stat_name, gap, int(round((value - 1.0) * 100.0))]
+	if stat == "armor":
+		# 里程碑表存 armor 点数；UI 显示其对无穿甲伤害的等效减伤率。
+		var dr_percent: int = int(round(value / (value + Aircraft.ARMOR_K) * 100.0))
+		return "%s%s%+d%%" % [stat_name, gap, dr_percent]
+	if stat == "max_g":
+		return "%s%s%+.1f" % [stat_name, gap, value]
+	return "%s%s%+d" % [stat_name, gap, int(round(value))]
 
 
 func _show_upgrade_detail(u: Dictionary) -> void:

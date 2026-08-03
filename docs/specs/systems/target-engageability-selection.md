@@ -3,7 +3,7 @@ id: target-engageability-selection
 kind: system
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 4
+spec_version: 5
 owner: ppeerrmsk
 depends_on: [squad-ai-escort]
 reconstruction_complete: false
@@ -24,7 +24,7 @@ reconstruction_complete: false
 ### 体验目标
 - AI **优先打"现在就能命中"的目标**：在机头正前方、进了导弹包络、已锁定、且队友还没打死的那架。
 - 近但大偏轴（要大转弯才追得上）→ **不优先**，避免"贴着却打不出 / 盲发浪费弹"。
-- 队友已经有足够弹药飞向某目标（必死）→ **让开**，火力转移到下一个，避免超杀浪费。
+- 队友已经有足够承诺火力飞向某目标时，导弹优先 AI → **让开**，火力转移到下一个，避免导弹超杀浪费；机炮优先 AI 继续咬住，直到目标确认摧毁。
 - 距离只当"打平时谁先死得快"的次要 tiebreaker，绝不主导。
 
 ### Litmus 自检（引 DESIGN_PHILOSOPHY）
@@ -65,13 +65,15 @@ reconstruction_complete: false
 | 修饰 | 公式 | 说明 |
 |---|---|---|
 | 视觉遮蔽 | `*= _visibility_score_mult(tgt)` | 既有：低空 0.80 / 云中 0.65，取较强抑制 |
-| 队友超杀 | `*= overkill_mult` | `team_inbound_damage(tgt, team, exclude=self) >= tgt.hp` 时 `overkill_mult = 0.10`，否则 `1.0` |
+| 队友超杀 | `*= overkill_mult` | **仅非机炮优先 AI**：`team_inbound_damage(tgt, team, exclude=self) >= tgt.hp` 时 `overkill_mult = 0.10`，否则 `1.0`；机炮优先恒为 `1.0` |
 | 偏好高度 | `*= 1.3` | 既有：`tgt_tier == preferred_altitude_tier` |
 | 护卫加权 | `+= escort_target_bonus(leader, tgt)` | 既有：护卫僚机咬"咬长机者"，绝对加分（叠在 base[0,1] 同尺度上，需复核量级，见 §6 阶段3） |
 | **守后优先** | `+= REAR_GUARD_PRIORITY * rear_threat_score` | **仅守后语境**（见 §2.4）：长机后半球且准备攻击长机的敌机大幅提权，主导本次选择。`REAR_GUARD_PRIORITY = 100.0`（与 escort 同加性尺度，远大于 base[0,1]） |
 | 目标粘性 | `+= STICKY_BONUS` | 当前目标加 `STICKY_BONUS = 0.10`（替代旧 `focus*5`，适配新 [0,1] 尺度） |
 
-**超杀即时让路**：武器层命中 `TEAM_OVERKILL` 时，仅对 `TS_SCORED` 自动目标催促下一 AI tick 重评（每机 1s 冷却）；本次重评不给已超杀当前目标叠粘性，也不套切换迟滞。玩家显式 `commanded_target` / FOCUS 是铁律，绝不触发自动让路。
+**超杀即时让路**：武器层命中 `TEAM_OVERKILL` 时，仅对非机炮优先、`TS_SCORED` 自动目标催促下一 AI tick 重评（每机 1s 冷却）；本次重评不给已超杀当前目标叠粘性，也不套切换迟滞。机炮优先 AI 不响应此请求，继续保留目标粘性与正常切换迟滞。玩家显式 `commanded_target` / FOCUS 是铁律，绝不触发自动让路。
+
+**武器语义边界**：超杀是导弹/电磁炮等“发射后不可撤回的承诺火力”的弹药纪律，不是目标状态。机炮是持续、可中断且命中不确定的火力；机炮优先 AI 不因队友在途导弹而把目标视为“已死”，但导弹执行层仍禁止它向已有致死承诺伤害的目标重复补射。
 
 #### 2.4 守后优先（守护后方战术专属加权）
 
@@ -123,7 +125,7 @@ for tgt in radar_targets:
     base = 0.45*align01 + 0.30*env01 + 0.15*lock01 + 0.10*prox01
 
     base *= visibility_mult(tgt)
-    if team_inbound_damage(tgt, team, exclude=me) >= tgt.hp:
+    if not gun_priority and team_inbound_damage(tgt, team, exclude=me) >= tgt.hp:
         base *= 0.10                                             # 超杀让路
     if tgt_tier == preferred_altitude_tier: base *= 1.3
     if escort_leader: base += escort_target_bonus(escort_leader, tgt)
@@ -192,6 +194,7 @@ func rear_threat_score(leader, cand) -> float:   # 返回 [0,1]
 
 - [x] **场景A 近偏轴 vs 远正对**：近(2000m)25°偏轴 vs 远(3000m)正对，均满锁 → 选远正对。`s_far=0.980 > s_near=0.612` ✓（单测）
 - [x] **场景B 队友超杀**：同目标，队友 80dmg 制导弹在途（hp=60）→ 分骤降。`0.987 → 0.099 (×0.10)` ✓（单测）
+- [x] **场景B2 机炮优先免疫目标超杀**：相同在途伤害下，机炮优先 AI 评分不降、即时换目标请求不生效；导弹补射门保持不变。
 - [x] **场景C 全等 → 比距离**：均正对/锁定/包络内，仅距离差 → 选近。`s_near=0.990 > s_far=0.977` ✓（单测）
 - [x] **场景D 守后优先**（`rear_threat_score`）：已咬 `0.800` > 逼近 `0.480` > 前方 `0.000` ✓（单测）
 - [x] **runaway 根除**：lock_progress 3s vs 30s（同位同向）→ 同分。`0.987 == 0.987`（lock01 封顶）✓（单测）
@@ -219,6 +222,7 @@ func rear_threat_score(leader, cand) -> float:   # 返回 [0,1]
 - [x] visibility_mult / preferred_altitude / escort_bonus 接回
 - [x] 量级决策：base 保持 [0,1]，escort_bonus(60/25) 与 REAR_GUARD_PRIORITY(100) 保持大尺度绝对加分——威胁目标主导、无威胁时 base 独立决定（无需缩放 escort_bonus，沿用旧尺度）
 - [x] 超杀倍率接入（team_inbound_damage 查询，missile_manager 空守卫）
+- [x] 机炮优先豁免目标超杀：不降权、不移除粘性、不响应武器层即时换目标请求；导弹执行层超杀门不变
 - [x] **守后优先接入**：`rear_threat_score` + `_is_guard_rear_context`；`scan_leader_rear` 改按 `rear_threat_score` 选最高威胁（两处同源）
 
 ### 阶段 4 — 验收与调参
@@ -246,3 +250,4 @@ func rear_threat_score(leader, cand) -> float:   # 返回 [0,1]
 | 2026-06-14 | 2 | 加 §2.4 守后优先：守后语境下长机后半球且咬/逼近长机的敌机 +REAR_GUARD_PRIORITY 主导选择（已咬=1.0 / 逼近=0.6），与 scan_leader_rear 同源；补场景 D/D-边界 验收 + 阶段3 接入任务 |
 | 2026-06-16 | 3 | **代码落地**（status→in-progress）：四因子评分 + 超杀 + 守后优先全实现并单测 7/7；scan_leader_rear 改按 rear_threat_score 排序；锁定封顶在 lock_time+LOCK_STABLE_BUFFER；实测常量 REAR_GUARD_PRIORITY=100/SWITCH 0.12/0.18；env01 复用 _is_in_missile_envelope；回归套件全绿。差生存 playtest 调参 → done |
 | 2026-07-29 | 4 | combat log 230005 实证：自动僚机虽被 `TEAM_OVERKILL` 禁火，生存粘性仍让必死目标滞留 3~10s。新增仅限 `TS_SCORED` 的 1s 冷却即时重评；超杀当前目标在该次重评中不吃粘性/迟滞。commanded/FOCUS 铁律保持不变。 |
+| 2026-08-03 | 5 | 用户定调“机炮不需要超杀”：超杀收窄为导弹/电磁炮的承诺火力纪律。机炮优先 AI 不因在途导弹降低目标评分、失去粘性或触发即时换目标，持续攻击至确认摧毁；导弹执行层仍禁止重复补射。 |

@@ -7,9 +7,10 @@ script = ExtResource("1")
 display_name = "M230 30mm"
 ; AH-64 的 30mm 链式炮：低射速高伤害（炮弹较大），对地攻击主武器
 fire_rate = 625.0
-bullet_damage = 12.0
+bullet_damage = 40.0
 muzzle_velocity = 805.0
 max_range = 1500.0
 spread_angle = 1.8
-fire_cone_half_angle = 6.0
+fire_cone_half_angle = 8.0
+burst_count = 6
 max_ammo = 300

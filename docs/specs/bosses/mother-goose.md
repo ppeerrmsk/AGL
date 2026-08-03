@@ -3,9 +3,9 @@ id: mother-goose
 kind: boss
 status: done
 schema_version: 1
-spec_version: 3
+spec_version: 11
 owner: design
-depends_on: [jam-status, vls-salvo, uav-swarm-roles]
+depends_on: [jam-status, vls-salvo, uav-swarm-roles, boss-clear-progression]
 reconstruction_complete: true
 ---
 
@@ -72,11 +72,11 @@ silhouette meta `mother_goose`（按 9× 战斗翼图标渲染）· 初始 headi
 
 夹角 = `acos(forward · normalize(hit - pos))`，clamp 到 [0,180°]。
 
-### 2.4 JAM 力场（60s 周期状态机）
+### 2.4 JAM 力场（80s 周期状态机）
 
 | 状态 | 时长 | 半径 | 效果 |
 |---|---|---|---|
-| COOLDOWN | 40.0 s | — | 无 |
+| COOLDOWN | 60.0 s | — | 无 |
 | WARNING | 4.0 s | 固定 300 px（黄圈预警） | 无 gameplay 效果，纯视觉 |
 | EXPANDING | 8.0 s | 300 → 1500 px lerp（橙） | 逃逸窗口，仍无效果 |
 | SUSTAIN | 8.0 s | 1500 px（红） | 全效：见下 |
@@ -97,6 +97,8 @@ SUSTAIN 全效（仅作用 team 0 玩家，boss/UAV 免疫）：
 ACTIVE 细节：所有 team 1 强制 `current_target = player`；GUARD→HUNTER 时
 `aggression=1.0, self_preservation=0.05, combat_zone_radius=99999`；**例外** MQ-111 激光机保持 guard 做对空；
 拦截分队 = 30% 活跃 hunter，置于玩家前方 2400 px。
+ACTIVE 另含两波 UAV 增援：进入阶段立即请求第 1 波，7.5 s 请求第 2 波；每波 6 架，
+实际生成按固定 `2 架/2 s` drain 节拍并受总上限 30 约束。中途生成者立即登记为本轮 hunter，结束时统一恢复。
 
 ### 2.6 VLS 齐射
 
@@ -117,15 +119,15 @@ ACTIVE 细节：所有 team 1 强制 `current_target = player`；GUARD→HUNTER 
 |---|---|
 | 初始数 | 12 |
 | 上限 | 30 |
-| 补充批量 | 2 / 间隔（仅 Designation ACTIVE） |
-| 补充间隔 | 12.0 s；进入 ACTIVE 立即允许首批，离开 ACTIVE 停止且清空补刷队列 |
+| 常态补充 | 从 BOSS 出现起每 20.0 s 补 2 架；猎杀相切换不重置计时；封顶 30 |
+| 指定猎杀增援波 | ACTIVE 0.0 s / 7.5 s 各请求 6 架；固定每 2.0 s 生成 2 架 |
 | 出生半径（绕 boss） | 250 px |
-| Hunter 牵引半径 | 4500 px（超出回收） |
-| 远距剔除距离 | 距玩家 3500 px 且离屏（+400 px 余量），每 5 s 检查 |
+| Hunter 常态出击半径 | 1800 px（强化圈 1500 px；超出立即放弃目标返巢） |
+| 离屏处理 | **不销毁**；镜头不参与敌人生命周期，性能交给全局离屏 LOD/冻结 |
 | 迷途召回 | 距 boss 5000 px 且无目标 → 每 4 s 强制返航 |
 | **击杀计价** | **无**（`no_kill_reward`）：不给 XP、不入生涯档案、不给对头永久 +max_hp |
 
-> **为什么蜂群击杀不计价**：母舰每 12s 补 2 架、上限 30、只有母舰死才停 —— 任何"按击杀
+> **为什么蜂群击杀不计价**：母舰每 20s 补 2 架、上限 30、只有母舰死才停 —— 任何"按击杀
 > 结算的成长/进度"在这里都是无限农场（Lv20 时一架 UAV = 185 XP，蜂群等于一台经验永动机）。
 > 奖励挂在 BOSS 本体上，随行无人机不另开一份计价。MQ-X 精英对（§2.8）同规则。
 > 全局裁决见 [survivor-loop §3.2](../systems/survivor-loop.md)「BOSS 阶段不产出」。
@@ -135,13 +137,26 @@ ACTIVE 细节：所有 team 1 强制 `current_target = player`；GUARD→HUNTER 
 
 | 变体 | 武器 | 资源 | 权重 | 存活上限 | standoff |
 |---|---|---|---|---|---|
-| MQ-109 | 机炮 | `enemy_uav.tres` | 45% | — | 近战 |
+| MQ-109 | 机炮 | `enemy_uav_mg_gun.tres` | 45% | — | 近战 |
 | MQ-110 | 导弹 | `enemy_uav_missile.tres` | 25% | — | 1500 px |
 | MQ-111 | 激光 | `enemy_uav_mg_laser.tres` | 15% | **2** | 0（贴身对空） |
 | MQ-112 | 电磁炮 | `enemy_uav_railgun.tres` | 15% | **2–3** | 2000 px |
 
-角色分配：MQ-110/112 恒 HUNTER；MQ-111 恒 GUARD（对空，`no_kamikaze`）；
-MQ-109 按 50% 概率 GUARD / 50% HUNTER。
+视觉降噪：仅 `boss_mother_goose_uav` 蜂群成员隐藏敌方机炮攻击意图锥；普通关卡/Sentinel
+编队的 MQ-109 与 MQ-X 精英对继续按通用规则显示，避免把“无人机”整体误判为蜂群。
+
+通关分层由 [boss-clear-progression](../systems/boss-clear-progression.md) 统一定义：历史击败数为 0 时，
+MQ-111/MQ-112 权重均置 0，且不执行 MQ-112 最低存活保底；历史击败数 ≥1 时恢复上表完整权重与配额。
+MQ-111 激光始终先给导弹刷新 0.5 s 减速（速度上限 45%、转弯 G 上限 50%），并同时按实际激光伤害
+累计扣除 `intercept_hp`；降至 0 后才销毁导弹。即“先压慢，持续照射到阈值后击毁”，不是触碰即删弹。
+
+角色分配：MQ-110/112 恒 SHOOTER；MQ-111 恒 GUARD（对空，`no_kamikaze`）；
+普通阶段 MQ-109 配额为 25% ATTACKER / 5% DECOY / 50% GUARD，剩余为 RESERVE，
+并额外选 1 架 SHOOTER。Designation ACTIVE 才把 ATTACKER 提升到 85% 并解除常态出击半径。
+
+Mother Goose 专属 MQ-109 机动力：最大速度 1100 km/h、巡航 650 km/h、加速度 55、
+持续 G 5.5、结构 G 8.0、滚转 2.7。相比普通 `enemy_uav.tres` 约降低 8%~10%，
+武器、HP、失速与雷达不变；专属资源避免连带削弱普通关卡和 Sentinel 编队的 MQ-109。
 - **GUARD**：orbit boss + 拦截来袭导弹（shield_leader）；engage_cd 1.5s / duration 30s；aggression 0.7–0.95
 - **HUNTER**：追玩家；engage_cd 0.5s / duration 60s；aggression 0.95；evade_missiles=true
 
@@ -168,10 +183,10 @@ MQ-109 按 50% 概率 GUARD / 50% HUNTER。
 
 ### 3.2 三条压制时间线并行（互不同步，各自独立周期）
 
-- JAM 力场：60s 周期（40 cd → 4 warn → 8 expand → 8 sustain）
+- JAM 力场：80s 周期（60 cd → 4 warn → 8 expand → 8 sustain）
 - 指定猎杀：180s 周期（180 cd → 3 warn → 15 active）
 - VLS 齐射：每 20s 一轮
-- UAV 补充：仅指定猎杀 ACTIVE 期间每 12s 补 2（入阶段立即允许首批），封顶 30；离屏剔除补刷走同一闸门
+- UAV 补充：常态每 20s 补 2 架且不被相切换重置；指定猎杀 0.0s / 7.5s 两波各 6 架，按固定 2 架/2s 投放；封顶 30；镜头移动不删除 UAV
 
 ### 3.3 伤害路由
 
@@ -205,13 +220,16 @@ BGM：循环歌单 `["boss_mothergoose_1", "boss_mothergoose_2"]`（优先于 bg
 - [x] 10 挂点全毁前本体锁不上；全毁后核心可锁可击杀
 - [x] JAM SUSTAIN 内玩家被 JAM+SLOW、限速、吃 5 DPS；WARNING/EXPANDING 有逃逸窗口
 - [x] 指定 ACTIVE 内全体敌机锁玩家、GUARD 转 HUNTER、前方设伏
-- [x] 非指定猎杀阶段不发生周期补充或离屏补刷；进入 ACTIVE 后才按 2 架/批恢复，退出立即停
+- [x] 非指定猎杀阶段不发生周期补充；进入 ACTIVE 后才按 2 架/批恢复，退出立即停
+- [x] 每轮指定猎杀含两波 UAV 增援（0.0s / 7.5s，各 6 架请求），实际生成始终按 2 架/批节流且不突破 30
 - [x] 每次生成决策把 MQ-112 电磁炮 UAV 补到至少 2、封顶 3；阵亡后可暂低于 2，待下次 ACTIVE 补充
+- [x] 历史击败 0 次时不生成 MQ-111/MQ-112；≥1 次恢复四型号池；MQ-111 对导弹同时减速并累计拦截 HP
 - [x] 点击飞翼本体时选择离点击点最近的存活 MountTarget，机身上的普通 UAV 不抢点击
 - [x] HP 跌破 50% 恰好一次性刷 2 架 MQ-X
 - [x] 蜂群 / MQ-X 击杀 **不给 XP、不入生涯档案、不给对头永久 +max_hp**；仍计击杀数
       （无头回归 `--bench=boss_phase` F 组，含"普通 MQ-109 照常计价"对照）
-- [x] 性能：UAV 30 上限 + 远距剔除 + 迷途召回生效，Lv5+ 压测 FPS 掉幅 < 15（bench/results/boss_mother_goose_*.txt）
+- [x] 镜头平移/缩放不改变 UAV 存亡；母舰在玩家 4000px 巡逻环外时，守舰 UAV 不会被误删
+- [ ] 性能：UAV 30 上限 + 迷途召回 + 全局离屏 LOD 生效，Lv5+ 压测 FPS 掉幅 < 15（待复测）
 - [x] MountTarget 保留在 all_units（SEAM 未触碰）
 - [x] i18n：display_name 走 HUD 拼接例外；无其它玩家可见硬编码文本
 
@@ -258,3 +276,11 @@ BGM：循环歌单 `["boss_mothergoose_1", "boss_mothergoose_2"]`（优先于 bg
 | 2026-05-30 | 1 | 回填为 reconstruction-grade spec（本文件，从源码逆向提取全部数值） |
 | 2026-07-05 | 2 | MQ-110/112 hunter 走位改 joust 攻击跑（spec joust-attack-run）：退役 standoff 切向轨道（其 1.5×standoff=6000m 触发圈盖住整个 5000m 电磁炮包络 → 机头永远侧身 → 全场 0 充能死锁，log 183044）。preferred_standoff_range_px 不再设置，包络由 joust 动态读装备。 |
 | 2026-07-29 | 3 | UAV 补充统一收口到指定猎杀 ACTIVE；MQ-112 活体配额改 2–3；点击飞翼本体自动转发到离点击点最近的可攻击 MountTarget。 |
+| 2026-07-29 | 4 | 修正 ACTIVE 补量过弱：新增 0.0s / 7.5s 两波 UAV 增援（各 6，2 架/批 drain），新生 UAV 自动加入本轮 hunter 覆写，仍受 30 总上限与阶段闸门约束。 |
+| 2026-07-29 | 5 | 删除相机驱动 far-cull：母舰巡逻半径 4000px 天生超过旧 3500px 剔除阈值，导致守舰 UAV 一离屏就被整群静默删除。镜头不再参与敌人生命周期，性能改由既有迷途召回 + 全局离屏 LOD 承担。 |
+| 2026-07-30 | 6 | 蜂群常态收拢成“母巢”：修复 TS_BOSS 目标令战区回收被低权限 TS_SCORED 拒绝的问题；常态出击圈由 4500px 收到 1800px，MQ-109 常态配额改为 25% ATTACKER / 5% DECOY / 50% GUARD，Designation ACTIVE 仍解除牵引并全群猎杀。 |
+| 2026-07-30 | 7 | UAV 补给改为可预测双节拍：常态从 BOSS 出现起固定每 10s 补 2 架，不再等待首轮 183s 的 Designation；ACTIVE 仍在 0.0s / 7.5s 各请求 6 架大补，波内固定每 2s 投放 2 架，阶段切换不重置常态时钟。 |
+| 2026-07-30 | 8 | 常态 UAV 补给由每 10s 2 架放慢到每 20s 2 架，为玩家留出更长喘息窗口；猎杀阶段两波大补与固定 2s 波内节拍不变。 |
+| 2026-07-30 | 9 | JAM 护罩冷却由 40s 延长到 60s，完整循环由 60s 降频为 80s；Mother Goose 的 MQ-109 改用专属参数资源，速度/巡航/加速/G/滚转约削弱 8%~10%，不影响普通关卡 MQ-109。 |
+| 2026-08-01 | 10 | 接入 BOSS 通关强化层：初见禁用 MQ-111 激光/MQ-112 电磁炮，首败后恢复四型号池；MQ-111 开启累计导弹拦截，保留减速并在 `intercept_hp` 归零后销毁。 |
+| 2026-08-01 | 11 | 机炮攻击意图锥的视觉降噪收窄到 Mother Goose 蜂群成员；普通 MQ-109、Sentinel 僚机与 MQ-X 不再被“无人机”总类过滤。 |

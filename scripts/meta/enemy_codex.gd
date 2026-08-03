@@ -6,11 +6,14 @@
 ## 解锁语义（与王牌档案统一）：**击败过才认识它**——计数 0 = 剪影 "???"，
 ## 计数 >0 = 名称 + 简介 + 战绩。王牌额外解锁 lore 全文与徽章。
 ##
-## ⚠ 王牌专属机型（F-15/F-16/Mirage 2000/Su-47/Cre）不单列——它们只随所属王牌中队出现，
+## ⚠ 王牌专属机型（F-15/F-16/Mirage 2000/Su-47/F-CK-1/Cre）不单列——它们只随所属王牌中队出现，
 ##   编成写在该中队条目的简介里。BOSS 机型（F-47/F-14）同理归 BOSS 条目。
 class_name EnemyCodex
 
 enum Kind { AIR, ADDS, GROUND, ACE, BOSS }
+
+## Debug build 的本次运行覆盖；不落盘，也不改写 CareerArchive 的真实战绩。
+static var _debug_unlock_all: bool = false
 
 ## 分组顺序 = 页面渲染顺序
 const SECTIONS: Array = [
@@ -44,6 +47,32 @@ const ENTRIES: Array = [
 	{"id": "uav_commander", "kind": Kind.AIR},
 	{"id": "af03", "kind": Kind.AIR},
 	{"id": "uav_laser", "kind": Kind.AIR},
+	# ── 科技树常规敌版 + 专用支援机（按响应等级大致递增）──
+	{"id": "mirage3", "kind": Kind.AIR},
+	{"id": "a6e", "kind": Kind.AIR},
+	{"id": "a10", "kind": Kind.AIR},
+	{"id": "f16", "kind": Kind.AIR},
+	{"id": "viggen", "kind": Kind.AIR},
+	{"id": "harrier", "kind": Kind.AIR},
+	{"id": "mirage2000", "kind": Kind.AIR},
+	{"id": "gripen_c", "kind": Kind.AIR},
+	{"id": "tornado", "kind": Kind.AIR},
+	{"id": "f15", "kind": Kind.AIR},
+	{"id": "f14", "kind": Kind.AIR},
+	{"id": "fa18e", "kind": Kind.AIR},
+	{"id": "f15e", "kind": Kind.AIR},
+	{"id": "su34", "kind": Kind.AIR},
+	{"id": "snowblind", "kind": Kind.AIR},
+	{"id": "f15c", "kind": Kind.AIR},
+	{"id": "rafale", "kind": Kind.AIR},
+	{"id": "typhoon", "kind": Kind.AIR},
+	{"id": "gripen_e", "kind": Kind.AIR},
+	{"id": "f15smtd", "kind": Kind.AIR},
+	{"id": "f35", "kind": Kind.AIR},
+	{"id": "su57", "kind": Kind.AIR},
+	{"id": "j20", "kind": Kind.AIR},
+	{"id": "f22", "kind": Kind.AIR},
+	{"id": "a12", "kind": Kind.AIR},
 	# ── Adds 杂兵（族群波次，不反击或只对地）──
 	{"id": "tu160", "kind": Kind.ADDS},
 	{"id": "ah64", "kind": Kind.ADDS},
@@ -57,6 +86,7 @@ const ENTRIES: Array = [
 	{"id": "marathon", "kind": Kind.ACE},
 	{"id": "gimmick", "kind": Kind.ACE},
 	{"id": "goofighters", "kind": Kind.ACE},
+	{"id": "whitetea", "kind": Kind.ACE},
 	{"id": "orion", "kind": Kind.ACE},
 	{"id": "vulture", "kind": Kind.ACE},
 	# ── BOSS（击败即过关的王牌中队子集）──
@@ -127,10 +157,18 @@ static func color_of(entry: Dictionary) -> Color:
 static func emblem_of(entry: Dictionary) -> String:
 	return String(entry["id"]) if int(entry["kind"]) == Kind.ACE else ""
 
+## 图鉴呈现层统一解锁判定。正式进度仍只由击败计数决定。
+static func is_unlocked(entry: Dictionary) -> bool:
+	return _debug_unlock_all or defeat_count(entry) > 0
+
+## Debug：切换本次运行的全解锁覆盖；不持久化、不修改任何计数。
+static func debug_set_unlock_all(enabled: bool) -> void:
+	_debug_unlock_all = enabled
+
 ## 图鉴完成度：已解锁条目数 / 总条目数
 static func progress() -> Vector2i:
 	var done := 0
 	for e in ENTRIES:
-		if defeat_count(e) > 0:
+		if is_unlocked(e):
 			done += 1
 	return Vector2i(done, ENTRIES.size())

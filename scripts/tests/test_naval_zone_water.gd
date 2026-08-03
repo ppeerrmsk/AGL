@@ -9,12 +9,11 @@ extends RefCounted
 ## ~2750 px 半径。实测采样点 9.7% / 15.7% / 16.0% 落在陆地上。
 ##
 ## 现在：编队缩到装得进水域 + 旗舰恒定盘旋（不掉头）+ NavalPlacement 打分挑圆心。
-## 本测试用**比实现更密的取样**（轨道步长 40 px vs 实现 150 px）独立复核最终摆位，
-## 不吃"自己给自己打分"的自证。
+## 本测试用 40px 轨道步长独立复核最终摆位，并额外检查生成器的硬闸规划结果。
 ##
 ## 运行：godot --headless --path . -- --bench=naval_zone_water（或 --bench=all）
 
-const VERIFY_STEP_PX := 40.0   ## 复核用轨道采样步长（实现里 150 px，这里加密 ~4 倍）
+const VERIFY_STEP_PX := 40.0
 
 var _pass := 0
 var _fail := 0
@@ -26,9 +25,36 @@ func run() -> void:
 		if not _zone_can_be_naval(z):
 			continue
 		_check_zone(z)
+	_check_shrink_plan()
+	_check_no_water_fallback()
 	_check_csg()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
+
+
+## 人工海岸：完整/双护卫均不安全，只允许单护卫解；验证先减护卫再生成。
+func _check_shrink_plan() -> void:
+	var plan := ZoneMission.safe_naval_plan(
+		Vector2.ZERO, 3, Callable(self, "_fake_shrink_placement"))
+	_check("完整编成无解时会逐艘缩编", (plan.get("offsets", []) as Array).size() == 1)
+	_check("同半径护卫从尾部移除，保留高价值前哨",
+		plan.get("escort_indices", []) == [0])
+
+
+func _fake_shrink_placement(offsets: Array) -> Dictionary:
+	return {
+		"center": Vector2.ZERO,
+		"ring": 0.0,
+		"land": 0 if offsets.size() <= 1 else 1,
+	}
+
+
+## 深内陆中心连单旗舰驻泊都无全水解：规划必须返回空，由 ZoneMission 原子退化为空战。
+func _check_no_water_fallback() -> void:
+	var inland := Vector2(-12000.0, -12000.0)
+	_check("深内陆回归锚点确认为陆地", MapGeography.is_on_land(inland))
+	_check("无水域解时硬闸返回空方案（零舰船 fallback）",
+		ZoneMission.safe_naval_plan(inland, 3).is_empty())
 
 
 func _zone_can_be_naval(z: Dictionary) -> bool:
@@ -67,6 +93,9 @@ func _check_zone(z: Dictionary) -> void:
 		_check("战区 %s %d★ 舰队溢出战区环有界（圆心 %.0f + 占地 %.0f ≤ 半径 + 2000）" % [
 				String(z["label"]), star, c.distance_to(center), reach],
 			c.distance_to(center) + reach <= radius + 2000.0)
+		var safe_plan := ZoneMission.safe_naval_plan(center, star)
+		_check("战区 %s %d★ 生成硬闸返回全水方案" % [String(z["label"]), star],
+			not safe_plan.is_empty() and int((safe_plan.get("placement", {}) as Dictionary).get("land", -1)) == 0)
 
 
 ## CSG（BOSS 舰队）：南/北两个 BOSS 锚点吸附水面后，11 舰盘旋一圈同样不许上岸
@@ -96,7 +125,7 @@ func _check_csg() -> void:
 		_check("CSG %s 锚点舰队全程不上岸（40px 步长复核）" % label, land == 0)
 
 
-## 加密复核：沿每艘船的轨道圆用**比实现更细的步长**扫一遍（实现 150 px，这里 40 px）
+## 独立复核：沿每艘船的轨道圆用 40px 步长扫一遍。
 func _verify_land_hits(center: Vector2, ring: float, offsets: Array, base_heading_rad: float = 0.0) -> int:
 	var land := 0
 	if ring <= 1.0:

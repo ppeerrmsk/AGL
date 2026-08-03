@@ -1,7 +1,7 @@
 ## Carrier Strike Group BOSS —— Ladon 战斗群（内部 id / 类名保留 CARRIER_STRIKE_GROUP）
 ##
 ## 设计流程：
-##   Phase 1: CV 航母（旗舰）+ 2 CG + 2 DDG + 6 FFG 刚体舰队航行
+##   Phase 1: CV 航母（旗舰）+ 通关次数驱动的护航编成（初见 0CG+2DDG+6FFG；首败后 2CG+2DDG+8FFG）
 ##   Phase 2 触发：CV 沉没 → 航母爆炸前最后一击弹射 4 架 F-14 Poltergeist
 ##          弹射从 CV 死亡位置沿 CV 最后朝向依次滑出（每架 1.2 秒间隔）
 ##   胜利条件：CV 沉没 AND Poltergeist 中队全灭
@@ -47,6 +47,8 @@ const ESCORT_OFFSETS: Array[Vector2] = [
 	Vector2(0, 1100),       # [7] 右舷腰部 FFG（封堵右舷侧突）
 	Vector2(1100, -900),    # [8] 左舷前哨 FFG（CG 外翼，前向预警）
 	Vector2(1100, 900),     # [9] 右舷前哨 FFG（CG 外翼，前向预警）
+	Vector2(-1200, -900),   # [10] 强化层后左外翼 FFG
+	Vector2(-1200, 900),    # [11] 强化层后右外翼 FFG
 ]
 
 # ── 身份默认值（可被 BossRegistry 覆盖）──
@@ -124,9 +126,14 @@ func spawn(mode: Node2D, aircraft_scene: PackedScene, create_enemy_func: Callabl
 		push_error("CarrierStrikeGroup.spawn: missing naval params")
 		active = false
 		return
+	var escort_plan: Array = _build_escort_plan(cg_params, ddg_params, ffg_params)
+	var placement_offsets: Array[Vector2] = []
+	for plan in escort_plan:
+		var planned_offset: Vector2 = plan["off"]
+		placement_offsets.append(planned_offset)
 
 	# 摆位地形校验：BOSS 锚点只保证圆心在水面，整支舰队还要摆得下（见 _pick_water_placement）
-	var placement: Dictionary = _pick_water_placement(anchor, initial_heading_deg)
+	var placement: Dictionary = _pick_water_placement(anchor, initial_heading_deg, placement_offsets)
 	var place_anchor: Vector2 = placement["anchor"]
 	var place_heading: float = placement["heading"]
 	var place_ring: float = float(placement["ring"])
@@ -152,10 +159,23 @@ func spawn(mode: Node2D, aircraft_scene: PackedScene, create_enemy_func: Callabl
 	# 如果想让 CV 自带 2 架标准僚机 + Phase 2 弹射 4 架 F-14，下一行取消注释
 	# if _cv is CarrierShip: (_cv as CarrierShip).spawn_escort_aircraft(_mode)
 
-	# 护航舰队
-	var escort_plan: Array = [
-		{"cls": CruiserShipScript,   "params": cg_params,  "off": ESCORT_OFFSETS[0]},
-		{"cls": CruiserShipScript,   "params": cg_params,  "off": ESCORT_OFFSETS[1]},
+	# 护航舰队：escort_plan 已在摆位前按通关层构建，水域校验与真实编成严格一致。
+	for plan in escort_plan:
+		_spawn_escort(plan["cls"], plan["params"], plan["off"])
+
+	EventLogger.log_event("BOSS", display_name, "%s Phase 1 engaged (CV + %d escorts)" % [display_name, _escorts.size()])
+
+## 纯数据查询：给 UI/bench 复核编成，不依赖舰船实例。
+static func escort_counts_for_progression(defeat_count: int) -> Dictionary:
+	return {
+		"cg": 2 if defeat_count >= 1 else 0,
+		"ddg": 2,
+		"ffg": 8 if defeat_count >= 1 else 6,
+	}
+
+## 本局护航计划。初见拿掉旧默认 2 CG；首败后加回，并追加后翼 2 FFG。
+func _build_escort_plan(cg_params: Resource, ddg_params: Resource, ffg_params: Resource) -> Array:
+	var plan: Array = [
 		{"cls": DestroyerShipScript, "params": ddg_params, "off": ESCORT_OFFSETS[2]},
 		{"cls": FrigateShipScript,   "params": ffg_params, "off": ESCORT_OFFSETS[3]},
 		{"cls": FrigateShipScript,   "params": ffg_params, "off": ESCORT_OFFSETS[4]},
@@ -165,10 +185,12 @@ func spawn(mode: Node2D, aircraft_scene: PackedScene, create_enemy_func: Callabl
 		{"cls": FrigateShipScript,   "params": ffg_params, "off": ESCORT_OFFSETS[8]},
 		{"cls": FrigateShipScript,   "params": ffg_params, "off": ESCORT_OFFSETS[9]},
 	]
-	for plan in escort_plan:
-		_spawn_escort(plan["cls"], plan["params"], plan["off"])
-
-	EventLogger.log_event("BOSS", display_name, "%s Phase 1 engaged (CV + %d escorts)" % [display_name, _escorts.size()])
+	if prior_defeats >= 1:
+		plan.push_front({"cls": CruiserShipScript, "params": cg_params, "off": ESCORT_OFFSETS[1]})
+		plan.push_front({"cls": CruiserShipScript, "params": cg_params, "off": ESCORT_OFFSETS[0]})
+		plan.append({"cls": FrigateShipScript, "params": ffg_params, "off": ESCORT_OFFSETS[10]})
+		plan.append({"cls": FrigateShipScript, "params": ffg_params, "off": ESCORT_OFFSETS[11]})
+	return plan
 
 ## 收集所有舰船单位（CV + 护卫）—— 事件层用来批量下 directive
 func get_all_ships() -> Array:
@@ -402,10 +424,11 @@ const PLACEMENT_RING_CANDIDATES: Array = [CV_PATROL_RING_RADIUS, 400.0, 0.0]
 ## 落地计分委托 NavalPlacement（沿每艘船的轨道同心圆细采）——舰队整体绕锚点转，
 ## 只查出生那一刻的朝向正是"转过去以后搁浅"的来源
 ## 评分对朝向不变（舰队绕锚点盘旋），因此只挪锚点、不扫朝向；heading 原样透传给 F-14 弹射方向
-func _pick_water_placement(anchor: Vector2, heading_deg: float) -> Dictionary:
+func _pick_water_placement(anchor: Vector2, heading_deg: float,
+		escort_offsets: Array[Vector2] = ESCORT_OFFSETS) -> Dictionary:
 	var picked: Dictionary = NavalPlacement.pick_placement(
 			anchor, NavalPlacement.ring_nudges(PLACEMENT_NUDGE_RADII),
-			PLACEMENT_RING_CANDIDATES, ESCORT_OFFSETS, deg_to_rad(heading_deg))
+			PLACEMENT_RING_CANDIDATES, escort_offsets, deg_to_rad(heading_deg))
 	return {
 		"anchor": picked["center"], "heading": heading_deg,
 		"ring": picked["ring"], "land": picked["land"],

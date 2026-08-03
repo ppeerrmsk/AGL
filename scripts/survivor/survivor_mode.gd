@@ -81,6 +81,8 @@ var _warzone_phase_ended: bool = false
 ## §5 抽卡 pity 计数：{ Rarity → int }，本局生效
 ## SurvivorData.pick_3_upgrades 每次升级时读 + 写
 var _pity_counter: Dictionary = {}
+## 4 级金卡软 pity：只统计自然等级升级产生的普通三轴三卡；专属第四槽/奖励升级不读写。
+var _classified_pity_misses: int = 0
 
 const OFFSCREEN_MARGIN := 500.0    ## 屏幕外判定余量（像素）
 
@@ -106,14 +108,21 @@ var _pending_click_double := false
 # ── HUD / UI ──
 var hud: SurvivorHUD
 var upgrade_ui: SurvivorUpgradeUI
+## 机体专属第四槽：每个进化节点在一局中只结算一次机会。
+enum SignatureOfferState { UNSEEN, OFFERED, RESOLVED }
+var _signature_offer_state: Dictionary = {}  ## node_id(StringName) → SignatureOfferState
+var _signature_offered_node: StringName = &""  ## 当前弹窗快照，选任意卡都结算它
 ## 加力模式充能资源（spec afterburner-mode，充能制）：小队级单实例，开局满能量。
 ## _physics_process 驱动（升级暂停/游戏结束自然冻结）；E 键与 HUD 按钮走 toggle 开关。
 var afterburner_charge := AfterburnerCharge.new()
 var _tutorial: SurvivorTutorial  ## 首次进入生存模式的浮现式教程
+var _wingman_tutorial: SurvivorWingmanTutorial  ## 首次获得僚机后的数字键切控提示
 
 # ── 大地图边界 / 战术地图（P1）──
 var _map_boundary: MapBoundary
 var _dock_points: Array[DockPoint] = []   ## 停靠点（固定机场 + 航母甲板，spec zone-reward-docking）
+## 机场授权 SAM 的一次性承诺账本：生成即记，战损不重生（spec airfield-sam-network）。
+var _airfield_sam_committed: Dictionary = {}  ## zone_id(StringName) → true
 
 ## ── ALLY 第三方事件调度（spec global-awareness-roe §2.6）──
 var _awacs_spawn_timer: float = 120.0     ## _ready 里 roll 90~150
@@ -126,9 +135,11 @@ const ACE_SUPPORT_COOLDOWN_S := 150.0  ## 前支结束（全灭/撤离）后的�
 const ACE_SUPPORT_CUTOFF_S := 540.0    ## 最后 1 分钟不新刷（避免刚进场撞阶段闸）
 var _ace_support_cd: float = 0.0
 var _ace_squads_used: Dictionary = {}      ## 本局已出场过的队（同局不重复同队）
-static var _ace_rotation_ptr: int = 0      ## 跨局轮换指针（session 内轮转）
+var _ace_run_order: Array = []             ## 本局无放回随机顺序（开局生成）
+static var _ace_previous_first: String = "" ## session 内避免连续两局首队相同
 var _orion_spawned := false                ## 宿敌 ORION：独立轨道，每局一次（tier §3.8）
 var _friendly_carrier: NavalUnit = null   ## 在场的友军航母（奖励召唤，同时最多一艘）
+var _friendly_asset_aggro := FriendlyAssetAggro.new() ## 玩家把战斗带近机场/航母时的有限分流
 var _boundary_ui: BoundaryUI
 var _pause_menu: PauseMenu        ## 暂停菜单（spec pause-menu，ESC 打开）
 var _tactical_map: TacticalMap
@@ -168,12 +179,18 @@ var _bench_scenario: String = ""
 var _bench_duration: float = 30.0
 var _bench_elapsed: float = 0.0
 var _bench_finished: bool = false
+var _bench_wall_started_msec: int = 0
+var _bench_last_heartbeat_msec: int = 0
+var _bench_pause_started_msec: int = 0
 ## demo 模式：复用 bench 的"玩家挂AI+force-spawn敌机+相机跟随"，但渲染运行、不退出、
 ## 持续补充敌人——供肉眼观察物理/表现/小队战术（2026-06-07）
 var _bench_demo: bool = false
 var _bench_demo_topup_timer: float = 0.0
 
 func _exit_tree() -> void:
+	_friendly_asset_aggro.reset()
+	# 王牌事件是 RefCounted，HUD 静态强引用不会随 EventDirector 节点自动释放。
+	AceReinforcementEvent.reset_runtime_state()
 	# UGC 试飞收尾：清除静态注入（MapGeography/建筑缓存），防污染下一局官方图
 	if _ugc_doc != null:
 		UgcLoader.clear()
@@ -187,6 +204,9 @@ func _ready() -> void:
 	# 这样 _f47_assign_roles 设置的 boss_attacker 等标志在 AI 运行时已经生效
 	process_priority = -10
 	process_physics_priority = -10
+
+	# 新局入口再兜底一次：保证 HUD/Tab 不会读取上局未正常终态的王牌事件。
+	AceReinforcementEvent.reset_runtime_state()
 
 	# 新一局开始：清空上一局的战报累计统计（击坠/命中/脱靶），避免跨局污染 F9 战报汇总
 	EventLogger.reset_stats()
@@ -334,12 +354,15 @@ func _ready() -> void:
 	elif _bench_scenario == "reversal":
 		profile = profile.duplicate()
 		profile.wingman_count = 3
+	elif _bench_scenario == "enemy_pool_stress":
+		profile = profile.duplicate()
+		profile.wingman_count = 8
 	_player_params_base = profile.base_params
 	_player_profile_id = profile.id  # 用于专属技能筛选
 	_player_profile = profile  # 保留档案引用（自然成长曲线 / 后续配件系统用）
 	# 图鉴记账（用户规则：**获得即记录**，开局拿到起手机这一刻就算"拥有过"，不等首次结算）
 	var _start_node: StringName = EvolutionSystem.node_id_for_profile(profile.id)
-	if _start_node != &"":
+	if _start_node != &"" and archive_enabled():
 		AircraftCodex.mark_discovered(_start_node)
 
 	# 读取选择的地图（占位：当前仅 default 一张实装，其它为预留位）
@@ -473,6 +496,8 @@ func _ready() -> void:
 
 	# 王牌中队固定呼号永久保留（spec ace-squadron-tier §2.7：杂鱼抽不到、死亡不回池）
 	AceSquadProfiles.reserve_callsigns()
+	if not _boss_debug_mode and not _bench_mode:
+		_prepare_ace_run_order()
 
 	# ── 大地图边界系统 + 撤退菜单（P1）──
 	_map_boundary = MapBoundary.new()
@@ -513,11 +538,9 @@ func _ready() -> void:
 	# ── 战术地图 + 战区系统（P2）──
 	# Boss Debug / Bench 模式跳过：bench 不要战区任务/ADBS 干扰压力测试样本
 	if not _boss_debug_mode and not _bench_mode:
-		_zone_data = ZoneData.new()
-		# 战区奖励 roll 上下文注入（spec zone-reward-arsenal §3.1）：nextgen 候选过滤 +
-		# 已持有武器件过滤。注意开局 _init 内的 A/B 首 roll 早于本行 → 走无上下文保守路径，
-		# 领取侧有可用性兜底（_grant_reward_now nextgen 分支）
-		_zone_data.nextgen_context = _build_reward_roll_context
+		# 构造时注入奖励上下文：开局 A/B 要保底各出一件武器与一项可用的次世代技能，
+		# 因此首 roll 也必须经过机型 / 学说 / 已持有装备过滤。
+		_zone_data = ZoneData.new(_build_reward_roll_context)
 		# BoundaryUI 需要 _zone_data 来检测 BOSS 阶段（切换警告文案 + 补给阻断由 _on_supply_confirmed 做）
 		if _boundary_ui:
 			_boundary_ui.zones = _zone_data
@@ -573,6 +596,7 @@ func _ready() -> void:
 	# Boss Debug / Bench 模式跳过教程（前者来测 boss，后者是 headless 没人看）
 	if not _boss_debug_mode and not _bench_mode and SurvivorTutorial.should_show():
 		_start_first_run_tutorial()
+	_maybe_start_wingman_switch_tutorial()
 
 	# ── Boss Debug 场景化设置（所有正常 setup 完成后） ──
 	# 跳到 15 级 + 主题化随机 build + 立即启动 BossEncounterEvent
@@ -677,6 +701,9 @@ const BENCH_SWARM_MIN_SEPARATION_PX := 800.0 ## 同方刷点间距下限，防�
 const BENCH_BOSS_MG_FRIENDLY_COUNT := 20
 const BENCH_BOSS_MG_FRIENDLY_RING_MIN_PX := 2000.0
 const BENCH_BOSS_MG_FRIENDLY_RING_MAX_PX := 3500.0
+var _bench_death_stage := 0
+var _bench_death_original_id := 0
+var _bench_takeover_verified := false
 
 func _setup_bench_scenario() -> void:
 	if not _bench_mode:
@@ -684,6 +711,9 @@ func _setup_bench_scenario() -> void:
 	if not survivor_player or not is_instance_valid(player_aircraft):
 		push_error("[Bench] setup: missing survivor_player or player_aircraft")
 		return
+	_bench_wall_started_msec = Time.get_ticks_msec()
+	_bench_last_heartbeat_msec = _bench_wall_started_msec
+	process_mode = Node.PROCESS_MODE_ALWAYS
 
 	# 0. 固定 RNG seed → 同 scenario 多次跑得到相同 spawn 几何 / AI 抖动 / 战斗节拍
 	#    没这一步：33-144 fps 的 spread 完全淹没"优化前后对比"信号
@@ -691,6 +721,10 @@ func _setup_bench_scenario() -> void:
 
 	# 1. 玩家无敌（防止 duration 期间 KIA 中断压力）
 	player_aircraft.invulnerable = true
+	# 生存模式默认出生点贴近南边界；AI 大转向时会先冲出边界，
+	# 触发需人工点击的撤退菜单，使无头 bench 表现为永久暂停。压测统一在地图中心展开。
+	player_aircraft.global_position = Vector2.ZERO
+	player_aircraft.clear_trail()
 
 	# 2. 玩家挂 AIController（覆盖默认的"鼠标点击 → target_position"操控路径）
 	#    与 spawner 给敌机挂 AI 的方式一致；team=0 让目标选择只挑敌方
@@ -723,12 +757,22 @@ func _setup_bench_scenario() -> void:
 
 	# 4. 批量 force-spawn 敌机（按 scenario 分支）
 	if _spawner:
-		if _bench_scenario == "stress_swarm":
+		if _bench_scenario == "survivor_death":
+			_bench_setup_survivor_death()
+		elif _bench_scenario == "stress_swarm":
 			_bench_force_spawn_swarm()
+		elif _bench_scenario == "enemy_pool_stress":
+			_bench_force_enemy_pool_stress()
 		elif _bench_scenario == "boss_mother_goose":
 			_bench_force_spawn_boss_mg()
 		elif _bench_scenario == "reversal":
 			_bench_force_spawn_reversal()
+		elif _bench_scenario == "zone_support_stress":
+			_bench_force_spawn_mixed(BENCH_INITIAL_ENEMY_COUNT)
+			_bench_force_zone_support()
+		elif _bench_scenario == "ace_support_stress":
+			_bench_force_spawn_mixed(BENCH_INITIAL_ENEMY_COUNT)
+			_bench_force_ace_support()
 		else:
 			_bench_force_spawn_mixed(BENCH_INITIAL_ENEMY_COUNT)
 
@@ -737,6 +781,62 @@ func _setup_bench_scenario() -> void:
 			_bench_scenario, _bench_duration, BENCH_INITIAL_ENEMY_COUNT, BENCH_PLAYER_LEVEL])
 	print("[Bench] scenario ready: %s, duration=%.1fs, initial_enemies=%d" % [
 		_bench_scenario, _bench_duration, BENCH_INITIAL_ENEMY_COUNT])
+
+
+## 扩池专项：直属 9 机同时面对雪幕、F-22 四锁、两类常规多锁与近/远两原型。
+## 只复用现有实体/控制器；不新增常驻测试节点。全部无敌并跳过远距清理，保持样本密度。
+func _bench_force_enemy_pool_stress() -> void:
+	player_aircraft.global_position = Vector2.ZERO
+	_spawner._dynamic_enemy_cap = SurvivorData.MAX_ENEMIES_HARD
+	_bench_spawn_enemy_squad_at(SurvivorSpawner.EnemyType.SNOWBLIND, 1,
+		Vector2(0.0, -3500.0), 180.0)
+	_bench_spawn_enemy_squad_at(SurvivorSpawner.EnemyType.F22, 3,
+		Vector2(0.0, -2500.0), 180.0)
+	_bench_spawn_enemy_squad_at(SurvivorSpawner.EnemyType.GRIPEN_E, 3,
+		Vector2(2800.0, 0.0), 270.0)
+	_bench_spawn_enemy_squad_at(SurvivorSpawner.EnemyType.RAFALE, 2,
+		Vector2(-2800.0, 0.0), 90.0)
+	_bench_spawn_enemy_squad_at(SurvivorSpawner.EnemyType.SU57, 2,
+		Vector2(0.0, 2800.0), 0.0)
+	_bench_spawn_enemy_squad_at(SurvivorSpawner.EnemyType.J20, 2,
+		Vector2(2200.0, -2200.0), 225.0)
+	_bench_spawn_enemy_squad_at(SurvivorSpawner.EnemyType.F15_REGULAR, 4,
+		Vector2(-2200.0, 2200.0), 45.0)
+	for unit in CombatUnit.all_units:
+		if unit is Aircraft and is_instance_valid(unit):
+			var ac := unit as Aircraft
+			ac.invulnerable = true
+			ac.set_meta("skip_far_cleanup", true)
+	print("[Bench] enemy_pool_stress: 9 direct friendlies vs 17 expanded-pool enemies")
+
+
+## 双 3★ 对空 + 单对地支援最坏场景：常规 26 敌压力样本上再放 8 F-86 + 2 A-10。
+## ZoneMission 只负责完成一次真实生成，随后停自身 tick，避免预刷其它战区污染样本。
+func _bench_force_zone_support() -> void:
+	# 性能守则要求 Sentinel + Lv5+ 样本；bench 玩家为 Lv15，另加标准 5 护卫指挥机群。
+	_spawner._spawn_commander_squad(5)
+	_zone_data = ZoneData.new(Callable())
+	_zone_mission = ZoneMission.new()
+	add_child(_zone_mission)
+	_zone_mission.setup(self, _zone_data, player_aircraft,
+		_sam_scene, _sam_params, _aa_scene, _aa_params,
+		bullet_manager, missile_manager, _spawner)
+	for zid: StringName in [&"A", &"B"]:
+		_zone_data.debug_set_available(zid)
+		_zone_data.set_mission_type(zid, "squadron")
+		_zone_data.set_airfield_difficulty(zid, 3)
+		_zone_mission._start_air_support_if_needed(zid, _zone_data.get_zone_by_id(zid))
+	_zone_data.debug_set_available(&"C")
+	_zone_data.set_mission_type(&"C", "ground")
+	_zone_data.set_airfield_difficulty(&"C", 3)
+	_zone_mission._start_air_support_if_needed(&"C", _zone_data.get_zone_by_id(&"C"))
+	_zone_mission._update_air_support(ZoneMission.SUPPORT_TICK_S)
+	_zone_mission.set_physics_process(false)
+	var support_count := 0
+	for child in get_children():
+		if child is Aircraft and child.has_meta("zone_support"):
+			support_count += 1
+	print("[Bench] zone_support_stress spawned support=%d (expected 10)" % support_count)
 
 ## 按"占用 AI 时间"加权混编：覆盖所有重战术路径，避免压测样本只反映单一类型
 ## 编队/单机的选择参考各 EnemyType 在 CLAUDE.md 敌人索引表里的"生成形式"列
@@ -1127,6 +1227,8 @@ func _bench_auto_pick_upgrade() -> void:
 		survivor_player.consume_level_up_display()
 		return
 	var pick: Dictionary = pool[randi() % pool.size()]
+	print("[Bench] auto-pick level=%d id=%s stat=%s" % [
+		survivor_player.level, String(pick.get("id", "")), String(pick.get("stat", ""))])
 	_distribute_upgrade(pick)
 	var uid: String = String(pick["id"])
 	upgrade_stacks[uid] = int(upgrade_stacks.get(uid, 0)) + 1
@@ -1189,6 +1291,29 @@ func _start_first_run_tutorial() -> void:
 	_tutorial = SurvivorTutorial.new()
 	_tutorial.find_target_fn = _find_topmost_tu160
 	add_child(_tutorial)
+
+## 首次拥有至少一架存活僚机时显示固定号机切控提示；退出本局不结算，只有实际切机才永久消失。
+func _maybe_start_wingman_switch_tutorial() -> void:
+	if _boss_debug_mode or _bench_mode or is_instance_valid(_wingman_tutorial):
+		return
+	if not SurvivorTutorial.should_show_wingman_switch():
+		return
+	var slot := _first_switchable_wingman_slot()
+	if slot < 1:
+		return
+	_wingman_tutorial = SurvivorWingmanTutorial.new()
+	_wingman_tutorial.target_slot = slot
+	add_child(_wingman_tutorial)
+
+## 当前操控机之外最小的存活固定号机号；提示具体按键，也供无头回归验证映射不压缩。
+func _first_switchable_wingman_slot() -> int:
+	if not _squad:
+		return -1
+	var best := 10
+	for ac in _squad.members:
+		if is_instance_valid(ac) and not ac.is_destroyed and ac != player_aircraft:
+			best = mini(best, ac.squad_slot)
+	return best if best <= 9 else -1
 
 func _find_topmost_tu160() -> Node2D:
 	var best: Aircraft = null
@@ -1480,10 +1605,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		BfmIntentTest.run_all()
 		return
 	# F11：切换友方僚机的编队调试覆盖层
-	# R：胆大妄为手动闪避（720 批王牌技；未持有/冷却中在 do_manual_dodge 内自过滤）
+	# R：统一手动机动（眼镜蛇 / J-Turn / 胆大妄为）；未持有或冷却中静默。
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_R:
 		if player_aircraft and is_instance_valid(player_aircraft) and not is_paused_for_upgrade:
-			player_aircraft.do_manual_dodge()
+			player_aircraft.try_manual_maneuver()
+			get_viewport().set_input_as_handled()
+		return
 
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F11:
 		get_viewport().set_input_as_handled()
@@ -1532,7 +1659,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				# 加力模式（spec afterburner-mode，充能制）：有能量即可启动，激活中再按关闭。
 				# 耗能耗尽自动结束（update 里判定）。启动内部仍走 set_evasion_mode 既有链路
 				# （清指令 + planner max/AB + 僚机护卫广播 + radio break）
-				afterburner_charge.toggle(player_aircraft)
+				if afterburner_charge.toggle(player_aircraft) and is_instance_valid(_tutorial):
+					_tutorial.notify_afterburner()
 				return
 			KEY_F:
 				player_aircraft.missile_auto_fire = not player_aircraft.missile_auto_fire
@@ -1627,6 +1755,8 @@ func _execute_left_click(world_pos: Vector2, enemy: CombatUnit, is_double_click:
 					ac.charge_attack = true
 					# 722 sig_j36·三发推力：双击攻击线也算突击命令
 					SkillHooks.try_trigger_j36_assault(ac)
+			if is_instance_valid(_tutorial):
+				_tutorial.notify_assault()
 		if is_instance_valid(_tutorial): _tutorial.notify_click_attack()
 		return
 
@@ -1827,6 +1957,8 @@ func _process(delta: float) -> void:
 			or Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_D)):
 		_tutorial.notify_pan()
 	_cleanup_references()
+	if _bench_mode and not _bench_finished:
+		_bench_wall_watchdog()
 	# MapFeatureRenderer 自己每帧 queue_redraw，不需要在这里触发
 	# ⚠ _update_aircraft_list() + _update_radar_locks() 已迁移到 _physics_process —
 	#   原因：_process 是渲染帧率，窗口失焦 / Alt-Tab / 最小化时 Godot 会把它节流到
@@ -1837,6 +1969,8 @@ func _process(delta: float) -> void:
 func _physics_process(delta: float) -> void:
 	if is_game_over or is_paused_for_upgrade:
 		return
+	if _bench_scenario == "survivor_death":
+		_bench_update_survivor_death()
 
 	# 加力充能/窗口计时（spec afterburner-mode）：放早退之后 → 升级暂停/游戏结束自然冻结
 	# 722 签名技能充能倍率：公路机场（鹰狮 C·ACE 未被锁 ×1.5）/ 地形跟随（狂风·ACE 低空 ×1.5）
@@ -1858,6 +1992,8 @@ func _physics_process(delta: float) -> void:
 	# 雷达锁定累积放在物理帧（固定 60Hz）：失焦/最小化时不会因 _process 大 delta 暴涨。
 	# 必须在所有 AI/武器子系统之前跑，因为 update_missile 读 radar_targets 决定开火。
 	_update_aircraft_list()
+	# 友军据点仇恨固定 1 Hz；复用刚生成的全单位缓存，不另做场景树扫描。
+	_friendly_asset_aggro.tick(delta, player_aircraft, _all_combat_units_cache)
 	_update_radar_locks(delta)
 	# RTS 自动交战：到点/空闲时长机自动锁最近敌机（僚机经 SquadCoordination 跟打）
 	if _squad_cmd:
@@ -1919,7 +2055,6 @@ func _physics_process(delta: float) -> void:
 	elif _bench_mode and not _bench_finished:
 		_bench_elapsed += delta
 		if _bench_elapsed >= _bench_duration:
-			_bench_finished = true
 			var summary: String = "tick_at=%.2fs aircraft_alive=%d enemies_killed=%d\n" % [
 				_bench_elapsed, _count_aircraft_alive(), (_spawner.kill_count if _spawner else 0)]
 			# boss_mother_goose scenario：附加 boss 终态信息
@@ -1932,9 +2067,7 @@ func _physics_process(delta: float) -> void:
 					boss_hp_pct = boss.boss_unit.hp / maxf(boss.boss_unit.params.max_hp, 1.0) * 100.0
 				summary += "boss=MOTHER_GOOSE alive=%s hp_pct=%.1f%%\n" % [
 					"YES" if boss_alive else "NO (defeated)", boss_hp_pct]
-			var br: Node = get_tree().root.get_node_or_null("/root/BenchRunner")
-			if br and br.has_method("bench_finish"):
-				br.call("bench_finish", summary)
+			_bench_finish_now(summary)
 
 	# 更新HUD
 	hud.game_time = game_time
@@ -2068,6 +2201,10 @@ func _update_radar_locks(delta: float) -> void:
 			_perf_pairs += 1  # 雷达对计数（含早 filter 部分；后续 reverse-engineer N²/STRIDE 用）
 			if not is_instance_valid(other) or other == unit or not unit.is_hostile_to(other):
 				continue
+			# Snowblind 传感器幕：复用既有 5Hz O(N²) 配对，禁止另开全场扫描。
+			if unit.is_sensor_engagement_obscured(other):
+				unit.radar_targets.erase(other)
+				continue
 			# 锁定免疫期间：无法对该目标累积雷达照射
 			if other.is_lock_immune():
 				unit.radar_targets.erase(other)
@@ -2100,9 +2237,10 @@ func _update_radar_locks(delta: float) -> void:
 				# ── 722 批签名技能：锁定管线集中注入（spec aircraft-signature-skills）──
 				if unit is Aircraft:
 					var sig_u := unit as Aircraft
-					# 无败之鹰（F-15）：满血时锁定速率 ×1.2
-					if sig_u.sig_f15_active and sig_u.params and sig_u.hp >= sig_u.params.max_hp:
-						lock_rate *= 1.2
+					# 无败之鹰（F-15）：HP≥90% 时锁定速率 ×1.3
+					if sig_u.sig_f15_active and sig_u.params \
+							and sig_u.hp >= sig_u.params.max_hp * Aircraft.SIG_F15_HP_RATIO:
+						lock_rate *= Aircraft.SIG_F15_BONUS_MULT
 					# 制空清扫（F-15C）：锥内每多 1 个照射中目标 +8%，cap +40%
 					if sig_u.sig_f15c_active:
 						var extra_n: int = maxi(sig_u.radar_targets.size() - 1, 0)
@@ -2131,6 +2269,12 @@ func _update_radar_locks(delta: float) -> void:
 				if unit is Aircraft and unit.is_player_squad() and unit.high_alt_lock_speed_bonus > 0.0:
 					if unit.get_altitude_tier() == CombatUnit.AltitudeTier.HIGH:
 						lock_rate *= (1.0 + unit.high_alt_lock_speed_bonus)
+				# 斗士稳定技能“近距捕获”：复用当前 O(N²) 锁定循环，不新增扫描或 process。
+				if unit is Aircraft and unit.is_player_squad() and unit.close_range_lock_max_mult > 1.0:
+					lock_rate *= SurvivorData.close_range_lock_mult(
+						unit.global_position.distance_to(other.global_position),
+						unit.effective_radar_range_px(),
+						unit.close_range_lock_max_mult)
 				# 硬下限：保证 effective_lock_time = threshold / rate ≤ MAX_EFFECTIVE_LOCK_TIME_S
 				var shooter_threshold: float = unit.params.lock_time if unit.params else 3.0
 				var min_rate: float = shooter_threshold / CombatUnit.MAX_EFFECTIVE_LOCK_TIME_S
@@ -2481,6 +2625,8 @@ func _switch_control_to_slot(slot: int) -> void:
 	if target == null or target == player_aircraft:
 		return
 	_switch_player_to(target)
+	if is_instance_valid(_wingman_tutorial):
+		_wingman_tutorial.complete()
 
 ## 固定号机号查询。独立成纯查询入口，供输入与无头回归测试共用。
 func _aircraft_for_squad_slot(slot: int) -> Aircraft:
@@ -2587,7 +2733,9 @@ func _set_player_aircraft(ac: Aircraft) -> void:
 			ace_ev._squad.set_player_ref(ac)
 	# AudioManager._engine_host 同样是缓存：不重绑的话引擎声会留在旧机上，
 	# 旧机被击落后 is_instance_valid 守卫让它静默消音（不崩，但玩家侧"没声了"）。
-	AudioManager.start_player_engine(ac)
+	# 脱离 SceneTree 的测试夹具/场景切换边界不能启动 AudioStreamPlayer2D；正式局飞机恒在树内。
+	if ac.is_inside_tree():
+		AudioManager.start_player_engine(ac)
 	# 王牌技随操控机迁移 + 全队生效子集重建（skills-720 T1；切控/换帅统一走本 chokepoint）
 	if prev_controlled != ac:
 		_migrate_ace_field_upgrades(prev_controlled, ac)
@@ -2602,7 +2750,9 @@ func _on_squad_leader_changed(new_leader: Aircraft) -> void:
 		if new_ai:
 			new_ai.manual_control = true
 			new_ai._takeover_transition_timer = 0.0
-		new_leader.formation_mode = false
+		# 自动接管必须与手动切控走同一套完整退出编队语义：清 leader 缓存、
+		# keep_target_on_arrival / ai_override_pursuit / 旧槽位，避免新长机仍带僚机残态。
+		new_leader.clear_formation()
 		new_leader.selected = true
 		_set_player_aircraft(new_leader)
 		EventLogger.log_event("CONTROL_TAKEOVER", "Survivor",
@@ -2746,7 +2896,8 @@ func _on_player_leveled_up(_new_level: int) -> void:
 	# 每 3 级触发——三卡 = 斗士/骑士/策士各一张，选卡 = 得技能 + 该轴 +1 属性点。
 	# 恢复旧暂停弹窗节奏（1/3 频率的低频打断）；非 3 倍数等级仍只 toast 不打断。
 	if _new_level % 3 == 0:
-		var cards: Array[Dictionary] = _roll_axis_cards()
+		var cards: Array[Dictionary] = _roll_axis_cards(true)
+		_append_signature_offer(cards)
 		if not cards.is_empty():
 			is_paused_for_upgrade = true
 			AudioManager.set_music_muffled(true)
@@ -2754,6 +2905,7 @@ func _on_player_leveled_up(_new_level: int) -> void:
 			# 镜头推近 → 卡片错开弹入。面板只填内容
 			upgrade_ui.populate(cards, _axis_points_capped())
 			Presentation.present(upgrade_ui, "upgrade_in")
+			upgrade_ui.schedule_entry_flashes()
 			return  # consume_level_up_display 由 _on_upgrade_selected 收
 	survivor_player.consume_level_up_display()
 	if _zone_hint:
@@ -2768,6 +2920,8 @@ func _roll_upgrade_choices() -> Array[Dictionary]:
 	for u in SurvivorData.UPGRADES:
 		if u.get("evolved", false):
 			continue  # 战区奖励池技能不进随机池
+		if not SurvivorData.is_normal_random_candidate(u):
+			continue  # 专属技唯一自然入口 = 每机每局一次的第四槽
 		if not SurvivorData.is_upgrade_available_for(u, _player_profile_id, p, upgrade_stacks, present_classes):
 			continue
 		if MetaShop.is_upgrade_gated(u):
@@ -2782,7 +2936,8 @@ func _roll_upgrade_choices() -> Array[Dictionary]:
 
 ## 每 3 级卡片三选一（spec evolution-attribute-gates §2.2）：三轴各抽一张。
 ## 可用池过滤规则与 _roll_upgrade_choices 完全一致；某轴无可用卡 → 合成"专注"卡（纯 +1 点）。
-func _roll_axis_cards() -> Array[Dictionary]:
+## apply_classified_pity 仅由自然等级升级传 true；奖励升级保持基础权重且不改累计。
+func _roll_axis_cards(apply_classified_pity: bool = false) -> Array[Dictionary]:
 	var by_axis: Dictionary = {}
 	for a in SurvivorData.AXES:
 		by_axis[a] = []
@@ -2791,6 +2946,8 @@ func _roll_axis_cards() -> Array[Dictionary]:
 	for u in SurvivorData.UPGRADES:
 		if u.get("evolved", false):
 			continue  # 战区奖励池技能不进随机池
+		if not SurvivorData.is_normal_random_candidate(u):
+			continue  # 普通三轴卡永不吞掉机体专属位
 		if not SurvivorData.is_upgrade_available_for(u, _player_profile_id, p, upgrade_stacks, present_classes):
 			continue
 		if MetaShop.is_upgrade_gated(u):
@@ -2800,15 +2957,68 @@ func _roll_axis_cards() -> Array[Dictionary]:
 		(by_axis[SurvivorData.axis_of_upgrade(u)] as Array).append(u)
 	var cards: Array[Dictionary] = []
 	var lvl: int = survivor_player.level if survivor_player else 1
+	var classified_mult: float = SurvivorData.classified_pity_weight_multiplier(
+		_classified_pity_misses) if apply_classified_pity else 1.0
 	for a in SurvivorData.AXES:
-		var c: Dictionary = SurvivorData.pick_card_for_axis(by_axis[a], upgrade_stacks, lvl)
+		var c: Dictionary = SurvivorData.pick_card_for_axis(
+			by_axis[a], upgrade_stacks, lvl, classified_mult)
 		if c.is_empty():
 			# 收入封顶后"专注"纯加点卡已无意义（加点被 add_axis_point 闸掉）→ 该轴不出卡
 			if _axis_points_capped():
 				continue
 			c = SurvivorData.make_axis_focus_card(a)
 		cards.append(c)
+	if apply_classified_pity and not cards.is_empty():
+		var previous_misses := _classified_pity_misses
+		_classified_pity_misses = SurvivorData.classified_pity_next_misses(
+			cards, _classified_pity_misses)
+		EventLogger.log_event("UPGRADE_PITY", "Player",
+			"classified miss %d→%d (weight x%.1f, gold=%s)" % [
+				previous_misses, _classified_pity_misses, classified_mult,
+				str(_classified_pity_misses == 0),
+			])
 	return cards
+
+## 当前操控机对应的进化节点；起手机在首次停靠前还没有 evo_node meta，回退档案映射。
+func _current_evolution_node_id() -> StringName:
+	if player_aircraft and is_instance_valid(player_aircraft):
+		var node_id: StringName = player_aircraft.get_meta("evo_node", &"")
+		if node_id != &"":
+			return node_id
+	return EvolutionSystem.node_id_for_profile(_player_profile_id)
+
+## 每 3 级普通三卡抽完后独立追加专属第四槽。前置技能不参与出示门控；
+## 选择后效果仍由原技能自身的玩法条件自然启用。
+func _append_signature_offer(cards: Array[Dictionary]) -> void:
+	_signature_offered_node = &""
+	var node_id := _current_evolution_node_id()
+	if node_id == &"":
+		return
+	if int(_signature_offer_state.get(node_id, SignatureOfferState.UNSEEN)) \
+			!= SignatureOfferState.UNSEEN:
+		return
+	if not MetaShop.is_signature_owned_for_aircraft(node_id):
+		return
+	var signature := SurvivorData.signature_upgrade_for_aircraft(node_id)
+	if signature.is_empty():
+		_signature_offer_state[node_id] = SignatureOfferState.RESOLVED
+		push_warning("专属第四槽缺少技能映射：%s" % node_id)
+		return
+	var uid := String(signature.get("id", ""))
+	if int(upgrade_stacks.get(uid, 0)) >= int(signature.get("max_stacks", 1)):
+		_signature_offer_state[node_id] = SignatureOfferState.RESOLVED
+		return
+	if not SurvivorData.signature_offer_hit(randf()):
+		_signature_offer_state[node_id] = SignatureOfferState.RESOLVED
+		EventLogger.log_event("UPGRADE", "Player", "专属第四槽未命中：%s" % node_id)
+		return
+	var card: Dictionary = signature.duplicate(true)
+	card["signature_offer"] = true
+	card["signature_aircraft_name_key"] = _player_profile.display_name if _player_profile else ""
+	cards.append(card)
+	_signature_offer_state[node_id] = SignatureOfferState.OFFERED
+	_signature_offered_node = node_id
+	EventLogger.log_event("UPGRADE", "Player", "专属第四槽出现：%s/%s" % [node_id, uid])
 
 ## 三轴点数是否触顶（spec evolution-attribute-gates §2.2 v9）：卡面 +1 标签与专注卡据此关停
 func _axis_points_capped() -> bool:
@@ -2857,7 +3067,8 @@ func _distribute_upgrade(upgrade: Dictionary) -> void:
 		return
 	if SurvivorData.upgrade_scope(upgrade) == "squad_once":
 		survivor_player.apply_upgrade(upgrade)
-		_dispatch_sig_oneshot(str(upgrade.get("id", "")))
+		var uid := str(upgrade.get("id", ""))
+		_dispatch_sig_oneshot(uid)
 		return
 	for m in _squad_members_alive():
 		if SurvivorData.upgrade_applies_to_machine(
@@ -3099,6 +3310,7 @@ func _try_present_bonus_upgrade() -> void:
 	AudioManager.set_music_muffled(true)
 	upgrade_ui.populate(cards, _axis_points_capped())
 	Presentation.present(upgrade_ui, "upgrade_in")
+	upgrade_ui.schedule_entry_flashes()
 
 ## 应用一条升级（归属分流 + 记栈 + "+1 轴进度" + 旧进化链检测 + 生效子集重建）。
 ## 返回触发的旧进化技能名（无则 ""）。供 结算规划站 / 旧 upgrade_ui 信号 两个入口共用（不含暂停/恢复）。
@@ -3130,6 +3342,9 @@ func _apply_upgrade_choice(upgrade: Dictionary) -> String:
 	return evolved_name
 
 func _on_upgrade_selected(upgrade: Dictionary) -> void:
+	if _signature_offered_node != &"":
+		_signature_offer_state[_signature_offered_node] = SignatureOfferState.RESOLVED
+		_signature_offered_node = &""
 	var evolved_name := ""
 	if str(upgrade.get("stat", "")) != "axis_focus":
 		evolved_name = _apply_upgrade_choice(upgrade)
@@ -3160,15 +3375,27 @@ func _on_upgrade_selected(upgrade: Dictionary) -> void:
 ## skills-720 T1 起走归属分流——通用/品类落全队、王牌落操控机，僚机进化后同步吃满）。
 ## category=="weapon" 的强化跳过：其效果长在武器资源上、已随武器库引用迁移，重放会双重叠加。
 ## 序言重置每架机上存活于 aircraft 实例的乘法字段（SurvivorPlayableSetup 不管它们）——
-## 其余实例字段要么被 setup 重置（bullet_dodge_chance）要么是幂等赋值（extra_barrels 等）。
+## 其余实例字段要么被 setup 重置（bullet_dodge_chance）要么是幂等赋值（extra_barrels 等）；
+## 锁定目标数是加算字段，必须先回基础 1 再重放技能，随后里程碑在第三步补回自己的 +1。
 func _replay_player_upgrades() -> void:
 	if survivor_player == null or player_aircraft == null:
 		return
+	# 玩家级乘区也会随 squad_once 条目进入下方重放；先归一再重建，避免每次进化把
+	# 一层经验倍率从 ×1.2 错叠到 ×1.4。签名 XP 是赋值型，但一起归一保持同一语义。
+	survivor_player.xp_multiplier = 1.0
+	survivor_player.sig_xp_mult = 1.0
 	for m in _squad_members_alive():
 		m.missile_reload_duration = 20.0  # aircraft.gd 字段默认值
 		m.gun_reload_duration = 25.0
+		m.max_simultaneous_locks = 1
 		m.veteran_hp_bonus_applied = 0.0  # 历战者差量记账清零：换型后由 recompute 整额补回（720 T4）
 		m.set_meta("sig_gcap_layers", 0)  # 联合突击差量清零：新 params 无加成，watch 周期整额补回（722）
+		# 两条“局内永久 HP”技能的战果账本跟飞机实例走；进化只换 params，需把已赚收益补回。
+		var earned_hp: float = float(m.get_meta("head_on_perma_hp_gained", 0.0)) \
+			+ float(m.get_meta("bloodlust_perma_hp_gained", 0.0))
+		if earned_hp > 0.0 and m.params:
+			m.params.max_hp += earned_hp
+			m.hp += earned_hp
 		# 甲板周转（722 sig_fa18e）"永久 +10 HP"跨换机：新 params 按 meta 记账整额补回
 		var fa18_hp: float = float(m.get_meta("sig_fa18e_hp_gained", 0.0))
 		if fa18_hp > 0.0 and m.params:
@@ -3412,7 +3639,7 @@ func _open_evolution_offer() -> void:
 		hud.set_warzone_remaining(_remaining, _is_in_boss_phase())
 	var lvl: int = survivor_player.level if survivor_player else 1
 	# 起点记账（树视图爬线历史的第一格；首次结算时补写）+ 图鉴（起手机=拥有过）
-	if cur_id != &"":
+	if cur_id != &"" and archive_enabled():
 		AircraftCodex.mark_discovered(cur_id)
 		if not player_aircraft.has_meta("evo_node"):
 			player_aircraft.set_meta("evo_node", cur_id)
@@ -3435,7 +3662,7 @@ func _on_settlement_evolution(node_id: StringName) -> void:
 		return
 	# 武器库快照（spec inrun-weapon-inventory）：换型前把机上特殊武器（含强化）收进玩家武器库
 	survivor_player.record_special_weapons()
-	if not EvolutionSystem.evolve(player_aircraft, node_id, false):
+	if not EvolutionSystem.evolve(player_aircraft, node_id, false, archive_enabled()):
 		return
 	# 主角档案引用同步（三轴里程碑覆写 / 专属技能筛选 / 品类身份跟新机型走）
 	var prof := AircraftDB.get_profile(StringName(nd.get("profile", "")))
@@ -3448,7 +3675,7 @@ func _on_settlement_evolution(node_id: StringName) -> void:
 	if _squad:
 		for m in _squad.members:
 			if m != player_aircraft and is_instance_valid(m) and not m.is_destroyed:
-				EvolutionSystem.evolve(m, node_id, true)
+				EvolutionSystem.evolve(m, node_id, true, false)
 				if prof:
 					m.set_meta("profile_id", prof.id)
 	# ── 换型重放三连（顺序敏感）──
@@ -3466,6 +3693,8 @@ func _on_settlement_evolution(node_id: StringName) -> void:
 		survivor_player.get_axis_points(SurvivorData.AXIS_KNIGHT),
 		survivor_player.get_axis_points(SurvivorData.AXIS_SCHEMER),
 		_squad_members_alive().size()])
+	if _evolution_ui:
+		_evolution_ui.mark_evolution_applied(node_id, player_aircraft.get_meta("evo_history", []))
 	if _zone_hint:
 		_zone_hint.show_temp(tr("EVOLUTION_DONE_FMT") % tr(String(nd.get("name_key", ""))), 4.0)
 
@@ -3520,37 +3749,87 @@ const VIEW_SPAWN_MARGIN_PX := 200.0  ## 屏外 200px 缓冲，避免贴边刷新
 #  停靠点（spec zone-reward-docking）：固定机场 + 停靠结算入口
 # ══════════════════════════════════════════════
 
-## 机场解放后的 ALLY 防空伞渐进部署（spec airfield-liberation-zones §2.4，用户订正）：
-## 一旦机场被打下来即刻起逐个刷出 SAM×1 + AA×2（每 AIRFIELD_ALLY_SPAWN_INTERVAL 一个，
-## 顺序 SAM→AA→AA，~8s 布防齐），**不要求玩家降落/停靠**。参数复用敌版 .tres，阵营翻 ALLY，
-## 击杀不给玩家 XP（_detect_kills 只认 HOSTILE），不移动、无生命周期。
+## 机场解放后的 ALLY 防空伞渐进部署（spec airfield-sam-network）：
+## 基础 AA×2；已购“机场防空网授权”时追加 SAM×1。每 4s 一个，顺序 AA→AA→SAM，
+## 不要求玩家降落/停靠。参数复用敌版 .tres，阵营翻 ALLY，击杀不给玩家 XP。
 const AIRFIELD_ALLY_SPAWN_INTERVAL := 4.0
-func _deploy_airfield_ally_gradual(center: Vector2) -> void:
-	var plan: Array = [
-		[_sam_scene, _sam_params, Vector2(240.0, 0.0)],
-		[_aa_scene, _aa_params, Vector2(-170.0, 150.0)],
-		[_aa_scene, _aa_params, Vector2(-170.0, -150.0)],
+const FRIENDLY_CARRIER_HULL_HP: float = 300.0
+
+## 纯数据计划供运行时与 bench 共用；SAM 永远是永久授权追加的第三个单位。
+static func airfield_ally_plan(has_sam_network: bool) -> Array[Dictionary]:
+	var plan: Array[Dictionary] = [
+		{"kind": &"aa", "offset": Vector2(-170.0, 150.0)},
+		{"kind": &"aa", "offset": Vector2(-170.0, -150.0)},
 	]
+	if has_sam_network:
+		plan.append({"kind": &"sam", "offset": Vector2(240.0, 0.0)})
+	return plan
+
+
+func _spawn_airfield_ally_unit(kind: StringName, world_pos: Vector2,
+		asset_group_id: StringName) -> CombatUnit:
+	var scene: PackedScene
+	var unit_params: Resource
+	match kind:
+		&"aa":
+			scene = _aa_scene
+			unit_params = _aa_params
+		&"sam":
+			scene = _sam_scene
+			unit_params = _sam_params
+		_:
+			return null
+	if scene == null:
+		return null
+	var u: Node = scene.instantiate()
+	u.position = world_pos
+	if unit_params and "params" in u:
+		u.params = unit_params
+	if "bullet_manager" in u:
+		u.bullet_manager = bullet_manager
+	if "missile_manager" in u:
+		u.missile_manager = missile_manager
+	AllyForce.convert_ground(u)
+	add_child(u)
+	if u is CombatUnit:
+		_friendly_asset_aggro.register_target(asset_group_id, u as CombatUnit)
+		return u as CombatUnit
+	return null
+
+
+## 每座机场只承诺一次授权 SAM；生成前即记账，所以被击毁也不会重生。
+func _try_deploy_airfield_sam(zone_id: StringName, center: Vector2,
+		asset_group_id: StringName) -> bool:
+	if _airfield_sam_committed.has(zone_id):
+		return false
+	_airfield_sam_committed[zone_id] = true
+	var sam := _spawn_airfield_ally_unit(&"sam", center + Vector2(240.0, 0.0), asset_group_id)
+	if sam == null:
+		_airfield_sam_committed.erase(zone_id)
+		return false
+	EventLogger.log_event("SUPPORT", "AirfieldSAMDeployed", "id=%s center=%s" % [zone_id, center])
+	return true
+
+
+func _deploy_airfield_ally_gradual(zone_id: StringName, center: Vector2,
+		asset_group_id: StringName) -> void:
+	var has_sam_network := MetaShop.is_airfield_sam_entitled(archive_enabled())
+	var plan := airfield_ally_plan(has_sam_network)
 	for i in range(plan.size()):
 		if i > 0:
 			await get_tree().create_timer(AIRFIELD_ALLY_SPAWN_INTERVAL).timeout
 			if is_game_over or not is_inside_tree():
 				return
-		var d: Array = plan[i]
-		var scene: PackedScene = d[0]
-		if scene == null:
-			continue
-		var u: Node = scene.instantiate()
-		u.position = center + d[2]
-		if d[1] and "params" in u:
-			u.params = d[1]
-		if "bullet_manager" in u:
-			u.bullet_manager = bullet_manager
-		if "missile_manager" in u:
-			u.missile_manager = missile_manager
-		AllyForce.convert_ground(u)
-		add_child(u)
-	EventLogger.log_event("EVENT", "AirfieldAllyDeployed", "center=%s (gradual SAM+AA)" % center)
+		var d: Dictionary = plan[i]
+		var kind: StringName = d["kind"]
+		if kind == &"sam":
+			_try_deploy_airfield_sam(zone_id, center, asset_group_id)
+		else:
+			var offset: Vector2 = d["offset"]
+			_spawn_airfield_ally_unit(kind, center + offset, asset_group_id)
+	EventLogger.log_event("EVENT", "AirfieldAllyDeployed",
+		"id=%s center=%s AA×2 SAM×%d" % [
+			zone_id, center, 1 if _airfield_sam_committed.has(zone_id) else 0])
 
 ## ALLY 第三方事件调度（spec global-awareness-roe §2.6）：
 ##   AWACS：开局 90~150s 首次入场；撤离/被击落后 ≥180s 可再触发
@@ -3560,6 +3839,8 @@ func _deploy_airfield_ally_gradual(center: Vector2) -> void:
 func _update_ally_events(delta: float) -> void:
 	if is_game_over or _is_in_boss_phase() or _event_director == null:
 		return
+	if not MetaShop.is_awacs_entitled(archive_enabled()):
+		return  # 未购正式局冻结计时器，不积攒“购买后立刻刷新”的债
 	var awacs_active := _event_director.find_by_name("awacs_support") != null
 	if _awacs_was_active and not awacs_active:
 		_awacs_spawn_timer = 180.0   # 撤离/被击落 → 冷却后可再入场
@@ -3570,10 +3851,20 @@ func _update_ally_events(delta: float) -> void:
 			_event_director.start(AwacsSupportEvent.new())
 			_awacs_was_active = true
 
-## 王牌中队调度（spec ace-squadron-tier §2.9 时段档 + 轮换）：
-## 各队按时段档进池（早期 240 / 中期 320 / 后期 400，AceSquadProfiles.pool_at）；
+## 王牌中队调度（spec ace-rotation-balance）：
+## 五支非宿敌队 240s 同窗入池；每局开局洗牌、同局无放回、连续两局首队不相同；
 ## 前支结束（全灭/撤离）后 ≥150s；540s 后不新刷；同场 ≤1 支；同局不重复同队；
-## 轮换指针跨局轮转（session 内）；BOSS 阶段 / boss debug / bench 不触发
+## BOSS 阶段 / boss debug / bench 不触发。
+func _prepare_ace_run_order() -> void:
+	if not _ace_run_order.is_empty():
+		return
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	_ace_run_order = AceSquadProfiles.build_run_order(rng, _ace_previous_first)
+	if not _ace_run_order.is_empty():
+		_ace_previous_first = String(_ace_run_order[0])
+	EventLogger.log_event("BALANCE", "AceRotation", "run_order=%s" % str(_ace_run_order))
+
 func _update_ace_support_event(delta: float) -> void:
 	if is_game_over or _is_in_boss_phase() or _event_director == null:
 		return
@@ -3592,8 +3883,14 @@ func _update_ace_support_event(delta: float) -> void:
 		return
 	_ace_support_cd -= delta
 	if _ace_support_cd <= 0.0:
-		var pick := String(candidates[_ace_rotation_ptr % candidates.size()])
-		_ace_rotation_ptr += 1
+		_prepare_ace_run_order()
+		var pick := ""
+		for id in _ace_run_order:
+			if candidates.has(id):
+				pick = String(id)
+				break
+		if pick.is_empty():
+			pick = String(candidates[0]) # fail-open：profile 热更新后仍可生成
 		_ace_squads_used[pick] = true
 		var ev := AceReinforcementEvent.new()
 		ev.profile_id = pick
@@ -3622,6 +3919,8 @@ func _liberate_airfield(zone_id: StringName) -> void:
 		return
 	var center: Vector2 = z["center"]
 	var dock_key := String(z.get("dock_name_key", "DOCK_HANEDA_NAME"))
+	var asset_group_id := StringName("airfield_%s" % zone_id)
+	_friendly_asset_aggro.register_airfield(asset_group_id, center)
 	# 状态置 CLEARED（独立路径）
 	_zone_data.liberate_airfield(zone_id)
 	# 热度：解放机场同"攻克战区"（spec global-awareness-roe §2.4）
@@ -3642,7 +3941,7 @@ func _liberate_airfield(zone_id: StringName) -> void:
 	if _tactical_map:
 		_tactical_map.set_docks(_dock_points)
 	# 友军防空伞：解放即刻逐个刷出（不 dock 门控）
-	_deploy_airfield_ally_gradual(center)
+	_deploy_airfield_ally_gradual(zone_id, center, asset_group_id)
 	if _zone_hint:
 		_zone_hint.show_temp(tr("ZONE_AIRFIELD_LIBERATED_FMT") % tr(dock_key), 4.5)
 	EventLogger.log_event("ZONE", "AirfieldLiberated",
@@ -3667,6 +3966,8 @@ func _summon_reward_carrier() -> void:
 	# duplicate(true) 深拷挂点配置，避免污染共享 BOSS 资源。
 	cv_params = cv_params.duplicate(true)
 	cv_params.default_team = 0
+	# friendly-asset-aggro v2：仅友军奖励实例降为 300 船体；敌方 BOSS 资源仍是 1200。
+	cv_params.hull_hp_max = FRIENDLY_CARRIER_HULL_HP
 	var cv := CarrierShip.new()
 	cv.params = cv_params
 	cv.team = 0
@@ -3680,6 +3981,9 @@ func _summon_reward_carrier() -> void:
 	cv.waypoints = PackedVector2Array([Vector2(entry_x, entry.y - 5000.0)])
 	cv.set_meta("category", "friendly_carrier")
 	cv.set_meta("skip_far_cleanup", true)
+	# 先写设施 meta 再入树：NavalUnit._ready 动态创建的 MountTarget 首帧即可
+	# 继承 DORMANT 硬门，避免生成后至首个 1 Hz tick 之间被自主选靶。
+	_friendly_asset_aggro.register_carrier(&"reward_carrier", cv)
 	add_child(cv)
 	if "bullet_manager" in self:
 		cv.bullet_manager = get("bullet_manager")
@@ -3707,6 +4011,7 @@ func _summon_reward_carrier() -> void:
 func _on_friendly_carrier_gone() -> void:
 	if not is_inside_tree():
 		return  # 场景整体退出中，不做游戏逻辑
+	_friendly_asset_aggro.unregister_group(&"reward_carrier")
 	_friendly_carrier = null
 	_dock_points = _dock_points.filter(func(d): return is_instance_valid(d))
 	if _tactical_map and is_instance_valid(_tactical_map):
@@ -3721,6 +4026,8 @@ func _on_friendly_carrier_gone() -> void:
 func _depart_friendly_carrier() -> void:
 	if not _friendly_carrier or not is_instance_valid(_friendly_carrier):
 		return
+	# 南撤开始即退出据点仇恨，不让玩家跟着移动航母继续吸怪。
+	_friendly_asset_aggro.unregister_group(&"reward_carrier")
 	_friendly_carrier.waypoints = PackedVector2Array([
 		Vector2(_friendly_carrier.global_position.x, MapBoundary.world_half_px() + 2500.0)
 	])
@@ -3838,6 +4145,7 @@ func _spawn_reward_wingman() -> void:
 	ai.patrol_altitude = leader.altitude
 	ac.add_child(ai)
 	SquadFactory.register_wingman(_squad, ac)
+	_maybe_start_wingman_switch_tutorial()
 	ac.set_formation_target(leader, _squad.get_wingman_target(idx))
 	if _wingman_formation_debug:
 		ac.formation_debug = true
@@ -3987,7 +4295,7 @@ func _build_reward_roll_context() -> Dictionary:
 		"stacks": upgrade_stacks,
 		"squad_classes": _squad_present_classes(),
 		# 成就门控（spec career-archive §3.3）：无人机猎手未解锁 → 忠诚僚机不进武器子池。
-		# 本键是正式局唯一真源；缺键 fail-open（= 旧行为），保 bench/旧调用方不变
+		# 本键是正式局唯一真源；缺键 fail-closed，防调用方漏注入时提前泄漏解锁奖励
 		"loyal_wingman_unlocked": CareerArchive.is_achievement_unlocked(CareerArchive.ACHIEVEMENT_UAV_HUNTER),
 	}
 
@@ -4267,3 +4575,110 @@ func _turn_player_inward() -> void:
 			wm.altitude = player_aircraft.altitude
 			wm.target_altitude = player_aircraft.target_altitude
 			wm.clear_trail()
+
+
+## Sentinel + Lv15 + 常规混编上叠一支真实王牌事件与已购（bench fail-open）F-15 截击支援。
+## 放在文件尾，避免新增 bench helper 让主流程的文档锚点整体漂移。
+func _bench_force_ace_support() -> void:
+	_spawner._spawn_commander_squad(5)
+	var ev := AceReinforcementEvent.new()
+	ev.profile_id = "marathon"
+	_event_director.start(ev)
+	var support_count := 0
+	for child in get_children():
+		if child is Aircraft and child.has_meta("ace_intercept_support"):
+			support_count += 1
+	print("[Bench] ace_support_stress spawned F-15 support=%d (expected 2)" % support_count)
+
+
+## 终局链路：先击坠长机验证存活僚机接管，再同时击坠全队验证 Game Over。
+func _bench_setup_survivor_death() -> void:
+	_spawner._dynamic_enemy_cap = 0
+	_claim_wingman_reward(2)
+	_bench_death_original_id = player_aircraft.get_instance_id()
+	print("[Bench] survivor_death ready: squad_alive=%d leader_id=%d" % [
+		_squad_members_alive().size(), _bench_death_original_id])
+
+
+func _bench_update_survivor_death() -> void:
+	if _bench_death_stage == 0 and _bench_elapsed >= 2.0:
+		_bench_death_stage = 1
+		player_aircraft.invulnerable = false
+		player_aircraft.take_damage(player_aircraft.hp + 1000.0, null, "bench_leader_down")
+		print("[Bench] survivor_death: leader down id=%d" % _bench_death_original_id)
+	elif _bench_death_stage == 1 and _bench_elapsed >= 3.0:
+		_bench_takeover_verified = player_aircraft != null and is_instance_valid(player_aircraft) \
+				and player_aircraft.get_instance_id() != _bench_death_original_id \
+				and not player_aircraft.is_destroyed
+		if not _bench_takeover_verified:
+			_bench_finish_now("terminal=takeover_failed\n%s\n" % _bench_runtime_status(), 1)
+			return
+		_bench_death_stage = 2
+		print("[Bench] survivor_death: takeover ok new_leader_id=%d; destroying squad" % \
+				player_aircraft.get_instance_id())
+		for member in _squad_members_alive():
+			member.invulnerable = false
+			member.take_damage(member.hp + 1000.0, null, "bench_squad_wipe")
+
+
+## Bench 墙钟监控：即使 game_over / 升级暂停让 _physics_process 早退，也能留下终态并退出。
+## 每 10 秒才做一次单位计数；正式局不进入此分支。
+func _bench_wall_watchdog() -> void:
+	if _bench_wall_started_msec <= 0:
+		return
+	var now := Time.get_ticks_msec()
+	if now - _bench_last_heartbeat_msec >= 10000:
+		_bench_last_heartbeat_msec = now
+		print("[Bench] heartbeat wall=%.1fs sim=%.1fs %s" % [
+			float(now - _bench_wall_started_msec) / 1000.0, _bench_elapsed,
+			_bench_runtime_status()])
+
+	if is_game_over:
+		var expected := _bench_scenario == "survivor_death"
+		_bench_finish_now("terminal=game_over expected=%s\n%s\n" % [
+			str(expected), _bench_runtime_status()], 0 if expected else 1)
+		return
+	if get_tree().paused and not is_paused_for_upgrade:
+		_bench_finish_now("terminal=unexpected_tree_pause\n%s\n" % _bench_runtime_status(), 1)
+		return
+
+	if is_paused_for_upgrade:
+		if _bench_pause_started_msec <= 0:
+			_bench_pause_started_msec = now
+		elif now - _bench_pause_started_msec >= 5000:
+			_bench_finish_now("terminal=upgrade_pause_stuck\n%s\n" % _bench_runtime_status(), 1)
+	else:
+		_bench_pause_started_msec = 0
+
+
+func _bench_runtime_status() -> String:
+	var player_valid := player_aircraft != null and is_instance_valid(player_aircraft)
+	var player_dead := true
+	var player_hp := -1.0
+	var debug_skills_open := false
+	var debug_spawn_open := false
+	for child in get_children():
+		if child is SurvivorDebugSkills:
+			debug_skills_open = child.visible
+		elif child is SurvivorDebugSpawn:
+			debug_spawn_open = child.visible
+	if player_valid:
+		player_dead = player_aircraft.is_destroyed
+		player_hp = player_aircraft.hp
+	return "game_over=%s upgrade_paused=%s tree_paused=%s presentation_state=%s hard_pause=%s debug_skills=%s debug_spawn=%s pause_menu=%s tactical_map=%s takeover=%s victory=%s player_valid=%s player_dead=%s hp=%.1f level=%d aircraft=%d enemies=%d kills=%d" % [
+		str(is_game_over), str(is_paused_for_upgrade), str(get_tree().paused),
+		str(Presentation.state), str(Presentation.time.is_hard_paused()), str(debug_skills_open),
+		str(debug_spawn_open), str(_pause_menu != null and _pause_menu.visible),
+		str(_tactical_map != null and _tactical_map.is_open()), str(_bench_takeover_verified),
+		str(_is_victory), str(player_valid),
+		str(player_dead), player_hp, (survivor_player.level if survivor_player else 0),
+		_count_aircraft_alive(), _count_enemy_alive(), (_spawner.kill_count if _spawner else 0)]
+
+
+func _bench_finish_now(summary: String, exit_code: int = 0) -> void:
+	if _bench_finished:
+		return
+	_bench_finished = true
+	var br: Node = get_tree().root.get_node_or_null("/root/BenchRunner")
+	if br and br.has_method("bench_finish"):
+		br.call("bench_finish", summary, exit_code)

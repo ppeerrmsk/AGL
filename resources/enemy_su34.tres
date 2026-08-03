@@ -1,0 +1,38 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=6 format=3]
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/lancer_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/default_missile.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/enemy_standard_flare.tres" id="5"]
+[resource]
+script = ExtResource("1")
+display_name = "Su-34 Fullback"
+max_hp = 60.0
+max_speed = 2050.0
+cruise_speed = 920.0
+stall_speed_base = 225.0
+acceleration = 46.0
+deceleration = 75.0
+g_drag_factor = 3.4
+max_g = 6.0
+max_g_structural = 9.0
+roll_rate = 2.8
+pilot_stamina = 80.0
+stamina_drain_rate = 29.0
+stamina_recovery_rate = 8.5
+max_altitude = 15000.0
+climb_rate_max = 230.0
+thrust_to_weight = 0.98
+drag_coefficient = 0.027
+afterburner_thrust_mult = 1.45
+fuel_capacity = 3600.0
+fuel_rate_normal = 2.2
+fuel_rate_afterburner = 9.5
+radar_range = 3800.0
+radar_half_angle = 28.0
+lock_time = 3.2
+gun = ExtResource("2")
+missile = ExtResource("4")
+flare = ExtResource("5")
+combat = ExtResource("3")
+icon_color = Color(0.83, 0.27, 0.18, 1)

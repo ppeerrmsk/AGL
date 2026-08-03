@@ -19,7 +19,8 @@ func run() -> void:
 	_test_milestone_bonus_double_count()
 	_test_pool_class_gate()
 	_test_t3_hooks()
-	_test_ace_strip_roundtrip()
+	_test_lock_count_upgrades()
+	_test_close_range_lock()
 	_test_axis_count_scaling()
 	_test_t5_mechanisms()
 	_test_requires_skill_chain()
@@ -78,14 +79,17 @@ func _test_milestone_bonus_double_count() -> void:
 	print("── C. milestone_bonus：cap=2 / gates 隔离 / 判档=点+加成 / 换型重放含加成 ──")
 	var sp := SurvivorPlayer.new()
 	var ac := _make_test_aircraft()
+	ac.params.gun = GunParams.new()
 	sp.aircraft = ac
-	# 1 点 + 1 加成 → 进度 2 跨首档（斗士 2 档 = max_hp +25）
+	var base_range: float = ac.params.gun.max_range
+	# 1 点 + 1 加成 → 进度 2 跨首档（斗士 2 档 = 机炮射程 ×1.20）
 	sp.add_axis_point(SurvivorData.AXIS_GLADIATOR)
-	_check("1 点未跨档（hp 100）", is_equal_approx(ac.params.max_hp, 100.0),
-		"got %.1f" % ac.params.max_hp)
+	_check("1 点未跨档（射程不变）", is_equal_approx(ac.params.gun.max_range, base_range),
+		"got %.1f" % ac.params.gun.max_range)
 	sp.add_milestone_bonus(SurvivorData.AXIS_GLADIATOR)
-	_check("加成 +1 → 进度 2 跨首档（hp 125）", is_equal_approx(ac.params.max_hp, 125.0),
-		"got %.1f" % ac.params.max_hp)
+	_check("加成 +1 → 进度 2 跨首档（射程 ×1.20）",
+		is_equal_approx(ac.params.gun.max_range, base_range * 1.20),
+		"got %.1f" % ac.params.gun.max_range)
 	_check("门槛点数不变（双计数隔离）",
 		sp.get_axis_points(SurvivorData.AXIS_GLADIATOR) == 1, "")
 	_check("里程碑进度 = 2", sp.get_milestone_progress(SurvivorData.AXIS_GLADIATOR) == 2, "")
@@ -100,12 +104,17 @@ func _test_milestone_bonus_double_count() -> void:
 		int(sp.milestone_bonus[SurvivorData.AXIS_GLADIATOR]) == 2,
 		"got %d" % int(sp.milestone_bonus[SurvivorData.AXIS_GLADIATOR]))
 	_check("进度 = 3（1点+2加成）", sp.get_milestone_progress(SurvivorData.AXIS_GLADIATOR) == 3, "")
+	_check("进度 3 跨第二档（HP 100→125）", is_equal_approx(ac.params.max_hp, 125.0),
+		"got %.1f" % ac.params.max_hp)
 	# 换型重放：全新 params 重挂时加成计入
 	ac.params = _make_fresh_params(200.0)
+	ac.params.gun = GunParams.new()
 	ac.hp = 200.0
+	var fresh_range: float = ac.params.gun.max_range
 	sp.reapply_all_milestones()
-	_check("换型重放含加成（hp 200→225）", is_equal_approx(ac.params.max_hp, 225.0),
-		"got %.1f" % ac.params.max_hp)
+	_check("换型重放含加成（射程 ×1.20 / hp 200→225）",
+		is_equal_approx(ac.params.gun.max_range, fresh_range * 1.20)
+		and is_equal_approx(ac.params.max_hp, 225.0), "")
 	# 未知轴防御
 	sp.add_milestone_bonus(&"bogus")
 	_check("未知轴不崩不计", sp.get_milestone_progress(SurvivorData.AXIS_GLADIATOR) == 3, "")
@@ -180,31 +189,86 @@ func _test_t3_hooks() -> void:
 	victim.free()
 
 
-# ── F. 王牌字段技 strip 往返（T2 落库 + T1 迁移机制的配对验证）──
-func _test_ace_strip_roundtrip() -> void:
-	print("── F. 王牌字段技 strip：missile_swarm 应用→剥离 参数还原 ──")
+# ── F. 可叠加锁数技能（普通 +1 / 蜂群 +3，均为全队）──
+func _test_lock_count_upgrades() -> void:
+	print("── F. 锁数技能：多目标追踪 +1/层、导弹蜂群 +3、默认全队 ──")
 	var sp := SurvivorPlayer.new()
-	var ac := _make_test_aircraft()
-	ac.params.missile = MissileParams.new()
-	ac.params.missile.max_count = 4
-	ac.params.missile.max_g = 35.0
-	ac.missiles_remaining = 4
-	sp.aircraft = ac
+	var lead := _make_test_aircraft()
+	var wing := _make_test_aircraft()
+	for ac in [lead, wing]:
+		ac.params.missile = MissileParams.new()
+		ac.params.missile.max_count = 4
+		ac.params.missile.max_g = 35.0
+		ac.missiles_remaining = 4
+	sp.aircraft = lead
+	var multi: Dictionary = {}
 	var swarm: Dictionary = {}
 	for u in SurvivorData.UPGRADES:
-		if str(u.get("id", "")) == "missile_swarm":
+		if str(u.get("id", "")) == "multi_lock":
+			multi = u
+		elif str(u.get("id", "")) == "missile_swarm":
 			swarm = u
-			break
+	_check("表中存在稳定级骑士 multi_lock", not multi.is_empty() \
+		and int(multi.get("rarity", -1)) == SurvivorData.Rarity.STABLE \
+		and SurvivorData.axis_of_upgrade(multi) == SurvivorData.AXIS_KNIGHT, str(multi))
+	_check("multi_lock 每层 +1 / 上限 3", int(multi.get("value", 0)) == 1 \
+		and int(multi.get("max_stacks", 0)) == 3, str(multi))
 	_check("表中存在 missile_swarm", not swarm.is_empty(), "")
-	sp.apply_upgrade_to(ac, swarm)
-	_check("应用：弹舱 4→8", ac.params.missile.max_count == 8, "got %d" % ac.params.missile.max_count)
-	_check("应用：齐射锁数 ≥8", ac.max_simultaneous_locks >= 8, "got %d" % ac.max_simultaneous_locks)
-	sp.strip_upgrade_from(ac, swarm)
-	_check("剥离：弹舱回 4", ac.params.missile.max_count == 4, "got %d" % ac.params.missile.max_count)
-	_check("剥离：追踪罚回吐（max_g≈35）", is_equal_approx(ac.params.missile.max_g, 35.0),
-		"got %.2f" % ac.params.missile.max_g)
-	_check("剥离：锁数回 1", ac.max_simultaneous_locks == 1, "")
-	ac.free()
+	_check("两技能均为默认全队范围", str(multi.get("scope", "")) == "" \
+		and str(swarm.get("scope", "")) == "" and not swarm.has("classes"), str(swarm))
+	for ac in [lead, wing]:
+		sp.apply_upgrade_to(ac, multi)
+		sp.apply_upgrade_to(ac, swarm)
+	_check("长机锁数 1→5（+1 +3）", lead.max_simultaneous_locks == 5,
+		"got %d" % lead.max_simultaneous_locks)
+	_check("僚机同吃锁数 1→5", wing.max_simultaneous_locks == 5,
+		"got %d" % wing.max_simultaneous_locks)
+	_check("蜂群弹舱 4→8", lead.params.missile.max_count == 8,
+		"got %d" % lead.params.missile.max_count)
+	_check("蜂群追踪 G 35→29.75", is_equal_approx(lead.params.missile.max_g, 29.75),
+		"got %.2f" % lead.params.missile.max_g)
+	_check("齐射覆盖受锁数限制（2锁/5目标/9弹 → 2）",
+		AircraftWeapons._salvo_fire_count(2, 5, 9) == 2, "")
+	_check("齐射覆盖受目标与弹量限制",
+		AircraftWeapons._salvo_fire_count(7, 3, 9) == 3 \
+		and AircraftWeapons._salvo_fire_count(7, 9, 2) == 2, "")
+	lead.free()
+	wing.free()
+	sp.free()
+
+
+# ── F2. 近距捕获（斗士稳定技能）──
+func _test_close_range_lock() -> void:
+	print("── F2. 近距捕获：斗士稳定 / 全队 / 距离线性倍率 ──")
+	var u: Dictionary = SurvivorData.upgrade_by_id("close_range_lock")
+	_check("表中存在斗士稳定技能 close_range_lock", not u.is_empty()
+		and int(u.get("rarity", -1)) == SurvivorData.Rarity.STABLE
+		and SurvivorData.axis_of_upgrade(u) == SurvivorData.AXIS_GLADIATOR, str(u))
+	_check("单层、全队、贴身上限 ×2", str(u.get("stat", "")) == "close_range_lock"
+		and int(u.get("max_stacks", 0)) == 1
+		and str(u.get("scope", "")) == ""
+		and is_equal_approx(float(u.get("value", 0.0)), 2.0), str(u))
+	_check("雷达边缘 ×1", is_equal_approx(
+		SurvivorData.close_range_lock_mult(1000.0, 1000.0), 1.0), "")
+	_check("半程 ×1.5", is_equal_approx(
+		SurvivorData.close_range_lock_mult(500.0, 1000.0), 1.5), "")
+	_check("四分之一程 ×1.75", is_equal_approx(
+		SurvivorData.close_range_lock_mult(250.0, 1000.0), 1.75), "")
+	_check("贴身与越界输入安全钳制",
+		is_equal_approx(SurvivorData.close_range_lock_mult(0.0, 1000.0), 2.0)
+		and is_equal_approx(SurvivorData.close_range_lock_mult(-50.0, 1000.0), 2.0)
+		and is_equal_approx(SurvivorData.close_range_lock_mult(1500.0, 1000.0), 1.0), "")
+	var sp := SurvivorPlayer.new()
+	var lead := _make_test_aircraft()
+	var wing := _make_test_aircraft()
+	sp.aircraft = lead
+	sp.apply_upgrade_to(lead, u)
+	sp.apply_upgrade_to(wing, u)
+	_check("长机与僚机同吃 ×2 上限",
+		is_equal_approx(lead.close_range_lock_max_mult, 2.0)
+		and is_equal_approx(wing.close_range_lock_max_mult, 2.0), "")
+	lead.free()
+	wing.free()
 	sp.free()
 
 
@@ -255,21 +319,69 @@ func _test_axis_count_scaling() -> void:
 # ── H. T5 新机制（spec §6 T5：胆大妄为 / 二段推进 / 电磁炮双发；机炮吊舱走 playtest）──
 func _test_t5_mechanisms() -> void:
 	print("── H. T5 新机制：胆大妄为 / 二段推进 / 电磁炮双发 ──")
-	# 胆大妄为：无 flare → 严格 i-frame + 冷却 + 滚转动画
+	# R 统一入口：胆大妄为无 flare → 严格 i-frame + 冷却 + 滚转动画
 	var ac := _make_test_aircraft()
 	ac.manual_dodge_active = true
 	ac.flares_remaining = 0
-	ac.do_manual_dodge()
+	var manual_ok := ac.try_manual_maneuver()
+	_check("R 统一入口：胆大妄为被调用", manual_ok, "")
 	_check("R 闪避：0.25s 无敌窗", ac.status_effects.has(StatusEffects.INVINCIBLE), "")
 	_check("R 闪避：进入冷却", ac._manual_dodge_cd > 0.0, "got %.2f" % ac._manual_dodge_cd)
 	_check("R 闪避：滚转动画激活", ac._evade_roll_remaining > 0.0, "")
+	_check("R 闪避：冷却中不可重复", not ac.try_manual_maneuver(), "")
 	ac.free()
-	# 胆大妄为 apply/strip 往返：flare +6 收回 + 自动 flare 恢复
+	# 眼镜蛇/J-Turn：不开 evasion/加力也能由 R 直接启动
+	var ac_cobra := _make_test_aircraft()
+	var cobra := CobraManeuver.new()
+	ac_cobra.add_child(cobra)
+	cobra._aircraft = ac_cobra  # bench 节点不进 SceneTree，手动完成 _ready 绑定
+	ac_cobra.cobra_skill_active = true
+	_check("R 眼镜蛇：无需 evasion/加力即可启动",
+		not ac_cobra.evasion_mode and ac_cobra.try_manual_maneuver() and cobra.is_active, "")
+	ac_cobra.free()
+	var ac_herbst := _make_test_aircraft()
+	var herbst := HerbstManeuver.new()
+	ac_herbst.add_child(herbst)
+	herbst._aircraft = ac_herbst
+	ac_herbst.evasion_herbst_active = true
+	_check("R J-Turn：无需 evasion/加力即可启动",
+		not ac_herbst.evasion_mode and ac_herbst.try_manual_maneuver() and herbst.is_active, "")
+	ac_herbst.free()
+	# 控制身份真源：切控只需翻 AI.manual_control，手动/自动语义随之反转
+	var ac_ctrl := _make_test_aircraft()
+	var ctrl_ai := AIController.new()
+	ac_ctrl._ai_ref = ctrl_ai
+	ctrl_ai.manual_control = true
+	_check("受控机使用 R 手动路径", ac_ctrl.is_manual_maneuver_controlled(), "")
+	ctrl_ai.manual_control = false
+	_check("AI 接管后恢复自动路径", not ac_ctrl.is_manual_maneuver_controlled(), "")
+	ctrl_ai.free()
+	ac_ctrl.free()
+	# 三向互斥：任取一张后，其余两张都不再进池
+	var cobra_u := SurvivorData.upgrade_by_id("cobra_skill")
+	var herbst_u := SurvivorData.upgrade_by_id("evasion_herbst")
+	var manual_u := SurvivorData.upgrade_by_id("manual_dodge")
+	var flare_params := AircraftParams.new()
+	flare_params.flare = FlareParams.new()
+	_check("取眼镜蛇 → J-Turn/胆大妄为不进池",
+		not SurvivorData.is_upgrade_available_for(herbst_u, &"f16", flare_params, {"cobra_skill": 1}, [])
+		and not SurvivorData.is_upgrade_available_for(manual_u, &"f16", flare_params, {"cobra_skill": 1}, []), "")
+	_check("取 J-Turn → 眼镜蛇/胆大妄为不进池",
+		not SurvivorData.is_upgrade_available_for(cobra_u, &"f16", flare_params, {"evasion_herbst": 1}, [])
+		and not SurvivorData.is_upgrade_available_for(manual_u, &"f16", flare_params, {"evasion_herbst": 1}, []), "")
+	_check("取胆大妄为 → 眼镜蛇/J-Turn 不进池",
+		not SurvivorData.is_upgrade_available_for(cobra_u, &"f16", flare_params, {"manual_dodge": 1}, [])
+		and not SurvivorData.is_upgrade_available_for(herbst_u, &"f16", flare_params, {"manual_dodge": 1}, []), "")
+	# 胆大妄为全队下发：每架 +6 flare，AI 僚机受威胁自动释放
 	var sp := SurvivorPlayer.new()
 	var ac2 := _make_test_aircraft()
+	var wing2 := _make_test_aircraft()
 	ac2.params.flare = FlareParams.new()
 	ac2.params.flare.max_flares = 10
 	ac2.flares_remaining = 10
+	wing2.params.flare = FlareParams.new()
+	wing2.params.flare.max_flares = 10
+	wing2.flares_remaining = 10
 	sp.aircraft = ac2
 	var md: Dictionary = {}
 	for u in SurvivorData.UPGRADES:
@@ -277,14 +389,59 @@ func _test_t5_mechanisms() -> void:
 			md = u
 			break
 	sp.apply_upgrade_to(ac2, md)
-	_check("胆大妄为应用：flare 10→16 + 禁自动",
-		ac2.params.flare.max_flares == 16 and ac2.manual_dodge_active,
-		"got %d" % ac2.params.flare.max_flares)
-	sp.strip_upgrade_from(ac2, md)
-	_check("胆大妄为剥离：flare 回 10 + 恢复自动",
-		ac2.params.flare.max_flares == 10 and not ac2.manual_dodge_active,
-		"got %d" % ac2.params.flare.max_flares)
+	sp.apply_upgrade_to(wing2, md)
+	_check("胆大妄为全队应用：两机 flare 10→16 + 禁普通自动",
+		ac2.params.flare.max_flares == 16 and ac2.manual_dodge_active
+		and wing2.params.flare.max_flares == 16 and wing2.manual_dodge_active,
+		"lead=%d wing=%d" % [ac2.params.flare.max_flares, wing2.params.flare.max_flares])
+	_check("胆大妄为不再是 ace scope", str(md.get("scope", "")) == "", str(md.get("scope", "")))
+	# 后方敌机正对僚机开炮 → AI 路径自动滚转；不要求加力/evasion。
+	var tail_enemy := _make_test_aircraft()
+	tail_enemy.team = CombatUnit.TEAM_HOSTILE
+	tail_enemy.global_position = Vector2(0.0, 100.0)
+	tail_enemy.heading = 0.0
+	tail_enemy.is_firing = true
+	CombatUnit.all_units.append(tail_enemy)
+	wing2._update_manual_dodge_skill()
+	_check("胆大妄为 AI 僚机：后方机炮威胁自动释放",
+		wing2._manual_dodge_cd > 0.0 and wing2.status_effects.has(StatusEffects.INVINCIBLE), "")
+	var ai_cobra := _make_test_aircraft()
+	var ai_cobra_node := CobraManeuver.new()
+	ai_cobra.add_child(ai_cobra_node)
+	ai_cobra_node._aircraft = ai_cobra
+	ai_cobra.cobra_skill_active = true
+	ai_cobra._update_cobra_skill(0.0)
+	_check("眼镜蛇 AI 僚机：无需加力/evasion，后方机炮威胁自动释放",
+		not ai_cobra.evasion_mode and ai_cobra_node.is_active, "")
+	var ai_herbst := _make_test_aircraft()
+	var ai_herbst_node := HerbstManeuver.new()
+	ai_herbst.add_child(ai_herbst_node)
+	ai_herbst_node._aircraft = ai_herbst
+	ai_herbst.evasion_herbst_active = true
+	ai_herbst._update_evasion_herbst_skill(0.0)
+	_check("J-Turn AI 僚机：无需加力/evasion，后方机炮威胁自动释放",
+		not ai_herbst.evasion_mode and ai_herbst_node.is_active, "")
+	var controlled_cobra := _make_test_aircraft()
+	var controlled_cobra_node := CobraManeuver.new()
+	controlled_cobra.add_child(controlled_cobra_node)
+	controlled_cobra_node._aircraft = controlled_cobra
+	controlled_cobra.cobra_skill_active = true
+	var controlled_ai := AIController.new()
+	controlled_ai.manual_control = true
+	controlled_cobra._ai_ref = controlled_ai
+	controlled_cobra._update_cobra_skill(0.0)
+	var stayed_manual := not controlled_cobra_node.is_active
+	var manual_started := controlled_cobra.try_manual_maneuver()
+	_check("当前操控机：同一威胁不自动，按 R 才释放",
+		stayed_manual and manual_started and controlled_cobra_node.is_active, "")
+	CombatUnit.all_units.erase(tail_enemy)
+	tail_enemy.free()
+	ai_cobra.free()
+	ai_herbst.free()
+	controlled_ai.free()
+	controlled_cobra.free()
 	ac2.free()
+	wing2.free()
 	sp.free()
 	# 二段推进：转弯渐强曲线（关=×1 / 0s=×1 / ≥6.25s=×1.5 封顶）
 	var m := Missile.new()

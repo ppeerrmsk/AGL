@@ -125,6 +125,15 @@ func total_axis_points() -> int:
 		t += int(v)
 	return t
 
+## 策士里程碑的玩家级 XP 乘区。动态从当前进度求值，避免按全队飞机数量重复应用。
+func milestone_xp_multiplier(profile: PlayableAircraft = null) -> float:
+	var mult: float = 1.0
+	var pts: int = get_milestone_progress(SurvivorData.AXIS_SCHEMER)
+	for m in SurvivorData.milestones_for(SurvivorData.AXIS_SCHEMER, profile):
+		if pts >= int(m["points"]) and str(m.get("stat", "")) == "xp_mult":
+			mult *= float(m.get("value", 1.0))
+	return mult
+
 # ── "+1 轴进度"加成（spec skills-720-rework §1.1）──
 ## 带 milestone_plus 的技能给对应轴的**里程碑进度** +1——不是进化门槛点数：
 ## gates 仍只查 axis_points（双计数隔离），里程碑判档用 get_milestone_progress()。
@@ -319,6 +328,13 @@ func _apply_milestone_effect(m: Dictionary) -> void:
 		"max_hp":
 			p.max_hp += v
 			aircraft.hp += v  # 达成时也恢复对应量（与升级同语义）
+		"armor":
+			# 与普通技能“复合装甲”同源：armor/(armor+100)，导弹按 50% 穿甲。
+			p.armor += v
+		"missile_locks":
+			aircraft.max_simultaneous_locks += int(v)
+		"xp_mult":
+			pass  # 玩家级动态乘区；不得随全队逐机下发次数重复相乘
 		"gun_damage":
 			if p.gun:
 				p.gun = p.gun.duplicate()
@@ -337,6 +353,9 @@ func _apply_milestone_effect(m: Dictionary) -> void:
 			# 持续/结构极限同步抬，保持瞬时超越空间不缩水（CLAUDE.md 永久升级=直改 params，AI 经 effective_* 可见）
 			p.max_g += v
 			p.max_g_structural += v
+		"stall_speed":
+			# 永久机动里程碑直改 params；AI 战术经 effective_stall_speed_kmh 自动感知。
+			p.stall_speed_base *= v
 		"missile_count":
 			if p.missile:
 				p.missile = p.missile.duplicate()
@@ -391,16 +410,6 @@ func strip_upgrade_from(target: Aircraft, upgrade: Dictionary) -> void:
 	if not SurvivorData.ACE_FIELD_STATS.has(stat):
 		return
 	match stat:
-		"missile_swarm":
-			# 逆操作：弹舱 −N / 追踪罚回吐 / 齐射锁数回 1 / 在场弹不超新上限
-			var swarm_n: int = int(upgrade["value"])
-			var penalty: float = float(upgrade.get("tracking_penalty", 0.85))
-			if target.params.missile:
-				target.params.missile = target.params.missile.duplicate()
-				target.params.missile.max_count = maxi(target.params.missile.max_count - swarm_n, 1)
-				target.params.missile.max_g /= penalty
-				target.missiles_remaining = mini(target.missiles_remaining, target.params.missile.max_count)
-			target.max_simultaneous_locks = 1
 		"fear_on_lock":
 			target.fear_on_lock_threshold = 0.0
 		"fear_squad_spread":
@@ -413,13 +422,6 @@ func strip_upgrade_from(target: Aircraft, upgrade: Dictionary) -> void:
 		"cloud_overload":
 			target.cloud_overload_active = false
 			target._in_cloud_overload = false
-		"manual_dodge":
-			# 逆操作：恢复自动 flare + 收回 +6 flare（在场数夹回新上限）
-			target.manual_dodge_active = false
-			if target.params.flare:
-				target.params.flare = target.params.flare.duplicate()
-				target.params.flare.max_flares = maxi(target.params.flare.max_flares - 6, 0)
-				target.flares_remaining = mini(target.flares_remaining, target.params.flare.max_flares)
 		_:
 			push_warning("strip_upgrade_from: ACE_FIELD_STATS 登记了 %s 但未实现逆操作" % stat)
 
@@ -457,10 +459,11 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 			aircraft.missile_proximity_aoe = true
 		"missile_reload":
 			aircraft.missile_reload_duration *= (1.0 - float(upgrade["value"]))
+		"multi_lock":
+			aircraft.max_simultaneous_locks += int(upgrade["value"])
 		"missile_swarm":
-			# 替代 multi_lock：max_count +4，同时锁定数提到一个大值（让齐射可对所有锁敌发射），
+			# 弹舱 +4、锁定目标数 +3；齐射消费点按锁数截断候选目标。
 			# 负面：导弹 max_g ×0.85（轻微追踪减劣，弹群压火力不靠单发精度）
-			# 单目标场景仍然只射 1 发（aircraft_weapons._fire_multi_lock_salvo 行为）
 			var swarm_n: int = int(upgrade["value"])
 			var penalty: float = float(upgrade.get("tracking_penalty", 0.85))
 			if p.missile:
@@ -468,8 +471,7 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 				p.missile.max_count += swarm_n
 				p.missile.max_g *= penalty
 				aircraft.missiles_remaining += swarm_n
-			# 提到 ≥ max_count 才能让齐射真的"全打"——硬编码到 8 兜底（max_count 通常 4-8）
-			aircraft.max_simultaneous_locks = maxi(aircraft.max_simultaneous_locks, 8)
+			aircraft.max_simultaneous_locks += int(upgrade.get("lock_bonus", 3))
 		"gun_damage":
 			if p.gun:
 				p.gun.bullet_damage *= (1.0 + float(upgrade["value"]))
@@ -639,7 +641,7 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 			# 冲击吸收（战区奖励）：伤害的 40% 慢慢回血
 			aircraft.shock_absorb_active = true
 		"cobra_skill":
-			# 眼镜蛇机动技能：开启自动触发 + 确保玩家身上挂 CobraManeuver 子节点
+			# 眼镜蛇机动：当前操控机按 R，AI 僚机威胁自动；确保模块存在
 			aircraft.cobra_skill_active = true
 			var has_cobra := false
 			for child in aircraft.get_children():
@@ -673,7 +675,7 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 			# 二段推进（720 批）：本机导弹燃尽后续推 + 转弯渐强（missile_manager spawn 打标）
 			aircraft.missile_second_stage_active = true
 		"manual_dodge":
-			# 胆大妄为（720 批王牌）：禁自动 flare + flare +6 + R 键手动闪避
+			# 胆大妄为：全队禁普通自动 flare + flare +6；受控机按 R，AI 僚机威胁自动
 			aircraft.manual_dodge_active = true
 			if p.flare:
 				p.flare = p.flare.duplicate()
@@ -743,6 +745,10 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 		"high_alt_lock_speed":
 			# HIGH 档时锁定速率 bonus（main.gd 雷达循环）
 			aircraft.high_alt_lock_speed_bonus = float(upgrade["value"])
+		"close_range_lock":
+			# 近距捕获：距离曲线由 survivor_mode 雷达循环消费；max 保证重放幂等。
+			aircraft.close_range_lock_max_mult = maxf(
+				aircraft.close_range_lock_max_mult, float(upgrade["value"]))
 		"ab_gun_regen":
 			# AB 时机炮 regen/sec（weapons.update_gun 在 ab=true 时累加）
 			aircraft.ab_gun_regen_per_sec = float(upgrade["value"])
@@ -796,7 +802,7 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 			# F-14 专属：全僚机锁定同一敌机时给该敌机施加 SLOW（survivor_mode 雷达循环维护）
 			aircraft.f14_squad_lock_slow_active = true
 		"evasion_herbst":
-			# evasion 模式被攻击启动 J-Turn（钩子在 SkillHooks.dispatch_on_hit）
+			# J-Turn：当前操控机按 R，AI 僚机在 evasion 威胁下自动启动
 			# 必须确保 HerbstManeuver 子节点存在
 			aircraft.evasion_herbst_active = true
 			var has_herbst := false

@@ -80,6 +80,9 @@ var _ai_ref: AIController = null             ## 由 AIController._ready 回写�
 var target_altitude: float = 5000.0
 var target_speed_kmh: float = 900.0  ## km/h, 玩家/AI设定
 var target_altitude_tier: int = AltitudeTier.MID   ## 目标高度档位（flat_altitude时使用）
+## 旋翼机平面速度与机头解耦：速度可切向平移，机头可持续指向地面目标。
+var rotorcraft_velocity: Vector2 = Vector2.ZERO    ## m/s，世界坐标方向
+var rotorcraft_aim_position: Vector2 = Vector2.INF ## INF=机头跟随速度方向
 
 # --- 选择 ---
 var selected: bool = false
@@ -119,7 +122,7 @@ var command_sprint: bool = false
 var evac_shift_active: bool = false      ## 720 批"阵地转移"：撤离冲刺加成 + 受伤减半（apply_upgrade 置位）
 var guard_zone_buff_active: bool = false ## 720 批"保卫阵地"：防守圈内 buff（SquadCommandController 维护）
 var missile_second_stage_active: bool = false ## 720 批"二段推进"：本机发射的导弹续推+转弯渐强
-## 720 批"胆大妄为"（王牌）：禁自动 flare，R 键手动闪避（flare+滚转；无 flare 严格时机 i-frame）
+## 720 批"胆大妄为"：全队禁普通自动 flare；受控机按 R，AI 僚机威胁自动（flare+滚转+i-frame）
 var manual_dodge_active: bool = false
 var _manual_dodge_cd: float = 0.0
 const MANUAL_DODGE_CD: float = 2.0
@@ -140,12 +143,10 @@ var _gun_lead_heading: float = 0.0  ## 前置射击方向（由 _update_combat �
 var _primary_weapon_kind: String = ""      ## 当前竞选胜者（""=无战斗/全失格）
 var _primary_weapon_hold_s: float = 999.0  ## 胜者已保持秒数（初值大 → 首次竞选立即生效）
 var _plan_bank_limit_rad: float = -1.0     ## plan 级坡度上限（LINE_UP 充能平台=30°；-1=无限制）
-## 敌方 AI 机炮 burst-pause 节奏：连续射击 AI_GUN_BURST_DURATION 秒后强制 AI_GUN_PAUSE_DURATION 秒不开火，
-## 给玩家挣脱尾追的窗口。仅 team != 0 生效，玩家/玩家僚机不受限。
-const AI_GUN_BURST_DURATION: float = 2.5
+## 敌方飞机机炮安全门：每次火控机会只准启动一梭，梭结束/硬中止后强制停火。
+## 统一执行在 AircraftWeapons.update_gun；仅 HOSTILE 生效，PLAYER / ALLY 不受限。
 const AI_GUN_PAUSE_DURATION: float = 3.0
-var _ai_gun_burst_timer: float = AI_GUN_BURST_DURATION  ## 当前 burst 剩余可射秒数
-var _ai_gun_pause_timer: float = 0.0                    ## 当前 pause 剩余秒数（>0 时禁射）
+var _ai_gun_pause_timer: float = 0.0  ## 敌机当前强制停火剩余秒数（梭内不递减）
 var _in_rear_hemisphere: bool = false  ## 是否处于敌机后半球（由 _update_combat 计算）
 var _overshoot_timer: float = 0.0   ## 近距过顶 extension 计时（秒），>0 时强制沿机头直飞脱离
 var ai_override_pursuit: bool = false  ## AI 战术机动时跳过自动追踪，由 AI 直接控制 target_position
@@ -234,11 +235,13 @@ var _gun_pass_committed: bool = false
 var max_simultaneous_locks: int = 1
 
 ## 战术偏好模式下是否自动发射导弹（玩家可在战术面板切换）
-## ON（默认）：齐射路径自动挑所有锁定目标开火（多锁升级生效）
+## ON（默认）：齐射路径按有效锁数自动挑选锁定目标开火
 ## OFF：只对玩家手动指定的 combat_target 发射，但锁定成功仍自动开火
 ##      —— 节流由 `_missile_cooldown` + `count_active_missiles_at <= 1` 承担，
 ##      不需要"一次点击一发"守卫（2026-04-24 (3)，详见 player-ai-log.md）
 var missile_auto_fire: bool = true
+## 特殊敌机的导弹由低频队级控制器接管；通用武器循环仍负责冷却/装填，但不自行选目标开火。
+var external_missile_control: bool = false
 
 ## RTS 自动交战（auto-engage）：到达巡航点/空闲时自动在半径内锁最近敌机。
 ## 仅生存模式玩家长机读取（survivor_mode._update_auto_engage）；敌机不读此字段。
@@ -350,6 +353,7 @@ func can_speak_on_radio() -> bool:
 var lock_panic_g_mult: float = 1.0          ## 被锁时 effective_max_g 倍率（physics）
 var low_hp_flare_reload_mult: float = 1.0   ## hp < 50% 时 flare reload 倍率（flares）
 var high_alt_lock_speed_bonus: float = 0.0  ## HIGH 档锁定速率 bonus（main 雷达循环）
+var close_range_lock_max_mult: float = 1.0  ## 近距捕获：贴身锁定速率倍率上限（survivor 雷达循环）
 var ab_gun_regen_per_sec: float = 0.0       ## AB 时机炮子弹 regen/s（weapons.update_gun）
 var alt_change_stealth_factor: float = 0.0  ## 高度变化时锁定衰减系数（main 雷达循环）
 var head_on_gun_dodge_bonus: float = 0.0    ## 对头时机炮闪避加成（take_bullet_damage 加查）
@@ -411,8 +415,8 @@ var head_on_jam_threshold: float = 0.0        ## 0=禁用；> 0 = 累积秒数
 var _head_on_jam_seconds: Dictionary = {}      ## { instance_id → 累积秒数 }
 const HEAD_ON_JAM_DOT: float = 0.7             ## 双向 dot 阈值（≈ 45° 对头锥）
 const HEAD_ON_JAM_DURATION: float = 5.0        ## 触发后给目标的 JAM 时长
-## 进入 evasion 模式时触发 J-Turn（HerbstManeuver）作为反击（被攻击触发，非主动）
-var evasion_herbst_active: bool = false       ## 解锁标记：玩家是否选了"evasion J-Turn"
+## J-Turn（HerbstManeuver）：当前操控机按 R；AI 僚机受威胁时自动反击。
+var evasion_herbst_active: bool = false       ## 解锁标记：玩家小队是否获得 J-Turn
 
 ## evasion 模式中每 N 秒装填 1 发导弹，可突破 max_count×2 上限
 ## value=4.0 表示每 4s 一发；超过 max_count×2 不再装
@@ -432,6 +436,8 @@ var sig_status_immune: bool = false        ## 鹰狮 E·电战预算：免疫 JA
 var sig_lock_retention_sec: float = 0.0    ## 维京·唯一的锁定：出锥后锁定保持秒数（0=禁用）
 var _sig_lock_grace: Dictionary = {}       ## 唯一的锁定：{ 目标 instance_id → 剩余 grace 秒 }
 var sig_f15_active: bool = false           ## 无败之鹰：满血时机炮伤害/锁定 ×1.2
+const SIG_F15_HP_RATIO: float = 1.0
+const SIG_F15_BONUS_MULT: float = 1.20
 var sig_f15c_active: bool = false          ## 制空清扫：锥内每多 1 敌锁定 +8%（cap +40%）
 var sig_f15e_active: bool = false          ## 对地特化：对地/舰锁定 ×1.5、伤害 ×1.3
 var sig_a6e_active: bool = false           ## 盲飞入侵：低空时敌方锁我 ×0.6
@@ -464,7 +470,7 @@ const SHOCK_ABSORB_RATIO: float = 0.4
 ## 期间 _update_flares 已有的 `if _mf.is_active: return` 守卫保证不浪费 flare。
 var cobra_skill_active: bool = false
 var _cobra_skill_cooldown: float = 0.0
-const COBRA_SKILL_COOLDOWN: float = 25.0    ## 自动触发间冷却
+const COBRA_SKILL_COOLDOWN: float = 25.0    ## 手动/AI 自动触发共用冷却
 const COBRA_MISSILE_TRIGGER_PX: float = 300.0   ## 来袭导弹近到此距离才触发（接近命中那一刻）
 const COBRA_TAIL_DETECT_PX: float = 900.0       ## 后方追尾敌机此距离内 + 正在开火即触发
 ## 侩子手（战区奖励）：2 杀触发首层，之后每多 1 杀 +1 层（max 5）
@@ -790,6 +796,10 @@ func _get_ai_controller() -> AIController:
 			return child
 	return null
 
+## 当前是否由玩家直接操控。特殊机动据此分流：受控机听 R，AI 接管机按威胁自动释放。
+func is_manual_maneuver_controlled() -> bool:
+	return _ai_ref != null and _ai_ref.manual_control
+
 ## 进入/更新编队托管态。统一收口避免散布在多处的 4-5 行字段写入块。
 ##   - formation_mode = true / _formation_leader = leader
 ##   - target_position = slot_pos（INF 时跳过）
@@ -863,6 +873,11 @@ func _physics_process_impl(delta: float) -> void:
 	StatusEffects.update(self, delta)
 	PerfBuckets.tick("ac_phys.misc.status_fx", Time.get_ticks_usec() - _t_misc6)
 
+	# 旋翼机完全绕过固定翼 bank/G/失速链；武器仍复用 AircraftWeapons。
+	if params and params.flight_model == AircraftParams.FlightModel.ROTORCRAFT:
+		_physics_process_rotorcraft(delta)
+		return
+
 	# LOD 2（屏幕外）：每3帧完整处理，其余帧仅位移
 	if lod_level >= 2:
 		# 编队跟随机：屏外也必须维持编队几何，否则 leader 机动后 follower 漂出阵型
@@ -871,6 +886,8 @@ func _physics_process_impl(delta: float) -> void:
 		# heading/bank/position 60Hz 是必要开销（leader 转向时槽位变化太快）
 		if formation_mode and _formation_leader and is_instance_valid(_formation_leader):
 			AircraftFormation.update_follow(self, delta)
+			if _lod_frame % 3 == 0:
+				AircraftWeapons.update_formation_passive_missile(self, delta * 3.0)
 			AircraftFlares.update(self, delta)  # 编队中也要更新/清除 flare 粒子，否则残留不消失
 			return
 		if _lod_frame % 3 != 0:
@@ -928,6 +945,8 @@ func _physics_process_impl(delta: float) -> void:
 			# 原因：191 行算法塞在 _physics_process 中间，排查编队 bug 时动线长
 			# 拆分后常见 bug 回溯地图、三段式分支图都在 AircraftFormation 顶部注释
 			AircraftFormation.update_follow(self, delta)
+			if every3:
+				AircraftWeapons.update_formation_passive_missile(self, delta * 3.0)
 			AircraftFlares.update(self, delta)  # 编队中也要更新/清除 flare 粒子，否则残留不消失
 			return
 
@@ -977,6 +996,8 @@ func _physics_process_impl(delta: float) -> void:
 	# 都不会命中此分支，照走下面完整 LOD0；只有真正编队跟随的僚机走 update_follow。
 	if formation_mode and _formation_leader and is_instance_valid(_formation_leader):
 		AircraftFormation.update_follow(self, delta)
+		if _lod_frame % 3 == 0:
+			AircraftWeapons.update_formation_passive_missile(self, delta * 3.0)
 		AircraftFlares.update(self, delta)  # 编队中也要更新/清除 flare 粒子，否则残留不消失
 		return
 
@@ -1043,6 +1064,8 @@ func _physics_process_impl(delta: float) -> void:
 	_update_cobra_skill(delta)
 	# 危机赫尔贝特：与眼镜蛇共用触发条件（来袭导弹 / 后方机炮追尾），二选一
 	_update_evasion_herbst_skill(delta)
+	# 胆大妄为：当前操控机听 R；AI 僚机在同一威胁门下自动滚转/投焰。
+	_update_manual_dodge_skill()
 	# 722 批签名技能杂项 tick（CD 计时 + VIFFing/近太空冲刺/三发推力条件判定）
 	_update_sig_skills(delta)
 	AircraftFlares.update(self, delta)
@@ -1053,6 +1076,25 @@ func _physics_process_impl(delta: float) -> void:
 	_log_ac_tick(delta)
 	PerfBuckets.tick("ac_phys.visual", Time.get_ticks_usec() - _t_visual)
 	# LOD 0 非玩家非悬停：每 2 帧重绘一次，减半 _draw 开销
+	if selected or is_hovered or _lod_frame % 2 == 0:
+		queue_redraw()
+
+## 旋翼机专用的轻量物理/武器路径。运动由 AircraftPhysics.update_rotorcraft 统一处理，
+## 不进入固定翼的失速、G 力、能量管理和 BFM combat tracking。
+func _physics_process_rotorcraft(delta: float) -> void:
+	var _t_kine: int = Time.get_ticks_usec()
+	AircraftPhysics.update_rotorcraft(self, delta)
+	AircraftPhysics.update_fuel(self, delta)
+	PerfBuckets.tick("ac_phys.kine.rotor", Time.get_ticks_usec() - _t_kine)
+
+	var _t_wpn: int = Time.get_ticks_usec()
+	weapon_mode = WeaponMode.GUN
+	AircraftWeapons.update_gun(self, delta)
+	AircraftWeapons.update_rocket(self, delta)
+	PerfBuckets.tick("ac_phys.wpn.rotor", Time.get_ticks_usec() - _t_wpn)
+
+	AircraftFlares.update(self, delta)
+	_update_visuals()
 	if selected or is_hovered or _lod_frame % 2 == 0:
 		queue_redraw()
 
@@ -1412,7 +1454,7 @@ func _update_sig_skills(delta: float) -> void:
 				or commanded_target.is_destroyed:
 			sig_j36_assault_active = false
 			EventLogger.log_event("SKILL", _log_name(), "三发推力：目标消灭/命令解除，buff 结束")
-	# 超速截击（MiG-31）：加力窗口内对满锁+包线内目标每 1.2s 自动发射一枚
+	# 超速截击（MiG-31）：加力窗口内对机头前半球∩雷达锥中的满锁+包线目标每 1.2s 自动发射一枚
 	# （唯一绕开窗口禁火的通道——独立发射路径不经 _fire_missile_at 的硬断；弹速 ×1.3）
 	if sig_mig31_active and afterburner_window_active and params and params.missile \
 			and missiles_remaining > 0 and missile_manager:
@@ -1433,7 +1475,7 @@ func _update_sig_skills(delta: float) -> void:
 		_sig_mig31_fire_timer = 0.0
 
 
-## 超速截击选目标：满锁 + 出 min_range + 同目标无在飞弹，取最近
+## 超速截击选目标：机头前半球且在雷达锥内 + 满锁 + 出 min_range + 同目标无在飞弹，取最近
 func _sig_mig31_pick_target() -> CombatUnit:
 	if params == null or params.missile == null:
 		return null
@@ -1446,6 +1488,14 @@ func _sig_mig31_pick_target() -> CombatUnit:
 			continue
 		if float(radar_targets[t]) < thr:
 			continue
+		# 严格限制机头前半球。即使“多波段搜索”把雷达锥扩到 ±120°，也不能向后半球发射。
+		var to_target: Vector2 = t.global_position - global_position
+		var target_bearing: float = atan2(to_target.x, -to_target.y)
+		if absf(_angle_diff(target_bearing, heading)) > PI * 0.5:
+			continue
+		# 离锥后可能仍保留满锁（例如“唯一的锁定”宽限窗），当前不在锥内同样拒绝。
+		if not is_in_radar_cone(t.global_position):
+			continue
 		var d: float = global_position.distance_to(t.global_position)
 		if d < min_px:
 			continue
@@ -1457,10 +1507,10 @@ func _sig_mig31_pick_target() -> CombatUnit:
 	return best
 
 
-## 眼镜蛇机动技能：每帧检查触发条件，满足则激活 cobra
+## 眼镜蛇机动技能：当前操控机由 R 入口触发；本函数只服务 AI 接管机的威胁自动触发。
 ## 触发要求（全部满足）：
 ##   1. 玩家拥有该升级（cobra_skill_active）
-##   2. 战术偏好开 + 规避模式 ON
+##   2. 当前由 AI 接管（不要求加力/evasion_mode）
 ##   3. 当前没有正在进行的机动
 ##   4. 冷却归零
 ##   5. 来袭导弹 ≤ COBRA_MISSILE_TRIGGER_PX OR 后方有敌机追尾开火
@@ -1468,7 +1518,8 @@ func _update_cobra_skill(delta: float) -> void:
 	if not cobra_skill_active:
 		return
 	_cobra_skill_cooldown = maxf(_cobra_skill_cooldown - delta, 0.0)
-	if not use_tactical_preference or not evasion_mode:
+	# 当前操控机只听 R；切控后旧机交还 AI，会自然恢复下方威胁自动触发。
+	if is_manual_maneuver_controlled():
 		return
 	if _cobra_skill_cooldown > 0.0:
 		return
@@ -1515,11 +1566,11 @@ func _cobra_detect_imminent_missile() -> bool:
 		return true
 	return false
 
-## 危机赫尔贝特技能：每帧检查触发条件，满足则启动 J-Turn
-## 与眼镜蛇等价（导弹命中前 / 后方机炮追尾自动触发），互斥已通过 UPGRADES.excludes 在抽卡层禁止同时持有。
+## 危机赫尔贝特技能：当前操控机由 R 入口触发；本函数只服务 AI 接管机的威胁自动触发。
+## 与眼镜蛇等价（导弹命中前 / 后方机炮追尾自动触发）；三种 R 机动由 UPGRADES.excludes 互斥。
 ## 触发要求（全部满足）：
 ##   1. 玩家拥有该升级（evasion_herbst_active）
-##   2. 战术偏好开 + 规避模式 ON
+##   2. 当前由 AI 接管（不要求加力/evasion_mode）
 ##   3. 当前没有正在进行的机动（cobra/herbst）
 ##   4. HerbstManeuver.can_activate（内置 15s 冷却）
 ##   5. 来袭导弹 ≤ COBRA_MISSILE_TRIGGER_PX OR 后方有敌机追尾开火（复用 cobra 检测）
@@ -1527,7 +1578,8 @@ func _cobra_detect_imminent_missile() -> bool:
 func _update_evasion_herbst_skill(_delta: float) -> void:
 	if not evasion_herbst_active:
 		return
-	if not use_tactical_preference or not evasion_mode:
+	# 当前操控机只听 R；AI 僚机仍用来袭导弹/后方追尾条件自保。
+	if is_manual_maneuver_controlled():
 		return
 	var hm := get_herbst()
 	if hm == null:
@@ -1545,6 +1597,13 @@ func _update_evasion_herbst_skill(_delta: float) -> void:
 	if hm.activate(turn_dir):
 		EventLogger.log_event("HOOK", "evasion_herbst",
 			"victim=%s turn_dir=%.0f (auto-trigger)" % [_log_name(), turn_dir])
+
+## 胆大妄为 AI 自动路径：当前操控机只听 R；AI 僚机用同一近弹/追尾威胁门自保。
+func _update_manual_dodge_skill() -> void:
+	if not manual_dodge_active or is_manual_maneuver_controlled() or _manual_dodge_cd > 0.0:
+		return
+	if _cobra_detect_imminent_missile() or _cobra_detect_tail_gun():
+		do_manual_dodge(false)
 
 ## 选 J-Turn 转向：优先朝最近来袭导弹的方向反转；没导弹则朝后方追尾敌机方向
 ## 返回 +1（右转）/ -1（左转）/ 0（随机，由 HerbstManeuver.activate 兜底）
@@ -1727,23 +1786,12 @@ func clear_combat_target() -> void:
 ## [保留委托：外部/跨模块调用入口]
 ## 战斗追踪已搬到 scripts/aircraft/aircraft_combat_tracking.gd
 ## 以下 5 个薄壳保持 ac._xxx() 写法兼容（被 ai_controller / aircraft_weapons 调用）
-## AI 机炮 burst 节奏：仅对敌方 AI（team != 0）生效；玩家/玩家僚机直接放行 want_fire。
-## want_fire = 本帧战术层希望开火与否。返回是否实际允许开火（含 burst/pause 自洽 tick）。
-func _ai_gun_burst_allowed(want_fire: bool, delta: float) -> bool:
-	if is_player_squad():
+## 敌机机炮意图门：无副作用，允许同帧被 planner / tracking / scan 重复查询。
+## 真正的“一次机会一梭”与 pause 计时统一由 AircraftWeapons.update_gun 执行，避免调用路径绕过。
+func _ai_gun_burst_allowed(want_fire: bool, _delta: float) -> bool:
+	if team != TEAM_HOSTILE:
 		return want_fire
-	if _ai_gun_pause_timer > 0.0:
-		_ai_gun_pause_timer -= delta
-		if _ai_gun_pause_timer > 0.0:
-			return false
-		_ai_gun_burst_timer = AI_GUN_BURST_DURATION
-	if not want_fire:
-		return false
-	_ai_gun_burst_timer -= delta
-	if _ai_gun_burst_timer <= 0.0:
-		_ai_gun_pause_timer = AI_GUN_PAUSE_DURATION
-		return false
-	return true
+	return want_fire and _ai_gun_pause_timer <= 0.0
 
 func _missile_cannot_hit_but_gun_can() -> bool:
 	return AircraftCombatTracking.missile_cannot_hit_but_gun_can(self)
@@ -1975,24 +2023,48 @@ func _trigger_evasion_roll() -> void:
 		if bullet_dodge_chance >= HIGH_DODGE_THRESH:
 			_evade_roll_cooldown = BOSS_EVADE_ROLL_CD  # 4 秒才能再次滚转
 
-## 胆大妄为（720 批王牌技）：R 键手动闪避——滚转动画 + 严格时机 i-frame + 有 flare 则同时投放。
+## R 键统一机动入口：正常卡池保证眼镜蛇/J-Turn/胆大妄为三者互斥。
+## 大机动优先级仅处理旧档/debug 异常共存；不可用时回退胆大妄为。
+func try_manual_maneuver() -> bool:
+	if is_destroyed:
+		return false
+	var cobra: CobraManeuver = get_maneuver()
+	var herbst: HerbstManeuver = get_herbst()
+	if cobra_skill_active and _cobra_skill_cooldown <= 0.0 \
+			and cobra != null and not cobra.is_active \
+			and (herbst == null or not herbst.is_active):
+		# 技能版可重复使用；模块原生 is_used 仍服务敌机的一次性眼镜蛇。
+		cobra.is_used = false
+		if cobra.activate():
+			_cobra_skill_cooldown = COBRA_SKILL_COOLDOWN
+			EventLogger.log_event("MANUAL_MANEUVER", _log_name(), "R -> cobra")
+			return true
+	if evasion_herbst_active and herbst != null and herbst.can_activate \
+			and (cobra == null or not cobra.is_active):
+		if herbst.activate(_herbst_pick_turn_direction()):
+			EventLogger.log_event("MANUAL_MANEUVER", _log_name(), "R -> J-Turn")
+			return true
+	return do_manual_dodge()
+
+## 胆大妄为动作：滚转动画 + 严格时机 i-frame + 有 flare 则同时投放。
 ## i-frame 用 no_refresh 短窗（0.25s）：必须掐在命中瞬间才躲得掉，按早了白按。
-func do_manual_dodge() -> void:
+func do_manual_dodge(manual_input: bool = true) -> bool:
 	if not manual_dodge_active or _manual_dodge_cd > 0.0 or is_destroyed:
-		return
+		return false
 	_manual_dodge_cd = MANUAL_DODGE_CD
 	_evade_roll_remaining = _EVADE_ROLL_DURATION   # 复用规避滚转动画（绘制叠加 bank）
 	apply_status(StatusEffects.INVINCIBLE, MANUAL_DODGE_IFRAME, "no_refresh")
 	if flares_remaining > 0 and missile_manager != null:
 		AircraftFlares.release(self)               # 投焰甩导弹（is_flare_jammed 契约照走）
 	EventLogger.log_event("MANUAL_DODGE", _log_name(),
-		"R 手动闪避（flare=%d, iframe=%.2fs）" % [flares_remaining, MANUAL_DODGE_IFRAME])
+		"%s 闪避（flare=%d, iframe=%.2fs）" % ["R" if manual_input else "AI", flares_remaining, MANUAL_DODGE_IFRAME])
+	return true
 
 ## 规避模式更新（生存模式玩家）
 func _update_evasion(delta: float) -> void:
 	# 冷却与动画倒计时
 	_evade_roll_cooldown = maxf(_evade_roll_cooldown - delta, 0.0)
-	_manual_dodge_cd = maxf(_manual_dodge_cd - delta, 0.0)   # 胆大妄为 R 闪避冷却（720 批）
+	_manual_dodge_cd = maxf(_manual_dodge_cd - delta, 0.0)   # 胆大妄为 R/AI 共用冷却
 	# §C 玩家技能"evasion 4s 装填"：仅 evasion ON 时累加 timer，退出 evasion 不进入此分支
 	if evasion_mode and evasion_overstock_interval > 0.0 and params and params.missile:
 		_evasion_overstock_timer += delta
@@ -2425,12 +2497,12 @@ func _sig_f22_reload_all() -> void:
 	EventLogger.log_event("SKILL", _log_name(), "先敌开火：隐身瞬间全武器装填完毕")
 
 
-## 722 sig_f22：STEALTH 期间视为持有多锁齐射（锁数 ≥8）；其余时刻 = 字段原值
+## 722 sig_f22：STEALTH 期间锁定目标数 +2；其余时刻 = 字段原值
 func effective_max_locks() -> int:
 	if status_stealth_active and has_meta("upgrade_stacks") \
 			and int((get_meta("upgrade_stacks") as Dictionary).get("sig_f22", 0)) > 0:
-		return maxi(max_simultaneous_locks, 8)
-	return max_simultaneous_locks
+		return maxi(max_simultaneous_locks + 2, 1)
+	return maxi(max_simultaneous_locks, 1)
 
 
 ## 受到伤害（通用：导弹/火箭/爆炸等战斗部伤害）
@@ -2486,11 +2558,11 @@ func take_damage(amount: float, attacker: Node = null, kind: String = "") -> voi
 ##
 ## 设计权衡：用 cap 而不是乘法递减（1−Π(1−d_i)），简单可读 + 玩家容易心算"我大概多少闪避"。
 const MAX_BULLET_DODGE_CAP: float = 0.85
-func take_bullet_damage(amount: float, attacker: Node = null) -> void:
+func take_bullet_damage(amount: float, attacker: Node = null) -> bool:
 	if is_destroyed:
-		return
+		return false
 	if invulnerable:
-		return
+		return false
 	# Mother Goose 等挂点 BOSS：机炮也走 router（按 boss 中心传 hit_pos，弱点未暴露则被角度过滤）
 	if has_meta(&"damage_router"):
 		var router: Object = get_meta(&"damage_router")
@@ -2499,7 +2571,7 @@ func take_bullet_damage(amount: float, attacker: Node = null) -> void:
 				set_meta("_pending_attacker", attacker)
 			set_meta("_last_damage_kind", "gun")
 			router.call(&"route_damage", amount, global_position)
-			return
+			return true
 	# 地面机炮火力警觉（spec aa-fire-awareness §3.1）：被地面/舰船机炮弹幕命中 = 已身处
 	# 火力网（放在闪避判定之前——闪避掉的弹同样是"正被弹幕覆盖"信号）。
 	# 只认地面/舰船源；空对空中弹是 BFM 层的事。
@@ -2546,7 +2618,7 @@ func take_bullet_damage(amount: float, attacker: Node = null) -> void:
 		effective_dodge = 1.0
 	if not is_adds and effective_dodge > 0.0 and randf() < effective_dodge:
 		_trigger_evasion_roll()  # 闪避滚转动画
-		return  # 闪避成功，无视伤害
+		return false  # 闪避成功，无视伤害，也不触发命中火星
 	if survivor_bullet_damage_cap > 0.0:
 		amount = minf(amount, survivor_bullet_damage_cap)
 	amount = _apply_armor(amount, 0.0)  # 机炮不穿甲，护甲全额生效
@@ -2558,6 +2630,7 @@ func take_bullet_damage(amount: float, attacker: Node = null) -> void:
 	if attacker != null:
 		set_meta("_pending_attacker", attacker)
 	_apply_damage(amount)
+	return true
 
 ## 护甲减伤（DOTA 式软上限）：dr = armor_eff / (armor_eff + ARMOR_K)
 ## penetration ∈ [0,1]：穿甲系数，导弹=0.5 抵消一半护甲，机炮=0 受全额护甲
@@ -2843,6 +2916,9 @@ func _draw() -> void:
 func _draw_impl() -> void:
 	if not _font:
 		_font = ThemeDB.fallback_font
+	# 传感器幕只跳过本机 CPU 绘制；Snowblind 的 Polygon2D 子网格仍由 GPU 独立绘制。
+	if sensor_hidden:
+		return
 	if is_destroyed:
 		AircraftRenderer.draw_aircraft_icon_destroyed(self)
 		# 坠毁时仍绘制 tactic popup（例如 UAV "舍身"自爆瞬间会走这里）
@@ -2986,7 +3062,7 @@ func is_lock_immune() -> bool:
 	if has_meta(&"lock_immune_override"):
 		if bool(get_meta(&"lock_immune_override")):
 			return true
-	return _lock_immunity_timer > 0.0 or is_cloaked
+	return _lock_immunity_timer > 0.0 or is_cloaked or sensor_hidden
 
 ## HUD 用：热诱弹冷却比例（委托 AircraftFlares）
 func get_flare_cooldown_ratio() -> float:

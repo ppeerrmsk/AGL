@@ -66,6 +66,7 @@ NON_HOLDERS = {
                              'drone 的编队引用落到 Squad/formation_leader（既有编队体系自带'
                              '失效处理）；签名 drone 跟随生成时的 ACE 与既有忠诚僚机语义一致'
                              '（spec aircraft-signature-skills §4 生成层）',
+    '_friendly_asset_aggro': 'tick 只在当次 1 Hz 调度中读取当前玩家机位置，不缓存引用',
 }
 
 # 接收方标识符：允许 `_foo` / `foo` / `Foo`，但不吃掉链式调用的中间段

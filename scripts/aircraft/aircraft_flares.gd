@@ -116,7 +116,7 @@ static func update(ac: Aircraft, delta: float) -> void:
 	if ac.is_cloaked or ac.suppress_flares:
 		return
 
-	# 胆大妄为（720 批王牌技）：禁自动 flare——释放全权交给 R 键手动闪避
+	# 胆大妄为：禁普通自动 flare——受控机交给 R，AI 僚机交给 Aircraft 的威胁自动入口
 	if ac.manual_dodge_active:
 		return
 
@@ -146,12 +146,13 @@ static func update(ac: Aircraft, delta: float) -> void:
 	if not nearest_missile:
 		return
 
-	# ── 机动优先（Cobra / Herbst）──
-	# 玩家持有眼镜蛇或危机赫尔贝特技能 + 规避模式 + 机动可用时，
+	# ── AI 机动优先（Cobra / Herbst）──
+	# AI 僚机持有眼镜蛇或危机赫尔贝特技能且机动可用时，
 	# 让机动在 ~300px (COBRA_MISSILE_TRIGGER_PX) 处接管这枚导弹（机动期间物理免疫，
 	# 比 flare 概率拦截更稳）。这里抑制 flare 释放，避免提前烧 flare 后让机动闲置。
-	# 若机动正在冷却 / 已经用完 / 不在 evasion 模式 → 落回 flare 兜底。
-	if ac.use_tactical_preference and ac.evasion_mode:
+	# 当前操控机的大机动只听 R，未按 R 时不得压住正常自动 flare。
+	# 若 AI 机动正在冷却 / 已经用完 → 落回 flare 兜底。
+	if not ac.is_manual_maneuver_controlled():
 		var cobra_ready: bool = false
 		if ac.cobra_skill_active and ac._cobra_skill_cooldown <= 0.0:
 			var mf := ac.get_maneuver()

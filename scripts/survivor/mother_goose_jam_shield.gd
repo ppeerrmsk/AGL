@@ -1,8 +1,8 @@
 ## Mother Goose 周期性干扰护盾
 ##
-## 状态机周期 = 60s：
-##   COOLDOWN 40s → WARNING 4s（HUD 红色警示，无效果）→ EXPANDING 8s（半径 400→2500 px）→
-##   SUSTAIN 8s（满范围 R=2500）→ 回 COOLDOWN
+## 状态机周期 = 80s：
+##   COOLDOWN 60s → WARNING 4s（HUD 红色警示，无效果）→ EXPANDING 8s（半径 300→1500 px）→
+##   SUSTAIN 8s（满范围 R=1500）→ 回 COOLDOWN
 ##
 ## 启动效果（WARNING 之后）：场内玩家方 Aircraft 速度 ×0.6 + status_jam_active=true（武器禁射）
 ## 视觉：在 boss 主体 _draw 里调用 draw(canvas_item)，画淡红色透明圆 + 边缘环
@@ -18,7 +18,7 @@ enum State { COOLDOWN, WARNING, EXPANDING, SUSTAIN }
 const WARNING_DURATION: float = 4.0
 const EXPANDING_DURATION: float = 8.0
 const SUSTAIN_DURATION: float = 8.0
-const COOLDOWN_DURATION: float = 40.0
+const COOLDOWN_DURATION: float = 60.0
 
 ## 干扰场最大半径 = CommanderAura.AURA_RADIUS（1500），与"强化无人机的范围"统一
 ## 视觉/gameplay 上"jam 减速圈" 与 "UAV 增益圈"是同一个范围 —— 玩家更容易内化 boss 的影响半径
@@ -33,7 +33,7 @@ var state_timer: float = 0.0   ## 当前状态已耗秒数
 ## 当前外圈半径（像素）；COOLDOWN/WARNING 时有意义，但效果由 is_effect_active 控制
 var current_radius: float = 0.0
 
-## 是否首轮已启动；首版默认进入战斗即开始 COOLDOWN（玩家有 40s 准备）
+## 是否首轮已启动；默认进入战斗即开始 COOLDOWN（玩家有 60s 准备）
 var started: bool = false
 
 func start() -> void:

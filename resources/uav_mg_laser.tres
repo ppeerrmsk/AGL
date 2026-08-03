@@ -22,4 +22,4 @@ cloud_damage_factor_min = 0.30
 cloud_beam_thickness_factor_min = 0.40
 beam_color = Color(1.0, 0.7, 0.3, 1.0)
 beam_thickness_base = 2.0
-intercepts_missiles_directly = false
+intercepts_missiles_directly = true

@@ -43,6 +43,8 @@ const UNIT_TESTS: Dictionary = {
 	"hard_brake": "res://scripts/tests/test_hard_brake.gd",
 	"intent": "res://scripts/tests/test_intent_arbiter.gd",
 	"target_arb": "res://scripts/tests/test_target_arbiter.gd",
+	"friendly_asset_aggro": "res://scripts/tests/test_friendly_asset_aggro.gd",
+	"ciws_intercept": "res://scripts/tests/test_ciws_intercept.gd",
 	"gun_aim": "res://scripts/tests/test_gun_aim.gd",
 	"gun_burst": "res://scripts/tests/test_gun_burst.gd",
 	"weapon_doctrine": "res://scripts/tests/test_weapon_doctrine.gd",
@@ -63,11 +65,13 @@ const UNIT_TESTS: Dictionary = {
 	"ace_tier": "res://scripts/tests/test_ace_tier.gd",
 	"boss_hunter": "res://scripts/tests/test_boss_hunter.gd",
 	"speed_governor": "res://scripts/tests/test_speed_governor.gd",
+	"dogfight_growth": "res://scripts/tests/test_dogfight_growth.gd",
 	"poltergeist_tactics": "res://scripts/tests/test_poltergeist_tactics.gd",
 	"slow_air_pass": "res://scripts/tests/test_slow_air_pass.gd",
 	"presentation": "res://scripts/tests/test_presentation.gd",
 	"evo_detail": "res://scripts/tests/test_evolution_detail.gd",
 	"skills720": "res://scripts/tests/test_skills_720.gd",
+	"skill_audit": "res://scripts/tests/test_skill_audit.gd",
 	"sig_skills": "res://scripts/tests/test_sig_skills.gd",
 	"bullet_grid": "res://scripts/tests/test_bullet_grid.gd",
 	"zone_rewards": "res://scripts/tests/test_zone_rewards.gd",
@@ -75,10 +79,14 @@ const UNIT_TESTS: Dictionary = {
 	"meta_shop": "res://scripts/tests/test_meta_shop.gd",
 	"spawn_pool": "res://scripts/tests/test_spawn_pool.gd",
 	"boss_phase": "res://scripts/tests/test_boss_phase.gd",
+	"boss_progression": "res://scripts/tests/test_boss_progression.gd",
 	"naval_formation": "res://scripts/tests/test_naval_formation.gd",
 	"naval_zone_water": "res://scripts/tests/test_naval_zone_water.gd",
+	"zone_air_support": "res://scripts/tests/test_zone_air_support.gd",
 	"status_notes": "res://scripts/tests/test_status_notes.gd",
 	"squad_cmd_ui": "res://scripts/tests/test_squad_command_ui.gd",
+	"waypoint_fire": "res://scripts/tests/test_waypoint_fire_control.gd",
+	"bomber_rotor_airburst": "res://scripts/tests/test_bomber_rotor_airburst.gd",
 }
 
 var bench_active: bool = false
@@ -168,7 +176,7 @@ func _swap_to_survivor() -> void:
 
 
 ## 由 survivor_mode 在 bench duration 到点时回调
-func bench_finish(extra_summary: String = "") -> void:
+func bench_finish(extra_summary: String = "", exit_code: int = 0) -> void:
 	if not bench_active:
 		return
 	var dump: String = PerfBuckets.format_full_dump()
@@ -193,4 +201,4 @@ func bench_finish(extra_summary: String = "") -> void:
 		EventLogger.dump_to_file()
 	# 给 print 一帧时间被 stdout 吐出
 	await get_tree().process_frame
-	get_tree().quit(0)
+	get_tree().quit(exit_code)

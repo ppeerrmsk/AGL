@@ -3,7 +3,7 @@ id: engagement-discipline
 kind: system
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 1
+spec_version: 2
 owner: noelu
 depends_on: [target-engageability-selection, joust-attack-run, weapon-employment-doctrine]
 reconstruction_complete: true
@@ -52,6 +52,28 @@ playtest（combat_log_20260709_220858）暴露两个同源病：**当前没有"�
 | `COTURN_BREAK_EXTEND_S` | 3.0 | 触发后强制脱离/重建能量时长（与 5b boom-zoom 一致） |
 | `COTURN_BREAK_AGGR_MAX` | 0.85 | `ai_aggression` > 此值的 Gladiator 不脱离（设计上"死咬"的近战机型，同 5b） |
 
+### 2.3 特性 C — 属性感知狗斗画像（转得动，也知道该怎么转）
+
+每架走 TacticalPlanner 的飞机只比较自己与当前空中目标，不读技能 ID、不扫全场。输入全部来自 live 属性：
+
+| 输入 | 公式 / 来源 | 表达的能力 |
+|---|---|---|
+| 转率比 | `(a_lat / V_corner)own ÷ (a_lat / V_corner)tgt` | 持续赢角速度 |
+| 半径优势 | `R_corner_tgt ÷ R_corner_own` | 切进对手转弯圆内 |
+| 滚转比 | `roll_rate_own ÷ roll_rate_tgt` | 快速反向与换坡 |
+| 减速比 | `deceleration_own ÷ deceleration_tgt` | 近距控闭合、压住过冲 |
+
+其中 `a_lat = 9.81 × sqrt(G²−1)`，`V_corner = effective_corner_speed × 1.2`，
+`R_corner = V_corner² / a_lat`。G / 失速 / 角点速度必须经 `AircraftPhysics.effective_*()` 读取；滚转与减速读取已被永久升级改写的 live params。
+
+综合分数：`score = 转率比×0.40 + 半径优势×0.35 + 滚转比×0.15 + 减速比×0.10`。
+
+| 档 | 条件 | 战术语义 |
+|---|---|---|
+| `DOGFIGHT_BALANCED` | `score ≤ 1.05` | 无显著属性优势，现有行为完全不变 |
+| `DOGFIGHT_ENERGY` | `score > 1.05`，但未满足紧半径条件 | G / 滚转占优但刹车或低速包络普通；保留能量，不盲目压低速 |
+| `DOGFIGHT_TIGHT` | `score > 1.05` 且半径优势 ≥1.20 且减速比 ≥1.20 | 紧半径型；敢留在缠斗内、切内圈并更快解除僚机外围角色 |
+
 ## 3. 行为与公式（How）
 
 ### 3.1 特性 A — 开火判定表（AI 分支）
@@ -99,10 +121,22 @@ if not s.is_tactical_preference_user \
 - 5b（held>8s+aspect>80°）是"打了很久咬不上尾"的**时间**触发；5b.2 是"能量已空"的**能量**触发。两者互补：能量先空的走 5b.2（更早），打得久但能量没空的走 5b。
 - 慢目标过顶分支（`heading_diff>90°` + `tgt_speed < corner×0.5`）只处理**慢**目标绕圈；co-turn breaker 处理**快而持久的高 G 盘旋**（UAV 233m/s 不算"慢"，旧分支抓不到）。
 
+### 3.3 特性 C — 属性如何改变狗斗选择
+
+- **基线零改动**：`DOGFIGHT_BALANCED` 不改任何分支、速度或僚机偏移；同机对同机与零 buff 行为保持原样。
+- **能量型**：继续允许 boom-zoom / co-turn breaker；转弯 intent 的目标速度不得低于物理角点
+  `effective_corner_speed ×1.2`，用更高 G 赢转率但不把速度抽干。
+- **紧半径型**：
+  - 非 overshoot 情形下跳过 5b 时间脱离与 5b.2 co-turn breaker；低速硬转正是它的优势区，不把强项误判成“能量耗尽”。
+  - 目标正在急转、距离 `< gun_range×3`、aspect 55°~135°时，若本机理论半径 `<` 目标当前盘旋半径的 85%，把固定 `lag pursuit` 改为 `lead pursuit`，直接切进内圈；不满足观测机会时仍走旧路径。
+  - 僚机在 `< gun_range×2` 时提前从 FLANK/HIGH_COVER 角色转入直接 BFM；协同机炮横移从每档 250m 缩至 100m，仍保留错位与防碰撞读感。
+- **共同边界**：真实 overshoot、导弹规避、FEAR、慢空中目标攻击跑、面目标 strafe、玩家航点命令优先级不变。
+
 ## 4. 结构与组成（Structure）
 
 - **特性 A**：改 `auto_gun_scan`（AircraftWeapons）一处 AI 分支的早退条件。无新字段、无新节点。
-- **特性 B**：TacticalPlanner 决策树加一条旁路 + 7 个常量；复用现有 `BfmIntent.extend_recover` + `BOOM_ZOOM_OUT` intent + EXTEND 残余计时。Situation 无需新字段（`is_tactical_preference_user` / `tgt_bank_deg` / `aspect_angle_deg` / `my_speed_ms` / `corner_speed_kmh` / `ai_aggression` / `prev_intent_held_for` 皆已有）。
+- **特性 B**：TacticalPlanner 决策树加一条旁路 + 7 个常量；复用现有 `BfmIntent.extend_recover` + `BOOM_ZOOM_OUT` intent + EXTEND 残余计时。
+- **特性 C**：Situation 增加双方 live 性能标量与纯算术画像；TacticalPlanner / BfmIntent 只消费画像。每次态势构造增加固定数量的 accessor 与标量运算，**O(1)、零分配容器、零全场扫描、零新节点**；沿用既有 AI tick/LOD 节流。
 - **迁移开关**：B 只对走 planner 的飞机生效（僚机 + 已迁移 9 种敌机）。敌方 UAV/UCAV 是 simple_ai 不走 planner——但**友军僚机**走 planner，正是被反杀的一方，覆盖到位。
 
 ## 5. 验收标准（Acceptance / Litmus）
@@ -110,12 +144,17 @@ if not s.is_tactical_preference_user \
 - [ ] **A**：无 `combat_target` 的敌机从玩家机头前掠过时，F9 日志无该敌机的 `[GUN]` 命中玩家记录；有 `combat_target` 且对准时照常开火。
 - [ ] **A**：友军僚机无目标时不再出现 `[GUN_BURST]` 对空放空枪（复用 2026-07-07 诊断）。
 - [ ] **B**：AI 僚机对高 G 盘旋 UAV 交战时，日志出现 `PLAN ... → BOOM_ZOOM_OUT (why=能量劣势平面缠斗)`，且不再出现连续 >4s 的 `bnk≈±85° g≈11 spd 贴角点` 平面兜圈。
-- [ ] **B**：人类操控的长机（`is_tactical_preference_user`）交战时**不**被 co-turn breaker 强制拉扯（玩家走位不受干扰）。
-- [ ] **B**：零 buff / 常规对头交战下行为不变（新分支条件不满足时不触发）。
-- [ ] 单测 `test_bfm_intent.gd` 全绿（新增 ≥2 case：能量空触发 boom-zoom / 人类机不触发）。
-- [ ] 物理无回归：`--bench=turn_physics` 双指标未劣化（见 [[project_turn_physics_test_harness]]）。
-- [ ] 性能：无新增每帧全场扫描（A 是**去掉**一次 all_units 扫描，净收益；B 仅多几个标量比较）。
-- [ ] 已知 seam 未触碰（effective_corner_speed 经 accessor 层，未直读 params）。
+- [x] **B**：人类操控的长机（`is_tactical_preference_user`）交战时**不**被 co-turn breaker 强制拉扯（玩家走位不受干扰）。
+- [x] **B**：零 buff / 常规对头交战下行为不变（新分支条件不满足时不触发）。
+- [x] 单测 `test_bfm_intent.gd` 116/116 全绿（含画像/速度/内切/僚机 11 条新增断言）。
+- [x] 物理无回归：`--bench=turn_physics` 四机全部场景平滑通过（见 [[project_turn_physics_test_harness]]）。
+- [x] 性能：无新增每帧全场扫描；`stress_40` 32 机样本 planner 42µs/frame（前次样本 63µs/frame），无回归。
+- [x] 已知 seam 未触碰（effective_corner_speed / effective_max_g 均经 accessor 层，未直读 params）。
+- [x] **C**：同属性目标得到 `DOGFIGHT_BALANCED`，既有 BFM 输出不变。
+- [x] **C**：仅 +G / 滚转的飞机得到 `DOGFIGHT_ENERGY`，转弯速度地板为物理角点，仍会在能量劣势时脱离。
+- [x] **C**：低失速 + 强减速 build 得到 `DOGFIGHT_TIGHT`；可观测半径占优时 LAG→LEAD，非 overshoot 不被固定脱离分支赶走。
+- [x] **C**：真实 2v1 一号僚机相对 v1 基线 `fire_s 0.17→0.48`、`first_fire 23.9→2.1s`、尾位 `3.62→6.55s`；仅修火控对照仍为 0.48s，证明提升来自几何/战术而非放宽扳机。
+- [x] `--bench=dogfight_growth` 3/3、BfmIntentTest 116/116 全绿。
 
 ## 6. 实现计划（Task Pipeline）
 
@@ -133,6 +172,12 @@ if not s.is_tactical_preference_user \
 - [ ] playtest：UAV 缠斗僚机会脱出重攻、不被反杀；敌人不再流弹背刺。
 - [x] 填 §7 锚点 + 同步 reference 索引（script-index tactical_planner 行）+ §8 变更记录。
 
+### 阶段 4 — 特性 C（2026-08-03 属性感知狗斗）
+
+- [x] Situation 注入双方 live 性能并计算三档画像。
+- [x] TacticalPlanner 按画像调整脱离、切圈与僚机角色收敛；BfmIntent 按画像调整速度地板与横移。
+- [x] 补 BFM 单测；跑 dogfight_growth 真实双 AI / 2v1 僚机探针并迭代。
+
 ## 7. 索引锚点（Where）
 
 | 关注点 | 文件 |
@@ -148,6 +193,7 @@ if not s.is_tactical_preference_user \
 | 日期 | spec_version | 改动 |
 |---|---|---|
 | 2026-07-09 | 1 | 初稿（playtest combat_log_20260709_220858 派生）：特性 A 无目标不开火（最小修）+ 特性 B AI 反平面同向缠斗 |
+| 2026-08-03 | 2 | **属性感知狗斗画像**（用户）：AI 按双方转率/半径/滚转/减速形成 balanced/energy/tight 三档；强 G 机保能量赢转率，低速强刹机切内圈并减少无效脱离，僚机更早从外围角色转入直接 BFM。真实 overshoot 与火控门不放宽。 |
 
 ## 9. 后续（本轮范围外）
 

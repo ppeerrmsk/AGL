@@ -24,6 +24,7 @@ var _registered_units: Array = []   ## 手动塞进 CombatUnit.all_units 的目�
 
 func run() -> void:
 	print("\n════════ 骑士掠袭中队（VULTURE：横列冲锋/齐射分配/掠远回转/弹尽） ════════")
+	_test_runtime_state_reset()
 	_test_profile_row()
 	_test_assign_pure()
 	_test_element_parsing()
@@ -31,6 +32,24 @@ func run() -> void:
 	_test_pass_cycle_sim()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
+
+
+# ── 运行期静态注册表生命周期 ──
+func _test_runtime_state_reset() -> void:
+	var event := AceReinforcementEvent.new()
+	var squad := AceSupportSquad.new("marathon")
+	squad.active = true
+	event._squad = squad
+	AceReinforcementEvent._active_ref = event
+	_check("正式事件未交战时血条隐藏", AceReinforcementEvent.battle_bar_info().is_empty(), "")
+	event.debug_force_battle_bar = true
+	_check("Debug 可强制显示血条且不污染交战态",
+		not AceReinforcementEvent.battle_bar_info().is_empty() and not event._battle_joined, "")
+	event.debug_force_battle_bar = false
+	event._battle_joined = true
+	_check("交战后血条注册表有数据", not AceReinforcementEvent.battle_bar_info().is_empty(), "")
+	AceReinforcementEvent.reset_runtime_state()
+	_check("新局 reset 清除上一局王牌血条", AceReinforcementEvent.battle_bar_info().is_empty(), "")
 
 
 # ── A. profile 数据 ──
@@ -43,9 +62,12 @@ func _test_profile_row() -> void:
 	_check("载弹 6 发/机", int(p.get("missile_count", 0)) == 6, "%d" % int(p.get("missile_count", 0)))
 	_check("横列阵型", String(p.get("formation", "")) == "line", String(p.get("formation", "")))
 	_check("lancer 战术", String(p.get("tactics", "")) == "lancer", String(p.get("tactics", "")))
-	_check("后期档 400s", is_equal_approx(float(p.get("pool_time", 0.0)), 400.0),
+	_check("统一轮换窗 240s", is_equal_approx(float(p.get("pool_time", 0.0)), 240.0),
 		"%.0f" % float(p.get("pool_time", 0.0)))
 	_check("机型 MIG31", int(p.get("enemy_type", -1)) == SurvivorSpawner.EnemyType.MIG31, "")
+	_check("全队零 flare", int(p.get("flares", -1)) == 0, "%d" % int(p.get("flares", -1)))
+	_check("标准化 TTK = 80s", is_equal_approx(AceSquadProfiles.estimated_ttk_s("vulture"), 80.0),
+		"%.0fs" % AceSquadProfiles.estimated_ttk_s("vulture"))
 
 
 # ── B. 齐射分配纯函数（spec §3.2 round-robin）──
@@ -85,6 +107,9 @@ func _test_element_parsing() -> void:
 	_check("Teacher 角色 KNIGHT", w._member_role(0) == R.KNIGHT, "")
 	_check("学员角色 NONE（骑士中性）", w._member_role(1) == R.NONE and w._member_role(4) == R.NONE, "")
 	_check("2ndwave 挂掠袭战术", w._lancer != null, "学员 element 有 lancer")
+	_check("Teacher 只有 1 枚 flare、不叠 evade",
+		int(w._element_of(0).get("flares", 0)) == 1 and not w._element_of(0).has("evade"),
+		str(w._element_of(0)))
 	# GIMMICK：F-16 狙击 ×2（含长机 BLUFF）+ 幻影 2000 斗士 ×2
 	var g := AceSupportSquad.new("gimmick")
 	_check("gimmick 编成 4 机", g.squad_size == 4, "%d" % g.squad_size)
@@ -99,6 +124,28 @@ func _test_element_parsing() -> void:
 	var f := AceSupportSquad.new("goofighters")
 	_check("goofighters Su-47 ×2 斗士", f.squad_size == 2 \
 		and f._member_type(0) == ET.SU47 and f._member_role(0) == R.KNIGHT, "")
+	# WhiteTea：F-CK-1 ×3 机炮骑士，逐机 joust + flare 后单次 J-turn，不挂队级导弹齐射模块
+	var tea := AceSupportSquad.new("whitetea")
+	var tea_profile: Dictionary = AceSquadProfiles.get_profile("whitetea")
+	var tea_joust: Dictionary = tea_profile.get("joust", {})
+	var tea_herbst: Dictionary = tea_profile.get("herbst", {})
+	_check("WhiteTea F-CK-1 ×3 机炮骑士", tea.squad_size == 3 \
+		and tea._member_type(0) == ET.FCK1 and tea._member_type(2) == ET.FCK1 \
+		and tea._member_role(0) == R.NONE, "")
+	_check("WhiteTea 不挂导弹齐射模块", tea._lancer == null, "逐机 joust")
+	_check("WhiteTea 呼号 Tea/Cola/Bottle", tea_profile.get("callsigns", []) == ["Tea", "Cola", "Bottle"],
+		str(tea_profile.get("callsigns", [])))
+	var tea_gun: GunParams = load(String(tea_profile.get("gun_res", "")))
+	_check("WhiteTea 独立 4 发受控短梭", tea_gun != null and tea_gun.burst_count == 4 \
+		and is_equal_approx(tea_gun.bullet_damage, 5.0) \
+		and is_equal_approx(tea_gun.fire_rate, 360.0),
+		"%s" % String(tea_profile.get("gun_res", "")))
+	_check("WhiteTea 三机同步首梭不秒满血玩家", tea_gun != null \
+		and tea_gun.burst_count * tea_gun.bullet_damage * 3.0 < 100.0,
+		"三机首梭=%.0f" % (tea_gun.burst_count * tea_gun.bullet_damage * 3.0 if tea_gun else -1.0))
+	_check("WhiteTea 配单次 flare 后 J-turn", bool(tea_joust.get("enabled", false)) \
+		and int(tea_herbst.get("max_uses", 0)) == 1 \
+		and bool(tea_herbst.get("requires_flares_empty", false)), "")
 	# MARATHON 回归：沿用基类前 2 KNIGHT / 后排 SNIPER（既有落地行为不变）
 	var m := AceSupportSquad.new("marathon")
 	_check("marathon 角色沿用基类", m._member_role(0) == R.KNIGHT and m._member_role(1) == R.KNIGHT \

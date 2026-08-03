@@ -26,12 +26,6 @@ const PLAYABLE_LIST: Array[Dictionary] = [
 		"locked": false,
 	},
 	{
-		# F-14 起手（远程/团队，开局送 3 僚机；全谱最弱锚点）——首败航母 BOSS 解锁（career-shop §2.1）
-		"id": "f14",
-		"resource": "res://resources/playable_f14.tres",
-		"locked": false,
-	},
-	{
 		# A-6E 起手（攻击/肉，轻火箭；矩阵 v7 新建，取代旧 A-10 起手位——A-10 降为 T2 进化获得）
 		# ——30 地面击杀解锁（career-shop §2.1）
 		"id": "a6e",
@@ -43,6 +37,12 @@ const PLAYABLE_LIST: Array[Dictionary] = [
 		# ——生涯商店购买解锁（career-shop §2.1）
 		"id": "mirage3",
 		"resource": "res://resources/player/playable_mirage3.tres",
+		"locked": false,
+	},
+	{
+		# F-14 起手（远程/团队，开局送 3 僚机；全谱最弱锚点）——首败航母 BOSS 解锁（career-shop §2.1）
+		"id": "f14",
+		"resource": "res://resources/playable_f14.tres",
 		"locked": false,
 	},
 ]

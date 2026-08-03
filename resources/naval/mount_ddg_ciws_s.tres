@@ -4,7 +4,7 @@
 
 [resource]
 script = ExtResource("1")
-local_offset = Vector2(0, 12)
+local_offset = Vector2(0, 4)
 facing = 0.0
 arc = 6.2832
 weapon_type = 2

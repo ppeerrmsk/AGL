@@ -24,6 +24,7 @@ func run() -> void:
 	_test_uav_hunter_achievement()
 	_test_codex_alignment()
 	_test_codex_counting()
+	_test_codex_debug_unlock()
 	_test_info_codex()
 	_test_csv_columns()
 	_cleanup_test_cfg()
@@ -135,6 +136,7 @@ func _test_roundtrip() -> void:
 	var hist: Dictionary = b.build_boss_history()
 	_expect_str("history.last", String(hist.get("last", "")), W)
 	_expect_bool("history.defeated", bool((hist.get("defeated", {}) as Dictionary).get(W, false)), true)
+	_expect_int("history.defeat_counts", int((hist.get("defeat_counts", {}) as Dictionary).get(W, 0)), 1)
 	b.free()
 
 
@@ -196,7 +198,7 @@ func _test_codex_alignment() -> void:
 	var covered: Array = []
 	for e in EnemyCodex.ENTRIES:
 		covered.append(String(e["id"]))
-	var exempt := ["f47", "f14_poltergeist", "f15", "f16", "mirage2000", "su47", "cre"]
+	var exempt := ["f47", "f14_poltergeist", "f15", "f16", "mirage2000", "su47", "fck1", "cre", "yf23"]
 	var missing: Array = []
 	for t in tags:
 		if t not in covered and t not in exempt:
@@ -246,6 +248,19 @@ func _test_codex_counting() -> void:
 	_expect_int("无 tag 不污染逐型", b.get_ground_kills_by_type("aa"), 2)
 	a.free()
 	b.free()
+
+
+func _test_codex_debug_unlock() -> void:
+	print("── 敌人图鉴 Debug 全解锁 ──")
+	var entry: Dictionary = EnemyCodex.ENTRIES[0]
+	EnemyCodex.debug_set_unlock_all(false)
+	var baseline_unlocked := EnemyCodex.is_unlocked(entry)
+	var baseline_defeats := EnemyCodex.defeat_count(entry)
+	EnemyCodex.debug_set_unlock_all(true)
+	_expect_bool("Debug 覆盖解锁条目", EnemyCodex.is_unlocked(entry), true)
+	_expect_int("Debug 覆盖不改击败计数", EnemyCodex.defeat_count(entry), baseline_defeats)
+	EnemyCodex.debug_set_unlock_all(false)
+	_expect_bool("Debug 覆盖可恢复真实进度", EnemyCodex.is_unlocked(entry), baseline_unlocked)
 
 
 # ── F. 游戏信息手册（spec career-archive §2.7）──

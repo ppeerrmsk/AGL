@@ -229,7 +229,7 @@ func set_leader(new_leader):
 |---|---|
 | 键切换入口 / 操控 chokepoint（内联）/ 击落接管 | `scripts/survivor/survivor_mode.gd`（`_unhandled_input` KEY_1..9 → `_switch_control_to_slot`；战术键 Q/T/C/V 同函数；player_aircraft/player_ref 原子重定向） |
 | squad_slot 号机号字段 | `scripts/aircraft.gd`（`squad_slot`）；spawn 赋值在 `survivor_mode.gd`（长机=1、僚机 `ac.squad_slot = i+1`） |
-| 换帅 API | `scripts/squad.gd`（`func set_leader`） |
+| 换帅 API / 继任反向引用修复 | `scripts/squad.gd`（`set_leader` / `cleanup` / `_sync_member_bindings`） |
 | manual_control / 降级 grace | `scripts/ai_controller.gd`（`manual_control` 字段 + 休眠分支 + `_takeover_transition_timer`） |
 | 状态栏白底 + 号机号 | `scripts/aircraft_renderer.gd`（draw_data_label 当前操控机白底分支）+ `scripts/game_constants.gd`（颜色） |
 | HUD 状态面板 / 武器偏好键 | `scripts/survivor/survivor_hud.gd` |
@@ -243,5 +243,6 @@ func set_leader(new_leader):
 | 2026-05-30 | 2 | 切换机制定为**数字键 1-4**（非点选）；引入稳定 `squad_slot` 号机号与编队 squad_index 解耦（键永远对应同一物理机）；武器偏好键 KEY_1/2 迁移到 KEY_Q 腾位。 |
 | 2026-05-30 | 3 | 降级过渡改为**"打完再归队"事件驱动**（目标消失/到达即归队，grace 6s 仅兜底）；新增 §3.5 **换帅最小扰动原则**——set_leader 只换引用不强制归位，FREE 各自为战的僚机切换时完全不受影响（用户场景：在 2/3 间切换不扰动 1/4）。待用户 review → approved。 |
 | 2026-06-07 | 3 | **文档对齐代码**（status draft→in-progress）：核对确认 §6 阶段 1-4 **早前会话已全部派生**（commit 04a7a44）——`Aircraft.squad_slot`、`Squad.set_leader`、`AIController.manual_control` + `_takeover_transition_timer`、KEY_1..4 切换 + `_switch_control_to_slot`、KEY_Q 武器偏好迁移、白底 + 击落接管。实现命名与 spec 略有出入（chokepoint 内联在 `_switch_control_to_slot` 而非独立 `set_player_aircraft`/`switch_player_to`，功能等价）。回填 §6 勾 + §7 真实文件锚点。**唯一未尽**：§5 验收为 playtest 项（需 Godot 内目测 + Lv5+ 压测），未代跑 → 故 status 暂停在 in-progress，验收通过后转 done。 |
-| 2026-07-27 | 4 | **键位真相化批**（文档对齐代码 + 换绑）：切控键实际早已扩至 **1-9**（zone-reward-docking §2.5 编队上限 9），导致原 KEY_6/7 小队命令分支被切控拦截成**死键**，且 HUD 标签仍显示 1/3/6/7 与实际按键不符。换绑：高度偏好 KEY_Z→**Q**（用户指定）、武器偏好 KEY_Q→**T**、小队交战 KEY_6→**C**、小队武器 KEY_7→**V**；E 加力 / F 自动发射 / R 手动闪避 / WASD 相机不变。i18n 三语标签（TACTIC_*/SQUAD_*）+ 悬浮提示（TOOLTIP_*_HINT）同步。§2.3 键位表重写为唯一真源。 |
+| 2026-07-27 | 4 | **键位真相化批**（文档对齐代码 + 换绑）：切控键实际早已扩至 **1-9**（zone-reward-docking §2.5 编队上限 9），导致原 KEY_6/7 小队命令分支被切控拦截成**死键**，且 HUD 标签仍显示 1/3/6/7 与实际按键不符。换绑：高度偏好 KEY_Z→**Q**（用户指定）、武器偏好 KEY_Q→**T**、小队交战 KEY_6→**C**、小队武器 KEY_7→**V**；E 加力 / F 自动发射 / R 手动机动 / WASD 相机不变。i18n 三语标签（TACTIC_*/SQUAD_*）+ 悬浮提示（TOOLTIP_*_HINT）同步。§2.3 键位表重写为唯一真源。 |
 | 2026-07-29 | 5 | **固定号机号重新收口**：撤销后续曾引入的“按存活列表动态压缩”实现，数字键恢复严格匹配稳定 `squad_slot`。小队面板显示当前操控机与全部僚机的固定数字；阵亡号位留空，新入队飞机回填最小空号。 |
+| 2026-08-03 | 6 | **修长机阵亡后全队指挥失联**：武器在 survivor 死亡检查后击毁长机时，僚机 AI 会先把 `AI.squad` 清空；下一帧仅晋升 leader 未恢复反向引用，轮盘遂退化为单机命令。`Squad.members/leader` 定为结构真源，cleanup/换帅时原子恢复全员 `AI.squad`、连续重排 `squad_index`、刷新编队缓存；自动接管新长机完整 `clear_formation()`。`squad_cmd_ui` 新增真实时序回归，26/26。 |

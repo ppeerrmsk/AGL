@@ -100,6 +100,9 @@ v1 曾把 UCAV 退役、由 F-4E 顶替；用户订正：**没必要退役**—�
   aggression randf(0.7, 0.95)——与随机刷新路径 `_spawn_commander_squad` 完全一致）。
 - meta：`zone_garrison` + `category="zone_air"` + `skip_far_cleanup`。
 - 完成判定不看它（驻守非 TGT）；玩家可以全程无视绕开——这就是"障碍"的含义。
+- 凝聚硬约束：Sentinel 的原生护卫距长机超过 1800px 时由 1Hz 看门狗强制召回；
+  看门狗只兜底一次初始漏编，不因战损无限补员（避免形成 XP 农场）。后续由光环招募并明确
+  标为 hunter 的 UAV 可离轴出击，不受原生护卫召回约束。
 
 ### 3.2 移除 elite 后的任务类型分布
 
@@ -119,6 +122,7 @@ SquadFactory / zone_mission 驻守撤离队列。
 - [ ] 多局观察：约 1/4 的陆基/中队战区带 Sentinel + MQ-109 驻守小队；打掉 TGT 后
       即使 Sentinel 小队仍在也判攻克，小队随驻守撤离
 - [ ] 场上任意时刻 Sentinel ≤ 1（随机刷新与战区驻守互斥）
+- [ ] Sentinel 初始绝不单飞；原生 MQ-109 护卫不会在战术地图上与长机长期分离
 - [ ] 性能：Sentinel + Lv5+ 压测 FPS 掉幅 < 15（全部复用既有路径，无新每帧逻辑）
 - [ ] i18n：TACTICAL_TIP_SENTINEL 三语已改；elite 两键已删
 - [ ] playtest：SENTINEL_GARRISON_CHANCE=0.25 与 COMMANDER 概率上调的手感校准
@@ -149,3 +153,4 @@ SquadFactory / zone_mission 驻守撤离队列。
 |---|---|---|
 | 2026-07-26 | 1 | 初稿 + 落地（用户四件套指令；出现率数值待 playtest） |
 | 2026-07-26 | 2 | 用户订正：UCAV **不退役**，更名 **MQ-110**（导弹版 MQ-109）恢复全部刷新，与 F-4E（有人机）并存 |
+| 2026-08-02 | 3 | 用户确认 Sentinel 绝不以单机方式出现：护卫看门狗改为 1Hz 初始漏编兜底 + 原生护卫 1800px 强制召回；战损后不无限补员，光环 hunter 保留离轴出击。 |

@@ -1,10 +1,12 @@
 extends RefCounted
 
-## 无头验收：战区奖励去重 + 航母整局保证（spec zone-reward-docking / zone-reward-arsenal，
-## 用户 2026-07-24 重定）：
-##   A. 武器/技能/航母整局唯一（出现过永不再出）；僚机豁免=可重复保底
-##   B. 僚机作为保底可重复出现（collectible 用尽后 roll 落到僚机）
-##   C. 航母整局保证：pity——CARRIER_PITY_ROLLS 次 roll 内必然出现一次航母
+const SurvivorModeScript = preload("res://scripts/survivor/survivor_mode.gd")
+
+## 无头验收：战区奖励类别保底 + 去重 + 航母整局保证（spec zone-reward-arsenal）：
+##   A. 开局 A/B 随机各出一个 weapon / nextgen，确保每局至少一武器一技能
+##   B. 武器/技能/航母整局唯一（出现过永不再出）；僚机豁免=可重复保底
+##   C. 僚机作为保底可重复出现（collectible 用尽后 roll 落到僚机）
+##   D. 航母整局保证：pity——CARRIER_PITY_ROLLS 次 roll 内必然出现一次航母
 ##
 ## 运行：godot --headless --path . -- --bench=zone_rewards（或 --bench=all）
 
@@ -13,7 +15,9 @@ var _fail := 0
 
 
 func run() -> void:
-	print("\n════════ 战区奖励去重 + 航母保证 ════════")
+	print("\n════════ 战区奖励类别保底 + 去重 + 航母保证 ════════")
+	_test_run_category_guarantees()
+	_test_achievement_reward_gate()
 	_test_no_duplicate_collectibles()
 	_test_wingman_repeatable()
 	_test_carrier_guaranteed()
@@ -32,9 +36,54 @@ func _roll_n(zd: ZoneData, n: int) -> Array:
 	return out
 
 
-# ── A. 武器/技能/航母整局唯一 ──
+# ── A. 每局至少一武器一技能 ──
+func _test_run_category_guarantees() -> void:
+	print("── A. 开局 A/B 类别保底（武器 + 次世代技能）──")
+	var all_ok := true
+	for _trial in 100:
+		var zd := ZoneData.new()
+		var kinds: Dictionary = {}
+		for zid in [&"A", &"B"]:
+			kinds[String(zd.get_reward(zid).get("kind", ""))] = true
+		if not kinds.has("weapon") or not kinds.has("nextgen"):
+			all_ok = false
+			break
+	_check("100 局 A/B 均恰含一项武器与一项技能", all_ok, "")
+
+
+## 成就型奖励必须在开局 A/B 首次 roll 前拿到上下文；缺键也按未解锁处理。
+## 这条守住 2026-08-01 实机回归：旧链先构造 ZoneData、后注入上下文，导致首轮 fail-open。
+func _test_achievement_reward_gate() -> void:
+	print("── A2. 无人机猎手成就门控（含开局首 roll）──")
+	var locked_ctx := func() -> Dictionary:
+		return {"loyal_wingman_unlocked": false}
+	var unlocked_ctx := func() -> Dictionary:
+		return {"loyal_wingman_unlocked": true}
+	var missing_ctx := func() -> Dictionary:
+		return {}
+	var locked_hits := 0
+	var missing_hits := 0
+	var unlocked_hits := 0
+	for _trial in 200:
+		for entry in [[ZoneData.new(locked_ctx), "locked"],
+				[ZoneData.new(missing_ctx), "missing"],
+				[ZoneData.new(unlocked_ctx), "unlocked"]]:
+			var zd: ZoneData = entry[0]
+			for zid in [&"A", &"B"]:
+				var reward := zd.get_reward(zid)
+				if String(reward.get("weapon", "")) == "loyal_wingman":
+					match String(entry[1]):
+						"locked": locked_hits += 1
+						"missing": missing_hits += 1
+						"unlocked": unlocked_hits += 1
+	_check("未解锁时开局 200 局零忠诚僚机", locked_hits == 0, "hits=%d" % locked_hits)
+	_check("上下文缺键时 fail-closed", missing_hits == 0, "hits=%d" % missing_hits)
+	_check("解锁后忠诚僚机仍可进入开局奖励", unlocked_hits > 0, "hits=%d" % unlocked_hits)
+
+
+# ── B. 武器/技能/航母整局唯一 ──
 func _test_no_duplicate_collectibles() -> void:
-	print("── A. 武器/技能/航母整局唯一（僚机豁免）──")
+	print("── B. 武器/技能/航母整局唯一（僚机豁免）──")
 	var zd := ZoneData.new()
 	var rolls := _roll_n(zd, 60)
 	var seen: Dictionary = {}
@@ -50,9 +99,9 @@ func _test_no_duplicate_collectibles() -> void:
 	_check("60 次 roll 内武器/技能/航母无重复", dup_ok, "")
 
 
-# ── B. 僚机保底可重复 ──
+# ── C. 僚机保底可重复 ──
 func _test_wingman_repeatable() -> void:
-	print("── B. 僚机作为保底可重复出现 ──")
+	print("── C. 僚机作为保底可重复出现 ──")
 	var zd := ZoneData.new()
 	var rolls := _roll_n(zd, 60)
 	var wingman_count := 0
@@ -63,9 +112,9 @@ func _test_wingman_repeatable() -> void:
 	_check("僚机重复出现（≥2）", wingman_count >= 2, "got %d" % wingman_count)
 
 
-# ── C. 航母整局保证 ──
+# ── D. 航母整局保证 ──
 func _test_carrier_guaranteed() -> void:
-	print("── C. 航母整局保证（pity ≤ %d roll 必现）──" % ZoneData.CARRIER_PITY_ROLLS)
+	print("── D. 航母整局保证（pity ≤ %d roll 必现）──" % ZoneData.CARRIER_PITY_ROLLS)
 	var all_ok := true
 	# 30 局：每局都必须在 CARRIER_PITY_ROLLS 次 roll 内出现一次航母（_carrier_reward_assigned）
 	# 注：ZoneData.new() 在 _init 已 roll A/B（2 次），故这里再补齐到 pity 阈值即可
@@ -77,9 +126,9 @@ func _test_carrier_guaranteed() -> void:
 	_check("30 局航母均在保证窗口内出现", all_ok, "")
 
 
-# ── D. 机场解放战区（spec airfield-liberation-zones）──
+# ── E. 机场解放战区（spec airfield-liberation-zones）──
 func _test_airfield_zones() -> void:
-	print("── D. 机场解放战区数据层 ──")
+	print("── E. 机场解放战区数据层 ──")
 	var zd := ZoneData.new()
 	_check("ZONES = 7 随机 + 3 机场 = 10", ZoneData.ZONES.size() == 10, "got %d" % ZoneData.ZONES.size())
 	_check("AIRFIELD_IDS = 3", ZoneData.AIRFIELD_IDS.size() == 3, "got %d" % ZoneData.AIRFIELD_IDS.size())
@@ -108,6 +157,60 @@ func _test_airfield_zones() -> void:
 		if zd.get_state(af2) == ZoneData.State.AVAILABLE and af2 == &"AF_HANEDA":
 			reopened_airfield = true  # 已解放的机场被重开 = bug
 	_check("解放的机场不被随机重开池激活", not reopened_airfield, "")
+	# 友军驻防：默认 AA×2；永久授权只追加一座 SAM，顺序与几何固定。
+	var base_plan: Array = SurvivorModeScript.airfield_ally_plan(false)
+	var entitled_plan: Array = SurvivorModeScript.airfield_ally_plan(true)
+	_check("未购授权驻防计划 = AA×2", base_plan.size() == 2
+		and base_plan[0]["kind"] == &"aa" and base_plan[1]["kind"] == &"aa", str(base_plan))
+	_check("机场防空网授权计划 = AA→AA→SAM", entitled_plan.size() == 3
+		and entitled_plan[0]["kind"] == &"aa" and entitled_plan[1]["kind"] == &"aa"
+		and entitled_plan[2]["kind"] == &"sam", str(entitled_plan))
+	_check("SAM 使用机场东侧固定挂点", entitled_plan[2]["offset"] == Vector2(240.0, 0.0),
+		str(entitled_plan[2]))
+	var sam_upgrade := SurvivorData.upgrade_by_id("airfield_sam_network")
+	_check("机场防空网已从升级池移除", sam_upgrade.is_empty(), str(sam_upgrade))
+	_check("机场防空网商店名称/描述已进入翻译资源",
+		tr("METASHOP_ITEM_AIRFIELD_SAM_NAME") != "METASHOP_ITEM_AIRFIELD_SAM_NAME"
+		and tr("METASHOP_ITEM_AIRFIELD_SAM_DESC") != "METASHOP_ITEM_AIRFIELD_SAM_DESC", "")
+	# 授权 SAM：真实场景验 ALLY 转换、同机场幂等与战损不重生。
+	var mode = SurvivorModeScript.new()
+	mode._zone_data = zd
+	mode._sam_scene = load("res://scenes/sam_unit.tscn")
+	mode._sam_params = load("res://resources/sam_params.tres")
+	mode._friendly_asset_aggro.register_airfield(&"airfield_AF_HANEDA",
+		zd.get_zone_by_id(&"AF_HANEDA")["center"])
+	var haneda_center: Vector2 = zd.get_zone_by_id(&"AF_HANEDA")["center"]
+	mode._try_deploy_airfield_sam(&"AF_HANEDA", haneda_center, &"airfield_AF_HANEDA")
+	_check("授权给机场部署 1 座 SAM", mode.get_child_count() == 1,
+		"children=%d" % mode.get_child_count())
+	var deployed_sam := mode.get_child(0) as CombatUnit
+	_check("授权 SAM 转为 ALLY", deployed_sam != null
+		and deployed_sam.team == CombatUnit.TEAM_ALLY, str(deployed_sam))
+	mode._try_deploy_airfield_sam(&"AF_HANEDA", haneda_center, &"airfield_AF_HANEDA")
+	_check("重复部署幂等：同机场仍只有 1 座 SAM", mode.get_child_count() == 1,
+		"children=%d" % mode.get_child_count())
+	deployed_sam.free()
+	mode._try_deploy_airfield_sam(&"AF_HANEDA", haneda_center, &"airfield_AF_HANEDA")
+	_check("授权 SAM 战损后不重生", mode.get_child_count() == 0,
+		"children=%d" % mode.get_child_count())
+	mode.free()
+	# 三机场独立承诺：每座解放机场各部署一座。
+	var all_zd := ZoneData.new()
+	var all_mode = SurvivorModeScript.new()
+	all_mode._zone_data = all_zd
+	all_mode._sam_scene = load("res://scenes/sam_unit.tscn")
+	all_mode._sam_params = load("res://resources/sam_params.tres")
+	for af3 in ZoneData.AIRFIELD_IDS:
+		all_zd.liberate_airfield(af3)
+		var af3_center: Vector2 = all_zd.get_zone_by_id(af3)["center"]
+		all_mode._friendly_asset_aggro.register_airfield(
+			StringName("airfield_%s" % af3), af3_center)
+		all_mode._try_deploy_airfield_sam(af3, af3_center, StringName("airfield_%s" % af3))
+	_check("三座已解放机场各部署 1 座 SAM", all_mode.get_child_count() == 3,
+		"children=%d" % all_mode.get_child_count())
+	_check("三机场 SAM 承诺账本彼此独立", all_mode._airfield_sam_committed.size() == 3,
+		str(all_mode._airfield_sam_committed))
+	all_mode.free()
 
 
 func _check(desc: String, cond: bool, detail: String) -> void:

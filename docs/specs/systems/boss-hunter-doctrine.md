@@ -3,7 +3,7 @@ id: boss-hunter-doctrine
 kind: system
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 3
+spec_version: 4
 owner: 用户（设计定档） / Claude（落地）
 depends_on: [ace-squadron-tier, event-system, global-awareness-roe, wraith-squadron]
 reconstruction_complete: true
@@ -123,6 +123,24 @@ PRE_STAGE 不再承担数十秒的接近等待，也不接受几何/锁定触发
 
 **为什么是 12 km**：在 F-47 巡航 1600 km/h（≈444 m/s ≈ 222 px/s）下，12 km = 6000 px 需约 **27 秒**闭合。
 这段时间够玩家看见警告横幅、看见它们压过来、做一次高度/位置准备，又不至于像旧模型那样空转 47 秒。
+
+### 2.4.1 世界边缘收容（不是归巢 leash）
+
+`SurvivorSpawner` 的普通敌机边界纪律按设计跳过 `category="boss"`，避免全局 PATROL 覆写
+Wraith / Poltergeist 的专属战术。飞机类 BOSS 因此必须由 `AceSquad` 基类自己守住**世界矩形**：
+
+| 参数 | 值 | 说明 |
+|---|---|---|
+| 触发距离 | 距世界边缘 ≤ **2000 px** | 提前留出高速转弯空间，不等机体已经飞进黑区 |
+| 返场解除 / 目标 | 到距边缘 **3000 px** 解除；目标点放在 **3500 px** | 目标比解除线深 500 px，保证在 `arrival_radius=300 px` 抵达判定前先释放；走 `AIDirective.fly_to` 真实转弯，不回 BOSS 锚点 |
+| 返场火控 | 保持可交战 | 收容只改导航，不给玩家免费安全窗 |
+| 越线兜底 | 钳回边内 **40 px**，清尾迹并把航向指向返场点 | 只在预测转弯仍失败时触发，保证画面中绝不长期留在地图外 |
+| 战术协调 | 收容期间暂停专属队级战术；所有已触发收容的成员回到 3000 px 安全带后重启战术层 | 防边界指令与 Relay Break / Wraith 相位指令互相抢写；未触边成员仍跑常规 BFM |
+
+这不是被本 spec 删除的 `ANCHOR_HOLD`：判据只看固定的世界外框，不看 BOSS 锚点，也不因玩家
+跑远而脱战。玩家在地图内任何位置，BOSS 仍持续追击；只有即将离开可玩空间时才短暂向内转场。
+收容只认 `category="boss"`；同样继承 `AceSquad` 的 `ace_support` 必须保留事件层物理入场/撤离，
+不得被本规则阻止飞出地图。
 
 ### 2.5 锚点的降级
 
@@ -369,6 +387,7 @@ BOSS 又整体豁免于 ROE —— 为 BOSS 单独引一套姿态字段是纯粹
 
 ### 阶段 3 — encounter 层
 - [x] `AceSquad` 删 `ANCHOR_HOLD`（枚举 / 转移 / enter / exit / 两个常量）
+- [x] `AceSquad` 自管世界边缘：2000 px 触发、3000 px 返场、越线钳回 40 px；不恢复锚点 leash
 - [x] `MotherGooseBoss` 巡逻环圆心改玩家实时位置 + 2s 刷新（位移 < 800px 不重下航点）
 - [x] `CarrierStrikeGroup` F/A-18 弹射即指派玩家目标（`acquire_target(TS_BOSS)`）
 
@@ -400,6 +419,7 @@ BOSS 又整体豁免于 ROE —— 为 BOSS 单独引一套姿态字段是纯粹
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-01 | 4 | **修复飞机类 BOSS 出界**：全局边界纪律为保护专属战术会跳过 boss，但 `AceSquad` 原无对等收容，导致 LADON 二阶段 PLTGST-01 实际飞进地图左侧黑区。新增基类级世界边缘收容（2000 px 预警、3000 px 内侧返场、越线 40 px 硬兜底），明确它只守世界矩形、不是被废除的锚点 leash。 |
 | 2026-07-22 | 1 | 初稿并定档。用户裁定：取消"BOSS 飞到圈里等玩家"的概念，全 BOSS 王牌机改猎手型（知道玩家位置 + 主动追击）。由 playtest log 20260722_005100 驱动（BOSS 锚点空转 47.6s、玩家 10km 外白嫖、苏醒 3s 内长机阵亡）。核心四条：INBOUND 相追玩家实时位置 / 接战触发器扩到四条（+被锁定 +受伤）/ 废除 ANCHOR_HOLD 归巢 / 出生点从"最远地图角"改"机头前方 12km"。舰船不猎手（物理不可行），CSG 猎手性由舰载机承担 |
 | 2026-07-28 | 2 | **CSG 摆位与承伤（§2.5.1，暂寄本 spec —— CSG 尚无独立 spec）**：①**舰队摆位地形校验**——锚点吸水只保证圆心在水上，而舰队 bbox ≈1950×2200 px、航母还沿航向巡逻 ±1500 px，靠岸锚点会把护卫舰刷到陆地上（此前零校验）；现按"候选朝向 45° 步长 × 5 个锚点偏移"打分（数航母巡逻两端 + 10 个护卫位有几个在陆地），取落地点最少的一组、找到全水面解立即采用，结果写日志、仍有落地点则告警。②**电磁炮对同一艘舰重复结算已修**——船体与挂点/弱点代理同时在单位表且代理转发伤害，一发能打出最高 5×150=750（"航母被一炮秒"的真正来源）；现按母舰归并只取沿弹道最前的命中点，一发一舰只结算一次。**航母 HP 保持 1200 不变**（用户拍板：修穿排不改血量）。③附：CIWS 真弹周期 3→2（拦截 DPS ×1.5）记在 [aa-fire-awareness §2.1](aa-fire-awareness.md) |
 | 2026-07-24 | 1 | 修 T3/T4 对舰队 BOSS 失明的实现漏洞（§2.2 补语义）。玩家从远距离锁定并导弹命中 CSG 航母却要贴脸才 ENGAGED —— 根因：船体锁定免疫（锁的是 MountTarget 代理）+ 伤害走 hull_hp/部件不碰 `CombatUnit.hp`，而 T3/T4 直读船体 `is_locked`/`hp`。修法：`NavalUnit` 暴露 `is_engaged_by_lock()`（聚合代理锁定态）/ `boss_hp_pool()`（hull+挂点+弱点总血），`boss_encounter_event` 的 T3/`_members_hp_total` duck-type 调用。不动 T2 几何半径（§1.4 反模式）。`--bench=boss_hunter` +6 断言 |

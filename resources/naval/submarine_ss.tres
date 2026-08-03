@@ -7,8 +7,8 @@
 script = ExtResource("1")
 ship_class = 4
 display_name_prefix = "SS"
-hull_length = 300.0
-hull_width = 35.0
+hull_length = 57.4
+hull_width = 10.0
 icon_color = Color(0.3, 0.2, 0.5, 1)
 max_sea_speed = 9.0
 turn_rate = 0.08

@@ -101,7 +101,9 @@ static func reevaluate_target(ai: AIController) -> void:
 	var best_score := -1.0
 	var current_score := -1.0
 	var current_is_overkilled := false
-	if ai._current_target and is_instance_valid(ai._current_target) and ai.aircraft.missile_manager:
+	var gun_priority: bool = ai.aircraft.weapon_preference == Aircraft.WeaponPreference.PREFER_GUN
+	if not gun_priority and ai._current_target and is_instance_valid(ai._current_target) \
+			and ai.aircraft.missile_manager:
 		current_is_overkilled = ai.aircraft.missile_manager.team_inbound_damage(
 			ai._current_target, ai.aircraft.team, null) >= ai._current_target.hp
 	# 护卫编队僚机：交战中重评估也吃护卫加权——新出现的"咬长机者"能抢回护卫优先级
@@ -266,9 +268,10 @@ static func _score_candidate(ai: AIController, target_ac: CombatUnit,
 	# 视觉遮蔽（低空 / 云中）
 	score *= _visibility_score_mult(target_ac)
 
-	# 队友超杀让路：已发足量弹（含在途）→ 强降权
+	# 超杀是承诺弹药纪律，不是目标状态：机炮优先继续咬住，导弹执行层仍自行禁补射。
 	var mm := ai.aircraft.missile_manager
-	if mm and is_instance_valid(mm):
+	var gun_priority: bool = ai.aircraft.weapon_preference == Aircraft.WeaponPreference.PREFER_GUN
+	if not gun_priority and mm and is_instance_valid(mm):
 		if mm.team_inbound_damage(target_ac, ai.aircraft.team, ai.aircraft) >= target_ac.hp:
 			score *= OVERKILL_MULT
 

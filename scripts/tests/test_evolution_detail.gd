@@ -24,6 +24,7 @@ func run() -> void:
 	_test_can_evolve()
 	_test_panel_never_drifts_offscreen()
 	_test_gate_pips()
+	_test_tree_routes_and_current_marker()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
 
@@ -182,6 +183,39 @@ func _test_gate_pips() -> void:
 	_check("ax00 2/2/3 → 全实心", _filled_count(sax) == 7, "got %d" % _filled_count(sax))
 	# 无 gates（T1 起手机）：不画
 	_check("无门槛 → 无 pip", tv._pip_slots({}).is_empty(), "")
+	tv.free()
+
+
+# ── G. 树连线与当前机体迁移（用户反馈 2026-08-02）──
+func _test_tree_routes_and_current_marker() -> void:
+	print("── G. 直角折线 + 进化成功后当前框迁移 ──")
+	var tv := EvolutionTreeView.new()
+	tv.setup(EvolutionSystem.all_nodes(), &"f15", [&"f15"], 26,
+		{&"gladiator": 10, &"knight": 10, &"schemer": 10})
+	var expected_edges := 0
+	for nd in EvolutionSystem.all_nodes():
+		var exits: Array = nd.get("exits", [])
+		expected_edges += exits.size()
+	_check("全部 %d 条数据边都有布局路径" % expected_edges,
+		tv._edge_routes.size() == expected_edges, "got %d" % tv._edge_routes.size())
+	var bad_routes: Array[String] = []
+	for key in tv._edge_routes:
+		var route: PackedVector2Array = tv._edge_routes[key]
+		if route.size() < 2:
+			bad_routes.append("%s 点数不足" % key)
+			continue
+		for i in range(route.size() - 1):
+			var d := route[i + 1] - route[i]
+			if not is_zero_approx(d.x) and not is_zero_approx(d.y):
+				bad_routes.append("%s 含斜段" % key)
+				break
+	_check("全 %d 条树边均为水平/垂直折线" % tv._edge_routes.size(), bad_routes.is_empty(),
+		", ".join(bad_routes.slice(0, 5)))
+	tv._selected = &"f15c"
+	tv.set_current(&"f15c", [&"f15", &"f15c"])
+	_check("进化后当前节点迁到 f15c", tv._current == &"f15c", str(tv._current))
+	_check("进化后候选白框清除", tv._selected == &"", str(tv._selected))
+	_check("进化后出口按新当前机重建", tv._exit_lv.has(&"f22"), str(tv._exit_lv.keys()))
 	tv.free()
 
 

@@ -719,7 +719,10 @@ func _update_status_panel() -> void:
 		var max_flr := ac.params.flare.max_flares
 		if ac.enable_flare_reload and ac.flares_remaining <= 0 and ac.flare_reload_progress > 0.01:
 			var pct := int(ac.flare_reload_progress * 100)
-			text += "[color=#aa8833]FLR  RELOAD %d%%[/color]\n" % pct
+			# 热诱弹耗尽时把装填行做成双色闪烁，避免混在普通武器 CD 里看漏。
+			var empty_flash: bool = int(Time.get_ticks_msec() / 180) % 2 == 0
+			var reload_color := "ff4433" if empty_flash else "ffbb33"
+			text += "[color=#%s][b]FLR  RELOAD %d%%[/b][/color]\n" % [reload_color, pct]
 		else:
 			var cd_ratio := ac.get_flare_cooldown_ratio()
 			var flr_color := "ffdd66"
@@ -1788,52 +1791,71 @@ class RadarDisplay extends Control:
 
 		# 来袭导弹警告
 		var has_incoming := false
+		var warning_pulse: float = lerpf(0.65, 1.0, absf(sin(hud.game_time * TAU * 3.3)))
 		var missile_mgr = hud.game_scene.get_node_or_null("MissileManager")
 		if missile_mgr:
-			var blink := fmod(hud.game_time * 3.33, 1.0) > 0.5
 			for child in missile_mgr.get_children():
 				if not child is Missile:
 					continue
 				var m: Missile = child
-				if not m.is_active or m.target != player_ac:
+				# 只有仍在制导、未被热诱弹骗走，且弹头实际朝玩家飞行时才报警。
+				# target 在丢锁/渐隐/飞过头后仍可能保留旧引用，不能单独作为来袭依据。
+				if not m.is_active or not m.has_guidance or m.is_flare_jammed or m.target != player_ac:
+					continue
+				var rel_m := m.global_position - player_pos
+				var to_player_world := -rel_m
+				var missile_fwd := Vector2(sin(m.heading), -cos(m.heading))
+				if to_player_world.length_squared() > 1.0 \
+						and missile_fwd.dot(to_player_world.normalized()) <= 0.0:
 					continue
 				has_incoming = true
-				var rel_m := m.global_position - player_pos
 				var dist_m := rel_m.length()
 				if dist_m > RADAR_RANGE:
 					continue
 				var angle_m := atan2(rel_m.x, -rel_m.y)
 				var radar_dist_m := (dist_m / RADAR_RANGE) * RADAR_RADIUS
 				var msl_pos := center + Vector2(sin(angle_m), -cos(angle_m)) * radar_dist_m
-				if blink:
-					# 细长条状（指向玩家）：比三角形更容易看出方位，一眼知道是导弹
-					var to_player := (center - msl_pos)
-					var fwd := to_player.normalized() if to_player.length() > 0.1 else Vector2.UP
-					var side := Vector2(-fwd.y, fwd.x)
-					var bar_len := 7.0
-					var bar_w := 0.9        ## 半宽；实际线宽 2×bar_w = 1.8px
-					var tip := msl_pos + fwd * (bar_len * 0.5)
-					var tail := msl_pos - fwd * (bar_len * 0.5)
-					var bar := PackedVector2Array([
-						tail + side * bar_w,
-						tail - side * bar_w,
-						tip - side * bar_w,
-						tip + side * bar_w,
-					])
-					draw_colored_polygon(bar, MISSILE_WARNING_COLOR)
+				# 标记始终可见、只做亮度脉冲；旧版整段灭掉半周期，混战中容易看漏。
+				var marker_color := Color(MISSILE_WARNING_COLOR, warning_pulse)
+				draw_circle(msl_pos, 4.5, Color(marker_color, 0.18 * warning_pulse))
+				var to_player := center - msl_pos
+				var fwd := to_player.normalized() if to_player.length() > 0.1 else Vector2.UP
+				var side := Vector2(-fwd.y, fwd.x)
+				var bar_len := 10.0
+				var bar_w := 1.5
+				var tip := msl_pos + fwd * (bar_len * 0.5)
+				var tail := msl_pos - fwd * (bar_len * 0.5)
+				var bar := PackedVector2Array([
+					tail + side * bar_w,
+					tail - side * bar_w,
+					tip - side * bar_w,
+					tip + side * bar_w,
+				])
+				draw_colored_polygon(bar, marker_color)
 
 		# "MISSILE" 文字警告
 		if has_incoming:
-			var blink_txt := fmod(hud.game_time * 2.5, 1.0) > 0.3
-			if blink_txt:
-				var warn_pos := Vector2(center.x, center.y - RADAR_RADIUS - 12)
-				var font := ThemeDB.fallback_font
-				var text := "MISSILE"
-				var text_size := font.get_string_size(text, HORIZONTAL_ALIGNMENT_CENTER, -1, 11)
-				draw_string(font, warn_pos - Vector2(text_size.x * 0.5, 0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, MISSILE_WARNING_COLOR)
+			var warn_pos := Vector2(center.x, center.y - RADAR_RADIUS - 13)
+			var font := ThemeDB.fallback_font
+			var text := tr("HUD_MISSILE_WARNING")
+			var font_size := 14
+			var text_size := font.get_string_size(text, HORIZONTAL_ALIGNMENT_CENTER, -1, font_size)
+			var box := Rect2(
+				Vector2(center.x - text_size.x * 0.5 - 6.0, warn_pos.y - font_size - 3.0),
+				Vector2(text_size.x + 12.0, font_size + 8.0)
+			)
+			var hot: bool = fmod(hud.game_time * 4.0, 1.0) < 0.5
+			var warn_color := Color(1.0, 0.28, 0.18, 1.0) if hot else Color(1.0, 0.85, 0.2, 1.0)
+			draw_rect(box, Color(0.18, 0.0, 0.0, 0.82))
+			draw_rect(box, Color(warn_color, warning_pulse), false, 2.0)
+			draw_string(font, warn_pos - Vector2(text_size.x * 0.5, 0), text,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, warn_color)
 
 		# 外圈边框
 		draw_arc(center, RADAR_RADIUS, 0, TAU, 64, ThemeColors.RADAR_BORDER, 1.5)
+		if has_incoming:
+			draw_arc(center, RADAR_RADIUS + 3.0, 0, TAU, 64,
+				Color(MISSILE_WARNING_COLOR, warning_pulse), 3.0, true)
 
 # ══════════════════════════════════════════════
 #  屏幕外威胁方位指示器

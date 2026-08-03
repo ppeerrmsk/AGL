@@ -3,7 +3,7 @@ id: afterburner-mode
 kind: system
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 3
+spec_version: 4
 owner: ppeerrmsk
 depends_on: [wingman-escort-evasion]
 reconstruction_complete: true
@@ -70,7 +70,7 @@ reconstruction_complete: true
 | `UPGRADE_EVASION_SPEED_BOOST_DESC` | 加力模式顶速 +40% | Afterburner mode top speed +40% | ABモード最高速+40% |
 | `UPGRADE_EVASION_WEAPON_CD_DESC` | 加力模式中武器冷却流逝 ×2（出加力即就绪） | Weapon cooldowns tick 2× during Afterburner | ABモード中武器CD進行2倍 |
 | `UPGRADE_EVASION_STEALTH_DESC` | 加力模式中获得隐身效果 | Stealth while in Afterburner mode | ABモード中ステルス |
-| `UPGRADE_EVASION_HERBST_DESC` | 加力模式下来袭导弹/后方机炮追尾时自动启动赫尔贝特轮（J-Turn） | Afterburner mode auto-triggers J-Turn vs incoming missile / rear gun chase | ABモードで来襲ミサイル/後方追尾時にJターン自動発動 |
+| `UPGRADE_EVASION_HERBST_DESC` | 当前操控机按 R 手动启动 J-Turn（无需加力）；AI 僚机受威胁时自动启动 | Press R to manually trigger a J-Turn in the controlled jet (no Afterburner required); AI wingmen auto-trigger when threatened | 操作中の機体はRでJターンを手動発動（AB不要）；AI僚機は被脅威時に自動発動 |
 | `UPGRADE_EVASION_OVERSTOCK_DESC` | 加力模式中每 4s 装填 1 发导弹（突破上限至 2 倍） | Afterburner mode reloads +1 missile per 4s up to 2× cap | ABモード4秒毎ミサイル+1（上限2倍） |
 
 新增（充能条 / 按钮三态）：
@@ -172,7 +172,7 @@ missile_manager 命中检测（fuse 距离 + 高度容差成立瞬间，云 miss
 | `evasion_weapon_cd`（进入时 cd ×0.5 缩放） | **语义反转** | 机制零改动：窗口内禁攻击，但 cd 缩放让冷却在窗口内双倍流逝 → "出加力瞬间武器就绪"。文案随之改写（§2.3）。 |
 | `evasion_overstock`（每 4s +1 弹） | 成立 | 加力持续越久装填越多（充能制下不再固定 6s，按实际烧的时长算）。文案不变（速率仍准确）。 |
 | `evasion_stealth`（进入 2s 后隐身） | 成立 | 加力持续 > 2s 即进入隐身段，直到关闭。 |
-| `evasion_herbst` / `cobra_skill`（panic_save） | 成立 | 防御机动在窗口内照常触发，与 90% 躲弹并行不悖（机动是表演层，jam roll 是判定层）。 |
+| `evasion_herbst` / `cobra_skill`（panic_save） | **与加力解耦** | 当前操控机只认 R 手动触发，不要求/不读取加力窗口；AI 僚机保留来袭导弹/后方追尾威胁自动触发。加力自身的 90% 躲弹判定不变。 |
 | TORP / WMN（仅 evasion 期投放） | 保留例外 | 见 §2.2 禁攻击例外。HUD 灰显文案 "(Evade)" 改 "(AB)"。 |
 | `command_sprint`（紧急集合 ×1.4） | 正交 | 速度取各来源最大值语义，无叠乘异常。 |
 | BLOODLUST / OVERLOAD / lock_panic（G/加速 buff） | 正交 | 走 effective_* accessor 与 OVERLOAD accel 既有注入点，与窗口 accel ×3 相乘可接受（都是短窗口）。 |
@@ -182,7 +182,15 @@ missile_manager 命中检测（fuse 距离 + 高度容差成立瞬间，云 miss
 | `skill_evade_missile_overload`（死里逃生：躲弹→超载 8s） | 不联动 | 该钩子只挂 flare jam 成功路径；窗口 90% 躲弹是模式豁免，不算技能语义的"躲弹"，避免窗口内连躲 N 弹刷新超载。 |
 | 忠诚僚机 drone / ACE 友军番队 | 不适用 | drone 不进窗口成员集（沿用 `_propagate` 的 is_drone 排除）；友军番队 leader 非玩家，天然排除。 |
 
-### 3.6 充能事件源
+### 3.6 R 键统一机动入口（2026-08-01 用户定档）
+
+- **当前操控机**：眼镜蛇、危机赫尔贝特（J-Turn）、胆大妄为统一由 `R` 主动释放；眼镜蛇/J-Turn 不再由加力模式或威胁检测自动启动，且按 R 时无需先开加力。
+- **AI 僚机**：同一技能仍按来袭导弹/后方追尾威胁自动启动，用作自保；切控后身份立即反转——新受控机改听 R，旧受控机交还 AI 后恢复自动。
+- **三技能互斥**：眼镜蛇、J-Turn、胆大妄为属于同一互斥组；拿到任意一张后，其余两张不再出现在卡池。代码仍保留“大机动优先、不可用时回退胆大妄为”的防御顺序，只处理旧档/debug 异常共存，不是正常 build 组合。
+- **自动热诱弹**：当前操控机持眼镜蛇/J-Turn 时，未按 R 不得因“大机动已就绪”而压住正常自动热诱弹；胆大妄为原有“禁自动热诱弹”代价保持不变。
+- **输入边界**：R 是飞行动作，不是武器扳机，因此不违反全武器自动开火原则。
+
+### 3.7 充能事件源
 
 | 来源 | 判定 | 挂点语义 |
 |---|---|---|
@@ -196,6 +204,7 @@ missile_manager 命中检测（fuse 距离 + 高度容差成立瞬间，云 miss
 - **Aircraft 新字段** `afterburner_window_active: bool`（共享层运行时标志，仅生存层写入；沙盒恒 false）。
 - **判定点（共享层，各 ≤5 行）**：`take_bullet_damage` 闪避短路；missile_manager 命中 roll；`aircraft_weapons` 三处静默（机炮扫描 / 残梭 / 副槽）扩展 `or afterburner_window_active`；`aircraft_physics.update_speed`（+ 预测镜像）速度地板与 accel ×3。
 - **接线（生存层）**：survivor_mode 建实例、`_process` 驱动、E 键与 HUD 按钮走 `toggle`（开关）、击杀 handler 调 `on_kill_charge`。
+- **R 机动入口**：`survivor_mode` 只把 R 交给当前 `player_aircraft`；Aircraft 统一入口按“大机动 → 胆大妄为”优先级尝试，自动路径依据 AI `manual_control` 身份让位。
 - **HUD**：战术按钮区 `_btn_evasion` 上方加能量条（StyleBoxFlat 线框，宽同按钮，高 ~10px）：条恒为 `ratio()`（charge/CHARGE_MAX）；满=亮橙 READY，部分=暗橙充能%，ACTIVE=亮青随耗能实时放空 + 按钮显剩余续航秒数；按钮文案三态（§2.3 key）。
 
 ## 5. 验收标准（Acceptance / Litmus）
@@ -209,6 +218,8 @@ missile_manager 命中检测（fuse 距离 + 高度容差成立瞬间，云 miss
 - [ ] 击杀充能：非加力时击杀敌机 charge 可见 +4s 跳增；地面击杀同样。
 - [ ] 强化加力（ab_duration）：满能量续航从 6s 拉长到 9s/12s（耗能减慢），HUD 剩余秒数随之变长。
 - [ ] AI 自保规避（玩家托管被咬 / 敌机 EVADE）不触发加力强 buff、不消耗能量；敌机规避时玩家机炮命中率与改造前一致（+20% 闪避不变）。
+- [ ] 当前操控机持眼镜蛇/J-Turn：不开加力也能按 R 释放；只开加力或遭受威胁不会自动释放。旧档/debug 若异常同时持有胆大妄为，大机动不可用时 R 才回退为手动滚转。
+- [ ] 切控后：新受控机的大机动只听 R；旧受控机恢复 AI 威胁自动释放。当前受控机未按 R 时，眼镜蛇/J-Turn 就绪不得抑制正常自动热诱弹。
 - [ ] 沙盒 E 键行为不变。
 - [ ] 性能：跑生存模式 Sentinel + Lv5+ 压测，FPS 掉幅 < 15（充能条为控件属性更新，无每帧自绘全场扫描）。
 - [ ] 已知 seam：SEAM-019（模块不持长机引用，`verify_player_ref_holders.py` 通过）；SEAM-011 不适用（无长机相对量缓存）。
@@ -230,6 +241,7 @@ missile_manager 命中检测（fuse 距离 + 高度容差成立瞬间，云 miss
 ### 阶段 3 — HUD + i18n
 - [x] 充能条控件（ProgressBar 线框三色）+ 按钮三态文案；每帧 `_update_afterburner_ui` 挂 `_update_display`。
 - [x] translations.csv：§2.3 改名 + 新增 key + tooltip 六键重写（三语）；HUD "(Evade)"→"(AB)"。
+- [x] v4：R 统一机动入口；玩家手动/AI 僚机自动分流；眼镜蛇/J-Turn 与加力触发彻底解耦。
 
 ### 阶段 4 — 收尾
 - [x] `verify_player_ref_holders.py`（`afterburner_charge` 入 NON_HOLDERS 显式裁定）+ `verify_doc_anchors.py` 通过（顺手回填 82 处漂移锚点）。
@@ -243,6 +255,7 @@ missile_manager 命中检测（fuse 距离 + 高度容差成立瞬间，云 miss
 |---|---|
 | 资源模块 | `scripts/survivor/afterburner_charge.gd` |
 | 生存层接线（E 键 / 击杀充能 / 驱动） | `scripts/survivor/survivor_mode.gd` |
+| R 统一机动入口 / 玩家自动触发让位 | `scripts/survivor/survivor_mode.gd` / `scripts/aircraft.gd` / `scripts/aircraft/aircraft_flares.gd` |
 | 窗口标志 / 机炮闪避短路 | `scripts/aircraft.gd` |
 | 导弹躲避 roll | `scripts/missile_manager.gd` |
 | 武器静默扩展 | `scripts/aircraft/aircraft_weapons.gd` |
@@ -260,3 +273,4 @@ missile_manager 命中检测（fuse 距离 + 高度容差成立瞬间，云 miss
 | 2026-07-20 | 2 | 阶段 1~4 代码全落地 + i18n 三语；`--bench=all` 31 项回归门 PASS、双校验脚本绿。status → in-progress，剩 §5 playtest 转 done。 |
 | 2026-07-23 | 3 | **改充能制（电池模型）**（用户点名）：删掉"满格才能激活 + 固定 6s 窗口不可提前退"，改为"有能量即启动（charge > 0）+ 激活中按 DRAIN_RATE 实时耗能 + 耗尽自动结束 + 玩家再按 E 提前关闭保留余量"。`try_activate`→`toggle`、`window_left/is_window_active/is_ready/window_ratio`→`active/is_active/is_full/remaining_seconds`、`window_duration_mult`→`duration_mult`（改为耗能减慢，续航 +50%/层）。**常量按旧节奏重标定**：`CHARGE_MAX 30→6`（满能量最多连烧 6s，对齐旧窗口，避免准无限）、`CHARGE_RATE 1.0→0.2`（仍 ~30s 充满）、`KILL_CHARGE 4→0.8`（满池仍 ~7.5 杀）；duration_mult 精确回到 6→9→12s。同步 survivor_mode/hud/test_skills_720 + i18n tooltip/AB_DURATION 三语。 |
 | 2026-07-23 | 3 | **无线电台词从 break 分离**（用户点名"现在不是为了躲导弹了"）：新 radio trigger `afterburner` + `RADIO_AFTERBURNER_*` 三语；新信号 `EventLogger.afterburner_engaged`；`set_evasion_mode` 加 `suppress_radio` 参在加力路径抑制 break emit。真·躲导弹（AI enter_evade）仍走 break。`--bench=chatter` 87 PASS（51 台词 key 全覆盖）。 |
+| 2026-08-01 | 4 | 用户将眼镜蛇/J-Turn/胆大妄为类机动统一到 R：当前操控机只手动释放且不依赖加力；AI 僚机保留威胁自动释放。三技能组成互斥组，任取其一后另两张不再出现；代码优先级只作旧档/debug 异常共存兜底。自动热诱弹不被手动大机动就绪压制。 |

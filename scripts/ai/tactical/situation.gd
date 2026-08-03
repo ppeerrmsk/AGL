@@ -107,7 +107,25 @@ var corner_speed_kmh: float = 700.0
 ## （否则 BLOODLUST / OVERLOAD 等拉 G buff 对治理层失明，见 CLAUDE.md 机动性 buff 规范）
 var max_g: float = 8.0
 var stall_speed_kmh: float = 220.0
+var roll_rate: float = 4.0
+var deceleration: float = 80.0
+## 当前空中目标的 live 机动性能；仅用于双方能力比较，不持有目标引用。
+var tgt_corner_speed_kmh: float = 700.0
+var tgt_max_g: float = 8.0
+var tgt_roll_rate: float = 4.0
+var tgt_deceleration: float = 80.0
 var radar_half_angle_deg: float = 30.0   ## 雷达扇形半角（度），决定 crank 角度上限
+
+## 属性感知狗斗画像（spec engagement-discipline §2.3）。
+const DOGFIGHT_BALANCED := 0
+const DOGFIGHT_ENERGY := 1
+const DOGFIGHT_TIGHT := 2
+var dogfight_mode: int = DOGFIGHT_BALANCED
+var dogfight_score: float = 1.0
+var turn_rate_ratio: float = 1.0
+var turn_radius_advantage: float = 1.0
+var roll_rate_ratio: float = 1.0
+var deceleration_ratio: float = 1.0
 
 # ── 几何派生（_recompute 算）──
 var to_target_dir: Vector2 = Vector2.ZERO
@@ -179,6 +197,8 @@ static func from_aircraft(ac) -> Situation:
 		s.stall_speed_kmh = AircraftPhysics.effective_stall_speed_kmh(ac)
 		s.corner_speed_kmh = AircraftPhysics.effective_corner_speed_kmh(ac)
 		s.max_g = AircraftPhysics.effective_max_g(ac)
+		s.roll_rate = ac.params.roll_rate
+		s.deceleration = ac.params.deceleration
 		s.radar_half_angle_deg = ac.params.radar_half_angle
 		s.lock_time_threshold = ac.params.lock_time
 		if ac.params.gun:
@@ -285,8 +305,15 @@ static func from_aircraft(ac) -> Situation:
 		s.tgt_is_surface = not (tgt is Aircraft)
 		# 目标的 heading 与 bank 仅在 Aircraft 上有意义；地面单位 heading 取 0、bank=0
 		if tgt is Aircraft:
-			s.tgt_heading = tgt.heading
-			s.tgt_bank_deg = rad_to_deg(tgt.bank_angle)
+			var target_ac: Aircraft = tgt as Aircraft
+			s.tgt_heading = target_ac.heading
+			s.tgt_bank_deg = rad_to_deg(target_ac.bank_angle)
+			if target_ac.params:
+				# 与自身同样经 effective accessor 读取 G / 角点，状态 buff 也能进入画像。
+				s.tgt_corner_speed_kmh = AircraftPhysics.effective_corner_speed_kmh(target_ac)
+				s.tgt_max_g = AircraftPhysics.effective_max_g(target_ac)
+				s.tgt_roll_rate = target_ac.params.roll_rate
+				s.tgt_deceleration = target_ac.params.deceleration
 		else:
 			s.tgt_heading = 0.0
 			s.tgt_bank_deg = 0.0
@@ -375,6 +402,25 @@ func _recompute() -> void:
 			and corner_speed_kmh > 1.0 \
 			and (tgt_speed_ms * 3.6) < corner_speed_kmh * SLOW_AIR_SPEED_RATIO
 
+	# 双方机动能力画像：固定数量标量运算，O(1)，不读技能 ID / 不扫场。
+	# ×1.2 把 AI 角点还原为物理安全余量角点，与 AircraftPhysics.corner_speed_kmh 同口径。
+	if not tgt_is_surface:
+		var own_corner_ms: float = maxf(corner_speed_kmh * 1.2 / 3.6, 1.0)
+		var target_corner_ms: float = maxf(tgt_corner_speed_kmh * 1.2 / 3.6, 1.0)
+		var own_lateral: float = 9.81 * sqrt(maxf(max_g * max_g - 1.0, 0.01))
+		var target_lateral: float = 9.81 * sqrt(maxf(tgt_max_g * tgt_max_g - 1.0, 0.01))
+		turn_rate_ratio = (own_lateral / own_corner_ms) / maxf(target_lateral / target_corner_ms, 0.001)
+		var own_radius: float = own_corner_ms * own_corner_ms / maxf(own_lateral, 0.001)
+		var target_radius: float = target_corner_ms * target_corner_ms / maxf(target_lateral, 0.001)
+		turn_radius_advantage = target_radius / maxf(own_radius, 1.0)
+		roll_rate_ratio = roll_rate / maxf(tgt_roll_rate, 0.1)
+		deceleration_ratio = deceleration / maxf(tgt_deceleration, 0.1)
+		dogfight_score = turn_rate_ratio * 0.40 + turn_radius_advantage * 0.35 \
+				+ roll_rate_ratio * 0.15 + deceleration_ratio * 0.10
+		if dogfight_score > 1.05:
+			dogfight_mode = DOGFIGHT_TIGHT if turn_radius_advantage >= 1.20 \
+					and deceleration_ratio >= 1.20 else DOGFIGHT_ENERGY
+
 	# 闭合率（沿 LOS 投影，正=接近）
 	closing_rate_ms = aim_align * my_speed_ms + head_on_dot * tgt_speed_ms
 
@@ -409,5 +455,7 @@ func to_dict() -> Dictionary:
 		"tgt_pos": tgt_pos, "dist_m": dist_m, "asp_deg": aspect_angle_deg,
 		"aim": aim_align, "head_on": head_on_dot, "in_rear": in_rear_hemisphere,
 		"closing": closing_rate_ms, "tgt_bank": tgt_bank_deg,
+		"dogfight_mode": dogfight_mode, "dogfight_score": dogfight_score,
+		"turn_rate_ratio": turn_rate_ratio, "radius_adv": turn_radius_advantage,
 		"weapon_lock": weapon_lock, "charge": charge_intent, "evade": evasion_intent,
 	}

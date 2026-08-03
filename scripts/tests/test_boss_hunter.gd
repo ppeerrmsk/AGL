@@ -23,6 +23,7 @@ func run() -> void:
 
 	_test_pursue_verb()
 	_test_no_anchor_hold()
+	_test_ace_world_boundary()
 	_test_ace_roles()
 	_test_dead_metas_gone()
 	_test_ace_flare_lives()
@@ -99,6 +100,69 @@ func _test_no_anchor_hold() -> void:
 	# 归巢半径常量也必须一并消失，否则下次有人会照着它再写一遍
 	_check("ANCHOR_ENGAGEMENT_RADIUS 已删", not ("ANCHOR_ENGAGEMENT_RADIUS" in AceSquad),
 			"leash 常量不得残留")
+
+
+# ── 2.1 世界边缘收容（不是锚点 leash）──
+func _test_ace_world_boundary() -> void:
+	print("── B2. 王牌世界边缘收容 ──")
+	var half := MapBoundary.world_half_px()
+	var sq := AceSquad.new()
+	var boss := Aircraft.new()
+	var ai := AIController.new()
+	ai.aircraft = boss
+	boss.add_child(ai)
+	boss._ai_ref = ai
+	boss.callsign = "EDGE-01"
+	boss.set_meta("category", "boss")
+	boss.global_position = Vector2(-half + 1500.0, 321.0)
+	sq.members = [boss]
+	sq.squad_state = AceSquad.SquadState.PURSUIT
+
+	var recovery_pt := AceSquad.boundary_recovery_point(boss.global_position)
+	_check("返场目标越过 3000px 解除线",
+			is_equal_approx(MapBoundary.distance_to_edge(recovery_pt), AceSquad.BOUNDARY_TARGET_MARGIN_PX),
+			"edge=%.0fpx" % MapBoundary.distance_to_edge(recovery_pt))
+	_check("先解除再触发抵达 HOLD",
+			AceSquad.BOUNDARY_TARGET_MARGIN_PX - AceSquad.BOUNDARY_RECOVER_MARGIN_PX \
+					> AceSquad.BOUNDARY_ARRIVAL_RADIUS_PX,
+			"解除线与目标间距大于 arrival_radius")
+	_check("返场点保留平行轴坐标", is_equal_approx(recovery_pt.y, 321.0),
+			"不回 BOSS 锚点")
+
+	var recovering := sq._update_boundary_recovery()
+	_check("进入 2000px 边缘带即收容", recovering and sq._boundary_recovery_active,
+			"edge=1500px")
+	_check("下发真实 fly_to 返场", ai._directive != null \
+			and ai._directive.type == AIDirective.Type.FLY_TO_POINT,
+			"不用瞬移完成正常返场")
+	_check("返场期间仍可交战", ai._directive != null and not ai._directive.combat_disabled,
+			"只改导航，不给安全窗")
+
+	# 预测转弯失败越线：位置必须当帧回到边内 40px，航向朝东（左界的内侧）。
+	boss.global_position = Vector2(-half - 500.0, 321.0)
+	sq._update_boundary_recovery()
+	_check("越线硬兜底回到边内 40px",
+			is_equal_approx(MapBoundary.distance_to_edge(boss.global_position),
+					AceSquad.BOUNDARY_HARD_CLAMP_MARGIN_PX),
+			"edge=%.0fpx" % MapBoundary.distance_to_edge(boss.global_position))
+	_check("越线后航向指向地图内", absf(angle_difference(boss.heading, PI * 0.5)) < 0.001,
+			"左界应朝东")
+
+	# 到达安全带后释放收容 directive；这证明它不是永久 leash / 归巢状态。
+	boss.global_position = Vector2(-half + AceSquad.BOUNDARY_RECOVER_MARGIN_PX + 1.0, 321.0)
+	var still_recovering := sq._update_boundary_recovery()
+	_check("到达安全带即恢复自由追击", not still_recovering \
+			and not sq._boundary_recovery_active and ai._directive == null,
+			"无永久边界状态")
+
+	# 非 BOSS 王牌支援同样继承 AceSquad，但撤离必须能物理飞出地图。
+	boss.set_meta("category", "ace_support")
+	boss.global_position = Vector2(-half - 500.0, 321.0)
+	_check("ace_support 出界不被 BOSS 收容", not sq._update_boundary_recovery() \
+			and ai._directive == null and MapBoundary.distance_to_edge(boss.global_position) < 0.0,
+			"支援撤离仍归事件层管理")
+
+	boss.free()
 
 
 # ── 3. 角色真实化 ──

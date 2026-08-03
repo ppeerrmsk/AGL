@@ -3,7 +3,7 @@ id: squad-cohesion
 kind: system
 status: in-progress   # 阶段 1-3 + 阶段 4 主体已落地；剩联调/调参/§5 playtest → done
 schema_version: 1
-spec_version: 1
+spec_version: 2
 owner: noelu
 depends_on: [squad-ai-escort, squad-control-switching, squad-tactics-design]
 reconstruction_complete: false
@@ -94,6 +94,7 @@ FREE 模式：维持现状（自由扫描就近交战），但**仍受 §2.2 lea
 - 在 `_process_engage`（或僚机 ENGAGE tick 入口）加 O(1) 判定：`dist_to_leader > SQUAD_LEASH_DIST` 累计 > `SQUAD_LEASH_HYSTERESIS` → 调用既有 disengage → 回 SQUAD_FOLLOW。
 - 长机 / 无 squad / 已在 SQUAD_FOLLOW 的不判。
 - BOSS UAV 已有自己的 RECALL_LEASH（mother_goose_controller），不重复套用——本 leash 只管常规 squad 僚机。
+- **玩家点名例外**：僚机正在跟打长机当前的 `commanded_target` 时，命令优先级高于普通归队 leash；长机取消、改点或目标失效后例外立即结束。导弹规避仍按求生优先处理。
 
 ### 3.3 目标类型分流 + 自由机指派（目标：焦点开火 / 必要才分散）
 
@@ -155,7 +156,7 @@ FREE 模式：维持现状（自由扫描就近交战），但**仍受 §2.2 lea
 - [ ] **目标 1 焦点开火**：凝聚模式下打地面/船/BOSS 时全员压同一目标（饱和）；打飞机时多数压目标 + 留一架自由机掩护。
 - [ ] **目标 2 维持阵型**：无敌情 / 长机无目标时小队严守阵型一起走，不再单机乱跑。
 - [ ] **目标 3 必要才分散**：仅交战飞机目标时分出交战机/自由机；脱战后收拢归队。
-- [ ] **防游走 leash**：任何模式下，交战僚机距长机超 leash 即 break off 回编队——不再"绕一大圈查无此人"。
+- [ ] **防游走 leash**：无玩家点名目标时，交战僚机距长机超 leash 即 break off 回编队——不再"绕一大圈查无此人"；跟打长机玩家点名目标时不被普通归队覆盖。
 - [ ] **开关**：玩家 HUD「交战模式」按钮在 凝聚(FOLLOW_LEADER) ↔ 自由(FREE) 间切换，立即生效。
 - [ ] **范围**：友方 + 敌方编队都凝聚；敌方旗舰交战时整队焦点压目标。
 - [ ] **切换自愈**：操控切换 / 减员后 leash / 自由机指派立即以新长机 / 新成员重算，无残留。
@@ -213,3 +214,4 @@ FREE 模式：维持现状（自由扫描就近交战），但**仍受 §2.2 lea
 | 2026-06-07 | 1 | **状态对齐**（status draft→in-progress）：核对确认阶段 1-3 + 阶段 4 主体（敌方杂鱼成建制 / zone_mission 随机阵型）均已落地（commit 04a7a44）。**阶段 4 未尽项**：与 squad-ai-escort / squad-control-switching 三方联调（leash × leader_changed × 守后无竞态）、SQUAD_LEASH_DIST / 自由机数量调参、跑 §5 全部验收 + 性能压测——均为 playtest 项，未代跑。验收通过后转 done。 |
 | 2026-06-07 | 1 | **机身颤抖多层根治 + 无头测试 harness**：编队 bank 改"转向速率驱动协调转弯"(替代 leader-bank 镜像，消除原地打滚)；分支迟滞 + bias 死区 + target_heading/bank EMA(消除小幅 flutter)；LOD0 补 formation 分支(屏内僚机终于走 update_follow)；战斗侧 compute_target_bank 台阶→连续斜坡 + 过冲补偿改滚出精确积分临界阻尼 + combat_full_bank_diff 放宽；clear_formation 清 target_position；规避承诺 break 方向；leash 拽回设冷却；formation 分支补 flare 更新。新增 `test_turn_physics.gd`(无头量化 bank 反转) + `--bench=demo`(自动战斗可视)。残留：慢速机激进缠斗欠阻尼大坡反转(SEAM-012，待 PD 重设计)。详见 changelogs/2026-06-07-bank-twitch-rootfix-and-test-harness.md。 |
 | 2026-06-07 | 1 | **新增 §3.6 阵型槽位双频率架构（实时跟随，消除慢一拍）**（用户反馈：玩家频繁点地图时僚机慢一拍、阵型拖泥带水；要真实编队的优雅，不靠强扭轨迹）。改 `aircraft_formation.gd:_build_context` 槽位来源：冻结 `target_position` → 每帧 `_formation_offset_committed.rotated(leader.heading)` 实时算（squad_coordination 在 AI tick 写 committed 偏移 + 回写 target_position 保一致）。优雅性：去两处非物理强扭——"突跳伪造曲线"自动失效（订正注释）、`_update_position` 直接挪坐标降级为稳态亚像素吸附（FORM_SETTLE_DIST=25 / STRENGTH=0.15）。共享层 → 友/敌同时生效。历史 10 bug 修复结构零触碰。**首轮（核心修复）；"协调盘旋"增强延后调参阶段**。待 §5 playtest 验收。详见 changelogs/2026-06-07-formation-realtime-slot.md。 |
+| 2026-08-03 | 2 | 玩家点名目标高于普通归队：跟打长机 `commanded_target` 的僚机豁免 leash；取消/改点后恢复正常凝聚，导弹规避仍优先。 |

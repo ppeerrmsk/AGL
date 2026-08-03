@@ -72,6 +72,10 @@ func _start() -> void:
 		push_error("BossEncounterEvent: BossRegistry returned null for map '%s'" % map_id)
 		end()
 		return
+	# 通关强化层必须在任何实体生成前注入；本局胜利写档发生在 encounter 结束后，
+	# 因此不会出现战斗中途换编成（spec boss-clear-progression §3.1）。
+	var defeat_counts: Dictionary = boss_history.get("defeat_counts", {})
+	encounter.configure_progression(int(defeat_counts.get(encounter.boss_id, 0)))
 	encounter.initial_heading_deg = heading_deg
 
 	# 2. 刷出 + 进 PRE_STAGE

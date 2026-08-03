@@ -1,9 +1,9 @@
 ---
 id: ace-support-squadron
 kind: event
-status: in-progress         # 代码落地（阶段 0~4 除机炮占空比）+ parse/ace_tier 回归绿；差 §5 playtest
+status: in-progress         # 代码主体落地 + parse/ace_tier 回归绿；差 §5 playtest
 schema_version: 1
-spec_version: 5
+spec_version: 8
 owner: noelu（设计输入）/ Claude（细化 + 落地）
 depends_on: [ace-squadron-tier, event-system, survivor-loop, reinforcement-ingress]
 reconstruction_complete: true
@@ -78,15 +78,16 @@ reconstruction_complete: true
 
 ### 2.3 火力
 
-- 机炮：专属 `ace_gun.tres` + 占空比 4.0 s / 1.5 s —— 数值权威在 ace-squadron-tier §2.4/§2.5，
-  不在此重列。**本事件落地即带动该 spec 阶段 3+4（flare 命数资源 / jam=1.00 / ace_gun）落地**。
+- 机炮：专属 `ace_gun.tres`，开火节奏与全部敌方飞机一致：每次机会只打一梭，梭后停火
+  3.0s；数值权威在 gun-burst-fire §3.3 与 ace-squadron-tier §2.4/§2.5，不在此重列。
+  **本事件落地即带动该 spec 阶段 3+4（flare 命数资源 / jam=1.00 / ace_gun）落地**。
 - 导弹：Su-35 档案自带（无等级加弹）。
 
 ### 2.4 触发与节奏
 
 | 项 | 值 | 说明 |
 |---|---|---|
-| 首支触发 | `game_time ≥ 320 s`（**中期档**，2026-07-28 用户改档；原 240 s） | 5:20，玩家已成长数级；早期档位让给 2NDWAVE |
+| 首支触发 | `game_time ≥ 240 s`（**统一轮换窗**，2026-08-01 修订） | 五队新局洗牌；本队预计 TTK 75 s |
 | 再触发间隔 | 前一支结束（全灭/撤离）后 ≥ 150 s | — |
 | 新刷截止 | `game_time < 540 s` | 最后 1 分钟不新刷（避免刚进场就撞阶段闸） |
 | 同场上限 | 1 支 | — |
@@ -117,7 +118,7 @@ reconstruction_complete: true
 | 项 | 值 |
 |---|---|
 | 中队代号 | **MARATHON / 马拉松**（用户命名） |
-| 登场时段档 | **中期**（`game_time ≥ 320 s` 进池；2026-07-28 用户改档"Su-35 中期才出现"） |
+| 登场 | **统一轮换窗**（`game_time ≥ 240 s` 进池） |
 | 主色 | 猩红 `#FF2E3D` |
 | 徽章 | 不闭合的跑道环，缺口处一道终点线竖杠——终点线永远画在猎物坠机的地方 |
 | 血条 | 5 段命条，交战开始亮（tier §2.8） |
@@ -144,6 +145,22 @@ reconstruction_complete: true
   42分間ノンストップの追撃という戦域記録を持つ。その依頼の報酬は倍額だった。獲物は
   41分目に自分から海へ墜ちたからだ。
 
+### 2.8 已购 F-15 王牌截击支援
+
+| 项 | 值 |
+|---|---|
+| 权益 | 生涯商店永久商品 `support_ace_f15`；正式局必须已购，非正式局 fail-open |
+| 触发 | 任一轮换池 `AceReinforcementEvent` 成功生成敌军王牌中队后立即触发；每次事件至多一次 |
+| 编成 | **F-15 ×2**，ALLY 第三方阵营；边界外编队生成，物理飞入战场 |
+| 交战 | 只允许攻击 HOSTILE `Aircraft`，优先锁定仍存活的本事件王牌；不攻击地面单位或舰船 |
+| 收益 | 友军击杀不向玩家结算 XP / 功勋；友机可被击坠，阵亡不补充 |
+| 撤离 | 王牌全灭后当帧转 EGRESS；若王牌因 BOSS 闸或弹尽撤退，则在该王牌事件终态时同样撤离 |
+| EGRESS | 解除目标与编队、关闭主动交战、开加力飞向最近边界外；飞出边界 800 px 后静默释放。撤离中受击可自卫 5 s，随后继续撤离 |
+
+该权益只绑定**非 BOSS 王牌轮换事件**，不在 Wraith / Poltergeist 等 BOSS 战或 ORION 宿敌
+独立事件中触发。理由：它是“敌军王牌增援的对等截击响应”，不能削弱 BOSS 独享舞台，也不
+把宿敌事件的单挑语义改成固定四机混战。
+
 ## 3. 行为与公式（How）
 
 ### 3.1 事件状态机（AceReinforcementEvent）
@@ -159,7 +176,7 @@ reconstruction_complete: true
 ### 3.2 热诱弹命数流程
 
 引 ace-squadron-tier §3.1（消耗流程）/ §3.3（jam = 1.00 确定性）/ §3.4（不做规避机动），
-仅 `max_flares = 2`。无隐形层（隐形为 F-47 专属，本编成不带）。
+本队 `max_flares = 1`。无隐形层（隐形为 F-47 专属，本编成不带）。
 
 ### 3.3 通报与面板（"敌军支援"）
 
@@ -197,6 +214,8 @@ reconstruction_complete: true
 - [ ] **tier 待遇**：LOD 不冻结（离屏仍机动）、Lv1 与 Lv20 参数完全一致、不占 token、
       普通杂兵 Su-35 不受影响（实例打标验证）
 - [ ] 触发节奏：240 s 首支 / 间隔 150 s / 同场 1 支 / 540 s 后不新刷 / BOSS 阶段不触发
+- [x] **F-15 权益**：未购正式局不生成；购入后每次王牌轮换事件生成 2 架 ALLY F-15，优先攻击
+      本事件王牌且不攻击地面/舰船；友军击杀 0 XP/功勋；王牌全灭后两机立即物理撤离，阵亡不补
 - [ ] 性能：Sentinel + Lv5+ 压测 + 王牌中队在场，FPS 掉幅 < 15
 - [ ] i18n：EVENT_ACE_SUPPORT_* 三语；已知 seam 未触碰
 
@@ -227,7 +246,7 @@ reconstruction_complete: true
       无线电台词；`EVENT_ACE_SUPPORT_WARN` key 删除（横幅专属文案随横幅退役）
 
 ### 阶段 3.5 — 包装批（2026-07-27 定档；2026-07-28 实装）
-- [x] 涂装金橙 → 猩红；机炮闪避 0.20 注入；改档中期 320 s
+- [x] 涂装金橙 → 猩红；机炮闪避 0.20 注入；2026-08-01 归入统一 240 s 轮换窗
 - [x] 固定呼号 PACER/MILER/SPRINTER/KICKER/SWEEPER（reserve_permanent + 免 recycle）
 - [x] 血条 5 段 + MARATHON 代号头（跑道环徽章随徽章批）
 - [x] 提示条/Tab 改带代号；lore/中文名 i18n 三语
@@ -237,6 +256,11 @@ reconstruction_complete: true
 - [x] debug 生成入口（F5 面板 FormationType.ACE_SUPPORT，走事件调度器同约束）
 - [x] 索引同步 + ace-squadron-tier §2.2 命数档位注记
 - [ ] §5 验收 playtest 项（命数序列 / +1:00 跳变 / BOSS 让位撤离 / 压力观感）→ status: done
+
+### 阶段 5 — 已购 F-15 王牌截击支援
+- [x] `AceReinforcementEvent` 接入 2 架 ALLY F-15 的入场、王牌优先目标与 EGRESS 生命周期。
+- [x] 正式局读取 `support_ace_f15` 权益，非正式局 fail-open；补 MetaShop / 事件定向回归。
+- [x] 三语商品文案、规格索引与 reference 索引同步。
 
 ## 7. 索引锚点（Where —— 指针，会腐烂，非权威）
 
@@ -255,6 +279,9 @@ reconstruction_complete: true
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-02 | 8 | 删除王牌 4.0s/1.5s 连射占空比约定；跟随全敌机“一次机会一梭、梭后停火 3.0s”安全门。 |
+| 2026-08-01 | 6 | 接入统一 240s 新局洗牌轮换与 TTK 预算；MARATHON=10 DU+25s access=预计 75s。 |
+| 2026-08-01 | 7 | 新增已购 `support_ace_f15` 响应：每次非 BOSS 王牌轮换入场时派 2 架 ALLY F-15，优先截击该队；王牌事件终态后物理撤离。明确不覆盖 BOSS 与 ORION。`meta_shop` 81/81、`zone_air_support` 46/46；Lv15+Sentinel+46 机压力样本 146 headless FPS。 |
 | 2026-07-22 | 1 | 初稿并定稿：用户需求（4-5 架高级机支援 / 边缘入场锁玩家 / 面板"敌军支援" / 全灭 +1 分钟）→ 非 BOSS 王牌中队第一实例；数值细化项见 §9 |
 | 2026-07-22 | 2 | **同日代码落地**（阶段 0~4 除机炮占空比）：AceSupportSquad 子类 + AceReinforcementEvent + 调度/XP/豁免/横幅/Tab/debug 全接线；aggression 定 0.95、入场距离定 5000（复用 ingress 常量，§9 相应更新）；parse + ace_tier 20 断言回归绿；status → in-progress 差 playtest |
 | 2026-07-28 | 6 | **改档中期**（用户："让 Su-35 在中期才出现"）：首支触发 240 → **320 s**（tier §2.9 中期档）；早期档位让给 2NDWAVE。随实装批一并落地 |

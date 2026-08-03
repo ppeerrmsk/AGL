@@ -8,8 +8,10 @@ extends RefCounted
 ## 存档隔离：MetaShop 实例注入 user://meta_shop_test.cfg，绝不碰真存档；
 ## 购买测试只走"未知商品/已拥有"的早退分支，不触发 MeritLedger.spend（真账本零变动）
 
-const TEST_CFG := "user://meta_shop_test.cfg"
-const TEST_LEGACY_CFG := "user://loadout_test.cfg"
+## CI/多用户 Windows 下 user:// 可能落到无写权限的宿主档案；tmp/ 有 .gdignore，
+## 可写且不会在 bench 运行中触发 Godot 资源扫描。
+const TEST_CFG := "res://tmp/meta_shop_test.cfg"
+const TEST_LEGACY_CFG := "res://tmp/loadout_test.cfg"
 
 var _pass := 0
 var _fail := 0
@@ -24,6 +26,9 @@ func run() -> void:
 	_test_doctrine_listing()
 	_test_doctrine_gating()
 	_test_doctrine_prices()
+	_test_signature_catalog()
+	_test_support_entitlements()
+	_test_shop_categories()
 	_test_legacy_migration()
 	_cleanup_test_cfg()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
@@ -119,6 +124,7 @@ func _test_doctrine_gating() -> void:
 	_expect("缺 keywords 字段放行", shop.is_upgrade_gated({"id": "hp_up"}), false)
 	# sig_* 豁免（D3）：驾驶门控已足够，不受 doctrine 二次门控
 	_expect("sig_f22 豁免 stealth", shop.is_upgrade_gated({"id": "sig_f22", "keywords": ["stealth"]}), false)
+	_expect("F-14 围猎同样豁免", shop.is_upgrade_gated({"id": "f14_squad_lock_slow", "keywords": []}), false)
 	# AND 语义：双词技任一学说缺失即挡
 	shop.debug_grant("doctrine_jam")
 	_expect("jam 词已解锁", shop.is_keyword_unlocked("jam"), true)
@@ -150,7 +156,98 @@ func _test_doctrine_prices() -> void:
 	_expect("每词恰有一张学说", MetaShop.GATED_KEYWORDS.size() == MetaShop.DOCTRINES.size(), true)
 
 
-# ── H. legacy loadout.cfg 迁移（spec doctrine-unlocks §3.4）──
+# ── H. 41 机专属目录 / 定价 / F-14 特例（aircraft-signature-progression §2.1）──
+
+func _test_signature_catalog() -> void:
+	print("── signature 目录 ──")
+	var nodes := MetaShop.signature_nodes()
+	var tier_counts := {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+	var total := 0
+	var all_known := true
+	var all_mapped := true
+	for raw in nodes:
+		var nd := raw as Dictionary
+		var node_id := StringName(nd.get("id", ""))
+		var item_id := MetaShop.signature_item_id(node_id)
+		all_known = all_known and MetaShop.signature_item_known(item_id)
+		all_mapped = all_mapped and not SurvivorData.signature_upgrade_for_aircraft(node_id).is_empty()
+		var tier := int(nd.get("tier", 0))
+		tier_counts[tier] = int(tier_counts.get(tier, 0)) + 1
+		total += MetaShop.signature_price_for_tier(tier)
+	_expect("进化树恰有 41 个专属商品", nodes.size() == 41, true)
+	_expect("41 项商品 id 全合法", all_known, true)
+	_expect("41 项技能映射全存在", all_mapped, true)
+	_expect("Tier 数量 4/15/8/6/8", tier_counts == {1: 4, 2: 15, 3: 8, 4: 6, 5: 8}, true)
+	_expect("全购合计 28600", total == 28600, true)
+	_expect("F-14 映射围猎",
+		SurvivorData.signature_upgrade_id_for_aircraft(&"f14") == "f14_squad_lock_slow", true)
+	_expect("围猎进入统一签名判别",
+		SurvivorData.is_signature_upgrade(SurvivorData.upgrade_by_id("f14_squad_lock_slow")), true)
+	_expect("未发现不上架", MetaShop.signature_listed_ok("signature_f15", false), false)
+	_expect("发现后上架", MetaShop.signature_listed_ok("signature_f15", true), true)
+	_expect("未知节点拒绝", MetaShop.signature_item_known("signature_nope"), false)
+
+
+# ── I. 战场支援许可（正式局查购买，非正式局 fail-open）──
+
+func _test_support_entitlements() -> void:
+	print("── 战场支援权益 ──")
+	_expect("AWACS 恒上架", MetaShop.item_listed_ok(MetaShop.ITEM_AWACS, 0, 0), true)
+	_expect("AWACS 定价 3000", int((MetaShop.CATALOG[MetaShop.ITEM_AWACS] as Dictionary)["price"]) == 3000, true)
+	_expect("制空支援恒上架", MetaShop.item_listed_ok(MetaShop.ITEM_ZONE_AIR_SUPPORT, 0, 0), true)
+	_expect("对地支援恒上架", MetaShop.item_listed_ok(MetaShop.ITEM_ZONE_GROUND_SUPPORT, 0, 0), true)
+	_expect("王牌截击支援恒上架", MetaShop.item_listed_ok(MetaShop.ITEM_ACE_F15_SUPPORT, 0, 0), true)
+	_expect("机场防空网授权恒上架", MetaShop.item_listed_ok(MetaShop.ITEM_AIRFIELD_SAM_SUPPORT, 0, 0), true)
+	_expect("两项战区支援各定价 3000",
+		int((MetaShop.CATALOG[MetaShop.ITEM_ZONE_AIR_SUPPORT] as Dictionary)["price"]) == 3000
+		and int((MetaShop.CATALOG[MetaShop.ITEM_ZONE_GROUND_SUPPORT] as Dictionary)["price"]) == 3000, true)
+	_expect("王牌截击支援定价 3000",
+		int((MetaShop.CATALOG[MetaShop.ITEM_ACE_F15_SUPPORT] as Dictionary)["price"]) == 3000, true)
+	_expect("机场防空网授权定价 3000",
+		int((MetaShop.CATALOG[MetaShop.ITEM_AIRFIELD_SAM_SUPPORT] as Dictionary)["price"]) == 3000, true)
+	var shop := _fresh_shop()
+	_expect("未购 AWACS 正式局关闭", shop.is_awacs_entitled(true), false)
+	_expect("未购 AWACS 非正式局 fail-open", shop.is_awacs_entitled(false), true)
+	_expect("未购制空支援正式局关闭", shop.is_zone_air_support_entitled(true), false)
+	_expect("未购制空支援非正式局 fail-open", shop.is_zone_air_support_entitled(false), true)
+	_expect("未购对地支援正式局关闭", shop.is_zone_ground_support_entitled(true), false)
+	_expect("未购对地支援非正式局 fail-open", shop.is_zone_ground_support_entitled(false), true)
+	_expect("未购王牌截击支援正式局关闭", shop.is_ace_f15_support_entitled(true), false)
+	_expect("未购王牌截击支援非正式局 fail-open", shop.is_ace_f15_support_entitled(false), true)
+	_expect("未购机场防空网正式局关闭", shop.is_airfield_sam_entitled(true), false)
+	_expect("未购机场防空网非正式局 fail-open", shop.is_airfield_sam_entitled(false), true)
+	shop.debug_grant(MetaShop.ITEM_AWACS)
+	shop.debug_grant(MetaShop.ITEM_ZONE_AIR_SUPPORT)
+	shop.debug_grant(MetaShop.ITEM_ZONE_GROUND_SUPPORT)
+	shop.debug_grant(MetaShop.ITEM_ACE_F15_SUPPORT)
+	shop.debug_grant(MetaShop.ITEM_AIRFIELD_SAM_SUPPORT)
+	_expect("购入 AWACS 正式局开启", shop.is_awacs_entitled(true), true)
+	_expect("购入制空支援正式局开启", shop.is_zone_air_support_entitled(true), true)
+	_expect("购入对地支援正式局开启", shop.is_zone_ground_support_entitled(true), true)
+	_expect("购入王牌截击支援正式局开启", shop.is_ace_f15_support_entitled(true), true)
+	_expect("购入机场防空网正式局开启", shop.is_airfield_sam_entitled(true), true)
+	shop.free()
+
+
+# ── J. 商店四分页结构（未知专属仍只走匿名占位）──
+
+func _test_shop_categories() -> void:
+	print("── 商店四分页 ──")
+	var ui_script: Script = load("res://scripts/meta/meta_shop_ui.gd")
+	var ui: Node2D = ui_script.new()
+	ui.call("_build_ui")
+	var tabs := ui.get("_tabs") as TabContainer
+	var support_box := ui.get("_support_box") as VBoxContainer
+	var career_box := ui.get("_career_box") as VBoxContainer
+	var signature_box := ui.get("_signature_box") as VBoxContainer
+	_expect("商店恰有四个分类页", tabs.get_tab_count() == 4, true)
+	_expect("战场支援页有 AWACS + 四项战斗支援", support_box.get_child_count() == 5, true)
+	_expect("机体与后勤页保留三件基础商品", career_box.get_child_count() == 3, true)
+	_expect("机体专属页已生成内容", signature_box.get_child_count() > 0, true)
+	ui.free()
+
+
+# ── K. legacy loadout.cfg 迁移（spec doctrine-unlocks §3.4）──
 
 func _test_legacy_migration() -> void:
 	print("── legacy 迁移 ──")

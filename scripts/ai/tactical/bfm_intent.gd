@@ -857,7 +857,9 @@ static func _apply_squad_lateral_offset(s: Situation, p: TacticalPlan) -> void:
 	if s.squad_index <= 0:
 		return
 	var slot_side: float = -1.0 if (s.squad_index % 2 == 1) else 1.0
-	var slot_distance_m: float = 250.0 * ceili(float(s.squad_index) / 2.0)
+	# 紧半径型已进入直接 BFM 后缩短横移：仍错位，但不再为了 250m 槽位牺牲枪线。
+	var slot_step_m: float = 100.0 if s.dogfight_mode == Situation.DOGFIGHT_TIGHT else 250.0
+	var slot_distance_m: float = slot_step_m * ceili(float(s.squad_index) / 2.0)
 	# 垂直于 LOS 的法向（攻击侧翼方向）
 	var perp: Vector2 = Vector2(-s.to_target_dir.y, s.to_target_dir.x)
 	var offset_px: float = slot_distance_m * CombatUnit.PIXELS_PER_METER

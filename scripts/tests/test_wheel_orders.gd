@@ -5,7 +5,8 @@ extends RefCounted
 ## - 紧急集合：全队 command_sprint（effective 速度 ×1.4，accessor 注入）→ 到达 arrival_radius 逐机解除
 ## - 撤离此区：圈内成员 sprint + 径向出圈目标 / 圈外成员不生效 → 出圈逐机解除；
 ##   撤离圈成为限时禁入区：AI 自主搜敌（_find_target）过滤圈内、到时/新广播命令解除
-## - 防守此区：TRANSIT 不加速（防守无加速条款）
+## - 防守此区：TRANSIT 不加速；到区后全队分头领圈内目标，击杀后接续，
+##   圈外不获取、越界回防、清空后继续盘旋守备
 ##
 ## 运行：godot --headless --path . -- --bench=wheel_orders（或 --bench=all）
 
@@ -18,6 +19,7 @@ var _saved_units: Array = []
 class StubMode extends Node:
 	var selected_aircraft: Array[Aircraft] = []
 	var player_aircraft: Aircraft = null
+	var upgrade_stacks: Dictionary = {}
 
 
 func run() -> void:
@@ -27,6 +29,7 @@ func run() -> void:
 	_test_regroup_sprint()
 	_test_evacuate_sprint_and_zone()
 	_test_guard_no_sprint()
+	_test_guard_area_clear()
 	CombatUnit.all_units.clear()
 	for u in _saved_units:
 		CombatUnit.all_units.append(u)
@@ -110,6 +113,55 @@ func _test_guard_no_sprint() -> void:
 	c.command_guard(Vector2(3000, 0))
 	_check("防守前往不冲刺", not a[0].command_sprint and a[0].target_position == Vector2(3000, 0),
 		"普通巡航 TRANSIT")
+	_cleanup(c)
+
+
+# ── D. 防守区域清剿：自主分火 → 击杀接续 → 越界/清空回防 ──
+func _test_guard_area_clear() -> void:
+	print("── D. 防守此区：自主搜索并全歼圈内敌人 ──")
+	var a: Array = [_make_ac(Vector2(-200, 0)), _make_ac(Vector2(200, 0))]
+	var c := _make_controller(a)
+	var e1 := _make_enemy(Vector2(300, 0))
+	var e2 := _make_enemy(Vector2(-400, 0))
+	var e3 := _make_enemy(Vector2(0, 700))
+	var outside := _make_enemy(Vector2(1800, 0))   # guard 1500px 圈外
+	CombatUnit.all_units.clear()
+	for u in [e1, e2, e3, outside]:
+		CombatUnit.all_units.append(u)
+
+	c.command_guard(Vector2.ZERO)
+	c.tick(0.5)
+	_check("到区后当前操控机也会自主领目标",
+			a[0].commanded_target in [e1, e2, e3], "玩家机已投入清剿")
+	_check("多机优先分头接战",
+			a[0].commanded_target != null and a[1].commanded_target != null \
+				and a[0].commanded_target != a[1].commanded_target, "首轮目标不同")
+	_check("圈外敌人不进入清剿池",
+			a[0].commanded_target != outside and a[1].commanded_target != outside, "outside 未被获取")
+
+	# 击毁 a0 当前目标：下一 tick 应自动领取尚未被 a1 认领的第三个圈内目标。
+	var first_target: CombatUnit = a[0].commanded_target
+	first_target.is_destroyed = true
+	c.tick(0.5)
+	_check("击杀后自动接续下一个圈内目标",
+			a[0].commanded_target != null and a[0].commanded_target != first_target \
+				and a[0].commanded_target != a[1].commanded_target \
+				and a[0].commanded_target != outside, "清剿链继续")
+
+	# 把 a1 的活目标拖出 3.45km leash：应放弃且绝不改追同一个圈外目标。
+	var escaped: CombatUnit = a[1].commanded_target
+	escaped.position = Vector2(1800, 300)
+	c.tick(0.5)
+	_check("目标越界后放弃追击",
+			a[1].commanded_target != escaped and a[1].combat_target != escaped, "越界目标已释放")
+
+	# 清空所有圈内目标：任务仍激活，但借用的铁律目标全部回收并回圆心守备。
+	for enemy in [e1, e2, e3]:
+		enemy.is_destroyed = true
+	c.tick(0.5)
+	_check("圈内全灭后回收目标并继续守备",
+			a[0].commanded_target == null and a[1].commanded_target == null \
+				and c._guard_point == Vector2.ZERO, "清空后 guard standing order 仍在")
 	_cleanup(c)
 
 

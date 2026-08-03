@@ -74,7 +74,7 @@ static func _replay_intent(intent_id: int, s: Situation) -> TacticalPlan:
 		_: return BfmIntent.cruise(s)
 
 static func plan(s: Situation, waypoint: Vector2 = Vector2.INF) -> TacticalPlan:
-	var fresh: TacticalPlan = _decide(s, waypoint)
+	var fresh: TacticalPlan = _apply_dogfight_energy_management(s, _decide(s, waypoint))
 
 	# Hysteresis：战斗 intent 至少持 HYSTERESIS_MIN_HOLD 秒才允许切到不同战斗 intent
 	# 例外：相同 intent / 非战斗 intent / 紧急（EVADE）→ 不锁
@@ -83,13 +83,28 @@ static func plan(s: Situation, waypoint: Vector2 = Vector2.INF) -> TacticalPlan:
 			and _is_combat_intent(fresh.intent) \
 			and fresh.intent != s.prev_intent \
 			and s.prev_intent_held_for < HYSTERESIS_MIN_HOLD:
-		var held: TacticalPlan = _replay_intent(s.prev_intent, s)
+		var held: TacticalPlan = _apply_dogfight_energy_management(s, _replay_intent(s.prev_intent, s))
 		held.rationale += " | held %.2fs (was %s)" % [
 			s.prev_intent_held_for, TacticalPlan.intent_name(fresh.intent)
 		]
 		return _apply_surround_axis(s, _apply_weapon_lock(s, held))
 
 	return _apply_surround_axis(s, fresh)
+
+
+## 能量型机体用更高 G 赢转率，但不把速度压到物理角点以下；紧半径型保留原 corner 目标。
+## 仅消费 Situation 画像，基线模式零改动。
+static func _apply_dogfight_energy_management(s: Situation, p: TacticalPlan) -> TacticalPlan:
+	if s.dogfight_mode != Situation.DOGFIGHT_ENERGY:
+		return p
+	match p.intent:
+		TacticalPlan.Intent.WIDE_TURN, TacticalPlan.Intent.LEAD_TURN, \
+		TacticalPlan.Intent.LEAD_PURSUIT, TacticalPlan.Intent.LAG_PURSUIT:
+			var physical_corner_kmh: float = s.corner_speed_kmh * 1.2
+			if p.target_speed_kmh < physical_corner_kmh:
+				p.target_speed_kmh = physical_corner_kmh
+				p.rationale += " | 能量型：守物理角点 %.0fkm/h" % physical_corner_kmh
+	return p
 
 
 ## FOCUS 包围门点后置（command-wheel §3.6）：仅空中追击类战斗 intent + 远于收敛距时生效；
@@ -212,6 +227,7 @@ static func _decide(s: Situation, waypoint: Vector2) -> TacticalPlan:
 	#   玩家飞机无 AIController，默认 ai_aggression=0.5 → 不触发本守卫，正常 BOOM_ZOOM
 	if _is_combat_intent(s.prev_intent) and s.prev_intent_held_for > 8.0 \
 			and s.aspect_angle_deg > 80.0 \
+			and s.dogfight_mode != Situation.DOGFIGHT_TIGHT \
 			and s.ai_aggression <= 0.85:
 		var bz_trigger := BfmIntent.extend_recover(s)
 		bz_trigger.trigger_extend_seconds = 3.0  # 比 overshoot 长，给充分能量重建
@@ -226,6 +242,7 @@ static func _decide(s: Situation, waypoint: Vector2) -> TacticalPlan:
 	# 对方硬盘旋 + 我已磨到角点（能量空）+ aspect 仍高（没带到尾后）+ 已兜 ≥2s → 脱出重建能量。
 	# 仅 AI 控制机；人类操控长机（is_tactical_preference_user）不受此约束，走位归玩家。
 	if not s.is_tactical_preference_user \
+			and s.dogfight_mode != Situation.DOGFIGHT_TIGHT \
 			and s.ai_aggression <= COTURN_BREAK_AGGR_MAX \
 			and absf(s.tgt_bank_deg) > COTURN_BREAK_BANK_DEG \
 			and s.aspect_angle_deg > COTURN_BREAK_ASPECT_DEG \
@@ -269,8 +286,9 @@ static func _decide(s: Situation, waypoint: Vector2) -> TacticalPlan:
 	# ── P5.5：僚机协同角色（FLANK_LEFT / FLANK_RIGHT / HIGH_COVER）──
 	# 角色由 squad_coordination 在进入 TEAM_ATTACK 时按 squad_index 分配，全程稳定不抖动
 	# 仅在中远距生效；近距（< gun_range × 1.2）回退到下面的常规几何决策避免抢长机尾位/误伤
+	var role_release_mult: float = 2.0 if s.dogfight_mode == Situation.DOGFIGHT_TIGHT else 1.2
 	if s.is_wingman and s.following_leader_target and s.squad_role != AIController.SquadRole.NONE \
-			and s.dist_m > s.gun_range_m * 1.2 and not s.tgt_is_surface:
+			and s.dist_m > s.gun_range_m * role_release_mult and not s.tgt_is_surface:
 		match s.squad_role:
 			AIController.SquadRole.FLANK_LEFT:
 				return _apply_weapon_lock(s, BfmIntent.flank_cutoff(s, -1.0))
@@ -310,6 +328,18 @@ static func _decide(s: Situation, waypoint: Vector2) -> TacticalPlan:
 	if absf(s.tgt_bank_deg) > BfmIntent.HIGH_BANK_DEG \
 			and s.dist_m < s.gun_range_m * 3.0 \
 			and s.aspect_angle_deg > 60.0 and s.aspect_angle_deg < 130.0:
+		if s.dogfight_mode == Situation.DOGFIGHT_TIGHT:
+			var own_corner_ms: float = maxf(s.corner_speed_kmh * 1.2 / 3.6, 1.0)
+			var own_lateral: float = 9.81 * sqrt(maxf(s.max_g * s.max_g - 1.0, 0.01))
+			var own_radius_m: float = own_corner_ms * own_corner_ms / maxf(own_lateral, 0.001)
+			var target_bank_rad: float = deg_to_rad(absf(s.tgt_bank_deg))
+			var target_lateral: float = 9.81 * maxf(tan(target_bank_rad), 0.1)
+			var target_speed_ms: float = maxf(s.tgt_speed_ms, 50.0)
+			var target_radius_m: float = target_speed_ms * target_speed_ms / target_lateral
+			if own_radius_m < target_radius_m * 0.85:
+				var inside_cut: TacticalPlan = BfmIntent.lead_pursuit(s)
+				inside_cut.rationale += " | 紧半径型：R %.0f<%.0f，切内圈" % [own_radius_m, target_radius_m]
+				return _apply_weapon_lock(s, inside_cut)
 		return _apply_weapon_lock(s, BfmIntent.lag_pursuit(s))
 
 	# 默认：lead pursuit

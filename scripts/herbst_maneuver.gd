@@ -1,6 +1,6 @@
 ## 赫尔贝特轮机动模块（Herbst Maneuver / J-Turn）
 ## 利用推力矢量快速偏航 180°，追逐者变被追逐者。
-## 作为子节点挂载到 Aircraft 上，BOSS 专用（可重复使用，有冷却）。
+## 作为子节点挂载到 Aircraft 上；默认可重复使用，profile 可限制次数 / 要求 flare 耗尽。
 ## AI 触发逻辑在 ai_controller.gd 中通过 aircraft.get_herbst() 查询。
 ## J-Turn 完成后自动进入反击窗口（counterattack_timer > 0），AI 暂停 bvr_only 逃跑行为。
 class_name HerbstManeuver
@@ -36,6 +36,9 @@ var phase: int = Phase.NONE
 var visual_offset: float = 0.0      ## 俯视压缩比例（0~1, 1=最大侧偏）
 var cooldown_remaining: float = 0.0 ## 冷却剩余时间
 var counterattack_timer: float = 0.0 ## 反击窗口倒计时（> 0 时 AI 不逃跑，主动攻击）
+@export var max_uses: int = -1       ## -1=无限（F-14/玩家默认）；WhiteTea=1
+@export var requires_flares_empty: bool = false ## WhiteTea 分层防御：先 flare，后 J-turn
+var uses_consumed: int = 0
 
 ## 是否处于激活状态（机动进行中）
 var is_active: bool:
@@ -43,7 +46,14 @@ var is_active: bool:
 
 ## 是否可以激活（冷却完毕且不在机动中）
 var can_activate: bool:
-	get: return phase == Phase.NONE and cooldown_remaining <= 0.0
+	get:
+		if phase != Phase.NONE or cooldown_remaining > 0.0:
+			return false
+		if max_uses >= 0 and uses_consumed >= max_uses:
+			return false
+		if requires_flares_empty and (_aircraft == null or _aircraft.flares_remaining > 0):
+			return false
+		return true
 
 # ── 内部状态 ──
 var _aircraft: Aircraft = null
@@ -61,6 +71,7 @@ func activate(turn_dir: float = 0.0) -> bool:
 		return false
 	if not _aircraft:
 		return false
+	uses_consumed += 1
 	phase = Phase.DECEL
 	_timer = 0.0
 	_pre_speed = _aircraft.speed
@@ -74,6 +85,8 @@ func activate(turn_dir: float = 0.0) -> bool:
 	_aircraft.missile_phase_timer = TOTAL_DURATION + POST_IMMUNITY
 	_aircraft._lock_immunity_timer = TOTAL_DURATION + POST_IMMUNITY
 	_aircraft.show_tactic_popup("J-TURN")
+	EventLogger.log_event("AI_TACTIC", _aircraft._log_name(),
+		"J-Turn use %d/%s" % [uses_consumed, "∞" if max_uses < 0 else str(max_uses)])
 	return true
 
 func _physics_process(delta: float) -> void:

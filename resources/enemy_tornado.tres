@@ -1,0 +1,38 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=6 format=3]
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/lancer_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/default_missile.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/enemy_standard_flare.tres" id="5"]
+[resource]
+script = ExtResource("1")
+display_name = "Tornado IDS"
+max_hp = 58.0
+max_speed = 2100.0
+cruise_speed = 900.0
+stall_speed_base = 225.0
+acceleration = 44.0
+deceleration = 72.0
+g_drag_factor = 3.4
+max_g = 6.0
+max_g_structural = 9.0
+roll_rate = 2.9
+pilot_stamina = 78.0
+stamina_drain_rate = 30.0
+stamina_recovery_rate = 8.0
+max_altitude = 14500.0
+climb_rate_max = 225.0
+thrust_to_weight = 0.98
+drag_coefficient = 0.027
+afterburner_thrust_mult = 1.45
+fuel_capacity = 3200.0
+fuel_rate_normal = 2.0
+fuel_rate_afterburner = 9.0
+radar_range = 3600.0
+radar_half_angle = 25.0
+lock_time = 3.5
+gun = ExtResource("2")
+missile = ExtResource("4")
+flare = ExtResource("5")
+combat = ExtResource("3")
+icon_color = Color(0.82, 0.29, 0.19, 1)

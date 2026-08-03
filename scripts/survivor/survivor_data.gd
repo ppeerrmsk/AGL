@@ -20,8 +20,11 @@ const ENABLE_BULLET_FRAME_CACHE: bool = true
 ## ADVANCED      — 数值显著提升 + 简单触发
 ## EXPERIMENTAL  — 解锁一个新战术维度（眼镜蛇 / 对头闪避 / 云中超载）
 ## CLASSIFIED    — 跨系统强联动（对头大范围恐惧 / 云中武器 cd 翻倍）
-## NEXT_GEN      — 改变战斗节奏 / 颠覆性（导弹齐射全打 / evasion 隐身）
+## NEXT_GEN      — 改变战斗节奏 / 颠覆性（导弹蜂群扩锁 / evasion 隐身）
 enum Rarity { STABLE, ADVANCED, EXPERIMENTAL, CLASSIFIED, NEXT_GEN }
+
+## “近距捕获”贴身锁定的速率上限；雷达边缘保持 ×1，向内线性增长。
+const CLOSE_RANGE_LOCK_MAX_MULT: float = 2.0
 
 const RARITY_LABEL_KEYS: Array[String] = [
 	"RARITY_STABLE", "RARITY_ADVANCED", "RARITY_EXPERIMENTAL", "RARITY_CLASSIFIED", "RARITY_NEXT_GEN",
@@ -45,11 +48,12 @@ const RARITY_BASE_WEIGHT: Array[float] = [
 	0.02,   # NEXT_GEN
 ]
 
-## 机体签名技（sig_*）抽卡权重倍率。
-## 40 条 sig 全是 CLASSIFIED（base 0.08），且驾驶门控保证同一时刻池里最多 1 条自机专属 ——
-## 只吃通用稀有度权重的话基本抽不到，"每机一条看家本领"名存实亡。
-## ×2.5 后等效 0.20（≈ADVANCED 档），让"换机 → 玩到这台机的招牌"成为可预期体验。
-const SIG_SKILL_WEIGHT_MULT: float = 2.5
+## 4 级金卡软 pity（spec classified-card-pity）：自然三轴三卡每空一次，
+## 下一轮 CLASSIFIED 候选额外增加 2 倍基础权重（倍率序列 ×1/×3/×5/×7…）。
+const CLASSIFIED_PITY_WEIGHT_PER_MISS: float = 2.0
+
+## 机体专属第四槽：每机每局首次符合事件的出示概率（spec aircraft-signature-progression）。
+const SIGNATURE_OFFER_CHANCE: float = 0.90
 
 ## Pity 阈值：连续 N 次升级未出该档则下次保底必出
 ## advanced 不设 pity（base 25% 足够），exp/cla/next 强保底
@@ -80,7 +84,7 @@ const PITY_THRESHOLD: Dictionary = {
 #               例：["f14"] 表示只有 F-14 主角能 roll 到
 #               留空 = 通用升级，所有飞机可获取
 #   excludes: Array[String] — 互斥技能；列表中任一技能 stacks>0 时，本升级不再出现在抽卡池
-#               例：cobra_skill ↔ evasion_herbst（激活条件相同，二选一）
+#               例：cobra_skill / evasion_herbst / manual_dodge（R 机动三向互斥）
 #
 # ── 归属词汇 v6（spec skills-720-rework §1.2 / squad-upgrade-ownership §2.8）──
 #   scope: "" 缺省 = 通用全队（全队逐机生效）
@@ -227,6 +231,19 @@ const UPGRADES: Array[Dictionary] = [
 	},
 	## missile_reload 已删除（C2：迁移到配件 missile_apex_t3 的 reload×0.7）
 	{
+		"id": "multi_lock",
+		"name": "UPGRADE_MULTI_LOCK_NAME",
+		"desc": "UPGRADE_MULTI_LOCK_DESC",
+		"stat": "multi_lock",
+		"value": 1,
+		"max_stacks": 3,
+		"category": "missile",
+		"axis": "knight",
+		"rarity": Rarity.STABLE,
+		"keywords": ["missile", "lock"],
+		"requires": ["missile"],
+	},
+	{
 		"id": "missile_swarm",
 		"name": "UPGRADE_MISSILE_SWARM_NAME",
 		"desc": "UPGRADE_MISSILE_SWARM_DESC",
@@ -237,10 +254,9 @@ const UPGRADES: Array[Dictionary] = [
 		"rarity": Rarity.NEXT_GEN,
 		"keywords": ["missile", "swarm"],
 		"requires": ["missile"],
-		## 解锁同时锁定 + 齐射；负面效果：导弹 max_g ×0.85（轻微追踪减劣，弹群压火力不靠精度）
+		## 全队导弹锁定目标数 +3；负面效果：导弹 max_g ×0.85（轻微追踪减劣，弹群压火力不靠精度）
+		"lock_bonus": 3,
 		"tracking_penalty": 0.85,
-		"classes": ["knight"],
-		"scope": "ace",  ## 720 批：王牌专属（ACE_FIELD_STATS 配对 strip）
 		"evolved": true,  ## 720 批：进战区奖励池
 	},
 	{
@@ -340,9 +356,9 @@ const UPGRADES: Array[Dictionary] = [
 		"category": "mobility",
 		"rarity": Rarity.EXPERIMENTAL,
 		"keywords": ["evasion_mode", "cobra"],
-		"excludes": ["evasion_herbst"],   ## 与危机赫尔贝特互斥（激活条件相同）
-		## 单层；规避模式下被来袭导弹/后方追尾自动触发眼镜蛇机动
-		## 实现：apply_upgrade 时给玩家挂 CobraManeuver 子节点 + 设 cobra_skill_active=true
+		"excludes": ["evasion_herbst", "manual_dodge"],   ## R 机动三向互斥
+		## 单层；当前操控机按 R，AI 僚机被来袭导弹/后方追尾时自动触发
+		## 实现：apply_upgrade 时给小队成员挂 CobraManeuver 子节点 + 设 cobra_skill_active=true
 		## 触发与冷却逻辑见 aircraft.gd._update_cobra_skill
 	},
 	# ── 新增常规升级（v2026.4.21）──
@@ -612,7 +628,7 @@ const UPGRADES: Array[Dictionary] = [
 		"category": "mobility",
 		"rarity": Rarity.CLASSIFIED,
 		"keywords": ["evasion_mode", "panic_save"],
-		"excludes": ["cobra_skill"],   ## 与眼镜蛇机动互斥（激活条件相同）
+		"excludes": ["cobra_skill", "manual_dodge"],   ## R 机动三向互斥
 	},
 	{
 		"id": "evasion_speed_boost",
@@ -888,6 +904,18 @@ const UPGRADES: Array[Dictionary] = [
 		"axis": "knight",  ## 720 批：策士轴→骑士轴
 	},
 	{
+		"id": "close_range_lock",
+		"name": "UPGRADE_CLOSE_RANGE_LOCK_NAME",
+		"desc": "UPGRADE_CLOSE_RANGE_LOCK_DESC",
+		"stat": "close_range_lock",
+		"value": CLOSE_RANGE_LOCK_MAX_MULT,
+		"max_stacks": 1,
+		"category": "missile",
+		"rarity": Rarity.STABLE,
+		"keywords": ["radar", "lock", "close_range"],
+		"axis": "gladiator",
+	},
+	{
 		"id": "ab_gun_regen",
 		"name": "UPGRADE_AB_GUN_REGEN_NAME",
 		"desc": "UPGRADE_AB_GUN_REGEN_DESC",
@@ -931,7 +959,7 @@ const UPGRADES: Array[Dictionary] = [
 		"name": "UPGRADE_FEAR_ON_LOCK_NAME",
 		"desc": "UPGRADE_FEAR_ON_LOCK_DESC",
 		"stat": "fear_on_lock",
-		"value": 6.0,                 ## 累积 6s（FEAR 期间不累积，消退后重置）
+		"value": 4.0,                 ## 累积 4s（FEAR 期间不累积，消退后重置）
 		"max_stacks": 1,
 		"category": "electronic_warfare",
 		"rarity": Rarity.NEXT_GEN,  ## 720 批：实验→次世代
@@ -1454,9 +1482,9 @@ const UPGRADES: Array[Dictionary] = [
 		"max_stacks": 1,
 		"category": "mobility",
 		"rarity": Rarity.EXPERIMENTAL,
-		"scope": "ace",                ## 王牌：R 是操控输入，只对在操作的飞机有意义
 		"keywords": ["flare"],
 		"requires": ["flare"],
+		"excludes": ["cobra_skill", "evasion_herbst"],   ## R 机动三向互斥
 	},
 	# ══ 722 批：机体签名技能（spec aircraft-signature-skills）══════════
 	## 41 机每机一条（F-14 围猎=上方 f14_squad_lock_slow 改档，不重复建条）。
@@ -2139,7 +2167,7 @@ static func is_upgrade_available_for(upgrade: Dictionary, aircraft_id: StringNam
 
 	# ── 互斥技能（excludes）──
 	# 列表中任一技能已被选取（stacks > 0）时，本升级不再出现在抽卡池。
-	# 用于"激活条件相同的二选一"（如 cobra_skill ↔ evasion_herbst 都在 evasion 模式被攻击触发）。
+	# 用于同槽位选择互斥（如 cobra_skill / evasion_herbst / manual_dodge 三种 R 机动三选一）。
 	var excludes: Variant = upgrade.get("excludes", null)
 	if excludes != null and excludes.size() > 0:
 		for excl_id in excludes:
@@ -2260,13 +2288,11 @@ static func milestone_plus_list_of(u: Dictionary) -> Array[StringName]:
 ## ⚠ 把技能标为 scope:"ace" 时：若其 stat 写字段/params，必须同步登记到这里，
 ## 并在 SurvivorPlayer.strip_upgrade_from 实现对应逆操作（否则切控双重叠加）。
 const ACE_FIELD_STATS: Array[String] = [
-	"missile_swarm",       # 导弹蜂群：params.missile 弹舱/追踪罚 + 齐射锁数
 	"fear_on_lock",        # 凝视压迫：fear_on_lock_threshold 字段
 	"fear_squad_spread",   # 惊鸿扩散：fear_squad_spread_duration 字段
 	"head_on_jam",         # 对锋干扰：head_on_jam_threshold 字段
 	"rear_aura_slow",      # 后半球减速光环：rear_aura_slow_radius_px 字段
 	"cloud_overload",      # 云中超载：cloud_overload_active 开关
-	"manual_dodge",        # 胆大妄为：manual_dodge_active + flare +6（T5）
 ]
 
 
@@ -2301,6 +2327,19 @@ static func get_rarity(upgrade: Dictionary) -> int:
 	return int(upgrade.get("rarity", Rarity.STABLE))
 
 
+## 自然三轴卡片连续未见金时，本轮 CLASSIFIED 候选共享的权重倍率。
+static func classified_pity_weight_multiplier(misses: int) -> float:
+	return 1.0 + CLASSIFIED_PITY_WEIGHT_PER_MISS * float(maxi(misses, 0))
+
+
+## 普通三卡生成后的累计结算：见金即清零，没见金则 +1；NEXT_GEN 不算金卡。
+static func classified_pity_next_misses(cards: Array, current_misses: int) -> int:
+	for card in cards:
+		if card is Dictionary and get_rarity(card) == Rarity.CLASSIFIED:
+			return 0
+	return maxi(current_misses, 0) + 1
+
+
 ## §7 流派引导：根据 owned_stacks 计算每个 keyword 的推荐倍率
 ## 返回 { keyword: float } —— 抽卡时同 keyword 技能权重 ×= 该值
 ## 公式：每 1 stack 同关键词 +20% 权重，封顶 +100%（5 stacks 即满）
@@ -2328,15 +2367,29 @@ static func compute_keyword_steering_weights(owned_stacks: Dictionary, level: in
 	return steering
 
 
-## 是否机体签名技（sig_*）。抽卡加权与卡面高亮共用同一判别式，
-## 避免两处各自判断走偏（另见 MetaShop.is_upgrade_gated 的 sig_ 豁免）。
+## 机型 → 专属升级 id。F-14 沿用既有“围猎”id，其余 40 架遵循 sig_<机型>。
+static func signature_upgrade_id_for_aircraft(aircraft_id: StringName) -> String:
+	return "f14_squad_lock_slow" if aircraft_id == &"f14" else "sig_%s" % String(aircraft_id)
+
+
+static func signature_upgrade_for_aircraft(aircraft_id: StringName) -> Dictionary:
+	return upgrade_by_id(signature_upgrade_id_for_aircraft(aircraft_id))
+
+
+## 是否机体签名技。普通池排除、第四槽、卡面与商店共用同一判别式。
 static func is_signature_upgrade(upgrade: Dictionary) -> bool:
-	return str(upgrade.get("id", "")).begins_with("sig_")
+	var uid := str(upgrade.get("id", ""))
+	return uid.begins_with("sig_") or uid == "f14_squad_lock_slow"
 
 
-## 签名技权重倍率：sig_* 取 SIG_SKILL_WEIGHT_MULT，其余 1.0
-static func _sig_weight_mult(upgrade: Dictionary) -> float:
-	return SIG_SKILL_WEIGHT_MULT if is_signature_upgrade(upgrade) else 1.0
+## 正式局普通随机来源统一过滤器；debug/bench 显式授予可不经过这里。
+static func is_normal_random_candidate(upgrade: Dictionary) -> bool:
+	return not is_signature_upgrade(upgrade)
+
+
+## 注入随机值的纯判定，供逐机本局状态机与 deterministic bench 共用。
+static func signature_offer_hit(roll: float) -> bool:
+	return roll >= 0.0 and roll < SIGNATURE_OFFER_CHANCE
 
 
 ## 取技能"流派权重倍率"——若技能挂多个 keyword，取最高 steering（鼓励同流派多归一）
@@ -2453,7 +2506,7 @@ static func _weighted_pick(items: Array, steering: Dictionary, picked_ids: Dicti
 		var r: int = get_rarity(u)
 		var base_w: float = RARITY_BASE_WEIGHT[r] if r < RARITY_BASE_WEIGHT.size() else 0.1
 		var kw_w: float = _keyword_weight_mult(u, steering)
-		var w: float = base_w * kw_w * _sig_weight_mult(u)
+		var w: float = base_w * kw_w
 		weights.append(w)
 		total += w
 	if total <= 0.0:
@@ -2493,28 +2546,32 @@ const AXIS_POINT_CAP := 8
 static func axis_points_earnable(level: int) -> int:
 	return mini(floori(level / 3.0), AXIS_POINT_CAP)
 
-## 里程碑基准表（spec §2.6 v5）：每线 2/4/6/8 档 + 10 点预留（当前收入上限摸不到，等级上限抬高后启用）。
+## 里程碑基准表（spec §2.6 v13）：每线 2/3/4/6/8 档 + 10 点预留（当前收入上限摸不到）。
 ## 铁律：纯属性修改、陡递减（相对价值 100/60/25/15）——均衡 3/3/2 摊三首档 > 专精 8/0/0 吃单线。
 ## kind: "add"=加算 / "mult"=乘算。stat 键由里程碑应用器（阶段 2）统一解释，换型重放走同一入口：
-##   max_hp / gun_damage / gun_range / max_g / gun_ammo / missile_count / radar_range /
-##   speed（极速+巡航同乘）/ alt_speed（高度变化速度）/ flare_count / lock_time / flare_cd / radar_cone_deg
+##   max_hp / armor / gun_range / max_g / stall_speed / gun_ammo / missile_count / missile_locks /
+##   radar_range / speed / alt_speed / flare_count / xp_mult / lock_time / flare_cd / radar_cone_deg
 const MILESTONE_TABLE: Dictionary = {
 	AXIS_GLADIATOR: [
-		{"points": 2,  "stat": "max_hp",        "kind": "add",  "value": 25.0},
-		{"points": 4,  "stat": "gun_damage",    "kind": "mult", "value": 1.08},
-		{"points": 6,  "stat": "gun_range",     "kind": "mult", "value": 1.06},
-		{"points": 8,  "stat": "max_g",         "kind": "add",  "value": 0.2},
+		{"points": 2,  "stat": "gun_range",     "kind": "mult", "value": 1.20},
+		{"points": 3,  "stat": "max_hp",        "kind": "add",  "value": 25.0},
+		# armor +25 走复合装甲软上限：25/(25+100)=20% 机炮减伤；导弹仍按 50% 穿甲。
+		{"points": 4,  "stat": "armor",         "kind": "add",  "value": 25.0},
+		{"points": 6,  "stat": "max_g",         "kind": "add",  "value": 2.0},
+		{"points": 8,  "stat": "stall_speed",   "kind": "mult", "value": 0.95},
 		{"points": 10, "stat": "gun_ammo",      "kind": "mult", "value": 1.20},
 	],
 	AXIS_KNIGHT: [
-		{"points": 2,  "stat": "missile_count", "kind": "add",  "value": 1.0},
-		{"points": 4,  "stat": "radar_range",   "kind": "mult", "value": 1.10},
-		{"points": 6,  "stat": "speed",         "kind": "mult", "value": 1.02},
-		{"points": 8,  "stat": "alt_speed",     "kind": "mult", "value": 1.10},
+		{"points": 2,  "stat": "radar_range",   "kind": "mult", "value": 1.10},
+		{"points": 3,  "stat": "alt_speed",     "kind": "mult", "value": 1.10},
+		{"points": 4,  "stat": "speed",         "kind": "mult", "value": 1.02},
+		{"points": 6,  "stat": "missile_count", "kind": "add",  "value": 1.0},
+		{"points": 8,  "stat": "missile_locks", "kind": "add",  "value": 1.0},
 		{"points": 10, "stat": "missile_count", "kind": "add",  "value": 1.0},
 	],
 	AXIS_SCHEMER: [
 		{"points": 2,  "stat": "flare_count",   "kind": "add",  "value": 2.0},
+		{"points": 3,  "stat": "xp_mult",       "kind": "mult", "value": 1.10},
 		{"points": 4,  "stat": "lock_time",     "kind": "mult", "value": 0.90},
 		{"points": 6,  "stat": "flare_cd",      "kind": "mult", "value": 0.92},
 		{"points": 8,  "stat": "radar_cone_deg","kind": "add",  "value": 2.0},
@@ -2523,7 +2580,7 @@ const MILESTONE_TABLE: Dictionary = {
 }
 
 ## 取某轴的里程碑表。起手机覆写（PlayableAircraft.milestone_overrides）：
-## (axis, points) 相同的条目替换基准档；只替换、不新增档位（保持 2/4/6/8/10 骨架统一）。
+## (axis, points) 相同的条目替换基准档；只替换、不新增档位（保持 2/3/4/6/8/10 骨架统一）。
 static func milestones_for(axis: StringName, profile: PlayableAircraft = null) -> Array:
 	var base: Array = MILESTONE_TABLE.get(axis, [])
 	if profile == null or profile.milestone_overrides.is_empty():
@@ -2537,6 +2594,15 @@ static func milestones_for(axis: StringName, profile: PlayableAircraft = null) -
 				break
 		merged.append(use)
 	return merged
+
+## “近距捕获”锁定速率倍率：雷达边缘 ×1，半程 ×1.5，贴身最高 ×2。
+static func close_range_lock_mult(
+		distance_px: float,
+		effective_range_px: float,
+		max_mult: float = CLOSE_RANGE_LOCK_MAX_MULT) -> float:
+	var safe_range: float = maxf(effective_range_px, 1.0)
+	var ratio: float = clampf(maxf(distance_px, 0.0) / safe_range, 0.0, 1.0)
+	return 1.0 + (1.0 - ratio) * (maxf(max_mult, 1.0) - 1.0)
 
 ## 升级卡 → 轴归属：默认按 category 映射；跨界卡走逐 id 覆写；带显式 "axis" 字段的卡（专注卡）最优先
 const AXIS_BY_CATEGORY: Dictionary = {
@@ -2575,11 +2641,13 @@ const AXIS_COLORS: Dictionary = {
 const MILESTONE_STAT_I18N: Dictionary = {
 	"max_hp": "ATTR_STAT_MAX_HP", "gun_damage": "ATTR_STAT_GUN_DAMAGE",
 	"gun_range": "ATTR_STAT_GUN_RANGE", "max_g": "ATTR_STAT_MAX_G",
-	"gun_ammo": "ATTR_STAT_GUN_AMMO", "missile_count": "ATTR_STAT_MISSILE_COUNT",
+	"stall_speed": "ATTR_STAT_STALL_SPEED", "gun_ammo": "ATTR_STAT_GUN_AMMO",
+	"missile_count": "ATTR_STAT_MISSILE_COUNT",
 	"radar_range": "ATTR_STAT_RADAR_RANGE", "speed": "ATTR_STAT_SPEED",
 	"alt_speed": "ATTR_STAT_ALT_SPEED", "flare_count": "ATTR_STAT_FLARE_COUNT",
 	"lock_time": "ATTR_STAT_LOCK_TIME", "flare_cd": "ATTR_STAT_FLARE_CD",
-	"radar_cone_deg": "ATTR_STAT_RADAR_CONE",
+	"radar_cone_deg": "ATTR_STAT_RADAR_CONE", "armor": "ATTR_STAT_DAMAGE_REDUCTION",
+	"missile_locks": "ATTR_STAT_MISSILE_LOCKS", "xp_mult": "ATTR_STAT_XP_GAIN",
 }
 
 static func axis_of_upgrade(u: Dictionary) -> StringName:
@@ -2591,15 +2659,23 @@ static func axis_of_upgrade(u: Dictionary) -> StringName:
 	return AXIS_BY_CATEGORY.get(str(u.get("category", "")), AXIS_GLADIATOR)
 
 ## 轴内抽一张卡：稀有度基础权重 × keyword 流派引导（每 3 级卡片事件用）。
-## pity 不参与——三卡一轴一张的结构本身保证多样性，保底需要时再接。
-static func pick_card_for_axis(pool: Array, owned_stacks: Dictionary, level: int) -> Dictionary:
+## 自然升级入口额外传 CLASSIFIED 软 pity 倍率；其它来源缺省 1.0，行为不变。
+static func pick_card_for_axis(
+	pool: Array,
+	owned_stacks: Dictionary,
+	level: int,
+	classified_weight_mult: float = 1.0,
+) -> Dictionary:
 	if pool.is_empty():
 		return {}
 	var steering: Dictionary = compute_keyword_steering_weights(owned_stacks, level)
 	var weights: Array[float] = []
 	var total := 0.0
 	for u in pool:
-		var w: float = RARITY_BASE_WEIGHT[get_rarity(u)] * _keyword_weight_mult(u, steering) * _sig_weight_mult(u)
+		var rarity: int = get_rarity(u)
+		var w: float = RARITY_BASE_WEIGHT[rarity] * _keyword_weight_mult(u, steering)
+		if rarity == Rarity.CLASSIFIED:
+			w *= maxf(classified_weight_mult, 1.0)
 		weights.append(w)
 		total += w
 	var roll := randf() * total
@@ -2800,6 +2876,80 @@ const TOKEN_BUDGET_BASE := 8           ## 1 级时的 Token 预算（2026-07-06 
 const TOKEN_BUDGET_PER_LEVEL := 1.8    ## 每级 Token 预算增量（1.5→1.8）
 const TOKEN_BUDGET_MAX := 55           ## Token 预算绝对上限（45→55）
 
+# ── 直属小队规模平衡 ───────────────────────────────────────
+## 仅统计玩家直属、仍存活的编队成员（含当前领队）。相关调用只发生在击杀、刷怪与 1Hz 热度 tick，
+## 禁止为这组规则新增逐机逐帧扫描。
+const SQUAD_TOKEN_PER_WINGMAN: int = 3
+const SQUAD_HEAT_PER_WINGMAN: float = 6.0
+const SQUAD_HEAT_MAX: float = 100.0
+const SQUAD_HEAT_RAMP_PER_SEC: float = 6.0
+
+## 单机/双机/编队基础权重；实际抽取前每项独立乘 [0.85, 1.15] 扰动。
+## 返回值 1/2/3 分别表示单机、双机、flight（flight 内再抽 3/4 架）。
+static func enemy_formation_weights(squad_size: int) -> Array[float]:
+	var n: int = maxi(1, squad_size)
+	if n == 1:
+		return [0.60, 0.30, 0.10]
+	if n <= 3:
+		return [0.40, 0.35, 0.25]
+	if n <= 6:
+		return [0.25, 0.35, 0.40]
+	return [0.15, 0.25, 0.60]
+
+
+static func pick_enemy_formation_class(
+		squad_size: int,
+		single_jitter: float,
+		pair_jitter: float,
+		flight_jitter: float,
+		roll: float) -> int:
+	var base: Array[float] = enemy_formation_weights(squad_size)
+	var single_weight: float = base[0] * clampf(single_jitter, 0.85, 1.15)
+	var pair_weight: float = base[1] * clampf(pair_jitter, 0.85, 1.15)
+	var flight_weight: float = base[2] * clampf(flight_jitter, 0.85, 1.15)
+	var total: float = single_weight + pair_weight + flight_weight
+	var needle: float = clampf(roll, 0.0, 0.999999) * total
+	if needle < single_weight:
+		return 1
+	if needle < single_weight + pair_weight:
+		return 2
+	return 3
+
+
+static func pick_enemy_flight_size(roll: float) -> int:
+	return 3 if roll < 0.65 else 4
+
+
+static func squad_xp_multiplier(squad_size: int) -> float:
+	return 2.0 / (float(maxi(1, squad_size)) + 1.0)
+
+
+static func squad_token_bonus(squad_size: int) -> int:
+	return SQUAD_TOKEN_PER_WINGMAN * maxi(0, squad_size - 1)
+
+
+static func squad_heat_floor(player_level: int, squad_size: int) -> float:
+	var level_floor: float = minf(75.0, float(maxi(0, player_level)) * 5.0)
+	var squad_floor: float = SQUAD_HEAT_PER_WINGMAN * float(maxi(0, squad_size - 1))
+	return minf(SQUAD_HEAT_MAX, level_floor + squad_floor)
+
+
+static func response_level(player_level: int, heat: float) -> int:
+	return maxi(player_level, int(ceilf(maxf(0.0, heat) / 5.0)))
+
+
+## Hunter 中队目标分配：先取当前承压最少者，同压再取离该敌方中队最近者。
+static func least_pressure_target_index(pressures: Array, distances_sq: Array) -> int:
+	if pressures.is_empty() or pressures.size() != distances_sq.size():
+		return -1
+	var best_index: int = 0
+	for i in range(1, pressures.size()):
+		if int(pressures[i]) < int(pressures[best_index]) \
+				or (int(pressures[i]) == int(pressures[best_index]) \
+				and float(distances_sq[i]) < float(distances_sq[best_index])):
+			best_index = i
+	return best_index
+
 ## 每种敌人的 Token 消耗
 ## key 是 survivor_mode.gd::EnemyType 的 int 值
 ## UAV=0, UCAV=1, MIG=2, INTERCEPTOR=3, UAV_COMMANDER=4, F86=5, MIG31=6, MIG23=7, F100=8, SU27=9, A7=10, Q5=11, TU160=12, AH64=13, CH47=14, F47=15
@@ -2828,13 +2978,19 @@ const TOKEN_COST := {
 	21: 8,  ## Su-35       — Gladiator 顶级（Su-27 强化版 + TVC，单/双机出现）
 	22: 0,  ## F/A-18      — CSG 航母舰载机（事件弹射，不占 Token；CSG Phase 1 期间定期出现）
 	23: 2,  ## F-4E        — 前期导弹杂鱼（有人机，与 MQ-110 同价位并存）
+	29: 0,  ## YF-23       — Wraith 强化层事件支援，不占 Token、不进随机池
+	30: 10, ## F-22        — Schemer 四锁狙击，普通池 1–3 机
+	31: 7,  ## Snowblind   — Schemer 纯支援机，固定带 2 架动态护卫
+	32: 6, 33: 6, 34: 3, 35: 3, 36: 5, 37: 6, 38: 4, 39: 4,
+	40: 7, 41: 6, 42: 5, 43: 7, 44: 5, 45: 7, 46: 6, 47: 4, 48: 4,
+	49: 8, 50: 8, 51: 7, 52: 9, 53: 9, 54: 8,
 }
 
 ## BOSS / 事件专属机型：绝不能从常规刷怪通道漏出来。
 ## 后期随机桶（survivor_spawner._pick_enemy_type 末尾）会遍历整张 TOKEN_COST 取
 ## cost >= LATE_GAME_MIN_TOKEN 的类型，F-47 与 F-14 Poltergeist 因此曾作为普通旅途敌机刷出
 ## （与 enemy-index 记载不符）。这里显式列黑名单，别再靠 cost 数值偶然挡住。
-const BOSS_ONLY_TYPES := [15, 16]   ## 15 = F-47（BOSS 王牌小队）, 16 = F-14 Poltergeist（CSG Phase 2）
+const BOSS_ONLY_TYPES := [15, 16, 29] ## 29 = YF-23（Wraith 首败后专属支援）
 
 ## 敌人巡逻高度档偏好权重 [LOW, MID, HIGH]（spawn 时按权重抽一档）。
 ## 2026-07-28：此前全部机型共用均匀 1/3 随机 —— 高空高速截击机和贴地攻击机掷同一颗骰子，
@@ -2857,6 +3013,16 @@ const ENEMY_ALTITUDE_WEIGHTS := {
 	21: [1.0, 2.5, 2.0],  ## Su-35    顶级 Gladiator
 	6:  [0.0, 1.0, 4.5],  ## MiG-31   高空高速截击
 	17: [0.0, 1.0, 4.0],  ## AF-03    电磁炮狙击（高空取射界）
+	30: [0.0, 1.0, 4.0],  ## F-22     高空四锁狙击（射后强制脱离）
+	31: [0.5, 2.5, 2.0],  ## Snowblind 复用 Sentinel 机体高度偏好
+	32: [0.5, 2.5, 2.5], 33: [0.5, 2.0, 3.0], 34: [4.0, 1.0, 0.0],
+	35: [0.5, 2.0, 3.5], 36: [1.0, 3.0, 1.5], 37: [1.0, 3.0, 1.5],
+	38: [1.0, 3.0, 1.5], 39: [4.0, 1.0, 0.0],
+	40: [0.5, 2.5, 3.0], 41: [1.0, 2.5, 2.0], 42: [1.0, 3.0, 1.5],
+	43: [0.5, 2.5, 3.0], 44: [4.0, 1.0, 0.0], 45: [0.5, 2.5, 3.0],
+	46: [3.0, 2.0, 0.5], 47: [4.0, 1.0, 0.0], 48: [3.5, 1.5, 0.0],
+	49: [0.5, 2.0, 3.5], 50: [0.0, 1.5, 4.0], 51: [0.5, 2.5, 3.0],
+	52: [0.5, 2.0, 3.5], 53: [0.0, 1.5, 4.0], 54: [0.0, 1.0, 4.5],
 	4:  [0.5, 2.5, 2.0],  ## Sentinel 指挥官
 	18: [1.0, 3.0, 1.0],  ## Aegis UAV（随 Sentinel）
 }
@@ -2917,6 +3083,12 @@ const TOKEN_INSTANCE_CAP := {
 	21: 3,  ## Su-35：精英单/双机，一次最多 3 台（含编队）
 	22: -1, ## F/A-18：航母 BOSS 持续弹射，不限同时存在数（CV 死时停刷）
 	23: -1, ## F-4E：前期杂鱼，无硬上限
+	29: 2,  ## YF-23：Wraith 强化层固定两架
+	30: 3,  ## F-22：常规四锁狙击，同场最多 3 架
+	31: 1,  ## Snowblind：场上唯一传感器幕中心
+	32: -1, 33: 3, 34: -1, 35: -1, 36: -1, 37: -1, 38: -1, 39: -1,
+	40: 3, 41: 3, 42: 4, 43: 3, 44: -1, 45: 3, 46: 3, 47: -1, 48: -1,
+	49: 2, 50: 2, 51: 3, 52: 2, 53: 2, 54: 2,
 }
 
 ## 远距清理
@@ -2986,6 +3158,9 @@ const ENEMY_TIER_OFFSET: Dictionary = {
 	21: 3,    # SU-35
 	15: 4,    # F-47 BOSS
 	16: 3,    # F-14 Poltergeist BOSS
+	32: 1, 33: 1, 34: -1, 35: -1, 36: 0, 37: 1, 38: 0, 39: 0,
+	40: 2, 41: 1, 42: 0, 43: 2, 44: 0, 45: 2, 46: 1, 47: 0, 48: 0,
+	49: 3, 50: 3, 51: 2, 52: 3, 53: 3, 54: 2,
 	## Adds / 事件触发：默认 0；调用方可显式传 tier
 	13: 0,    # AH-64（事件触发，默认 V5 由 _spawn_ah64_flock 传）
 	14: 0,    # CH-47（无武器）

@@ -137,7 +137,7 @@ func _test_sequence_durations() -> void:
 		return
 	var p := SequencePlayer.new()
 	p.load_sequence("upgrade_in", defs.get("upgrade_in", {}))
-	_assert_near("seq.upgrade_in 总时长 0.54", p.total_duration(), 0.54)
+	_assert_near("seq.upgrade_in 总时长 0.60", p.total_duration(), 0.60)
 	p.load_sequence("upgrade_out", defs.get("upgrade_out", {}))
 	_assert_near("seq.upgrade_out 总时长 0.30", p.total_duration(), 0.30)
 	_test_stagger_span_invariant(defs)
@@ -145,7 +145,7 @@ func _test_sequence_durations() -> void:
 ## 错开动画的跨度不变式：dur ≥ elem_dur + stagger*(n-1)。
 ## 违反则最后一个元素的进度跑不满，会永久停在半透明——本项目已经踩过一次
 func _test_stagger_span_invariant(defs: Dictionary) -> void:
-	const PANEL_ELEMS := 4    ## 标题 + 3 张卡
+	const PANEL_ELEMS := 5    ## 标题 + 最多 4 张卡（机体专属第四槽）
 	for seq_name in defs.keys():
 		if typeof(defs[seq_name]) != TYPE_DICTIONARY:
 			continue

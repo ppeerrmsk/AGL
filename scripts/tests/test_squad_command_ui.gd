@@ -25,6 +25,8 @@ func run() -> void:
 	_test_registration_idempotent()
 	_test_hud_can_find_squad()
 	_test_fixed_squad_slots()
+	_test_wingman_tutorial_slot_hint()
+	_test_leader_down_repairs_squad_bindings()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
 
@@ -153,6 +155,101 @@ func _test_fixed_squad_slots() -> void:
 	sq.set_leader(wing5)
 	_check("换帅后键 1 仍命中原 1 号机", mode._aircraft_for_squad_slot(1) == player)
 	_check("换帅后键 5 仍命中新长机", mode._aircraft_for_squad_slot(5) == wing5)
+
+	mode.free()
+	spawner.free()
+
+
+# ── E. 首次僚机教程沿用固定号机映射 ──
+
+func _test_wingman_tutorial_slot_hint() -> void:
+	print("── E. 首次僚机教程提示真实固定号机 ──")
+	var env := _mk_mode()
+	var mode: Node2D = env[0]
+	var spawner: SurvivorSpawner = env[1]
+	var player: Aircraft = env[2]
+	var sq: Squad = mode._ensure_player_squad()
+	player.squad_slot = 1
+	var wing3 := _mk_ac()
+	wing3.squad_slot = 3
+	var wing7 := _mk_ac()
+	wing7.squad_slot = 7
+	mode.add_child(wing7)
+	mode.add_child(wing3)
+	SquadFactory.register_wingman(sq, wing7)
+	SquadFactory.register_wingman(sq, wing3)
+
+	_check("提示最小可切固定号机 3（不把空缺压成 2）",
+		mode._first_switchable_wingman_slot() == 3)
+	sq.set_leader(wing3)
+	mode.player_aircraft = wing3
+	_check("接管 3 号后提示原 1 号机",
+		mode._first_switchable_wingman_slot() == 1)
+	_check("首局教程条目包含 E 加力",
+		SurvivorTutorial.FIRST_RUN_ITEM_KEYS.has("TUTORIAL_AFTERBURNER"))
+	_check("首局教程条目包含双击突击",
+		SurvivorTutorial.FIRST_RUN_ITEM_KEYS.has("TUTORIAL_ASSAULT"))
+
+	mode.free()
+	spawner.free()
+
+
+# ── F. 长机阵亡竞态：僚机先解绑，接管时必须原子修复 ──
+
+func _test_leader_down_repairs_squad_bindings() -> void:
+	print("── F. 长机阵亡后恢复 AI.squad 与全队广播 ──")
+	var env := _mk_mode()
+	var mode: Node2D = env[0]
+	var spawner: SurvivorSpawner = env[1]
+	var old_leader: Aircraft = env[2]
+	var sq: Squad = mode._ensure_player_squad()
+	old_leader.squad_slot = 1
+
+	var wing2 := _mk_ac()
+	wing2.squad_slot = 2
+	wing2.kill_tally = 2  # 继任者
+	var wing3 := _mk_ac()
+	wing3.squad_slot = 3
+	for wing in [wing2, wing3]:
+		var ai := AIController.new()
+		ai.aircraft = wing
+		wing.add_child(ai)
+		# 裸 mode 未挂入 SceneTree，AIController._ready 不会自动回写；夹具显式补同一接线。
+		wing._ai_ref = ai
+		mode.add_child(wing)
+		SquadFactory.register_wingman(sq, wing)
+
+	# 复现真实物理顺序：mode 本帧死亡检查已结束 → 长机被武器击毁 →
+	# 僚机 AI 在同帧 SQUAD_FOLLOW 看见死长机，先把自己的 squad 置空。
+	old_leader.is_destroyed = true
+	for wing in [wing2, wing3]:
+		SquadCoordination.process_squad_follow(wing._ai_ref, 1.0 / 60.0)
+	_check("竞态前置已复现：两架僚机 AI 均脱队",
+		wing2._ai_ref.squad == null and wing3._ai_ref.squad == null)
+
+	_check("自动接管成功", mode._try_takeover_after_leader_down())
+	_check("击坠最高的 2 号机继任", mode.player_aircraft == wing2 and sq.leader == wing2)
+	_check("幸存成员 AI.squad 全部重新绑定",
+		wing2._ai_ref.squad == sq and wing3._ai_ref.squad == sq)
+	_check("角色序号原子重排为 leader=0 / wingman=1",
+		wing2._ai_ref.squad_index == 0 and wing3._ai_ref.squad_index == 1,
+		"idx=%d/%d" % [wing2._ai_ref.squad_index, wing3._ai_ref.squad_index])
+	_check("新长机完整退出旧编队托管",
+		not wing2.formation_mode and wing2._formation_leader == null
+		and not wing2.keep_target_on_arrival and not wing2.ai_override_pursuit)
+	var live_leader_order := Vector2(-1700.0, 800.0)
+	wing2.target_position = live_leader_order
+	sq.cleanup()
+	_check("后续周期 cleanup 不清空存活长机航令", wing2.target_position == live_leader_order)
+
+	var cmd := SquadCommandController.new()
+	mode.add_child(cmd)
+	cmd.setup(mode, RtsCommandParams.new())
+	var regroup_point := Vector2(2400.0, -900.0)
+	cmd.command_regroup(regroup_point)
+	_check("接管后全队广播仍覆盖全部幸存飞机",
+		wing2.target_position == regroup_point and wing3.target_position == regroup_point
+		and wing2.command_sprint and wing3.command_sprint)
 
 	mode.free()
 	spawner.free()

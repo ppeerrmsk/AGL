@@ -41,7 +41,7 @@
         "op": "stagger_in",
         "stagger": 0.06,
         "elem_dur": 0.2,
-        "dur": 0.38,
+        "dur": 0.44,
         "ease": "back_out"
       }
     ]

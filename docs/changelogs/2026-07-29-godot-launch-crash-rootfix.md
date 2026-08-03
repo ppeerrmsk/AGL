@@ -53,3 +53,15 @@ Codex 修改或运行验证期间反复弹出 Godot 4.6.2 原生“内存不能�
 Steam tools exe 与同版本官方 console 包 A/B 均在相同初始化阶段崩溃，排除 Steam 分发差异；崩溃发生在项目 GDScript、渲染与音频驱动加载前，排除 `friendly_asset_aggro` 脚本为原生崩溃根因。Godot 4.7.1 `main.cpp` 表明 PC 运行时默认启用 `debug/file_logging/enable_file_logging.pc` 并构造该日志器。AGL 已有 EventLogger、stdout 与 bench 结果文件，因此在 `project.godot` 显式设置 `file_logging/enable_file_logging.pc=false`，精准绕开有缺陷的原生日志器；F9 战斗日志不受影响。
 
 修复后验证：`friendly_asset_aggro` 27/27、`target_arb` 25/25、`wheel_orders` 12/12 均退出 0；另以 `stress_40 30 10` 注入强制超时，启动器按约定退出 124，Godot 残留进程为 0、锁目录不存在。再次正常运行 `friendly_asset_aggro` 仍为 27/27，证明 watcher 不会误杀正常 bench。
+
+## 2026-08-03：编辑器常驻时改用隔离 Shadow bench
+
+为恢复“编辑器开着也能跑无头测试”的工作流，`bench/run.cmd` / `run.sh` 默认改为 `Shadow` 模式：启动前只镜像 Godot 运行所需目录与根配置到系统临时目录的稳定项目副本，并复制（不共享）源 `.godot` 的 `class_name` / UID 缓存与 imported 产物作为私有缓存种子；随后 headless 只写副本自己的 `.godot`。测试结束把 `bench/results` 与 EventLogger 日志回收到原项目。原工作区的 editor 与 headless 不再共享导入缓存；编辑器内未保存到磁盘的改动按定义不进入快照。原工作区锁仍串行化所有 bench，防止多个 agent 同时同步或运行。
+
+需要对原目录做精确复现时可显式传第四参数 `InPlace`；该模式保留旧硬门，发现任何 Godot 进程即返回 3。Shadow 副本不包含 `.git/.godot/tmp/logs/docs/.claude/.codex`，首次启动会导入运行时资源，后续复用缓存。
+
+## 2026-08-03：生存压力场异常暂停与终局覆盖
+
+`stress_40` 原先在约 26 秒后表现为进程存活但不再推进。线程状态与 ALWAYS 看门狗确认并非原生死锁：玩家沿默认南边界出生，AI 转向中心航点前惯性越界，`BoundaryUI` 的 `panel_in` 合法触发 `Presentation.time.hard_pause(true)`，无头环境无人选择撤退菜单，因而永久停在交互态。
+
+修复为所有生存压力场在地图中心开始，并让 bench 主控在暂停期间继续运行墙钟看门狗；非升级场景出现 `SceneTree.paused` 会立即写出诊断并失败。新增 `survivor_death`：三机小队先击落长机验证僚机接管，再全队覆灭验证 Game Over。验证包括 `stress_40` 60 秒、`stress_swarm` 60 秒（78 个战斗对象，末秒 127 fps）、扩池 60 秒、战区支援 45 秒（49 机）、王牌支援 45 秒（46 机）、Mother Goose 90 秒（18 杀，Boss 余 74.2%），均无崩溃或非预期暂停。

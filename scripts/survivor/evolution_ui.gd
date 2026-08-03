@@ -28,6 +28,7 @@ var _up_pane: VBoxContainer
 var _tree: EvolutionTreeView
 var _detail: EvolutionDetailPanel
 var _evo_confirm: Button
+var _subtitle: Label
 var _evo_selected: StringName = &""
 var _current_id: StringName = &""
 var _team_level: int = 1
@@ -77,6 +78,7 @@ func show_offer(current: Dictionary, exits: Array, team_level: int, choices: Arr
 	_evo_picked = false
 	_up_picked = false
 	_evo_selected = &""
+	_subtitle = null
 	_up_buttons.clear()
 	_current_id = StringName(current.get("id", ""))
 	_team_level = team_level
@@ -93,12 +95,12 @@ func show_offer(current: Dictionary, exits: Array, team_level: int, choices: Arr
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_root.add_child(title)
 	if not current.is_empty():
-		var sub := Label.new()
-		sub.text = tr("EVOLUTION_SUBTITLE_FMT") % tr(String(current.get("name_key", "")))
-		sub.add_theme_font_size_override("font_size", 12)
-		sub.add_theme_color_override("font_color", ThemeColors.TEXT_MUTED)
-		sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		_root.add_child(sub)
+		_subtitle = Label.new()
+		_subtitle.text = tr("EVOLUTION_SUBTITLE_FMT") % tr(String(current.get("name_key", "")))
+		_subtitle.add_theme_font_size_override("font_size", 12)
+		_subtitle.add_theme_color_override("font_color", ThemeColors.TEXT_MUTED)
+		_subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_root.add_child(_subtitle)
 
 	# ── 三栏：进化树 / 机体详情 / 强化 ──
 	var cols := HBoxContainer.new()
@@ -234,6 +236,18 @@ func _confirm_evolution() -> void:
 	_evo_confirm.disabled = true
 	_evo_confirm.text = tr("SETTLEMENT_PICKED_FMT") % _evo_confirm.text
 	evolution_chosen.emit(_evo_selected)
+
+## 权威换型成功后同步仍打开的规划站：当前框、标题和详情一并迁到新机体。
+func mark_evolution_applied(node_id: StringName, history: Array) -> void:
+	_current_id = node_id
+	_evo_selected = &""
+	if _tree:
+		_tree.set_current(node_id, history)
+	var nd := EvolutionSystem.node_of(node_id)
+	if _subtitle and not nd.is_empty():
+		_subtitle.text = tr("EVOLUTION_SUBTITLE_FMT") % tr(String(nd.get("name_key", "")))
+	if _detail:
+		_detail.show_node(node_id, node_id, _team_level, _axis_points)
 
 func _pick_upgrade(upgrade: Dictionary, btn: Button) -> void:
 	if _up_picked:

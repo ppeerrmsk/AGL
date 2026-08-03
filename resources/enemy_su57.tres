@@ -1,0 +1,38 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=6 format=3]
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_gun.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/gladiator_combat.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/default_missile.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/enemy_f22_flare.tres" id="5"]
+[resource]
+script = ExtResource("1")
+display_name = "Su-57 Felon"
+max_hp = 72.0
+max_speed = 2700.0
+cruise_speed = 1080.0
+stall_speed_base = 180.0
+acceleration = 60.0
+deceleration = 90.0
+g_drag_factor = 2.8
+max_g = 8.5
+max_g_structural = 11.5
+roll_rate = 4.2
+pilot_stamina = 94.0
+stamina_drain_rate = 22.0
+stamina_recovery_rate = 11.0
+max_altitude = 18000.0
+climb_rate_max = 320.0
+thrust_to_weight = 1.20
+drag_coefficient = 0.020
+afterburner_thrust_mult = 1.58
+fuel_capacity = 3600.0
+fuel_rate_normal = 2.0
+fuel_rate_afterburner = 10.0
+radar_range = 4600.0
+radar_half_angle = 30.0
+lock_time = 2.8
+gun = ExtResource("2")
+missile = ExtResource("4")
+flare = ExtResource("5")
+combat = ExtResource("3")
+icon_color = Color(0.96, 0.20, 0.15, 1)

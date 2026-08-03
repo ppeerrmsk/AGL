@@ -3,7 +3,7 @@ id: ace-goofighters
 kind: event
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 3
+spec_version: 4
 owner: noelu（设计输入 2026-07-27）/ Claude（细化）
 depends_on: [ace-squadron-tier, ace-support-squadron, weapons/qmaam]
 reconstruction_complete: false
@@ -46,7 +46,7 @@ reconstruction_complete: false
 | 生存 | **一发死 + 1 枚必躲 flare**（默认档） | tier §2.2 |
 | 机炮闪避 | **高档 0.35**（tier §2.2 分档"难缠机"） | 缠斗专家配高档——加上 cobra，这是全场最难用机炮点名的双机 |
 | 涂装 | **深紫罗兰 `#7B3FE4`**（tier §2.7 主色表） | 前掠翼 + 紫罗兰 = 一眼"怪东西" |
-| 登场时段档 | **中期**（`game_time ≥ 320 s` 进轮换池，与 GIMMICK 轮换） | 用户标注中期 |
+| 登场 | **统一轮换窗**（`game_time ≥ 240 s`，预计 TTK 70 s） | 2026-08-01 平衡修订 |
 
 ### 2.2 装备（草案）
 
@@ -81,7 +81,7 @@ reconstruction_complete: false
 
 ### 2.5 调度 / 奖励
 
-中期轮换池（与 GIMMICK 交替；其余 tier 契约全沿用：间隔 150 s / 540 s 截止 /
+统一轮换池（五队新局洗牌；其余 tier 契约全沿用：间隔 150 s / 540 s 截止 /
 同场 ≤1 支 / BOSS 闸撤离无奖励）。击杀 XP **150/架**（双机编成，难缠溢价，草案）；
 全灭 `game_time −60`；留档 `record_ace_defeat("goofighters")`。
 
@@ -145,7 +145,7 @@ reconstruction_complete: false
 - [ ] **无中距弹**：>QMAAM 射程外全程零导弹发射事件
 - [ ] **机炮难点名**：0.35 闪避 + cobra，机炮弹流命中率显著低于杂兵对照
 - [ ] 包装合规：血条 2 段 + WISP 段标记 / 深紫罗兰涂装 / 呼号 / 全灭入档
-- [ ] 中期档进池、与 GIMMICK 轮换；tier 待遇全套；性能 / i18n 三语
+- [x] 统一 240 s 进池、新局洗牌；tier 待遇全套；性能 / i18n 三语
 
 ## 6. 实现计划（Task Pipeline —— 定稿后执行）
 
@@ -167,6 +167,7 @@ reconstruction_complete: false
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-01 | 4 | 接入统一 240s 新局洗牌轮换；两次一次性 Cobra 计 2 DU，预计 TTK 70s。 |
 | 2026-07-28 | 3 | **核心落地**（用户"开始执行"）：enemy_su47.tres 新建（Su-35 横向微调 +G 9.5 +roll 4.8 −速度 2500；**无中距弹**、QMAAM=副槽 secondary_missile 复用 Su-35 敌用先例、格斗弹直接挂玩家 qmaam_missile.tres 降档留 playtest）；spawner AI 分支挂 CobraManeuver（Su-27/35 同惯例）；profile：斗士×2/ace_gun/dodge 0.35 高档/AI 0.92。**核心落地修订**：敌用眼镜蛇现役件是**一次性**（CobraManeuver 每机一次，含 3.3s 免疫窗），非 spec 草案的 25s 冷却（那是玩家侧技能常量）——分层防御落地为 **flare 1 命 + cobra 1 次**，读数比冷却窗更纯（"它只跳一次舞"）；25s 冷却改造列为 playtest 备选。分层门=CobraManeuver.activate 内 `AceTier.is_ace && flares>0 → 拒绝`（**顺带管住 MARATHON 的 Su-35 眼镜蛇**——tier §3.4 通则的字面执行；杂兵 Su-27/35 不受影响）。回归门 41 项 PASS。差 §5 playtest（§5 验收项按一次性语义修订待办） |
 | 2026-07-27 | 2 | **用户拍板分层防御**：既有 flare 又有眼镜蛇——**用完 flare 以后才使用眼镜蛇机动**（cobra 全部自动触发 gated on `flares_remaining == 0`）。§2.3 由裁定草案改为定档分层表（第 1 层 flare 命数纯净 / 第 2 层 cobra 25 s 冷却备胎）；§2.4 反制答案、§5 验收（新增分层解锁断言）随之更新；§9 开放项 1 关闭 |
 | 2026-07-27 | 1 | 初稿（draft）：用户需求（Su-47 ×2 / 格斗弹 / 会眼镜蛇 / 斗士狗斗为主 / 中期登场）。核心裁定草案：cobra 保留对导弹的既有判定、以 25 s 冷却窗与命数模型和解（§2.3）。包装（GOOFIGHTERS / 怪火 / 深紫罗兰 / 鬼火徽章 / WISP+ORB）与数值待定稿 |

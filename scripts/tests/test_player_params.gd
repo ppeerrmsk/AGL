@@ -111,6 +111,9 @@ func run() -> void:
 	_check("T1 起手四卡弹数齐平 = 2",
 		p["f14"].missile.max_count == 2 and p["f15"].missile.max_count == 2
 		and p["a6e"].missile.max_count == 2 and p["mirage3"].missile.max_count == 2, "")
+	var f14_profile := AircraftDB.get_profile(&"f14")
+	_check("F-14 起手档案显式锁定长机导弹数 = 2",
+		f14_profile != null and f14_profile.missile_count_override == 2, "")
 	# 特殊武器不自带（用户 2026-07-23 令："所有飞机都不要自带特殊武器，要从战区获取"）
 	# 底线武器（机炮/导弹/热诱弹）仍随机体；火箭/电磁炮/激光/僚机/漂浮雷/QMAAM 一律战区+签名技获取
 	var carries_special: String = ""
@@ -123,6 +126,12 @@ func run() -> void:
 		if prm.loyal_wingman != null or prm.torpedo != null or prm.secondary_missile != null:
 			carries_special += "%s(wingman/mine/qmaam) " % id
 	_check("41 机无一自带特殊武器（火箭/电磁炮/激光/僚机/雷/QMAAM）", carries_special == "", carries_special)
+	_check("玩家 A-10 默认无火箭（只能从战区奖励取得）", p["a10"].rocket == null, "")
+	var a10_legacy_base := load("res://resources/playable_a10_base.tres") as AircraftParams
+	var a10_drone_variant := load("res://resources/playable_a10_drone.tres") as AircraftParams
+	_check("A-10 旧基础与实验变体同样无火箭",
+		a10_legacy_base != null and a10_legacy_base.rocket == null
+		and a10_drone_variant != null and a10_drone_variant.rocket == null, "")
 	_check("底线武器仍在（抽查 A-10/Su-34/X-44 有机炮+导弹）",
 		p["a10"].gun != null and p["a10"].missile != null
 		and p["su34"].missile != null and p["x44"].gun != null, "")

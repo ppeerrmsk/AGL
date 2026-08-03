@@ -14,6 +14,14 @@ extends AceSquad
 ## 队级战术状态机（PURSUIT 之内运转；tier 层只管是否交战/是否隐形）
 var tactics: WraithTactics = null
 
+# ── 通关强化层：两架可选 YF-23 雷达静默狙击支援（不进入 BOSS members/HUD/胜利判定）──
+const YF23_SUPPORT_FORWARD_PX: float = 3000.0
+const YF23_SUPPORT_LATERAL_PX: float = 700.0
+var _progression_create_enemy_func: Callable
+var _progression_squads_ref: Array[Squad] = []
+var _progression_support: Array[Aircraft] = []
+var _progression_support_spawned: bool = false
+
 func _init() -> void:
 	squad_size = SurvivorData.F47_SQUAD_SIZE
 	intro_duration = SurvivorData.F47_INTRO_DURATION
@@ -35,6 +43,79 @@ func _init() -> void:
 	# 距离
 	standoff_radius_min = SurvivorData.F47_STANDOFF_RADIUS_MIN
 	standoff_radius_max = SurvivorData.F47_STANDOFF_RADIUS_MAX
+
+## 保存工厂与 squad 容器；四架 BOSS 本体仍完全走 AceSquad 原生成路径。
+func spawn(scene_root: Node, aircraft_scene: PackedScene, create_enemy_func: Callable,
+		player: Aircraft, bullet_mgr: BulletManager, missile_mgr: MissileManager,
+		squads: Array[Squad]) -> void:
+	_progression_create_enemy_func = create_enemy_func
+	_progression_squads_ref = squads
+	super.spawn(scene_root, aircraft_scene, create_enemy_func, player, bullet_mgr, missile_mgr, squads)
+
+static func support_count_for_progression(defeat_count: int) -> int:
+	return 2 if defeat_count >= 1 else 0
+
+## 演出结束、正式接战时才生成：因此两架支援机不会混进 Wraith 四机登场分镜。
+func engage() -> void:
+	super.engage()
+	if not _progression_support_spawned and support_count_for_progression(prior_defeats) > 0:
+		_spawn_progression_support()
+
+func _spawn_progression_support() -> void:
+	_progression_support_spawned = true
+	if not _progression_create_enemy_func.is_valid() or _player == null or not is_instance_valid(_player):
+		return
+	var fwd := Vector2(sin(_player.heading), -cos(_player.heading))
+	var lateral := Vector2(cos(_player.heading), sin(_player.heading))
+	var support_squad := Squad.new()
+	for i in range(support_count_for_progression(prior_defeats)):
+		var side: float = -1.0 if i == 0 else 1.0
+		var pos := _player.global_position + fwd * YF23_SUPPORT_FORWARD_PX \
+				+ lateral * YF23_SUPPORT_LATERAL_PX * side
+		pos = MapBoundary.clamp_inside(pos, 800.0)
+		var to_player := (_player.global_position - pos).normalized()
+		var heading_deg := rad_to_deg(atan2(to_player.x, -to_player.y))
+		var ac: Aircraft = _progression_create_enemy_func.call(
+				SurvivorSpawner.EnemyType.YF23, pos, heading_deg)
+		if ac == null:
+			continue
+		ac.callsign = "BLACKWIDOW-%02d" % (i + 1)
+		ac.prefer_gun_mode = false
+		ac.set_target_tier(CombatUnit.AltitudeTier.HIGH)
+		ac.set_meta(&"category", "boss_support")
+		ac.set_meta(&"skip_far_cleanup", true)
+		ac.set_meta(&"no_kill_reward", true)
+		ac.set_meta(&"lock_immune_override", true) # 永久雷达静默；仍可目视/机炮攻击
+		var ai: AIController = ac._get_ai_controller()
+		if ai != null:
+			ai.squad = support_squad
+			ai.squad_index = i
+			ai.boss_attacker = true
+			ai.enable_combat = true
+			if ai.acquire_target(_player, AIController.TargetSource.TS_BOSS,
+					"Wraith progression YF-23"):
+				ai.enter_engage_state()
+		if i == 0:
+			support_squad.leader = ac
+		support_squad.add_member(ac)
+		_progression_support.append(ac)
+	if not support_squad.members.is_empty():
+		_progression_squads_ref.append(support_squad)
+	EventLogger.log_event("BOSS", display_name,
+		"progression tier 1: %d optional YF-23 snipers deployed" % _progression_support.size())
+
+## SEAM-019：可选支援也缓存/追踪玩家，切控时必须和四架 BOSS 本体一起重定向。
+func set_player_ref(p: Aircraft) -> void:
+	if p == null or not is_instance_valid(p):
+		return
+	super.set_player_ref(p)
+	for ac in _progression_support:
+		if ac == null or not is_instance_valid(ac) or ac.is_destroyed:
+			continue
+		var ai: AIController = ac._get_ai_controller()
+		if ai != null and ai.acquire_target(p, AIController.TargetSource.TS_BOSS,
+				"Wraith progression player redirect"):
+			ai.enter_engage_state()
 
 ## 每架 F-47 的额外配置
 ## F-47 特性：隐身（cloak）+ 协同齐射；不挂 Herbst（J-Turn 已转移到 F-14 Poltergeist）

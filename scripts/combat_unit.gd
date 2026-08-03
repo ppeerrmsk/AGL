@@ -66,6 +66,10 @@ const TEAM_PLAYER: int = 0
 const TEAM_HOSTILE: int = 1
 const TEAM_ALLY: int = 2
 
+## 通用的友军设施归组元数据（写入方由具体模式负责；共享层只读，不依赖模式类）。
+const META_FRIENDLY_ASSET_GROUP: StringName = &"friendly_asset_group_id"
+const META_FRIENDLY_ASSET_ACTIVE: StringName = &"friendly_asset_active"
+
 ## 敌我判定唯一 API：HOSTILE 与其它一切阵营互为敌对；非 HOSTILE 阵营之间互为友好。
 func is_hostile_to(other: CombatUnit) -> bool:
 	return (team == TEAM_HOSTILE) != (other.team == TEAM_HOSTILE)
@@ -91,6 +95,9 @@ var locked_by: Array[CombatUnit] = []    ## 锁定自己的单位列表
 var incoming_lock_progress: float = 0.0  ## 被敌方锁定的最大进度 (0..1)，用于表现层动画
 var is_hovered: bool = false             ## 鼠标悬停时为 true，显示雷达锥
 var is_mission_target: bool = false      ## 是否为当前战区/事件的必杀目标（UI 显示 TGT 括号）
+## Snowblind 等传感器遮蔽只影响发现/交战，不改变物理碰撞；由低频队级控制器统一写入。
+var sensor_hidden: bool = false
+var sensor_shroud_id: int = 0
 
 # --- 云层采样缓存（雷达锁定循环内会高频调用 WeatherSystem.is_in_cloud，按位置缓存 0.3s） ---
 var _cloud_cache_time: float = -1.0
@@ -247,6 +254,14 @@ func is_in_radar_cone(_target_global_pos: Vector2) -> bool:
 ## 锁定免疫检查（子类覆写）
 func is_lock_immune() -> bool:
 	return false
+
+## 两单位分处未揭露传感器幕内外时禁止跨边界建立交战关系。
+## 物理命中链不调用本函数，盲射弹丸仍可造成伤害。
+func is_sensor_engagement_obscured(other: CombatUnit) -> bool:
+	if other == null:
+		return false
+	return sensor_shroud_id != other.sensor_shroud_id \
+			and (sensor_shroud_id != 0 or other.sensor_shroud_id != 0)
 
 # ── 锁定攻击警告线（飞机 / SAM / 海军共用） ──
 ## 状态机/计时常量/绘制 全部模块化在 LockWarning（scripts/lock_warning.gd）

@@ -1618,3 +1618,57 @@ static func predict_player_path(ac: Aircraft, max_steps: int = 180) -> Dictionar
 		healths.append((st.speed - floor_at_g) / cruise_health_span)
 
 	return result
+
+
+## 旋翼机运动：平面速度与机头方向解耦，可切向平移、刹停和悬停。
+## 放在文件末尾以避免新机制让既有物理索引全体移位。
+static func update_rotorcraft(ac: Aircraft, delta: float) -> void:
+	if ac.params == null:
+		return
+	if ac.rotorcraft_velocity == Vector2.ZERO and ac.speed > 0.1:
+		ac.rotorcraft_velocity = Vector2(sin(ac.heading), -cos(ac.heading)) * ac.speed
+
+	var desired_velocity := Vector2.ZERO
+	if ac.target_position != Vector2.INF:
+		var to_target: Vector2 = ac.target_position - ac.global_position
+		var dist_px: float = to_target.length()
+		if dist_px > 1.0 and ac.target_speed_kmh > 0.0:
+			var desired_mps: float = minf(ac.target_speed_kmh, effective_max_speed_kmh(ac)) / 3.6
+			# 靠近目标点时平顺减速；环绕 AI 会持续把目标点推到切线前方，因此不会误刹停。
+			var arrival_mult: float = clampf(dist_px / 80.0, 0.0, 1.0)
+			desired_velocity = to_target / dist_px * desired_mps * arrival_mult
+
+	var changing_dir: bool = desired_velocity.dot(ac.rotorcraft_velocity) < 0.0
+	var rate: float = ac.params.deceleration if desired_velocity.length() < ac.rotorcraft_velocity.length() or changing_dir else ac.params.acceleration
+	ac.rotorcraft_velocity = ac.rotorcraft_velocity.move_toward(desired_velocity, maxf(rate, 1.0) * delta)
+	ac.speed = ac.rotorcraft_velocity.length()
+	ac.global_position += ac.rotorcraft_velocity * CombatUnit.PIXELS_PER_METER * delta
+
+	var aim_vector := Vector2.ZERO
+	if ac.rotorcraft_aim_position != Vector2.INF:
+		aim_vector = ac.rotorcraft_aim_position - ac.global_position
+	elif ac.rotorcraft_velocity.length_squared() > 0.01:
+		aim_vector = ac.rotorcraft_velocity
+	if aim_vector.length_squared() > 0.01:
+		var desired_heading: float = atan2(aim_vector.x, -aim_vector.y)
+		var yaw_step: float = deg_to_rad(75.0) * delta
+		ac.heading += clampf(angle_difference(ac.heading, desired_heading), -yaw_step, yaw_step)
+
+	# 视觉坡度只表达横移，不参与转弯物理；上限 18°。
+	var velocity_heading: float = ac.heading
+	if ac.rotorcraft_velocity.length_squared() > 0.01:
+		velocity_heading = atan2(ac.rotorcraft_velocity.x, -ac.rotorcraft_velocity.y)
+	var target_bank: float = clampf(angle_difference(ac.heading, velocity_heading) * 0.25,
+		-deg_to_rad(18.0), deg_to_rad(18.0))
+	ac.bank_angle = lerp_angle(ac.bank_angle, target_bank, clampf(delta * 4.0, 0.0, 1.0))
+	ac.g_load = 1.0
+	ac.is_stalled = false
+	ac.is_afterburner = false
+
+	var target_alt: float = CombatUnit.TIER_ALTITUDE.get(ac.target_altitude_tier, ac.target_altitude) \
+			if ac.flat_altitude else ac.target_altitude
+	var max_vertical_step: float = maxf(ac.params.climb_rate_max, 1.0) * delta
+	ac.altitude = move_toward(ac.altitude, target_alt, max_vertical_step)
+	ac.vertical_speed = clampf((target_alt - ac.altitude) / maxf(delta, 0.001),
+		-ac.params.climb_rate_max, ac.params.climb_rate_max)
+	ac.rotation = ac.heading

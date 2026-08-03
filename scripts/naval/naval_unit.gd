@@ -133,7 +133,7 @@ func _ready() -> void:
 		weak_point.radius = params.weak_point_radius
 		weak_point.local_offset = Vector2.ZERO  # 船体中央
 
-	# HP：船本身没有独立血量；挂点和弱点血量加总仅用于 HUD 粗略显示
+	# CombatUnit.hp 仅是挂点/弱点加总的 HUD 粗略显示；真正沉没判定走下方 hull_hp 船体池。
 	hp = _total_subsystem_hp()
 
 	# 船体总血量初始化

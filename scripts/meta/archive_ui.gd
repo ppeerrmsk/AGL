@@ -124,7 +124,7 @@ func _build_enemy_rows() -> void:
 			continue
 		var done := 0
 		for e in entries:
-			if EnemyCodex.defeat_count(e) > 0:
+			if EnemyCodex.is_unlocked(e):
 				done += 1
 		_rows.add_child(_make_section_header(tr(String(section["title_key"])),
 			"%d / %d" % [done, entries.size()]))
@@ -136,7 +136,7 @@ func _make_enemy_row(entry: Dictionary) -> PanelContainer:
 	var id := String(entry["id"])
 	var defeats: int = EnemyCodex.defeat_count(entry)
 	var encounters: int = EnemyCodex.encounter_count(entry)
-	var unlocked := defeats > 0
+	var unlocked := EnemyCodex.is_unlocked(entry)
 	var col: Color = EnemyCodex.color_of(entry) if unlocked else COL_DIM
 	var is_ace := kind == EnemyCodex.Kind.ACE
 

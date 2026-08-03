@@ -11,7 +11,9 @@ param(
     [int]$DurationSeconds,
     [ValidateRange(0, 86400)]
     [int]$TimeoutSeconds = 0,
-    [string]$ProcDumpExe = ''
+    [string]$ProcDumpExe = '',
+    [ValidateSet('Shadow', 'InPlace')]
+    [string]$RunMode = 'Shadow'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -23,6 +25,8 @@ $watchdog = $null
 $childStarted = $false
 $watchdogStarted = $false
 $ownsLock = $false
+$runProjectDir = $ProjectDir
+$shadowProjectDir = ''
 
 Add-Type -TypeDefinition @'
 using System;
@@ -102,6 +106,101 @@ function Get-RunningGodotProcess {
     return @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -like 'godot*' })
 }
 
+function Assert-SafeShadowPath([string]$path) {
+    $resolvedTemp = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
+    $resolvedPath = [System.IO.Path]::GetFullPath($path)
+    $leaf = Split-Path -Leaf $resolvedPath
+    if (-not $resolvedPath.StartsWith($resolvedTemp, [System.StringComparison]::OrdinalIgnoreCase) -or
+        -not $leaf.StartsWith('agl-bench-shadow-', [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "refusing unsafe shadow path: $resolvedPath"
+    }
+}
+
+function Get-ShadowProjectDir([string]$sourceDir) {
+    $normalized = [System.IO.Path]::GetFullPath($sourceDir).ToLowerInvariant()
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($normalized)
+        $hash = ([System.BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-', '').Substring(0, 12)
+    } finally {
+        $sha.Dispose()
+    }
+    return Join-Path ([System.IO.Path]::GetTempPath()) "agl-bench-shadow-$hash"
+}
+
+function Invoke-RobocopyMirror([string]$source, [string]$destination) {
+    New-Item -ItemType Directory -Path $destination -Force | Out-Null
+    $null = & "$env:SystemRoot\System32\robocopy.exe" $source $destination /MIR /COPY:DAT /DCOPY:DAT /R:2 /W:1 /NFL /NDL /NJH /NJS /NP
+    $code = $LASTEXITCODE
+    if ($code -ge 8) {
+        throw "robocopy failed for $source (exit=$code)"
+    }
+}
+
+function Sync-ShadowProject([string]$sourceDir, [string]$destinationDir) {
+    Assert-SafeShadowPath $destinationDir
+    New-Item -ItemType Directory -Path $destinationDir -Force | Out-Null
+
+    # Only directories reachable by project.godot are mirrored. Keeping the
+    # shadow .godot directory makes subsequent runs fast while isolating the editor cache.
+    foreach ($name in @('addons', 'audio', 'i18n', 'resources', 'scenes', 'scripts')) {
+        $source = Join-Path $sourceDir $name
+        if (Test-Path -LiteralPath $source -PathType Container) {
+            Invoke-RobocopyMirror $source (Join-Path $destinationDir $name)
+        }
+    }
+    Get-ChildItem -LiteralPath $sourceDir -File -Force | Where-Object {
+        $_.Name -ne 'AGL.console.exe'
+    } | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $destinationDir $_.Name) -Force
+    }
+
+    # Runtime Godot does not rebuild global class_name metadata from an empty
+    # project cache. Seed a private copy of the editor-generated type/UID cache
+    # and imported artifacts; the headless process never writes the source cache.
+    $sourceCache = Join-Path $sourceDir '.godot'
+    $shadowCache = Join-Path $destinationDir '.godot'
+    if (Test-Path -LiteralPath $sourceCache -PathType Container) {
+        New-Item -ItemType Directory -Path $shadowCache -Force | Out-Null
+        $sourceImported = Join-Path $sourceCache 'imported'
+        if (Test-Path -LiteralPath $sourceImported -PathType Container) {
+            Invoke-RobocopyMirror $sourceImported (Join-Path $shadowCache 'imported')
+        }
+        foreach ($cacheFile in @('.gdignore', 'global_script_class_cache.cfg', 'scene_groups_cache.cfg', 'uid_cache.bin')) {
+            $sourceFile = Join-Path $sourceCache $cacheFile
+            if (Test-Path -LiteralPath $sourceFile -PathType Leaf) {
+                Copy-Item -LiteralPath $sourceFile -Destination (Join-Path $shadowCache $cacheFile) -Force
+            }
+        }
+    }
+
+    foreach ($relative in @('bench\results', 'logs')) {
+        $outputDir = Join-Path $destinationDir $relative
+        if (Test-Path -LiteralPath $outputDir) {
+            Get-ChildItem -LiteralPath $outputDir -File -Force | Remove-Item -Force
+        } else {
+            New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+        }
+    }
+}
+
+function Copy-ShadowOutputs([string]$sourceShadow, [string]$destinationProject) {
+    if ($sourceShadow -eq '') {
+        return
+    }
+    foreach ($relative in @('bench\results', 'logs')) {
+        $from = Join-Path $sourceShadow $relative
+        if (-not (Test-Path -LiteralPath $from -PathType Container)) {
+            continue
+        }
+        $to = Join-Path $destinationProject $relative
+        New-Item -ItemType Directory -Path $to -Force | Out-Null
+        Get-ChildItem -LiteralPath $from -File -Force | ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $to $_.Name) -Force
+        }
+    }
+}
+
 function Acquire-BenchLock {
     New-Item -ItemType Directory -Path (Split-Path -Parent $lockDir) -Force | Out-Null
     try {
@@ -157,17 +256,18 @@ try {
     if ($ProcDumpExe -ne '' -and -not (Test-Path -LiteralPath $ProcDumpExe -PathType Leaf)) {
         throw "ProcDump does not exist: $ProcDumpExe"
     }
-    if (Get-RunningGodotProcess) {
-        [Console]::Error.WriteLine('[bench] ERROR: Godot is already running. Close the editor/other bench before testing.')
-        exit 3
-    }
-
     Acquire-BenchLock
 
-    # Re-check after taking the lock to close the process-check/mkdir race window.
-    if (Get-RunningGodotProcess) {
-        [Console]::Error.WriteLine('[bench] ERROR: Godot started while the bench lock was being acquired.')
-        exit 3
+    if ($RunMode -eq 'InPlace') {
+        if (Get-RunningGodotProcess) {
+            [Console]::Error.WriteLine('[bench] ERROR: InPlace mode requires all Godot processes to be closed.')
+            exit 3
+        }
+    } else {
+        $shadowProjectDir = Get-ShadowProjectDir $ProjectDir
+        Write-Host "[bench] syncing isolated shadow=$shadowProjectDir"
+        Sync-ShadowProject $ProjectDir $shadowProjectDir
+        $runProjectDir = $shadowProjectDir
     }
 
     if ($TimeoutSeconds -eq 0) {
@@ -182,7 +282,7 @@ try {
     $jobHandle = New-KillOnCloseJob
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $godotArguments = '--headless --path "{0}" -- --bench={1} --duration={2}' -f `
-        $ProjectDir.Replace('"', '\"'), $Scenario, $DurationSeconds
+        $runProjectDir.Replace('"', '\"'), $Scenario, $DurationSeconds
     if ($ProcDumpExe -ne '') {
         $dumpDir = Join-Path $ProjectDir 'tmp\crash-dumps'
         New-Item -ItemType Directory -Path $dumpDir -Force | Out-Null
@@ -194,7 +294,7 @@ try {
         $psi.FileName = $GodotExe
         $psi.Arguments = $godotArguments
     }
-    $psi.WorkingDirectory = $ProjectDir
+    $psi.WorkingDirectory = $runProjectDir
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow = $true
     $psi.RedirectStandardOutput = $true
@@ -204,6 +304,7 @@ try {
     $child.StartInfo = $psi
 
     Write-Host "[bench] godot=$GodotExe"
+    Write-Host "[bench] mode=$RunMode project=$runProjectDir"
     Write-Host "[bench] scenario=$Scenario duration=${DurationSeconds}s timeout=${TimeoutSeconds}s"
     Write-Host '[bench] launching...'
     if (-not $child.Start()) {
@@ -236,12 +337,14 @@ try {
 
     $child.WaitForExit()
     $watchdog.WaitForExit(2000) | Out-Null
+    # Always surface the captured engine output, including watchdog timeouts.
+    # Without this, the most useful import/crash breadcrumb was discarded on exit 124.
+    [Console]::Out.Write($stdoutTask.Result)
+    [Console]::Error.Write($stderrTask.Result)
     if (Test-Path -LiteralPath $timeoutMarker) {
         [Console]::Error.WriteLine("[bench] ERROR: Godot exceeded ${TimeoutSeconds}s; its entire process tree was terminated.")
         exit 124
     }
-    [Console]::Out.Write($stdoutTask.Result)
-    [Console]::Error.Write($stderrTask.Result)
     exit $child.ExitCode
 } catch {
     [Console]::Error.WriteLine("[bench] ERROR: $($_.Exception.Message)")
@@ -256,6 +359,7 @@ try {
     if ($jobHandle -ne [IntPtr]::Zero) {
         [AglBenchNative]::CloseHandle($jobHandle) | Out-Null
     }
+    Copy-ShadowOutputs $shadowProjectDir $ProjectDir
     if ($ownsLock -and (Test-Path -LiteralPath $lockDir)) {
         Remove-Item -LiteralPath $lockDir -Recurse -Force
     }
