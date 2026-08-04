@@ -3,7 +3,7 @@ id: ui-transition
 kind: system
 status: in-progress
 schema_version: 1
-spec_version: 13
+spec_version: 15
 owner: noelu
 depends_on: [command-wheel, survivor-loop, zone-reward-docking, radio-chatter, event-system]
 reconstruction_complete: true
@@ -39,7 +39,7 @@ reconstruction_complete: true
     速度、盘旋半径对不上，跟旁边正常飞的飞机一比立刻穿帮。
   - **不造第二套 AI 所有权**：演员指令一律经既有 `AIDirective` + `GameEvent` 的 owner/cleanup 下发。
   - **不做模式污染**：导演是 autoload，但只被生存模式链路调用；共享层（aircraft / ai / weapons）不碰。
-  - **演出必须短**：生存模式是无尽波次，同一段演出玩家会看几十遍。**不可跳过**是已定决策
+  - **演出必须短**：生存模式虽有终点，但升级与多局 BOSS 登场仍是高频重复内容。**不可跳过**是已定决策
     （见 §3.6），代价必须用时长来还 —— BOSS 演出硬上限 **7 秒**。
 
 ## 2. 数据定义（What —— 全部数值，权威源）
@@ -58,6 +58,11 @@ reconstruction_complete: true
 3 句既有台词，总时长 6.7s；Mother Goose 只拍母机主体，使用 2 句既有台词，总时长 5.1s。
 三者都受 `CINE_MAX_SEC=7.0` 限制。若序列意外缺失，表现层退化为横幅+无线电，玩法层仍立即
 ENGAGED，绝不滞留 PRE_STAGE。
+
+若 BOSS 登场序列被同时发生的 UI 转场覆盖（典型路径：出界补给的 `panel_out` 恰好把作战时间
+推过 10 分钟闸门），导演会先完成舞台、镜头与暂停清理；`BossEncounterEvent` 收到非预期的
+`sequence_finished(name)` 后必须 **fail-open 立即进入 ENGAGED 并亮血条**。禁止重新等待原序列：
+`PLAYING → PLAYING` 已丢弃旧序列，它不会再产生第二个完成信号。
 
 ### 2.1 系统级常量
 
@@ -331,7 +336,7 @@ BOSS 演出期间把世界"清空"成一片空旷天空的参数。**不新建�
 >
 > 反过来要注意：**空舞台压暗非演员用的是 `modulate`**，会连同它们的尾迹一起淡掉 —— 这正是想要的。
 
-> **性能**：`max_points 80` 是当初从 300 砍下来的性能优化，**针对的是 22+ 架同屏**。
+> **性能**：`max_points 80` 是当初从 300 砍下来的性能优化，针对大规模同屏实体。
 > 演出期间只有 4 架演员且世界已暂停（其余单位零开销），240 点完全安全。
 > 但必须在 `release` 时还原，绝不能把 240 泄漏给常规战斗。
 
@@ -476,7 +481,7 @@ stage.restore:
 **已定决策：演出不可跳过。** 演出期间吞掉全部输入（`hard_pause` 已天然阻断玩法输入，
 导演额外吞掉 ESC / Tab 以防中途开面板）。
 
-代价与对冲：生存模式是无尽波次，同一段演出会被看几十遍。因此 `CINE_MAX_SEC = 7.0` 是
+代价与对冲：生存模式是有终点的攻坚，但同一段升级或 BOSS 演出会跨多局反复出现。因此 `CINE_MAX_SEC = 7.0` 是
 **设计约束而非技术约束** —— 任何超过 7 秒的演出方案应先砍内容，而不是放宽上限。
 
 ### 3.7 演出超时与异常收尾
@@ -710,6 +715,8 @@ func get_transition_elements() -> Array[Control]
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-04 | 15 | 修复出界补给跨过 10 分钟闸门时 BOSS 到场却无血条：UI 转场覆盖 arrival 后，事件不再重挂等待已消失的序列，改为 fail-open 立即 ENGAGED；新增打断回归断言。 |
+| 2026-08-04 | 14 | 文档维护：删除“生存模式是无尽波次”的旧前提，改为“有终点但高频重复”；7 秒上限与不可跳过决策不变。 |
 | 2026-07-29 | 13 | **所有 BOSS 统一接入表演导演**（用户定稿）：不是复刻 Wraith 分镜，而是统一系统契约“生成→镜头切 BOSS→登场无线电→回玩家→立即 ENGAGED”。新增 `carrier_strike_group_arrival`（旗舰特写、3 句、6.7s）与 `mother_goose_arrival`（母机特写、2 句、5.1s）；演员协议从 Aircraft 泛化为 CombatUnit，`release()` 仅对 Aircraft 复位隐身字段，支持 NavalUnit 安全作为镜头演员；三个注册 BOSS 的序列命名与收尾契约加入无头断言。 |
 | 2026-07-20 | 1 | 初稿。三块结构（时间栈 / 序列运行器 / 通道）+ 升级急刹转场定稿 |
 | 2026-07-21 | 12 | **演出配乐**（playtest 反馈：debug 跳 BOSS 后没有 BOSS 曲）。查证：音乐切换本来只在 ENGAGED（玩家进圈 2200px / 贴近成员 2500px），PRE_STAGE 刻意不切 —— 非 bug；但登场演出出现后该设计成了气氛断档（6.7s 大阵仗配巡航曲）。新增 **audio 通道**（op `boss_bgm`，ctx 快照 `bgm_layers/bgm_track`，导演不认识 encounter），wraith 序列 0.2s 即切 BOSS 曲；`_enter_engaged` 原切歌点保留（服务无演出 BOSS）但加幂等守卫 —— `crossfade_music` **没有同曲早退**，不守卫会把在播的 BOSS 曲重启。AudioManager 新增 `current_music_id()`（crossfade/layered 均记录）作为幂等依据 |

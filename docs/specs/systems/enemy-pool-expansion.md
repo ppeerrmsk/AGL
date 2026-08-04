@@ -3,7 +3,7 @@ id: enemy-pool-expansion
 kind: balance
 status: in-progress
 schema_version: 1
-spec_version: 10
+spec_version: 11
 owner: noelu
 depends_on: [aircraft-evolution-tree, player-aircraft-power-curve, survivor-loop, squad-xp-threat-balance, radar-range-normalization]
 reconstruction_complete: false
@@ -221,7 +221,7 @@ F-22 的四锁和编队出场已经占用机制预算，因此本体防御/传�
 科技树 27 机负责“玩家熟悉机型的敌版”，但不垄断常规敌机池。少量拥有独立空间机制的原创支援机
 可以作为 Schemer 加入 `ew` 桶，前提是每种都建立独立 enemy spec，且不挤占 27 机对应关系。
 
-首个登记项为 [SNOWBLIND「雪幕」支援机](../enemies/snowblind.md)：Token 7、权重 0.45、
+首个登记项为 [SNOWBLIND「雪幕」支援机](../enemies/snowblind.md)：Token 4、权重 0.45、
 `response_level >= 8`、同场上限 1、战区累计上限 2、180s 冷却。它以 4000m 移动灰色雪幕隐藏圈内敌机，
 直属飞机入圈后全队共享显形；本体逐字段采用 Sentinel 非战斗基线，无武器、无 flare、关闭战斗 AI，
 隐藏期间跨边界双向停火。初始两架护卫分别从生成当刻
@@ -366,3 +366,4 @@ formation, altitude_weights, ai_profile, special_profile
 | 2026-08-01 | 8 | 执行批：27 架科技树常规敌版登记完成（新增 24 个独立敌版）；三原型计数 12/9/6。注册表、参数走廊审计、轮廓家族、多锁控制器、F-22/Snowblind 特殊包、图鉴三语、debug 与无线电接线完成；spawn_pool 69/69，待逐机录像与正式局调参。 |
 | 2026-08-01 | 9 | 收口验证：spawn_pool 扩展到 70/70；新增 9 架直属友机 + 17 架指定扩池敌机的 `enemy_pool_stress` 压力场景，20 秒采样自然增长至 28 架飞机时仍为 146 FPS。补齐 F-22/Schemer/Snowblind 场景退出注销；逐机录像、完整局和视觉验收仍待人工执行。 |
 | 2026-08-03 | 10 | 全敌机产出审计：56 个 EnemyType 划分为 42 个常规池型号与 14 个专用入口型号，逐型验证资源、Spawner 工厂和事件入口；常规池新增数学可达性及响应 1/4/7/10/13 各 3 万次防重复产出率回归，spawn_pool 88/88。 |
+| 2026-08-04 | 11 | 用户实机反馈 Snowblind 难以遇见；纯支援本体 Token 由 7 降为 4，动态双护卫仍分别支付正常 Token，最低完整编成预算由 13 降为 10。 |

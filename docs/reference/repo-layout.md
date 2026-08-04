@@ -1,6 +1,6 @@
 # Repository Layout
 
-> 最后校订：2026-07-26（对照实际目录重建）。
+> 最后校订：2026-08-04（对照实际目录与 `project.godot` 重建）。
 >
 > 本文只回答"**东西大致在哪个目录**"。单个文件的职责 + 关键入口看
 > [script-index.md](script-index.md)；按功能主题找代码看 [code-index.md](code-index.md)。
@@ -50,9 +50,12 @@ AGL/
 │   │   torpedo_params.gd / flare_params.gd / combat_params.gd / loyal_wingman_params.gd
 │   │   playable_aircraft.gd       # 主角档案（UI + 生存调味注入）
 │   │
-│   ├── ── AutoLoad ──
-│   │   callsign_db.gd / event_logger.gd / locale_manager.gd
-│   │   audio/audio_manager.gd / meta/merit_ledger.gd
+│   ├── ── 全局服务 ──
+│   │   event_logger.gd / locale_manager.gd                         # AutoLoad
+│   │   audio/audio_manager.gd / presentation/presentation_director.gd
+│   │   meta/merit_ledger.gd / meta/career_archive.gd / meta/meta_shop.gd
+│   │   util/perf_buckets.gd / bench/bench_runner.gd                # AutoLoad
+│   │   callsign_db.gd                                              # class_name 静态服务，非 AutoLoad
 │   │
 │   ├── aircraft/              # Aircraft 子系统（RefCounted 静态模块，首参 ac: Aircraft）
 │   │   ├── aircraft_physics.gd         # bank/heading/speed/altitude/stall/g + effective_*() accessor 层
@@ -77,12 +80,12 @@ AGL/
 │   │       ├── weapon_selector.gd      # 武器竞选
 │   │       └── engagement_speed_governor.gd
 │   │
-│   ├── equipment/             # 模块化装备系统（新机型走这里，老机型走 AircraftParams 旧字段）
+│   ├── equipment/             # 运行时武器组件；不是已退役的局外“槽位配件商店”
 │   │   equipment_params.gd（基类）/ engagement_preference.gd（装备投票）
 │   │   gun_ / rocket_ / missile_ / flare_ / railgun_ / laser_equipment.gd
 │   │   evasion_module.gd + cobra_evasion.gd / herbst_evasion.gd
 │   │
-│   ├── survivor/              # 生存模式专属（最大的目录，~65 个文件）
+│   ├── survivor/              # 生存模式专属（最大的业务目录；文件数以实际目录为准）
 │   │   survivor_mode.gd           # 主控（帧循环 / 阶段闸 / 玩家机登记 chokepoint / 胜负）
 │   │   survivor_spawner.gd        # 刷怪：Token / 猎手 / 增援入场 / FPS 降载
 │   │   survivor_data.gd           # 静态数据：技能表 / Token 成本 / 缩放常量 / XP 曲线
@@ -133,7 +136,9 @@ AGL/
 │   │   zone.gd / naval_zone.gd / zone_manager.gd / zone_types.gd
 │   │
 │   ├── meta/                  # 局外层
-│   │   merit_ledger.gd（AutoLoad）/ merit_coin_icon.gd
+│   │   merit_ledger.gd / career_archive.gd / meta_shop.gd（AutoLoad）
+│   │   merit_coin_icon.gd / archive_ui.gd / meta_shop_ui.gd
+│   │   enemy_codex.gd / game_info_codex.gd / ace_emblem_icon.gd
 │   │
 │   ├── ugc/                   # 地图编辑器 + UGC
 │   │   map_document.gd / map_editor_scene.gd / map_editor_canvas.gd
@@ -149,9 +154,9 @@ AGL/
 │       main.gd / hud.gd / debug_panel.gd
 │
 ├── resources/                 # .tres 参数资源
-│   ├── player/                    # 玩家机档案（41 机）
+│   ├── player/                    # 玩家机档案；精确数量看 aircraft_db / 进化树 spec
 │   ├── evolution/                 # 进化树相关
-│   ├── weapons/ / equipment/      # 武器与装备
+│   ├── weapons/ / equipment/      # 武器参数与运行时组件资源（非局外槽位配件）
 │   ├── naval/                     # 舰船
 │   ├── chatter/                   # radio_chatter.json（无线电台词，数据全外置）
 │   ├── presentation/              # sequences.json（演出时间线，F8 热重载）
@@ -163,11 +168,19 @@ AGL/
 ├── audio/                     # music/ · sfx/ · ui/ · radio/
 ├── tools/                     # 校验与生成脚本（Python / PowerShell）
 │   verify_doc_anchors.py          # 索引锚点校验（commit 前跑）
+│   verify_docs.ps1                # 当前文档断链 + spec 登记/元数据/总表一致性
 │   verify_player_ref_holders.py   # SEAM-019 玩家机引用持有者校验（commit 前跑）
 │   dump_skill_table.py            # 重刷 docs/reference/skill-table.md
 │   seam-report.ps1
 ├── bench/                     # bench 输出
 ├── logs/                      # 编辑器模式的战斗日志（.gitignore 排除）
 ├── addons/
-└── docs/                      # 见 docs/project-overview.md
+│   └── runtime_tuner/             # RuntimeTuner AutoLoad 插件
+└── docs/                      # 先看 docs/README.md
+    ├── specs/                     # 设计 SSOT
+    ├── reference/                 # 代码/资源指针与工作流
+    ├── systems/ / architecture/   # 架构叙述与已知 seam
+    ├── planning/                  # 活跃计划与历史计划
+    ├── audits/ / changelogs/      # 审计记录 / 历史改动
+    └── handoffs/                  # 新交接稿；根目录 HANDOFF-* 为迁移前历史文件
 ```

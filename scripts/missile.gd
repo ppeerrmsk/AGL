@@ -23,6 +23,9 @@ var sig_retarget_armed: bool = false  ## 超越地平（X-21）：被 flare 偏�
 var _sig_retarget_timer: float = 0.0  ## 超越地平：偏转后直飞累计秒数（≥2s 触发重索敌）
 var bounces_remaining: int = 0     ## 剩余弹跳次数（连锁弹头进化）
 var proximity_aoe: bool = false    ## 近炸引信：爆炸时产生 AOE 区域
+var penetrates_after_hit: bool = false ## 连锁弹头：命中后保留实体并沿原航向继续飞行
+var penetration_hit_count: int = 0     ## 已完成的穿透命中数；至少一次后寿命耗尽不再误记脱靶
+var _penetrated_unit_ids: Dictionary = {} ## 同一枚导弹对同一目标最多结算一次伤害
 
 ## CIWS 拦截累积伤害 —— 只有 CIWS 子弹能减这个，归零时导弹 is_active=false
 ## 并非通用受击血量：导弹仍然是"一发命中目标即爆炸"，这里只表示"被拦截弹击落"
@@ -57,8 +60,7 @@ const FADE_OUT_DURATION: float = 0.5
 var _fading_out: bool = false
 
 ## 激光减速计时（敌方激光照射导弹时由 LaserEquipment 写入）
-## > 0 时导弹速度 cap 到 max_speed × LASER_MISSILE_SPEED_MULT，max_g cap 同理
-## 让玩家有机动时间躲开 — 不直接击落导弹（默认；致命输出技能下走另一条 intercept 路径）
+## > 0 时导弹每秒流失 35% 最大速度、max_g ×0.5；降至最大速度 20% 时失能。
 var _laser_slow_timer: float = 0.0
 var _fade_timer: float = 0.0
 
@@ -158,6 +160,11 @@ func _physics_process(delta: float) -> void:
 	# 0.5) 激光减速倍率（_laser_slow_timer 已在函数顶部倒数，这里仅取当前帧的 mult）
 	var _laser_speed_mult: float = SkillHooks.LASER_MISSILE_SPEED_MULT if _laser_slow_timer > 0.0 else 1.0
 	var _laser_g_mult: float = SkillHooks.LASER_MISSILE_G_MULT if _laser_slow_timer > 0.0 else 1.0
+	if _laser_slow_timer > 0.0:
+		speed = maxf(speed - params.max_speed * SkillHooks.LASER_MISSILE_SPEED_DRAIN_PER_S * delta, 0.0)
+		if speed <= params.max_speed * SkillHooks.LASER_MISSILE_DESTROY_RATIO:
+			_start_fade_out("激光失能")
+			return
 
 	# 1) 存活时间检查 → 进入渐隐 coasting，而不是瞬间消失
 	if age > params.max_lifetime:
@@ -336,6 +343,27 @@ func _physics_process(delta: float) -> void:
 
 	queue_redraw()
 
+
+## 记录穿透弹已经伤害过的目标；连锁弹头优先转向时也必须记住，防止之后穿回同一目标。
+func remember_penetration_hit(hit_unit: CombatUnit) -> void:
+	if hit_unit != null and is_instance_valid(hit_unit):
+		var uid := hit_unit.get_instance_id()
+		if not _penetrated_unit_ids.has(uid):
+			_penetrated_unit_ids[uid] = true
+			penetration_hit_count += 1
+
+
+## 连锁弹头命中后的原子状态切换：记住目标、解除制导，保留当前航向与速度继续飞行。
+func continue_after_penetration(hit_unit: CombatUnit) -> void:
+	remember_penetration_hit(hit_unit)
+	target = null
+	has_guidance = false
+
+
+## 命中检测侧调用：防止导弹在大型目标或低帧率重叠区内逐帧重复伤害同一单位。
+func already_penetrated(unit: CombatUnit) -> bool:
+	return unit != null and _penetrated_unit_ids.has(unit.get_instance_id())
+
 ## 722 sig_x21·超越地平：重索敌——导引头 FOV 内、4000px 内最近的敌方单位（TEAM_HOSTILE）
 func _sig_find_retarget() -> CombatUnit:
 	var fov_rad: float = deg_to_rad(params.seeker_fov if params else 30.0)
@@ -366,8 +394,9 @@ func _start_fade_out(reason: String = "") -> void:
 		return
 	_fading_out = true
 	_fade_timer = FADE_OUT_DURATION
-	# ── 脱靶/失效日志：命中由 MissileManager 直接 queue_free，不经此处 → 每次 fade 必是未命中 ──
-	_log_miss(reason)
+	# 普通弹 fade 必是未命中；穿透弹至少命中过一次后自然耗尽，不应再记脱靶。
+	if penetration_hit_count <= 0:
+		_log_miss(reason)
 	has_guidance = false  # 渐隐期间不再做任何制导
 
 ## 记录一次"导弹未命中即消失"，并归类原因（让"射空"在日志里可见——
@@ -417,6 +446,11 @@ func _update_vls_non_terminal(delta: float) -> void:
 	# 激光减速倍率（laser timer 已在 _physics_process 顶部倒数）
 	var _laser_speed_mult_vls: float = SkillHooks.LASER_MISSILE_SPEED_MULT if _laser_slow_timer > 0.0 else 1.0
 	var _laser_g_mult_vls: float = SkillHooks.LASER_MISSILE_G_MULT if _laser_slow_timer > 0.0 else 1.0
+	if _laser_slow_timer > 0.0:
+		speed = maxf(speed - params.max_speed * SkillHooks.LASER_MISSILE_SPEED_DRAIN_PER_S * delta, 0.0)
+		if speed <= params.max_speed * SkillHooks.LASER_MISSILE_DESTROY_RATIO:
+			_start_fade_out("激光失能")
+			return
 
 	match vls_phase:
 		0:  # VERTICAL 爬升段：维持初始 heading，速度爬到 max_speed 的 50%

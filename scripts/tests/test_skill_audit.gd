@@ -1,6 +1,6 @@
 extends RefCounted
 
-## 全量技能审计：145 条逐项验证“配置 → apply/运行时消费点 → 玩家文案”。
+## 全量技能审计：152 条逐项验证“配置 → apply/运行时消费点 → 玩家文案”。
 ##
 ## 直接数值/字段技能会真的应用到一架挂满可选装备的最小测试机，并比较应用前后快照；
 ## skill_flag 事件技能验证正式运行时消费点，避免“表里有、游戏里没人读”的假技能。
@@ -44,11 +44,12 @@ func run() -> void:
 	var seen: Dictionary = {}
 	for upgrade in SurvivorData.UPGRADES:
 		_audit_one(upgrade, translations, apply_source, consumer_source, mode_source, seen)
-	_check("全表数量 = 145", SurvivorData.UPGRADES.size() == 145,
+	_check("全表数量 = 152", SurvivorData.UPGRADES.size() == 152,
 		"got %d" % SurvivorData.UPGRADES.size())
 	_check("技能 ID 无重复", seen.size() == SurvivorData.UPGRADES.size(),
 		"unique=%d total=%d" % [seen.size(), SurvivorData.UPGRADES.size()])
 	_test_regression_contracts(mode_source)
+	_test_debug_surface_coverage()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
 
@@ -249,6 +250,43 @@ func _test_regression_contracts(mode_source: String) -> void:
 		is_equal_approx(AfterburnerCharge.SIG_SU34_HEAL_PER_SEC, 2.0), "")
 	_check("引渡人保持基线 = 5s 隐身",
 		is_equal_approx(SkillHooks.SIG_X77_STEALTH_DURATION, 5.0), "")
+
+
+func _test_debug_surface_coverage() -> void:
+	print("── Debug 可达性契约 ──")
+	var debug_skill_ids: Array[String] = SurvivorDebugSkills.debug_skill_ids()
+	var unique_debug_skills: Dictionary = {}
+	for uid in debug_skill_ids:
+		unique_debug_skills[uid] = true
+	_check("F4 动态覆盖技能全表",
+		debug_skill_ids.size() == SurvivorData.UPGRADES.size()
+		and unique_debug_skills.size() == SurvivorData.UPGRADES.size(),
+		"debug=%d upgrades=%d" % [debug_skill_ids.size(), SurvivorData.UPGRADES.size()])
+	var gated_upgrade: Dictionary = SurvivorData.upgrade_by_id("jam_aura")
+	_check("F4 强制授予只受层数上限约束",
+		SurvivorDebugSkills.debug_can_force_upgrade(gated_upgrade, 0)
+		and not SurvivorDebugSkills.debug_can_force_upgrade(
+			gated_upgrade, int(gated_upgrade.get("max_stacks", 1))), "")
+	_check("F4 可直接装载 ESM 门控装备",
+		SurvivorDebugSkills.debug_has_loadout_kind("esm_pod"), "")
+
+	var expected_reward_keys: Dictionary = {
+		"carrier:carrier": true,
+		"wingman:wingman": true,
+	}
+	for weapon_id in ZoneData.REWARD_WEAPON_NAME_KEYS.keys():
+		expected_reward_keys["weapon:%s" % weapon_id] = true
+	for upgrade in SurvivorData.UPGRADES:
+		if SurvivorData.get_rarity(upgrade) == SurvivorData.Rarity.NEXT_GEN:
+			expected_reward_keys["nextgen:%s" % upgrade.get("id", "")] = true
+	var actual_reward_keys: Dictionary = {}
+	for key in SurvivorDebugZone.debug_reward_keys():
+		actual_reward_keys[key] = true
+	_check("F6 覆盖全部战区奖励",
+		actual_reward_keys == expected_reward_keys,
+		"debug=%s expected=%s" % [actual_reward_keys.keys(), expected_reward_keys.keys()])
+	_check("F6 战区奖励无重复入口",
+		actual_reward_keys.size() == SurvivorDebugZone.debug_reward_keys().size(), "")
 
 
 func _check(label: String, ok: bool, detail: String) -> void:

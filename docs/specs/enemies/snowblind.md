@@ -3,7 +3,7 @@ id: snowblind
 kind: enemy
 status: in-progress
 schema_version: 1
-spec_version: 8
+spec_version: 9
 owner: noelu
 depends_on: [enemy-pool-expansion, squad-xp-threat-balance, global-awareness-roe]
 reconstruction_complete: false
@@ -85,14 +85,14 @@ reconstruction_complete: false
 | 解锁 | `response_level >= 8` | 中段开始出现；真实玩家等级与小队规模共同推高响应等级 |
 | role 桶 | `ew` | 进入敌机扩池的电子战桶 |
 | 池内基础权重 | `0.45` | 普通合格机型基准 `1.0` |
-| Token 成本 | `7` | 仅本体；护卫仍按各自常规 Token 计价 |
+| Token 成本 | `4` | 仅本体；纯支援机不按高端战斗机定价，护卫仍按各自常规 Token 计价 |
 | 同场实例上限 | `1` | 场内只能有一个移动雪幕 |
 | 战区阶段累计上限 | `2` | 击毁不返还累计名额 |
 | 同型生成冷却 | `180s` | 死亡、撤离或清理后都开始计时 |
 | 初始生成形式 | `1` 本体 + `2` 动态护卫 | 两架护卫分别从生成当刻、符合当前热度的常规战斗机池独立抽取 |
 | 护卫候选 | 当前热度允许出现的**任何常规战斗机** | Gladiator、Lancer、战斗型 Schemer 均可；可同型也可混编 |
 | 硬排除 | Snowblind 本身、BOSS、王牌、Adds、事件专属、非战斗支援单位 | 只排除不属于常规热度战斗机池的对象；F-22 等常规高级战斗机只要当刻合格即可入选 |
-| 预算门槛 | `7 + escort_1_token + escort_2_token` 全额可支付 | 每架独立计算 Token/实例上限；预算不足时本轮跳过，不缩水成空雪幕 |
+| 预算门槛 | `4 + escort_1_token + escort_2_token` 全额可支付 | 当前最低完整编成预算为 10；每架独立计算 Token/实例上限，预算不足时本轮跳过，不缩水成空雪幕 |
 | 作战高度权重 | LOW/MID/HIGH = `0.10 / 0.65 / 0.25` | 以中空支援为主；本体与初始护卫同档 |
 | 击杀 XP | `80` | 走统一小队共享/稀释管线；护卫各自正常计 XP |
 | 等级缩放 | 本体全部固定，不进行 HP/武器/机动等级缩放 | 难度只来自雪幕、动态护卫与热度编成 |
@@ -312,3 +312,4 @@ is_sensor_hidden = is_cloaked OR shroud_concealed
 | 2026-08-02 | 6 | 用户实机定调：范围由 6000/6500m 收紧为 4000/4500m；视觉从屏幕坐标高频 hash 跳闪改为本地坐标连续低速雾团与低对比雪带。 |
 | 2026-08-02 | 7 | 用户澄清“圈外显示本体位置”只指不可交互轮廓：真实 Snowblind 仍由雪幕隐藏，不能选择、锁定或攻击；同一个雪幕 shader 在圆心绘制静态机体轮廓，仅提示这个圈有始作俑者。 |
 | 2026-08-02 | 8 | 截图回归修复：F5/debug 刷怪未及时重算 `_token_count_by_type`，导致控制器不 tick、真实本体与护卫全部泄露。改为创建当帧主动注册并隐藏本体、编成完成同帧刷新护卫，不再依赖 Token 门；未破幕视觉由透明覆盖改为主体 alpha 1.00 的实体风雪层，破幕后才降至 0.08–0.12。 |
+| 2026-08-04 | 9 | 用户实机反馈 Snowblind 长期难以遇见；本体是无武器、无 flare、无战斗 AI 的纯支援机，Token 从 7 降为 4。双护卫仍各自正常计价，最低完整编成预算随之从 13 降为 10。 |

@@ -6,7 +6,7 @@
 [resource]
 script = ExtResource("1")
 display_name = "Loyal Wingman"
-cooldown = 8.0
+cooldown = 20.0
 offscreen_despawn_seconds = 8.0
 max_simultaneous = 2
 drone_aircraft_params = ExtResource("2")

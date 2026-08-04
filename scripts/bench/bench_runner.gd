@@ -2,13 +2,14 @@ extends Node
 ##
 ## BenchRunner — headless 性能压测入口（AutoLoad）
 ##
-## 用法：
-##   godot --headless --path . -- --bench=stress_40 --duration=30   # 性能压测
-##   godot --headless --path . -- --bench=weapon                    # 单跑一项无头测试
-##   godot --headless --path . -- --bench=all                       # 全量回归门（任一失败退出码=1）
+## 用法（统一经 bench/run.cmd 或 bench/run.sh，禁止 Agent 直接启动 Godot）：
+##   bench/run.cmd stress_40 30     # Windows 性能压测
+##   bench/run.cmd weapon           # Windows 单跑一项无头测试
+##   bench/run.cmd all              # Windows 全量回归门（任一失败退出码=1）
+##   ./bench/run.sh all             # 其它平台
 ##
 ## 流程：
-##   1. _ready 解析 OS.get_cmdline_args()，找 --bench=<name> / --duration=<sec>
+##   1. wrapper 负责隔离、锁和超时；_ready 解析用户参数中的 --bench / --duration
 ##   2. 命中 → 写 SceneTree.meta（bench_mode/bench_scenario/bench_duration）+ 切场景到
 ##      survivor_mode.tscn（绕过主菜单/机型/地图选择）
 ##   3. survivor_mode 在 _ready 里读 meta，进入 bench 分支：
@@ -87,6 +88,12 @@ const UNIT_TESTS: Dictionary = {
 	"squad_cmd_ui": "res://scripts/tests/test_squad_command_ui.gd",
 	"waypoint_fire": "res://scripts/tests/test_waypoint_fire_control.gd",
 	"bomber_rotor_airburst": "res://scripts/tests/test_bomber_rotor_airburst.gd",
+	"faction_conversion": "res://scripts/tests/test_faction_conversion.gd",
+}
+
+## 只显式调用、不会滚入 `all` 的构建任务。
+const BUILD_TASKS: Dictionary = {
+	"i18n_build": "res://scripts/tests/build_translations.gd",
 }
 
 var bench_active: bool = false
@@ -109,6 +116,15 @@ func _ready() -> void:
 			bench_duration = maxf(1.0, float(a.substr(11)))
 	if bench_scenario == "":
 		printerr("[Bench] no --bench= arg, BenchRunner idle")
+		return
+	if BUILD_TASKS.has(bench_scenario):
+		var build_script: GDScript = load(String(BUILD_TASKS[bench_scenario]))
+		var build = build_script.new() if build_script else null
+		var build_fail := 1
+		if build != null and build.has_method("run"):
+			build.run()
+			build_fail = int(build.get("_fail"))
+		get_tree().quit(1 if build_fail > 0 else 0)
 		return
 
 	# ── 无头单元/行为测试（不切 survivor 场景，直接跑 + quit）──

@@ -6,7 +6,7 @@ schema_version: 1
 spec_version: 1
 owner: design
 depends_on: [map-boundary, map-geography]
-reconstruction_complete: partial
+reconstruction_complete: false
 ---
 
 # 地图 / 地形系统（边界 + 地理 + 渲染 + 三条流水线，含扩展接入图）

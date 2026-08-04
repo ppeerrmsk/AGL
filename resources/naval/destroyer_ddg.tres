@@ -4,7 +4,7 @@
 [ext_resource type="Resource" path="res://resources/naval/mount_ddg_vls_f.tres" id="2"]
 [ext_resource type="Resource" path="res://resources/naval/mount_ddg_vls_a.tres" id="3"]
 [ext_resource type="Resource" path="res://resources/naval/mount_ddg_ciws_p.tres" id="4"]
-[ext_resource type="Resource" path="res://resources/naval/mount_ddg_ciws_s.tres" id="5"]
+[ext_resource type="Resource" path="res://resources/naval/mount_ddg_flak_s.tres" id="5"]
 
 [resource]
 script = ExtResource("1")

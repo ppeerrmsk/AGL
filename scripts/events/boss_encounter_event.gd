@@ -178,11 +178,14 @@ func _try_play_arrival_cinematic() -> bool:
 ## "镜头回到自己 → 战斗开始"，不会在 BOSS 特写镜头中突然开火。
 func _on_arrival_cinematic_done(finished_name: String, expected_name: String) -> void:
 	if finished_name != expected_name:
-		# 理论上不可能（演出期间世界冻结、无其他序列），防御性重挂
-		var pres = Engine.get_main_loop().root.get_node_or_null("Presentation")
-		if pres:
-			pres.sequence_finished.connect(_on_arrival_cinematic_done.bind(expected_name),
-				CONNECT_ONE_SHOT)
+		# Presentation 允许 PLAYING → PLAYING 覆盖，且只会为替代序列发完成信号。
+		# 边界补给恰在 10 分钟闸门触发 BOSS 时，panel_out 与 arrival 会撞在一起；
+		# 若此处重挂，已经被覆盖的 arrival 永远不会再完成，事件会卡在 PRE_STAGE，血条不亮。
+		# sequence_finished 发出前导演已完成舞台/暂停清理，所以安全地退化为立即接战。
+		push_warning("BossEncounterEvent: arrival '%s' 被 '%s' 打断，退化为立即接战" % [
+			expected_name, finished_name])
+		if active and phase == Phase.PRE_STAGE and encounter != null:
+			_enter_engaged()
 		return
 	if not active or phase != Phase.PRE_STAGE or encounter == null:
 		return

@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="WeaponMountParams" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/naval/weapon_mount_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/airburst_aa_gun.tres" id="2"]
+
+[resource]
+script = ExtResource("1")
+local_offset = Vector2(0, 4)
+facing = 0.0
+arc = 6.2832
+weapon_type = 4
+weapon_params = ExtResource("2")
+max_hp = 30.0
+display_symbol = "F"

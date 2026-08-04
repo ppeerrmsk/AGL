@@ -1,7 +1,7 @@
 # 生存模式技能系统 —— 设计哲学与需求（设计层文档）
 
 > **三层分工（2026-07-24 重构，查东西先认层）：**
-> - **数值/归属现状** → [skill-table.md](../reference/skill-table.md)（自动生成 144 条，`python tools/dump_skill_table.py` 重刷）
+> - **数值/归属现状** → [skill-table.md](../reference/skill-table.md)（自动生成 152 条，`python tools/dump_skill_table.py` 重刷）
 > - **配置字段 / 实装模式 / 效果代码在哪** → [skill-implementation-index.md](../reference/skill-implementation-index.md)（八模式 + 全 stat 消费点速查，**AI 查代码首选入口**）
 > - **数值为什么这样 / 权威定稿** → specs：[skills-720-rework](../specs/systems/skills-720-rework.md) · [aircraft-signature-skills](../specs/systems/aircraft-signature-skills.md) · [evolution-attribute-gates](../specs/systems/evolution-attribute-gates.md) · [afterburner-mode](../specs/systems/afterburner-mode.md)
 >

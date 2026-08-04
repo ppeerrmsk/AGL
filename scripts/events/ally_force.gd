@@ -1,6 +1,8 @@
 class_name AllyForce
 extends RefCounted
 
+const FactionTransitionScript = preload("res://scripts/events/faction_transition.gd")
+
 ## ALLY 第三方友军通用转换（spec global-awareness-roe §2.6）
 ##
 ## 用法：先经既有生成管线（spawner._create_enemy / _spawn_ground 同款）拿到接线完整的
@@ -16,21 +18,12 @@ extends RefCounted
 static func convert_aircraft(ac: Aircraft) -> void:
 	if ac == null or not is_instance_valid(ac):
 		return
-	ac.team = CombatUnit.TEAM_ALLY
-	ac.set_meta("category", "ally")
-	ac.set_meta("token_cost", 0)
-	ac.set_meta("skip_far_cleanup", true)
-	if ac.params:
-		ac.params.icon_color = GameConstants.COL_FRIEND_ALLY
-		ac.params.wing_color = Color(0.22, 0.50, 0.28)
+	FactionTransitionScript.convert(ac, CombatUnit.TEAM_ALLY, "ally_force_spawn")
 
 
 ## 地面版（SAM / AA 等）：翻阵营 + 打 meta（本体绘制/标签色经 FactionPalette 按 team 三分支）
 static func convert_ground(gu: Node) -> void:
 	if gu == null or not is_instance_valid(gu):
 		return
-	if "team" in gu:
-		gu.team = CombatUnit.TEAM_ALLY
-	gu.set_meta("category", "ally")
-	gu.set_meta("token_cost", 0)
-	gu.set_meta("skip_far_cleanup", true)
+	if gu is CombatUnit:
+		FactionTransitionScript.convert(gu as CombatUnit, CombatUnit.TEAM_ALLY, "ally_force_spawn")

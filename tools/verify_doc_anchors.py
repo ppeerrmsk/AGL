@@ -3,7 +3,7 @@
 """
 docs/reference/ 索引锚点校验器
 
-CLAUDE.md 要求"commit 前检查索引与代码一致性"，本脚本把它变成一条命令。
+AGENTS.md / CLAUDE.md 要求"commit 前检查索引与代码一致性"，本脚本把它变成一条命令。
 
 校验对象：docs/reference/*.md 里形如 `some_file.gd:123 symbol_name` 的锚点。
 判定规则：symbol 必须出现在 该文件:第123行 的 ±3 行窗口内。
@@ -15,6 +15,7 @@ CLAUDE.md 要求"commit 前检查索引与代码一致性"，本脚本把它变�
     python tools/verify_doc_anchors.py --verbose    # 连通过的也列出来
     python tools/verify_doc_anchors.py --doc code-index.md
     python tools/verify_doc_anchors.py --section 无线电通讯   # 只校验某段
+    python tools/verify_doc_anchors.py --fix        # 按符号保守刷新可定位的行号
 
 退出码：0 = 全部一致；1 = 存在腐烂锚点。
 
@@ -46,7 +47,7 @@ SCAN_DIRS = [
     os.path.join('docs', 'planning'),
     os.path.join('docs', 'specs'),
 ]
-SCAN_FILES = ['CLAUDE.md']
+SCAN_FILES = ['AGENTS.md', 'CLAUDE.md']
 
 # docs/specs/ 【禁止出现行号】（specs/_INDEX.md 硬约定：spec 是权威源，行号易腐烂，
 # 指针一律放 docs/reference/）。这里出现行号本身就是违规，不管它当下准不准。
@@ -63,12 +64,128 @@ NOT_SYMBOLS = {
 
 
 def build_script_index(root='scripts'):
+    """Return (lookup, all_paths), avoiding ambiguous basename guesses."""
     index = {}
+    by_base = {}
+    all_paths = []
     for dirpath, _dirnames, filenames in os.walk(root):
         for fn in filenames:
             if fn.endswith('.gd'):
-                index.setdefault(fn, os.path.join(dirpath, fn))
-    return index
+                path = os.path.join(dirpath, fn)
+                rel = os.path.relpath(path, root).replace('\\', '/')
+                all_paths.append(path)
+                index[rel] = path
+                index['scripts/' + rel] = path
+                by_base.setdefault(fn, []).append(path)
+    for base, paths in by_base.items():
+        if len(paths) == 1:
+            index[base] = paths[0]
+    return index, all_paths
+
+
+def resolve_script(script_lookup, fname):
+    key = fname.replace('\\', '/')
+    return script_lookup.get(key) or script_lookup.get(key.lstrip('./'))
+
+
+def declaration_lines(lines, symbol):
+    """Find declaration-like occurrences before falling back to ordinary uses."""
+    escaped = re.escape(symbol)
+    declaration = re.compile(
+        r'^\s*(?:@\w+(?:\([^)]*\))?\s+)*'
+        r'(?:(?:static|abstract)\s+)?'
+        r'(?:func|var|const|signal|class_name)\s+' + escaped + r'\b')
+    enum_member = re.compile(r'^\s*' + escaped + r'\s*(?:=|,)')
+    exact = [i + 1 for i, line in enumerate(lines)
+             if declaration.search(line) or enum_member.search(line)]
+    if exact:
+        return exact
+    word = re.compile(r'\b' + escaped + r'\b')
+    return [i + 1 for i, line in enumerate(lines) if word.search(line)]
+
+
+def nearest_line(candidates, old_line):
+    if not candidates:
+        return None
+    return min(candidates, key=lambda n: abs(n - old_line))
+
+
+def find_fix_target(current_path, old_line, symbol, all_paths, cache):
+    """Prefer the referenced file; relocate only on a unique declaration elsewhere."""
+    if current_path:
+        if current_path not in cache:
+            cache[current_path] = read_lines(current_path)
+        candidate = nearest_line(declaration_lines(cache[current_path], symbol), old_line)
+        if candidate is not None:
+            return current_path, candidate
+
+    escaped = re.escape(symbol)
+    declaration = re.compile(
+        r'^\s*(?:@\w+(?:\([^)]*\))?\s+)*'
+        r'(?:(?:static|abstract)\s+)?'
+        r'(?:func|var|const|signal|class_name)\s+' + escaped + r'\b')
+    enum_member = re.compile(r'^\s*' + escaped + r'\s*(?:=|,)')
+    found = []
+    for path in all_paths:
+        if path not in cache:
+            cache[path] = read_lines(path)
+        for i, line in enumerate(cache[path]):
+            if declaration.search(line) or enum_member.search(line):
+                found.append((path, i + 1))
+    if len(found) == 1:
+        return found[0]
+    return None
+
+
+def display_path_for_fix(old_name, new_path):
+    rel = os.path.relpath(new_path, 'scripts').replace('\\', '/')
+    old = old_name.replace('\\', '/')
+    if old.startswith('scripts/'):
+        return 'scripts/' + rel
+    if '/' in old or os.path.basename(old) != os.path.basename(rel):
+        return rel
+    return old
+
+
+def apply_fixes(fixes):
+    """Bulk mechanical rewrite of anchors proven locatable by symbol."""
+    by_doc = {}
+    for fix in fixes:
+        by_doc.setdefault(fix['doc_path'], []).append(fix)
+
+    for doc_path, doc_fixes in by_doc.items():
+        mapping = {}
+        for fix in doc_fixes:
+            key = (fix['fname'], fix['old_line'], fix['symbol'])
+            mapping[key] = (fix['new_fname'], fix['new_line'])
+
+        text = io.open(doc_path, encoding='utf-8').read()
+        out_lines = []
+        for line in text.split('\n'):
+            replacements = []
+            for kind, match, owner, old_line, sym in anchors_in_line(line):
+                target = mapping.get((owner, old_line, sym))
+                if not target:
+                    continue
+                if kind == 'full':
+                    replacement = match.group(0).replace(
+                        owner + ':' + str(old_line),
+                        target[0] + ':' + str(target[1]), 1)
+                else:
+                    replacement = match.group(0).replace(
+                        ':' + str(old_line), ':' + str(target[1]), 1)
+                    if target[0] != owner:
+                        replacement = replacement.replace(
+                            ':' + str(target[1]),
+                            target[0] + ':' + str(target[1]), 1)
+                replacements.append((match.start(), match.end(), replacement))
+
+            for start, end, replacement in reversed(replacements):
+                line = line[:start] + replacement + line[end:]
+            out_lines.append(line)
+
+        with io.open(doc_path, 'w', encoding='utf-8', newline='') as f:
+            f.write('\n'.join(out_lines))
 
 
 def read_lines(path):
@@ -80,6 +197,42 @@ def read_lines(path):
 # 这类行要先认出"本行属于哪个文件"，再解析裸行号。
 ROW_FILE_RE = re.compile(r'^\|\s*`([A-Za-z_0-9/]+\.gd)`')
 BARE_RE = re.compile(r'`:(\d+)`(?:\s*`?([A-Za-z_][A-Za-z_0-9]*)`?)?')
+
+
+def anchors_in_line(line):
+    """Yield full anchors and shorthand anchors with their owning script.
+
+    A shorthand such as ```:456` next_func``` inherits the nearest preceding
+    full anchor on the same line. Script-index table rows may instead declare
+    the owner in their first column.
+    """
+    full_matches = list(ANCHOR_RE.finditer(line))
+    out = []
+    for match in full_matches:
+        sym = match.group(3)
+        if sym in NOT_SYMBOLS:
+            sym = None
+        out.append(('full', match, match.group(1), int(match.group(2)), sym))
+
+    row = ROW_FILE_RE.match(line)
+    row_owner = row.group(1) if row else None
+    for match in BARE_RE.finditer(line):
+        if any(match.start() < full.end() and match.end() > full.start()
+               for full in full_matches):
+            continue
+        owner = row_owner
+        for full in full_matches:
+            if full.end() <= match.start():
+                owner = full.group(1)
+            else:
+                break
+        if not owner:
+            continue
+        sym = match.group(2)
+        if sym in NOT_SYMBOLS:
+            sym = None
+        out.append(('bare', match, owner, int(match.group(1)), sym))
+    return sorted(out, key=lambda item: item[1].start())
 
 
 def collect_anchors(doc_path, section=None):
@@ -97,21 +250,8 @@ def collect_anchors(doc_path, section=None):
 
     out = []
     for line_no, line in enumerate(text.split('\n'), 1):
-        # 1) 完整形式 file.gd:123 symbol
-        for m in ANCHOR_RE.finditer(line):
-            sym = m.group(3)
-            if sym in NOT_SYMBOLS:
-                sym = None
-            out.append((line_no, m.group(1), int(m.group(2)), sym))
-        # 2) 表格行内的裸 `:123 symbol` —— 归属本行第一列声明的文件
-        row = ROW_FILE_RE.match(line)
-        if row:
-            owner = row.group(1)
-            for m in BARE_RE.finditer(line):
-                sym = m.group(2)
-                if sym in NOT_SYMBOLS:
-                    sym = None
-                out.append((line_no, owner, int(m.group(1)), sym))
+        for _kind, _match, owner, anchor_line, sym in anchors_in_line(line):
+            out.append((line_no, owner, anchor_line, sym))
     return out
 
 
@@ -120,13 +260,15 @@ def main():
     ap.add_argument('--doc', help='只校验某个文档（文件名）')
     ap.add_argument('--section', help='只校验含该标题的段落')
     ap.add_argument('--verbose', action='store_true')
+    ap.add_argument('--fix', action='store_true',
+                    help='只机械刷新能按符号定位的行号；多义/缺失项继续报错')
     args = ap.parse_args()
 
     if not os.path.isdir(REF_DIR):
         print('找不到 %s —— 请在项目根目录运行' % REF_DIR)
         return 2
 
-    scripts = build_script_index()
+    scripts, all_script_paths = build_script_index()
     cache = {}
 
     docs = []
@@ -151,6 +293,7 @@ def main():
     stale = []
     weak = 0
     layering = []
+    fixes = []
 
     for doc_path in docs:
         doc = os.path.relpath(doc_path).replace('\\', '/')
@@ -163,9 +306,19 @@ def main():
                                  'spec 内禁止写行号（%s:%d）—— 指针请放 docs/reference/'
                                  % (fname, ln)))
                 continue
-            base = os.path.basename(fname)
-            path = scripts.get(base)
+            path = resolve_script(scripts, fname)
             if path is None:
+                if args.fix and sym:
+                    target = find_fix_target(None, ln, sym, all_script_paths, cache)
+                    if target:
+                        new_path, new_line = target
+                        fixes.append({
+                            'doc_path': doc_path, 'fname': fname, 'old_line': ln,
+                            'symbol': sym,
+                            'new_fname': display_path_for_fix(fname, new_path),
+                            'new_line': new_line,
+                        })
+                        continue
                 stale.append((doc, doc_line, '文件不存在: %s' % fname))
                 continue
             if path not in cache:
@@ -180,6 +333,17 @@ def main():
                 continue
             window = '\n'.join(lines[max(0, ln - 1 - WINDOW): ln + WINDOW])
             if sym not in window:
+                if args.fix:
+                    target = find_fix_target(path, ln, sym, all_script_paths, cache)
+                    if target:
+                        new_path, new_line = target
+                        fixes.append({
+                            'doc_path': doc_path, 'fname': fname, 'old_line': ln,
+                            'symbol': sym,
+                            'new_fname': display_path_for_fix(fname, new_path),
+                            'new_line': new_line,
+                        })
+                        continue
                 actual = lines[ln - 1].strip()[:60]
                 stale.append((doc, doc_line,
                               '%s:%d 附近无 %r  → 实际: %s' % (fname, ln, sym, actual)))
@@ -189,6 +353,10 @@ def main():
     print('扫描 %d 份文档、锚点 %d 个（其中 %d 个未带符号，仅弱校验）'
           % (len(docs), total, weak))
     print('（docs/changelogs/ 刻意不扫：历史快照，行号描述的是当时的代码）')
+
+    if fixes:
+        apply_fixes(fixes)
+        print('已按唯一/就近符号机械刷新 %d 个锚点；多义项保持不动。' % len(fixes))
 
     if layering:
         print('\n分层违规 %d 个（spec 里不该出现行号）：' % len(layering))

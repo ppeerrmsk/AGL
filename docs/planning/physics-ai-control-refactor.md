@@ -436,8 +436,8 @@ Phase 0 (安全网)  ──►  Phase 1 (意图仲裁)  ──►  Phase 2 (状�
 - **feature/map-editor**：用户的地图编辑器线（tip=46b7406），与重构线同基底（75fea9f）互不包含。
   ⚠ 在 map-editor 分支上武器修复不存在（机炮侧射会复现）——两线终将各自合 main。
 - backup/map-editor-premix：分支手术前的保险，确认无误可删。
-- 回归门：`godot --headless --path . -- --bench=all`（14 项，当前全绿）；跨分支切换后先
-  `--headless --import` 刷类缓存，否则新 class_name 报 not declared。
+- 回归门：通过 `bench/run.cmd all` / `bench/run.sh all` 运行；跨分支切换后的导入也交给 wrapper
+  的隔离流程处理，禁止 Agent 直接启动 Godot CLI。
 - Godot 路径与版本以根目录 `AGENTS.md` 为准（当前要求 4.7+）；观察场通过 `bench/run.cmd weapon_demo` 启动。
 
 ### ✅ 电磁炮锁定线 bug（2026-07-05 已修，待用户 playtest 确认）

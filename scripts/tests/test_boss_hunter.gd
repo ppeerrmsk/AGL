@@ -138,6 +138,36 @@ func _test_ace_world_boundary() -> void:
 	_check("返场期间仍可交战", ai._directive != null and not ai._directive.combat_disabled,
 			"只改导航，不给安全窗")
 
+	# 模式级硬护栏不等越线，且不依赖玩家引用/encounter tick；也不得抢走返场 directive。
+	boss.global_position = Vector2(-half + 20.0, 321.0)
+	var touched_rail := SurvivorSpawner.enforce_boss_world_boundary(boss)
+	_check("尚未越线即触发 40px 物理硬护栏", touched_rail \
+			and is_equal_approx(MapBoundary.distance_to_edge(boss.global_position),
+					SurvivorSpawner.BOUNDARY_HARD_CLAMP_MARGIN_PX),
+			"edge=%.0fpx" % MapBoundary.distance_to_edge(boss.global_position))
+	_check("模式级护栏不抢 BOSS directive", ai._directive != null,
+			"只修物理事实，不接管战术")
+	_check("触线后航向指向地图内", absf(angle_difference(boss.heading, PI * 0.5)) < 0.001,
+			"左界应朝东")
+
+	# 真正的每帧入口也必须在 player 缺失时继续守 BOSS；否则切控/阵亡窗口会再次漏出界。
+	var rail_mode := Node2D.new()
+	var rail_boss := Aircraft.new()
+	rail_boss.team = CombatUnit.TEAM_HOSTILE
+	rail_boss.set_meta("category", "boss")
+	rail_boss.global_position = Vector2(-half + 10.0, -77.0)
+	rail_mode.add_child(rail_boss)
+	var rail_spawner := SurvivorSpawner.new()
+	rail_spawner.mode = rail_mode
+	rail_spawner.player_aircraft = null
+	rail_spawner._update_boundary_discipline(0.016)
+	_check("无玩家引用时模式级护栏仍生效",
+			is_equal_approx(MapBoundary.distance_to_edge(rail_boss.global_position),
+					SurvivorSpawner.BOUNDARY_HARD_CLAMP_MARGIN_PX),
+			"edge=%.0fpx" % MapBoundary.distance_to_edge(rail_boss.global_position))
+	rail_mode.free()
+	rail_spawner.free()
+
 	# 预测转弯失败越线：位置必须当帧回到边内 40px，航向朝东（左界的内侧）。
 	boss.global_position = Vector2(-half - 500.0, 321.0)
 	sq._update_boundary_recovery()

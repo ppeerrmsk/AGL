@@ -3,6 +3,10 @@ id: buff_duration_rebalance
 status: done
 schema_version: 1
 kind: balance
+spec_version: 1
+owner: noelu
+depends_on: []
+reconstruction_complete: false
 completed_date: 2026-05-09
 ---
 
@@ -18,7 +22,7 @@ AOE debuff（FEAR / JAM 给敌人）保持现状，给敌人的负面状态时�
 
 ## 实际改动（已落盘）
 
-### 1. [scripts/survivor/skill_hooks.gd](../../../scripts/survivor/skill_hooks.gd) 行 53-65
+### 1. [scripts/survivor/skill_hooks.gd](../../../scripts/survivor/skill_hooks.gd)
 
 | 常量 | 旧 | 新 |
 |---|---|---|

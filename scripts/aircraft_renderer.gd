@@ -397,6 +397,11 @@ static func draw_gun_cone(ac: Aircraft) -> void:
 		return
 	var gun_r := ac.params.gun.max_range * Aircraft.PIXELS_PER_METER
 	var half_rad := deg_to_rad(ac.params.gun.fire_cone_half_angle)
+	if ac.gunship_mode_active:
+		var ring_color := Color(0.9, 0.7, 0.2, 0.55)
+		ac.draw_circle(Vector2.ZERO, gun_r, Color(0.9, 0.7, 0.2, 0.07))
+		ac.draw_arc(Vector2.ZERO, gun_r, 0.0, TAU, 64, ring_color, 1.0, true)
+		return
 
 	var center_angle := -PI / 2.0
 	var start_angle := center_angle - half_rad
@@ -2110,6 +2115,9 @@ static func draw_laser_beams(ac: Aircraft) -> void:
 		var end_local := ac.to_local(unit.global_position)
 		var color: Color = le.beam_color
 		color.a = beam["alpha"]
+		var is_hack_focus: bool = bool(beam.get("hack_focus", false))
+		if is_hack_focus:
+			color = Color(0.15, 0.95, 1.0, color.a)
 		# 过热边缘：beam 染红
 		if heat_ratio > 0.7:
 			color = color.lerp(Color(1.0, 0.4, 0.3, color.a), (heat_ratio - 0.7) / 0.3)
@@ -2118,7 +2126,22 @@ static func draw_laser_beams(ac: Aircraft) -> void:
 		ac.draw_line(Vector2.ZERO, end_local, color, t, true)
 		var core := Color(1.0, 1.0, 1.0, color.a * 0.7)
 		ac.draw_line(Vector2.ZERO, end_local, core, t * 0.4, true)
+		if is_hack_focus:
+			var hack_ratio: float = clampf(float(beam.get("hack_ratio", 0.0)), 0.0, 1.0)
+			ac.draw_arc(end_local, 16.0, -PI * 0.5, -PI * 0.5 + TAU * hack_ratio,
+				24, Color(0.15, 0.95, 1.0, 0.9), 2.5, true)
 
 	# 过热时画一个红色光环警告（玩家友方才画）
 	if overheating and ac.team == 0:
 		ac.draw_arc(Vector2.ZERO, 30.0, 0.0, TAU, 32, Color(1.0, 0.3, 0.3, 0.6), 2.0, true)
+
+## ESM 范围始终可见；静态半径只随飞机画布一起移动，不做额外场景扫描。
+static func draw_esm_aura(ac: Aircraft) -> void:
+	if ac.params == null:
+		return
+	var esm: EquipmentParams = ac.params.get_equipment_of_kind("esm_pod")
+	if esm == null:
+		return
+	var radius_px: float = float(esm.get("aura_radius_m")) * CombatUnit.PIXELS_PER_METER
+	ac.draw_arc(Vector2.ZERO, radius_px, 0.0, TAU, 96,
+		Color(0.15, 0.85, 1.0, 0.42), 2.0, true)

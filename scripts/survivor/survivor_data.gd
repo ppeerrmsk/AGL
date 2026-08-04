@@ -53,7 +53,7 @@ const RARITY_BASE_WEIGHT: Array[float] = [
 const CLASSIFIED_PITY_WEIGHT_PER_MISS: float = 2.0
 
 ## 机体专属第四槽：每机每局首次符合事件的出示概率（spec aircraft-signature-progression）。
-const SIGNATURE_OFFER_CHANCE: float = 0.90
+const SIGNATURE_OFFER_CHANCE: float = 0.30
 
 ## Pity 阈值：连续 N 次升级未出该档则下次保底必出
 ## advanced 不设 pity（base 25% 足够），exp/cla/next 强保底
@@ -215,6 +215,7 @@ const UPGRADES: Array[Dictionary] = [
 		"keywords": ["missile", "swarm"],
 		# evolved 字段已弃用（§4 战区奖励降级；后续按战区映射注册）
 		"requires": ["missile"],
+		"classes": ["knight"],
 	},
 	{
 		"id": "missile_bounce",
@@ -224,10 +225,10 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 1,
 		"max_stacks": 1,
 		"category": "missile",
-		"rarity": Rarity.CLASSIFIED,
+		"rarity": Rarity.NEXT_GEN,
 		"keywords": ["missile", "chain"],
-		# evolved 字段已弃用（§4 战区奖励降级；后续按战区映射注册）
-		"requires": ["missile"],
+		"evolved": true,
+		"milestone_plus": "knight",
 	},
 	## missile_reload 已删除（C2：迁移到配件 missile_apex_t3 的 reload×0.7）
 	{
@@ -253,8 +254,9 @@ const UPGRADES: Array[Dictionary] = [
 		"category": "missile",
 		"rarity": Rarity.NEXT_GEN,
 		"keywords": ["missile", "swarm"],
-		"requires": ["missile"],
-		## 全队导弹锁定目标数 +3；负面效果：导弹 max_g ×0.85（轻微追踪减劣，弹群压火力不靠精度）
+		"scope": "ace",
+		"milestone_plus": "knight",
+		## 当前王牌导弹挂载 +4、锁定目标数 +3；负面效果：导弹 max_g ×0.85。
 		"lock_bonus": 3,
 		"tracking_penalty": 0.85,
 		"evolved": true,  ## 720 批：进战区奖励池
@@ -300,7 +302,6 @@ const UPGRADES: Array[Dictionary] = [
 		"keywords": ["gun", "ciws"],
 		# evolved 字段已弃用（§4 战区奖励降级；后续按战区映射注册）
 		"requires": ["gun"],
-		"classes": ["gladiator"],  ## v5：CIWS 归斗士系攻击机
 	},
 	{
 		"id": "fear_squad_spread",
@@ -584,12 +585,13 @@ const UPGRADES: Array[Dictionary] = [
 		"name": "UPGRADE_JAM_AURA_NAME",
 		"desc": "UPGRADE_JAM_AURA_DESC",
 		"stat": "jam_aura",
-		"value": 1300.0,              ## JAM 光环半径（≈2.6km）
+		"value": 1500.0,              ## 与 Sentinel 指挥光环同半径（≈3km）
 		"max_stacks": 1,
 		"category": "electronic_warfare",
 		"rarity": Rarity.CLASSIFIED,
 		"keywords": ["jam", "aura"],
-		"classes": ["gladiator"],  ## 720 批：骑士限定→斗士限定
+		"requires": ["esm_pod"],
+		"scope": "ace",
 	},
 	{
 		"id": "rear_aura_slow",
@@ -615,8 +617,36 @@ const UPGRADES: Array[Dictionary] = [
 		"category": "electronic_warfare",
 		"rarity": Rarity.NEXT_GEN,
 		"keywords": ["evasion_mode", "stealth"],
-		"milestone_plus": "knight",
+		"milestone_plus": "schemer",
 		"evolved": true,  ## 720 批：雾隐机动进战区奖励池
+	},
+	{
+		"id": "gunship_mode",
+		"name": "UPGRADE_GUNSHIP_MODE_NAME",
+		"desc": "UPGRADE_GUNSHIP_MODE_DESC",
+		"stat": "gunship_mode",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "secondary",
+		"rarity": Rarity.NEXT_GEN,
+		"keywords": ["gun", "turret"],
+		"requires": ["gun"],
+		"milestone_plus": "gladiator",
+		"evolved": true,
+	},
+	{
+		"id": "heavy_gun",
+		"name": "UPGRADE_HEAVY_GUN_NAME",
+		"desc": "UPGRADE_HEAVY_GUN_DESC",
+		"stat": "heavy_gun",
+		"value": 1000.0,
+		"max_stacks": 1,
+		"category": "secondary",
+		"rarity": Rarity.NEXT_GEN,
+		"keywords": ["gun", "range"],
+		"requires": ["gun"],
+		"milestone_plus": "gladiator",
+		"evolved": true,
 	},
 	{
 		"id": "evasion_herbst",
@@ -626,7 +656,7 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 1,
 		"max_stacks": 1,
 		"category": "mobility",
-		"rarity": Rarity.CLASSIFIED,
+		"rarity": Rarity.EXPERIMENTAL,
 		"keywords": ["evasion_mode", "panic_save"],
 		"excludes": ["cobra_skill", "manual_dodge"],   ## R 机动三向互斥
 	},
@@ -649,8 +679,20 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 0.5,                ## evasion 模式 武器 cd ×0.5（更快）
 		"max_stacks": 1,
 		"category": "mobility",
-		"rarity": Rarity.CLASSIFIED,
+		"rarity": Rarity.EXPERIMENTAL,
 		"keywords": ["evasion_mode", "gun", "missile"],
+	},
+	{
+		"id": "hunter",
+		"name": "UPGRADE_HUNTER_NAME",
+		"desc": "UPGRADE_HUNTER_DESC",
+		"stat": "hunter",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "mobility",
+		"rarity": Rarity.CLASSIFIED,
+		"keywords": ["assault", "maneuver", "armor"],
+		"milestone_plus": "gladiator",
 	},
 	{
 		"id": "skill_kill_bloodlust",
@@ -696,8 +738,6 @@ const UPGRADES: Array[Dictionary] = [
 		"category": "electronic_warfare",
 		"rarity": Rarity.CLASSIFIED,
 		"keywords": ["head_on", "fear"],
-		"scope": "ace",  ## 720 批：寒颤号令归王牌（AoE 控场强技）
-		"milestone_plus": "knight",
 	},
 	{
 		"id": "skill_missile_hit_invul",
@@ -799,6 +839,21 @@ const UPGRADES: Array[Dictionary] = [
 		"rarity": Rarity.ADVANCED,
 		"keywords": ["laser", "damage"],
 		"requires": ["laser"],
+		"excludes": ["skill_laser_hack"],
+	},
+	{
+		"id": "skill_laser_hack",
+		"name": "UPGRADE_SKILL_LASER_HACK_NAME",
+		"desc": "UPGRADE_SKILL_LASER_HACK_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "secondary",
+		"axis": "schemer",
+		"rarity": Rarity.ADVANCED,
+		"keywords": ["laser", "hack"],
+		"requires": ["laser"],
+		"excludes": ["skill_laser_damage"],
 	},
 	{
 		"id": "laser_extra_beams",
@@ -965,6 +1020,7 @@ const UPGRADES: Array[Dictionary] = [
 		"rarity": Rarity.NEXT_GEN,  ## 720 批：实验→次世代
 		"keywords": ["fear", "radar", "lock"],
 		"scope": "ace",  ## 720 批：凝视压迫归王牌
+		"milestone_plus": "schemer",
 		"evolved": true,  ## 2026-07-22 zone-reward-arsenal：次世代只经战区奖励，不进升级卡池
 	},
 	{
@@ -1011,10 +1067,9 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 1,
 		"max_stacks": 1,
 		"category": "electronic_warfare",
-		"rarity": Rarity.CLASSIFIED,
+		"rarity": Rarity.EXPERIMENTAL,
 		"keywords": ["flare", "overload"],
 		"requires": ["flare"],
-		"classes": ["knight"],  ## v5：超载家族归骑士
 	},
 	{
 		"id": "skill_flare_overload",
@@ -1137,7 +1192,40 @@ const UPGRADES: Array[Dictionary] = [
 		],
 		"classes": ["knight"],
 	},
-	# ── F-14 专属：数据链 ──
+	{
+		"id": "invasion_algorithm",
+		"name": "UPGRADE_INVASION_ALGORITHM_NAME",
+		"desc": "UPGRADE_INVASION_ALGORITHM_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["jam", "uav", "execute"],
+		"requires_skill": [
+			"skill_flare_aoe_jam", "skill_gun_kill_flare_drop", "skill_missile_hit_aoe_jam",
+			"skill_torpedo_aoe_jam", "head_on_jam", "jam_aura", "sig_rafale",
+		],
+		"scope": "squad_once",
+		"milestone_plus": "schemer",
+	},
+	{
+		"id": "flee",
+		"name": "UPGRADE_FLEE_NAME",
+		"desc": "UPGRADE_FLEE_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["fear", "retreat"],
+		"requires_skill": [
+			"fear_squad_spread", "skill_gun_kill_fear", "skill_head_on_aoe_fear", "fear_on_lock",
+		],
+		"scope": "squad_once",
+		"milestone_plus": "schemer",
+	},
+	# ── 普通机密：数据链 ──
 	# 队友锁定的目标 = 玩家完成锁定（反之亦然）；同时强化僚机雷达范围
 	# 仍受发射时 cone/envelope/range 校验，"看不见就能射" 不会发生
 	{
@@ -1148,10 +1236,9 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 0.20,  ## 僚机雷达范围 ×1.2（720 批 +50%→+20%，取消 F-14 专属）
 		"max_stacks": 1,
 		"category": "electronic_warfare",
-		"rarity": Rarity.NEXT_GEN,
-		"keywords": ["radar", "wingman", "f14"],
+		"rarity": Rarity.CLASSIFIED,
+		"keywords": ["radar", "wingman"],
 		"scope": "squad_once",  ## 队级单实例：锁定共享读账本（survivor_mode 雷达循环）
-		"evolved": true,  ## 2026-07-22 zone-reward-arsenal：次世代只经战区奖励，不进升级卡池
 	},
 	{
 		"id": "f14_squad_lock_slow",
@@ -2032,7 +2119,7 @@ const UPGRADES: Array[Dictionary] = [
 		"axis": "gladiator",
 		"rarity": Rarity.CLASSIFIED,
 		"exclusive_to": ["ax00"],
-		"scope": "squad_once",  ## 一次性：复制 3 架同型僚机入队（获得点特判 dispatch）
+		"scope": "squad_once",  ## 一次性：复制 1 架同型僚机入队（获得点特判 dispatch）
 		"milestone_plus": ["knight", "schemer"],  ## 双轴 +1（milestone_plus 数组扩展）
 		"keywords": ["wingman", "squad"],
 	},
@@ -2288,6 +2375,7 @@ static func milestone_plus_list_of(u: Dictionary) -> Array[StringName]:
 ## ⚠ 把技能标为 scope:"ace" 时：若其 stat 写字段/params，必须同步登记到这里，
 ## 并在 SurvivorPlayer.strip_upgrade_from 实现对应逆操作（否则切控双重叠加）。
 const ACE_FIELD_STATS: Array[String] = [
+	"missile_swarm",       # 导弹蜂群：导弹资源/锁定数（王牌切控时迁移）
 	"fear_on_lock",        # 凝视压迫：fear_on_lock_threshold 字段
 	"fear_squad_spread",   # 惊鸿扩散：fear_squad_spread_duration 字段
 	"head_on_jam",         # 对锋干扰：head_on_jam_threshold 字段
@@ -2980,7 +3068,7 @@ const TOKEN_COST := {
 	23: 2,  ## F-4E        — 前期导弹杂鱼（有人机，与 MQ-110 同价位并存）
 	29: 0,  ## YF-23       — Wraith 强化层事件支援，不占 Token、不进随机池
 	30: 10, ## F-22        — Schemer 四锁狙击，普通池 1–3 机
-	31: 7,  ## Snowblind   — Schemer 纯支援机，固定带 2 架动态护卫
+	31: 4,  ## Snowblind   — Schemer 纯支援机，固定带 2 架动态护卫
 	32: 6, 33: 6, 34: 3, 35: 3, 36: 5, 37: 6, 38: 4, 39: 4,
 	40: 7, 41: 6, 42: 5, 43: 7, 44: 5, 45: 7, 46: 6, 47: 4, 48: 4,
 	49: 8, 50: 8, 51: 7, 52: 9, 53: 9, 54: 8,

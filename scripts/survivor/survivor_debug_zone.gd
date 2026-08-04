@@ -20,6 +20,8 @@ var _content: VBoxContainer
 var _zones_list_container: VBoxContainer
 var _boss_opt: OptionButton    ## 关底 BOSS 选择器
 var _boss_status: Label        ## BOSS 阶段状态行
+var _reward_opt: OptionButton  ## 战区奖励直发选择器
+var _reward_status: Label      ## 最近一次直发结果
 
 ## BOSS 下拉选项：id 空串 = 按地图池随机。其余取自 BossRegistry.BOSS_DEFS
 var _boss_ids: Array[String] = []
@@ -38,6 +40,32 @@ const MISSION_TYPE_LABELS: Dictionary = {
 	"squadron": "敌机中队",
 	"naval": "海军舰队（DDG+FFG）",
 }
+
+## Debug 必须覆盖完整战区奖励表；新增奖励时 skill_audit 会校验本清单是否同步。
+const DEBUG_REWARD_OPTIONS: Array[Dictionary] = [
+	{"label": "航母增援", "kind": "carrier", "id": "carrier"},
+	{"label": "王牌僚机增援（最多 2 架）", "kind": "wingman", "id": "wingman"},
+	{"label": "武器｜尾部漂浮雷", "kind": "weapon", "id": "tail_mine"},
+	{"label": "武器｜忠诚僚机", "kind": "weapon", "id": "loyal_wingman"},
+	{"label": "武器｜QMAAM", "kind": "weapon", "id": "qmaam"},
+	{"label": "武器｜火箭弹吊舱", "kind": "weapon", "id": "rocket"},
+	{"label": "武器｜电磁炮", "kind": "weapon", "id": "railgun"},
+	{"label": "武器｜激光阵列", "kind": "weapon", "id": "laser"},
+	{"label": "武器｜ESM 吊舱", "kind": "weapon", "id": "esm_pod"},
+	{"label": "次世代｜导弹蜂群", "kind": "nextgen", "id": "missile_swarm"},
+	{"label": "次世代｜连锁弹头", "kind": "nextgen", "id": "missile_bounce"},
+	{"label": "次世代｜雾隐机动", "kind": "nextgen", "id": "evasion_stealth"},
+	{"label": "次世代｜凝视压迫", "kind": "nextgen", "id": "fear_on_lock"},
+	{"label": "次世代｜炮艇模式", "kind": "nextgen", "id": "gunship_mode"},
+	{"label": "次世代｜重炮", "kind": "nextgen", "id": "heavy_gun"},
+]
+
+
+static func debug_reward_keys() -> Array[String]:
+	var keys: Array[String] = []
+	for reward in DEBUG_REWARD_OPTIONS:
+		keys.append("%s:%s" % [reward.get("kind", ""), reward.get("id", "")])
+	return keys
 
 
 # ============================================================
@@ -192,6 +220,39 @@ func _build_ui() -> void:
 
 	_content.add_child(_make_sep())
 
+	# 战区奖励直发：绕过 roll 与正式可用性门槛，方便逐项验收奖励表。
+	var reward_title := Label.new()
+	reward_title.text = "[ 战区奖励直发 ]"
+	reward_title.add_theme_font_size_override("font_size", 13)
+	reward_title.add_theme_color_override("font_color", Color(1.0, 0.82, 0.35))
+	reward_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_content.add_child(reward_title)
+
+	var reward_row := HBoxContainer.new()
+	reward_row.add_theme_constant_override("separation", 6)
+	_content.add_child(reward_row)
+	_reward_opt = OptionButton.new()
+	_reward_opt.add_theme_font_size_override("font_size", 10)
+	_reward_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	for i in range(DEBUG_REWARD_OPTIONS.size()):
+		_reward_opt.add_item(String(DEBUG_REWARD_OPTIONS[i]["label"]), i)
+	reward_row.add_child(_reward_opt)
+	var grant_reward_btn := Button.new()
+	grant_reward_btn.text = "直接发放"
+	grant_reward_btn.add_theme_font_size_override("font_size", 11)
+	_apply_btn_style(grant_reward_btn, Color(0.85, 0.65, 0.2))
+	grant_reward_btn.pressed.connect(_on_grant_reward)
+	reward_row.add_child(grant_reward_btn)
+
+	_reward_status = Label.new()
+	_reward_status.text = "绕过抽取/前置门控；技能层数上限仍生效"
+	_reward_status.add_theme_font_size_override("font_size", 10)
+	_reward_status.add_theme_color_override("font_color", Color(0.65, 0.7, 0.72))
+	_reward_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_content.add_child(_reward_status)
+
+	_content.add_child(_make_sep())
+
 	# 战区列表容器
 	var zones_title := Label.new()
 	zones_title.text = "[ 战区列表 A/B/C/D/E ]"
@@ -337,6 +398,23 @@ func _build_zone_row(zid: StringName, zd: ZoneData) -> PanelContainer:
 # ============================================================
 #  交互回调
 # ============================================================
+
+func _on_grant_reward() -> void:
+	if game_scene == null or _reward_opt == null:
+		return
+	var idx := _reward_opt.selected
+	if idx < 0 or idx >= DEBUG_REWARD_OPTIONS.size():
+		return
+	var reward: Dictionary = DEBUG_REWARD_OPTIONS[idx]
+	var ok: bool = false
+	if game_scene.has_method("debug_grant_zone_reward"):
+		ok = bool(game_scene.debug_grant_zone_reward(
+			String(reward.get("kind", "")), String(reward.get("id", ""))))
+	if _reward_status:
+		_reward_status.text = ("已发放：" if ok else "未发放（已满层或运行时未就绪）：") \
+				+ String(reward.get("label", ""))
+		_reward_status.add_theme_color_override("font_color",
+			Color(0.45, 0.9, 0.55) if ok else Color(0.95, 0.45, 0.35))
 
 ## 核心：把战区切到 AVAILABLE + 指定 mission_type + 重刷内容
 func _apply_zone_change(zid: StringName, new_mission_type: String) -> void:

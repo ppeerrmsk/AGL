@@ -20,7 +20,7 @@ retarget_interval = 0.5
 ; ── 近炸 + AOE（伤害 = 导弹标准 80）──
 proximity_fuse_radius = 90.0
 aoe_radius = 130.0
-aoe_damage = 80.0
+aoe_damage = 60.0
 ; ── 视觉 ──
-body_color = Color(0.4, 0.95, 1.0, 1.0)
+body_color = Color(0.25, 0.65, 1.0, 1.0)
 canopy_color = Color(0.7, 0.9, 1.0, 0.85)

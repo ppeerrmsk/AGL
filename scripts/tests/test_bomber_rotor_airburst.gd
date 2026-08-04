@@ -13,6 +13,7 @@ func run() -> void:
 	_test_rotorcraft_translation()
 	_test_special_projectile_contracts()
 	_test_airburst_aim_and_effectiveness()
+	_test_naval_flak_mount()
 	_test_visual_scale()
 	_cleanup()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
@@ -149,8 +150,70 @@ func _test_airburst_aim_and_effectiveness() -> void:
 		groups, group_hits, hit_rate * 100.0, rad_to_deg(max_departure_error)])
 	randomize()
 
+func _test_naval_flak_mount() -> void:
+	print("── E. DDG 舰载 Flak 挂点 / 炮组状态 ──")
+	var params: NavalParams = load("res://resources/naval/destroyer_ddg.tres").duplicate(true)
+	var type_counts := {
+		WeaponMountParams.WeaponType.VLS_SALVO: 0,
+		WeaponMountParams.WeaponType.CIWS: 0,
+		WeaponMountParams.WeaponType.NAVAL_FLAK: 0,
+	}
+	for cfg in params.mount_configs:
+		if type_counts.has(cfg.weapon_type):
+			type_counts[cfg.weapon_type] = int(type_counts[cfg.weapon_type]) + 1
+	_check(params.mount_configs.size() == 4
+			and int(type_counts[WeaponMountParams.WeaponType.VLS_SALVO]) == 2
+			and int(type_counts[WeaponMountParams.WeaponType.CIWS]) == 1
+			and int(type_counts[WeaponMountParams.WeaponType.NAVAL_FLAK]) == 1,
+		"DDG 固定为 2×VLS + 1×CIWS + 1×Flak（总挂点仍为 4）")
+
+	var ship := NavalUnit.new()
+	ship.params = params
+	ship.team = CombatUnit.TEAM_HOSTILE
+	ship.heading = 0.0
+	var flak_mount: WeaponMount = null
+	for cfg in params.mount_configs:
+		var mount := WeaponMount.new()
+		mount.initialize(cfg)
+		ship.mounts.append(mount)
+		if cfg.weapon_type == WeaponMountParams.WeaponType.NAVAL_FLAK:
+			flak_mount = mount
+	var bullets := BulletManager.new()
+	ship.bullet_manager = bullets
+	var target := Aircraft.new()
+	target.params = AircraftParams.new()
+	target.team = CombatUnit.TEAM_PLAYER
+	target.global_position = Vector2(0.0, -3000.0 * CombatUnit.PIXELS_PER_METER)
+	target.heading = PI * 0.5
+	target.speed = 250.0
+	target.altitude = 5500.0
+	_spawned.append_array([ship, bullets, target])
+	CombatUnit.all_units = [ship, target]
+	seed(20260804)
+
+	ship._update_subsystems(1.0 / 60.0)
+	_check(flak_mount != null and is_equal_approx(flak_mount.hp, 30.0),
+		"Flak 原位继承被替换 CIWS 的 30 HP")
+	_check(bullets._airburst_shells.size() == 1 and flak_mount.flak_remaining == 2
+			and is_equal_approx(flak_mount.fire_cooldown, NavalWeapons.NAVAL_FLAK_BURST_COOLDOWN),
+		"捕获目标后首弹立即出膛并冻结余下两发，6s 冷却从炮组开始计时")
+	_check(bullets._bullets.is_empty()
+			and bullets._airburst_shells[0]["source"] == ship,
+		"舰载 Flak 走 airburst 管线且不生成 CIWS 拦截弹")
+
+	ship._update_subsystems(0.24)
+	ship._update_subsystems(0.02)
+	ship._update_subsystems(0.25)
+	_check(bullets._airburst_shells.size() == 3 and flak_mount.flak_remaining == 0,
+		"后两发按 0.25s 组内间隔完成三连发")
+	ship._update_subsystems(5.48)
+	_check(bullets._airburst_shells.size() == 3,
+		"6s 组间冷却结束前不得开始下一组")
+	CombatUnit.all_units = []
+	randomize()
+
 func _test_visual_scale() -> void:
-	print("── E. 统一视觉尺度 ──")
+	print("── F. 统一视觉尺度 ──")
 	var fighter := Aircraft.new()
 	fighter.params = AircraftParams.new()
 	fighter.altitude = 5500.0

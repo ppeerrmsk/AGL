@@ -1,13 +1,13 @@
 # 资源配置目录
 
-> 最后校订：2026-08-02。
+> 最后校订：2026-08-04。
 >
 > ⚠ **本文是选摘，不是全量**。飞机部分只覆盖**早期的几个基准 .tres**，
 > 后来加的大量机型不在这里：
 > - **玩家机（41 机）** → `resources/player/player_*.tres`；配平规范看
 >   [specs/systems/player-aircraft-power-curve](../specs/systems/player-aircraft-power-curve.md)，
 >   进化树看 [specs/systems/aircraft-evolution-tree](../specs/systems/aircraft-evolution-tree.md)
-> - **敌机（22+ 种）** → [enemy-index.md](enemy-index.md) 的 Enemy Index 表（含每种敌人的 .tres / Token / 上限 / 解锁等级）
+> - **敌机** → [enemy-index.md](enemy-index.md) 的 Enemy Index 表（当前 50+ 个 `EnemyType` 条目；含 `.tres` / Token / 上限 / 解锁等级）
 > - **舰船** → `resources/naval/`
 >
 > 单一机型的准确数值请直接读对应 `.tres`。本文只保留仍有参考价值的**基准值 + 通用子资源**表。
@@ -42,7 +42,7 @@
 | 热诱弹 | 30枚 |
 | 颜色 | 蓝色 (0.15, 0.35, 0.85) |
 
-### 敌方机型（**仅早期 5 种**，完整 22+ 种见 [enemy-index.md](enemy-index.md)）
+### 敌方机型（本节只保留早期样例；完整现状见 [enemy-index.md](enemy-index.md)）
 
 > 2026-07-26 更名批：UAV 显示名改 **MQ-109**、UCAV 改 **MQ-110**（同族导弹版，正常在役）；
 > 另新增有人导弹杂鱼 **F-4E**（`enemy_f4e.tres`，无机炮，HP 45 / 1700 km/h / 雷达 4200m），
@@ -119,6 +119,18 @@
 | 挂载数 | 2 | 2 | 4 | 2 |
 | 冷却 | 3.0s | 4.0s | 6.0s | 8.0s |
 | 存活时间 | 30s | 35s | 20s | 15s |
+
+---
+
+## 战区特殊装备（2026-08-04）
+
+| 资源 | 类型 | 关键参数 | 权威 spec |
+|---|---|---|---|
+| `resources/esm_pod.tres` | `EsmPodEquipment` | 3000m 光环；锁定速率 ×1.5；机炮/导弹/热诱弹 reload 时间 ×0.7；0.5s 扫描 | [esm-pod](../specs/weapons/esm-pod.md) |
+| `resources/x02_railgun.tres` | `RailgunEquipment` | 最大射程 7000m；自动充能/预测射击 | [zone-reward-arsenal](../specs/systems/zone-reward-arsenal.md) |
+| `resources/x02_laser.tres` | `LaserEquipment` | 仅对空；飞机压向动态失速 90%；导弹每秒损失 35% 最大速度 | [zone-reward-arsenal](../specs/systems/zone-reward-arsenal.md) |
+| `resources/a10_torpedo.tres` | 漂浮雷 | 加力窗口投 3；扫描 1500m；130m/60 伤害 | [zone-reward-arsenal](../specs/systems/zone-reward-arsenal.md) |
+| `resources/a10_loyal_wingman.tres` | 忠诚僚机 | 独立 20s；存活上限 2；60m/30 伤害 | [zone-reward-arsenal](../specs/systems/zone-reward-arsenal.md) |
 
 ---
 

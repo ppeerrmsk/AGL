@@ -16,6 +16,8 @@ var _fail := 0
 
 func run() -> void:
 	print("\n════════ 战区奖励类别保底 + 去重 + 航母保证 ════════")
+	_test_nextgen_replacement()
+	_test_reward_tuning()
 	_test_run_category_guarantees()
 	_test_achievement_reward_gate()
 	_test_no_duplicate_collectibles()
@@ -24,6 +26,46 @@ func run() -> void:
 	_test_airfield_zones()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
+
+
+## 穿透能力合并进连锁弹头；次世代池按新清单固定为 6 项。
+func _test_nextgen_replacement() -> void:
+	print("── 0. 次世代清单（仅连锁弹头，不存在穿透弹头技能）──")
+	var data_link := SurvivorData.upgrade_by_id("data_link")
+	var penetration := SurvivorData.upgrade_by_id("missile_penetration")
+	var chain := SurvivorData.upgrade_by_id("missile_bounce")
+	var nextgen_ids: Array[String] = []
+	for u in SurvivorData.UPGRADES:
+		if int(u.get("rarity", -1)) == SurvivorData.Rarity.NEXT_GEN:
+			nextgen_ids.append(String(u.get("id", "")))
+	_check("数据链 = 普通 CLASSIFIED 且无 evolved",
+		int(data_link.get("rarity", -1)) == SurvivorData.Rarity.CLASSIFIED
+		and not bool(data_link.get("evolved", false)), str(data_link))
+	_check("穿透弹头技能不存在", penetration.is_empty(), str(penetration))
+	_check("连锁弹头 = NEXT_GEN + evolved",
+		int(chain.get("rarity", -1)) == SurvivorData.Rarity.NEXT_GEN
+		and bool(chain.get("evolved", false)), str(chain))
+	_check("NEXT_GEN 池恰有 6 项",
+		nextgen_ids.size() == 6 and nextgen_ids.has("missile_bounce")
+		and nextgen_ids.has("gunship_mode") and nextgen_ids.has("heavy_gun")
+		and not nextgen_ids.has("data_link"), str(nextgen_ids))
+
+
+func _test_reward_tuning() -> void:
+	print("── 0B. 奖励权重 / 航母保底 / ESM 数据 ──")
+	_check("航母保底 = 第 4 次", ZoneData.CARRIER_PITY_ROLLS == 4,
+		"got %d" % ZoneData.CARRIER_PITY_ROLLS)
+	_check("三档类别权重已拍板", ZoneData.REWARD_KIND_WEIGHTS[1] == {
+		"weapon": 60.0, "wingman": 25.0, "carrier": 0.0, "nextgen": 30.0}
+		and ZoneData.REWARD_KIND_WEIGHTS[2] == {
+		"weapon": 35.0, "wingman": 30.0, "carrier": 20.0, "nextgen": 30.0}
+		and ZoneData.REWARD_KIND_WEIGHTS[3] == {
+		"weapon": 15.0, "wingman": 25.0, "carrier": 45.0, "nextgen": 40.0}, "")
+	var esm: Resource = load("res://resources/esm_pod.tres")
+	_check("ESM = Sentinel 3km / 锁定×1.5 / reload×0.7", esm != null
+		and is_equal_approx(float(esm.get("aura_radius_m")), 3000.0)
+		and is_equal_approx(float(esm.get("lock_rate_mult")), 1.5)
+		and is_equal_approx(float(esm.get("reload_time_mult")), 0.7), str(esm))
 
 
 ## 连续 roll n 次（合成 id 绕过 _rewards.has 守卫，不入 ZONES 活跃集 → 只验整局去重链）

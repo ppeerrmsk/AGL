@@ -330,7 +330,8 @@ modifier，天然被覆盖），两份 leash 拷贝退役。**AI 侧的"按状�
    的结构性弛豫，非用户痛点）。盲优化"总反转"会被同向呼吸误导（本轮实测教训）。
 
 调参旋钮全在 `aircraft_physics.gd` 顶部 `PD_*` static var（用 static 方便 harness 扫参）；逐机型经
-`combat_bank_aggression`(→kp 缩放) 透传。验证：`godot --headless --path . -- --bench=turn_physics`
+`combat_bank_aggression`(→kp 缩放) 透传。验证：通过 `bench/run.cmd turn_physics`（Windows）或
+`bench/run.sh turn_physics`（其它平台）运行
 （看"符号反转"列，全场景 ≤2）；扫参 `--pd-sweep`；可视 `--bench=demo`。
 详见 changelogs/2026-06-07-bank-twitch-rootfix-and-test-harness.md。
 
@@ -730,6 +731,100 @@ unlock/retire 门。事件计费语义与常规预算语义被一个 picker 隐�
 某个低价敌人。
 
 **踩到次数**：1
+
+## SEAM-026 · `acquire_target` 只持有目标，不负责 AI 模态切换
+
+**症状**：事件护卫收到“护航对象被攻击”的 `TS_DIRECTIVE` 后，目标字段和 HUD 交战线已经建立，
+飞机却仍留在 PATROL / SQUAD_FOLLOW；下一次编队 tick 还可能清掉 Aircraft 侧目标，体感就是护卫
+看见了但迟迟不转向。
+
+**根因**：`AIController.acquire_target()` 是目标所有权唯一入口，刻意只同步 `_current_target`、
+`_target_source` 与 `Aircraft.combat_target`，不替调用者决定 PATROL / ENGAGE / SQUAD_FOLLOW 模态。
+正常评分、玩家命令与事件 directive 都在各自路由里补状态迁移；`Aircraft._alert_escort_guards()`
+从伤害回调直接调用它时漏掉了后半段。
+
+**解法状态（2026-08-04 已修）**：护卫受警在 `acquire_target(TS_DIRECTIVE)` 成功后同拍执行
+`clear_formation()`、开启追击覆盖并 `enter_engage_state()`；ADBS Squad 另用 `leader_successors`
+保证运输机换锚不会被已有战果的护卫抢位。`spawn_pool` 直接断言目标所有权、编队退出、ENGAGE
+与高战果护卫下的确定性换锚。
+
+**约束**：任何从常规 AI 路由外注入目标的调用点，都必须明确回答“只预装目标，还是立即接战”。
+若是立即接战，验收不能只查 `combat_target`，必须同时断言 `_state == ENGAGE` 与编队托管已退出；
+不要把模态切换塞进 `acquire_target()`，否则预装目标、编队齐射和命令恢复等调用方会被隐式改态。
+
+**踩到次数**：1
+
+## SEAM-027 · BOSS 软返场与世界物理边界分属不同更新链，单一所有者会失守
+
+**症状**：飞机类 BOSS 已有 2000 px 提前返场和“越线后钳回 40 px”，实战中 WRAITH 仍整队进入
+边界外黑区。普通敌机不会这样，因为全局边界纪律会硬钳；`category="boss"` 为保护专属战术而被
+全局逻辑整段跳过。
+
+**根因**：`AceSquad` 同时承担战术编排和物理不可越界两个不同强度的职责。它的返场依赖 encounter
+持续 tick、有效玩家引用和 directive 所有权，且钳制发生在“已经越线”之后；任一环节暂停或晚于
+Aircraft 物理移动，渲染帧就可能出界。世界外框是不变量，不能只由可暂停、可被抢写的战术链守护。
+
+**解法状态（2026-08-04 已修）**：保留 `AceSquad` 的 2000→3500 px 软导航返场；同时把
+`SurvivorSpawner._update_boundary_discipline()` 设为第二所有者，对 `category="boss"` 在距边缘
+≤40 px、尚未越线时就执行物理钳制并朝内转向。硬护栏不依赖玩家引用，也不改 directive、目标或火控。
+
+**约束**：软导航负责“飞得自然”，模式级物理护栏负责“绝不出界”。任何需要绝对成立的世界不变量
+（边界、禁区、地形合法性）不得只挂在 AI/事件状态机上；全局兜底必须只修物理事实，不能顺手接管战术。
+
+**踩到次数**：2（2026-08-01 Poltergeist；2026-08-04 Wraith）
+
+## SEAM-028 · 单槽 Presentation 允许序列覆盖，但事件完成回调曾假定原序列必会结束
+
+**症状**：玩家在出界补给时用 30 秒时间税跨过 BOSS 闸门，BOSS 实体与登场表现已经出现，
+但事件永久停在 PRE_STAGE，既不正式接战也不显示血条。
+
+**根因**：Presentation 的状态机明确允许 `PLAYING → PLAYING`，新 UI/演出序列会直接覆盖旧序列，
+且只为最终替代者发一次 `sequence_finished(name)`。`BossEncounterEvent` 收到非 arrival 名称后却重新
+挂一次性回调，等待已经被丢弃、永远不会再完成的 arrival；玩法状态因此依赖了表现序列必达。
+
+**解法状态（2026-08-04 已修）**：导演仍按既有契约先清舞台、镜头与暂停；BOSS 回调若收到非预期
+序列名，记录 warning 后 fail-open 立即进入 ENGAGED，并开启 `hud_visible`。presentation bench 新增
+“UI 序列打断 arrival 后仍接战、仍亮血条”两条断言。
+
+**约束**：任何玩法终态都不得靠“原表现序列最终一定发完成信号”成立。消费单槽导演完成信号时，
+必须处理名称不匹配：能安全退化的玩法立即 fail-open；不能退化的流程须显式建队列/所有权仲裁，
+不得重挂等待一个已被覆盖的序列。
+
+**踩到次数**：1
+
+## SEAM-029 · 基类静态类型与子类 TypedArray 交界会在运行时拒绝 erase/赋值
+
+**症状**：激光黑客或 WhiteTea 投降触发阵营转换时，`faction_transition.gd` 每扫描一架飞机就连续
+刷出 `Attempted to erase an object into a TypedArray`；同局小队清理又可能报
+`Trying to assign invalid previously freed instance`。错误数量随全场飞机数和转换次数放大，最终可能闪退。
+
+**根因**：`FactionTransition` 的参数静态类型是 `CombatUnit`，却直接传给
+`Array[Aircraft].erase()`；运行时对象即使确实是 Aircraft，Godot 4.7 仍按调用点静态类型校验。
+另一侧，`Array[Aircraft]` 会保留已释放对象的槽位，把 `pop_front()` 结果直接赋给
+`var candidate: Aircraft` 会在 `is_instance_valid()` 有机会执行前先抛错。
+
+**解法状态（2026-08-04 已修）**：阵营事务先验证并收窄成 `Aircraft` 再清强类型缓存；小队继任链
+先用 Variant 接住、验证有效后才 cast。`faction_conversion` bench 真实调用激光 `_advance_hack()`，
+并显式构造护卫/群组缓存和已释放 successor，保证两条路径先红后绿。
+
+**约束**：跨继承层操作 TypedArray 时，先收窄到数组元素类型；从可能残留 freed object 的强类型
+容器取值时，不得直接赋给强类型局部变量，必须先用 Variant + `is_instance_valid()`。技能审计的
+注册/字段/消费点全绿不能替代真实 runtime consumer 测试；带转换、销毁、换阵营或编队重绑的技能，
+专项 bench 必须至少执行一次完整状态跃迁。
+
+**踩到次数**：1
+
+## SEAM-030 · 3Hz 自动火控与 60Hz 战术回写共享射击方向，梭射会在采样间隔内回正
+
+**症状**：炮艇模式已经在日志中选中侧后方 `+49° / +76° / 159°` 目标，但同一梭的大量子弹仍从正前方射出；侧后射击也固定从机鼻位置吐弹，看起来像在追踪其它对象。修完射向后，220856 日志又出现玩家全队 4 机、18 个 GroundUnit、炮艇/重炮均已生效，却没有任何对地 `GUN_SCAN/GUN_BURST`。
+
+**根因**：`auto_gun_scan()` 只在 3Hz 扫描帧写 `_gun_lead_heading`，而 `_apply_tactical_plan()` 每个物理 tick 都会在无显式 `combat_target` 时把它重置为机头。`update_gun()` 的“整梭承诺”只锁存剩余弹数，没有锁存承诺对象，因此剩余弹忠实地沿被覆盖后的机头方向继续出膛。与此同时 `_fire_gun_round()` 的炮口出生点和双管横轴也始终取机体 heading。CIWS 又复用了普通机炮的可变射界，和炮艇模式组合时会从正面反导静默膨胀为 360° 反导。更上游还有三道旧纪律门：非 `use_tactical_preference` 的 AI 僚机无条件退出自动扫描；有 `combat_target` 时 planner 把扫描池锁死为该目标；编队 LOD0/1/2 又在武器主循环前提前返回，只保留编队导弹。它们对普通固定机炮合理，却让“全队独立炮塔”名存实亡。
+
+**解法状态（2026-08-04 已修）**：自动扫描与梭射分别保存目标实例 ID；梭起始锁存承诺对象，之后每个武器 tick 重新求同一目标提前点，目标释放或失格即掐断残梭。炮艇炮口与双管基线按实际射向旋转。航空 CIWS 改用独立 5° 正面锥，并新增节流后的 `CIWS_FIRE` 日志，和普通 `GUN_BURST` 明确分流。炮艇另有显式纪律例外：所有 PLAYER 持有者（含 AI 僚机）都运行独立扫描，不锁 planner 当前目标池、不受 MISSILE 主武器模式静默，并按最近合法目标选取；编队和屏外 LOD 提前返回路径通过专用入口继续 tick 炮塔；普通机炮路径保持原纪律。
+
+**约束**：凡是“慢频率选择 + 快频率消费”的火控状态，不得只共享一个会被其它系统覆盖的瞬时方向量；慢频率层保存对象身份，快频率层从对象事实重算派生方向。新增全向/扩锥技能时，逐项审计普通攻击、CIWS、防御火力等消费者，不得让同一个可变 GunParams 角度隐式扩散到不同武器通道。
+
+**踩到次数**：3（2026-04-26 自动扫描 lead 冻结；2026-08-04 planner 回正与炮艇/CIWS 串线；2026-08-04 AI 僚机/战术目标纪律门吞掉全队对地炮塔）
 
 ## 维护约定
 

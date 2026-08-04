@@ -6,7 +6,7 @@ schema_version: 1
 spec_version: 5
 owner: design
 depends_on: [token-economy, zone-missions, upgrade-pool]
-reconstruction_complete: partial
+reconstruction_complete: false
 ---
 
 # 生存模式核心循环 · 时间制战区（含扩展接入图）

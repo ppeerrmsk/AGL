@@ -1,3 +1,14 @@
+---
+id: joust-attack-run
+kind: system
+status: done
+schema_version: 1
+spec_version: 3
+owner: noelu
+depends_on: [weapon-employment-doctrine]
+reconstruction_complete: true
+---
+
 # 攻击跑行为原语（Joust Attack Run）
 
 > status: **done（2026-07-05 用户 playtest 手感确认）** · spec_version: 3 · 日期：2026-07-05

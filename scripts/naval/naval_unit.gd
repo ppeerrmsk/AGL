@@ -694,6 +694,7 @@ func _draw_impl() -> void:
 		_draw_sam_envelope()
 		_draw_ciws_envelopes()
 		_draw_naval_aa_envelopes()
+		_draw_flak_envelopes()
 	_draw_hull_placeholder()
 	_draw_mounts_placeholder()
 	_draw_weak_point_placeholder()
@@ -800,6 +801,18 @@ func _draw_naval_aa_envelopes() -> void:
 		var draw_pos := Vector2(lo.y, -lo.x)
 		_draw_dashed_ring(draw_pos, aa_range, color, 1.3, 48, 0.35)
 
+## NAVAL_FLAK 包线（hover 时显示）—— 橙红断续圆，和持续射击 AA 的青色区分。
+func _draw_flak_envelopes() -> void:
+	var color := Color(1.0, 0.42, 0.12, 0.58)
+	for m in mounts:
+		if m.destroyed or m.params == null:
+			continue
+		if m.params.weapon_type != WeaponMountParams.WeaponType.NAVAL_FLAK:
+			continue
+		var lo := m.params.local_offset
+		var draw_pos := Vector2(lo.y, -lo.x)
+		_draw_dashed_ring(draw_pos, AirburstAAUnit.MAX_RANGE_PX, color, 1.5, 48, 0.5)
+
 ## 计算船上所有 SAM/VLS 挂点中最大射程（像素）
 func _compute_max_sam_range() -> float:
 	var max_r := 0.0
@@ -896,6 +909,16 @@ func _draw_alive_mount(pos: Vector2, wtype: int) -> void:
 			# 十字（区分于 CIWS 圆点），代表旋转机炮
 			draw_line(pos + Vector2(-size * 0.5, 0), pos + Vector2(size * 0.5, 0), c, 1.5)
 			draw_line(pos + Vector2(0, -size * 0.5), pos + Vector2(0, size * 0.5), c, 1.5)
+		WeaponMountParams.WeaponType.NAVAL_FLAK:
+			# 放射星标识空爆炮；四条短射线一次批量提交。
+			var rays := PackedVector2Array([
+				pos + Vector2(-size * 0.65, 0), pos + Vector2(size * 0.65, 0),
+				pos + Vector2(0, -size * 0.65), pos + Vector2(0, size * 0.65),
+				pos + Vector2(-size * 0.45, -size * 0.45), pos + Vector2(size * 0.45, size * 0.45),
+				pos + Vector2(-size * 0.45, size * 0.45), pos + Vector2(size * 0.45, -size * 0.45),
+			])
+			draw_multiline(rays, Color(1.0, 0.55, 0.2), 1.4, true)
+			draw_circle(pos, 1.5, c)
 
 func _draw_dead_mount(pos: Vector2) -> void:
 	var size := 5.0

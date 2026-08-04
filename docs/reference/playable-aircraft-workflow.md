@@ -166,11 +166,15 @@ static var _paths: Dictionary = {
 - `gates`（T2+ 必填）：`gladiator`/`knight`/`schemer` 单轴、`any`（或门）、`sum_gk`（斗骑合计）、`sum_all`（三轴合计）；设计值查 spec `evolution-attribute-gates` §2.3/§2.4
 - **同时把上游机型节点的 `exits` 数组补上本机 id**——没有入边的节点玩家永远换不到
 - 非终点节点出口 ≥3（ACE 手动三选铁律，T5 终端档豁免）；tier/角色定位查 spec `player-aircraft-power-curve` §2
-- 改完跑无头冒烟测试校验（profile 可加载 / 出口无悬空 / ≥3 选 / i18n 行齐全）：
+- 改完通过统一 bench wrapper 跑进化树详情与属性门槛冒烟测试（profile 加载、树路由、属性门和 i18n）：
 
-```bash
-godot --headless --script res://scripts/tests/test_evolution_tree.gd
+```powershell
+bench\run.cmd evo_detail
+bench\run.cmd attr_gates
 ```
+
+Linux/macOS 使用同名 `./bench/run.sh` 命令。`test_evolution_tree.gd` 是未接入
+`BenchRunner` 的旧 SceneTree 脚本，Agent 不得为了跑它绕过 wrapper 直接启动 Godot。
 
 ### 步骤 7：（仅起手卡）注册到选择界面
 
@@ -202,11 +206,11 @@ const PLAYABLE_LIST: Array[Dictionary] = [
 
 这条**已经原生支持**，不需要任何额外代码：
 
-- **基本转弯/能量管理**：`aircraft.gd:_physics_process` 物理层只看 `max_g` `roll_rate` `cruise_speed`——和武器无关
-- **战术决策（BFM）**：`ai_controller.gd:_choose_tactic` 基于几何/能量/角度，不读武器类型
-- **武器射程**：`gun_range_px` 在 `ai_controller.gd:910` 直接从 `gun.max_range` 读，没有 gun 时为 0
-- **导弹发射时机**：`aircraft.gd:_update_missile`（行 1811 起）读 `missile.max_range_rear` 和 `min_range`，导弹换型只需替换 .tres
-- **武器模式切换**：`aircraft.gd:_update_weapon_mode` 自动根据 missile 是否存在/弹量决定 GUN ↔ MISSILE，无 missile 时永远 GUN
+- **基本转弯/能量管理**：`aircraft.gd:837 _physics_process` 调度物理子模块，基础机动仍由机体参数决定
+- **战术决策（BFM）**：`ai/bfm_tactics.gd:107 choose_tactic` 基于几何、能量和态势，武器只通过射程/就绪态影响可用意图
+- **武器射程**：`ai/bfm_tactics.gd:64 gun_range_px` 从当前 `gun.max_range` 换算，无 gun 时为 0
+- **导弹发射时机**：`aircraft/aircraft_weapons.gd:747 update_missile` 统一判定射程、最小距离、射界与锁定；导弹换型主要通过 `.tres`
+- **武器模式切换**：`aircraft/aircraft_weapons.gd:639 update_weapon_mode` 根据挂载、弹量和战术计划切换 GUN ↔ MISSILE
 - **机会射击宽容度**：通过 `combat.opportunity_cone_mult` `opportunity_range_mult` 调，不在代码里
 
 要专属定制 AI 倾向，**改 `combat_override`** 而不是改代码。例如要做"放风筝型"：
@@ -223,7 +227,7 @@ combat_override.approach_speed_mult = 1.2    # 慢速接敌
 
 这条也是原生支持的：
 
-- **没有热诱弹**：`PlayableAircraft.base_params.flare = null` 即可。`aircraft.gd:_release_flares` 早 return，AI 仍会进入 EVADE_MISSILE 状态做急转规避，但不会撒诱饵
+- **没有热诱弹**：`PlayableAircraft.base_params.flare = null` 即可。`aircraft/aircraft_flares.gd:52 update` 会跳过释放逻辑，AI 仍可做导弹规避机动，但不会撒诱饵
 - **不同释放性格**：FlareParams 的 `nervousness` `panic_distance` `calm_distance` 控制
 - **不同干扰率**：`base_jam_chance` `aspect_bonus` `maneuvering_bonus` `close_range_penalty`
 - **不同弹量/连发**：`max_flares` `burst_count` `cooldown`
@@ -321,7 +325,7 @@ SurvivorData.is_upgrade_available_for(upgrade, aircraft_id, params) -> bool
 # 在 SurvivorData.UPGRADES 末尾追加：
 {
     "id": "f14_phoenix_volley",
-    "name": "★ AIM-54 齐射",
+    "name": "AIM-54 齐射",
     "desc": "F-14 专属！发射 AIM-54 时同时射出 2 发",
     "stat": "f14_phoenix_volley",
     "value": 1,

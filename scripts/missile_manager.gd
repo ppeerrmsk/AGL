@@ -46,6 +46,9 @@ func spawn_missile(source: CombatUnit, target: CombatUnit, missile_params: Missi
 	# 二段推进（720 批）：发射方持有技能 → 本弹全程续推 + 转弯渐强
 	if source is Aircraft and (source as Aircraft).missile_second_stage_active:
 		missile.second_stage = true
+	# 连锁弹头：发射瞬间快照；后续换机/失去发射者不会改变在飞弹行为。
+	if source is Aircraft and (source as Aircraft).missile_chain_active:
+		missile.penetrates_after_hit = true
 	# 722 签名技能：夜枭（X-09 每弹 40% 静默）/ 超越地平（X-21 偏转后重索敌）
 	if source is Aircraft and source.is_player_squad() and source.has_meta("upgrade_stacks"):
 		var sig_stacks: Dictionary = source.get_meta("upgrade_stacks")
@@ -118,12 +121,9 @@ func spawn_missile(source: CombatUnit, target: CombatUnit, missile_params: Missi
 	var los := target.global_position - missile.global_position
 	missile._prev_los_angle = atan2(los.x, -los.y)
 
-	# 连锁弹头 / 近炸引信进化：仅 Aircraft 有此属性
+	# 近炸引信：仅 Aircraft 有此属性。连锁弹头已统一为直线穿透快照。
 	if source is Aircraft:
-		missile.bounces_remaining = source.missile_bounce_count
 		missile.proximity_aoe = source.missile_proximity_aoe
-	else:
-		missile.bounces_remaining = 0
 
 	add_child(missile)
 	return missile
@@ -330,6 +330,8 @@ func _physics_process(delta: float) -> void:
 				continue
 			if not CombatUnit.teams_hostile(unit.team, missile.team):
 				continue
+			if missile.penetrates_after_hit and missile.already_penetrated(unit):
+				continue
 			# 光学隐形：导弹从隐形目标穿过
 			if unit is Aircraft and unit.is_cloaked:
 				continue
@@ -406,21 +408,15 @@ func _physics_process(delta: float) -> void:
 				if missile.proximity_aoe:
 					_spawn_aoe(missile.global_position, missile.altitude,
 						missile.params.damage, missile.team, unit, missile.source)
-				# 连锁弹头：弹跳至最近的其他敌方单位
-				if missile.bounces_remaining > 0:
-					var next_target := _find_bounce_target(missile, unit)
-					if next_target:
-						missile.bounces_remaining -= 1
-						missile.target = next_target
-						missile.is_flare_jammed = false
-						missile.has_guidance = true
-						var los := next_target.global_position - missile.global_position
-						missile._prev_los_angle = atan2(los.x, -los.y)
-						var bounce_name: String = next_target.callsign if next_target.callsign != "" else next_target.name
-						EventLogger.log_event("MISSILE", msl_name,
-							"bounce → %s (bounces_left=%d)" % [
-								bounce_name, missile.bounces_remaining])
-						break
+				# 连锁弹头逐目标去重。
+				if missile.penetrates_after_hit:
+					missile.remember_penetration_hit(hit_unit)
+				# 连锁弹头：不追踪新目标，严格沿命中瞬间的原航向继续。
+				if missile.penetrates_after_hit:
+					missile.continue_after_penetration(hit_unit)
+					EventLogger.log_event("MISSILE", msl_name,
+						"penetrated %s (hits=%d)" % [tgt_name, missile.penetration_hit_count])
+					break
 				missile.is_active = false
 				missile.queue_free()
 				break

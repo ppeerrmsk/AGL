@@ -20,7 +20,7 @@ reconstruction_complete: false
 **病灶（log 20260707_221548 实证）**：玩家指挥友机 F-16 机炮打 SAM（`RNG=376m`），
 飞机在 `对地 SETUP：转弯对准目标 (off=70°)` 子状态里**卡死 47 秒绕圈**，机头夹角从不收敛。
 
-**根因（几何死锁）**：现 `ground_strafe`（[bfm_intent](../../scripts/ai/tactical/bfm_intent.gd) 机炮分支）
+**根因（几何死锁）**：现 `ground_strafe`（[bfm_intent](../../../scripts/ai/tactical/bfm_intent.gd) 机炮分支）
 只有 SETUP / RUN / BREAK 三态，其中：
 - SETUP 无条件"corner speed 转弯对准目标"；
 - 快机在 corner 速度下最小转弯半径 `r = v²/(g·G)` 可达 500~1000m，**目标钻进转弯圆内**
@@ -42,7 +42,7 @@ reconstruction_complete: false
 > 不外逃）。回归断言 = `test_surface_pass.gd` 场景 C（`--bench=surface_pass`）。
 
 **同类病早有根治、但排除了地面**：空中慢速目标的同一"太近转不回来"病，
-[tactical_planner](../../scripts/ai/tactical/tactical_planner.gd) 优先级 5.9 已用
+[tactical_planner](../../../scripts/ai/tactical/tactical_planner.gd) 优先级 5.9 已用
 "贴脸 → 短 extend 拉开 → 远处转回"根治，但该段开头写死 `not s.tgt_is_surface`，
 **明确把地面/水面目标排除在外**。2026-04-29 的 strafe 状态机只堵了"越飞越远（拉到 6km）"
 那一半，反方向"太近绕死"从未处理。本 spec 补齐地面侧的对称逃生路径，并把它升级成完整 pass 循环。

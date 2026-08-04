@@ -8,9 +8,9 @@ extends EquipmentParams
 ##    - 飞机被光束扫到时持续刷 SLOW 状态（0.4s 续期），脱离光束 0.4s 后消失。
 ##      SLOW 把目标速度 cap 到 350 km/h + 屏蔽 AB（见 status_effects.gd）
 ##    - 导弹被光束扫到时由 LaserEquipment 续期 Missile._laser_slow_timer (0.5s)，
-##      速度 cap 至 max_speed × 45% + 转弯 G cap 50%。**减速更猛**，让玩家有机动时间闪开
+##      每秒流失最大速度的 35%，降至 20% 时失能；转弯 G cap 50%。
 ##    把"激光武器"重新定位成软压制 / 控制型武器，不再是 DPS / CIWS
-## 2. **地面目标**：默认无效（"激光不熔化坦克"，与机制定位一致），由 SKILL_LASER_DAMAGE 解锁
+## 2. **地面目标**：始终不参与自动目标选择（"激光不熔化坦克"）。
 ## 3. **SKILL_LASER_DAMAGE 升级**：
 ##    - 飞机 + 地面：在 SLOW 之外额外应用旧的 DPS 伤害（DoT 输出回归）
 ##    - 导弹：在 SLOW 之外额外消耗 intercept_hp（CIWS 拦截能力回归）
@@ -20,6 +20,13 @@ extends EquipmentParams
 ## 状态住在 Aircraft.equipment_state["laser"]，视觉由 AircraftRenderer.draw_laser_beams 承担。
 
 const STATE_KEY := "laser"
+const FactionTransitionScript = preload("res://scripts/events/faction_transition.gd")
+const HACK_THRESHOLD_S := 2.5
+const HACK_GRACE_S := 0.30
+const HACK_DECAY_PER_S := 1.0
+const META_HACK_PROGRESS: StringName = &"laser_hack_progress"
+const META_HACK_LAST_TOUCH_MS: StringName = &"laser_hack_last_touch_ms"
+const META_HACK_LAST_FRAME: StringName = &"laser_hack_last_frame"
 
 @export_group("基本")
 @export var max_range_m: float = 1500.0
@@ -89,6 +96,13 @@ func update(ac, delta: float) -> void:
 			var weather := _find_weather()
 			# 检查玩家是否持有"激光也造成伤害"技能（仅 team 0 玩家飞机生效）
 			var damage_skill_active: bool = _has_damage_skill(ac)
+			var hack_skill_active: bool = _has_hack_skill(ac)
+			if damage_skill_active and hack_skill_active:
+				hack_skill_active = false
+				if not ac.has_meta(&"laser_skill_conflict_warned"):
+					ac.set_meta(&"laser_skill_conflict_warned", true)
+					push_warning("LaserEquipment: damage/hack coexist; damage branch wins")
+			var hack_focus = _select_hack_focus(ac, picks) if hack_skill_active else null
 			for pick in picks:
 				var unit = pick["unit"]
 				var dist: float = pick["dist"]
@@ -105,12 +119,17 @@ func update(ac, delta: float) -> void:
 				var dmg: float = dps * cloud_damage_mult * delta
 				# 应用效果：默认 SLOW；导弹拦截照旧；技能解锁 DPS 伤害
 				_apply_laser_effect(ac, unit, dmg, damage_skill_active)
+				var hack_ratio := 0.0
+				if unit == hack_focus:
+					hack_ratio = _advance_hack(ac, unit as Aircraft, delta)
 				# 视觉记录
 				var thickness: float = beam_thickness_base * lerpf(1.0, cloud_beam_thickness_factor_min, cloud_d)
 				beams.append({
 					"unit": unit,
 					"thickness": thickness,
 					"alpha": 0.6 + 0.4 * falloff,
+					"hack_focus": unit == hack_focus,
+					"hack_ratio": hack_ratio,
 				})
 			# 累计热量
 			s["heat"] += heat_per_second * delta
@@ -167,9 +186,23 @@ func _pick_targets(ac) -> Array:
 
 	# 按距离排序，取最近 N 个
 	picks.sort_custom(func(a, b): return a["dist"] < b["dist"])
+	if _has_hack_skill(ac) and not _has_damage_skill(ac):
+		_prioritize_hack_preference(ac, picks)
 	if picks.size() > max_simultaneous_targets:
 		picks.resize(max_simultaneous_targets)
 	return picks
+
+
+func _prioritize_hack_preference(ac: Aircraft, picks: Array) -> void:
+	# combat_target 优先于 commanded_target；从后往前 push_front 可保持这一顺序。
+	for preferred in [ac.commanded_target, ac.combat_target]:
+		if not _is_hack_eligible(preferred):
+			continue
+		for i in range(picks.size()):
+			if picks[i]["unit"] == preferred:
+				var pick = picks.pop_at(i)
+				picks.push_front(pick)
+				break
 
 
 ## 默认效果 = SLOW（每帧刷新短暂 SLOW 状态，脱离光束自然消失）
@@ -190,6 +223,9 @@ func _apply_laser_effect(ac, target, damage: float, damage_skill_active: bool) -
 	if target is Aircraft:
 		# 飞机被光束扫到 → 短暂 SLOW（每帧刷新；脱离 0.4s 自动消失）
 		target.apply_status(StatusEffects.SLOW, SkillHooks.LASER_SLOW_REFRESH_DURATION)
+		# 允许激光把目标压过普通 105% 安全地板；真正失速/掉高仍由统一飞行物理结算。
+		target.set_meta(&"laser_stall_pressure_until_ms",
+			Time.get_ticks_msec() + int(SkillHooks.LASER_SLOW_REFRESH_DURATION * 1000.0))
 	if damage_skill_active:
 		# 玩家解锁"激光致伤"：飞机 + 地面单位都吃完整 DPS
 		# take_damage_from 走归因入口 — 触发恐惧扩散 / 寒颤 / 击杀回血等下游技能
@@ -210,6 +246,68 @@ func _has_damage_skill(ac) -> bool:
 		return false
 	var stacks: Dictionary = ac.get_meta("upgrade_stacks")
 	return int(stacks.get(SkillHooks.SKILL_LASER_DAMAGE, 0)) > 0
+
+
+func _has_hack_skill(ac) -> bool:
+	if ac == null or not is_instance_valid(ac) or not ac.is_player_squad():
+		return false
+	if not ac.has_meta("upgrade_stacks"):
+		return false
+	var stacks: Dictionary = ac.get_meta("upgrade_stacks")
+	return int(stacks.get(SkillHooks.SKILL_LASER_HACK, 0)) > 0
+
+
+func _select_hack_focus(ac: Aircraft, picks: Array):
+	for preferred in [ac.combat_target, ac.commanded_target]:
+		if _is_hack_eligible(preferred):
+			for pick in picks:
+				if pick["unit"] == preferred:
+					return preferred
+	for pick in picks:
+		if _is_hack_eligible(pick["unit"]):
+			return pick["unit"]
+	return null
+
+
+static func _is_hack_eligible(unit) -> bool:
+	if not unit is Aircraft or not is_instance_valid(unit) or unit.is_destroyed:
+		return false
+	if unit.team != CombatUnit.TEAM_HOSTILE:
+		return false
+	var enemy_type := String(unit.get_meta("enemy_type", ""))
+	return enemy_type == "uav" or enemy_type == "ucav"
+
+
+func _advance_hack(source: Aircraft, target: Aircraft, delta: float) -> float:
+	if not _is_hack_eligible(target):
+		return 0.0
+	var now_ms := Time.get_ticks_msec()
+	var progress := float(target.get_meta(META_HACK_PROGRESS, 0.0))
+	var last_touch_ms := int(target.get_meta(META_HACK_LAST_TOUCH_MS, now_ms))
+	var gap_s := maxf(float(now_ms - last_touch_ms) / 1000.0, 0.0)
+	if gap_s > HACK_GRACE_S:
+		progress = maxf(progress - (gap_s - HACK_GRACE_S) * HACK_DECAY_PER_S, 0.0)
+	var physics_frame := Engine.get_physics_frames()
+	if int(target.get_meta(META_HACK_LAST_FRAME, -1)) != physics_frame:
+		progress += delta
+		target.set_meta(META_HACK_LAST_FRAME, physics_frame)
+	target.set_meta(META_HACK_PROGRESS, progress)
+	target.set_meta(META_HACK_LAST_TOUCH_MS, now_ms)
+	if progress < HACK_THRESHOLD_S:
+		return clampf(progress / HACK_THRESHOLD_S, 0.0, 1.0)
+
+	var enemy_type := String(target.get_meta("enemy_type", "uav"))
+	var reason := "laser_hack_mq110" if enemy_type == "ucav" else "laser_hack_mq109"
+	if not FactionTransitionScript.convert(target, CombatUnit.TEAM_ALLY, reason, source):
+		return 0.0
+	target.remove_meta(META_HACK_PROGRESS)
+	target.remove_meta(META_HACK_LAST_TOUCH_MS)
+	target.remove_meta(META_HACK_LAST_FRAME)
+	target.show_tactic_popup(tr("TACTIC_HACKED"))
+	var host := source.get_parent()
+	if host != null and host.has_method("adopt_hacked_ally"):
+		host.adopt_hacked_ally(target)
+	return 1.0
 
 
 func _find_weather() -> WeatherSystem:

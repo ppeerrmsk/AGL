@@ -530,6 +530,20 @@ func _test_arrival_seq_names_match_registry() -> void:
 	for expected in valid_names:
 		_assert_true("arrival: 注册 BOSS 演出已就位（%s）" % expected, defs.has(expected))
 
+	# 回归：边界补给的 panel_out 若与 10 分钟 BOSS arrival 相撞，Presentation 只会发
+	# 替代序列的完成信号。玩法层必须 fail-open 进入 ENGAGED，不能重挂后永久卡 PRE_STAGE。
+	var interrupted := BossEncounterEvent.new(Vector2.ZERO, 0.0, "default")
+	interrupted.encounter = BossEncounter.new()
+	interrupted.encounter.bgm_track = ""
+	interrupted.encounter.active = true
+	interrupted.active = true
+	interrupted.phase = BossEncounterEvent.Phase.PRE_STAGE
+	interrupted._on_arrival_cinematic_done("panel_out", "wraith_squadron_arrival")
+	_assert_true("arrival: UI 序列打断后立即进入 ENGAGED",
+		interrupted.phase == BossEncounterEvent.Phase.ENGAGED)
+	_assert_true("arrival: UI 序列打断后仍开启 BOSS 血条",
+		interrupted.encounter.hud_visible)
+
 
 # ══════════════════════════════════════════════
 #  断言辅助

@@ -55,7 +55,7 @@
 | `CRE(28)` | Cre（宿敌 ORION） | **宿敌专属**（跨局成长单机） | `enemy_cre.tres`（default_combat；初始敌机级基线，档位表运行时覆写） | 0（独立轨道事件） | **1** | 事件（game_time ≥300s 每局一次） | OrionNemesisEvent 生成；机号即呼号 Cre-XX；`no_pilot`（无人原型机，静默+FEAR 免疫） | `_create_enemy` CRE case | spec [events/ace-orion](../specs/events/ace-orion.md) |
 | `YF23(29)` | YF-23 Black Widow II | **Wraith 通关强化专属支援** | `enemy_yf23.tres` + `f47_missile.tres`（AIM-260）+ `default_flare.tres`；无机炮 | 0（事件供给，不进随机池/无缩放） | **2** | Wraith 历史击败 ≥1 | `F47AceSquad.engage()` 生成左右各一架；`boss_support`、雷达静默、可选击毁、不进 BOSS 血条/胜利判定 | `_create_enemy` YF23 case | `bvr_only` 4–6km + 高空 + TS_BOSS 追当前玩家；spec [systems/boss-clear-progression](../specs/systems/boss-clear-progression.md) |
 | `F22(30)` | F-22 Raptor | Schemer 四锁远距 | `enemy_f22.tres` + `enemy_f22_flare.tres` | 10 | **3** | 13 | 1–3 架；阶段累计 6；冷却 150s | 注册表 `_create_enemy` | `f22_multilock.gd`：队级目标去重、每机≤4、0.15s 齐射、12s 脱离 |
-| `SNOWBLIND(31)` | SNOWBLIND | Schemer 纯支援 | `enemy_snowblind.tres` | 7 + 两护卫各自 Token | **1** | 8 | 本体 + 2 架当前响应等级可用战斗机；阶段累计 2；冷却 180s | `_spawn_snowblind_squad` | `snowblind_controller.gd`：4000m 雪幕、5Hz 显隐与双向交战边界；圆心只显示不可交互本体轮廓，真实本体无武器/flare且仍隐藏 |
+| `SNOWBLIND(31)` | SNOWBLIND | Schemer 纯支援 | `enemy_snowblind.tres` | 4 + 两护卫各自 Token | **1** | 8 | 本体 + 2 架当前响应等级可用战斗机；最低完整编成 10 Token；阶段累计 2；冷却 180s | `_spawn_snowblind_squad` | `snowblind_controller.gd`：4000m 雪幕、5Hz 显隐与双向交战边界；圆心只显示不可交互本体轮廓，真实本体无武器/flare且仍隐藏 |
 | `F15_REGULAR(32)` | F-15 Eagle | Gladiator | `enemy_regular_f15.tres` | 6 | ∞ | 7 | 2–3 架 | 注册表 `_create_enemy` | `_configure_registry_archetype` 持续近战 |
 | `F14(33)` | F-14 Tomcat | Lancer | `enemy_f14.tres` | 6 | **3** | 7 | 2 架 | 注册表 `_create_enemy` | `_configure_registry_archetype` 远程攻击通场 |
 | `A6E(34)` | A-6E Intruder | Lancer | `enemy_a6e.tres` | 3 | ∞ | 3 | 2–3 架 | 注册表 `_create_enemy` | 低空攻击通场 |
@@ -79,7 +79,7 @@
 | `SU57(52)` | Su-57 | Gladiator 后失速 | `enemy_su57.tres` | 9 | **2** | 12 | 1–2 架 | 注册表 `_create_enemy` | 持续近战 + `CobraManeuver` |
 | `J20(53)` | J-20 | Lancer | `enemy_j20.tres` | 9 | **2** | 12 | 1–2 架 | 注册表 `_create_enemy` | 远程高速攻击通场 |
 | `A12(54)` | A-12 Avenger II | Schemer 远距 | `enemy_a12.tres` | 8 | **2** | 13 | 1–2 架 | 注册表 `_create_enemy` | 单目标远距重击后换位 |
-| `FCK1(55)` | F-CK-1 | **王牌专属**（WhiteTea 机炮骑士） | `enemy_fck1.tres` + `whitetea_gun.tres`（4×5 受控短梭；纯机炮无导弹） | 0（事件供给，不进随机池/无缩放） | **3** | 事件（240s 统一王牌池） | WhiteTea profile 生成 ×3；逐机 joust 打带逃，1 flare 耗尽后解锁一次性 J-turn | `_create_enemy` FCK1 case | AceSupportSquad `gun_lancer` 配置；spec [events/ace-whitetea-fck1](../specs/events/ace-whitetea-fck1.md) |
+| `FCK1(55)` | F-CK-1 | **王牌专属**（WhiteTea 机炮骑士） | `enemy_fck1.tres` + `whitetea_gun.tres`（4×5 受控短梭；纯机炮无导弹） | 0（事件供给，不进随机池/无缩放） | **3** | 事件（240s 统一王牌池） | WhiteTea profile 生成 ×3；逐机 joust 打带逃，1 flare 耗尽后解锁一次性 J-turn；2→1 时幸存者投降转 ALLY、本人喊话后被动离场 | `_create_enemy` FCK1 case | AceSupportSquad `gun_lancer`；`AceReinforcementEvent._try_whitetea_surrender`；spec [events/ace-whitetea-fck1](../specs/events/ace-whitetea-fck1.md) / [systems/dynamic-faction-conversion](../specs/systems/dynamic-faction-conversion.md) |
 
 ### 敌人作战高度分档（2026-07-28）
 
@@ -169,9 +169,9 @@ BVR 远距协同齐射 BOSS，事件触发：
 3. **`survivor_spawner.gd:42` 起声明 `_<name>_params_base: AircraftParams` 成员**
 4. **`survivor_spawner.gd:119` 起 `preload(...)` 加载资源**
 5. **`survivor_data.gd:1554` 起加解锁/概率常量**（`<NAME>_UNLOCK_LEVEL` / `_CHANCE_PER_LEVEL` / `_CHANCE_MAX`）
-6. **`survivor_data.gd:2956` `TOKEN_COST` 和 `survivor_data.gd:3061` `TOKEN_INSTANCE_CAP` 表补新枚举值**
+6. **`survivor_data.gd:3044` `TOKEN_COST` 和 `survivor_data.gd:3149` `TOKEN_INSTANCE_CAP` 表补新枚举值**
 7. **`survivor_spawner.gd:402` `_pick_enemy_type` 按威胁等级插入概率判定分支**
-8. **`survivor_spawner.gd:2084` `_create_enemy` 的各 match 全部补新 case**：
+8. **`survivor_spawner.gd:2098` `_create_enemy` 的各 match 全部补新 case**：
    - `match etype` 选基础参数（`:1577`）
    - `enemy_scale_for_level` 适用判定（`:1646` 起）
    - 热诱弹失误概率 match（`:1689`）—— 越低级失误率越高

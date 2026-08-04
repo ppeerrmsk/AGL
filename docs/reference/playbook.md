@@ -11,9 +11,11 @@
 > AGL 采用 **spec-first** 工作流：本 playbook 回答**"接入点在哪、怎么执行"**；
 > [docs/specs/](../specs/_INDEX.md) 才是**设计权威源**，回答**"做什么 + 为什么 + 全部数值"**。
 >
-> **正确顺序**：复制 [docs/specs/_TEMPLATE.md](../specs/_TEMPLATE.md) → 建 `docs/specs/<kind>/<name>.md`
+> **正确顺序**：复制 [docs/specs/_TEMPLATE.md](../specs/_TEMPLATE.md) → 按
+> [docs/README.md 的目录映射](../README.md#设计文档)建 spec
 > → 填 §1~§5 设计定稿（status: approved）→ **再回本 playbook**按 spec 的 §6 实现计划派生代码。
-> 收尾把指针填回 spec §7 + 同步 reference 索引。
+> 建档当天就登记 [specs/_INDEX.md](../specs/_INDEX.md)；收尾把文件/符号指针填回 spec §7，
+> 同步 reference 索引并把状态改为 done。
 >
 > 重建底线：spec 写**真实数值、不写行号**；"代码全丢只看 spec 能否一比一重建"是验收线。
 > 样板见 [bosses/mother-goose.md](../specs/bosses/mother-goose.md)。
@@ -35,10 +37,14 @@
 | 状态效果（FEAR / SLOW / JAM 类新型） | [§9 加状态效果](#9-加状态效果) | 暂无 |
 | **无线电台词 / 剧情对话** | [§10 加无线电台词](#10-加无线电台词) | spec [systems/radio-chatter.md](../specs/systems/radio-chatter.md) |
 | **演出 / 转场 / BOSS 登场镜头** | 直接看方法论 doc → | [cinematic-authoring.md](cinematic-authoring.md)（陷阱清单 + 最短路径）；数值权威 spec [systems/ui-transition.md](../specs/systems/ui-transition.md) |
+| **其它跨实体系统 / 平衡批次** | [§11 加系统](#11-加系统) | [repo-layout.md](repo-layout.md) + [known-seams.md](../architecture/known-seams.md) |
 
 ---
 
 ## §1 加敌机
+
+先建 `docs/specs/enemies/<name>.md`（`kind: enemy`）并登记总表；敌人不允许只登记
+`enemy-index.md` 而没有设计 spec。
 
 走 **[enemy-index.md 13 步清单](enemy-index.md#创建新敌人的完整清单加一个敌人触发短语)**。
 要点摘要：
@@ -58,6 +64,8 @@
 ---
 
 ## §2 加 BOSS
+
+先建 `docs/specs/bosses/<name>.md`（`kind: boss`）并定稿 BOSS 编成、阶段、全部数值和验收。
 
 参考 Mother Goose 桶 A 的 6 子分支拆法（[changelogs/2026-05-08-mother-goose-boss.md](../changelogs/2026-05-08-mother-goose-boss.md)）。
 按依赖顺序操作，每段独立可合 main：
@@ -133,6 +141,9 @@
 
 ## §3 加武器装备
 
+新武器或新机制先建 `docs/specs/weapons/<name>.md`（`kind: weapon`）。只复制现有 `.tres`
+做数值变体时，也要把真实数值登记到对应武器 spec；没有对应 spec 就先补档。
+
 装备类继承 `Equipment` 基类（看 `scripts/equipment/*.gd`）。当前 6 类：
 GunEquipment / MissileEquipment / RocketEquipment / LaserEquipment / RailgunEquipment / FlareEquipment。
 
@@ -172,6 +183,9 @@ HUD/log 拼接）。详见 [i18n.md](i18n.md)。
 
 ## §4 加技能升级
 
+单项技能放 `docs/specs/skills/<name>.md`（`kind: skill`）；同一批不可拆分的技能重做可集中到
+`docs/specs/systems/<batch>.md`（`kind: balance`），但每项数值和验收仍必须完整出现。
+
 **总入口 = [skill-implementation-index.md](skill-implementation-index.md)**（2026-07-24 起）：
 §5 决策树选实装模式（八模式：纯 params / 字段置位 / skill_flag 钩子 / squad_once / 王牌 ace /
 计数缩放 / 一次性 dispatch / 武器资源）→ 照该模式"新增步骤"落地 → §6 铁律过一遍。
@@ -191,7 +205,7 @@ HUD/log 拼接）。详见 [i18n.md](i18n.md)。
 
 ### onboarding checklist（任何新升级都跑一遍）
 
-- [ ] 实装索引 §5 决策树定模式；spec-first：非平凡技能先进 spec（批量走集中式 spec，样板 skills-720-rework）
+- [ ] 实装索引 §5 决策树定模式；单项 spec 或批准过的批量 spec 已登记且状态为 approved
 - [ ] `survivor_data.gd:UPGRADES` 加条目（id / name / desc / stat / value / max_stacks / category /
       **axis** / rarity / 归属字段 scope·classes·exclusive_to·requires·requires_skill·milestone_plus 按需）
 - [ ] 按模式落效果（M5 王牌字段型必登记 ACE_FIELD_STATS + strip；M4 静态位必配 _ready 清零；M6 必差量幂等）
@@ -205,14 +219,20 @@ HUD/log 拼接）。详见 [i18n.md](i18n.md)。
 
 ## §5 加主角飞机
 
+先建 `docs/specs/aircraft/<name>.md`（`kind: aircraft`）。玩家版与同名敌版是两个独立 spec，
+用相对路径 `aircraft/<name>` / `enemies/<name>` 区分。
+
 走 **[playable-aircraft-workflow.md 完整流程](playable-aircraft-workflow.md)**。
 
 要点：通过 `playable_aircraft.gd` 档案 + `resources/playable_*.tres` 注入，
-**禁止在共享层 `aircraft.gd` 里写 `if game_mode == ...`**（roadmap.md §0 模式边界硬规则）。
+**禁止在共享层 `aircraft.gd` 里写 `if game_mode == ...`**（见下方“模式边界”硬规则）。
 
 ---
 
 ## §6 加事件
+
+先建 `docs/specs/events/<name>.md`（`kind: event`）。如果改的是整个事件框架，改建
+`docs/specs/systems/<name>.md`（`kind: system`）。
 
 走 **[event-system.md](../systems/event-system.md)**。GameEvent + AIDirective + EventDirector
 剧本系统。
@@ -227,6 +247,9 @@ HUD/log 拼接）。详见 [i18n.md](i18n.md)。
 
 ## §7 加地面单位
 
+先建 `docs/specs/systems/<name>.md`，`kind` 按内容用 `enemy` 或 `system`；在 §4 明确它与
+`CombatUnit`、伤害路由、雷达和 HUD 的组成关系。
+
 走 **[ground-units.md](../systems/ground-units.md)**。三种当前类：SAMUnit / AAGunUnit /
 RadarStation 都继承 `GroundUnit extends CombatUnit`。
 
@@ -239,6 +262,9 @@ RadarStation 都继承 `GroundUnit extends CombatUnit`。
 
 ## §8 加地图
 
+新地图或地图机制先建 `docs/specs/systems/<name>.md`（`kind: map`）。单纯修正现有地理数据时，
+更新已有 map spec 的版本与变更记录，不另造平行真源。
+
 两条路：
 - 程序烘焙：[map-pipeline.md](map-pipeline.md)（OSM 数据 → tile）
 - 手画：[manual-map-editing.md](manual-map-editing.md)（Godot 编辑器内手画地块）
@@ -249,6 +275,9 @@ RadarStation 都继承 `GroundUnit extends CombatUnit`。
 ---
 
 ## §9 加状态效果
+
+新状态先建 `docs/specs/systems/<name>.md`（`kind: system`）；若它只服务于一项技能，可放入该
+技能 spec，但必须写清通用状态语义、免疫、叠加、持续时间和清理条件。
 
 新型 status（FEAR / SLOW / JAM 之外）的接入点：
 
@@ -276,13 +305,17 @@ RadarStation 都继承 `GroundUnit extends CombatUnit`。
 **多数情况完全不用碰代码** —— 数据全在 `resources/chatter/radio_chatter.json`。
 带行号的详细导航见 [code-index.md「无线电通讯」段](code-index.md)。
 
+只增加既有 trigger 的台词是内容维护，直接更新 JSON + i18n，不新建 spec。增加新的触发语义、
+节流规则或 BOSS 对话流程属于机制改动，先更新 `radio-chatter` spec；独立事件则建 event spec。
+
 ### 加一条台词（最常见）
 
 1. `resources/chatter/radio_chatter.json` → 对应 trigger 的 `lines` 数组加一个 key
 2. `i18n/translations.csv` 加一行：`RADIO_XXX,中文,English,日本語`
 3. 跑 `--bench=chatter` 校验（会检查每个 key 都有译文）
 
-⚠ 加了 key 之后**必须让 Godot 导入一次**（编辑器打开一次，或 `godot --headless --path . --import`），
+⚠ 加了 key 之后**必须让 Godot 导入一次**。可用编辑器打开项目，或让相关 bench 通过
+`bench/run.cmd` / `bench/run.sh` 的 Shadow 流程触发导入；Agent 禁止直接执行 Godot CLI。
 否则 `tr()` 会原样返回 key，台词显示成 `RADIO_XXX`。
 
 ### 加一个 BOSS 的专属登场对话
@@ -308,6 +341,21 @@ RadarStation 都继承 `GroundUnit extends CombatUnit`。
 - **文本一律走 `tr()`**，不许把中文字面量写进 JSON 或代码。
 - 改完跑 `--bench=chatter` + `--bench=all` 不回归。
 
+---
+
+## §11 加系统
+
+适用于不属于单个敌人、武器、技能或事件的跨实体机制与平衡批次。
+
+1. 建 `docs/specs/systems/<name>.md`；语义上是地图或平衡时分别用 `kind: map` / `balance`。
+2. §4 先定所有权边界：生存专属放 `scripts/survivor/`，共享实体模块放现有子系统目录，
+   RTS / 事件 / 演出 / 海军 / UGC 分别进入已有目录。完整矩阵见 [docs/README.md](../README.md#代码与资源)。
+3. 先查 [known-seams.md](../architecture/known-seams.md)，再查 script-index / code-index 找现有接入点；
+   不为单个文件新建目录，也不把跨域逻辑继续塞进 `survivor_mode.gd`。
+4. 若新增持有 `player_aircraft` 的子系统，登记 `_set_player_aircraft()` chokepoint 并通过
+   `verify_player_ref_holders.py`。
+5. 按性能、i18n、模式边界和索引同步清单收尾。
+
 
 ## 通用约束（**所有改动都要看的**）
 
@@ -322,6 +370,7 @@ RadarStation 都继承 `GroundUnit extends CombatUnit`。
 5. AI 决策默认 20Hz 起步
 6. Aircraft / Missile 子节点要先乘实体数
 7. 跑生存模式 sentinel + Lv5+ 压测，FPS 掉 >15 回滚
+8. 随实体数增长的成本必须支持拥挤度自适应，并给玩家 / BOSS / Sentinel 留豁免
 
 ### 模式边界（共享层改动必读）
 
@@ -370,6 +419,5 @@ Litmus 测试。
 - **加 FEAR 联动 buff 但 AOE FEAR 路径漏** → 单体路径有效 / AOE 路径失灵
 - **新 status 加权威 active flag 但不进 status_effects 字典** → HUD 不显示
 - **改共享层只测一个模式** → 另一模式悄悄崩
-- **散修堆在 main 不分支** → "做 X 时顺手改了 Y"，回滚单条变成大手术（看
-  [clever-spinning-hummingbird workflow plan](../../.claude/plans/archived/2026-05-08/clever-spinning-hummingbird.md)
-  全程教训）
+- **散修堆在 main 不分支** → "做 X 时顺手改了 Y"，回滚单条变成大手术；按 spec §6
+  拆成可独立验证的小步

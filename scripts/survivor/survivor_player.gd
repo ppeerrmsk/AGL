@@ -167,7 +167,7 @@ func get_milestone_progress(axis: StringName) -> int:
 ## （存资源**引用**——railgun_charge 等强化就长在资源上，引用即强化载体），换型后补挂到新机。
 ## equipment 数组类 = railgun/laser；机尾位 = loyal_wingman/torpedo（互斥）；副槽 = QMAAM。
 ## 底线武器（gun/missile/rocket/ciws/flare）随机体走，不入库。
-const SPECIAL_EQUIPMENT_KINDS: Array[String] = ["railgun", "laser"]
+const SPECIAL_EQUIPMENT_KINDS: Array[String] = ["railgun", "laser", "esm_pod"]
 
 var weapon_inventory: Dictionary = {}  # StringName → Resource
 
@@ -410,6 +410,17 @@ func strip_upgrade_from(target: Aircraft, upgrade: Dictionary) -> void:
 	if not SurvivorData.ACE_FIELD_STATS.has(stat):
 		return
 	match stat:
+		"missile_swarm":
+			var swarm_n: int = int(upgrade.get("value", 4))
+			var penalty: float = float(upgrade.get("tracking_penalty", 0.85))
+			if target.params.missile:
+				target.params.missile = target.params.missile.duplicate()
+				target.params.missile.max_count = maxi(0, target.params.missile.max_count - swarm_n)
+				if penalty > 0.0:
+					target.params.missile.max_g /= penalty
+				target.missiles_remaining = mini(target.missiles_remaining, target.params.missile.max_count)
+			target.max_simultaneous_locks = maxi(1,
+				target.max_simultaneous_locks - int(upgrade.get("lock_bonus", 3)))
 		"fear_on_lock":
 			target.fear_on_lock_threshold = 0.0
 		"fear_squad_spread":
@@ -452,8 +463,8 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 				p.missile.max_g *= (1.0 + float(upgrade["value"]))
 				p.missile.nav_constant += 0.5
 		"missile_bounce":
-			# 进化：连锁弹头，导弹命中后弹跳
-			aircraft.missile_bounce_count = int(upgrade["value"])
+			# 战区次世代“连锁弹头”：命中后沿原航向继续，逐弹逐目标只伤一次。
+			aircraft.missile_chain_active = true
 		"proximity_fuze":
 			# 进化：近炸引信，导弹爆炸产生 AOE 区域
 			aircraft.missile_proximity_aoe = true
@@ -493,6 +504,19 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 				p.gun.max_range *= (1.0 + float(upgrade["value"]))
 		"gun_ciws":
 			aircraft.gun_ciws_active = true
+		"gunship_mode":
+			# 全向自动炮塔：固定 360° 火界；极速永久降至 60%，不改 AI 的 ASSAULT 选点。
+			if p.gun:
+				p.gun = p.gun.duplicate()
+				p.gun.fire_cone_half_angle = 180.0
+			p.max_speed *= 0.60
+			aircraft.gunship_mode_active = true
+		"heavy_gun":
+			if p.gun:
+				p.gun = p.gun.duplicate()
+				p.gun.max_range += float(upgrade["value"])
+		"hunter":
+			aircraft.hunter_unlocked = true
 		"radar_range":
 			p.radar_range *= (1.0 + float(upgrade["value"]))
 		"lock_time":
@@ -870,11 +894,12 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 		"sig_mig31":
 			aircraft.sig_mig31_active = true
 		"sig_x44":
-			# 高速炮艇：机炮开火锥半角抬到 90°（前方 180° 扇区）。直改 params →
+			# 高速炮艇：前方 180°绝对射界（与其它扩角取大值，不做角度加法）+ 机炮弹穿透。
 			# 扫描/物理锥门/渲染扇形/AI 开火判定全消费点自动生效；已超 90 的不缩
 			if p.gun:
 				p.gun = p.gun.duplicate()
 				p.gun.fire_cone_half_angle = maxf(p.gun.fire_cone_half_angle, float(upgrade["value"]))
+			aircraft.gun_bullet_penetration_active = true
 		# sig_wyvern（X-02·突击翼龙）在 survivor_mode 获得点特判（railgun 入库走武器库）
 
 ## §1.2 写 evasion_modifiers 倍率

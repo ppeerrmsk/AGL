@@ -9,11 +9,13 @@ extends Resource
 ## SAM_SHORT  — 短程单发防空导弹（FFG 近程 RAM）
 ## CIWS       — 近防武器系统（拦导弹 + 对空扫射双用途）
 ## NAVAL_AA   — 舰载对空机炮（类似陆基 ZU-23 AA，中距对飞机精准打击；weapon_params 走 GunParams）
+## NAVAL_FLAK — 舰载定时空爆炮（DDG 区域拒止；不拦截导弹）
 enum WeaponType {
 	VLS_SALVO,
 	SAM_SHORT,
 	CIWS,
 	NAVAL_AA,
+	NAVAL_FLAK,
 }
 
 @export_group("几何")

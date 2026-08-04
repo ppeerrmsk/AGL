@@ -20,6 +20,7 @@ extends RefCounted
 ##   AircraftWeapons.update_missile(self, delta)
 
 const AUTO_GUN_SCAN_INTERVAL := 0.3
+const AIRCRAFT_CIWS_CONE_HALF_ANGLE_DEG := 5.0  ## 独立正面防御锥；不得继承炮艇/X-44/瞄准辅助射界
 ## 机炮梭射节奏（specs/weapons/gun-burst-fire.md）：梭内间隔 = 平均间隔 × DUTY（触底一帧一发），
 ## 梭间 CD 按平均射速守恒推出 —— fire_rate 越高梭内越密、梭间越短，长期 DPS 与匀速点射完全一致
 const GUN_BURST_DUTY := 0.3            ## 梭内射速 ≈ 3.3 × fire_rate
@@ -104,6 +105,38 @@ static func lead_heading(ac: Aircraft, tgt: CombatUnit, bullet_speed_mps: float)
 	return atan2(lead_v.x, -lead_v.y)
 
 
+## 跨 tick 只保存实例 ID，不持有 Node 强引用；目标释放后 instance_from_id 返回 null。
+static func _gun_target_from_id(instance_id: int) -> CombatUnit:
+	if instance_id == 0:
+		return null
+	var obj: Object = instance_from_id(instance_id)
+	if obj == null or not is_instance_valid(obj) or not obj is CombatUnit:
+		return null
+	return obj as CombatUnit
+
+
+## 已承诺梭每个武器 tick 都重算同一目标的提前点，防止 planner 在 3Hz 扫描间隔内
+## 把 `_gun_lead_heading` 回写成机头方向。返回 false 表示承诺对象已经不可继续攻击。
+static func _refresh_committed_gun_aim(ac: Aircraft, gun: GunParams) -> bool:
+	if ac._gun_burst_target_id == 0:
+		return true  # 人类手动/测试桩可以只有世界方向、没有实体目标
+	var target := _gun_target_from_id(ac._gun_burst_target_id)
+	if target == null or target.is_destroyed or not ac.is_hostile_to(target):
+		return false
+	if target is Aircraft and (target as Aircraft).is_cloaked:
+		return false
+	if target is GroundUnit and target.is_lock_immune():
+		return false
+	var dist_px: float = ac.global_position.distance_to(target.global_position)
+	if dist_px < 10.0 or dist_px > gun.max_range * CombatUnit.PIXELS_PER_METER:
+		return false
+	if target is Aircraft and not ac.flat_altitude \
+			and absf(ac.altitude - target.altitude) > 500.0:
+		return false
+	ac._gun_lead_heading = lead_heading(ac, target, gun.muzzle_velocity)
+	return true
+
+
 static func auto_gun_scan(ac: Aircraft) -> void:
 	# 2026-04-22 玩家独立射击意识：取消"有 combat_target 就整体跳过"，让扫描兜底——
 	# 只要前方锥内有敌机进入射程（包括 combat_target 因前置角/距离不满足而被 _update_combat
@@ -118,10 +151,12 @@ static func auto_gun_scan(ac: Aircraft) -> void:
 	var cobra := ac.get_maneuver()
 	if cobra and cobra.is_active:
 		ac.is_firing = false
+		ac._auto_gun_target_id = 0
 		return
 	var herbst := ac.get_herbst()
 	if herbst and herbst.is_active:
 		ac.is_firing = false
+		ac._auto_gun_target_id = 0
 		return
 	# 规避模式（玩家 E 键 / 僚机 scatter）：planner 已请求武器静默（evade_missile 出
 	# weapon_mode=NONE，但 _apply_tactical_plan 把 NONE 重映射成 GUN 以阻断 salvo 漏发），
@@ -132,6 +167,7 @@ static func auto_gun_scan(ac: Aircraft) -> void:
 	# afterburner_window_active：加力窗口全队禁攻击（僚机不置 evasion_mode，需独立盖到）
 	if ac.evasion_mode or ac.afterburner_window_active:
 		ac.is_firing = false
+		ac._auto_gun_target_id = 0
 		return
 	# 注意：不要在这里加 "if ac.is_firing: return" 早返 —— 那会绕过下面的
 	# `_auto_gun_scan_timer` 节流，导致 is_firing 一旦锁存就永不重评估，
@@ -142,22 +178,29 @@ static func auto_gun_scan(ac: Aircraft) -> void:
 	# 不再扫描随机敌人覆写 is_firing/lead_heading（之前的 bug：玩家朝不相干敌机贸然开火）。
 	# 但如果 combat_target 当前在锥内 + 射程内，仍允许 scan 设 is_firing —
 	# 兜底 planner 因 fire_cone 5° 边缘抖动判 false 而漏射的情况。
-	var planner_locked_target: bool = ac.use_tactical_planner and ac.combat_target != null \
+	# 炮艇是全队独立炮塔通道：AI 僚机也运行，且不被 planner 当前战术目标锁死扫描池。
+	var gunship_passive: bool = ac.gunship_mode_active and ac.is_player_squad()
+	var planner_locked_target: bool = not gunship_passive \
+			and ac.use_tactical_planner and ac.combat_target != null \
 			and is_instance_valid(ac.combat_target) and not ac.combat_target.is_destroyed
-	if not ac.use_tactical_preference:
+	if not ac.use_tactical_preference and not gunship_passive:
 		# AI 分支（spec engagement-discipline §A "无意图不开火"）：机炮开火全权交给
 		# combat_tracking 的追踪解——有 combat_target 时那边判定对准/射程/机会锥后开火，
 		# 无 combat_target 时一律停火。不再兜底扫 all_units 朝"机头前掠过的任意敌对"喷枪
 		# （= 用户反馈"敌人没有攻击意图却无脑机炮背刺路过的玩家"，playtest 220858）。
 		# 人类机（use_tactical_preference）的独立扫射意识不受影响，照走下方 all_units 扫描。
+		ac._auto_gun_target_id = 0
 		return
-	# 对地专用机型：永远不对空中目标开火（_auto_gun_scan 仅扫描 Aircraft）
-	if not ac.attack_air_targets:
+	# 对地专用机型默认不走对空扫描；炮艇模式例外，因为其扫描池显式包含 GroundUnit。
+	if not ac.attack_air_targets and not ac.gunship_mode_active:
+		ac._auto_gun_target_id = 0
 		return
-	# 导弹模式不自动扫射
-	if ac.weapon_mode == Aircraft.WeaponMode.MISSILE:
+	# 普通机炮尊重主武器模式；炮艇是并行独立炮塔，planner 选导弹时仍可自动扫射。
+	if ac.weapon_mode == Aircraft.WeaponMode.MISSILE and not gunship_passive:
+		ac._auto_gun_target_id = 0
 		return
 	if not ac.params or not ac.params.gun or ac.ammo <= 0:
+		ac._auto_gun_target_id = 0
 		return
 
 	var gun: GunParams = ac.params.gun
@@ -167,64 +210,84 @@ static func auto_gun_scan(ac: Aircraft) -> void:
 	var my_pos := ac.global_position
 	var my_fwd := Vector2(sin(ac.heading), -cos(ac.heading))
 
-	# 节流：扫描只需 ~3Hz 频率（子弹速度慢到此频率下瞄准误差可忽略）
-	# is_firing 一旦 true 会保持到下次扫描前，所以不会出现"应开火但没开"
+	# 节流：候选选择只需 ~3Hz；整梭的目标实例与提前点由 update_gun 每 tick 锁存/刷新，
+	# 因此 planner 在两次扫描之间回写 is_firing/lead 也不会把剩余弹扳回机头。
 	ac._auto_gun_scan_timer -= ac.get_physics_process_delta_time()
 	if ac._auto_gun_scan_timer > 0.0:
 		return
 	ac._auto_gun_scan_timer = AUTO_GUN_SCAN_INTERVAL
 
-	var best_target: Aircraft = null
+	var best_target: CombatUnit = null
 	var best_angle := fire_cone
+	var best_dist := INF
 
 	# planner 模式 + 有 combat_target → 只考虑 combat_target，不扫随机敌机
-	# 否则保留旧行为（用 all_units 全场扫描）
+	# 炮艇模式允许点名 GroundUnit；否则保留旧行为（用 all_units 全场扫描）。
 	var scan_pool: Array
 	if planner_locked_target:
-		if ac.combat_target is Aircraft:
+		if ac.combat_target is Aircraft \
+				or (ac.gunship_mode_active and ac.combat_target is GroundUnit):
 			scan_pool = [ac.combat_target]
 		else:
-			# 地面/水面目标走另一套（_update_combat_ground_attack），auto_gun_scan 不处理
+			# 普通地面/水面目标走 _update_combat_ground_attack；自动扫描不接管。
+			ac._auto_gun_target_id = 0
 			return
 	else:
 		scan_pool = CombatUnit.all_units
 
 	for unit in scan_pool:
 		# 跨帧静态数组，可能持有已释放的节点
-		if not is_instance_valid(unit):
+		if not is_instance_valid(unit) or not unit is CombatUnit:
 			continue
-		if not unit is Aircraft:
+		var target_unit := unit as CombatUnit
+		var is_aircraft: bool = target_unit is Aircraft
+		var is_gunship_ground: bool = ac.gunship_mode_active and target_unit is GroundUnit
+		if not is_aircraft and not is_gunship_ground:
 			continue
-		var other: Aircraft = unit
-		if not ac.is_hostile_to(other) or other.is_destroyed or other.is_cloaked \
-				or ac.is_sensor_engagement_obscured(other):
+		if not ac.is_hostile_to(target_unit) or target_unit.is_destroyed \
+				or ac.is_sensor_engagement_obscured(target_unit):
+			continue
+		if is_aircraft and (not ac.attack_air_targets or (target_unit as Aircraft).is_cloaked):
+			continue
+		if is_gunship_ground and target_unit.is_lock_immune():
 			continue
 
-		var to_ac := other.global_position - my_pos
-		var dist := to_ac.length()
+		var to_unit: Vector2 = target_unit.global_position - my_pos
+		var dist: float = to_unit.length()
 		if dist > range_px or dist < 10.0:
 			continue
 
-		# 高度差检查（扁平高度模式下忽略）
-		if not ac.flat_altitude and absf(ac.altitude - other.altitude) > 500.0:
+		# 空中目标保持高度差门；地面目标由炮艇的全向直瞄处理。
+		if is_aircraft and not ac.flat_altitude \
+				and absf(ac.altitude - (target_unit as Aircraft).altitude) > 500.0:
 			continue
 
-		# 前置点计算
-		var tgt_fwd := Vector2(sin(other.heading), -cos(other.heading))
-		var tgt_speed_px := other.speed * CombatUnit.PIXELS_PER_METER
-		var flight_time := dist / maxf(bullet_speed_px, 100.0)
-		var lead_pos := other.global_position + tgt_fwd * tgt_speed_px * flight_time
+		# 飞机算前置点；静止/慢速 GroundUnit 直接瞄本体。
+		var lead_pos: Vector2 = target_unit.global_position
+		if is_aircraft:
+			var other := target_unit as Aircraft
+			var tgt_fwd := Vector2(sin(other.heading), -cos(other.heading))
+			var tgt_speed_px := other.speed * CombatUnit.PIXELS_PER_METER
+			var flight_time: float = dist / maxf(bullet_speed_px, 100.0)
+			lead_pos += tgt_fwd * tgt_speed_px * flight_time
 
 		var to_lead := lead_pos - my_pos
 		var angle_to_lead := atan2(to_lead.x, -to_lead.y)
 		var angle_diff := absf(ac._angle_diff(angle_to_lead, ac.heading))
 
-		if angle_diff < best_angle:
+		if angle_diff > fire_cone:
+			continue
+		# 普通固定机炮优先最贴近机头的解；炮艇炮塔优先最近威胁，避免近处地面单位
+		# 被更贴机头但更远的空中战术目标长期饿死。
+		var better_target: bool = dist < best_dist if gunship_passive else angle_diff <= best_angle
+		if better_target:
+			best_dist = dist
 			best_angle = angle_diff
-			best_target = other
+			best_target = target_unit
 			ac._gun_lead_heading = angle_to_lead
 
 	var _was_firing: bool = ac.is_firing
+	ac._auto_gun_target_id = best_target.get_instance_id() if best_target != null else 0
 	ac.is_firing = ac._ai_gun_burst_allowed(best_target != null, ac.get_physics_process_delta_time())
 	# [GUN_SCAN] 被动扫描锁存上升沿（仅友方/选中机）：无 combat_target 时 is_firing 的唯一
 	# true 来源就是这里 —— 谁被扫进 ±cone 一目了然（配合 [GUN_BURST] 追"对空放枪"）
@@ -234,6 +297,15 @@ static func auto_gun_scan(ac: Aircraft) -> void:
 				ac._log_unit_name(best_target),
 				int(my_pos.distance_to(best_target.global_position) / CombatUnit.PIXELS_PER_METER),
 				int(rad_to_deg(best_angle))])
+
+
+## 编队/LOD 提前返回路径的炮艇专用入口。普通编队机不承担这笔武器 tick 成本；
+## 玩家全队炮艇则必须在没有 combat_target、没有战术开火许可时仍各自扫描与梭射。
+static func update_passive_gunship(ac: Aircraft, delta: float) -> void:
+	if not ac.gunship_mode_active or not ac.is_player_squad():
+		return
+	auto_gun_scan(ac)
+	update_gun(ac, delta)
 
 ## 机炮梭射状态机（specs/weapons/gun-burst-fire.md）：
 ## 空闲 → 梭起始（装填 burst_count 发）→ 梭内（承诺：无视 is_firing 打完整梭）→ 梭间 CD → …
@@ -266,7 +338,7 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 			ac.set_meta("_ab_gun_regen_accum", accum)
 	# 整匣装填（生存模式）：弹药耗尽 → 进入 CD → 一次性补满
 	if ac.enable_gun_reload and ac._gun_reload_active:
-		ac._gun_reload_timer += delta
+		ac._gun_reload_timer += delta * ac.esm_reload_rate_multiplier()
 		ac.gun_reload_progress = clampf(ac._gun_reload_timer / ac.gun_reload_duration, 0.0, 1.0)
 		if ac._gun_reload_timer >= ac.gun_reload_duration:
 			if ac.params and ac.params.gun:
@@ -276,17 +348,20 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 			ac.gun_reload_progress = 0.0
 		ac.is_firing = false
 		ac._gun_burst_rounds_left = 0
+		ac._gun_burst_target_id = 0
 		return
 	# JAM 干扰：所有武器封锁（含已承诺的梭）
 	if ac.status_jam_active:
 		ac.is_firing = false
 		ac._gun_burst_rounds_left = 0
+		ac._gun_burst_target_id = 0
 		return
 	# 规避模式：掐断残梭 —— 机头大角度机动中绝不朝旧 lead 方向喷完剩余弹
 	# （同 auto_gun_scan 的规避静默语义，见 2026-06-15 规避盲射根治）
 	# afterburner_window_active：加力窗口全队禁攻击（spec afterburner-mode）
 	if ac.evasion_mode or ac.afterburner_window_active:
 		ac._gun_burst_rounds_left = 0
+		ac._gun_burst_target_id = 0
 	# 目标当帧已毁但尚未被 clear_combat_target 摘除（AI 分频检测有 1~3 帧滞后）：
 	# 掐断残梭 + 停火。梭承诺是给"火控窗口一闪只漏单弹"用的，目标一旦被击毁就没有
 	# 承诺对象——否则剩余弹会沿被 _apply_tactical_plan 重置回机头的 _gun_lead_heading
@@ -299,11 +374,13 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 			and (not is_instance_valid(ac.combat_target) or ac.combat_target.is_destroyed):
 		ac.is_firing = false
 		ac._gun_burst_rounds_left = 0
+		ac._gun_burst_target_id = 0
 	if not ac.params or not ac.params.gun:
 		return
 	if ac.ammo <= 0:
 		ac.is_firing = false
 		ac._gun_burst_rounds_left = 0
+		ac._gun_burst_target_id = 0
 		return
 	# 统一执行层兜底：即使某条 AI 路径绕过 _ai_gun_burst_allowed 持续置真，敌机也不能
 	# 在强制停火期启动第二梭。PLAYER / ALLY 不受影响。
@@ -311,19 +388,38 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 			and ac._ai_gun_pause_timer > 0.0:
 		ac.is_firing = false
 		return
+	var gun: GunParams = ac.params.gun
+	# 梭内目标已释放/出界时立即掐断；有效目标则在 cooldown 帧也持续刷新提前点。
+	if ac._gun_burst_rounds_left > 0 and not _refresh_committed_gun_aim(ac, gun):
+		ac.is_firing = false
+		ac._gun_burst_rounds_left = 0
+		ac._gun_burst_target_id = 0
+		return
 	# 空闲：无承诺梭且火控未开
 	if ac._gun_burst_rounds_left <= 0 and not ac.is_firing:
 		return
 	if ac._fire_cooldown > 0.0:
 		return
 
-	var gun: GunParams = ac.params.gun
 	var base_interval: float = 60.0 / maxf(gun.fire_rate, 1.0)
 	var intra: float = maxf(base_interval * GUN_BURST_DUTY, GUN_BURST_MIN_INTRA)
 
 	# 梭起始：装填弹数 + 摇一次梭级瞄准误差（仅玩家，skill=0 → ±5° / skill=1 → ±0.5°）
 	if ac._gun_burst_rounds_left <= 0:
+		# 有显式战斗目标时优先锁它；无点名目标则锁存 3Hz 自动扫描选中的实例。
+		if ac.gunship_mode_active and ac._auto_gun_target_id != 0:
+			ac._gun_burst_target_id = ac._auto_gun_target_id
+		elif ac.combat_target != null and is_instance_valid(ac.combat_target) \
+				and not ac.combat_target.is_destroyed:
+			ac._gun_burst_target_id = ac.combat_target.get_instance_id()
+		else:
+			ac._gun_burst_target_id = ac._auto_gun_target_id
 		ac._gun_burst_rounds_left = maxi(gun.burst_count, 1)
+		if not _refresh_committed_gun_aim(ac, gun):
+			ac.is_firing = false
+			ac._gun_burst_rounds_left = 0
+			ac._gun_burst_target_id = 0
+			return
 		if ac.team == CombatUnit.TEAM_HOSTILE:
 			ac._ai_gun_pause_timer = Aircraft.AI_GUN_PAUSE_DURATION
 		if ac.gun_aim_error_enabled:
@@ -347,6 +443,7 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 			# 梭间 CD：按平均射速守恒（burst_count × base_interval 的剩余额度）
 			ac._fire_cooldown = maxf(float(maxi(gun.burst_count, 1)) * (base_interval - intra), 0.0) \
 			* ac.weapon_master_cd_mult   # 武器大师（720 批 T4）
+			ac._gun_burst_target_id = 0
 
 ## [GUN_BURST] 梭起始诊断快照（节流 0.5s；仅友方 team 0 / 选中机，敌机静默防刷屏）。
 ## 补可观测性缺口（2026-07-07 追"僚机对空放枪"）：打空的梭在 [GUN]（仅命中记录）/
@@ -360,7 +457,10 @@ static func _log_burst_start(ac: Aircraft, gun: GunParams) -> void:
 		return
 	ac._gun_burst_log_until = now_s + 0.5
 	var tgt_name := "none"
-	if ac.combat_target != null and is_instance_valid(ac.combat_target):
+	var committed_target := _gun_target_from_id(ac._gun_burst_target_id)
+	if committed_target != null:
+		tgt_name = ac._log_unit_name(committed_target)
+	elif ac.combat_target != null and is_instance_valid(ac.combat_target):
 		tgt_name = ac._log_unit_name(ac.combat_target)
 	var lead_off_deg: int = int(rad_to_deg(ac._angle_diff(ac._gun_lead_heading, ac.heading)))
 	# 最近敌机距离（米）：全场 O(N) 扫一次，≤2Hz 且仅开火中友方触发，量级可忽略
@@ -403,10 +503,13 @@ static func _fire_gun_round(ac: Aircraft, gun: GunParams) -> void:
 					tgt_bank_penalty_deg = clampf((t_bank - 60.0) / 30.0, 0.0, 1.0) * 1.5
 			maneuver_err_rad = deg_to_rad(bank_penalty_deg + tgt_bank_penalty_deg) * randf_range(-1.0, 1.0)
 		var bullet_dir := ac._gun_lead_heading + ac._gun_aim_offset_rad + maneuver_err_rad + randf_range(-spread_rad, spread_rad)
-		var muzzle_pos := ac.global_position + Vector2(sin(ac.heading), -cos(ac.heading)) * 20.0
+		# 固定机炮从机鼻出膛；炮艇炮塔的炮口与双管基线跟随实际射向旋转，
+		# 否则侧后射击仍会先从机鼻吐弹再折返，视觉上像正面盲射。
+		var muzzle_heading: float = ac._gun_lead_heading if ac.gunship_mode_active else ac.heading
+		var muzzle_pos := ac.global_position + Vector2(sin(muzzle_heading), -cos(muzzle_heading)) * 20.0
 		# 机炮吊舱（720 批 rework）：两道翼挂朝前齐射，替代旧"机头 + 左右 15°"三道扇形
 		if ac.gun_extra_barrels >= 2:
-			var wing_off := Vector2(cos(ac.heading), sin(ac.heading)) * 14.0
+			var wing_off := Vector2(cos(muzzle_heading), sin(muzzle_heading)) * 14.0
 			var dir_r2 := ac._gun_lead_heading + ac._gun_aim_offset_rad + maneuver_err_rad + randf_range(-spread_rad, spread_rad)
 			ac.bullet_manager.spawn_bullet(muzzle_pos + wing_off, bullet_dir, gun.muzzle_velocity, ac, gun.bullet_damage, false, false, gun.lifetime)
 			ac.bullet_manager.spawn_bullet(muzzle_pos - wing_off, dir_r2, gun.muzzle_velocity, ac, gun.bullet_damage, false, false, gun.lifetime)
@@ -444,7 +547,8 @@ static func update_ciws(ac: Aircraft, delta: float) -> void:
 
 	var gun: GunParams = ac.params.gun
 	var range_px := gun.max_range * CombatUnit.PIXELS_PER_METER
-	var cone_rad := deg_to_rad(gun.fire_cone_half_angle)
+	# 近防炮始终是独立的机头正面防御通道；炮艇/X-44/瞄准辅助只扩普通机炮射界。
+	var cone_rad := deg_to_rad(AIRCRAFT_CIWS_CONE_HALF_ANGLE_DEG)
 	var my_fwd := Vector2(sin(ac.heading), -cos(ac.heading))
 
 	# 找正面锥内最近的来袭导弹
@@ -491,6 +595,15 @@ static func update_ciws(ac: Aircraft, delta: float) -> void:
 	var bullet_dir := fire_heading + randf_range(-spread_rad, spread_rad)
 	var muzzle_pos := ac.global_position + Vector2(sin(ac.heading), -cos(ac.heading)) * 20.0
 	ac.bullet_manager.spawn_bullet(muzzle_pos, bullet_dir, gun.muzzle_velocity, ac, gun.bullet_damage, true)
+	if ac.is_player_squad() or ac.selected:
+		var now_s: float = Time.get_ticks_msec() / 1000.0
+		if now_s >= ac._ciws_fire_log_until:
+			ac._ciws_fire_log_until = now_s + 0.5
+			EventLogger.log_event("CIWS_FIRE", ac._log_name(),
+				"tgt=%s off=%d° dist=%dm" % [
+					best_missile.name,
+					int(rad_to_deg(ac._angle_diff(fire_heading, ac.heading))),
+					int(best_dist / CombatUnit.PIXELS_PER_METER)])
 	ac.ammo -= 1
 	ac.ammo = maxi(ac.ammo, 0)
 	if ac.enable_gun_reload and ac.ammo <= 0 and not ac._gun_reload_active:
@@ -758,7 +871,7 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 
 	# 导弹装填系统（生存模式）
 	if ac.enable_missile_reload and ac._missile_reload_active:
-		ac._missile_reload_timer += delta
+		ac._missile_reload_timer += delta * ac.esm_reload_rate_multiplier()
 		# 侩子手：装填时间 ×0.92/层，5 层 ≈ ×0.66
 		var eff_reload: float = ac.missile_reload_duration * ac._executioner_reload_mult()
 		ac.missile_reload_progress = clampf(ac._missile_reload_timer / eff_reload, 0.0, 1.0)
@@ -1189,7 +1302,7 @@ static func _overload_ammo_free(ac: Aircraft) -> bool:
 	return int(stacks.get(SkillHooks.SKILL_OVERLOAD_EXTENDED_AMMO, 0)) > 0
 
 
-## 空中漂浮雷：规避模式下 CD 完毕自动在机身周围投下若干颗
+## 空中漂浮雷：加力窗口中 CD 完毕自动在机身周围投下若干颗
 ## 投下后留在原地缓慢漂移 + 缓降，不追踪，敌人靠近自爆 AOE
 ## 不需要装填弹药，CD 持续倒数（不论是否在规避模式），但只在规避模式下才会触发投放
 static func update_torpedo(ac: Aircraft, delta: float) -> void:
@@ -1200,8 +1313,8 @@ static func update_torpedo(ac: Aircraft, delta: float) -> void:
 	# 冷却持续倒数（不在规避模式时也减，但不会发射 → 进入规避瞬间不会立刻获得免费一发）
 	ac._torpedo_cooldown = maxf(ac._torpedo_cooldown - delta, 0.0)
 
-	# 仅在规避模式下投放
-	if not ac.evasion_mode:
+	# 仅在加力窗口中投放
+	if not ac.afterburner_window_active:
 		return
 	if ac._torpedo_cooldown > 0.0:
 		return
@@ -1224,7 +1337,7 @@ static func update_torpedo(ac: Aircraft, delta: float) -> void:
 	ac._torpedo_cooldown = tp.cooldown
 
 
-## 忠诚僚机无人机：规避模式下 CD 完毕从机尾释放一架伴飞 drone
+## 忠诚僚机无人机：独立 20s 周期从机尾释放一架伴飞 drone
 ## drone 是真正的 Aircraft 实例（带 simple_ai + orbit_squad_leader + shield_leader + chase_leader_target）
 ## 共享导弹自爆拦截能力（来自 shield_leader），无需新增 kamikaze 逻辑
 ## 同源同屏 cap：max_simultaneous（默认 2）— 与漂浮雷的 21 cap 同设计哲学
@@ -1262,9 +1375,7 @@ static func update_loyal_wingman(ac: Aircraft, delta: float) -> void:
 	# 冷却持续倒数（即使不在规避模式 — 进规避瞬间不送免费一发）
 	ac._loyal_wingman_cooldown = maxf(ac._loyal_wingman_cooldown - delta, 0.0)
 
-	# 早退：不在规避模式 / CD 未到 / 已达 cap / JAM 干扰
-	if not ac.evasion_mode:
-		return
+	# 早退：CD 未到 / 已达 cap / JAM 干扰
 	if ac._loyal_wingman_cooldown > 0.0:
 		return
 	if ac._alive_drones.size() >= lw.max_simultaneous:
@@ -1474,7 +1585,7 @@ static func update_secondary_missile(ac: Aircraft, delta: float) -> void:
 
 	# 装填（独立计时器，与主弹无关）
 	if ac._secondary_reload_active:
-		ac._secondary_reload_timer += delta
+		ac._secondary_reload_timer += delta * ac.esm_reload_rate_multiplier()
 		# 简化：reload 时长 = cooldown × max_count（一波弹一起补满）
 		var reload_dur: float = sec.cooldown * float(maxi(sec.max_count, 1))
 		if ac._secondary_reload_timer >= reload_dur:

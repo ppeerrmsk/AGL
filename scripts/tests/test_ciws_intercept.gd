@@ -1,6 +1,6 @@
 extends RefCounted
 
-## 航母 CIWS 真实弹道 bench：直接驱动 NavalWeapons + BulletManager 的现役子弹、
+## 敌方航母 BOSS CIWS 真实弹道 bench：直接驱动 NavalWeapons + BulletManager 的现役子弹、
 ## 散布、12px 碰撞半径、距离衰减与四挂点独占目标逻辑；导弹按各型号最大速度正向直飞。
 ## 运行：godot --headless --path . -- --bench=ciws_intercept
 
@@ -14,7 +14,7 @@ var _fail := 0
 
 
 func run() -> void:
-	print("\n════════ 航母 CIWS 真实弹道审计 ════════")
+	print("\n════════ 航母 BOSS CIWS 真实弹道审计 ════════")
 	_check("四座 CIWS", _ciws_mount_count() == 4, "count=%d" % _ciws_mount_count())
 	_check("获取距离 1400px", is_equal_approx(NavalWeapons.CIWS_INTERCEPT_RANGE_PX, 1400.0), "")
 	_check("真弹周期 2", NavalWeapons.CIWS_REAL_BULLET_CYCLE == 2, "")
@@ -49,10 +49,12 @@ func run() -> void:
 			100.0 * float(total_penetrated) / float(salvo_size * SALVO_TRIALS)])
 		_check("V4 ×%d 全部结算" % salvo_size,
 			total_intercepted + total_penetrated == salvo_size * SALVO_TRIALS, "")
-	_check("5 枚齐射可穿透四挂点并发", int(penetration_by_size[5]) > 0,
-		"penetrated=%d" % int(penetration_by_size[5]))
-	_check("8 枚齐射穿透不少于 4 枚齐射", int(penetration_by_size[8]) >= int(penetration_by_size[4]),
-		"p4=%d p8=%d" % [int(penetration_by_size[4]), int(penetration_by_size[8])])
+	var p5: int = int(penetration_by_size[5])
+	var p8: int = int(penetration_by_size[8])
+	_check("5 枚齐射拦截率不低于 90%", p5 <= int(5 * SALVO_TRIALS * 0.10),
+		"intercepted=%d/%d" % [5 * SALVO_TRIALS - p5, 5 * SALVO_TRIALS])
+	_check("8 枚齐射拦截率不低于 80%", p8 <= int(8 * SALVO_TRIALS * 0.20),
+		"intercepted=%d/%d" % [8 * SALVO_TRIALS - p8, 8 * SALVO_TRIALS])
 
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
@@ -61,11 +63,10 @@ func run() -> void:
 func _simulate(version: int, salvo_size: int, rng_seed: int) -> Dictionary:
 	seed(rng_seed)
 	var params: NavalParams = load("res://resources/naval/carrier_cv.tres").duplicate(true)
-	params.default_team = CombatUnit.TEAM_ALLY
-	params.hull_hp_max = 300.0
+	params.default_team = CombatUnit.TEAM_HOSTILE
 	var ship := NavalUnit.new()
 	ship.params = params
-	ship.team = CombatUnit.TEAM_ALLY
+	ship.team = CombatUnit.TEAM_HOSTILE
 	ship.altitude = 5000.0  # bench 中跳过 BuildingRenderer 查询；不影响 CIWS 空间弹道
 	ship.global_position = Vector2.ZERO
 	for cfg in params.mount_configs:
@@ -87,7 +88,7 @@ func _simulate(version: int, salvo_size: int, rng_seed: int) -> Dictionary:
 	for i in range(salvo_size):
 		var m := Missile.new()
 		m.params = missile_params
-		m.team = CombatUnit.TEAM_HOSTILE
+		m.team = CombatUnit.TEAM_PLAYER
 		m.target = ship
 		var x := (float(i) - float(salvo_size - 1) * 0.5) * 30.0
 		m.global_position = Vector2(x, -START_RANGE_PX)

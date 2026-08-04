@@ -804,7 +804,7 @@ func _update_status_panel() -> void:
 				var stk: int = ac.executioner_stacks
 				var max_st: int = Aircraft.EXECUTIONER_MAX_STACKS
 				var stk_color: String = "ffcc44" if stk > 0 else "666666"
-				level_dots = "[color=#%s]★ %d/%d[/color]" % [stk_color, stk, max_st]
+				level_dots = "[color=#%s]%d/%d[/color]" % [stk_color, stk, max_st]
 				# 进度提示：距下一层还差几杀（满层时不显示）
 				if stk < max_st:
 					var need: int = stk + Aircraft.EXECUTIONER_FIRST_STACK_KILLS - ac.executioner_kills
@@ -812,7 +812,7 @@ func _update_status_panel() -> void:
 						need = 1
 					level_dots += "[color=#666] (+%d)[/color]" % need
 			elif is_evolved:
-				level_dots = "[color=#ffcc44]★[/color]"
+				level_dots = "[color=#ffcc44]%s[/color]" % tr("ZONE_REWARD_TAG")
 			else:
 				for i in range(max_s):
 					if i < count:

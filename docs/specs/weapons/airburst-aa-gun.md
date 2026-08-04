@@ -1,9 +1,9 @@
 ---
 id: airburst-aa-gun
 kind: weapon
-status: in-progress
+status: approved
 schema_version: 1
-spec_version: 3
+spec_version: 4
 owner: 用户 + Codex
 depends_on: [aa-fire-awareness, battlefield-visual-scale]
 reconstruction_complete: true
@@ -63,6 +63,21 @@ reconstruction_complete: true
 
 样例：目标距 3000m → 共享横向误差上限 370m，大于 220m AOE 半径；因此不少炮组会完整落空，这正是“范围牵制而非完美贴炸”。
 
+### 2.4 DDG 舰载型
+
+| 字段 | 值 | 说明 |
+|---|---:|---|
+| 装载舰种 | DDG | 只接入驱逐舰，不扩散到 CV / CG / FFG / SS |
+| 挂点替换 | 右舷 CIWS → 1 门 Flak | DDG 总挂点仍为 4：2×VLS + 1×CIWS + 1×Flak |
+| 挂点 HP | 30 | 与被替换 CIWS 相同，不改变弱点预算 |
+| 最小 / 最大射程 | 800m / 5000m | 与陆基型相同 |
+| 目标捕获间隔 | 0.5s | 仅在无炮组且组冷却结束时扫描最近敌对 Aircraft |
+| 炮组 | 3 发，间隔 0.25s | 与陆基型共用同一冻结火控解 |
+| 组间冷却 | 6.0s | 舰载型专属；低于陆基型频率，避免两艘 DDG 铺满空域 |
+| 炮弹 / AOE / 误差 | 完全复用 §2.2–§2.3 | 450m/s、220m/75、7°/1.5° 偏角上限 |
+| 弹药 | 不耗尽 | 舰船其它挂点同样不做局内弹药库存 |
+| 导弹拦截 | 无 | 被替换 CIWS 的拦截能力真实消失，不允许 Flak 误伤 Missile |
+
 ## 3. 行为与公式（How）
 
 ### 3.1 开火解
@@ -97,11 +112,24 @@ shell_heading = bearing(gun_pos, burst_aim_pos + clamp(per_shell_lateral_jitter,
 - 视觉不是向外扩散的蓝色同心圆：爆炸当刻显示白橙爆心与放射碎线，随后留下不规则黑灰烟团；220m AOE 只用 0.22s 断续橙色危险圈提示一次。
 - 炮弹飞出世界安全边界 500px 后静默回收，不在地图外生成爆炸云。
 
+### 3.4 DDG 舰载状态机
+
+```text
+READY ──每 0.5s 捕获最近 800–5000m 敌机──> BURST
+BURST ──冻结一份 §3.1 解，立即发首弹，再以 0.25s 发余下两弹──> COOLDOWN
+COOLDOWN ──6.0s 从炮组开始时计时──> READY
+```
+
+- 舰载挂点没有独立追踪节点；全向炮座在捕获时直接冻结预瞄解，舰体后续转向不改变已出膛炮弹。
+- `JAM`、演出期 `combat_disabled`、挂点击毁均阻断开火；已经出膛的炮弹继续按原引信结算。
+- 同一 DDG 的剩余 CIWS 继续负责导弹拦截与近距扫射；Flak 不参与 CIWS 的导弹独占目标分配。
+
 ## 4. 结构与组成（Structure）
 
 - `AirburstAAUnit extends AAGunUnit`：独立炮塔、选目标、三连发状态机，并保有空爆参数常量。
 - `GunParams`：承载 UI/公共防空射程和弹药库字段；空爆专属误差、引信和 AOE 数值由单位脚本常量承载。
 - `BulletManager`：独立空爆炮弹数组、集中更新、空间网格 AOE 查询、批量绘制。
+- `NavalWeapons` + `WeaponMount`：舰载 Flak 复用同一火控采样函数与 BulletManager 管线；挂点只保存炮组剩余数、组内计时、冻结解和 burst id。
 - 场景与资源：空爆炮拥有与 ZU-23 可区分的大口径长炮管/四脚底座轮廓。
 - 生成接入：作为地面驻防池中的独立类型和 debug 入口；是否进入各战区数量表由本 spec 批准后在实现阶段按现有驻防预算接线，不替换所有 ZU-23。
 
@@ -110,15 +138,19 @@ shell_heading = bearing(gun_pos, burst_aim_pos + clamp(per_shell_lateral_jitter,
 - 普通地面战区：至多 1 门空爆炮；与 1 个现有 AA 槽互斥替换，不额外增加总 TGT 数。
 - 机场解放前敌军驻防：三星机场的 2 门 AA 中，最多 1 门替换为空爆炮；一、二星不出现。
 - 友军解放后防空：默认仍用 ZU-23，不免费获得空爆炮。
+- DDG：右舷 CIWS 原位替换为 Flak；不新增第五挂点。该配置对使用同一 `destroyer_ddg` 参数的敌方 DDG 生效。
 
 ## 5. 验收标准（Acceptance / Litmus）
 
 - [ ] 炮弹从炮口可见飞行，1–12s 后才在当前位置转为空爆；不是发射当帧直接画圆。
-- [ ] 3000m 匀速横穿目标的统计射击中，必须同时出现“整组落空”和“至少一发覆盖目标”，不能全部贴身爆；所有炮弹相对冻结预瞄方位的随机偏角 ≤8.6°。
+- [x] 3000m 匀速横穿目标的统计射击中，必须同时出现“整组落空”和“至少一发覆盖目标”，不能全部贴身爆；所有炮弹相对冻结预瞄方位的随机偏角 ≤8.6°。
 - [ ] 目标在发射后急转/悬停，炮弹继续沿旧解飞行并在旧引信时刻爆炸。
 - [ ] AOE 只伤敌对 Aircraft；同阵营飞机、GroundUnit、NavalUnit、Missile 均不受伤。
 - [ ] 半径内普通 75HP 飞机一次爆炸即死；半径外 1px 不受伤，无持续云伤害。
 - [ ] 普通战区最多一门且替换现有 AA 槽，总 TGT/Token 压力不膨胀。
+- [x] DDG 资源固定为 2×VLS + 1×CIWS + 1×Flak；总挂点仍为 4，Flak HP=30。
+- [x] 舰载 Flak 首弹立即、后两弹间隔 0.25s，炮组起始后 6.0s 内不得开始下一组。
+- [x] 舰载 Flak 只伤敌对 Aircraft、不拦导弹；剩余单座 CIWS 仍可独立拦截来袭导弹。
 - [ ] 无头测试覆盖误差共享、引信冻结、阵营/类型过滤、边界回收；加入 `--bench=all`。
 - [ ] 性能：目标选择 2Hz；炮弹 O(shells)；爆炸用 UnitGrid；Sentinel + Lv5+ 不低于 60 FPS。
 - [ ] i18n：单位名/任务文本三语齐全；EventLogger 可用英文内部标签。
@@ -137,6 +169,11 @@ shell_heading = bearing(gun_pos, burst_aim_pos + clamp(per_shell_lateral_jitter,
 - [x] 新增 airburst AA 专项 bench，覆盖引信数据契约、AOE 尺寸与组射 ID。
 - [ ] Godot 4.7 实机观察 10 组散布与压力帧率。
 
+### 阶段 4 — DDG 舰载化
+- [x] 新增 `NAVAL_FLAK` 挂点类型和舰载炮组状态，复用地面版火控采样与空爆管线。
+- [x] 右舷 CIWS 资源原位替换为 Flak，补舰体符号与 hover 射程圈。
+- [x] 扩展专项 bench，覆盖 DDG 挂点构成、首组实弹、6s 冷却与不拦导弹契约。
+
 ## 7. 索引锚点（Where）
 
 | 关注点 | 文件 |
@@ -145,6 +182,7 @@ shell_heading = bearing(gun_pos, burst_aim_pos + clamp(per_shell_lateral_jitter,
 | 公共火炮参数 | `resources/airburst_aa_gun.tres` |
 | 炮弹与 AOE | `scripts/bullet_manager.gd` |
 | 场景/单位参数 | `scenes/airburst_aa_unit.tscn` · `resources/airburst_aa_params.tres` |
+| DDG 舰载挂点 | `scripts/naval/naval_weapons.gd` · `scripts/naval/weapon_mount.gd` · `resources/naval/destroyer_ddg.tres` |
 | 回归 | `scripts/tests/test_bomber_rotor_airburst.gd` |
 
 ## 8. 变更记录
@@ -154,3 +192,4 @@ shell_heading = bearing(gun_pos, burst_aim_pos + clamp(per_shell_lateral_jitter,
 | 2026-08-01 | 1 | 初稿：5000m 远距三连发空爆炮；450m/s、220m/75 AOE、组级横向/引信误差，强调范围牵制而非必中。 |
 | 2026-08-01 | 2 | 实现冻结预测解、共享误差三连发、定时空爆和只伤敌对 Aircraft 的单次 AOE；普通战区/三星机场按预算替换现有 AA 槽；专项 bench 已通过。 |
 | 2026-08-03 | 3 | 按实机反馈修正表现：共享/单发随机偏角分别封顶 7°/1.5°，保证炮弹明显朝冻结预瞄空域飞；蓝色同心水波改为白橙放射爆心、短暂断续危险圈与黑灰烟团；专项 bench 增加 240 组实际弹道命中率审计。 |
+| 2026-08-04 | 4 | 用户批准并完成 DDG 舰载化：右舷 CIWS 原位替换为一门 Flak，总挂点保持 4；弹道/AOE/误差复用陆基型，舰载组间冷却 6s，且明确失去该 CIWS 的导弹拦截能力；专项 bench 22/22。 |

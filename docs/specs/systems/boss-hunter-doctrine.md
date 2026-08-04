@@ -3,7 +3,7 @@ id: boss-hunter-doctrine
 kind: system
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 4
+spec_version: 5
 owner: 用户（设计定档） / Claude（落地）
 depends_on: [ace-squadron-tier, event-system, global-awareness-roe, wraith-squadron]
 reconstruction_complete: true
@@ -134,8 +134,13 @@ Wraith / Poltergeist 的专属战术。飞机类 BOSS 因此必须由 `AceSquad`
 | 触发距离 | 距世界边缘 ≤ **2000 px** | 提前留出高速转弯空间，不等机体已经飞进黑区 |
 | 返场解除 / 目标 | 到距边缘 **3000 px** 解除；目标点放在 **3500 px** | 目标比解除线深 500 px，保证在 `arrival_radius=300 px` 抵达判定前先释放；走 `AIDirective.fly_to` 真实转弯，不回 BOSS 锚点 |
 | 返场火控 | 保持可交战 | 收容只改导航，不给玩家免费安全窗 |
-| 越线兜底 | 钳回边内 **40 px**，清尾迹并把航向指向返场点 | 只在预测转弯仍失败时触发，保证画面中绝不长期留在地图外 |
+| 物理硬护栏 | 距边缘 ≤ **40 px**（尚未越线也算）即钳到边内 40 px，清尾迹并把航向指向返场点 | 不等越线后补救；40 px 大于单物理帧最大位移，保证渲染帧里也不会进入边界外黑区 |
 | 战术协调 | 收容期间暂停专属队级战术；所有已触发收容的成员回到 3000 px 安全带后重启战术层 | 防边界指令与 Relay Break / Wraith 相位指令互相抢写；未触边成员仍跑常规 BFM |
+
+边界所有权分两层，缺一不可：`AceSquad` 持有 **2000→3500 px 的软导航返场**，让飞机按真实转弯
+主动回场；`SurvivorSpawner._update_boundary_discipline()` 持有 `category="boss"` 的 **40 px 物理硬护栏**，
+且不依赖玩家引用或 encounter 是否正在 tick。全局层只修位置/航向，不覆写 BOSS directive、目标、
+火控或战术状态，因此不会把猎手重新变成普通 PATROL 敌机。
 
 这不是被本 spec 删除的 `ANCHOR_HOLD`：判据只看固定的世界外框，不看 BOSS 锚点，也不因玩家
 跑远而脱战。玩家在地图内任何位置，BOSS 仍持续追击；只有即将离开可玩空间时才短暂向内转场。
@@ -387,12 +392,13 @@ BOSS 又整体豁免于 ROE —— 为 BOSS 单独引一套姿态字段是纯粹
 
 ### 阶段 3 — encounter 层
 - [x] `AceSquad` 删 `ANCHOR_HOLD`（枚举 / 转移 / enter / exit / 两个常量）
-- [x] `AceSquad` 自管世界边缘：2000 px 触发、3000 px 返场、越线钳回 40 px；不恢复锚点 leash
+- [x] `AceSquad` 自管世界边缘：2000 px 触发、3000 px 返场；不恢复锚点 leash
+- [x] `SurvivorSpawner` 提供独立于玩家/encounter 的 BOSS 40 px 物理硬护栏；尚未越线即钳回
 - [x] `MotherGooseBoss` 巡逻环圆心改玩家实时位置 + 2s 刷新（位移 < 800px 不重下航点）
 - [x] `CarrierStrikeGroup` F/A-18 弹射即指派玩家目标（`acquire_target(TS_BOSS)`）
 
 ### 阶段 4 — 收尾
-- [x] 无头断言 `--bench=boss_hunter`（60 项，含 PURSUE_UNIT 执行分支：节流 / 无抵达态 / 目标失效自动释放）
+- [x] 无头断言 `--bench=boss_hunter`（117 项，含 PURSUE_UNIT 执行分支、世界边缘软收容/物理硬护栏、队级战术）
 - [x] 跑 `--bench=all` 回归门（33 项 PASS）
 - [x] 更新 §7 锚点 + 同步 reference 索引 + `_INDEX.md`
 - [x] 跑 `python tools/verify_doc_anchors.py` 与 `verify_player_ref_holders.py`
@@ -407,6 +413,7 @@ BOSS 又整体豁免于 ROE —— 为 BOSS 单独引一套姿态字段是纯粹
 | 相位机 / 登场演出收尾接战 / 猎手出生点 / BOSS 圈同步 | `scripts/events/boss_encounter_event.gd` |
 | 玩家引用重定向基类契约 `set_player_ref` | `scripts/survivor/boss_encounter.gd` |
 | 队级状态机（无归巢态）+ 角色 | `scripts/survivor/ace_squad.gd` |
+| BOSS 世界边界物理硬护栏 | `scripts/survivor/survivor_spawner.gd` |
 | 母舰巡逻环跟随玩家 | `scripts/survivor/mother_goose_boss.gd` |
 | 母舰玩家引用链下游 | `scripts/survivor/mother_goose_controller.gd`、`scripts/ai/swarm/swarm_director.gd` |
 | CSG 舰载机目标指派 + 舰队摆位地形校验（§2.5.1a） | `scripts/survivor/carrier_strike_group.gd` |
@@ -419,6 +426,7 @@ BOSS 又整体豁免于 ROE —— 为 BOSS 单独引一套姿态字段是纯粹
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-04 | 5 | **用户裁定 BOSS 绝不允许飞出边界**：现有 `AceSquad` 软返场仍可能因 encounter tick/指令所有权/物理更新顺序失守。把 40 px 兜底从“越线后补救”升级为“触线前硬护栏”，并在 `SurvivorSpawner` 增加不依赖玩家引用与 encounter 状态的第二所有者；只钳位置/航向，不覆写 BOSS 战术与火控。 |
 | 2026-08-01 | 4 | **修复飞机类 BOSS 出界**：全局边界纪律为保护专属战术会跳过 boss，但 `AceSquad` 原无对等收容，导致 LADON 二阶段 PLTGST-01 实际飞进地图左侧黑区。新增基类级世界边缘收容（2000 px 预警、3000 px 内侧返场、越线 40 px 硬兜底），明确它只守世界矩形、不是被废除的锚点 leash。 |
 | 2026-07-22 | 1 | 初稿并定档。用户裁定：取消"BOSS 飞到圈里等玩家"的概念，全 BOSS 王牌机改猎手型（知道玩家位置 + 主动追击）。由 playtest log 20260722_005100 驱动（BOSS 锚点空转 47.6s、玩家 10km 外白嫖、苏醒 3s 内长机阵亡）。核心四条：INBOUND 相追玩家实时位置 / 接战触发器扩到四条（+被锁定 +受伤）/ 废除 ANCHOR_HOLD 归巢 / 出生点从"最远地图角"改"机头前方 12km"。舰船不猎手（物理不可行），CSG 猎手性由舰载机承担 |
 | 2026-07-28 | 2 | **CSG 摆位与承伤（§2.5.1，暂寄本 spec —— CSG 尚无独立 spec）**：①**舰队摆位地形校验**——锚点吸水只保证圆心在水上，而舰队 bbox ≈1950×2200 px、航母还沿航向巡逻 ±1500 px，靠岸锚点会把护卫舰刷到陆地上（此前零校验）；现按"候选朝向 45° 步长 × 5 个锚点偏移"打分（数航母巡逻两端 + 10 个护卫位有几个在陆地），取落地点最少的一组、找到全水面解立即采用，结果写日志、仍有落地点则告警。②**电磁炮对同一艘舰重复结算已修**——船体与挂点/弱点代理同时在单位表且代理转发伤害，一发能打出最高 5×150=750（"航母被一炮秒"的真正来源）；现按母舰归并只取沿弹道最前的命中点，一发一舰只结算一次。**航母 HP 保持 1200 不变**（用户拍板：修穿排不改血量）。③附：CIWS 真弹周期 3→2（拦截 DPS ×1.5）记在 [aa-fire-awareness §2.1](aa-fire-awareness.md) |

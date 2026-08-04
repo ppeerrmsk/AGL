@@ -1,6 +1,6 @@
 # 已实现功能清单
 
-> 最后校订：2026-07-26。本文回答"**这个游戏现在有什么**"，是给人看的粗粒度盘点。
+> 最后校订：2026-08-04。本文回答"**这个游戏现在有什么**"，是给人看的粗粒度盘点。
 >
 > - 想知道**数值/公式/为什么** → [docs/specs/](../specs/_INDEX.md)（权威源）
 > - 想知道**代码在哪** → [script-index.md](script-index.md) / [code-index.md](code-index.md)
@@ -15,7 +15,7 @@
 
 - **RTS 点选操控**：左键点空地 → 飞向该点；左键点敌机 → 设为战斗目标并自动交战；右键取消
 - **玩家命令铁律**：玩家点名的 `commanded_target` AI 绝不覆盖，逐机持久、跨切控保留
-- **切控**：数字键 1-4 接管小队任意一号机（`squad_slot` 稳定），被接管机的 AI 休眠，原操控机交还 AI
+- **切控**：数字键 1–9 接管小队对应号机（`squad_slot` 稳定），被接管机的 AI 休眠，原操控机交还 AI
 - **换帅**：`set_leader` 切换长机
 - **命令轮盘**（按住左键拖拽呼出 marking menu，带子弹时间）
   - 小队轮盘（按空地）：紧急集合 / 撤离此区 / 防守此区 + 三个开关（自动交战 / 高度偏好 / 自动发射）
@@ -84,7 +84,7 @@
 ## AI
 
 - 状态机 `AIState { PATROL, ENGAGE, SQUAD_FOLLOW }` + 导弹规避子行为
-- **TacticalPlanner**（P4 重构）：玩家 / 僚机 / 全部敌机走统一决策路径，输出 intent
+- **TacticalPlanner**：玩家 / 僚机 / 全部敌机走统一决策路径，输出 intent
 - BFM 战术族：lead/lag pursuit、lead turn、high/low yoyo、破 S、boom-zoom、overshoot 处理
 - 行为原语：攻击跑（joust）/ 对面攻击 pass / 慢速空中目标 pass / 圈外切入
 - AI 原型预设（内部词汇，**不对玩家暴露**）：Gladiator / Lancer / Schemer / Adds
@@ -121,10 +121,10 @@
 - **停靠结算**：飞到停靠点减速着陆 → 领奖励 / 换机进化 / 全队满血
 - **进化树**：41 节点宝可梦式机型进化（T1 起手四选一 → T5 原创超凡），带 LV + 三轴属性双门槛
 - **三轴卡片制**：每升 3 级三选一（斗士 / 骑士 / 策士各一张），选卡 = 技能 + 该轴 1 点
-- **技能系统**：144 条技能表，含 41 条机型签名技（驾驶该机型才刷出，到手跟玩家走）
+- **技能系统**：当前自动生成表共 146 条，含 41 条机型签名技；签名技经生涯揭示/购买后进入每机每局一次的第四槽机会，到手跟玩家走
 - **局内武器库**：特殊武器到手即永久，换机 / 进化全继承
 - **局外功勋**（MeritLedger）：局内 XP 按系数折算，节制原则（局内 90% / 局外 10%）
-- 敌人谱 22+ 种（含直升机 / 轰炸机 / 无人机 / 舰载机 / 王牌中队）
+- 敌人谱已有 50+ 个 `EnemyType` 条目（含常规机、直升机、轰炸机、无人机、舰载机与王牌专属单位）
 - Token 预算刷怪 + 热度驱动的增援入场（边缘中队涌入 → 驻空 → 物理飞离）
 - 王牌中队分层（AceTier）：不吃 LOD / 无等级缩放 / 热诱弹即命数
 - BOSS：Mother Goose 飞行翼母舰 / WRAITH 中队 / POLTERGEIST 中队（CSG 二阶段）/ F-47
@@ -153,7 +153,7 @@
 - 手画东京湾地理，`is_on_land` 陆判 API
 - 战区分布 A–G，含机场解放战区（羽田 / 木更津 / 調布）
 - 天气系统：云层影响锁定与导弹制导
-- **地图编辑器**（UGC P1）：格子笔刷 + 矢量后端 + 9 图层，官方图一键转换
+- **地图编辑器核心**（UGC P1）：已有格子笔刷、矢量后端与官方图转换代码；完整产品化状态以 map-editor spec 为准
 
 权威源：[specs/systems/map-system](../specs/systems/map-system.md) ·
 [specs/systems/map-expansion](../specs/systems/map-expansion.md) ·
@@ -181,9 +181,9 @@
 
 - **EventLogger**：60 秒环形缓冲，F9 导出战斗日志
 - **无头 bench**：`--bench=<name>` 跑断言（转弯物理 / 战术几何 / 技能 / 回归门等），`--bench=all` 全跑
-- **文档校验**：`tools/verify_doc_anchors.py`（索引锚点）+ `tools/verify_player_ref_holders.py`（SEAM-019）
+- **文档校验**：`tools/verify_docs.ps1`（断链 + spec 结构）+ `tools/verify_doc_anchors.py`（代码锚点）+ `tools/verify_player_ref_holders.py`（SEAM-019）
 - **技能表生成**：`tools/dump_skill_table.py` 重刷 [skill-table.md](skill-table.md)
-- Debug：主菜单 B → BOSS 测试场（全机型 × 技能组合）；F11/F12 编队调试
+- Debug：F4 动态覆盖全技能表并可强制授予、可直挂全部门控装备（含 ESM）；F6 可逐项直发完整战区奖励并管理战区；主菜单 B → BOSS 测试场；F11/F12 编队调试
 
 ---
 

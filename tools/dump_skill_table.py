@@ -99,7 +99,7 @@ for e in entries:
 out = []
 out.append("# AGL 技能全表（%d 条）\n" % len(entries))
 out.append("> 自动生成自 `SurvivorData.UPGRADES` + i18n 中文；归属列直读数据字段（spec skills-720-rework §1.2 归属词汇 v6）\n")
-out.append("> ★ = 战区奖励池（不进随机抽卡）· 稀有度：稳定<先进<实验<机密<次世代 · +1 轴 = milestone_plus（里程碑进度，非门槛点）\n")
+out.append("> 获取渠道由数据字段与奖励表决定，不在技能名中使用星号 · 稀有度：稳定<先进<实验<机密<次世代 · +1 轴 = milestone_plus（里程碑进度，非门槛点）\n")
 for axis in ["斗士", "骑士", "策士"]:
     lst = by_axis[axis]
     out.append("\n## %s 轴（%d 条）\n" % (axis, len(lst)))
@@ -107,8 +107,6 @@ for axis in ["斗士", "骑士", "策士"]:
     out.append("|---|---|---|---|---|---|")
     for e in sorted(lst, key=lambda x: (scope(x) == "通用全队", x["id"])):
         nm = zh.get(e["name"], e["name"])
-        if e["evolved"]:
-            nm = "★" + nm
         d = zh.get(e["desc"], "").replace("|", "／")
         extra = ""
         if e["exclusive_to"]:

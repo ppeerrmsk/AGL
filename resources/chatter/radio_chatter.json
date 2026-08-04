@@ -60,6 +60,14 @@
         "RADIO_ACE_SPAWN_5"
       ]
     },
+    "whitetea_surrender": {
+      "_doc": "WhiteTea 最后一架投降离场；由幸存者本人使用真实呼号播报。",
+      "class": "scripted",
+      "weight": 95,
+      "lines": [
+        "RADIO_WHITETEA_SURRENDER_1"
+      ]
+    },
     "awacs_onstation": {
       "_doc": "预警机进入战区上空开始提供支援。玩家必须知道光环什么时候到位（否则只能靠 Tab 图自己发现），强制播出。",
       "class": "scripted",

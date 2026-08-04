@@ -628,14 +628,21 @@ func _spawn_sentinel_garrison(zone_id: StringName, zone: Dictionary) -> void:
 		% [zone_id, center, escort_count, _player_level(),
 		_zones.get_difficulty(zone_id) if _zones else 1])
 
-## 海上舰队 —— 按难度缩放编队组成
-##   1★ = 3 FFG 直线巡逻（第一艘 FFG = 旗舰）
-##   2★ = 1 DDG 旗舰 + 2 FFG 护卫，8 字轨迹
-##   3★ = 1 CG 旗舰 + 1 DDG + 2 FFG，圆周编队
-## 旗舰击毁 = 任务完成；护卫舰不是 TGT，攻克后自动撤离
+## 海上舰队 —— 按难度缩放编队组成；数量对齐空战任务的 4/5/6 个 TGT。
+##   1★ = 4 FFG
+##   2★ = 2 DDG + 3 FFG
+##   3★ = 1 CG + 2 DDG + 3 FFG
+## 安全方案实际保留的每艘船都是 TGT，必须全灭才完成任务。
 const _NAVAL_FLEET_DDG_PARAMS_PATH := "res://resources/naval/destroyer_ddg.tres"
 const _NAVAL_FLEET_FFG_PARAMS_PATH := "res://resources/naval/frigate_ffg.tres"
 const _NAVAL_FLEET_CG_PARAMS_PATH := "res://resources/naval/cruiser_cg.tres"
+
+## 编成表是舰型数量的代码 SSOT；首项为旗舰，其余项与 NAVAL_ESCORT_OFFSETS 同序。
+const NAVAL_FLEET_COMPOSITIONS: Dictionary = {
+	1: [&"FFG", &"FFG", &"FFG", &"FFG"],
+	2: [&"DDG", &"DDG", &"FFG", &"FFG", &"FFG"],
+	3: [&"CG", &"DDG", &"DDG", &"FFG", &"FFG", &"FFG"],
+}
 
 # ── 舰队几何（2026-07-28 重做：直线往返 → 恒定盘旋 + 水域校验）──
 ## 旧写法：旗舰沿 `center.x ± radius×0.7~0.85` 走东西直线、端点 180° U-turn，僚舰偏移最大 2600 px，
@@ -653,9 +660,10 @@ const NAVAL_PLACEMENT_NUDGE_RADII: Array = [900.0, 1800.0]
 ## 各难度的僚舰偏移（旗舰本地系：+X 船头 / +Y 右舷）
 ## 占地半径 = NAVAL_RING_RADIUS + max|offset|，必须 ≤ 战区可用水域半径
 const NAVAL_ESCORT_OFFSETS: Dictionary = {
-	1: [Vector2(-675, -975), Vector2(-675, 975)],                        ## 占地 900+1186 = 2086
-	2: [Vector2(-420, -1260), Vector2(-420, 1260)],                      ## 占地 900+1328 = 2228
-	3: [Vector2(1364, 0), Vector2(-620, -1488), Vector2(-620, 1488)],    ## 占地 900+1612 = 2512
+	1: [Vector2(-675, -975), Vector2(-675, 975), Vector2(-1250, 0)],
+	2: [Vector2(900, 0), Vector2(-420, -1260), Vector2(-420, 1260), Vector2(-1100, 0)],
+	3: [Vector2(850, -300), Vector2(850, 300), Vector2(-620, -1488),
+		Vector2(-620, 1488), Vector2(-1250, 0)],
 }
 
 func _spawn_naval_fleet(zone_id: StringName, zone: Dictionary) -> bool:
@@ -686,8 +694,7 @@ func _spawn_naval_fleet(zone_id: StringName, zone: Dictionary) -> bool:
 ## （见 changelog 2026-07-28 naval-formation-spin-fix）；而直线往返的航程 + 编队偏移
 ## 会把舰队甩出战区、开到陆地上（战区 E 实测 16% 采样点在岸上）。
 ##
-## 编成：1★ = 3 FFG / 2★ = DDG 旗舰 + 2 FFG / 3★ = CG 旗舰 + DDG 前哨 + 2 FFG 两翼
-## 旗舰击毁 = 任务完成；护卫舰不是 TGT，攻克后自动撤离
+## 编成由 NAVAL_FLEET_COMPOSITIONS 驱动；安全方案保留的全舰都是任务目标。
 func _spawn_naval_formation(zone_id: StringName, center: Vector2, difficulty: int,
 		ffg_params: Resource) -> bool:
 	var ddg_params: Resource = load(_NAVAL_FLEET_DDG_PARAMS_PATH)
@@ -696,21 +703,27 @@ func _spawn_naval_formation(zone_id: StringName, center: Vector2, difficulty: in
 		push_error("ZoneMission naval: missing DDG / CG params")
 		return false
 
-	var leader_cls = FrigateShip
-	var leader_params: Resource = ffg_params
-	var escort_cls: Array = [FrigateShip, FrigateShip]
-	var escort_params: Array = [ffg_params, ffg_params]
-	match difficulty:
-		2:
-			leader_cls = DestroyerShip
-			leader_params = ddg_params
-		3:
-			leader_cls = CruiserShip
-			leader_params = cg_params
-			escort_cls = [DestroyerShip, FrigateShip, FrigateShip]
-			escort_params = [ddg_params, ffg_params, ffg_params]
+	var composition: Array = NAVAL_FLEET_COMPOSITIONS.get(difficulty, NAVAL_FLEET_COMPOSITIONS[1])
+	var ship_classes: Array = []
+	var ship_params: Array[Resource] = []
+	for kind_any in composition:
+		var kind: StringName = kind_any
+		match kind:
+			&"CG":
+				ship_classes.append(CruiserShip)
+				ship_params.append(cg_params)
+			&"DDG":
+				ship_classes.append(DestroyerShip)
+				ship_params.append(ddg_params)
+			_:
+				ship_classes.append(FrigateShip)
+				ship_params.append(ffg_params)
 
 	var full_offsets: Array = NAVAL_ESCORT_OFFSETS.get(difficulty, NAVAL_ESCORT_OFFSETS[1])
+	if ship_classes.size() != full_offsets.size() + 1:
+		push_error("ZoneMission naval composition/offset mismatch: star=%d ships=%d offsets=%d"
+			% [difficulty, ship_classes.size(), full_offsets.size()])
+		return false
 	# 先完成全部水域计算，再实例化任何舰船：完整编成无解就逐艘移除最外侧护卫，
 	# 最终宁可单旗舰驻泊；连单舰都无解则返回 false，由调用方原子退化为空战。
 	var plan := safe_naval_plan(center, difficulty)
@@ -736,26 +749,36 @@ func _spawn_naval_formation(zone_id: StringName, center: Vector2, difficulty: in
 	var heading_deg: float = NAVAL_LEADER_HEADING_DEG
 	var leader_spawn: Vector2 = NavalPlacement.leader_pos(
 			ring_center, ring, deg_to_rad(heading_deg))
-	var leader: NavalUnit = _make_zone_ship(leader_cls.new(), leader_params, leader_spawn,
+	var leader: NavalUnit = _make_zone_ship(ship_classes[0].new(), ship_params[0], leader_spawn,
 			heading_deg, PackedVector2Array(), zone_id)
 	# ring = 0（窄水域降级）→ patrol 模式关闭，舰队原地驻泊
 	leader.patrol_center = ring_center if ring > 1.0 else Vector2.INF
 	leader.patrol_radius = ring
-	leader.is_mission_target = true
-	_spawned_zones[zone_id] = [leader]
 
 	var escort: Array = []
 	for local_i in range(kept_indices.size()):
 		var source_i: int = int(kept_indices[local_i])
 		var off: Vector2 = offsets[local_i]
 		var pos: Vector2 = _compute_formation_world_pos(leader, off)
-		var ship: NavalUnit = _make_zone_ship(escort_cls[source_i].new(), escort_params[source_i], pos,
+		var ship: NavalUnit = _make_zone_ship(ship_classes[source_i + 1].new(), ship_params[source_i + 1], pos,
 				heading_deg, PackedVector2Array(), zone_id)
 		ship.formation_leader = leader
 		ship.formation_offset = off
 		escort.append(ship)
-	_garrison_zones[zone_id] = escort
+	_spawned_zones[zone_id] = build_naval_target_roster(leader, escort)
 	return true
+
+## 安全方案实际生成的全舰登记为 TGT；集中成纯 helper，防止未来又退化成只登记旗舰。
+static func build_naval_target_roster(leader: NavalUnit, escorts: Array) -> Array:
+	var targets: Array = [leader]
+	leader.is_mission_target = true
+	for ship_any in escorts:
+		var ship := ship_any as NavalUnit
+		if ship == null:
+			continue
+		ship.is_mission_target = true
+		targets.append(ship)
+	return targets
 
 ## 对舰摆位纯规划：完整编成无全水解时，每轮移除轨道半径最大的护卫再试。
 ## 返回空字典 = 连单旗舰原地驻泊都没有安全位置，调用方必须零舰船 fallback。

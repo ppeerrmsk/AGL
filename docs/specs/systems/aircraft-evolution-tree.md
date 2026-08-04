@@ -169,7 +169,7 @@ reconstruction_complete: false
 | **X-90 天鲸 (Skywhale)** | 空中母舰超凡 | 自带无人僚机蜂群，RTS 指挥巅峰 |
 | **AX-00 织星者 (Starweaver)** | 全能传说顶点 | 融合诸系，多路线共同终极（最稀有） |
 
-> 想再加可继续往本表追加（保持"代号 + 角色 + 一句卖点"格式）。每个落地时走 [playable-aircraft-workflow](../../docs/reference/playable-aircraft-workflow.md)。
+> 想再加可继续往本表追加（保持"代号 + 角色 + 一句卖点"格式）。每个落地时走 [playable-aircraft-workflow](../../reference/playable-aircraft-workflow.md)。
 
 ## 4.9 结算站界面规格（信息呈现，用户反馈 2026-07-20）
 

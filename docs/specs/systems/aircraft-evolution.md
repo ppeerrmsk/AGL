@@ -1,15 +1,20 @@
 ---
 id: aircraft-evolution
 kind: system
-status: wip-design        # ⏳ 用户仍在细化设计中，会持续维护本文档；勿据此派生代码。见顶部 WIP 提示
+status: superseded        # 高层骨架已被下列细化 spec 取代；正文冻结为历史设计过程
 schema_version: 1
-spec_version: 2
+spec_version: 4
 owner: noelu
 depends_on: [squad-control-switching, squad-upgrade-ownership, survivor-loop, event-system]
 reconstruction_complete: false
 ---
 
-# 战区结算 + 飞机进化系统 —— Tab 结算坞 / 宝可梦式机型进化 / 航母外援
+# 战区结算 + 飞机进化系统 —— 历史高层骨架（已被取代）
+
+> **状态：superseded。不要从本文派生新实现。** 当前权威已拆分到
+> [zone-reward-docking](zone-reward-docking.md)、[aircraft-evolution-tree](aircraft-evolution-tree.md)、
+> [evolution-attribute-gates](evolution-attribute-gates.md) 与
+> [inrun-weapon-inventory](inrun-weapon-inventory.md)。本文保留用于解释 2026-05～07 的设计演化。
 
 > ⏳ **设计细化中；垂直切片验证已获批（2026-07-02）**：在 `feature/aircraft-evolution` 分支按
 > [evolution-vertical-slice](../../planning/evolution-vertical-slice.md) 计划做**验证性实装**（守三条数据化护栏），
@@ -246,3 +251,4 @@ on 玩家选定 route R（目标机型 M）+ 参与集合 S（默认全队，逐
 | 2026-05-30 | 1 | 高层骨架初稿：航母为进化主入口（旧版）。 |
 | 2026-07-06 | 3 | **结算流修订**（用户，详见 [zone-reward-docking](zone-reward-docking.md)）：§2.1 "Tab 原地结算"改为**飞到停靠点（机场/航母）减速着陆才结算**；§2.7 航母改为战区奖励之一、**全局限 2 次登舰**；追加武器（副系统类：忠诚僚机/尾部炸弹/QMAAM）回归为战区奖励（不动"主武器=机型自带"）；攻克即时全队满血。进化树 tier 门槛定稿：2 阶 10 级（3 阶 18 暂定），已写入 evolution_tree.json |
 | 2026-05-30 | 2 | **结构重订**（用户修正）：主入口改为**打完战区按 Tab 原地结算**（回血+科技树+三选一武器/红技能/进化）；进化改为**宝可梦式等级门槛**（如 4/6 级解锁不同型号，可延迟，等级本身不加属性）；**装备绑槽位、跟玩家继承**（换机不丢，解冻归属难题）；航母降为**特定战区奖励外援**（南入北上、无护卫、CIWS、可击沉、右键减速着舰、补给限次、不耗时间）。保留：默认全队进化+逐架开关 / F-15 基底 F-16 降分支 / 先定骨架。待 review → approved。 |
+| 2026-08-04 | 4 | 文档维护：高层骨架已被结算、科技树、属性门和局内武器库四份细化 spec 取代，状态改为 superseded，停止与当前实现竞争权威。 |

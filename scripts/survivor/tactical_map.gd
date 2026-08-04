@@ -1089,7 +1089,7 @@ func _make_upgrade_row(u: Dictionary, stacks: Dictionary) -> Control:
 	row.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	row.add_theme_font_size_override("font_size", 12)
 	# 文字
-	var prefix: String = "  ★ " if is_evolved else "    "
+	var prefix: String = "    "
 	var stk_text: String
 	if uid == "executioner":
 		stk_text = "  [%d]" % (_player.executioner_stacks if _player else 0)

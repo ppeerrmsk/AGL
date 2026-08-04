@@ -1,7 +1,7 @@
 extends SceneTree
 
-## 进化树数据完整性冒烟测试（无头）：
-##   godot --headless --script res://scripts/tests/test_evolution_tree.gd
+## 进化树数据完整性冒烟测试（旧 SceneTree 独立脚本，尚未接入 BenchRunner）。
+## Agent 不得绕过 bench wrapper 直接启动 Godot；日常回归改跑 evo_detail + attr_gates。
 ## 验证：① 树 JSON 可解析 ② 所有节点 profile 在 AircraftDB 可加载（base_params 非空）
 ##       ③ exits 无悬空引用 ④ 非终点节点出口 ≥3（ACE 手动三选铁律）⑤ name_key 有翻译行
 

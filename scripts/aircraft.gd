@@ -122,6 +122,8 @@ var command_sprint: bool = false
 var evac_shift_active: bool = false      ## 720 批"阵地转移"：撤离冲刺加成 + 受伤减半（apply_upgrade 置位）
 var guard_zone_buff_active: bool = false ## 720 批"保卫阵地"：防守圈内 buff（SquadCommandController 维护）
 var missile_second_stage_active: bool = false ## 720 批"二段推进"：本机发射的导弹续推+转弯渐强
+var missile_chain_active: bool = false ## 战区次世代“连锁弹头”：导弹命中后沿原航向继续飞行
+var gun_bullet_penetration_active: bool = false ## X-44 专属：普通机炮/炮舱弹逐目标穿透
 ## 720 批"胆大妄为"：全队禁普通自动 flare；受控机按 R，AI 僚机威胁自动（flare+滚转+i-frame）
 var manual_dodge_active: bool = false
 var _manual_dodge_cd: float = 0.0
@@ -137,6 +139,8 @@ var ammo: int = 500
 var _auto_gun_scan_timer: float = 0.0
 var _fire_cooldown: float = 0.0
 var _gun_burst_rounds_left: int = 0  ## 当前梭剩余弹数（>0 = 梭承诺中，打完才停；见 specs/weapons/gun-burst-fire.md）
+var _auto_gun_target_id: int = 0  ## 3Hz 自动扫描本轮候选；只存实例 ID，避免跨帧攥住已释放节点
+var _gun_burst_target_id: int = 0  ## 当前已承诺梭的目标；整梭逐 tick 重算提前点，禁止被 planner 回正
 var _gun_lead_heading: float = 0.0  ## 前置射击方向（由 _update_combat 计算）
 # ── 武器竞选滞回状态（spec weapon-employment-doctrine §2.2；planner 经 Situation 读、
 #    _apply_tactical_plan 回写；1.5s 滞回在 WeaponSelector.select 内判定）──
@@ -360,6 +364,9 @@ var head_on_gun_dodge_bonus: float = 0.0    ## 对头时机炮闪避加成（tak
 var low_alt_gun_dodge_bonus: float = 0.0    ## 低空时机炮闪避加成（take_bullet_damage 在 LOW/GROUND 档位加）
 var gun_fire_dr_window: float = 0.0         ## 机炮发射后 N 秒内受到伤害减免（_apply_damage 查）
 var gun_fire_dr_amount: float = 0.0         ## 该时间窗内伤害减免比例（0.5 = -50%）
+var gunship_mode_active: bool = false       ## 全向自动机炮模式（360°，渲染显示完整射程圈）
+var hunter_unlocked: bool = false           ## 猎手：突击命令期间启用动态 buff
+var hunter_assault_active: bool = false     ## 猎手运行时标记；命令目标结束即清
 var ground_damage_taken_mult: float = 1.0   ## 座舱护甲：地面火力（SAM/AA/CIWS）伤害倍率（_apply_damage 按来源过滤）
 var _gun_fire_recently_until: float = 0.0   ## 时间戳：本时刻以前在开火窗口内
 var fear_on_lock_threshold: float = 0.0     ## 锁定累积达 N 秒后给目标施加 FEAR（0=禁用）
@@ -379,7 +386,8 @@ var jam_aura_radius_px: float = 0.0            ## 0=禁用；半径 px
 var _jam_aura_accum_seconds: Dictionary = {}   ## { instance_id → 累积秒数 }
 ## 累积式光环统一参数
 const AURA_ACCUMULATE_SECONDS: float = 8.0    ## 累积满需要 8s 持续在半径内
-const AURA_DEBUFF_DURATION: float = 4.0       ## Debuff 持续秒数
+const AURA_DEBUFF_DURATION: float = 4.0       ## 后半球 SLOW 持续秒数
+const JAM_AURA_DURATION: float = 5.0          ## 全向干扰场 JAM 持续秒数
 const AURA_INTERNAL_CD: float = 4.0           ## 触发 debuff 后整个光环锁 4s（= debuff 时长，期间不再扫描 / 施加新 debuff）
 var _rear_aura_cd_remaining: float = 0.0
 var _jam_aura_cd_remaining: float = 0.0
@@ -490,6 +498,7 @@ var missile_bounce_count: int = 0     ## 导弹弹跳次数（连锁弹头进化
 var missile_proximity_aoe: bool = false  ## 近炸引信进化：导弹爆炸产生 AOE
 var gun_ciws_active: bool = false        ## 近防炮进化：自动拦截正面来袭导弹
 var _ciws_cooldown: float = 0.0          ## CIWS 射速冷却（独立于正常机炮）
+var _ciws_fire_log_until: float = 0.0    ## 玩家方 CIWS_FIRE 诊断节流（区分普通机炮与反导弹道）
 var survivor_missile_damage_cap: float = 0.0  ## 生存模式：导弹伤害上限（0=不限制）
 var survivor_bullet_damage_cap: float = 0.0   ## 生存模式：机炮伤害上限（0=不限制）
 var hide_data_label: bool = false    ## 隐藏飞机旁的数据标签（HUD 替代显示）
@@ -694,6 +703,20 @@ func clear_trail() -> void:
 	if _trail_ribbon:
 		_trail_ribbon.clear_trail()
 
+## 阵营切换后的单次视觉刷新；不进入每帧路径。
+func refresh_faction_visuals() -> void:
+	if params:
+		match team:
+			CombatUnit.TEAM_PLAYER:
+				params.icon_color = GameConstants.COL_FRIEND_PLAYER
+				params.wing_color = Color(0.25, 0.48, 0.85)
+			CombatUnit.TEAM_ALLY:
+				params.icon_color = GameConstants.COL_FRIEND_ALLY
+				params.wing_color = Color(0.22, 0.50, 0.28)
+	if _trail_ribbon:
+		_trail_ribbon.ribbon_color = GameConstants.team_trail_color(team)
+	queue_redraw()
+
 func _ready() -> void:
 	# 分配唯一 callsign
 	if callsign == "":
@@ -775,6 +798,20 @@ func _update_equipment(delta: float) -> void:
 	for eq in params.equipment:
 		if eq != null:
 			eq.update(self, delta)
+
+func esm_aura_active() -> bool:
+	return Time.get_ticks_msec() <= int(get_meta(&"esm_aura_until_ms", -1))
+
+func esm_lock_rate_multiplier() -> float:
+	return float(get_meta(&"esm_lock_rate_mult", 1.0)) if esm_aura_active() else 1.0
+
+func esm_reload_rate_multiplier() -> float:
+	if not esm_aura_active():
+		return 1.0
+	return 1.0 / maxf(float(get_meta(&"esm_reload_time_mult", 0.7)), 0.05)
+
+func laser_stall_pressure_active() -> bool:
+	return Time.get_ticks_msec() <= int(get_meta(&"laser_stall_pressure_until_ms", -1))
 
 func show_tactic_popup(text: String) -> void:
 	_tactic_popup_text = text
@@ -886,12 +923,14 @@ func _physics_process_impl(delta: float) -> void:
 		# heading/bank/position 60Hz 是必要开销（leader 转向时槽位变化太快）
 		if formation_mode and _formation_leader and is_instance_valid(_formation_leader):
 			AircraftFormation.update_follow(self, delta)
+			AircraftWeapons.update_passive_gunship(self, delta)
 			if _lod_frame % 3 == 0:
 				AircraftWeapons.update_formation_passive_missile(self, delta * 3.0)
 			AircraftFlares.update(self, delta)  # 编队中也要更新/清除 flare 粒子，否则残留不消失
 			return
 		if _lod_frame % 3 != 0:
 			AircraftPhysics.apply_movement(self, delta)
+			AircraftWeapons.update_passive_gunship(self, delta)
 			# rotation = heading 每帧同步，防止 LOD 2 下镜头切回来看到过时朝向
 			# （heading 在 full-update 帧已更新，这里只是跟上最新值；成本 1 次赋值）
 			# 详见 docs/changelogs/player-ai-log.md 2026-04-20 (10)
@@ -920,8 +959,11 @@ func _physics_process_impl(delta: float) -> void:
 		_check_ground_crash()
 		AircraftPhysics.update_g_load(self)
 		AircraftPhysics.apply_movement(self, delta)  # 本帧 1/60s 的位移（前 2 帧已各 apply 一次，合计 3×1/60）
-		if combat_target != null:
+		if gunship_mode_active and is_player_squad():
+			AircraftWeapons.update_passive_gunship(self, delta)
+		elif combat_target != null:
 			AircraftWeapons.update_gun(self, lod_delta)
+		if combat_target != null:
 			AircraftWeapons.update_rocket(self, lod_delta)
 			AircraftWeapons.update_missile(self, lod_delta)
 		AircraftWeapons.update_torpedo(self, lod_delta)
@@ -945,6 +987,7 @@ func _physics_process_impl(delta: float) -> void:
 			# 原因：191 行算法塞在 _physics_process 中间，排查编队 bug 时动线长
 			# 拆分后常见 bug 回溯地图、三段式分支图都在 AircraftFormation 顶部注释
 			AircraftFormation.update_follow(self, delta)
+			AircraftWeapons.update_passive_gunship(self, delta)
 			if every3:
 				AircraftWeapons.update_formation_passive_missile(self, delta * 3.0)
 			AircraftFlares.update(self, delta)  # 编队中也要更新/清除 flare 粒子，否则残留不消失
@@ -972,9 +1015,10 @@ func _physics_process_impl(delta: float) -> void:
 			_check_ground_crash()
 			AircraftPhysics.update_g_load(self)
 		AircraftPhysics.apply_movement(self, delta)
-		if combat_target != null:
+		if combat_target != null or (gunship_mode_active and is_player_squad()):
 			AircraftWeapons.auto_gun_scan(self)
 			AircraftWeapons.update_gun(self, delta)
+		if combat_target != null:
 			AircraftWeapons.update_rocket(self, delta)
 			AircraftWeapons.update_missile(self, delta)
 		AircraftWeapons.update_torpedo(self, delta)
@@ -996,6 +1040,7 @@ func _physics_process_impl(delta: float) -> void:
 	# 都不会命中此分支，照走下面完整 LOD0；只有真正编队跟随的僚机走 update_follow。
 	if formation_mode and _formation_leader and is_instance_valid(_formation_leader):
 		AircraftFormation.update_follow(self, delta)
+		AircraftWeapons.update_passive_gunship(self, delta)
 		if _lod_frame % 3 == 0:
 			AircraftWeapons.update_formation_passive_missile(self, delta * 3.0)
 		AircraftFlares.update(self, delta)  # 编队中也要更新/清除 flare 粒子，否则残留不消失
@@ -1454,6 +1499,11 @@ func _update_sig_skills(delta: float) -> void:
 				or commanded_target.is_destroyed:
 			sig_j36_assault_active = false
 			EventLogger.log_event("SKILL", _log_name(), "三发推力：目标消灭/命令解除，buff 结束")
+	if hunter_assault_active:
+		if commanded_target == null or not is_instance_valid(commanded_target) \
+				or commanded_target.is_destroyed:
+			hunter_assault_active = false
+			EventLogger.log_event("SKILL", _log_name(), "猎手：目标消灭/命令解除，buff 结束")
 	# 超速截击（MiG-31）：加力窗口内对机头前半球∩雷达锥中的满锁+包线目标每 1.2s 自动发射一枚
 	# （唯一绕开窗口禁火的通道——独立发射路径不经 _fire_missile_at 的硬断；弹速 ×1.3）
 	if sig_mig31_active and afterburner_window_active and params and params.missile \
@@ -1777,6 +1827,8 @@ func clear_combat_target() -> void:
 	_committed_turn_sign = 0.0
 	is_firing = false
 	_gun_burst_rounds_left = 0  # 掐断已承诺的机炮梭：目标没了就没有承诺对象，否则残弹对空放枪
+	_auto_gun_target_id = 0
+	_gun_burst_target_id = 0
 	_strafe_state = 0
 	_overshoot_timer = 0.0
 	_gun_pass_committed = false  # 清目标时解除机炮提交锁定
@@ -2153,7 +2205,8 @@ func _update_evasion(delta: float) -> void:
 		else:
 			var fired_rear: Array = [false]
 			_tick_aura_accumulator(_rear_aura_accum_seconds,
-				rear_aura_slow_radius_px, StatusEffects.SLOW, true, delta, fired_rear)
+				rear_aura_slow_radius_px, StatusEffects.SLOW, true, delta, fired_rear,
+				AURA_DEBUFF_DURATION)
 			if fired_rear[0]:
 				_rear_aura_cd_remaining = AURA_INTERNAL_CD
 
@@ -2164,7 +2217,8 @@ func _update_evasion(delta: float) -> void:
 		else:
 			var fired_jam: Array = [false]
 			_tick_aura_accumulator(_jam_aura_accum_seconds,
-				jam_aura_radius_px, StatusEffects.JAM, false, delta, fired_jam)
+				jam_aura_radius_px, StatusEffects.JAM, false, delta, fired_jam,
+				JAM_AURA_DURATION)
 			if fired_jam[0]:
 				_jam_aura_cd_remaining = AURA_INTERNAL_CD
 
@@ -2179,7 +2233,8 @@ func _update_evasion(delta: float) -> void:
 ## 用 out 参数而非 return，因为函数体内（历史遗留）混入了 _update_evasion 的 evade-roll 逻辑，不能 early-return
 func _tick_aura_accumulator(accum_dict: Dictionary,
 		radius_px: float, status_id: String,
-		require_rear: bool, delta: float, out_fired: Array = []) -> void:
+		require_rear: bool, delta: float, out_fired: Array = [],
+		status_duration: float = AURA_DEBUFF_DURATION) -> void:
 	var r_sq: float = radius_px * radius_px
 	var my_back: Vector2 = Vector2.ZERO
 	if require_rear:
@@ -2212,7 +2267,7 @@ func _tick_aura_accumulator(accum_dict: Dictionary,
 			continue
 		var sec: float = float(accum_dict.get(oid, 0.0)) + delta
 		if sec >= AURA_ACCUMULATE_SECONDS:
-			u.apply_status(status_id, AURA_DEBUFF_DURATION)
+			u.apply_status(status_id, status_duration)
 			accum_dict[oid] = 0.0
 			debuff_hits.append(u.global_position)
 			if status_id == StatusEffects.JAM:
@@ -2670,6 +2725,9 @@ func _apply_damage(amount: float) -> void:
 	# 保卫阵地（720 批）：防守圈内受到伤害 -30%
 	if is_player_squad() and guard_zone_buff_active:
 		amount *= 0.7
+	# 猎手：仅突击命令存续期间减伤 30%，无计时器、无独立 CD。
+	if is_player_squad() and hunter_assault_active:
+		amount *= 0.7
 	var old_hp := hp
 	hp -= amount
 	EventLogger.log_event("DAMAGE", _log_name(),
@@ -2813,8 +2871,11 @@ func _alert_escort_guards() -> void:
 		if not CombatUnit.teams_hostile(g.team, target.team):
 			continue
 		var ai: AIController = g._get_ai_controller()
-		if ai:
-			ai.acquire_target(target, AIController.TargetSource.TS_DIRECTIVE, "escort_alert")
+		if ai and ai.acquire_target(target, AIController.TargetSource.TS_DIRECTIVE, "escort_alert"):
+			# acquire_target 只建立目标所有权，不切状态；护卫受警必须同拍脱离编队接战。
+			g.clear_formation()
+			g.ai_override_pursuit = true
+			ai.enter_engage_state()
 
 ## 触发整个 flock 散开：每架队友朝随机一侧做 jink 闪避数秒，
 ## 同时中断 AIController 的任何交战追踪（_process_simple 开头会检查并清空 _current_target）
@@ -2964,6 +3025,7 @@ func _draw_impl() -> void:
 		AircraftRenderer.draw_muzzle_flash(self)
 	AircraftRenderer.draw_railgun_beam(self)
 	AircraftRenderer.draw_laser_beams(self)
+	AircraftRenderer.draw_esm_aura(self)
 	if is_afterburner:
 		AircraftRenderer.draw_afterburner_glow(self)
 	AircraftRenderer.draw_flare_particles(self)

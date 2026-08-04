@@ -20,6 +20,7 @@ const WITHDRAW_REENGAGE_S := 5.0        ## 撤离被打断 → 回头应战的�
 const WITHDRAW_FREE_OUTSET_PX := 800.0  ## 出界此距离即静默释放（同 EGRESS 语义）
 const ALLY_SUPPORT_COUNT := 2            ## 已购王牌截击支援固定两架 F-15
 const ALLY_SUPPORT_SEPARATION_PX := 180.0
+const FactionTransitionScript = preload("res://scripts/events/faction_transition.gd")
 
 ## Tab 战术图标记 / HUD 血条共用的静态注册表。
 ## GameEvent 是 RefCounted，静态强引用会让事件跨场景存活，因此新局/退局必须显式 reset。
@@ -45,6 +46,9 @@ var _encounter_elapsed_s := 0.0 ## 从生成起的在场时长（诊断入场/�
 var _combat_elapsed_s := 0.0    ## 从首次开火/受击到终态的实际击破计时
 var _balance_terminal_logged := false
 var _ace_terminal_handled := false
+var _whitetea_previous_hostile_count := 0
+var _whitetea_surrendered := false
+var _surrendered_aircraft: Aircraft = null
 var _ally_support: Array[Aircraft] = []
 var _ally_support_egressing := false
 var _ally_support_reengage_s := 0.0
@@ -107,6 +111,7 @@ func _start() -> void:
 		return
 	for m in _squad.members:
 		managed_units.append(m)
+	_whitetea_previous_hostile_count = _live_ace_members().size()
 	_squad.engage()   # 立即 PURSUIT：无 PRE_STAGE 待机（spec §2.6 进场即咬）
 	_spawn_ally_support(sp, player)
 	_active_ref = self
@@ -138,6 +143,7 @@ func _update(delta: float) -> void:
 		end()
 		return
 	_squad.update(delta)
+	_try_whitetea_surrender()
 	if not _ally_support_egressing:
 		_maintain_ally_support_targets()
 	# 交战血条触发（tier §2.8）：入场不亮，打起来才亮；撤离中不新亮
@@ -152,9 +158,13 @@ func _update(delta: float) -> void:
 	if not _squad.active:
 		if not _ace_terminal_handled:
 			_handle_ace_terminal()
+		var terminal_ready := true
+		if _whitetea_surrendered and not _tick_surrender_egress():
+			terminal_ready = false
 		if _ally_support_egressing and not _tick_ally_support_egress(delta):
-			return
-		end()
+			terminal_ready = false
+		if terminal_ready:
+			end()
 		return
 	# BOSS 解锁 → 让位撤离（spec §3.1 WITHDRAWING：BOSS 独享舞台）
 	if not _withdrawing and director.mode and director.mode._is_in_boss_phase():
@@ -211,9 +221,66 @@ func _live_ace_members() -> Array[Aircraft]:
 	if _squad == null:
 		return live
 	for m in _squad.members:
-		if is_instance_valid(m) and not m.is_destroyed:
+		if is_instance_valid(m) and not m.is_destroyed and m.team == CombatUnit.TEAM_HOSTILE:
 			live.append(m)
 	return live
+
+static func should_whitetea_surrender(profile: String, previous_hostiles: int,
+		current_hostiles: int, withdrawing: bool, boss_phase: bool) -> bool:
+	return profile == "whitetea" and previous_hostiles == 2 and current_hostiles == 1 \
+		and not withdrawing and not boss_phase
+
+## WhiteTea 专属 2→1 仲裁：转换成功当帧即关闭敌王牌事件，幸存者本人喊话后被动离场。
+func _try_whitetea_surrender() -> void:
+	if profile_id != "whitetea" or _whitetea_surrendered or _withdrawing or not _squad.active:
+		return
+	if director.mode and director.mode._is_in_boss_phase():
+		return
+	var live := _live_ace_members()
+	var current_count := live.size()
+	if should_whitetea_surrender(profile_id, _whitetea_previous_hostile_count,
+		current_count, _withdrawing, false):
+		var survivor: Aircraft = live[0]
+		if FactionTransitionScript.convert(survivor, CombatUnit.TEAM_ALLY, "whitetea_surrender"):
+			_whitetea_surrendered = true
+			_surrendered_aircraft = survivor
+			survivor.set_meta("xp_granted", true)
+			_squad.members.erase(survivor)
+			_squad.active = false
+			_command_surrender_exit(survivor)
+			if director.spawner and director.spawner.has_method("grant_ace_neutralization_xp"):
+				director.spawner.grant_ace_neutralization_xp()
+			var radio = director.mode.get("_radio") if director.mode else null
+			if radio:
+				radio.say_text("whitetea_surrender", survivor.callsign,
+					GameConstants.COL_ENEMY_ELITE, tr("RADIO_WHITETEA_SURRENDER_1"))
+			EventLogger.log_event("EVENT", "AceSupport",
+				"%s surrendered and egressing" % survivor.callsign)
+	_whitetea_previous_hostile_count = current_count
+
+func _command_surrender_exit(ac: Aircraft) -> void:
+	var ai: AIController = ac._get_ai_controller()
+	if ai:
+		ai.enable_combat = false
+		ai.release_target(ai.get_target_source(), "whitetea surrender")
+		ai.enter_patrol_state(false)
+		ai.waypoints = PackedVector2Array([_exit_point(ac.global_position)])
+		ai.current_waypoint_index = 0
+	ac.clear_combat_target()
+	ac.clear_formation()
+	ac.is_afterburner = true
+	if ac.params:
+		ac.target_speed_kmh = ac.params.max_speed
+
+func _tick_surrender_egress() -> bool:
+	var ac := _surrendered_aircraft
+	if ac == null or not is_instance_valid(ac) or ac.is_destroyed or ac.is_queued_for_deletion():
+		return true
+	if MapBoundary.distance_to_edge(ac.global_position) <= -WITHDRAW_FREE_OUTSET_PX:
+		CombatUnit.release_target_refs(ac)
+		ac.queue_free()
+		return true
+	return false
 
 func _live_ally_support() -> Array[Aircraft]:
 	var live: Array[Aircraft] = []
@@ -244,18 +311,20 @@ func _handle_ace_terminal() -> void:
 		director.mode.grant_time_extension(TIME_EXTENSION_S)
 		var hint = _hint()
 		if hint:
-			hint.show_temp(tr("EVENT_ACE_DOWN_FMT") % codename, 5.0)
+			var hint_key := "EVENT_ACE_SURRENDER_FMT" if _whitetea_surrendered else "EVENT_ACE_DOWN_FMT"
+			hint.show_temp(tr(hint_key) % codename, 5.0)
 	# 生涯档案：真全灭才算"击破"（撤离出界逃掉一架都不算，tier §2.7）
 	if _escaped == 0 and director.mode and director.mode.has_method("archive_enabled") \
 			and director.mode.archive_enabled():
 		CareerArchive.record_ace_defeat(profile_id)
+	var result_label := "surrendered" if _whitetea_surrendered else "eliminated"
 	EventLogger.log_event("EVENT", "AceSupport",
-		"%s eliminated%s | actual combat TTK=%.1fs encounter=%.1fs target=%.0f-%.0fs" % [codename,
-			" (withdrawing, no bonus)" if _withdrawing else " -> +60s",
+		"%s %s%s | actual combat TTK=%.1fs encounter=%.1fs target=%.0f-%.0fs" % [codename,
+			result_label, " (withdrawing, no bonus)" if _withdrawing else " -> +60s",
 			_combat_elapsed_s, _encounter_elapsed_s, AceSquadProfiles.TTK_TARGET_MIN_S,
 			AceSquadProfiles.TTK_TARGET_MAX_S])
-	_log_balance_terminal("withdrawn" if _escaped > 0 else \
-		("eliminated_withdrawing" if _withdrawing else "eliminated"))
+	_log_balance_terminal("surrendered" if _whitetea_surrendered else ("withdrawn" if _escaped > 0 else \
+		("eliminated_withdrawing" if _withdrawing else "eliminated")))
 	_begin_ally_support_egress("ace event terminal")
 
 func _begin_ally_support_egress(reason: String) -> void:

@@ -65,12 +65,12 @@ func _test_table_conventions() -> void:
 
 
 func _test_offer_rules() -> void:
-	print("── B. 第四槽规则：90% 边界 / 41 机映射 / 前置不阻断出示 ──")
-	_check("专属第四槽概率 = 90%",
-		is_equal_approx(SurvivorData.SIGNATURE_OFFER_CHANCE, 0.90), "")
+	print("── B. 第四槽规则：30% 边界 / 41 机映射 / 前置不阻断出示 ──")
+	_check("专属第四槽概率 = 30%",
+		is_equal_approx(SurvivorData.SIGNATURE_OFFER_CHANCE, 0.30), "")
 	_check("roll=0 命中", SurvivorData.signature_offer_hit(0.0), "")
-	_check("roll<0.90 命中", SurvivorData.signature_offer_hit(0.899999), "")
-	_check("roll=0.90 不命中", not SurvivorData.signature_offer_hit(0.90), "")
+	_check("roll<0.30 命中", SurvivorData.signature_offer_hit(0.299999), "")
+	_check("roll=0.30 不命中", not SurvivorData.signature_offer_hit(0.30), "")
 	_check("越界 roll 不命中",
 		not SurvivorData.signature_offer_hit(-0.01)
 		and not SurvivorData.signature_offer_hit(1.0), "")
@@ -153,6 +153,7 @@ func _test_apply_branches() -> void:
 	sp.apply_upgrade(_find_upgrade("sig_x44"))
 	_check("高速炮艇：锥半角 → 90°", is_equal_approx(ac.params.gun.fire_cone_half_angle, 90.0),
 		"got %.1f" % ac.params.gun.fire_cone_half_angle)
+	_check("高速炮艇：普通机炮弹穿透开关已启用", ac.gun_bullet_penetration_active, "")
 	sp.apply_upgrade(_find_upgrade("aim_assist"))
 	_check("aim_assist 不把 90° 缩回 45°（cap 不倒退）",
 		ac.params.gun.fire_cone_half_angle >= 90.0, "got %.1f" % ac.params.gun.fire_cone_half_angle)

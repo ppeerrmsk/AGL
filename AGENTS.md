@@ -12,7 +12,7 @@
 
 两个模式：
 - **沙盒**（`scenes/main.tscn`，**已废弃**，只打生存模式包）— 自由飞行/战斗测试，F1-F5 快捷键
-- **生存模式**（`scenes/survivor_mode.tscn`）— 战区推进 → BOSS 战 → **击败 BOSS 即过关**（`BossEncounterEvent` VICTORY 相 → `survivor_mode._on_victory` 结算 + 功勋入账）。击杀升级，20+ 种升级含进化技能。**不是无尽波次**
+- **生存模式**（`scenes/survivor_mode.tscn`）— 战区推进 → BOSS 战 → **击败 BOSS 即过关**（`BossEncounterEvent` VICTORY 相 → `survivor_mode._on_victory` 结算 + 功勋入账）。数据驱动技能与机型进化详见自动生成的 [skill-table.md](docs/reference/skill-table.md)。**不是无尽波次**
 
 ## Running the Game
 
@@ -20,18 +20,21 @@
 - **禁止用 Godot 4.6.2 跑本项目**：`project.godot` 的 feature tag 是 4.7；旧版 Mono 在无头 bench 中已发生原生访问冲突并卡住崩溃弹窗。CLI/bench 只用 4.7+ 的 `*_console.exe --headless`，命令必须设有限超时；不得把 GUI exe 配进 Codex/MCP 自动启动项
 - 本机已验证的 4.7.1 Steam 可执行文件：`D:\Program Files (x86)\Steam\steamapps\common\Godot Engine\godot.windows.opt.tools.64.exe`。Steam 包没有单独的 `*_console.exe`，CLI 时必须加 `--headless`；优先通过 `bench/run.cmd` / `bench/run.sh` 调用，禁止复用 `.claude/settings*.json` 或历史 changelog 中的 4.6.2 命令
 - **Godot bench 并发隔离**：多个 Codex task 共享同一工作树；运行 Godot/import/bench 时不得有其他 task 正在写项目文件。生成图片、宠物、探针脚本等临时产物一律放 `tmp/`（该目录由 `.gdignore` 隔离）或项目外，禁止在 Godot 可扫描目录中边写资源边启动引擎。Agent **只能通过 `bench/run.cmd` / `bench/run.sh` 启动 bench，禁止直接执行 Godot**；默认 `Shadow` 模式把已保存的运行时项目文件同步到系统临时目录的稳定隔离副本，复用其独立 `.godot` 缓存，因此允许原工作区常驻 Godot editor（编辑器内未保存修改不会进入测试）。显式第四参数 `InPlace` 才在原工作区运行，且检测到任何 Godot 进程即拒绝。两种模式共用原工作区带 owner PID 的原子锁拒绝 bench 并发；独立 `watch_godot.ps1` 在超时或调用 agent 消失时显式 `taskkill /T /F` 回收测试进程树，并以 Windows Job Object 作为二次兜底；内部有限超时默认为 `max(120s, duration+90s)`，进程级 error mode 禁止原生崩溃弹窗。`project.godot` 必须保持 `debug/file_logging/enable_file_logging.pc=false`：Godot 4.7.1 的 `RotatedFileLogger` 在本机无头启动时会因 `Ref<RegEx>` 实例化失败而读取空指针 `+0x58`；AGL 已由 EventLogger / bench 结果承担日志。若出现不可复现的 `signal 11`，先检查并发 task 与测试副本自身 `.godot/imported` 的同刻导入记录，不得直接归咎于 GDScript
-- F9 导出战斗日志。**编辑器模式**写到项目内 `logs/combat_log_*.txt`（`/logs/` 被 .gitignore 排除）；**导出包**写到 `user://combat_log_*.txt`。路径切换逻辑在 `event_logger.gd:dump_to_file`。配合 `.Codex/hooks/open-latest-log.sh`（UserPromptSubmit hook）在下次消息时自动打开最新 log
+- F9 导出战斗日志。**编辑器模式**写到项目内 `logs/combat_log_*.txt`（`/logs/` 被 .gitignore 排除）；**导出包**写到 `user://combat_log_*.txt`。路径切换逻辑在 `event_logger.gd:dump_to_file`
 - 生存模式 F11 切换友方僚机编队调试覆盖层（橙线 → 阵型槽位 / 蓝射线 → 当前 hdg / 黄射线 → 目标 hdg / 文本: branch + slot_d + bank delta）；F12 抓一帧编队状态快照到控制台 + EventLogger
 - 无正式测试框架，通过运行时观察 + EventLogger 日志调试
 
 ## AutoLoads（初始化顺序）
 
-`project.godot [autoload]`:
-1. **CallsignDB** — 呼号分配器（每架飞机 `_ready()` 时调用 `CallsignDB.allocate()`）
-2. **EventLogger** — 全局事件环形缓冲区（60 秒窗口，F9 导出）
-3. **LocaleManager** — i18n 本地化，启动读 `user://locale.cfg`
-4. **AudioManager** — 音频总线 + BGM + SFX + UI + 播放列表；详见 [docs/systems/audio.md](docs/systems/audio.md)
-5. **MeritLedger** — 局外货币"功勋"账本，读写 `user://merit.cfg`；局内 XP 按 0.8/1.0 系数折算入账
+以 `project.godot [autoload]` 的登记顺序为准：
+
+1. **EventLogger / LocaleManager / AudioManager** — 日志、本地化与音频；
+2. **Presentation** — 表演导演与统一时间控制；
+3. **MeritLedger / CareerArchive / MetaShop** — 功勋、生涯档案与局外商店；
+4. **PerfBuckets / BenchRunner / RuntimeTuner** — 性能分桶、bench 调度与运行时调参。
+
+`CallsignDB` 是 `class_name` 静态服务，**不是 AutoLoad**。新增 AutoLoad 时同步本节、
+[project-overview.md](docs/project-overview.md) 与 [repo-layout.md](docs/reference/repo-layout.md)。
 
 ## 类继承体系
 
@@ -56,6 +59,7 @@ Resource:   AircraftParams / GunParams / RocketParams / MissileParams / CombatPa
 - `heading`: 弧度，0=北（屏幕上方），顺时针
 - 世界坐标：Y 向下为正，绘制时通过 `rotation = heading` 让图标头朝 heading 方向
 - 高度档位：`AltitudeTier { GROUND=-1, LOW=0(<3500m), MID=1(<7500m), HIGH=2(>=7500m) }`
+  切档目标高度 `TIER_ALTITUDE`：LOW 2000 / MID 5500 / HIGH 10000（判定边界不等于目标值）
 
 ## ⚠ 性能守则（强制）
 
@@ -69,6 +73,7 @@ Resource:   AircraftParams / GunParams / RocketParams / MissileParams / CombatPa
 5. AI 决策默认从 20Hz 甚至 10Hz 起步（`ai_tick_divisor ≥ 3`）
 6. 挂到 Aircraft/Missile 子节点要先乘实体数（22 架 × 60Hz）
 7. 新功能必须跑生存模式 Sentinel + Lv5+ 压力测试，FPS 掉 >15 就回滚
+8. 随实体数增长的单帧成本必须支持降频 / 冻结 / 简化，并保留玩家、BOSS、Sentinel 豁免
 
 历史翻车清单（尾迹 40 万 draw_polygon/秒、地图每帧重算、数据标签 O(N²) 扫描等）见守则末尾"历史教训"段。
 
@@ -115,11 +120,20 @@ AGL 采用 **spec-first** 工作流：设计/写文档是主要工作，写代�
 **硬分工**：`docs/specs/` 写数值/行为/原因（权威，**禁止写行号**）；`docs/reference/`（enemy-index /
 script-index / code-index）只写"代码在哪"（纯指针）。样板见 [bosses/mother-goose.md](docs/specs/bosses/mother-goose.md)。
 
+### Debug 可达性（强制）
+
+新增或修改**技能表 / 战区奖励 / 可装备武器 / 状态效果**时，必须保证正式局之外有直接验收入口：
+
+- 技能必须自动出现在 F4 技能面板，并可绕过机型、学说、装备与前置门控强制授予（仍尊重 `max_stacks`）。
+- 技能所需装备必须能在 F4 装备区直接挂载；战区奖励必须能在 F6 奖励区逐项直接发放。
+- Debug 只绕过“获得条件”，不得伪造运行时触发条件；例如全向干扰场仍需实际挂载 ESM 才生效。
+- 更新表后必须补/更新自动审计，确保 Debug 清单覆盖正式数据源，避免“代码已加但测试界面调不出”。
+
 ### 查找代码的顺序
 
 1. **先查 Script Index**（[docs/reference/script-index.md](docs/reference/script-index.md)）找文件 + 关键入口
 2. **用 Read 的 `offset`/`limit` 只读需要的行段**（通常 50~100 行）
-3. **不要通读整个 .gd 文件**（`aircraft.gd` 1445 行 + 4 个子模块 274~873 行；`ai_controller.gd` 1235 行 + 4 个子模块 165~574 行）
+3. **不要通读大型入口脚本**（`aircraft.gd` / `ai_controller.gd` 已拆出 `scripts/aircraft/`、`scripts/ai/` 与 `scripts/ai/tactical/` 子模块；具体规模以索引为准，不在这里硬编码行数）
 4. **不要对已索引的功能用 Grep/Glob 全文搜索**
 
 只有这些情况才用 Grep：查找 Script Index 里没覆盖的新功能 / 验证符号是否仍然存在 / 跨文件的引用关系。
@@ -138,10 +152,11 @@ script-index / code-index）只写"代码在哪"（纯指针）。样板见 [bos
   - 若确认对方只是传参不存引用 → 加进脚本的 `NON_HOLDERS` 并写明理由（显式裁定，不要注释掉检查）
 - **commit 前** 跑 `python tools/verify_doc_anchors.py` 校验索引锚点没写错行号
   （`--doc <file>` / `--section <标题>` 可只校验你动过的那段；退出码 1 = 有腐烂）
-  - ✅ 2026-07-20 已全量修复历史腐烂（218 处，来自 2026-04-22 拆子模块重构）。
-    **现在报红就是真出事了**，请当场修掉，别让它重新积累
+  - ✅ 2026-08-04 已再次全量刷新：149 份当前文档、702 个锚点全绿（含同行 `:line symbol` 简写）。
+    **现在报红就是真出事了**，请当场修掉；可先用 `--fix` 保守机械刷新，多义项仍要人工判断
   - 写锚点**带上符号名**（`aircraft/aircraft_physics.gd:222 update_speed`）才能强校验；
     只写行号只能验"没越界"—— 历史上正是弱锚点掩盖了指错文件的错误
+- **commit 前** 跑 `powershell -ExecutionPolicy Bypass -File tools/verify_docs.ps1` 校验当前文档断链、spec 漏登记、元数据与总表漂移
 
 ### 触发短语
 
@@ -167,20 +182,22 @@ script-index / code-index）只写"代码在哪"（纯指针）。样板见 [bos
 - 权威源：写数值/公式/行为/原因，禁止行号；reference/ 才放代码指针
 
 **入口 / 概述**
+- [docs/README.md](docs/README.md) — 文档分层、生命周期与新文件目录落点
 - [docs/project-overview.md](docs/project-overview.md) — 项目概述
 - [docs/architecture.md](docs/architecture.md) — 物理公式 / 架构决策 / 核心设计取舍
 
 **规划**（docs/planning/）
-- [roadmap-overview.md](docs/planning/roadmap-overview.md) — 阶段 / 玩家视角，用于排期
-- [roadmap.md](docs/planning/roadmap.md) — 技术向（模式边界 / 反馈修复）
+- [physics-ai-control-refactor.md](docs/planning/physics-ai-control-refactor.md) — 操控权限重构计划（分支布局 / 回归门 / 交接）
+- [evolution-vertical-slice.md](docs/planning/evolution-vertical-slice.md) — 进化循环垂直切片
+- ⚠ `roadmap.md` / `roadmap-overview.md` 是 2026-04 历史快照；当前状态看 [docs/specs/_INDEX.md](docs/specs/_INDEX.md)
 
 **子系统设计**（docs/systems/）
-- [ai-system.md](docs/systems/ai-system.md) — AI 状态机 / 8 战术 / TacticalPlanner P4 / 压力系统
+- [ai-system.md](docs/systems/ai-system.md) — AI 状态机 / TacticalPlanner / BFM 战术 / 压力系统
 - [aircraft-system.md](docs/systems/aircraft-system.md) — Aircraft 物理流程（LOD 三档）+ 战斗追踪 + 武器模式
 - [event-system.md](docs/systems/event-system.md) — GameEvent + AIDirective + EventDirector（剧本系统）
 - [squad-tactics-design.md](docs/systems/squad-tactics-design.md) — 编队战术 / 三段式托管
 - [survivor-mode.md](docs/systems/survivor-mode.md) — 生存模式波次/升级表
-- [survivor-skills.md](docs/systems/survivor-skills.md) — 完整技能图鉴 + 设计哲学 + 战区奖励池
+- [survivor-skills.md](docs/systems/survivor-skills.md) — 技能设计哲学 + 系统概念 + 需求 backlog
 - [missile-system.md](docs/systems/missile-system.md) — 导弹系统
 - [radar-system.md](docs/systems/radar-system.md) — 雷达系统 + 锁定算法
 - [ground-units.md](docs/systems/ground-units.md) — 地面单位
@@ -191,18 +208,20 @@ script-index / code-index）只写"代码在哪"（纯指针）。样板见 [bos
 - [known-seams.md](docs/architecture/known-seams.md) — **反复绊倒 fix 的耦合点登记**。修 bug 时撞到地基先来这里看，未记则加新条目。下一轮 refactor 排期的输入。
 
 **查询手册**（docs/reference/）
-- [playbook.md](docs/reference/playbook.md) — **"加新 X" 总入口索引**（敌机 / BOSS / 武器 / 技能 / 主角飞机 / 事件 / 地面单位 / 地图 / 状态 / 无线电台词 10 类，每类带清单 + 必读约束）
+- [playbook.md](docs/reference/playbook.md) — **"加新 X" 总入口索引**（敌机 / BOSS / 武器 / 技能 / 主角飞机 / 事件 / 地面单位 / 地图 / 状态 / 无线电台词 / 跨域系统 11 类）
 - [script-index.md](docs/reference/script-index.md) — **关键文件职责大表**（按文件，含行号 + 入口）
 - [enemy-index.md](docs/reference/enemy-index.md) — **敌人索引大表 + Adds/F-47 细节 + 创建新敌人 13 步清单 + AI Archetype**
 - [repo-layout.md](docs/reference/repo-layout.md) — 完整目录树
 - [code-index.md](docs/reference/code-index.md) — 功能主题索引（按武器/物理/AI/视觉等分类）
+- [skill-implementation-index.md](docs/reference/skill-implementation-index.md) — 技能配置字段、实现模式与消费点总入口；当前数量和数值看自动生成的 [skill-table.md](docs/reference/skill-table.md)
 - [scripts-reference.md](docs/reference/scripts-reference.md) — 脚本 API 参考（变量/方法说明）
 - [resources-catalog.md](docs/reference/resources-catalog.md) — 所有 .tres 参数总表
 - [playable-aircraft-workflow.md](docs/reference/playable-aircraft-workflow.md) — 加新主角飞机的完整流程
 - [i18n.md](docs/reference/i18n.md) — 本地化 / 翻译 key 约定
 - [features.md](docs/reference/features.md) — 已实现功能清单
 - [performance-guidelines.md](docs/reference/performance-guidelines.md) — 8 条性能硬规则 + 历史教训
-- `tools/verify_doc_anchors.py` — 索引锚点校验器（把"commit 前查索引"变成一条命令；覆盖 reference/systems/architecture/specs + AGENTS.md，刻意不扫 changelogs）
+- `tools/verify_doc_anchors.py` — 索引锚点校验器（覆盖当前 docs + AGENTS/CLAUDE，刻意不扫 changelogs）
+- `tools/verify_docs.ps1` — 当前文档断链 + spec 登记/front matter/总表一致性校验（默认不改写历史层）
 - [map-pipeline.md](docs/reference/map-pipeline.md) — 地图流水线（OSM 烘焙 / 底图 / `is_on_land`）
 - [manual-map-editing.md](docs/reference/manual-map-editing.md) — Godot 编辑器手画地块流程
 

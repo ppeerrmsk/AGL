@@ -246,6 +246,8 @@ static func update_speed(ac: Aircraft, delta: float) -> void:
 			t_kmh = maxf(t_kmh, effective_max_speed_kmh(ac))
 		if ac.status_slow_active and t_kmh > StatusEffects.SLOW_SPEED_CAP_KMH:
 			t_kmh = StatusEffects.SLOW_SPEED_CAP_KMH
+		if ac.laser_stall_pressure_active():
+			t_kmh = minf(t_kmh, stall_speed(ac) * 0.90)
 		target_ms = t_kmh / 3.6
 
 		var max_climb_norm: float = ac.params.climb_rate_max if ac.params else 250.0
@@ -267,7 +269,8 @@ static func update_speed(ac: Aircraft, delta: float) -> void:
 		var stall_base_kmh: float = ac.params.stall_speed_base if ac.params else 220.0
 		var stall_at_g_ms := stall_base_kmh * pow(maxf(ac.g_load, 1.0), 0.4) / 3.6
 		var min_safe_ms := stall_at_g_ms * 1.05
-		target_ms = maxf(target_ms, min_safe_ms)
+		if not ac.laser_stall_pressure_active():
+			target_ms = maxf(target_ms, min_safe_ms)
 
 	var accel_rate: float = ac.params.acceleration if ac.params else 50.0
 	if ac.status_overload_active:
@@ -285,6 +288,9 @@ static func update_speed(ac: Aircraft, delta: float) -> void:
 	if ac.sig_j36_assault_active:
 		accel_rate *= 1.4
 		decel_rate *= 1.4
+	if ac.hunter_assault_active:
+		accel_rate *= 1.2
+		decel_rate *= 1.2
 	if ac._sig_mig41_dive_timer > 0.0:
 		accel_rate *= 1.5
 	if ac.is_afterburner and not ac.hard_brake:
@@ -319,6 +325,8 @@ static func update_speed(ac: Aircraft, delta: float) -> void:
 	# 🚫 头号硬约束：G 引致掉速最多拽到角点速度地板，绝不更低（转弯不得自陷失速）
 	# 只钳制 G 掉速；直线按 target_speed 正常减速不受影响
 	var g_loss_total := base_loss + struct_loss
+	if ac.hunter_assault_active:
+		g_loss_total *= 0.7
 	var no_stall_floor_ms := corner_speed_kmh(ac) / 3.6
 	var allowed_g_loss := maxf(ac.speed - no_stall_floor_ms, 0.0)
 	ac.speed = maxf(ac.speed - minf(g_loss_total * delta, allowed_g_loss), 0.0)
@@ -487,6 +495,8 @@ static func effective_max_g(ac: Aircraft) -> float:
 	# 722 sig_j36·三发推力：突击 buff 期间 +2G（加法先于乘 buff，AI 经本 accessor 自动感知）
 	if ac.sig_j36_assault_active:
 		g += 2.0
+	if ac.hunter_assault_active:
+		g += 2.0
 	return g * _g_buff_mult(ac)
 
 
@@ -496,6 +506,8 @@ static func effective_max_g_instant(ac: Aircraft) -> float:
 	var g := ac.params.max_g_structural if ac.params else 12.0
 	# 722 sig_j36·三发推力：瞬时结构 G 同步 +2（与持续 G 同源加法）
 	if ac.sig_j36_assault_active:
+		g += 2.0
+	if ac.hunter_assault_active:
 		g += 2.0
 	return g * _g_buff_mult(ac)
 
@@ -1430,6 +1442,8 @@ static func step_speed(st: FlightState, delta: float) -> void:
 			t_kmh = maxf(t_kmh, effective_max_speed_kmh(ac))
 		if ac.status_slow_active and t_kmh > StatusEffects.SLOW_SPEED_CAP_KMH:
 			t_kmh = StatusEffects.SLOW_SPEED_CAP_KMH
+		if ac.laser_stall_pressure_active():
+			t_kmh = minf(t_kmh, stall_speed(ac) * 0.90)
 		target_ms = t_kmh / 3.6
 
 		var max_climb_norm: float = ac.params.climb_rate_max if ac.params else 250.0
@@ -1449,7 +1463,8 @@ static func step_speed(st: FlightState, delta: float) -> void:
 		var stall_base_kmh: float = ac.params.stall_speed_base if ac.params else 220.0
 		var stall_at_g_ms := stall_base_kmh * pow(maxf(st.g_load, 1.0), 0.4) / 3.6
 		var min_safe_ms := stall_at_g_ms * 1.05
-		target_ms = maxf(target_ms, min_safe_ms)
+		if not ac.laser_stall_pressure_active():
+			target_ms = maxf(target_ms, min_safe_ms)
 
 	var accel_rate: float = ac.params.acceleration if ac.params else 50.0
 	if ac.status_overload_active:
@@ -1467,6 +1482,9 @@ static func step_speed(st: FlightState, delta: float) -> void:
 	if ac.sig_j36_assault_active:
 		accel_rate *= 1.4
 		decel_rate *= 1.4
+	if ac.hunter_assault_active:
+		accel_rate *= 1.2
+		decel_rate *= 1.2
 	if ac._sig_mig41_dive_timer > 0.0:
 		accel_rate *= 1.5
 	# AB 也走 st 而非 ac（同上 prediction 内联 planner 的需要）
@@ -1498,6 +1516,8 @@ static func step_speed(st: FlightState, delta: float) -> void:
 	# 编队托管豁免结构超 G 掉速（与实物理 update_speed 同源）
 	var struct_loss := 0.0 if ac.formation_mode else over_g * STRUCT_BLEED_FACTOR * alt_drag_mult
 	var g_loss_total := base_loss + struct_loss
+	if ac.hunter_assault_active:
+		g_loss_total *= 0.7
 	var no_stall_floor_ms := corner_speed_kmh(ac) / 3.6
 	var allowed_g_loss := maxf(st.speed - no_stall_floor_ms, 0.0)
 	st.speed = maxf(st.speed - minf(g_loss_total * delta, allowed_g_loss), 0.0)

@@ -49,6 +49,16 @@ var _area_flashes: Array[Dictionary] = []
 ## 同屏上限：每个 source 各自最多 21 颗（玩家有技能减 CD 后的极限值）
 const MAX_TORPEDOES_PER_SOURCE: int = 21
 
+## 阵营倒戈时把该单位已经发射的弹药 IFF 一并翻面。
+## 这是低频转换事件的一次性 O(projectiles) 修复，不进入热路径。
+func reassign_projectiles_from(source: CombatUnit, new_team: int) -> void:
+	if source == null or not is_instance_valid(source):
+		return
+	for bucket in [_bullets, _torpedoes, _bombs, _airburst_shells]:
+		for projectile in bucket:
+			if projectile.get("source", null) == source:
+				projectile["source_team"] = new_team
+
 
 ## 建筑拦截概率查表（与 missile_manager._building_block_prob_for_tier 一致）
 ##   HIGH → 40% / MID → 60% / LOW → 80% / GROUND → 100%
@@ -161,6 +171,8 @@ func spawn_bullet(origin: Vector2, direction: float, speed_ms: float, source: Co
 		"is_rocket": false,
 		"is_ciws": is_ciws,
 		"visual_only": visual_only,
+		"pierces_units": source is Aircraft and (source as Aircraft).gun_bullet_penetration_active and not is_ciws,
+		"hit_unit_ids": {},
 		"spawn_in_building": spawn_in_b,
 		"source_tier": src_tier,
 		"was_in_building": spawn_in_b,
@@ -711,6 +723,9 @@ func _physics_process(delta: float) -> void:
 			# 跳过非敌对阵营（无论射手死活都用快照 team 判定；PLAYER↔ALLY 互不误伤）
 			if not CombatUnit.teams_hostile(ac.team, source_team):
 				continue
+			var pierced_ids: Dictionary = b.get("hit_unit_ids", {})
+			if bool(b.get("pierces_units", false)) and pierced_ids.has(ac.get_instance_id()):
+				continue
 			# 光学隐形：子弹/火箭弹穿过隐形目标
 			if ac is Aircraft and ac.is_cloaked:
 				continue
@@ -821,6 +836,12 @@ func _physics_process(delta: float) -> void:
 					if not is_rocket:
 						EventLogger.tally(src_name, "gun_hits")
 						_emit_hit_spark(b["pos"], b["vel"], tgt_unit)
+				if bool(b.get("pierces_units", false)) and not is_rocket:
+					# 闪避成功不登记命中；实际结算后才防止同一弹重复伤害同一单位。
+					if damage_applied:
+						pierced_ids[ac.get_instance_id()] = true
+						b["hit_unit_ids"] = pierced_ids
+					continue
 				hit = true
 				break
 
@@ -1012,11 +1033,14 @@ func _draw() -> void:
 		var tp: TorpedoParams = t["params"]
 		var canopy_col: Color = tp.canopy_color
 		var body_col: Color = tp.body_color
+		# 漂浮雷用蓝色脉冲闪烁提示威胁；仅绘制时取时间，不进入物理热路径。
+		var blue_pulse: float = 0.45 + 0.55 * absf(sin(Time.get_ticks_msec() * 0.009))
+		body_col = body_col.lerp(Color(0.55, 0.9, 1.0, body_col.a), blue_pulse)
 		# 寿命末段淡出
 		var life_left_t: float = float(t["life"])
 		var fade_t: float = clampf(life_left_t / 0.6, 0.0, 1.0)
 		# 弹体（小圆）
-		draw_circle(pos, 3.0, Color(body_col.r, body_col.g, body_col.b, body_col.a * fade_t))
+		draw_circle(pos, 3.0 + blue_pulse, Color(body_col.r, body_col.g, body_col.b, body_col.a * fade_t))
 		# 降落伞罩：屏幕上方 8 px 处一段弧线（用 polyline 模拟）
 		var canopy_center := pos + Vector2(0, -8.0)
 		var canopy_pts := PackedVector2Array([

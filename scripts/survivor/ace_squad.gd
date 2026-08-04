@@ -343,8 +343,10 @@ func _update_boundary_recovery() -> bool:
 		if recovery == null and edge_dist > BOUNDARY_TRIGGER_PX:
 			continue
 
-		# 预测转弯仍越线时才硬钳回；正常路径始终靠 fly_to 真实转弯。
-		if edge_dist <= 0.0:
+		# 40px 硬护栏在尚未越线时即生效；正常路径仍靠 fly_to 真实转弯。
+		# SurvivorSpawner 另有不依赖 encounter tick 的同语义兜底（SEAM-027）。
+		var touching_hard_rail := edge_dist <= BOUNDARY_HARD_CLAMP_MARGIN_PX
+		if touching_hard_rail:
 			m.global_position = MapBoundary.clamp_inside(
 					m.global_position, BOUNDARY_HARD_CLAMP_MARGIN_PX)
 			m.clear_trail()
@@ -362,7 +364,7 @@ func _update_boundary_recovery() -> bool:
 		var ai := m._get_ai_controller()
 		if ai != null and ai._directive != recovery:
 			ai.set_event_directive(recovery)
-		if edge_dist <= 0.0:
+		if touching_hard_rail:
 			var inward := target - m.global_position
 			if inward.length_squared() > 1.0:
 				m.heading = atan2(inward.x, -inward.y)

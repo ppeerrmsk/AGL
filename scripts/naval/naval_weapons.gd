@@ -48,6 +48,10 @@ const CIWS_CLOSE_DAMAGE: float = 8.0             ## 近距真弹伤害（介于 
 const SAM_SHORT_COOLDOWN: float = 6.0            ## 短程 SAM 再次发射间隔
 const SAM_SHORT_MIN_RANGE_M: float = 300.0       ## 最小射程（米）
 
+# ── DDG 舰载 Flak 常量 ──
+const NAVAL_FLAK_ACQUIRE_INTERVAL: float = 0.5
+const NAVAL_FLAK_BURST_COOLDOWN: float = 6.0
+
 ## 每帧入口
 static func update(nu: NavalUnit, delta: float) -> void:
 	if nu == null or nu.is_destroyed:
@@ -71,6 +75,8 @@ static func update(nu: NavalUnit, delta: float) -> void:
 				_update_vls_salvo(nu, m, delta)
 			WeaponMountParams.WeaponType.NAVAL_AA:
 				_update_naval_aa(nu, m, delta)
+			WeaponMountParams.WeaponType.NAVAL_FLAK:
+				_update_naval_flak(nu, m, delta)
 	PerfBuckets.tick("naval_weapons", Time.get_ticks_usec() - _t0)
 
 # ==================================================
@@ -341,6 +347,82 @@ static func _update_naval_aa(nu: NavalUnit, mount: WeaponMount, _delta: float) -
 	nu.bullet_manager.spawn_bullet(mount_pos, dir, gun.muzzle_velocity, nu, gun.bullet_damage, false, false)
 	# fire_rate 单位：发/分钟 → 冷却 = 60 / fire_rate
 	mount.fire_cooldown = 60.0 / maxf(gun.fire_rate, 1.0)
+
+# ==================================================
+#  NAVAL_FLAK — DDG 舰载定时空爆炮
+# ==================================================
+
+## 低频状态机：只有冷却完毕且没有冻结炮组时才以 2Hz 捕获目标；炮组内不再扫描。
+static func _update_naval_flak(nu: NavalUnit, mount: WeaponMount, delta: float) -> void:
+	if nu.bullet_manager == null:
+		return
+	if mount.flak_remaining > 0:
+		mount.flak_delay = maxf(mount.flak_delay - delta, 0.0)
+		if mount.flak_delay <= 0.0:
+			_fire_naval_flak_shell(nu, mount)
+			mount.flak_remaining -= 1
+			if mount.flak_remaining > 0:
+				mount.flak_delay = AirburstAAUnit.BURST_INTERVAL
+		return
+	if mount.fire_cooldown > 0.0 or mount.acquire_cooldown > 0.0:
+		return
+
+	mount.acquire_cooldown = NAVAL_FLAK_ACQUIRE_INTERVAL
+	var target := _find_aircraft_for_flak(nu, mount)
+	if target == null:
+		return
+	_begin_naval_flak_burst(nu, mount, target)
+
+## 舰载 Flak 独立捕获：避开隐形/锁定免疫目标，避免最近的不可见飞机堵住其它候选。
+static func _find_aircraft_for_flak(nu: NavalUnit, mount: WeaponMount) -> Aircraft:
+	var mount_pos := mount.world_position(nu.global_position, nu.heading)
+	var best: Aircraft = null
+	var best_d: float = AirburstAAUnit.MAX_RANGE_PX
+	for unit in CombatUnit.all_units:
+		if unit == null or not is_instance_valid(unit) or not (unit is Aircraft):
+			continue
+		var ac := unit as Aircraft
+		if ac.is_destroyed or not nu.is_hostile_to(ac) or ac.is_lock_immune():
+			continue
+		var d := mount_pos.distance_to(ac.global_position)
+		if d >= AirburstAAUnit.MIN_RANGE_PX and d < best_d:
+			best_d = d
+			best = ac
+	return best
+
+static func _begin_naval_flak_burst(nu: NavalUnit, mount: WeaponMount, target: Aircraft) -> void:
+	var mount_pos := mount.world_position(nu.global_position, nu.heading)
+	var solution := AirburstAAUnit.sample_burst_solution(mount_pos, target)
+	mount.flak_solution_pos = solution["pos"]
+	mount.flak_solution_altitude = float(solution["altitude"])
+	mount.flak_fuse_error = float(solution["fuse_error"])
+	mount.flak_burst_id += 1
+	mount.flak_remaining = AirburstAAUnit.BURST_SIZE
+	mount.flak_delay = 0.0
+	mount.fire_cooldown = NAVAL_FLAK_BURST_COOLDOWN
+
+	# 首弹立即出膛；后两发由 _update_naval_flak 按 0.25s 推进。
+	_fire_naval_flak_shell(nu, mount)
+	mount.flak_remaining -= 1
+	if mount.flak_remaining > 0:
+		mount.flak_delay = AirburstAAUnit.BURST_INTERVAL
+
+static func _fire_naval_flak_shell(nu: NavalUnit, mount: WeaponMount) -> void:
+	var mount_pos := mount.world_position(nu.global_position, nu.heading)
+	var shot := AirburstAAUnit.sample_shell_solution(
+		mount_pos, mount.flak_solution_pos, mount.flak_fuse_error)
+	var direction: float = float(shot["direction"])
+	var muzzle := mount_pos + Vector2(sin(direction), -cos(direction)) * 8.0
+	nu.bullet_manager.spawn_airburst_shell(
+		muzzle,
+		direction,
+		AirburstAAUnit.SHELL_SPEED_MS,
+		nu,
+		maxf(float(shot["fuse"]), 0.25),
+		mount.flak_solution_altitude,
+		220.0,
+		75.0,
+		mount.flak_burst_id)
 
 # ==================================================
 #  SAM 短程（FFG 主武器）

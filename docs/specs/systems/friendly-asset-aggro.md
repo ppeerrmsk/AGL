@@ -3,7 +3,7 @@ id: friendly-asset-aggro
 kind: system
 status: done
 schema_version: 1
-spec_version: 4
+spec_version: 5
 owner: user + Codex
 depends_on: [global-awareness-roe, target-engageability-selection, surface-attack-pass, airfield-liberation-zones, zone-reward-docking, aa-fire-awareness]
 reconstruction_complete: true
@@ -122,11 +122,11 @@ SCORED < BOSS < ASSET < DIRECTIVE < COMMANDED
 | V7 | 95 | 4 |
 | V8 | 105 | 3 |
 
-`300 HP` 仍可承受零星漏弹，但高等级导弹只需 3–4 发穿透即可击沉。CIWS 负责压制孤立来弹，密集齐射则会自然饱和；这个组合防止玩家把航母当成长期承伤单位。
+`300 HP` 仍可承受零星漏弹，但高等级导弹只需 3–4 发**实际穿透**即可击沉。共享四座 CIWS 对正向同批齐射也可能全数拦截；友军航母的脆弱性来自较低船体、可拆挂点、JAM、近距优先级抢占与多轴持续攻击，不再假定“超过四枚就必然饱和”。
 
 这是 BOSS/装甲单位的显式例外：高血量由巨大舰体、可见挂点与弱点阶段表达，不违反普通飞机一击毙命规则。
 
-### 2.7 航母 CIWS 拦截能力审计
+### 2.7 航母 CIWS 拦截能力审计（敌方航母 BOSS 强度锚）
 
 | 字段 | 值 |
 |---|---:|
@@ -144,7 +144,7 @@ SCORED < BOSS < ASSET < DIRECTIVE < COMMANDED
 | 并发纪律 | 一座 CIWS 同时拦一枚；同船其它 CIWS 不重复咬同一枚 |
 | 再接敌冷却 | **0.6 s** |
 
-满额距离内的名义有效 DPS 为 **150–167 / s / 座**；四座可并行处理最多四枚不同来袭弹，但不能把四座火力叠到同一枚上。它对孤立、正向来袭弹非常有效，对超过四枚的齐射、贴脸敌机优先级抢占、挂点被毁、JAM 与远端零伤区明显变弱。
+满额距离内的名义有效 DPS 为 **150–167 / s / 座**；四座可并行处理四枚不同来袭弹，并凭较短再接敌冷却继续处理后续来弹。用户于 2026-08-04 明确裁定：理想正向几何下，四座航母 CIWS 完全压住 5 枚甚至 8 枚普通齐射，符合航母 BOSS 强度，**不是平衡缺陷**。它仍会被挂点摧毁、JAM、贴脸敌机优先级抢占、持续多轴攻击与远端零伤区削弱。
 
 代码常量离散模型的审计探针（非 Godot 场景验收）在“单座未受干扰、正向直飞、0–0.15 s 随机发现延迟、60 Hz”前提下，V1–V6 拦截约 100%，V7 约 99.9%，V8 约 98.7%。它证明 CIWS 不是装饰，但不能替代 §5 的真实场景齐射测试。
 
@@ -226,8 +226,8 @@ if target belongs to a registered friendly asset group:
 - [x] 航母目标按 CIWS 挂点 → 暴露弱点推进，船体中心仍不可锁；挂点销毁后无 freed instance / 残留 combat_target。
 - [x] 友军航母使用专属 300 船体；敌方航母 BOSS 仍为 1200，共享资源原值不被友军覆写污染。
 - [x] 单枚任意 V1–V8 导弹不能击沉满血友军航母；V8 理论至少需要 3 发穿透。
-- [x] CIWS 实景 bench：V1/V4/V8 各做 100 次孤立正向来袭，记录拦截率；再做 2/4/5/8 枚同批齐射，证明“孤弹有效、超过四枚可饱和”，不得只用概率替身。
-- [x] 持续攻击 playtest：孤立单机的串行来弹主要由 CIWS 处理；多机同时攻击、密集齐射或 CIWS 被分散时，友军航母存在快速沉没风险。
+- [x] CIWS 实景 bench：V1/V4/V8 各做 100 次孤立正向来袭，记录拦截率；再做 2/4/5/8 枚同批齐射。BOSS 基线要求 5 枚齐射拦截率 ≥90%、8 枚齐射拦截率 ≥80%，允许两者 100% 拦截，不得把“必须穿透”写成断言。
+- [x] 持续攻击 playtest：孤立与正向齐射主要由 CIWS 处理；多机应先拆挂点、JAM、贴脸抢占或从多轴持续攻击，不保证单轮普通导弹饱和。
 - [x] BOSS/王牌回归：WRAITH、POLTERGEIST、Mother Goose、CSG 舰载机、MARATHON 各验证一次；主 BOSS/队长不被分流，离场后战术恢复。
 - [x] 目标来源回归：`SCORED < BOSS < ASSET < DIRECTIVE < COMMANDED` 全部抢占/拒绝/释放组合有断言。
 - [x] 性能：调度器 1 Hz、每 tick 至多一次 `CombatUnit.all_units` 线性扫描；Sentinel + Lv5+ FPS 不低于 60，Lv8+ 拥挤场景无尖峰。
@@ -235,13 +235,13 @@ if target belongs to a registered friendly asset group:
 - [x] `verify_doc_anchors.py` 通过；新增/修改函数同步 script-index 与 code-index。
 - [x] i18n：本机制无新增玩家文本；若实现期增加提示，必须走 `tr()` 并补三语。
 
-### 2026-08-01 验收结果
+### 验收结果（CIWS 于 2026-08-04 按 BOSS 强度裁定复验）
 
 | Bench | 结果 | 关键结论 |
 |---|---:|---|
 | `friendly_asset_aggro` | **27 / 27** | DORMANT/ACTIVE、H→Q、6000 px 参与圈、重叠组、8 s 退出、300/1200 HP 隔离通过 |
 | `target_arb` | **25 / 25** | 五级来源抢占、DORMANT 硬门、DIRECTIVE 例外通过 |
-| `ciws_intercept` | **14 / 14** | V1/V4 孤弹 100%，V8 孤弹 88%；V4 八枚齐射穿透 41/160（25.6%） |
+| `ciws_intercept` | **14 / 14** | V1/V4/V8 孤弹均 100%；V4 的 2/4/5/8 枚正向齐射均 100% 拦截，符合航母 BOSS 强度锚 |
 | `target_sel` / `surface_pass` | **35 / 35**、**32 / 32** | 自主选靶与对地/对舰攻击链无回归 |
 | BOSS / 王牌 / 舰队相关五组 | **193 / 193** | POLTERGEIST、Lancer/Marathon、Wraith/CSG、BOSS 阶段与舰队运动通过 |
 | `ace_tier` | **55 通过 / 1 个外部失败** | 王牌战斗、轮换、TTK 全绿；仅生涯落盘重读失败 |
@@ -301,6 +301,7 @@ Code Index 锚点均通过，`git diff --check` 通过。全仓 Code Index 仍�
 
 | 日期 | spec_version | 改动 |
 |---|---:|---|
+| 2026-08-04 | 5 | 用户裁定当前航母四 CIWS 强度符合 BOSS 身份、无需削弱。真实弹道 bench 从“5 枚必须穿透”改为 BOSS 防御下限：5 枚拦截率 ≥90%、8 枚 ≥80%，当前确定性样本均为 100%；敌方 BOSS 测试改用 HOSTILE 航母与 PLAYER 来弹。 |
 | 2026-08-01 | 4 | Godot 原生启动问题修复后完成验收：核心三组 66/66，目标/对面/BOSS/舰队相关回归通过，`stress_40` 约 145 headless fps；CIWS 实测孤弹有效、八枚齐射明显饱和。功能状态转 `done`；仓库全量门的 27 个无关存档/商店/刷怪池失败另行保留。 |
 | 2026-07-31 | 3 | 修复运行时错误：设施调度器调用了遗漏实现的公开 `get_target_source()`；AIController 现通过只读 getter 返回当前有效目标来源。 |
 | 2026-07-31 | 3 | 用户批准后落地调度、ASSET 仲裁、ACTIVE 硬门、机场/航母注册、友军 300 HP 覆写及两组 bench。工作区 idle 后仅经 `bench/run.cmd` 启动验证，但 Steam Godot 4.7.1 在 GDScript bench 前原生 `signal 11`；遵守协调要求未重试，保持 `in-progress`。 |

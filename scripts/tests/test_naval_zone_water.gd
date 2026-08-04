@@ -25,11 +25,63 @@ func run() -> void:
 		if not _zone_can_be_naval(z):
 			continue
 		_check_zone(z)
+	_check_fleet_compositions_and_targets()
 	_check_shrink_plan()
 	_check_no_water_fallback()
 	_check_csg()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
+
+
+func _check_fleet_compositions_and_targets() -> void:
+	print("── 战区对舰编成 / 全舰 TGT 契约 ──")
+	_check("1★ = 4 FFG", ZoneMission.NAVAL_FLEET_COMPOSITIONS[1]
+		== [&"FFG", &"FFG", &"FFG", &"FFG"])
+	_check("2★ = 2 DDG + 3 FFG", ZoneMission.NAVAL_FLEET_COMPOSITIONS[2]
+		== [&"DDG", &"DDG", &"FFG", &"FFG", &"FFG"])
+	_check("3★ = 1 CG + 2 DDG + 3 FFG", ZoneMission.NAVAL_FLEET_COMPOSITIONS[3]
+		== [&"CG", &"DDG", &"DDG", &"FFG", &"FFG", &"FFG"])
+	_check_spawned_fleet_contract()
+
+	var ships: Array = []
+	for i in range(6):
+		ships.append(NavalUnit.new())
+	var roster := ZoneMission.build_naval_target_roster(ships[0], ships.slice(1))
+	_check("安全方案保留的全舰均登记为 TGT",
+		roster.size() == 6 and roster.all(func(ship): return ship.is_mission_target))
+	var mission := ZoneMission.new()
+	mission._spawned_zones[&"NAVAL_TEST"] = roster
+	ships[0].is_destroyed = true
+	_check("只击毁旗舰时任务不得完成", not mission._all_zone_units_destroyed(&"NAVAL_TEST"))
+	for ship in ships:
+		ship.is_destroyed = true
+	_check("全舰击毁后任务完成", mission._all_zone_units_destroyed(&"NAVAL_TEST"))
+	mission.free()
+	for ship in ships:
+		ship.free()
+
+
+func _check_spawned_fleet_contract() -> void:
+	var mission := ZoneMission.new()
+	var mode := Node2D.new()
+	mission.mode = mode
+	var ffg: Resource = load("res://resources/naval/frigate_ffg.tres")
+	var ok := mission._spawn_naval_formation(&"NAVAL_SPAWN_TEST", Vector2(800.0, 7000.0), 3, ffg)
+	var targets: Array = mission._spawned_zones.get(&"NAVAL_SPAWN_TEST", [])
+	var kinds: Array[StringName] = []
+	for ship in targets:
+		if ship is CruiserShip:
+			kinds.append(&"CG")
+		elif ship is DestroyerShip:
+			kinds.append(&"DDG")
+		else:
+			kinds.append(&"FFG")
+	_check("3★ 实际实例化六舰并全部进入任务目标表",
+		ok and kinds == [&"CG", &"DDG", &"DDG", &"FFG", &"FFG", &"FFG"])
+	_check("对舰护卫不再混入非目标驻守表",
+		(mission._garrison_zones.get(&"NAVAL_SPAWN_TEST", []) as Array).is_empty())
+	mode.free()
+	mission.free()
 
 
 ## 人工海岸：完整/双护卫均不安全，只允许单护卫解；验证先减护卫再生成。

@@ -36,6 +36,9 @@ const WINGMAN_ENGAGE_DELAY_MAX: float = 1.5
 
 var leader: Aircraft = null
 var members: Array[Aircraft] = []
+## 可选的确定性继任链；为空时沿用 ACE/敌队的最高击坠数继任。
+## ADBS 护卫用它保证首架运输机阵亡后继续跟下一架，而不是让已有战果的护卫夺取长机位。
+var leader_successors: Array[Aircraft] = []
 @export var formation: Formation = Formation.FINGER_FOUR
 @export var base_spacing_m: float = 300.0  ## 基础间距（米）≈150像素，现实约200-500m
 @export var engage_mode: int = EngageMode.FREE
@@ -83,11 +86,18 @@ func cleanup() -> void:
 	if leader and (not is_instance_valid(leader) or leader.is_destroyed):
 		# ACE 继任（spec ace-system §3）：长机阵亡 → **击坠数最高**的存活成员继任
 		# （kill_tally 在 _record_kill_attribution 记账；平手取 members 靠前 = 资历序）。
-		# 敌方小队走同一规则（战果最高者接任），无副作用。
+		# 敌方小队走同一规则；显式 leader_successors 则优先消费确定性继任链。
 		var best: Aircraft = null
-		for ac in members:
-			if best == null or ac.kill_tally > best.kill_tally:
-				best = ac
+		while not leader_successors.is_empty() and best == null:
+			# TypedArray 可以残留已释放对象；先用 Variant 接住并验证，不能直接
+			# 赋给 Aircraft 临时变量，否则会抛 "invalid previously freed instance"。
+			var candidate = leader_successors.pop_front()
+			if is_instance_valid(candidate) and not candidate.is_destroyed and candidate in members:
+				best = candidate as Aircraft
+		if best == null:
+			for ac in members:
+				if best == null or ac.kill_tally > best.kill_tally:
+					best = ac
 		leader = best
 		if leader:
 			EventLogger.log_event("ACE", leader.callsign,

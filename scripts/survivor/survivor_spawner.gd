@@ -1838,11 +1838,31 @@ func _spawn_ch47_flock() -> void:
 #  ADBS 事件专用生成（指定起点 + 逃离方向，不穿过玩家）
 # ══════════════════════════════════════════════
 
-## 逃跑组护卫（spec zone-reward-docking §2.7）：2~4 架战斗机在逃跑组后方 600px 伴飞护航。
+## 逃跑组护卫（spec zone-reward-docking §2.7）：2~4 架战斗机以护航对象为长机近距伴飞。
 ## adds 语义（不占 token / 不被远距清理 / hunter·航点 tick·边界纪律不接管）；
 ## enable_combat=true → 玩家进雷达圈（或逼近护航对象）自动接敌；护航对象没了/超时
 ## 沿 exit 航点飞出（despawn_after 兜底）。击杀走普通 XP（_detect_kills 按 enemy_type
 ## 分支，战斗机不吃 adds 满级经验）。选型走有效等级（热度 shift 复用），单机精英降级。
+const FLEE_ESCORT_SPACING_M := 220.0
+
+
+## 护航对象是移动锚点，而不是让高速战斗机另领同一个远端出口航点。
+## 所有 protectee 先进入 members，保证首机被击毁后 cleanup 优先把下一架护航对象升为长机；
+## 它们保留各自 Adds AI 航线，只有护卫机进入 SQUAD_FOLLOW。
+func _new_flee_escort_squad(protectees: Array[Aircraft]) -> Squad:
+	var sq := SquadFactory.create(
+		Squad.Formation.WEDGE, Squad.EngageMode.FREE, FLEE_ESCORT_SPACING_M)
+	if protectees.is_empty():
+		return sq
+	SquadFactory.register_leader(sq, protectees[0])
+	for i in range(1, protectees.size()):
+		var p := protectees[i]
+		if is_instance_valid(p):
+			sq.add_member(p)
+			sq.leader_successors.append(p)
+	return sq
+
+
 func _pick_flee_escort_type() -> EnemyType:
 	var response := get_response_level()
 	var candidates := EnemyPoolRegistry.escort_rows(response)
@@ -1863,14 +1883,12 @@ func _spawn_flee_escort(protectees: Array[Aircraft], flight_dir: Vector2,
 	var heading := rad_to_deg(atan2(flight_dir.x, -flight_dir.y))
 	var heading_rad := deg_to_rad(heading)
 	var exit_wp := anchor_p.global_position + flight_dir * (flight_dist + ADDS_EXIT_EXTENSION_PX)
-	var sq := SquadFactory.create()
-	sq.formation = Squad.random_formation()
-	var base := anchor_p.global_position - flight_dir * 600.0
+	var sq := _new_flee_escort_squad(protectees)
 	var escorts: Array[Aircraft] = []
 	for i in range(n):
-		var pos := base
-		if i > 0:
-			pos = base + sq.get_formation_offset(i).rotated(heading_rad)
+		var squad_index := sq.members.size()
+		var pos := anchor_p.global_position \
+			+ sq.get_formation_offset(squad_index).rotated(heading_rad)
 		var ac := _create_enemy(etype, pos, heading)
 		ac.set_meta("category", "adds")
 		ac.set_meta("skip_far_cleanup", true)
@@ -1882,10 +1900,7 @@ func _spawn_flee_escort(protectees: Array[Aircraft], flight_dir: Vector2,
 			ai.evade_missiles = true
 			ai.waypoints = PackedVector2Array([exit_wp])
 			ai.current_waypoint_index = 0
-		if i == 0:
-			SquadFactory.register_leader(sq, ac)
-		else:
-			SquadFactory.register_wingman(sq, ac, true)
+		SquadFactory.register_wingman(sq, ac, true)
 		escorts.append(ac)
 	# 护卫登记：被护送对象挨打时经 Aircraft.escort_guards 把护卫扑向攻击者。
 	# 不登记的话护卫会看着运输机被一架一架点掉却毫无反应（护卫学说不对敌方开）。
@@ -3095,14 +3110,35 @@ func _update_hunters(delta: float) -> void:
 ## 每帧运行，直接覆写 AI 的 waypoints/state/combat_target。
 const BOUNDARY_ENEMY_MARGIN_PX := 2000.0   ## 敌人距边界 ≤4km 强制转向地图中心
 const BOUNDARY_DISENGAGE_TARGET_DIST := 4000.0  ## 转向目标点离当前位置的距离
-const BOUNDARY_HARD_CLAMP_MARGIN_PX := 40.0     ## 真正越界时 hard clamp 回到边内的安全距
+const BOUNDARY_HARD_CLAMP_MARGIN_PX := 40.0     ## 触线前 hard clamp 到边内的安全距
+const BOUNDARY_BOSS_INWARD_TARGET_MARGIN_PX := 3500.0  ## 与 AceSquad 软返场目标同语义
+
+## BOSS 世界外框的模式级物理硬护栏（SEAM-027）。不依赖玩家/encounter tick，
+## 也绝不覆写 directive、目标或火控；只修正已经触到 40px 护栏的位置与航向。
+static func enforce_boss_world_boundary(ac: Aircraft) -> bool:
+	if ac == null or not is_instance_valid(ac) or ac.is_destroyed \
+			or String(ac.get_meta("category", "")) != "boss":
+		return false
+	if MapBoundary.distance_to_edge(ac.global_position) > BOUNDARY_HARD_CLAMP_MARGIN_PX:
+		return false
+	var inward_target := MapBoundary.clamp_inside(
+			ac.global_position, BOUNDARY_BOSS_INWARD_TARGET_MARGIN_PX)
+	ac.global_position = MapBoundary.clamp_inside(
+			ac.global_position, BOUNDARY_HARD_CLAMP_MARGIN_PX)
+	ac.clear_trail()
+	var inward := inward_target - ac.global_position
+	if inward.length_squared() > 1.0:
+		ac.heading = atan2(inward.x, -inward.y)
+	return true
 
 func _update_boundary_discipline(_delta: float) -> void:
-	if not player_aircraft or player_aircraft.is_destroyed:
+	if mode == null or not is_instance_valid(mode):
 		return
-	var pp := player_aircraft.global_position
+	var has_live_player := player_aircraft != null \
+			and is_instance_valid(player_aircraft) and not player_aircraft.is_destroyed
 	# 玩家是否处于警戒区（≤2km 边界距离）→ 触发全局 disengage
-	var player_near_edge := MapBoundary.distance_to_edge(pp) <= MapBoundary.WARN_DISTANCE_PX
+	var player_near_edge := has_live_player \
+			and MapBoundary.distance_to_edge(player_aircraft.global_position) <= MapBoundary.WARN_DISTANCE_PX
 
 	for child in mode.get_children():
 		if not (child is Aircraft):
@@ -3110,10 +3146,17 @@ func _update_boundary_discipline(_delta: float) -> void:
 		var ac: Aircraft = child
 		if ac.team != CombatUnit.TEAM_HOSTILE or ac.is_destroyed:
 			continue
-		# Boss / Adds / 王牌支援中队 有独立航点管理，跳过
-		# （ace_support：猎手语义永追玩家，不受边界纪律拽回；出入界由事件层管理）
+		# BOSS 的软导航归 AceSquad；这里仍保留不可绕过的物理硬护栏，然后跳过普通 PATROL 接管。
 		var cat: String = ac.get_meta("category", "")
-		if cat == "boss" or cat == "adds" or cat == "zone_air" or cat == "ace_support":
+		if cat == "boss":
+			enforce_boss_world_boundary(ac)
+			continue
+		# Adds / 王牌支援中队有独立航点管理，跳过
+		# （ace_support：猎手语义永追玩家，不受边界纪律拽回；出入界由事件层管理）
+		if cat == "adds" or cat == "zone_air" or cat == "ace_support":
+			continue
+		# 普通敌机纪律需要玩家位置；BOSS 硬护栏已经在上面独立执行。
+		if not has_live_player:
 			continue
 		# BOSS 阶段撤离中：飞出地图正是目的，边界纪律不得把它们拽回来
 		if ac.has_meta("boss_evac"):
@@ -3221,6 +3264,41 @@ func _apply_squad_xp_share(xp_value: int) -> int:
 	if n > 1:
 		EventLogger.log_event("XP", "SquadShare", "members=%d raw=%d mult=%.3f awarded=%d" % [n, xp_value, multiplier, shared])
 	return shared
+
+## 非击杀中和奖励：按一架王牌的正常经验公式入账，但不触发任何击杀派生效果。
+func grant_ace_neutralization_xp() -> int:
+	if survivor_player == null or _is_boss_phase():
+		return 0
+	var xp_value := SurvivorData.XP_PER_KILL_F47 + survivor_player.level * 8
+	xp_value = int(round(float(xp_value) * survivor_player.xp_multiplier \
+		* survivor_player.sig_xp_mult * survivor_player.milestone_xp_multiplier(mode._player_profile) \
+		* _aircraft_xp_mult()))
+	xp_value = _apply_squad_xp_share(xp_value)
+	if xp_value <= 0:
+		return 0
+	survivor_player.add_xp(xp_value)
+	if not mode._bench_mode and mode.hud:
+		mode.hud.spawn_xp_gain(xp_value)
+	EventLogger.log_event("XP", "AceNeutralized", "awarded=%d" % xp_value)
+	return xp_value
+
+
+## “逃离”技能的非击杀中和奖励：普通空战 XP 只发一次，不触发击杀回血/连击/档案。
+func grant_flee_neutralization_xp(_target: Aircraft) -> int:
+	if survivor_player == null or _is_boss_phase():
+		return 0
+	var xp_value: int = XP_PER_KILL + survivor_player.level * 8
+	xp_value = int(round(float(xp_value) * survivor_player.xp_multiplier \
+		* survivor_player.sig_xp_mult * survivor_player.milestone_xp_multiplier(mode._player_profile) \
+		* _aircraft_xp_mult()))
+	xp_value = _apply_squad_xp_share(xp_value)
+	if xp_value <= 0:
+		return 0
+	survivor_player.add_xp(xp_value)
+	if not mode._bench_mode and mode.hud:
+		mode.hud.spawn_xp_gain(xp_value)
+	EventLogger.log_event("XP", "FearFlee", "awarded=%d" % xp_value)
+	return xp_value
 
 func _detect_kills() -> void:
 	# BOSS 解锁即进入决战阶段：击杀仍保留战斗内语义（计数、回血、连击），
@@ -3351,6 +3429,7 @@ func _trigger_squad_fear(victim: Aircraft, duration: float) -> void:
 
 ## 通用 helper：施加玩家来源的 FEAR；若玩家持有 fear_chills，同时附带 SLOW
 func _apply_player_fear(target: Aircraft, duration: float, log_tag: String) -> void:
+	var fear_was_active: bool = target.has_status(StatusEffects.FEAR)
 	target.apply_status(StatusEffects.FEAR, duration)
 	var pl: Aircraft = survivor_player.aircraft
 	var slowed := false
@@ -3359,6 +3438,8 @@ func _apply_player_fear(target: Aircraft, duration: float, log_tag: String) -> v
 		slowed = true
 	EventLogger.log_event("FEAR", target._log_name(),
 		"%s duration=%.1fs%s" % [log_tag, duration, " +SLOW" if slowed else ""])
+	if not fear_was_active and target.has_status(StatusEffects.FEAR) and pl:
+		SkillHooks.on_player_fear_landed(pl, target)
 
 ## 是否能被恐惧：必须有 AIController + personality + 非 simple_ai + 非完美飞行员（僚机）
 func _can_be_feared(target: Aircraft) -> bool:

@@ -37,6 +37,14 @@ var ciws_shot_counter: int = 0
 var salvo_remaining: int = 0
 var salvo_delay: float = 0.0            ## 距离下一发齐射弹发射的倒计时（秒）
 
+# ── Flak 空爆炮组状态 ──
+var flak_remaining: int = 0             ## 当前冻结炮组尚未出膛的炮弹数
+var flak_delay: float = 0.0             ## 距离下一发炮弹的组内计时
+var flak_solution_pos: Vector2 = Vector2.ZERO
+var flak_solution_altitude: float = 0.0
+var flak_fuse_error: float = 0.0
+var flak_burst_id: int = 0
+
 ## 从 params 初始化血量
 func initialize(p: WeaponMountParams) -> void:
 	params = p
@@ -47,6 +55,12 @@ func initialize(p: WeaponMountParams) -> void:
 	engage_cooldown = 0.0
 	tracer_timer = 0.0
 	fire_cooldown = 0.0
+	flak_remaining = 0
+	flak_delay = 0.0
+	flak_solution_pos = Vector2.ZERO
+	flak_solution_altitude = 0.0
+	flak_fuse_error = 0.0
+	flak_burst_id = 0
 
 ## 应用伤害，返回是否刚被摧毁（true 仅在本次调用击穿时返回）
 func apply_damage(amount: float) -> bool:
@@ -59,6 +73,8 @@ func apply_damage(amount: float) -> bool:
 		# 挂点死亡清理拦截状态
 		engaged_missile = null
 		engage_cooldown = 0.0
+		flak_remaining = 0
+		flak_delay = 0.0
 		return true
 	return false
 

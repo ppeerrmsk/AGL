@@ -54,6 +54,8 @@ static func apply_status_in_radius(
 		var d_sq: float = u.global_position.distance_squared_to(center)
 		if d_sq > r_sq:
 			continue
+		var fear_was_active: bool = status_id == StatusEffects.FEAR \
+			and u.status_effects.has(StatusEffects.FEAR)
 		u.apply_status(status_id, duration)
 		hit_count += 1
 		hit_positions.append(u.global_position)
@@ -68,6 +70,10 @@ static func apply_status_in_radius(
 				and (source as Aircraft).is_player_squad() \
 				and (source as Aircraft).fear_applies_slow:
 			u.apply_status(StatusEffects.SLOW, duration)
+		if status_id == StatusEffects.FEAR and not fear_was_active \
+				and u is Aircraft and u.status_effects.has(StatusEffects.FEAR) \
+				and source is Aircraft and (source as Aircraft).is_player_squad():
+			SkillHooks.on_player_fear_landed(source as Aircraft, u as Aircraft)
 	if hit_count > 0:
 		var src_name: String = "AOE"
 		if source != null and is_instance_valid(source) and source.has_method("get") and "callsign" in source:

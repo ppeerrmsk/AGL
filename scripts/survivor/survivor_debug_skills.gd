@@ -1,7 +1,7 @@
 class_name SurvivorDebugSkills
 extends CanvasLayer
 
-## F4 Debug 面板：查看/添加/移除技能，修改等级
+## F4 Debug 面板：查看/强制添加/移除全部技能，修改等级与直接切换测试装备。
 
 var game_scene: Node2D  ## survivor_mode
 var survivor_player: SurvivorPlayer
@@ -414,10 +414,10 @@ func _build_skill_row(u: Dictionary, stacks: Dictionary, pid: StringName, p: Air
 	row.add_theme_constant_override("separation", 6)
 	_skill_list.add_child(row)
 
-	# 标签前缀（战区奖励 = ★，否则轴标签）
+	# 标签前缀统一为项目符号；战区奖励身份由颜色与提示文案表达。
 	var tag := Label.new()
 	if is_evolved:
-		tag.text = "  ★"
+		tag.text = "  •"
 		tag.add_theme_color_override("font_color", Color(1.0, 0.8, 0.2))
 	else:
 		tag.text = "  •"
@@ -429,7 +429,7 @@ func _build_skill_row(u: Dictionary, stacks: Dictionary, pid: StringName, p: Air
 	var name_label := Label.new()
 	var text := "%s  %d/%d" % [tr(u["name"]), count, int(u["max_stacks"])]
 	if not available:
-		text += "  (不适配)"
+		text += "  (正式池不适配 · Debug 可强制)"
 	name_label.text = text
 	name_label.add_theme_font_size_override("font_size", 12)
 	if count > 0:
@@ -443,7 +443,7 @@ func _build_skill_row(u: Dictionary, stacks: Dictionary, pid: StringName, p: Air
 	var tip_desc: String = tr(u.get("desc", ""))
 	var tip_text := "%s\n\n%s" % [tr(u["name"]), tip_desc] if tip_desc != "" else tr(u["name"])
 	if is_evolved:
-		tip_text = "★ 战区奖励\n" + tip_text
+		tip_text = "战区奖励\n" + tip_text
 	name_label.mouse_filter = Control.MOUSE_FILTER_STOP
 	name_label.mouse_entered.connect(_on_hover_show.bind(tip_text))
 	name_label.mouse_exited.connect(_on_hover_hide)
@@ -454,7 +454,9 @@ func _build_skill_row(u: Dictionary, stacks: Dictionary, pid: StringName, p: Air
 	add_btn.text = " + "
 	add_btn.custom_minimum_size = Vector2(30, 0)
 	_apply_btn_style(add_btn, Color(0.2, 0.7, 0.3))
-	if count >= int(u["max_stacks"]) or not available:
+	# Debug 的职责是直接验证实现：只尊重层数上限，不受机型、装备、前置技能或学说门控。
+	# 门控状态仍显示在名字后，避免把“强制可加”误读成正式卡池可用。
+	if not debug_can_force_upgrade(u, count):
 		add_btn.disabled = true
 	else:
 		var uid_add := uid
@@ -497,6 +499,8 @@ func _on_add_skill_by_id(uid: String) -> void:
 		return
 	for u in SurvivorData.UPGRADES:
 		if u["id"] == uid:
+			if int(game_scene.upgrade_stacks.get(uid, 0)) >= int(u["max_stacks"]):
+				return
 			# 与正式获得路径同语义（skills-720 T1）：归属分流 + "+1 轴进度" + 生效子集重建
 			game_scene._distribute_upgrade(u)
 			game_scene.upgrade_stacks[uid] = game_scene.upgrade_stacks.get(uid, 0) + 1
@@ -713,7 +717,38 @@ const _LOADOUT_SLOTS: Array[Dictionary] = [
 			{"label": "Aegis 拦截激光", "path": "res://resources/enemy_laser_interceptor.tres"},
 		],
 	},
+	{
+		"key": "esm_pod",
+		"name": "ESM 吊舱",
+		"kind": "equipment",
+		"equipment_kind": "esm_pod",
+		"options": [
+			{"label": "无", "path": ""},
+			{"label": "ESM Pod（战区奖励）", "path": "res://resources/esm_pod.tres"},
+		],
+	},
 ]
+
+
+## 审计入口：技能表每次扩充后，skill_audit 用它验证 F4 会动态覆盖全部技能。
+static func debug_skill_ids() -> Array[String]:
+	var ids: Array[String] = []
+	for upgrade in SurvivorData.UPGRADES:
+		ids.append(String(upgrade.get("id", "")))
+	return ids
+
+
+static func debug_can_force_upgrade(upgrade: Dictionary, current_stacks: int) -> bool:
+	return current_stacks < int(upgrade.get("max_stacks", 1))
+
+
+## 审计入口：装备门控技能必须能在 F4 直接挂载对应装备。
+static func debug_has_loadout_kind(equipment_kind: String) -> bool:
+	for slot in _LOADOUT_SLOTS:
+		if String(slot.get("kind", "")) == "equipment" \
+				and String(slot.get("equipment_kind", "")) == equipment_kind:
+			return true
+	return false
 
 
 func _build_loadout_rows() -> void:

@@ -35,12 +35,15 @@ const SKILL_OVERLOAD_TO_BLOODLUST := "overload_to_bloodlust"
 const SKILL_BLOODLUST_ARMOR_MOBILITY := "bloodlust_armor_mobility"
 const SKILL_FULL_HP_KILL_PERMA_HP := "full_hp_kill_perma_hp"
 const SKILL_JAM_SELF_OVERLOAD := "jam_self_overload"
+const SKILL_INVASION_ALGORITHM := "invasion_algorithm"
+const SKILL_FLEE := "flee"
 const SKILL_EVASION_HERBST := "evasion_herbst"   ## evasion 模式被攻击启动 J-Turn（与 UPGRADES id 对齐）
 ## ── A-10 实验武器技能（火箭弹 / 漂浮雷专属） ──
 const SKILL_TORPEDO_AOE_JAM := "skill_torpedo_aoe_jam"     ## 漂浮雷引爆后范围干扰
 const SKILL_ROCKET_HOMING := "skill_rocket_homing"         ## 火箭弹弱追踪
 ## ── 激光技能 ──
 const SKILL_LASER_DAMAGE := "skill_laser_damage"           ## 激光恢复 DPS 伤害（默认只减速）
+const SKILL_LASER_HACK := "skill_laser_hack"               ## 激光持续黑入 MQ-109/110 并转为 ALLY
 
 ## ── 722 批：机体签名技能（spec aircraft-signature-skills）──
 ## 作战云（FCAS sig_fcas，squad_once 账本位，由 survivor_mode._refresh_squad_effective_stacks 同步）
@@ -91,12 +94,17 @@ static func broadcast_combat_cloud(src: Aircraft, id: String, duration: float, m
 			"作战云：%s ×%.1fs → %d 名队友" % [id, duration, relayed])
 
 
-## 722 sig_j36·三发推力：突击命令触发（攻击轮盘 ASSAULT 姿态 / 双击攻击线冲锋 两入口共用）。
+## 突击命令触发（攻击轮盘 ASSAULT 姿态 / 双击攻击线冲锋 两入口共用）。
+## 猎手无计时/CD：仅在本次突击目标仍有效时生效。
+## 722 sig_j36·三发推力另有 15s 重触发 CD。
 ## buff = +2G / 加减速 ×1.4 / 滚转 ×1.3（physics accessor 消费）；
 ## 解除 = commanded_target 消灭或命令清除（aircraft._update_sig_skills 管理）；重触发 CD 15s。
 static func try_trigger_j36_assault(ac: Aircraft) -> void:
 	if ac == null or not is_instance_valid(ac) or ac.is_destroyed or not ac.is_player_squad():
 		return
+	if ac.hunter_unlocked:
+		ac.hunter_assault_active = true
+		EventLogger.log_event("SKILL", ac._log_name(), "猎手：突击命令 → 机动/减伤强化")
 	if ac._sig_j36_cd > 0.0 or ac.sig_j36_assault_active:
 		return
 	if int(_get_upgrade_stacks(ac).get("sig_j36", 0)) <= 0:
@@ -160,10 +168,12 @@ const TORPEDO_AOE_JAM_DURATION := 5.0
 ## 激光默认减速效果：每帧刷新到目标的 SLOW 持续时间（短：脱离光束 0.4s 内消失）
 const LASER_SLOW_REFRESH_DURATION := 0.4
 ## 激光对导弹的减速：导弹没有 SLOW 状态系统，单独走 Missile._laser_slow_timer
-## 减速更猛（速度 cap 45% / 转弯 G cap 50%），让玩家有机动时间躲开
+## 速度改为连续流失（每秒最大速度 35%），转弯 G cap 50%。
 const LASER_MISSILE_SLOW_DURATION := 0.5
-const LASER_MISSILE_SPEED_MULT := 0.45
+const LASER_MISSILE_SPEED_MULT := 1.0
 const LASER_MISSILE_G_MULT := 0.5
+const LASER_MISSILE_SPEED_DRAIN_PER_S := 0.35
+const LASER_MISSILE_DESTROY_RATIO := 0.20
 ## 火箭弹弱追踪：scan + turn 极慢，给"贴脸糊脸"调一点修正空间
 const ROCKET_HOMING_SCAN_PX := 1200.0
 const ROCKET_HOMING_TURN_DPS := 35.0     ## 比鱼雷略快但比导弹弱很多
@@ -412,6 +422,67 @@ static func on_player_jam_landed(player: Aircraft, hit_count: int) -> void:
 		return
 	if int(stacks.get(SKILL_JAM_SELF_OVERLOAD, 0)) > 0:
 		player.apply_status(StatusEffects.OVERLOAD, JAM_SELF_OVERLOAD_DURATION)
+	if int(stacks.get(SKILL_INVASION_ALGORITHM, 0)) > 0:
+		# 所有玩家 JAM 来源都会经过本钩子；低频触发时扫一遍静态单位表，
+		# 将已经真正进入 JAM 的 MQ-109~112 硬件平台击毁。no_kill_reward 仍由结算层兜底。
+		for u in CombatUnit.all_units.duplicate():
+			if not (u is Aircraft) or not is_instance_valid(u) or u.is_destroyed:
+				continue
+			if not player.is_hostile_to(u) or not u.has_status(StatusEffects.JAM):
+				continue
+			var tag: String = str(u.get_meta("enemy_type", ""))
+			if tag != "uav" and tag != "ucav" and tag != "uav_laser":
+				continue
+			u.take_damage(maxf(u.hp + 1000000.0, 1000000.0), player, "jam_execute")
+			EventLogger.log_event("SKILL", player._log_name(),
+				"入侵算法：%s JAM 后失控坠毁" % u._log_name())
+
+
+## 玩家 FEAR 首次落地：40% 令普通载人敌机物理撤离；UAV / ACE / BOSS / BOSS 生成物豁免。
+## XP 在撤离触发时立即按一次普通空战中和入账，并预先 stamp xp_granted 防止途中被击落双算。
+static func on_player_fear_landed(player: Aircraft, target: Aircraft) -> void:
+	if player == null or target == null or not is_instance_valid(player) or not is_instance_valid(target):
+		return
+	if target.is_destroyed or not player.is_hostile_to(target):
+		return
+	if int(_get_upgrade_stacks(player).get(SKILL_FLEE, 0)) <= 0:
+		return
+	if target.no_pilot or AceTier.is_ace(target) or bool(target.get_meta("no_kill_reward", false)):
+		return
+	var category: String = str(target.get_meta("category", ""))
+	if category == "boss" or category.begins_with("boss_"):
+		return
+	if bool(target.get_meta("skill_flee_active", false)) or randf() >= 0.40:
+		return
+	target.set_meta("skill_flee_active", true)
+	target.set_meta("xp_granted", true)
+	target.set_meta("roe_posture", "flee")
+	var ai: AIController = target._get_ai_controller()
+	if ai:
+		ai.release_target(AIController.TargetSource.TS_BOSS, "fear flee")
+		ai._state = AIController.AIState.PATROL
+		ai.enable_combat = false
+		ai.boss_attacker = false
+		ai.squad = null
+		var half: float = MapBoundary.world_half_px() + SurvivorData.EGRESS_FREE_OUTSET_PX + 400.0
+		var pos: Vector2 = target.global_position
+		var exit_point: Vector2
+		if absf(pos.x) > absf(pos.y):
+			exit_point = Vector2(signf(pos.x) * half, pos.y)
+		else:
+			exit_point = Vector2(pos.x, signf(pos.y) * half)
+		ai.waypoints = PackedVector2Array([exit_point])
+		ai.current_waypoint_index = 0
+		target.target_position = exit_point
+	target.is_afterburner = true
+	var scene_root: Node = target.get_parent()
+	if scene_root:
+		var now: float = float(scene_root.get("game_time")) if scene_root.get("game_time") != null else 0.0
+		target.set_meta("despawn_after", now + 45.0)
+		var spawner = scene_root.get("_spawner")
+		if spawner != null and is_instance_valid(spawner) and spawner.has_method("grant_flee_neutralization_xp"):
+			spawner.grant_flee_neutralization_xp(target)
+	EventLogger.log_event("SKILL", player._log_name(), "逃离：%s 恐惧失控，撤出战场" % target._log_name())
 
 
 ## ── 内部：刷新某状态的剩余时间到当初施加的 initial duration ──

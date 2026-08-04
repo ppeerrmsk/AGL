@@ -1,6 +1,6 @@
 # AGL — 项目概述
 
-> 最后校订：2026-07-26。本文只写"AGL 是什么 / 由什么组成 / 去哪里查"。
+> 最后校订：2026-08-04。本文只写"AGL 是什么 / 由什么组成 / 去哪里查"。
 > **设计权威源是 [docs/specs/](specs/_INDEX.md)**，数值与行为一律以那里为准；本文不放数值。
 
 ## 是什么
@@ -13,7 +13,7 @@
 （见 [DESIGN_PHILOSOPHY.md](DESIGN_PHILOSOPHY.md) 原则 10）。
 
 项目方向已从"单机吸血鬼幸存者"转为**操控小队的 RTS 空战**：
-数字键 1-4 接管任意一号机、命令轮盘对全队广播命令、僚机按学说自主配合。
+数字键 1–9 接管对应号机、命令轮盘对全队广播命令、僚机按学说自主配合。
 
 ## 两个模式
 
@@ -27,7 +27,7 @@
 ### 生存模式核心循环
 
 ```
-起飞（T1 机型四选一）
+起飞（从当前已解锁的起手机型中选择）
   → 战区推进：攻克战区 → 飞到停靠点着陆结算 → 领奖励 / 换机进化
   → 每 3 级触发三轴卡片三选一（斗士 / 骑士 / 策士各一张）
   → 时间到点 → BOSS 阶段
@@ -51,7 +51,7 @@
 | 战斗单位 | `scripts/combat_unit.gd` + `aircraft.gd` / `ground_unit.gd` / `naval/` | 共用 team/hp/altitude/雷达/锁定 基类 |
 | 飞行物理 | `scripts/aircraft/` | 物理 / 武器 / 战斗追踪 / 编队 / 热诱弹 五个子模块 |
 | AI | `scripts/ai_controller.gd` + `scripts/ai/` | 状态机 + TacticalPlanner 战术层 + 蜂群 |
-| 武器 | `scripts/equipment/` + `missile*.gd` / `bullet_manager.gd` | 机炮 / 导弹 / 火箭 / 电磁炮 / 激光 / 热诱弹 |
+| 武器 | `scripts/equipment/` + `missile*.gd` / `bullet_manager.gd` | 运行时武器组件（不是已退役的局外槽位配件）+ 弹体管理 |
 | 生存模式 | `scripts/survivor/` | 主控 / 刷怪 / 战区 / 技能 / 进化 / HUD |
 | RTS 指挥 | `scripts/rts/` | 命令轮盘 + 小队命令控制器（独立模块，不塞 survivor_mode） |
 | 剧本 | `scripts/events/` | GameEvent + EventDirector + AIDirective |
@@ -61,13 +61,15 @@
 
 ## AutoLoads（初始化顺序）
 
-CallsignDB → EventLogger → LocaleManager → AudioManager → MeritLedger。
-说明见 [CLAUDE.md](../CLAUDE.md)。
+以 `project.godot [autoload]` 的顺序为准：EventLogger → LocaleManager → AudioManager →
+Presentation → MeritLedger → CareerArchive → MetaShop → PerfBuckets → BenchRunner → RuntimeTuner。
+`CallsignDB` 是 `class_name` 静态服务，不是 AutoLoad。职责说明见 [AGENTS.md](../AGENTS.md)。
 
 ## 从哪里开始查
 
 | 我想…… | 去哪 |
 |---|---|
+| 了解文档分层或决定新文件放哪 | [README.md](README.md) |
 | 加新敌人 / 武器 / 技能 / BOSS / 系统 | [reference/playbook.md](reference/playbook.md)（总入口）→ 先建 spec |
 | 知道某个机制**为什么这样设计、数值是多少** | [specs/_INDEX.md](specs/_INDEX.md) |
 | 找某段代码在哪 | [reference/script-index.md](reference/script-index.md) → [reference/code-index.md](reference/code-index.md) |

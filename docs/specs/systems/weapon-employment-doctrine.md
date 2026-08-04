@@ -1,3 +1,14 @@
+---
+id: weapon-employment-doctrine
+kind: system
+status: done
+schema_version: 1
+spec_version: 9
+owner: noelu
+depends_on: []
+reconstruction_complete: true
+---
+
 # 武器使用准则（Weapon Employment Doctrine）
 
 > status: **done（2026-07-05 验收通过）** · spec_version: 9 · 日期：2026-07-29

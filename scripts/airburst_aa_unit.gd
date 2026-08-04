@@ -95,22 +95,46 @@ func _update_airburst_weapon(delta: float) -> void:
 		return
 	_begin_burst(combat_target as Aircraft)
 
-func _begin_burst(target: Aircraft) -> void:
-	var to_target := target.global_position - global_position
+## 陆基 / 舰载 Flak 共用的冻结炮组解。所有随机误差只在炮组开始时采样一次。
+static func sample_burst_solution(origin: Vector2, target: Aircraft) -> Dictionary:
+	var to_target := target.global_position - origin
 	var distance_m := to_target.length() / PIXELS_PER_METER
 	var travel := to_target.length() / (SHELL_SPEED_MS * PIXELS_PER_METER)
 	var target_vel := Vector2(sin(target.heading), -cos(target.heading)) * target.speed * PIXELS_PER_METER
 	if target.params and target.params.flight_model == AircraftParams.FlightModel.ROTORCRAFT:
 		target_vel = target.rotorcraft_velocity * PIXELS_PER_METER
 	var predicted := target.global_position + target_vel * travel
-	var shot_dir := (predicted - global_position).normalized()
+	var shot_dir := (predicted - origin).normalized()
 	var lateral := Vector2(-shot_dir.y, shot_dir.x)
 	var group_error_m := minf(500.0, 220.0 + 0.05 * distance_m)
-	var predicted_distance_m := global_position.distance_to(predicted) / PIXELS_PER_METER
+	var predicted_distance_m := origin.distance_to(predicted) / PIXELS_PER_METER
 	group_error_m = minf(group_error_m, tan(MAX_GROUP_AIM_ERROR) * predicted_distance_m)
-	_solution_pos = predicted + lateral * randf_range(-group_error_m, group_error_m) * PIXELS_PER_METER
-	_solution_altitude = target.altitude
-	_shared_fuse_error = randf_range(-0.35, 0.35)
+	return {
+		"pos": predicted + lateral * randf_range(-group_error_m, group_error_m) * PIXELS_PER_METER,
+		"altitude": target.altitude,
+		"fuse_error": randf_range(-0.35, 0.35),
+	}
+
+## 从冻结炮组解采样一发；方向和引信随后不再追踪目标。
+static func sample_shell_solution(origin: Vector2, solution_pos: Vector2,
+		shared_fuse_error: float) -> Dictionary:
+	var to_solution := solution_pos - origin
+	var base_dir := atan2(to_solution.x, -to_solution.y)
+	var right := Vector2(cos(base_dir), sin(base_dir))
+	var solution_distance_m := to_solution.length() / PIXELS_PER_METER
+	var shell_jitter_m := minf(60.0, tan(MAX_SHELL_AIM_JITTER) * solution_distance_m)
+	var per_shell_pos := solution_pos + right * randf_range(-shell_jitter_m, shell_jitter_m) * PIXELS_PER_METER
+	return {
+		"direction": atan2((per_shell_pos - origin).x, -(per_shell_pos - origin).y),
+		"fuse": origin.distance_to(per_shell_pos) / (SHELL_SPEED_MS * PIXELS_PER_METER) \
+				+ shared_fuse_error + randf_range(-0.08, 0.08),
+	}
+
+func _begin_burst(target: Aircraft) -> void:
+	var solution := sample_burst_solution(global_position, target)
+	_solution_pos = solution["pos"]
+	_solution_altitude = float(solution["altitude"])
+	_shared_fuse_error = float(solution["fuse_error"])
 	_burst_id += 1
 	_burst_remaining = mini(BURST_SIZE, ammo)
 	_salvo_timer = 0.0
@@ -119,18 +143,10 @@ func _begin_burst(target: Aircraft) -> void:
 func _fire_airburst_shell() -> void:
 	if ammo <= 0:
 		return
-	var to_solution := _solution_pos - global_position
-	var base_dir := atan2(to_solution.x, -to_solution.y)
-	var right := Vector2(cos(base_dir), sin(base_dir))
-	var solution_distance_m := to_solution.length() / PIXELS_PER_METER
-	var shell_jitter_m := minf(60.0, tan(MAX_SHELL_AIM_JITTER) * solution_distance_m)
-	var per_shell_pos := _solution_pos + right * randf_range(-shell_jitter_m, shell_jitter_m) * PIXELS_PER_METER
-	var direction := atan2((per_shell_pos - global_position).x, -(per_shell_pos - global_position).y)
-	var fuse := global_position.distance_to(per_shell_pos) / (SHELL_SPEED_MS * PIXELS_PER_METER) \
-			+ _shared_fuse_error + randf_range(-0.08, 0.08)
+	var shot := sample_shell_solution(global_position, _solution_pos, _shared_fuse_error)
 	var muzzle := global_position + Vector2(sin(turret_heading), -cos(turret_heading)) * 18.0
-	bullet_manager.spawn_airburst_shell(muzzle, direction, SHELL_SPEED_MS, self,
-		maxf(fuse, 0.25), _solution_altitude, 220.0, 75.0, _burst_id)
+	bullet_manager.spawn_airburst_shell(muzzle, float(shot["direction"]), SHELL_SPEED_MS, self,
+		maxf(float(shot["fuse"]), 0.25), _solution_altitude, 220.0, 75.0, _burst_id)
 	ammo -= 1
 
 func _draw() -> void:

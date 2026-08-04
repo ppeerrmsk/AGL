@@ -222,7 +222,7 @@ var _rewards: Dictionary = {}                ## id → reward dict（四类奖�
 ## 记录的是"已出现过的 reward id"（roll 时写入，不因清区/换区而清除）。
 var _used_reward_ids: Dictionary = {}
 ## 航母奖励整局保证（用户 2026-07-24）：确保每局一定出现一次航母奖励。
-## pity——前 CARRIER_PITY_ROLLS 次奖励 roll 内航母仍未自然出现 → 下一次 roll 强制发航母。
+## pity——第 CARRIER_PITY_ROLLS 次奖励 roll 时航母仍未自然出现 → 当次强制发航母。
 var _carrier_reward_assigned: bool = false
 var _reward_roll_count: int = 0
 const CARRIER_PITY_ROLLS: int = 4
@@ -502,17 +502,17 @@ func get_selected_world_pos() -> Vector2:
 ## 奖励 dict：{ kind: "carrier"|"wingman"|"weapon"|"nextgen", id, name(tr key), quality(=难度星), weapon?(仅 weapon 类) }
 ## nextgen = 次世代技术（spec zone-reward-arsenal §2.1）：NEXT_GEN 稀有度技能只经战区奖励发放
 const REWARD_KIND_WEIGHTS := {
-	1: {"weapon": 60.0, "wingman": 40.0, "carrier": 0.0, "nextgen": 15.0},
-	2: {"weapon": 35.0, "wingman": 45.0, "carrier": 20.0, "nextgen": 30.0},
-	3: {"weapon": 15.0, "wingman": 40.0, "carrier": 45.0, "nextgen": 40.0},
+	1: {"weapon": 60.0, "wingman": 25.0, "carrier": 0.0, "nextgen": 30.0},
+	2: {"weapon": 35.0, "wingman": 30.0, "carrier": 20.0, "nextgen": 30.0},
+	3: {"weapon": 15.0, "wingman": 25.0, "carrier": 45.0, "nextgen": 40.0},
 }
 ## 追加武器子池：低星偏尾雷、高星偏忠诚僚机/QMAAM（"难度越高奖励越好"）。
 ## 2026-07-22 军械库扩容（spec zone-reward-arsenal §2.2）：+火箭弹/电磁炮/激光
 ## （equipment 泛化，全机型可挂；电磁炮/激光属高价值件，★ 区不出）
 const REWARD_WEAPON_WEIGHTS := {
-	1: {"tail_mine": 45.0, "loyal_wingman": 30.0, "qmaam": 25.0, "rocket": 20.0, "railgun": 0.0, "laser": 0.0},
-	2: {"tail_mine": 25.0, "loyal_wingman": 30.0, "qmaam": 25.0, "rocket": 20.0, "railgun": 15.0, "laser": 10.0},
-	3: {"tail_mine": 15.0, "loyal_wingman": 25.0, "qmaam": 20.0, "rocket": 15.0, "railgun": 20.0, "laser": 15.0},
+	1: {"tail_mine": 20.0, "loyal_wingman": 20.0, "qmaam": 25.0, "rocket": 20.0, "railgun": 10.0, "laser": 10.0, "esm_pod": 10.0},
+	2: {"tail_mine": 20.0, "loyal_wingman": 30.0, "qmaam": 25.0, "rocket": 20.0, "railgun": 15.0, "laser": 15.0, "esm_pod": 15.0},
+	3: {"tail_mine": 10.0, "loyal_wingman": 25.0, "qmaam": 20.0, "rocket": 15.0, "railgun": 20.0, "laser": 20.0, "esm_pod": 30.0},
 }
 const REWARD_WEAPON_NAME_KEYS := {
 	"tail_mine": "REWARD_WEAPON_TAILMINE_NAME",
@@ -521,6 +521,7 @@ const REWARD_WEAPON_NAME_KEYS := {
 	"rocket": "REWARD_WEAPON_ROCKET_NAME",
 	"railgun": "REWARD_WEAPON_RAILGUN_NAME",
 	"laser": "REWARD_WEAPON_LASER_NAME",
+	"esm_pod": "REWARD_WEAPON_ESM_NAME",
 }
 ## 奖励说明文案 key（Tab 战术地图信息面板在奖励名下方多显示一行"它到底是什么"）。
 ## 实体奖励（航母/僚机/武器件）各配一条 REWARD_*_DESC；技能类直接沿用升级表自己的 desc。
@@ -531,6 +532,7 @@ const REWARD_WEAPON_DESC_KEYS := {
 	"rocket": "REWARD_WEAPON_ROCKET_DESC",
 	"railgun": "REWARD_WEAPON_RAILGUN_DESC",
 	"laser": "REWARD_WEAPON_LASER_DESC",
+	"esm_pod": "REWARD_WEAPON_ESM_DESC",
 }
 ## 航母登舰全局余量（spec §2.4：全程限 2 次；survivor_mode 登舰时扣减；归零后 carrier 不再进池）
 var carrier_uses_left: int = 2
@@ -570,7 +572,7 @@ static func _ctx_owns_weapon(p: AircraftParams, w: String) -> bool:
 		return false
 	match w:
 		"rocket": return p.rocket != null
-		"railgun", "laser": return p.get_equipment_of_kind(w) != null
+		"railgun", "laser", "esm_pod": return p.get_equipment_of_kind(w) != null
 		_: return false
 
 static func _infer_category(skill_id: String) -> StringName:
@@ -649,6 +651,11 @@ func _assign_reward(id: StringName) -> void:
 			weap_w[w0] = 0.0
 		elif float(weap_w[w0]) > 0.0:
 			weap_any = true
+	# 起始机型只影响武器子池，相关武器权重 ×2；换机/进化不改本局倾向。
+	var start_id := String(ctx.get("start_aircraft_id", ""))
+	var favored_weapon := String({"f15": "qmaam", "a6e": "rocket", "f14": "railgun", "mirage3": "laser"}.get(start_id, ""))
+	if favored_weapon != "" and float(weap_w.get(favored_weapon, 0.0)) > 0.0:
+		weap_w[favored_weapon] = float(weap_w[favored_weapon]) * 2.0
 	if not weap_any:
 		kind_w["weapon"] = 0.0
 	# 次世代技术候选（spec zone-reward-arsenal §3.2 降级链）：候选空 → 类权重清零

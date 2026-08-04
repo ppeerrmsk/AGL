@@ -2,7 +2,15 @@
 ================================================================================
 AGL Spec 模板 —— 设计单一数据源（SSOT）
 
-复制本文件到 docs/specs/<kind>/<name>.md，删掉所有 <!-- --> 注释后填写。
+复制本文件到下方约定目录，删掉所有模板说明注释后填写。
+
+目录映射（目录与 kind 不是一回事）：
+  enemies/  -> kind: enemy        bosses/   -> kind: boss
+  weapons/  -> kind: weapon       skills/   -> kind: skill
+  aircraft/ -> kind: aircraft     events/   -> kind: event
+  systems/  -> kind: system | balance | map，以及跨域批次
+
+稳定身份使用相对路径（如 aircraft/a-10、enemies/a-10）；不同目录允许同名。
 
 核心契约（必读，违背就失去"靠文档重建"的能力）：
   1. specs/ 回答 "做什么 + 为什么 + 全部数值"。这是权威源。
@@ -17,6 +25,7 @@ AGL Spec 模板 —— 设计单一数据源（SSOT）
   设计阶段 — 填 §1~§5，status: draft → 你 review 后改 approved
   执行阶段 — 按 §6 实现计划 逐条打勾，代码从 spec 派生（执行很 cheap）
   收尾阶段 — 跑 §5 验收，更新 §7 锚点，写 §8 变更记录，status: done
+  全阶段   — 建档当天登记 _INDEX.md；状态或 reconstruction_complete 改变时同步总表
 ================================================================================
 -->
 ---
@@ -26,7 +35,7 @@ status: draft                       # draft | approved | in-progress | done | su
 schema_version: 1
 spec_version: 1                     # 本 spec 的迭代版本，每次实质改动 +1
 owner: <谁负责设计>
-depends_on: []                      # 其它 spec 的 id，如 [qmaam-missile, jam-status]
+depends_on: []                      # 其它 spec 的相对键；同名跨目录时写 aircraft/a-10 这类完整键
 reconstruction_complete: false      # 数值/行为是否已全部写下、足以脱离代码重建
 ---
 
@@ -87,6 +96,7 @@ reconstruction_complete: false      # 数值/行为是否已全部写下、足�
 - [ ] 性能：跑生存模式 Sentinel + Lv5+ 压测，FPS 掉幅 < 15（见 performance-guidelines）
 - [ ] 已知 seam 未触碰 / 已妥善处理（见 architecture/known-seams.md）
 - [ ] i18n：玩家可见文本走 tr()，三语已补（见 reference/i18n.md）
+- [ ] 文档：本 spec 已登记 _INDEX；状态/重建标记一致；当前文档无失效相对链接
 
 ## 6. 实现计划（Task Pipeline —— 工作令）
 
@@ -103,14 +113,14 @@ reconstruction_complete: false      # 数值/行为是否已全部写下、足�
 ## 7. 索引锚点（Where —— 唯一允许放指针的地方）
 
 <!-- 实现落地后，把"代码在哪"的指针放这里，并同步到 reference/ 索引。
-     本节内容【会腐烂】，不是权威；§1~§4 才是。只列文件，避免精确行号。 -->
+     本节内容【会腐烂】，不是权威；§1~§4 才是。只列文件与符号，禁止精确行号。 -->
 
 | 关注点 | 文件 |
 |---|---|
 | 主逻辑 | `scripts/...` |
 | 参数资源 | `resources/....tres` |
 | 注册/接线 | `scripts/...` |
-| reference 索引行 | enemy-index.md / script-index.md 的对应行 |
+| reference 索引 | enemy-index.md / script-index.md 的对应条目 |
 
 ## 8. 变更记录
 

@@ -27,7 +27,7 @@ reconstruction_complete: false
 | [aircraft-evolution](aircraft-evolution.md) | 机型进化轴 / 战区结算 | 进化=换机型→换一套 PER_TYPE build + **换整套武器**（§3.3）；**武器绑机型不继承**（§2.6，取代旧 §2.5 的"槽位装备跟玩家"） |
 | [squad-control-switching](squad-control-switching.md) | 1-N 号机接管 / 换帅 | 绑机型让"切到不同机型=不同 build 手感"成立；本 spec 把按键扩到 1-9（§3.4） |
 | [survivor-loop](survivor-loop.md) | 战区循环 / 奖励发放 / XP 经济 | 僚机生产奖励的**发放**归 survivor-loop；本 spec 定义生产后的**编入+build 重放**（§3.2） |
-| [survivor-skills](survivor-skills.md) | 技能图鉴（数值/效果权威） | 本 spec 给每条技能加 `ownership` / `affinity` / `flavor` 三个**归类字段**（§2.2 总表） |
+| [survivor-skills](../../systems/survivor-skills.md) | 技能系统叙述与 backlog（非数值权威） | 本 spec 给每条技能加 `ownership` / `affinity` / `flavor` 三个**归类字段**（§2.2 总表） |
 
 ## 1. 设计意图（Why）
 
@@ -72,8 +72,8 @@ reconstruction_complete: false
 
 ### 2.2 全 41 技能归类总表（权威 —— 用户要求"写明白"）
 
-> 数值/效果以 [survivor-skills 图鉴](../../docs/systems/survivor-skills.md) 为准；本表只定**归类**。
-> `★` = `evolved` 战区奖励池技能（不进随机抽卡）。
+> 当前实现快照查自动生成的 [skill-table](../../reference/skill-table.md)；设计数值以相应 skill / batch spec 为准。本表只定**归类**。
+> `evolved` 表示战区奖励池技能（不进随机抽卡）；名称不再使用星号前缀或后缀。
 
 #### 🌐 GLOBAL（全队生效，共 4 条）
 | id | affinity | flavor | 为什么全局 |
@@ -93,8 +93,8 @@ reconstruction_complete: false
 | `gun_range` | STAT | |
 | `gun_accuracy` | STAT | |
 | `aim_assist` | STAT | 自动开火扇区 |
-| `gun_multishot` ★ | TRANSFORM | 一次 +2 弹 |
-| `gun_ciws` ★ | TRANSFORM | 自动 CIWS 拦弹 |
+| `gun_multishot` | TRANSFORM | 一次 +2 弹 |
+| `gun_ciws` | TRANSFORM | 自动 CIWS 拦弹 |
 | `gun_kill_fear` | STATUS | 机炮击杀 AOE 注入恐惧（触发者机炮系） |
 
 #### 📡 PER_TYPE · EW（电子战系 → F-16 性格，共 14 条）
@@ -105,9 +105,9 @@ reconstruction_complete: false
 | `radar_range` | STAT | |
 | `radar_angle` | STAT | |
 | `lock_time` | STAT | |
-| `flare_shield` ★ | TRANSFORM | **自动护盾**（用户举的护盾例 → 专属） |
-| `vapor_dodge` ★ | TRANSFORM | 切高度×2 + 云中隐身 |
-| `ecm_pod` ★ | TRANSFORM | 敌雷达有效距离×0.75 |
+| `flare_shield` | TRANSFORM | **自动护盾**（用户举的护盾例 → 专属） |
+| `vapor_dodge` | TRANSFORM | 切高度×2 + 云中隐身 |
+| `ecm_pod` | TRANSFORM | 敌雷达有效距离×0.75 |
 | `skill_evade_missile_overload` | STATUS | 规避→自身 OVERLOAD |
 | `skill_flare_overload` | STATUS | 投焰→自身 OVERLOAD |
 | `jam_self_overload` | STATUS | JAM 命中→自身 OVERLOAD |
@@ -124,8 +124,8 @@ reconstruction_complete: false
 | `missile_boost` | STAT | |
 | `seeker_fov` | STAT | |
 | `multi_lock` | STAT | 锁定目标数 +1/层（最多 3 层），全队下发 |
-| `proximity_fuze` ★ | TRANSFORM | 近炸 AOE |
-| `missile_bounce` ★ | TRANSFORM | 命中弹跳 |
+| `proximity_fuze` | TRANSFORM | 近炸 AOE |
+| `missile_bounce` | TRANSFORM | 命中弹跳 |
 
 #### ✈ PER_TYPE · UNIVERSAL（任意机型可抽、抽到即绑当时机型，共 11 条）
 | id | flavor | 备注 |
@@ -136,9 +136,9 @@ reconstruction_complete: false
 | `speed_up` | STAT | |
 | `maneuver_up` | STAT | |
 | `dogfight` | STAT | 综合格斗包 |
-| `shock_absorb` ★ | TRANSFORM | 伤害转回血 |
-| `cobra_skill` ★ | TRANSFORM | 眼镜蛇机动 |
-| `executioner` ★ | TRANSFORM | 击杀叠层提速 |
+| `shock_absorb` | TRANSFORM | 伤害转回血 |
+| `cobra_skill` | TRANSFORM | 眼镜蛇机动 |
+| `executioner` | TRANSFORM | 击杀叠层提速 |
 | `skill_kill_bloodlust` | STATUS | 击杀→自身 FRENZY |
 | `skill_damaged_bloodlust` | STATUS | 受伤→自身 FRENZY |
 
@@ -244,7 +244,7 @@ reconstruction_complete: false
 #### A. 品类限定表（**只收强技/稀有技**——全队下发、仅品类身份匹配的飞机生效）
 
 > **收窄原则（v5 用户）**：不是所有技能都归品类——玩家得**先加点进化**才能拿到品类机，
-> 锁太多 = 前期卡池荒。品类限定只收 ★强技/稀有技（危险叠加档 + 品类招牌技）；
+> 锁太多 = 前期卡池荒。品类限定只收强技/稀有技（危险叠加档 + 品类招牌技）；
 > 中坚触发技与数值技一律通用保卡池厚度（目标：每轴卡池中品类限定占比 ≤ ⅓）。
 > 危险叠加由品类数量天然限幅：混编队同系 1~2 架 = 安全；满编单系队 = 刻意 build 收益（D 观察）。
 
@@ -390,7 +390,7 @@ on 进化 cur: 机型 X → 机型 Y:                 # 实例不销毁，只换
 ### 3.4 编队上限 9 + 1-9 接管
 - `MAX_SQUAD = 9`（1 长机 + 8 僚机）。复用既有常量 `COMMANDER_MAX_SQUAD := 9`。
 - 接管按键扩 `KEY_1..KEY_9`（`survivor_mode.gd` 的按键 case 一行 case 扩展；公式 `keycode - KEY_1 + 1` 已天然算 1-9）。
-- 阵型偏移已对 N≥4 泛化（[squad.gd](../../scripts/squad.gd) finger-four/combat-spread/wedge fallback），**无需改阵型数学**。
+- 阵型偏移已对 N≥4 泛化（[squad.gd](../../../scripts/squad.gd) finger-four/combat-spread/wedge fallback），**无需改阵型数学**。
 - 满 9 架时生产奖励改发"其它奖励"或转化资源（避免溢出静默丢弃 —— perf/UX 守则：不静默截断，要 log/提示）。
 
 ## 4. 结构与组成（Structure）

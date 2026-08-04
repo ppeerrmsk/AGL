@@ -190,7 +190,7 @@ func rear_threat_score(leader, cand) -> float:   # 返回 [0,1]
 
 ## 5. 验收标准（Acceptance / Litmus）
 
-> 自动化覆盖：`scripts/tests/test_target_selection.gd`（`godot --headless --path . -- --bench=target_sel`）—— 7/7 通过。
+> 自动化覆盖：`scripts/tests/test_target_selection.gd`（通过 `bench/run.cmd target_sel` / `bench/run.sh target_sel` 运行）—— 7/7 通过。
 
 - [x] **场景A 近偏轴 vs 远正对**：近(2000m)25°偏轴 vs 远(3000m)正对，均满锁 → 选远正对。`s_far=0.980 > s_near=0.612` ✓（单测）
 - [x] **场景B 队友超杀**：同目标，队友 80dmg 制导弹在途（hp=60）→ 分骤降。`0.987 → 0.099 (×0.10)` ✓（单测）

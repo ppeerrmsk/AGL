@@ -1,5 +1,7 @@
 extends Node2D
 
+const HackedAllyForceScript = preload("res://scripts/survivor/hacked_ally_force.gd")
+
 ## 生存模式主控制器
 ## 操控/镜头/武器/雷达 全部与沙盒模式一致
 ## 在此基础上叠加：敌机波次刷新、经验球、等级升级
@@ -49,6 +51,7 @@ var _last_left_click_time: float = -1000.0
 # ── 生存模式状态 ──
 var player_aircraft: Aircraft
 var _player_profile_id: StringName = &""  ## 当前主角的 PlayableAircraft.id（用于专属技能筛选）
+var _starting_profile_id: StringName = &""  ## 本局起始机型；战区武器倾向固定读取，不随进化改变
 var _player_profile: PlayableAircraft = null  ## 当前主角档案引用（三轴里程碑覆写表 / 专属技能筛选）
 var _wingman_formation_debug: bool = false  ## F11 切换：友方僚机编队调试覆盖层
 ## 当前玩家小队（spec squad-control-switching）：数字键 1-4 切换操控 / 击落接管 / 换帅监听。
@@ -150,6 +153,7 @@ var _radio: RadioChatter          ## 无线电通讯（spec radio-chatter）
 var _zone_mission: ZoneMission
 var _adbs: AdbsManager
 var _event_director: EventDirector
+var _hacked_ally_force = HackedAllyForceScript.new()
 ## BOSS 阶段状态（P4）
 var _boss_unlock_announced: bool = false  ## 已提示过"BOSS 出现"
 var _boss_spawned: bool = false            ## BOSS 已激活进入战斗
@@ -188,6 +192,7 @@ var _bench_demo: bool = false
 var _bench_demo_topup_timer: float = 0.0
 
 func _exit_tree() -> void:
+	_hacked_ally_force.shutdown()
 	_friendly_asset_aggro.reset()
 	# 王牌事件是 RefCounted，HUD 静态强引用不会随 EventDirector 节点自动释放。
 	AceReinforcementEvent.reset_runtime_state()
@@ -359,6 +364,8 @@ func _ready() -> void:
 		profile.wingman_count = 8
 	_player_params_base = profile.base_params
 	_player_profile_id = profile.id  # 用于专属技能筛选
+	if _starting_profile_id == &"":
+		_starting_profile_id = profile.id
 	_player_profile = profile  # 保留档案引用（自然成长曲线 / 后续配件系统用）
 	# 图鉴记账（用户规则：**获得即记录**，开局拿到起手机这一刻就算"拥有过"，不等首次结算）
 	var _start_node: StringName = EvolutionSystem.node_id_for_profile(profile.id)
@@ -770,6 +777,9 @@ func _setup_bench_scenario() -> void:
 		elif _bench_scenario == "zone_support_stress":
 			_bench_force_spawn_mixed(BENCH_INITIAL_ENEMY_COUNT)
 			_bench_force_zone_support()
+		elif _bench_scenario == "naval_zone_stress":
+			_bench_force_naval_zone()
+			_bench_force_spawn_mixed(BENCH_INITIAL_ENEMY_COUNT)
 		elif _bench_scenario == "ace_support_stress":
 			_bench_force_spawn_mixed(BENCH_INITIAL_ENEMY_COUNT)
 			_bench_force_ace_support()
@@ -814,6 +824,10 @@ func _bench_force_enemy_pool_stress() -> void:
 ## ZoneMission 只负责完成一次真实生成，随后停自身 tick，避免预刷其它战区污染样本。
 func _bench_force_zone_support() -> void:
 	# 性能守则要求 Sentinel + Lv5+ 样本；bench 玩家为 Lv15，另加标准 5 护卫指挥机群。
+	# 本轮军械库改动把 ESM 显式挂进压力样本，覆盖其 0.5s 全单位扫描与范围圈。
+	if player_aircraft.params.get_equipment_of_kind("esm_pod") == null:
+		player_aircraft.params.equipment.append(load("res://resources/esm_pod.tres").duplicate(true))
+		player_aircraft._publish_equipment_to_legacy()
 	_spawner._spawn_commander_squad(5)
 	_zone_data = ZoneData.new(Callable())
 	_zone_mission = ZoneMission.new()
@@ -837,6 +851,24 @@ func _bench_force_zone_support() -> void:
 		if child is Aircraft and child.has_meta("zone_support"):
 			support_count += 1
 	print("[Bench] zone_support_stress spawned support=%d (expected 10)" % support_count)
+
+## 3★ 对舰任务最坏样本：常规混编 + Sentinel/5 护卫 + 六舰全目标编成。
+## 玩家放进舰队交战半径并设为无敌，确保 VLS/CIWS/Flak 与全部舰载挂点持续工作整段样本。
+func _bench_force_naval_zone() -> void:
+	var center := Vector2(800.0, 7000.0)
+	player_aircraft.global_position = center + Vector2(0.0, -1200.0)
+	player_aircraft.invulnerable = true
+	_spawner._spawn_commander_squad(5)
+	_zone_data = ZoneData.new(Callable())
+	_zone_mission = ZoneMission.new()
+	add_child(_zone_mission)
+	_zone_mission.setup(self, _zone_data, player_aircraft,
+		_sam_scene, _sam_params, _aa_scene, _aa_params,
+		bullet_manager, missile_manager, _spawner)
+	var spawned := _zone_mission._spawn_naval_formation(&"E", center, 3, _ffg_params)
+	_zone_mission.set_physics_process(false)
+	var naval_count: int = (_zone_mission._spawned_zones.get(&"E", []) as Array).size()
+	print("[Bench] naval_zone_stress spawned=%s naval=%d (expected 6)" % [str(spawned), naval_count])
 
 ## 按"占用 AI 时间"加权混编：覆盖所有重战术路径，避免压测样本只反映单一类型
 ## 编队/单机的选择参考各 EnemyType 在 CLAUDE.md 敌人索引表里的"生成形式"列
@@ -2223,6 +2255,7 @@ func _update_radar_locks(delta: float) -> void:
 				# 每帧仅玩家小队 shooter 多一次距离比较，静态注册表 validity 自守卫）
 				if unit is Aircraft and unit.is_player_squad():
 					lock_rate *= AwacsSupportEvent.lock_rate_mult_for(unit)
+					lock_rate *= unit.esm_lock_rate_multiplier()
 				# 云层锁定衰减：
 				#   - 默认：HIGH 档在云里 ×0.5
 				#   - 云雾机动（战区奖励）：任意档位云里 ×0.1（近乎无法锁定）
@@ -2298,7 +2331,7 @@ func _update_radar_locks(delta: float) -> void:
 						unit._locked_target_seconds[oid] = sec
 						if sec >= unit.fear_on_lock_threshold:
 							AOEBroadcast.apply_status_in_radius(
-								other.global_position, 50.0, 1, StatusEffects.FEAR, 4.0, unit)
+								other.global_position, 50.0, 1, StatusEffects.FEAR, 6.0, unit)
 							unit._locked_target_seconds[oid] = 0.0
 			else:
 				# 不在锥内：极短衰减（0.3 秒）—— 仅挡住雷达锥边缘 1-2 帧的几何抖动；
@@ -2699,6 +2732,7 @@ func _set_player_aircraft(ac: Aircraft) -> void:
 	var prev_controlled: Aircraft = player_aircraft
 	player_aircraft = ac
 	AircraftRenderer.player_ref = ac
+	_hacked_ally_force.set_leader(ac)
 	# 战场引力生存层保护对象 = 当前操控机（spec battlefield-gravity §2.3，SEAM-019 同款重定向）
 	ObjectiveContext.protectee = ac
 	if survivor_player:
@@ -2740,6 +2774,10 @@ func _set_player_aircraft(ac: Aircraft) -> void:
 	if prev_controlled != ac:
 		_migrate_ace_field_upgrades(prev_controlled, ac)
 		_refresh_squad_effective_stacks()
+
+## 通用能力入口：装备完成敌机转换后，把它交给当前长机的非玩家可控护航账本。
+func adopt_hacked_ally(ac: Aircraft) -> void:
+	_hacked_ally_force.adopt(ac)
 
 ## 换帅信号回调（spec §3.7 击落自动接管）：当前操控机阵亡 → 自动接管新长机。
 func _on_squad_leader_changed(new_leader: Aircraft) -> void:
@@ -3104,14 +3142,14 @@ func _dispatch_sig_oneshot(uid: String) -> void:
 					EventLogger.log_event("SKILL", "Player",
 						"突击翼龙：电磁炮就绪（无最短射程 / 充能 ×0.7）")
 		"sig_ax00":
-			# 双子星（AX-00）：立即复制 3 架同型僚机入队（编队上限 9；超出放弃）；
+			# 双子星（AX-00）：立即复制 1 架同型僚机入队（编队上限 9；超出放弃）；
 			# 新僚机经 _spawn_reward_wingman 尾部 build 补挂 →"复制技能"
 			_sig_oneshot_done[uid] = true
 			var cloned: int = 0
 			# 懒建队：AX-00 起手无僚机（wingman_count=0），不先装配长机则
-			# _spawn_reward_wingman 整段静默 early-return（复制 0 架却记 3 架）
+			# _spawn_reward_wingman 整段静默 early-return（复制 0 架却仍会记账）
 			if _ensure_player_squad() != null:
-				for i in 3:
+				for i in 1:
 					var alive_n: int = _squad_members_alive().size()
 					if alive_n >= 9:
 						break
@@ -4071,7 +4109,35 @@ func _grant_reward_now(reward: Dictionary) -> void:
 	if _zone_hint:
 		_zone_hint.show_temp(tr("DOCK_REWARD_CLAIMED_FMT") % tr(reward.get("name", "")), 3.0)
 
-## +1 僚机奖励（spec §2.5，2026-07-24 调整为一次给 2 架）：ACE 升 1 级 + 侧后爆出 2 架同型僚机入队。
+
+## F6 调试入口：直接发放任意战区奖励，不经过 roll、学说、机型、装备或前置技能门控。
+## 仍尊重技能 max_stacks；实际效果的运行时条件（例如全向干扰场需要 ESM）不会伪造。
+func debug_grant_zone_reward(kind: String, reward_id: String = "") -> bool:
+	if survivor_player == null:
+		return false
+	match kind:
+		"carrier":
+			_summon_reward_carrier()
+		"wingman":
+			_claim_wingman_reward()
+		"weapon":
+			_claim_weapon_reward(reward_id)
+		"nextgen":
+			var upgrade: Dictionary = SurvivorData.upgrade_by_id(reward_id)
+			if upgrade.is_empty():
+				return false
+			if int(upgrade_stacks.get(reward_id, 0)) >= int(upgrade.get("max_stacks", 1)):
+				return false
+			_distribute_upgrade(upgrade)
+			upgrade_stacks[reward_id] = int(upgrade_stacks.get(reward_id, 0)) + 1
+			_grant_milestone_plus(upgrade)
+			_refresh_squad_effective_stacks()
+		_:
+			return false
+	EventLogger.log_event("DEBUG_REWARD", "F6", "%s:%s" % [kind, reward_id])
+	return true
+
+## 僚机奖励（一次给 2 架）：侧后爆出同型僚机入队，不再附送等级/XP。
 ## 满编 9 时能塞几架塞几架，一架都塞不下才降级为武器。切片版 ACE = 玩家长机（spec ace-system 简化）。
 ## 懒创建小队：wingman_count==0 的机型（34 架里 33 架）起手无 _squad，首次拿到僚机时就地建单机小队。
 func _claim_wingman_reward(count: int = 2) -> void:
@@ -4090,8 +4156,6 @@ func _claim_wingman_reward(count: int = 2) -> void:
 		if _zone_hint:
 			_zone_hint.show_temp(tr("REWARD_WINGMAN_FULL_HINT"), 3.5)
 		return
-	if survivor_player:
-		survivor_player.add_xp(SurvivorData.xp_for_level(survivor_player.level))  # ACE 升 1 级（门控进化）
 
 ## 生成一架同型僚机入队（与起始僚机同管线：档案注入 + 完美飞行员 + 编队托管）。
 ## 复用方：+1 僚机奖励（上方）/ 722 双子星 sig_ax00 克隆（不带 ACE XP 副作用）。
@@ -4185,13 +4249,13 @@ func _claim_weapon_reward(weapon: String) -> void:
 			player_aircraft.rockets_remaining = p.rocket.max_ammo
 			if survivor_player:
 				survivor_player.record_special_weapons()
-		"railgun", "laser":
-			# 电磁炮/激光（equipment 数组类，X-02 资产泛化；spec zone-reward-arsenal §2.2）
+		"railgun", "laser", "esm_pod":
+			# 电磁炮/激光/ESM（equipment 数组类；战区军械库）
 			if p.get_equipment_of_kind(weapon) != null:
 				_claim_weapon_reward("qmaam")
 				return
 			var res_path := "res://resources/x02_railgun.tres" if weapon == "railgun" \
-					else "res://resources/x02_laser.tres"
+					else ("res://resources/x02_laser.tres" if weapon == "laser" else "res://resources/esm_pod.tres")
 			if p.equipment == null:
 				var arr: Array[EquipmentParams] = []
 				p.equipment = arr
@@ -4291,6 +4355,7 @@ func is_boss_phase() -> bool:
 func _build_reward_roll_context() -> Dictionary:
 	return {
 		"aircraft_id": _player_profile_id,
+		"start_aircraft_id": _starting_profile_id,
 		"params": player_aircraft.params if player_aircraft and is_instance_valid(player_aircraft) else null,
 		"stacks": upgrade_stacks,
 		"squad_classes": _squad_present_classes(),

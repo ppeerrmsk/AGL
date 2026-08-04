@@ -97,7 +97,7 @@
 ### 装备（模块化系统）
 | 字段 | 说明 |
 |---|---|
-| `equipment` | `Array[EquipmentParams]`。**新机型走这里**；空数组时回退读上面的旧字段 |
+| `equipment` | `Array[EquipmentParams]`。新机型优先用这条**运行时武器组件**路径；空数组时回退读上面的旧字段。它与已退役的局外槽位配件商店不是同一系统 |
 
 查询接口：`has_equipment(type)` / 取第一件的 getter —— 同时检查新 `equipment` 数组和旧字段（兼容迁移期）。
 生存模式的升级过滤（`requires` 装备门控）和 AI 决策都走这个入口。

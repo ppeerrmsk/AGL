@@ -240,9 +240,9 @@ func _test_af03_visibility() -> void:
 
 # ── F. 签名技普通池排除 ──
 func _test_signature_random_exclusion() -> void:
-	print("── F. 机体专属：普通随机池排除 + 第四槽 90% ──")
-	_check("专属第四槽概率 = 0.90",
-		is_equal_approx(SurvivorData.SIGNATURE_OFFER_CHANCE, 0.90), "")
+	print("── F. 机体专属：普通随机池排除 + 第四槽 30% ──")
+	_check("专属第四槽概率 = 0.30",
+		is_equal_approx(SurvivorData.SIGNATURE_OFFER_CHANCE, 0.30), "")
 	_check("is_signature_upgrade 认 sig_ 前缀",
 		SurvivorData.is_signature_upgrade({"id": "sig_f15"}), "")
 	_check("is_signature_upgrade 认 F-14 围猎特例",
@@ -354,10 +354,11 @@ func _test_regular_enemy_registry() -> void:
 			and not f22_source.contains("spawner.mode.get_children()"), "")
 
 	var snowblind_row := EnemyPoolRegistry.row_for_type(31)
-	_check("Snowblind Lv8 解锁且 13 Token 才允许完整编成",
-		snowblind_row in EnemyPoolRegistry.eligible_rows(8, 13, {}) \
+	_check("Snowblind 本体 4 Token，Lv8 解锁且 10 Token 才允许最低完整编成",
+		int(snowblind_row["token_cost"]) == 4 \
+			and snowblind_row in EnemyPoolRegistry.eligible_rows(8, 10, {}) \
 			and snowblind_row not in EnemyPoolRegistry.eligible_rows(7, 99, {}) \
-			and snowblind_row not in EnemyPoolRegistry.eligible_rows(8, 12, {}), "")
+			and snowblind_row not in EnemyPoolRegistry.eligible_rows(8, 9, {}), "")
 	_check("Snowblind 同场上限一架",
 		snowblind_row not in EnemyPoolRegistry.eligible_rows(20, 99, {31: 1}), "")
 	var snowblind: AircraftParams = load("res://resources/enemy_snowblind.tres")
@@ -635,7 +636,7 @@ func _midpoint_rolls_for_row(candidates: Array[Dictionary], response_level: int,
 
 # ── J. ADBS 护卫池：不吃常规 Token，不穿透退役门 ──
 func _test_adbs_escort_pool() -> void:
-	print("── J. ADBS 护卫池：零 Token 选型 / 退役门 / 专用编成隔离 ──")
+	print("── J. ADBS 护卫：零 Token 选型 / 近距伴飞 / 受警即接战 ──")
 	var early_types: Array[int] = []
 	for row in EnemyPoolRegistry.escort_rows(1):
 		early_types.append(int(row["type"]))
@@ -662,6 +663,52 @@ func _test_adbs_escort_pool() -> void:
 	_check("同为零 Token 时 ADBS 护卫仍按等级选出非 MQ-109 战机",
 		escort_type >= 0 and escort_type != int(SurvivorSpawner.EnemyType.UAV),
 		"etype=%d" % escort_type)
+
+	var protectee_a := _sentinel_probe_aircraft("ch47", Vector2.ZERO)
+	var protectee_b := _sentinel_probe_aircraft("ch47", Vector2(0.0, 320.0))
+	protectee_a.team = CombatUnit.TEAM_HOSTILE
+	protectee_b.team = CombatUnit.TEAM_HOSTILE
+	var protectees: Array[Aircraft] = [protectee_a, protectee_b]
+	var escort_sq := probe._new_flee_escort_squad(protectees)
+	var guard := _sentinel_probe_aircraft("tornado", Vector2.ZERO)
+	guard.team = CombatUnit.TEAM_HOSTILE
+	var guard_idx := SquadFactory.register_wingman(escort_sq, guard, true)
+	var guard_ai := _sentinel_probe_ai(guard)
+	_check("ADBS 护卫以运输机为移动长机，不再独自冲向出口",
+		escort_sq.leader == protectee_a and escort_sq.members[1] == protectee_b \
+			and guard_idx == 2 and guard_ai._state == AIController.AIState.SQUAD_FOLLOW,
+		"leader=%s idx=%d state=%d" % [escort_sq.leader, guard_idx, guard_ai._state])
+	_check("两运输机+首架护卫的楔形槽位距锚点小于 500m",
+		escort_sq.get_formation_offset(guard_idx).length() \
+			< 500.0 * CombatUnit.PIXELS_PER_METER,
+		"slot_px=%.1f" % escort_sq.get_formation_offset(guard_idx).length())
+	_check("三运输机+四护卫的最外槽位仍小于 700m",
+		escort_sq.get_formation_offset(6).length() \
+			< 700.0 * CombatUnit.PIXELS_PER_METER,
+		"slot_px=%.1f" % escort_sq.get_formation_offset(6).length())
+
+	var attacker := _sentinel_probe_aircraft("player", Vector2(1000.0, 0.0))
+	attacker.team = CombatUnit.TEAM_PLAYER
+	protectee_a.escort_guards = [guard]
+	protectee_a.set_meta("_pending_attacker", attacker)
+	guard.set_formation_target(protectee_a, escort_sq.get_wingman_target(guard_idx))
+	protectee_a._alert_escort_guards()
+	_check("护航对象受击时护卫同拍脱离编队并进入 ENGAGE",
+		guard_ai._state == AIController.AIState.ENGAGE \
+			and guard_ai._current_target == attacker and guard.combat_target == attacker \
+			and not guard.formation_mode and guard.ai_override_pursuit,
+		"state=%d formation=%s target=%s" % [
+			guard_ai._state, guard.formation_mode, guard_ai._current_target])
+	guard.kill_tally = 99  # 即使护卫已有战果，也不能抢走运输机的移动锚点。
+	protectee_a.is_destroyed = true
+	escort_sq.cleanup()
+	_check("首架护航对象阵亡后优先换锚到下一架运输机",
+		escort_sq.leader == protectee_b and guard_ai.squad_index == 1,
+		"leader=%s guard_idx=%d" % [escort_sq.leader, guard_ai.squad_index])
+	attacker.free()
+	guard.free()
+	protectee_a.free()
+	protectee_b.free()
 	probe.free()
 
 

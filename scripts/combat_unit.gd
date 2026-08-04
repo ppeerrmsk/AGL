@@ -1,6 +1,8 @@
 class_name CombatUnit
 extends Node2D
 
+signal faction_changed(old_team: int, new_team: int, reason_id: String)
+
 ## 战斗单位基类：Aircraft 和 GroundUnit 的公共接口
 ## 提供 team/hp/altitude/heading/speed/雷达/锁定 等共享属性
 
