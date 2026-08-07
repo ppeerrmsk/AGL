@@ -202,14 +202,7 @@ func _gate_rows(nd: Dictionary, axis_points: Dictionary) -> Array:
 				"need": best_need,
 			})
 			continue
-		var have: int
-		if ks == "sum_gk":
-			have = int(axis_points.get(&"gladiator", 0)) + int(axis_points.get(&"knight", 0))
-		elif ks == "sum_all":
-			have = int(axis_points.get(&"gladiator", 0)) + int(axis_points.get(&"knight", 0)) \
-				+ int(axis_points.get(&"schemer", 0))
-		else:
-			have = int(axis_points.get(StringName(ks), 0))
+		var have: int = int(axis_points.get(StringName(ks), 0))
 		out.append({"label": _gate_label(ks), "have": have, "need": int(g[k])})
 	return out
 
@@ -221,10 +214,6 @@ func _fmt1(key: String, value: String) -> String:
 
 
 func _gate_label(key: String) -> String:
-	if key == "sum_gk":
-		return "%s+%s" % [tr("ATTR_GLADIATOR"), tr("ATTR_KNIGHT")]
-	if key == "sum_all":
-		return tr("ATTR_SUM_ALL")
 	return _axis_label(key)
 
 

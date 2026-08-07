@@ -3,7 +3,7 @@ id: skills-720-rework
 kind: system
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 11
+spec_version: 12
 owner: 用户
 depends_on: [evolution-attribute-gates, squad-upgrade-ownership, afterburner-mode, inrun-weapon-inventory, command-wheel, zone-reward-docking]
 reconstruction_complete: true
@@ -47,7 +47,7 @@ reconstruction_complete: true
 |---|---|
 | 漂浮雷·猎手感应 | 策士 |
 | 虐弱 | 策士 |
-| 漂浮雷：额外 · 加力供弹 · 云中超载 · 雾隐机动 · 焰诱共振 · 寒颤号令 · 对锋干扰 · 忠诚僚机.武装 | 骑士 |
+| 漂浮雷：额外 · 加力供弹 · 雾隐机动 · 寒颤号令 · 对锋干扰 · 忠诚僚机.武装 | 骑士 |
 | 被锁狂飙 · 噬血共振 · 后半球减速光环 · 机炮余烬 | 斗士 |
 
 ### 2.2 新增技能（27 条；轴=卡池归属，实现挂点见 §3 分组）
@@ -117,16 +117,16 @@ reconstruction_complete: true
 | 导弹挂架扩展 | ×1→**×3** |
 | 引擎强化 | +30%/+20%→**+20%/+10%**、×1→×2 |
 | 平流层雷达/绝境装填 | 策士轴→**骑士轴** |
-| 云中超载 | 骑士限定+**王牌**；骑士+1 |
+| 云中超载 | 骑士限定+**王牌**；2026-08-06 起技能轴直接归骑士，不再额外骑士+1 |
 | 雾隐机动 | 策士限定→**通用全队**；骑士+1；**进战区奖励池** |
 | 寒颤 | 策士限定→通用 |
 | 惊鸿扩散 | 策士限定+**王牌**；8s→5s |
 | 全向干扰场 | 骑士限定→**斗士限定**；干扰时长明确 4s |
-| 共振反馈 | 骑士限定＋需要词条（requires_skill：**JAM 来源技**——729 修正，原写"超载入门技"是错的，见 §8 v9） |
+| 共振反馈 | 骑士限定＋需要词条（requires_skill：**JAM 来源技**——729 修正，原写"超载入门技"是错的，见 §8 v9）；技能轴归骑士 |
 | 激光散热 | +25%→+40%、×3→×2 |
 | 激光过载 | +30%→+50%、×3→×1 |
 | 激光增距 | ×3→×2 |
-| 过载/燃尽/噬血共振 | 骑士限定→**通用＋需要词条**（噬血共振 斗士+1） |
+| 过载/燃尽/噬血共振 | 骑士限定→**通用＋需要词条**；技能轴均归骑士（噬血共振保留斗士+1 跨轴桥） |
 | 后半球减速光环 | 骑士限定→**斗士限定＋王牌**；斗士+1 |
 | 机炮震慑 | 策士限定→**王牌** |
 | 机炮余烬 | 策士限定→**斗士限定**；斗士+1 |
@@ -139,6 +139,19 @@ reconstruction_complete: true
 | 弹后潜匿 | 5s→4s |
 | QAAM/漂浮雷/忠诚僚机强化 | 见 §2.2 新增（装备门控家族扩容） |
 | 稀有度全表 | 按 720 表数字列重标（1~5 → 稳定~次世代） |
+
+### 2.4 超载技能轴统一（2026-08-06 定稿）
+
+超载是骑士的**导弹爆发/追击窗口**。归轴按技能的主要产出决定，而不是沿用旧 `electronic_warfare`
+类别：产生 OVERLOAD、消费其窗口、延长它或把其它状态转成它的技能，均进骑士轴卡池。
+
+| 类型 | 技能 id | 轴 / 额外进度 |
+|---|---|---|
+| 来源 | `cloud_overload` / `skill_evade_missile_overload` / `skill_flare_overload` / `jam_self_overload` / `assassin_revenge` / `sig_mig41` | 全部骑士；`cloud_overload`、`skill_flare_overload` 删除同轴 `milestone_plus:knight` |
+| 终端 | `overload_duration_4x` / `overload_extended_ammo` / `overload_to_bloodlust` | 全部骑士；`overload_to_bloodlust` 保留 `milestone_plus:gladiator` 作为跨轴桥 |
+
+三个终端的 `requires_skill` 采用 OR 语义，必须覆盖上述六个真实 OVERLOAD 来源。`jam_self_overload`
+自身仍以前置 JAM 来源解锁；这条前置决定它能否触发，不与它作为后续超载终端的合法来源冲突。
 
 ## 3. 实现对照（复用 / 追加 / 新建）
 
@@ -206,6 +219,7 @@ reconstruction_complete: true
 - [x] 新技能 27 条逐条烟测（触发钩子类打 EventLogger 标记）；移除电磁炮强化后旧存档/奖励池无悬空引用。✅ 核心钩子 bench E/G/H 组覆盖 + 全部触发点带 EventLogger 标记（F4 面板可逐条灌注实测）；railgun_damage 全仓零残引
 - [x] 数值 delta 全表三语 desc 同步（⚠ feedback 铁律）；重跑 dump_skill_table 与 720 表零 diff。✅ 三语 63 改/46 新键；生成表 104 条与数据零 diff（720 原始表未入库，按 §2 明细执行）
 - [x] 排查双项闭环（数据链结论写回本 spec；寒蝉 team 过滤修复）。✅ §4
+- [x] 超载轴统一：9 条相关技能全归骑士；云中超载/焰诱共振无同轴重复 +1；3 个终端均接受 6 个真实来源。✅ bench `skills720` I 组
 - [ ] 回归门全绿 ✅（32 项）+ **playtest ⏳（待用户：吊舱手感/胆大妄为时机窗/保守暂定数值调档——历练 ×1.5、适应 +3s、保卫 30%/15%、转移 15%/50%、全速 +5%/条、专家 +100m/条、QAAM +10%、僚机 +30%/20%、子弹寿命 +20%）**
 
 ## 6. 任务拆分（依赖序）
@@ -235,13 +249,14 @@ reconstruction_complete: true
 | QAAM 归因链 | `scripts/missile_manager.gd`（`spawn_missile(is_secondary)`）＋ `scripts/missile.gd`（`is_secondary_weapon`）＋ kind `"qmaam"` |
 | 新机制四件 | `scripts/aircraft/aircraft_weapons.gd`（机炮吊舱翼挂段）/ `scripts/equipment/railgun_equipment.gd`（`double_shot` followup）/ `scripts/missile.gd`（`second_stage` `_second_stage_g_mult`）/ `scripts/aircraft.gd`（`try_manual_maneuver` / `do_manual_dodge`）＋ R 键入口 `survivor_mode` |
 | 量表加成格 / 卡面归属角标 | `scripts/survivor/axis_bars_panel.gd`（`show_state(…, milestone_bonus)`）/ `scripts/survivor/survivor_upgrade_ui.gd`（`_scope_badges`） |
-| 生成器 / 现状全表 | `tools/dump_skill_table.py` → `docs/reference/skill-table.md`（104 条） |
-| 验收 bench | `scripts/tests/test_skills_720.gd`（`--bench=skills720`，123 断言；本批新增 13 条覆盖 R 手动/AI 自动/三向互斥/全队下发；随 `--bench=all` 回归门） |
+| 生成器 / 现状全表 | `tools/dump_skill_table.py` → `docs/reference/skill-table.md`（当前 152 条） |
+| 验收 bench | `scripts/tests/test_skills_720.gd`（`--bench=skills720`，169 断言；含超载轴/终端来源闭合与 R 手动/AI 自动/三向互斥/全队下发；随 `--bench=all` 回归门） |
 
 ## 8. 变更记录
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-06 | 12 | 用户定稿“超载是骑士的导弹流”：7 条旧策士超载卡显式迁骑士，与原有刺客复仇/MiG-41 合计 9 条；删除云中超载/焰诱共振的同轴骑士+1，噬血共振保留斗士+1 跨轴桥；三个超载终端前置补齐共振反馈/刺客复仇/MiG-41，共覆盖 6 个真实来源。 |
 | 2026-08-01 | 11 | R 升格为统一机动入口：当前操控机手动、AI 僚机自动，特殊机动不再要求先开加力。眼镜蛇/J-Turn/胆大妄为组成三向互斥组，任取其一后另两张不再出现；代码优先级只作旧档/debug 共存兜底。胆大妄为从 ace scope 改为全队下发：AI 僚机在近弹/后方机炮威胁下自动滚转投焰，数值与“禁普通自动 flare”代价不变。 |
 | 2026-07-29 | 10 | F4 技能 Debug 面板从已腐烂的五类（生存/机动/导弹/副武器/电子战）改为读取 `axis_of_upgrade` 的正式三轴（斗士/骑士/策士）分组与 SSOT 配色；Debug `+` 获得技能时补齐正式选卡的对应轴 +1（仍受全局 8 点 cap），实时状态显示三轴计数。 |
 | 2026-07-29 | 9 | **共振反馈前置修正**（720 批遗留"前置组合观察"结案）：`jam_self_overload` 的 `requires_skill` 从"超载入门技（云中超载/规避超载/焰诱共振）"改为**全部 JAM 来源技**（扰乱投弹 / 机炮撒焰 / 寒蝉效应 / 雷阵警讯 / 对锋干扰 / 全向干扰场 / SPECTRA）。原写法把因果写反了——本条自身就是 OVERLOAD 的**来源**，需要的是"能把 JAM 打出去"的手段；玩家只拿焰诱共振就会刷出这张卡，而全局无任何 JAM 手段 → 技能永不触发（实测复现）。同批补：SPECTRA（`sig_rafale`）打出的 5s JAM 此前漏调 `on_player_jam_landed`，现补上（否则它作为前置仍不生效）。bench：skills720 新增 §I 前置链自洽段（全表 requires_skill id 有效性 + 共振反馈正反例），110 断言。 |

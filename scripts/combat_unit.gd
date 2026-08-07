@@ -227,6 +227,9 @@ static func release_target_refs(unit: CombatUnit) -> void:
 ## damage_kind 枚举字符串："gun" / "missile" / "aoe" / "rocket" / "laser" / "railgun" / "ground_crash" / "collision" / ""(未知)
 ## 写入 `_last_damage_kind` meta 供 _apply_damage / on_kill / on_hit 钩子链消费
 ## （技能：机炮闪避 / 机炮发射时减伤 / 导弹命中无敌 / 机炮击杀恐惧 等都按 kind 分流）
+func can_accept_new_hit(_kind: String) -> bool:
+	return true
+
 func take_damage(amount: float, attacker: Node = null, kind: String = "") -> void:
 	if is_destroyed:
 		return

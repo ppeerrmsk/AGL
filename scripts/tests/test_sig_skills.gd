@@ -2,7 +2,7 @@ extends RefCounted
 
 ## 无头行为验收：机体签名技能批（spec aircraft-signature-skills）
 ##
-## A 表完整性（41 条约定）/ B 驾驶门控与前置 / C milestone_plus 数组化 /
+## A 表完整性（43 条约定）/ B 驾驶门控与前置 / C milestone_plus 数组化 /
 ## D apply 分支（params 类）/ E 致死拦截判序 / F 负面状态免疫 /
 ## G 全频段压制流速 / H 先敌开火（锁数+装填）/ I 机动 accessor 注入 /
 ## J 超速截击正面发射门 / K 传感器融合越肩发射门 / L 静态账本清零
@@ -27,14 +27,15 @@ func run() -> void:
 	_test_mobility_accessors()
 	_test_mig31_forward_gate()
 	_test_f35_relay_gate()
+	_test_new_signatures()
 	_test_static_ledger_reset()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
 
 
-# ── A. 表完整性：41 条签名技全 CLASSIFIED ×1 + exclusive_to 单机型 + 轴有效 ──
+# ── A. 表完整性：43 条签名技全 CLASSIFIED ×1 + exclusive_to 单机型 + 轴有效 ──
 func _test_table_conventions() -> void:
-	print("── A. 表完整性：sig_* 40 条 + 围猎（f14_squad_lock_slow）改档 ──")
+	print("── A. 表完整性：sig_* 42 条 + 围猎（f14_squad_lock_slow）改档 ──")
 	var sig_count := 0
 	var all_ok := true
 	var detail := ""
@@ -57,7 +58,7 @@ func _test_table_conventions() -> void:
 		if not SurvivorData.AXES.has(axis):
 			all_ok = false
 			detail += "%s axis 无效; " % uid
-	_check("sig_* 条目数 = 40", sig_count == 40, "got %d" % sig_count)
+	_check("sig_* 条目数 = 42", sig_count == 42, "got %d" % sig_count)
 	_check("全表约定（CLASSIFIED / ×1 / 单机型 / 轴有效）", all_ok, detail)
 	var gaze := _find_upgrade("f14_squad_lock_slow")
 	_check("围猎（f14_squad_lock_slow）改档 CLASSIFIED",
@@ -65,7 +66,7 @@ func _test_table_conventions() -> void:
 
 
 func _test_offer_rules() -> void:
-	print("── B. 第四槽规则：30% 边界 / 41 机映射 / 前置不阻断出示 ──")
+	print("── B. 第四槽规则：30% 边界 / 43 机映射 / 前置不阻断出示 ──")
 	_check("专属第四槽概率 = 30%",
 		is_equal_approx(SurvivorData.SIGNATURE_OFFER_CHANCE, 0.30), "")
 	_check("roll=0 命中", SurvivorData.signature_offer_hit(0.0), "")
@@ -84,10 +85,14 @@ func _test_offer_rules() -> void:
 		if not upgrade.is_empty():
 			mapped_count += 1
 			mapped_ok = mapped_ok and SurvivorData.is_signature_upgrade(upgrade)
-	_check("41 个进化节点均映射到专属技能", mapped_count == 41 and mapped_ok,
+	_check("43 个进化节点均映射到专属技能", mapped_count == 43 and mapped_ok,
 		"mapped=%d" % mapped_count)
 	_check("F-14 映射围猎",
 		SurvivorData.signature_upgrade_id_for_aircraft(&"f14") == "f14_squad_lock_slow", "")
+	_check("EA-18G 映射伴随压制",
+		SurvivorData.signature_upgrade_id_for_aircraft(&"ea18g") == "sig_ea18g", "")
+	_check("F/A-XX 映射穿透打击",
+		SurvivorData.signature_upgrade_id_for_aircraft(&"faxx") == "sig_faxx", "")
 
 	var gated := _find_upgrade("sig_su27")
 	_check("技能前置仍由效果层自然等待，不改变专属身份",
@@ -344,9 +349,58 @@ func _test_f35_relay_gate() -> void:
 	other.free()
 
 
-# ── L. 队级账本位（static）跨局清零：survivor_mode._ready 必须显式重置 ──
+# ── L. 新签名技：EA-18G 伴随压制接线 + F/A-XX 穿透打击行为 ──
+func _test_new_signatures() -> void:
+	print("── L. EA-18G 伴随压制 / F/A-XX 穿透打击 ──")
+	var ea := _find_upgrade("sig_ea18g")
+	var fx := _find_upgrade("sig_faxx")
+	_check("伴随压制归谋士轴且仅 EA-18G", str(ea.get("axis", "")) == "schemer"
+		and (ea.get("exclusive_to", []) as Array) == ["ea18g"], str(ea))
+	_check("穿透打击归角斗士轴且仅 F/A-XX", str(fx.get("axis", "")) == "gladiator"
+		and (fx.get("exclusive_to", []) as Array) == ["faxx"], str(fx))
+
+	# 伴随压制复用雷达低频更新，不新增逐帧扫描；成员真相必须来自 Squad.members。
+	var mode_src := FileAccess.get_file_as_string("res://scripts/survivor/survivor_mode.gd")
+	_check("伴随压制读取 Squad.members 并施加 JAM", mode_src.contains("sig_ea18g")
+		and mode_src.contains("_squad.members")
+		and mode_src.contains("the_target.apply_status(StatusEffects.JAM"), "接线缺失")
+
+	var ace := _make_combat_aircraft()
+	var wing := _make_combat_aircraft()
+	var victim := _make_combat_aircraft()
+	ace.team = CombatUnit.TEAM_PLAYER
+	wing.team = CombatUnit.TEAM_PLAYER
+	victim.team = CombatUnit.TEAM_HOSTILE
+	ace.set_meta("upgrade_stacks", {"sig_faxx": 1})
+	wing.set_meta("upgrade_stacks", {"sig_faxx": 1})
+	victim.set_meta("_last_damage_kind", "gun")
+	AircraftRenderer.player_ref = ace
+	SkillHooks.dispatch_on_kill(ace, victim)
+	_check("本机机炮击杀 → STEALTH 5s", ace.has_status(StatusEffects.STEALTH)
+		and float(ace.status_effects.get(StatusEffects.STEALTH, 0.0)) >= 5.0, str(ace.status_effects))
+	_check("穿透打击进入 20s CD", is_equal_approx(ace._sig_faxx_cd, 20.0),
+		"got %.1f" % ace._sig_faxx_cd)
+	ace.remove_status(StatusEffects.STEALTH)
+	SkillHooks.dispatch_on_kill(ace, victim)
+	_check("CD 内不刷新隐身", not ace.has_status(StatusEffects.STEALTH), "")
+	ace._sig_faxx_cd = 0.0
+	victim.set_meta("_last_damage_kind", "missile")
+	SkillHooks.dispatch_on_kill(ace, victim)
+	_check("导弹击杀不触发", not ace.has_status(StatusEffects.STEALTH)
+		and is_zero_approx(ace._sig_faxx_cd), "")
+	victim.set_meta("_last_damage_kind", "gun")
+	SkillHooks.dispatch_on_kill(wing, victim)
+	_check("僚机机炮击杀不触发 ACE 技能", not wing.has_status(StatusEffects.STEALTH)
+		and is_zero_approx(wing._sig_faxx_cd), "")
+	AircraftRenderer.player_ref = null
+	ace.free()
+	wing.free()
+	victim.free()
+
+
+# ── M. 队级账本位（static）跨局清零：survivor_mode._ready 必须显式重置 ──
 func _test_static_ledger_reset() -> void:
-	print("── L. 静态账本位：源码含新局清零（跨局残留防回归）──")
+	print("── M. 静态账本位：源码含新局清零（跨局残留防回归）──")
 	var src: String = FileAccess.get_file_as_string("res://scripts/survivor/survivor_mode.gd")
 	var ready_idx: int = src.find("func _ready()")
 	var head: String = src.substr(ready_idx, 2000) if ready_idx >= 0 else ""

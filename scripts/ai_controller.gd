@@ -1481,9 +1481,9 @@ func _update_rotorcraft_fire(target: GroundUnit, delta: float) -> void:
 	var to_target: Vector2 = target.global_position - aircraft.global_position
 	var aim_heading: float = atan2(to_target.x, -to_target.y)
 	aircraft._gun_lead_heading = aim_heading
-	var range_px: float = aircraft.params.gun.max_range * CombatUnit.PIXELS_PER_METER
+	var range_px: float = aircraft.effective_gun_range_m() * CombatUnit.PIXELS_PER_METER
 	var aligned: bool = absf(angle_difference(aircraft.heading, aim_heading)) \
-			<= deg_to_rad(aircraft.params.gun.fire_cone_half_angle)
+			<= deg_to_rad(aircraft.effective_gun_cone_half_angle_deg())
 	var firing_state: bool = _rotor_state == RotorcraftState.ORBIT \
 			or _rotor_state == RotorcraftState.BRAKE or _rotor_state == RotorcraftState.HOVER
 	aircraft.is_firing = _rotor_fire_on and firing_state and aligned and to_target.length() <= range_px
@@ -1700,6 +1700,9 @@ func _process_simple(delta: float) -> void:
 
 						# 自爆判定：100px 内触发
 						if dist_to_tgt < 100.0:
+							# 主动机动窗口不接受新的碰撞命中；保持追击，窗口结束后再判定。
+							if not _current_target.can_accept_new_hit("collision"):
+								return
 							# 真正执行自爆的瞬间显示"舍身"（只有这一架 UAV 会走到这里）
 							current_tactic_name = "TACTIC_KAMIKAZE"
 							aircraft.show_tactic_popup(tr("TACTIC_KAMIKAZE"))

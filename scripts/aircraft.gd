@@ -129,6 +129,39 @@ var manual_dodge_active: bool = false
 var _manual_dodge_cd: float = 0.0
 const MANUAL_DODGE_CD: float = 2.0
 const MANUAL_DODGE_IFRAME: float = 0.25
+## 五选一 R 主动机动中的两项位移技能；当前操控机按 R，AI 接管机按威胁自动释放。
+var displacement_roll_active: bool = false
+var vertical_break_active: bool = false
+enum ActiveSpecialManeuver { NONE, DISPLACEMENT_ROLL, VERTICAL_BREAK }
+const DISPLACEMENT_ROLL_DURATION: float = 1.15
+const DISPLACEMENT_ROLL_DISTANCE_PX: float = 350.0
+const DISPLACEMENT_ROLL_HEADING_PEAK: float = deg_to_rad(78.0)
+const DISPLACEMENT_ROLL_COOLDOWN: float = 15.0
+const DISPLACEMENT_ROLL_MISSILE_TRIGGER_PX: float = 900.0 * PIXELS_PER_METER
+const VERTICAL_BREAK_DURATION: float = 1.30
+const VERTICAL_BREAK_DISTANCE_M: float = 900.0
+const VERTICAL_BREAK_MIN_DISTANCE_M: float = 600.0
+const VERTICAL_BREAK_MIN_ALTITUDE_M: float = 200.0
+const VERTICAL_BREAK_PITCH_MIN_SCALE: float = 0.40
+const VERTICAL_BREAK_COOLDOWN: float = 18.0
+const VERTICAL_BREAK_MISSILE_TRIGGER_PX: float = 1100.0 * PIXELS_PER_METER
+const ACTIVE_SPECIAL_AUTO_INTERVAL: float = 0.10
+const ACTIVE_SPECIAL_BOUNDARY_MARGIN_PX: float = 24.0
+var _active_special: int = ActiveSpecialManeuver.NONE
+var _active_special_elapsed: float = 0.0
+var _active_special_prev_ease: float = 0.0
+var _active_special_side: float = 1.0
+var _active_special_lateral_axis: Vector2 = Vector2.RIGHT
+var _active_special_start_altitude: float = 0.0
+var _active_special_end_altitude: float = 0.0
+var _active_special_start_speed: float = 0.0
+var _active_special_last_target_altitude: float = 0.0
+var _active_special_queued_altitude: float = INF
+var _active_special_heading_offset: float = 0.0
+var _active_special_roll_visual: float = 0.0
+var _active_special_pitch_visual: float = 0.0 ## 0=水平投影，1=垂直越过中点最大俯仰
+var _active_special_auto_timer: float = 0.0
+var _active_special_local_cooldown_s: float = 0.0
 ## TIGHT 齐射窗口开火权（spec formation-discipline §3.1）：窗口期 SquadCommandController
 ## 临时授予编队僚机 combat_target；置位时 SquadCoordination 的"编队防御性清目标"跳过本机
 ## ——僚机在编队槽位里开火、不脱队。窗口关闭即回收（禁补射由构造保证）
@@ -458,6 +491,7 @@ var sig_mig31_active: bool = false         ## 超速截击：加力窗口自动�
 var sig_viffing_active: bool = false       ## 鹞·VIFFing：低速 4s 无敌触发器
 var _sig_viffing_cd: float = 0.0           ## VIFFing 内置 CD（20s）计时
 var _sig_a10_cheat_cd: float = 0.0         ## 钛浴缸：致死拦截 CD（60s）计时
+var _sig_faxx_cd: float = 0.0              ## 穿透打击：机炮击杀隐身 CD（20s）计时
 var _sig_a12_revive_used: bool = false     ## 不被期待的计划：每局一次复活已用标记
 var _sig_mig41_dash_cd: float = 0.0        ## 近太空冲刺：触发 CD（30s）计时
 var _sig_mig41_dive_timer: float = 0.0     ## 近太空冲刺：俯冲加速 buff 残余秒数
@@ -909,6 +943,8 @@ func _physics_process_impl(delta: float) -> void:
 	var _t_misc6: int = Time.get_ticks_usec()
 	StatusEffects.update(self, delta)
 	PerfBuckets.tick("ac_phys.misc.status_fx", Time.get_ticks_usec() - _t_misc6)
+	# 主动位移技能必须跨 LOD/切控继续推进；无动作时仅 O(1) 计时，AI 威胁扫描固定 10Hz。
+	_update_active_special_maneuver(delta)
 
 	# 旋翼机完全绕过固定翼 bank/G/失速链；武器仍复用 AircraftWeapons。
 	if params and params.flight_model == AircraftParams.FlightModel.ROTORCRAFT:
@@ -1300,7 +1336,6 @@ func _apply_tactical_plan(plan: TacticalPlan) -> void:
 	_plan_bank_limit_rad = deg_to_rad(plan.bank_limit_deg) if plan.bank_limit_deg > 0.0 else -1.0
 	# 对面攻击 pass 相位回写（spec surface-attack-pass）；非 GROUND_STRAFE 的 plan 恒填 SETUP → 复位
 	_strafe_pass_phase = plan.strafe_pass_phase
-
 	# 武器模式
 	# NONE 显式重置为 GUN（防止 weapon_mode 残留 MISSILE 让 salvo 路径在 CRUISE/EVADE 期间走漏发射）
 	match plan.weapon_mode:
@@ -1324,7 +1359,7 @@ func _apply_tactical_plan(plan: TacticalPlan) -> void:
 		# 弹速按武器传入——机炮=muzzle_velocity；helper 在 AircraftWeapons）
 		var bullet_mps: float = params.gun.muzzle_velocity if (params and params.gun) else 1000.0
 		_gun_lead_heading = AircraftWeapons.lead_heading(self, combat_target, bullet_mps)
-		var cone_half: float = deg_to_rad(params.gun.fire_cone_half_angle) \
+		var cone_half: float = deg_to_rad(effective_gun_cone_half_angle_deg()) \
 				if (params and params.gun) else 0.26
 		aim_ok = absf(_angle_diff(_gun_lead_heading, heading)) <= cone_half
 	else:
@@ -1472,6 +1507,8 @@ func _update_sig_skills(delta: float) -> void:
 		_sig_a10_cheat_cd -= delta
 	if _sig_viffing_cd > 0.0:
 		_sig_viffing_cd -= delta
+	if _sig_faxx_cd > 0.0:
+		_sig_faxx_cd -= delta
 	if _sig_mig41_dash_cd > 0.0:
 		_sig_mig41_dash_cd -= delta
 	if _sig_mig41_dive_timer > 0.0:
@@ -1571,7 +1608,7 @@ func _update_cobra_skill(delta: float) -> void:
 	# 当前操控机只听 R；切控后旧机交还 AI，会自然恢复下方威胁自动触发。
 	if is_manual_maneuver_controlled():
 		return
-	if _cobra_skill_cooldown > 0.0:
+	if _cobra_skill_cooldown > 0.0 or _shared_maneuver_cooldown() > 0.0 or is_active_special_maneuver():
 		return
 	var mf := get_maneuver()
 	if mf == null:
@@ -1588,6 +1625,7 @@ func _update_cobra_skill(delta: float) -> void:
 	mf.is_used = false
 	if mf.activate():
 		_cobra_skill_cooldown = COBRA_SKILL_COOLDOWN
+		_start_shared_maneuver_cooldown(COBRA_SKILL_COOLDOWN)
 
 ## 检测来袭导弹是否已逼近触发距离 + 真的有命中可能
 ## 三重过滤防止"远处擦边导弹"也触发 cobra：
@@ -1631,6 +1669,8 @@ func _update_evasion_herbst_skill(_delta: float) -> void:
 	# 当前操控机只听 R；AI 僚机仍用来袭导弹/后方追尾条件自保。
 	if is_manual_maneuver_controlled():
 		return
+	if _shared_maneuver_cooldown() > 0.0 or is_active_special_maneuver():
+		return
 	var hm := get_herbst()
 	if hm == null:
 		return
@@ -1645,12 +1685,14 @@ func _update_evasion_herbst_skill(_delta: float) -> void:
 	# 转向方向：朝威胁源（追尾敌机或来袭导弹方向）
 	var turn_dir: float = _herbst_pick_turn_direction()
 	if hm.activate(turn_dir):
+		_start_shared_maneuver_cooldown(HerbstManeuver.COOLDOWN)
 		EventLogger.log_event("HOOK", "evasion_herbst",
 			"victim=%s turn_dir=%.0f (auto-trigger)" % [_log_name(), turn_dir])
 
 ## 胆大妄为 AI 自动路径：当前操控机只听 R；AI 僚机用同一近弹/追尾威胁门自保。
 func _update_manual_dodge_skill() -> void:
-	if not manual_dodge_active or is_manual_maneuver_controlled() or _manual_dodge_cd > 0.0:
+	if not manual_dodge_active or is_manual_maneuver_controlled() or _manual_dodge_cd > 0.0 \
+			or _shared_maneuver_cooldown() > 0.0 or is_active_special_maneuver():
 		return
 	if _cobra_detect_imminent_missile() or _cobra_detect_tail_gun():
 		do_manual_dodge(false)
@@ -1881,10 +1923,31 @@ func _combat_params() -> CombatParams:
 		_default_combat = CombatParams.new()
 	return _default_combat
 
+## 嗜血基础效果：普通机炮与 CIWS 发射不消耗弹药；零弹药/既有装填流程仍照常封锁。
+func bloodlust_gun_ammo_free() -> bool:
+	return is_player_squad() and status_bloodlust_active
+
+func ratatat_active() -> bool:
+	return status_bloodlust_active and SkillHooks.has_skill(self, SkillHooks.SKILL_RATATAT)
+
+func effective_gun_range_m() -> float:
+	if not params or not params.gun:
+		return 1000.0
+	return params.gun.max_range + (SkillHooks.RATATAT_RANGE_BONUS_M if ratatat_active() else 0.0)
+
+func effective_gun_cone_half_angle_deg() -> float:
+	if not params or not params.gun:
+		return 15.0
+	return params.gun.fire_cone_half_angle \
+		+ (SkillHooks.RATATAT_CONE_BONUS_DEG if ratatat_active() else 0.0)
+
+func effective_gun_fire_interval(base_interval: float) -> float:
+	return base_interval * (SkillHooks.RATATAT_INTERVAL_MULT if ratatat_active() else 1.0)
+
 ## 机炮射程（像素）
 func _gun_range_px() -> float:
 	if params and params.gun:
-		return params.gun.max_range * PIXELS_PER_METER
+		return effective_gun_range_m() * PIXELS_PER_METER
 	return 500.0
 
 ## 导弹射程（像素）
@@ -2075,11 +2138,234 @@ func _trigger_evasion_roll() -> void:
 		if bullet_dodge_chance >= HIGH_DODGE_THRESH:
 			_evade_roll_cooldown = BOSS_EVADE_ROLL_CD  # 4 秒才能再次滚转
 
-## R 键统一机动入口：正常卡池保证眼镜蛇/J-Turn/胆大妄为三者互斥。
-## 大机动优先级仅处理旧档/debug 异常共存；不可用时回退胆大妄为。
+## 当前是否处于两项新主动位移技能的 ACTIVE 窗口。
+func is_active_special_maneuver() -> bool:
+	return _active_special != ActiveSpecialManeuver.NONE
+
+## 新命中资格查询。已有 DoT/坠毁/Debug 不走这些 kind，仍可正常结算。
+func can_accept_new_hit(kind: String) -> bool:
+	if not is_active_special_maneuver():
+		return true
+	return kind not in ["gun", "rocket", "bomber_bomb", "airburst", "missile", "qmaam", "aoe", "laser", "railgun", "collision"]
+
+func _maneuver_squad() -> Squad:
+	if _ai_ref != null and is_instance_valid(_ai_ref) and _ai_ref.squad != null:
+		return _ai_ref.squad
+	return null
+
+func _shared_maneuver_cooldown() -> float:
+	var sq := _maneuver_squad()
+	return sq.active_maneuver_cooldown_s if sq != null else _active_special_local_cooldown_s
+
+func _start_shared_maneuver_cooldown(seconds: float) -> void:
+	var sq := _maneuver_squad()
+	if sq != null:
+		sq.active_maneuver_cooldown_s = maxf(sq.active_maneuver_cooldown_s, seconds)
+	else:
+		_active_special_local_cooldown_s = maxf(_active_special_local_cooldown_s, seconds)
+
+func _tick_shared_maneuver_cooldown(delta: float) -> void:
+	var sq := _maneuver_squad()
+	if sq == null:
+		_active_special_local_cooldown_s = maxf(_active_special_local_cooldown_s - delta, 0.0)
+		return
+	# 每个成员都会 physics tick；只能由当前 leader 给同一份 Squad 倒计时一次。
+	if sq.leader == self or sq.leader == null or not is_instance_valid(sq.leader):
+		sq.active_maneuver_cooldown_s = maxf(sq.active_maneuver_cooldown_s - delta, 0.0)
+
+func _any_r_maneuver_active() -> bool:
+	if is_active_special_maneuver():
+		return true
+	var cobra := get_maneuver()
+	if cobra != null and cobra.is_active:
+		return true
+	var herbst := get_herbst()
+	return herbst != null and herbst.is_active
+
+static func _active_special_ease(t: float) -> float:
+	var c := clampf(t, 0.0, 1.0)
+	return c * c * (3.0 - 2.0 * c)
+
+func _candidate_displacement_score(side: float) -> float:
+	var right := Vector2(cos(heading), sin(heading))
+	var min_enemy_clearance := 100000.0
+	var min_boundary_clearance := INF
+	for sample_t in [0.0, 0.5, 1.0]:
+		var p := global_position + right * side * DISPLACEMENT_ROLL_DISTANCE_PX * _active_special_ease(sample_t)
+		var edge := MapBoundary.distance_to_edge(p)
+		if edge < ACTIVE_SPECIAL_BOUNDARY_MARGIN_PX:
+			return -INF
+		min_boundary_clearance = minf(min_boundary_clearance, edge)
+		for unit in CombatUnit.all_units:
+			if not is_instance_valid(unit) or unit == self or unit.is_destroyed or not unit is Aircraft:
+				continue
+			if not is_hostile_to(unit):
+				continue
+			min_enemy_clearance = minf(min_enemy_clearance, p.distance_to(unit.global_position))
+	return min_enemy_clearance + 0.75 * min_boundary_clearance
+
+func _try_start_displacement_roll() -> bool:
+	if not displacement_roll_active or is_destroyed or _shared_maneuver_cooldown() > 0.0 \
+			or _any_r_maneuver_active() or (params and params.flight_model == AircraftParams.FlightModel.ROTORCRAFT):
+		return false
+	# 激活当帧唯一一次 O(N) 安全快照；平分固定选右。
+	var left_score := _candidate_displacement_score(-1.0)
+	var right_score := _candidate_displacement_score(1.0)
+	if is_inf(left_score) and left_score < 0.0 and is_inf(right_score) and right_score < 0.0:
+		show_tactic_popup(tr("POPUP_MANEUVER_BLOCKED"))
+		return false
+	_active_special_side = 1.0 if right_score >= left_score else -1.0
+	_active_special_lateral_axis = Vector2(cos(heading), sin(heading))
+	_active_special = ActiveSpecialManeuver.DISPLACEMENT_ROLL
+	_active_special_elapsed = 0.0
+	_active_special_prev_ease = 0.0
+	_active_special_heading_offset = 0.0
+	_active_special_roll_visual = 0.0
+	_active_special_pitch_visual = 0.0
+	if formation_mode:
+		clear_formation()
+	_start_shared_maneuver_cooldown(DISPLACEMENT_ROLL_COOLDOWN)
+	show_tactic_popup(tr("POPUP_DISPLACEMENT_ROLL"))
+	EventLogger.log_event("MANUAL_MANEUVER", _log_name(), "displacement_roll side=%+.0f" % _active_special_side)
+	return true
+
+func _try_start_vertical_break() -> bool:
+	if not vertical_break_active or is_destroyed or _shared_maneuver_cooldown() > 0.0 \
+			or _any_r_maneuver_active() or (params and params.flight_model == AircraftParams.FlightModel.ROTORCRAFT):
+		return false
+	var climb := get_altitude_tier() == AltitudeTier.LOW
+	var hard_limit := params.max_altitude if climb and params else VERTICAL_BREAK_MIN_ALTITUDE_M
+	var available := (hard_limit - altitude) if climb else (altitude - VERTICAL_BREAK_MIN_ALTITUDE_M)
+	var distance := minf(VERTICAL_BREAK_DISTANCE_M, available)
+	if distance < VERTICAL_BREAK_MIN_DISTANCE_M:
+		show_tactic_popup(tr("POPUP_MANEUVER_BLOCKED"))
+		return false
+	_active_special = ActiveSpecialManeuver.VERTICAL_BREAK
+	_active_special_elapsed = 0.0
+	_active_special_prev_ease = 0.0
+	_active_special_start_altitude = altitude
+	_active_special_end_altitude = altitude + distance * (1.0 if climb else -1.0)
+	_active_special_start_speed = speed
+	_active_special_queued_altitude = INF
+	_active_special_last_target_altitude = altitude
+	target_altitude = altitude
+	vertical_speed = 0.0
+	_active_special_pitch_visual = 0.0
+	if formation_mode:
+		clear_formation()
+	_start_shared_maneuver_cooldown(VERTICAL_BREAK_COOLDOWN)
+	show_tactic_popup(tr("POPUP_VERTICAL_BREAK"))
+	EventLogger.log_event("MANUAL_MANEUVER", _log_name(), "vertical_break %.0f->%.0fm" % [altitude, _active_special_end_altitude])
+	return true
+
+func _finish_active_special_maneuver() -> void:
+	var finished := _active_special
+	if finished == ActiveSpecialManeuver.VERTICAL_BREAK:
+		altitude = _active_special_end_altitude
+		vertical_speed = 0.0
+		target_altitude = _active_special_queued_altitude if not is_inf(_active_special_queued_altitude) else altitude
+	_active_special = ActiveSpecialManeuver.NONE
+	_active_special_elapsed = 0.0
+	_active_special_prev_ease = 0.0
+	_active_special_heading_offset = 0.0
+	_active_special_roll_visual = 0.0
+	_active_special_pitch_visual = 0.0
+	_active_special_queued_altitude = INF
+	SkillHooks.on_special_maneuver_done(self)
+
+func _advance_active_special_maneuver(delta: float) -> void:
+	if not is_active_special_maneuver():
+		return
+	var duration := DISPLACEMENT_ROLL_DURATION if _active_special == ActiveSpecialManeuver.DISPLACEMENT_ROLL else VERTICAL_BREAK_DURATION
+	_active_special_elapsed = minf(_active_special_elapsed + delta, duration)
+	var t := _active_special_elapsed / duration
+	var eased := _active_special_ease(t)
+	var ease_delta := eased - _active_special_prev_ease
+	if _active_special == ActiveSpecialManeuver.DISPLACEMENT_ROLL:
+		global_position += _active_special_lateral_axis * _active_special_side * DISPLACEMENT_ROLL_DISTANCE_PX * ease_delta
+		_active_special_heading_offset = _active_special_side * DISPLACEMENT_ROLL_HEADING_PEAK * sin(PI * t)
+		_active_special_roll_visual = _active_special_side * TAU * t
+	else:
+		# 俯视 2.5D 俯仰投影：中段姿态最陡，首尾回到水平；方向由高度变化区分。
+		_active_special_pitch_visual = sin(PI * t)
+		# 识别动作中后来写入的高度命令；本帧仍由技能主张绝对高度，EXIT 后只恢复最后一条。
+		if absf(target_altitude - _active_special_last_target_altitude) > 1.0:
+			_active_special_queued_altitude = target_altitude
+		altitude = lerpf(_active_special_start_altitude, _active_special_end_altitude, eased)
+		vertical_speed = 0.0 # 禁止把虚拟爬升率再次交给 PE↔KE 反抽
+		var climb := _active_special_end_altitude > _active_special_start_altitude
+		var skill_speed_delta := _active_special_start_speed * ((0.82 if climb else 1.15) - 1.0) * ease_delta
+		speed += skill_speed_delta
+		var min_speed := AircraftPhysics.corner_speed_kmh(self) / 3.6
+		var max_speed := AircraftPhysics.effective_max_speed_kmh(self) / 3.6
+		speed = clampf(speed, min_speed, max_speed)
+		target_altitude = altitude
+		_active_special_last_target_altitude = target_altitude
+	_active_special_prev_ease = eased
+	if _active_special_elapsed >= duration:
+		_finish_active_special_maneuver()
+
+func _active_special_missile_threat(trigger_px: float) -> bool:
+	if missile_manager == null:
+		return false
+	var trigger_sq := trigger_px * trigger_px
+	for child in missile_manager.get_children():
+		if not child is Missile:
+			continue
+		var missile := child as Missile
+		if not missile.is_active or missile.is_flare_jammed or missile.target != self or not missile.has_guidance:
+			continue
+		if global_position.distance_squared_to(missile.global_position) <= trigger_sq:
+			return true
+	return false
+
+func _active_special_tail_threat() -> bool:
+	var my_fwd := Vector2(sin(heading), -cos(heading))
+	var my_vel := my_fwd * speed
+	for unit in CombatUnit.all_units:
+		if not is_instance_valid(unit) or unit == self or unit.is_destroyed or not unit is Aircraft or not is_hostile_to(unit):
+			continue
+		var enemy := unit as Aircraft
+		var rel := enemy.global_position - global_position
+		var dist := rel.length()
+		if dist <= 0.001 or dist > enemy._gun_range_px() * 1.5:
+			continue
+		if my_fwd.dot(rel / dist) > -0.3:
+			continue
+		var enemy_vel := Vector2(sin(enemy.heading), -cos(enemy.heading)) * enemy.speed
+		if -rel.dot(enemy_vel - my_vel) / dist > 0.0:
+			return true
+	return false
+
+func _update_active_special_maneuver(delta: float) -> void:
+	_tick_shared_maneuver_cooldown(delta)
+	if is_active_special_maneuver():
+		_advance_active_special_maneuver(delta)
+		return
+	if is_manual_maneuver_controlled() or (not vertical_break_active and not displacement_roll_active):
+		return
+	_active_special_auto_timer = maxf(_active_special_auto_timer - delta, 0.0)
+	if _active_special_auto_timer > 0.0 or _shared_maneuver_cooldown() > 0.0:
+		return
+	_active_special_auto_timer = ACTIVE_SPECIAL_AUTO_INTERVAL
+	var tail_threat := _active_special_tail_threat()
+	if vertical_break_active and (_active_special_missile_threat(VERTICAL_BREAK_MISSILE_TRIGGER_PX) or tail_threat):
+		if _try_start_vertical_break():
+			return
+	if displacement_roll_active and (_active_special_missile_threat(DISPLACEMENT_ROLL_MISSILE_TRIGGER_PX) or tail_threat):
+		_try_start_displacement_roll()
+
+## R 键统一机动入口：正常卡池保证五项主动机动互斥。
+## 固定优先级只处理旧档/debug 异常共存；失败时继续尝试下一项。
 func try_manual_maneuver() -> bool:
 	if is_destroyed:
 		return false
+	if _shared_maneuver_cooldown() > 0.0 or _any_r_maneuver_active():
+		return false
+	if _try_start_vertical_break():
+		return true
+	if _try_start_displacement_roll():
+		return true
 	var cobra: CobraManeuver = get_maneuver()
 	var herbst: HerbstManeuver = get_herbst()
 	if cobra_skill_active and _cobra_skill_cooldown <= 0.0 \
@@ -2089,11 +2375,13 @@ func try_manual_maneuver() -> bool:
 		cobra.is_used = false
 		if cobra.activate():
 			_cobra_skill_cooldown = COBRA_SKILL_COOLDOWN
+			_start_shared_maneuver_cooldown(COBRA_SKILL_COOLDOWN)
 			EventLogger.log_event("MANUAL_MANEUVER", _log_name(), "R -> cobra")
 			return true
 	if evasion_herbst_active and herbst != null and herbst.can_activate \
 			and (cobra == null or not cobra.is_active):
 		if herbst.activate(_herbst_pick_turn_direction()):
+			_start_shared_maneuver_cooldown(HerbstManeuver.COOLDOWN)
 			EventLogger.log_event("MANUAL_MANEUVER", _log_name(), "R -> J-Turn")
 			return true
 	return do_manual_dodge()
@@ -2101,9 +2389,11 @@ func try_manual_maneuver() -> bool:
 ## 胆大妄为动作：滚转动画 + 严格时机 i-frame + 有 flare 则同时投放。
 ## i-frame 用 no_refresh 短窗（0.25s）：必须掐在命中瞬间才躲得掉，按早了白按。
 func do_manual_dodge(manual_input: bool = true) -> bool:
-	if not manual_dodge_active or _manual_dodge_cd > 0.0 or is_destroyed:
+	if not manual_dodge_active or _manual_dodge_cd > 0.0 or is_destroyed \
+			or _shared_maneuver_cooldown() > 0.0 or _any_r_maneuver_active():
 		return false
 	_manual_dodge_cd = MANUAL_DODGE_CD
+	_start_shared_maneuver_cooldown(MANUAL_DODGE_CD)
 	_evade_roll_remaining = _EVADE_ROLL_DURATION   # 复用规避滚转动画（绘制叠加 bank）
 	apply_status(StatusEffects.INVINCIBLE, MANUAL_DODGE_IFRAME, "no_refresh")
 	if flares_remaining > 0 and missile_manager != null:
@@ -2577,6 +2867,8 @@ func take_damage_at(amount: float, hit_pos: Vector2) -> void:
 func take_damage(amount: float, attacker: Node = null, kind: String = "") -> void:
 	if is_destroyed:
 		return
+	if not can_accept_new_hit(kind if kind != "" else "missile"):
+		return
 	if invulnerable:
 		return
 	# Mother Goose / 类似挂点 BOSS：弱点暴露后玩家直锁主体的伤害也要走 router
@@ -2615,6 +2907,8 @@ func take_damage(amount: float, attacker: Node = null, kind: String = "") -> voi
 const MAX_BULLET_DODGE_CAP: float = 0.85
 func take_bullet_damage(amount: float, attacker: Node = null) -> bool:
 	if is_destroyed:
+		return false
+	if not can_accept_new_hit("gun"):
 		return false
 	if invulnerable:
 		return false
@@ -2902,6 +3196,11 @@ func _check_ground_crash() -> void:
 
 ## 坠毁系统委托给 AircraftDestruction（aircraft_destruction.gd）
 func _start_destroy() -> void:
+	# 合法死亡优先于主动机动；幂等清掉命中窗和表现偏移，不触发“完成机动”技能钩子。
+	_active_special = ActiveSpecialManeuver.NONE
+	_active_special_heading_offset = 0.0
+	_active_special_roll_visual = 0.0
+	_active_special_pitch_visual = 0.0
 	# 清空全局玩家引用，防止 AircraftRenderer 后续帧把 freed 实例赋给类型化变量崩溃
 	# （`var pref: Aircraft = player_ref` 在 player_ref 已 free 时抛 "previously freed"）
 	if AircraftRenderer.player_ref == self:
@@ -3132,7 +3431,7 @@ func get_flare_cooldown_ratio() -> float:
 
 
 func _update_visuals() -> void:
-	rotation = heading
+	rotation = heading + _active_special_heading_offset
 
 
 ## 敌方对玩家提交机炮攻击时累计计时；持续 ≥0.3s 显示机炮锥威胁提示。

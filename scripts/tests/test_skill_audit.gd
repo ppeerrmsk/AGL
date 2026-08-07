@@ -1,6 +1,6 @@
 extends RefCounted
 
-## 全量技能审计：152 条逐项验证“配置 → apply/运行时消费点 → 玩家文案”。
+## 全量技能审计：158 条逐项验证“配置 → apply/运行时消费点 → 玩家文案”。
 ##
 ## 直接数值/字段技能会真的应用到一架挂满可选装备的最小测试机，并比较应用前后快照；
 ## skill_flag 事件技能验证正式运行时消费点，避免“表里有、游戏里没人读”的假技能。
@@ -44,7 +44,7 @@ func run() -> void:
 	var seen: Dictionary = {}
 	for upgrade in SurvivorData.UPGRADES:
 		_audit_one(upgrade, translations, apply_source, consumer_source, mode_source, seen)
-	_check("全表数量 = 152", SurvivorData.UPGRADES.size() == 152,
+	_check("全表数量 = 162", SurvivorData.UPGRADES.size() == 162,
 		"got %d" % SurvivorData.UPGRADES.size())
 	_check("技能 ID 无重复", seen.size() == SurvivorData.UPGRADES.size(),
 		"unique=%d total=%d" % [seen.size(), SurvivorData.UPGRADES.size()])
@@ -250,6 +250,37 @@ func _test_regression_contracts(mode_source: String) -> void:
 		is_equal_approx(AfterburnerCharge.SIG_SU34_HEAL_PER_SEC, 2.0), "")
 	_check("引渡人保持基线 = 5s 隐身",
 		is_equal_approx(SkillHooks.SIG_X77_STEALTH_DURATION, 5.0), "")
+	_check("词条终端技能六条均已入表",
+		["storm_i", "storm_ii", "ratatat", "mental_confusion", "hush", "stasis"].all(
+			func(uid): return not SurvivorData.upgrade_by_id(uid).is_empty()), "")
+	var affinity := SurvivorData.compute_status_build_affinity({"storm_i": 2})
+	_check("超载亲和正确累计两层",
+		int(affinity.get("overload", 0)) == 2 \
+		and SurvivorData.primary_status_build_tag(affinity) == "overload", str(affinity))
+	_check("软专注公式：同词条 ×2.5、异词条 ×0.7",
+		is_equal_approx(SurvivorData.status_focus_multiplier(
+			SurvivorData.upgrade_by_id("storm_ii"), "overload", 4), 2.5) \
+		and is_equal_approx(SurvivorData.status_focus_multiplier(
+			SurvivorData.upgrade_by_id("ratatat"), "overload", 2), 0.7), "")
+	_check("终端债务：首轮 ×2、次轮 ×4、第三轮进入保证",
+		is_equal_approx(SurvivorData.terminal_debt_weight(0), 2.0) \
+		and is_equal_approx(SurvivorData.terminal_debt_weight(1), 4.0) \
+		and SurvivorData.TERMINAL_GUARANTEE_MISSES == 2, "")
+	var terminal_pool: Array = [
+		SurvivorData.upgrade_by_id("storm_ii"),
+		SurvivorData.upgrade_by_id("overload_duration_4x"),
+	]
+	var terminal_miss: int = 0
+	for _i in 100000:
+		if SurvivorData.pick_terminal_for_tag(
+				terminal_pool, "overload", {}, 12, 1.0).is_empty():
+			terminal_miss += 1
+	_check("100000 次第三事件强制：合法终端出示率 100%", terminal_miss == 0,
+		"miss=%d" % terminal_miss)
+	_check("嗜血基础与哒哒哒数值冻结",
+		is_equal_approx(SkillHooks.RATATAT_RANGE_BONUS_M, 500.0) \
+		and is_equal_approx(SkillHooks.RATATAT_INTERVAL_MULT, 0.70) \
+		and is_equal_approx(SkillHooks.RATATAT_CONE_BONUS_DEG, 8.0), "")
 
 
 func _test_debug_surface_coverage() -> void:

@@ -36,6 +36,8 @@ const WINGMAN_ENGAGE_DELAY_MAX: float = 1.5
 
 var leader: Aircraft = null
 var members: Array[Aircraft] = []
+## R 主动机动共享冷却：跟随 Squad 实例而不是飞机，切换操控机不能绕过。
+var active_maneuver_cooldown_s: float = 0.0
 ## 可选的确定性继任链；为空时沿用 ACE/敌队的最高击坠数继任。
 ## ADBS 护卫用它保证首架运输机阵亡后继续跟下一架，而不是让已有战果的护卫夺取长机位。
 var leader_successors: Array[Aircraft] = []

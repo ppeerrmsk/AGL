@@ -14,7 +14,7 @@
 
 | 你想知道的 | 去哪 |
 |---|---|
-| 某技能的数值 / 层数 / 稀有度 / 归属 / 轴 / +1 进度 | [skill-table.md](skill-table.md)（自动生成，152 条，`python tools/dump_skill_table.py` 重刷） |
+| 某技能的数值 / 层数 / 稀有度 / 归属 / 轴 / +1 进度 | [skill-table.md](skill-table.md)（自动生成，160 条，`python tools/dump_skill_table.py` 重刷） |
 | 某技能的**效果代码在哪** | 本文 **§4**（先在 skill-table 查到它的 stat / id，再来查消费点） |
 | UPGRADES 条目某字段什么意思 | 本文 **§1** |
 | 技能从抽卡到生效的整条链路 | 本文 **§2** |
@@ -36,8 +36,10 @@
 | `value` / `max_stacks` | 必 | 单层量 / 可堆层数（×1=开关型）。比例、绝对、开关三种口径见 skill-table 效果列 | apply 分支 |
 | `category` | 必 | 旧分类（survival/mobility/electronic_warfare/missile/secondary/weapon）。现存两个作用：①无显式 `axis` 时经 `AXIS_BY_CATEGORY` 兜底归轴 ②`category=="weapon"` 的技能**换机重放跳过**（效果长在武器资源上随武器库迁移）③电子战词条联动 `CATEGORY_BONUSES` 按它计数 | `axis_of_upgrade` / `_replay_player_upgrades` / `recompute_category_bonuses` |
 | `axis` | 选 | 显式轴归属（`gladiator/knight/schemer`），优先级最高（> `AXIS_OVERRIDE_BY_ID` > category 兜底）。决定进哪张三选一轴卡 | `SurvivorData.axis_of_upgrade` |
-| `rarity` | 选 | 五档 `Rarity` 枚举（稳定/先进/实验/机密/次世代），基础权重 0.50/0.25/0.15/0.08/0.02；自然三轴三卡的 4 级金卡走软 pity：连续未出 `m` 次时 `CLASSIFIED` 候选权重 ×`(1+2m)`，普通三卡见金清零（专属第四槽/奖励升级隔离） | `classified_pity_weight_multiplier` / `classified_pity_next_misses` / `pick_card_for_axis` / `_roll_axis_cards` |
-| `keywords` | 选 | ①流派引导：已持有同关键词技能越多，同词新卡权重越高（+20%/stack，cap +100%）②**doctrine 门控**：6 词（fear/overload/bloodlust/chivalry/jam/stealth）需在生涯商店购入对应学说才进池（AND 语义；`sig_*` 豁免；spec doctrine-unlocks）③**升级卡状态脚注**：写了 `overload/bloodlust/stealth/fear/jam/slow` 的技能，卡片下方自动多一行"这个词条本身干什么" | `compute_keyword_steering_weights` / `MetaShop.is_upgrade_gated` / `SurvivorData.status_notes_of` |
+| `rarity` | 选 | 五档 `Rarity` 枚举（稳定/先进/实验/机密/次世代），基础权重 0.50/0.25/0.15/0.08/0.02；自然三轴三卡的 4 级金卡走软 pity：连续未出 `m` 次时 `CLASSIFIED` 候选权重 ×`(1+3.5m)`，普通三卡见金清零（专属第四槽/奖励升级隔离） | `classified_pity_weight_multiplier` / `classified_pity_next_misses` / `pick_card_for_axis` / `_roll_axis_cards` |
+| `keywords` | 选 | ①流派引导：已持有同关键词技能越多，同词新卡权重越高（+20%/stack，cap +100%）②**doctrine 门控**：6 词（fear/overload/bloodlust/chivalry/jam/stealth）需在生涯商店购入对应学说才进池（AND 语义；`sig_*` 豁免；spec doctrine-unlocks）③**升级卡状态脚注**：写了 `overload/bloodlust/stealth/fear/jam/slow` 的技能默认自动显示词条解释；主题标签或语义例外由 `STATUS_NOTE_OVERRIDE` 替换/压掉 | `compute_keyword_steering_weights` / `MetaShop.is_upgrade_gated` / `SurvivorData.status_notes_of` |
+| `build_tags` / `build_role` / `terminal_for` | 选 | 状态构筑亲和、审计角色、终端归属；缺 `build_tags` 时从四个受支持状态 keyword 推导。软专注与终端债务只改变候选权重/槽位，不绕过任何 eligibility 门 | `compute_status_build_affinity` / `status_focus_multiplier` / `select_terminal_service_tag` |
+| `doctrine_any` | 选 | 跨词条终端的学说 OR 组；组内任一学说已购即可通过该组，组外 gated keyword 仍保持 AND | `MetaShop.is_upgrade_gated` |
 | `requires` | 选 | 硬件门（`gun/missile/flare/rocket/railgun/laser`…走 `has_equipment_of_kind`），缺硬件不进池 | `is_upgrade_available_for` |
 | `requires_skill` | 选 | 前置技能（列表内**任一** stacks>0 即解锁） | 同上 |
 | `exclusive_to` | 选 | **机型门**：仅当前 ACE 机型（`_player_profile_id`）在列表内才刷出。⚠ 只管**抽卡**，已获得的换机重放**不查**（=签名技能"跟人走"的机制基础） | 同上 |
@@ -147,7 +149,7 @@ is_upgrade_available_for → pick_card_for_axis →  upgrade_stacks[id]+=1
 
 ---
 
-## 4. 全 stat 消费点速查（152 条全覆盖）
+## 4. 全 stat 消费点速查（158 条全覆盖）
 
 > 用法：skill-table 查到技能的 id → 在 4.1 按 stat（专用 stat 名≈id）或 4.2 按 id 找行。
 > 消费点 = "效果真正发生"的文件+函数/字段。`survivor_player.gd apply_upgrade` 是所有条目的公共 apply 处，不重复写。
@@ -195,10 +197,10 @@ is_upgrade_available_for → pick_card_for_axis →  upgrade_stacks[id]+=1
 
 **状态/buff 系**（`status_effects.gd` + `skill_hooks.gd` + `aircraft.apply_status` 覆写）
 
-> ⚠ 新加"会施加状态词条"的技能：卡片脚注走 `SurvivorData.status_notes_of`。
-> keywords 里写了状态名就自动带上；**只有两种情况要手动登记**——
+> ⚠ 新加"涉及真实状态词条"的技能：卡片脚注走 `SurvivorData.status_notes_of`。
+> keywords 里写了状态名默认自动带上；**只有两种情况要手动登记**——
 > ① 施加状态但关键词里没写（INVINCIBLE 没有对应关键词，全走 `STATUS_NOTE_EXTRA`）；
-> ② 关键词与实际状态不符（`STATUS_NOTE_OVERRIDE`，如 sig_mig41）。
+> ② 关键词与实际状态语义不符（`STATUS_NOTE_OVERRIDE` 整条替换；空数组可压掉只用于流派/主题的状态词，如 `vapor_dodge`）。
 > 文案 = `StatusEffects.NOTE_I18N_KEY`；回归门 `--bench=status_notes`。
 
 | stat | M | 消费点 |
@@ -217,8 +219,8 @@ is_upgrade_available_for → pick_card_for_axis →  upgrade_stacks[id]+=1
 |---|---|---|
 | flare_shield | M2 | `flare_lock_immunity` → flares release 清锁+豁免窗；bonus_flares 直改 params |
 | low_hp_flare_reload | M2 | flares 低血装填加速段 |
-| manual_dodge | M5 | 全队下发；`aircraft.try_manual_maneuver → do_manual_dodge`（受控机 R）/ `_update_manual_dodge_skill`（AI 威胁自动）+ flares 禁普通自动早退；与 cobra/herbst 三向互斥 |
-| cobra_skill / evasion_herbst / manual_dodge | M2 | 当前操控机：`aircraft.try_manual_maneuver` 由 R 统一触发；AI 僚机：`_update_cobra_skill / _update_evasion_herbst_skill` 按威胁自动触发；三技能 `excludes` 三向互斥 |
+| manual_dodge | M5 | 全队下发；`aircraft.try_manual_maneuver → do_manual_dodge`（受控机 R）/ `_update_manual_dodge_skill`（AI 威胁自动）+ flares 禁普通自动早退；占用五选一主动机动槽 |
+| cobra_skill / evasion_herbst / manual_dodge / displacement_roll / vertical_break | M2 | 当前操控机由 `aircraft.try_manual_maneuver` 响应 R；AI 僚机按技能各自威胁距离自动触发；五项 `excludes` 双向互斥，冷却写 `Squad.active_maneuver_cooldown_s`；新两项轨迹与命中资格走 `aircraft._update_active_special_maneuver / can_accept_new_hit` |
 | evasion_overstock | M2 | `aircraft` evasion 期间周期装填 tick |
 | sig_mirage3（skill_flag，见 4.2） | — | flares 保护窗 ×1.6 + 偏转瞬间无敌（release 722 段） |
 
@@ -240,7 +242,7 @@ is_upgrade_available_for → pick_card_for_axis →  upgrade_stacks[id]+=1
 
 **特殊武器/装备（M8 全组）**：railgun_charge/range/double → `equipment/railgun_equipment.gd`；laser_cooldown/range/heat/extra_beams → `equipment/laser_equipment.gd`；torpedo_extra/tracking_boost → torpedo params；qmaam_boost → secondary_missile params；wingman_extra/armed → loyal_wingman params（消费 `aircraft_weapons.update_loyal_wingman`）；sig_wyvern → M7 dispatch + railgun 参数。
 
-### 4.2 skill_flag 64 条（apply 无操作，按消费点分组）
+### 4.2 skill_flag 70 条（apply 无操作，按消费点分组）
 
 **SkillHooks 击杀/受击/状态钩子**（`survivor/skill_hooks.gd`，入口 `dispatch_on_kill` / `dispatch_on_hit` / `on_player_jam_landed` / `on_evade_missile` / `on_flare_release`）：
 skill_kill_bloodlust · skill_damaged_bloodlust · skill_head_on_perma_hp · skill_head_on_aoe_fear ·
@@ -250,6 +252,9 @@ skill_torpedo_aoe_jam · skill_rocket_homing · skill_evade_missile_overload · 
 overload_duration_4x（`aircraft.apply_status` 覆写乘区）· overload_extended_ammo · overload_to_bloodlust ·
 bloodlust_armor_mobility（physics `_g_buff_mult`+accel / `_apply_armor` DR）· full_hp_kill_perma_hp ·
 jam_self_overload · invasion_algorithm（JAM→MQ-109～112 坠毁）· flee（新 FEAR→普通载人机撤退）·
+stasis（导弹直伤→2km SLOW）· mental_confusion（新 FEAR→浪费 flare/导弹）·
+ratatat（BLOODLUST 中机炮有效射程/锥/间隔）· storm_i / storm_ii（AfterburnerCharge 实耗/免费充放）·
+hush（JAM 敌机禁 flare + 导弹失导；队级静态位）·
 adapt_energy（AB 回能/回血）· qmaam_bloodlust（`missile_manager` kind 归因）
 
 **survivor_mode 事件段**：squad_revenge / assassin_revenge / blackbox_recovery（`_on_squad_member_down` 僚机阵亡 watcher）· levelup_heal（`leveled_up`）· ground_crew（停靠减半 `dock_point` + 起飞奖励卡）· ab_kill_charge / ab_duration（充能账本同步段）· headon_xp（`survivor_spawner` XP 段）

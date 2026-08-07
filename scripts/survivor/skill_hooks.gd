@@ -37,6 +37,12 @@ const SKILL_FULL_HP_KILL_PERMA_HP := "full_hp_kill_perma_hp"
 const SKILL_JAM_SELF_OVERLOAD := "jam_self_overload"
 const SKILL_INVASION_ALGORITHM := "invasion_algorithm"
 const SKILL_FLEE := "flee"
+const SKILL_STORM_I := "storm_i"
+const SKILL_STORM_II := "storm_ii"
+const SKILL_RATATAT := "ratatat"
+const SKILL_MENTAL_CONFUSION := "mental_confusion"
+const SKILL_HUSH := "hush"
+const SKILL_STASIS := "stasis"
 const SKILL_EVASION_HERBST := "evasion_herbst"   ## evasion 模式被攻击启动 J-Turn（与 UPGRADES id 对齐）
 ## ── A-10 实验武器技能（火箭弹 / 漂浮雷专属） ──
 const SKILL_TORPEDO_AOE_JAM := "skill_torpedo_aoe_jam"     ## 漂浮雷引爆后范围干扰
@@ -52,6 +58,8 @@ static var sig_fcas_active: bool = false
 static var sig_f35_active: bool = false
 ## 鲸群（X-90 sig_x90，同上账本位）：血量共享光环
 static var sig_x90_active: bool = false
+## 嘘！（squad_once）：JAM 敌机不能放热诱弹，其已发/新发导弹立即失去制导。
+static var hush_active: bool = false
 
 ## 722 sig_x90·鲸群：血量共享——1500m（750px）内玩家方友军均摊承伤。
 ## 其他成员经 _apply_damage 直伤（relay meta 防递归；均摊份额不再二次均摊）。
@@ -160,8 +168,19 @@ const GUN_KILL_FLARE_DROP_JAM_RADIUS_PX := 700.0
 const GUN_KILL_FLARE_DROP_JAM_DURATION := 4.0
 const MISSILE_HIT_AOE_JAM_RADIUS_PX := 1000.0  ## 2km（720 批定稿；旧 desc 800px 与旧值 1200 皆废）
 const MISSILE_HIT_AOE_JAM_DURATION := 5.0
-const GUN_KILL_FEAR_RADIUS_PX := 1200.0
-const GUN_KILL_FEAR_DURATION := 5.0
+const GUN_KILL_FEAR_RADIUS_PX := 1000.0
+const GUN_KILL_FEAR_DURATION := 6.0
+const RATATAT_RANGE_BONUS_M := 500.0
+const RATATAT_INTERVAL_MULT := 0.70
+const RATATAT_CONE_BONUS_DEG := 8.0
+const STORM_I_CHARGE_SPENT := 3.0
+const STORM_I_OVERLOAD_DURATION := 8.0
+const STORM_II_RECHARGE_MULT := 4.0
+const STASIS_RADIUS_PX := 1000.0
+const STASIS_DURATION := 4.0
+const CONFUSION_NORMAL_CHANCE := 0.50
+const CONFUSION_ACE_CHANCE := 0.25
+const CONFUSION_BOSS_CHANCE := 0.10
 ## 漂浮雷 AOE 干扰：引爆时除了正常 AOE，再向外发射一圈 JAM
 const TORPEDO_AOE_JAM_RADIUS_PX := 800.0
 const TORPEDO_AOE_JAM_DURATION := 5.0
@@ -183,6 +202,8 @@ const ROCKET_HOMING_RETARGET_INTERVAL := 0.4
 const SKILL_QMAAM_BLOODLUST := "qmaam_bloodlust"
 const QMAAM_BLOODLUST_DURATION := 10.0      ## 格斗弹击杀 → 嗜血 10s
 const SIG_X77_STEALTH_DURATION := 5.0       ## 引渡人：导弹击杀隐身
+const SIG_FAXX_STEALTH_DURATION := 5.0      ## 穿透打击：本机机炮击杀隐身
+const SIG_FAXX_COOLDOWN := 20.0
 const SKILL_ADAPT_ENERGY := "adapt_energy"
 const ADAPT_ENERGY_CHARGE := 0.6            ## 击杀低于自己高度的敌人 → 加力充能 +0.6s（6s 池比例，随 CHARGE_MAX 缩放）
 const ADAPT_ENERGY_HEAL := 20.0             ## 击杀高于自己高度的敌人 → 回 20 HP
@@ -238,6 +259,13 @@ static func dispatch_on_kill(killer: Aircraft, victim: Aircraft) -> void:
 	if (kind == "missile" or kind == "qmaam") and stacks.get("sig_x77", 0) > 0:
 		killer.apply_status(StatusEffects.STEALTH, SIG_X77_STEALTH_DURATION)
 		EventLogger.log_event("SKILL", killer._log_name(), "引渡人：导弹击杀 → 5s 隐身")
+
+	# ── EA v15 sig_faxx·穿透打击：仅当前 ACE 本机的机炮击杀触发，逐机 20s CD ──
+	if kind == "gun" and stacks.get("sig_faxx", 0) > 0 \
+			and killer == AircraftRenderer.player_ref and killer._sig_faxx_cd <= 0.0:
+		killer._sig_faxx_cd = SIG_FAXX_COOLDOWN
+		killer.apply_status(StatusEffects.STEALTH, SIG_FAXX_STEALTH_DURATION)
+		EventLogger.log_event("SKILL", killer._log_name(), "穿透打击：机炮击杀 → 5s 隐身")
 
 	# 注：击杀小队成员 FEAR 由 fear_squad_spread 走 survivor_spawner._trigger_squad_fear 触发
 	# （已删除原 skill_kill_squad_fear 冗余路径，避免双发）
@@ -349,7 +377,7 @@ static func in_free_missile_window(ac: Aircraft) -> bool:
 ##   attacker: Node（射手，可能为 null）
 ##   kind: String（damage_kind）
 ##   amount: float（实际伤害）
-static func dispatch_on_hit(victim: Aircraft, attacker: Node, kind: String, _amount: float) -> void:
+static func dispatch_on_hit(victim: Aircraft, attacker: Node, kind: String, amount: float) -> void:
 	if victim == null or not is_instance_valid(victim):
 		return
 	# 仅玩家小队触发"我方受击"型技能
@@ -374,6 +402,12 @@ static func dispatch_on_hit(victim: Aircraft, attacker: Node, kind: String, _amo
 			victim.global_position, MISSILE_HIT_AOE_JAM_RADIUS_PX,
 			CombatUnit.TEAM_HOSTILE, StatusEffects.JAM, MISSILE_HIT_AOE_JAM_DURATION, victim)
 		on_player_jam_landed(victim, hj_hits)
+
+	# 凝滞：仅实际导弹直击伤害触发；AOE、闪避、无敌与零伤害均不进入这里。
+	if kind == "missile" and amount > 0.0 and int(stacks.get(SKILL_STASIS, 0)) > 0:
+		AOEBroadcast.apply_status_in_radius(
+			victim.global_position, STASIS_RADIUS_PX, CombatUnit.TEAM_HOSTILE,
+			StatusEffects.SLOW, STASIS_DURATION, victim)
 
 	# 注：危机赫尔贝特（evasion_herbst）改为预测式触发，逻辑迁移到 aircraft.gd._update_evasion_herbst_skill
 	# 触发条件与眼镜蛇等价（导弹命中前 / 后方机炮追尾），on_hit 事后触发已废弃 —— 不在这里触发。
@@ -436,6 +470,24 @@ static func on_player_jam_landed(player: Aircraft, hit_count: int) -> void:
 			u.take_damage(maxf(u.hp + 1000000.0, 1000000.0), player, "jam_execute")
 			EventLogger.log_event("SKILL", player._log_name(),
 				"入侵算法：%s JAM 后失控坠毁" % u._log_name())
+	if hush_active and player.missile_manager:
+		var jammed_missiles: int = 0
+		for child in player.missile_manager.get_children():
+			if not (child is Missile):
+				continue
+			var missile := child as Missile
+			if not missile.is_active or missile.is_flare_jammed:
+				continue
+			var source = missile.source
+			if source == null or not is_instance_valid(source) or not (source is Aircraft):
+				continue
+			var source_ac := source as Aircraft
+			if player.is_hostile_to(source_ac) and source_ac.status_jam_active:
+				missile.is_flare_jammed = true
+				jammed_missiles += 1
+		if jammed_missiles > 0:
+			EventLogger.log_event("SKILL", player._log_name(),
+				"嘘！：%d 枚 JAM 发射源导弹失去制导" % jammed_missiles)
 
 
 ## 玩家 FEAR 首次落地：40% 令普通载人敌机物理撤离；UAV / ACE / BOSS / BOSS 生成物豁免。
@@ -445,7 +497,10 @@ static func on_player_fear_landed(player: Aircraft, target: Aircraft) -> void:
 		return
 	if target.is_destroyed or not player.is_hostile_to(target):
 		return
-	if int(_get_upgrade_stacks(player).get(SKILL_FLEE, 0)) <= 0:
+	var stacks: Dictionary = _get_upgrade_stacks(player)
+	if int(stacks.get(SKILL_MENTAL_CONFUSION, 0)) > 0:
+		_try_mental_confusion(player, target)
+	if int(stacks.get(SKILL_FLEE, 0)) <= 0:
 		return
 	if target.no_pilot or AceTier.is_ace(target) or bool(target.get_meta("no_kill_reward", false)):
 		return
@@ -483,6 +538,49 @@ static func on_player_fear_landed(player: Aircraft, target: Aircraft) -> void:
 		if spawner != null and is_instance_valid(spawner) and spawner.has_method("grant_flee_neutralization_xp"):
 			spawner.grant_flee_neutralization_xp(target)
 	EventLogger.log_event("SKILL", player._log_name(), "逃离：%s 恐惧失控，撤出战场" % target._log_name())
+
+
+## 精神错乱：FEAR 上升沿至多浪费一个可用动作。BOSS 概率优先于 ACE 判定。
+static func _try_mental_confusion(player: Aircraft, target: Aircraft) -> void:
+	var category: String = str(target.get_meta("category", ""))
+	var chance: float = CONFUSION_BOSS_CHANCE if category.contains("boss") \
+		else (CONFUSION_ACE_CHANCE if AceTier.is_ace(target) else CONFUSION_NORMAL_CHANCE)
+	if randf() >= chance:
+		return
+	var flare_ok: bool = target.params != null and target.params.flare != null \
+		and target.flares_remaining > 0 and target._flare_cooldown <= 0.0 \
+		and not hush_blocks_flare(target)
+	var missile_ok: bool = target.params != null and target.params.missile != null \
+		and target.missile_manager != null and target.missiles_remaining > 0 \
+		and player != null and is_instance_valid(player) and not player.is_destroyed
+	if not flare_ok and not missile_ok:
+		return
+	var waste_flare: bool = flare_ok and (not missile_ok or randf() < 0.5)
+	if waste_flare:
+		AircraftFlares.release(target)
+		EventLogger.log_event("SKILL", player._log_name(),
+			"精神错乱：%s 浪费 1 次热诱弹" % target._log_name())
+		return
+	var wasted: Missile = target.missile_manager.spawn_missile(target, player, target.params.missile)
+	if wasted != null:
+		wasted.is_flare_jammed = true
+	target.missiles_remaining = maxi(target.missiles_remaining - 1, 0)
+	if target.enable_missile_reload and target.missiles_remaining <= 0:
+		target._missile_reload_active = true
+		target._missile_reload_timer = 0.0
+		target.missile_reload_progress = 0.0
+	EventLogger.log_event("SKILL", player._log_name(),
+		"精神错乱：%s 误射 1 枚立即失导的导弹" % target._log_name())
+
+
+static func hush_blocks_flare(ac: Aircraft) -> bool:
+	return hush_active and ac != null and is_instance_valid(ac) \
+		and ac.team == CombatUnit.TEAM_HOSTILE and ac.status_jam_active
+
+
+static func has_skill(ac: Aircraft, skill_id: String) -> bool:
+	return ac != null and is_instance_valid(ac) \
+		and int(_get_upgrade_stacks(ac).get(skill_id, 0)) > 0
 
 
 ## ── 内部：刷新某状态的剩余时间到当初施加的 initial duration ──

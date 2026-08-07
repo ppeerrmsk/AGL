@@ -221,6 +221,8 @@ func _apply_laser_effect(ac, target, damage: float, damage_skill_active: bool) -
 		return
 	# Aircraft：默认 SLOW；技能解锁时额外加 DPS 伤害
 	if target is Aircraft:
+		if not target.can_accept_new_hit("laser"):
+			return
 		# 飞机被光束扫到 → 短暂 SLOW（每帧刷新；脱离 0.4s 自动消失）
 		target.apply_status(StatusEffects.SLOW, SkillHooks.LASER_SLOW_REFRESH_DURATION)
 		# 允许激光把目标压过普通 105% 安全地板；真正失速/掉高仍由统一飞行物理结算。

@@ -128,7 +128,7 @@ static func _refresh_committed_gun_aim(ac: Aircraft, gun: GunParams) -> bool:
 	if target is GroundUnit and target.is_lock_immune():
 		return false
 	var dist_px: float = ac.global_position.distance_to(target.global_position)
-	if dist_px < 10.0 or dist_px > gun.max_range * CombatUnit.PIXELS_PER_METER:
+	if dist_px < 10.0 or dist_px > ac.effective_gun_range_m() * CombatUnit.PIXELS_PER_METER:
 		return false
 	if target is Aircraft and not ac.flat_altitude \
 			and absf(ac.altitude - target.altitude) > 500.0:
@@ -204,8 +204,8 @@ static func auto_gun_scan(ac: Aircraft) -> void:
 		return
 
 	var gun: GunParams = ac.params.gun
-	var range_px := gun.max_range * CombatUnit.PIXELS_PER_METER
-	var fire_cone := deg_to_rad(gun.fire_cone_half_angle)
+	var range_px := ac.effective_gun_range_m() * CombatUnit.PIXELS_PER_METER
+	var fire_cone := deg_to_rad(ac.effective_gun_cone_half_angle_deg())
 	var bullet_speed_px := gun.muzzle_velocity * CombatUnit.PIXELS_PER_METER
 	var my_pos := ac.global_position
 	var my_fwd := Vector2(sin(ac.heading), -cos(ac.heading))
@@ -401,7 +401,7 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 	if ac._fire_cooldown > 0.0:
 		return
 
-	var base_interval: float = 60.0 / maxf(gun.fire_rate, 1.0)
+	var base_interval: float = ac.effective_gun_fire_interval(60.0 / maxf(gun.fire_rate, 1.0))
 	var intra: float = maxf(base_interval * GUN_BURST_DUTY, GUN_BURST_MIN_INTRA)
 
 	# 梭起始：装填弹数 + 摇一次梭级瞄准误差（仅玩家，skill=0 → ±5° / skill=1 → ±0.5°）
@@ -472,7 +472,7 @@ static func _log_burst_start(ac: Aircraft, gun: GunParams) -> void:
 	var nearest_m: int = int(nearest_px / CombatUnit.PIXELS_PER_METER) if nearest_px != INF else -1
 	EventLogger.log_event("GUN_BURST", ac._log_name(),
 		"tgt=%s lead_vs_nose=%+d° nearest_enemy=%dm gun_range=%dm ammo=%d" % [
-			tgt_name, lead_off_deg, nearest_m, int(gun.max_range), ac.ammo])
+			tgt_name, lead_off_deg, nearest_m, int(ac.effective_gun_range_m()), ac.ammo])
 
 ## 单发出弹：散布/云雾/机动惩罚/多管齐射/音效/弹药，从旧 update_gun 原样抽出
 static func _fire_gun_round(ac: Aircraft, gun: GunParams) -> void:
@@ -523,7 +523,7 @@ static func _fire_gun_round(ac: Aircraft, gun: GunParams) -> void:
 			ac._sfx_gun_cd = 0.5
 			var gun_sfx := "gun_long" if ac.gun_extra_barrels >= 2 else "gun_fire"
 			AudioManager.play_sfx_2d(gun_sfx, muzzle_pos, 7.0)
-	if not ac.infinite_ammo:
+	if not ac.infinite_ammo and not ac.bloodlust_gun_ammo_free():
 		ac.ammo -= 2 if ac.gun_extra_barrels >= 2 else 1
 		ac.ammo = maxi(ac.ammo, 0)
 	# 弹药耗尽 → 进入装填 CD（生存模式）；备用弹仓概率回满则跳过（720 批）
@@ -604,8 +604,9 @@ static func update_ciws(ac: Aircraft, delta: float) -> void:
 					best_missile.name,
 					int(rad_to_deg(ac._angle_diff(fire_heading, ac.heading))),
 					int(best_dist / CombatUnit.PIXELS_PER_METER)])
-	ac.ammo -= 1
-	ac.ammo = maxi(ac.ammo, 0)
+	if not ac.infinite_ammo and not ac.bloodlust_gun_ammo_free():
+		ac.ammo -= 1
+		ac.ammo = maxi(ac.ammo, 0)
 	if ac.enable_gun_reload and ac.ammo <= 0 and not ac._gun_reload_active:
 		if not SkillHooks.try_gun_reserve_mag(ac):
 			ac._gun_reload_active = true

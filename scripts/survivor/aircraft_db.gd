@@ -6,8 +6,8 @@ extends RefCounted
 ## 将来 UgcLoader 只需调 register() 注入 user:// 内容，进化/生成代码零改动。
 
 ## id → 档案资源路径（官方内容内置表；UGC 运行时经 register() 追加）
-## 41 机全谱（spec player-aircraft-power-curve §2 v7）：老 13 机保留原路径（base_params 已重指向
-## resources/player/），新 28 机 profile 与 params 同住 resources/player/
+## 43 机全谱（spec player-aircraft-power-curve §2 v15）：老机保留原路径（base_params 已重指向
+## resources/player/），扩谱机 profile 与 params 同住 resources/player/
 static var _paths: Dictionary = {
 	&"f15": "res://resources/playable_f15.tres",
 	&"f16": "res://resources/playable_f16.tres",
@@ -30,6 +30,7 @@ static var _paths: Dictionary = {
 	&"f15c": "res://resources/player/playable_f15c.tres",
 	&"f15e": "res://resources/player/playable_f15e.tres",
 	&"fa18e": "res://resources/player/playable_fa18e.tres",
+	&"ea18g": "res://resources/player/playable_ea18g.tres",
 	&"gripen_c": "res://resources/player/playable_gripen_c.tres",
 	&"su27": "res://resources/player/playable_su27.tres",
 	&"rafale": "res://resources/player/playable_rafale.tres",
@@ -46,6 +47,7 @@ static var _paths: Dictionary = {
 	&"yf23": "res://resources/player/playable_yf23.tres",
 	&"f47": "res://resources/player/playable_f47.tres",
 	&"mig41": "res://resources/player/playable_mig41.tres",
+	&"faxx": "res://resources/player/playable_faxx.tres",
 	&"fcas": "res://resources/player/playable_fcas.tres",
 	&"gcap": "res://resources/player/playable_gcap.tres",
 	&"j36": "res://resources/player/playable_j36.tres",

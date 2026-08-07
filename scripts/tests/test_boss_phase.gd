@@ -317,6 +317,7 @@ func _test_boss_phase_blocks_all_kill_xp() -> void:
 	var ground := GroundUnit.new()
 	ground.team = CombatUnit.TEAM_HOSTILE
 	ground.is_destroyed = true
+	ground.set_meta("kill_attacker_team", CombatUnit.TEAM_PLAYER)
 	_root.add_child(ground)
 	spawner._detect_kills()
 

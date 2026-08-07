@@ -402,12 +402,12 @@ func _test_classified_card_pity() -> void:
 	print("── I. 4 级金卡软 pity：倍率 / 清零 / 入口隔离 / 10 分钟标定 ──")
 	_check("未出 0 次 → ×1",
 		is_equal_approx(SurvivorData.classified_pity_weight_multiplier(0), 1.0), "")
-	_check("未出 1 次 → ×3",
-		is_equal_approx(SurvivorData.classified_pity_weight_multiplier(1), 3.0), "")
-	_check("未出 2 次 → ×5",
-		is_equal_approx(SurvivorData.classified_pity_weight_multiplier(2), 5.0), "")
-	_check("未出 3 次 → ×7",
-		is_equal_approx(SurvivorData.classified_pity_weight_multiplier(3), 7.0), "")
+	_check("未出 1 次 → ×4.5",
+		is_equal_approx(SurvivorData.classified_pity_weight_multiplier(1), 4.5), "")
+	_check("未出 2 次 → ×8",
+		is_equal_approx(SurvivorData.classified_pity_weight_multiplier(2), 8.0), "")
+	_check("未出 3 次 → ×11.5",
+		is_equal_approx(SurvivorData.classified_pity_weight_multiplier(3), 11.5), "")
 
 	var stable := {"id": "stable", "rarity": SurvivorData.Rarity.STABLE}
 	var gold := {"id": "gold", "rarity": SurvivorData.Rarity.CLASSIFIED}
@@ -474,25 +474,25 @@ func _simulate_classified_pity_average(event_count: int, runs: int) -> float:
 	return float(gold_offers) / float(runs)
 
 
-# ── H. 进化属性门槛（spec evolution-attribute-gates §2.3：双门判定 + 树 JSON 完备性）──
+# ── H. 进化属性门槛（spec evolution-attribute-gates §2.3：具体轴判定 + 全边可达）──
 func _test_evolution_gates() -> void:
-	print("── H. 属性门槛：判定逻辑 / sum_gk 合计门 / 树 JSON 完备性 ──")
-	# 判定逻辑（合成节点）
+	print("── H. 属性门槛：具体轴判定 / 树 JSON 完备性 / 124 条边全可达 ──")
 	var nd_single: Dictionary = {"gates": {"knight": 2}}
 	_check("单轴门：1/2 不过", not EvolutionSystem.gates_passed(nd_single, {&"knight": 1}), "")
 	_check("单轴门：2/2 过", EvolutionSystem.gates_passed(nd_single, {&"knight": 2}), "")
 	var miss: Array = EvolutionSystem.gates_missing(nd_single, {&"knight": 0})
 	_check("缺口结构 {key,have,need}", miss.size() == 1 and str(miss[0]["key"]) == "knight"
 		and int(miss[0]["have"]) == 0 and int(miss[0]["need"]) == 2, str(miss))
-	var nd_air: Dictionary = {"gates": {"gladiator": 1, "knight": 1, "sum_gk": 3}}
-	_check("合计门：斗2骑0 不过（骑各1未满足）",
-		not EvolutionSystem.gates_passed(nd_air, {&"gladiator": 2, &"knight": 0}), "")
-	_check("合计门：斗2骑1 过（合计3 且各1）",
-		EvolutionSystem.gates_passed(nd_air, {&"gladiator": 2, &"knight": 1}), "")
+	var nd_air: Dictionary = {"gates": {"gladiator": 2, "knight": 2}}
+	_check("双轴门：斗2骑1 不过",
+		not EvolutionSystem.gates_passed(nd_air, {&"gladiator": 2, &"knight": 1}), "")
+	_check("双轴门：斗2骑2 过",
+		EvolutionSystem.gates_passed(nd_air, {&"gladiator": 2, &"knight": 2}), "")
 	_check("无 gates 字段 = 无门槛", EvolutionSystem.gates_passed({}, {}), "")
-	# 树 JSON 完备性：tier1 无门槛、tier≥2 全部有门槛、x02 三轴各2
+
 	var t1_clean := true
 	var t2plus_gated := true
+	var legacy_sum_gate_count := 0
 	for nd in EvolutionSystem.all_nodes():
 		var tier: int = int(nd.get("tier", 1))
 		var g: Dictionary = EvolutionSystem.gates_of(nd)
@@ -501,13 +501,18 @@ func _test_evolution_gates() -> void:
 		if tier >= 2 and g.is_empty():
 			t2plus_gated = false
 			print("    ! 缺门槛节点：%s" % nd.get("id"))
+		legacy_sum_gate_count += int(g.has("sum_gk")) + int(g.has("sum_all"))
+	_check("进化树节点数 = 43", EvolutionSystem.all_nodes().size() == 43,
+		"got %d" % EvolutionSystem.all_nodes().size())
 	_check("tier1 起手机无门槛", t1_clean, "")
 	_check("tier≥2 节点全部有门槛", t2plus_gated, "")
+	_check("旧合计门键已从全部节点移除", legacy_sum_gate_count == 0,
+		"got %d" % legacy_sum_gate_count)
 	var x02: Dictionary = EvolutionSystem.node_of(&"x02")
 	var g02: Dictionary = EvolutionSystem.gates_of(x02)
 	_check("x02 omni 三轴各 2", int(g02.get("gladiator", 0)) == 2 and int(g02.get("knight", 0)) == 2
 		and int(g02.get("schemer", 0)) == 2, str(g02))
-	# 可行性：tier 门槛消耗 ≤ 该 tier 最低等级的点数收入（LV10→3 / LV18→6）
+
 	var feasible := true
 	for nd in EvolutionSystem.all_nodes():
 		var g2: Dictionary = EvolutionSystem.gates_of(nd)
@@ -515,33 +520,73 @@ func _test_evolution_gates() -> void:
 			continue
 		var cost: int = 0
 		for k in g2:
-			var ks := String(k)
-			if ks == "sum_gk" or ks == "sum_all":
-				continue
-			if ks == "any":
+			if String(k) == "any":
 				var mn := 999
 				for ak in (g2[k] as Dictionary):
 					mn = mini(mn, int(g2[k][ak]))
 				cost += mn
 				continue
 			cost += int(g2[k])
-		cost = maxi(cost, int(g2.get("sum_gk", 0)))
-		cost = maxi(cost, int(g2.get("sum_all", 0)))
 		var income: int = SurvivorData.axis_points_earnable(EvolutionSystem.min_level_of(nd))
 		if cost > income:
 			feasible = false
 			print("    ! 门槛超收入：%s cost=%d income=%d" % [nd.get("id"), cost, income])
 	_check("全节点门槛消耗 ≤ 解锁等级点数收入（专注可达）", feasible, "")
-	# 新门语义（41 机树）："any" 或门 + "sum_all" 三轴合计
+
+	# F/A-18E 是全树唯一保留 any 或门的节点。
 	var fa18e: Dictionary = EvolutionSystem.node_of(&"fa18e")
 	_check("F/A-18E 或门：单轴 1 点即过", EvolutionSystem.gates_passed(fa18e, {&"knight": 1}),
 		str(EvolutionSystem.gates_of(fa18e)))
 	_check("F/A-18E 或门：零点不过", not EvolutionSystem.gates_passed(fa18e, {}), "")
 	var ax00: Dictionary = EvolutionSystem.node_of(&"ax00")
-	_check("AX-00 各2且合计7：3/2/2 过", EvolutionSystem.gates_passed(ax00,
-		{&"gladiator": 3, &"knight": 2, &"schemer": 2}), str(EvolutionSystem.gates_of(ax00)))
-	_check("AX-00 各2且合计7：2/2/2 不过（合计 6）", not EvolutionSystem.gates_passed(ax00,
-		{&"gladiator": 2, &"knight": 2, &"schemer": 2}), "")
+	_check("AX-00 三轴 2/2/2 通过", EvolutionSystem.gates_passed(ax00,
+		{&"gladiator": 2, &"knight": 2, &"schemer": 2}), str(EvolutionSystem.gates_of(ax00)))
+	_check("AX-00 三轴 2/2/1 不通过", not EvolutionSystem.gates_passed(ax00,
+		{&"gladiator": 2, &"knight": 2, &"schemer": 1}), "")
+
+	var ea18g: Dictionary = EvolutionSystem.node_of(&"ea18g")
+	var faxx: Dictionary = EvolutionSystem.node_of(&"faxx")
+	_check("EA-18G = T2/LV6/谋1", int(ea18g.get("tier", 0)) == 2
+		and EvolutionSystem.min_level_of(ea18g) == 6
+		and int(EvolutionSystem.gates_of(ea18g).get("schemer", 0)) == 1, str(ea18g))
+	_check("F/A-XX = T4/LV18/斗4", int(faxx.get("tier", 0)) == 4
+		and EvolutionSystem.min_level_of(faxx) == 18
+		and int(EvolutionSystem.gates_of(faxx).get("gladiator", 0)) == 4, str(faxx))
+	var f47_exits: Array = EvolutionSystem.node_of(&"f47").get("exits", [])
+	var j36_exits: Array = EvolutionSystem.node_of(&"j36").get("exits", [])
+	_check("F-47 改接 X-90", f47_exits.has("x90") and not f47_exits.has("x13"), str(f47_exits))
+	_check("J-36 改接 X-77", j36_exits.has("x77") and not j36_exits.has("x13"), str(j36_exits))
+
+	# 枚举三轴总点数 ≤ 8；每条前驱→后继边都要有一组同时满足两端门槛的分配。
+	var edge_count := 0
+	var unreachable_edges: Array[String] = []
+	for source in EvolutionSystem.all_nodes():
+		var source_id := StringName(source.get("id", ""))
+		for target_raw in EvolutionSystem.exits_of(source_id):
+			edge_count += 1
+			var target: Dictionary = target_raw
+			var target_id := StringName(target.get("id", ""))
+			var reachable := false
+			for gladiator in 9:
+				for knight in 9 - gladiator:
+					for schemer in 9 - gladiator - knight:
+						var points := {
+							&"gladiator": gladiator,
+							&"knight": knight,
+							&"schemer": schemer,
+						}
+						if EvolutionSystem.gates_passed(source, points) \
+								and EvolutionSystem.gates_passed(target, points):
+							reachable = true
+							break
+					if reachable:
+						break
+				if reachable:
+					break
+			if not reachable:
+				unreachable_edges.append("%s→%s" % [source_id, target_id])
+	_check("进化树边数 = 124", edge_count == 124, "got %d" % edge_count)
+	_check("三轴上限 8：永久不可达边 = 0", unreachable_edges.is_empty(), str(unreachable_edges))
 
 
 # ── G. 局内武器库（spec inrun-weapon-inventory：快照/补挂/互斥/不重复/底线不入库）──

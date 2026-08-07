@@ -64,11 +64,18 @@ func _test_mapping() -> void:
 		_notes_of("assassin_revenge") == ["overload", "stealth"],
 		str(_notes_of("assassin_revenge")))
 	_check("R 闪避 → 无敌", _notes_of("manual_dodge") == ["invincible"])
+	_check("幻影 III 魔术 → 无敌（keywords 无此词）",
+		_notes_of("sig_mirage3") == ["invincible"])
 
-	# OVERRIDE：keywords 与实际施加的状态不符（MiG-41 写的是 altitude/stealth，给的是超载）
+	# OVERRIDE：keywords 与实际状态语义不符；空数组用于压掉纯主题标签
 	_check("MiG-41 近太空冲刺 → 超载（覆盖 stealth 关键词）",
 		_notes_of("sig_mig41") == ["overload"],
 		str(_notes_of("sig_mig41")))
+	for uid in ["vapor_dodge", "ecm_pod", "alt_change_stealth", "sig_a6e", "sig_x09"]:
+		_check("%s 的 stealth 仅为主题标签，不挂隐身脚注" % uid,
+			_notes_of(uid).is_empty(), str(_notes_of(uid)))
+	_check("X-13 只延缓已有负面状态，不挂 JAM 脚注",
+		_notes_of("sig_x13").is_empty(), str(_notes_of("sig_x13")))
 
 	# 无状态技能不挂脚注
 	_check("纯数值技能不挂脚注（hp_up）", _notes_of("hp_up").is_empty())

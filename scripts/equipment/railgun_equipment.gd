@@ -462,6 +462,8 @@ func _apply_hitscan_damage(ac, beam_start: Vector2, beam_end: Vector2) -> void:
 			continue
 		if unit is Aircraft and (unit as Aircraft).is_cloaked:
 			continue
+		if not unit.can_accept_new_hit("railgun"):
+			continue
 		var d := _point_to_segment_distance(unit.global_position, beam_start, beam_end)
 		if d > hit_radius_px:
 			continue

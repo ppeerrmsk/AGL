@@ -119,7 +119,7 @@ static func _resolve_outer_px(ac: Aircraft) -> float:
 	if ac.params.missile != null and "max_range" in ac.params.missile:
 		return float(ac.params.missile.max_range) * CombatUnit.PIXELS_PER_METER
 	if ac.params.gun != null and "max_range" in ac.params.gun:
-		return float(ac.params.gun.max_range) * CombatUnit.PIXELS_PER_METER
+		return ac.effective_gun_range_m() * CombatUnit.PIXELS_PER_METER
 	return FALLBACK_OUTER_PX
 
 

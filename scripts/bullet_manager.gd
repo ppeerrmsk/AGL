@@ -478,6 +478,8 @@ func _explode_rocket(b: Dictionary, world_pos: Vector2, exclude_unit: CombatUnit
 			continue
 		if not CombatUnit.teams_hostile(unit.team, src_team):
 			continue
+		if not unit.can_accept_new_hit("rocket"):
+			continue
 		# 跳过免疫（cobra/herbst 等）
 		if unit is Aircraft:
 			if SurvivorData.ENABLE_BULLET_FRAME_CACHE:
@@ -569,6 +571,8 @@ func _explode_airburst_shell(shell: Dictionary) -> void:
 		if not CombatUnit.teams_hostile(source_team, unit.team):
 			continue
 		if pos.distance_to(unit.global_position) > radius_px or absf(unit.altitude - burst_altitude) > 1000.0:
+			continue
+		if not unit.can_accept_new_hit("airburst"):
 			continue
 		unit.take_damage(float(shell["damage"]), attacker, "airburst")
 	_area_flashes.append({
@@ -761,6 +765,10 @@ func _physics_process(delta: float) -> void:
 			var source_is_ground := source_alive and (source_raw is GroundUnit or source_raw is NavalUnit)
 			var alt_ok := flat_altitude_mode or alt_diff < ALT_TOLERANCE or ac is GroundUnit or ac is NavalUnit or source_is_ground
 			if dist_2d < hit_r and alt_ok:
+				# 主动特殊机动是“未建立命中”：弹体继续飞，不出特效、不记命中。
+				var hit_kind := "rocket" if is_rocket else "gun"
+				if not ac.can_accept_new_hit(hit_kind):
+					continue
 				var dmg_mult: float = 1.0
 				if not is_rocket:
 					# 子弹：按飞行距离衰减

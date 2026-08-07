@@ -312,8 +312,8 @@ func _draw_gate_pips(nd: Dictionary, r: Rect2, alpha: float) -> void:
 		cx += PIP_GAP
 
 ## gates → pip 槽位列表 [{colors: Array[Color], filled: bool}]（spec §3.3）：
-## 单轴门 = 轴色纯色 pip；合计门（sum_gk/sum_all）自由余量 = 双/三色分瓣 pip；
-## 或门（any）= 一枚分瓣 pip。填充按当前 _axis_points 实时判定。
+## 具体轴门 = 轴色纯色 pip；或门（any）= 一枚分瓣 pip。
+## 填充按当前 _axis_points 实时判定。
 func _pip_slots(g: Dictionary) -> Array:
 	var slots: Array = []
 	if g.is_empty():
@@ -335,28 +335,6 @@ func _pip_slots(g: Dictionary) -> Array:
 		var have: int = int(_axis_points.get(ax, 0))
 		for i in range(int(mins[ax])):
 			slots.append({"colors": [_axis_color(ax)], "filled": i < have})
-	# 合计门自由余量：分瓣 pip（配比玩家自定，只查总投入）
-	if g.has("sum_gk"):
-		var committed: int = int(mins[SurvivorData.AXIS_GLADIATOR]) + int(mins[SurvivorData.AXIS_KNIGHT])
-		var free: int = maxi(0, int(g["sum_gk"]) - committed)
-		var have_sum: int = int(_axis_points.get(SurvivorData.AXIS_GLADIATOR, 0)) \
-			+ int(_axis_points.get(SurvivorData.AXIS_KNIGHT, 0))
-		var filled_free: int = clampi(have_sum - committed, 0, free)
-		for i in range(free):
-			slots.append({"colors": [_axis_color(SurvivorData.AXIS_GLADIATOR),
-				_axis_color(SurvivorData.AXIS_KNIGHT)], "filled": i < filled_free})
-	if g.has("sum_all"):
-		var committed_all: int = 0
-		var have_all: int = 0
-		var cols_all: Array = []
-		for ax in SurvivorData.AXES:
-			committed_all += int(mins[ax])
-			have_all += int(_axis_points.get(ax, 0))
-			cols_all.append(_axis_color(ax))
-		var free_all: int = maxi(0, int(g["sum_all"]) - committed_all)
-		var filled_all: int = clampi(have_all - committed_all, 0, free_all)
-		for i in range(free_all):
-			slots.append({"colors": cols_all, "filled": i < filled_all})
 	return slots
 
 func _axis_color(ax: StringName) -> Color:
@@ -422,12 +400,6 @@ func _gate_gap_text(nid: StringName) -> String:
 	if missing.is_empty():
 		return ""
 	var m: Dictionary = missing[0]
-	var label: String
-	if String(m["key"]) == "sum_gk":
-		label = "%s+%s" % [tr("ATTR_GLADIATOR"), tr("ATTR_KNIGHT")]
-	elif String(m["key"]) == "sum_all":
-		label = tr("ATTR_SUM_ALL")
-	else:
-		label = tr(str(SurvivorData.AXIS_I18N_KEY.get(StringName(String(m["key"])), "")))
+	var label: String = tr(str(SurvivorData.AXIS_I18N_KEY.get(StringName(String(m["key"])), "")))
 	var extra: String = ("+%d" % (missing.size() - 1)) if missing.size() > 1 else ""
 	return "%s %d/%d%s" % [label, int(m["have"]), int(m["need"]), extra]

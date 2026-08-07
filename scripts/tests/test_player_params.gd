@@ -1,6 +1,6 @@
 extends RefCounted
 
-## 无头验收：resources/player/ 41 份玩家机 params（spec player-aircraft-power-curve §2 v7 矩阵）
+## 无头验收：resources/player/ 43 份玩家机 params（spec player-aircraft-power-curve §2 v15 矩阵）
 ## 全量加载 / 矩阵锚点抽查 / 同族链逐轴单调 / 雷达走廊 / 王冠不越位 / 攻击线火箭
 ## 运行：godot --headless --path . -- --bench=player_params（或 --bench=all）
 
@@ -9,10 +9,10 @@ var _fail := 0
 
 const IDS: Array[String] = [
 	"f14", "f15", "a6e", "mirage3",
-	"mirage2000", "f15c", "f15e", "fa18e", "f16", "gripen_c", "su27", "a10",
+	"mirage2000", "f15c", "f15e", "fa18e", "ea18g", "f16", "gripen_c", "su27", "a10",
 	"rafale", "tornado", "typhoon", "su34", "viggen", "mig31", "harrier",
 	"f15smtd", "su35", "f35", "gripen_e", "f22", "su57", "j20", "a12",
-	"yf23", "f47", "mig41", "fcas", "gcap", "j36",
+	"yf23", "f47", "mig41", "faxx", "fcas", "gcap", "j36",
 	"x09", "x13", "x02", "x21", "x44", "x77", "x90", "ax00",
 ]
 
@@ -29,18 +29,18 @@ const RADAR_BAND_BY_ID: Dictionary = {
 	"tornado": "gladiator", "typhoon": "gladiator", "su34": "gladiator",
 	"viggen": "gladiator", "harrier": "gladiator", "f15smtd": "gladiator",
 	"su35": "gladiator", "f22": "gladiator", "su57": "gladiator", "a12": "gladiator",
-	"yf23": "gladiator", "f47": "gladiator", "x09": "gladiator", "x44": "gladiator",
+	"yf23": "gladiator", "f47": "gladiator", "faxx": "gladiator", "x09": "gladiator", "x44": "gladiator",
 	"x77": "gladiator",
 	"f14": "knight", "mig31": "knight", "j20": "knight", "mig41": "knight",
 	"gcap": "knight", "j36": "knight", "x21": "knight", "fa18e": "knight", "x90": "knight",
-	"mirage3": "schemer", "f16": "schemer", "gripen_c": "schemer", "rafale": "schemer",
+	"mirage3": "schemer", "ea18g": "schemer", "f16": "schemer", "gripen_c": "schemer", "rafale": "schemer",
 	"f35": "schemer", "gripen_e": "schemer", "fcas": "schemer", "x13": "schemer",
 	"x02": "schemer", "ax00": "schemer",
 }
 
 
 func run() -> void:
-	print("\n════════ 玩家机 params 验收（41 机矩阵 v7） ════════")
+	print("\n════════ 玩家机 params 验收（43 机矩阵 v15） ════════")
 	var p: Dictionary = {}
 	var all_loaded := true
 	for id in IDS:
@@ -50,8 +50,8 @@ func run() -> void:
 			print("    ! 加载失败：%s" % id)
 			continue
 		p[id] = res
-	_check("41 份全部加载为 AircraftParams", all_loaded and p.size() == 41, "got %d" % p.size())
-	if p.size() != 41:
+	_check("43 份全部加载为 AircraftParams", all_loaded and p.size() == 43, "got %d" % p.size())
+	if p.size() != 43:
 		_finish()
 		return
 
@@ -66,6 +66,16 @@ func run() -> void:
 	_check("鹞失速地板 140（全谱最低签名）", is_equal_approx(p["harrier"].stall_speed_base, 140.0),
 		"got %.0f" % p["harrier"].stall_speed_base)
 	_check("其余机失速地板 220（模板）", is_equal_approx(p["a6e"].stall_speed_base, 220.0), "")
+	_check("EA-18G 锚点（135HP/1900/雷达3450/锥44/锁2.1/弹3）",
+		_row_eq(p["ea18g"], 135, 1900, 3450, 44, 2.1, 3), _row_str(p["ea18g"]))
+	_check("F/A-XX 锚点（185HP/2700/雷达3200/锥38/锁1.9/弹3）",
+		_row_eq(p["faxx"], 185, 2700, 3200, 38, 1.9, 3), _row_str(p["faxx"]))
+	var faxx_profile := AircraftDB.get_profile(&"faxx")
+	_check("F/A-XX 机炮核心档案（伤×1.5/程1400/锥10/瞄准0.75）",
+		faxx_profile != null and is_equal_approx(faxx_profile.gun_damage_mult, 1.5)
+		and is_equal_approx(faxx_profile.gun_range_override, 1400.0)
+		and is_equal_approx(faxx_profile.gun_cone_override, 10.0)
+		and is_equal_approx(faxx_profile.base_pilot_aim_skill, 0.75), "")
 
 	# 结构极限 = 持续 G + 3（全谱规则）
 	var structural_ok := true
@@ -125,7 +135,7 @@ func run() -> void:
 			carries_special += "%s(equipment) " % id
 		if prm.loyal_wingman != null or prm.torpedo != null or prm.secondary_missile != null:
 			carries_special += "%s(wingman/mine/qmaam) " % id
-	_check("41 机无一自带特殊武器（火箭/电磁炮/激光/僚机/雷/QMAAM）", carries_special == "", carries_special)
+	_check("43 机无一自带特殊武器（火箭/电磁炮/激光/僚机/雷/QMAAM）", carries_special == "", carries_special)
 	_check("玩家 A-10 默认无火箭（只能从战区奖励取得）", p["a10"].rocket == null, "")
 	var a10_legacy_base := load("res://resources/playable_a10_base.tres") as AircraftParams
 	var a10_drone_variant := load("res://resources/playable_a10_drone.tres") as AircraftParams
@@ -201,7 +211,7 @@ func _test_flare_tiers(p: Dictionary) -> void:
 	print("── 热诱弹：tier 分档 2/3/4/5/6 + 玩家族特性统一 + 敌我解耦 ──")
 	var want: Dictionary = {1: 2, 2: 3, 3: 4, 4: 5, 5: 6}
 	var tree: Dictionary = _load_tree_tiers()
-	_check("进化树 tier 表可读（41 机）", tree.size() == 41, "got %d" % tree.size())
+	_check("进化树 tier 表可读（43 机）", tree.size() == 43, "got %d" % tree.size())
 	var bad: String = ""
 	for id in IDS:
 		var prm: AircraftParams = p[id]
@@ -211,7 +221,7 @@ func _test_flare_tiers(p: Dictionary) -> void:
 		var expect: int = int(want.get(int(tree.get(id, 0)), -1))
 		if prm.flare.max_flares != expect:
 			bad += "%s(T%d) 期望 %d 实得 %d; " % [id, int(tree.get(id, 0)), expect, prm.flare.max_flares]
-	_check("41 机 flare 数量全部符合 tier 档位", bad == "", bad)
+	_check("43 机 flare 数量全部符合 tier 档位", bad == "", bad)
 
 	# 玩家族统一特性（与敌用 default_flare 的 burst2 / jam0.55 / nervous0.5 区分开）
 	var traits_bad: String = ""
@@ -223,7 +233,7 @@ func _test_flare_tiers(p: Dictionary) -> void:
 				or not is_equal_approx(f.nervousness, 0.0):
 			traits_bad += "%s(burst=%d jam=%.2f nerv=%.2f); " % [
 				id, f.burst_count, f.base_jam_chance, f.nervousness]
-	_check("41 机 flare 特性统一（burst=1 / jam=0.90 / nervousness=0）", traits_bad == "", traits_bad)
+	_check("43 机 flare 特性统一（burst=1 / jam=0.90 / nervousness=0）", traits_bad == "", traits_bad)
 
 	# 解耦：玩家机不得再引用敌用 default_flare（改敌机数值不牵动玩家手感）
 	var enemy_flare = load("res://resources/default_flare.tres")

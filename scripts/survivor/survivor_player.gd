@@ -705,6 +705,12 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 				p.flare = p.flare.duplicate()
 				p.flare.max_flares += 6
 				aircraft.flares_remaining += 6
+		"displacement_roll":
+			# 位移滚转：共享 R 槽；轨迹、命中窗和 AI 威胁门由 Aircraft 协调器统一处理。
+			aircraft.displacement_roll_active = true
+		"vertical_break":
+			# 垂直越过：共享 R 槽；高度曲线不通过常规爬升倍率注入。
+			aircraft.vertical_break_active = true
 		# ── X-02 激光升级 ──
 		"laser_cooldown":
 			# 散热效率 +25%（每层）

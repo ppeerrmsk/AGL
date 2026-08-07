@@ -218,8 +218,8 @@ static func update_combat(ac: Aircraft, _delta: float) -> void:
 	# ---- 开火判定（对前置点）—— 仅机炮模式 ----
 	var gun := ac.params.gun if ac.params else null
 	if gun and ac.ammo > 0 and not is_missile_mode:
-		var range_px := gun.max_range * CombatUnit.PIXELS_PER_METER
-		var base_cone := deg_to_rad(gun.fire_cone_half_angle)
+		var range_px := ac.effective_gun_range_m() * CombatUnit.PIXELS_PER_METER
+		var base_cone := deg_to_rad(ac.effective_gun_cone_half_angle_deg())
 
 		# 计算前置射击点（两轮迭代修正）：
 		# 第一轮用到目标距离估算飞行时间，第二轮用到前置点距离修正，
@@ -334,8 +334,8 @@ static func update_combat_ground_attack(ac: Aircraft) -> void:
 		# 机炮：攻击阶段 + 在范围内 + 机头对准 → 开火
 		var gun := ac.params.gun if ac.params else null
 		if gun and ac.ammo > 0 and ac._strafe_state <= 1:
-			var range_px := gun.max_range * CombatUnit.PIXELS_PER_METER
-			var fire_cone := deg_to_rad(gun.fire_cone_half_angle * GROUND_FIRE_CONE_MULT)  # 对地放宽火控角
+			var range_px := ac.effective_gun_range_m() * CombatUnit.PIXELS_PER_METER
+			var fire_cone := deg_to_rad(ac.effective_gun_cone_half_angle_deg() * GROUND_FIRE_CONE_MULT)  # 对地放宽火控角
 			if dist < range_px and heading_diff < fire_cone:
 				ac.is_firing = true
 				ac._gun_lead_heading = heading_to_tgt  # 地面目标静止，直接瞄
@@ -581,7 +581,7 @@ static func missile_cannot_hit_but_gun_can(ac: Aircraft) -> bool:
 	if not ac.params or not ac.params.gun:
 		return false  # 无机炮可切
 	var dist_m := ac.global_position.distance_to(ac.combat_target.global_position) / CombatUnit.PIXELS_PER_METER
-	var gun_range_m: float = ac.params.gun.max_range
+	var gun_range_m: float = ac.effective_gun_range_m()
 	if dist_m > gun_range_m:
 		return false  # 机炮也打不到
 	# 选取"将要发射"的导弹类型对应的 min_range（与 _update_missile 选择逻辑一致）：

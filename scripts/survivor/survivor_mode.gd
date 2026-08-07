@@ -86,6 +86,8 @@ var _warzone_phase_ended: bool = false
 var _pity_counter: Dictionary = {}
 ## 4 级金卡软 pity：只统计自然等级升级产生的普通三轴三卡；专属第四槽/奖励升级不读写。
 var _classified_pity_misses: int = 0
+## 状态词条终端债务：tag → 连续合格事件未出终端次数；出示（无论选不选）即清零。
+var _terminal_offer_misses: Dictionary = {}
 
 const OFFSCREEN_MARGIN := 500.0    ## 屏幕外判定余量（像素）
 
@@ -186,6 +188,8 @@ var _bench_finished: bool = false
 var _bench_wall_started_msec: int = 0
 var _bench_last_heartbeat_msec: int = 0
 var _bench_pause_started_msec: int = 0
+var _growth_bench: EvolutionGrowthBenchmark = null
+var _growth_bench_config_ok: bool = false
 ## demo 模式：复用 bench 的"玩家挂AI+force-spawn敌机+相机跟随"，但渲染运行、不退出、
 ## 持续补充敌人——供肉眼观察物理/表现/小队战术（2026-06-07）
 var _bench_demo: bool = false
@@ -228,6 +232,7 @@ func _ready() -> void:
 	SkillHooks.sig_fcas_active = false
 	SkillHooks.sig_f35_active = false
 	SkillHooks.sig_x90_active = false
+	SkillHooks.hush_active = false
 	SkillHooks.cloud_relaying = false
 
 	# Boss Debug meta 必须在所有渲染器/边界初始化之前读取（决定后续是否跳过 MapFeatureRenderer）
@@ -251,6 +256,9 @@ func _ready() -> void:
 	if get_tree().has_meta("bench_demo"):
 		_bench_demo = bool(get_tree().get_meta("bench_demo"))
 		get_tree().remove_meta("bench_demo")
+	if _bench_scenario == "evolution_growth":
+		_growth_bench = EvolutionGrowthBenchmark.new()
+		_growth_bench_config_ok = _growth_bench.configure_from_environment(_bench_duration)
 
 	# 生涯档案（spec career-archive）：正式局开局计数 + 成就解锁 toast 订阅。
 	# bench/boss debug 不入档（入档铁律 §3.5）；订阅无守卫——非正式局根本不会有解锁事件
@@ -346,6 +354,8 @@ func _ready() -> void:
 	# （基础档案自带 x02_railgun + 导弹 + 机炮）——验收武器竞选/LINE_UP/距离带切换
 	if _bench_scenario == "weapon_demo":
 		profile_path = "res://resources/playable_x02.tres"
+	elif _bench_scenario == "evolution_growth" and _growth_bench_config_ok:
+		profile_path = _growth_bench.profile_path()
 	_player_profile_path = profile_path  # 保存供 boss debug F8 重启使用
 	var profile: PlayableAircraft = load(profile_path)
 	if profile == null or profile.base_params == null:
@@ -362,6 +372,8 @@ func _ready() -> void:
 	elif _bench_scenario == "enemy_pool_stress":
 		profile = profile.duplicate()
 		profile.wingman_count = 8
+	elif _bench_scenario == "evolution_growth" and _growth_bench_config_ok:
+		profile = _growth_bench.apply_squad_size(profile)
 	_player_params_base = profile.base_params
 	_player_profile_id = profile.id  # 用于专属技能筛选
 	if _starting_profile_id == &"":
@@ -718,10 +730,25 @@ func _setup_bench_scenario() -> void:
 	if not survivor_player or not is_instance_valid(player_aircraft):
 		push_error("[Bench] setup: missing survivor_player or player_aircraft")
 		return
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	_bench_wall_started_msec = Time.get_ticks_msec()
 	_bench_last_heartbeat_msec = _bench_wall_started_msec
-	process_mode = Node.PROCESS_MODE_ALWAYS
-
+	if _bench_scenario == "evolution_growth":
+		if not _growth_bench_config_ok:
+			_bench_finish_now("terminal=invalid_growth_configuration\n", 1)
+			return
+		seed(_growth_bench.seed_value)
+		player_aircraft.global_position = Vector2.ZERO
+		player_aircraft.clear_trail()
+		_bench_attach_player_ai()
+		if not _growth_bench.setup(self):
+			_bench_finish_now("terminal=growth_setup_failed\n", 1)
+			return
+		EventLogger.log_event("BENCH", "GrowthSetup",
+			"run=%s duration=%.1fs starter=%s squad=%d seed=%d" % [
+				_growth_bench.run_id, _bench_duration, _growth_bench.starter_id,
+				_growth_bench.squad_size, _growth_bench.seed_value])
+		return
 	# 0. 固定 RNG seed → 同 scenario 多次跑得到相同 spawn 几何 / AI 抖动 / 战斗节拍
 	#    没这一步：33-144 fps 的 spread 完全淹没"优化前后对比"信号
 	seed(42)
@@ -735,27 +762,7 @@ func _setup_bench_scenario() -> void:
 
 	# 2. 玩家挂 AIController（覆盖默认的"鼠标点击 → target_position"操控路径）
 	#    与 spawner 给敌机挂 AI 的方式一致；team=0 让目标选择只挑敌方
-	var ai := AIController.new()
-	ai.name = "AI_BenchPlayer"
-	ai.aircraft = player_aircraft
-	ai.patrol_altitude = 5500.0
-	var pp: Vector2 = player_aircraft.global_position
-	ai.waypoints = PackedVector2Array([
-		pp + Vector2(2000, -2000),
-		pp + Vector2(2000, 2000),
-		pp + Vector2(-2000, 2000),
-		pp + Vector2(-2000, -2000),
-	])
-	ai.enable_combat = true
-	ai.engage_cooldown = 1.0
-	ai.engage_duration = 60.0
-	ai.aggression = 0.95
-	ai.skill_level = 0.85
-	ai.composure = 0.7
-	ai.focus = 0.85
-	ai.self_preservation = 0.4
-	ai.evade_missiles = true
-	player_aircraft.add_child(ai)
+	_bench_attach_player_ai()
 
 	# 3. 一次性灌满 1→15 级所需经验 → SurvivorPlayer 的 _process 排空时连续 emit 14 次
 	#    leveled_up → 每次走 _on_player_leveled_up bench 分支随机选技能（一帧内全部完成）
@@ -791,6 +798,30 @@ func _setup_bench_scenario() -> void:
 			_bench_scenario, _bench_duration, BENCH_INITIAL_ENEMY_COUNT, BENCH_PLAYER_LEVEL])
 	print("[Bench] scenario ready: %s, duration=%.1fs, initial_enemies=%d" % [
 		_bench_scenario, _bench_duration, BENCH_INITIAL_ENEMY_COUNT])
+
+
+func _bench_attach_player_ai() -> void:
+	var ai := AIController.new()
+	ai.name = "AI_BenchPlayer"
+	ai.aircraft = player_aircraft
+	ai.patrol_altitude = 5500.0
+	var pp: Vector2 = player_aircraft.global_position
+	ai.waypoints = PackedVector2Array([
+		pp + Vector2(2000, -2000),
+		pp + Vector2(2000, 2000),
+		pp + Vector2(-2000, 2000),
+		pp + Vector2(-2000, -2000),
+	])
+	ai.enable_combat = true
+	ai.engage_cooldown = 1.0
+	ai.engage_duration = 60.0
+	ai.aggression = 0.95
+	ai.skill_level = 0.85
+	ai.composure = 0.7
+	ai.focus = 0.85
+	ai.self_preservation = 0.4
+	ai.evade_missiles = true
+	player_aircraft.add_child(ai)
 
 
 ## 扩池专项：直属 9 机同时面对雪幕、F-22 四锁、两类常规多锁与近/远两原型。
@@ -2013,7 +2044,10 @@ func _physics_process(delta: float) -> void:
 		if player_aircraft.sig_tornado_active \
 				and player_aircraft.get_altitude_tier() == CombatUnit.AltitudeTier.LOW:
 			sig_ab_rate *= 1.5
-	afterburner_charge.update(delta, sig_ab_rate)
+	var storm_ii_active: bool = int(upgrade_stacks.get("storm_ii", 0)) > 0 \
+		and player_aircraft != null and is_instance_valid(player_aircraft) \
+		and not player_aircraft.is_destroyed and player_aircraft.status_overload_active
+	afterburner_charge.update(delta, sig_ab_rate, storm_ii_active)
 
 	# 720 批：僚机阵亡事件（复仇之战/刺客复仇/黑匣子回收）+ 奖励升级弹窗顺延
 	_tick_squad_watch(delta)
@@ -2055,6 +2089,8 @@ func _physics_process(delta: float) -> void:
 	# Boss Debug 模式跳过：不刷杂兵 / 不分配猎手 / 不重写敌机航点（仅 boss 在场）
 	if not _boss_debug_mode:
 		_spawner.update(delta)
+		if _bench_scenario == "evolution_growth" and _growth_bench != null:
+			_growth_bench.tick(delta)
 		# ALLY 第三方事件调度（AWACS 支援 / 护送任务，spec global-awareness-roe §2.6）
 		_update_ally_events(delta)
 		# 敌方王牌支援中队调度（spec events/ace-support-squadron）
@@ -2087,8 +2123,12 @@ func _physics_process(delta: float) -> void:
 	elif _bench_mode and not _bench_finished:
 		_bench_elapsed += delta
 		if _bench_elapsed >= _bench_duration:
-			var summary: String = "tick_at=%.2fs aircraft_alive=%d enemies_killed=%d\n" % [
-				_bench_elapsed, _count_aircraft_alive(), (_spawner.kill_count if _spawner else 0)]
+			var summary: String
+			if _bench_scenario == "evolution_growth" and _growth_bench != null:
+				summary = _growth_bench.finish("duration")
+			else:
+				summary = "tick_at=%.2fs aircraft_alive=%d enemies_killed=%d\n" % [
+					_bench_elapsed, _count_aircraft_alive(), (_spawner.kill_count if _spawner else 0)]
 			# boss_mother_goose scenario：附加 boss 终态信息
 			if _bench_scenario == "boss_mother_goose" and _spawner and _spawner._boss:
 				var boss: BossEncounter = _spawner._boss
@@ -2388,41 +2428,45 @@ func _update_radar_locks(delta: float) -> void:
 					if ally.radar_targets.get(t, 0.0) < v:
 						ally.radar_targets[t] = v
 
-	# §C F-14 专属技能：全僚机锁定同一敌机 → 给该敌机 SLOW（专门加在 data_link 之后；要 ≥2 架在场）
-	# 同上：队级账本判定，切控/换帅不掉效果
+	# F-14 围猎 / EA-18G 伴随压制：全部存活僚机共同满锁同一敌机 → 持续刷新 SLOW / JAM。
+	# 结构真源只读 Squad.members；至少 1 名僚机，ACE 自己不参与共锁交集。
 	if player_aircraft and not player_aircraft.is_destroyed \
-			and player_aircraft is Aircraft and int(upgrade_stacks.get("f14_squad_lock_slow", 0)) > 0:
-		var team0_a: Array = []
-		for u in all_units:
-			if u is Aircraft and u.is_player_squad() and not u.is_destroyed and not u.status_jam_active:
-				team0_a.append(u)
-		if team0_a.size() >= 2 and player_aircraft.params:
-			# 对每个 team0 飞机收集"已完成锁定的敌人"（accum >= lock_time）
-			var lock_thresh: float = player_aircraft.params.lock_time
-			# 从玩家锁定列表开始求交集
+			and player_aircraft is Aircraft \
+			and (int(upgrade_stacks.get("f14_squad_lock_slow", 0)) > 0 \
+				or int(upgrade_stacks.get("sig_ea18g", 0)) > 0):
+		var wingmen: Array[Aircraft] = []
+		if _squad != null:
+			for member in _squad.members:
+				if member is Aircraft and member != player_aircraft and is_instance_valid(member) \
+						and not member.is_destroyed and not member.status_jam_active:
+					wingmen.append(member)
+		if not wingmen.is_empty():
+			# 从第一名僚机的满锁目标开始求交集；每机使用自己的 lock_time。
 			var common_locks: Dictionary = {}
-			for tgt in player_aircraft.radar_targets:
+			var first: Aircraft = wingmen[0]
+			var first_thresh: float = first.params.lock_time if first.params else 3.0
+			for tgt in first.radar_targets:
 				if not is_instance_valid(tgt) or tgt.team != CombatUnit.TEAM_HOSTILE:
 					continue
-				if float(player_aircraft.radar_targets[tgt]) >= lock_thresh:
+				if float(first.radar_targets[tgt]) >= first_thresh:
 					common_locks[tgt] = true
-			# 与每个僚机交集
-			for ally in team0_a:
-				if ally == player_aircraft:
-					continue
+			for ally in wingmen.slice(1):
+				var ally_thresh: float = ally.params.lock_time if ally.params else 3.0
 				var to_keep: Dictionary = {}
 				for tgt in common_locks:
-					if float(ally.radar_targets.get(tgt, 0.0)) >= lock_thresh:
+					if float(ally.radar_targets.get(tgt, 0.0)) >= ally_thresh:
 						to_keep[tgt] = true
 				common_locks = to_keep
 				if common_locks.is_empty():
 					break
-			# 仅当交集恰好为 1（"全队聚焦同一目标"）才触发
+			# 仅当交集恰好为 1（"全僚机聚焦同一目标"）才触发。
 			if common_locks.size() == 1:
 				var the_target: CombatUnit = common_locks.keys()[0]
 				if the_target is Aircraft:
-					AOEBroadcast.apply_status_in_radius(
-						the_target.global_position, 50.0, 1, StatusEffects.SLOW, 3.0, player_aircraft)
+					if int(upgrade_stacks.get("f14_squad_lock_slow", 0)) > 0:
+						the_target.apply_status(StatusEffects.SLOW, 3.0)
+					if int(upgrade_stacks.get("sig_ea18g", 0)) > 0:
+						the_target.apply_status(StatusEffects.JAM, 3.0)
 
 	for unit in all_units:
 		if not is_instance_valid(unit):
@@ -2927,6 +2971,9 @@ func _on_player_leveled_up(_new_level: int) -> void:
 
 	# Bench 模式：随机自动拿一张升级（压力放大器：越强→杀越快→负载越大）
 	if _bench_mode:
+		if _bench_scenario == "evolution_growth" and _growth_bench != null:
+			_growth_bench.handle_level_up()
+			return
 		_bench_auto_pick_upgrade()
 		return
 
@@ -2993,19 +3040,59 @@ func _roll_axis_cards(apply_classified_pity: bool = false) -> Array[Dictionary]:
 		if int(upgrade_stacks.get(u["id"], 0)) >= int(u["max_stacks"]):
 			continue
 		(by_axis[SurvivorData.axis_of_upgrade(u)] as Array).append(u)
+	var all_available: Array = []
+	for a in SurvivorData.AXES:
+		all_available.append_array(by_axis[a] as Array)
+	var build_affinity: Dictionary = SurvivorData.compute_status_build_affinity(upgrade_stacks)
+	var focus_tag: String = SurvivorData.primary_status_build_tag(build_affinity)
+	var service_tag: String = SurvivorData.select_terminal_service_tag(
+		all_available, upgrade_stacks, _terminal_offer_misses, build_affinity)
+	var service_misses: int = int(_terminal_offer_misses.get(service_tag, 0)) if service_tag != "" else 0
+	var force_terminal: bool = service_tag != "" \
+		and service_misses >= SurvivorData.TERMINAL_GUARANTEE_MISSES
+	# 先冻结唯一强制槽位；否则在抵达可强制轴前，早先轴仍可能按债务倍率自然抽中同类终端，
+	# 造成一次事件出现两个终端，违背“只服务一条终端债务”的约束。
+	var force_axis: StringName = &""
+	if force_terminal:
+		for axis in SurvivorData.AXES:
+			if not SurvivorData.eligible_terminals_for(by_axis[axis], service_tag).is_empty():
+				force_axis = axis
+				break
+	var forced_once := false
 	var cards: Array[Dictionary] = []
 	var lvl: int = survivor_player.level if survivor_player else 1
 	var classified_mult: float = SurvivorData.classified_pity_weight_multiplier(
 		_classified_pity_misses) if apply_classified_pity else 1.0
 	for a in SurvivorData.AXES:
-		var c: Dictionary = SurvivorData.pick_card_for_axis(
-			by_axis[a], upgrade_stacks, lvl, classified_mult)
+		var c: Dictionary = {}
+		if force_terminal and a == force_axis:
+			c = SurvivorData.pick_terminal_for_tag(
+				by_axis[a], service_tag, upgrade_stacks, lvl, classified_mult)
+			forced_once = not c.is_empty()
+		if c.is_empty():
+			var debt_mult: float = SurvivorData.terminal_debt_weight(service_misses) \
+				if service_tag != "" and not force_terminal else 1.0
+			c = SurvivorData.pick_card_for_axis(
+				by_axis[a], upgrade_stacks, lvl, classified_mult,
+				focus_tag, int(build_affinity.get(focus_tag, 0)), service_tag, debt_mult)
 		if c.is_empty():
 			# 收入封顶后"专注"纯加点卡已无意义（加点被 add_axis_point 闸掉）→ 该轴不出卡
 			if _axis_points_capped():
 				continue
 			c = SurvivorData.make_axis_focus_card(a)
 		cards.append(c)
+	if service_tag != "":
+		var terminal_offered := false
+		for card in cards:
+			if SurvivorData.is_terminal_for(card, service_tag):
+				terminal_offered = true
+				break
+		_terminal_offer_misses[service_tag] = 0 if terminal_offered else service_misses + 1
+		EventLogger.log_event("UPGRADE_BUILD", "Player",
+			"tag=%s affinity=%d miss=%d→%d terminal=%s forced=%s" % [
+				service_tag, int(build_affinity.get(service_tag, 0)), service_misses,
+				int(_terminal_offer_misses[service_tag]), str(terminal_offered), str(forced_once),
+			])
 	if apply_classified_pity and not cards.is_empty():
 		var previous_misses := _classified_pity_misses
 		_classified_pity_misses = SurvivorData.classified_pity_next_misses(
@@ -3212,6 +3299,7 @@ func _refresh_squad_effective_stacks() -> void:
 	SkillHooks.sig_fcas_active = int(upgrade_stacks.get("sig_fcas", 0)) > 0
 	SkillHooks.sig_f35_active = int(upgrade_stacks.get("sig_f35", 0)) > 0
 	SkillHooks.sig_x90_active = int(upgrade_stacks.get("sig_x90", 0)) > 0
+	SkillHooks.hush_active = int(upgrade_stacks.get("hush", 0)) > 0
 
 ## 王牌 scope 中"写飞机字段/params"的技能在切控/换帅时迁移（旧机剥离 → 新机应用）。
 ## 触发型王牌技（skill_flag 走 meta）由 _refresh_squad_effective_stacks 覆盖，不走这里。
@@ -4699,6 +4787,9 @@ func _bench_wall_watchdog() -> void:
 			_bench_runtime_status()])
 
 	if is_game_over:
+		if _bench_scenario == "evolution_growth" and _growth_bench != null:
+			_bench_finish_now(_growth_bench.finish("game_over") + _bench_runtime_status(), 0)
+			return
 		var expected := _bench_scenario == "survivor_death"
 		_bench_finish_now("terminal=game_over expected=%s\n%s\n" % [
 			str(expected), _bench_runtime_status()], 0 if expected else 1)

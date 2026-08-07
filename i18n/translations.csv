@@ -249,7 +249,7 @@ UPGRADE_LOCK_TIME_DESC,锁定时间 -0.5秒,Lock time -0.5s,ロック時間 -0.5
 UPGRADE_DOGFIGHT_NAME,格斗大师,Dogfight Master,格闘戦の達人
 UPGRADE_DOGFIGHT_DESC,失速速度 -12%、减速 +30%、急转掉速 -15%（每层）,Stall speed -12%; deceleration +30%; high-G speed loss -15% per stack,失速速度-12%・減速+30%・高G旋回の速度損失-15%/層
 UPGRADE_COBRA_SKILL_NAME,眼镜蛇机动,Cobra Maneuver,コブラ機動
-UPGRADE_COBRA_SKILL_DESC,当前操控机按 R 手动释放眼镜蛇（无需加力）；AI 僚机受威胁时自动释放；与 J-Turn、胆大妄为互斥,Press R to trigger a Cobra in the controlled jet (no Afterburner required); AI wingmen auto-trigger when threatened; exclusive with J-Turn and Reckless Abandon,操作中の機体はRでコブラを手動発動（AB不要）；AI僚機は被脅威時に自動発動；Jターン・大胆不敵とは排他
+UPGRADE_COBRA_SKILL_DESC,当前操控机按 R 手动释放眼镜蛇；AI 僚机受威胁时自动释放；占用唯一主动机动槽,Press R to trigger a Cobra in the controlled jet; AI wingmen auto-trigger when threatened; occupies the single active-maneuver slot,操作中の機体はRでコブラを手動発動；AI僚機は被脅威時に自動発動；アクティブ機動枠を占有
 AIRCRAFT_F16_DISPLAY,F-16C Block 50,F-16C Block 50,F-16C Block 50
 AIRCRAFT_F16_CARDDESC,多用途战斗机。携带热诱弹可 100% 规避来袭导弹，攻守兼备的入门之选。,Multirole fighter. Flares grant 100% evasion on incoming missiles. A balanced starter pick.,マルチロール戦闘機。フレアで来襲ミサイルを100%回避可能、攻守バランスの入門機。
 AIRCRAFT_F14_DISPLAY,F-14A Ghost,F-14A Ghost,F-14A Ghost
@@ -483,7 +483,7 @@ UPGRADE_CLOUD_WEAPON_CD_DESC,云中所有武器 cd ×0.5,All weapon cooldowns ×
 UPGRADE_EVASION_STEALTH_NAME,雾隐机动,Phantom Veil,霧隠機動
 UPGRADE_EVASION_STEALTH_DESC,加力持续 2 秒后进入隐身，直至加力结束,Enter stealth after 2s of continuous Afterburner; lasts until Afterburner ends,ABを2秒継続するとステルス化しAB終了まで持続
 UPGRADE_EVASION_HERBST_NAME,危机赫尔贝特,Crisis J-Turn,危機Jターン
-UPGRADE_EVASION_HERBST_DESC,当前操控机按 R 手动释放 J-Turn（无需加力）；AI 僚机受威胁时自动释放,Press R to trigger a J-Turn in the controlled jet (no Afterburner required); AI wingmen auto-trigger when threatened,操作中の機体はRでJターンを手動発動（AB不要）；AI僚機は被脅威時に自動発動
+UPGRADE_EVASION_HERBST_DESC,当前操控机按 R 手动释放 J-Turn；AI 僚机受威胁时自动释放；占用唯一主动机动槽,Press R to trigger a J-Turn in the controlled jet; AI wingmen auto-trigger when threatened; occupies the single active-maneuver slot,操作中の機体はRでJターンを手動発動；AI僚機は被脅威時に自動発動；アクティブ機動枠を占有
 UPGRADE_EVASION_OVERSTOCK_NAME,弹仓过载,Overstock Bay,弾倉オーバーロード
 UPGRADE_EVASION_OVERSTOCK_DESC,加力模式中每 4s 装填 1 发导弹（突破上限至 2 倍）,Afterburner mode reloads +1 missile per 4s up to 2× cap,ABモード4秒毎ミサイル+1（上限2倍）
 UPGRADE_OVERLOAD_DURATION_4X_NAME,过载共振,Surge Resonance,オーバーロード共鳴
@@ -520,8 +520,20 @@ UPGRADE_HUNTER_NAME,猎手,Hunter,ハンター
 UPGRADE_HUNTER_DESC,全队执行突击命令时：+2G、加减速 ×1.2、G 能量损失 ×0.7、受到伤害 ×0.7；目标结束即失效,"During Assault orders: squad +2G, accel/decel ×1.2, G-energy loss ×0.7, damage taken ×0.7; ends with the target",全隊が突撃命令中：+2G・加減速×1.2・G損失×0.7・被ダメージ×0.7；目標終了で解除
 UPGRADE_INVASION_ALGORITHM_NAME,入侵算法,Intrusion Algorithm,侵入アルゴリズム
 UPGRADE_INVASION_ALGORITHM_DESC,玩家小队施加的干扰会使 MQ-109～112 立即失控坠毁并正常结算经验,Player-squad JAM causes MQ-109–112 to crash immediately and awards normal XP,プレイヤー隊のJAMでMQ-109～112が即時墜落し通常XPを獲得
-UPGRADE_FLEE_NAME,逃离,Break Their Will,戦意崩壊
+UPGRADE_FLEE_NAME,逃吧 Run,Run,逃げろ
 UPGRADE_FLEE_DESC,玩家小队首次施加恐惧时有 40% 令普通载人敌机撤离并结算一次经验；无人机、王牌、BOSS 及其生成物无效,"On a new player-squad Fear, 40% chance for a normal crewed enemy to retreat and award XP once; excludes UAVs, aces, bosses, and boss spawns",プレイヤー隊の新規恐怖で40%の確率で通常有人機が撤退しXPを一度獲得；無人機・エース・ボス・ボス生成物は無効
+UPGRADE_STORM_I_NAME,暴风雨 I,Storm I,嵐 I
+UPGRADE_STORM_I_DESC,每次加力激活实际消耗 3.0 能量后，本次窗口全队获得超载 8 秒（每次激活至多一次）,"After spending 3.0 actual Afterburner charge in one activation, the window squad gains 8s Overload (once per activation)",1回のAB起動で実消費3.0に達すると窓内の全隊が8秒オーバーロード（起動ごとに1回）
+UPGRADE_STORM_II_NAME,暴风雨 II,Storm II,嵐 II
+UPGRADE_STORM_II_DESC,当前操控王牌处于超载时：加力启用不耗能，停用时被动充能 ×4；免费维持不推进暴风雨 I,While the controlled ace is Overloaded: active Afterburner drains no charge and inactive recharge is ×4; free upkeep does not advance Storm I,操作中のエースがオーバーロード中：AB使用時は消費なし・停止時の充填×4；無料維持は嵐Iを進めない
+UPGRADE_RATATAT_NAME,哒哒哒哒哒,Ratatat,ダダダダダ
+UPGRADE_RATATAT_DESC,嗜血期间：机炮射程 +500m、实际射击间隔 ×0.70、射界半角 +8°,"During Bloodlust: gun range +500m, actual firing interval ×0.70, and cone half-angle +8°",ブラッドラスト中：機関砲射程+500m・実射撃間隔×0.70・射界半角+8°
+UPGRADE_MENTAL_CONFUSION_NAME,精神错乱,Mental Confusion,精神錯乱
+UPGRADE_MENTAL_CONFUSION_DESC,恐惧首次落地时，普通敌机 50%／王牌 25%／BOSS 10% 概率浪费至多一份热诱弹或导弹,"When Fear first lands: normal enemies have a 50% chance, aces 25%, and bosses 10% to waste at most one flare use or missile",恐怖の初回付与時：通常50%・エース25%・ボス10%でフレア1回分またはミサイル1発を浪費
+UPGRADE_HUSH_NAME,嘘！,Hush!,シーッ！
+UPGRADE_HUSH_DESC,被干扰的敌机无法释放热诱弹；其已发射与新发射导弹立即失去制导,Jammed enemies cannot deploy flares; their existing and newly launched missiles immediately lose guidance,ジャミング中の敵はフレア使用不可；既発射・新発射ミサイルは即座に誘導を失う
+UPGRADE_STASIS_NAME,凝滞,Stasis,停滞
+UPGRADE_STASIS_DESC,王牌受到实际导弹直击伤害时，使 2km 内敌人减速 4 秒；范围伤害、闪避、无敌与零伤害不触发,"When the ace takes actual direct missile damage, enemies within 2km are Slowed for 4s; AOE, dodges, invulnerability, and zero damage do not trigger",エースがミサイル直撃の実ダメージを受けると2km内の敵を4秒減速；範囲・回避・無敵・0ダメージでは発動しない
 BOSS_DEBUG_ENTRY_HINT,按 B  // BOSS DEBUG,Press B  // BOSS DEBUG,B キー  // BOSS DEBUG
 BOSS_DEBUG_TITLE,[ BOSS DEBUG ],[ BOSS DEBUG ],[ BOSS DEBUG ]
 BOSS_DEBUG_SUBTITLE,空白地图 + 15 级满 build + 直进 BOSS 战,Blank arena · Level 15 + Random Build · Instant Boss,空白マップ・Lv15満ビルド・即ボス戦
@@ -547,7 +559,7 @@ LOADOUT_DOCTRINE_HEADER,▼ 解锁研究,▼ DOCTRINES,▼ 研究
 LOADOUT_BADGE_DOCTRINE,[ 解锁 ],[ UNLOCK ],[ 解放 ]
 LOADOUT_DOCTRINE_UNLOCKS_FMT,▸ 解锁【%s】词条的技能,▸ Unlocks 【%s】 upgrades,▸ 【%s】系を解禁
 STATUS_NOTE_OVERLOAD,▸ 超载：装填 / 锁定 ×0.4 · 加速与顶速 ×1.6,▸ Overload: reload / lock ×0.4 · accel & top speed ×1.6,▸ オーバーロード：装填/ロック×0.4・加速と最高速×1.6
-STATUS_NOTE_BLOODLUST,▸ 嗜血：每次击杀回复 20 HP,▸ Bloodlust: each kill restores 20 HP,▸ ブラッドラスト：撃墜ごとにHP20回復
+STATUS_NOTE_BLOODLUST,▸ 嗜血：每次击杀回复 20 HP · 机炮/CIWS 发射不耗弹,▸ Bloodlust: each kill restores 20 HP · gun/CIWS fire costs no ammo,▸ ブラッドラスト：撃墜ごとにHP20回復・機関砲/CIWSの弾薬消費なし
 STATUS_NOTE_INVINCIBLE,▸ 无敌：免疫全部伤害,▸ Invincible: immune to all damage,▸ 無敵：全ダメージ無効
 STATUS_NOTE_STEALTH,▸ 隐身：无法被锁定 · 敌方丢失目标,▸ Stealth: cannot be locked · enemies lose you,▸ ステルス：ロック不可・敵が目標を見失う
 STATUS_NOTE_FEAR,▸ 恐惧：敌机压力拉满 · 被迫脱离交战,▸ Fear: target panics · breaks off the engagement,▸ 恐怖：敵はパニックし交戦から離脱
@@ -682,7 +694,6 @@ ATTR_STAT_RADAR_CONE,雷达锥角,Radar cone,レーダー角
 ATTR_STAT_DAMAGE_REDUCTION,伤害减免,Damage reduction,ダメージ軽減
 ATTR_STAT_MISSILE_LOCKS,导弹锁定目标数,Missile target locks,ミサイルロック対象数
 ATTR_STAT_XP_GAIN,经验值,XP gain,経験値
-ATTR_SUM_ALL,三轴合计,Total points,三軸合計
 EVOLUTION_CAT_BRIDGE,桥接,Bridge,ブリッジ
 EVOLUTION_CAT_STEALTH,隐身渗透,Stealth,ステルス
 EVOLUTION_CAT_CARRIER,空中母舰,Carrier,空中母艦
@@ -695,6 +706,7 @@ AIRCRAFT_MIRAGE2000_DISPLAY,幻影 2000,Mirage 2000,ミラージュ 2000
 AIRCRAFT_F15C_DISPLAY,F-15C 鹰,F-15C Eagle,F-15C イーグル
 AIRCRAFT_F15E_DISPLAY,F-15E 攻击鹰,F-15E Strike Eagle,F-15E ストライクイーグル
 AIRCRAFT_FA18E_DISPLAY,F/A-18E 超级大黄蜂,F/A-18E Super Hornet,F/A-18E スーパーホーネット
+AIRCRAFT_EA18G_DISPLAY,EA-18G 咆哮者,EA-18G Growler,EA-18G グラウラー
 AIRCRAFT_GRIPEN_C_DISPLAY,JAS 39C 鹰狮,JAS 39C Gripen,JAS 39C グリペン
 AIRCRAFT_SU27_DISPLAY,苏-27 侧卫,Su-27 Flanker,Su-27 フランカー
 AIRCRAFT_RAFALE_DISPLAY,阵风,Rafale,ラファール
@@ -710,6 +722,7 @@ AIRCRAFT_J20_DISPLAY,歼-20 威龙,J-20 Mighty Dragon,J-20 マイティドラゴ
 AIRCRAFT_A12_DISPLAY,A-12 复仇者 II,A-12 Avenger II,A-12 アヴェンジャー II
 AIRCRAFT_YF23_DISPLAY,YF-23 黑寡妇 II,YF-23 Black Widow II,YF-23 ブラックウィドウ II
 AIRCRAFT_F47_DISPLAY,F-47 NGAD,F-47 NGAD,F-47 NGAD
+AIRCRAFT_FAXX_DISPLAY,F/A-XX,F/A-XX,F/A-XX
 AIRCRAFT_MIG41_DISPLAY,米格-41,MiG-41 PAK DP,MiG-41 PAK DP
 AIRCRAFT_FCAS_DISPLAY,FCAS 新一代战机,FCAS NGF,FCAS NGF
 AIRCRAFT_GCAP_DISPLAY,GCAP 暴风,GCAP Tempest,GCAP テンペスト
@@ -875,7 +888,14 @@ UPGRADE_RAILGUN_DOUBLE_DESC,电磁炮蓄力完成后沿同一弹道连发两发,
 UPGRADE_MISSILE_SECOND_STAGE_NAME,二段推进,Second Stage,二段推進
 UPGRADE_MISSILE_SECOND_STAGE_DESC,导弹一段燃尽后持续加速（上限 ×1.2）且转弯渐强（最高 +50%），距离越远越准,Missiles keep accelerating after burnout (cap x1.2) with growing turn G (up to +50%),ミサイル燃焼後も加速（×1.2）・旋回G漸増（最大+50%）
 UPGRADE_MANUAL_DODGE_NAME,胆大妄为,Reckless Abandon,大胆不敵
-UPGRADE_MANUAL_DODGE_DESC,全队禁用普通自动热诱弹且热诱弹 +6；当前操控机按 R 滚转+投焰；AI 僚机受威胁自动释放；0.25s 严格无敌窗；与眼镜蛇、J-Turn 互斥,Disables normal auto flares squad-wide and grants +6 flares; R rolls and drops flares in the controlled jet while AI wingmen auto-trigger under threat; strict 0.25s i-frame; exclusive with Cobra and J-Turn,全隊の通常自動フレアを無効化しフレア+6；操作中はRでロール＋投射、AI僚機は被脅威時に自動発動；厳格な0.25秒無敵窓；コブラ/Jターンとは排他
+UPGRADE_MANUAL_DODGE_DESC,全队禁用普通自动热诱弹且热诱弹 +6；当前操控机按 R 滚转投焰；AI 僚机受威胁自动释放；0.25s 严格无敌窗；占用唯一主动机动槽,Disables normal auto flares squad-wide and grants +6 flares; R rolls and drops flares while AI wingmen auto-trigger under threat; strict 0.25s i-frame; occupies the single active-maneuver slot,全隊の通常自動フレアを無効化しフレア+6；Rでロールしフレアを投射；AI僚機は被脅威時に自動発動；0.25秒の無敵窓；アクティブ機動枠を占有
+UPGRADE_DISPLACEMENT_ROLL_NAME,位移滚转,Displacement Roll,変位ロール
+UPGRADE_DISPLACEMENT_ROLL_DESC,按 R 向安全侧平滑横移 700m 并保持前进；动作期间不可命中；15s 小队共享冷却；AI 僚机受威胁自动使用,Press R to slide 700m toward the safer side while continuing forward; cannot be hit during the move; 15s squad cooldown; AI wingmen auto-trigger under threat,Rで安全側へ700m横移し前進を維持；動作中は命中無効；分隊共有15秒クールダウン；AI僚機は被脅威時に自動発動
+UPGRADE_VERTICAL_BREAK_NAME,垂直越过,Vertical Break,垂直ブレイク
+UPGRADE_VERTICAL_BREAK_DESC,按 R 在低空拉升 900m 或在中高空俯冲 900m；动作期间不可命中；18s 小队共享冷却；AI 僚机受威胁自动使用,Press R to climb 900m at low altitude or dive 900m at medium and high altitude; cannot be hit during the move; 18s squad cooldown; AI wingmen auto-trigger under threat,Rで低空時は900m上昇し中高空時は900m降下；動作中は命中無効；分隊共有18秒クールダウン；AI僚機は被脅威時に自動発動
+POPUP_DISPLACEMENT_ROLL,位移滚转,DISPLACEMENT ROLL,変位ロール
+POPUP_VERTICAL_BREAK,垂直越过,VERTICAL BREAK,垂直ブレイク
+POPUP_MANEUVER_BLOCKED,机动空间不足,MANEUVER BLOCKED,機動空間不足
 UPGRADE_SIG_F15_NAME,无败之鹰,Flawless Eagle,無敗の鷲
 UPGRADE_SIG_F15_DESC,生命值全满时：机炮伤害 +20%、锁定速度 +20%,While at full HP: gun damage +20% and lock speed +20%,HP満タン時：機関砲ダメージ+20%・ロック速度+20%
 UPGRADE_SIG_A6E_NAME,盲飞入侵,All-Weather Intruder,全天候侵入
@@ -890,6 +910,8 @@ UPGRADE_SIG_F15E_NAME,对地特化,Strike Special,対地特化
 UPGRADE_SIG_F15E_DESC,对地面与舰船单位：锁定速度 +50%、伤害 +30%,Against ground and naval units: lock speed +50% and damage +30%,地上・艦船に対し：ロック速度+50%・ダメージ+30%
 UPGRADE_SIG_FA18E_NAME,甲板周转,Deck Cycle,デッキサイクル
 UPGRADE_SIG_FA18E_DESC,每次停靠离场：弹药过量装填至 2 倍上限；生命上限永久 +10（最多 +50）,Each time you leave a dock ammo is overloaded to twice the cap; max HP permanently +10 (up to +50),停泊離脱ごとに弾薬を上限の2倍まで搭載・最大HP永久+10（最大+50）
+UPGRADE_SIG_EA18G_NAME,伴随压制,Escort Suppression,随伴制圧
+UPGRADE_SIG_EA18G_DESC,至少有1名僚机且全体存活僚机共同满锁同一目标时持续施加干扰；共锁解除后停止刷新,JAM is continuously applied while at least one wingman is alive and every surviving wingman has a full lock on the same target; refresh stops when the shared lock breaks,僚機が1機以上生存し全生存僚機が同一目標を完全ロック中はジャミングを継続付与・共同ロック解除で更新停止
 UPGRADE_SIG_F16_NAME,智能鹰,Smart Falcon,スマートファルコン
 UPGRADE_SIG_F16_DESC,经验获取 +25%（独立于其他经验加成）,XP gain +25% (independent of other XP bonuses),経験値獲得+25%（他の経験値ボーナスとは独立）
 UPGRADE_SIG_GRIPEN_C_NAME,公路机场,Road Base,ロードベース
@@ -932,6 +954,8 @@ UPGRADE_SIG_YF23_NAME,落选者,The One That Lost,敗れし者
 UPGRADE_SIG_YF23_DESC,每次从机场或航母起飞后获得 20 秒隐身,Gain 20s of stealth after each takeoff from an airfield or carrier,飛行場・空母から離陸するたびに20秒のステルス
 UPGRADE_SIG_F47_NAME,忠诚僚机编队,Loyal Wingman Flight,忠実な僚機編隊
 UPGRADE_SIG_F47_DESC,立即获得 2 架永久忠诚僚机,Immediately gain two permanent loyal wingmen,永続する忠実僚機2機を即時獲得
+UPGRADE_SIG_FAXX_NAME,穿透打击,Penetration Strike,突破攻撃
+UPGRADE_SIG_FAXX_DESC,本机以机炮完成击杀后获得5秒隐身；内置冷却20秒且冷却中不刷新；导弹和僚机击杀不触发,Gain 5s STEALTH after this aircraft scores a gun kill; 20s internal cooldown with no refresh; missile and wingman kills do not trigger,この機体が機関砲で撃破すると5秒間ステルス・内部クールダウン20秒で更新なし・ミサイルや僚機の撃破では発動しない
 UPGRADE_SIG_MIG41_NAME,近太空冲刺,Near-Space Dash,亜宇宙ダッシュ
 UPGRADE_SIG_MIG41_DESC,高空时敌人锁定你的速度 -40%；从高空俯冲时加速 +50% 并获得 8 秒超载,At high altitude enemies lock you 40% slower; diving from high altitude boosts acceleration 50% and grants 8s overload,高高度では敵のロック速度-40%・高高度からの降下で加速+50%と8秒の超過駆動
 UPGRADE_SIG_FCAS_NAME,作战云,Combat Cloud,コンバットクラウド

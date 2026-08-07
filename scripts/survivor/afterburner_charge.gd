@@ -15,6 +15,8 @@ const KILL_CHARGE: float = 0.8        ## 小队击杀 1 个敌人（空中/地�
 var charge: float = CHARGE_MAX        ## 当前能量（开局满格，让新机制第一时间可用）
 var active: bool = false              ## 加力是否正在启用（true = 正在耗能）
 var _window_members: Array = []       ## 激活瞬间全队快照（Aircraft），关闭时统一清 flag
+var _storm_i_spent: float = 0.0       ## 本次激活实际消耗的能量；免费维持不计入
+var _storm_i_triggered: bool = false  ## 暴风雨 I 每次激活最多触发一次
 
 ## ── 720 批技能修正（队级单实例语义：survivor_mode 按账本同步，不逐机应用）──
 var kill_charge_bonus: float = 0.0    ## 检讨：击杀充能奖励 +0.6s/层（基线 KILL_CHARGE=0.8）
@@ -28,9 +30,17 @@ func _effective_drain() -> float:
 ## 主循环驱动：激活中耗能（期间被动充能暂停）→ 耗尽自动关闭；否则被动充能。
 ## rate_mult：722 签名技能的充能倍率（公路机场·未被锁 ×1.5 / 地形跟随·低空 ×1.5，
 ## 由 survivor_mode 每帧按 ACE 状态计算传入；默认 1.0 = baseline 不变）
-func update(delta: float, rate_mult: float = 1.0) -> void:
+func update(delta: float, rate_mult: float = 1.0, storm_ii_active: bool = false) -> void:
 	if active:
-		charge -= _effective_drain() * delta
+		var consumed: float = 0.0 if storm_ii_active else _effective_drain() * delta
+		charge -= consumed
+		_storm_i_spent += consumed
+		if not _storm_i_triggered and _storm_i_spent >= SkillHooks.STORM_I_CHARGE_SPENT:
+			_storm_i_triggered = true
+			for m in _window_members:
+				if m != null and is_instance_valid(m) and not m.is_destroyed \
+						and SkillHooks.has_skill(m, SkillHooks.SKILL_STORM_I):
+					m.apply_status(StatusEffects.OVERLOAD, SkillHooks.STORM_I_OVERLOAD_DURATION)
 		# 722 sig_su34·鸭嘴兽厨房：加力期间成员每秒回 2 HP（逐机字段判定）
 		for m in _window_members:
 			if m != null and is_instance_valid(m) and not m.is_destroyed \
@@ -40,7 +50,8 @@ func update(delta: float, rate_mult: float = 1.0) -> void:
 			charge = 0.0
 			_deactivate()  # 能量耗尽 → 自动结束
 		return
-	charge = minf(charge + CHARGE_RATE * rate_mult * delta, CHARGE_MAX)
+	var recharge_mult: float = SkillHooks.STORM_II_RECHARGE_MULT if storm_ii_active else 1.0
+	charge = minf(charge + CHARGE_RATE * rate_mult * recharge_mult * delta, CHARGE_MAX)
 
 ## 击杀充能（空中走 kill_recorded / 地面走 spawner 击杀检测，挂点见 survivor_mode）
 ## 激活中击杀同样入账（边烧边攒，只是被动充能暂停）
@@ -61,6 +72,8 @@ func toggle(leader: Aircraft) -> bool:
 	if charge <= 0.0:
 		return false   # 无能量，启动失败
 	active = true
+	_storm_i_spent = 0.0
+	_storm_i_triggered = false
 	_window_members = [leader]
 	# 与 Aircraft._propagate_evasion_to_squad 同判据收集僚机（squad.leader == 长机；drone 除外）
 	for u in CombatUnit.all_units:
@@ -91,6 +104,8 @@ func toggle(leader: Aircraft) -> bool:
 ## 由玩家提前关闭 / 能量耗尽 / 长机销毁（成员数组有 valid 守卫）共用
 func _deactivate() -> void:
 	active = false
+	_storm_i_spent = 0.0
+	_storm_i_triggered = false
 	for m in _window_members:
 		if m != null and is_instance_valid(m):
 			m.afterburner_window_active = false

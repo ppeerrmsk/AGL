@@ -42,6 +42,11 @@ func spawn_missile(source: CombatUnit, target: CombatUnit, missile_params: Missi
 	var missile: Missile = _missile_scene.instantiate()
 	missile.params = missile_params
 	missile.source = source
+	# 嘘！：JAM 敌方发射源的新离架导弹立刻进入既有失导契约。
+	if SkillHooks.hush_active and source is Aircraft \
+			and source.team == CombatUnit.TEAM_HOSTILE \
+			and (source as Aircraft).status_jam_active:
+		missile.is_flare_jammed = true
 	missile.is_secondary_weapon = is_secondary   # QAAM 归因（720 批 qmaam_bloodlust 判 kind）
 	# 二段推进（720 批）：发射方持有技能 → 本弹全程续推 + 转弯渐强
 	if source is Aircraft and (source as Aircraft).missile_second_stage_active:
@@ -349,6 +354,10 @@ func _physics_process(delta: float) -> void:
 				if nu.params:
 					effective_fuse = maxf(fuse_radius_px, nu.params.hull_length * 0.5)
 			if dist_2d < effective_fuse and alt_ok:
+				# ACTIVE 窗口内不建立接触/近炸命中；导弹保留目标并继续飞行。
+				var direct_kind := "qmaam" if missile.is_secondary_weapon else "missile"
+				if not unit.can_accept_new_hit(direct_kind):
+					continue
 				# 云中目标：基于云密度的 miss roll（导弹"看不清"目标）
 				if unit.get_altitude_tier() == CombatUnit.AltitudeTier.HIGH:
 					var weather := get_tree().get_first_node_in_group("weather")
@@ -489,6 +498,8 @@ func _update_aoe_zones(delta: float) -> void:
 			var alt_ok := alt_diff < AOE_ALT_TOLERANCE \
 					or unit is GroundUnit or unit is NavalUnit or unit is MountTarget
 			if dist_2d < zradius and alt_ok:
+				if not unit.can_accept_new_hit("aoe"):
+					continue
 				# AOE 仍在飞机本体位置画爆炸（不在 AOE 中心），击中/击毁均只此一次
 				var u_head: float = unit.heading if "heading" in unit else 0.0
 				ExplosionVFXScript.emit(get_tree(), unit.global_position, u_head, 1.0)

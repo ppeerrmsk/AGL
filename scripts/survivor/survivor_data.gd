@@ -49,8 +49,18 @@ const RARITY_BASE_WEIGHT: Array[float] = [
 ]
 
 ## 4 级金卡软 pity（spec classified-card-pity）：自然三轴三卡每空一次，
-## 下一轮 CLASSIFIED 候选额外增加 2 倍基础权重（倍率序列 ×1/×3/×5/×7…）。
-const CLASSIFIED_PITY_WEIGHT_PER_MISS: float = 2.0
+## 本批卡池降档后提高 miss 斜率以维持 10 分钟金卡总量；首轮权重不变。
+## 倍率序列 ×1/×4.5/×8/×11.5…（spec classified-card-pity v2）。
+const CLASSIFIED_PITY_WEIGHT_PER_MISS: float = 3.5
+
+## 状态词条构筑聚焦（spec status-build-completion）：只对已有通用终端的四条主构筑启用硬保底。
+const TERMINAL_BUILD_TAGS: Array[String] = ["overload", "bloodlust", "fear", "jam"]
+const STATUS_FOCUS_PER_STACK: float = 0.75
+const STATUS_UNRELATED_PENALTY_PER_STACK: float = 0.15
+const STATUS_UNRELATED_FLOOR: float = 0.65
+const TERMINAL_FIRST_WEIGHT_MULT: float = 2.0
+const TERMINAL_SECOND_WEIGHT_MULT: float = 4.0
+const TERMINAL_GUARANTEE_MISSES: int = 2
 
 ## 机体专属第四槽：每机每局首次符合事件的出示概率（spec aircraft-signature-progression）。
 const SIGNATURE_OFFER_CHANCE: float = 0.30
@@ -85,6 +95,10 @@ const PITY_THRESHOLD: Dictionary = {
 #               留空 = 通用升级，所有飞机可获取
 #   excludes: Array[String] — 互斥技能；列表中任一技能 stacks>0 时，本升级不再出现在抽卡池
 #               例：cobra_skill / evasion_herbst / manual_dodge（R 机动三向互斥）
+#   build_tags: Array[String] — 构筑归属；缺省取 keywords 与 TERMINAL_BUILD_TAGS 交集
+#   build_role: source/bridge/support/terminal — 审计角色，不替代 requires_skill
+#   terminal_for: Array[String] — 为哪些词条偿还终端债务
+#   doctrine_any: Array[String] — 门控关键词 OR 组；组内任一学说已购即可（其余门控词仍为 AND）
 #
 # ── 归属词汇 v6（spec skills-720-rework §1.2 / squad-upgrade-ownership §2.8）──
 #   scope: "" 缺省 = 通用全队（全队逐机生效）
@@ -308,10 +322,10 @@ const UPGRADES: Array[Dictionary] = [
 		"name": "UPGRADE_FEAR_SQUAD_SPREAD_NAME",
 		"desc": "UPGRADE_FEAR_SQUAD_SPREAD_DESC",
 		"stat": "fear_squad_spread",
-		"value": 5.0,  ## FEAR 持续秒数（720 批 →5s）
+		"value": 6.0,
 		"max_stacks": 1,
 		"category": "secondary",
-		"rarity": Rarity.EXPERIMENTAL,
+		"rarity": Rarity.ADVANCED,
 		"keywords": ["fear"],
 		## 自身就是"能施加恐惧的技能"，不需要前置
 		"classes": ["schemer"],
@@ -327,8 +341,13 @@ const UPGRADES: Array[Dictionary] = [
 		"category": "secondary",
 		"rarity": Rarity.EXPERIMENTAL,
 		"keywords": ["fear", "slow"],
+		"build_role": "terminal",
+		"terminal_for": ["fear"],
 		## 修饰恐惧效果 → 必须先持有任意"能施加恐惧的"技能
-		"requires_skill": ["fear_squad_spread", "skill_gun_kill_fear", "skill_head_on_aoe_fear"],
+		"requires_skill": [
+			"fear_squad_spread", "skill_gun_kill_fear", "skill_head_on_aoe_fear",
+			"fear_on_lock", "sig_su27",
+		],
 	},
 	## radar_range / lock_time 已删除（C2：迁移到配件 radar_range_t1/radar_combat_t2/radar_aegis_t3）
 	{
@@ -357,7 +376,7 @@ const UPGRADES: Array[Dictionary] = [
 		"category": "mobility",
 		"rarity": Rarity.EXPERIMENTAL,
 		"keywords": ["evasion_mode", "cobra"],
-		"excludes": ["evasion_herbst", "manual_dodge"],   ## R 机动三向互斥
+		"excludes": ["evasion_herbst", "manual_dodge", "displacement_roll", "vertical_break"],
 		## 单层；当前操控机按 R，AI 僚机被来袭导弹/后方追尾时自动触发
 		## 实现：apply_upgrade 时给小队成员挂 CobraManeuver 子节点 + 设 cobra_skill_active=true
 		## 触发与冷却逻辑见 aircraft.gd._update_cobra_skill
@@ -658,7 +677,7 @@ const UPGRADES: Array[Dictionary] = [
 		"category": "mobility",
 		"rarity": Rarity.EXPERIMENTAL,
 		"keywords": ["evasion_mode", "panic_save"],
-		"excludes": ["cobra_skill", "manual_dodge"],   ## R 机动三向互斥
+		"excludes": ["cobra_skill", "manual_dodge", "displacement_roll", "vertical_break"],
 	},
 	{
 		"id": "evasion_speed_boost",
@@ -736,7 +755,7 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 1,
 		"max_stacks": 1,
 		"category": "electronic_warfare",
-		"rarity": Rarity.CLASSIFIED,
+		"rarity": Rarity.STABLE,
 		"keywords": ["head_on", "fear"],
 	},
 	{
@@ -747,7 +766,7 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 1,
 		"max_stacks": 1,
 		"category": "survival",
-		"rarity": Rarity.EXPERIMENTAL,
+		"rarity": Rarity.STABLE,
 		"keywords": ["panic_save"],
 		"classes": ["gladiator"],  ## v5：无敌保命归斗士
 	},
@@ -786,8 +805,31 @@ const UPGRADES: Array[Dictionary] = [
 		"max_stacks": 1,
 		"category": "survival",
 		"rarity": Rarity.ADVANCED,
-		"keywords": ["heal", "kill", "fear"],   ## 门控在【恐惧】doctrine 后——异常状态最常见的来源就是 FEAR
+		"keywords": ["heal", "kill", "fear", "jam"],
+		"build_tags": ["fear", "jam"],
+		"build_role": "terminal",
+		"terminal_for": ["fear", "jam"],
+		"doctrine_any": ["fear", "jam"],
+		"requires_skill": [
+			"fear_squad_spread", "skill_gun_kill_fear", "skill_head_on_aoe_fear", "fear_on_lock", "sig_su27",
+			"skill_flare_aoe_jam", "skill_gun_kill_flare_drop", "skill_missile_hit_aoe_jam",
+			"skill_torpedo_aoe_jam", "head_on_jam", "jam_aura", "sig_rafale",
+		],
 		"milestone_plus": "schemer",  ## 720 批：策士+1
+	},
+	{
+		"id": "stasis",
+		"name": "UPGRADE_STASIS_NAME",
+		"desc": "UPGRADE_STASIS_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "survival",
+		"axis": "gladiator",
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["slow", "panic_save"],
+		"build_role": "source",
+		"scope": "ace",
 	},
 	{
 		"id": "skill_flare_aoe_jam",
@@ -1005,7 +1047,7 @@ const UPGRADES: Array[Dictionary] = [
 		"window": 0.5,  ## 时间窗 0.5s（720 批 0.4→0.5）
 		"max_stacks": 1,
 		"category": "secondary",
-		"rarity": Rarity.CLASSIFIED,
+		"rarity": Rarity.ADVANCED,
 		"keywords": ["gun", "panic_save"],
 		"requires": ["gun"],
 	},
@@ -1031,11 +1073,11 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 1,
 		"max_stacks": 1,
 		"category": "electronic_warfare",
+		"axis": "knight",  ## 2026-08-06：超载技能轴统一归骑士（导弹流）
 		"rarity": Rarity.CLASSIFIED,
 		"keywords": ["cloud", "overload"],
 		"classes": ["knight"],
 		"scope": "ace",
-		"milestone_plus": "knight",
 	},
 	{
 		"id": "cloud_weapon_cd",
@@ -1067,6 +1109,7 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 1,
 		"max_stacks": 1,
 		"category": "electronic_warfare",
+		"axis": "knight",
 		"rarity": Rarity.EXPERIMENTAL,
 		"keywords": ["flare", "overload"],
 		"requires": ["flare"],
@@ -1079,11 +1122,11 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 1,
 		"max_stacks": 1,
 		"category": "electronic_warfare",
-		"rarity": Rarity.ADVANCED,
+		"axis": "knight",
+		"rarity": Rarity.CLASSIFIED,
 		"keywords": ["flare", "overload"],
 		"requires": ["flare"],
 		"classes": ["knight"],  ## v5：超载家族归骑士
-		"milestone_plus": "knight",
 	},
 	{
 		"id": "missile_cd_stealth",
@@ -1105,10 +1148,16 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 1,
 		"max_stacks": 1,
 		"category": "electronic_warfare",
+		"axis": "knight",
 		"rarity": Rarity.EXPERIMENTAL,
 		"keywords": ["overload"],
+		"build_role": "terminal",
+		"terminal_for": ["overload"],
 		## 必须先有"能进入超载"的来源，避免单独 roll 到形同空技能
-		"requires_skill": ["cloud_overload", "skill_evade_missile_overload", "skill_flare_overload"],
+		"requires_skill": [
+			"cloud_overload", "skill_evade_missile_overload", "skill_flare_overload",
+			"jam_self_overload", "assassin_revenge", "sig_mig41", "storm_i",
+		],
 	},
 	{
 		"id": "overload_extended_ammo",
@@ -1118,9 +1167,15 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 1,
 		"max_stacks": 1,
 		"category": "electronic_warfare",
+		"axis": "knight",
 		"rarity": Rarity.EXPERIMENTAL,
 		"keywords": ["overload", "missile", "gun"],
-		"requires_skill": ["cloud_overload", "skill_evade_missile_overload", "skill_flare_overload"],
+		"build_role": "terminal",
+		"terminal_for": ["overload"],
+		"requires_skill": [
+			"cloud_overload", "skill_evade_missile_overload", "skill_flare_overload",
+			"jam_self_overload", "assassin_revenge", "sig_mig41", "storm_i",
+		],
 	},
 	{
 		"id": "overload_to_bloodlust",
@@ -1130,9 +1185,15 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 1,
 		"max_stacks": 1,
 		"category": "electronic_warfare",
+		"axis": "knight",
 		"rarity": Rarity.EXPERIMENTAL,
 		"keywords": ["overload", "bloodlust"],
-		"requires_skill": ["cloud_overload", "skill_evade_missile_overload", "skill_flare_overload"],
+		"build_role": "bridge",
+		"terminal_for": ["overload"],
+		"requires_skill": [
+			"cloud_overload", "skill_evade_missile_overload", "skill_flare_overload",
+			"jam_self_overload", "assassin_revenge", "sig_mig41", "storm_i",
+		],
 		"milestone_plus": "gladiator",  ## 720 批：噬血共振 斗士+1
 	},
 	{
@@ -1145,7 +1206,12 @@ const UPGRADES: Array[Dictionary] = [
 		"category": "survival",
 		"rarity": Rarity.ADVANCED,
 		"keywords": ["bloodlust", "armor", "mobility"],
-		"requires_skill": ["skill_kill_bloodlust", "skill_damaged_bloodlust", "overload_to_bloodlust"],
+		"build_role": "terminal",
+		"terminal_for": ["bloodlust"],
+		"requires_skill": [
+			"skill_kill_bloodlust", "skill_damaged_bloodlust", "overload_to_bloodlust",
+			"qmaam_bloodlust", "squad_revenge",
+		],
 	},
 	{
 		"id": "full_hp_kill_perma_hp",
@@ -1157,7 +1223,62 @@ const UPGRADES: Array[Dictionary] = [
 		"category": "survival",
 		"rarity": Rarity.EXPERIMENTAL,  ## 720 批：机密→实验（去掉满血前置后降档）
 		"keywords": ["bloodlust", "hp"],
-		"requires_skill": ["skill_kill_bloodlust", "skill_damaged_bloodlust", "overload_to_bloodlust"],
+		"build_role": "terminal",
+		"terminal_for": ["bloodlust"],
+		"requires_skill": [
+			"skill_kill_bloodlust", "skill_damaged_bloodlust", "overload_to_bloodlust",
+			"qmaam_bloodlust", "squad_revenge",
+		],
+	},
+	{
+		"id": "ratatat",
+		"name": "UPGRADE_RATATAT_NAME",
+		"desc": "UPGRADE_RATATAT_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "survival",
+		"axis": "gladiator",
+		"rarity": Rarity.ADVANCED,
+		"keywords": ["bloodlust", "gun"],
+		"build_role": "terminal",
+		"terminal_for": ["bloodlust"],
+		"requires": ["gun"],
+		"requires_skill": [
+			"skill_kill_bloodlust", "skill_damaged_bloodlust", "overload_to_bloodlust",
+			"qmaam_bloodlust", "squad_revenge",
+		],
+	},
+	{
+		"id": "storm_i",
+		"name": "UPGRADE_STORM_I_NAME",
+		"desc": "UPGRADE_STORM_I_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "missile",
+		"axis": "knight",
+		"rarity": Rarity.STABLE,
+		"keywords": ["overload", "afterburner"],
+		"build_role": "source",
+	},
+	{
+		"id": "storm_ii",
+		"name": "UPGRADE_STORM_II_NAME",
+		"desc": "UPGRADE_STORM_II_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "missile",
+		"axis": "knight",
+		"rarity": Rarity.ADVANCED,
+		"keywords": ["overload", "afterburner"],
+		"build_role": "terminal",
+		"terminal_for": ["overload"],
+		"requires_skill": [
+			"cloud_overload", "skill_evade_missile_overload", "skill_flare_overload",
+			"jam_self_overload", "assassin_revenge", "sig_mig41", "storm_i",
+		],
 	},
 	{
 		"id": "head_on_jam",
@@ -1181,8 +1302,11 @@ const UPGRADES: Array[Dictionary] = [
 		"value": 1,
 		"max_stacks": 1,
 		"category": "electronic_warfare",
-		"rarity": Rarity.EXPERIMENTAL,
+		"axis": "knight",
+		"rarity": Rarity.STABLE,
 		"keywords": ["jam", "overload"],
+		"build_role": "bridge",
+		"terminal_for": ["jam"],
 		## 必须先有"能施加 JAM"的来源；否则技能形同空
 		## 729 修：720 批误把前置改成"超载入门技"，导致只拿焰诱共振也能刷出本卡但永远不触发。
 		## 本条自身就是超载来源，前置只应看 JAM 来源（即会调 SkillHooks.on_player_jam_landed 的技能）。
@@ -1202,6 +1326,8 @@ const UPGRADES: Array[Dictionary] = [
 		"category": "electronic_warfare",
 		"rarity": Rarity.EXPERIMENTAL,
 		"keywords": ["jam", "uav", "execute"],
+		"build_role": "terminal",
+		"terminal_for": ["jam"],
 		"requires_skill": [
 			"skill_flare_aoe_jam", "skill_gun_kill_flare_drop", "skill_missile_hit_aoe_jam",
 			"skill_torpedo_aoe_jam", "head_on_jam", "jam_aura", "sig_rafale",
@@ -1219,11 +1345,49 @@ const UPGRADES: Array[Dictionary] = [
 		"category": "electronic_warfare",
 		"rarity": Rarity.EXPERIMENTAL,
 		"keywords": ["fear", "retreat"],
+		"build_role": "terminal",
+		"terminal_for": ["fear"],
 		"requires_skill": [
-			"fear_squad_spread", "skill_gun_kill_fear", "skill_head_on_aoe_fear", "fear_on_lock",
+			"fear_squad_spread", "skill_gun_kill_fear", "skill_head_on_aoe_fear", "fear_on_lock", "sig_su27",
 		],
 		"scope": "squad_once",
 		"milestone_plus": "schemer",
+	},
+	{
+		"id": "mental_confusion",
+		"name": "UPGRADE_MENTAL_CONFUSION_NAME",
+		"desc": "UPGRADE_MENTAL_CONFUSION_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"axis": "schemer",
+		"rarity": Rarity.ADVANCED,
+		"keywords": ["fear", "flare", "missile"],
+		"build_role": "terminal",
+		"terminal_for": ["fear"],
+		"requires_skill": [
+			"fear_squad_spread", "skill_gun_kill_fear", "skill_head_on_aoe_fear", "fear_on_lock", "sig_su27",
+		],
+	},
+	{
+		"id": "hush",
+		"name": "UPGRADE_HUSH_NAME",
+		"desc": "UPGRADE_HUSH_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"axis": "schemer",
+		"rarity": Rarity.ADVANCED,
+		"keywords": ["jam", "flare", "missile"],
+		"build_role": "terminal",
+		"terminal_for": ["jam"],
+		"requires_skill": [
+			"skill_flare_aoe_jam", "skill_gun_kill_flare_drop", "skill_missile_hit_aoe_jam",
+			"skill_torpedo_aoe_jam", "head_on_jam", "jam_aura", "sig_rafale",
+		],
+		"scope": "squad_once",
 	},
 	# ── 普通机密：数据链 ──
 	# 队友锁定的目标 = 玩家完成锁定（反之亦然）；同时强化僚机雷达范围
@@ -1571,10 +1735,34 @@ const UPGRADES: Array[Dictionary] = [
 		"rarity": Rarity.EXPERIMENTAL,
 		"keywords": ["flare"],
 		"requires": ["flare"],
-		"excludes": ["cobra_skill", "evasion_herbst"],   ## R 机动三向互斥
+		"excludes": ["cobra_skill", "evasion_herbst", "displacement_roll", "vertical_break"],
+	},
+	{
+		"id": "displacement_roll",
+		"name": "UPGRADE_DISPLACEMENT_ROLL_NAME",
+		"desc": "UPGRADE_DISPLACEMENT_ROLL_DESC",
+		"stat": "displacement_roll",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "mobility",
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["maneuver", "panic_save"],
+		"excludes": ["cobra_skill", "evasion_herbst", "manual_dodge", "vertical_break"],
+	},
+	{
+		"id": "vertical_break",
+		"name": "UPGRADE_VERTICAL_BREAK_NAME",
+		"desc": "UPGRADE_VERTICAL_BREAK_DESC",
+		"stat": "vertical_break",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "mobility",
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["maneuver", "altitude", "panic_save"],
+		"excludes": ["cobra_skill", "evasion_herbst", "manual_dodge", "displacement_roll"],
 	},
 	# ══ 722 批：机体签名技能（spec aircraft-signature-skills）══════════
-	## 41 机每机一条（F-14 围猎=上方 f14_squad_lock_slow 改档，不重复建条）。
+	## 43 机每机一条（F-14 围猎=上方 f14_squad_lock_slow 改档，不重复建条）。
 	## 规则：全部 CLASSIFIED ×1；exclusive_to=驾驶该机型时才刷出；
 	## 获得后进玩家层账本、换机重放不查门控 → 永久跟玩家（用户 722 定案）。
 	{
@@ -1670,6 +1858,20 @@ const UPGRADES: Array[Dictionary] = [
 		"rarity": Rarity.CLASSIFIED,
 		"exclusive_to": ["fa18e"],
 		"keywords": ["hp", "squad"],
+	},
+	{
+		"id": "sig_ea18g",
+		"name": "UPGRADE_SIG_EA18G_NAME",
+		"desc": "UPGRADE_SIG_EA18G_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "electronic_warfare",
+		"axis": "schemer",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["ea18g"],
+		"scope": "squad_once",
+		"keywords": ["jam", "radar", "wingman"],
 	},
 	{
 		"id": "sig_f16",
@@ -1967,6 +2169,20 @@ const UPGRADES: Array[Dictionary] = [
 		"rarity": Rarity.CLASSIFIED,
 		"exclusive_to": ["mig41"],
 		"keywords": ["altitude", "stealth"],
+	},
+	{
+		"id": "sig_faxx",
+		"name": "UPGRADE_SIG_FAXX_NAME",
+		"desc": "UPGRADE_SIG_FAXX_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "secondary",
+		"axis": "gladiator",
+		"rarity": Rarity.CLASSIFIED,
+		"exclusive_to": ["faxx"],
+		"keywords": ["gun", "kill", "stealth"],
+		"requires": ["gun"],
 	},
 	{
 		"id": "sig_fcas",
@@ -2292,11 +2508,11 @@ static func upgrade_scope(u: Dictionary) -> String:
 
 
 # ── 升级卡"状态词条脚注"（0729）───────────────────────────
-## 卡片下方那行小字：这条技能给的 buff/debuff 本身干什么。
+## 卡片下方那行小字：这条技能涉及、产生或依赖的真实 buff/debuff 本身干什么。
 ## 主路径 = keywords ∩ 状态 id（keywords 已经是 doctrine 家族分类的权威源，
 ## 新技能只要按惯例写上 fear/jam/stealth/bloodlust/overload/slow 就自动带脚注）。
 ## EXTRA  = 确实施加状态但关键词里没写的漏网（INVINCIBLE 没有对应关键词，全靠这里）。
-## OVERRIDE = 关键词与实际状态不符的个例（整条替换，不与 keywords 合并）。
+## OVERRIDE = 关键词与实际状态不符的个例（整条替换；空数组可压掉纯主题标签）。
 const STATUS_NOTE_KEYWORDS: Array[String] = [
 	"overload", "bloodlust", "invincible", "stealth", "fear", "jam", "slow",
 ]
@@ -2309,10 +2525,17 @@ const STATUS_NOTE_EXTRA := {
 	"manual_dodge": ["invincible"],             ## R 闪避 i-frame
 	"sig_su35": ["invincible"],                 ## 落叶飘：机动完成 6s 无敌
 	"sig_harrier": ["invincible"],              ## VIFFing：低速 4s 无敌
+	"sig_mirage3": ["invincible"],              ## 魔术：成功诱骗导弹后 1.5s 无敌
 }
 
 const STATUS_NOTE_OVERRIDE := {
 	"sig_mig41": ["overload"],                  ## keywords 写的是 altitude/stealth，实际给的是 OVERLOAD
+	"vapor_dodge": [],                           ## stealth 仅作主题标签；实际是云中锁定率 ×0.1
+	"ecm_pod": [],                               ## stealth 仅作主题标签；实际是敌方雷达有效距离 ×0.75
+	"alt_change_stealth": [],                    ## stealth 仅作主题标签；实际是变高度时降低锁定率
+	"sig_a6e": [],                               ## stealth 仅作主题标签；实际是低空时降低敌方锁定率
+	"sig_x09": [],                               ## stealth 仅作主题标签；实际是导弹静默概率
+	"sig_x13": [],                               ## jam 仅作受影响状态标签；本卡不施加 JAM
 }
 
 ## 一张卡最多挂几行脚注（再多卡片就撑变形了）
@@ -2455,7 +2678,7 @@ static func compute_keyword_steering_weights(owned_stacks: Dictionary, level: in
 	return steering
 
 
-## 机型 → 专属升级 id。F-14 沿用既有“围猎”id，其余 40 架遵循 sig_<机型>。
+## 机型 → 专属升级 id。F-14 沿用既有“围猎”id，其余 42 架遵循 sig_<机型>。
 static func signature_upgrade_id_for_aircraft(aircraft_id: StringName) -> String:
 	return "f14_squad_lock_slow" if aircraft_id == &"f14" else "sig_%s" % String(aircraft_id)
 
@@ -2489,6 +2712,147 @@ static func _keyword_weight_mult(upgrade: Dictionary, steering: Dictionary) -> f
 	for kw in kws:
 		max_mult = maxf(max_mult, float(steering.get(kw, 1.0)))
 	return max_mult
+
+
+## 构筑标签：显式 build_tags 优先；缺省从 keywords 里提取有通用终端的状态词条。
+static func build_tags_of(upgrade: Dictionary) -> Array[String]:
+	var out: Array[String] = []
+	var raw: Variant = upgrade.get("build_tags", null)
+	if raw != null:
+		for tag in raw:
+			var t := str(tag)
+			if t in TERMINAL_BUILD_TAGS and not out.has(t):
+				out.append(t)
+		return out
+	for kw in upgrade.get("keywords", []):
+		var t := str(kw)
+		if t in TERMINAL_BUILD_TAGS and not out.has(t):
+			out.append(t)
+	return out
+
+
+static func terminal_tags_of(upgrade: Dictionary) -> Array[String]:
+	var out: Array[String] = []
+	for tag in upgrade.get("terminal_for", []):
+		var t := str(tag)
+		if t in TERMINAL_BUILD_TAGS and not out.has(t):
+			out.append(t)
+	return out
+
+
+static func is_terminal_for(upgrade: Dictionary, tag: String) -> bool:
+	return tag != "" and terminal_tags_of(upgrade).has(tag)
+
+
+## 已持有状态词条 stack 总量；只统计正式 UPGRADES，debug/旧档未知 id 不参与。
+static func compute_status_build_affinity(owned_stacks: Dictionary) -> Dictionary:
+	var affinity: Dictionary = {}
+	for tag in TERMINAL_BUILD_TAGS:
+		affinity[tag] = 0
+	for u in UPGRADES:
+		var n: int = int(owned_stacks.get(str(u.get("id", "")), 0))
+		if n <= 0:
+			continue
+		for tag in build_tags_of(u):
+			affinity[tag] = int(affinity.get(tag, 0)) + n
+	return affinity
+
+
+## 主词条：affinity 高者优先，同分用 TERMINAL_BUILD_TAGS 固定顺序。
+static func primary_status_build_tag(affinity: Dictionary) -> String:
+	var best := ""
+	var best_n := 0
+	for tag in TERMINAL_BUILD_TAGS:
+		var n: int = int(affinity.get(tag, 0))
+		if n > best_n:
+			best = tag
+			best_n = n
+	return best
+
+
+static func status_focus_multiplier(upgrade: Dictionary, focus_tag: String, affinity: int) -> float:
+	if focus_tag == "" or affinity <= 0:
+		return 1.0
+	if build_tags_of(upgrade).has(focus_tag):
+		return 1.0 + STATUS_FOCUS_PER_STACK * sqrt(minf(float(affinity), 4.0))
+	return maxf(STATUS_UNRELATED_FLOOR,
+		1.0 - STATUS_UNRELATED_PENALTY_PER_STACK * float(affinity))
+
+
+static func owns_terminal_for(owned_stacks: Dictionary, tag: String) -> bool:
+	for u in UPGRADES:
+		if int(owned_stacks.get(str(u.get("id", "")), 0)) > 0 and is_terminal_for(u, tag):
+			return true
+	return false
+
+
+static func eligible_terminals_for(pool: Array, tag: String) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for u in pool:
+		if u is Dictionary and is_terminal_for(u, tag):
+			out.append(u)
+	return out
+
+
+## 每次事件只服务一个终端债务：miss 高者优先，再比 affinity，最后固定词条顺序。
+static func select_terminal_service_tag(
+	pool: Array,
+	owned_stacks: Dictionary,
+	misses: Dictionary,
+	affinity: Dictionary,
+) -> String:
+	var best := ""
+	var best_miss := -1
+	var best_affinity := -1
+	for tag in TERMINAL_BUILD_TAGS:
+		var a: int = int(affinity.get(tag, 0))
+		if a <= 0 or owns_terminal_for(owned_stacks, tag):
+			continue
+		if eligible_terminals_for(pool, tag).is_empty():
+			continue
+		var m: int = maxi(int(misses.get(tag, 0)), 0)
+		if m > best_miss or (m == best_miss and a > best_affinity):
+			best = tag
+			best_miss = m
+			best_affinity = a
+	return best
+
+
+static func terminal_debt_weight(misses: int) -> float:
+	if misses <= 0:
+		return TERMINAL_FIRST_WEIGHT_MULT
+	if misses == 1:
+		return TERMINAL_SECOND_WEIGHT_MULT
+	return 1.0
+
+
+## 第三次保底时只在当前轴的合法终端中抽；仍尊重 rarity / keyword / 金卡 pity。
+static func pick_terminal_for_tag(
+	pool: Array,
+	tag: String,
+	owned_stacks: Dictionary,
+	level: int,
+	classified_weight_mult: float = 1.0,
+) -> Dictionary:
+	var terminals: Array[Dictionary] = eligible_terminals_for(pool, tag)
+	if terminals.is_empty():
+		return {}
+	var steering: Dictionary = compute_keyword_steering_weights(owned_stacks, level)
+	var weights: Array[float] = []
+	var total := 0.0
+	for u in terminals:
+		var rarity: int = get_rarity(u)
+		var w: float = RARITY_BASE_WEIGHT[rarity] * _keyword_weight_mult(u, steering)
+		if rarity == Rarity.CLASSIFIED:
+			w *= maxf(classified_weight_mult, 1.0)
+		weights.append(w)
+		total += w
+	var roll := randf() * total
+	for i in terminals.size():
+		roll -= weights[i]
+		if roll <= 0.0:
+			return terminals[i]
+	return terminals[terminals.size() - 1]
 
 
 ## §5 三选一抽卡：返回 3 张 upgrade dict（保底至少 1 张 ≥ ADVANCED）
@@ -2753,6 +3117,10 @@ static func pick_card_for_axis(
 	owned_stacks: Dictionary,
 	level: int,
 	classified_weight_mult: float = 1.0,
+	focus_tag: String = "",
+	focus_affinity: int = 0,
+	terminal_tag: String = "",
+	terminal_weight_mult: float = 1.0,
 ) -> Dictionary:
 	if pool.is_empty():
 		return {}
@@ -2762,6 +3130,9 @@ static func pick_card_for_axis(
 	for u in pool:
 		var rarity: int = get_rarity(u)
 		var w: float = RARITY_BASE_WEIGHT[rarity] * _keyword_weight_mult(u, steering)
+		w *= status_focus_multiplier(u, focus_tag, focus_affinity)
+		if is_terminal_for(u, terminal_tag):
+			w *= maxf(terminal_weight_mult, 1.0)
 		if rarity == Rarity.CLASSIFIED:
 			w *= maxf(classified_weight_mult, 1.0)
 		weights.append(w)

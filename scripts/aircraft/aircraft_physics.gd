@@ -342,6 +342,9 @@ static func update_speed(ac: Aircraft, delta: float) -> void:
 
 
 static func update_altitude(ac: Aircraft, delta: float) -> void:
+	# 垂直越过按绝对曲线主张高度；常规收敛必须让位，避免同帧重复爬升/俯冲。
+	if ac._active_special == Aircraft.ActiveSpecialManeuver.VERTICAL_BREAK:
+		return
 	if ac.is_stalled:
 		ac.altitude += ac.vertical_speed * delta
 		ac.altitude = maxf(ac.altitude, 0.0)

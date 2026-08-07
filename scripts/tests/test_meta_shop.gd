@@ -128,6 +128,18 @@ func _test_doctrine_gating() -> void:
 	# AND 语义：双词技任一学说缺失即挡
 	shop.debug_grant("doctrine_jam")
 	_expect("jam 词已解锁", shop.is_keyword_unlocked("jam"), true)
+	_expect("doctrine_any：fear/jam 任一已购即可放行跨词条终端",
+		shop.is_upgrade_gated({
+			"id": "skill_kill_status_heal",
+			"keywords": ["fear", "jam"],
+			"doctrine_any": ["fear", "jam"],
+		}), false)
+	_expect("doctrine_any 不放行组外 gated keyword",
+		shop.is_upgrade_gated({
+			"id": "bridge_test",
+			"keywords": ["fear", "jam", "overload"],
+			"doctrine_any": ["fear", "jam"],
+		}), true)
 	_expect("双词技缺 overload 仍挡",
 		shop.is_upgrade_gated({"id": "jam_self_overload", "keywords": ["jam", "overload"]}), true)
 	shop.debug_grant("doctrine_overload")
@@ -156,7 +168,7 @@ func _test_doctrine_prices() -> void:
 	_expect("每词恰有一张学说", MetaShop.GATED_KEYWORDS.size() == MetaShop.DOCTRINES.size(), true)
 
 
-# ── H. 41 机专属目录 / 定价 / F-14 特例（aircraft-signature-progression §2.1）──
+# ── H. 43 机专属目录 / 定价 / F-14 特例（aircraft-signature-progression §2.1）──
 
 func _test_signature_catalog() -> void:
 	print("── signature 目录 ──")
@@ -174,11 +186,11 @@ func _test_signature_catalog() -> void:
 		var tier := int(nd.get("tier", 0))
 		tier_counts[tier] = int(tier_counts.get(tier, 0)) + 1
 		total += MetaShop.signature_price_for_tier(tier)
-	_expect("进化树恰有 41 个专属商品", nodes.size() == 41, true)
-	_expect("41 项商品 id 全合法", all_known, true)
-	_expect("41 项技能映射全存在", all_mapped, true)
-	_expect("Tier 数量 4/15/8/6/8", tier_counts == {1: 4, 2: 15, 3: 8, 4: 6, 5: 8}, true)
-	_expect("全购合计 28600", total == 28600, true)
+	_expect("进化树恰有 43 个专属商品", nodes.size() == 43, true)
+	_expect("43 项商品 id 全合法", all_known, true)
+	_expect("43 项技能映射全存在", all_mapped, true)
+	_expect("Tier 数量 4/16/8/7/8", tier_counts == {1: 4, 2: 16, 3: 8, 4: 7, 5: 8}, true)
+	_expect("全购合计 30000", total == 30000, true)
 	_expect("F-14 映射围猎",
 		SurvivorData.signature_upgrade_id_for_aircraft(&"f14") == "f14_squad_lock_slow", true)
 	_expect("围猎进入统一签名判别",

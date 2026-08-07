@@ -281,8 +281,19 @@ try {
 
     $jobHandle = New-KillOnCloseJob
     $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $godotArguments = '--headless --path "{0}" -- --bench={1} --duration={2}' -f `
-        $runProjectDir.Replace('"', '\"'), $Scenario, $DurationSeconds
+    $fixedFpsOption = ''
+    if ($env:AGL_BENCH_FIXED_FPS) {
+        $fixedFps = 0
+        if (-not [int]::TryParse($env:AGL_BENCH_FIXED_FPS, [ref]$fixedFps) -or
+            $fixedFps -lt 1 -or $fixedFps -gt 240) {
+            throw "AGL_BENCH_FIXED_FPS must be an integer in 1..240"
+        }
+        # Deterministic simulation: advance a fixed physics/render delta without
+        # synchronizing to wall clock. Growth benches still simulate every 60 Hz tick.
+        $fixedFpsOption = "--fixed-fps $fixedFps "
+    }
+    $godotArguments = '{0}--headless --path "{1}" -- --bench={2} --duration={3}' -f `
+        $fixedFpsOption, $runProjectDir.Replace('"', '\"'), $Scenario, $DurationSeconds
     if ($ProcDumpExe -ne '') {
         $dumpDir = Join-Path $ProjectDir 'tmp\crash-dumps'
         New-Item -ItemType Directory -Path $dumpDir -Force | Out-Null
@@ -297,6 +308,7 @@ try {
     $psi.WorkingDirectory = $runProjectDir
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow = $true
+    $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
 
@@ -305,6 +317,9 @@ try {
 
     Write-Host "[bench] godot=$GodotExe"
     Write-Host "[bench] mode=$RunMode project=$runProjectDir"
+    if ($fixedFpsOption -ne '') {
+        Write-Host "[bench] deterministic fixed-fps=$fixedFps (wall-clock sync disabled)"
+    }
     Write-Host "[bench] scenario=$Scenario duration=${DurationSeconds}s timeout=${TimeoutSeconds}s"
     Write-Host '[bench] launching...'
     if (-not $child.Start()) {

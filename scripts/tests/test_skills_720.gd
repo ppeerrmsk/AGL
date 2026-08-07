@@ -23,7 +23,9 @@ func run() -> void:
 	_test_close_range_lock()
 	_test_axis_count_scaling()
 	_test_t5_mechanisms()
+	_test_overload_axis_and_terminals()
 	_test_requires_skill_chain()
+	_test_status_build_completion()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
 
@@ -189,9 +191,9 @@ func _test_t3_hooks() -> void:
 	victim.free()
 
 
-# ── F. 可叠加锁数技能（普通 +1 / 蜂群 +3，均为全队）──
+# ── F. 可叠加锁数技能（普通 +1 全队 / 蜂群 +3 王牌）──
 func _test_lock_count_upgrades() -> void:
-	print("── F. 锁数技能：多目标追踪 +1/层、导弹蜂群 +3、默认全队 ──")
+	print("── F. 锁数技能：多目标追踪 +1/层全队、导弹蜂群 +3 王牌 ──")
 	var sp := SurvivorPlayer.new()
 	var lead := _make_test_aircraft()
 	var wing := _make_test_aircraft()
@@ -214,8 +216,9 @@ func _test_lock_count_upgrades() -> void:
 	_check("multi_lock 每层 +1 / 上限 3", int(multi.get("value", 0)) == 1 \
 		and int(multi.get("max_stacks", 0)) == 3, str(multi))
 	_check("表中存在 missile_swarm", not swarm.is_empty(), "")
-	_check("两技能均为默认全队范围", str(multi.get("scope", "")) == "" \
-		and str(swarm.get("scope", "")) == "" and not swarm.has("classes"), str(swarm))
+	_check("multi_lock 全队；missile_swarm 为王牌范围",
+		str(multi.get("scope", "")) == ""
+		and str(swarm.get("scope", "")) == "ace" and not swarm.has("classes"), str(swarm))
 	for ac in [lead, wing]:
 		sp.apply_upgrade_to(ac, multi)
 		sp.apply_upgrade_to(ac, swarm)
@@ -357,21 +360,137 @@ func _test_t5_mechanisms() -> void:
 	_check("AI 接管后恢复自动路径", not ac_ctrl.is_manual_maneuver_controlled(), "")
 	ctrl_ai.free()
 	ac_ctrl.free()
-	# 三向互斥：任取一张后，其余两张都不再进池
+	# 五向互斥：任取一张后，其余四张都不再进池
 	var cobra_u := SurvivorData.upgrade_by_id("cobra_skill")
 	var herbst_u := SurvivorData.upgrade_by_id("evasion_herbst")
 	var manual_u := SurvivorData.upgrade_by_id("manual_dodge")
+	var roll_u := SurvivorData.upgrade_by_id("displacement_roll")
+	var vertical_u := SurvivorData.upgrade_by_id("vertical_break")
 	var flare_params := AircraftParams.new()
 	flare_params.flare = FlareParams.new()
-	_check("取眼镜蛇 → J-Turn/胆大妄为不进池",
+	_check("取眼镜蛇 → 其余四项主动机动不进池",
 		not SurvivorData.is_upgrade_available_for(herbst_u, &"f16", flare_params, {"cobra_skill": 1}, [])
-		and not SurvivorData.is_upgrade_available_for(manual_u, &"f16", flare_params, {"cobra_skill": 1}, []), "")
+		and not SurvivorData.is_upgrade_available_for(manual_u, &"f16", flare_params, {"cobra_skill": 1}, [])
+		and not SurvivorData.is_upgrade_available_for(roll_u, &"f16", flare_params, {"cobra_skill": 1}, [])
+		and not SurvivorData.is_upgrade_available_for(vertical_u, &"f16", flare_params, {"cobra_skill": 1}, []), "")
 	_check("取 J-Turn → 眼镜蛇/胆大妄为不进池",
 		not SurvivorData.is_upgrade_available_for(cobra_u, &"f16", flare_params, {"evasion_herbst": 1}, [])
 		and not SurvivorData.is_upgrade_available_for(manual_u, &"f16", flare_params, {"evasion_herbst": 1}, []), "")
 	_check("取胆大妄为 → 眼镜蛇/J-Turn 不进池",
 		not SurvivorData.is_upgrade_available_for(cobra_u, &"f16", flare_params, {"manual_dodge": 1}, [])
 		and not SurvivorData.is_upgrade_available_for(herbst_u, &"f16", flare_params, {"manual_dodge": 1}, []), "")
+	_check("取位移滚转/垂直越过 → 双向互斥完整",
+		not SurvivorData.is_upgrade_available_for(vertical_u, &"f16", flare_params, {"displacement_roll": 1}, [])
+		and not SurvivorData.is_upgrade_available_for(roll_u, &"f16", flare_params, {"vertical_break": 1}, [])
+		and not SurvivorData.is_upgrade_available_for(cobra_u, &"f16", flare_params, {"vertical_break": 1}, []), "")
+	# 位移滚转：平分固定向右、曲线净侧移 350px、ACTIVE 窗口拒绝新命中。
+	var roll_ac := _make_test_aircraft()
+	roll_ac.global_position = Vector2.ZERO
+	roll_ac.heading = 0.0
+	roll_ac.speed = 250.0
+	roll_ac.displacement_roll_active = true
+	var roll_started := roll_ac.try_manual_maneuver()
+	var roll_hit_blocked := not roll_ac.can_accept_new_hit("gun") and not roll_ac.can_accept_new_hit("missile")
+	var roll_hp := roll_ac.hp
+	roll_ac.take_damage(10.0, null, "gun")
+	var weapon_damage_blocked := is_equal_approx(roll_ac.hp, roll_hp)
+	roll_ac.take_damage(3.0, roll_ac, "jam_field")
+	var existing_effect_continues := is_equal_approx(roll_ac.hp, roll_hp - 3.0)
+	for _i in range(23):
+		roll_ac._advance_active_special_maneuver(0.05)
+		AircraftPhysics.apply_movement(roll_ac, 0.05)
+	_check("位移滚转：平分向右且净侧移 350px",
+		roll_started and absf(roll_ac.global_position.x - 350.0) <= 5.0,
+		"pos=%s" % roll_ac.global_position)
+	_check("位移滚转：普通前向运动继续", roll_ac.global_position.y < -100.0, "pos=%s" % roll_ac.global_position)
+	_check("位移滚转：ACTIVE 拒绝新命中且 EXIT 恢复", roll_hit_blocked and roll_ac.can_accept_new_hit("gun"), "")
+	_check("位移滚转：武器伤害被兜底拦截但既有状态类伤害继续", weapon_damage_blocked and existing_effect_continues, "hp=%.1f" % roll_ac.hp)
+	roll_ac.free()
+	# 方向安全：右边界选左；角落两侧都非法时拒绝且不进冷却。
+	var edge_roll := _make_test_aircraft()
+	edge_roll.global_position = Vector2(MapBoundary.world_half_px() - 100.0, 0.0)
+	edge_roll.heading = 0.0
+	edge_roll.displacement_roll_active = true
+	var edge_started := edge_roll.try_manual_maneuver()
+	_check("位移滚转：靠右边界确定性选择左侧", edge_started and edge_roll._active_special_side < 0.0, "")
+	edge_roll.free()
+	var corner_roll := _make_test_aircraft()
+	corner_roll.global_position = Vector2(MapBoundary.world_half_px() - 100.0, -MapBoundary.world_half_px() + 100.0)
+	corner_roll.heading = deg_to_rad(45.0)
+	corner_roll.displacement_roll_active = true
+	_check("位移滚转：两侧均越界时拒绝且不消耗冷却",
+		not corner_roll.try_manual_maneuver() and is_equal_approx(corner_roll._shared_maneuver_cooldown(), 0.0), "")
+	corner_roll.free()
+	# 垂直越过：LOW 拉升 900m；动作期高度命令排队到 EXIT。
+	var vertical_ac := _make_test_aircraft()
+	vertical_ac.altitude = 2000.0
+	vertical_ac.target_altitude = 2000.0
+	vertical_ac.vertical_break_active = true
+	var vertical_started := vertical_ac.try_manual_maneuver()
+	vertical_ac._advance_active_special_maneuver(0.65)
+	var pitch_peak_visible := absf(vertical_ac._active_special_pitch_visual - 1.0) <= 0.01
+	vertical_ac.target_altitude = 5500.0
+	for _i in range(13):
+		vertical_ac._advance_active_special_maneuver(0.05)
+	_check("垂直越过：LOW 净拉升 900m", vertical_started and absf(vertical_ac.altitude - 2900.0) <= 10.0,
+		"alt=%.1f" % vertical_ac.altitude)
+	_check("垂直越过：动作中最新高度命令于 EXIT 生效", is_equal_approx(vertical_ac.target_altitude, 5500.0),
+		"target=%.1f" % vertical_ac.target_altitude)
+	_check("垂直越过：中点俯仰投影达到峰值且 EXIT 清零",
+		pitch_peak_visible and is_zero_approx(vertical_ac._active_special_pitch_visual), "")
+	vertical_ac.free()
+	var dive_ac := _make_test_aircraft()
+	dive_ac.altitude = 5500.0
+	dive_ac.target_altitude = 5500.0
+	dive_ac.vertical_break_active = true
+	var dive_started := dive_ac.try_manual_maneuver()
+	for _i in range(26):
+		dive_ac._advance_active_special_maneuver(0.05)
+	_check("垂直越过：MID 净俯冲 900m 且不突破有效顶速",
+		dive_started and absf(dive_ac.altitude - 4600.0) <= 10.0
+		and dive_ac.speed <= AircraftPhysics.effective_max_speed_kmh(dive_ac) / 3.6 + 0.01,
+		"alt=%.1f speed=%.1f" % [dive_ac.altitude, dive_ac.speed])
+	dive_ac.free()
+	var clipped_ac := _make_test_aircraft()
+	clipped_ac.params.max_altitude = 2700.0
+	clipped_ac.altitude = 2000.0
+	clipped_ac.target_altitude = 2000.0
+	clipped_ac.vertical_break_active = true
+	var clipped_started := clipped_ac.try_manual_maneuver()
+	for _i in range(26):
+		clipped_ac._advance_active_special_maneuver(0.05)
+	_check("垂直越过：可用空间 700m 时按边界裁切", clipped_started and absf(clipped_ac.altitude - 2700.0) <= 10.0, "")
+	clipped_ac.free()
+	var blocked_vertical := _make_test_aircraft()
+	blocked_vertical.params.max_altitude = 2500.0
+	blocked_vertical.altitude = 2000.0
+	blocked_vertical.target_altitude = 2000.0
+	blocked_vertical.vertical_break_active = true
+	_check("垂直越过：可用空间不足 600m 时拒绝且无冷却",
+		not blocked_vertical.try_manual_maneuver() and is_equal_approx(blocked_vertical._shared_maneuver_cooldown(), 0.0), "")
+	blocked_vertical.free()
+	# 同一 Squad 的第二架飞机不能靠切控绕过第一架刚启动的冷却。
+	var shared_squad := Squad.new()
+	var shared_a := _make_test_aircraft()
+	var shared_b := _make_test_aircraft()
+	var shared_ai_a := AIController.new()
+	var shared_ai_b := AIController.new()
+	shared_ai_a.squad = shared_squad
+	shared_ai_b.squad = shared_squad
+	shared_a._ai_ref = shared_ai_a
+	shared_b._ai_ref = shared_ai_b
+	shared_squad.leader = shared_a
+	shared_squad.members = [shared_a, shared_b]
+	shared_a.displacement_roll_active = true
+	shared_b.displacement_roll_active = true
+	var first_shared := shared_a.try_manual_maneuver()
+	shared_squad.set_leader(shared_b)
+	_check("主动机动：切控不能绕过小队共享冷却", first_shared and not shared_b.try_manual_maneuver()
+		and shared_squad.active_maneuver_cooldown_s > 0.0, "")
+	shared_ai_a.free()
+	shared_ai_b.free()
+	shared_a.free()
+	shared_b.free()
 	# 胆大妄为全队下发：每架 +6 flare，AI 僚机受威胁自动释放
 	var sp := SurvivorPlayer.new()
 	var ac2 := _make_test_aircraft()
@@ -400,6 +519,7 @@ func _test_t5_mechanisms() -> void:
 	tail_enemy.team = CombatUnit.TEAM_HOSTILE
 	tail_enemy.global_position = Vector2(0.0, 100.0)
 	tail_enemy.heading = 0.0
+	tail_enemy.speed = 300.0
 	tail_enemy.is_firing = true
 	CombatUnit.all_units.append(tail_enemy)
 	wing2._update_manual_dodge_skill()
@@ -421,6 +541,16 @@ func _test_t5_mechanisms() -> void:
 	ai_herbst._update_evasion_herbst_skill(0.0)
 	_check("J-Turn AI 僚机：无需加力/evasion，后方机炮威胁自动释放",
 		not ai_herbst.evasion_mode and ai_herbst_node.is_active, "")
+	var ai_roll := _make_test_aircraft()
+	ai_roll.displacement_roll_active = true
+	ai_roll._update_active_special_maneuver(0.11)
+	_check("位移滚转 AI 僚机：后方闭合威胁自动释放", ai_roll.is_active_special_maneuver(), "")
+	var ai_vertical := _make_test_aircraft()
+	ai_vertical.altitude = 2000.0
+	ai_vertical.target_altitude = 2000.0
+	ai_vertical.vertical_break_active = true
+	ai_vertical._update_active_special_maneuver(0.11)
+	_check("垂直越过 AI 僚机：后方闭合威胁自动释放", ai_vertical.is_active_special_maneuver(), "")
 	var controlled_cobra := _make_test_aircraft()
 	var controlled_cobra_node := CobraManeuver.new()
 	controlled_cobra.add_child(controlled_cobra_node)
@@ -438,6 +568,8 @@ func _test_t5_mechanisms() -> void:
 	tail_enemy.free()
 	ai_cobra.free()
 	ai_herbst.free()
+	ai_roll.free()
+	ai_vertical.free()
 	controlled_ai.free()
 	controlled_cobra.free()
 	ac2.free()
@@ -474,10 +606,46 @@ func _test_t5_mechanisms() -> void:
 	sp2.free()
 
 
-# ── I. 前置链（requires_skill）自洽性 —— 派生技必须挂在"能产生该状态的根技"上 ──
+# ── I. 超载技能轴与终端闭合（2026-08-06：导弹流统一归骑士）──
+func _test_overload_axis_and_terminals() -> void:
+	print("── I. 超载：十一条全归骑士 / 同轴不重复 +1 / 七个来源均可解锁终端 ──")
+	var overload_ids: Array[String] = [
+		"cloud_overload", "skill_evade_missile_overload", "skill_flare_overload",
+		"overload_duration_4x", "overload_extended_ammo", "overload_to_bloodlust",
+		"jam_self_overload", "assassin_revenge", "sig_mig41", "storm_i", "storm_ii",
+	]
+	for uid in overload_ids:
+		var u := SurvivorData.upgrade_by_id(uid)
+		_check("%s 归骑士轴" % uid, not u.is_empty()
+			and SurvivorData.axis_of_upgrade(u) == SurvivorData.AXIS_KNIGHT, str(u))
+
+	var cloud := SurvivorData.upgrade_by_id("cloud_overload")
+	var flare := SurvivorData.upgrade_by_id("skill_flare_overload")
+	var resonance := SurvivorData.upgrade_by_id("overload_to_bloodlust")
+	_check("云中超载/焰诱共振不再重复给骑士 +1",
+		str(cloud.get("milestone_plus", "")) == ""
+		and str(flare.get("milestone_plus", "")) == "", "仍有同轴 milestone_plus")
+	_check("噬血共振保留斗士 +1 跨轴桥",
+		str(resonance.get("milestone_plus", "")) == SurvivorData.AXIS_GLADIATOR,
+		str(resonance.get("milestone_plus", "")))
+
+	var overload_sources: Array[String] = [
+		"cloud_overload", "skill_evade_missile_overload", "skill_flare_overload",
+		"jam_self_overload", "assassin_revenge", "sig_mig41", "storm_i",
+	]
+	for terminal_id in ["overload_duration_4x", "overload_extended_ammo", "overload_to_bloodlust"]:
+		var terminal := SurvivorData.upgrade_by_id(terminal_id)
+		var prereq: Array = terminal.get("requires_skill", []) as Array
+		_check("%s 的超载来源前置完整" % terminal_id,
+			prereq.size() == overload_sources.size()
+			and overload_sources.all(func(source_id: String) -> bool: return prereq.has(source_id)),
+			str(prereq))
+
+
+# ── J. 前置链（requires_skill）自洽性 —— 派生技必须挂在"能产生该状态的根技"上 ──
 #     729 回归：共振反馈曾把前置写成超载入门技，只拿焰诱共振也会刷出，但玩家无 JAM 手段 → 永不触发。
 func _test_requires_skill_chain() -> void:
-	print("── I. requires_skill：id 有效性 + 共振反馈需 JAM 来源 ──")
+	print("── J. requires_skill：id 有效性 + 共振反馈需 JAM 来源 ──")
 	var all_ids: Dictionary = {}
 	for u in SurvivorData.UPGRADES:
 		all_ids[str(u.get("id", ""))] = true
@@ -509,6 +677,59 @@ func _test_requires_skill_chain() -> void:
 	_check("持有寒蝉效应（JAM 来源）→ 进池",
 		SurvivorData.is_upgrade_available_for(
 			jso, &"f15", null, {"skill_missile_hit_aoe_jam": 1}, knight), "")
+
+
+# ── K. 词条构筑闭环：嗜血基础 / 哒哒哒 / 暴风雨资源语义 / 嘘！闸门 ──
+func _test_status_build_completion() -> void:
+	print("── K. 词条构筑闭环：嗜血免弹 / 哒哒哒 / 暴风雨 / 嘘！ ──")
+	var ac := _make_test_aircraft()
+	ac.team = CombatUnit.TEAM_PLAYER
+	ac.params.gun = GunParams.new()
+	ac.params.gun.max_range = 1000.0
+	ac.params.gun.fire_cone_half_angle = 10.0
+	ac.set_meta("upgrade_stacks", {"ratatat": 1, "storm_i": 1})
+	ac.apply_status(StatusEffects.BLOODLUST, 9.0)
+	StatusEffects.update(ac, 0.0)
+	_check("嗜血基础：玩家小队机炮/CIWS 进入免耗弹语义", ac.bloodlust_gun_ammo_free(), "")
+	ac.ammo = 5
+	AircraftWeapons._fire_gun_round(ac, ac.params.gun)
+	_check("嗜血基础：普通机炮实际出膛不扣弹", ac.ammo == 5, "ammo=%d" % ac.ammo)
+	_check("哒哒哒：射程 +500m / 射界半角 +8° / 间隔 ×0.70",
+		is_equal_approx(ac.effective_gun_range_m(), 1500.0) \
+		and is_equal_approx(ac.effective_gun_cone_half_angle_deg(), 18.0) \
+		and is_equal_approx(ac.effective_gun_fire_interval(1.0), 0.70), "")
+	ac.remove_status(StatusEffects.BLOODLUST)
+	StatusEffects.update(ac, 0.0)
+	AircraftWeapons._fire_gun_round(ac, ac.params.gun)
+	_check("嗜血结束：免耗弹与哒哒哒全部回基线",
+		not ac.bloodlust_gun_ammo_free() \
+		and ac.ammo == 4 \
+		and is_equal_approx(ac.effective_gun_range_m(), 1000.0) \
+		and is_equal_approx(ac.effective_gun_cone_half_angle_deg(), 10.0), "")
+
+	var ab := AfterburnerCharge.new()
+	_check("暴风雨 I：加力可激活", ab.toggle(ac), "")
+	ab.update(3.01)
+	_check("暴风雨 I：单次激活实际耗能 3.0 后获得超载 8s",
+		ac.has_status(StatusEffects.OVERLOAD) \
+		and float(ac.status_effects.get(StatusEffects.OVERLOAD, 0.0)) >= 7.9, "")
+	var charge_before: float = ab.charge
+	ab.update(1.0, 1.0, true)
+	_check("暴风雨 II：超载加力启用时不耗能", is_equal_approx(ab.charge, charge_before), "")
+	ab.toggle(ac)
+	ab.charge = 0.0
+	ab.update(1.0, 1.0, true)
+	_check("暴风雨 II：停用时被动充能 ×4", is_equal_approx(ab.charge, 0.8), "")
+
+	var enemy := _make_test_aircraft()
+	enemy.team = CombatUnit.TEAM_HOSTILE
+	enemy.apply_status(StatusEffects.JAM, 5.0)
+	StatusEffects.update(enemy, 0.0)
+	SkillHooks.hush_active = true
+	_check("嘘！：JAM 敌机热诱弹入口被封锁", SkillHooks.hush_blocks_flare(enemy), "")
+	SkillHooks.hush_active = false
+	ac.free()
+	enemy.free()
 
 
 func _make_test_aircraft() -> Aircraft:

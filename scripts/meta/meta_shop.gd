@@ -317,7 +317,9 @@ func is_keyword_unlocked(kw: String) -> bool:
 	return false
 
 ## 给定 in-run 升级（含 keywords 数组）是否被门控阻挡。
-## AND 语义：keywords 中任一词属于 GATED_KEYWORDS 且对应学说未购 → true。
+## 缺省 AND 语义：keywords 中任一词属于 GATED_KEYWORDS 且对应学说未购 → true。
+## 个别跨词条桥接卡可声明 doctrine_any（如 fear/jam）：组内任一学说已购即可，
+## 组外的其它门控关键词仍保持 AND。
 ## 豁免：机体签名技（含 F-14 的“围猎”；第四槽许可另行门控）。
 ## fail-open：boss debug 局不受局外存档门控（非正式局铁律）。
 func is_upgrade_gated(upgrade: Dictionary) -> bool:
@@ -325,8 +327,16 @@ func is_upgrade_gated(upgrade: Dictionary) -> bool:
 		return false
 	if is_inside_tree() and get_tree().has_meta("boss_debug_mode"):
 		return false
+	var any_group: Array = upgrade.get("doctrine_any", []) as Array
+	var any_unlocked := false
+	for any_kw in any_group:
+		if is_keyword_unlocked(str(any_kw)):
+			any_unlocked = true
+			break
 	for k in upgrade.get("keywords", []):
 		var kw := String(k)
+		if any_unlocked and any_group.has(kw):
+			continue
 		if kw in GATED_KEYWORDS and not is_keyword_unlocked(kw):
 			return true
 	return false

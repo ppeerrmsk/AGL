@@ -105,6 +105,9 @@ static func update(ac: Aircraft, delta: float) -> void:
 		return
 	if ac._flare_cooldown > 0.0:
 		return
+	# 嘘！：JAM 敌机不能释放热诱弹；装填与冷却本身仍正常推进。
+	if SkillHooks.hush_blocks_flare(ac):
+		return
 	if not ac.missile_manager:
 		return
 	# 战术机动中不释放（机动本身提供免疫）
@@ -231,6 +234,8 @@ static func player_flare_should_trigger(ac: Aircraft, m: Missile) -> bool:
 ## 一次热诱弹释放只能诱骗一枚导弹（flare 是一次性诱饵），
 ## 不会连带把同期在飞的其它导弹全部干扰。
 static func release(ac: Aircraft, target_missile: Missile = null) -> void:
+	if SkillHooks.hush_blocks_flare(ac):
+		return
 	var fp := ac.params.flare
 	var count := mini(fp.burst_count, ac.flares_remaining)
 	ac.flares_remaining -= count

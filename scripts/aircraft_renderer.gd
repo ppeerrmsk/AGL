@@ -395,8 +395,8 @@ static func draw_gun_cone(ac: Aircraft) -> void:
 	var fade: float = ac._gun_threat_fade if show_enemy_threat else 1.0
 	if fade <= 0.01:
 		return
-	var gun_r := ac.params.gun.max_range * Aircraft.PIXELS_PER_METER
-	var half_rad := deg_to_rad(ac.params.gun.fire_cone_half_angle)
+	var gun_r := ac.effective_gun_range_m() * Aircraft.PIXELS_PER_METER
+	var half_rad := deg_to_rad(ac.effective_gun_cone_half_angle_deg())
 	if ac.gunship_mode_active:
 		var ring_color := Color(0.9, 0.7, 0.2, 0.55)
 		ac.draw_circle(Vector2.ZERO, gun_r, Color(0.9, 0.7, 0.2, 0.07))
@@ -545,8 +545,9 @@ static func draw_muzzle_flash(ac: Aircraft) -> void:
 	var flash_alpha := randf_range(0.6, 1.0)
 	var flash_color := Color(1.0, 0.9, 0.3, flash_alpha)
 	var s := altitude_base_scale(ac) * visual_model_scale(ac)
+	var pitch_compress := lerpf(1.0, Aircraft.VERTICAL_BREAK_PITCH_MIN_SCALE, ac._active_special_pitch_visual)
 	# 机头前方小闪光
-	var tip := Vector2(0, -20.0 * s)
+	var tip := Vector2(0, -20.0 * s * pitch_compress)
 	ac.draw_circle(tip, 4.0 * s, flash_color)
 	var flash2 := Color(1.0, 0.6, 0.1, flash_alpha * 0.5)
 	ac.draw_circle(tip, 7.0 * s, flash2)
@@ -565,6 +566,8 @@ static func draw_afterburner_glow(ac: Aircraft) -> void:
 	var _hm := ac.get_herbst()
 	if _hm and _hm.visual_offset > 0.0:
 		sy_compress *= lerpf(1.0, 0.4, _hm.visual_offset)
+	# 垂直越过的俯仰投影同步压缩尾喷口纵向锚点，避免尾焰脱离机体。
+	sy_compress *= lerpf(1.0, Aircraft.VERTICAL_BREAK_PITCH_MIN_SCALE, ac._active_special_pitch_visual)
 	# 尾喷口位置（本地坐标，飞机朝 -Y）
 	var tail := Vector2(0, 16.0 * sy_compress)
 	var flame_len := randf_range(10.0, 16.0) * sy_compress
@@ -698,9 +701,11 @@ static func draw_aircraft_icon(ac: Aircraft) -> void:
 	var base_scale: float = altitude_base_scale(ac) * visual_model_scale(ac)
 
 	# 滚转变形（常规 bank + 规避时的原地滚转相位）
-	var bank_compress := cos(ac.bank_angle + ac._evade_roll_phase)
+	var bank_compress := cos(ac.bank_angle + ac._evade_roll_phase + ac._active_special_roll_visual)
 	var sx := base_scale * bank_compress
 	var sy := base_scale
+	# 垂直越过：俯视投影只压缩机体纵轴，保留翼展，明确表现抬头/压头姿态。
+	sy *= lerpf(1.0, Aircraft.VERTICAL_BREAK_PITCH_MIN_SCALE, ac._active_special_pitch_visual)
 	# 战术机动视觉效果：各向同性收缩（表示"极端机动"），不只压 Y 轴。
 	# 为什么各向同性：
 	#   旧版只压 sy（本地 Y 轴 = 机体纵轴），heading 旋转时 sy 压缩方向跟着转 →

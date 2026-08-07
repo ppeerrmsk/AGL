@@ -1,9 +1,9 @@
 ---
 id: aircraft-signature-progression
 kind: system
-status: done
+status: approved
 schema_version: 1
-spec_version: 5
+spec_version: 6
 owner: 用户（设计）+ Codex（规格化）
 depends_on: [aircraft-signature-skills, evolution-attribute-gates, career-shop, doctrine-unlocks, global-awareness-roe]
 reconstruction_complete: true
@@ -40,13 +40,13 @@ reconstruction_complete: true
 
 ### 2.1 专属技能商品目录
 
-41 架机与 41 条专属技的效果权威表仍为 `aircraft-signature-skills` §2.2。本系统只增加“发现、购买、局内出示”三层状态。
+43 架机与 43 条专属技的效果权威表仍为 `aircraft-signature-skills` §2.2。本系统只增加“发现、购买、局内出示”三层状态。
 
 | 字段 | 值 / 规则 |
 |---|---|
 | 商品 id | `signature_<evolution_node_id>`，例如 `signature_f15` |
 | 对应升级 id | 默认 `sig_<evolution_node_id>`；唯一例外：`signature_f14 → f14_squad_lock_slow`（“围猎”） |
-| 数量 | 41，必须与进化树节点和签名技能表一一对应，禁止缺项或重复 |
+| 数量 | 43，必须与进化树节点和签名技能表一一对应，禁止缺项或重复 |
 | 持久态 | 复用 MetaShop 的 `owned` 集合；购买一次永久拥有，不可叠加、不可退款 |
 | 上架资格 | `AircraftCodex.is_discovered(node_id) == true`，即玩家曾用它开局或亲自进化到它 |
 | 未发现形态 | 匿名 `???` 占位；不可购买、不可 hover 查看、不可显示价格和任何关联信息 |
@@ -59,11 +59,11 @@ reconstruction_complete: true
 | 机体 Tier | 单项价格 | 数量 | 全购小计 |
 |---|---:|---:|---:|
 | T1 | 500 | 4 | 2000 |
-| T2 | 600 | 15 | 9000 |
+| T2 | 600 | 16 | 9600 |
 | T3 | 700 | 8 | 5600 |
-| T4 | 800 | 6 | 4800 |
+| T4 | 800 | 7 | 5600 |
 | T5 | 900 | 8 | 7200 |
-| **合计** | — | **41** | **28600** |
+| **合计** | — | **43** | **30000** |
 
 ### 2.2 第四槽出示规则
 
@@ -119,7 +119,7 @@ reconstruction_complete: true
 | 分页 | 内容 | 排序 |
 |---|---|---|
 | 战术学说 | 既有 6 张 doctrine | 入门两张在前，其余按现有上架顺序 |
-| 机体专属 | 41 条签名许可 | 已发现条目按 Tier 升序、同 Tier 按机体本地化名；未发现占位统一放末尾 |
+| 机体专属 | 43 条签名许可 | 已发现条目按 Tier 升序、同 Tier 按机体本地化名；未发现占位统一放末尾 |
 | 战场支援 | `support_awacs`；后续战场事件类商品只进此页 | 价格升序 |
 | 机体与后勤 | 幻影 III 采购案、停靠补给僚机、行动时间延长 | 机体采购在前，后勤项目在后 |
 
@@ -172,7 +172,7 @@ buy(signature_<node_id>)
   → 扣除 Tier 价格 → 写入 MetaShop.owned → 永久取得第四槽资格
 ```
 
-bench、boss debug、测试场不得写入 AircraftCodex。现有发现调用点必须统一经过“正式局”闸，避免调试全谱把 41 个商店谜面全部掀开。
+bench、boss debug、测试场不得写入 AircraftCodex。现有发现调用点必须统一经过“正式局”闸，避免调试全谱把 43 个商店谜面全部掀开。
 
 ### 3.2 每机每局一次的出示状态机
 
@@ -232,7 +232,7 @@ update_ally_events(delta):
 
 ## 4. 结构与组成（Structure）
 
-- **签名目录**：集中提供 41 个 `node_id → upgrade_id → Tier 价格` 映射；除 F-14 外按命名约定派生，完整性由 bench 断言。
+- **签名目录**：集中提供 43 个 `node_id → upgrade_id → Tier 价格` 映射；除 F-14 外按命名约定派生，完整性由 bench 断言。
 - **MetaShop**：购买态唯一真源；新增签名商品判定与 AWACS 商品，不复制 AircraftCodex 的发现集合。
 - **AircraftCodex**：仍是“玩家亲自获得过哪些机体”的唯一真源；正式局闸补齐，禁止 debug 污染。
 - **升级调度**：在三轴三卡已经抽完后独立决定第四卡；选卡继续复用现有升级分发、轴点、里程碑与退出动画。

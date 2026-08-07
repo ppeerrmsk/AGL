@@ -63,7 +63,7 @@ static func assess_situation(ai: AIController) -> AIController.SituationData:
 	# 机炮射程
 	s.gun_range_px = 150.0
 	if ai.aircraft.params and ai.aircraft.params.gun:
-		s.gun_range_px = ai.aircraft.params.gun.max_range * Aircraft.PIXELS_PER_METER
+		s.gun_range_px = ai.aircraft.effective_gun_range_m() * Aircraft.PIXELS_PER_METER
 
 	# 迎头判定：双方都面朝对方（aspect > 120° 且 my_aot < 60°）
 	s.is_head_on = s.aspect_angle > deg_to_rad(120.0) and s.my_aot < deg_to_rad(60.0) and s.closing_rate > 0

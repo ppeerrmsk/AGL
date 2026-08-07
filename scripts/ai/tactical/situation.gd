@@ -202,7 +202,7 @@ static func from_aircraft(ac) -> Situation:
 		s.radar_half_angle_deg = ac.params.radar_half_angle
 		s.lock_time_threshold = ac.params.lock_time
 		if ac.params.gun:
-			s.gun_range_m = ac.params.gun.max_range
+			s.gun_range_m = ac.effective_gun_range_m()
 			s.gun_muzzle_mps = ac.params.gun.muzzle_velocity
 		if ac.params.missile:
 			s.missile_max_range_m = ac.params.missile.max_range_rear

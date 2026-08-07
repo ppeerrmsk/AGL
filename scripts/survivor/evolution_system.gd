@@ -93,9 +93,8 @@ static func class_identity_of_profile(profile_id: StringName) -> Array:
 	return CLASS_IDENTITY_BY_CATEGORY.get(cat, [])
 
 # ── 属性门槛（spec evolution-attribute-gates §2.3/§2.4）──
-## 节点 gates 字段形如 {"gladiator": 2} / air 类 {"gladiator":1,"knight":1,"sum_gk":3}
-## / omni 三轴各写；"sum_gk" = 斗士+骑士合计（制空混合门）。无字段 = 无门槛（T1 起手）。
-## 当前 12 机树为临时缩放值（tier2≈设计T3 / tier3≈设计T5），41 机重排时重生成。
+## 节点 gates 字段只允许具体三轴（可多轴并列）与 F/A-18E 的 "any" 或门。
+## sum_gk / sum_all 已由 evolution-attribute-gates v15 废除。无字段 = 无门槛（T1 起手）。
 
 static func gates_of(nd: Dictionary) -> Dictionary:
 	return nd.get("gates", {})
@@ -105,7 +104,7 @@ static func gates_passed(nd: Dictionary, axis_points: Dictionary) -> bool:
 	return gates_missing(nd, axis_points).is_empty()
 
 ## 缺口列表 [{key, have, need}]，空 = 全过。UI 缺口徽记数据源。
-## key 语义：轴名（≥）/ "sum_gk"（斗+骑合计）/ "sum_all"（三轴合计）/ "any"（值为 {轴:门槛}，任一满足即过）。
+## key 语义：轴名（≥）/ "any"（值为 {轴:门槛}，任一满足即过）。
 static func gates_missing(nd: Dictionary, axis_points: Dictionary) -> Array:
 	var out: Array = []
 	var g := gates_of(nd)
@@ -131,14 +130,7 @@ static func gates_missing(nd: Dictionary, axis_points: Dictionary) -> Array:
 				out.append({"key": best_key, "have": best_have, "need": best_need})
 			continue
 		var need: int = int(g[k])
-		var have: int
-		if ks == "sum_gk":
-			have = int(axis_points.get(&"gladiator", 0)) + int(axis_points.get(&"knight", 0))
-		elif ks == "sum_all":
-			have = int(axis_points.get(&"gladiator", 0)) + int(axis_points.get(&"knight", 0)) \
-				+ int(axis_points.get(&"schemer", 0))
-		else:
-			have = int(axis_points.get(StringName(ks), 0))
+		var have: int = int(axis_points.get(StringName(ks), 0))
 		if have < need:
 			out.append({"key": ks, "have": have, "need": need})
 	return out

@@ -3,7 +3,7 @@ id: bloodlust
 kind: skill
 status: done
 schema_version: 1
-spec_version: 1
+spec_version: 3
 owner: design
 depends_on: [overload, status-effects, seam-001-effective-accessor]
 reconstruction_complete: true
@@ -11,19 +11,19 @@ reconstruction_complete: true
 
 # BLOODLUST 嗜血（击杀/受伤触发 buff 家族）
 
-> 一组围绕"BLOODLUST 状态"的升级。基础款触发即回血；进阶"血怒护甲"把 BLOODLUST 期间变成
-> 减伤 + 高机动窗口。设计定位：奖励**主动交战/挨打**，把"打得越凶越强"做成正反馈循环。
+> 一组围绕"BLOODLUST 状态"的升级。基础状态提供击杀回血与机炮零耗弹；进阶终端再加入
+> 减伤/机动、永久生命或机炮火控。设计定位：奖励**主动交战/挨打**，把"打得越凶越强"做成正反馈循环。
 
 ## 1. 设计意图（Why）
 
 - **体验目标**：让玩家在击杀/被打的瞬间获得短时强化，形成"咬住战斗就滚雪球"的节奏。
   基础款先给**续航**（回血），进阶款再换成**攻坚窗口**（减伤+拉 G+加速），层层加码。
 - **Litmus 自检**（docs/DESIGN_PHILOSOPHY.md）：
-  - buff 有明确来源（击杀/受伤）和清晰时长条（8s）→ 玩家能预期、能规划连招 → 过"可读"测试。
+  - buff 有明确来源（击杀/受伤）和清晰时长条（9s）→ 玩家能预期、能规划连招 → 过"可读"测试。
   - 机动 buff 经 `effective_*()` 注入，**AI 战术层能感知**（设的目标速度/角点速度会抬升）→
     过"buff 名副其实"测试（见反模式：升级名存实亡）。
-- **反模式规避**：基础 BLOODLUST 只回血、不直接给机动——避免单卡就过强；机动/减伤拆到
-  `bloodlust_armor_mobility` 进阶卡，形成"基础→进阶→共振"的构筑深度，而非一张卡全包。
+- **反模式规避**：基础 BLOODLUST 不直接给机动/减伤；零耗弹只延长持续交战，不改变单发伤害。
+  机动、减伤、永久成长和火控继续拆到三张终端，形成"入口→状态→终端"的构筑深度。
 
 ## 2. 数据定义（What —— 全部数值，权威源）
 
@@ -31,11 +31,12 @@ reconstruction_complete: true
 
 | id | 触发/作用 | 类别 | 稀有度 | 上限 | 前置（任一） |
 |---|---|---|---|---|---|
-| `skill_kill_bloodlust` | 击杀 → BLOODLUST 8s | survival | ADVANCED | 1 | — |
-| `skill_damaged_bloodlust` | 受伤 → BLOODLUST 8s（被打刷新） | survival | ADVANCED | 1 | — |
-| `bloodlust_armor_mobility` | **修饰**：BLOODLUST 期间减伤+拉G+加速 | survival | ADVANCED | 1 | `skill_kill_bloodlust` / `skill_damaged_bloodlust` / `overload_to_bloodlust` |
-| `overload_to_bloodlust` | OVERLOAD 时同时获得 BLOODLUST，击杀刷新两者 | electronic_warfare | EXPERIMENTAL | 1 | `cloud_overload` / `skill_evade_missile_overload` / `skill_flare_overload` |
-| `full_hp_kill_perma_hp` | 满血+BLOODLUST 击杀 → 永久 +max_hp | survival | CLASSIFIED | 1 | 任一 BLOODLUST 基础卡 |
+| `skill_kill_bloodlust` | 击杀 → BLOODLUST 9s | survival | ADVANCED | 1 | — |
+| `skill_damaged_bloodlust` | 受伤 → BLOODLUST 9s（被打刷新） | survival | ADVANCED | 1 | — |
+| `bloodlust_armor_mobility` | **终端**：BLOODLUST 期间减伤+拉G+加速 | survival | ADVANCED | 1 | 五个 BLOODLUST 来源中的任一 |
+| `overload_to_bloodlust` | OVERLOAD 时同时获得 BLOODLUST，击杀刷新两者；`axis=knight` | electronic_warfare | EXPERIMENTAL | 1 | `cloud_overload` / `skill_evade_missile_overload` / `skill_flare_overload` / `jam_self_overload` / `assassin_revenge` / `sig_mig41` / `storm_i` |
+| `full_hp_kill_perma_hp` | **终端**：BLOODLUST 击杀 → 永久 +8 max_hp/+8 hp | survival | EXPERIMENTAL | 1 | 五个 BLOODLUST 来源中的任一 |
+| `ratatat` | **终端**：BLOODLUST 期间机炮射程 +500m、射击间隔 ×0.70、射击锥半角 +8° | survival | ADVANCED | 1 | 五个 BLOODLUST 来源中的任一 |
 
 所有条目 `stat = "skill_flag"`、`value = 1`（布尔旗标，不是数值堆叠）。
 
@@ -43,13 +44,16 @@ reconstruction_complete: true
 
 | 常量 | 值 | 含义 |
 |---|---|---|
-| `KILL_BLOODLUST_DURATION` | 8.0 s | 击杀触发时长 |
-| `DAMAGED_BLOODLUST_DURATION` | 8.0 s | 受伤触发时长 |
+| `KILL_BLOODLUST_DURATION` | 9.0 s | 击杀触发时长 |
+| `DAMAGED_BLOODLUST_DURATION` | 9.0 s | 受伤触发时长 |
 | `BLOODLUST_ARMOR_DR` | 0.30 | 减伤 30%（受伤 ×0.70），仅 `bloodlust_armor_mobility` 生效 |
 | `BLOODLUST_G_MULT` | 1.20 | max_g ×1.2，仅修饰卡生效 |
 | `BLOODLUST_ACCEL_MULT` | 1.30 | 加速/减速 ×1.3，仅修饰卡生效（与 OVERLOAD 的 1.6 区别开） |
 | `FULL_HP_KILL_HP_BONUS` | **8.0** | 满血 BLOODLUST 击杀的永久 +max_hp/+hp ⚠ 见 §8 desync |
 | `BLOODLUST_HEAL_PER_KILL`（`status_effects.gd`） | 20.0 | BLOODLUST 期间击杀回血 +20 |
+| `RATATAT_RANGE_BONUS_M` | 500.0 | Ratatat 终端射程加值 |
+| `RATATAT_INTERVAL_MULT` | 0.70 | Ratatat 终端实际射击间隔倍率 |
+| `RATATAT_CONE_BONUS_DEG` | 8.0 | Ratatat 终端射击锥半角加值 |
 
 ### 2.3 状态显示（`status_effects.gd`）
 
@@ -67,14 +71,14 @@ reconstruction_complete: true
 
 ```
 击杀任意敌机（gun/missile/rocket/AOE 皆可）:
-  若持有 skill_kill_bloodlust → apply_status(BLOODLUST, 8.0)
+  若持有 skill_kill_bloodlust → apply_status(BLOODLUST, 9.0)
   若持有 BLOODLUST 状态（任意来源）→ 回血 +20（BLOODLUST_HEAL_PER_KILL）
   若持有 overload_to_bloodlust 且 OVERLOAD/BLOODLUST 仍在 → 刷新两者到 initial 时长
   若持有 full_hp_kill_perma_hp 且 当前 status_bloodlust_active 且 满血(容差0.5)
      → params.max_hp += 8.0；hp = min(hp+8.0, max_hp)   ## 永久成长
 
 受伤（任意来源）:
-  若持有 skill_damaged_bloodlust → apply_status(BLOODLUST, 8.0)（max 刷新）
+  若持有 skill_damaged_bloodlust → apply_status(BLOODLUST, 9.0)（max 刷新）
 
 进入 OVERLOAD（任意来源）且持有 overload_to_bloodlust:
   → 同时 apply_status(BLOODLUST, OVERLOAD 同款最终时长)
@@ -83,7 +87,8 @@ reconstruction_complete: true
 
 ### 3.2 BLOODLUST 期间的效果（注意分层）
 
-**基础 BLOODLUST（无 `bloodlust_armor_mobility`）**：**只有击杀回血 +20**，无机动/减伤。
+**基础 BLOODLUST**：击杀回血 +20；普通机炮和机炮 CIWS 开火不消耗弹药。弹药已为 0 时
+不会凭空恢复、不会跳过正在进行的装填；状态结束后恢复正常扣弹。基础状态无机动/减伤。
 
 **+ `bloodlust_armor_mobility` 修饰卡**（且 `team==0`），追加四项，全部经 SEAM-001 注入点：
 
@@ -97,6 +102,10 @@ reconstruction_complete: true
 > **失速余量降到 1.0 的连带效果**：角点速度 `effective_corner_speed_kmh` 自动随 `effective_max_g`
 > 上升 + 允许更低速拉满 G。所以这张卡不只是"+20% G 数字"，而是把整条转弯包络抬高。
 > 预测线 `cached_max_g / cached_safe_margin` 会冻结这些值（同一帧内一致，防止预测路径撕裂）。
+
+**+ `ratatat` 终端**：BLOODLUST 期间 `effective_gun_range_m = base + 500`、
+`effective_gun_fire_interval = base ×0.70`、`effective_gun_cone_half_angle = base + 8°`。
+玩家扫描、AI Situation/BFM、物理火控和射界渲染必须读取同一组有效 accessor。
 
 > ⚠ **SEAM-001**：机动 buff **只能**经 `effective_*()` accessor 注入，AI 战术层（Situation /
 > TacticalPlanner）才能感知；BLOODLUST 正是范例。禁止在物理 tick 散点 if-else 乘 buff。
@@ -122,7 +131,9 @@ reconstruction_complete: true
 - [x] AI 可感知：升满 buff 后 EventLogger 看 AI 设的 `target_speed_kmh` / 角点速度抬升（SEAM-001 通路）
 - [x] 触发为 max 刷新（已激活时再触发取 max，不缩短）
 - [x] OVERLOAD 共振：overload_to_bloodlust 下 OVERLOAD/BLOODLUST 同时在、击杀同时刷新
-- [x] i18n：5 个条目三语齐全，desc 数值与代码常量一致（full_hp_kill +5→+8 desync 已修，见 §8）
+- [x] BLOODLUST 期间普通机炮/CIWS 不扣弹，0 弹与装填状态不被伪造
+- [x] Ratatat 三项有效参数同时进入玩家、AI、物理火控与射界表现
+- [x] i18n：新增 Ratatat 与基础状态脚注三语齐全，desc 数值与代码常量一致
 
 ## 6. 实现计划（Task Pipeline）
 
@@ -130,7 +141,7 @@ reconstruction_complete: true
 
 ### 阶段 1 — 状态与基础触发
 - [x] `StatusEffects.BLOODLUST` + HUD 标签/色/DISPLAY_ORDER + `BLOODLUST_HEAL_PER_KILL=20`
-- [x] `skill_kill_bloodlust` / `skill_damaged_bloodlust` 条目 + on_kill/on_hit 钩子（8s，max 刷新）
+- [x] `skill_kill_bloodlust` / `skill_damaged_bloodlust` 条目 + on_kill/on_hit 钩子（9s，max 刷新）
 
 ### 阶段 2 — 修饰卡（机动/减伤）
 - [x] `bloodlust_armor_mobility` 条目（前置任一 BLOODLUST 基础卡）
@@ -145,6 +156,11 @@ reconstruction_complete: true
 - [x] i18n 5 条目三语
 - [x] survivor-skills.md 图鉴登记
 - [x] 修正 full_hp_kill 文案/常量 desync（§8，以代码 +8 为准）
+
+### 阶段 5 — 2026-08-06 状态扩展
+- [x] BLOODLUST 基础机炮/CIWS 零耗弹
+- [x] Ratatat 终端与有效机炮 accessor
+- [x] 五个来源前置闭合、终端元数据、三语与回归
 
 ## 7. 索引锚点（Where —— 指针，会腐烂，非权威）
 
@@ -173,5 +189,7 @@ i18n `UPGRADE_FULL_HP_KILL_PERMA_HP_DESC` 三语文案与 `skill_hooks.gd` 注�
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-06 | 3 | 用户追加 BLOODLUST 基础效果：普通机炮与 CIWS 不耗弹；新增 Ratatat 终端（+500m、间隔 ×0.70、锥半角 +8°）；两个旧终端补齐 QAAM 嗜血与复仇之战来源。 |
+| 2026-08-06 | 2 | `overload_to_bloodlust` 随超载家族迁至骑士轴；终端前置补齐全部 6 个真实 OVERLOAD 来源，保留斗士+1 跨轴桥。 |
 | 2026-05-09 | — | buff 时长统一 8s（见 specs/skills/buff_duration_rebalance.md + changelog 2026-05-09） |
 | 2026-05-30 | 1 | 逆向回填为 reconstruction-grade spec；澄清"基础款仅回血、机动/减伤在修饰卡"；记录 full_hp_kill +5/+8 desync |

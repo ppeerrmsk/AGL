@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "_comment": "41 机全谱树 v2（spec aircraft-evolution-tree §4 v2 / player-aircraft-power-curve §2 v7）。min_level 逐机（§1.8）；gates=evolution-attribute-gates §2.3/§2.4 设计值（any=或门/sum_gk=斗骑合计/sum_all=三轴合计）；T5 终端档（x02→ax00 / x44→x90 特殊边除外）。生成器：scratchpad gen_roster_stage2.py",
+  "_comment": "43 机全谱树 v3（spec aircraft-evolution-tree §4 v8 / evolution-attribute-gates v15）。门槛只允许具体三轴与 F/A-18E any 或门；sum_gk/sum_all 已废除。T5 终端档（x02→ax00 / x44→x90 特殊边除外）。",
   "tier_min_level": {
     "1": 1,
     "2": 4,
@@ -45,6 +45,7 @@
       "exits": [
         "mig31",
         "fa18e",
+        "ea18g",
         "su34",
         "su27"
       ]
@@ -92,7 +93,7 @@
         "j20"
       ],
       "gates": {
-        "sum_gk": 1
+        "gladiator": 1
       }
     },
     {
@@ -109,7 +110,7 @@
         "j20"
       ],
       "gates": {
-        "sum_gk": 1
+        "knight": 1
       }
     },
     {
@@ -145,6 +146,22 @@
           "gladiator": 1,
           "knight": 1
         }
+      }
+    },
+    {
+      "id": "ea18g",
+      "tier": 2,
+      "category": "ew",
+      "profile": "ea18g",
+      "name_key": "AIRCRAFT_EA18G_DISPLAY",
+      "min_level": 6,
+      "exits": [
+        "f35",
+        "gripen_e",
+        "a12"
+      ],
+      "gates": {
+        "schemer": 1
       }
     },
     {
@@ -193,7 +210,7 @@
         "j20"
       ],
       "gates": {
-        "sum_gk": 1
+        "gladiator": 2
       }
     },
     {
@@ -258,7 +275,7 @@
         "f35"
       ],
       "gates": {
-        "sum_gk": 1
+        "knight": 2
       }
     },
     {
@@ -338,9 +355,7 @@
         "fcas"
       ],
       "gates": {
-        "gladiator": 1,
-        "knight": 1,
-        "sum_gk": 3
+        "gladiator": 3
       }
     },
     {
@@ -356,9 +371,7 @@
         "fcas"
       ],
       "gates": {
-        "gladiator": 1,
-        "knight": 1,
-        "sum_gk": 3
+        "gladiator": 3
       }
     },
     {
@@ -371,7 +384,8 @@
       "exits": [
         "fcas",
         "yf23",
-        "f47"
+        "f47",
+        "faxx"
       ],
       "gates": {
         "schemer": 2
@@ -407,9 +421,7 @@
         "fcas"
       ],
       "gates": {
-        "gladiator": 1,
-        "knight": 1,
-        "sum_gk": 3
+        "knight": 3
       }
     },
     {
@@ -426,9 +438,8 @@
         "x02"
       ],
       "gates": {
-        "gladiator": 1,
-        "knight": 1,
-        "sum_gk": 3
+        "gladiator": 2,
+        "knight": 2
       }
     },
     {
@@ -457,7 +468,7 @@
       "name_key": "AIRCRAFT_A12_DISPLAY",
       "min_level": 14,
       "exits": [
-        "x44",
+        "faxx",
         "j36",
         "fcas",
         "x02"
@@ -479,9 +490,8 @@
         "ax00"
       ],
       "gates": {
-        "gladiator": 1,
-        "knight": 1,
-        "sum_gk": 5
+        "gladiator": 2,
+        "knight": 3
       }
     },
     {
@@ -493,13 +503,12 @@
       "min_level": 17,
       "exits": [
         "x09",
-        "x13",
+        "x90",
         "ax00"
       ],
       "gates": {
-        "gladiator": 1,
-        "knight": 1,
-        "sum_gk": 5
+        "gladiator": 3,
+        "knight": 2
       }
     },
     {
@@ -516,6 +525,22 @@
       ],
       "gates": {
         "knight": 4
+      }
+    },
+    {
+      "id": "faxx",
+      "tier": 4,
+      "category": "attack",
+      "profile": "faxx",
+      "name_key": "AIRCRAFT_FAXX_DISPLAY",
+      "min_level": 18,
+      "exits": [
+        "x44",
+        "x09",
+        "ax00"
+      ],
+      "gates": {
+        "gladiator": 4
       }
     },
     {
@@ -559,7 +584,7 @@
       "min_level": 20,
       "exits": [
         "x21",
-        "x13",
+        "x77",
         "ax00"
       ],
       "gates": {
@@ -575,9 +600,8 @@
       "min_level": 21,
       "exits": [],
       "gates": {
-        "gladiator": 2,
-        "knight": 2,
-        "sum_gk": 6
+        "gladiator": 3,
+        "knight": 3
       }
     },
     {
@@ -671,8 +695,7 @@
       "gates": {
         "gladiator": 2,
         "knight": 2,
-        "schemer": 2,
-        "sum_all": 7
+        "schemer": 2
       }
     }
   ]
