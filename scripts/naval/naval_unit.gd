@@ -700,7 +700,6 @@ func _draw_impl() -> void:
 	_draw_weak_point_placeholder()
 	_draw_target_bracket()
 	_draw_lock_indicator()
-	LockWarning.draw(self, AircraftRenderer.player_ref)
 	_draw_status_label()
 
 
@@ -974,7 +973,8 @@ func _draw_lock_indicator() -> void:
 	var p: float = clampf(incoming_lock_progress, 0.0, 1.0)
 	if p <= 0.0 and not is_locked:
 		return
-	draw_set_transform(Vector2.ZERO, -rotation, Vector2.ONE)
+	var inv_zoom: float = AircraftRenderer.screen_space_inverse_scale(self)
+	draw_set_transform(Vector2.ZERO, -rotation, Vector2.ONE * inv_zoom)
 	AircraftRenderer.draw_lock_box(self, p, is_locked)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 

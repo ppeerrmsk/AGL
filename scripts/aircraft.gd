@@ -536,6 +536,7 @@ var _ciws_fire_log_until: float = 0.0    ## 玩家方 CIWS_FIRE 诊断节流（�
 var survivor_missile_damage_cap: float = 0.0  ## 生存模式：导弹伤害上限（0=不限制）
 var survivor_bullet_damage_cap: float = 0.0   ## 生存模式：机炮伤害上限（0=不限制）
 var hide_data_label: bool = false    ## 隐藏飞机旁的数据标签（HUD 替代显示）
+var _compact_data_label_active: bool = false  ## 远景战略标签迟滞状态（AircraftRenderer 维护）
 var is_drone: bool = false           ## 忠诚僚机无人机标记：跳过预测线 / 数据标签 / 高度文本，纯 2D 视觉
 
 ## 玩家光环技能 ID（仅长机持有；&""=无）。当前实现：&"data_link"（F-14 专属）
@@ -3306,11 +3307,6 @@ func _draw_impl() -> void:
 		AircraftRenderer.draw_secondary_lock_indicators(self)
 	# 友方 hover 时显示参考机炮锥；敌方对玩家提交机炮攻击时持续显示锥（条件在 draw_gun_cone 内判）
 	AircraftRenderer.draw_gun_cone(self)
-	# 守卫：player_ref 在 gameover 时可能持有 freed 引用 → GDScript 严格类型校验在
-	# 进入 LockWarning.draw 之前就抛 "previously freed" 类型错误（is_instance_valid 内部
-	# 检查反而救不了）。call-site 守卫必不可少。
-	if AircraftRenderer.player_ref != null and is_instance_valid(AircraftRenderer.player_ref):
-		LockWarning.draw(self, AircraftRenderer.player_ref)
 	# drone（忠诚僚机）跳过预测线 / 锁定指示 / 目标括号 / 数据标签 — 纯 2D 极简视觉
 	if not is_drone:
 		AircraftRenderer.draw_target_line(self)
@@ -3328,13 +3324,20 @@ func _draw_impl() -> void:
 	if is_afterburner:
 		AircraftRenderer.draw_afterburner_glow(self)
 	AircraftRenderer.draw_flare_particles(self)
+	var compact_label := false
 	if is_drone:
 		# drone 用极简一行标签：DRONE + 速度（无 callsign / altitude / HDG / G）
 		AircraftRenderer.draw_data_label_drone(self)
-	elif hide_data_label:
-		AircraftRenderer.draw_data_label_minimal(self)
 	else:
-		AircraftRenderer.draw_data_label(self)
+		compact_label = AircraftRenderer.should_draw_compact_label(self)
+		if compact_label:
+			AircraftRenderer.draw_data_label_compact(self)
+		elif hide_data_label:
+			AircraftRenderer.draw_data_label_minimal(self)
+		else:
+			AircraftRenderer.draw_data_label(self)
+	if compact_label:
+		AircraftRenderer.draw_reload_indicators(self)
 	AircraftRenderer.draw_tactic_popup(self)
 	# 飞机的 buff/debuff 改由 draw_data_label / draw_data_label_minimal 以文本+百分比形式显示
 	# （地面单位 SAM/AAA/ground_unit 仍走 draw_status_icons 的进度条，因其没有数据标签）

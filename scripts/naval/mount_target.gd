@@ -33,6 +33,7 @@ const SYNC_TICK_DIVISOR: int = 3
 var _tick_count: int = 0
 var _last_lock_progress: float = -1.0
 var _last_is_locked: bool = false
+var _last_lock_view_scale: float = -1.0
 
 
 func _ready() -> void:
@@ -89,7 +90,14 @@ func _physics_process_impl(_delta: float) -> void:
 
 	# 脏驱动 redraw：仅锁定状态变化时重画
 	var p: float = clampf(incoming_lock_progress, 0.0, 1.0)
-	if not is_equal_approx(p, _last_lock_progress) or is_locked != _last_is_locked:
+	var zoom_changed := false
+	if p > 0.0 or is_locked:
+		var view_scale: float = get_viewport_transform().get_scale().x
+		zoom_changed = absf(view_scale - _last_lock_view_scale) > 0.001
+		_last_lock_view_scale = view_scale
+	else:
+		_last_lock_view_scale = -1.0
+	if not is_equal_approx(p, _last_lock_progress) or is_locked != _last_is_locked or zoom_changed:
 		_last_lock_progress = p
 		_last_is_locked = is_locked
 		queue_redraw()
@@ -165,4 +173,7 @@ func _draw() -> void:
 	# 被锁定 / 正在被锁定 → 画锁定框
 	var p: float = clampf(incoming_lock_progress, 0.0, 1.0)
 	if p > 0.0 or is_locked:
+		var inv_zoom: float = AircraftRenderer.screen_space_inverse_scale(self)
+		draw_set_transform(Vector2.ZERO, -rotation, Vector2.ONE * inv_zoom)
 		AircraftRenderer.draw_lock_box(self, p, is_locked)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

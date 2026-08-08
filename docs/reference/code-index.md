@@ -1077,14 +1077,16 @@
 | 统一机型尺寸幂律 + 高度倍率 | `aircraft_renderer.gd:62 altitude_base_scale` / `:76 visual_model_scale`；真实尺寸字段 `aircraft_params.gd` |
 | 指挥型图标 | `aircraft_renderer.gd:865` draw_commander_icon |
 | 雷达锥绘制 | `aircraft_renderer.gd:220` draw_radar_cone |
-| 锁定警告闪烁 | `aircraft_renderer.gd:430` draw_lock_indicator |
-| 数据标签（完整） | `aircraft_renderer.gd:1476` draw_data_label |
-| 数据标签（简化） | `aircraft_renderer.gd:1349` draw_data_label_minimal |
+| 锁定框闪烁 + 屏幕空间恒定尺寸 | `aircraft_renderer.gd` `screen_space_inverse_scale` / `draw_lock_indicator` / `draw_lock_box` / `draw_secondary_lock_indicators`；地面/舰船/挂点调用同一补偿规则 |
+| 真实在途导弹警告（一弹一线一三角；雷达共用判定） | `missile.gd` `incoming_warning_rule` / `is_incoming_warning_for` / `_draw_incoming_warning`；`survivor/survivor_hud.gd` `RadarDisplay` |
+| 数据标签（完整） | `aircraft_renderer.gd` draw_data_label |
+| 数据标签（生存模式简化） | `aircraft_renderer.gd` draw_data_label_minimal |
+| 数据标签（真实开局 0.35/0.40 简略档 + Alt 临时完整） | `aircraft_renderer.gd` `next_compact_label_state` / `should_draw_compact_label` / `draw_data_label_compact`；地面单位 `ground_unit.gd` `_should_draw_compact_data_label` |
 | 机头闪光 | `aircraft_renderer.gd:544` draw_muzzle_flash |
 | 加力火焰 | `aircraft_renderer.gd:554` draw_afterburner_glow |
 | 热诱弹粒子 | `aircraft_renderer.gd:587` draw_flare_particles |
 | 目标连线（普通=当前操控机 icon_color；双击突击=独立黄线；单层中细线） | `aircraft_renderer.gd:1662` draw_target_line |
-| 飞机旁状态栏：FLR 弹尽装填行红/琥珀双色闪烁 | `aircraft_renderer.gd:110` _wpn_color（FLR_RELOAD） |
+| 蓝色玩家小队简略档左上角全部装填武器矩形反相闪烁；完整档显示百分比 | `aircraft_renderer.gd` `draw_reload_indicators` / `reload_indicator_team_visible` / `reload_indicator_style` / `reload_indicator_tokens` / `secondary_reload_progress` |
 | 生存 HUD：热诱弹耗尽装填行双色闪烁 | `survivor/survivor_hud.gd:563` _update_status_panel |
 | 雷达小地图：来袭导弹常亮脉冲标记 + 警示牌/外圈 | `survivor/survivor_hud.gd:1636` RadarDisplay |
 | 预测轨迹 | `aircraft_renderer.gd:1771` draw_predicted_path |

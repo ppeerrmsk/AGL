@@ -191,15 +191,16 @@ func _draw_data_label() -> void:
 	var lines: PackedStringArray = PackedStringArray()
 	# 名称
 	lines.append(display_name)
-	# 高度
-	lines.append("ALT GND")
-	# 距离
-	if dist_m < 1000.0:
-		lines.append("RNG %dm" % roundi(dist_m))
-	else:
-		lines.append("RNG %.1fkm" % (dist_m / 1000.0))
-	# 导弹数
-	lines.append("MSL %d" % missiles_remaining)
+	if not _should_draw_compact_data_label():
+		# 高度
+		lines.append("ALT GND")
+		# 距离
+		if dist_m < 1000.0:
+			lines.append("RNG %dm" % roundi(dist_m))
+		else:
+			lines.append("RNG %.1fkm" % (dist_m / 1000.0))
+		# 导弹数
+		lines.append("MSL %d" % missiles_remaining)
 
 	var inv_rot := -rotation
 	# 缩放补偿：标签大小不随摄像机缩放变化（与 ground_unit.gd 一致）

@@ -1798,16 +1798,10 @@ class RadarDisplay extends Control:
 				if not child is Missile:
 					continue
 				var m: Missile = child
-				# 只有仍在制导、未被热诱弹骗走，且弹头实际朝玩家飞行时才报警。
-				# target 在丢锁/渐隐/飞过头后仍可能保留旧引用，不能单独作为来袭依据。
-				if not m.is_active or not m.has_guidance or m.is_flare_jammed or m.target != player_ac:
+				# 与世界警告共用 Missile 的唯一来袭判定；VLS 预末段按目标分配保留警告。
+				if not m.is_incoming_warning_for(player_ac):
 					continue
 				var rel_m := m.global_position - player_pos
-				var to_player_world := -rel_m
-				var missile_fwd := Vector2(sin(m.heading), -cos(m.heading))
-				if to_player_world.length_squared() > 1.0 \
-						and missile_fwd.dot(to_player_world.normalized()) <= 0.0:
-					continue
 				has_incoming = true
 				var dist_m := rel_m.length()
 				if dist_m > RADAR_RANGE:

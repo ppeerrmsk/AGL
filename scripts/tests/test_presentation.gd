@@ -36,6 +36,10 @@ func run() -> void:
 	_test_converge_speed_solve()
 	_test_dim_layer_placement()
 	_test_arrival_seq_names_match_registry()
+	_test_lock_visual_screen_scale()
+	_test_compact_aircraft_labels()
+	_test_presentation_label_refinements()
+	_test_incoming_missile_warning_rule()
 
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
@@ -543,6 +547,94 @@ func _test_arrival_seq_names_match_registry() -> void:
 		interrupted.phase == BossEncounterEvent.Phase.ENGAGED)
 	_assert_true("arrival: UI 序列打断后仍开启 BOSS 血条",
 		interrupted.encounter.hud_visible)
+
+
+# ══════════════════════════════════════════════
+#  8. 锁定表现屏幕尺寸（presentation-foundation-rework DEC-001）
+# ══════════════════════════════════════════════
+
+func _test_lock_visual_screen_scale() -> void:
+	for view_scale in [0.2, 0.35, 1.0, 2.0, 5.0]:
+		var inv: float = AircraftRenderer.inverse_screen_scale_for(view_scale)
+		_assert_near("lock_visual.zoom %.2f 屏幕尺寸恒定" % view_scale,
+			view_scale * inv, 1.0)
+	# Canvas scale 意外为 0 时必须安全钳制，不能把 INF 写进 draw transform。
+	_assert_near("lock_visual.zero_scale 安全钳制",
+		AircraftRenderer.inverse_screen_scale_for(0.0), 100.0)
+
+
+func _test_compact_aircraft_labels() -> void:
+	var compact := AircraftRenderer.next_compact_label_state(false, 0.40)
+	_assert_true("label_lod.放大到 0.40 保持详细", not compact)
+	compact = AircraftRenderer.next_compact_label_state(compact, 0.35)
+	_assert_true("label_lod.默认 0.35 进入战略档", compact)
+	compact = AircraftRenderer.next_compact_label_state(compact, 0.38)
+	_assert_true("label_lod.迟滞区保持战略档", compact)
+	compact = AircraftRenderer.next_compact_label_state(compact, 0.40)
+	_assert_true("label_lod.稍微放大到 0.40 恢复详细", not compact)
+	_assert_true("label_lod.战略档正常显示精简",
+		AircraftRenderer.compact_label_visible(true, false))
+	_assert_true("label_lod.Alt 临时强制完整",
+		not AircraftRenderer.compact_label_visible(true, true))
+
+
+func _test_presentation_label_refinements() -> void:
+	_assert_true("label_name.已有尾部代号不重复",
+		SurvivorPlayableSetup.display_name_with_codename("F-15 Eagle", "Eagle") == "F-15 Eagle")
+	_assert_true("label_name.复合代号不重复",
+		SurvivorPlayableSetup.display_name_with_codename("F-15E Strike Eagle", "Strike Eagle") == "F-15E Strike Eagle")
+	_assert_true("label_name.缺失代号正常追加",
+		SurvivorPlayableSetup.display_name_with_codename("F-16C", "SmartFalcon") == "F-16C SmartFalcon")
+	_assert_true("reload_hint.仅 FLR/GUN/MSL 且顺序固定",
+		AircraftRenderer.reload_indicator_tokens(true, true, true)
+		== PackedStringArray(["FLR", "GUN", "MSL"]))
+	_assert_true("reload_hint.僚机主弹装填可独立显示",
+		AircraftRenderer.reload_indicator_tokens(false, true, false)
+		== PackedStringArray(["MSL"]))
+	_assert_true("reload_hint.无装填则不显示",
+		AircraftRenderer.reload_indicator_tokens(false, false, false).is_empty())
+	_assert_true("reload_hint.蓝色玩家小队显示",
+		AircraftRenderer.reload_indicator_team_visible(CombatUnit.TEAM_PLAYER))
+	_assert_true("reload_hint.绿色第三方友军不显示",
+		not AircraftRenderer.reload_indicator_team_visible(CombatUnit.TEAM_ALLY))
+	_assert_true("reload_hint.敌机不显示",
+		not AircraftRenderer.reload_indicator_team_visible(CombatUnit.TEAM_HOSTILE))
+	var normal_msl := AircraftRenderer.reload_indicator_style("MSL", false)
+	var inverse_msl := AircraftRenderer.reload_indicator_style("MSL", true)
+	var normal_flr := AircraftRenderer.reload_indicator_style("FLR", false)
+	var inverse_flr := AircraftRenderer.reload_indicator_style("FLR", true)
+	var normal_gun := AircraftRenderer.reload_indicator_style("GUN", false)
+	var inverse_gun := AircraftRenderer.reload_indicator_style("GUN", true)
+	_assert_true("reload_hint.MSL 蓝底白字且可反相",
+		normal_msl[1].is_equal_approx(Color.html("#5599ff"))
+		and normal_msl[0].r > 0.9 and inverse_msl[0].is_equal_approx(Color.html("#5599ff")))
+	_assert_true("reload_hint.FLR 橙色与深蓝反相",
+		normal_flr[1].is_equal_approx(Color.html("#ff9d2e"))
+		and normal_flr[0].is_equal_approx(Color.html("#00237d"))
+		and inverse_flr[0].is_equal_approx(Color.html("#ff9d2e")))
+	_assert_true("reload_hint.GUN 褐色与白色反相",
+		normal_gun[1].is_equal_approx(Color.html("#8b5a2b"))
+		and normal_gun[0].r > 0.9
+		and inverse_gun[0].is_equal_approx(Color.html("#8b5a2b")))
+
+
+func _test_incoming_missile_warning_rule() -> void:
+	_assert_true("missile_warning.真实来袭显示",
+		Missile.incoming_warning_rule(true, true, false, true, true, true, false))
+	_assert_true("missile_warning.未发射无实体不显示",
+		not Missile.incoming_warning_rule(false, true, false, true, true, true, false))
+	_assert_true("missile_warning.丢失制导立即消失",
+		not Missile.incoming_warning_rule(true, false, false, true, true, true, false))
+	_assert_true("missile_warning.热诱弹骗走立即消失",
+		not Missile.incoming_warning_rule(true, true, true, true, true, true, false))
+	_assert_true("missile_warning.目标不是当前操控机不显示",
+		not Missile.incoming_warning_rule(true, true, false, false, true, true, false))
+	_assert_true("missile_warning.友方导弹不显示",
+		not Missile.incoming_warning_rule(true, true, false, true, false, true, false))
+	_assert_true("missile_warning.常规弹飞越后消失",
+		not Missile.incoming_warning_rule(true, true, false, true, true, false, false))
+	_assert_true("missile_warning.VLS 预末段离架即显示",
+		Missile.incoming_warning_rule(true, true, false, true, true, false, true))
 
 
 # ══════════════════════════════════════════════

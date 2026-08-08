@@ -34,6 +34,15 @@ var _destroy_timer: float = 0.0
 
 # --- 视觉 ---
 var _font: Font
+var _compact_data_label_active: bool = false
+
+
+func _should_draw_compact_data_label() -> bool:
+	var view_scale := get_viewport_transform().get_scale().x
+	_compact_data_label_active = AircraftRenderer.next_compact_label_state(
+		_compact_data_label_active, view_scale)
+	return AircraftRenderer.compact_label_visible(_compact_data_label_active,
+		Input.is_key_pressed(KEY_ALT))
 
 func _ready() -> void:
 	# 图层：地面单位画在飞机下面（空中单位永远覆盖地面/海面）
@@ -278,7 +287,6 @@ func _draw() -> void:
 		_draw_radar_cone()
 	_draw_ground_icon()
 	_draw_lock_indicator()
-	LockWarning.draw(self, AircraftRenderer.player_ref)
 	AircraftRenderer.draw_target_bracket(self, is_mission_target)
 	AircraftRenderer.draw_status_icons(self)
 	_draw_data_label()
@@ -342,7 +350,8 @@ func _draw_lock_indicator() -> void:
 	var p: float = clampf(incoming_lock_progress, 0.0, 1.0)
 	if p <= 0.0 and not is_locked:
 		return
-	draw_set_transform(Vector2.ZERO, -rotation, Vector2.ONE)
+	var inv_zoom: float = AircraftRenderer.screen_space_inverse_scale(self)
+	draw_set_transform(Vector2.ZERO, -rotation, Vector2.ONE * inv_zoom)
 	AircraftRenderer.draw_lock_box(self, p, is_locked)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
@@ -370,16 +379,17 @@ func _draw_data_label() -> void:
 	var lines: PackedStringArray = PackedStringArray()
 	# 名称
 	lines.append(display_name)
-	# 高度（地面单位永远 GND）
-	lines.append("ALT GND")
-	# 距离
-	if dist_m < 1000.0:
-		lines.append("RNG %dm" % roundi(dist_m))
-	else:
-		lines.append("RNG %.1fkm" % (dist_m / 1000.0))
-	# 弹药
-	if ammo > 0:
-		lines.append("GUN %d" % ammo)
+	if not _should_draw_compact_data_label():
+		# 高度（地面单位永远 GND）
+		lines.append("ALT GND")
+		# 距离
+		if dist_m < 1000.0:
+			lines.append("RNG %dm" % roundi(dist_m))
+		else:
+			lines.append("RNG %.1fkm" % (dist_m / 1000.0))
+		# 弹药
+		if ammo > 0:
+			lines.append("GUN %d" % ammo)
 
 	var inv_rot := -rotation
 	# 缩放补偿：标签大小不随摄像机缩放变化（与 AircraftRenderer.draw_data_label 一致）

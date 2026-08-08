@@ -1,6 +1,14 @@
 class_name SurvivorPlayableSetup
 extends RefCounted
 
+
+static func display_name_with_codename(base_name: String, codename: String) -> String:
+	var clean_base := base_name.strip_edges()
+	var clean_codename := codename.strip_edges()
+	if clean_codename.is_empty() or clean_base.to_lower().ends_with(clean_codename.to_lower()):
+		return clean_base
+	return "%s %s" % [clean_base, clean_codename]
+
 ## 把 PlayableAircraft 档案应用到一个具体的 Aircraft 实例上。
 ##
 ## 调用前请确保 aircraft.params 已经是 deep duplicate（这里只负责应用差异，
@@ -36,7 +44,7 @@ static func apply(aircraft: Node, profile: PlayableAircraft, is_wingman: bool = 
 	# PlayableAircraft.display_name（"F-16C Block 50"）只用于选择卡片，不写回 params。
 	# 僚机不带 codename，保留基础名（"F-14" 而不是 "F-14 TopGun"）。
 	if not is_wingman and profile.codename != "":
-		p.display_name = "%s %s" % [p.display_name, profile.codename]
+		p.display_name = display_name_with_codename(p.display_name, profile.codename)
 
 	# ── 基础属性倍率/加成 ──
 	p.radar_range *= profile.radar_range_mult

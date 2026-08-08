@@ -24,6 +24,8 @@ const PRE_LAUNCH_LINE_WIDTH: float = 1.4
 const FLASH_LINE_WIDTH: float = 1.8
 const PRE_LAUNCH_MARKER_RADIUS: float = 7.0
 const FLASH_MARKER_RADIUS: float = 8.0
+const DIRECTION_ARROW_RADIUS: float = 52.0
+const DIRECTION_ARROW_SIZE: float = 6.0
 
 
 ## 每个单位持有一份；存储锁定线运行时状态
@@ -94,9 +96,10 @@ static func draw(unit: Node2D, player: Node2D, skip_cloaked: bool = true) -> voi
 	var blink_base: float = 0.55 if is_flash else 0.65
 	var blink: float = blink_base + blink_amp * sin(Time.get_ticks_msec() * 0.001 * TAU * blink_hz)
 	var line_color: Color = Color(COLOR_RGB.r, COLOR_RGB.g, COLOR_RGB.b, 0.55 * blink)
-	var line_width: float = FLASH_LINE_WIDTH if is_flash else PRE_LAUNCH_LINE_WIDTH
+	var inv_zoom: float = AircraftRenderer.screen_space_inverse_scale(unit)
+	var line_width: float = (FLASH_LINE_WIDTH if is_flash else PRE_LAUNCH_LINE_WIDTH) * inv_zoom
 	unit.draw_line(Vector2.ZERO, local_target, line_color, line_width, true)
-	var d: float = FLASH_MARKER_RADIUS if is_flash else PRE_LAUNCH_MARKER_RADIUS
+	var d: float = (FLASH_MARKER_RADIUS if is_flash else PRE_LAUNCH_MARKER_RADIUS) * inv_zoom
 	unit.draw_line(local_target + Vector2(-d, 0), local_target + Vector2(d, 0), line_color, line_width)
 	unit.draw_line(local_target + Vector2(0, -d), local_target + Vector2(0, d), line_color, line_width)
-	unit.draw_arc(local_target, d, 0.0, TAU, 20, Color(line_color, 0.7 * blink), 1.2, true)
+	unit.draw_arc(local_target, d, 0.0, TAU, 20, Color(line_color, 0.7 * blink), 1.2 * inv_zoom, true)

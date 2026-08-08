@@ -36,6 +36,7 @@
 
 | Spec | kind | status | 重建完整 | 覆盖范围 |
 |---|---|---|---|---|
+| [systems/presentation-foundation-rework](systems/presentation-foundation-rework.md) | system | draft | ✗ | **表现层底层逻辑改造确认稿**：持续汇总本轮讨论中由用户明确确认的主要改动；区分待讨论、已确认、已实现，记录旧/新行为、影响、风险、退化策略与验收标准，并以既有 `ui-transition` 为依赖。 |
 | [skills/displacement-roll](skills/displacement-roll.md) | skill | done | ✅ | **位移滚转**：实验级 R 主动技能；1.15s 内确定性选择安全侧并横移 450px，15s 玩家小队共享冷却；动作本体不可命中、保留锁定与在飞武器；并入五向 R 互斥槽，当前操控机手动、AI 僚机自动。 |
 | [skills/vertical-break](skills/vertical-break.md) | skill | done | ✅ | **垂直越过**：实验级 R 主动技能；LOW 拉升/MID·HIGH 俯冲 900m/1.30s，18s 玩家小队共享冷却；额外能量交换封顶 −18%/+15%，并入五向 R 互斥槽，当前操控机手动、AI 僚机自动。 |
 | [systems/active-special-maneuvers](systems/active-special-maneuvers.md) | system | done | ✅ | **主动特殊机动共享契约**：五种 R 技能统一双向互斥；当前操控机按 R、AI 僚机按威胁自动释放；共享冷却、最新命令队列、切控续播、统一不可命中查询与幂等退出。 |

@@ -160,17 +160,18 @@ func _draw_data_label() -> void:
 
 	var lines: PackedStringArray = PackedStringArray()
 	lines.append(display_name)
-	lines.append("HP %d" % roundi(hp))
+	if not _should_draw_compact_data_label():
+		lines.append("HP %d" % roundi(hp))
 
-	# 显示已锁定目标数
-	var lock_time_val := params.lock_time if params else 3.0
-	var locked_count := 0
-	for key in radar_targets:
-		if radar_targets[key] >= lock_time_val:
-			locked_count += 1
-	if locked_count > 0:
-		lines.append("TRK %d" % locked_count)
-	lines.append("DLINK")
+		# 显示已锁定目标数
+		var lock_time_val := params.lock_time if params else 3.0
+		var locked_count := 0
+		for key in radar_targets:
+			if radar_targets[key] >= lock_time_val:
+				locked_count += 1
+		if locked_count > 0:
+			lines.append("TRK %d" % locked_count)
+		lines.append("DLINK")
 
 	var inv_rot := -rotation
 	var max_w := 0.0
@@ -185,9 +186,10 @@ func _draw_data_label() -> void:
 	var text_color: Color = _lc[0]
 	var bg_color: Color = _lc[1]
 
-	var rotated_offset := label_offset.rotated(inv_rot)
-	draw_set_transform(rotated_offset, inv_rot)
+	var inv_zoom := AircraftRenderer.screen_space_inverse_scale(self)
+	var rotated_offset := (label_offset * inv_zoom).rotated(inv_rot)
+	draw_set_transform(rotated_offset, inv_rot, Vector2.ONE * inv_zoom)
 	draw_rect(Rect2(-1, -1, box_w, box_h), bg_color)
 	for i in lines.size():
 		draw_string(_font, Vector2(2, 10 + i * line_height), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
-	draw_set_transform(Vector2.ZERO, 0.0)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

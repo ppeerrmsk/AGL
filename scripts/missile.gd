@@ -75,6 +75,26 @@ var second_stage: bool = false         ## 二段推进（720 批）：一段燃�
 func _second_stage_g_mult() -> float:
 	return (1.0 + minf(age * 0.08, 0.5)) if second_stage else 1.0
 
+
+## DEC-003 的纯规则入口；RadarDisplay 与世界警告必须共享同一语义。
+static func incoming_warning_rule(active: bool, guided: bool, flare_jammed: bool,
+		target_matches: bool, hostile: bool, closing: bool, vls_preterminal: bool) -> bool:
+	return active and guided and not flare_jammed and target_matches and hostile \
+		and (closing or vls_preterminal)
+
+
+func is_incoming_warning_for(player: CombatUnit) -> bool:
+	if player == null or not is_instance_valid(player) or player.is_destroyed:
+		return false
+	var to_player: Vector2 = player.global_position - global_position
+	var closing := true
+	if to_player.length_squared() > 1.0:
+		var missile_fwd := Vector2(sin(heading), -cos(heading))
+		closing = missile_fwd.dot(to_player.normalized()) > 0.0
+	var vls_preterminal: bool = params != null and params.is_vls_salvo and vls_phase < 2
+	return incoming_warning_rule(is_active, has_guidance, is_flare_jammed,
+		target == player, CombatUnit.teams_hostile(team, player.team), closing, vls_preterminal)
+
 ## ── 云层穿越累计衰减 ──
 var _cloud_guidance_loss: float = 0.0   ## 0~(1-FLOOR) 累加不回复
 
@@ -496,6 +516,53 @@ func _draw() -> void:
 	if age < params.motor_burn_time:
 		_draw_motor_flame()
 	_draw_data_label()
+	_draw_incoming_warning()
+
+
+## 真实在途导弹警告：一弹一线一三角，不聚合、不去重。
+func _draw_incoming_warning() -> void:
+	var player: Aircraft = AircraftRenderer.safe_player_ref()
+	if not is_incoming_warning_for(player):
+		return
+
+	var flash: bool = age < LockWarning.FLASH_DURATION
+	var blink_hz: float = LockWarning.FLASH_BLINK_HZ if flash else LockWarning.PRE_LAUNCH_BLINK_HZ
+	var blink_amp: float = 0.45 if flash else 0.35
+	var blink_base: float = 0.55 if flash else 0.65
+	var blink: float = blink_base + blink_amp * sin(
+		Time.get_ticks_msec() * 0.001 * TAU * blink_hz)
+	var line_color := Color(LockWarning.COLOR_RGB, 0.55 * blink)
+	var inv_zoom: float = AircraftRenderer.screen_space_inverse_scale(self)
+	var line_width: float = (LockWarning.FLASH_LINE_WIDTH if flash \
+		else LockWarning.PRE_LAUNCH_LINE_WIDTH) * inv_zoom
+	var local_player: Vector2 = to_local(player.global_position)
+	# 线长保留世界空间，只把线宽和玩家端点符号补偿为固定屏幕尺寸。
+	draw_line(Vector2.ZERO, local_player, line_color, line_width, true)
+	var marker_radius: float = (LockWarning.FLASH_MARKER_RADIUS if flash \
+		else LockWarning.PRE_LAUNCH_MARKER_RADIUS) * inv_zoom
+	draw_line(local_player + Vector2(-marker_radius, 0),
+		local_player + Vector2(marker_radius, 0), line_color, line_width)
+	draw_line(local_player + Vector2(0, -marker_radius),
+		local_player + Vector2(0, marker_radius), line_color, line_width)
+	draw_arc(local_player, marker_radius, 0.0, TAU, 20,
+		Color(line_color, 0.7 * blink), 1.2 * inv_zoom, true)
+
+	# 三角锚定玩家，但朝向真实导弹世界方向。每枚导弹独立提交一枚。
+	var toward_missile: Vector2 = global_position - player.global_position
+	if toward_missile.length_squared() <= 1.0:
+		return
+	var direction := toward_missile.normalized()
+	var perp := Vector2(-direction.y, direction.x)
+	var arrow_blink: float = absf(sin(Time.get_ticks_msec() * 0.008))
+	var arrow_color := Color(1.0, 0.25, 0.2, lerpf(0.6, 1.0, arrow_blink))
+	var radius := LockWarning.DIRECTION_ARROW_RADIUS
+	var size := LockWarning.DIRECTION_ARROW_SIZE
+	draw_set_transform(local_player, -rotation, Vector2.ONE * inv_zoom)
+	var tip := direction * (radius + size)
+	var base_a := direction * radius + perp * size * 0.7
+	var base_b := direction * radius - perp * size * 0.7
+	draw_colored_polygon(PackedVector2Array([tip, base_a, base_b]), arrow_color)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 func _draw_body() -> void:
 	# 细长"子弹+尾翼"造型，heading=0 朝上，与飞机圆点图标明显区分

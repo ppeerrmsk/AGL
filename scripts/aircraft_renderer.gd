@@ -5,6 +5,9 @@ extends RefCounted
 ## draw_data_label 里每帧为每架飞机算 RNG 用，避免在 _draw 里 O(N) 扫 parent.get_children()
 static var player_ref: Aircraft = null
 
+const LABEL_COMPACT_ENTER_SCALE: float = 0.35
+const LABEL_COMPACT_EXIT_SCALE: float = 0.40
+
 
 ## 安全读 player_ref：自动清理 freed 引用。
 ## 必须用此 getter 而非直接读 player_ref，否则 `var pref: Aircraft = safe_player_ref()`
@@ -14,6 +17,38 @@ static func safe_player_ref() -> Aircraft:
 	if player_ref != null and not is_instance_valid(player_ref):
 		player_ref = null
 	return player_ref
+
+## 世界内 CanvasItem 上的 HUD 符号使用这个比例抵消实际视口缩放。
+## 读 viewport transform 而不是 CameraController.target_zoom，才能覆盖平滑缩放、
+## 电影镜头系数以及其它已经应用到 Canvas 的变换。
+static func inverse_screen_scale_for(view_scale: float) -> float:
+	return 1.0 / maxf(absf(view_scale), 0.01)
+
+
+static func screen_space_inverse_scale(item: CanvasItem) -> float:
+	if item == null or not item.is_inside_tree():
+		return 1.0
+	return inverse_screen_scale_for(item.get_viewport_transform().get_scale().x)
+
+
+## 远景标签迟滞：缩到 0.30 才进入，拉回 0.34 才退出。
+static func next_compact_label_state(was_compact: bool, view_scale: float) -> bool:
+	if was_compact:
+		return view_scale < LABEL_COMPACT_EXIT_SCALE
+	return view_scale <= LABEL_COMPACT_ENTER_SCALE
+
+
+static func compact_label_visible(compact_state: bool, force_full: bool) -> bool:
+	return compact_state and not force_full
+
+
+static func should_draw_compact_label(ac: Aircraft) -> bool:
+	var view_scale: float = ac.get_viewport_transform().get_scale().x
+	ac._compact_data_label_active = next_compact_label_state(
+		ac._compact_data_label_active, view_scale)
+	# Alt 只临时覆盖显示，不重置迟滞状态；松开即可回到当前缩放档。
+	return compact_label_visible(ac._compact_data_label_active,
+		Input.is_key_pressed(KEY_ALT))
 
 ## 飞机绘制系统（静态工具类）
 ## 从 aircraft.gd 提取的所有 _draw_* 子函数
@@ -110,6 +145,8 @@ static func altitude_tier_color_hex(tier: int, transitioning: bool) -> String:
 static func _wpn_color(tag: String, ctx: Dictionary = {}) -> Color:
 	if tag == "MSL_RELOAD":
 		return Color.html("#5599ff")
+	elif tag == "SP_RELOAD":
+		return Color.html("#ffaa55")
 	elif tag == "GUN_RELOAD":
 		return Color.html("#aa7733")
 	elif tag == "FLR_RELOAD":
@@ -317,6 +354,8 @@ static func draw_secondary_lock_indicators(ac: Aircraft) -> void:
 	# 颜色：用 QMAAM 同色橙
 	var ring_color := Color(1.0, 0.65, 0.15, 0.95)
 	var fill_color := Color(1.0, 0.55, 0.15, 0.22)
+	var inv_zoom: float = screen_space_inverse_scale(ac)
+	var inv_rot: float = -ac.rotation
 
 	for unit in ac.secondary_radar_targets.keys():
 		if unit == null or not is_instance_valid(unit): continue
@@ -325,8 +364,9 @@ static func draw_secondary_lock_indicators(ac: Aircraft) -> void:
 		# 光学隐形：不得在隐形机位置画锁定框（否则等于把隐形目标的精确坐标画给玩家）。
 		# 累积侧已在 update_secondary_radar 清除，但那是 0.5s tick —— 这里兜住 tick 间隙
 		if unit is Aircraft and (unit as Aircraft).is_cloaked: continue
-		# 用本地坐标（_draw 在 ac 本地空间）
+		# 锚点保留在目标世界位置；只对锚点周围的括号几何做反缩放。
 		var local_pos: Vector2 = ac.to_local(unit.global_position)
+		ac.draw_set_transform(local_pos, inv_rot, Vector2.ONE * inv_zoom)
 		# 4 个角的 corner brackets（开口朝内）
 		var arm := 6.0
 		var corners := [
@@ -336,11 +376,12 @@ static func draw_secondary_lock_indicators(ac: Aircraft) -> void:
 			[Vector2(radius, radius),   Vector2(-arm, 0), Vector2(0, -arm)], # 右下
 		]
 		# 浅填充（+ 4 个 corner，明确"锁定"语义）
-		ac.draw_circle(local_pos, radius - 4, fill_color)
+		ac.draw_circle(Vector2.ZERO, radius - 4, fill_color)
 		for c in corners:
-			var origin: Vector2 = local_pos + c[0]
+			var origin: Vector2 = c[0]
 			ac.draw_line(origin, origin + c[1], ring_color, 1.5, true)
 			ac.draw_line(origin, origin + c[2], ring_color, 1.5, true)
+	ac.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 ## 玩家光环范围预览（hover 玩家时显示）：
 ##   - jam_aura：全圆绿色 ring
@@ -431,35 +472,12 @@ static func draw_lock_indicator(ac: Aircraft) -> void:
 	var p: float = clampf(ac.incoming_lock_progress, 0.0, 1.0)
 	if p <= 0.0 and not ac.is_locked:
 		return
-	var pref: Aircraft = safe_player_ref()
-	# 反旋转，让方框对齐屏幕（不随机身 heading 转）
+	# 反旋转 + 反缩放：方框始终对齐屏幕并保持固定屏幕尺寸。
 	var inv_rot: float = -ac.rotation
-	ac.draw_set_transform(Vector2.ZERO, inv_rot, Vector2.ONE)
+	var inv_zoom: float = screen_space_inverse_scale(ac)
+	ac.draw_set_transform(Vector2.ZERO, inv_rot, Vector2.ONE * inv_zoom)
 	draw_lock_box(ac, p, ac.is_locked)
-	# 玩家被锁定：在周边画红色小三角指向每个锁定者
-	if ac == pref and ac.is_locked and ac.locked_by.size() > 0:
-		_draw_incoming_lock_arrows(ac)
 	ac.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-
-## 玩家被锁定时，在周边画小红三角指向每个锁定者（世界方向）
-static func _draw_incoming_lock_arrows(ac: Aircraft) -> void:
-	const R: float = 52.0       # 距玩家中心的半径
-	const TRI: float = 6.0      # 三角尺寸
-	var blink: float = absf(sin(Time.get_ticks_msec() * 0.008))
-	var alpha: float = lerpf(0.6, 1.0, blink)
-	var color: Color = Color(1.0, 0.25, 0.2, alpha)
-	for shooter: CombatUnit in ac.locked_by:
-		if not is_instance_valid(shooter):
-			continue
-		var delta: Vector2 = shooter.global_position - ac.global_position
-		if delta.length_squared() < 1.0:
-			continue
-		var dir: Vector2 = delta.normalized()
-		var perp: Vector2 = Vector2(-dir.y, dir.x)
-		var tip: Vector2 = dir * (R + TRI)
-		var base_a: Vector2 = dir * R + perp * TRI * 0.7
-		var base_b: Vector2 = dir * R - perp * TRI * 0.7
-		ac.draw_colored_polygon(PackedVector2Array([tip, base_a, base_b]), color)
 
 ## 通用锁定方框绘制（Aircraft / GroundUnit 共用）
 ## progress (0..1) 驱动动画：旋转一圈 + 从大到小收缩，绿色；locked=true 时切红色静止
@@ -1343,6 +1361,112 @@ static func draw_data_label_drone(ac: Aircraft) -> void:
 	ac.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
+## 战略标签：只保留机体型号、代号、速度，压成两行减少遮挡。
+static func draw_data_label_compact(ac: Aircraft) -> void:
+	if ac._font == null:
+		return
+	var display_name: String = ac.params.display_name if ac.params else "???"
+	var lines := PackedStringArray(["%s [%s]" % [display_name, ac.callsign]])
+	lines.append("%d kt" % roundi(ac.speed * 3.6 * 0.5399))
+
+	var inv_rot: float = -ac.rotation
+	var inv_zoom: float = screen_space_inverse_scale(ac)
+	var font_size := 11
+	var line_height := 14.0
+	var label_offset := Vector2(24 * inv_zoom, -12 * inv_zoom).rotated(inv_rot)
+	var max_w := 0.0
+	for line in lines:
+		max_w = maxf(max_w, ac._font.get_string_size(
+			_digit_stable(line), HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x)
+
+	var colors := GameConstants.aircraft_label_colors(ac.team)
+	var bg_color: Color = colors[0]
+	var text_color: Color = colors[1]
+	var is_player: bool = ac == safe_player_ref()
+	if is_player:
+		bg_color = GameConstants.PLAYER_CTRL_LABEL_BG
+		text_color = GameConstants.PLAYER_CTRL_LABEL_TEXT
+
+	ac.draw_set_transform(label_offset, inv_rot, Vector2.ONE * inv_zoom)
+	var box := Rect2(0, 0, max_w + 10.0, lines.size() * line_height + 6.0)
+	ac.draw_rect(box, bg_color)
+	ac.draw_rect(box, text_color * Color(1, 1, 1, 0.4), false, 1.0)
+	for i in range(lines.size()):
+		var color: Color = text_color
+		ac.draw_string(ac._font, Vector2(5, 12 + i * line_height), lines[i],
+			HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
+	ac.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+## 玩家装填提示独立于右侧数据标签，固定在机体屏幕空间左上角。
+static func draw_reload_indicators(ac: Aircraft) -> void:
+	if ac._font == null or not reload_indicator_team_visible(ac.team):
+		return
+	var flare_reloading := (ac.enable_flare_reload and ac.flares_remaining <= 0
+		and ac.flare_reload_progress > 0.0)
+	var labels := reload_indicator_tokens(ac._gun_reload_active,
+		ac._missile_reload_active, flare_reloading)
+	var inverted: bool = int(Time.get_ticks_msec() / 220) % 2 != 0
+	if labels.is_empty():
+		return
+	var inv_zoom := screen_space_inverse_scale(ac)
+	var inv_rot := -ac.rotation
+	var anchor := Vector2(-44.0 * inv_zoom, -38.0 * inv_zoom).rotated(inv_rot)
+	ac.draw_set_transform(anchor, inv_rot, Vector2.ONE * inv_zoom)
+	for i in range(labels.size()):
+		var style := reload_indicator_style(labels[i], inverted)
+		var text_color: Color = style[0]
+		var bg_color: Color = style[1]
+		var text_w := ac._font.get_string_size(labels[i],
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x
+		var top := float(i) * 20.0
+		ac.draw_rect(Rect2(-3.0, top, text_w + 6.0, 18.0), bg_color)
+		ac.draw_rect(Rect2(-3.0, top, text_w + 6.0, 18.0), text_color, false, 1.0)
+		ac.draw_string(ac._font, Vector2(0.0, top + 14.0), labels[i],
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 14, text_color)
+	ac.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+static func reload_indicator_team_visible(team: int) -> bool:
+	return team == CombatUnit.TEAM_PLAYER
+
+
+## 返回 [文字色, 底色]；每 220ms 由调用方切换 inverted，始终保持可见。
+static func reload_indicator_style(label: String, inverted: bool) -> Array[Color]:
+	var primary := Color.html("#5599ff")
+	var secondary := Color(1.0, 1.0, 1.0, 0.96)
+	match label:
+		"FLR":
+			primary = Color.html("#ff9d2e")
+			secondary = Color.html("#00237d")
+		"GUN":
+			primary = Color.html("#8b5a2b")
+	var style: Array[Color] = []
+	style.append(primary if inverted else secondary)
+	style.append(secondary if inverted else primary)
+	return style
+
+
+static func reload_indicator_tokens(gun_reloading: bool, missile_reloading: bool,
+		flare_reloading: bool) -> PackedStringArray:
+	var labels := PackedStringArray()
+	if flare_reloading:
+		labels.append("FLR")
+	if gun_reloading:
+		labels.append("GUN")
+	if missile_reloading:
+		labels.append("MSL")
+	return labels
+
+
+static func secondary_reload_progress(ac: Aircraft) -> float:
+	if not ac._secondary_reload_active or not ac.params or not ac.params.secondary_missile:
+		return 0.0
+	var sec: MissileParams = ac.params.secondary_missile
+	var duration := sec.cooldown * float(maxi(sec.max_count, 1))
+	return clampf(ac._secondary_reload_timer / maxf(duration, 0.001), 0.0, 1.0)
+
+
 ## 在飞机旁边绘制数据标签框（逐行列出所有参数）
 ## 是否使用精简标签（无导弹/无热诱弹的简单单位）
 ## 生存模式玩家用精简标签：只显示朝向、速度、高度、G、耐力
@@ -1370,17 +1494,22 @@ static func draw_data_label_minimal(ac: Aircraft) -> void:
 	lines.append("G %.1f" % ac.g_load)
 	# 武器行品牌色映射（与右下角武器栏同源 _wpn_color）
 	var wpn_color_indices: Dictionary = {}
-	# 装填状态（仅玩家）：临时行，装填完自动消失
-	if ac == safe_player_ref():
-		if ac._gun_reload_active:
-			wpn_color_indices[lines.size()] = _wpn_color("GUN_RELOAD")
-			lines.append("GUN RELOAD %d%%" % roundi(ac.gun_reload_progress * 100.0))
-		if ac._missile_reload_active:
-			wpn_color_indices[lines.size()] = _wpn_color("MSL_RELOAD")
-			lines.append("MSL RELOAD %d%%" % roundi(ac.missile_reload_progress * 100.0))
-		if ac.enable_flare_reload and ac.flares_remaining <= 0 and ac.flare_reload_progress > 0.0:
-			wpn_color_indices[lines.size()] = _wpn_color("FLR_RELOAD")
-			lines.append("FLR RELOAD %d%%" % roundi(ac.flare_reload_progress * 100.0))
+	# 详细档统一显示全部可装填武器；装填完自动消失。
+	if ac._gun_reload_active:
+		wpn_color_indices[lines.size()] = _wpn_color("GUN_RELOAD")
+		lines.append("GUN RELOAD %d%%" % roundi(ac.gun_reload_progress * 100.0))
+	if ac._missile_reload_active:
+		wpn_color_indices[lines.size()] = _wpn_color("MSL_RELOAD")
+		lines.append("MSL RELOAD %d%%" % roundi(ac.missile_reload_progress * 100.0))
+	if ac._secondary_reload_active and ac.params and ac.params.secondary_missile:
+		var sec_name_min := ac.params.secondary_missile.display_name
+		if sec_name_min.is_empty(): sec_name_min = "SP"
+		wpn_color_indices[lines.size()] = _wpn_color("SP_RELOAD")
+		lines.append("%s RELOAD %d%%" % [sec_name_min,
+			roundi(secondary_reload_progress(ac) * 100.0)])
+	if ac.enable_flare_reload and ac.flares_remaining <= 0 and ac.flare_reload_progress > 0.0:
+		wpn_color_indices[lines.size()] = _wpn_color("FLR_RELOAD")
+		lines.append("FLR RELOAD %d%%" % roundi(ac.flare_reload_progress * 100.0))
 		# 电磁炮 / 激光（commit 11+）
 		if ac.params != null:
 			var rg_min: RailgunEquipment = ac.params.get_equipment_of_kind("railgun")
@@ -1549,17 +1678,22 @@ static func draw_data_label(ac: Aircraft) -> void:
 				var le_pct: int = int(le_st.get("heat", 0.0) / le2.heat_max * 100)
 				wpn_color_indices[lines.size()] = _wpn_color("LSR_HEAT", {"pct": le_pct})
 				lines.append("LSR HEAT %d%%" % le_pct)
-	# 装填状态（仅玩家）：按进度拼出来 — 机炮 / 导弹 / 热诱弹
-	if ac == safe_player_ref():
-		if ac._gun_reload_active:
-			wpn_color_indices[lines.size()] = _wpn_color("GUN_RELOAD")
-			lines.append("GUN RELOAD %d%%" % roundi(ac.gun_reload_progress * 100.0))
-		if ac._missile_reload_active:
-			wpn_color_indices[lines.size()] = _wpn_color("MSL_RELOAD")
-			lines.append("MSL RELOAD %d%%" % roundi(ac.missile_reload_progress * 100.0))
-		if ac.enable_flare_reload and ac.flares_remaining <= 0 and ac.flare_reload_progress > 0.0:
-			wpn_color_indices[lines.size()] = _wpn_color("FLR_RELOAD")
-			lines.append("FLR RELOAD %d%%" % roundi(ac.flare_reload_progress * 100.0))
+	# 详细档统一显示全部可装填武器及进度。
+	if ac._gun_reload_active:
+		wpn_color_indices[lines.size()] = _wpn_color("GUN_RELOAD")
+		lines.append("GUN RELOAD %d%%" % roundi(ac.gun_reload_progress * 100.0))
+	if ac._missile_reload_active:
+		wpn_color_indices[lines.size()] = _wpn_color("MSL_RELOAD")
+		lines.append("MSL RELOAD %d%%" % roundi(ac.missile_reload_progress * 100.0))
+	if ac._secondary_reload_active and ac.params and ac.params.secondary_missile:
+		var sec_name := ac.params.secondary_missile.display_name
+		if sec_name.is_empty(): sec_name = "SP"
+		wpn_color_indices[lines.size()] = _wpn_color("SP_RELOAD")
+		lines.append("%s RELOAD %d%%" % [sec_name,
+			roundi(secondary_reload_progress(ac) * 100.0)])
+	if ac.enable_flare_reload and ac.flares_remaining <= 0 and ac.flare_reload_progress > 0.0:
+		wpn_color_indices[lines.size()] = _wpn_color("FLR_RELOAD")
+		lines.append("FLR RELOAD %d%%" % roundi(ac.flare_reload_progress * 100.0))
 	# 失速提示（仅玩家染色，敌机走 text_color）
 	if status != "":
 		if is_player_label:
