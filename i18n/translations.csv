@@ -39,6 +39,11 @@ UPGRADE_HEADER,[ 选择升级 ],[ Select Upgrade ],[ アップグレード選択
 MAP_SELECT_TITLE,[ 选择地图 ],[ Select Map ],[ マップ選択 ]
 MAP_SELECT_SUBTITLE,生存模式  //  SURVIVAL MODE,SURVIVAL MODE,サバイバル  //  SURVIVAL MODE
 MAP_SELECT_HINT_ESC,ESC 返回主菜单,ESC to return to main menu,ESC でメインメニューへ
+MAP_BASEMAP_ERROR_FMT,⚠ 地图底图加载失败：%s。当前显示旧矢量兜底图，请重新导入资源或更新构建。,⚠ Map base layer failed: %s. Legacy vector fallback is active; reimport assets or update the build.,⚠ マップ背景の読み込みに失敗：%s。旧ベクター代替表示です。リソースを再インポートするかビルドを更新してください。
+MAP_BASEMAP_ERROR_REASON_MISSING_TEXTURE,底图纹理缺失或尚未导入,the texture is missing or not imported,背景テクスチャがないか未インポート
+MAP_BASEMAP_ERROR_REASON_MISSING_METADATA,底图元数据缺失,the metadata file is missing,背景メタデータがありません
+MAP_BASEMAP_ERROR_REASON_INVALID_METADATA,底图元数据损坏,the metadata file is invalid,背景メタデータが破損しています
+MAP_BASEMAP_ERROR_REASON_TEXTURE_LOAD_FAILED,底图纹理无法加载,the texture could not be loaded,背景テクスチャを読み込めません
 SQUAD_HEADER,[ 小队指挥 ],[ SQUAD CMD ],[ 小隊指揮 ]
 SQUAD_FORMATION_FMT,5 阵型: %s,5 Formation: %s,5 編隊: %s
 SQUAD_ENGAGE_FMT,C 交战: %s,C Engage: %s,C 交戦: %s

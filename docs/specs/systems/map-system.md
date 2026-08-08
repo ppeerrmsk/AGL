@@ -3,7 +3,7 @@ id: map-system
 kind: map
 status: done
 schema_version: 1
-spec_version: 1
+spec_version: 2
 owner: design
 depends_on: [map-boundary, map-geography]
 reconstruction_complete: false
@@ -71,7 +71,7 @@ reconstruction_complete: false
 | **C. 手画覆盖** | Godot 编辑器画 `scenes/map_manual.tscn` 里的 Polygon2D | 场景文件（渲染时被 MapFeatureRenderer 采集） | [manual-map-editing.md](../../reference/manual-map-editing.md) |
 
 > JSON 而非 GDScript 静态初始化：避开 @tool 大静态数组的懒初始化 bug，运行时 `FileAccess`+`JSON.parse_string` 稳定。
-> 底图 PNG **可选**，缺失则跳过（游戏照常跑）。
+> 底图 PNG **可选**，缺失则游戏继续运行并启用旧矢量兜底；正式生存模式必须同时显示本地化红色错误 toast，明确当前已降级并提示重新导入资源/更新构建。UGC 纯矢量地图不报错。
 
 ## 6. 地图注册与选择 + 扩展接入图 ★
 
@@ -99,7 +99,7 @@ reconstruction_complete: false
 - [x] 世界 ±7500px（30km），原点 = 地图中心，1px=2m
 - [x] is_on_land / is_on_land_strict 区分玩法用陆判 / 严格地面刷点
 - [x] 越界触发警戒信号 + 联动补给时间税
-- [x] 底图 PNG 缺失时游戏照常跑
+- [x] 底图 PNG 缺失/损坏时游戏照常跑，控制台 `push_error` + 顶部红色 toast 明示旧矢量兜底；UGC 纯矢量路径不误报
 - [x] 地图改动走 map_feature_renderer/map_geography，不动 terrain_renderer（沙盒废弃）
 
 ## 8. 索引锚点（Where —— 指针，会腐烂，非权威）
@@ -125,3 +125,4 @@ reconstruction_complete: false
 | 日期 | spec_version | 改动 |
 |---|---|---|
 | 2026-05-30 | 1 | 首版 map spec + 扩展接入图；核对边界/坐标/查询 API；流水线细节引用现有 reference 文档 |
+| 2026-08-08 | 2 | 底图失败不再静默：四类失败原因统一发信号，正式生存模式显示三语红色错误 toast，同时保留旧矢量层保证战局可继续；UGC 纯矢量模式豁免 |

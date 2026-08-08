@@ -634,6 +634,7 @@
 | 增援入场常量（INGRESS_*/ANCHOR_*/PATROL_RING_*/EGRESS_*/OPENING_GARRISON，spec reinforcement-ingress）| `survivor_data.gd` SPAWN_DISTANCE 之后 |
 | 增援入场逻辑（边缘生成/锚点驻空/EGRESS/开局驻防 + 冻结豁免）| `survivor_spawner.gd` INGRESS 段 + `survivor_mode.gd` LOD 冻结块 reinforcement 分支 |
 | 地图扩展无头回归（几何/陆地占比/BOSS 锚点/入场纯函数）| `scripts/tests/test_map_expansion.gd` |
+| 官方底图失败可见报错（控制台 error + 顶部红色 toast + 旧矢量兜底）| `scripts/survivor/map_feature_renderer.gd` `_report_basemap_error` → `scripts/survivor/survivor_mode.gd` `_on_basemap_load_failed` → `scripts/survivor/zone_hint.gd` `show_error_temp`；契约回归在 `scripts/tests/test_map_expansion.gd` |
 | 60km 密度调优旋钮（战区规模/token/间隔/上限/hunter 配额，spec 60km-density-pass）| `survivor_data.gd`（ground_tgt_scale 含 radar_count / ZONE_DEFENDER_* / TOKEN_BUDGET_*）+ `survivor_spawner.gd` _update_hunters + `zone_data.gd` 半径 |
 | 战区雷达站 TGT + 空战中队长机高一档 + 盘旋环随半径缩放 | `zone_mission.gd`（_RADAR_SCENE / _spawn_ground_garrison 尾段 / _spawn_air_squadron leader_etype·orbit_r / _spawn_zone_defenders garrison_r） |
 | 战区临时支援（已购授权后：`air/squadron` 2/3/4 架 F-86 只对空；`ground` 2 架纯机炮 A-10 只攻 GroundUnit；ALLY、战区 leash、统一物理撤离） | `survivor/zone_mission.gd:870 _start_air_support_if_needed` / `survivor/zone_mission.gd:963 _try_spawn_air_support` / `survivor/zone_mission.gd:1037 _create_a10_support` / `survivor/zone_mission.gd:1089 _begin_air_support_egress` / `ai_controller.gd:1079 acquire_target` 的 `air_targets_only` + `ground_targets_only` 门；测试 `tests/test_zone_air_support.gd:33 run` |

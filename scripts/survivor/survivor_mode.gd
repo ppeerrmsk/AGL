@@ -151,6 +151,7 @@ var _tactical_map: TacticalMap
 var _zone_data: ZoneData
 var _zone_arrow: ZoneArrow
 var _zone_hint: ZoneHint
+var _pending_basemap_error_reason: String = ""
 var _radio: RadioChatter          ## 无线电通讯（spec radio-chatter）
 var _zone_mission: ZoneMission
 var _adbs: AdbsManager
@@ -302,6 +303,7 @@ func _ready() -> void:
 		_map_features = MapFeatureRenderer.new()
 		_map_features.show_behind_parent = true
 		_map_features.ugc_vector_only = _ugc_doc != null  # UGC 图跳过官方底图/手画层
+		_map_features.basemap_load_failed.connect(_on_basemap_load_failed)
 		if _ugc_doc != null:
 			_map_features.ugc_overlay_layers = UgcLoader.overlay_layers_from(_ugc_doc)
 		add_child(_map_features)
@@ -584,6 +586,8 @@ func _ready() -> void:
 		_zone_hint = ZoneHint.new()
 		add_child(_zone_hint)
 		_zone_hint.show_persistent(tr("ZONE_HINT_NEW_OPENED"))
+		if not _pending_basemap_error_reason.is_empty():
+			_show_basemap_error(_pending_basemap_error_reason)
 
 		_zone_mission = ZoneMission.new()
 		add_child(_zone_mission)
@@ -627,6 +631,21 @@ func _ready() -> void:
 	# + 立即批量 spawn 敌机 + 启动 duration 倒计时
 	if _bench_mode:
 		call_deferred("_setup_bench_scenario")
+
+## 正式底图失败时保留旧矢量地图保证战局可继续，但必须把降级状态明确展示给玩家。
+## 理论上信号在首帧 _draw 才到；pending 分支守住未来渲染时序变化导致 ZoneHint 尚未创建的情况。
+func _on_basemap_load_failed(reason_key: String) -> void:
+	_pending_basemap_error_reason = reason_key
+	if _zone_hint != null:
+		_show_basemap_error(reason_key)
+
+func _show_basemap_error(reason_key: String) -> void:
+	if _zone_hint == null:
+		return
+	_zone_hint.show_error_temp(
+		tr("MAP_BASEMAP_ERROR_FMT") % tr(reason_key),
+		10.0)
+	_pending_basemap_error_reason = ""
 
 ## ════════════════════════════════════════════════
 ##  Boss Debug 场景化设置

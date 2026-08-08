@@ -1,6 +1,9 @@
 class_name MapFeatureRenderer
 extends Node2D
 
+## 正式地图底图加载失败时通知场景主控；UGC 纯矢量模式不会尝试加载，也不会发出此信号。
+signal basemap_load_failed(reason_key: String)
+
 ## 世界空间地图特征绘制（生存模式）
 ##
 ## 分层（从底到顶）：
@@ -132,16 +135,22 @@ func _ensure_basemap_loaded() -> void:
 		return
 	_basemap_loaded = true
 	if not ResourceLoader.exists(BASEMAP_PNG_PATH):
-		print("[MapFeatureRenderer] no basemap at %s — skip" % BASEMAP_PNG_PATH)
+		_report_basemap_error(
+			"MAP_BASEMAP_ERROR_REASON_MISSING_TEXTURE",
+			"basemap texture missing or not imported: %s" % BASEMAP_PNG_PATH)
 		return
 	var meta_file := FileAccess.open(BASEMAP_META_PATH, FileAccess.READ)
 	if meta_file == null:
-		push_warning("[MapFeatureRenderer] basemap PNG exists but no meta JSON — skip")
+		_report_basemap_error(
+			"MAP_BASEMAP_ERROR_REASON_MISSING_METADATA",
+			"basemap metadata missing: %s" % BASEMAP_META_PATH)
 		return
 	var meta = JSON.parse_string(meta_file.get_as_text())
 	meta_file.close()
 	if meta == null:
-		push_warning("[MapFeatureRenderer] basemap meta JSON parse failed — skip")
+		_report_basemap_error(
+			"MAP_BASEMAP_ERROR_REASON_INVALID_METADATA",
+			"basemap metadata parse failed: %s" % BASEMAP_META_PATH)
 		return
 	# bbox 经纬度 → 游戏世界 Rect
 	var bbox: Dictionary = meta.get("bbox_ll", {})
@@ -162,7 +171,9 @@ func _ensure_basemap_loaded() -> void:
 
 	var tex := load(BASEMAP_PNG_PATH) as Texture2D
 	if tex == null:
-		push_warning("[MapFeatureRenderer] failed to load basemap texture")
+		_report_basemap_error(
+			"MAP_BASEMAP_ERROR_REASON_TEXTURE_LOAD_FAILED",
+			"failed to load basemap texture: %s" % BASEMAP_PNG_PATH)
 		return
 
 	# 创建 Sprite2D + ShaderMaterial
@@ -184,6 +195,11 @@ func _ensure_basemap_loaded() -> void:
 		_basemap_sprite.material = mat
 		_apply_basemap_shader_params()
 	print("[MapFeatureRenderer] basemap sprite ready: tex=%s rect=%s" % [tex_size, rect_size])
+
+## 官方底图失败后仍允许旧矢量层兜底，但必须同时留下开发日志并告知玩家当前已降级。
+func _report_basemap_error(reason_key: String, developer_detail: String) -> void:
+	push_error("[MapFeatureRenderer] %s; legacy vector fallback active" % developer_detail)
+	basemap_load_failed.emit(reason_key)
 
 ## 把 @export 参数同步到 shader uniform（每帧 _process 都调一次保证 Inspector 改动实时生效）
 func _apply_basemap_shader_params() -> void:

@@ -27,6 +27,7 @@ func _initialize() -> void:
 	_ZD = load("res://scripts/survivor/zone_data.gd")
 	_SD = load("res://scripts/survivor/survivor_data.gd")
 	_check_parse()
+	_check_basemap_error_contract()
 	_check_constants()
 	_check_zone_geometry()
 	MapGeography.ensure_ready()
@@ -61,6 +62,8 @@ func _check_parse() -> void:
 		"res://scripts/survivor/adbs_manager.gd",
 		"res://scripts/survivor/dock_point.gd",
 		"res://scripts/survivor/tactical_map.gd",
+		"res://scripts/survivor/map_feature_renderer.gd",
+		"res://scripts/survivor/zone_hint.gd",
 		"res://scripts/survivor/ace_support_squad.gd",
 		"res://scripts/events/ace_reinforcement_event.gd",
 		"res://scripts/survivor/survivor_player.gd",
@@ -68,6 +71,37 @@ func _check_parse() -> void:
 	]:
 		var s := load(p)
 		_ok(s != null and (s as GDScript).can_instantiate(), "load+compile", p)
+
+func _check_basemap_error_contract() -> void:
+	print("[map-ui] 底图失败可见报错契约")
+	var renderer = load("res://scripts/survivor/map_feature_renderer.gd").new()
+	var hint = load("res://scripts/survivor/zone_hint.gd").new()
+	_ok(renderer.has_signal("basemap_load_failed"), "MapFeatureRenderer 暴露失败信号")
+	_ok(hint.has_method("show_error_temp"), "ZoneHint 暴露红色错误 toast")
+	renderer.free()
+	hint.free()
+
+	var required_keys := [
+		"MAP_BASEMAP_ERROR_FMT",
+		"MAP_BASEMAP_ERROR_REASON_MISSING_TEXTURE",
+		"MAP_BASEMAP_ERROR_REASON_MISSING_METADATA",
+		"MAP_BASEMAP_ERROR_REASON_INVALID_METADATA",
+		"MAP_BASEMAP_ERROR_REASON_TEXTURE_LOAD_FAILED",
+	]
+	var csv := FileAccess.open("res://i18n/translations.csv", FileAccess.READ)
+	var csv_text := csv.get_as_text() if csv != null else ""
+	if csv != null:
+		csv.close()
+	for key in required_keys:
+		_ok(csv_text.contains("\n%s," % key), "报错文案三语 key", key)
+
+	var previous_locale := TranslationServer.get_locale()
+	for locale in ["zh", "en", "ja"]:
+		TranslationServer.set_locale(locale)
+		var translated := TranslationServer.translate("MAP_BASEMAP_ERROR_FMT")
+		_ok(translated != "MAP_BASEMAP_ERROR_FMT" and translated.contains("%s"),
+			"编译翻译资源包含底图报错", locale)
+	TranslationServer.set_locale(previous_locale)
 
 func _check_constants() -> void:
 	print("[const] 世界常量")

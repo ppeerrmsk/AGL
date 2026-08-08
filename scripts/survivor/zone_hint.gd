@@ -1,13 +1,16 @@
 class_name ZoneHint
 extends CanvasLayer
 
-## 顶部提示条：两种模式
+## 顶部提示条：三种模式
 ##   - persistent：脉冲提示（"新战区已开放 — Tab"），由 survivor_mode 显式触发 show / hide
 ##   - temp：临时 toast（"战区 X 攻克！获得 XXX"），N 秒后自动消失
+##   - error temp：红色临时 toast，用于可继续运行但已降级的资源错误
 
 const COLOR_INFO := Color(0.9, 1.0, 0.5, 1.0)    ## 新战区
 const COLOR_VICTORY := Color(0.5, 1.0, 0.75, 1.0) ## 攻克 + 奖励
+const COLOR_ERROR := Color(1.0, 0.72, 0.45, 1.0)  ## 可恢复错误
 const BG_COLOR := Color(0.05, 0.08, 0.03, 0.7)
+const ERROR_BG_COLOR := Color(0.32, 0.04, 0.03, 0.9)
 
 ## Warning 横幅（BOSS 登场特效）：全宽红底 + 大字闪烁
 const WARNING_BG_COLOR := Color(0.7, 0.05, 0.05, 0.85)
@@ -94,6 +97,7 @@ func hide_persistent() -> void:
 
 func _apply_persistent() -> void:
 	_bg.visible = true
+	_bg.color = BG_COLOR
 	_label.text = _persistent_text
 	_label.add_theme_color_override("font_color", COLOR_INFO)
 
@@ -105,8 +109,18 @@ func show_temp(msg: String, duration: float = 3.5) -> void:
 	_showing_temp = true
 	_temp_timer = duration
 	_bg.visible = true
+	_bg.color = BG_COLOR
 	_label.text = msg
 	_label.add_theme_color_override("font_color", COLOR_VICTORY)
+
+## 降级错误提示：与普通 toast 共用计时槽，结束后恢复原有 persistent 提示。
+func show_error_temp(msg: String, duration: float = 8.0) -> void:
+	_showing_temp = true
+	_temp_timer = duration
+	_bg.visible = true
+	_bg.color = ERROR_BG_COLOR
+	_label.text = msg
+	_label.add_theme_color_override("font_color", COLOR_ERROR)
 
 func _process(delta: float) -> void:
 	if _showing_temp:
