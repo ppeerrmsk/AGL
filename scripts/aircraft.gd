@@ -330,7 +330,8 @@ var equipment_state: Dictionary = {}
 var flares_remaining: int = 0
 var _flare_cooldown: float = 0.0
 var _flare_particles: Array[Dictionary] = []  ## { pos: Vector2, vel: Vector2, life: float, bright: bool }
-var _flare_spawn_queue: Array[Dictionary] = []  ## 待释放粒子队列 { delay: float, heading: float, pos: Vector2 }
+var _flare_spawn_queue: Array[Dictionary] = []  ## 待释放粒子波 { delay, heading, pos, count }
+var flare_visual_burst_emitted: int = 0  ## 本次 10 枚视觉投放已实际生成数；玩家仪表逐星同步
 var _flare_ignored_missiles: Dictionary = {}  ## 失误判定已拒绝的导弹 { instance_id: true }
 var _flare_ignored_cleanup: float = 0.0       ## 清理计时器
 var flares_guaranteed: bool = false  ## 生存模式：玩家热诱弹 100% 干扰
@@ -2157,6 +2158,41 @@ func _maneuver_squad() -> Squad:
 func _shared_maneuver_cooldown() -> float:
 	var sq := _maneuver_squad()
 	return sq.active_maneuver_cooldown_s if sq != null else _active_special_local_cooldown_s
+
+## 玩家仪表只读：正常构筑五选一；固定顺序仅使 debug/旧档异常共存时结果确定。
+func equipped_r_maneuver_id() -> StringName:
+	if vertical_break_active:
+		return &"vertical_break"
+	if displacement_roll_active:
+		return &"displacement_roll"
+	if cobra_skill_active:
+		return &"cobra_skill"
+	if evasion_herbst_active:
+		return &"evasion_herbst"
+	if manual_dodge_active:
+		return &"manual_dodge"
+	return &""
+
+## 玩家仪表只读：返回唯一 R 技能的一轮完整冷却秒数。
+func r_maneuver_cooldown_total() -> float:
+	match equipped_r_maneuver_id():
+		&"vertical_break":
+			return VERTICAL_BREAK_COOLDOWN
+		&"displacement_roll":
+			return DISPLACEMENT_ROLL_COOLDOWN
+		&"cobra_skill":
+			return COBRA_SKILL_COOLDOWN
+		&"evasion_herbst":
+			return HerbstManeuver.COOLDOWN
+		&"manual_dodge":
+			return MANUAL_DODGE_CD
+	return 0.0
+
+## 玩家仪表只读：返回 Squad 所有的共享剩余冷却；无 Squad 时回退本机账本。
+func r_maneuver_cooldown_remaining() -> float:
+	if equipped_r_maneuver_id() == &"":
+		return 0.0
+	return _shared_maneuver_cooldown()
 
 func _start_shared_maneuver_cooldown(seconds: float) -> void:
 	var sq := _maneuver_squad()

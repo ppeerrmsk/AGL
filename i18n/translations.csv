@@ -329,6 +329,10 @@ ZONE_HINT_NEW_OPENED,⚡ 新战区已开放 — 按 [Tab] 打开战术地图选�
 BOSS_ZONE_READY,⚠ 战区取消 — 前往中央迎击 BOSS,⚠ Warzones cancelled — head to center for BOSS,⚠ エリア中止 — 中央へ向かいBOSS迎撃
 HUD_WARZONE_TIMER_FMT,战区剩余 %02d:%02d,WARZONE %02d:%02d,エリア残 %02d:%02d
 HUD_BOSS_PHASE,BOSS 阶段,BOSS PHASE,BOSSフェーズ
+HUD_AFTERBURNER,加力,AFTERBURNER,アフターバーナー
+HUD_ENGAGE,接敌,ENGAGE,交戦
+HUD_FIRE,开火,FIRE,攻撃
+HUD_PRIORITY,优先,PRIORITY,優先
 ZONE_REWARD_TAG,战区奖励,ZONE REWARD,戦域報酬
 ZONE_REWARD_HINT_MISSILE,※ 这是一个强化导弹性能的技能,※ A missile performance upgrade,※ ミサイル性能を強化するスキル
 ZONE_REWARD_HINT_GUN,※ 这是一个强化机炮性能的技能,※ A gun performance upgrade,※ ガン性能を強化するスキル
@@ -361,6 +365,15 @@ ZONE_MISSION_AIRFIELD,※ 解放机场：摧毁驻守的地面防空（SAM / AA�
 ZONE_REWARD_AIRFIELD,机场开放补给（回血 / 进化 / 僚机）,Airfield opens for resupply (repair / evolution / wingman),飛行場が補給開放（回復 / 進化 / 僚機）
 ZONE_AIRFIELD_LIBERATED_FMT,✓ %s 已解放 — 机场开放补给,✓ %s LIBERATED — airfield open for resupply,✓ %s 解放完了 — 飛行場が補給開放
 MENU_AUDIO_BUTTON,音频设置,Audio,音声設定
+MENU_SPEED_UNIT_FMT,速度 %s,SPEED %s,速度 %s
+MENU_HUD_COLOR_BUTTON,HUD 色彩,HUD Color,HUDカラー
+HUD_COLOR_SETTINGS_TITLE,HUD 色彩设置,HUD Color Settings,HUDカラー設定
+HUD_COLOR_PRESET_GREEN,绿色,Green,グリーン
+HUD_COLOR_PRESET_CYAN,青色,Cyan,シアン
+HUD_COLOR_PRESET_AMBER,琥珀,Amber,アンバー
+HUD_COLOR_PRESET_WHITE,白色,White,ホワイト
+HUD_COLOR_CANCEL,取消,Cancel,キャンセル
+HUD_COLOR_SAVE,保存,Save,保存
 MENU_RESET_SAVE_BUTTON,删除存档,Reset Save,セーブ削除
 MENU_RESET_SAVE_CONFIRM,确认删除所有进度存档？\n（包括首次引导状态。语言 / 音频设置保留。）,Delete all save progress?\n(Including first-run tutorial state. Language / Audio settings are kept.),すべてのセーブデータを削除しますか？\n（初回チュートリアル状態を含む。言語／音声設定は保持）
 MENU_RESET_SAVE_OK,已删除存档：%d 个文件,Save cleared: %d file(s),セーブ削除完了：%d 件

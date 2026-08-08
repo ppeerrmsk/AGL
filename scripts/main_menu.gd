@@ -1,5 +1,8 @@
 extends Node2D
 
+const HudPreferencesScript := preload("res://scripts/ui/hud_preferences.gd")
+const HudColorSettingsPanelScript := preload("res://scripts/ui/hud_color_settings_panel.gd")
+
 ## 主菜单：游戏入口，选择游戏模式
 
 # --- 视觉参数 ---
@@ -17,6 +20,8 @@ var _sweep_angle := 0.0  ## 雷达扫描角度
 # --- UI ---
 var _canvas: CanvasLayer
 var _mode_container: VBoxContainer
+var _speed_unit_button: Button
+var _hud_color_button: Button
 
 func _ready() -> void:
 	RenderingServer.set_default_clear_color(BG_COLOR)
@@ -240,7 +245,7 @@ func _build_ui() -> void:
 	# --- 语言切换 ---
 	_build_language_switcher(root)
 
-	# --- 音频设置按钮 ---
+	# --- 音频 / 玩家仪表设置 ---
 	_build_audio_button(root)
 
 	# --- 底部版本信息 ---
@@ -306,37 +311,25 @@ func _build_language_switcher(root: VBoxContainer) -> void:
 	pad.custom_minimum_size = Vector2(0, 8)
 	root.add_child(pad)
 
-## 小号「音频设置」按钮，打开叠加面板
+## 主菜单底部设置行：AUDIO 旁放速度单位与 HUD 色盘；重置存档按钮保持原位。
 func _build_audio_button(root: VBoxContainer) -> void:
 	var row := HBoxContainer.new()
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 8)
 	root.add_child(row)
 
-	var btn := Button.new()
-	btn.text = tr("MENU_AUDIO_BUTTON")
-	btn.custom_minimum_size = Vector2(140, 28)
-	btn.add_theme_font_size_override("font_size", 13)
+	var audio_btn := _make_settings_button(tr("MENU_AUDIO_BUTTON"))
+	audio_btn.pressed.connect(_on_audio_settings_pressed)
+	row.add_child(audio_btn)
 
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.05, 0.08, 0.05, 0.45)
-	style.border_color = Color(0.25, 0.45, 0.25, 0.35)
-	style.set_border_width_all(1)
-	style.set_corner_radius_all(2)
-	style.set_content_margin_all(4)
-	btn.add_theme_stylebox_override("normal", style)
-	btn.add_theme_color_override("font_color", Color(0.5, 0.7, 0.5, 0.85))
+	_speed_unit_button = _make_settings_button("")
+	_speed_unit_button.pressed.connect(_on_speed_unit_pressed)
+	row.add_child(_speed_unit_button)
 
-	var style_hover := StyleBoxFlat.new()
-	style_hover.bg_color = Color(0.12, 0.2, 0.12, 0.8)
-	style_hover.border_color = Color(0.5, 1.0, 0.5, 0.7)
-	style_hover.set_border_width_all(1)
-	style_hover.set_corner_radius_all(2)
-	style_hover.set_content_margin_all(4)
-	btn.add_theme_stylebox_override("hover", style_hover)
-	btn.add_theme_color_override("font_hover_color", Color(0.9, 1.0, 0.6))
-
-	btn.pressed.connect(_on_audio_settings_pressed)
-	row.add_child(btn)
+	_hud_color_button = _make_settings_button(tr("MENU_HUD_COLOR_BUTTON"))
+	_hud_color_button.pressed.connect(_on_hud_color_pressed)
+	row.add_child(_hud_color_button)
+	_refresh_hud_settings_buttons()
 
 	# 删除存档按钮（测试用）：重置首次引导 / 进度标志
 	var reset_btn := Button.new()
@@ -366,7 +359,44 @@ func _build_audio_button(root: VBoxContainer) -> void:
 	bottom_pad.custom_minimum_size = Vector2(0, 6)
 	root.add_child(bottom_pad)
 
-## 要在重置时删除的存档文件列表（保留 locale.cfg / audio.cfg 用户偏好）
+
+func _make_settings_button(label_text: String) -> Button:
+	var btn := Button.new()
+	btn.text = label_text
+	btn.custom_minimum_size = Vector2(140, 28)
+	btn.add_theme_font_size_override("font_size", 13)
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.05, 0.08, 0.05, 0.45)
+	style.border_color = Color(0.25, 0.45, 0.25, 0.35)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(2)
+	style.set_content_margin_all(4)
+	btn.add_theme_stylebox_override("normal", style)
+	btn.add_theme_color_override("font_color", Color(0.5, 0.7, 0.5, 0.85))
+	var hover := StyleBoxFlat.new()
+	hover.bg_color = Color(0.12, 0.2, 0.12, 0.8)
+	hover.border_color = Color(0.5, 1.0, 0.5, 0.7)
+	hover.set_border_width_all(1)
+	hover.set_corner_radius_all(2)
+	hover.set_content_margin_all(4)
+	btn.add_theme_stylebox_override("hover", hover)
+	btn.add_theme_color_override("font_hover_color", Color(0.9, 1.0, 0.6))
+	return btn
+
+
+func _refresh_hud_settings_buttons() -> void:
+	if _speed_unit_button:
+		var speed_fmt := tr("MENU_SPEED_UNIT_FMT")
+		if not speed_fmt.contains("%s"):
+			speed_fmt = "SPEED %s"
+		_speed_unit_button.text = speed_fmt % ("KT" if HudPreferencesScript.uses_knots() else "KM/H")
+	if _hud_color_button:
+		var accent: Color = HudPreferencesScript.hud_color()
+		_hud_color_button.text = tr("MENU_HUD_COLOR_BUTTON")
+		_hud_color_button.add_theme_color_override("font_color", accent)
+		_hud_color_button.add_theme_color_override("font_hover_color", accent.lightened(0.2))
+
+## 要在重置时删除的存档文件列表（保留 locale.cfg / audio.cfg / hud.cfg 用户偏好）
 ## tutorial.cfg 走文件删除；merit/loadout 走 ledger.debug_reset()（同时清内存 + 重写 cfg）
 const RESET_SAVE_FILES := [
 	"user://tutorial.cfg",
@@ -425,6 +455,20 @@ func _on_audio_settings_pressed() -> void:
 	var panel = preload("res://scripts/audio/audio_settings_panel.gd").new()
 	add_child(panel)
 	panel.closed.connect(panel.queue_free)
+	panel.open()
+
+
+func _on_speed_unit_pressed() -> void:
+	HudPreferencesScript.cycle_speed_unit()
+	_refresh_hud_settings_buttons()
+
+
+func _on_hud_color_pressed() -> void:
+	var panel = HudColorSettingsPanelScript.new()
+	add_child(panel)
+	panel.closed.connect(func():
+		_refresh_hud_settings_buttons()
+		panel.queue_free())
 	panel.open()
 
 func _add_mode_button(title: String, desc: String, callback: Callable, disabled := false) -> void:

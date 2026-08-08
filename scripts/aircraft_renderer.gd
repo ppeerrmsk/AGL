@@ -9,14 +9,23 @@ const LABEL_COMPACT_ENTER_SCALE: float = 0.35
 const LABEL_COMPACT_EXIT_SCALE: float = 0.40
 
 
-## 安全读 player_ref：自动清理 freed 引用。
-## 必须用此 getter 而非直接读 player_ref，否则 `var pref: Aircraft = safe_player_ref()`
-## 在 player_ref 已 free 时会抛 "previously freed" 类型校验错（aircraft._start_destroy
-## 的 cleanup 是主路径，本 getter 是兜底防御）。
+## 生命周期边界净化：先用 Variant 接住可能已释放的对象，再验证、收窄类型。
+## 不能直接赋给 `var ac: Aircraft` 后再判有效；Godot 会先在强类型赋值阶段报错。
+static func safe_aircraft_ref(value: Variant) -> Aircraft:
+	if typeof(value) != TYPE_OBJECT or not is_instance_valid(value):
+		return null
+	if not (value is Aircraft):
+		return null
+	return value as Aircraft
+
+
+## 安全读 player_ref：自动清理 freed 引用。所有消费者必须走此 getter。
 static func safe_player_ref() -> Aircraft:
-	if player_ref != null and not is_instance_valid(player_ref):
+	var candidate: Variant = player_ref
+	var safe_ref: Aircraft = safe_aircraft_ref(candidate)
+	if safe_ref == null:
 		player_ref = null
-	return player_ref
+	return safe_ref
 
 ## 世界内 CanvasItem 上的 HUD 符号使用这个比例抵消实际视口缩放。
 ## 读 viewport transform 而不是 CameraController.target_zoom，才能覆盖平滑缩放、

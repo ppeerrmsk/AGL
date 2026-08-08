@@ -21,8 +21,6 @@ const EVADE_FLARE_RELEASE_DIST: float = 1500.0
 const FLARE_IGNORE_CLEANUP_S := 2.0            ## 已忽略导弹清理间隔（秒）
 const FLARE_PARTICLE_DRAG := 0.96              ## 粒子速度衰减率
 const FLARE_PARTICLE_JITTER := 3.0             ## 粒子随机抖动幅度
-const FLARE_WAVE_MIN := 2                      ## 每波热诱弹最少数
-const FLARE_WAVE_MAX := 3                      ## 每波热诱弹最多数
 const FLARE_SPREAD_MAX := 0.6                  ## 扩散角最大值
 const FLARE_VEL_MIN := 70.0                    ## 粒子速度下限
 const FLARE_VEL_MAX := 130.0                   ## 粒子速度上限
@@ -47,6 +45,7 @@ const ESCORT_BASE_JAM := 0.70               ## 僚机紧贴长机(距离≈0)时
 
 const _BURST_WAVE_COUNT := 6                   ## 视觉分波数
 const _BURST_WAVE_INTERVAL := 0.12             ## 每波间隔（秒）
+const FLARE_VISUAL_WAVE_COUNTS := [2, 2, 1, 2, 2, 1]  ## 保留六波节奏，总数严格 10
 
 ## 主入口：每帧由 aircraft._physics_process 调用
 static func update(ac: Aircraft, delta: float) -> void:
@@ -280,13 +279,7 @@ static func release(ac: Aircraft, target_missile: Missile = null) -> void:
 		ac.locked_by.clear()
 		ac.is_locked = false
 
-	# 分批释放视觉粒子（逐颗弹出）
-	for w in range(_BURST_WAVE_COUNT):
-		ac._flare_spawn_queue.append({
-			"delay": float(w) * _BURST_WAVE_INTERVAL,
-			"heading": ac.heading,
-			"pos": ac.global_position,
-		})
+	_queue_visual_burst(ac)
 
 	# 只对触发释放的这枚判定干扰
 	if target_missile == null or not is_instance_valid(target_missile):
@@ -451,13 +444,7 @@ static func release_cover(ac: Aircraft, leader: Aircraft, target_missile: Missil
 	else:
 		ac._flare_cooldown = fp.cooldown
 
-	# 分批释放视觉粒子（与 release 同款，从机尾逐颗弹出）
-	for w in range(_BURST_WAVE_COUNT):
-		ac._flare_spawn_queue.append({
-			"delay": float(w) * _BURST_WAVE_INTERVAL,
-			"heading": ac.heading,
-			"pos": ac.global_position,
-		})
+	_queue_visual_burst(ac)
 
 	if target_missile == null or not is_instance_valid(target_missile):
 		return
@@ -524,7 +511,10 @@ static func _update_particles(ac: Aircraft, delta: float) -> void:
 		q["pos"] = ac.global_position   # 跟随飞机
 		q["heading"] = ac.heading
 		if float(q["delay"]) <= 0.0:
-			_spawn_wave(ac, q["pos"] as Vector2, float(q["heading"]))
+			var wave_count: int = int(q.get("count", 0))
+			_spawn_wave(ac, q["pos"] as Vector2, float(q["heading"]), wave_count)
+			ac.flare_visual_burst_emitted = mini(
+				ac.flare_visual_burst_emitted + wave_count, 10)
 		else:
 			remaining_queue.append(q)
 	ac._flare_spawn_queue = remaining_queue
@@ -543,11 +533,22 @@ static func _update_particles(ac: Aircraft, delta: float) -> void:
 		kept.append(p)
 	ac._flare_particles = kept
 
+## 保留既有 6 波 / 0.12s 节奏，但固定每波数量，使一次投放严格等于 HUD 的 10 颗星。
+static func _queue_visual_burst(ac: Aircraft) -> void:
+	ac.flare_visual_burst_emitted = 0
+	for w in range(_BURST_WAVE_COUNT):
+		ac._flare_spawn_queue.append({
+			"delay": float(w) * _BURST_WAVE_INTERVAL,
+			"heading": ac.heading,
+			"pos": ac.global_position,
+			"count": int(FLARE_VISUAL_WAVE_COUNTS[w]),
+		})
+
+
 ## 生成一波热诱弹粒子（从飞机当前位置向后方喷射）
-static func _spawn_wave(ac: Aircraft, spawn_pos: Vector2, spawn_heading: float) -> void:
+static func _spawn_wave(ac: Aircraft, spawn_pos: Vector2, spawn_heading: float, wave_count: int) -> void:
 	var back_dir := Vector2(-sin(spawn_heading), cos(spawn_heading))
 	var perp := Vector2(back_dir.y, -back_dir.x)
-	var wave_count := randi_range(FLARE_WAVE_MIN, FLARE_WAVE_MAX)
 	for k in range(wave_count):
 		var spread := randf_range(-FLARE_SPREAD_MAX, FLARE_SPREAD_MAX)
 		var vel := (back_dir + perp * spread) * randf_range(FLARE_VEL_MIN, FLARE_VEL_MAX)

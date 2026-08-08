@@ -11,9 +11,11 @@ param(
     [int]$DurationSeconds,
     [ValidateRange(0, 86400)]
     [int]$TimeoutSeconds = 0,
-    [string]$ProcDumpExe = '',
-    [ValidateSet('Shadow', 'InPlace')]
-    [string]$RunMode = 'Shadow'
+	[string]$ProcDumpExe = '',
+	[ValidateSet('Shadow', 'InPlace')]
+	[string]$RunMode = 'Shadow',
+	[ValidateSet('Headless', 'Visual')]
+	[string]$DisplayMode = 'Headless'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -292,8 +294,15 @@ try {
         # synchronizing to wall clock. Growth benches still simulate every 60 Hz tick.
         $fixedFpsOption = "--fixed-fps $fixedFps "
     }
-    $godotArguments = '{0}--headless --path "{1}" -- --bench={2} --duration={3}' -f `
-        $fixedFpsOption, $runProjectDir.Replace('"', '\"'), $Scenario, $DurationSeconds
+	if ($DisplayMode -eq 'Visual') {
+		# Keep the real GL Compatibility renderer while placing the transient test
+		# window off-screen. The process remains owned by the same watchdog/job.
+		$godotArguments = '{0}--path "{1}" --rendering-method gl_compatibility --windowed --resolution 1600x900 --position 32000,32000 -- --bench={2} --duration={3}' -f `
+			$fixedFpsOption, $runProjectDir.Replace('"', '\"'), $Scenario, $DurationSeconds
+	} else {
+		$godotArguments = '{0}--headless --path "{1}" -- --bench={2} --duration={3}' -f `
+			$fixedFpsOption, $runProjectDir.Replace('"', '\"'), $Scenario, $DurationSeconds
+	}
     if ($ProcDumpExe -ne '') {
         $dumpDir = Join-Path $ProjectDir 'tmp\crash-dumps'
         New-Item -ItemType Directory -Path $dumpDir -Force | Out-Null
@@ -316,7 +325,7 @@ try {
     $child.StartInfo = $psi
 
     Write-Host "[bench] godot=$GodotExe"
-    Write-Host "[bench] mode=$RunMode project=$runProjectDir"
+	Write-Host "[bench] mode=$RunMode display=$DisplayMode project=$runProjectDir"
     if ($fixedFpsOption -ne '') {
         Write-Host "[bench] deterministic fixed-fps=$fixedFps (wall-clock sync disabled)"
     }

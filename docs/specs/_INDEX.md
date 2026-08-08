@@ -36,10 +36,11 @@
 
 | Spec | kind | status | 重建完整 | 覆盖范围 |
 |---|---|---|---|---|
+| [systems/player-instrument-hud](systems/player-instrument-hud.md) | system | done | ✅ | **玩家与僚机仪表 HUD**：替换右侧旧 TACTICS/玩家信息/僚机富文本框；玩家内部逐行左上角锚定，HP 右侧仅 G，SPD 左侧为 ALT/高度偏好、右侧为速度/单位，Q 与 E/G/F/T 在外框左侧同列；唯一 R 技能取得后常驻 0%→100% 充能且不显示秒数；固定拉丁内容保留 Acumin，本地化中日韩文使用主题默认字体。 |
 | [systems/presentation-foundation-rework](systems/presentation-foundation-rework.md) | system | draft | ✗ | **表现层底层逻辑改造确认稿**：持续汇总本轮讨论中由用户明确确认的主要改动；区分待讨论、已确认、已实现，记录旧/新行为、影响、风险、退化策略与验收标准，并以既有 `ui-transition` 为依赖。 |
 | [skills/displacement-roll](skills/displacement-roll.md) | skill | done | ✅ | **位移滚转**：实验级 R 主动技能；1.15s 内确定性选择安全侧并横移 450px，15s 玩家小队共享冷却；动作本体不可命中、保留锁定与在飞武器；并入五向 R 互斥槽，当前操控机手动、AI 僚机自动。 |
 | [skills/vertical-break](skills/vertical-break.md) | skill | done | ✅ | **垂直越过**：实验级 R 主动技能；LOW 拉升/MID·HIGH 俯冲 900m/1.30s，18s 玩家小队共享冷却；额外能量交换封顶 −18%/+15%，并入五向 R 互斥槽，当前操控机手动、AI 僚机自动。 |
-| [systems/active-special-maneuvers](systems/active-special-maneuvers.md) | system | done | ✅ | **主动特殊机动共享契约**：五种 R 技能统一双向互斥；当前操控机按 R、AI 僚机按威胁自动释放；共享冷却、最新命令队列、切控续播、统一不可命中查询与幂等退出。 |
+| [systems/active-special-maneuvers](systems/active-special-maneuvers.md) | system | done | ✅ | **主动特殊机动共享契约**：五种 R 技能统一双向互斥且玩家只持有一个；当前操控机按 R、AI 僚机按威胁自动释放；共享冷却、最新命令队列、切控续播、统一不可命中查询；玩家仪表取得后常驻并只显示 0%→100% 可用度。 |
 | [systems/status-build-completion](systems/status-build-completion.md) | balance | done | ✅ | **状态词条构筑聚焦与终端保底**：保留三轴各一卡，已选主词条相关卡按 `1+0.75×sqrt(min(A,4))` 加权、无关卡降至 ×0.85/×0.70/×0.65；终端首轮 ×2、次轮 ×4、第三次合格事件强制出示但不自动授予。同步六项新技能、词条闭合、稀有度调整与 BLOODLUST 基础机炮零耗弹。 |
 | [skills/flee](skills/flee.md) | skill | done | ✅ | **逃离**：实验级全队唯一；新 FEAR 40% 令普通载人敌机真实撤退并正常结算一次 XP；无人机、ACE、BOSS 与 BOSS 生成物豁免。 |
 | [skills/invasion-algorithm](skills/invasion-algorithm.md) | skill | done | ✅ | **入侵算法**：实验级全队唯一；玩家小队 JAM 使 MQ-109～112 立即坠毁并正常结算一次 XP。 |
@@ -124,7 +125,7 @@
 | [systems/combat-effectiveness-metrics](systems/combat-effectiveness-metrics.md) | system | draft | ✗ | 战斗效能评估：交战记录 4 层指标（转化 FSR/执行 hit_rate/结果 TTK/对手规避+CapIndex 差距）+ 两轴 Offense/Defense 评级 + bench 对位矩阵；核心解决"快机打不中慢直升机≠直升机强"。**仅 §1~§6 草稿，待 review** |
 | [systems/aircraft-evolution](systems/aircraft-evolution.md) | system | superseded | ✗ | **历史高层骨架，禁止继续派生实现。** 当前权威已拆分到 zone-reward-docking、aircraft-evolution-tree、evolution-attribute-gates 与 inrun-weapon-inventory。 |
 | [systems/aircraft-evolution-tree](systems/aircraft-evolution-tree.md) | system | done | ✅ | **v8 已落地**：43 节点 / 124 边，EA-18G（T2 电战）与 F/A-XX（T4 斗士型攻击）已接入；Tier 数量 4/16/8/7/8，永久不可达边=0。 |
-| [systems/evolution-attribute-gates](systems/evolution-attribute-gates.md) | system | done | ✅ | **v15 已落地**：全部节点使用具体逐轴门槛，F/A-18E `any` 保留；8 点内全分配枚举覆盖 124 条边，永久不可达边=0。里程碑主体沿用 v14。 |
+| [systems/evolution-attribute-gates](systems/evolution-attribute-gates.md) | system | done | ✅ | **v16 已落地**：全部节点使用具体逐轴门槛，F/A-18E `any` 保留；8 点内全分配枚举覆盖 124 条边，永久不可达边=0。主 HUD 经验条上方以固定 400×18 三格计数器常驻显示斗士/骑士/策士里程碑进度。 |
 | [systems/evolution-growth-benchmark](systems/evolution-growth-benchmark.md) | balance | done | ✅ | 用户取消 320 局实战并改为参数验收；斗士 T2–T5 已按炮伤倍率 1.30/1.40/1.50/1.60、射程 1200/1300/1400/1500m、开火半角 8/9/10/11°、瞄准 0.65/0.70/0.75/0.80 逐档增强，43 机静态审计“通过”、违规项 0，任务完成。 |
 | [systems/multi-target-missile-locks](systems/multi-target-missile-locks.md) | system | done | ✅ | 多锁多射从 on/off 改为可叠加锁数：基础 1；稳定级骑士普通卡每层 +1（最多 3，全队）；F-22 隐身 +2；导弹蜂群全队 +3；骑士 8 点 +1。齐射覆盖数=`min(有效锁数,合法目标,弹量)`，每轮正常冷却。斗士装甲里程碑现位于 4 点；策士 3 点 XP +10% 不变。 |
 | [systems/inrun-weapon-inventory](systems/inrun-weapon-inventory.md) | system | draft | ✅ | 局内武器库（2026-07-19 用户重点调整）：特殊武器（电磁炮/激光/忠诚僚机/QMAAM/漂浮雷）=**局内玩家外部装备，到手即永久、换机/进化全继承（含强化）**；获取=签名机型首驾入库+战区奖励；底线武器（机炮/导弹/flare）仍随机体；**作废**"武器绑机型不继承"（06-28）与 meta-progression"局外多武器 loadout"；重放与属性门槛玩家层同机制。开放点：火箭归类/挂载上限/重复补偿。**核心落地（进化前快照/换型补挂/升级卡重放防双叠）+ 断言并入 attr_gates，差 结算清单分段/Tab 图标行/debug 勾选** |

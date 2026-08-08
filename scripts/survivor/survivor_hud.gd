@@ -1,12 +1,25 @@
 class_name SurvivorHUD
 extends CanvasLayer
 
+const PlayerInstrumentPanelScript := preload("res://scripts/survivor/player_instrument_panel.gd")
+const WingmanInstrumentPanelScript := preload("res://scripts/survivor/wingman_instrument_panel.gd")
+const MilestoneAxisCounterScript := preload("res://scripts/survivor/milestone_axis_counter.gd")
+
 ## 生存模式 HUD：右下角状态面板 + 顶部时间/击杀 + 底部经验条
 
 var survivor_player: SurvivorPlayer
 var game_time: float = 0.0
 var kill_count: int = 0
 var game_scene: Node2D
+
+
+## SurvivorPlayer.aircraft 跨帧持有；终局/切控边界可能短暂指向已释放实例。
+## 必须先以 Variant 进入统一净化器，不能直接赋给强类型局部变量后再判有效。
+func _safe_player_aircraft() -> Aircraft:
+	if survivor_player == null:
+		return null
+	return AircraftRenderer.safe_aircraft_ref(survivor_player.aircraft)
+
 
 # ── 顶部 ──
 var _time_label: Label
@@ -21,10 +34,13 @@ var _warzone_in_boss_phase: bool = false
 var _xp_bar_bg: ColorRect
 var _xp_bar_fill: ColorRect
 var _xp_label: Label
+var _milestone_axis_counter: Control
 
 # ── 右下角状态面板 ──
 var _status_panel: PanelContainer
 var _status_label: RichTextLabel
+var _player_instrument: Control
+var _wingman_instrument: Control
 
 # ── 右侧战术面板 ──
 var _tactical_panel: PanelContainer
@@ -143,6 +159,10 @@ func _build_ui() -> void:
 	_xp_label.add_theme_font_size_override("font_size", 12)
 	_xp_label.add_theme_color_override("font_color", ThemeColors.TEXT_WHITE)
 	add_child(_xp_label)
+
+	# ── 三轴里程碑摘要（经验条正上方，固定占位、无交互）──
+	_milestone_axis_counter = MilestoneAxisCounterScript.new()
+	add_child(_milestone_axis_counter)
 
 	# ── 右下角状态面板 ──
 	_status_panel = PanelContainer.new()
@@ -281,6 +301,16 @@ func _build_ui() -> void:
 	_tooltip_panel.add_child(_tooltip_label)
 	add_child(_tooltip_panel)
 
+	# 用户定稿：旧 TACTICS + 玩家信息栏由纯显示玩家仪表替换；保留旧节点仅降低共享工作树
+	# 大段删除的冲突风险，但它们不再显示、更新或接收鼠标输入。
+	_status_panel.visible = false
+	_tactical_panel.visible = false
+	_tooltip_panel.visible = false
+	_player_instrument = PlayerInstrumentPanelScript.new()
+	add_child(_player_instrument)
+	_wingman_instrument = WingmanInstrumentPanelScript.new()
+	add_child(_wingman_instrument)
+
 	# ── 雷达小地图（左下角）──
 	_radar = RadarDisplay.new()
 	_radar.hud = self
@@ -346,7 +376,6 @@ func _unhandled_input(event: InputEvent) -> void:
 func _process(delta: float) -> void:
 	_layout_ui()
 	_update_display()
-	_update_tactical_buttons()
 	_update_squad_panel()
 	_update_boss_panel()
 	_update_ace_panel()
@@ -400,6 +429,8 @@ func _layout_ui() -> void:
 	_xp_bar_fill.position = Vector2(xp_x, xp_y)
 	_xp_label.position = Vector2(xp_x, xp_y)
 	_xp_label.size = Vector2(XP_BAR_WIDTH, XP_BAR_HEIGHT)
+	_milestone_axis_counter.position = Vector2(
+		xp_x, xp_y - MilestoneAxisCounterScript.COUNTER_SIZE.y - 4.0)
 	if _xp_vfx:
 		_xp_vfx.bar_rect = Rect2(xp_x, xp_y, XP_BAR_WIDTH, XP_BAR_HEIGHT)
 
@@ -414,13 +445,21 @@ func _layout_ui() -> void:
 		vp.x - _tactical_panel.size.x - 16,
 		_status_panel.position.y - _tactical_panel.size.y - 8
 	)
-
-	# 小队指挥面板：战术面板正上方（只在有僚机时可见）
-	if _squad_panel and _squad_panel.visible:
-		_squad_panel.position = Vector2(
-			vp.x - _squad_panel.size.x - 16,
-			_tactical_panel.position.y - _squad_panel.size.y - 8
+	# 玩家仪表：严格占用旧 TACTICS + 状态栏的右下区域；其它 HUD 不动。
+	if _player_instrument:
+		_player_instrument.position = Vector2(
+			vp.x - _player_instrument.size.x - 16,
+			vp.y - _player_instrument.size.y - XP_BAR_HEIGHT - 36
 		)
+	if _wingman_instrument and _player_instrument:
+		_wingman_instrument.position = Vector2(
+			_player_instrument.position.x,
+			_player_instrument.position.y - _wingman_instrument.size.y - 6
+		)
+
+	# 旧富文本小队面板仅保留逻辑入口；显示由玩家仪表上方的独立僚机行接管。
+	if _squad_panel:
+		_squad_panel.visible = false
 
 	# 提示面板：战术面板左侧
 	if _tooltip_panel.visible:
@@ -478,12 +517,15 @@ func _update_display() -> void:
 	var xp_ratio := float(survivor_player.xp) / float(maxi(survivor_player.xp_to_next, 1))
 	_xp_bar_fill.size.x = XP_BAR_WIDTH * clampf(xp_ratio, 0.0, 1.0)
 	_xp_label.text = tr("HUD_LEVEL_FMT") % [survivor_player.level, survivor_player.xp, survivor_player.xp_to_next]
+	_milestone_axis_counter.update_display(survivor_player)
 
-	# 右下角状态面板
-	_update_status_panel()
+	_update_player_instrument()
 
-	# 加力充能条 + 按钮三态（每帧：条要随时间/击杀充能流动）
-	_update_afterburner_ui()
+
+func _update_player_instrument() -> void:
+	if _player_instrument == null:
+		return
+	_player_instrument.update_display(_safe_player_aircraft(), afterburner_charge)
 
 ## 收到击杀信号 → 战况栏顶部插入一条（友机击坠=绿 / 友机阵亡=红 / 中立=灰），超上限移除最旧
 func _on_kill_recorded(killer: String, victim: String, weapon_kind: String, killer_team: int, victim_team: int, _victim_voiced: bool) -> void:
@@ -561,7 +603,7 @@ func _feed_weapon_label(kind: String) -> String:
 	return ""
 
 func _update_status_panel() -> void:
-	var ac := survivor_player.aircraft
+	var ac: Aircraft = _safe_player_aircraft()
 	if not ac or ac.is_destroyed:
 		_status_label.text = ""
 		return
@@ -871,9 +913,9 @@ func _create_tac_button(label_text: String) -> Button:
 	return btn
 
 func _on_weapon_pressed() -> void:
-	if not survivor_player or not survivor_player.aircraft:
+	var ac: Aircraft = _safe_player_aircraft()
+	if ac == null:
 		return
-	var ac := survivor_player.aircraft
 	if ac.weapon_preference == Aircraft.WeaponPreference.PREFER_MISSILE:
 		ac.weapon_preference = Aircraft.WeaponPreference.PREFER_GUN
 	else:
@@ -883,9 +925,9 @@ func _on_weapon_pressed() -> void:
 		_update_tooltip()
 
 func _on_altitude_pressed() -> void:
-	if not survivor_player or not survivor_player.aircraft:
+	var ac: Aircraft = _safe_player_aircraft()
+	if ac == null:
 		return
-	var ac := survivor_player.aircraft
 	if ac.altitude_preference == Aircraft.AltitudePreference.PREFER_CLIMB:
 		ac.altitude_preference = Aircraft.AltitudePreference.PREFER_LOW
 	else:
@@ -895,9 +937,9 @@ func _on_altitude_pressed() -> void:
 		_update_tooltip()
 
 func _on_evasion_pressed() -> void:
-	if not survivor_player or not survivor_player.aircraft:
+	var ac: Aircraft = _safe_player_aircraft()
+	if ac == null:
 		return
-	var ac := survivor_player.aircraft
 	# 加力模式：走充能资源（spec afterburner-mode，充能制）；有能量即启动，激活中再点关闭。
 	# 无资源注入（防御性兜底）时退回旧开关行为。
 	if afterburner_charge:
@@ -909,18 +951,18 @@ func _on_evasion_pressed() -> void:
 		_update_tooltip()
 
 func _on_auto_fire_pressed() -> void:
-	if not survivor_player or not survivor_player.aircraft:
+	var ac: Aircraft = _safe_player_aircraft()
+	if ac == null:
 		return
-	var ac := survivor_player.aircraft
 	ac.missile_auto_fire = not ac.missile_auto_fire
 	_update_tactical_buttons()
 	if _tooltip_panel.visible:
 		_update_tooltip()
 
 func _on_auto_engage_pressed() -> void:
-	if not survivor_player or not survivor_player.aircraft:
+	var ac: Aircraft = _safe_player_aircraft()
+	if ac == null:
 		return
-	var ac := survivor_player.aircraft
 	ac.auto_engage_enabled = not ac.auto_engage_enabled
 	_update_tactical_buttons()
 	if _tooltip_panel.visible:
@@ -936,9 +978,9 @@ func _on_tac_hover_exit() -> void:
 	_tooltip_panel.visible = false
 
 func _update_tooltip() -> void:
-	if not survivor_player or not survivor_player.aircraft:
+	var ac: Aircraft = _safe_player_aircraft()
+	if ac == null:
 		return
-	var ac := survivor_player.aircraft
 	var text := ""
 
 	var title_key := ""
@@ -1001,41 +1043,13 @@ func _update_tooltip() -> void:
 	_tooltip_label.text = text
 
 func _update_tactical_buttons() -> void:
-	if not survivor_player or not survivor_player.aircraft:
-		return
-	var ac := survivor_player.aircraft
-	if ac.weapon_preference == Aircraft.WeaponPreference.PREFER_MISSILE:
-		_btn_weapon.text = tr("TACTIC_MISSILE_PRIORITY")
-	else:
-		_btn_weapon.text = tr("TACTIC_GUN_PRIORITY")
-	if ac.altitude_preference == Aircraft.AltitudePreference.PREFER_CLIMB:
-		_btn_altitude.text = tr("TACTIC_CLIMB_PRIORITY")
-	else:
-		_btn_altitude.text = tr("TACTIC_LOW_ALT")
-	_update_afterburner_ui()
-	_btn_auto_fire.text = tr("TACTIC_AUTOFIRE_FMT") % (tr("STATE_ON") if ac.missile_auto_fire else tr("STATE_OFF"))
-	_btn_auto_engage.text = tr("TACTIC_AUTO_ENGAGE_FMT") % (tr("STATE_ON") if ac.auto_engage_enabled else tr("STATE_OFF"))
+	_update_player_instrument()
 
 ## 加力充能条 + 按钮三态（spec afterburner-mode，充能制）：条恒为当前能量 charge/CHARGE_MAX。
 ## 激活=亮青（放空剩余可烧秒数）/ 满能量=亮橙 READY / 部分能量=暗橙百分比。
 ## 资源未注入（防御性兜底）时退回旧 ON/OFF 文案。
 func _update_afterburner_ui() -> void:
-	if _btn_evasion == null:
-		return
-	if afterburner_charge == null:
-		if survivor_player and survivor_player.aircraft:
-			_btn_evasion.text = tr("TACTIC_EVADE_FMT") % (tr("STATE_ON") if survivor_player.aircraft.evasion_mode else tr("STATE_OFF"))
-		return
-	_ab_bar.value = afterburner_charge.ratio()
-	if afterburner_charge.is_active():
-		_btn_evasion.text = tr("TACTIC_EVADE_FMT") % (tr("AB_STATE_ACTIVE_FMT") % afterburner_charge.remaining_seconds())
-		_ab_bar_fill.bg_color = AB_BAR_ACTIVE
-	elif afterburner_charge.is_full():
-		_btn_evasion.text = tr("TACTIC_EVADE_FMT") % tr("AB_STATE_READY")
-		_ab_bar_fill.bg_color = AB_BAR_READY
-	else:
-		_btn_evasion.text = tr("TACTIC_EVADE_FMT") % (tr("AB_STATE_CHARGING_FMT") % int(afterburner_charge.ratio() * 100.0))
-		_ab_bar_fill.bg_color = AB_BAR_CHARGING
+	_update_player_instrument()
 
 # ══════════════════════════════════════════════
 #  小队指挥面板（仅主角有僚机时存在）
@@ -1442,18 +1456,18 @@ func _wingman_action_text(ac: Aircraft) -> String:
 			return tr("ACTION_FORMATION")
 	return tr("ACTION_UNKNOWN")
 
-## 每帧刷新小队面板内容（状态行 + 按钮文本 + 可见性）
+## 每帧刷新玩家仪表上方的僚机信息行；一架存活僚机严格对应一行。
 func _update_squad_panel() -> void:
-	if _squad_panel == null:
+	if _squad_panel == null or _wingman_instrument == null:
 		return
+	_squad_panel.visible = false
 	var wingmen := _get_wingmen()
 	if wingmen.is_empty():
-		_squad_panel.visible = false
+		_wingman_instrument.update_display([])
 		return
-	_squad_panel.visible = true
 	var sq := _get_player_squad()
 	if sq == null:
-		_squad_panel.visible = false
+		_wingman_instrument.update_display([])
 		return
 
 	# 继任者标记（spec ace-system §3）：击坠数最高的僚机 = 王牌阵亡时的继任者，标 ★
@@ -1464,32 +1478,55 @@ func _update_squad_panel() -> void:
 	if heir and heir.kill_tally <= 0:
 		heir = null  # 零杀不标（无有意义的继任排序）
 
-	# 当前操控机也列在小队面板中；固定 squad_slot 就是数字键，换帅后不会漂移。
-	var controlled: Aircraft = game_scene.player_aircraft
-	var bbcode := "[color=#ffe08a][b][%d] %s[/b]  ◀ %s[/color]\n\n" % [
-		controlled.squad_slot, controlled.callsign, tr("SQUAD_CONTROLLED")]
-	for i in range(wingmen.size()):
-		var wm: Aircraft = wingmen[i]
-		var max_hp: float = wm.params.max_hp if wm.params else 100.0
-		var hp_ratio: float = clampf(wm.hp / maxf(max_hp, 0.01), 0.0, 1.0)
-		var hp_color: String = "66ff66" if hp_ratio > 0.6 else ("ffcc44" if hp_ratio > 0.3 else "ff5555")
-		var bar_cells := 10
-		var filled := int(round(hp_ratio * bar_cells))
-		var bar_str := ""
-		for c in range(bar_cells):
-			bar_str += "█" if c < filled else "░"
+	var rows: Array[Dictionary] = []
+	for wm_raw: Variant in wingmen:
+		var wm := wm_raw as Aircraft
+		if wm == null or not is_instance_valid(wm):
+			continue
+		var max_hp := ceili(wm.params.max_hp) if wm.params else ceili(wm.hp)
+		var has_msl := wm.params != null and wm.params.missile != null
+		var has_gun := wm.params != null and wm.params.gun != null
+		var has_flr := wm.params != null and wm.params.flare != null
+		var msl_busy := has_msl and wm._missile_reload_active
+		var gun_busy := has_gun and wm.enable_gun_reload and wm._gun_reload_active
+		var flr_busy := has_flr and wm.enable_flare_reload and wm.flares_remaining <= 0 \
+			and wm.flare_reload_progress > 0.01
+		var msl_text := ""
+		if has_msl:
+			msl_text = "%d%%" % int(wm.missile_reload_progress * 100.0) if msl_busy \
+				else "%d/%d" % [wm.missiles_remaining, wm.params.missile.max_count]
+		var gun_text := ""
+		if has_gun:
+			gun_text = "%d%%" % int(wm.gun_reload_progress * 100.0) if gun_busy else str(wm.ammo)
+		var flr_text := ""
+		if has_flr:
+			flr_text = "%d%%" % int(wm.flare_reload_progress * 100.0) if flr_busy \
+				else str(wm.flares_remaining)
+		rows.append({
+			"slot": wm.squad_slot,
+			"callsign": wm.callsign,
+			"is_heir": wm == heir,
+			"kills": wm.kill_tally,
+			"hp": "%d/%d" % [ceili(wm.hp), max_hp],
+			"action": _wingman_action_text(wm),
+			"has_msl": has_msl,
+			"msl": msl_text,
+			"msl_busy": msl_busy,
+			"has_gun": has_gun,
+			"gun": gun_text,
+			"gun_busy": gun_busy,
+			"has_flr": has_flr,
+			"flr": flr_text,
+			"flr_busy": flr_busy,
+		})
+	_wingman_instrument.update_display(rows)
+	if _player_instrument:
+		_wingman_instrument.position = Vector2(
+			_player_instrument.position.x,
+			_player_instrument.position.y - _wingman_instrument.size.y - 6
+		)
 
-		var heir_mark := "[color=#ffcc44]★[/color] " if wm == heir else ""
-		var kills_str := "  [color=#8899aa]✕%d[/color]" % wm.kill_tally if wm.kill_tally > 0 else ""
-		bbcode += "%s[b][%d] %s[/b]%s  [color=#%s]HP %3d%%[/color]\n" % [heir_mark, wm.squad_slot, wm.callsign, kills_str, hp_color, int(hp_ratio * 100)]
-		bbcode += "  [color=#%s]%s[/color]\n" % [hp_color, bar_str]
-		bbcode += "  %s\n" % _wingman_weapon_status(wm)
-		bbcode += "  [color=#6ab4e8]• %s[/color]" % _wingman_action_text(wm)
-		if i < wingmen.size() - 1:
-			bbcode += "\n\n"
-	_squad_status_label.text = bbcode
-
-	# 按钮文本（阵型按钮已废弃，由交战模式决定阵型）
+	# C/V 键盘入口仍沿用既有状态；旧鼠标按钮节点仅保留兼容，不再显示。
 	_btn_squad_engage.text = tr("SQUAD_ENGAGE_FMT") % _squad_engage_mode_label()
 	_btn_squad_weapon.text = tr("SQUAD_WEAPON_FMT") % (tr("WEAPON_PREF_MISSILE") if _squad_weapon_pref == Aircraft.WeaponPreference.PREFER_MISSILE else tr("WEAPON_PREF_GUN"))
 
@@ -1674,7 +1711,7 @@ class RadarDisplay extends Control:
 	func _draw() -> void:
 		if not hud or not hud.game_scene or not hud.survivor_player:
 			return
-		var player_ac: Aircraft = hud.survivor_player.aircraft
+		var player_ac: Aircraft = hud._safe_player_aircraft()
 		if not player_ac or player_ac.is_destroyed:
 			return
 
@@ -1873,7 +1910,7 @@ class ThreatOverlay extends Control:
 	func _draw() -> void:
 		if not hud or not hud.game_scene or not hud.survivor_player:
 			return
-		var player_ac: Aircraft = hud.survivor_player.aircraft
+		var player_ac: Aircraft = hud._safe_player_aircraft()
 		if not player_ac or player_ac.is_destroyed:
 			return
 

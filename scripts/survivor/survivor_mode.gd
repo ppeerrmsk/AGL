@@ -1724,18 +1724,12 @@ func _unhandled_input(event: InputEvent) -> void:
 				_switch_control_to_slot(event.keycode - KEY_1 + 1)
 				return
 			KEY_Q:
-				# 高度偏好 toggle（原 KEY_Z；对齐 HUD 按钮与 i18n 标签）
-				if player_aircraft.altitude_preference == Aircraft.AltitudePreference.PREFER_CLIMB:
-					player_aircraft.altitude_preference = Aircraft.AltitudePreference.PREFER_LOW
-				else:
-					player_aircraft.altitude_preference = Aircraft.AltitudePreference.PREFER_CLIMB
+				# 高度偏好 toggle（原 KEY_Z）；HUD ALT/Q 状态块镜像同一字段。
+				_cycle_player_altitude_preference(player_aircraft)
 				return
 			KEY_T:
-				# 武器优先 toggle（原 KEY_Q，Q 腾给高度偏好；对齐 HUD 按钮与 i18n 标签）
-				if player_aircraft.weapon_preference == Aircraft.WeaponPreference.PREFER_MISSILE:
-					player_aircraft.weapon_preference = Aircraft.WeaponPreference.PREFER_GUN
-				else:
-					player_aircraft.weapon_preference = Aircraft.WeaponPreference.PREFER_MISSILE
+				# 武器优先：只在实际存在的 MSL/GUN 间循环；单武器/无传统武器机为 no-op。
+				_cycle_player_weapon_preference(player_aircraft)
 				return
 			KEY_E:
 				# 加力模式（spec afterburner-mode，充能制）：有能量即可启动，激活中再按关闭。
@@ -1746,6 +1740,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				return
 			KEY_F:
 				player_aircraft.missile_auto_fire = not player_aircraft.missile_auto_fire
+				return
+			KEY_G:
+				player_aircraft.auto_engage_enabled = not player_aircraft.auto_engage_enabled
 				return
 			KEY_C:
 				# 小队交战三态循环（自由→跟随→守护）；原 KEY_6 被上方 KEY_1..9 切控拦截成死分支 → 迁 C
@@ -1761,6 +1758,32 @@ func _unhandled_input(event: InputEvent) -> void:
 		_handle_mouse_button(event)
 	elif event is InputEventMouseMotion:
 		_handle_mouse_motion(event)
+
+
+## Q 键唯一规则：现有两态飞行语义保持，玩家仪表只镜像结果。
+static func _cycle_player_altitude_preference(ac: Aircraft) -> void:
+	if ac == null or not is_instance_valid(ac):
+		return
+	ac.altitude_preference = Aircraft.AltitudePreference.PREFER_LOW \
+		if ac.altitude_preference == Aircraft.AltitudePreference.PREFER_CLIMB \
+		else Aircraft.AltitudePreference.PREFER_CLIMB
+
+
+## T 键唯一规则：缺失武器不进入偏好循环；只剩一种时顺便真相化内部偏好。
+static func _cycle_player_weapon_preference(ac: Aircraft) -> void:
+	if ac == null or not is_instance_valid(ac) or ac.params == null:
+		return
+	var has_missile := ac.params.missile != null
+	var has_gun := ac.params.gun != null
+	if has_missile and has_gun:
+		ac.weapon_preference = Aircraft.WeaponPreference.PREFER_GUN \
+			if ac.weapon_preference == Aircraft.WeaponPreference.PREFER_MISSILE \
+			else Aircraft.WeaponPreference.PREFER_MISSILE
+	elif has_missile:
+		ac.weapon_preference = Aircraft.WeaponPreference.PREFER_MISSILE
+	elif has_gun:
+		ac.weapon_preference = Aircraft.WeaponPreference.PREFER_GUN
+
 
 func _handle_mouse_button(event: InputEventMouseButton) -> void:
 	match event.button_index:
@@ -2792,6 +2815,12 @@ func _update_objective_context(delta: float) -> void:
 func _set_player_aircraft(ac: Aircraft) -> void:
 	if not ac or not is_instance_valid(ac):
 		return
+	# 单基础武器机进入操控态时立即真相化 PRIORITY，避免 HUD 出现不可见偏好。
+	var has_missile := ac.params != null and ac.params.missile != null
+	var has_gun := ac.params != null and ac.params.gun != null
+	if has_missile != has_gun:
+		ac.weapon_preference = Aircraft.WeaponPreference.PREFER_MISSILE \
+			if has_missile else Aircraft.WeaponPreference.PREFER_GUN
 	var prev_controlled: Aircraft = player_aircraft
 	player_aircraft = ac
 	AircraftRenderer.player_ref = ac

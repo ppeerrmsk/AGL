@@ -61,6 +61,7 @@ const UNIT_TESTS: Dictionary = {
 	"fire_discipline": "res://scripts/tests/test_fire_discipline.gd",
 	"attr_gates": "res://scripts/tests/test_attribute_gates.gd",
 	"player_params": "res://scripts/tests/test_player_params.gd",
+	"player_hud": "res://scripts/tests/test_player_instrument_hud.gd",
 	"chatter": "res://scripts/tests/test_radio_chatter.gd",
 	"tight_volley": "res://scripts/tests/test_tight_volley.gd",
 	"ace_tier": "res://scripts/tests/test_ace_tier.gd",
@@ -96,6 +97,11 @@ const BUILD_TASKS: Dictionary = {
 	"i18n_build": "res://scripts/tests/build_translations.gd",
 }
 
+## 需要真实 RenderingServer 的固定画面采集；必须由 run.cmd 的 Visual 模式启动。
+const VISUAL_TEST_SCENES: Dictionary = {
+	"player_hud_visual": "res://scenes/tests/player_hud_visual_qa.tscn",
+}
+
 var bench_active: bool = false
 var bench_scenario: String = ""
 var bench_duration: float = DEFAULT_DURATION
@@ -116,6 +122,17 @@ func _ready() -> void:
 			bench_duration = maxf(1.0, float(a.substr(11)))
 	if bench_scenario == "":
 		printerr("[Bench] no --bench= arg, BenchRunner idle")
+		return
+	if VISUAL_TEST_SCENES.has(bench_scenario):
+		if DisplayServer.get_name() == "headless":
+			printerr("[Bench] %s requires: bench/run.cmd %s 1 180 Shadow Visual" % [
+				bench_scenario, bench_scenario])
+			get_tree().quit(1)
+			return
+		get_tree().set_meta("bench_mode", true)
+		get_tree().set_meta("bench_scenario", bench_scenario)
+		get_tree().set_meta("bench_duration", bench_duration)
+		call_deferred("_swap_to_visual_test", String(VISUAL_TEST_SCENES[bench_scenario]))
 		return
 	if BUILD_TASKS.has(bench_scenario):
 		var build_script: GDScript = load(String(BUILD_TASKS[bench_scenario]))
@@ -188,6 +205,14 @@ func _swap_to_survivor() -> void:
 	var err: int = get_tree().change_scene_to_file("res://scenes/survivor_mode.tscn")
 	if err != OK:
 		push_error("[Bench] failed to load survivor_mode.tscn (err=%d)" % err)
+		get_tree().quit(1)
+
+
+func _swap_to_visual_test(scene_path: String) -> void:
+	printerr("[Bench] swapping to visual test: %s" % scene_path)
+	var err: int = get_tree().change_scene_to_file(scene_path)
+	if err != OK:
+		push_error("[Bench] failed to load visual test scene (err=%d)" % err)
 		get_tree().quit(1)
 
 
