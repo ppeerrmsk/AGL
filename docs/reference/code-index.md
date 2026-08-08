@@ -1081,7 +1081,7 @@
 | 真实在途导弹警告（一弹一线一三角；雷达共用判定） | `missile.gd` `incoming_warning_rule` / `is_incoming_warning_for` / `_draw_incoming_warning`；`survivor/survivor_hud.gd` `RadarDisplay` |
 | 数据标签（完整） | `aircraft_renderer.gd` draw_data_label |
 | 数据标签（生存模式简化） | `aircraft_renderer.gd` draw_data_label_minimal |
-| 数据标签（真实开局 0.35/0.40 简略档 + Alt 临时完整） | `aircraft_renderer.gd` `next_compact_label_state` / `should_draw_compact_label` / `draw_data_label_compact`；地面单位 `ground_unit.gd` `_should_draw_compact_data_label` |
+| 数据标签（剥离窗口 stretch 后按真实相机 0.35/0.40 简略档 + Alt 临时完整） | `aircraft_renderer.gd` `label_lod_scale_for` / `label_lod_scale` / `next_compact_label_state` / `should_draw_compact_label` / `draw_data_label_compact`；地面单位 `ground_unit.gd` `_should_draw_compact_data_label` |
 | 机头闪光 | `aircraft_renderer.gd:544` draw_muzzle_flash |
 | 加力火焰 | `aircraft_renderer.gd:554` draw_afterburner_glow |
 | 热诱弹粒子 | `aircraft_renderer.gd:587` draw_flare_particles |

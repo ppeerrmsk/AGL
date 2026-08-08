@@ -564,6 +564,17 @@ func _test_lock_visual_screen_scale() -> void:
 
 
 func _test_compact_aircraft_labels() -> void:
+	# 标签 LOD 必须剥离窗口拉伸。否则 4K 最大化（stretch=2）时，
+	# 最远相机 zoom 0.20 会被误读成 0.40，永远无法进入 0.35 简略档。
+	for stretch_scale in [1.0, 4.0 / 3.0, 2.0]:
+		var normalized := AircraftRenderer.label_lod_scale_for(
+			0.35 * stretch_scale, stretch_scale)
+		_assert_near("label_lod.stretch %.2f 不改变相机档位" % stretch_scale,
+			normalized, 0.35)
+	_assert_true("label_lod.4K 最大化后最远 zoom 仍进入战略档",
+		AircraftRenderer.next_compact_label_state(false,
+			AircraftRenderer.label_lod_scale_for(0.20 * 2.0, 2.0)))
+
 	var compact := AircraftRenderer.next_compact_label_state(false, 0.40)
 	_assert_true("label_lod.放大到 0.40 保持详细", not compact)
 	compact = AircraftRenderer.next_compact_label_state(compact, 0.35)

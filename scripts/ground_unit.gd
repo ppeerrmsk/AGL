@@ -38,7 +38,7 @@ var _compact_data_label_active: bool = false
 
 
 func _should_draw_compact_data_label() -> bool:
-	var view_scale := get_viewport_transform().get_scale().x
+	var view_scale := AircraftRenderer.label_lod_scale(self)
 	_compact_data_label_active = AircraftRenderer.next_compact_label_state(
 		_compact_data_label_active, view_scale)
 	return AircraftRenderer.compact_label_visible(_compact_data_label_active,

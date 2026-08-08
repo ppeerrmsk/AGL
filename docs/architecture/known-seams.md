@@ -73,6 +73,11 @@ weak_revealed 等字段，**没有跟踪 `viewport_transform.scale`**。`_draw_s
 **模式**：任何把 `viewport_transform` / `inv_zoom` / 屏幕空间值烤进 canvas item 的
 `_draw` 逻辑，都需要在脏驱动 redraw 里跟踪 zoom 变化。这是脏驱动 redraw 优化的隐藏依赖。
 
+**2026-08-08 补充**：`viewport_transform.scale` 还包含 `canvas_items` 的窗口 stretch。
+它适合做屏幕像素尺寸补偿，却不能直接作为语义 LOD 阈值；否则最大化到 4K（stretch≈2）会把
+相机 zoom 0.20 误判为 0.40。标签 LOD 必须先除以 `Viewport.get_stretch_transform().scale`，
+统一走 `AircraftRenderer.label_lod_scale()`；飞机和地面单位不能各自直读最终 viewport scale。
+
 详见 [docs/changelogs/2026-05-08-bug-fixes-batch.md](../changelogs/2026-05-08-bug-fixes-batch.md)
 section A。
 

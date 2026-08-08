@@ -31,7 +31,25 @@ static func screen_space_inverse_scale(item: CanvasItem) -> float:
 	return inverse_screen_scale_for(item.get_viewport_transform().get_scale().x)
 
 
-## 远景标签迟滞：缩到 0.30 才进入，拉回 0.34 才退出。
+## 标签 LOD 只跟相机/画布缩放走，不能把窗口拉伸倍率算进去。
+## get_viewport_transform() 同时包含 Camera2D zoom 与 canvas_items 的窗口拉伸；
+## 最大化到 4K 时后者约为 2.0，会把最远 zoom 0.20 抬成 0.40，导致永远进不了 0.35 简略档。
+static func label_lod_scale_for(view_scale: float, stretch_scale: float) -> float:
+	return absf(view_scale) / maxf(absf(stretch_scale), 0.01)
+
+
+static func label_lod_scale(item: CanvasItem) -> float:
+	if item == null or not item.is_inside_tree():
+		return 1.0
+	var viewport: Viewport = item.get_viewport()
+	var stretch_scale: float = 1.0
+	if viewport != null:
+		stretch_scale = viewport.get_stretch_transform().get_scale().x
+	return label_lod_scale_for(
+		item.get_viewport_transform().get_scale().x, stretch_scale)
+
+
+## 远景标签迟滞：缩到 0.35 进入，拉回 0.40 退出。
 static func next_compact_label_state(was_compact: bool, view_scale: float) -> bool:
 	if was_compact:
 		return view_scale < LABEL_COMPACT_EXIT_SCALE
@@ -43,7 +61,7 @@ static func compact_label_visible(compact_state: bool, force_full: bool) -> bool
 
 
 static func should_draw_compact_label(ac: Aircraft) -> bool:
-	var view_scale: float = ac.get_viewport_transform().get_scale().x
+	var view_scale: float = label_lod_scale(ac)
 	ac._compact_data_label_active = next_compact_label_state(
 		ac._compact_data_label_active, view_scale)
 	# Alt 只临时覆盖显示，不重置迟滞状态；松开即可回到当前缩放档。
