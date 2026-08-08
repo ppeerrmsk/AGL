@@ -13,7 +13,7 @@ extends RefCounted
 var _pass := 0
 var _fail := 0
 var _root: StubMode = null
-const EXPECTED_ASSERTIONS: int = 29
+const EXPECTED_ASSERTIONS: int = 31
 
 
 ## 最小 SurvivorMode 替身：撤离扫描用 get_children / is_world_pos_visible / is_boss_phase，
@@ -50,6 +50,7 @@ func run() -> void:
 	_test_boss_uav_grants_no_reward()
 	_test_csg_fa18_hangar_cap()
 	_test_boss_phase_blocks_all_kill_xp()
+	_test_debug_ground_no_reward()
 	# GDScript 运行时错误只会中断当前测试函数；没有完整性门时会被误报为 0 fail。
 	var executed_assertions: int = _pass + _fail
 	if executed_assertions != EXPECTED_ASSERTIONS:
@@ -326,6 +327,34 @@ func _test_boss_phase_blocks_all_kill_xp() -> void:
 	_check("BOSS 阶段地面目标 XP = 0", sp.total_xp_gained == 0,
 		"total_xp=%d" % sp.total_xp_gained)
 	_check("XP 封锁不吞击杀内战斗语义", spawner.kill_count == 2,
+		"kill_count=%d" % spawner.kill_count)
+	sp.free()
+	spawner.free()
+
+
+# ══════════════════════════════════════════════
+#  I. Debug/无限演员地面目标不产 XP，但保留局内击杀语义
+# ══════════════════════════════════════════════
+
+func _test_debug_ground_no_reward() -> void:
+	print("── I. no_kill_reward 地面演员：不产成长，保留局内击杀语义 ──")
+	var spawner := _mk_env()
+	var sp := SurvivorPlayer.new()
+	sp.level = 5
+	sp.aircraft = spawner.player_aircraft
+	spawner.survivor_player = sp
+	var ground := GroundUnit.new()
+	ground.team = CombatUnit.TEAM_HOSTILE
+	ground.is_destroyed = true
+	ground.set_meta("kill_attacker_team", CombatUnit.TEAM_PLAYER)
+	ground.set_meta("no_kill_reward", true)
+	_root.add_child(ground)
+
+	spawner._detect_kills()
+
+	_check("Debug 地面演员 XP = 0", sp.total_xp_gained == 0,
+		"total_xp=%d" % sp.total_xp_gained)
+	_check("仍保留局内击杀计数", spawner.kill_count == 1,
 		"kill_count=%d" % spawner.kill_count)
 	sp.free()
 	spawner.free()

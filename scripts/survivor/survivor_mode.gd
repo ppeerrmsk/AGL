@@ -1,6 +1,8 @@
 extends Node2D
 
 const HackedAllyForceScript = preload("res://scripts/survivor/hacked_ally_force.gd")
+const BattlefieldAtmosphereExperimentScript = preload(
+	"res://scripts/survivor/battlefield_atmosphere_experiment.gd")
 
 ## 生存模式主控制器
 ## 操控/镜头/武器/雷达 全部与沙盒模式一致
@@ -777,6 +779,12 @@ func _setup_bench_scenario() -> void:
 			_bench_force_spawn_swarm()
 		elif _bench_scenario == "enemy_pool_stress":
 			_bench_force_enemy_pool_stress()
+		elif _bench_scenario == "battlefield_atmosphere":
+			_bench_force_battlefield_atmosphere("air")
+		elif _bench_scenario == "battlefield_atmosphere_ground":
+			_bench_force_battlefield_atmosphere("ground")
+		elif _bench_scenario == "battlefield_atmosphere_naval":
+			_bench_force_battlefield_atmosphere("naval")
 		elif _bench_scenario == "boss_mother_goose":
 			_bench_force_spawn_boss_mg()
 		elif _bench_scenario == "reversal":
@@ -849,6 +857,34 @@ func _bench_force_enemy_pool_stress() -> void:
 			ac.invulnerable = true
 			ac.set_meta("skip_far_cleanup", true)
 	print("[Bench] enemy_pool_stress: 9 direct friendlies vs 17 expanded-pool enemies")
+
+
+## 真实生存场景中的海陆空气氛样本；三个入口均可用 Visual 模式肉眼观察。
+func _bench_force_battlefield_atmosphere(kind: String = "air") -> void:
+	camera.zoom = Vector2(0.35, 0.35)
+	# 专项 bench 只测 AI 气氛组自身的减员速度；自动驾驶玩家不介入。
+	# Visual/F5 实验里的真人玩家仍保持正式满伤害，可主动改变战局。
+	var bench_player_ai: AIController = player_aircraft._get_ai_controller()
+	if bench_player_ai != null:
+		bench_player_ai.enable_combat = false
+		bench_player_ai.release_target(AIController.TargetSource.TS_SCORED,
+			"battlefield atmosphere bench observer")
+	var experiment: Node = BattlefieldAtmosphereExperimentScript.new()
+	experiment.name = "BattlefieldAtmosphereExperimentBench"
+	add_child(experiment)
+	experiment.setup(self, _spawner)
+	var launched: bool
+	match kind:
+		"ground":
+			launched = experiment.launch_ground_battle()
+		"naval":
+			launched = experiment.launch_naval_battle()
+		_:
+			launched = experiment.launch_air_battle()
+	if not launched:
+		push_error("[Bench] battlefield_atmosphere_%s failed to launch" % kind)
+		return
+	print("[Bench] battlefield_atmosphere_%s launched, AI damage 10%%" % kind)
 
 
 ## 双 3★ 对空 + 单对地支援最坏场景：常规 26 敌压力样本上再放 8 F-86 + 2 A-10。

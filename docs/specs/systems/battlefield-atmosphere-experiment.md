@@ -1,0 +1,195 @@
+---
+id: battlefield-atmosphere-experiment
+kind: system
+status: in-progress
+schema_version: 1
+spec_version: 4
+owner: 用户 + Codex
+depends_on: [bomber-strike-missions, rotorcraft-combat, strategic-hardened-targets, global-awareness-roe]
+reconstruction_complete: true
+---
+
+# 局内战场气氛实验（Battlefield Atmosphere Experiment）
+
+> 在一局真实生存模式里放入可分别观察的空中、陆地和海上低致死交战：AI 负责持续制造航迹、炮火和轰炸压力，玩家以完整伤害介入并改变战局。
+
+## 1. 设计意图（Why）
+
+- **体验目标**：验证“玩家飞进一场已经发生的战争”是否成立，而不是在独立 HTML 沙盘或废弃沙盒里只看示意。
+- **玩家主角性**：AI 对 AI 是气氛组，能缓慢减员但不会在玩家抵达前迅速自行清场；玩家武器数值不变，介入后可快速改变局势。
+- **真实路径**：实验必须运行在 `survivor_mode` 的正式地图、相机、雷达、武器、飞机物理与性能预算中；不复活 `scenes/main.tscn`。
+- **边界**：本批只提供 Debug 实验入口，不把联合交战加入正式战区随机调度，也不改变任何正式任务目标的伤害权限。
+- **Litmus 自检**：自动开火规则不变；所有命中即时反馈；空中单位是注意力中心；实验只有一个共享低频控制器，不给每个演员增加新 tick。
+- **反模式规避**：不通过增加 AI HP 削弱玩家伤害；不让气氛 AI 自主选择正式 TGT；不奖励玩家用 Debug 演员刷正式成长。
+
+## 2. 数据定义（What）
+
+### 2.1 实验开关与节奏
+
+| 字段 | 值 | 说明 |
+|---|---:|---|
+| 入口 | 生存模式 F5 面板：空战 / 炮战 / 海战 / 清除 | 三种样本独立启动，避免海陆空分散后无法在同一镜头观察 |
+| 同时实例数 | 1 | 再次启动前先清除上一组实验演员 |
+| 交战重指派频率 | 2 Hz | 单个集中控制器；只在目标失效后改派 |
+| AI 对 AI 武器伤害倍率 | 0.10 | 仅复制并缩放实验演员的武器参数 |
+| 玩家武器伤害倍率 | 1.00 | 玩家与正式僚机参数完全不改 |
+| 实验击杀成长 | 关闭 | 所有实验空中演员写 `no_kill_reward=true` |
+| 战场中心 | 玩家机头前 2200 px | 再钳制到距世界边界至少 4200 px |
+
+AI 伤害倍率作用于实验演员的机炮、主导弹与副导弹。实验 AH-64 的参数副本显式移除火箭，只保留 M230，避免无制导火箭齐射制造无意义弹丸与内存压力。它不修改共享 `.tres`。轰炸任务的专用炸弹仍保持正式值 75；实验专属战略目标用 900 HP 吸收完整弹带，避免演出自行提前结束。
+
+火炮和舰艇表演武器直接使用已经乘过 `0.10` 的最终伤害：榴弹炮弹 `6`、舰炮弹 `1.8`。这些弹丸只能命中同一 `ambient_engagement_id` 内的敌对实验演员；玩家武器仍走正式 Bullet/Missile Manager，不读取这一倍率。
+
+### 2.2 空中主场景编成
+
+| 阵营 | 固定翼交战 | 轰炸任务 | 旋翼机 | 地面演出锚 |
+|---|---|---|---|---|
+| ALLY | F-86 ×3，楔形初始站位 | B-1B ×1 | AH-64 ×2 | AA ×1、SAM ×1、900 HP 战略硬目标 ×1 |
+| HOSTILE | MiG-23 ×3，反向楔形初始站位 | Tu-160 ×1 | AH-64 ×2 | AA ×1、SAM ×1、900 HP 战略硬目标 ×1 |
+
+- 两组固定翼从相距 2400 px 的对向楔形开始，初始目标严格在实验演员池内。
+- 每侧两架 AH-64 出生在敌方实验地面锚附近，使用既有 500m 轨道/悬停/短点射行为。
+- 两侧轰炸机沿相反航向穿越交战区，各自攻击敌方实验战略硬目标，然后离场。
+- 普通 AA/SAM 既是直升机可攻击目标，也提供低伤害地空火力；战略硬目标永久不可锁定，只接受敌对 `bomber_bomb`。
+- AH-64 **完全复用现有** `enemy_ah64.tres`、`apache` 专用旋翼机轮廓、旋翼飞行模型、500m 轨道/悬停状态机和 M230；本实验不新增直升机模型或第二套直升机 AI。实验副本禁用火箭。
+
+### 2.3 陆地火炮样本
+
+| 项目 | 数值 |
+|---|---:|
+| 编成 | ALLY / HOSTILE 各 3 门自行榴弹炮 |
+| 阵型 | 两条相向错列炮线，单侧间距 180 px，阵营间距 1700 px |
+| 机动 | 每门炮沿长轴 700 px、短轴 90 px 的解析式椭圆轨道持续转移，恒速 3 m/s |
+| 射程 | 2600 px |
+| 射击间隔 | 4.5–5.5 s（按单位稳定错峰） |
+| 弹丸飞行时间 | 2.2 s，俯视画面用抛物线高度、弹影和落点爆圈表达弹道 |
+| 命中伤害 | 6，爆炸半径 55 px |
+| 单位 HP | 120 |
+
+火炮不使用 AA 的自动高射机炮，不扫描飞机或正式地面目标。射击、目标分配和弹道均由实验的共享 2Hz 控制器管理；火炮节点复用 `GroundUnit` 的受击和状态显示。轨道位置由椭圆方程直接求值，切线决定朝向，因此不会发生 waypoint 过冲、端点瞬间掉头或逐帧误差累积。
+
+### 2.4 海上炮雷样本
+
+| 项目 | 数值 |
+|---|---:|
+| 编成 | ALLY / HOSTILE 各 1 艘 DDG + 1 艘 FFG |
+| 阵型 | 旗舰与僚舰斜列，两个战斗群相距 1600 px |
+| 机动 | 复用 `NavalUnit.waypoints` 与 `formation_leader/formation_offset`，沿 2400 px 平行航路移动 |
+| 舰炮 | 3.0–3.8 s/发，1.6 s 弹道，伤害 1.8，锁定实验敌舰时必然命中 |
+| 弹丸外观 | 沿飞行方向的细长高速弹体与短曳光，不绘制圆球 |
+
+舰体、舰形绘制、挂点、转向和编队运动全部复用现有 `DestroyerShip` / `FrigateShip` / `NavalUnit`。实验给舰船下达永久 `PASSIVE` directive，关闭现有防空武器扫描，再由共享控制器只对同场敌舰发射表演舰炮。实验不生成鱼雷，不保留逐帧制导、近炸或鱼雷绘制数组。舰炮依靠低伤害和较长冷却控制减员速度，不再通过故意打偏制造“假赛感”。
+
+### 2.5 实验身份与保护
+
+| 标记 | 值 | 用途 |
+|---|---|---|
+| group | `battlefield_atmosphere_actor` | 一键清理与作用域隔离 |
+| `ambient_engagement_id` | 本次运行递增 ID | 只在同一实验内互相改派 |
+| `category` | `adds` | 不占正式 Token、不被 hunter/航点改写 |
+| `skip_far_cleanup` | `true` | 由实验自身管理生命周期 |
+| `no_kill_reward` | `true` | 不产出 XP、生涯档案与永久击杀奖励 |
+| `token_cost` | `0` | 不污染正式烈度预算 |
+
+正式任务 TGT、BOSS、玩家、正式僚机和战区支援永远不加入实验重指派候选。玩家仍可攻击 HOSTILE 实验演员；实验友机仍是 `TEAM_ALLY`，不进入玩家 RTS 小队。
+
+## 3. 行为与公式（How）
+
+### 3.1 启动流程
+
+```text
+clear_previous_experiment()
+center = clamp_inside(player_pos + player_forward × 2200px, margin=4200px)
+spawn two opposing ground anchors and hardened targets
+spawn 3v3 fighters in opposing wedges
+spawn 2v2 AH-64 near their assigned enemy ground anchors
+spawn opposing B-1B / Tu-160 one-pass bomber missions
+assign each fighter to the nearest living opposing experiment fighter
+```
+
+陆战与海战入口使用同一生命周期，但各自只生成所属演员。启动任意入口都会先清除上一种样本。陆战先查找可容纳双方炮线的连续陆地区域；海战先查找可容纳双方舰队与航路的连续水域，找不到合法区域时拒绝启动，而不是把单位刷在错误地形上。
+
+### 3.2 低频重指派
+
+每 0.5s 清理失效引用。固定翼当前实验目标仍存活时保持原指令；目标失效时，按距离选择同一 `ambient_engagement_id`、敌对阵营的最近固定翼。无合格目标时切为围绕战场中心巡逻，绝不回退为扫描玩家或正式任务目标。
+
+AH-64 生成时直接登记对应的实验普通地面目标。目标失效后，控制器只在同一实验的敌对普通地面目标中改派；无目标则关闭其战斗开关并沿原路线飞行。
+
+### 3.3 伤害与胜负
+
+```text
+ambient_projectile_damage = base_projectile_damage × 0.10
+player_projectile_damage = base_projectile_damage
+official_target_selection = forbidden
+experimental_hardened_target_hp = 900
+```
+
+- 低伤害挂在攻击者的独立参数副本上，而不是目标减伤；因此玩家打同一演员仍是正式满伤害。
+- 普通实验演员保留正式 HP，允许 AI 在长时间交战后缓慢减员。
+- 900 HP 只属于 Debug 实验生成的战略硬目标；正式战略硬目标仍为 150 HP。
+- 玩家击落敌轰炸机可以阻止尚未释放的炸弹；已释放炸弹继续按既有阵营快照落地。
+
+## 4. 结构与组成（Structure）
+
+- `BattlefieldAtmosphereExperiment`：集中生成、演员登记、2Hz 目标重指派和一键清理。
+- `SurvivorDebugSpawn`：F5 面板只负责启动/清理按钮和状态文字。
+- `SurvivorSpawner`：复用现有 `_create_enemy`、`spawn_bomber_mission` 与 `spawn_strategic_target`，不新增第二套单位工厂。
+- `AIController`、`BomberMission`、旋翼机路径与 Bullet/Missile Manager 均使用现有正式实现。
+
+## 5. 验收标准（Acceptance / Litmus）
+
+- [ ] 在任意真实生存局按 F5 后可启动实验；镜头、地图、雷达、物理与武器均为正式运行路径。
+- [ ] 3v3 固定翼持续互相交战，不会改打玩家、正式僚机、BOSS 或正式任务 TGT。
+- [ ] 两侧 AH-64 使用既有轨道/悬停攻击实验普通地面锚，无目标时不跨场寻找正式 TGT。
+- [ ] AH-64 使用现有资源、`apache` 专用轮廓与现有旋翼 AI；不显示固定翼轮廓，不发射火箭，代码和资源树中没有第二套直升机模型。
+- [ ] B-1B 与 Tu-160 各自完成一次进场、投弹、离场；战略硬目标拒绝全部常规武器。
+- [ ] 陆战入口生成 3v3 自行火炮，沿各自路线移动并持续抛射；只攻击同一实验的敌方火炮，AI 对 AI 至少 60 秒不会自动清场。
+- [ ] 海战入口生成双方 DDG+FFG 斜列编队，沿航路移动并互射必然命中的低伤害舰炮；既有防空挂点不扫描玩家或正式演员。
+- [ ] 海战无鱼雷实例、逐帧制导与近炸扫描；舰炮保持原发射频度，弹丸显示为细长高速弹体而非圆球。
+- [ ] AI 对 AI 伤害为正式值 10%，玩家对 HOSTILE 实验演员仍为 100%；不通过加演员 HP 削弱玩家。
+- [ ] 实验演员不产出 XP/生涯档案，不占 Token；清理按钮只移除本次实验演员。
+- [ ] 重复启动不会叠出两组实验；演员被玩家击落后 0.5s 内完成合法重指派或退出交战。
+- [ ] 性能：集中控制器 2Hz；无逐演员新增 `_process`；Sentinel + Lv5+ 压测 FPS 掉幅 < 15。
+- [ ] 已知 seam：玩家 `commanded_target`、事件 directive、正式任务 TGT 权限和第三方收益隔离均未被改写。
+- [ ] 文档：本 spec 已登记 `_INDEX.md`，文档校验与锚点校验通过。
+
+## 6. 实现计划（Task Pipeline）
+
+### 阶段 1 — 实验控制器
+- [x] 新增集中控制器、实验身份标记、编成生成与 10% 独立武器参数缩放。
+- [x] 接入固定翼/旋翼机实验内目标分配与一键清理。
+
+### 阶段 2 — 正式路径演出
+- [x] 接入双阵营轰炸任务、Debug 900 HP 战略硬目标和地面火力锚。
+- [x] F5 增加启动/清理按钮与当前演员状态。
+
+### 阶段 3 — 验证
+- [x] 运行文档校验与加载/专项 bench。
+- [ ] 在实际生存局肉眼验收密度、可读性、玩家介入前后战局差异和性能。
+
+### 阶段 4 — 陆海补全
+
+- [x] F5 拆为空战、炮战、海战三个独立观测入口，任一入口启动前清除旧样本。
+- [x] 新增 3v3 路线机动火炮、共享弹道与低致死对射。
+- [x] 复用现有 DDG/FFG，新增实验域内舰炮交战编队。
+- [x] 已通过真实 survivor-mode 的 ground/naval 专项 headless bench；仍需肉眼验收密度与可读性。
+
+## 7. 索引锚点（Where）
+
+| 关注点 | 文件 |
+|---|---|
+| 实验控制器 | `scripts/survivor/battlefield_atmosphere_experiment.gd` |
+| F5 入口 | `scripts/survivor/survivor_debug_spawn.gd` |
+| 单位/轰炸复用入口 | `scripts/survivor/survivor_spawner.gd` |
+| 既有硬目标权限 | `scripts/strategic_target.gd` |
+| reference 索引 | `docs/reference/script-index.md` · `docs/reference/code-index.md` |
+| 跨电脑续作交接 | `docs/planning/battlefield-atmosphere-handoff.md` |
+
+## 8. 变更记录
+
+| 日期 | spec_version | 改动 |
+|---|---:|---|
+| 2026-08-08 | 1 | 用户确认先在真实 Godot 生存局做空中优先版本：AI 对 AI 低致死、玩家满伤害决定战局；加入轰炸机专属战略硬目标与一键实验入口。 |
+| 2026-08-08 | 2 | 补齐用户指出缺失的陆地火炮对射和舰船炮雷对射；明确 AH-64 只复用现有模型、资源与旋翼 AI，不新增第二套直升机。 |
+| 2026-08-08 | 3 | 截图验收发现实验把 AH-64 标成了不存在的 `helicopter` 轮廓，修为现有 `apache`；实验 AH-64 禁用火箭；删除舰载鱼雷及逐帧制导，舰炮频率不变、命中率降至 30%；火炮改为 3m/s 解析式椭圆轨道。 |
+| 2026-08-08 | 4 | 用户认为低命中率“打假赛”过于明显：舰炮恢复必然命中，仍以 1.8 低伤害和 3.0–3.8s 冷却控制节奏；弹丸由圆球改为沿航向的细长弹体/短曳光。 |

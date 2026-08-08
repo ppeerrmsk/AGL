@@ -2,6 +2,7 @@ extends RefCounted
 
 const StrategicTargetScript = preload("res://scripts/strategic_target.gd")
 const BomberMissionScript = preload("res://scripts/survivor/bomber_mission.gd")
+const AtmosphereArtilleryScript = preload("res://scripts/survivor/atmosphere_artillery_unit.gd")
 
 var _pass := 0
 var _fail := 0
@@ -15,6 +16,7 @@ func run() -> void:
 	_test_airburst_aim_and_effectiveness()
 	_test_naval_flak_mount()
 	_test_visual_scale()
+	_test_artillery_analytic_rail()
 	_cleanup()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════\n")
@@ -227,3 +229,37 @@ func _test_visual_scale() -> void:
 	_check(bomber_extent > fighter_extent,
 		"Tu-160 视觉轮廓大于普通战斗机")
 	_check(is_equal_approx(AircraftRenderer.altitude_base_scale(fighter), 1.0), "MID 高度倍率为 1.0")
+
+
+func _test_artillery_analytic_rail() -> void:
+	print("── G. 气氛火炮解析式轨道 ──")
+	var unit: GroundUnit = AtmosphereArtilleryScript.new()
+	unit.max_ground_speed = 3.0
+	var start := Vector2(120.0, -80.0)
+	var axis := Vector2(0.6, -0.8).normalized()
+	unit.global_position = start
+	unit.call("configure_rail", start, axis, 350.0, 45.0)
+	_spawned.append(unit)
+	var center: Vector2 = unit.get("rail_center")
+	var lateral := Vector2(-axis.y, axis.x)
+	var max_ellipse_error := 0.0
+	var max_step := 0.0
+	var previous := unit.global_position
+	for i in range(36000): # 10 分钟 @ 60Hz：覆盖多次窄端转弯且不靠真实帧率。
+		unit._update_movement(1.0 / 60.0)
+		var rel := unit.global_position - center
+		var nx := rel.dot(axis) / 350.0
+		var ny := rel.dot(lateral) / 45.0
+		max_ellipse_error = maxf(max_ellipse_error, absf(nx * nx + ny * ny - 1.0))
+		max_step = maxf(max_step, unit.global_position.distance_to(previous))
+		previous = unit.global_position
+	var phase := float(unit.get("rail_phase"))
+	var tangent := -axis * sin(phase) * 350.0 + lateral * cos(phase) * 45.0
+	var tangent_heading := atan2(tangent.x, -tangent.y)
+	_check(is_equal_approx(unit.max_ground_speed, 3.0), "轨道速度固定为 3m/s")
+	_check(max_ellipse_error < 0.00001, "10 分钟位置始终严格落在椭圆轨道上")
+	_check(max_step < 0.04, "逐帧位移连续，无 waypoint 过冲或端点跳变")
+	_check(phase >= 0.0 and phase < TAU and unit.global_position.is_finite(),
+		"相位循环有界且无累计漂移/非有限坐标")
+	_check(absf(angle_difference(unit.heading, tangent_heading)) < 0.0001,
+		"车体朝向连续贴合轨道切线")

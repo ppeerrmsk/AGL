@@ -3384,8 +3384,9 @@ func _detect_kills() -> void:
 				child.set_meta("xp_granted", true)
 				var player_ground_kill: bool = int(child.get_meta(
 					"kill_attacker_team", -1)) == CombatUnit.TEAM_PLAYER
+				var no_reward: bool = bool(child.get_meta("no_kill_reward", false))
 				# 生涯档案：地面摧毁（总数 + 逐型 tag，敌人图鉴按型显示；spec career-archive §2.2）
-				if mode.archive_enabled() and player_ground_kill:
+				if mode.archive_enabled() and player_ground_kill and not no_reward:
 					var gtag := "aa"
 					if child is SAMUnit:
 						gtag = "sam"
@@ -3399,7 +3400,7 @@ func _detect_kills() -> void:
 					* survivor_player.sig_xp_mult * survivor_player.milestone_xp_multiplier(mode._player_profile) \
 					* _aircraft_xp_mult()))
 				xp_value = _apply_squad_xp_share(xp_value)
-				if not boss_phase_no_xp and player_ground_kill:
+				if not boss_phase_no_xp and player_ground_kill and not no_reward:
 					survivor_player.add_xp(xp_value)
 					# 表现层：+N 沉入底部经验条（bench 压测跳过）
 					if not mode._bench_mode and mode.hud:

@@ -907,19 +907,32 @@
 | 移除技能 | `survivor/survivor_debug_skills.gd:543` _on_remove_skill |
 | 装备直挂（含 ESM）与审计入口 | `survivor/survivor_debug_skills.gd` `_LOADOUT_SLOTS` / `_on_loadout_changed` / `debug_skill_ids` / `debug_can_force_upgrade` / `debug_has_loadout_kind` |
 
-### survivor_debug_spawn.gd — F5 刷怪面板（685 行）
+### survivor_debug_spawn.gd — F5 刷怪与海陆空气氛实验面板
 
 | 功能 | 位置 |
 |------|------|
-| 编队类型枚举 FormationType | `survivor/survivor_debug_spawn.gd:27`（含全部王牌事件项） |
-| 敌机类型标签表 | `survivor/survivor_debug_spawn.gd:49` ENEMY_TYPE_LABELS |
-| F5 开关（不暂停）| `survivor/survivor_debug_spawn.gd:111` _unhandled_input |
-| UI 构建（下拉/规模/按钮）| `survivor/survivor_debug_spawn.gd:126` _build_ui |
-| 类型切换联动编队 | `survivor/survivor_debug_spawn.gd:375` _on_type_changed |
-| 编队模式切换 | `survivor/survivor_debug_spawn.gd:395` _on_formation_changed |
-| 刷怪按钮（普通/BOSS/王牌正式事件入口）| `survivor/survivor_debug_spawn.gd:405` _on_spawn_pressed / `survivor/survivor_debug_spawn.gd:470` _start_ace_event |
-| 清空敌人按钮 | `survivor/survivor_debug_spawn.gd:548` _on_clear_pressed |
-| 导出日志按钮（替代 F9）| `survivor/survivor_debug_spawn.gd:574` _on_dump_pressed |
+| 编队类型枚举 FormationType | `survivor/survivor_debug_spawn.gd` FormationType（含全部王牌事件项） |
+| 敌机类型标签表 | `survivor/survivor_debug_spawn.gd` ENEMY_TYPE_LABELS |
+| F5 开关（不暂停）| `survivor/survivor_debug_spawn.gd` _unhandled_input |
+| UI 构建（下拉/规模/空战/炮战/海战/清除按钮）| `survivor/survivor_debug_spawn.gd` _build_ui |
+| 类型与编队切换 | `survivor/survivor_debug_spawn.gd` _on_type_changed / _on_formation_changed |
+| 刷怪按钮（普通/BOSS/王牌正式事件入口）| `survivor/survivor_debug_spawn.gd` _on_spawn_pressed / _start_ace_event |
+| 气氛实验模式启动与状态 | `survivor/survivor_debug_spawn.gd` _on_atmosphere_pressed / `_on_atmosphere_ground_pressed` / `_on_atmosphere_naval_pressed` / `_on_atmosphere_status_changed` |
+| 清空敌人 / 导出日志 | `survivor/survivor_debug_spawn.gd` _on_clear_pressed / _on_dump_pressed |
+
+### battlefield_atmosphere_experiment.gd — 真实局海陆空气氛实验
+
+| 功能 | 位置 |
+|------|------|
+| 三类样本生成与一键清理 | `survivor/battlefield_atmosphere_experiment.gd` launch_air_battle / `launch_ground_battle` / `launch_naval_battle` / `clear_experiment` |
+| 3v3 对向楔形固定翼 | `survivor/battlefield_atmosphere_experiment.gd` _spawn_fighter_wedge |
+| 2v2 现有 AH-64 + 专属地面锚 | `survivor/battlefield_atmosphere_experiment.gd` _spawn_heli_pair / `_spawn_ground_anchor`；轮廓强制走现有 `apache`，实验参数副本移除火箭 |
+| 双阵营一次性轰炸航线 | `survivor/battlefield_atmosphere_experiment.gd` _spawn_bomber_pair |
+| 3v3 火炮解析式椭圆轨道/错峰弹道 | `survivor/battlefield_atmosphere_experiment.gd` _spawn_artillery_line / `_update_artillery_fire_control` / `_update_ballistic_shells`；轨道与外观 `survivor/atmosphere_artillery_unit.gd` |
+| DDG+FFG 斜列航路与低伤害必然命中舰炮 | `survivor/battlefield_atmosphere_experiment.gd` _spawn_naval_group / `_update_naval_fire_control` / `_resolve_ballistic_impact`；无实验鱼雷数组或逐帧制导 |
+| 演员独立武器参数 ×0.10 | `survivor/battlefield_atmosphere_experiment.gd` _duplicate_and_scale_weapons |
+| 2Hz 实验内固定翼/旋翼机重指派 | `survivor/battlefield_atmosphere_experiment.gd:682` _refresh_assignments |
+| Headless/Visual 真实场景样本 | `survivor/survivor_mode.gd` _bench_force_battlefield_atmosphere；bench key `battlefield_atmosphere` / `battlefield_atmosphere_ground` / `battlefield_atmosphere_naval` |
 
 ### survivor_select.gd — 机型选择界面（263 行）
 
