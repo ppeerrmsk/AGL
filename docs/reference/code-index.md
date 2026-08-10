@@ -1164,7 +1164,7 @@
 | 独立 `1q` 操作键与手动 FLR 运行时插列 | `survivor/player_instrument_panel.gd` `grid_regions` / `debug_grant_manual_flare_skill` |
 | 僚机动态行仪表（每行 `1q+7u × 3u`） | `survivor/wingman_instrument_panel.gd` `update_display` / `grid_regions` / `_apply_row_count` / `_draw_row` |
 | 经验条上方固定三轴计数器 | `survivor/milestone_axis_counter.gd` `update_display` / `_draw` |
-| 军用终端 UI 现行规范 | `docs/planning/main-ui-guidelines.md` |
+| UI 设计规范（主界面 + 玩家/僚机仪表 SSOT） | `docs/specs/systems/ui-design-guidelines.md` |
 | 终端共享网格描边与精确文字 | `ui/terminal_grid_overlay.gd` `regions` / `override_regions` / `_draw`；`ui/terminal_text.gd` |
 | HUD 速度单位与线框色持久化 | `ui/hud_preferences.gd` `speed_unit` / `hud_color` / `set_hud_color` |
 | 主菜单速度单位按钮与 HUD 色盘 | `main_menu.gd` `_refresh_hud_settings_buttons` / `_on_speed_unit_pressed` / `_on_hud_color_pressed`；`ui/hud_color_settings_panel.gd` `_build_ui` |

@@ -6,6 +6,8 @@
 
 加新机制 / 数值 / 敌人 / 技能 / BOSS 前 **必读** [docs/DESIGN_PHILOSOPHY.md](docs/DESIGN_PHILOSOPHY.md)（north star + 13 条反模式 + 9 条 Litmus 测试）。
 
+新增或修改任何**主界面 / HUD / 游戏内面板 / UI 视觉与交互**前，**必读并默认继承** [UI 设计规范](docs/specs/systems/ui-design-guidelines.md)。若确需偏离，必须在对应 spec 的 §2 明确写出例外、理由与影响范围；不得另建并行 UI 规范。
+
 ## Project Overview
 
 **AGL** 是俯视 2D 战斗机模拟沙盒，用 **Godot 4.7** + **GDScript** + **GL Compatibility** 渲染器。玩家以 RTS 方式点击操控战斗机（点击地图位置 → 飞机自主转弯飞向目标），飞机遵循较真实的航空物理。极简线框美术。2D 场景 + 虚拟高度（高度仅作为数值存在，通过图标缩放可视化）。
