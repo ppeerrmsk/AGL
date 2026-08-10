@@ -50,7 +50,13 @@ func _check_fleet_compositions_and_targets() -> void:
 	_check("安全方案保留的全舰均登记为 TGT",
 		roster.size() == 6 and roster.all(func(ship): return ship.is_mission_target))
 	var mission := ZoneMission.new()
-	mission._spawned_zones[&"NAVAL_TEST"] = roster
+	var freed_ship := NavalUnit.new()
+	var radio_roster: Array = [freed_ship]
+	radio_roster.append_array(roster)
+	mission._spawned_zones[&"NAVAL_TEST"] = radio_roster
+	freed_ship.free()
+	_check("无线电目标查询跳过已释放舰船并返回首个存活 TGT",
+		mission.get_live_hostile_target(&"NAVAL_TEST") == ships[0])
 	ships[0].is_destroyed = true
 	_check("只击毁旗舰时任务不得完成", not mission._all_zone_units_destroyed(&"NAVAL_TEST"))
 	for ship in ships:

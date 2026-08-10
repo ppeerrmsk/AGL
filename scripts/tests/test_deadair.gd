@@ -125,7 +125,7 @@ func _test_i18n_resources() -> void:
 	var ok := true
 	var detail := ""
 	for locale in ["zh", "en", "ja"]:
-		var translation := load("res://i18n/translations.%s.translation" % locale) as Translation
+		var translation := load("res://i18n/meta.%s.translation" % locale) as Translation
 		var name_text := str(translation.get_message("CODEX_DEADAIR_NAME")) if translation else ""
 		var desc_text := str(translation.get_message("CODEX_DEADAIR_DESC")) if translation else ""
 		if name_text.is_empty() or desc_text.is_empty():

@@ -111,7 +111,7 @@ WhiteTea 的胜利、时间奖励与生涯击破不会回滚。投降经验只�
 | weight | `95` | 高于普通王牌登场 `90`，低于 BOSS 剧本 `100`；只影响排队，不打断正在播放的台词 |
 | speaker | 投降的 WhiteTea 幸存者真实 `callsign` | 谁活着谁说，不固定 Tea / Milk / Sugar |
 | line key | `RADIO_WHITETEA_SURRENDER_1` | 中：两个废物…！我先撤了！ |
-| English | `Those two idiots...! I'm getting out of here!` | 三语必须同批进入 `translations.csv` |
+| English | `Those two idiots...! I'm getting out of here!` | 三语必须同批进入 `radio.csv` |
 | 日本語 | `あの役立たず二人め…！俺は撤退する！` | 不让管制、无人机或无关友机代说 |
 | 呼号颜色 | 敌王牌暖色 | 在转换成功后显式使用敌王牌色，不随投降机新 ALLY 绿改变 |
 
@@ -334,9 +334,9 @@ if ratio >= 1:
 | Aircraft 目标/编队适配 | `scripts/aircraft.gd`、`scripts/ai_controller.gd`、`scripts/squad.gd` |
 | 在飞武器 IFF 清理 | `scripts/missile.gd`、`scripts/missile_manager.gd`、`scripts/bullet_manager.gd` |
 | WhiteTea 投降/离场 | `scripts/events/ace_reinforcement_event.gd` |
-| WhiteTea 逃离无线电 | `resources/chatter/radio_chatter.json`、`scripts/survivor/radio_chatter.gd`、`i18n/translations.csv` |
+| WhiteTea 逃离无线电 | `resources/chatter/radio_chatter.json`、`scripts/survivor/radio_chatter.gd`、`i18n/radio.csv` |
 | 激光黑客 | `scripts/equipment/laser_equipment.gd` |
-| 黑客表现 | `scripts/aircraft/aircraft_renderer.gd`、`i18n/translations.csv` |
+| 黑客表现 | `scripts/aircraft/aircraft_renderer.gd`、`i18n/gameplay.csv` |
 | 回归 | `scripts/tests/` 下阵营转换专项 + 既有 ROE/王牌/激光相关 bench |
 | reference | `docs/reference/script-index.md`、`docs/reference/code-index.md`、`docs/reference/enemy-index.md` |
 

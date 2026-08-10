@@ -18,6 +18,7 @@ func run() -> void:
 	_test_artillery_formation_variants()
 	_test_port_water_exclusion()
 	_test_air_zone_reuse_and_retire()
+	_test_live_ally_lookup()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 
 
@@ -83,6 +84,15 @@ func _test_preferred_ground_target() -> void:
 	gunner._update_target_selection()
 	_check(gunner.combat_target == player,
 		"近距 preferred target 优先玩家而不是更近的普通友军")
+	var expired := Aircraft.new()
+	expired.team = CombatUnit.TEAM_PLAYER
+	gunner.radar_targets[expired] = 2.0
+	gunner.set_meta(CombatUnit.META_PREFERRED_COMBAT_TARGET, expired)
+	gunner.combat_target = expired
+	expired.free()
+	gunner._update_target_selection()
+	_check(gunner.combat_target == ordinary,
+		"GroundUnit 会越过已释放的 preferred/current 引用并重新选取存活目标")
 	gunner.free()
 	ordinary.free()
 	player.free()
@@ -108,6 +118,13 @@ func _test_air_defense_only_targets_aircraft() -> void:
 	aa._update_aa_target_selection(1.0)
 	_check(aa.combat_target == aircraft,
 		"AA 忽略更近的地面单位，只选择敌方 Aircraft")
+	var expired_aa := Aircraft.new()
+	aa.combat_target = expired_aa
+	expired_aa.free()
+	aa._scan_timer = 0.0
+	aa._update_aa_target_selection(1.0)
+	_check(aa.combat_target == aircraft,
+		"AA 会清理已释放的跨帧目标并继续扫描存活 Aircraft")
 
 	var sam := SAMUnit.new()
 	sam.team = CombatUnit.TEAM_HOSTILE
@@ -118,6 +135,23 @@ func _test_air_defense_only_targets_aircraft() -> void:
 	sam._update_target_selection()
 	_check(sam.combat_target == aircraft,
 		"SAM 忽略 preferred 地面目标，只选择雷达内敌方 Aircraft")
+	var expired_sam := Aircraft.new()
+	sam.radar_targets[expired_sam] = 10.0
+	sam.set_meta(CombatUnit.META_PREFERRED_COMBAT_TARGET, expired_sam)
+	sam.combat_target = expired_sam
+	expired_sam.free()
+	sam._update_target_selection()
+	_check(sam.combat_target == aircraft,
+		"SAM 选敌会跳过已释放的 preferred/current/radar 引用")
+	var expired_launch := Aircraft.new()
+	sam.combat_target = expired_launch
+	expired_launch.free()
+	sam.params.missile = MissileParams.new()
+	sam.missile_manager = Node2D.new()
+	sam._update_sam_missile(0.0)
+	_check(sam.combat_target == null,
+		"SAM 发射门会安全清理已释放目标，而不会先执行 is 类型判断")
+	sam.missile_manager.free()
 	sam.free()
 	root.free()
 
@@ -237,6 +271,35 @@ func _test_air_zone_reuse_and_retire() -> void:
 	hostile.free()
 	controller.free()
 	mode.free()
+
+
+func _test_live_ally_lookup() -> void:
+	var controller: Node2D = ZONE_ATMOSPHERE_SCRIPT.new()
+	var freed := GroundUnit.new()
+	var destroyed := GroundUnit.new()
+	var survivor := GroundUnit.new()
+	destroyed.is_destroyed = true
+	controller.set("_engagements", {
+		&"TEST-GROUND": {
+			"kind": "air",
+			"hostiles": [freed],
+			"allies": [freed, destroyed, survivor],
+			"opposition": [freed],
+			"damage_live": false,
+		},
+	})
+	freed.free()
+	controller.call("update", 0.5, null)
+	_check(controller.call("first_live_ally", &"TEST-GROUND") == survivor,
+		"跨帧缓存先剔除已释放实例，地面无线电仍返回真实存活友军")
+	_check(int(controller.call("actor_count", &"TEST-GROUND")) == 1,
+		"已释放和已击毁气氛演员不计入存活数")
+	survivor.is_destroyed = true
+	_check(controller.call("first_live_ally", &"TEST-GROUND") == null,
+		"友军全灭时感谢无线电保持静默")
+	destroyed.free()
+	survivor.free()
+	controller.free()
 
 
 func _check(ok: bool, label: String) -> void:

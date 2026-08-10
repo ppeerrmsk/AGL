@@ -13,7 +13,7 @@ extends RefCounted
 var _pass := 0
 var _fail := 0
 var _root: StubMode = null
-const EXPECTED_ASSERTIONS: int = 31
+const EXPECTED_ASSERTIONS: int = 33
 
 
 ## 最小 SurvivorMode 替身：撤离扫描用 get_children / is_world_pos_visible / is_boss_phase，
@@ -27,6 +27,7 @@ class StubMode extends Node2D:
 	var _bench_mode := true      ## 跳过 HUD 表现层
 	var hud = null
 	var _tutorial = null
+	var _radio: RadioChatter = null
 	var afterburner_charge := AfterburnerCharge.new()
 
 	func is_boss_phase() -> bool:
@@ -297,6 +298,27 @@ func _test_csg_fa18_hangar_cap() -> void:
 	_check("定期弹射 tick 在上限后静默停摆",
 		csg._fa18_launched_total == CarrierStrikeGroup.FA18_TOTAL_CAP,
 		"total=%d" % csg._fa18_launched_total)
+	# 定期补充无线电由 JSON 掷 0.50；第一次成功入队后 CSG 自身闭锁，后续刷新不再说。
+	_root._radio = RadioChatter.new()
+	_root._radio._ready()
+	csg._mode = _root
+	var hornet := Aircraft.new()
+	hornet.callsign = "F/A-18-TEST"
+	hornet.team = CombatUnit.TEAM_HOSTILE
+	for i in 100:
+		_root._radio.debug_clear_throttle()
+		csg._say_periodic_fa18_radio(hornet)
+		if csg._fa18_radio_played:
+			break
+	_check("定期 F/A-18 喊话可按概率成功入队", csg._fa18_radio_played \
+		and _root._radio.debug_queue_size() == 1, "")
+	for i in 10:
+		_root._radio.debug_clear_throttle()
+		csg._say_periodic_fa18_radio(hornet)
+	_check("定期 F/A-18 喊话成功后本战闭锁", _root._radio.debug_queue_size() == 1, "")
+	hornet.free()
+	_root._radio.free()
+	_root._radio = null
 	cv.free()
 
 

@@ -195,7 +195,7 @@ buy(id)：已拥有 → 拒绝；未上架 → 拒绝；MeritLedger.spend(price)
 
 ### 阶段 4 — 商店 UI
 - [x] meta_shop 场景 + 主菜单按钮；商品条目三态/灰条；功勋徽章
-- [x] translations.csv 三语（§2.4 全表）
+- [x] `meta.csv` + `interface.csv` 三语（§2.4 全表）
 
 ### 阶段 5 — 收尾
 - [x] 跑单测（--bench=meta_shop 21 断言）+ --bench=all（40 项 PASS）+ verify 工具双绿
@@ -228,7 +228,7 @@ buy(id)：已拥有 → 拒绝；未上架 → 拒绝；MeritLedger.spend(price)
 | 商店 UI | `scripts/meta/meta_shop_ui.gd` + `scenes/meta_shop.tscn` |
 | 主菜单入口/删档 | `scripts/main_menu.gd` |
 | 单测 | `scripts/tests/test_meta_shop.gd` |
-| i18n | `i18n/translations.csv`（METASHOP_* / UNLOCK_HINT_* / MENU_META_SHOP_*） |
+| i18n | `i18n/meta.csv`（METASHOP_* / UNLOCK_HINT_*）+ `i18n/interface.csv`（MENU_META_SHOP_*） |
 
 ## 8. 变更记录
 

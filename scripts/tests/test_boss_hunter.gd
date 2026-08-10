@@ -17,6 +17,9 @@ extends RefCounted
 var _pass := 0
 var _fail := 0
 
+class RadioMode extends Node:
+	var _radio: RadioChatter = null
+
 
 func run() -> void:
 	print("\n════════ BOSS 猎手化 / Wraith 角色 / 执行失误 ════════")
@@ -31,9 +34,31 @@ func run() -> void:
 	_test_decel_lag()
 	_test_wraith_tactics_pure()
 	_test_wraith_phase_machine()
+	_test_wraith_member_down_radio()
 	_test_naval_engage_triggers()
 
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
+
+
+func _test_wraith_member_down_radio() -> void:
+	print("── J. WRAITH 首次减员无线电 ──")
+	var mode := RadioMode.new()
+	mode._radio = RadioChatter.new()
+	mode._radio._ready()
+	var squad := F47AceSquad.new()
+	squad._scene_root = mode
+	var member := Aircraft.new()
+	member.callsign = "WRAITH-02"
+	member.team = CombatUnit.TEAM_HOSTILE
+	member.is_destroyed = true
+	squad._on_member_destroyed(member)
+	_check("首次减员由真实成员呼号入队", mode._radio.debug_queue_size() == 1, "")
+	squad._on_member_destroyed(member)
+	_check("同一战只播一次", mode._radio.debug_queue_size() == 1, "")
+	member.free()
+	squad = null
+	mode._radio.free()
+	mode.free()
 
 
 # ── 1. PURSUE_UNIT verb ──
@@ -559,7 +584,7 @@ func _plan(speed_kmh: float) -> TacticalPlan:
 ## 回归点：船体锁定免疫 + 伤害走 hull_hp/部件，通用触发器直读 is_locked/hp 对舰队 BOSS
 ## 全盲，导致玩家 10km 外锁舰齐射却要贴脸才 ENGAGED。两个聚合方法是根治。
 func _test_naval_engage_triggers() -> void:
-	print("── J. 舰队 BOSS 接战触发（T3/T4 不再对船全盲）──")
+	print("── K. 舰队 BOSS 接战触发（T3/T4 不再对船全盲）──")
 	var ship := NavalUnit.new()
 	ship.hull_hp = 1000.0
 	var m := WeaponMount.new()

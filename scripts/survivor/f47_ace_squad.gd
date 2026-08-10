@@ -21,6 +21,7 @@ var _progression_create_enemy_func: Callable
 var _progression_squads_ref: Array[Squad] = []
 var _progression_support: Array[Aircraft] = []
 var _progression_support_spawned: bool = false
+var _member_down_radio_played: bool = false
 
 func _init() -> void:
 	squad_size = SurvivorData.F47_SQUAD_SIZE
@@ -50,7 +51,19 @@ func spawn(scene_root: Node, aircraft_scene: PackedScene, create_enemy_func: Cal
 		squads: Array[Squad]) -> void:
 	_progression_create_enemy_func = create_enemy_func
 	_progression_squads_ref = squads
+	_member_down_radio_played = false
 	super.spawn(scene_root, aircraft_scene, create_enemy_func, player, bullet_mgr, missile_mgr, squads)
+
+## WRAITH 本战首次减员：由被击毁成员本人用真实呼号说完半句，之后闭锁。
+func _on_member_destroyed(member: Aircraft) -> void:
+	if _member_down_radio_played or member == null or not is_instance_valid(member):
+		return
+	if _scene_root == null or not is_instance_valid(_scene_root):
+		return
+	var radio = _scene_root.get("_radio")
+	if radio != null and is_instance_valid(radio) \
+			and radio.say_unit("wraith_member_down", member):
+		_member_down_radio_played = true
 
 static func support_count_for_progression(defeat_count: int) -> int:
 	return 2 if defeat_count >= 1 else 0

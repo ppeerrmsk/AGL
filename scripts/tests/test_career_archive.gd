@@ -4,15 +4,17 @@ extends RefCounted
 ## 覆盖：BOSS 轮换纯函数偏好序 / 地形过滤顺延 / 档案存取 roundtrip / uav_hunter 成就幂等
 ## 运行：godot --headless --path . -- --bench=career_archive
 ##
-## 存档隔离：CareerArchive 实例注入 user://career_test.cfg，绝不碰真档案 user://career.cfg
+## 存档隔离：CareerArchive 实例注入系统临时目录，绝不碰真档案 user://career.cfg；
+## Shadow / CI 可能没有 user:// 写权限，因此测试文件不能放用户档案目录。
 
-const TEST_CFG := "user://career_test.cfg"
 const W := "WRAITH_SQUADRON"
 const C := "CARRIER_STRIKE_GROUP"
 const G := "MOTHER_GOOSE"
+const _I18N_CATALOG := preload("res://scripts/i18n_catalog.gd")
 
 var _pass := 0
 var _fail := 0
+var _test_cfg := OS.get_temp_dir().path_join("agl_career_test_%d.cfg" % OS.get_process_id())
 
 
 func run() -> void:
@@ -304,43 +306,38 @@ func _test_info_codex() -> void:
 
 func _test_csv_columns() -> void:
 	print("── 翻译表结构 ──")
-	var f := FileAccess.open("res://i18n/translations.csv", FileAccess.READ)
-	if f == null:
-		_expect_bool("translations.csv 可读", false, true)
-		return
-	var bad: Array = []
-	var total := 0
-	var header := f.get_csv_line()
-	var cols := header.size()
-	while not f.eof_reached():
-		var row := f.get_csv_line()
-		if row.size() == 0 or (row.size() == 1 and String(row[0]).strip_edges() == ""):
-			continue
-		total += 1
-		if row.size() != cols:
-			bad.append("%s(%d列)" % [String(row[0]), row.size()])
-	f.close()
-	_expect_bool("全部行列数一致（%d 行 × %d 列）" % [total, cols], bad.is_empty(), true)
-	if not bad.is_empty():
-		print("     异常行 %d 条，前 8：%s" % [bad.size(), str(bad.slice(0, 8))])
+	var audit: Dictionary = _I18N_CATALOG.audit()
+	var paths: Array = audit.get("paths", [])
+	var rows: Dictionary = audit.get("rows", {})
+	var errors: Array = audit.get("errors", [])
+	_expect_bool("五份本地化分表可读", paths.size() == 5, true)
+	_expect_bool("全部分表四列一致且 key 跨表唯一（%d 行）" % rows.size(),
+		errors.is_empty(), true)
+	if not errors.is_empty():
+		print("     异常 %d 条，前 8：%s" % [errors.size(), str(errors.slice(0, 8))])
+	var project_text := FileAccess.get_file_as_string("res://project.godot")
+	var missing_resources: Array[String] = []
+	for path in _I18N_CATALOG.expected_translation_paths():
+		if not project_text.contains(path):
+			missing_resources.append(path)
+	_expect_bool("project.godot 注册全部 15 份翻译资源", missing_resources.is_empty(), true)
 
 
 func _fresh_archive() -> Node:
 	var a: Node = load("res://scripts/meta/career_archive.gd").new()
-	a.config_path = TEST_CFG
+	a.config_path = _test_cfg
 	a.debug_reset()
 	return a
 
 func _load_archive() -> Node:
 	var a: Node = load("res://scripts/meta/career_archive.gd").new()
-	a.config_path = TEST_CFG
+	a.config_path = _test_cfg
 	a.reload_from_disk()
 	return a
 
 func _cleanup_test_cfg() -> void:
-	var gp := ProjectSettings.globalize_path(TEST_CFG)
-	if FileAccess.file_exists(TEST_CFG):
-		DirAccess.remove_absolute(gp)
+	if FileAccess.file_exists(_test_cfg):
+		DirAccess.remove_absolute(_test_cfg)
 
 func _expect_arr(name: String, got: Array, want: Array) -> void:
 	_tally(name, got == want, "%s（期望 %s）" % [got, want])

@@ -474,8 +474,9 @@ func _physics_process(delta: float) -> void:
 						"qmaam" if missile.is_secondary_weapon else "missile")
 				# 近炸引信：在爆炸点产生 AOE 区域
 				if missile.proximity_aoe and effective_damage > 0.0:
+					var aoe_source: Node = CombatUnit.safe_attacker(missile.source)
 					_spawn_aoe(missile.global_position, missile.altitude,
-						effective_damage, missile.team, unit, missile.source)
+						effective_damage, missile.team, unit, aoe_source)
 				# 连锁弹头逐目标去重。
 				if missile.penetrates_after_hit:
 					missile.remember_penetration_hit(hit_unit)
@@ -500,11 +501,13 @@ func _physics_process(delta: float) -> void:
 	PerfBuckets.tick("missile_phys", Time.get_ticks_usec() - _t0)
 
 ## 创建 AOE 区域
-func _spawn_aoe(pos: Vector2, alt: float, damage: float, team: int, direct_hit: CombatUnit, source: Node = null) -> void:
+func _spawn_aoe(pos: Vector2, alt: float, damage: float, team: int,
+		direct_hit: CombatUnit, source: Variant = null) -> void:
 	var hit_set := {}
 	# 直接命中的单位已受伤，不重复伤害
 	if is_instance_valid(direct_hit):
 		hit_set[direct_hit.get_instance_id()] = true
+	var safe_source: Node = CombatUnit.safe_attacker(source)
 	var zone := {
 		"pos": pos,
 		"altitude": alt,
@@ -514,7 +517,7 @@ func _spawn_aoe(pos: Vector2, alt: float, damage: float, team: int, direct_hit: 
 		"damage": damage,
 		"team": team,
 		"hit_set": hit_set,
-		"source": source,
+		"source": safe_source,
 	}
 	_aoe_zones.append(zone)
 	EventLogger.log_event("AOE", "ProxFuze",

@@ -124,8 +124,8 @@
 
 ### 第六步：i18n + 索引
 
-- `i18n/translations.csv` 加 `BOSS_DEBUG_<NAME>_NAME` / `_DESC` + tag keys
-- 同步三语 `.translation` 二进制文件（Godot 编辑器内打开 csv 自动生成；或手动跑 import）
+- `i18n/gameplay.csv` 加 `BOSS_DEBUG_<NAME>_NAME` / `_DESC` + tag keys
+- 跑 `bench\run.cmd i18n_build 5 120 Shadow`，把 `bench/results/` 中对应的三语 `.translation` 复制回 `i18n/`
 - `docs/reference/script-index.md` 加 `<boss>_*.gd` 5 行
 - `docs/reference/enemy-index.md` 加 BOSS 条目（如果展示在 enemy index）
 
@@ -314,7 +314,7 @@ RadarStation 都继承 `GroundUnit extends CombatUnit`。
 ### 加一条台词（最常见）
 
 1. `resources/chatter/radio_chatter.json` → 对应 trigger 的 `lines` 数组加一个 key
-2. `i18n/translations.csv` 加一行：`RADIO_XXX,中文,English,日本語`
+2. `i18n/radio.csv` 加一行：`RADIO_XXX,中文,English,日本語`
 3. 跑 `--bench=chatter` 校验（会检查每个 key 都有译文）
 
 ⚠ 加了 key 之后**必须让 Godot 导入一次**。可用编辑器打开项目，或让相关 bench 通过
@@ -389,7 +389,7 @@ RadarStation 都继承 `GroundUnit extends CombatUnit`。
 ### i18n
 
 → [docs/reference/i18n.md](i18n.md)。玩家可见 UI / 升级 / 机型 / 地图 / 弹窗文本
-**一律走 `tr("KEY")`**，在 `i18n/translations.csv` 定义 key + 三语翻译。
+**一律走 `tr("KEY")`**，按领域在 `i18n/*.csv` 对应分表定义 key + 三语翻译。
 例外：`AircraftParams.display_name` / EventLogger / debug 面板。
 
 ### 已知耦合点（修 bug 撞到先看）

@@ -1,9 +1,9 @@
 ---
 id: player-instrument-hud
 kind: system
-status: done
+status: in-progress
 schema_version: 1
-spec_version: 16
+spec_version: 21
 owner: user
 depends_on: [systems/afterburner-mode, systems/squad-control-switching]
 reconstruction_complete: true
@@ -11,7 +11,7 @@ reconstruction_complete: true
 
 # 玩家仪表 HUD
 
-> 把生存模式右侧 TACTICS、玩家信息栏与旧僚机富文本框统一成不可点击、纯键盘驱动的模块化线框仪表；其它游戏内 HUD 保持原样。
+> 把生存模式右侧 TACTICS、玩家信息栏与旧僚机富文本框统一成不可点击、纯键盘驱动的模块化线框仪表；其它游戏内 HUD 的布局、内容与交互保持原样，首次显现效果统一由 `ui-transition` 规格约束。
 
 ## 1. 设计意图（Why）
 
@@ -242,6 +242,16 @@ V -> existing squad weapon preference toggle
 - 生存 HUD 把僚机引用转换为只含显示值的字典快照；绘制控件不跨帧持有 Aircraft 引用。
 - 僚机普通信息与玩家仪表相同，每 `0.5 s` 刷新；行数变化时立即改尺寸并重新锚定到玩家仪表上方。
 
+### 3.5 首次显现
+
+- 玩家仪表不能作为一个整体登记。HP、G、ALT、SPD、加力、ENGAGE、结构空框、FLR、FIRE、R 机动、
+  武器标题/槽/分隔框与可见键帽必须各自成为独立首次显现目标。
+- 每架僚机的信息行各自是一个独立目标，以固定 `squad_slot` 作为首次 id；新增/重排僚机不能让已完成行重播。
+- 玩家仪表开局登记已有框板；动态 R 键与特殊武器框首次真实出现时才登记。僚机必须等对应真实信息行出现，空行不得提前消费首次机会。
+- 复合绘制控件使用与框板矩形一致的源渲染开关表现独立明灭；关闭时背景、文字和全部边线必须共同消失，禁止用黑色 `ColorRect` 覆盖模拟隐藏。不得修改控件整体 `modulate`，也不得改变内部装填、失速、手动 FLR 等既有闪烁时钟。
+- 新登记的复合框板源绘制默认关闭，HUD 必须在 `_ready` 内完成零时刻同步；源关闭区域须向逻辑框板外扩 `1px` 以包含描边外溢，进入树到首次 `_process` 之间也不得露出总体 `1px` 外框。
+- 节奏与空间排序以 `ui-transition` §2.13 为权威：`0.02s` 错峰并发启动，每块 `0.50s` 内完成两闪。
+
 ## 4. 结构与组成（Structure）
 
 - 独立玩家仪表控件：用独立行矩形构建 HP、SPD、加力、ENGAGE、FIRE、固定 FLR/R 区、MSL、GUN；每行只以自己的左上角为坐标原点。生存 HUD 只注入当前 Aircraft 与 AfterburnerCharge。
@@ -288,6 +298,7 @@ V -> existing squad weapon preference toggle
 - [x] ENGAGE/FIRE 共用锁定 `3u × 6u` 的 AUTOPILOT 父面板；它与 FLR 之间的空框板按 `0.5q` 自动补齐。
 - [x] 手动 FLR 技能在 AUTOPILOT/FLR 之间插入 `1q` 的 R 键，只让动态空框板缩短 `1q`；AUTOPILOT 与 FLR 不移动，新键反色闪烁 5 秒。F7 Debug 按钮可触发该测试状态。
 - [x] F7 固定截图场景和正式生存模式共同实例化 `PlayerInstrumentPanel`；不存在只对预览生效的第二套玩家 HUD 布局。
+- [ ] 玩家仪表各功能框、每条僚机行都按 HUD 空间顺序独立闪烁两次后常亮；后续重显不重播。
 
 ## 6. 实现计划（Task Pipeline —— 工作令）
 
@@ -360,6 +371,10 @@ V -> existing squad weapon preference toggle
 - [x] 武器槽由 `3u` 压缩为 `2u`，删除行内 `PRIORITY` 格；上方及 MSL/GUN 之间的 `0.5u` 间隔均改为完整装饰框板。
 - [x] 删除九格指示灯全部设计；名称左侧改为 `1q × 2u` 竖向装填条，进度条左侧保留 `0.5q × 2u` 空框板；选中与装填状态按第 2.8 节同步。
 
+### 阶段 16 — 首次显现接线
+- [x] 玩家功能框、每条僚机行分别登记到生存 HUD 首次显现序列，保留全部内部状态闪烁语义。
+- [ ] `player_hud` 与实际生存模式观感验收。
+
 ## 7. 索引锚点（Where —— 唯一允许放指针的地方）
 
 | 关注点 | 文件 |
@@ -371,7 +386,7 @@ V -> existing squad weapon preference toggle
 | HUD 偏好 | `scripts/ui/hud_preferences.gd` |
 | 主菜单设置 | `scripts/main_menu.gd` |
 | 热诱弹视觉 | `scripts/aircraft/aircraft_flares.gd` / `scripts/aircraft.gd` |
-| i18n | `i18n/translations.csv` |
+| i18n | `i18n/interface.csv` |
 | reference 索引 | `docs/reference/script-index.md` / `docs/reference/code-index.md` |
 
 ## 8. 变更记录
@@ -380,6 +395,11 @@ V -> existing squad weapon preference toggle
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-10 | 21 | 消除初始化首帧总体 `1px` 外框：框板源开关改为登记即关闭，在 HUD `_ready` 内预同步首次显现状态，并把关闭范围向外扩 `1px` 收掉描边外溢。 |
+| 2026-08-10 | 20 | 首次显现从黑底反向遮罩改为逐框源渲染开关，彻底消除等待/灭相位的底色与边线残留；全部框板常亮后卸下临时可见性材质。 |
+| 2026-08-10 | 19 | 单功能框与单僚机行的两闪总时长由 `0.20s` 调整为 `0.50s`；空间顺序、`0.02s` 错峰并发和独立框板边界不变。 |
+| 2026-08-10 | 18 | 根据实机反馈把右下 HUD 从玩家/僚机整组闪烁改成逐功能框、逐僚机行独立闪烁；统一服从 `0.02s` 快速错峰与单框 `0.20s` 两闪。 |
+| 2026-08-10 | 17 | 玩家与僚机仪表接入 `ui-transition` 的 HUD 首次显现队列：各自首次真实可见时随全局阅读顺序闪两次再常亮，内部状态闪烁不变。 |
 | 2026-08-08 | 1 | 用户逐项定稿并实现：模块化线框仪表、KT/双单位、HUD 色盘、E/G/F/T、十枚视觉热诱弹同步、加力/装填反色；Godot 渲染 QA 两轮，专项 30/30，33 机与 49 机 Visual 压测均为 121 FPS。 |
 | 2026-08-08 | 2 | 字体定稿：小型信息使用 Acumin Pro Regular，主数字与状态使用 Acumin Pro ExtraCondensed Semibold；资源随项目打包，中日缺字回退。 |
 | 2026-08-08 | 3 | 按最终参考图统一内部对齐网格：数据右边界、HP 顶部基准、控制与武器列比例、FLR 右锚点及模块分隔节奏。 |

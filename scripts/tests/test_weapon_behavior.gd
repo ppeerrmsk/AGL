@@ -76,6 +76,19 @@ func _test_team_inbound_guidance_filter() -> void:
 			is_equal_approx(inbound2, msl.damage * 2.0),
 			"inbound=%.0f 期望=%.0f" % [inbound2, msl.damage * 2.0])
 
+	# AOE 创建发生在导弹命中时；此时发射者可能早已被击落并释放。
+	var expired_source := Aircraft.new()
+	var direct_hit := Aircraft.new()
+	expired_source.free()
+	mm._spawn_aoe(Vector2.ZERO, 5000.0, 20.0, CombatUnit.TEAM_PLAYER,
+		direct_hit, expired_source)
+	var zones: Array = mm.get("_aoe_zones")
+	var stored_source: Variant = zones[0].get("source") if zones.size() == 1 else expired_source
+	_check("已释放发射者进入 AOE 创建边界 → 安全折叠为 null",
+			zones.size() == 1 and typeof(stored_source) == TYPE_NIL,
+			"zones=%d" % zones.size())
+	direct_hit.free()
+
 	mm.free()  # 连带 free 子 missile + S/T
 	S.free(); T.free()
 

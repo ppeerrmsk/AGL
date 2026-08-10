@@ -150,6 +150,20 @@ static func grid_regions(count: int) -> Array[Rect2]:
 	return result
 
 
+## 每架僚机行都是独立框板；使用固定 slot 作 id，避免阵亡后的行索引变化导致重播。
+func reveal_panel_regions() -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	for index in range(_rows.size()):
+		var slot := int(_rows[index].get("slot", index + 1))
+		result.append({
+			"id": StringName("wingman_%d" % slot),
+			"rect": Rect2(
+				Vector2(0.0, float(index) * ROW_STRIDE),
+				Vector2(PANEL_WIDTH, ROW_BODY_HEIGHT)),
+		})
+	return result
+
+
 func _draw_stat(x: float, baseline_y: float, width: float, label_text: String,
 		value_text: String, exists: bool, busy: bool, accent: Color, blink_on: bool) -> void:
 	var alpha := 1.0 if exists else 0.0

@@ -3,14 +3,18 @@
 720 批起（spec skills-720-rework）：归属列直读数据字段 scope/classes/requires，
 不再维护硬编码 id 集合；轴归类吃显式 "axis" 字段；新增 "+1 轴" 列（milestone_plus）。"""
 import re, io, csv, collections
+from pathlib import Path
 
 src = io.open("scripts/survivor/survivor_data.gd", encoding="utf-8").read().replace("\r\n", "\n")
 
 zh = {}
-with io.open("i18n/translations.csv", encoding="utf-8") as f:
-    for row in csv.reader(f):
-        if len(row) >= 2:
-            zh[row[0]] = row[1]
+for csv_path in sorted(Path("i18n").glob("*.csv")):
+    with csv_path.open(encoding="utf-8", newline="") as f:
+        for row in csv.reader(f):
+            if len(row) >= 2 and row[0] != "keys":
+                if row[0] in zh:
+                    raise ValueError("duplicate i18n key %s in %s" % (row[0], csv_path))
+                zh[row[0]] = row[1]
 
 start = src.index("const UPGRADES")
 i = src.index("= [", start) + 2

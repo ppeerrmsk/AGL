@@ -253,7 +253,7 @@ reconstruction_complete: false
 | 导弹累积与失导 | `scripts/missile.gd`、`scripts/missile_manager.gd` |
 | 共享状态/表现 | `scripts/combat_unit.gd`、`scripts/aircraft_renderer.gd`、`scripts/trail_ribbon.gd` |
 | 刷怪/特殊支援包 | `scripts/survivor/enemy_pool_registry.gd`、`scripts/survivor/survivor_spawner.gd`、`scripts/survivor/survivor_data.gd` |
-| debug / 图鉴 / i18n | `scripts/survivor/survivor_debug_spawn.gd`、`scripts/meta/career_archive_ui.gd`、`i18n/translations.csv` |
+| debug / 图鉴 / i18n | `scripts/survivor/survivor_debug_spawn.gd`、`scripts/meta/career_archive_ui.gd`、`i18n/gameplay.csv`、`i18n/meta.csv` |
 | reference 索引 | `docs/reference/enemy-index.md`、`docs/reference/script-index.md`、`docs/reference/code-index.md` |
 
 ## 8. 变更记录

@@ -11,7 +11,7 @@ extends Node
 ## 不使用 F8 等功能键（F8 是 Godot 编辑器"停止运行"快捷键，会与游戏内热键冲突）。
 ##
 ## 新增 UI 文本流程：
-##   1. 在 i18n/translations.csv 加一行 `KEY,中文,English,日本語`
+##   1. 按领域在 i18n/*.csv 对应分表加一行 `KEY,中文,English,日本語`
 ##   2. 代码里用 tr("KEY") 或 tr("KEY_FMT") % [...]
 ##   3. 编辑器重新导入（Godot 自动触发）
 

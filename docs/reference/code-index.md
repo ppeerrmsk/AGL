@@ -26,7 +26,7 @@
 > - **地形绘制**（`_init_noise` / `_draw_grid`）→ `scripts/terrain_renderer.gd`
 >
 > ⚠ **飞行员耐力（pilot stamina）当前无代码实现**（全仓库 0 处引用），但
-> **概念保留** —— 计划在将来的拟真战役模式重新启用。`i18n/translations.csv` 的
+> **概念保留** —— 计划在将来的拟真战役模式重新启用。`i18n/skills.csv` 的
 > `UPGRADE_PILOT_STAMINA_*` 三语文本**刻意保留，不要当死键清掉**。
 
 ---
@@ -179,10 +179,10 @@
 | 连锁弹头逐弹去重 + 命中后直飞 | `missile.gd` continue_after_penetration / already_penetrated |
 | 连锁弹头发射快照/去重回归 | `tests/test_weapon_behavior.gd` _test_chain_warhead_snapshot |
 | 在飞导弹查询 | `missile_manager.gd:165` has_active_missile_at |
-| 近炸引信 AOE 生成 | `missile_manager.gd:503` _spawn_aoe |
-| AOE 区域更新+伤害 | `missile_manager.gd:525` _update_aoe_zones |
-| AOE 红圈渲染 | `missile_manager.gd:587` _draw |
-| 弹跳目标查找 | `missile_manager.gd:729` _find_bounce_target |
+| 近炸引信 AOE 生成 | `missile_manager.gd:504` _spawn_aoe |
+| AOE 区域更新+伤害 | `missile_manager.gd:528` _update_aoe_zones |
+| AOE 红圈渲染 | `missile_manager.gd:590` _draw |
+| 弹跳目标查找 | `missile_manager.gd:732` _find_bounce_target |
 
 ## 热诱弹/反制
 
@@ -232,7 +232,7 @@
 | 功能 | 位置 |
 |------|------|
 | 雷达锥判定（飞机） | `aircraft.gd:3286` is_in_radar_cone |
-| 雷达锥判定（地面单位） | `ground_unit.gd:275` is_in_radar_cone |
+| 雷达锥判定（地面单位） | `ground_unit.gd:293` is_in_radar_cone |
 | 雷达锥判定（SAM，360°） | `sam_unit.gd:105` is_in_radar_cone |
 | 全局锁定计算循环 | `main.gd:198` _update_radar_locks |
 | 低空锁定速率衰减 | `main.gd:296` _lock_rate_for_target（静态方法） |
@@ -281,14 +281,14 @@
 | └ 玩家引用重定向契约 | `survivor/boss_encounter.gd` `set_player_ref()` 基类虚方法；三子类各自覆写（`ace_squad.gd` / `carrier_strike_group.gd` → 转发 Poltergeist / `mother_goose_boss.gd` → 转发 controller → `ai/swarm/swarm_director.gd`）。SEAM-019 同类，猎手模型下是急性病 |
 | └ 母舰巡逻环跟随玩家 | `survivor/mother_goose_boss.gd` `_patrol_center()` / `_update_patrol_follow()` — 环心=玩家实时位置，2s 重算、位移 <800px 不重下航点 |
 | └ CSG 舰载机目标指派 | `survivor/carrier_strike_group.gd` `_assign_player_target()` — F/A-18 弹射即挂玩家（`acquire_target(TS_BOSS)`），舰船不猎手（物理追不动） |
-| └ CSG 舰队摆位地形校验（护卫舰不落陆地） | `survivor/carrier_strike_group.gd:427` _pick_water_placement（委托 NavalPlacement 挑圆心 + 盘旋半径降级；结果写 EventLogger，仍落地则 push_warning） |
-| └ 候选枚举常量 | `survivor/carrier_strike_group.gd:418` PLACEMENT_NUDGE_RADII（1800/3200 八方向）/ `survivor/carrier_strike_group.gd:421` PLACEMENT_RING_CANDIDATES（750→400→0 驻泊） |
+| └ CSG 舰队摆位地形校验（护卫舰不落陆地） | `survivor/carrier_strike_group.gd:443` _pick_water_placement（委托 NavalPlacement 挑圆心 + 盘旋半径降级；结果写 EventLogger，仍落地则 push_warning） |
+| └ 候选枚举常量 | `survivor/carrier_strike_group.gd:434` PLACEMENT_NUDGE_RADII（1800/3200 八方向）/ `survivor/carrier_strike_group.gd:437` PLACEMENT_RING_CANDIDATES（750→400→0 驻泊） |
 | └ CSG 旗舰环形巡航（反"整队原地旋转"） | `survivor/carrier_strike_group.gd:34` CV_PATROL_RING_RADIUS（750 px，出生点即圆周切点）→ 写 `NavalUnit.patrol_center/patrol_radius` |
 | **舰队摆位水域校验（共用）** | `naval/naval_placement.gd` NavalPlacement —— CSG 与战区海上任务共用；核心洞察：刚体整队绕圆心转 → **每艘船走的是一个同心圆**，沿这些圆细采即可精确判定，不用猜转位 |
 | └ 轨道半径 / 占地半径 | `naval/naval_placement.gd:45` ship_orbit_radii / `naval/naval_placement.gd:20` fleet_reach（= 盘旋半径 + 最外圈偏移） |
 | └ 落地计分（ring=0 走静止分支） | `naval/naval_placement.gd:57 score`（沿每艘船的同心轨道按 40 px 步长细采） |
 | └ 挑圆心 / 降级挑摆位 | `naval/naval_placement.gd:77 pick_center`（由近及远，全水解即返回）/ `naval/naval_placement.gd:98 pick_placement`（盘旋半径由大到小降级，最后 0 = 原地驻泊） |
-| └ 水域/全舰 TGT 回归测试 | `tests/test_naval_zone_water.gd:22 run`（`--bench=naval_zone_water`，26 断言：战区 E 三档 40px 复核 + 4/5/6 编成 + 真实六舰实例化 + 旗舰速杀负例 + 缩编/fallback + CSG 锚点） |
+| └ 水域/全舰 TGT 回归测试 | `tests/test_naval_zone_water.gd:22 run`（`--bench=naval_zone_water`，27 断言：战区 E 三档 40px 复核 + 4/5/6 编成 + 真实六舰实例化 + 旗舰速杀负例 + 无线电跳过已释放舰船 + 缩编/fallback + CSG 锚点） |
 | **战区海上任务舰队** | `survivor/zone_mission.gd:959 _spawn_naval_formation`（4/5/6 艘；先规划后实例化；`land_hits != 0` 绝不创建）/ `survivor/zone_mission.gd:1033 build_naval_target_roster`（安全方案全舰 TGT）/ `survivor/zone_mission.gd:1046 safe_naval_plan`（缩圈→逐艘减护卫→单旗舰→零舰船退化为空战） |
 | └ 编成/几何常量 | `survivor/zone_mission.gd:902 NAVAL_FLEET_COMPOSITIONS` / `survivor/zone_mission.gd:925 NAVAL_RING_RADIUS` / `survivor/zone_mission.gd:917 NAVAL_RING_CANDIDATES` / `survivor/zone_mission.gd:923 NAVAL_ESCORT_OFFSETS`（1★/2★/3★ 占地 2150/2228/2512） |
 | └ 猎手回归测试 | `tests/test_boss_hunter.gd`（`--bench=boss_hunter`，117 断言：PURSUE_UNIT 执行分支/无归巢/世界边缘软收容+40px 物理硬护栏+ace_support 撤离负例/KNIGHT-SNIPER 角色/死 meta 清除/热诱弹 4 命/瞄准误差开门/减速迟滞） |
@@ -381,11 +381,12 @@
 | 功能 | 位置 |
 |------|------|
 | 地面单位移动 | `ground_unit.gd:67` _update_movement |
-| 地面自动目标选择 | `ground_unit.gd:118` _update_target_selection |
-| 地面机炮战斗 | `ground_unit.gd:154` _update_combat |
-| 地面机炮射击 | `ground_unit.gd:187` _update_gun |
+| 地面/防空跨帧目标有效性边界 | `ground_unit.gd:118` _live_combat_unit_ref / `ground_unit.gd:128` _live_aircraft_ref |
+| 地面自动目标选择 | `ground_unit.gd:133` _update_target_selection |
+| 地面机炮战斗 | `ground_unit.gd:168` _update_combat |
+| 地面机炮射击 | `ground_unit.gd:203` _update_gun |
 | SAM 只对空选敌 / 导弹发射 | `sam_unit.gd:28` _update_target_selection / `sam_unit.gd:51` _update_sam_missile |
-| AA 炮塔转向 | `aa_gun_unit.gd:74` _update_turret |
+| AA 炮塔转向 | `aa_gun_unit.gd:76` _update_turret |
 | AA 目标选择（最近敌机；拒绝地面单位） | `aa_gun_unit.gd:31` _update_aa_target_selection |
 | 雷达站数据链 | `radar_station.gd:35` _update_datalink |
 | 战略硬目标（不可锁定；仅 bomber_bomb；护送目标预刷常驻 TGT/轰炸权限提示） | `strategic_target.gd` `set_bomber_escort_objective` / `take_bomber_damage` / `_draw_bomber_escort_hint`；场景 `scenes/strategic_target.tscn` |
@@ -410,7 +411,7 @@
 | 子弹命中船（机炮 hull 0.15× / 弱点可磨）| `scripts/bullet_manager.gd:604` _physics_process 的 NavalUnit 分支 |
 | 火箭弹命中船（hull 0.5× / 可磨弱点）| `scripts/bullet_manager.gd:604` _physics_process 的 is_rocket 分支 |
 | 火箭弹 AOE 命中船 | `bullet_manager.gd:471` _explode_rocket |
-| 导弹近炸 AOE 命中船（含 alt_ok 例外）| `missile_manager.gd:525` _update_aoe_zones |
+| 导弹近炸 AOE 命中船（含 alt_ok 例外）| `missile_manager.gd:528` _update_aoe_zones |
 | 电磁炮命中船按母舰归并（船体 + MountTarget 代理同挂 all_units → 一发多次结算）| `equipment/railgun_equipment.gd:445` _apply_hitscan_damage |
 | └ 伤害归属母舰（代理 → 母舰） | `equipment/railgun_equipment.gd:497` _naval_damage_sink |
 | └ 沿弹道取最靠前命中点（一发一舰只结算一次） | `equipment/railgun_equipment.gd:507` _segment_param |
@@ -506,8 +507,8 @@
 | DEADAIR 单 mesh 扫描场 + 世界八段暴露环 + 导弹尾迹插值 + Tab 场快照 | `survivor/deadair_field_visual.gd` `attach`；`aircraft_renderer.gd` `draw_deadair_exposure`；`missile.gd` `set_deadair_exposure_ratio`；`survivor/tactical_map.gd` `_draw_deadair_field` |
 | DEADAIR 定向回归（阈值/阵营/地面海军/导弹/互斥/敌版/bench 静音） | `tests/test_deadair.gd` `run`；运行 `bench/run.cmd deadair 5 180 Shadow` |
 | DEADAIR 主循环压力场（9 直属友机在圈 + 特殊包 + 16 额外敌机/在途弹） | `survivor/survivor_mode.gd` `_bench_force_deadair_stress`；运行 `bench/run.cmd deadair_stress 15 180 Shadow` |
-| F-22 队级不同目标四锁 + 0.15s 齐射 + 12s 脱离 | `survivor/f22_multilock.gd` `register` / `allocate_unique_targets` / `tick` |
-| Gripen C/E 队级三目标；Rafale/F-35 单机双目标 | `survivor/schemer_multilock.gd` `register` / `tick` / `_plan_team_three` / `_plan_per_aircraft` |
+| F-22 队级不同目标四锁 + 0.15s 齐射 + 12s 脱离 | `survivor/f22_multilock.gd` `register` / `allocate_unique_targets` / `tick`；登记机/齐射目标 freed-slot 净化 `_logic_step` / `_update_execution` |
+| Gripen C/E 队级三目标；Rafale/F-35 单机双目标 | `survivor/schemer_multilock.gd` `register` / `tick` / `_plan_team_three` / `_plan_per_aircraft`；登记机/齐射目标 freed-slot 净化 `_prune_and_restore` / `_update_queues`；回归 `tests/test_spawn_pool.gd` `_test_multilock_freed_reference_safety` |
 | 常规扩池原型 AI（Gladiator 持续近战 / Lancer 攻击通场 / Schemer 远距换位） | `survivor/survivor_spawner.gd` `_configure_registry_archetype` |
 | 新敌机轮廓家族 / 未登记 UGC 兜底 | `survivor/survivor_spawner.gd` `_regular_silhouette_family` → `aircraft_silhouette_catalog.gd` `key_for` → `aircraft_renderer.gd` `draw_aircraft_icon` |
 | 扩池专项性能场（直属9机 vs 17架 Snowblind/F-22/多锁/近远原型） | `survivor/survivor_mode.gd` `_bench_force_enemy_pool_stress`；运行 `bench/run.cmd enemy_pool_stress 20 180` |
@@ -570,25 +571,25 @@
 | 功能 | 位置 |
 |------|------|
 | 档案 AutoLoad（schema/记录 API/成就/写盘） | `meta/career_archive.gd` 全文件 |
-| 入档守卫（bench/boss_debug 排除） | `survivor/survivor_mode.gd:5061` archive_enabled |
+| 入档守卫（bench/boss_debug 排除） | `survivor/survivor_mode.gd:5098` archive_enabled |
 | 空中击坠入档（归因过滤+enemy_type 键） | `survivor/survivor_spawner.gd:3536` _detect_kills（空中/地面两分支各一处 record 调用） |
-| 停机计数 | `survivor/survivor_mode.gd:4972` _on_dock_docked 头部 |
-| BOSS 接战/击败入档 | `survivor/survivor_mode.gd:5194` on_boss_engaged / `:5265` on_boss_victory |
-| BOSS 轮换 + 通关次数 history 注入 | `survivor/survivor_mode.gd:5171` _update_boss_phase → `events/boss_encounter_event.gd` `_start`（spawn 前注入 `defeat_counts`） |
+| 停机计数 | `survivor/survivor_mode.gd:5009` _on_dock_docked 头部 |
+| BOSS 接战/击败入档 | `survivor/survivor_mode.gd:5231` on_boss_engaged / `:5302` on_boss_victory |
+| BOSS 轮换 + 通关次数 history 注入 | `survivor/survivor_mode.gd:5208` _update_boss_phase → `events/boss_encounter_event.gd` `_start`（spawn 前注入 `defeat_counts`） |
 | 轮换算法（纯函数） | `survivor/boss_registry.gd:65` pick_for_map / `:95` pick_by_rotation / `:107` rotation_candidates |
-| 结算面板 BOSS 名（"XX 已被击毁"） | `survivor/boss_registry.gd:43` name_key_for → `survivor/survivor_hud.gd:1760` show_victory（boss_id 空 → 通用文案） |
-| 忠诚僚机奖池门控（构造时注入；缺键 fail-closed） | `survivor/zone_data.gd:823 _assign_reward`（武器子池过滤）+ `survivor/survivor_mode.gd:5047 _build_reward_roll_context`；回归 `tests/test_zone_rewards.gd:98 _test_achievement_reward_gate` |
-| 成就 toast | `survivor/survivor_mode.gd:5066 _on_achievement_unlocked` |
-| 删存档登记 | `main_menu.gd:405` _on_reset_save_pressed 内 CareerArchive.debug_reset |
+| 结算面板 BOSS 名（"XX 已被击毁"） | `survivor/boss_registry.gd:43` name_key_for → `survivor/survivor_hud.gd:1881` show_victory（boss_id 空 → 通用文案） |
+| 忠诚僚机奖池门控（构造时注入；缺键 fail-closed） | `survivor/zone_data.gd:823 _assign_reward`（武器子池过滤）+ `survivor/survivor_mode.gd:5084 _build_reward_roll_context`；回归 `tests/test_zone_rewards.gd:98 _test_achievement_reward_gate` |
+| 成就 toast | `survivor/survivor_mode.gd:5103 _on_achievement_unlocked` |
+| 删存档登记 | `main_menu.gd:455` `_on_reset_save_pressed` 内 `CareerArchive.debug_reset` |
 
 #### 生涯商店、专属许可与起手解锁（spec career-shop + aircraft-signature-progression + airfield-sam-network）
 | 功能 | 位置 |
 |------|------|
 | 商店账本（学说/基础商品/AWACS/四项战斗支援/41 专属许可） | `meta/meta_shop.gd:283 is_awacs_entitled`；`meta/meta_shop.gd:287 is_zone_air_support_entitled`；`meta/meta_shop.gd:290 is_zone_ground_support_entitled`；`meta/meta_shop.gd:294 is_ace_f15_support_entitled`；`meta/meta_shop.gd:298 is_airfield_sam_entitled` |
 | 商店四分页 + 专属已知/??? 双密度界面 | `meta/meta_shop_ui.gd:89` _add_page / `:143` _build_signature_page；场景 `scenes/meta_shop.tscn` |
-| AWACS 正式局权益消费点 | `survivor/survivor_mode.gd:4569 _update_ally_events` |
+| AWACS 正式局权益消费点 | `survivor/survivor_mode.gd:4602 _update_ally_events` |
 | 起手机门控 | `survivor/survivor_select.gd` _effective_list / _unlock_hint_for（boss debug 放行） |
-| 停靠送僚机门控 + 首停上新 toast | `survivor/survivor_mode.gd:4972` _on_dock_docked 内 |
+| 停靠送僚机门控 + 首停上新 toast | `survivor/survivor_mode.gd:5009` _on_dock_docked 内 |
 | 战区时长 +30s 注入 | `survivor/survivor_mode.gd` _ready 内（WARZONE_PHASE_DURATION 已 const→var） |
 
 #### 噪声/绘制
@@ -649,7 +650,7 @@
 | └ 第三方 ALLY 击杀收益隔离（任务销毁照常；不给玩家 XP/击杀数/回血/连击/教程进度） | `survivor/survivor_spawner.gd:3536 _detect_kills` 的 `third_party_kill` |
 | └ 三支援最坏压力样本 | `survivor/survivor_mode.gd:1108 _bench_force_zone_support`（`--bench=zone_support_stress`：Lv15 + 31 敌 + Sentinel 完整机群 + 8 F-86 + 2 A-10） |
 | └ 对舰最坏压力样本 | `survivor/survivor_mode.gd:1191 _bench_force_naval_zone`（`--bench=naval_zone_stress`：39 架飞机 + 3★ 六舰 + 18 挂点代理，持续覆盖 VLS/CIWS/Flak） |
-| └ 王牌截击压力样本 | `survivor/survivor_mode.gd:5350 _bench_force_ace_support`（`--bench=ace_support_stress`：Lv15 + 31 敌 + Sentinel 完整机群 + MARATHON×5 + F-15×2） |
+| └ 王牌截击压力样本 | `survivor/survivor_mode.gd:5407 _bench_force_ace_support`（`--bench=ace_support_stress`：Lv15 + 31 敌 + Sentinel 完整机群 + MARATHON×5 + F-15×2） |
 | **BOSS 阶段闸门真源**（boss_unlocked ∪ selected==BOSS ∪ 已 spawn；子系统一律问这里，别读 ZoneData）| `survivor/survivor_mode.gd` is_boss_phase / _is_in_boss_phase |
 | └ 消费点（停摆刷怪/猎手/驻防 · 停随机奖励事件 · 停战区任务 · AWACS 提前撤离）| `survivor_spawner.gd` _is_boss_phase · `survivor/adbs_manager.gd` _physics_process 闸 · `zone_mission.gd` _is_boss_phase · `events/awacs_support_event.gd` _update 顶部 |
 | └ BOSS 阶段全场撤离（画面外 free / 画面内清目标+出界航线+AB；舰船地面单位一概不动）| `survivor_spawner.gd` _update_boss_phase_purge / _begin_boss_evacuation（豁免 boss* / ace_support / ace_nemesis / parent_carrier）+ _update_boundary_discipline 的 boss_evac 豁免 |
@@ -669,7 +670,7 @@
 | F6 全战区奖励直发（15 项；绕过 roll/正式门控，技能仍守 max_stacks） | `survivor/survivor_debug_zone.gd` `DEBUG_REWARD_OPTIONS` / `_on_grant_reward` → `survivor_mode.gd` `debug_grant_zone_reward`；`skill_audit` 自动与正式数据源对拍 |
 | 新地图云层 / 沙漠沙尘暴（spec weather-clouds-and-sandstorm） | `weather_system.gd` `sandstorm_speed_kmh` / `sandstorm_progress` / `sandstorm_center_world` / `set_debug_midgame` / `sample_density` / `sample_sandstorm_density` / `sample_obscurant_density` / `_draw_sandstorm` / `_sandstorm_edge_wave` / `_draw_sandstorm_fill` / `_draw_sandstorm_streamlines` / `_draw_sandstorm_observations` / `_draw_sandstorm_front`（官方沙漠 180km/h、10km 宽；气象图式矢量纹样、曲边 Alpha 羽化，不复用云贴图）；`ugc/map_document.gd` cloud schema；`resources/maps/*_preview.aglmap`；`aircraft.gd` `_update_cloud_state`（focused bench 注入同一 WeatherSystem 验真实对象状态）；`survivor_mode.gd` `_cached_is_in_cloud` / `debug_skip_to_midgame`；`missile.gd` 云中累计失导；`missile_manager.gd` `get_in_cloud` / 命中 miss；`survivor_debug_zone.gd` `_on_skip_midgame`；bench `weather` / `map_preview_desert` |
 | 战区奖励说明文案（Tab 面板奖励名下方一行；技能类=技能介绍）| `survivor/zone_data.gd` REWARD_WEAPON_DESC_KEYS / reward_desc_key + `tactical_map.gd` _refresh_info（reward_desc）+ i18n `REWARD_*_DESC` |
-| 友军航母（南入北上/甲板 DockPoint/限 2 次/友军专属 300 hull/击沉清零；敌方 CV 资源仍 1200）| `survivor_mode.gd:4682 _summon_reward_carrier` / `survivor_mode.gd:4756 _depart_friendly_carrier` |
+| 友军航母（南入北上/甲板 DockPoint/限 2 次/友军专属 300 hull/击沉清零；敌方 CV 资源仍 1200）| `survivor_mode.gd:4719 _summon_reward_carrier` / `survivor_mode.gd:4793 _depart_friendly_carrier` |
 | 玩家触发的友军设施区域仇恨（机场 2000px/航母 2500px 激活；1 Hz；H→Q 限额；8s 退出；`SCORED < BOSS < ASSET < DIRECTIVE < COMMANDED`）| `survivor/friendly_asset_aggro.gd:76 tick` + `ai_controller.gd:977 TargetSource` / `ai_controller.gd:1072 get_target_source` / `ai_controller.gd:1079 acquire_target` + `combat_unit.gd:70 META_FRIENDLY_ASSET_GROUP` + `naval/mount_target.gd:38 _ready`；测试 `test_friendly_asset_aggro.gd:10 run` |
 | 逃跑组护卫编队（adds 语义、普通 XP；独立零 Token 选型；运输机作移动长机、WEDGE 220m、首机阵亡换锚）| `survivor/survivor_spawner.gd` `_pick_flee_escort_type` / `_new_flee_escort_squad` / `_spawn_flee_escort` |
 | Tab 停靠/奖励标记 | `survivor/tactical_map.gd` _draw_dock_markers + _draw_one_zone 奖励行 |
@@ -729,6 +730,7 @@
 |------|------|
 | UI 构建 | `survivor/survivor_hud.gd` `_build_ui` |
 | 主循环与分层刷新 | `survivor/survivor_hud.gd` `_process` / `HUD_DATA_REFRESH_INTERVAL` / `_update_hud_data_layer` |
+| 玩家 HUD 框板本局首次两闪 | `ui/hud_first_reveal_sequencer.gd` `register_panel` / `register_callback_panel` / `set_panel_available` / `set_panel_sort_position` / `update`；`ui/hud_board_visibility.gd` + `resources/shaders/hud_board_visibility.gdshader` 直接开关复合控件源框板且新区域默认关闭；`survivor/survivor_hud.gd` `_setup_hud_first_reveal` / `_sync_hud_first_reveal_targets` 在首次绘制前预同步；玩家仪表、僚机行、三轴格逐框登记 |
 | UI 自适应布局 | `survivor/survivor_hud.gd` `_layout_ui` |
 | HP/XP/等级与三轴计数更新 | `survivor/survivor_hud.gd` `_update_display` |
 | 玩家仪表安全引用与刷新 | `survivor/survivor_hud.gd` `_safe_player_aircraft` / `_update_player_instrument` |
@@ -739,9 +741,9 @@
 | 终端文字精确排版与高度优先步进扩宽 | `ui/terminal_text.gd` `TerminalText` / `FontFace` / `SizeRule` / `_resolve_layout` / `font_size_for_ink_height` / `expanded_width_for_fixed_text` / `_ink_vertical_bounds` |
 | F7 实际 HUD 几何定位覆盖层与手动 FLR 插键测试 | `survivor/survivor_hud.gd` `toggle_ui_dev_overlay` / `_collect_ui_dev_regions` / `_on_ui_dev_add_manual_flare_pressed`；`ui/ui_dev_outline_overlay.gd` `UiDevOutlineOverlay` / `build_entries`；截图场景 `scenes/tests/ui_dev_panel.tscn` |
 | E/G/F/Q/T 键、高度两态与缺失武器跳过 | `survivor/survivor_mode.gd:1963` _unhandled_input / `_cycle_player_altitude_preference` / `_cycle_player_weapon_preference` |
-| 王牌中队交战血条（分段命条） | `survivor/survivor_hud.gd:1295` _build_ace_panel |
-| Debug 面板文字更新 | `survivor/survivor_hud.gd:1697` _update_debug_panel |
-| 游戏结束画面 | `survivor/survivor_hud.gd:1746` show_game_over |
+| 王牌中队交战血条（分段命条） | `survivor/survivor_hud.gd:1416` _build_ace_panel |
+| Debug 面板文字更新 | `survivor/survivor_hud.gd:1818` _update_debug_panel |
+| 游戏结束画面 | `survivor/survivor_hud.gd:1867` show_game_over |
 
 ### 小队信息行与键盘指挥（启动条件 = 有僚机入队，与机型无关）
 
@@ -751,11 +753,11 @@
 | 僚机值快照 + 信息行显隐刷新（僚机非空才显示） | `survivor/survivor_hud.gd` _update_squad_panel |
 | 独立行绘制、固定号机排序与 20Hz 刷新 | `survivor/wingman_instrument_panel.gd` update_display / _draw_row |
 | C/V 键盘指挥入口 | `survivor/survivor_mode.gd` _unhandled_input → `survivor/survivor_hud.gd` _on_squad_engage_pressed / _on_squad_weapon_pressed |
-| 玩家队反查（扫 `_spawner.get_squads()` 找 leader==玩家）| `survivor/survivor_hud.gd:1471` _get_player_squad |
-| 存活僚机列表 | `survivor/survivor_hud.gd:1486` _get_wingmen |
+| 玩家队反查（扫 `_spawner.get_squads()` 找 leader==玩家）| `survivor/survivor_hud.gd:1592` _get_player_squad |
+| 存活僚机列表 | `survivor/survivor_hud.gd:1607` _get_wingmen |
 | **玩家队装配 + 登记进 spawner 队表**（唯一入口，幂等）| `survivor/survivor_mode.gd:1704` _ensure_player_squad |
 | 起手僚机（`wingman_count>0`，仅 F-14 走）| `survivor/survivor_mode.gd:1743` _spawn_starting_wingmen |
-| 懒建队消费方：+1 僚机奖励 / 停靠送僚机 / 双子星克隆 | `survivor/survivor_mode.gd:4835` _claim_wingman_reward |
+| 懒建队消费方：+1 僚机奖励 / 停靠送僚机 / 双子星克隆 | `survivor/survivor_mode.gd:4872` _claim_wingman_reward |
 | 固定数字键查询（`squad_slot` 不随换帅变化） | `survivor/survivor_mode.gd` _aircraft_for_squad_slot / _switch_control_to_slot |
 | 回归测试（bench squad_cmd_ui，26 断言：登记/幂等/HUD 反查/固定号机/长机阵亡解绑竞态）| `tests/test_squad_command_ui.gd` run |
 
@@ -848,7 +850,7 @@
 | 一次性特判（f47/x02/ax00） | `survivor/survivor_mode.gd:3666` _dispatch_sig_oneshot |
 | 签名 drone 生成（f47/x90，不进离屏 despawn 体系） | `survivor/survivor_mode.gd:3708` _sig_spawn_loyal_drone |
 | 联合突击差量重算 | `survivor/survivor_mode.gd:3837` _update_sig_gcap |
-| 奖励僚机生成体（双子星复用；尾部 build 补挂） | `survivor/survivor_mode.gd:4856` _spawn_reward_wingman |
+| 奖励僚机生成体（双子星复用；尾部 build 补挂） | `survivor/survivor_mode.gd:4893` _spawn_reward_wingman |
 | 鲸群血量均摊 | `survivor/skill_hooks.gd:67` whale_pod_share |
 | 作战云广播（中继直通防双乘） | `survivor/skill_hooks.gd:90` broadcast_combat_cloud |
 | 三发推力触发（突击命令两入口） | `survivor/skill_hooks.gd:110` try_trigger_j36_assault |
@@ -887,7 +889,7 @@
 | 全量补挂（新僚机入队 / 僚机换型） | `survivor/survivor_player.gd:289` apply_all_milestones_to |
 | └ 新僚机入队调用点 | `survivor/survivor_mode.gd:3801` apply_all_milestones_to |
 | 清账重挂（换型；**每机恰好一次**，重复调用会叠两遍） | `survivor/survivor_player.gd:303` reapply_all_milestones_to |
-| └ 进化换型调用点（对 `_squad_members_alive()` 逐机） | `survivor/survivor_mode.gd:4415` reapply_all_milestones_to |
+| └ 进化换型调用点（对 `_squad_members_alive()` 逐机） | `survivor/survivor_mode.gd:4448` reapply_all_milestones_to |
 | 定向生效（借 self.aircraft 指针走同一 match，同 apply_upgrade_to 手法） | `survivor/survivor_player.gd:309` _apply_milestone_effect_to |
 | 无头断言（E2 节：僚机同吃 / 逐机幂等 / 晚入队补挂 / 换帅不丢） | `tests/test_attribute_gates.gd:264` _test_milestone_squad_wide |
 
@@ -957,6 +959,7 @@
 | 空战零增员复用正式敌军；陆战双方固定阵营专用 SPG；海战只补友军 | `survivor/zone_atmosphere_combat.gd` `register_zone` / `_spawn_artillery_group` / `_find_land_artillery_plan` / `artillery_formation_offsets` / `_mark_actor` / `_spawn_allied_naval`；`survivor/atmosphere_artillery_unit.gd` `configure_ellipse`；`combat_unit.gd` `META_FACTION_CONVERSION_LOCKED`；`events/faction_transition.gd` `convert` |
 | 火炮港池水面排除 + 50px 连续陆地椭圆与舰队 240/120/0 全水降级 | `survivor/zone_atmosphere_combat.gd` `_find_land_artillery_plan` / `_land_ellipse_valid` / `_spawn_allied_naval`；`survivor/map_geography.gd` `is_ground_spawn_safe` / `find_ground_spawn_near`；`survivor/atmosphere_artillery_unit.gd` `configure_ellipse`（正式随机轨道）/ `configure_rail`（实验兼容） |
 | 2Hz、1500/1800px 伤害迟滞、发射快照与轰炸豁免 | `survivor/zone_atmosphere_combat.gd` `update` / `_apply_damage_state`；`combat_unit.gd` `ambient_damage_multiplier` |
+| 跨帧演员引用净化（先判对象与实例有效，再做类型判断） | `survivor/zone_atmosphere_combat.gd` `_valid_combat_unit` / `_live_combat_unit`；回归 `tests/test_zone_atmosphere_combat.gd` `_test_live_ally_lookup` |
 | 玩家近距优先且只释放本系统持有的目标权 | `survivor/zone_atmosphere_combat.gd` `_update_player_priority` / `_clear_player_priority`；`ground_unit.gd` `_update_target_selection`；`naval/naval_weapons.gd` `_find_aircraft_in_range` |
 | 气氛炮火不能终结正式 TGT | `combat_unit.gd` `take_atmosphere_damage`；`naval/naval_unit.gd` `take_atmosphere_damage_at` |
 | 专项契约 / 真实正式样本 | `tests/test_zone_atmosphere_combat.gd` `run`（bench `zone_atmosphere`）；`survivor/survivor_mode.gd` `_bench_force_zone_atmosphere`（bench `zone_atmosphere_formal`） |
@@ -984,6 +987,16 @@
 | 选中回调（写 meta 进下一场景）| `survivor/survivor_select.gd:412` _on_aircraft_selected |
 | 背景绘制 | `survivor/survivor_select.gd:97` _draw |
 
+## 本地化分表
+
+| 功能 | 入口 |
+|---|---|
+| 五份领域源表与新增文本路由 | `i18n/README.md`；`interface.csv` / `gameplay.csv` / `skills.csv` / `meta.csv` / `radio.csv` |
+| 分表清单、四列审计、跨表 key 唯一与预期资源路径 | `scripts/i18n_catalog.gd` `csv_paths` / `read_source` / `audit` / `expected_translation_paths` |
+| 逐表生成 15 份三语资源 | `scripts/tests/build_translations.gd` `run` / `_build_source`；`bench/run.cmd i18n_build 5 120 Shadow` |
+| 运行时注册与 locale 切换 | `project.godot` `[internationalization]`；`scripts/locale_manager.gd` `set_locale_persistent` / `trm` |
+| 结构回归门 | `scripts/tests/test_career_archive.gd` `_test_csv_columns`：五表集合、1360 key、跨表唯一、15 资源注册 |
+
 ## 无线电通讯（spec radio-chatter）
 
 设计权威源：[docs/specs/systems/radio-chatter.md](../specs/systems/radio-chatter.md)。
@@ -993,8 +1006,8 @@
 
 | 我想…… | 去哪 |
 |---|---|
-| **加一条台词** | ① `resources/chatter/radio_chatter.json` 对应 trigger 的 `lines` 加 key ② `i18n/translations.csv` 加一行三语。**不碰代码** |
-| **改台词文案** | `i18n/translations.csv` 的 `RADIO_*` 行（改完需 Godot 重新导入） |
+| **加一条台词** | ① `resources/chatter/radio_chatter.json` 对应 trigger 的 `lines` 加 key ② `i18n/radio.csv` 加一行三语。**不碰代码** |
+| **改台词文案** | `i18n/radio.csv` 的 `RADIO_*` 行（改完需重建翻译资源） |
 | **嫌太吵 / 太安静** | JSON `global.ambient_cooldown_sec`（总闸）+ 各 trigger 的 `chance`（主旋钮） |
 | **某类语音太频繁** | JSON 该 trigger 的 `chance` 调低 / `cooldown_sec` 调高 |
 | **让某类语音必定播出** | JSON 该 trigger 改 `"class": "scripted"`（同时豁免三层节流） |
@@ -1021,19 +1034,20 @@
 | 版式/配色/位置常量 | `radio_chatter.gd:25-58` |
 | **三层节流判定**（全局冷却→冷却桶→概率骰） | `radio_chatter.gd:170` say_text 开头 |
 | 入队 + 满队按 weight 淘汰 | `radio_chatter.gd:170` say_text |
-| 按 trigger 选词 + `%` 格式化 | `radio_chatter.gd:233` say |
+| 按 trigger 选词；仅 `_FMT` key 执行 `%` 格式化，普通句可与格式句共池 | `radio_chatter.gd:233` say |
 | 说话人从单位解析 | `radio_chatter.gd:243` say_unit |
 | BOSS 多句序列入队 | `radio_chatter.gd:274` say_boss_sequence |
 | 敌方减员里程碑（每 12 架跨档） | `radio_chatter.gd:287` notify_enemy_loss |
 | 呼号解析 | `radio_chatter.gd:300` speaker_name_of |
 | 阵营色解析（引 FactionPalette） | `radio_chatter.gd:307` color_of / `:313` color_for_team |
-| 队列状态机 IDLE/SPEAKING/GAP | `radio_chatter.gd:335` _process |
-| 冷却递减（含全局） | `radio_chatter.gd:361` _tick_cooldowns |
+| 世界坐标量化为八方向 i18n key | `radio_chatter.gd:323` direction_key |
+| 队列状态机 IDLE/SPEAKING/GAP | `radio_chatter.gd:353` _process |
+| 冷却递减（含全局） | `radio_chatter.gd:379` _tick_cooldowns |
 | 出队 + 过期丢弃（scripted 豁免） | `radio_chatter.gd:374` _pump |
-| 权重排序 | `radio_chatter.gd:388` _best_index |
+| 权重排序 | `radio_chatter.gd:406` _best_index |
 | 开播（写 Label + 触发音效） | `radio_chatter.gd:399` _begin |
 | 显示时长公式 | `radio_chatter.gd:420` line_duration |
-| 淡入淡出 | `radio_chatter.gd:425` _apply_alpha |
+| 淡入淡出 | `radio_chatter.gd:443` _apply_alpha |
 | 节点构建（PanelContainer + 两 Label） | `radio_chatter.gd:92` _build |
 | 渐变底（GradientTexture2D） | `radio_chatter.gd:136` _make_gradient_style |
 | 换行后重算高度 | `radio_chatter.gd:158` _relayout |
@@ -1059,7 +1073,7 @@
 | 等级门字段 | `aircraft.gd:379` has_radio_voice |
 | 常规敌机赋值（与 no_pilot 同处） | `survivor/survivor_spawner.gd:1796` |
 | Mother Goose 蜂群 UAV | `survivor/mother_goose_uav_swarm.gd:250` |
-| Mother Goose MQ-X | `survivor/mother_goose_boss.gd:443` |
+| Mother Goose MQ-X | `survivor/mother_goose_boss.gd:502` no_pilot / `:503` has_radio_voice |
 | 白名单数据 | JSON `voiced_enemy_types.types` |
 
 ### 触发接线（每处 ≤4 行，全部挂在既有信号/函数上）
@@ -1069,11 +1083,18 @@
 | 系统实例化（**刻意在战区 if 之外**，boss_debug 也要有） | `survivor/survivor_mode.gd:423` |
 | 字段声明 | `survivor/survivor_mode.gd:158` _radio |
 | BOSS 登场挑衅 | `events/boss_encounter_event.gd:112`（`_start` 内，紧邻 WARNING 横幅） |
-| BOSS 交战 | `survivor/survivor_mode.gd:5194` on_boss_engaged |
-| 击坠回报 / 弹射 / 减员计数 | `survivor/survivor_mode.gd:5215` _on_radio_kill_recorded |
-| break 规避呼叫（真·躲导弹） | `survivor/survivor_mode.gd:5240` _on_radio_evasion_started |
-| 加力冲刺呼叫（玩家主动加力，非躲导弹） | `survivor/survivor_mode.gd:5248` _on_radio_afterburner_engaged |
-| 僚机归队 | `survivor/survivor_mode.gd:5257` _on_radio_wingman_joined |
+| BOSS 交战 | `survivor/survivor_mode.gd:5231` on_boss_engaged |
+| WRAITH 首次真实成员减员 | `survivor/f47_ace_squad.gd:58` _on_member_destroyed（基类钩子 `survivor/ace_squad.gd:302`） |
+| CSG 定期 F/A-18 首次成功通报 / 航母沉没 Phase 2 | `survivor/carrier_strike_group.gd:321` _say_periodic_fa18_radio / `:384` _say_phase2_radio |
+| Mother Goose MQ-X 实际释放后 Phase 2 | `survivor/mother_goose_boss.gd:448` _spawn_mqx_pair / `:480` _say_phase2_radio |
+| 轰炸护送双句 + 实际目标八方向 | `survivor/survivor_mode.gd:4129` _say_bomber_escort_available |
+| 海/空战区首次进入（真实敌军 / 真实有人僚机） | `survivor/survivor_mode.gd:4228` _on_zone_mission_triggered；单位查询 `survivor/zone_mission.gd:1445` get_live_hostile_target |
+| 地面战完成且气氛友军存活 | `survivor/survivor_mode.gd:4255` _on_zone_mission_completed；快照 `survivor/zone_mission.gd:1452` get_surviving_atmosphere_ally / `survivor/zone_atmosphere_combat.gd:213` first_live_ally |
+| 机场解放三选一，代入真实长机呼号 | `survivor/survivor_mode.gd:4677` _liberate_airfield |
+| 击坠回报 / 弹射 / 减员计数 | `survivor/survivor_mode.gd:5252` _on_radio_kill_recorded |
+| break 规避呼叫（真·躲导弹） | `survivor/survivor_mode.gd:5277` _on_radio_evasion_started |
+| 加力冲刺呼叫（玩家主动加力，非躲导弹） | `survivor/survivor_mode.gd:5285` _on_radio_afterburner_engaged |
+| 僚机归队 | `survivor/survivor_mode.gd:5294` _on_radio_wingman_joined |
 | RTS 回令派发 | `rts/squad_command_controller.gd:810` _ack |
 | RTS 应答人选取（跳过无人机） | `rts/squad_command_controller.gd:797` _ack_speaker |
 | RTS 攻击回令空/地分流（空=追击/包围·地=打击） | `rts/squad_command_controller.gd:825` _strike_or_pursue |
@@ -1102,7 +1123,7 @@
 
 | 关注点 | 位置 |
 |------|------|
-| 无头回归（89 断言） | `scripts/tests/test_radio_chatter.gd`，`--bench=chatter` |
+| 无头数据/队列/三语/八方向回归（101 断言） | `scripts/tests/test_radio_chatter.gd`，`--bench=chatter` |
 | 航点移动机会火控回归 | `scripts/tests/test_waypoint_fire_control.gd`，`--bench=waypoint_fire` |
 | 注册表 | `scripts/bench/bench_runner.gd` UNIT_TESTS |
 | **导出必需** | `export_presets.cfg` 的 `include_filter` 必须含 `*.json`，否则数据表不进包 |
@@ -1130,7 +1151,7 @@
 | 统一机型尺寸幂律 + 高度倍率 | `aircraft_renderer.gd:152 altitude_base_scale` / `:111 visual_model_scale`；真实尺寸字段 `aircraft_params.gd` |
 | 指挥型图标 | `aircraft_renderer.gd:1036` draw_commander_icon |
 | 雷达锥绘制 | `aircraft_renderer.gd:371` draw_radar_cone |
-| 跨帧玩家机引用净化（HUD / 锁定线 / 绘制消费者） | `aircraft_renderer.gd:24 safe_aircraft_ref` / `:23 safe_player_ref`；`survivor/survivor_hud.gd:16 _safe_player_aircraft`；终局断引用 `survivor/survivor_mode.gd:4006 _on_player_died` |
+| 跨帧玩家机引用净化（HUD / 锁定线 / 绘制消费者） | `aircraft_renderer.gd:24 safe_aircraft_ref` / `:23 safe_player_ref`；`survivor/survivor_hud.gd:20 _safe_player_aircraft`；终局断引用 `survivor/survivor_mode.gd:4006 _on_player_died` |
 | 锁定框闪烁 + 屏幕空间恒定尺寸 | `aircraft_renderer.gd` `screen_space_inverse_scale` / `draw_lock_indicator` / `draw_lock_box` / `draw_secondary_lock_indicators`；地面/舰船/挂点调用同一补偿规则 |
 | 真实在途导弹警告（一弹一线一三角；雷达共用判定） | `missile.gd` `incoming_warning_rule` / `is_incoming_warning_for` / `_draw_incoming_warning`；`survivor/survivor_hud.gd` `RadarDisplay` |
 | 数据标签（完整） | `aircraft_renderer.gd` draw_data_label |
@@ -1143,7 +1164,7 @@
 | 蓝色玩家小队简略档左上角全部装填武器矩形反相闪烁；完整档显示百分比 | `aircraft_renderer.gd` `draw_reload_indicators` / `reload_indicator_team_visible` / `reload_indicator_style` / `reload_indicator_tokens` / `secondary_reload_progress` |
 | 飞机旁状态栏：FLR 弹尽装填行红/琥珀双色闪烁 | `aircraft_renderer.gd:200` _wpn_color（FLR_RELOAD） |
 | 玩家仪表：热诱弹十星投放/短冷却/长装填同步 | `survivor/player_instrument_panel.gd` flare_lit_star_count / _draw_flare_stars |
-| 雷达小地图：来袭导弹常亮脉冲标记 + 警示牌/外圈 | `survivor/survivor_hud.gd:1789` RadarDisplay |
+| 雷达小地图：来袭导弹常亮脉冲标记 + 警示牌/外圈 | `survivor/survivor_hud.gd:1910` RadarDisplay |
 | 预测轨迹 | `aircraft_renderer.gd:2095` draw_predicted_path |
 | 战术提示弹窗 | `aircraft_renderer.gd:1966` draw_tactic_popup |
 | 机炮意图锥（敌方威胁锥 / 友方 hover 参考锥；仅 Mother Goose 蜂群隐藏） | `aircraft_renderer.gd:537` should_show_enemy_gun_threat / `:543` draw_gun_cone |
@@ -1158,6 +1179,7 @@
 |------|------|
 | 沙盒 HUD（**沙盒已废弃**，仅调试留存）| `hud.gd:7` _process |
 | 生存模式 HUD 构建/更新 | `survivor/survivor_hud.gd` `_build_ui` / `_update_display` / `_update_player_instrument` |
+| HUD 首次显现（空间顺序、`0.02s` 错峰并发、逐框 `0.50s` 两闪、无黑底源开关、首帧默认关闭） | `ui/hud_first_reveal_sequencer.gd` `HudFirstRevealSequencer`；`ui/hud_board_visibility.gd` `HudBoardVisibility`；`survivor/survivor_hud.gd` `_setup_hud_first_reveal` / `_sync_hud_first_reveal_targets` |
 | 玩家模块化仪表（生产 HUD 与 F7 预览共用；G 4u 小数组合、装饰半格、AUTOPILOT 动态空框） | `survivor/player_instrument_panel.gd` `_configure_layout` / `decorative_aligned_width` / `active_control_empty_rect` / `update_display` / `_draw` |
 | 玩家仪表字号与动态扩格 | `ui/terminal_text.gd` `TerminalText`；小字 `resources/fonts/Silkscreen-Regular.ttf`，主要数字 `resources/fonts/ChakraPetch-Bold.ttf` |
 | 唯一互斥 R 技能常驻百分比充能行 | `aircraft.gd` `equipped_r_maneuver_id` / `r_maneuver_cooldown_total` / `r_maneuver_cooldown_remaining`；`survivor/player_instrument_panel.gd` `_draw_maneuver_charge` |
@@ -1168,6 +1190,7 @@
 | 终端共享网格描边与精确文字 | `ui/terminal_grid_overlay.gd` `regions` / `override_regions` / `_draw`；`ui/terminal_text.gd` |
 | HUD 速度单位与线框色持久化 | `ui/hud_preferences.gd` `speed_unit` / `hud_color` / `set_hud_color` |
 | 主菜单速度单位按钮与 HUD 色盘 | `main_menu.gd` `_refresh_hud_settings_buttons` / `_on_speed_unit_pressed` / `_on_hud_color_pressed`；`ui/hud_color_settings_panel.gd` `_build_ui` |
+| 主菜单 Y2K 军用 CRT 与双栏终端布局 | `main_menu.gd` `_build_terminal_header` / `_build_system_panel` / `_add_mode_button` / `_refresh_terminal_palette`；机壳 `ui/main_menu_crt_shell.gd`；凸面后处理 `ui/main_menu_crt_effect.gd` + `resources/shaders/main_menu_crt.gdshader`；航路示意 `ui/main_menu_scope_display.gd`；可视验收 `tests/main_menu_visual_qa_runner.gd`（bench `main_menu_visual`） |
 | HUD 字体 | `resources/fonts/Silkscreen-Regular.ttf`（1u/1q 拉丁信息）/ `ChakraPetch-Bold.ttf`（主要数字）；缺失字符走当前主题默认字体回退 |
 | 玩家 HUD 回归/可视验收 | `tests/test_player_instrument_hud.gd` `run`（bench `player_hud`）；`tests/player_hud_visual_qa_runner.gd`（bench `player_hud_visual`） |
 | 终端文字与共享网格回归 | `tests/test_terminal_text.gd` `run`；bench `terminal_text` |
@@ -1181,7 +1204,7 @@
 | 战斗策略文本 | `debug_panel.gd:336` _get_combat_strategy |
 | 飞行员信息 | `debug_panel.gd:373` _get_pilot_info |
 | 地面单位生成按钮 | `debug_panel.gd:703` _spawn_ground_unit |
-| Game Over 显示 | `survivor/survivor_hud.gd:1746` show_game_over |
+| Game Over 显示 | `survivor/survivor_hud.gd:1867` show_game_over |
 
 ## 资源参数文件
 

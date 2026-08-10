@@ -126,7 +126,7 @@ wingman_switch_done=false
 | 首局教程与持久化 | `scripts/survivor/survivor_tutorial.gd` |
 | 首次僚机提示 | `scripts/survivor/survivor_wingman_tutorial.gd` |
 | 输入与生成接线 | `scripts/survivor/survivor_mode.gd` |
-| 三语文本 | `i18n/translations.csv` |
+| 三语文本 | `i18n/gameplay.csv` |
 | 无头回归 | `scripts/tests/test_squad_command_ui.gd` |
 | reference 索引 | `docs/reference/script-index.md`、`docs/reference/code-index.md` |
 

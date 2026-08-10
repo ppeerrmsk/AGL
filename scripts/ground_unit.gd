@@ -114,22 +114,39 @@ func get_altitude_tier() -> int:
 
 # ========== 自动目标选择 ==========
 
+## 跨帧目标引用可能已经释放；必须先以 Variant 验证，再收窄到战斗单位类型。
+func _live_combat_unit_ref(value: Variant) -> CombatUnit:
+	if typeof(value) != TYPE_OBJECT or value == null or not is_instance_valid(value):
+		return null
+	if not (value is CombatUnit):
+		return null
+	var unit := value as CombatUnit
+	return unit if not unit.is_destroyed else null
+
+
+## 防空子类共用的 Aircraft 目标边界。
+func _live_aircraft_ref(value: Variant) -> Aircraft:
+	var unit := _live_combat_unit_ref(value)
+	return unit as Aircraft if unit is Aircraft else null
+
 ## 简单 AI：从已锁定目标中选最近的敌方
 func _update_target_selection() -> void:
 	# 通用高优先目标 seam：正式战区气氛层近距时写入玩家；仍要求本单位真实锁定。
 	var preferred_value: Variant = get_meta(CombatUnit.META_PREFERRED_COMBAT_TARGET) \
 		if has_meta(CombatUnit.META_PREFERRED_COMBAT_TARGET) else null
-	if preferred_value is CombatUnit and is_instance_valid(preferred_value):
-		var preferred := preferred_value as CombatUnit
+	var preferred := _live_combat_unit_ref(preferred_value)
+	if preferred != null:
 		var preferred_lock := params.lock_time if params else 3.0
-		if not preferred.is_destroyed and is_hostile_to(preferred) \
+		if is_hostile_to(preferred) \
 				and radar_targets.get(preferred, 0.0) >= preferred_lock:
 			combat_target = preferred
 			return
 	# 当前目标仍有效且已锁定 → 保持
-	if combat_target and is_instance_valid(combat_target) and not combat_target.is_destroyed:
+	var current_value: Variant = combat_target
+	var current := _live_combat_unit_ref(current_value)
+	if current != null:
 		var lock_time_val := params.lock_time if params else 3.0
-		if radar_targets.get(combat_target, 0.0) >= lock_time_val:
+		if radar_targets.get(current, 0.0) >= lock_time_val:
 			return
 
 	# 寻找新目标
@@ -137,12 +154,9 @@ func _update_target_selection() -> void:
 	var best_dist := INF
 	var lock_time_val := params.lock_time if params else 3.0
 	for target_key in radar_targets:
-		if radar_targets[target_key] < lock_time_val:
-			continue
-		if not is_instance_valid(target_key):
-			continue
-		var target_unit: CombatUnit = target_key
-		if target_unit.is_destroyed or not is_hostile_to(target_unit):
+		var target_unit := _live_combat_unit_ref(target_key)
+		if target_unit == null or radar_targets.get(target_unit, 0.0) < lock_time_val \
+				or not is_hostile_to(target_unit):
 			continue
 		var d := global_position.distance_to(target_unit.global_position)
 		if d < best_dist:
@@ -152,7 +166,9 @@ func _update_target_selection() -> void:
 # ========== 战斗 ==========
 
 func _update_combat(_delta: float) -> void:
-	if combat_target == null or not is_instance_valid(combat_target) or combat_target.is_destroyed:
+	var target_value: Variant = combat_target
+	var target := _live_combat_unit_ref(target_value)
+	if target == null:
 		combat_target = null
 		is_firing = false
 		return
@@ -162,7 +178,7 @@ func _update_combat(_delta: float) -> void:
 		return
 
 	# 射程检查
-	var to_target := combat_target.global_position - global_position
+	var to_target := target.global_position - global_position
 	var dist_px := to_target.length()
 	var gun_range_px := params.gun.max_range * PIXELS_PER_METER
 
@@ -171,10 +187,10 @@ func _update_combat(_delta: float) -> void:
 		return
 
 	# 前置量计算
-	var tgt_vel := Vector2(sin(combat_target.heading), -cos(combat_target.heading)) * combat_target.speed * PIXELS_PER_METER
+	var tgt_vel := Vector2(sin(target.heading), -cos(target.heading)) * target.speed * PIXELS_PER_METER
 	var bullet_speed := params.gun.muzzle_velocity * PIXELS_PER_METER
 	var time_to_target := dist_px / maxf(bullet_speed, 1.0)
-	var lead_pos := combat_target.global_position + tgt_vel * time_to_target
+	var lead_pos := target.global_position + tgt_vel * time_to_target
 	var angle_to_lead := atan2((lead_pos - global_position).x, -(lead_pos - global_position).y)
 
 	# 火控角检查
@@ -211,8 +227,10 @@ func _update_gun(delta: float) -> void:
 	#   MID  (1)  → ×1.8（明显降低命中率）
 	#   HIGH (2)  → ×3.0（极难命中，几乎只是骚扰）
 	var alt_spread_mult := 1.0
-	if combat_target and is_instance_valid(combat_target):
-		var tgt_tier := combat_target.get_altitude_tier()
+	var target_value: Variant = combat_target
+	var target := _live_combat_unit_ref(target_value)
+	if target != null:
+		var tgt_tier := target.get_altitude_tier()
 		if tgt_tier == AltitudeTier.MID:
 			alt_spread_mult = 1.8
 		elif tgt_tier >= AltitudeTier.HIGH:

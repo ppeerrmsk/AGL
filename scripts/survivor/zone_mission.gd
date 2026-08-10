@@ -1441,6 +1441,27 @@ func _finish_air_support_flight(index: int, flight: Dictionary) -> void:
 		_active_support_by_zone.erase(zid)
 	_support_flights.remove_at(index)
 
+## 无线电只允许真实演员开口：返回本战区第一艘/架存活任务目标，不做全场扫描。
+func get_live_hostile_target(zone_id: StringName) -> CombatUnit:
+	for value in _spawned_zones.get(zone_id, []):
+		if typeof(value) != TYPE_OBJECT or value == null or not is_instance_valid(value):
+			continue
+		if value is CombatUnit and not (value as CombatUnit).is_destroyed:
+			return value as CombatUnit
+	return null
+
+## 地面任务完成时在气氛层注销前快照幸存友军；无幸存者即 null，感谢台词静默。
+func get_surviving_atmosphere_ally(zone_id: StringName) -> CombatUnit:
+	if _zone_atmosphere == null or not is_instance_valid(_zone_atmosphere) \
+			or not _zone_atmosphere.has_method("first_live_ally"):
+		return null
+	var candidate: Variant = _zone_atmosphere.call("first_live_ally", zone_id)
+	if typeof(candidate) != TYPE_OBJECT or candidate == null or not is_instance_valid(candidate):
+		return null
+	if not (candidate is CombatUnit):
+		return null
+	return candidate as CombatUnit
+
 ## 玩家是否正在至少一个活跃战区任务中（触发过但未完成）。
 ## 用于旅途刷怪系统判断"玩家当前是否有战区任务在身"。
 func is_player_in_active_mission() -> bool:

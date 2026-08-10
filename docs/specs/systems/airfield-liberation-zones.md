@@ -293,7 +293,7 @@ on 首次 _spawn_zone_units(airfield_zone):
 | 战术地图绘制 / 信息面板 | `scripts/survivor/tactical_map.gd` |
 | 补给点组件 | `scripts/survivor/dock_point.gd` |
 | 数据层单测 | `scripts/tests/test_zone_rewards.gd`（`_test_airfield_zones`，bench key `zone_rewards`） |
-| i18n | `i18n/translations.csv` + `.en/.ja/.zh.translation` |
+| i18n | `i18n/gameplay.csv` + `gameplay.en/ja/zh.translation` |
 | reference 索引行 | code-index.md「机场解放战区」行 / script-index.md ROE 行 |
 
 ## 8. 变更记录

@@ -472,6 +472,17 @@ func _spawn_mqx_pair() -> void:
 	EventLogger.log_event("BOSS", display_name,
 		"MQ-X elite pair deployed at %.0f%% HP (hp/each=%.0f, F-47 mobility tier)" %
 		[MQX_SPAWN_HP_RATIO * 100.0, (base_params as AircraftParams).max_hp])
+	if not _mqx_units.is_empty():
+		_say_phase2_radio()
+
+
+## MQ-X 至少一架实际生成后才播 reserve commit；半血闭锁保证本战只会调用一次。
+func _say_phase2_radio() -> void:
+	if _scene_root == null or not is_instance_valid(_scene_root):
+		return
+	var radio = _scene_root.get("_radio")
+	if radio != null and is_instance_valid(radio):
+		radio.say_boss_sequence("MOTHER_GOOSE", "phase2", callsign_prefix)
 
 
 func _make_mqx(base_params: AircraftParams, spawn_pos: Vector2, callsign: String,

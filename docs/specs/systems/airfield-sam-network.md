@@ -150,7 +150,7 @@ on airfield liberated(zone_id):
 | 机场部署 | `scripts/survivor/survivor_mode.gd` |
 | 机场数据与状态 | `scripts/survivor/zone_data.gd` |
 | 商店与机场回归 | `scripts/tests/test_meta_shop.gd` · `scripts/tests/test_zone_rewards.gd` |
-| i18n | `i18n/translations.csv` |
+| i18n | `i18n/gameplay.csv` |
 | 相关权威规格 | `docs/specs/systems/career-shop.md` · `docs/specs/systems/airfield-liberation-zones.md` |
 
 ## 8. 变更记录

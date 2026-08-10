@@ -195,7 +195,7 @@ reconstruction_complete: false
 | 逃跑护卫 | `scripts/survivor/survivor_spawner.gd`（`_spawn_flee_escort` + 两 flee 入口） |
 | 航母资产 | `scripts/naval/carrier_ship.gd` + `resources/naval/carrier_cv.tres` |
 | 结算 UI | `scripts/survivor/evolution_ui.gd`（复用，未改） |
-| i18n | translations.csv DOCK_* / REWARD_* / CARRIER_* 段 |
+| i18n | `i18n/gameplay.csv` 的 DOCK_* / REWARD_* / CARRIER_* 段 |
 
 ## 8. 变更记录
 

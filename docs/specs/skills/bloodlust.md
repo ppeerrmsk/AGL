@@ -172,7 +172,7 @@ reconstruction_complete: true
 | 状态定义/HUD/回血 | `scripts/status_effects.gd` |
 | 升级条目 | `scripts/survivor/survivor_data.gd`（UPGRADES） |
 | 旗标写入 | `scripts/survivor/survivor_player.gd`（apply_upgrade，skill_flag 类） |
-| i18n | `i18n/translations.csv`（UPGRADE_*_BLOODLUST_* 等） |
+| i18n | `i18n/skills.csv`（UPGRADE_*_BLOODLUST_* 等） |
 | 图鉴 | `docs/systems/survivor-skills.md` |
 
 ## 8. desync 修复记录（已解决）
@@ -180,7 +180,7 @@ reconstruction_complete: true
 `full_hp_kill_perma_hp`：代码 `FULL_HP_KILL_HP_BONUS = 8.0`（每次 +8 max_hp），但旧版
 i18n `UPGRADE_FULL_HP_KILL_PERMA_HP_DESC` 三语文案与 `skill_hooks.gd` 注释写成 "+5"。
 **2026-05-30 裁决：以系统数值为准（+8）**，已改：
-- i18n CSV 三语文案 +5 → **+8**（`translations.csv` UPGRADE_FULL_HP_KILL_PERMA_HP_DESC）
+- i18n CSV 三语文案 +5 → **+8**（`skills.csv` UPGRADE_FULL_HP_KILL_PERMA_HP_DESC）
 - `skill_hooks.gd` 注释 +5 → +8
 - survivor-skills.md 图鉴本就是 +8（无需改）
 - ⚠ 需在 Godot 编辑器打开 csv 重新生成 `.translation` 二进制（或跑 import）才会在游戏内生效

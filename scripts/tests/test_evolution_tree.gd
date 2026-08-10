@@ -1,5 +1,7 @@
 extends SceneTree
 
+const _I18N_CATALOG := preload("res://scripts/i18n_catalog.gd")
+
 ## 进化树数据完整性冒烟测试（旧 SceneTree 独立脚本，尚未接入 BenchRunner）。
 ## Agent 不得绕过 bench wrapper 直接启动 Godot；日常回归改跑 evo_detail + attr_gates。
 ## 验证：① 树 JSON 可解析 ② 所有节点 profile 在 AircraftDB 可加载（base_params 非空）
@@ -33,13 +35,12 @@ func _initialize() -> void:
 		# T5 终端档豁免 ≥3（x02→ax00 / x44→x90 单出口特殊边，tree spec §4 v2）
 		if not exits.is_empty() and exits.size() < 3 and int(nd.get("tier", 1)) < 5:
 			fails.append("%s: 出口仅 %d 个（ACE 三选铁律要求 ≥3）" % [nid, exits.size()])
-	# ⑤ name_key 粗验（翻译 CSV 里有这一行）
-	var csv := FileAccess.open("res://i18n/translations.csv", FileAccess.READ)
-	var csv_text := csv.get_as_text() if csv else ""
+	# ⑤ name_key 粗验（任一本地化分表里有这一行）
+	var i18n_rows: Dictionary = _I18N_CATALOG.audit().get("rows", {})
 	for nid in nodes:
 		var key: String = nodes[nid].get("name_key", "")
-		if key != "" and not csv_text.contains(key + ","):
-			fails.append("%s: name_key '%s' 不在 translations.csv" % [nid, key])
+		if key != "" and not i18n_rows.has(key):
+			fails.append("%s: name_key '%s' 不在本地化分表" % [nid, key])
 	# 汇总
 	if fails.is_empty():
 		print("PASS: 树完整性 %d 节点全通过（profile 加载/出口引用/≥3 选/i18n）" % nodes.size())

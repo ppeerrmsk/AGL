@@ -107,6 +107,7 @@ const BUILD_TASKS: Dictionary = {
 
 ## 需要真实 RenderingServer 的固定画面采集；必须由 run.cmd 的 Visual 模式启动。
 const VISUAL_TEST_SCENES: Dictionary = {
+	"main_menu_visual": "res://scenes/tests/main_menu_visual_qa.tscn",
 	"player_hud_visual": "res://scenes/tests/player_hud_visual_qa.tscn",
 	"aircraft_silhouette_visual": "res://scenes/tests/aircraft_silhouette_visual_qa.tscn",
 	"map_visual_qa": "res://scenes/tests/map_visual_qa.tscn",

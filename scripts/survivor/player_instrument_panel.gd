@@ -43,6 +43,11 @@ const WEAPON_NAME_W := U_SIZE.x * 2.0
 const WEAPON_TITLE_HEIGHT := U_SIZE.y
 const WEAPON_SLOT_HEIGHT := U_SIZE.y * 2.0
 const WEAPON_AUX_EMPTY_WIDTH := DECORATIVE_HALF_Q_WIDTH
+const SPECIAL_WEAPON_TITLE_HEIGHT := U_SIZE.y
+const SPECIAL_WEAPON_SLOT_HEIGHT := U_SIZE.y * 2.0
+const SPECIAL_WEAPON_COLUMNS := 2
+const SPECIAL_WEAPON_NAME_WIDTH := U_SIZE.x * 2.0
+const SPECIAL_WEAPON_NAME_LAYOUT_TEXT := "QMAAM"
 const BLINK_STEP_MS := 500
 const RELOAD_BLINK_STEP_MS := 250
 const NEW_KEY_FLASH_MS := 5000
@@ -109,6 +114,9 @@ var weapon_spacer_rect := Rect2()
 var weapon_title_rect := Rect2()
 var weapon_rect := Rect2()
 var weapon_middle_spacer_rect := Rect2()
+var special_weapon_spacer_rect := Rect2()
+var special_weapon_title_rect := Rect2()
+var special_weapon_rect := Rect2()
 var weapon_count_width := WEAPON_COUNT_MIN_W
 var _flare_max_width := U_SIZE.x
 var aligned_content_width := BASE_CONTENT_W
@@ -116,6 +124,7 @@ var _manual_flare_key_known := false
 var _manual_flare_key_visible := false
 var _manual_flare_key_flash_started_ms := -NEW_KEY_FLASH_MS
 var weapon_animation_time_override_ms := -1
+var _special_weapon_rows: Array[Dictionary] = []
 
 
 func _ready() -> void:
@@ -139,6 +148,12 @@ func _ready() -> void:
 
 
 func update_display(ac: Aircraft, charge: AfterburnerCharge) -> void:
+	var next_special_weapon_rows := special_weapon_rows(ac)
+	var special_weapon_count_changed := (
+		next_special_weapon_rows.size() != _special_weapon_rows.size())
+	_special_weapon_rows = next_special_weapon_rows
+	if special_weapon_count_changed:
+		_configure_layout()
 	var next_manual_flare_key := manual_flare_key_visible(ac)
 	if aircraft != ac:
 		_manual_flare_key_known = true
@@ -157,6 +172,9 @@ func update_display(ac: Aircraft, charge: AfterburnerCharge) -> void:
 
 
 func _configure_layout() -> void:
+	var previous_size := size
+	var preserve_screen_side_anchor := is_inside_tree() and previous_size.x > 0.0 \
+		and previous_size.y > 0.0
 	primary_value_font_size = TerminalTextScript.font_size_for_ink_height(
 		_display_font, HP_VALUE_LAYOUT_TEXT, PRIMARY_VALUE_HEIGHT)
 	# SPD, G integer digits, and the FLR current value deliberately share this
@@ -279,10 +297,32 @@ func _configure_layout() -> void:
 	weapon_middle_spacer_rect = Rect2(
 		weapon_rect.position + Vector2(0.0, WEAPON_SLOT_HEIGHT),
 		Vector2(aligned_content_width, DECORATIVE_HALF_U_HEIGHT))
+	var configured_height := PANEL_SIZE.y
+	if not _special_weapon_rows.is_empty():
+		special_weapon_spacer_rect = Rect2(
+			Vector2(right_edge - aligned_content_width, weapon_rect.end.y),
+			Vector2(aligned_content_width, DECORATIVE_HALF_U_HEIGHT))
+		special_weapon_title_rect = Rect2(
+			Vector2(right_edge - aligned_content_width, special_weapon_spacer_rect.end.y),
+			Vector2(aligned_content_width, SPECIAL_WEAPON_TITLE_HEIGHT))
+		special_weapon_rect = Rect2(
+			Vector2(right_edge - aligned_content_width, special_weapon_title_rect.end.y),
+			Vector2(aligned_content_width,
+				SPECIAL_WEAPON_SLOT_HEIGHT * float(ceili(
+					float(_special_weapon_rows.size()) / float(SPECIAL_WEAPON_COLUMNS)))))
+		configured_height = special_weapon_rect.end.y
+	else:
+		special_weapon_spacer_rect = Rect2()
+		special_weapon_title_rect = Rect2()
+		special_weapon_rect = Rect2()
 
-	var configured_size := Vector2(configured_width, PANEL_SIZE.y)
+	var configured_size := Vector2(configured_width, configured_height)
 	custom_minimum_size = configured_size
 	size = configured_size
+	if preserve_screen_side_anchor:
+		position += previous_size - configured_size
+	if _grid_overlay != null:
+		_grid_overlay.size = size
 
 
 func _expanded_value_width(reference_text: String, font_size: int,
@@ -327,6 +367,11 @@ func _draw() -> void:
 	_draw_module(weapon_row_rect(0), accent)
 	_draw_module(weapon_middle_spacer_rect, accent)
 	_draw_module(weapon_row_rect(1), accent)
+	if not _special_weapon_rows.is_empty():
+		_draw_module(special_weapon_spacer_rect, accent)
+		_draw_module(special_weapon_title_rect, accent)
+		for row_index in range(_special_weapon_rows.size()):
+			_draw_module(special_weapon_row_rect(row_index), accent)
 	_draw_keycap_at("Q", keycap_left_of(spd_rect), accent)
 	_draw_keycap_at("E", keycap_left_of(ab_rect), accent)
 	_draw_keycap_at("G", keycap_left_of(engage_row_rect), accent)
@@ -341,8 +386,10 @@ func _draw() -> void:
 
 	_draw_flight_data(accent, blink_on)
 	_draw_afterburner(accent)
-	_draw_toggle_row(engage_row_rect, tr("HUD_ENGAGE"), aircraft.auto_engage_enabled, accent)
-	_draw_toggle_row(fire_row_rect, tr("HUD_FIRE"), aircraft.missile_auto_fire, accent)
+	_draw_toggle_row(engage_row_rect, tr(engage_state_key(aircraft.auto_engage_enabled)),
+		aircraft.auto_engage_enabled, accent)
+	_draw_toggle_row(fire_row_rect, tr(fire_state_key(aircraft.missile_auto_fire)),
+		aircraft.missile_auto_fire, accent)
 	_draw_flares(flare_rect, accent)
 	if maneuver_visible:
 		_draw_maneuver_charge(maneuver_rect, accent)
@@ -352,6 +399,11 @@ func _draw() -> void:
 	_draw_localized_text_in_rect(weapon_title, weapon_title_rect, 15,
 		accent, false, HORIZONTAL_ALIGNMENT_LEFT)
 	_draw_weapons(accent, reload_blink_on)
+	if not _special_weapon_rows.is_empty():
+		_draw_localized_text_in_rect(tr("HUD_SPECIAL_WEAPON"), special_weapon_title_rect,
+			15, accent, false, HORIZONTAL_ALIGNMENT_LEFT)
+		for row_index in range(_special_weapon_rows.size()):
+			_draw_special_weapon_row(row_index, _special_weapon_rows[row_index], accent)
 
 
 func _draw_module(rect: Rect2, accent: Color) -> void:
@@ -510,7 +562,7 @@ static func maneuver_progress_rect(rect: Rect2) -> Rect2:
 
 
 func small_title_regions(flare_rect: Rect2) -> Array[Rect2]:
-	return [
+	var result: Array[Rect2] = [
 		hp_title_rect,
 		g_title_rect,
 		alt_title_rect,
@@ -518,6 +570,9 @@ func small_title_regions(flare_rect: Rect2) -> Array[Rect2]:
 		flare_title_rect(flare_rect),
 		weapon_title_rect,
 	]
+	if not _special_weapon_rows.is_empty():
+		result.append(special_weapon_title_rect)
+	return result
 
 
 func grid_regions(maneuver_visible: bool,
@@ -579,6 +634,59 @@ func grid_regions(maneuver_visible: bool,
 		result.append(weapon_aux_empty_rect(row))
 		result.append(weapon_reload_progress_rect(row))
 		result.append(weapon_name_rect(row))
+	if not _special_weapon_rows.is_empty():
+		result.append(special_weapon_spacer_rect)
+		for row in range(_special_weapon_rows.size()):
+			result.append(special_weapon_row_rect(row))
+			result.append(special_weapon_status_rect(row))
+			result.append(special_weapon_progress_rect(row))
+			result.append(special_weapon_name_rect(row))
+	return result
+
+
+## 首次显现只按互不重叠的实际框板分组；不要把内部数字格或父框重复登记，
+## 否则一个视觉区域会被多层遮罩重复播放。
+func reveal_panel_regions(maneuver_visible: bool,
+		manual_flare_visible: bool = false) -> Array[Dictionary]:
+	var engage_row_rect := active_engage_rect(manual_flare_visible)
+	var fire_row_rect := active_fire_rect(manual_flare_visible)
+	var result: Array[Dictionary] = [
+		{"id": &"player_hp", "rect": hp_value_rect},
+		{"id": &"player_g", "rect": hp_g_rect},
+		{"id": &"player_alt", "rect": spd_alt_rect},
+		{"id": &"player_spd", "rect": spd_speed_rect},
+		{"id": &"player_afterburner", "rect": ab_rect},
+		{"id": &"player_engage", "rect": engage_row_rect},
+		{"id": &"player_control_empty", "rect": active_control_empty_rect(
+			manual_flare_visible)},
+		{"id": &"player_flare", "rect": active_flare_rect(manual_flare_visible)},
+		{"id": &"player_fire", "rect": fire_row_rect},
+		{"id": &"player_maneuver", "rect": active_maneuver_rect(
+			maneuver_visible, manual_flare_visible)},
+		{"id": &"player_weapon_spacer", "rect": weapon_spacer_rect},
+		{"id": &"player_weapon_title", "rect": weapon_title_rect},
+		{"id": &"player_weapon_msl", "rect": weapon_row_rect(0)},
+		{"id": &"player_weapon_middle", "rect": weapon_middle_spacer_rect},
+		{"id": &"player_weapon_gun", "rect": weapon_row_rect(1)},
+		{"id": &"player_key_q", "rect": keycap_left_of(spd_rect)},
+		{"id": &"player_key_e", "rect": keycap_left_of(ab_rect)},
+		{"id": &"player_key_g", "rect": keycap_left_of(engage_row_rect)},
+		{"id": &"player_key_f", "rect": keycap_left_of(fire_row_rect)},
+		{"id": &"player_key_t", "rect": keycap_left_of(weapon_title_rect)},
+	]
+	if maneuver_visible:
+		result.append({
+			"id": &"player_key_r",
+			"rect": manual_flare_key_rect() if manual_flare_visible else maneuver_key_rect(),
+		})
+	if not _special_weapon_rows.is_empty():
+		result.append({"id": &"player_special_spacer", "rect": special_weapon_spacer_rect})
+		result.append({"id": &"player_special_title", "rect": special_weapon_title_rect})
+		for row_index in range(_special_weapon_rows.size()):
+			result.append({
+				"id": StringName("player_special_%d" % row_index),
+				"rect": special_weapon_row_rect(row_index),
+			})
 	return result
 
 
@@ -631,7 +739,7 @@ func _draw_altitude_preference(accent: Color) -> void:
 		HORIZONTAL_ALIGNMENT_LEFT)
 	_draw_text_in_rect(str(roundi(aircraft.altitude)), alt_value_rect, 0, accent, true,
 		HORIZONTAL_ALIGNMENT_CENTER, ALT_VALUE_LAYOUT_TEXT)
-	_draw_localized_text_in_rect(tr(altitude_preference_name_key(aircraft)),
+	_draw_localized_text_in_rect(tr(altitude_tier_name_key(aircraft)),
 		alt_mode_rect, 12, accent)
 
 
@@ -713,12 +821,18 @@ func _draw_maneuver_charge(rect: Rect2, accent: Color) -> void:
 
 func _draw_weapons(accent: Color, reload_blink_on: bool) -> void:
 	var effective_pref := effective_weapon_preference(aircraft)
+	var missile_reload_text := ""
+	if aircraft._missile_reload_active:
+		missile_reload_text = tr("HUD_WEAPON_RELOAD_FMT") % [
+			roundi(aircraft.missile_reload_progress * 100.0),
+			missile_reload_remaining_s(aircraft),
+		]
 	_draw_weapon_row(weapon_row_rect(0), "MSL",
 		aircraft.params != null and aircraft.params.missile != null,
 		aircraft.missiles_remaining,
 		effective_pref == Aircraft.WeaponPreference.PREFER_MISSILE,
 		aircraft._missile_reload_active, aircraft.missile_reload_progress,
-		accent, reload_blink_on)
+		accent, reload_blink_on, missile_reload_text)
 	_draw_weapon_row(weapon_row_rect(1), "GUN",
 		aircraft.params != null and aircraft.params.gun != null,
 		aircraft.ammo,
@@ -729,7 +843,7 @@ func _draw_weapons(accent: Color, reload_blink_on: bool) -> void:
 
 func _draw_weapon_row(rect: Rect2, name_text: String, exists: bool, ammo: int, selected: bool,
 		reloading: bool, reload_progress: float, accent: Color,
-		reload_blink_on: bool) -> void:
+		reload_blink_on: bool, status_text: String = "") -> void:
 	var row_index := 0 if rect.position.y == weapon_rect.position.y else 1
 	var count_rect := weapon_count_rect(row_index)
 	var name_rect := weapon_name_rect(row_index)
@@ -748,8 +862,33 @@ func _draw_weapon_row(rect: Rect2, name_text: String, exists: bool, ammo: int, s
 	# complete MSL/GUN abbreviation inside that board.
 	_draw_text_in_rect(name_text, name_rect, 0,
 		value_text_color, true, HORIZONTAL_ALIGNMENT_CENTER, name_text)
+	if not status_text.is_empty():
+		_draw_localized_text_in_rect(status_text, weapon_empty_rect(row_index), 0,
+			progress_color(reload_progress, accent), false, HORIZONTAL_ALIGNMENT_LEFT)
 	_draw_progress_bar(weapon_reload_progress_rect(row_index), reload_progress,
 		accent, true, reloading and reload_blink_on, false)
+
+
+func _draw_special_weapon_row(index: int, row: Dictionary, accent: Color) -> void:
+	var state: String = String(row.get("state", "ready"))
+	var ready_ratio: float = clampf(float(row.get("ready_ratio", 1.0)), 0.0, 1.0)
+	var state_color := progress_color(ready_ratio, accent)
+	if state == "empty" or state == "overheat":
+		state_color = DANGER_RED
+	elif state == "standby" or state == "max":
+		state_color = WARNING_YELLOW
+	elif state == "ready" or state == "active":
+		state_color = accent
+	var detail: String = String(row.get("detail", ""))
+	var state_text := special_weapon_state_text(row)
+	var status_text := state_text if detail.is_empty() else "%s  %s" % [detail, state_text]
+	_draw_text_in_rect(status_text, special_weapon_status_rect(index), 0,
+		state_color, true, HORIZONTAL_ALIGNMENT_LEFT, status_text)
+	_draw_progress_bar(special_weapon_progress_rect(index), ready_ratio,
+		accent, false, true, true)
+	_draw_text_in_rect(tr(String(row.get("name_key", "HUD_SPECIAL_WEAPON"))),
+		special_weapon_name_rect(index), 0, state_color, true,
+		HORIZONTAL_ALIGNMENT_CENTER, SPECIAL_WEAPON_NAME_LAYOUT_TEXT)
 
 
 func _draw_progress_bar(rect: Rect2, ratio: float, accent: Color,
@@ -814,6 +953,35 @@ func weapon_empty_rect(index: int) -> Rect2:
 		Vector2(maxf(0.0, aux_empty.position.x - row.position.x - weapon_count_width), row.size.y))
 
 
+func special_weapon_row_rect(index: int) -> Rect2:
+	var slot_width := special_weapon_rect.size.x / float(SPECIAL_WEAPON_COLUMNS)
+	var column := index % SPECIAL_WEAPON_COLUMNS
+	var grid_row := floori(float(index) / float(SPECIAL_WEAPON_COLUMNS))
+	return Rect2(
+		special_weapon_rect.position + Vector2(slot_width * float(column),
+			SPECIAL_WEAPON_SLOT_HEIGHT * float(grid_row)),
+		Vector2(slot_width, SPECIAL_WEAPON_SLOT_HEIGHT))
+
+
+func special_weapon_name_rect(index: int) -> Rect2:
+	var row := special_weapon_row_rect(index)
+	return Rect2(Vector2(row.end.x - SPECIAL_WEAPON_NAME_WIDTH, row.position.y),
+		Vector2(SPECIAL_WEAPON_NAME_WIDTH, row.size.y))
+
+
+func special_weapon_progress_rect(index: int) -> Rect2:
+	var row := special_weapon_row_rect(index)
+	var name := special_weapon_name_rect(index)
+	return Rect2(Vector2(row.position.x, row.position.y + U_SIZE.y),
+		Vector2(maxf(name.position.x - row.position.x, 0.0), U_SIZE.y))
+
+
+func special_weapon_status_rect(index: int) -> Rect2:
+	var row := special_weapon_row_rect(index)
+	return Rect2(row.position,
+		Vector2(maxf(row.size.x - SPECIAL_WEAPON_NAME_WIDTH, 0.0), U_SIZE.y))
+
+
 static func speed_value_overflows(speed_value: int) -> bool:
 	return speed_value > 99999
 
@@ -876,6 +1044,189 @@ static func cooldown_ready_ratio(remaining: float, total: float) -> float:
 	return clampf(1.0 - remaining / total, 0.0, 1.0)
 
 
+static func missile_reload_remaining_s(ac: Aircraft) -> float:
+	if ac == null or not is_instance_valid(ac) or not ac._missile_reload_active:
+		return 0.0
+	var total := ac.missile_reload_duration * ac._executioner_reload_mult()
+	var rate := maxf(ac.esm_reload_rate_multiplier(), 0.001)
+	return maxf(total - ac._missile_reload_timer, 0.0) / rate
+
+
+static func engage_state_key(enabled: bool) -> String:
+	return "HUD_ENGAGE" if enabled else "HUD_PASSIVE"
+
+
+static func fire_state_key(enabled: bool) -> String:
+	return "HUD_AUTO_FIRE" if enabled else "HUD_MANUAL_FIRE"
+
+
+static func special_weapon_rows(ac: Aircraft) -> Array[Dictionary]:
+	var rows: Array[Dictionary] = []
+	if ac == null or not is_instance_valid(ac) or ac.is_destroyed or ac.params == null:
+		return rows
+	var reload_rate := maxf(ac.esm_reload_rate_multiplier(), 0.001)
+
+	if ac.params.secondary_missile != null:
+		var secondary: MissileParams = ac.params.secondary_missile
+		var secondary_total := secondary.cooldown * float(maxi(secondary.max_count, 1))
+		var secondary_state := "ready"
+		var secondary_ratio := 1.0
+		var secondary_remaining := 0.0
+		if ac._secondary_reload_active:
+			secondary_state = "reload"
+			secondary_ratio = clampf(ac._secondary_reload_timer / maxf(secondary_total, 0.001),
+				0.0, 1.0)
+			secondary_remaining = maxf(secondary_total - ac._secondary_reload_timer, 0.0) \
+				/ reload_rate
+		elif ac._secondary_cooldown > 0.0:
+			secondary_state = "cooldown"
+			secondary_remaining = ac._secondary_cooldown
+			secondary_ratio = cooldown_ready_ratio(secondary_remaining,
+				secondary.cooldown * ac.weapon_master_cd_mult)
+		elif ac.secondary_missiles_remaining <= 0:
+			secondary_state = "empty"
+			secondary_ratio = 0.0
+		rows.append({
+			"kind": "secondary_missile",
+			"name_key": "HUD_SP_MISSILE",
+			"detail": "%d/%d" % [ac.secondary_missiles_remaining, secondary.max_count],
+			"state": secondary_state,
+			"ready_ratio": secondary_ratio,
+			"remaining_s": secondary_remaining,
+			"progress_pct": roundi(secondary_ratio * 100.0),
+		})
+
+	if ac.params.rocket != null:
+		var rocket: RocketParams = ac.params.rocket
+		var rocket_state := "ready"
+		var rocket_ratio := 1.0
+		var rocket_remaining := 0.0
+		if not rocket.infinite_ammo and ac.rockets_remaining <= 0:
+			rocket_state = "empty"
+			rocket_ratio = 0.0
+		elif ac._rocket_burst_cooldown > 0.0:
+			rocket_state = "cooldown"
+			rocket_remaining = ac._rocket_burst_cooldown
+			rocket_ratio = cooldown_ready_ratio(rocket_remaining,
+				rocket.burst_cooldown * ac.weapon_master_cd_mult)
+		rows.append({
+			"kind": "rocket",
+			"name_key": "HUD_SP_ROCKET",
+			"detail": "" if rocket.infinite_ammo else "%d/%d" % [
+				ac.rockets_remaining, rocket.max_ammo],
+			"state": rocket_state,
+			"ready_ratio": rocket_ratio,
+			"remaining_s": rocket_remaining,
+		})
+
+	var railgun := ac.params.get_equipment_of_kind("railgun") as RailgunEquipment
+	if railgun != null:
+		var railgun_state: Dictionary = ac.equipment_state.get(RailgunEquipment.STATE_KEY, {})
+		var railgun_cooldown := float(railgun_state.get("cooldown", 0.0))
+		var railgun_charging := bool(railgun_state.get("charging", false))
+		var railgun_charge := clampf(float(railgun_state.get("charge_progress", 0.0)), 0.0, 1.0)
+		rows.append({
+			"kind": "railgun",
+			"name_key": "HUD_SP_RAILGUN",
+			"detail": "",
+			"state": "charge" if railgun_charging else (
+				"cooldown" if railgun_cooldown > 0.0 else "ready"),
+			"ready_ratio": railgun_charge if railgun_charging else cooldown_ready_ratio(
+				railgun_cooldown, railgun.cooldown) if railgun_cooldown > 0.0 else 1.0,
+			"remaining_s": railgun_cooldown,
+			"progress_pct": roundi(railgun_charge * 100.0),
+		})
+
+	var laser := ac.params.get_equipment_of_kind("laser") as LaserEquipment
+	if laser != null:
+		var laser_state: Dictionary = ac.equipment_state.get(LaserEquipment.STATE_KEY, {})
+		var heat := clampf(float(laser_state.get("heat", 0.0)), 0.0, laser.heat_max)
+		var overheating := bool(laser_state.get("overheating", false))
+		var heat_ratio := heat / maxf(laser.heat_max, 0.001)
+		var overheat_threshold := laser.heat_max * laser.overheat_exit_threshold
+		var overheat_remaining := maxf(heat - overheat_threshold, 0.0) \
+			/ maxf(laser.heat_cooldown_per_second, 0.001) if overheating else 0.0
+		rows.append({
+			"kind": "laser",
+			"name_key": "HUD_SP_LASER",
+			"detail": "",
+			"state": "overheat" if overheating else ("heat" if heat > 0.01 else "ready"),
+			"ready_ratio": 1.0 - heat_ratio,
+			"remaining_s": overheat_remaining,
+			"progress_pct": roundi(heat_ratio * 100.0),
+		})
+
+	if ac.params.torpedo != null:
+		var torpedo: TorpedoParams = ac.params.torpedo
+		var torpedo_remaining := maxf(ac._torpedo_cooldown, 0.0)
+		rows.append({
+			"kind": "torpedo",
+			"name_key": "HUD_SP_TAIL_MINE",
+			"detail": "",
+			"state": "cooldown" if torpedo_remaining > 0.0 else (
+				"ready" if ac.evasion_mode else "standby"),
+			"ready_ratio": cooldown_ready_ratio(torpedo_remaining, torpedo.cooldown)
+				if torpedo_remaining > 0.0 else 1.0,
+			"remaining_s": torpedo_remaining,
+		})
+
+	if ac.params.loyal_wingman != null:
+		var wingman: LoyalWingmanParams = ac.params.loyal_wingman
+		var wingman_remaining := maxf(ac._loyal_wingman_cooldown, 0.0)
+		var alive_drones := ac._alive_drones.size()
+		var wingman_state := "ready" if ac.evasion_mode else "standby"
+		if alive_drones >= wingman.max_simultaneous:
+			wingman_state = "max"
+		elif wingman_remaining > 0.0:
+			wingman_state = "cooldown"
+		rows.append({
+			"kind": "loyal_wingman",
+			"name_key": "HUD_SP_DRONE",
+			"detail": "%d/%d" % [alive_drones, wingman.max_simultaneous],
+			"state": wingman_state,
+			"ready_ratio": cooldown_ready_ratio(wingman_remaining, wingman.cooldown)
+				if wingman_remaining > 0.0 else 1.0,
+			"remaining_s": wingman_remaining,
+		})
+
+	if ac.params.get_equipment_of_kind("esm_pod") != null:
+		rows.append({
+			"kind": "esm_pod",
+			"name_key": "HUD_SP_ESM",
+			"detail": "",
+			"state": "active",
+			"ready_ratio": 1.0,
+			"remaining_s": 0.0,
+		})
+	return rows
+
+
+func special_weapon_state_text(row: Dictionary) -> String:
+	var state: String = String(row.get("state", "ready"))
+	match state:
+		"cooldown":
+			return tr("HUD_WEAPON_COOLDOWN_FMT") % float(row.get("remaining_s", 0.0))
+		"reload":
+			return tr("HUD_WEAPON_RELOAD_FMT") % [
+				int(row.get("progress_pct", 0)), float(row.get("remaining_s", 0.0))]
+		"charge":
+			return tr("HUD_WEAPON_CHARGE_FMT") % int(row.get("progress_pct", 0))
+		"heat":
+			return tr("HUD_WEAPON_HEAT_FMT") % int(row.get("progress_pct", 0))
+		"overheat":
+			return tr("HUD_WEAPON_OVERHEAT_FMT") % float(row.get("remaining_s", 0.0))
+		"empty":
+			return tr("HUD_WEAPON_EMPTY")
+		"standby":
+			return tr("HUD_WEAPON_STANDBY")
+		"max":
+			return tr("HUD_WEAPON_MAX")
+		"active":
+			return tr("HUD_WEAPON_ACTIVE")
+		_:
+			return tr("HUD_WEAPON_READY")
+
+
 static func maneuver_skill_visible(ac: Aircraft) -> bool:
 	return ac != null and is_instance_valid(ac) and not ac.is_destroyed \
 		and ac.equipped_r_maneuver_id() != &""
@@ -893,6 +1244,18 @@ static func altitude_preference_name_key(ac: Aircraft) -> String:
 		and ac.altitude_preference == Aircraft.AltitudePreference.PREFER_LOW:
 		return "TOOLTIP_ALT_LOW_TITLE"
 	return "TOOLTIP_ALT_CLIMB_TITLE"
+
+
+static func altitude_tier_name_key(ac: Aircraft) -> String:
+	if ac == null or not is_instance_valid(ac):
+		return "HUD_ALT_TIER_MID"
+	match ac.get_altitude_tier():
+		Aircraft.AltitudeTier.HIGH:
+			return "HUD_ALT_TIER_HIGH"
+		Aircraft.AltitudeTier.MID:
+			return "HUD_ALT_TIER_MID"
+		_:
+			return "HUD_ALT_TIER_LOW"
 
 
 static func effective_weapon_preference(ac: Aircraft) -> int:

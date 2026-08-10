@@ -1,9 +1,9 @@
 ---
 id: radio-chatter
 kind: system
-status: done  # 2026-07-29 用户确认工程落地可收口
+status: done  # 2026-08-10 Notion 修订已实现并完成聚焦回归
 schema_version: 1
-spec_version: 6
+spec_version: 8
 owner: noelu
 depends_on: [combat-feed, command-wheel, global-awareness-roe]
 reconstruction_complete: true
@@ -92,14 +92,20 @@ reconstruction_complete: true
 | trigger | 权重 |
 |---|---|
 | `boss_spawn` / `boss_engage` | `100` |
+| `wraith_member_down` | `98` |
+| `airfield_liberated` | `97` |
+| `bomber_escort_available` | `96` |
 | `hound_one_contact` / `hound_two_follow` | `94` / `93` |
+| `zone_ground_thanks` | `91` |
 | `ace_spawn`（王牌中队登场） | `90` |
 | `eject_friendly`（自家人阵亡） | `80` |
 | `break` | `60` |
 | `ack_*`（RTS 回令） | `50` |
 | `splash`（击坠回报） | `40` |
 | `eject`（敌方阵亡） | `30` |
+| `csg_fa18_launch` | `25` |
 | `attrition_*`（敌方哀嚎） | `20` |
+| `zone_naval_contact` / `zone_air_support_request` | `15` |
 | `wingman_join` | `10` |
 
 同权重时取**最早入队者**。满队时新条目只有权重**严格大于**队内最低者才顶替，否则被丢弃。
@@ -117,7 +123,7 @@ reconstruction_complete: true
 
 ### 2.6 敌方减员哀嚎（`enemy_attrition`）触发阈值
 
-累计本局**敌方**损失数（空中 + 地面，两者合并计数）。每跨过一个 `12` 的整数倍触发一次，并受 2.4 的 25s 冷却压制。台词档位按累计总数选：
+累计本局**敌方**损失数（空中 + 地面，两者合并计数）。每跨过一个 `12` 的整数倍触发一次，并受 2.4 的 30s 冷却压制。台词档位按累计总数选：
 
 | 累计损失 | 档位 | 语气 |
 |---|---|---|
@@ -179,14 +185,16 @@ reconstruction_complete: true
 | 内容 | 住在哪 | 谁编辑 |
 |---|---|---|
 | **结构**：有哪些 trigger、各自的 class / weight / cooldown / chance、台词 key 列表、BOSS 对话序列、说话资格白名单 | `resources/chatter/radio_chatter.json` | 设计 / 策划 |
-| **文本**：每个 key 的中/英/日三语 | `i18n/translations.csv` | 本地化 |
+| **文本**：每个 key 的中/英/日三语 | `i18n/radio.csv` | 本地化 |
 | **代码** | `chatter_lines.gd`（纯加载器，**零数值**）+ `radio_chatter.gd`（队列与显示） | 程序 |
 
 **加一条新台词**（不碰代码）：
 1. 在 JSON 对应 trigger 的 `lines` 数组加一个 key，例如 `"RADIO_SPLASH_5"`；
-2. 在 `i18n/translations.csv` 加一行 `RADIO_SPLASH_5,中文,English,日本語`。
+2. 在 `i18n/radio.csv` 加一行 `RADIO_SPLASH_5,中文,English,日本語`。
 
 **加一个新 trigger**：在 JSON `triggers` 里加一项，然后在代码的事件点调 `RadioChatter.say("<trigger_id>", ...)`。
+
+同一 trigger 可以混放 `_FMT` 与普通 key。`RadioChatter.say()` **只对 key 名以 `_FMT` 结尾的条目执行 `%` 格式化**；调用方即使统一传入 `fmt_args`，抽到普通 key 也必须原样播出，不能出现格式化错误或把该句静默丢掉。
 
 **JSON 字段**：
 
@@ -230,6 +238,9 @@ reconstruction_complete: true
 | `ack_pursue` / `ack_strike` / `ack_surround` / `ack_cover` / `ack_regroup` / `ack_evac` | **共享 `ack`** | `8.0` | `0.35` | **用户反馈的重灾区**：连点下令不会每次都有人应答 |
 | `attrition_t1/t2/t3` | **共享 `enemy_attrition`** | `30.0` | `1.00` | 本身已由里程碑门控 |
 | `wingman_join` | 自身 | `0.0` | `1.00` | 事件本身稀有 |
+| `csg_fa18_launch` | 自身 | `0.0` | `0.50` | 只在 Phase 1 定期补充机成功弹射后尝试；成功入队后本战一次性闭锁 |
+| `zone_naval_contact` | 自身 | `0.0` | `0.45` | 战区首次进入，敌舰低优先级喊话 |
+| `zone_air_support_request` | 自身 | `0.0` | `0.45` | 战区首次进入；必须找到真实存活友机作为说话人 |
 
 ## 3. 行为与公式（How）
 
@@ -272,6 +283,8 @@ BOSS 序列的说话人由 `encounter` 提供：`"<callsign_prefix>-%02d" % (slo
 |---|---|---|---|
 | `boss_spawn` | BOSS 遭遇事件开场（与 WARNING 横幅同处） | BOSS 队 slot 0/1 | 按 boss id 取专属序列 |
 | `boss_engage` | BOSS 进入交战阶段 | BOSS 队 slot 0 | 按 boss id |
+| `wraith_member_down` | WRAITH 本战第一架有效成员被击毁 | 被击毁成员（真实呼号） | `RADIO_BOSS_WRAITH_DOWN_*`，本战仅一次，scripted |
+| `csg_fa18_launch` | CSG Phase 1 **定期** F/A-18 成功弹射（不含 engage 初始两架） | 新弹射 F/A-18 | `RADIO_BOSS_CSG_FA18_LAUNCH_*`；每次补充按 `0.50` 尝试，首次成功入队后闭锁 |
 | `ace_spawn` | 非 BOSS 王牌中队入场（`AceReinforcementEvent._start`；红色警告横幅已收回 BOSS 专属，此台词即王牌入场**主信号**） | 王牌长机（`say_unit`） | `RADIO_ACE_SPAWN_*` 单条池（**台词内容权威在 [ace-squadron-tier](ace-squadron-tier.md) §2.6**；单条即可——多句对话序列是 BOSS 专属） |
 | `hound_one_contact` | 本局首次 F-15 王牌截击支援实际生成 | `Hound-1`（ALLY 绿） | `RADIO_HOUND_ONE_CONTACT`：“发现猎物了，准备交战” |
 | `hound_two_follow` | 与 Hound-1 同一双机实际生成 | `Hound-2`（ALLY 绿） | `RADIO_HOUND_TWO_FOLLOW`：“收到，我跟在你后面” |
@@ -283,9 +296,21 @@ BOSS 序列的说话人由 `encounter` 提供：`"<callsign_prefix>-%02d" % (slo
 | `enemy_attrition` | 同 `kill_recorded`，victim_team==1，累计计数 | 敌方泛指呼号 | `RADIO_ATTRITION_T{1,2,3}_*` |
 | `wingman_join` | 僚机加入玩家小队 | 新成员 | `RADIO_JOIN_*` |
 | `reward_target_available` | 首批奖励战区达到 60 秒 + Lv3 门槛；目标实体生成前 6 秒 | HQ | `RADIO_REWARD_TARGET_AVAILABLE` |
-| `bomber_escort_available` | 可选护送任务达到 150 秒 + Lv5 门槛；目标实体生成前 6 秒 | AWACS | `RADIO_BOMBER_ESCORT_AVAILABLE` |
+| `bomber_escort_available` | 可选护送任务达到 150 秒 + Lv5 门槛；目标实体生成前 6 秒 | 指挥中心 | 固定双句：先按真实目标坐标计算八方向并通报打击方位，再播护航请求 |
+| `zone_naval_contact` | `ZoneMission.mission_triggered`，任务类型为 `naval` | 本战区真实存活敌舰 | `RADIO_ZONE_NAVAL_CONTACT`；低优先级、随机 |
+| `zone_air_support_request` | `ZoneMission.mission_triggered`，任务类型为 `air` / `squadron` | 玩家编队中真实存活的非玩家友机；单机时静默 | `RADIO_ZONE_AIR_SUPPORT_REQUEST_FMT`，地区名取战区 `name_key`；低优先级、随机 |
+| `zone_ground_thanks` | `ZoneMission.mission_completed`，任务类型为 `ground`，且战区气氛层至少一辆友军单位存活 | 该真实存活友军单位 | `RADIO_ZONE_GROUND_THANKS`；条件成立即播 |
+| `airfield_liberated` | `_liberate_airfield` 完成状态切换与机场部署 | 临时塔台 | `RADIO_AIRFIELD_LIBERATED_*_FMT` 三选一；代入当前长机真实呼号，mandatory |
 
 **BOSS 登场序列**为**多条**台词（2~3 条，不同 slot 交替），依次入队，构成一段小队内部对话。这是本系统的展示样例。
+
+**BOSS 相位补充**：
+
+- CSG `phase2` 固定先由 slot 1 报告舰体向右舷严重倾斜，再由 slot 0 下达现有弹射命令；两句均走 `boss_engage` scripted 队列。
+- Mother Goose 在半血 MQ-X 双机成功释放后播 `phase2`：`engagement.phase++;reserve_units.commit();`。若 MQ-X 因资源/生成前置失败而未实际生成，则不播。
+- WRAITH 减员台词只属于 `WRAITH_SQUADRON`，不泛化到 Poltergeist 或普通王牌中队。
+
+**轰炸方位算法**：取 `ZoneMission.build_bomber_escort_route()` 返回的真实 `target` 世界坐标，以地图原点为中心按 `atan2(y, x)` 量化为北 / 东北 / 东 / 东南 / 南 / 西南 / 西 / 西北八档。台词只说大致方位，不暴露精确坐标，也不使用任务槽位 A–G 伪装地理。
 
 ### 3.4 RTS 指令回令映射
 
@@ -327,7 +352,7 @@ BOSS 序列的说话人由 `encounter` 提供：`"<callsign_prefix>-%02d" % (slo
 
 ## 5. 验收标准（Acceptance / Litmus）
 
-**无头已验证**（`--bench=chatter`，89 项断言全绿）：
+**无头基线已验证**（`--bench=chatter`：v8 为 101 项断言全绿）：
 
 - [x] 时长公式（基础 / 逐字 / 封顶）与 §2.2 一致。
 - [x] 阵营色全部取自 `GameConstants` FactionPalette，敌我不同色。
@@ -339,7 +364,7 @@ BOSS 序列的说话人由 `encounter` 提供：`"<callsign_prefix>-%02d" % (slo
 - [x] 未登记 BOSS 回退默认挑衅序列，不静默。
 - [x] 敌方减员里程碑：11 次不触发，第 12 次触发；冷却内不重复；三档阈值正确。
 - [x] 选词防重复：连抽 60 次无相邻重复。
-- [x] i18n：69 个台词 key 全部有译文（`tr()` 不返回 key 本身）；`_FMT` 台词均含 `%s`。
+- [x] i18n：91 个台词 key 全部有三语译文（`tr()` 不返回 key 本身）；`_FMT` 台词均含 `%s`；`radio.csv` 另含八方向与说话人辅助 key，共 103 行。
 - [x] 呈现层：呼号单独成行、正文带 `<< >>`、呼号取纯阵营色、正文更淡且淡化方向为**向白**。
 - [x] 说话资格门：无人机族 + 被动杂兵全部沉默；有人战斗机 + BOSS 有台词；未登记机型默认沉默；
       `no_pilot` 硬规则压过 `has_radio_voice`（漏设也不会开口）。
@@ -348,8 +373,12 @@ BOSS 序列的说话人由 `encounter` 提供：`"<callsign_prefix>-%02d" % (slo
 - [x] 分类：`boss_*` 为 scripted 且**无视全局冷却必定入队**、且**不重置**全局冷却；未登记 trigger
       保守按 ambient。
 - [x] 数据外置：台词/权重/冷却/概率全部从 JSON 读；JSON 里每个普通 trigger 都有台词（防打字错导致
-      该事件永远静默）；47 个 key 全部有译文。
+      该事件永远静默）。
 - [x] 全量回归门 `--bench=all` 25 项测试 0 失败，无回归。
+- [x] v8 三语与结构：全部新 key 三语齐全；只有 `_FMT` key 强制含 `%s`；`ack_pursue` 抽到普通句并带 `fmt_args` 时原样播出。
+- [x] v8 Boss 数据与闭锁：WRAITH 减员仅一次；CSG 定期 F/A-18 首次成功喊话后闭锁；CSG phase2 两句顺序正确；Goose 仅在 MQ-X 实际释放后调用 phase2。
+- [x] v8 战区静态/聚焦验证：轰炸通报方位取实际目标坐标；海/空首次进入选真实单位；地面感谢要求友军存活；机场解放代入真实长机呼号。
+- [ ] v8 BOSS 与战区完整实战时序、队列听感仍需 4.7+ 引擎内 playtest；本轮不把聚焦测试等同于实机验收。
 
 **待引擎内验收**（需人眼/人耳）：
 
@@ -377,10 +406,18 @@ BOSS 序列的说话人由 `encounter` 提供：`"<callsign_prefix>-%02d" % (slo
 - [x] i18n 三语
 - [x] 无头测试 `test_radio_chatter.gd` + 注册 `--bench=chatter`
 
-### 阶段 2 — 待 playtest 后决定（本批不做）
+### 阶段 2 — 2026-08-10 Notion 修订
+- [ ] 扩写既有台词池并同步中/英/日三语
+- [ ] WRAITH 减员、CSG 舰载机补充与 Phase 2、Mother Goose MQ-X Phase 2 接线
+- [ ] 轰炸护航真实八方向双句通报
+- [ ] 海 / 空 / 地战区与机场解放无线电接线
+- [ ] 扩展 `--bench=chatter` 与相关 Boss / 战区无头回归
+- [ ] 将实装状态回写原 Notion 页面，不覆盖用户原文
+
+### 阶段 3 — 待 playtest 后决定
 - [ ] 真实无线电音效素材接入（当前留接口）
 - [ ] 语音台词（TTS / 配音）—— 需先确认文本定稿
-- [ ] 更多触发：低油量、导弹告警、战区攻克、僚机阵亡后的复仇台词
+- [ ] 更多触发：低油量、其它导弹告警、僚机阵亡后的复仇台词
 - [ ] 台词按 BOSS/敌人**性格**分组扩写（当前仅 BOSS 有专属组）
 
 ## 7. 索引锚点（Where —— 唯一允许放指针的地方）
@@ -392,12 +429,12 @@ BOSS 序列的说话人由 `encounter` 提供：`"<callsign_prefix>-%02d" % (slo
 | 关注点 | 文件 |
 |---|---|
 | **★ 唯一数据源**（台词 key / 权重 / 冷却 / 概率 / BOSS 对话 / 说话白名单） | `resources/chatter/radio_chatter.json` |
-| 台词文本三语 | `i18n/translations.csv`（`RADIO_*` 前缀） |
+| 台词文本三语 | `i18n/radio.csv`（`RADIO_*` 前缀，独立分表） |
 | 显示 + 队列 + 三层节流 | `scripts/survivor/radio_chatter.gd` |
 | 数据加载器（零数值） | `scripts/survivor/chatter_lines.gd` |
 | 说话资格硬规则 | `scripts/aircraft.gd`（`can_speak_on_radio` / `has_radio_voice`） |
 | 资格赋值 | `scripts/survivor/survivor_spawner.gd`、`mother_goose_uav_swarm.gd`、`mother_goose_boss.gd` |
-| 触发接线 | `scripts/survivor/survivor_mode.gd`、`scripts/events/boss_encounter_event.gd`、`scripts/rts/squad_command_controller.gd` |
+| 触发接线 | `scripts/survivor/survivor_mode.gd`、`scripts/survivor/ace_squad.gd`、`scripts/survivor/f47_ace_squad.gd`、`scripts/survivor/carrier_strike_group.gd`、`scripts/survivor/mother_goose_boss.gd`、`scripts/survivor/zone_mission.gd`、`scripts/survivor/zone_atmosphere_combat.gd`、`scripts/events/boss_encounter_event.gd`、`scripts/rts/squad_command_controller.gd` |
 | 信号声明 | `scripts/event_logger.gd`（`kill_recorded` / `evasion_started` / `afterburner_engaged` / `wingman_joined`） |
 | 信号发出 | `scripts/aircraft.gd`、`scripts/squad_factory.gd` |
 | 音频 | `scripts/audio/audio_manager.gd`（`play_radio` / `RADIO_FILES` / Radio 总线） |
@@ -409,9 +446,11 @@ BOSS 序列的说话人由 `encounter` 提供：`"<callsign_prefix>-%02d" % (slo
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
-| 2026-08-08 | 5 | 新增每局一次的 Hound-1/Hound-2 王牌截击支援固定双句；两条均为 scripted，权重 94/93，使用 ALLY 绿色与固定呼号。Shadow `chatter` 89/89。 |
+| 2026-08-10 | 8 | 按用户更新的 Notion 原页扩写三语台词并完成运行时触发：WRAITH 首次减员、CSG 定期 F/A-18 / 双句 Phase 2、Mother Goose MQ-X Phase 2；轰炸护送按真实目标坐标通报八方向；海/空/地战区与机场解放无线电；`ack_pursue` 允许格式化句与普通句共池。Shadow 聚焦回归：chatter 101/101、boss_phase 33/33、boss_hunter 119/119、boss_progression 22/22、zone_atmosphere 29/29，三语 radio 资源各 103 条。字体与完整实机试听留后续。 |
+| 2026-08-10 | 7 | 本地化拆分后将全部 `RADIO_*` 文本迁入独立 `i18n/radio.csv`，运行时 key 与 `radio_chatter.json` 结构保持不变；新增跨分表唯一性/资源注册审计，Shadow `chatter` 91/91。 |
 | 2026-08-09 | 6 | 新增奖励目标与轰炸护送两个 scripted 通报；两者均在目标实体生成前 6 秒入队，不受 ambient 节流影响。Shadow `chatter` 91/91。 |
+| 2026-08-08 | 5 | 新增每局一次的 Hound-1/Hound-2 王牌截击支援固定双句；两条均为 scripted，权重 94/93，使用 ALLY 绿色与固定呼号。Shadow `chatter` 89/89。 |
+| 2026-07-26 | 4 | 新增 `ace_spawn` trigger（scripted / 权重 90）：非 BOSS 王牌中队入场主信号（红横幅收回 BOSS 专属后的替代演出，ace-squadron-tier §2.6 规范化批）。台词池 5 条三语、说话人=王牌长机、单条不成序列（多句对话序列维持 BOSS 专属） |
 | 2026-07-20 | 3 | 用户订正三项：① **全局冷却**（普通语音总闸 12s）+ **概率骰**（"偶尔出现一下"的主旋钮），解决"每次点 combat target 僚机必然说话"；② **分类 scripted / ambient** —— 剧情关键节点豁免全部节流、必定播出，普通语音受三层限制；③ **文本与数值全部外置到 `resources/chatter/radio_chatter.json`**，`chatter_lines.gd` 退化为纯加载器，加台词/调手感不用碰代码（新增 §2.9 / §2.10，§2.2~§2.4 重写） |
 | 2026-07-20 | 2 | 用户订正：**无人机不得有台词，只有一定等级的敌人配无线电**（新增 §2.8 双门规则 + `VOICED_ENEMY_TYPES` 表 + `kill_recorded` 增 `victim_voiced` 参数）。同批按用户提供的皇牌空战截图重做版式（§2.1：呼号独立成行 / `<< >>` 标记 / 正文向白淡化 / 渐变淡出底 / 自动换行增高） |
-| 2026-07-26 | 4 | 新增 `ace_spawn` trigger（scripted / 权重 90）：非 BOSS 王牌中队入场主信号（红横幅收回 BOSS 专属后的替代演出，ace-squadron-tier §2.6 规范化批）。台词池 5 条三语、说话人=王牌长机、单条不成序列（多句对话序列维持 BOSS 专属） |
 | 2026-07-20 | 1 | 初稿 + 阶段 1 实装（管线 + BOSS 登场范例 + 8 类触发）。实装期两处修正：① 冷却改为**入队时**起算（防洪，原设计的播出时起算会让队列被同类台词占满）；② 新增 `NEVER_STALE`，BOSS 剧本序列豁免过期丢弃（否则登场挑衅的收尾句会被砍） |

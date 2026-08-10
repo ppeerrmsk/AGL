@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://dj3v8c5m0h2yt"
+
+[deps]
+
+files=["res://i18n/radio.zh.translation", "res://i18n/radio.en.translation", "res://i18n/radio.ja.translation"]
+
+source_file="res://i18n/radio.csv"
+dest_files=["res://i18n/radio.zh.translation", "res://i18n/radio.en.translation", "res://i18n/radio.ja.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true

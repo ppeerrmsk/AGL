@@ -41,7 +41,7 @@ window/stretch/aspect="expand"
 
 [internationalization]
 
-locale/translations=PackedStringArray("res://i18n/translations.zh.translation", "res://i18n/translations.en.translation", "res://i18n/translations.ja.translation")
+locale/translations=PackedStringArray("res://i18n/interface.zh.translation", "res://i18n/interface.en.translation", "res://i18n/interface.ja.translation", "res://i18n/gameplay.zh.translation", "res://i18n/gameplay.en.translation", "res://i18n/gameplay.ja.translation", "res://i18n/skills.zh.translation", "res://i18n/skills.en.translation", "res://i18n/skills.ja.translation", "res://i18n/meta.zh.translation", "res://i18n/meta.en.translation", "res://i18n/meta.ja.translation", "res://i18n/radio.zh.translation", "res://i18n/radio.en.translation", "res://i18n/radio.ja.translation")
 locale/fallback="zh"
 
 [physics]

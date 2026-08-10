@@ -110,19 +110,22 @@ func _start_queue(ac: Aircraft, targets: Array) -> void:
 
 func _update_queues(delta: float) -> void:
 	for ac_v in _queues.keys():
-		if not is_instance_valid(ac_v) or (ac_v as Aircraft).is_destroyed:
+		if typeof(ac_v) != TYPE_OBJECT or ac_v == null or not is_instance_valid(ac_v) \
+				or not (ac_v is Aircraft) or (ac_v as Aircraft).is_destroyed:
 			_queues.erase(ac_v)
 			_fire_timers.erase(ac_v)
 			continue
-		var ac: Aircraft = ac_v
+		var ac := ac_v as Aircraft
 		var queue: Array = _queues[ac]
 		var timer := float(_fire_timers.get(ac, 0.0)) - delta
 		if timer <= 0.0 and not queue.is_empty():
-			var target: CombatUnit = queue.pop_front()
-			if is_instance_valid(target) and not target.is_destroyed \
-					and not ac.is_sensor_engagement_obscured(target) \
-					and ac.params and ac.params.missile and ac.missiles_remaining > 0:
-				AircraftWeapons._fire_missile_at(ac, target, ac.params.missile)
+			var target_value: Variant = queue.pop_front()
+			if typeof(target_value) == TYPE_OBJECT and target_value != null \
+					and is_instance_valid(target_value) and target_value is CombatUnit:
+				var target := target_value as CombatUnit
+				if not target.is_destroyed and not ac.is_sensor_engagement_obscured(target) \
+						and ac.params and ac.params.missile and ac.missiles_remaining > 0:
+					AircraftWeapons._fire_missile_at(ac, target, ac.params.missile)
 			timer = FIRE_GAP_S
 		_fire_timers[ac] = timer
 		_queues[ac] = queue
@@ -153,8 +156,13 @@ func _is_egressing(ac: Aircraft) -> bool:
 func _prune_and_restore() -> void:
 	var now: float = _spawner.mode.game_time if _spawner and _spawner.mode else 0.0
 	for i in range(_units.size() - 1, -1, -1):
-		var ac: Aircraft = _units[i]["ac"]
-		if not is_instance_valid(ac) or ac.is_destroyed:
+		var ac_value: Variant = _units[i].get("ac")
+		if typeof(ac_value) != TYPE_OBJECT or ac_value == null \
+				or not is_instance_valid(ac_value) or not (ac_value is Aircraft):
+			_units.remove_at(i)
+			continue
+		var ac := ac_value as Aircraft
+		if ac.is_destroyed:
 			_units.remove_at(i)
 			continue
 		var iid := ac.get_instance_id()

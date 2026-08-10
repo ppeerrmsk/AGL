@@ -9,6 +9,8 @@ const PlayerInstrumentPanelScript := preload("res://scripts/survivor/player_inst
 const WingmanInstrumentPanelScript := preload("res://scripts/survivor/wingman_instrument_panel.gd")
 const MilestoneAxisCounterScript := preload("res://scripts/survivor/milestone_axis_counter.gd")
 const HudColorSettingsPanelScript := preload("res://scripts/ui/hud_color_settings_panel.gd")
+const HudFirstRevealSequencerScript := preload("res://scripts/ui/hud_first_reveal_sequencer.gd")
+const HudBoardVisibilityScript := preload("res://scripts/ui/hud_board_visibility.gd")
 
 var _pass := 0
 var _fail := 0
@@ -23,6 +25,8 @@ func run() -> void:
 	_test_milestone_axis_counter()
 	_test_progress_color_contract()
 	_test_altitude_preference_display()
+	_test_special_weapon_status()
+	_test_first_reveal_sequence()
 	_test_color_panel_builds()
 	_test_weapon_priority_cycle()
 	_test_flare_visual_progress()
@@ -67,9 +71,14 @@ func _test_wingman_rows_follow_live_count() -> void:
 	_check("1 架僚机生成 1 条独立信息行",
 		panel.visible and is_equal_approx(panel.size.y,
 			WingmanInstrumentPanelScript.total_height_for_count(1)))
+	_check("僚机首次显现按每架信息行拆成独立框板",
+		panel.reveal_panel_regions().size() == 1
+		and panel.reveal_panel_regions()[0].get("id", &"") == &"wingman_2")
 	panel.update_display([row, row.merged({"slot": 3, "callsign": "MOBIUS"}, true)])
 	_check("2 架僚机按数量扩成 2 行",
 		is_equal_approx(panel.size.y, WingmanInstrumentPanelScript.total_height_for_count(2)))
+	_check("两架僚机不会被首次显现合成一个整体",
+		panel.reveal_panel_regions().size() == 2)
 	_check("僚机仪表鼠标穿透且不可获焦",
 		panel.mouse_filter == Control.MOUSE_FILTER_IGNORE
 		and panel.focus_mode == Control.FOCUS_NONE)
@@ -89,6 +98,17 @@ func _test_color_panel_builds() -> void:
 func _test_layout_contract() -> void:
 	var panel = PlayerInstrumentPanelScript.new()
 	panel._ready()
+	var reveal_regions: Array[Dictionary] = panel.reveal_panel_regions(false, false)
+	var reveal_ids: Array[StringName] = []
+	for descriptor in reveal_regions:
+		reveal_ids.append(StringName(descriptor.get("id", &"")))
+	_check("玩家仪表首次显现拆成逐功能框而非整组目标",
+		reveal_regions.size() >= 20
+		and reveal_ids.has(&"player_hp") and reveal_ids.has(&"player_g")
+		and reveal_ids.has(&"player_alt") and reveal_ids.has(&"player_spd")
+		and reveal_ids.has(&"player_engage") and reveal_ids.has(&"player_flare")
+		and reveal_ids.has(&"player_fire") and reveal_ids.has(&"player_weapon_msl")
+		and reveal_ids.has(&"player_weapon_gun"))
 	_check("maximum layout references remain explicit",
 		PlayerInstrumentPanelScript.HP_VALUE_LAYOUT_TEXT == "999"
 		and PlayerInstrumentPanelScript.G_VALUE_LAYOUT_TEXT == "11.5"
@@ -405,18 +425,204 @@ func _test_progress_color_contract() -> void:
 
 func _test_altitude_preference_display() -> void:
 	var ac := _make_aircraft()
+	ac.altitude = 2000.0
+	_check("ALT 明确显示当前低空档",
+		PlayerInstrumentPanelScript.altitude_tier_name_key(ac) == "HUD_ALT_TIER_LOW")
+	ac.altitude = 5500.0
+	_check("ALT 明确显示当前中空档",
+		PlayerInstrumentPanelScript.altitude_tier_name_key(ac) == "HUD_ALT_TIER_MID")
+	ac.altitude = 10000.0
+	_check("ALT 明确显示当前高空档",
+		PlayerInstrumentPanelScript.altitude_tier_name_key(ac) == "HUD_ALT_TIER_HIGH")
 	ac.altitude_preference = Aircraft.AltitudePreference.PREFER_CLIMB
-	_check("Q 爬升优先使用既有本地化状态",
-		PlayerInstrumentPanelScript.altitude_preference_name_key(ac) == "TOOLTIP_ALT_CLIMB_TITLE")
 	SurvivorModeScript._cycle_player_altitude_preference(ac)
 	_check("Q 保留爬升优先到低空优先的真实切换",
 		ac.altitude_preference == Aircraft.AltitudePreference.PREFER_LOW)
-	_check("Q 低空优先使用既有本地化状态",
-		PlayerInstrumentPanelScript.altitude_preference_name_key(ac) == "TOOLTIP_ALT_LOW_TITLE")
 	SurvivorModeScript._cycle_player_altitude_preference(ac)
 	_check("Q 再按返回爬升优先",
 		ac.altitude_preference == Aircraft.AltitudePreference.PREFER_CLIMB)
 	ac.free()
+
+
+func _test_special_weapon_status() -> void:
+	_check("自动驾驶和开火关闭态使用明确动作文字",
+		PlayerInstrumentPanelScript.engage_state_key(true) == "HUD_ENGAGE"
+		and PlayerInstrumentPanelScript.engage_state_key(false) == "HUD_PASSIVE"
+		and PlayerInstrumentPanelScript.fire_state_key(true) == "HUD_AUTO_FIRE"
+		and PlayerInstrumentPanelScript.fire_state_key(false) == "HUD_MANUAL_FIRE")
+	var ac := _make_aircraft()
+	ac.params.secondary_missile = MissileParams.new()
+	ac.params.secondary_missile.max_count = 4
+	ac.params.secondary_missile.cooldown = 3.0
+	ac.secondary_missiles_remaining = 2
+	ac._secondary_cooldown = 1.5
+	ac.params.rocket = RocketParams.new()
+	ac.params.rocket.max_ammo = 24
+	ac.params.rocket.burst_cooldown = 4.0
+	ac.rockets_remaining = 12
+	ac._rocket_burst_cooldown = 1.0
+	var rows := PlayerInstrumentPanelScript.special_weapon_rows(ac)
+	_check("战区 SP 导弹在主武器下生成真实冷却状态",
+		rows.size() == 2
+		and rows[0].get("kind") == "secondary_missile"
+		and rows[0].get("state") == "cooldown"
+		and is_equal_approx(float(rows[0].get("remaining_s")), 1.5)
+		and is_equal_approx(float(rows[0].get("ready_ratio")), 0.5))
+	var panel = PlayerInstrumentPanelScript.new()
+	panel._ready()
+	panel.update_display(ac, null)
+	var special_row := panel.special_weapon_row_rect(0)
+	var special_status := panel.special_weapon_status_rect(0)
+	var special_progress := panel.special_weapon_progress_rect(0)
+	var special_name := panel.special_weapon_name_rect(0)
+	var second_special := panel.special_weapon_row_rect(1)
+	_check("SP 区按 0.5u 分隔标题和 2u 网格行向下扩展",
+		panel.special_weapon_spacer_rect.position.y == panel.weapon_rect.end.y
+		and panel.special_weapon_spacer_rect.size.y
+			== PlayerInstrumentPanelScript.DECORATIVE_HALF_U_HEIGHT
+		and panel.special_weapon_title_rect.position.y == panel.special_weapon_spacer_rect.end.y
+		and special_row.position.y == panel.special_weapon_title_rect.end.y
+		and special_row.size.y
+			== PlayerInstrumentPanelScript.SPECIAL_WEAPON_SLOT_HEIGHT
+		and special_row.size.y == PlayerInstrumentPanelScript.U_SIZE.y * 2.0
+		and special_name.end == special_row.end
+		and panel.size.y == PlayerInstrumentPanelScript.PANEL_SIZE.y
+			+ PlayerInstrumentPanelScript.DECORATIVE_HALF_U_HEIGHT
+			+ PlayerInstrumentPanelScript.SPECIAL_WEAPON_TITLE_HEIGHT
+			+ PlayerInstrumentPanelScript.SPECIAL_WEAPON_SLOT_HEIGHT)
+	_check("SP 每格严格占 PRIORITY WEAPON 内容宽度的一半且一行容纳两件",
+		special_row.size.x == panel.weapon_title_rect.size.x * 0.5
+		and second_special.size == special_row.size
+		and second_special.position == Vector2(special_row.end.x, special_row.position.y)
+		and second_special.end.x == panel.special_weapon_rect.end.x)
+	_check("SP 状态和横向进度各占 1u",
+		special_status.position == special_row.position
+		and special_status.size.y == PlayerInstrumentPanelScript.U_SIZE.y
+		and special_progress.position.y == special_status.end.y
+		and special_progress.size == special_status.size
+		and special_progress.size.x > special_progress.size.y
+		and special_progress.end.x == special_name.position.x
+		and special_name.size == PlayerInstrumentPanelScript.U_SIZE * Vector2(2.0, 2.0))
+	_check("SP 名称以最长五字母 QMAAM 作为次要信息排版基准",
+		PlayerInstrumentPanelScript.SPECIAL_WEAPON_NAME_LAYOUT_TEXT == "QMAAM"
+		and PlayerInstrumentPanelScript.SPECIAL_WEAPON_NAME_LAYOUT_TEXT.length() <= 5)
+	var abbreviations_valid := true
+	for locale in ["zh", "en", "ja"]:
+		var translation := load("res://i18n/interface.%s.translation" % locale) as Translation
+		for key in ["HUD_SP_MISSILE", "HUD_SP_ROCKET", "HUD_SP_RAILGUN",
+				"HUD_SP_LASER", "HUD_SP_TAIL_MINE", "HUD_SP_DRONE", "HUD_SP_ESM"]:
+			var abbreviation := str(translation.get_message(key)) if translation != null else ""
+			abbreviations_valid = abbreviations_valid and not abbreviation.is_empty() \
+				and abbreviation.length() <= 5 and abbreviation == abbreviation.to_upper()
+	_check("全部 SP 武器在中英日资源中使用不超过五字母的英文简称", abbreviations_valid)
+	ac._missile_reload_active = true
+	ac.missile_reload_duration = 20.0
+	ac._missile_reload_timer = 12.5
+	_check("主导弹装填剩余秒数读取真实有效装填计时器",
+		is_equal_approx(PlayerInstrumentPanelScript.missile_reload_remaining_s(ac), 7.5))
+	panel.free()
+	ac.free()
+
+
+func _test_first_reveal_sequence() -> void:
+	var sequencer = HudFirstRevealSequencerScript.new()
+	var top_left := Control.new()
+	var top_right := Control.new()
+	var bottom_left := Control.new()
+	sequencer.register_panel(&"bottom_left", [bottom_left], Vector2(0.0, 100.0))
+	sequencer.register_panel(&"top_right", [top_right], Vector2(100.0, 0.0))
+	sequencer.register_panel(&"top_left", [top_left], Vector2.ZERO)
+	sequencer.update(0.0)
+	sequencer.update(HudFirstRevealSequencerScript.PANEL_STAGGER)
+	var overlaps_previous := sequencer.active_panel_ids().has(&"top_left") \
+		and sequencer.active_panel_ids().has(&"top_right")
+	sequencer.update(HudFirstRevealSequencerScript.PANEL_STAGGER)
+	_check("HUD 首显按屏幕坐标从上到下且同一行从左到右启动",
+		sequencer.start_history() == [&"top_left", &"top_right", &"bottom_left"])
+	_check("下一框板快速错峰启动且不等待前一框板完成",
+		overlaps_previous and not sequencer.panel_completed(&"top_left"))
+
+	var blink_sequencer = HudFirstRevealSequencerScript.new()
+	var blink_panel := Control.new()
+	blink_sequencer.register_panel(&"blink", [blink_panel], Vector2.ZERO)
+	blink_sequencer.update(0.0)
+	blink_sequencer.update(HudFirstRevealSequencerScript.BLINK_HALF_PERIOD)
+	var first_off := is_zero_approx(blink_panel.modulate.a)
+	blink_sequencer.update(HudFirstRevealSequencerScript.BLINK_HALF_PERIOD)
+	var first_on := is_equal_approx(blink_panel.modulate.a, 1.0)
+	blink_sequencer.update(HudFirstRevealSequencerScript.BLINK_HALF_PERIOD)
+	var second_off := is_zero_approx(blink_panel.modulate.a)
+	blink_sequencer.update(HudFirstRevealSequencerScript.BLINK_HALF_PERIOD)
+	_check("单框板在 0.50 秒内完成两闪后常亮",
+		is_equal_approx(HudFirstRevealSequencerScript.BLINK_TOTAL_DURATION, 0.50)
+		and first_off and first_on and second_off
+		and blink_sequencer.panel_completed(&"blink")
+		and is_equal_approx(blink_panel.modulate.a, 1.0))
+
+	var board_source := Control.new()
+	var board_child := Control.new()
+	board_source.add_child(board_child)
+	var board_visibility = HudBoardVisibilityScript.new(board_source)
+	board_visibility.sync_regions([{
+		"id": &"board",
+		"rect": Rect2(0.0, 0.0, 40.0, 18.0),
+	}])
+	var source_starts_hidden := board_source.material is ShaderMaterial \
+		and board_child.material is ShaderMaterial and board_source.get_child_count() == 1
+	var hidden_rects: PackedVector4Array = (board_source.material as ShaderMaterial).get_shader_parameter(
+		"board_rects")
+	var border_bleed_hidden := hidden_rects[0] == Vector4(-1.0, -1.0, 41.0, 19.0)
+	board_visibility.set_reveal_alpha(1.0, &"board")
+	_check("复合仪表首帧默认关闭源框板且不创建黑底遮罩",
+		source_starts_hidden and border_bleed_hidden
+		and board_source.material == null and board_child.material == null)
+
+	var callback_sequencer = HudFirstRevealSequencerScript.new()
+	callback_sequencer.register_callback_panel(
+		&"board",
+		board_visibility.set_reveal_alpha.bind(&"board"),
+		board_visibility.board_is_visible.bind(&"board"),
+		Vector2.ZERO)
+	callback_sequencer.update(0.0)
+	callback_sequencer.update(HudFirstRevealSequencerScript.BLINK_TOTAL_DURATION)
+	_check("首次显现调度器可直接驱动框板源可见性",
+		callback_sequencer.panel_completed(&"board") and board_source.material == null)
+
+	var dynamic_sequencer = HudFirstRevealSequencerScript.new()
+	var dynamic_panel := Control.new()
+	dynamic_panel.visible = false
+	dynamic_sequencer.register_panel(&"dynamic", [dynamic_panel], Vector2.ZERO, false)
+	dynamic_sequencer.update(0.0)
+	_check("动态 HUD 空内容时不提前消费首次机会",
+		dynamic_sequencer.active_panel_id().is_empty()
+		and dynamic_sequencer.panel_start_count(&"dynamic") == 0)
+	dynamic_panel.visible = true
+	dynamic_sequencer.set_panel_available(&"dynamic", true)
+	dynamic_sequencer.update(0.0)
+	dynamic_panel.visible = false
+	dynamic_sequencer.update(0.0)
+	var canceled_restored := is_equal_approx(dynamic_panel.modulate.a, 1.0) \
+		and not dynamic_sequencer.panel_completed(&"dynamic")
+	dynamic_panel.visible = true
+	dynamic_sequencer.update(0.0)
+	dynamic_sequencer.update(HudFirstRevealSequencerScript.BLINK_TOTAL_DURATION)
+	dynamic_panel.visible = false
+	dynamic_sequencer.update(0.0)
+	dynamic_panel.visible = true
+	dynamic_sequencer.update(0.0)
+	_check("动态 HUD 中途隐藏会重试且完成后不重播",
+		canceled_restored
+		and dynamic_sequencer.panel_completed(&"dynamic")
+		and dynamic_sequencer.panel_start_count(&"dynamic") == 2
+		and dynamic_sequencer.active_panel_id().is_empty()
+		and is_equal_approx(dynamic_panel.modulate.a, 1.0))
+
+	top_left.free()
+	top_right.free()
+	bottom_left.free()
+	blink_panel.free()
+	board_source.free()
+	dynamic_panel.free()
 
 
 func _test_weapon_priority_cycle() -> void:

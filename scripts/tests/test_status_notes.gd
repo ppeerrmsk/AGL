@@ -1,5 +1,7 @@
 extends RefCounted
 
+const _I18N_CATALOG := preload("res://scripts/i18n_catalog.gd")
+
 ## 无头验收：升级卡"状态词条脚注"（0729）
 ##
 ## 需求：玩家在选卡时就该知道"这条技能给的超载 / 嗜血本身干什么"，
@@ -7,7 +9,7 @@ extends RefCounted
 ## 挂哪张卡 = SurvivorData.status_notes_of。
 ##
 ## A 映射：keywords 主路径 / EXTRA 补漏 / OVERRIDE 修个例 / 上限 / 无状态技能不挂
-## B 文案：7 个状态词条都有 note key，且 key 在 translations.csv 里存在
+## B 文案：7 个状态词条都有 note key，且 key 在本地化分表里存在
 ## C UI：populate 后有状态的卡显示脚注、无状态的卡隐藏、空位一律隐藏
 ##
 ## 运行：godot --headless --path . -- --bench=status_notes（或 --bench=all）
@@ -103,11 +105,8 @@ func _test_mapping() -> void:
 # ── B. 文案 ──────────────────────────────────────────────
 func _test_i18n_coverage() -> void:
 	print("── B. 脚注文案 ──")
-	var csv := FileAccess.open("res://i18n/translations.csv", FileAccess.READ)
-	var csv_text: String = csv.get_as_text() if csv else ""
-	if csv:
-		csv.close()
-	_check("translations.csv 可读", csv_text != "")
+	var i18n_rows: Dictionary = _I18N_CATALOG.audit().get("rows", {})
+	_check("本地化分表可读", not i18n_rows.is_empty())
 
 	var missing_key: Array[String] = []
 	var missing_row: Array[String] = []
@@ -115,7 +114,7 @@ func _test_i18n_coverage() -> void:
 		var k: String = StatusEffects.note_i18n_key(sid)
 		if k == "":
 			missing_key.append(sid)
-		elif not csv_text.contains(k + ","):
+		elif not i18n_rows.has(k):
 			missing_row.append(k)
 	_check("7 个状态词条都有 note key", missing_key.is_empty(), str(missing_key))
 	_check("note key 都在翻译表里", missing_row.is_empty(), str(missing_row))

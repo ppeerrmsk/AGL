@@ -110,7 +110,7 @@ final_lock_rate = existing_lock_rate × close_lock_mult
 | 技能数据与轴归属 | `scripts/survivor/survivor_data.gd` |
 | 主雷达锁定倍率消费 | `scripts/survivor/survivor_mode.gd` |
 | 技能发放与重放 | `scripts/survivor/survivor_player.gd` |
-| 三语文案 | `i18n/translations.csv` |
+| 三语文案 | `i18n/skills.csv` |
 | 回归测试 | `scripts/tests/test_skills_720.gd` 或雷达锁定专项测试 |
 
 ## 8. 变更记录
