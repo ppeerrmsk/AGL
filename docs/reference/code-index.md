@@ -725,7 +725,7 @@
 | UI 自适应布局 | `survivor/survivor_hud.gd` `_layout_ui` |
 | HP/XP/等级与三轴计数更新 | `survivor/survivor_hud.gd` `_update_display` |
 | 玩家仪表安全引用与刷新 | `survivor/survivor_hud.gd` `_safe_player_aircraft` / `_update_player_instrument` |
-| 玩家模块化仪表（固定右边缘、`1q` 向左动态扩格） | `survivor/player_instrument_panel.gd` `_configure_layout` / `update_display` / `_draw` |
+| 玩家模块化仪表（右锚；SPD/G/FLR 共用数字格；AUTOPILOT 动态空框；默认武器弹量/辅助空框/竖向装填/名称槽） | `survivor/player_instrument_panel.gd` `_configure_layout` / `spd_digit_rect` / `g_integer_digit_rect` / `flare_current_digit_rect` / `formatted_speed_digits` / `weapon_count_rect` / `weapon_aux_empty_rect` / `weapon_reload_progress_rect` / `weapon_name_rect` / `active_control_empty_rect` / `_draw` |
 | 僚机动态行仪表 | `survivor/wingman_instrument_panel.gd` `update_display` / `_draw_row` |
 | 经验条上方三轴计数器 | `survivor/milestone_axis_counter.gd` `update_display` / `_draw` |
 | 统一共享 1px 网格描边 | `ui/terminal_grid_overlay.gd` `TerminalGridOverlay` / `regions` / `override_regions` / `_draw` |
@@ -1110,7 +1110,7 @@
 |------|------|
 | 沙盒 HUD（**沙盒已废弃**，仅调试留存）| `hud.gd:7` _process |
 | 生存模式 HUD 构建/更新 | `survivor/survivor_hud.gd` `_build_ui` / `_update_display` / `_update_player_instrument` |
-| 玩家模块化仪表（生产 HUD 与 F7 预览共用；固定右边缘、`1q` 向左扩格） | `survivor/player_instrument_panel.gd` `_configure_layout` / `update_display` / `_draw` |
+| 玩家模块化仪表（生产 HUD 与 F7 预览共用；G 4u 小数组合、装饰半格、AUTOPILOT 动态空框） | `survivor/player_instrument_panel.gd` `_configure_layout` / `decorative_aligned_width` / `active_control_empty_rect` / `update_display` / `_draw` |
 | 僚机动态行仪表 | `survivor/wingman_instrument_panel.gd` `update_display` / `_draw_row` |
 | 经验条上方固定三轴计数器 | `survivor/milestone_axis_counter.gd` `update_display` / `_draw` |
 | 军用终端 UI 现行规范 | `docs/planning/main-ui-guidelines.md` |

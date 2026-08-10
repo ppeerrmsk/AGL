@@ -21,7 +21,7 @@ func _ready() -> void:
 	_sample_aircraft.params = (load("res://resources/player/player_f15c.tres") as AircraftParams).duplicate(true)
 	_sample_aircraft.params.max_hp = 150.0
 	_sample_aircraft.hp = 100.0
-	_sample_aircraft.speed = 945.0 / 3.6
+	_sample_aircraft.speed = 500.0 * 1.852 / 3.6
 	_sample_aircraft.altitude = 10000.0
 	_sample_aircraft.altitude_preference = Aircraft.AltitudePreference.PREFER_LOW
 	_sample_aircraft.g_load = 4.5
@@ -42,12 +42,16 @@ func _ready() -> void:
 	charge.charge = AfterburnerCharge.CHARGE_MAX * 0.64
 
 	var panel = PlayerInstrumentPanelScript.new()
+	panel.weapon_animation_time_override_ms = 1000
 	add_child(panel)
 	panel.position = Vector2(
 		1600.0 - panel.size.x - 18.0,
 		900.0 - panel.size.y - 56.0,
 	)
 	panel.update_display(_sample_aircraft, charge)
+	# Capture a deterministic 2 Hz ON phase for the reload bar and selected MSL boards.
+	panel.weapon_animation_time_override_ms = 1500
+	panel.queue_redraw()
 
 	var wingman_panel = WingmanInstrumentPanelScript.new()
 	add_child(wingman_panel)

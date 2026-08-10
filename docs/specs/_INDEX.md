@@ -36,7 +36,7 @@
 
 | Spec | kind | status | 重建完整 | 覆盖范围 |
 |---|---|---|---|---|
-| [systems/player-instrument-hud](systems/player-instrument-hud.md) | system | done | ✅ | **玩家与僚机仪表 HUD**：右侧玩家仪表固定高 `24u`、各行共用右边缘并按最大字符串以 `1q` 向左扩宽；HP/G/SPD 共享 `3u` 主要字号，SPD 左对齐；加力与 R 机动使用 `2u` 标题/无字进度条/百分比结构；独立 `1q` 操作键支持运行时插列与 5 秒反色闪烁；小字使用 Silkscreen，主要数字使用 Chakra Petch。 |
+| [systems/player-instrument-hud](systems/player-instrument-hud.md) | system | done | ✅ | **玩家与僚机仪表 HUD**：右侧玩家仪表高 `24u`；SPD、G 整数位与 FLR 当前值共用 `49 × 54 px` 固定字号数字框；AUTOPILOT 锁定 `3u × 6u` 并由动态空框板吸收 R 键；默认武器区使用上下两条有框 `0.5u` 装饰行、独立优先标题、两个 `2u` 槽以及贴近名称框的竖向装填条。 |
 | [systems/presentation-foundation-rework](systems/presentation-foundation-rework.md) | system | draft | ✗ | **表现层底层逻辑改造确认稿**：持续汇总本轮讨论中由用户明确确认的主要改动；区分待讨论、已确认、已实现，记录旧/新行为、影响、风险、退化策略与验收标准，并以既有 `ui-transition` 为依赖。 |
 | [skills/displacement-roll](skills/displacement-roll.md) | skill | done | ✅ | **位移滚转**：实验级 R 主动技能；1.15s 内确定性选择安全侧并横移 450px，15s 玩家小队共享冷却；动作本体不可命中、保留锁定与在飞武器；并入五向 R 互斥槽，当前操控机手动、AI 僚机自动。 |
 | [skills/vertical-break](skills/vertical-break.md) | skill | done | ✅ | **垂直越过**：实验级 R 主动技能；LOW 拉升/MID·HIGH 俯冲 900m/1.30s，18s 玩家小队共享冷却；额外能量交换封顶 −18%/+15%，并入五向 R 互斥槽，当前操控机手动、AI 僚机自动。 |
