@@ -732,7 +732,7 @@
 | UI 自适应布局 | `survivor/survivor_hud.gd` `_layout_ui` |
 | HP/XP/等级与三轴计数更新 | `survivor/survivor_hud.gd` `_update_display` |
 | 玩家仪表安全引用与刷新 | `survivor/survivor_hud.gd` `_safe_player_aircraft` / `_update_player_instrument` |
-| 玩家模块化仪表（固定右边缘、`1q` 向左动态扩格） | `survivor/player_instrument_panel.gd` `_configure_layout` / `update_display` / `_draw` |
+| 玩家模块化仪表（右锚；SPD/G/FLR 共用数字格；AUTOPILOT 动态空框；默认武器弹量/辅助空框/竖向装填/名称槽） | `survivor/player_instrument_panel.gd` `_configure_layout` / `spd_digit_rect` / `g_integer_digit_rect` / `flare_current_digit_rect` / `formatted_speed_digits` / `weapon_count_rect` / `weapon_aux_empty_rect` / `weapon_reload_progress_rect` / `weapon_name_rect` / `active_control_empty_rect` / `_draw` |
 | 僚机动态行仪表 | `survivor/wingman_instrument_panel.gd` `update_display` / `_draw_row` |
 | 经验条上方三轴计数器 | `survivor/milestone_axis_counter.gd` `update_display` / `_draw` |
 | 统一共享 1px 网格描边 | `ui/terminal_grid_overlay.gd` `TerminalGridOverlay` / `regions` / `override_regions` / `_draw` |
@@ -1157,21 +1157,21 @@
 | 功能 | 位置 |
 |------|------|
 | 沙盒 HUD（**沙盒已废弃**，仅调试留存）| `hud.gd:7` _process |
-| 生存模式 HUD 构建 | `survivor/survivor_hud.gd` `_build_ui` |
-| 生存模式 HUD 更新 | `survivor/survivor_hud.gd` `_update_display` / `_update_hud_data_layer` |
-| 玩家仪表（固定高 `24u`、右边缘锚定） | `survivor/player_instrument_panel.gd` `_configure_layout` / `update_display` / `_draw` |
+| 生存模式 HUD 构建/更新 | `survivor/survivor_hud.gd` `_build_ui` / `_update_display` / `_update_player_instrument` |
+| 玩家模块化仪表（生产 HUD 与 F7 预览共用；G 4u 小数组合、装饰半格、AUTOPILOT 动态空框） | `survivor/player_instrument_panel.gd` `_configure_layout` / `decorative_aligned_width` / `active_control_empty_rect` / `update_display` / `_draw` |
 | 玩家仪表字号与动态扩格 | `ui/terminal_text.gd` `TerminalText`；小字 `resources/fonts/Silkscreen-Regular.ttf`，主要数字 `resources/fonts/ChakraPetch-Bold.ttf` |
 | 唯一互斥 R 技能常驻百分比充能行 | `aircraft.gd` `equipped_r_maneuver_id` / `r_maneuver_cooldown_total` / `r_maneuver_cooldown_remaining`；`survivor/player_instrument_panel.gd` `_draw_maneuver_charge` |
 | 独立 `1q` 操作键与手动 FLR 运行时插列 | `survivor/player_instrument_panel.gd` `grid_regions` / `debug_grant_manual_flare_skill` |
-| 僚机动态行（每行 `1q+7u × 3u`） | `survivor/wingman_instrument_panel.gd` `update_display` / `grid_regions` / `_apply_row_count` / `_draw_row` |
-| 统一网格描边 | `ui/terminal_grid_overlay.gd` `regions` / `override_regions` / `_draw` |
-| HUD 单位与色彩偏好 | `ui/hud_preferences.gd` speed_value / set_speed_unit / set_hud_color |
-| 主菜单 AUDIO 同行设置入口 | `main_menu.gd:315` _build_audio_button / `:387` _refresh_hud_settings_buttons |
-| HUD 四预设 + 自定义色盘 | `ui/hud_color_settings_panel.gd` _build_ui / _on_save |
-| 玩家/僚机仪表无头回归 | `tests/test_player_instrument_hud.gd` `run`；bench `player_hud`；真实字体画面 `player_hud_visual` |
+| 僚机动态行仪表（每行 `1q+7u × 3u`） | `survivor/wingman_instrument_panel.gd` `update_display` / `grid_regions` / `_apply_row_count` / `_draw_row` |
+| 经验条上方固定三轴计数器 | `survivor/milestone_axis_counter.gd` `update_display` / `_draw` |
+| 军用终端 UI 现行规范 | `docs/planning/main-ui-guidelines.md` |
+| 终端共享网格描边与精确文字 | `ui/terminal_grid_overlay.gd` `regions` / `override_regions` / `_draw`；`ui/terminal_text.gd` |
+| HUD 速度单位与线框色持久化 | `ui/hud_preferences.gd` `speed_unit` / `hud_color` / `set_hud_color` |
+| 主菜单速度单位按钮与 HUD 色盘 | `main_menu.gd` `_refresh_hud_settings_buttons` / `_on_speed_unit_pressed` / `_on_hud_color_pressed`；`ui/hud_color_settings_panel.gd` `_build_ui` |
+| HUD 字体 | `resources/fonts/Silkscreen-Regular.ttf`（1u/1q 拉丁信息）/ `ChakraPetch-Bold.ttf`（主要数字）；缺失字符走当前主题默认字体回退 |
+| 玩家 HUD 回归/可视验收 | `tests/test_player_instrument_hud.gd` `run`（bench `player_hud`）；`tests/player_hud_visual_qa_runner.gd`（bench `player_hud_visual`） |
 | 终端文字与共享网格回归 | `tests/test_terminal_text.gd` `run`；bench `terminal_text` |
-| UI Dev 定位框与热键回归 | `tests/test_ui_dev_outline.gd` `run`；bench `ui_dev_outline` |
-| UI Dev 固定截图 | `tests/ui_dev_panel_runner.gd`；bench `ui_dev_panel_visual` / `ui_dev_panel_clean_visual` / `ui_dev_panel_manual_flare_visual` |
+| UI Dev 定位框回归/可视验收 | `tests/test_ui_dev_outline.gd` `run`（bench `ui_dev_outline`）；`tests/ui_dev_panel_runner.gd`（bench `ui_dev_panel_visual` / `ui_dev_panel_clean_visual` / `ui_dev_panel_manual_flare_visual`） |
 | 升级 UI 选项展示 | `survivor_upgrade_ui.gd:217` show_choices |
 | 进化树层间直角布线（布局期缓存） | `survivor/evolution_tree_view.gd:118` _build_edge_routes / `:156` _orthogonal_path |
 | 进化树四状态线批绘 | `survivor/evolution_tree_view.gd:166` _draw / `:275` _draw_edge_batch |

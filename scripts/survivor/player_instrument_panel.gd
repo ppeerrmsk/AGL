@@ -15,7 +15,8 @@ const DECORATIVE_HALF_Q_WIDTH := Q_SIZE.x * 0.5
 const CONTENT_X := Q_SIZE.x
 const SECONDARY_W := U_SIZE.x * 2.0
 const BASE_CONTENT_W := U_SIZE.x * 6.0 + Q_SIZE.x
-const PANEL_SIZE := Vector2(CONTENT_X + BASE_CONTENT_W, U_SIZE.y * 24.0)
+const PANEL_SIZE := Vector2(CONTENT_X + BASE_CONTENT_W,
+	U_SIZE.y * 24.0)
 const PRIMARY_VALUE_HEIGHT := U_SIZE.y * 3.0
 const SECONDARY_VALUE_HEIGHT := U_SIZE.y * 2.0
 const PROGRESS_PANEL_HEIGHT := U_SIZE.y * 2.0
@@ -26,18 +27,29 @@ const HP_VALUE_LAYOUT_TEXT := "999"
 const G_VALUE_LAYOUT_TEXT := "11.5"
 const G_INTEGER_LAYOUT_TEXT := "11"
 const G_FRACTION_LAYOUT_TEXT := "9"
+const G_INTEGER_ALIGNMENT := HORIZONTAL_ALIGNMENT_CENTER
 const ALT_VALUE_LAYOUT_TEXT := "99999"
-const SPD_VALUE_LAYOUT_TEXT := "9999"
-const CONTROL_LEFT_W := U_SIZE.x * 3.0
-const WEAPON_COUNT_W := U_SIZE.x * 2.0
-const WEAPON_PRIORITY_W := U_SIZE.x * 2.0
+const SPD_VALUE_LAYOUT_TEXT := "99999"
+const SPD_DIGIT_COUNT := 5
+const SPD_DIGIT_WIDTH := U_SIZE.x + DECORATIVE_HALF_Q_WIDTH
+const SPD_PADDING_ZERO_COLOR := ThemeColors.UI_INACTIVE_DIGIT
+const G_INTEGER_DIGIT_COUNT := 2
+const FLARE_CURRENT_DIGIT_COUNT := 2
+const FLARE_CURRENT_WIDTH := SPD_DIGIT_WIDTH * FLARE_CURRENT_DIGIT_COUNT
+const AUTOPILOT_WIDTH := U_SIZE.x * 3.0
+const WEAPON_COUNT_MIN_W := U_SIZE.x * 2.0
+const WEAPON_COUNT_LAYOUT_TEXT := "9999"
+const WEAPON_NAME_W := U_SIZE.x * 2.0
+const WEAPON_TITLE_HEIGHT := U_SIZE.y
+const WEAPON_SLOT_HEIGHT := U_SIZE.y * 2.0
+const WEAPON_AUX_EMPTY_WIDTH := DECORATIVE_HALF_Q_WIDTH
 const BLINK_STEP_MS := 500
+const RELOAD_BLINK_STEP_MS := 250
 const NEW_KEY_FLASH_MS := 5000
 const REDRAW_INTERVAL_MS := 50
 const FLARE_STAR_COUNT := 10
 const FLARE_VALUE_LAYOUT_TEXT := "99"
 const PROGRESS_PERCENT_LAYOUT_TEXT := "100%"
-const SPD_VALUE_ALIGNMENT := HORIZONTAL_ALIGNMENT_LEFT
 const WARNING_YELLOW := Color("f2d34f")
 const DANGER_RED := Color("ff493d")
 const MANEUVER_NAME_KEYS := {
@@ -57,6 +69,7 @@ var _localized_font: Font
 var _grid_overlay
 var primary_value_font_size := 1
 var secondary_value_font_size := 1
+var spd_digit_font_size := 1
 var hp_rect := Rect2()
 var hp_value_rect := Rect2()
 var hp_title_rect := Rect2()
@@ -69,6 +82,7 @@ var g_value_rect := Rect2()
 var g_integer_rect := Rect2()
 var g_decimal_rect := Rect2()
 var g_fraction_rect := Rect2()
+var g_decimal_font_size := 1
 var spd_rect := Rect2()
 var spd_alt_rect := Rect2()
 var alt_title_rect := Rect2()
@@ -85,17 +99,23 @@ var ab_title_rect := Rect2()
 var ab_percent_rect := Rect2()
 var ab_progress_rect := Rect2()
 var control_rect := Rect2()
+var autopilot_rect := Rect2()
+var control_empty_rect := Rect2()
 var engage_rect := Rect2()
 var fire_rect := Rect2()
 var flare_base_rect := Rect2()
 var maneuver_base_rect := Rect2()
+var weapon_spacer_rect := Rect2()
+var weapon_title_rect := Rect2()
 var weapon_rect := Rect2()
+var weapon_middle_spacer_rect := Rect2()
+var weapon_count_width := WEAPON_COUNT_MIN_W
 var _flare_max_width := U_SIZE.x
 var aligned_content_width := BASE_CONTENT_W
-var aligned_control_left_width := CONTROL_LEFT_W
 var _manual_flare_key_known := false
 var _manual_flare_key_visible := false
 var _manual_flare_key_flash_started_ms := -NEW_KEY_FLASH_MS
+var weapon_animation_time_override_ms := -1
 
 
 func _ready() -> void:
@@ -139,20 +159,25 @@ func update_display(ac: Aircraft, charge: AfterburnerCharge) -> void:
 func _configure_layout() -> void:
 	primary_value_font_size = TerminalTextScript.font_size_for_ink_height(
 		_display_font, HP_VALUE_LAYOUT_TEXT, PRIMARY_VALUE_HEIGHT)
+	# SPD, G integer digits, and the FLR current value deliberately share this
+	# one fixed font size and one fixed digit-cell geometry.
+	spd_digit_font_size = int(TerminalTextScript.resolve_font_layout(
+		_display_font, "0", Vector2(SPD_DIGIT_WIDTH, PRIMARY_VALUE_HEIGHT)).x)
+	g_decimal_font_size = spd_digit_font_size
 	secondary_value_font_size = TerminalTextScript.font_size_for_ink_height(
 		_display_font, HP_VALUE_LAYOUT_TEXT, SECONDARY_VALUE_HEIGHT)
+	weapon_count_width = _expanded_value_width(
+		WEAPON_COUNT_LAYOUT_TEXT, secondary_value_font_size, WEAPON_COUNT_MIN_W)
 
 	var hp_current_width := _expanded_value_width(
 		HP_VALUE_LAYOUT_TEXT, primary_value_font_size, U_SIZE.x * 3.0)
 	var hp_max_width := _expanded_value_width(
 		HP_VALUE_LAYOUT_TEXT, secondary_value_font_size, U_SIZE.x)
-	var g_integer_width := _expanded_value_width(
-		G_INTEGER_LAYOUT_TEXT, primary_value_font_size, SECONDARY_W)
+	var g_integer_width := SPD_DIGIT_WIDTH * float(G_INTEGER_DIGIT_COUNT)
 	var g_fraction_width := _expanded_value_width(
 		G_FRACTION_LAYOUT_TEXT, secondary_value_font_size, U_SIZE.x)
 	var g_width := g_integer_width + Q_SIZE.x + g_fraction_width
-	var spd_current_width := _expanded_value_width(
-		SPD_VALUE_LAYOUT_TEXT, primary_value_font_size, U_SIZE.x * 3.0)
+	var spd_current_width := SPD_DIGIT_WIDTH * float(SPD_DIGIT_COUNT)
 	_flare_max_width = _expanded_value_width(
 		FLARE_VALUE_LAYOUT_TEXT, secondary_value_font_size, U_SIZE.x)
 
@@ -160,16 +185,18 @@ func _configure_layout() -> void:
 	var hp_total_width := hp_value_width + g_width
 	var spd_speed_width := spd_current_width + Q_SIZE.x + U_SIZE.x
 	var spd_total_width := SECONDARY_W + spd_speed_width
-	aligned_content_width = decorative_aligned_width(BASE_CONTENT_W, spd_total_width)
+	# The five functional SPD digit boards establish the new alignment baseline.
+	# Decorative half-q columns are only applied to later structural fill.
+	aligned_content_width = maxf(BASE_CONTENT_W, spd_total_width)
 	var flare_width := maxf(
-		BASE_CONTENT_W - CONTROL_LEFT_W,
-		U_SIZE.x * 2.0 + Q_SIZE.x + _flare_max_width)
-	aligned_control_left_width = aligned_content_width - flare_width
-	var control_width_with_manual_key := aligned_control_left_width + Q_SIZE.x + flare_width
+		BASE_CONTENT_W - AUTOPILOT_WIDTH,
+		FLARE_CURRENT_WIDTH + Q_SIZE.x + _flare_max_width)
+	# AUTOPILOT is a fixed 3u panel. Keep at least one q of structural empty
+	# panel between it and FLR so a runtime R key can replace that space.
+	aligned_content_width = decorative_aligned_width(aligned_content_width,
+		AUTOPILOT_WIDTH + Q_SIZE.x + flare_width)
 	var configured_width := maxf(hp_total_width, spd_total_width + Q_SIZE.x)
 	configured_width = maxf(configured_width, aligned_content_width + Q_SIZE.x)
-	configured_width = maxf(configured_width,
-		control_width_with_manual_key + Q_SIZE.x)
 	var right_edge := configured_width
 
 	# Every row is laid out from the shared right edge toward the left. Any q-step
@@ -227,17 +254,31 @@ func _configure_layout() -> void:
 
 	flare_base_rect = Rect2(right_edge - flare_width, U_SIZE.y * 10.0,
 		flare_width, U_SIZE.y * 6.0)
-	engage_rect = Rect2(flare_base_rect.position.x - aligned_control_left_width,
+	autopilot_rect = Rect2(right_edge - aligned_content_width,
 		flare_base_rect.position.y,
-		aligned_control_left_width, U_SIZE.y * 3.0)
-	fire_rect = Rect2(engage_rect.position.x, engage_rect.end.y,
-		CONTROL_LEFT_W, U_SIZE.y * 3.0)
-	control_rect = Rect2(engage_rect.position.x - Q_SIZE.x,
-		flare_base_rect.position.y, control_width_with_manual_key, U_SIZE.y * 6.0)
+		AUTOPILOT_WIDTH, U_SIZE.y * 6.0)
+	control_empty_rect = Rect2(autopilot_rect.end.x, flare_base_rect.position.y,
+		flare_base_rect.position.x - autopilot_rect.end.x, U_SIZE.y * 6.0)
+	engage_rect = Rect2(autopilot_rect.position,
+		Vector2(autopilot_rect.size.x, U_SIZE.y * 3.0))
+	fire_rect = Rect2(autopilot_rect.position + Vector2(0.0, U_SIZE.y * 3.0),
+		Vector2(autopilot_rect.size.x, U_SIZE.y * 3.0))
+	control_rect = Rect2(autopilot_rect.position,
+		Vector2(aligned_content_width, U_SIZE.y * 6.0))
 	maneuver_base_rect = Rect2(right_edge - aligned_content_width, U_SIZE.y * 16.0,
 		aligned_content_width, PROGRESS_PANEL_HEIGHT)
-	weapon_rect = Rect2(right_edge - aligned_content_width, U_SIZE.y * 18.0,
-		aligned_content_width, U_SIZE.y * 6.0)
+	weapon_spacer_rect = Rect2(right_edge - aligned_content_width, U_SIZE.y * 18.0,
+		aligned_content_width, DECORATIVE_HALF_U_HEIGHT)
+	weapon_title_rect = Rect2(
+		Vector2(right_edge - aligned_content_width, weapon_spacer_rect.end.y),
+		Vector2(aligned_content_width, WEAPON_TITLE_HEIGHT))
+	weapon_rect = Rect2(
+		Vector2(right_edge - aligned_content_width, weapon_title_rect.end.y),
+		Vector2(aligned_content_width,
+			WEAPON_SLOT_HEIGHT * 2.0 + DECORATIVE_HALF_U_HEIGHT))
+	weapon_middle_spacer_rect = Rect2(
+		weapon_rect.position + Vector2(0.0, WEAPON_SLOT_HEIGHT),
+		Vector2(aligned_content_width, DECORATIVE_HALF_U_HEIGHT))
 
 	var configured_size := Vector2(configured_width, PANEL_SIZE.y)
 	custom_minimum_size = configured_size
@@ -261,7 +302,9 @@ static func decorative_aligned_width(base_width: float, target_width: float) -> 
 
 func _draw() -> void:
 	var accent: Color = HudPreferencesScript.hud_color()
-	var blink_on := int(Time.get_ticks_msec() / BLINK_STEP_MS) % 2 == 0
+	var animation_now := _weapon_animation_now_ms()
+	var blink_on := int(animation_now / BLINK_STEP_MS) % 2 == 0
+	var reload_blink_on := int(animation_now / RELOAD_BLINK_STEP_MS) % 2 == 0
 	var has_aircraft := aircraft != null and is_instance_valid(aircraft) and not aircraft.is_destroyed
 	var maneuver_visible := maneuver_skill_visible(aircraft) if has_aircraft else false
 	var manual_flare_visible := manual_flare_key_visible(aircraft) if has_aircraft else false
@@ -275,17 +318,20 @@ func _draw() -> void:
 	_draw_module(hp_rect, accent)
 	_draw_module(spd_rect, accent)
 	_draw_module(ab_rect, accent)
-	_draw_module(engage_row_rect, accent)
-	_draw_module(fire_row_rect, accent)
+	_draw_module(active_autopilot_rect(manual_flare_visible), accent)
+	_draw_module(active_control_empty_rect(manual_flare_visible), accent)
 	_draw_module(flare_rect, accent)
 	_draw_module(maneuver_rect, accent)
+	_draw_module(weapon_spacer_rect, accent)
+	_draw_module(weapon_title_rect, accent)
 	_draw_module(weapon_row_rect(0), accent)
+	_draw_module(weapon_middle_spacer_rect, accent)
 	_draw_module(weapon_row_rect(1), accent)
 	_draw_keycap_at("Q", keycap_left_of(spd_rect), accent)
 	_draw_keycap_at("E", keycap_left_of(ab_rect), accent)
 	_draw_keycap_at("G", keycap_left_of(engage_row_rect), accent)
 	_draw_keycap_at("F", keycap_left_of(fire_row_rect), accent)
-	_draw_keycap_at("T", keycap_left_of(weapon_rect), accent)
+	_draw_keycap_at("T", keycap_left_of(weapon_title_rect), accent)
 	if maneuver_visible:
 		var r_rect := manual_flare_key_rect() if manual_flare_visible else maneuver_key_rect()
 		_draw_keycap_at("R", r_rect, accent,
@@ -300,7 +346,12 @@ func _draw() -> void:
 	_draw_flares(flare_rect, accent)
 	if maneuver_visible:
 		_draw_maneuver_charge(maneuver_rect, accent)
-	_draw_weapons(accent, blink_on)
+	var weapon_title := tr("HUD_PRIORITY_WEAPON")
+	if weapon_title == "HUD_PRIORITY_WEAPON":
+		weapon_title = "PRIORITY WEAPON"
+	_draw_localized_text_in_rect(weapon_title, weapon_title_rect, 15,
+		accent, false, HORIZONTAL_ALIGNMENT_LEFT)
+	_draw_weapons(accent, reload_blink_on)
 
 
 func _draw_module(rect: Rect2, accent: Color) -> void:
@@ -326,6 +377,18 @@ func speed_unit_rect(index: int) -> Rect2:
 	return spd_unit_kt_rect if index == 0 else spd_unit_kmh_rect
 
 
+func spd_digit_rect(index: int) -> Rect2:
+	return Rect2(
+		spd_current_rect.position + Vector2(float(index) * SPD_DIGIT_WIDTH, 0.0),
+		Vector2(SPD_DIGIT_WIDTH, spd_current_rect.size.y))
+
+
+func g_integer_digit_rect(index: int) -> Rect2:
+	return Rect2(
+		g_integer_rect.position + Vector2(float(index) * SPD_DIGIT_WIDTH, 0.0),
+		Vector2(SPD_DIGIT_WIDTH, g_integer_rect.size.y))
+
+
 func active_flare_rect(_manual_flare_visible: bool) -> Rect2:
 	return flare_base_rect
 
@@ -336,15 +399,28 @@ func active_maneuver_rect(_maneuver_visible: bool,
 
 
 func active_engage_rect(manual_flare_visible: bool) -> Rect2:
-	if manual_flare_visible:
-		return Rect2(engage_rect.position - Vector2(Q_SIZE.x, 0.0), engage_rect.size)
-	return engage_rect
+	var parent := active_autopilot_rect(manual_flare_visible)
+	return Rect2(parent.position, Vector2(parent.size.x, U_SIZE.y * 3.0))
 
 
 func active_fire_rect(manual_flare_visible: bool) -> Rect2:
+	var parent := active_autopilot_rect(manual_flare_visible)
+	return Rect2(parent.position + Vector2(0.0, U_SIZE.y * 3.0),
+		Vector2(parent.size.x, U_SIZE.y * 3.0))
+
+
+func active_autopilot_rect(manual_flare_visible: bool) -> Rect2:
+	# The two AUTOPILOT rows are one fixed 3u-wide parent. Runtime insertion
+	# consumes the structural empty panel instead of moving this parent.
+	return autopilot_rect
+
+
+func active_control_empty_rect(manual_flare_visible: bool) -> Rect2:
+	var width := control_empty_rect.size.x
 	if manual_flare_visible:
-		return Rect2(fire_rect.position - Vector2(Q_SIZE.x, 0.0), fire_rect.size)
-	return fire_rect
+		width = maxf(0.0, width - Q_SIZE.x)
+	return Rect2(control_empty_rect.position,
+		Vector2(width, control_empty_rect.size.y))
 
 
 func manual_flare_key_rect() -> Rect2:
@@ -393,7 +469,14 @@ static func flare_title_rect(rect: Rect2) -> Rect2:
 
 static func flare_current_rect(rect: Rect2) -> Rect2:
 	return Rect2(rect.position + Vector2(0.0, U_SIZE.y),
-		Vector2(U_SIZE.x * 2.0, U_SIZE.y * 3.0))
+		Vector2(FLARE_CURRENT_WIDTH, U_SIZE.y * 3.0))
+
+
+static func flare_current_digit_rect(rect: Rect2, index: int) -> Rect2:
+	var current := flare_current_rect(rect)
+	return Rect2(
+		current.position + Vector2(float(index) * SPD_DIGIT_WIDTH, 0.0),
+		Vector2(SPD_DIGIT_WIDTH, current.size.y))
 
 
 static func flare_separator_rect(rect: Rect2) -> Rect2:
@@ -433,6 +516,7 @@ func small_title_regions(flare_rect: Rect2) -> Array[Rect2]:
 		alt_title_rect,
 		spd_title_rect,
 		flare_title_rect(flare_rect),
+		weapon_title_rect,
 	]
 
 
@@ -450,7 +534,6 @@ func grid_regions(maneuver_visible: bool,
 		spd_alt_rect,
 		alt_mode_rect,
 		spd_speed_rect,
-		g_integer_rect,
 		g_decimal_rect,
 		speed_unit_rect(0),
 		speed_unit_rect(1),
@@ -459,6 +542,8 @@ func grid_regions(maneuver_visible: bool,
 		ab_title_rect,
 		ab_percent_rect,
 		ab_progress_rect,
+		active_autopilot_rect(manual_flare_visible),
+		active_control_empty_rect(manual_flare_visible),
 		engage_row_rect,
 		toggle_state_rect(engage_row_rect),
 		fire_row_rect,
@@ -469,30 +554,31 @@ func grid_regions(maneuver_visible: bool,
 		maneuver_title_rect(maneuver_rect),
 		maneuver_percent_rect(maneuver_rect),
 		maneuver_progress_rect(maneuver_rect),
+		weapon_spacer_rect,
 		weapon_row_rect(0),
+		weapon_middle_spacer_rect,
 		weapon_row_rect(1),
 		keycap_left_of(spd_rect),
 		keycap_left_of(ab_rect),
 		keycap_left_of(engage_row_rect),
 		keycap_left_of(fire_row_rect),
-		keycap_left_of(weapon_rect),
+		keycap_left_of(weapon_title_rect),
 	]
 	if maneuver_visible:
 		result.append(manual_flare_key_rect() if manual_flare_visible else maneuver_key_rect())
 	result.append_array(small_title_regions(flare_rect))
+	for digit_index in range(SPD_DIGIT_COUNT):
+		result.append(spd_digit_rect(digit_index))
+	for digit_index in range(G_INTEGER_DIGIT_COUNT):
+		result.append(g_integer_digit_rect(digit_index))
+	for digit_index in range(FLARE_CURRENT_DIGIT_COUNT):
+		result.append(flare_current_digit_rect(flare_rect, digit_index))
 	for row in range(2):
-		var weapon_rect := weapon_row_rect(row)
-		result.append(Rect2(weapon_rect.position,
-			Vector2(WEAPON_COUNT_W, weapon_rect.size.y)))
-		result.append(Rect2(
-			weapon_rect.position + Vector2(WEAPON_COUNT_W, 0.0),
-			Vector2(WEAPON_PRIORITY_W, weapon_rect.size.y)
-		))
-		result.append(Rect2(
-			weapon_rect.position + Vector2(WEAPON_COUNT_W + WEAPON_PRIORITY_W, 0.0),
-			Vector2(weapon_rect.size.x - WEAPON_COUNT_W - WEAPON_PRIORITY_W,
-				weapon_rect.size.y)
-		))
+		result.append(weapon_count_rect(row))
+		result.append(weapon_empty_rect(row))
+		result.append(weapon_aux_empty_rect(row))
+		result.append(weapon_reload_progress_rect(row))
+		result.append(weapon_name_rect(row))
 	return result
 
 
@@ -508,12 +594,14 @@ func _draw_flight_data(accent: Color, blink_on: bool) -> void:
 		HORIZONTAL_ALIGNMENT_CENTER, HP_VALUE_LAYOUT_TEXT)
 	_draw_text_in_rect("G", g_title_rect, 15, accent, false,
 		HORIZONTAL_ALIGNMENT_LEFT)
-	var g_parts := ("%.1f" % aircraft.g_load).split(".", false, 1)
-	var g_integer := g_parts[0] if not g_parts.is_empty() else "0"
-	var g_fraction := g_parts[1] if g_parts.size() > 1 else "0"
-	_draw_text_in_rect(g_integer, g_integer_rect, primary_value_font_size, accent, true,
-		HORIZONTAL_ALIGNMENT_CENTER, G_INTEGER_LAYOUT_TEXT)
-	_draw_text_in_rect(".", g_decimal_rect, 15, accent)
+	var g_digits := formatted_two_digit_value(floori(absf(aircraft.g_load)))
+	for digit_index in range(G_INTEGER_DIGIT_COUNT):
+		var digit_color := shared_digit_color(g_digits, digit_index, accent)
+		_draw_text_in_rect(g_digits.substr(digit_index, 1),
+			g_integer_digit_rect(digit_index), spd_digit_font_size, digit_color, true,
+			HORIZONTAL_ALIGNMENT_CENTER, "9")
+	var g_fraction := str(absi(roundi(aircraft.g_load * 10.0)) % 10)
+	_draw_text_in_rect(".", g_decimal_rect, g_decimal_font_size, accent, true)
 	_draw_text_in_rect(g_fraction, g_fraction_rect, secondary_value_font_size, accent, true,
 		HORIZONTAL_ALIGNMENT_CENTER, G_FRACTION_LAYOUT_TEXT)
 
@@ -523,9 +611,15 @@ func _draw_flight_data(accent: Color, blink_on: bool) -> void:
 	_draw_text_in_rect(speed_title, spd_title_rect, 15, speed_title_color, false,
 		HORIZONTAL_ALIGNMENT_LEFT)
 	var speed_kmh := aircraft.speed * 3.6
-	_draw_text_in_rect(str(HudPreferencesScript.speed_value(speed_kmh)),
-		spd_current_rect, primary_value_font_size, accent, true, SPD_VALUE_ALIGNMENT,
-		SPD_VALUE_LAYOUT_TEXT)
+	var speed_value := HudPreferencesScript.speed_value(speed_kmh)
+	var speed_digits := formatted_speed_digits(speed_value)
+	var speed_overflow := speed_value_overflows(speed_value)
+	for digit_index in range(SPD_DIGIT_COUNT):
+		var digit_color := speed_digit_color(
+			speed_digits, digit_index, speed_overflow, blink_on, accent)
+		_draw_text_in_rect(speed_digits.substr(digit_index, 1),
+			spd_digit_rect(digit_index), spd_digit_font_size, digit_color, true,
+			HORIZONTAL_ALIGNMENT_CENTER, "9")
 	_draw_unit_cell(speed_unit_rect(0), "KT",
 		HudPreferencesScript.uses_knots(), accent)
 	_draw_unit_cell(speed_unit_rect(1), "KM/H",
@@ -577,8 +671,12 @@ func _draw_flares(rect: Rect2, accent: Color) -> void:
 	_draw_text_in_rect("FLR", flare_title_rect(rect), 15, color, false,
 		HORIZONTAL_ALIGNMENT_LEFT)
 	if has_flare:
-		_draw_text_in_rect(str(aircraft.flares_remaining), flare_current_rect(rect),
-			0, color, true, HORIZONTAL_ALIGNMENT_CENTER, FLARE_VALUE_LAYOUT_TEXT)
+		var flare_digits := formatted_two_digit_value(aircraft.flares_remaining)
+		for digit_index in range(FLARE_CURRENT_DIGIT_COUNT):
+			var digit_color := shared_digit_color(flare_digits, digit_index, color)
+			_draw_text_in_rect(flare_digits.substr(digit_index, 1),
+				flare_current_digit_rect(rect, digit_index), spd_digit_font_size,
+				digit_color, true, HORIZONTAL_ALIGNMENT_CENTER, "9")
 		_draw_text_in_rect("/", flare_separator_rect(rect), 0, color, true)
 		_draw_text_in_rect(str(aircraft.params.flare.max_flares),
 			flare_max_rect(rect, _flare_max_width), secondary_value_font_size, color, true,
@@ -613,63 +711,63 @@ func _draw_maneuver_charge(rect: Rect2, accent: Color) -> void:
 	_draw_progress_bar(maneuver_progress_rect(rect), ready_ratio, accent)
 
 
-func _draw_weapons(accent: Color, blink_on: bool) -> void:
+func _draw_weapons(accent: Color, reload_blink_on: bool) -> void:
 	var effective_pref := effective_weapon_preference(aircraft)
 	_draw_weapon_row(weapon_row_rect(0), "MSL",
 		aircraft.params != null and aircraft.params.missile != null,
 		aircraft.missiles_remaining,
 		effective_pref == Aircraft.WeaponPreference.PREFER_MISSILE,
-		aircraft._missile_reload_active, aircraft.missile_reload_progress, accent, blink_on)
+		aircraft._missile_reload_active, aircraft.missile_reload_progress,
+		accent, reload_blink_on)
 	_draw_weapon_row(weapon_row_rect(1), "GUN",
 		aircraft.params != null and aircraft.params.gun != null,
 		aircraft.ammo,
 		effective_pref == Aircraft.WeaponPreference.PREFER_GUN,
-		aircraft._gun_reload_active, aircraft.gun_reload_progress, accent, blink_on)
+		aircraft._gun_reload_active, aircraft.gun_reload_progress,
+		accent, reload_blink_on)
 
 
 func _draw_weapon_row(rect: Rect2, name_text: String, exists: bool, ammo: int, selected: bool,
-		reloading: bool, reload_progress: float, accent: Color, blink_on: bool) -> void:
-	var origin := rect.position
-	var name_x := origin.x + WEAPON_COUNT_W + WEAPON_PRIORITY_W
-	var name_rect := Rect2(Vector2(name_x, origin.y), Vector2(rect.end.x - name_x, rect.size.y))
+		reloading: bool, reload_progress: float, accent: Color,
+		reload_blink_on: bool) -> void:
+	var row_index := 0 if rect.position.y == weapon_rect.position.y else 1
+	var count_rect := weapon_count_rect(row_index)
+	var name_rect := weapon_name_rect(row_index)
 	var content_color := accent if exists else Color(accent, 0.0)
-	var name_text_color := content_color
-	var reload_inverted := false
-	if exists and reloading:
-		var ratio := clampf(reload_progress, 0.0, 1.0)
-		var fill := name_rect.grow(-3.0)
-		fill.size.x *= ratio
-		var fill_color := progress_color(ratio, accent)
-		if blink_on:
-			draw_rect(fill, fill_color, true)
-			reload_inverted = ratio >= 0.48
-			if reload_inverted:
-				name_text_color = Color.BLACK
-	elif exists and selected:
-		draw_rect(name_rect.grow(-2.0), accent, true)
-		name_text_color = Color.BLACK
-	_draw_text_top(str(ammo), origin + Vector2(8.0, 10.0), 27, content_color, true)
-	if selected and exists:
-		_draw_localized_text_top(tr("HUD_PRIORITY"), origin + Vector2(WEAPON_COUNT_W + 8.0, 17.0),
-			12, content_color)
-	var name_baseline := Vector2(name_rect.position.x, origin.y + 40.0)
-	if reload_inverted:
-		_draw_text_outline(name_text, name_baseline, 33, name_text_color,
-			progress_color(clampf(reload_progress, 0.0, 1.0), accent),
-			HORIZONTAL_ALIGNMENT_CENTER, name_rect.size.x)
-	else:
-		_draw_text(name_text, name_baseline, 33, name_text_color,
-			HORIZONTAL_ALIGNMENT_CENTER, name_rect.size.x, true)
+	var selected_inverse := exists and weapon_value_inverted(
+		selected, reloading, reload_blink_on)
+	var value_text_color := content_color
+	if selected_inverse:
+		draw_rect(count_rect, accent, true)
+		draw_rect(name_rect, accent, true)
+		value_text_color = Color.BLACK
+	_draw_text_in_rect(str(ammo), count_rect, secondary_value_font_size, value_text_color, true,
+		HORIZONTAL_ALIGNMENT_LEFT, WEAPON_COUNT_LAYOUT_TEXT)
+	# The name stays in the secondary information tier, but its fixed 2u board
+	# is authoritative; resolve the largest whole font size that preserves the
+	# complete MSL/GUN abbreviation inside that board.
+	_draw_text_in_rect(name_text, name_rect, 0,
+		value_text_color, true, HORIZONTAL_ALIGNMENT_CENTER, name_text)
+	_draw_progress_bar(weapon_reload_progress_rect(row_index), reload_progress,
+		accent, true, reloading and reload_blink_on, false)
 
 
-func _draw_progress_bar(rect: Rect2, ratio: float, accent: Color) -> void:
+func _draw_progress_bar(rect: Rect2, ratio: float, accent: Color,
+		vertical: bool = false, visible_fill: bool = true,
+		use_progress_color: bool = true) -> void:
+	if not visible_fill:
+		return
 	var clamped := clampf(ratio, 0.0, 1.0)
 	var track := progress_inner_track(rect)
-	var color := progress_color(clamped, accent)
+	var color := progress_color(clamped, accent) if use_progress_color else accent
 	if clamped <= 0.0:
 		return
 	var fill := track
-	fill.size.x *= clamped
+	if vertical:
+		fill.size.y *= clamped
+		fill.position.y = track.end.y - fill.size.y
+	else:
+		fill.size.x *= clamped
 	draw_rect(fill, color, true)
 
 
@@ -678,9 +776,89 @@ static func progress_inner_track(rect: Rect2) -> Rect2:
 
 
 func weapon_row_rect(index: int) -> Rect2:
-	var row_h := weapon_rect.size.y * 0.5
-	return Rect2(weapon_rect.position + Vector2(0.0, float(index) * row_h),
+	var row_h := WEAPON_SLOT_HEIGHT
+	var row_y := weapon_rect.position.y
+	if index > 0:
+		row_y += row_h + DECORATIVE_HALF_U_HEIGHT
+	return Rect2(Vector2(weapon_rect.position.x, row_y),
 		Vector2(weapon_rect.size.x, row_h))
+
+
+func weapon_count_rect(index: int) -> Rect2:
+	var row := weapon_row_rect(index)
+	return Rect2(row.position, Vector2(weapon_count_width, row.size.y))
+
+
+func weapon_name_rect(index: int) -> Rect2:
+	var row := weapon_row_rect(index)
+	return Rect2(Vector2(row.end.x - WEAPON_NAME_W, row.position.y),
+		Vector2(WEAPON_NAME_W, row.size.y))
+
+
+func weapon_reload_progress_rect(index: int) -> Rect2:
+	var name := weapon_name_rect(index)
+	return Rect2(Vector2(name.position.x - Q_SIZE.x, name.position.y),
+		Vector2(Q_SIZE.x, name.size.y))
+
+
+func weapon_aux_empty_rect(index: int) -> Rect2:
+	var progress := weapon_reload_progress_rect(index)
+	return Rect2(Vector2(progress.position.x - WEAPON_AUX_EMPTY_WIDTH, progress.position.y),
+		Vector2(WEAPON_AUX_EMPTY_WIDTH, progress.size.y))
+
+
+func weapon_empty_rect(index: int) -> Rect2:
+	var row := weapon_row_rect(index)
+	var aux_empty := weapon_aux_empty_rect(index)
+	return Rect2(Vector2(row.position.x + weapon_count_width, row.position.y),
+		Vector2(maxf(0.0, aux_empty.position.x - row.position.x - weapon_count_width), row.size.y))
+
+
+static func speed_value_overflows(speed_value: int) -> bool:
+	return speed_value > 99999
+
+
+static func formatted_speed_digits(speed_value: int) -> String:
+	if speed_value_overflows(speed_value):
+		return "99999"
+	return "%05d" % maxi(speed_value, 0)
+
+
+static func formatted_two_digit_value(value: int) -> String:
+	return "%02d" % clampi(value, 0, 99)
+
+
+static func speed_digit_is_padding(digits: String, index: int) -> bool:
+	var first_significant := -1
+	for digit_index in range(digits.length()):
+		if digits.substr(digit_index, 1) != "0":
+			first_significant = digit_index
+			break
+	if first_significant < 0:
+		first_significant = digits.length() - 1
+	return index < first_significant
+
+
+static func speed_digit_color(digits: String, index: int, overflow: bool,
+		blink_on: bool, accent: Color) -> Color:
+	if overflow:
+		return DANGER_RED if blink_on else Color(DANGER_RED, 0.0)
+	if speed_digit_is_padding(digits, index):
+		return SPD_PADDING_ZERO_COLOR
+	return accent
+
+
+static func shared_digit_color(digits: String, index: int, accent: Color) -> Color:
+	return SPD_PADDING_ZERO_COLOR if speed_digit_is_padding(digits, index) else accent
+
+
+static func weapon_value_inverted(selected: bool, reloading: bool, blink_on: bool) -> bool:
+	return selected and (not reloading or blink_on)
+
+
+func _weapon_animation_now_ms() -> int:
+	return weapon_animation_time_override_ms if weapon_animation_time_override_ms >= 0 \
+		else Time.get_ticks_msec()
 
 
 static func progress_color(ratio: float, accent: Color) -> Color:

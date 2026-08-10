@@ -94,28 +94,63 @@ func _test_layout_contract() -> void:
 		and PlayerInstrumentPanelScript.G_VALUE_LAYOUT_TEXT == "11.5"
 		and PlayerInstrumentPanelScript.G_INTEGER_LAYOUT_TEXT == "11"
 		and PlayerInstrumentPanelScript.G_FRACTION_LAYOUT_TEXT == "9"
-		and PlayerInstrumentPanelScript.SPD_VALUE_LAYOUT_TEXT == "9999"
+		and PlayerInstrumentPanelScript.SPD_VALUE_LAYOUT_TEXT == "99999"
 		and PlayerInstrumentPanelScript.ALT_VALUE_LAYOUT_TEXT == "99999"
 		and PlayerInstrumentPanelScript.FLARE_VALUE_LAYOUT_TEXT == "99")
-	_check("HP G and SPD share one height-first primary font size",
+	var display_font: Font = panel._display_font
+	_check("SPD, G integer, and FLR current digits share one fixed digit size",
 		panel.primary_value_font_size > 1
+		and panel.spd_digit_font_size > 1
 		and panel.hp_current_rect.size.y == PlayerInstrumentPanelScript.PRIMARY_VALUE_HEIGHT
 		and panel.g_integer_rect.size.y == PlayerInstrumentPanelScript.PRIMARY_VALUE_HEIGHT
-		and panel.spd_current_rect.size.y == PlayerInstrumentPanelScript.PRIMARY_VALUE_HEIGHT)
-	var display_font: Font = panel._display_font
+		and panel.spd_current_rect.size.y == PlayerInstrumentPanelScript.PRIMARY_VALUE_HEIGHT
+		and panel.spd_digit_rect(0).size.y == PlayerInstrumentPanelScript.PRIMARY_VALUE_HEIGHT
+		and panel.g_decimal_font_size == panel.spd_digit_font_size)
+	_check("SPD digit size preserves the complete widest zero inside every fixed cell",
+		display_font.get_string_size("0", HORIZONTAL_ALIGNMENT_LEFT, -1.0,
+			panel.spd_digit_font_size).x <= PlayerInstrumentPanelScript.SPD_DIGIT_WIDTH)
 	_check("primary boards expand by whole q steps instead of shrinking text",
 		display_font.get_string_size("999", HORIZONTAL_ALIGNMENT_LEFT, -1.0,
 			panel.primary_value_font_size).x <= panel.hp_current_rect.size.x
 		and display_font.get_string_size("11", HORIZONTAL_ALIGNMENT_LEFT, -1.0,
 			panel.primary_value_font_size).x <= panel.g_integer_rect.size.x
-		and display_font.get_string_size("9999", HORIZONTAL_ALIGNMENT_LEFT, -1.0,
-			panel.primary_value_font_size).x <= panel.spd_current_rect.size.x
 		and is_equal_approx(fmod(panel.hp_current_rect.size.x - 120.0, 18.0), 0.0)
-		and is_equal_approx(fmod(panel.g_integer_rect.size.x - 80.0, 18.0), 0.0)
-		and is_equal_approx(fmod(panel.spd_current_rect.size.x - 120.0, 18.0), 0.0))
-	_check("G uses framed 3u integer and bottom decimal cells with a borderless 2u fraction",
+		and is_equal_approx(fmod(panel.g_integer_rect.size.x - 80.0, 18.0), 0.0))
+	_check("SPD is five left-to-right framed digits of 1u plus half-q width",
+		PlayerInstrumentPanelScript.SPD_DIGIT_COUNT == 5
+		and PlayerInstrumentPanelScript.SPD_DIGIT_WIDTH
+			== PlayerInstrumentPanelScript.U_SIZE.x
+			+ PlayerInstrumentPanelScript.DECORATIVE_HALF_Q_WIDTH
+		and panel.spd_current_rect.size.x
+			== PlayerInstrumentPanelScript.SPD_DIGIT_WIDTH * 5.0
+		and panel.spd_digit_rect(0).position == panel.spd_current_rect.position
+		and panel.spd_digit_rect(4).end == panel.spd_current_rect.end)
+	_check("SPD zero padding and five-digit overflow states are deterministic",
+		PlayerInstrumentPanelScript.formatted_speed_digits(500) == "00500"
+		and PlayerInstrumentPanelScript.speed_digit_is_padding("00500", 0)
+		and PlayerInstrumentPanelScript.speed_digit_is_padding("00500", 1)
+		and not PlayerInstrumentPanelScript.speed_digit_is_padding("00500", 2)
+		and not PlayerInstrumentPanelScript.speed_digit_is_padding("00500", 3)
+		and PlayerInstrumentPanelScript.formatted_speed_digits(100000) == "99999"
+		and PlayerInstrumentPanelScript.speed_value_overflows(100000))
+	var overflow_red := PlayerInstrumentPanelScript.speed_digit_color(
+		"99999", 0, true, true, Color.GREEN)
+	var overflow_off := PlayerInstrumentPanelScript.speed_digit_color(
+		"99999", 0, true, false, Color.GREEN)
+	_check("SPD padding is 75 percent black and overflow blinks red",
+		PlayerInstrumentPanelScript.speed_digit_color(
+			"00500", 0, false, true, Color.GREEN).is_equal_approx(
+				PlayerInstrumentPanelScript.SPD_PADDING_ZERO_COLOR)
+		and overflow_red.is_equal_approx(PlayerInstrumentPanelScript.DANGER_RED)
+		and is_zero_approx(overflow_off.a))
+	_check("G uses two SPD-format 3u integer cells and a bottom decimal cell",
 		panel.g_integer_rect.size.y == PlayerInstrumentPanelScript.U_SIZE.y * 3.0
+		and panel.g_integer_rect.size.x == PlayerInstrumentPanelScript.SPD_DIGIT_WIDTH * 2.0
+		and panel.g_integer_digit_rect(0).size == panel.spd_digit_rect(0).size
+		and panel.g_integer_digit_rect(1).end == panel.g_integer_rect.end
 		and panel.g_decimal_rect.size == PlayerInstrumentPanelScript.Q_SIZE
+		and panel.g_decimal_font_size == panel.spd_digit_font_size
+		and PlayerInstrumentPanelScript.G_INTEGER_ALIGNMENT == HORIZONTAL_ALIGNMENT_CENTER
 		and panel.g_decimal_rect.end.y == panel.hp_g_rect.end.y
 		and panel.g_fraction_rect.size.y == PlayerInstrumentPanelScript.U_SIZE.y * 2.0
 		and panel.g_fraction_rect.end.y == panel.hp_g_rect.end.y
@@ -153,12 +188,26 @@ func _test_layout_contract() -> void:
 		and PlayerInstrumentPanelScript.DECORATIVE_HALF_U_HEIGHT
 			== PlayerInstrumentPanelScript.U_SIZE.y * 0.5
 		and is_equal_approx(fmod(
-			panel.aligned_content_width - PlayerInstrumentPanelScript.BASE_CONTENT_W,
+			panel.aligned_content_width - panel.spd_rect.size.x,
 			PlayerInstrumentPanelScript.DECORATIVE_HALF_Q_WIDTH), 0.0)
 		and panel.ab_rect.position.x == panel.spd_rect.position.x
-		and panel.engage_rect.position.x == panel.spd_rect.position.x
+		and panel.autopilot_rect.position.x == panel.spd_rect.position.x
 		and panel.maneuver_base_rect.position.x == panel.spd_rect.position.x
 		and panel.weapon_rect.position.x == panel.spd_rect.position.x)
+	_check("ENGAGE and FIRE are children of one aligned AUTOPILOT parent panel",
+		panel.autopilot_rect.size.x == PlayerInstrumentPanelScript.AUTOPILOT_WIDTH
+		and panel.autopilot_rect.size.x == PlayerInstrumentPanelScript.U_SIZE.x * 3.0
+		and panel.engage_rect.position == panel.autopilot_rect.position
+		and panel.engage_rect.size.x == panel.autopilot_rect.size.x
+		and panel.fire_rect.position.y == panel.engage_rect.end.y
+		and panel.fire_rect.size.x == panel.autopilot_rect.size.x
+		and panel.fire_rect.end == panel.autopilot_rect.end)
+	_check("structural empty panel bridges AUTOPILOT to FLR and can surrender one q",
+		panel.control_empty_rect.position.x == panel.autopilot_rect.end.x
+		and panel.control_empty_rect.end.x == panel.flare_base_rect.position.x
+		and panel.control_empty_rect.size.x >= PlayerInstrumentPanelScript.Q_SIZE.x
+		and panel.active_control_empty_rect(true).size.x
+			== panel.control_empty_rect.size.x - PlayerInstrumentPanelScript.Q_SIZE.x)
 	_check("aligned operation keycaps form one vertical display column",
 		PlayerInstrumentPanelScript.keycap_left_of(panel.spd_rect).position.x
 			== PlayerInstrumentPanelScript.keycap_left_of(panel.ab_rect).position.x
@@ -167,7 +216,7 @@ func _test_layout_contract() -> void:
 		and PlayerInstrumentPanelScript.keycap_left_of(panel.engage_rect).position.x
 			== PlayerInstrumentPanelScript.keycap_left_of(panel.maneuver_base_rect).position.x
 		and PlayerInstrumentPanelScript.keycap_left_of(panel.maneuver_base_rect).position.x
-			== PlayerInstrumentPanelScript.keycap_left_of(panel.weapon_rect).position.x)
+			== PlayerInstrumentPanelScript.keycap_left_of(panel.weapon_title_rect).position.x)
 	var inset_track := PlayerInstrumentPanelScript.progress_inner_track(panel.ab_progress_rect)
 	_check("progress fill uses a visible four-pixel inward inset",
 		PlayerInstrumentPanelScript.PROGRESS_INNER_INSET == 4.0
@@ -179,12 +228,18 @@ func _test_layout_contract() -> void:
 		and panel.maneuver_key_rect().size == PlayerInstrumentPanelScript.Q_SIZE
 		and panel.maneuver_key_rect().position.y == panel.maneuver_base_rect.position.y
 		and panel.manual_flare_key_rect().position.y == panel.flare_base_rect.position.y)
-	_check("internal R insertion grows left while the flare right edge remains fixed",
+	_check("internal R insertion consumes the empty panel without moving AUTOPILOT or FLR",
 		panel.active_flare_rect(true) == panel.flare_base_rect
-		and panel.active_engage_rect(true).position.x
-			== panel.engage_rect.position.x - PlayerInstrumentPanelScript.Q_SIZE.x
-		and panel.active_fire_rect(true).position.x
-			== panel.fire_rect.position.x - PlayerInstrumentPanelScript.Q_SIZE.x
+		and panel.active_autopilot_rect(true) == panel.autopilot_rect
+		and panel.active_engage_rect(true) == panel.engage_rect
+		and panel.active_fire_rect(true) == panel.fire_rect
+		and panel.active_fire_rect(true).end == panel.active_autopilot_rect(true).end
+		and panel.active_control_empty_rect(true).position
+			== panel.control_empty_rect.position
+		and panel.active_control_empty_rect(true).size.x
+			== panel.control_empty_rect.size.x - PlayerInstrumentPanelScript.Q_SIZE.x
+		and panel.active_control_empty_rect(true).end.x
+			== panel.manual_flare_key_rect().position.x
 		and panel.active_maneuver_rect(true, true) == panel.maneuver_base_rect
 		and panel.manual_flare_key_rect().end.x == panel.flare_base_rect.position.x)
 	_check("all expandable rows preserve the shared screen-side right edge",
@@ -194,8 +249,9 @@ func _test_layout_contract() -> void:
 		and panel.flare_base_rect.end.x == panel.size.x
 		and panel.maneuver_base_rect.end.x == panel.size.x
 		and panel.weapon_rect.end.x == panel.size.x)
-	_check("SPD primary value explicitly uses left alignment",
-		PlayerInstrumentPanelScript.SPD_VALUE_ALIGNMENT == HORIZONTAL_ALIGNMENT_LEFT)
+	_check("SPD five digit cells are individually included in the shared grid",
+		panel.grid_regions(false).has(panel.spd_digit_rect(0))
+		and panel.grid_regions(false).has(panel.spd_digit_rect(4)))
 	var ac := _make_aircraft()
 	ac.displacement_roll_active = true
 	panel.aircraft = ac
@@ -217,22 +273,75 @@ func _test_layout_contract() -> void:
 		and player_regions.has(panel.ab_title_rect)
 		and player_regions.has(panel.ab_percent_rect)
 		and player_regions.has(panel.ab_progress_rect)
+		and player_regions.has(panel.active_autopilot_rect(true))
+		and player_regions.has(panel.active_control_empty_rect(true))
+		and player_regions.has(panel.weapon_title_rect)
 		and player_regions.has(panel.manual_flare_key_rect())
-		and player_regions.has(panel.g_integer_rect)
+		and player_regions.has(panel.g_integer_digit_rect(0))
+		and player_regions.has(panel.g_integer_digit_rect(1))
 		and player_regions.has(panel.g_decimal_rect)
+		and player_regions.has(PlayerInstrumentPanelScript.flare_current_digit_rect(
+			active_flare, 0))
+		and player_regions.has(PlayerInstrumentPanelScript.flare_current_digit_rect(
+			active_flare, 1))
 		and player_regions.has(PlayerInstrumentPanelScript.flare_title_rect(active_flare))
 		and not player_regions.has(panel.hp_current_rect)
 		and not player_regions.has(panel.g_fraction_rect)
 		and not player_regions.has(panel.hp_separator_rect)
 		and not player_regions.has(panel.hp_max_rect)
 		and not player_regions.has(PlayerInstrumentPanelScript.flare_current_rect(active_flare)))
-	_check("removing the empty row and using 2u progress panels yields 24u total height",
-		panel.size.y == PlayerInstrumentPanelScript.U_SIZE.y * 24.0
+	_check("weapon group begins after a framed half-u spacer and a standalone 1u title",
+		panel.weapon_spacer_rect.position.y == panel.maneuver_base_rect.end.y
+		and panel.weapon_spacer_rect.size.y
+			== PlayerInstrumentPanelScript.DECORATIVE_HALF_U_HEIGHT
+		and player_regions.has(panel.weapon_spacer_rect)
+		and panel.weapon_title_rect.position.y == panel.weapon_spacer_rect.end.y
+		and panel.weapon_title_rect.size.y == PlayerInstrumentPanelScript.U_SIZE.y
+		and panel.weapon_rect.position.y == panel.weapon_title_rect.end.y
+		and PlayerInstrumentPanelScript.keycap_left_of(panel.weapon_title_rect).position.y
+			== panel.weapon_title_rect.position.y
+		and PlayerInstrumentPanelScript.keycap_left_of(panel.weapon_title_rect).end.y
+			== panel.weapon_title_rect.end.y)
+	_check("two 2u weapon slots are separated by one framed half-u board",
+		panel.weapon_row_rect(0).size.y == PlayerInstrumentPanelScript.U_SIZE.y * 2.0
+		and panel.weapon_row_rect(1).size.y == PlayerInstrumentPanelScript.U_SIZE.y * 2.0
+		and panel.weapon_row_rect(0).end.y == panel.weapon_middle_spacer_rect.position.y
+		and panel.weapon_middle_spacer_rect.size.y
+			== PlayerInstrumentPanelScript.DECORATIVE_HALF_U_HEIGHT
+		and panel.weapon_middle_spacer_rect.end.y == panel.weapon_row_rect(1).position.y
+		and player_regions.has(panel.weapon_middle_spacer_rect)
+		and panel.size.y == PlayerInstrumentPanelScript.U_SIZE.y * 24.0
 		and panel.weapon_rect.end.y == panel.size.y)
-	_check("weapon name column still begins after four u of numeric information",
-		is_equal_approx(PlayerInstrumentPanelScript.WEAPON_COUNT_W
-			+ PlayerInstrumentPanelScript.WEAPON_PRIORITY_W,
-			PlayerInstrumentPanelScript.U_SIZE.x * 4.0))
+	_check("only the selected weapon value boards invert and reload at 2 Hz",
+		PlayerInstrumentPanelScript.weapon_value_inverted(true, false, false)
+		and PlayerInstrumentPanelScript.weapon_value_inverted(true, true, true)
+		and not PlayerInstrumentPanelScript.weapon_value_inverted(true, true, false)
+		and not PlayerInstrumentPanelScript.weapon_value_inverted(false, true, true))
+	_check("2u weapon slots use count flexible fill half-q blank progress and right name",
+		panel.weapon_count_rect(0).position == panel.weapon_row_rect(0).position
+		and panel.weapon_count_rect(0).size.y
+			== PlayerInstrumentPanelScript.WEAPON_SLOT_HEIGHT
+		and panel.weapon_count_rect(0).size.x == panel.weapon_count_width
+		and panel.weapon_name_rect(0).size
+			== Vector2(PlayerInstrumentPanelScript.U_SIZE.x * 2.0,
+				PlayerInstrumentPanelScript.U_SIZE.y * 2.0)
+		and panel.weapon_name_rect(0).end == panel.weapon_row_rect(0).end
+		and panel.weapon_empty_rect(0).position.x == panel.weapon_count_rect(0).end.x
+		and panel.weapon_empty_rect(0).end.x == panel.weapon_aux_empty_rect(0).position.x
+		and panel.weapon_aux_empty_rect(0).size
+			== Vector2(PlayerInstrumentPanelScript.DECORATIVE_HALF_Q_WIDTH,
+				PlayerInstrumentPanelScript.WEAPON_SLOT_HEIGHT)
+		and panel.weapon_aux_empty_rect(0).end.x
+			== panel.weapon_reload_progress_rect(0).position.x
+		and panel.weapon_reload_progress_rect(0).size
+			== Vector2(PlayerInstrumentPanelScript.Q_SIZE.x,
+				PlayerInstrumentPanelScript.WEAPON_SLOT_HEIGHT)
+		and panel.weapon_reload_progress_rect(0).end.x
+			== panel.weapon_name_rect(0).position.x)
+	_check("G and FLR two-digit formatting stays zero-padded and bounded",
+		PlayerInstrumentPanelScript.formatted_two_digit_value(1) == "01"
+		and PlayerInstrumentPanelScript.formatted_two_digit_value(11) == "11"
+		and PlayerInstrumentPanelScript.formatted_two_digit_value(120) == "99")
 	_check("wingman slot keys remain independent 1q cells",
 		WingmanInstrumentPanelScript.SLOT_FONT_SIZE == 15
 		and WingmanInstrumentPanelScript.SLOT_KEY_SIZE == Vector2(18.0, 18.0)

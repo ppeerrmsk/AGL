@@ -342,6 +342,7 @@ HUD_AFTERBURNER,加力,AFTERBURNER,アフターバーナー
 HUD_ENGAGE,接敌,ENGAGE,交戦
 HUD_FIRE,开火,FIRE,攻撃
 HUD_PRIORITY,优先,PRIORITY,優先
+HUD_PRIORITY_WEAPON,PRIORITY WEAPON,PRIORITY WEAPON,PRIORITY WEAPON
 ZONE_REWARD_TAG,战区奖励,ZONE REWARD,戦域報酬
 ZONE_REWARD_HINT_MISSILE,※ 这是一个强化导弹性能的技能,※ A missile performance upgrade,※ ミサイル性能を強化するスキル
 ZONE_REWARD_HINT_GUN,※ 这是一个强化机炮性能的技能,※ A gun performance upgrade,※ ガン性能を強化するスキル
