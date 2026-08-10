@@ -5,6 +5,8 @@ const PlayerInstrumentPanelScript := preload("res://scripts/survivor/player_inst
 const WingmanInstrumentPanelScript := preload("res://scripts/survivor/wingman_instrument_panel.gd")
 const MilestoneAxisCounterScript := preload("res://scripts/survivor/milestone_axis_counter.gd")
 const UiDevOutlineOverlayScript := preload("res://scripts/ui/ui_dev_outline_overlay.gd")
+const HudFirstRevealSequencerScript := preload("res://scripts/ui/hud_first_reveal_sequencer.gd")
+const HudBoardVisibilityScript := preload("res://scripts/ui/hud_board_visibility.gd")
 
 ## 生存模式 HUD：右下角状态面板 + 顶部时间/击杀 + 底部经验条
 
@@ -87,6 +89,18 @@ var _game_over_label: RichTextLabel
 var _threat_overlay: Control
 
 var _hud_data_refresh_timer: float = 0.0
+
+# ── HUD 顶层面板首次显现（本局每个登记面板只播放一次）──
+var _hud_first_reveal
+var _hud_reveal_boards: Dictionary = {}
+var _hud_reveal_controllers: Dictionary = {}
+const HUD_REVEAL_TOP_STATUS := &"top_status"
+const HUD_REVEAL_KILL_FEED := &"kill_feed"
+const HUD_REVEAL_BOSS := &"boss"
+const HUD_REVEAL_ACE := &"ace"
+const HUD_REVEAL_RADAR := &"radar"
+const HUD_REVEAL_XP := &"xp"
+const HUD_REVEAL_GAME_OVER := &"game_over"
 
 # ── F7 UI Dev 定位覆盖层 ──
 var _ui_dev_overlay: Control
@@ -378,6 +392,29 @@ func _build_ui() -> void:
 	_kill_feed_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_kill_feed_container)
 	EventLogger.kill_recorded.connect(_on_kill_recorded)
+	_setup_hud_first_reveal()
+
+
+func _setup_hud_first_reveal() -> void:
+	_hud_first_reveal = HudFirstRevealSequencerScript.new()
+	# 实际顺序每帧以屏幕坐标计算：从上到下，同一行从左到右。
+	_hud_first_reveal.register_panel(HUD_REVEAL_TOP_STATUS,
+		[_warzone_timer_label, _time_label, _kill_label, _cloud_label], Vector2.ZERO)
+	# 空 VBoxContainer 默认 visible=true；首条真实战况到来前必须保持未启用。
+	_hud_first_reveal.register_panel(HUD_REVEAL_KILL_FEED,
+		[_kill_feed_container], Vector2.ZERO, false)
+	_hud_first_reveal.register_panel(HUD_REVEAL_BOSS, [_boss_panel], Vector2.ZERO)
+	_hud_first_reveal.register_panel(HUD_REVEAL_ACE, [_ace_panel], Vector2.ZERO)
+	_hud_first_reveal.register_panel(HUD_REVEAL_RADAR, [_radar], Vector2.ZERO)
+	_hud_first_reveal.register_panel(HUD_REVEAL_XP,
+		[_xp_bar_bg, _xp_bar_fill, _xp_label], Vector2.ZERO)
+	_hud_first_reveal.register_panel(HUD_REVEAL_GAME_OVER,
+		[_game_over_panel], Vector2.ZERO)
+	# 正式场景在 ready 内先完成一次零时刻初始化，杜绝 process 前的首帧总描边。
+	if is_inside_tree():
+		_layout_ui()
+		_sync_hud_first_reveal_targets()
+		_hud_first_reveal.update(0.0)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F3:
@@ -392,6 +429,9 @@ func _process(delta: float) -> void:
 	_update_tactical_buttons()
 	_update_hud_data_layer(delta)
 	_update_kill_feed(delta)
+	if _hud_first_reveal != null:
+		_sync_hud_first_reveal_targets()
+		_hud_first_reveal.update(delta)
 	if _debug_visible:
 		_debug_update_timer -= delta
 		if _debug_update_timer <= 0.0:
@@ -407,6 +447,85 @@ func _update_hud_data_layer(delta: float) -> void:
 	_update_squad_panel()
 	_update_boss_panel()
 	_update_ace_panel()
+
+
+func _sync_hud_first_reveal_targets() -> void:
+	_hud_first_reveal.set_panel_sort_position(
+		HUD_REVEAL_TOP_STATUS, _warzone_timer_label.position)
+	_hud_first_reveal.set_panel_sort_position(
+		HUD_REVEAL_KILL_FEED, _kill_feed_container.position)
+	_hud_first_reveal.set_panel_sort_position(HUD_REVEAL_BOSS, _boss_panel.position)
+	_hud_first_reveal.set_panel_sort_position(HUD_REVEAL_ACE, _ace_panel.position)
+	var viewport_size := get_viewport().get_visible_rect().size
+	var radar_sort_position := Vector2(
+		RadarDisplay.RADAR_MARGIN,
+		viewport_size.y - RadarDisplay.RADAR_MARGIN
+			- RadarDisplay.RADAR_RADIUS * 2.0 - 50.0)
+	_hud_first_reveal.set_panel_sort_position(HUD_REVEAL_RADAR, radar_sort_position)
+	_hud_first_reveal.set_panel_sort_position(HUD_REVEAL_XP, _xp_bar_bg.position)
+	_hud_first_reveal.set_panel_sort_position(
+		HUD_REVEAL_GAME_OVER, _game_over_panel.position)
+
+	var active_board_ids: Dictionary = {}
+	var player_panel := _player_instrument as PlayerInstrumentPanel
+	if player_panel != null:
+		var ac := _safe_player_aircraft()
+		var maneuver_visible := PlayerInstrumentPanelScript.maneuver_skill_visible(ac) \
+			if ac != null else false
+		var manual_flare_visible := PlayerInstrumentPanelScript.manual_flare_key_visible(ac) \
+			if ac != null else false
+		_sync_hud_reveal_regions(
+			_ensure_hud_reveal_controller(&"player", player_panel),
+			player_panel.reveal_panel_regions(maneuver_visible, manual_flare_visible),
+			active_board_ids)
+	var wingman_panel := _wingman_instrument as WingmanInstrumentPanel
+	if wingman_panel != null:
+		_sync_hud_reveal_regions(
+			_ensure_hud_reveal_controller(&"wingman", wingman_panel),
+			wingman_panel.reveal_panel_regions(), active_board_ids)
+	var milestone_regions: Array[Dictionary] = []
+	for axis_index in range(SurvivorData.AXES.size()):
+		milestone_regions.append({
+			"id": StringName("milestone_axis_%d" % axis_index),
+			"rect": MilestoneAxisCounterScript.cell_rect(axis_index),
+		})
+	_sync_hud_reveal_regions(
+		_ensure_hud_reveal_controller(&"milestone", _milestone_axis_counter),
+		milestone_regions, active_board_ids)
+
+	for raw_id: Variant in _hud_reveal_boards.keys():
+		var id := StringName(raw_id)
+		if active_board_ids.has(id):
+			continue
+		_hud_first_reveal.set_panel_available(id, false)
+
+
+func _ensure_hud_reveal_controller(key: StringName, source: Control):
+	if _hud_reveal_controllers.has(key):
+		return _hud_reveal_controllers[key]
+	var controller = HudBoardVisibilityScript.new(source)
+	_hud_reveal_controllers[key] = controller
+	return controller
+
+
+func _sync_hud_reveal_regions(controller, regions: Array[Dictionary],
+		active_board_ids: Dictionary) -> void:
+	controller.sync_regions(regions)
+	for descriptor in regions:
+		var id := StringName(descriptor.get("id", &""))
+		if id.is_empty() or not controller.has_board(id):
+			continue
+		if not _hud_reveal_boards.has(id):
+			_hud_first_reveal.register_callback_panel(
+				id,
+				controller.set_reveal_alpha.bind(id),
+				controller.board_is_visible.bind(id),
+				controller.board_screen_position(id))
+			_hud_reveal_boards[id] = controller
+		_hud_first_reveal.set_panel_available(id, true)
+		_hud_first_reveal.set_panel_sort_position(
+			id, controller.board_screen_position(id))
+		active_board_ids[id] = true
 
 func toggle_ui_dev_overlay() -> void:
 	_ui_dev_visible = not _ui_dev_visible
@@ -671,6 +790,8 @@ func _on_kill_recorded(killer: String, victim: String, weapon_kind: String, kill
 	_kill_feed_container.add_child(lbl)
 	_kill_feed_container.move_child(lbl, 0)   # 最新置顶
 	_kill_feed_entries.push_front({"label": lbl, "age": 0.0})
+	if _hud_first_reveal != null:
+		_hud_first_reveal.set_panel_available(HUD_REVEAL_KILL_FEED, true)
 	while _kill_feed_entries.size() > KILL_FEED_MAX:
 		var old: Dictionary = _kill_feed_entries.pop_back()
 		var ol = old.get("label")

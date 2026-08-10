@@ -28,18 +28,18 @@ func _physics_process(delta: float) -> void:
 func _update_target_selection() -> void:
 	var preferred: Variant = get_meta(META_PREFERRED_COMBAT_TARGET) \
 		if has_meta(META_PREFERRED_COMBAT_TARGET) else null
-	if preferred is Aircraft and is_instance_valid(preferred) \
-			and not (preferred as Aircraft).is_destroyed and is_hostile_to(preferred) \
-			and radar_targets.has(preferred):
-		combat_target = preferred
+	var preferred_aircraft := _live_aircraft_ref(preferred)
+	if preferred_aircraft != null and is_hostile_to(preferred_aircraft) \
+			and radar_targets.has(preferred_aircraft):
+		combat_target = preferred_aircraft
 		return
 	var best: Aircraft = null
 	var best_dist := INF
 	for value in radar_targets.keys():
-		if not (value is Aircraft) or not is_instance_valid(value):
+		var aircraft := _live_aircraft_ref(value)
+		if aircraft == null:
 			continue
-		var aircraft := value as Aircraft
-		if aircraft.is_destroyed or not is_hostile_to(aircraft) or aircraft.is_lock_immune():
+		if not is_hostile_to(aircraft) or aircraft.is_lock_immune():
 			continue
 		var distance := global_position.distance_squared_to(aircraft.global_position)
 		if distance < best_dist:
@@ -60,26 +60,27 @@ func _update_sam_missile(delta: float) -> void:
 		return
 	if _missile_cooldown > 0.0:
 		return
-	if not (combat_target is Aircraft) or not is_instance_valid(combat_target) \
-			or combat_target.is_destroyed:
+	var target_value: Variant = combat_target
+	var target := _live_aircraft_ref(target_value)
+	if target == null:
 		combat_target = null
 		return
 
 	# ── 保险 1：目标必须仍在雷达范围内（防止因为锁定衰减滞后而打空）
-	if not is_in_radar_cone(combat_target.global_position):
+	if not is_in_radar_cone(target.global_position):
 		combat_target = null
 		return
 
 	# ── 保险 2：目标不能处于"锁定免疫"/光学隐形状态
-	if combat_target.is_lock_immune():
+	if target.is_lock_immune():
 		combat_target = null
 		return
-	if combat_target is Aircraft and combat_target.is_cloaked:
+	if target.is_cloaked:
 		combat_target = null
 		return
 
 	# ── 保险 3：距离要在导弹有效射程内（min/max）
-	var dist_px := global_position.distance_to(combat_target.global_position)
+	var dist_px := global_position.distance_to(target.global_position)
 	var dist_m := dist_px / PIXELS_PER_METER
 	var max_range_m := params.missile.max_range_rear * params.missile.front_rear_ratio
 	if dist_m < params.missile.min_range or dist_m > max_range_m:
@@ -87,17 +88,17 @@ func _update_sam_missile(delta: float) -> void:
 
 	# 检查锁定
 	var lock_time_val := params.lock_time if params else 3.0
-	var lock_progress: float = radar_targets.get(combat_target, 0.0)
+	var lock_progress: float = radar_targets.get(target, 0.0)
 	if lock_progress < lock_time_val:
 		return
 
 	# 检查是否已有在飞导弹
-	if missile_manager.has_active_missile_at(self, combat_target):
+	if missile_manager.has_active_missile_at(self, target):
 		return
 
 	# 发射
-	missile_manager.spawn_missile(self, combat_target, params.missile)
-	notify_missile_fired_at(combat_target)
+	missile_manager.spawn_missile(self, target, params.missile)
+	notify_missile_fired_at(target)
 	missiles_remaining -= 1
 	_missile_cooldown = params.missile.cooldown
 
@@ -120,7 +121,8 @@ func _lock_line_can_engage_player() -> bool:
 	var pref: Aircraft = AircraftRenderer.safe_player_ref()
 	if pref == null:
 		return false
-	return combat_target == pref
+	var target_value: Variant = combat_target
+	return _live_aircraft_ref(target_value) == pref
 
 ## SAM 不用机炮
 func _update_combat(_delta: float) -> void:

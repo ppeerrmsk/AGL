@@ -1,5 +1,7 @@
 extends RefCounted
 
+const _I18N_CATALOG := preload("res://scripts/i18n_catalog.gd")
+
 ## 全量技能审计：158 条逐项验证“配置 → apply/运行时消费点 → 玩家文案”。
 ##
 ## 直接数值/字段技能会真的应用到一架挂满可选装备的最小测试机，并比较应用前后快照；
@@ -212,19 +214,7 @@ func _append_primitives(out: Array[String], prefix: String, obj: Object) -> void
 
 
 func _load_translations() -> Dictionary:
-	var result: Dictionary = {}
-	var file := FileAccess.open("res://i18n/translations.csv", FileAccess.READ)
-	if file == null:
-		return result
-	var first := true
-	while not file.eof_reached():
-		var row := file.get_csv_line()
-		if first:
-			first = false
-			continue
-		if row.size() >= 4 and row[0] != "":
-			result[row[0]] = [row[1], row[2], row[3]]
-	return result
+	return _I18N_CATALOG.audit().get("rows", {})
 
 
 func _test_regression_contracts(mode_source: String) -> void:

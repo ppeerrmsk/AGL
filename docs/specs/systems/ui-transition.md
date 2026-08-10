@@ -3,7 +3,7 @@ id: ui-transition
 kind: system
 status: in-progress
 schema_version: 1
-spec_version: 15
+spec_version: 20
 owner: noelu
 depends_on: [command-wheel, survivor-loop, zone-reward-docking, radio-chatter, event-system]
 reconstruction_complete: true
@@ -383,6 +383,29 @@ BOSS 演出期间把世界"清空"成一片空旷天空的参数。**不新建�
 `from` 缺省=通道当前值。未知 `ch` 或 `op` → 跳过并 `push_warning`，**不中断整条序列**
 （热重载改坏 JSON 不能把游戏卡死）。
 
+### 2.13 玩家 HUD 首次显现序列
+
+玩家实际可见的生存 HUD 框板在**本局第一次可见**时进入同一空间排序队列；每块按顺序快速
+错峰启动，但不等待前一块结束。每块独立闪烁两次后固定为持续显示。它是 HUD 自身的轻量表现，不占用全局
+`PresentationDirector`，也不改变暂停、时间缩放、输入或玩法状态。
+
+| 字段 | 值 | 说明 |
+|---|---|---|
+| `HUD_REVEAL_TOTAL_DURATION` | `0.50s` | 单框板从第一次亮起到两闪完成的总时长 |
+| `HUD_REVEAL_HALF_PERIOD` | `0.125s` | 相位为 `亮 → 灭 → 亮 → 灭 → 常亮` 的四等分 |
+| `HUD_REVEAL_BLINK_COUNT` | `2` | 每块框板严格经历两次灭相位后常亮 |
+| `HUD_REVEAL_STAGGER` | `0.02s` | 下一框板的启动间隔；与前一框板并发，不等待其 `0.50s` 完成 |
+| 首次判定 | 每个 HUD 实例、每个登记 id 一次 | 隐藏后再次显示不重播；新开一局会随新 HUD 实例重置 |
+| 排序 | 屏幕空间顺序 | `y` 从上到下优先，同一视觉行再按 `x` 从左到右 |
+| 动态面板 | 首次真实可见时入队 | 战况栏、僚机、BOSS/王牌条与终局面板不能在空内容/隐藏态提前消费首次机会 |
+
+登记范围：顶部战区/时间/击杀状态组、左上战况栏、BOSS 状态条、王牌状态条、左下雷达、
+底部三轴计数器的三个轴格、经验条、右侧每一条僚机框板、玩家仪表内每个互不重叠的功能框板、
+终局面板。玩家仪表的 HP、G、ALT、SPD、加力、ENGAGE、空框、FLR、FIRE、R 机动、武器标题/槽/
+分隔框与可见键帽均各自登记，禁止把整块右下仪表合成一个闪烁目标。旧版固定隐藏的
+TACTICS/状态/提示/小队面板，以及 F3 Debug、F7 定位层、威胁箭头、经验飞字不属于“面板”，
+不登记。
+
 ## 3. 行为与公式（How）
 
 ### 3.1 转场状态机
@@ -532,6 +555,18 @@ dismiss(panel, seq_name):
 而面板刚 `visible = true` 那帧 `size` 仍是 `Vector2.ZERO`。故必须等一帧。
 这一帧（16ms）不计入序列时长。
 
+### 3.10 HUD 首次显现状态机
+
+每帧只遍历显式登记的固定小表，不扫描场景树。单框板状态为 `WAITING → QUEUED → BLINKING → SETTLED`：
+
+1. 复合仪表新登记的子框默认关闭源绘制，生存 HUD 在 `_ready` 内完成一次零时刻同步与更新；源开关矩形必须向外覆盖 `1px`，收掉描边居中绘制产生的半像素外溢，确保首次绘制前不存在总体 `1px` 描边；`WAITING` 框板第一次满足“已启用且在树中可见”时进入 `QUEUED`，普通独立控件压到透明；
+2. 队列按 §2.13 屏幕空间顺序稳定排序，首块立即启动，其后每 `0.02s` 启动一块；允许多个 `BLINKING` 同时存在；
+3. 每个 `BLINKING` 独立累计时间，`0.50s` 等分为四个 `0.125s` 明灭相位；
+4. 完成两次明灭后恢复源框板常亮并进入 `SETTLED`；不得创建覆盖在 HUD 上方的黑底遮罩；
+5. 排队或闪烁中若面板再次隐藏，取消本次、恢复原色且不消费首次机会；下次可见时重新入队；
+6. `SETTLED` 后永不重播。动态战况栏由第一条真实记录显式启用，不能因空 `VBoxContainer`
+   默认 `visible=true` 而在开局提前结算。
+
 ## 4. 结构与组成（Structure）
 
 ### 4.1 部件
@@ -542,6 +577,7 @@ dismiss(panel, seq_name):
 | `TimeAuthority` | RefCounted | 时间请求栈 + `Engine.time_scale` / `get_tree().paused` 唯一写入点 |
 | `SequencePlayer` | RefCounted | 单条序列的 step 推进与插值 |
 | `StageIsolator` | RefCounted | 空舞台的 clear / restore + 演员 `process_mode` 切换 |
+| `HudFirstRevealSequencer` | RefCounted | 玩家 HUD 固定登记表、首次可见判定、空间排序与错峰并发两闪状态机 |
 | `EaseLib` | 静态类 | §2.5 缓动函数表 |
 | `sequences.json` | 资源 | 全部时长 / 曲线 / 幅度 / 台词时刻 |
 | dim `CanvasLayer` | 导演子节点 | layer 16，全屏 `ColorRect` |
@@ -593,7 +629,7 @@ func get_transition_elements() -> Array[Control]
 | 物理航路飞行 | `AIDirective.follow_path` —— **已造好、已接线、全项目零使用**，现成钩子 |
 | 免战 | `AIDirective.combat_disabled`（默认 true，每帧 `clear_combat_target()`） |
 | 台词队列 | `RadioChatter.say_text` + `scripted` 豁免节流与淘汰 |
-| BOSS 台词内容 | `RADIO_BOSS_WRAITH_SPAWN_1/2/3` 三语已在 `translations.csv`；序列在 `radio_chatter.json` |
+| BOSS 台词内容 | `RADIO_BOSS_WRAITH_SPAWN_1/2/3` 三语已在 `radio.csv`；序列在 `radio_chatter.json` |
 | 脚本化进场 | `BossEncounterEvent` PRE_STAGE 的 `fly_to(..., combat_disabled=true)` |
 | 镜头 lerp | `CameraController.target_zoom` / `_update_follow` |
 | 音乐切层 | `AudioManager.play_layered_music` / `crossfade_music` / `set_music_muffled` |
@@ -617,7 +653,19 @@ func get_transition_elements() -> Array[Control]
 - [ ] `actor` 步骤在无 `ctx.owner` 时被拒绝（不静默下发）
 - [ ] `--bench=all` 无回归
 
+**HUD 专项**（`--bench=player_hud`）：
+- [ ] 空间顺序稳定：从上到下，同一行从左到右
+- [ ] 后续框板每 `0.02s` 错峰启动，不等待前框板结束
+- [ ] 每框板在 `0.50s` 内严格经历两次灭相位后常亮
+- [ ] 玩家仪表、僚机行与三轴格按独立框板登记，不出现整组同时闪烁
+- [ ] 完成后隐藏/重显不重播；中途隐藏则下次可见重新完整播放
+- [ ] 动态战况栏在第一条记录前不消费首次机会；僚机/BOSS/王牌/终局均在首次真实可见时入队
+
 **引擎内**（生存模式 F5）：
+- [ ] 开局 HUD 按屏幕从上到下、同一行从左到右快速掠过；各框板两闪均在 `0.50s` 内完成
+- [ ] 右下玩家仪表的每个功能框、每条僚机行与底部三轴格分别闪烁，不整组合闪
+- [ ] 本局第一次获得僚机、出现战况栏、进入 BOSS/王牌战与显示终局面板时，各自都完整闪两次
+- [ ] 已完成的面板后续隐藏再显示保持常亮，不重复播放
 - [ ] 升级：世界急刹 ~0.15s → 镜头微推 → 标题+3 卡错开弹入，总时长约 0.44s
 - [ ] 选卡后升级效果**当帧**生效（EventLogger 确认），面板齐退，时间弹回 1.0
 - [ ] **鼠标回归**：选卡后立刻按住拖拽，无卡死的 `is_dragging`（原代码专门修过：暂停吞 release）
@@ -663,7 +711,7 @@ func get_transition_elements() -> Array[Control]
 - [x] `actor` 通道 —— 委托 `ctx.owner.set_directive`，无 owner 则拒绝（§3.3）
 - [x] `radio` 通道 + `RadioChatter` 的 **ambient 压制 API**（`suppress_ambient(bool)`，非 debug 接口）
 - [x] `RadioChatter` 支持**演出台词时长覆写**（`dur` 参数绕开 2.6s 封底，仅演出可用，§2.8.2）
-- [x] `translations.csv` 覆写 `RADIO_BOSS_WRAITH_SPAWN_1/2/3` 三语（§2.8.1 权威文本）
+- [x] `radio.csv` 覆写 `RADIO_BOSS_WRAITH_SPAWN_1/2/3` 三语（§2.8.1 权威文本）
 - [x] `camera` 通道扩展 —— `cut_to` / `return_to_player` / `cine_target`
 - [x] **`FOLLOW_PATH` 到点半径改为可配**（现 `300.0` 硬编码，交汇需 `80`）
 - [x] `echelon_ingress` op —— 梯队偏移 + 高度分层 + 逐机 stagger 淡入 + `follow_path` 下发
@@ -690,6 +738,11 @@ func get_transition_elements() -> Array[Control]
 - [ ] `tactical_map` / `boundary_ui` / `evolution_ui` 接入转场
 - [ ] 击杀特写 / `shake` 接入受击反馈
 
+### 阶段 4 — 玩家 HUD 首次显现（2026-08-10）
+- [x] 新增固定登记、首次可见判定与 `0.02s` 快速错峰的并发两闪状态机；不接全局导演、不扫描场景树。
+- [x] 生存 HUD 登记全部玩家可见框板；玩家仪表、僚机行与三轴格拆成独立目标，动态战况栏由第一条真实内容启用。
+- [ ] `player_hud`、可视化截图与实际生存模式观感验收。
+
 ## 7. 索引锚点（Where —— 唯一允许放指针的地方）
 
 | 关注点 | 文件 |
@@ -707,6 +760,8 @@ func get_transition_elements() -> Array[Control]
 | Wraith 中队 | `scripts/survivor/f47_ace_squad.gd`、`scripts/survivor/ace_squad.gd` |
 | 演员指令 | `scripts/events/ai_directive.gd`、`scripts/events/game_event.gd` |
 | 无线电压制 | `scripts/survivor/radio_chatter.gd` |
+| HUD 首次显现状态机 | `scripts/ui/hud_first_reveal_sequencer.gd` |
+| HUD 面板登记 | `scripts/survivor/survivor_hud.gd` |
 | autoload 注册 | `project.godot` |
 | 无头测试 | `scripts/tests/test_presentation.gd`，注册于 `scripts/bench/bench_runner.gd` |
 | reference 索引行 | `script-index.md` / `code-index.md` 的 presentation 段 |
@@ -715,6 +770,11 @@ func get_transition_elements() -> Array[Control]
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-10 | 20 | 修复进入树到首次 `_process` 之间仍短暂绘制总体 `1px` 描边：复合仪表新框板改为默认关闭，HUD 在 `_ready` 的首次绘制前完成零时刻显现同步；源关闭区域向外覆盖 `1px`，一并收掉描边的半像素外溢。 |
+| 2026-08-10 | 19 | 修复首显前仍能看到黑色底板：删除逐框 `ColorRect` 遮罩，改由 `HudBoardVisibility` 直接开关复合控件的源绘制区域；背景、文字和边线同步消失，常亮后卸下临时材质。 |
+| 2026-08-10 | 18 | 按用户复测反馈把单框板两闪总时长从 `0.20s` 调整为 `0.50s`，四个明灭相位同步改为 `0.125s`；`0.02s` 快速错峰、并发播放与逐框拆分不变。 |
+| 2026-08-10 | 17 | 根据实机反馈把 HUD 首显由串行 `0.48s/块` 改为 `0.02s` 快速错峰并发、`0.20s/块` 两闪；排序改为屏幕从上到下、同一行从左到右，并把右下玩家仪表、每条僚机与三轴格拆成独立框板。 |
+| 2026-08-10 | 16 | 玩家 HUD 顶层面板新增本局首次显现序列：按阅读顺序逐个执行 `0.12s` 半周期的两次明灭后常亮；动态面板只在首次真实可见时入队，完成后不重播。 |
 | 2026-08-04 | 15 | 修复出界补给跨过 10 分钟闸门时 BOSS 到场却无血条：UI 转场覆盖 arrival 后，事件不再重挂等待已消失的序列，改为 fail-open 立即 ENGAGED；新增打断回归断言。 |
 | 2026-08-04 | 14 | 文档维护：删除“生存模式是无尽波次”的旧前提，改为“有终点但高频重复”；7 秒上限与不可跳过决策不变。 |
 | 2026-07-29 | 13 | **所有 BOSS 统一接入表演导演**（用户定稿）：不是复刻 Wraith 分镜，而是统一系统契约“生成→镜头切 BOSS→登场无线电→回玩家→立即 ENGAGED”。新增 `carrier_strike_group_arrival`（旗舰特写、3 句、6.7s）与 `mother_goose_arrival`（母机特写、2 句、5.1s）；演员协议从 Aircraft 泛化为 CombatUnit，`release()` 仅对 Aircraft 复位隐身字段，支持 NavalUnit 安全作为镜头演员；三个注册 BOSS 的序列命名与收尾契约加入无头断言。 |

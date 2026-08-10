@@ -28,6 +28,7 @@ func run() -> void:
 	_test_attrition_milestones()
 	_test_pick_no_repeat()
 	_test_i18n_coverage()
+	_test_v8_data_contract()
 	_test_presentation()
 	_test_voice_gate()
 
@@ -316,7 +317,7 @@ func _test_attrition_milestones() -> void:
 	# 冷却内不再触发，即使又跨了一个里程碑
 	for i in 12:
 		r.notify_enemy_loss()
-	_check("25s 冷却内不重复触发", r.debug_queue_size() == 1, "")
+	_check("30s 冷却内不重复触发", r.debug_queue_size() == 1, "")
 	_free(r)
 
 
@@ -359,7 +360,14 @@ func _test_i18n_coverage() -> void:
 	for key in keys:
 		if tr(key) == key:
 			missing.append(key)
-	for k in ["RADIO_SPEAKER_ENEMY_COMMAND", "RADIO_TARGET_GENERIC"]:
+	for k in [
+		"RADIO_SPEAKER_ENEMY_COMMAND", "RADIO_TARGET_GENERIC",
+		"RADIO_SPEAKER_COMMAND_CENTER", "RADIO_SPEAKER_TEMP_TOWER",
+		"RADIO_DIRECTION_NORTH", "RADIO_DIRECTION_NORTHEAST",
+		"RADIO_DIRECTION_EAST", "RADIO_DIRECTION_SOUTHEAST",
+		"RADIO_DIRECTION_SOUTH", "RADIO_DIRECTION_SOUTHWEST",
+		"RADIO_DIRECTION_WEST", "RADIO_DIRECTION_NORTHWEST",
+	]:
 		if tr(k) == k:
 			missing.append(k)
 
@@ -369,17 +377,16 @@ func _test_i18n_coverage() -> void:
 
 	# 带 %s 的 key 必须真的含占位符，否则回令里的目标名会凭空消失
 	var fmt_bad: Array[String] = []
-	for trigger in ["ack_pursue", "ack_surround", "ack_strike"]:
-		for key in ChatterLines.lines_of(trigger):
-			if not tr(String(key)).contains("%s"):
-				fmt_bad.append(String(key))
+	for key in keys:
+		if String(key).ends_with("_FMT") and not tr(String(key)).contains("%s"):
+			fmt_bad.append(String(key))
 	_check("_FMT 台词均含 %s 占位符", fmt_bad.is_empty(), "异常=%s" % str(fmt_bad))
 
 	# 每个 trigger 都要有台词可选，否则该事件永远静默（典型的 JSON 打字错）
 	var empty_triggers: Array[String] = []
 	for tid in ChatterLines.all_trigger_ids():
-		if ChatterLines.is_scripted(tid):
-			continue   # 剧情类台词住在 boss_sequences，lines 本就为空
+		if tid == "boss_spawn" or tid == "boss_engage":
+			continue   # 只有这两个纯序列 trigger 的台词住在 boss_sequences
 		if ChatterLines.lines_of(tid).is_empty():
 			empty_triggers.append(tid)
 	_check("每个普通 trigger 都有台词", empty_triggers.is_empty(),
@@ -387,7 +394,62 @@ func _test_i18n_coverage() -> void:
 
 
 # ══════════════════════════════════════════════
-#  11. 呈现层（参考皇牌空战：呼号一行 + << 正文 >> 一行）
+#  11. v8 Notion 修订的数据与格式化契约
+# ══════════════════════════════════════════════
+
+func _test_v8_data_contract() -> void:
+	print("── v8 Notion 修订契约 ──")
+	_check("王牌入场池扩展为 8 条", ChatterLines.lines_of("ace_spawn").size() == 8, "")
+	_check("友军/敌军弹射池已拆开专属尾句",
+		"RADIO_EJECT_FRIENDLY_5" in ChatterLines.lines_of("eject_friendly")
+		and "RADIO_EJECT_ENEMY_5" in ChatterLines.lines_of("eject")
+		and "RADIO_EJECT_ENEMY_5" not in ChatterLines.lines_of("eject_friendly"), "")
+	_check("WRAITH 减员为 scripted", ChatterLines.is_scripted("wraith_member_down"), "")
+	_check("机场解放为 scripted mandatory", ChatterLines.is_scripted("airfield_liberated"), "")
+	_check("CSG 定期舰载机喊话 chance=0.50",
+		is_equal_approx(ChatterLines.chance_of("csg_fa18_launch"), 0.5), "")
+	_check("海/空战区低优先级随机 chance=0.45",
+		is_equal_approx(ChatterLines.chance_of("zone_naval_contact"), 0.45)
+		and is_equal_approx(ChatterLines.chance_of("zone_air_support_request"), 0.45), "")
+
+	var csg_phase2 := ChatterLines.boss_sequence("CARRIER_STRIKE_GROUP", "phase2")
+	_check("CSG phase2 = 船员报告 → 舰长命令",
+		csg_phase2.size() == 2
+		and int(csg_phase2[0].get("slot", -1)) == 1
+		and String(csg_phase2[0].get("key", "")) == "RADIO_BOSS_CSG_PHASE2_0"
+		and int(csg_phase2[1].get("slot", -1)) == 0, str(csg_phase2))
+	var goose_phase2 := ChatterLines.boss_sequence("MOTHER_GOOSE", "phase2")
+	_check("Mother Goose MQ-X phase2 已登记",
+		goose_phase2.size() == 1
+		and String(goose_phase2[0].get("key", "")) == "RADIO_BOSS_GOOSE_PHASE2_1", "")
+
+	# ack_pursue 同池含格式化句和普通句；统一传目标参数时普通句必须原样入队。
+	var plain_ok := false
+	for i in 80:
+		var r := _make()
+		r.debug_clear_throttle()
+		if r.say("ack_pursue", "ALLY-02", Color.WHITE, ["TARGET-X"]):
+			_step(r, 1)
+			if r.debug_current_text() == tr("RADIO_ACK_PURSUE_3"):
+				plain_ok = true
+		_free(r)
+		if plain_ok:
+			break
+	_check("ack_pursue 抽到普通句时忽略 fmt_args", plain_ok, "")
+
+	var direction_ok: bool = RadioChatter.direction_key(Vector2(0, -100)) == "RADIO_DIRECTION_NORTH" \
+		and RadioChatter.direction_key(Vector2(100, -100)) == "RADIO_DIRECTION_NORTHEAST" \
+		and RadioChatter.direction_key(Vector2(100, 0)) == "RADIO_DIRECTION_EAST" \
+		and RadioChatter.direction_key(Vector2(100, 100)) == "RADIO_DIRECTION_SOUTHEAST" \
+		and RadioChatter.direction_key(Vector2(0, 100)) == "RADIO_DIRECTION_SOUTH" \
+		and RadioChatter.direction_key(Vector2(-100, 100)) == "RADIO_DIRECTION_SOUTHWEST" \
+		and RadioChatter.direction_key(Vector2(-100, 0)) == "RADIO_DIRECTION_WEST" \
+		and RadioChatter.direction_key(Vector2(-100, -100)) == "RADIO_DIRECTION_NORTHWEST"
+	_check("真实世界坐标八方向量化正确", direction_ok, "")
+
+
+# ══════════════════════════════════════════════
+#  12. 呈现层（参考皇牌空战：呼号一行 + << 正文 >> 一行）
 # ══════════════════════════════════════════════
 
 func _test_presentation() -> void:
@@ -415,7 +477,7 @@ func _test_presentation() -> void:
 
 
 # ══════════════════════════════════════════════
-#  12. 说话资格门（spec §2.8）—— 无人机不得有台词
+#  13. 说话资格门（spec §2.8）—— 无人机不得有台词
 # ══════════════════════════════════════════════
 
 func _test_voice_gate() -> void:

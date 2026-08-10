@@ -164,7 +164,7 @@ AGL/
 │   ├── shaders/                   # 地图 shader
 │   └── *.tres                     # 敌机 / 通用武器 / 战斗风格
 │
-├── i18n/                      # translations.csv + 三语 .translation（中 / 英 / 日）
+├── i18n/                      # 五份领域 CSV + 各自三语 .translation；radio.csv 独立无线电
 ├── audio/                     # music/ · sfx/ · ui/ · radio/
 ├── tools/                     # 校验与生成脚本（Python / PowerShell）
 │   verify_doc_anchors.py          # 索引锚点校验（commit 前跑）

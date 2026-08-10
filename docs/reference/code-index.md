@@ -26,7 +26,7 @@
 > - **地形绘制**（`_init_noise` / `_draw_grid`）→ `scripts/terrain_renderer.gd`
 >
 > ⚠ **飞行员耐力（pilot stamina）当前无代码实现**（全仓库 0 处引用），但
-> **概念保留** —— 计划在将来的拟真战役模式重新启用。`i18n/translations.csv` 的
+> **概念保留** —— 计划在将来的拟真战役模式重新启用。`i18n/skills.csv` 的
 > `UPGRADE_PILOT_STAMINA_*` 三语文本**刻意保留，不要当死键清掉**。
 
 ---
@@ -734,6 +734,7 @@
 |------|------|
 | UI 构建 | `survivor/survivor_hud.gd` `_build_ui` |
 | 主循环与分层刷新 | `survivor/survivor_hud.gd` `_process` / `HUD_DATA_REFRESH_INTERVAL` / `_update_hud_data_layer` |
+| 玩家 HUD 框板本局首次两闪 | `ui/hud_first_reveal_sequencer.gd` `register_panel` / `register_callback_panel` / `set_panel_available` / `set_panel_sort_position` / `update`；`ui/hud_board_visibility.gd` + `resources/shaders/hud_board_visibility.gdshader` 直接切换复合控件源框板；`survivor/survivor_hud.gd` `_setup_hud_first_reveal` / `_sync_hud_first_reveal_targets` |
 | UI 自适应布局 | `survivor/survivor_hud.gd` `_layout_ui` |
 | HP/XP/等级与三轴计数更新 | `survivor/survivor_hud.gd` `_update_display` |
 | 玩家仪表安全引用与刷新 | `survivor/survivor_hud.gd` `_safe_player_aircraft` / `_update_player_instrument` |
@@ -998,8 +999,8 @@
 
 | 我想…… | 去哪 |
 |---|---|
-| **加一条台词** | ① `resources/chatter/radio_chatter.json` 对应 trigger 的 `lines` 加 key ② `i18n/translations.csv` 加一行三语。**不碰代码** |
-| **改台词文案** | `i18n/translations.csv` 的 `RADIO_*` 行（改完需 Godot 重新导入） |
+| **加一条台词** | ① `resources/chatter/radio_chatter.json` 对应 trigger 的 `lines` 加 key ② `i18n/radio.csv` 加一行三语。**不碰代码** |
+| **改台词文案** | `i18n/radio.csv` 的 `RADIO_*` 行（改完需 Godot 重新导入） |
 | **嫌太吵 / 太安静** | JSON `global.ambient_cooldown_sec`（总闸）+ 各 trigger 的 `chance`（主旋钮） |
 | **某类语音太频繁** | JSON 该 trigger 的 `chance` 调低 / `cooldown_sec` 调高 |
 | **让某类语音必定播出** | JSON 该 trigger 改 `"class": "scripted"`（同时豁免三层节流） |
@@ -1163,6 +1164,7 @@
 |------|------|
 | 沙盒 HUD（**沙盒已废弃**，仅调试留存）| `hud.gd:7` _process |
 | 生存模式 HUD 构建/更新 | `survivor/survivor_hud.gd` `_build_ui` / `_update_display` / `_update_player_instrument` |
+| HUD 首次显现（空间顺序、`0.02s` 错峰、逐框 `0.50s` 两闪、动态取消） | `ui/hud_first_reveal_sequencer.gd`；`ui/hud_board_visibility.gd`；`survivor/survivor_hud.gd` `_setup_hud_first_reveal` / `_sync_hud_first_reveal_targets` |
 | 玩家模块化仪表（生产 HUD 与 F7 预览共用；G 4u 小数组合、装饰半格、AUTOPILOT 动态空框） | `survivor/player_instrument_panel.gd` `_configure_layout` / `decorative_aligned_width` / `active_control_empty_rect` / `update_display` / `_draw` |
 | 玩家仪表字号与动态扩格 | `ui/terminal_text.gd` `TerminalText`；小字 `resources/fonts/Silkscreen-Regular.ttf`，主要数字 `resources/fonts/ChakraPetch-Bold.ttf` |
 | 唯一互斥 R 技能常驻百分比充能行 | `aircraft.gd` `equipped_r_maneuver_id` / `r_maneuver_cooldown_total` / `r_maneuver_cooldown_remaining`；`survivor/player_instrument_panel.gd` `_draw_maneuver_charge` |
@@ -1173,8 +1175,10 @@
 | 终端共享网格描边与精确文字 | `ui/terminal_grid_overlay.gd` `regions` / `override_regions` / `_draw`；`ui/terminal_text.gd` |
 | HUD 速度单位与线框色持久化 | `ui/hud_preferences.gd` `speed_unit` / `hud_color` / `set_hud_color` |
 | 主菜单速度单位按钮与 HUD 色盘 | `main_menu.gd` `_refresh_hud_settings_buttons` / `_on_speed_unit_pressed` / `_on_hud_color_pressed`；`ui/hud_color_settings_panel.gd` `_build_ui` |
+| 主菜单 Y2K 军用 CRT 与双栏终端布局 | `main_menu.gd` `_build_terminal_header` / `_build_system_panel` / `_add_mode_button` / `_refresh_terminal_palette`；`ui/main_menu_crt_shell.gd`；`ui/main_menu_crt_effect.gd` + `resources/shaders/main_menu_crt.gdshader`；`ui/main_menu_scope_display.gd`；`tests/main_menu_visual_qa_runner.gd`（bench `main_menu_visual`） |
 | HUD 字体 | `resources/fonts/Silkscreen-Regular.ttf`（1u/1q 拉丁信息）/ `ChakraPetch-Bold.ttf`（主要数字）；缺失字符走当前主题默认字体回退 |
 | 玩家 HUD 回归/可视验收 | `tests/test_player_instrument_hud.gd` `run`（bench `player_hud`）；`tests/player_hud_visual_qa_runner.gd`（bench `player_hud_visual`） |
+| 五表本地化源、唯一性审计与 15 份资源构建 | `i18n/README.md`；`i18n/interface.csv` / `gameplay.csv` / `skills.csv` / `meta.csv` / `radio.csv`；`scripts/i18n_catalog.gd`；`scripts/tests/build_translations.gd`（bench `i18n_build`） |
 | 终端文字与共享网格回归 | `tests/test_terminal_text.gd` `run`；bench `terminal_text` |
 | UI Dev 定位框回归/可视验收 | `tests/test_ui_dev_outline.gd` `run`（bench `ui_dev_outline`）；`tests/ui_dev_panel_runner.gd`（bench `ui_dev_panel_visual` / `ui_dev_panel_clean_visual` / `ui_dev_panel_manual_flare_visual`） |
 | 升级 UI 选项展示 | `survivor_upgrade_ui.gd:217` show_choices |

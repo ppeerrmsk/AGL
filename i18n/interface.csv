@@ -1,0 +1,274 @@
+keys,zh,en,ja
+MENU_TITLE,A G L,A G L,A G L
+MENU_SUBTITLE,AIR  GROUND  LINK  //  俯视战斗机模拟,AIR  GROUND  LINK  //  Top-Down Fighter Sim,AIR  GROUND  LINK  //  トップダウン戦闘機シム
+MENU_MODE_LABEL,[ 选择模式 ],[ Select Mode ],[ モード選択 ]
+MENU_MODE_SANDBOX_NAME,沙盒测试,Sandbox,サンドボックス
+MENU_MODE_SANDBOX_DESC,自由飞行 / 武器测试 / AI 对战,Free Flight / Weapons / AI Dogfight,フリーフライト / 武器テスト / AI 戦闘
+MENU_MODE_SURVIVOR_NAME,生存模式,Survival,サバイバル
+MENU_MODE_SURVIVOR_DESC,推进战区 / 升级战机 / 击败 BOSS,Advance Zones / Upgrade / Defeat the Boss,戦区進攻 / 強化 / BOSS撃破
+MENU_MODE_MISSION_NAME,任务模式,Campaign,キャンペーン
+MENU_MODE_MISSION_DESC,即将推出,Coming Soon,近日公開
+MENU_VERSION,v0.1.0-dev  //  Godot 4.7  //  GL Compatibility,v0.1.0-dev  //  Godot 4.7  //  GL Compatibility,v0.1.0-dev  //  Godot 4.7  //  GL Compatibility
+MENU_ACCESS_LABEL,访问级别,ACCESS LEVEL,アクセス権限
+MENU_TERMINAL_READY,内部 / 就绪,INTERNAL / READY,内部 / READY
+MENU_SYSTEM_LABEL,战术态势,TACTICAL DISPLAY,戦術表示
+MENU_TERMINAL_SETTINGS_LABEL,终端设置,TERMINAL SETTINGS,端末設定
+MENU_SYSTEM_LOG_LABEL,系统记录,SYSTEM LOG,システムログ
+STATE_ON,开,ON,ON
+STATE_OFF,关,OFF,OFF
+HUD_HEADING_FMT,HDG %03d  M%.2f%s,HDG %03d  M%.2f%s,HDG %03d  M%.2f%s
+HUD_STALL,  STALL,  STALL,  STALL
+HUD_MISSILE_WARNING,!! 导弹来袭 !!,!! MISSILE !!,!! ミサイル接近 !!
+HUD_KILLS_FMT,击杀: %d,Kills: %d,撃墜: %d
+HUD_LEVEL_FMT,LV %d    %d / %d,LV %d    %d / %d,LV %d    %d / %d
+HUD_GAMEOVER_TITLE,[ GAME OVER ],[ GAME OVER ],[ GAME OVER ]
+HUD_GAMEOVER_LEVEL_FMT,等级: %d,Level: %d,レベル: %d
+HUD_GAMEOVER_TIME_FMT,存活时间: %02d:%02d,Survived: %02d:%02d,生存時間: %02d:%02d
+HUD_GAMEOVER_KILLS_FMT,击杀数: %d,Kills: %d,撃墜数: %d
+HUD_GAMEOVER_HINT,按 ESC 返回主菜单,Press ESC to return to main menu,ESC でメインメニューへ
+HUD_GAMEOVER_MERIT_FMT,功勋  +%d,Merit  +%d,功勲  +%d
+HUD_GAMEOVER_MERIT_DETAIL_FMT,（本局经验 %d  ·  账户合计 %d）,(Run XP %d  ·  Total %d),（本戦経験 %d  ·  累計 %d）
+MENU_MERIT_LABEL,功勋,Merit,功勲
+TACTIC_HEADER,[ 战术 ],[ TACTICS ],[ 戦術 ]
+TACTIC_MISSILE_PRIORITY,T 导弹优先,T Missile Priority,T ミサイル優先
+TACTIC_GUN_PRIORITY,T 机炮优先,T Gun Priority,T ガン優先
+TACTIC_CLIMB_PRIORITY,Q 爬升优先,Q Climb High,Q 高高度優先
+TACTIC_LOW_ALT,Q 低空优先,Q Fly Low,Q 低空優先
+TACTIC_EVADE_FMT,E 加力: %s,E Afterburner: %s,E アフターバーナー: %s
+AB_STATE_READY,就绪,READY,準備完了
+AB_STATE_CHARGING_FMT,充能 %d%%,CHG %d%%,充填 %d%%
+AB_STATE_ACTIVE_FMT,%.1fs,%.1fs,%.1fs
+TACTIC_AUTOFIRE_FMT,F 自动发射: %s,F Auto-Fire: %s,F 自動発射: %s
+TACTIC_AUTO_ENGAGE_FMT,自动交战: %s,Auto-Engage: %s,自動交戦: %s
+SQUAD_HEADER,[ 小队指挥 ],[ SQUAD CMD ],[ 小隊指揮 ]
+SQUAD_FORMATION_FMT,5 阵型: %s,5 Formation: %s,5 編隊: %s
+SQUAD_ENGAGE_FMT,C 交战: %s,C Engage: %s,C 交戦: %s
+SQUAD_WEAPON_FMT,V 武器: %s,V Weapon: %s,V 武器: %s
+SQUAD_ENGAGE_FREE,自由交战,Free Engage,自由交戦
+SQUAD_ENGAGE_FOLLOW,跟随长机,Follow Leader,リーダー追従
+SQUAD_ENGAGE_GUARD,守护后方,Guard Rear,後方警戒
+WEAPON_PREF_MISSILE,导弹优先,Missile Priority,ミサイル優先
+WEAPON_PREF_GUN,机炮优先,Gun Priority,ガン優先
+WEAPON_GUN,机炮,Gun,ガン
+WEAPON_MISSILE,导弹,Missile,ミサイル
+WEAPON_ROCKET,火箭弹,Rocket,ロケット
+WEAPON_AOE,爆炸,Blast,爆発
+WEAPON_CRASH,坠地,Crash,墜落
+WEAPON_FLARE,热诱弹,Flares,フレア
+WEAPON_SECONDARY,副导弹,Secondary missiles,サブミサイル
+FORMATION_COMBAT_SPREAD,战斗展开,Combat Spread,コンバットスプレッド
+FORMATION_WEDGE,楔形编队,Wedge,ウェッジ
+FORMATION_ECHELON,梯形编队,Echelon,エシュロン
+FORMATION_TRAIL,纵列编队,Trail,トレイル
+FORMATION_FINGER_FOUR,指尖四点,Finger Four,フィンガーフォー
+FORMATION_FLUID_FOUR,流体四机,Fluid Four,フルードフォー
+FORMATION_UNKNOWN,未知,Unknown,不明
+ACTION_EVADING,规避机动,Evasive,回避機動
+ACTION_PATROL,巡逻,Patrol,哨戒
+ACTION_ENGAGE,交战,Engaging,交戦中
+ACTION_MISSILE_EVADE,导弹规避,Missile Dodge,ミサイル回避
+ACTION_FORMATION,编队跟随,Formation,編隊
+ACTION_UNKNOWN,?,?,?
+TACTIC_FOLLOW_FORMATION,编队跟随,Formation,編隊
+TACTIC_REJOIN,归队,Rejoining,帰隊中
+TACTIC_FORMATION_ADJUST,阵型调整中,Reforming,編隊再編成
+TACTIC_FREE_ENGAGE,自由交战,Free Engage,自由交戦
+TACTIC_TEAM_ATTACK,协同攻击,Team Attack,協同攻撃
+TACTIC_RETURN_FORMATION,回归编队,Returning,編隊復帰
+TACTIC_GUARD_REAR,守护后方,Guard Rear,後方警戒
+TACTIC_KAMIKAZE,舍身,Kamikaze,玉砕
+POPUP_EVOLUTION_FMT,技能进化！%s,Skill Evolved! %s,スキル進化！%s
+POPUP_COBRA,眼镜蛇机动,Cobra Maneuver,コブラ機動
+POPUP_CLOAK,光学迷彩,Optical Camouflage,光学迷彩
+POPUP_LEVEL_UP,LEVEL UP,LEVEL UP,LEVEL UP
+TOOLTIP_WEAPON_MISSILE_TITLE,导弹优先,Missile Priority,ミサイル優先
+TOOLTIP_WEAPON_MISSILE_BODY,点击敌机后自动锁定并发射导弹\n导弹耗尽时自动切换机炮\n装填完毕后恢复导弹模式,Click enemy to auto-lock and fire missile\nSwitches to gun when missiles depleted\nReturns to missile mode after reload,敵機クリックで自動ロック・発射\nミサイル切れ時はガンへ自動切替\n装填完了でミサイル優先に復帰
+TOOLTIP_WEAPON_MISSILE_HINT,按 [color=#ffdd66]T[/color] 切换到机炮优先,Press [color=#ffdd66]T[/color] to switch to Gun Priority,[color=#ffdd66]T[/color] でガン優先へ
+TOOLTIP_WEAPON_GUN_TITLE,机炮优先,Gun Priority,ガン優先
+TOOLTIP_WEAPON_GUN_BODY,始终使用机炮进行攻击\n不会自动发射导弹,Always attacks with gun\nNever auto-fires missiles,常にガンで攻撃\nミサイルは自動発射されません
+TOOLTIP_WEAPON_GUN_HINT,按 [color=#ffdd66]T[/color] 切换到导弹优先,Press [color=#ffdd66]T[/color] to switch to Missile Priority,[color=#ffdd66]T[/color] でミサイル優先へ
+TOOLTIP_ALT_CLIMB_TITLE,爬升优先,Climb High,高高度優先
+TOOLTIP_ALT_CLIMB_BODY,巡航时自动爬升至高空\n[color=#66ccff]空气稀薄阻力小，顶速更高[/color]\n[color=#66ccff]可在更远距离锁定敌人[/color]\n[color=#66ccff]空间充足，机动转向更灵活[/color]\n[color=#66ccff]进入云层后更不易被锁定与命中[/color]\n[color=#66ccff]远离地面火力威胁[/color],Auto-climbs to high altitude while cruising\n[color=#66ccff]Thin air = less drag — higher top speed[/color]\n[color=#66ccff]Lock onto enemies at longer range[/color]\n[color=#66ccff]More room to maneuver — sharper turns[/color]\n[color=#66ccff]Cloud cover hides you from locks and hits[/color]\n[color=#66ccff]Above ground-based threats[/color],巡航時に自動で高高度へ上昇\n[color=#66ccff]空気が薄く抵抗が少ない — 最高速度が向上[/color]\n[color=#66ccff]より遠距離で敵をロック可能[/color]\n[color=#66ccff]空間に余裕 — 機動・旋回がしやすい[/color]\n[color=#66ccff]雲に入るとロック・命中率が低下[/color]\n[color=#66ccff]地上脅威の射程外[/color]
+TOOLTIP_ALT_CLIMB_HINT,按 [color=#ffdd66]Q[/color] 切换到低空优先,Press [color=#ffdd66]Q[/color] to switch to Fly Low,[color=#ffdd66]Q[/color] で低空優先へ
+TOOLTIP_ALT_LOW_TITLE,低空优先,Fly Low,低空優先
+TOOLTIP_ALT_LOW_BODY,巡航时自动降至低空\n[color=#66ff66]更难被远距雷达锁定[/color]\n[color=#ff9966]空气稠密阻力大，顶速较低[/color]\n[color=#66ff66]但从高空俯冲过来可短暂保留速度优势[/color]\n自身锁定距离也较短,Auto-descends to low altitude while cruising\n[color=#66ff66]Harder for long-range radar to lock[/color]\n[color=#ff9966]Dense air = more drag — lower top speed[/color]\n[color=#66ff66]Diving from high altitude briefly preserves speed[/color]\nYour own lock-on range is shorter too,巡航時に自動で低空へ降下\n[color=#66ff66]長距離レーダーに捕捉されにくい[/color]\n[color=#ff9966]空気が濃く抵抗が大きい — 最高速度が低下[/color]\n[color=#66ff66]高高度から降下時は速度を一時的に維持可能[/color]\n自機のロック距離も短くなる
+TOOLTIP_ALT_LOW_HINT,按 [color=#ffdd66]Q[/color] 切换到爬升优先,Press [color=#ffdd66]Q[/color] to switch to Climb High,[color=#ffdd66]Q[/color] で高高度優先へ
+TOOLTIP_EVADE_ON_TITLE,加力模式: 激活中,Afterburner: ACTIVE,アフターバーナー: 作動中
+TOOLTIP_EVADE_ON_BODY,全队极速冲刺·持续耗能\n[color=#66ff66]机炮完全打不中·滚转甩掉导弹[/color]\n[color=#ff9966]期间无法攻击（鱼雷/无人机照常投放）[/color]\n检测到来袭导弹时自动规避机动,Full-squad max-speed sprint · drains charge\n[color=#66ff66]Immune to guns · rolls off missiles[/color]\n[color=#ff9966]Cannot attack (torpedo/drone still deploy)[/color]\nAuto-evades incoming missiles,全隊フルスピード・充填を消費\n[color=#66ff66]機関砲完全回避・ロールでミサイル振り切り[/color]\n[color=#ff9966]攻撃不可（魚雷/ドローンは投下可）[/color]\n来襲ミサイルは自動回避
+TOOLTIP_EVADE_ON_HINT,能量耗尽自动结束（再按 E 提前关闭）,Ends when charge runs out (press E to end early),充填切れで自動終了（Eで手動終了）
+TOOLTIP_EVADE_OFF_TITLE,加力模式,Afterburner,アフターバーナー
+TOOLTIP_EVADE_OFF_BODY,有能量即按 E 启动：全队极速冲刺（激活中持续耗能，再按 E 关闭）\n[color=#66ff66]机炮完全打不中·滚转甩掉导弹[/color]\n[color=#ff9966]期间无法攻击[/color]\n随时间充能（满格约 30 秒）·小队击杀 +4 秒,"Press E to start when you have charge: full-squad max-speed sprint (drains while on, press E to end)\n[color=#66ff66]Immune to guns · rolls off missiles[/color]\n[color=#ff9966]Cannot attack during it[/color]\nRecharges over time (~30s full) · squad kills +4s each",充填があればEで発動：全隊フルスピード（作動中は消費、Eで終了）\n[color=#66ff66]機関砲完全回避・ロールでミサイル振り切り[/color]\n[color=#ff9966]発動中は攻撃不可[/color]\n時間で充填（満タン約30秒）・キル毎+4秒
+TOOLTIP_EVADE_OFF_HINT,按 [color=#ffdd66]E[/color] 启动（有能量即可）,Press [color=#ffdd66]E[/color] to start (any charge),[color=#ffdd66]E[/color] で発動（充填があれば可）
+TOOLTIP_AUTOFIRE_ON_TITLE,自动发射: 开,Auto-Fire: ON,自動発射: ON
+TOOLTIP_AUTOFIRE_ON_BODY,飞机自动选择最佳角度发射导弹\n锁定任意敌机即自动开火\n[color=#66ccff]多目标追踪升级下一次发多枚[/color]\n无需玩家手动点击目标,Aircraft picks best firing angle automatically\nFires on any locked target\n[color=#66ccff]Multi-lock upgrade fires multiple at once[/color]\nNo manual targeting needed,最適角度で自動ミサイル発射\nロックした敵機へ即射撃\n[color=#66ccff]マルチロック時は複数同時発射[/color]\n手動ターゲット不要
+TOOLTIP_AUTOFIRE_ON_HINT,按 [color=#ffdd66]F[/color] 关闭自动发射,Press [color=#ffdd66]F[/color] to disable auto-fire,[color=#ffdd66]F[/color] で自動発射を無効化
+TOOLTIP_AUTOFIRE_OFF_TITLE,自动发射: 关,Auto-Fire: OFF,自動発射: OFF
+TOOLTIP_AUTOFIRE_OFF_BODY,只在玩家点击敌机指定攻击时开火\n节省弹药 / 精准打击,Fires only when player targets an enemy\nConserves ammo / precise strikes,プレイヤー指定の敵機のみ射撃\n弾薬節約 / 精密打撃
+TOOLTIP_AUTOFIRE_OFF_HINT,按 [color=#ffdd66]F[/color] 开启自动发射,Press [color=#ffdd66]F[/color] to enable auto-fire,[color=#ffdd66]F[/color] で自動発射を有効化
+TOOLTIP_AUTO_ENGAGE_ON_TITLE,自动交战: 开,Auto-Engage: ON,自動交戦: ON
+TOOLTIP_AUTO_ENGAGE_ON_BODY,小队抵达巡航点/空闲时自动锁最近敌机\n长机交战 僚机自动跟打\n巡航途中不交战 保证抵达目的地\n敌机飞太远会放弃 回到待命,Squad auto-locks nearest enemy on arrival / when idle\nLeader engages and wingmen follow\nWon't engage mid-transit so the squad reaches its goal\nDrops targets that flee too far and returns to standby,巡航点到着・待機時に最寄りの敵機を自動ロック\n長機が交戦し僚機が追従\n移動中は交戦せず目的地へ到達\n遠すぎる敵は諦めて待機に戻る
+TOOLTIP_AUTO_ENGAGE_ON_HINT,点击关闭自动交战,Click to disable auto-engage,クリックで自動交戦を無効化
+TOOLTIP_AUTO_ENGAGE_OFF_TITLE,自动交战: 关,Auto-Engage: OFF,自動交戦: OFF
+TOOLTIP_AUTO_ENGAGE_OFF_BODY,小队到达巡航点后纯待命 不自动锁敌\n仍可手动点击敌机指定攻击,Squad just holds at the cruise point with no auto-targeting\nYou can still click an enemy to attack manually,巡航点到着後は待機し自動ロックしない\n敵機を手動クリックで攻撃指定は可能
+TOOLTIP_AUTO_ENGAGE_OFF_HINT,点击开启自动交战,Click to enable auto-engage,クリックで自動交戦を有効化
+SLOT_TBA_NAME,??? / TBA,??? / TBA,??? / TBA
+SLOT_AIRCRAFT_DESC,新机型开发中。,New aircraft in development.,新機体開発中。
+SLOT_MAP_DESC,新地图开发中，敬请期待。,"New map in development, stay tuned.",新マップ開発中、お楽しみに。
+SLOT_LOCKED_BUTTON,未  解  锁,L O C K E D,ロ  ッ  ク  中
+SLOT_DEV_LOCKED_BUTTON,开  发  中,I N  D E V,開  発  中
+SLOT_SELECT_BUTTON,选  择,S E L E C T,選   択
+SLOT_PILOT_INDEX_FMT,PILOT %02d,PILOT %02d,PILOT %02d
+SLOT_MAP_INDEX_FMT,MAP %02d,MAP %02d,MAP %02d
+SLOT_STARTING_SQUAD_FMT,[ 起始小队 +%d 僚机 ],[ Starting Squad +%d Wingmen ],[ 開始小隊 +%d 僚機 ]
+SLOT_TAG_WRAP_FMT,[ %s ],[ %s ],[ %s ]
+SLOT_NAME_UNKNOWN,???,???,???
+BOUNDARY_APPROACH_WARN,◈ 接近战场边界 — %.1f km — 继续前进可获得补给 / 回血,◈ APPROACHING BORDER — %.1f km — continue for supply & heal,◈ 戦場境界に接近 — %.1f km — 続けて前進すると補給・回復が可能
+BOUNDARY_MENU_TITLE,[ 越界提示 ],[ BORDER REACHED ],[ 境界到達 ]
+BOUNDARY_MENU_BODY,你已到达战场边界。选择下一步行动。,You have reached the edge of the combat zone. Choose your next action.,戦場の境界に到達しました。次の行動を選択してください。
+BOUNDARY_BTN_RETREAT,撤退 — 结束战局 结算奖励,RETREAT — End mission and collect rewards,撤退 — 戦闘を終了し報酬を確定
+BOUNDARY_BTN_SUPPLY,补给 — 回血（战区时间 -30 秒，敌方增援增加）,SUPPLY — Restore HP (−30s zone time; enemy reinforcement rises),補給 — HP回復（戦区時間 −30秒・敵の増援増加）
+BOUNDARY_BTN_CANCEL,取消 — 调头继续作战,CANCEL — Turn back and continue,キャンセル — 反転して戦闘継続
+BOUNDARY_SUPPLY_BLOCKED_BOSS,BOSS 战斗中无法补给 — 返回战场,No supply during BOSS fight — return to combat,BOSS戦闘中は補給不可 — 戦場に戻れ
+BOUNDARY_APPROACH_WARN_BOSS,◈ 接近战场边界 — %.1f km — BOSS 阶段无法补给 / 回血，请返回战场,◈ APPROACHING BORDER — %.1f km — Supply disabled during BOSS — return to combat,◈ 戦場境界に接近 — %.1f km — BOSS戦闘中は補給不可 — 戦場へ戻れ
+PAUSE_MENU_TITLE,[ 已暂停 ],[ PAUSED ],[ 一時停止 ]
+PAUSE_MENU_BODY,战局已冻结。按 ESC 或点击「继续作战」回到战斗。,Combat frozen. Press ESC or click Resume to return.,戦闘は停止中。ESC または「戦闘再開」で復帰。
+PAUSE_MENU_WARN,返回主菜单将放弃本局，本局功勋不结算。,Leaving abandons this run — no merit will be settled.,メインメニューへ戻ると今回の出撃は放棄され、功勲は清算されません。
+PAUSE_BTN_RESUME,继续作战,RESUME,戦闘再開
+PAUSE_BTN_QUIT,返回主菜单,QUIT TO MAIN MENU,メインメニューへ
+HUD_WARZONE_TIMER_FMT,战区剩余 %02d:%02d,WARZONE %02d:%02d,エリア残 %02d:%02d
+HUD_BOSS_PHASE,BOSS 阶段,BOSS PHASE,BOSSフェーズ
+HUD_AFTERBURNER,加力,AFTERBURNER,アフターバーナー
+HUD_ENGAGE,接敌,ENGAGE,交戦
+HUD_FIRE,开火,FIRE,攻撃
+HUD_PASSIVE,被动,PASSIVE,受動
+HUD_AUTO_FIRE,自动开火,AUTO FIRE,自動攻撃
+HUD_MANUAL_FIRE,手动开火,MANUAL FIRE,手動攻撃
+HUD_ALT_TIER_LOW,低空,LOW,低空
+HUD_ALT_TIER_MID,中空,MID,中空
+HUD_ALT_TIER_HIGH,高空,HIGH,高空
+HUD_PRIORITY,优先,PRIORITY,優先
+HUD_PRIORITY_WEAPON,PRIORITY WEAPON,PRIORITY WEAPON,PRIORITY WEAPON
+HUD_SPECIAL_WEAPON,SP 武器,SP WEAPON,SP兵装
+HUD_SP_MISSILE,QMAAM,QMAAM,QMAAM
+HUD_SP_ROCKET,RKT,RKT,RKT
+HUD_SP_RAILGUN,RGUN,RGUN,RGUN
+HUD_SP_LASER,LASER,LASER,LASER
+HUD_SP_TAIL_MINE,MINE,MINE,MINE
+HUD_SP_DRONE,UAV,UAV,UAV
+HUD_SP_ESM,ESM,ESM,ESM
+HUD_WEAPON_READY,就绪,READY,準備完了
+HUD_WEAPON_COOLDOWN_FMT,冷却 %.1fs,CD %.1fs,冷却 %.1秒
+HUD_WEAPON_RELOAD_FMT,装填 %d%%  %.1fs,RELOAD %d%%  %.1fs,装填 %d%%  %.1秒
+HUD_WEAPON_CHARGE_FMT,充能 %d%%,CHARGE %d%%,充填 %d%%
+HUD_WEAPON_HEAT_FMT,热量 %d%%,HEAT %d%%,熱量 %d%%
+HUD_WEAPON_OVERHEAT_FMT,过热 %.1fs,OVERHEAT %.1fs,過熱 %.1秒
+HUD_WEAPON_EMPTY,耗尽,EMPTY,弾切れ
+HUD_WEAPON_STANDBY,待命,STANDBY,待機
+HUD_WEAPON_MAX,上限,MAX,上限
+HUD_WEAPON_ACTIVE,工作中,ACTIVE,作動中
+HUD_VICTORY_TITLE,[ 通关 ],[ MISSION COMPLETE ],[ 任務達成 ]
+HUD_VICTORY_SUBTITLE_FMT,%s 已被击毁,%s eliminated,%s 撃破
+HUD_VICTORY_SUBTITLE_GENERIC,敌方主力已被击毁,Enemy main force eliminated,敵主力を撃破
+MENU_AUDIO_BUTTON,音频设置,Audio,音声設定
+MENU_SPEED_UNIT_FMT,速度 %s,SPEED %s,速度 %s
+MENU_HUD_COLOR_BUTTON,HUD 色彩,HUD Color,HUDカラー
+HUD_COLOR_SETTINGS_TITLE,HUD 色彩设置,HUD Color Settings,HUDカラー設定
+HUD_COLOR_PRESET_GREEN,绿色,Green,グリーン
+HUD_COLOR_PRESET_CYAN,青色,Cyan,シアン
+HUD_COLOR_PRESET_AMBER,琥珀,Amber,アンバー
+HUD_COLOR_PRESET_WHITE,白色,White,ホワイト
+HUD_COLOR_CANCEL,取消,Cancel,キャンセル
+HUD_COLOR_SAVE,保存,Save,保存
+MENU_RESET_SAVE_BUTTON,删除存档,Reset Save,セーブ削除
+MENU_RESET_SAVE_CONFIRM,确认删除所有进度存档？\n（包括首次引导状态。语言 / 音频设置保留。）,Delete all save progress?\n(Including first-run tutorial state. Language / Audio settings are kept.),すべてのセーブデータを削除しますか？\n（初回チュートリアル状態を含む。言語／音声設定は保持）
+MENU_RESET_SAVE_OK,已删除存档：%d 个文件,Save cleared: %d file(s),セーブ削除完了：%d 件
+MENU_RESET_SAVE_CANCEL,取消,Cancel,キャンセル
+MENU_RESET_SAVE_CONFIRM_BTN,删除,Delete,削除
+AUDIO_SETTINGS_TITLE,音频设置,Audio Settings,音声設定
+AUDIO_BUS_MASTER,主音量,Master,マスター
+AUDIO_BUS_MUSIC,音乐,Music,音楽
+AUDIO_BUS_SFX,音效,SFX,効果音
+AUDIO_BUS_UI,界面,UI,UI
+AUDIO_SETTINGS_MUTE,静音,Mute,ミュート
+AUDIO_SETTINGS_RESET,恢复默认,Reset,デフォルト
+AUDIO_SETTINGS_SAVE,保存,Save,保存
+WHEEL_REGROUP,紧急集合,Regroup,緊急集合
+WHEEL_GUARD_AREA,防守此区,Guard Area,エリア防衛
+WHEEL_EVAC_AREA,撤离此区,Evacuate,エリア離脱
+WHEEL_AUTO_ENGAGE,自动交战,Auto-Engage,自動交戦
+WHEEL_ALT_PREF,高度偏好,Altitude,高度設定
+WHEEL_AUTOFIRE,自动发射,Auto-Fire,自動発射
+WHEEL_STANDOFF,保持距离,Standoff,距離維持
+WHEEL_ASSAULT,突击,Assault,突撃
+WHEEL_FIRE_ALLOC,火力分配,Fire Alloc,火力配分
+WHEEL_FORMATION,阵型纪律,Formation,陣形規律
+WHEEL_CANCEL,取消,Cancel,キャンセル
+WHEEL_STATE_ON,开,ON,ON
+WHEEL_STATE_OFF,关,OFF,OFF
+WHEEL_STATE_CLIMB,爬升,Climb,上昇
+WHEEL_STATE_LOW,低空,Low,低空
+WHEEL_STATE_FOCUS,集火,Focus,集中
+WHEEL_STATE_SPREAD,分火,Spread,分散
+WHEEL_STATE_FREE,散开,Free,散開
+WHEEL_STATE_TIGHT,紧密,Tight,密集
+WHEEL_CENTER_MOVE,前往此处,Move Here,ここへ移動
+WHEEL_CENTER_ATTACK,攻击目标,Attack,目標攻撃
+WHEEL_TIP_REGROUP,全队立即中断当前任务（含攻击命令），飞向该点集合。,All units abort current tasks (incl. attack orders) and regroup at this point.,全機が現在の任務（攻撃命令含む）を中断し、この地点に集合します。
+WHEEL_TIP_EVAC,3 公里圈内的队员立刻脱战、向圈外撤离；已在圈外的队员不受影响。,Units inside the 3 km circle disengage and evacuate outward; units already outside are unaffected.,3km圏内の機体は即座に離脱し圏外へ退避。圏外の機体には影響しません。
+WHEEL_TIP_GUARD,全队前往该点清剿：自主搜索并分头攻击 3 公里圈内全部敌人，击杀后继续接敌；不追出圈外，清空后继续守备。,"Squad clears this area: independently find and engage every enemy inside the 3 km circle, chaining targets until clear; never chase outside and keep guarding afterward.",全機がこの地点を掃討：3km圏内の全敵を自律索敵して分担攻撃し、撃破後も次の敵へ移行。圏外へは追わず、掃討後も防衛を続けます。
+WHEEL_TIP_AUTO_ENGAGE,开启后空闲时自动攻击靠近小队的敌人（圈内为搜敌范围）。,When ON idle units automatically engage enemies near the squad (circle = search range).,ONにすると待機中に接近する敵を自動攻撃します（円は索敵範囲）。
+WHEEL_TIP_ALT_PREF,设定全队高度偏好：爬升抢占高位，低空贴地飞行。,Set squad altitude preference: climb for high ground or hug the deck.,高度設定：上昇で高位を確保、低空で低高度を維持します。
+WHEEL_TIP_AUTOFIRE,开启后导弹有射击解算即自动发射，无需手动开火。,When ON missiles fire automatically whenever a firing solution exists.,ONにすると射撃解が得られ次第ミサイルを自動発射します。
+WHEEL_TIP_STANDOFF,游击（打带跑）：全队集火该目标，打完一轮就拉开距离，再回头打下一轮。,Standoff (hit-and-run): squad strikes the target then extends away before re-attacking.,一撃離脱：攻撃後に距離を取り、再度接近して攻撃を繰り返します。
+WHEEL_TIP_ASSAULT,突击：全队近身缠斗该目标，咬住不放。,Assault: squad closes in and dogfights the target relentlessly.,突撃：全機が目標に接近し、格闘戦で食らいつきます。
+WHEEL_TIP_FIRE_ALLOC,集火＝全队围攻同一目标；分火＝在目标周边区域内各自选敌攻击。,Focus = all attack one target; Spread = each unit picks its own target nearby.,集中＝全機で同一目標を攻撃。分散＝周辺の敵を各自選択して攻撃。
+WHEEL_TIP_FORMATION,散开＝各自机动包围；紧密＝保持编队一起进入、一起齐射、一起脱离。,Free = spread out and surround; Tight = attack in formation with synchronized volleys.,自由＝各自機動で包囲。密集＝編隊を維持し一斉射撃で攻撃します。
+WHEEL_TIP_CANCEL,取消本次轮盘操作，不执行任何命令（进行中的战斗不受影响）。,Cancel this wheel interaction without issuing any command.,このホイール操作をキャンセルします（進行中の戦闘には影響なし）。
+WHEEL_TIP_CENTER_MOVE,在中心松开＝前往按下的位置（等同普通单击移动）。,Release in the center = move to the pressed point (same as a normal click).,中央で離すと押した地点へ移動します（通常クリックと同じ）。
+WHEEL_TIP_CENTER_ATTACK,在中心松开＝命令攻击该目标（等同普通单击点名）。,Release in the center = attack this target (same as a normal click).,中央で離すとこの目標を攻撃します（通常クリックと同じ）。
+MENU_MODE_EDITOR_NAME,地图工坊,Map Workshop,マップ工房
+MENU_MODE_EDITOR_DESC,涂格画地图，做完直接试飞,Paint a map with grid brushes and test-fly it instantly,グリッドブラシでマップを描いてすぐ試飛行
+EDITOR_PALETTE_TITLE,[ 素材库 ],[ Palette ],[ パレット ]
+EDITOR_LAYER_LAND,陆地,Land,陸地
+EDITOR_LAYER_MOUNTAIN,山地,Mountains,山地
+EDITOR_LAYER_FOREST,森林,Forest,森林
+EDITOR_LAYER_FARMLAND,农田,Farmland,農地
+EDITOR_LAYER_BEACH,沙滩,Beach,砂浜
+EDITOR_LAYER_URBAN,城区,Urban,市街地
+EDITOR_TOOL_BRUSH,笔刷,Brush,ブラシ
+EDITOR_TOOL_ERASER,橡皮,Eraser,消しゴム
+EDITOR_UNDO,撤销,Undo,元に戻す
+EDITOR_NEW_BLANK,新建,New,新規
+EDITOR_NEW_FROM_OFFICIAL,从官方地图新建,New from Official,公式マップから新規
+EDITOR_OPEN,打开,Open,開く
+EDITOR_SAVE,保存,Save,保存
+EDITOR_SAVE_AS,另存为,Save As,名前を付けて保存
+EDITOR_TEST_FLY,试飞,Test Flight,試飛行
+EDITOR_BACK,返回主菜单,Back to Menu,メニューへ戻る
+EDITOR_HINT,左键涂格 · 右键擦除 · 中键/WASD 平移 · 滚轮缩放 · Ctrl+Z 撤销 · Ctrl+S 保存,LMB paint · RMB erase · MMB/WASD pan · Wheel zoom · Ctrl+Z undo · Ctrl+S save,左クリック描画 · 右クリック消去 · 中ボタン/WASD 移動 · ホイールズーム · Ctrl+Z 取消 · Ctrl+S 保存
+EDITOR_NAME_PROMPT,地图名称,Map Name,マップ名
+EDITOR_UNSAVED_TITLE,未保存的改动,Unsaved Changes,未保存の変更
+EDITOR_UNSAVED_MSG,有未保存的改动。要保存吗？,You have unsaved changes. Save them?,未保存の変更があります。保存しますか？
+EDITOR_BTN_SAVE_EXIT,保存并退出,Save and Exit,保存して終了
+EDITOR_BTN_DISCARD,丢弃改动,Discard,破棄
+EDITOR_RECOVER_TITLE,恢复自动保存,Recover Autosave,自動保存の復元
+EDITOR_RECOVER_MSG,检测到更新的自动保存。要恢复吗？,A newer autosave was found. Restore it?,より新しい自動保存が見つかりました。復元しますか？
+EDITOR_TOOL_RECT,矩形,Rectangle,矩形
+EDITOR_TOOL_ELLIPSE,圆形,Ellipse,円形
+EDITOR_TOOL_TRI,三角形,Triangle,三角形
+EDITOR_IMPORT_IMAGE,导入图片,Import Image,画像を読み込み
+EDITOR_UNDERLAY_TOGGLE,垫图显隐,Toggle Underlay,下絵の表示切替
+EDITOR_EXTRACT,提取到当前图层,Extract to Layer,現在のレイヤーへ抽出
+EDITOR_EXTRACT_DARK,提取暗色区域,Extract dark areas,暗い領域を抽出
+EDITOR_THRESHOLD,亮度阈值,Brightness Threshold,輝度しきい値
+POPUP_DISPLACEMENT_ROLL,位移滚转,DISPLACEMENT ROLL,変位ロール
+POPUP_VERTICAL_BREAK,垂直越过,VERTICAL BREAK,垂直ブレイク
+POPUP_MANEUVER_BLOCKED,机动空间不足,MANEUVER BLOCKED,機動空間不足
+TACTIC_HACKED,已黑入,HACKED,ハッキング完了
+MENU_ARCHIVE_NAME,资料库,Archive,資料庫
+MENU_ARCHIVE_DESC,敌人图鉴与全部游戏机制说明,Enemy codex and the full manual of game mechanics,敵機名鑑とゲームシステム解説
+SQUAD_CONTROLLED,操控中,CONTROLLED,操作中
+MENU_META_SHOP_NAME,生涯商店,Career Shop,キャリアショップ
+MENU_META_SHOP_DESC,用功勋购买飞机与持久强化,Spend merit on aircraft and permanent perks,功績で機体と永続強化を購入
+PRELOAD_BUILDINGS_LABEL,正在载入地图与城市数据,Loading map and city data,マップと都市データを読み込み中
+PRELOAD_BUILDINGS_HINT,东京湾 / Tokyo Bay,Tokyo Bay,東京湾 / Tokyo Bay

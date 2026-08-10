@@ -1,0 +1,443 @@
+keys,zh,en,ja
+UPGRADE_HEADER,[ 选择升级 ],[ Select Upgrade ],[ アップグレード選択 ]
+UPGRADE_CATEGORY_COMBAT_PREFIX,[战斗] ,[Combat] ,[戦闘]
+UPGRADE_CATEGORY_SURVIVAL_PREFIX,[生存] ,[Survival] ,[生存]
+UPGRADE_AXIS_SURVIVAL_PREFIX,[生存] ,[Survival] ,[生存]
+UPGRADE_AXIS_MOBILITY_PREFIX,[机动] ,[Mobility] ,[機動]
+UPGRADE_AXIS_MISSILE_PREFIX,[导弹] ,[Missile] ,[ミサイル]
+UPGRADE_AXIS_SECONDARY_PREFIX,[副武器] ,[Secondary] ,[副武装]
+UPGRADE_AXIS_EW_PREFIX,[电子战] ,[EW] ,[電子戦]
+UPGRADE_HP_UP_NAME,装甲强化,Armor Plating,装甲強化
+UPGRADE_HP_UP_DESC,最大HP +30（每层）,Max HP +30 per stack,最大HP+30/層
+UPGRADE_BULLET_DODGE_NAME,闪避机动,Evasive Maneuvering,回避機動
+UPGRADE_BULLET_DODGE_DESC,机炮闪避 +20%,Gun dodge +20%,機関砲回避+20%
+UPGRADE_SPEED_UP_NAME,引擎强化,Engine Boost,エンジン強化
+UPGRADE_SPEED_UP_DESC,最大速度 +20%，加速 +10%（每层）,Max speed +20%; acceleration +10% (per stack),最大速度+20%・加速+10%/層
+UPGRADE_MANEUVER_UP_NAME,飞控升级,Flight Control,飛行制御強化
+UPGRADE_MANEUVER_UP_DESC,滚转速率 +30%，持续G +1.5，结构G +1.5（每层）,Roll rate +30%; sustained G +1.5; structural G +1.5 (per stack),ロールレート+30%・持続G+1.5・構造G+1.5/層
+UPGRADE_FLARE_COOLDOWN_NAME,红外对抗优化,IR Countermeasure,IR対策最適化
+UPGRADE_FLARE_COOLDOWN_DESC,热诱弹冷却时间 -20%,Flare Cooldown -20%,フレアクールダウン -20%
+UPGRADE_FLARE_SHIELD_NAME,电子对抗套件,ECM Suite,ECMスイート
+UPGRADE_FLARE_SHIELD_DESC,热诱弹 +2；释放时解除全部敌方锁定，并在 3 秒内免疫锁定,+2 flares; releasing them breaks all enemy locks and grants 3s lock immunity,フレア+2・使用時に全敵ロックを解除し3秒間ロック無効
+UPGRADE_PILOT_STAMINA_NAME,体能强化,Pilot Stamina,体力強化
+UPGRADE_PILOT_STAMINA_DESC,飞行员耐力上限×2，恢复速率×2,"Stamina cap ×2, recovery ×2",スタミナ上限×2、回復×2
+UPGRADE_KILL_HEAL_NAME,战场急救,Battlefield First Aid,戦場救護
+UPGRADE_KILL_HEAL_DESC,击杀敌机时回复 5 HP,Restore 5 HP per kill,撃墜ごとにHP5回復
+UPGRADE_ARMOR_UP_NAME,复合装甲,Composite Armor,複合装甲
+UPGRADE_ARMOR_UP_DESC,机炮伤害 -55%，导弹伤害 -38%,Gun damage -55%; missile damage -38%,機関砲ダメージ-55%・ミサイルダメージ-38%
+UPGRADE_STEALTH_POD_NAME,强化吊舱,Stealth Pod,ステルスポッド
+UPGRADE_STEALTH_POD_DESC,降低雷达反射截面，敌人锁定你所需的时间显著延长,Reduces radar signature — enemies take significantly longer to lock you,レーダー反射面を低減、敵のロック所要時間が大幅に延長
+UPGRADE_XP_MULT_NAME,经验倍率,XP Multiplier,経験値倍率
+UPGRADE_XP_MULT_DESC,击杀经验 +20%（每层，最多 +40%）,Kill XP +20% per stack (max +40%),撃墜経験値+20%/層（最大+40%）
+UPGRADE_RADAR_ANGLE_NAME,广角扫描,Wide Scan,広角スキャン
+UPGRADE_RADAR_ANGLE_DESC,雷达扫描扇形更宽，侧前方目标也能捕捉,Wider radar scan — side targets now detectable,レーダー走査範囲が拡大、側方の目標も捕捉可能
+UPGRADE_SEEKER_FOV_NAME,广角导引头,Wide Seeker,広角シーカー
+UPGRADE_SEEKER_FOV_DESC,导弹导引头视野更宽，目标大角度机动时也难以脱锁,Wider missile seeker — targets harder to shake off with sharp maneuvers,ミサイルシーカー視野拡大、目標の大角度機動にも追従
+UPGRADE_GUN_ACCURACY_NAME,枪械精度,Gun Accuracy,機銃精度
+UPGRADE_GUN_ACCURACY_DESC,机炮散布 -20%、瞄准精度 +18%、子弹存留时间 +20%（每层）,Gun spread -20%; aim accuracy +18%; bullet lifetime +20% per stack,機関砲散布-20%・照準精度+18%・弾寿命+20%/層
+UPGRADE_AIM_ASSIST_NAME,瞄准辅助,Aim Assist,照準補助
+UPGRADE_AIM_ASSIST_DESC,机炮自动开火允许角度 +25%（每层，上限半角 45°）,Automatic gun-fire cone +25% per stack (45° half-angle cap),機関砲の自動射撃許容角+25%/層（半角45°上限）
+UPGRADE_MISSILE_BOOST_NAME,火箭助推,Missile Boost,ミサイルブースト
+UPGRADE_MISSILE_BOOST_DESC,导弹冷却 -15%、推进时间 +15%、加速度 +10%（每层）,Missile cooldown -15%; burn time +15%; acceleration +10% per stack,ミサイルCD-15%・燃焼時間+15%・加速度+10%/層
+UPGRADE_VAPOR_DODGE_NAME,云雾机动,Vapor Dodge,ベイパードッジ
+UPGRADE_VAPOR_DODGE_DESC,高度切换响应 ×2；云中敌人锁定你的速度 -90%,Altitude-change response ×2; enemy lock speed against you in clouds -90%,高度変更応答×2・雲中では敵のロック速度-90%
+UPGRADE_ECM_POD_NAME,电子战吊舱,ECM Pod,ECMポッド
+UPGRADE_ECM_POD_DESC,敌方雷达对你的有效探测距离 -25%,Enemy radar detection range against you -25%,敵レーダーの対自機有効探知距離-25%
+UPGRADE_SHOCK_ABSORB_NAME,冲击吸收,Shock Absorber,衝撃吸収
+UPGRADE_SHOCK_ABSORB_DESC,非致命伤害的 40% 会以每秒 1 HP 回复；致命一击不触发,Regenerate 40% of nonlethal damage at 1 HP/s; lethal hits do not trigger it,非致死ダメージの40%を毎秒1HP回復・致死攻撃では発動しない
+UPGRADE_EXECUTIONER_NAME,侩子手,Executioner,処刑人
+UPGRADE_EXECUTIONER_DESC,连续无伤第 2 杀起每杀叠 1 层（最多 5 层）；每层速度 +5%、减速 +10%、装填 -8%、锁定时间 -10%,"From the 2nd consecutive no-hit kill, gain 1 stack per kill (max 5); each stack: speed +5%, decel +10%, reload -8%, lock time -10%",無被弾連続撃墜の2機目から1機ごとに1層（最大5）・1層ごと速度+5%・減速+10%・装填-8%・ロック時間-10%
+UPGRADE_MISSILE_COUNT_NAME,导弹挂架扩展,Missile Rack,ミサイル増設
+UPGRADE_MISSILE_COUNT_DESC,导弹携带量 +2（每层，最多 3 层）,Missile capacity +2 per stack (up to 3),ミサイル搭載数+2/層（最大3層）
+UPGRADE_MISSILE_TRACKING_NAME,制导升级,Guidance Upgrade,誘導強化
+UPGRADE_MISSILE_TRACKING_DESC,导弹机动能力与追踪精度提升,Improved missile maneuverability and tracking precision,ミサイルの機動性と追尾精度が向上
+UPGRADE_PROXIMITY_FUZE_NAME,近炸引信,Proximity Fuze,近接信管
+UPGRADE_PROXIMITY_FUZE_DESC,导弹接近敌机时自动引爆，产生 AOE 伤害区域,Missile auto-detonates near target creating AOE damage,敵機接近時にミサイル自動起爆、AOEダメージ発生
+UPGRADE_MISSILE_BOUNCE_NAME,连锁弹头,Chain Warhead,連鎖弾頭
+UPGRADE_MISSILE_BOUNCE_DESC,导弹命中后沿原航向继续穿透；同一枚导弹对同一目标最多命中一次,Missiles continue along their heading after impact; each missile can hit a given target only once,命中後も元の進行方向へ貫通・同じミサイルは同一目標に1回のみ命中
+UPGRADE_MISSILE_RELOAD_NAME,快速挂载,Quick Mount,高速装填
+UPGRADE_MISSILE_RELOAD_DESC,导弹装填时间 -15%,Missile reload -15%,ミサイル装填 -15%
+UPGRADE_MULTI_LOCK_NAME,多目标追踪,Multi-Target Tracking,マルチロック
+UPGRADE_MULTI_LOCK_DESC,导弹锁定目标数 +1（每层，最多 3 层）,Missile target locks +1 per stack (max 3),ミサイルロック対象数+1（1スタック毎・最大3）
+UPGRADE_MISSILE_SWARM_NAME,导弹蜂群,Missile Swarm,ミサイルスウォーム
+UPGRADE_MISSILE_SWARM_DESC,当前王牌导弹挂载 +4、锁定目标数 +3；导弹过载能力 ×0.85,"Current ace: +4 missile slots, +3 target locks; missile G ×0.85",現在のエース：ミサイル+4・ロック対象+3；ミサイルG×0.85
+UPGRADE_GUN_DAMAGE_NAME,穿甲弹药,AP Rounds,徹甲弾
+UPGRADE_GUN_DAMAGE_DESC,机炮伤害 +30%（每层）,Gun damage +30% per stack,機関砲ダメージ+30%/層
+UPGRADE_GUN_MULTISHOT_NAME,机炮吊舱,Gun Pods,ガンポッド
+UPGRADE_GUN_MULTISHOT_DESC,翼下挂载两具机炮吊舱，双道弹幕向前齐射,Two wing-mounted gun pods fire twin forward streams,翼下ガンポッド2基が前方へ二条の弾幕を斉射
+UPGRADE_GUN_AMMO_NAME,弹药扩容,Ammo Capacity,弾薬増設
+UPGRADE_GUN_AMMO_DESC,机炮弹药上限 +100,Gun ammo cap +100,ガン弾薬上限 +100
+UPGRADE_GUN_RELOAD_NAME,快速装弹机,Quick Loader,高速装弾
+UPGRADE_GUN_RELOAD_DESC,机炮装填时间 -15%,Gun reload -15%,ガン装填 -15%
+UPGRADE_GUN_FIRERATE_NAME,射速强化,Fire Rate Boost,連射速度強化
+UPGRADE_GUN_FIRERATE_DESC,机炮射速 +25%,Gun fire rate +25%,ガン連射速度 +25%
+UPGRADE_GUN_RANGE_NAME,延伸弹道,Extended Range,射程延長
+UPGRADE_GUN_RANGE_DESC,机炮有效射程 +20%,Gun effective range +20%,ガン有効射程 +20%
+UPGRADE_GUN_CIWS_NAME,近防炮,CIWS,CIWS
+UPGRADE_GUN_CIWS_DESC,机炮自动拦截正面来袭导弹,Gun auto-intercepts incoming frontal missiles,正面来襲ミサイルをガンで自動迎撃
+UPGRADE_FEAR_SQUAD_SPREAD_NAME,惊鸿扩散,Panic Spread,恐慌伝播
+UPGRADE_FEAR_SQUAD_SPREAD_DESC,亲自击杀任何敌机时，其所在小队全员陷入恐惧 5 秒,Personal kills terrify the victim's entire squad for 5s,自ら撃墜した敵の所属小隊全機が5秒間恐怖
+UPGRADE_FEAR_CHILLS_NAME,寒颤,Chills,凍えの戦慄
+UPGRADE_FEAR_CHILLS_DESC,你施加的所有恐惧同时附带减速效果,All fear you inflict also slows the target,自分が付与する恐怖に減速効果が追加
+UPGRADE_RADAR_RANGE_NAME,雷达升级,Radar Upgrade,レーダー強化
+UPGRADE_RADAR_RANGE_DESC,雷达探测距离 +20%,Radar range +20%,レーダー探知距離 +20%
+UPGRADE_LOCK_TIME_NAME,火控优化,Fire Control,火器管制最適化
+UPGRADE_LOCK_TIME_DESC,锁定时间 -0.5秒,Lock time -0.5s,ロック時間 -0.5秒
+UPGRADE_DOGFIGHT_NAME,格斗大师,Dogfight Master,格闘戦の達人
+UPGRADE_DOGFIGHT_DESC,失速速度 -12%、减速 +30%、急转掉速 -15%（每层）,Stall speed -12%; deceleration +30%; high-G speed loss -15% per stack,失速速度-12%・減速+30%・高G旋回の速度損失-15%/層
+UPGRADE_COBRA_SKILL_NAME,眼镜蛇机动,Cobra Maneuver,コブラ機動
+UPGRADE_COBRA_SKILL_DESC,当前操控机按 R 手动释放眼镜蛇；AI 僚机受威胁时自动释放；占用唯一主动机动槽,Press R to trigger a Cobra in the controlled jet; AI wingmen auto-trigger when threatened; occupies the single active-maneuver slot,操作中の機体はRでコブラを手動発動；AI僚機は被脅威時に自動発動；アクティブ機動枠を占有
+UPGRADE_RAILGUN_CHARGE_NAME,电磁炮加速,Railgun Capacitor,電磁砲チャージ
+UPGRADE_RAILGUN_CHARGE_DESC,充能时间 -30%（每层）,Charge time -30% per stack,チャージ時間-30%/層
+UPGRADE_RAILGUN_RANGE_NAME,电磁炮射程,Railgun Range,電磁砲射程
+UPGRADE_RAILGUN_RANGE_DESC,最大射程 +1500m（每层）,Max range +1500m per stack,最大射程+1500m/層
+UPGRADE_RAILGUN_DAMAGE_NAME,电磁炮强化,Railgun Damage,電磁砲ダメージ
+UPGRADE_RAILGUN_DAMAGE_DESC,伤害 +25%,Damage +25%,ダメージ +25%
+UPGRADE_LASER_COOLDOWN_NAME,激光散热,Laser Cooling,レーザー冷却
+UPGRADE_LASER_COOLDOWN_DESC,散热效率 +40%（每层）,Heat dissipation +40% per stack,放熱効率+40%/層
+UPGRADE_LASER_RANGE_NAME,激光增距,Laser Range,レーザー射程
+UPGRADE_LASER_RANGE_DESC,最大射程 +20%,Max range +20%,最大射程 +20%
+UPGRADE_LASER_HEAT_NAME,激光过载,Laser Capacity,レーザー過熱閾値
+UPGRADE_LASER_HEAT_DESC,过热阈值 +50%,Overheat threshold +50%,オーバーヒートしきい値+50%
+UPGRADE_DATA_LINK_NAME,数据链,Data Link,データリンク
+UPGRADE_DATA_LINK_DESC,队友锁定共享给玩家，反之亦然；僚机雷达范围 +20%,Locks shared across the squad; wingman radar range +20%,ロックを全隊で共有・僚機レーダー範囲+20%
+UPGRADE_SKILL_KILL_BLOODLUST_NAME,猎杀本能,Kill Bloodlust,殺戮本能
+UPGRADE_SKILL_KILL_BLOODLUST_DESC,击杀进入嗜血状态 9s,Kills trigger 9s Bloodlust,撃墜で血の渇望9秒
+UPGRADE_SKILL_DAMAGED_BLOODLUST_NAME,反击本能,Wounded Bloodlust,反撃本能
+UPGRADE_SKILL_DAMAGED_BLOODLUST_DESC,受伤进入嗜血状态 9s（被打刷新）,Taking damage triggers 9s Bloodlust (refreshes on hit),被弾で血の渇望9秒（被弾で更新）
+UPGRADE_SKILL_HEAD_ON_PERMA_HP_NAME,骑士心脏,Knight's Heart,騎士の心臓
+UPGRADE_SKILL_HEAD_ON_PERMA_HP_DESC,对头击杀 +5 最大 HP（局内永久）,Head-on kill: +5 max HP (run-permanent),正面撃墜で 最大HP+5 (永久)
+UPGRADE_SKILL_HEAD_ON_AOE_FEAR_NAME,寒颤号令,Battle Cry,戦慄の咆哮
+UPGRADE_SKILL_HEAD_ON_AOE_FEAR_DESC,对头击杀使 2km 内敌方陷入恐惧 6 秒,Head-on kills terrify enemies within 2km for 6s,正面撃墜で2km内の敵が6秒間恐怖
+UPGRADE_SKILL_MISSILE_HIT_INVUL_NAME,危机绝境,Last Stand,危機絶境
+UPGRADE_SKILL_MISSILE_HIT_INVUL_DESC,被导弹命中后 8s 无敌（无敌期间不刷新）,8s Invincibility on missile hit (no refresh),被弾後8秒無敵（更新なし）
+UPGRADE_SKILL_LOWEST_ALT_KILL_INVUL_NAME,空中战车,Sky Chariot,空中戦車
+UPGRADE_SKILL_LOWEST_ALT_KILL_INVUL_DESC,在低空击杀敌人后无敌 8 秒,Killing an enemy at low altitude grants 8s invulnerability,低空で敵を撃墜すると8秒間無敵
+UPGRADE_SKILL_GUN_KILL_FEAR_NAME,机炮震慑,Gun Strike Terror,機関砲威圧
+UPGRADE_SKILL_GUN_KILL_FEAR_DESC,机炮击杀使目标周围 2.4km 内敌方恐惧 5 秒,Gun kills inflict 5s Fear on enemies within 2.4km of the target,機関砲撃墜で目標の周囲2.4kmの敵に5秒恐怖
+RARITY_STABLE,稳定,Stable,安定
+RARITY_ADVANCED,先进,Advanced,先進
+RARITY_EXPERIMENTAL,实验,Experimental,実験
+RARITY_CLASSIFIED,机密,Classified,機密
+RARITY_NEXT_GEN,跨代,Next-Gen,次世代
+UPGRADE_EVASION_SPEED_BOOST_NAME,超频加力,Overdrive Burner,オーバードライブAB
+UPGRADE_EVASION_SPEED_BOOST_DESC,加力模式顶速 +40%,Afterburner mode top speed +40%,ABモード最高速+40%
+UPGRADE_EVASION_WEAPON_CD_NAME,蓄势狂暴,Primed Frenzy,チャージフレンジー
+UPGRADE_EVASION_WEAPON_CD_DESC,加力模式中武器冷却流逝 ×2,Weapon cooldowns tick 2× during Afterburner,ABモード中武器CD進行2倍
+UPGRADE_SKILL_KILL_STATUS_HEAL_NAME,虐弱,Prey on Weakness,弱者狩り
+UPGRADE_SKILL_KILL_STATUS_HEAL_DESC,击杀有异常状态的敌人后回 30 HP,Killing afflicted enemies restores 30 HP,異常敵を撃墜で30HP回復
+UPGRADE_SKILL_FLARE_AOE_JAM_NAME,扰乱投弹,Flare Static,フレア妨害
+UPGRADE_SKILL_FLARE_AOE_JAM_DESC,释放热诱弹后使周围 1.2km 内敌方干扰 3 秒,Releasing flares jams enemies within 1.2km for 3s,フレア使用で周囲1.2kmの敵を3秒ジャミング
+UPGRADE_SKILL_GUN_KILL_FLARE_DROP_NAME,机炮余烬,Gun Embers,機関砲の残光
+UPGRADE_SKILL_GUN_KILL_FLARE_DROP_DESC,机炮击杀产生 flare 区域，干扰附近导弹,Gun kills drop a JAM zone deflecting nearby missiles,機関砲撃墜で妨害域を生成
+UPGRADE_SKILL_MISSILE_HIT_AOE_JAM_NAME,寒蝉效应,Hit-and-Hush,被弾静寂
+UPGRADE_SKILL_MISSILE_HIT_AOE_JAM_DESC,被导弹命中后 2km 内敌方被干扰 5 秒,When hit by a missile enemies within 2km are jammed for 5s,被弾時2km内の敵を5秒間ジャミング
+UPGRADE_SKILL_EVADE_MISSILE_OVERLOAD_NAME,死里逃生,Cheating Death,死中求活
+UPGRADE_SKILL_EVADE_MISSILE_OVERLOAD_DESC,成功躲掉一发导弹后获得超载 8s,Evading a missile grants Overload 8s,ミサイル回避でオーバーロード8秒
+UPGRADE_LOCK_PANIC_G_NAME,被锁狂飙,Locked-On Panic,ロック狂躁
+UPGRADE_LOCK_PANIC_G_DESC,被敌方锁定时 max G ×1.20（每层）,Max G ×1.20 while locked (per stack),ロック中max G×1.20
+UPGRADE_LOW_HP_FLARE_RELOAD_NAME,绝境装填,Last-Stand Reload,絶境装填
+UPGRADE_LOW_HP_FLARE_RELOAD_DESC,HP < 50% 时热诱弹装填速度翻倍,Flare reload ×2 below 50% HP,HP<50%でフレア装填×2
+UPGRADE_HIGH_ALT_LOCK_SPEED_NAME,平流层雷达,Stratosphere Radar,成層圏レーダー
+UPGRADE_HIGH_ALT_LOCK_SPEED_DESC,在最高度档锁定速率 +30%,Lock speed +30% at HIGH altitude,最高度ロック速度+30%
+UPGRADE_CLOSE_RANGE_LOCK_NAME,近距捕获,Close-Range Acquisition,近距離捕捉
+UPGRADE_CLOSE_RANGE_LOCK_DESC,距离目标越近主雷达锁定越快：雷达边缘 ×1 / 半程 ×1.5 / 贴身最高 ×2,Primary radar locks faster at close range: ×1 at radar edge / ×1.5 at half range / up to ×2 point-blank,対象に近いほど主レーダーのロックが加速：レーダー端×1・半距離×1.5・至近距離で最大×2
+UPGRADE_AB_GUN_REGEN_NAME,加力供弹,Burner Feeder,アフターバーナー給弾
+UPGRADE_AB_GUN_REGEN_DESC,加力时机炮弹药每秒回复 25 发,AB regenerates 25 gun rounds/s,AB中機関砲弾25発/秒回復
+UPGRADE_ALT_CHANGE_STEALTH_NAME,垂直机动隐身,Vertical Slip,垂直機動ステルス
+UPGRADE_ALT_CHANGE_STEALTH_DESC,高度变化时更难被敌方雷达锁定,Harder to lock when changing altitude,高度変化中ロック耐性
+UPGRADE_HEAD_ON_GUN_DODGE_NAME,正面回旋,Head-On Slip,正面スリップ
+UPGRADE_HEAD_ON_GUN_DODGE_DESC,对头交锋时机炮闪避 +60%,Gun dodge +60% in head-on encounters,正面交戦時 機関砲回避+60%
+UPGRADE_GUN_FIRE_DR_NAME,火力护盾,Suppression Shield,制圧シールド
+UPGRADE_GUN_FIRE_DR_DESC,机炮发射后 0.5s 内受到伤害 -50%,-50% damage taken for 0.5s after firing guns,発砲後0.5秒間の被ダメージ-50%
+UPGRADE_FEAR_ON_LOCK_NAME,凝视压迫,Lock Stare,ロック圧迫
+UPGRADE_FEAR_ON_LOCK_DESC,持续锁定敌人 4 秒后使其恐惧 6 秒；恐惧消退后可重新累积,Lock an enemy continuously for 4s to inflict 6s Fear; buildup restarts after Fear expires,敵を4秒連続ロックすると6秒恐怖・解除後に再蓄積可能
+UPGRADE_CLOUD_OVERLOAD_NAME,云中超载,Cloud Surge,雲中サージ
+UPGRADE_CLOUD_OVERLOAD_DESC,在云中获得超载状态,Overload while in clouds,雲中でオーバーロード
+UPGRADE_CLOUD_WEAPON_CD_NAME,云隙快攻,Cloud Cover Tempo,雲中速攻
+UPGRADE_CLOUD_WEAPON_CD_DESC,云中所有武器 cd ×0.5,All weapon cooldowns ×0.5 in clouds,雲中武器CD×0.5
+UPGRADE_EVASION_STEALTH_NAME,雾隐机动,Phantom Veil,霧隠機動
+UPGRADE_EVASION_STEALTH_DESC,加力持续 2 秒后进入隐身，直至加力结束,Enter stealth after 2s of continuous Afterburner; lasts until Afterburner ends,ABを2秒継続するとステルス化しAB終了まで持続
+UPGRADE_EVASION_HERBST_NAME,危机赫尔贝特,Crisis J-Turn,危機Jターン
+UPGRADE_EVASION_HERBST_DESC,当前操控机按 R 手动释放 J-Turn；AI 僚机受威胁时自动释放；占用唯一主动机动槽,Press R to trigger a J-Turn in the controlled jet; AI wingmen auto-trigger when threatened; occupies the single active-maneuver slot,操作中の機体はRでJターンを手動発動；AI僚機は被脅威時に自動発動；アクティブ機動枠を占有
+UPGRADE_EVASION_OVERSTOCK_NAME,弹仓过载,Overstock Bay,弾倉オーバーロード
+UPGRADE_EVASION_OVERSTOCK_DESC,加力模式中每 4s 装填 1 发导弹（突破上限至 2 倍）,Afterburner mode reloads +1 missile per 4s up to 2× cap,ABモード4秒毎ミサイル+1（上限2倍）
+UPGRADE_OVERLOAD_DURATION_4X_NAME,过载共振,Surge Resonance,オーバーロード共鳴
+UPGRADE_OVERLOAD_DURATION_4X_DESC,超载持续时间 ×2,Overload duration ×2,オーバーロード持続×2
+UPGRADE_MISSILE_CD_STEALTH_NAME,弹后潜匿,Silent Reload,弾後潜匿
+UPGRADE_MISSILE_CD_STEALTH_DESC,弹药打空后获得 4 秒隐身,Gain 4s stealth when missiles run dry,ミサイル切れで4秒ステルス
+UPGRADE_SKILL_FLARE_OVERLOAD_NAME,焰诱共振,Flare Surge,フレア共鳴
+UPGRADE_SKILL_FLARE_OVERLOAD_DESC,释放热诱弹后获得超载 8s,Releasing flare grants Overload 8s,フレア発射でオーバーロード8秒
+UPGRADE_OVERLOAD_EXTENDED_AMMO_NAME,燃尽自如,Limitless Burn,燃え尽きの自在
+UPGRADE_OVERLOAD_EXTENDED_AMMO_DESC,超载持续时间 +6s；超载期间发射不消耗弹药,Overload duration +6s; firing during Overload costs no ammo,オーバーロード+6秒；中は弾消費なし
+UPGRADE_OVERLOAD_TO_BLOODLUST_NAME,噬血共振,Crimson Surge,噬血共鳴
+UPGRADE_OVERLOAD_TO_BLOODLUST_DESC,超载期间同时获得嗜血；击杀刷新两者持续时间,Overload also grants Bloodlust; kills refresh both,オーバーロード中ブラッドラスト付与；撃墜で両方リフレッシュ
+UPGRADE_BLOODLUST_ARMOR_MOBILITY_NAME,血怒护甲,Frenzy Plate,血怒装甲
+UPGRADE_BLOODLUST_ARMOR_MOBILITY_DESC,嗜血期间减伤 30%；最大 G ×1.2；加 / 减速 ×1.3,Bloodlust: -30% damage; max G ×1.2; accel/decel ×1.3,ブラッドラスト中-30%被ダメ；最大G×1.2；加減速×1.3
+UPGRADE_FULL_HP_KILL_PERMA_HP_NAME,血誓不竭,Vital Vow,血誓不渇
+UPGRADE_FULL_HP_KILL_PERMA_HP_DESC,嗜血期间击杀敌人永久 +8 最大生命,Kills during Bloodlust permanently grant +8 max HP,血の渇望中の撃墜で最大HP+8（恒久）
+UPGRADE_HEAD_ON_JAM_NAME,对锋干扰,Head-On Jammer,対峙妨害
+UPGRADE_HEAD_ON_JAM_DESC,对头目标累积 3s 后被电子干扰 5s,Head-on targets are jammed for 5s after 3s exposure,正対する敵に3秒蓄積で5秒ジャミング
+UPGRADE_JAM_SELF_OVERLOAD_NAME,共振反馈,Jamming Surge,共鳴フィードバック
+UPGRADE_JAM_SELF_OVERLOAD_DESC,JAM 命中至少 1 个敌人时获得超载 8s,Landing JAM on ≥1 enemy grants Overload 8s,JAM命中で8秒オーバーロード
+UPGRADE_REAR_AURA_SLOW_NAME,后半球减速光环,Tailspike Aura,後方減速オーラ
+UPGRADE_REAR_AURA_SLOW_DESC,后半球 2.4km 内敌人停留 8s 后被施加减速（消退后重新累积）,Enemies in your 2.4km rear arc accumulate to Slow (resets after expires),後方2.4km内に8秒滞在で減速（解除後再蓄積）
+UPGRADE_F14_SQUAD_LOCK_SLOW_NAME,围猎,Pack Hunt,囲い狩り
+UPGRADE_F14_SQUAD_LOCK_SLOW_DESC,全体僚机共同锁定的敌机持续受到减速,Enemies locked by the whole pack are continuously slowed,全僚機が共同ロックした敵機は継続的に減速
+UPGRADE_LOW_ALT_GUN_DODGE_NAME,地表狂奔,Hedgehopper,低空疾走
+UPGRADE_LOW_ALT_GUN_DODGE_DESC,在低空时机炮闪避 +50%,Gun dodge +50% at low altitude,低空時 機関砲回避+50%
+UPGRADE_JAM_AURA_NAME,全向干扰场,Omni-Jam Field,全方位妨害フィールド
+UPGRADE_JAM_AURA_DESC,周围 3km 内敌人停留 8s 后被干扰 5 秒（消退后重新累积）,Enemies staying 8s within 3km get jammed for 5s (re-accumulates),3km内に8秒留まった敵を5秒ジャミング（消滅後再蓄積）
+UPGRADE_GUNSHIP_MODE_NAME,炮艇模式,Gunship Mode,ガンシップモード
+UPGRADE_GUNSHIP_MODE_DESC,全队机炮改为 360° 自动射击，自动扫描敌机与地面单位并显示完整射程圈；最大速度 -40%,Squad guns gain 360° automatic fire against aircraft and ground units plus a full range ring; max speed -40%,全隊の機関砲が航空機・地上ユニットを360°自動射撃し射程円を表示；最高速度-40%
+UPGRADE_HEAVY_GUN_NAME,重型机炮,Heavy Cannon,重機関砲
+UPGRADE_HEAVY_GUN_DESC,全队机炮射程 +1000m,Squad gun range +1000m,全隊の機関砲射程+1000m
+UPGRADE_HUNTER_NAME,猎手,Hunter,ハンター
+UPGRADE_HUNTER_DESC,全队执行突击命令时：+2G、加减速 ×1.2、G 能量损失 ×0.7、受到伤害 ×0.7；目标结束即失效,"During Assault orders: squad +2G, accel/decel ×1.2, G-energy loss ×0.7, damage taken ×0.7; ends with the target",全隊が突撃命令中：+2G・加減速×1.2・G損失×0.7・被ダメージ×0.7；目標終了で解除
+UPGRADE_INVASION_ALGORITHM_NAME,入侵算法,Intrusion Algorithm,侵入アルゴリズム
+UPGRADE_INVASION_ALGORITHM_DESC,玩家小队施加的干扰会使 MQ-109～112 立即失控坠毁并正常结算经验,Player-squad JAM causes MQ-109–112 to crash immediately and awards normal XP,プレイヤー隊のJAMでMQ-109～112が即時墜落し通常XPを獲得
+UPGRADE_FLEE_NAME,逃吧 Run,Run,逃げろ
+UPGRADE_FLEE_DESC,玩家小队首次施加恐惧时有 40% 令普通载人敌机撤离并结算一次经验；无人机、王牌、BOSS 及其生成物无效,"On a new player-squad Fear, 40% chance for a normal crewed enemy to retreat and award XP once; excludes UAVs, aces, bosses, and boss spawns",プレイヤー隊の新規恐怖で40%の確率で通常有人機が撤退しXPを一度獲得；無人機・エース・ボス・ボス生成物は無効
+UPGRADE_STORM_I_NAME,暴风雨 I,Storm I,嵐 I
+UPGRADE_STORM_I_DESC,每次加力激活实际消耗 3.0 能量后，本次窗口全队获得超载 8 秒（每次激活至多一次）,"After spending 3.0 actual Afterburner charge in one activation, the window squad gains 8s Overload (once per activation)",1回のAB起動で実消費3.0に達すると窓内の全隊が8秒オーバーロード（起動ごとに1回）
+UPGRADE_STORM_II_NAME,暴风雨 II,Storm II,嵐 II
+UPGRADE_STORM_II_DESC,当前操控王牌处于超载时：加力启用不耗能，停用时被动充能 ×4；免费维持不推进暴风雨 I,While the controlled ace is Overloaded: active Afterburner drains no charge and inactive recharge is ×4; free upkeep does not advance Storm I,操作中のエースがオーバーロード中：AB使用時は消費なし・停止時の充填×4；無料維持は嵐Iを進めない
+UPGRADE_RATATAT_NAME,哒哒哒哒哒,Ratatat,ダダダダダ
+UPGRADE_RATATAT_DESC,嗜血期间：机炮射程 +500m、实际射击间隔 ×0.70、射界半角 +8°,"During Bloodlust: gun range +500m, actual firing interval ×0.70, and cone half-angle +8°",ブラッドラスト中：機関砲射程+500m・実射撃間隔×0.70・射界半角+8°
+UPGRADE_MENTAL_CONFUSION_NAME,精神错乱,Mental Confusion,精神錯乱
+UPGRADE_MENTAL_CONFUSION_DESC,恐惧首次落地时，普通敌机 50%／王牌 25%／BOSS 10% 概率浪费至多一份热诱弹或导弹,"When Fear first lands: normal enemies have a 50% chance, aces 25%, and bosses 10% to waste at most one flare use or missile",恐怖の初回付与時：通常50%・エース25%・ボス10%でフレア1回分またはミサイル1発を浪費
+UPGRADE_HUSH_NAME,嘘！,Hush!,シーッ！
+UPGRADE_HUSH_DESC,被干扰的敌机无法释放热诱弹；其已发射与新发射导弹立即失去制导,Jammed enemies cannot deploy flares; their existing and newly launched missiles immediately lose guidance,ジャミング中の敵はフレア使用不可；既発射・新発射ミサイルは即座に誘導を失う
+UPGRADE_STASIS_NAME,凝滞,Stasis,停滞
+UPGRADE_STASIS_DESC,王牌受到实际导弹直击伤害时，使 2km 内敌人减速 4 秒；范围伤害、闪避、无敌与零伤害不触发,"When the ace takes actual direct missile damage, enemies within 2km are Slowed for 4s; AOE, dodges, invulnerability, and zero damage do not trigger",エースがミサイル直撃の実ダメージを受けると2km内の敵を4秒減速；範囲・回避・無敵・0ダメージでは発動しない
+LOADOUT_BACK,返回,BACK,戻る
+LOADOUT_BTN_BUY_FMT,购买（%d 功勋）,BUY (%d M),購入 %d
+LOADOUT_BTN_OWNED,已拥有,OWNED,所持済
+LOADOUT_BTN_NO_FUNDS,功勋不足,INSUFFICIENT MERIT,功勲不足
+LOADOUT_DOCTRINE_HEADER,▼ 解锁研究,▼ DOCTRINES,▼ 研究
+LOADOUT_BADGE_DOCTRINE,[ 解锁 ],[ UNLOCK ],[ 解放 ]
+LOADOUT_DOCTRINE_UNLOCKS_FMT,▸ 解锁【%s】词条的技能,▸ Unlocks 【%s】 upgrades,▸ 【%s】系を解禁
+STATUS_NOTE_OVERLOAD,▸ 超载：装填 / 锁定 ×0.4 · 加速与顶速 ×1.6,▸ Overload: reload / lock ×0.4 · accel & top speed ×1.6,▸ オーバーロード：装填/ロック×0.4・加速と最高速×1.6
+STATUS_NOTE_BLOODLUST,▸ 嗜血：每次击杀回复 20 HP · 机炮/CIWS 发射不耗弹,▸ Bloodlust: each kill restores 20 HP · gun/CIWS fire costs no ammo,▸ ブラッドラスト：撃墜ごとにHP20回復・機関砲/CIWSの弾薬消費なし
+STATUS_NOTE_INVINCIBLE,▸ 无敌：免疫全部伤害,▸ Invincible: immune to all damage,▸ 無敵：全ダメージ無効
+STATUS_NOTE_STEALTH,▸ 隐身：无法被锁定 · 敌方丢失目标,▸ Stealth: cannot be locked · enemies lose you,▸ ステルス：ロック不可・敵が目標を見失う
+STATUS_NOTE_FEAR,▸ 恐惧：敌机压力拉满 · 被迫脱离交战,▸ Fear: target panics · breaks off the engagement,▸ 恐怖：敵はパニックし交戦から離脱
+STATUS_NOTE_JAM,▸ 干扰：目标全武器封锁 · 雷达冻结,▸ Jam: target's weapons blocked · radar frozen,▸ ジャミング：全武器封鎖・レーダー凍結
+STATUS_NOTE_SLOW,▸ 减速：限速 350 km/h · 禁用加力 · 滚转 ×0.6,▸ Slow: capped at 350 km/h · no afterburner · roll ×0.6,▸ 減速：350km/h制限・AB禁止・ロール×0.6
+LOADOUT_KEYWORD_FEAR,恐惧,Fear,恐怖
+LOADOUT_KEYWORD_OVERLOAD,超载,Overload,オーバーロード
+LOADOUT_KEYWORD_BLOODLUST,嗜血,Bloodlust,血戦
+EQUIPMENT_DOCTRINE_FEAR_NAME,战术：恐惧,Tactic: Fear,戦術：恐怖
+EQUIPMENT_DOCTRINE_FEAR_DESC,解锁【恐惧】系 in-run 升级,Unlocks fear in-run upgrades,恐怖系を解禁
+EQUIPMENT_DOCTRINE_OVERLOAD_NAME,战术：超载,Tactic: Overload,戦術：オーバーロード
+EQUIPMENT_DOCTRINE_OVERLOAD_DESC,解锁【超载】系 in-run 升级,Unlocks overload in-run upgrades,オーバーロード系を解禁
+EQUIPMENT_DOCTRINE_BLOODLUST_NAME,战术：嗜血,Tactic: Bloodlust,戦術：血戦
+EQUIPMENT_DOCTRINE_BLOODLUST_DESC,解锁【嗜血】系 in-run 升级,Unlocks bloodlust in-run upgrades,血戦系を解禁
+LOADOUT_KEYWORD_CHIVALRY,对头触发,Head-on Triggers,正面トリガー
+LOADOUT_KEYWORD_JAM,干扰,Jamming,妨害
+EQUIPMENT_DOCTRINE_CHIVALRY_NAME,战术：骑士,Tactic: Chivalry,戦術：騎士
+EQUIPMENT_DOCTRINE_CHIVALRY_DESC,解锁【对头触发】系 in-run 升级,Unlocks head-on trigger in-run upgrades,正面トリガー系を解禁
+EQUIPMENT_DOCTRINE_JAM_NAME,战术：干扰,Tactic: Jamming,戦術：妨害
+EQUIPMENT_DOCTRINE_JAM_DESC,解锁【干扰】系 in-run 升级,Unlocks jamming in-run upgrades,妨害系を解禁
+LOADOUT_KEYWORD_STEALTH,隐身,Stealth,ステルス
+EQUIPMENT_DOCTRINE_STEALTH_NAME,战术：隐身,Tactic: Stealth,戦術：ステルス
+EQUIPMENT_DOCTRINE_STEALTH_DESC,解锁【隐身】系 in-run 升级,Unlocks stealth in-run upgrades,ステルス系を解禁
+EQUIPMENT_DOCTRINE_FEAR_FLAVOR,植入动摇。,Sow wavering.,動揺を植える。
+EQUIPMENT_DOCTRINE_OVERLOAD_FLAVOR,最大化杀伤。,Maximize the lethality.,殺傷を最大化。
+EQUIPMENT_DOCTRINE_BLOODLUST_FLAVOR,每一击都喂养下一击。,Each kill feeds the next.,撃つたびに次が育つ。
+EQUIPMENT_DOCTRINE_CHIVALRY_FLAVOR,你在空战中带了一挺骑枪来。,You brought a lance to a dogfight.,空中戦にランスを持ち込んできたな。
+EQUIPMENT_DOCTRINE_JAM_FLAVOR,阻断反馈。,Sever feedback.,反応を断つ。
+EQUIPMENT_DOCTRINE_STEALTH_FLAVOR,别眨眼。,Don't blink.,まばたきしないで。
+UPGRADE_SKILL_TORPEDO_AOE_JAM_NAME,雷阵警讯,Mine Disruption,投雷警報
+UPGRADE_SKILL_TORPEDO_AOE_JAM_DESC,漂浮雷引爆时再向外释放一圈电子干扰，800m 内敌方进入 JAM 5 秒（武器 / 雷达全锁死）,Drift mines emit a JAM pulse on detonation: enemies within 800m get JAM 5s (weapons + radar locked),浮遊機雷の爆発時に電子干渉波が広がり、800m 以内の敵を 5 秒間 JAM
+UPGRADE_ROCKET_FIRERATE_RANGE_NAME,火箭弹·急速延伸,RKT Burst Extension,ロケット急射延伸
+UPGRADE_ROCKET_FIRERATE_RANGE_DESC,火箭弹齐射 CD ×0.75，最大射程与扫描距离 ×1.25。每层叠加。,Rocket burst CD ×0.75 + max range/scan ×1.25 per stack,ロケットの再射撃 CD ×0.75 + 射程・索敵 ×1.25（積み重ね可）
+UPGRADE_SKILL_ROCKET_HOMING_NAME,火箭弹·寻迹引导,RKT Homing,ロケット追尾誘導
+UPGRADE_SKILL_ROCKET_HOMING_DESC,火箭弹发射后获得弱追踪能力（1200m 内最近敌人，35°/s 转向），近距糊脸时偏移自动修正,Rockets gain weak homing (1200m scan / 35°/s turn rate) — auto-correct near-miss shots,ロケットに弱追尾を付与（1200m 索敵・35°/s 旋回）—近距離での外しを自動補正
+UPGRADE_TORPEDO_TRACKING_BOOST_NAME,漂浮雷·猎手感应,Drift Mine Hunter,浮遊機雷ハンター
+UPGRADE_TORPEDO_TRACKING_BOOST_DESC,漂浮雷扫描距离 ×1.6 + 转向速率 ×2.2。每层叠加。,Drift mine scan ×1.6 + turn rate ×2.2 per stack,浮遊機雷の索敵 ×1.6・旋回 ×2.2（積み重ね可）
+UPGRADE_SKILL_LASER_DAMAGE_NAME,激光·致命输出,Lethal Lasing,致死照射
+UPGRADE_SKILL_LASER_DAMAGE_DESC,激光在保留减速效果的同时开始造成伤害；近距离伤害最高，随距离衰减,Lasers begin dealing damage while retaining their slow; damage is highest up close and falls with distance,レーザーが減速効果を保ったままダメージを与える・近距離で最大、距離で減衰
+UPGRADE_SKILL_LASER_HACK_NAME,激光·黑客光束,Hacking Beam,ハッキングビーム
+UPGRADE_SKILL_LASER_HACK_DESC,激光持续照射 MQ-109/110 2.5 秒可将其转为跟随长机作战的友军；与致命输出互斥,Hold the laser on an MQ-109/110 for 2.5 seconds to turn it into a combat ally that follows your leader; mutually exclusive with Lethal Lasing,MQ-109/110へ2.5秒間レーザーを照射すると長機に追従して戦う友軍へ転換する・致死照射とは排他
+UPGRADE_LASER_EXTRA_BEAMS_NAME,激光·分束扩容,Laser Splitter,レーザー分岐拡張
+UPGRADE_LASER_EXTRA_BEAMS_DESC,激光可同时照射的目标数 +1（每层叠加，最多 +2）。每束独立衰减，多目标覆盖更强,+1 simultaneous laser target per stack (max +2); each beam attenuates independently,レーザー同時照射目標+1/層（最大+2）。各ビームは独立減衰
+ATTR_GLADIATOR,斗士,Gladiator,闘士
+ATTR_KNIGHT,骑士,Knight,騎士
+ATTR_SCHEMER,策士,Schemer,策士
+CARD_AXIS_FOCUS_NAME,方向专注,Focus Training,方向鍛錬
+CARD_AXIS_FOCUS_DESC,本轴暂无新技能——纯粹磨练方向（该轴属性点 +1）,No new skill on this path - pure focus (+1 point on this axis),この軸に新スキルなし——純粋な鍛錬（+1ポイント）
+ATTR_PANEL_TITLE,三轴路线,Attribute Axes,三軸ルート
+ATTR_ROUTE_FMT,路线：%s,Route: %s,ルート：%s
+ATTR_ROUTE_NONE,路线未定,Route undecided,ルート未定
+ATTR_NEXT_FMT,下一档 %d 点：%s,Next at %d: %s,次の段階 %d pt：%s
+ATTR_MAXED,已满档,Maxed,最大段階
+ATTR_STAT_MAX_HP,血量,Hull HP,耐久
+ATTR_STAT_GUN_DAMAGE,机炮伤害,Gun damage,機関砲威力
+ATTR_STAT_GUN_RANGE,机炮射程,Gun range,機関砲射程
+ATTR_STAT_MAX_G,G 力,G limit,G限界
+ATTR_STAT_STALL_SPEED,失速速度,Stall speed,失速速度
+ATTR_STAT_GUN_AMMO,机炮备弹,Gun ammo,機関砲弾数
+ATTR_STAT_MISSILE_COUNT,导弹挂载,Missile racks,ミサイル搭載数
+ATTR_STAT_RADAR_RANGE,雷达距离,Radar range,レーダー距離
+ATTR_STAT_SPEED,极速,Top speed,最高速度
+ATTR_STAT_ALT_SPEED,高度变化速度,Climb rate,高度変更速度
+ATTR_STAT_FLARE_COUNT,热诱弹,Flares,フレア数
+ATTR_STAT_LOCK_TIME,锁定耗时,Lock time,ロック時間
+ATTR_STAT_CRUISE,巡航速度,Cruise,巡航速度
+ATTR_MILESTONE_DETAIL,里程碑明细,MILESTONE TRACK,マイルストーン明細
+ATTR_CURRENT_BONUS,当前加成,ACTIVE BONUS,現在の強化
+ATTR_AIRCRAFT_DATA,机体状态,AIRFRAME STATUS,機体ステータス
+ATTR_BONUS_NONE,暂无加成——选卡加点解锁,No bonus yet - pick cards to unlock,強化なし——カードで解放
+ATTR_STAT_FLARE_CD,热诱弹冷却,Flare cooldown,フレアCD
+ATTR_STAT_RADAR_CONE,雷达锥角,Radar cone,レーダー角
+ATTR_STAT_DAMAGE_REDUCTION,伤害减免,Damage reduction,ダメージ軽減
+ATTR_STAT_MISSILE_LOCKS,导弹锁定目标数,Missile target locks,ミサイルロック対象数
+ATTR_STAT_XP_GAIN,经验值,XP gain,経験値
+UPGRADE_SCOPE_SQUAD,◈ 全队,◈ Squad-wide,◈ 全隊
+UPGRADE_SCOPE_ACE,王牌专属,Ace only,エース専用
+UPGRADE_SCOPE_SQUAD_ONCE,◇ 队级单件,◇ Squad single,◇ 隊単位
+UPGRADE_CLASS_LIMITED_FMT,%s限定,%s only,%s限定
+UPGRADE_MILESTONE_PLUS_FMT,%s进度+1,+1 %s milestone,%s進度+1
+UPGRADE_TORPEDO_EXTRA_NAME,漂浮雷·额外,Drift Mine: Extra,漂流機雷・増設
+UPGRADE_TORPEDO_EXTRA_DESC,每次投放的漂浮雷数量 +1（每层）,+1 mine per drop (per stack),投下ごとの機雷数+1/層
+UPGRADE_QMAAM_BOOST_NAME,QAAM 强化,QAAM Boost,QAAM強化
+UPGRADE_QMAAM_BOOST_DESC,格斗弹 +1，射程 +10%（每层）,+1 dogfight missile; +10% range (per stack),格闘ミサイル+1・射程+10%/層
+UPGRADE_WINGMAN_EXTRA_NAME,忠诚僚机·额外,Loyal Wingman: Extra,ロイヤルウィングマン・増機
+UPGRADE_WINGMAN_EXTRA_DESC,可同时存在的忠诚僚机数量 +1（每层）,+1 max simultaneous drone per stack,同時展開ドローン数+1/層
+UPGRADE_WINGMAN_ARMED_NAME,忠诚僚机·武装,Loyal Wingman: Armed,ロイヤルウィングマン・武装
+UPGRADE_WINGMAN_ARMED_DESC,无人机武器伤害 +30%、射程 +20%、自爆伤害 +30%,Drone weapon damage +30%; range +20%; self-destruct damage +30%,ドローン火力+30%・射程+20%・自爆ダメージ+30%
+UPGRADE_COCKPIT_ARMOR_NAME,座舱护甲,Cockpit Armor,コックピット装甲
+UPGRADE_COCKPIT_ARMOR_DESC,来自地面火力（SAM/高炮/CIWS）的伤害 -50%（每层）,-50% damage from ground fire (SAM/AA/CIWS) per stack,地上火力（SAM/対空砲/CIWS）被ダメージ-50%/層
+UPGRADE_SQUAD_REVENGE_NAME,复仇之战,War of Vengeance,復讐の戦い
+UPGRADE_SQUAD_REVENGE_DESC,僚机或王牌被击坠时，全队进入嗜血与无敌状态 15 秒,When a squadmate falls the whole squad gains Bloodlust and invulnerability for 15s,僚機かエースが撃墜されると全隊が15秒間血の渇望＋無敵
+UPGRADE_GUARD_ZONE_BUFF_NAME,保卫阵地,Hold the Line,陣地防衛
+UPGRADE_GUARD_ZONE_BUFF_DESC,【防守此区】圈内全队受伤 -30%，转弯 G +15%,Inside the guard zone the squad takes -30% damage with +15% turn G,【防衛エリア】圏内で全隊被ダメージ-30%・旋回G+15%
+UPGRADE_GUN_RESERVE_MAG_NAME,备用弹仓,Reserve Magazine,予備弾倉
+UPGRADE_GUN_RESERVE_MAG_DESC,机炮弹尽时有 30%（双层 50%）概率立刻回满弹药,30% chance (50% at two stacks) to instantly refill guns when dry,弾切れ時30%（2層で50%）で即座に全弾補充
+UPGRADE_GUN_OUT_FREE_MISSILE_NAME,副武器,Sidearm Protocol,サイドアーム
+UPGRADE_GUN_OUT_FREE_MISSILE_DESC,机炮装填期间发射导弹不消耗弹药,Missiles fired while guns are reloading cost no ammo,機関砲装填中はミサイル消費なし
+UPGRADE_HEADON_XP_NAME,骑士心脏·历练,Knight's Heart: Tempering,騎士の心・鍛錬
+UPGRADE_HEADON_XP_DESC,对头击杀获得的经验 +50%,Head-on kills grant +50% XP,正面撃墜の経験値+50%
+UPGRADE_AB_KILL_CHARGE_NAME,检讨,Debrief,戦訓
+UPGRADE_AB_KILL_CHARGE_DESC,击杀的加力充能奖励 +0.6s（每层；基线 +0.8s）,Kill afterburner charge bonus +0.6s per stack (base +0.8s),撃墜時のアフターバーナー充填+0.6s/層（基準+0.8s）
+UPGRADE_AB_DURATION_NAME,强化加力,Extended Burn,強化バーナー
+UPGRADE_AB_DURATION_DESC,加力耗能减慢，续航 +50%/层（满能量 6s→9s→12s）,Afterburner drains 50% slower per stack (full: 6s→9s→12s),バーナー消費50%減/層（満タン6→9→12秒）
+UPGRADE_ADAPT_ENERGY_NAME,适应,Adaptation,適応
+UPGRADE_ADAPT_ENERGY_DESC,击杀不高于自己高度的敌人回复加力充能；击杀高于自己的回 20 HP,Kills at or below your altitude restore afterburner charge; kills above you restore 20 HP,自機以下の高度の敵撃墜でバーナー充填回復・上の敵で20HP回復
+UPGRADE_ASSASSIN_REVENGE_NAME,刺客复仇,Assassin's Reprisal,暗殺者の報復
+UPGRADE_ASSASSIN_REVENGE_DESC,僚机或王牌被击坠时，全队获得超载与隐身 15 秒,When a squadmate falls the squad gains Overload and stealth for 15s,僚機かエースが撃墜されると全隊が15秒間オーバーロード＋ステルス
+UPGRADE_EVAC_SHIFT_NAME,阵地转移,Tactical Relocation,陣地転換
+UPGRADE_EVAC_SHIFT_DESC,【撤离此区】冲刺追加提速 15%，且撤离中受到伤害 -50%,Evac sprint gains +15% speed and -50% damage taken while withdrawing,【離脱】スプリント+15%・離脱中の被ダメージ-50%
+UPGRADE_LEVELUP_HEAL_NAME,升级回复,Level-Up Recovery,レベルアップ回復
+UPGRADE_LEVELUP_HEAL_DESC,每次升级时全队回复 10 HP,The squad restores 10 HP on every level-up,レベルアップごとに全隊HP10回復
+UPGRADE_GROUND_CREW_NAME,地勤优化,Ground Crew Drill,地上クルー熟練
+UPGRADE_GROUND_CREW_DESC,机场／航母停靠判定耗时减半；起飞后获得一个升级,Docking takes half the time; gain a free upgrade after takeoff,着艦判定時間半減・離陸後にアップグレード1回獲得
+UPGRADE_BLACKBOX_RECOVERY_NAME,黑匣子回收,Black Box Recovery,ブラックボックス回収
+UPGRADE_BLACKBOX_RECOVERY_DESC,僚机或王牌被击坠时，获得一个升级,Gain a free upgrade when a squadmate is shot down,僚機かエースの撃墜時にアップグレード1回獲得
+UPGRADE_QMAAM_BLOODLUST_NAME,QAAM 嗜血,QAAM Bloodlust,QAAM血の渇望
+UPGRADE_QMAAM_BLOODLUST_DESC,格斗弹击杀后进入嗜血状态 10 秒,QAAM kills trigger 10s of Bloodlust,格闘ミサイル撃墜で血の渇望10秒
+UPGRADE_VETERAN_HP_NAME,历战者,Veteran,歴戦者
+UPGRADE_VETERAN_HP_DESC,按已持有的【斗士轴】技能数提升全队血量（+5 HP/条，上限 +100）,+5 max HP per Gladiator-axis skill owned (cap +100),闘士軸スキル数×+5HP（上限+100）
+UPGRADE_SPEED_BY_KNIGHT_NAME,全速推进,Full Throttle,全速前進
+UPGRADE_SPEED_BY_KNIGHT_DESC,按已持有的【骑士轴】技能数提升最高速度（+5%/条，上限 +40%）,+5% top speed per Knight-axis skill owned (cap +40%),騎士軸スキル数×+5%最高速度（上限+40%）
+UPGRADE_EW_EXPERT_NAME,电子战专家,EW Expert,電子戦エキスパート
+UPGRADE_EW_EXPERT_DESC,按已持有的【策士轴】技能数提升雷达距离（+100m/条，上限 +1km）,+100m radar range per Schemer-axis skill owned (cap +1km),策士軸スキル数×+100mレーダー（上限+1km）
+UPGRADE_WEAPON_MASTER_NAME,武器大师,Weapon Master,ウェポンマスター
+UPGRADE_WEAPON_MASTER_DESC,全武器冷却 -5%/件（机炮+导弹起步 -10%，上限 -30%）,-5% all-weapon cooldown per weapon (gun + missiles start at -10%; cap -30%),全武器CD -5%/個（機関砲+ミサイルで初期 -10%、上限 -30%）
+UPGRADE_RAILGUN_DOUBLE_NAME,双发,Double Tap,二連射
+UPGRADE_RAILGUN_DOUBLE_DESC,电磁炮蓄力完成后沿同一弹道连发两发,Railgun fires twice along the same trajectory per charge,レールガンが同一弾道で二連射
+UPGRADE_MISSILE_SECOND_STAGE_NAME,二段推进,Second Stage,二段推進
+UPGRADE_MISSILE_SECOND_STAGE_DESC,导弹一段燃尽后持续加速（上限 ×1.2）且转弯渐强（最高 +50%），距离越远越准,Missiles keep accelerating after burnout (cap x1.2) with growing turn G (up to +50%),ミサイル燃焼後も加速（×1.2）・旋回G漸増（最大+50%）
+UPGRADE_MANUAL_DODGE_NAME,胆大妄为,Reckless Abandon,大胆不敵
+UPGRADE_MANUAL_DODGE_DESC,全队禁用普通自动热诱弹且热诱弹 +6；当前操控机按 R 滚转投焰；AI 僚机受威胁自动释放；0.25s 严格无敌窗；占用唯一主动机动槽,Disables normal auto flares squad-wide and grants +6 flares; R rolls and drops flares while AI wingmen auto-trigger under threat; strict 0.25s i-frame; occupies the single active-maneuver slot,全隊の通常自動フレアを無効化しフレア+6；Rでロールしフレアを投射；AI僚機は被脅威時に自動発動；0.25秒の無敵窓；アクティブ機動枠を占有
+UPGRADE_DISPLACEMENT_ROLL_NAME,位移滚转,Displacement Roll,変位ロール
+UPGRADE_DISPLACEMENT_ROLL_DESC,按 R 向安全侧平滑横移 700m 并保持前进；动作期间不可命中；15s 小队共享冷却；AI 僚机受威胁自动使用,Press R to slide 700m toward the safer side while continuing forward; cannot be hit during the move; 15s squad cooldown; AI wingmen auto-trigger under threat,Rで安全側へ700m横移し前進を維持；動作中は命中無効；分隊共有15秒クールダウン；AI僚機は被脅威時に自動発動
+UPGRADE_VERTICAL_BREAK_NAME,垂直越过,Vertical Break,垂直ブレイク
+UPGRADE_VERTICAL_BREAK_DESC,按 R 在低空拉升 900m 或在中高空俯冲 900m；动作期间不可命中；18s 小队共享冷却；AI 僚机受威胁自动使用,Press R to climb 900m at low altitude or dive 900m at medium and high altitude; cannot be hit during the move; 18s squad cooldown; AI wingmen auto-trigger under threat,Rで低空時は900m上昇し中高空時は900m降下；動作中は命中無効；分隊共有18秒クールダウン；AI僚機は被脅威時に自動発動
+UPGRADE_SIG_F15_NAME,无败之鹰,Flawless Eagle,無敗の鷲
+UPGRADE_SIG_F15_DESC,生命值全满时：机炮伤害 +20%、锁定速度 +20%,While at full HP: gun damage +20% and lock speed +20%,HP満タン時：機関砲ダメージ+20%・ロック速度+20%
+UPGRADE_SIG_A6E_NAME,盲飞入侵,All-Weather Intruder,全天候侵入
+UPGRADE_SIG_A6E_DESC,低空飞行时敌人锁定你的速度 -40%,While flying low enemies lock onto you 40% slower,低空飛行中は敵のロック速度-40%
+UPGRADE_SIG_MIRAGE3_NAME,幻影,Mirage,ミラージュ
+UPGRADE_SIG_MIRAGE3_DESC,热诱弹保护窗口延长 60%；成功诱骗导弹的瞬间获得 1.5 秒无敌,Flare protection windows last 60% longer; deflecting a missile grants 1.5s invincibility,フレア保護時間+60%・ミサイル回避成功時に1.5秒無敵
+UPGRADE_SIG_MIRAGE2000_NAME,静不稳定,Relaxed Stability,静的不安定
+UPGRADE_SIG_MIRAGE2000_DESC,持续 G 力 +2、滚转速度 +30%,Sustained G +2 and roll rate +30%,持続G+2・ロール速度+30%
+UPGRADE_SIG_F15C_NAME,制空清扫,Dominance Sweep,制空掃討
+UPGRADE_SIG_F15C_DESC,雷达内每多 1 架敌机锁定速度 +8%（最多 +40%）,Each enemy on radar speeds up your lock by 8% (max +40%),レーダー内の敵1機ごとにロック速度+8%（最大+40%）
+UPGRADE_SIG_F15E_NAME,对地特化,Strike Special,対地特化
+UPGRADE_SIG_F15E_DESC,对地面与舰船单位：锁定速度 +50%、伤害 +30%,Against ground and naval units: lock speed +50% and damage +30%,地上・艦船に対し：ロック速度+50%・ダメージ+30%
+UPGRADE_SIG_FA18E_NAME,甲板周转,Deck Cycle,デッキサイクル
+UPGRADE_SIG_FA18E_DESC,每次停靠离场：弹药过量装填至 2 倍上限；生命上限永久 +10（最多 +50）,Each time you leave a dock ammo is overloaded to twice the cap; max HP permanently +10 (up to +50),停泊離脱ごとに弾薬を上限の2倍まで搭載・最大HP永久+10（最大+50）
+UPGRADE_SIG_EA18G_NAME,伴随压制,Escort Suppression,随伴制圧
+UPGRADE_SIG_EA18G_DESC,至少有1名僚机且全体存活僚机共同满锁同一目标时持续施加干扰；共锁解除后停止刷新,JAM is continuously applied while at least one wingman is alive and every surviving wingman has a full lock on the same target; refresh stops when the shared lock breaks,僚機が1機以上生存し全生存僚機が同一目標を完全ロック中はジャミングを継続付与・共同ロック解除で更新停止
+UPGRADE_SIG_F16_NAME,智能鹰,Smart Falcon,スマートファルコン
+UPGRADE_SIG_F16_DESC,经验获取 +25%（独立于其他经验加成）,XP gain +25% (independent of other XP bonuses),経験値獲得+25%（他の経験値ボーナスとは独立）
+UPGRADE_SIG_GRIPEN_C_NAME,公路机场,Road Base,ロードベース
+UPGRADE_SIG_GRIPEN_C_DESC,未被任何敌人锁定时加力槽充能速度 +50%,While not locked by any enemy the afterburner gauge charges 50% faster,敵にロックされていない間アフターバーナー充填+50%
+UPGRADE_SIG_SU27_NAME,急停机动,Sudden Stop,急停機動
+UPGRADE_SIG_SU27_DESC,完成特殊机动的瞬间对 1500m 内的敌机施加 4 秒恐惧,Completing a special maneuver inflicts 4s of fear on enemies within 1500m,特殊機動の完了時1500m内の敵に4秒の恐怖を付与
+UPGRADE_SIG_A10_NAME,钛浴缸,Titanium Bathtub,チタンバスタブ
+UPGRADE_SIG_A10_DESC,血量低于 30% 时不会被一击致死（保留 1 HP；冷却 60 秒）,Below 30% HP a killing blow leaves you at 1 HP instead (60s cooldown),HP30%未満では致死打を1HPで耐える（CD60秒）
+UPGRADE_SIG_RAFALE_NAME,SPECTRA,SPECTRA,SPECTRA
+UPGRADE_SIG_RAFALE_DESC,热诱弹成功偏转导弹后对其发射者施加 5 秒干扰,Deflecting a missile with flares jams its shooter for 5s,フレアでミサイルを回避すると発射者に5秒のジャミング
+UPGRADE_SIG_TORNADO_NAME,地形跟随,Terrain Following,地形追随
+UPGRADE_SIG_TORNADO_DESC,低空飞行时：速度 +8%、加力槽充能 +50%,While flying low: speed +8% and afterburner charge +50%,低空飛行中：速度+8%・アフターバーナー充填+50%
+UPGRADE_SIG_TYPHOON_NAME,超巡爬升,Supercruise Climb,スーパークルーズ上昇
+UPGRADE_SIG_TYPHOON_DESC,高度调整速度 +50% 且爬升不再减速；变更高度期间机炮闪避 +30%,Altitude changes are 50% faster and climbing no longer slows you; +30% gun dodge while changing altitude,高度変更速度+50%・上昇減速なし；高度変更中は機関砲回避+30%
+UPGRADE_SIG_SU34_NAME,鸭嘴兽厨房,Hell Kitchen,地獄の厨房
+UPGRADE_SIG_SU34_DESC,加力窗口期间每秒回复 2 点生命,Regenerate 2 HP per second during the afterburner window,アフターバーナー発動中毎秒HP2回復
+UPGRADE_SIG_VIGGEN_NAME,唯一的锁定,The Only Lock,唯一のロック
+UPGRADE_SIG_VIGGEN_DESC,目标脱离雷达后锁定保持 3 秒；雷达距离 +500m,Locks persist for 3s after the target leaves your radar; radar range +500m,目標がレーダーから外れてもロックを3秒維持・レーダー距離+500m
+UPGRADE_SIG_MIG31_NAME,超速截击,Overspeed Intercept,超速迎撃
+UPGRADE_SIG_MIG31_DESC,加力窗口中自动向机头前半球雷达锥内的锁定目标发射导弹且弹速 +30%,During the afterburner window missiles auto-fire at locked targets inside both the forward hemisphere and radar cone with +30% speed,アフターバーナー中は機首前方半球かつレーダーコーン内のロック目標へ自動ミサイル発射・弾速+30%
+UPGRADE_SIG_HARRIER_NAME,VIFFing,VIFFing,VIFFing
+UPGRADE_SIG_HARRIER_DESC,减速效率 +50%；降到 200 km/h 以下时获得 4 秒无敌（冷却 20 秒）,Deceleration +50%; dropping below 200 km/h grants 4s invincibility (20s cooldown),減速効率+50%・200km/h未満で4秒無敵（CD20秒）
+UPGRADE_SIG_F15SMTD_NAME,矢量鸭翼,Vectored Canard,ベクタードカナード
+UPGRADE_SIG_F15SMTD_DESC,G 力 +2 收紧转弯半径；急转掉速 -35%,+2 G tightens your turns; speed loss in hard turns -35%,G+2で旋回半径を縮小・急旋回の速度損失-35%
+UPGRADE_SIG_SU35_NAME,落叶飘,Kulbit,クルビット
+UPGRADE_SIG_SU35_DESC,完成特殊机动后获得 6 秒无敌,Completing a special maneuver grants 6s of invincibility,特殊機動の完了後6秒間無敵
+UPGRADE_SIG_F35_NAME,传感器融合,Sensor Fusion,センサーフュージョン
+UPGRADE_SIG_F35_DESC,僚机可以直接对你锁定的目标发射导弹,Wingmen can fire missiles at targets you have locked,僚機があなたのロック目標へ直接ミサイルを発射可能
+UPGRADE_SIG_GRIPEN_E_NAME,电战预算,Budget EW,低コスト電子戦
+UPGRADE_SIG_GRIPEN_E_DESC,免疫干扰、减速与恐惧等一切异常状态,Immune to jamming / slow / fear and all other debuffs,ジャミング・減速・恐怖など全ての状態異常を無効化
+UPGRADE_SIG_F22_NAME,先敌开火,First Look First Kill,先制撃破
+UPGRADE_SIG_F22_DESC,进入隐身的瞬间装填所有武器；隐身期间导弹锁定目标数 +2,Entering stealth instantly reloads all weapons; +2 missile target locks while stealthed,ステルス突入時に全武装を即装填・ステルス中はミサイルロック対象数+2
+UPGRADE_SIG_SU57_NAME,多波段搜索,Multi-band Search,マルチバンド索敵
+UPGRADE_SIG_SU57_DESC,雷达锥角 +40°,Radar cone +40°,レーダー角+40°
+UPGRADE_SIG_J20_NAME,霹雳长矛,Long Spear,霹靂の長槍
+UPGRADE_SIG_J20_DESC,导弹挂载 +1、射程 +40%、生存时间 +50%,Missile capacity +1 with +40% range and +50% lifetime,ミサイル+1・射程+40%・飛翔時間+50%
+UPGRADE_SIG_A12_NAME,不被期待的计划,Cancelled Program,日の目を見ぬ計画
+UPGRADE_SIG_A12_DESC,被击坠时以 30% 血量原地复活（每局一次）,On death revive with 30% HP (once per run),撃墜時にHP30%で復活（1出撃1回）
+UPGRADE_SIG_YF23_NAME,落选者,The One That Lost,敗れし者
+UPGRADE_SIG_YF23_DESC,每次从机场或航母起飞后获得 20 秒隐身,Gain 20s of stealth after each takeoff from an airfield or carrier,飛行場・空母から離陸するたびに20秒のステルス
+UPGRADE_SIG_F47_NAME,忠诚僚机编队,Loyal Wingman Flight,忠実な僚機編隊
+UPGRADE_SIG_F47_DESC,立即获得 2 架永久忠诚僚机,Immediately gain two permanent loyal wingmen,永続する忠実僚機2機を即時獲得
+UPGRADE_SIG_FAXX_NAME,穿透打击,Penetration Strike,突破攻撃
+UPGRADE_SIG_FAXX_DESC,本机以机炮完成击杀后获得5秒隐身；内置冷却20秒且冷却中不刷新；导弹和僚机击杀不触发,Gain 5s STEALTH after this aircraft scores a gun kill; 20s internal cooldown with no refresh; missile and wingman kills do not trigger,この機体が機関砲で撃破すると5秒間ステルス・内部クールダウン20秒で更新なし・ミサイルや僚機の撃破では発動しない
+UPGRADE_SIG_MIG41_NAME,近太空冲刺,Near-Space Dash,亜宇宙ダッシュ
+UPGRADE_SIG_MIG41_DESC,高空时敌人锁定你的速度 -40%；从高空俯冲时加速 +50% 并获得 8 秒超载,At high altitude enemies lock you 40% slower; diving from high altitude boosts acceleration 50% and grants 8s overload,高高度では敵のロック速度-40%・高高度からの降下で加速+50%と8秒の超過駆動
+UPGRADE_SIG_FCAS_NAME,作战云,Combat Cloud,コンバットクラウド
+UPGRADE_SIG_FCAS_DESC,你获得的超载、嗜血、隐身与无敌会同步施加给全体队友,Your overload / bloodlust / stealth / invincibility buffs are shared with the whole squad,自身の超過駆動・ブラッドラスト・ステルス・無敵が全僚機にも付与
+UPGRADE_SIG_GCAP_NAME,联合突击,Joint Assault,統合突撃
+UPGRADE_SIG_GCAP_DESC,每有 1 名僚机存活：导弹挂载 +1、雷达距离 +5%（最多 4 层）,For each living wingman: missile capacity +1 and radar range +5% (max 4),生存僚機1機ごとにミサイル+1・レーダー距離+5%（最大4）
+UPGRADE_SIG_J36_NAME,三发推力,Triple Thrust,三発推力
+UPGRADE_SIG_J36_DESC,下达突击命令后持续 G +2、滚转 +30%、加减速 +40%，直到目标被消灭（冷却 15 秒）,After an assault order: sustained G +2; roll +30%; acceleration/deceleration +40% until the target is destroyed (15s cooldown),突撃命令後は目標撃破まで持続G+2・ロール+30%・加減速+40%（CD15秒）
+UPGRADE_SIG_X09_NAME,夜枭,Silent Owl,夜梟
+UPGRADE_SIG_X09_DESC,你的导弹有 40% 概率不被敌人察觉（不规避、不投热诱弹）,Your missiles have a 40% chance to go unnoticed with no evasion and no flares,自軍ミサイルは40%の確率で敵に察知されない（回避もフレアもなし）
+UPGRADE_SIG_X13_NAME,全频段压制,Full-Spectrum,全周波数制圧
+UPGRADE_SIG_X13_DESC,被锁定的敌人身上的异常状态衰退速度 -40%,Debuffs on enemies you are locking decay 40% slower,ロック中の敵の状態異常の減衰速度-40%
+UPGRADE_SIG_X02_NAME,突击翼龙,Assault Wyvern,突撃ワイバーン
+UPGRADE_SIG_X02_DESC,立即装备电磁炮；电磁炮没有最短射程、充能时间 -30%,Instantly equips a railgun with no minimum range and 30% faster charge,レールガンを即時装備・最短射程なし・チャージ時間-30%
+UPGRADE_SIG_X21_NAME,超越地平,Over the Horizon,超水平線
+UPGRADE_SIG_X21_DESC,导弹被热诱弹干扰后会继续寻找新目标；生存时间 +100%,Flare-jammed missiles hunt for new targets; missile lifetime +100%,フレアに逸れたミサイルは新目標を再索敵・飛翔時間+100%
+UPGRADE_SIG_X44_NAME,高速炮艇,Gunship Anvil,高速ガンシップ
+UPGRADE_SIG_X44_DESC,机炮可朝前方 180° 范围开火，普通机炮与炮舱子弹可穿透多个目标,The gun can fire across the forward 180-degree arc; gun and pod rounds pierce multiple targets,機関砲が前方180°に射撃可能・通常弾とガンポッド弾は複数目標を貫通
+UPGRADE_SIG_X77_NAME,引渡人,The Ferryman,渡し守
+UPGRADE_SIG_X77_DESC,导弹击杀敌机后进入 5 秒隐身,Missile kills grant 5s of stealth,ミサイル撃墜後5秒間ステルス
+UPGRADE_SIG_X90_NAME,鲸群,Whale Pod,鯨群
+UPGRADE_SIG_X90_DESC,每 25 秒生成 1 架忠诚僚机（最多 3 架）；与 1500m 内友军平分所受伤害,Spawn 1 loyal wingman every 25s (max 3); incoming damage is split with allies within 1500m,25秒ごとに忠実僚機を1機生成（最大3）・1500m内の友軍と被ダメージを均等分担
+UPGRADE_SIG_AX00_NAME,双子星,Gemini,ジェミニ
+UPGRADE_SIG_AX00_DESC,立即复制 1 架同型僚机并继承全部技能,Instantly clones one wingman of your aircraft inheriting your full build,同型僚機1機を即時複製・全スキルを継承
+UPGRADE_SIGNATURE_BADGE,机体专属,AIRCRAFT SIGNATURE,機体専用
+UPGRADE_SIGNATURE_AIRCRAFT_FMT,当前机体：%s,Current aircraft: %s,現在の機体：%s

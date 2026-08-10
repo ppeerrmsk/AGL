@@ -160,7 +160,7 @@ quit():                                        # = 确认返回主菜单
 | 面板主逻辑 | `scripts/survivor/pause_menu.gd` |
 | 创建/接线/ESC 分流 | `scripts/survivor/survivor_mode.gd` |
 | 出入场序列 | `resources/presentation/sequences.json`（`panel_in` / `panel_out`） |
-| 文案 | `i18n/translations.csv`（`PAUSE_*`） |
+| 文案 | `i18n/interface.csv`（`PAUSE_*`） |
 | reference 索引行 | `script-index.md` 生存模式段 / `code-index.md` UI 段 |
 
 ## 8. 变更记录

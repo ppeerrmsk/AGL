@@ -277,7 +277,7 @@ reconstruction_complete: true
 | flare 命数 / jam 分支 | `scripts/aircraft/aircraft_flares.gd` + 王牌 flare 资源 |
 | 机炮资源 | `resources/ace_gun.tres` |
 | 横幅 / Tab 标记 | `scripts/survivor/zone_hint.gd` / `scripts/survivor/tactical_map.gd` |
-| i18n | `i18n/translations.csv` EVENT_ACE_SUPPORT_* 段 |
+| i18n | `i18n/gameplay.csv` EVENT_ACE_SUPPORT_* 段 |
 
 ## 8. 变更记录
 

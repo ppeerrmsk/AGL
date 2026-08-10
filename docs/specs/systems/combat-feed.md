@@ -35,7 +35,7 @@ RTS 化后玩家同时指挥多机、镜头常拉远俯瞰全场（见 [camera �
 | 行格式 | `"{击杀者}  →{武器}→  {被击坠者}"` | 武器为空（如坠地无凶手）退化为 `"{a}  →  {b}"` |
 
 **武器种类**（来自 `Aircraft._last_damage_kind`）：`gun/missile/rocket/aoe/ground_crash` →
-i18n key `WEAPON_GUN/MISSILE/ROCKET/AOE/CRASH`（`translations.csv`），未导入时回退中文。
+i18n key `WEAPON_GUN/MISSILE/ROCKET/AOE/CRASH`（`interface.csv`），未导入时回退中文。
 
 ## 3. 行为与公式（How）
 
@@ -63,7 +63,7 @@ survivor_hud._update_kill_feed(delta):  # 每帧
 | `EventLogger.kill_recorded` 信号 | 击坠事件桥 | **新增**（event_logger.gd） |
 | `Aircraft._record_kill_attribution` emit | 致死瞬间广播 | 改（aircraft.gd，复用已有 attacker/kind） |
 | `survivor_hud` 战况栏（VBox + 条目 + 淡出） | 显示 | **新增**（survivor_hud.gd） |
-| `WEAPON_*` i18n key | 武器三语 | **新增**（translations.csv，需 Godot 重导入） |
+| `WEAPON_*` i18n key | 武器三语 | **新增**（interface.csv，需重建翻译资源） |
 
 ## 5. 验收标准
 
@@ -82,7 +82,7 @@ survivor_hud._update_kill_feed(delta):  # 每帧
 | 信号 emit | `scripts/aircraft.gd`（_record_kill_attribution） |
 | 战况栏 UI + 淡出 | `scripts/survivor/survivor_hud.gd`（_on_kill_recorded / _update_kill_feed / _feed_weapon_label） |
 | 颜色常量 | `scripts/theme_colors.gd`（HP_OK / HP_LOW / TEXT_MUTED） |
-| 武器 i18n | `i18n/translations.csv`（WEAPON_*） |
+| 武器 i18n | `i18n/interface.csv`（WEAPON_*） |
 
 ## 7. 相关
 

@@ -2,6 +2,7 @@ extends RefCounted
 
 const EnemyPoolRegistry = preload("res://scripts/survivor/enemy_pool_registry.gd")
 const F22Multilock = preload("res://scripts/survivor/f22_multilock.gd")
+const SchemerMultilock = preload("res://scripts/survivor/schemer_multilock.gd")
 const SnowblindController = preload("res://scripts/survivor/snowblind_controller.gd")
 const SnowblindShroudVisual = preload("res://scripts/survivor/snowblind_shroud_visual.gd")
 
@@ -22,6 +23,18 @@ class SpawnPickProbe extends SurvivorSpawner:
 	func _get_token_budget() -> int:
 		return probe_budget
 
+
+class MultilockModeProbe extends RefCounted:
+	var game_time: float = 20.0
+
+
+class MultilockSpawnerProbe extends RefCounted:
+	var mode := MultilockModeProbe.new()
+	var player_aircraft: Aircraft = null
+
+	func _get_ai(_aircraft: Aircraft):
+		return null
+
 ## 无头行为验收：刷怪池配置（2026-07-28 平衡批）
 ##
 ## A 敌人高度分档表（按机型定位分化，不再全员均匀随机）
@@ -41,6 +54,7 @@ var _fail := 0
 const SAMPLES := 3000
 const POOL_RATE_SAMPLES := 30000
 const POOL_RATE_LEVELS: Array[int] = [1, 4, 7, 10, 13]
+const FIRE_SAFE_TEST_DELTA: float = 0.20
 
 ## 不进常规池的 14 型必须有明确专用入口；这里同时钉住资源、工厂映射和入口源码。
 const DEDICATED_ENEMY_ROUTES: Array[Dictionary] = [
@@ -84,6 +98,7 @@ func run() -> void:
 	_test_af03_visibility()
 	_test_signature_random_exclusion()
 	_test_regular_enemy_registry()
+	_test_multilock_freed_reference_safety()
 	_test_enemy_type_route_coverage()
 	_test_regular_pool_reachability_and_rates()
 	_test_adbs_escort_pool()
@@ -469,6 +484,54 @@ func _test_regular_enemy_registry() -> void:
 			and EnemyPoolRegistry.row_for_type(51).get("multilock_mode") == "team3" \
 			and bool(EnemyPoolRegistry.row_for_type(52).get("post_stall")) \
 			and bool(EnemyPoolRegistry.row_for_type(49).get("post_stall")), "")
+
+
+func _test_multilock_freed_reference_safety() -> void:
+	print("── 多锁控制器：已释放登记机 / 齐射目标生命周期安全 ──")
+	var spawner := MultilockSpawnerProbe.new()
+
+	var schemer := SchemerMultilock.new(spawner)
+	var freed_schemer := Aircraft.new()
+	schemer.register(freed_schemer, "per2")
+	freed_schemer.free()
+	schemer._prune_and_restore()
+	_check("Schemer 登记表跳过已释放飞机", not schemer.has_units(), "")
+	var live_schemer := Aircraft.new()
+	var freed_schemer_target := CombatUnit.new()
+	schemer._queues[live_schemer] = [freed_schemer_target]
+	schemer._fire_timers[live_schemer] = 0.0
+	freed_schemer_target.free()
+	schemer._update_queues(FIRE_SAFE_TEST_DELTA)
+	_check("Schemer 齐射队列跳过已释放目标", not schemer._queues.has(live_schemer), "")
+	live_schemer.free()
+	schemer.shutdown()
+
+	var f22 := F22Multilock.new(spawner)
+	var freed_f22 := Aircraft.new()
+	f22.register(freed_f22)
+	freed_f22.free()
+	f22._logic_step()
+	_check("F-22 登记表跳过已释放飞机", f22._units.is_empty(), "")
+	var live_f22 := Aircraft.new()
+	var freed_f22_target := CombatUnit.new()
+	var f22_queues: Dictionary = {}
+	var f22_timers: Dictionary = {}
+	f22_queues[live_f22] = [freed_f22_target]
+	f22_timers[live_f22] = 0.0
+	f22._group_states[1] = {
+		"phase": "execute",
+		"until": 0.0,
+		"queues": f22_queues,
+		"timers": f22_timers,
+		"members": [live_f22],
+	}
+	freed_f22_target.free()
+	f22._update_execution(FIRE_SAFE_TEST_DELTA)
+	var f22_state: Dictionary = f22._group_states[1]
+	_check("F-22 齐射队列跳过已释放目标",
+		str(f22_state.get("phase", "")) == "egress", "")
+	live_f22.free()
+	f22.shutdown()
 
 
 # ── H. 全机型产出路径：常规池 43 型 + 专用入口 14 型 ──

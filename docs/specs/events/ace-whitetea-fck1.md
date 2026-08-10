@@ -290,7 +290,7 @@ reconstruction_complete: true
 | J-turn 模块 | `scripts/herbst_maneuver.gd` |
 | AI 触发 | `scripts/ai_controller.gd` |
 | 事件生成与配置 | `scripts/survivor/ace_support_squad.gd` |
-| 徽章 / 图鉴 / i18n / 无线电资格 | `scripts/meta/ace_emblem_icon.gd`、`scripts/meta/enemy_codex.gd`、`i18n/translations.csv`、`resources/chatter/radio_chatter.json` |
+| 徽章 / 图鉴 / i18n / 无线电资格 | `scripts/meta/ace_emblem_icon.gd`、`scripts/meta/enemy_codex.gd`、`i18n/meta.csv`、`i18n/radio.csv`、`resources/chatter/radio_chatter.json` |
 | Debug 正式事件入口 | `scripts/survivor/survivor_debug_spawn.gd` |
 | 回归 | `scripts/tests/test_ace_tier.gd`、`scripts/tests/test_lancer_squad.gd`、`scripts/tests/test_career_archive.gd` |
 | reference | `docs/reference/enemy-index.md`、`script-index.md`、`code-index.md` |

@@ -216,7 +216,7 @@ StormⅡ 免费窗口：charge 不变，storm_i_spent 也不增加
 | 机炮有效参数与弹药 | `scripts/aircraft.gd`、`scripts/aircraft/aircraft_weapons.gd` |
 | 热诱弹与导弹失导 | `scripts/aircraft/aircraft_flares.gd`、`scripts/missile_manager.gd` |
 | 自动验证 | `scripts/tests/test_skills_720.gd`、`scripts/tests/test_skill_audit.gd`、`scripts/tests/test_status_notes.gd` |
-| 三语文本 | `i18n/translations.csv` |
+| 三语文本 | `i18n/skills.csv` |
 
 ## 8. 变更记录
 

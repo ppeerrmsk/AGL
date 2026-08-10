@@ -4147,18 +4147,34 @@ func _update_delayed_zone_unlocks() -> void:
 				_tactical_map.refresh_zone_state()
 
 ## ZoneMission 在实体生成前 6 秒发出；同帧成批开放的 A/B 只播一条复数通报。
-func _on_zone_mission_spawn_announced(_zone_id: StringName, mission_type: String) -> void:
+func _on_zone_mission_spawn_announced(zone_id: StringName, mission_type: String) -> void:
 	if _radio == null or not is_instance_valid(_radio):
 		return
 	if mission_type == "bomber_escort":
-		_radio.say("bomber_escort_available", "AWACS",
-			RadioChatter.color_for_team(CombatUnit.TEAM_ALLY))
+		_say_bomber_escort_available(zone_id)
 		return
 	if game_time - _last_reward_target_radio_time < 1.0:
 		return
 	_last_reward_target_radio_time = game_time
 	_radio.say("reward_target_available", "HQ",
 		RadioChatter.color_for_team(CombatUnit.TEAM_ALLY))
+
+## 护送任务固定双句：真实目标坐标先量化八方向，再由指挥中心发布护航请求。
+func _say_bomber_escort_available(zone_id: StringName) -> void:
+	if _radio == null or not is_instance_valid(_radio):
+		return
+	var target: Vector2 = _zone_data.get_zone_center(zone_id) if _zone_data else Vector2.ZERO
+	if player_aircraft != null and is_instance_valid(player_aircraft):
+		var plan := ZoneMission.build_bomber_escort_route(zone_id, player_aircraft.global_position)
+		var planned_target: Vector2 = plan.get("target", target)
+		target = planned_target
+	var direction := tr(RadioChatter.direction_key(target))
+	var speaker := tr("RADIO_SPEAKER_COMMAND_CENTER")
+	var color := RadioChatter.color_for_team(CombatUnit.TEAM_ALLY)
+	_radio.say_text("bomber_escort_available", speaker, color,
+		tr("RADIO_BOMBER_ESCORT_COORD_FMT") % direction)
+	_radio.say_text("bomber_escort_available", speaker, color,
+		tr("RADIO_BOMBER_ESCORT_REQUEST"))
 
 ## 战术地图选中战区（P2）
 func _on_zone_selected(zone_id: StringName) -> void:
@@ -4245,9 +4261,9 @@ static func _detail_path_view_regions(start: Vector2, finish: Vector2,
 
 func _on_zone_mission_triggered(zone_id: StringName) -> void:
 	# 自动进入战区 = 自动开始任务；同时清掉顶部"新战区已开放"提示
+	var mt: String = _zone_data.get_mission_type(zone_id) if _zone_data else "ground"
 	if _zone_hint:
 		_zone_hint.hide_persistent()
-		var mt: String = _zone_data.get_mission_type(zone_id) if _zone_data else "ground"
 		var fmt_key: String
 		match mt:
 			"air":       fmt_key = "ZONE_MISSION_STARTED_AIR_FMT"
@@ -4258,6 +4274,17 @@ func _on_zone_mission_triggered(zone_id: StringName) -> void:
 		_zone_hint.show_temp(tr(fmt_key) % _zone_label(zone_id), 3.0)
 	if _zone_data:
 		_zone_data.take_newly_opened()
+	if _radio == null or not is_instance_valid(_radio):
+		return
+	if mt == "naval" and _zone_mission != null:
+		var hostile := _zone_mission.get_live_hostile_target(zone_id)
+		if hostile != null:
+			_radio.say_unit("zone_naval_contact", hostile)
+	elif mt == "air" or mt == "squadron":
+		var friendly := _first_radio_wingman()
+		if friendly != null:
+			_radio.say_unit("zone_air_support_request", friendly,
+				[_zone_region_name(zone_id)])
 
 func _on_zone_mission_completed(zone_id: StringName) -> void:
 	if not _zone_data:
@@ -4280,6 +4307,12 @@ func _on_zone_mission_completed(zone_id: StringName) -> void:
 		reward = ZoneRewardRegistry.get_reward_for(zone_id)
 		if reward.is_empty():
 			reward = _zone_data.get_reward(zone_id)
+	# 地面战完成后，只有气氛层真实友军仍存活才允许说感谢台词；必须在 reset_zone 注销前快照。
+	if mission_type == "ground" and _radio != null and is_instance_valid(_radio) \
+			and _zone_mission != null:
+		var ground_ally := _zone_mission.get_surviving_atmosphere_ally(zone_id)
+		if ground_ally != null:
+			_radio.say_unit("zone_ground_thanks", ground_ally)
 	# 攻克即领（spec zone-reward-docking 修订 2026-07-24，用户拍板）：僚机/武器/技能类奖励
 	# **当场发放、与机场/降落解耦**；进化 + 回血保留为停靠点功能（_on_dock_docked）。
 	# 航母奖励仍即时入场（登舰=海上停靠点，兼回血/进化）。
@@ -4706,6 +4739,10 @@ func _liberate_airfield(zone_id: StringName) -> void:
 		_tactical_map.set_docks(_dock_points)
 	# 友军防空伞：解放即刻逐个刷出（不 dock 门控）
 	_deploy_airfield_ally_gradual(zone_id, center, asset_group_id)
+	if _radio != null and is_instance_valid(_radio) \
+			and player_aircraft != null and is_instance_valid(player_aircraft):
+		_radio.say("airfield_liberated", tr("RADIO_SPEAKER_TEMP_TOWER"),
+			RadioChatter.color_for_team(CombatUnit.TEAM_ALLY), [player_aircraft.callsign])
 	if _zone_hint:
 		_zone_hint.show_temp(tr("ZONE_AIRFIELD_LIBERATED_FMT") % tr(dock_key), 4.5)
 	EventLogger.log_event("ZONE", "AirfieldLiberated",
@@ -5334,6 +5371,27 @@ func _zone_label(zone_id: StringName) -> String:
 	if _zone_data.is_airfield(zone_id):
 		return tr(String(z.get("dock_name_key", z.get("name_key", ""))))
 	return z.get("label", str(zone_id))
+
+## 战区无线电使用地区名而不是 A–G 槽位标签。
+func _zone_region_name(zone_id: StringName) -> String:
+	if not _zone_data:
+		return str(zone_id)
+	var z := _zone_data.get_zone_by_id(zone_id)
+	if z.is_empty():
+		return str(zone_id)
+	var key := String(z.get("name_key", ""))
+	return tr(key) if key != "" else String(z.get("label", zone_id))
+
+## 返回第一架真实存活、有人驾驶的非玩家僚机；不为无线电做全场扫描。
+func _first_radio_wingman() -> Aircraft:
+	for value in _squad_members_alive():
+		if typeof(value) == TYPE_OBJECT and value != null and is_instance_valid(value) \
+				and value is Aircraft and value != player_aircraft \
+				and not (value as Aircraft).is_destroyed \
+				and (value as Aircraft).can_speak_on_radio():
+			return value as Aircraft
+	return null
+
 
 ## 把玩家传送回边界内侧 + 机头朝向地图中心
 ## 回归时只钳到边界线上（0 margin），玩家从边缘线继续飞回战区，没有"瞬移闪烁"感

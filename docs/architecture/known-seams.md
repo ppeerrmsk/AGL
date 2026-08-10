@@ -599,7 +599,12 @@ BOSS 混战里这是常态而非边缘情况。`_pending_attacker` meta 同理�
 `safe_aircraft_ref(value: Variant)` 边界净化，所有 `player_ref` 运行时读取走 `safe_player_ref()`，
 Game Over 同步断开两个缓存；`presentation` 用真实 `free()` 后的强类型缓存覆盖回归。
 
-**踩到次数**：4
+**2026-08-10 第五次实证**：近炸导弹的生命周期长于发射者，命中时把已释放的
+`missile.source` 传给 `_spawn_aoe(..., source: Node)`，在第 6 个实参类型检查阶段硬崩。
+调用点先经 `CombatUnit.safe_attacker()` 净化，AOE 创建入口同时改收 `Variant` 并只缓存净化结果；
+`weapon` bench 用真实 `free()` 的发射者直接覆盖该边界。
+
+**踩到次数**：5
 
 ## SEAM-021 · "玩家显式命令"在移动层是铁律，在武器发射层却没有代表权
 

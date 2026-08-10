@@ -30,11 +30,14 @@ func _physics_process(delta: float) -> void:
 ## AA 无雷达，只扫描射程内最近的敌方飞机；绝不参与地面炮战。
 func _update_aa_target_selection(delta: float) -> void:
 	# 当前目标仍在射程内 → 保持
-	if combat_target is Aircraft and is_instance_valid(combat_target) and not combat_target.is_destroyed:
-		var dist := global_position.distance_to(combat_target.global_position)
+	var target_value: Variant = combat_target
+	var current := _live_aircraft_ref(target_value)
+	if current != null:
+		var dist := global_position.distance_to(current.global_position)
 		var attack_range := (params.gun.max_range if params and params.gun else 600.0) * PIXELS_PER_METER
 		if dist < attack_range * 1.5:
 			return
+	combat_target = null
 
 	# 定期扫描
 	_scan_timer -= delta
@@ -42,7 +45,6 @@ func _update_aa_target_selection(delta: float) -> void:
 		return
 	_scan_timer = SCAN_INTERVAL
 
-	combat_target = null
 	var attack_range := (params.gun.max_range if params and params.gun else 600.0) * PIXELS_PER_METER * 1.5
 	var best_dist := attack_range
 	if not get_parent():
@@ -72,14 +74,16 @@ func is_in_radar_cone(_target_global_pos: Vector2) -> bool:
 
 ## 炮管追踪目标 / 无目标时缓慢旋转
 func _update_turret(delta: float) -> void:
-	if combat_target and is_instance_valid(combat_target) and not combat_target.is_destroyed:
+	var target_value: Variant = combat_target
+	var target := _live_aircraft_ref(target_value)
+	if target != null:
 		# 追踪前置点
-		var to_target := combat_target.global_position - global_position
+		var to_target := target.global_position - global_position
 		var dist_px := to_target.length()
-		var tgt_vel := Vector2(sin(combat_target.heading), -cos(combat_target.heading)) * combat_target.speed * PIXELS_PER_METER
+		var tgt_vel := Vector2(sin(target.heading), -cos(target.heading)) * target.speed * PIXELS_PER_METER
 		var bullet_speed := (params.gun.muzzle_velocity if params and params.gun else 700.0) * PIXELS_PER_METER
 		var time_to_target := dist_px / maxf(bullet_speed, 1.0)
-		var lead_pos := combat_target.global_position + tgt_vel * time_to_target
+		var lead_pos := target.global_position + tgt_vel * time_to_target
 		var target_angle := atan2((lead_pos - global_position).x, -(lead_pos - global_position).y)
 		var diff := angle_difference(turret_heading, target_angle)
 		turret_heading += clampf(diff, -TURRET_TURN_RATE * delta, TURRET_TURN_RATE * delta)
@@ -89,8 +93,9 @@ func _update_turret(delta: float) -> void:
 
 ## 覆写战斗检查：有目标就开火（明知打不中也象征性射击）
 func _update_combat(_delta: float) -> void:
-	if not (combat_target is Aircraft) or not is_instance_valid(combat_target) \
-			or combat_target.is_destroyed:
+	var target_value: Variant = combat_target
+	var target := _live_aircraft_ref(target_value)
+	if target == null:
 		combat_target = null
 		is_firing = false
 		return
@@ -99,7 +104,7 @@ func _update_combat(_delta: float) -> void:
 		is_firing = false
 		return
 
-	var to_target := combat_target.global_position - global_position
+	var to_target := target.global_position - global_position
 	var dist_px := to_target.length()
 	var gun_range_px := params.gun.max_range * PIXELS_PER_METER
 
@@ -108,10 +113,10 @@ func _update_combat(_delta: float) -> void:
 		return
 
 	# 前置量
-	var tgt_vel := Vector2(sin(combat_target.heading), -cos(combat_target.heading)) * combat_target.speed * PIXELS_PER_METER
+	var tgt_vel := Vector2(sin(target.heading), -cos(target.heading)) * target.speed * PIXELS_PER_METER
 	var bullet_speed := params.gun.muzzle_velocity * PIXELS_PER_METER
 	var time_to_target := dist_px / maxf(bullet_speed, 1.0)
-	var lead_pos := combat_target.global_position + tgt_vel * time_to_target
+	var lead_pos := target.global_position + tgt_vel * time_to_target
 	var angle_to_lead := atan2((lead_pos - global_position).x, -(lead_pos - global_position).y)
 
 	_gun_lead_heading = angle_to_lead
@@ -145,8 +150,10 @@ func _update_gun(delta: float) -> void:
 	var base_spread := deg_to_rad(params.gun.spread_angle)
 	# 高度惩罚：目标越高散布越大（仰射精度降低）
 	var alt_spread_mult := 1.0
-	if combat_target and is_instance_valid(combat_target):
-		var tgt_tier := combat_target.get_altitude_tier()
+	var target_value: Variant = combat_target
+	var target := _live_aircraft_ref(target_value)
+	if target != null:
+		var tgt_tier := target.get_altitude_tier()
 		if tgt_tier == AltitudeTier.MID:
 			alt_spread_mult = 1.8
 		elif tgt_tier >= AltitudeTier.HIGH:

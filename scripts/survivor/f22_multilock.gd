@@ -72,20 +72,25 @@ func _update_execution(delta: float) -> void:
 		var timers: Dictionary = state["timers"]
 		var any_pending := false
 		for aircraft_v in queues.keys():
-			if not is_instance_valid(aircraft_v) or (aircraft_v as Aircraft).is_destroyed:
+			if typeof(aircraft_v) != TYPE_OBJECT or aircraft_v == null \
+					or not is_instance_valid(aircraft_v) or not (aircraft_v is Aircraft) \
+					or (aircraft_v as Aircraft).is_destroyed:
 				queues.erase(aircraft_v)
 				timers.erase(aircraft_v)
 				continue
-			var aircraft: Aircraft = aircraft_v
+			var aircraft := aircraft_v as Aircraft
 			var queue: Array = queues[aircraft]
 			var timer: float = float(timers.get(aircraft, 0.0)) - delta
 			if not queue.is_empty() and timer <= 0.0:
-				var target: CombatUnit = queue.pop_front()
-				if is_instance_valid(target) and not target.is_destroyed \
-						and not aircraft.is_sensor_engagement_obscured(target) \
-						and aircraft.params and aircraft.params.missile \
-						and aircraft.missiles_remaining > 0:
-					AircraftWeapons._fire_missile_at(aircraft, target, aircraft.params.missile)
+				var target_value: Variant = queue.pop_front()
+				if typeof(target_value) == TYPE_OBJECT and target_value != null \
+						and is_instance_valid(target_value) and target_value is CombatUnit:
+					var target := target_value as CombatUnit
+					if not target.is_destroyed \
+							and not aircraft.is_sensor_engagement_obscured(target) \
+							and aircraft.params and aircraft.params.missile \
+							and aircraft.missiles_remaining > 0:
+						AircraftWeapons._fire_missile_at(aircraft, target, aircraft.params.missile)
 				timer = FIRE_INTERVAL
 			timers[aircraft] = timer
 			queues[aircraft] = queue
@@ -100,8 +105,13 @@ func _logic_step() -> void:
 		return
 	var groups: Dictionary = {}
 	for i in range(_units.size() - 1, -1, -1):
-		var aircraft := _units[i]
-		if not is_instance_valid(aircraft) or aircraft.is_destroyed:
+		var aircraft_value: Variant = _units[i]
+		if typeof(aircraft_value) != TYPE_OBJECT or aircraft_value == null \
+				or not is_instance_valid(aircraft_value) or not (aircraft_value is Aircraft):
+			_units.remove_at(i)
+			continue
+		var aircraft := aircraft_value as Aircraft
+		if aircraft.is_destroyed:
 			_units.remove_at(i)
 			continue
 		var ai = spawner._get_ai(aircraft)

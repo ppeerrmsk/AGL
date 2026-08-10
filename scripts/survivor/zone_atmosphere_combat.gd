@@ -66,8 +66,9 @@ func register_zone(zone_id: StringName, mission_type: String, zone: Dictionary,
 	var kind := _kind_for_mission(mission_type)
 	var hostiles: Array[CombatUnit] = []
 	for value in existing_hostiles:
-		if value is CombatUnit and is_instance_valid(value) and not (value as CombatUnit).is_destroyed:
-			hostiles.append(value as CombatUnit)
+		var unit := _live_combat_unit(value)
+		if unit != null:
+			hostiles.append(unit)
 	if hostiles.is_empty():
 		return []
 	var center: Vector2 = zone.get("center", Vector2.ZERO)
@@ -112,9 +113,9 @@ func retire_zone(zone_id: StringName) -> Array[CombatUnit]:
 	var entry: Dictionary = _engagements[zone_id]
 	var hostiles: Array = entry.get("hostiles", [])
 	for value in hostiles:
-		if not (value is CombatUnit) or not is_instance_valid(value):
+		var unit := _valid_combat_unit(value)
+		if unit == null:
 			continue
-		var unit := value as CombatUnit
 		if StringName(unit.get_meta(&"zone_atmosphere_zone", &"")) != zone_id:
 			continue
 		_clear_player_priority(unit)
@@ -122,13 +123,13 @@ func retire_zone(zone_id: StringName) -> Array[CombatUnit]:
 		unit.remove_meta(&"zone_atmosphere_zone")
 	var allies: Array[CombatUnit] = []
 	for value in entry.get("allies", []):
-		if value is CombatUnit and is_instance_valid(value):
-			var ally := value as CombatUnit
+		var ally := _valid_combat_unit(value)
+		if ally != null:
 			ally.set_meta(CombatUnit.META_AMBIENT_DAMAGE_MULTIPLIER, 0.0)
 			allies.append(ally)
 	for value in entry.get("opposition", []):
-		if value is CombatUnit and is_instance_valid(value):
-			var actor := value as CombatUnit
+		var actor := _valid_combat_unit(value)
+		if actor != null:
 			actor.set_meta(CombatUnit.META_AMBIENT_DAMAGE_MULTIPLIER, 0.0)
 			allies.append(actor)
 	for shell in _ballistic_shells:
@@ -201,12 +202,24 @@ func actor_count(zone_id: StringName = &"") -> int:
 			continue
 		var entry: Dictionary = _engagements[zid]
 		for value in entry.get("allies", []):
-			if value is CombatUnit and is_instance_valid(value) and not (value as CombatUnit).is_destroyed:
+			if _live_combat_unit(value) != null:
 				count += 1
 		for value in entry.get("opposition", []):
-			if value is CombatUnit and is_instance_valid(value) and not (value as CombatUnit).is_destroyed:
+			if _live_combat_unit(value) != null:
 				count += 1
 	return count
+
+
+## 返回战区里第一辆真实存活友军气氛单位；完成无线电必须在 retire_zone 前快照它。
+func first_live_ally(zone_id: StringName) -> CombatUnit:
+	if not _engagements.has(zone_id):
+		return null
+	var entry: Dictionary = _engagements[zone_id]
+	for value in entry.get("allies", []):
+		var ally := _live_combat_unit(value)
+		if ally != null:
+			return ally
+	return null
 
 
 func terrain_violation_count() -> int:
@@ -216,11 +229,12 @@ func terrain_violation_count() -> int:
 		var actors: Array = entry.get("allies", []).duplicate()
 		actors.append_array(entry.get("opposition", []))
 		for value in actors:
-			if not (value is CombatUnit) or not is_instance_valid(value):
+			var unit := _valid_combat_unit(value)
+			if unit == null:
 				continue
-			if value is NavalUnit and MapGeography.is_on_land((value as NavalUnit).global_position):
+			if unit is NavalUnit and MapGeography.is_on_land((unit as NavalUnit).global_position):
 				violations += 1
-			elif value is GroundUnit and not MapGeography.is_ground_spawn_safe((value as GroundUnit).global_position):
+			elif unit is GroundUnit and not MapGeography.is_ground_spawn_safe((unit as GroundUnit).global_position):
 				violations += 1
 	return violations
 
@@ -241,42 +255,47 @@ func _player_near(player: Aircraft, center: Vector2, threshold: float) -> bool:
 func _cleanup_entry(entry: Dictionary) -> void:
 	var kept_hostiles: Array[CombatUnit] = []
 	for value in entry.get("hostiles", []):
-		if value is CombatUnit and is_instance_valid(value) and not (value as CombatUnit).is_destroyed:
-			kept_hostiles.append(value as CombatUnit)
+		var unit := _live_combat_unit(value)
+		if unit != null:
+			kept_hostiles.append(unit)
 	entry["hostiles"] = kept_hostiles
 	var kept_allies: Array[CombatUnit] = []
 	for value in entry.get("allies", []):
-		if value is CombatUnit and is_instance_valid(value) and not (value as CombatUnit).is_destroyed:
-			kept_allies.append(value as CombatUnit)
+		var unit := _live_combat_unit(value)
+		if unit != null:
+			kept_allies.append(unit)
 	entry["allies"] = kept_allies
 	var kept_opposition: Array[CombatUnit] = []
 	for value in entry.get("opposition", []):
-		if value is CombatUnit and is_instance_valid(value) and not (value as CombatUnit).is_destroyed:
-			kept_opposition.append(value as CombatUnit)
+		var unit := _live_combat_unit(value)
+		if unit != null:
+			kept_opposition.append(unit)
 	entry["opposition"] = kept_opposition
 
 
 func _apply_damage_state(zone_id: StringName, entry: Dictionary, live: bool) -> void:
 	for value in entry.get("hostiles", []):
-		if value is CombatUnit and is_instance_valid(value):
-			var unit := value as CombatUnit
+		var unit := _valid_combat_unit(value)
+		if unit != null:
 			unit.set_meta(&"zone_atmosphere_zone", zone_id)
 			unit.set_meta(CombatUnit.META_AMBIENT_DAMAGE_MULTIPLIER, 1.0 if live else 0.0)
 	for value in entry.get("allies", []):
-		if value is CombatUnit and is_instance_valid(value):
-			(value as CombatUnit).set_meta(CombatUnit.META_AMBIENT_DAMAGE_MULTIPLIER,
+		var unit := _valid_combat_unit(value)
+		if unit != null:
+			unit.set_meta(CombatUnit.META_AMBIENT_DAMAGE_MULTIPLIER,
 				ALLY_DAMAGE_MULT if live else 0.0)
 	for value in entry.get("opposition", []):
-		if value is CombatUnit and is_instance_valid(value):
-			(value as CombatUnit).set_meta(CombatUnit.META_AMBIENT_DAMAGE_MULTIPLIER,
+		var unit := _valid_combat_unit(value)
+		if unit != null:
+			unit.set_meta(CombatUnit.META_AMBIENT_DAMAGE_MULTIPLIER,
 				1.0 if live else 0.0)
 
 
 func _update_player_priority(entry: Dictionary, player: Aircraft, live: bool) -> void:
 	for value in entry.get("hostiles", []):
-		if not (value is CombatUnit) or not is_instance_valid(value):
+		var unit := _valid_combat_unit(value)
+		if unit == null:
 			continue
-		var unit := value as CombatUnit
 		if live and player != null and is_instance_valid(player) and not player.is_destroyed:
 			if unit is Aircraft:
 				var ai := (unit as Aircraft)._get_ai_controller()
@@ -612,9 +631,9 @@ func _update_naval_source(zone_id: StringName, source: NavalUnit, target: NavalU
 func _units_of_type(values: Array, expected: Variant) -> Array:
 	var out: Array = []
 	for value in values:
-		if is_instance_valid(value) and is_instance_of(value, expected) \
-				and not (value as CombatUnit).is_destroyed:
-			out.append(value)
+		var unit := _live_combat_unit(value)
+		if unit != null and is_instance_of(unit, expected):
+			out.append(unit)
 	return out
 
 
@@ -622,10 +641,10 @@ func _nearest_opponent(source: CombatUnit, candidates: Array) -> CombatUnit:
 	var best: CombatUnit = null
 	var best_d := INF
 	for value in candidates:
-		if not (value is CombatUnit) or not is_instance_valid(value):
+		var candidate := _live_combat_unit(value)
+		if candidate == null:
 			continue
-		var candidate := value as CombatUnit
-		if candidate.is_destroyed or not source.is_hostile_to(candidate):
+		if not source.is_hostile_to(candidate):
 			continue
 		var d := source.global_position.distance_squared_to(candidate.global_position)
 		if d < best_d:
@@ -769,6 +788,20 @@ func _draw() -> void:
 		var color := Color(1.0, 0.55, 0.12, (1.0 - t) * 0.85)
 		draw_circle(pos, maxf(3.0, radius * 0.28), Color(color.r, color.g, color.b, color.a * 0.35))
 		draw_arc(pos, radius, 0.0, TAU, 24, color, 2.0, true)
+
+
+## Dictionary / Array 会跨帧保留已释放对象；任何类型判断都必须在有效性检查之后。
+static func _valid_combat_unit(value: Variant) -> CombatUnit:
+	if typeof(value) != TYPE_OBJECT or value == null or not is_instance_valid(value):
+		return null
+	if not (value is CombatUnit):
+		return null
+	return value as CombatUnit
+
+
+static func _live_combat_unit(value: Variant) -> CombatUnit:
+	var unit := _valid_combat_unit(value)
+	return unit if unit != null and not unit.is_destroyed else null
 
 
 func _exit_tree() -> void:

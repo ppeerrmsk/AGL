@@ -5,6 +5,7 @@ extends Node2D
 const PlayerInstrumentPanelScript := preload("res://scripts/survivor/player_instrument_panel.gd")
 const WingmanInstrumentPanelScript := preload("res://scripts/survivor/wingman_instrument_panel.gd")
 const MilestoneAxisCounterScript := preload("res://scripts/survivor/milestone_axis_counter.gd")
+const HudBoardVisibilityScript := preload("res://scripts/ui/hud_board_visibility.gd")
 
 var _sample_aircraft: Aircraft
 
@@ -14,7 +15,7 @@ func _ready() -> void:
 	TranslationServer.set_locale("zh")
 	var background := ColorRect.new()
 	background.color = Color.BLACK
-	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	background.size = Vector2(1920.0, 1080.0)
 	add_child(background)
 
 	_sample_aircraft = Aircraft.new()
@@ -22,10 +23,10 @@ func _ready() -> void:
 	_sample_aircraft.params.max_hp = 150.0
 	_sample_aircraft.hp = 100.0
 	_sample_aircraft.speed = 500.0 * 1.852 / 3.6
-	_sample_aircraft.altitude = 10000.0
+	_sample_aircraft.altitude = 5500.0
 	_sample_aircraft.altitude_preference = Aircraft.AltitudePreference.PREFER_LOW
 	_sample_aircraft.g_load = 4.5
-	_sample_aircraft.auto_engage_enabled = true
+	_sample_aircraft.auto_engage_enabled = false
 	_sample_aircraft.missile_auto_fire = false
 	_sample_aircraft.weapon_preference = Aircraft.WeaponPreference.PREFER_MISSILE
 	_sample_aircraft.flares_remaining = 1
@@ -35,7 +36,18 @@ func _ready() -> void:
 	_sample_aircraft._active_special_local_cooldown_s = 9.7
 	_sample_aircraft.missiles_remaining = 2
 	_sample_aircraft._missile_reload_active = true
+	_sample_aircraft._missile_reload_timer = 12.4
 	_sample_aircraft.missile_reload_progress = 0.62
+	_sample_aircraft.params.secondary_missile = (
+		load("res://resources/qmaam_missile.tres") as MissileParams).duplicate(true)
+	_sample_aircraft.secondary_missile_enabled = true
+	_sample_aircraft.secondary_missiles_remaining = 2
+	_sample_aircraft._secondary_cooldown = 1.8
+	_sample_aircraft.params.rocket = RocketParams.new()
+	_sample_aircraft.params.rocket.max_ammo = 24
+	_sample_aircraft.params.rocket.burst_cooldown = 4.0
+	_sample_aircraft.rockets_remaining = 12
+	_sample_aircraft._rocket_burst_cooldown = 2.4
 
 	var charge := AfterburnerCharge.new()
 	charge.active = true
@@ -45,8 +57,8 @@ func _ready() -> void:
 	panel.weapon_animation_time_override_ms = 1000
 	add_child(panel)
 	panel.position = Vector2(
-		1600.0 - panel.size.x - 18.0,
-		900.0 - panel.size.y - 56.0,
+		1920.0 - panel.size.x - 18.0,
+		1080.0 - panel.size.y - 56.0,
 	)
 	panel.update_display(_sample_aircraft, charge)
 	# Capture a deterministic 2 Hz ON phase for the reload bar and selected MSL boards.
@@ -112,6 +124,37 @@ func _ready() -> void:
 	xp_label.add_theme_color_override("font_color", ThemeColors.TEXT_WHITE)
 	add_child(xp_label)
 
+	# 先在非黑背景上关闭全部复合框板，确认没有遮罩黑底或残留边线。
+	var player_visibility = HudBoardVisibilityScript.new(panel)
+	var player_regions: Array[Dictionary] = panel.reveal_panel_regions(true, false)
+	player_visibility.sync_regions(player_regions)
+	var wingman_visibility = HudBoardVisibilityScript.new(wingman_panel)
+	var wingman_regions: Array[Dictionary] = wingman_panel.reveal_panel_regions()
+	wingman_visibility.sync_regions(wingman_regions)
+	var axis_regions: Array[Dictionary] = []
+	for axis_index in range(SurvivorData.AXES.size()):
+		axis_regions.append({
+			"id": StringName("milestone_axis_%d" % axis_index),
+			"rect": MilestoneAxisCounterScript.cell_rect(axis_index),
+		})
+	var axis_visibility = HudBoardVisibilityScript.new(axis_counter)
+	axis_visibility.sync_regions(axis_regions)
+	# 新框板必须依靠控制器的默认关闭态消失，避免测试掩盖首帧初始化回归。
+	background.color = Color("263043")
+	for _frame in range(2):
+		await get_tree().process_frame
+	await RenderingServer.frame_post_draw
+	var hidden_path := "res://bench/results/player_hud_reveal_hidden.png"
+	var hidden_err := get_viewport().get_texture().get_image().save_png(hidden_path)
+	print("[player_hud_visual] hidden_screenshot=%s err=%d" % [hidden_path, hidden_err])
+	for descriptor in player_regions:
+		player_visibility.set_reveal_alpha(1.0, StringName(descriptor["id"]))
+	for descriptor in wingman_regions:
+		wingman_visibility.set_reveal_alpha(1.0, StringName(descriptor["id"]))
+	for descriptor in axis_regions:
+		axis_visibility.set_reveal_alpha(1.0, StringName(descriptor["id"]))
+	background.color = Color.BLACK
+
 	for _frame in range(4):
 		await get_tree().process_frame
 	await RenderingServer.frame_post_draw
@@ -128,4 +171,4 @@ func _ready() -> void:
 	progression_player.free()
 	background.queue_free()
 	await get_tree().process_frame
-	get_tree().quit(0 if err == OK else 1)
+	get_tree().quit(0 if err == OK and hidden_err == OK else 1)

@@ -145,7 +145,7 @@ SquadFactory / zone_mission 驻守撤离队列。
 | 刷怪选型/呼号 | `scripts/survivor/survivor_spawner.gd` |
 | 概率常量 | `scripts/survivor/survivor_data.gd`（COMMANDER_* / UAV_RETIRE_LEVEL） |
 | 更名资源 | `resources/enemy_uav.tres` / `resources/enemy_uav_missile.tres` |
-| i18n | `i18n/translations.csv`（TACTICAL_TIP_SENTINEL；elite 两键已删） |
+| i18n | `i18n/gameplay.csv`（TACTICAL_TIP_SENTINEL；elite 两键已删） |
 
 ## 8. 变更记录
 

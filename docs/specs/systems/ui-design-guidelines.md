@@ -598,7 +598,9 @@ V -> existing squad weapon preference toggle
 | 主菜单设置 | `scripts/main_menu.gd` |
 | UI Dev 定位层 | `scripts/ui/ui_dev_outline_overlay.gd` / `scenes/tests/ui_dev_panel.tscn` |
 | 热诱弹视觉 | `scripts/aircraft/aircraft_flares.gd` / `scripts/aircraft.gd` |
-| i18n | `i18n/translations.csv` |
+| HUD 首次显现 | `scripts/ui/hud_first_reveal_sequencer.gd` / `scripts/ui/hud_board_visibility.gd` / `resources/shaders/hud_board_visibility.gdshader` |
+| 主菜单终端板 | `scripts/main_menu.gd` / `scripts/ui/main_menu_crt_shell.gd` / `scripts/ui/main_menu_crt_effect.gd` / `scripts/ui/main_menu_scope_display.gd` |
+| i18n | `i18n/interface.csv` / `i18n/gameplay.csv` / `i18n/skills.csv` / `i18n/meta.csv` / `i18n/radio.csv` |
 | reference 索引 | `docs/reference/script-index.md` / `docs/reference/code-index.md` |
 
 ## 8. 变更记录

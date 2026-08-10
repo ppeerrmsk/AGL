@@ -1,0 +1,104 @@
+keys,zh,en,ja
+RADIO_SPEAKER_ENEMY_COMMAND,敌指挥部,ENEMY COMMAND,敵司令部
+RADIO_TARGET_GENERIC,目标,the target,目標
+RADIO_SPLASH_1,击落一架！,Splash one!,一機撃墜！
+RADIO_SPLASH_2,目标击落，干得漂亮。,Target down. Nice work.,目標撃墜。よくやった。
+RADIO_SPLASH_3,又少了一个。,Scratch one more.,また一機減った。
+RADIO_SPLASH_4,命中确认，目标解体。,Hit confirmed. He's coming apart.,命中確認、目標分解。
+RADIO_SPLASH_5,命中，打得好！,Good kill! Good kill!,命中、よくやった！
+RADIO_EJECT_1,我中弹了！准备弹射！,I'm hit! Ejecting!,被弾！ベイルアウトする！
+RADIO_EJECT_2,操纵失效……我要跳了！,Controls are gone... I'm punching out!,操縦不能……脱出する！
+RADIO_EJECT_3,不行了，我出去了！,Can't hold her! Bailing out!,もう保たない、脱出！
+RADIO_EJECT_4,发动机着火，弹射弹射弹射！,Engine's on fire — eject eject eject!,エンジン火災、ベイルアウト！
+RADIO_EJECT_FRIENDLY_5,座舱起火，我——,"Cockpit's on fire, I—",コックピットが燃えてる、俺は——
+RADIO_EJECT_ENEMY_5,后面的就交给——,Leave the rest to—,後は任せた——
+RADIO_BREAK_1,导弹！break break break！,Missile inbound! Break break break!,ミサイル！ブレイク ブレイク！
+RADIO_BREAK_2,被咬住了，正在规避！,He's on me! Evading!,喰いつかれた、回避中！
+RADIO_BREAK_3,来袭导弹，我在甩！,Inbound missile — shaking him off!,ミサイル接近、振り切る！
+RADIO_BREAK_4,六点钟导弹，规避！,Missile at six o'clock — evade!,6時方向からミサイル、回避！
+RADIO_BREAK_5,导弹逼近！,Missile closing!,ミサイル接近！
+RADIO_AFTERBURNER_1,加力中！,Afterburning!,アフターバーナー点火！
+RADIO_AFTERBURNER_2,加力全开！,Burners full!,アフターバーナー全開！
+RADIO_AFTERBURNER_3,推满油门。,Full throttle.,スロットル最大。
+RADIO_JOIN_1,归队完毕，听候指示。,Joining up. Awaiting orders.,編隊に合流、指示を待つ。
+RADIO_JOIN_2,已就位，我在你右后方。,In position. On your right wing.,配置完了、右後方につく。
+RADIO_JOIN_3,增援到位，我掩护你。,Reinforcement on station. I've got your back.,増援到着、援護する。
+RADIO_ACK_PURSUE_1_FMT,收到，正在追击 %s。,Roger. Pursuing %s.,了解、%s を追撃する。
+RADIO_ACK_PURSUE_2_FMT,咬住 %s 了，开始交战。,Locked onto %s. Engaging.,%s を捕捉、交戦開始。
+RADIO_ACK_PURSUE_3,我来对付他。,I'll take him.,あいつは俺がやる。
+RADIO_ACK_STRIKE_1_FMT,收到，锁定 %s，发起打击。,Roger. Locked on %s — commencing strike.,了解、%s を捕捉、攻撃を開始する。
+RADIO_ACK_STRIKE_2_FMT,进入攻击航路，打击 %s。,Rolling in on %s.,攻撃コースに入る、%s を叩く。
+RADIO_ACK_SURROUND_1_FMT,明白，正在包围 %s。,Copy. Surrounding %s.,了解、%s を包囲する。
+RADIO_ACK_SURROUND_2_FMT,分散包抄 %s，切断退路。,Splitting to flank %s. Cutting off his escape.,展開して %s を挟撃、退路を断つ。
+RADIO_ACK_COVER_1,收到，正在掩护你。,Roger. Covering you.,了解、援護に入る。
+RADIO_ACK_COVER_2,进入防区，这片天空归我们。,On station. This airspace is ours.,防空区域に到達、この空域は我々のものだ。
+RADIO_ACK_REGROUP_1,收到，正在向集合点靠拢。,Copy. Regrouping on your position.,了解、集合点へ向かう。
+RADIO_ACK_REGROUP_2,全速归队中。,Forming up at full throttle.,全速で編隊に戻る。
+RADIO_ACK_EVAC_1,明白，脱离中！,Understood — clearing the area!,了解、離脱する！
+RADIO_ACK_EVAC_2,正在撤出该区域。,Evacuating the zone.,当該区域から退避中。
+RADIO_ATTRITION_T1_1,我们遭遇敌方战斗机，请求支援。,We have hostile fighters. Requesting support.,敵戦闘機と接触、支援を要請する。
+RADIO_ATTRITION_T1_2,报告接触，敌机火力凶猛。,Contact report — enemy fire is heavy.,接敵報告、敵の火力が激しい。
+RADIO_ATTRITION_T1_3,不是一般的敌机——,That's no ordinary fighter—,並の敵機じゃない——
+RADIO_ATTRITION_T2_1,我们正在承受巨大损失！,We are taking heavy losses!,甚大な損害を受けている！
+RADIO_ATTRITION_T2_2,多个编队失去联络，重复，失去联络。,Multiple flights are off the net. Repeat — off the net.,複数の編隊と連絡途絶、繰り返す、連絡途絶。
+RADIO_ATTRITION_T2_3,我们的阵线被撕开了！,Our line has been torn open!,戦線を切り裂かれた！
+RADIO_ATTRITION_T3_1,防线崩溃了！我们撑不住了！,The line has collapsed! We can't hold!,戦線が崩壊した！保たない！
+RADIO_ATTRITION_T3_2,请求撤退许可，重复，请求撤退许可！,Requesting permission to withdraw! Repeat — permission to withdraw!,撤退許可を要請！繰り返す、撤退許可を要請！
+RADIO_ATTRITION_T3_3,别管编队了……各自逃命吧。,Forget the formation... every man for himself.,編隊は忘れろ……各自生き延びろ。
+RADIO_BOSS_WRAITH_SPAWN_1,目标发现，准备交战,Target sighted. Prepare to engage.,目標発見。交戦準備。
+RADIO_BOSS_WRAITH_SPAWN_2,收到,Roger.,了解。
+RADIO_BOSS_WRAITH_SPAWN_3,让我们来找点乐子吧,Let's have some fun.,楽しませてもらおうか。
+RADIO_BOSS_WRAITH_ENGAGE_1,智能迷彩已经就绪，随时可以启动。,Adaptive camouflage is ready. Standing by to activate.,スマート迷彩、準備完了。いつでも起動できる。
+RADIO_BOSS_WRAITH_DOWN_1,我被命中！控制失——,I'm hit! Controls are—,被弾！操縦が——
+RADIO_BOSS_WRAITH_DOWN_2,后面就交给你们了——,The rest is up to you—,後は任せた——
+RADIO_BOSS_CSG_SPAWN_1,舰队防空进入战斗状态，敌机来袭。,Fleet air defense to battle stations. Hostiles inbound.,艦隊防空、戦闘配置。敵機接近中。
+RADIO_BOSS_CSG_SPAWN_2,就这点兵力？他们就派这么点东西来送死？,That's the whole strike package? This is what they threw at us?,この程度の戦力か？これだけを寄越して死ににきたのか？
+RADIO_BOSS_CSG_SPAWN_3,那就让他们见识一下我们Ladon战斗群的火力,Then let them witness the firepower of the Ladon Strike Group.,ならばラドン戦闘群の火力を見せてやれ。
+RADIO_BOSS_CSG_ENGAGE_1,敌机接近！,Enemy aircraft closing!,敵機接近！
+RADIO_BOSS_CSG_FA18_LAUNCH_1,开始执行舰队防空,Commencing fleet air defense.,艦隊防空を開始する。
+RADIO_BOSS_CSG_FA18_LAUNCH_2,保护航母！,Protect the carrier!,空母を守れ！
+RADIO_BOSS_CSG_PHASE2_0,舰长！船体正在向右舷严重倾斜！,The ship's listing heavily to starboard!,艦長！艦が右舷へ大きく傾斜しています！
+RADIO_BOSS_CSG_PHASE2_1,优先把他们弹射出去！只要他们升空就是我们的胜利！,"Get them airborne — priority one! If they launch, we've won!",最優先で射出しろ！奴らが上がればこちらの勝ちだ！
+RADIO_BOSS_GOOSE_SPAWN_1,mother_goose.boot(); status = ONLINE;,mother_goose.boot(); status = ONLINE;,mother_goose.boot(); status = ONLINE;
+RADIO_BOSS_GOOSE_SPAWN_2,brood.launch(ALL);,brood.launch(ALL);,brood.launch(ALL);
+RADIO_BOSS_GOOSE_ENGAGE_1,targets.acquire(type: INTRUDER); goslings.execute(PURGE);,targets.acquire(type: INTRUDER); goslings.execute(PURGE);,targets.acquire(type: INTRUDER); goslings.execute(PURGE);
+RADIO_BOSS_GOOSE_PHASE2_1,engagement.phase++;reserve_units.commit();,engagement.phase++;reserve_units.commit();,engagement.phase++;reserve_units.commit();
+RADIO_BOSS_DEFAULT_SPAWN_1,目标已确认，全队进入交战阵位。,Target confirmed. All elements to engagement stations.,目標確認、全機交戦配置につけ。
+RADIO_BOSS_DEFAULT_SPAWN_2,这将会很短暂。,This won't take long.,すぐに終わる。
+RADIO_BOSS_DEFAULT_ENGAGE_1,交战开始。别让他们活着离开。,Engaging. They don't leave this airspace.,交戦開始。生きて帰すな。
+RADIO_AWACS_ONSTATION_1,预警机就位，本区雷达由我方接管。,AWACS on station. We have radar coverage of this sector.,早期警戒機、所定位置。当該空域のレーダーは本機が引き継ぐ。
+RADIO_AWACS_ONSTATION_2,数据链已建立，锁定辅助上线。,Datalink established. Lock assist is online.,データリンク確立。ロック支援オンライン。
+RADIO_AWACS_ONSTATION_3,全机注意：预警机进入战区，跟紧我的覆盖圈。,All units: AWACS entering the zone. Stay inside my coverage.,各機へ：早期警戒機が戦区に進入。カバー圏内を維持せよ。
+RADIO_AWACS_EGRESS_1,预警机燃油见底，即将脱离战区。,AWACS bingo fuel. Departing the zone.,早期警戒機、燃料限界。戦区を離脱する。
+RADIO_AWACS_EGRESS_2,支援时间到，雷达覆盖即将中断。,Support window closed. Radar coverage going down.,支援時間終了。レーダーカバーを打ち切る。
+RADIO_AWACS_EGRESS_3,接下来就靠你们自己了，祝好运。,You're on your own from here. Good luck.,ここから先は君たちだけだ。幸運を祈る。
+RADIO_ACE_SPAWN_1,发现目标，准备开始交战。,Target in sight. Preparing to engage.,目標発見、これより交戦に入る。
+RADIO_ACE_SPAWN_2,全机跟上，猎物只有一个。,Stay on my wing. We hunt a single target.,全機続け、獲物は一つだけだ。
+RADIO_ACE_SPAWN_3,这片空域由我们接手。,We are taking over this airspace.,この空域は我々が引き受ける。
+RADIO_ACE_SPAWN_4,捕捉到敌长机，各机自由进入。,Enemy lead acquired. All aircraft engage at will.,敵編隊長を捕捉、各機自由に突入せよ。
+RADIO_ACE_SPAWN_5,让他们见识一下正规军的打法。,Time to show them how professionals fly.,正規部隊の戦い方を見せてやろう。
+RADIO_ACE_SPAWN_6,目标航迹已接收，开始截击。,Target track received. Beginning intercept.,目標航跡を受信。迎撃を開始する。
+RADIO_ACE_SPAWN_7,进入拦截航线，预计接敌。,Entering intercept course. Contact expected.,迎撃航路に進入。接敵を予想。
+RADIO_ACE_SPAWN_8,武器解除保险，给他们一点颜色瞧瞧。,Weapons safeties off. Let's teach them a lesson.,兵装セーフティ解除。思い知らせてやる。
+RADIO_WHITETEA_SURRENDER_1,两个废物…！我先撤了！,Those two idiots...! I'm getting out of here!,あの役立たず二人め…！俺は撤退する！
+RADIO_HOUND_ONE_CONTACT,发现猎物了，准备交战,Prey spotted. Preparing to engage.,獲物を発見。交戦準備に入る。
+RADIO_HOUND_TWO_FOLLOW,收到，我跟在你后面,Copy. I'm right behind you.,了解。後ろにつく。
+RADIO_REWARD_TARGET_AVAILABLE,指挥部已标定一批高价值目标，六秒后上传目标数据。,Command has designated new high-value targets. Target data in six seconds.,司令部が高価値目標を指定。6秒後に目標データを送信する。
+RADIO_SPEAKER_COMMAND_CENTER,指挥中心,COMMAND CENTER,指揮司令部
+RADIO_SPEAKER_TEMP_TOWER,临时塔台,TEMPORARY TOWER,臨時管制塔
+RADIO_BOMBER_ESCORT_COORD_FMT,这里是指挥中心，正在执行%s方向坐标的打击任务。,This is Command. Strike mission underway at coordinates approximately %s.,こちら指揮司令部。%s方面の座標に対する攻撃任務を実行中。
+RADIO_BOMBER_ESCORT_REQUEST,友军轰炸编队请求护航。,Friendly bomber formation requests escort.,友軍爆撃編隊より護衛要請。
+RADIO_DIRECTION_NORTH,北,north,北
+RADIO_DIRECTION_NORTHEAST,东北,northeast,北東
+RADIO_DIRECTION_EAST,东,east,東
+RADIO_DIRECTION_SOUTHEAST,东南,southeast,南東
+RADIO_DIRECTION_SOUTH,南,south,南
+RADIO_DIRECTION_SOUTHWEST,西南,southwest,南西
+RADIO_DIRECTION_WEST,西,west,西
+RADIO_DIRECTION_NORTHWEST,西北,northwest,北西
+RADIO_ZONE_NAVAL_CONTACT,全舰，准备对空战斗！,All hands — prepare for anti-air combat!,総員、対空戦闘用意！
+RADIO_ZONE_AIR_SUPPORT_REQUEST_FMT,正在%s和大量敌军交战！请求支援！,Engaged with heavy enemy forces over %s! Requesting support!,%sで多数の敵と交戦中！支援を要請する！
+RADIO_ZONE_GROUND_THANKS,感谢空中友军的支援。,Thanks for the air support.,友軍航空隊の支援に感謝する。
+RADIO_AIRFIELD_LIBERATED_1_FMT,机场已由友军控制，跑道确认净空。%s，获准着陆，降低速度。,"The airfield is under friendly control; runway confirmed clear. %s, cleared to land. Reduce speed.",空港は友軍が確保、滑走路の安全を確認。%s、着陸を許可する。速度を落とせ。
+RADIO_AIRFIELD_LIBERATED_2_FMT,跑道净空，地面部队已就位。%s，获准落地，降低速度。,"Runway clear; ground forces are in position. %s, cleared to land. Reduce speed.",滑走路クリア、地上部隊は配置完了。%s、着陸を許可する。速度を落とせ。
+RADIO_AIRFIELD_LIBERATED_3_FMT,临时塔台已启用。%s，获准进入着陆航线，降低速度。,"Temporary tower is operational. %s, cleared to enter the landing pattern. Reduce speed.",臨時管制塔を運用開始。%s、着陸進入を許可する。速度を落とせ。

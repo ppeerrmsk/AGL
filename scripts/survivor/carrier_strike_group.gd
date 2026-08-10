@@ -83,6 +83,7 @@ var _fa18_engaged: bool = false               ## engage() 是否已经触发（�
 var _fa18_periodic_timer: float = 0.0         ## 距离下一次定期弹射的剩余秒数
 var _fa18_alive: Array[Aircraft] = []         ## 跟踪存活的 F/A-18，用于胜利判定 / 清理
 var _fa18_launched_total: int = 0             ## 本场累计弹射数（对 FA18_TOTAL_CAP 计数，死了也不退还）
+var _fa18_radio_played: bool = false          ## 定期补充喊话成功入队后本战闭锁
 
 # ── spawn 时注入的外部依赖（Phase 2 要用）──
 var _mode: Node2D = null
@@ -116,6 +117,7 @@ func spawn(mode: Node2D, aircraft_scene: PackedScene, create_enemy_func: Callabl
 
 	active = true
 	_phase = 1
+	_fa18_radio_played = false
 
 	# 加载舰队参数
 	var cv_params: Resource = load("res://resources/naval/carrier_cv.tres")
@@ -271,7 +273,9 @@ func _update_fa18_periodic_launch(delta: float) -> void:
 	_fa18_periodic_timer -= delta
 	if _fa18_periodic_timer <= 0.0:
 		_fa18_periodic_timer = FA18_PERIODIC_INTERVAL
-		_launch_fa18(0.0)
+		var hornet := _launch_fa18(0.0)
+		if hornet != null:
+			_say_periodic_fa18_radio(hornet)
 		EventLogger.log_event("BOSS", display_name,
 				"periodic F/A-18 catapult (%d/%d launched, %d alive)" % [
 					_fa18_launched_total, FA18_TOTAL_CAP, _fa18_alive.size()])
@@ -279,12 +283,12 @@ func _update_fa18_periodic_launch(delta: float) -> void:
 ## 单架 F/A-18 弹射：CV 位置 + CV 当前朝向 + lateral 偏移（米/像素同尺度）
 ## 起飞后立即开火（不像 Poltergeist 走 4 秒滑跑动画 — 设计上"补充梯队"节奏快）
 ## 给一段 takeoff grace，玩家短暂内无法锁定 + 飞机自爬到作战高度
-func _launch_fa18(lateral_offset: float) -> void:
+func _launch_fa18(lateral_offset: float) -> Aircraft:
 	if _cv == null or not is_instance_valid(_cv):
-		return
+		return null
 	# 机库上限（唯一守卫处；engage() 的开局 2 架也走这里计数）
 	if _fa18_launched_total >= FA18_TOTAL_CAP:
-		return
+		return null
 	var heading: float = _cv.heading
 	var fwd := Vector2(sin(heading), -cos(heading))
 	var stb := Vector2(cos(heading), sin(heading))
@@ -292,7 +296,7 @@ func _launch_fa18(lateral_offset: float) -> void:
 	var heading_deg: float = rad_to_deg(heading)
 	var hornet := director_create_enemy(SurvivorSpawner.EnemyType.FA18, spawn_pos, heading_deg)
 	if hornet == null:
-		return
+		return null
 	# 起飞参数：拉到低空作战高度，开 AB
 	hornet.altitude = 800.0
 	hornet.vertical_speed = 80.0
@@ -311,6 +315,18 @@ func _launch_fa18(lateral_offset: float) -> void:
 	_assign_player_target(hornet, "CSG F/A-18 launch")
 	_fa18_alive.append(hornet)
 	_fa18_launched_total += 1
+	return hornet
+
+## 只在 120 秒定期补充成功后尝试；JSON 负责 0.50 概率，首次成功入队后闭锁。
+func _say_periodic_fa18_radio(hornet: Aircraft) -> void:
+	if _fa18_radio_played or hornet == null or not is_instance_valid(hornet):
+		return
+	if _mode == null or not is_instance_valid(_mode):
+		return
+	var radio = _mode.get("_radio")
+	if radio != null and is_instance_valid(radio) \
+			and radio.say_unit("csg_fa18_launch", hornet):
+		_fa18_radio_played = true
 
 ## 给一架 CSG 舰载机挂玩家目标。走 acquire_target(TS_BOSS) —— 与既有猎手系统同一条通路，
 ## 优先级仲裁防抢写，且 TS_BOSS 天然绕过 ROE 感知门（= 地面指挥所全知引导）

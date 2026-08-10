@@ -167,7 +167,7 @@ tgt = 半径内最近有效敌方(CombatUnit.all_units, radius)
 | 接线（瘦身后） | `scripts/survivor/survivor_mode.gd`（`_on_left_click` / `_on_nav_*` / `_set_cruise_to_zone_edge` 仅转发到 `_squad_cmd`） |
 | 僚机跟打（复用） | `scripts/ai/squad_coordination.gd` |
 | UI 开关 | `scripts/survivor/survivor_hud.gd` |
-| 文案 | `i18n/translations.csv`（TACTIC_AUTO_ENGAGE_* / TOOLTIP_AUTO_ENGAGE_*） |
+| 文案 | `i18n/interface.csv`（TACTIC_AUTO_ENGAGE_* / TOOLTIP_AUTO_ENGAGE_*） |
 | reference 索引行 | script-index.md / code-index.md 对应行 |
 
 ## 8. 变更记录

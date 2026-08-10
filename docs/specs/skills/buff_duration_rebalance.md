@@ -35,7 +35,7 @@ AOE debuff（FEAR / JAM 给敌人）保持现状，给敌人的负面状态时�
 | `JAM_SELF_OVERLOAD_DURATION` | 3.0 | 8.0 |
 | `OVERLOAD_DURATION_MULT` | 4.0 | 2.0 |
 
-### 2. [i18n/translations.csv](../../../i18n/translations.csv) 8 行
+### 2. [i18n/skills.csv](../../../i18n/skills.csv) 8 行
 
 行 339/341/347/349/370/398/402/414 三语描述同步更新。
 
@@ -72,6 +72,6 @@ AOE debuff（FEAR / JAM 给敌人）保持现状，给敌人的负面状态时�
 ## 相关文件
 
 - 代码：[scripts/survivor/skill_hooks.gd](../../../scripts/survivor/skill_hooks.gd)
-- 文案：[i18n/translations.csv](../../../i18n/translations.csv)
+- 文案：[i18n/skills.csv](../../../i18n/skills.csv)
 - 总表：[docs/systems/survivor-skills.md](../../systems/survivor-skills.md)
 - 变更记录：[docs/changelogs/2026-05-09-buff-duration-rebalance.md](../../changelogs/2026-05-09-buff-duration-rebalance.md)

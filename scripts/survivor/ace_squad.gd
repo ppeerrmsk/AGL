@@ -259,6 +259,8 @@ func update(delta: float) -> void:
 	for member in members:
 		if is_instance_valid(member) and not member.is_destroyed:
 			alive.append(member)
+		elif is_instance_valid(member) and member.is_destroyed:
+			_on_member_destroyed(member)
 	members = alive
 
 	# 全灭
@@ -294,6 +296,11 @@ func update(delta: float) -> void:
 		_enter_state(next_state, prev)
 
 	_update_state(squad_state, delta)
+
+
+## 成员从存活数组移除前的单次钩子。基类无行为；具体 BOSS 可绑定减员演出。
+func _on_member_destroyed(_member: Aircraft) -> void:
+	pass
 
 
 ## 飞机类 BOSS 的世界边缘收容。返回 true 表示至少一架仍在返场；同名状态位暂停专属战术层。

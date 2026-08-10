@@ -197,7 +197,7 @@ func _test_bomber_escort_xp_reward() -> void:
 	_check(ZoneData.bomber_escort_xp_reward(3) == 450, "三星护送固定奖励 450 XP")
 	var i18n_ready := true
 	for locale in ["zh", "en", "ja"]:
-		var translation := load("res://i18n/translations.%s.translation" % locale) as Translation
+		var translation := load("res://i18n/gameplay.%s.translation" % locale) as Translation
 		i18n_ready = i18n_ready and translation != null \
 			and not str(translation.get_message("ZONE_REWARD_BOMBER_XP_FMT")).is_empty() \
 			and not str(translation.get_message("ZONE_CLEARED_BOMBER_XP_FMT")).is_empty() \

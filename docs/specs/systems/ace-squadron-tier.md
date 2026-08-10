@@ -577,7 +577,7 @@ armor 0 / 一发死 / BOSS 闸撤离契约。**不许再开第二个宿敌**—�
 
 ### 阶段 6 — 演出与风格规范落地（2026-07-26 批）
 - [x] `AceReinforcementEvent` 摘除 `show_warning_banner`（红横幅收回 BOSS 专属）
-- [x] 新增 `ace_spawn` scripted trigger + 台词池 5 条三语（`radio_chatter.json` + `translations.csv`）
+- [x] 新增 `ace_spawn` scripted trigger + 台词池 5 条三语（`radio_chatter.json` + `radio.csv`）
 - [x] `AceReinforcementEvent` 入场改调 RadioChatter（长机说 `ace_spawn`）
 - [ ] 编成 profile 参数化（随第二支队落地批，见 §4.3 第 3 步）
 

@@ -311,7 +311,7 @@ update_ally_events(delta):
 | 机体发现态 | `scripts/survivor/aircraft_codex.gd` + 获得机体的调用点 |
 | AWACS 调度与事件 | `scripts/survivor/survivor_mode.gd` + `scripts/events/awacs_support_event.gd` |
 | 验收 bench | `scripts/tests/test_meta_shop.gd` + `scripts/tests/test_sig_skills.gd` |
-| i18n | `i18n/translations.csv` |
+| i18n | `i18n/skills.csv` |
 
 ## 8. 变更记录
 

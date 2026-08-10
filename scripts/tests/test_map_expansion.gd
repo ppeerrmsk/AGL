@@ -1,5 +1,7 @@
 extends SceneTree
 
+const _I18N_CATALOG := preload("res://scripts/i18n_catalog.gd")
+
 ## 地图扩展 + 增援入场 无头回归（specs: map-expansion §5 / reinforcement-ingress §5 的可自动化子集）
 ## 用法: <godot> --headless --path . --script res://scripts/tests/test_map_expansion.gd
 ## 覆盖：
@@ -88,12 +90,9 @@ func _check_basemap_error_contract() -> void:
 		"MAP_BASEMAP_ERROR_REASON_INVALID_METADATA",
 		"MAP_BASEMAP_ERROR_REASON_TEXTURE_LOAD_FAILED",
 	]
-	var csv := FileAccess.open("res://i18n/translations.csv", FileAccess.READ)
-	var csv_text := csv.get_as_text() if csv != null else ""
-	if csv != null:
-		csv.close()
+	var i18n_rows: Dictionary = _I18N_CATALOG.audit().get("rows", {})
 	for key in required_keys:
-		_ok(csv_text.contains("\n%s," % key), "报错文案三语 key", key)
+		_ok(i18n_rows.has(key), "报错文案三语 key", key)
 
 	var previous_locale := TranslationServer.get_locale()
 	for locale in ["zh", "en", "ja"]:
@@ -221,20 +220,12 @@ func _check_reward_dedup() -> void:
 	_ok(same == 0, "开局 A/B 奖励 id 200 局无重复", "clash=%d" % same)
 	_ok(carrier_clash == 0, "开局 A/B 从不同时航母", "clash=%d" % carrier_clash)
 
-## 战区奖励说明文案（Tab 面板奖励名下方那行）：每种奖励都要解析出 desc key 且 key 在 CSV 里有行。
+## 战区奖励说明文案（Tab 面板奖励名下方那行）：每种奖励都要解析出 desc key 且 key 在分表里有行。
 ## 守的是"加了新武器件/新 NEXT_GEN 技能却忘了配说明" → 面板只显示一个光秃秃的名字。
 func _check_reward_desc() -> void:
 	print("[reward] 奖励说明文案覆盖")
-	var csv_keys := {}
-	var f := FileAccess.open("res://i18n/translations.csv", FileAccess.READ)
-	if f:
-		while not f.eof_reached():
-			var line := f.get_line()
-			var comma := line.find(",")
-			if comma > 0:
-				csv_keys[line.substr(0, comma)] = true
-		f.close()
-	_ok(csv_keys.size() > 100, "translations.csv 可读", "keys=%d" % csv_keys.size())
+	var csv_keys: Dictionary = _I18N_CATALOG.audit().get("rows", {})
+	_ok(csv_keys.size() > 100, "本地化分表可读", "keys=%d" % csv_keys.size())
 
 	var missing_key: Array[String] = []
 	var missing_row: Array[String] = []
@@ -261,4 +252,4 @@ func _check_reward_desc() -> void:
 		elif not csv_keys.has(k2):
 			missing_row.append(k2)
 	_ok(missing_key.is_empty(), "每种奖励都能解析出说明 key", "缺=%s" % str(missing_key))
-	_ok(missing_row.is_empty(), "说明 key 在 translations.csv 里都有行", "缺=%s" % str(missing_row))
+	_ok(missing_row.is_empty(), "说明 key 在本地化分表里都有行", "缺=%s" % str(missing_row))

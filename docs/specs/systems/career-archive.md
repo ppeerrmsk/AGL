@@ -183,7 +183,7 @@ bench 断言 tip 条目必须指向**轮播表在用**的 key（写错 = 手册�
 **翻译表结构断言**（2026-07-28 加）：CSV 字段含 ASCII 逗号却未加引号时，导入会把该行
 切成多列 —— zh 仍对、en 被截断、ja 落到第 4 列之外。此时 `tr(key) != key` 依然成立，
 "有译文"的检查**抓不到**，玩家看到的却是半句话。故 bench 直接校验
-`translations.csv` 全表列数一致。本批据此发现并修复 36 行（34 行本批新写 + 2 行历史遗留：
+全部 i18n 分表列数一致且 key 跨表唯一。本批据此发现并修复 36 行（34 行本批新写 + 2 行历史遗留：
 `TOOLTIP_EVADE_OFF_BODY` / `BOSS_DEBUG_GOOSE_DESC` 的英文长期被截断）。
 **写含逗号的译文必须整字段加引号。**
 
@@ -291,7 +291,7 @@ n = len(BOSS_ROTATION)
 ### 阶段 4 — 成就与奖池门控
 - [x] roll ctx 加 loyal_wingman_unlocked（fail-closed 缺省）+ 武器子池过滤；构造时注入，覆盖开局 A/B 首轮 roll
 - [x] 成就 toast（ZoneHint 临时条，非红横幅）+ EventLogger 打点
-- [x] translations.csv 三语 key
+- [x] `meta.csv` 三语 key
 
 ### 阶段 5 — 收尾
 - [x] 跑新单测（--bench=career_archive 31 断言）+ 既有回归（--bench=all 39 项 PASS）
@@ -330,7 +330,7 @@ n = len(BOSS_ROTATION)
 | 资料库页面（两分类） | `scripts/meta/archive_ui.gd` + `scenes/archive.tscn`；主菜单入口 `scripts/main_menu.gd` `_on_archive_pressed` |
 | 战术地图小技巧轮播（手册复用源） | `scripts/survivor/tactical_map.gd` `_TIP_KEYS` |
 | 机型标识唯一源 | `scripts/survivor/survivor_spawner.gd` `type_tag_of()` / `all_type_tags()` |
-| i18n | `i18n/translations.csv`（ACHIEVEMENT_UAV_HUNTER_TOAST / CODEX_* 段） |
+| i18n | `i18n/meta.csv`（ACHIEVEMENT_UAV_HUNTER_TOAST / CODEX_* 段） |
 | reference 索引行 | code-index.md「生涯档案」段 / script-index.md meta 组两行 |
 
 ## 8. 变更记录

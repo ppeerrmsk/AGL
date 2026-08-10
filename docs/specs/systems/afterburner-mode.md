@@ -59,7 +59,7 @@ reconstruction_complete: true
 | 加速度 | `ACCEL_MULT = 3.0` | 加力期间加速度 ×3。没有它，典型加速度从巡航加到顶速需 ≈7 s，短点加力根本"快不起来"。失速地板照旧（不破坏"转弯不得自陷失速"）。 |
 | 适用对象 | **仅玩家小队**（长机 + squad.leader == 长机的僚机） | 敌机 / 友军 NPC 番队永不置此标志。敌机 AI 规避维持旧 +20% 闪避，不然玩家机炮打不中规避中的敌机。 |
 
-### 2.3 i18n（三语，`i18n/translations.csv`）
+### 2.3 i18n（三语，`i18n/interface.csv` / `i18n/skills.csv` / `i18n/radio.csv`）
 
 改名（既有 key 改文案）：
 
@@ -240,7 +240,7 @@ missile_manager 命中检测（fuse 距离 + 高度容差成立瞬间，云 miss
 
 ### 阶段 3 — HUD + i18n
 - [x] 充能条控件（ProgressBar 线框三色）+ 按钮三态文案；每帧 `_update_afterburner_ui` 挂 `_update_display`。
-- [x] translations.csv：§2.3 改名 + 新增 key + tooltip 六键重写（三语）；HUD "(Evade)"→"(AB)"。
+- [x] i18n 分表：§2.3 改名 + 新增 key + tooltip 六键重写（三语）；HUD "(Evade)"→"(AB)"。
 - [x] v4：R 统一机动入口；玩家手动/AI 僚机自动分流；眼镜蛇/J-Turn 与加力触发彻底解耦。
 
 ### 阶段 4 — 收尾
@@ -263,7 +263,7 @@ missile_manager 命中检测（fuse 距离 + 高度容差成立瞬间，云 miss
 | 充能条 + 按钮 | `scripts/survivor/survivor_hud.gd` |
 | 无线电"加力冲刺"信号 / 抑制 break | `scripts/event_logger.gd`（`afterburner_engaged`）/ `scripts/aircraft.gd`（`set_evasion_mode` suppress_radio）/ `scripts/survivor/survivor_mode.gd`（`_on_radio_afterburner_engaged`） |
 | 无线电台词表 | `resources/chatter/radio_chatter.json`（`afterburner` trigger）→ 详见 [radio-chatter](radio-chatter.md) |
-| i18n | `i18n/translations.csv`（含 `RADIO_AFTERBURNER_*`） |
+| i18n | `i18n/interface.csv`、`i18n/skills.csv`、`i18n/radio.csv`（`RADIO_AFTERBURNER_*`） |
 
 ## 8. 变更记录
 

@@ -6,8 +6,8 @@
     "",
     "── 加一条新台词的两步 ──",
     "  1. 在本文件对应 trigger 的 lines 数组里加一个 key，例如 \"RADIO_SPLASH_5\"",
-    "  2. 在 i18n/translations.csv 加一行：RADIO_SPLASH_5,中文,English,日本語",
-    "  （文本统一住在 translations.csv，本地化同事只需要看那一个文件；",
+    "  2. 在 i18n/radio.csv 加一行：RADIO_SPLASH_5,中文,English,日本語",
+    "  （无线电文本统一住在 radio.csv；",
     "    本文件只管结构。跑 --bench=chatter 会校验每个 key 都有译文。）",
     "",
     "── 加一个全新 trigger ──",
@@ -48,6 +48,26 @@
       "weight": 100,
       "lines": []
     },
+    "wraith_member_down": {
+      "_doc": "WRAITH 本战第一架成员被击毁，由被击毁成员使用真实呼号播报；一次性闭锁在 F47AceSquad。",
+      "class": "scripted",
+      "weight": 98,
+      "lines": [
+        "RADIO_BOSS_WRAITH_DOWN_1",
+        "RADIO_BOSS_WRAITH_DOWN_2"
+      ]
+    },
+    "csg_fa18_launch": {
+      "_doc": "CSG Phase 1 定期补充 F/A-18 成功弹射后偶尔播出；不含 engage 初始两架，首次成功入队后本战闭锁。",
+      "class": "ambient",
+      "weight": 25,
+      "cooldown_sec": 0.0,
+      "chance": 0.5,
+      "lines": [
+        "RADIO_BOSS_CSG_FA18_LAUNCH_1",
+        "RADIO_BOSS_CSG_FA18_LAUNCH_2"
+      ]
+    },
     "ace_spawn": {
       "_doc": "非 BOSS 王牌中队入场（红色警告横幅是 BOSS 专属，这条语音即王牌入场的主信号，spec ace-squadron-tier §2.6）。全部王牌中队共享此台词池，单条随机；新队可扩充带风格的行（三语齐全）。",
       "class": "scripted",
@@ -57,7 +77,10 @@
         "RADIO_ACE_SPAWN_2",
         "RADIO_ACE_SPAWN_3",
         "RADIO_ACE_SPAWN_4",
-        "RADIO_ACE_SPAWN_5"
+        "RADIO_ACE_SPAWN_5",
+        "RADIO_ACE_SPAWN_6",
+        "RADIO_ACE_SPAWN_7",
+        "RADIO_ACE_SPAWN_8"
       ]
     },
     "reward_target_available": {
@@ -69,11 +92,50 @@
       ]
     },
     "bomber_escort_available": {
-      "_doc": "可选轰炸护送任务开放；必须在目标与航线实体生成前通报。",
+      "_doc": "可选轰炸护送任务开放；目标实体生成前 6 秒由指挥中心固定播出真实八方向坐标通报 + 护航请求。",
       "class": "scripted",
       "weight": 96,
       "lines": [
-        "RADIO_BOMBER_ESCORT_AVAILABLE"
+        "RADIO_BOMBER_ESCORT_COORD_FMT",
+        "RADIO_BOMBER_ESCORT_REQUEST"
+      ]
+    },
+    "zone_naval_contact": {
+      "_doc": "海战任务首次触发，由本战区真实存活敌舰低优先级随机喊话。",
+      "class": "ambient",
+      "weight": 15,
+      "cooldown_sec": 0.0,
+      "chance": 0.45,
+      "lines": [
+        "RADIO_ZONE_NAVAL_CONTACT"
+      ]
+    },
+    "zone_air_support_request": {
+      "_doc": "空战任务首次触发，由玩家编队中真实存活的非玩家友机报告实际地区并请求支援；单机时静默。",
+      "class": "ambient",
+      "weight": 15,
+      "cooldown_sec": 0.0,
+      "chance": 0.45,
+      "lines": [
+        "RADIO_ZONE_AIR_SUPPORT_REQUEST_FMT"
+      ]
+    },
+    "zone_ground_thanks": {
+      "_doc": "地面任务成功且战区气氛层至少一辆友军单位存活时，由该真实单位感谢空中支援。",
+      "class": "scripted",
+      "weight": 91,
+      "lines": [
+        "RADIO_ZONE_GROUND_THANKS"
+      ]
+    },
+    "airfield_liberated": {
+      "_doc": "机场解放完成后的临时塔台 mandatory 通报；三选一并代入当前长机真实呼号。",
+      "class": "scripted",
+      "weight": 97,
+      "lines": [
+        "RADIO_AIRFIELD_LIBERATED_1_FMT",
+        "RADIO_AIRFIELD_LIBERATED_2_FMT",
+        "RADIO_AIRFIELD_LIBERATED_3_FMT"
       ]
     },
     "hound_one_contact": {
@@ -130,7 +192,8 @@
         "RADIO_EJECT_1",
         "RADIO_EJECT_2",
         "RADIO_EJECT_3",
-        "RADIO_EJECT_4"
+        "RADIO_EJECT_4",
+        "RADIO_EJECT_FRIENDLY_5"
       ]
     },
     "eject": {
@@ -139,7 +202,13 @@
       "weight": 30,
       "cooldown_sec": 9.0,
       "chance": 0.45,
-      "lines_ref": "eject_friendly"
+      "lines": [
+        "RADIO_EJECT_1",
+        "RADIO_EJECT_2",
+        "RADIO_EJECT_3",
+        "RADIO_EJECT_4",
+        "RADIO_EJECT_ENEMY_5"
+      ]
     },
     "break": {
       "_doc": "队友被导弹咬住的规避呼叫。",
@@ -150,7 +219,9 @@
       "lines": [
         "RADIO_BREAK_1",
         "RADIO_BREAK_2",
-        "RADIO_BREAK_3"
+        "RADIO_BREAK_3",
+        "RADIO_BREAK_4",
+        "RADIO_BREAK_5"
       ]
     },
     "afterburner": {
@@ -175,7 +246,8 @@
         "RADIO_SPLASH_1",
         "RADIO_SPLASH_2",
         "RADIO_SPLASH_3",
-        "RADIO_SPLASH_4"
+        "RADIO_SPLASH_4",
+        "RADIO_SPLASH_5"
       ]
     },
     "ack_pursue": {
@@ -187,7 +259,8 @@
       "chance": 0.35,
       "lines": [
         "RADIO_ACK_PURSUE_1_FMT",
-        "RADIO_ACK_PURSUE_2_FMT"
+        "RADIO_ACK_PURSUE_2_FMT",
+        "RADIO_ACK_PURSUE_3"
       ]
     },
     "ack_strike": {
@@ -345,6 +418,10 @@
       ],
       "phase2": [
         {
+          "slot": 1,
+          "key": "RADIO_BOSS_CSG_PHASE2_0"
+        },
+        {
           "slot": 0,
           "key": "RADIO_BOSS_CSG_PHASE2_1"
         }
@@ -365,6 +442,12 @@
         {
           "slot": 0,
           "key": "RADIO_BOSS_GOOSE_ENGAGE_1"
+        }
+      ],
+      "phase2": [
+        {
+          "slot": 0,
+          "key": "RADIO_BOSS_GOOSE_PHASE2_1"
         }
       ]
     },

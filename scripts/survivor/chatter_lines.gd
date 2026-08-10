@@ -5,7 +5,7 @@ extends RefCounted
 ##
 ## ★ 本文件不含任何台词、权重、冷却数值 —— 全部住在 resources/chatter/radio_chatter.json。
 ##   加台词 / 调频率 / 调权重都改那个 JSON，不用碰代码。
-##   台词文本本身住在 i18n/translations.csv（本地化同事只需要看那一个文件）。
+##   台词文本本身独立住在 i18n/radio.csv。
 ##
 ## 加载策略：静态缓存，全进程解析一次。JSON 缺失 / 损坏时不崩游戏 —— 报 error 后
 ## 整个无线电系统降级为静默（台词是氛围，绝不值得为它中断一局）。

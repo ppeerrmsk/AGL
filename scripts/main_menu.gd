@@ -2,29 +2,47 @@ extends Node2D
 
 const HudPreferencesScript := preload("res://scripts/ui/hud_preferences.gd")
 const HudColorSettingsPanelScript := preload("res://scripts/ui/hud_color_settings_panel.gd")
+const TerminalGridOverlayScript := preload("res://scripts/ui/terminal_grid_overlay.gd")
+const TerminalTextScript := preload("res://scripts/ui/terminal_text.gd")
+const MainMenuCrtShellScript := preload("res://scripts/ui/main_menu_crt_shell.gd")
+const MainMenuCrtEffectScript := preload("res://scripts/ui/main_menu_crt_effect.gd")
+const MainMenuScopeDisplayScript := preload("res://scripts/ui/main_menu_scope_display.gd")
 
 ## 主菜单：游戏入口，选择游戏模式
 
 # --- 视觉参数 ---
-const GRID_SPACING := 80.0
-const GRID_COLOR := Color(0.15, 0.2, 0.15, 0.3)
-const LINE_COLOR := Color(0.3, 0.7, 0.3, 0.5)
-const TITLE_COLOR := Color(0.4, 1.0, 0.4)
-const SUBTITLE_COLOR := Color(0.3, 0.6, 0.3, 0.7)
-const BG_COLOR := Color(0.02, 0.03, 0.02)
-
-# --- 动画 ---
-var _time := 0.0
-var _sweep_angle := 0.0  ## 雷达扫描角度
+const U_SIZE := Vector2(40.0, 18.0)
+const Q_SIZE := Vector2(18.0, 18.0)
+const CRT_SCREEN_SIZE := Vector2(U_SIZE.x * 23.0, U_SIZE.y * 30.0)
+const CRT_SAFE_MARGIN := Vector2(U_SIZE.x, U_SIZE.y)
+const HEADER_PANEL_SIZE := Vector2(CRT_SCREEN_SIZE.x, U_SIZE.y * 6.0)
+const MODE_ROW_SIZE := Vector2(U_SIZE.x * 15.0, U_SIZE.y * 4.0)
+const MODE_BOARD_SIZE := Vector2(MODE_ROW_SIZE.x, U_SIZE.y + MODE_ROW_SIZE.y * 5.0)
+const SYSTEM_BOARD_SIZE := Vector2(U_SIZE.x * 8.0, MODE_BOARD_SIZE.y)
+const FOOTER_PANEL_SIZE := Vector2(CRT_SCREEN_SIZE.x, U_SIZE.y * 3.0)
+const MODE_INDEX_WIDTH := U_SIZE.x * 2.0
+const MODE_STATUS_WIDTH := U_SIZE.x * 2.0
+const MODE_INFO_WIDTH := MODE_ROW_SIZE.x - MODE_INDEX_WIDTH - MODE_STATUS_WIDTH
+const DANGER_COLOR := Color("ff493d")
 
 # --- UI ---
 var _canvas: CanvasLayer
-var _mode_container: VBoxContainer
+var _screen_content: Control
+var _mode_container: Control
+var _mode_grid_overlay: TerminalGridOverlay
+var _system_grid_overlay: TerminalGridOverlay
+var _mode_buttons: Array[Button] = []
+var _terminal_text_nodes: Array[TerminalText] = []
+var _terminal_overlays: Array[TerminalGridOverlay] = []
+var _aux_buttons: Array[Button] = []
+var _accent_fill_blocks: Array[ColorRect] = []
+var _scope_display: MainMenuScopeDisplay
+var _merit_value_text: TerminalText
 var _speed_unit_button: Button
 var _hud_color_button: Button
 
 func _ready() -> void:
-	RenderingServer.set_default_clear_color(BG_COLOR)
+	RenderingServer.set_default_clear_color(ThemeColors.SCENE_BG)
 	CombatUnit.reset_id_allocator()
 	CallsignDB.reset()
 	_build_ui()
@@ -66,322 +84,355 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	_show_toast(msg)
 	get_viewport().set_input_as_handled()
 
-func _process(delta: float) -> void:
-	_time += delta
-	_sweep_angle += delta * 1.2  # 雷达扫描速度
-	if _sweep_angle > TAU:
-		_sweep_angle -= TAU
-	queue_redraw()
-
-func _draw() -> void:
-	var vp := get_viewport_rect().size
-	_draw_grid(vp)
-	_draw_radar_sweep(vp)
-	_draw_decorative_lines(vp)
-
-func _draw_grid(vp: Vector2) -> void:
-	var cols := int(vp.x / GRID_SPACING) + 1
-	var rows := int(vp.y / GRID_SPACING) + 1
-	for i in range(cols + 1):
-		var x := i * GRID_SPACING
-		draw_line(Vector2(x, 0), Vector2(x, vp.y), GRID_COLOR, 1.0)
-	for j in range(rows + 1):
-		var y := j * GRID_SPACING
-		draw_line(Vector2(0, y), Vector2(vp.x, y), GRID_COLOR, 1.0)
-
-func _draw_radar_sweep(vp: Vector2) -> void:
-	# 右下角雷达装饰
-	var center := Vector2(vp.x - 140, vp.y - 140)
-	var radius := 100.0
-	var rings := 3
-
-	# 同心圆
-	for i in range(1, rings + 1):
-		var r := radius * i / rings
-		draw_arc(center, r, 0, TAU, 64, Color(0.2, 0.5, 0.2, 0.3), 1.0)
-
-	# 十字线
-	draw_line(center - Vector2(radius, 0), center + Vector2(radius, 0), Color(0.2, 0.5, 0.2, 0.2), 1.0)
-	draw_line(center - Vector2(0, radius), center + Vector2(0, radius), Color(0.2, 0.5, 0.2, 0.2), 1.0)
-
-	# 扫描线
-	var sweep_end := center + Vector2(cos(_sweep_angle), sin(_sweep_angle)) * radius
-	draw_line(center, sweep_end, Color(0.3, 1.0, 0.3, 0.6), 1.5)
-
-	# 扫描尾迹
-	var trail_steps := 20
-	for i in range(trail_steps):
-		var t := float(i) / trail_steps
-		var a := _sweep_angle - t * 0.8
-		var end := center + Vector2(cos(a), sin(a)) * radius
-		var alpha := 0.3 * (1.0 - t)
-		draw_line(center, end, Color(0.3, 1.0, 0.3, alpha), 1.0)
-
-	# 随机点
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 42
-	for i in range(8):
-		var angle := rng.randf() * TAU
-		var dist := rng.randf_range(10, radius - 5)
-		var dot_pos := center + Vector2(cos(angle), sin(angle)) * dist
-		# 被扫描线扫过时闪亮
-		var dot_angle := fmod(angle + TAU, TAU)
-		var sweep_norm := fmod(_sweep_angle + TAU, TAU)
-		var diff := fmod(sweep_norm - dot_angle + TAU, TAU)
-		var brightness := exp(-diff * 2.0) * 0.8
-		if brightness > 0.05:
-			draw_circle(dot_pos, 2.0, Color(0.4, 1.0, 0.4, brightness))
-
-func _draw_decorative_lines(vp: Vector2) -> void:
-	# 左上角装饰框
-	var margin := 60.0
-	var corner_len := 30.0
-	var c := LINE_COLOR
-
-	# 左上
-	draw_line(Vector2(margin, margin), Vector2(margin + corner_len, margin), c, 1.5)
-	draw_line(Vector2(margin, margin), Vector2(margin, margin + corner_len), c, 1.5)
-	# 右上
-	draw_line(Vector2(vp.x - margin, margin), Vector2(vp.x - margin - corner_len, margin), c, 1.5)
-	draw_line(Vector2(vp.x - margin, margin), Vector2(vp.x - margin, margin + corner_len), c, 1.5)
-	# 左下
-	draw_line(Vector2(margin, vp.y - margin), Vector2(margin + corner_len, vp.y - margin), c, 1.5)
-	draw_line(Vector2(margin, vp.y - margin), Vector2(margin, vp.y - margin - corner_len), c, 1.5)
-	# 右下
-	draw_line(Vector2(vp.x - margin, vp.y - margin), Vector2(vp.x - margin - corner_len, vp.y - margin), c, 1.5)
-	draw_line(Vector2(vp.x - margin, vp.y - margin), Vector2(vp.x - margin, vp.y - margin - corner_len), c, 1.5)
-
-	# 底部扫描线动画
-	var scan_x := fmod(_time * 200.0, vp.x + 200) - 100
-	draw_line(Vector2(scan_x, vp.y - 40), Vector2(scan_x, vp.y - 55), Color(0.3, 1.0, 0.3, 0.2), 1.0)
 
 func _build_ui() -> void:
 	_canvas = CanvasLayer.new()
 	_canvas.layer = 10
 	add_child(_canvas)
 
-	# --- 主容器 ---
-	var root := VBoxContainer.new()
-	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	root.alignment = BoxContainer.ALIGNMENT_CENTER
-	root.add_theme_constant_override("separation", 0)
-	_canvas.add_child(root)
+	var shell := MainMenuCrtShellScript.new() as MainMenuCrtShell
+	shell.name = "CrtDisplayShell"
+	shell.set_anchors_preset(Control.PRESET_CENTER)
+	shell.position = -MainMenuCrtShellScript.SHELL_SIZE * 0.5
+	_canvas.add_child(shell)
+	var glass_background := ColorRect.new()
+	glass_background.name = "CrtGlassBackground"
+	glass_background.set_anchors_preset(Control.PRESET_CENTER)
+	glass_background.position = -MainMenuCrtShellScript.SHELL_SIZE * 0.5 \
+		+ MainMenuCrtShellScript.SCREEN_RECT.position
+	glass_background.size = MainMenuCrtShellScript.SCREEN_RECT.size
+	glass_background.color = Color("010302")
+	glass_background.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_canvas.add_child(glass_background)
 
-	# 上部空白
-	var spacer_top := Control.new()
-	spacer_top.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	spacer_top.size_flags_stretch_ratio = 0.3
-	root.add_child(spacer_top)
+	_screen_content = Control.new()
+	_screen_content.name = "CrtScreenContent"
+	_screen_content.set_anchors_preset(Control.PRESET_CENTER)
+	_screen_content.position = -MainMenuCrtShellScript.SHELL_SIZE * 0.5 \
+		+ MainMenuCrtShellScript.SCREEN_RECT.position + CRT_SAFE_MARGIN
+	_screen_content.size = CRT_SCREEN_SIZE
+	_screen_content.clip_contents = true
+	_canvas.add_child(_screen_content)
+	var screen_background := ColorRect.new()
+	screen_background.color = Color("020503")
+	screen_background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	screen_background.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_screen_content.add_child(screen_background)
 
-	# --- 标题区域 ---
-	var title_box := VBoxContainer.new()
-	title_box.alignment = BoxContainer.ALIGNMENT_CENTER
-	title_box.add_theme_constant_override("separation", 8)
-	root.add_child(title_box)
+	_build_terminal_header(_screen_content)
 
-	# 标题
-	var title := Label.new()
-	title.text = tr("MENU_TITLE")
-	title.add_theme_font_size_override("font_size", 72)
-	title.add_theme_color_override("font_color", TITLE_COLOR)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title_box.add_child(title)
+	# 左侧模式台：15u × 21u，顶部 1u + 五条 4u 模式行。
+	_mode_container = Control.new()
+	_mode_container.name = "ModeTerminalBoard"
+	_mode_container.position = Vector2(0.0, HEADER_PANEL_SIZE.y)
+	_mode_container.size = MODE_BOARD_SIZE
+	_screen_content.add_child(_mode_container)
+	_add_block_background(_mode_container, Rect2(Vector2.ZERO, MODE_BOARD_SIZE))
 
-	# 副标题
-	var subtitle := Label.new()
-	subtitle.text = tr("MENU_SUBTITLE")
-	subtitle.add_theme_font_size_override("font_size", 16)
-	subtitle.add_theme_color_override("font_color", SUBTITLE_COLOR)
-	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title_box.add_child(subtitle)
+	_add_terminal_text(
+		_mode_container,
+		tr("MENU_MODE_LABEL"),
+		Rect2(Vector2.ZERO, Vector2(MODE_BOARD_SIZE.x, U_SIZE.y)),
+		TerminalTextScript.FontFace.SILKSCREEN,
+		TerminalTextScript.SizeRule.ONE_U_FIXED_15,
+		HORIZONTAL_ALIGNMENT_LEFT
+	)
+	_mode_grid_overlay = TerminalGridOverlayScript.new() as TerminalGridOverlay
+	_mode_grid_overlay.name = "ModeTerminalGrid"
+	_mode_grid_overlay.size = MODE_BOARD_SIZE
+	_mode_grid_overlay.regions = [Rect2(Vector2.ZERO, Vector2(MODE_BOARD_SIZE.x, U_SIZE.y))]
+	_mode_container.add_child(_mode_grid_overlay)
+	_terminal_overlays.append(_mode_grid_overlay)
 
-	# 功勋显示（标题下方居中，硬币 + 数字）
-	_build_merit_display(title_box)
-
-	# 分隔
-	var sep_spacer := Control.new()
-	sep_spacer.custom_minimum_size = Vector2(0, 40)
-	root.add_child(sep_spacer)
-
-	# --- 模式选择区域 ---
-	_mode_container = VBoxContainer.new()
-	_mode_container.alignment = BoxContainer.ALIGNMENT_CENTER
-	_mode_container.add_theme_constant_override("separation", 12)
-	_mode_container.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	root.add_child(_mode_container)
-
-	# 模式标签
-	var mode_label := Label.new()
-	mode_label.text = tr("MENU_MODE_LABEL")
-	mode_label.add_theme_font_size_override("font_size", 14)
-	mode_label.add_theme_color_override("font_color", Color(0.5, 0.7, 0.5, 0.6))
-	mode_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_mode_container.add_child(mode_label)
-
-	# 测试版：生存模式为主显示
+	# 生存模式为主显示，入口顺序与旧主菜单保持一致。
 	_add_mode_button(tr("MENU_MODE_SURVIVOR_NAME"), tr("MENU_MODE_SURVIVOR_DESC"), _on_survivor_pressed)
-
-	# 地图工坊（UGC 地图编辑器，spec map-editor）
 	_add_mode_button(tr("MENU_MODE_EDITOR_NAME"), tr("MENU_MODE_EDITOR_DESC"), _on_editor_pressed)
-
-	# 生涯商店（局外功勋购买：起手机/持久商品，spec career-shop）
 	_add_mode_button(tr("MENU_META_SHOP_NAME"), tr("MENU_META_SHOP_DESC"), _on_meta_shop_pressed)
-
-	# 资料库（敌人图鉴 + 游戏信息两分类；spec career-archive §2.6 / §2.7）
 	_add_mode_button(tr("MENU_ARCHIVE_NAME"), tr("MENU_ARCHIVE_DESC"), _on_archive_pressed)
-
-	# 未来模式占位（灰色不可用）
 	_add_mode_button(tr("MENU_MODE_MISSION_NAME"), tr("MENU_MODE_MISSION_DESC"), Callable(), true)
+	_mode_grid_overlay.move_to_front()
+	if not _mode_buttons.is_empty():
+		call_deferred("_focus_default_mode")
 
-	# 测试版：沙盒入口缩成右下角小按钮
-	_build_sandbox_corner_button()
+	_build_system_panel(_screen_content)
+	_build_terminal_footer(_screen_content)
 
-	# 下部空白
-	var spacer_bottom := Control.new()
-	spacer_bottom.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	spacer_bottom.size_flags_stretch_ratio = 0.5
-	root.add_child(spacer_bottom)
+	# 最后绘制局部屏幕采样层：只扭曲 CRT 内屏，机壳保持物理直线。
+	var effect := MainMenuCrtEffectScript.new() as MainMenuCrtEffect
+	effect.name = "CrtGlassEffect"
+	effect.set_anchors_preset(Control.PRESET_CENTER)
+	effect.position = -MainMenuCrtShellScript.SHELL_SIZE * 0.5 \
+		+ MainMenuCrtShellScript.SCREEN_RECT.position
+	effect.size = MainMenuCrtShellScript.SCREEN_RECT.size
+	_canvas.add_child(effect)
+	_refresh_terminal_palette()
 
-	# --- 语言切换 ---
-	_build_language_switcher(root)
 
-	# --- 音频 / 玩家仪表设置 ---
-	_build_audio_button(root)
+func _build_terminal_header(parent: Control) -> void:
+	var panel := Control.new()
+	panel.name = "HeaderTerminalPanel"
+	panel.size = HEADER_PANEL_SIZE
+	parent.add_child(panel)
+	_add_block_background(panel, Rect2(Vector2.ZERO, HEADER_PANEL_SIZE))
 
-	# --- 底部版本信息 ---
-	var version_label := Label.new()
-	version_label.text = tr("MENU_VERSION")
-	version_label.add_theme_font_size_override("font_size", 11)
-	version_label.add_theme_color_override("font_color", Color(0.3, 0.4, 0.3, 0.4))
-	version_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	root.add_child(version_label)
+	var classification_rect := Rect2(Vector2.ZERO, Vector2(HEADER_PANEL_SIZE.x, U_SIZE.y))
+	var title_rect := Rect2(Vector2(0.0, U_SIZE.y), Vector2(U_SIZE.x * 15.0, U_SIZE.y * 5.0))
+	var merit_title_rect := Rect2(
+		Vector2(U_SIZE.x * 15.0, U_SIZE.y), Vector2(U_SIZE.x * 4.0, U_SIZE.y))
+	var merit_value_rect := Rect2(
+		Vector2(U_SIZE.x * 15.0, U_SIZE.y * 2.0), Vector2(U_SIZE.x * 4.0, U_SIZE.y * 4.0))
+	var access_title_rect := Rect2(
+		Vector2(U_SIZE.x * 19.0, U_SIZE.y), Vector2(U_SIZE.x * 4.0, U_SIZE.y))
+	var access_value_rect := Rect2(
+		Vector2(U_SIZE.x * 19.0, U_SIZE.y * 2.0), Vector2(U_SIZE.x * 4.0, U_SIZE.y * 4.0))
 
-	var bottom_margin := Control.new()
-	bottom_margin.custom_minimum_size = Vector2(0, 20)
-	root.add_child(bottom_margin)
+	_add_terminal_text(
+		panel,
+		tr("MENU_SUBTITLE"),
+		classification_rect,
+		TerminalTextScript.FontFace.THEME,
+		TerminalTextScript.SizeRule.ONE_U_FIXED_15,
+		HORIZONTAL_ALIGNMENT_LEFT
+	)
+	_add_terminal_text(
+		panel,
+		tr("MENU_TITLE"),
+		title_rect,
+		TerminalTextScript.FontFace.CHAKRA_PETCH_BOLD,
+		TerminalTextScript.SizeRule.VISIBLE_INK_FILL,
+		HORIZONTAL_ALIGNMENT_CENTER,
+		tr("MENU_TITLE")
+	)
+	_build_merit_display(panel, merit_title_rect, merit_value_rect)
+	_add_terminal_text(
+		panel,
+		tr("MENU_ACCESS_LABEL"),
+		access_title_rect,
+		TerminalTextScript.FontFace.SILKSCREEN,
+		TerminalTextScript.SizeRule.ONE_U_FIXED_15,
+		HORIZONTAL_ALIGNMENT_LEFT
+	)
+	var access_background := _add_block_background(panel, access_value_rect)
+	access_background.color = HudPreferencesScript.hud_color()
+	_accent_fill_blocks.append(access_background)
+	var access_text := _add_terminal_text(
+		panel,
+		tr("MENU_TERMINAL_READY"),
+		access_value_rect,
+		TerminalTextScript.FontFace.SILKSCREEN,
+		TerminalTextScript.SizeRule.ONE_U_FIXED_15,
+		HORIZONTAL_ALIGNMENT_CENTER
+	)
+	access_text.set_meta("uses_terminal_accent", false)
+	access_text.font_color = ThemeColors.UI_TERMINAL_INVERSE
 
-## 底部语言切换：中 / EN / 日（按钮文字不翻译，保持识别性）
-func _build_language_switcher(root: VBoxContainer) -> void:
-	var lang_row := HBoxContainer.new()
-	lang_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	lang_row.add_theme_constant_override("separation", 8)
-	root.add_child(lang_row)
+	var grid := TerminalGridOverlayScript.new() as TerminalGridOverlay
+	grid.name = "HeaderTerminalGrid"
+	grid.size = HEADER_PANEL_SIZE
+	grid.regions = [classification_rect, title_rect, merit_title_rect, merit_value_rect,
+		access_title_rect, access_value_rect]
+	grid.override_regions = [access_value_rect]
+	grid.override_color = ThemeColors.UI_TERMINAL_INVERSE
+	panel.add_child(grid)
+	_terminal_overlays.append(grid)
 
+
+func _build_system_panel(parent: Control) -> void:
+	var panel := Control.new()
+	panel.name = "SystemTerminalBoard"
+	panel.position = Vector2(MODE_BOARD_SIZE.x, HEADER_PANEL_SIZE.y)
+	panel.size = SYSTEM_BOARD_SIZE
+	parent.add_child(panel)
+	_add_block_background(panel, Rect2(Vector2.ZERO, SYSTEM_BOARD_SIZE))
+
+	var scope_title_rect := Rect2(Vector2.ZERO, Vector2(SYSTEM_BOARD_SIZE.x, U_SIZE.y))
+	var scope_rect := Rect2(Vector2(0.0, U_SIZE.y), Vector2(SYSTEM_BOARD_SIZE.x, U_SIZE.y * 11.0))
+	var settings_title_rect := Rect2(
+		Vector2(0.0, U_SIZE.y * 12.0), Vector2(SYSTEM_BOARD_SIZE.x, U_SIZE.y))
+	_add_terminal_text(panel, tr("MENU_SYSTEM_LABEL"), scope_title_rect,
+		TerminalTextScript.FontFace.SILKSCREEN,
+		TerminalTextScript.SizeRule.ONE_U_FIXED_15, HORIZONTAL_ALIGNMENT_LEFT)
+	_add_terminal_text(panel, tr("MENU_TERMINAL_SETTINGS_LABEL"), settings_title_rect,
+		TerminalTextScript.FontFace.SILKSCREEN,
+		TerminalTextScript.SizeRule.ONE_U_FIXED_15, HORIZONTAL_ALIGNMENT_LEFT)
+
+	_scope_display = MainMenuScopeDisplayScript.new() as MainMenuScopeDisplay
+	_scope_display.name = "TerminalScopeDisplay"
+	_scope_display.position = scope_rect.position
+	_scope_display.size = scope_rect.size
+	panel.add_child(_scope_display)
+
+	_build_language_switcher(panel)
+	_build_audio_button(panel)
+	_build_sandbox_corner_button(panel)
+
+	_system_grid_overlay = TerminalGridOverlayScript.new() as TerminalGridOverlay
+	_system_grid_overlay.name = "SystemTerminalGrid"
+	_system_grid_overlay.size = SYSTEM_BOARD_SIZE
+	_system_grid_overlay.regions = [
+		scope_title_rect,
+		scope_rect,
+		settings_title_rect,
+		Rect2(0.0, U_SIZE.y * 13.0, U_SIZE.x * 2.0, U_SIZE.y * 2.0),
+		Rect2(U_SIZE.x * 2.0, U_SIZE.y * 13.0, U_SIZE.x * 3.0, U_SIZE.y * 2.0),
+		Rect2(U_SIZE.x * 5.0, U_SIZE.y * 13.0, U_SIZE.x * 3.0, U_SIZE.y * 2.0),
+		Rect2(0.0, U_SIZE.y * 15.0, U_SIZE.x * 4.0, U_SIZE.y * 2.0),
+		Rect2(U_SIZE.x * 4.0, U_SIZE.y * 15.0, U_SIZE.x * 4.0, U_SIZE.y * 2.0),
+		Rect2(0.0, U_SIZE.y * 17.0, U_SIZE.x * 4.0, U_SIZE.y * 2.0),
+		Rect2(U_SIZE.x * 4.0, U_SIZE.y * 17.0, U_SIZE.x * 4.0, U_SIZE.y * 2.0),
+		Rect2(0.0, U_SIZE.y * 19.0, U_SIZE.x * 8.0, U_SIZE.y * 2.0),
+	]
+	panel.add_child(_system_grid_overlay)
+	_terminal_overlays.append(_system_grid_overlay)
+	_refresh_system_grid_overrides()
+
+
+func _build_terminal_footer(parent: Control) -> void:
+	var panel := Control.new()
+	panel.name = "TerminalLogPanel"
+	panel.position = Vector2(0.0, U_SIZE.y * 27.0)
+	panel.size = FOOTER_PANEL_SIZE
+	parent.add_child(panel)
+	_add_block_background(panel, Rect2(Vector2.ZERO, FOOTER_PANEL_SIZE))
+	var title_rect := Rect2(Vector2.ZERO, Vector2(FOOTER_PANEL_SIZE.x, U_SIZE.y))
+	var body_rect := Rect2(
+		Vector2(0.0, U_SIZE.y), Vector2(FOOTER_PANEL_SIZE.x, U_SIZE.y * 2.0))
+	_add_terminal_text(panel, tr("MENU_SYSTEM_LOG_LABEL"), title_rect,
+		TerminalTextScript.FontFace.SILKSCREEN,
+		TerminalTextScript.SizeRule.ONE_U_FIXED_15, HORIZONTAL_ALIGNMENT_LEFT)
+	_add_terminal_text(panel, tr("MENU_VERSION"), body_rect,
+		TerminalTextScript.FontFace.THEME,
+		TerminalTextScript.SizeRule.ONE_U_FIXED_15, HORIZONTAL_ALIGNMENT_LEFT)
+	var grid := TerminalGridOverlayScript.new() as TerminalGridOverlay
+	grid.name = "TerminalLogGrid"
+	grid.size = FOOTER_PANEL_SIZE
+	grid.regions = [title_rect, body_rect]
+	panel.add_child(grid)
+	_terminal_overlays.append(grid)
+
+
+func _add_block_background(parent: Control, rect: Rect2) -> ColorRect:
+	var block := ColorRect.new()
+	block.position = rect.position
+	block.size = rect.size
+	block.color = ThemeColors.UI_BLOCK_BACKGROUND
+	block.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(block)
+	return block
+
+
+func _add_terminal_text(parent: Control, value: String, rect: Rect2, font_face: int,
+		size_rule: int, alignment: HorizontalAlignment,
+		layout_value: String = "") -> TerminalText:
+	var terminal_text := TerminalTextScript.new() as TerminalText
+	terminal_text.position = rect.position
+	terminal_text.size = rect.size
+	terminal_text.text = value
+	terminal_text.layout_text = value if layout_value.is_empty() else layout_value
+	terminal_text.font_face = font_face
+	terminal_text.size_rule = size_rule
+	terminal_text.horizontal_alignment = alignment
+	terminal_text.font_color = HudPreferencesScript.hud_color()
+	terminal_text.set_meta("uses_terminal_accent", true)
+	parent.add_child(terminal_text)
+	_terminal_text_nodes.append(terminal_text)
+	return terminal_text
+
+## 右侧终端语言排：中 / EN / 日（文字不翻译，保持识别性）。
+func _build_language_switcher(parent: Control) -> void:
 	var current_locale: String = LocaleManager.get_current_locale()
 	var options := [
-		{"code": "zh", "label": "中"},
-		{"code": "en", "label": "EN"},
-		{"code": "ja", "label": "日"},
+		{"code": "zh", "label": "中", "rect": Rect2(0.0, U_SIZE.y * 13.0, U_SIZE.x * 2.0, U_SIZE.y * 2.0)},
+		{"code": "en", "label": "EN", "rect": Rect2(U_SIZE.x * 2.0, U_SIZE.y * 13.0, U_SIZE.x * 3.0, U_SIZE.y * 2.0)},
+		{"code": "ja", "label": "日", "rect": Rect2(U_SIZE.x * 5.0, U_SIZE.y * 13.0, U_SIZE.x * 3.0, U_SIZE.y * 2.0)},
 	]
 	for opt in options:
-		var btn := Button.new()
-		btn.text = opt["label"]
-		btn.custom_minimum_size = Vector2(44, 26)
-		btn.add_theme_font_size_override("font_size", 13)
 		var is_active: bool = (opt["code"] == current_locale)
-
-		var style_normal := StyleBoxFlat.new()
-		if is_active:
-			style_normal.bg_color = Color(0.12, 0.22, 0.12, 0.85)
-			style_normal.border_color = Color(0.45, 1.0, 0.45, 0.75)
-			btn.add_theme_color_override("font_color", Color(0.6, 1.0, 0.6))
-		else:
-			style_normal.bg_color = Color(0.05, 0.08, 0.05, 0.45)
-			style_normal.border_color = Color(0.25, 0.45, 0.25, 0.35)
-			btn.add_theme_color_override("font_color", Color(0.5, 0.7, 0.5, 0.75))
-		style_normal.set_border_width_all(1)
-		style_normal.set_corner_radius_all(2)
-		style_normal.set_content_margin_all(4)
-		btn.add_theme_stylebox_override("normal", style_normal)
-
-		var style_hover := StyleBoxFlat.new()
-		style_hover.bg_color = Color(0.12, 0.2, 0.12, 0.8)
-		style_hover.border_color = Color(0.5, 1.0, 0.5, 0.7)
-		style_hover.set_border_width_all(1)
-		style_hover.set_corner_radius_all(2)
-		style_hover.set_content_margin_all(4)
-		btn.add_theme_stylebox_override("hover", style_hover)
-		btn.add_theme_color_override("font_hover_color", Color(0.9, 1.0, 0.6))
-
 		var code_capture: String = opt["code"]
-		btn.pressed.connect(func(): LocaleManager.set_locale_persistent(code_capture))
-		lang_row.add_child(btn)
+		_add_aux_terminal_button(parent, opt["rect"], opt["label"],
+			func(): LocaleManager.set_locale_persistent(code_capture), is_active)
 
-	var pad := Control.new()
-	pad.custom_minimum_size = Vector2(0, 8)
-	root.add_child(pad)
-
-## 主菜单底部设置行：AUDIO 旁放速度单位与 HUD 色盘；重置存档按钮保持原位。
-func _build_audio_button(root: VBoxContainer) -> void:
-	var row := HBoxContainer.new()
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.add_theme_constant_override("separation", 8)
-	root.add_child(row)
-
-	var audio_btn := _make_settings_button(tr("MENU_AUDIO_BUTTON"))
-	audio_btn.pressed.connect(_on_audio_settings_pressed)
-	row.add_child(audio_btn)
-
-	_speed_unit_button = _make_settings_button("")
-	_speed_unit_button.pressed.connect(_on_speed_unit_pressed)
-	row.add_child(_speed_unit_button)
-
-	_hud_color_button = _make_settings_button(tr("MENU_HUD_COLOR_BUTTON"))
-	_hud_color_button.pressed.connect(_on_hud_color_pressed)
-	row.add_child(_hud_color_button)
+## 右侧终端设置：两行 4u × 2u 功能键。
+func _build_audio_button(parent: Control) -> void:
+	var audio_rect := Rect2(0.0, U_SIZE.y * 15.0, U_SIZE.x * 4.0, U_SIZE.y * 2.0)
+	var speed_rect := Rect2(U_SIZE.x * 4.0, U_SIZE.y * 15.0, U_SIZE.x * 4.0, U_SIZE.y * 2.0)
+	var color_rect := Rect2(0.0, U_SIZE.y * 17.0, U_SIZE.x * 4.0, U_SIZE.y * 2.0)
+	var reset_rect := Rect2(U_SIZE.x * 4.0, U_SIZE.y * 17.0, U_SIZE.x * 4.0, U_SIZE.y * 2.0)
+	_add_aux_terminal_button(parent, audio_rect, tr("MENU_AUDIO_BUTTON"), _on_audio_settings_pressed)
+	_speed_unit_button = _add_aux_terminal_button(parent, speed_rect, "", _on_speed_unit_pressed)
+	_hud_color_button = _add_aux_terminal_button(
+		parent, color_rect, tr("MENU_HUD_COLOR_BUTTON"), _on_hud_color_pressed)
+	_add_aux_terminal_button(parent, reset_rect, tr("MENU_RESET_SAVE_BUTTON"),
+		_on_reset_save_pressed, false, true)
 	_refresh_hud_settings_buttons()
 
-	# 删除存档按钮（测试用）：重置首次引导 / 进度标志
-	var reset_btn := Button.new()
-	reset_btn.text = tr("MENU_RESET_SAVE_BUTTON")
-	reset_btn.custom_minimum_size = Vector2(140, 28)
-	reset_btn.add_theme_font_size_override("font_size", 13)
-	var rs_normal := StyleBoxFlat.new()
-	rs_normal.bg_color = Color(0.10, 0.05, 0.05, 0.45)
-	rs_normal.border_color = Color(0.55, 0.25, 0.22, 0.4)
-	rs_normal.set_border_width_all(1)
-	rs_normal.set_corner_radius_all(2)
-	rs_normal.set_content_margin_all(4)
-	reset_btn.add_theme_stylebox_override("normal", rs_normal)
-	reset_btn.add_theme_color_override("font_color", Color(0.75, 0.5, 0.45, 0.85))
-	var rs_hover := StyleBoxFlat.new()
-	rs_hover.bg_color = Color(0.2, 0.08, 0.08, 0.8)
-	rs_hover.border_color = Color(1.0, 0.45, 0.4, 0.7)
-	rs_hover.set_border_width_all(1)
-	rs_hover.set_corner_radius_all(2)
-	rs_hover.set_content_margin_all(4)
-	reset_btn.add_theme_stylebox_override("hover", rs_hover)
-	reset_btn.add_theme_color_override("font_hover_color", Color(1.0, 0.75, 0.55))
-	reset_btn.pressed.connect(_on_reset_save_pressed)
-	row.add_child(reset_btn)
 
-	var bottom_pad := Control.new()
-	bottom_pad.custom_minimum_size = Vector2(0, 6)
-	root.add_child(bottom_pad)
-
-
-func _make_settings_button(label_text: String) -> Button:
+func _add_aux_terminal_button(parent: Control, rect: Rect2, label_text: String,
+		callback: Callable, selected: bool = false, danger: bool = false) -> Button:
 	var btn := Button.new()
-	btn.text = label_text
-	btn.custom_minimum_size = Vector2(140, 28)
-	btn.add_theme_font_size_override("font_size", 13)
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.05, 0.08, 0.05, 0.45)
-	style.border_color = Color(0.25, 0.45, 0.25, 0.35)
-	style.set_border_width_all(1)
-	style.set_corner_radius_all(2)
-	style.set_content_margin_all(4)
-	btn.add_theme_stylebox_override("normal", style)
-	btn.add_theme_color_override("font_color", Color(0.5, 0.7, 0.5, 0.85))
-	var hover := StyleBoxFlat.new()
-	hover.bg_color = Color(0.12, 0.2, 0.12, 0.8)
-	hover.border_color = Color(0.5, 1.0, 0.5, 0.7)
-	hover.set_border_width_all(1)
-	hover.set_corner_radius_all(2)
-	hover.set_content_margin_all(4)
-	btn.add_theme_stylebox_override("hover", hover)
-	btn.add_theme_color_override("font_hover_color", Color(0.9, 1.0, 0.6))
+	btn.position = rect.position
+	btn.size = rect.size
+	btn.text = ""
+	btn.focus_mode = Control.FOCUS_ALL
+	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	var empty_style := StyleBoxEmpty.new()
+	for style_name in ["normal", "hover", "pressed", "focus", "disabled"]:
+		btn.add_theme_stylebox_override(style_name, empty_style)
+	var local_rect := Rect2(Vector2.ZERO, rect.size)
+	var background := _add_block_background(btn, local_rect)
+	background.color = Color.TRANSPARENT
+	var text_node := _add_terminal_text(btn, label_text, local_rect,
+		TerminalTextScript.FontFace.THEME,
+		TerminalTextScript.SizeRule.ONE_U_FIXED_15, HORIZONTAL_ALIGNMENT_CENTER)
+	btn.set_meta("aux_background", background)
+	btn.set_meta("aux_text", text_node)
+	btn.set_meta("terminal_grid_rect", rect)
+	btn.set_meta("terminal_active", selected)
+	btn.set_meta("terminal_danger", danger)
+	btn.mouse_entered.connect(func(): _refresh_aux_button_visual(btn))
+	btn.mouse_exited.connect(func(): _refresh_aux_button_visual(btn))
+	btn.focus_entered.connect(func(): _refresh_aux_button_visual(btn))
+	btn.focus_exited.connect(func(): _refresh_aux_button_visual(btn))
+	if callback.is_valid():
+		btn.pressed.connect(callback)
+	parent.add_child(btn)
+	_aux_buttons.append(btn)
+	_refresh_aux_button_visual(btn)
 	return btn
+
+
+func _refresh_aux_button_visual(btn: Button) -> void:
+	if not is_instance_valid(btn):
+		return
+	var danger := bool(btn.get_meta("terminal_danger", false))
+	var active := bool(btn.get_meta("terminal_active", false)) or btn.is_hovered() or btn.has_focus()
+	var accent: Color = DANGER_COLOR if danger else HudPreferencesScript.hud_color()
+	var background: ColorRect = btn.get_meta("aux_background") as ColorRect
+	var text_node: TerminalText = btn.get_meta("aux_text") as TerminalText
+	background.color = accent if active else Color.TRANSPARENT
+	text_node.font_color = ThemeColors.UI_TERMINAL_INVERSE if active else accent
+	_refresh_system_grid_overrides()
+
+
+func _refresh_system_grid_overrides() -> void:
+	if not is_instance_valid(_system_grid_overlay):
+		return
+	var override_regions: Array[Rect2] = []
+	for btn in _aux_buttons:
+		if is_instance_valid(btn) and (bool(btn.get_meta("terminal_active", false)) \
+				or btn.is_hovered() or btn.has_focus()):
+			override_regions.append(btn.get_meta("terminal_grid_rect") as Rect2)
+	_system_grid_overlay.override_color = ThemeColors.UI_TERMINAL_INVERSE
+	_system_grid_overlay.override_regions = override_regions
+
+
+func _set_aux_button_text(btn: Button, value: String) -> void:
+	if not is_instance_valid(btn):
+		return
+	var text_node: TerminalText = btn.get_meta("aux_text") as TerminalText
+	if is_instance_valid(text_node):
+		text_node.text = value
+		text_node.layout_text = value
 
 
 func _refresh_hud_settings_buttons() -> void:
@@ -389,12 +440,11 @@ func _refresh_hud_settings_buttons() -> void:
 		var speed_fmt := tr("MENU_SPEED_UNIT_FMT")
 		if not speed_fmt.contains("%s"):
 			speed_fmt = "SPEED %s"
-		_speed_unit_button.text = speed_fmt % ("KT" if HudPreferencesScript.uses_knots() else "KM/H")
+		_set_aux_button_text(
+			_speed_unit_button, speed_fmt % ("KT" if HudPreferencesScript.uses_knots() else "KM/H"))
 	if _hud_color_button:
-		var accent: Color = HudPreferencesScript.hud_color()
-		_hud_color_button.text = tr("MENU_HUD_COLOR_BUTTON")
-		_hud_color_button.add_theme_color_override("font_color", accent)
-		_hud_color_button.add_theme_color_override("font_hover_color", accent.lightened(0.2))
+		_set_aux_button_text(_hud_color_button, tr("MENU_HUD_COLOR_BUTTON"))
+	_refresh_terminal_palette()
 
 ## 要在重置时删除的存档文件列表（保留 locale.cfg / audio.cfg / hud.cfg 用户偏好）
 ## tutorial.cfg 走文件删除；merit/loadout 走 ledger.debug_reset()（同时清内存 + 重写 cfg）
@@ -471,58 +521,160 @@ func _on_hud_color_pressed() -> void:
 		panel.queue_free())
 	panel.open()
 
+
+func _focus_default_mode() -> void:
+	if not is_inside_tree() or _mode_buttons.is_empty():
+		return
+	var first_button := _mode_buttons[0]
+	if is_instance_valid(first_button) and first_button.is_inside_tree():
+		first_button.grab_focus()
+
 func _add_mode_button(title: String, desc: String, callback: Callable, disabled := false) -> void:
+	var mode_index := _mode_buttons.size()
+	var board_y := U_SIZE.y + MODE_ROW_SIZE.y * float(mode_index)
+	var row_rect := Rect2(Vector2(0.0, board_y), MODE_ROW_SIZE)
+	var index_rect := Rect2(row_rect.position, Vector2(MODE_INDEX_WIDTH, MODE_ROW_SIZE.y))
+	var title_rect := Rect2(
+		row_rect.position + Vector2(MODE_INDEX_WIDTH, 0.0), Vector2(MODE_INFO_WIDTH, U_SIZE.y))
+	var desc_rect := Rect2(
+		row_rect.position + Vector2(MODE_INDEX_WIDTH, U_SIZE.y),
+		Vector2(MODE_INFO_WIDTH, U_SIZE.y * 3.0))
+	var status_rect := Rect2(
+		row_rect.position + Vector2(MODE_INDEX_WIDTH + MODE_INFO_WIDTH, 0.0),
+		Vector2(MODE_STATUS_WIDTH, MODE_ROW_SIZE.y))
+
 	var btn := Button.new()
-	btn.custom_minimum_size = Vector2(360, 56)
-	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	btn.name = "ModeOption%02d" % (mode_index + 1)
+	btn.position = row_rect.position
+	btn.size = row_rect.size
+	btn.text = ""
+	btn.disabled = disabled
+	btn.focus_mode = Control.FOCUS_NONE if disabled else Control.FOCUS_ALL
+	btn.mouse_default_cursor_shape = Control.CURSOR_FORBIDDEN if disabled else Control.CURSOR_POINTING_HAND
+	btn.clip_contents = true
+	var empty_style := StyleBoxEmpty.new()
+	for style_name in ["normal", "hover", "pressed", "focus", "disabled"]:
+		btn.add_theme_stylebox_override(style_name, empty_style)
 
-	if disabled:
-		btn.text = "  %s  —  %s" % [title, desc]
-		btn.disabled = true
-		btn.add_theme_color_override("font_disabled_color", Color(0.3, 0.4, 0.3, 0.4))
-	else:
-		btn.text = "  %s  —  %s" % [title, desc]
+	var local_index_rect := Rect2(Vector2.ZERO, index_rect.size)
+	var local_title_rect := Rect2(Vector2(MODE_INDEX_WIDTH, 0.0), title_rect.size)
+	var local_desc_rect := Rect2(Vector2(MODE_INDEX_WIDTH, U_SIZE.y), desc_rect.size)
+	var local_status_rect := Rect2(
+		Vector2(MODE_INDEX_WIDTH + MODE_INFO_WIDTH, 0.0), status_rect.size)
+	var index_background := _add_block_background(btn, local_index_rect)
+	index_background.color = Color.TRANSPARENT
+	var status_background := _add_block_background(btn, local_status_rect)
+	status_background.color = Color.TRANSPARENT
+	var index_text := _add_terminal_text(
+		btn,
+		"%02d" % (mode_index + 1),
+		local_index_rect,
+		TerminalTextScript.FontFace.CHAKRA_PETCH_BOLD,
+		TerminalTextScript.SizeRule.VISIBLE_INK_FILL,
+		HORIZONTAL_ALIGNMENT_CENTER,
+		"99"
+	)
+	var title_text := _add_terminal_text(
+		btn,
+		title,
+		local_title_rect,
+		TerminalTextScript.FontFace.SILKSCREEN,
+		TerminalTextScript.SizeRule.ONE_U_FIXED_15,
+		HORIZONTAL_ALIGNMENT_LEFT
+	)
+	var desc_text := _add_terminal_text(
+		btn,
+		desc,
+		local_desc_rect,
+		TerminalTextScript.FontFace.THEME,
+		TerminalTextScript.SizeRule.ONE_U_FIXED_15,
+		HORIZONTAL_ALIGNMENT_LEFT
+	)
+	var status_text := _add_terminal_text(
+		btn,
+		"--" if disabled else ">",
+		local_status_rect,
+		TerminalTextScript.FontFace.SILKSCREEN,
+		TerminalTextScript.SizeRule.ONE_U_FIXED_15,
+		HORIZONTAL_ALIGNMENT_CENTER
+	)
 
-	btn.add_theme_font_size_override("font_size", 16)
-
-	# 按钮样式
-	var style_normal := StyleBoxFlat.new()
-	style_normal.bg_color = Color(0.08, 0.12, 0.08, 0.6)
-	style_normal.border_color = Color(0.3, 0.6, 0.3, 0.4)
-	style_normal.set_border_width_all(1)
-	style_normal.set_corner_radius_all(2)
-	style_normal.set_content_margin_all(8)
-	btn.add_theme_stylebox_override("normal", style_normal)
-
-	var style_hover := StyleBoxFlat.new()
-	style_hover.bg_color = Color(0.12, 0.2, 0.12, 0.8)
-	style_hover.border_color = Color(0.4, 1.0, 0.4, 0.7)
-	style_hover.set_border_width_all(1)
-	style_hover.set_corner_radius_all(2)
-	style_hover.set_content_margin_all(8)
-	btn.add_theme_stylebox_override("hover", style_hover)
-
-	var style_pressed := StyleBoxFlat.new()
-	style_pressed.bg_color = Color(0.15, 0.25, 0.15, 0.9)
-	style_pressed.border_color = Color(0.5, 1.0, 0.5, 0.9)
-	style_pressed.set_border_width_all(2)
-	style_pressed.set_corner_radius_all(2)
-	style_pressed.set_content_margin_all(8)
-	btn.add_theme_stylebox_override("pressed", style_pressed)
-
-	if disabled:
-		var style_disabled := StyleBoxFlat.new()
-		style_disabled.bg_color = Color(0.05, 0.06, 0.05, 0.3)
-		style_disabled.border_color = Color(0.2, 0.25, 0.2, 0.2)
-		style_disabled.set_border_width_all(1)
-		style_disabled.set_corner_radius_all(2)
-		style_disabled.set_content_margin_all(8)
-		btn.add_theme_stylebox_override("disabled", style_disabled)
+	btn.set_meta("mode_index_background", index_background)
+	btn.set_meta("mode_status_background", status_background)
+	btn.set_meta("mode_index_text", index_text)
+	btn.set_meta("mode_title_text", title_text)
+	btn.set_meta("mode_desc_text", desc_text)
+	btn.set_meta("mode_status_text", status_text)
+	btn.set_meta("mode_index_rect", index_rect)
+	btn.set_meta("mode_status_rect", status_rect)
+	btn.mouse_entered.connect(func(): _refresh_mode_button_visual(btn))
+	btn.mouse_exited.connect(func(): _refresh_mode_button_visual(btn))
+	btn.focus_entered.connect(func(): _refresh_mode_button_visual(btn))
+	btn.focus_exited.connect(func(): _refresh_mode_button_visual(btn))
 
 	if not disabled and callback.is_valid():
 		btn.pressed.connect(callback)
 
 	_mode_container.add_child(btn)
+	_mode_buttons.append(btn)
+	var regions := _mode_grid_overlay.regions.duplicate()
+	regions.append_array([row_rect, index_rect, title_rect, desc_rect, status_rect])
+	_mode_grid_overlay.regions = regions
+	_refresh_mode_button_visual(btn)
+
+
+func _refresh_mode_button_visual(btn: Button) -> void:
+	if not is_instance_valid(btn):
+		return
+	var active := not btn.disabled and (btn.is_hovered() or btn.has_focus())
+	var accent: Color = HudPreferencesScript.hud_color()
+	var idle_color := ThemeColors.UI_INACTIVE_DIGIT if btn.disabled else accent
+	var index_background: ColorRect = btn.get_meta("mode_index_background") as ColorRect
+	var status_background: ColorRect = btn.get_meta("mode_status_background") as ColorRect
+	index_background.color = accent if active else Color.TRANSPARENT
+	status_background.color = accent if active else Color.TRANSPARENT
+
+	var index_text: TerminalText = btn.get_meta("mode_index_text") as TerminalText
+	var title_text: TerminalText = btn.get_meta("mode_title_text") as TerminalText
+	var desc_text: TerminalText = btn.get_meta("mode_desc_text") as TerminalText
+	var status_text: TerminalText = btn.get_meta("mode_status_text") as TerminalText
+	index_text.font_color = ThemeColors.UI_TERMINAL_INVERSE if active else idle_color
+	status_text.font_color = ThemeColors.UI_TERMINAL_INVERSE if active else idle_color
+	title_text.font_color = idle_color
+	desc_text.font_color = idle_color
+	_refresh_mode_grid_overrides()
+
+
+func _refresh_mode_grid_overrides() -> void:
+	if not is_instance_valid(_mode_grid_overlay):
+		return
+	var override_regions: Array[Rect2] = []
+	for btn in _mode_buttons:
+		if is_instance_valid(btn) and not btn.disabled and (btn.is_hovered() or btn.has_focus()):
+			override_regions.append(btn.get_meta("mode_index_rect") as Rect2)
+			override_regions.append(btn.get_meta("mode_status_rect") as Rect2)
+	_mode_grid_overlay.override_color = ThemeColors.UI_TERMINAL_INVERSE
+	_mode_grid_overlay.override_regions = override_regions
+
+
+func _refresh_terminal_palette() -> void:
+	var accent: Color = HudPreferencesScript.hud_color()
+	for terminal_text in _terminal_text_nodes:
+		if is_instance_valid(terminal_text) and bool(terminal_text.get_meta("uses_terminal_accent", false)):
+			terminal_text.font_color = accent
+	for overlay in _terminal_overlays:
+		if is_instance_valid(overlay):
+			overlay.line_color = accent
+	for block in _accent_fill_blocks:
+		if is_instance_valid(block):
+			block.color = accent
+	if is_instance_valid(_scope_display):
+		_scope_display.accent = accent
+	for btn in _aux_buttons:
+		_refresh_aux_button_visual(btn)
+	for btn in _mode_buttons:
+		_refresh_mode_button_visual(btn)
+	_refresh_system_grid_overrides()
 
 func _on_sandbox_pressed() -> void:
 	get_tree().change_scene_to_file("res://scenes/main.tscn")
@@ -533,35 +685,12 @@ func _on_meta_shop_pressed() -> void:
 func _on_archive_pressed() -> void:
 	get_tree().change_scene_to_file("res://scenes/archive.tscn")
 
-## 测试版：把沙盒入口做成右下角小按钮（不走主菜单 VBox）
-func _build_sandbox_corner_button() -> void:
-	var btn := Button.new()
-	btn.text = tr("MENU_MODE_SANDBOX_NAME")
-	btn.custom_minimum_size = Vector2(110, 24)
-	btn.add_theme_font_size_override("font_size", 11)
-	btn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	btn.position = Vector2(-130, -40)
-
-	var style_normal := StyleBoxFlat.new()
-	style_normal.bg_color = Color(0.05, 0.08, 0.05, 0.45)
-	style_normal.border_color = Color(0.25, 0.45, 0.25, 0.35)
-	style_normal.set_border_width_all(1)
-	style_normal.set_corner_radius_all(2)
-	style_normal.set_content_margin_all(4)
-	btn.add_theme_stylebox_override("normal", style_normal)
-	btn.add_theme_color_override("font_color", Color(0.4, 0.6, 0.4, 0.7))
-
-	var style_hover := StyleBoxFlat.new()
-	style_hover.bg_color = Color(0.1, 0.16, 0.1, 0.75)
-	style_hover.border_color = Color(0.4, 0.8, 0.4, 0.6)
-	style_hover.set_border_width_all(1)
-	style_hover.set_corner_radius_all(2)
-	style_hover.set_content_margin_all(4)
-	btn.add_theme_stylebox_override("hover", style_hover)
-	btn.add_theme_color_override("font_hover_color", Color(0.8, 1.0, 0.6))
-
-	btn.pressed.connect(_on_sandbox_pressed)
-	_canvas.add_child(btn)
+## 沙盒测试入口收进右侧维护终端，不再悬浮在机壳外。
+func _build_sandbox_corner_button(parent: Control) -> void:
+	var sandbox_rect := Rect2(
+		0.0, U_SIZE.y * 19.0, U_SIZE.x * 8.0, U_SIZE.y * 2.0)
+	_add_aux_terminal_button(
+		parent, sandbox_rect, tr("MENU_MODE_SANDBOX_NAME"), _on_sandbox_pressed)
 
 func _on_survivor_pressed() -> void:
 	get_tree().change_scene_to_file("res://scenes/survivor_map_select.tscn")
@@ -570,28 +699,27 @@ func _on_survivor_pressed() -> void:
 func _on_editor_pressed() -> void:
 	get_tree().change_scene_to_file("res://scenes/map_editor.tscn")
 
-## 标题下方的功勋徽章 + 数字（局外货币）
-func _build_merit_display(parent: VBoxContainer) -> void:
-	var pad := Control.new()
-	pad.custom_minimum_size = Vector2(0, 10)
-	parent.add_child(pad)
+## 标题仪表右侧的功勋读数：1u 小标题 + 4u 主数字。
+func _build_merit_display(parent: Control, title_rect: Rect2, value_rect: Rect2) -> void:
+	_add_terminal_text(
+		parent,
+		tr("MENU_MERIT_LABEL"),
+		title_rect,
+		TerminalTextScript.FontFace.SILKSCREEN,
+		TerminalTextScript.SizeRule.ONE_U_FIXED_15,
+		HORIZONTAL_ALIGNMENT_LEFT
+	)
+	_merit_value_text = _add_terminal_text(
+		parent,
+		str(MeritLedger.get_total()),
+		value_rect,
+		TerminalTextScript.FontFace.CHAKRA_PETCH_BOLD,
+		TerminalTextScript.SizeRule.VISIBLE_INK_FILL,
+		HORIZONTAL_ALIGNMENT_CENTER,
+		"99999999"
+	)
 
-	var row := HBoxContainer.new()
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.add_theme_constant_override("separation", 8)
-	parent.add_child(row)
-
-	var coin := preload("res://scripts/meta/merit_coin_icon.gd").new()
-	coin.radius = 11.0
-	row.add_child(coin)
-
-	var label := Label.new()
-	label.text = "%s  %d" % [tr("MENU_MERIT_LABEL"), MeritLedger.get_total()]
-	label.add_theme_font_size_override("font_size", 18)
-	label.add_theme_color_override("font_color", Color(0.85, 0.75, 0.35))
-	row.add_child(label)
-
-	# 余额变化时实时刷新（如果以后加调试按钮 / 改装界面跳回主菜单）
+	# 余额变化时实时刷新（如果以后加调试按钮 / 改装界面跳回主菜单）。
 	MeritLedger.merit_changed.connect(func(total: int, _delta: int):
-		if is_instance_valid(label):
-			label.text = "%s  %d" % [tr("MENU_MERIT_LABEL"), total])
+		if is_instance_valid(_merit_value_text):
+			_merit_value_text.text = str(total))

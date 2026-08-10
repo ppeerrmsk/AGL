@@ -229,13 +229,13 @@ func say_text(trigger: String, speaker: String, color: Color, text: String) -> b
 			_cooldowns[ChatterLines.cooldown_group_of(trigger)] = cool
 	return true
 
-## 按 trigger 选一条台词说。fmt_args 非空时对 tr 结果做 % 格式化。
+## 按 trigger 选一条台词说。只有 `_FMT` key 才消费 fmt_args；同池普通句原样播出。
 func say(trigger: String, speaker: String, color: Color, fmt_args: Array = []) -> bool:
 	var key := lines.pick(trigger)
 	if key == "":
 		return false
 	var text := tr(key)
-	if not fmt_args.is_empty():
+	if key.ends_with("_FMT") and not fmt_args.is_empty():
 		text = _safe_format(text, fmt_args)
 	return say_text(trigger, speaker, color, text)
 
@@ -318,6 +318,24 @@ static func color_for_team(team: int, elite: bool = false) -> Color:
 			return GameConstants.COL_FRIEND_ALLY
 		_:
 			return GameConstants.COL_ENEMY_ELITE if elite else GameConstants.COL_ENEMY_REGULAR
+
+## 世界坐标（Y 向下）→ 八方向 i18n key；供轰炸任务按真实目标坐标通报大致方位。
+static func direction_key(world_pos: Vector2) -> String:
+	if world_pos == Vector2.INF or world_pos.length_squared() < 1.0:
+		return "RADIO_DIRECTION_NORTH"
+	var heading := fposmod(atan2(world_pos.x, -world_pos.y), TAU)
+	var sector := int(floor(fposmod(heading + PI / 8.0, TAU) / (PI / 4.0)))
+	var keys: Array[String] = [
+		"RADIO_DIRECTION_NORTH",
+		"RADIO_DIRECTION_NORTHEAST",
+		"RADIO_DIRECTION_EAST",
+		"RADIO_DIRECTION_SOUTHEAST",
+		"RADIO_DIRECTION_SOUTH",
+		"RADIO_DIRECTION_SOUTHWEST",
+		"RADIO_DIRECTION_WEST",
+		"RADIO_DIRECTION_NORTHWEST",
+	]
+	return keys[sector]
 
 func _is_elite(unit: Object) -> bool:
 	if unit is Node:

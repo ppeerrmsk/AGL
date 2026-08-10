@@ -173,7 +173,7 @@ script-index / code-index）只写"代码在哪"（纯指针）。样板见 [bos
 - **信号**：通过 signal 解耦，不用全局变量共享状态
 - **Resource 复用**：`.tres` 文件通过 `preload()` 加载，生成子节点时用 `duplicate(true)` 避免共享修改
 - **CombatUnit 基类**：所有战斗单位（包括地面）共用 `team/hp/altitude/radar_targets/is_locked`，扩展时覆写 `is_in_radar_cone` / `take_damage` / `is_lock_immune`
-- **i18n 约束**：玩家可见的 UI / 升级 / 机型 / 地图 / 弹窗文本**一律走 `tr("KEY")`**，在 `i18n/translations.csv` 定义 key。新增 UI 文本流程见 [docs/reference/i18n.md](docs/reference/i18n.md)。例外：`AircraftParams.display_name`（HUD/日志拼接用）、EventLogger、debug 面板
+- **i18n 约束**：玩家可见的 UI / 升级 / 机型 / 地图 / 弹窗文本**一律走 `tr("KEY")`**，按领域在 `i18n/*.csv` 对应分表定义 key；无线电固定进 `i18n/radio.csv`。新增 UI 文本流程见 [docs/reference/i18n.md](docs/reference/i18n.md)。例外：`AircraftParams.display_name`（HUD/日志拼接用）、EventLogger、debug 面板
 - **模式隔离**：禁止在共享层代码里写 `if in_survivor_mode` / `if in_sandbox`，必须走参数资源 `duplicate(true)` 或 PlayableAircraft 档案注入
 
 ## 相关文档（按需加载）

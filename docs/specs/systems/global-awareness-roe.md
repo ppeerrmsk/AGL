@@ -578,7 +578,7 @@ AWACS:    触发 → 选轨道中心(选中战区 > 最近 AVAILABLE 战区 > �
 | Tab 图 ALLY 色 + AWACS buff 圈 | `scripts/survivor/tactical_map.gd` |
 | kill feed / 小地图 ALLY 分支 | `scripts/survivor/survivor_hud.gd` |
 | 机体色审计落地 ×15 | `resources/enemy_*.tres`（icon_color / wing_color） |
-| AWACS 无线电台词池 / 触发登记 | `resources/chatter/radio_chatter.json` + `i18n/translations.csv`（RADIO_AWACS_ONSTATION_* / RADIO_AWACS_EGRESS_*） |
+| AWACS 无线电台词池 / 触发登记 | `resources/chatter/radio_chatter.json` + `i18n/radio.csv`（RADIO_AWACS_ONSTATION_* / RADIO_AWACS_EGRESS_*） |
 | 单测（bench key: roe） | `scripts/tests/test_roe_director.gd` |
 
 ## 8. 变更记录

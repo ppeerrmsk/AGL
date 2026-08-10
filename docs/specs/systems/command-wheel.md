@@ -352,7 +352,7 @@ exclusion 存续期间（t_left 递减）:
 | 加速注入 | `scripts/aircraft/aircraft_physics.gd`（`COMMAND_SPRINT_MULT` × effective_max/cruise）+ `Aircraft.command_sprint` |
 | 禁入区标记 | `scripts/rts/squad_command_controller.gd` 内部类 `EvacZoneMarker` |
 | 无头回归 | `scripts/tests/test_surface_pass.gd`（D 段姿态）/ `test_fire_allocation.gd` / `test_wheel_orders.gd`（bench_runner 注册 fire_alloc / wheel_orders） |
-| 文案 | `i18n/translations.csv`（WHEEL_* 21 键三语） |
+| 文案 | `i18n/interface.csv`（WHEEL_* 21 键三语） |
 | reference 索引行 | script-index.md（rts/ 两行）/ code-index.md（主场景/操控 两行） |
 
 ## 8. 变更记录

@@ -162,7 +162,7 @@ static var _paths: Dictionary = {
 }
 ```
 
-- `profile` = 步骤 5 在 AircraftDB 注册的 id；`name_key` 要在 `i18n/translations.csv` 有行
+- `profile` = 步骤 5 在 AircraftDB 注册的 id；`name_key` 要在 `i18n/gameplay.csv` 有行
 - `gates`（T2+ 必填）：`gladiator`/`knight`/`schemer` 单轴、`any`（或门）、`sum_gk`（斗骑合计）、`sum_all`（三轴合计）；设计值查 spec `evolution-attribute-gates` §2.3/§2.4
 - **同时把上游机型节点的 `exits` 数组补上本机 id**——没有入边的节点玩家永远换不到
 - 非终点节点出口 ≥3（ACE 手动三选铁律，T5 终端档豁免）；tier/角色定位查 spec `player-aircraft-power-curve` §2
