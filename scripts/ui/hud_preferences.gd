@@ -6,8 +6,8 @@ extends RefCounted
 const CONFIG_PATH := "user://hud.cfg"
 const SPEED_KT := "kt"
 const SPEED_KMH := "kmh"
-const DEFAULT_COLOR := Color("53d13a")
-const PRESET_GREEN := Color("53d13a")
+const DEFAULT_COLOR := ThemeColors.UI_TERMINAL_GREEN
+const PRESET_GREEN := ThemeColors.UI_TERMINAL_GREEN
 const PRESET_CYAN := Color("42d9e8")
 const PRESET_AMBER := Color("f0b43c")
 const PRESET_WHITE := Color("e8f2e8")

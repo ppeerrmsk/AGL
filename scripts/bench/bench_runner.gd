@@ -90,6 +90,8 @@ const UNIT_TESTS: Dictionary = {
 	"waypoint_fire": "res://scripts/tests/test_waypoint_fire_control.gd",
 	"bomber_rotor_airburst": "res://scripts/tests/test_bomber_rotor_airburst.gd",
 	"faction_conversion": "res://scripts/tests/test_faction_conversion.gd",
+	"terminal_text": "res://scripts/tests/test_terminal_text.gd",
+	"ui_dev_outline": "res://scripts/tests/test_ui_dev_outline.gd",
 }
 
 ## 只显式调用、不会滚入 `all` 的构建任务。
@@ -100,6 +102,9 @@ const BUILD_TASKS: Dictionary = {
 ## 需要真实 RenderingServer 的固定画面采集；必须由 run.cmd 的 Visual 模式启动。
 const VISUAL_TEST_SCENES: Dictionary = {
 	"player_hud_visual": "res://scenes/tests/player_hud_visual_qa.tscn",
+	"ui_dev_panel_visual": "res://scenes/tests/ui_dev_panel.tscn",
+	"ui_dev_panel_clean_visual": "res://scenes/tests/ui_dev_panel.tscn",
+	"ui_dev_panel_manual_flare_visual": "res://scenes/tests/ui_dev_panel.tscn",
 }
 
 var bench_active: bool = false
@@ -113,7 +118,7 @@ func _ready() -> void:
 	var args: PackedStringArray = PackedStringArray()
 	args.append_array(OS.get_cmdline_args())
 	args.append_array(OS.get_cmdline_user_args())
-	printerr("[Bench] BenchRunner._ready — args(engine=%d, user=%d)" % [
+	print_verbose("[Bench] BenchRunner._ready — args(engine=%d, user=%d)" % [
 		OS.get_cmdline_args().size(), OS.get_cmdline_user_args().size()])
 	for a in args:
 		if a.begins_with("--bench="):
@@ -121,7 +126,6 @@ func _ready() -> void:
 		elif a.begins_with("--duration="):
 			bench_duration = maxf(1.0, float(a.substr(11)))
 	if bench_scenario == "":
-		printerr("[Bench] no --bench= arg, BenchRunner idle")
 		return
 	if VISUAL_TEST_SCENES.has(bench_scenario):
 		if DisplayServer.get_name() == "headless":

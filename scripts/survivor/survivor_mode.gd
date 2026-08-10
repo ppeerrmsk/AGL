@@ -1341,7 +1341,7 @@ func _count_enemy_alive() -> int:
 	return n
 
 
-## F7：切换玩家无敌（Boss Debug 模式专用）
+## Shift+F7：切换玩家无敌（Boss Debug 模式专用；普通 F7 留给 UI Dev 定位层）
 func _boss_debug_toggle_invuln() -> void:
 	if not is_instance_valid(player_aircraft):
 		return
@@ -1670,6 +1670,15 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		_quit_to_main_menu()
 		return
+	# F7：切换 UI Dev 面板定位覆盖层。Boss Debug 的无敌切换移至 Shift+F7。
+	if event is InputEventKey and event.pressed and not event.echo \
+			and event.keycode == SurvivorHUD.UI_DEV_TOGGLE_KEY:
+		get_viewport().set_input_as_handled()
+		if _boss_debug_mode and event.shift_pressed:
+			_boss_debug_toggle_invuln()
+		elif hud:
+			hud.toggle_ui_dev_overlay()
+		return
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F9:
 		# 消费事件，避免编辑器调试器捕获 F9 进入断点/暂停状态
 		get_viewport().set_input_as_handled()
@@ -1705,10 +1714,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	# Boss Debug 模式专用热键
 	if _boss_debug_mode and event is InputEventKey and event.pressed:
-		if event.keycode == KEY_F7:
-			get_viewport().set_input_as_handled()
-			_boss_debug_toggle_invuln()
-			return
 		if event.keycode == KEY_F8:
 			get_viewport().set_input_as_handled()
 			_boss_debug_respawn_reroll()
@@ -2479,7 +2484,9 @@ func _update_radar_locks(delta: float) -> void:
 		var wingmen: Array[Aircraft] = []
 		if _squad != null:
 			for member in _squad.members:
-				if member is Aircraft and member != player_aircraft and is_instance_valid(member) \
+				# TypedArray 会短暂保留已释放的僚机引用；类型判断本身也会解引用，
+				# 因此必须先验证实例，再做 `is Aircraft` 和其余属性访问。
+				if is_instance_valid(member) and member is Aircraft and member != player_aircraft \
 						and not member.is_destroyed and not member.status_jam_active:
 					wingmen.append(member)
 		if not wingmen.is_empty():
