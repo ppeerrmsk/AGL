@@ -42,6 +42,9 @@ func spawn_missile(source: CombatUnit, target: CombatUnit, missile_params: Missi
 	var missile: Missile = _missile_scene.instantiate()
 	missile.params = missile_params
 	missile.source = source
+	# 发射瞬间快照，禁止在途导弹因玩家跨过气氛 LOD 边界而中途变实/变空。
+	missile.set_meta(CombatUnit.META_AMBIENT_DAMAGE_MULTIPLIER,
+		CombatUnit.ambient_damage_multiplier(source))
 	# 嘘！：JAM 敌方发射源的新离架导弹立刻进入既有失导契约。
 	if SkillHooks.hush_active and source is Aircraft \
 			and source.team == CombatUnit.TEAM_HOSTILE \
@@ -269,21 +272,67 @@ func get_lock_progress(source: CombatUnit, target: CombatUnit) -> float:
 	var key: String = "%d:%d" % [source.get_instance_id(), target.get_instance_id()]
 	return _lock_snap.get(key, -1.0)
 
-## Missile 调用：云层在位（按 256px 网格量化共享）
-func get_in_cloud(world_pos: Vector2) -> bool:
+## Missile 调用：战斗遮蔽物在位（按 256px 网格 + 高度档量化共享）
+func get_in_cloud(world_pos: Vector2, altitude_m: float = 10000.0) -> bool:
 	if not SurvivorData.ENABLE_MISSILE_FRAME_SNAPSHOT:
 		var w := get_tree().get_first_node_in_group("weather")
-		return w != null and w.has_method("is_in_cloud") and w.is_in_cloud(world_pos)
-	var grid := Vector2i(int(world_pos.x / _CLOUD_SNAP_GRID_PX), int(world_pos.y / _CLOUD_SNAP_GRID_PX))
+		if w == null:
+			return false
+		return w.is_obscured(world_pos, altitude_m) if w.has_method("is_obscured") \
+			else (altitude_m >= 7500.0 and w.has_method("is_in_cloud") and w.is_in_cloud(world_pos))
+	var altitude_band := 0 if altitude_m < 3500.0 else (2 if altitude_m >= 7500.0 else 1)
+	var grid := Vector3i(int(world_pos.x / _CLOUD_SNAP_GRID_PX),
+		int(world_pos.y / _CLOUD_SNAP_GRID_PX), altitude_band)
 	if _cloud_snap.has(grid):
 		return _cloud_snap[grid]
 	if _weather_ref == null:
 		_weather_ref = get_tree().get_first_node_in_group("weather")
 	var in_c: bool = false
-	if _weather_ref != null and _weather_ref.has_method("is_in_cloud"):
-		in_c = _weather_ref.is_in_cloud(world_pos)
+	if _weather_ref != null:
+		in_c = _weather_ref.is_obscured(world_pos, altitude_m) \
+			if _weather_ref.has_method("is_obscured") else \
+			(altitude_m >= 7500.0 and _weather_ref.has_method("is_in_cloud") \
+			and _weather_ref.is_in_cloud(world_pos))
 	_cloud_snap[grid] = in_c
 	return in_c
+
+
+## 远距气氛导弹只跟踪自己的既定目标并在其附近播放命中表现。
+## 返回 true 表示该弹伤害倍率为 0，调用方必须跳过全体目标命中扫描。
+func _update_visual_only_ambient_missile(missile: Missile, fuse_radius_px: float) -> bool:
+	var ambient_mult := float(missile.get_meta(
+		CombatUnit.META_AMBIENT_DAMAGE_MULTIPLIER, 1.0))
+	if ambient_mult > 0.0:
+		return false
+	# 跨帧对象边界必须先按 Variant 验证，不能先做 typed assignment。
+	var target_value: Variant = missile.target
+	if typeof(target_value) != TYPE_OBJECT or target_value == null \
+			or not is_instance_valid(target_value):
+		return true
+	var target := target_value as CombatUnit
+	if target == null or target.is_destroyed:
+		return true
+	var effective_fuse := fuse_radius_px
+	if target is NavalUnit:
+		var naval_target := target as NavalUnit
+		if naval_target.params:
+			effective_fuse = maxf(effective_fuse, naval_target.params.hull_length * 0.5)
+	var flat := target is Aircraft and target.flat_altitude
+	var alt_ok := flat or target is GroundUnit or target is NavalUnit \
+		or absf(missile.altitude - target.altitude) < missile.params.proximity_fuse_alt
+	if missile.global_position.distance_to(target.global_position) >= effective_fuse or not alt_ok:
+		return true
+	var missile_name: String = missile.params.display_name if missile.params else "MSL"
+	var target_name: String = target.callsign if target.callsign != "" else target.name
+	EventLogger.log_event("MISSILE", missile_name,
+		"visual hit %s (dmg=0)" % target_name)
+	var hit_heading: float = target.heading if "heading" in target else 0.0
+	ExplosionVFXScript.emit(get_tree(), target.global_position, hit_heading, 1.0)
+	var bomb_ids := ["bomb_distant", "bomb_distant_02", "bomb_distant_03", "bomb_distant_04"]
+	AudioManager.play_sfx_2d(bomb_ids[randi() % 4], target.global_position, 9.0)
+	missile.is_active = false
+	missile.queue_free()
+	return true
 
 func _physics_process(delta: float) -> void:
 	var _t0 := Time.get_ticks_usec()
@@ -330,6 +379,8 @@ func _physics_process(delta: float) -> void:
 
 		# 命中检测：遍历所有敌方单位
 		var fuse_radius_px := missile.params.proximity_fuse_radius * PIXELS_PER_METER
+		if _update_visual_only_ambient_missile(missile, fuse_radius_px):
+			continue
 		for unit in target_list:
 			if not is_instance_valid(unit) or unit.is_destroyed:
 				continue
@@ -358,13 +409,16 @@ func _physics_process(delta: float) -> void:
 				var direct_kind := "qmaam" if missile.is_secondary_weapon else "missile"
 				if not unit.can_accept_new_hit(direct_kind):
 					continue
-				# 云中目标：基于云密度的 miss roll（导弹"看不清"目标）
-				if unit.get_altitude_tier() == CombatUnit.AltitudeTier.HIGH:
-					var weather := get_tree().get_first_node_in_group("weather")
-					if weather and weather.has_method("sample_density"):
-						var density: float = weather.sample_density(unit.global_position)
-						if density > 0.0 and randf() < 0.35 * density:
-							continue  # 擦身而过，导弹继续飞
+				# 普通云/HIGH 与沙尘暴/LOW 共用同一密度 miss roll（导弹“看不清”目标）。
+				var weather := get_tree().get_first_node_in_group("weather")
+				if weather:
+					var density: float = weather.sample_obscurant_density(unit.global_position, unit.altitude) \
+						if weather.has_method("sample_obscurant_density") else \
+						(weather.sample_density(unit.global_position) \
+						if unit.get_altitude_tier() == CombatUnit.AltitudeTier.HIGH \
+						and weather.has_method("sample_density") else 0.0)
+					if density > 0.0 and randf() < 0.35 * density:
+						continue  # 擦身而过，导弹继续飞
 				var msl_name: String = missile.params.display_name if missile.params else "MSL"
 				# 加力窗口滚转躲弹（spec afterburner-mode）：命中瞬间 90% 甩偏——
 				# 弹置 is_flare_jammed 走既有偏飞契约（不再参与命中/CIWS 拦截/补射计伤），
@@ -382,8 +436,11 @@ func _physics_process(delta: float) -> void:
 				if unit is Aircraft and unit.params:
 					var side := "Friend" if unit.team == 0 else "Enemy"
 					tgt_name = "%s/%s[%s]" % [side, unit.params.display_name, unit.callsign]
+				var ambient_mult := float(missile.get_meta(
+					CombatUnit.META_AMBIENT_DAMAGE_MULTIPLIER, 1.0))
+				var effective_damage := missile.params.damage * ambient_mult
 				EventLogger.log_event("MISSILE", msl_name,
-					"hit %s (dmg=%.0f)" % [tgt_name, missile.params.damage])
+					"hit %s (dmg=%.0f)" % [tgt_name, effective_damage])
 				# 战报：命中归到射手名下（命中行主体是弹种，这里按 source 计数）
 				if is_instance_valid(missile.source):
 					var _shooter := missile.source
@@ -397,26 +454,28 @@ func _physics_process(delta: float) -> void:
 				var bomb_ids := ["bomb_distant", "bomb_distant_02", "bomb_distant_03", "bomb_distant_04"]
 				AudioManager.play_sfx_2d(bomb_ids[randi() % 4], unit.global_position, 9.0)
 				# 归因：把发射单位写到目标 meta，aircraft._record_kill_attribution 在致死时读取
-				if is_instance_valid(missile.source):
+				if ambient_mult > 0.0 and is_instance_valid(missile.source):
 					unit.set_meta("_pending_attacker", missile.source)
 					unit.set_meta("_last_damage_kind", "qmaam" if missile.is_secondary_weapon else "missile")
-				var sig_msl_dmg: float = missile.params.damage
+				var sig_msl_dmg: float = effective_damage
 				# 722 sig_f15e·对地特化：对地面/舰船单位导弹伤害 ×1.3（发射者持有技能时）
 				if is_instance_valid(missile.source) and missile.source is Aircraft \
 						and (missile.source as Aircraft).sig_f15e_active and not (unit is Aircraft):
 					sig_msl_dmg *= 1.3
-				if unit is GroundUnit:
+				if ambient_mult <= 0.0:
+					pass
+				elif unit is GroundUnit:
 					unit.take_missile_damage(sig_msl_dmg)
 				elif unit is NavalUnit:
 					# 船走位置感知路由：伤害给最近的挂点或弱点
 					(unit as NavalUnit).take_damage_at(sig_msl_dmg, missile.global_position)
 				else:
-					unit.take_damage(missile.params.damage, CombatUnit.safe_attacker(missile.source),
+					unit.take_damage(effective_damage, CombatUnit.safe_attacker(missile.source),
 						"qmaam" if missile.is_secondary_weapon else "missile")
 				# 近炸引信：在爆炸点产生 AOE 区域
-				if missile.proximity_aoe:
+				if missile.proximity_aoe and effective_damage > 0.0:
 					_spawn_aoe(missile.global_position, missile.altitude,
-						missile.params.damage, missile.team, unit, missile.source)
+						effective_damage, missile.team, unit, missile.source)
 				# 连锁弹头逐目标去重。
 				if missile.penetrates_after_hit:
 					missile.remember_penetration_hit(hit_unit)

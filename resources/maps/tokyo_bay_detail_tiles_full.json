@@ -1,0 +1,5852 @@
+{
+  "schema_version": 3,
+  "source": "OpenStreetMap Geofabrik Kanto PBF",
+  "license": "ODbL 1.0",
+  "source_sha256": "4c6abf82e1ca793ef8c498830a103bdc9b209b4b4b65f25f913024de4bb0ecda",
+  "style_profile": "yokohama_gold_v5_locked",
+  "grid": {
+    "origin": [
+      -16300.0,
+      -15700.0
+    ],
+    "tile_size": 2000.0,
+    "columns": 16,
+    "rows": 16
+  },
+  "tile_count": 203,
+  "tiles": [
+    {
+      "id": "detail_00_00",
+      "rect": [
+        -16300.0,
+        -15700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_00_00.agdt.gz",
+      "bytes": 1804253,
+      "counts": {
+        "building_large": 430,
+        "building_medium": 947,
+        "building_small": 3206,
+        "civic": 40,
+        "farmland": 20,
+        "forest": 35,
+        "grass": 67,
+        "industrial": 15,
+        "park": 137,
+        "parking": 375,
+        "port": 2,
+        "rail": 94,
+        "residential": 10,
+        "water": 13,
+        "waterway": 35
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_00_00.json",
+      "packed_bytes": 264952,
+      "uncompressed_bytes": 743852
+    },
+    {
+      "id": "detail_01_00",
+      "rect": [
+        -14300.0,
+        -15700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_01_00.agdt.gz",
+      "bytes": 10425886,
+      "counts": {
+        "building_large": 443,
+        "building_medium": 2979,
+        "building_small": 24269,
+        "civic": 43,
+        "farmland": 178,
+        "forest": 31,
+        "grass": 10,
+        "industrial": 73,
+        "park": 160,
+        "parking": 842,
+        "rail": 95,
+        "residential": 23,
+        "water": 8,
+        "waterway": 56
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_01_00.json",
+      "packed_bytes": 1442698,
+      "uncompressed_bytes": 4301460
+    },
+    {
+      "id": "detail_00_01",
+      "rect": [
+        -16300.0,
+        -13700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_00_01.agdt.gz",
+      "bytes": 1215363,
+      "counts": {
+        "building_large": 193,
+        "building_medium": 754,
+        "building_small": 1751,
+        "civic": 18,
+        "farmland": 59,
+        "forest": 15,
+        "grass": 11,
+        "industrial": 24,
+        "orchard": 2,
+        "park": 102,
+        "parking": 142,
+        "rail": 91,
+        "residential": 6,
+        "water": 24,
+        "waterway": 472
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_00_01.json",
+      "packed_bytes": 182472,
+      "uncompressed_bytes": 501312
+    },
+    {
+      "id": "detail_01_01",
+      "rect": [
+        -14300.0,
+        -13700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_01_01.agdt.gz",
+      "bytes": 4009883,
+      "counts": {
+        "building_large": 425,
+        "building_medium": 1685,
+        "building_small": 6978,
+        "civic": 28,
+        "farmland": 67,
+        "forest": 16,
+        "grass": 41,
+        "industrial": 52,
+        "orchard": 2,
+        "park": 124,
+        "parking": 988,
+        "port": 2,
+        "rail": 142,
+        "residential": 20,
+        "water": 14,
+        "waterway": 154
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_01_01.json",
+      "packed_bytes": 552130,
+      "uncompressed_bytes": 1650116
+    },
+    {
+      "id": "detail_00_02",
+      "rect": [
+        -16300.0,
+        -11700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_00_02.agdt.gz",
+      "bytes": 3103799,
+      "counts": {
+        "building_large": 451,
+        "building_medium": 2280,
+        "building_small": 4759,
+        "civic": 32,
+        "farmland": 36,
+        "forest": 58,
+        "grass": 115,
+        "industrial": 28,
+        "orchard": 1,
+        "park": 144,
+        "parking": 150,
+        "rail": 111,
+        "residential": 111,
+        "water": 19,
+        "waterway": 125
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_00_02.json",
+      "packed_bytes": 459072,
+      "uncompressed_bytes": 1291772
+    },
+    {
+      "id": "detail_01_02",
+      "rect": [
+        -14300.0,
+        -11700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_01_02.agdt.gz",
+      "bytes": 3815749,
+      "counts": {
+        "building_large": 341,
+        "building_medium": 1618,
+        "building_small": 6019,
+        "civic": 26,
+        "farmland": 80,
+        "forest": 24,
+        "grass": 36,
+        "industrial": 14,
+        "meadow": 1,
+        "orchard": 4,
+        "park": 128,
+        "parking": 140,
+        "rail": 136,
+        "residential": 54,
+        "water": 42,
+        "waterway": 42
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_01_02.json",
+      "packed_bytes": 543475,
+      "uncompressed_bytes": 1589348
+    },
+    {
+      "id": "detail_00_03",
+      "rect": [
+        -16300.0,
+        -9700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_00_03.agdt.gz",
+      "bytes": 3405862,
+      "counts": {
+        "building_large": 186,
+        "building_medium": 1202,
+        "building_small": 6233,
+        "civic": 31,
+        "farmland": 52,
+        "forest": 49,
+        "grass": 36,
+        "industrial": 24,
+        "park": 116,
+        "parking": 96,
+        "rail": 21,
+        "residential": 32,
+        "water": 45,
+        "waterway": 250
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_00_03.json",
+      "packed_bytes": 497272,
+      "uncompressed_bytes": 1474004
+    },
+    {
+      "id": "detail_01_03",
+      "rect": [
+        -14300.0,
+        -9700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_01_03.agdt.gz",
+      "bytes": 7868041,
+      "counts": {
+        "building_large": 214,
+        "building_medium": 1884,
+        "building_small": 16321,
+        "civic": 19,
+        "failed_building": 2,
+        "farmland": 140,
+        "forest": 13,
+        "grass": 8,
+        "industrial": 23,
+        "orchard": 8,
+        "park": 112,
+        "parking": 118,
+        "rail": 35,
+        "residential": 14,
+        "water": 20,
+        "waterway": 237
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_01_03.json",
+      "packed_bytes": 1146214,
+      "uncompressed_bytes": 3406504
+    },
+    {
+      "id": "detail_00_04",
+      "rect": [
+        -16300.0,
+        -7700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_00_04.agdt.gz",
+      "bytes": 10811426,
+      "counts": {
+        "building_large": 400,
+        "building_medium": 3705,
+        "building_small": 29001,
+        "civic": 28,
+        "farmland": 150,
+        "forest": 38,
+        "grass": 34,
+        "industrial": 42,
+        "park": 124,
+        "parking": 272,
+        "rail": 14,
+        "residential": 42,
+        "water": 43,
+        "waterway": 87
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_00_04.json",
+      "packed_bytes": 1681869,
+      "uncompressed_bytes": 4704864
+    },
+    {
+      "id": "detail_01_04",
+      "rect": [
+        -14300.0,
+        -7700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_01_04.agdt.gz",
+      "bytes": 12774012,
+      "counts": {
+        "building_large": 287,
+        "building_medium": 2804,
+        "building_small": 30379,
+        "civic": 26,
+        "failed_building": 1,
+        "farmland": 137,
+        "forest": 43,
+        "grass": 52,
+        "industrial": 23,
+        "orchard": 16,
+        "park": 193,
+        "parking": 230,
+        "rail": 47,
+        "residential": 31,
+        "water": 62,
+        "waterway": 175
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_01_04.json",
+      "packed_bytes": 1863713,
+      "uncompressed_bytes": 5541556
+    },
+    {
+      "id": "detail_00_05",
+      "rect": [
+        -16300.0,
+        -5700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_00_05.agdt.gz",
+      "bytes": 12483205,
+      "counts": {
+        "building_large": 462,
+        "building_medium": 3578,
+        "building_small": 33016,
+        "civic": 35,
+        "farmland": 35,
+        "forest": 15,
+        "grass": 10,
+        "industrial": 53,
+        "park": 154,
+        "parking": 212,
+        "rail": 93,
+        "residential": 50,
+        "water": 16,
+        "waterway": 18
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_00_05.json",
+      "packed_bytes": 1895153,
+      "uncompressed_bytes": 5429144
+    },
+    {
+      "id": "detail_01_05",
+      "rect": [
+        -14300.0,
+        -5700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_01_05.agdt.gz",
+      "bytes": 12233398,
+      "counts": {
+        "building_large": 462,
+        "building_medium": 3358,
+        "building_small": 31344,
+        "civic": 31,
+        "farmland": 265,
+        "forest": 275,
+        "grass": 217,
+        "industrial": 73,
+        "orchard": 2,
+        "park": 160,
+        "parking": 323,
+        "rail": 117,
+        "residential": 43,
+        "water": 76,
+        "waterway": 112
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_01_05.json",
+      "packed_bytes": 1840553,
+      "uncompressed_bytes": 5316544
+    },
+    {
+      "id": "detail_00_06",
+      "rect": [
+        -16300.0,
+        -3700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_00_06.agdt.gz",
+      "bytes": 14535506,
+      "counts": {
+        "building_large": 500,
+        "building_medium": 3150,
+        "building_small": 35186,
+        "civic": 24,
+        "farmland": 103,
+        "forest": 71,
+        "grass": 14,
+        "industrial": 14,
+        "park": 146,
+        "parking": 316,
+        "rail": 40,
+        "residential": 23,
+        "water": 17,
+        "waterway": 44
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_00_06.json",
+      "packed_bytes": 2047028,
+      "uncompressed_bytes": 6308380
+    },
+    {
+      "id": "detail_01_06",
+      "rect": [
+        -14300.0,
+        -3700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_01_06.agdt.gz",
+      "bytes": 9528975,
+      "counts": {
+        "building_large": 467,
+        "building_medium": 3521,
+        "building_small": 25150,
+        "civic": 23,
+        "farmland": 265,
+        "forest": 167,
+        "grass": 30,
+        "industrial": 58,
+        "orchard": 1,
+        "park": 127,
+        "parking": 377,
+        "port": 2,
+        "rail": 12,
+        "residential": 11,
+        "water": 95,
+        "waterway": 67
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_01_06.json",
+      "packed_bytes": 1449983,
+      "uncompressed_bytes": 4146432
+    },
+    {
+      "id": "detail_00_07",
+      "rect": [
+        -16300.0,
+        -1700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_00_07.agdt.gz",
+      "bytes": 12521156,
+      "counts": {
+        "building_large": 498,
+        "building_medium": 2717,
+        "building_small": 28995,
+        "civic": 21,
+        "farmland": 342,
+        "forest": 71,
+        "grass": 165,
+        "industrial": 80,
+        "meadow": 1,
+        "orchard": 4,
+        "park": 130,
+        "parking": 671,
+        "rail": 81,
+        "residential": 282,
+        "water": 51,
+        "waterway": 95
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_00_07.json",
+      "packed_bytes": 1838857,
+      "uncompressed_bytes": 5666556
+    },
+    {
+      "id": "detail_01_07",
+      "rect": [
+        -14300.0,
+        -1700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_01_07.agdt.gz",
+      "bytes": 9973735,
+      "counts": {
+        "building_large": 303,
+        "building_medium": 2795,
+        "building_small": 25114,
+        "civic": 20,
+        "farmland": 200,
+        "forest": 25,
+        "grass": 113,
+        "industrial": 36,
+        "orchard": 11,
+        "park": 161,
+        "parking": 665,
+        "rail": 59,
+        "residential": 78,
+        "water": 21,
+        "waterway": 35
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_01_07.json",
+      "packed_bytes": 1495948,
+      "uncompressed_bytes": 4524636
+    },
+    {
+      "id": "detail_00_08",
+      "rect": [
+        -16300.0,
+        300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_00_08.agdt.gz",
+      "bytes": 5178053,
+      "counts": {
+        "building_large": 238,
+        "building_medium": 2080,
+        "building_small": 14597,
+        "civic": 10,
+        "farmland": 341,
+        "forest": 12,
+        "grass": 48,
+        "industrial": 43,
+        "orchard": 4,
+        "park": 60,
+        "parking": 161,
+        "rail": 58,
+        "residential": 121,
+        "water": 23,
+        "waterway": 129
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_00_08.json",
+      "packed_bytes": 843085,
+      "uncompressed_bytes": 2446884
+    },
+    {
+      "id": "detail_01_08",
+      "rect": [
+        -14300.0,
+        300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_01_08.agdt.gz",
+      "bytes": 9919158,
+      "counts": {
+        "building_large": 302,
+        "building_medium": 3083,
+        "building_small": 25656,
+        "civic": 15,
+        "farmland": 270,
+        "forest": 20,
+        "grass": 68,
+        "industrial": 46,
+        "orchard": 15,
+        "park": 91,
+        "parking": 412,
+        "rail": 64,
+        "residential": 15,
+        "water": 28,
+        "waterway": 43
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_01_08.json",
+      "packed_bytes": 1537778,
+      "uncompressed_bytes": 4626844
+    },
+    {
+      "id": "detail_00_09",
+      "rect": [
+        -16300.0,
+        2300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_00_09.agdt.gz",
+      "bytes": 4283373,
+      "counts": {
+        "building_large": 176,
+        "building_medium": 2130,
+        "building_small": 13790,
+        "civic": 11,
+        "farmland": 342,
+        "forest": 12,
+        "grass": 9,
+        "industrial": 5,
+        "orchard": 1,
+        "park": 37,
+        "parking": 63,
+        "residential": 4,
+        "water": 4,
+        "waterway": 58
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_00_09.json",
+      "packed_bytes": 719369,
+      "uncompressed_bytes": 1974908
+    },
+    {
+      "id": "detail_01_09",
+      "rect": [
+        -14300.0,
+        2300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_01_09.agdt.gz",
+      "bytes": 6343417,
+      "counts": {
+        "building_large": 424,
+        "building_medium": 3692,
+        "building_small": 20445,
+        "civic": 18,
+        "farmland": 75,
+        "grass": 5,
+        "industrial": 12,
+        "orchard": 3,
+        "park": 71,
+        "parking": 177,
+        "rail": 33,
+        "residential": 26,
+        "water": 23,
+        "waterway": 48
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_01_09.json",
+      "packed_bytes": 1056503,
+      "uncompressed_bytes": 2927052
+    },
+    {
+      "id": "detail_00_10",
+      "rect": [
+        -16300.0,
+        4300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_00_10.agdt.gz",
+      "bytes": 15979647,
+      "counts": {
+        "building_large": 300,
+        "building_medium": 3571,
+        "building_small": 37173,
+        "civic": 20,
+        "farmland": 80,
+        "forest": 5,
+        "grass": 2,
+        "industrial": 19,
+        "park": 30,
+        "parking": 63,
+        "rail": 53,
+        "residential": 7,
+        "water": 10,
+        "waterway": 35
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_00_10.json",
+      "packed_bytes": 2358569,
+      "uncompressed_bytes": 7308612
+    },
+    {
+      "id": "detail_01_10",
+      "rect": [
+        -14300.0,
+        4300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_01_10.agdt.gz",
+      "bytes": 8566445,
+      "counts": {
+        "building_large": 410,
+        "building_medium": 3329,
+        "building_small": 32412,
+        "civic": 27,
+        "farmland": 24,
+        "forest": 9,
+        "grass": 10,
+        "industrial": 24,
+        "meadow": 1,
+        "orchard": 2,
+        "park": 123,
+        "parking": 154,
+        "rail": 103,
+        "residential": 9,
+        "water": 26,
+        "waterway": 21
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_01_10.json",
+      "packed_bytes": 1457847,
+      "uncompressed_bytes": 3962336
+    },
+    {
+      "id": "detail_00_11",
+      "rect": [
+        -16300.0,
+        6300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_00_11.agdt.gz",
+      "bytes": 4314838,
+      "counts": {
+        "building_large": 76,
+        "building_medium": 886,
+        "building_small": 8915,
+        "civic": 7,
+        "forest": 2,
+        "grass": 4,
+        "industrial": 4,
+        "park": 11,
+        "parking": 12,
+        "port": 1,
+        "residential": 1,
+        "waterway": 12
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_00_11.json",
+      "packed_bytes": 613826,
+      "uncompressed_bytes": 1969732
+    },
+    {
+      "id": "detail_01_11",
+      "rect": [
+        -14300.0,
+        6300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_01_11.agdt.gz",
+      "bytes": 3682545,
+      "counts": {
+        "building_large": 115,
+        "building_medium": 1137,
+        "building_small": 13255,
+        "civic": 11,
+        "farmland": 6,
+        "forest": 15,
+        "grass": 5,
+        "industrial": 5,
+        "park": 100,
+        "parking": 55,
+        "port": 7,
+        "rail": 30,
+        "residential": 10,
+        "water": 23,
+        "waterway": 11
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_01_11.json",
+      "packed_bytes": 621646,
+      "uncompressed_bytes": 1699944
+    },
+    {
+      "id": "detail_02_00",
+      "rect": [
+        -12300.0,
+        -15700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_02_00.agdt.gz",
+      "bytes": 7147501,
+      "counts": {
+        "building_large": 354,
+        "building_medium": 2132,
+        "building_small": 15258,
+        "civic": 38,
+        "farmland": 104,
+        "forest": 126,
+        "grass": 74,
+        "industrial": 39,
+        "orchard": 2,
+        "park": 200,
+        "parking": 774,
+        "rail": 61,
+        "residential": 18,
+        "water": 22,
+        "waterway": 110
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_02_00.json",
+      "packed_bytes": 950847,
+      "uncompressed_bytes": 2944872
+    },
+    {
+      "id": "detail_03_00",
+      "rect": [
+        -10300.0,
+        -15700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_03_00.agdt.gz",
+      "bytes": 5754099,
+      "counts": {
+        "building_large": 513,
+        "building_medium": 3031,
+        "building_small": 11889,
+        "civic": 49,
+        "farmland": 175,
+        "forest": 47,
+        "grass": 21,
+        "industrial": 51,
+        "orchard": 10,
+        "park": 283,
+        "parking": 479,
+        "rail": 87,
+        "residential": 44,
+        "water": 35,
+        "waterway": 47
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_03_00.json",
+      "packed_bytes": 855654,
+      "uncompressed_bytes": 2490224
+    },
+    {
+      "id": "detail_02_01",
+      "rect": [
+        -12300.0,
+        -13700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_02_01.agdt.gz",
+      "bytes": 4402011,
+      "counts": {
+        "building_large": 323,
+        "building_medium": 1617,
+        "building_small": 8061,
+        "civic": 28,
+        "farmland": 65,
+        "forest": 182,
+        "grass": 33,
+        "industrial": 28,
+        "orchard": 1,
+        "park": 168,
+        "parking": 1212,
+        "rail": 75,
+        "residential": 97,
+        "water": 12,
+        "waterway": 30
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_02_01.json",
+      "packed_bytes": 616175,
+      "uncompressed_bytes": 1810580
+    },
+    {
+      "id": "detail_03_01",
+      "rect": [
+        -10300.0,
+        -13700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_03_01.agdt.gz",
+      "bytes": 6556215,
+      "counts": {
+        "building_large": 538,
+        "building_medium": 3669,
+        "building_small": 16500,
+        "civic": 42,
+        "farmland": 138,
+        "forest": 19,
+        "grass": 21,
+        "industrial": 132,
+        "meadow": 1,
+        "orchard": 3,
+        "park": 118,
+        "parking": 332,
+        "rail": 48,
+        "residential": 310,
+        "water": 21,
+        "waterway": 51
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_03_01.json",
+      "packed_bytes": 1035030,
+      "uncompressed_bytes": 2835892
+    },
+    {
+      "id": "detail_02_02",
+      "rect": [
+        -12300.0,
+        -11700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_02_02.agdt.gz",
+      "bytes": 8185104,
+      "counts": {
+        "building_large": 276,
+        "building_medium": 2159,
+        "building_small": 16617,
+        "civic": 24,
+        "farmland": 174,
+        "forest": 9,
+        "grass": 26,
+        "industrial": 37,
+        "meadow": 1,
+        "orchard": 181,
+        "park": 149,
+        "parking": 217,
+        "rail": 87,
+        "residential": 16,
+        "water": 13,
+        "waterway": 243
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_02_02.json",
+      "packed_bytes": 1169669,
+      "uncompressed_bytes": 3412100
+    },
+    {
+      "id": "detail_03_02",
+      "rect": [
+        -10300.0,
+        -11700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_03_02.agdt.gz",
+      "bytes": 10155349,
+      "counts": {
+        "building_large": 447,
+        "building_medium": 5001,
+        "building_small": 23377,
+        "civic": 36,
+        "farmland": 76,
+        "forest": 18,
+        "grass": 13,
+        "industrial": 16,
+        "orchard": 14,
+        "park": 168,
+        "parking": 205,
+        "rail": 106,
+        "residential": 170,
+        "water": 39,
+        "waterway": 162
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_03_02.json",
+      "packed_bytes": 1568333,
+      "uncompressed_bytes": 4418576
+    },
+    {
+      "id": "detail_02_03",
+      "rect": [
+        -12300.0,
+        -9700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_02_03.agdt.gz",
+      "bytes": 13491211,
+      "counts": {
+        "building_large": 361,
+        "building_medium": 3075,
+        "building_small": 29927,
+        "civic": 31,
+        "farmland": 110,
+        "forest": 28,
+        "grass": 63,
+        "industrial": 103,
+        "orchard": 8,
+        "park": 129,
+        "parking": 345,
+        "rail": 110,
+        "residential": 23,
+        "water": 38,
+        "waterway": 201
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_02_03.json",
+      "packed_bytes": 1984733,
+      "uncompressed_bytes": 5846420
+    },
+    {
+      "id": "detail_03_03",
+      "rect": [
+        -10300.0,
+        -9700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_03_03.agdt.gz",
+      "bytes": 10793620,
+      "counts": {
+        "building_large": 424,
+        "building_medium": 3328,
+        "building_small": 23177,
+        "civic": 25,
+        "farmland": 51,
+        "forest": 50,
+        "grass": 26,
+        "industrial": 17,
+        "orchard": 3,
+        "park": 110,
+        "parking": 120,
+        "rail": 52,
+        "residential": 3,
+        "water": 67,
+        "waterway": 74
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_03_03.json",
+      "packed_bytes": 1650990,
+      "uncompressed_bytes": 4886712
+    },
+    {
+      "id": "detail_02_04",
+      "rect": [
+        -12300.0,
+        -7700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_02_04.agdt.gz",
+      "bytes": 9219042,
+      "counts": {
+        "building_large": 301,
+        "building_medium": 2291,
+        "building_small": 21306,
+        "civic": 29,
+        "farmland": 247,
+        "forest": 32,
+        "grass": 43,
+        "industrial": 60,
+        "meadow": 1,
+        "orchard": 37,
+        "park": 127,
+        "parking": 226,
+        "port": 1,
+        "rail": 57,
+        "residential": 24,
+        "water": 69,
+        "waterway": 115
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_02_04.json",
+      "packed_bytes": 1354855,
+      "uncompressed_bytes": 3998432
+    },
+    {
+      "id": "detail_03_04",
+      "rect": [
+        -10300.0,
+        -7700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_03_04.agdt.gz",
+      "bytes": 9886950,
+      "counts": {
+        "building_large": 510,
+        "building_medium": 3702,
+        "building_small": 24342,
+        "civic": 34,
+        "farmland": 302,
+        "forest": 38,
+        "grass": 123,
+        "industrial": 88,
+        "orchard": 25,
+        "park": 210,
+        "parking": 1027,
+        "rail": 154,
+        "residential": 33,
+        "water": 40,
+        "waterway": 84
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_03_04.json",
+      "packed_bytes": 1570893,
+      "uncompressed_bytes": 4488316
+    },
+    {
+      "id": "detail_02_05",
+      "rect": [
+        -12300.0,
+        -5700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_02_05.agdt.gz",
+      "bytes": 8450988,
+      "counts": {
+        "building_large": 330,
+        "building_medium": 2962,
+        "building_small": 20045,
+        "civic": 30,
+        "farmland": 263,
+        "forest": 34,
+        "grass": 39,
+        "industrial": 45,
+        "meadow": 3,
+        "orchard": 28,
+        "park": 156,
+        "parking": 225,
+        "rail": 107,
+        "residential": 37,
+        "water": 49,
+        "waterway": 155
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_02_05.json",
+      "packed_bytes": 1273461,
+      "uncompressed_bytes": 3670392
+    },
+    {
+      "id": "detail_03_05",
+      "rect": [
+        -10300.0,
+        -5700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_03_05.agdt.gz",
+      "bytes": 7951185,
+      "counts": {
+        "building_large": 422,
+        "building_medium": 3402,
+        "building_small": 19659,
+        "civic": 19,
+        "farmland": 354,
+        "forest": 18,
+        "grass": 83,
+        "industrial": 32,
+        "orchard": 59,
+        "park": 113,
+        "parking": 347,
+        "rail": 98,
+        "residential": 23,
+        "water": 15,
+        "waterway": 101
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_03_05.json",
+      "packed_bytes": 1259352,
+      "uncompressed_bytes": 3618484
+    },
+    {
+      "id": "detail_02_06",
+      "rect": [
+        -12300.0,
+        -3700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_02_06.agdt.gz",
+      "bytes": 7278731,
+      "counts": {
+        "building_large": 210,
+        "building_medium": 1418,
+        "building_small": 16452,
+        "civic": 26,
+        "farmland": 216,
+        "forest": 49,
+        "grass": 45,
+        "industrial": 43,
+        "orchard": 2,
+        "park": 107,
+        "parking": 229,
+        "residential": 20,
+        "water": 32,
+        "waterway": 202
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_02_06.json",
+      "packed_bytes": 1058642,
+      "uncompressed_bytes": 3154844
+    },
+    {
+      "id": "detail_03_06",
+      "rect": [
+        -10300.0,
+        -3700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_03_06.agdt.gz",
+      "bytes": 13448529,
+      "counts": {
+        "building_large": 270,
+        "building_medium": 2570,
+        "building_small": 32957,
+        "civic": 29,
+        "farmland": 487,
+        "forest": 51,
+        "grass": 288,
+        "industrial": 86,
+        "orchard": 2,
+        "park": 193,
+        "parking": 907,
+        "rail": 69,
+        "residential": 66,
+        "water": 29,
+        "waterway": 217
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_03_06.json",
+      "packed_bytes": 2058171,
+      "uncompressed_bytes": 6115208
+    },
+    {
+      "id": "detail_02_07",
+      "rect": [
+        -12300.0,
+        -1700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_02_07.agdt.gz",
+      "bytes": 13863122,
+      "counts": {
+        "building_large": 299,
+        "building_medium": 2704,
+        "building_small": 34218,
+        "civic": 26,
+        "farmland": 185,
+        "forest": 49,
+        "grass": 74,
+        "industrial": 25,
+        "orchard": 4,
+        "park": 159,
+        "parking": 381,
+        "rail": 81,
+        "residential": 31,
+        "water": 20,
+        "waterway": 135
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_02_07.json",
+      "packed_bytes": 2074024,
+      "uncompressed_bytes": 6243224
+    },
+    {
+      "id": "detail_03_07",
+      "rect": [
+        -10300.0,
+        -1700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_03_07.agdt.gz",
+      "bytes": 9180428,
+      "counts": {
+        "building_large": 231,
+        "building_medium": 2241,
+        "building_small": 22310,
+        "civic": 22,
+        "farmland": 396,
+        "forest": 147,
+        "grass": 727,
+        "industrial": 207,
+        "orchard": 1,
+        "park": 142,
+        "parking": 1474,
+        "rail": 46,
+        "residential": 84,
+        "water": 21,
+        "waterway": 243
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_03_07.json",
+      "packed_bytes": 1481564,
+      "uncompressed_bytes": 4352128
+    },
+    {
+      "id": "detail_02_08",
+      "rect": [
+        -12300.0,
+        300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_02_08.agdt.gz",
+      "bytes": 14182855,
+      "counts": {
+        "building_large": 281,
+        "building_medium": 2940,
+        "building_small": 34538,
+        "civic": 31,
+        "farmland": 349,
+        "forest": 19,
+        "grass": 22,
+        "industrial": 96,
+        "orchard": 12,
+        "park": 156,
+        "parking": 293,
+        "rail": 47,
+        "residential": 58,
+        "water": 25,
+        "waterway": 207
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_02_08.json",
+      "packed_bytes": 2192985,
+      "uncompressed_bytes": 6572896
+    },
+    {
+      "id": "detail_03_08",
+      "rect": [
+        -10300.0,
+        300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_03_08.agdt.gz",
+      "bytes": 9952702,
+      "counts": {
+        "building_large": 508,
+        "building_medium": 2757,
+        "building_small": 24647,
+        "civic": 26,
+        "farmland": 186,
+        "forest": 29,
+        "grass": 142,
+        "industrial": 115,
+        "orchard": 41,
+        "park": 186,
+        "parking": 611,
+        "rail": 85,
+        "residential": 130,
+        "water": 9,
+        "waterway": 267
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_03_08.json",
+      "packed_bytes": 1671247,
+      "uncompressed_bytes": 4917164
+    },
+    {
+      "id": "detail_02_09",
+      "rect": [
+        -12300.0,
+        2300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_02_09.agdt.gz",
+      "bytes": 8373622,
+      "counts": {
+        "building_large": 291,
+        "building_medium": 2131,
+        "building_small": 19017,
+        "civic": 29,
+        "farmland": 282,
+        "forest": 5,
+        "grass": 37,
+        "industrial": 92,
+        "park": 102,
+        "parking": 271,
+        "rail": 29,
+        "residential": 46,
+        "water": 70,
+        "waterway": 84
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_02_09.json",
+      "packed_bytes": 1279015,
+      "uncompressed_bytes": 3829908
+    },
+    {
+      "id": "detail_03_09",
+      "rect": [
+        -10300.0,
+        2300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_03_09.agdt.gz",
+      "bytes": 9972701,
+      "counts": {
+        "building_large": 369,
+        "building_medium": 2557,
+        "building_small": 24464,
+        "civic": 31,
+        "farmland": 216,
+        "forest": 23,
+        "grass": 29,
+        "industrial": 48,
+        "orchard": 10,
+        "park": 177,
+        "parking": 984,
+        "rail": 160,
+        "residential": 47,
+        "water": 26,
+        "waterway": 69
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_03_09.json",
+      "packed_bytes": 1615889,
+      "uncompressed_bytes": 4796872
+    },
+    {
+      "id": "detail_02_10",
+      "rect": [
+        -12300.0,
+        4300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_02_10.agdt.gz",
+      "bytes": 8742862,
+      "counts": {
+        "building_large": 463,
+        "building_medium": 3302,
+        "building_small": 24370,
+        "civic": 23,
+        "farmland": 59,
+        "forest": 22,
+        "grass": 18,
+        "industrial": 23,
+        "meadow": 1,
+        "park": 164,
+        "parking": 77,
+        "rail": 204,
+        "residential": 5,
+        "water": 31,
+        "waterway": 68
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_02_10.json",
+      "packed_bytes": 1414652,
+      "uncompressed_bytes": 4017424
+    },
+    {
+      "id": "detail_03_10",
+      "rect": [
+        -10300.0,
+        4300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_03_10.agdt.gz",
+      "bytes": 8395410,
+      "counts": {
+        "building_large": 179,
+        "building_medium": 2353,
+        "building_small": 20713,
+        "civic": 22,
+        "farmland": 65,
+        "forest": 13,
+        "grass": 12,
+        "industrial": 37,
+        "park": 169,
+        "parking": 358,
+        "rail": 24,
+        "residential": 10,
+        "water": 36,
+        "waterway": 196
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_03_10.json",
+      "packed_bytes": 1342618,
+      "uncompressed_bytes": 4027768
+    },
+    {
+      "id": "detail_02_11",
+      "rect": [
+        -12300.0,
+        6300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_02_11.agdt.gz",
+      "bytes": 6386135,
+      "counts": {
+        "building_large": 81,
+        "building_medium": 1677,
+        "building_small": 15362,
+        "civic": 18,
+        "farmland": 2,
+        "forest": 6,
+        "grass": 5,
+        "industrial": 7,
+        "park": 95,
+        "parking": 36,
+        "port": 2,
+        "rail": 35,
+        "residential": 1,
+        "water": 7,
+        "waterway": 52
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_02_11.json",
+      "packed_bytes": 1009455,
+      "uncompressed_bytes": 2923272
+    },
+    {
+      "id": "detail_03_11",
+      "rect": [
+        -10300.0,
+        6300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_03_11.agdt.gz",
+      "bytes": 8436392,
+      "counts": {
+        "building_large": 146,
+        "building_medium": 2499,
+        "building_small": 20253,
+        "civic": 16,
+        "farmland": 1,
+        "forest": 21,
+        "grass": 17,
+        "industrial": 32,
+        "park": 84,
+        "parking": 100,
+        "rail": 57,
+        "residential": 8,
+        "water": 32,
+        "waterway": 114
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_03_11.json",
+      "packed_bytes": 1367547,
+      "uncompressed_bytes": 4067448
+    },
+    {
+      "id": "detail_03_12",
+      "rect": [
+        -10300.0,
+        8300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_03_12.agdt.gz",
+      "bytes": 1109200,
+      "counts": {
+        "building_large": 42,
+        "building_medium": 281,
+        "building_small": 2418,
+        "park": 3,
+        "parking": 11,
+        "port": 7,
+        "water": 2,
+        "waterway": 6
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_03_12.json",
+      "packed_bytes": 175173,
+      "uncompressed_bytes": 536420
+    },
+    {
+      "id": "detail_04_00",
+      "rect": [
+        -8300.0,
+        -15700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_04_00.agdt.gz",
+      "bytes": 14494922,
+      "counts": {
+        "building_large": 435,
+        "building_medium": 5380,
+        "building_small": 33036,
+        "civic": 51,
+        "farmland": 113,
+        "forest": 29,
+        "grass": 27,
+        "industrial": 84,
+        "meadow": 1,
+        "orchard": 4,
+        "park": 225,
+        "parking": 1007,
+        "rail": 86,
+        "residential": 27,
+        "water": 9,
+        "waterway": 19
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_04_00.json",
+      "packed_bytes": 2192661,
+      "uncompressed_bytes": 6290508
+    },
+    {
+      "id": "detail_05_00",
+      "rect": [
+        -6300.0,
+        -15700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_05_00.agdt.gz",
+      "bytes": 23580417,
+      "counts": {
+        "building_large": 409,
+        "building_medium": 5538,
+        "building_small": 64118,
+        "civic": 57,
+        "farmland": 13,
+        "forest": 23,
+        "grass": 28,
+        "industrial": 222,
+        "park": 222,
+        "parking": 1127,
+        "rail": 95,
+        "residential": 62,
+        "water": 17,
+        "waterway": 9
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_05_00.json",
+      "packed_bytes": 3400147,
+      "uncompressed_bytes": 10254792
+    },
+    {
+      "id": "detail_04_01",
+      "rect": [
+        -8300.0,
+        -13700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_04_01.agdt.gz",
+      "bytes": 9639007,
+      "counts": {
+        "building_large": 573,
+        "building_medium": 4485,
+        "building_small": 19678,
+        "civic": 43,
+        "farmland": 132,
+        "forest": 20,
+        "grass": 20,
+        "industrial": 188,
+        "orchard": 2,
+        "park": 243,
+        "parking": 495,
+        "rail": 76,
+        "residential": 221,
+        "water": 7,
+        "waterway": 32
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_04_01.json",
+      "packed_bytes": 1453207,
+      "uncompressed_bytes": 4179812
+    },
+    {
+      "id": "detail_05_01",
+      "rect": [
+        -6300.0,
+        -13700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_05_01.agdt.gz",
+      "bytes": 23442262,
+      "counts": {
+        "building_large": 512,
+        "building_medium": 6619,
+        "building_small": 52252,
+        "civic": 57,
+        "failed_building": 2,
+        "farmland": 35,
+        "forest": 25,
+        "grass": 17,
+        "industrial": 194,
+        "park": 222,
+        "parking": 815,
+        "rail": 194,
+        "residential": 33,
+        "water": 10,
+        "waterway": 41
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_05_01.json",
+      "packed_bytes": 3300282,
+      "uncompressed_bytes": 10163012
+    },
+    {
+      "id": "detail_04_02",
+      "rect": [
+        -8300.0,
+        -11700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_04_02.agdt.gz",
+      "bytes": 10005479,
+      "counts": {
+        "building_large": 461,
+        "building_medium": 5463,
+        "building_small": 18033,
+        "civic": 39,
+        "farmland": 66,
+        "forest": 37,
+        "grass": 21,
+        "industrial": 29,
+        "orchard": 2,
+        "park": 229,
+        "parking": 134,
+        "rail": 80,
+        "residential": 3,
+        "water": 23,
+        "waterway": 38
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_04_02.json",
+      "packed_bytes": 1504958,
+      "uncompressed_bytes": 4360392
+    },
+    {
+      "id": "detail_05_02",
+      "rect": [
+        -6300.0,
+        -11700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_05_02.agdt.gz",
+      "bytes": 16943337,
+      "counts": {
+        "building_large": 673,
+        "building_medium": 6201,
+        "building_small": 38366,
+        "civic": 57,
+        "failed_building": 1,
+        "farmland": 31,
+        "forest": 31,
+        "grass": 20,
+        "industrial": 116,
+        "park": 216,
+        "parking": 220,
+        "rail": 31,
+        "residential": 22,
+        "water": 7,
+        "waterway": 47
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_05_02.json",
+      "packed_bytes": 2503674,
+      "uncompressed_bytes": 7412724
+    },
+    {
+      "id": "detail_04_03",
+      "rect": [
+        -8300.0,
+        -9700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_04_03.agdt.gz",
+      "bytes": 12541764,
+      "counts": {
+        "building_large": 645,
+        "building_medium": 4820,
+        "building_small": 27770,
+        "civic": 36,
+        "farmland": 60,
+        "forest": 53,
+        "grass": 17,
+        "industrial": 24,
+        "meadow": 2,
+        "orchard": 4,
+        "park": 126,
+        "parking": 250,
+        "rail": 178,
+        "residential": 2,
+        "water": 23,
+        "waterway": 55
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_04_03.json",
+      "packed_bytes": 1972017,
+      "uncompressed_bytes": 5740036
+    },
+    {
+      "id": "detail_05_03",
+      "rect": [
+        -6300.0,
+        -9700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_05_03.agdt.gz",
+      "bytes": 12966246,
+      "counts": {
+        "building_large": 556,
+        "building_medium": 5652,
+        "building_small": 31519,
+        "civic": 41,
+        "farmland": 48,
+        "forest": 49,
+        "grass": 45,
+        "industrial": 61,
+        "meadow": 4,
+        "orchard": 7,
+        "park": 187,
+        "parking": 371,
+        "port": 1,
+        "rail": 94,
+        "residential": 17,
+        "water": 15,
+        "waterway": 61
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_05_03.json",
+      "packed_bytes": 1972184,
+      "uncompressed_bytes": 5945224
+    },
+    {
+      "id": "detail_04_04",
+      "rect": [
+        -8300.0,
+        -7700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_04_04.agdt.gz",
+      "bytes": 11291295,
+      "counts": {
+        "building_large": 386,
+        "building_medium": 3423,
+        "building_small": 27688,
+        "civic": 30,
+        "farmland": 384,
+        "forest": 591,
+        "grass": 310,
+        "industrial": 137,
+        "meadow": 16,
+        "orchard": 14,
+        "park": 131,
+        "parking": 889,
+        "rail": 28,
+        "residential": 8,
+        "water": 9,
+        "waterway": 40
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_04_04.json",
+      "packed_bytes": 1788531,
+      "uncompressed_bytes": 5172440
+    },
+    {
+      "id": "detail_05_04",
+      "rect": [
+        -6300.0,
+        -7700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_05_04.agdt.gz",
+      "bytes": 14556627,
+      "counts": {
+        "building_large": 655,
+        "building_medium": 5080,
+        "building_small": 35911,
+        "civic": 56,
+        "farmland": 129,
+        "forest": 530,
+        "grass": 186,
+        "industrial": 84,
+        "orchard": 18,
+        "park": 196,
+        "parking": 819,
+        "rail": 174,
+        "residential": 36,
+        "water": 10,
+        "waterway": 46
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_05_04.json",
+      "packed_bytes": 2226319,
+      "uncompressed_bytes": 6671804
+    },
+    {
+      "id": "detail_04_05",
+      "rect": [
+        -8300.0,
+        -5700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_04_05.agdt.gz",
+      "bytes": 7269423,
+      "counts": {
+        "building_large": 490,
+        "building_medium": 3516,
+        "building_small": 14412,
+        "civic": 14,
+        "farmland": 713,
+        "forest": 1342,
+        "grass": 903,
+        "industrial": 219,
+        "orchard": 2,
+        "park": 103,
+        "parking": 2067,
+        "port": 2,
+        "rail": 94,
+        "residential": 9,
+        "water": 19,
+        "waterway": 46
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_04_05.json",
+      "packed_bytes": 1153999,
+      "uncompressed_bytes": 3324684
+    },
+    {
+      "id": "detail_05_05",
+      "rect": [
+        -6300.0,
+        -5700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_05_05.agdt.gz",
+      "bytes": 13223164,
+      "counts": {
+        "building_large": 530,
+        "building_medium": 4555,
+        "building_small": 34403,
+        "civic": 30,
+        "farmland": 216,
+        "forest": 613,
+        "grass": 398,
+        "industrial": 328,
+        "orchard": 2,
+        "park": 154,
+        "parking": 2924,
+        "rail": 77,
+        "residential": 2,
+        "water": 20,
+        "waterway": 19
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_05_05.json",
+      "packed_bytes": 2141423,
+      "uncompressed_bytes": 6065828
+    },
+    {
+      "id": "detail_04_06",
+      "rect": [
+        -8300.0,
+        -3700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_04_06.agdt.gz",
+      "bytes": 10657226,
+      "counts": {
+        "building_large": 398,
+        "building_medium": 3305,
+        "building_small": 26674,
+        "civic": 26,
+        "farmland": 619,
+        "forest": 169,
+        "grass": 111,
+        "industrial": 316,
+        "park": 120,
+        "parking": 2279,
+        "rail": 202,
+        "residential": 28,
+        "water": 6,
+        "waterway": 126
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_04_06.json",
+      "packed_bytes": 1705169,
+      "uncompressed_bytes": 4884992
+    },
+    {
+      "id": "detail_05_06",
+      "rect": [
+        -6300.0,
+        -3700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_05_06.agdt.gz",
+      "bytes": 12696072,
+      "counts": {
+        "building_large": 447,
+        "building_medium": 3360,
+        "building_small": 36992,
+        "civic": 35,
+        "farmland": 44,
+        "forest": 43,
+        "grass": 22,
+        "industrial": 259,
+        "park": 130,
+        "parking": 1889,
+        "port": 2,
+        "rail": 312,
+        "residential": 7,
+        "water": 9,
+        "waterway": 47
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_05_06.json",
+      "packed_bytes": 2067630,
+      "uncompressed_bytes": 5833740
+    },
+    {
+      "id": "detail_04_07",
+      "rect": [
+        -8300.0,
+        -1700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_04_07.agdt.gz",
+      "bytes": 13666208,
+      "counts": {
+        "building_large": 517,
+        "building_medium": 3729,
+        "building_small": 42046,
+        "civic": 43,
+        "farmland": 80,
+        "forest": 241,
+        "grass": 161,
+        "industrial": 327,
+        "park": 239,
+        "parking": 2942,
+        "rail": 151,
+        "residential": 34,
+        "water": 16,
+        "waterway": 77
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_04_07.json",
+      "packed_bytes": 2351770,
+      "uncompressed_bytes": 6622436
+    },
+    {
+      "id": "detail_05_07",
+      "rect": [
+        -6300.0,
+        -1700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_05_07.agdt.gz",
+      "bytes": 4671379,
+      "counts": {
+        "building_large": 681,
+        "building_medium": 2766,
+        "building_small": 12154,
+        "civic": 38,
+        "forest": 107,
+        "grass": 99,
+        "industrial": 95,
+        "meadow": 1,
+        "park": 293,
+        "parking": 955,
+        "port": 32,
+        "rail": 212,
+        "residential": 19,
+        "water": 66,
+        "waterway": 30
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_05_07.json",
+      "packed_bytes": 842887,
+      "uncompressed_bytes": 2337512
+    },
+    {
+      "id": "detail_04_08",
+      "rect": [
+        -8300.0,
+        300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_04_08.agdt.gz",
+      "bytes": 9158901,
+      "counts": {
+        "building_large": 396,
+        "building_medium": 2406,
+        "building_small": 27840,
+        "civic": 45,
+        "farmland": 22,
+        "forest": 212,
+        "grass": 76,
+        "industrial": 145,
+        "meadow": 1,
+        "orchard": 1,
+        "park": 248,
+        "parking": 1642,
+        "rail": 77,
+        "residential": 95,
+        "water": 12,
+        "waterway": 30
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_04_08.json",
+      "packed_bytes": 1586581,
+      "uncompressed_bytes": 4585928
+    },
+    {
+      "id": "detail_05_08",
+      "rect": [
+        -6300.0,
+        300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_05_08.agdt.gz",
+      "bytes": 7449414,
+      "counts": {
+        "building_large": 401,
+        "building_medium": 1901,
+        "building_small": 23441,
+        "civic": 27,
+        "farmland": 22,
+        "forest": 65,
+        "grass": 24,
+        "industrial": 196,
+        "park": 209,
+        "parking": 1644,
+        "port": 8,
+        "rail": 148,
+        "residential": 80,
+        "water": 27,
+        "waterway": 16
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_05_08.json",
+      "packed_bytes": 1326112,
+      "uncompressed_bytes": 3770208
+    },
+    {
+      "id": "detail_04_09",
+      "rect": [
+        -8300.0,
+        2300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_04_09.agdt.gz",
+      "bytes": 10956309,
+      "counts": {
+        "building_large": 321,
+        "building_medium": 2887,
+        "building_small": 25564,
+        "civic": 35,
+        "farmland": 106,
+        "forest": 16,
+        "grass": 2,
+        "industrial": 58,
+        "park": 245,
+        "parking": 858,
+        "rail": 113,
+        "residential": 42,
+        "water": 15,
+        "waterway": 74
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_04_09.json",
+      "packed_bytes": 1768585,
+      "uncompressed_bytes": 5305712
+    },
+    {
+      "id": "detail_05_09",
+      "rect": [
+        -6300.0,
+        2300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_05_09.agdt.gz",
+      "bytes": 2643988,
+      "counts": {
+        "building_large": 354,
+        "building_medium": 987,
+        "building_small": 5811,
+        "civic": 10,
+        "industrial": 22,
+        "park": 64,
+        "parking": 48,
+        "port": 54,
+        "rail": 57,
+        "residential": 13,
+        "water": 11,
+        "waterway": 22
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_05_09.json",
+      "packed_bytes": 427970,
+      "uncompressed_bytes": 1281224
+    },
+    {
+      "id": "detail_04_10",
+      "rect": [
+        -8300.0,
+        4300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_04_10.agdt.gz",
+      "bytes": 7364832,
+      "counts": {
+        "building_large": 229,
+        "building_medium": 1170,
+        "building_small": 19451,
+        "civic": 18,
+        "farmland": 114,
+        "forest": 1,
+        "industrial": 32,
+        "park": 146,
+        "parking": 212,
+        "rail": 100,
+        "residential": 10,
+        "water": 31,
+        "waterway": 94
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_04_10.json",
+      "packed_bytes": 1125736,
+      "uncompressed_bytes": 3571004
+    },
+    {
+      "id": "detail_05_10",
+      "rect": [
+        -6300.0,
+        4300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_05_10.agdt.gz",
+      "bytes": 4670284,
+      "counts": {
+        "building_large": 411,
+        "building_medium": 1658,
+        "building_small": 11637,
+        "civic": 14,
+        "farmland": 3,
+        "forest": 8,
+        "grass": 4,
+        "industrial": 47,
+        "park": 122,
+        "parking": 158,
+        "port": 12,
+        "rail": 75,
+        "residential": 11,
+        "water": 15,
+        "waterway": 27
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_05_10.json",
+      "packed_bytes": 756788,
+      "uncompressed_bytes": 2265660
+    },
+    {
+      "id": "detail_04_11",
+      "rect": [
+        -8300.0,
+        6300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_04_11.agdt.gz",
+      "bytes": 8862373,
+      "counts": {
+        "building_large": 130,
+        "building_medium": 1587,
+        "building_small": 19612,
+        "civic": 18,
+        "farmland": 1,
+        "forest": 5,
+        "grass": 8,
+        "industrial": 52,
+        "park": 91,
+        "parking": 78,
+        "rail": 115,
+        "residential": 24,
+        "water": 9,
+        "waterway": 64
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_04_11.json",
+      "packed_bytes": 1357878,
+      "uncompressed_bytes": 4285284
+    },
+    {
+      "id": "detail_05_11",
+      "rect": [
+        -6300.0,
+        6300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_05_11.agdt.gz",
+      "bytes": 3531841,
+      "counts": {
+        "building_large": 380,
+        "building_medium": 819,
+        "building_small": 8650,
+        "civic": 12,
+        "farmland": 1,
+        "forest": 3,
+        "grass": 4,
+        "industrial": 33,
+        "park": 120,
+        "parking": 113,
+        "port": 8,
+        "rail": 79,
+        "residential": 15,
+        "water": 32,
+        "waterway": 35
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_05_11.json",
+      "packed_bytes": 578480,
+      "uncompressed_bytes": 1711816
+    },
+    {
+      "id": "detail_04_12",
+      "rect": [
+        -8300.0,
+        8300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_04_12.agdt.gz",
+      "bytes": 4685039,
+      "counts": {
+        "building_large": 61,
+        "building_medium": 1126,
+        "building_small": 10832,
+        "civic": 8,
+        "farmland": 202,
+        "forest": 1,
+        "industrial": 2,
+        "park": 20,
+        "parking": 24,
+        "port": 2,
+        "water": 5,
+        "waterway": 89
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_04_12.json",
+      "packed_bytes": 744605,
+      "uncompressed_bytes": 2258436
+    },
+    {
+      "id": "detail_05_12",
+      "rect": [
+        -6300.0,
+        8300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_05_12.agdt.gz",
+      "bytes": 2078876,
+      "counts": {
+        "building_large": 111,
+        "building_medium": 585,
+        "building_small": 7702,
+        "civic": 15,
+        "farmland": 33,
+        "forest": 13,
+        "industrial": 35,
+        "park": 87,
+        "parking": 66,
+        "port": 6,
+        "rail": 151,
+        "residential": 5,
+        "water": 9,
+        "waterway": 121
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_05_12.json",
+      "packed_bytes": 370977,
+      "uncompressed_bytes": 1014836
+    },
+    {
+      "id": "detail_04_13",
+      "rect": [
+        -8300.0,
+        10300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_04_13.agdt.gz",
+      "bytes": 123506,
+      "counts": {
+        "building_large": 16,
+        "building_medium": 65,
+        "building_small": 117,
+        "civic": 2,
+        "forest": 5,
+        "grass": 1,
+        "industrial": 1,
+        "park": 4,
+        "parking": 8,
+        "port": 28,
+        "water": 3,
+        "waterway": 43
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_04_13.json",
+      "packed_bytes": 17672,
+      "uncompressed_bytes": 56096
+    },
+    {
+      "id": "detail_05_13",
+      "rect": [
+        -6300.0,
+        10300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_05_13.agdt.gz",
+      "bytes": 232199,
+      "counts": {
+        "building_large": 70,
+        "building_medium": 144,
+        "building_small": 245,
+        "civic": 8,
+        "farmland": 28,
+        "industrial": 3,
+        "park": 18,
+        "parking": 24,
+        "residential": 1,
+        "water": 5,
+        "waterway": 62
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_05_13.json",
+      "packed_bytes": 38624,
+      "uncompressed_bytes": 105832
+    },
+    {
+      "id": "detail_05_14",
+      "rect": [
+        -6300.0,
+        12300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_05_14.agdt.gz",
+      "bytes": 1607784,
+      "counts": {
+        "building_large": 84,
+        "building_medium": 480,
+        "building_small": 2883,
+        "civic": 8,
+        "farmland": 77,
+        "forest": 2,
+        "grass": 1,
+        "industrial": 14,
+        "meadow": 1,
+        "orchard": 1,
+        "park": 21,
+        "parking": 91,
+        "port": 2,
+        "rail": 34,
+        "residential": 9,
+        "water": 3,
+        "waterway": 58
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_05_14.json",
+      "packed_bytes": 244546,
+      "uncompressed_bytes": 733360
+    },
+    {
+      "id": "detail_05_15",
+      "rect": [
+        -6300.0,
+        14300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_05_15.agdt.gz",
+      "bytes": 4264270,
+      "counts": {
+        "building_large": 41,
+        "building_medium": 954,
+        "building_small": 8052,
+        "civic": 5,
+        "farmland": 608,
+        "forest": 3,
+        "grass": 13,
+        "industrial": 3,
+        "park": 14,
+        "parking": 34,
+        "rail": 9,
+        "residential": 49,
+        "water": 1,
+        "waterway": 44
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_05_15.json",
+      "packed_bytes": 631712,
+      "uncompressed_bytes": 1944132
+    },
+    {
+      "id": "detail_06_00",
+      "rect": [
+        -4300.0,
+        -15700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_06_00.agdt.gz",
+      "bytes": 18359519,
+      "counts": {
+        "building_large": 841,
+        "building_medium": 7518,
+        "building_small": 45966,
+        "civic": 79,
+        "failed_building": 1,
+        "farmland": 1,
+        "forest": 113,
+        "grass": 74,
+        "industrial": 197,
+        "park": 279,
+        "parking": 590,
+        "rail": 590,
+        "residential": 243,
+        "water": 42,
+        "waterway": 44
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_06_00.json",
+      "packed_bytes": 2709383,
+      "uncompressed_bytes": 7985672
+    },
+    {
+      "id": "detail_07_00",
+      "rect": [
+        -2300.0,
+        -15700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_07_00.agdt.gz",
+      "bytes": 12213402,
+      "counts": {
+        "building_large": 1130,
+        "building_medium": 6704,
+        "building_small": 33758,
+        "civic": 108,
+        "farmland": 4,
+        "forest": 54,
+        "grass": 153,
+        "industrial": 133,
+        "meadow": 4,
+        "park": 297,
+        "parking": 661,
+        "port": 2,
+        "rail": 186,
+        "residential": 14,
+        "water": 39,
+        "waterway": 79
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_07_00.json",
+      "packed_bytes": 1966958,
+      "uncompressed_bytes": 5410088
+    },
+    {
+      "id": "detail_06_01",
+      "rect": [
+        -4300.0,
+        -13700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_06_01.agdt.gz",
+      "bytes": 14665670,
+      "counts": {
+        "building_large": 876,
+        "building_medium": 7279,
+        "building_small": 35007,
+        "civic": 54,
+        "failed_building": 1,
+        "farmland": 2,
+        "forest": 49,
+        "grass": 63,
+        "industrial": 201,
+        "park": 293,
+        "parking": 418,
+        "rail": 418,
+        "residential": 50,
+        "water": 21,
+        "waterway": 63
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_06_01.json",
+      "packed_bytes": 2246169,
+      "uncompressed_bytes": 6377040
+    },
+    {
+      "id": "detail_07_01",
+      "rect": [
+        -2300.0,
+        -13700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_07_01.agdt.gz",
+      "bytes": 7906624,
+      "counts": {
+        "building_large": 1285,
+        "building_medium": 5939,
+        "building_small": 14851,
+        "civic": 53,
+        "farmland": 8,
+        "forest": 283,
+        "grass": 148,
+        "industrial": 91,
+        "meadow": 1,
+        "park": 380,
+        "parking": 454,
+        "rail": 252,
+        "residential": 15,
+        "water": 45,
+        "waterway": 27
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_07_01.json",
+      "packed_bytes": 1258064,
+      "uncompressed_bytes": 3481324
+    },
+    {
+      "id": "detail_06_02",
+      "rect": [
+        -4300.0,
+        -11700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_06_02.agdt.gz",
+      "bytes": 20249784,
+      "counts": {
+        "building_large": 704,
+        "building_medium": 7504,
+        "building_small": 53395,
+        "civic": 66,
+        "forest": 12,
+        "grass": 60,
+        "industrial": 76,
+        "park": 265,
+        "parking": 330,
+        "rail": 69,
+        "residential": 6,
+        "water": 21,
+        "waterway": 33
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_06_02.json",
+      "packed_bytes": 3030121,
+      "uncompressed_bytes": 8891080
+    },
+    {
+      "id": "detail_07_02",
+      "rect": [
+        -2300.0,
+        -11700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_07_02.agdt.gz",
+      "bytes": 9833590,
+      "counts": {
+        "building_large": 1281,
+        "building_medium": 6003,
+        "building_small": 23231,
+        "civic": 70,
+        "farmland": 1,
+        "forest": 90,
+        "grass": 127,
+        "industrial": 142,
+        "meadow": 1,
+        "park": 391,
+        "parking": 662,
+        "port": 8,
+        "rail": 653,
+        "residential": 20,
+        "water": 66,
+        "waterway": 27
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_07_02.json",
+      "packed_bytes": 1581344,
+      "uncompressed_bytes": 4369320
+    },
+    {
+      "id": "detail_06_03",
+      "rect": [
+        -4300.0,
+        -9700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_06_03.agdt.gz",
+      "bytes": 19263133,
+      "counts": {
+        "building_large": 478,
+        "building_medium": 7564,
+        "building_small": 53956,
+        "civic": 56,
+        "farmland": 5,
+        "forest": 12,
+        "grass": 11,
+        "industrial": 50,
+        "park": 233,
+        "parking": 450,
+        "port": 5,
+        "rail": 354,
+        "residential": 6,
+        "water": 12,
+        "waterway": 54
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_06_03.json",
+      "packed_bytes": 2989083,
+      "uncompressed_bytes": 8851368
+    },
+    {
+      "id": "detail_07_03",
+      "rect": [
+        -2300.0,
+        -9700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_07_03.agdt.gz",
+      "bytes": 14063408,
+      "counts": {
+        "building_large": 696,
+        "building_medium": 4943,
+        "building_small": 46047,
+        "civic": 49,
+        "forest": 62,
+        "grass": 43,
+        "industrial": 120,
+        "park": 268,
+        "parking": 519,
+        "port": 6,
+        "rail": 286,
+        "residential": 22,
+        "water": 20,
+        "waterway": 28
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_07_03.json",
+      "packed_bytes": 2255504,
+      "uncompressed_bytes": 6520004
+    },
+    {
+      "id": "detail_06_04",
+      "rect": [
+        -4300.0,
+        -7700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_06_04.agdt.gz",
+      "bytes": 14990055,
+      "counts": {
+        "building_large": 616,
+        "building_medium": 4551,
+        "building_small": 44122,
+        "civic": 49,
+        "farmland": 4,
+        "forest": 4,
+        "grass": 58,
+        "industrial": 28,
+        "orchard": 12,
+        "park": 210,
+        "parking": 299,
+        "port": 1,
+        "rail": 175,
+        "residential": 5,
+        "water": 30,
+        "waterway": 34
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_06_04.json",
+      "packed_bytes": 2303334,
+      "uncompressed_bytes": 6890880
+    },
+    {
+      "id": "detail_07_04",
+      "rect": [
+        -2300.0,
+        -7700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_07_04.agdt.gz",
+      "bytes": 16584280,
+      "counts": {
+        "building_large": 644,
+        "building_medium": 5277,
+        "building_small": 49411,
+        "civic": 66,
+        "farmland": 10,
+        "forest": 25,
+        "grass": 61,
+        "industrial": 100,
+        "meadow": 1,
+        "park": 236,
+        "parking": 568,
+        "port": 42,
+        "rail": 175,
+        "residential": 105,
+        "water": 148,
+        "waterway": 29
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_07_04.json",
+      "packed_bytes": 2541655,
+      "uncompressed_bytes": 7712980
+    },
+    {
+      "id": "detail_06_05",
+      "rect": [
+        -4300.0,
+        -5700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_06_05.agdt.gz",
+      "bytes": 12966415,
+      "counts": {
+        "building_large": 714,
+        "building_medium": 4423,
+        "building_small": 36662,
+        "civic": 46,
+        "farmland": 2,
+        "forest": 38,
+        "grass": 193,
+        "industrial": 124,
+        "meadow": 19,
+        "park": 555,
+        "parking": 1440,
+        "rail": 301,
+        "residential": 66,
+        "water": 113,
+        "waterway": 4
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_06_05.json",
+      "packed_bytes": 2064596,
+      "uncompressed_bytes": 5958260
+    },
+    {
+      "id": "detail_07_05",
+      "rect": [
+        -2300.0,
+        -5700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_07_05.agdt.gz",
+      "bytes": 8524170,
+      "counts": {
+        "building_large": 627,
+        "building_medium": 2902,
+        "building_small": 23347,
+        "civic": 29,
+        "forest": 21,
+        "grass": 53,
+        "industrial": 64,
+        "park": 145,
+        "parking": 308,
+        "port": 3,
+        "rail": 428,
+        "residential": 17,
+        "water": 40,
+        "waterway": 14
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_07_05.json",
+      "packed_bytes": 1330374,
+      "uncompressed_bytes": 3967408
+    },
+    {
+      "id": "detail_06_06",
+      "rect": [
+        -4300.0,
+        -3700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_06_06.agdt.gz",
+      "bytes": 4111052,
+      "counts": {
+        "building_large": 503,
+        "building_medium": 1452,
+        "building_small": 11334,
+        "civic": 12,
+        "farmland": 2,
+        "forest": 49,
+        "grass": 58,
+        "industrial": 95,
+        "meadow": 1,
+        "park": 52,
+        "parking": 782,
+        "port": 21,
+        "rail": 160,
+        "residential": 4,
+        "water": 3,
+        "waterway": 8
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_06_06.json",
+      "packed_bytes": 665624,
+      "uncompressed_bytes": 1889044
+    },
+    {
+      "id": "detail_07_06",
+      "rect": [
+        -2300.0,
+        -3700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_07_06.agdt.gz",
+      "bytes": 453988,
+      "counts": {
+        "building_large": 210,
+        "building_medium": 176,
+        "building_small": 191,
+        "forest": 39,
+        "grass": 24,
+        "industrial": 34,
+        "park": 5,
+        "parking": 11,
+        "port": 7,
+        "rail": 91,
+        "water": 4,
+        "waterway": 1
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_07_06.json",
+      "packed_bytes": 68506,
+      "uncompressed_bytes": 208268
+    },
+    {
+      "id": "detail_06_07",
+      "rect": [
+        -4300.0,
+        -1700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_06_07.agdt.gz",
+      "bytes": 105792,
+      "counts": {
+        "building_large": 160,
+        "building_medium": 82,
+        "building_small": 15,
+        "civic": 1,
+        "forest": 5,
+        "grass": 1,
+        "industrial": 6,
+        "park": 7,
+        "parking": 9,
+        "port": 14,
+        "water": 1
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_06_07.json",
+      "packed_bytes": 14252,
+      "uncompressed_bytes": 49960
+    },
+    {
+      "id": "detail_07_07",
+      "rect": [
+        -2300.0,
+        -1700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_07_07.agdt.gz",
+      "bytes": 17901,
+      "counts": {
+        "building_large": 3,
+        "building_medium": 1,
+        "forest": 2,
+        "industrial": 6,
+        "port": 4,
+        "rail": 8
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_07_07.json",
+      "packed_bytes": 3087,
+      "uncompressed_bytes": 8092
+    },
+    {
+      "id": "detail_06_08",
+      "rect": [
+        -4300.0,
+        300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_06_08.agdt.gz",
+      "bytes": 708357,
+      "counts": {
+        "building_large": 248,
+        "building_medium": 301,
+        "building_small": 1728,
+        "civic": 2,
+        "forest": 11,
+        "grass": 3,
+        "industrial": 16,
+        "park": 32,
+        "parking": 167,
+        "port": 28,
+        "rail": 18,
+        "water": 5,
+        "waterway": 2
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_06_08.json",
+      "packed_bytes": 124657,
+      "uncompressed_bytes": 351488
+    },
+    {
+      "id": "detail_06_09",
+      "rect": [
+        -4300.0,
+        2300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_06_09.agdt.gz",
+      "bytes": 1539,
+      "counts": {
+        "industrial": 1,
+        "port": 2
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_06_09.json",
+      "packed_bytes": 339,
+      "uncompressed_bytes": 708
+    },
+    {
+      "id": "detail_06_10",
+      "rect": [
+        -4300.0,
+        4300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_06_10.agdt.gz",
+      "bytes": 239,
+      "counts": {},
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_06_10.json",
+      "packed_bytes": 43,
+      "uncompressed_bytes": 108
+    },
+    {
+      "id": "detail_06_11",
+      "rect": [
+        -4300.0,
+        6300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_06_11.agdt.gz",
+      "bytes": 212633,
+      "counts": {
+        "building_large": 77,
+        "building_medium": 149,
+        "building_small": 208,
+        "industrial": 1,
+        "park": 31,
+        "parking": 50,
+        "port": 6
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_06_11.json",
+      "packed_bytes": 36133,
+      "uncompressed_bytes": 102444
+    },
+    {
+      "id": "detail_06_12",
+      "rect": [
+        -4300.0,
+        8300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_06_12.agdt.gz",
+      "bytes": 2021039,
+      "counts": {
+        "building_large": 241,
+        "building_medium": 868,
+        "building_small": 4803,
+        "civic": 20,
+        "forest": 11,
+        "grass": 1,
+        "industrial": 39,
+        "meadow": 2,
+        "park": 184,
+        "parking": 145,
+        "port": 11,
+        "rail": 106,
+        "residential": 2,
+        "water": 25,
+        "waterway": 18
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_06_12.json",
+      "packed_bytes": 340478,
+      "uncompressed_bytes": 968624
+    },
+    {
+      "id": "detail_07_12",
+      "rect": [
+        -2300.0,
+        8300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_07_12.agdt.gz",
+      "bytes": 687243,
+      "counts": {
+        "building_large": 47,
+        "building_medium": 178,
+        "building_small": 2004,
+        "civic": 2,
+        "forest": 2,
+        "grass": 3,
+        "industrial": 4,
+        "park": 35,
+        "parking": 23,
+        "port": 11,
+        "rail": 6,
+        "water": 4,
+        "waterway": 8
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_07_12.json",
+      "packed_bytes": 109243,
+      "uncompressed_bytes": 324404
+    },
+    {
+      "id": "detail_06_13",
+      "rect": [
+        -4300.0,
+        10300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_06_13.agdt.gz",
+      "bytes": 5133599,
+      "counts": {
+        "building_large": 274,
+        "building_medium": 1384,
+        "building_small": 14250,
+        "civic": 22,
+        "farmland": 7,
+        "grass": 3,
+        "industrial": 27,
+        "park": 112,
+        "parking": 153,
+        "rail": 89,
+        "residential": 10,
+        "water": 16,
+        "waterway": 158
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_06_13.json",
+      "packed_bytes": 824349,
+      "uncompressed_bytes": 2357160
+    },
+    {
+      "id": "detail_07_13",
+      "rect": [
+        -2300.0,
+        10300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_07_13.agdt.gz",
+      "bytes": 3953795,
+      "counts": {
+        "building_large": 127,
+        "building_medium": 605,
+        "building_small": 11384,
+        "civic": 8,
+        "farmland": 6,
+        "forest": 1,
+        "industrial": 18,
+        "park": 42,
+        "parking": 81,
+        "port": 7,
+        "rail": 5,
+        "residential": 4,
+        "water": 9,
+        "waterway": 86
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_07_13.json",
+      "packed_bytes": 626366,
+      "uncompressed_bytes": 1815396
+    },
+    {
+      "id": "detail_06_14",
+      "rect": [
+        -4300.0,
+        12300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_06_14.agdt.gz",
+      "bytes": 1169790,
+      "counts": {
+        "building_large": 75,
+        "building_medium": 396,
+        "building_small": 2473,
+        "civic": 8,
+        "farmland": 2,
+        "industrial": 17,
+        "park": 10,
+        "parking": 27,
+        "port": 7,
+        "rail": 42,
+        "residential": 5,
+        "water": 4,
+        "waterway": 71
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_06_14.json",
+      "packed_bytes": 186342,
+      "uncompressed_bytes": 535172
+    },
+    {
+      "id": "detail_07_14",
+      "rect": [
+        -2300.0,
+        12300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_07_14.agdt.gz",
+      "bytes": 66902,
+      "counts": {
+        "building_large": 9,
+        "building_medium": 28,
+        "building_small": 158,
+        "civic": 1,
+        "industrial": 2,
+        "park": 3,
+        "parking": 3,
+        "port": 6,
+        "waterway": 4
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_07_14.json",
+      "packed_bytes": 8388,
+      "uncompressed_bytes": 30600
+    },
+    {
+      "id": "detail_08_00",
+      "rect": [
+        -300.0,
+        -15700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_08_00.agdt.gz",
+      "bytes": 12761046,
+      "counts": {
+        "building_large": 876,
+        "building_medium": 8535,
+        "building_small": 39062,
+        "civic": 90,
+        "failed_building": 1,
+        "farmland": 1,
+        "forest": 103,
+        "grass": 152,
+        "industrial": 350,
+        "meadow": 4,
+        "park": 194,
+        "parking": 1579,
+        "port": 3,
+        "rail": 723,
+        "residential": 17,
+        "water": 48,
+        "waterway": 42
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_08_00.json",
+      "packed_bytes": 2240704,
+      "uncompressed_bytes": 6058784
+    },
+    {
+      "id": "detail_09_00",
+      "rect": [
+        1700.0,
+        -15700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_09_00.agdt.gz",
+      "bytes": 14314157,
+      "counts": {
+        "building_large": 605,
+        "building_medium": 5829,
+        "building_small": 44318,
+        "civic": 73,
+        "forest": 13,
+        "grass": 104,
+        "industrial": 46,
+        "park": 281,
+        "parking": 822,
+        "port": 10,
+        "rail": 288,
+        "residential": 24,
+        "water": 20,
+        "waterway": 23
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_09_00.json",
+      "packed_bytes": 2242642,
+      "uncompressed_bytes": 6591224
+    },
+    {
+      "id": "detail_08_01",
+      "rect": [
+        -300.0,
+        -13700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_08_01.agdt.gz",
+      "bytes": 5653435,
+      "counts": {
+        "building_large": 1044,
+        "building_medium": 3886,
+        "building_small": 14306,
+        "civic": 37,
+        "forest": 90,
+        "grass": 209,
+        "industrial": 85,
+        "orchard": 2,
+        "park": 334,
+        "parking": 254,
+        "port": 21,
+        "rail": 564,
+        "residential": 47,
+        "water": 46,
+        "waterway": 89
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_08_01.json",
+      "packed_bytes": 982463,
+      "uncompressed_bytes": 2679756
+    },
+    {
+      "id": "detail_09_01",
+      "rect": [
+        1700.0,
+        -13700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_09_01.agdt.gz",
+      "bytes": 6472823,
+      "counts": {
+        "building_large": 882,
+        "building_medium": 2398,
+        "building_small": 18161,
+        "civic": 53,
+        "farmland": 2,
+        "forest": 19,
+        "grass": 95,
+        "industrial": 30,
+        "park": 211,
+        "parking": 228,
+        "port": 14,
+        "rail": 145,
+        "residential": 84,
+        "water": 47,
+        "waterway": 86
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_09_01.json",
+      "packed_bytes": 997733,
+      "uncompressed_bytes": 2976524
+    },
+    {
+      "id": "detail_08_02",
+      "rect": [
+        -300.0,
+        -11700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_08_02.agdt.gz",
+      "bytes": 789741,
+      "counts": {
+        "building_large": 388,
+        "building_medium": 317,
+        "building_small": 330,
+        "civic": 12,
+        "forest": 85,
+        "grass": 262,
+        "industrial": 20,
+        "meadow": 1,
+        "park": 140,
+        "parking": 69,
+        "port": 40,
+        "rail": 130,
+        "residential": 1,
+        "water": 25,
+        "waterway": 12
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_08_02.json",
+      "packed_bytes": 125673,
+      "uncompressed_bytes": 369376
+    },
+    {
+      "id": "detail_09_02",
+      "rect": [
+        1700.0,
+        -11700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_09_02.agdt.gz",
+      "bytes": 933209,
+      "counts": {
+        "building_large": 457,
+        "building_medium": 859,
+        "building_small": 706,
+        "civic": 5,
+        "farmland": 1,
+        "forest": 19,
+        "grass": 187,
+        "industrial": 8,
+        "park": 67,
+        "parking": 50,
+        "port": 146,
+        "rail": 142,
+        "residential": 1,
+        "water": 9,
+        "waterway": 10
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_09_02.json",
+      "packed_bytes": 151216,
+      "uncompressed_bytes": 427284
+    },
+    {
+      "id": "detail_08_03",
+      "rect": [
+        -300.0,
+        -9700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_08_03.agdt.gz",
+      "bytes": 344725,
+      "counts": {
+        "building_large": 257,
+        "building_medium": 260,
+        "building_small": 152,
+        "civic": 1,
+        "farmland": 4,
+        "forest": 40,
+        "grass": 15,
+        "industrial": 15,
+        "park": 37,
+        "parking": 24,
+        "port": 6,
+        "rail": 351,
+        "water": 18,
+        "waterway": 18
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_08_03.json",
+      "packed_bytes": 62215,
+      "uncompressed_bytes": 173260
+    },
+    {
+      "id": "detail_08_04",
+      "rect": [
+        -300.0,
+        -7700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_08_04.agdt.gz",
+      "bytes": 474379,
+      "counts": {
+        "building_large": 204,
+        "building_medium": 323,
+        "building_small": 146,
+        "forest": 15,
+        "grass": 147,
+        "industrial": 40,
+        "park": 24,
+        "parking": 35,
+        "port": 10,
+        "rail": 19,
+        "water": 70,
+        "waterway": 2
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_08_04.json",
+      "packed_bytes": 76671,
+      "uncompressed_bytes": 237644
+    },
+    {
+      "id": "detail_08_05",
+      "rect": [
+        -300.0,
+        -5700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_08_05.agdt.gz",
+      "bytes": 843658,
+      "counts": {
+        "building_large": 311,
+        "building_medium": 655,
+        "building_small": 610,
+        "forest": 16,
+        "grass": 30,
+        "industrial": 16,
+        "park": 6,
+        "parking": 15,
+        "port": 27,
+        "rail": 46,
+        "water": 5,
+        "waterway": 3
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_08_05.json",
+      "packed_bytes": 143092,
+      "uncompressed_bytes": 422788
+    },
+    {
+      "id": "detail_09_05",
+      "rect": [
+        1700.0,
+        -5700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_09_05.agdt.gz",
+      "bytes": 48640,
+      "counts": {
+        "building_large": 1,
+        "building_medium": 11,
+        "building_small": 7,
+        "grass": 42,
+        "industrial": 1,
+        "port": 6
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_09_05.json",
+      "packed_bytes": 6461,
+      "uncompressed_bytes": 23048
+    },
+    {
+      "id": "detail_08_06",
+      "rect": [
+        -300.0,
+        -3700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_08_06.agdt.gz",
+      "bytes": 68158,
+      "counts": {
+        "building_large": 141,
+        "building_medium": 30,
+        "building_small": 11,
+        "forest": 2,
+        "industrial": 1,
+        "park": 5,
+        "parking": 6,
+        "port": 3
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_08_06.json",
+      "packed_bytes": 9958,
+      "uncompressed_bytes": 34200
+    },
+    {
+      "id": "detail_09_06",
+      "rect": [
+        1700.0,
+        -3700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_09_06.agdt.gz",
+      "bytes": 491,
+      "counts": {
+        "port": 1
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_09_06.json",
+      "packed_bytes": 135,
+      "uncompressed_bytes": 224
+    },
+    {
+      "id": "detail_09_09",
+      "rect": [
+        1700.0,
+        2300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_09_09.agdt.gz",
+      "bytes": 6706,
+      "counts": {
+        "building_large": 3,
+        "building_medium": 4,
+        "building_small": 2,
+        "industrial": 1
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_09_09.json",
+      "packed_bytes": 972,
+      "uncompressed_bytes": 3296
+    },
+    {
+      "id": "detail_09_10",
+      "rect": [
+        1700.0,
+        4300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_09_10.agdt.gz",
+      "bytes": 112338,
+      "counts": {
+        "building_large": 70,
+        "building_medium": 75,
+        "building_small": 76,
+        "industrial": 5,
+        "park": 3,
+        "parking": 5,
+        "port": 5,
+        "water": 7,
+        "waterway": 2
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_09_10.json",
+      "packed_bytes": 16265,
+      "uncompressed_bytes": 57364
+    },
+    {
+      "id": "detail_09_11",
+      "rect": [
+        1700.0,
+        6300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_09_11.agdt.gz",
+      "bytes": 1195529,
+      "counts": {
+        "building_large": 61,
+        "building_medium": 898,
+        "building_small": 4616,
+        "civic": 1,
+        "farmland": 37,
+        "forest": 6,
+        "industrial": 1,
+        "park": 14,
+        "parking": 22,
+        "port": 4,
+        "residential": 15,
+        "water": 2,
+        "waterway": 11
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_09_11.json",
+      "packed_bytes": 237228,
+      "uncompressed_bytes": 621780
+    },
+    {
+      "id": "detail_09_14",
+      "rect": [
+        1700.0,
+        12300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_09_14.agdt.gz",
+      "bytes": 194002,
+      "counts": {
+        "building_large": 3,
+        "building_medium": 117,
+        "building_small": 684,
+        "parking": 1,
+        "port": 1,
+        "rail": 16,
+        "water": 3,
+        "waterway": 9
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_09_14.json",
+      "packed_bytes": 37196,
+      "uncompressed_bytes": 94724
+    },
+    {
+      "id": "detail_09_15",
+      "rect": [
+        1700.0,
+        14300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_09_15.agdt.gz",
+      "bytes": 406409,
+      "counts": {
+        "building_large": 14,
+        "building_medium": 276,
+        "building_small": 1322,
+        "civic": 1,
+        "farmland": 1,
+        "park": 6,
+        "parking": 17,
+        "rail": 22,
+        "water": 2,
+        "waterway": 28
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_09_15.json",
+      "packed_bytes": 76216,
+      "uncompressed_bytes": 198452
+    },
+    {
+      "id": "detail_10_00",
+      "rect": [
+        3700.0,
+        -15700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_10_00.agdt.gz",
+      "bytes": 2382019,
+      "counts": {
+        "building_large": 228,
+        "building_medium": 1100,
+        "building_small": 5348,
+        "civic": 49,
+        "farmland": 17,
+        "forest": 3,
+        "grass": 75,
+        "industrial": 32,
+        "park": 191,
+        "parking": 128,
+        "port": 25,
+        "rail": 72,
+        "residential": 9,
+        "water": 29,
+        "waterway": 57
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_10_00.json",
+      "packed_bytes": 377892,
+      "uncompressed_bytes": 1091356
+    },
+    {
+      "id": "detail_11_00",
+      "rect": [
+        5700.0,
+        -15700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_11_00.agdt.gz",
+      "bytes": 2784900,
+      "counts": {
+        "building_large": 258,
+        "building_medium": 1609,
+        "building_small": 6636,
+        "civic": 34,
+        "farmland": 97,
+        "forest": 2,
+        "grass": 8,
+        "industrial": 73,
+        "meadow": 5,
+        "park": 199,
+        "parking": 194,
+        "port": 7,
+        "rail": 39,
+        "residential": 5,
+        "water": 13,
+        "waterway": 78
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_11_00.json",
+      "packed_bytes": 465049,
+      "uncompressed_bytes": 1278048
+    },
+    {
+      "id": "detail_10_01",
+      "rect": [
+        3700.0,
+        -13700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_10_01.agdt.gz",
+      "bytes": 2793788,
+      "counts": {
+        "building_large": 462,
+        "building_medium": 2159,
+        "building_small": 4711,
+        "civic": 41,
+        "farmland": 28,
+        "forest": 92,
+        "grass": 91,
+        "industrial": 28,
+        "park": 156,
+        "parking": 174,
+        "port": 29,
+        "rail": 21,
+        "residential": 64,
+        "water": 49,
+        "waterway": 75
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_10_01.json",
+      "packed_bytes": 445697,
+      "uncompressed_bytes": 1278568
+    },
+    {
+      "id": "detail_11_01",
+      "rect": [
+        5700.0,
+        -13700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_11_01.agdt.gz",
+      "bytes": 7606192,
+      "counts": {
+        "building_large": 462,
+        "building_medium": 4384,
+        "building_small": 18878,
+        "civic": 29,
+        "farmland": 1,
+        "forest": 152,
+        "grass": 72,
+        "industrial": 42,
+        "park": 289,
+        "parking": 194,
+        "port": 34,
+        "rail": 14,
+        "residential": 54,
+        "water": 25,
+        "waterway": 19
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_11_01.json",
+      "packed_bytes": 1270728,
+      "uncompressed_bytes": 3492200
+    },
+    {
+      "id": "detail_10_02",
+      "rect": [
+        3700.0,
+        -11700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_10_02.agdt.gz",
+      "bytes": 2525771,
+      "counts": {
+        "building_large": 239,
+        "building_medium": 475,
+        "building_small": 2611,
+        "civic": 6,
+        "farmland": 2,
+        "forest": 506,
+        "grass": 90,
+        "industrial": 23,
+        "meadow": 1,
+        "park": 614,
+        "parking": 115,
+        "port": 10,
+        "rail": 27,
+        "residential": 30,
+        "water": 108,
+        "waterway": 53
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_10_02.json",
+      "packed_bytes": 342305,
+      "uncompressed_bytes": 1145464
+    },
+    {
+      "id": "detail_11_02",
+      "rect": [
+        5700.0,
+        -11700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_11_02.agdt.gz",
+      "bytes": 4944467,
+      "counts": {
+        "building_large": 723,
+        "building_medium": 1583,
+        "building_small": 9673,
+        "civic": 27,
+        "farmland": 3,
+        "forest": 519,
+        "grass": 152,
+        "industrial": 55,
+        "park": 648,
+        "parking": 306,
+        "port": 27,
+        "rail": 12,
+        "residential": 50,
+        "water": 28,
+        "waterway": 7
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_11_02.json",
+      "packed_bytes": 792664,
+      "uncompressed_bytes": 2259592
+    },
+    {
+      "id": "detail_11_03",
+      "rect": [
+        5700.0,
+        -9700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_11_03.agdt.gz",
+      "bytes": 239,
+      "counts": {},
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_11_03.json",
+      "packed_bytes": 45,
+      "uncompressed_bytes": 108
+    },
+    {
+      "id": "detail_10_06",
+      "rect": [
+        3700.0,
+        -3700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_10_06.agdt.gz",
+      "bytes": 239,
+      "counts": {},
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_10_06.json",
+      "packed_bytes": 43,
+      "uncompressed_bytes": 108
+    },
+    {
+      "id": "detail_10_07",
+      "rect": [
+        3700.0,
+        -1700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_10_07.agdt.gz",
+      "bytes": 4757,
+      "counts": {
+        "building_medium": 1,
+        "building_small": 1,
+        "grass": 5,
+        "parking": 6,
+        "port": 7
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_10_07.json",
+      "packed_bytes": 788,
+      "uncompressed_bytes": 2200
+    },
+    {
+      "id": "detail_11_07",
+      "rect": [
+        5700.0,
+        -1700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_11_07.agdt.gz",
+      "bytes": 17687,
+      "counts": {
+        "building_large": 7,
+        "building_medium": 3,
+        "building_small": 12,
+        "farmland": 15,
+        "grass": 8,
+        "industrial": 2,
+        "parking": 4,
+        "port": 2,
+        "residential": 7,
+        "water": 1,
+        "waterway": 3
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_11_07.json",
+      "packed_bytes": 2841,
+      "uncompressed_bytes": 9504
+    },
+    {
+      "id": "detail_11_08",
+      "rect": [
+        5700.0,
+        300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_11_08.agdt.gz",
+      "bytes": 343577,
+      "counts": {
+        "building_large": 34,
+        "building_medium": 237,
+        "building_small": 613,
+        "civic": 4,
+        "farmland": 7,
+        "forest": 1,
+        "grass": 23,
+        "industrial": 1,
+        "park": 10,
+        "parking": 18,
+        "rail": 8,
+        "water": 14,
+        "waterway": 24
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_11_08.json",
+      "packed_bytes": 64609,
+      "uncompressed_bytes": 185596
+    },
+    {
+      "id": "detail_10_09",
+      "rect": [
+        3700.0,
+        2300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_10_09.agdt.gz",
+      "bytes": 75894,
+      "counts": {
+        "building_large": 40,
+        "building_medium": 90,
+        "building_small": 74,
+        "industrial": 2,
+        "port": 5,
+        "rail": 25,
+        "water": 4,
+        "waterway": 1
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_10_09.json",
+      "packed_bytes": 11464,
+      "uncompressed_bytes": 38944
+    },
+    {
+      "id": "detail_11_09",
+      "rect": [
+        5700.0,
+        2300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_11_09.agdt.gz",
+      "bytes": 313445,
+      "counts": {
+        "building_large": 126,
+        "building_medium": 231,
+        "building_small": 331,
+        "civic": 6,
+        "grass": 14,
+        "industrial": 15,
+        "park": 38,
+        "parking": 107,
+        "port": 4,
+        "rail": 54,
+        "residential": 28,
+        "water": 8,
+        "waterway": 27
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_11_09.json",
+      "packed_bytes": 57518,
+      "uncompressed_bytes": 160896
+    },
+    {
+      "id": "detail_10_10",
+      "rect": [
+        3700.0,
+        4300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_10_10.agdt.gz",
+      "bytes": 2829647,
+      "counts": {
+        "building_large": 288,
+        "building_medium": 1777,
+        "building_small": 8343,
+        "civic": 4,
+        "farmland": 240,
+        "forest": 20,
+        "grass": 34,
+        "industrial": 15,
+        "park": 57,
+        "parking": 156,
+        "port": 2,
+        "rail": 138,
+        "residential": 55,
+        "water": 69,
+        "waterway": 35
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_10_10.json",
+      "packed_bytes": 519437,
+      "uncompressed_bytes": 1464040
+    },
+    {
+      "id": "detail_11_10",
+      "rect": [
+        5700.0,
+        4300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_11_10.agdt.gz",
+      "bytes": 3331975,
+      "counts": {
+        "building_large": 164,
+        "building_medium": 1629,
+        "building_small": 11812,
+        "civic": 16,
+        "farmland": 51,
+        "forest": 6,
+        "grass": 12,
+        "industrial": 6,
+        "park": 83,
+        "parking": 280,
+        "rail": 36,
+        "residential": 31,
+        "water": 31,
+        "waterway": 11
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_11_10.json",
+      "packed_bytes": 632900,
+      "uncompressed_bytes": 1727492
+    },
+    {
+      "id": "detail_10_11",
+      "rect": [
+        3700.0,
+        6300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_10_11.agdt.gz",
+      "bytes": 2144333,
+      "counts": {
+        "building_large": 91,
+        "building_medium": 1593,
+        "building_small": 7485,
+        "civic": 5,
+        "farmland": 323,
+        "forest": 12,
+        "industrial": 1,
+        "park": 4,
+        "parking": 20,
+        "port": 3,
+        "rail": 5,
+        "water": 26,
+        "waterway": 141
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_10_11.json",
+      "packed_bytes": 423940,
+      "uncompressed_bytes": 1113284
+    },
+    {
+      "id": "detail_11_11",
+      "rect": [
+        5700.0,
+        6300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_11_11.agdt.gz",
+      "bytes": 2324649,
+      "counts": {
+        "building_large": 82,
+        "building_medium": 1405,
+        "building_small": 7824,
+        "civic": 10,
+        "farmland": 282,
+        "forest": 5,
+        "grass": 1,
+        "industrial": 6,
+        "park": 39,
+        "parking": 64,
+        "residential": 6,
+        "water": 57,
+        "waterway": 65
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_11_11.json",
+      "packed_bytes": 445042,
+      "uncompressed_bytes": 1204676
+    },
+    {
+      "id": "detail_10_12",
+      "rect": [
+        3700.0,
+        8300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_10_12.agdt.gz",
+      "bytes": 1276246,
+      "counts": {
+        "building_large": 27,
+        "building_medium": 876,
+        "building_small": 4202,
+        "civic": 3,
+        "farmland": 214,
+        "forest": 7,
+        "industrial": 1,
+        "park": 6,
+        "parking": 18,
+        "port": 8,
+        "rail": 18,
+        "residential": 9,
+        "water": 19,
+        "waterway": 46
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_10_12.json",
+      "packed_bytes": 246091,
+      "uncompressed_bytes": 657544
+    },
+    {
+      "id": "detail_11_12",
+      "rect": [
+        5700.0,
+        8300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_11_12.agdt.gz",
+      "bytes": 662503,
+      "counts": {
+        "building_large": 21,
+        "building_medium": 540,
+        "building_small": 1598,
+        "farmland": 165,
+        "forest": 5,
+        "grass": 1,
+        "industrial": 6,
+        "park": 2,
+        "parking": 12,
+        "residential": 3,
+        "water": 27,
+        "waterway": 87
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_11_12.json",
+      "packed_bytes": 122455,
+      "uncompressed_bytes": 339844
+    },
+    {
+      "id": "detail_10_13",
+      "rect": [
+        3700.0,
+        10300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_10_13.agdt.gz",
+      "bytes": 630165,
+      "counts": {
+        "building_large": 19,
+        "building_medium": 439,
+        "building_small": 1786,
+        "civic": 1,
+        "farmland": 50,
+        "forest": 6,
+        "park": 2,
+        "parking": 13,
+        "port": 13,
+        "rail": 18,
+        "water": 11,
+        "waterway": 24
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_10_13.json",
+      "packed_bytes": 113924,
+      "uncompressed_bytes": 306760
+    },
+    {
+      "id": "detail_11_13",
+      "rect": [
+        5700.0,
+        10300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_11_13.agdt.gz",
+      "bytes": 518654,
+      "counts": {
+        "building_large": 10,
+        "building_medium": 317,
+        "building_small": 1511,
+        "farmland": 90,
+        "forest": 6,
+        "meadow": 4,
+        "park": 3,
+        "parking": 8,
+        "water": 11,
+        "waterway": 44
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_11_13.json",
+      "packed_bytes": 93590,
+      "uncompressed_bytes": 252596
+    },
+    {
+      "id": "detail_10_14",
+      "rect": [
+        3700.0,
+        12300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_10_14.agdt.gz",
+      "bytes": 884750,
+      "counts": {
+        "building_large": 8,
+        "building_medium": 527,
+        "building_small": 3061,
+        "civic": 2,
+        "farmland": 10,
+        "forest": 2,
+        "grass": 24,
+        "park": 3,
+        "parking": 7,
+        "port": 4,
+        "rail": 13,
+        "residential": 2,
+        "water": 17,
+        "waterway": 43
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_10_14.json",
+      "packed_bytes": 164115,
+      "uncompressed_bytes": 432364
+    },
+    {
+      "id": "detail_11_14",
+      "rect": [
+        5700.0,
+        12300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_11_14.agdt.gz",
+      "bytes": 575674,
+      "counts": {
+        "building_large": 17,
+        "building_medium": 486,
+        "building_small": 1766,
+        "farmland": 7,
+        "water": 10,
+        "waterway": 16
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_11_14.json",
+      "packed_bytes": 107868,
+      "uncompressed_bytes": 281016
+    },
+    {
+      "id": "detail_11_15",
+      "rect": [
+        5700.0,
+        14300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_11_15.agdt.gz",
+      "bytes": 131191,
+      "counts": {
+        "building_large": 1,
+        "building_medium": 91,
+        "building_small": 377,
+        "civic": 1,
+        "waterway": 17
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_11_15.json",
+      "packed_bytes": 21300,
+      "uncompressed_bytes": 63828
+    },
+    {
+      "id": "detail_12_00",
+      "rect": [
+        7700.0,
+        -15700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_12_00.agdt.gz",
+      "bytes": 3125259,
+      "counts": {
+        "building_large": 403,
+        "building_medium": 1688,
+        "building_small": 6716,
+        "civic": 20,
+        "farmland": 204,
+        "forest": 6,
+        "grass": 10,
+        "industrial": 77,
+        "meadow": 1,
+        "park": 116,
+        "parking": 269,
+        "rail": 206,
+        "residential": 8,
+        "water": 29,
+        "waterway": 36
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_12_00.json",
+      "packed_bytes": 515860,
+      "uncompressed_bytes": 1432528
+    },
+    {
+      "id": "detail_13_00",
+      "rect": [
+        9700.0,
+        -15700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_13_00.agdt.gz",
+      "bytes": 2584331,
+      "counts": {
+        "building_large": 460,
+        "building_medium": 1830,
+        "building_small": 4147,
+        "civic": 29,
+        "farmland": 372,
+        "forest": 17,
+        "grass": 14,
+        "industrial": 52,
+        "park": 128,
+        "parking": 375,
+        "port": 6,
+        "rail": 123,
+        "residential": 10,
+        "water": 8,
+        "waterway": 107
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_13_00.json",
+      "packed_bytes": 415329,
+      "uncompressed_bytes": 1129024
+    },
+    {
+      "id": "detail_12_01",
+      "rect": [
+        7700.0,
+        -13700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_12_01.agdt.gz",
+      "bytes": 431125,
+      "counts": {
+        "building_large": 245,
+        "building_medium": 279,
+        "building_small": 695,
+        "forest": 4,
+        "grass": 2,
+        "industrial": 17,
+        "park": 9,
+        "parking": 7,
+        "port": 2,
+        "rail": 14,
+        "water": 6,
+        "waterway": 8
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_12_01.json",
+      "packed_bytes": 74310,
+      "uncompressed_bytes": 197520
+    },
+    {
+      "id": "detail_13_01",
+      "rect": [
+        9700.0,
+        -13700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_13_01.agdt.gz",
+      "bytes": 612119,
+      "counts": {
+        "building_large": 387,
+        "building_medium": 543,
+        "building_small": 402,
+        "civic": 10,
+        "farmland": 1,
+        "forest": 15,
+        "grass": 25,
+        "industrial": 20,
+        "park": 55,
+        "parking": 72,
+        "port": 12,
+        "rail": 36,
+        "residential": 10,
+        "water": 14,
+        "waterway": 13
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_13_01.json",
+      "packed_bytes": 95500,
+      "uncompressed_bytes": 265280
+    },
+    {
+      "id": "detail_12_02",
+      "rect": [
+        7700.0,
+        -11700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_12_02.agdt.gz",
+      "bytes": 178739,
+      "counts": {
+        "building_large": 19,
+        "building_medium": 5,
+        "building_small": 515,
+        "civic": 2,
+        "forest": 25,
+        "grass": 1,
+        "industrial": 1,
+        "park": 24,
+        "parking": 6,
+        "residential": 4
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_12_02.json",
+      "packed_bytes": 26775,
+      "uncompressed_bytes": 81856
+    },
+    {
+      "id": "detail_13_02",
+      "rect": [
+        9700.0,
+        -11700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_13_02.agdt.gz",
+      "bytes": 2059,
+      "counts": {
+        "rail": 1
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_13_02.json",
+      "packed_bytes": 541,
+      "uncompressed_bytes": 880
+    },
+    {
+      "id": "detail_13_06",
+      "rect": [
+        9700.0,
+        -3700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_13_06.agdt.gz",
+      "bytes": 217208,
+      "counts": {
+        "building_large": 52,
+        "building_medium": 159,
+        "building_small": 74,
+        "forest": 8,
+        "industrial": 8,
+        "parking": 1,
+        "rail": 8
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_13_06.json",
+      "packed_bytes": 33526,
+      "uncompressed_bytes": 98560
+    },
+    {
+      "id": "detail_12_07",
+      "rect": [
+        7700.0,
+        -1700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_12_07.agdt.gz",
+      "bytes": 154251,
+      "counts": {
+        "building_large": 113,
+        "building_medium": 171,
+        "building_small": 87,
+        "civic": 1,
+        "farmland": 23,
+        "forest": 77,
+        "grass": 6,
+        "industrial": 10,
+        "park": 8,
+        "parking": 11,
+        "port": 5,
+        "rail": 6,
+        "residential": 21,
+        "water": 9,
+        "waterway": 24
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_12_07.json",
+      "packed_bytes": 24813,
+      "uncompressed_bytes": 80852
+    },
+    {
+      "id": "detail_13_07",
+      "rect": [
+        9700.0,
+        -1700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_13_07.agdt.gz",
+      "bytes": 190236,
+      "counts": {
+        "building_large": 119,
+        "building_medium": 201,
+        "building_small": 110,
+        "civic": 5,
+        "farmland": 2,
+        "forest": 70,
+        "grass": 6,
+        "industrial": 12,
+        "park": 33,
+        "parking": 24,
+        "rail": 27,
+        "residential": 10,
+        "water": 8,
+        "waterway": 23
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_13_07.json",
+      "packed_bytes": 30446,
+      "uncompressed_bytes": 92012
+    },
+    {
+      "id": "detail_12_08",
+      "rect": [
+        7700.0,
+        300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_12_08.agdt.gz",
+      "bytes": 116143,
+      "counts": {
+        "building_large": 33,
+        "building_medium": 55,
+        "building_small": 62,
+        "civic": 4,
+        "farmland": 56,
+        "grass": 2,
+        "industrial": 4,
+        "park": 22,
+        "parking": 29,
+        "rail": 14,
+        "residential": 29,
+        "water": 1,
+        "waterway": 29
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_12_08.json",
+      "packed_bytes": 19649,
+      "uncompressed_bytes": 61616
+    },
+    {
+      "id": "detail_13_08",
+      "rect": [
+        9700.0,
+        300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_13_08.agdt.gz",
+      "bytes": 59436,
+      "counts": {
+        "building_large": 12,
+        "building_medium": 19,
+        "building_small": 22,
+        "civic": 3,
+        "farmland": 16,
+        "forest": 2,
+        "industrial": 2,
+        "orchard": 6,
+        "park": 3,
+        "parking": 14,
+        "residential": 3,
+        "water": 7,
+        "waterway": 42
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_13_08.json",
+      "packed_bytes": 9196,
+      "uncompressed_bytes": 29120
+    },
+    {
+      "id": "detail_12_09",
+      "rect": [
+        7700.0,
+        2300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_12_09.agdt.gz",
+      "bytes": 549692,
+      "counts": {
+        "building_large": 103,
+        "building_medium": 340,
+        "building_small": 1334,
+        "civic": 11,
+        "farmland": 21,
+        "forest": 1,
+        "industrial": 8,
+        "park": 70,
+        "parking": 124,
+        "rail": 5,
+        "residential": 18,
+        "water": 8,
+        "waterway": 42
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_12_09.json",
+      "packed_bytes": 105804,
+      "uncompressed_bytes": 283620
+    },
+    {
+      "id": "detail_13_09",
+      "rect": [
+        9700.0,
+        2300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_13_09.agdt.gz",
+      "bytes": 45736,
+      "counts": {
+        "building_large": 2,
+        "building_medium": 6,
+        "building_small": 9,
+        "civic": 2,
+        "farmland": 3,
+        "forest": 1,
+        "industrial": 4,
+        "park": 5,
+        "parking": 1,
+        "rail": 9,
+        "water": 5,
+        "waterway": 52
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_13_09.json",
+      "packed_bytes": 8063,
+      "uncompressed_bytes": 22108
+    },
+    {
+      "id": "detail_12_10",
+      "rect": [
+        7700.0,
+        4300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_12_10.agdt.gz",
+      "bytes": 1348445,
+      "counts": {
+        "building_large": 25,
+        "building_medium": 261,
+        "building_small": 4774,
+        "civic": 3,
+        "farmland": 20,
+        "forest": 15,
+        "grass": 2,
+        "industrial": 6,
+        "park": 50,
+        "parking": 152,
+        "residential": 19,
+        "water": 5,
+        "waterway": 14
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_12_10.json",
+      "packed_bytes": 247315,
+      "uncompressed_bytes": 697892
+    },
+    {
+      "id": "detail_13_10",
+      "rect": [
+        9700.0,
+        4300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_13_10.agdt.gz",
+      "bytes": 118150,
+      "counts": {
+        "building_large": 16,
+        "building_medium": 78,
+        "building_small": 168,
+        "civic": 1,
+        "farmland": 9,
+        "grass": 1,
+        "park": 5,
+        "parking": 11,
+        "water": 10,
+        "waterway": 19
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_13_10.json",
+      "packed_bytes": 16966,
+      "uncompressed_bytes": 57192
+    },
+    {
+      "id": "detail_12_11",
+      "rect": [
+        7700.0,
+        6300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_12_11.agdt.gz",
+      "bytes": 1392775,
+      "counts": {
+        "building_large": 38,
+        "building_medium": 1045,
+        "building_small": 4088,
+        "civic": 5,
+        "farmland": 440,
+        "forest": 7,
+        "grass": 3,
+        "industrial": 2,
+        "park": 13,
+        "parking": 33,
+        "residential": 5,
+        "water": 32,
+        "waterway": 63
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_12_11.json",
+      "packed_bytes": 264411,
+      "uncompressed_bytes": 720396
+    },
+    {
+      "id": "detail_13_11",
+      "rect": [
+        9700.0,
+        6300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_13_11.agdt.gz",
+      "bytes": 448142,
+      "counts": {
+        "building_large": 32,
+        "building_medium": 470,
+        "building_small": 1072,
+        "civic": 1,
+        "farmland": 81,
+        "forest": 3,
+        "grass": 1,
+        "industrial": 1,
+        "park": 6,
+        "parking": 8,
+        "water": 6,
+        "waterway": 39
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_13_11.json",
+      "packed_bytes": 82801,
+      "uncompressed_bytes": 222024
+    },
+    {
+      "id": "detail_12_12",
+      "rect": [
+        7700.0,
+        8300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_12_12.agdt.gz",
+      "bytes": 249754,
+      "counts": {
+        "building_large": 15,
+        "building_medium": 207,
+        "building_small": 623,
+        "civic": 1,
+        "farmland": 52,
+        "grass": 2,
+        "meadow": 1,
+        "park": 1,
+        "parking": 3,
+        "residential": 1,
+        "water": 9,
+        "waterway": 26
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_12_12.json",
+      "packed_bytes": 47523,
+      "uncompressed_bytes": 127744
+    },
+    {
+      "id": "detail_13_12",
+      "rect": [
+        9700.0,
+        8300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_13_12.agdt.gz",
+      "bytes": 592240,
+      "counts": {
+        "building_large": 13,
+        "building_medium": 517,
+        "building_small": 1451,
+        "farmland": 177,
+        "forest": 2,
+        "industrial": 2,
+        "parking": 4,
+        "water": 27,
+        "waterway": 33
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_13_12.json",
+      "packed_bytes": 105130,
+      "uncompressed_bytes": 286900
+    },
+    {
+      "id": "detail_12_13",
+      "rect": [
+        7700.0,
+        10300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_12_13.agdt.gz",
+      "bytes": 291401,
+      "counts": {
+        "building_large": 16,
+        "building_medium": 187,
+        "building_small": 597,
+        "farmland": 67,
+        "grass": 1,
+        "meadow": 15,
+        "orchard": 1,
+        "park": 10,
+        "parking": 11,
+        "water": 10,
+        "waterway": 34
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_12_13.json",
+      "packed_bytes": 53106,
+      "uncompressed_bytes": 141108
+    },
+    {
+      "id": "detail_13_13",
+      "rect": [
+        9700.0,
+        10300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_13_13.agdt.gz",
+      "bytes": 565353,
+      "counts": {
+        "building_large": 11,
+        "building_medium": 293,
+        "building_small": 964,
+        "civic": 1,
+        "farmland": 239,
+        "forest": 2,
+        "parking": 7,
+        "residential": 1,
+        "water": 20,
+        "waterway": 45
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_13_13.json",
+      "packed_bytes": 89804,
+      "uncompressed_bytes": 258632
+    },
+    {
+      "id": "detail_12_14",
+      "rect": [
+        7700.0,
+        12300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_12_14.agdt.gz",
+      "bytes": 343175,
+      "counts": {
+        "building_large": 17,
+        "building_medium": 327,
+        "building_small": 811,
+        "civic": 1,
+        "farmland": 8,
+        "parking": 1,
+        "water": 13,
+        "waterway": 31
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_12_14.json",
+      "packed_bytes": 66777,
+      "uncompressed_bytes": 166708
+    },
+    {
+      "id": "detail_13_14",
+      "rect": [
+        9700.0,
+        12300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_13_14.agdt.gz",
+      "bytes": 146143,
+      "counts": {
+        "building_large": 3,
+        "building_medium": 64,
+        "building_small": 220,
+        "farmland": 34,
+        "parking": 3,
+        "water": 4,
+        "waterway": 42
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_13_14.json",
+      "packed_bytes": 24419,
+      "uncompressed_bytes": 66800
+    },
+    {
+      "id": "detail_12_15",
+      "rect": [
+        7700.0,
+        14300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_12_15.agdt.gz",
+      "bytes": 123453,
+      "counts": {
+        "building_large": 1,
+        "building_medium": 97,
+        "building_small": 325,
+        "forest": 1,
+        "water": 1,
+        "waterway": 19
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_12_15.json",
+      "packed_bytes": 20462,
+      "uncompressed_bytes": 59964
+    },
+    {
+      "id": "detail_13_15",
+      "rect": [
+        9700.0,
+        14300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_13_15.agdt.gz",
+      "bytes": 167955,
+      "counts": {
+        "building_large": 4,
+        "building_medium": 37,
+        "building_small": 135,
+        "farmland": 89,
+        "forest": 1,
+        "park": 1,
+        "parking": 9,
+        "water": 3,
+        "waterway": 36
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_13_15.json",
+      "packed_bytes": 27093,
+      "uncompressed_bytes": 76284
+    },
+    {
+      "id": "detail_14_00",
+      "rect": [
+        11700.0,
+        -15700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_14_00.agdt.gz",
+      "bytes": 1612103,
+      "counts": {
+        "building_large": 398,
+        "building_medium": 977,
+        "building_small": 1896,
+        "civic": 42,
+        "farmland": 107,
+        "forest": 25,
+        "grass": 23,
+        "industrial": 21,
+        "park": 140,
+        "parking": 250,
+        "rail": 53,
+        "residential": 15,
+        "water": 10,
+        "waterway": 49
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_14_00.json",
+      "packed_bytes": 250098,
+      "uncompressed_bytes": 696408
+    },
+    {
+      "id": "detail_15_00",
+      "rect": [
+        13700.0,
+        -15700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_15_00.agdt.gz",
+      "bytes": 3562921,
+      "counts": {
+        "building_large": 205,
+        "building_medium": 1116,
+        "building_small": 8162,
+        "civic": 25,
+        "farmland": 63,
+        "forest": 9,
+        "grass": 34,
+        "industrial": 39,
+        "orchard": 1,
+        "park": 81,
+        "parking": 365,
+        "rail": 18,
+        "residential": 79,
+        "water": 3,
+        "waterway": 20
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_15_00.json",
+      "packed_bytes": 534093,
+      "uncompressed_bytes": 1546184
+    },
+    {
+      "id": "detail_14_01",
+      "rect": [
+        11700.0,
+        -13700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_14_01.agdt.gz",
+      "bytes": 1948354,
+      "counts": {
+        "building_large": 327,
+        "building_medium": 911,
+        "building_small": 2702,
+        "civic": 29,
+        "farmland": 43,
+        "forest": 54,
+        "grass": 35,
+        "industrial": 57,
+        "park": 158,
+        "parking": 224,
+        "rail": 216,
+        "residential": 107,
+        "water": 16,
+        "waterway": 19
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_14_01.json",
+      "packed_bytes": 297440,
+      "uncompressed_bytes": 842040
+    },
+    {
+      "id": "detail_15_01",
+      "rect": [
+        13700.0,
+        -13700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_15_01.agdt.gz",
+      "bytes": 2522806,
+      "counts": {
+        "building_large": 112,
+        "building_medium": 851,
+        "building_small": 5108,
+        "civic": 23,
+        "farmland": 64,
+        "forest": 4,
+        "grass": 13,
+        "industrial": 19,
+        "park": 119,
+        "parking": 57,
+        "rail": 14,
+        "residential": 19,
+        "water": 5,
+        "waterway": 27
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_15_01.json",
+      "packed_bytes": 371539,
+      "uncompressed_bytes": 1092492
+    },
+    {
+      "id": "detail_14_02",
+      "rect": [
+        11700.0,
+        -11700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_14_02.agdt.gz",
+      "bytes": 1009392,
+      "counts": {
+        "building_large": 279,
+        "building_medium": 319,
+        "building_small": 861,
+        "civic": 21,
+        "forest": 7,
+        "grass": 46,
+        "industrial": 37,
+        "park": 106,
+        "parking": 57,
+        "port": 5,
+        "rail": 10,
+        "residential": 325,
+        "water": 13,
+        "waterway": 9
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_14_02.json",
+      "packed_bytes": 146718,
+      "uncompressed_bytes": 434200
+    },
+    {
+      "id": "detail_15_02",
+      "rect": [
+        13700.0,
+        -11700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_15_02.agdt.gz",
+      "bytes": 2717165,
+      "counts": {
+        "building_large": 440,
+        "building_medium": 1561,
+        "building_small": 3868,
+        "civic": 42,
+        "farmland": 1,
+        "forest": 11,
+        "grass": 64,
+        "industrial": 75,
+        "park": 240,
+        "parking": 149,
+        "rail": 48,
+        "residential": 339,
+        "water": 10,
+        "waterway": 12
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_15_02.json",
+      "packed_bytes": 409864,
+      "uncompressed_bytes": 1178136
+    },
+    {
+      "id": "detail_14_03",
+      "rect": [
+        11700.0,
+        -9700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_14_03.agdt.gz",
+      "bytes": 14746,
+      "counts": {
+        "park": 1
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_14_03.json",
+      "packed_bytes": 1665,
+      "uncompressed_bytes": 6324
+    },
+    {
+      "id": "detail_15_03",
+      "rect": [
+        13700.0,
+        -9700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_15_03.agdt.gz",
+      "bytes": 400857,
+      "counts": {
+        "building_large": 125,
+        "building_medium": 188,
+        "building_small": 448,
+        "civic": 3,
+        "forest": 8,
+        "grass": 9,
+        "industrial": 32,
+        "park": 28,
+        "parking": 27,
+        "port": 6,
+        "rail": 15,
+        "residential": 11,
+        "water": 7,
+        "waterway": 3
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_15_03.json",
+      "packed_bytes": 64069,
+      "uncompressed_bytes": 182200
+    },
+    {
+      "id": "detail_14_04",
+      "rect": [
+        11700.0,
+        -7700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_14_04.agdt.gz",
+      "bytes": 243,
+      "counts": {},
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_14_04.json",
+      "packed_bytes": 45,
+      "uncompressed_bytes": 108
+    },
+    {
+      "id": "detail_15_04",
+      "rect": [
+        13700.0,
+        -7700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_15_04.agdt.gz",
+      "bytes": 211129,
+      "counts": {
+        "building_large": 125,
+        "building_medium": 136,
+        "building_small": 421,
+        "industrial": 14,
+        "port": 1,
+        "rail": 6,
+        "water": 2,
+        "waterway": 1
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_15_04.json",
+      "packed_bytes": 36463,
+      "uncompressed_bytes": 96884
+    },
+    {
+      "id": "detail_14_05",
+      "rect": [
+        11700.0,
+        -5700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_14_05.agdt.gz",
+      "bytes": 29276,
+      "counts": {
+        "building_medium": 1,
+        "building_small": 1,
+        "forest": 2,
+        "industrial": 14,
+        "park": 3,
+        "parking": 1,
+        "port": 3,
+        "rail": 22,
+        "water": 8,
+        "waterway": 8
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_14_05.json",
+      "packed_bytes": 4749,
+      "uncompressed_bytes": 13136
+    },
+    {
+      "id": "detail_15_05",
+      "rect": [
+        13700.0,
+        -5700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_15_05.agdt.gz",
+      "bytes": 221928,
+      "counts": {
+        "building_large": 109,
+        "building_medium": 173,
+        "building_small": 148,
+        "civic": 6,
+        "farmland": 3,
+        "forest": 5,
+        "grass": 9,
+        "industrial": 22,
+        "park": 81,
+        "parking": 31,
+        "port": 2,
+        "rail": 71,
+        "residential": 7,
+        "water": 9,
+        "waterway": 54
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_15_05.json",
+      "packed_bytes": 33738,
+      "uncompressed_bytes": 101240
+    },
+    {
+      "id": "detail_14_06",
+      "rect": [
+        11700.0,
+        -3700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_14_06.agdt.gz",
+      "bytes": 123798,
+      "counts": {
+        "building_large": 11,
+        "building_medium": 8,
+        "building_small": 29,
+        "civic": 9,
+        "farmland": 5,
+        "industrial": 23,
+        "park": 34,
+        "parking": 8,
+        "rail": 38,
+        "residential": 52,
+        "water": 10,
+        "waterway": 19
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_14_06.json",
+      "packed_bytes": 17822,
+      "uncompressed_bytes": 55808
+    },
+    {
+      "id": "detail_15_06",
+      "rect": [
+        13700.0,
+        -3700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_15_06.agdt.gz",
+      "bytes": 165455,
+      "counts": {
+        "building_large": 9,
+        "building_medium": 15,
+        "building_small": 10,
+        "civic": 2,
+        "farmland": 133,
+        "industrial": 2,
+        "park": 3,
+        "rail": 22,
+        "water": 5,
+        "waterway": 52
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_15_06.json",
+      "packed_bytes": 23470,
+      "uncompressed_bytes": 74492
+    },
+    {
+      "id": "detail_14_07",
+      "rect": [
+        11700.0,
+        -1700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_14_07.agdt.gz",
+      "bytes": 205104,
+      "counts": {
+        "building_large": 8,
+        "building_medium": 14,
+        "building_small": 172,
+        "civic": 3,
+        "farmland": 7,
+        "grass": 2,
+        "industrial": 6,
+        "park": 32,
+        "parking": 17,
+        "rail": 8,
+        "residential": 192,
+        "water": 8,
+        "waterway": 28
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_14_07.json",
+      "packed_bytes": 27183,
+      "uncompressed_bytes": 93580
+    },
+    {
+      "id": "detail_15_07",
+      "rect": [
+        13700.0,
+        -1700.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_15_07.agdt.gz",
+      "bytes": 44497,
+      "counts": {
+        "building_large": 2,
+        "building_medium": 4,
+        "building_small": 4,
+        "civic": 1,
+        "farmland": 9,
+        "grass": 8,
+        "park": 30,
+        "parking": 7,
+        "residential": 2,
+        "water": 11,
+        "waterway": 6
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_15_07.json",
+      "packed_bytes": 6476,
+      "uncompressed_bytes": 20604
+    },
+    {
+      "id": "detail_14_08",
+      "rect": [
+        11700.0,
+        300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_14_08.agdt.gz",
+      "bytes": 79918,
+      "counts": {
+        "building_large": 13,
+        "building_medium": 30,
+        "building_small": 55,
+        "farmland": 7,
+        "grass": 8,
+        "park": 13,
+        "parking": 4,
+        "port": 2,
+        "water": 12,
+        "waterway": 16
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_14_08.json",
+      "packed_bytes": 11392,
+      "uncompressed_bytes": 38724
+    },
+    {
+      "id": "detail_15_08",
+      "rect": [
+        13700.0,
+        300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_15_08.agdt.gz",
+      "bytes": 23334,
+      "counts": {
+        "building_medium": 4,
+        "building_small": 4,
+        "farmland": 5,
+        "grass": 3,
+        "park": 1,
+        "parking": 1,
+        "water": 2,
+        "waterway": 11
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_15_08.json",
+      "packed_bytes": 4281,
+      "uncompressed_bytes": 11080
+    },
+    {
+      "id": "detail_14_09",
+      "rect": [
+        11700.0,
+        2300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_14_09.agdt.gz",
+      "bytes": 90188,
+      "counts": {
+        "building_large": 3,
+        "building_medium": 23,
+        "building_small": 54,
+        "civic": 1,
+        "farmland": 14,
+        "grass": 1,
+        "park": 9,
+        "parking": 27,
+        "rail": 13,
+        "water": 7,
+        "waterway": 67
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_14_09.json",
+      "packed_bytes": 14360,
+      "uncompressed_bytes": 43212
+    },
+    {
+      "id": "detail_15_09",
+      "rect": [
+        13700.0,
+        2300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_15_09.agdt.gz",
+      "bytes": 145245,
+      "counts": {
+        "building_large": 7,
+        "building_medium": 69,
+        "building_small": 205,
+        "civic": 2,
+        "farmland": 4,
+        "forest": 1,
+        "grass": 5,
+        "park": 2,
+        "parking": 3,
+        "water": 11,
+        "waterway": 27
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_15_09.json",
+      "packed_bytes": 21506,
+      "uncompressed_bytes": 69900
+    },
+    {
+      "id": "detail_14_10",
+      "rect": [
+        11700.0,
+        4300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_14_10.agdt.gz",
+      "bytes": 721818,
+      "counts": {
+        "building_large": 25,
+        "building_medium": 711,
+        "building_small": 2029,
+        "farmland": 104,
+        "forest": 1,
+        "parking": 4,
+        "rail": 7,
+        "water": 9,
+        "waterway": 53
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_14_10.json",
+      "packed_bytes": 128837,
+      "uncompressed_bytes": 352192
+    },
+    {
+      "id": "detail_15_10",
+      "rect": [
+        13700.0,
+        4300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_15_10.agdt.gz",
+      "bytes": 185291,
+      "counts": {
+        "building_large": 10,
+        "building_medium": 163,
+        "building_small": 325,
+        "farmland": 34,
+        "parking": 4,
+        "water": 12,
+        "waterway": 12
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_15_10.json",
+      "packed_bytes": 28522,
+      "uncompressed_bytes": 89708
+    },
+    {
+      "id": "detail_14_11",
+      "rect": [
+        11700.0,
+        6300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_14_11.agdt.gz",
+      "bytes": 591356,
+      "counts": {
+        "building_large": 32,
+        "building_medium": 557,
+        "building_small": 1556,
+        "farmland": 72,
+        "forest": 5,
+        "industrial": 1,
+        "park": 1,
+        "parking": 1,
+        "rail": 3,
+        "residential": 1,
+        "water": 18,
+        "waterway": 25
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_14_11.json",
+      "packed_bytes": 107867,
+      "uncompressed_bytes": 288048
+    },
+    {
+      "id": "detail_15_11",
+      "rect": [
+        13700.0,
+        6300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_15_11.agdt.gz",
+      "bytes": 820919,
+      "counts": {
+        "building_large": 20,
+        "building_medium": 605,
+        "building_small": 1990,
+        "civic": 2,
+        "farmland": 179,
+        "forest": 7,
+        "grass": 1,
+        "park": 4,
+        "parking": 12,
+        "rail": 13,
+        "water": 49,
+        "waterway": 89
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_15_11.json",
+      "packed_bytes": 145708,
+      "uncompressed_bytes": 399072
+    },
+    {
+      "id": "detail_14_12",
+      "rect": [
+        11700.0,
+        8300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_14_12.agdt.gz",
+      "bytes": 402230,
+      "counts": {
+        "building_large": 51,
+        "building_medium": 388,
+        "building_small": 963,
+        "farmland": 86,
+        "forest": 3,
+        "park": 1,
+        "parking": 5,
+        "rail": 5,
+        "water": 7,
+        "waterway": 26
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_14_12.json",
+      "packed_bytes": 72940,
+      "uncompressed_bytes": 192920
+    },
+    {
+      "id": "detail_15_12",
+      "rect": [
+        13700.0,
+        8300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_15_12.agdt.gz",
+      "bytes": 421312,
+      "counts": {
+        "building_large": 5,
+        "building_medium": 344,
+        "building_small": 974,
+        "farmland": 69,
+        "industrial": 1,
+        "parking": 6,
+        "rail": 5,
+        "water": 20,
+        "waterway": 32
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_15_12.json",
+      "packed_bytes": 75952,
+      "uncompressed_bytes": 203764
+    },
+    {
+      "id": "detail_14_13",
+      "rect": [
+        11700.0,
+        10300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_14_13.agdt.gz",
+      "bytes": 221322,
+      "counts": {
+        "building_large": 17,
+        "building_medium": 170,
+        "building_small": 353,
+        "civic": 1,
+        "farmland": 65,
+        "grass": 1,
+        "parking": 4,
+        "rail": 1,
+        "water": 4,
+        "waterway": 32
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_14_13.json",
+      "packed_bytes": 36242,
+      "uncompressed_bytes": 101104
+    },
+    {
+      "id": "detail_15_13",
+      "rect": [
+        13700.0,
+        10300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_15_13.agdt.gz",
+      "bytes": 574829,
+      "counts": {
+        "building_large": 17,
+        "building_medium": 528,
+        "building_small": 1105,
+        "farmland": 201,
+        "grass": 1,
+        "industrial": 1,
+        "meadow": 1,
+        "park": 3,
+        "parking": 11,
+        "port": 2,
+        "rail": 9,
+        "water": 21,
+        "waterway": 56
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_15_13.json",
+      "packed_bytes": 98470,
+      "uncompressed_bytes": 263480
+    },
+    {
+      "id": "detail_14_14",
+      "rect": [
+        11700.0,
+        12300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_14_14.agdt.gz",
+      "bytes": 243807,
+      "counts": {
+        "building_large": 2,
+        "building_medium": 167,
+        "building_small": 340,
+        "civic": 1,
+        "farmland": 63,
+        "forest": 1,
+        "grass": 2,
+        "park": 2,
+        "parking": 2,
+        "port": 6,
+        "water": 7,
+        "waterway": 64
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_14_14.json",
+      "packed_bytes": 38828,
+      "uncompressed_bytes": 111248
+    },
+    {
+      "id": "detail_15_14",
+      "rect": [
+        13700.0,
+        12300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_15_14.agdt.gz",
+      "bytes": 110782,
+      "counts": {
+        "building_large": 7,
+        "building_medium": 36,
+        "building_small": 99,
+        "farmland": 4,
+        "forest": 1,
+        "parking": 14,
+        "port": 1,
+        "residential": 3,
+        "water": 5,
+        "waterway": 46
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_15_14.json",
+      "packed_bytes": 19264,
+      "uncompressed_bytes": 50224
+    },
+    {
+      "id": "detail_14_15",
+      "rect": [
+        11700.0,
+        14300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_14_15.agdt.gz",
+      "bytes": 132669,
+      "counts": {
+        "building_large": 4,
+        "building_medium": 36,
+        "building_small": 135,
+        "farmland": 9,
+        "parking": 3,
+        "water": 10,
+        "waterway": 42
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_14_15.json",
+      "packed_bytes": 21150,
+      "uncompressed_bytes": 60192
+    },
+    {
+      "id": "detail_15_15",
+      "rect": [
+        13700.0,
+        14300.0,
+        2000.0,
+        2000.0
+      ],
+      "data_path": "res://resources/maps/detail_tiles_packed/detail_15_15.agdt.gz",
+      "bytes": 89897,
+      "counts": {
+        "building_large": 1,
+        "building_medium": 19,
+        "building_small": 66,
+        "farmland": 1,
+        "parking": 1,
+        "water": 1,
+        "waterway": 37
+      },
+      "json_source_path": "tmp/full_map_detail/detail_tiles_source/detail_15_15.json",
+      "packed_bytes": 16743,
+      "uncompressed_bytes": 40632
+    }
+  ],
+  "format": {
+    "kind": "AGDT gzip",
+    "version": 1,
+    "coordinate_bits": 32,
+    "quantization_per_world_px": 4.0,
+    "triangle_layers": [
+      "forest",
+      "farmland",
+      "orchard",
+      "grass",
+      "meadow",
+      "industrial",
+      "residential",
+      "parking",
+      "civic",
+      "park",
+      "water",
+      "building_small",
+      "building_medium",
+      "building_large"
+    ],
+    "line_layers": [
+      "building_small_outline",
+      "building_medium_outline",
+      "building_large_outline",
+      "rail",
+      "waterway",
+      "port"
+    ]
+  },
+  "packed_bytes": 154880760,
+  "uncompressed_binary_bytes": 451856436,
+  "source_json_bytes": 995052271
+}

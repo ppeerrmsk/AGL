@@ -1,0 +1,24 @@
+{
+  "image": "ocean_islands_bg.png",
+  "bbox_ll": {
+    "lat_min": -9.622414142924804,
+    "lat_max": -8.885071663468988,
+    "lon_min": 159.609375,
+    "lon_max": 160.3564453125
+  },
+  "image_size_px": [
+    8704,
+    8704
+  ],
+  "zoom": 13,
+  "source": "CartoDB Voyager no-labels / OpenStreetMap",
+  "license": "OpenStreetMap ODbL + CARTO attribution",
+  "reference_label": "Ironbottom Sound",
+  "game_world_center_latlon": [
+    -9.25,
+    160.0
+  ],
+  "game_world_meters_per_degree_lat": 111000.0,
+  "game_world_meters_per_degree_lon_at_center": 109556.59668818575,
+  "game_world_px_per_meter": 0.5
+}

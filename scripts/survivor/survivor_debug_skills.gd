@@ -565,7 +565,7 @@ func _on_remove_skill(uid: String) -> void:
 func _refresh_live_state() -> void:
 	if _live_label == null:
 		return
-	var pref: Aircraft = AircraftRenderer.player_ref
+	var pref: Aircraft = AircraftRenderer.safe_player_ref()
 	if pref == null or not is_instance_valid(pref):
 		_live_label.text = "[color=#888]玩家飞机不可用[/color]"
 		return

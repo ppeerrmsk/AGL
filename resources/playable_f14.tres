@@ -27,5 +27,5 @@ infinite_fuel = true
 missile_damage_cap = 30.0
 bullet_damage_cap = 5.0
 bullet_dodge_chance = 0.10
-wingman_count = 3
+wingman_count = 1
 wingman_params = ExtResource("4")

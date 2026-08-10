@@ -262,7 +262,7 @@ static func dispatch_on_kill(killer: Aircraft, victim: Aircraft) -> void:
 
 	# ── EA v15 sig_faxx·穿透打击：仅当前 ACE 本机的机炮击杀触发，逐机 20s CD ──
 	if kind == "gun" and stacks.get("sig_faxx", 0) > 0 \
-			and killer == AircraftRenderer.player_ref and killer._sig_faxx_cd <= 0.0:
+			and killer == AircraftRenderer.safe_player_ref() and killer._sig_faxx_cd <= 0.0:
 		killer._sig_faxx_cd = SIG_FAXX_COOLDOWN
 		killer.apply_status(StatusEffects.STEALTH, SIG_FAXX_STEALTH_DURATION)
 		EventLogger.log_event("SKILL", killer._log_name(), "穿透打击：机炮击杀 → 5s 隐身")

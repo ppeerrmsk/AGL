@@ -139,6 +139,11 @@ func _build_frame_cache() -> void:
 ## visual_only: 视觉装饰弹 —— 正常飞行 / 渲染 / 寿命结束，但跳过所有命中判定
 ## 用于制造"CIWS 密集弹幕"的观感，同时不影响平衡（真实伤害由另一部分子弹承担）
 func spawn_bullet(origin: Vector2, direction: float, speed_ms: float, source: CombatUnit, damage: float, is_ciws: bool = false, visual_only: bool = false, life_seconds: float = 2.0) -> void:
+	# 正式气氛战斗在发射瞬间快照倍率；画外零伤害直接落入既有 visual_only 快路径。
+	damage *= CombatUnit.ambient_damage_multiplier(source)
+	# 气氛 LOD 会把画外 AI 的伤害归零：弹道仍生成/移动/绘制，但直接复用 visual_only
+	# 快路径跳过近炸、建筑和单位命中计算。CIWS 的导弹拦截语义不由伤害值决定，不能自动降级。
+	visual_only = visual_only or (damage <= 0.0 and not is_ciws)
 	# 装饰弹软上限：弹幕洪峰时丢弃多余的纯视觉弹，真弹不受影响（②）
 	if visual_only and _bullets.size() >= MAX_BULLETS:
 		return
@@ -197,6 +202,7 @@ func spawn_bomber_bomb(origin: Vector2, horizontal_velocity_px: Vector2, source:
 func spawn_airburst_shell(origin: Vector2, direction: float, speed_ms: float, source: CombatUnit,
 		fuse_time: float, burst_altitude: float, radius_m: float = 220.0,
 		damage: float = 75.0, burst_id: int = 0) -> void:
+	damage *= CombatUnit.ambient_damage_multiplier(source)
 	var vel := Vector2(sin(direction), -cos(direction)) * speed_ms * PIXELS_PER_METER
 	_airburst_shells.append({
 		"pos": origin, "vel": vel, "source": source,
@@ -204,6 +210,7 @@ func spawn_airburst_shell(origin: Vector2, direction: float, speed_ms: float, so
 		"life": maxf(fuse_time, 0.1), "max_life": maxf(fuse_time, 0.1),
 		"altitude": burst_altitude, "radius_px": radius_m * PIXELS_PER_METER,
 		"damage": damage, "burst_id": burst_id,
+		"visual_only": damage <= 0.0,
 	})
 
 ## 生成无制导火箭弹
@@ -215,6 +222,9 @@ func spawn_airburst_shell(origin: Vector2, direction: float, speed_ms: float, so
 ##   - 不被 LaserEquipment 拦截（同上，激光只看 Missile 实例）
 ##   - 不走导弹伤害 cap（Aircraft.take_damage 只在 kind=="missile" 时套 survivor_missile_damage_cap）
 func spawn_rocket(origin: Vector2, direction: float, speed_ms: float, source: CombatUnit, damage: float, max_range_m: float, prox_radius_m: float = 0.0, aoe_radius_m: float = 0.0, aoe_damage: float = 0.0) -> void:
+	var ambient_mult := CombatUnit.ambient_damage_multiplier(source)
+	damage *= ambient_mult
+	aoe_damage *= ambient_mult
 	var speed_px := speed_ms * PIXELS_PER_METER
 	var vel := Vector2(sin(direction), -cos(direction)) * speed_px
 	# 寿命 = 射程 / 初速；clamp 上限放到 10s 以容纳"长射程 + 高速"的玩家版火箭弹
@@ -244,6 +254,7 @@ func spawn_rocket(origin: Vector2, direction: float, speed_ms: float, source: Co
 		"prox_radius_px": prox_radius_m * PIXELS_PER_METER,
 		"aoe_radius_px": aoe_radius_m * PIXELS_PER_METER,
 		"aoe_damage": aoe_damage,
+		"visual_only": damage <= 0.0 and aoe_damage <= 0.0,
 		"min_damage_mult": 1.0,  ## 默认 1.0 = 无衰减；玩家方调用通过 spawn_rocket_with_falloff 覆盖
 		"spawn_in_building": spawn_in_b,
 		"source_tier": src_tier,
@@ -562,19 +573,21 @@ func _explode_airburst_shell(shell: Dictionary) -> void:
 	var radius_px: float = float(shell["radius_px"])
 	var source_team: int = int(shell["source_team"])
 	var burst_altitude: float = float(shell["altitude"])
-	var attacker: Node = CombatUnit.safe_attacker(shell.get("source"))
-	_grid_buf.clear()
-	_unit_grid.query_into(pos, _grid_buf)
-	for unit in _grid_buf:
-		if not is_instance_valid(unit) or unit.is_destroyed or not (unit is Aircraft):
-			continue
-		if not CombatUnit.teams_hostile(source_team, unit.team):
-			continue
-		if pos.distance_to(unit.global_position) > radius_px or absf(unit.altitude - burst_altitude) > 1000.0:
-			continue
-		if not unit.can_accept_new_hit("airburst"):
-			continue
-		unit.take_damage(float(shell["damage"]), attacker, "airburst")
+	# 远距气氛弹仍保留飞行、爆点和音效，但不进入空间网格查询与伤害循环。
+	if not bool(shell.get("visual_only", false)):
+		var attacker: Node = CombatUnit.safe_attacker(shell.get("source"))
+		_grid_buf.clear()
+		_unit_grid.query_into(pos, _grid_buf)
+		for unit in _grid_buf:
+			if not is_instance_valid(unit) or unit.is_destroyed or not (unit is Aircraft):
+				continue
+			if not CombatUnit.teams_hostile(source_team, unit.team):
+				continue
+			if pos.distance_to(unit.global_position) > radius_px or absf(unit.altitude - burst_altitude) > 1000.0:
+				continue
+			if not unit.can_accept_new_hit("airburst"):
+				continue
+			unit.take_damage(float(shell["damage"]), attacker, "airburst")
 	_area_flashes.append({
 		"pos": pos,
 		"radius": radius_px,

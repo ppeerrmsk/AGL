@@ -1,0 +1,25 @@
+{
+  "image": "desert_railway_bg_v2.png",
+  "bbox_ll": {
+    "lat_min": -23.684774166883745,
+    "lat_max": -22.998851594142916,
+    "lon_min": 119.267578125,
+    "lon_max": 120.0146484375
+  },
+  "image_size_px": [
+    8704,
+    8704
+  ],
+  "zoom": 13,
+  "source": "CartoDB Voyager no-labels / OpenStreetMap",
+  "license": "OpenStreetMap ODbL + CARTO attribution",
+  "reference_label": "Mount Whaleback / Newman West",
+  "game_world_center_latlon": [
+    -23.34718,
+    119.64044
+  ],
+  "game_world_meters_per_degree_lat": 111000.0,
+  "game_world_meters_per_degree_lon_at_center": 101911.35990454842,
+  "game_world_px_per_meter": 0.5,
+  "postprocess": "low-contrast generated Pilbara terrain under coordinate-stable CARTO/OSM lines"
+}

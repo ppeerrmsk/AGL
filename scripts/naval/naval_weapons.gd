@@ -263,6 +263,15 @@ static func _missile_already_engaged(nu: NavalUnit, m: Missile, current_mount: W
 static func _find_aircraft_in_range(nu: NavalUnit, mount: WeaponMount,
 		max_range_px: float, max_altitude: float) -> CombatUnit:
 	var mount_pos := mount.world_position(nu.global_position, nu.heading)
+	# 通用高优先目标 seam：合法且在本挂点射程内时优先返回，不绕过高度/敌我门。
+	var preferred_value: Variant = nu.get_meta(CombatUnit.META_PREFERRED_COMBAT_TARGET) \
+		if nu.has_meta(CombatUnit.META_PREFERRED_COMBAT_TARGET) else null
+	if preferred_value is Aircraft and is_instance_valid(preferred_value):
+		var preferred := preferred_value as Aircraft
+		if not preferred.is_destroyed and nu.is_hostile_to(preferred) \
+				and preferred.altitude < max_altitude \
+				and mount_pos.distance_to(preferred.global_position) < max_range_px:
+			return preferred
 	var best: CombatUnit = null
 	var best_d := max_range_px
 	for u in CombatUnit.all_units:

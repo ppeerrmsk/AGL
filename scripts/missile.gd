@@ -1,6 +1,9 @@
 class_name Missile
 extends Node2D
 
+## DEADAIR 5Hz 控制器使用的维护式注册表，避免每 tick 扫 MissileManager 子节点。
+static var active_missiles: Array[Missile] = []
+
 const PIXELS_PER_METER: float = GameConstants.PIXELS_PER_METER
 const GRAVITY: float = GameConstants.GRAVITY
 
@@ -45,6 +48,8 @@ var _prev_los_angle: float = 0.0  ## 上一帧 LOS 角（有限差分算角速�
 var _prev_heading: float = 0.0   ## 上一帧航向（用于计算模拟 bank）
 var bank_angle: float = 0.0      ## 模拟 bank（由航向变化率推算）
 var _trail_ribbon: TrailRibbon
+var _deadair_base_trail_color: Color = Color.WHITE
+var deadair_exposure_ratio: float = 0.0
 var _font: Font
 
 ## VLS phase 0/1 降帧 tick 状态（详见 SurvivorData.ENABLE_VLS_LOW_RATE_TICK）
@@ -109,6 +114,7 @@ const CLOUD_LOSS_PER_SECOND: float = 0.12
 const CLOUD_LOSS_FLOOR: float = 0.3     ## 至少保留 30% 追踪
 
 func _ready() -> void:
+	active_missiles.append(self)
 	_trail_ribbon = TrailRibbon.new()
 	_trail_ribbon.ribbon_width = 3.0
 	# Perf: 220 → 80 (匹配 aircraft 默认值)；33Hz 采样 → 16Hz。
@@ -118,11 +124,27 @@ func _ready() -> void:
 	_trail_ribbon.sample_interval = 0.06
 	var trail_color := Color(GameConstants.team_trail_color(team), 0.4)
 	_trail_ribbon.ribbon_color = trail_color
+	_deadair_base_trail_color = trail_color
 	add_child(_trail_ribbon)
 	_prev_heading = heading
 	# 从 params 读取拦截抗性（不同型号可以配置不同的抗 CIWS 能力）
 	if params:
 		intercept_hp = params.intercept_hp
+
+func _exit_tree() -> void:
+	active_missiles.erase(self)
+
+func set_deadair_exposure_ratio(value: float) -> void:
+	deadair_exposure_ratio = clampf(value, 0.0, 1.0)
+	if _trail_ribbon:
+		var jam_color := Color(0.62, 1.0, 0.25, _deadair_base_trail_color.a)
+		_trail_ribbon.ribbon_color = _deadair_base_trail_color.lerp(jam_color, deadair_exposure_ratio)
+
+func jam_by_deadair() -> void:
+	set_deadair_exposure_ratio(1.0)
+	is_flare_jammed = true
+	has_guidance = false
+	EventLogger.log_event("DEADAIR", _unit_name(source), "guided missile accumulated JAM and lost guidance")
 
 func _physics_process(delta: float) -> void:
 	if not is_active:
@@ -169,12 +191,11 @@ func _physics_process(delta: float) -> void:
 	# 进入 TERMINAL（或非 VLS 弹）后立刻恢复 60Hz tick，重置降帧计数
 	_vls_low_rate_counter = 0
 
-	# 0) 云层穿越：导弹自身在云中飞行 → 追踪能力永久衰减（不回复）
-	# 云层只存在于高空（HIGH tier，>=7500m）
-	# get_in_cloud 走 MissileManager 的 256px 网格快照（同帧同区域只查一次）
-	if _cloud_guidance_loss < 1.0 - CLOUD_LOSS_FLOOR and altitude >= 7500.0:
+	# 0) 遮蔽物穿越：普通云只在 HIGH、沙尘暴只在 LOW；追踪能力永久衰减（不回复）。
+	# get_in_cloud 走 MissileManager 的 256px×高度档网格快照（同帧同区域只查一次）
+	if _cloud_guidance_loss < 1.0 - CLOUD_LOSS_FLOOR:
 		if _mm and _mm.has_method("get_in_cloud"):
-			if _mm.get_in_cloud(global_position):
+			if _mm.get_in_cloud(global_position, altitude):
 				_cloud_guidance_loss = minf(_cloud_guidance_loss + CLOUD_LOSS_PER_SECOND * delta, 1.0 - CLOUD_LOSS_FLOOR)
 
 	# 0.5) 激光减速倍率（_laser_slow_timer 已在函数顶部倒数，这里仅取当前帧的 mult）
@@ -267,6 +288,7 @@ func _physics_process(delta: float) -> void:
 						target = new_tgt
 						is_flare_jammed = false
 						has_guidance = true
+						set_deadair_exposure_ratio(0.0)
 						EventLogger.log_event("MISSILE", _unit_name(new_tgt),
 							"超越地平：被偏转导弹重索敌 → %s" % _unit_name(new_tgt))
 		elif not t_valid or t_destroyed:

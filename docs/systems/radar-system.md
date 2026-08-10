@@ -27,8 +27,9 @@
 |------|------|------|
 | `is_hovered` | bool | 鼠标悬停标记，控制雷达锥是否显示 |
 | `radar_targets` | Dictionary `{Aircraft: float}` | 雷达锥内每架敌机的累计照射时间 |
-| `is_locked` | bool | 是否被至少一架敌方飞机锁定 |
-| `locked_by` | Array[Aircraft] | 当前锁定自己的敌机列表 |
+| `is_locked` | bool | 含玩家阵营的交战配对中，是否被至少一架敌方单位锁定 |
+| `locked_by` | Array[CombatUnit] | 含玩家阵营的交战配对中，当前锁定自己的单位列表 |
+| `incoming_lock_progress` | float | 含玩家阵营配对的最大锁定进度；只服务锁框与玩家交战反应 |
 
 ## 锥体判定逻辑
 
@@ -49,8 +50,11 @@
 3. 对每架飞机 A，遍历所有不同阵营的飞机 B：
    - B 在 A 的雷达锥内 → radar_targets[B] += delta（累加照射时间）
    - B 不在锥内 → radar_targets 中移除 B（照射时间清零）
-4. 遍历所有飞机的 radar_targets：
-   - 累计时间 ≥ lock_time → 目标飞机 is_locked = true，加入 locked_by
+4. 遍历所有单位的 radar_targets：
+   - 战术照射不分玩家是否参与，AI 武器仍可正常读取并开火
+   - 只有射手或目标至少一端属于 `TEAM_PLAYER` 时，才把进度汇总到目标的
+     `incoming_lock_progress / is_locked / locked_by`
+   - 累计时间 ≥ lock_time → 目标 is_locked = true，加入 locked_by
 ```
 
 离开雷达锥后照射时间立即清零，需要重新累计。
@@ -73,11 +77,11 @@
 - 颜色：友方（team=0）蓝绿色半透明，敌方（team=1）红色半透明
 - 由填充扇形多边形 + 边缘线组成
 
-### 锁定警告（`_draw_lock_indicator`）
+### 锁定框 / 锁定警告（`_draw_lock_indicator`）
 
-- 仅在 `is_locked = true` 时绘制
-- 飞机图标周围四个方向各显示一个红色小三角
-- 三角带闪烁效果（alpha 随 sin 波动）
+- 锁定进度或 `is_locked` 仅来自含玩家阵营的锁定配对；玩家小队锁敌、敌军锁玩家小队都可显示。
+- `ALLY↔HOSTILE` 的 AI 互锁不绘制红框，也不触发玩家专属被锁反应，但不会停止 AI 武器交战。
+- 满锁时为红色四角框并闪烁；未满锁时显示收缩进度框。
 
 ## 涉及文件
 

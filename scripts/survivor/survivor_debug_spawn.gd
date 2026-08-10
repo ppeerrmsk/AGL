@@ -4,6 +4,9 @@ extends CanvasLayer
 ## F5 Debug 刷怪面板：在生存模式里按需生成敌机/编队
 ## 与 F4 技能面板的区别：此面板打开时**不暂停**游戏，便于即时测试
 
+const BattlefieldAtmosphereExperimentScript := preload(
+	"res://scripts/survivor/battlefield_atmosphere_experiment.gd")
+
 var game_scene: Node  ## survivor_mode 实例
 
 # ── UI 节点 ──
@@ -14,6 +17,12 @@ var _formation_option: OptionButton
 var _squad_size_spin: SpinBox
 var _squad_size_row: HBoxContainer
 var _count_spin: SpinBox
+var _atmosphere_btn: Button
+var _atmosphere_ground_btn: Button
+var _atmosphere_naval_btn: Button
+var _atmosphere_clear_btn: Button
+var _atmosphere_status: Label
+var _atmosphere_experiment: Node
 
 # ── 坐标 HUD（面板可见时自动开启）──
 ## 跟随鼠标的世界坐标读数（CanvasLayer 内）
@@ -72,6 +81,7 @@ const ENEMY_TYPE_LABELS := [
 	{"label": "YF-23 雷达静默狙击支援", "enum_idx": 29},       # EnemyType.YF23（事件专属）
 	{"label": "F-22 四锁狙击编队", "enum_idx": 30},             # EnemyType.F22
 	{"label": "Snowblind 传感器幕支援机", "enum_idx": 31},     # EnemyType.SNOWBLIND
+	{"label": "DEADAIR 累积 JAM 支援机", "enum_idx": 56},      # EnemyType.DEADAIR
 	{"label": "F-15 常规型", "enum_idx": 32},
 	{"label": "F-14 远程截击型", "enum_idx": 33},
 	{"label": "A-6E 低空突击", "enum_idx": 34},
@@ -238,11 +248,38 @@ func _build_ui() -> void:
 
 	# 刷怪按钮
 	var spawn_btn := Button.new()
-	spawn_btn.text = "▶ 刷新敌人"
+	spawn_btn.text = "▶ 刷新敌人（玩家附近）"
 	spawn_btn.add_theme_font_size_override("font_size", 14)
 	_apply_btn_style(spawn_btn, Color(0.9, 0.5, 0.2))
 	spawn_btn.pressed.connect(_on_spawn_pressed)
 	_content.add_child(spawn_btn)
+
+	_content.add_child(_make_sep())
+
+	# ── 真实生存局战场气氛实验 ──
+	var atmosphere_label := Label.new()
+	atmosphere_label.text = "[ 海陆空气氛实验 · AI伤害10% ]"
+	atmosphere_label.add_theme_font_size_override("font_size", 13)
+	atmosphere_label.add_theme_color_override("font_color", Color(0.45, 0.85, 1.0))
+	atmosphere_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_content.add_child(atmosphere_label)
+
+	var atmosphere_row := HBoxContainer.new()
+	atmosphere_row.add_theme_constant_override("separation", 5)
+	_content.add_child(atmosphere_row)
+	_atmosphere_btn = _make_atmosphere_button("空战", Color(0.2, 0.7, 0.9), _on_atmosphere_pressed)
+	_atmosphere_ground_btn = _make_atmosphere_button("炮战", Color(0.82, 0.58, 0.2), _on_atmosphere_ground_pressed)
+	_atmosphere_naval_btn = _make_atmosphere_button("海战", Color(0.22, 0.62, 0.82), _on_atmosphere_naval_pressed)
+	_atmosphere_clear_btn = _make_atmosphere_button("清除", Color(0.62, 0.35, 0.35), _on_atmosphere_clear_pressed)
+	for button in [_atmosphere_btn, _atmosphere_ground_btn, _atmosphere_naval_btn, _atmosphere_clear_btn]:
+		atmosphere_row.add_child(button)
+
+	_atmosphere_status = Label.new()
+	_atmosphere_status.text = "未运行 · 空战复用现有AH-64 / 炮战3v3 / 海战DDG+FFG"
+	_atmosphere_status.add_theme_font_size_override("font_size", 10)
+	_atmosphere_status.add_theme_color_override("font_color", Color(0.55, 0.72, 0.78))
+	_atmosphere_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_content.add_child(_atmosphere_status)
 
 	_content.add_child(_make_sep())
 
@@ -355,6 +392,17 @@ func _make_sep() -> HSeparator:
 	sep.add_theme_color_override("separator", Color(0.5, 0.3, 0.1, 0.3))
 	return sep
 
+
+func _make_atmosphere_button(text: String, accent: Color, callback: Callable) -> Button:
+	var button := Button.new()
+	button.text = text
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.add_theme_font_size_override("font_size", 11)
+	_apply_btn_style(button, accent)
+	button.pressed.connect(callback)
+	return button
+
+
 func _apply_btn_style(btn: Button, accent: Color) -> void:
 	var s := StyleBoxFlat.new()
 	s.bg_color = Color(accent.r * 0.3, accent.g * 0.3, accent.b * 0.3, 0.85)
@@ -421,11 +469,11 @@ func _on_spawn_pressed() -> void:
 	for r in range(repeats):
 		match formation:
 			FormationType.SINGLE:
-				spawner._spawn_single(enum_idx)
+				spawner._spawn_single(enum_idx, false, true)
 			FormationType.SQUAD:
-				spawner._spawn_squad(enum_idx, size)
+				spawner._spawn_squad(enum_idx, size, false, false, true)
 			FormationType.COMMANDER_SQUAD:
-				spawner._spawn_commander_squad(size)
+				spawner._spawn_commander_squad(size, true)
 			FormationType.TU160_FLOCK:
 				# 族群波次：大小由 SurvivorData.TU160_FLOCK_SIZE 定义，size spinbox 忽略
 				spawner._spawn_tu160_flock()
@@ -474,6 +522,48 @@ func _start_ace_event(pid: String) -> void:
 		ev.profile_id = pid
 		ev.debug_force_battle_bar = true
 		game_scene._event_director.start(ev)
+
+
+func _on_atmosphere_pressed() -> void:
+	if not _ensure_atmosphere_experiment():
+		return
+	if not _atmosphere_experiment.launch_air_battle():
+		_on_atmosphere_status_changed("启动失败：玩家机或刷怪器不可用")
+
+
+func _on_atmosphere_ground_pressed() -> void:
+	if _ensure_atmosphere_experiment():
+		_atmosphere_experiment.launch_ground_battle()
+
+
+func _on_atmosphere_naval_pressed() -> void:
+	if _ensure_atmosphere_experiment():
+		_atmosphere_experiment.launch_naval_battle()
+
+
+func _on_atmosphere_clear_pressed() -> void:
+	if _atmosphere_experiment != null and is_instance_valid(_atmosphere_experiment):
+		_atmosphere_experiment.clear_experiment()
+
+
+func _ensure_atmosphere_experiment() -> bool:
+	if not game_scene or not is_instance_valid(game_scene) or game_scene.is_game_over:
+		return false
+	if _atmosphere_experiment == null or not is_instance_valid(_atmosphere_experiment):
+		_atmosphere_experiment = BattlefieldAtmosphereExperimentScript.new()
+		_atmosphere_experiment.name = "BattlefieldAtmosphereExperiment"
+		game_scene.add_child(_atmosphere_experiment)
+		_atmosphere_experiment.setup(game_scene, game_scene._spawner)
+		_atmosphere_experiment.status_changed.connect(_on_atmosphere_status_changed)
+	return true
+
+
+func _on_atmosphere_status_changed(text: String) -> void:
+	if is_instance_valid(_atmosphere_status):
+		_atmosphere_status.text = text
+	if is_instance_valid(_atmosphere_clear_btn):
+		_atmosphere_clear_btn.disabled = _atmosphere_experiment == null \
+			or not is_instance_valid(_atmosphere_experiment) or not _atmosphere_experiment.is_active()
 
 func _on_spawn_enemy_sam() -> void:
 	if not game_scene or not is_instance_valid(game_scene):

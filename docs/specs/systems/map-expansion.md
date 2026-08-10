@@ -3,7 +3,7 @@ id: map-expansion
 kind: system
 status: done  # 2026-07-29 用户确认工程落地可收口；编辑器整合由 map-editor 承接
 schema_version: 1
-spec_version: 6
+spec_version: 7
 owner: noelu
 depends_on: [map-system, map-editor]
 reconstruction_complete: false
@@ -126,21 +126,17 @@ A/C/D 3500、B 3000（y 内收 -10500）、E 2500，§2.4 约束复验全绿—�
 3. 事件/奖励任务"机头沿途"的刷出距离、Adds 航线 margin、supply 位置：按新尺度
    跑一遍确认（多为相对量，预期小改或不改）。
 
-### 3.1 落地路径复审（2026-07-05）：经 map-editor 授权，本 spec 不再手改代码
+### 3.1 落地路径复审（2026-07-05 历史；2026-08-08 最终调和）
 
-与 [map-editor](map-editor.md)（v4 approved 2026-07-04，feature/map-editor 分支）撞车三处：
-①底图 PNG 已判退役（编辑器产出一律纯矢量渲染）→ 底图重下载作废；②zones / spawn 将进
-地图 JSON（编辑器 §2.2 图层表）→ 手改 zone_data.gd 注定被数据驱动取代；③官方 60km 大图
-明确"用编辑器铺"（dogfood 工具先行）。据此复审：
+本 spec 曾与 [map-editor](map-editor.md) v4 的 PNG 退役目标、zones/spawn JSON 化和官方图 dogfood 路线发生冲突。
+2026-08-08 用户最终否决全东京湾纯矢量替换，v4 的 PNG 退役目标已由 map-editor v19 取代。当前职责调和为：
 
 - **决议保留**：60×60 km 尺寸、§2.4 战区几何约束、§2.1 节奏风险登记——继续有效，
-  变的只是"由谁落地"（手改 gd → 编辑器授权 + 地图 JSON）。
-- **本轮已回滚**（2026-07-05）：map_boundary / zone_data / 两个烘焙脚本 / map_manual_background /
-  survivor_debug_spawn / 地图三件套共 9 个文件恢复原状。`WORLD_SIZE_M` 翻 60000 的时机 =
-  编辑器铺完官方 60km 图后随图激活。
+  现有手改与烘焙产物保持落地；未来编辑器只承接 gameplay 矢量数据与 JSON 化。
+- **正式视觉保留**：东京湾主地图与 Tab 继续使用现有 8704×8704 PNG + shader。OfficialMapConverter 不删除、覆盖或重烘焙该资源，也不再以“编辑器铺完官方图”为 PNG 移除前置。
 - **烘焙产物已归档** `C:\Users\noelu\Downloads\agl_60km_bake\`（60km 矢量 JSON + GeoJSON 原料 +
   Overpass 原始响应 + 最小转换器 + 查询语句，附 README 重跑方法）——将来编辑器
-  OfficialMapConverter / 烘焙管线铺官方大图的现成输入。60km 底图 PNG 按退役决议未存档。
+  OfficialMapConverter / 烘焙管线更新 gameplay 数据的现成输入；正式 PNG 以项目内现有生产资产为准。
 - **候选布局表**（编辑器授权时的输入；几何约束已数值验证，陆地占比待对新地理核）：
 
 | 战区 | 候选 center | radius | 备注 |
@@ -156,10 +152,9 @@ A/C/D 3500、B 3000（y 内收 -10500）、E 2500，§2.4 约束复验全绿—�
 该表最小缘距 C↔E ≈ 4720 px（9.4 km）、离边最小 B = 1500 px（恰达标），全部满足 §2.4；
 A/D 旧手画 ground_spawn_polygons 已作废删除（走 center+0.85R 散布 fallback），后续可在编辑器里对新地理重描。
 
-**尾注（2026-07-05 同日二次复审）**：用户决定**保留本轮手改落地**（"做都做了，先别回滚"）——
-上文"已回滚"作废，9 文件改动 + 60km 地图三件套已在工作区（回滚又重放）。与 map-editor 的
-调和方式改为：现状 60km 官方图将来经 OfficialMapConverter 转入编辑器管线；底图 PNG 维持
-**过渡资产**身份（编辑器矢量渲染接管官方图后按退役决议移除）；zones/spawn 的 JSON 化仍由
+**尾注（2026-07-05 同日二次复审，2026-08-08 更新视觉资产定性）**：用户决定**保留本轮手改落地**（"做都做了，先别回滚"）——
+9 文件改动 + 60km 地图三件套已在工作区（回滚又重放）。现状 60km 官方 gameplay 数据将来可经 OfficialMapConverter
+转入编辑器管线；底图 PNG 已从“过渡资产”改为**正式保留资产**。zones/spawn 的 JSON 化仍由
 编辑器时代完成，届时以本表落位值为初始数据。落地验证：`tests/test_map_expansion.gd` 无头
 回归全绿（几何约束 15/15 + ground 陆地占比 A 1.00 / B 0.65 / D 1.00 + BOSS 南北锚点天然在
 水面 + is_on_land 新外圈抽查），其中 B 初值落湾里由回归抓出、经 land_mask 网格扫描修正。
@@ -230,3 +225,4 @@ A/D 旧手画 ground_spawn_polygons 已作废删除（走 center+0.85R 散布 fa
 | 2026-07-05 | 4 | **落地路径复审**：发现与 map-editor v4（07-04 approved）撞车（PNG 退役 / zones 进地图 JSON / 官方大图 dogfood），阶段 1 手改（主开关+烘焙+战区 ×2 初值）整体回滚；60km 烘焙产物归档 Downloads\agl_60km_bake；候选布局表存档 §3.1；后续经编辑器授权落地 |
 | 2026-07-05 | 5 | **二次复审：保留手改落地**（用户决定）——回滚重放；B 战区初值落湾里由无头回归抓出、网格扫描修正 (6000,-11000)；无头回归 `tests/test_map_expansion.gd` 全绿；PNG 定性过渡资产；status → in-progress，差 playtest 节奏验收 |
 | 2026-07-26 | 6 | §2.4 适用范围裁决：2000/1500 只管随机战区（A–G+BOSS）；机场解放战区（AF_*，现实坐标不可挪）豁免为 缘距 ≥1000 / 离边 ≥0，裁决全文见 airfield-liberation-zones §2.5 |
+| 2026-08-08 | 7 | 用户最终否决纯矢量替换，撤销“PNG=过渡资产”定性：60km 正式主地图与 Tab 保留现有 8704×8704 PNG + shader；OfficialMapConverter 只承接 gameplay 矢量数据，不删除、覆盖或重烘焙 PNG。 |

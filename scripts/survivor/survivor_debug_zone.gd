@@ -5,10 +5,11 @@ extends CanvasLayer
 ##
 ## 核心能力：
 ##   1. 列出所有战区 (A/B/C/D/E)，显示当前状态 + mission_type
-##   2. 为每个战区选择新的 mission_type（ground/air/squadron/naval）
+##   2. 为每个战区选择新的 mission_type（含可选战区任务 bomber_escort）
 ##   3. 一键 "Set & Spawn"：强制战区变为 AVAILABLE + 设定新类型 + 清旧单位 + 刷新内容
 ##   4. "Mark Cleared" / "Mark Locked" 改战区状态
 ##   5. "跳到 BOSS 战"：选定关底 BOSS + 计时器清零 → BOSS 立即出场
+##   6. "跳到半局"：只推进 game_time 到 50%，直接观察中场天气，不触发 BOSS
 ##
 ## 面板每 0.5s 刷新一次状态显示，避免卡顿
 
@@ -33,12 +34,13 @@ var _last_state_hash: String = ""
 
 # ── 类型选项 ──
 ## 所有可用的 mission_type（Debug 用，跨越 zone 原本的限制）
-const MISSION_TYPES: Array[String] = ["ground", "air", "squadron", "naval"]
+const MISSION_TYPES: Array[String] = ["ground", "air", "squadron", "naval", "bomber_escort"]
 const MISSION_TYPE_LABELS: Dictionary = {
 	"ground": "陆基（SAM+AA）",
 	"air": "空战（海上）",
 	"squadron": "敌机中队",
 	"naval": "海军舰队（DDG+FFG）",
+	"bomber_escort": "可选任务｜护送轰炸机",
 }
 
 ## Debug 必须覆盖完整战区奖励表；新增奖励时 skill_audit 会校验本清单是否同步。
@@ -208,6 +210,14 @@ func _build_ui() -> void:
 	_apply_btn_style(fast_btn, Color(0.8, 0.7, 0.3))
 	fast_btn.pressed.connect(_on_fast_forward)
 	global_row.add_child(fast_btn)
+
+	var midgame_btn := Button.new()
+	midgame_btn.text = "🌪 跳到半局（天气验收）"
+	midgame_btn.add_theme_font_size_override("font_size", 12)
+	midgame_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_apply_btn_style(midgame_btn, Color(0.85, 0.58, 0.18))
+	midgame_btn.pressed.connect(_on_skip_midgame)
+	_content.add_child(midgame_btn)
 
 	# 机场 Debug：复用正式停靠结算链，立即解放/访问机场并打开进化树。
 	var visit_airfield_btn := Button.new()
@@ -427,7 +437,8 @@ func _apply_zone_change(zid: StringName, new_mission_type: String) -> void:
 	zd.debug_set_mission_type(zid, new_mission_type)
 
 	var state := zd.get_state(zid)
-	if state == ZoneData.State.LOCKED or state == ZoneData.State.CLEARED:
+	if state == ZoneData.State.LOCKED or state == ZoneData.State.CLEARED \
+			or state == ZoneData.State.FAILED:
 		# 先解锁（内部会保留我们刚写的 mission_type，因为 debug_set_available 只在没有时才 roll）
 		zm.debug_force_unlock_zone(zid)
 	else:
@@ -469,6 +480,14 @@ func _on_fast_forward() -> void:
 		return
 	game_scene.game_time += 60.0
 	EventLogger.log_event("ZONE", "DebugFastForward", "game_time=%.0f" % game_scene.game_time)
+	_rebuild_zones_list()
+
+## 只推进到战区阶段 50%；沙漠图的 60s 沙尘暴在 45% 开始，因此落点正好是风暴中段。
+func _on_skip_midgame() -> void:
+	if game_scene == null or not game_scene.has_method("debug_skip_to_midgame"):
+		push_error("SurvivorDebugZone: survivor_mode 缺 debug_skip_to_midgame()")
+		return
+	game_scene.debug_skip_to_midgame()
 	_rebuild_zones_list()
 
 ## 立即访问机场：由 survivor_mode 选择已开放机场或解放一座机场，
@@ -550,6 +569,7 @@ func _state_label(state: int) -> String:
 		ZoneData.State.AVAILABLE: return "✨可选"
 		ZoneData.State.SELECTED: return "▶执行中"
 		ZoneData.State.CLEARED: return "✓已完成"
+		ZoneData.State.FAILED: return "✕已失败"
 	return "?"
 
 func _state_color(state: int) -> Color:
@@ -558,6 +578,7 @@ func _state_color(state: int) -> Color:
 		ZoneData.State.AVAILABLE: return Color(0.9, 0.9, 0.7)
 		ZoneData.State.SELECTED: return Color(0.3, 0.85, 1.0)
 		ZoneData.State.CLEARED: return Color(0.4, 0.8, 0.4)
+		ZoneData.State.FAILED: return Color(0.85, 0.35, 0.3)
 	return Color.WHITE
 
 

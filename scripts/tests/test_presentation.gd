@@ -9,6 +9,7 @@ extends RefCounted
 ## RefCounted，可脱离引擎逐帧手动步进——时序因此完全确定，不受帧率影响。
 
 const DT := 1.0 / 60.0
+const AircraftSilhouetteCatalog := preload("res://scripts/aircraft_silhouette_catalog.gd")
 
 var _pass := 0
 var _fail := 0
@@ -39,6 +40,7 @@ func run() -> void:
 	_test_lock_visual_screen_scale()
 	_test_compact_aircraft_labels()
 	_test_presentation_label_refinements()
+	_test_freed_aircraft_reference_safety()
 	_test_incoming_missile_warning_rule()
 
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
@@ -596,6 +598,41 @@ func _test_presentation_label_refinements() -> void:
 		SurvivorPlayableSetup.display_name_with_codename("F-15E Strike Eagle", "Strike Eagle") == "F-15E Strike Eagle")
 	_assert_true("label_name.缺失代号正常追加",
 		SurvivorPlayableSetup.display_name_with_codename("F-16C", "SmartFalcon") == "F-16C SmartFalcon")
+	var player := Aircraft.new()
+	player.params = AircraftParams.new()
+	player.params.display_name = "F-14 Tomcat"
+	var profile := PlayableAircraft.new()
+	profile.codename = "Warhound"
+	SurvivorPlayableSetup.apply(player, profile)
+	player.callsign = "Ultra"
+	_assert_true("label_name.机体字段只保留纯机型编号",
+		AircraftRenderer.airframe_identity_label(player) == "F-14")
+	_assert_true("label_name.战场标签完整保留呼号",
+		AircraftRenderer.controlled_identity_label(player) == "F-14 [Ultra]")
+	_assert_true("label_name.单词机名后缀缩为首字母",
+		AircraftRenderer.compact_aircraft_name("F-15 Eagle") == "F-15 E")
+	_assert_true("label_name.多词机名后缀也只留一个首字母",
+		AircraftRenderer.compact_aircraft_name("Su-35 Super Flanker") == "Su-35 S")
+	_assert_true("label_name.完整运行时名称仍保留",
+		player.params.display_name == "F-14 Tomcat Warhound")
+	_assert_true("silhouette.player_f14.档案代号不应触发旧轮廓回退",
+		AircraftSilhouetteCatalog.key_for(player) == "f14")
+	player.free()
+	var mq_family := Aircraft.new()
+	mq_family.params = AircraftParams.new()
+	var mq_keys := PackedStringArray()
+	for model in ["MQ-109", "MQ-110", "MQ-111"]:
+		mq_family.params.display_name = model
+		mq_keys.append(AircraftSilhouetteCatalog.key_for(mq_family))
+	_assert_true("silhouette.mq109_family.三型号共用新轮廓",
+		mq_keys == PackedStringArray(["mq109_family", "mq109_family", "mq109_family"]))
+	mq_family.params.display_name = "MQ-112"
+	_assert_true("silhouette.mq112.未点名型号继续旧绘制",
+		AircraftSilhouetteCatalog.key_for(mq_family).is_empty())
+	mq_family.params.display_name = "MQ-109"
+	_assert_near("silhouette.mq109_family.保持无人机小尺寸",
+		AircraftSilhouetteCatalog.draw_scale_for(mq_family), 0.53)
+	mq_family.free()
 	_assert_true("reload_hint.仅 FLR/GUN/MSL 且顺序固定",
 		AircraftRenderer.reload_indicator_tokens(true, true, true)
 		== PackedStringArray(["FLR", "GUN", "MSL"]))
@@ -627,6 +664,30 @@ func _test_presentation_label_refinements() -> void:
 		normal_gun[1].is_equal_approx(Color.html("#8b5a2b"))
 		and normal_gun[0].r > 0.9
 		and inverse_gun[0].is_equal_approx(Color.html("#8b5a2b")))
+
+
+func _test_freed_aircraft_reference_safety() -> void:
+	var live := Aircraft.new()
+	AircraftRenderer.player_ref = live
+	_assert_true("player_ref.存活飞机可安全收窄",
+		AircraftRenderer.safe_aircraft_ref(live) == live)
+	var stale: Variant = live
+	live.free()
+	_assert_true("player_ref.已释放 Variant 回落 null",
+		AircraftRenderer.safe_aircraft_ref(stale) == null)
+	_assert_true("player_ref.全局缓存自动清除",
+		AircraftRenderer.safe_player_ref() == null and AircraftRenderer.player_ref == null)
+
+	var survivor := SurvivorPlayer.new()
+	var cached := Aircraft.new()
+	var hud := SurvivorHUD.new()
+	survivor.aircraft = cached
+	hud.survivor_player = survivor
+	cached.free()
+	_assert_true("player_ref.HUD 强类型缓存已释放不报错",
+		hud._safe_player_aircraft() == null)
+	hud.free()
+	survivor.free()
 
 
 func _test_incoming_missile_warning_rule() -> void:

@@ -3,7 +3,7 @@ id: career-shop
 kind: system
 status: in-progress
 schema_version: 1
-spec_version: 6
+spec_version: 7
 owner: 用户（设计）+ Claude（起草）
 depends_on: [career-archive]
 reconstruction_complete: true
@@ -66,9 +66,9 @@ reconstruction_complete: true
 | `mirage3_starter` | 幻影 III 采购案 | **2000** | 恒上架 | 幻影 III 加入起手可选 |
 | `dock_wingman` | 停靠补给僚机 | **3000** | `dockings["airfield"] ≥ 1` | 每次停靠（机场或航母）送 1 架同型僚机（= 门控现有机制） |
 | `op_time_30s` | 行动时间延长 | **2500** | `retreats ≥ 1` | 战区阶段总时长 600s → 630s（永久） |
-| `support_zone_air` | 战区制空支援协定 | **3000** | 恒上架 | 对空战区 ACTIVE 后生成 2～4 架 F-86 友军 |
-| `support_zone_ground` | 战区对地支援协定 | **3000** | 恒上架 | 非机场对地战区 ACTIVE 后生成 2 架 A-10 友军 |
-| `support_ace_f15` | 王牌截击支援协定 | **3000** | 恒上架 | 非 BOSS 敌军王牌事件登场时生成 2 架 F-15；王牌事件终态后撤离 |
+| `support_zone_air` | 战区制空支援协定 | **3000** | 恒上架 | 每局首次对空战区 ACTIVE 后生成 2～4 架 F-86 友军 |
+| `support_zone_ground` | 战区对地支援协定 | **3000** | 恒上架 | 每局首次非机场对地战区 ACTIVE 后生成 2 架 A-10 友军 |
+| `support_ace_f15` | 王牌截击支援协定 | **3000** | 恒上架 | 每局首次非 BOSS 敌军王牌事件生成 2 架 F-15；事件终态后撤离 |
 | `support_airfield_sam` | 机场防空网授权 | **3000** | 恒上架 | 每局每座解放机场在 AA×2 后追加一次性 SAM×1 |
 
 - **价格依据**：单局功勋收入 ≈ 2,500~7,500（Lv15~25 结算，XP 1:1 折算；阵亡 ×0.8）。三件定价各 ≈ 半局~一局，合计 7,500 ≈ 一局上好收入——首周目内全部购齐，符合 #9 节制。**数值为草案，playtest 后校准**；现有机库件（80~400）明显低估，本批不动，留经济平衡批统一处理。
@@ -97,11 +97,11 @@ reconstruction_complete: true
 | `METASHOP_ITEM_OP_TIME_NAME` | 行动时间延长 | Extended Operation Time | 作戦時間延長 |
 | `METASHOP_ITEM_OP_TIME_DESC` | 战区阶段总时长 +30 秒 | Warzone phase duration +30 seconds | 戦域フェーズ +30 秒 |
 | `METASHOP_ITEM_ZONE_AIR_SUPPORT_NAME` | 战区制空支援协定 | Warzone Air Support Accord | 戦域制空支援協定 |
-| `METASHOP_ITEM_ZONE_AIR_SUPPORT_DESC` | 对空战区激活后派遣 2～4 架 F-86 友军 | Dispatches 2–4 allied F-86s when an air mission activates | 対空戦域の開始後に友軍 F-86 を 2～4 機派遣 |
+| `METASHOP_ITEM_ZONE_AIR_SUPPORT_DESC` | 每局首次对空战区激活后派遣 2～4 架 F-86 友军 | Dispatches 2–4 allied F-86s to the first air mission each run | 各出撃で最初の対空戦域開始後に友軍 F-86 を 2～4 機派遣 |
 | `METASHOP_ITEM_ZONE_GROUND_SUPPORT_NAME` | 战区对地支援协定 | Warzone Ground Support Accord | 戦域対地支援協定 |
-| `METASHOP_ITEM_ZONE_GROUND_SUPPORT_DESC` | 非机场清剿战区激活后派遣 2 架 A-10 攻击地面单位 | Dispatches two allied A-10s against ground units when a non-airfield ground mission activates | 飛行場以外の地上掃討戦域の開始後に友軍 A-10 を 2 機派遣 |
+| `METASHOP_ITEM_ZONE_GROUND_SUPPORT_DESC` | 每局首次非机场清剿战区激活后派遣 2 架 A-10 | Dispatches two allied A-10s to the first non-airfield ground mission each run | 各出撃で最初の飛行場以外の地上掃討戦域に友軍 A-10 を 2 機派遣 |
 | `METASHOP_ITEM_ACE_F15_SUPPORT_NAME` | 王牌截击支援协定 | Ace Intercept Support Accord | エース迎撃支援協定 |
-| `METASHOP_ITEM_ACE_F15_SUPPORT_DESC` | 敌军王牌增援登场时派遣 2 架 F-15，王牌事件结束后撤离 | Dispatches two allied F-15s when an enemy ace reinforcement arrives; they withdraw when the ace event ends | 敵エース増援の出現時に友軍 F-15 を2機派遣し、イベント終了後に撤収 |
+| `METASHOP_ITEM_ACE_F15_SUPPORT_DESC` | 每局首次敌军王牌增援登场时派遣 2 架 F-15 | Dispatches two allied F-15s against the first enemy ace reinforcement each run | 各出撃で最初の敵エース増援に友軍 F-15 を2機派遣 |
 | `METASHOP_ITEM_AIRFIELD_SAM_NAME` | 机场防空网授权 | Airfield SAM Network Authorization | 飛行場SAM網許可 |
 | `METASHOP_ITEM_AIRFIELD_SAM_DESC` | 每次解放机场时，在友军 AA×2 之外追加 1 座一次性 SAM | Each liberated airfield deploys one single-use SAM in addition to two allied AA guns | 飛行場を解放するたび、友軍対空砲2基に加えて使い切りのSAM1基を配備 |
 | `METASHOP_LOCKED_HINT_DOCK_WINGMAN` | 首次在机场停靠后上架 | Listed after your first airfield docking | 初の飛行場着陸後に入荷 |
@@ -142,9 +142,9 @@ buy(id)：已拥有 → 拒绝；未上架 → 拒绝；MeritLedger.spend(price)
 | `mirage3_starter` | 仅影响选机界面解锁判定（§2.1），局内无消费点 |
 | `dock_wingman` | 停靠结算的"送 1 架僚机"段加门控：`正式局 且 未拥有 → 跳过赠送`；**非正式局（bench/boss debug）视为已拥有**，保旧行为与回归确定性 |
 | `op_time_30s` | 战区阶段时长常量改为运行时变量：开局初始化时 `正式局 且 已拥有 → 时长 += 30`；HUD 倒计时/超时判定/补给时间税 clamp/F6 跳 BOSS 全部读同一变量，自动自洽 |
-| `support_zone_air` | 战区任务执行器在 `air/squadron` 首次 ACTIVE 时查询；正式局未购不生成，非正式局 fail-open |
-| `support_zone_ground` | 战区任务执行器在非机场 `ground` 首次 ACTIVE 时查询；正式局未购不生成，非正式局 fail-open |
-| `support_ace_f15` | 非 BOSS 王牌轮换事件成功生成后查询；正式局未购不生成，非正式局 fail-open；生成 2 架只对空 F-15，事件终态后撤离 |
+| `support_zone_air` | 战区任务执行器在本局首次 `air/squadron` ACTIVE 时查询；正式局未购不生成，非正式局 fail-open；出动后本局不再响应后续同类战区 |
+| `support_zone_ground` | 战区任务执行器在本局首次非机场 `ground` ACTIVE 时查询；正式局未购不生成，非正式局 fail-open；与制空额度分账 |
+| `support_ace_f15` | 本局首次非 BOSS 王牌轮换事件成功生成后查询；正式局未购不生成，非正式局 fail-open；生成 Hound-1/2 两架只对空 F-15，后续王牌事件不再派遣 |
 | `support_airfield_sam` | 机场解放时创建驻防计划：正式局已购则 AA×2 后追加一次性 SAM×1，未购只有 AA×2；非正式局 fail-open |
 
 - 首次**机场**停靠（dockings.airfield 0→1）且 `dock_wingman` 未拥有时，停靠结算额外弹一条
@@ -238,5 +238,6 @@ buy(id)：已拥有 → 拒绝；未上架 → 拒绝；MeritLedger.spend(price)
 | 2026-07-27 | 2 | 用户裁定：锁定机型从 dev_locked 全信息形态改 **locked 占位形态**（不加载档案、??? 名 + 仅解锁条件句） |
 | 2026-07-28 | 3 | §0 落地解释获用户批准（"可以执行"）；价格仍为草案，余项 = 价格校准 + §5 playtest。同期配件退役批把 6 张学说搬入本商店（见 doctrine-unlocks spec），回归门 41 项 PASS |
 | 2026-08-01 | 4 | 战场支援页新增 `support_zone_air` / `support_zone_ground` 两项独立永久授权，各 3000 功勋且恒上架；正式局门控战区 F-86/A-10，非正式局 fail-open。`meta_shop` 76/76。 |
+| 2026-08-08 | 7 | 用户裁定：F-86、A-10、F-15 三项已购空中支援分别改为每局首次合资格事件出动一次，不再随每个战区/王牌遭遇重复派遣；同步三语商品说明。Shadow `meta_shop` 88/88。 |
 | 2026-08-01 | 5 | 战场支援页新增 `support_ace_f15` 永久授权，3000 功勋且恒上架；正式局门控非 BOSS 王牌轮换的 2 架 F-15 截击支援，非正式局 fail-open。`meta_shop` 81/81、支援链 46/46。 |
 | 2026-08-02 | 6 | 用户裁定：机场防空网从局内技能池移除，改为战场支援页 `support_airfield_sam` 永久授权（3000 功勋）；购入后每局每座解放机场自动追加一次性 SAM×1。 |

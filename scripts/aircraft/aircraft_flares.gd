@@ -444,6 +444,7 @@ static func release_cover(ac: Aircraft, leader: Aircraft, target_missile: Missil
 	else:
 		ac._flare_cooldown = fp.cooldown
 
+	# 分批释放视觉粒子（与 release 同款，从机尾逐颗弹出）
 	_queue_visual_burst(ac)
 
 	if target_missile == null or not is_instance_valid(target_missile):

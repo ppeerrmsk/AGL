@@ -24,8 +24,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0invoke_godot.ps1" 
   -DurationSeconds "%DURATION%" ^
   -TimeoutSeconds "%TIMEOUT%" ^
   -ProcDumpExe "%AGL_PROCDUMP%" ^
-	-RunMode "%RUN_MODE%" ^
-	-DisplayMode "%DISPLAY_MODE%"
+  -RunMode "%RUN_MODE%" ^
+  -DisplayMode "%DISPLAY_MODE%"
 set "EXIT_CODE=%ERRORLEVEL%"
 
 echo.

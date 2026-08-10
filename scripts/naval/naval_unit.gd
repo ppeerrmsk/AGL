@@ -282,7 +282,7 @@ func _should_redraw() -> bool:
 	return false
 
 func _is_far_from_player() -> bool:
-	var pref: Aircraft = AircraftRenderer.player_ref
+	var pref: Aircraft = AircraftRenderer.safe_player_ref()
 	if pref == null or not is_instance_valid(pref) or pref.is_destroyed:
 		return true
 	var d2: float = global_position.distance_squared_to(pref.global_position)
@@ -554,6 +554,14 @@ func take_damage(amount: float, attacker: Node = null, kind: String = "") -> voi
 		set_meta("_last_damage_kind", kind)
 	take_damage_at(amount, global_position)
 
+## 气氛友军舰炮只磨正式舰船的船体表演值：最低保留 1，不触碰挂点/弱点，
+## 因而绝不可能替玩家完成对舰 TGT。
+func take_atmosphere_damage_at(amount: float, _hit_pos: Vector2) -> void:
+	if is_destroyed or hull_hp_max <= 0.0 or hull_hp <= 1.0:
+		return
+	hull_hp = maxf(hull_hp - maxf(amount, 0.0), 1.0)
+	queue_redraw()
+
 ## 船只识别 JAM（武器禁射）。其它状态（SLOW/FEAR/BLOODLUST/OVERLOAD/STEALTH/INVINCIBLE）
 ## 对船没有任何作用通路 —— 不写进 status_effects，避免字典里堆积永不衰减的死条目
 ## （参考 combat_unit.gd:82 注释 + aircraft.gd:1931 同模式过滤）
@@ -716,7 +724,7 @@ func has_missile_capability() -> bool:
 ## 覆写 CombatUnit：海军单位能否对玩家发射导弹
 ## 条件：玩家在某个导弹挂点的雷达/有效射程内 + 该挂点 fire_cooldown ≤ 0
 func _lock_line_can_engage_player() -> bool:
-	var pref: Aircraft = AircraftRenderer.player_ref
+	var pref: Aircraft = AircraftRenderer.safe_player_ref()
 	if pref == null or not is_instance_valid(pref) or pref.is_destroyed:
 		return false
 	for m in mounts:

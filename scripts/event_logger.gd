@@ -144,7 +144,7 @@ func dump_to_file() -> String:
 ## §7.6 技能快照：玩家技能 / 状态效果 / 关键属性 / 最近钩子触发
 ## 不持久化新数据，只是把已有信息汇总到 log 末尾，方便用户对照玩家死亡前 30s 看哪些技能链触发了什么
 func _dump_skill_snapshot(file: FileAccess) -> void:
-	var pref: Aircraft = AircraftRenderer.player_ref
+	var pref: Aircraft = AircraftRenderer.safe_player_ref()
 	if pref == null or not is_instance_valid(pref):
 		return
 	file.store_line("")

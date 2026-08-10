@@ -286,11 +286,9 @@ func _update_radar_locks(delta: float) -> void:
 		for target in unit.radar_targets:
 			var t: CombatUnit = target
 			var progress: float = clampf(unit.radar_targets[target] / lock_time_val, 0.0, 1.0)
-			if progress > t.incoming_lock_progress:
-				t.incoming_lock_progress = progress
-			if unit.radar_targets[target] >= lock_time_val:
-				t.is_locked = true
-				t.locked_by.append(unit)
+			# 沙盒与正式局保持同一口径：第三方 AI 互锁不产生玩家锁框/被锁反应。
+			t.accumulate_player_lock_state(unit, progress,
+				unit.radar_targets[target] >= lock_time_val)
 
 ## 低空飞行目标锁定速率衰减（仅对 Aircraft 生效；地面单位恒定 1.0）
 static func _lock_rate_for_target(target: CombatUnit) -> float:

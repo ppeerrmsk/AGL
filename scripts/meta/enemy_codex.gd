@@ -63,6 +63,7 @@ const ENTRIES: Array = [
 	{"id": "f15e", "kind": Kind.AIR},
 	{"id": "su34", "kind": Kind.AIR},
 	{"id": "snowblind", "kind": Kind.AIR},
+	{"id": "deadair", "kind": Kind.AIR},
 	{"id": "f15c", "kind": Kind.AIR},
 	{"id": "rafale", "kind": Kind.AIR},
 	{"id": "typhoon", "kind": Kind.AIR},

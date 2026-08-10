@@ -382,7 +382,7 @@ SurvivorData.is_upgrade_available_for(upgrade, aircraft_id, params) -> bool
 | ID | 起手定位 | 档案 | 解锁条件（spec `career-shop` §2.1） |
 |---|---|---|---|
 | `f15` | 制空/综合，进化路线最多 | `resources/playable_f15.tres` | 恒解锁 |
-| `f14` | 远程/团队，开局送 3 僚机（全谱最弱锚点） | `resources/playable_f14.tres` | 首败航母 BOSS |
+| `f14` | 远程/团队，开局送 1 僚机组成双机编队（全谱最弱锚点） | `resources/playable_f14.tres` | 首败航母 BOSS |
 | `a6e` | 攻击/肉，轻火箭 | `resources/player/playable_a6e.tres` | 累计 30 地面击杀（`CareerArchive.get_ground_kills`，进度实时显示在锁定卡按钮上） |
 | `mirage3` | 电战线之根 | `resources/player/playable_mirage3.tres` | 生涯商店购买 |
 

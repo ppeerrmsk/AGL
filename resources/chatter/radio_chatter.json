@@ -60,6 +60,38 @@
         "RADIO_ACE_SPAWN_5"
       ]
     },
+    "reward_target_available": {
+      "_doc": "首批或后续奖励目标开放；必须在实体生成前通报。",
+      "class": "scripted",
+      "weight": 92,
+      "lines": [
+        "RADIO_REWARD_TARGET_AVAILABLE"
+      ]
+    },
+    "bomber_escort_available": {
+      "_doc": "可选轰炸护送任务开放；必须在目标与航线实体生成前通报。",
+      "class": "scripted",
+      "weight": 96,
+      "lines": [
+        "RADIO_BOMBER_ESCORT_AVAILABLE"
+      ]
+    },
+    "hound_one_contact": {
+      "_doc": "每局首次王牌截击支援入场；Hound-1 发现目标并宣布交战。与 Hound-2 构成固定双句。",
+      "class": "scripted",
+      "weight": 94,
+      "lines": [
+        "RADIO_HOUND_ONE_CONTACT"
+      ]
+    },
+    "hound_two_follow": {
+      "_doc": "紧随 Hound-1 的固定应答；只在同一支援双机实际生成时入队。",
+      "class": "scripted",
+      "weight": 93,
+      "lines": [
+        "RADIO_HOUND_TWO_FOLLOW"
+      ]
+    },
     "whitetea_surrender": {
       "_doc": "WhiteTea 最后一架投降离场；由幸存者本人使用真实呼号播报。",
       "class": "scripted",

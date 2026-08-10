@@ -10,7 +10,7 @@
 |------|---------|----------|----------|
 | **Gladiator（斗士）** | 积极近身狗斗，拉近距离，高转弯激进度，低自保 | `gladiator_combat.tres` / 注册表通用配置 | F-86、MiG-23、Su-27/Su-35、F-15C、Typhoon、Su-57 等 |
 | **Lancer（骑士/打带跑）** | 高速一次性突击，闭合率不足即脱离，不缠斗 | `lancer_combat.tres` / 注册表通用配置 | J-7、F-104、MiG-31、F-14、Tornado、J-20 等 |
-| **Schemer（策士）** | 特殊机制或远距循环；执行后换位，玩家靠近即脱离 | 注册表通用配置 + 专用控制器 | Sentinel、Snowblind、F-22、Gripen/Rafale/F-35、A-12 |
+| **Schemer（策士）** | 特殊机制或远距循环；执行后换位，玩家靠近即脱离 | 注册表通用配置 + 专用控制器 | Sentinel、Snowblind、DEADAIR、F-22、Gripen/Rafale/F-35、A-12 |
 | **Adds（任务单位）** | 不占 Token 的事件族群；轰炸机执行航路任务，旋翼机使用独立运动模型 | — | Tu-160、AH-64、CH-47。MQ-109/MQ-110/F-4E 仍受刷怪系统管理，不归入此类 |
 | **主力威胁** | 全能 BFM 战术 + 导弹缠斗 | `default_combat.tres` | MiG-29 |
 
@@ -80,6 +80,7 @@
 | `J20(53)` | J-20 | Lancer | `enemy_j20.tres` | 9 | **2** | 12 | 1–2 架 | 注册表 `_create_enemy` | 远程高速攻击通场 |
 | `A12(54)` | A-12 Avenger II | Schemer 远距 | `enemy_a12.tres` | 8 | **2** | 13 | 1–2 架 | 注册表 `_create_enemy` | 单目标远距重击后换位 |
 | `FCK1(55)` | F-CK-1 | **王牌专属**（WhiteTea 机炮骑士） | `enemy_fck1.tres` + `whitetea_gun.tres`（4×5 受控短梭；纯机炮无导弹） | 0（事件供给，不进随机池/无缩放） | **3** | 事件（240s 统一王牌池） | WhiteTea profile 生成 ×3；逐机 joust 打带逃，1 flare 耗尽后解锁一次性 J-turn；2→1 时幸存者投降转 ALLY、本人喊话后被动离场 | `_create_enemy` FCK1 case | AceSupportSquad `gun_lancer`；`AceReinforcementEvent._try_whitetea_surrender`；spec [events/ace-whitetea-fck1](../specs/events/ace-whitetea-fck1.md) / [systems/dynamic-faction-conversion](../specs/systems/dynamic-faction-conversion.md) |
+| `DEADAIR(56)` | DEADAIR 断讯 | Schemer 纯支援 | `enemy_deadair.tres` | 4 + 两护卫各自 Token | **1** | 9 | 本体 + 2 架动态合格护卫；最低完整编成 10 Token；阶段累计 2；冷却 180s；与 Snowblind 在场互斥 | `_spawn_deadair_squad` | `deadair_controller.gd`：3000m 场、5Hz 累积；CombatUnit 8s 标准 JAM，制导导弹 4×（2s）永久失导；本体 HP55、无武器/flare，近身压力下按普通顶速逃离 |
 
 ### 敌人作战高度分档（2026-07-28）
 
@@ -170,14 +171,14 @@ BVR 远距协同齐射 BOSS，事件触发：
 4. **`survivor_spawner.gd:119` 起 `preload(...)` 加载资源**
 5. **`survivor_data.gd:1554` 起加解锁/概率常量**（`<NAME>_UNLOCK_LEVEL` / `_CHANCE_PER_LEVEL` / `_CHANCE_MAX`）
 6. **`survivor_data.gd:3415` `TOKEN_COST` 和 `survivor_data.gd:3520` `TOKEN_INSTANCE_CAP` 表补新枚举值**
-7. **`survivor_spawner.gd:402` `_pick_enemy_type` 按威胁等级插入概率判定分支**
-8. **`survivor_spawner.gd:2098` `_create_enemy` 的各 match 全部补新 case**：
+7. **`survivor_spawner.gd:439` `_pick_enemy_type` 按威胁等级插入概率判定分支**
+8. **`survivor_spawner.gd:2315` `_create_enemy` 的各 match 全部补新 case**：
    - `match etype` 选基础参数（`:1577`）
    - `enemy_scale_for_level` 适用判定（`:1646` 起）
    - 热诱弹失误概率 match（`:1689`）—— 越低级失误率越高
    - `type_tag` 映射（`:1759`）—— 第 10 步的无线电白名单要用这个 tag
    - AI 配置分支（`:1840` 起 — 仿照 F-86/MiG-23 写 `aggression`/`engage_cooldown` 等）
-9. **`survivor_spawner.gd:606` `_update_spawner` 的编队/单机判定里追加**（精英单机 vs 成建制编队）
+9. **`survivor_spawner.gd:644` `_update_spawner` 的编队/单机判定里追加**（精英单机 vs 成建制编队）
 10. **决定它配不配无线电**（spec radio-chatter §2.8）：
     - 有人驾驶且够格说话 → 在 `resources/chatter/radio_chatter.json` 的 `voiced_enemy_types.types`
       加上第 8 步的 `type_tag`

@@ -1,6 +1,8 @@
 extends Node2D
 
 const HackedAllyForceScript = preload("res://scripts/survivor/hacked_ally_force.gd")
+const BattlefieldAtmosphereExperimentScript = preload(
+	"res://scripts/survivor/battlefield_atmosphere_experiment.gd")
 
 ## 生存模式主控制器
 ## 操控/镜头/武器/雷达 全部与沙盒模式一致
@@ -8,7 +10,9 @@ const HackedAllyForceScript = preload("res://scripts/survivor/hacked_ally_force.
 
 # ── 共享模块 ──
 var _map_features: MapFeatureRenderer
+var _building_renderer: BuildingRenderer
 var _ugc_doc: MapDocument = null  ## UGC 试飞中的地图文档（null = 官方图）
+var _map_preview_only := false     ## 图2/图3空地图试飞：只保留玩家、地图与Tab导航
 var _camera_ctrl: CameraController
 var _weather: WeatherSystem
 
@@ -153,6 +157,7 @@ var _zone_arrow: ZoneArrow
 var _zone_hint: ZoneHint
 var _pending_basemap_error_reason: String = ""
 var _radio: RadioChatter          ## 无线电通讯（spec radio-chatter）
+var _last_reward_target_radio_time := -INF
 var _zone_mission: ZoneMission
 var _adbs: AdbsManager
 var _event_director: EventDirector
@@ -186,11 +191,25 @@ var _bench_scenario: String = ""
 var _bench_duration: float = 30.0
 var _bench_elapsed: float = 0.0
 var _bench_finished: bool = false
+var _bench_zone_atmosphere_near: bool = false
+var _bench_map_prewarming: bool = false
 var _bench_wall_started_msec: int = 0
 var _bench_last_heartbeat_msec: int = 0
 var _bench_pause_started_msec: int = 0
+var _bench_render_frames: int = 0
+var _bench_render_delta_sum: float = 0.0
+var _bench_render_delta_max: float = 0.0
+var _bench_render_frames_below_60: int = 0
+var _bench_weather_capture_done: bool = false
+var _bench_atmosphere_experiment: Node = null
+var _bench_stress_frame_deltas := PackedFloat32Array()
 var _growth_bench: EvolutionGrowthBenchmark = null
 var _growth_bench_config_ok: bool = false
+const MAP_BENCH_SCENARIOS := [
+	"map_png_stress", "map_vector_stress",
+	"map_png_detail_stress", "map_vector_detail_stress",
+	"map_preview_desert", "map_preview_ocean",
+]
 ## demo 模式：复用 bench 的"玩家挂AI+force-spawn敌机+相机跟随"，但渲染运行、不退出、
 ## 持续补充敌人——供肉眼观察物理/表现/小队战术（2026-06-07）
 var _bench_demo: bool = false
@@ -260,6 +279,9 @@ func _ready() -> void:
 	if _bench_scenario == "evolution_growth":
 		_growth_bench = EvolutionGrowthBenchmark.new()
 		_growth_bench_config_ok = _growth_bench.configure_from_environment(_bench_duration)
+	if get_tree().has_meta("map_preview_only"):
+		_map_preview_only = bool(get_tree().get_meta("map_preview_only"))
+		get_tree().remove_meta("map_preview_only")
 
 	# 生涯档案（spec career-archive）：正式局开局计数 + 成就解锁 toast 订阅。
 	# bench/boss debug 不入档（入档铁律 §3.5）；订阅无守卫——非正式局根本不会有解锁事件
@@ -299,13 +321,19 @@ func _ready() -> void:
 
 	# 海岸线大地图：用固定几何数据替代原 TerrainRenderer 的噪声
 	# Boss Debug / Bench 模式跳过：boss_debug 是空白地图省 shader+几何；bench 是 headless 不渲染
-	if not _boss_debug_mode and not _bench_mode:
+	var bench_map_render := _bench_mode and _bench_scenario in MAP_BENCH_SCENARIOS
+	if not _boss_debug_mode and (not _bench_mode or bench_map_render):
 		_map_features = MapFeatureRenderer.new()
 		_map_features.show_behind_parent = true
 		_map_features.ugc_vector_only = _ugc_doc != null  # UGC 图跳过官方底图/手画层
 		_map_features.basemap_load_failed.connect(_on_basemap_load_failed)
 		if _ugc_doc != null:
+			_map_features.use_basemap = _ugc_doc.basemap.has("png_path") \
+				and _ugc_doc.basemap.has("meta_path")
+			_map_features.basemap_png_path = String(_ugc_doc.basemap.get("png_path", ""))
+			_map_features.basemap_meta_path = String(_ugc_doc.basemap.get("meta_path", ""))
 			_map_features.ugc_overlay_layers = UgcLoader.overlay_layers_from(_ugc_doc)
+			_map_features.ugc_palette = _ugc_doc.style.get("palette", {}).duplicate(true)
 		add_child(_map_features)
 		move_child(_map_features, 0)
 		# _map_features.setup() 会在 _map_boundary 创建后调用（见下方）
@@ -322,11 +350,14 @@ func _ready() -> void:
 
 	# 横浜高建筑伪 3D 渲染（独立模块；删除以下 4 行 + building_renderer.gd 即可完整撤回）
 	# Boss Debug / Bench 模式跳过
-	if not _boss_debug_mode and not _bench_mode:
-		var buildings := BuildingRenderer.new()
-		buildings.show_behind_parent = true
-		add_child(buildings)
-		buildings.setup(camera)
+	if not _boss_debug_mode and (not _bench_mode or bench_map_render):
+		_building_renderer = BuildingRenderer.new()
+		_building_renderer.show_behind_parent = true
+		if _ugc_doc != null:
+			# 预览图跨度大；压低远距视差，避免远处建筑侧墙被拉成巨型方块。
+			_building_renderer.perspective_k = 0.015
+		add_child(_building_renderer)
+		_building_renderer.setup(camera)
 
 	# 相机控制器
 	_camera_ctrl = CameraController.new()
@@ -371,7 +402,7 @@ func _ready() -> void:
 	elif _bench_scenario == "reversal":
 		profile = profile.duplicate()
 		profile.wingman_count = 3
-	elif _bench_scenario == "enemy_pool_stress":
+	elif _bench_scenario == "enemy_pool_stress" or _bench_scenario == "deadair_stress":
 		profile = profile.duplicate()
 		profile.wingman_count = 8
 	elif _bench_scenario == "evolution_growth" and _growth_bench_config_ok:
@@ -434,6 +465,10 @@ func _ready() -> void:
 	_command_wheel.setup(self, COMMAND_WHEEL_PARAMS)
 	_command_wheel.command_selected.connect(_on_wheel_command)
 	player_aircraft.position = MapBoundary.get_player_start()
+	if _ugc_doc != null and _ugc_doc.spawn.get("pos", []) is Array:
+		var spawn_pos: Array = _ugc_doc.spawn.get("pos", [])
+		if spawn_pos.size() >= 2:
+			player_aircraft.position = Vector2(float(spawn_pos[0]), float(spawn_pos[1]))
 	# 相机初始对准玩家起始点 + 启用跟随
 	camera.global_position = player_aircraft.position
 	_camera_ctrl.set_follow_target(player_aircraft)
@@ -448,6 +483,8 @@ func _ready() -> void:
 	# 王牌技只在操控机、品类技只落身份匹配机——不再把整本队级账本共享引用给单机。
 	player_aircraft.set_meta("upgrade_stacks", {})
 	add_child(player_aircraft)
+	if _ugc_doc != null:
+		player_aircraft.heading = deg_to_rad(float(_ugc_doc.spawn.get("heading_deg", 0.0)))
 	# 起手直接落在最高高度 + 全速巡航（避免开局爬升/巡航速度的慢启动）。
 	# 必须在 add_child 之后：Aircraft._ready() 会把 altitude 重置为 5000、target_speed_kmh 重置为 cruise。
 	player_aircraft.altitude = Aircraft.TIER_ALTITUDE[Aircraft.AltitudeTier.HIGH]
@@ -504,16 +541,17 @@ func _ready() -> void:
 	debug_spawn.game_scene = self
 	add_child(debug_spawn)
 
-	# 通用战区系统 + F6 Debug 面板
-	zone_manager = ZoneManager.new()
-	zone_manager.name = "ZoneManager"
-	add_child(zone_manager)
-	zone_manager.setup(self, player_aircraft)
+	# 通用战区系统 + F6 Debug 面板；空地图预览不构造任何战区入口。
+	if not _map_preview_only:
+		zone_manager = ZoneManager.new()
+		zone_manager.name = "ZoneManager"
+		add_child(zone_manager)
+		zone_manager.setup(self, player_aircraft)
 
-	var debug_zone := SurvivorDebugZone.new()
-	debug_zone.game_scene = self
-	# 新 F6 面板直接从 game_scene 里读 _zone_data / _zone_mission，不再需要 zone_manager
-	add_child(debug_zone)
+		var debug_zone := SurvivorDebugZone.new()
+		debug_zone.game_scene = self
+		# 新 F6 面板直接从 game_scene 里读 _zone_data / _zone_mission，不再需要 zone_manager
+		add_child(debug_zone)
 
 	# 王牌中队固定呼号永久保留（spec ace-squadron-tier §2.7：杂鱼抽不到、死亡不回池）
 	AceSquadProfiles.reserve_callsigns()
@@ -558,20 +596,39 @@ func _ready() -> void:
 
 	# ── 战术地图 + 战区系统（P2）──
 	# Boss Debug / Bench 模式跳过：bench 不要战区任务/ADBS 干扰压力测试样本
-	if not _boss_debug_mode and not _bench_mode:
-		# 构造时注入奖励上下文：开局 A/B 要保底各出一件武器与一项可用的次世代技能，
-		# 因此首 roll 也必须经过机型 / 学说 / 已持有装备过滤。
-		_zone_data = ZoneData.new(_build_reward_roll_context)
+	if _map_preview_only and not _boss_debug_mode and not _bench_mode:
+		_tactical_map = TacticalMap.new()
+		if _ugc_doc != null:
+			_tactical_map.ugc_palette = _ugc_doc.style.get("palette", {}).duplicate(true)
+			_tactical_map.use_basemap = _ugc_doc.basemap.has("png_path") \
+				and _ugc_doc.basemap.has("meta_path")
+			_tactical_map.basemap_png_path = String(_ugc_doc.basemap.get("png_path", ""))
+			_tactical_map.basemap_meta_path = String(_ugc_doc.basemap.get("meta_path", ""))
+		add_child(_tactical_map)
+		_tactical_map.setup(_map_boundary.get_world_rect(), player_aircraft, null, self)
+		_tactical_map.nav_point_selected.connect(_on_nav_point_selected)
+		_tactical_map.nav_cleared.connect(_on_nav_cleared)
+	if not _map_preview_only and not _boss_debug_mode and not _bench_mode:
+		# 构造时注入奖励上下文：首批 A/B 开放时要保底各出一件武器与一项可用的次世代技能，
+		# 因此延迟到 60s/Lv3 的首 roll 也必须经过机型 / 学说 / 已持有装备过滤。
+		_zone_data = ZoneData.new(_build_reward_roll_context, true, true)
 		# BoundaryUI 需要 _zone_data 来检测 BOSS 阶段（切换警告文案 + 补给阻断由 _on_supply_confirmed 做）
 		if _boundary_ui:
 			_boundary_ui.zones = _zone_data
 
 		_tactical_map = TacticalMap.new()
+		if _ugc_doc != null:
+			_tactical_map.ugc_palette = _ugc_doc.style.get("palette", {}).duplicate(true)
+			_tactical_map.use_basemap = _ugc_doc.basemap.has("png_path") \
+				and _ugc_doc.basemap.has("meta_path")
+			_tactical_map.basemap_png_path = String(_ugc_doc.basemap.get("png_path", ""))
+			_tactical_map.basemap_meta_path = String(_ugc_doc.basemap.get("meta_path", ""))
 		add_child(_tactical_map)
 		_tactical_map.setup(_map_boundary.get_world_rect(), player_aircraft, _zone_data, self)
 		_tactical_map.zone_selected.connect(_on_zone_selected)
 		_tactical_map.nav_point_selected.connect(_on_nav_point_selected)
 		_tactical_map.nav_cleared.connect(_on_nav_cleared)
+		_tactical_map.vector_preview_toggle_requested.connect(_toggle_map_vector_preview)
 
 		# ── 机场解放战区（spec airfield-liberation-zones）──
 		# 三座机场开局是敌占战区（ZoneData 里 AF_* 条目），补给点 + 友军防空伞
@@ -596,6 +653,8 @@ func _ready() -> void:
 			bullet_manager, missile_manager, _spawner)
 		_zone_mission.mission_triggered.connect(_on_zone_mission_triggered)
 		_zone_mission.mission_completed.connect(_on_zone_mission_completed)
+		_zone_mission.mission_failed.connect(_on_zone_mission_failed)
+		_zone_mission.mission_spawn_announced.connect(_on_zone_mission_spawn_announced)
 		# 回注给 spawner：旅途刷怪需查询"玩家当前是否在战区任务里"
 		_spawner.set_zone_mission(_zone_mission)
 
@@ -617,9 +676,10 @@ func _ready() -> void:
 
 	# ── 首次进入生存模式：浮现式教程 ──
 	# Boss Debug / Bench 模式跳过教程（前者来测 boss，后者是 headless 没人看）
-	if not _boss_debug_mode and not _bench_mode and SurvivorTutorial.should_show():
+	if not _map_preview_only and not _boss_debug_mode and not _bench_mode and SurvivorTutorial.should_show():
 		_start_first_run_tutorial()
-	_maybe_start_wingman_switch_tutorial()
+	if not _map_preview_only:
+		_maybe_start_wingman_switch_tutorial()
 
 	# ── Boss Debug 场景化设置（所有正常 setup 完成后） ──
 	# 跳到 15 级 + 主题化随机 build + 立即启动 BossEncounterEvent
@@ -633,11 +693,12 @@ func _ready() -> void:
 		call_deferred("_setup_bench_scenario")
 
 ## 正式底图失败时保留旧矢量地图保证战局可继续，但必须把降级状态明确展示给玩家。
-## 理论上信号在首帧 _draw 才到；pending 分支守住未来渲染时序变化导致 ZoneHint 尚未创建的情况。
+## pending 分支守住未来渲染时序变化导致 ZoneHint 尚未创建的情况。
 func _on_basemap_load_failed(reason_key: String) -> void:
 	_pending_basemap_error_reason = reason_key
 	if _zone_hint != null:
 		_show_basemap_error(reason_key)
+
 
 func _show_basemap_error(reason_key: String) -> void:
 	if _zone_hint == null:
@@ -750,8 +811,51 @@ func _setup_bench_scenario() -> void:
 		push_error("[Bench] setup: missing survivor_player or player_aircraft")
 		return
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	if _bench_scenario == "map_vector_detail_stress" and _map_features != null:
+		_bench_map_prewarming = true
+		var detail_prewarm := MapDetailTileCache.new()
+		add_child(detail_prewarm)
+		var detail_result: Dictionary = await detail_prewarm.bake_cache()
+		if bool(detail_result.get("ok", false)):
+			var stress_center := camera.global_position
+			detail_result = await detail_prewarm.bake_region(
+				Rect2(stress_center - Vector2(4000.0, 3000.0), Vector2(8000.0, 6000.0)))
+		detail_prewarm.queue_free()
+		camera.zoom = Vector2(0.80, 0.80)
+		if not bool(detail_result.get("ok", false)) or not _map_features.attach_cached_detail() \
+				or not _map_features.set_vector_preview_enabled(true):
+			push_error("[Bench] map_vector_detail_stress could not enable cached detail renderer")
+		else:
+			_sync_shared_map_gameplay_layers()
+	elif _bench_scenario == "map_vector_stress" and _map_features != null:
+		camera.zoom = Vector2(0.35, 0.35)
+		if not _map_features.set_vector_preview_enabled(true):
+			push_error("[Bench] map_vector_stress could not enable candidate renderer")
+		else:
+			_sync_shared_map_gameplay_layers()
+	elif _bench_scenario in ["map_png_stress", "map_png_detail_stress"]:
+		var map_zoom := 0.80 if _bench_scenario == "map_png_detail_stress" else 0.35
+		camera.zoom = Vector2(map_zoom, map_zoom)
+	_bench_map_prewarming = false
 	_bench_wall_started_msec = Time.get_ticks_msec()
 	_bench_last_heartbeat_msec = _bench_wall_started_msec
+	if _bench_scenario in ["map_preview_desert", "map_preview_ocean"]:
+		player_aircraft.invulnerable = true
+		player_aircraft.global_position = Vector2.ZERO
+		player_aircraft.clear_trail()
+		camera.global_position = Vector2.ZERO
+		camera.zoom = Vector2(0.35, 0.35)
+		if _bench_scenario == "map_preview_desert":
+			# 性能/视觉探针直接覆盖沙尘暴最宽的中段，而不是等待真实 5 分钟。
+			game_time = WARZONE_PHASE_DURATION * 0.5
+			_weather.set_debug_midgame(game_time, WARZONE_PHASE_DURATION)
+		EventLogger.log_event("BENCH", "MapPreviewLoaded",
+			"scenario=%s map=%s land=%d roads=%d zones=%s" % [
+				_bench_scenario, _ugc_doc.display_name if _ugc_doc != null else "missing",
+				MapGeography.get_land_mask_polygons().size(), MapGeography.HIGHWAYS.size(),
+				"none" if _zone_data == null and _zone_mission == null else "unexpected",
+			])
+		return
 	if _bench_scenario == "evolution_growth":
 		if not _growth_bench_config_ok:
 			_bench_finish_now("terminal=invalid_growth_configuration\n", 1)
@@ -796,11 +900,28 @@ func _setup_bench_scenario() -> void:
 			_bench_force_spawn_swarm()
 		elif _bench_scenario == "enemy_pool_stress":
 			_bench_force_enemy_pool_stress()
+		elif _bench_scenario == "deadair_stress":
+			_bench_force_deadair_stress()
+		elif _bench_scenario == "battlefield_atmosphere":
+			_bench_force_battlefield_atmosphere("air")
+		elif _bench_scenario == "battlefield_atmosphere_ground":
+			_bench_force_battlefield_atmosphere("ground")
+		elif _bench_scenario == "battlefield_atmosphere_naval":
+			_bench_force_battlefield_atmosphere("naval")
+		elif _bench_scenario.begins_with("battlefield_atmosphere_stress_"):
+			_bench_force_battlefield_atmosphere_stress()
 		elif _bench_scenario == "boss_mother_goose":
 			_bench_force_spawn_boss_mg()
 		elif _bench_scenario == "reversal":
 			_bench_force_spawn_reversal()
 		elif _bench_scenario == "zone_support_stress":
+			_bench_force_spawn_mixed(BENCH_INITIAL_ENEMY_COUNT)
+			_bench_force_zone_support()
+		elif _bench_scenario == "bomber_escort_zone":
+			_bench_force_bomber_escort_zone()
+		elif _bench_scenario == "zone_atmosphere_formal":
+			_bench_force_zone_atmosphere()
+		elif _bench_scenario in MAP_BENCH_SCENARIOS:
 			_bench_force_spawn_mixed(BENCH_INITIAL_ENEMY_COUNT)
 			_bench_force_zone_support()
 		elif _bench_scenario == "naval_zone_stress":
@@ -870,6 +991,118 @@ func _bench_force_enemy_pool_stress() -> void:
 	print("[Bench] enemy_pool_stress: 9 direct friendlies vs 17 expanded-pool enemies")
 
 
+## DEADAIR 最坏常态样本：9 架直属友机全在圈内，特殊包 + 16 架额外敌机维持导弹/机炮压力。
+## 真实 5Hz 控制器会同时扫描 CombatUnit 与在途 Missile 注册表；不添加测试专用 process。
+func _bench_force_deadair_stress() -> void:
+	player_aircraft.global_position = Vector2.ZERO
+	_spawner._dynamic_enemy_cap = SurvivorData.MAX_ENEMIES_HARD
+	_bench_spawn_enemy_squad_at(SurvivorSpawner.EnemyType.DEADAIR, 1,
+		Vector2(0.0, -800.0), 180.0)
+	_bench_spawn_enemy_squad_at(SurvivorSpawner.EnemyType.MIG23, 2,
+		Vector2(-500.0, -950.0), 180.0)
+	_bench_spawn_enemy_squad_at(SurvivorSpawner.EnemyType.F22, 3,
+		Vector2(0.0, -2500.0), 180.0)
+	_bench_spawn_enemy_squad_at(SurvivorSpawner.EnemyType.GRIPEN_E, 3,
+		Vector2(2600.0, 0.0), 270.0)
+	_bench_spawn_enemy_squad_at(SurvivorSpawner.EnemyType.RAFALE, 2,
+		Vector2(-2600.0, 0.0), 90.0)
+	_bench_spawn_enemy_squad_at(SurvivorSpawner.EnemyType.SU57, 2,
+		Vector2(0.0, 2600.0), 0.0)
+	_bench_spawn_enemy_squad_at(SurvivorSpawner.EnemyType.J20, 3,
+		Vector2(2200.0, -2200.0), 225.0)
+	_bench_spawn_enemy_squad_at(SurvivorSpawner.EnemyType.F15_REGULAR, 3,
+		Vector2(-2200.0, 2200.0), 45.0)
+	for unit in CombatUnit.all_units:
+		if unit is Aircraft and is_instance_valid(unit):
+			var ac := unit as Aircraft
+			ac.invulnerable = true
+			ac.set_meta("skip_far_cleanup", true)
+	print("[Bench] deadair_stress: 9 direct friendlies vs DEADAIR package + 16 enemies")
+
+
+## 真实生存场景中的海陆空气氛样本；三个入口均可用 Visual 模式肉眼观察。
+func _bench_force_battlefield_atmosphere(kind: String = "air") -> void:
+	camera.zoom = Vector2(0.35, 0.35)
+	# 专项 bench 只测 AI 气氛组自身的减员速度；自动驾驶玩家不介入。
+	# Visual/F5 实验里的真人玩家仍保持正式满伤害，可主动改变战局。
+	var bench_player_ai: AIController = player_aircraft._get_ai_controller()
+	if bench_player_ai != null:
+		bench_player_ai.enable_combat = false
+		bench_player_ai.release_target(AIController.TargetSource.TS_SCORED,
+			"battlefield atmosphere bench observer")
+	var experiment: Node = BattlefieldAtmosphereExperimentScript.new()
+	_bench_atmosphere_experiment = experiment
+	experiment.name = "BattlefieldAtmosphereExperimentBench"
+	add_child(experiment)
+	experiment.setup(self, _spawner)
+	var launched: bool
+	match kind:
+		"ground":
+			launched = experiment.launch_ground_battle()
+		"naval":
+			launched = experiment.launch_naval_battle()
+		_:
+			launched = experiment.launch_air_battle()
+	if not launched:
+		push_error("[Bench] battlefield_atmosphere_%s failed to launch" % kind)
+		return
+	print("[Bench] battlefield_atmosphere_%s launched, AI damage 10%%" % kind)
+
+
+func _bench_force_battlefield_atmosphere_stress() -> void:
+	player_aircraft.global_position = Vector2.ZERO
+	camera.global_position = Vector2.ZERO
+	# 容量测试只保留气氛演员；正式 spawner 自然补刷会让成员数漂移，也可能用导弹一击移除地面演员。
+	_spawner._dynamic_enemy_cap = 0
+	var config_by_scenario := {
+		"battlefield_atmosphere_stress_24": Vector2i(24, 8),
+		"battlefield_atmosphere_stress_36": Vector2i(36, 8),
+		"battlefield_atmosphere_stress_40": Vector2i(40, 8),
+		"battlefield_atmosphere_stress_44": Vector2i(44, 8),
+		"battlefield_atmosphere_stress_48": Vector2i(48, 8),
+		"battlefield_atmosphere_stress_52": Vector2i(52, 8),
+		"battlefield_atmosphere_stress_54": Vector2i(54, 8),
+		"battlefield_atmosphere_stress_56": Vector2i(56, 8),
+		"battlefield_atmosphere_stress_60": Vector2i(60, 8),
+		"battlefield_atmosphere_stress_64": Vector2i(64, 8),
+		"battlefield_atmosphere_stress_68": Vector2i(68, 8),
+		"battlefield_atmosphere_stress_72": Vector2i(72, 8),
+		"battlefield_atmosphere_stress_96": Vector2i(96, 8),
+		"battlefield_atmosphere_stress_48_24km": Vector2i(48, 24),
+		"battlefield_atmosphere_stress_48_48km": Vector2i(48, 48),
+	}
+	var config: Vector2i = config_by_scenario.get(_bench_scenario, Vector2i(48, 8))
+	var span_px := float(config.y) * 500.0
+	var fit_zoom := clampf(1050.0 / maxf(span_px, 1.0), 0.04, 0.35)
+	camera.zoom = Vector2(fit_zoom, fit_zoom)
+	var bench_player_ai: AIController = player_aircraft._get_ai_controller()
+	if bench_player_ai != null:
+		bench_player_ai.enable_combat = false
+		bench_player_ai.release_target(AIController.TargetSource.TS_SCORED,
+			"battlefield atmosphere stress observer")
+	_bench_atmosphere_experiment = BattlefieldAtmosphereExperimentScript.new()
+	_bench_atmosphere_experiment.name = "BattlefieldAtmosphereStressBench"
+	add_child(_bench_atmosphere_experiment)
+	_bench_atmosphere_experiment.setup(self, _spawner)
+	if not _bench_atmosphere_experiment.launch_stress_battle(config.x, span_px):
+		push_error("[Bench] %s failed to launch" % _bench_scenario)
+		return
+	# 保留场景启动时已存在的少量正式飞机作为固定基线成本，但关闭其武器，避免一击移除地面样本。
+	for child in get_children():
+		if not (child is Aircraft) or child == player_aircraft \
+				or child.is_in_group(&"battlefield_atmosphere_actor"):
+			continue
+		var baseline_ac := child as Aircraft
+		baseline_ac.invulnerable = true
+		var baseline_ai: AIController = baseline_ac._get_ai_controller()
+		if baseline_ai != null:
+			baseline_ai.enable_combat = false
+			baseline_ai.release_target(AIController.TargetSource.TS_SCORED,
+				"battlefield atmosphere fixed baseline")
+	print("[Bench] %s launched members=%d span=%dkm zoom=%.3f" % [
+		_bench_scenario, config.x, config.y, fit_zoom])
+
+
 ## 双 3★ 对空 + 单对地支援最坏场景：常规 26 敌压力样本上再放 8 F-86 + 2 A-10。
 ## ZoneMission 只负责完成一次真实生成，随后停自身 tick，避免预刷其它战区污染样本。
 func _bench_force_zone_support() -> void:
@@ -901,6 +1134,57 @@ func _bench_force_zone_support() -> void:
 		if child is Aircraft and child.has_meta("zone_support"):
 			support_count += 1
 	print("[Bench] zone_support_stress spawned support=%d (expected 10)" % support_count)
+
+## 可失败移动战区的真实场景验证：A 区强制改为护送任务，选择后由场外任务包入场。
+func _bench_force_bomber_escort_zone() -> void:
+	# 专项只保留被强制的 A 路线，避免正式局保底的额外可选任务同时入场污染样本。
+	_zone_data = ZoneData.new(Callable(), false)
+	_zone_mission = ZoneMission.new()
+	add_child(_zone_mission)
+	_zone_mission.setup(self, _zone_data, player_aircraft,
+		_sam_scene, _sam_params, _aa_scene, _aa_params,
+		bullet_manager, missile_manager, _spawner)
+	_zone_mission.mission_completed.connect(_on_zone_mission_completed)
+	_zone_mission.mission_failed.connect(_on_zone_mission_failed)
+	_spawner.set_zone_mission(_zone_mission)
+	_zone_data.debug_set_available(&"A")
+	_zone_data.debug_set_mission_type(&"A", "bomber_escort")
+	_zone_mission.debug_force_respawn_zone(&"A")
+	var ingress := _zone_data.get_zone_center(&"A")
+	var objective := _zone_data.get_objective_center(&"A")
+	_zone_data.select_zone(&"A")
+	var bench_ai := player_aircraft._get_ai_controller()
+	if bench_ai != null:
+		bench_ai.enable_combat = false
+	print("[Bench] bomber_escort_zone prepared ingress=%s objective=%s outside=%s player_clearance=%.0f" % [
+		ingress, objective, str(MapBoundary.distance_to_edge(ingress) < 0.0),
+		ingress.distance_to(player_aircraft.global_position)])
+
+
+## 正式战区氛围层真实场景：A=陆、C=空、E=海，玩家留在远距观察零杀伤持续演出。
+func _bench_force_zone_atmosphere() -> void:
+	if _zone_mission != null and is_instance_valid(_zone_mission):
+		_zone_mission.set_physics_process(false)
+		_zone_mission.queue_free()
+	_zone_data = ZoneData.new(Callable(), false)
+	_zone_mission = ZoneMission.new()
+	add_child(_zone_mission)
+	_zone_mission.setup(self, _zone_data, player_aircraft,
+		_sam_scene, _sam_params, _aa_scene, _aa_params,
+		bullet_manager, missile_manager, _spawner)
+	_spawner.set_zone_mission(_zone_mission)
+	# 性能硬门：正式全战区氛围之上再叠 Sentinel + 5 护卫。
+	_spawner._spawn_commander_squad(5)
+	for config in [[&"A", "ground"], [&"C", "squadron"], [&"E", "naval"]]:
+		var zid: StringName = config[0]
+		_zone_data.debug_set_available(zid)
+		_zone_data.debug_set_mission_type(zid, String(config[1]))
+		_zone_mission.debug_force_respawn_zone(zid)
+	var atmosphere: Node = _zone_mission._zone_atmosphere
+	print("[Bench] zone_atmosphere_formal active=%d ground_actors=%d air_actors=%d naval_actors=%d terrain_violations=%d" % [
+		atmosphere.active_zone_count(), atmosphere.actor_count(&"A"),
+		atmosphere.actor_count(&"C"), atmosphere.actor_count(&"E"),
+		atmosphere.terrain_violation_count()])
 
 ## 3★ 对舰任务最坏样本：常规混编 + Sentinel/5 护卫 + 六舰全目标编成。
 ## 玩家放进舰队交战半径并设为无敌，确保 VLS/CIWS/Flak 与全部舰载挂点持续工作整段样本。
@@ -1639,6 +1923,43 @@ func _dump_wingman_formation_state() -> void:
 #  输入处理（与 main.gd 一致）
 # ══════════════════════════════════════════════
 
+func _toggle_map_vector_preview() -> void:
+	if not OS.is_debug_build() or _ugc_doc != null or _boss_debug_mode or _bench_mode \
+			or _map_features == null or _tactical_map == null:
+		if _zone_hint:
+			_zone_hint.show_temp(tr("MAP_VECTOR_PREVIEW_UNAVAILABLE"), 4.0)
+		return
+	var target := not _map_features.vector_preview_enabled
+	if target:
+		if not _map_features.set_vector_preview_enabled(true):
+			if _zone_hint:
+				_zone_hint.show_temp(tr("MAP_VECTOR_PREVIEW_UNAVAILABLE"), 4.0)
+			return
+		if not _tactical_map.set_vector_preview_enabled(true):
+			# 两条路径必须原子同步；Tab 构建失败就回滚主地图到 PNG。
+			_map_features.set_vector_preview_enabled(false)
+			_tactical_map.set_vector_preview_enabled(false)
+			if _zone_hint:
+				_zone_hint.show_temp(tr("MAP_VECTOR_PREVIEW_UNAVAILABLE"), 4.0)
+			EventLogger.log_event("MAP_PREVIEW", "Rollback", "Tab vector snapshot failed; restored PNG")
+			return
+		_sync_shared_map_gameplay_layers()
+	else:
+		_tactical_map.set_vector_preview_enabled(false)
+		_map_features.set_vector_preview_enabled(false)
+		_sync_shared_map_gameplay_layers()
+	if _zone_hint:
+		_zone_hint.show_temp(tr("MAP_VECTOR_PREVIEW_ON" if target else "MAP_VECTOR_PREVIEW_OFF"), 4.0)
+	EventLogger.log_event("MAP_PREVIEW", "Toggle", "vector=%s main+tab synchronized" % target)
+
+
+func _sync_shared_map_gameplay_layers() -> void:
+	# 横滨 189 组伪 3D 大楼同时承担游戏地标与阻挡语义，不是 PNG 内容。
+	# A/B 只切底图；两侧都必须显示并处理同一游戏层，避免碰撞存在但视觉消失。
+	if is_instance_valid(_building_renderer):
+		_building_renderer.visible = true
+		_building_renderer.process_mode = Node.PROCESS_MODE_INHERIT
+
 func _unhandled_input(event: InputEvent) -> void:
 	# SPACE：重新启用跟随（镜头平滑回到玩家并锁定，后续持续跟随）
 	if event is InputEventKey and event.pressed and event.keycode == KEY_SPACE and player_aircraft and not player_aircraft.is_destroyed:
@@ -1680,6 +2001,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		var path := EventLogger.dump_to_file()
 		if path != "":
 			print("Combat log saved: %s" % path)
+		return
+	# Shift+F10：正式东京湾主地图 + Tab 地图同步切换 V36 纯矢量候选。
+	# 只在 debug build 暴露；UGC/Bench/Boss Debug 没有这条正式图 A/B 路径。
+	if event is InputEventKey and event.pressed and not event.echo \
+			and event.keycode == KEY_F10 and event.shift_pressed:
+		get_viewport().set_input_as_handled()
+		_toggle_map_vector_preview()
 		return
 	# F10：跑 TacticalPlanner / BfmIntent 单元测试，结果输出到控制台
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F10:
@@ -1783,7 +2111,6 @@ static func _cycle_player_weapon_preference(ac: Aircraft) -> void:
 		ac.weapon_preference = Aircraft.WeaponPreference.PREFER_MISSILE
 	elif has_gun:
 		ac.weapon_preference = Aircraft.WeaponPreference.PREFER_GUN
-
 
 func _handle_mouse_button(event: InputEventMouseButton) -> void:
 	match event.button_index:
@@ -2041,8 +2368,31 @@ func _find_nearest_mount_target_on(ship: CombatUnit, world_pos: Vector2) -> Comb
 
 ## 战术地图点空白处 → 下达巡航航点（精确世界坐标）。
 func _on_nav_point_selected(world_pos: Vector2) -> void:
+	if _map_features != null and _map_features.vector_preview_enabled:
+		await _prewarm_nav_detail(world_pos)
 	if _squad_cmd:
 		_squad_cmd.command_move(world_pos)
+
+
+func _prewarm_nav_detail(world_pos: Vector2) -> void:
+	if _map_features == null or _tactical_map == null:
+		return
+	var region := MapDetailTileCache.viewport_region(world_pos, get_viewport_rect().size)
+	_tactical_map.set_detail_prepare_in_progress(true)
+	EventLogger.log_event("MAP_DETAIL", "NavPrewarmStart", "point=%s region=%s" % [world_pos, region])
+	var result: Dictionary = await _map_features.prewarm_detail_regions([region])
+	if bool(result.get("ok", false)):
+		EventLogger.log_event("MAP_DETAIL", "NavPrewarmDone",
+			"point=%s cached=%d baked=%d batch_ms=%d" % [
+				world_pos,
+				int(result.get("cached_tile_count", 0)),
+				int(result.get("last_batch_baked", 0)),
+				int(result.get("last_batch_ms", 0)),
+			])
+	else:
+		EventLogger.log_event("MAP_DETAIL", "NavPrewarmFallback",
+			"point=%s error=%s" % [world_pos, result.get("error", "unknown")])
+	_tactical_map.set_detail_prepare_in_progress(false)
 
 ## 战术地图右键：取消当前巡航/攻击指令。
 func _on_nav_cleared() -> void:
@@ -2056,6 +2406,15 @@ func _on_nav_cleared() -> void:
 
 func _process(delta: float) -> void:
 	_camera_ctrl.update(delta)
+	var atmosphere_stress := _bench_scenario.begins_with("battlefield_atmosphere_stress_")
+	if (_bench_scenario in MAP_BENCH_SCENARIOS or atmosphere_stress) and _bench_elapsed >= 3.0:
+		_bench_render_frames += 1
+		_bench_render_delta_sum += delta
+		_bench_render_delta_max = maxf(_bench_render_delta_max, delta)
+		if delta > 1.0 / 60.0:
+			_bench_render_frames_below_60 += 1
+		if atmosphere_stress:
+			_bench_stress_frame_deltas.append(delta)
 	# WASD 自由镜头也算完成"平移"教程项
 	if is_instance_valid(_tutorial) and (
 			Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_A)
@@ -2064,7 +2423,7 @@ func _process(delta: float) -> void:
 	_cleanup_references()
 	if _bench_mode and not _bench_finished:
 		_bench_wall_watchdog()
-	# MapFeatureRenderer 自己每帧 queue_redraw，不需要在这里触发
+	# MapFeatureRenderer 自己维护静态 canvas；主循环禁止触发地图重绘。
 	# ⚠ _update_aircraft_list() + _update_radar_locks() 已迁移到 _physics_process —
 	#   原因：_process 是渲染帧率，窗口失焦 / Alt-Tab / 最小化时 Godot 会把它节流到
 	#   1-30Hz，单次 delta 可达 0.5-1.0s。雷达进度按 delta 累积 + RADAR_LOCK_STRIDE×4
@@ -2095,8 +2454,11 @@ func _physics_process(delta: float) -> void:
 	_tick_squad_watch(delta)
 
 	# BOSS 阶段后 game_time 不再累加（HUD 自然停在 00:00 / "BOSS PHASE"）
-	if not _is_in_boss_phase():
+	if not _bench_map_prewarming and not _is_in_boss_phase():
 		game_time += delta
+		_update_delayed_zone_unlocks()
+	if _weather:
+		_weather.set_game_time(game_time, WARZONE_PHASE_DURATION)
 	# 雷达锁定累积放在物理帧（固定 60Hz）：失焦/最小化时不会因 _process 大 delta 暴涨。
 	# 必须在所有 AI/武器子系统之前跑，因为 update_missile 读 radar_targets 决定开火。
 	_update_aircraft_list()
@@ -2129,7 +2491,7 @@ func _physics_process(delta: float) -> void:
 
 	# 刷怪系统（击杀检测/刷怪/猎手/航点/远距清理/分队清理 全部委托给 spawner）
 	# Boss Debug 模式跳过：不刷杂兵 / 不分配猎手 / 不重写敌机航点（仅 boss 在场）
-	if not _boss_debug_mode:
+	if not _map_preview_only and not _boss_debug_mode and not _bench_map_prewarming:
 		_spawner.update(delta)
 		if _bench_scenario == "evolution_growth" and _growth_bench != null:
 			_growth_bench.tick(delta)
@@ -2140,12 +2502,12 @@ func _physics_process(delta: float) -> void:
 		_update_orion_event()
 
 	# 战区阶段倒计时检查（10 分钟到点 → 关闭其他战区 / 解锁 BOSS）
-	if not _boss_debug_mode and not _bench_mode:
+	if not _map_preview_only and not _boss_debug_mode and not _bench_mode:
 		_check_warzone_phase_timeout()
 
 	# BOSS 阶段：10 分钟到点（或当前 SELECTED 战区结算后）解锁 BOSS，刷 F-47 小队 + 胜利判定
 	# Boss Debug / Bench 模式跳过：boss_debug 走 BossEncounterEvent，bench 不需要战区驱动
-	if not _boss_debug_mode and not _bench_mode:
+	if not _map_preview_only and not _boss_debug_mode and not _bench_mode:
 		_update_boss_phase()
 
 	# 清理已坠毁的敌机（节省性能）
@@ -2162,8 +2524,19 @@ func _physics_process(delta: float) -> void:
 			_bench_demo_topup_timer = 6.0
 			if _spawner and _count_enemy_alive() < 8:
 				_bench_force_spawn_mixed(6)
-	elif _bench_mode and not _bench_finished:
+	elif _bench_mode and not _bench_finished and not _bench_map_prewarming:
 		_bench_elapsed += delta
+		if not _bench_weather_capture_done and _bench_elapsed >= 3.0 \
+				and _bench_scenario in ["map_preview_desert", "map_preview_ocean"] \
+				and _bench_duration <= 6.5 \
+				and DisplayServer.get_name() != "headless":
+			_bench_weather_capture_done = true
+			call_deferred("_bench_capture_weather_frame")
+		if _bench_scenario == "zone_atmosphere_formal" and not _bench_zone_atmosphere_near \
+				and _bench_elapsed >= _bench_duration * 0.5:
+			_bench_zone_atmosphere_near = true
+			player_aircraft.global_position = _zone_data.get_zone_center(&"A")
+			print("[Bench] zone_atmosphere_formal player entered A at %.2fs" % _bench_elapsed)
 		if _bench_elapsed >= _bench_duration:
 			var summary: String
 			if _bench_scenario == "evolution_growth" and _growth_bench != null:
@@ -2171,6 +2544,27 @@ func _physics_process(delta: float) -> void:
 			else:
 				summary = "tick_at=%.2fs aircraft_alive=%d enemies_killed=%d\n" % [
 					_bench_elapsed, _count_aircraft_alive(), (_spawner.kill_count if _spawner else 0)]
+			if _bench_scenario in MAP_BENCH_SCENARIOS \
+					or _bench_scenario.begins_with("battlefield_atmosphere_stress_"):
+				var average_fps := float(_bench_render_frames) / maxf(_bench_render_delta_sum, 0.001)
+				var worst_fps := 1.0 / maxf(_bench_render_delta_max, 0.0001)
+				var p1_fps := average_fps
+				if not _bench_stress_frame_deltas.is_empty():
+					var sorted_deltas := _bench_stress_frame_deltas.duplicate()
+					sorted_deltas.sort()
+					var p99_index := mini(int(floor(float(sorted_deltas.size() - 1) * 0.99)),
+						sorted_deltas.size() - 1)
+					p1_fps = 1.0 / maxf(sorted_deltas[p99_index], 0.0001)
+				summary += "render_frames=%d avg_fps=%.2f p1_fps=%.2f worst_frame_fps=%.2f frames_below_60=%d\n" % [
+					_bench_render_frames, average_fps, p1_fps, worst_fps,
+					_bench_render_frames_below_60]
+				if _bench_atmosphere_experiment != null \
+						and is_instance_valid(_bench_atmosphere_experiment):
+					summary += _bench_atmosphere_experiment.stress_summary()
+			if _bench_scenario == "battlefield_atmosphere_naval" \
+					and _bench_atmosphere_experiment != null \
+					and is_instance_valid(_bench_atmosphere_experiment):
+				summary += _bench_atmosphere_experiment.naval_summary()
 			# boss_mother_goose scenario：附加 boss 终态信息
 			if _bench_scenario == "boss_mother_goose" and _spawner and _spawner._boss:
 				var boss: BossEncounter = _spawner._boss
@@ -2182,6 +2576,16 @@ func _physics_process(delta: float) -> void:
 				summary += "boss=MOTHER_GOOSE alive=%s hp_pct=%.1f%%\n" % [
 					"YES" if boss_alive else "NO (defeated)", boss_hp_pct]
 			_bench_finish_now(summary)
+
+
+## 图2/3 Visual Shadow 探针：固定输出一张真实 viewport，供逐图人工验收天气分布。
+func _bench_capture_weather_frame() -> void:
+	var image := get_viewport().get_texture().get_image()
+	if image == null or image.is_empty():
+		return
+	var path := "res://bench/results/%s_visual_latest.png" % _bench_scenario
+	var err := image.save_png(path)
+	print("[Bench] weather visual capture %s (%s)" % [path, error_string(err)])
 
 	# 更新HUD
 	hud.game_time = game_time
@@ -2338,13 +2742,13 @@ func _update_radar_locks(delta: float) -> void:
 				if unit is Aircraft and unit.is_player_squad():
 					lock_rate *= AwacsSupportEvent.lock_rate_mult_for(unit)
 					lock_rate *= unit.esm_lock_rate_multiplier()
-				# 云层锁定衰减：
-				#   - 默认：HIGH 档在云里 ×0.5
+				# 天气遮蔽锁定衰减：
+				#   - 默认：普通云/HIGH 或沙尘暴/LOW ×0.5
 				#   - 云雾机动（战区奖励）：任意档位云里 ×0.1（近乎无法锁定）
 				if _weather and _cached_is_in_cloud(other):
 					if other is Aircraft and other.cloud_lock_stealth:
 						lock_rate *= 0.1
-					elif other.get_altitude_tier() == CombatUnit.AltitudeTier.HIGH:
+					else:
 						lock_rate *= 0.5
 				# 目标自身的锁定抗性（强化吊舱升级）
 				if other is Aircraft and other.lock_resistance_mult > 1.0:
@@ -2527,11 +2931,9 @@ func _update_radar_locks(delta: float) -> void:
 				continue
 			var t: CombatUnit = target
 			var progress: float = clampf(unit.radar_targets[target] / lock_time_val, 0.0, 1.0)
-			if progress > t.incoming_lock_progress:
-				t.incoming_lock_progress = progress
-			if unit.radar_targets[target] >= lock_time_val:
-				t.is_locked = true
-				t.locked_by.append(unit)
+			# AI↔AI 的 radar_targets 仍供武器正常交战，但不写玩家可见/可反应的被锁状态。
+			t.accumulate_player_lock_state(unit, progress,
+				unit.radar_targets[target] >= lock_time_val)
 
 	# 限制同时飞向玩家的导弹数量（最多 SurvivorSpawner.MAX_MISSILES_TARGETING_PLAYER）
 	if player_aircraft and missile_manager:
@@ -2561,7 +2963,9 @@ func _cached_is_in_cloud(unit: CombatUnit) -> bool:
 		return unit._cloud_cache_result
 	unit._cloud_cache_time = now
 	unit._cloud_cache_pos = pos
-	unit._cloud_cache_result = _weather.is_in_cloud(pos)
+	unit._cloud_cache_result = _weather.is_obscured(pos, unit.altitude) \
+		if _weather.has_method("is_obscured") else \
+		(unit.get_altitude_tier() == CombatUnit.AltitudeTier.HIGH and _weather.is_in_cloud(pos))
 	return unit._cloud_cache_result
 
 ## 低空飞行目标锁定速率衰减（仅对 Aircraft 生效；地面单位恒定 1.0）
@@ -3607,6 +4011,9 @@ func _on_player_died() -> void:
 		survivor_player.total_xp_gained, MeritLedger.SETTLE_KIA)
 	hud.show_game_over(survivor_player.level, game_time, _spawner.kill_count,
 		survivor_player.total_xp_gained, merit_earned)
+	# 终局立即切断跨帧玩家机缓存；飞机稍后 free 时 HUD/敌方锁定线不得再接触旧实例。
+	survivor_player.aircraft = null
+	AircraftRenderer.player_ref = null
 
 # ══════════════════════════════════════════════
 #  暂停菜单回调（spec pause-menu）
@@ -3672,6 +4079,46 @@ func _on_retreat_cancelled() -> void:
 	# 取消：机头转向地图中心，不传送，玩家自己飞回
 	_turn_player_inward()
 
+## 正式局节奏门：先让玩家完成一轮战斗/升级，再开放奖励目标与可选护送任务。
+func _update_delayed_zone_unlocks() -> void:
+	if _zone_data == null or _warzone_phase_ended or survivor_player == null:
+		return
+	var level := survivor_player.level
+	var released_initial_this_tick := false
+	if not _zone_data.initial_reward_zones_released() \
+			and ZoneData.initial_reward_unlock_ready(game_time, level):
+		if _zone_data.release_initial_reward_zones():
+			released_initial_this_tick = true
+			if _zone_hint:
+				_zone_hint.show_persistent(tr("ZONE_HINT_NEW_OPENED"))
+			if _tactical_map:
+				_tactical_map.refresh_zone_state()
+			EventLogger.log_event("ZONE", "InitialRewardsReleased",
+				"time=%.1f level=%d" % [game_time, level])
+	if not released_initial_this_tick and _zone_data.initial_reward_zones_released() \
+			and ZoneData.optional_mission_unlock_ready(game_time, level) \
+			and _zone_data.get_optional_mission_assigned_count() == 0:
+		var optional_id := _zone_data.release_first_optional_mission()
+		if optional_id != &"":
+			if _zone_hint:
+				_zone_hint.show_persistent(tr("ZONE_HINT_NEW_OPENED"))
+			if _tactical_map:
+				_tactical_map.refresh_zone_state()
+
+## ZoneMission 在实体生成前 6 秒发出；同帧成批开放的 A/B 只播一条复数通报。
+func _on_zone_mission_spawn_announced(_zone_id: StringName, mission_type: String) -> void:
+	if _radio == null or not is_instance_valid(_radio):
+		return
+	if mission_type == "bomber_escort":
+		_radio.say("bomber_escort_available", "AWACS",
+			RadioChatter.color_for_team(CombatUnit.TEAM_ALLY))
+		return
+	if game_time - _last_reward_target_radio_time < 1.0:
+		return
+	_last_reward_target_radio_time = game_time
+	_radio.say("reward_target_available", "HQ",
+		RadioChatter.color_for_team(CombatUnit.TEAM_ALLY))
+
 ## 战术地图选中战区（P2）
 func _on_zone_selected(zone_id: StringName) -> void:
 	EventLogger.log_event("ZONE", "Selected", "id=%s" % zone_id)
@@ -3681,26 +4128,79 @@ func _on_zone_selected(zone_id: StringName) -> void:
 	# 消费掉 newly_opened 标记
 	if _zone_data:
 		_zone_data.take_newly_opened()
+	var cruise_edge := _zone_cruise_edge(zone_id)
+	if _map_features != null and _map_features.vector_preview_enabled:
+		await _prewarm_zone_detail(zone_id, cruise_edge)
 	# RTS 巡航：把小队目标设到战区圆的"近边缘点"，飞过去即进圈触发 ZoneMission
-	_set_cruise_to_zone_edge(zone_id)
+	if _squad_cmd and cruise_edge != Vector2.INF:
+		_squad_cmd.command_move(cruise_edge)
 
-## 计算战区圆边缘上离玩家最近的点，下达为小队巡航目标
-func _set_cruise_to_zone_edge(zone_id: StringName) -> void:
-	if not _zone_data or not player_aircraft or not is_instance_valid(player_aircraft):
+
+func _prewarm_zone_detail(zone_id: StringName, cruise_edge: Vector2) -> void:
+	if _zone_data == null or _map_features == null or _tactical_map == null:
 		return
+	var zone: Dictionary = _zone_data.get_zone_by_id(zone_id)
+	if zone.is_empty():
+		return
+	var center: Vector2 = _zone_data.get_objective_center(zone_id) \
+		if _zone_data.get_mission_type(zone_id) == "bomber_escort" \
+		else _zone_data.get_zone_center(zone_id)
+	var radius := _zone_data.get_zone_radius(zone_id)
+	if center == Vector2.INF or radius <= 0.0 or cruise_edge == Vector2.INF:
+		return
+	var regions := _detail_path_view_regions(cruise_edge, center, get_viewport_rect().size)
+	_tactical_map.set_detail_prepare_in_progress(true)
+	EventLogger.log_event("MAP_DETAIL", "ZonePrewarmStart",
+		"zone=%s views=%d" % [zone_id, regions.size()])
+	var result: Dictionary = await _map_features.prewarm_detail_regions(regions)
+	if bool(result.get("ok", false)):
+		EventLogger.log_event("MAP_DETAIL", "ZonePrewarmDone",
+			"zone=%s cached=%d baked=%d batch_ms=%d" % [
+				zone_id,
+				int(result.get("cached_tile_count", 0)),
+				int(result.get("last_batch_baked", 0)),
+				int(result.get("last_batch_ms", 0)),
+			])
+	else:
+		EventLogger.log_event("MAP_DETAIL", "ZonePrewarmFallback",
+			"zone=%s error=%s" % [zone_id, result.get("error", "unknown")])
+	_tactical_map.set_detail_prepare_in_progress(false)
+
+## 计算战区圆边缘上离玩家最近的抵达点；预热与巡航必须复用同一个结果。
+func _zone_cruise_edge(zone_id: StringName) -> Vector2:
+	if not _zone_data or not player_aircraft or not is_instance_valid(player_aircraft):
+		return Vector2.INF
 	var z := _zone_data.get_zone_by_id(zone_id)
 	if z.is_empty():
-		return
-	var center: Vector2 = z.get("center", Vector2.INF)
-	var radius: float = float(z.get("radius", 0.0))
+		return Vector2.INF
+	var center: Vector2 = _zone_data.get_zone_center(zone_id)
+	var radius: float = _zone_data.get_zone_radius(zone_id)
 	if center == Vector2.INF or radius <= 0.0:
-		return
+		return Vector2.INF
+	if _zone_data.get_mission_type(zone_id) == "bomber_escort":
+		# 编队真实位置可以在地图外；自动巡航只送玩家到边界内会合点，避免触发出界补给。
+		return MapBoundary.clamp_inside(center, 600.0)
 	var dir := (player_aircraft.global_position - center)
-	# 玩家恰在圆心时给个默认方向，避免归一化得到零向量
-	var edge: Vector2 = center + (dir.normalized() if dir.length() > 1.0 else Vector2.UP) * radius
-	# 选战区 = 巡航指令（放弃攻击命令），逻辑走 SquadCommandController
-	if _squad_cmd:
-		_squad_cmd.command_move(edge)
+	return center + (dir.normalized() if dir.length() > 1.0 else Vector2.UP) * radius
+
+
+static func _detail_corridor_region(center: Vector2, radius: float, cruise_edge: Vector2) -> Rect2:
+	if center == Vector2.INF or cruise_edge == Vector2.INF or radius <= 0.0:
+		return Rect2()
+	var corridor_center := (center + cruise_edge) * 0.5
+	var half_extent := radius * 0.5 + 600.0
+	var extent := Vector2.ONE * half_extent
+	return Rect2(corridor_center - extent, extent * 2.0)
+
+
+## V37：按 Detail 完全显现 zoom 的真实视口覆盖抵达点、路径中点与圆心。
+## 三个矩形的非空瓦片并集必须整体装进 12 格 LRU，否则完整回退 Operational。
+static func _detail_path_view_regions(start: Vector2, finish: Vector2,
+		viewport_pixels: Vector2) -> Array:
+	var regions: Array = []
+	for center in [start, start.lerp(finish, 0.5), finish]:
+		regions.append(MapDetailTileCache.viewport_region(center, viewport_pixels))
+	return regions
 
 func _on_zone_mission_triggered(zone_id: StringName) -> void:
 	# 自动进入战区 = 自动开始任务；同时清掉顶部"新战区已开放"提示
@@ -3712,6 +4212,7 @@ func _on_zone_mission_triggered(zone_id: StringName) -> void:
 			"air":       fmt_key = "ZONE_MISSION_STARTED_AIR_FMT"
 			"squadron":  fmt_key = "ZONE_MISSION_STARTED_SQUADRON_FMT"
 			"naval":     fmt_key = "ZONE_MISSION_STARTED_NAVAL_FMT"
+			"bomber_escort": fmt_key = "ZONE_MISSION_STARTED_BOMBER_ESCORT_FMT"
 			_:           fmt_key = "ZONE_MISSION_STARTED_FMT"
 		_zone_hint.show_temp(tr(fmt_key) % _zone_label(zone_id), 3.0)
 	if _zone_data:
@@ -3725,12 +4226,19 @@ func _on_zone_mission_completed(zone_id: StringName) -> void:
 	if _zone_data.is_airfield(zone_id):
 		_liberate_airfield(zone_id)
 		return
+	var mission_type := _zone_data.get_mission_type(zone_id)
+	var bomber_xp_reward := 0
 	# §4 战区奖励降级：优先查 ZoneRewardRegistry（用户注册的专属奖励，模块化），
 	# 未注册时回退到旧 _zone_data.get_reward（目前因 evolved 字段已删 → 池为空 → 返回 {}）
 	# 默认行为：只回血，不发技能
-	var reward: Dictionary = ZoneRewardRegistry.get_reward_for(zone_id)
-	if reward.is_empty():
-		reward = _zone_data.get_reward(zone_id)
+	var reward: Dictionary = {}
+	if mission_type == "bomber_escort":
+		# 护送任务不读取任何普通战区奖励；成功的唯一替代奖励是固定星级经验。
+		bomber_xp_reward = _grant_bomber_escort_xp(zone_id)
+	else:
+		reward = ZoneRewardRegistry.get_reward_for(zone_id)
+		if reward.is_empty():
+			reward = _zone_data.get_reward(zone_id)
 	# 攻克即领（spec zone-reward-docking 修订 2026-07-24，用户拍板）：僚机/武器/技能类奖励
 	# **当场发放、与机场/降落解耦**；进化 + 回血保留为停靠点功能（_on_dock_docked）。
 	# 航母奖励仍即时入场（登舰=海上停靠点，兼回血/进化）。
@@ -3753,14 +4261,17 @@ func _on_zone_mission_completed(zone_id: StringName) -> void:
 		var refreshed: Array[StringName] = _zone_mission.refresh_active_zones_for_level(zone_id)
 		if refreshed.size() > 0 and _zone_hint:
 			_zone_hint.show_temp(tr("ZONE_REFRESHED_AFTER_CLEAR"), 3.0)
-	EventLogger.log_event("ZONE", "Cleared",
-		"id=%s reward=%s" % [zone_id, reward.get("id", "-")])
+	var reward_log := "bomber_xp_%d" % bomber_xp_reward if bomber_xp_reward > 0 \
+		else String(reward.get("id", "-"))
+	EventLogger.log_event("ZONE", "Cleared", "id=%s reward=%s" % [zone_id, reward_log])
 
 	# 攻克 toast：奖励攻克即领（不再"待停靠"文案）
 	var label := _zone_label(zone_id)
 	if _zone_hint:
 		var msg: String
-		if reward_name != "":
+		if bomber_xp_reward > 0:
+			msg = tr("ZONE_CLEARED_BOMBER_XP_FMT") % [label, bomber_xp_reward]
+		elif reward_name != "":
 			msg = tr("ZONE_CLEARED_WITH_REWARD_FMT") % [label, reward_name]
 		else:
 			msg = tr("ZONE_CLEARED_FMT") % label
@@ -3773,6 +4284,39 @@ func _on_zone_mission_completed(zone_id: StringName) -> void:
 
 	# 进化内容标记（面板由停靠点打开，spec zone-reward-docking；旧自动弹已移除）
 	_evolution_pending = true
+
+## 轰炸机护送成功的专属结算：直接进入共享经验池，不套击杀 XP 乘区或小队分摊。
+## 难度必须在 mark_cleared 清缓存前读取；失败路径不调用本函数，因此严格为 0 XP。
+func _grant_bomber_escort_xp(zone_id: StringName) -> int:
+	if not _zone_data or not is_instance_valid(survivor_player):
+		return 0
+	var difficulty := _zone_data.get_difficulty(zone_id)
+	var amount := ZoneData.bomber_escort_xp_reward(difficulty)
+	survivor_player.add_xp(amount)
+	if not _bench_mode and hud:
+		hud.spawn_xp_gain(amount)
+	EventLogger.log_event("XP", "BomberEscort",
+		"zone=%s stars=%d awarded=%d" % [zone_id, difficulty, amount])
+	return amount
+
+## 可能失败的战区走独立结算：不发奖励、不回血、不加热度，也不计入攻克次数。
+## ZoneData.mark_failed 会立刻清除选择态/动态圆心并补开替代战区；FAILED 本身在 Tab 完全隐藏。
+func _on_zone_mission_failed(zone_id: StringName, reason: String) -> void:
+	if not _zone_data:
+		return
+	var was_optional := ZoneData.is_optional_mission_type(_zone_data.get_mission_type(zone_id))
+	_zone_data.mark_failed(zone_id, reason)
+	if _tactical_map:
+		_tactical_map.refresh_zone_state()
+	if _zone_mission:
+		_zone_mission.reset_zone(zone_id)
+	if _zone_hint:
+		_zone_hint.hide_persistent()
+		var failure_key := "ZONE_OPTIONAL_MISSION_FAILED_FMT" if was_optional \
+			else "ZONE_MISSION_FAILED_FMT"
+		_zone_hint.show_temp(tr(failure_key) % _zone_label(zone_id), 5.0)
+	EventLogger.log_event("ZONE", "FailureSettled",
+		"id=%s reason=%s cleared_count=%d" % [zone_id, reason, _zone_data.cleared_count])
 
 
 # ══════════════════════════════════════════════
@@ -3955,8 +4499,13 @@ func _spawn_airfield_ally_unit(kind: StringName, world_pos: Vector2,
 			return null
 	if scene == null:
 		return null
+	var safe_pos := MapGeography.find_ground_spawn_near(world_pos, 500.0)
+	if safe_pos == Vector2.INF:
+		EventLogger.log_event("SUPPORT", "AirfieldGroundSpawnSkipped",
+			"kind=%s anchor=%s no_safe_land" % [kind, world_pos])
+		return null
 	var u: Node = scene.instantiate()
-	u.position = world_pos
+	u.position = safe_pos
 	if unit_params and "params" in u:
 		u.params = unit_params
 	if "bullet_manager" in u:
@@ -4503,7 +5052,7 @@ func _build_reward_roll_context() -> Dictionary:
 ## 生涯档案入档守卫（spec career-archive §3.5）：bench 压测局与 boss debug 局不入档，
 ## 也不参与 BOSS 档案轮换（history 传空 → BossRegistry 走旧纯随机）
 func archive_enabled() -> bool:
-	return not _bench_mode and not _boss_debug_mode
+	return not _bench_mode and not _boss_debug_mode and not _map_preview_only
 
 ## 成就解锁反馈（spec career-archive §2.4）：临时 toast。
 ## 刻意不用 show_warning_banner —— 红色警告横幅是 BOSS 专属语义（ace-squadron-tier §2.6）
@@ -4573,6 +5122,17 @@ func debug_visit_airfield() -> void:
 	EventLogger.log_event("DOCK", "DebugVisitAirfield", "temporary=true map_airfields_untouched=true")
 	_on_dock_docked(target_dock)
 	target_dock.queue_free()
+
+## F6 Debug：只把正式计时推进到 50%，不复制或触发战区/BOSS 解锁逻辑。
+## 若已超过半局则不倒拨；现实速度沙带另由 WeatherSystem Debug override 定位到地图中心。
+func debug_skip_to_midgame() -> void:
+	if _is_in_boss_phase():
+		return
+	var target_time := WARZONE_PHASE_DURATION * 0.5
+	game_time = maxf(game_time, target_time)
+	if _weather:
+		_weather.set_debug_midgame(game_time, WARZONE_PHASE_DURATION)
+	EventLogger.log_event("ZONE", "DebugSkipMidgame", "game_time=%.1f" % game_time)
 
 ## F6 Debug：跳到 BOSS 战。boss_id 为空则按地图池随机
 ##

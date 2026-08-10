@@ -129,7 +129,7 @@ static func _resolve_scene_root(source: Node) -> Node:
 		var p := source.get_parent()
 		if p != null and is_instance_valid(p):
 			return p
-	var pref := AircraftRenderer.player_ref
+	var pref := AircraftRenderer.safe_player_ref()
 	if pref != null and is_instance_valid(pref):
 		var pp := pref.get_parent()
 		if pp != null and is_instance_valid(pp):

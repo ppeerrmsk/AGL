@@ -5,6 +5,7 @@ extends GroundUnit
 enum TargetKind { BUNKER, WAREHOUSE, MISSILE_SILO }
 
 @export var target_kind: TargetKind = TargetKind.BUNKER
+var bomber_escort_objective: bool = false
 
 func _ready() -> void:
 	super._ready()
@@ -19,6 +20,12 @@ func _physics_process(delta: float) -> void:
 
 func is_lock_immune() -> bool:
 	return true
+
+## 护送任务在 AVAILABLE 预刷阶段就必须让玩家认出目标；静态绘制，不新增 process。
+func set_bomber_escort_objective(active: bool) -> void:
+	bomber_escort_objective = active
+	is_mission_target = active
+	queue_redraw()
 
 ## 常规伤害入口只允许“仍有效且阵营敌对”的轰炸机炸弹；释放者已销毁时走下方显式 team API。
 func take_damage(amount: float, attacker: Node = null, kind: String = "") -> void:
@@ -67,6 +74,20 @@ func _draw() -> void:
 			draw_line(Vector2(17, -17), Vector2(-17, 17), outline, 2.0)
 	# 无锁定框，只保留任务目标括号和血量刻度。
 	AircraftRenderer.draw_target_bracket(self, is_mission_target)
+	if bomber_escort_objective and is_mission_target:
+		_draw_bomber_escort_hint()
 	var hp_ratio: float = clampf(hp / maxf(params.max_hp if params else 150.0, 1.0), 0.0, 1.0)
 	draw_rect(Rect2(-24, 28, 48, 3), Color(0.12, 0.12, 0.12, 0.8))
 	draw_rect(Rect2(-24, 28, 48 * hp_ratio, 3), color.lightened(0.2))
+
+func _draw_bomber_escort_hint() -> void:
+	var accent := Color(1.0, 0.78, 0.18, 0.98)
+	var panel := Rect2(-66.0, -84.0, 132.0, 31.0)
+	draw_rect(panel, Color(0.055, 0.045, 0.018, 0.92), true)
+	draw_rect(panel, accent, false, 1.5)
+	draw_string(ThemeDB.fallback_font, Vector2(-62.0, -69.0),
+		tr("BOMBER_TARGET_WORLD_LABEL"), HORIZONTAL_ALIGNMENT_CENTER, 124.0, 13, accent)
+	draw_string(ThemeDB.fallback_font, Vector2(-62.0, -57.0),
+		tr("BOMBER_TARGET_WORLD_HINT"), HORIZONTAL_ALIGNMENT_CENTER, 124.0, 9,
+		Color(1.0, 0.9, 0.58, 0.9))
+	draw_line(Vector2(0.0, -53.0), Vector2(0.0, -44.0), accent, 1.5)

@@ -203,6 +203,10 @@ func _test_throttle() -> void:
 	# 分类判定本身
 	_check("boss_spawn 是 scripted", ChatterLines.is_scripted("boss_spawn"), "")
 	_check("boss_engage 是 scripted", ChatterLines.is_scripted("boss_engage"), "")
+	_check("Hound-1 入场台词是 scripted", ChatterLines.is_scripted("hound_one_contact"), "")
+	_check("Hound-2 应答台词是 scripted", ChatterLines.is_scripted("hound_two_follow"), "")
+	_check("奖励目标通报是 scripted", ChatterLines.is_scripted("reward_target_available"), "")
+	_check("护送任务通报是 scripted", ChatterLines.is_scripted("bomber_escort_available"), "")
 	_check("splash 是 ambient", not ChatterLines.is_scripted("splash"), "")
 	_check("未登记 trigger 保守按 ambient（不会意外强插）",
 		not ChatterLines.is_scripted("some_unknown_trigger"), "")

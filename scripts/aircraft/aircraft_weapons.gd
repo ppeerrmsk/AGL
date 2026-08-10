@@ -1060,7 +1060,7 @@ static func _sig_f35_relay_ok(ac: Aircraft, target: CombatUnit) -> bool:
 		return false
 	if not ac.is_player_squad():
 		return false
-	var ace: Aircraft = AircraftRenderer.player_ref
+	var ace: Aircraft = AircraftRenderer.safe_player_ref()
 	if ace == null or not is_instance_valid(ace) or ace == ac or ace.is_destroyed:
 		return false
 	if target != ace.combat_target and target != ace.commanded_target:

@@ -180,7 +180,10 @@ func _test_airfield_zones() -> void:
 		_check("mission_type(%s)==airfield" % af, zd.get_mission_type(af) == "airfield", zd.get_mission_type(af))
 	# 随机战区回归不被机场影响
 	_check("A 仍 AVAILABLE 且非机场", zd.get_state(&"A") == ZoneData.State.AVAILABLE and not zd.is_airfield(&"A"), "")
-	_check("C 仍 LOCKED", zd.get_state(&"C") == ZoneData.State.LOCKED, "")
+	_check("C 保持 LOCKED，或仅作为额外可选任务开放",
+		zd.get_state(&"C") == ZoneData.State.LOCKED \
+			or (zd.get_state(&"C") == ZoneData.State.AVAILABLE \
+				and ZoneData.is_optional_mission_type(zd.get_mission_type(&"C"))), "")
 	# 难度定档（默认 1★，按热度写入）
 	_check("AF_HANEDA 默认难度 1", zd.get_difficulty(&"AF_HANEDA") == 1, "got %d" % zd.get_difficulty(&"AF_HANEDA"))
 	zd.set_airfield_difficulty(&"AF_HANEDA", 3)

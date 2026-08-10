@@ -93,8 +93,9 @@ func cleanup() -> void:
 		while not leader_successors.is_empty() and best == null:
 			# TypedArray 可以残留已释放对象；先用 Variant 接住并验证，不能直接
 			# 赋给 Aircraft 临时变量，否则会抛 "invalid previously freed instance"。
-			var candidate = leader_successors.pop_front()
-			if is_instance_valid(candidate) and not candidate.is_destroyed and candidate in members:
+			var candidate: Variant = leader_successors.pop_front()
+			if typeof(candidate) == TYPE_OBJECT and is_instance_valid(candidate) \
+					and not candidate.is_destroyed and candidate in members:
 				best = candidate as Aircraft
 		if best == null:
 			for ac in members:

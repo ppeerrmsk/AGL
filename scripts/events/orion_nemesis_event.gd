@@ -153,10 +153,16 @@ func _update(delta: float) -> void:
 	if _maintain > 0.0:
 		return
 	_maintain = MAINTAIN_S
-	var target: Aircraft = null
+	# player_aircraft 在终局/切控边界可能短暂保留已释放实例；必须先用 Variant
+	# 接住并验证，再收窄成 Aircraft，否则强类型赋值会先于 is_instance_valid 报错。
+	var target_value: Variant = null
 	if director.mode and "player_aircraft" in director.mode:
-		target = director.mode.player_aircraft
-	if target == null or not is_instance_valid(target) or target.is_destroyed:
+		target_value = director.mode.player_aircraft
+	if typeof(target_value) != TYPE_OBJECT or not is_instance_valid(target_value) \
+			or not (target_value is Aircraft):
+		return
+	var target := target_value as Aircraft
+	if target.is_destroyed:
 		return
 	var ai: AIController = _unit._get_ai_controller()
 	if ai == null:
