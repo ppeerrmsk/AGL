@@ -200,7 +200,7 @@
 | 加力机炮 100% 闪避（绕 dodge cap 短路） | `aircraft.gd:2974` effective_dodge |
 | 加力滚转甩导弹（90% → is_flare_jammed） | `missile_manager.gd:377` AB_MISSILE_DODGE |
 | 加力速度地板 + 加速 ×3 | `aircraft/aircraft_physics.gd:548` AB_WINDOW_ACCEL_MULT |
-| 加力充能条 + 按钮三态刷新 | `survivor/survivor_hud.gd:1145` _update_afterburner_ui |
+| 加力充能条 + 按钮三态刷新 | `survivor/survivor_hud.gd:1166` _update_afterburner_ui |
 | 眼镜蛇机动模块 | `cobra_maneuver.gd` CobraManeuver（挂载到 Aircraft 子节点） |
 | 眼镜蛇机动激活 | `cobra_maneuver.gd` activate |
 | 战术机动查询（通用） | `aircraft.gd` get_maneuver |
@@ -569,7 +569,7 @@
 | BOSS 接战/击败入档 | `survivor/survivor_mode.gd:4632` on_boss_engaged / `:4703` on_boss_victory |
 | BOSS 轮换 + 通关次数 history 注入 | `survivor/survivor_mode.gd:4604` _update_boss_phase → `events/boss_encounter_event.gd` `_start`（spawn 前注入 `defeat_counts`） |
 | 轮换算法（纯函数） | `survivor/boss_registry.gd:65` pick_for_map / `:95` pick_by_rotation / `:107` rotation_candidates |
-| 结算面板 BOSS 名（"XX 已被击毁"） | `survivor/boss_registry.gd:43` name_key_for → `survivor/survivor_hud.gd:1738` show_victory（boss_id 空 → 通用文案） |
+| 结算面板 BOSS 名（"XX 已被击毁"） | `survivor/boss_registry.gd:43` name_key_for → `survivor/survivor_hud.gd:1760` show_victory（boss_id 空 → 通用文案） |
 | 忠诚僚机奖池门控（构造时注入；缺键 fail-closed） | `survivor/zone_data.gd:614 _assign_reward`（武器子池过滤）+ `survivor/survivor_mode.gd:4496 _build_reward_roll_context`；回归 `tests/test_zone_rewards.gd:98 _test_achievement_reward_gate` |
 | 成就 toast | `survivor/survivor_mode.gd:4515 _on_achievement_unlocked` |
 | 删存档登记 | `main_menu.gd:405` _on_reset_save_pressed 内 CareerArchive.debug_reset |
@@ -607,7 +607,7 @@
 | ESC 分流（开面板 / 结算态直退 / 选卡中不响应） | `survivor/survivor_mode.gd:1642` _unhandled_input |
 | 创建 + 接线（bench 跳过） | `survivor/survivor_mode.gd:496` |
 | 确认退出回调（不结算功勋） | `survivor/survivor_mode.gd:3621` _on_pause_quit_to_menu |
-| 退出序列（clear_all + stop_music + 切场景） | `survivor/survivor_mode.gd:3623` _quit_to_main_menu |
+| 退出序列（clear_all + stop_music + 切场景） | `survivor/survivor_mode.gd:3630` _quit_to_main_menu |
 | 打开（hard_pause 走 panel_in） | `survivor/pause_menu.gd:54` open |
 | 关闭＝继续作战（解暂停走 panel_out） | `survivor/pause_menu.gd:63` close |
 | 面板构建 | `survivor/pause_menu.gd:82` _build_ui |
@@ -732,22 +732,22 @@
 | 终端文字精确排版与高度优先步进扩宽 | `ui/terminal_text.gd` `TerminalText` / `FontFace` / `SizeRule` / `_resolve_layout` / `font_size_for_ink_height` / `expanded_width_for_fixed_text` / `_ink_vertical_bounds` |
 | F7 实际 HUD 几何定位覆盖层与手动 FLR 插键测试 | `survivor/survivor_hud.gd` `toggle_ui_dev_overlay` / `_collect_ui_dev_regions` / `_on_ui_dev_add_manual_flare_pressed`；`ui/ui_dev_outline_overlay.gd` `UiDevOutlineOverlay` / `build_entries`；截图场景 `scenes/tests/ui_dev_panel.tscn` |
 | HUD 刷新频率分层 | `survivor/survivor_hud.gd` `HUD_DATA_REFRESH_INTERVAL` / `_update_hud_data_layer` |
-| 战术按钮创建 | `survivor/survivor_hud.gd:962` _create_tac_button |
+| 战术按钮创建 | `survivor/survivor_hud.gd:983` _create_tac_button |
 | Q 高度偏好、G/F 自动开关、T 武器优先输入 | `survivor/survivor_mode.gd` `_unhandled_input` / `_cycle_player_altitude_preference` / `_cycle_player_weapon_preference` |
-| 战术 tooltip | `survivor/survivor_hud.gd:1065` _on_tac_hover |
-| 战术按钮状态刷新 | `survivor/survivor_hud.gd:1139` _update_tactical_buttons |
-| 王牌中队交战血条（分段命条） | `survivor/survivor_hud.gd:1274` _build_ace_panel |
-| Debug 面板文字更新 | `survivor/survivor_hud.gd:1675` _update_debug_panel |
-| 游戏结束画面 | `survivor/survivor_hud.gd:1724` show_game_over |
+| 战术 tooltip | `survivor/survivor_hud.gd:1086` _on_tac_hover |
+| 战术按钮状态刷新 | `survivor/survivor_hud.gd:1160` _update_tactical_buttons |
+| 王牌中队交战血条（分段命条） | `survivor/survivor_hud.gd:1295` _build_ace_panel |
+| Debug 面板文字更新 | `survivor/survivor_hud.gd:1697` _update_debug_panel |
+| 游戏结束画面 | `survivor/survivor_hud.gd:1746` show_game_over |
 
 ### 小队指挥面板（启动条件 = 有僚机入队，与机型无关）
 
 | 关注点 | 位置 |
 |------|------|
-| 面板构建（默认隐藏） | `survivor/survivor_hud.gd:1154` _build_squad_panel |
-| 面板显隐 + 内容刷新（僚机非空才显示） | `survivor/survivor_hud.gd:1554` _update_squad_panel |
-| 玩家队反查（扫 `_spawner.get_squads()` 找 leader==玩家）| `survivor/survivor_hud.gd:1450` _get_player_squad |
-| 存活僚机列表 | `survivor/survivor_hud.gd:1465` _get_wingmen |
+| 面板构建（默认隐藏） | `survivor/survivor_hud.gd:1175` _build_squad_panel |
+| 面板显隐 + 内容刷新（僚机非空才显示） | `survivor/survivor_hud.gd:1575` _update_squad_panel |
+| 玩家队反查（扫 `_spawner.get_squads()` 找 leader==玩家）| `survivor/survivor_hud.gd:1471` _get_player_squad |
+| 存活僚机列表 | `survivor/survivor_hud.gd:1486` _get_wingmen |
 | **玩家队装配 + 登记进 spawner 队表**（唯一入口，幂等）| `survivor/survivor_mode.gd:1420` _ensure_player_squad |
 | 起手僚机（`wingman_count>0`，仅 F-14 走）| `survivor/survivor_mode.gd:1480` _spawn_starting_wingmen |
 | 懒建队消费方：+1 僚机奖励 / 停靠送僚机 / 双子星克隆 | `survivor/survivor_mode.gd:4284` _claim_wingman_reward |
@@ -805,7 +805,7 @@
 | AB 充能静态引用注入 | `survivor/skill_hooks.gd:215` afterburner |
 | 僚机阵亡 watcher（0.5s 沿检测） | `survivor/survivor_mode.gd:3402` _tick_squad_watch |
 | 复仇之战/刺客复仇/黑匣子分发 | `survivor/survivor_mode.gd:3455` _on_squad_member_down |
-| 奖励升级队列/呈现 | `survivor/survivor_mode.gd:3467` _queue_bonus_upgrade |
+| 奖励升级队列/呈现 | `survivor/survivor_mode.gd:3474` _queue_bonus_upgrade |
 | 防守此区区域清剿（逐机领目标/击杀接续/越界回防） | `rts/squad_command_controller.gd` `_tick_guard` / `_end_guard`；验收 `tests/test_wheel_orders.gd` D 段 |
 | 保卫阵地圈内 buff 维护 | `rts/squad_command_controller.gd:726` _update_guard_zone_buff |
 | 阵地转移/保卫阵地/座舱护甲减伤 | `aircraft.gd:3040` _apply_damage 720 批段 |
@@ -1095,7 +1095,7 @@
 | 目标连线（普通=当前操控机 icon_color；双击突击=独立黄线；单层中细线） | `aircraft_renderer.gd:1886` draw_target_line |
 | 蓝色玩家小队简略档左上角全部装填武器矩形反相闪烁；完整档显示百分比 | `aircraft_renderer.gd` `draw_reload_indicators` / `reload_indicator_team_visible` / `reload_indicator_style` / `reload_indicator_tokens` / `secondary_reload_progress` |
 | 生存 HUD：热诱弹资源、十枚视觉星号与装填逐星点亮 | `survivor/player_instrument_panel.gd` `_draw_flares` / `_draw_flare_stars` |
-| 雷达小地图：来袭导弹常亮脉冲标记 + 警示牌/外圈 | `survivor/survivor_hud.gd:1767` RadarDisplay |
+| 雷达小地图：来袭导弹常亮脉冲标记 + 警示牌/外圈 | `survivor/survivor_hud.gd:1789` RadarDisplay |
 | 预测轨迹 | `aircraft_renderer.gd:1995` draw_predicted_path |
 | 战术提示弹窗 | `aircraft_renderer.gd:1866` draw_tactic_popup |
 | 机炮意图锥（敌方威胁锥 / 友方 hover 参考锥；仅 Mother Goose 蜂群隐藏） | `aircraft_renderer.gd:535` should_show_enemy_gun_threat / `:541` draw_gun_cone |
@@ -1113,7 +1113,7 @@
 | 玩家模块化仪表（生产 HUD 与 F7 预览共用；G 4u 小数组合、装饰半格、AUTOPILOT 动态空框） | `survivor/player_instrument_panel.gd` `_configure_layout` / `decorative_aligned_width` / `active_control_empty_rect` / `update_display` / `_draw` |
 | 僚机动态行仪表 | `survivor/wingman_instrument_panel.gd` `update_display` / `_draw_row` |
 | 经验条上方固定三轴计数器 | `survivor/milestone_axis_counter.gd` `update_display` / `_draw` |
-| 军用终端 UI 现行规范 | `docs/planning/main-ui-guidelines.md` |
+| UI 设计规范（主界面 + 玩家/僚机仪表 SSOT） | `docs/specs/systems/ui-design-guidelines.md` |
 | 终端共享网格描边与精确文字 | `ui/terminal_grid_overlay.gd` / `ui/terminal_text.gd` |
 | HUD 速度单位与线框色持久化 | `ui/hud_preferences.gd` `speed_unit` / `hud_color` / `set_hud_color` |
 | 主菜单速度单位按钮与 HUD 色盘 | `main_menu.gd` `_refresh_hud_settings_buttons` / `_on_speed_unit_pressed` / `_on_hud_color_pressed`；`ui/hud_color_settings_panel.gd` `_build_ui` |
@@ -1129,7 +1129,7 @@
 | 战斗策略文本 | `debug_panel.gd:336` _get_combat_strategy |
 | 飞行员信息 | `debug_panel.gd:373` _get_pilot_info |
 | 地面单位生成按钮 | `debug_panel.gd:703` _spawn_ground_unit |
-| Game Over 显示 | `survivor/survivor_hud.gd:1724` show_game_over |
+| Game Over 显示 | `survivor/survivor_hud.gd:1746` show_game_over |
 
 ## 资源参数文件
 

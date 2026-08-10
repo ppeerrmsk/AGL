@@ -20,6 +20,9 @@ AGL Spec 模板 —— 设计单一数据源（SSOT）
      重做出同一个东西？凡是只在代码里、本文件没写下的数值/公式/行为，都是重建漏洞。
   5. 数值表里写【真实数值】，不是"见 .tres"。.tres 是落地副本，spec 是权威。
      若数值由公式生成，写公式 + 一个样例值。
+  6. 涉及主界面 / HUD / 游戏内面板 / UI 视觉与交互时，默认继承
+     systems/ui-design-guidelines；本 spec 只写业务差异。若需偏离，必须在 §2 明确写出
+     例外、理由与影响范围，不得另建并行 UI 通用规范。
 
 工作流（doc → task pipeline）：
   设计阶段 — 填 §1~§5，status: draft → 你 review 后改 approved

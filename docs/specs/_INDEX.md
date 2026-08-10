@@ -15,6 +15,8 @@
 迁移方向（进行中）：**把设计意图与数值从 enemy-index / systems 抽进 specs；索引退化为纯指针表。**
 新内容一律 **spec 优先**（先写 spec → 定稿 → 按 §6 实现计划派生代码）。
 
+**UI 继承硬约定**：所有主界面、HUD、游戏内面板及 UI 视觉/交互设计默认继承 [systems/ui-design-guidelines](systems/ui-design-guidelines.md)。其它 spec 只写自身业务差异；确需偏离时，必须在其 §2 明确声明例外、理由与影响范围，不得建立第二份并行 UI 通用规范。
+
 ## 工作流（doc → task pipeline）
 
 ```
@@ -36,7 +38,7 @@
 
 | Spec | kind | status | 重建完整 | 覆盖范围 |
 |---|---|---|---|---|
-| [systems/player-instrument-hud](systems/player-instrument-hud.md) | system | done | ✅ | **玩家与僚机仪表 HUD**：右侧玩家仪表高 `24u`；SPD、G 整数位与 FLR 当前值共用 `49 × 54 px` 固定字号数字框；AUTOPILOT 锁定 `3u × 6u` 并由动态空框板吸收 R 键；默认武器区使用上下两条有框 `0.5u` 装饰行、独立优先标题、两个 `2u` 槽以及贴近名称框的竖向装填条。 |
+| [systems/ui-design-guidelines](systems/ui-design-guidelines.md) | system | done | ✅ | **UI 设计规范**：所有主界面、HUD、游戏内面板及 UI 视觉/交互的默认基线；统一军用终端网格、面板语义、共享描边、字体、颜色、刷新与交互规则。右侧玩家仪表高 `24u`，SPD/G/FLR 共用 `49 × 54 px` 数字格。 |
 | [systems/presentation-foundation-rework](systems/presentation-foundation-rework.md) | system | draft | ✗ | **表现层底层逻辑改造确认稿**：持续汇总本轮讨论中由用户明确确认的主要改动；区分待讨论、已确认、已实现，记录旧/新行为、影响、风险、退化策略与验收标准，并以既有 `ui-transition` 为依赖。 |
 | [skills/displacement-roll](skills/displacement-roll.md) | skill | done | ✅ | **位移滚转**：实验级 R 主动技能；1.15s 内确定性选择安全侧并横移 450px，15s 玩家小队共享冷却；动作本体不可命中、保留锁定与在飞武器；并入五向 R 互斥槽，当前操控机手动、AI 僚机自动。 |
 | [skills/vertical-break](skills/vertical-break.md) | skill | done | ✅ | **垂直越过**：实验级 R 主动技能；LOW 拉升/MID·HIGH 俯冲 900m/1.30s，18s 玩家小队共享冷却；额外能量交换封顶 −18%/+15%，并入五向 R 互斥槽，当前操控机手动、AI 僚机自动。 |
