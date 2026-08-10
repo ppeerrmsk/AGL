@@ -592,6 +592,28 @@ func _test_compact_aircraft_labels() -> void:
 
 
 func _test_presentation_label_refinements() -> void:
+	_assert_near("lock_box.ground_scale", AircraftRenderer.lock_box_altitude_scale_for(0.0), 0.55)
+	_assert_near("lock_box.low_scale", AircraftRenderer.lock_box_altitude_scale_for(2000.0), 0.70)
+	_assert_near("lock_box.mid_scale", AircraftRenderer.lock_box_altitude_scale_for(5500.0), 0.85)
+	_assert_near("lock_box.high_scale", AircraftRenderer.lock_box_altitude_scale_for(10000.0), 1.0)
+	_assert_near("lock_box.high_scale_is_max", AircraftRenderer.lock_box_altitude_scale_for(16000.0), 1.0)
+	_assert_true("lock_box.scale_grows_with_altitude",
+		AircraftRenderer.lock_box_altitude_scale_for(3000.0)
+		< AircraftRenderer.lock_box_altitude_scale_for(8000.0))
+
+	var status_ac := Aircraft.new()
+	status_ac.status_overload_active = true
+	status_ac.status_effects[StatusEffects.BLOODLUST] = 5.0
+	status_ac.status_initial_durations[StatusEffects.BLOODLUST] = 10.0
+	var status_entries := AircraftRenderer.status_label_entries(status_ac)
+	_assert_true("compact_status.includes_derived_and_timed",
+		status_entries.size() == 2
+		and status_entries[0]["id"] == StatusEffects.OVERLOAD
+		and status_entries[1]["id"] == StatusEffects.BLOODLUST)
+	_assert_true("compact_status.includes_remaining_percent",
+		status_entries[1]["text"] == "FRENZY 50%")
+	status_ac.free()
+
 	_assert_true("label_name.已有尾部代号不重复",
 		SurvivorPlayableSetup.display_name_with_codename("F-15 Eagle", "Eagle") == "F-15 Eagle")
 	_assert_true("label_name.复合代号不重复",
@@ -653,6 +675,13 @@ func _test_presentation_label_refinements() -> void:
 	var inverse_flr := AircraftRenderer.reload_indicator_style("FLR", true)
 	var normal_gun := AircraftRenderer.reload_indicator_style("GUN", false)
 	var inverse_gun := AircraftRenderer.reload_indicator_style("GUN", true)
+	var wing_msl := AircraftRenderer.reload_indicator_style("MSL", false, false)
+	var wing_msl_inverse := AircraftRenderer.reload_indicator_style("MSL", true, false)
+	_assert_true("reload_hint.non_controlled_missiles_use_white_text",
+		wing_msl[0].is_equal_approx(Color.WHITE)
+		and wing_msl_inverse[0].is_equal_approx(Color.WHITE)
+		and AircraftRenderer.weapon_label_color("MSL_RELOAD", false).is_equal_approx(Color.WHITE)
+		and AircraftRenderer.weapon_label_color("SP_RELOAD", false).is_equal_approx(Color.WHITE))
 	_assert_true("reload_hint.MSL 蓝底白字且可反相",
 		normal_msl[1].is_equal_approx(Color.html("#5599ff"))
 		and normal_msl[0].r > 0.9 and inverse_msl[0].is_equal_approx(Color.html("#5599ff")))

@@ -31,6 +31,7 @@ var _boss_ids: Array[String] = []
 const REBUILD_INTERVAL: float = 0.5
 var _rebuild_accum: float = 0.0
 var _last_state_hash: String = ""
+const TOGGLE_KEY := KEY_F6
 
 # ── 类型选项 ──
 ## 所有可用的 mission_type（Debug 用，跨越 zone 原本的限制）
@@ -81,7 +82,7 @@ func _ready() -> void:
 	_build_ui()
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and event.keycode == KEY_F6:
+	if event is InputEventKey and event.pressed and event.keycode == TOGGLE_KEY:
 		visible = not visible
 		get_viewport().set_input_as_handled()
 

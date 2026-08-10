@@ -3376,7 +3376,7 @@ func _draw_impl() -> void:
 	if compact_label:
 		AircraftRenderer.draw_reload_indicators(self)
 	AircraftRenderer.draw_tactic_popup(self)
-	# 飞机的 buff/debuff 改由 draw_data_label / draw_data_label_minimal 以文本+百分比形式显示
+	# 飞机的 buff/debuff 由完整、精简和折叠数据标签统一以文本+百分比形式显示
 	# （地面单位 SAM/AAA/ground_unit 仍走 draw_status_icons 的进度条，因其没有数据标签）
 	if formation_debug:
 		AircraftRenderer.draw_formation_debug(self)

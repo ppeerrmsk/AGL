@@ -4,6 +4,7 @@ extends CanvasLayer
 const PlayerInstrumentPanelScript := preload("res://scripts/survivor/player_instrument_panel.gd")
 const WingmanInstrumentPanelScript := preload("res://scripts/survivor/wingman_instrument_panel.gd")
 const MilestoneAxisCounterScript := preload("res://scripts/survivor/milestone_axis_counter.gd")
+const UiDevOutlineOverlayScript := preload("res://scripts/ui/ui_dev_outline_overlay.gd")
 
 ## 生存模式 HUD：右下角状态面板 + 顶部时间/击杀 + 底部经验条
 
@@ -50,7 +51,7 @@ var _btn_evasion: Button
 var _btn_auto_fire: Button
 var _btn_auto_engage: Button
 ## ── 加力模式（spec afterburner-mode）──
-## survivor_mode 注入的小队充能资源 + 充能条控件（每帧 _update_display 刷三态）
+## survivor_mode 注入的小队充能资源 + 充能条控件（每帧 _update_tactical_buttons 刷三态）
 var afterburner_charge: AfterburnerCharge
 var _ab_bar: ProgressBar
 var _ab_bar_fill: StyleBoxFlat
@@ -85,6 +86,14 @@ var _game_over_panel: PanelContainer
 var _game_over_label: RichTextLabel
 var _threat_overlay: Control
 
+var _hud_data_refresh_timer: float = 0.0
+
+# ── F7 UI Dev 定位覆盖层 ──
+var _ui_dev_overlay: Control
+var _ui_dev_manual_flare_button: Button
+var _ui_dev_visible := false
+var _ui_dev_regions: Array[Rect2] = []
+
 # ── 经验表现层（击杀 +N 飞入经验条 / 升级 LEVEL UP 弹字）──
 var _xp_vfx: XpGainVfx
 
@@ -97,6 +106,8 @@ var _debug_update_timer: float = 0.0
 const XP_BAR_WIDTH := 400.0
 const XP_BAR_HEIGHT := 20.0
 const STATUS_PANEL_WIDTH := 220.0
+const HUD_DATA_REFRESH_INTERVAL := 0.5
+const UI_DEV_TOGGLE_KEY := KEY_F7
 
 # ── 战况栏参数 ──
 const KILL_FEED_MAX := 5      ## 同时显示的最大条数（超出立即移除最旧）
@@ -375,10 +386,11 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _process(delta: float) -> void:
 	_layout_ui()
-	_update_display()
-	_update_squad_panel()
-	_update_boss_panel()
-	_update_ace_panel()
+	if _ui_dev_visible:
+		_refresh_ui_dev_overlay()
+	# 战术按钮（含加力进度）保持逐帧；信息读数层由独立的 2Hz 时钟刷新。
+	_update_tactical_buttons()
+	_update_hud_data_layer(delta)
 	_update_kill_feed(delta)
 	if _debug_visible:
 		_debug_update_timer -= delta
@@ -386,9 +398,112 @@ func _process(delta: float) -> void:
 			_debug_update_timer = 0.25
 			_update_debug_panel()
 
+func _update_hud_data_layer(delta: float) -> void:
+	_hud_data_refresh_timer -= delta
+	if _hud_data_refresh_timer > 0.0:
+		return
+	_hud_data_refresh_timer = HUD_DATA_REFRESH_INTERVAL
+	_update_display()
+	_update_squad_panel()
+	_update_boss_panel()
+	_update_ace_panel()
+
+func toggle_ui_dev_overlay() -> void:
+	_ui_dev_visible = not _ui_dev_visible
+	_ensure_ui_dev_overlay()
+	_ui_dev_overlay.visible = _ui_dev_visible
+	_ui_dev_manual_flare_button.visible = _ui_dev_visible
+	if _ui_dev_visible:
+		_refresh_ui_dev_overlay(true)
+
+
+func is_ui_dev_overlay_visible() -> bool:
+	return _ui_dev_visible
+
+
+func _ensure_ui_dev_overlay() -> void:
+	if _ui_dev_overlay != null:
+		return
+	_ui_dev_overlay = UiDevOutlineOverlayScript.new()
+	_ui_dev_overlay.flatten_descendants = true
+	_ui_dev_overlay.visible = false
+	add_child(_ui_dev_overlay)
+	_ui_dev_manual_flare_button = Button.new()
+	_ui_dev_manual_flare_button.text = "DEV  + MANUAL FLR [R]"
+	_ui_dev_manual_flare_button.position = Vector2(24.0, 24.0)
+	_ui_dev_manual_flare_button.size = Vector2(220.0, 34.0)
+	_ui_dev_manual_flare_button.visible = false
+	_ui_dev_manual_flare_button.z_index = 1001
+	_ui_dev_manual_flare_button.pressed.connect(_on_ui_dev_add_manual_flare_pressed)
+	add_child(_ui_dev_manual_flare_button)
+
+
+func _on_ui_dev_add_manual_flare_pressed() -> void:
+	if _player_instrument == null:
+		return
+	if _player_instrument.debug_grant_manual_flare_skill():
+		_ui_dev_manual_flare_button.text = "DEV  MANUAL FLR ADDED"
+		_ui_dev_manual_flare_button.disabled = true
+		_refresh_ui_dev_overlay(true)
+
+
+func _refresh_ui_dev_overlay(force := false) -> void:
+	_ensure_ui_dev_overlay()
+	var viewport := get_viewport()
+	if viewport != null:
+		_ui_dev_overlay.size = viewport.get_visible_rect().size
+	var next_regions := _collect_ui_dev_regions()
+	if not force and next_regions == _ui_dev_regions:
+		return
+	_ui_dev_regions = next_regions
+	_ui_dev_overlay.regions = next_regions
+
+
+func _collect_ui_dev_regions() -> Array[Rect2]:
+	var result: Array[Rect2] = []
+	if _wingman_instrument != null and _wingman_instrument.visible \
+			and _wingman_instrument.size.y > 0.0:
+		var wing_count := roundi(
+			_wingman_instrument.size.y / WingmanInstrumentPanelScript.ROW_STRIDE)
+		var wing_children: Array[Rect2] = []
+		for row_index in range(wing_count):
+			wing_children.append(Rect2(
+				Vector2(0.0, float(row_index) * WingmanInstrumentPanelScript.ROW_STRIDE),
+				Vector2(WingmanInstrumentPanelScript.PANEL_WIDTH,
+					WingmanInstrumentPanelScript.ROW_BODY_HEIGHT)
+			))
+		wing_children.append_array(WingmanInstrumentPanelScript.grid_regions(wing_count))
+		_append_ui_dev_component_regions(result, _wingman_instrument.position,
+			_wingman_instrument.size, wing_children)
+
+	if _player_instrument != null:
+		var ac := _safe_player_aircraft()
+		var maneuver_visible := PlayerInstrumentPanelScript.maneuver_skill_visible(ac)
+		_append_ui_dev_component_regions(result, _player_instrument.position,
+			_player_instrument.size,
+			_player_instrument.grid_regions(maneuver_visible,
+				PlayerInstrumentPanelScript.manual_flare_key_visible(ac)))
+
+	if _milestone_axis_counter != null:
+		var axis_children: Array[Rect2] = []
+		for index in range(3):
+			axis_children.append(MilestoneAxisCounterScript.cell_rect(index))
+		_append_ui_dev_component_regions(result, _milestone_axis_counter.position,
+			_milestone_axis_counter.size, axis_children)
+	result.append(Rect2(_xp_bar_bg.position, _xp_bar_bg.size))
+	return result
+
+
+func _append_ui_dev_component_regions(target: Array[Rect2], origin: Vector2,
+		root_size: Vector2, children: Array[Rect2]) -> void:
+	if root_size.x <= 0.0 or root_size.y <= 0.0:
+		return
+	target.append(Rect2(origin, root_size))
+	for child in children:
+		target.append(Rect2(origin + child.position, child.size))
+
 func _layout_ui() -> void:
 	var vp := get_viewport().get_visible_rect().size
-
 	# 战区倒计时（顶部最上方）
 	_warzone_timer_label.position = Vector2(vp.x * 0.5 - 100, -2)
 	_warzone_timer_label.size = Vector2(200, 28)
@@ -430,7 +545,7 @@ func _layout_ui() -> void:
 	_xp_label.position = Vector2(xp_x, xp_y)
 	_xp_label.size = Vector2(XP_BAR_WIDTH, XP_BAR_HEIGHT)
 	_milestone_axis_counter.position = Vector2(
-		xp_x, xp_y - MilestoneAxisCounterScript.COUNTER_SIZE.y - 4.0)
+		xp_x, xp_y - MilestoneAxisCounterScript.COUNTER_SIZE.y)
 	if _xp_vfx:
 		_xp_vfx.bar_rect = Rect2(xp_x, xp_y, XP_BAR_WIDTH, XP_BAR_HEIGHT)
 
@@ -448,13 +563,14 @@ func _layout_ui() -> void:
 	# 玩家仪表：严格占用旧 TACTICS + 状态栏的右下区域；其它 HUD 不动。
 	if _player_instrument:
 		_player_instrument.position = Vector2(
-			vp.x - _player_instrument.size.x - 16,
+			vp.x - _player_instrument.size.x - PlayerInstrumentPanelScript.Q_SIZE.x,
 			vp.y - _player_instrument.size.y - XP_BAR_HEIGHT - 36
 		)
 	if _wingman_instrument and _player_instrument:
 		_wingman_instrument.position = Vector2(
-			_player_instrument.position.x,
-			_player_instrument.position.y - _wingman_instrument.size.y - 6
+			_player_instrument.position.x + _player_instrument.size.x
+				- _wingman_instrument.size.x,
+			_player_instrument.position.y - _wingman_instrument.size.y
 		)
 
 	# 旧富文本小队面板仅保留逻辑入口；显示由玩家仪表上方的独立僚机行接管。
@@ -520,7 +636,6 @@ func _update_display() -> void:
 	_milestone_axis_counter.update_display(survivor_player)
 
 	_update_player_instrument()
-
 
 func _update_player_instrument() -> void:
 	if _player_instrument == null:
@@ -1522,8 +1637,9 @@ func _update_squad_panel() -> void:
 	_wingman_instrument.update_display(rows)
 	if _player_instrument:
 		_wingman_instrument.position = Vector2(
-			_player_instrument.position.x,
-			_player_instrument.position.y - _wingman_instrument.size.y - 6
+			_player_instrument.position.x + _player_instrument.size.x
+				- _wingman_instrument.size.x,
+			_player_instrument.position.y - _wingman_instrument.size.y
 		)
 
 	# C/V 键盘入口仍沿用既有状态；旧鼠标按钮节点仅保留兼容，不再显示。

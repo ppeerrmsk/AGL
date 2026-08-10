@@ -10,6 +10,14 @@ static var player_ref: Aircraft = null
 const LABEL_COMPACT_ENTER_SCALE: float = 0.35
 const LABEL_COMPACT_EXIT_SCALE: float = 0.40
 
+## 锁定框以现有尺寸为高空上限，地面与低空目标按真实高度连续缩小。
+const LOCK_BOX_ALTITUDE_SCALE_KEYS := [
+	[0.0, 0.55],
+	[2000.0, 0.70],
+	[5500.0, 0.85],
+	[10000.0, 1.00],
+]
+
 
 ## 生命周期边界净化：先用 Variant 接住可能已释放的对象，再验证、收窄类型。
 ## 不能直接赋给 `var ac: Aircraft` 后再判有效；Godot 会先在强类型赋值阶段报错。
@@ -40,6 +48,24 @@ static func screen_space_inverse_scale(item: CanvasItem) -> float:
 	if item == null or not item.is_inside_tree():
 		return 1.0
 	return inverse_screen_scale_for(item.get_viewport_transform().get_scale().x)
+
+
+static func lock_box_altitude_scale_for(altitude_m: float) -> float:
+	var altitude := maxf(altitude_m, 0.0)
+	for i in range(LOCK_BOX_ALTITUDE_SCALE_KEYS.size() - 1):
+		var lo: Array = LOCK_BOX_ALTITUDE_SCALE_KEYS[i]
+		var hi: Array = LOCK_BOX_ALTITUDE_SCALE_KEYS[i + 1]
+		if altitude <= float(hi[0]):
+			var span := maxf(float(hi[0]) - float(lo[0]), 0.001)
+			var t := clampf((altitude - float(lo[0])) / span, 0.0, 1.0)
+			return lerpf(float(lo[1]), float(hi[1]), t)
+	return float(LOCK_BOX_ALTITUDE_SCALE_KEYS[-1][1])
+
+
+static func lock_box_altitude_scale(node: Node2D) -> float:
+	if node is CombatUnit:
+		return lock_box_altitude_scale_for((node as CombatUnit).altitude)
+	return 1.0
 
 
 ## 标签 LOD 只跟相机/画布缩放走，不能把窗口拉伸倍率算进去。
@@ -203,6 +229,65 @@ static func _wpn_color(tag: String, ctx: Dictionary = {}) -> Color:
 		else:
 			return Color.html("#ff6633")
 	return Color.WHITE
+
+
+## 当前操控机保留武器品牌色；敌机、僚机与第三方友军的导弹装填统一用白字。
+static func weapon_label_color(tag: String, is_controlled: bool,
+		ctx: Dictionary = {}) -> Color:
+	if not is_controlled and (tag == "MSL_RELOAD" or tag == "SP_RELOAD"):
+		return Color.WHITE
+	return _wpn_color(tag, ctx)
+
+
+static func _status_effect_is_active(ac: Aircraft, sid: String, timed: bool,
+		include_direct_invulnerable: bool) -> bool:
+	if timed:
+		return true
+	match sid:
+		StatusEffects.INVINCIBLE:
+			return ac.status_invincible_active or (include_direct_invulnerable and ac.invulnerable)
+		StatusEffects.STEALTH:
+			return ac.status_stealth_active or ac.is_cloaked
+		StatusEffects.BLOODLUST:
+			return ac.status_bloodlust_active
+		StatusEffects.OVERLOAD:
+			return ac.status_overload_active
+		StatusEffects.FEAR:
+			return ac.status_fear_active
+		StatusEffects.JAM:
+			return ac.status_jam_active
+		StatusEffects.SLOW:
+			return ac.status_slow_active
+	return false
+
+
+## 完整、精简与折叠标签共用同一状态快照，避免缩放 LOD 后漏掉 buff/debuff。
+static func status_label_entries(ac: Aircraft,
+		include_direct_invulnerable: bool = false) -> Array[Dictionary]:
+	var entries: Array[Dictionary] = []
+	for sid in StatusEffects.DISPLAY_ORDER:
+		var timed: bool = ac.status_effects.has(sid)
+		if not _status_effect_is_active(ac, sid, timed, include_direct_invulnerable):
+			continue
+		var label := StatusEffects.english_label(sid)
+		if timed:
+			var remaining: float = float(ac.status_effects[sid])
+			var initial: float = float(ac.status_initial_durations.get(sid, remaining))
+			var pct := clampi(roundi(remaining / maxf(initial, 0.001) * 100.0), 0, 100)
+			label += " %d%%" % pct
+		entries.append({
+			"id": sid,
+			"text": label,
+			"color": StatusEffects.icon_color(sid),
+		})
+	return entries
+
+
+static func _append_status_label_lines(ac: Aircraft, lines: PackedStringArray,
+		color_indices: Dictionary, include_direct_invulnerable: bool = false) -> void:
+	for entry in status_label_entries(ac, include_direct_invulnerable):
+		color_indices[lines.size()] = entry["color"]
+		lines.append(entry["text"])
 
 ## 云层状态视觉：云中（HIGH）画冷白光晕，云下（LOW/MID）画淡蓝灰阴影
 ## 必须在图标之前调用（作底）
@@ -379,7 +464,7 @@ static func draw_secondary_lock_indicators(ac: Aircraft) -> void:
 		return
 
 	var lock_time_val: float = ac.params.lock_time
-	var radius := 18.0  # 括号半径（像素）
+	var base_radius := 18.0  # 当前尺寸是高空目标的最大尺寸
 	# 颜色：用 QMAAM 同色橙
 	var ring_color := Color(1.0, 0.65, 0.15, 0.95)
 	var fill_color := Color(1.0, 0.55, 0.15, 0.22)
@@ -395,9 +480,11 @@ static func draw_secondary_lock_indicators(ac: Aircraft) -> void:
 		if unit is Aircraft and (unit as Aircraft).is_cloaked: continue
 		# 锚点保留在目标世界位置；只对锚点周围的括号几何做反缩放。
 		var local_pos: Vector2 = ac.to_local(unit.global_position)
+		var altitude_scale := lock_box_altitude_scale(unit)
+		var radius := base_radius * altitude_scale
 		ac.draw_set_transform(local_pos, inv_rot, Vector2.ONE * inv_zoom)
 		# 4 个角的 corner brackets（开口朝内）
-		var arm := 6.0
+		var arm := 6.0 * altitude_scale
 		var corners := [
 			[Vector2(-radius, -radius), Vector2(arm, 0), Vector2(0, arm)],   # 左上
 			[Vector2(radius, -radius),  Vector2(-arm, 0), Vector2(0, arm)],  # 右上
@@ -405,7 +492,7 @@ static func draw_secondary_lock_indicators(ac: Aircraft) -> void:
 			[Vector2(radius, radius),   Vector2(-arm, 0), Vector2(0, -arm)], # 右下
 		]
 		# 浅填充（+ 4 个 corner，明确"锁定"语义）
-		ac.draw_circle(Vector2.ZERO, radius - 4, fill_color)
+		ac.draw_circle(Vector2.ZERO, radius - 4.0 * altitude_scale, fill_color)
 		for c in corners:
 			var origin: Vector2 = c[0]
 			ac.draw_line(origin, origin + c[1], ring_color, 1.5, true)
@@ -511,13 +598,14 @@ static func draw_lock_indicator(ac: Aircraft) -> void:
 ## 通用锁定方框绘制（Aircraft / GroundUnit 共用）
 ## progress (0..1) 驱动动画：旋转一圈 + 从大到小收缩，绿色；locked=true 时切红色静止
 static func draw_lock_box(node: Node2D, progress: float, locked: bool) -> void:
+	var altitude_scale := lock_box_altitude_scale(node)
 	if locked:
 		var blink: float = absf(sin(Time.get_ticks_msec() * 0.006))
 		var alpha: float = lerpf(0.55, 1.0, blink)
 		var red: Color = Color(1.0, 0.15, 0.1, alpha)
-		_draw_corner_brackets(node, 22.0, red, 0.0)
+		_draw_corner_brackets(node, 22.0 * altitude_scale, red, 0.0)
 	else:
-		var size: float = lerpf(68.0, 24.0, progress)
+		var size: float = lerpf(68.0, 24.0, progress) * altitude_scale
 		var angle: float = progress * TAU
 		var alpha: float = lerpf(0.35, 1.0, progress)
 		var green: Color = Color(0.35, 1.0, 0.45, alpha)
@@ -1437,6 +1525,8 @@ static func draw_data_label_compact(ac: Aircraft) -> void:
 			else "%s [%s]" % [display_name, ac.callsign]
 	var lines := PackedStringArray([identity])
 	lines.append("%d kt" % roundi(ac.speed * 3.6 * 0.5399))
+	var status_line_indices: Dictionary = {}
+	_append_status_label_lines(ac, lines, status_line_indices, ac == safe_player_ref())
 
 	var inv_rot: float = -ac.rotation
 	var inv_zoom: float = screen_space_inverse_scale(ac)
@@ -1461,6 +1551,10 @@ static func draw_data_label_compact(ac: Aircraft) -> void:
 	ac.draw_rect(box, text_color * Color(1, 1, 1, 0.4), false, 1.0)
 	for i in range(lines.size()):
 		var color: Color = text_color
+		if status_line_indices.has(i):
+			color = status_line_indices[i]
+		if is_player and color != text_color:
+			color = GameConstants.darken_for_light_bg(color)
 		ac.draw_string(ac._font, Vector2(5, 12 + i * line_height), lines[i],
 			HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
 	ac.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
@@ -1479,10 +1573,11 @@ static func draw_reload_indicators(ac: Aircraft) -> void:
 		return
 	var inv_zoom := screen_space_inverse_scale(ac)
 	var inv_rot := -ac.rotation
+	var is_controlled := ac == safe_player_ref()
 	var anchor := Vector2(-44.0 * inv_zoom, -38.0 * inv_zoom).rotated(inv_rot)
 	ac.draw_set_transform(anchor, inv_rot, Vector2.ONE * inv_zoom)
 	for i in range(labels.size()):
-		var style := reload_indicator_style(labels[i], inverted)
+		var style := reload_indicator_style(labels[i], inverted, is_controlled)
 		var text_color: Color = style[0]
 		var bg_color: Color = style[1]
 		var text_w := ac._font.get_string_size(labels[i],
@@ -1500,7 +1595,10 @@ static func reload_indicator_team_visible(team: int) -> bool:
 
 
 ## 返回 [文字色, 底色]；每 220ms 由调用方切换 inverted，始终保持可见。
-static func reload_indicator_style(label: String, inverted: bool) -> Array[Color]:
+static func reload_indicator_style(label: String, inverted: bool,
+		is_controlled: bool = true) -> Array[Color]:
+	if label == "MSL" and not is_controlled:
+		return [Color.WHITE, Color(0.04, 0.05, 0.07, 0.88)]
 	var primary := Color.html("#5599ff")
 	var secondary := Color(1.0, 1.0, 1.0, 0.96)
 	match label:
@@ -1620,17 +1718,18 @@ static func draw_data_label_minimal(ac: Aircraft) -> void:
 	lines.append("G %.1f" % ac.g_load)
 	# 武器行品牌色映射（与右下角武器栏同源 _wpn_color）
 	var wpn_color_indices: Dictionary = {}
+	var is_player_label := ac == safe_player_ref()
 	# 详细档统一显示全部可装填武器；装填完自动消失。
 	if ac._gun_reload_active:
 		wpn_color_indices[lines.size()] = _wpn_color("GUN_RELOAD")
 		lines.append("GUN RELOAD %d%%" % roundi(ac.gun_reload_progress * 100.0))
 	if ac._missile_reload_active:
-		wpn_color_indices[lines.size()] = _wpn_color("MSL_RELOAD")
+		wpn_color_indices[lines.size()] = weapon_label_color("MSL_RELOAD", is_player_label)
 		lines.append("MSL RELOAD %d%%" % roundi(ac.missile_reload_progress * 100.0))
 	if ac._secondary_reload_active and ac.params and ac.params.secondary_missile:
 		var sec_name_min := ac.params.secondary_missile.display_name
 		if sec_name_min.is_empty(): sec_name_min = "SP"
-		wpn_color_indices[lines.size()] = _wpn_color("SP_RELOAD")
+		wpn_color_indices[lines.size()] = weapon_label_color("SP_RELOAD", is_player_label)
 		lines.append("%s RELOAD %d%%" % [sec_name_min,
 			roundi(secondary_reload_progress(ac) * 100.0)])
 	if ac.enable_flare_reload and ac.flares_remaining <= 0 and ac.flare_reload_progress > 0.0:
@@ -1666,26 +1765,7 @@ static func draw_data_label_minimal(ac: Aircraft) -> void:
 	# 或派生 status_stealth_active 的玩家通路（KIA 复活、规避加力隐形、导弹弹尽隐形等）
 	# 也能在 HUD 上显示。无字典条目时不带百分比。
 	var status_line_indices: Dictionary = {}
-	for sid in StatusEffects.DISPLAY_ORDER:
-		var has_dict: bool = ac.status_effects.has(sid)
-		var auth_active: bool = false
-		match sid:
-			StatusEffects.INVINCIBLE:
-				auth_active = ac.invulnerable
-			StatusEffects.STEALTH:
-				auth_active = ac.status_stealth_active
-			_:
-				auth_active = has_dict
-		if not has_dict and not auth_active:
-			continue
-		status_line_indices[lines.size()] = StatusEffects.icon_color(sid)
-		if has_dict:
-			var s_remaining: float = float(ac.status_effects[sid])
-			var s_initial: float = float(ac.status_initial_durations.get(sid, s_remaining))
-			var s_pct: int = clampi(roundi(s_remaining / maxf(s_initial, 0.001) * 100.0), 0, 100)
-			lines.append("%s %d%%" % [StatusEffects.english_label(sid), s_pct])
-		else:
-			lines.append(StatusEffects.english_label(sid))
+	_append_status_label_lines(ac, lines, status_line_indices, true)
 
 	var inv_rot := -ac.rotation
 	var font_size := 11
@@ -1810,12 +1890,12 @@ static func draw_data_label(ac: Aircraft) -> void:
 		wpn_color_indices[lines.size()] = _wpn_color("GUN_RELOAD")
 		lines.append("GUN RELOAD %d%%" % roundi(ac.gun_reload_progress * 100.0))
 	if ac._missile_reload_active:
-		wpn_color_indices[lines.size()] = _wpn_color("MSL_RELOAD")
+		wpn_color_indices[lines.size()] = weapon_label_color("MSL_RELOAD", is_player_label)
 		lines.append("MSL RELOAD %d%%" % roundi(ac.missile_reload_progress * 100.0))
 	if ac._secondary_reload_active and ac.params and ac.params.secondary_missile:
 		var sec_name := ac.params.secondary_missile.display_name
 		if sec_name.is_empty(): sec_name = "SP"
-		wpn_color_indices[lines.size()] = _wpn_color("SP_RELOAD")
+		wpn_color_indices[lines.size()] = weapon_label_color("SP_RELOAD", is_player_label)
 		lines.append("%s RELOAD %d%%" % [sec_name,
 			roundi(secondary_reload_progress(ac) * 100.0)])
 	if ac.enable_flare_reload and ac.flares_remaining <= 0 and ac.flare_reload_progress > 0.0:
@@ -1832,24 +1912,7 @@ static func draw_data_label(ac: Aircraft) -> void:
 	# INVINCIBLE 不兜底——F-14 出生 4s 起飞保护是纯演出效果，走直写 invulnerable，
 	# 不进字典 → 不在 HUD 暴露。
 	var status_line_indices: Dictionary = {}
-	for sid in StatusEffects.DISPLAY_ORDER:
-		var has_dict: bool = ac.status_effects.has(sid)
-		var auth_active: bool = false
-		match sid:
-			StatusEffects.STEALTH:
-				auth_active = ac.is_cloaked
-			_:
-				auth_active = has_dict
-		if not has_dict and not auth_active:
-			continue
-		status_line_indices[lines.size()] = StatusEffects.icon_color(sid)
-		if has_dict:
-			var s_remaining: float = float(ac.status_effects[sid])
-			var s_initial: float = float(ac.status_initial_durations.get(sid, s_remaining))
-			var s_pct: int = clampi(roundi(s_remaining / maxf(s_initial, 0.001) * 100.0), 0, 100)
-			lines.append("%s %d%%" % [StatusEffects.english_label(sid), s_pct])
-		else:
-			lines.append(StatusEffects.english_label(sid))
+	_append_status_label_lines(ac, lines, status_line_indices)
 
 	var inv_rot := -ac.rotation
 	var font_size := 11

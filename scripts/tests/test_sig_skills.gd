@@ -364,6 +364,21 @@ func _test_new_signatures() -> void:
 	_check("伴随压制读取 Squad.members 并施加 JAM", mode_src.contains("sig_ea18g")
 		and mode_src.contains("_squad.members")
 		and mode_src.contains("the_target.apply_status(StatusEffects.JAM"), "接线缺失")
+	# TypedArray 在 cleanup 周期前可残留已释放成员。雷达更新必须先做
+	# is_instance_valid，再做类型判断/属性访问，否则会暂停整局。
+	var radar_mode = load("res://scripts/survivor/survivor_mode.gd").new()
+	var radar_ace := _make_combat_aircraft()
+	var freed_wing := _make_combat_aircraft()
+	var radar_squad := Squad.new()
+	radar_squad.members = [radar_ace, freed_wing]
+	freed_wing.free()
+	radar_mode.player_aircraft = radar_ace
+	radar_mode._squad = radar_squad
+	radar_mode.upgrade_stacks = {"sig_ea18g": 1}
+	radar_mode._update_radar_locks(0.2)
+	_check("伴随压制跳过已释放僚机引用", true, "")
+	radar_ace.free()
+	radar_mode.free()
 
 	var ace := _make_combat_aircraft()
 	var wing := _make_combat_aircraft()

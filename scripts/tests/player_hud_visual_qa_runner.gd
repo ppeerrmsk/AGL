@@ -42,11 +42,11 @@ func _ready() -> void:
 	charge.charge = AfterburnerCharge.CHARGE_MAX * 0.64
 
 	var panel = PlayerInstrumentPanelScript.new()
-	panel.position = Vector2(
-		1600.0 - PlayerInstrumentPanelScript.PANEL_SIZE.x - 16.0,
-		900.0 - PlayerInstrumentPanelScript.PANEL_SIZE.y - 56.0,
-	)
 	add_child(panel)
+	panel.position = Vector2(
+		1600.0 - panel.size.x - 18.0,
+		900.0 - panel.size.y - 56.0,
+	)
 	panel.update_display(_sample_aircraft, charge)
 
 	var wingman_panel = WingmanInstrumentPanelScript.new()
@@ -73,7 +73,7 @@ func _ready() -> void:
 	wingman_panel.update_display(wing_rows)
 	wingman_panel.position = Vector2(
 		panel.position.x,
-		panel.position.y - wingman_panel.size.y - 6.0,
+		panel.position.y - wingman_panel.size.y,
 	)
 
 	# 底部成长摘要：按正式 400px 经验条锚位渲染三轴计数器第一版。

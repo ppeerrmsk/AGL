@@ -96,6 +96,8 @@ const UNIT_TESTS: Dictionary = {
 	"map_vector_preview": "res://scripts/tests/test_map_vector_preview.gd",
 	"map_gold_slice": "res://scripts/tests/test_map_gold_slice.gd",
 	"weather": "res://scripts/tests/test_weather_system.gd",
+	"terminal_text": "res://scripts/tests/test_terminal_text.gd",
+	"ui_dev_outline": "res://scripts/tests/test_ui_dev_outline.gd",
 }
 
 ## 只显式调用、不会滚入 `all` 的构建任务。
@@ -109,6 +111,9 @@ const VISUAL_TEST_SCENES: Dictionary = {
 	"aircraft_silhouette_visual": "res://scenes/tests/aircraft_silhouette_visual_qa.tscn",
 	"map_visual_qa": "res://scenes/tests/map_visual_qa.tscn",
 	"map_detail_atlas_qa": "res://scenes/tests/map_detail_atlas_qa.tscn",
+	"ui_dev_panel_visual": "res://scenes/tests/ui_dev_panel.tscn",
+	"ui_dev_panel_clean_visual": "res://scenes/tests/ui_dev_panel.tscn",
+	"ui_dev_panel_manual_flare_visual": "res://scenes/tests/ui_dev_panel.tscn",
 }
 
 ## 图2/图3空地图试飞的运行时载入探针；仍统一经 Shadow bench 启动。
@@ -128,7 +133,7 @@ func _ready() -> void:
 	var args: PackedStringArray = PackedStringArray()
 	args.append_array(OS.get_cmdline_args())
 	args.append_array(OS.get_cmdline_user_args())
-	printerr("[Bench] BenchRunner._ready — args(engine=%d, user=%d)" % [
+	print_verbose("[Bench] BenchRunner._ready — args(engine=%d, user=%d)" % [
 		OS.get_cmdline_args().size(), OS.get_cmdline_user_args().size()])
 	for a in args:
 		if a.begins_with("--bench="):
@@ -136,7 +141,6 @@ func _ready() -> void:
 		elif a.begins_with("--duration="):
 			bench_duration = maxf(1.0, float(a.substr(11)))
 	if bench_scenario == "":
-		printerr("[Bench] no --bench= arg, BenchRunner idle")
 		return
 	# 自动测试统一静音音乐；总线 mute 会覆盖测试期间后续播放，且只影响本次 bench 进程。
 	var music_bus_idx := AudioServer.get_bus_index("Music")

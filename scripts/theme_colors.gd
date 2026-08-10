@@ -10,6 +10,10 @@ const GRID_COLOR := Color(0.15, 0.2, 0.15, 0.3)
 const GRID_LINE := Color(0.3, 0.7, 0.3, 0.5)
 
 # ── 面板背景 ──
+## 新主界面规范的语义色；与 docs/planning/main-ui-guidelines.md 颜色表对齐。
+const UI_BLOCK_BACKGROUND := Color(0.0, 0.0, 0.0, 0.7)
+const UI_TERMINAL_GREEN := Color("00ff41")
+const UI_TERMINAL_INVERSE := Color("000000")
 const PANEL_BG := Color(0.02, 0.04, 0.02, 0.75)
 const PANEL_BG_SOLID := Color(0.02, 0.04, 0.02, 0.95)
 const PANEL_BG_TOOLTIP := Color(0.03, 0.05, 0.03, 0.9)

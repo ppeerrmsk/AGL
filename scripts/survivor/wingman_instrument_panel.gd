@@ -2,22 +2,26 @@ class_name WingmanInstrumentPanel
 extends Control
 
 const HudPreferencesScript := preload("res://scripts/ui/hud_preferences.gd")
-const INFO_FONT_SOURCE := preload("res://resources/fonts/AcuminPro-Regular.otf")
-const DISPLAY_FONT_SOURCE := preload("res://resources/fonts/AcuminProExtraCond-Semibold.otf")
+const PlayerInstrumentPanelScript := preload("res://scripts/survivor/player_instrument_panel.gd")
+const TerminalGridOverlayScript := preload("res://scripts/ui/terminal_grid_overlay.gd")
+const INFO_FONT_SOURCE := preload("res://resources/fonts/Silkscreen-Regular.ttf")
+const DISPLAY_FONT_SOURCE := preload("res://resources/fonts/ChakraPetch-Bold.ttf")
 
 ## 玩家仪表上方的僚机信息行。纯显示、鼠标穿透；每架存活僚机对应一个独立线框模块。
-const PANEL_WIDTH := 326.0
-const CONTENT_X := 28.0
-const CONTENT_W := 298.0
-const ROW_BODY_TOP := 8.0
-const ROW_BODY_HEIGHT := 44.0
-const ROW_GAP := 5.0
+const U_SIZE := Vector2(40.0, 18.0)
+const Q_SIZE := Vector2(18.0, 18.0)
+const PANEL_WIDTH := Q_SIZE.x + U_SIZE.x * 7.0
+const CONTENT_X := Q_SIZE.x
+const CONTENT_W := U_SIZE.x * 7.0
+const ROW_BODY_TOP := 0.0
+const ROW_BODY_HEIGHT := U_SIZE.y * 3.0
+const ROW_GAP := 0.0
 const ROW_STRIDE := ROW_BODY_TOP + ROW_BODY_HEIGHT + ROW_GAP
-const TAB_X := CONTENT_X + 12.0
-const TAB_WIDTH := 112.0
-const TAB_HEIGHT := 20.0
-const SLOT_KEY_SIZE := Vector2(28.0, 26.0)
-const SLOT_FONT_SIZE := 21
+const TAB_X := CONTENT_X
+const TAB_WIDTH := U_SIZE.x * 3.0
+const TAB_HEIGHT := U_SIZE.y
+const SLOT_KEY_SIZE := Q_SIZE
+const SLOT_FONT_SIZE := 15
 const REDRAW_INTERVAL_MS := 50
 const BLINK_STEP_MS := 500
 
@@ -26,11 +30,15 @@ var _last_redraw_ms: int = -REDRAW_INTERVAL_MS
 var _info_font: Font
 var _display_font: Font
 var _localized_font: Font
+var _grid_overlay
 
 
 func _ready() -> void:
 	_info_font = INFO_FONT_SOURCE.duplicate() as Font
 	_display_font = DISPLAY_FONT_SOURCE.duplicate() as Font
+	if _info_font is FontFile:
+		(_info_font as FontFile).antialiasing = TextServer.FONT_ANTIALIASING_NONE
+		(_info_font as FontFile).subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_DISABLED
 	_info_font.fallbacks.append(ThemeDB.fallback_font)
 	_display_font.fallbacks.append(ThemeDB.fallback_font)
 	_localized_font = get_theme_default_font()
@@ -39,6 +47,8 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	focus_mode = Control.FOCUS_NONE
 	set_process(false)
+	_grid_overlay = TerminalGridOverlayScript.new()
+	add_child(_grid_overlay)
 	_apply_row_count(0)
 
 
@@ -67,28 +77,30 @@ func _apply_row_count(count: int) -> void:
 	var target_size := Vector2(PANEL_WIDTH, total_height_for_count(count))
 	custom_minimum_size = target_size
 	size = target_size
+	if _grid_overlay != null:
+		_grid_overlay.size = target_size
 	visible = count > 0
 
 
 func _draw() -> void:
 	var accent: Color = HudPreferencesScript.hud_color()
 	var blink_on := int(Time.get_ticks_msec() / BLINK_STEP_MS) % 2 == 0
+	_grid_overlay.line_color = accent
+	_grid_overlay.regions = grid_regions(_rows.size())
 	for index in range(_rows.size()):
 		_draw_row(_rows[index], float(index) * ROW_STRIDE, accent, blink_on)
 
 
 func _draw_row(row: Dictionary, row_y: float, accent: Color, blink_on: bool) -> void:
 	var body := Rect2(CONTENT_X, row_y + ROW_BODY_TOP, CONTENT_W, ROW_BODY_HEIGHT)
-	draw_rect(body, Color(0.0, 0.0, 0.0, 0.78), true)
-	draw_rect(body, accent, false, 2.0)
+	draw_rect(body, ThemeColors.UI_BLOCK_BACKGROUND, true)
 
 	var tab := Rect2(TAB_X, row_y, TAB_WIDTH, TAB_HEIGHT)
 	draw_rect(tab, accent, true)
-	var key_rect := Rect2(tab.position, SLOT_KEY_SIZE)
-	draw_rect(key_rect, Color(0.0, 0.0, 0.0, 0.92), true)
-	draw_rect(key_rect, accent, false, 2.0)
+	var key_rect := Rect2(Vector2(0.0, row_y), SLOT_KEY_SIZE)
+	draw_rect(key_rect, ThemeColors.UI_BLOCK_BACKGROUND, true)
 	_draw_text(str(int(row.get("slot", 0))),
-		Vector2(key_rect.position.x, key_rect.position.y + 20.0), SLOT_FONT_SIZE,
+		Vector2(key_rect.position.x, key_rect.position.y + 14.0), SLOT_FONT_SIZE,
 		accent, HORIZONTAL_ALIGNMENT_CENTER, key_rect.size.x, true)
 	var callsign_text := "%s%s" % [
 		"★ " if bool(row.get("is_heir", false)) else "",
@@ -115,17 +127,27 @@ func _draw_row(row: Dictionary, row_y: float, accent: Color, blink_on: bool) -> 
 		_draw_text(str(kills), body.position + Vector2(257.0, 18.0), 15, accent,
 			HORIZONTAL_ALIGNMENT_LEFT, -1.0, true)
 
-	_draw_stat(body.position.x + 8.0, body.position.y + 38.0, 72.0, "HP",
+	_draw_stat(body.position.x + 6.0, body.position.y + 46.0, 70.0, "HP",
 		String(row.get("hp", "--/--")), true, false, accent, blink_on)
-	_draw_stat(body.position.x + 82.0, body.position.y + 38.0, 62.0, "MSL",
+	_draw_stat(body.position.x + 78.0, body.position.y + 46.0, 58.0, "MSL",
 		String(row.get("msl", "")), bool(row.get("has_msl", false)),
 		bool(row.get("msl_busy", false)), accent, blink_on)
-	_draw_stat(body.position.x + 148.0, body.position.y + 38.0, 68.0, "GUN",
+	_draw_stat(body.position.x + 138.0, body.position.y + 46.0, 62.0, "GUN",
 		String(row.get("gun", "")), bool(row.get("has_gun", false)),
 		bool(row.get("gun_busy", false)), accent, blink_on)
-	_draw_stat(body.position.x + 220.0, body.position.y + 38.0, 70.0, "FLR",
+	_draw_stat(body.position.x + 202.0, body.position.y + 46.0, 72.0, "FLR",
 		String(row.get("flr", "")), bool(row.get("has_flr", false)),
 		bool(row.get("flr_busy", false)), accent, blink_on)
+
+
+static func grid_regions(count: int) -> Array[Rect2]:
+	var result: Array[Rect2] = []
+	for index in range(count):
+		var row_y := float(index) * ROW_STRIDE
+		result.append(Rect2(CONTENT_X, row_y, CONTENT_W, ROW_BODY_HEIGHT))
+		result.append(Rect2(TAB_X, row_y, TAB_WIDTH, TAB_HEIGHT))
+		result.append(Rect2(Vector2(0.0, row_y), SLOT_KEY_SIZE))
+	return result
 
 
 func _draw_stat(x: float, baseline_y: float, width: float, label_text: String,
@@ -170,6 +192,6 @@ func _text_width(text: String, font_size: int, use_display_font: bool) -> float:
 
 
 func _localized_font_for(use_display_font: bool = false) -> Font:
-	if PlayerInstrumentPanel.uses_theme_font_for_locale(TranslationServer.get_locale()):
+	if PlayerInstrumentPanelScript.uses_theme_font_for_locale(TranslationServer.get_locale()):
 		return _localized_font
 	return _display_font if use_display_font else _info_font

@@ -35,7 +35,9 @@ func _test_speed_units() -> void:
 		1852.0, HudPreferencesScript.SPEED_KT) == 1000)
 	_check("km/h 保持整数显示", HudPreferencesScript.speed_value_for(
 		945.0, HudPreferencesScript.SPEED_KMH) == 945)
-	_check("默认 HUD 色为 #53D13A", HudPreferencesScript.DEFAULT_COLOR.is_equal_approx(Color("53d13a")))
+	_check("默认 HUD 使用通用终端绿且面板背景精确为 70%",
+		HudPreferencesScript.DEFAULT_COLOR.is_equal_approx(ThemeColors.UI_TERMINAL_GREEN)
+		and is_equal_approx(ThemeColors.UI_BLOCK_BACKGROUND.a, 0.70))
 
 
 func _test_display_is_mouse_transparent() -> void:
@@ -85,55 +87,171 @@ func _test_color_panel_builds() -> void:
 
 
 func _test_layout_contract() -> void:
-	_check("紧凑版玩家仪表收窄到 326×408", PlayerInstrumentPanelScript.PANEL_SIZE == Vector2(326.0, 408.0))
-	_check("HP/SPD/加力各自从独立行左上角连续排布",
-		PlayerInstrumentPanelScript.HP_RECT.end.y == PlayerInstrumentPanelScript.SPD_RECT.position.y
-		and PlayerInstrumentPanelScript.SPD_RECT.end.y == PlayerInstrumentPanelScript.AB_RECT.position.y)
-	_check("ENGAGE/FIRE 是两条不共享基线的独立行",
-		PlayerInstrumentPanelScript.ENGAGE_RECT.end.y == PlayerInstrumentPanelScript.FIRE_RECT.position.y
-		and PlayerInstrumentPanelScript.ENGAGE_RECT.position.x == PlayerInstrumentPanelScript.FIRE_RECT.position.x)
-	_check("R 行只占 FLR 右栏且不增加玩家仪表高度",
-		PlayerInstrumentPanelScript.FLARE_COMPACT_RECT.end.y == PlayerInstrumentPanelScript.MANEUVER_RECT.position.y
-		and PlayerInstrumentPanelScript.MANEUVER_RECT.end.y == PlayerInstrumentPanelScript.CONTROL_RECT.end.y
-		and PlayerInstrumentPanelScript.WEAPON_RECT.end.y == PlayerInstrumentPanelScript.PANEL_SIZE.y)
-	_check("SPD 左侧固定切出 ALT 状态块、右侧速度区不越界",
-		PlayerInstrumentPanelScript.SPD_ALT_RECT.end.x == PlayerInstrumentPanelScript.SPD_SPEED_RECT.position.x
-		and PlayerInstrumentPanelScript.SPD_SPEED_RECT.end.x == PlayerInstrumentPanelScript.SPD_RECT.end.x
-		and PlayerInstrumentPanelScript.SPD_ALT_RECT == Rect2(28.0, 76.0, 106.0, 78.0))
-	_check("Q 与 E/G/F/T 键帽使用同一外侧竖列",
-		PlayerInstrumentPanelScript.keycap_rect(PlayerInstrumentPanelScript.Q_KEY_Y).position.x
-		== PlayerInstrumentPanelScript.keycap_rect(PlayerInstrumentPanelScript.E_KEY_Y).position.x
-		and PlayerInstrumentPanelScript.keycap_rect(PlayerInstrumentPanelScript.E_KEY_Y).position.x
-		== PlayerInstrumentPanelScript.keycap_rect(PlayerInstrumentPanelScript.G_KEY_Y).position.x
-		and PlayerInstrumentPanelScript.keycap_rect(PlayerInstrumentPanelScript.G_KEY_Y).position.x
-		== PlayerInstrumentPanelScript.keycap_rect(PlayerInstrumentPanelScript.F_KEY_Y).position.x
-		and PlayerInstrumentPanelScript.keycap_rect(PlayerInstrumentPanelScript.F_KEY_Y).position.x
-		== PlayerInstrumentPanelScript.keycap_rect(PlayerInstrumentPanelScript.T_KEY_Y).position.x)
-	_check("FLR 当前数量字号大于最大数量",
-		PlayerInstrumentPanelScript.FLARE_CURRENT_FONT_SIZE > PlayerInstrumentPanelScript.FLARE_MAX_FONT_SIZE)
-	_check("控制区左栏保持约 41% 比例", is_equal_approx(
-		PlayerInstrumentPanelScript.CONTROL_LEFT_W / PlayerInstrumentPanelScript.CONTENT_W,
-		122.0 / 298.0))
-	_check("武器名称列从约 59% 处开始", is_equal_approx(
-		(PlayerInstrumentPanelScript.WEAPON_COUNT_W
-		+ PlayerInstrumentPanelScript.WEAPON_PRIORITY_W)
-		/ PlayerInstrumentPanelScript.CONTENT_W, 176.0 / 298.0))
-	_check("7 架僚机与玩家仪表可共同容纳在 900 高逻辑视口",
-		WingmanInstrumentPanelScript.total_height_for_count(7)
-		+ PlayerInstrumentPanelScript.PANEL_SIZE.y + 6.0 <= 844.0)
-	_check("号机数字使用 21px 独立键帽且不抬高行节奏",
-		WingmanInstrumentPanelScript.SLOT_FONT_SIZE == 21
-		and WingmanInstrumentPanelScript.SLOT_KEY_SIZE == Vector2(28.0, 26.0)
-		and WingmanInstrumentPanelScript.ROW_STRIDE == 57.0)
+	var panel = PlayerInstrumentPanelScript.new()
+	panel._ready()
+	_check("maximum layout references remain explicit",
+		PlayerInstrumentPanelScript.HP_VALUE_LAYOUT_TEXT == "999"
+		and PlayerInstrumentPanelScript.G_VALUE_LAYOUT_TEXT == "11.5"
+		and PlayerInstrumentPanelScript.G_INTEGER_LAYOUT_TEXT == "11"
+		and PlayerInstrumentPanelScript.G_FRACTION_LAYOUT_TEXT == "9"
+		and PlayerInstrumentPanelScript.SPD_VALUE_LAYOUT_TEXT == "9999"
+		and PlayerInstrumentPanelScript.ALT_VALUE_LAYOUT_TEXT == "99999"
+		and PlayerInstrumentPanelScript.FLARE_VALUE_LAYOUT_TEXT == "99")
+	_check("HP G and SPD share one height-first primary font size",
+		panel.primary_value_font_size > 1
+		and panel.hp_current_rect.size.y == PlayerInstrumentPanelScript.PRIMARY_VALUE_HEIGHT
+		and panel.g_integer_rect.size.y == PlayerInstrumentPanelScript.PRIMARY_VALUE_HEIGHT
+		and panel.spd_current_rect.size.y == PlayerInstrumentPanelScript.PRIMARY_VALUE_HEIGHT)
+	var display_font: Font = panel._display_font
+	_check("primary boards expand by whole q steps instead of shrinking text",
+		display_font.get_string_size("999", HORIZONTAL_ALIGNMENT_LEFT, -1.0,
+			panel.primary_value_font_size).x <= panel.hp_current_rect.size.x
+		and display_font.get_string_size("11", HORIZONTAL_ALIGNMENT_LEFT, -1.0,
+			panel.primary_value_font_size).x <= panel.g_integer_rect.size.x
+		and display_font.get_string_size("9999", HORIZONTAL_ALIGNMENT_LEFT, -1.0,
+			panel.primary_value_font_size).x <= panel.spd_current_rect.size.x
+		and is_equal_approx(fmod(panel.hp_current_rect.size.x - 120.0, 18.0), 0.0)
+		and is_equal_approx(fmod(panel.g_integer_rect.size.x - 80.0, 18.0), 0.0)
+		and is_equal_approx(fmod(panel.spd_current_rect.size.x - 120.0, 18.0), 0.0))
+	_check("G uses framed 3u integer and bottom decimal cells with a borderless 2u fraction",
+		panel.g_integer_rect.size.y == PlayerInstrumentPanelScript.U_SIZE.y * 3.0
+		and panel.g_decimal_rect.size == PlayerInstrumentPanelScript.Q_SIZE
+		and panel.g_decimal_rect.end.y == panel.hp_g_rect.end.y
+		and panel.g_fraction_rect.size.y == PlayerInstrumentPanelScript.U_SIZE.y * 2.0
+		and panel.g_fraction_rect.end.y == panel.hp_g_rect.end.y
+		and panel.g_integer_rect.end.x == panel.g_decimal_rect.position.x
+		and panel.g_decimal_rect.end.x == panel.g_fraction_rect.position.x)
+	_check("secondary maximum value expands by q steps and fills 2u height",
+		panel.hp_max_rect.size.y == PlayerInstrumentPanelScript.SECONDARY_VALUE_HEIGHT
+		and panel.hp_max_rect.size.x > PlayerInstrumentPanelScript.U_SIZE.x
+		and is_equal_approx(fmod(
+			panel.hp_max_rect.size.x - PlayerInstrumentPanelScript.U_SIZE.x,
+			PlayerInstrumentPanelScript.Q_SIZE.x), 0.0)
+		and display_font.get_string_size("999", HORIZONTAL_ALIGNMENT_LEFT, -1.0,
+			panel.secondary_value_font_size).x <= panel.hp_max_rect.size.x)
+	_check("afterburner is 2u with a 1u title and a fixed 2u by 2u percent board",
+		panel.ab_rect.size.y == PlayerInstrumentPanelScript.PROGRESS_PANEL_HEIGHT
+		and panel.ab_title_rect.size.y == PlayerInstrumentPanelScript.PROGRESS_INFO_HEIGHT
+		and panel.ab_percent_rect.size == PlayerInstrumentPanelScript.PROGRESS_PERCENT_SIZE
+		and panel.ab_progress_rect.size.y == PlayerInstrumentPanelScript.U_SIZE.y
+		and panel.ab_progress_rect.position.y == panel.ab_title_rect.end.y
+		and panel.ab_progress_rect.end.x == panel.ab_percent_rect.position.x
+		and panel.ab_percent_rect.end.x == panel.ab_rect.end.x)
+	_check("roll maneuver uses the same title percent and bottom-bar layout",
+		panel.maneuver_title_rect(panel.maneuver_base_rect).size.y
+			== PlayerInstrumentPanelScript.PROGRESS_INFO_HEIGHT
+		and panel.maneuver_percent_rect(panel.maneuver_base_rect).size
+			== PlayerInstrumentPanelScript.PROGRESS_PERCENT_SIZE
+		and panel.maneuver_percent_rect(panel.maneuver_base_rect).end.x
+			== panel.maneuver_base_rect.end.x
+		and panel.maneuver_progress_rect(panel.maneuver_base_rect).size.y
+			== PlayerInstrumentPanelScript.U_SIZE.y
+		and panel.maneuver_base_rect.size.x == panel.aligned_content_width)
+	_check("decorative half-q columns align lower rows to ALT SPD without changing numeric q steps",
+		PlayerInstrumentPanelScript.DECORATIVE_HALF_Q_WIDTH
+			== PlayerInstrumentPanelScript.Q_SIZE.x * 0.5
+		and PlayerInstrumentPanelScript.DECORATIVE_HALF_U_HEIGHT
+			== PlayerInstrumentPanelScript.U_SIZE.y * 0.5
+		and is_equal_approx(fmod(
+			panel.aligned_content_width - PlayerInstrumentPanelScript.BASE_CONTENT_W,
+			PlayerInstrumentPanelScript.DECORATIVE_HALF_Q_WIDTH), 0.0)
+		and panel.ab_rect.position.x == panel.spd_rect.position.x
+		and panel.engage_rect.position.x == panel.spd_rect.position.x
+		and panel.maneuver_base_rect.position.x == panel.spd_rect.position.x
+		and panel.weapon_rect.position.x == panel.spd_rect.position.x)
+	_check("aligned operation keycaps form one vertical display column",
+		PlayerInstrumentPanelScript.keycap_left_of(panel.spd_rect).position.x
+			== PlayerInstrumentPanelScript.keycap_left_of(panel.ab_rect).position.x
+		and PlayerInstrumentPanelScript.keycap_left_of(panel.ab_rect).position.x
+			== PlayerInstrumentPanelScript.keycap_left_of(panel.engage_rect).position.x
+		and PlayerInstrumentPanelScript.keycap_left_of(panel.engage_rect).position.x
+			== PlayerInstrumentPanelScript.keycap_left_of(panel.maneuver_base_rect).position.x
+		and PlayerInstrumentPanelScript.keycap_left_of(panel.maneuver_base_rect).position.x
+			== PlayerInstrumentPanelScript.keycap_left_of(panel.weapon_rect).position.x)
+	var inset_track := PlayerInstrumentPanelScript.progress_inner_track(panel.ab_progress_rect)
+	_check("progress fill uses a visible four-pixel inward inset",
+		PlayerInstrumentPanelScript.PROGRESS_INNER_INSET == 4.0
+		and inset_track.position == panel.ab_progress_rect.position + Vector2(4.0, 4.0)
+		and inset_track.size == panel.ab_progress_rect.size - Vector2(8.0, 8.0))
+	_check("all operation keys are independent 1q cells at their row top",
+		PlayerInstrumentPanelScript.keycap_left_of(panel.ab_rect).size
+			== PlayerInstrumentPanelScript.Q_SIZE
+		and panel.maneuver_key_rect().size == PlayerInstrumentPanelScript.Q_SIZE
+		and panel.maneuver_key_rect().position.y == panel.maneuver_base_rect.position.y
+		and panel.manual_flare_key_rect().position.y == panel.flare_base_rect.position.y)
+	_check("internal R insertion grows left while the flare right edge remains fixed",
+		panel.active_flare_rect(true) == panel.flare_base_rect
+		and panel.active_engage_rect(true).position.x
+			== panel.engage_rect.position.x - PlayerInstrumentPanelScript.Q_SIZE.x
+		and panel.active_fire_rect(true).position.x
+			== panel.fire_rect.position.x - PlayerInstrumentPanelScript.Q_SIZE.x
+		and panel.active_maneuver_rect(true, true) == panel.maneuver_base_rect
+		and panel.manual_flare_key_rect().end.x == panel.flare_base_rect.position.x)
+	_check("all expandable rows preserve the shared screen-side right edge",
+		panel.hp_rect.end.x == panel.size.x
+		and panel.spd_rect.end.x == panel.size.x
+		and panel.ab_rect.end.x == panel.size.x
+		and panel.flare_base_rect.end.x == panel.size.x
+		and panel.maneuver_base_rect.end.x == panel.size.x
+		and panel.weapon_rect.end.x == panel.size.x)
+	_check("SPD primary value explicitly uses left alignment",
+		PlayerInstrumentPanelScript.SPD_VALUE_ALIGNMENT == HORIZONTAL_ALIGNMENT_LEFT)
+	var ac := _make_aircraft()
+	ac.displacement_roll_active = true
+	panel.aircraft = ac
+	_check("F7 manual flare grant switches the R skill and starts its key",
+		panel.debug_grant_manual_flare_skill()
+		and ac.manual_dodge_active
+		and not ac.displacement_roll_active
+		and PlayerInstrumentPanelScript.manual_flare_key_visible(ac))
+	panel._manual_flare_key_flash_started_ms = 1000
+	_check("new manual flare key alternates inverse state for exactly five seconds",
+		panel.manual_flare_key_flash_on(1000)
+		and not panel.manual_flare_key_flash_on(1500)
+		and panel.manual_flare_key_flash_on(2000)
+		and not panel.manual_flare_key_flash_on(6000))
+	var player_regions: Array[Rect2] = panel.grid_regions(true, true)
+	var active_flare := panel.active_flare_rect(true)
+	_check("grid frames boards and key cells while numeric word boards stay borderless",
+		player_regions.has(panel.hp_rect)
+		and player_regions.has(panel.ab_title_rect)
+		and player_regions.has(panel.ab_percent_rect)
+		and player_regions.has(panel.ab_progress_rect)
+		and player_regions.has(panel.manual_flare_key_rect())
+		and player_regions.has(panel.g_integer_rect)
+		and player_regions.has(panel.g_decimal_rect)
+		and player_regions.has(PlayerInstrumentPanelScript.flare_title_rect(active_flare))
+		and not player_regions.has(panel.hp_current_rect)
+		and not player_regions.has(panel.g_fraction_rect)
+		and not player_regions.has(panel.hp_separator_rect)
+		and not player_regions.has(panel.hp_max_rect)
+		and not player_regions.has(PlayerInstrumentPanelScript.flare_current_rect(active_flare)))
+	_check("removing the empty row and using 2u progress panels yields 24u total height",
+		panel.size.y == PlayerInstrumentPanelScript.U_SIZE.y * 24.0
+		and panel.weapon_rect.end.y == panel.size.y)
+	_check("weapon name column still begins after four u of numeric information",
+		is_equal_approx(PlayerInstrumentPanelScript.WEAPON_COUNT_W
+			+ PlayerInstrumentPanelScript.WEAPON_PRIORITY_W,
+			PlayerInstrumentPanelScript.U_SIZE.x * 4.0))
+	_check("wingman slot keys remain independent 1q cells",
+		WingmanInstrumentPanelScript.SLOT_FONT_SIZE == 15
+		and WingmanInstrumentPanelScript.SLOT_KEY_SIZE == Vector2(18.0, 18.0)
+		and WingmanInstrumentPanelScript.ROW_STRIDE == 54.0)
+	var wing_regions: Array[Rect2] = WingmanInstrumentPanelScript.grid_regions(2)
+	_check("相邻僚机行复用同一条水平边界",
+		wing_regions[0].end.y == wing_regions[3].position.y)
+	ac.free()
+	panel.free()
 
 
 func _test_milestone_axis_counter() -> void:
 	var counter = MilestoneAxisCounterScript.new()
 	counter._ready()
-	_check("三轴计数器与经验条同宽且固定为 400×18",
+	_check("三轴计数器使用 3u+3u+4u 且与经验条同宽",
 		counter.size == Vector2(400.0, 18.0)
-		and is_equal_approx(MilestoneAxisCounterScript.CELL_WIDTH * 3.0,
-			MilestoneAxisCounterScript.COUNTER_SIZE.x))
+		and MilestoneAxisCounterScript.cell_rect(0) == Rect2(0.0, 0.0, 120.0, 18.0)
+		and MilestoneAxisCounterScript.cell_rect(1) == Rect2(120.0, 0.0, 120.0, 18.0)
+		and MilestoneAxisCounterScript.cell_rect(2) == Rect2(240.0, 0.0, 160.0, 18.0))
 	_check("三轴计数器鼠标穿透且不自带逐帧处理",
 		counter.mouse_filter == Control.MOUSE_FILTER_IGNORE
 		and counter.focus_mode == Control.FOCUS_NONE
