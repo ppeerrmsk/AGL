@@ -24,6 +24,29 @@ func _physics_process(delta: float) -> void:
 	update_lock_line_state(delta)
 	queue_redraw()
 
+## SAM 只锁敌方飞机；覆盖 GroundUnit 的通用选敌，防止地面单位进入 radar_targets 后被选中。
+func _update_target_selection() -> void:
+	var preferred: Variant = get_meta(META_PREFERRED_COMBAT_TARGET) \
+		if has_meta(META_PREFERRED_COMBAT_TARGET) else null
+	if preferred is Aircraft and is_instance_valid(preferred) \
+			and not (preferred as Aircraft).is_destroyed and is_hostile_to(preferred) \
+			and radar_targets.has(preferred):
+		combat_target = preferred
+		return
+	var best: Aircraft = null
+	var best_dist := INF
+	for value in radar_targets.keys():
+		if not (value is Aircraft) or not is_instance_valid(value):
+			continue
+		var aircraft := value as Aircraft
+		if aircraft.is_destroyed or not is_hostile_to(aircraft) or aircraft.is_lock_immune():
+			continue
+		var distance := global_position.distance_squared_to(aircraft.global_position)
+		if distance < best_dist:
+			best_dist = distance
+			best = aircraft
+	combat_target = best
+
 ## SAM 导弹发射
 func _update_sam_missile(delta: float) -> void:
 	_missile_cooldown = maxf(_missile_cooldown - delta, 0.0)
@@ -37,7 +60,9 @@ func _update_sam_missile(delta: float) -> void:
 		return
 	if _missile_cooldown > 0.0:
 		return
-	if combat_target == null or not is_instance_valid(combat_target) or combat_target.is_destroyed:
+	if not (combat_target is Aircraft) or not is_instance_valid(combat_target) \
+			or combat_target.is_destroyed:
+		combat_target = null
 		return
 
 	# ── 保险 1：目标必须仍在雷达范围内（防止因为锁定衰减滞后而打空）
@@ -92,7 +117,7 @@ func _lock_line_can_engage_player() -> bool:
 		return false
 	if _missile_cooldown > 0.05:
 		return false
-	var pref: Aircraft = AircraftRenderer.player_ref
+	var pref: Aircraft = AircraftRenderer.safe_player_ref()
 	if pref == null:
 		return false
 	return combat_target == pref

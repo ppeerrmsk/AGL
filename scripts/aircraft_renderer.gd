@@ -1,6 +1,8 @@
 class_name AircraftRenderer
 extends RefCounted
 
+const AircraftSilhouetteCatalog = preload("res://scripts/aircraft_silhouette_catalog.gd")
+
 ## 玩家飞机全局引用（由 main.gd / survivor_mode.gd 在玩家生成/销毁时维护）
 ## draw_data_label 里每帧为每架飞机算 RNG 用，避免在 _draw 里 O(N) 扫 parent.get_children()
 static var player_ref: Aircraft = null
@@ -9,14 +11,23 @@ const LABEL_COMPACT_ENTER_SCALE: float = 0.35
 const LABEL_COMPACT_EXIT_SCALE: float = 0.40
 
 
-## 安全读 player_ref：自动清理 freed 引用。
-## 必须用此 getter 而非直接读 player_ref，否则 `var pref: Aircraft = safe_player_ref()`
-## 在 player_ref 已 free 时会抛 "previously freed" 类型校验错（aircraft._start_destroy
-## 的 cleanup 是主路径，本 getter 是兜底防御）。
+## 生命周期边界净化：先用 Variant 接住可能已释放的对象，再验证、收窄类型。
+## 不能直接赋给 `var ac: Aircraft` 后再判有效；Godot 会先在强类型赋值阶段报错。
+static func safe_aircraft_ref(value: Variant) -> Aircraft:
+	if typeof(value) != TYPE_OBJECT or not is_instance_valid(value):
+		return null
+	if not (value is Aircraft):
+		return null
+	return value as Aircraft
+
+
+## 安全读 player_ref：自动清理 freed 引用。所有消费者必须走此 getter。
 static func safe_player_ref() -> Aircraft:
-	if player_ref != null and not is_instance_valid(player_ref):
+	var candidate: Variant = player_ref
+	var safe_ref: Aircraft = safe_aircraft_ref(candidate)
+	if safe_ref == null:
 		player_ref = null
-	return player_ref
+	return safe_ref
 
 ## 世界内 CanvasItem 上的 HUD 符号使用这个比例抵消实际视口缩放。
 ## 读 viewport transform 而不是 CameraController.target_zoom，才能覆盖平滑缩放、
@@ -626,11 +637,32 @@ static func draw_flare_particles(ac: Aircraft) -> void:
 			var color := Color(1.0, 0.8, 0.3, alpha * 0.7)
 			ac.draw_circle(local_pos, size, color)
 
+## DEADAIR 暴露八段环；只在跨段时由 CombatUnit 请求重绘。
+static func draw_deadair_exposure(ac: CombatUnit) -> void:
+	var ratio := ac.deadair_exposure_ratio
+	if ac.is_destroyed or ratio <= 0.0:
+		return
+	var zoom_scale := ac.get_viewport_transform().get_scale()
+	var inv_zoom: float = 1.0 / maxf(zoom_scale.x, 0.01)
+	var radius := 25.0 * inv_zoom
+	var width := 2.4 * inv_zoom
+	var lit := ceili(clampf(ratio, 0.0, 1.0) * 8.0)
+	var transform := Transform2D(-ac.rotation, Vector2.ZERO)
+	ac.draw_set_transform_matrix(transform)
+	for i in range(8):
+		var start := -PI * 0.5 + TAU * float(i) / 8.0 + 0.06
+		var finish := -PI * 0.5 + TAU * float(i + 1) / 8.0 - 0.06
+		var color := Color(0.68, 0.08, 0.47, 0.95) if i < lit else Color(0.22, 0.05, 0.18, 0.42)
+		ac.draw_arc(Vector2.ZERO, radius, start, finish, 5, color, width, true)
+	ac.draw_set_transform_matrix(Transform2D.IDENTITY)
+
+
 ## 状态效果条：单位正上方一摞水平进度条（buff 在前 / debuff 在后）
 ## 每条 = 半透明背景 + 按 remaining/initial 比例缩减的彩色填充 + 中文标签
 ## 抵消飞机 rotation → 始终水平 / 抵消摄像机 zoom → 大小固定不随缩放
 ## 接受任何 CombatUnit（飞机 / 地面单位 / 船等），地面单位通常只显示 JAM
 static func draw_status_icons(ac: CombatUnit) -> void:
+	draw_deadair_exposure(ac)
 	if ac.is_destroyed or ac.status_effects.is_empty():
 		return
 	var active_ids: Array[String] = []
@@ -746,6 +778,16 @@ static func draw_aircraft_icon(ac: Aircraft) -> void:
 	var xform := Transform2D(0.0, Vector2.ZERO)
 	xform = xform.scaled(Vector2(sx, sy))
 
+	# 每个真实/概念机型只消费一张白色 alpha PNG；阵营与王牌差异统一由参数颜色着色。
+	# 未登记的 UGC/临时探针安全回退到下方旧 polygon 绘制。
+	if AircraftSilhouetteCatalog.draw_icon(ac, color, size, xform):
+		if ac.selected:
+			var ring_color := color
+			ring_color.a = 0.5
+			var ring_scale := AircraftSilhouetteCatalog.draw_scale_for(ac)
+			ac.draw_arc(Vector2.ZERO, size * 1.8 * base_scale * ring_scale, 0, TAU, 48, ring_color, 1.5)
+		return
+
 	# 指挥 UAV（哨兵）使用独立的飞翼外观
 	var is_commander: bool = ac.has_meta("enemy_type") and ac.get_meta("enemy_type") == "uav_commander"
 	if is_commander:
@@ -821,6 +863,11 @@ static func draw_aircraft_icon(ac: Aircraft) -> void:
 
 	# 常规科技树敌版只替换既有 5 个多边形的顶点；不增加 CanvasItem/draw 次数或逐帧扫描。
 	match silhouette:
+		"deadair":
+			# 双菱形 EW 核心：短机身、宽后掠翼，和 Snowblind/普通战机在轮廓上可区分。
+			body = PackedVector2Array([Vector2(0, -size * 0.85), Vector2(size * 0.34, -size * 0.18), Vector2(size * 0.26, size * 0.72), Vector2(0, size), Vector2(-size * 0.26, size * 0.72), Vector2(-size * 0.34, -size * 0.18)])
+			wing_r = PackedVector2Array([Vector2(size * 0.20, -size * 0.28), Vector2(size * 1.35, size * 0.12), Vector2(size * 0.78, size * 0.55), Vector2(size * 0.20, size * 0.30)])
+			wing_l = PackedVector2Array([Vector2(-size * 0.20, -size * 0.28), Vector2(-size * 1.35, size * 0.12), Vector2(-size * 0.78, size * 0.55), Vector2(-size * 0.20, size * 0.30)])
 		"delta":
 			wing_r = PackedVector2Array([Vector2(size * 0.15, -size * 0.35), Vector2(size * 1.2, size * 0.55), Vector2(size * 0.18, size * 0.38)])
 			wing_l = PackedVector2Array([Vector2(-size * 0.15, -size * 0.35), Vector2(-size * 1.2, size * 0.55), Vector2(-size * 0.18, size * 0.38)])
@@ -1361,12 +1408,16 @@ static func draw_data_label_drone(ac: Aircraft) -> void:
 	ac.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
-## 战略标签：只保留机体型号、代号、速度，压成两行减少遮挡。
+## 当前操控机显示纯机型编号 + 完整呼号；其它单位缩机名后缀、不缩呼号。
 static func draw_data_label_compact(ac: Aircraft) -> void:
 	if ac._font == null:
 		return
-	var display_name: String = ac.params.display_name if ac.params else "???"
-	var lines := PackedStringArray(["%s [%s]" % [display_name, ac.callsign]])
+	var display_name := compact_aircraft_name(ac.params.display_name) if ac.params else "???"
+	var is_player: bool = ac == safe_player_ref()
+	var identity := controlled_identity_label(ac) if is_player \
+			else ally_identity_label(ac) if ac.team == CombatUnit.TEAM_ALLY \
+			else "%s [%s]" % [display_name, ac.callsign]
+	var lines := PackedStringArray([identity])
 	lines.append("%d kt" % roundi(ac.speed * 3.6 * 0.5399))
 
 	var inv_rot: float = -ac.rotation
@@ -1382,7 +1433,6 @@ static func draw_data_label_compact(ac: Aircraft) -> void:
 	var colors := GameConstants.aircraft_label_colors(ac.team)
 	var bg_color: Color = colors[0]
 	var text_color: Color = colors[1]
-	var is_player: bool = ac == safe_player_ref()
 	if is_player:
 		bg_color = GameConstants.PLAYER_CTRL_LABEL_BG
 		text_color = GameConstants.PLAYER_CTRL_LABEL_TEXT
@@ -1467,6 +1517,62 @@ static func secondary_reload_progress(ac: Aircraft) -> float:
 	return clampf(ac._secondary_reload_timer / maxf(duration, 0.001), 0.0, 1.0)
 
 
+## 第三方绿色友军标签只去掉旧 ALLY- 前缀；机型名称后缀缩写，呼号始终完整。
+static func ally_identity_label(ac: Aircraft) -> String:
+	var display_name := compact_aircraft_name(ac.params.display_name) if ac.params else "???"
+	var callsign := ac.callsign
+	if callsign.begins_with("ALLY-"):
+		callsign = callsign.substr(5)
+	if callsign == "":
+		return display_name
+	return "%s %s" % [display_name, callsign]
+
+
+## 保留带数字的机型编号，把后续整段名称只压成第一个首字母：
+## F-15 Eagle → F-15 E；Su-35 Super Flanker → Su-35 S。
+static func compact_aircraft_name(display_name: String) -> String:
+	var clean_name := display_name.strip_edges()
+	var model := aircraft_model_designation(clean_name)
+	if model == clean_name:
+		return clean_name
+	var suffix := clean_name.substr(model.length()).strip_edges()
+	return model if suffix.is_empty() else "%s %s" % [model, suffix.substr(0, 1).to_upper()]
+
+
+## 从显示名里只取真正的机型编号：F-14 Tomcat → F-14，JAS 39C Gripen → JAS 39C。
+static func aircraft_model_designation(display_name: String) -> String:
+	var clean_name := display_name.strip_edges()
+	var words := clean_name.split(" ", false)
+	var model_end := -1
+	for i in range(words.size()):
+		for c in words[i]:
+			if c >= "0" and c <= "9":
+				model_end = i
+				break
+		if model_end >= 0:
+			break
+	if model_end < 0:
+		return clean_name
+	var model_words := PackedStringArray()
+	for i in range(model_end + 1):
+		model_words.append(words[i])
+	return " ".join(model_words)
+
+
+## 生存模式在拼接主角代号前保存的纯机型编号；非生存实例安全回落到显示名。
+static func airframe_identity_label(ac: Aircraft) -> String:
+	var airframe := String(ac.get_meta("airframe_label", "")).strip_edges()
+	if not airframe.is_empty():
+		return aircraft_model_designation(airframe)
+	return aircraft_model_designation(ac.params.display_name) if ac.params else "???"
+
+
+## 当前操控机不显示 profile 机名后缀，但完整保留飞行员呼号。
+static func controlled_identity_label(ac: Aircraft) -> String:
+	var airframe := airframe_identity_label(ac)
+	return airframe if ac.callsign.is_empty() else "%s [%s]" % [airframe, ac.callsign]
+
+
 ## 在飞机旁边绘制数据标签框（逐行列出所有参数）
 ## 是否使用精简标签（无导弹/无热诱弹的简单单位）
 ## 生存模式玩家用精简标签：只显示朝向、速度、高度、G、耐力
@@ -1476,8 +1582,10 @@ static func draw_data_label_minimal(ac: Aircraft) -> void:
 	if heading_deg < 0:
 		heading_deg += 360.0
 
+	var is_player := ac == safe_player_ref()
 	var lines := PackedStringArray()
-	lines.append(ac.callsign)
+	lines.append(controlled_identity_label(ac) if is_player \
+			else ally_identity_label(ac) if ac.team == CombatUnit.TEAM_ALLY else ac.callsign)
 	lines.append("HDG %03d" % roundi(heading_deg))
 	lines.append("%d kt" % roundi(speed_kmh * 0.5399))
 	var alt_line_idx := lines.size()
@@ -1575,7 +1683,6 @@ static func draw_data_label_minimal(ac: Aircraft) -> void:
 		max_w = maxf(max_w, w)
 
 	var scale_v := Vector2(inv_zoom, inv_zoom)
-	var is_player := ac == safe_player_ref()
 	var team_color: Color = ac.params.icon_color if ac.params else Color.GREEN
 	var bg_color := Color(team_color.r * 0.15, team_color.g * 0.15, team_color.b * 0.2, 0.7)
 	var default_text_color := Color(0.85, 0.9, 0.85, 0.9)
@@ -1603,7 +1710,7 @@ static func draw_data_label_minimal(ac: Aircraft) -> void:
 	ac.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 static func draw_data_label(ac: Aircraft) -> void:
-	var display_name: String = ac.params.display_name if ac.params else "???"
+	var display_name := compact_aircraft_name(ac.params.display_name) if ac.params else "???"
 	var speed_kmh := ac.speed * 3.6
 	var heading_deg := rad_to_deg(ac.heading)
 	if heading_deg < 0:
@@ -1618,8 +1725,10 @@ static func draw_data_label(ac: Aircraft) -> void:
 
 	# 统一标签格式（所有飞机通用）
 	var lines: PackedStringArray = PackedStringArray()
-	# 第 1 行：代号 + 机种
-	lines.append("%s [%s]" % [ac.callsign, display_name])
+	# 第 1 行：当前操控机只写机型编号；其它单位保留代号信息。
+	lines.append(controlled_identity_label(ac) if ac == pref \
+			else ally_identity_label(ac) if ac.team == CombatUnit.TEAM_ALLY \
+			else "%s [%s]" % [ac.callsign, display_name])
 	# 第 2 行：速度（kt）
 	lines.append("%d kt" % roundi(speed_kmh * 0.5399))
 	# 第 3 行：朝向

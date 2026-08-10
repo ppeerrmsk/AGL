@@ -13,7 +13,9 @@ param(
     [int]$TimeoutSeconds = 0,
     [string]$ProcDumpExe = '',
     [ValidateSet('Shadow', 'InPlace')]
-    [string]$RunMode = 'Shadow'
+    [string]$RunMode = 'Shadow',
+    [ValidateSet('Headless', 'Visual')]
+    [string]$DisplayMode = 'Headless'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -182,6 +184,17 @@ function Sync-ShadowProject([string]$sourceDir, [string]$destinationDir) {
             New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
         }
     }
+
+    # Visual captures must belong to this invocation. A failed Godot startup may
+    # otherwise copy a previous run back and make a stale image look like a pass.
+    $visualOutputDir = [System.IO.Path]::GetFullPath((Join-Path $destinationDir 'tmp\map_visual_qa'))
+    $shadowPrefix = [System.IO.Path]::GetFullPath($destinationDir).TrimEnd('\') + '\'
+    if (-not $visualOutputDir.StartsWith($shadowPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "refusing unsafe visual output path: $visualOutputDir"
+    }
+    if (Test-Path -LiteralPath $visualOutputDir -PathType Container) {
+        Remove-Item -LiteralPath $visualOutputDir -Recurse -Force
+    }
 }
 
 function Copy-ShadowOutputs([string]$sourceShadow, [string]$destinationProject) {
@@ -197,6 +210,15 @@ function Copy-ShadowOutputs([string]$sourceShadow, [string]$destinationProject) 
         New-Item -ItemType Directory -Path $to -Force | Out-Null
         Get-ChildItem -LiteralPath $from -File -Force | ForEach-Object {
             Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $to $_.Name) -Force
+        }
+    }
+    $visualFrom = Join-Path $sourceShadow 'tmp\map_visual_qa'
+    if (Test-Path -LiteralPath $visualFrom -PathType Container) {
+        $visualTo = Join-Path $destinationProject 'tmp\map_visual_qa'
+        New-Item -ItemType Directory -Path $visualTo -Force | Out-Null
+        & "$env:SystemRoot\System32\robocopy.exe" $visualFrom $visualTo /E /COPY:DAT /R:2 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
+        if ($LASTEXITCODE -ge 8) {
+            throw "visual QA output copy failed (exit=$LASTEXITCODE)"
         }
     }
 }
@@ -292,8 +314,15 @@ try {
         # synchronizing to wall clock. Growth benches still simulate every 60 Hz tick.
         $fixedFpsOption = "--fixed-fps $fixedFps "
     }
-    $godotArguments = '{0}--headless --path "{1}" -- --bench={2} --duration={3}' -f `
-        $fixedFpsOption, $runProjectDir.Replace('"', '\"'), $Scenario, $DurationSeconds
+    if ($DisplayMode -eq 'Visual') {
+        # Keep the real GL Compatibility renderer while placing the transient test
+        # window off-screen. The process remains owned by the same watchdog/job.
+        $godotArguments = '{0}--path "{1}" --rendering-method gl_compatibility --windowed --resolution 1600x900 --position 32000,32000 -- --bench={2} --duration={3}' -f `
+            $fixedFpsOption, $runProjectDir.Replace('"', '\"'), $Scenario, $DurationSeconds
+    } else {
+        $godotArguments = '{0}--headless --path "{1}" -- --bench={2} --duration={3}' -f `
+            $fixedFpsOption, $runProjectDir.Replace('"', '\"'), $Scenario, $DurationSeconds
+    }
     if ($ProcDumpExe -ne '') {
         $dumpDir = Join-Path $ProjectDir 'tmp\crash-dumps'
         New-Item -ItemType Directory -Path $dumpDir -Force | Out-Null
@@ -316,7 +345,7 @@ try {
     $child.StartInfo = $psi
 
     Write-Host "[bench] godot=$GodotExe"
-    Write-Host "[bench] mode=$RunMode project=$runProjectDir"
+    Write-Host "[bench] mode=$RunMode display=$DisplayMode project=$runProjectDir"
     if ($fixedFpsOption -ne '') {
         Write-Host "[bench] deterministic fixed-fps=$fixedFps (wall-clock sync disabled)"
     }

@@ -12,6 +12,8 @@ static func convert(unit: CombatUnit, to_team: int, reason_id: String,
 		source: CombatUnit = null) -> bool:
 	if unit == null or not is_instance_valid(unit) or unit.is_destroyed:
 		return false
+	if bool(unit.get_meta(CombatUnit.META_FACTION_CONVERSION_LOCKED, false)):
+		return false
 	if unit.team == to_team or unit.has_meta(META_IN_PROGRESS):
 		return false
 	var old_team := unit.team

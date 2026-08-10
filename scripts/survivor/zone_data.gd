@@ -11,11 +11,16 @@ enum State {
 	AVAILABLE,    ## 可选
 	SELECTED,     ## 玩家已选，正在前往/执行中
 	CLEARED,      ## 已攻克
+	FAILED,       ## 任务失败；战术地图完全隐藏，不算攻克
 }
 
 ## 战区难度（1~3 星，影响驻守敌机强度/数量）
 const DIFFICULTY_MIN := 1
 const DIFFICULTY_MAX := 3
+
+## 轰炸机护送不是普通战区军械奖励：成功只给固定星级经验。
+## 该值不走击杀 XP 乘区/小队分摊，保证 Tab 预告值与实际到账完全一致。
+const BOMBER_ESCORT_XP_PER_STAR := 150
 
 ## 战区定义（世界坐标 + 半径 + 翻译 key）
 ## 布局沿用用户手绘的相对方位（A/C 西侧、B/D 东侧），2026-07-05 扩图 60km 后中心 ×2 外推
@@ -184,6 +189,16 @@ var _ever_cleared: Dictionary = {}           ## id → true
 var _last_cleared: StringName = &""
 ## 最近一次攻克的 mission_type（保留供日志/UI 用，不再参与抽取决策）
 var _last_cleared_mission_type: String = ""
+## 最近一次完成或失败的战区 id —— 当次刷新排除，避免失败地点立即原地重开。
+var _last_resolved: StringName = &""
+## 移动战区的运行时圆心；静态战区不写入本表，读取时回退 ZONES.center。
+var _dynamic_centers: Dictionary = {}
+var _dynamic_radii: Dictionary = {}
+## 护送等任务的固定目标点、明确航线、状态与移动编队朝向；TacticalMap 只读缓存，不扫描演员。
+var _objective_centers: Dictionary = {}
+var _dynamic_headings: Dictionary = {}
+var _mission_routes: Dictionary = {}
+var _mission_status: Dictionary = {}
 
 ## ── 任务类型反重复抽取系统 ──
 ##
@@ -201,6 +216,17 @@ const MISSION_HISTORY_WINDOW := 5
 const MISSION_REPEAT_PENALTY := 0.30
 var _mission_type_history: Array[String] = []
 
+## ── 可选战区任务整局配额 ──
+## “可失败”是行为属性；玩家可见类别统一叫 Optional Zone Mission / 可选战区任务。
+const OPTIONAL_MISSION_TYPE := "bomber_escort"
+const OPTIONAL_MISSION_SECOND_CHANCE := 0.20
+const OPTIONAL_MISSION_MAX_PER_RUN := 2
+const OPTIONAL_MISSION_CARRIER_IDS: Array[StringName] = [&"C", &"D", &"F", &"G"]
+var _optional_mission_run_quota := 1
+var _optional_mission_assigned_count := 0
+var _optional_mission_resolved_count := 0
+var _scheduled_optional_mission_ids: Dictionary = {}
+
 ## 各难度下各 mission_type 的基础权重（数值是相对值，会按历史衰减后再归一）
 ## 与旧 _roll_mission_type 的概率近似一致，便于回归
 ## elite（Sentinel TGT）任务已移除（spec early-game-uav-rework §2.3）：作为战区目标
@@ -212,7 +238,7 @@ const MISSION_TYPE_BASE_WEIGHTS := {
 }
 var boss_unlocked: bool = false
 ## 战区阶段是否已结束（survivor_mode 在 10 分钟到点时置 true）
-## 置 true 后 _refresh_availability_after_clear 不再开新战区，E 解锁路径也屏蔽
+## 置 true 后 _refresh_availability_after_resolution 不再开新战区，E 解锁路径也屏蔽
 var phase_ended: bool = false
 ## E 战区是否已经尝试过解锁（避免 A+B 清完反复 roll）
 var _e_unlock_rolled: bool = false
@@ -226,7 +252,7 @@ var _used_reward_ids: Dictionary = {}
 var _carrier_reward_assigned: bool = false
 var _reward_roll_count: int = 0
 const CARRIER_PITY_ROLLS: int = 4
-## 每局类别保底：开局 A/B 随机各占一槽，确保玩家一开 Tab 就能看到一件武器 + 一项次世代技能。
+## 每局类别保底：首批 A/B 随机各占一槽，开放后可看到一件武器 + 一项次世代技能。
 ## 这里只保证“至少一件”，后续战区仍按 REWARD_KIND_WEIGHTS 正常抽取。
 const RUN_GUARANTEED_REWARD_KINDS: Array[String] = ["weapon", "nextgen"]
 var _guaranteed_reward_kinds: Array[String] = []
@@ -234,34 +260,79 @@ var _difficulties: Dictionary = {}            ## id → int (DIFFICULTY_MIN..DIF
 var _mission_types: Dictionary = {}            ## id → String（运行时 mission_type，覆盖 ZONES 默认）
 ## 标记哪些战区是"新开放"的（最近一轮 refresh 打开的），便于 UI 再次提示玩家
 var _newly_opened: Array[StringName] = []
+const INITIAL_REWARD_UNLOCK_TIME_S := 60.0
+const INITIAL_REWARD_UNLOCK_LEVEL := 3
+const OPTIONAL_MISSION_UNLOCK_TIME_S := 150.0
+const OPTIONAL_MISSION_UNLOCK_LEVEL := 5
+var _initial_reward_zones_released := false
 
-func _init(reward_context: Callable = Callable()) -> void:
+func _init(reward_context: Callable = Callable(), schedule_optional_missions: bool = true,
+		defer_initial_zones: bool = false) -> void:
 	nextgen_context = reward_context
 	_guaranteed_reward_kinds.assign(RUN_GUARANTEED_REWARD_KINDS)
 	_guaranteed_reward_kinds.shuffle()  # A/B 每局换位，避免固定“一区必武器、二区必技能”
-	# 初始：A、B 可选；C、D、E 锁定；Boss 锁定
-	_states[&"A"] = State.AVAILABLE
-	_states[&"B"] = State.AVAILABLE
+	_optional_mission_run_quota = optional_mission_quota_for_roll(randf()) \
+		if schedule_optional_missions else 0
+	# 正式局延迟开放 A/B；测试/Debug 默认仍可使用即时构造契约。
+	_states[&"A"] = State.LOCKED
+	_states[&"B"] = State.LOCKED
 	_states[&"C"] = State.LOCKED
 	_states[&"D"] = State.LOCKED
 	_states[&"E"] = State.LOCKED
 	_states[&"F"] = State.LOCKED
 	_states[&"G"] = State.LOCKED
 	_states[&"BOSS"] = State.LOCKED
-	# 给初始可选的两个战区分配奖励 + 难度
-	## 开局保底：首发两个战区不会直接出 ★★★，避免玩家一上来就被 MiG-29/Su-27 中队压制
-	## （难度先于奖励 roll——四类奖励权重按星级，spec zone-reward-arsenal §2.1）
-	_roll_difficulty(&"A", 2)
-	_roll_difficulty(&"B", 2)
-	_assign_reward(&"A")
-	_assign_reward(&"B")
-	_roll_mission_type(&"A")
-	_roll_mission_type(&"B")
-	_newly_opened = [&"A", &"B"]
+	if not defer_initial_zones:
+		release_initial_reward_zones()
+		if schedule_optional_missions:
+			release_first_optional_mission()
 	# 机场解放战区（spec airfield-liberation-zones）：开局全部 AVAILABLE，
 	# 不 roll 奖励/难度/任务类型（难度由 ZoneMission 首刷时按当前热度定档）
 	for af in AIRFIELD_IDS:
 		_states[af] = State.AVAILABLE
+
+static func initial_reward_unlock_ready(elapsed_s: float, level: int) -> bool:
+	return elapsed_s >= INITIAL_REWARD_UNLOCK_TIME_S and level >= INITIAL_REWARD_UNLOCK_LEVEL
+
+static func optional_mission_unlock_ready(elapsed_s: float, level: int) -> bool:
+	return elapsed_s >= OPTIONAL_MISSION_UNLOCK_TIME_S and level >= OPTIONAL_MISSION_UNLOCK_LEVEL
+
+func initial_reward_zones_released() -> bool:
+	return _initial_reward_zones_released
+
+## 首批 A/B 的唯一开放入口；把奖励 roll 延迟到真正出现时，避免开局提前消耗 pity。
+func release_initial_reward_zones() -> bool:
+	if _initial_reward_zones_released or phase_ended:
+		return false
+	_initial_reward_zones_released = true
+	for zid in [&"A", &"B"]:
+		_states[zid] = State.AVAILABLE
+		_roll_difficulty(zid, 2)
+		_assign_reward(zid)
+		_roll_mission_type(zid)
+		if not _newly_opened.has(zid):
+			_newly_opened.append(zid)
+	return true
+
+## 正式局首个 optional 的唯一开放入口；第二个仍由首次结算后的刷新逻辑管理。
+func release_first_optional_mission() -> StringName:
+	if phase_ended or not _initial_reward_zones_released \
+			or _optional_mission_run_quota <= 0 or _optional_mission_assigned_count > 0:
+		return &""
+	var candidates: Array[StringName] = []
+	for zid in OPTIONAL_MISSION_CARRIER_IDS:
+		if get_state(zid) == State.LOCKED:
+			candidates.append(zid)
+	if candidates.is_empty():
+		return &""
+	var picked: StringName = candidates[randi() % candidates.size()]
+	_open_optional_mission(picked, 2)
+	if not _newly_opened.has(picked):
+		_newly_opened.append(picked)
+	EventLogger.log_event("ZONE", "OptionalOpened",
+		"id=%s assigned=%d quota=%d initial=true" % [picked,
+		_optional_mission_assigned_count, _optional_mission_run_quota])
+	return picked
 
 ## BOSS 阶段：玩家已选中 BOSS（在战术地图点了 BOSS 圈）。
 ## 进入此阶段后：常规战区 A/B/C/D 的地图显示 + 任务推进全部停止，专心打 BOSS。
@@ -303,6 +374,70 @@ func get_zone_by_id(id: StringName) -> Dictionary:
 		return boss_zone
 	return {}
 
+## 战区运行时圆心。护送等移动任务由任务控制器持续写入；无覆盖时返回静态圆心。
+func get_zone_center(id: StringName) -> Vector2:
+	if _dynamic_centers.has(id):
+		return _dynamic_centers[id]
+	var zone := get_zone_by_id(id)
+	return zone.get("center", Vector2.INF) if not zone.is_empty() else Vector2.INF
+
+func get_zone_radius(id: StringName) -> float:
+	if _dynamic_radii.has(id):
+		return float(_dynamic_radii[id])
+	var zone := get_zone_by_id(id)
+	return float(zone.get("radius", 0.0)) if not zone.is_empty() else 0.0
+
+## 固定任务目标点。未设置时回退静态战区中心。
+func get_objective_center(id: StringName) -> Vector2:
+	if _objective_centers.has(id):
+		return _objective_centers[id]
+	var zone := get_zone_by_id(id)
+	return zone.get("center", Vector2.INF) if not zone.is_empty() else Vector2.INF
+
+func set_objective_center(id: StringName, center: Vector2) -> void:
+	if center.is_finite() and not get_zone_by_id(id).is_empty():
+		_objective_centers[id] = center
+
+func set_mission_route(id: StringName, route: PackedVector2Array) -> void:
+	if route.size() >= 2 and not get_zone_by_id(id).is_empty():
+		_mission_routes[id] = route.duplicate()
+
+func get_mission_route(id: StringName) -> PackedVector2Array:
+	var route: PackedVector2Array = _mission_routes.get(id, PackedVector2Array())
+	return route.duplicate()
+
+func set_mission_status(id: StringName, status: Dictionary) -> void:
+	if not get_zone_by_id(id).is_empty():
+		_mission_status[id] = status.duplicate(true)
+
+func get_mission_status(id: StringName) -> Dictionary:
+	var status: Dictionary = _mission_status.get(id, {})
+	return status.duplicate(true)
+
+func has_dynamic_center(id: StringName) -> bool:
+	return _dynamic_centers.has(id)
+
+func get_dynamic_heading(id: StringName) -> float:
+	return float(_dynamic_headings.get(id, 0.0))
+
+func set_dynamic_center(id: StringName, center: Vector2, radius: float = -1.0,
+		heading: float = INF) -> void:
+	if center.is_finite() and not get_zone_by_id(id).is_empty():
+		_dynamic_centers[id] = center
+		if radius > 0.0:
+			_dynamic_radii[id] = radius
+		if is_finite(heading):
+			_dynamic_headings[id] = heading
+
+## 清除本轮任务的全部运行时几何；失败后不能留下目标或编队标记。
+func clear_dynamic_center(id: StringName) -> void:
+	_dynamic_centers.erase(id)
+	_dynamic_radii.erase(id)
+	_dynamic_headings.erase(id)
+	_objective_centers.erase(id)
+	_mission_routes.erase(id)
+	_mission_status.erase(id)
+
 ## 玩家选中某战区（从 AVAILABLE → SELECTED）
 func select_zone(id: StringName) -> bool:
 	if get_state(id) != State.AVAILABLE:
@@ -319,10 +454,12 @@ func select_zone(id: StringName) -> bool:
 ## 同一个战区可以被反复攻克（走回头路），每次计入 cleared_count
 ## 刚攻克的战区在下一轮 refresh 时会被排除（不能立刻又被选中）
 func mark_cleared(id: StringName) -> void:
+	_resolve_scheduled_optional_mission(id)
 	set_state(id, State.CLEARED)
 	cleared_count += 1
 	_ever_cleared[id] = true
 	_last_cleared = id
+	_last_resolved = id
 	_last_cleared_mission_type = get_mission_type(id)
 	if selected_id == id:
 		selected_id = &""
@@ -330,7 +467,25 @@ func mark_cleared(id: StringName) -> void:
 	_rewards.erase(id)
 	_difficulties.erase(id)
 	_mission_types.erase(id)
-	_refresh_availability_after_clear()
+	clear_dynamic_center(id)
+	_refresh_availability_after_resolution()
+
+## 任务失败：不计攻克、不发奖励、不改热度；当前战区从战术地图消失并补开新战区。
+func mark_failed(id: StringName, reason: String = "") -> void:
+	if get_state(id) == State.FAILED:
+		return
+	_resolve_scheduled_optional_mission(id)
+	set_state(id, State.FAILED)
+	_last_resolved = id
+	if selected_id == id:
+		selected_id = &""
+	_rewards.erase(id)
+	_difficulties.erase(id)
+	_mission_types.erase(id)
+	_newly_opened.erase(id)
+	clear_dynamic_center(id)
+	EventLogger.log_event("ZONE", "Failed", "id=%s reason=%s" % [id, reason])
+	_refresh_availability_after_resolution()
 
 ## 依据 `_last_cleared` 决定 BOSS 出现在南还是北
 ## 并把同位置的常规战区（E 或 B）压回 LOCKED，避免 UI 重叠
@@ -396,7 +551,7 @@ func _cancel_zone_if_open(zid: StringName) -> void:
 		_difficulties.erase(zid)
 		_mission_types.erase(zid)
 
-func _refresh_availability_after_clear() -> void:
+func _refresh_availability_after_resolution() -> void:
 	_newly_opened.clear()
 	# 阶段已结束（10 分钟到点）→ 不再开新战区，BOSS 由 survivor_mode 接管
 	if phase_ended:
@@ -414,6 +569,7 @@ func _refresh_availability_after_clear() -> void:
 				_assign_reward(&"E")
 				_roll_mission_type(&"E")
 				_newly_opened.append(&"E")
+				_try_open_followup_optional_mission()
 				EventLogger.log_event("ZONE", "E_Unlock",
 					"after A+B cleared (chance=%.0f%% rolled success)" % (E_ZONE_UNLOCK_CHANCE * 100.0))
 				return
@@ -428,7 +584,7 @@ func _refresh_availability_after_clear() -> void:
 	var weights: Array[float] = []
 	for z in ZONES:
 		var zid: StringName = z["id"]
-		if zid == _last_cleared:
+		if zid == _last_resolved:
 			continue
 		# 机场解放战区一次性、独立，不进随机战区重开池（spec airfield-liberation-zones §3.1）
 		if is_airfield(zid):
@@ -440,6 +596,7 @@ func _refresh_availability_after_clear() -> void:
 		# CLEARED 1.5× 权重（再激活），LOCKED 1.0× 权重（新开）
 		weights.append(1.5 if st == State.CLEARED else 1.0)
 	if pool.is_empty():
+		_try_open_followup_optional_mission()
 		return
 	# 加权无放回抽 2 个
 	var open_count: int = mini(2, pool.size())
@@ -458,6 +615,59 @@ func _refresh_availability_after_clear() -> void:
 		_newly_opened.append(open_id)
 		EventLogger.log_event("ZONE", "Reactivated" if was_cleared else "Opened",
 			"id=%s mt=%s diff=%d" % [open_id, get_mission_type(open_id), get_difficulty(open_id)])
+	_try_open_followup_optional_mission()
+
+## 可选任务配额是整局一次性骰：80% 一次、20% 两次，永远不按刷新次数累积概率。
+static func optional_mission_quota_for_roll(roll: float) -> int:
+	return OPTIONAL_MISSION_MAX_PER_RUN if roll < OPTIONAL_MISSION_SECOND_CHANCE else 1
+
+static func is_optional_mission_type(mission_type: String) -> bool:
+	return mission_type == OPTIONAL_MISSION_TYPE
+
+func get_optional_mission_run_quota() -> int:
+	return _optional_mission_run_quota
+
+func get_optional_mission_assigned_count() -> int:
+	return _optional_mission_assigned_count
+
+## 用普通 zone id 只承载生命周期，实际地理仍由 bomber_escort 独立航线目录决定。
+func _open_optional_mission(id: StringName, max_difficulty: int = DIFFICULTY_MAX) -> void:
+	_states[id] = State.AVAILABLE
+	_rewards.erase(id)
+	_difficulties.erase(id)
+	_mission_types.erase(id)
+	_roll_difficulty(id, max_difficulty)
+	_set_mission_type_and_record(id, OPTIONAL_MISSION_TYPE)
+	_scheduled_optional_mission_ids[id] = true
+	_optional_mission_assigned_count += 1
+
+func _resolve_scheduled_optional_mission(id: StringName) -> void:
+	if not _scheduled_optional_mission_ids.has(id):
+		return
+	_scheduled_optional_mission_ids.erase(id)
+	_optional_mission_resolved_count += 1
+
+## 第二次任务必须等第一次正式结算后才追加；Debug 强制类型不进入这本账。
+func _try_open_followup_optional_mission() -> void:
+	if _optional_mission_assigned_count >= _optional_mission_run_quota \
+			or _optional_mission_resolved_count < _optional_mission_assigned_count:
+		return
+	var candidates: Array[StringName] = []
+	for zid in OPTIONAL_MISSION_CARRIER_IDS:
+		if zid == _last_resolved:
+			continue
+		var state := get_state(zid)
+		if state != State.AVAILABLE and state != State.SELECTED:
+			candidates.append(zid)
+	if candidates.is_empty():
+		return
+	var picked: StringName = candidates[randi() % candidates.size()]
+	_open_optional_mission(picked)
+	if not _newly_opened.has(picked):
+		_newly_opened.append(picked)
+	EventLogger.log_event("ZONE", "OptionalOpened",
+		"id=%s assigned=%d quota=%d" % [picked, _optional_mission_assigned_count,
+		_optional_mission_run_quota])
 
 ## 加权随机：返回 weights 数组中按权重抽取的索引；空数组返回 -1
 func _weighted_pick(weights: Array[float]) -> int:
@@ -489,10 +699,7 @@ func peek_newly_opened() -> Array[StringName]:
 func get_selected_world_pos() -> Vector2:
 	if selected_id == &"":
 		return Vector2.INF
-	var z := get_zone_by_id(selected_id)
-	if z.is_empty():
-		return Vector2.INF
-	return z["center"]
+	return get_zone_center(selected_id)
 
 # ══════════════════════════════════════════════
 #  奖励系统
@@ -616,6 +823,9 @@ func _active_reward_ids(exclude_id: StringName) -> Dictionary:
 func _assign_reward(id: StringName) -> void:
 	if _rewards.has(id):
 		return
+	if is_optional_mission_type(get_mission_type(id)):
+		# 特殊护送任务只发经验，不能占用普通奖励池、保底槽或航母 pity 次数。
+		return
 	_roll_difficulty(id)
 	var diff: int = get_difficulty(id)
 	_reward_roll_count += 1
@@ -728,6 +938,10 @@ func _weighted_pick_str(weights: Dictionary) -> String:
 func get_reward(id: StringName) -> Dictionary:
 	return _rewards.get(id, {})
 
+## 轰炸机护送成功的唯一奖励。固定按任务星级结算，失败路径不会调用。
+static func bomber_escort_xp_reward(difficulty: int) -> int:
+	return BOMBER_ESCORT_XP_PER_STAR * clampi(difficulty, DIFFICULTY_MIN, DIFFICULTY_MAX)
+
 ## 奖励说明文案的 tr key（空串 = 无说明）。四类来源：
 ## ① reward 自带 desc（ZoneRewardRegistry 注册的 upgrade dict）→ 直接用；
 ## ② 实体奖励（carrier/wingman/weapon）→ 查 REWARD_*_DESC 常量；
@@ -822,6 +1036,8 @@ func _roll_mission_type(id: StringName) -> void:
 ## 写入 _mission_types + 推入历史滑窗（同一个 zone 重 roll 时不会重复推 —— `if _mission_types.has` 已挡）
 func _set_mission_type_and_record(id: StringName, mission_type: String) -> void:
 	_mission_types[id] = mission_type
+	if is_optional_mission_type(mission_type):
+		_rewards.erase(id)
 	_mission_type_history.append(mission_type)
 	if _mission_type_history.size() > MISSION_HISTORY_WINDOW:
 		_mission_type_history.pop_front()
@@ -869,6 +1085,8 @@ func get_mission_type(id: StringName) -> String:
 ## 防止"地面任务刷到海上"的情况下一次 refresh 仍然显示错误的任务类型）
 func set_mission_type(id: StringName, mission_type: String) -> void:
 	_mission_types[id] = mission_type
+	if is_optional_mission_type(mission_type):
+		_rewards.erase(id)
 
 # ══════════════════════════════════════════════
 #  Debug 辅助（F6 面板用）
@@ -888,7 +1106,11 @@ func debug_set_available(id: StringName) -> void:
 ## Debug：指定战区使用指定 mission_type（不 roll 随机，直接覆写）
 ## 与 set_mission_type 相同但命名更明确
 func debug_set_mission_type(id: StringName, new_type: String) -> void:
-	_mission_types[id] = new_type
+	set_mission_type(id, new_type)
+	if not is_optional_mission_type(new_type) and not _rewards.has(id) \
+			and get_state(id) in [State.AVAILABLE, State.SELECTED]:
+		# 从护送任务切回普通任务时恢复 F6 的“可直接验收完整战区”语义。
+		_assign_reward(id)
 
 ## Debug：强制把战区置为 CLEARED（不走 mark_cleared 的 refresh 逻辑）
 func debug_mark_cleared(id: StringName) -> void:
@@ -943,9 +1165,9 @@ static func zone_has_land(id: StringName) -> bool:
 	var center: Vector2 = z["center"]
 	var radius: float = float(z["radius"]) * 0.85
 	var land_hits := 0
-	## 采用严格判定（只认 OSM 陆地 mask），与 zone_mission 实际刷怪的落点判定保持一致
-	## —— 手画 LAND 轮廓包含港池/海湾，会高估陆地占比
-	if MapGeography.is_on_land_strict(center):
+	## 与 zone_mission 实际刷怪一致：全图 OSM 陆地减视觉水面，并要求 50px 连续陆地。
+	## 手画 LAND 轮廓包含港池且只覆盖旧 30km 范围，不能再作为正式部署依据。
+	if MapGeography.is_ground_spawn_safe(center):
 		land_hits += 1
 	for i in range(LAND_SAMPLE_COUNT):
 		var a := TAU * float(i) / float(LAND_SAMPLE_COUNT)
@@ -953,7 +1175,7 @@ static func zone_has_land(id: StringName) -> bool:
 		var t := fposmod(float(i) * 0.618033, 1.0)
 		var r := sqrt(t) * radius
 		var p := center + Vector2(cos(a), sin(a)) * r
-		if MapGeography.is_on_land_strict(p):
+		if MapGeography.is_ground_spawn_safe(p):
 			land_hits += 1
 	var frac := float(land_hits) / float(LAND_SAMPLE_COUNT + 1)
 	return frac >= LAND_FRACTION_THRESHOLD

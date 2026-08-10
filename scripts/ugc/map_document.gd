@@ -66,9 +66,11 @@ var coastlines: Array = []  # [[[x,y]...]...] 海岸线折线（官方转换保�
 var buildings: Array = []   # [{footprint:[[x,y]...], h_m}]
 var zones: Array = []       # [{center:[x,y], radius, type}]
 var spawn: Dictionary = {}  # {pos:[x,y], heading_deg}
+var basemap: Dictionary = {} # {png_path, meta_path}；空 = 纯矢量 fail-open
 var cloud: Dictionary = {   # mask 为空 = 全 1.0（纯噪声，官方行为）
 	"seed": 0, "coverage": 0.35, "frequency": 0.00055,
-	"wind_dir_deg": 0.0, "wind_speed_ms": 18.0, "mask": PackedByteArray(),
+	"secondary_mix": 0.0, "wind_dir_deg": 0.0, "wind_speed_ms": 18.0,
+	"mask": PackedByteArray(), "sandstorm": {},
 }
 var style: Dictionary = {}
 
@@ -162,7 +164,7 @@ func to_json_dict() -> Dictionary:
 		"world_size_m": world_size_m,
 		"layer_polygons": polys_out,
 		"airports": airports, "roads": roads, "coastlines": coastlines, "buildings": buildings,
-		"zones": zones, "spawn": spawn,
+		"zones": zones, "spawn": spawn, "basemap": basemap,
 		"cloud": cloud_out,
 		"style": style,
 		"editor_cells": cells_out,
@@ -213,13 +215,17 @@ static func from_json_dict(d: Dictionary) -> MapDocument:
 		doc.warnings.append("战区 %d 超上限 %d，截断" % [doc.zones.size(), MAX_ZONES])
 		doc.zones = doc.zones.slice(0, MAX_ZONES)
 	doc.spawn = d.get("spawn", {}) if d.get("spawn") is Dictionary else {}
+	doc.basemap = d.get("basemap", {}) if d.get("basemap") is Dictionary else {}
 
 	var cloud_in: Dictionary = d.get("cloud", {}) if d.get("cloud") is Dictionary else {}
 	doc.cloud["seed"] = int(cloud_in.get("seed", 0))
 	doc.cloud["coverage"] = clampf(float(cloud_in.get("coverage", 0.35)), 0.0, 1.0)
 	doc.cloud["frequency"] = clampf(float(cloud_in.get("frequency", 0.00055)), 0.00005, 0.01)
+	doc.cloud["secondary_mix"] = clampf(float(cloud_in.get("secondary_mix", 0.0)), 0.0, 1.0)
 	doc.cloud["wind_dir_deg"] = fposmod(float(cloud_in.get("wind_dir_deg", 0.0)), 360.0)
 	doc.cloud["wind_speed_ms"] = clampf(float(cloud_in.get("wind_speed_ms", 18.0)), 0.0, 60.0)
+	doc.cloud["sandstorm"] = cloud_in.get("sandstorm", {}).duplicate(true) \
+		if cloud_in.get("sandstorm", {}) is Dictionary else {}
 	var mask_b64 := str(cloud_in.get("mask", ""))
 	if mask_b64 != "":
 		var mask := Marshalls.base64_to_raw(mask_b64)

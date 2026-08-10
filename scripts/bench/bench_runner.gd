@@ -61,6 +61,7 @@ const UNIT_TESTS: Dictionary = {
 	"fire_discipline": "res://scripts/tests/test_fire_discipline.gd",
 	"attr_gates": "res://scripts/tests/test_attribute_gates.gd",
 	"player_params": "res://scripts/tests/test_player_params.gd",
+	"player_hud": "res://scripts/tests/test_player_instrument_hud.gd",
 	"chatter": "res://scripts/tests/test_radio_chatter.gd",
 	"tight_volley": "res://scripts/tests/test_tight_volley.gd",
 	"ace_tier": "res://scripts/tests/test_ace_tier.gd",
@@ -79,6 +80,7 @@ const UNIT_TESTS: Dictionary = {
 	"career_archive": "res://scripts/tests/test_career_archive.gd",
 	"meta_shop": "res://scripts/tests/test_meta_shop.gd",
 	"spawn_pool": "res://scripts/tests/test_spawn_pool.gd",
+	"deadair": "res://scripts/tests/test_deadair.gd",
 	"boss_phase": "res://scripts/tests/test_boss_phase.gd",
 	"boss_progression": "res://scripts/tests/test_boss_progression.gd",
 	"naval_formation": "res://scripts/tests/test_naval_formation.gd",
@@ -88,12 +90,31 @@ const UNIT_TESTS: Dictionary = {
 	"squad_cmd_ui": "res://scripts/tests/test_squad_command_ui.gd",
 	"waypoint_fire": "res://scripts/tests/test_waypoint_fire_control.gd",
 	"bomber_rotor_airburst": "res://scripts/tests/test_bomber_rotor_airburst.gd",
+	"zone_atmosphere": "res://scripts/tests/test_zone_atmosphere_combat.gd",
 	"faction_conversion": "res://scripts/tests/test_faction_conversion.gd",
+	"map_preview_test": "res://scripts/tests/test_map_vector_preview.gd",
+	"map_vector_preview": "res://scripts/tests/test_map_vector_preview.gd",
+	"map_gold_slice": "res://scripts/tests/test_map_gold_slice.gd",
+	"weather": "res://scripts/tests/test_weather_system.gd",
 }
 
 ## 只显式调用、不会滚入 `all` 的构建任务。
 const BUILD_TASKS: Dictionary = {
 	"i18n_build": "res://scripts/tests/build_translations.gd",
+}
+
+## 需要真实 RenderingServer 的固定画面采集；必须由 run.cmd 的 Visual 模式启动。
+const VISUAL_TEST_SCENES: Dictionary = {
+	"player_hud_visual": "res://scenes/tests/player_hud_visual_qa.tscn",
+	"aircraft_silhouette_visual": "res://scenes/tests/aircraft_silhouette_visual_qa.tscn",
+	"map_visual_qa": "res://scenes/tests/map_visual_qa.tscn",
+	"map_detail_atlas_qa": "res://scenes/tests/map_detail_atlas_qa.tscn",
+}
+
+## 图2/图3空地图试飞的运行时载入探针；仍统一经 Shadow bench 启动。
+const PREVIEW_BENCH_MAPS: Dictionary = {
+	"map_preview_desert": "res://resources/maps/desert_railway_preview.aglmap",
+	"map_preview_ocean": "res://resources/maps/ocean_islands_preview.aglmap",
 }
 
 var bench_active: bool = false
@@ -116,6 +137,22 @@ func _ready() -> void:
 			bench_duration = maxf(1.0, float(a.substr(11)))
 	if bench_scenario == "":
 		printerr("[Bench] no --bench= arg, BenchRunner idle")
+		return
+	# 自动测试统一静音音乐；总线 mute 会覆盖测试期间后续播放，且只影响本次 bench 进程。
+	var music_bus_idx := AudioServer.get_bus_index("Music")
+	if music_bus_idx >= 0:
+		AudioServer.set_bus_mute(music_bus_idx, true)
+		printerr("[Bench] Music bus muted for automated test")
+	if VISUAL_TEST_SCENES.has(bench_scenario):
+		if DisplayServer.get_name() == "headless":
+			printerr("[Bench] %s requires: bench/run.cmd %s 1 180 Shadow Visual" % [
+				bench_scenario, bench_scenario])
+			get_tree().quit(1)
+			return
+		get_tree().set_meta("bench_mode", true)
+		get_tree().set_meta("bench_scenario", bench_scenario)
+		get_tree().set_meta("bench_duration", bench_duration)
+		call_deferred("_swap_to_visual_test", String(VISUAL_TEST_SCENES[bench_scenario]))
 		return
 	if BUILD_TASKS.has(bench_scenario):
 		var build_script: GDScript = load(String(BUILD_TASKS[bench_scenario]))
@@ -154,6 +191,10 @@ func _ready() -> void:
 	get_tree().set_meta("bench_mode", true)
 	get_tree().set_meta("bench_scenario", bench_scenario)
 	get_tree().set_meta("bench_duration", bench_duration)
+	if PREVIEW_BENCH_MAPS.has(bench_scenario):
+		get_tree().set_meta("ugc_map_path", PREVIEW_BENCH_MAPS[bench_scenario])
+		get_tree().set_meta("map_preview_only", true)
+		get_tree().set_meta("survivor_map_id", bench_scenario)
 	# demo 模式（--bench=demo）：渲染运行 + 不退出 + 持续补敌，供肉眼观察小队战斗/物理/表现。
 	# 用法（注意：不要加 --headless）：godot --path . -- --bench=demo
 	if bench_scenario == "demo" or bench_scenario == "weapon_demo":
@@ -188,6 +229,14 @@ func _swap_to_survivor() -> void:
 	var err: int = get_tree().change_scene_to_file("res://scenes/survivor_mode.tscn")
 	if err != OK:
 		push_error("[Bench] failed to load survivor_mode.tscn (err=%d)" % err)
+		get_tree().quit(1)
+
+
+func _swap_to_visual_test(scene_path: String) -> void:
+	printerr("[Bench] swapping to visual test: %s" % scene_path)
+	var err: int = get_tree().change_scene_to_file(scene_path)
+	if err != OK:
+		push_error("[Bench] failed to load visual test scene (err=%d)" % err)
 		get_tree().quit(1)
 
 

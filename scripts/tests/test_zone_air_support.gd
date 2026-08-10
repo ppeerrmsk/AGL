@@ -34,6 +34,7 @@ func run() -> void:
 	print("\n════════ 战区友军空中支援 ════════")
 	_test_support_count()
 	_test_activation_gate_and_once()
+	_test_ally_label_identity()
 	_test_ally_contract_and_air_only_targeting()
 	_test_ground_support_targeting_and_a10_loadout()
 	_test_third_party_reward_isolation()
@@ -72,23 +73,50 @@ func _test_activation_gate_and_once() -> void:
 	zones.debug_set_available(&"B")
 	zones.set_mission_type(&"B", "squadron")
 	mission._start_air_support_if_needed(&"B", zone_b)
-	_check("对空 ACTIVE 后登记独立支援队", mission._support_flights.size() == 2)
+	_check("对空权益首次 ACTIVE 后登记独立支援队", mission._support_flights.size() == 2)
 	_check("对空支援按星级使用 F-86",
 		String(mission._support_flights[1]["support_kind"]) == "fighter")
 
-	var zone_c := zones.get_zone_by_id(&"C")
-	zones.debug_set_available(&"C")
-	zones.set_mission_type(&"C", "naval")
-	mission._start_air_support_if_needed(&"C", zone_c)
+	var zone_f := zones.get_zone_by_id(&"F")
+	zones.debug_set_available(&"F")
+	zones.set_mission_type(&"F", "ground")
+	mission._start_air_support_if_needed(&"F", zone_f)
+	_check("同局第二个对地战区不再派支援", mission._support_flights.size() == 2)
+	var zone_g := zones.get_zone_by_id(&"G")
+	zones.debug_set_available(&"G")
+	zones.set_mission_type(&"G", "air")
+	mission._start_air_support_if_needed(&"G", zone_g)
+	_check("同局第二个对空战区不再派支援", mission._support_flights.size() == 2)
+
+	var zone_e := zones.get_zone_by_id(&"E")
+	zones.debug_set_available(&"E")
+	zones.set_mission_type(&"E", "naval")
+	mission._start_air_support_if_needed(&"E", zone_e)
 	_check("对舰任务不登记支援", mission._support_flights.size() == 2)
-	var zone_d := zones.get_zone_by_id(&"D")
-	zones.debug_set_available(&"D")
-	zones.set_mission_type(&"D", "airfield")
-	mission._start_air_support_if_needed(&"D", zone_d)
+	var zone_af := zones.get_zone_by_id(&"AF_HANEDA")
+	zones.debug_set_available(&"AF_HANEDA")
+	zones.set_mission_type(&"AF_HANEDA", "airfield")
+	mission._start_air_support_if_needed(&"AF_HANEDA", zone_af)
 	_check("机场任务不登记 A-10 支援", mission._support_flights.size() == 2)
 
 	dummy_spawner.free()
 	mission.free()
+
+
+func _test_ally_label_identity() -> void:
+	var ally := _make_aircraft(CombatUnit.TEAM_ALLY, Vector2.ZERO)
+	ally.params = AircraftParams.new()
+	ally.params.display_name = "F-15 Eagle"
+	ally.callsign = "Falcon-2"
+	_check("绿色友军只缩机名后缀并保留完整呼号",
+		AircraftRenderer.ally_identity_label(ally) == "F-15 E Falcon-2")
+	ally.callsign = "ALLY-Falcon-2"
+	_check("旧 ALLY- 前缀也不会进入标签",
+		AircraftRenderer.ally_identity_label(ally) == "F-15 E Falcon-2")
+	ally.callsign = "Hound-1"
+	_check("剧情固定友军呼号保留全名",
+		AircraftRenderer.ally_identity_label(ally) == "F-15 E Hound-1")
+	ally.free()
 
 
 func _test_ally_contract_and_air_only_targeting() -> void:
@@ -279,6 +307,7 @@ func _test_ace_f15_intercept_support() -> void:
 
 
 func _test_ace_f15_spawn_factory() -> void:
+	AceReinforcementEvent.reset_runtime_state()
 	var mode := StubMode.new()
 	var player := _make_aircraft(CombatUnit.TEAM_PLAYER, Vector2.ZERO)
 	player.params = AircraftParams.new()
@@ -314,11 +343,27 @@ func _test_ace_f15_spawn_factory() -> void:
 			and bool(ac.get_meta("air_targets_only", false)) \
 			and int(ac.get_meta("token_cost", -1)) == 0
 	_check("实际生成机走 ALLY/只对空/零 token 契约", valid_contract)
+	_check("F-15 友军雷达收紧到 3000m",
+		event._ally_support.all(func(ac):
+			return is_equal_approx(ac.params.radar_range,
+				AceReinforcementEvent.ALLY_SUPPORT_RADAR_RANGE_M)))
+	_check("王牌截击支援固定呼号 Hound-1/Hound-2",
+		event._ally_support[0].callsign == "Hound-1"
+		and event._ally_support[1].callsign == "Hound-2")
 	_check("实际生成两机已优先锁定王牌",
 		event._ally_support[0].combat_target == enemy_ace
 		and event._ally_support[1].combat_target == enemy_ace)
 
+	var second_event := AceReinforcementEvent.new()
+	second_event._squad = squad
+	second_event.director = director
+	second_event._spawn_ally_support(spawner, player)
+	_check("同局第二次王牌事件不再派 F-15", second_event._ally_support.is_empty())
+
 	event._finish()
+	AceReinforcementEvent.reset_runtime_state()
+	_check("新局 reset 恢复王牌 F-15 支援额度",
+		not AceReinforcementEvent._ally_support_dispatched_this_run)
 	spawner.free()
 	survivor_player.free()
 	mode.free()

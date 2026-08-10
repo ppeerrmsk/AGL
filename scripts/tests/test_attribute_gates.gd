@@ -62,10 +62,15 @@ func _test_milestone_table_shape() -> void:
 	var kni: Array = SurvivorData.milestones_for(SurvivorData.AXIS_KNIGHT)
 	_check("骑士首档 = 雷达 ×1.10（前期铺垫）",
 		str(kni[0]["stat"]) == "radar_range", str(kni[0]))
-	_check("三条 3 点档 = HP/高度变化/经验",
+	var sch: Array = SurvivorData.milestones_for(SurvivorData.AXIS_SCHEMER)
+	_check("策士首档 = 经验 ×1.10",
+		str(sch[0]["stat"]) == "xp_mult" and is_equal_approx(float(sch[0]["value"]), 1.10),
+		str(sch[0]))
+	_check("三条 3 点档 = HP/高度变化/热诱弹 +1",
 		str(glad[1]["stat"]) == "max_hp" and is_equal_approx(float(glad[1]["value"]), 25.0) \
 		and str(kni[1]["stat"]) == "alt_speed" \
-		and str(SurvivorData.milestones_for(SurvivorData.AXIS_SCHEMER)[1]["stat"]) == "xp_mult", "")
+		and str(sch[1]["stat"]) == "flare_count" \
+		and is_equal_approx(float(sch[1]["value"]), 1.0), "")
 	_check("骑士导弹资源延后到 6/8 点",
 		str(kni[3]["stat"]) == "missile_count" and str(kni[4]["stat"]) == "missile_locks", "")
 	var map := TacticalMap.new()
@@ -148,10 +153,12 @@ func _test_milestone_apply_and_replay() -> void:
 		"got %.1f" % ac.params.max_speed)
 	_check("骑士 4 点仍无导弹/锁数奖励",
 		ac.params.missile.max_count == 4 and ac.max_simultaneous_locks == 1, "")
-	# 策士 2 点 → flare +2（合计到 8 = 触顶）
+	# 策士 2 点先给经验 +10%，不增加 flare（合计到 8 = 触顶）。
 	sp.add_axis_point(SurvivorData.AXIS_SCHEMER)
 	sp.add_axis_point(SurvivorData.AXIS_SCHEMER)
-	_check("策士 2 点 → 热诱弹 10→12", ac.params.flare.max_flares == 12,
+	_check("策士 2 点 → 经验 ×1.10", is_equal_approx(sp.milestone_xp_multiplier(), 1.10),
+		"got %.2f" % sp.milestone_xp_multiplier())
+	_check("策士 2 点尚不增加热诱弹（仍 10）", ac.params.flare.max_flares == 10,
 		"got %d" % ac.params.flare.max_flares)
 	# 收入封顶（spec §2.2 v9）：合计 8 后第 9 点被闸
 	sp.add_axis_point(SurvivorData.AXIS_GLADIATOR)
@@ -179,7 +186,7 @@ func _test_milestone_apply_and_replay() -> void:
 	_check("重放：新机高度变化 ×1.10 / 极速 ×1.02",
 		is_equal_approx(ac.params.climb_rate_max, fresh_climb * 1.10)
 		and is_equal_approx(ac.params.max_speed, fresh_speed * 1.02), "")
-	_check("重放：新机热诱弹 6→8", ac.params.flare.max_flares == 8,
+	_check("重放：策士仅 2 点，新机热诱弹仍为 6", ac.params.flare.max_flares == 6,
 		"got %d" % ac.params.flare.max_flares)
 	_check("重放：4 点骑士仍不增加导弹/锁数",
 		ac.params.missile.max_count == 2 and ac.max_simultaneous_locks == 1, "")
@@ -224,14 +231,33 @@ func _test_milestone_apply_and_replay() -> void:
 		and is_equal_approx(ac4.params.max_g_structural, base_structural_g + 2.0),
 		"got %.1f/%.1f" % [ac4.params.max_g, ac4.params.max_g_structural])
 
+	# 用户 2026-08-08 实战回归：T1 基础 2 + 电子对抗套件 2 + 策士 3 点档 1 = 5。
+	var sp5 := SurvivorPlayer.new()
+	var ac5 := Aircraft.new()
+	ac5.params = _make_fresh_params(100.0, 2, 2, 3000.0)
+	ac5.flares_remaining = 2
+	sp5.aircraft = ac5
+	sp5.apply_upgrade(SurvivorData.upgrade_by_id("flare_shield"))
+	sp5.add_axis_point(SurvivorData.AXIS_SCHEMER)
+	sp5.add_axis_point(SurvivorData.AXIS_SCHEMER)
+	_check("策士 2 点时 T1(2) + 电子对抗(+2) 仍为 4/4",
+		ac5.params.flare.max_flares == 4 and ac5.flares_remaining == 4,
+		"got %d/%d" % [ac5.flares_remaining, ac5.params.flare.max_flares])
+	sp5.add_axis_point(SurvivorData.AXIS_SCHEMER)
+	_check("T1(2) + 电子对抗(+2) + 策士 3 点档(+1) = 5/5",
+		ac5.params.flare.max_flares == 5 and ac5.flares_remaining == 5,
+		"got %d/%d" % [ac5.flares_remaining, ac5.params.flare.max_flares])
+
 	ac.free()
 	ac2.free()
 	ac3.free()
 	ac4.free()
+	ac5.free()
 	sp.free()
 	sp2.free()
 	sp3.free()
 	sp4.free()
+	sp5.free()
 
 
 # ── E2. 里程碑全队下发（2026-07-28：三轴加成跟玩家不跟机体，僚机同吃）──
@@ -308,9 +334,9 @@ func _test_milestone_squad_wide() -> void:
 		lead.params.missile.max_count == 4 and wing.params.missile.max_count == 4
 		and lead.max_simultaneous_locks == 1 and wing.max_simultaneous_locks == 1, "")
 
-	# 策士 XP 是玩家级单乘区：不按 roster 里的飞机数量重复相乘。
-	sp.axis_points[SurvivorData.AXIS_SCHEMER] = 3
-	_check("策士 3 点 XP ×1.10（全队仍只算一次）",
+	# 策士 XP 是玩家级单乘区：2 点生效，不按 roster 里的飞机数量重复相乘。
+	sp.axis_points[SurvivorData.AXIS_SCHEMER] = 2
+	_check("策士 2 点 XP ×1.10（全队仍只算一次）",
 		is_equal_approx(sp.milestone_xp_multiplier(), 1.10),
 		"got %.2f" % sp.milestone_xp_multiplier())
 

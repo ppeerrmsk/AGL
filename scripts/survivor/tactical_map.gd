@@ -1,6 +1,8 @@
 class_name TacticalMap
 extends CanvasLayer
 
+const VectorPreviewRenderer = preload("res://scripts/survivor/map_vector_preview_renderer.gd")
+
 ## 战术地图（Tab 打开）
 ##
 ## P2：地图缩略图 + 战区圆（A/B/C/D + Boss）+ 玩家位置 + 悬停/点击选区
@@ -12,6 +14,8 @@ signal zone_selected(zone_id: StringName)
 signal nav_point_selected(world_pos: Vector2)
 ## 地图上右键：取消当前巡航指令（清航点标记）。
 signal nav_cleared()
+## Tab 打开且全场暂停时 SurvivorMode 收不到输入，由本 PROCESS_MODE_ALWAYS 层转发。
+signal vector_preview_toggle_requested()
 
 const BG_COLOR := Color(0.02, 0.03, 0.04, 0.92)
 const GRID_COLOR := Color(0.15, 0.35, 0.35, 0.35)
@@ -33,6 +37,9 @@ const ZONE_CLEARED := Color(0.35, 0.55, 0.8, 0.8)
 const ZONE_CLEARED_FILL := Color(0.2, 0.4, 0.7, 0.15)
 const ZONE_BOSS := Color(0.95, 0.35, 0.8, 0.9)
 const ZONE_BOSS_FILL := Color(0.7, 0.2, 0.6, 0.20)
+const BOMBER_ROUTE_COLOR := Color(1.0, 0.63, 0.18, 0.58)
+const BOMBER_TGT_COLOR := Color(1.0, 0.72, 0.20, 1.0)
+const BOMBER_TGT_DARK := Color(0.08, 0.035, 0.01, 0.96)
 
 var _root: Control
 var _map_panel: Control
@@ -44,8 +51,17 @@ var _zones: ZoneData
 var _hover_zone_id: StringName = &""
 var _nav_marker_world: Vector2 = Vector2.INF  ## 当前巡航航点标记（世界坐标，INF=无）。选战区时清除。
 var _is_open: bool = false
+var _detail_prepare_in_progress := false
+var _close_after_detail_prepare := false
 var _adbs: AdbsManager = null  ## 用于在缩略图上画 ADBS 目标实时位置
 var _docks: Array = []         ## 停靠点列表（DockPoint，spec zone-reward-docking）
+## 与主地图同步的开发期 V11 纯矢量预览；默认 false，关闭时完全沿用 PNG 路径。
+var vector_preview_enabled := false
+var _vector_preview_viewport: SubViewport = null
+var _vector_preview_renderer: Node2D = null
+## UGC/内置预览图调色板；空字典保持东京湾缩略图历史配色。
+var ugc_palette: Dictionary = {}
+var use_basemap := true
 # ── 底部"随机战场简报" + 右下"操作指南" ──
 const _TIP_KEYS: Array[String] = [
 	"TACTICAL_TIP_BOUNDARY",
@@ -85,6 +101,13 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if not _is_open:
 		return
+	if event is InputEventKey and event.pressed and not event.echo \
+			and event.keycode == KEY_F10 and event.shift_pressed:
+		get_viewport().set_input_as_handled()
+		if _detail_prepare_in_progress:
+			return
+		vector_preview_toggle_requested.emit()
+		return
 	if event is InputEventKey and event.pressed and (event.keycode == KEY_TAB or event.keycode == KEY_ESCAPE):
 		get_viewport().set_input_as_handled()
 		close()
@@ -94,6 +117,49 @@ func setup(world_rect: Rect2, player: Aircraft, zones: ZoneData, game_scene: Nod
 	_player = player
 	_zones = zones
 	_game_scene = game_scene
+
+func set_vector_preview_enabled(enabled: bool) -> bool:
+	if enabled:
+		if _world_rect.size.x <= 0.0 or not VectorPreviewRenderer.preview_available():
+			return false
+		if _vector_preview_viewport == null:
+			_vector_preview_viewport = SubViewport.new()
+			_vector_preview_viewport.name = "VectorMapSnapshot"
+			_vector_preview_viewport.size = Vector2i(1024, 1024)
+			_vector_preview_viewport.disable_3d = true
+			_vector_preview_viewport.transparent_bg = false
+			_vector_preview_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+			add_child(_vector_preview_viewport)
+
+			var preview_camera := Camera2D.new()
+			preview_camera.name = "VectorMapCamera"
+			preview_camera.position = _world_rect.get_center()
+			var fit_zoom := minf(1024.0 / _world_rect.size.x, 1024.0 / _world_rect.size.y)
+			preview_camera.zoom = Vector2.ONE * fit_zoom
+			preview_camera.enabled = true
+			_vector_preview_viewport.add_child(preview_camera)
+
+			_vector_preview_renderer = VectorPreviewRenderer.new()
+			_vector_preview_renderer.name = "VectorMapRenderer"
+			_vector_preview_viewport.add_child(_vector_preview_renderer)
+			if not _vector_preview_renderer.setup(
+					preview_camera, _world_rect, VectorPreviewRenderer.LOD_TAB):
+				_vector_preview_viewport.queue_free()
+				_vector_preview_viewport = null
+				_vector_preview_renderer = null
+				return false
+			# 静态底图只烘焙一帧，之后 Tab 的 10Hz 动态标记不会重绘它。
+			_vector_preview_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
+		vector_preview_enabled = true
+	else:
+		vector_preview_enabled = false
+		if _vector_preview_viewport != null:
+			_vector_preview_viewport.queue_free()
+			_vector_preview_viewport = null
+			_vector_preview_renderer = null
+	if _map_panel != null:
+		_map_panel.queue_redraw()
+	return true
 
 func set_adbs(adbs: AdbsManager) -> void:
 	_adbs = adbs
@@ -120,11 +186,34 @@ func open() -> void:
 	Presentation.present(self, "panel_in")
 
 func close() -> void:
+	if _detail_prepare_in_progress:
+		_close_after_detail_prepare = true
+		return
 	_is_open = false
 	AudioManager.set_music_muffled(false)
 	_roll_random_tip()
 	# 状态恢复已全部完成，dismiss 只是视觉尾巴（解暂停在 panel_out 第 0 帧）
 	Presentation.dismiss(self, "panel_out")
+
+
+func set_detail_prepare_in_progress(enabled: bool) -> void:
+	var was_preparing := _detail_prepare_in_progress
+	_detail_prepare_in_progress = enabled
+	if was_preparing and not enabled and _close_after_detail_prepare:
+		_close_after_detail_prepare = false
+		close()
+
+
+func is_detail_prepare_in_progress() -> bool:
+	return _detail_prepare_in_progress
+
+## ZoneData 状态异步变化（尤其 FAILED）时，立即清掉悬停信息而不是等下一次鼠标移动。
+func refresh_zone_state() -> void:
+	if _hover_zone_id != &"" and _should_hide_zone(_hover_zone_id):
+		_hover_zone_id = &""
+		_refresh_info()
+	if _map_panel:
+		_map_panel.queue_redraw()
 
 ## 表演导演的错开出入场元素（spec ui-transition §4.3）
 func get_transition_elements() -> Array[Control]:
@@ -253,17 +342,23 @@ func _build_ui() -> void:
 
 func _on_map_draw() -> void:
 	MapGeography.ensure_ready()
-	_ensure_minimap_basemap()
+	if not vector_preview_enabled and use_basemap:
+		_ensure_minimap_basemap()
 	var size := _map_panel.size
 	_map_rect = Rect2(Vector2.ZERO, size)
 	# 底色 = 海（如果有底图 PNG 覆盖，下面会盖住）
-	_map_panel.draw_rect(_map_rect, MapGeography.SEA_COLOR)
+	_map_panel.draw_rect(_map_rect, _map_color("sea", MapGeography.SEA_COLOR))
 	# 底图 PNG（如果存在）
-	_draw_minimap_basemap(size)
+	if vector_preview_enabled:
+		_draw_minimap_vector_preview(size)
+	else:
+		_draw_minimap_basemap(size)
 	# 矢量细节层（只在没底图时才画 OSM 矢量，避免重复）
-	if _mm_basemap_tex == null:
+	if not vector_preview_enabled and _mm_basemap_tex == null:
 		_draw_geography(size)
 		_draw_cities(size)
+	_draw_haneda_airport(size)
+	_draw_ugc_airports(size)
 	# 框
 	_map_panel.draw_rect(_map_rect, FRAME_COLOR, false, 2.0)
 
@@ -274,6 +369,9 @@ func _on_map_draw() -> void:
 
 	# ADBS 目标实时位置（黄色菱形 + 朝向短线，带脉冲）
 	_draw_adbs_markers(size)
+
+	# DEADAIR 移动干扰场（红紫边界 + 菱形核心）；只读控制器快照，不在 _draw 扫全场实体。
+	_draw_deadair_field(size)
 
 	# 停靠点（机场/航母，青绿方框 + 短跑道线）
 	_draw_dock_markers(size)
@@ -306,6 +404,8 @@ const MINIMAP_ROAD_COLOR := Color(0.86, 0.78, 0.55, 1.0)
 ## ---- 底图 PNG 缓存（和主地图共享同一张图 + 元数据）----
 const MM_BASEMAP_PNG := "res://resources/maps/tokyo_bay_bg.png"
 const MM_BASEMAP_META := "res://resources/maps/tokyo_bay_bg.json"
+var basemap_png_path: String = MM_BASEMAP_PNG
+var basemap_meta_path: String = MM_BASEMAP_META
 var _mm_basemap_tex: Texture2D = null
 var _mm_basemap_world_rect: Rect2 = Rect2()
 var _mm_basemap_loaded := false
@@ -314,9 +414,11 @@ func _ensure_minimap_basemap() -> void:
 	if _mm_basemap_loaded:
 		return
 	_mm_basemap_loaded = true
-	if not ResourceLoader.exists(MM_BASEMAP_PNG):
+	if not use_basemap or basemap_png_path == "" or basemap_meta_path == "":
 		return
-	var f := FileAccess.open(MM_BASEMAP_META, FileAccess.READ)
+	if not ResourceLoader.exists(basemap_png_path) and not FileAccess.file_exists(basemap_png_path):
+		return
+	var f := FileAccess.open(basemap_meta_path, FileAccess.READ)
 	if f == null:
 		return
 	var meta = JSON.parse_string(f.get_as_text())
@@ -339,7 +441,11 @@ func _ensure_minimap_basemap() -> void:
 	var y0 := -(lat_max - cy) * m_per_lat * px_per_m
 	var y1 := -(lat_min - cy) * m_per_lat * px_per_m
 	_mm_basemap_world_rect = Rect2(Vector2(x0, y0), Vector2(x1 - x0, y1 - y0))
-	_mm_basemap_tex = load(MM_BASEMAP_PNG) as Texture2D
+	_mm_basemap_tex = load(basemap_png_path) as Texture2D if ResourceLoader.exists(basemap_png_path) else null
+	if _mm_basemap_tex == null and FileAccess.file_exists(basemap_png_path):
+		var image := Image.load_from_file(basemap_png_path)
+		if image != null and not image.is_empty():
+			_mm_basemap_tex = ImageTexture.create_from_image(image)
 	print("[TacticalMap] minimap basemap loaded: %s rect=%s" % [
 		_mm_basemap_tex.get_size() if _mm_basemap_tex else "null", _mm_basemap_world_rect,
 	])
@@ -355,6 +461,13 @@ func _draw_minimap_basemap(size: Vector2) -> void:
 	var p1 := _world_to_map(_mm_basemap_world_rect.position + _mm_basemap_world_rect.size, size)
 	var dst := Rect2(p0, p1 - p0)
 	_map_panel.draw_texture_rect(_mm_basemap_tex, dst, false, MINIMAP_BASEMAP_MODULATE)
+
+func _draw_minimap_vector_preview(size: Vector2) -> void:
+	if _vector_preview_viewport == null:
+		return
+	var texture := _vector_preview_viewport.get_texture()
+	if texture != null:
+		_map_panel.draw_texture_rect(texture, Rect2(Vector2.ZERO, size), false)
 
 ## 扫描线后绘制覆盖层：半透明暗线 + 暗角，不用 shader，全 draw_line
 ## 在所有内容画完之后调，叠在最上面做 CRT 感
@@ -393,6 +506,7 @@ var _mm_cache_size: Vector2 = Vector2.ZERO
 var _mm_cache_land: Array = []       # Array[PackedVector2Array]
 var _mm_cache_urban: Array = []
 var _mm_cache_roads: Array = []
+var _mm_cache_airports: Array = []
 var _mm_cache_aqualine: PackedVector2Array = PackedVector2Array()
 
 func _rebuild_minimap_geometry_cache(size: Vector2) -> void:
@@ -402,6 +516,7 @@ func _rebuild_minimap_geometry_cache(size: Vector2) -> void:
 	_mm_cache_land.clear()
 	_mm_cache_urban.clear()
 	_mm_cache_roads.clear()
+	_mm_cache_airports.clear()
 	var t0 := Time.get_ticks_msec()
 	for poly_any in MapGeography.get_land_mask_polygons():
 		var m := _map_poly(poly_any, size)
@@ -422,13 +537,18 @@ func _rebuild_minimap_geometry_cache(size: Vector2) -> void:
 		var m3 := _map_poly(pts, size)
 		if m3.size() >= 2:
 			_mm_cache_roads.append(m3)
+	for poly_any in MapGeography.OSM_AERODROMES:
+		var airport := _map_poly(poly_any, size)
+		if airport.size() >= 3:
+			_mm_cache_airports.append(airport)
 	var aq: PackedVector2Array = MapGeography.AQUALINE_PATH
 	if aq.size() >= 2:
 		_mm_cache_aqualine = _map_poly(aq, size)
 	else:
 		_mm_cache_aqualine = PackedVector2Array()
-	print("[TacticalMap] rebuilt mm geo cache @size=%s land=%d urban=%d roads=%d (%dms)" % [
+	print("[TacticalMap] rebuilt mm geo cache @size=%s land=%d urban=%d roads=%d airports=%d (%dms)" % [
 		size, _mm_cache_land.size(), _mm_cache_urban.size(), _mm_cache_roads.size(),
+		_mm_cache_airports.size(),
 		Time.get_ticks_msec() - t0,
 	])
 
@@ -436,20 +556,74 @@ func _rebuild_minimap_geometry_cache(size: Vector2) -> void:
 func _draw_geography(size: Vector2) -> void:
 	_rebuild_minimap_geometry_cache(size)
 	for poly_any in _mm_cache_land:
-		_map_panel.draw_colored_polygon(poly_any, MINIMAP_LAND_COLOR)
+		_map_panel.draw_colored_polygon(poly_any, _map_color("land", MINIMAP_LAND_COLOR))
 
 ## 缩略图：城区多边形 + 高速（都用缓存，道路用单次 draw_polyline）
 func _draw_cities(size: Vector2) -> void:
 	for poly_any in _mm_cache_urban:
-		_map_panel.draw_colored_polygon(poly_any, MINIMAP_URBAN_COLOR)
+		_map_panel.draw_colored_polygon(poly_any, _map_color("urban", MINIMAP_URBAN_COLOR))
 	# draw_polyline：单次 GPU 调用画整条线，比 per-segment draw_line 快 ~3×
 	for mapped_any in _mm_cache_roads:
 		var mapped: PackedVector2Array = mapped_any
 		if mapped.size() >= 2:
-			_map_panel.draw_polyline(mapped, MINIMAP_ROAD_COLOR, 1.0)
-	if _mm_cache_aqualine.size() >= 2:
+			_map_panel.draw_polyline(mapped, _map_color("road", MINIMAP_ROAD_COLOR), 1.0)
+	if not MapGeography.ugc_mode and _mm_cache_aqualine.size() >= 2:
 		for i in range(_mm_cache_aqualine.size() - 1):
 			_map_panel.draw_dashed_line(_mm_cache_aqualine[i], _mm_cache_aqualine[i + 1], MapGeography.AQUALINE_COLOR, 1.0, 4.0)
+
+
+const MINIMAP_RUNWAY_FILL := Color(0.18, 0.21, 0.20, 0.95)
+const MINIMAP_RUNWAY_EDGE := Color(0.78, 0.84, 0.76, 0.92)
+const MINIMAP_RUNWAY_CENTER := Color(0.88, 0.90, 0.84, 0.82)
+var _mm_haneda_cache_size: Vector2 = Vector2.ZERO
+var _mm_cache_haneda_runways: Array[Dictionary] = []
+
+## 正式港湾 Tab 只缓存四条跑道的八个端点，不触发整张 OSM 几何重建。
+func _rebuild_haneda_runway_cache(size: Vector2) -> void:
+	if _mm_haneda_cache_size == size:
+		return
+	_mm_haneda_cache_size = size
+	_mm_cache_haneda_runways.clear()
+	for runway_any in MapGeography.HANEDA_RUNWAYS:
+		var runway: Dictionary = runway_any
+		_mm_cache_haneda_runways.append({
+			"start": _world_to_map(runway.get("start", Vector2.ZERO), size),
+			"end": _world_to_map(runway.get("end", Vector2.ZERO), size),
+			"width": maxf(2.0, float(runway.get("width", 30.0)) * size.x / _world_rect.size.x),
+		})
+
+func _draw_haneda_airport(size: Vector2) -> void:
+	if MapGeography.ugc_mode:
+		return
+	_rebuild_haneda_runway_cache(size)
+	for runway_any in _mm_cache_haneda_runways:
+		var runway: Dictionary = runway_any
+		var start: Vector2 = runway.start
+		var finish: Vector2 = runway.end
+		var width: float = runway.width
+		_map_panel.draw_line(start, finish, MINIMAP_RUNWAY_EDGE, width + 1.5, true)
+		_map_panel.draw_line(start, finish, MINIMAP_RUNWAY_FILL, width, true)
+		_map_panel.draw_line(start, finish, MINIMAP_RUNWAY_CENTER, 0.8, true)
+
+## PNG 缩略图上方的静态 UGC 跑道标记；几何随面板尺寸缓存。
+func _draw_ugc_airports(size: Vector2) -> void:
+	if not MapGeography.ugc_mode:
+		return
+	_rebuild_minimap_geometry_cache(size)
+	for airport_any in _mm_cache_airports:
+		var airport: PackedVector2Array = airport_any
+		_map_panel.draw_colored_polygon(airport, MINIMAP_RUNWAY_FILL)
+		var outline := airport.duplicate()
+		outline.append(airport[0])
+		_map_panel.draw_polyline(outline, MINIMAP_RUNWAY_EDGE, 1.5, true)
+
+
+func _map_color(key: String, fallback: Color) -> Color:
+	var raw = ugc_palette.get(key, null)
+	if raw is Array and raw.size() >= 3:
+		return Color(float(raw[0]), float(raw[1]), float(raw[2]),
+			float(raw[3]) if raw.size() >= 4 else 1.0)
+	return fallback
 
 func _map_poly(src: PackedVector2Array, size: Vector2) -> PackedVector2Array:
 	var out := PackedVector2Array()
@@ -486,7 +660,8 @@ func _should_hide_zone(zid: StringName) -> bool:
 	# 改由 _draw_dock_markers 画激活后的机场补给点图标
 	if _zones.is_airfield(zid) and _zones.get_state(zid) == ZoneData.State.CLEARED:
 		return true
-	return _zones.get_state(zid) == ZoneData.State.LOCKED
+	var state := _zones.get_state(zid)
+	return state == ZoneData.State.LOCKED or state == ZoneData.State.FAILED
 
 func _draw_one_zone(z: Dictionary, zid: StringName, size: Vector2) -> void:
 	var state := _zones.get_state(zid) if _zones else ZoneData.State.LOCKED
@@ -506,21 +681,32 @@ func _draw_one_zone(z: Dictionary, zid: StringName, size: Vector2) -> void:
 			color = ZONE_LOCKED
 			fill = ZONE_LOCKED_FILL
 
-	var c := _world_to_map(z["center"], size)
-	var r: float = float(z["radius"]) * size.x / _world_rect.size.x
-	_map_panel.draw_circle(c, r, fill)
-	_map_panel.draw_arc(c, r, 0.0, TAU, 48, color, 2.0)
+	var c := _world_to_map(_zone_primary_center(zid), size)
+	var r: float = _zones.get_zone_radius(zid) * size.x / _world_rect.size.x
+	var is_bomber_escort := ZoneData.is_optional_mission_type(_zones.get_mission_type(zid))
+	if is_bomber_escort:
+		# 护送任务只占“目标 + 航线”，不再套用普通战区的大面积填充圆。
+		_draw_bomber_route_and_target(zid, c, size, color)
+		_draw_bomber_escort_marker(zid, size, color)
+	else:
+		_map_panel.draw_circle(c, r, fill)
+		_map_panel.draw_arc(c, r, 0.0, TAU, 48, color, 2.0)
 
 	# hover 高亮
 	if _hover_zone_id == zid and state == ZoneData.State.AVAILABLE:
-		_map_panel.draw_arc(c, r + 4.0, 0.0, TAU, 48, Color(1.0, 1.0, 1.0, 0.9), 2.0)
+		var hover_r := 18.0 if is_bomber_escort else r + 4.0
+		_map_panel.draw_arc(c, hover_r, 0.0, TAU, 48, Color(1.0, 1.0, 1.0, 0.9), 2.0)
 
 	# 标签 + 难度星（Boss 没难度概念，跳过星）
 	var label_s: String = z["label"]
-	_map_panel.draw_string(
-		ThemeDB.fallback_font, c + Vector2(-6, 5),
-		label_s, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, color
-	)
+	if is_bomber_escort:
+		_map_panel.draw_string(ThemeDB.fallback_font, c + Vector2(15.0, -9.0),
+			label_s, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, color)
+	else:
+		_map_panel.draw_string(
+			ThemeDB.fallback_font, c + Vector2(-6, 5),
+			label_s, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, color
+		)
 	# 战区奖励前置显示（spec zone-reward-docking §2.8）：图标字符 + 名称（圈下方）
 	if zid != &"BOSS" and _zones \
 			and (state == ZoneData.State.AVAILABLE or state == ZoneData.State.SELECTED):
@@ -528,6 +714,9 @@ func _draw_one_zone(z: Dictionary, zid: StringName, size: Vector2) -> void:
 		if _zones.is_airfield(zid):
 			# 机场解放战区：奖励＝机场本身（spec airfield-liberation-zones §3.3）
 			rtxt = "✈ %s" % tr("ZONE_REWARD_AIRFIELD")
+		elif is_bomber_escort:
+			rtxt = tr("ZONE_REWARD_BOMBER_XP_FMT") % ZoneData.bomber_escort_xp_reward(
+				_zones.get_difficulty(zid))
 		else:
 			var rw: Dictionary = _zones.get_reward(zid)
 			if not rw.is_empty():
@@ -550,7 +739,98 @@ func _draw_one_zone(z: Dictionary, zid: StringName, size: Vector2) -> void:
 			Color(1.0, 0.7, 0.4, 0.9)
 		)
 
+## 专用航线与固定目标：入口可以在真实边界外，绘图时只钳显示坐标，不改运行时航路。
+func _draw_bomber_route_and_target(zid: StringName, center: Vector2, size: Vector2,
+		state_color: Color) -> void:
+	var route := _zones.get_mission_route(zid)
+	if route.size() >= 2:
+		var mapped := PackedVector2Array()
+		for world_point in route:
+			var p := _world_to_map(world_point, size)
+			mapped.append(Vector2(clampf(p.x, 3.0, size.x - 3.0), clampf(p.y, 3.0, size.y - 3.0)))
+		for i in range(mapped.size() - 1):
+			_map_panel.draw_dashed_line(mapped[i], mapped[i + 1], BOMBER_ROUTE_COLOR, 2.0, 7.0)
+
+	var marker_color := BOMBER_TGT_COLOR.lerp(state_color, 0.18)
+	var outer := PackedVector2Array([
+		center + Vector2(0.0, -13.0), center + Vector2(13.0, 0.0),
+		center + Vector2(0.0, 13.0), center + Vector2(-13.0, 0.0),
+	])
+	var inner := PackedVector2Array([
+		center + Vector2(0.0, -9.0), center + Vector2(9.0, 0.0),
+		center + Vector2(0.0, 9.0), center + Vector2(-9.0, 0.0),
+	])
+	_map_panel.draw_colored_polygon(outer, BOMBER_TGT_DARK)
+	_map_panel.draw_polyline(PackedVector2Array([outer[0], outer[1], outer[2], outer[3], outer[0]]),
+		marker_color, 2.5)
+	_map_panel.draw_colored_polygon(inner, Color(marker_color, 0.28))
+	_map_panel.draw_circle(center, 3.5, marker_color)
+	_map_panel.draw_string(ThemeDB.fallback_font, center + Vector2(-14.0, -17.0),
+		"TGT", HORIZONTAL_ALIGNMENT_CENTER, 28.0, 11, marker_color)
+	_map_panel.draw_string(ThemeDB.fallback_font, center + Vector2(18.0, -7.0),
+		tr("ZONE_OPTIONAL_MISSION_TAG_SHORT"), HORIZONTAL_ALIGNMENT_LEFT, -1, 10,
+		marker_color.lightened(0.15))
+
+	var status := _zones.get_mission_status(zid)
+	var max_hp := maxf(float(status.get("target_max_hp", 150.0)), 1.0)
+	var hp_ratio := clampf(float(status.get("target_hp", max_hp)) / max_hp, 0.0, 1.0)
+	var bar := Rect2(center + Vector2(-19.0, 17.0), Vector2(38.0, 5.0))
+	_map_panel.draw_rect(bar, Color(0.02, 0.02, 0.02, 0.92), true)
+	_map_panel.draw_rect(Rect2(bar.position + Vector2.ONE, Vector2((bar.size.x - 2.0) * hp_ratio,
+		bar.size.y - 2.0)), marker_color, true)
+	_map_panel.draw_rect(bar, Color(marker_color, 0.92), false, 1.0)
+
+## 目标型战区的主圆/点击热区固定在 TGT；导航仍可读取 get_zone_center 跟随编队。
+func _zone_primary_center(zid: StringName) -> Vector2:
+	if _zones and _zones.get_mission_type(zid) == "bomber_escort":
+		return _zones.get_objective_center(zid)
+	return _zones.get_zone_center(zid) if _zones else Vector2.INF
+
+## 三枚小箭头沿真实航向排成纵队。场外编队钳到面板边缘，快速开 Tab 仍能看出它在入场。
+func _draw_bomber_escort_marker(zid: StringName, size: Vector2, color: Color) -> void:
+	if not _zones.has_dynamic_center(zid):
+		return
+	var actual := _world_to_map(_zones.get_zone_center(zid), size)
+	var margin := 22.0
+	var center := Vector2(
+		clampf(actual.x, margin, size.x - margin),
+		clampf(actual.y, margin, size.y - margin))
+	var heading := _zones.get_dynamic_heading(zid)
+	var forward := Vector2(sin(heading), -cos(heading))
+	var right := Vector2(-forward.y, forward.x)
+	for i in range(3):
+		var p := center - forward * float(i) * 7.0
+		_map_panel.draw_colored_polygon(PackedVector2Array([
+			p + forward * 5.0,
+			p - forward * 4.0 + right * 3.0,
+			p - forward * 4.0 - right * 3.0,
+		]), color)
+	_map_panel.draw_string(ThemeDB.fallback_font, center + right * 9.0 + Vector2(3.0, 4.0),
+		"B-1B ×3", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, color.lightened(0.2))
+
 ## 在缩略图上画 ADBS 事件单位（轰炸机/直升机等）实时位置
+func _draw_deadair_field(size: Vector2) -> void:
+	if _game_scene == null or _world_rect.size.x <= 0.0:
+		return
+	var spawner = _game_scene.get("_spawner")
+	if spawner == null or not spawner.has_method("deadair_field_snapshot"):
+		return
+	var snapshot: Dictionary = spawner.deadair_field_snapshot()
+	if snapshot.is_empty():
+		return
+	var world_pos: Vector2 = snapshot["position"]
+	var center := _world_to_map(world_pos, size)
+	var radius_map := float(snapshot["radius_px"]) / _world_rect.size.x * size.x
+	var field_color := Color(0.68, 0.08, 0.47, 0.9)
+	_map_panel.draw_circle(center, radius_map, Color(field_color, 0.075))
+	_map_panel.draw_arc(center, radius_map, 0.0, TAU, 64, field_color, 2.0)
+	var core := PackedVector2Array([
+		center + Vector2(0.0, -6.0), center + Vector2(6.0, 0.0),
+		center + Vector2(0.0, 6.0), center + Vector2(-6.0, 0.0),
+	])
+	_map_panel.draw_colored_polygon(core, Color(0.92, 0.22, 0.62, 0.95))
+
+
 func _draw_adbs_markers(size: Vector2) -> void:
 	if not _adbs or _adbs.active_units.is_empty():
 		return
@@ -682,6 +962,8 @@ func _on_map_gui_input(event: InputEvent) -> void:
 ## 左键：先试点战区，未命中战区则当作"下巡航航点"（点空白处）。
 ## 不关闭地图 —— 玩家可继续规划，标记会留在地图上（Tab/Esc 才关）。
 func _handle_map_click(map_pos: Vector2) -> void:
+	if _detail_prepare_in_progress:
+		return
 	var zid := _zone_id_at(map_pos)
 	if zid != &"":
 		_try_click_zone(map_pos)
@@ -733,16 +1015,18 @@ func _zone_id_at(map_pos: Vector2) -> StringName:
 	# Boss 优先级最高（仅在显示时命中）
 	var bz := _zones.boss_zone
 	if not _should_hide_zone(bz["id"]):
-		var bc := _world_to_map(bz["center"], size)
-		var br: float = float(bz["radius"]) * size.x / _world_rect.size.x
+		var bc := _world_to_map(_zone_primary_center(bz["id"]), size)
+		var br: float = _zones.get_zone_radius(bz["id"]) * size.x / _world_rect.size.x
 		if map_pos.distance_to(bc) <= br:
 			return bz["id"]
 	# 普通战区：隐藏的直接跳过
 	for z in ZoneData.ZONES:
 		if _should_hide_zone(z["id"]):
 			continue
-		var c := _world_to_map(z["center"], size)
-		var r: float = float(z["radius"]) * size.x / _world_rect.size.x
+		var c := _world_to_map(_zone_primary_center(z["id"]), size)
+		var r: float = _zones.get_zone_radius(z["id"]) * size.x / _world_rect.size.x
+		if _zones.get_mission_type(z["id"]) == "bomber_escort":
+			r = maxf(r, 18.0)
 		if map_pos.distance_to(c) <= r:
 			return z["id"]
 	return &""
@@ -1244,9 +1528,15 @@ func _refresh_info() -> void:
 		ZoneData.State.SELECTED: state_text = tr("ZONE_STATE_SELECTED")
 		ZoneData.State.CLEARED: state_text = tr("ZONE_STATE_CLEARED")
 		_: state_text = tr("ZONE_STATE_LOCKED")
-	var name_str: String = tr(z["name_key"])
+	var mission_type: String = _zones.get_mission_type(_hover_zone_id) if _zones \
+		else String(z.get("mission_type", "ground"))
+	var is_bomber_escort := ZoneData.is_optional_mission_type(mission_type)
+	var name_str: String = tr("ZONE_OPTIONAL_BOMBER_ESCORT_NAME") if is_bomber_escort \
+		else tr(z["name_key"])
+	var header_label: String = tr("ZONE_OPTIONAL_MISSION_TAG") if is_bomber_escort \
+		else String(z["label"])
 	var lines: PackedStringArray = [
-		"[b]%s — %s[/b]" % [z["label"], name_str],
+		"[b]%s — %s[/b]" % [header_label, name_str],
 		"",
 		"[color=#aaaaaa]%s[/color] %s" % [tr("ZONE_INFO_STATE"), state_text],
 	]
@@ -1270,6 +1560,10 @@ func _refresh_info() -> void:
 	if _zones.is_airfield(_hover_zone_id):
 		# 机场解放战区：奖励＝机场本身（ZONE_REWARD_AIRFIELD 自身已说明用途，不另加副行）
 		reward_block = "  [color=#ffd864]✈ %s[/color]" % tr("ZONE_REWARD_AIRFIELD")
+	elif is_bomber_escort:
+		var bomber_xp := ZoneData.bomber_escort_xp_reward(difficulty)
+		reward_block = "  [color=#ffd864]%s[/color]" % (tr("ZONE_REWARD_BOMBER_XP_FMT") % bomber_xp)
+		reward_desc = tr("ZONE_REWARD_BOMBER_XP_DESC")
 	else:
 		var reward := _zones.get_reward(_hover_zone_id)
 		if reward.is_empty():
@@ -1291,12 +1585,12 @@ func _refresh_info() -> void:
 	if _hover_zone_id == &"BOSS":
 		mission_desc_key = "ZONE_MISSION_BOSS"
 	else:
-		var mission_type: String = _zones.get_mission_type(_hover_zone_id) if _zones else z.get("mission_type", "ground")
 		match mission_type:
 			"air":       mission_desc_key = "ZONE_MISSION_AIR"
 			"squadron":  mission_desc_key = "ZONE_MISSION_SQUADRON"
 			"naval":     mission_desc_key = "ZONE_MISSION_NAVAL"
 			"airfield":  mission_desc_key = "ZONE_MISSION_AIRFIELD"
+			"bomber_escort": mission_desc_key = "ZONE_MISSION_BOMBER_ESCORT"
 			_:           mission_desc_key = "ZONE_MISSION_GROUND"
 
 	lines.append("")
@@ -1307,6 +1601,20 @@ func _refresh_info() -> void:
 	lines.append("")
 	lines.append("[color=#aaaaaa]%s[/color]" % tr("ZONE_INFO_MISSION"))
 	lines.append("  %s" % tr(mission_desc_key))
+	if _zones.get_mission_type(_hover_zone_id) == "bomber_escort":
+		var status := _zones.get_mission_status(_hover_zone_id)
+		var phase_key := "ZONE_BOMBER_PHASE_%s" % String(status.get("phase", "standby")).to_upper()
+		lines.append("")
+		lines.append("[color=#ffb83e][b]%s[/b][/color]" % tr("ZONE_BOMBER_STATUS_TITLE"))
+		lines.append("  %s  [color=#ffd66b]%d / %d[/color]" % [tr("ZONE_BOMBER_TARGET_HP"),
+			int(ceilf(float(status.get("target_hp", 150.0)))), int(status.get("target_max_hp", 150.0))])
+		lines.append("  %s  [color=#ffd66b]%ds[/color]" % [tr("ZONE_BOMBER_TIME_LEFT"),
+			int(ceilf(float(status.get("remaining_s", 150.0))))])
+		lines.append("  %s  %d / %d    %s  %d / %d" % [tr("ZONE_BOMBER_BOMBERS"),
+			int(status.get("bombers_alive", 3)), int(status.get("bombers_total", 3)),
+			tr("ZONE_BOMBER_ESCORTS"), int(status.get("escorts_alive", 2)),
+			int(status.get("escorts_total", 2))])
+		lines.append("  %s  %s" % [tr("ZONE_BOMBER_PHASE"), tr(phase_key)])
 
 	if state == ZoneData.State.AVAILABLE:
 		lines.append("")

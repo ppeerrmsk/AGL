@@ -253,7 +253,7 @@ UPGRADE_COBRA_SKILL_DESC,当前操控机按 R 手动释放眼镜蛇；AI 僚机�
 AIRCRAFT_F16_DISPLAY,F-16C Block 50,F-16C Block 50,F-16C Block 50
 AIRCRAFT_F16_CARDDESC,多用途战斗机。携带热诱弹可 100% 规避来袭导弹，攻守兼备的入门之选。,Multirole fighter. Flares grant 100% evasion on incoming missiles. A balanced starter pick.,マルチロール戦闘機。フレアで来襲ミサイルを100%回避可能、攻守バランスの入門機。
 AIRCRAFT_F14_DISPLAY,F-14A Ghost,F-14A Ghost,F-14A Ghost
-AIRCRAFT_F14_CARDDESC,"「Anytime, baby!」舰载重型截击机。三机僚机编队入场支援，但单机性能弱于 F-16：导弹/热诱弹/机炮均缩水，机动性较差，需依赖小队配合。","""Anytime, baby!"" Carrier-based heavy interceptor. Deploys with a 3-wingman squad but underperforms the F-16 solo: fewer missiles/flares, weaker gun, lower agility — squad play is essential.",「いつでもどうぞ！」艦載重戦闘機。3機の僚機編隊と共に出撃するが、単機性能は F-16 に劣る：ミサイル・フレア・ガンいずれも減量、機動性も低め、小隊連携が鍵。
+AIRCRAFT_F14_CARDDESC,"「Anytime, baby!」舰载重型截击机。与 1 架僚机组成双机编队入场，但单机性能弱于 F-16：导弹/热诱弹/机炮均缩水，机动性较差，需依赖双机配合。","""Anytime, baby!"" Carrier-based heavy interceptor. Deploys as a two-ship formation with 1 wingman but underperforms the F-16 solo: fewer missiles/flares, weaker gun, lower agility — two-ship coordination is essential.",「いつでもどうぞ！」艦載重戦闘機。僚機1機との2機編隊で出撃するが、単機性能は F-16 に劣る：ミサイル・フレア・ガンいずれも減量、機動性も低め、2機連携が鍵。
 TAG_HEAT_FLARE,热诱弹,Flares,フレア
 TAG_BALANCED_MANEUVER,均衡机动,Balanced,均衡機動
 TAG_SARH_MISSILE,SARH 导弹,SARH Missile,SARH ミサイル
@@ -263,6 +263,11 @@ TAG_LOCKED,未解锁,Locked,未解放
 TAG_PLAIN,平原,Plains,平原
 TAG_COAST,海岸,Coast,海岸
 TAG_HILLS,丘陵,Hills,丘陵
+TAG_DESERT,沙漠,Desert,砂漠
+TAG_RAILWAY,铁路,Railway,鉄道
+TAG_OCEAN,海洋,Ocean,海洋
+TAG_ISLANDS,群岛,Islands,島嶼
+TAG_PREVIEW,预览,Preview,プレビュー
 TAG_TBA,未解锁,Locked,未解放
 SLOT_TBA_NAME,??? / TBA,??? / TBA,??? / TBA
 SLOT_AIRCRAFT_DESC,新机型开发中。,New aircraft in development.,新機体開発中。
@@ -276,6 +281,10 @@ SLOT_STARTING_SQUAD_FMT,[ 起始小队 +%d 僚机 ],[ Starting Squad +%d Wingmen
 SLOT_TAG_WRAP_FMT,[ %s ],[ %s ],[ %s ]
 SLOT_NAME_UNKNOWN,???,???,???
 MAP_DEFAULT_NAME,海岸线,Coastal,海岸線
+MAP_DESERT_RAILWAY_NAME,赤土铁路,Red Dune Railway,赤土鉄道
+MAP_DESERT_RAILWAY_DESC,空地图预览：沙漠铁路、矿区、盐碱地与工业节点。,Empty-map preview: desert railway, mines, salt flats, and industrial anchors.,空マッププレビュー：砂漠鉄道・鉱区・塩原・工業拠点。
+MAP_OCEAN_ISLANDS_NAME,铁底群岛,Ironbottom Islands,鉄底諸島
+MAP_OCEAN_ISLANDS_DESC,空地图预览：开放海域、主岛、外海锚点岛与港区。,Empty-map preview: open sea, a main island, offshore anchors, and harbors.,空マッププレビュー：外洋・主島・沖合の島・港湾。
 MAP_DEFAULT_DESC,默认作战区域。多样的海岸与内陆地形，适合熟悉机型与战术。,Default combat zone. Diverse coastal and inland terrain for learning aircraft and tactics.,デフォルト作戦区域。多彩な海岸・内陸地形、機体と戦術に慣れるのに最適。
 AIRCRAFT_SELECT_TITLE,[ 选择机型 ],[ Select Aircraft ],[ 機体選択 ]
 AIRCRAFT_SELECT_SUBTITLE,生存模式  //  SURVIVAL MODE,SURVIVAL MODE,サバイバル  //  SURVIVAL MODE
@@ -324,19 +333,32 @@ ZONE_HINT_NEW_OPENED,⚡ 新战区已开放 — 按 [Tab] 打开战术地图选�
 BOSS_ZONE_READY,⚠ 战区取消 — 前往中央迎击 BOSS,⚠ Warzones cancelled — head to center for BOSS,⚠ エリア中止 — 中央へ向かいBOSS迎撃
 HUD_WARZONE_TIMER_FMT,战区剩余 %02d:%02d,WARZONE %02d:%02d,エリア残 %02d:%02d
 HUD_BOSS_PHASE,BOSS 阶段,BOSS PHASE,BOSSフェーズ
+HUD_AFTERBURNER,加力,AFTERBURNER,アフターバーナー
+HUD_ENGAGE,接敌,ENGAGE,交戦
+HUD_FIRE,开火,FIRE,攻撃
+HUD_PRIORITY,优先,PRIORITY,優先
 ZONE_REWARD_TAG,战区奖励,ZONE REWARD,戦域報酬
 ZONE_REWARD_HINT_MISSILE,※ 这是一个强化导弹性能的技能,※ A missile performance upgrade,※ ミサイル性能を強化するスキル
 ZONE_REWARD_HINT_GUN,※ 这是一个强化机炮性能的技能,※ A gun performance upgrade,※ ガン性能を強化するスキル
 ZONE_REWARD_HINT_FLARE,※ 这是一个强化电子对抗/热诱弹的技能,※ An ECM / flare upgrade,※ ECM / フレア強化スキル
 ZONE_REWARD_HINT_SURVIVAL,※ 这是一个强化生存能力的技能,※ A survivability upgrade,※ 生存力強化スキル
 ZONE_REWARD_HINT_UNKNOWN,※ 未知奖励,※ Unknown reward,※ 不明な報酬
+ZONE_REWARD_BOMBER_XP_FMT,特殊经验 +%d,SPECIAL XP +%d,特別XP +%d
+ZONE_REWARD_BOMBER_XP_DESC,护送成功后直接获得；替代普通战区奖励且不与之叠加。,Granted directly on escort success; replaces the normal zone reward.,護衛成功時に直接獲得。通常の戦域報酬とは重複せず置き換わる。
 ZONE_REWARD_ALREADY_GRANTED,※ 奖励已发放,※ Reward already granted,※ 報酬獲得済
 ZONE_MISSION_STARTED_FMT,⚔ 战区 %s 任务开始 — 清剿地面单位,⚔ ZONE %s — ENGAGE GROUND UNITS,⚔ エリア %s 開戦 — 地上目標を殲滅
 ZONE_MISSION_STARTED_AIR_FMT,⚔ 战区 %s 任务开始 — 歼灭敌方中队,⚔ ZONE %s — DESTROY ENEMY SQUADRON,⚔ エリア %s 開戦 — 敵中隊を撃墜
 ZONE_MISSION_STARTED_SQUADRON_FMT,⚔ 战区 %s 任务开始 — 击败敌方中队,⚔ ZONE %s — DEFEAT ENEMY SQUADRON,⚔ エリア %s 開戦 — 敵中隊を撃破
 ZONE_MISSION_STARTED_NAVAL_FMT,⚔ 战区 %s 任务开始 — 击毁舰队旗舰,⚔ ZONE %s — SINK FLEET FLAGSHIP,⚔ エリア %s 開戦 — 艦隊旗艦を撃沈
+ZONE_MISSION_STARTED_BOMBER_ESCORT_FMT,⚔ 可选战区任务 %s — 护送轰炸机完成投弹（150秒）,⚔ OPTIONAL ZONE MISSION %s — ESCORT BOMBERS TO TARGET (150 SEC),⚔ 任意戦域ミッション %s — 爆撃隊を目標まで護衛（150秒）
+ZONE_OPTIONAL_MISSION_TAG,可选战区任务,OPTIONAL ZONE MISSION,任意戦域ミッション
+ZONE_OPTIONAL_MISSION_TAG_SHORT,可选任务,OPTIONAL,任意任務
+ZONE_OPTIONAL_BOMBER_ESCORT_NAME,轰炸机护送,BOMBER ESCORT,爆撃隊護衛
 ZONE_CLEARED_FMT,✓ 战区 %s 已攻克,✓ ZONE %s CLEARED,✓ エリア %s 攻略完了
+ZONE_MISSION_FAILED_FMT,✕ 战区 %s 任务失败,✕ ZONE %s MISSION FAILED,✕ エリア %s 作戦失敗
+ZONE_OPTIONAL_MISSION_FAILED_FMT,✕ 可选战区任务 %s 失败,✕ OPTIONAL ZONE MISSION %s FAILED,✕ 任意戦域ミッション %s 失敗
 ZONE_CLEARED_WITH_REWARD_FMT,✓ 战区 %s 已攻克 — 获得奖励：%s,✓ ZONE %s CLEARED — REWARD: %s,✓ エリア %s 攻略完了 — 報酬: %s
+ZONE_CLEARED_BOMBER_XP_FMT,✓ 可选战区任务 %s 护送成功 — 特殊经验 +%d,✓ OPTIONAL ZONE MISSION %s SUCCESS — SPECIAL XP +%d,✓ 任意戦域ミッション %s 護衛成功 — 特別XP +%d
 ZONE_REFRESHED_AFTER_CLEAR,⚡ 其他战区敌情升级 — 敌人已换防,⚡ OTHER ZONES REINFORCED — Enemies rotated,⚡ 他エリア敵勢力強化 — 敵部隊交代
 HUD_VICTORY_TITLE,[ 通关 ],[ MISSION COMPLETE ],[ 任務達成 ]
 HUD_VICTORY_SUBTITLE_FMT,%s 已被击毁,%s eliminated,%s 撃破
@@ -351,11 +373,35 @@ ZONE_MISSION_GROUND,※ 清剿战区内的地面单位（SAM / AA）,※ Elimina
 ZONE_MISSION_AIR,※ 歼灭盘旋在战区上空的敌方中队,※ Destroy the enemy squadron patrolling the zone,※ 上空を警戒する敵飛行隊を撃墜
 ZONE_MISSION_SQUADRON,※ 击败锁定战区的敌方中队,※ Defeat the enemy squadron holding the zone,※ エリアを制圧中の敵中隊を撃破
 ZONE_MISSION_NAVAL,※ 击毁海上舰队旗舰,※ Sink the enemy fleet flagship,※ 敵艦隊旗艦を撃沈せよ
+ZONE_MISSION_BOMBER_ESCORT,※ 护送轰炸机沿标定航线摧毁战略目标,※ Escort the bombers along the marked route and destroy the strategic target,※ 指定航路で爆撃隊を護衛し戦略目標を破壊せよ
 ZONE_MISSION_BOSS,※ 击溃来袭的 BOSS 部队,※ Destroy the incoming BOSS force,※ 襲来する BOSS 部隊を撃破せよ
 ZONE_MISSION_AIRFIELD,※ 解放机场：摧毁驻守的地面防空（SAM / AA）,※ Liberate the airfield: destroy the ground air-defenses (SAM / AA),※ 飛行場を解放せよ：地上防空(SAM / AA)を破壊
+ZONE_BOMBER_STATUS_TITLE,轰炸任务状态,BOMBER MISSION STATUS,爆撃任務ステータス
+ZONE_BOMBER_TARGET_HP,目标 HP,TARGET HP,目標 HP
+ZONE_BOMBER_TIME_LEFT,剩余时间,TIME LEFT,残り時間
+ZONE_BOMBER_BOMBERS,轰炸机,BOMBERS,爆撃機
+ZONE_BOMBER_ESCORTS,护航机,ESCORTS,護衛機
+ZONE_BOMBER_PHASE,航段,LEG,航程
+ZONE_BOMBER_PHASE_STANDBY,等待入场,STANDBY,進入待機
+ZONE_BOMBER_PHASE_INGRESS,航线进入,INGRESS,進入中
+ZONE_BOMBER_PHASE_LINE_UP,对正目标,LINE UP,目標整列
+ZONE_BOMBER_PHASE_RELEASE,投弹,BOMB RELEASE,投弾
+ZONE_BOMBER_PHASE_EGRESS,撤离,EGRESS,離脱
+ZONE_BOMBER_PHASE_LOST,编队失联,FLIGHT LOST,編隊喪失
+BOMBER_TARGET_WORLD_LABEL,轰炸目标,BOMBING TARGET,爆撃目標
+BOMBER_TARGET_WORLD_HINT,仅轰炸机攻击有效,BOMBER ATTACK ONLY,爆撃機攻撃のみ有効
 ZONE_REWARD_AIRFIELD,机场开放补给（回血 / 进化 / 僚机）,Airfield opens for resupply (repair / evolution / wingman),飛行場が補給開放（回復 / 進化 / 僚機）
 ZONE_AIRFIELD_LIBERATED_FMT,✓ %s 已解放 — 机场开放补给,✓ %s LIBERATED — airfield open for resupply,✓ %s 解放完了 — 飛行場が補給開放
 MENU_AUDIO_BUTTON,音频设置,Audio,音声設定
+MENU_SPEED_UNIT_FMT,速度 %s,SPEED %s,速度 %s
+MENU_HUD_COLOR_BUTTON,HUD 色彩,HUD Color,HUDカラー
+HUD_COLOR_SETTINGS_TITLE,HUD 色彩设置,HUD Color Settings,HUDカラー設定
+HUD_COLOR_PRESET_GREEN,绿色,Green,グリーン
+HUD_COLOR_PRESET_CYAN,青色,Cyan,シアン
+HUD_COLOR_PRESET_AMBER,琥珀,Amber,アンバー
+HUD_COLOR_PRESET_WHITE,白色,White,ホワイト
+HUD_COLOR_CANCEL,取消,Cancel,キャンセル
+HUD_COLOR_SAVE,保存,Save,保存
 MENU_RESET_SAVE_BUTTON,删除存档,Reset Save,セーブ削除
 MENU_RESET_SAVE_CONFIRM,确认删除所有进度存档？\n（包括首次引导状态。语言 / 音频设置保留。）,Delete all save progress?\n(Including first-run tutorial state. Language / Audio settings are kept.),すべてのセーブデータを削除しますか？\n（初回チュートリアル状態を含む。言語／音声設定は保持）
 MENU_RESET_SAVE_OK,已删除存档：%d 个文件,Save cleared: %d file(s),セーブ削除完了：%d 件
@@ -797,6 +843,10 @@ RADIO_ACE_SPAWN_3,这片空域由我们接手。,We are taking over this airspac
 RADIO_ACE_SPAWN_4,捕捉到敌长机，各机自由进入。,Enemy lead acquired. All aircraft engage at will.,敵編隊長を捕捉、各機自由に突入せよ。
 RADIO_ACE_SPAWN_5,让他们见识一下正规军的打法。,Time to show them how professionals fly.,正規部隊の戦い方を見せてやろう。
 RADIO_WHITETEA_SURRENDER_1,两个废物…！我先撤了！,Those two idiots...! I'm getting out of here!,あの役立たず二人め…！俺は撤退する！
+RADIO_HOUND_ONE_CONTACT,发现猎物了，准备交战,Prey spotted. Preparing to engage.,獲物を発見。交戦準備に入る。
+RADIO_HOUND_TWO_FOLLOW,收到，我跟在你后面,Copy. I'm right behind you.,了解。後ろにつく。
+RADIO_REWARD_TARGET_AVAILABLE,指挥部已标定一批高价值目标，六秒后上传目标数据。,Command has designated new high-value targets. Target data in six seconds.,司令部が高価値目標を指定。6秒後に目標データを送信する。
+RADIO_BOMBER_ESCORT_AVAILABLE,友军轰炸编队请求护航，六秒后上传航线与攻击目标。,Friendly bombers request escort. Route and strike target in six seconds.,友軍爆撃隊より護衛要請。6秒後に航路と攻撃目標を送信する。
 MENU_MODE_EDITOR_NAME,地图工坊,Map Workshop,マップ工房
 MENU_MODE_EDITOR_DESC,涂格画地图，做完直接试飞,Paint a map with grid brushes and test-fly it instantly,グリッドブラシでマップを描いてすぐ試飛行
 EDITOR_PALETTE_TITLE,[ 素材库 ],[ Palette ],[ パレット ]
@@ -1190,6 +1240,8 @@ CODEX_SU34_NAME,Su-34 鸭嘴兽,Su-34 Fullback,Su-34 フルバック
 CODEX_SU34_DESC,重型打击机。耐打但只执行高速攻击航线。,Heavy strike aircraft. Durable but disciplined around high-speed attack runs.,重打撃機。頑丈だが高速攻撃航過だけを遂行する。
 CODEX_SNOWBLIND_NAME,SNOWBLIND 雪幕,SNOWBLIND,SNOWBLIND スノーブラインド
 CODEX_SNOWBLIND_DESC,无武装支援机。灰色雪幕遮住范围内全部敌机；圈外只能看见不可交互的核心轮廓，进入幕内才能揭露实体。,Unarmed support aircraft. Its grey shroud hides every enemy inside; from outside only a non-interactive core silhouette is visible. Enter the shroud to reveal the aircraft.,非武装支援機。灰色の幕は範囲内の敵をすべて隠す。幕外では操作不能な本体の輪郭だけが見え、侵入すると実体が露見する。
+CODEX_DEADAIR_NAME,DEADAIR 断讯,DEADAIR,DEADAIR デッドエア
+CODEX_DEADAIR_DESC,移动累积干扰场；导弹会更快失导，压近核心后用机炮摧毁它。,A moving cumulative JAM field; missiles lose guidance faster, so close in and destroy the core with guns.,移動式の累積JAMフィールド。ミサイルは早く誘導を失うため、接近して機関砲で中核を破壊せよ。
 CODEX_F15C_NAME,F-15C 鹰,F-15C Eagle,F-15C イーグル
 CODEX_F15C_DESC,高能制空机。会把速度换成持续近战优势。,High-energy air-superiority fighter. It turns speed into a sustained close-combat advantage.,高エネルギー制空機。速度を継続的な近接戦の優位に変える。
 CODEX_RAFALE_NAME,Rafale 阵风,Rafale,ラファール
@@ -1244,11 +1296,11 @@ METASHOP_SIGNATURE_UNKNOWN,？？？,???,？？？
 METASHOP_ITEM_AWACS_NAME,预警支援协定,AWACS Support Accord,AWACS 支援協定
 METASHOP_ITEM_AWACS_DESC,允许友军预警机在正式行动中进场支援,Enables allied AWACS support during formal operations,正式作戦で友軍 AWACS の支援を解禁
 METASHOP_ITEM_ZONE_AIR_SUPPORT_NAME,战区制空支援协定,Warzone Air Support Accord,戦域制空支援協定
-METASHOP_ITEM_ZONE_AIR_SUPPORT_DESC,对空战区激活后派遣 2～4 架 F-86 友军,Dispatches 2–4 allied F-86s when an air mission activates,対空戦域の開始後に友軍 F-86 を 2～4 機派遣
+METASHOP_ITEM_ZONE_AIR_SUPPORT_DESC,每局首次对空战区激活后派遣 2～4 架 F-86 友军,Dispatches 2–4 allied F-86s to the first air mission each run,各出撃で最初の対空戦域開始後に友軍 F-86 を 2～4 機派遣
 METASHOP_ITEM_ZONE_GROUND_SUPPORT_NAME,战区对地支援协定,Warzone Ground Support Accord,戦域対地支援協定
-METASHOP_ITEM_ZONE_GROUND_SUPPORT_DESC,非机场清剿战区激活后派遣 2 架 A-10 攻击地面单位,Dispatches two allied A-10s against ground units when a non-airfield ground mission activates,飛行場以外の地上掃討戦域の開始後に友軍 A-10 を 2 機派遣
+METASHOP_ITEM_ZONE_GROUND_SUPPORT_DESC,每局首次非机场清剿战区激活后派遣 2 架 A-10,Dispatches two allied A-10s to the first non-airfield ground mission each run,各出撃で最初の飛行場以外の地上掃討戦域に友軍 A-10 を 2 機派遣
 METASHOP_ITEM_ACE_F15_SUPPORT_NAME,王牌截击支援协定,Ace Intercept Support Accord,エース迎撃支援協定
-METASHOP_ITEM_ACE_F15_SUPPORT_DESC,敌军王牌增援登场时派遣 2 架 F-15；王牌事件结束后撤离,Dispatches two allied F-15s when an enemy ace reinforcement arrives; they withdraw when the ace event ends,敵エース増援の出現時に友軍 F-15 を2機派遣しイベント終了後に撤収
+METASHOP_ITEM_ACE_F15_SUPPORT_DESC,每局首次敌军王牌增援登场时派遣 2 架 F-15,Dispatches two allied F-15s against the first enemy ace reinforcement each run,各出撃で最初の敵エース増援に友軍 F-15 を2機派遣
 METASHOP_ITEM_AIRFIELD_SAM_NAME,机场防空网授权,Airfield SAM Network Authorization,飛行場SAM網許可
 METASHOP_ITEM_AIRFIELD_SAM_DESC,每次解放机场时在友军 AA×2 之外追加 1 座一次性 SAM,Each liberated airfield deploys one single-use SAM in addition to two allied AA guns,飛行場を解放するたび友軍対空砲2基に加えて使い切りのSAM1基を配備
 METASHOP_SECTION_ITEMS,▼ 生涯商品,▼ CAREER ITEMS,▼ キャリア商品
@@ -1265,3 +1317,8 @@ METASHOP_LISTED_TOAST,生涯商店新货上架,New item listed in the Career Sho
 UNLOCK_HINT_F14,击败 Ladon 战斗群 解锁,Defeat the Ladon Strike Group to unlock,Ladon 打撃群を撃破で解禁
 UNLOCK_HINT_A6E_FMT,摧毁 30 个地面单位解锁（%d/30）,Destroy 30 ground units to unlock (%d/30),地上ユニット 30 撃破で解禁（%d/30）
 UNLOCK_HINT_MIRAGE3,生涯商店有售,Available in the Career Shop,キャリアショップで購入可能
+MAP_VECTOR_PREVIEW_ON,纯矢量地图 V11：已开启（Shift+F10 返回 PNG）,Pure-vector map V11 enabled (Shift+F10 returns to PNG),純ベクターマップ V11：オン（Shift+F10 で PNG に戻る）
+MAP_VECTOR_PREVIEW_OFF,纯矢量地图 V11：已关闭（当前为 PNG）,Pure-vector map V11 disabled (PNG active),純ベクターマップ V11：オフ（PNG 表示）
+MAP_VECTOR_PREVIEW_UNAVAILABLE,纯矢量预览不可用：已保留 PNG,Vector preview unavailable; PNG retained,純ベクタープレビューを使用できません。PNG を維持します
+PRELOAD_BUILDINGS_LABEL,正在载入地图与城市数据,Loading map and city data,マップと都市データを読み込み中
+PRELOAD_BUILDINGS_HINT,东京湾 / Tokyo Bay,Tokyo Bay,東京湾 / Tokyo Bay

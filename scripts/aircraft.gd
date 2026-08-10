@@ -330,7 +330,8 @@ var equipment_state: Dictionary = {}
 var flares_remaining: int = 0
 var _flare_cooldown: float = 0.0
 var _flare_particles: Array[Dictionary] = []  ## { pos: Vector2, vel: Vector2, life: float, bright: bool }
-var _flare_spawn_queue: Array[Dictionary] = []  ## 待释放粒子队列 { delay: float, heading: float, pos: Vector2 }
+var _flare_spawn_queue: Array[Dictionary] = []  ## 待释放粒子波 { delay, heading, pos, count }
+var flare_visual_burst_emitted: int = 0  ## 本次 10 枚视觉投放已实际生成数；玩家仪表逐星同步
 var _flare_ignored_missiles: Dictionary = {}  ## 失误判定已拒绝的导弹 { instance_id: true }
 var _flare_ignored_cleanup: float = 0.0       ## 清理计时器
 var flares_guaranteed: bool = false  ## 生存模式：玩家热诱弹 100% 干扰
@@ -2158,6 +2159,41 @@ func _shared_maneuver_cooldown() -> float:
 	var sq := _maneuver_squad()
 	return sq.active_maneuver_cooldown_s if sq != null else _active_special_local_cooldown_s
 
+## 玩家仪表只读：正常构筑五选一；固定顺序仅使 debug/旧档异常共存时结果确定。
+func equipped_r_maneuver_id() -> StringName:
+	if vertical_break_active:
+		return &"vertical_break"
+	if displacement_roll_active:
+		return &"displacement_roll"
+	if cobra_skill_active:
+		return &"cobra_skill"
+	if evasion_herbst_active:
+		return &"evasion_herbst"
+	if manual_dodge_active:
+		return &"manual_dodge"
+	return &""
+
+## 玩家仪表只读：返回唯一 R 技能的一轮完整冷却秒数。
+func r_maneuver_cooldown_total() -> float:
+	match equipped_r_maneuver_id():
+		&"vertical_break":
+			return VERTICAL_BREAK_COOLDOWN
+		&"displacement_roll":
+			return DISPLACEMENT_ROLL_COOLDOWN
+		&"cobra_skill":
+			return COBRA_SKILL_COOLDOWN
+		&"evasion_herbst":
+			return HerbstManeuver.COOLDOWN
+		&"manual_dodge":
+			return MANUAL_DODGE_CD
+	return 0.0
+
+## 玩家仪表只读：返回 Squad 所有的共享剩余冷却；无 Squad 时回退本机账本。
+func r_maneuver_cooldown_remaining() -> float:
+	if equipped_r_maneuver_id() == &"":
+		return 0.0
+	return _shared_maneuver_cooldown()
+
 func _start_shared_maneuver_cooldown(seconds: float) -> void:
 	var sq := _maneuver_squad()
 	if sq != null:
@@ -2821,7 +2857,7 @@ func apply_status(id: String, duration: float, mode: String = "max") -> void:
 		_sig_f22_reload_all()
 	# 722 sig_fcas·作战云（队级账本位）：ACE 获得四类增益 → 同步施加全队（已有者刷新）
 	if SkillHooks.sig_fcas_active and is_player_squad() \
-			and self == AircraftRenderer.player_ref \
+			and self == AircraftRenderer.safe_player_ref() \
 			and (id == StatusEffects.OVERLOAD or id == StatusEffects.BLOODLUST \
 			or id == StatusEffects.STEALTH or id == StatusEffects.INVINCIBLE):
 		SkillHooks.broadcast_combat_cloud(self, id, duration, mode)
@@ -3204,7 +3240,7 @@ func _start_destroy() -> void:
 	_active_special_pitch_visual = 0.0
 	# 清空全局玩家引用，防止 AircraftRenderer 后续帧把 freed 实例赋给类型化变量崩溃
 	# （`var pref: Aircraft = player_ref` 在 player_ref 已 free 时抛 "previously freed"）
-	if AircraftRenderer.player_ref == self:
+	if AircraftRenderer.safe_player_ref() == self:
 		AircraftRenderer.player_ref = null
 	AircraftDestruction.start(self)
 
@@ -3302,7 +3338,7 @@ func _draw_impl() -> void:
 	# 副导弹槽（仅玩家、装备副弹时画）
 	#   - 锁定锥：hover-only（draw_secondary_lock_cone 自身判断 is_hovered）
 	#   - 锁定指示括号：长期可见，提示"QMAAM 已就绪可以打"
-	if AircraftRenderer.player_ref == self:
+	if AircraftRenderer.safe_player_ref() == self:
 		AircraftRenderer.draw_secondary_lock_cone(self)
 		AircraftRenderer.draw_secondary_lock_indicators(self)
 	# 友方 hover 时显示参考机炮锥；敌方对玩家提交机炮攻击时持续显示锥（条件在 draw_gun_cone 内判）
@@ -3313,6 +3349,7 @@ func _draw_impl() -> void:
 	AircraftRenderer.draw_cloud_state(self)
 	AircraftRenderer.draw_railgun_telegraph(self)
 	AircraftRenderer.draw_aircraft_icon(self)
+	AircraftRenderer.draw_deadair_exposure(self)
 	if not is_drone:
 		AircraftRenderer.draw_lock_indicator(self)
 		AircraftRenderer.draw_target_bracket(self, is_mission_target)
@@ -3354,22 +3391,27 @@ func _max_bank_angle_at_speed(spd: float, stall_base_ms: float) -> float:
 ## 每 0.2 秒查询一次天气系统，更新 cloud_state / cloud_density。
 ## 状态：0=晴空 / 1=云下方（LOW/MID）/ 2=云中（HIGH）。
 ## 供渲染层画光晕/阴影、其它系统（missile AI 等）直接读。
-func _update_cloud_state(delta: float) -> void:
+func _update_cloud_state(delta: float, weather_override: Node = null) -> void:
 	_cloud_state_accum += delta
 	if _cloud_state_accum < 0.2:
 		return
 	_cloud_state_accum = 0.0
-	var weather := get_tree().get_first_node_in_group("weather")
+	var weather := weather_override if weather_override != null else get_tree().get_first_node_in_group("weather")
 	if weather == null or not weather.has_method("sample_density"):
 		cloud_state = 0
 		cloud_density = 0.0
 		return
-	var density: float = weather.sample_density(global_position)
-	cloud_density = density
-	if density <= 0.0:
-		cloud_state = 0
-	elif get_altitude_tier() == AltitudeTier.HIGH:
+	var visual_density: float = weather.sample_density(global_position)
+	var combat_density: float = weather.sample_obscurant_density(global_position, altitude) \
+		if weather.has_method("sample_obscurant_density") else \
+		(visual_density if get_altitude_tier() == AltitudeTier.HIGH else 0.0)
+	cloud_density = maxf(visual_density, combat_density)
+	if combat_density > 0.0:
+		# 普通云=HIGH；沙尘暴=LOW。二者统一为“云中”战斗状态。
 		cloud_state = 2
+		cloud_density = combat_density
+	elif visual_density <= 0.0:
+		cloud_state = 0
 	else:
 		cloud_state = 1
 	# §C 玩家技能：进/出云边界事件（在云中=cloud_state>=1 即视为入云，便于 LOW/MID 也能享受）
@@ -3446,7 +3488,7 @@ func _update_gun_threat_indicator(delta: float) -> void:
 	if not params or not params.gun:
 		_reset_gun_threat()
 		return
-	var pref: Aircraft = AircraftRenderer.player_ref
+	var pref: Aircraft = AircraftRenderer.safe_player_ref()
 	if pref == null or not is_instance_valid(pref) or pref.is_destroyed:
 		_reset_gun_threat()
 		return
@@ -3474,7 +3516,7 @@ func _reset_gun_threat() -> void:
 func _lock_line_can_engage_player() -> bool:
 	if not has_missile_capability():
 		return false
-	var pref: Aircraft = AircraftRenderer.player_ref
+	var pref: Aircraft = AircraftRenderer.safe_player_ref()
 	if pref == null:
 		return false
 	return combat_target == pref and _missile_cooldown <= 0.05

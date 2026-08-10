@@ -13,6 +13,13 @@ var rail_half_width: float = 45.0
 var rail_phase: float = 0.0
 
 
+func take_missile_damage(amount: float) -> void:
+	# 压测编队必须保持成员数稳定，避免正式战区的偶发导弹一击必杀污染容量统计。
+	if bool(get_meta("stress_invulnerable", false)):
+		return
+	super.take_missile_damage(amount)
+
+
 func configure_rail(start_pos: Vector2, long_axis: Vector2, half_length: float = 350.0,
 		half_width: float = 45.0) -> void:
 	rail_axis = long_axis.normalized()
@@ -24,6 +31,22 @@ func configure_rail(start_pos: Vector2, long_axis: Vector2, half_length: float =
 	# phase=0 位于长轴正端；反推中心保证配置后不瞬移。
 	rail_center = start_pos - rail_axis * rail_half_length
 	rail_phase = 0.0
+
+
+## 正式战区使用的中心式配置：允许每门炮拥有不同轨道尺寸与初始相位，出生即在解析轨道上。
+## 只改变一次性初始化数据；后续仍走同一条 O(1) 解析式移动，不增加运行时决策。
+func configure_ellipse(center_pos: Vector2, long_axis: Vector2, half_length: float,
+		half_width: float, start_phase: float) -> void:
+	rail_axis = long_axis.normalized()
+	if rail_axis.length_squared() < 0.5:
+		rail_axis = Vector2.UP
+	rail_lateral = Vector2(-rail_axis.y, rail_axis.x)
+	rail_half_length = maxf(half_length, 1.0)
+	rail_half_width = maxf(half_width, 1.0)
+	rail_center = center_pos
+	rail_phase = fposmod(start_phase, TAU)
+	position = rail_center + rail_axis * cos(rail_phase) * rail_half_length \
+		+ rail_lateral * sin(rail_phase) * rail_half_width
 
 
 func _update_movement(delta: float) -> void:

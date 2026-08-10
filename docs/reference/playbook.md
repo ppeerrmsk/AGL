@@ -269,6 +269,9 @@ RadarStation 都继承 `GroundUnit extends CombatUnit`。
 - 程序烘焙：[map-pipeline.md](map-pipeline.md)（OSM 数据 → tile）
 - 手画：[manual-map-editing.md](manual-map-editing.md)（Godot 编辑器内手画地块）
 
+无论走哪条路，先执行 [map-pipeline §0](map-pipeline.md) 的视觉生产协议：agent 内部至少 3 轮迭代、
+固定机位分层 QA、只提交里程碑候选；禁止把逐轮调色与找错外包给用户。
+
 **沙盒模式已废弃**（user memory `project_sandbox_deprecated`）。地图改动走
 `map_feature_renderer` / `map_geography`，不要动 `terrain_renderer.gd`。
 

@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource path="res://scripts/tests/aircraft_silhouette_visual_qa_runner.gd" type="Script" id="1"]
+
+[node name="AircraftSilhouetteVisualQA" type="Node2D"]
+script = ExtResource("1")

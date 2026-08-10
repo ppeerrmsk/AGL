@@ -81,6 +81,7 @@ const ENEMY_TYPE_LABELS := [
 	{"label": "YF-23 雷达静默狙击支援", "enum_idx": 29},       # EnemyType.YF23（事件专属）
 	{"label": "F-22 四锁狙击编队", "enum_idx": 30},             # EnemyType.F22
 	{"label": "Snowblind 传感器幕支援机", "enum_idx": 31},     # EnemyType.SNOWBLIND
+	{"label": "DEADAIR 累积 JAM 支援机", "enum_idx": 56},      # EnemyType.DEADAIR
 	{"label": "F-15 常规型", "enum_idx": 32},
 	{"label": "F-14 远程截击型", "enum_idx": 33},
 	{"label": "A-6E 低空突击", "enum_idx": 34},
@@ -247,7 +248,7 @@ func _build_ui() -> void:
 
 	# 刷怪按钮
 	var spawn_btn := Button.new()
-	spawn_btn.text = "▶ 刷新敌人"
+	spawn_btn.text = "▶ 刷新敌人（玩家附近）"
 	spawn_btn.add_theme_font_size_override("font_size", 14)
 	_apply_btn_style(spawn_btn, Color(0.9, 0.5, 0.2))
 	spawn_btn.pressed.connect(_on_spawn_pressed)
@@ -391,6 +392,7 @@ func _make_sep() -> HSeparator:
 	sep.add_theme_color_override("separator", Color(0.5, 0.3, 0.1, 0.3))
 	return sep
 
+
 func _make_atmosphere_button(text: String, accent: Color, callback: Callable) -> Button:
 	var button := Button.new()
 	button.text = text
@@ -467,11 +469,11 @@ func _on_spawn_pressed() -> void:
 	for r in range(repeats):
 		match formation:
 			FormationType.SINGLE:
-				spawner._spawn_single(enum_idx)
+				spawner._spawn_single(enum_idx, false, true)
 			FormationType.SQUAD:
-				spawner._spawn_squad(enum_idx, size)
+				spawner._spawn_squad(enum_idx, size, false, false, true)
 			FormationType.COMMANDER_SQUAD:
-				spawner._spawn_commander_squad(size)
+				spawner._spawn_commander_squad(size, true)
 			FormationType.TU160_FLOCK:
 				# 族群波次：大小由 SurvivorData.TU160_FLOCK_SIZE 定义，size spinbox 忽略
 				spawner._spawn_tu160_flock()
@@ -520,6 +522,7 @@ func _start_ace_event(pid: String) -> void:
 		ev.profile_id = pid
 		ev.debug_force_battle_bar = true
 		game_scene._event_director.start(ev)
+
 
 func _on_atmosphere_pressed() -> void:
 	if not _ensure_atmosphere_experiment():

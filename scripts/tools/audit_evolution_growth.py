@@ -125,7 +125,19 @@ def load_aircraft(root: Path, node: dict, path_map: dict[str, str], signatures: 
     missile_id = resource_id_for(params, "missile", "SubResource")
     missile = subresource_block(params_text, missile_id) if missile_id else ""
     row["missile_count"] = int(scalar(missile, "max_count"))
+    missile_override = int(scalar(profile_res, "missile_count_override", -1.0))
+    if missile_override >= 0:
+        row["missile_count"] = missile_override
     row["missile_damage"] = scalar(missile, "damage")
+
+    flare_id = referenced_ext_id(profile_res, "flare_override")
+    if flare_id:
+        flare_path = root / ext.get(flare_id, "")
+    else:
+        flare_id = referenced_ext_id(params, "flare")
+        flare_path = root / ext_resources(params_text).get(flare_id, "")
+    flare_text = flare_path.read_text(encoding="utf-8") if flare_id and flare_path.is_file() else ""
+    row["flare_count"] = int(scalar(section(flare_text, "resource"), "max_flares"))
 
     gun_id = referenced_ext_id(params, "gun")
     gun_text = (root / ext_resources(params_text).get(gun_id, "")).read_text(encoding="utf-8") if gun_id else ""
@@ -161,7 +173,8 @@ def tier_summary(rows: list[dict]) -> list[dict]:
     for row in rows:
         grouped[(str(row["axis"]), int(row["tier"]))].append(row)
     fields = ("max_hp", "max_g", "roll_rate", "acceleration", "gun_damage",
-              "gun_range", "gun_cone", "aim_skill", "radar_range", "lock_time", "missile_count")
+              "gun_range", "gun_cone", "aim_skill", "radar_range", "lock_time",
+              "missile_count", "flare_count")
     output: list[dict] = []
     for axis in AXES:
         for tier in range(1, 6):
@@ -205,7 +218,44 @@ def gladiator_gun_violations(rows: list[dict]) -> list[str]:
     return violations
 
 
-def render_report(rows: list[dict], summary: list[dict], violations: list[str]) -> str:
+def expected_missile_count(row: dict) -> int:
+    tier = int(row["tier"])
+    if tier <= 2:
+        return 2
+    if tier <= 4:
+        return 3
+    return 5 if row["category"] == "range" else 4
+
+
+def ordnance_violations(rows: list[dict], nodes: list[dict]) -> list[str]:
+    violations: list[str] = []
+    by_id = {str(row["id"]): row for row in rows}
+    for row in rows:
+        expected_missile = expected_missile_count(row)
+        if int(row["missile_count"]) != expected_missile:
+            violations.append(
+                f"{row['id']} T{row['tier']} missile_count={row['missile_count']} != {expected_missile}"
+            )
+        expected_flare = int(row["tier"]) + 1
+        if int(row["flare_count"]) != expected_flare:
+            violations.append(
+                f"{row['id']} T{row['tier']} flare_count={row['flare_count']} != {expected_flare}"
+            )
+    for node in nodes:
+        source = by_id[str(node["id"])]
+        for target_id in node.get("exits", []):
+            target = by_id[str(target_id)]
+            if int(target["tier"]) > int(source["tier"]) \
+                    and int(target["missile_count"]) < int(source["missile_count"]):
+                violations.append(
+                    f"edge {source['id']} T{source['tier']} M{source['missile_count']} -> "
+                    f"{target['id']} T{target['tier']} M{target['missile_count']} regresses"
+                )
+    return violations
+
+
+def render_report(rows: list[dict], summary: list[dict], gun_violations: list[str],
+                  ordnance_errors: list[str]) -> str:
     by_axis = {axis: [r for r in rows if r["axis"] == axis] for axis in AXES}
     lines = [
         "# 43 机三轴静态成长审计",
@@ -216,8 +266,8 @@ def render_report(rows: list[dict], summary: list[dict], violations: list[str]) 
         "",
         "## 各轴 Tier 中位数变化",
         "",
-        "| 轴 | Tier | 机数 | HP | G | 滚转 | 加速 | 炮伤 | 炮距 | 开火半角 | 瞄准 | 雷达 | 锁定秒 | 导弹 | 增强/持平/倒退 |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
+        "| 轴 | Tier | 机数 | HP | G | 滚转 | 加速 | 炮伤 | 炮距 | 开火半角 | 瞄准 | 雷达 | 锁定秒 | 导弹 | Flare | 增强/持平/倒退 |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
     ]
     axis_names = {"gladiator": "斗士", "knight": "骑士", "schemer": "策士"}
     for item in summary:
@@ -226,7 +276,7 @@ def render_report(rows: list[dict], summary: list[dict], violations: list[str]) 
         lines.append(
             "| {axis_label} | T{tier} | {aircraft_count} | {max_hp:g} | {max_g:g} | {roll_rate:g} | "
             "{acceleration:g} | {gun_damage:g} | {gun_range:g} | {gun_cone:g} | {aim_skill:g} | {radar_range:g} | "
-            "{lock_time:g} | {missile_count:g} | {enhanced}/{flat}/{regressed} |".format(
+            "{lock_time:g} | {missile_count:g} | {flare_count:g} | {enhanced}/{flat}/{regressed} |".format(
                 **rendered
             )
         )
@@ -237,7 +287,7 @@ def render_report(rows: list[dict], summary: list[dict], violations: list[str]) 
         all(float(current[field]) > float(previous[field]) for field in gun_fields)
         for previous, current in zip(fighter, fighter[1:])
     )
-    verdict = "通过" if not violations and gun_growth_ok else "不通过"
+    verdict = "通过" if not gun_violations and gun_growth_ok else "不通过"
     lines.extend([
         "",
         "## 斗士线结论",
@@ -246,7 +296,13 @@ def render_report(rows: list[dict], summary: list[dict], violations: list[str]) 
         "",
         "Tier 下限：T2=1.30×/1200m/8°/0.65，T3=1.40×/1300m/9°/0.70，T4=1.50×/1400m/10°/0.75，T5=1.60×/1500m/11°/0.80。射速 3000 rpm 与弹药 200 保持共同基线。",
         "",
-        "违规项：" + ("无" if not violations else "；".join(violations)),
+        "违规项：" + ("无" if not gun_violations else "；".join(gun_violations)),
+        "",
+        "## 导弹与 Flare 分档",
+        "",
+        "主导弹默认挂载：T1/T2=2、T3/T4=3、T5=4；仅 T5 远程专精 X-21=5。Flare 保持 T1→T5 = 2/3/4/5/6。",
+        "",
+        "分档与直接进化边违规项：" + ("无" if not ordnance_errors else "；".join(ordnance_errors)),
         "",
         "## 解释边界",
         "",
@@ -276,7 +332,8 @@ def main() -> int:
         raise SystemExit(f"missing signature axis: {missing_axes}")
 
     summary = tier_summary(rows)
-    violations = gladiator_gun_violations(rows)
+    gun_violations = gladiator_gun_violations(rows)
+    ordnance_errors = ordnance_violations(rows, tree["nodes"])
     out.mkdir(parents=True, exist_ok=True)
     write_csv(out / "aircraft_growth.csv", rows)
     write_csv(out / "axis_tier_summary.csv", summary)
@@ -284,12 +341,19 @@ def main() -> int:
         json.dumps({"aircraft": rows, "tier_summary": summary}, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    (out / "growth_audit.md").write_text(render_report(rows, summary, violations), encoding="utf-8")
+    (out / "growth_audit.md").write_text(
+        render_report(rows, summary, gun_violations, ordnance_errors), encoding="utf-8"
+    )
     print(f"growth audit: {len(rows)} aircraft -> {out}")
-    if violations:
+    if gun_violations:
         print("gladiator gun floor violations:")
-        for violation in violations:
+        for violation in gun_violations:
             print(f"- {violation}")
+    if ordnance_errors:
+        print("missile/flare tier violations:")
+        for violation in ordnance_errors:
+            print(f"- {violation}")
+    if gun_violations or ordnance_errors:
         return 1
     return 0
 

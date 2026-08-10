@@ -29,7 +29,7 @@ class SpawnPickProbe extends SurvivorSpawner:
 ## C AF-03 可见性（旅途池门槛 + 战区池在册）
 ## D 机体专属技能普通池排除
 ## E ADBS 护卫零 Token 选型与退役门
-## F 全部 56 型敌机的常规池/专用入口覆盖
+## F 全部 57 型敌机的常规池/专用入口覆盖
 ## G 常规池数学可达性与五响应截面产出率
 ##
 ## 运行：godot --headless --path . -- --bench=spawn_pool（或 --bench=all）
@@ -88,6 +88,7 @@ func run() -> void:
 	_test_regular_pool_reachability_and_rates()
 	_test_adbs_escort_pool()
 	_test_sentinel_escort_cohesion()
+	_test_debug_near_spawn()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
 
@@ -408,7 +409,7 @@ func _test_regular_enemy_registry() -> void:
 	_check("Snowblind 创建当帧主动登记且编成后立即刷新，不依赖 Token 重算",
 		spawner_source.contains("_snowblind_controller.register(enemy)") \
 			and spawner_source.contains("_snowblind_controller.refresh_now()") \
-			and not spawner_source.contains("_snowblind_controller.has_active_state()"), "")
+			and spawner_source.contains("_snowblind_controller.tick(delta)"), "")
 	_check("Snowblind 未破幕为实体高遮蔽层，破幕后才降为低透明度",
 		SnowblindShroudVisual.SHADER_CODE.contains("solid_alpha = 1.0") \
 			and SnowblindShroudVisual.SHADER_CODE.contains("uniform float concealment"), "")
@@ -470,7 +471,7 @@ func _test_regular_enemy_registry() -> void:
 			and bool(EnemyPoolRegistry.row_for_type(49).get("post_stall")), "")
 
 
-# ── H. 全机型产出路径：常规池 42 型 + 专用入口 14 型 ──
+# ── H. 全机型产出路径：常规池 43 型 + 专用入口 14 型 ──
 func _test_enemy_type_route_coverage() -> void:
 	print("── H. 全机型路径：常规池资源/工厂 + 专用事件入口 ──")
 	var covered: Dictionary = {}
@@ -492,7 +493,7 @@ func _test_enemy_type_route_coverage() -> void:
 			regular_ok = false
 			regular_detail += "%s(factory); " % row["id"]
 		covered[type_idx] = "regular"
-	_check("42 型常规池均有可加载敌版资源且接入 Spawner 工厂", regular_ok, regular_detail)
+	_check("43 型常规池均有可加载敌版资源且接入 Spawner 工厂", regular_ok, regular_detail)
 
 	var dedicated_ok := true
 	var dedicated_detail := ""
@@ -512,7 +513,7 @@ func _test_enemy_type_route_coverage() -> void:
 		covered[type_idx] = "dedicated"
 	_check("14 型专用敌机均有资源、工厂映射与实际事件/BOSS/王牌入口",
 		dedicated_ok, dedicated_detail)
-	_check("EnemyType 56 型无遗漏且常规/专用分类互斥",
+	_check("EnemyType 57 型无遗漏且常规/专用分类互斥",
 		covered.size() == SurvivorSpawner.EnemyType.size(),
 		"covered=%d enum=%d" % [covered.size(), SurvivorSpawner.EnemyType.size()])
 
@@ -549,7 +550,7 @@ func _test_regular_pool_reachability_and_rates() -> void:
 			reachable[int(row["type"])] = true
 		else:
 			reach_detail += "%s(p=%.6f,picked=%s); " % [row["id"], probability, picked.get("id", "none")]
-	_check("42 型常规敌机各自在解锁等级拥有非零概率且选型区间可命中",
+	_check("43 型常规敌机各自在解锁等级拥有非零概率且选型区间可命中",
 		reachable.size() == EnemyPoolRegistry.ROWS.size(), reach_detail)
 
 	var sampled_all: Dictionary = {}
@@ -581,7 +582,7 @@ func _test_regular_pool_reachability_and_rates() -> void:
 				sample_detail += "Lv%d:%s; " % [level, row["id"]]
 		print("  · Lv%d 原始/防重复抽样：%s" % [level, ", ".join(rate_parts)])
 	_check("五个响应截面中所有合格类型在 3 万次真实选型内均实际出现", sample_ok, sample_detail)
-	_check("五个响应截面合计覆盖全部 42 型常规敌机",
+	_check("五个响应截面合计覆盖全部 43 型常规敌机",
 		sampled_all.size() == EnemyPoolRegistry.ROWS.size(),
 		"sampled=%d/%d" % [sampled_all.size(), EnemyPoolRegistry.ROWS.size()])
 
@@ -784,6 +785,31 @@ func _sentinel_probe_ai(ac: Aircraft) -> AIController:
 		if child is AIController:
 			return child
 	return null
+
+
+func _test_debug_near_spawn() -> void:
+	print("── L. F5 Debug：普通敌机即时刷新在玩家附近 ──")
+	var spawner := SurvivorSpawner.new()
+	var player := Aircraft.new()
+	player.global_position = Vector2(321.0, -654.0)
+	player.heading = 0.0
+	spawner.player_aircraft = player
+	var first := spawner._debug_spawn_point()
+	var second := spawner._debug_spawn_point()
+	var distance_ok := is_equal_approx(first.distance_to(player.global_position),
+		SurvivorSpawner.DEBUG_SPAWN_DISTANCE_PX) \
+		and is_equal_approx(second.distance_to(player.global_position),
+			SurvivorSpawner.DEBUG_SPAWN_DISTANCE_PX)
+	_check("近距点固定在玩家约 2200m 外且连续刷新不重叠", distance_ok and first != second,
+		"first=%s second=%s" % [first, second])
+	var debug_source := FileAccess.get_file_as_string(
+		"res://scripts/survivor/survivor_debug_spawn.gd")
+	_check("F5 单机/小队/Sentinel 明确走 debug_near_player 路径",
+		debug_source.contains("_spawn_single(enum_idx, false, true)") \
+			and debug_source.contains("_spawn_squad(enum_idx, size, false, false, true)") \
+			and debug_source.contains("_spawn_commander_squad(size, true)"), "")
+	player.free()
+	spawner.free()
 
 
 func _check(label: String, ok: bool, detail: String) -> void:

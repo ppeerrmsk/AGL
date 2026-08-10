@@ -1,0 +1,112 @@
+---
+id: aircraft-top-view-silhouettes
+kind: system
+status: done
+schema_version: 1
+spec_version: 7
+owner: AGL
+depends_on: [systems/battlefield-visual-scale]
+reconstruction_complete: true
+---
+
+# 飞机顶视轮廓资产
+
+> 现实机逐架使用可靠顶视资料的真实外轮廓；原创/虚构机默认保留旧绘制，用户明确提供并批准的定型参考可作为白名单例外。同型号只保留一张白色蒙版，运行时换色。
+
+## 1. 设计意图（Why）
+
+- 玩家不读名称也能凭翼型、机身比例、尾翼和发动机布局区分现实机型。
+- 保留 AGL 的抽象纯色风格，不引入照片质感、涂装或内部线稿。
+- 真实性来自来源图本身，不由生成式模型或参数化模板“近似重画”。
+- 找不到许可、视角和闭合度都合格的来源时，宁可继续旧绘制，也不制造错误轮廓。
+
+## 2. 数据定义（What）
+
+### 2.1 PNG 契约
+
+| 字段 | 值 |
+|---|---|
+| 画布 | 128 × 128 RGBA PNG |
+| 朝向 | 机头朝上 |
+| 安全边距 | 7 px |
+| 可见 RGB | 255, 255, 255 |
+| 背景 | alpha = 0 |
+| 内容 | 仅机体顶视外轮廓；来源明确标注的外挂或辅助线可剔除 |
+| 运行时颜色 | `icon_color`；若 `wing_color.a > 0.01` 则使用 `wing_color` |
+
+允许的加工只有：裁切、剔除明确标注的武器/辅助线、旋转、等比缩放、居中和抗锯齿。禁止补画或改造飞机几何。
+
+### 2.2 来源与审查状态
+
+`resources/aircraft_silhouettes/reference_manifest.json` 是逐机来源、许可、署名、处理边界和 alpha 哈希的权威清单。
+
+- `reviewed`：来源和最终轮廓已逐架核对，可加入运行时 PNG 目录。
+- `fallback_source_not_clean`：现实机，但没有找到足够干净且可复用的顶视来源，继续旧绘制。
+- `fallback_unverified_concept`：原创、未定型或仅有概念外形，不制作正式轮廓。
+
+当前正式接入 **40** 张 reviewed PNG。A-12、F-47、F/A-XX、FCAS、GCAP、J-36、MiG-41 不以猜测外形制作正式 PNG。
+
+原创/虚构显示名中 **20** 个继续保留旧 polygon/special renderer，包括 X 系列、AX-00、AF-03、Cre、DEADAIR、Snowblind、Sentinel、MQ-112、Aegis UAV、DRONE、Probe 与 Mother Goose。MQ-109 / MQ-110 / MQ-111 按用户提供并批准的定型顶视参考，共用 `mq109_family` 白色蒙版；三者只以武器、颜色和行为区分，并用 `DRAW_SCALE=0.53` 保持旧无人机约 55% 战斗机视觉尺寸。
+
+### 2.3 同型号复用
+
+- F-4 / F-4E → `f4`
+- F-14 / F-14 Tomcat → `f14`
+- F-15 / F-15C / F-15E → `f15`
+- F-16 两个显示名 → `f16`
+- F/A-18E / EA-18G → `fa18e`
+- Gripen C / E → `gripen`
+- Su-27 / Su-35 → `su27`
+- MiG-31 两个显示名 → `mig31`
+
+## 3. 行为与结构（How）
+
+1. `AircraftParams.display_name` 经目录映射到规范 key。
+   生存模式玩家机若已拼接档案代号，则优先用 `SurvivorPlayableSetup` 保存的纯机型 `airframe_label` 映射；呼号与运行时全名不参与轮廓识别。
+2. 目录首次命中时从原始 PNG 解码并缓存 `ImageTexture`。
+3. 渲染器用同一 alpha 蒙版先画深色偏移边，再画运行时纯色填充。
+4. 未审查、原创、虚构或未知 UGC 名称返回未命中，继续调用原有绘制路径。
+5. 原始 PNG 由导出预设显式包含，不依赖开发机的 `.ctex` 缓存。
+
+本功能不新增节点、不做场景树扫描、不增加逐帧资源解码；缓存粒度为每个规范机型首次一次。
+
+## 4. 验收标准
+
+- [x] 40 张正式 PNG 均为 128 × 128 RGBA、白色 alpha 蒙版、透明四角、机头朝上。
+- [x] 每个正式 key 都有来源、许可/署名（适用时）、处理边界和 alpha 哈希。
+- [x] 运行时目录只包含 `reviewed` key；fallback key 不会加载占位 PNG。
+- [x] 同型号玩家/敌人/子型号共享一张 PNG，仅通过颜色区分。
+- [x] 玩家机运行时名称拼接档案代号后仍命中同一机型 PNG；F-14 `Tomcat Warhound` 不回退旧绘制。
+- [x] 20 个未获批准定型参考的原创/虚构显示名和未知 UGC 保留旧绘制；MQ-109/110/111 共用用户参考轮廓。
+- [x] 静态审计覆盖当前 86 个 AircraftParams 显示名。
+- [x] Godot 4.7 Shadow 视觉 QA 通过，逐架拼图没有方向、裁切、加载或颜色错误。
+- [x] 文档与锚点校验通过。
+
+## 5. 实现锚点
+
+- `scripts/aircraft_silhouette_catalog.gd`
+- `scripts/aircraft_renderer.gd`
+- `scripts/tools/trace_orthographic_outline.py`
+- `scripts/tools/normalize_aircraft_reference.py`
+- `scripts/tools/audit_aircraft_silhouettes.py`
+- `resources/aircraft_silhouettes/reference_manifest.json`
+
+## 6. 变更记录
+
+- **2026-08-08 / v1**：建立现实机顶视 PNG、同型号复用和运行时换色路径。
+- **2026-08-08 / v2**：按用户要求，原创/虚构机统一恢复旧绘制。
+- **2026-08-09 / v3**：撤销参数化模板和生成式近似图；38 架正式资源改为从逐架核实的顶视/正投影来源直接提取。无法可靠提取的机型明确回退，不再猜测补画。
+- **2026-08-09 / v4**：补齐现实机型 F-CK-1；直接提取 FAS DOD 101 归档三视图的闭合顶视外轮廓，并纳入运行时视觉 QA。
+- **2026-08-09 / v5**：轮廓目录接入玩家机的纯机型 `airframe_label`，修复 F-14 拼接 `Warhound` 后玩家机回退旧多边形、僚机却正常的问题；视觉 QA 改为实际应用 playable profile。
+- **2026-08-09 / v6**：修正 F-104 误截取顶视图后半段的问题；从同一授权三视图重新提取完整机鼻、主翼、机身与尾翼，并统一机头朝上。
+- **2026-08-09 / v7**：用户提供并批准 MQ-109 系定型参考；从原图严格提取无尾三角翼、双垂尾和尖长机身外轮廓，MQ-109 / MQ-110 / MQ-111 共用一张运行时换色 PNG，并以 0.53 目录缩放保持旧无人机尺寸；MQ-112 保持旧绘制。
+
+## 7. 代表性来源
+
+- [F-14 公版三视图](https://commons.wikimedia.org/wiki/File:Grumman_F-14_Tomcat.png)
+- [Eurofighter Typhoon 公版正投影线稿](https://commons.wikimedia.org/wiki/File:Eurofighter_Typhoon_line_drawing.svg)
+- [YF-23 / YF-22 顶视轮廓对比（CC BY-SA 4.0）](https://commons.wikimedia.org/wiki/File:YF-22_et_YF-23.svg)
+- [Rafale 顶视剪影](https://commons.wikimedia.org/wiki/File:Dassault_Rafale_silhouette-top.svg)
+- [F-CK-1 三视图归档](https://man.fas.org/dod-101/sys/ac/row/idf.htm)
+
+完整来源以 manifest 为准。

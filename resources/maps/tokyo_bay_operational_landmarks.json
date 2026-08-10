@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "format": "AGLW gzip v1",
+  "source": "OpenStreetMap Geofabrik Kanto PBF height/building:levels",
+  "height_min_m": 80.0,
+  "buildings": 669,
+  "triangles": 29688,
+  "wall_triangles": 16166,
+  "roof_triangles": 13522,
+  "gzip_bytes": 227154,
+  "data_path": "res://resources/maps/tokyo_bay_operational_landmarks.aglw.gz"
+}

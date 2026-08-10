@@ -1,0 +1,38 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/default_combat.tres" id="2"]
+
+[resource]
+script = ExtResource("1")
+display_name = "DEADAIR"
+is_unmanned = true
+; 与 Snowblind/Sentinel 共用纯支援机体基线，不挂武器或热诱弹。
+max_hp = 55.0
+armor = 0.0
+max_speed = 650.0
+cruise_speed = 400.0
+stall_speed_base = 150.0
+acceleration = 20.0
+deceleration = 30.0
+g_drag_factor = 2.0
+max_g = 3.0
+max_g_structural = 4.0
+roll_rate = 1.2
+pilot_stamina = 100.0
+stamina_drain_rate = 50.0
+stamina_recovery_rate = 10.0
+max_altitude = 8000.0
+climb_rate_max = 80.0
+thrust_to_weight = 0.45
+drag_coefficient = 0.035
+afterburner_thrust_mult = 1.0
+fuel_capacity = 800.0
+fuel_rate_normal = 0.8
+fuel_rate_afterburner = 0.8
+radar_range = 1200.0
+radar_half_angle = 20.0
+lock_time = 99.0
+combat = ExtResource("2")
+icon_color = Color(0.663, 0.31, 0.282, 1)
+wing_color = Color(0.42, 0.11, 0.30, 1)

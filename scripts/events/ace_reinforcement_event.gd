@@ -7,7 +7,7 @@
 ##   _update  监护：全灭 → grant_time_extension(60) + 歼灭通报 → end；
 ##            BOSS 解锁 → 转撤离（直飞最近边界；被伤害立即回头应战，脱离接触后再撤；
 ##            撤离中被全灭：XP 照给、无时间奖励 —— game_time 已冻结无意义）
-##   已购 support_ace_f15：入场同步派 2 架只对空 ALLY F-15；王牌事件终态后物理撤离
+##   已购 support_ace_f15：每局首次入场同步派 Hound-1/2 两架只对空 ALLY F-15；终态撤离
 ##   _finish  静态注册表清引用；managed_units 交 director 兜底回收
 ##
 ## 调度（survivor_mode._update_ace_support_event）：六队 game_time≥240s 同窗洗牌；前支结束后
@@ -20,16 +20,19 @@ const WITHDRAW_REENGAGE_S := 5.0        ## 撤离被打断 → 回头应战的�
 const WITHDRAW_FREE_OUTSET_PX := 800.0  ## 出界此距离即静默释放（同 EGRESS 语义）
 const ALLY_SUPPORT_COUNT := 2            ## 已购王牌截击支援固定两架 F-15
 const ALLY_SUPPORT_SEPARATION_PX := 180.0
+const ALLY_SUPPORT_RADAR_RANGE_M := 3000.0 ## 仅友军截击实例；敌军 F-15 保持原值
 const FactionTransitionScript = preload("res://scripts/events/faction_transition.gd")
 
 ## Tab 战术图标记 / HUD 血条共用的静态注册表。
 ## GameEvent 是 RefCounted，静态强引用会让事件跨场景存活，因此新局/退局必须显式 reset。
 static var _active_ref: AceReinforcementEvent = null
+static var _ally_support_dispatched_this_run := false
 
 
 ## 清除只属于当前一局的注册状态；由 SurvivorMode 在开局与退局两端兜底调用。
 static func reset_runtime_state() -> void:
 	_active_ref = null
+	_ally_support_dispatched_this_run = false
 
 ## 编成 profile（spec ace-squadron-tier §2.7；调度器按时段档轮换注入）
 var profile_id := "marathon"
@@ -120,6 +123,10 @@ func _start() -> void:
 	var radio = director.mode.get("_radio") if director.mode else null
 	if radio:
 		radio.say_unit("ace_spawn", _squad.members[0])
+		if _ally_support.size() >= 1:
+			radio.say_unit("hound_one_contact", _ally_support[0])
+		if _ally_support.size() >= 2:
+			radio.say_unit("hound_two_follow", _ally_support[1])
 	var hint = _hint()
 	if hint:
 		# 提示条带中队代号（tier §2.6，727 包装批）
@@ -175,8 +182,10 @@ func _update(delta: float) -> void:
 	if _withdrawing:
 		_tick_withdraw(delta)
 
-## 已购生涯权益：敌军王牌成功入场后，从另一侧边界外派两架只对空 F-15。
+## 已购生涯权益：每局首次敌军王牌成功入场后，从另一侧边界外派两架只对空 F-15。
 func _spawn_ally_support(sp, player: Aircraft) -> void:
+	if _ally_support_dispatched_this_run:
+		return
 	var formal_run := false
 	if director.mode and director.mode.has_method("archive_enabled"):
 		formal_run = bool(director.mode.archive_enabled())
@@ -197,9 +206,13 @@ func _spawn_ally_support(sp, player: Aircraft) -> void:
 		if ac == null:
 			continue
 		AllyForce.convert_aircraft(ac)
-		ac.callsign = "ALLY-%s" % ac.callsign
+		CallsignDB.recycle(ac.callsign)
+		ac.callsign = "Hound-%d" % (i + 1)
+		CallsignDB.reserve(ac.callsign)
 		ac.set_meta("ace_intercept_support", true)
 		ac.set_meta("air_targets_only", true)
+		if ac.params:
+			ac.params.radar_range = ALLY_SUPPORT_RADAR_RANGE_M
 		if _ally_support.is_empty():
 			SquadFactory.register_leader(sq, ac)
 		else:
@@ -212,6 +225,7 @@ func _spawn_ally_support(sp, player: Aircraft) -> void:
 	_ally_support_hp_watch = _ally_support_hp()
 	_maintain_ally_support_targets()
 	if not _ally_support.is_empty():
+		_ally_support_dispatched_this_run = true
 		EventLogger.log_event("EVENT", "AceInterceptSupport",
 			"F-15 x%d inbound from %s vs %s" % [_ally_support.size(), spawn_origin.round(),
 			AceSquadProfiles.codename(profile_id)])

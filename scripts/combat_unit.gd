@@ -71,6 +71,12 @@ const TEAM_ALLY: int = 2
 ## 通用的友军设施归组元数据（写入方由具体模式负责；共享层只读，不依赖模式类）。
 const META_FRIENDLY_ASSET_GROUP: StringName = &"friendly_asset_group_id"
 const META_FRIENDLY_ASSET_ACTIVE: StringName = &"friendly_asset_active"
+## 生存层可写、共享武器层只读的通用气氛交战契约。
+## 倍率在武器发射时快照；不存在 meta = 正式 100% 伤害。
+const META_AMBIENT_DAMAGE_MULTIPLIER: StringName = &"ambient_damage_multiplier"
+const META_PREFERRED_COMBAT_TARGET: StringName = &"preferred_combat_target"
+## 固定剧本演员不得被投降/黑客/支援生成等动态转换路径翻转阵营。
+const META_FACTION_CONVERSION_LOCKED: StringName = &"faction_conversion_locked"
 
 ## 敌我判定唯一 API：HOSTILE 与其它一切阵营互为敌对；非 HOSTILE 阵营之间互为友好。
 func is_hostile_to(other: CombatUnit) -> bool:
@@ -80,9 +86,35 @@ func is_hostile_to(other: CombatUnit) -> bool:
 static func teams_hostile(team_a: int, team_b: int) -> bool:
 	return (team_a == TEAM_HOSTILE) != (team_b == TEAM_HOSTILE)
 
+## 发射瞬间的气氛伤害倍率。轰炸任务可用 ambient_damage_lod_exempt 显式豁免。
+static func ambient_damage_multiplier(source: Variant) -> float:
+	if not is_instance_valid(source) or not (source is CombatUnit):
+		return 1.0
+	var unit := source as CombatUnit
+	if bool(unit.get_meta(&"ambient_damage_lod_exempt", false)):
+		return 1.0
+	return maxf(float(unit.get_meta(META_AMBIENT_DAMAGE_MULTIPLIER, 1.0)), 0.0)
+
 ## 玩家小队判定（玩家特权 gate：技能/热诱弹/RTS 指挥/datalink 等；ALLY 不得继承这些特权）
 func is_player_squad() -> bool:
 	return team == TEAM_PLAYER
+
+## `radar_targets` 保留全阵营战术锁定；玩家可见/可反应的被锁状态只汇总含 PLAYER 的配对。
+## 这样 HOSTILE↔ALLY 仍能正常发射武器，但不会在第三方单位身上画玩家专属锁框，
+## 也不会触发只应服务玩家交战的 is_locked / locked_by 消费者。
+static func tracks_player_lock_state(shooter: CombatUnit, target: CombatUnit) -> bool:
+	return shooter != null and target != null \
+		and (shooter.team == TEAM_PLAYER or target.team == TEAM_PLAYER)
+
+func accumulate_player_lock_state(shooter: CombatUnit, progress: float,
+		fully_locked: bool) -> void:
+	if not tracks_player_lock_state(shooter, self):
+		return
+	incoming_lock_progress = maxf(incoming_lock_progress, clampf(progress, 0.0, 1.0))
+	if fully_locked:
+		is_locked = true
+		if not locked_by.has(shooter):
+			locked_by.append(shooter)
 var altitude: float = 5000.0        ## 米
 var heading: float = 0.0            ## 弧度, 0=上(北)
 var speed: float = 0.0              ## m/s
@@ -92,9 +124,9 @@ var flat_altitude: bool = false     ## 生存模式：扁平高度（三档/四�
 
 # --- 雷达/锁定 ---
 var radar_targets: Dictionary = {}       ## { CombatUnit: float } 累计照射时间
-var is_locked: bool = false              ## 被至少一个敌方单位锁定
-var locked_by: Array[CombatUnit] = []    ## 锁定自己的单位列表
-var incoming_lock_progress: float = 0.0  ## 被敌方锁定的最大进度 (0..1)，用于表现层动画
+var is_locked: bool = false              ## 含玩家阵营的交战配对中，被至少一个敌方单位锁定
+var locked_by: Array[CombatUnit] = []    ## 含玩家阵营配对中，锁定自己的单位列表
+var incoming_lock_progress: float = 0.0  ## 含玩家阵营配对的最大锁定进度 (0..1)，用于表现层动画
 var is_hovered: bool = false             ## 鼠标悬停时为 true，显示雷达锥
 var is_mission_target: bool = false      ## 是否为当前战区/事件的必杀目标（UI 显示 TGT 括号）
 ## Snowblind 等传感器遮蔽只影响发现/交战，不改变物理碰撞；由低频队级控制器统一写入。
@@ -113,6 +145,14 @@ var _cloud_cache_result: bool = false
 var status_effects: Dictionary = {}            ## id(String) → 剩余秒数(float)
 var status_initial_durations: Dictionary = {}   ## id(String) → 施加时的初始秒数(float)，渲染条进度基准
 var status_jam_active: bool = false             ## 唯一对所有 CombatUnit 子类生效的派生标记
+## DEADAIR 干扰暴露量（0..1）；由唯一 5Hz 控制器写入，表现层按八段环显示。
+var deadair_exposure_ratio: float = 0.0
+
+func set_deadair_exposure_ratio(value: float) -> void:
+	var old_segment := ceili(deadair_exposure_ratio * 8.0)
+	deadair_exposure_ratio = clampf(value, 0.0, 1.0)
+	if ceili(deadair_exposure_ratio * 8.0) != old_segment:
+		queue_redraw()
 
 ## 施加状态。
 ## mode 语义：
@@ -248,6 +288,16 @@ func take_damage(amount: float, attacker: Node = null, kind: String = "") -> voi
 func take_damage_from(amount: float, attacker: Node, kind: String = "") -> void:
 	take_damage(amount, attacker, kind)
 
+## 气氛友军攻击正式 TGT 的专用非致死入口。玩家和正式武器永远不走这里。
+func take_atmosphere_damage(amount: float, attacker: Node = null, kind: String = "") -> void:
+	if is_destroyed or hp <= 1.0:
+		return
+	if attacker != null:
+		set_meta("_pending_attacker", attacker)
+	if kind != "":
+		set_meta("_last_damage_kind", kind)
+	hp = maxf(hp - maxf(amount, 0.0), 1.0)
+
 ## 击毁回调（子类覆写）
 func _on_destroyed() -> void:
 	is_destroyed = true
@@ -287,7 +337,7 @@ func _lock_line_can_engage_player() -> bool:
 
 ## 每帧由子类 _physics_process 调用
 func update_lock_line_state(delta: float) -> void:
-	var pref: Aircraft = AircraftRenderer.player_ref
+	var pref: Aircraft = AircraftRenderer.safe_player_ref()
 	var pref_valid: bool = pref != null and is_instance_valid(pref) and not pref.is_destroyed
 	var skip: bool = is_destroyed or team != TEAM_HOSTILE or not pref_valid
 	var locked: bool = pref_valid and pref.locked_by.has(self)
@@ -296,7 +346,7 @@ func update_lock_line_state(delta: float) -> void:
 
 ## 武器路径在导弹生成后调用
 func notify_missile_fired_at(target: CombatUnit) -> void:
-	var pref: Aircraft = AircraftRenderer.player_ref
+	var pref: Aircraft = AircraftRenderer.safe_player_ref()
 	if pref == null or not is_instance_valid(pref) or target != pref:
 		return
 	LockWarning.notify_fired(lock_warning_state)

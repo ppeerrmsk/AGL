@@ -1,6 +1,6 @@
 # 资源配置目录
 
-> 最后校订：2026-08-04。
+> 最后校订：2026-08-08。
 >
 > ⚠ **本文是选摘，不是全量**。飞机部分只覆盖**早期的几个基准 .tres**，
 > 后来加的大量机型不在这里：
@@ -11,6 +11,29 @@
 > - **舰船** → `resources/naval/`
 >
 > 单一机型的准确数值请直接读对应 `.tres`。本文只保留仍有参考价值的**基准值 + 通用子资源**表。
+
+---
+
+## 飞机顶视轮廓
+
+| 资源 | 用途 |
+|---|---|
+| `resources/aircraft_silhouettes/*.png` | 39 张 128×128 白色 alpha 顶视蒙版，逐架从已审查来源直接提取；原创/虚构/未验证概念机保留旧绘制 |
+| `resources/aircraft_silhouettes/README.md` | 格式、直接提取流程、来源边界与禁止项 |
+| `resources/aircraft_silhouettes/reference_manifest.json` | 逐机审查状态、来源、许可/署名、处理边界与 alpha 哈希 |
+
+权威数值、复用映射与验收标准见 [aircraft-top-view-silhouettes](../specs/systems/aircraft-top-view-silhouettes.md)。
+
+---
+
+## 玩家仪表字体
+
+| 资源 | 用途 |
+|------|------|
+| `resources/fonts/AcuminPro-Regular.otf` | 玩家仪表小型信息、字段名、单位、键帽与 PRIORITY |
+| `resources/fonts/AcuminProExtraCond-Semibold.otf` | 玩家仪表大号数字与 AFTERBURNER/ENGAGE/FIRE/FLR/MSL/GUN |
+
+两份字体均随项目打包；Acumin 缺少的中日文字形由 `ThemeDB.fallback_font` 补齐。
 
 ---
 
@@ -134,6 +157,20 @@
 
 ---
 
+## 玩家主导弹默认挂载分档（2026-08-08，spec player-aircraft-power-curve §2.5）
+
+| Tier | 默认 `max_count` | 允许例外 |
+|---|---:|---|
+| T1 | 2 | 无 |
+| T2 | 2 | 无 |
+| T3 | 3 | 无 |
+| T4 | 3 | 无 |
+| T5 | 4 | 仅 `category=range` 的远程导弹专精机可为 5；当前仅 X-21 |
+
+> 43 份玩家机 profile/params 按此表验收。攻击机与其它非远程分类不得使用 5 发默认挂载；直接跨 Tier 进化边不得倒退。
+
+---
+
 ## 热诱弹参数 —— 敌我两族（2026-07-23 解耦，spec player-aircraft-power-curve §2.6）
 
 **敌用 `default_flare`**（玩家机不得引用；多数敌机还会被 spawner 强制压到 `max_flares=1`）
@@ -150,7 +187,7 @@
 | 低能量导弹加成 | +20% |
 | 飞行员焦虑度 | 0.5 |
 
-**玩家族 `resources/player/flare_t1~t5.tres`**（41 机按进化树 tier 引用）
+**玩家族 `resources/player/flare_t1~t5.tres`**（43 机按进化树 tier 引用）
 
 | 参数 | 值 |
 |------|-----|
@@ -164,7 +201,7 @@
 | 低能量导弹加成 | +20% |
 | 飞行员焦虑度 | 0.0（冷静型：等逼近才投） |
 
-> 技能/里程碑加成（`flare_shield` +2 / 策士里程碑 +2、预留档 +1 / `manual_dodge` +6）叠在**新机档位基数**之上，
+> 技能/里程碑加成（`flare_shield` +2 / 策士 3 点里程碑 +1、预留档 +1 / `manual_dodge` +6）叠在**新机档位基数**之上，
 > 换机后 `max_flares` 与 `flares_remaining` 同步 = 基数 + Σ加成。验收 bench `player_params`。
 > 其它专用变体：`ace_flare`(4，命数语义) / `ace_support_flare`(2) / `f47_flare`(2) / `uav_mqx_flare`(1)。
 

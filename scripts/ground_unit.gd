@@ -116,6 +116,16 @@ func get_altitude_tier() -> int:
 
 ## 简单 AI：从已锁定目标中选最近的敌方
 func _update_target_selection() -> void:
+	# 通用高优先目标 seam：正式战区气氛层近距时写入玩家；仍要求本单位真实锁定。
+	var preferred_value: Variant = get_meta(CombatUnit.META_PREFERRED_COMBAT_TARGET) \
+		if has_meta(CombatUnit.META_PREFERRED_COMBAT_TARGET) else null
+	if preferred_value is CombatUnit and is_instance_valid(preferred_value):
+		var preferred := preferred_value as CombatUnit
+		var preferred_lock := params.lock_time if params else 3.0
+		if not preferred.is_destroyed and is_hostile_to(preferred) \
+				and radar_targets.get(preferred, 0.0) >= preferred_lock:
+			combat_target = preferred
+			return
 	# 当前目标仍有效且已锁定 → 保持
 	if combat_target and is_instance_valid(combat_target) and not combat_target.is_destroyed:
 		var lock_time_val := params.lock_time if params else 3.0
@@ -372,7 +382,7 @@ func _draw_data_label() -> void:
 
 	# 计算到玩家（team 0）的距离 —— 用全局 player_ref，避免每帧扫 parent.get_children()
 	var dist_m := 0.0
-	var pref := AircraftRenderer.player_ref
+	var pref := AircraftRenderer.safe_player_ref()
 	if pref and is_instance_valid(pref) and not pref.is_destroyed:
 		dist_m = global_position.distance_to(pref.global_position) / PIXELS_PER_METER
 

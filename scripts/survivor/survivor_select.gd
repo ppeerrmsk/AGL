@@ -40,7 +40,7 @@ const PLAYABLE_LIST: Array[Dictionary] = [
 		"locked": false,
 	},
 	{
-		# F-14 起手（远程/团队，开局送 3 僚机；全谱最弱锚点）——首败航母 BOSS 解锁（career-shop §2.1）
+		# F-14 起手（远程/团队，开局送 1 僚机组成双机编队；全谱最弱锚点）——首败航母 BOSS 解锁（career-shop §2.1）
 		"id": "f14",
 		"resource": "res://resources/playable_f14.tres",
 		"locked": false,

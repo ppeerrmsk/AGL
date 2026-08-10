@@ -3,7 +3,7 @@ id: radio-chatter
 kind: system
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 4
+spec_version: 6
 owner: noelu
 depends_on: [combat-feed, command-wheel, global-awareness-roe]
 reconstruction_complete: true
@@ -92,6 +92,7 @@ reconstruction_complete: true
 | trigger | 权重 |
 |---|---|
 | `boss_spawn` / `boss_engage` | `100` |
+| `hound_one_contact` / `hound_two_follow` | `94` / `93` |
 | `ace_spawn`（王牌中队登场） | `90` |
 | `eject_friendly`（自家人阵亡） | `80` |
 | `break` | `60` |
@@ -272,6 +273,8 @@ BOSS 序列的说话人由 `encounter` 提供：`"<callsign_prefix>-%02d" % (slo
 | `boss_spawn` | BOSS 遭遇事件开场（与 WARNING 横幅同处） | BOSS 队 slot 0/1 | 按 boss id 取专属序列 |
 | `boss_engage` | BOSS 进入交战阶段 | BOSS 队 slot 0 | 按 boss id |
 | `ace_spawn` | 非 BOSS 王牌中队入场（`AceReinforcementEvent._start`；红色警告横幅已收回 BOSS 专属，此台词即王牌入场**主信号**） | 王牌长机（`say_unit`） | `RADIO_ACE_SPAWN_*` 单条池（**台词内容权威在 [ace-squadron-tier](ace-squadron-tier.md) §2.6**；单条即可——多句对话序列是 BOSS 专属） |
+| `hound_one_contact` | 本局首次 F-15 王牌截击支援实际生成 | `Hound-1`（ALLY 绿） | `RADIO_HOUND_ONE_CONTACT`：“发现猎物了，准备交战” |
+| `hound_two_follow` | 与 Hound-1 同一双机实际生成 | `Hound-2`（ALLY 绿） | `RADIO_HOUND_TWO_FOLLOW`：“收到，我跟在你后面” |
 | `splash` | `EventLogger.kill_recorded`，killer_team==0 且 killer 非玩家本机 | killer | `RADIO_SPLASH_*` |
 | `eject` | `EventLogger.kill_recorded` | victim | `RADIO_EJECT_*` |
 | `break` | `Aircraft.set_evasion_mode(true)` 的 **false→true 沿**（`suppress_radio=false`，即真·躲导弹），且单位属玩家小队 | 该机 | `RADIO_BREAK_*` |
@@ -279,6 +282,8 @@ BOSS 序列的说话人由 `encounter` 提供：`"<callsign_prefix>-%02d" % (slo
 | `ack`（含 `ack_pursue` / `ack_strike` / `ack_surround` / …） | `SquadCommandController.command_attack / command_attack_all / command_guard / command_regroup / command_evacuate` | 队内随机一名非玩家僚机 | 见 3.4 |
 | `enemy_attrition` | 同 `kill_recorded`，victim_team==1，累计计数 | 敌方泛指呼号 | `RADIO_ATTRITION_T{1,2,3}_*` |
 | `wingman_join` | 僚机加入玩家小队 | 新成员 | `RADIO_JOIN_*` |
+| `reward_target_available` | 首批奖励战区达到 60 秒 + Lv3 门槛；目标实体生成前 6 秒 | HQ | `RADIO_REWARD_TARGET_AVAILABLE` |
+| `bomber_escort_available` | 可选护送任务达到 150 秒 + Lv5 门槛；目标实体生成前 6 秒 | AWACS | `RADIO_BOMBER_ESCORT_AVAILABLE` |
 
 **BOSS 登场序列**为**多条**台词（2~3 条，不同 slot 交替），依次入队，构成一段小队内部对话。这是本系统的展示样例。
 
@@ -322,7 +327,7 @@ BOSS 序列的说话人由 `encounter` 提供：`"<callsign_prefix>-%02d" % (slo
 
 ## 5. 验收标准（Acceptance / Litmus）
 
-**无头已验证**（`--bench=chatter`，50 项断言全绿）：
+**无头已验证**（`--bench=chatter`，89 项断言全绿）：
 
 - [x] 时长公式（基础 / 逐字 / 封顶）与 §2.2 一致。
 - [x] 阵营色全部取自 `GameConstants` FactionPalette，敌我不同色。
@@ -334,7 +339,7 @@ BOSS 序列的说话人由 `encounter` 提供：`"<callsign_prefix>-%02d" % (slo
 - [x] 未登记 BOSS 回退默认挑衅序列，不静默。
 - [x] 敌方减员里程碑：11 次不触发，第 12 次触发；冷却内不重复；三档阈值正确。
 - [x] 选词防重复：连抽 60 次无相邻重复。
-- [x] i18n：49 个台词 key 全部有译文（`tr()` 不返回 key 本身）；`_FMT` 台词均含 `%s`。
+- [x] i18n：69 个台词 key 全部有译文（`tr()` 不返回 key 本身）；`_FMT` 台词均含 `%s`。
 - [x] 呈现层：呼号单独成行、正文带 `<< >>`、呼号取纯阵营色、正文更淡且淡化方向为**向白**。
 - [x] 说话资格门：无人机族 + 被动杂兵全部沉默；有人战斗机 + BOSS 有台词；未登记机型默认沉默；
       `no_pilot` 硬规则压过 `has_radio_voice`（漏设也不会开口）。
@@ -404,6 +409,8 @@ BOSS 序列的说话人由 `encounter` 提供：`"<callsign_prefix>-%02d" % (slo
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-08 | 5 | 新增每局一次的 Hound-1/Hound-2 王牌截击支援固定双句；两条均为 scripted，权重 94/93，使用 ALLY 绿色与固定呼号。Shadow `chatter` 89/89。 |
+| 2026-08-09 | 6 | 新增奖励目标与轰炸护送两个 scripted 通报；两者均在目标实体生成前 6 秒入队，不受 ambient 节流影响。Shadow `chatter` 91/91。 |
 | 2026-07-20 | 3 | 用户订正三项：① **全局冷却**（普通语音总闸 12s）+ **概率骰**（"偶尔出现一下"的主旋钮），解决"每次点 combat target 僚机必然说话"；② **分类 scripted / ambient** —— 剧情关键节点豁免全部节流、必定播出，普通语音受三层限制；③ **文本与数值全部外置到 `resources/chatter/radio_chatter.json`**，`chatter_lines.gd` 退化为纯加载器，加台词/调手感不用碰代码（新增 §2.9 / §2.10，§2.2~§2.4 重写） |
 | 2026-07-20 | 2 | 用户订正：**无人机不得有台词，只有一定等级的敌人配无线电**（新增 §2.8 双门规则 + `VOICED_ENEMY_TYPES` 表 + `kill_recorded` 增 `victim_voiced` 参数）。同批按用户提供的皇牌空战截图重做版式（§2.1：呼号独立成行 / `<< >>` 标记 / 正文向白淡化 / 渐变淡出底 / 自动换行增高） |
 | 2026-07-26 | 4 | 新增 `ace_spawn` trigger（scripted / 权重 90）：非 BOSS 王牌中队入场主信号（红横幅收回 BOSS 专属后的替代演出，ace-squadron-tier §2.6 规范化批）。台词池 5 条三语、说话人=王牌长机、单条不成序列（多句对话序列维持 BOSS 专属） |

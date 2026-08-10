@@ -25,18 +25,22 @@ const MAP_LIST: Array[Dictionary] = [
 		"locked": false,
 	},
 	{
-		"id": "tba_2",
-		"name": "SLOT_TBA_NAME",
-		"tags": ["TAG_LOCKED"],
-		"desc": "SLOT_MAP_DESC",
-		"locked": true,
+		"id": "desert_railway_preview",
+		"name": "MAP_DESERT_RAILWAY_NAME",
+		"tags": ["TAG_DESERT", "TAG_RAILWAY", "TAG_PREVIEW"],
+		"desc": "MAP_DESERT_RAILWAY_DESC",
+		"map_path": "res://resources/maps/desert_railway_preview.aglmap",
+		"preview_only": true,
+		"locked": false,
 	},
 	{
-		"id": "tba_3",
-		"name": "SLOT_TBA_NAME",
-		"tags": ["TAG_LOCKED"],
-		"desc": "SLOT_MAP_DESC",
-		"locked": true,
+		"id": "ocean_islands_preview",
+		"name": "MAP_OCEAN_ISLANDS_NAME",
+		"tags": ["TAG_OCEAN", "TAG_ISLANDS", "TAG_PREVIEW"],
+		"desc": "MAP_OCEAN_ISLANDS_DESC",
+		"map_path": "res://resources/maps/ocean_islands_preview.aglmap",
+		"preview_only": true,
+		"locked": false,
 	},
 	{
 		"id": "tba_4",
@@ -352,4 +356,9 @@ func _on_map_selected(index: int) -> void:
 	var data: Dictionary = MAP_LIST[index]
 	# 通过 scene tree meta 传递选择的地图 id 到 survivor_mode
 	get_tree().set_meta("survivor_map_id", data["id"])
+	if data.has("map_path"):
+		get_tree().set_meta("ugc_map_path", data["map_path"])
+	elif get_tree().has_meta("ugc_map_path"):
+		get_tree().remove_meta("ugc_map_path")
+	get_tree().set_meta("map_preview_only", bool(data.get("preview_only", false)))
 	get_tree().change_scene_to_file("res://scenes/survivor_select.tscn")

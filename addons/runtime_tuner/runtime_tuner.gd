@@ -55,7 +55,8 @@ func _ready() -> void:
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
-		if event.keycode == HOTKEY:
+		# Shift+F10 留给生存模式的 PNG/纯矢量地图 A/B；普通 F10 行为不变。
+		if event.keycode == HOTKEY and not event.shift_pressed:
 			_toggle()
 			get_viewport().set_input_as_handled()
 

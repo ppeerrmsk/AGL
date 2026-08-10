@@ -1,6 +1,9 @@
 class_name MapFeatureRenderer
 extends Node2D
 
+const VectorPreviewRenderer = preload("res://scripts/survivor/map_vector_preview_renderer.gd")
+const DetailTileCache = preload("res://scripts/survivor/map_detail_tile_cache.gd")
+
 ## 世界空间地图特征绘制（生存模式）
 ##
 ## 分层（从底到顶）：
@@ -22,6 +25,9 @@ var _world_rect: Rect2
 func setup(camera: Camera2D, world_rect: Rect2) -> void:
 	_camera = camera
 	_world_rect = world_rect
+	# Loading 场景已预热 packet definitions；正式场景只提前绑定静态节点，首次 A/B 不再现场构图。
+	if OS.is_debug_build() and not ugc_vector_only:
+		_prepare_vector_preview()
 	queue_redraw()  # setup 后触发一次绘制；之后地图静态不需要再重绘
 
 func _ready() -> void:
@@ -54,6 +60,9 @@ const MANUAL_MAP_PATH := "res://scenes/map_manual.tscn"
 ## 图像 + 元数据由 scripts/tools/download_basemap.py 生成
 const BASEMAP_PNG_PATH := "res://resources/maps/tokyo_bay_bg.png"
 const BASEMAP_META_PATH := "res://resources/maps/tokyo_bay_bg.json"
+var basemap_png_path: String = BASEMAP_PNG_PATH
+var basemap_meta_path: String = BASEMAP_META_PATH
+var use_basemap := true
 
 ## 底图渲染参数（全部 @export — Inspector 里实时调）
 @export_group("Basemap")
@@ -89,20 +98,128 @@ const BASEMAP_SHADER_PATH := "res://resources/shaders/basemap_tacview.gdshader"
 var _basemap_sprite: Sprite2D = null
 var _basemap_loaded := false
 
+## 开发期 A/B：默认仍走正式 PNG；Shift+F10 才启用 V36 纯矢量候选。
+var vector_preview_enabled := false
+var _vector_preview: Node2D = null
+var _detail_tile_preview: Node2D = null
+
 ## UGC 纯矢量模式（survivor_mode 在 UGC 试飞时置 true）：
 ## 跳过官方底图 PNG 与手画覆盖层（都是官方东京湾专属素材），只走矢量渲染路径
 var ugc_vector_only := false
+
+## UGC/内置预览图调色板；空字典保持东京湾历史常量逐字节不变。
+var ugc_palette: Dictionary = {}
 
 ## UGC 地形覆盖层（山地/森林/农田/沙滩，UgcLoader.overlay_layers_from 生成）
 ## 元素 {color: Color, polys: Array[PackedVector2Array]}；空 = 官方图零影响
 var ugc_overlay_layers: Array = []
 
+func _prepare_vector_preview() -> bool:
+	if _vector_preview != null:
+		return true
+	if _camera == null or _world_rect.size.x <= 0.0 or not VectorPreviewRenderer.preview_available():
+		return false
+	_vector_preview = VectorPreviewRenderer.new()
+	_vector_preview.name = "VectorMapPreview"
+	_vector_preview.visible = false
+	add_child(_vector_preview)
+	if not _vector_preview.setup(_camera, _world_rect):
+		_vector_preview.queue_free()
+		_vector_preview = null
+		return false
+	attach_cached_detail()
+	return true
+
+
+func attach_cached_detail() -> bool:
+	if _detail_tile_preview != null:
+		return true
+	if not DetailTileCache.cache_ready() or _camera == null:
+		return false
+	_detail_tile_preview = DetailTileCache.new()
+	_detail_tile_preview.name = "VectorMapDetailTile"
+	add_child(_detail_tile_preview)
+	_detail_tile_preview.setup_camera(_camera)
+	var detail_result: Dictionary = _detail_tile_preview.attach_cached()
+	if not bool(detail_result.get("ok", false)):
+		push_warning("Vector detail tile unavailable: %s" % detail_result.get("error", "unknown"))
+		_detail_tile_preview.queue_free()
+		_detail_tile_preview = null
+		return false
+	_detail_tile_preview.set_detail_zoom(_camera.zoom.x, vector_preview_enabled)
+	return true
+
+
+func prewarm_detail_region(region: Rect2, priority_points: Array = []) -> Dictionary:
+	if not vector_preview_enabled:
+		return {"ok": false, "error": "vector preview disabled"}
+	if _detail_tile_preview == null and not attach_cached_detail():
+		return {"ok": false, "error": "detail cache unavailable"}
+	var result: Dictionary = await _detail_tile_preview.bake_region(region, priority_points)
+	if not bool(result.get("ok", false)):
+		return result
+	# bake_region 更新共享 LRU；把新驻留纹理绑定到当前正式 renderer。
+	var attached: Dictionary = _detail_tile_preview.attach_cached()
+	if not bool(attached.get("ok", false)):
+		return attached
+	_detail_tile_preview.set_detail_zoom(_camera.zoom.x, true)
+	return result
+
+
+func prewarm_detail_regions(regions: Array) -> Dictionary:
+	if not vector_preview_enabled:
+		return {"ok": false, "error": "vector preview disabled"}
+	if _detail_tile_preview == null and not attach_cached_detail():
+		return {"ok": false, "error": "detail cache unavailable"}
+	var result: Dictionary = await _detail_tile_preview.bake_regions(regions)
+	if not bool(result.get("ok", false)):
+		return result
+	if bool(result.get("empty", false)):
+		# 纯海域没有 Detail 内容：明确隐藏旧缓存，继续使用完整 Operational。
+		_detail_tile_preview.set_detail_zoom(_camera.zoom.x, false)
+		return result
+	var attached: Dictionary = _detail_tile_preview.attach_cached()
+	if not bool(attached.get("ok", false)):
+		return attached
+	_detail_tile_preview.set_detail_zoom(_camera.zoom.x, true)
+	return result
+
+func set_vector_preview_enabled(enabled: bool) -> bool:
+	if enabled and ugc_vector_only:
+		return false
+	if enabled:
+		if _camera == null or _world_rect.size.x <= 0.0:
+			return false
+		if not _prepare_vector_preview():
+			return false
+		_vector_preview.visible = true
+		_vector_preview.update_lod()
+		if _detail_tile_preview != null:
+			_detail_tile_preview.set_detail_zoom(_camera.zoom.x, true)
+		if _basemap_sprite != null:
+			_basemap_sprite.visible = false
+		vector_preview_enabled = true
+	else:
+		vector_preview_enabled = false
+		if _vector_preview != null:
+			_vector_preview.visible = false
+		if _detail_tile_preview != null:
+			_detail_tile_preview.set_detail_zoom(_camera.zoom.x if _camera != null else 0.0, false)
+		_ensure_basemap_loaded()
+		if _basemap_sprite != null:
+			_basemap_sprite.visible = true
+	queue_redraw()  # 仅切换时清一次父 CanvasItem 的静态命令缓存。
+	return true
+
 func _draw() -> void:
 	if not _camera:
+		return
+	if vector_preview_enabled:
 		return
 	MapGeography.ensure_ready()
 	if not ugc_vector_only:
 		_ensure_manual_loaded()
+	if use_basemap:
 		_ensure_basemap_loaded()
 	# 底图存在时跳过 sea 色铺底 —— basemap 本身含海面颜色，再盖一层会遮住
 	if _basemap_sprite == null:
@@ -114,6 +231,8 @@ func _draw() -> void:
 		_draw_urban_districts()
 		_draw_highways()
 	_draw_manual_overlays()        # 手画 Polygon2D 叠加层
+	_draw_haneda_airport()         # 港湾正式图：按冻结 OSM 中线补画羽田四条跑道
+	_draw_ugc_airports()           # 预览图跑道必须压在 PNG 上方；正式东京湾不重复描画
 	# Aqua-Line 虚线不再绘制：底图 PNG 已烘焙了真实桥体像素，再画手画路径会双线对不齐
 	# （曾做过 z_index=-5 的 MapBridgeLayer 实色覆盖，同样对不齐，已移除）
 	# 解决"船穿桥"的方案改为：BOSS 刷新位置强制在桥南（见 ZoneData.BOSS_NORTH_CENTER）
@@ -131,10 +250,12 @@ func _ensure_basemap_loaded() -> void:
 	if _basemap_loaded:
 		return
 	_basemap_loaded = true
-	if not ResourceLoader.exists(BASEMAP_PNG_PATH):
-		print("[MapFeatureRenderer] no basemap at %s — skip" % BASEMAP_PNG_PATH)
+	if not use_basemap or basemap_png_path == "" or basemap_meta_path == "":
 		return
-	var meta_file := FileAccess.open(BASEMAP_META_PATH, FileAccess.READ)
+	if not ResourceLoader.exists(basemap_png_path) and not FileAccess.file_exists(basemap_png_path):
+		print("[MapFeatureRenderer] no basemap at %s — vector fallback" % basemap_png_path)
+		return
+	var meta_file := FileAccess.open(basemap_meta_path, FileAccess.READ)
 	if meta_file == null:
 		push_warning("[MapFeatureRenderer] basemap PNG exists but no meta JSON — skip")
 		return
@@ -160,7 +281,12 @@ func _ensure_basemap_loaded() -> void:
 	var y0 := -(lat_max - cy) * m_per_lat * px_per_m
 	var y1 := -(lat_min - cy) * m_per_lat * px_per_m
 
-	var tex := load(BASEMAP_PNG_PATH) as Texture2D
+	var tex := load(basemap_png_path) as Texture2D if ResourceLoader.exists(basemap_png_path) else null
+	# 新 PNG 尚未生成 .import 时（例如干净 Shadow）仍可直接解码；正式包优先走导入纹理。
+	if tex == null and FileAccess.file_exists(basemap_png_path):
+		var image := Image.load_from_file(basemap_png_path)
+		if image != null and not image.is_empty():
+			tex = ImageTexture.create_from_image(image)
 	if tex == null:
 		push_warning("[MapFeatureRenderer] failed to load basemap texture")
 		return
@@ -201,6 +327,12 @@ func _apply_basemap_shader_params() -> void:
 	mat.set_shader_parameter("noise_strength", basemap_noise)
 
 func _process(_delta: float) -> void:
+	if vector_preview_enabled:
+		if _vector_preview != null:
+			_vector_preview.update_lod(_delta)
+		if _detail_tile_preview != null:
+			_detail_tile_preview.set_detail_zoom(_camera.zoom.x, true, _delta)
+		return
 	# 轻量：每帧同步 Inspector 的 basemap 参数到 shader
 	# 只有 ~4 个 set_shader_parameter 调用，可忽略开销
 	if _basemap_sprite != null:
@@ -253,7 +385,7 @@ func _draw_sea() -> void:
 	# 一次性画满整个世界矩形（加大余量），静态不再重绘
 	# 相机如何移动/缩放都能看到海面，无需每帧跟随
 	var rect := _world_rect.grow(8000.0)
-	draw_rect(rect, MapGeography.SEA_COLOR, true)
+	draw_rect(rect, _ugc_color("sea", MapGeography.SEA_COLOR), true)
 
 ## 陆地 mask：从 MapGeography 共享缓存读出预烘焙的 halo 多边形
 ## 全部实色 LAND_COLOR（alpha=1.0）；重叠无所谓，都是同一颜色
@@ -261,9 +393,54 @@ func _draw_land_mask() -> void:
 	var polys := MapGeography.get_land_mask_polygons()
 	for poly_any in polys:
 		var poly: PackedVector2Array = poly_any
-		draw_colored_polygon(poly, LAND_MASK_COLOR)
+		draw_colored_polygon(poly, _ugc_color("land", LAND_MASK_COLOR))
 	if not _logged:
 		print("[MapFeatureRenderer] land mask polygons drawn: %d" % polys.size())
+
+
+const UGC_RUNWAY_FILL := Color(0.20, 0.23, 0.22, 0.94)
+const UGC_RUNWAY_EDGE := Color(0.68, 0.75, 0.70, 0.90)
+const UGC_RUNWAY_CENTER := Color(0.86, 0.90, 0.82, 0.78)
+const HANEDA_RUNWAY_FILL := Color(0.17, 0.20, 0.19, 0.92)
+const HANEDA_RUNWAY_EDGE := Color(0.57, 0.63, 0.60, 0.88)
+const HANEDA_RUNWAY_CENTER := Color(0.82, 0.85, 0.79, 0.76)
+
+## 正式港湾图上的羽田跑道。四条中线与长度来自冻结 OSM 数据，已和 PNG 像素叠图核对。
+## 所有命令只在地图 setup/切图时进入 CanvasItem 缓存，不逐帧重绘。
+func _draw_haneda_airport() -> void:
+	if MapGeography.ugc_mode:
+		return
+	for runway_any in MapGeography.HANEDA_RUNWAYS:
+		var runway: Dictionary = runway_any
+		var start: Vector2 = runway.get("start", Vector2.ZERO)
+		var finish: Vector2 = runway.get("end", Vector2.ZERO)
+		var width: float = float(runway.get("width", 30.0))
+		var direction := start.direction_to(finish)
+		var side := direction.orthogonal()
+		draw_line(start, finish, HANEDA_RUNWAY_EDGE, width + 7.0, true)
+		draw_line(start, finish, HANEDA_RUNWAY_FILL, width, true)
+		draw_dashed_line(start, finish, HANEDA_RUNWAY_CENTER, 2.0, 42.0, true)
+		for threshold in [start + direction * 18.0, finish - direction * 18.0]:
+			draw_line(threshold - side * width * 0.31, threshold + side * width * 0.31,
+				HANEDA_RUNWAY_CENTER, 2.0, true)
+
+## PNG 底图会覆盖机场矢量，因此仅为 UGC/内置预览图静态补画跑道。
+## 没有 _process；地图 setup 时进入 CanvasItem 缓存一次。
+func _draw_ugc_airports() -> void:
+	if not MapGeography.ugc_mode:
+		return
+	for poly_any in MapGeography.OSM_AERODROMES:
+		var poly: PackedVector2Array = poly_any
+		if poly.size() < 3:
+			continue
+		draw_colored_polygon(poly, UGC_RUNWAY_FILL)
+		var outline := poly.duplicate()
+		outline.append(poly[0])
+		draw_polyline(outline, UGC_RUNWAY_EDGE, 4.0, true)
+		if poly.size() == 4:
+			var start := (poly[0] + poly[3]) * 0.5
+			var finish := (poly[1] + poly[2]) * 0.5
+			draw_dashed_line(start, finish, UGC_RUNWAY_CENTER, 3.0, 36.0, true)
 
 ## 城区填充：立体化效果（阴影偏移 + 暗填充 + 亮描边 = 伪 3D 建筑）
 const BUILDING_SHADOW_OFFSET := Vector2(3, 4)
@@ -286,7 +463,7 @@ func _draw_urban_districts() -> void:
 		var poly: PackedVector2Array = poly_any
 		if poly.size() < 3:
 			continue
-		draw_colored_polygon(poly, BUILDING_FILL_COLOR)
+		draw_colored_polygon(poly, _ugc_color("urban", BUILDING_FILL_COLOR))
 		var n: int = poly.size()
 		for i in range(n):
 			draw_line(poly[i], poly[(i + 1) % n], BUILDING_EDGE_COLOR, BUILDING_EDGE_WIDTH)
@@ -306,20 +483,22 @@ const ROAD_CORE_COLOR := Color(1.00, 0.85, 0.45, 0.95)
 const ROAD_GLOW_WIDTH := 4.5
 const ROAD_CORE_WIDTH := 1.4
 func _draw_highways() -> void:
+	var glow_color := _ugc_color("road_glow", ROAD_GLOW_COLOR)
+	var core_color := _ugc_color("road_core", ROAD_CORE_COLOR)
 	# Pass 1：橘色光晕（粗带半透）
 	for hw_any in MapGeography.HIGHWAYS:
 		var hw: Dictionary = hw_any
 		var pts: PackedVector2Array = hw.get("pts", PackedVector2Array())
 		if pts.size() < 2:
 			continue
-		draw_polyline(pts, ROAD_GLOW_COLOR, ROAD_GLOW_WIDTH, true)
+		draw_polyline(pts, glow_color, ROAD_GLOW_WIDTH, true)
 	# Pass 2：亮核心（细线实色）
 	for hw_any in MapGeography.HIGHWAYS:
 		var hw: Dictionary = hw_any
 		var pts: PackedVector2Array = hw.get("pts", PackedVector2Array())
 		if pts.size() < 2:
 			continue
-		draw_polyline(pts, ROAD_CORE_COLOR, ROAD_CORE_WIDTH, true)
+		draw_polyline(pts, core_color, ROAD_CORE_WIDTH, true)
 	if not _logged:
 		print("[MapFeatureRenderer] stylized roads drawn: %d" % MapGeography.HIGHWAYS.size())
 
@@ -388,19 +567,28 @@ func _draw_dashed_segment(a: Vector2, b: Vector2, dash: float, gap: float, color
 func _draw_tacview_crosses() -> void:
 	var rect := _world_rect.grow(500.0)
 	var count := 0
+	var cross_color := _ugc_color("tacview_cross", TACVIEW_COLOR)
 	var x := snappedf(rect.position.x, TACVIEW_SPACING)
 	while x < rect.position.x + rect.size.x:
 		var y := snappedf(rect.position.y, TACVIEW_SPACING)
 		while y < rect.position.y + rect.size.y:
 			var p := Vector2(x, y)
 			if not MapGeography.is_on_land(p):
-				draw_line(Vector2(p.x - TACVIEW_SIZE, p.y), Vector2(p.x + TACVIEW_SIZE, p.y), TACVIEW_COLOR, 0.8)
-				draw_line(Vector2(p.x, p.y - TACVIEW_SIZE), Vector2(p.x, p.y + TACVIEW_SIZE), TACVIEW_COLOR, 0.8)
+				draw_line(Vector2(p.x - TACVIEW_SIZE, p.y), Vector2(p.x + TACVIEW_SIZE, p.y), cross_color, 0.8)
+				draw_line(Vector2(p.x, p.y - TACVIEW_SIZE), Vector2(p.x, p.y + TACVIEW_SIZE), cross_color, 0.8)
 				count += 1
 			y += TACVIEW_SPACING
 		x += TACVIEW_SPACING
 	if not _logged:
 		print("[MapFeatureRenderer] tacview crosses: %d" % count)
+
+
+func _ugc_color(key: String, fallback: Color) -> Color:
+	var raw = ugc_palette.get(key, null)
+	if raw is Array and raw.size() >= 3:
+		return Color(float(raw[0]), float(raw[1]), float(raw[2]),
+			float(raw[3]) if raw.size() >= 4 else 1.0)
+	return fallback
 
 func _polygon_aabb(poly: PackedVector2Array) -> Rect2:
 	if poly.is_empty():

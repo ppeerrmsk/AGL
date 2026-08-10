@@ -1,6 +1,6 @@
 extends RefCounted
 
-## 无头验收：resources/player/ 43 份玩家机 params（spec player-aircraft-power-curve §2 v15 矩阵）
+## 无头验收：resources/player/ 43 份玩家机 params（spec player-aircraft-power-curve §2 v18 矩阵）
 ## 全量加载 / 矩阵锚点抽查 / 同族链逐轴单调 / 雷达走廊 / 王冠不越位 / 攻击线火箭
 ## 运行：godot --headless --path . -- --bench=player_params（或 --bench=all）
 
@@ -15,6 +15,17 @@ const IDS: Array[String] = [
 	"yf23", "f47", "mig41", "faxx", "fcas", "gcap", "j36",
 	"x09", "x13", "x02", "x21", "x44", "x77", "x90", "ax00",
 ]
+
+const MISSILE_T1_T2_IDS: Array[String] = [
+	"f14", "f15", "a6e", "mirage3",
+	"mirage2000", "f15c", "f15e", "fa18e", "ea18g", "f16", "gripen_c", "su27", "a10",
+	"rafale", "tornado", "typhoon", "su34", "viggen", "mig31", "harrier",
+]
+const MISSILE_T3_T4_IDS: Array[String] = [
+	"f15smtd", "su35", "f35", "gripen_e", "f22", "su57", "j20", "a12",
+	"yf23", "f47", "mig41", "faxx", "fcas", "gcap", "j36",
+]
+const MISSILE_T5_STANDARD_IDS: Array[String] = ["x09", "x13", "x02", "x44", "x77", "x90", "ax00"]
 
 ## 雷达三带走廊（spec radar-range-normalization §2.1/§2.2）：主题=航电身份，电战>骑士>斗士
 ## omni（X-02/AX-00）特则=同档电战王冠×≈0.9，走廊归电战带
@@ -40,7 +51,7 @@ const RADAR_BAND_BY_ID: Dictionary = {
 
 
 func run() -> void:
-	print("\n════════ 玩家机 params 验收（43 机矩阵 v15） ════════")
+	print("\n════════ 玩家机 params 验收（43 机矩阵 v18） ════════")
 	var p: Dictionary = {}
 	var all_loaded := true
 	for id in IDS:
@@ -113,10 +124,16 @@ func run() -> void:
 	_check("AX-00 不夺 G 冠（< X-09）", p["ax00"].max_g < p["x09"].max_g, "")
 	_check("AX-00 不夺肉冠（HP < X-44）", p["ax00"].max_hp < p["x44"].max_hp, "")
 
-	# 弹数（内联 missile 单一权威源）+ 攻击线火箭
-	_check("弹数抽查（F-14=2 / MiG-41=6 / F-15=2）",
-		p["f14"].missile.max_count == 2 and p["mig41"].missile.max_count == 6
-		and p["f15"].missile.max_count == 2, "")
+	# 主导弹分档（内联 missile 单一权威源）：T1/T2=2、T3/T4=3、T5=4；仅 T5 远程 X-21=5。
+	var missile_tier_ok := true
+	for id in MISSILE_T1_T2_IDS:
+		missile_tier_ok = missile_tier_ok and p[id].missile != null and p[id].missile.max_count == 2
+	for id in MISSILE_T3_T4_IDS:
+		missile_tier_ok = missile_tier_ok and p[id].missile != null and p[id].missile.max_count == 3
+	for id in MISSILE_T5_STANDARD_IDS:
+		missile_tier_ok = missile_tier_ok and p[id].missile != null and p[id].missile.max_count == 4
+	missile_tier_ok = missile_tier_ok and p["x21"].missile != null and p["x21"].missile.max_count == 5
+	_check("主导弹分档 T1/T2=2、T3/T4=3、T5=4、仅 X-21=5", missile_tier_ok, "")
 	# T1 四张起手卡弹数一致（F-14 曾是 4，卡面写"导弹缩水"却比 F-16 多，2026-07-29 拉平为 2）
 	_check("T1 起手四卡弹数齐平 = 2",
 		p["f14"].missile.max_count == 2 and p["f15"].missile.max_count == 2
@@ -124,6 +141,8 @@ func run() -> void:
 	var f14_profile := AircraftDB.get_profile(&"f14")
 	_check("F-14 起手档案显式锁定长机导弹数 = 2",
 		f14_profile != null and f14_profile.missile_count_override == 2, "")
+	_check("F-14 起手为双机编队（长机 + 1 僚机）",
+		f14_profile != null and f14_profile.wingman_count == 1, "")
 	# 特殊武器不自带（用户 2026-07-23 令："所有飞机都不要自带特殊武器，要从战区获取"）
 	# 底线武器（机炮/导弹/热诱弹）仍随机体；火箭/电磁炮/激光/僚机/漂浮雷/QMAAM 一律战区+签名技获取
 	var carries_special: String = ""

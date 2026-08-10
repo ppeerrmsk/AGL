@@ -189,6 +189,15 @@ static var HANEDA_AIRPORT := PackedVector2Array([
 	Vector2(200, -6400),
 ])
 
+## 羽田四条正式跑道中线：来自冻结的东京湾 OSM runway 数据，并已和正式 PNG 叠图核对。
+## 1 px = 2 m；width 28~30 px 对应约 56~60 m。这里只存静态视觉数据，不参与陆地/任务判定。
+static var HANEDA_RUNWAYS: Array[Dictionary] = [
+	{"start": Vector2(40.19, -6025.35), "end": Vector2(790.91, -7098.64), "width": 28.0},
+	{"start": Vector2(1159.45, -5362.92), "end": Vector2(410.03, -6658.89), "width": 30.0},
+	{"start": Vector2(2055.66, -5507.35), "end": Vector2(1186.12, -7011.18), "width": 30.0},
+	{"start": Vector2(1965.63, -4661.78), "end": Vector2(2805.72, -5579.76), "width": 30.0},
+]
+
 ## 陆地多边形（应用 Chaikin 平滑去锐角 — 仅平滑海岸线段，bbox 贴边顶点保留）
 ## LAND_WEST/LAND_EAST 首尾 2 顶点贴 bbox 作为锚点，中间的"真海岸"段才做 Chaikin
 ## HANEDA_AIRPORT 是完全闭合的岛，整体平滑
@@ -415,6 +424,18 @@ static var ugc_mode := false
 ##   false = union 任一命中（官方转换直通多边形，与官方判定一字不差）
 static var ugc_land_even_odd := true
 
+## 正式东京湾生产 PNG 对齐的精细水面环。它只给玩法做港池/河道排除，
+## 不启用或替换纯矢量地图渲染。UGC 地图不读取这份官方蒙版。
+const VISUAL_WATER_MASK_PATH := "res://resources/maps/tokyo_bay_vector_preview.json"
+const GROUND_SPAWN_CLEARANCE_PX := 50.0  ## 100m；避免单位中心虽在岸上、图标却悬到水面
+const GROUND_CLEARANCE_SAMPLES := 8
+const GROUND_SEARCH_STEP_PX := 50.0
+const GROUND_SEARCH_ANGLES := 24
+
+static var _visual_water_masks_loaded := false
+static var _visual_water_masks: Array[Dictionary] = []
+static var _visual_land_inlay_masks: Array[Dictionary] = []
+
 ## 判断某世界坐标是否在陆地上（包括羽田机场）
 ## 同时检查 OSM 烘焙的 land mask（城区+道路外扩并集，精度高）+ 手画 LAND 轮廓（覆盖广）
 ## 任一命中即视为陆地
@@ -453,6 +474,107 @@ static func is_on_land_strict(pos: Vector2) -> bool:
 		return is_on_land(pos)  # UGC 只有一层并集后的陆地，严格/宽松同源
 	for poly in MapGeographyData.LAND_MASK_POLYGONS:
 		if Geometry2D.is_point_in_polygon(pos, poly):
+			return true
+	return false
+
+## 实体陆地判定：地面目标/单位不得把跨海公路、桥梁的 OSM 外扩当作陆地。
+## 官方图同时要求命中精细 land mask 与手画大轮廓；UGC 只有明确陆地层，沿用其判定。
+static func is_on_solid_land(pos: Vector2) -> bool:
+	if ugc_mode:
+		return is_on_land_strict(pos)
+	if not is_on_land_strict(pos):
+		return false
+	for poly in get_land_polygons():
+		if Geometry2D.is_point_in_polygon(pos, poly):
+			return true
+	return false
+
+## 正式地面单位的统一部署硬闸：
+## 1. 先过实体陆地；2. 排除与生产底图对齐的港池/河道水面；
+## 3. 中心周围 clearance_px 的 8 个方向仍须连续为陆地。
+static func is_ground_spawn_safe(pos: Vector2,
+		clearance_px: float = GROUND_SPAWN_CLEARANCE_PX) -> bool:
+	if not _is_ground_surface(pos):
+		return false
+	if clearance_px <= 0.0:
+		return true
+	for i in range(GROUND_CLEARANCE_SAMPLES):
+		var angle := float(i) * TAU / float(GROUND_CLEARANCE_SAMPLES)
+		if not _is_ground_surface(pos + Vector2.from_angle(angle) * clearance_px):
+			return false
+	return true
+
+## 固定编成偏移落在港池/岸边时，按确定性同心环寻找附近安全陆地。
+## 无解返回 INF；调用方必须缩编/跳过，禁止回退到水面。
+static func find_ground_spawn_near(anchor: Vector2, max_radius_px: float,
+		clearance_px: float = GROUND_SPAWN_CLEARANCE_PX) -> Vector2:
+	if is_ground_spawn_safe(anchor, clearance_px):
+		return anchor
+	var ring_count := ceili(maxf(max_radius_px, 0.0) / GROUND_SEARCH_STEP_PX)
+	for ring in range(1, ring_count + 1):
+		var radius := minf(float(ring) * GROUND_SEARCH_STEP_PX, max_radius_px)
+		for i in range(GROUND_SEARCH_ANGLES):
+			var angle := float(i) * TAU / float(GROUND_SEARCH_ANGLES)
+			var candidate := anchor + Vector2.from_angle(angle) * radius
+			if is_ground_spawn_safe(candidate, clearance_px):
+				return candidate
+	return Vector2.INF
+
+static func _is_ground_surface(pos: Vector2) -> bool:
+	if ugc_mode:
+		return is_on_solid_land(pos)
+	# 60km 扩图后的外圈陆地已超出旧手画 LAND_WEST/EAST；正式部署以全图 OSM land mask
+	# 为正集，再减去与生产底图对齐的视觉水面。旧手画轮廓不再充当全图硬交集。
+	if not is_on_land_strict(pos):
+		return false
+	_ensure_visual_water_masks()
+	# land_inlay 是水面环内重新盖回的码头/岛屿，优先恢复为陆地。
+	if _point_in_mask_entries(pos, _visual_land_inlay_masks):
+		return true
+	return not _point_in_mask_entries(pos, _visual_water_masks)
+
+static func _ensure_visual_water_masks() -> void:
+	if _visual_water_masks_loaded:
+		return
+	_visual_water_masks_loaded = true
+	var file := FileAccess.open(VISUAL_WATER_MASK_PATH, FileAccess.READ)
+	if file == null:
+		push_warning("MapGeography: visual water mask unavailable; using solid-land fallback")
+		return
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	file.close()
+	if typeof(parsed) != TYPE_DICTIONARY:
+		push_warning("MapGeography: visual water mask JSON invalid; using solid-land fallback")
+		return
+	for entry_value in (parsed as Dictionary).get("water_rings", []):
+		if not entry_value is Dictionary:
+			continue
+		var entry: Dictionary = entry_value
+		var flat: Array = entry.get("points", [])
+		if flat.size() < 6:
+			continue
+		var poly := PackedVector2Array()
+		for i in range(0, flat.size() - 1, 2):
+			poly.append(Vector2(float(flat[i]), float(flat[i + 1])))
+		if poly.size() < 3:
+			continue
+		var rect := Rect2(poly[0], Vector2.ZERO)
+		for point in poly:
+			rect = rect.expand(point)
+		var mask: Dictionary = {"rect": rect, "poly": poly}
+		if str(entry.get("role", "water")) == "land_inlay":
+			_visual_land_inlay_masks.append(mask)
+		else:
+			_visual_water_masks.append(mask)
+	print("[MapGeography] visual surface masks — water=%d land_inlay=%d" % [
+		_visual_water_masks.size(), _visual_land_inlay_masks.size(),
+	])
+
+static func _point_in_mask_entries(pos: Vector2, entries: Array[Dictionary]) -> bool:
+	for entry in entries:
+		var rect: Rect2 = entry["rect"]
+		if rect.has_point(pos) \
+				and Geometry2D.is_point_in_polygon(pos, entry["poly"] as PackedVector2Array):
 			return true
 	return false
 

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "source": "OpenStreetMap Overpass vector data",
+  "license": "ODbL 1.0",
+  "style_profile": "yokohama_gold_v5",
+  "coverage": [-6300.0, -3700.0, -2300.0, 300.0],
+  "tiles": [
+    {
+      "id": "yokohama_sw",
+      "rect": [-6300.0, -1700.0, 2000.0, 2000.0],
+      "data_path": "res://resources/maps/detail_yokohama_sw.json"
+    },
+    {
+      "id": "yokohama_se",
+      "rect": [-4300.0, -1700.0, 2000.0, 2000.0],
+      "data_path": "res://resources/maps/detail_yokohama_se.json"
+    },
+    {
+      "id": "kawasaki_sw",
+      "rect": [-6300.0, -3700.0, 2000.0, 2000.0],
+      "data_path": "res://resources/maps/detail_kawasaki_sw.json"
+    },
+    {
+      "id": "kawasaki_se",
+      "rect": [-4300.0, -3700.0, 2000.0, 2000.0],
+      "data_path": "res://resources/maps/detail_kawasaki_se.json"
+    }
+  ]
+}

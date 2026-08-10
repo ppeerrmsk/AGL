@@ -2998,7 +2998,7 @@ const AXIS_POINT_CAP := 8
 static func axis_points_earnable(level: int) -> int:
 	return mini(floori(level / 3.0), AXIS_POINT_CAP)
 
-## 里程碑基准表（spec §2.6 v13）：每线 2/3/4/6/8 档 + 10 点预留（当前收入上限摸不到）。
+## 里程碑基准表（spec §2.6 v17）：每线 2/3/4/6/8 档 + 10 点预留（当前收入上限摸不到）。
 ## 铁律：纯属性修改、陡递减（相对价值 100/60/25/15）——均衡 3/3/2 摊三首档 > 专精 8/0/0 吃单线。
 ## kind: "add"=加算 / "mult"=乘算。stat 键由里程碑应用器（阶段 2）统一解释，换型重放走同一入口：
 ##   max_hp / armor / gun_range / max_g / stall_speed / gun_ammo / missile_count / missile_locks /
@@ -3022,8 +3022,8 @@ const MILESTONE_TABLE: Dictionary = {
 		{"points": 10, "stat": "missile_count", "kind": "add",  "value": 1.0},
 	],
 	AXIS_SCHEMER: [
-		{"points": 2,  "stat": "flare_count",   "kind": "add",  "value": 2.0},
-		{"points": 3,  "stat": "xp_mult",       "kind": "mult", "value": 1.10},
+		{"points": 2,  "stat": "xp_mult",       "kind": "mult", "value": 1.10},
+		{"points": 3,  "stat": "flare_count",   "kind": "add",  "value": 1.0},
 		{"points": 4,  "stat": "lock_time",     "kind": "mult", "value": 0.90},
 		{"points": 6,  "stat": "flare_cd",      "kind": "mult", "value": 0.92},
 		{"points": 8,  "stat": "radar_cone_deg","kind": "add",  "value": 2.0},
@@ -3440,6 +3440,7 @@ const TOKEN_COST := {
 	29: 0,  ## YF-23       — Wraith 强化层事件支援，不占 Token、不进随机池
 	30: 10, ## F-22        — Schemer 四锁狙击，普通池 1–3 机
 	31: 4,  ## Snowblind   — Schemer 纯支援机，固定带 2 架动态护卫
+	56: 4,  ## DEADAIR    — Schemer 累积 JAM 支援机，固定带 2 架动态护卫
 	32: 6, 33: 6, 34: 3, 35: 3, 36: 5, 37: 6, 38: 4, 39: 4,
 	40: 7, 41: 6, 42: 5, 43: 7, 44: 5, 45: 7, 46: 6, 47: 4, 48: 4,
 	49: 8, 50: 8, 51: 7, 52: 9, 53: 9, 54: 8,
@@ -3474,6 +3475,7 @@ const ENEMY_ALTITUDE_WEIGHTS := {
 	17: [0.0, 1.0, 4.0],  ## AF-03    电磁炮狙击（高空取射界）
 	30: [0.0, 1.0, 4.0],  ## F-22     高空四锁狙击（射后强制脱离）
 	31: [0.5, 2.5, 2.0],  ## Snowblind 复用 Sentinel 机体高度偏好
+	56: [0.5, 2.5, 2.0],  ## DEADAIR 复用 Sentinel 机体高度偏好
 	32: [0.5, 2.5, 2.5], 33: [0.5, 2.0, 3.0], 34: [4.0, 1.0, 0.0],
 	35: [0.5, 2.0, 3.5], 36: [1.0, 3.0, 1.5], 37: [1.0, 3.0, 1.5],
 	38: [1.0, 3.0, 1.5], 39: [4.0, 1.0, 0.0],
@@ -3545,6 +3547,7 @@ const TOKEN_INSTANCE_CAP := {
 	29: 2,  ## YF-23：Wraith 强化层固定两架
 	30: 3,  ## F-22：常规四锁狙击，同场最多 3 架
 	31: 1,  ## Snowblind：场上唯一传感器幕中心
+	56: 1,  ## DEADAIR：场上唯一累积干扰场中心
 	32: -1, 33: 3, 34: -1, 35: -1, 36: -1, 37: -1, 38: -1, 39: -1,
 	40: 3, 41: 3, 42: 4, 43: 3, 44: -1, 45: 3, 46: 3, 47: -1, 48: -1,
 	49: 2, 50: 2, 51: 3, 52: 2, 53: 2, 54: 2,

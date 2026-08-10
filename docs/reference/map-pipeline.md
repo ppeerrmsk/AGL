@@ -4,6 +4,64 @@ AGL 生存模式使用**真实地图底图 + 程序化矢量数据 + 手画覆�
 
 ---
 
+## 0. 地图视觉生产与审核协议（强制）
+
+地图制作者或 agent 必须先自行完成多轮视觉迭代，再请求用户审核。**用户负责美术方向与最终毕业裁决，不负责逐轮调色、找碎边或替 agent 做 QA。** 本协议适用于新地图、官方图矢量化、地图编辑器样式、主地图与 Tab 地图预览。
+
+### 0.1 默认自主迭代循环
+
+1. **建立基线**：固定同一 `MapDocument`、style、视野、分辨率与 zoom，生成参考版、候选版和同位擦除对比；不得拿不同机位或缩小缩略图比较。
+2. **分层诊断**：逐项检查 sea/shallow、land/terrain、urban、coast、roads、airport、buildings、grain、vignette；先判断是数据缺层、拓扑错误、样式错误还是 LOD 错误，再改图。
+3. **内部迭代至少 3 轮**：每轮必须有明确假设、改动和复测，禁止只改版本号。已有成熟 style profile 且首轮全部过门时可以提前结束；否则未完成 3 轮不得要求用户审核。
+4. **连续最多 8 轮**：两轮没有可测改善，或第 8 轮仍过不了客观门时，停止盲调并报告真正阻塞项（例如缺 residential/service 道路、建筑覆盖或 renderer 能力），不得把八张半成品依次丢给用户。
+5. **代理自审**：在 100% 与 200% 尺寸检查固定机位；全图、湾区、港区/机场细节、Tab 四档均过门后，才整理 1 个推荐稿；只有存在真正不同的美术方向时才附最多 2 个备选。
+6. **用户里程碑审核**：用户只在方向选择、候选里程碑和 PNG 退役毕业门拍板。收到反馈后必须转写成 style/profile/验收规则，后续地图继承，不能让用户在下一张图重新指出同一种问题。
+
+### 0.2 客观预检门
+
+- **拓扑**：海岸描边只能从最终闭合 land/water 面派生；不得有悬空 coastline、碎岛、碎水洞、港池被误填或道路落在无承托海面。
+- **局部色准**：按 sea core、land、urban、port land、airport 分区测 mean/stddev；参考图存在时每通道 mean 差目标 `<= 4 RGB`。整帧平均值只能做烟雾检查，不能让海陆偏差互相抵消。
+- **信息密度**：按 LOD 统计道路长度/屏幕面积、建筑或街区覆盖、海岸边缘密度；不得用随机噪声伪装缺失的住宅道路、建筑或地形数据。
+- **层次**：主路必须有 casing/core；海岸必须有窄边与浅海层；Strategic/Operational/Detail/Tab 各自只显示该档应有信息，连续 zoom 不跳宽、不闪层。
+- **清晰度**：交付预览使用原生画幅或可放大的同位擦除，不使用把细节压没的低清三栏图作为主要审核材料。
+- **性能结构**：所有内部候选也遵守静态 canvas、批量三角数组和零持续 `queue_redraw`；不能先做一套注定无法生产化的逐 feature/每帧原型再让用户选。
+
+### 0.3 允许提前打断用户的情况
+
+仅限：现有资料无法判断的美术方向分叉；缺少关键数据或授权；继续迭代会扩大到用户未授权的生产改造；或客观门与用户明确目标互相冲突。普通色偏、道路宽度、海岸柔化、碎边、细节密度和预览清晰度均属于 agent 应自行解决的问题。
+
+### 0.4 产物与留存
+
+- 所有工作图、参数 sweep、diff 和临时脚本写入 `tmp/<map>/...` 或项目外可视化目录，禁止进入 Godot 扫描目录。
+- 默认只保留基线、最近 2 个完整内部 run 和当前里程碑；删除前必须确认目标位于 `tmp/`，不得碰生产资产。
+- Notion 只上传用户需要查看的里程碑候选与最终裁决，不上传每轮 scratch 图；里程碑图片必须标注参考/候选、LOD、版本和仍未过门项。
+
+### 0.5 游戏内 V44 A/B 入口（冻结研究）
+
+- **最终生产裁决（用户定 2026-08-08）**：V44 整图视觉未达到预期，正式东京湾主地图与 Tab 地图保留 8704×8704 `tokyo_bay_bg.png` + shader。不得删除、覆盖、降质或把该 PNG 标成过渡资产。
+- debug build 中的 `Shift+F10` A/B、候选 renderer、矢量包与 QA 仅冻结作研究/回归材料；它们不再是当前生产迁移路径。未来重启须新建 approved spec 并重新经过整图主观视觉验收。
+- 中远景数据是 `tokyo_bay_vector_preview.json` + `tokyo_bay_operational_density.agod.gz` + `tokyo_bay_operational_buildings.agob.gz` + `tokyo_bay_operational_roads.agor.gz`；道路包是从本地 Kanto PBF 按 2 km 分区配额简化出的 18,874 条真实街区骨架，不是全量住宅路。neighborhood 只提交单层低对比 core；Operational 仅保留 large 概括体块与单一 casing。近景由 `tokyo_bay_detail_tiles_full.json` 索引 199 个 AGDT gzip 矢量包；AGLW 只消费 OSM `height` / `building:levels`，普通楼不超过 52px 投影，真实 `>=80m` 地标按分段曲线放宽到最多 122px，并用投影 bbox 跨瓦片分配。所有侧墙仍合入原 packet，缺高度建筑继续低浮雕。运行时不读取 `tmp/`，截图、diff 与缓存纹理都不得作为地图内容资产。
+- 203 个原始 detail JSON 是约 995 MB 的构建中间产物，只能放在 `tmp/full_map_detail/detail_tiles_source/`；`prepare_tokyo_bay_detail_grid.py`、`bake_tokyo_bay_full_detail.py` 和 `pack_tokyo_bay_detail_tiles.py` 必须维持该边界。`resources/maps/` 只放 AGDT/AGLW 与 manifest，禁止把 raw JSON 为了方便回流到 Godot 扫描目录。
+- Detail 缓存 Sprite 统一使用 `Color(1.25, 1.25, 1.24)` 静态乘色，补偿透明细节在最终主画布的系统性压暗；所有瓦片只能共用一个值。1.40 倍因四格接缝峰值 1.574 已否决，当前 1.25 倍峰值 1.4888；不得用逐格调色掩盖数据或接缝问题。
+- `building_preloader` 在正式局载入阶段预热 Operational 主图、Tab packet definitions 与出生区 detail；主场景只绑定缓存数组/静态纹理，首次开关不得现场做完整全图三角化。帧数是硬门：战斗中禁止 SubViewport 烘焙/GPU readback，未驻留区域保持 Operational 概括层；detail 只能在 loading 或安全暂停显式预热。12 格 LRU 上限约 110 MiB。Boss Debug 与 UGC 跳过东京湾预热；地图 Visual bench 显式走真实 GL 后端。
+- 候选开启后点击战区，`SurvivorMode` 只在 TacticalMap `panel_in` 已建立的真暂停里预热战区圆外扩 1.2 km、最多 12 格；在 Tab 空白处设置任意航点时，同样必须先预热以航点为中心的 4.4 km 方区，再下达 `command_move`。两条事务都锁住重复点击与关闭，Tab/Esc 只登记完成后关闭。失败直接使用 Operational，不阻塞任务或巡航；恢复战斗后 streaming 必须仍为 false。直接在战斗主画布移动或飞入未驻留区不得触发烘焙。
+- v6 的整图 LOD alpha 淡入已被实机否决：它会让半透明图层重复合成并造成 zoom 时整体明暗漂移。共享 base + feature 级连续淡化完成前，主图固定一个不透明 Operational 根，不随滚轮切整图。
+- v6 的规则道路密度格与 V16 试验的建筑密度等值线均被实机否决：前者是假结构，后者形成大型有机闭环。Strategic/Tab 不提交逐栋建筑；Operational 保留真实主次路、分区限额街区骨架、连续 density mass、51,121 个 large 概括体块、220 块不规则暖灰纸模台地与 669 栋常驻真实高层。最终硬预算为 1,300,000 三角 / 26 draw calls；不追求 PNG 的逐像素 edge-density。
+- 整图完成不得只凭固定机位：运行 `bench/run.cmd map_detail_atlas_qa 300 480 Shadow Visual`，逐格复用生产 Detail renderer/cache 并输出 `tmp/map_visual_qa/detail_atlas/`。东京湾基准必须为 203/203 格处理、199 非空、4 预期空、真实失败 0；30 条世界网格边界的额外 RGB 跳变峰值 `<3`。该 atlas 是 QA 产物，不得被游戏加载。
+- V34 atlas 还必须自动检查全部非空格的合成平均亮度 `90–146` 与单格生产几何 `<=1,400,000` 三角，并报告最暗、最亮、最重格；这是漏底色、错误乘色、异常叠层和单格预算失控门，不得用逐格调色抹平城乡差异。
+- V35 atlas 同时检查每个非空格 `G-R=3–12`、`B-G=-10–-1` RGB，阻断亮度正确但整块发红、发蓝或通道错误；真实城乡/水陆覆盖差异继续保留。
+- V36 战区预热不再用整个战区圆的巨大外接方框：以玩家近侧抵达点到圆心的中点为中心，按 `radius×0.5+600px` 生成走廊，并把抵达点和圆心作为 12 格截断的优先点。loading 出生区必须包含 `MapBoundary.get_player_start()`；战斗期 streaming 仍关闭。
+- V37 禁止把超过 12 格的预热集合截断后继续显示：抵达点、路径中点、圆心各按 1600×900、zoom 0.82 的真实视口求非空瓦片并集；装不下就完整回退 Operational。Detail 显示端低频检查当前视口，缺任一非空格时整层 0.18 秒渐退，不再暴露水平/垂直瓦片边。
+- Operational 的 large 概括楼保留单一东南偏移冷暗侧墙；V44 另有 669 栋真实 `>=80m` 高层常驻 `landmark` packet 与 220 块非同心暖灰纸模台地。最终总量 26 draw calls / 1,236,202 三角；中小楼仍不回填，战斗期仍无地图 bake/readback/redraw。
+- V38 将审计范围从 manifest 的 203 格扩展为完整 16×16=256 格：53 个省略格必须全部证明为严格海面/界外；4 个注册空格必须显式分类。`detail_10_06` 与 `detail_14_04` 主体为海面，只有极小严格陆地/桥梁擦边，且本地 PBF 没有分配支持图元，固定 0.8 zoom PNG/vector 对拍后作为精确锁定的海岸边缘例外；例外集合发生增减即回归失败。
+- PNG 参考截图必须实例化正式 `BuildingRenderer` 的 189 个横滨相机相关玩法街区，不能只截 PNG 底图；候选也必须保留同一共享层。除此之外，Operational 是 51,121 个全图静态 large 体块与 669 栋常驻真实高层，Detail 另消费 6,371 个有 OSM 高度的建筑墙体；职责差异必须写入截图 manifest。
+- Tab 消费同一 renderer 的 1024×1024 `SubViewport.UPDATE_ONCE` 快照，动态战区、单位与 CRT 层仍沿用原 10Hz 路径。
+- 横滨 `BuildingRenderer` 是玩法建筑/阻挡层，候选与 PNG 两侧都必须保持可见；它与全图底图建筑 packet 职责不同，允许像正式 PNG 栈一样叠加。
+- detail 纹理的 4 px 外挤只允许被采样，不得扩张 Sprite 世界矩形；相邻格重复叠加会在接缝两侧形成暗线。
+- 当前入口只用于冻结研究的诊断与历史回归，不是 PNG 退役授权。数据或任一端初始化失败会同时回滚到 PNG；UGC 与 Boss Debug 不暴露该开关，bench 只用专用 map 场景进入。
+
+---
+
 ## 1. 架构总览
 
 ```
@@ -116,7 +174,7 @@ python scripts/tools/download_basemap.py
 ```
 
 输出：
-- `resources/maps/tokyo_bay_bg.png` — 拼好的大图（voyager 风格 ~7-8 MB）
+- `resources/maps/tokyo_bay_bg.png` — 当前正式东京湾底图（8704×8704，36,075,000 bytes；生产资产，禁止被转换器覆盖）
 - `resources/maps/tokyo_bay_bg.json` — 元数据（bbox → 游戏坐标系转换参数）
 
 > **尺寸权衡**：ZOOM=13 够用，玩家缩放后不模糊；ZOOM=14 更清晰但 4 倍大小。ZOOM=15 以上不建议（文件暴涨，对 CartoDB 不友好）。
@@ -236,7 +294,7 @@ static func is_on_land(pos: Vector2) -> bool:
 | URBAN_POLYGONS | ~160 个 | OSM landuse |
 | ROADS_MOTORWAY/TRUNK/PRIMARY/SECONDARY | 1012 条总计 | 短于 200px 的丢 |
 | COASTLINE_LINES | 21 段 | OSM 海岸线 |
-| 底图 PNG | 4608×4608 px / ~7.5 MB | ZOOM=13 |
+| 底图 PNG | 8704×8704 px / 36,075,000 bytes | 当前正式生产资产；主地图 + Tab 保留 |
 | JSON 数据 | ~100 KB | FileAccess + JSON.parse |
 | 启动加载 | ~30 ms | 一次性 `ensure_loaded` |
 
@@ -259,11 +317,29 @@ static func is_on_land(pos: Vector2) -> bool:
 ### 工具脚本（不进打包，开发时用）
 - `scripts/tools/bake_tokyo_bay.py` — OSM GeoJSON → JSON 矢量数据 + 陆地 mask union
 - `scripts/tools/download_basemap.py` — CartoDB 瓦片拼接 → 底图 PNG + 元数据
+- `scripts/tools/bake_preview_basemaps.py` — 图2 Mount Whaleback / 图3 Ironbottom Sound 各 17×17 张 zoom 13 `@2x` 瓦片 → 两组 8704² PNG + 元数据
+- `scripts/tools/refine_preview_basemaps.py` — 图2低对比沙漠地貌来源层 + 坐标稳定道路底图 → v2；图3清除主岛南部保护区/土地覆盖直角色块 → v2
+- `resources/maps/source/` — 带 `.gdignore` 的离线地貌来源层与生成 prompt；不参与 Godot 导入或运行时打包
+- `scripts/tools/build_vector_preview_data.py` — 已审中远景研究矢量 → 自包含运行时预览数据
+- `scripts/tools/bake_yokohama_gold_slice.py` — Overpass OSM → 横滨 4×4 km 纯矢量金样
+- `scripts/tools/bake_tokyo_bay_full_detail.py` — Kanto PBF → 全东京湾 2 km detail JSON 网格
+- `scripts/tools/pack_tokyo_bay_detail_tiles.py` — `tmp/` detail JSON → 量化 AGDT gzip 运行时包；manifest 保留 build-only `json_source_path`
+- `scripts/tools/build_tokyo_bay_operational_density.py` — 全图 OSM 城市/植被/工业密度场
+- `scripts/tools/pack_tokyo_bay_operational_buildings.py` — 全图大中小建筑面积守恒方向体块 packet
+- `scripts/tools/bake_tokyo_bay_operational_roads.py` — 本地 Kanto PBF → 2 km 分区限额、折线简化的中景街区骨架
+- `scripts/tools/bake_tokyo_bay_operational_landmarks.py` — 本地 Kanto PBF → 669 栋真实 `>=80m` 高层的常驻 Operational 假 3D 包
+- `scripts/tools/bake_tokyo_bay_context_relief.py` — density + 视觉水环 → 220 块不规则、非同心暖灰纸模台地；离线拒绝跨水边
+- `scripts/tools/map_visual_qa.py` — 评分真实 Godot 截图并生成 diff/contact sheet，不负责渲染地图
 
 ### 运行时代码
 - `scripts/survivor/map_geography.gd` — 公开 API（is_on_land / URBAN_DISTRICTS / HIGHWAYS / get_*）
 - `scripts/survivor/map_geography_data.gd` — JSON 加载器（从 `tokyo_bay.json` 填充静态数组）
 - `scripts/survivor/map_feature_renderer.gd` — 主地图渲染（Sprite2D 底图 + 矢量 + vignette）
+- `scripts/survivor/map_vector_preview_renderer.gd` — 冻结的 V44 debug 研究 renderer；不作为正式东京湾 PNG 替换路径
+- `scripts/survivor/map_detail_vector_renderer.gd` — Detail AGDT + 可选 AGLW 实际高度侧墙静态合批 renderer；仅供 loading/安全暂停的一次性临时 viewport 使用
+- `scripts/tools/bake_tokyo_bay_landmark_walls.py` — 从本地 OSM 高度标签离线生成 AGLW sidecar
+- `scripts/survivor/map_detail_tile_cache.gd` — 2× 超采样、1536² 内容 + 4 px 过滤外挤、12 格 LRU；正式主图绑定静态 texture
+- `scripts/tests/map_visual_qa_runner.gd` — PNG/vector 固定机位真实运行时采集
 - `scripts/survivor/map_manual_background.gd` — @tool 编辑器预览（显示 OSM 给你描边用）
 - `scripts/survivor/tactical_map.gd` — 战术缩略图（含 CRT 扫描线 / 暗角后绘制）
 
@@ -271,8 +347,28 @@ static func is_on_land(pos: Vector2) -> bool:
 - `resources/maps/tokyo_bay.json` — 矢量数据
 - `resources/maps/tokyo_bay_bg.png` — 底图
 - `resources/maps/tokyo_bay_bg.json` — 底图元数据
+- `resources/maps/tokyo_bay_vector_preview.json` — V15 中远景补充矢量（无地图内容栅格）
+- `resources/maps/tokyo_bay_operational_density.agod.gz` — 513² 量化 OSM 标量场，不是地图贴图
+- `resources/maps/tokyo_bay_operational_buildings.agob.gz` — AGOB v2 全图分级建筑概括 packet
+- `resources/maps/tokyo_bay_operational_roads.agor.gz` — 15,431 条分区限额真实街区骨架（约 300 KiB gzip；运行时合批为 casing+core）
+- `resources/maps/tokyo_bay_operational_landmarks.aglw.gz` / `.json` — 669 栋真实 `>=80m` 高层，29,688 三角、227,154 bytes gzip；所有战斗 zoom 常驻
+- `resources/maps/tokyo_bay_detail_tiles_full.json` / `detail_tiles_packed/*.agdt.gz` — 全图 199 个非空近景矢量包
+- `resources/maps/yokohama_gold_slice_preview.json` — 横滨 style 金样源；不含地图内容栅格
 - `resources/shaders/basemap_tacview.gdshader` — 主地图 shader
 - `scenes/map_manual.tscn` — 手画覆盖层场景
 
 ### 相关文档
 - **[manual-map-editing.md](manual-map-editing.md)** — Polygon2D 手画地块的完整操作指南
+- **[vector-map-production-playbook.md](vector-map-production-playbook.md)** — 冻结研究的金样、LOD、全格覆盖、建筑、性能与自主迭代经验；当前不授权东京湾 PNG 退役
+
+### 真实画面回归命令
+
+```powershell
+bench\run.cmd map_gold_slice 1 120 Shadow
+bench\run.cmd map_visual_qa 1 240 Shadow Visual
+& 'C:\Users\noelu\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' scripts\tools\map_visual_qa.py tmp\map_visual_qa\runtime\manifest.json --allow-fail
+```
+
+Visual 模式仍走同一项目锁、Shadow 副本、有限超时与进程树回收；窗口被放到屏幕外，但使用真实 GL Compatibility renderer。当前全图门仍失败时 `--allow-fail` 只允许生成研究报告，不代表通过毕业门。
+
+V44 历史基线：Operational 为 26 draw calls、1,236,202 三角；其中 `terrain_context` 14,496 三角、常驻 `landmark` 29,688 三角，视觉水面命中为 0，首次结构预热 1,327ms。120 秒同机同负载 Visual 压力为 PNG 117.91 FPS / 最低 38.12 / 3 个低于 60 FPS 帧，矢量 119.33 / 最低 29.87 / 1 个低帧；后半程战斗结果不同，因此只证明未触发 -15 FPS 门，不宣称矢量更快。2026-08-08 用户最终整图视觉验收未通过，PNG 已确认为正式保留方案，候选停止生产化推进。

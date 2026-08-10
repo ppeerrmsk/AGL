@@ -35,9 +35,13 @@ const ARTILLERY_SHELL_TIME_S := 2.2
 const ARTILLERY_DAMAGE := 6.0
 const ARTILLERY_AOE_RADIUS_PX := 55.0
 const NAVAL_GROUP_SEPARATION_PX := 1600.0
-const NAVAL_ROUTE_PX := 2400.0
+const NAVAL_PATROL_RADIUS_PX := 240.0
+const NAVAL_PATROL_RADII: Array = [NAVAL_PATROL_RADIUS_PX, 120.0, 0.0]
+const NAVAL_WING_OFFSET := Vector2(-210.0, 230.0)
 const NAVAL_GUN_TIME_S := 1.6
 const NAVAL_GUN_DAMAGE := 1.8
+const DAMAGE_LIVE_ENTER_PX := 1500.0
+const DAMAGE_LIVE_EXIT_PX := 1800.0
 
 var _mode: Node2D
 var _spawner: SurvivorSpawner
@@ -56,6 +60,9 @@ var _tick_accum := 0.0
 var _run_id := 0
 var _active := false
 var _sample_kind := "air"
+var _stress_member_target := 0
+var _stress_span_px := 0.0
+var _damage_live := true
 
 
 func setup(mode: Node2D, spawner: SurvivorSpawner) -> void:
@@ -73,6 +80,7 @@ func launch_air_battle() -> bool:
 	var lateral := Vector2(-axis.y, axis.x)
 	_battle_center = MapBoundary.clamp_inside(
 		player.global_position + axis * CENTER_AHEAD_PX, BOUNDARY_MARGIN_PX)
+	_prime_damage_lod()
 
 	var ally_ground_center := _battle_center - lateral * GROUND_LATERAL_PX
 	var hostile_ground_center := _battle_center + lateral * GROUND_LATERAL_PX
@@ -85,8 +93,8 @@ func launch_air_battle() -> bool:
 
 	var ally_base := _battle_center - axis * (FIGHTER_SEPARATION_PX * 0.5)
 	var hostile_base := _battle_center + axis * (FIGHTER_SEPARATION_PX * 0.5)
-	_spawn_fighter_wedge(CombatUnit.TEAM_ALLY, SurvivorSpawner.EnemyType.F86,
-		ally_base, axis, lateral, "SABRE")
+	_spawn_fighter_wedge(CombatUnit.TEAM_ALLY, SurvivorSpawner.EnemyType.F4E,
+		ally_base, axis, lateral, "PHANTOM")
 	_spawn_fighter_wedge(CombatUnit.TEAM_HOSTILE, SurvivorSpawner.EnemyType.MIG23,
 		hostile_base, -axis, -lateral, "FLOGGER")
 
@@ -113,6 +121,7 @@ func launch_ground_battle() -> bool:
 		clear_experiment(false)
 		status_changed.emit("启动失败：附近没有可容纳 3v3 炮线的连续陆地")
 		return false
+	_prime_damage_lod()
 	_spawn_artillery_line(CombatUnit.TEAM_ALLY,
 		_battle_center - lateral * ARTILLERY_LINE_SEPARATION_PX * 0.5,
 		lateral, axis, "ALLY-SPG")
@@ -132,20 +141,71 @@ func launch_naval_battle() -> bool:
 	var axis := _player_forward()
 	var lateral := Vector2(-axis.y, axis.x)
 	var desired := player.global_position + axis * 1800.0
-	_battle_center = _find_water_battle_center(desired, axis, lateral)
-	if _battle_center == Vector2.INF:
+	var placement := _find_water_battle_setup(desired, axis, lateral)
+	if placement.is_empty():
 		clear_experiment(false)
-		status_changed.emit("启动失败：附近没有可容纳双舰队航路的连续水域")
+		status_changed.emit("启动失败：附近没有可容纳双舰队安全巡航圈的连续水域")
 		return false
+	_battle_center = placement["center"]
+	_prime_damage_lod()
+	var patrol_radius: float = float(placement["ring"])
 	_spawn_naval_group(CombatUnit.TEAM_ALLY,
 		_battle_center - lateral * NAVAL_GROUP_SEPARATION_PX * 0.5,
-		axis, lateral, "ALLY")
+		axis, lateral, "ALLY", patrol_radius)
 	_spawn_naval_group(CombatUnit.TEAM_HOSTILE,
 		_battle_center + lateral * NAVAL_GROUP_SEPARATION_PX * 0.5,
-		-axis, -lateral, "HOSTILE")
+		-axis, -lateral, "HOSTILE", patrol_radius)
 	_emit_status()
 	EventLogger.log_event("ATMOSPHERE", "NavalLaunch",
-		"run=%d center=%s ships=%d" % [_run_id, _battle_center, _naval_units.size()])
+		"run=%d center=%s ships=%d patrol_radius_px=%.0f full_orbit_land=0" % [
+			_run_id, _battle_center, _naval_units.size(), patrol_radius])
+	return true
+
+
+## Bench 专用：把空战、炮战和海战演员铺在同一个可控范围内，维持满编测容量。
+func launch_stress_battle(member_target: int, span_px: float) -> bool:
+	if not _begin_sample("mixed"):
+		return false
+	_stress_member_target = member_target
+	_stress_span_px = clampf(span_px, 2000.0, MapBoundary.WORLD_HALF_PX * 1.6)
+	_battle_center = Vector2.ZERO
+	var axis := Vector2.RIGHT
+	var lateral := Vector2.DOWN
+	var config := _stress_composition(member_target)
+	var ground_offset := minf(_stress_span_px * 0.18, 900.0)
+	var ally_ground_center := _battle_center - axis * ground_offset
+	var hostile_ground_center := _battle_center + axis * ground_offset
+	var ally_ground := _spawn_ground_anchor(CombatUnit.TEAM_ALLY, ally_ground_center, axis)
+	var hostile_ground := _spawn_ground_anchor(CombatUnit.TEAM_HOSTILE, hostile_ground_center, -axis)
+
+	_spawn_stress_fighters(CombatUnit.TEAM_ALLY, int(config["fighters"]), -1.0,
+		_stress_span_px, "STRESS-A")
+	_spawn_stress_fighters(CombatUnit.TEAM_HOSTILE, int(config["fighters"]), 1.0,
+		_stress_span_px, "STRESS-H")
+	_spawn_stress_helis(CombatUnit.TEAM_ALLY, int(config["helis"]), hostile_ground,
+		hostile_ground_center, axis, lateral, _stress_span_px, "STRESS-APACHE-A")
+	_spawn_stress_helis(CombatUnit.TEAM_HOSTILE, int(config["helis"]), ally_ground,
+		ally_ground_center, -axis, -lateral, _stress_span_px, "STRESS-APACHE-H")
+
+	_spawn_artillery_line(CombatUnit.TEAM_ALLY,
+		_battle_center - axis * minf(_stress_span_px * 0.12, 1000.0), axis, lateral, "STRESS-SPG-A",
+		int(config["artillery"]), _stress_span_px * 0.70)
+	_spawn_artillery_line(CombatUnit.TEAM_HOSTILE,
+		_battle_center + axis * minf(_stress_span_px * 0.12, 1000.0), -axis, lateral, "STRESS-SPG-H",
+		int(config["artillery"]), _stress_span_px * 0.70)
+	_spawn_stress_naval(CombatUnit.TEAM_ALLY, int(config["ships"]),
+		_battle_center - axis * minf(_stress_span_px * 0.30, 1500.0), lateral, axis,
+		_stress_span_px, "STRESS-NAV-A")
+	_spawn_stress_naval(CombatUnit.TEAM_HOSTILE, int(config["ships"]),
+		_battle_center + axis * minf(_stress_span_px * 0.30, 1500.0), -lateral, -axis,
+		_stress_span_px, "STRESS-NAV-H")
+	_spawn_bomber_pair(lateral, axis, ally_ground_center, hostile_ground_center,
+		maxf(1200.0, _stress_span_px * 0.40))
+	_refresh_assignments()
+	_emit_status()
+	EventLogger.log_event("ATMOSPHERE", "StressLaunch",
+		"run=%d target=%d actual=%d span_km=%.1f" % [
+			_run_id, member_target, _live_combat_actor_count(), _stress_span_px / 500.0])
 	return true
 
 
@@ -160,6 +220,9 @@ func _begin_sample(kind: String) -> bool:
 	_sample_kind = kind
 	_active = true
 	_tick_accum = 0.0
+	_stress_member_target = 0
+	_stress_span_px = 0.0
+	_damage_live = true
 	set_physics_process(true)
 	return true
 
@@ -232,12 +295,17 @@ func _physics_process(delta: float) -> void:
 	var fire_delta := _tick_accum
 	_tick_accum = 0.0
 	_cleanup_refs()
+	_update_damage_lod()
 	match _sample_kind:
 		"air":
 			_refresh_assignments()
 		"ground":
 			_update_artillery_fire_control(fire_delta)
 		"naval":
+			_update_naval_fire_control(fire_delta)
+		"mixed":
+			_refresh_assignments()
+			_update_artillery_fire_control(fire_delta)
 			_update_naval_fire_control(fire_delta)
 	_emit_status()
 
@@ -255,6 +323,30 @@ func _spawn_fighter_wedge(team: int, enemy_type: int, base: Vector2, forward: Ve
 		_configure_ambient_aircraft(ac, team, "fighter")
 		ac.callsign = "%s-%02d" % [prefix, i + 1]
 		_fighters.append(ac)
+
+
+func _spawn_stress_fighters(team: int, count: int, side: float, span_px: float,
+		prefix: String) -> void:
+	var enemy_type := SurvivorSpawner.EnemyType.F4E if team == CombatUnit.TEAM_ALLY \
+		else SurvivorSpawner.EnemyType.MIG23
+	var forward := Vector2.RIGHT * -side
+	for i in range(count):
+		var lane_t := (float(i) + 0.5) / maxf(float(count), 1.0) - 0.5
+		var pos := _battle_center + Vector2(side * minf(span_px * 0.20, 900.0),
+			lane_t * span_px * 0.84)
+		var ac: Aircraft = _spawner._create_enemy(enemy_type, pos, _heading_deg(forward))
+		_configure_ambient_aircraft(ac, team, "fighter")
+		ac.callsign = "%s-%02d" % [prefix, i + 1]
+		_fighters.append(ac)
+
+
+func _spawn_stress_helis(team: int, count: int, targets: Array[GroundUnit],
+		target_center: Vector2, forward: Vector2, lateral: Vector2, span_px: float,
+		prefix: String) -> void:
+	for pair_start in range(0, count, 2):
+		var lane_t := (float(pair_start) + 1.0) / maxf(float(count), 1.0) - 0.5
+		_spawn_heli_pair(team, targets, target_center + lateral * lane_t * span_px * 0.55,
+			forward, lateral, "%s-%02d" % [prefix, pair_start + 1])
 
 
 func _spawn_heli_pair(team: int, targets: Array[GroundUnit], target_center: Vector2,
@@ -300,6 +392,8 @@ func _spawn_ground_unit(scene: PackedScene, base_params: AircraftParams, team: i
 	var unit: GroundUnit = scene.instantiate()
 	var p: AircraftParams = base_params.duplicate(true)
 	_duplicate_and_scale_weapons(p)
+	if _sample_kind == "mixed":
+		p.max_hp = 1.0e9
 	unit.params = p
 	unit.team = team
 	unit.position = pos
@@ -314,14 +408,16 @@ func _spawn_ground_unit(scene: PackedScene, base_params: AircraftParams, team: i
 
 
 func _spawn_artillery_line(team: int, base: Vector2, enemy_direction: Vector2,
-		route_axis: Vector2, prefix: String) -> void:
-	for i in range(ARTILLERY_COUNT_PER_SIDE):
-		var slot_offset := route_axis * (float(i) - 1.0) * ARTILLERY_SLOT_PX
+		route_axis: Vector2, prefix: String, count: int = ARTILLERY_COUNT_PER_SIDE,
+		line_span_px: float = ARTILLERY_SLOT_PX * 2.0) -> void:
+	for i in range(count):
+		var slot_t := (float(i) / maxf(float(count - 1), 1.0)) - 0.5
+		var slot_offset := route_axis * slot_t * line_span_px
 		var pos := base + slot_offset
 		var unit: GroundUnit = ARTILLERY_SCRIPT.new()
 		var p: AircraftParams = AA_PARAMS.duplicate(true)
 		p.display_name = "SPG"
-		p.max_hp = 120.0
+		p.max_hp = 1.0e9 if _sample_kind == "mixed" else 120.0
 		p.radar_range = 0.0
 		p.gun = null
 		unit.params = p
@@ -332,6 +428,8 @@ func _spawn_artillery_line(team: int, base: Vector2, enemy_direction: Vector2,
 		unit.max_ground_speed = 3.0
 		unit.call("configure_rail", pos, route_axis, ARTILLERY_ROUTE_PX * 0.5, 45.0)
 		unit.set_meta("ambient_slot", i)
+		if _sample_kind == "mixed":
+			unit.set_meta("stress_invulnerable", true)
 		_mark_actor(unit, "artillery")
 		_mode.add_child(unit)
 		unit.bullet_manager = _spawner.bullet_manager
@@ -341,23 +439,52 @@ func _spawn_artillery_line(team: int, base: Vector2, enemy_direction: Vector2,
 			+ (0.35 if team == CombatUnit.TEAM_HOSTILE else 0.0)
 
 
+func _spawn_stress_naval(team: int, count: int, base: Vector2, forward: Vector2,
+		lateral: Vector2, span_px: float, prefix: String) -> void:
+	for i in range(count):
+		var lane_t := (float(i) / maxf(float(count - 1), 1.0)) - 0.5
+		var pos := base + lateral * lane_t * span_px * 0.74
+		var is_ddg := i % 2 == 0
+		var ship := _spawn_atmosphere_ship(DDG_SCRIPT if is_ddg else FFG_SCRIPT,
+			DDG_PARAMS if is_ddg else FFG_PARAMS, team, pos, forward,
+			"%s-%02d" % [prefix, i + 1])
+		if ship == null:
+			continue
+		ship.waypoints = PackedVector2Array([
+			pos - forward * minf(900.0, span_px * 0.10),
+			pos + forward * minf(900.0, span_px * 0.10),
+		])
+		ship.target_position = ship.waypoints[0]
+		ship.hull_hp_max = 1.0e9
+		ship.hull_hp = 1.0e9
+		if ship.weak_point != null:
+			ship.weak_point.hp = 1.0e9
+		for mount in ship.mounts:
+			if mount != null:
+				mount.hp = 1.0e9
+
+
 func _spawn_naval_group(team: int, base: Vector2, forward: Vector2,
-		lateral: Vector2, prefix: String) -> void:
-	var leader := _spawn_atmosphere_ship(DDG_SCRIPT, DDG_PARAMS, team, base,
+		lateral: Vector2, prefix: String, patrol_radius: float) -> void:
+	var heading_deg := _heading_deg(forward)
+	var leader_pos := NavalPlacement.leader_pos(base, patrol_radius, deg_to_rad(heading_deg))
+	var leader := _spawn_atmosphere_ship(DDG_SCRIPT, DDG_PARAMS, team, leader_pos,
 		forward, "%s-DDG" % prefix)
 	if leader == null:
 		return
-	leader.waypoints = PackedVector2Array([
-		base - forward * NAVAL_ROUTE_PX * 0.5,
-		base + forward * NAVAL_ROUTE_PX * 0.5,
-	])
-	leader.target_position = leader.waypoints[0]
-	var wing_pos := base - forward * 210.0 + lateral * 230.0
+	if patrol_radius > 1.0:
+		leader.patrol_center = base
+		leader.patrol_radius = patrol_radius
+	leader.set_meta("ambient_patrol_center", base)
+	var wing_pos := leader_pos \
+		+ forward * NAVAL_WING_OFFSET.x \
+		+ lateral * NAVAL_WING_OFFSET.y
 	var wing := _spawn_atmosphere_ship(FFG_SCRIPT, FFG_PARAMS, team, wing_pos,
 		forward, "%s-FFG" % prefix)
 	if wing != null:
 		wing.formation_leader = leader
-		wing.formation_offset = Vector2(-210.0, 230.0)
+		wing.formation_offset = NAVAL_WING_OFFSET
+		wing.set_meta("ambient_patrol_center", base)
 
 
 func _spawn_atmosphere_ship(ship_script: GDScript, base_params: NavalParams, team: int,
@@ -408,27 +535,33 @@ func _is_land_formation_region(center: Vector2, axis: Vector2, lateral: Vector2)
 	return true
 
 
-func _find_water_battle_center(desired: Vector2, axis: Vector2, lateral: Vector2) -> Vector2:
-	for radius_value in [0.0, 700.0, 1400.0, 2400.0, 3600.0, 5000.0, 6500.0]:
-		var radius: float = float(radius_value)
-		var samples: int = 1 if radius == 0.0 else 16
-		for i in range(samples):
-			var candidate: Vector2 = desired + Vector2.from_angle(float(i) * TAU / float(samples)) * radius
-			candidate = MapBoundary.clamp_inside(candidate, 2600.0)
-			if _is_water_formation_region(candidate, axis, lateral):
-				return candidate
-	return Vector2.INF
+func _find_water_battle_setup(desired: Vector2, axis: Vector2,
+		lateral: Vector2) -> Dictionary:
+	# 优先保留 240 px（480 m）的小巡航圈；窄水域只缩圈，绝不接受会擦岸的解。
+	for ring_value in NAVAL_PATROL_RADII:
+		var ring: float = float(ring_value)
+		for search_radius_value in [0.0, 700.0, 1400.0, 2400.0, 3600.0, 5000.0, 6500.0]:
+			var search_radius: float = float(search_radius_value)
+			var samples: int = 1 if search_radius == 0.0 else 16
+			for i in range(samples):
+				var candidate := desired \
+					+ Vector2.from_angle(float(i) * TAU / float(samples)) * search_radius
+				candidate = MapBoundary.clamp_inside(candidate, 2600.0)
+				if _is_water_formation_region(candidate, axis, lateral, ring):
+					return {"center": candidate, "ring": ring}
+	return {}
 
 
-func _is_water_formation_region(center: Vector2, axis: Vector2, lateral: Vector2) -> bool:
+func _is_water_formation_region(center: Vector2, axis: Vector2, lateral: Vector2,
+		patrol_radius: float) -> bool:
 	for side_value in [-1.0, 1.0]:
 		var side: float = float(side_value)
-		var base: Vector2 = center + lateral * side * NAVAL_GROUP_SEPARATION_PX * 0.5
-		for route_side_value in [-1.0, 0.0, 1.0]:
-			var route_side: float = float(route_side_value)
-			var pos: Vector2 = base + axis * route_side * NAVAL_ROUTE_PX * 0.5
-			if MapGeography.is_on_land(pos) or MapGeography.is_on_land(pos - axis * 210.0 + lateral * 230.0):
-				return false
+		var fleet_center := center + lateral * side * NAVAL_GROUP_SEPARATION_PX * 0.5
+		var fleet_forward := axis if side < 0.0 else -axis
+		var heading_rad := deg_to_rad(_heading_deg(fleet_forward))
+		if NavalPlacement.score(fleet_center, patrol_radius,
+				[NAVAL_WING_OFFSET], heading_rad) != 0:
+			return false
 	return true
 
 
@@ -447,18 +580,18 @@ func _spawn_hardened_target(team: int, pos: Vector2, kind: int, callsign: String
 
 
 func _spawn_bomber_pair(axis: Vector2, lateral: Vector2, ally_ground_center: Vector2,
-		hostile_ground_center: Vector2) -> void:
+		hostile_ground_center: Vector2, ingress_px: float = 3600.0) -> void:
 	var ally_target := hostile_ground_center - axis * 340.0
 	var hostile_target := ally_ground_center + axis * 340.0
 	var ally_route := PackedVector2Array([
-		ally_target - axis * 3600.0 - lateral * 220.0,
-		ally_target - axis * 1200.0,
+		ally_target - axis * ingress_px - lateral * 220.0,
+		ally_target - axis * minf(1200.0, ingress_px * 0.45),
 		ally_target,
 		ally_target + axis * 2400.0,
 	])
 	var hostile_route := PackedVector2Array([
-		hostile_target + axis * 3600.0 + lateral * 220.0,
-		hostile_target + axis * 1200.0,
+		hostile_target + axis * ingress_px + lateral * 220.0,
+		hostile_target + axis * minf(1200.0, ingress_px * 0.45),
 		hostile_target,
 		hostile_target - axis * 2400.0,
 	])
@@ -564,14 +697,16 @@ func _spawn_ballistic_shell(source: CombatUnit, target: CombatUnit, kind: String
 		"kind": kind,
 		"damage": damage,
 		"radius_px": radius_px,
+		"can_damage": _damage_live or _sample_kind == "mixed",
 	})
 	EventLogger.log_event("ATMOSPHERE", "Fire",
 		"kind=%s source=%s target=%s damage=%.1f" % [kind, source.callsign, target.callsign, damage])
-	queue_redraw()
+	_queue_effect_redraw_if_visible()
 
 
 func _update_ballistic_shells(delta: float) -> void:
 	var changed := false
+	var removed := false
 	for i in range(_ballistic_shells.size() - 1, -1, -1):
 		var shell: Dictionary = _ballistic_shells[i]
 		shell["age"] = float(shell["age"]) + delta
@@ -579,14 +714,20 @@ func _update_ballistic_shells(delta: float) -> void:
 		if float(shell["age"]) >= float(shell["duration"]):
 			_resolve_ballistic_impact(shell)
 			_ballistic_shells.remove_at(i)
+			removed = true
 	if changed:
-		queue_redraw()
+		_queue_effect_redraw_if_visible(removed)
 
 
 func _resolve_ballistic_impact(shell: Dictionary) -> void:
 	var impact_pos: Vector2 = shell["end"]
 	var source_team := int(shell["source_team"])
 	var attacker := _combat_from_id(int(shell["source_id"]))
+	if not bool(shell.get("can_damage", true)):
+		EventLogger.log_event("ATMOSPHERE", "AbstractImpact",
+			"run=%d kind=%s pos=%s damage=0" % [_run_id, shell["kind"], impact_pos])
+		_add_impact_flash(impact_pos, String(shell["kind"]))
+		return
 	if String(shell["kind"]) == "artillery":
 		var radius := float(shell["radius_px"])
 		var hits := 0
@@ -618,17 +759,19 @@ func _resolve_ballistic_impact(shell: Dictionary) -> void:
 func _add_impact_flash(pos: Vector2, kind: String) -> void:
 	_impact_flashes.append({"pos": pos, "kind": kind, "age": 0.0, "duration": 0.8})
 	AudioManager.play_sfx_2d("bomb_distant", pos, 4.0)
-	queue_redraw()
+	_queue_effect_redraw_if_visible()
 
 
 func _update_impact_flashes(delta: float) -> void:
 	if _impact_flashes.is_empty():
 		return
+	var removed := false
 	for i in range(_impact_flashes.size() - 1, -1, -1):
 		_impact_flashes[i]["age"] = float(_impact_flashes[i]["age"]) + delta
 		if float(_impact_flashes[i]["age"]) >= float(_impact_flashes[i]["duration"]):
 			_impact_flashes.remove_at(i)
-	queue_redraw()
+			removed = true
+	_queue_effect_redraw_if_visible(removed)
 
 
 func _configure_ambient_aircraft(ac: Aircraft, team: int, role: String) -> void:
@@ -642,7 +785,167 @@ func _configure_ambient_aircraft(ac: Aircraft, team: int, role: String) -> void:
 	ac.set_meta("skip_far_cleanup", true)
 	ac.set_meta("no_kill_reward", true)
 	ac.set_meta("token_cost", 0)
+	if role == "bomber":
+		# 轰炸任务炸弹必须继续走 StrategicTarget 的正式任务伤害，不吃气氛距离门。
+		ac.set_meta("ambient_damage_lod_exempt", true)
+	else:
+		_capture_air_damage_profile(ac)
+		if not _damage_live:
+			_set_air_damage_enabled(ac, false)
+	if _sample_kind == "mixed":
+		ac.invulnerable = true
+		# 容量样本固定演员池；固定翼火箭的独立对地扫描会一击移除火炮，破坏满载条件。
+		if role == "fighter":
+			ac.params.rocket = null
+			ac.rockets_remaining = 0
 	_mark_actor(ac, role)
+
+
+func _capture_air_damage_profile(ac: Aircraft) -> void:
+	if ac.params == null:
+		return
+	var profile := {}
+	if ac.params.gun != null:
+		profile["gun"] = ac.params.gun.bullet_damage
+	if ac.params.missile != null:
+		profile["missile"] = ac.params.missile.damage
+	if ac.params.secondary_missile != null:
+		profile["secondary_missile"] = ac.params.secondary_missile.damage
+	if ac.params.rocket != null:
+		profile["rocket"] = ac.params.rocket.rocket_damage
+		profile["rocket_aoe"] = ac.params.rocket.aoe_damage
+	ac.set_meta("ambient_damage_profile", profile)
+
+
+func _set_air_damage_enabled(ac: Aircraft, enabled: bool) -> void:
+	if ac.params == null or ac.get_meta("ambient_damage_lod_exempt", false):
+		return
+	var profile_value: Variant = ac.get_meta("ambient_damage_profile", {})
+	if not (profile_value is Dictionary):
+		return
+	var profile: Dictionary = profile_value
+	if ac.params.gun != null and profile.has("gun"):
+		ac.params.gun.bullet_damage = float(profile["gun"]) if enabled else 0.0
+	if ac.params.missile != null and profile.has("missile"):
+		ac.params.missile.damage = float(profile["missile"]) if enabled else 0.0
+	if ac.params.secondary_missile != null and profile.has("secondary_missile"):
+		ac.params.secondary_missile.damage = float(profile["secondary_missile"]) if enabled else 0.0
+	if ac.params.rocket != null and profile.has("rocket"):
+		ac.params.rocket.rocket_damage = float(profile["rocket"]) if enabled else 0.0
+		ac.params.rocket.aoe_damage = float(profile.get("rocket_aoe", 0.0)) if enabled else 0.0
+
+
+func _update_damage_lod() -> void:
+	if _sample_kind == "mixed" or _spawner == null or not is_instance_valid(_spawner) \
+			or _spawner.player_aircraft == null or not is_instance_valid(_spawner.player_aircraft):
+		return
+	var distance_px := _spawner.player_aircraft.global_position.distance_to(_battle_center)
+	var next_live := _damage_live
+	if _damage_live and distance_px >= DAMAGE_LIVE_EXIT_PX:
+		next_live = false
+	elif not _damage_live and distance_px <= DAMAGE_LIVE_ENTER_PX:
+		next_live = true
+	if next_live == _damage_live:
+		return
+	_damage_live = next_live
+	for actor in _actors:
+		if is_instance_valid(actor) and actor is Aircraft:
+			_set_air_damage_enabled(actor as Aircraft, _damage_live)
+	EventLogger.log_event("ATMOSPHERE", "DamageLOD",
+		"run=%d live=%s distance_px=%.0f enter=%.0f exit=%.0f" % [
+			_run_id, str(_damage_live), distance_px, DAMAGE_LIVE_ENTER_PX, DAMAGE_LIVE_EXIT_PX])
+
+
+func _prime_damage_lod() -> void:
+	if _sample_kind == "mixed" or _spawner == null or not is_instance_valid(_spawner) \
+			or _spawner.player_aircraft == null or not is_instance_valid(_spawner.player_aircraft):
+		_damage_live = true
+		return
+	var distance_px := _spawner.player_aircraft.global_position.distance_to(_battle_center)
+	_damage_live = distance_px <= DAMAGE_LIVE_ENTER_PX
+	EventLogger.log_event("ATMOSPHERE", "DamageLODPrime",
+		"run=%d live=%s distance_px=%.0f" % [_run_id, str(_damage_live), distance_px])
+
+
+func _queue_effect_redraw_if_visible(force_clear: bool = false) -> void:
+	# 最后一枚弹丸/闪光在画外过期时也必须清一次 CanvasItem 的缓存绘制命令，
+	# 否则玩家快速拉回镜头可能看见已经过期的“幽灵弹道”。
+	if force_clear:
+		queue_redraw()
+		return
+	if _mode == null or not is_instance_valid(_mode) or not _mode.has_method("is_world_pos_visible"):
+		queue_redraw()
+		return
+	for shell in _ballistic_shells:
+		var t := clampf(float(shell["age"]) / maxf(float(shell["duration"]), 0.01), 0.0, 1.0)
+		var pos: Vector2 = Vector2(shell["start"]).lerp(Vector2(shell["end"]), t)
+		if _mode.is_world_pos_visible(pos, 40.0):
+			queue_redraw()
+			return
+	for flash in _impact_flashes:
+		if _mode.is_world_pos_visible(Vector2(flash["pos"]), 40.0):
+			queue_redraw()
+			return
+
+
+func stress_summary() -> String:
+	return "atmosphere_target=%d live_members=%d span_km=%.1f shells=%d\n" % [
+		_stress_member_target, _live_combat_actor_count(), _stress_span_px / 500.0,
+		_ballistic_shells.size()]
+
+
+func naval_summary() -> String:
+	var live := 0
+	var on_land := 0
+	var max_center_distance := 0.0
+	for ship in _naval_units:
+		if not is_instance_valid(ship) or ship.is_destroyed:
+			continue
+		live += 1
+		if MapGeography.is_on_land(ship.global_position):
+			on_land += 1
+		var center_value: Variant = ship.get_meta("ambient_patrol_center", Vector2.INF)
+		if center_value is Vector2 and center_value != Vector2.INF:
+			max_center_distance = maxf(max_center_distance,
+				ship.global_position.distance_to(center_value as Vector2))
+	return "naval_live=%d naval_on_land=%d naval_max_center_distance_px=%.1f\n" % [
+		live, on_land, max_center_distance]
+
+
+func _live_combat_actor_count() -> int:
+	var count := 0
+	for actor in _actors:
+		if is_instance_valid(actor) and actor is CombatUnit and not (actor as CombatUnit).is_destroyed:
+			count += 1
+	return count
+
+
+static func _stress_composition(member_target: int) -> Dictionary:
+	if member_target <= 24:
+		return {"fighters": 4, "helis": 2, "artillery": 2, "ships": 1}
+	if member_target <= 36:
+		return {"fighters": 6, "helis": 4, "artillery": 3, "ships": 2}
+	if member_target <= 40:
+		return {"fighters": 8, "helis": 4, "artillery": 3, "ships": 2}
+	if member_target <= 44:
+		return {"fighters": 8, "helis": 4, "artillery": 4, "ships": 3}
+	if member_target <= 48:
+		return {"fighters": 10, "helis": 4, "artillery": 4, "ships": 3}
+	if member_target == 52:
+		return {"fighters": 12, "helis": 4, "artillery": 4, "ships": 3}
+	if member_target == 54:
+		return {"fighters": 12, "helis": 4, "artillery": 4, "ships": 4}
+	if member_target == 56:
+		return {"fighters": 13, "helis": 4, "artillery": 4, "ships": 4}
+	if member_target == 60:
+		return {"fighters": 14, "helis": 4, "artillery": 5, "ships": 4}
+	if member_target == 64:
+		return {"fighters": 15, "helis": 4, "artillery": 5, "ships": 5}
+	if member_target == 68:
+		return {"fighters": 16, "helis": 6, "artillery": 5, "ships": 4}
+	if member_target <= 72:
+		return {"fighters": 16, "helis": 6, "artillery": 6, "ships": 5}
+	return {"fighters": 22, "helis": 8, "artillery": 8, "ships": 7}
 
 
 func _duplicate_and_scale_weapons(p: AircraftParams) -> void:
@@ -820,9 +1123,10 @@ func _emit_status() -> void:
 	if _spawner != null and is_instance_valid(_spawner) and _spawner.player_aircraft != null \
 			and is_instance_valid(_spawner.player_aircraft):
 		distance_km = _spawner.player_aircraft.global_position.distance_to(_battle_center) / 500.0
-	status_changed.emit("%s运行中 · 中心距玩家%.1fkm · 空中%d 地面%d 舰船%d · 弹丸%d · AI伤害10%%" % [
+	var damage_label := "10%" if _damage_live or _sample_kind == "mixed" else "演出层(0%)"
+	status_changed.emit("%s运行中 · 中心距玩家%.1fkm · 空中%d 地面%d 舰船%d · 弹丸%d · AI伤害%s" % [
 		label, distance_km, air_alive, ground_alive, naval_alive,
-		_ballistic_shells.size(),
+		_ballistic_shells.size(), damage_label,
 	])
 
 

@@ -206,7 +206,7 @@ const PLAYABLE_LIST: Array[Dictionary] = [
 
 这条**已经原生支持**，不需要任何额外代码：
 
-- **基本转弯/能量管理**：`aircraft.gd:905 _physics_process` 调度物理子模块，基础机动仍由机体参数决定
+- **基本转弯/能量管理**：`aircraft.gd:910 _physics_process` 调度物理子模块，基础机动仍由机体参数决定
 - **战术决策（BFM）**：`ai/bfm_tactics.gd:107 choose_tactic` 基于几何、能量和态势，武器只通过射程/就绪态影响可用意图
 - **武器射程**：`ai/bfm_tactics.gd:64 gun_range_px` 从当前 `gun.max_range` 换算，无 gun 时为 0
 - **导弹发射时机**：`aircraft/aircraft_weapons.gd:861 update_missile` 统一判定射程、最小距离、射界与锁定；导弹换型主要通过 `.tres`
@@ -382,7 +382,7 @@ SurvivorData.is_upgrade_available_for(upgrade, aircraft_id, params) -> bool
 | ID | 起手定位 | 档案 | 解锁条件（spec `career-shop` §2.1） |
 |---|---|---|---|
 | `f15` | 制空/综合，进化路线最多 | `resources/playable_f15.tres` | 恒解锁 |
-| `f14` | 远程/团队，开局送 3 僚机（全谱最弱锚点） | `resources/playable_f14.tres` | 首败航母 BOSS |
+| `f14` | 远程/团队，开局送 1 僚机组成双机编队（全谱最弱锚点） | `resources/playable_f14.tres` | 首败航母 BOSS |
 | `a6e` | 攻击/肉，轻火箭 | `resources/player/playable_a6e.tres` | 累计 30 地面击杀（`CareerArchive.get_ground_kills`，进度实时显示在锁定卡按钮上） |
 | `mirage3` | 电战线之根 | `resources/player/playable_mirage3.tres` | 生涯商店购买 |
 

@@ -39,10 +39,11 @@ static func apply(aircraft: Node, profile: PlayableAircraft, is_wingman: bool = 
 		return
 
 	# ── 显示名 ──
-	# HUD/数据标签里显示的是 base_params.display_name（短名，例如 "F-16"），
-	# 这里把 codename 拼上去，得到 "F-16 SmartFalcon"。
+	# 战场标签单独读取 airframe_label（短名，例如 "F-16"）；params.display_name
+	# 仍把 codename 拼上去，供日志等需要完整名称的地方使用。
 	# PlayableAircraft.display_name（"F-16C Block 50"）只用于选择卡片，不写回 params。
 	# 僚机不带 codename，保留基础名（"F-14" 而不是 "F-14 TopGun"）。
+	aircraft.set_meta("airframe_label", p.display_name.strip_edges())
 	if not is_wingman and profile.codename != "":
 		p.display_name = display_name_with_codename(p.display_name, profile.codename)
 

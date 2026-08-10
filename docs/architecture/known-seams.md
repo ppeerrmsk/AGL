@@ -588,7 +588,13 @@ BOSS 混战里这是常态而非边缘情况。`_pending_attacker` meta 同理�
 对跨帧 Object 引用的约束同样适用于**类型判断**：必须先用 `is_instance_valid`
 净化，再做 `is` / `as` / 字段读取。
 
-**踩到次数**：3
+**2026-08-08 第四次实证**：`SurvivorPlayer.aircraft` / `AircraftRenderer.player_ref`
+在玩家终局边界可短暂保留已释放飞机；HUD 和敌方锁定线先赋给 `var ac: Aircraft`、再判有效，
+于是每帧重复报 `Trying to assign invalid previously freed instance`。统一修为
+`safe_aircraft_ref(value: Variant)` 边界净化，所有 `player_ref` 运行时读取走 `safe_player_ref()`，
+Game Over 同步断开两个缓存；`presentation` 用真实 `free()` 后的强类型缓存覆盖回归。
+
+**踩到次数**：4
 
 ## SEAM-021 · "玩家显式命令"在移动层是铁律，在武器发射层却没有代表权
 

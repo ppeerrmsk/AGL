@@ -3,7 +3,7 @@ id: ace-support-squadron
 kind: event
 status: in-progress         # 代码主体落地 + parse/ace_tier 回归绿；差 §5 playtest
 schema_version: 1
-spec_version: 8
+spec_version: 10
 owner: noelu（设计输入）/ Claude（细化 + 落地）
 depends_on: [ace-squadron-tier, event-system, survivor-loop, reinforcement-ingress]
 reconstruction_complete: true
@@ -150,9 +150,12 @@ reconstruction_complete: true
 | 项 | 值 |
 |---|---|
 | 权益 | 生涯商店永久商品 `support_ace_f15`；正式局必须已购，非正式局 fail-open |
-| 触发 | 任一轮换池 `AceReinforcementEvent` 成功生成敌军王牌中队后立即触发；每次事件至多一次 |
+| 触发 | 本局首次成功生成的轮换池 `AceReinforcementEvent` 立即触发；**每局至多一次**，后续王牌事件不再派队 |
 | 编成 | **F-15 ×2**，ALLY 第三方阵营；边界外编队生成，物理飞入战场 |
+| 呼号 / 标签 | 固定 `Hound-1` / `Hound-2`；`F-15 Eagle` 的名称后缀缩写后，绿色标签写成 `F-15 E Hound-1/2`，不加 `ALLY-`，呼号本身不得缩写 |
+| 雷达 | 仅两架友军实例固定 **3000 m**；敌军 F-15 基础资源保持 5200 m |
 | 交战 | 只允许攻击 HOSTILE `Aircraft`，优先锁定仍存活的本事件王牌；不攻击地面单位或舰船 |
+| 入场无线电 | Hound-1：“发现猎物了，准备交战”；Hound-2：“收到，我跟在你后面”；scripted 双句、每局只播一次 |
 | 收益 | 友军击杀不向玩家结算 XP / 功勋；友机可被击坠，阵亡不补充 |
 | 撤离 | 王牌全灭后当帧转 EGRESS；若王牌因 BOSS 闸或弹尽撤退，则在该王牌事件终态时同样撤离 |
 | EGRESS | 解除目标与编队、关闭主动交战、开加力飞向最近边界外；飞出边界 800 px 后静默释放。撤离中受击可自卫 5 s，随后继续撤离 |
@@ -186,7 +189,7 @@ reconstruction_complete: true
 
 | surface | 内容 |
 |---|---|
-| 无线电（入场主信号） | 长机说 `ace_spawn`（scripted 必播；台词池权威在 tier §2.6，"发现目标，准备开始交战"等 5 条随机取 1） |
+| 无线电（入场主信号） | 敌王牌长机说 `ace_spawn`；若本局首次 F-15 支援实际生成，再由 Hound-1 / Hound-2 依次说固定双句（均 scripted 必播） |
 | 次级提示条（入场） | `EVENT_ACE_SUPPORT_INBOUND`（`show_temp` 5 s，说明事件与奖励；非警告横幅） |
 | 提示条（全灭） | `EVENT_ACE_SUPPORT_DOWN`（"敌军支援已歼灭 剩余时间 +1:00"语义，三语） |
 | Tab 战术面板 | 中队存活期间：长机位置画暖色菱形标记 + "敌军支援" 标签（仿 AWACS 圈的画法，威胁色）；全灭/撤离即移除 |
@@ -214,8 +217,9 @@ reconstruction_complete: true
 - [ ] **tier 待遇**：LOD 不冻结（离屏仍机动）、Lv1 与 Lv20 参数完全一致、不占 token、
       普通杂兵 Su-35 不受影响（实例打标验证）
 - [ ] 触发节奏：240 s 首支 / 间隔 150 s / 同场 1 支 / 540 s 后不新刷 / BOSS 阶段不触发
-- [x] **F-15 权益**：未购正式局不生成；购入后每次王牌轮换事件生成 2 架 ALLY F-15，优先攻击
-      本事件王牌且不攻击地面/舰船；友军击杀 0 XP/功勋；王牌全灭后两机立即物理撤离，阵亡不补
+- [x] **F-15 权益**：未购正式局不生成；购入后仅在本局首次王牌轮换事件生成 2 架 ALLY F-15，
+      固定呼号 Hound-1/2、雷达 3000m，优先攻击本事件王牌且不攻击地面/舰船；友军击杀 0 XP/功勋；
+      入场固定双句无线电只播一次；王牌全灭后两机立即物理撤离，阵亡不补，后续王牌事件不再派队
 - [ ] 性能：Sentinel + Lv5+ 压测 + 王牌中队在场，FPS 掉幅 < 15
 - [ ] i18n：EVENT_ACE_SUPPORT_* 三语；已知 seam 未触碰
 
@@ -279,6 +283,8 @@ reconstruction_complete: true
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-08 | 10 | 用户澄清标签语义：`Eagle` 等机型名称后缀可缩写，Hound-1/2 呼号必须完整保留；标签定为 `F-15 E Hound-1/2`。Shadow `presentation` 149/149、`zone_air_support` 55/55。 |
+| 2026-08-08 | 9 | 用户裁定：F-15 截击支援改为每局仅首次非 BOSS 王牌事件出动；友军实例雷达 5200→3000m，固定呼号 Hound-1/2，入场增加两句固定无线电；绿色标签不再显示 `ALLY-`。Shadow `zone_air_support` 55/55、`chatter` 89/89。 |
 | 2026-08-02 | 8 | 删除王牌 4.0s/1.5s 连射占空比约定；跟随全敌机“一次机会一梭、梭后停火 3.0s”安全门。 |
 | 2026-08-01 | 6 | 接入统一 240s 新局洗牌轮换与 TTK 预算；MARATHON=10 DU+25s access=预计 75s。 |
 | 2026-08-01 | 7 | 新增已购 `support_ace_f15` 响应：每次非 BOSS 王牌轮换入场时派 2 架 ALLY F-15，优先截击该队；王牌事件终态后物理撤离。明确不覆盖 BOSS 与 ORION。`meta_shop` 81/81、`zone_air_support` 46/46；Lv15+Sentinel+46 机压力样本 146 headless FPS。 |

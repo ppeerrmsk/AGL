@@ -27,10 +27,10 @@ func _physics_process(delta: float) -> void:
 	_update_gun(delta)
 	queue_redraw()
 
-## AA 无雷达，直接扫描射程内最近的敌方目标
+## AA 无雷达，只扫描射程内最近的敌方飞机；绝不参与地面炮战。
 func _update_aa_target_selection(delta: float) -> void:
 	# 当前目标仍在射程内 → 保持
-	if combat_target and is_instance_valid(combat_target) and not combat_target.is_destroyed:
+	if combat_target is Aircraft and is_instance_valid(combat_target) and not combat_target.is_destroyed:
 		var dist := global_position.distance_to(combat_target.global_position)
 		var attack_range := (params.gun.max_range if params and params.gun else 600.0) * PIXELS_PER_METER
 		if dist < attack_range * 1.5:
@@ -49,7 +49,7 @@ func _update_aa_target_selection(delta: float) -> void:
 		return
 
 	for child in get_parent().get_children():
-		if not child is CombatUnit:
+		if not child is Aircraft:
 			continue
 		if child == self or not is_hostile_to(child) or child.is_destroyed:
 			continue
@@ -89,7 +89,8 @@ func _update_turret(delta: float) -> void:
 
 ## 覆写战斗检查：有目标就开火（明知打不中也象征性射击）
 func _update_combat(_delta: float) -> void:
-	if combat_target == null or not is_instance_valid(combat_target) or combat_target.is_destroyed:
+	if not (combat_target is Aircraft) or not is_instance_valid(combat_target) \
+			or combat_target.is_destroyed:
 		combat_target = null
 		is_firing = false
 		return

@@ -26,7 +26,7 @@ seeker_fov = 90.0
 guidance_delay = 0.5
 cooldown = 2.0
 fire_and_forget = true
-max_count = 5
+max_count = 3
 
 [resource]
 script = ExtResource("1")
