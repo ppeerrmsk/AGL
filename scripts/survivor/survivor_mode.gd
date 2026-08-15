@@ -105,6 +105,10 @@ const RADAR_LOCK_STRIDE := 4
 var _radar_lock_phase: int = 0  ## 当前轮到的 stride 索引（0..RADAR_LOCK_STRIDE-1）
 var _radar_lock_accum: float = 0.0
 var _all_combat_units_cache: Array[CombatUnit] = []   ## _update_aircraft_list 填充，_update_radar_locks 复用
+## 雷达候选按 ROE 二分：HOSTILE 只看非 HOSTILE，PLAYER/ALLY 只看 HOSTILE。
+## 避免每个 shooter 全扫同阵营单位；仍由 is_hostile_to 做最终防御性校验。
+var _radar_hostile_units: Array[CombatUnit] = []
+var _radar_non_hostile_units: Array[CombatUnit] = []
 
 # ── RTS 指挥（命令 + 自动交战）—— 逻辑全在 SquadCommandController，本文件只接线 ──
 # 数值见 resources/rts_command.tres；设计见 docs/specs/systems/rts-command.md
@@ -2644,6 +2648,7 @@ func _update_aircraft_list() -> void:
 	missile_manager.target_list = all_units
 	_all_combat_units_cache = all_units
 	CombatUnit.all_units = all_units  # AI / 武器扫描共享引用，消灭多处 get_children() 扫描
+	_rebuild_radar_target_buckets(all_units)
 
 	# Perf 快照：all_units 分类 + 衍生 AI 拥挤度（驱动 ai_controller 的 effective_divisor）
 	# 这样在 HUD / F9 dump 里能直接看到 "MountTarget 把 N 推到 50 → AI 全员降频" 这类因果链
@@ -2667,8 +2672,21 @@ func _update_aircraft_list() -> void:
 	PerfBuckets.set_value("ai.cheap_div_at_base3",
 		int(ceil(3.0 * lerpf(1.0, AIController.CHEAP_MAX_MULT, crowd_t))))
 
+## 按 CombatUnit 的唯一 ROE 语义预分桶：HOSTILE 与其它阵营互为敌对，非 HOSTILE 之间友好。
+## 每物理帧只做一次 O(N) 分类，雷达内层随后只遍历真正可能敌对的候选。
+func _rebuild_radar_target_buckets(all_units: Array[CombatUnit]) -> void:
+	_radar_hostile_units.clear()
+	_radar_non_hostile_units.clear()
+	for unit in all_units:
+		if not is_instance_valid(unit):
+			continue
+		if unit.team == CombatUnit.TEAM_HOSTILE:
+			_radar_hostile_units.append(unit)
+		else:
+			_radar_non_hostile_units.append(unit)
+
 func _update_radar_locks(delta: float) -> void:
-	# 节流：每 RADAR_LOCK_INTERVAL 秒跑一次 O(N²) 循环
+	# 节流：每 RADAR_LOCK_INTERVAL 秒处理一次雷达候选
 	# 锁定时间 2-4s，0.2s 粒度对玩家不可感知，却把这段最重的循环从 60Hz 降到 5Hz
 	_radar_lock_accum += delta
 	if _radar_lock_accum < RADAR_LOCK_INTERVAL:
@@ -2732,8 +2750,12 @@ func _update_radar_locks(delta: float) -> void:
 			unit.radar_targets.clear()
 			continue
 
-		for other in all_units:
-			_perf_pairs += 1  # 雷达对计数（含早 filter 部分；后续 reverse-engineer N²/STRIDE 用）
+		# 按 ROE 预分桶：HOSTILE 只看 PLAYER/ALLY，非 HOSTILE 只看 HOSTILE。
+		# 不改变实际配对集合，只去掉旧循环必然被 is_hostile_to 跳过的同阵营迭代。
+		var radar_candidates: Array[CombatUnit] = _radar_non_hostile_units \
+			if unit.team == CombatUnit.TEAM_HOSTILE else _radar_hostile_units
+		for other in radar_candidates:
+			_perf_pairs += 1  # 现在只统计真正可能敌对的候选配对
 			if not is_instance_valid(other) or other == unit or not unit.is_hostile_to(other):
 				continue
 			# Snowblind 传感器幕：复用既有 5Hz O(N²) 配对，禁止另开全场扫描。

@@ -2,6 +2,8 @@ extends RefCounted
 
 ## 2026-08-15 本地分叉修复整合契约测试。
 
+const SurvivorModeScript = preload("res://scripts/survivor/survivor_mode.gd")
+
 class CloudWeather:
 	extends Node
 	var density: float = 1.0
@@ -21,6 +23,7 @@ func run() -> void:
 	print("\n════════ 本地修复整合测试 ════════")
 	_test_engagement_range_contract()
 	_test_radar_capability_gate()
+	_test_radar_hostility_buckets()
 	_test_cd_rate_and_boundary_stability()
 	_test_cloud_overload_status_path()
 	_test_commander_aura_runtime_fields()
@@ -101,6 +104,25 @@ func _test_radar_capability_gate() -> void:
 	_check("对地 laser 不计主雷达能力", not params.has_lock_capable_weapon())
 	laser.can_target_aircraft = true
 	_check("对空 laser 计入主雷达能力", params.has_lock_capable_weapon())
+
+
+func _test_radar_hostility_buckets() -> void:
+	var mode := SurvivorModeScript.new()
+	var player := _aircraft(CombatUnit.TEAM_PLAYER)
+	var hostile := _aircraft(CombatUnit.TEAM_HOSTILE)
+	var ally := _aircraft(CombatUnit.TEAM_ALLY)
+	var units: Array[CombatUnit] = [player, hostile, ally]
+	mode._rebuild_radar_target_buckets(units)
+	_check("雷达分桶收集唯一 HOSTILE", mode._radar_hostile_units == [hostile])
+	_check("雷达分桶保留 PLAYER 与 ALLY", mode._radar_non_hostile_units == [player, ally])
+	_check("分桶候选与 ROE 等价",
+		CombatUnit.teams_hostile(hostile.team, player.team)
+		and CombatUnit.teams_hostile(hostile.team, ally.team)
+		and not CombatUnit.teams_hostile(player.team, ally.team))
+	mode.free()
+	player.free()
+	hostile.free()
+	ally.free()
 
 
 func _test_cd_rate_and_boundary_stability() -> void:
