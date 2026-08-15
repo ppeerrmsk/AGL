@@ -116,6 +116,7 @@
 | [aircraft/a-10](aircraft/a-10.md) | aircraft | done | ✅ | A-10 Warthog：T2 厚甲机炮平台，默认只有底线机炮/导弹/热诱弹，**不自带火箭**；Hydra 70 仅能从战区奖励取得。旧基础/实验变体与战区支援 A-10 同样零火箭。 |
 | [systems/event-system](systems/event-system.md) | system | done | ✅ | 剧本系统：GameEvent + EventDirector + AIDirective（6 verb）；BOSS 事件三相；★含扩展接入图。**v2（2026-07-28）事件目录去腐**：在役子类补齐 BossEncounter / AwacsSupport / AceReinforcement / OrionNemesis（EscortConvoy 已删除），新增 §3.1 **ADBS 随机事件体系**（教程轰炸机 / 城区直升机 + 护卫反应 + 受击散开 + 全歼 3 架 → 作战时间 +20s） |
 | [systems/map-system](systems/map-system.md) | map | done | ✗ | 地图系统：边界 + 手画地理 + OSM 烘焙 + 底图三层；含港池水面排除与 50px 连续陆地净空的正式地面部署 API；★含加新地图接入图 |
+| [systems/raster-basemap-streaming](systems/raster-basemap-streaming.md) | map | draft | ✗ | **正式 PNG 美术保真的分级栅格方案**：同一 8704² 母版生成 Strategic/Operational/Detail 瓦片金字塔，12 张 LRU + 稳定世界空间颗粒；目标稳态 ≤64 MiB、过渡峰值 ≤80 MiB，LOD 只换分辨率不换内容。当前仅 draft spec + `tmp/` 对比预览，未改生产路径。 |
 | [skills/buff_duration_rebalance](skills/buff_duration_rebalance.md) | balance | done | ✗ | 自身 buff 时长统一拉到 8s（INVUL/OVERLOAD/FRENZY）；回顾型记录，未达到完整重建级别。 |
 | [systems/squad-control-switching](systems/squad-control-switching.md) | system | done | ✗ | 操控切换：数字键 1–9 接管稳定 `squad_slot` + set_leader 换帅 + manual_control 休眠 AI + 打完再归队 + 白底/击落接管。**代码全落地，差 §5 playtest** |
 | [systems/squad-cohesion](systems/squad-cohesion.md) | system | in-progress | ✗ | 小队凝聚学说（友+敌）：焦点开火（地/船/BOSS 饱和、飞机留自由机互掩）+ 维持阵型 + 防游走 leash + GUARD_REAR 守后 + 敌方成建制/随机阵型。**阶段 1-4 主体落地，差联调/调参/§5** |
