@@ -3,7 +3,7 @@ id: ui-design-guidelines
 kind: system
 status: in-progress
 schema_version: 1
-spec_version: 19
+spec_version: 20
 owner: user
 depends_on: [systems/afterburner-mode, systems/squad-control-switching]
 reconstruction_complete: true
@@ -492,9 +492,9 @@ V -> existing squad weapon preference toggle
 - [x] ENGAGE/FIRE 共用锁定 `3u × 6u` 的 AUTOPILOT 父面板；它与 FLR 之间的空框板按 `0.5q` 自动补齐。
 - [x] 手动 FLR 技能在 AUTOPILOT/FLR 之间插入 `1q` 的 R 键，只让动态空框板缩短 `1q`；AUTOPILOT 与 FLR 不移动，新键反色闪烁 5 秒。F7 Debug 按钮可触发该测试状态。
 - [x] F7 固定截图场景和正式生存模式共同实例化 `PlayerInstrumentPanel`；不存在只对预览生效的第二套玩家 HUD 布局。
-- [ ] 主菜单终端模式板满足 `23u × 30u`、`1u` 安全边界、静态外壳和三语言文案契约。
-- [ ] HUD 首次显现按真实内容、屏幕顺序、`0.02 s` 错峰和 `0.50 s` 两次闪烁契约运行，稳定元素不重播。
-- [ ] 外圈状态反馈满足红/黄/绿语义、优先级、时序、层级与按变化重绘契约；切控和对象释放无错误。
+- [x] 主菜单终端模式板满足 `23u × 30u`、`1u` 安全边界、静态外壳和三语言文案契约。
+- [x] HUD 首次显现按真实内容、屏幕顺序、`0.02 s` 错峰和 `0.50 s` 两次闪烁契约运行，稳定元素不重播。
+- [x] 外圈状态反馈满足红/黄/绿语义、优先级、时序、层级与按变化重绘契约；切控和对象释放无错误。
 
 ## 6. 实现计划（Task Pipeline —— 工作令）
 
@@ -579,10 +579,10 @@ V -> existing squad weapon preference toggle
 
 ### 阶段 18 — 历史分支有效 UI 整合
 
-- [ ] 移植主菜单终端模式板并完成三语言视觉验收。
-- [ ] 移植 HUD 首次显现，动态内容按首次真实出现触发。
-- [ ] 接入外圈受伤/受控/治疗反馈，确保对象生命周期与绘制频率安全。
-- [ ] 删除旧的并行 HUD 规范、生成验证文件和已被当前 UI 体系取代的颜色实现。
+- [x] 移植主菜单终端模式板并完成三语言视觉验收。
+- [x] 移植 HUD 首次显现，动态内容按首次真实出现触发。
+- [x] 接入外圈受伤/受控/治疗反馈，确保对象生命周期与绘制频率安全。
+- [x] 删除旧的并行 HUD 规范、生成验证文件和已被当前 UI 体系取代的颜色实现。
 
 ## 7. 索引锚点（Where —— 唯一允许放指针的地方）
 
@@ -599,6 +599,7 @@ V -> existing squad weapon preference toggle
 | UI Dev 定位层 | `scripts/ui/ui_dev_outline_overlay.gd` / `scenes/tests/ui_dev_panel.tscn` |
 | 热诱弹视觉 | `scripts/aircraft/aircraft_flares.gd` / `scripts/aircraft.gd` |
 | HUD 首次显现 | `scripts/ui/hud_first_reveal_sequencer.gd` / `scripts/ui/hud_board_visibility.gd` / `resources/shaders/hud_board_visibility.gdshader` |
+| 屏幕外圈反馈 | `scripts/survivor/damage_vignette.gd` / `scripts/tests/test_damage_vignette.gd` |
 | 主菜单终端板 | `scripts/main_menu.gd` / `scripts/ui/main_menu_crt_shell.gd` / `scripts/ui/main_menu_crt_effect.gd` / `scripts/ui/main_menu_scope_display.gd` |
 | i18n | `i18n/interface.csv` / `i18n/gameplay.csv` / `i18n/skills.csv` / `i18n/meta.csv` / `i18n/radio.csv` |
 | reference 索引 | `docs/reference/script-index.md` / `docs/reference/code-index.md` |
@@ -628,3 +629,4 @@ V -> existing squad weapon preference toggle
 | 2026-08-10 | 17 | 把 `docs/planning/main-ui-guidelines.md` 与玩家仪表 spec 合并为 `ui-design-guidelines.md`，统一主界面和玩家/僚机仪表的 SSOT；裁决命名半格模板、自定义强调色、项目主题字体回退、四层刷新与右锚扩宽规则，并同步总表、reference 索引和源码指针。 |
 | 2026-08-10 | 18 | 建立全局 UI 继承硬约定：AGENTS、spec 总表与模板均要求主界面、HUD、游戏内面板及 UI 视觉/交互默认继承本规范；偏离必须在业务 spec §2 显式声明，禁止另建并行 UI 通用规范。 |
 | 2026-08-16 | 19 | 整合历史分支仍有效的主菜单终端板、HUD 首次显现与外圈状态反馈契约；保持当前 UI SSOT，排除旧并行规范和已被取代的颜色实现。 |
+| 2026-08-16 | 20 | HUD 首显 118 项回归与隐藏帧通过；外圈反馈 7/7、生命周期测试及红色层级截图通过；主菜单中/英/日三套实机视觉与几何审计通过。 |

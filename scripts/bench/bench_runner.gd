@@ -37,6 +37,7 @@ const UNIT_TESTS: Dictionary = {
 	"flare": "res://scripts/tests/test_flare_timing.gd",
 	"rejoin": "res://scripts/tests/test_formation_rejoin.gd",
 	"weapon": "res://scripts/tests/test_weapon_behavior.gd",
+	"damage_vignette": "res://scripts/tests/test_damage_vignette.gd",
 	"escort": "res://scripts/tests/test_escort_evasion.gd",
 	"target_sel": "res://scripts/tests/test_target_selection.gd",
 	"cmd_evade": "res://scripts/tests/test_commanded_evade.gd",

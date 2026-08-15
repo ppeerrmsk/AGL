@@ -409,11 +409,14 @@ func _fighter_params(gun_range_m: float, with_missile: bool) -> AircraftParams:
 		m.fire_and_forget = true
 		m.cooldown = 2.0
 		p.missile = m
+		p.combat = CombatParams.new()
+		p.combat.missile_skill = 1.0
+		p.combat.missile_skill_jitter = 0.0
 	return p
 
 
 ## 复刻实机单发路径的发射门尾段（aircraft_weapons.try_fire 同序：包络 → 雷达锥 → 锁满 →
-## 发射窗口质量）。planner 机不加 LOCK_STABLE_BUFFER（与实机 lock_threshold 逻辑一致）。
+## 稳定窗口 → 预测点包络）。planner 机不加 LOCK_STABLE_BUFFER（与实机 lock_threshold 逻辑一致）。
 ## 冷却由调用方模拟。旧 crank bug 下此门在 STANDOFF RUN 全程打不开（离轴 21~31° > radar_half×0.55）。
 func _launch_gate_open(ac, tgt, lock_t: float) -> bool:
 	if not ac._is_in_missile_envelope(tgt, ac.params.missile):
@@ -422,9 +425,11 @@ func _launch_gate_open(ac, tgt, lock_t: float) -> bool:
 		return false
 	if lock_t < ac.params.lock_time:
 		return false
-	if not AircraftWeapons._has_stable_launch_window(ac, tgt, 1.0):
+	var skill := AircraftWeapons._missile_skill(ac)
+	if not AircraftWeapons._has_stable_launch_window(ac, tgt, skill):
 		return false
-	return true
+	return bool(AircraftWeapons._has_lead_intercept_solution(
+		ac, tgt, ac.params.missile, skill)[0])
 
 
 func _make_ac(params: AircraftParams, pos: Vector2, hdg: float):

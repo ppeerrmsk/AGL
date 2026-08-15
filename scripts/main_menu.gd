@@ -36,7 +36,7 @@ var _terminal_text_nodes: Array[TerminalText] = []
 var _terminal_overlays: Array[TerminalGridOverlay] = []
 var _aux_buttons: Array[Button] = []
 var _accent_fill_blocks: Array[ColorRect] = []
-var _scope_display: MainMenuScopeDisplay
+var _scope_display: Control
 var _merit_value_text: TerminalText
 var _speed_unit_button: Button
 var _hud_color_button: Button
@@ -90,7 +90,7 @@ func _build_ui() -> void:
 	_canvas.layer = 10
 	add_child(_canvas)
 
-	var shell := MainMenuCrtShellScript.new() as MainMenuCrtShell
+	var shell := MainMenuCrtShellScript.new()
 	shell.name = "CrtDisplayShell"
 	shell.set_anchors_preset(Control.PRESET_CENTER)
 	shell.position = -MainMenuCrtShellScript.SHELL_SIZE * 0.5
@@ -158,7 +158,7 @@ func _build_ui() -> void:
 	_build_terminal_footer(_screen_content)
 
 	# 最后绘制局部屏幕采样层：只扭曲 CRT 内屏，机壳保持物理直线。
-	var effect := MainMenuCrtEffectScript.new() as MainMenuCrtEffect
+	var effect := MainMenuCrtEffectScript.new()
 	effect.name = "CrtGlassEffect"
 	effect.set_anchors_preset(Control.PRESET_CENTER)
 	effect.position = -MainMenuCrtShellScript.SHELL_SIZE * 0.5 \
@@ -256,7 +256,7 @@ func _build_system_panel(parent: Control) -> void:
 		TerminalTextScript.FontFace.SILKSCREEN,
 		TerminalTextScript.SizeRule.ONE_U_FIXED_15, HORIZONTAL_ALIGNMENT_LEFT)
 
-	_scope_display = MainMenuScopeDisplayScript.new() as MainMenuScopeDisplay
+	_scope_display = MainMenuScopeDisplayScript.new()
 	_scope_display.name = "TerminalScopeDisplay"
 	_scope_display.position = scope_rect.position
 	_scope_display.size = scope_rect.size

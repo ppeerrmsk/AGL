@@ -1,9 +1,9 @@
 ---
 id: localization-catalog
 kind: system
-status: approved
+status: in-progress
 schema_version: 1
-spec_version: 1
+spec_version: 2
 owner: user
 depends_on: [systems/radio-chatter, systems/ui-design-guidelines]
 reconstruction_complete: true
@@ -31,12 +31,12 @@ reconstruction_complete: true
 | `i18n/meta.csv` | 生涯、功勋、商店和局外成长文本 |
 | `i18n/radio.csv` | 无线电台词文本 |
 
-每张表固定四列：`keys,en,zh_CN,ja`。构建产物为五张表乘三种语言，共 `15` 个 `.translation` 资源。旧的单表 `translations.csv` 与未登记的旧聚合产物不得继续作为权威源。
+每张表固定四列：`keys,zh,en,ja`。构建产物为五张表乘三种语言，共 `15` 个 `.translation` 资源。旧的单表 `translations.csv` 与未登记的旧聚合产物不得继续作为权威源。
 
 ### 2.2 完整性约束
 
 - 五表合并后 key 全局唯一；重复 key 数必须为 `0`。
-- 本次迁移基线为 `1360` 个唯一 key，其中 `radio.csv` 为 `103` 行文本；后续增删以审计结果为准，不把基线写成永久数量门槛。
+- 本次整合时的运行时审计基线为 `1390` 个唯一 key，其中 `radio.csv` 为 `103` 行文本；后续增删以审计结果为准，不把基线写成永久数量门槛。
 - `project.godot` 只登记当前 `15` 个翻译资源。
 - `I18nCatalog` 提供表清单、分类查询和静态完整性审计；游戏运行时仍通过 `tr("KEY")` 消费，不改 key 名。
 
@@ -62,25 +62,30 @@ reconstruction_complete: true
 
 ## 5. 验收标准（Acceptance / Litmus）
 
-- [ ] 五张 CSV 均为四列且合并后重复 key 为 `0`。
-- [ ] 迁移前后全部运行时 key 可解析，基线审计得到 `1360` 个唯一 key、`103` 行无线电文本。
-- [ ] `project.godot` 仅登记五表对应的 `15` 个翻译资源。
-- [ ] 无线电触发 JSON 的全部 key 均存在于 `radio.csv`，普通 key 不被格式化，`_FMT` key 正常格式化。
+- [x] 五张 CSV 均为四列且合并后重复 key 为 `0`。
+- [x] 迁移后全部运行时 key 可解析，当前审计得到 `1390` 个唯一 key、`103` 行无线电文本。
+- [x] `project.godot` 仅登记五表对应的 `15` 个翻译资源。
+- [x] 无线电触发 JSON 的全部 key 均存在于 `radio.csv`，普通 key 不被格式化，`_FMT` key 正常格式化。
 - [ ] 英文、简中、日文至少各启动一次主菜单与 HUD 聚焦验证，无缺字或 key 泄漏。
 
 ## 6. 实现计划
 
-- [ ] 移植五表、导入资源和 `I18nCatalog`。
-- [ ] 更新 `project.godot`、构建脚本与静态审计。
-- [ ] 移植 `RadioChatter.say()` 的 `_FMT` 边界并补回归 bench。
-- [ ] 删除旧单表与未登记聚合产物，更新 i18n reference。
+- [x] 移植五表、导入资源和 `I18nCatalog`。
+- [x] 更新 `project.godot`、构建脚本与静态审计。
+- [x] 移植 `RadioChatter.say()` 的 `_FMT` 边界并补回归 bench。
+- [x] 删除旧单表与未登记聚合产物，更新 i18n reference。
 
 ## 7. 代码锚点
 
-- 待实现后填写。
+- `i18n/interface.csv` / `gameplay.csv` / `skills.csv` / `meta.csv` / `radio.csv`：五张源表。
+- `scripts/i18n_catalog.gd`：表清单、解析、唯一性与资源路径审计。
+- `scripts/tests/build_translations.gd`：15 份 `.translation` 构建入口。
+- `scripts/tests/test_career_archive.gd`：五表、1390 key 与 15 资源运行时审计。
+- `scripts/radio_chatter.gd`：触发 key 到翻译文本的消费和 `_FMT` 格式化边界。
 
 ## 8. 变更记录
 
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | v1 | 2026-08-16 | 从历史 HUD 分支提炼五表本地化权威边界；排除生成验证文件和旧聚合资源。 |
+| v2 | 2026-08-16 | 完成五表与 15 资源迁移；运行时审计确认 1390 个唯一 key、radio 103 行，主菜单三语言实机截图通过，保留英/日 HUD 实机视觉验收项。 |

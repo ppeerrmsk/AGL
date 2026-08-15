@@ -7,6 +7,7 @@ const MilestoneAxisCounterScript := preload("res://scripts/survivor/milestone_ax
 const UiDevOutlineOverlayScript := preload("res://scripts/ui/ui_dev_outline_overlay.gd")
 const HudFirstRevealSequencerScript := preload("res://scripts/ui/hud_first_reveal_sequencer.gd")
 const HudBoardVisibilityScript := preload("res://scripts/ui/hud_board_visibility.gd")
+const DamageVignetteScript := preload("res://scripts/survivor/damage_vignette.gd")
 
 ## 生存模式 HUD：右下角状态面板 + 顶部时间/击杀 + 底部经验条
 
@@ -87,6 +88,7 @@ var _kill_feed_entries: Array = []   ## 每项 {label: Label, age: float}
 var _game_over_panel: PanelContainer
 var _game_over_label: RichTextLabel
 var _threat_overlay: Control
+var _damage_vignette: Control
 
 var _hud_data_refresh_timer: float = 0.0
 
@@ -363,6 +365,9 @@ func _build_ui() -> void:
 	_game_over_panel.add_child(_game_over_label)
 
 	# ── 屏幕外威胁方位指示 ──
+	# 外圈反馈先加入；ThreatOverlay 后加入并覆盖其上，保留威胁方向信息层级。
+	_damage_vignette = DamageVignetteScript.new()
+	add_child(_damage_vignette)
 	_threat_overlay = ThreatOverlay.new()
 	_threat_overlay.hud = self
 	add_child(_threat_overlay)
@@ -423,6 +428,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _process(delta: float) -> void:
 	_layout_ui()
+	if _damage_vignette != null:
+		_damage_vignette.call(&"set_player", _safe_player_aircraft())
 	if _ui_dev_visible:
 		_refresh_ui_dev_overlay()
 	# 战术按钮（含加力进度）保持逐帧；信息读数层由独立的 2Hz 时钟刷新。
@@ -623,6 +630,9 @@ func _append_ui_dev_component_regions(target: Array[Rect2], origin: Vector2,
 
 func _layout_ui() -> void:
 	var vp := get_viewport().get_visible_rect().size
+	if _damage_vignette != null:
+		_damage_vignette.position = Vector2.ZERO
+		_damage_vignette.size = vp
 	# 战区倒计时（顶部最上方）
 	_warzone_timer_label.position = Vector2(vp.x * 0.5 - 100, -2)
 	_warzone_timer_label.size = Vector2(200, 28)

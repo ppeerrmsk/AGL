@@ -6,6 +6,7 @@ const PlayerInstrumentPanelScript := preload("res://scripts/survivor/player_inst
 const WingmanInstrumentPanelScript := preload("res://scripts/survivor/wingman_instrument_panel.gd")
 const MilestoneAxisCounterScript := preload("res://scripts/survivor/milestone_axis_counter.gd")
 const HudBoardVisibilityScript := preload("res://scripts/ui/hud_board_visibility.gd")
+const DamageVignetteScript := preload("res://scripts/survivor/damage_vignette.gd")
 
 var _sample_aircraft: Aircraft
 
@@ -16,6 +17,7 @@ func _ready() -> void:
 	var background := ColorRect.new()
 	background.color = Color.BLACK
 	background.size = Vector2(1920.0, 1080.0)
+	background.z_index = -2
 	add_child(background)
 
 	_sample_aircraft = Aircraft.new()
@@ -147,6 +149,13 @@ func _ready() -> void:
 	var hidden_path := "res://bench/results/player_hud_reveal_hidden.png"
 	var hidden_err := get_viewport().get_texture().get_image().save_png(hidden_path)
 	print("[player_hud_visual] hidden_screenshot=%s err=%d" % [hidden_path, hidden_err])
+	# 最终样张同时覆盖真实外圈受伤反馈；其 z=-1，低于 HUD 框板、高于背景。
+	var damage_vignette = DamageVignetteScript.new()
+	damage_vignette.size = Vector2(1920.0, 1080.0)
+	add_child(damage_vignette)
+	_sample_aircraft.set_meta(&"hud_last_damage_at", EventLogger.get_game_time())
+	damage_vignette.set_player(_sample_aircraft)
+	damage_vignette._process(0.1)
 	for descriptor in player_regions:
 		player_visibility.set_reveal_alpha(1.0, StringName(descriptor["id"]))
 	for descriptor in wingman_regions:
@@ -168,6 +177,7 @@ func _ready() -> void:
 	xp_label.queue_free()
 	xp_fill.queue_free()
 	xp_bg.queue_free()
+	damage_vignette.queue_free()
 	progression_player.free()
 	background.queue_free()
 	await get_tree().process_frame

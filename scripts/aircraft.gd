@@ -3063,6 +3063,8 @@ func _apply_damage(amount: float) -> void:
 	hp -= amount
 	EventLogger.log_event("DAMAGE", _log_name(),
 		"took %.0f damage (hp=%.0f→%.0f)" % [amount, old_hp, hp])
+	if amount > 0.0 and is_player_squad():
+		set_meta(&"hud_last_damage_at", EventLogger.get_game_time())
 	# 受击钩子链（玩家系技能：受伤进嗜血 / 被导弹击中无敌 / 周围 JAM 等）
 	# early-return：only Aircraft 玩家小队 + has upgrade_stacks → 不命中开销 ≈ 1 dict.has
 	if hp > 0.0 and is_player_squad():

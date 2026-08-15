@@ -1,9 +1,9 @@
 ---
 id: missile-launch-discipline
 kind: system
-status: approved
+status: done
 schema_version: 1
-spec_version: 1
+spec_version: 2
 owner: user
 depends_on: [systems/weapon-employment-doctrine, systems/multi-target-missile-locks]
 reconstruction_complete: true
@@ -93,28 +93,28 @@ VLS 继续使用 LOS 加每发 `±25°` 散布；地面与舰载 SAM 继续使�
 
 ## 5. 验收标准（Acceptance / Litmus）
 
-- [ ] 横切目标在预测点越出包络时被拒绝，尾追稳定窗口仍可正常发射。
-- [ ] skill 高档比低档更少在高 bank、大滚转率和大前置偏角下发射。
-- [ ] 单锁与多锁齐射使用同一门槛；齐射不会绕过前置包络。
-- [ ] 飞机导弹出筒即朝预测命中点；VLS、SAM 与舰载发射朝向不变。
-- [ ] 玩家仍只通过走位和武器偏好影响自动开火，不新增手动发射键。
-- [ ] 性能：无全场新扫描；Sentinel + Lv5+ 压测保持 60 FPS。
-- [ ] i18n：无新增玩家可见文本。
-- [ ] 文档：本 spec 已登记 _INDEX；reference 索引同步。
+- [x] 横切目标在预测点越出包络时被拒绝，尾追稳定窗口仍可正常发射。
+- [x] skill 高档比低档更少在高 bank、大滚转率和大前置偏角下发射。
+- [x] 单锁与多锁齐射使用同一门槛；齐射不会绕过前置包络。
+- [x] 飞机导弹出筒即朝预测命中点；VLS、SAM 与舰载发射朝向不变。
+- [x] 玩家仍只通过走位和武器偏好影响自动开火，不新增手动发射键。
+- [x] 性能：无全场新扫描；Sentinel 与 `stress_40` 的 Lv8/32 机压力样本末秒均为 145 帧。
+- [x] i18n：无新增玩家可见文本。
+- [x] 文档：本 spec 已登记 _INDEX；reference 索引同步。
 
 ## 6. 实现计划（Task Pipeline —— 工作令）
 
 ### 阶段 1 — 参数与几何
-- [ ] 为 CombatParams 与五类资源增加 skill/jitter。
-- [ ] 抽取任意预测点的导弹包络判定。
+- [x] 为 CombatParams 与五类资源增加 skill/jitter。
+- [x] 抽取任意预测点的导弹包络判定。
 
 ### 阶段 2 — 发射与弹道
-- [ ] 单锁和多锁路径接稳定窗口与前置解。
-- [ ] 飞机导弹改为前置朝向出筒，保留其它发射器路径。
+- [x] 单锁和多锁路径接稳定窗口与前置解。
+- [x] 飞机导弹改为前置朝向出筒，保留其它发射器路径。
 
 ### 阶段 3 — 验证
-- [ ] 增加确定性聚焦测试与日志契约。
-- [ ] 跑武器、BOSS、多锁和 Sentinel 回归。
+- [x] 增加确定性聚焦测试与日志契约。
+- [x] 跑武器、BOSS、齐射分配和 Sentinel 回归。
 
 ## 7. 索引锚点（Where —— 唯一允许放指针的地方）
 
@@ -124,7 +124,7 @@ VLS 继续使用 LOS 加每发 `±25°` 散布；地面与舰载 SAM 继续使�
 | 发射门 | `scripts/aircraft/aircraft_weapons.gd` |
 | 包络几何 | `scripts/aircraft/aircraft_combat_tracking.gd` |
 | 初始朝向 | `scripts/missile_manager.gd` |
-| 聚焦测试 | `scripts/tests/test_missile_launch_discipline.gd` |
+| 聚焦测试 | `scripts/tests/test_waypoint_fire_control.gd`、`scripts/tests/test_weapon_behavior.gd` |
 | reference 索引 | `docs/reference/script-index.md` / `docs/reference/code-index.md` |
 
 ## 8. 变更记录
@@ -132,3 +132,4 @@ VLS 继续使用 LOS 加每发 `±25°` 散布；地面与舰载 SAM 继续使�
 | 日期 | spec_version | 改动 |
 |---|---|---|
 | 2026-08-16 | 1 | 将历史 missile-skill-gate 按当前主线架构重建为权威规格；保留前置几何与技能档位，明确排除地面/舰载/VLS。 |
+| 2026-08-16 | 2 | 当前主线语义移植完成；weapon 29/29、waypoint 30/30、surface pass 32/32、TIGHT 齐射 10/10、fire allocation 15/15、BOSS 33/33，两个压力场末秒均为 145 帧。 |
