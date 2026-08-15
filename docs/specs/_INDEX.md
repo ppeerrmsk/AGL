@@ -40,7 +40,7 @@
 |---|---|---|---|---|
 | [systems/aircraft-top-view-silhouettes](systems/aircraft-top-view-silhouettes.md) | system | done | ✅ | **飞机顶视轮廓资产 v7**：40 张 128×128 alpha PNG 逐架从可靠顶视/正投影或用户批准定型参考直接提取；同型号共享一图并运行时换色。MQ-109/110/111 共用新的无尾三角翼、双垂尾轮廓，MQ-112 与其余未批准原创/概念机保留旧绘制。 |
 | [systems/map-2-3-preview](systems/map-2-3-preview.md) | map | in-progress | ✗ | **图 2 / 图 3 PNG 可飞行地图预览**：60×60 km 沙漠铁路与海洋群岛两份内置 MapDocument，各绑定图一同款 8704² PNG、同一 shader/滤镜与矢量 fail-open；仅生成玩家和地图，关闭战区、任务、敌机、BOSS 与开局驻防，保留主视野和无战区 Tab 导航供后续布点。 |
-| [systems/ui-design-guidelines](systems/ui-design-guidelines.md) | system | done | ✅ | **UI 设计规范**：所有主界面、HUD、游戏内面板及 UI 视觉/交互的默认基线；统一军用终端网格、面板语义、共享描边、字体、颜色、刷新与交互规则。右侧玩家仪表高 `24u`，SPD/G/FLR 共用 `49 × 54 px` 数字格。 |
+| [systems/ui-design-guidelines](systems/ui-design-guidelines.md) | system | in-progress | ✅ | **UI 设计规范**：所有主界面、HUD、游戏内面板及 UI 视觉/交互的默认基线；统一军用终端网格、面板语义、共享描边、字体、颜色、刷新与交互规则。右侧玩家仪表高 `24u`，SPD/G/FLR 共用 `49 × 54 px` 数字格；v19 正在整合主菜单终端板、HUD 首显和外圈状态反馈。 |
 | [systems/presentation-foundation-rework](systems/presentation-foundation-rework.md) | system | draft | ✗ | **表现层底层逻辑改造确认稿**：持续汇总本轮讨论中由用户明确确认的主要改动；区分待讨论、已确认、已实现，记录旧/新行为、影响、风险、退化策略与验收标准，并以既有 `ui-transition` 为依赖。 |
 | [skills/displacement-roll](skills/displacement-roll.md) | skill | done | ✅ | **位移滚转**：实验级 R 主动技能；1.15s 内确定性选择安全侧并横移 450px，15s 玩家小队共享冷却；动作本体不可命中、保留锁定与在飞武器；并入五向 R 互斥槽，当前操控机手动、AI 僚机自动。 |
 | [skills/vertical-break](skills/vertical-break.md) | skill | done | ✅ | **垂直越过**：实验级 R 主动技能；LOW 拉升/MID·HIGH 俯冲 900m/1.30s，18s 玩家小队共享冷却；额外能量交换封顶 −18%/+15%，并入五向 R 互斥槽，当前操控机手动、AI 僚机自动。 |
@@ -138,6 +138,9 @@
 | [systems/evolution-attribute-gates](systems/evolution-attribute-gates.md) | system | done | ✅ | **v18 已落地**：全部节点使用具体逐轴门槛，F/A-18E `any` 保留；8 点内全分配枚举覆盖 124 条边，永久不可达边=0。主 HUD 经验条上方以固定 400×18 三格计数器常驻显示斗士/骑士/策士里程碑进度。 |
 | [systems/evolution-growth-benchmark](systems/evolution-growth-benchmark.md) | balance | done | ✅ | 用户取消 320 局实战并改为参数验收；斗士 T2–T5 已按炮伤倍率 1.30/1.40/1.50/1.60、射程 1200/1300/1400/1500m、开火半角 8/9/10/11°、瞄准 0.65/0.70/0.75/0.80 逐档增强，43 机静态审计“通过”、违规项 0，任务完成。 |
 | [systems/multi-target-missile-locks](systems/multi-target-missile-locks.md) | system | done | ✅ | 多锁多射从 on/off 改为可叠加锁数：基础 1；稳定级骑士普通卡每层 +1（最多 3，全队）；F-22 隐身 +2；导弹蜂群全队 +3；骑士 8 点 +1。齐射覆盖数=`min(有效锁数,合法目标,弹量)`，每轮正常冷却。斗士装甲里程碑现位于 4 点；策士 3 点 XP +10% 不变。 |
+| [systems/missile-launch-discipline](systems/missile-launch-discipline.md) | system | approved | ✅ | 飞机共用导弹发射纪律：档案技能/抖动、稳定瞄准包线、两次前置预测与 ±60° 初始弹道；地面/舰载/BOSS 发射路径不变。 |
+| [systems/aircraft-icon-rendering](systems/aircraft-icon-rendering.md) | system | approved | ✅ | 标准 fighter 共享 Sprite 图标；保留姿态与状态反馈，对特殊轮廓、可见翼色和缺纹理安全回退；排除旧 O(N²)/MultiMesh 性能试验。 |
+| [systems/localization-catalog](systems/localization-catalog.md) | system | approved | ✅ | 本地化拆为 interface/gameplay/skills/meta/radio 五张权威表与 15 个资源；运行时 key 不变，无线电 JSON 管触发、CSV 管文本。 |
 | [systems/inrun-weapon-inventory](systems/inrun-weapon-inventory.md) | system | draft | ✅ | 局内武器库（2026-07-19 用户重点调整）：特殊武器（电磁炮/激光/忠诚僚机/QMAAM/漂浮雷）=**局内玩家外部装备，到手即永久、换机/进化全继承（含强化）**；获取=签名机型首驾入库+战区奖励；底线武器（机炮/导弹/flare）仍随机体；**作废**"武器绑机型不继承"（06-28）与 meta-progression"局外多武器 loadout"；重放与属性门槛玩家层同机制。开放点：火箭归类/挂载上限/重复补偿。**核心落地（进化前快照/换型补挂/升级卡重放防双叠）+ 断言并入 attr_gates，差 结算清单分段/Tab 图标行/debug 勾选** |
 | [systems/aircraft-signature-skills](systems/aircraft-signature-skills.md) | system | approved | ✅ | v8 扩为 43 条：新增 EA-18G「伴随压制」（僚机共锁持续 JAM）与 F/A-XX「穿透打击」（本机机炮击杀 5s 隐身、20s CD）；其余 41 条语义不变。 |
 | [systems/aircraft-signature-progression](systems/aircraft-signature-progression.md) | system | approved | ✅ | 扩为 43 条机体专属许可；Tier 数量 4/16/8/7/8，全购价 30000；第四槽 30% / 每机每局一次规则不变。 |
