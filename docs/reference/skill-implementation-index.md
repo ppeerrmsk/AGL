@@ -205,7 +205,7 @@ is_upgrade_available_for → pick_card_for_axis →  upgrade_stacks[id]+=1
 
 | stat | M | 消费点 |
 |---|---|---|
-| cloud_overload / cloud_weapon_cd | M5/M2 | `aircraft._on_cloud_boundary` 进出云事件（overload 派生 OR / cd 缩放） |
+| cloud_overload / cloud_weapon_cd | M5/M2 | `aircraft._update_cloud_state` 每 0.2s 刷新 timed OVERLOAD；`aircraft.cd_rate("weapon")` 按当前云态消费，不改写运行中倒计时 |
 | evasion_stealth / missile_cd_stealth | M2 | `aircraft` 派生标记 → `StatusEffects.update` 三源 OR 进 STEALTH |
 | sig_status_immunity | M2 | `combat_unit.apply_status` 头部负面早退 |
 | jam_aura / rear_aura_slow | M5 | `aircraft` 累积式光环 tick（0.5s；ACE_FIELD_STATS） |

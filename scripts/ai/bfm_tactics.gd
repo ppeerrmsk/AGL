@@ -353,7 +353,8 @@ static func execute_lag_pursuit(ai: AIController, s: AIController.SituationData)
 
 	# 匹配敌机速度，略低以防冲过
 	var target_speed_kmh := ai._current_target.speed * 3.6 * AIController.LAG_SPEED_RATIO
-	ai.aircraft.target_speed_kmh = ai._apply_speed_error(clampf(target_speed_kmh, AIController.LAG_MIN_SPEED, ai.aircraft.params.max_speed if ai.aircraft.params else 2000.0))
+	ai.aircraft.target_speed_kmh = ai._apply_speed_error(clampf(target_speed_kmh,
+		AIController.LAG_MIN_SPEED, AircraftPhysics.effective_max_speed_kmh(ai.aircraft)))
 
 ## 提前转弯：迎头接近时提前转向敌机飞行路径后方
 static func execute_lead_turn(ai: AIController, s: AIController.SituationData) -> void:
@@ -501,7 +502,7 @@ static func _apply_fear_daze(ai: AIController) -> void:
 	ai.aircraft.target_position = ai.aircraft.global_position + fwd * 1500.0
 	ai.aircraft.target_altitude = ai.aircraft.altitude
 	if ai.aircraft.params:
-		ai.aircraft.target_speed_kmh = ai.aircraft.params.cruise_speed
+		ai.aircraft.target_speed_kmh = AircraftPhysics.effective_cruise_speed_kmh(ai.aircraft)
 	ai.aircraft.is_afterburner = false
 
 ## 加速脱离：远离敌机拉开距离
@@ -527,11 +528,13 @@ static func execute_extension(ai: AIController, s: AIController.SituationData) -
 	# 斗士脱离较慢(1.55→0.89×max)，但斗士本身很少选 extension
 	# FEAR 守卫：恐慌脱离改用 cruise 速度且禁加力，防止全速冲出战场
 	if feared and ai.aircraft.params:
-		ai.aircraft.target_speed_kmh = ai._apply_speed_error(ai.aircraft.params.cruise_speed)
+		ai.aircraft.target_speed_kmh = ai._apply_speed_error(
+			AircraftPhysics.effective_cruise_speed_kmh(ai.aircraft))
 		ai.aircraft.is_afterburner = false
 	elif ai.aircraft.params:
 		var escape_mult := lerpf(AIController.EXTENSION_ESCAPE_MIN, AIController.EXTENSION_ESCAPE_MAX, ai._cb().approach_speed_mult / 2.0)
-		ai.aircraft.target_speed_kmh = ai._apply_speed_error(ai.aircraft.params.max_speed * escape_mult)
+		ai.aircraft.target_speed_kmh = ai._apply_speed_error(
+			AircraftPhysics.effective_max_speed_kmh(ai.aircraft) * escape_mult)
 	else:
 		ai.aircraft.target_speed_kmh = ai._apply_speed_error(1800.0)
 
@@ -568,7 +571,8 @@ static func execute_scissors(ai: AIController, s: AIController.SituationData, de
 
 	# 减速！剪刀机动中低速优势是关键（低技能飞行员可能减速不够）
 	if ai.aircraft.params:
-		var min_safe_speed := ai.aircraft.params.stall_speed_base * AIController.SCISSORS_SAFE_SPEED
+		var min_safe_speed := AircraftPhysics.effective_stall_speed_kmh(ai.aircraft) \
+			* AIController.SCISSORS_SAFE_SPEED
 		ai.aircraft.target_speed_kmh = ai._apply_speed_error(min_safe_speed)
 	else:
 		ai.aircraft.target_speed_kmh = ai._apply_speed_error(AIController.SCISSORS_FALLBACK_SPEED)
@@ -672,10 +676,12 @@ static func set_engage_speed(ai: AIController, s: AIController.SituationData, mu
 	if not ai.aircraft.params:
 		ai.aircraft.target_speed_kmh = ai._apply_speed_error(AIController.FALLBACK_ENGAGE_SPEED * mult)
 		return
-	var cruise := ai.aircraft.params.cruise_speed
+	var cruise := AircraftPhysics.effective_cruise_speed_kmh(ai.aircraft)
 	# 性格偏移：斗士近战减速求转弯(0.9)，骑士保持高速保能量(1.15)
 	var style := ai._cb().maneuver_speed_mult
-	var target := clampf(cruise * mult * style, ai.aircraft.params.stall_speed_base * AIController.ENGAGE_STALL_SAFETY, ai.aircraft.params.max_speed)
+	var target := clampf(cruise * mult * style,
+		AircraftPhysics.effective_stall_speed_kmh(ai.aircraft) * AIController.ENGAGE_STALL_SAFETY,
+		AircraftPhysics.effective_max_speed_kmh(ai.aircraft))
 	ai.aircraft.target_speed_kmh = ai._apply_speed_error(target)
 
 
@@ -706,14 +712,16 @@ static func execute_sniper_hold(ai: AIController, s: AIController.SituationData)
 
 	# 减速稳瞄
 	if ai.aircraft.params:
-		var cruise := ai.aircraft.params.cruise_speed
-		var stall := ai.aircraft.params.stall_speed_base
+		var cruise := AircraftPhysics.effective_cruise_speed_kmh(ai.aircraft)
+		var stall := AircraftPhysics.effective_stall_speed_kmh(ai.aircraft)
 		var speed_mult: float = 0.7
 		if s.dist_px < 4000.0 and s.dist_px >= 2500.0:
 			speed_mult = 0.6
 		elif s.dist_px < 2500.0:
 			speed_mult = 0.85  # 太近，稍提速避免被超
-		var target_kmh := clampf(cruise * speed_mult, stall * AIController.ENGAGE_STALL_SAFETY, ai.aircraft.params.max_speed)
+		var target_kmh := clampf(cruise * speed_mult,
+			stall * AIController.ENGAGE_STALL_SAFETY,
+			AircraftPhysics.effective_max_speed_kmh(ai.aircraft))
 		ai.aircraft.target_speed_kmh = ai._apply_speed_error(target_kmh)
 	else:
 		ai.aircraft.target_speed_kmh = AIController.FALLBACK_ENGAGE_SPEED * 0.7

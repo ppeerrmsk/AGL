@@ -197,5 +197,5 @@ if not s.is_tactical_preference_user \
 
 ## 9. 后续（本轮范围外）
 
-- 僚机 2s `SQUAD_RANGE_GRACE` 脱战循环（log 264.7~284.9s Vigor 对 UAV-10 反复 acquire/2s-disengage）——本轮用户未选，但是"僚机打不动"的另一独立根因，建议下轮处理（让僚机对够得着的目标咬住闭合，而非每 2s 放弃）。
+- 僚机 2s `SQUAD_RANGE_GRACE` 脱战循环已由 [squad-engagement-persistence](squad-engagement-persistence.md) 独立修复：小队交战不再走目标雷达距脱离，仍受距长机 leash 与长机丢目标宽限约束。
 - 是否给人类长机加"能量劣势提示"（HUD），提醒玩家别死拉平面圈——待定。

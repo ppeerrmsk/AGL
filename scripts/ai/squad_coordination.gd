@@ -155,9 +155,8 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 					ai.enter_engage_state()
 					ai._squad_attacking_leader_target = false
 					ai._squad_lateral_role = AIController.SquadRole.NONE  # 自由交战不分配角色
-					ai._squad_free_engaging = true  # 享有 range grace，避免刚进就被踢出
+					ai._squad_free_engaging = true  # 小队交战由 leash 约束，不受雷达距脱离
 					ai._leader_target_lost_timer = 0.0
-					ai._squad_range_grace_timer = 0.0
 					ai.current_tactic_name = "TACTIC_FREE_ENGAGE"
 					EventLogger.log_event("AI_STATE", ai._log_name(),
 						"SQUAD FREE engage → %s" % ai._log_target_name(tgt))
@@ -203,7 +202,6 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 				ai._squad_lateral_role = _role_for_squad_index(ai.squad_index)
 				ai._squad_free_engaging = false  # 协同攻击路径互斥
 				ai._leader_target_lost_timer = 0.0
-				ai._squad_range_grace_timer = 0.0
 				ai.current_tactic_name = "TACTIC_TEAM_ATTACK"
 	else:
 		ai._engage_delay = 0.0  # 长机无目标时重置延迟
@@ -313,9 +311,8 @@ static func _enter_autonomous_engage(ai: AIController, tgt: CombatUnit, tactic_n
 	ai.enter_engage_state()
 	ai._squad_attacking_leader_target = false
 	ai._squad_lateral_role = AIController.SquadRole.NONE
-	ai._squad_free_engaging = true  # 享有 range grace，避免刚进就被踢出
+	ai._squad_free_engaging = true  # 小队交战由 leash 约束，不受雷达距脱离
 	ai._leader_target_lost_timer = 0.0
-	ai._squad_range_grace_timer = 0.0
 	ai.current_tactic_name = tactic_name
 
 ## 守后行为（GUARD_REAR 模式 / 自由机互掩 共用）：

@@ -98,6 +98,7 @@ const UNIT_TESTS: Dictionary = {
 	"weather": "res://scripts/tests/test_weather_system.gd",
 	"terminal_text": "res://scripts/tests/test_terminal_text.gd",
 	"ui_dev_outline": "res://scripts/tests/test_ui_dev_outline.gd",
+	"local_fixes": "res://scripts/tests/test_local_fix_integration.gd",
 }
 
 ## 只显式调用、不会滚入 `all` 的构建任务。

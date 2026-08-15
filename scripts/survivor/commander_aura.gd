@@ -36,6 +36,7 @@ const BUFF_STALL_MULT := 0.5        ## 失速速度 ×0.5（允许极紧的低�
 var _scan_timer: float = 0.0
 var _commander: Aircraft = null
 var buffed_aircraft: Array[Aircraft] = []   ## 当前被增益的单位（供 overlay 读取）
+var _original_aggression: Dictionary = {}   ## {instance_id → buff 前 aggression}
 
 func _ready() -> void:
 	_commander = get_parent() as Aircraft
@@ -54,7 +55,6 @@ func _physics_process(delta: float) -> void:
 		_scan_timer = SCAN_INTERVAL
 		_try_recruit()
 		_scan_and_buff()
-		_cleanup_buffed()
 	# Hunter 牵引现在由 AIController.combat_zone_* 在内部处理，不再需要外部刷 waypoint
 
 # ══════════════════════════════════════════════
@@ -64,36 +64,32 @@ func _physics_process(delta: float) -> void:
 func _scan_and_buff() -> void:
 	var commander_ai := _find_ai(_commander)
 	if not commander_ai or not commander_ai.squad:
+		_remove_all_buffs()
 		return
 	var sq := commander_ai.squad
 
-	# 遍历小队成员（跳过指挥机本身）
-	for ac in sq.members:
-		if not is_instance_valid(ac) or ac.is_destroyed:
+	# 周期全量重算：应生效集合 = 当前小队成员 ∧ 半径内。撤除从上周期列表出发，
+	# 因此成员转会/离队也能清掉旧光环，不依赖对称事件。
+	var should: Array[Aircraft] = []
+	for member in sq.members:
+		if not is_instance_valid(member) or member.is_destroyed or member == _commander:
 			continue
-		if ac == _commander:
+		if _commander.global_position.distance_to(member.global_position) <= AURA_RADIUS:
+			should.append(member)
+	for ac in buffed_aircraft.duplicate():
+		if is_instance_valid(ac) and not should.has(ac):
+			_remove_buff(ac)
+	for ac in should:
+		if ac.aura_buff_owner == _commander:
 			continue
-
-		var dist := _commander.global_position.distance_to(ac.global_position)
-
-		if dist <= AURA_RADIUS:
-			# 进入增益范围：若尚未 buff 则施加
-			if not ac.has_meta("commander_buffed_by"):
-				_apply_buff(ac)
-		else:
-			# 离开增益范围：撤除增益（但仍保留小队成员身份）
-			if ac.has_meta("commander_buffed_by") and is_instance_valid(ac.get_meta("commander_buffed_by")) and ac.get_meta("commander_buffed_by") == _commander:
-				_remove_buff(ac)
-
-func _cleanup_buffed() -> void:
-	var valid: Array[Aircraft] = []
-	for ac in buffed_aircraft:
-		if is_instance_valid(ac) and not ac.is_destroyed:
-			valid.append(ac)
-		else:
-			if is_instance_valid(ac):
-				_remove_buff(ac)
-	buffed_aircraft = valid
+		if ac.aura_buff_owner != null and is_instance_valid(ac.aura_buff_owner):
+			continue
+		_apply_buff(ac)
+	var mine: Array[Aircraft] = []
+	for ac in should:
+		if ac.aura_buff_owner == _commander:
+			mine.append(ac)
+	buffed_aircraft = mine
 
 # ══════════════════════════════════════════════
 #  增益施加 / 撤除
@@ -104,51 +100,33 @@ func _apply_buff(ac: Aircraft) -> void:
 	if not ai or not ac.params:
 		return
 
-	# 存储原始值以便撤除时还原
-	var originals := {
-		"aggression": ai.aggression,
-		"roll_rate": ac.params.roll_rate,
-		"max_g": ac.params.max_g,
-		"max_g_structural": ac.params.max_g_structural,
-		"max_speed": ac.params.max_speed,
-		"cruise_speed": ac.params.cruise_speed,
-		"acceleration": ac.params.acceleration,
-		"stall_speed_base": ac.params.stall_speed_base,
-	}
-	ac.set_meta("commander_buff_originals", originals)
-	ac.set_meta("commander_buffed_by", _commander)
-
-	# 施加增益：机动 / 速度 / 攻击欲望
+	_original_aggression[ac.get_instance_id()] = ai.aggression
 	ai.aggression = clampf(ai.aggression + BUFF_AGGRESSION, 0.0, 1.0)
-	ac.params.max_g += BUFF_MAX_G_ADD
-	ac.params.max_g_structural += BUFF_STRUCTURAL_G_ADD
-	ac.params.roll_rate *= BUFF_ROLL_RATE_MULT
-	ac.params.max_speed *= BUFF_SPEED_MULT
-	ac.params.cruise_speed *= BUFF_SPEED_MULT
-	ac.params.acceleration *= BUFF_ACCEL_MULT
-	ac.params.stall_speed_base *= BUFF_STALL_MULT
-
-	buffed_aircraft.append(ac)
+	ac.aura_max_g_add = BUFF_MAX_G_ADD
+	ac.aura_g_structural_add = BUFF_STRUCTURAL_G_ADD
+	ac.aura_roll_rate_mult = BUFF_ROLL_RATE_MULT
+	ac.aura_speed_mult = BUFF_SPEED_MULT
+	ac.aura_accel_mult = BUFF_ACCEL_MULT
+	ac.aura_stall_mult = BUFF_STALL_MULT
+	ac.aura_buff_owner = _commander
+	if not buffed_aircraft.has(ac):
+		buffed_aircraft.append(ac)
 
 func _remove_buff(ac: Aircraft) -> void:
-	if not is_instance_valid(ac) or not ac.has_meta("commander_buff_originals"):
+	if not is_instance_valid(ac) or ac.aura_buff_owner != _commander:
 		return
-	var originals: Dictionary = ac.get_meta("commander_buff_originals")
-
+	var iid := ac.get_instance_id()
 	var ai := _find_ai(ac)
-	if ai:
-		ai.aggression = originals.get("aggression", ai.aggression)
-	if ac.params:
-		ac.params.roll_rate = originals.get("roll_rate", ac.params.roll_rate)
-		ac.params.max_g = originals.get("max_g", ac.params.max_g)
-		ac.params.max_g_structural = originals.get("max_g_structural", ac.params.max_g_structural)
-		ac.params.max_speed = originals.get("max_speed", ac.params.max_speed)
-		ac.params.cruise_speed = originals.get("cruise_speed", ac.params.cruise_speed)
-		ac.params.acceleration = originals.get("acceleration", ac.params.acceleration)
-		ac.params.stall_speed_base = originals.get("stall_speed_base", ac.params.stall_speed_base)
-
-	ac.remove_meta("commander_buff_originals")
-	ac.remove_meta("commander_buffed_by")
+	if ai and _original_aggression.has(iid):
+		ai.aggression = float(_original_aggression[iid])
+	_original_aggression.erase(iid)
+	ac.aura_max_g_add = 0.0
+	ac.aura_g_structural_add = 0.0
+	ac.aura_roll_rate_mult = 1.0
+	ac.aura_speed_mult = 1.0
+	ac.aura_accel_mult = 1.0
+	ac.aura_stall_mult = 1.0
+	ac.aura_buff_owner = null
 	buffed_aircraft.erase(ac)
 
 func _remove_all_buffs() -> void:

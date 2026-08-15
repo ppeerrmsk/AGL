@@ -102,7 +102,7 @@ static func enter_evade(ai: AIController) -> void:
 	# P4：planner 模式下置 evasion_mode → planner 选 EVADE_MISSILE intent → max + AB
 	# MissileEvasion.process_evade 仍写 target_position（垂直规避向量），两者协作：
 	# planner 决定速度/AB，process_evade 决定方向/高度
-	# 走 set_evasion_mode 入口（B3）：保 evasion_modifiers 边界差量缩放对称；
+	# 走 set_evasion_mode 入口（B3）：保切换副作用统一；CD modifier 由 cd_rate 实时读取；
 	# AI 无 use_tactical_preference 不会触发僚机广播。
 	if ai.aircraft.use_tactical_planner:
 		ai.aircraft.set_evasion_mode(true)

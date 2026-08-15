@@ -89,10 +89,10 @@ evasion / 编队 / directive / manual_control / swarm 角色 / boss_attacker / e
 
 - `set_afterburner` 有冷却/燃油/SLOW 三重守卫，9 处裸写绕过（ace_squad、bfm_tactics、
   cobra/herbst、status_effects、ai_controller FEAR）。
-- `set_evasion_mode` 有边界差量缩放，missile_evasion 4 处裸写绕过（目前 AI 恰好没有
-  evasion_modifiers 才没炸）。
-- `params.max_g` 等运行时改写的"存 originals 手工恢复"逻辑复制了两份
-  （commander_aura / escort_behavior）。
+- `set_evasion_mode` 的历史边界差量缩放已在 2026-08-15 改为 `cd_rate` 实时消费；裸写仍会
+  绕过清指令/广播等切换副作用，因此入口约束依然成立。
+- `params.max_g` 等 Sentinel 运行时改写已在 2026-08-15 改为 Aircraft 临时光环字段，
+  `commander_aura` 独占生命周期；`escort_behavior` 不再复制 originals 恢复逻辑。
 - 进出状态的字段清单靠人肉对称：enter_evade/exit_evade、进出编队、切控交接各自手写
   6~8 个字段，历史 bug（360°/s 扭头、追旧长机、LOD 切换速度残留）全是漏一个字段。
 

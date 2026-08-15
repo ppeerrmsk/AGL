@@ -295,8 +295,8 @@ enum SquadRole { NONE = 0, FLANK_LEFT = 1, FLANK_RIGHT = 2, HIGH_COVER = 3 }
 var _squad_lateral_role: int = SquadRole.NONE
 var _leader_target_lost_timer: float = 0.0  ## 长机目标丢失后的宽限计时（防止单帧抖动触发脱离）
 const LEADER_TARGET_LOST_GRACE := 1.5  ## 长机目标丢失后的宽限时长（秒）
-var _squad_range_grace_timer: float = 0.0  ## 长机指定目标超出僚机射程的宽限计时
-const SQUAD_RANGE_GRACE := 2.0  ## 超出射程宽限时长（秒）— 允许僚机继续追击长机指定的目标一段时间
+# 小队交战不再因距目标超雷达范围脱离；权威边界由距长机的 squad leash 和
+# 长机丢目标宽限控制（spec squad-engagement-persistence）。
 # ── 小队 leash（spec squad-cohesion §2.2/§3.2）：交战僚机游走出长机此距离 → 强制脱战回编队 ──
 # 根治"绕一大圈查无此人"。所有常规 squad 僚机生效（drone/bvr/boss/hunter 各有自己的远距逻辑，跳过）。
 const SQUAD_LEASH_DIST := 1800.0  ## 距长机超此像素（≈3600m）触发 break-off（FREE / FOLLOW_LEADER）
@@ -311,6 +311,12 @@ func effective_squad_leash() -> float:
 			return SQUAD_LEASH_DIST
 		return REAR_GUARD_LEASH_DIST
 	return SQUAD_LEASH_DIST
+
+
+## 雷达距离脱离豁免。小队交战的空间约束由距长机 leash 独占负责。
+func is_range_disengage_exempt() -> bool:
+	return is_boss_attacker() or _cmd_engage_active() \
+		or _squad_attacking_leader_target or _squad_free_engaging
 
 ## 战场引力 leash 松绑（spec battlefield-gravity §3.4）：返回 [锚点 Vector2, 限距 float]。
 ## ① 正在打"咬操控机"的 survival 目标 → 锚=操控机、限距=SURVIVAL_RANGE+BRACKET_SLACK(4200px 常数)；
@@ -969,7 +975,7 @@ func _apply_constraints(delta: float) -> bool:
 				if aircraft.flat_altitude and combat_zone_anchor is Aircraft:
 					aircraft.set_target_tier((combat_zone_anchor as Aircraft).get_altitude_tier())
 				if aircraft.params:
-					aircraft.target_speed_kmh = aircraft.params.max_speed
+					aircraft.target_speed_kmh = AircraftPhysics.effective_max_speed_kmh(aircraft)
 				return true
 		elif _current_target != null and is_instance_valid(_current_target):
 			var target_dist := _current_target.global_position.distance_to(zone_center)
@@ -1626,7 +1632,7 @@ func _process_simple(delta: float) -> void:
 			var orbit_speed_kmh := ORBIT_MIN_SPEED_KMH
 			if aircraft.params:
 				var radius_m := radius / Aircraft.PIXELS_PER_METER
-				var g_avail := aircraft.params.max_g * 0.5
+				var g_avail := AircraftPhysics.effective_max_g(aircraft) * 0.5
 				orbit_speed_kmh = maxf(sqrt(radius_m * 9.81 * g_avail) * 3.6, ORBIT_MIN_SPEED_KMH)
 			# 关键：轨道速度必须比长机快，否则只能跟在后面
 			orbit_speed_kmh = maxf(orbit_speed_kmh, leader_speed_kmh * ORBIT_SPEED_MULT)
@@ -1695,7 +1701,7 @@ func _process_simple(delta: float) -> void:
 						aircraft.ai_override_pursuit = true
 						aircraft.orbit_speed_cap = 0.0  # 解除限速，全速追击
 						if aircraft.params:
-							aircraft.target_speed_kmh = aircraft.params.max_speed
+							aircraft.target_speed_kmh = AircraftPhysics.effective_max_speed_kmh(aircraft)
 						aircraft.set_combat_target(_current_target)
 
 						# 自爆判定：100px 内触发
@@ -1854,7 +1860,7 @@ func _process_simple(delta: float) -> void:
 			else:
 				aircraft.target_position = aircraft.global_position + _simple_confused_heading * CONFUSED_FLIGHT_DIST
 				aircraft.target_altitude = aircraft.altitude
-				aircraft.target_speed_kmh = aircraft.params.max_speed * CONFUSED_SPEED_RATIO if aircraft.params else 600.0
+				aircraft.target_speed_kmh = AircraftPhysics.effective_max_speed_kmh(aircraft) * CONFUSED_SPEED_RATIO
 				return
 
 	# 前置追踪（护驾 UAV / hunter 用更激进的预判系数）
@@ -2011,7 +2017,7 @@ func _process_simple(delta: float) -> void:
 			# 近距：用 corner_speed 最大化转弯率，避免 max_speed 1800m turn radius 飞过头不开枪
 			aircraft.target_speed_kmh = AircraftPhysics.effective_corner_speed_kmh(aircraft)
 		else:
-			aircraft.target_speed_kmh = aircraft.params.max_speed * speed_ratio
+			aircraft.target_speed_kmh = AircraftPhysics.effective_max_speed_kmh(aircraft) * speed_ratio
 	else:
 		aircraft.target_speed_kmh = 800.0
 
@@ -2291,12 +2297,12 @@ func _process_engage(delta: float) -> void:
 		else:
 			_leader_target_lost_timer = 0.0
 
-	# 超出范围脱离（小队指令的交战都带宽限：允许短暂越界，给飞机调整位置的时间）
+	# 超出范围脱离仅约束独立/单机 AI；小队交战由 squad leash 约束。
 	# BOSS 攻击手永不因距离脱离——死追目标
 	# 命令铁律：_cmd_engage（玩家点名的目标）同样永不因距离脱离——玩家要打多远就追多远
 	# flat_altitude=true（生存模式）下距离判定忽略高度差
-	if is_boss_attacker() or _cmd_engage:
-		pass  # BOSS 攻击手 / 玩家命令目标跳过距离脱离
+	if is_range_disengage_exempt():
+		pass  # BOSS / 玩家命令 / 小队交战跳过雷达距脱离
 	elif aircraft.params:
 		var max_range := aircraft.effective_radar_range_px() * 1.5
 		var dist: float
@@ -2305,17 +2311,8 @@ func _process_engage(delta: float) -> void:
 		else:
 			dist = Aircraft.effective_distance_px(aircraft.global_position, aircraft.altitude, _current_target.global_position, _current_target.altitude)
 		if dist > max_range:
-			if _squad_attacking_leader_target or _squad_free_engaging:
-				_squad_range_grace_timer += delta
-				if _squad_range_grace_timer >= SQUAD_RANGE_GRACE:
-					_squad_range_grace_timer = 0.0
-					TargetSelection.disengage(self)
-					return
-			else:
-				TargetSelection.disengage(self)
-				return
-		else:
-			_squad_range_grace_timer = 0.0
+			TargetSelection.disengage(self)
+			return
 
 	# 交战时间限制（BOSS 攻击手 / 玩家命令无限制）
 	if not is_boss_attacker() and not _cmd_engage and _engage_timer > engage_duration:
@@ -2415,7 +2412,7 @@ func _process_drone_engage(delta: float) -> void:
 
 	# 全速冲（drone 没有加力，max_speed 1800 km/h 已经够快）
 	if aircraft.params:
-		aircraft.target_speed_kmh = aircraft.params.max_speed
+		aircraft.target_speed_kmh = AircraftPhysics.effective_max_speed_kmh(aircraft)
 
 	# 高度匹配目标（生存模式 flat_altitude → 用 tier）
 	if aircraft.flat_altitude:
@@ -2564,7 +2561,7 @@ func _try_kamikaze_intercept(_delta: float) -> bool:
 	aircraft.target_position = threat.global_position
 	aircraft.ai_override_pursuit = true
 	if aircraft.params:
-		aircraft.target_speed_kmh = aircraft.params.max_speed
+		aircraft.target_speed_kmh = AircraftPhysics.effective_max_speed_kmh(aircraft)
 	aircraft.orbit_speed_cap = 0.0  # 解除 orbit 限速
 
 	# 进入引爆距离 → 同归于尽

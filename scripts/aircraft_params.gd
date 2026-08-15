@@ -119,3 +119,20 @@ func get_equipment_of_kind(kind: String) -> EquipmentParams:
 		if eq != null and eq.equipment_kind == kind:
 			return eq
 	return null
+
+
+## 是否装备了会使用主雷达锁定空中目标的武器。
+## 主 AAM、railgun、启用对空的 laser 计入；secondary_missile 使用独立副槽雷达，
+## 不计入主雷达锥。渲染与雷达 shooter 过滤共用本入口。
+func has_lock_capable_weapon() -> bool:
+	if missile != null:
+		return true
+	for eq in equipment:
+		if eq == null:
+			continue
+		if eq.equipment_kind == "railgun":
+			return true
+		if eq.equipment_kind == "laser" and "can_target_aircraft" in eq \
+				and bool(eq.can_target_aircraft):
+			return true
+	return false

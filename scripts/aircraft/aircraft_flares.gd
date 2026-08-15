@@ -77,14 +77,10 @@ static func update(ac: Aircraft, delta: float) -> void:
 	# 粒子
 	_update_particles(ac, delta)
 
-	# 释放冷却（§C 玩家技能：hp<50% 时按 low_hp_flare_reload_mult 加快倒计时；mult<1 = 加快）
-	var cd_decrement: float = delta
+	# 释放/装填冷却：规避与低血修饰统一由 cd_rate("flare") 结算。
+	var cd_decrement: float = delta * ac.cd_rate("flare")
 	if ac.enable_flare_reload and ac.flares_remaining <= 0:
 		cd_decrement *= ac.esm_reload_rate_multiplier()
-	if ac.is_player_squad() and ac.low_hp_flare_reload_mult != 1.0 and ac.params:
-		var hp_ratio: float = ac.hp / maxf(ac.params.max_hp, 1.0)
-		if hp_ratio < 0.5 and ac.low_hp_flare_reload_mult > 0.0:
-			cd_decrement /= ac.low_hp_flare_reload_mult  # 与 ESM reload 加速相乘
 	ac._flare_cooldown = maxf(ac._flare_cooldown - cd_decrement, 0.0)
 
 	if not ac.params or not ac.params.flare:

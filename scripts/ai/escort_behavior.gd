@@ -34,26 +34,12 @@ static func is_active(ai: AIController) -> bool:
 	var leader: Aircraft = ai.squad.leader
 	return leader != null and is_instance_valid(leader) and not leader.is_destroyed
 
-## 长机已阵亡的清理：清 orbit 标志 + buff 还原 + 解 squad 引用
-## 调用方在 _process_simple 头部判定，长机消失就走这里
+## 长机已阵亡的清理：清 orbit 标志 + 解 squad 引用。
+## 光环生命周期由 CommanderAura 独占管理；坠落动画期间保留，节点退出统一撤除。
 static func cleanup_after_leader_lost(ai: AIController) -> void:
 	ai.orbit_squad_leader = false
 	ai.shield_leader = false
 	ai.aircraft.orbit_speed_cap = 0.0
 	ai.aircraft.ai_override_pursuit = false
-	# 撤除 Sentinel 光环 buff
-	if ai.aircraft.has_meta("commander_buff_originals"):
-		var originals: Dictionary = ai.aircraft.get_meta("commander_buff_originals")
-		ai.aggression = originals.get("aggression", ai.aggression)
-		if ai.aircraft.params:
-			ai.aircraft.params.roll_rate = originals.get("roll_rate", ai.aircraft.params.roll_rate)
-			ai.aircraft.params.max_g = originals.get("max_g", ai.aircraft.params.max_g)
-			ai.aircraft.params.max_g_structural = originals.get("max_g_structural", ai.aircraft.params.max_g_structural)
-			ai.aircraft.params.max_speed = originals.get("max_speed", ai.aircraft.params.max_speed)
-			ai.aircraft.params.cruise_speed = originals.get("cruise_speed", ai.aircraft.params.cruise_speed)
-			ai.aircraft.params.acceleration = originals.get("acceleration", ai.aircraft.params.acceleration)
-			ai.aircraft.params.stall_speed_base = originals.get("stall_speed_base", ai.aircraft.params.stall_speed_base)
-		ai.aircraft.remove_meta("commander_buff_originals")
-		ai.aircraft.remove_meta("commander_buffed_by")
 	ai.squad = null
 	ai.squad_index = -1

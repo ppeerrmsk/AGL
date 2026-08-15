@@ -197,7 +197,7 @@ static func from_aircraft(ac) -> Situation:
 		s.stall_speed_kmh = AircraftPhysics.effective_stall_speed_kmh(ac)
 		s.corner_speed_kmh = AircraftPhysics.effective_corner_speed_kmh(ac)
 		s.max_g = AircraftPhysics.effective_max_g(ac)
-		s.roll_rate = ac.params.roll_rate
+		s.roll_rate = AircraftPhysics.base_roll_rate(ac)
 		s.deceleration = ac.params.deceleration
 		s.radar_half_angle_deg = ac.params.radar_half_angle
 		s.lock_time_threshold = ac.params.lock_time
@@ -312,7 +312,7 @@ static func from_aircraft(ac) -> Situation:
 				# 与自身同样经 effective accessor 读取 G / 角点，状态 buff 也能进入画像。
 				s.tgt_corner_speed_kmh = AircraftPhysics.effective_corner_speed_kmh(target_ac)
 				s.tgt_max_g = AircraftPhysics.effective_max_g(target_ac)
-				s.tgt_roll_rate = target_ac.params.roll_rate
+				s.tgt_roll_rate = AircraftPhysics.base_roll_rate(target_ac)
 				s.tgt_deceleration = target_ac.params.deceleration
 		else:
 			s.tgt_heading = 0.0

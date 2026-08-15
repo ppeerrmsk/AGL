@@ -213,6 +213,12 @@ func _update_radar_locks(delta: float) -> void:
 
 	# 对每个单位，检查其雷达锥内的敌方单位
 	for unit in all_units:
+		# 无主雷达锁定武器的飞机不当 shooter；仍保留为 victim。
+		if unit is Aircraft:
+			var shooter := unit as Aircraft
+			if shooter.params == null or not shooter.params.has_lock_capable_weapon():
+				shooter.radar_targets.clear()
+				continue
 		# 清理无效目标
 		var keys_to_remove: Array = []
 		for key in unit.radar_targets:

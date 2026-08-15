@@ -35,6 +35,7 @@ const SLOW_ROLL_MULT := 0.6
 const OVERLOAD_RELOAD_MULT := 0.4    ## 装填时间 ×0.4
 const OVERLOAD_LOCK_MULT := 0.4      ## 锁定时间 ×0.4（=锁定速率 ×2.5）
 const OVERLOAD_ACCEL_MULT := 1.6     ## 加/减速 ×1.6
+const CLOUD_OVERLOAD_BASE_DURATION := 1.0  ## 云内 0.2s 刷新；出云后基础残留不超过约 1s
 
 const STEALTH_ALPHA := 0.35
 const BLOODLUST_HEAL_PER_KILL := 20.0
@@ -146,9 +147,8 @@ static func update(ac: Aircraft, delta: float) -> void:
 	# 各来源独立 bool，避免相互覆盖（_in_evasion_stealth / _in_missile_cd_stealth 由 aircraft.gd 派生）
 	ac.status_stealth_active = ac.status_effects.has(STEALTH) or ac._in_evasion_stealth or ac._in_missile_cd_stealth
 	ac.status_bloodlust_active = ac.status_effects.has(BLOODLUST)
-	# OVERLOAD 派生 OR 两源：status_effects 中的限时来源 + 云中常驻来源（_in_cloud_overload）
-	# 两源独立避免出云误清（详见 aircraft._on_cloud_boundary 注释）
-	ac.status_overload_active = ac.status_effects.has(OVERLOAD) or ac._in_cloud_overload
+	# OVERLOAD 单一权威源：所有来源（规避/击杀/云中）都进入 status_effects。
+	ac.status_overload_active = ac.status_effects.has(OVERLOAD)
 	ac.status_slow_active = ac.status_effects.has(SLOW)
 	ac.status_fear_active = ac.status_effects.has(FEAR)
 

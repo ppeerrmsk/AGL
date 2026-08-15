@@ -429,13 +429,21 @@ var _jam_aura_cd_remaining: float = 0.0
 ## F-14 专属：全僚机锁定同一敌机时给该敌机施加 SLOW（survivor_mode 雷达循环维护）
 var f14_squad_lock_slow_active: bool = false
 
-## 云中事件触发器（玩家专用，每帧 main 场景检测进/出云事件 → 触发对应钩子）
-##   cloud_overload_active: 进云时 apply OVERLOAD，出云时 remove
-##   cloud_weapon_cd_mult:  进云时按倍率 scale 武器 cd（与 evasion_modifiers 同模式），出云反向
+## 指挥光环运行时注入字段（spec modifier-pipeline）。临时 buff 禁止写 params；
+## 物理与 AI 统一经 AircraftPhysics 的 base_*/effective_* accessor 汇入。
+var aura_max_g_add: float = 0.0
+var aura_g_structural_add: float = 0.0
+var aura_roll_rate_mult: float = 1.0
+var aura_speed_mult: float = 1.0
+var aura_accel_mult: float = 1.0
+var aura_stall_mult: float = 1.0
+var aura_buff_owner: Node = null
+
+## 云中技能（玩家专用；cloud_state 每 0.2s 采样）
+##   cloud_overload_active: 云中刷新短时 OVERLOAD，所有联动统一走 apply_status
+##   cloud_weapon_cd_mult:  云中并入 cd_rate("weapon")，不改写运行中倒计时
 var cloud_overload_active: bool = false      ## 技能解锁标记：玩家是否选了"云中超载"
-var _in_cloud_overload: bool = false          ## 运行时：当前是否处于云中且解锁此技能（StatusEffects.update OR 进派生标记）
 var cloud_weapon_cd_mult: float = 1.0        ## 技能：在云中武器 cd 倍率（< 1.0 = 更快）
-var _was_in_cloud_last_frame: bool = false   ## 用于检测进/出云边界事件
 
 ## 进入 evasion 模式时启用 STEALTH（独立 bool + 派生 OR，避免与其它 STEALTH 来源冲突）
 var evasion_stealth_active: bool = false     ## 解锁标记：玩家是否选了"evasion 隐身"
@@ -2038,17 +2046,11 @@ func _target_within_launch_cone() -> bool:
 ## 切换规避模式：进入时清空当前指令（等同右键"解除任务"），离开时不动作
 ## 供 HUD 按钮 / 键位 / 点击逻辑统一调用
 ##
-## §1.2 边界差量：进入 / 退出 evasion 时一次性按 evasion_modifiers 倍率
-## 缩放 / 还原所有运行时倒计时，避免每帧 `if evasion: cd *= mult` 引起的边界抖动
-## （在云边缘 / 模式频繁切换时 cd 反复重置）。
+## CD 修饰走 cd_rate() 速率模型；切换模式不改写运行中倒计时。
 ## suppress_radio：加力模式激活时传 true —— 抑制 "break" 呼叫（加力另走 afterburner_engaged，
 ## 语义已从"躲导弹"分离），其余 evasion 副作用照旧。默认 false 保持所有旧调用行为不变。
 func set_evasion_mode(enabled: bool, suppress_radio: bool = false) -> void:
 	var was_enabled := evasion_mode
-	if enabled and not was_enabled:
-		_apply_evasion_modifiers(true)
-	elif not enabled and was_enabled:
-		_apply_evasion_modifiers(false)
 	evasion_mode = enabled
 	# §C 玩家技能"evasion 隐身"：进入不立即激活，由 _update_evasion 累计 2s 后置位
 	# 派生标记由 StatusEffects.update OR 进 status_stealth_active
@@ -2110,27 +2112,27 @@ func _propagate_evasion_to_squad(enabled: bool) -> void:
 						ac._escort_flare_tried.clear()  # 关 E：清护卫尝试记录
 				break
 
-## 进入(true) / 退出(false) evasion 时缩放 cd —— 进入按 mult 缩短，退出反向除回
-## 只动倒计时本身，不动 max 装填时间 / 弹药数等"配置"
-func _apply_evasion_modifiers(entering: bool) -> void:
-	var weapon_m: float = float(evasion_modifiers.get("weapon_cd_mult", 1.0))
-	var flare_m: float = float(evasion_modifiers.get("flare_cd_mult", 1.0))
-	var reload_m: float = float(evasion_modifiers.get("missile_reload_mult", 1.0))
-	if entering:
-		_fire_cooldown *= weapon_m
-		_missile_cooldown *= weapon_m
-		_rocket_burst_cooldown *= weapon_m
-		_flare_cooldown *= flare_m
-		_missile_reload_timer *= reload_m
-	else:
-		if weapon_m > 0.0:
-			_fire_cooldown /= weapon_m
-			_missile_cooldown /= weapon_m
-			_rocket_burst_cooldown /= weapon_m
-		if flare_m > 0.0:
-			_flare_cooldown /= flare_m
-		if reload_m > 0.0:
-			_missile_reload_timer /= reload_m
+## CD 速率模型（spec modifier-pipeline）：倒计时写基础时长，tick 侧按
+## delta × rate 消耗。mult < 1 表示 CD 更短，因此 rate = 1 / 乘数栈。
+func cd_rate(channel: String) -> float:
+	var mult := 1.0
+	match channel:
+		"weapon":
+			if evasion_mode:
+				mult *= float(evasion_modifiers.get("weapon_cd_mult", 1.0))
+			if cloud_weapon_cd_mult != 1.0 and cloud_state >= 1:
+				mult *= cloud_weapon_cd_mult
+		"flare":
+			if evasion_mode:
+				mult *= float(evasion_modifiers.get("flare_cd_mult", 1.0))
+			if is_player_squad() and low_hp_flare_reload_mult > 0.0 \
+					and low_hp_flare_reload_mult != 1.0 and params \
+					and hp / maxf(params.max_hp, 1.0) < 0.5:
+				mult *= low_hp_flare_reload_mult
+		"missile_reload":
+			if evasion_mode:
+				mult *= float(evasion_modifiers.get("missile_reload_mult", 1.0))
+	return 1.0 / maxf(mult, 0.01)
 
 ## 触发一次闪避滚转动画（子弹闪避/热诱弹成功时的视觉反馈）
 func _trigger_evasion_roll() -> void:
@@ -2549,6 +2551,78 @@ func _update_evasion(delta: float) -> void:
 			if fired_jam[0]:
 				_jam_aura_cd_remaining = AURA_INTERNAL_CD
 
+	# 规避动画与走位每帧只推进一次，不能依赖是否装备/触发光环技能。
+	_update_evasion_motion(delta)
+
+
+## 规避滚转动画 + 玩家规避模式走位。独立于任何光环扫描，避免无光环时不执行、
+## 双光环时执行两次（modifier-pipeline B6）。
+func _update_evasion_motion(delta: float) -> void:
+	if _evade_roll_remaining > 0.0:
+		var roll_speed := TAU / _EVADE_ROLL_DURATION
+		_evade_roll_phase += roll_speed * delta
+		if _evade_roll_phase > PI:
+			_evade_roll_phase -= TAU
+		_evade_roll_remaining -= delta
+		if _evade_roll_remaining <= 0.0:
+			_evade_roll_remaining = 0.0
+			_evade_roll_cooldown = _EVADE_ROLL_COOLDOWN
+	else:
+		_evade_roll_phase = lerp_angle(_evade_roll_phase, 0.0, clampf(delta * 6.0, 0.0, 1.0))
+		if absf(_evade_roll_phase) < 0.02:
+			_evade_roll_phase = 0.0
+
+	if not use_tactical_preference or not evasion_mode:
+		return
+
+	var incoming_missile: Missile = null
+	var closest_dist := INF
+	if missile_manager:
+		for child in missile_manager.get_children():
+			if child is Missile:
+				var missile := child as Missile
+				if missile.is_active and not missile.is_flare_jammed and missile.target == self:
+					var d := global_position.distance_squared_to(missile.global_position)
+					if d < closest_dist:
+						closest_dist = d
+						incoming_missile = missile
+
+	if incoming_missile:
+		var dist_px := sqrt(closest_dist)
+		var missile_id := incoming_missile.get_instance_id()
+		if dist_px < _EVADE_ROLL_TRIGGER_PX \
+				and _evade_roll_cooldown <= 0.0 \
+				and _evade_roll_remaining <= 0.0 \
+				and missile_id != _evade_last_missile_id:
+			_evade_roll_remaining = _EVADE_ROLL_DURATION
+			_evade_last_missile_id = missile_id
+
+		var missile_dir := (global_position - incoming_missile.global_position).normalized()
+		var evade_dir := Vector2(missile_dir.y, -missile_dir.x)
+		var evade_heading_a := atan2(evade_dir.x, -evade_dir.y)
+		var evade_heading_b := atan2(-evade_dir.x, evade_dir.y)
+		var diff_a := absf(angle_difference(heading, evade_heading_a))
+		var diff_b := absf(angle_difference(heading, evade_heading_b))
+		var chosen_dir := evade_dir if diff_a < diff_b else -evade_dir
+		var evade_intent := ControlIntent.new()
+		evade_intent.pursuit_pos = global_position + chosen_dir * 2000.0
+		submit_intent(ControlIntent.SOURCE_EVADE, evade_intent)
+		if flat_altitude:
+			if get_altitude_tier() == AltitudeTier.LOW:
+				set_target_tier(AltitudeTier.HIGH)
+			else:
+				set_target_tier(AltitudeTier.LOW)
+	else:
+		_evade_last_missile_id = 0
+		_evasion_sway_timer += delta
+		var sway_period := 3.0
+		var sway_angle := sin(_evasion_sway_timer * TAU / sway_period) * 0.8
+		var sway_heading := heading + sway_angle
+		var sway_intent := ControlIntent.new()
+		sway_intent.pursuit_pos = global_position \
+			+ Vector2(sin(sway_heading), -cos(sway_heading)) * 1500.0
+		submit_intent(ControlIntent.SOURCE_EVADE, sway_intent)
+
 
 ## 累积式光环通用 tick：统一处理 rear_slow / jam_aura（未来加新光环可复用）
 ##   accum_dict: { instance_id → 累积秒数 }（每光环各自一个）
@@ -2557,7 +2631,6 @@ func _update_evasion(delta: float) -> void:
 ##   require_rear: true=需要在我后半球（dot(my_back, to_enemy) > 0.3）
 ##   delta: 帧时长
 ## out_fired: 1 元素数组（[bool]），由调用方提供；本帧触发了 debuff 时置 true
-## 用 out 参数而非 return，因为函数体内（历史遗留）混入了 _update_evasion 的 evade-roll 逻辑，不能 early-return
 func _tick_aura_accumulator(accum_dict: Dictionary,
 		radius_px: float, status_id: String,
 		require_rear: bool, delta: float, out_fired: Array = [],
@@ -2616,78 +2689,6 @@ func _tick_aura_accumulator(accum_dict: Dictionary,
 	if debuff_hits.size() > 0:
 		if out_fired.size() > 0:
 			out_fired[0] = true
-
-	if _evade_roll_remaining > 0.0:
-		# 正在滚转：按固定速率推进相位（一圈 / _EVADE_ROLL_DURATION）
-		var roll_speed := TAU / _EVADE_ROLL_DURATION
-		_evade_roll_phase += roll_speed * delta
-		if _evade_roll_phase > PI:
-			_evade_roll_phase -= TAU
-		_evade_roll_remaining -= delta
-		if _evade_roll_remaining <= 0.0:
-			_evade_roll_remaining = 0.0
-			_evade_roll_cooldown = _EVADE_ROLL_COOLDOWN
-	else:
-		# 无滚转：相位平滑回正（机翼水平）
-		_evade_roll_phase = lerp_angle(_evade_roll_phase, 0.0, clampf(delta * 6.0, 0.0, 1.0))
-		if absf(_evade_roll_phase) < 0.02:
-			_evade_roll_phase = 0.0
-
-	if not use_tactical_preference or not evasion_mode:
-		return
-
-	# 检测来袭导弹（最近的一枚）
-	var incoming_missile: Missile = null
-	var closest_dist := INF
-	if missile_manager:
-		for child in missile_manager.get_children():
-			if child is Missile:
-				var m: Missile = child as Missile
-				if m.is_active and not m.is_flare_jammed and m.target == self:
-					var d := global_position.distance_squared_to(m.global_position)
-					if d < closest_dist:
-						closest_dist = d
-						incoming_missile = m
-
-	if incoming_missile:
-		var dist_px := sqrt(closest_dist)
-		# 触发一次短促的桶滚动画：导弹首次进入触发距离 + 冷却就绪 + 不同的来袭导弹
-		var mid := incoming_missile.get_instance_id()
-		if dist_px < _EVADE_ROLL_TRIGGER_PX \
-				and _evade_roll_cooldown <= 0.0 \
-				and _evade_roll_remaining <= 0.0 \
-				and mid != _evade_last_missile_id:
-			_evade_roll_remaining = _EVADE_ROLL_DURATION
-			_evade_last_missile_id = mid
-
-		# 规避方向：垂直于导弹来袭方向
-		var missile_dir := (global_position - incoming_missile.global_position).normalized()
-		var evade_dir := Vector2(missile_dir.y, -missile_dir.x)
-		var evade_heading_a := atan2(evade_dir.x, -evade_dir.y)
-		var evade_heading_b := atan2(-evade_dir.x, evade_dir.y)
-		var diff_a := absf(angle_difference(heading, evade_heading_a))
-		var diff_b := absf(angle_difference(heading, evade_heading_b))
-		var chosen_dir := evade_dir if diff_a < diff_b else -evade_dir
-		# Phase 1：规避几何走 EVADE 意图槽（优先级压 TACTIC，与旧"③晚于①直写"帧序等价）
-		var ci_ev := ControlIntent.new()
-		ci_ev.pursuit_pos = global_position + chosen_dir * 2000.0
-		submit_intent(ControlIntent.SOURCE_EVADE, ci_ev)
-		# 高度规避：切换档位
-		if flat_altitude:
-			if get_altitude_tier() == AltitudeTier.LOW:
-				set_target_tier(AltitudeTier.HIGH)
-			else:
-				set_target_tier(AltitudeTier.LOW)
-	else:
-		# 无来袭导弹：S 型机动，不依赖 _evasion_override（该标志已废弃）
-		_evade_last_missile_id = 0
-		_evasion_sway_timer += delta
-		var sway_period := 3.0
-		var sway_angle := sin(_evasion_sway_timer * TAU / sway_period) * 0.8
-		var sway_heading := heading + sway_angle
-		var ci_sw := ControlIntent.new()
-		ci_sw.pursuit_pos = global_position + Vector2(sin(sway_heading), -cos(sway_heading)) * 1500.0
-		submit_intent(ControlIntent.SOURCE_EVADE, ci_sw)
 
 ## 节流记录导弹发射被阻塞的原因（每 MSL_BLOCK_LOG_INTERVAL 最多一次）
 ## 同一 reason 连续触发时不重复记录，直到 reason 改变或间隔到期
@@ -2830,15 +2831,14 @@ func apply_status(id: String, duration: float, mode: String = "max") -> void:
 	if SkillHooks.cloud_relaying:
 		super.apply_status(id, duration, mode)
 		return
-	# 玩家技能"过载共振"系列：OVERLOAD 时长 / 联动嗜血
-	# 仅影响走 apply_status 的 timed 来源；云中常驻 _in_cloud_overload 派生 OR 不经此路径
+	# 玩家技能"过载共振"系列：所有 OVERLOAD 来源（含云中超载）统一走本入口。
 	var also_bloodlust: bool = false
 	if id == StatusEffects.OVERLOAD and is_player_squad() and has_meta("upgrade_stacks"):
 		var stacks: Dictionary = get_meta("upgrade_stacks")
-		# 时长 ×4
+		# 时长倍率
 		if int(stacks.get(SkillHooks.SKILL_OVERLOAD_DURATION_4X, 0)) > 0:
 			duration *= SkillHooks.OVERLOAD_DURATION_MULT
-		# 燃尽自如：再 +4s
+		# 燃尽自如：再加固定秒数
 		if int(stacks.get(SkillHooks.SKILL_OVERLOAD_EXTENDED_AMMO, 0)) > 0:
 			duration += SkillHooks.OVERLOAD_DURATION_FLAT_BONUS
 		# 噬血共振：进入 OVERLOAD 时同时获得 BLOODLUST 同时长
@@ -2850,7 +2850,7 @@ func apply_status(id: String, duration: float, mode: String = "max") -> void:
 			and not status_effects.has(StatusEffects.STEALTH)
 	super.apply_status(id, duration, mode)
 	if also_bloodlust:
-		# 用同一 duration（已被乘 4 / +4 处理过）。BLOODLUST 不会被本钩子再次乘上倍率
+		# 用同一最终 duration；BLOODLUST 不会被本钩子再次乘上倍率。
 		super.apply_status(StatusEffects.BLOODLUST, duration, mode)
 	if sig_stealth_rising and is_player_squad() and has_meta("upgrade_stacks") \
 			and int((get_meta("upgrade_stacks") as Dictionary).get("sig_f22", 0)) > 0:
@@ -3333,7 +3333,9 @@ func _draw_impl() -> void:
 	elif self_modulate.a < 1.0:
 		self_modulate = Color(1.0, 1.0, 1.0, 1.0)
 	if is_hovered:
-		AircraftRenderer.draw_radar_cone(self)
+		# 无主雷达锁定武器时不画主雷达锥；副槽仍由独立锁定锥表达。
+		if params and params.has_lock_capable_weapon():
+			AircraftRenderer.draw_radar_cone(self)
 		AircraftRenderer.draw_aura_ranges(self)
 	# 副导弹槽（仅玩家、装备副弹时画）
 	#   - 锁定锥：hover-only（draw_secondary_lock_cone 自身判断 is_hovered）
@@ -3414,38 +3416,10 @@ func _update_cloud_state(delta: float, weather_override: Node = null) -> void:
 		cloud_state = 0
 	else:
 		cloud_state = 1
-	# §C 玩家技能：进/出云边界事件（在云中=cloud_state>=1 即视为入云，便于 LOW/MID 也能享受）
-	# 仅玩家走这条路径（敌机不需要这些 buff）
-	if is_player_squad():
-		var in_cloud: bool = cloud_state >= 1
-		if in_cloud != _was_in_cloud_last_frame:
-			_on_cloud_boundary(in_cloud)
-			_was_in_cloud_last_frame = in_cloud
-
-
-## §C 云边界事件：进入(true) / 离开(false) 一次性触发，避免每帧重算
-func _on_cloud_boundary(entering: bool) -> void:
-	# 1) 云中超载：用独立 bool _in_cloud_overload，不进 status_effects
-	# 历史 bug：原方案进云时 apply OVERLOAD 9999s + owner flag，若进云前已有
-	# evade missile 给的 OVERLOAD 6s，flag 仍被无条件置 true → 出云时
-	# remove_status 会把 evade 的 6s 一起清掉。
-	# 现在 status_overload_active 派生标记由 StatusEffects.update OR _in_cloud_overload，
-	# 两源独立，互不干扰。
-	if cloud_overload_active:
-		_in_cloud_overload = entering
-
-	# 2) 云中武器 cd：进入按倍率 scale 当前 cd（同 §1.2 evasion 边界差量模式）
-	if cloud_weapon_cd_mult != 1.0:
-		var mult: float = cloud_weapon_cd_mult
-		if entering:
-			_fire_cooldown *= mult
-			_missile_cooldown *= mult
-			_rocket_burst_cooldown *= mult
-		else:
-			if mult > 0.0:
-				_fire_cooldown /= mult
-				_missile_cooldown /= mult
-				_rocket_burst_cooldown /= mult
+	# 云中超载每 0.2s 刷新一次短时状态；出云不主动清除，剩余时间自然衰减。
+	# 这样不会误删规避/击杀等其它 OVERLOAD 来源，且持续时间与嗜血联动统一生效。
+	if is_player_squad() and cloud_overload_active and cloud_state >= 1:
+		apply_status(StatusEffects.OVERLOAD, StatusEffects.CLOUD_OVERLOAD_BASE_DURATION, "max")
 
 
 ## 每 0.2 秒采样一次建筑遮挡，更新 in_building（LOW 档位且位置在任意街区内）

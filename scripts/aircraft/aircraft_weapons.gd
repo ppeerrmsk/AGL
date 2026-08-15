@@ -311,11 +311,12 @@ static func update_passive_gunship(ac: Aircraft, delta: float) -> void:
 ## 空闲 → 梭起始（装填 burst_count 发）→ 梭内（承诺：无视 is_firing 打完整梭）→ 梭间 CD → …
 ## 梭承诺根治"火控窗口一闪只漏一发孤弹"；硬中止 = JAM / 弹尽 / 装填 / 规避。
 static func update_gun(ac: Aircraft, delta: float) -> void:
+	var weapon_delta := delta * ac.cd_rate("weapon")
 	if ac._gun_burst_rounds_left > 0:
 		# 梭内允许 cooldown 负值携带（累加器补帧），保证梭内频率不被帧率量化偷走
-		ac._fire_cooldown -= delta
+		ac._fire_cooldown -= weapon_delta
 	else:
-		ac._fire_cooldown = maxf(ac._fire_cooldown - delta, 0.0)
+		ac._fire_cooldown = maxf(ac._fire_cooldown - weapon_delta, 0.0)
 	# 敌机“一次机会一梭”：pause 从上一梭结束/硬中止后开始走；梭内冻结，保证完整
 	# burst_count 出膛后再给玩家至少 3 秒挣脱窗口。计时只住武器执行层，避免 planner /
 	# tracking / scan 同帧多次查询 gate 导致重复扣时或覆盖许可。
@@ -628,7 +629,7 @@ static func update_rocket(ac: Aircraft, delta: float) -> void:
 	if not ac.params or not ac.params.rocket:
 		return
 	var rk: RocketParams = ac.params.rocket
-	ac._rocket_burst_cooldown = maxf(ac._rocket_burst_cooldown - delta, 0.0)
+	ac._rocket_burst_cooldown = maxf(ac._rocket_burst_cooldown - delta * ac.cd_rate("weapon"), 0.0)
 
 	# 发射待发射队列中的火箭（delay 到了就出膛）
 	if not ac._rocket_queue.is_empty():
@@ -859,7 +860,7 @@ static func update_formation_passive_missile(ac: Aircraft, delta: float) -> void
 
 
 static func update_missile(ac: Aircraft, delta: float) -> void:
-	ac._missile_cooldown = maxf(ac._missile_cooldown - delta, 0.0)
+	ac._missile_cooldown = maxf(ac._missile_cooldown - delta * ac.cd_rate("weapon"), 0.0)
 	ac._sfx_gun_cd = maxf(ac._sfx_gun_cd - delta, 0.0)
 	ac._crank_timer = maxf(ac._crank_timer - delta, 0.0)
 	ac._msl_block_log_timer = maxf(ac._msl_block_log_timer - delta, 0.0)
@@ -872,7 +873,7 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 
 	# 导弹装填系统（生存模式）
 	if ac.enable_missile_reload and ac._missile_reload_active:
-		ac._missile_reload_timer += delta * ac.esm_reload_rate_multiplier()
+		ac._missile_reload_timer += delta * ac.esm_reload_rate_multiplier() * ac.cd_rate("missile_reload")
 		# 侩子手：装填时间 ×0.92/层，5 层 ≈ ×0.66
 		var eff_reload: float = ac.missile_reload_duration * ac._executioner_reload_mult()
 		ac.missile_reload_progress = clampf(ac._missile_reload_timer / eff_reload, 0.0, 1.0)
@@ -1574,7 +1575,7 @@ static func update_secondary_missile(ac: Aircraft, delta: float) -> void:
 	var sec: MissileParams = ac.params.secondary_missile
 	if sec == null: return
 
-	ac._secondary_cooldown = maxf(ac._secondary_cooldown - delta, 0.0)
+	ac._secondary_cooldown = maxf(ac._secondary_cooldown - delta * ac.cd_rate("weapon"), 0.0)
 	# JAM 期间副槽不发射（仍允许 cooldown 走完，恢复后立刻能打）
 	if ac.status_jam_active: return
 	# 规避模式：与主武器静默一致。副槽不受 weapon_mode / 雷达锥 / 发射窗口质量约束，

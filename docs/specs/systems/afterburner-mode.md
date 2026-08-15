@@ -124,7 +124,7 @@ update(delta) 里 ACTIVE 分支:
 _deactivate():                         # 耗尽 / 提前关闭 / 长机销毁共用
   active = false
   for m in window_members(valid): m.afterburner_window_active = false
-  leader.set_evasion_mode(false)       # 若玩家中途下令已退出则为 no-op（边界差量对称）
+  leader.set_evasion_mode(false)       # 若玩家中途下令已退出则为 no-op；CD rate 自动读当前状态
   window_members.clear()
 ```
 
@@ -169,7 +169,7 @@ missile_manager 命中检测（fuse 距离 + 高度容差成立瞬间，云 miss
 | 全局机炮闪避 cap 0.85 | **结构冲突** | 加力期间短路为 1.0（唯一绕 cap 通道，能量限量资源代价换取）。 |
 | `hp_up` 闪避（cap 40%）/ `low_alt_gun_dodge` +50% / 对头闪避 +60% / HIGH 档 +20% / evasion +20% | 被覆盖 | 窗口内 100% 覆盖一切；窗口外照旧生效。无叠加 bug（短路发生在 clamp 之后）。 |
 | `evasion_speed_boost`（巡航 ×1.4 并抬顶速 cap） | 增强 | 窗口基线=顶速，此技能让顶速本身 ×1.4 → 窗口内超频 140%。技能价值保留，文案改"顶速 +40%"。 |
-| `evasion_weapon_cd`（进入时 cd ×0.5 缩放） | **语义反转** | 机制零改动：窗口内禁攻击，但 cd 缩放让冷却在窗口内双倍流逝 → "出加力瞬间武器就绪"。文案随之改写（§2.3）。 |
+| `evasion_weapon_cd`（CD 时间倍率 ×0.5） | **语义反转** | 规避开启时 `cd_rate("weapon")=2`，窗口内虽禁攻击但既有冷却双倍流逝；切换模式不改写倒计时，仍实现“出加力瞬间更接近就绪”。文案见 §2.3。 |
 | `evasion_overstock`（每 4s +1 弹） | 成立 | 加力持续越久装填越多（充能制下不再固定 6s，按实际烧的时长算）。文案不变（速率仍准确）。 |
 | `evasion_stealth`（进入 2s 后隐身） | 成立 | 加力持续 > 2s 即进入隐身段，直到关闭。 |
 | `evasion_herbst` / `cobra_skill`（panic_save） | **与加力解耦** | 当前操控机只认 R 手动触发，不要求/不读取加力窗口；AI 僚机保留来袭导弹/后方追尾威胁自动触发。加力自身的 90% 躲弹判定不变。 |

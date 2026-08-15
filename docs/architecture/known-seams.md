@@ -223,14 +223,14 @@ BOSS 只识别 JAM，其它状态仅对 Aircraft 生效"。但 NavalUnit 实现�
 三处：`max_climb` / `gain` / `smooth_rate`。其中 `max_climb` 被放大到 500+ m/s 后，PE↔KE
 公式 `gravity_effect = GRAVITY · vs / spd · PE_KE_BOOST(2.5)` 反向抽 spd，每秒 ≈ 110 m/s
 速度损失，加力推力（≈ 17 m/s²）完全顶不住。
-[scripts/aircraft/aircraft_physics.gd:344 update_altitude](../../scripts/aircraft/aircraft_physics.gd:336)
-× [scripts/aircraft/aircraft_physics.gd:336 gravity_effect](../../scripts/aircraft/aircraft_physics.gd:328)
+[scripts/aircraft/aircraft_physics.gd:322 update_altitude](../../scripts/aircraft/aircraft_physics.gd:336)
+× [scripts/aircraft/aircraft_physics.gd:314 gravity_effect](../../scripts/aircraft/aircraft_physics.gd:328)
 两段都涉及 vs，缺一个出血点。
 
 **踩到次数**：2（这次 + 用户记忆中至少一次同样症状）
 
 **解法**（2026-05-12）：在 [aircraft_physics.gd:322](../../scripts/aircraft/aircraft_physics.gd:322)
-和 [aircraft_physics.gd:1380 step_altitude](../../scripts/aircraft/aircraft_physics.gd:1318)
+和 [aircraft_physics.gd:1421 step_altitude](../../scripts/aircraft/aircraft_physics.gd:1318)
 两处把 `max_climb` 改为 `base_climb * minf(alt_mult, 1.3)`。`gain` / `smooth_rate` 仍由
 `alt_mult` 全幅放大（响应度保留），物理顶速最多 +30%（PE↔KE 损耗回到可承受档）。
 

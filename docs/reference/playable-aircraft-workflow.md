@@ -39,7 +39,7 @@ PlayableAircraft (.tres)             ← 档案：装载 base + 生存模式调�
 | `rocket` | 没有火箭弹，不进入火箭决策分支 | `aircraft.gd:1536` `1599` |
 | `missile` | 没有主导弹，武器模式自动锁定 GUN | `aircraft.gd:1622` `1683` |
 | `secondary_missile` | 没有副导弹，仅用主导弹 | `aircraft.gd:1963` |
-| `flare` | 没有热诱弹，`AircraftFlares.release` 直接 return | `aircraft/aircraft_flares.gd:236` release |
+| `flare` | 没有热诱弹，`AircraftFlares.release` 直接 return | `aircraft/aircraft_flares.gd:231` release |
 
 **结论**：要给新机型不同的武器组合，**只需要调整 AircraftParams 上的字段是否为 null + 指向哪个 .tres**。无需改 aircraft.gd。
 
@@ -206,7 +206,7 @@ const PLAYABLE_LIST: Array[Dictionary] = [
 
 这条**已经原生支持**，不需要任何额外代码：
 
-- **基本转弯/能量管理**：`aircraft.gd:910 _physics_process` 调度物理子模块，基础机动仍由机体参数决定
+- **基本转弯/能量管理**：`aircraft.gd:918 _physics_process` 调度物理子模块，基础机动仍由机体参数决定
 - **战术决策（BFM）**：`ai/bfm_tactics.gd:107 choose_tactic` 基于几何、能量和态势，武器只通过射程/就绪态影响可用意图
 - **武器射程**：`ai/bfm_tactics.gd:64 gun_range_px` 从当前 `gun.max_range` 换算，无 gun 时为 0
 - **导弹发射时机**：`aircraft/aircraft_weapons.gd:861 update_missile` 统一判定射程、最小距离、射界与锁定；导弹换型主要通过 `.tres`

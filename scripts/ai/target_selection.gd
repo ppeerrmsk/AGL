@@ -209,7 +209,6 @@ static func disengage(ai: AIController) -> void:
 	ai._squad_lateral_role = AIController.SquadRole.NONE
 	ai._squad_free_engaging = false
 	ai._leader_target_lost_timer = 0.0
-	ai._squad_range_grace_timer = 0.0
 	# 有编队且长机不是自己 → 回归编队；否则（独行或自己就是长机）回巡逻
 	# bvr_only（F-47 逃跑手）不进编队跟随——走巡逻执行逃跑航点
 	# 不能让单机长机/新晋升长机进 SQUAD_FOLLOW，否则会对着自己算槽位原地自转

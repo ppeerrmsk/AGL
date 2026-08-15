@@ -2035,6 +2035,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		_toggle_wingman_formation_debug()
 		return
+	# Shift+F12：打印玩家机运行时词条 base→final 与来源差分。
+	if event is InputEventKey and event.pressed and event.keycode == KEY_F12 and event.shift_pressed:
+		get_viewport().set_input_as_handled()
+		if player_aircraft and is_instance_valid(player_aircraft):
+			ModifierTrace.print_report(player_aircraft)
+		return
 	# F12：把当前所有友方僚机的编队状态打印到控制台 + EventLogger
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F12:
 		get_viewport().set_input_as_handled()
@@ -2708,6 +2714,12 @@ func _update_radar_locks(delta: float) -> void:
 		# 仍保留它作为 victim 让飞机能锁/打它（玩家锁船依赖此路径，不能动）。
 		if unit is MountTarget:
 			continue
+		# 无主雷达锁定武器的飞机不当 shooter；仍保留为 victim。
+		if unit is Aircraft:
+			var shooter := unit as Aircraft
+			if shooter.params == null or not shooter.params.has_lock_capable_weapon():
+				shooter.radar_targets.clear()
+				continue
 		var keys_to_remove: Array = []
 		for key in unit.radar_targets:
 			if not is_instance_valid(key):

@@ -432,7 +432,6 @@ func strip_upgrade_from(target: Aircraft, upgrade: Dictionary) -> void:
 			target.rear_aura_slow_radius_px = 0.0
 		"cloud_overload":
 			target.cloud_overload_active = false
-			target._in_cloud_overload = false
 		_:
 			push_warning("strip_upgrade_from: ACE_FIELD_STATS 登记了 %s 但未实现逆操作" % stat)
 
@@ -752,12 +751,12 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 				p.combat = p.combat.duplicate()
 				p.combat.overshoot_speed_margin *= float(upgrade.get("overshoot_speed_margin_mult", 0.97))
 				p.combat.turn_slow_speed_mult *= float(upgrade.get("turn_slow_speed_mult", 0.9))
-		# ── §1.2 evasion_modifiers 写入（边界差量见 aircraft.set_evasion_mode）──
+		# ── §1.2 evasion_modifiers 写入（CD 倍率由 aircraft.cd_rate 实时读取）──
 		"evasion_speed_boost":
 			# evasion 模式 cruise 速度倍率（physics.update_speed 每帧查 evasion_mode + 此 mult）
 			_set_evasion_modifier(aircraft, "cruise_speed_mult", float(upgrade["value"]))
 		"evasion_weapon_cd":
-			# evasion 模式武器 cd 倍率（gun + missile + rocket 三路；切换瞬间一次性 scale）
+			# evasion 模式武器 cd 时间倍率（gun + missile + rocket + 副槽；tick 侧换算 rate）
 			_set_evasion_modifier(aircraft, "weapon_cd_mult", float(upgrade["value"]))
 		"evasion_flare_cd":
 			# evasion 模式 flare cd 倍率
@@ -796,13 +795,16 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 			# 锁定累积达 N 秒后给目标施 FEAR（survivor_mode._update_radar_locks 维护）
 			aircraft.fear_on_lock_threshold = float(upgrade["value"])
 		"cloud_overload":
-			# 进/出云事件 toggle OVERLOAD（aircraft._on_cloud_boundary）
+			# 云中按天气采样频率刷新短时 OVERLOAD，统一触发持续时间/嗜血联动。
 			aircraft.cloud_overload_active = true
+			if aircraft.cloud_state >= 1:
+				aircraft.apply_status(StatusEffects.OVERLOAD,
+					StatusEffects.CLOUD_OVERLOAD_BASE_DURATION, "max")
 		"evac_shift":
 			# 阵地转移（720 批）：撤离冲刺提速 + 受伤减半（physics accessor / _apply_damage 消费）
 			aircraft.evac_shift_active = true
 		"cloud_weapon_cd":
-			# 进/出云事件按倍率 scale 武器 cd（同 evasion_modifiers 模式）
+			# 云中并入武器 CD 速率模型；拾取时无需改写现有倒计时。
 			aircraft.cloud_weapon_cd_mult = float(upgrade["value"])
 		"evasion_stealth":
 			# 进入 evasion 时启用 STEALTH（独立 bool + 派生 OR；不进 status_effects 避免冲突）
@@ -908,18 +910,11 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 			aircraft.gun_bullet_penetration_active = true
 		# sig_wyvern（X-02·突击翼龙）在 survivor_mode 获得点特判（railgun 入库走武器库）
 
-## §1.2 写 evasion_modifiers 倍率
-## 关键：若玩家正处于 evasion 模式，先切出再切回 → 让 set_evasion_mode 重新按新倍率
-## 缩放当前 cd（保持"边界差量"语义一致，不会因为升级时机不同而出现 cd 错配）
+## 写 evasion_modifiers 倍率。CD 速率模型每帧读取当前值，无需切换模式刷新。
 func _set_evasion_modifier(ac: Aircraft, key: String, mult: float) -> void:
 	if ac == null:
 		return
-	var was_evasion: bool = ac.evasion_mode
-	if was_evasion:
-		ac.set_evasion_mode(false)  # 先 unscale 当前 cd 回正常时间轴
 	ac.evasion_modifiers[key] = mult
-	if was_evasion:
-		ac.set_evasion_mode(true)   # 再按新倍率 scale 当前 cd
 
 
 ## （自然成长 apply_natural_growth 已退役，2026-07-19 spec player-aircraft-power-curve §6 阶段2：
