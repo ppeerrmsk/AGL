@@ -65,36 +65,47 @@ func _test_existing_quality_thresholds() -> void:
 	var ac: Aircraft = c.ac
 	var tgt: CombatUnit = c.target
 	ac.bank_angle = deg_to_rad(35.0)
-	_check("SARH bank=35° 仍可", AircraftWeapons._has_stable_launch_window(ac, tgt), "原边界")
+	_check("SARH skill=1 bank=35° 仍可", AircraftWeapons._has_stable_launch_window(ac, tgt, 1.0), "严格端边界")
 	ac.bank_angle = deg_to_rad(35.01)
-	_check("SARH bank>35° 拒发", not AircraftWeapons._has_stable_launch_window(ac, tgt), "原边界")
+	_check("SARH skill=1 bank>35° 拒发", not AircraftWeapons._has_stable_launch_window(ac, tgt, 1.0), "严格端边界")
 	ac.bank_angle = 0.0
 	ac._bank_rate_rad_s = deg_to_rad(30.0)
-	_check("SARH roll=30°/s 仍可", AircraftWeapons._has_stable_launch_window(ac, tgt), "原边界")
+	_check("SARH skill=1 roll=30°/s 仍可", AircraftWeapons._has_stable_launch_window(ac, tgt, 1.0), "严格端边界")
 	ac._bank_rate_rad_s = deg_to_rad(30.01)
-	_check("SARH roll>30°/s 拒发", not AircraftWeapons._has_stable_launch_window(ac, tgt), "原边界")
+	_check("SARH skill=1 roll>30°/s 拒发", not AircraftWeapons._has_stable_launch_window(ac, tgt, 1.0), "严格端边界")
 	ac._bank_rate_rad_s = 0.0
 	_set_target_bearing(tgt, 20.0)
-	_check("SARH off-axis=0.50×40° 仍可", AircraftWeapons._has_stable_launch_window(ac, tgt), "20°")
+	_check("SARH skill=1 off-axis=0.50×40° 仍可", AircraftWeapons._has_stable_launch_window(ac, tgt, 1.0), "20°")
 	_set_target_bearing(tgt, 20.01)
-	_check("SARH off-axis>0.50×40° 拒发", not AircraftWeapons._has_stable_launch_window(ac, tgt), ">20°")
+	_check("SARH skill=1 off-axis>0.50×40° 拒发", not AircraftWeapons._has_stable_launch_window(ac, tgt, 1.0), ">20°")
+	ac.bank_angle = deg_to_rad(74.0)
+	_set_target_bearing(tgt, 0.0)
+	_check("SARH skill=0 使用宽松 bank 端", AircraftWeapons._has_stable_launch_window(ac, tgt, 0.0), "<75°")
 	_free_case(c)
 
 	c = _make_case(0.0, 3.0, true)
 	ac = c.ac
 	tgt = c.target
 	ac.bank_angle = deg_to_rad(60.0)
-	_check("FAF bank=60° 仍可", AircraftWeapons._has_stable_launch_window(ac, tgt), "原边界")
+	_check("FAF skill=1 bank=60° 仍可", AircraftWeapons._has_stable_launch_window(ac, tgt, 1.0), "严格端边界")
 	ac.bank_angle = deg_to_rad(60.01)
-	_check("FAF bank>60° 拒发", not AircraftWeapons._has_stable_launch_window(ac, tgt), "原边界")
+	_check("FAF skill=1 bank>60° 拒发", not AircraftWeapons._has_stable_launch_window(ac, tgt, 1.0), "严格端边界")
 	ac.bank_angle = 0.0
 	ac._bank_rate_rad_s = deg_to_rad(180.0)
-	_check("FAF 仍不受 roll 门限制", AircraftWeapons._has_stable_launch_window(ac, tgt), "原语义")
+	_check("FAF 仍不受 roll 门限制", AircraftWeapons._has_stable_launch_window(ac, tgt, 1.0), "原语义")
 	ac._bank_rate_rad_s = 0.0
-	_set_target_bearing(tgt, 22.0)
-	_check("FAF off-axis=0.55×40° 仍可", AircraftWeapons._has_stable_launch_window(ac, tgt), "22°")
-	_set_target_bearing(tgt, 22.01)
-	_check("FAF off-axis>0.55×40° 拒发", not AircraftWeapons._has_stable_launch_window(ac, tgt), ">22°")
+	_set_target_bearing(tgt, 33.99)
+	_check("FAF skill=1 稳定门 off-axis≈0.85×40° 仍可", AircraftWeapons._has_stable_launch_window(ac, tgt, 1.0), "<34°")
+	_set_target_bearing(tgt, 34.01)
+	_check("FAF skill=1 稳定门超过 0.85×40° 拒发", not AircraftWeapons._has_stable_launch_window(ac, tgt, 1.0), ">34°")
+	var lead_limit := ac.params.missile.seeker_fov * 0.5 \
+		* AircraftWeapons.LEAD_OFFAX_RATIO_FAF_TIGHT
+	_set_target_bearing(tgt, lead_limit - 0.01)
+	var lead_ok := AircraftWeapons._has_lead_intercept_solution(ac, tgt, ac.params.missile, 1.0)
+	_check("FAF skill=1 前置门允许 seeker 半角×0.55 内", bool(lead_ok[0]), "<%.2f°" % lead_limit)
+	_set_target_bearing(tgt, lead_limit + 0.01)
+	lead_ok = AircraftWeapons._has_lead_intercept_solution(ac, tgt, ac.params.missile, 1.0)
+	_check("FAF skill=1 前置门拒绝超过 seeker 半角×0.55", not bool(lead_ok[0]), ">%.2f°" % lead_limit)
 	_free_case(c)
 
 
@@ -181,6 +192,9 @@ func _make_case(bearing_deg: float, lock_progress: float, fire_and_forget: bool,
 	p.radar_half_angle = 40.0
 	p.lock_time = 3.0
 	p.missile = msl
+	p.combat = CombatParams.new()
+	p.combat.missile_skill = 0.85
+	p.combat.missile_skill_jitter = 0.0
 	ac.params = p
 	ac.team = CombatUnit.TEAM_PLAYER
 	ac.global_position = Vector2.ZERO

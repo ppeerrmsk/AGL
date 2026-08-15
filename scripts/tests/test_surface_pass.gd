@@ -422,7 +422,7 @@ func _launch_gate_open(ac, tgt, lock_t: float) -> bool:
 		return false
 	if lock_t < ac.params.lock_time:
 		return false
-	if not AircraftWeapons._has_stable_launch_window(ac, tgt):
+	if not AircraftWeapons._has_stable_launch_window(ac, tgt, 1.0):
 		return false
 	return true
 

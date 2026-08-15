@@ -73,10 +73,9 @@ func spawn_missile(source: CombatUnit, target: CombatUnit, missile_params: Missi
 
 	# 初始朝向：
 	#   VLS 齐射弹 → LOS 方向 + 每发随机 ±25° 散布（模拟"一串火柱方向略散"的齐射观感）
-	#   飞机发射 → 用飞机当前朝向（飞机基本已对准目标）
+	#   HOBS 弹 → 继续按自身契约直接指向当前 LOS
+	#   普通飞机发射 → 指向两轮预测前置点，并钳在机头 ±60°
 	#   地面 / 舰船 SAM → 用 source→target 的方向，避免船/SAM 朝北导致初始 PN 爆转
-	#   HOBS 高离轴弹（QMAAM 等）→ launch_toward_target=true，直接指向 LOS，
-	#     和宽锁定锥配套，避免侧面发射后还要先扭机头转弯
 	var initial_heading: float
 	if missile_params and missile_params.is_vls_salvo and target and is_instance_valid(target):
 		var los := target.global_position - source.global_position
@@ -88,21 +87,10 @@ func spawn_missile(source: CombatUnit, target: CombatUnit, missile_params: Missi
 	elif (source is GroundUnit or source is NavalUnit) and target and is_instance_valid(target):
 		var los := target.global_position - source.global_position
 		initial_heading = atan2(los.x, -los.y)
+	elif source is Aircraft and target and is_instance_valid(target) and missile_params:
+		initial_heading = _compute_lead_launch_heading(source, target, missile_params)
 	else:
 		initial_heading = source.heading
-		# 急转/大坡度发射修正：发射机正在急速滚转或深坡度盘旋时，机头朝向与目标 LOS
-		# 严重脱节。沿机头发射 → 导弹在 guidance_delay 盲飞段先朝错误方向冲出去，等制导
-		# 接管时目标已被甩出导引头 FOV(±30°) → 永久丢锁射空。改为朝 LOS 发射，消除"继承
-		# 滚转机头"的初始误差。仅飞机源 + 有目标时触发，零坡度平飞发射不受影响。
-		# （见 2026-06-13 武器有效性诊断：僚机 Solar 在 155°/s 滚转反向中盲发 MRM 连续射空）
-		if source is Aircraft and target and is_instance_valid(target):
-			var ac_src := source as Aircraft
-			var rolling_fast: bool = absf(ac_src._bank_rate_rad_s) > deg_to_rad(60.0)
-			var banked_steep: bool = absf(ac_src.bank_angle) > deg_to_rad(45.0)
-			if rolling_fast or banked_steep:
-				var los_fix := target.global_position - source.global_position
-				if los_fix.length() > 1.0:
-					initial_heading = atan2(los_fix.x, -los_fix.y)
 	missile.heading = initial_heading
 
 	# 初始位置：沿初始朝向前方 15 px
@@ -135,6 +123,26 @@ func spawn_missile(source: CombatUnit, target: CombatUnit, missile_params: Missi
 
 	add_child(missile)
 	return missile
+
+
+## 普通飞机导弹的离架方向：两轮 TTI 预测前置点，并限制为机头 ±60°。
+## 上层发射纪律通常会把实际偏角收得更小；这里的钳位只防止异常几何爆角。
+func _compute_lead_launch_heading(source: CombatUnit, target: CombatUnit,
+		msl: MissileParams) -> float:
+	var avg_speed_ms := maxf(source.speed,
+		msl.max_speed * AircraftWeapons.LEAD_MISSILE_AVG_SPEED_FRAC)
+	avg_speed_ms = maxf(avg_speed_ms, 100.0)
+	var avg_speed_px := avg_speed_ms * PIXELS_PER_METER
+	var target_velocity := Vector2(sin(target.heading), -cos(target.heading)) \
+		* target.speed * PIXELS_PER_METER
+	var tti := source.global_position.distance_to(target.global_position) / avg_speed_px
+	var lead := target.global_position + target_velocity * tti
+	tti = source.global_position.distance_to(lead) / avg_speed_px
+	lead = target.global_position + target_velocity * tti
+	var to_lead := lead - source.global_position
+	var lead_heading := atan2(to_lead.x, -to_lead.y)
+	var offset := wrapf(lead_heading - source.heading, -PI, PI)
+	return source.heading + clampf(offset, -deg_to_rad(60.0), deg_to_rad(60.0))
 
 ## 是否应把这枚导弹计入"占额度"：丢锁 + 已出玩家视口 → 不算（可以补射）
 ## 2026-04-22：BOSS 带热诱弹/光学隐形时导弹丢锁后仍按 max_lifetime 飞满 30s，

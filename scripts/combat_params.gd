@@ -1,6 +1,14 @@
 class_name CombatParams
 extends Resource
 
+@export_group("导弹发射纪律")
+## 导弹熟练度 0..1：控制前置点偏角与发射窗口稳定度。
+## 0 端接近不过滤，但预测前置点仍必须通过物理包络；1 端使用严格门槛。
+## 仅对装备导弹且持有本 combat 资源的飞机生效。
+@export_range(0.0, 1.0, 0.05) var missile_skill: float = 0.4
+## 每次发射判断的熟练度随机波动 ± 范围。
+@export_range(0.0, 0.4, 0.05) var missile_skill_jitter: float = 0.15
+
 @export_group("追踪策略")
 @export var intercept_range_mult: float = 2.5      ## 超过 射程×此值 进入拦截模式
 @export var intercept_lead_max: float = 8.0        ## 秒 前置拦截最大预判时间

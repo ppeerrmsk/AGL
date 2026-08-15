@@ -2030,15 +2030,15 @@ func _should_use_gun() -> bool:
 func is_cranking() -> bool:
 	return _crank_timer > 0.0
 
-## 目标是否已进入导弹发射离轴门（与 aircraft_weapons._has_stable_launch_window 的 off-axis
-## 判据同源；此处只关心角度，bank/roll 由那边负责）。供 _get_missile_phase 判断
+## 目标是否已进入导弹发射离轴门（与 aircraft_weapons 的 skill 插值 off-axis
+## 判据同源；此处只关心角度且使用档案基值，不采样 jitter）。供 _get_missile_phase 判断
 ## "锁定了但还打不出去"，避免过早降低转弯权限。
 func _target_within_launch_cone() -> bool:
 	if combat_target == null or not is_instance_valid(combat_target) or params == null:
 		return false
 	var is_faf: bool = params.missile != null and params.missile.fire_and_forget
-	var ratio: float = AircraftWeapons.LAUNCH_QUALITY_OFFAX_RATIO_FAF if is_faf \
-			else AircraftWeapons.LAUNCH_QUALITY_OFFAX_RATIO_SARH
+	var skill: float = params.combat.missile_skill if params.combat != null else 0.0
+	var ratio := AircraftWeapons.stable_offaxis_ratio(is_faf, skill)
 	var to_tgt: Vector2 = combat_target.global_position - global_position
 	var off_axis: float = absf(_angle_diff(atan2(to_tgt.x, -to_tgt.y), heading))
 	return off_axis <= deg_to_rad(params.radar_half_angle * ratio)

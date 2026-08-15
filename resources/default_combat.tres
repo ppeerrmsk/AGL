@@ -4,6 +4,8 @@
 
 [resource]
 script = ExtResource("1")
+missile_skill = 0.55
+missile_skill_jitter = 0.20
 intercept_range_mult = 2.5
 intercept_lead_max = 8.0
 closing_rate_threshold = 0.15

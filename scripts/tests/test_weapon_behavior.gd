@@ -8,7 +8,7 @@ extends RefCounted
 ##
 ## 覆盖：
 ##   A. team_inbound_damage 过滤丢锁导弹 —— 射空的导弹不再封锁队友补射
-##   B. spawn_missile 急转发射朝 LOS —— 滚转中发弹不再继承"甩出去的机头"
+##   B. spawn_missile 普通飞机朝预测前置点离架并限制在机头 ±60°
 ##   C. _apply_combat_weapon 机炮目标本体守卫 —— 目标侧后离轴时不对空放空
 ##
 ## 做法：裸构造对象（不入树、不触发 _ready），直接调被测函数断言输出。
@@ -93,13 +93,11 @@ func _test_team_inbound_guidance_filter() -> void:
 	S.free(); T.free()
 
 
-## ── B. 急转/大坡度发射时导弹朝 LOS 出膛 ──
-## 场景：发射机机头朝北(0°)，但正以 150°/s 滚转 + 80° 坡度；目标在正东(+90°)。
-## 修复前：missile.heading = source.heading = 0°（朝北，与目标差 90° → 盲飞段甩出 FOV 射空）。
-## 修复后：检测到急转 → missile.heading 指向 LOS ≈ +90°（朝目标）。
-## 对照：平飞(0 坡度/0 滚转)发射 → 仍用机头朝向(0°)，不受影响。
+## ── B. 普通飞机导弹朝预测前置点出膛 ──
+## 目标位于正东，而发射机机头朝北；预测方向超过硬上限时必须钳为 +60°。
+## HOBS 弹继续按自身契约直接指向当前 LOS，不被普通导弹前置钳位覆盖。
 func _test_spawn_heading_during_roll() -> void:
-	print("── B. 急转发射朝 LOS ──")
+	print("── B. 飞机导弹前置离架方向 ──")
 	var mm := MissileManager.new()
 	var msl: MissileParams = load("res://resources/default_missile.tres")
 
@@ -117,11 +115,11 @@ func _test_spawn_heading_during_roll() -> void:
 	S._bank_rate_rad_s = deg_to_rad(150.0)
 	S.in_building = false
 	var m := mm.spawn_missile(S, T, msl)
-	var want := PI * 0.5
+	var want := deg_to_rad(60.0)
 	var err_deg := rad_to_deg(absf(_angle_diff(m.heading, want)))
-	_check("急转中发射 → heading 指向目标(LOS≈+90°)",
-			err_deg < 5.0,
-			"heading=%.0f° 目标方位=+90° 误差=%.1f°" % [rad_to_deg(m.heading), err_deg])
+	_check("普通导弹预测方向超过上限 → 钳到机头 +60°",
+			err_deg < 0.1,
+			"heading=%.1f° 期望=+60°" % rad_to_deg(m.heading))
 
 	# 对照：平飞发射 → 仍用机头朝向(0°/北)
 	var S2 = load("res://scripts/aircraft.gd").new()
@@ -131,11 +129,13 @@ func _test_spawn_heading_during_roll() -> void:
 	S2.bank_angle = 0.0
 	S2._bank_rate_rad_s = 0.0
 	S2.in_building = false
-	var m2 := mm.spawn_missile(S2, T, msl)
-	var err2_deg := rad_to_deg(absf(_angle_diff(m2.heading, 0.0)))
-	_check("平飞发射 → heading 维持机头(0°)，不受修复影响",
-			err2_deg < 1.0,
-			"heading=%.1f° 期望=0°" % rad_to_deg(m2.heading))
+	var hobs: MissileParams = msl.duplicate(true)
+	hobs.launch_toward_target = true
+	var m2 := mm.spawn_missile(S2, T, hobs)
+	var err2_deg := rad_to_deg(absf(_angle_diff(m2.heading, PI * 0.5)))
+	_check("HOBS 弹仍直接指向当前 LOS",
+			err2_deg < 0.1,
+			"heading=%.1f° 期望=+90°" % rad_to_deg(m2.heading))
 
 	mm.free()
 	S.free(); S2.free(); T.free()

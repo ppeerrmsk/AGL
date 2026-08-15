@@ -630,15 +630,22 @@ static func is_gun_pass_finished(ac: Aircraft) -> bool:
 
 ## 检查目标是否在导弹射程包线内
 static func is_in_missile_envelope(ac: Aircraft, target_unit: CombatUnit, msl: MissileParams) -> bool:
-	var dist_px := ac.global_position.distance_to(target_unit.global_position)
+	return envelope_pass_at(ac, target_unit.global_position, target_unit.heading,
+		target_unit.altitude, target_unit is Aircraft, msl)
+
+
+## 纯几何包络检查：当前点与预测前置点必须共用完全相同的距离/TAA/高度规则。
+static func envelope_pass_at(ac: Aircraft, point: Vector2, target_heading: float,
+		target_altitude: float, target_is_aircraft: bool, msl: MissileParams) -> bool:
+	var dist_px := ac.global_position.distance_to(point)
 	var dist_m := dist_px / CombatUnit.PIXELS_PER_METER
 
 	if dist_m < msl.min_range:
 		return false
 
 	# TAA（目标纵横角）
-	var tgt_fwd := Vector2(sin(target_unit.heading), -cos(target_unit.heading))
-	var to_me := (ac.global_position - target_unit.global_position).normalized()
+	var tgt_fwd := Vector2(sin(target_heading), -cos(target_heading))
+	var to_me := (ac.global_position - point).normalized()
 	var taa_rad := acos(clampf(-tgt_fwd.dot(to_me), -1.0, 1.0))
 	var taa_deg := rad_to_deg(taa_rad)
 
@@ -668,8 +675,8 @@ static func is_in_missile_envelope(ac: Aircraft, target_unit: CombatUnit, msl: M
 	# STANDOFF 学说命令 MID(3500~7500) 高位打带跑，其上半带（>5000m）+ 玩家 PREFER_CLIMB
 	# （HIGH≥7500）会恒触此门 → 对地导弹永拒且无声（高度落哪半带决定发/不发 = 玄学复发）。
 	# 对空语义原样保留。
-	if not ac.flat_altitude and target_unit is Aircraft \
-			and absf(ac.altitude - target_unit.altitude) > 5000.0:
+	if not ac.flat_altitude and target_is_aircraft \
+			and absf(ac.altitude - target_altitude) > 5000.0:
 		return false
 
 	return true
