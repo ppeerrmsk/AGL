@@ -6,7 +6,7 @@
 
 加新机制 / 数值 / 敌人 / 技能 / BOSS 前 **必读** [docs/DESIGN_PHILOSOPHY.md](docs/DESIGN_PHILOSOPHY.md)（north star + 13 条反模式 + 9 条 Litmus 测试）。
 
-新增或修改任何**主界面 / HUD / 游戏内面板 / UI 视觉与交互**前，**必读并默认继承** [UI 设计规范](docs/specs/systems/ui-design-guidelines.md)。若确需偏离，必须在对应 spec 的 §2 明确写出例外、理由与影响范围；不得另建并行 UI 规范。
+新增或修改任何**主界面 / HUD / 游戏内面板 / UI 视觉与交互**前，**必读并默认继承** [UI 设计规范](docs/specs/systems/ui-design-guidelines.md) 中的稳定通用规则。普通 UI 实现、视觉和排版调整默认只改代码与回归，不回写该规范，也不要求为差异另写 spec；只有用户明确要求“写入规范 / 设为通用规则”时才更新规范。不得另建并行 UI 通用规范。
 
 ## Project Overview
 
@@ -110,6 +110,8 @@ Resource:   AircraftParams / GunParams / RocketParams / MissileParams / CombatPa
 
 AGL 采用 **spec-first** 工作流：设计/写文档是主要工作，写代码是 cheap 的下游派生。
 [docs/specs/](docs/specs/_INDEX.md) 是**设计单一数据源（SSOT）**，目标"代码全丢、只看 specs 也能一比一重建游戏"。
+
+**UI 例外**：普通主界面 / HUD / 游戏内面板的实现、视觉与排版调整不走强制 spec-first，也不自动回写 UI 规范；按本文件顶部的 UI 约定执行。只有用户明确要求写入规范或把设计确立为通用规则时，才把该次 UI 修改纳入 spec-first 流程。
 
 加任何**敌人 / 武器 / 技能 / BOSS / 系统 / 主角机**：
 

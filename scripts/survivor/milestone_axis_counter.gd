@@ -1,75 +1,142 @@
 class_name MilestoneAxisCounter
 extends Control
 
-## 经验条上方的三轴里程碑摘要。固定占位、纯显示，只在读数变化时重绘。
 const HudPreferencesScript := preload("res://scripts/ui/hud_preferences.gd")
 const TerminalGridOverlayScript := preload("res://scripts/ui/terminal_grid_overlay.gd")
-const SILKSCREEN_FONT_SOURCE := preload("res://resources/fonts/Silkscreen-Regular.ttf")
-const COUNTER_SIZE := Vector2(400.0, 18.0)
-const CELL_WIDTHS: PackedFloat32Array = [120.0, 120.0, 160.0]
-const CELL_WIDTH := 120.0
+const INFO_FONT_SOURCE := preload("res://resources/fonts/Silkscreen-Regular.ttf")
+
+const U_HEIGHT := 18.0
+const COUNTER_SIZE := Vector2(408.0, U_HEIGHT * 2.0)
+const AXIS_WIDTH := 136.0
+const NAME_WIDTH := 64.0
+const POINT_CELL_WIDTH := 9.0
+const POINT_CELL_COUNT := 8
 const FONT_SIZE := 15
-const BACKGROUND_COLOR := ThemeColors.UI_BLOCK_BACKGROUND
 
 var _values: Array[int] = [0, 0, 0]
+var _info_font: Font
 var _localized_font: Font
-var _redraw_revision: int = 0
+var _redraw_revision := 0
+var _accent := Color.TRANSPARENT
 var _grid_overlay
 
 
-func _ready() -> void:
+func _init() -> void:
 	custom_minimum_size = COUNTER_SIZE
 	size = COUNTER_SIZE
 	clip_contents = true
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	focus_mode = Control.FOCUS_NONE
-	_localized_font = SILKSCREEN_FONT_SOURCE.duplicate() as Font
-	if _localized_font is FontFile:
-		(_localized_font as FontFile).antialiasing = TextServer.FONT_ANTIALIASING_NONE
-		(_localized_font as FontFile).subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_DISABLED
-	_localized_font.fallbacks.append(ThemeDB.fallback_font)
-	set_process(false)
+
+
+func _ready() -> void:
+	_accent = HudPreferencesScript.hud_color()
+	_info_font = INFO_FONT_SOURCE.duplicate() as Font
+	if _info_font is FontFile:
+		(_info_font as FontFile).antialiasing = TextServer.FONT_ANTIALIASING_NONE
+		(_info_font as FontFile).subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_DISABLED
+	_info_font.fallbacks.append(ThemeDB.fallback_font)
+	_localized_font = get_theme_default_font()
+	if _localized_font == null:
+		_localized_font = ThemeDB.fallback_font
 	_grid_overlay = TerminalGridOverlayScript.new()
 	_grid_overlay.size = COUNTER_SIZE
-	var counter_regions: Array[Rect2] = [cell_rect(0), cell_rect(1), cell_rect(2)]
-	_grid_overlay.regions = counter_regions
+	_grid_overlay.regions = grid_regions()
+	_grid_overlay.line_color = _accent
 	add_child(_grid_overlay)
+	set_process(false)
 
 
 func update_display(player: SurvivorPlayer) -> void:
 	var next_values := snapshot_for(player)
-	if next_values == _values:
+	var next_accent: Color = HudPreferencesScript.hud_color()
+	if next_values == _values and _accent.is_equal_approx(next_accent):
 		return
 	_values = next_values
+	_accent = next_accent
+	if _grid_overlay != null:
+		_grid_overlay.line_color = _accent
 	_redraw_revision += 1
 	queue_redraw()
 
 
 func _draw() -> void:
-	draw_rect(Rect2(Vector2.ZERO, COUNTER_SIZE), BACKGROUND_COLOR, true)
-	var accent: Color = HudPreferencesScript.hud_color()
-	_grid_overlay.line_color = accent
-	var font_height := _localized_font.get_height(FONT_SIZE)
-	var baseline_y := (COUNTER_SIZE.y - font_height) * 0.5 \
-		+ _localized_font.get_ascent(FONT_SIZE)
-	for index in range(SurvivorData.AXES.size()):
-		var axis: StringName = SurvivorData.AXES[index]
-		var cell := cell_rect(index)
-		var axis_color := accent
-		var text := "%s  %d" % [tr(str(SurvivorData.AXIS_I18N_KEY[axis])), _values[index]]
-		draw_string(_localized_font, Vector2(cell.position.x, baseline_y), text,
-			HORIZONTAL_ALIGNMENT_CENTER, cell.size.x, FONT_SIZE, axis_color)
+	var accent: Color = _accent if _accent.a > 0.0 else HudPreferencesScript.hud_color()
+	for axis_index in range(SurvivorData.AXES.size()):
+		var axis: StringName = SurvivorData.AXES[axis_index]
+		var axis_color: Color = SurvivorData.AXIS_COLORS[axis]
+		draw_rect(name_rect(axis_index), axis_color, true)
+		for point_index in range(POINT_CELL_COUNT):
+			var lit := point_index < clampi(_values[axis_index], 0, POINT_CELL_COUNT)
+			draw_rect(point_rect(axis_index, point_index),
+				axis_color if lit else ThemeColors.UI_BLOCK_BACKGROUND, true)
+		_draw_axis_name(axis, axis_index, ThemeColors.UI_TERMINAL_INVERSE)
+	if _grid_overlay != null:
+		_grid_overlay.line_color = accent
+
+
+func _draw_axis_name(axis: StringName, index: int, color: Color) -> void:
+	var text := axis_label(axis)
+	var rect := name_rect(index)
+	var font := _localized_font if uses_theme_font_for_locale(
+		TranslationServer.get_locale()) else _info_font
+	var font_size := FONT_SIZE
+	var height := font.get_height(font_size)
+	var baseline_y := rect.position.y + (rect.size.y - height) * 0.5 \
+		+ font.get_ascent(font_size)
+	draw_string(font, Vector2(rect.position.x, baseline_y), text,
+		HORIZONTAL_ALIGNMENT_CENTER, rect.size.x, font_size, color)
+
+
+func axis_label(axis: StringName) -> String:
+	if TranslationServer.get_locale().to_lower().begins_with("en"):
+		return english_axis_label(axis)
+	return tr(str(SurvivorData.AXIS_I18N_KEY[axis]))
+
+
+static func english_axis_label(axis: StringName) -> String:
+	match axis:
+		SurvivorData.AXIS_GLADIATOR:
+			return "GLAD."
+		SurvivorData.AXIS_KNIGHT:
+			return "KNIGHT"
+		SurvivorData.AXIS_SCHEMER:
+			return "SCHEM."
+		_:
+			return ""
+
+
+static func uses_theme_font_for_locale(locale: String) -> bool:
+	var normalized := locale.to_lower()
+	return normalized.begins_with("zh") or normalized.begins_with("ja") \
+		or normalized.begins_with("ko")
 
 
 static func cell_rect(index: int) -> Rect2:
-	var x := 0.0
-	for previous in range(index):
-		x += CELL_WIDTHS[previous]
-	return Rect2(x, 0.0, CELL_WIDTHS[index], COUNTER_SIZE.y)
+	return Rect2(float(index) * AXIS_WIDTH, 0.0, AXIS_WIDTH, COUNTER_SIZE.y)
+
+
+static func name_rect(index: int) -> Rect2:
+	return Rect2(float(index) * AXIS_WIDTH, 0.0, NAME_WIDTH, COUNTER_SIZE.y)
+
+
+static func point_rect(axis_index: int, point_index: int) -> Rect2:
+	return Rect2(float(axis_index) * AXIS_WIDTH + NAME_WIDTH
+		+ float(point_index) * POINT_CELL_WIDTH,
+		0.0, POINT_CELL_WIDTH, COUNTER_SIZE.y)
+
+
+static func grid_regions() -> Array[Rect2]:
+	var result: Array[Rect2] = []
+	for axis_index in range(SurvivorData.AXES.size()):
+		result.append(name_rect(axis_index))
+		for point_index in range(POINT_CELL_COUNT):
+			result.append(point_rect(axis_index, point_index))
+	return result
 
 
 static func snapshot_for(player: SurvivorPlayer) -> Array[int]:
 	var result: Array[int] = []
 	for axis in SurvivorData.AXES:
-		result.append(player.get_milestone_progress(axis) if player != null else 0)
+		result.append(player.get_axis_points(axis) if player != null else 0)
 	return result

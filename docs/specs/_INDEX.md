@@ -15,7 +15,7 @@
 迁移方向（进行中）：**把设计意图与数值从 enemy-index / systems 抽进 specs；索引退化为纯指针表。**
 新内容一律 **spec 优先**（先写 spec → 定稿 → 按 §6 实现计划派生代码）。
 
-**UI 继承硬约定**：所有主界面、HUD、游戏内面板及 UI 视觉/交互设计默认继承 [systems/ui-design-guidelines](systems/ui-design-guidelines.md)。其它 spec 只写自身业务差异；确需偏离时，必须在其 §2 明确声明例外、理由与影响范围，不得建立第二份并行 UI 通用规范。
+**UI 继承约定**：所有主界面、HUD、游戏内面板及 UI 视觉/交互设计默认继承 [systems/ui-design-guidelines](systems/ui-design-guidelines.md) 的稳定通用规则。普通 UI 实现、视觉和排版调整默认不回写该规范，也不要求为差异另写 spec；仅当用户明确要求写入规范或确立通用规则时才更新。不得建立第二份并行 UI 通用规范。
 
 ## 工作流（doc → task pipeline）
 
@@ -40,7 +40,7 @@
 |---|---|---|---|---|
 | [systems/aircraft-top-view-silhouettes](systems/aircraft-top-view-silhouettes.md) | system | done | ✅ | **飞机顶视轮廓资产 v7**：40 张 128×128 alpha PNG 逐架从可靠顶视/正投影或用户批准定型参考直接提取；同型号共享一图并运行时换色。MQ-109/110/111 共用新的无尾三角翼、双垂尾轮廓，MQ-112 与其余未批准原创/概念机保留旧绘制。 |
 | [systems/map-2-3-preview](systems/map-2-3-preview.md) | map | in-progress | ✗ | **图 2 / 图 3 PNG 可飞行地图预览**：60×60 km 沙漠铁路与海洋群岛两份内置 MapDocument，各绑定图一同款 8704² PNG、同一 shader/滤镜与矢量 fail-open；仅生成玩家和地图，关闭战区、任务、敌机、BOSS 与开局驻防，保留主视野和无战区 Tab 导航供后续布点。 |
-| [systems/ui-design-guidelines](systems/ui-design-guidelines.md) | system | in-progress | ✅ | **UI 设计规范**：所有主界面、HUD、游戏内面板及 UI 视觉/交互的默认基线；统一军用终端网格、面板语义、共享描边、字体、颜色、刷新与交互规则。右侧玩家仪表高 `24u`，SPD/G/FLR 共用 `49 × 54 px` 数字格；v19 正在整合主菜单终端板、HUD 首显和外圈状态反馈。 |
+| [systems/ui-design-guidelines](systems/ui-design-guidelines.md) | system | done | ✗ | **UI 设计规范**：所有主界面、HUD、游戏内面板及 UI 视觉/交互的稳定默认基线；统一军用终端网格、连续标题行、空框、分高度数字框、共享描边、字体、颜色、刷新与交互规则。屏幕底部固定保留全宽 `3u` 常驻框板并容纳三轴与经验条；顶部紧急信息和底部临时提示使用独立滑入通知栏。具体玩家仪表布局仅作实现快照，普通 UI 修改不自动回写；F7 专用缩放默认 `0.9×`，其它 UI 保持 `1.0×`。 |
 | [systems/presentation-foundation-rework](systems/presentation-foundation-rework.md) | system | draft | ✗ | **表现层底层逻辑改造确认稿**：持续汇总本轮讨论中由用户明确确认的主要改动；区分待讨论、已确认、已实现，记录旧/新行为、影响、风险、退化策略与验收标准，并以既有 `ui-transition` 为依赖。 |
 | [skills/displacement-roll](skills/displacement-roll.md) | skill | done | ✅ | **位移滚转**：实验级 R 主动技能；1.15s 内确定性选择安全侧并横移 450px，15s 玩家小队共享冷却；动作本体不可命中、保留锁定与在飞武器；并入五向 R 互斥槽，当前操控机手动、AI 僚机自动。 |
 | [skills/vertical-break](skills/vertical-break.md) | skill | done | ✅ | **垂直越过**：实验级 R 主动技能；LOW 拉升/MID·HIGH 俯冲 900m/1.30s，18s 玩家小队共享冷却；额外能量交换封顶 −18%/+15%，并入五向 R 互斥槽，当前操控机手动、AI 僚机自动。 |

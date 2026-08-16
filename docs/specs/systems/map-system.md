@@ -3,7 +3,7 @@ id: map-system
 kind: map
 status: done
 schema_version: 1
-spec_version: 5
+spec_version: 6
 owner: design
 depends_on: [map-boundary, map-geography]
 reconstruction_complete: false
@@ -108,7 +108,7 @@ reconstruction_complete: false
 - [x] 越界触发警戒信号 + 联动补给时间税
 - [x] 底图 PNG 缺失时游戏照常跑
 - [x] 正式东京湾主地图与 Tab 默认消费同一 PNG 设计；纯矢量 debug 候选不获得删除/替换授权
-- [x] 底图 PNG 缺失/损坏时控制台 `push_error` + 顶部红色 toast 明示旧矢量兜底；UGC 纯矢量路径不误报
+- [x] 底图 PNG 缺失/损坏时游戏照常跑，控制台 `push_error` + 底部红色临时通知明示旧矢量兜底；UGC 纯矢量路径不误报
 - [x] 地图改动走 map_feature_renderer/map_geography，不动 terrain_renderer（沙盒废弃）
 
 ## 8. 索引锚点（Where —— 指针，会腐烂，非权威）
@@ -138,3 +138,4 @@ reconstruction_complete: false
 | 2026-08-09 | 3 | 新增实体陆地查询：官方图要求 OSM land mask 与手画陆块同时命中，排除海上道路/桥梁外扩承载地面目标与单位。 |
 | 2026-08-10 | 4 | 港区地面部署收口：正式东京湾以覆盖 60km 全图的 OSM land mask 为正集，用视觉水面环排除港池/河道，再要求 50px 连续陆地净空；固定偏移可在附近确定性重定位，无解缩编。旧 30km 手画轮廓不再作为正式部署硬交集；该蒙版只参与玩法查询，不改变 PNG 生产渲染决策。 |
 | 2026-08-10 | 5 | 合并 main 的底图失败提示链：四类失败原因统一发信号，正式生存模式显示三语红色错误 toast，同时保留旧矢量层保证战局可继续；UGC 纯矢量模式豁免。 |
+| 2026-08-16 | 6 | 遵循全局 UI 双边缘通知规则：底图失败属于临时错误反馈，改由屏幕底部通知通道滑入，不占用顶部紧急信息通道。 |

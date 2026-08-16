@@ -117,6 +117,8 @@ const VISUAL_TEST_SCENES: Dictionary = {
 	"ui_dev_panel_visual": "res://scenes/tests/ui_dev_panel.tscn",
 	"ui_dev_panel_clean_visual": "res://scenes/tests/ui_dev_panel.tscn",
 	"ui_dev_panel_manual_flare_visual": "res://scenes/tests/ui_dev_panel.tscn",
+	"ui_dev_panel_scale_visual": "res://scenes/tests/ui_dev_panel.tscn",
+	"ui_notification_bars_visual": "res://scenes/tests/ui_dev_panel.tscn",
 }
 
 ## 图2/图3空地图试飞的运行时载入探针；仍统一经 Shadow bench 启动。

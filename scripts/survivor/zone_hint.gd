@@ -1,147 +1,168 @@
 class_name ZoneHint
 extends CanvasLayer
 
-## 顶部提示条：三种模式
-##   - persistent：脉冲提示（"新战区已开放 — Tab"），由 survivor_mode 显式触发 show / hide
-##   - temp：临时 toast（"战区 X 攻克！获得 XXX"），N 秒后自动消失
-##   - error temp：红色临时 toast，用于可继续运行但已降级的资源错误
+## Three notification channels share the same terminal HUD presentation:
+## - top: persistent emergency or objective information;
+## - bottom: temporary feedback and recoverable errors;
+## - warning: an independent flashing BOSS alert.
 
-const COLOR_INFO := Color(0.9, 1.0, 0.5, 1.0)    ## 新战区
-const COLOR_VICTORY := Color(0.5, 1.0, 0.75, 1.0) ## 攻克 + 奖励
-const COLOR_ERROR := Color(1.0, 0.72, 0.45, 1.0)  ## 可恢复错误
-const BG_COLOR := Color(0.05, 0.08, 0.03, 0.7)
-const ERROR_BG_COLOR := Color(0.32, 0.04, 0.03, 0.9)
+const NotificationTerminalBarScript := preload(
+	"res://scripts/survivor/notification_terminal_bar.gd")
 
-## Warning 横幅（BOSS 登场特效）：全宽红底 + 大字闪烁
-const WARNING_BG_COLOR := Color(0.7, 0.05, 0.05, 0.85)
-const WARNING_TEXT_COLOR := Color(1.0, 0.95, 0.3, 1.0)
-const WARNING_FLASH_COUNT := 3                   ## 闪烁次数（on-off 算一轮）
+const COLOR_ERROR := Color(1.0, 0.72, 0.45, 1.0)
+const WARNING_ACCENT_COLOR := Color("ff493d")
+const NOTICE_HEIGHT := NotificationTerminalBarScript.BAR_HEIGHT
+const NOTICE_ANCHOR_LEFT := 0.2
+const NOTICE_ANCHOR_RIGHT := 0.8
+const BOTTOM_RESERVED_HEIGHT := 54.0
+const TOP_RESERVED_HEIGHT := 72.0
+const NOTIFICATION_LAYER := 9
+const SLIDE_DURATION := 0.25
+
+const WARNING_FLASH_COUNT := 3
 const WARNING_FLASH_ON_SEC := 0.35
 const WARNING_FLASH_OFF_SEC := 0.15
 
-var _bg: ColorRect
-var _label: Label
-var _persistent_visible: bool = false
-var _persistent_text: String = ""
-var _temp_timer: float = 0.0
-var _pulse_t: float = 0.0
-var _showing_temp: bool = false
+var _bg: Control
+var _temp_bg: Control
+var _persistent_visible := false
+var _persistent_text := ""
+var _temp_timer := 0.0
+var _showing_temp := false
+var _top_tween: Tween
+var _bottom_tween: Tween
 
-## Warning 横幅独立节点，不占用 persistent/temp 槽
-var _warn_bg: ColorRect
-var _warn_label: Label
-var _warn_timer: float = 0.0
-var _warn_phase: int = 0            ## 剩余 on-off 半周期数（每轮闪烁 = 2）
-var _warn_on: bool = false
+var _warn_bg: Control
+var _warn_timer := 0.0
+var _warn_phase := 0
+var _warn_on := false
+
 
 func _ready() -> void:
-	layer = 18
+	layer = NOTIFICATION_LAYER
 	_build()
+	set_process(false)
+
 
 func _build() -> void:
-	_bg = ColorRect.new()
-	_bg.anchor_left = 0.2
-	_bg.anchor_right = 0.8
-	_bg.offset_top = 70
-	_bg.offset_bottom = 110
-	_bg.color = BG_COLOR
-	_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if _bg != null:
+		return
+	_bg = NotificationTerminalBarScript.new()
+	_bg.anchor_left = NOTICE_ANCHOR_LEFT
+	_bg.anchor_right = NOTICE_ANCHOR_RIGHT
+	_bg.offset_top = -NOTICE_HEIGHT
+	_bg.offset_bottom = 0.0
 	_bg.visible = false
 	add_child(_bg)
 
-	_label = Label.new()
-	_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_label.add_theme_font_size_override("font_size", 14)
-	_label.add_theme_color_override("font_color", COLOR_INFO)
-	_bg.add_child(_label)
+	# Temporary hints settle directly above the permanent 3u bottom HUD bar.
+	_temp_bg = NotificationTerminalBarScript.new()
+	_temp_bg.anchor_left = NOTICE_ANCHOR_LEFT
+	_temp_bg.anchor_right = NOTICE_ANCHOR_RIGHT
+	_temp_bg.anchor_top = 1.0
+	_temp_bg.anchor_bottom = 1.0
+	_temp_bg.offset_top = 0.0
+	_temp_bg.offset_bottom = NOTICE_HEIGHT
+	_temp_bg.visible = false
+	add_child(_temp_bg)
 
-	# Warning 横幅：全宽、放在屏幕 1/3 高度处，比普通提示更大更醒目
-	_warn_bg = ColorRect.new()
-	_warn_bg.anchor_left = 0.0
-	_warn_bg.anchor_right = 1.0
+	# The BOSS warning uses the same icon/text cells and only retains its flash behavior.
+	_warn_bg = NotificationTerminalBarScript.new()
+	_warn_bg.anchor_left = NOTICE_ANCHOR_LEFT
+	_warn_bg.anchor_right = NOTICE_ANCHOR_RIGHT
 	_warn_bg.anchor_top = 0.32
 	_warn_bg.anchor_bottom = 0.32
-	_warn_bg.offset_top = -50
-	_warn_bg.offset_bottom = 50
-	_warn_bg.color = WARNING_BG_COLOR
-	_warn_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_warn_bg.offset_top = -NOTICE_HEIGHT * 0.5
+	_warn_bg.offset_bottom = NOTICE_HEIGHT * 0.5
 	_warn_bg.visible = false
 	add_child(_warn_bg)
 
-	_warn_label = Label.new()
-	_warn_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_warn_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_warn_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_warn_label.add_theme_font_size_override("font_size", 56)
-	_warn_label.add_theme_color_override("font_color", WARNING_TEXT_COLOR)
-	_warn_label.add_theme_constant_override("outline_size", 6)
-	_warn_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
-	_warn_bg.add_child(_warn_label)
-
-# ══════════════════════════════════════════════
-#  Persistent（脉冲提示，直到 hide_persistent 调用）
-# ══════════════════════════════════════════════
 
 func show_persistent(msg: String) -> void:
+	_build()
 	_persistent_visible = true
 	_persistent_text = msg
-	if not _showing_temp:
-		_apply_persistent()
+	_apply_persistent()
 
-func hide_persistent() -> void:
+
+func hide_persistent(expected_text: String = "") -> void:
+	if expected_text != "" and _persistent_text != expected_text:
+		return
 	_persistent_visible = false
-	if not _showing_temp:
-		_bg.visible = false
+	_slide_top(false)
+
 
 func _apply_persistent() -> void:
-	_bg.visible = true
-	_bg.color = BG_COLOR
-	_label.text = _persistent_text
-	_label.add_theme_color_override("font_color", COLOR_INFO)
+	_bg.configure(_persistent_text, "⚠")
+	_slide_top(true)
 
-# ══════════════════════════════════════════════
-#  Temp（N 秒自动消失；期间覆盖 persistent）
-# ══════════════════════════════════════════════
 
 func show_temp(msg: String, duration: float = 3.5) -> void:
+	_build()
 	_showing_temp = true
 	_temp_timer = duration
-	_bg.visible = true
-	_bg.color = BG_COLOR
-	_label.text = msg
-	_label.add_theme_color_override("font_color", COLOR_VICTORY)
+	_temp_bg.configure(msg, "✓")
+	_slide_bottom(true)
+	set_process(true)
 
-## 降级错误提示：与普通 toast 共用计时槽，结束后恢复原有 persistent 提示。
+
 func show_error_temp(msg: String, duration: float = 8.0) -> void:
+	_build()
 	_showing_temp = true
 	_temp_timer = duration
-	_bg.visible = true
-	_bg.color = ERROR_BG_COLOR
-	_label.text = msg
-	_label.add_theme_color_override("font_color", COLOR_ERROR)
+	_temp_bg.configure(msg, "⚠", COLOR_ERROR, false)
+	_slide_bottom(true)
+	set_process(true)
+
+
+func _slide_top(show: bool) -> void:
+	if _top_tween != null and _top_tween.is_valid():
+		_top_tween.kill()
+	if show:
+		_bg.visible = true
+	var target_top := TOP_RESERVED_HEIGHT if show else -NOTICE_HEIGHT
+	var target_bottom := TOP_RESERVED_HEIGHT + NOTICE_HEIGHT if show else 0.0
+	_top_tween = create_tween().set_parallel(true)
+	_top_tween.set_trans(Tween.TRANS_QUAD).set_ease(
+		Tween.EASE_OUT if show else Tween.EASE_IN)
+	_top_tween.tween_property(_bg, "offset_top", target_top, SLIDE_DURATION)
+	_top_tween.tween_property(_bg, "offset_bottom", target_bottom, SLIDE_DURATION)
+	if not show:
+		_top_tween.chain().tween_callback(_finish_top_hide)
+
+
+func _slide_bottom(show: bool) -> void:
+	if _bottom_tween != null and _bottom_tween.is_valid():
+		_bottom_tween.kill()
+	if show:
+		_temp_bg.visible = true
+	var target_top := -(BOTTOM_RESERVED_HEIGHT + NOTICE_HEIGHT) if show else 0.0
+	var target_bottom := -BOTTOM_RESERVED_HEIGHT if show else NOTICE_HEIGHT
+	_bottom_tween = create_tween().set_parallel(true)
+	_bottom_tween.set_trans(Tween.TRANS_QUAD).set_ease(
+		Tween.EASE_OUT if show else Tween.EASE_IN)
+	_bottom_tween.tween_property(_temp_bg, "offset_top", target_top, SLIDE_DURATION)
+	_bottom_tween.tween_property(_temp_bg, "offset_bottom", target_bottom, SLIDE_DURATION)
+	if not show:
+		_bottom_tween.chain().tween_callback(_finish_bottom_hide)
+
+
+func _finish_top_hide() -> void:
+	if not _persistent_visible:
+		_bg.visible = false
+
+
+func _finish_bottom_hide() -> void:
+	if not _showing_temp:
+		_temp_bg.visible = false
+
 
 func _process(delta: float) -> void:
 	if _showing_temp:
 		_temp_timer -= delta
-		_pulse_t += delta * 5.0
-		_label.modulate = Color(1, 1, 1, 0.85 + 0.15 * sin(_pulse_t))
 		if _temp_timer <= 0.0:
 			_showing_temp = false
-			_label.modulate = Color(1, 1, 1, 1)
-			if _persistent_visible:
-				_apply_persistent()
-			else:
-				_bg.visible = false
-		return
-	# persistent 脉冲
-	if _persistent_visible:
-		_pulse_t += delta * 2.0
-		var a := 0.7 + 0.3 * (sin(_pulse_t) * 0.5 + 0.5)
-		_label.modulate = Color(1, 1, 1, a)
-
-	# Warning 横幅：独立的闪烁状态机（on-off-on-off-...）
+			_slide_bottom(false)
 	if _warn_phase > 0:
 		_warn_timer -= delta
 		if _warn_timer <= 0.0:
@@ -152,15 +173,15 @@ func _process(delta: float) -> void:
 			else:
 				_warn_bg.visible = _warn_on
 				_warn_timer = WARNING_FLASH_ON_SEC if _warn_on else WARNING_FLASH_OFF_SEC
+	if not _showing_temp and _warn_phase <= 0:
+		set_process(false)
 
-# ══════════════════════════════════════════════
-#  Warning 横幅（BOSS 登场）：全宽红底大字，闪烁 N 次后消失
-# ══════════════════════════════════════════════
 
 func show_warning_banner(msg: String, flashes: int = WARNING_FLASH_COUNT) -> void:
-	_warn_label.text = msg
-	# 每轮闪烁 = on + off = 2 个 phase；最后以 on 结束时再追加一次 off 用于收尾
+	_build()
+	_warn_bg.configure(msg, "⚠", WARNING_ACCENT_COLOR, false)
 	_warn_phase = flashes * 2
 	_warn_on = true
 	_warn_bg.visible = true
 	_warn_timer = WARNING_FLASH_ON_SEC
+	set_process(true)

@@ -8,9 +8,11 @@ const HudPreferencesScript := preload("res://scripts/ui/hud_preferences.gd")
 const PlayerInstrumentPanelScript := preload("res://scripts/survivor/player_instrument_panel.gd")
 const WingmanInstrumentPanelScript := preload("res://scripts/survivor/wingman_instrument_panel.gd")
 const MilestoneAxisCounterScript := preload("res://scripts/survivor/milestone_axis_counter.gd")
+const BottomExperiencePanelScript := preload("res://scripts/survivor/bottom_experience_panel.gd")
 const HudColorSettingsPanelScript := preload("res://scripts/ui/hud_color_settings_panel.gd")
 const HudFirstRevealSequencerScript := preload("res://scripts/ui/hud_first_reveal_sequencer.gd")
 const HudBoardVisibilityScript := preload("res://scripts/ui/hud_board_visibility.gd")
+const TerminalTextScript := preload("res://scripts/ui/terminal_text.gd")
 
 var _pass := 0
 var _fail := 0
@@ -116,35 +118,87 @@ func _test_layout_contract() -> void:
 		and PlayerInstrumentPanelScript.G_FRACTION_LAYOUT_TEXT == "9"
 		and PlayerInstrumentPanelScript.SPD_VALUE_LAYOUT_TEXT == "99999"
 		and PlayerInstrumentPanelScript.ALT_VALUE_LAYOUT_TEXT == "99999"
-		and PlayerInstrumentPanelScript.FLARE_VALUE_LAYOUT_TEXT == "99")
+		and PlayerInstrumentPanelScript.FLARE_VALUE_LAYOUT_TEXT == "99"
+		and PlayerInstrumentPanelScript.PROGRESS_PERCENT_LAYOUT_TEXT == "100%"
+		and PlayerInstrumentPanelScript.PROGRESS_SECONDS_LAYOUT_TEXT == "100s")
+	_check("IN CLOUD 与击杀数在 HP 上方平分一条 1u 粗体状态行",
+		panel.status_rect.size == Vector2(panel.aligned_content_width, 18.0)
+		and panel.cloud_status_rect.size == panel.kill_status_rect.size
+		and panel.cloud_status_rect.end.x == panel.kill_status_rect.position.x
+		and panel.hp_rect.position.y == panel.status_rect.end.y
+		and panel.grid_regions(false).has(panel.cloud_status_rect)
+		and panel.grid_regions(false).has(panel.kill_status_rect))
+	panel.update_status(false, 3)
+	panel.update_status(true, 4)
+	panel._kill_flash_started_ms = 1000
+	_check("云层状态常亮而击杀 +1 只反色闪烁两次",
+		panel._in_cloud and panel._status_kill_count == 4
+		and PlayerInstrumentPanelScript.cloud_status_text_color(
+			true, Color.WHITE).is_equal_approx(ThemeColors.UI_TERMINAL_INVERSE)
+		and PlayerInstrumentPanelScript.cloud_status_text_color(
+			false, Color.WHITE).is_equal_approx(ThemeColors.UI_INACTIVE_DIGIT)
+		and panel.kill_flash_on(1000)
+		and not panel.kill_flash_on(1180)
+		and panel.kill_flash_on(1360)
+		and not panel.kill_flash_on(1540)
+		and panel.kill_flash_active(1719)
+		and not panel.kill_flash_on(1720)
+		and not panel.kill_flash_active(1720))
 	var display_font: Font = panel._display_font
-	_check("SPD, G integer, and FLR current digits share one fixed digit size",
+	_check("ALT HP and FLR preserve 3u digits while SPD is tighter than compact G",
 		panel.primary_value_font_size > 1
 		and panel.spd_digit_font_size > 1
+		and panel.g_integer_font_size > 1
+		and panel.primary_value_font_size > panel.spd_digit_font_size
 		and panel.hp_current_rect.size.y == PlayerInstrumentPanelScript.PRIMARY_VALUE_HEIGHT
-		and panel.g_integer_rect.size.y == PlayerInstrumentPanelScript.PRIMARY_VALUE_HEIGHT
-		and panel.spd_current_rect.size.y == PlayerInstrumentPanelScript.PRIMARY_VALUE_HEIGHT
-		and panel.spd_digit_rect(0).size.y == PlayerInstrumentPanelScript.PRIMARY_VALUE_HEIGHT
-		and panel.g_decimal_font_size == panel.spd_digit_font_size)
+		and panel.alt_value_rect.size.y == PlayerInstrumentPanelScript.PRIMARY_VALUE_HEIGHT
+		and panel.g_integer_rect.size.y == PlayerInstrumentPanelScript.COMPACT_VALUE_HEIGHT
+		and panel.spd_current_rect.size.y == PlayerInstrumentPanelScript.COMPACT_VALUE_HEIGHT
+		and panel.spd_digit_rect(0).size.y == PlayerInstrumentPanelScript.COMPACT_VALUE_HEIGHT
+		and panel.g_fraction_rect.size.y == PlayerInstrumentPanelScript.U_SIZE.y
+		and panel.g_decimal_font_size == panel.primary_value_font_size)
 	_check("SPD digit size preserves the complete widest zero inside every fixed cell",
 		display_font.get_string_size("0", HORIZONTAL_ALIGNMENT_LEFT, -1.0,
 			panel.spd_digit_font_size).x <= PlayerInstrumentPanelScript.SPD_DIGIT_WIDTH)
-	_check("primary boards expand by whole q steps instead of shrinking text",
-		display_font.get_string_size("999", HORIZONTAL_ALIGNMENT_LEFT, -1.0,
-			panel.primary_value_font_size).x <= panel.hp_current_rect.size.x
-		and display_font.get_string_size("11", HORIZONTAL_ALIGNMENT_LEFT, -1.0,
-			panel.primary_value_font_size).x <= panel.g_integer_rect.size.x
-		and is_equal_approx(fmod(panel.hp_current_rect.size.x - 120.0, 18.0), 0.0)
-		and is_equal_approx(fmod(panel.g_integer_rect.size.x - 80.0, 18.0), 0.0))
-	_check("SPD is five left-to-right framed digits of 1u plus half-q width",
+	_check("HP and ALT use fixed former-SPD cells without shrinking their 3u digit size",
+		display_font.get_string_size("0", HORIZONTAL_ALIGNMENT_LEFT, -1.0,
+			panel.primary_value_font_size).x <= PlayerInstrumentPanelScript.THREE_U_DIGIT_WIDTH
+		and panel.hp_current_rect.size.x
+			== PlayerInstrumentPanelScript.THREE_U_DIGIT_WIDTH * 3.0
+		and panel.hp_digit_rect(0).position == panel.hp_current_rect.position
+		and panel.hp_digit_rect(2).end == panel.hp_current_rect.end
+		and panel.alt_digit_rect(0).position == panel.alt_value_rect.position
+		and panel.alt_digit_rect(4).end == panel.alt_value_rect.end)
+	_check("G keeps the 2u digit rule while SPD uses tighter two-q spacing",
 		PlayerInstrumentPanelScript.SPD_DIGIT_COUNT == 5
+		and PlayerInstrumentPanelScript.TWO_U_DIGIT_WIDTH
+			== PlayerInstrumentPanelScript.U_SIZE.x
 		and PlayerInstrumentPanelScript.SPD_DIGIT_WIDTH
+			== PlayerInstrumentPanelScript.Q_SIZE.x * 2.0
+		and PlayerInstrumentPanelScript.THREE_U_DIGIT_WIDTH
 			== PlayerInstrumentPanelScript.U_SIZE.x
 			+ PlayerInstrumentPanelScript.DECORATIVE_HALF_Q_WIDTH
 		and panel.spd_current_rect.size.x
 			== PlayerInstrumentPanelScript.SPD_DIGIT_WIDTH * 5.0
 		and panel.spd_digit_rect(0).position == panel.spd_current_rect.position
 		and panel.spd_digit_rect(4).end == panel.spd_current_rect.end)
+	_check("SPD left and G right fill one 3u row without cutting the title row",
+		panel.spd_rect.size.y == PlayerInstrumentPanelScript.U_SIZE.y * 3.0
+		and panel.spd_speed_rect.position == panel.spd_rect.position
+		and panel.spd_speed_rect.end.x == panel.g_rect.position.x
+		and panel.g_rect.end == panel.spd_rect.end
+		and panel.spd_title_rect.position == panel.spd_speed_rect.position
+		and panel.spd_title_rect.size
+			== Vector2(panel.spd_speed_rect.size.x, PlayerInstrumentPanelScript.U_SIZE.y)
+		and panel.spd_blank_rect.position.x == panel.spd_current_rect.end.x
+		and panel.spd_blank_rect.position.y == panel.spd_title_rect.end.y
+		and panel.spd_blank_rect.size
+			== Vector2(PlayerInstrumentPanelScript.Q_SIZE.x
+				+ (PlayerInstrumentPanelScript.TWO_U_DIGIT_WIDTH
+					- PlayerInstrumentPanelScript.SPD_DIGIT_WIDTH) * 5.0,
+				PlayerInstrumentPanelScript.COMPACT_VALUE_HEIGHT)
+		and panel.spd_unit_kt_rect.position.y == panel.spd_title_rect.end.y
+		and panel.spd_unit_kmh_rect.end.y == panel.spd_rect.end.y)
 	_check("SPD zero padding and five-digit overflow states are deterministic",
 		PlayerInstrumentPanelScript.formatted_speed_digits(500) == "00500"
 		and PlayerInstrumentPanelScript.speed_digit_is_padding("00500", 0)
@@ -163,17 +217,20 @@ func _test_layout_contract() -> void:
 				PlayerInstrumentPanelScript.SPD_PADDING_ZERO_COLOR)
 		and overflow_red.is_equal_approx(PlayerInstrumentPanelScript.DANGER_RED)
 		and is_zero_approx(overflow_off.a))
-	_check("G uses two SPD-format 3u integer cells and a bottom decimal cell",
-		panel.g_integer_rect.size.y == PlayerInstrumentPanelScript.U_SIZE.y * 3.0
-		and panel.g_integer_rect.size.x == PlayerInstrumentPanelScript.SPD_DIGIT_WIDTH * 2.0
-		and panel.g_integer_digit_rect(0).size == panel.spd_digit_rect(0).size
+	_check("G uses two compact 2u integer cells and unchanged bottom decimal division",
+		panel.g_rect.size.y == PlayerInstrumentPanelScript.U_SIZE.y * 3.0
+		and panel.g_integer_rect.size.y == PlayerInstrumentPanelScript.U_SIZE.y * 2.0
+		and panel.g_integer_rect.size.x == PlayerInstrumentPanelScript.TWO_U_DIGIT_WIDTH * 2.0
+		and panel.g_integer_digit_rect(0).size
+			== Vector2(PlayerInstrumentPanelScript.TWO_U_DIGIT_WIDTH,
+				PlayerInstrumentPanelScript.COMPACT_VALUE_HEIGHT)
 		and panel.g_integer_digit_rect(1).end == panel.g_integer_rect.end
 		and panel.g_decimal_rect.size == PlayerInstrumentPanelScript.Q_SIZE
-		and panel.g_decimal_font_size == panel.spd_digit_font_size
+		and panel.g_decimal_font_size == panel.primary_value_font_size
 		and PlayerInstrumentPanelScript.G_INTEGER_ALIGNMENT == HORIZONTAL_ALIGNMENT_CENTER
-		and panel.g_decimal_rect.end.y == panel.hp_g_rect.end.y
-		and panel.g_fraction_rect.size.y == PlayerInstrumentPanelScript.U_SIZE.y * 2.0
-		and panel.g_fraction_rect.end.y == panel.hp_g_rect.end.y
+		and panel.g_decimal_rect.end.y == panel.g_rect.end.y
+		and panel.g_fraction_rect.size.y == PlayerInstrumentPanelScript.U_SIZE.y
+		and panel.g_fraction_rect.end.y == panel.g_rect.end.y
 		and panel.g_integer_rect.end.x == panel.g_decimal_rect.position.x
 		and panel.g_decimal_rect.end.x == panel.g_fraction_rect.position.x)
 	_check("secondary maximum value expands by q steps and fills 2u height",
@@ -184,6 +241,50 @@ func _test_layout_contract() -> void:
 			PlayerInstrumentPanelScript.Q_SIZE.x), 0.0)
 		and display_font.get_string_size("999", HORIZONTAL_ALIGNMENT_LEFT, -1.0,
 			panel.secondary_value_font_size).x <= panel.hp_max_rect.size.x)
+	_check("HP current value is three framed digits and its right reserve is frameless",
+		PlayerInstrumentPanelScript.formatted_three_digit_value(7) == "007"
+		and PlayerInstrumentPanelScript.formatted_three_digit_value(1200) == "999"
+		and panel.hp_title_rect.position == panel.hp_rect.position
+		and panel.hp_title_rect.size
+			== Vector2(panel.hp_rect.size.x, PlayerInstrumentPanelScript.U_SIZE.y)
+		and panel.hp_empty_rect.position.x == panel.hp_value_rect.end.x
+		and panel.hp_empty_rect.position.y == panel.hp_title_rect.end.y
+		and panel.hp_empty_rect.end.x == panel.hp_rect.end.x
+		and panel.hp_empty_rect.end.y == panel.hp_rect.end.y
+		and panel.grid_regions(false).has(panel.hp_digit_rect(0))
+		and panel.grid_regions(false).has(panel.hp_digit_rect(2))
+		and not panel.grid_regions(false).has(panel.hp_empty_rect))
+	_check("ALT returns to nominal width with a compact gauge and 1u mode cells",
+		panel.alt_rect.size.y == PlayerInstrumentPanelScript.U_SIZE.y * 4.0
+		and panel.alt_gauge_rect.size
+			== Vector2(PlayerInstrumentPanelScript.U_SIZE.x * 2.0
+				+ PlayerInstrumentPanelScript.Q_SIZE.x,
+				PlayerInstrumentPanelScript.PRIMARY_VALUE_HEIGHT)
+		and panel.alt_gauge_rect.end.x == panel.alt_value_rect.position.x
+		and panel.alt_value_rect.size
+			== Vector2(PlayerInstrumentPanelScript.THREE_U_DIGIT_WIDTH * 5.0,
+				PlayerInstrumentPanelScript.PRIMARY_VALUE_HEIGHT)
+		and panel.alt_value_rect.end.x == panel.alt_mode_high_rect.position.x
+		and panel.alt_mode_high_rect.size
+			== PlayerInstrumentPanelScript.U_SIZE
+		and panel.alt_mode_low_rect.position.y == panel.alt_mode_high_rect.end.y
+		and panel.alt_mode_low_rect.size == panel.alt_mode_high_rect.size
+		and panel.alt_mode_empty_rect.position.y == panel.alt_mode_low_rect.end.y
+		and panel.alt_mode_empty_rect.end == panel.alt_rect.end)
+	_check("HP and compact SPD G share nominal-width half-u decorative rows",
+		panel.hp_decorative_rect.position
+			== Vector2(panel.spd_rect.position.x, panel.hp_rect.end.y)
+		and panel.hp_decorative_rect.size
+			== Vector2(panel.spd_rect.size.x,
+				PlayerInstrumentPanelScript.DECORATIVE_HALF_U_HEIGHT)
+		and panel.spd_rect.position.y == panel.hp_decorative_rect.end.y
+		and panel.spd_decorative_rect.position
+			== Vector2(panel.spd_rect.position.x, panel.spd_rect.end.y)
+		and panel.spd_decorative_rect.size == panel.hp_decorative_rect.size
+		and panel.alt_rect.position.y == panel.spd_decorative_rect.end.y
+		and panel.alt_rect.end.x == panel.spd_decorative_rect.end.x
+		and panel.alt_rect.size.x == panel.spd_decorative_rect.size.x
+		and panel.ab_rect.position.y == panel.alt_rect.end.y)
 	_check("afterburner is 2u with a 1u title and a fixed 2u by 2u percent board",
 		panel.ab_rect.size.y == PlayerInstrumentPanelScript.PROGRESS_PANEL_HEIGHT
 		and panel.ab_title_rect.size.y == PlayerInstrumentPanelScript.PROGRESS_INFO_HEIGHT
@@ -202,18 +303,22 @@ func _test_layout_contract() -> void:
 		and panel.maneuver_progress_rect(panel.maneuver_base_rect).size.y
 			== PlayerInstrumentPanelScript.U_SIZE.y
 		and panel.maneuver_base_rect.size.x == panel.aligned_content_width)
-	_check("decorative half-q columns align lower rows to ALT SPD without changing numeric q steps",
+	_check("compact SPD G and revised ALT both use the 383px nominal width",
 		PlayerInstrumentPanelScript.DECORATIVE_HALF_Q_WIDTH
 			== PlayerInstrumentPanelScript.Q_SIZE.x * 0.5
 		and PlayerInstrumentPanelScript.DECORATIVE_HALF_U_HEIGHT
 			== PlayerInstrumentPanelScript.U_SIZE.y * 0.5
-		and is_equal_approx(fmod(
-			panel.aligned_content_width - panel.spd_rect.size.x,
-			PlayerInstrumentPanelScript.DECORATIVE_HALF_Q_WIDTH), 0.0)
-		and panel.ab_rect.position.x == panel.spd_rect.position.x
-		and panel.autopilot_rect.position.x == panel.spd_rect.position.x
-		and panel.maneuver_base_rect.position.x == panel.spd_rect.position.x
-		and panel.weapon_rect.position.x == panel.spd_rect.position.x)
+		and panel.aligned_content_width == 383.0
+		and panel.spd_rect.size.x == panel.aligned_content_width
+		and panel.spd_rect.position.x == panel.ab_rect.position.x
+		and panel.g_fraction_rect.size.x == 27.0
+		and panel.spd_blank_rect.size.x == 38.0
+		and panel.alt_rect.size.x == panel.aligned_content_width
+		and panel.alt_rect.position.x == panel.spd_rect.position.x
+		and panel.hp_rect.position.x == panel.ab_rect.position.x
+		and panel.autopilot_rect.position.x == panel.ab_rect.position.x
+		and panel.maneuver_base_rect.position.x == panel.ab_rect.position.x
+		and panel.weapon_rect.position.x == panel.ab_rect.position.x)
 	_check("ENGAGE and FIRE are children of one aligned AUTOPILOT parent panel",
 		panel.autopilot_rect.size.x == PlayerInstrumentPanelScript.AUTOPILOT_WIDTH
 		and panel.autopilot_rect.size.x == PlayerInstrumentPanelScript.U_SIZE.x * 3.0
@@ -228,8 +333,10 @@ func _test_layout_contract() -> void:
 		and panel.control_empty_rect.size.x >= PlayerInstrumentPanelScript.Q_SIZE.x
 		and panel.active_control_empty_rect(true).size.x
 			== panel.control_empty_rect.size.x - PlayerInstrumentPanelScript.Q_SIZE.x)
-	_check("aligned operation keycaps form one vertical display column",
-		PlayerInstrumentPanelScript.keycap_left_of(panel.spd_rect).position.x
+	_check("Q rejoins the nominal E G F T key column",
+		PlayerInstrumentPanelScript.keycap_left_of(panel.alt_rect).position.x
+			== panel.alt_rect.position.x - PlayerInstrumentPanelScript.Q_SIZE.x
+		and PlayerInstrumentPanelScript.keycap_left_of(panel.alt_rect).position.x
 			== PlayerInstrumentPanelScript.keycap_left_of(panel.ab_rect).position.x
 		and PlayerInstrumentPanelScript.keycap_left_of(panel.ab_rect).position.x
 			== PlayerInstrumentPanelScript.keycap_left_of(panel.engage_rect).position.x
@@ -265,13 +372,16 @@ func _test_layout_contract() -> void:
 	_check("all expandable rows preserve the shared screen-side right edge",
 		panel.hp_rect.end.x == panel.size.x
 		and panel.spd_rect.end.x == panel.size.x
+		and panel.alt_rect.end.x == panel.size.x
 		and panel.ab_rect.end.x == panel.size.x
 		and panel.flare_base_rect.end.x == panel.size.x
 		and panel.maneuver_base_rect.end.x == panel.size.x
 		and panel.weapon_rect.end.x == panel.size.x)
-	_check("SPD five digit cells are individually included in the shared grid",
+	_check("SPD and ALT five digit cells are individually included in the shared grid",
 		panel.grid_regions(false).has(panel.spd_digit_rect(0))
-		and panel.grid_regions(false).has(panel.spd_digit_rect(4)))
+		and panel.grid_regions(false).has(panel.spd_digit_rect(4))
+		and panel.grid_regions(false).has(panel.alt_digit_rect(0))
+		and panel.grid_regions(false).has(panel.alt_digit_rect(4)))
 	var ac := _make_aircraft()
 	ac.displacement_roll_active = true
 	panel.aircraft = ac
@@ -288,7 +398,7 @@ func _test_layout_contract() -> void:
 		and not panel.manual_flare_key_flash_on(6000))
 	var player_regions: Array[Rect2] = panel.grid_regions(true, true)
 	var active_flare := panel.active_flare_rect(true)
-	_check("grid frames boards and key cells while numeric word boards stay borderless",
+	_check("grid frames active cells while HP reserve and supplemental boards stay borderless",
 		player_regions.has(panel.hp_rect)
 		and player_regions.has(panel.ab_title_rect)
 		and player_regions.has(panel.ab_percent_rect)
@@ -296,10 +406,18 @@ func _test_layout_contract() -> void:
 		and player_regions.has(panel.active_autopilot_rect(true))
 		and player_regions.has(panel.active_control_empty_rect(true))
 		and player_regions.has(panel.weapon_title_rect)
+		and player_regions.has(panel.hp_decorative_rect)
+		and player_regions.has(panel.spd_decorative_rect)
 		and player_regions.has(panel.manual_flare_key_rect())
 		and player_regions.has(panel.g_integer_digit_rect(0))
 		and player_regions.has(panel.g_integer_digit_rect(1))
 		and player_regions.has(panel.g_decimal_rect)
+		and player_regions.has(panel.hp_digit_rect(0))
+		and not player_regions.has(panel.hp_empty_rect)
+		and player_regions.has(panel.spd_blank_rect)
+		and player_regions.has(panel.alt_gauge_rect)
+		and player_regions.has(panel.alt_mode_high_rect)
+		and player_regions.has(panel.alt_mode_low_rect)
 		and player_regions.has(PlayerInstrumentPanelScript.flare_current_digit_rect(
 			active_flare, 0))
 		and player_regions.has(PlayerInstrumentPanelScript.flare_current_digit_rect(
@@ -322,42 +440,60 @@ func _test_layout_contract() -> void:
 			== panel.weapon_title_rect.position.y
 		and PlayerInstrumentPanelScript.keycap_left_of(panel.weapon_title_rect).end.y
 			== panel.weapon_title_rect.end.y)
-	_check("two 2u weapon slots are separated by one framed half-u board",
-		panel.weapon_row_rect(0).size.y == PlayerInstrumentPanelScript.U_SIZE.y * 2.0
-		and panel.weapon_row_rect(1).size.y == PlayerInstrumentPanelScript.U_SIZE.y * 2.0
+	_check("two 3u weapon slots are separated by one framed half-u board",
+		panel.weapon_row_rect(0).size.y == PlayerInstrumentPanelScript.U_SIZE.y * 3.0
+		and panel.weapon_row_rect(1).size.y == PlayerInstrumentPanelScript.U_SIZE.y * 3.0
 		and panel.weapon_row_rect(0).end.y == panel.weapon_middle_spacer_rect.position.y
 		and panel.weapon_middle_spacer_rect.size.y
 			== PlayerInstrumentPanelScript.DECORATIVE_HALF_U_HEIGHT
 		and panel.weapon_middle_spacer_rect.end.y == panel.weapon_row_rect(1).position.y
 		and player_regions.has(panel.weapon_middle_spacer_rect)
-		and panel.size.y == PlayerInstrumentPanelScript.U_SIZE.y * 24.0
+		and panel.size == Vector2(401.0, PlayerInstrumentPanelScript.U_SIZE.y * 31.0)
 		and panel.weapon_rect.end.y == panel.size.y)
 	_check("only the selected weapon value boards invert and reload at 2 Hz",
 		PlayerInstrumentPanelScript.weapon_value_inverted(true, false, false)
 		and PlayerInstrumentPanelScript.weapon_value_inverted(true, true, true)
 		and not PlayerInstrumentPanelScript.weapon_value_inverted(true, true, false)
 		and not PlayerInstrumentPanelScript.weapon_value_inverted(false, true, true))
-	_check("2u weapon slots use count flexible fill half-q blank progress and right name",
+	_check("3u weapon slots use count, a 2u dual-readout plus bottom bar, and right name",
 		panel.weapon_count_rect(0).position == panel.weapon_row_rect(0).position
 		and panel.weapon_count_rect(0).size.y
 			== PlayerInstrumentPanelScript.WEAPON_SLOT_HEIGHT
 		and panel.weapon_count_rect(0).size.x == panel.weapon_count_width
 		and panel.weapon_name_rect(0).size
 			== Vector2(PlayerInstrumentPanelScript.U_SIZE.x * 2.0,
-				PlayerInstrumentPanelScript.U_SIZE.y * 2.0)
+				PlayerInstrumentPanelScript.U_SIZE.y * 3.0)
 		and panel.weapon_name_rect(0).end == panel.weapon_row_rect(0).end
 		and panel.weapon_empty_rect(0).position.x == panel.weapon_count_rect(0).end.x
-		and panel.weapon_empty_rect(0).end.x == panel.weapon_aux_empty_rect(0).position.x
-		and panel.weapon_aux_empty_rect(0).size
-			== Vector2(PlayerInstrumentPanelScript.DECORATIVE_HALF_Q_WIDTH,
-				PlayerInstrumentPanelScript.WEAPON_SLOT_HEIGHT)
-		and panel.weapon_aux_empty_rect(0).end.x
-			== panel.weapon_reload_progress_rect(0).position.x
+		and panel.weapon_empty_rect(0).end.x == panel.weapon_name_rect(0).position.x
+		and panel.weapon_reload_percent_rect(0).position
+			== panel.weapon_empty_rect(0).position
+		and panel.weapon_reload_percent_rect(0).size
+			== PlayerInstrumentPanelScript.WEAPON_RELOAD_VALUE_SIZE
+		and panel.weapon_reload_remaining_rect(0).size
+			== panel.weapon_reload_percent_rect(0).size
+		and panel.weapon_reload_remaining_rect(0).end.x
+			== panel.weapon_empty_rect(0).end.x
+		and panel.weapon_reload_percent_rect(0).end.x
+			<= panel.weapon_reload_remaining_rect(0).position.x
 		and panel.weapon_reload_progress_rect(0).size
-			== Vector2(PlayerInstrumentPanelScript.Q_SIZE.x,
-				PlayerInstrumentPanelScript.WEAPON_SLOT_HEIGHT)
-		and panel.weapon_reload_progress_rect(0).end.x
-			== panel.weapon_name_rect(0).position.x)
+			== Vector2(panel.weapon_empty_rect(0).size.x,
+				PlayerInstrumentPanelScript.U_SIZE.y)
+		and panel.weapon_reload_progress_rect(0).position.y
+			== panel.weapon_empty_rect(0).end.y - PlayerInstrumentPanelScript.U_SIZE.y
+		and panel.weapon_reload_progress_rect(0).end
+			== panel.weapon_empty_rect(0).end
+		and player_regions.has(panel.weapon_reload_percent_rect(0))
+		and player_regions.has(panel.weapon_reload_remaining_rect(0))
+		and player_regions.has(panel.weapon_reload_progress_rect(0)))
+	_check("weapon reload readouts share formatting and account for actual reload rate",
+		PlayerInstrumentPanelScript.weapon_reload_percent_text(0.62) == "62%"
+		and PlayerInstrumentPanelScript.weapon_reload_seconds_text(7.6) == "8s"
+		and is_equal_approx(PlayerInstrumentPanelScript.weapon_reload_remaining_seconds(
+			0.62, 20.0, 1.0), 7.6)
+		and is_equal_approx(PlayerInstrumentPanelScript.weapon_reload_remaining_seconds(
+			0.5, 20.0, 2.0), 5.0)
+		and PlayerInstrumentPanelScript.weapon_reload_seconds_text(0.0) == "0s")
 	_check("G and FLR two-digit formatting stays zero-padded and bounded",
 		PlayerInstrumentPanelScript.formatted_two_digit_value(1) == "01"
 		and PlayerInstrumentPanelScript.formatted_two_digit_value(11) == "11"
@@ -376,11 +512,19 @@ func _test_layout_contract() -> void:
 func _test_milestone_axis_counter() -> void:
 	var counter = MilestoneAxisCounterScript.new()
 	counter._ready()
-	_check("三轴计数器使用 3u+3u+4u 且与经验条同宽",
-		counter.size == Vector2(400.0, 18.0)
-		and MilestoneAxisCounterScript.cell_rect(0) == Rect2(0.0, 0.0, 120.0, 18.0)
-		and MilestoneAxisCounterScript.cell_rect(1) == Rect2(120.0, 0.0, 120.0, 18.0)
-		and MilestoneAxisCounterScript.cell_rect(2) == Rect2(240.0, 0.0, 160.0, 18.0))
+	_check("三方向以等宽 2u 面板、固定名框和八个 0.5q 技能格排列",
+		counter.size == Vector2(408.0, 36.0)
+		and MilestoneAxisCounterScript.cell_rect(0) == Rect2(0.0, 0.0, 136.0, 36.0)
+		and MilestoneAxisCounterScript.cell_rect(1) == Rect2(136.0, 0.0, 136.0, 36.0)
+		and MilestoneAxisCounterScript.cell_rect(2) == Rect2(272.0, 0.0, 136.0, 36.0)
+		and MilestoneAxisCounterScript.name_rect(0).size == Vector2(64.0, 36.0)
+		and MilestoneAxisCounterScript.point_rect(0, 0).size == Vector2(9.0, 36.0)
+		and MilestoneAxisCounterScript.point_rect(0, 7).end.x
+			== MilestoneAxisCounterScript.cell_rect(0).end.x)
+	_check("英文最长三方向名使用固定缩写",
+		MilestoneAxisCounterScript.english_axis_label(SurvivorData.AXIS_GLADIATOR) == "GLAD."
+		and MilestoneAxisCounterScript.english_axis_label(SurvivorData.AXIS_KNIGHT) == "KNIGHT"
+		and MilestoneAxisCounterScript.english_axis_label(SurvivorData.AXIS_SCHEMER) == "SCHEM.")
 	_check("三轴计数器鼠标穿透且不自带逐帧处理",
 		counter.mouse_filter == Control.MOUSE_FILTER_IGNORE
 		and counter.focus_mode == Control.FOCUS_NONE
@@ -393,17 +537,62 @@ func _test_milestone_axis_counter() -> void:
 	player.milestone_bonus[SurvivorData.AXIS_GLADIATOR] = 1
 	player.milestone_bonus[SurvivorData.AXIS_KNIGHT] = 1
 	var snapshot := MilestoneAxisCounterScript.snapshot_for(player)
-	_check("三轴计数按斗士/骑士/策士顺序读取里程碑进度",
-		snapshot == [3, 2, 4])
+	_check("三方向技能格只读取玩家实际点击数量，不混入里程碑加成",
+		snapshot == [2, 1, 4])
 	counter.update_display(player)
 	var revision: int = counter._redraw_revision
 	counter.update_display(player)
 	_check("三轴读数不变时不重复请求重绘", counter._redraw_revision == revision)
 	player.axis_points[SurvivorData.AXIS_SCHEMER] = 24
 	counter.update_display(player)
-	_check("更大读数只改文字、不扩张计数器",
-		counter._values == [3, 2, 24]
+	_check("超过八点只钳制亮格、不扩张三方向计数器",
+		counter._values == [2, 1, 24]
 		and counter.size == MilestoneAxisCounterScript.COUNTER_SIZE)
+	var bottom = BottomExperiencePanelScript.new()
+	bottom._ready()
+	player.level = 12
+	player.xp = 84
+	player.xp_to_next = 160
+	bottom.update_display(player)
+	bottom._accent = Color.TRANSPARENT
+	bottom.update_display(player)
+	_check("底栏中央为 2u 三方向加 1u 经验条，两侧为等宽 3u 面板",
+		bottom.size == Vector2(684.0, 54.0)
+		and bottom._grid_overlay.edge_insets == Vector4(0.5, 0.5, 0.5, 0.5)
+		and bottom._accent.is_equal_approx(HudPreferencesScript.hud_color())
+		and BottomExperiencePanelScript.left_panel_rect().size
+			== BottomExperiencePanelScript.right_panel_rect().size
+		and BottomExperiencePanelScript.LEVEL_DIGIT_WIDTH
+			== PlayerInstrumentPanelScript.THREE_U_DIGIT_WIDTH
+		and BottomExperiencePanelScript.xp_rect() == Rect2(138.0, 36.0, 408.0, 18.0)
+		and BottomExperiencePanelScript.current_xp_rect() == Rect2(546.0, 0.0, 138.0, 36.0)
+		and BottomExperiencePanelScript.max_xp_rect() == Rect2(546.0, 36.0, 138.0, 18.0))
+	var level_accent := Color.WHITE
+	_check("LV 两位数字复用框版前导零灰色规则且不与经验区重叠",
+		BottomExperiencePanelScript.formatted_level_digits(0) == "00"
+		and BottomExperiencePanelScript.formatted_level_digits(7) == "07"
+		and BottomExperiencePanelScript.level_digit_color(
+			"00", 0, level_accent, false).is_equal_approx(
+				ThemeColors.UI_INACTIVE_DIGIT)
+		and BottomExperiencePanelScript.level_digit_color(
+			"00", 1, level_accent, false).is_equal_approx(level_accent)
+		and BottomExperiencePanelScript.level_digit_color(
+			"10", 1, level_accent, false).is_equal_approx(level_accent)
+		and bottom._display_font.get_string_size("0", HORIZONTAL_ALIGNMENT_LEFT,
+			-1.0, int(TerminalTextScript.resolve_font_layout(
+				bottom._display_font, "0",
+				BottomExperiencePanelScript.level_digit_rect(0).size).x)).x
+			<= BottomExperiencePanelScript.LEVEL_DIGIT_WIDTH
+		and BottomExperiencePanelScript.level_digit_rect(1).end.x
+			== BottomExperiencePanelScript.xp_rect().position.x
+		and not BottomExperiencePanelScript.level_digit_rect(1).intersects(
+			BottomExperiencePanelScript.xp_rect()))
+	_check("升级反色按等级、经验条、经验数字从左到右依次闪过一次",
+		BottomExperiencePanelScript.flash_index_at(0.0) == 0
+		and BottomExperiencePanelScript.flash_index_at(0.15) == 1
+		and BottomExperiencePanelScript.flash_index_at(0.29) == 2
+		and BottomExperiencePanelScript.flash_index_at(1.0) == -1)
+	bottom.free()
 	player.free()
 	counter.free()
 
@@ -435,12 +624,39 @@ func _test_altitude_preference_display() -> void:
 	_check("ALT 明确显示当前高空档",
 		PlayerInstrumentPanelScript.altitude_tier_name_key(ac) == "HUD_ALT_TIER_HIGH")
 	ac.altitude_preference = Aircraft.AltitudePreference.PREFER_CLIMB
+	_check("Q 爬升优先显示固定正式字体 HIGH",
+		PlayerInstrumentPanelScript.altitude_preference_name_key(ac) == "TOOLTIP_ALT_CLIMB_TITLE"
+		and PlayerInstrumentPanelScript.altitude_mode_text(ac) == "HIGH")
 	SurvivorModeScript._cycle_player_altitude_preference(ac)
 	_check("Q 保留爬升优先到低空优先的真实切换",
 		ac.altitude_preference == Aircraft.AltitudePreference.PREFER_LOW)
+	_check("Q 低空优先显示固定正式字体 LOW",
+		PlayerInstrumentPanelScript.altitude_preference_name_key(ac) == "TOOLTIP_ALT_LOW_TITLE"
+		and PlayerInstrumentPanelScript.altitude_mode_text(ac) == "LOW")
 	SurvivorModeScript._cycle_player_altitude_preference(ac)
 	_check("Q 再按返回爬升优先",
 		ac.altitude_preference == Aircraft.AltitudePreference.PREFER_CLIMB)
+	_check("高度指针严格使用 20 到 160 度并让 LOW HIGH 分居左右",
+		is_equal_approx(PlayerInstrumentPanelScript.altimeter_target_degrees(0.0, true), 20.0)
+		and is_equal_approx(PlayerInstrumentPanelScript.altimeter_target_degrees(20000.0, true), 85.0)
+		and is_equal_approx(PlayerInstrumentPanelScript.altimeter_target_degrees(0.0, false), 95.0)
+		and is_equal_approx(PlayerInstrumentPanelScript.altimeter_target_degrees(
+			20000.0, false), 160.0)
+		and is_equal_approx(PlayerInstrumentPanelScript.altimeter_target_degrees(
+			10000.0, true), 52.5)
+		and is_equal_approx(PlayerInstrumentPanelScript.altimeter_target_degrees(
+			10000.0, false), 127.5))
+	var panel = PlayerInstrumentPanelScript.new()
+	panel._ready()
+	panel.aircraft = ac
+	ac.altitude = 20000.0
+	panel._altimeter_needle_initialized = true
+	panel._altimeter_needle_degrees = 20.0
+	panel._process(0.1)
+	_check("高度指针按角速度追随而不是瞬间跳到目标",
+		panel._altimeter_needle_degrees > 20.0
+		and panel._altimeter_needle_degrees < 160.0)
+	panel.free()
 	ac.free()
 
 

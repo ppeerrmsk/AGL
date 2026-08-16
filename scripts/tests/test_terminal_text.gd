@@ -17,6 +17,8 @@ func run() -> void:
 	_check_horizontal_alignment_rule()
 	_check_shared_grid_coordinates()
 	_check_grid_flash_override_types()
+	_check_viewport_edge_hairline_insets()
+	_check_scale_invariant_grid_lines()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════\n")
 
@@ -217,6 +219,33 @@ func _check_grid_flash_override_types() -> void:
 	)
 
 	overlay.free()
+
+
+func _check_viewport_edge_hairline_insets() -> void:
+	var overlay := TerminalGridOverlayScript.new()
+	var full := Rect2(0.0, 0.0, 1920.0, 54.0)
+	var bottom_safe := TerminalGridOverlayScript.edge_safe_region(
+		full, full.size, Vector4(0.5, 0.0, 0.5, 0.5))
+	var internal := Rect2(120.0, 0.0, 408.0, 36.0)
+	var internal_safe := TerminalGridOverlayScript.edge_safe_region(
+		internal, full.size, Vector4(0.5, 0.0, 0.5, 0.5))
+	_check(
+		"Control-edge hairlines default half a pixel inside without changing internal seams",
+		bottom_safe == Rect2(0.5, 0.0, 1919.0, 53.5)
+			and internal_safe == internal
+			and overlay.edge_insets == TerminalGridOverlayScript.CONTROL_EDGE_INSETS
+			and overlay.edge_insets == Vector4(0.5, 0.5, 0.5, 0.5),
+		"bottom=%s internal=%s" % [bottom_safe, internal_safe]
+	)
+	overlay.free()
+
+
+func _check_scale_invariant_grid_lines() -> void:
+	_check(
+		"Grid outlines use Godot hairlines that remain one physical pixel when scaled",
+		is_equal_approx(TerminalGridOverlayScript.SCALE_INVARIANT_LINE_WIDTH, -1.0),
+		"width=%.1f" % TerminalGridOverlayScript.SCALE_INVARIANT_LINE_WIDTH
+	)
 
 func _check(label: String, cond: bool, detail: String = "") -> void:
 	if cond:

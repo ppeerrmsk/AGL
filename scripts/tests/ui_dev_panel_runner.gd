@@ -6,14 +6,21 @@ extends Node2D
 const PlayerInstrumentPanelScript := preload("res://scripts/survivor/player_instrument_panel.gd")
 const WingmanInstrumentPanelScript := preload("res://scripts/survivor/wingman_instrument_panel.gd")
 const MilestoneAxisCounterScript := preload("res://scripts/survivor/milestone_axis_counter.gd")
+const BottomExperiencePanelScript := preload("res://scripts/survivor/bottom_experience_panel.gd")
+const WarzoneTimePanelScript := preload("res://scripts/survivor/warzone_time_panel.gd")
 const UiDevOutlineOverlayScript := preload("res://scripts/ui/ui_dev_outline_overlay.gd")
+const SurvivorHUDScript := preload("res://scripts/survivor/survivor_hud.gd")
+const TerminalGridOverlayScript := preload("res://scripts/ui/terminal_grid_overlay.gd")
+const TerminalTextScript := preload("res://scripts/ui/terminal_text.gd")
+const HudPreferencesScript := preload("res://scripts/ui/hud_preferences.gd")
+const ZoneHintScript := preload("res://scripts/survivor/zone_hint.gd")
 
 const CANVAS_SIZE := Vector2(1920.0, 1080.0)
 const PLAYER_RIGHT := 1582.0
 const PLAYER_Y := 448.0
-const AXIS_POSITION := Vector2(760.0, 1018.0)
-const XP_POSITION := Vector2(760.0, 1040.0)
-const XP_SIZE := Vector2(400.0, 20.0)
+const BOTTOM_BAR_RECT := Rect2(0.0, 1026.0, 1920.0, 54.0)
+const BOTTOM_PROGRESS_POSITION := Vector2(618.0, 1026.0)
+const AXIS_POSITION := Vector2(756.0, 1026.0)
 
 var _sample_aircraft: Aircraft
 
@@ -21,6 +28,9 @@ var _sample_aircraft: Aircraft
 func _ready() -> void:
 	DisplayServer.window_set_size(Vector2i(CANVAS_SIZE))
 	TranslationServer.set_locale("zh")
+	var bench_scenario := String(get_tree().get_meta("bench_scenario", ""))
+	var preview_scale := 0.5 if bench_scenario == "ui_dev_panel_scale_visual" \
+		else SurvivorHUDScript.PLAYER_HUD_SCALE_DEFAULT
 
 	var background := ColorRect.new()
 	background.color = Color("050707")
@@ -34,22 +44,44 @@ func _ready() -> void:
 	var charge := _build_afterburner_charge()
 	var player_panel = _add_player_panel(charge)
 	var manual_flare_button := _add_manual_flare_debug_button(player_panel)
+	_add_ui_scale_control(preview_scale)
 	var wingman_panel = _add_wingman_panel(player_panel)
+	_add_bottom_bar()
 	var axis_counter = _add_axis_counter()
-	_add_xp_bar()
+	_add_bottom_experience_panel()
+	var player_right: float = CANVAS_SIZE.x \
+		if bench_scenario == "ui_dev_panel_scale_visual" else PLAYER_RIGHT
+	var player_bottom: float = CANVAS_SIZE.y - SurvivorHUDScript.PLAYER_HUD_BOTTOM_MARGIN \
+		if bench_scenario == "ui_dev_panel_scale_visual" \
+		else PLAYER_Y + player_panel.size.y
+	_apply_player_scale_preview(player_panel, preview_scale,
+		player_right, player_bottom)
+	if bench_scenario == "ui_dev_panel_scale_visual":
+		# 非玩家 UI 保持生产布局的 1.0x 尺寸与基准位置。
+		wingman_panel.position = Vector2(
+			CANVAS_SIZE.x - wingman_panel.size.x,
+			CANVAS_SIZE.y - SurvivorHUDScript.PLAYER_HUD_BOTTOM_MARGIN
+				- player_panel.size.y - wingman_panel.size.y)
 
 	await get_tree().process_frame
-	var bench_scenario := String(get_tree().get_meta("bench_scenario", ""))
 	if bench_scenario == "ui_dev_panel_manual_flare_visual":
 		_activate_manual_flare_debug(player_panel, manual_flare_button)
 		await get_tree().process_frame
+	if bench_scenario == "ui_notification_bars_visual":
+		_add_time_preview()
+		_add_notification_preview()
+		await get_tree().create_timer(0.35).timeout
 	if bench_scenario != "ui_dev_panel_clean_visual" \
-			and bench_scenario != "ui_dev_panel_manual_flare_visual":
+			and bench_scenario != "ui_dev_panel_manual_flare_visual" \
+			and bench_scenario != "ui_dev_panel_scale_visual" \
+			and bench_scenario != "ui_notification_bars_visual":
 		_add_dev_overlay(player_panel, wingman_panel, axis_counter)
 
 	if bench_scenario == "ui_dev_panel_visual" \
 			or bench_scenario == "ui_dev_panel_clean_visual" \
-			or bench_scenario == "ui_dev_panel_manual_flare_visual":
+			or bench_scenario == "ui_dev_panel_manual_flare_visual" \
+			or bench_scenario == "ui_dev_panel_scale_visual" \
+			or bench_scenario == "ui_notification_bars_visual":
 		await _save_bench_screenshot(bench_scenario)
 
 
@@ -93,6 +125,9 @@ func _build_sample_aircraft() -> Aircraft:
 	result.missiles_remaining = 2
 	result._missile_reload_active = true
 	result.missile_reload_progress = 0.62
+	result.ammo = 0
+	result._gun_reload_active = true
+	result.gun_reload_progress = 0.28
 	return result
 
 
@@ -108,6 +143,7 @@ func _add_player_panel(charge: AfterburnerCharge):
 	add_child(panel)
 	panel.position = Vector2(PLAYER_RIGHT - panel.size.x, PLAYER_Y)
 	panel.update_display(_sample_aircraft, charge)
+	panel.update_status(true, 7)
 	return panel
 
 
@@ -119,6 +155,36 @@ func _add_manual_flare_debug_button(player_panel: Control) -> Button:
 	button.pressed.connect(_activate_manual_flare_debug.bind(player_panel, button))
 	add_child(button)
 	return button
+
+
+func _add_ui_scale_control(value: float) -> void:
+	var label := Label.new()
+	label.text = "PLAYER HUD SCALE  %.1fx" % value
+	label.position = Vector2(24.0, 94.0)
+	label.size = Vector2(260.0, 22.0)
+	label.add_theme_font_size_override("font_size", 14)
+	label.add_theme_color_override("font_color", UiDevOutlineOverlayScript.OUTLINE_COLOR)
+	add_child(label)
+	var slider := HSlider.new()
+	slider.position = Vector2(24.0, 118.0)
+	slider.size = Vector2(220.0, 28.0)
+	slider.min_value = SurvivorHUDScript.PLAYER_HUD_SCALE_MIN
+	slider.max_value = SurvivorHUDScript.PLAYER_HUD_SCALE_MAX
+	slider.step = SurvivorHUDScript.PLAYER_HUD_SCALE_STEP
+	slider.value = value
+	slider.tick_count = 6
+	slider.ticks_on_borders = true
+	slider.scrollable = false
+	add_child(slider)
+
+
+func _apply_player_scale_preview(player_panel: Control, value: float,
+		right_edge: float, bottom_edge: float) -> void:
+	var preview_scale := Vector2.ONE * value
+	player_panel.scale = preview_scale
+	player_panel.position = Vector2(
+		right_edge - player_panel.size.x * value,
+		bottom_edge - player_panel.size.y * value)
 
 
 func _activate_manual_flare_debug(player_panel: Control, button: Button) -> void:
@@ -172,26 +238,70 @@ func _add_axis_counter():
 	return counter
 
 
-func _add_xp_bar() -> void:
+func _add_bottom_bar() -> void:
 	var background := ColorRect.new()
-	background.color = ThemeColors.XP_BAR_BG
-	background.position = XP_POSITION
-	background.size = XP_SIZE
+	background.color = ThemeColors.UI_BLOCK_BACKGROUND
+	background.position = BOTTOM_BAR_RECT.position
+	background.size = BOTTOM_BAR_RECT.size
+	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(background)
-	var fill := ColorRect.new()
-	fill.color = ThemeColors.XP_BAR_FILL
-	fill.position = XP_POSITION
-	fill.size = Vector2(210.0, XP_SIZE.y)
-	add_child(fill)
-	var label := Label.new()
-	label.text = "LV 12    84 / 160"
-	label.position = XP_POSITION
-	label.size = XP_SIZE
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 12)
-	label.add_theme_color_override("font_color", ThemeColors.TEXT_WHITE)
-	add_child(label)
+	var grid = TerminalGridOverlayScript.new()
+	grid.size = BOTTOM_BAR_RECT.size
+	grid.edge_insets = Vector4(0.5, 0.0, 0.5, 0.5)
+	grid.line_color = HudPreferencesScript.hud_color()
+	var regions: Array[Rect2] = [Rect2(Vector2.ZERO, BOTTOM_BAR_RECT.size)]
+	grid.regions = regions
+	background.add_child(grid)
+
+
+func _add_notification_preview() -> void:
+	var hint = ZoneHintScript.new()
+	add_child(hint)
+	hint.show_persistent("⚠ EMERGENCY  ACE SQUADRON INBOUND")
+	hint.show_temp("✓ TIP  PRIORITY TARGET UPDATED", 5.0)
+
+
+func _add_time_preview() -> void:
+	var hud_layer := CanvasLayer.new()
+	hud_layer.layer = SurvivorHUDScript.PERSISTENT_HUD_LAYER
+	add_child(hud_layer)
+	var panel := ColorRect.new()
+	panel.color = ThemeColors.UI_BLOCK_BACKGROUND
+	panel.position = SurvivorHUDScript.top_time_rect(CANVAS_SIZE).position
+	panel.size = SurvivorHUDScript.TIME_PANEL_SIZE
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud_layer.add_child(panel)
+	var grid = TerminalGridOverlayScript.new()
+	grid.size = panel.size
+	grid.edge_insets = Vector4(0.0, 0.5, 0.0, 0.0)
+	grid.line_color = HudPreferencesScript.hud_color()
+	var regions: Array[Rect2] = [Rect2(Vector2.ZERO, panel.size)]
+	grid.regions = regions
+	panel.add_child(grid)
+	var time_text = TerminalTextScript.new()
+	time_text.size = panel.size
+	time_text.font_face = TerminalTextScript.FontFace.CHAKRA_PETCH_BOLD
+	time_text.size_rule = TerminalTextScript.SizeRule.ONE_U_FIXED_15
+	time_text.layout_text = "TIME  99:59"
+	time_text.text = "TIME  08:42"
+	time_text.font_color = HudPreferencesScript.hud_color()
+	panel.add_child(time_text)
+	var remaining = WarzoneTimePanelScript.new()
+	remaining.position = SurvivorHUDScript.warzone_time_rect(CANVAS_SIZE).position
+	hud_layer.add_child(remaining)
+	remaining.update_display(125.0, false)
+
+
+func _add_bottom_experience_panel() -> void:
+	var progression_player := SurvivorPlayer.new()
+	progression_player.level = 12
+	progression_player.xp = 84
+	progression_player.xp_to_next = 160
+	var panel = BottomExperiencePanelScript.new()
+	panel.position = BOTTOM_PROGRESS_POSITION
+	add_child(panel)
+	panel.update_display(progression_player)
+	progression_player.free()
 
 
 func _add_dev_overlay(player_panel: Control, wingman_panel: Control,
@@ -212,12 +322,12 @@ func _add_dev_overlay(player_panel: Control, wingman_panel: Control,
 	_append_component_regions(regions, wingman_panel.position,
 		Rect2(Vector2.ZERO, wingman_panel.size), wing_children)
 
-	var axis_children: Array[Rect2] = []
-	for index in range(3):
-		axis_children.append(MilestoneAxisCounterScript.cell_rect(index))
 	_append_component_regions(regions, axis_counter.position,
-		Rect2(Vector2.ZERO, axis_counter.size), axis_children)
-	regions.append(Rect2(XP_POSITION, XP_SIZE))
+		Rect2(Vector2.ZERO, axis_counter.size), MilestoneAxisCounterScript.grid_regions())
+	_append_component_regions(regions, BOTTOM_PROGRESS_POSITION,
+		Rect2(Vector2.ZERO, BottomExperiencePanelScript.TOTAL_SIZE),
+		BottomExperiencePanelScript.grid_regions())
+	regions.append(BOTTOM_BAR_RECT)
 
 	var overlay = UiDevOutlineOverlayScript.new()
 	overlay.position = Vector2.ZERO
