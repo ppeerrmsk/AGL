@@ -122,8 +122,9 @@ func _start() -> void:
 		radio.say_unit("ace_spawn", _squad.members[0])
 	var hint = _hint()
 	if hint:
-		# 提示条带中队代号（tier §2.6，727 包装批）
-		hint.show_temp(tr("EVENT_ACE_INBOUND_FMT") % AceSquadProfiles.codename(profile_id), 5.0)
+		# 精英中队属于顶部紧急通道：滑入后常驻，直到该次遭遇终止。
+		hint.show_persistent(
+			tr("EVENT_ACE_INBOUND_FMT") % AceSquadProfiles.codename(profile_id))
 	# 生涯档案：遭遇记一笔（bench / boss debug 局由 archive_enabled 挡）
 	if director.mode and director.mode.has_method("archive_enabled") \
 			and director.mode.archive_enabled():
@@ -312,6 +313,7 @@ func _handle_ace_terminal() -> void:
 		var hint = _hint()
 		if hint:
 			var hint_key := "EVENT_ACE_SURRENDER_FMT" if _whitetea_surrendered else "EVENT_ACE_DOWN_FMT"
+			hint.hide_persistent(tr("EVENT_ACE_INBOUND_FMT") % codename)
 			hint.show_temp(tr(hint_key) % codename, 5.0)
 	# 生涯档案：真全灭才算"击破"（撤离出界逃掉一架都不算，tier §2.7）
 	if _escaped == 0 and director.mode and director.mode.has_method("archive_enabled") \
@@ -400,6 +402,8 @@ func _begin_withdraw(reason: String = "boss unlocked") -> void:
 		m.is_afterburner = true
 	var hint = _hint()
 	if hint:
+		hint.hide_persistent(
+			tr("EVENT_ACE_INBOUND_FMT") % AceSquadProfiles.codename(profile_id))
 		hint.show_temp(tr("EVENT_ACE_RETREAT_FMT") % AceSquadProfiles.codename(profile_id), 4.0)
 	EventLogger.log_event("EVENT", "AceSupport", "withdraw (%s)" % _withdraw_reason)
 

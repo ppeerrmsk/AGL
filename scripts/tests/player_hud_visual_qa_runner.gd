@@ -5,6 +5,9 @@ extends Node2D
 const PlayerInstrumentPanelScript := preload("res://scripts/survivor/player_instrument_panel.gd")
 const WingmanInstrumentPanelScript := preload("res://scripts/survivor/wingman_instrument_panel.gd")
 const MilestoneAxisCounterScript := preload("res://scripts/survivor/milestone_axis_counter.gd")
+const BottomExperiencePanelScript := preload("res://scripts/survivor/bottom_experience_panel.gd")
+const SurvivorHUDScript := preload("res://scripts/survivor/survivor_hud.gd")
+const TerminalGridOverlayScript := preload("res://scripts/ui/terminal_grid_overlay.gd")
 
 var _sample_aircraft: Aircraft
 
@@ -16,6 +19,18 @@ func _ready() -> void:
 	background.color = Color.BLACK
 	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(background)
+	var bottom_bar_rect := SurvivorHUDScript.bottom_bar_rect(Vector2(1920.0, 1080.0))
+	var bottom_bar := ColorRect.new()
+	bottom_bar.color = ThemeColors.UI_BLOCK_BACKGROUND
+	bottom_bar.position = bottom_bar_rect.position
+	bottom_bar.size = bottom_bar_rect.size
+	add_child(bottom_bar)
+	var bottom_grid = TerminalGridOverlayScript.new()
+	bottom_grid.size = bottom_bar.size
+	bottom_grid.edge_insets = Vector4(0.5, 0.0, 0.5, 0.5)
+	var bottom_regions: Array[Rect2] = [Rect2(Vector2.ZERO, bottom_bar.size)]
+	bottom_grid.regions = bottom_regions
+	bottom_bar.add_child(bottom_grid)
 
 	_sample_aircraft = Aircraft.new()
 	_sample_aircraft.params = (load("res://resources/player/player_f15c.tres") as AircraftParams).duplicate(true)
@@ -36,6 +51,9 @@ func _ready() -> void:
 	_sample_aircraft.missiles_remaining = 2
 	_sample_aircraft._missile_reload_active = true
 	_sample_aircraft.missile_reload_progress = 0.62
+	_sample_aircraft.ammo = 0
+	_sample_aircraft._gun_reload_active = true
+	_sample_aircraft.gun_reload_progress = 0.28
 
 	var charge := AfterburnerCharge.new()
 	charge.active = true
@@ -46,9 +64,10 @@ func _ready() -> void:
 	add_child(panel)
 	panel.position = Vector2(
 		1600.0 - panel.size.x - 18.0,
-		900.0 - panel.size.y - 56.0,
+		900.0 - panel.size.y - SurvivorHUDScript.PLAYER_HUD_BOTTOM_MARGIN,
 	)
 	panel.update_display(_sample_aircraft, charge)
+	panel.update_status(true, 3)
 	# Capture a deterministic 2 Hz ON phase for the reload bar and selected MSL boards.
 	panel.weapon_animation_time_override_ms = 1500
 	panel.queue_redraw()
@@ -80,37 +99,24 @@ func _ready() -> void:
 		panel.position.y - wingman_panel.size.y,
 	)
 
-	# 底部成长摘要：按正式 400px 经验条锚位渲染三轴计数器第一版。
+	# 底部成长摘要：Lv07 同时验证两位等级的前导零灰色规则。
 	var progression_player := SurvivorPlayer.new()
-	progression_player.level = 12
+	progression_player.level = 7
 	progression_player.xp = 84
 	progression_player.xp_to_next = 160
 	progression_player.axis_points[SurvivorData.AXIS_GLADIATOR] = 3
 	progression_player.axis_points[SurvivorData.AXIS_KNIGHT] = 2
 	progression_player.axis_points[SurvivorData.AXIS_SCHEMER] = 1
 	var axis_counter = MilestoneAxisCounterScript.new()
-	axis_counter.position = Vector2(760.0, 1018.0)
+	axis_counter.position = SurvivorHUDScript.bottom_axis_rect(Vector2(1920.0, 1080.0)).position
 	add_child(axis_counter)
 	axis_counter.update_display(progression_player)
-	var xp_bg := ColorRect.new()
-	xp_bg.color = ThemeColors.XP_BAR_BG
-	xp_bg.position = Vector2(760.0, 1040.0)
-	xp_bg.size = Vector2(400.0, 20.0)
-	add_child(xp_bg)
-	var xp_fill := ColorRect.new()
-	xp_fill.color = ThemeColors.XP_BAR_FILL
-	xp_fill.position = xp_bg.position
-	xp_fill.size = Vector2(210.0, 20.0)
-	add_child(xp_fill)
-	var xp_label := Label.new()
-	xp_label.text = "LV 12    84 / 160"
-	xp_label.position = xp_bg.position
-	xp_label.size = xp_bg.size
-	xp_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	xp_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	xp_label.add_theme_font_size_override("font_size", 12)
-	xp_label.add_theme_color_override("font_color", ThemeColors.TEXT_WHITE)
-	add_child(xp_label)
+	var experience_panel = BottomExperiencePanelScript.new()
+	experience_panel.position = SurvivorHUDScript.bottom_progress_rect(
+		Vector2(1920.0, 1080.0)).position
+	add_child(experience_panel)
+	move_child(axis_counter, get_child_count() - 1)
+	experience_panel.update_display(progression_player)
 
 	for _frame in range(4):
 		await get_tree().process_frame
@@ -122,10 +128,9 @@ func _ready() -> void:
 	panel.queue_free()
 	wingman_panel.queue_free()
 	axis_counter.queue_free()
-	xp_label.queue_free()
-	xp_fill.queue_free()
-	xp_bg.queue_free()
+	experience_panel.queue_free()
 	progression_player.free()
+	bottom_bar.queue_free()
 	background.queue_free()
 	await get_tree().process_frame
 	get_tree().quit(0 if err == OK else 1)

@@ -3013,7 +3013,7 @@ func _on_player_leveled_up(_new_level: int) -> void:
 	# 自然成长已退役（spec player-aircraft-power-curve §6 阶段2）：等级只做门槛，
 	# 成长全部由三轴里程碑（卡片加点跨档）+ 进化换档承担。
 
-	# 表现层：屏幕中上方弹出 LEVEL UP（bench 压测跳过——一帧多级会刷屏）
+	# 表现层：底部等级/经验相关面板从左到右依次反色（bench 压测跳过）。
 	if not _bench_mode and hud:
 		hud.show_level_up(_new_level)
 

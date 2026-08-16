@@ -105,6 +105,8 @@ const VISUAL_TEST_SCENES: Dictionary = {
 	"ui_dev_panel_visual": "res://scenes/tests/ui_dev_panel.tscn",
 	"ui_dev_panel_clean_visual": "res://scenes/tests/ui_dev_panel.tscn",
 	"ui_dev_panel_manual_flare_visual": "res://scenes/tests/ui_dev_panel.tscn",
+	"ui_dev_panel_scale_visual": "res://scenes/tests/ui_dev_panel.tscn",
+	"ui_notification_bars_visual": "res://scenes/tests/ui_dev_panel.tscn",
 }
 
 var bench_active: bool = false

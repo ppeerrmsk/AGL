@@ -30,7 +30,7 @@ RuntimeTuner="*res://addons/runtime_tuner/runtime_tuner.gd"
 
 [debug]
 
-file_logging/enable_file_logging.pc=false
+file_logging/enable_file_logging.pc=true
 
 [display]
 

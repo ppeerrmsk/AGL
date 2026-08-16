@@ -16,9 +16,14 @@ const CONTENT_X := Q_SIZE.x
 const SECONDARY_W := U_SIZE.x * 2.0
 const BASE_CONTENT_W := U_SIZE.x * 6.0 + Q_SIZE.x
 const PANEL_SIZE := Vector2(CONTENT_X + BASE_CONTENT_W,
-	U_SIZE.y * 24.0)
+	U_SIZE.y * 31.0)
+const STATUS_ROW_HEIGHT := U_SIZE.y
+const KILL_FLASH_STEP_MS := 180
+const KILL_FLASH_COUNT := 2
+const KILL_FLASH_DURATION_MS := KILL_FLASH_STEP_MS * KILL_FLASH_COUNT * 2
 const PRIMARY_VALUE_HEIGHT := U_SIZE.y * 3.0
 const SECONDARY_VALUE_HEIGHT := U_SIZE.y * 2.0
+const COMPACT_VALUE_HEIGHT := U_SIZE.y * 2.0
 const PROGRESS_PANEL_HEIGHT := U_SIZE.y * 2.0
 const PROGRESS_INFO_HEIGHT := U_SIZE.y
 const PROGRESS_PERCENT_SIZE := Vector2(U_SIZE.x * 2.0, U_SIZE.y * 2.0)
@@ -31,18 +36,23 @@ const G_INTEGER_ALIGNMENT := HORIZONTAL_ALIGNMENT_CENTER
 const ALT_VALUE_LAYOUT_TEXT := "99999"
 const SPD_VALUE_LAYOUT_TEXT := "99999"
 const SPD_DIGIT_COUNT := 5
-const SPD_DIGIT_WIDTH := U_SIZE.x + DECORATIVE_HALF_Q_WIDTH
+const THREE_U_DIGIT_WIDTH := U_SIZE.x + DECORATIVE_HALF_Q_WIDTH
+const TWO_U_DIGIT_WIDTH := U_SIZE.x
+const SPD_DIGIT_WIDTH := Q_SIZE.x * 2.0
 const SPD_PADDING_ZERO_COLOR := ThemeColors.UI_INACTIVE_DIGIT
+const HP_DIGIT_COUNT := 3
+const ALT_DIGIT_COUNT := 5
 const G_INTEGER_DIGIT_COUNT := 2
 const FLARE_CURRENT_DIGIT_COUNT := 2
-const FLARE_CURRENT_WIDTH := SPD_DIGIT_WIDTH * FLARE_CURRENT_DIGIT_COUNT
+const FLARE_CURRENT_WIDTH := THREE_U_DIGIT_WIDTH * FLARE_CURRENT_DIGIT_COUNT
 const AUTOPILOT_WIDTH := U_SIZE.x * 3.0
 const WEAPON_COUNT_MIN_W := U_SIZE.x * 2.0
 const WEAPON_COUNT_LAYOUT_TEXT := "9999"
 const WEAPON_NAME_W := U_SIZE.x * 2.0
 const WEAPON_TITLE_HEIGHT := U_SIZE.y
-const WEAPON_SLOT_HEIGHT := U_SIZE.y * 2.0
-const WEAPON_AUX_EMPTY_WIDTH := DECORATIVE_HALF_Q_WIDTH
+const WEAPON_SLOT_HEIGHT := U_SIZE.y * 3.0
+const WEAPON_RELOAD_INFO_HEIGHT := U_SIZE.y * 2.0
+const WEAPON_RELOAD_VALUE_SIZE := Vector2(U_SIZE.x * 2.0, U_SIZE.y * 2.0)
 const BLINK_STEP_MS := 500
 const RELOAD_BLINK_STEP_MS := 250
 const NEW_KEY_FLASH_MS := 5000
@@ -50,6 +60,17 @@ const REDRAW_INTERVAL_MS := 50
 const FLARE_STAR_COUNT := 10
 const FLARE_VALUE_LAYOUT_TEXT := "99"
 const PROGRESS_PERCENT_LAYOUT_TEXT := "100%"
+const PROGRESS_SECONDS_LAYOUT_TEXT := "100s"
+const ALT_STATUS_WIDTH := U_SIZE.x
+const ALT_GAUGE_WIDTH := U_SIZE.x * 2.0 + Q_SIZE.x
+const ALT_GAUGE_MIN_DEGREES := 20.0
+const ALT_GAUGE_LOW_MAX_DEGREES := 85.0
+const ALT_GAUGE_HIGH_MIN_DEGREES := 95.0
+const ALT_GAUGE_MAX_DEGREES := 160.0
+const ALT_GAUGE_REFERENCE_ALTITUDE := 20000.0
+const ALT_GAUGE_NEEDLE_SPEED := 120.0
+const ALT_GAUGE_ARC_WIDTH := 3.0
+const ALT_GAUGE_NEEDLE_WIDTH := 6.0
 const WARNING_YELLOW := Color("f2d34f")
 const DANGER_RED := Color("ff493d")
 const MANEUVER_NAME_KEYS := {
@@ -70,13 +91,20 @@ var _grid_overlay
 var primary_value_font_size := 1
 var secondary_value_font_size := 1
 var spd_digit_font_size := 1
+var g_integer_font_size := 1
+var g_fraction_font_size := 1
 var hp_rect := Rect2()
+var status_rect := Rect2()
+var cloud_status_rect := Rect2()
+var kill_status_rect := Rect2()
 var hp_value_rect := Rect2()
 var hp_title_rect := Rect2()
 var hp_current_rect := Rect2()
 var hp_separator_rect := Rect2()
 var hp_max_rect := Rect2()
-var hp_g_rect := Rect2()
+var hp_empty_rect := Rect2()
+var hp_decorative_rect := Rect2()
+var g_rect := Rect2()
 var g_title_rect := Rect2()
 var g_value_rect := Rect2()
 var g_integer_rect := Rect2()
@@ -84,16 +112,20 @@ var g_decimal_rect := Rect2()
 var g_fraction_rect := Rect2()
 var g_decimal_font_size := 1
 var spd_rect := Rect2()
-var spd_alt_rect := Rect2()
-var alt_title_rect := Rect2()
-var alt_value_rect := Rect2()
-var alt_mode_rect := Rect2()
 var spd_speed_rect := Rect2()
 var spd_title_rect := Rect2()
 var spd_current_rect := Rect2()
+var spd_blank_rect := Rect2()
 var spd_unit_kt_rect := Rect2()
 var spd_unit_kmh_rect := Rect2()
-var spd_unit_empty_rect := Rect2()
+var spd_decorative_rect := Rect2()
+var alt_rect := Rect2()
+var alt_title_rect := Rect2()
+var alt_gauge_rect := Rect2()
+var alt_value_rect := Rect2()
+var alt_mode_high_rect := Rect2()
+var alt_mode_low_rect := Rect2()
+var alt_mode_empty_rect := Rect2()
 var ab_rect := Rect2()
 var ab_title_rect := Rect2()
 var ab_percent_rect := Rect2()
@@ -110,12 +142,19 @@ var weapon_title_rect := Rect2()
 var weapon_rect := Rect2()
 var weapon_middle_spacer_rect := Rect2()
 var weapon_count_width := WEAPON_COUNT_MIN_W
+var weapon_name_font_size := 1
 var _flare_max_width := U_SIZE.x
 var aligned_content_width := BASE_CONTENT_W
 var _manual_flare_key_known := false
 var _manual_flare_key_visible := false
 var _manual_flare_key_flash_started_ms := -NEW_KEY_FLASH_MS
 var weapon_animation_time_override_ms := -1
+var _altimeter_needle_degrees := ALT_GAUGE_MIN_DEGREES
+var _altimeter_needle_initialized := false
+var _status_initialized := false
+var _in_cloud := false
+var _status_kill_count := 0
+var _kill_flash_started_ms := -KILL_FLASH_DURATION_MS
 
 
 func _ready() -> void:
@@ -132,7 +171,7 @@ func _ready() -> void:
 	_configure_layout()
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	focus_mode = Control.FOCUS_NONE
-	set_process(false)
+	set_process(true)
 	_grid_overlay = TerminalGridOverlayScript.new()
 	_grid_overlay.size = size
 	add_child(_grid_overlay)
@@ -143,12 +182,19 @@ func update_display(ac: Aircraft, charge: AfterburnerCharge) -> void:
 	if aircraft != ac:
 		_manual_flare_key_known = true
 		_manual_flare_key_visible = next_manual_flare_key
+		_altimeter_needle_initialized = false
 	elif _manual_flare_key_known and next_manual_flare_key and not _manual_flare_key_visible:
 		_begin_manual_flare_key_flash()
 	_manual_flare_key_known = true
 	_manual_flare_key_visible = next_manual_flare_key
 	aircraft = ac
 	afterburner_charge = charge
+	if aircraft != null and is_instance_valid(aircraft) and not aircraft.is_destroyed \
+			and not _altimeter_needle_initialized:
+		_altimeter_needle_degrees = altimeter_target_degrees(
+			aircraft.altitude,
+			aircraft.altitude_preference == Aircraft.AltitudePreference.PREFER_LOW)
+		_altimeter_needle_initialized = true
 	var now := Time.get_ticks_msec()
 	if now - _last_redraw_ms < REDRAW_INTERVAL_MS:
 		return
@@ -156,38 +202,86 @@ func update_display(ac: Aircraft, charge: AfterburnerCharge) -> void:
 	queue_redraw()
 
 
+func update_status(in_cloud: bool, kills: int) -> void:
+	var safe_kills := maxi(kills, 0)
+	if _status_initialized and safe_kills > _status_kill_count:
+		_kill_flash_started_ms = Time.get_ticks_msec()
+	_status_initialized = true
+	if _in_cloud == in_cloud and _status_kill_count == safe_kills:
+		return
+	_in_cloud = in_cloud
+	_status_kill_count = safe_kills
+	queue_redraw()
+
+
+func _process(delta: float) -> void:
+	if kill_flash_active():
+		queue_redraw()
+	elif _kill_flash_started_ms >= 0:
+		# Redraw the first frame after the second pulse so the inverse board cannot stick.
+		_kill_flash_started_ms = -1
+		queue_redraw()
+	if aircraft == null or not is_instance_valid(aircraft) or aircraft.is_destroyed:
+		return
+	var target := altimeter_target_degrees(
+		aircraft.altitude, aircraft.altitude_preference == Aircraft.AltitudePreference.PREFER_LOW)
+	if not _altimeter_needle_initialized:
+		_altimeter_needle_degrees = target
+		_altimeter_needle_initialized = true
+		queue_redraw()
+		return
+	var next_angle := move_toward(
+		_altimeter_needle_degrees, target, ALT_GAUGE_NEEDLE_SPEED * delta)
+	if not is_equal_approx(next_angle, _altimeter_needle_degrees):
+		_altimeter_needle_degrees = next_angle
+		queue_redraw()
+
+
 func _configure_layout() -> void:
-	primary_value_font_size = TerminalTextScript.font_size_for_ink_height(
-		_display_font, HP_VALUE_LAYOUT_TEXT, PRIMARY_VALUE_HEIGHT)
-	# SPD, G integer digits, and the FLR current value deliberately share this
-	# one fixed font size and one fixed digit-cell geometry.
+	# HP, ALT, and FLR use the 49 × 54 px three-u digit template. G keeps the
+	# general 40 × 36 px two-u template while SPD uses tighter 36 px cells.
+	primary_value_font_size = int(TerminalTextScript.resolve_font_layout(
+		_display_font, "0", Vector2(THREE_U_DIGIT_WIDTH, PRIMARY_VALUE_HEIGHT)).x)
 	spd_digit_font_size = int(TerminalTextScript.resolve_font_layout(
-		_display_font, "0", Vector2(SPD_DIGIT_WIDTH, PRIMARY_VALUE_HEIGHT)).x)
-	g_decimal_font_size = spd_digit_font_size
+		_display_font, "0", Vector2(SPD_DIGIT_WIDTH, COMPACT_VALUE_HEIGHT)).x)
+	g_integer_font_size = int(TerminalTextScript.resolve_font_layout(
+		_display_font, "0", Vector2(TWO_U_DIGIT_WIDTH, COMPACT_VALUE_HEIGHT)).x)
+	g_decimal_font_size = primary_value_font_size
+	g_fraction_font_size = TerminalTextScript.font_size_for_ink_height(
+		_display_font, G_FRACTION_LAYOUT_TEXT, U_SIZE.y)
 	secondary_value_font_size = TerminalTextScript.font_size_for_ink_height(
 		_display_font, HP_VALUE_LAYOUT_TEXT, SECONDARY_VALUE_HEIGHT)
 	weapon_count_width = _expanded_value_width(
 		WEAPON_COUNT_LAYOUT_TEXT, secondary_value_font_size, WEAPON_COUNT_MIN_W)
+	weapon_name_font_size = mini(
+		int(TerminalTextScript.resolve_font_layout(_display_font, "MSL",
+			Vector2(WEAPON_NAME_W, U_SIZE.y * 2.0)).x),
+		int(TerminalTextScript.resolve_font_layout(_display_font, "GUN",
+			Vector2(WEAPON_NAME_W, U_SIZE.y * 2.0)).x))
 
-	var hp_current_width := _expanded_value_width(
-		HP_VALUE_LAYOUT_TEXT, primary_value_font_size, U_SIZE.x * 3.0)
+	var hp_current_width := THREE_U_DIGIT_WIDTH * float(HP_DIGIT_COUNT)
 	var hp_max_width := _expanded_value_width(
 		HP_VALUE_LAYOUT_TEXT, secondary_value_font_size, U_SIZE.x)
-	var g_integer_width := SPD_DIGIT_WIDTH * float(G_INTEGER_DIGIT_COUNT)
-	var g_fraction_width := _expanded_value_width(
-		G_FRACTION_LAYOUT_TEXT, secondary_value_font_size, U_SIZE.x)
+	var g_integer_width := TWO_U_DIGIT_WIDTH * float(G_INTEGER_DIGIT_COUNT)
+	# The borderless one-u fraction absorbs the remaining 27 px so the compact
+	# SPD+G row returns exactly to the nominal 383 px content width.
+	var g_fraction_width := Q_SIZE.x + DECORATIVE_HALF_Q_WIDTH
 	var g_width := g_integer_width + Q_SIZE.x + g_fraction_width
 	var spd_current_width := SPD_DIGIT_WIDTH * float(SPD_DIGIT_COUNT)
 	_flare_max_width = _expanded_value_width(
 		FLARE_VALUE_LAYOUT_TEXT, secondary_value_font_size, U_SIZE.x)
 
 	var hp_value_width := hp_current_width + Q_SIZE.x + hp_max_width
-	var hp_total_width := hp_value_width + g_width
-	var spd_speed_width := spd_current_width + Q_SIZE.x + U_SIZE.x
-	var spd_total_width := SECONDARY_W + spd_speed_width
-	# The five functional SPD digit boards establish the new alignment baseline.
-	# Decorative half-q columns are only applied to later structural fill.
-	aligned_content_width = maxf(BASE_CONTENT_W, spd_total_width)
+	# Preserve the previous 383 px nominal content width. The two revised flight
+	# rows do not expand the root Control or lower modules.
+	var nominal_content_width := SECONDARY_W \
+		+ THREE_U_DIGIT_WIDTH * float(SPD_DIGIT_COUNT) + Q_SIZE.x + U_SIZE.x
+	# SPD keeps its former group width: all width released by the tighter digit
+	# cells is transferred to the structural blank between the digits and units.
+	var spd_speed_width := nominal_content_width - g_width
+	var spd_blank_width := spd_speed_width - spd_current_width - U_SIZE.x
+	var spd_total_width := spd_speed_width + g_width
+	aligned_content_width = maxf(BASE_CONTENT_W, nominal_content_width)
 	var flare_width := maxf(
 		BASE_CONTENT_W - AUTOPILOT_WIDTH,
 		FLARE_CURRENT_WIDTH + Q_SIZE.x + _flare_max_width)
@@ -195,55 +289,80 @@ func _configure_layout() -> void:
 	# panel between it and FLR so a runtime R key can replace that space.
 	aligned_content_width = decorative_aligned_width(aligned_content_width,
 		AUTOPILOT_WIDTH + Q_SIZE.x + flare_width)
-	var configured_width := maxf(hp_total_width, spd_total_width + Q_SIZE.x)
-	configured_width = maxf(configured_width, aligned_content_width + Q_SIZE.x)
+	var configured_width := aligned_content_width + Q_SIZE.x
 	var right_edge := configured_width
+	var content_left := right_edge - aligned_content_width
+	var flight_left := right_edge - spd_total_width
+	var alt_total_width := ALT_GAUGE_WIDTH \
+		+ THREE_U_DIGIT_WIDTH * float(ALT_DIGIT_COUNT) + ALT_STATUS_WIDTH
+	var alt_left := right_edge - alt_total_width
 
 	# Every row is laid out from the shared right edge toward the left. Any q-step
 	# expansion therefore preserves the screen-side edge of the instrument stack.
-	hp_g_rect = Rect2(right_edge - g_width, 0.0, g_width, U_SIZE.y * 4.0)
-	g_title_rect = Rect2(hp_g_rect.position, Vector2(hp_g_rect.size.x, U_SIZE.y))
-	g_value_rect = Rect2(hp_g_rect.position + Vector2(0.0, U_SIZE.y),
-		Vector2(hp_g_rect.size.x, PRIMARY_VALUE_HEIGHT))
-	g_integer_rect = Rect2(g_value_rect.position,
-		Vector2(g_integer_width, PRIMARY_VALUE_HEIGHT))
-	g_decimal_rect = Rect2(
-		Vector2(g_integer_rect.end.x, hp_g_rect.end.y - U_SIZE.y), Q_SIZE)
-	g_fraction_rect = Rect2(
-		Vector2(g_decimal_rect.end.x, hp_g_rect.end.y - SECONDARY_VALUE_HEIGHT),
-		Vector2(g_fraction_width, SECONDARY_VALUE_HEIGHT))
-	hp_value_rect = Rect2(hp_g_rect.position.x - hp_value_width, 0.0,
-		hp_value_width, U_SIZE.y * 4.0)
-	hp_title_rect = Rect2(hp_value_rect.position, Vector2(hp_value_rect.size.x, U_SIZE.y))
-	hp_max_rect = Rect2(hp_value_rect.end.x - hp_max_width, U_SIZE.y,
+	status_rect = Rect2(content_left, 0.0, aligned_content_width, STATUS_ROW_HEIGHT)
+	cloud_status_rect = Rect2(status_rect.position,
+		Vector2(status_rect.size.x * 0.5, status_rect.size.y))
+	kill_status_rect = Rect2(Vector2(cloud_status_rect.end.x, status_rect.position.y),
+		Vector2(status_rect.size.x * 0.5, status_rect.size.y))
+	hp_rect = Rect2(content_left, STATUS_ROW_HEIGHT,
+		aligned_content_width, U_SIZE.y * 4.0)
+	hp_value_rect = Rect2(content_left, STATUS_ROW_HEIGHT, hp_value_width, hp_rect.size.y)
+	hp_title_rect = Rect2(hp_rect.position, Vector2(hp_rect.size.x, U_SIZE.y))
+	hp_max_rect = Rect2(hp_value_rect.end.x - hp_max_width, hp_rect.position.y + U_SIZE.y,
 		hp_max_width, SECONDARY_VALUE_HEIGHT)
 	hp_separator_rect = Rect2(hp_max_rect.position.x - Q_SIZE.x,
-		U_SIZE.y, Q_SIZE.x, Q_SIZE.y)
+		hp_rect.position.y + U_SIZE.y, Q_SIZE.x, Q_SIZE.y)
 	hp_current_rect = Rect2(hp_separator_rect.position.x - hp_current_width,
-		U_SIZE.y, hp_current_width, PRIMARY_VALUE_HEIGHT)
-	hp_rect = Rect2(hp_value_rect.position,
-		Vector2(hp_g_rect.end.x - hp_value_rect.position.x, U_SIZE.y * 4.0))
+		hp_rect.position.y + U_SIZE.y, hp_current_width, PRIMARY_VALUE_HEIGHT)
+	hp_empty_rect = Rect2(hp_value_rect.end.x, hp_rect.position.y + U_SIZE.y,
+		right_edge - hp_value_rect.end.x, hp_rect.size.y - U_SIZE.y)
 
-	var unit_x := right_edge - U_SIZE.x
-	spd_unit_kt_rect = Rect2(unit_x, U_SIZE.y * 5.0, U_SIZE.x, U_SIZE.y)
-	spd_unit_kmh_rect = Rect2(unit_x, U_SIZE.y * 6.0, U_SIZE.x, U_SIZE.y)
-	spd_unit_empty_rect = Rect2(unit_x, U_SIZE.y * 7.0, U_SIZE.x, U_SIZE.y)
-	spd_speed_rect = Rect2(right_edge - spd_speed_width, U_SIZE.y * 4.0,
-		spd_speed_width, U_SIZE.y * 4.0)
-	spd_title_rect = Rect2(spd_speed_rect.position, Vector2(spd_speed_rect.size.x, U_SIZE.y))
-	spd_current_rect = Rect2(unit_x - Q_SIZE.x - spd_current_width,
-		U_SIZE.y * 5.0, spd_current_width, PRIMARY_VALUE_HEIGHT)
-	spd_alt_rect = Rect2(spd_speed_rect.position.x - SECONDARY_W,
-		U_SIZE.y * 4.0, SECONDARY_W, U_SIZE.y * 4.0)
-	alt_title_rect = Rect2(spd_alt_rect.position, Vector2(spd_alt_rect.size.x, U_SIZE.y))
-	alt_value_rect = Rect2(spd_alt_rect.position + Vector2(0.0, U_SIZE.y),
-		Vector2(spd_alt_rect.size.x, SECONDARY_VALUE_HEIGHT))
-	alt_mode_rect = Rect2(spd_alt_rect.position + Vector2(0.0, U_SIZE.y * 3.0),
-		Vector2(spd_alt_rect.size.x, U_SIZE.y))
-	spd_rect = Rect2(spd_alt_rect.position,
-		Vector2(right_edge - spd_alt_rect.position.x, U_SIZE.y * 4.0))
+	var spd_y := hp_rect.end.y + DECORATIVE_HALF_U_HEIGHT
+	spd_rect = Rect2(flight_left, spd_y, spd_total_width, U_SIZE.y * 3.0)
+	spd_speed_rect = Rect2(flight_left, spd_y, spd_speed_width, spd_rect.size.y)
+	spd_title_rect = Rect2(spd_speed_rect.position,
+		Vector2(spd_speed_rect.size.x, U_SIZE.y))
+	spd_current_rect = Rect2(spd_speed_rect.position + Vector2(0.0, U_SIZE.y),
+		Vector2(spd_current_width, COMPACT_VALUE_HEIGHT))
+	spd_blank_rect = Rect2(Vector2(spd_current_rect.end.x, spd_y + U_SIZE.y),
+		Vector2(spd_blank_width, COMPACT_VALUE_HEIGHT))
+	var unit_x := spd_blank_rect.end.x
+	spd_unit_kt_rect = Rect2(unit_x, spd_y + U_SIZE.y, U_SIZE.x, U_SIZE.y)
+	spd_unit_kmh_rect = Rect2(unit_x, spd_y + U_SIZE.y * 2.0, U_SIZE.x, U_SIZE.y)
 
-	ab_rect = Rect2(right_edge - aligned_content_width, U_SIZE.y * 8.0,
+	g_rect = Rect2(spd_speed_rect.end.x, spd_y, g_width, spd_rect.size.y)
+	g_title_rect = Rect2(g_rect.position, Vector2(g_rect.size.x, U_SIZE.y))
+	g_value_rect = Rect2(g_rect.position + Vector2(0.0, U_SIZE.y),
+		Vector2(g_rect.size.x, COMPACT_VALUE_HEIGHT))
+	g_integer_rect = Rect2(g_value_rect.position,
+		Vector2(g_integer_width, COMPACT_VALUE_HEIGHT))
+	g_decimal_rect = Rect2(Vector2(g_integer_rect.end.x, g_rect.end.y - U_SIZE.y), Q_SIZE)
+	g_fraction_rect = Rect2(Vector2(g_decimal_rect.end.x, g_rect.end.y - U_SIZE.y),
+		Vector2(g_fraction_width, U_SIZE.y))
+
+	hp_decorative_rect = Rect2(
+		Vector2(spd_rect.position.x, hp_rect.end.y),
+		Vector2(spd_rect.size.x, DECORATIVE_HALF_U_HEIGHT))
+	spd_decorative_rect = Rect2(
+		Vector2(spd_rect.position.x, spd_rect.end.y),
+		Vector2(spd_rect.size.x, DECORATIVE_HALF_U_HEIGHT))
+
+	alt_rect = Rect2(alt_left, spd_decorative_rect.end.y,
+		alt_total_width, U_SIZE.y * 4.0)
+	alt_title_rect = Rect2(alt_rect.position, Vector2(alt_rect.size.x, U_SIZE.y))
+	var altitude_content_y := alt_rect.position.y + U_SIZE.y
+	alt_gauge_rect = Rect2(Vector2(alt_left, altitude_content_y),
+		Vector2(ALT_GAUGE_WIDTH, PRIMARY_VALUE_HEIGHT))
+	alt_value_rect = Rect2(Vector2(alt_gauge_rect.end.x, altitude_content_y),
+		Vector2(THREE_U_DIGIT_WIDTH * float(ALT_DIGIT_COUNT), PRIMARY_VALUE_HEIGHT))
+	alt_mode_high_rect = Rect2(Vector2(alt_value_rect.end.x, altitude_content_y),
+		Vector2(ALT_STATUS_WIDTH, U_SIZE.y))
+	alt_mode_low_rect = Rect2(Vector2(alt_value_rect.end.x, alt_mode_high_rect.end.y),
+		Vector2(ALT_STATUS_WIDTH, U_SIZE.y))
+	alt_mode_empty_rect = Rect2(Vector2(alt_value_rect.end.x, alt_mode_low_rect.end.y),
+		Vector2(ALT_STATUS_WIDTH, U_SIZE.y))
+
+	ab_rect = Rect2(right_edge - aligned_content_width, alt_rect.end.y,
 		aligned_content_width, PROGRESS_PANEL_HEIGHT)
 	ab_percent_rect = Rect2(ab_rect.end.x - PROGRESS_PERCENT_SIZE.x, ab_rect.position.y,
 		PROGRESS_PERCENT_SIZE.x, PROGRESS_PERCENT_SIZE.y)
@@ -252,7 +371,7 @@ func _configure_layout() -> void:
 	ab_progress_rect = Rect2(ab_rect.position + Vector2(0.0, PROGRESS_INFO_HEIGHT),
 		Vector2(ab_percent_rect.position.x - ab_rect.position.x, U_SIZE.y))
 
-	flare_base_rect = Rect2(right_edge - flare_width, U_SIZE.y * 10.0,
+	flare_base_rect = Rect2(right_edge - flare_width, ab_rect.end.y,
 		flare_width, U_SIZE.y * 6.0)
 	autopilot_rect = Rect2(right_edge - aligned_content_width,
 		flare_base_rect.position.y,
@@ -265,9 +384,9 @@ func _configure_layout() -> void:
 		Vector2(autopilot_rect.size.x, U_SIZE.y * 3.0))
 	control_rect = Rect2(autopilot_rect.position,
 		Vector2(aligned_content_width, U_SIZE.y * 6.0))
-	maneuver_base_rect = Rect2(right_edge - aligned_content_width, U_SIZE.y * 16.0,
+	maneuver_base_rect = Rect2(right_edge - aligned_content_width, flare_base_rect.end.y,
 		aligned_content_width, PROGRESS_PANEL_HEIGHT)
-	weapon_spacer_rect = Rect2(right_edge - aligned_content_width, U_SIZE.y * 18.0,
+	weapon_spacer_rect = Rect2(right_edge - aligned_content_width, maneuver_base_rect.end.y,
 		aligned_content_width, DECORATIVE_HALF_U_HEIGHT)
 	weapon_title_rect = Rect2(
 		Vector2(right_edge - aligned_content_width, weapon_spacer_rect.end.y),
@@ -315,8 +434,12 @@ func _draw() -> void:
 	_grid_overlay.line_color = accent
 	_grid_overlay.regions = grid_regions(maneuver_visible, manual_flare_visible)
 
+	_draw_module(status_rect, accent)
 	_draw_module(hp_rect, accent)
+	_draw_module(hp_decorative_rect, accent)
 	_draw_module(spd_rect, accent)
+	_draw_module(spd_decorative_rect, accent)
+	_draw_module(alt_rect, accent)
 	_draw_module(ab_rect, accent)
 	_draw_module(active_autopilot_rect(manual_flare_visible), accent)
 	_draw_module(active_control_empty_rect(manual_flare_visible), accent)
@@ -327,7 +450,7 @@ func _draw() -> void:
 	_draw_module(weapon_row_rect(0), accent)
 	_draw_module(weapon_middle_spacer_rect, accent)
 	_draw_module(weapon_row_rect(1), accent)
-	_draw_keycap_at("Q", keycap_left_of(spd_rect), accent)
+	_draw_keycap_at("Q", keycap_left_of(alt_rect), accent)
 	_draw_keycap_at("E", keycap_left_of(ab_rect), accent)
 	_draw_keycap_at("G", keycap_left_of(engage_row_rect), accent)
 	_draw_keycap_at("F", keycap_left_of(fire_row_rect), accent)
@@ -336,6 +459,7 @@ func _draw() -> void:
 		var r_rect := manual_flare_key_rect() if manual_flare_visible else maneuver_key_rect()
 		_draw_keycap_at("R", r_rect, accent,
 			manual_flare_visible and manual_flare_key_flash_on())
+	_draw_player_status(accent)
 	if not has_aircraft:
 		return
 
@@ -383,10 +507,22 @@ func spd_digit_rect(index: int) -> Rect2:
 		Vector2(SPD_DIGIT_WIDTH, spd_current_rect.size.y))
 
 
+func hp_digit_rect(index: int) -> Rect2:
+	return Rect2(
+		hp_current_rect.position + Vector2(float(index) * THREE_U_DIGIT_WIDTH, 0.0),
+		Vector2(THREE_U_DIGIT_WIDTH, hp_current_rect.size.y))
+
+
+func alt_digit_rect(index: int) -> Rect2:
+	return Rect2(
+		alt_value_rect.position + Vector2(float(index) * THREE_U_DIGIT_WIDTH, 0.0),
+		Vector2(THREE_U_DIGIT_WIDTH, alt_value_rect.size.y))
+
+
 func g_integer_digit_rect(index: int) -> Rect2:
 	return Rect2(
-		g_integer_rect.position + Vector2(float(index) * SPD_DIGIT_WIDTH, 0.0),
-		Vector2(SPD_DIGIT_WIDTH, g_integer_rect.size.y))
+		g_integer_rect.position + Vector2(float(index) * TWO_U_DIGIT_WIDTH, 0.0),
+		Vector2(TWO_U_DIGIT_WIDTH, g_integer_rect.size.y))
 
 
 func active_flare_rect(_manual_flare_visible: bool) -> Rect2:
@@ -475,8 +611,8 @@ static func flare_current_rect(rect: Rect2) -> Rect2:
 static func flare_current_digit_rect(rect: Rect2, index: int) -> Rect2:
 	var current := flare_current_rect(rect)
 	return Rect2(
-		current.position + Vector2(float(index) * SPD_DIGIT_WIDTH, 0.0),
-		Vector2(SPD_DIGIT_WIDTH, current.size.y))
+		current.position + Vector2(float(index) * THREE_U_DIGIT_WIDTH, 0.0),
+		Vector2(THREE_U_DIGIT_WIDTH, current.size.y))
 
 
 static func flare_separator_rect(rect: Rect2) -> Rect2:
@@ -527,17 +663,24 @@ func grid_regions(maneuver_visible: bool,
 	var engage_row_rect := active_engage_rect(manual_flare_visible)
 	var fire_row_rect := active_fire_rect(manual_flare_visible)
 	var result: Array[Rect2] = [
+		status_rect,
+		cloud_status_rect,
+		kill_status_rect,
 		hp_rect,
-		hp_value_rect,
-		hp_g_rect,
+		hp_decorative_rect,
 		spd_rect,
-		spd_alt_rect,
-		alt_mode_rect,
 		spd_speed_rect,
+		spd_blank_rect,
+		g_rect,
 		g_decimal_rect,
 		speed_unit_rect(0),
 		speed_unit_rect(1),
-		spd_unit_empty_rect,
+		spd_decorative_rect,
+		alt_rect,
+		alt_gauge_rect,
+		alt_mode_high_rect,
+		alt_mode_low_rect,
+		alt_mode_empty_rect,
 		ab_rect,
 		ab_title_rect,
 		ab_percent_rect,
@@ -558,7 +701,7 @@ func grid_regions(maneuver_visible: bool,
 		weapon_row_rect(0),
 		weapon_middle_spacer_rect,
 		weapon_row_rect(1),
-		keycap_left_of(spd_rect),
+		keycap_left_of(alt_rect),
 		keycap_left_of(ab_rect),
 		keycap_left_of(engage_row_rect),
 		keycap_left_of(fire_row_rect),
@@ -569,6 +712,10 @@ func grid_regions(maneuver_visible: bool,
 	result.append_array(small_title_regions(flare_rect))
 	for digit_index in range(SPD_DIGIT_COUNT):
 		result.append(spd_digit_rect(digit_index))
+	for digit_index in range(HP_DIGIT_COUNT):
+		result.append(hp_digit_rect(digit_index))
+	for digit_index in range(ALT_DIGIT_COUNT):
+		result.append(alt_digit_rect(digit_index))
 	for digit_index in range(G_INTEGER_DIGIT_COUNT):
 		result.append(g_integer_digit_rect(digit_index))
 	for digit_index in range(FLARE_CURRENT_DIGIT_COUNT):
@@ -576,10 +723,46 @@ func grid_regions(maneuver_visible: bool,
 	for row in range(2):
 		result.append(weapon_count_rect(row))
 		result.append(weapon_empty_rect(row))
-		result.append(weapon_aux_empty_rect(row))
+		result.append(weapon_reload_percent_rect(row))
+		result.append(weapon_reload_remaining_rect(row))
 		result.append(weapon_reload_progress_rect(row))
 		result.append(weapon_name_rect(row))
 	return result
+
+
+func _draw_player_status(accent: Color) -> void:
+	if _in_cloud:
+		draw_rect(cloud_status_rect, accent, true)
+	_draw_text_in_rect("IN CLOUD", cloud_status_rect, 15,
+		cloud_status_text_color(_in_cloud, accent), true,
+		HORIZONTAL_ALIGNMENT_CENTER, "IN CLOUD")
+	var kill_inverted := kill_flash_on()
+	if kill_inverted:
+		draw_rect(kill_status_rect, accent, true)
+	_draw_text_in_rect("KILLS %d" % _status_kill_count,
+		kill_status_rect, 15,
+		ThemeColors.UI_TERMINAL_INVERSE if kill_inverted else accent,
+		true, HORIZONTAL_ALIGNMENT_CENTER, "KILLS 9999")
+
+
+func kill_flash_on(now_ms: int = -1) -> bool:
+	if now_ms < 0:
+		now_ms = Time.get_ticks_msec()
+	var elapsed := now_ms - _kill_flash_started_ms
+	return elapsed >= 0 and elapsed < KILL_FLASH_DURATION_MS \
+		and int(elapsed / KILL_FLASH_STEP_MS) % 2 == 0
+
+
+func kill_flash_active(now_ms: int = -1) -> bool:
+	if now_ms < 0:
+		now_ms = Time.get_ticks_msec()
+	var elapsed := now_ms - _kill_flash_started_ms
+	return elapsed >= 0 and elapsed < KILL_FLASH_DURATION_MS
+
+
+static func cloud_status_text_color(in_cloud: bool, accent: Color) -> Color:
+	return ThemeColors.UI_TERMINAL_INVERSE if in_cloud \
+		else ThemeColors.UI_INACTIVE_DIGIT
 
 
 func _draw_flight_data(accent: Color, blink_on: bool) -> void:
@@ -587,8 +770,11 @@ func _draw_flight_data(accent: Color, blink_on: bool) -> void:
 	var max_hp := ceili(aircraft.params.max_hp) if aircraft.params else current_hp
 	_draw_text_in_rect("HP", hp_title_rect, 15, accent, false,
 		HORIZONTAL_ALIGNMENT_LEFT)
-	_draw_text_in_rect(str(current_hp), hp_current_rect, primary_value_font_size, accent, true,
-		HORIZONTAL_ALIGNMENT_CENTER, HP_VALUE_LAYOUT_TEXT)
+	var hp_digits := formatted_three_digit_value(current_hp)
+	for digit_index in range(HP_DIGIT_COUNT):
+		var digit_color := shared_digit_color(hp_digits, digit_index, accent)
+		_draw_text_in_rect(hp_digits.substr(digit_index, 1), hp_digit_rect(digit_index),
+			primary_value_font_size, digit_color, true, HORIZONTAL_ALIGNMENT_CENTER, "9")
 	_draw_text_in_rect("/", hp_separator_rect, 0, accent, true)
 	_draw_text_in_rect(str(max_hp), hp_max_rect, secondary_value_font_size, accent, true,
 		HORIZONTAL_ALIGNMENT_CENTER, HP_VALUE_LAYOUT_TEXT)
@@ -598,11 +784,11 @@ func _draw_flight_data(accent: Color, blink_on: bool) -> void:
 	for digit_index in range(G_INTEGER_DIGIT_COUNT):
 		var digit_color := shared_digit_color(g_digits, digit_index, accent)
 		_draw_text_in_rect(g_digits.substr(digit_index, 1),
-			g_integer_digit_rect(digit_index), spd_digit_font_size, digit_color, true,
+			g_integer_digit_rect(digit_index), g_integer_font_size, digit_color, true,
 			HORIZONTAL_ALIGNMENT_CENTER, "9")
 	var g_fraction := str(absi(roundi(aircraft.g_load * 10.0)) % 10)
 	_draw_text_in_rect(".", g_decimal_rect, g_decimal_font_size, accent, true)
-	_draw_text_in_rect(g_fraction, g_fraction_rect, secondary_value_font_size, accent, true,
+	_draw_text_in_rect(g_fraction, g_fraction_rect, g_fraction_font_size, accent, true,
 		HORIZONTAL_ALIGNMENT_CENTER, G_FRACTION_LAYOUT_TEXT)
 
 	_draw_altitude_preference(accent)
@@ -629,10 +815,27 @@ func _draw_flight_data(accent: Color, blink_on: bool) -> void:
 func _draw_altitude_preference(accent: Color) -> void:
 	_draw_text_in_rect("ALT", alt_title_rect, 15, accent, false,
 		HORIZONTAL_ALIGNMENT_LEFT)
-	_draw_text_in_rect(str(roundi(aircraft.altitude)), alt_value_rect, 0, accent, true,
-		HORIZONTAL_ALIGNMENT_CENTER, ALT_VALUE_LAYOUT_TEXT)
-	_draw_localized_text_in_rect(tr(altitude_preference_name_key(aircraft)),
-		alt_mode_rect, 12, accent)
+	var altitude_digits := formatted_altitude_digits(roundi(aircraft.altitude))
+	for digit_index in range(ALT_DIGIT_COUNT):
+		var digit_color := shared_digit_color(altitude_digits, digit_index, accent)
+		_draw_text_in_rect(altitude_digits.substr(digit_index, 1), alt_digit_rect(digit_index),
+			primary_value_font_size, digit_color, true, HORIZONTAL_ALIGNMENT_CENTER, "9")
+	var prefer_low := aircraft.altitude_preference == Aircraft.AltitudePreference.PREFER_LOW
+	_draw_unit_cell(alt_mode_high_rect, "HIGH", not prefer_low, accent)
+	_draw_unit_cell(alt_mode_low_rect, "LOW", prefer_low, accent)
+	_draw_altimeter_gauge(accent)
+
+
+func _draw_altimeter_gauge(accent: Color) -> void:
+	var pivot := Vector2(alt_gauge_rect.get_center().x, alt_gauge_rect.end.y - 5.0)
+	var radius := minf((alt_gauge_rect.size.x - 12.0) * 0.5,
+		alt_gauge_rect.size.y - 10.0)
+	draw_arc(pivot, radius, PI, TAU, 48, accent, ALT_GAUGE_ARC_WIDTH, false)
+	var degrees := clampf(_altimeter_needle_degrees,
+		ALT_GAUGE_MIN_DEGREES, ALT_GAUGE_MAX_DEGREES)
+	var angle := PI + deg_to_rad(degrees)
+	var needle_end := pivot + Vector2(cos(angle), sin(angle)) * (radius - 4.0)
+	draw_line(pivot, needle_end, accent, ALT_GAUGE_NEEDLE_WIDTH, false)
 
 
 func _draw_unit_cell(rect: Rect2, text: String, selected: bool, accent: Color) -> void:
@@ -675,7 +878,7 @@ func _draw_flares(rect: Rect2, accent: Color) -> void:
 		for digit_index in range(FLARE_CURRENT_DIGIT_COUNT):
 			var digit_color := shared_digit_color(flare_digits, digit_index, color)
 			_draw_text_in_rect(flare_digits.substr(digit_index, 1),
-				flare_current_digit_rect(rect, digit_index), spd_digit_font_size,
+				flare_current_digit_rect(rect, digit_index), primary_value_font_size,
 				digit_color, true, HORIZONTAL_ALIGNMENT_CENTER, "9")
 		_draw_text_in_rect("/", flare_separator_rect(rect), 0, color, true)
 		_draw_text_in_rect(str(aircraft.params.flare.max_flares),
@@ -713,22 +916,29 @@ func _draw_maneuver_charge(rect: Rect2, accent: Color) -> void:
 
 func _draw_weapons(accent: Color, reload_blink_on: bool) -> void:
 	var effective_pref := effective_weapon_preference(aircraft)
+	var reload_rate := aircraft.esm_reload_rate_multiplier()
+	var missile_reload_seconds := weapon_reload_remaining_seconds(
+		aircraft.missile_reload_progress,
+		aircraft.missile_reload_duration * aircraft._executioner_reload_mult(),
+		reload_rate)
+	var gun_reload_seconds := weapon_reload_remaining_seconds(
+		aircraft.gun_reload_progress, aircraft.gun_reload_duration, reload_rate)
 	_draw_weapon_row(weapon_row_rect(0), "MSL",
 		aircraft.params != null and aircraft.params.missile != null,
 		aircraft.missiles_remaining,
 		effective_pref == Aircraft.WeaponPreference.PREFER_MISSILE,
 		aircraft._missile_reload_active, aircraft.missile_reload_progress,
-		accent, reload_blink_on)
+		missile_reload_seconds, accent, reload_blink_on)
 	_draw_weapon_row(weapon_row_rect(1), "GUN",
 		aircraft.params != null and aircraft.params.gun != null,
 		aircraft.ammo,
 		effective_pref == Aircraft.WeaponPreference.PREFER_GUN,
 		aircraft._gun_reload_active, aircraft.gun_reload_progress,
-		accent, reload_blink_on)
+		gun_reload_seconds, accent, reload_blink_on)
 
 
 func _draw_weapon_row(rect: Rect2, name_text: String, exists: bool, ammo: int, selected: bool,
-		reloading: bool, reload_progress: float, accent: Color,
+		reloading: bool, reload_progress: float, reload_remaining_seconds: float, accent: Color,
 		reload_blink_on: bool) -> void:
 	var row_index := 0 if rect.position.y == weapon_rect.position.y else 1
 	var count_rect := weapon_count_rect(row_index)
@@ -743,13 +953,19 @@ func _draw_weapon_row(rect: Rect2, name_text: String, exists: bool, ammo: int, s
 		value_text_color = Color.BLACK
 	_draw_text_in_rect(str(ammo), count_rect, secondary_value_font_size, value_text_color, true,
 		HORIZONTAL_ALIGNMENT_LEFT, WEAPON_COUNT_LAYOUT_TEXT)
-	# The name stays in the secondary information tier, but its fixed 2u board
-	# is authoritative; resolve the largest whole font size that preserves the
-	# complete MSL/GUN abbreviation inside that board.
-	_draw_text_in_rect(name_text, name_rect, 0,
+	# Keep the MSL/GUN type at its former 2u-board size even though the slot is 3u high.
+	_draw_text_in_rect(name_text, name_rect, weapon_name_font_size,
 		value_text_color, true, HORIZONTAL_ALIGNMENT_CENTER, name_text)
+	if exists and reloading:
+		var reload_color := progress_color(reload_progress, accent)
+		_draw_text_in_rect(weapon_reload_percent_text(reload_progress),
+			weapon_reload_percent_rect(row_index), 0, reload_color, true,
+			HORIZONTAL_ALIGNMENT_LEFT, PROGRESS_PERCENT_LAYOUT_TEXT)
+		_draw_text_in_rect(weapon_reload_seconds_text(reload_remaining_seconds),
+			weapon_reload_remaining_rect(row_index), 0, reload_color, true,
+			HORIZONTAL_ALIGNMENT_RIGHT, PROGRESS_PERCENT_LAYOUT_TEXT)
 	_draw_progress_bar(weapon_reload_progress_rect(row_index), reload_progress,
-		accent, true, reloading and reload_blink_on, false)
+		accent, false, exists and reloading and reload_blink_on, true)
 
 
 func _draw_progress_bar(rect: Rect2, ratio: float, accent: Color,
@@ -796,22 +1012,29 @@ func weapon_name_rect(index: int) -> Rect2:
 
 
 func weapon_reload_progress_rect(index: int) -> Rect2:
-	var name := weapon_name_rect(index)
-	return Rect2(Vector2(name.position.x - Q_SIZE.x, name.position.y),
-		Vector2(Q_SIZE.x, name.size.y))
+	var info := weapon_empty_rect(index)
+	return Rect2(
+		Vector2(info.position.x, info.end.y - U_SIZE.y),
+		Vector2(info.size.x, U_SIZE.y))
 
 
-func weapon_aux_empty_rect(index: int) -> Rect2:
-	var progress := weapon_reload_progress_rect(index)
-	return Rect2(Vector2(progress.position.x - WEAPON_AUX_EMPTY_WIDTH, progress.position.y),
-		Vector2(WEAPON_AUX_EMPTY_WIDTH, progress.size.y))
+func weapon_reload_percent_rect(index: int) -> Rect2:
+	var info := weapon_empty_rect(index)
+	return Rect2(info.position, WEAPON_RELOAD_VALUE_SIZE)
+
+
+func weapon_reload_remaining_rect(index: int) -> Rect2:
+	var info := weapon_empty_rect(index)
+	return Rect2(
+		Vector2(info.end.x - WEAPON_RELOAD_VALUE_SIZE.x, info.position.y),
+		WEAPON_RELOAD_VALUE_SIZE)
 
 
 func weapon_empty_rect(index: int) -> Rect2:
 	var row := weapon_row_rect(index)
-	var aux_empty := weapon_aux_empty_rect(index)
+	var name := weapon_name_rect(index)
 	return Rect2(Vector2(row.position.x + weapon_count_width, row.position.y),
-		Vector2(maxf(0.0, aux_empty.position.x - row.position.x - weapon_count_width), row.size.y))
+		Vector2(maxf(0.0, name.position.x - row.position.x - weapon_count_width), row.size.y))
 
 
 static func speed_value_overflows(speed_value: int) -> bool:
@@ -826,6 +1049,14 @@ static func formatted_speed_digits(speed_value: int) -> String:
 
 static func formatted_two_digit_value(value: int) -> String:
 	return "%02d" % clampi(value, 0, 99)
+
+
+static func formatted_three_digit_value(value: int) -> String:
+	return "%03d" % clampi(value, 0, 999)
+
+
+static func formatted_altitude_digits(value: int) -> String:
+	return "%05d" % clampi(value, 0, 99999)
 
 
 static func speed_digit_is_padding(digits: String, index: int) -> bool:
@@ -876,6 +1107,22 @@ static func cooldown_ready_ratio(remaining: float, total: float) -> float:
 	return clampf(1.0 - remaining / total, 0.0, 1.0)
 
 
+static func weapon_reload_remaining_seconds(progress: float, duration: float,
+		reload_rate: float = 1.0) -> float:
+	if duration <= 0.0:
+		return 0.0
+	return maxf(0.0,
+		(1.0 - clampf(progress, 0.0, 1.0)) * duration / maxf(reload_rate, 0.001))
+
+
+static func weapon_reload_percent_text(progress: float) -> String:
+	return "%d%%" % roundi(clampf(progress, 0.0, 1.0) * 100.0)
+
+
+static func weapon_reload_seconds_text(remaining_seconds: float) -> String:
+	return "%ds" % ceili(maxf(remaining_seconds, 0.0))
+
+
 static func maneuver_skill_visible(ac: Aircraft) -> bool:
 	return ac != null and is_instance_valid(ac) and not ac.is_destroyed \
 		and ac.equipped_r_maneuver_id() != &""
@@ -890,9 +1137,23 @@ static func maneuver_charge_ratio(ac: Aircraft) -> float:
 
 static func altitude_preference_name_key(ac: Aircraft) -> String:
 	if ac != null and is_instance_valid(ac) \
-		and ac.altitude_preference == Aircraft.AltitudePreference.PREFER_LOW:
+			and ac.altitude_preference == Aircraft.AltitudePreference.PREFER_LOW:
 		return "TOOLTIP_ALT_LOW_TITLE"
 	return "TOOLTIP_ALT_CLIMB_TITLE"
+
+
+static func altitude_mode_text(ac: Aircraft) -> String:
+	if ac != null and is_instance_valid(ac) \
+			and ac.altitude_preference == Aircraft.AltitudePreference.PREFER_LOW:
+		return "LOW"
+	return "HIGH"
+
+
+static func altimeter_target_degrees(altitude: float, prefer_low: bool) -> float:
+	var ratio := clampf(altitude / ALT_GAUGE_REFERENCE_ALTITUDE, 0.0, 1.0)
+	if prefer_low:
+		return lerpf(ALT_GAUGE_MIN_DEGREES, ALT_GAUGE_LOW_MAX_DEGREES, ratio)
+	return lerpf(ALT_GAUGE_HIGH_MIN_DEGREES, ALT_GAUGE_MAX_DEGREES, ratio)
 
 
 static func effective_weapon_preference(ac: Aircraft) -> int:
