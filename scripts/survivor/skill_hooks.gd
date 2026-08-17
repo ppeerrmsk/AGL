@@ -18,6 +18,7 @@ extends RefCounted
 ## ── 升级 ID 常量（与 SurvivorData.UPGRADES 中 id 字段一致） ──
 const SKILL_GUN_KILL_FEAR := "skill_gun_kill_fear"
 const SKILL_KILL_BLOODLUST := "skill_kill_bloodlust"
+const SKILL_BERSERK_VIRUS := "berserk_virus"
 const SKILL_DAMAGED_BLOODLUST := "skill_damaged_bloodlust"
 const SKILL_HEAD_ON_PERMA_HP := "skill_head_on_perma_hp"
 const SKILL_HEAD_ON_AOE_FEAR := "skill_head_on_aoe_fear"
@@ -39,6 +40,7 @@ const SKILL_INVASION_ALGORITHM := "invasion_algorithm"
 const SKILL_FLEE := "flee"
 const SKILL_STORM_I := "storm_i"
 const SKILL_STORM_II := "storm_ii"
+const SKILL_FIRE_CONTROL_SATURATION := "fire_control_saturation"
 const SKILL_RATATAT := "ratatat"
 const SKILL_MENTAL_CONFUSION := "mental_confusion"
 const SKILL_HUSH := "hush"
@@ -50,6 +52,11 @@ const SKILL_ROCKET_HOMING := "skill_rocket_homing"         ## 火箭弹弱追踪
 ## ── 激光技能 ──
 const SKILL_LASER_DAMAGE := "skill_laser_damage"           ## 激光恢复 DPS 伤害（默认只减速）
 const SKILL_LASER_HACK := "skill_laser_hack"               ## 激光持续黑入 MQ-109/110 并转为 ALLY
+
+const FIRE_CONTROL_SATURATION_LOCKS := 5
+const FIRE_CONTROL_SATURATION_DURATION := 6.0
+const FIRE_CONTROL_SATURATION_INTERNAL_CD := 20.0
+const FIRE_CONTROL_SATURATION_LOCK_BONUS := 2
 
 ## ── 722 批：机体签名技能（spec aircraft-signature-skills）──
 ## 作战云（FCAS sig_fcas，squad_once 账本位，由 survivor_mode._refresh_squad_effective_stacks 同步）
@@ -120,6 +127,45 @@ static func try_trigger_j36_assault(ac: Aircraft) -> void:
 	ac.sig_j36_assault_active = true
 	ac._sig_j36_cd = 15.0
 	EventLogger.log_event("SKILL", ac._log_name(), "三发推力：突击命令 → 机动强化（至目标消灭；CD 15s）")
+
+
+## 火控饱和：当前王牌的满锁目标数从 <5 跨到 ≥5 时触发 6s OVERLOAD。
+## state 由 SurvivorMode 持有，保证王牌切控不清 CD；同一段 ≥5 锁只消费一次上升沿。
+static func try_fire_control_saturation(ac: Aircraft, state: Dictionary, delta: float) -> bool:
+	state["cooldown"] = maxf(float(state.get("cooldown", 0.0)) - delta, 0.0)
+	if ac == null or not is_instance_valid(ac) or ac.is_destroyed or not ac.is_player_squad():
+		return false
+	if int(_get_upgrade_stacks(ac).get(SKILL_FIRE_CONTROL_SATURATION, 0)) <= 0:
+		state["latched"] = false
+		return false
+	if ac.effective_max_locks() < FIRE_CONTROL_SATURATION_LOCKS:
+		state["latched"] = false
+		return false
+	var lock_threshold: float = ac.params.lock_time if ac.params else 3.0
+	var fully_locked: int = 0
+	for target in ac.radar_targets:
+		if not is_instance_valid(target):
+			continue
+		var unit := target as CombatUnit
+		if unit == null or unit.is_destroyed or not ac.is_hostile_to(unit):
+			continue
+		if float(ac.radar_targets[target]) >= lock_threshold:
+			fully_locked += 1
+	if fully_locked < FIRE_CONTROL_SATURATION_LOCKS:
+		state["latched"] = false
+		return false
+	if bool(state.get("latched", false)):
+		return false
+	state["latched"] = true
+	if float(state.get("cooldown", 0.0)) > 0.0:
+		return false
+	state["cooldown"] = FIRE_CONTROL_SATURATION_INTERNAL_CD
+	ac.apply_status(StatusEffects.OVERLOAD, FIRE_CONTROL_SATURATION_DURATION)
+	EventLogger.log_event("SKILL", ac._log_name(),
+		"火控饱和：%d 个目标满锁 → %.0fs 超载（CD %.0fs）" % [
+			fully_locked, FIRE_CONTROL_SATURATION_DURATION,
+			FIRE_CONTROL_SATURATION_INTERNAL_CD])
+	return true
 
 
 ## 722 批：特殊机动完成事件（眼镜蛇 RECOVER 完成 / 破 S ACCEL 完成时调用）。
@@ -278,7 +324,7 @@ static func dispatch_on_kill(killer: Aircraft, victim: Aircraft) -> void:
 		on_player_jam_landed(killer, jam_hits)
 
 	# ── 钩子：击杀进入 BLOODLUST ──
-	if stacks.get(SKILL_KILL_BLOODLUST, 0) > 0:
+	if stacks.get(SKILL_KILL_BLOODLUST, 0) > 0 or killer.is_berserk_virus_wingman():
 		killer.apply_status(StatusEffects.BLOODLUST, KILL_BLOODLUST_DURATION)
 
 	# ── 钩子：击杀有异常状态者回 30 HP ──

@@ -64,6 +64,8 @@ var evasion_intent: bool = false          ## E 键规避
 var missile_auto_fire: bool = true        ## 导弹自动发射开关（HUD 切换）
 var has_radar_lock: bool = false          ## 当前雷达至少锁住一个敌方单位
 var altitude_preference: int = 0          ## 玩家高度偏好（0=PREFER_CLIMB, 1=PREFER_LOW），仅 use_tactical_preference 有效
+var is_player_squad: bool = false         ## 玩家小队成员；HIGH 自然高度带只作用于我方，不改敌机作战高度
+var altitude_variation_phase: float = 0.0 ## 玩家 HIGH 低频个体相位；由稳定 squad_slot 派生，避免全队同步升降
 var target_lock_progress: float = 0.0     ## combat_target 的锁定进度（秒），0=未追踪
 var target_locked: bool = false           ## combat_target 是否已锁定（progress >= lock_time）
 var lock_time_threshold: float = 3.0      ## 自身雷达锁定阈值（秒），来自 params.lock_time
@@ -182,6 +184,9 @@ static func from_aircraft(ac) -> Situation:
 	s.my_speed_ms = ac.speed
 	s.my_alt = ac.altitude
 	s.is_feared = ac.status_fear_active
+	s.is_player_squad = ac.is_player_squad()
+	var altitude_phase_id: int = ac.squad_slot if ac.squad_slot > 0 else int(ac.get_instance_id() % 997)
+	s.altitude_variation_phase = fmod(float(altitude_phase_id) * 2.399963, TAU)
 	s.combat_altitude_m = ac.altitude  # 默认：保持当前高度；AIController 分支会覆写为 patrol_altitude
 	s.my_bank_deg = rad_to_deg(ac.bank_angle)
 	s.ammo = ac.ammo
@@ -458,4 +463,5 @@ func to_dict() -> Dictionary:
 		"dogfight_mode": dogfight_mode, "dogfight_score": dogfight_score,
 		"turn_rate_ratio": turn_rate_ratio, "radius_adv": turn_radius_advantage,
 		"weapon_lock": weapon_lock, "charge": charge_intent, "evade": evasion_intent,
+		"altitude_preference": altitude_preference, "player_squad": is_player_squad,
 	}

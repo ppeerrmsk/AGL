@@ -1508,6 +1508,7 @@ func _build_squad_panel() -> void:
 
 var _boss_card_labels: Array[RichTextLabel] = []  ## 每架飞机一个卡片标签
 var _boss_title_label: Label
+var _boss_custom_label: RichTextLabel             ## 多体 BOSS 的紧凑树协议（空时隐藏）
 
 func _build_boss_panel() -> void:
 	_boss_panel = PanelContainer.new()
@@ -1533,6 +1534,17 @@ func _build_boss_panel() -> void:
 	_boss_title_label.add_theme_font_size_override("font_size", 11)
 	_boss_title_label.add_theme_color_override("font_color", ThemeColors.BOSS_TITLE)
 	hbox.add_child(_boss_title_label)
+
+	_boss_custom_label = RichTextLabel.new()
+	_boss_custom_label.visible = false
+	_boss_custom_label.bbcode_enabled = true
+	_boss_custom_label.fit_content = true
+	_boss_custom_label.scroll_active = false
+	_boss_custom_label.custom_minimum_size = Vector2(920, 0)
+	_boss_custom_label.add_theme_font_size_override("normal_font_size", 10)
+	_boss_custom_label.add_theme_font_size_override("bold_font_size", 10)
+	_boss_custom_label.add_theme_color_override("default_color", Color(0.90, 0.84, 0.78))
+	hbox.add_child(_boss_custom_label)
 
 	# 5 个卡片槽位（CSG BOSS：CV 旗舰 + 最多 4 架 F-14 Poltergeist）
 	_boss_card_labels.clear()
@@ -1658,6 +1670,17 @@ func _update_boss_panel() -> void:
 	_boss_panel.visible = true
 	if _boss_title_label:
 		_boss_title_label.text = boss.display_name
+	var custom_entries: Array[Dictionary] = boss.get_hud_entries()
+	if not custom_entries.is_empty():
+		_boss_custom_label.visible = true
+		_boss_custom_label.text = _format_custom_boss_entries(custom_entries)
+		for card in _boss_card_labels:
+			card.visible = false
+		return
+	_boss_custom_label.visible = false
+	_boss_custom_label.text = ""
+	for card in _boss_card_labels:
+		card.visible = true
 	var members := all_members
 	var prefix: String = boss.callsign_prefix if boss.callsign_prefix != "" else "BOSS"
 
@@ -1676,6 +1699,28 @@ func _update_boss_panel() -> void:
 			continue
 		# 飞机
 		card.text = _format_boss_aircraft_card(raw as Aircraft)
+
+## 多体 / 分裂 BOSS 紧凑树：最多 16 项，四列；UI 只认识通用 entry 字段。
+func _format_custom_boss_entries(entries: Array[Dictionary]) -> String:
+	var tokens: Array[String] = []
+	for entry in entries:
+		var hp: float = float(entry.get("hp", 0.0))
+		var max_hp: float = maxf(float(entry.get("max_hp", 1.0)), 1.0)
+		var ratio := clampf(hp / max_hp, 0.0, 1.0)
+		var hp_color := "ff4d4d" if ratio <= 0.3 else ("ffcc44" if ratio <= 0.6 else "66e36f")
+		var state := String(entry.get("state", ""))
+		var extra := state
+		if state in ["DESCENT", "CLIMB"]:
+			extra = "%s %.1fkm %.1fs" % [state,
+				float(entry.get("altitude", 0.0)) / 1000.0,
+				float(entry.get("seconds", 0.0))]
+		tokens.append("[b]%s[/b] G%d [color=#%s]%d/%d[/color] [color=#e8a86a]%s[/color]" % [
+			String(entry.get("name", "BOSS")), int(entry.get("generation", 0)),
+			hp_color, int(hp), int(max_hp), extra])
+	var lines: Array[String] = []
+	for i in range(0, tokens.size(), 4):
+		lines.append("    ".join(tokens.slice(i, mini(i + 4, tokens.size()))))
+	return "\n".join(lines)
 
 ## 舰船（CV 旗舰等）HUD 卡片格式化
 func _format_boss_ship_card(ship: NavalUnit) -> String:
@@ -1859,6 +1904,11 @@ func _update_squad_panel() -> void:
 	if sq == null:
 		_wingman_instrument.update_display([])
 		return
+	var berserk_locked := game_scene != null \
+		and int(game_scene.upgrade_stacks.get(SkillHooks.SKILL_BERSERK_VIRUS, 0)) > 0
+	if berserk_locked:
+		_squad_engage_mode = AIController.SquadEngageMode.FREE
+	_btn_squad_engage.disabled = berserk_locked
 
 	# 继任者标记（spec ace-system §3）：击坠数最高的僚机 = 王牌阵亡时的继任者，标 ★
 	var heir: Aircraft = null
@@ -1933,6 +1983,18 @@ func _squad_engage_mode_label() -> String:
 			return tr("SQUAD_ENGAGE_FOLLOW")
 
 func _on_squad_engage_pressed() -> void:
+	if game_scene and int(game_scene.upgrade_stacks.get(SkillHooks.SKILL_BERSERK_VIRUS, 0)) > 0:
+		_squad_engage_mode = AIController.SquadEngageMode.FREE
+		var locked_sq := _get_player_squad()
+		if locked_sq:
+			locked_sq.engage_mode = Squad.EngageMode.FREE
+			locked_sq.formation = Squad.Formation.COMBAT_SPREAD
+		for locked_wm in _get_wingmen():
+			locked_wm.enforce_berserk_virus_free_mode()
+		if game_scene._zone_hint:
+			game_scene._zone_hint.show_temp(tr("SQUAD_BERSERK_FREE_LOCKED"), 2.5)
+		EventLogger.log_event("SQUAD_CMD", "Player", "engage mode locked by BERSERK VIRUS")
+		return
 	# 三态循环：自由(0) → 跟随长机(1) → 守护后方(2) → 自由
 	_squad_engage_mode = (_squad_engage_mode + 1) % 3
 	# 战术=阵型：切模式同时把小队阵型设成绑定的那个（自由→展开 / 跟随→指尖四点 / 守后→楔形）

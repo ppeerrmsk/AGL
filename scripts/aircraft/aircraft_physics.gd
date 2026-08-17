@@ -252,8 +252,8 @@ static func update_speed(ac: Aircraft, delta: float) -> void:
 
 		var max_climb_norm: float = ac.params.climb_rate_max if ac.params else 250.0
 		var vs_norm: float = clampf(ac.vertical_speed / maxf(max_climb_norm, 1.0), -1.0, 1.0)
-		# 722 sig_typhoon·超巡爬升：爬升不削目标速度（俯冲增速照旧；PE↔KE 物理不豁免）
-		if not (ac.sig_typhoon_active and vs_norm > 0.0):
+		# 722 sig_typhoon·超巡爬升：只在统一 CLIMB 动作中免目标速度惩罚。
+		if not (ac.sig_typhoon_active and ac.altitude_action == Aircraft.AltitudeAction.CLIMB):
 			target_ms *= 1.0 - vs_norm * 0.10
 
 		var max_speed_ms := max_speed_at_altitude(ac) / 3.6
@@ -324,6 +324,7 @@ static func update_altitude(ac: Aircraft, delta: float) -> void:
 	if ac._active_special == Aircraft.ActiveSpecialManeuver.VERTICAL_BREAK:
 		return
 	if ac.is_stalled:
+		ac._set_altitude_action(Aircraft.AltitudeAction.NONE)
 		ac.altitude += ac.vertical_speed * delta
 		ac.altitude = maxf(ac.altitude, 0.0)
 		return
@@ -358,8 +359,15 @@ static func update_altitude(ac: Aircraft, delta: float) -> void:
 	ac.vertical_speed = lerpf(ac.vertical_speed, target_vs, delta * smooth_rate)
 	ac.altitude += ac.vertical_speed * delta
 	ac.altitude = maxf(ac.altitude, 0.0)
+	var next_action := Aircraft.AltitudeAction.NONE
+	if alt_diff > 0.0 and ac.vertical_speed > Aircraft.ALTITUDE_ACTION_THRESHOLD_MPS:
+		next_action = Aircraft.AltitudeAction.CLIMB
+	elif alt_diff < 0.0 and ac.vertical_speed < -Aircraft.ALTITUDE_ACTION_THRESHOLD_MPS:
+		next_action = Aircraft.AltitudeAction.DIVE
+	ac._set_altitude_action(next_action)
 	if ac.is_player_squad() and ac.alt_change_stealth_factor > 0.0:
-		var instant_v: float = absf(ac.vertical_speed)
+		var instant_v: float = absf(ac.vertical_speed) \
+			if ac.altitude_action != Aircraft.AltitudeAction.NONE else 0.0
 		ac._alt_velocity = lerpf(ac._alt_velocity, instant_v, clampf(delta * 4.0, 0.0, 1.0))
 
 
@@ -467,6 +475,8 @@ static func _g_buff_mult(ac: Aircraft) -> float:
 	# 玩家技能"保卫阵地"：防守圈内回转强化（720 批；squad_cmd 维护 flag）
 	if ac.guard_zone_buff_active:
 		m *= GUARD_ZONE_G_MULT
+	if ac.is_berserk_virus_wingman():
+		m *= BERSERK_VIRUS_MANEUVER_MULT
 	return m
 
 
@@ -498,8 +508,13 @@ static func base_stall_kmh(ac: Aircraft) -> float:
 	return (ac.params.stall_speed_base if ac.params else 220.0) * ac.aura_stall_mult
 
 
+const BERSERK_VIRUS_MANEUVER_MULT: float = 1.25
+
 static func base_roll_rate(ac: Aircraft) -> float:
-	return (ac.params.roll_rate if ac.params else 4.0) * ac.aura_roll_rate_mult
+	var rate := (ac.params.roll_rate if ac.params else 4.0) * ac.aura_roll_rate_mult
+	if ac.is_berserk_virus_wingman():
+		rate *= BERSERK_VIRUS_MANEUVER_MULT
+	return rate
 
 
 static func base_accel(ac: Aircraft) -> float:
@@ -529,6 +544,8 @@ static func effective_accel_mult(ac: Aircraft, is_ab: bool) -> float:
 		mult *= 1.4
 	if ac.hunter_assault_active:
 		mult *= 1.2
+	if ac.is_berserk_virus_wingman():
+		mult *= BERSERK_VIRUS_MANEUVER_MULT
 	if ac._sig_mig41_dive_timer > 0.0:
 		mult *= 1.5
 	if is_ab and not ac.hard_brake:
@@ -547,6 +564,8 @@ static func effective_decel_mult(ac: Aircraft) -> float:
 		mult *= 1.4
 	if ac.hunter_assault_active:
 		mult *= 1.2
+	if ac.is_berserk_virus_wingman():
+		mult *= BERSERK_VIRUS_MANEUVER_MULT
 	return mult
 
 

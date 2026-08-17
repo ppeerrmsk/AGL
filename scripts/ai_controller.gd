@@ -737,6 +737,9 @@ func _physics_process_impl(delta: float) -> void:
 	if manual_control:
 		return
 
+	# 狂化病毒：只锁既有 FREE 交战模式，不碰目标/状态；显式命令仍由命令铁律覆盖。
+	aircraft.enforce_berserk_virus_free_mode()
+
 	# ── 降级过渡 grace（spec §3.4 "打完再归队"）──
 	# 旧长机被卸下操控后唤醒：grace 期间不强制归队，让正常 AI 延续当前交战；
 	# 当前目标打完（combat_target 失效）或计时到 → 融入新长机编队。grace 内不 return，

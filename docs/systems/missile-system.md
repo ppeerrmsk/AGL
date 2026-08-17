@@ -55,6 +55,7 @@
 | `launch_toward_target` | 发射瞬间朝目标方向而非机头方向 |
 | **副武器槽专用** | `target_filter`（AIR/GROUND/SHIP/MISSILE 位域）/ `lock_cone_half_angle_deg` / `lock_max_range_px` / `target_priority` —— 见 [aircraft-system.md](aircraft-system.md) |
 | **VLS 齐射**（舰船垂发） | `is_vls_salvo` / `vls_salvo_size` / `vls_salvo_interval` / `vls_salvo_cooldown` / `vls_point_scatter_px` / `vls_climb_time` / `vls_transition_time` / `vls_transition_turn_rate_degs` / `vls_speed_variance` |
+| **定距空爆**（默认关闭） | `distance_airburst_distance_m` >0 时累计实际路径到点自爆且此前不建立直接命中；`distance_airburst_min_launch_range_m` 供发射器声明近身停火门；`distance_airburst_radius_m` / `distance_airburst_duration_s` 覆盖 AOE 尺寸与寿命 |
 
 ## 导弹飞行物理（missile.gd）
 

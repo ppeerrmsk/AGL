@@ -1,6 +1,6 @@
 # 演出编排方法论（Cinematic Authoring）
 
-> 给"下一段演出"的作者看的。本文是**方法论与陷阱清单**，数值权威在
+> 给"下一段演出"和"下一个 BOSS"的作者看的。本文是**方法论、BOSS 登场量产流程与陷阱清单**，数值权威在
 > [specs/systems/ui-transition.md](../specs/systems/ui-transition.md)。
 > 每一条都来自 Wraith 登场演出（2026-07-20~21）实际踩过的坑 —— 共 15+ 个，
 > 其中约一半是无头测试全绿、进引擎才炸的。
@@ -77,15 +77,17 @@ release / 超时 / clear_all 三条路径都必须复原全部四类状态，且
 |---|---|---|
 | 无头断言（`--bench=presentation`） | 数值/时序/配平/命名契约/几何包线 | 一切引擎交互 |
 | SceneTree 探针（临时脚本真跑 present/dismiss） | 暂停语义、typed array、首帧闪现、泄漏 | 视觉观感、多系统合流 |
-| 引擎内肉眼（F6 → 跳 BOSS，F8 热重载调参） | 层叠遮挡、镜头手感、节奏、"到底好不好看" | —— |
+| 引擎内肉眼（主菜单 BOSS DEBUG → 选择 BOSS） | 层叠遮挡、镜头手感、节奏、"到底好不好看" | —— |
 
 **规律：本次 15+ 个 bug 里，凡是"暂停下谁在跑"“属性存不存在”“方向对不对"这类引擎事实，
 无头层全部漏过。** 所以新演出**必须**走完第三层才算完成，前两层绿≠能玩。
 
 ## 6. 序列文法（sequences.json）
 
-一段演出 = 一个顶层键 + `steps` 数组。编辑器内 **F8 热重载**（改完存盘即看），
-`Presentation.debug_replay("名字")` 可反复重放。
+一段演出 = 一个顶层键 + `steps` 数组。`Presentation.reload_sequences()` 负责重读 JSON，
+`Presentation.debug_replay("名字")` 可反复重放。导演保留 F8 调试入口，但 Godot 编辑器会优先把 F8
+解释为“停止运行”，Boss Debug 也占用 F8 复活/重抽；正式 authoring 不依赖该快捷键，保存后从
+主菜单 BOSS DEBUG 重进目标 BOSS，或由明确的临时调试调用点执行 reload + replay。
 
 ```json
 "my_cinematic": {
@@ -128,6 +130,12 @@ release / 超时 / clear_all 三条路径都必须复原全部四类状态，且
 |---|---|---|
 | `dim` | `from?, to, dur, ease` | 黑色压暗层（layer 随面板动态取位，演出中在 16） |
 | `flash` | `to, dur, ease` | 白色闪光层（layer 25，盖住一切面板） |
+
+### `banner` —— BOSS 系统入侵身份横幅
+| op | 参数 | 说明 |
+|---|---|---|
+| `reveal` | `dur, ease` | 从 `ctx.boss_banner` 读取 `name_key / role_key / motto_key / callsign / palette`；5 个警告窗严格逐个完成压入，最后才展开主身份横幅。正式 arrival 的 `dur=1.05` |
+| `dismiss` | `dur, ease` | 故障条与主横幅退出；`camera.cut_to` 必须排在该 step 完成之后。正常/超时/`clear_all()` 都会强制隐藏 |
 
 ### `stage` —— 空舞台
 | op | 参数 | 说明 |
@@ -173,6 +181,7 @@ var ok: bool = Presentation.play_cinematic("my_cinematic", {
     "inbound": inbound,               # 进场方向 = (anchor - player).normalized()，散开扇面的中轴
     "extra_layers": [地图, hud, ...], # stage 要一起压暗的层（CanvasLayer 自动走 visible）
     "callsign_prefix": "WRAITH",      # radio 说话人前缀
+    "boss_banner": BossRegistry.banner_metadata_for(encounter.boss_id), # banner 身份数据
     "bgm_layers": [...], "bgm_track": "boss",   # audio.boss_bgm 的快照
 })
 if ok:
@@ -181,27 +190,270 @@ if ok:
 ```
 
 三条契约：
-1. **ctx 全是快照**（字符串/坐标/数组），导演不认识 encounter —— 新演出别把活对象塞进 ctx
+1. **ctx 的业务数据全是快照**（字符串/坐标/普通数组），导演不认识 encounter。仅 `owner` 与
+   `actors` 是受契约约束的活对象引用；不要再把 encounter、mode 或其它业务对象塞进 ctx
 2. `play_cinematic` 返回 false（无 owner / 无演员 / 序列不存在）时**必须有回落路径**
    （boss 登场的回落 = 旧横幅+无线电；参考 `_try_play_arrival_cinematic`）
 3. `sequence_finished` 在 release 之后发 —— 钩子里做"演出后世界该是什么样"的重建，
    不要做视觉清理（那是导演的活，已经做完了）
 
-## 9. 新增一段剧情演出的最短路径
+## 9. BOSS 登场量产流水线（身份横幅 + 镜头 + 接战）
 
-1. 序列名：BOSS 登场固定 `<boss_id 小写>_arrival`（断言双向校验）；其他剧情演出自由命名，
-   但触发方自己负责 `has_sequence` 检查 + 回落
-2. 在 `sequences.json` 里编排，照抄 `wraith_squadron_arrival` 骨架：
-   `pause → stage.clear → 演员定位 → cut_to(follow) → audio.boss_bgm → 台词(带 dur) →
-   动作 → stage.restore + return_to_player → unpause → actor.release`
-3. 空间尺度按 §1-1 反推；台词时长用编排值；**演出必带配乐**
-4. 需要新演员动作 → 加进 `cinematic_cast.gd`（只下航路点；新参数记得同时写消费方，§1-3）
-5. 过一遍 §1 四问 + §2 陷阱表 + §4 收尾四类
-6. `--bench=presentation` 绿 → **引擎内看一遍**（F6 跳 BOSS + F8 热重载调参）——
-   前两层绿 ≠ 能玩（§5）
-7. spec §8 记变更；踩了新坑回填 §2 陷阱表
+本节是新增 BOSS 时的**执行手册**；BOSS 的玩法、编成、阶段和数值仍先写入自己的
+`docs/specs/bosses/<name>.md`，再按 [playbook §2](playbook.md#2-加-boss) 落主体。登场演出不建立
+第二套 BOSS 状态机，它只在 `BossEncounterEvent.PRE_STAGE` 中借用演员、播放表现，清理完毕后把
+控制权还给事件并立即进入 `ENGAGED`。
 
-## 10. 锚点
+```mermaid
+flowchart LR
+    A["Boss spec"] --> B["BossRegistry.BOSS_DEFS"]
+    B --> C["BossEncounterEvent spawn / PRE_STAGE"]
+    C --> D["get_display_members() actors"]
+    C --> E["banner_metadata_for()"]
+    E --> F["banner reveal / dismiss"]
+    D --> G["<boss_id 小写>_arrival"]
+    F --> G
+    G --> H["stage / camera / radio / actor / audio"]
+    H --> I["restore + return_to_player + release"]
+    I --> J["sequence_finished"]
+    J --> K["BossEncounterEvent._enter_engaged()"]
+```
+
+### 9.1 完成定义
+
+一个新 BOSS 的登场只有同时满足下列条件才算完成：
+
+| 契约 | 完成条件 |
+|---|---|
+| 玩法 | BOSS spec 已 approved；主体可生成，`get_display_members()` 返回有效单位 |
+| 身份 | 注册表提供横幅名、角色类型、包装英文、呼号与 palette token；全部玩家可见文本进入五表 i18n |
+| 命名 | `boss_id = MY_BOSS` 对应序列名严格为 `my_boss_arrival` |
+| 时序 | 先横幅、横幅完全退场后才切镜；镜头归还后才解除暂停并接战 |
+| 时长 | 整条不可跳过演出 `max_sec = 7.0`，实际最后一步 `at ≤ 7.0` |
+| 收尾 | `stage.restore + camera.return_to_player + time.pause(to=0) + actor.release` 齐全 |
+| 退化 | 缺序列、缺演员、UI 覆盖或意外中断均 fail-open 进入 `ENGAGED`，不得卡在 PRE_STAGE |
+| 验证 | i18n 构建、`presentation`、`boss_phase`、横幅 Visual、真实 Boss Debug 观看全部完成 |
+
+### 9.2 第一步：注册身份与玩家可见文本
+
+在 `BossRegistry.BOSS_DEFS` 增加完整条目。横幅组件只消费注册表快照，**禁止**在
+`BossArrivalBanner` 或 `PresentationDirector` 里按 boss id 写分支。
+
+```gdscript
+"MY_BOSS": {
+    "class_path": "res://scripts/survivor/my_boss.gd",
+    "bgm": "boss_my_boss",
+    "display_name": "MY BOSS",                  # 日志/内部回退
+    "name_key": "CODEX_MY_BOSS_NAME",           # 结算/图鉴玩家可见名
+    "banner_name_key": "BOSS_BANNER_MY_BOSS_NAME",
+    "banner_role_key": "BOSS_BANNER_MY_BOSS_ROLE",
+    "banner_motto_key": "BOSS_BANNER_MY_BOSS_MOTTO",
+    "banner_palette": "terminal_green",
+    "callsign_prefix": "MYBOSS",
+    "requires_water": false,
+}
+```
+
+横幅三项身份文本放入 `i18n/gameplay.csv`：
+
+```csv
+BOSS_BANNER_MY_BOSS_NAME,中文名,MY BOSS,日本語名
+BOSS_BANNER_MY_BOSS_ROLE,中文角色类型,ROLE TYPE,日本語役割
+BOSS_BANNER_MY_BOSS_MOTTO,PACKAGING ENGLISH,PACKAGING ENGLISH,PACKAGING ENGLISH
+```
+
+- `banner_name_key` 是横幅唯一第一视觉焦点，不等同于 `display_name`，也不要求与图鉴文本完全相同。
+- `banner_role_key` 只写角色类型；组件统一拼成 `THREAT CLASS // <ROLE>`。
+- `banner_motto_key` 是左上角包装英文；即使三语相同也必须走 i18n key。
+- `callsign_prefix` 同时用于横幅 `CALLSIGN //` 和无线电说话人 `<prefix>-01/02/...`。
+- 已有 palette token 是 `terminal_green`、`wraith_blue` 与 Black Star 的 `black_star`。只换文案不要新造 palette；确需新色板时，
+  同步 `ThemeColors`、`BossArrivalBanner.PALETTES`、`has_palette()` 断言和 Visual QA。
+
+登场台词放 `i18n/radio.csv`，并在 `resources/chatter/radio_chatter.json` 的 `boss_sequences` 登记
+`spawn / engage / phase2`。正式镜头序列直接引用同一组 `RADIO_BOSS_<ID>_*` key；`boss_sequences`
+仍必须保留，因为演出缺失或启动失败时，旧 WARNING + 无线电路径会消费它。
+
+五表资源统一重建：
+
+```powershell
+bench\run.cmd i18n_build 5 180 Shadow
+```
+
+构建物在 `bench/results/`。把对应五表的 `zh/en/ja.translation` 复制回 `i18n/`；禁止手改二进制
+`.translation`，也不要恢复已废弃的单体 `translations.csv`。完整规则见 [i18n.md](i18n.md)。
+
+### 9.3 第二步：明确演员协议与 PRE_STAGE 摆位
+
+`BossEncounterEvent` 用 `encounter.get_display_members()` 同时取得 HUD 成员和演出演员。量产时先把
+演员列表写清楚，再选镜头模板：
+
+| BOSS 类型 | `get_display_members()` | 可直接使用的演出动作 |
+|---|---|---|
+| 单主体飞机 | `[boss_unit]`，主体必须是 `actors[0]` | camera / stage / radio / audio；需要时可用 Aircraft actor op |
+| 海军旗舰 | `[flagship]`，旗舰必须是 `actors[0]` | camera / stage / radio / audio；不要套用飞机编队动作 |
+| 多机中队 | 稳定顺序数组，长机必须是 `actors[0]` | 可追加 ingress / trail / converge / cloak / scatter |
+| 复合 BOSS | 只返回镜头应展示、HUD 应追踪的核心单位 | 先做主体特写；确需多演员再扩专用 op |
+
+`actors[0]` 是镜头跟随、交汇基准与默认长机，不能依赖场景树顺序临时决定。数组必须过滤已释放对象；
+主体生成后到演出开始之间不能返回空数组，否则 `_try_play_arrival_cinematic()` 会走 fail-open。
+
+当前 `BossEncounterEvent._start()` 仍按 encounter 类型负责 spawn 与 PRE_STAGE directive。新增 BOSS 时仅注册
+`class_path` **不够**：还要补对应 spawn 分支和 `_apply_pre_stage_directives_<boss>()`，保证演员在横幅期间
+已经存在、武器受控、没有提前接战。简单特写可以只让事件持有现有巡逻/待机指令；复杂走位仍由
+`CinematicCast` 通过事件的 `set_directive()` 借用控制权。
+
+### 9.4 第三步：身份横幅固定骨架
+
+身份差异全部来自 `BossRegistry.banner_metadata_for()` 返回的快照：
+
+```text
+name_key / role_key / motto_key / callsign / palette
+```
+
+正式 arrival 共用以下前导，不为单个 BOSS 改动画节拍：
+
+| 时间 | 固定动作 |
+|---|---|
+| `0.00s` | hard pause；overlay.dim；`banner.reveal dur=1.05`；BGM 开始 crossfade |
+| `0.00–0.72s` | 5 个系统警告窗严格逐个完成压入 |
+| `0.72–1.05s` | 主身份横幅与包装英文完成展开 |
+| `1.05–1.30s` | 保持完整身份供扫读 |
+| `1.30–1.50s` | `banner.dismiss dur=0.20`；同步开始 stage.clear |
+| `≥1.50s` | 横幅已完全隐藏，才允许 `camera.cut_to` |
+
+组件已经统一处理文字安全区、父级硬裁切、语言回退和未知 palette 回落。新增 BOSS 只提供数据，
+不得复制一套横幅节点或绕过 `banner` 通道直接 show/hide。
+
+### 9.5 第四步：选择镜头模板并写序列
+
+#### 模板 A：单主体特写（默认量产模板）
+
+航母、巨型飞机、地面主体默认从 `carrier_strike_group_arrival` / `mother_goose_arrival` 复制。
+它只要求 `actors[0]` 是有效 `CombatUnit`，风险最低：
+
+```json
+"my_boss_arrival": {
+  "max_sec": 7.0,
+  "steps": [
+    { "at": 0.0, "ch": "time", "op": "pause", "to": 1 },
+    { "at": 0.0, "ch": "overlay", "op": "dim", "to": 0.22, "dur": 0.12, "ease": "cubic_out" },
+    { "at": 0.0, "ch": "banner", "op": "reveal", "dur": 1.05, "ease": "back_out" },
+    { "at": 0.05, "ch": "audio", "op": "boss_bgm", "fade": 2.0 },
+    { "at": 1.3, "ch": "banner", "op": "dismiss", "dur": 0.2, "ease": "cubic_in" },
+    { "at": 1.3, "ch": "overlay", "op": "dim", "to": 0.0, "dur": 0.2, "ease": "cubic_in" },
+    { "at": 1.3, "ch": "stage", "op": "clear", "dur": 0.45, "ease": "cubic_out" },
+    { "at": 1.5, "ch": "camera", "op": "cut_to", "zoom": 0.75, "follow": true, "actor": 0 },
+    { "at": 1.9, "ch": "radio", "op": "line", "key": "RADIO_BOSS_MY_BOSS_SPAWN_1", "actor": 0, "dur": 1.5 },
+    { "at": 5.6, "ch": "stage", "op": "restore", "dur": 0.7, "ease": "cubic_in_out" },
+    { "at": 5.6, "ch": "camera", "op": "return_to_player", "dur": 0.7, "ease": "cubic_in_out" },
+    { "at": 6.3, "ch": "time", "op": "pause", "to": 0 },
+    { "at": 6.3, "ch": "actor", "op": "release" }
+  ]
+}
+```
+
+调参优先级：先让主体始终在画面中，再调 `zoom`，最后排台词。不要为了塞更多台词延长 7 秒上限；
+删句、缩短演出台词 `dur` 或让最后一句覆盖返镜过程。
+
+#### 模板 B：多演员特技（仅有明确分镜时使用）
+
+从 `wraith_squadron_arrival` 复制，并在写 JSON 前完成空间/速度反解。`echelon_ingress`、`converge`、
+`cloak_on_meet`、`scatter` 都按 Aircraft 物理和长机语义设计，不能直接用于舰船或地面单位。
+
+新动作只有在现有 op 无法表达时才加入 `cinematic_cast.gd`；新增参数必须同时存在：
+
+1. JSON 写入方；
+2. `PresentationDirector` / `CinematicCast` 分发与消费方；
+3. 真实对象状态复原；
+4. 穿透写入方与消费方的断言；
+5. Visual / 引擎内观看证据。
+
+### 9.6 第五步：事件接线与 fail-open
+
+注册表、演员和 `<boss_id 小写>_arrival` 就绪后，通用 `_try_play_arrival_cinematic()` 会自动组装 ctx：
+
+```text
+owner / actors / anchor / cp / inbound / extra_layers /
+callsign_prefix / boss_banner / bgm_layers / bgm_track
+```
+
+不要为新 BOSS 复制一份导演调用。BOSS 专属代码只负责主体 spawn、PRE_STAGE directive 和
+`get_display_members()`；横幅、镜头、BGM 与收尾继续走共同入口。
+
+收尾顺序是硬契约：
+
+1. 序列先执行 `stage.restore` 与 `camera.return_to_player`；
+2. 最后一拍解除暂停并 `actor.release`；
+3. 导演完成所有清理后发 `sequence_finished`；
+4. `_on_arrival_cinematic_done()` 调 `_enter_engaged()`，统一打开武器、血条与战斗阶段。
+
+若 arrival 被其它 UI 序列替换，完成信号的名字会与预期不同。此时不能重播或重挂旧 arrival；事件在
+仍处于 PRE_STAGE 时必须立即 fail-open 接战，否则会永久没有血条。这个规则已经由 `presentation`
+断言守门，新 BOSS 不另写覆盖逻辑。
+
+### 9.7 第六步：回归与视觉验收
+
+先跑机器门：
+
+```powershell
+bench\run.cmd i18n_build 5 180 Shadow
+bench\run.cmd presentation 1 180 Shadow
+bench\run.cmd boss_phase 1 180 Shadow
+bench\run.cmd boss_arrival_banner_visual 1 180 Shadow Visual
+```
+
+新 BOSS 需要补三类自动证据：
+
+- `test_presentation.gd::_test_boss_banner_contract`：注册字段、palette、i18n、横幅先于镜头、命名双向契约。
+- `test_presentation.gd` 的简单/复杂序列断言：`max_sec ≤ 7`、cut/radio/return/release 齐全；复杂演出再验几何包线。
+- `boss_arrival_banner_visual_qa_runner.gd`：至少新增一张完整身份截图；新 palette 还要加逐窗阶段截图。
+
+随后从主菜单 BOSS DEBUG 选择新 BOSS，完整看一遍真实演出。人工验收必须逐项确认：
+
+| 阶段 | 看什么 |
+|---|---|
+| 横幅 | 名称/角色/呼号/motto 正确；无越框；palette 不污染其它 BOSS；5 窗顺序可辨 |
+| 切镜 | 横幅消失后才切；主体在画面内；镜头跟随对象正确；无出生点尾迹巨线 |
+| 暂停 | 玩家绝对安全；演员、镜头、无线电在 hard pause 下仍推进 |
+| 台词/BGM | 说话人 slot 正确；台词不积压到演出后；BOSS 曲不被 ENGAGED 重启 |
+| 返镜 | 世界、HUD、地图、alpha、zoom 全复原；无一帧闪黑/闪白/瞬移 |
+| 接战 | 回到玩家后立即出现血条并开战；BOSS AI 不停摆；重复进入不会泄漏状态 |
+| 退化 | 临时改错序列名验证 fallback：仍有 WARNING/无线电并立即接战，不锁死一局 |
+
+针对性 bench 和独立截图不是完整生存 playtest。新 BOSS 本体仍按 playbook 跑击杀/被击杀、阶段转换、
+Sentinel + Lv5+ 压测与完整胜利结算。
+
+### 9.8 量产勾选表
+
+- [ ] BOSS spec 已 approved，登场文案、镜头主体、台词、总时长已定稿
+- [ ] `BossRegistry.BOSS_DEFS` 的主体、结算名、横幅五字段、BGM 与水域约束齐全
+- [ ] `get_display_members()` 非空且顺序稳定，`actors[0]` 是正确镜头主体
+- [ ] `BossEncounterEvent` 已支持该类型的 spawn 与 PRE_STAGE directive
+- [ ] `i18n/gameplay.csv` 有 banner name/role/motto；`i18n/radio.csv` 有全部台词
+- [ ] `radio_chatter.json boss_sequences` 有 spawn/engage/阶段 fallback
+- [ ] `sequences.json` 有严格命名的 `<boss_id 小写>_arrival`
+- [ ] banner 在前、cut 在 `≥1.50s`、总时长 `≤7.0s`
+- [ ] restore / return / unpause / release 齐全且顺序正确
+- [ ] 新 palette / actor op（如有）具备消费方、复原逻辑、断言与截图
+- [ ] i18n / presentation / boss_phase / Visual 全绿
+- [ ] 主菜单 BOSS DEBUG 真实观看通过，完整胜利结算与压力测试边界已如实记录
+- [ ] 新文件/函数、enemy index、script/code index 与 spec §7 已同步
+
+## 10. 新增一段非 BOSS 剧情演出的最短路径
+
+1. 自由命名序列，但触发方必须先做 `has_sequence` 检查并定义失败回落；不能借用 BOSS 的
+   `<boss_id>_arrival` 派生契约。
+2. 在 `sequences.json` 只组合所需通道。需要冻结世界的剧情可从
+   `pause → stage.clear → cut_to(follow) → radio/actor → stage.restore + return_to_player →
+   unpause → actor.release` 起步；没有身份宣告就不加 `banner`，没有换曲需求就不加 `audio.boss_bgm`。
+3. 空间尺度按 §1-1 反推；radio `line` 始终给编排 `dur`；配乐是否切换由对应剧情 spec 决定。
+4. 需要新演员动作 → 加进 `cinematic_cast.gd`（只下航路点；新参数记得同时写消费方，§1-3）。
+5. 触发它的 GameEvent 提供明确 owner、演员数组、ctx 快照和 `sequence_finished` 后的玩法状态重建。
+6. 过一遍 §1 四问 + §2 陷阱表 + §4 收尾四类。
+7. `presentation` 绿后，从该剧情的真实触发入口完整观看；前两层绿 ≠ 能玩（§5）。
+8. 对应 spec §8 记变更；踩了新坑回填 §2 陷阱表。
+
+## 11. 锚点
 
 | 关注点 | 文件 |
 |---|---|
@@ -212,5 +464,9 @@ if ok:
 | 时间栈 | `scripts/presentation/time_authority.gd` |
 | 缓动函数 | `scripts/presentation/ease_lib.gd` |
 | 接入样板 | `scripts/events/boss_encounter_event.gd`（`_try_play_arrival_cinematic` + 收尾钩子） |
+| BOSS 身份与 palette 元数据 | `scripts/survivor/boss_registry.gd`（`BOSS_DEFS` + `banner_metadata_for`） |
+| BOSS 身份横幅 | `scripts/ui/boss_arrival_banner.gd` |
+| BOSS fallback 台词 | `resources/chatter/radio_chatter.json`（`boss_sequences`） |
+| 横幅 Visual QA | `scripts/tests/boss_arrival_banner_visual_qa_runner.gd` |
 | 回归门 | `scripts/tests/test_presentation.gd`（`--bench=presentation`，并入 `--bench=all`） |
 | 设计权威（数值/时序） | `docs/specs/systems/ui-transition.md` |

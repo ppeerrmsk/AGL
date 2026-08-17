@@ -10,6 +10,7 @@ extends RefCounted
 
 const DT := 1.0 / 60.0
 const AircraftSilhouetteCatalog := preload("res://scripts/aircraft_silhouette_catalog.gd")
+const BossArrivalBannerScript := preload("res://scripts/ui/boss_arrival_banner.gd")
 
 var _pass := 0
 var _fail := 0
@@ -34,6 +35,7 @@ func run() -> void:
 	_test_upgrade_sequences_wellformed()
 	_test_wraith_sequence_wellformed()
 	_test_simple_boss_sequences_wellformed()
+	_test_boss_banner_contract()
 	_test_converge_speed_solve()
 	_test_dim_layer_placement()
 	_test_arrival_seq_names_match_registry()
@@ -388,7 +390,7 @@ func _test_wraith_sequence_wellformed() -> void:
 
 func _test_simple_boss_sequences_wellformed() -> void:
 	var defs := _load_real_sequences()
-	for seq_name in ["carrier_strike_group_arrival", "mother_goose_arrival"]:
+	for seq_name in ["carrier_strike_group_arrival", "mother_goose_arrival", "black_star_arrival"]:
 		var seq: Dictionary = defs.get(seq_name, {})
 		_assert_true("%s: 序列存在" % seq_name, not seq.is_empty())
 		if seq.is_empty():
@@ -421,6 +423,93 @@ func _test_simple_boss_sequences_wellformed() -> void:
 		_assert_true("%s: 镜头回玩家" % seq_name, has_return)
 		_assert_true("%s: 回镜后释放演出" % seq_name,
 			has_release and release_at >= return_at)
+
+## 所有注册 BOSS 共用同一横幅通道；身份数据留在注册表，镜头必须等横幅退完才切。
+func _test_boss_banner_contract() -> void:
+	var defs := _load_real_sequences()
+	for boss_id in BossRegistry.BOSS_DEFS.keys():
+		var definition: Dictionary = BossRegistry.BOSS_DEFS[boss_id]
+		var name_key := String(definition.get("banner_name_key", ""))
+		var role_key := String(definition.get("banner_role_key", ""))
+		var motto_key := String(definition.get("banner_motto_key", ""))
+		var palette_id := String(definition.get("banner_palette", ""))
+		_assert_true("banner.%s 有 name key" % boss_id, not name_key.is_empty())
+		_assert_true("banner.%s 有 role key" % boss_id, not role_key.is_empty())
+		_assert_true("banner.%s 有 motto key" % boss_id, not motto_key.is_empty())
+		_assert_true("banner.%s palette 可解析" % boss_id,
+			BossArrivalBannerScript.has_palette(palette_id))
+		_assert_true("banner.%s 有 callsign" % boss_id,
+			not String(definition.get("callsign_prefix", "")).is_empty())
+
+		var seq_name := "%s_arrival" % String(boss_id).to_lower()
+		var steps: Array = defs.get(seq_name, {}).get("steps", [])
+		var reveal_at := -1.0
+		var reveal_end := -1.0
+		var dismiss_at := -1.0
+		var dismiss_end := -1.0
+		var first_cut := INF
+		for s in steps:
+			var ch := String(s.get("ch", ""))
+			var op := String(s.get("op", ""))
+			var at := float(s.get("at", 0.0))
+			var finish := at + float(s.get("dur", 0.0))
+			if ch == "banner" and op == "reveal":
+				reveal_at = at
+				reveal_end = finish
+			elif ch == "banner" and op == "dismiss":
+				dismiss_at = at
+				dismiss_end = finish
+			elif ch == "camera" and op == "cut_to":
+				first_cut = minf(first_cut, at)
+		_assert_near("banner.%s reveal 从第 0 秒开始" % boss_id, reveal_at, 0.0)
+		_assert_true("banner.%s 留足逐窗动画时长" % boss_id,
+			reveal_end - reveal_at >= 1.0)
+		_assert_true("banner.%s reveal 先于 dismiss" % boss_id,
+			reveal_end > 0.0 and dismiss_at >= reveal_end)
+		_assert_true("banner.%s 完全退场后才切镜" % boss_id,
+			dismiss_end > 0.0 and first_cut < INF and first_cut >= dismiss_end - 0.001)
+
+	for index in range(1, BossArrivalBannerScript.WINDOW_COUNT):
+		var next_start: float = float(index) * BossArrivalBannerScript.WINDOW_REVEAL_STAGGER
+		var previous_progress: float = BossArrivalBannerScript.warning_reveal_progress(
+			index - 1, next_start)
+		var current_progress: float = BossArrivalBannerScript.warning_reveal_progress(
+			index, next_start)
+		_assert_true("banner.窗口 %d 完成后窗口 %d 才出现" % [index, index + 1],
+			previous_progress >= 0.999 and current_progress <= 0.001)
+	var last_window_end: float = \
+		float(BossArrivalBannerScript.WINDOW_COUNT - 1) \
+		* BossArrivalBannerScript.WINDOW_REVEAL_STAGGER \
+		+ BossArrivalBannerScript.WINDOW_REVEAL_DURATION
+	_assert_true("banner.五个警告窗完成后才展开主身份",
+		BossArrivalBannerScript.MAIN_REVEAL_START >= last_window_end - 0.001)
+
+	var mother := BossRegistry.banner_metadata_for("MOTHER_GOOSE")
+	_assert_true("banner.Mother Goose 主标题 key", String(mother.get("name_key")) \
+		== "BOSS_BANNER_MOTHER_GOOSE_NAME")
+	_assert_true("banner.Mother Goose 角色 key", String(mother.get("role_key")) \
+		== "BOSS_BANNER_MOTHER_GOOSE_ROLE")
+	_assert_true("banner.Mother Goose 呼号 GOOSE", String(mother.get("callsign")) == "GOOSE")
+	_assert_true("banner.包装英文翻译资源已生成",
+		TranslationServer.translate("BOSS_BANNER_MOTTO") == "INVADERS MUST DIE")
+	_assert_true("banner.Mother Goose 名称翻译资源已生成",
+		TranslationServer.translate("BOSS_BANNER_MOTHER_GOOSE_NAME") == "MOTHER GOOSE")
+	_assert_true("banner.Mother Goose 角色翻译资源已生成",
+		TranslationServer.translate("BOSS_BANNER_MOTHER_GOOSE_ROLE") == "AIRBORNE UAV CARRIER")
+	var wraith := BossRegistry.banner_metadata_for("WRAITH_SQUADRON")
+	_assert_true("banner.Wraith 左上包装 key",
+		String(wraith.get("motto_key")) == "BOSS_BANNER_WRAITH_MOTTO")
+	_assert_true("banner.Wraith 使用蓝黑 palette",
+		String(wraith.get("palette")) == "wraith_blue")
+	_assert_true("banner.Wraith 左上包装翻译资源已生成",
+		TranslationServer.translate("BOSS_BANNER_WRAITH_MOTTO") == "NOTHING BUT THIEVES")
+	var csg := BossRegistry.banner_metadata_for("CARRIER_STRIKE_GROUP")
+	_assert_true("banner.CSG 左上包装 key",
+		String(csg.get("motto_key")) == "BOSS_BANNER_CSG_MOTTO")
+	_assert_true("banner.CSG 保持终端绿 palette",
+		String(csg.get("palette")) == "terminal_green")
+	_assert_true("banner.CSG 左上包装翻译资源已生成",
+		TranslationServer.translate("BOSS_BANNER_CSG_MOTTO") == "AN AWESOME WAVE")
 
 ## 同时抵达要按距离反解速度：远的必须更快，否则四线依次穿过而非汇于一点。
 ## 且【全部机位的所需速度必须落在机体包线内】—— 超出会被钳速，同时抵达随之失效。
@@ -589,6 +678,23 @@ func _test_compact_aircraft_labels() -> void:
 		AircraftRenderer.compact_label_visible(true, false))
 	_assert_true("label_lod.Alt 临时强制完整",
 		not AircraftRenderer.compact_label_visible(true, true))
+
+	# 远景维持旧锚点；近景必须按机体屏幕半径外移，避免白底盖住机翼。
+	var far_anchor := AircraftRenderer.data_label_screen_offset_for(
+		26.0, 0.35, Vector2.ZERO)
+	_assert_true("data_label.远景保持 24px 旧锚点", far_anchor == Vector2(24.0, -12.0))
+	var near_anchor := AircraftRenderer.data_label_screen_offset_for(
+		26.0, 5.0, Vector2.ZERO)
+	_assert_true("data_label.5x 近景保持至少 8px 机外间距",
+		near_anchor.x >= 26.0 * 5.0 + 8.0)
+	# 高速移动最容易暴露亚像素文字采样；标签最终屏幕原点必须落在整数像素。
+	var moving_origin := Vector2(100.25, 200.75)
+	var snapped_offset := AircraftRenderer.data_label_screen_offset_for(
+		26.0, 5.0, moving_origin)
+	var snapped_origin := moving_origin + snapped_offset
+	_assert_true("data_label.高速移动时原点像素对齐",
+		is_equal_approx(snapped_origin.x, roundf(snapped_origin.x))
+		and is_equal_approx(snapped_origin.y, roundf(snapped_origin.y)))
 
 
 func _test_presentation_label_refinements() -> void:

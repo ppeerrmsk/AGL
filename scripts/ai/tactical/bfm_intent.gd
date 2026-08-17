@@ -23,6 +23,18 @@ const GUN_TARGET_AHEAD_MIN := 0.7      ## 开火要求目标本体 aim_align ≥
 									   ## 仅靠"前置点在锥内"会在横切高速目标时把机头前方的预测点判进锥，
 									   ## 对着空域零碎喷子弹（用户反馈：面前没敌机也射击）。目标本体 >45° 离轴一律不开火。
 
+# 玩家 PREFER_CLIMB 不再锁死 HIGH 档的 10000m 天花板。直飞时围绕 8400m 低频漂移，
+# 大坡度转弯最多自然掉高 500m；两段漂移的理论最大目标速度 <20m/s，低于高度动作 30m/s 门槛，
+# 因而不会靠背景漂移被动刷 CLIMB/DIVE 技能收益。相位按稳定 squad_slot 错开，避免全队同步摆动。
+const PLAYER_HIGH_HOLD_CENTER_M := 8400.0
+const PLAYER_HIGH_HOLD_DRIFT_PRIMARY_M := 320.0
+const PLAYER_HIGH_HOLD_DRIFT_SECONDARY_M := 180.0
+const PLAYER_HIGH_HOLD_DRIFT_PRIMARY_RAD_S := 0.05
+const PLAYER_HIGH_HOLD_DRIFT_SECONDARY_RAD_S := 0.018
+const PLAYER_HIGH_HOLD_TURN_SAG_MAX_M := 500.0
+const PLAYER_HIGH_HOLD_MIN_M := 7600.0
+const PLAYER_HIGH_HOLD_MAX_M := 9000.0
+
 # ── 对面攻击 pass（spec surface-attack-pass）几何常量 ──
 const SURFACE_TURN_G := 7.0                 ## 估算最小转弯半径用的持续 G（与 planner SLOW_TARGET_TURN_G 同值）
 const SURFACE_REATTACK_MULT := 1.5          ## dist < min_turn_r×此值 → too_close（转弯圆吃不下目标）
@@ -68,8 +80,7 @@ static func cruise(s: Situation) -> TacticalPlan:
 	# CRUISE 显式设 GUN（不是 NONE）：让 update_missile 的 weapon_mode != MISSILE 早退守卫触发，
 	# 杜绝 weapon_mode 残留 MISSILE 时 salvo 路径在玩家不知情下自动发射
 	p.weapon_mode = TacticalPlan.WeaponMode.GUN
-	# 玩家高度偏好（PREFER_CLIMB=0=HIGH, PREFER_LOW=1=LOW）
-	p.target_altitude_tier = _altitude_tier_from_preference(s.altitude_preference)
+	_apply_player_altitude_preference(s, p)
 	p.rationale = "无目标巡航"
 	return p
 
@@ -86,7 +97,7 @@ static func passive_auto_fire(s: Situation) -> TacticalPlan:
 	p.weapon_mode = TacticalPlan.WeaponMode.MISSILE
 	p.allow_missile_fire = true
 	# 玩家高度偏好仍生效
-	p.target_altitude_tier = _altitude_tier_from_preference(s.altitude_preference)
+	_apply_player_altitude_preference(s, p)
 	p.rationale = "被动 auto-fire：salvo 路径自由打雷达锁定目标"
 	return p
 
@@ -133,8 +144,8 @@ static func waypoint_move(s: Situation, waypoint: Vector2) -> TacticalPlan:
 		p.weapon_mode = TacticalPlan.WeaponMode.MISSILE
 		p.allow_missile_fire = true
 		p.rationale += " | 被动 auto-fire 并行"
-	# 玩家高度偏好：航点移动期间维持选定高度档
-	p.target_altitude_tier = _altitude_tier_from_preference(s.altitude_preference)
+	# 玩家高度偏好：航点移动期间维持选定高度带
+	_apply_player_altitude_preference(s, p)
 	return p
 
 # ══════════════════════════════════════════════
@@ -576,7 +587,7 @@ static func ground_strafe(s: Situation) -> TacticalPlan:
 ## ASSAULT 全程俯冲到目标高度并保持低空（贴地扫射——不在脱离时爬回 MID，否则高度churn 永远打不到地面）
 static func _surface_altitude(s: Situation, p: TacticalPlan, is_standoff: bool) -> void:
 	if s.is_tactical_preference_user:
-		p.target_altitude_tier = _altitude_tier_from_preference(s.altitude_preference)
+		_apply_player_altitude_preference(s, p)
 		return
 	# 慢速空中目标：两种姿态都同高。MID 硬档是为躲地面 AA 而设，对直升机没有意义，
 	# 反而制造高度差——雷达锥是水平锥，高度差会拉大真实离轴角，拖慢锁定。
@@ -597,7 +608,7 @@ static func wide_turn(s: Situation) -> TacticalPlan:
 	p.weapon_mode = TacticalPlan.WeaponMode.NONE
 	# 玩家高度走 preference；AI 沿用原来匹配目标的行为
 	if s.is_tactical_preference_user:
-		p.target_altitude_tier = _altitude_tier_from_preference(s.altitude_preference)
+		_apply_player_altitude_preference(s, p)
 	else:
 		p.target_altitude_m = s.tgt_alt
 	p.rationale = "hdg偏差>90°：corner speed 大转弯"
@@ -819,7 +830,7 @@ static func _missile_engage_pos(s: Situation) -> Vector2:
 	return s.my_pos + aim_dir * 5000.0
 
 ## 战斗 intent 的目标高度策略：
-## - 玩家（use_tactical_preference）→ 永不匹配目标高度，始终走 altitude_preference 的 tier
+## - 玩家（use_tactical_preference）→ 永不匹配目标高度，始终走 altitude_preference
 ##   原因：GUN 模式拉低跟敌后，combat_altitude_m 每帧取 ac.altitude → 切回 MISSILE 时也"保持当前低空"，
 ##   PREFER_CLIMB 失效，且高度切换的能量代价让飞机往远处飘。统一让玩家高度自治
 ## - AI MISSILE 模式 → 保自身作战高度，不向目标高度靠拢（高位发射 → 射程更远）
@@ -827,21 +838,40 @@ static func _missile_engage_pos(s: Situation) -> Vector2:
 ## 调用方在 _apply_combat_weapon 之后调用本函数。
 static func _apply_target_altitude(s: Situation, p: TacticalPlan) -> void:
 	if s.is_tactical_preference_user:
-		# 玩家：tier 走偏好（PREFER_CLIMB → HIGH / PREFER_LOW → LOW），target_altitude_m 留 -1 由 tier 主导
-		p.target_altitude_tier = _altitude_tier_from_preference(s.altitude_preference)
+		_apply_player_altitude_preference(s, p)
 		return
 	if p.weapon_mode == TacticalPlan.WeaponMode.MISSILE:
 		p.target_altitude_m = s.combat_altitude_m
 	else:
 		p.target_altitude_m = s.tgt_alt
 
-## 玩家高度偏好 → AltitudeTier 映射
-## PREFER_CLIMB (0) → HIGH, PREFER_LOW (1) → LOW
-## 仅 cruise / waypoint_move 用（无敌目标的状态）；战斗 intent 已经按 tgt_alt 匹配高度
-static func _altitude_tier_from_preference(pref: int) -> int:
-	if pref == 1:  # PREFER_LOW
-		return CombatUnit.AltitudeTier.LOW
-	return CombatUnit.AltitudeTier.HIGH  # 默认 PREFER_CLIMB
+## 玩家高度偏好：LOW 仍走 2000m 档；PREFER_CLIMB 对玩家小队改为 8400m 自然高度带。
+## 非玩家调用保留旧 HIGH 档语义，避免本次玩家侧修正改写敌机既有巡逻/作战高度。
+static func _apply_player_altitude_preference(s: Situation, p: TacticalPlan) -> void:
+	if s.altitude_preference == 1:  # PREFER_LOW
+		p.target_altitude_tier = CombatUnit.AltitudeTier.LOW
+		return
+	if s.is_player_squad:
+		# tier 保留 HIGH 语义供 HUD/其它系统读取；显式米数在 Aircraft 应用时后写，避免回到 10000m。
+		p.target_altitude_tier = CombatUnit.AltitudeTier.HIGH
+		p.target_altitude_m = player_high_hold_altitude_m(s)
+		return
+	p.target_altitude_tier = CombatUnit.AltitudeTier.HIGH
+
+
+## 玩家 HIGH 的自然目标高度。两组慢波只提供不同步的个体漂移；坡度项表达转弯掉高，
+## 松杆回正后目标高度自然回收。纯函数便于 planner 仿真与 bench 固定时钟复现。
+static func player_high_hold_altitude_m(s: Situation) -> float:
+	var phase: float = s.altitude_variation_phase
+	var drift_m: float = sin(s.current_time * PLAYER_HIGH_HOLD_DRIFT_PRIMARY_RAD_S + phase) \
+			* PLAYER_HIGH_HOLD_DRIFT_PRIMARY_M
+	drift_m += sin(s.current_time * PLAYER_HIGH_HOLD_DRIFT_SECONDARY_RAD_S + phase * 1.71) \
+			* PLAYER_HIGH_HOLD_DRIFT_SECONDARY_M
+	var turn_t: float = clampf((absf(s.my_bank_deg) - 25.0) / 50.0, 0.0, 1.0)
+	turn_t = turn_t * turn_t * (3.0 - 2.0 * turn_t)
+	var turn_sag_m: float = turn_t * PLAYER_HIGH_HOLD_TURN_SAG_MAX_M
+	return clampf(PLAYER_HIGH_HOLD_CENTER_M + drift_m - turn_sag_m,
+			PLAYER_HIGH_HOLD_MIN_M, PLAYER_HIGH_HOLD_MAX_M)
 
 ## 僚机 squad 横向偏移：协同攻击同一目标时按 squad_index 错开槽位，避免抢长机位置
 ##

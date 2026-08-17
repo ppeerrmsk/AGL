@@ -72,8 +72,14 @@
 > 全量数值见 [specs/enemies/f-4e](../specs/enemies/f-4e.md)。
 > Mother Goose 蜂群的机炮型使用专属 `enemy_uav_mg_gun.tres`：1100/650 km/h、加速 55、
 > 持续 G 5.5、滚转 2.7；普通 `enemy_uav.tres` 不受其 BOSS 平衡调整影响。
+> 激光型 `enemy_uav_mg_laser.tres` 挂 `uav_mg_laser.tres`：真实累计消耗导弹 `intercept_hp`，
+> 热量 100、输出 +35/s、过热散热 25/s、30% 恢复门与玩家 X-02 一致。Mother Goose 专属
+> `goose_vls_missile.tres` 在 3000m 内停火，累计飞行 8000m 后生成 800m/1.5s 定距 AOE。
 > WhiteTea 使用王牌专属 `enemy_fck1.tres` + `whitetea_gun.tres`：F-CK-1 ×3，2100/1050 km/h、
 > 持续 G 9、4×5 受控短梭、无导弹；完整战术与命数预算见 [ace-whitetea-fck1](../specs/events/ace-whitetea-fck1.md)。
+> Black Star / Hyper-A 使用 `enemy_hyper_a_g0.tres` 至 `enemy_hyper_a_g3.tres` +
+> `hyper_a_missile.tres`：HP 800/300/100/70、视觉长度 96/80/36/10m、全代 0 flare、
+> 4 发导弹弹匣；分代特殊行为见 [hypersonic-splitter](../specs/bosses/hypersonic-splitter.md)。
 
 | 参数 | MiG-29 | J-7 截击机 | MQ-109 | MQ-110 | Sentinel指挥 |
 |------|--------|-----------|-----|------|-------------|

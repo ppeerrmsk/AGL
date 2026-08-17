@@ -230,7 +230,7 @@ BOSS 只识别 JAM，其它状态仅对 Aircraft 生效"。但 NavalUnit 实现�
 **踩到次数**：2（这次 + 用户记忆中至少一次同样症状）
 
 **解法**（2026-05-12）：在 [aircraft_physics.gd:322](../../scripts/aircraft/aircraft_physics.gd:322)
-和 [aircraft_physics.gd:1421 step_altitude](../../scripts/aircraft/aircraft_physics.gd:1318)
+和 [aircraft_physics.gd:1440 step_altitude](../../scripts/aircraft/aircraft_physics.gd:1318)
 两处把 `max_climb` 改为 `base_climb * minf(alt_mult, 1.3)`。`gain` / `smooth_rate` 仍由
 `alt_mult` 全幅放大（响应度保留），物理顶速最多 +30%（PE↔KE 损耗回到可承受档）。
 

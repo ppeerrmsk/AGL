@@ -16,9 +16,11 @@ var heading: float = 0.0     ## 弧度, 0=北
 var speed: float = 300.0     ## m/s
 var altitude: float = 5000.0 ## 米
 var age: float = 0.0         ## 存活时间
+var distance_traveled_px: float = 0.0 ## 实际累计路径；定距空爆不能用出生点直线位移代替
 var is_active: bool = true
 var has_guidance: bool = true
 var is_flare_jammed: bool = false  ## 被热诱弹干扰，永久失去制导
+var climb_break_disrupted: bool = false ## 被 CLIMB 反制：永久失导且禁止签名技重索敌
 var _guidance_ever_lost: bool = false  ## 飞行中曾丢制导(出 FOV/照射中断)——脱靶日志区分"末段丢锁"vs"全程制导仍脱靶"
 ## ── 722 批签名技能（spec aircraft-signature-skills，spawn_missile 按发射者技能打标）──
 var sig_silent: bool = false          ## 夜枭（X-09）：敌机对本弹无警觉（不规避、不投焰）
@@ -146,6 +148,15 @@ func jam_by_deadair() -> void:
 	has_guidance = false
 	EventLogger.log_event("DEADAIR", _unit_name(source), "guided missile accumulated JAM and lost guidance")
 
+func disrupt_by_climb_break() -> void:
+	if climb_break_disrupted:
+		return
+	climb_break_disrupted = true
+	is_flare_jammed = true # 复用“失导弹无害”命中/CIWS/补射契约，但不消耗热诱弹
+	has_guidance = false
+	_guidance_ever_lost = true
+	sig_retarget_armed = false
+
 func _physics_process(delta: float) -> void:
 	if not is_active:
 		return
@@ -171,7 +182,9 @@ func _physics_process(delta: float) -> void:
 		# 继续滑行（无制导）：靠现有 heading + speed 平移，缓慢减速
 		speed = maxf(speed - params.drag_deceleration * delta, 0.0)
 		var fwd_f := Vector2(sin(heading), -cos(heading))
-		global_position += fwd_f * speed * PIXELS_PER_METER * delta
+		var fade_step := fwd_f * speed * PIXELS_PER_METER * delta
+		global_position += fade_step
+		distance_traveled_px += fade_step.length()
 		queue_redraw()
 		return
 
@@ -190,6 +203,12 @@ func _physics_process(delta: float) -> void:
 		return
 	# 进入 TERMINAL（或非 VLS 弹）后立刻恢复 60Hz tick，重置降帧计数
 	_vls_low_rate_counter = 0
+	# 每枚导弹按自身目标做 O(1) 复核；不由 Aircraft 扫描 MissileManager。
+	var climb_target_value: Variant = target
+	if not climb_break_disrupted and typeof(climb_target_value) == TYPE_OBJECT \
+			and climb_target_value != null and is_instance_valid(climb_target_value) \
+			and climb_target_value is Aircraft:
+		(climb_target_value as Aircraft).try_climb_counter_missile(self)
 
 	# 0) 遮蔽物穿越：普通云只在 HIGH、沙尘暴只在 LOW；追踪能力永久衰减（不回复）。
 	# get_in_cloud 走 MissileManager 的 256px×高度档网格快照（同帧同区域只查一次）
@@ -266,7 +285,9 @@ func _physics_process(delta: float) -> void:
 			t_alt_tier = snap["alt_tier"]
 
 	# 4) 制导模式判定
-	if params.fire_and_forget:
+	if climb_break_disrupted:
+		has_guidance = false
+	elif params.fire_and_forget:
 		# 发射后不管（AGM 等）：不需要持续照射，不受热诱弹干扰
 		if not t_valid or t_destroyed:
 			has_guidance = false
@@ -279,7 +300,7 @@ func _physics_process(delta: float) -> void:
 		if is_flare_jammed:
 			has_guidance = false
 			# 722 sig_x21·超越地平：被偏转后直飞 2s → 导引头 FOV 内重索敌（每弹一次）
-			if sig_retarget_armed:
+			if sig_retarget_armed and not climb_break_disrupted:
 				_sig_retarget_timer += get_physics_process_delta_time()
 				if _sig_retarget_timer >= 2.0:
 					sig_retarget_armed = false
@@ -374,7 +395,9 @@ func _physics_process(delta: float) -> void:
 
 	# 7) 位移
 	var vel_dir := Vector2(sin(heading), -cos(heading))
-	global_position += vel_dir * speed * PIXELS_PER_METER * delta
+	var flight_step := vel_dir * speed * PIXELS_PER_METER * delta
+	global_position += flight_step
+	distance_traveled_px += flight_step.length()
 	rotation = heading
 
 	# 8) 模拟 bank（航向变化率 → 侧倾感）
@@ -521,7 +544,9 @@ func _update_vls_non_terminal(delta: float) -> void:
 	# 位移（两段共用）—— 乘 speed_multiplier 让齐射弹各自快慢不同
 	var fwd := Vector2(sin(heading), -cos(heading))
 	var actual_speed: float = speed * speed_multiplier
-	global_position += fwd * actual_speed * PIXELS_PER_METER * delta
+	var vls_step := fwd * actual_speed * PIXELS_PER_METER * delta
+	global_position += vls_step
+	distance_traveled_px += vls_step.length()
 
 	# 视觉尾迹更新（模拟轻微"侧滚"）
 	var hdg_diff: float = _angle_diff(heading, _prev_heading)

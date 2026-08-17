@@ -3,6 +3,7 @@ extends Node2D
 const HackedAllyForceScript = preload("res://scripts/survivor/hacked_ally_force.gd")
 const BattlefieldAtmosphereExperimentScript = preload(
 	"res://scripts/survivor/battlefield_atmosphere_experiment.gd")
+const HyperABossScript = preload("res://scripts/survivor/hyper_a_boss.gd")
 
 ## 生存模式主控制器
 ## 操控/镜头/武器/雷达 全部与沙盒模式一致
@@ -104,6 +105,7 @@ const RADAR_LOCK_INTERVAL := 0.2
 const RADAR_LOCK_STRIDE := 4
 var _radar_lock_phase: int = 0  ## 当前轮到的 stride 索引（0..RADAR_LOCK_STRIDE-1）
 var _radar_lock_accum: float = 0.0
+var _fire_control_saturation_state: Dictionary = {"cooldown": 0.0, "latched": false}
 var _all_combat_units_cache: Array[CombatUnit] = []   ## _update_aircraft_list 填充，_update_radar_locks 复用
 ## 雷达候选按 ROE 二分：HOSTILE 只看非 HOSTILE，PLAYER/ALLY 只看 HOSTILE。
 ## 避免每个 shooter 全扫同阵营单位；仍由 is_hostile_to 做最终防御性校验。
@@ -180,6 +182,7 @@ var debug_boss_id_override: String = ""
 ## 自动跳到 15 级 + 主题化随机 build + 立即触发 BossEncounterEvent
 var _boss_debug_mode: bool = false
 var _boss_debug_id: String = ""
+var _boss_debug_scenario: String = "full"
 var _boss_debug_theme: String = ""              ## 当前主题名（HUD 显示用，备用）
 var _boss_debug_picks: Array[Dictionary] = []    ## 当前 build 的 14 张技能
 var _player_profile_path: String = ""            ## boss debug F8 重启需要原档案路径
@@ -205,15 +208,22 @@ var _bench_render_delta_sum: float = 0.0
 var _bench_render_delta_max: float = 0.0
 var _bench_render_frames_below_60: int = 0
 var _bench_weather_capture_done: bool = false
+var _bench_hyper_a_lifecycle_stage: int = 0
+var _bench_hyper_a_lifecycle_hold: float = 0.0
 var _bench_atmosphere_experiment: Node = null
 var _bench_stress_frame_deltas := PackedFloat32Array()
+var _bench_map_transition_phase := -1
 var _growth_bench: EvolutionGrowthBenchmark = null
 var _growth_bench_config_ok: bool = false
 const MAP_BENCH_SCENARIOS := [
-	"map_png_stress", "map_vector_stress",
-	"map_png_detail_stress", "map_vector_detail_stress",
-	"map_preview_desert", "map_preview_ocean",
+	"map_png_stress", "map_png_operational_stress",
+	"map_vector_stress", "map_raster_stress", "map_raster_operational_stress",
+	"map_png_detail_stress", "map_vector_detail_stress", "map_raster_detail_stress",
+	"map_raster_transition_stress",
+	"map_preview_tokyo", "map_raster_tokyo",
+	"map_preview_desert", "map_preview_ocean", "map_raster_desert", "map_raster_ocean",
 ]
+const MAP_TRANSITION_STRESS_ZOOMS: Array[float] = [0.06, 0.18, 0.26]
 ## demo 模式：复用 bench 的"玩家挂AI+force-spawn敌机+相机跟随"，但渲染运行、不退出、
 ## 持续补充敌人——供肉眼观察物理/表现/小队战术（2026-06-07）
 var _bench_demo: bool = false
@@ -266,6 +276,9 @@ func _ready() -> void:
 	if get_tree().has_meta("boss_debug_id"):
 		_boss_debug_id = String(get_tree().get_meta("boss_debug_id"))
 		get_tree().remove_meta("boss_debug_id")
+	if get_tree().has_meta("boss_debug_scenario"):
+		_boss_debug_scenario = String(get_tree().get_meta("boss_debug_scenario"))
+		get_tree().remove_meta("boss_debug_scenario")
 
 	# Bench 模式 meta（BenchRunner 在 autoload _ready 写入；这里读完即清，防止重启场景时残留）
 	if get_tree().has_meta("bench_mode"):
@@ -329,6 +342,12 @@ func _ready() -> void:
 	if not _boss_debug_mode and (not _bench_mode or bench_map_render):
 		_map_features = MapFeatureRenderer.new()
 		_map_features.show_behind_parent = true
+		_map_features.raster_preview_enabled = _bench_scenario in [
+			"map_raster_stress", "map_raster_operational_stress",
+			"map_raster_detail_stress", "map_raster_transition_stress",
+			"map_raster_tokyo",
+			"map_raster_desert", "map_raster_ocean",
+		]
 		_map_features.ugc_vector_only = _ugc_doc != null  # UGC 图跳过官方底图/手画层
 		_map_features.basemap_load_failed.connect(_on_basemap_load_failed)
 		if _ugc_doc != null:
@@ -346,7 +365,11 @@ func _ready() -> void:
 	_weather = WeatherSystem.new()
 	_weather.show_behind_parent = true
 	add_child(_weather)
-	_weather.setup(camera)
+	var weather_capture_seed := 0
+	if _bench_scenario in ["map_preview_tokyo", "map_raster_tokyo",
+			"map_preview_desert", "map_preview_ocean", "map_raster_desert", "map_raster_ocean"]:
+		weather_capture_seed = 0xA61
+	_weather.setup(camera, weather_capture_seed)
 	_weather.add_to_group("weather")
 	move_child(_weather, 1)
 	if _ugc_doc != null:
@@ -406,7 +429,9 @@ func _ready() -> void:
 	elif _bench_scenario == "reversal":
 		profile = profile.duplicate()
 		profile.wingman_count = 3
-	elif _bench_scenario == "enemy_pool_stress" or _bench_scenario == "deadair_stress":
+	elif _bench_scenario in [
+			"enemy_pool_stress", "deadair_stress",
+			"berserk_virus_baseline", "berserk_virus_stress"]:
 		profile = profile.duplicate()
 		profile.wingman_count = 8
 	elif _bench_scenario == "evolution_growth" and _growth_bench_config_ok:
@@ -571,6 +596,11 @@ func _ready() -> void:
 	# 地图特征绘制现在有了世界矩形（Boss Debug 模式 _map_features 为 null，跳过）
 	if _map_features:
 		_map_features.setup(camera, _map_boundary.get_world_rect())
+		# 人工视觉验收必须一启动就明确看到候选，不能再依赖记得先按 Shift+F8。
+		# set_raster_preview_enabled 会验证精确内置 manifest；外部 UGC 失败即保持原路径。
+		if OS.is_debug_build() and not _bench_mode \
+				and _map_features.set_raster_preview_enabled(true):
+			EventLogger.log_event("MAP_RASTER", "Default", "debug main streamed candidate enabled")
 
 	_boundary_ui = BoundaryUI.new()
 	add_child(_boundary_ui)
@@ -612,6 +642,9 @@ func _ready() -> void:
 		_tactical_map.setup(_map_boundary.get_world_rect(), player_aircraft, null, self)
 		_tactical_map.nav_point_selected.connect(_on_nav_point_selected)
 		_tactical_map.nav_cleared.connect(_on_nav_cleared)
+		_tactical_map.vector_preview_toggle_requested.connect(_toggle_map_vector_preview)
+		_tactical_map.raster_preview_toggle_requested.connect(_toggle_map_raster_preview)
+		_sync_initial_raster_preview()
 	if not _map_preview_only and not _boss_debug_mode and not _bench_mode:
 		# 构造时注入奖励上下文：首批 A/B 开放时要保底各出一件武器与一项可用的次世代技能，
 		# 因此延迟到 60s/Lv3 的首 roll 也必须经过机型 / 学说 / 已持有装备过滤。
@@ -633,6 +666,8 @@ func _ready() -> void:
 		_tactical_map.nav_point_selected.connect(_on_nav_point_selected)
 		_tactical_map.nav_cleared.connect(_on_nav_cleared)
 		_tactical_map.vector_preview_toggle_requested.connect(_toggle_map_vector_preview)
+		_tactical_map.raster_preview_toggle_requested.connect(_toggle_map_raster_preview)
+		_sync_initial_raster_preview()
 
 		# ── 机场解放战区（spec airfield-liberation-zones）──
 		# 三座机场开局是敌占战区（ZoneData 里 AF_* 条目），补给点 + 友军防空伞
@@ -649,6 +684,8 @@ func _ready() -> void:
 		_zone_hint.show_persistent(tr("ZONE_HINT_NEW_OPENED"))
 		if not _pending_basemap_error_reason.is_empty():
 			_show_basemap_error(_pending_basemap_error_reason)
+		elif _map_features != null and _map_features.raster_preview_enabled:
+			_zone_hint.show_temp(tr("MAP_RASTER_PREVIEW_ON"), 6.0)
 
 		_zone_mission = ZoneMission.new()
 		add_child(_zone_mission)
@@ -772,7 +809,8 @@ func _setup_boss_debug_scenario() -> void:
 		return
 	var anchor: Vector2 = player_aircraft.position + Vector2.UP * BOSS_DEBUG_BOSS_DISTANCE_PX
 	# 玩家从南往北飞 → boss 朝南面对玩家（heading=180°）
-	var ev := BossEncounterEvent.new(anchor, 180.0, _map_id, _boss_debug_id)
+	var ev := BossEncounterEvent.new(anchor, 180.0, _map_id, _boss_debug_id, {},
+		_boss_debug_scenario)
 	_event_director.start(ev)
 
 	if _zone_hint:
@@ -837,19 +875,39 @@ func _setup_bench_scenario() -> void:
 			push_error("[Bench] map_vector_stress could not enable candidate renderer")
 		else:
 			_sync_shared_map_gameplay_layers()
-	elif _bench_scenario in ["map_png_stress", "map_png_detail_stress"]:
-		var map_zoom := 0.80 if _bench_scenario == "map_png_detail_stress" else 0.35
+	elif _bench_scenario in [
+			"map_raster_stress", "map_raster_operational_stress",
+			"map_raster_detail_stress", "map_raster_transition_stress"] \
+			and _map_features != null:
+		var raster_zoom := 0.26
+		if _bench_scenario == "map_raster_detail_stress":
+			raster_zoom = 0.80
+		elif _bench_scenario == "map_raster_operational_stress":
+			raster_zoom = 0.18
+		camera.zoom = Vector2(raster_zoom, raster_zoom)
+		if not _map_features.set_raster_preview_enabled(true):
+			push_error("[Bench] %s could not enable streamed raster renderer" % _bench_scenario)
+		else:
+			_sync_shared_map_gameplay_layers()
+	elif _bench_scenario in [
+			"map_png_stress", "map_png_operational_stress", "map_png_detail_stress"]:
+		var map_zoom := 0.26
+		if _bench_scenario == "map_png_detail_stress":
+			map_zoom = 0.80
+		elif _bench_scenario == "map_png_operational_stress":
+			map_zoom = 0.18
 		camera.zoom = Vector2(map_zoom, map_zoom)
 	_bench_map_prewarming = false
 	_bench_wall_started_msec = Time.get_ticks_msec()
 	_bench_last_heartbeat_msec = _bench_wall_started_msec
-	if _bench_scenario in ["map_preview_desert", "map_preview_ocean"]:
+	if _bench_scenario in ["map_preview_tokyo", "map_raster_tokyo",
+			"map_preview_desert", "map_preview_ocean", "map_raster_desert", "map_raster_ocean"]:
 		player_aircraft.invulnerable = true
 		player_aircraft.global_position = Vector2.ZERO
 		player_aircraft.clear_trail()
 		camera.global_position = Vector2.ZERO
 		camera.zoom = Vector2(0.35, 0.35)
-		if _bench_scenario == "map_preview_desert":
+		if _bench_scenario in ["map_preview_desert", "map_raster_desert"]:
 			# 性能/视觉探针直接覆盖沙尘暴最宽的中段，而不是等待真实 5 分钟。
 			game_time = WARZONE_PHASE_DURATION * 0.5
 			_weather.set_debug_midgame(game_time, WARZONE_PHASE_DURATION)
@@ -891,10 +949,16 @@ func _setup_bench_scenario() -> void:
 	#    与 spawner 给敌机挂 AI 的方式一致；team=0 让目标选择只挑敌方
 	_bench_attach_player_ai()
 
-	# 3. 一次性灌满 1→15 级所需经验 → SurvivorPlayer 的 _process 排空时连续 emit 14 次
-	#    leveled_up → 每次走 _on_player_leveled_up bench 分支随机选技能（一帧内全部完成）
-	#    *2 是冗余，保证溢出不会让最后一次缺一点点经验
-	survivor_player.add_xp(SurvivorData.xp_for_level(BENCH_PLAYER_LEVEL + 1) * 2)
+	# 3. 一次性灌满 1→15 级所需经验 → SurvivorPlayer 的 _process 排空时连续 emit 14 次。
+	#    狂化病毒 A/B 对比例外：直接置 Lv15，避免技能关键词改变随机卡池后两边拿到不同 build，
+	#    让性能差值只包含狂化行为本身。
+	if _bench_scenario in ["berserk_virus_baseline", "berserk_virus_stress"]:
+		survivor_player.level = BENCH_PLAYER_LEVEL
+		survivor_player.process_mode = Node.PROCESS_MODE_DISABLED
+	else:
+		# leveled_up → 每次走 _on_player_leveled_up bench 分支随机选技能（一帧内全部完成）；
+		# *2 是冗余，保证溢出不会让最后一次缺一点点经验。
+		survivor_player.add_xp(SurvivorData.xp_for_level(BENCH_PLAYER_LEVEL + 1) * 2)
 
 	# 4. 批量 force-spawn 敌机（按 scenario 分支）
 	if _spawner:
@@ -904,6 +968,10 @@ func _setup_bench_scenario() -> void:
 			_bench_force_spawn_swarm()
 		elif _bench_scenario == "enemy_pool_stress":
 			_bench_force_enemy_pool_stress()
+		elif _bench_scenario == "berserk_virus_baseline":
+			_bench_force_berserk_virus_stress(false)
+		elif _bench_scenario == "berserk_virus_stress":
+			_bench_force_berserk_virus_stress(true)
 		elif _bench_scenario == "deadair_stress":
 			_bench_force_deadair_stress()
 		elif _bench_scenario == "battlefield_atmosphere":
@@ -916,6 +984,12 @@ func _setup_bench_scenario() -> void:
 			_bench_force_battlefield_atmosphere_stress()
 		elif _bench_scenario == "boss_mother_goose":
 			_bench_force_spawn_boss_mg()
+		elif _bench_scenario == "boss_hyper_a":
+			_bench_force_spawn_boss_hyper_a()
+		elif _bench_scenario == "boss_hyper_a_lifecycle":
+			_bench_force_spawn_boss_hyper_a_lifecycle()
+		elif _bench_scenario == "boss_hyper_a_stress":
+			_bench_force_spawn_boss_hyper_a_stress()
 		elif _bench_scenario == "reversal":
 			_bench_force_spawn_reversal()
 		elif _bench_scenario == "zone_support_stress":
@@ -928,6 +1002,9 @@ func _setup_bench_scenario() -> void:
 		elif _bench_scenario in MAP_BENCH_SCENARIOS:
 			_bench_force_spawn_mixed(BENCH_INITIAL_ENEMY_COUNT)
 			_bench_force_zone_support()
+			if _bench_scenario.ends_with("_stress"):
+				# 地图渲染毕业门必须覆盖 Sentinel + 5 护卫与 Lv5+ 战斗负载。
+				_spawner._spawn_commander_squad(5, true)
 		elif _bench_scenario == "naval_zone_stress":
 			_bench_force_naval_zone()
 			_bench_force_spawn_mixed(BENCH_INITIAL_ENEMY_COUNT)
@@ -993,6 +1070,69 @@ func _bench_force_enemy_pool_stress() -> void:
 			ac.invulnerable = true
 			ac.set_meta("skip_far_cleanup", true)
 	print("[Bench] enemy_pool_stress: 9 direct friendlies vs 17 expanded-pool enemies")
+
+
+## 狂化病毒专项：同负载 baseline / enabled 成对场景。
+## 在扩池 17 敌之外追加 Sentinel + 5 护卫，覆盖直属 9 机 LOD 0、FREE 局部扫描与 Lv15 压力。
+func _bench_force_berserk_virus_stress(enable_virus: bool) -> void:
+	if enable_virus and not debug_grant_zone_reward("nextgen", "berserk_virus"):
+		push_error("[Bench] berserk_virus_stress: failed to grant skill")
+	_bench_force_enemy_pool_stress()
+	_spawner._spawn_commander_squad(5, true)
+	var berserk_wingmen: int = 0
+	var direct_wingmen: int = 0
+	var player_team_wingmen: int = 0
+	var flagged_wingmen: int = 0
+	var ai_ready_wingmen: int = 0
+	for unit in CombatUnit.all_units:
+		if unit is Aircraft and is_instance_valid(unit):
+			var ac := unit as Aircraft
+			ac.invulnerable = true
+			ac.set_meta("skip_far_cleanup", true)
+	for member in _squad_members_alive():
+		var ac := member as Aircraft
+		if ac == player_aircraft:
+			continue
+		direct_wingmen += 1
+		if ac.is_player_squad():
+			player_team_wingmen += 1
+		if ac.berserk_virus_active:
+			flagged_wingmen += 1
+		if ac._ai_ref != null and is_instance_valid(ac._ai_ref):
+			ai_ready_wingmen += 1
+		ac.enforce_berserk_virus_free_mode()
+		if ac.is_berserk_virus_wingman():
+			berserk_wingmen += 1
+	if enable_virus and berserk_wingmen != 8:
+		push_error("[Bench] berserk_virus_stress: expected 8 active wingmen, got %d" % berserk_wingmen)
+	if enable_virus and player_aircraft.is_berserk_virus_wingman():
+		push_error("[Bench] berserk_virus_stress: current controlled aircraft received wingman buffs")
+	if enable_virus and (_squad == null or _squad.engage_mode != Squad.EngageMode.FREE):
+		push_error("[Bench] berserk_virus_stress: squad did not lock FREE")
+	if enable_virus:
+		call_deferred("_bench_verify_berserk_virus_lod")
+	print("[Bench] %s: 9 direct friendlies vs 17 expanded-pool enemies + Sentinel escort; direct=%d player_team=%d flagged=%d ai=%d active=%d" % [
+		"berserk_virus_stress" if enable_virus else "berserk_virus_baseline",
+		direct_wingmen,
+		player_team_wingmen,
+		flagged_wingmen,
+		ai_ready_wingmen,
+		berserk_wingmen,
+	])
+
+
+## 直接调用友方 LOD 的既有单一所有者核对：狂化不另开分档，8 架僚机仍全部走 LOD 0。
+func _bench_verify_berserk_virus_lod() -> void:
+	_update_friendly_squad_lod()
+	var full_lod_wingmen: int = 0
+	for member in _squad_members_alive():
+		var ac := member as Aircraft
+		if ac != player_aircraft and ac.is_berserk_virus_wingman() and ac.lod_level == 0:
+			full_lod_wingmen += 1
+	if full_lod_wingmen != 8:
+		push_error("[Bench] berserk_virus_stress: expected 8 LOD0 wingmen, got %d" % full_lod_wingmen)
+	else:
+		print("[Bench] berserk_virus_stress: friendly LOD owner pinned 8 active wingmen to LOD 0")
 
 
 ## DEADAIR 最坏常态样本：9 架直属友机全在圈内，特殊包 + 16 架额外敌机维持导弹/机炮压力。
@@ -1447,6 +1587,86 @@ func _bench_force_spawn_boss_mg() -> void:
 	print("[Bench] boss_mother_goose: lv%d player + %d friendlies vs MOTHER GOOSE @ (0,0)" % [
 		BENCH_PLAYER_LEVEL, BENCH_BOSS_MG_FRIENDLY_COUNT])
 
+
+## boss_hyper_a scenario：完整双根时间线，不刷杂兵；玩家无敌以覆盖 30s 登场/首轮冲刺。
+func _bench_force_spawn_boss_hyper_a() -> void:
+	_bench_spawn_hyper_a("full")
+
+
+## 快速结算每一代，覆盖真实 `1→2→4→8` 生成与最终胜利门。
+func _bench_force_spawn_boss_hyper_a_lifecycle() -> void:
+	_bench_hyper_a_lifecycle_stage = 0
+	_bench_hyper_a_lifecycle_hold = 0.0
+	_bench_spawn_hyper_a("g0")
+	var player_ai := _get_ai(player_aircraft)
+	if player_ai:
+		player_ai.enable_combat = false
+	print("[Bench] boss_hyper_a_lifecycle: deterministic G0→G3 teardown")
+
+
+## 最坏终末体压力：16 G3 + Sentinel/5 护卫；双方锁血，覆盖 Lv5+ 主循环成本。
+func _bench_force_spawn_boss_hyper_a_stress() -> void:
+	_bench_spawn_hyper_a("stress_g3")
+	var player_ai := _get_ai(player_aircraft)
+	if player_ai:
+		player_ai.enable_combat = false
+	_spawner._spawn_commander_squad(5, true)
+	print("[Bench] boss_hyper_a_stress: 16 G3 + Sentinel/5 escort")
+
+
+func _bench_spawn_hyper_a(debug_scenario: String) -> void:
+	if _spawner == null or player_aircraft == null:
+		return
+	seed(813)
+	_spawner._dynamic_enemy_cap = 0
+	player_aircraft.invulnerable = true
+	player_aircraft.set_meta("skip_far_cleanup", true)
+	var encounter: BossEncounter = BossRegistry.instantiate("BLACK_STAR")
+	if encounter == null or not (encounter is HyperABossScript):
+		push_error("[Bench] BLACK_STAR registry entry missing or wrong type")
+		return
+	var hyper_a = encounter
+	hyper_a.configure_debug_scenario(debug_scenario)
+	_spawner._spawn_boss(hyper_a,
+		player_aircraft.global_position + Vector2.UP * 2200.0, true)
+	if _spawner._boss == null:
+		push_error("[Bench] Hyper-A spawn failed")
+		return
+	hyper_a.hud_visible = true
+	hyper_a.engage()
+	if debug_scenario == "full":
+		print("[Bench] boss_hyper_a: full dual-root encounter, player invulnerable")
+
+
+func _bench_update_hyper_a_lifecycle(delta: float) -> void:
+	if _bench_hyper_a_lifecycle_stage >= 4 or _spawner == null:
+		return
+	var hyper_a = _spawner._boss
+	if hyper_a == null or not (hyper_a is HyperABossScript):
+		return
+	var expected_counts := [1, 2, 4, 8]
+	var counts: PackedInt32Array = hyper_a.generation_counts()
+	var expected: int = int(expected_counts[_bench_hyper_a_lifecycle_stage])
+	var total := 0
+	for value in counts:
+		total += value
+	if counts[_bench_hyper_a_lifecycle_stage] != expected or total != expected:
+		_bench_hyper_a_lifecycle_hold = 0.0
+		return
+	_bench_hyper_a_lifecycle_hold += delta
+	if _bench_hyper_a_lifecycle_hold < 1.0:
+		return
+	for raw in hyper_a.get_display_members():
+		var ac := raw as Aircraft
+		if ac == null or ac.is_destroyed:
+			continue
+		ac.invulnerable = false
+		ac.take_damage(1000000.0)
+	print("[Bench] Hyper-A lifecycle destroyed G%d x%d" % [
+		_bench_hyper_a_lifecycle_stage, expected])
+	_bench_hyper_a_lifecycle_stage += 1
+	_bench_hyper_a_lifecycle_hold = 0.0
+
 ## boss_mother_goose 用：在指定位置 spawn 一队同型友军（与 _bench_spawn_random_squad 同款
 ## 但落点已由调用方决定，且不写 used 数组）
 func _bench_spawn_friendly_squad_at(etype: int, size: int, leader_pos: Vector2, heading_deg: float) -> void:
@@ -1645,6 +1865,7 @@ func _boss_debug_respawn_reroll() -> void:
 	# 重置 meta（_ready 里会重新读取）
 	get_tree().set_meta("boss_debug_mode", true)
 	get_tree().set_meta("boss_debug_id", _boss_debug_id)
+	get_tree().set_meta("boss_debug_scenario", _boss_debug_scenario)
 	get_tree().set_meta("survivor_map_id", "boss_debug")
 	get_tree().set_meta("survivor_aircraft_resource", _player_profile_path)
 	# 立刻关掉游戏暂停态（升级 UI 占了暂停时不重置会卡住）
@@ -1927,6 +2148,19 @@ func _dump_wingman_formation_state() -> void:
 #  输入处理（与 main.gd 一致）
 # ══════════════════════════════════════════════
 
+func _sync_initial_raster_preview() -> void:
+	if _map_features == null or _tactical_map == null \
+			or not _map_features.raster_preview_enabled:
+		return
+	if _tactical_map.set_raster_preview_enabled(true):
+		EventLogger.log_event("MAP_RASTER", "Default", "debug main+tab streamed candidate synchronized")
+		return
+	# 主图与 Tab 必须消费同一路径；Strategic 构建失败时原子退回 PNG。
+	_map_features.set_raster_preview_enabled(false)
+	_tactical_map.set_raster_preview_enabled(false)
+	EventLogger.log_event("MAP_RASTER", "Rollback", "initial Tab strategic failed; restored PNG")
+
+
 func _toggle_map_vector_preview() -> void:
 	if not OS.is_debug_build() or _ugc_doc != null or _boss_debug_mode or _bench_mode \
 			or _map_features == null or _tactical_map == null:
@@ -1935,6 +2169,9 @@ func _toggle_map_vector_preview() -> void:
 		return
 	var target := not _map_features.vector_preview_enabled
 	if target:
+		if _map_features.raster_preview_enabled:
+			_tactical_map.set_raster_preview_enabled(false)
+			_map_features.set_raster_preview_enabled(false)
 		if not _map_features.set_vector_preview_enabled(true):
 			if _zone_hint:
 				_zone_hint.show_temp(tr("MAP_VECTOR_PREVIEW_UNAVAILABLE"), 4.0)
@@ -1955,6 +2192,37 @@ func _toggle_map_vector_preview() -> void:
 	if _zone_hint:
 		_zone_hint.show_temp(tr("MAP_VECTOR_PREVIEW_ON" if target else "MAP_VECTOR_PREVIEW_OFF"), 4.0)
 	EventLogger.log_event("MAP_PREVIEW", "Toggle", "vector=%s main+tab synchronized" % target)
+
+
+func _toggle_map_raster_preview() -> void:
+	if not OS.is_debug_build() or _boss_debug_mode or _bench_mode \
+			or _map_features == null or _tactical_map == null:
+		if _zone_hint:
+			_zone_hint.show_temp(tr("MAP_RASTER_PREVIEW_UNAVAILABLE"), 4.0)
+		return
+	var target := not _map_features.raster_preview_enabled
+	if target:
+		if _map_features.vector_preview_enabled:
+			_tactical_map.set_vector_preview_enabled(false)
+			_map_features.set_vector_preview_enabled(false)
+		if not _map_features.set_raster_preview_enabled(true):
+			if _zone_hint:
+				_zone_hint.show_temp(tr("MAP_RASTER_PREVIEW_UNAVAILABLE"), 4.0)
+			return
+		if not _tactical_map.set_raster_preview_enabled(true):
+			_map_features.set_raster_preview_enabled(false)
+			_tactical_map.set_raster_preview_enabled(false)
+			if _zone_hint:
+				_zone_hint.show_temp(tr("MAP_RASTER_PREVIEW_UNAVAILABLE"), 4.0)
+			EventLogger.log_event("MAP_RASTER", "Rollback", "Tab strategic snapshot failed; restored PNG")
+			return
+	else:
+		_tactical_map.set_raster_preview_enabled(false)
+		_map_features.set_raster_preview_enabled(false)
+	_sync_shared_map_gameplay_layers()
+	if _zone_hint:
+		_zone_hint.show_temp(tr("MAP_RASTER_PREVIEW_ON" if target else "MAP_RASTER_PREVIEW_OFF"), 4.0)
+	EventLogger.log_event("MAP_RASTER", "Toggle", "raster=%s main+tab synchronized" % target)
 
 
 func _sync_shared_map_gameplay_layers() -> void:
@@ -2014,6 +2282,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		var path := EventLogger.dump_to_file()
 		if path != "":
 			print("Combat log saved: %s" % path)
+		return
+	# Shift+F8：三张正式栅格地图主图 + Tab 同步切换无损瓦片候选。
+	if event is InputEventKey and event.pressed and not event.echo \
+			and event.keycode == KEY_F8 and event.shift_pressed:
+		get_viewport().set_input_as_handled()
+		_toggle_map_raster_preview()
 		return
 	# Shift+F10：正式东京湾主地图 + Tab 地图同步切换 V36 纯矢量候选。
 	# 只在 debug build 暴露；UGC/Bench/Boss Debug 没有这条正式图 A/B 路径。
@@ -2421,6 +2695,14 @@ func _on_nav_cleared() -> void:
 
 func _process(delta: float) -> void:
 	_camera_ctrl.update(delta)
+	# 52 机地图过渡压力：每 0.8 秒在 Strategic / Operational / 主要战斗
+	# Detail 三档循环，覆盖完整 0.40s 淡变；不在普通游戏路径执行，也不按实体增长。
+	if _bench_scenario == "map_raster_transition_stress" and _bench_elapsed >= 3.0:
+		var transition_phase := int(floor((_bench_elapsed - 3.0) / 0.8)) % 3
+		if transition_phase != _bench_map_transition_phase:
+			_bench_map_transition_phase = transition_phase
+			var transition_zoom: float = MAP_TRANSITION_STRESS_ZOOMS[transition_phase]
+			camera.zoom = Vector2.ONE * transition_zoom
 	var atmosphere_stress := _bench_scenario.begins_with("battlefield_atmosphere_stress_")
 	if (_bench_scenario in MAP_BENCH_SCENARIOS or atmosphere_stress) and _bench_elapsed >= 3.0:
 		_bench_render_frames += 1
@@ -2463,7 +2745,11 @@ func _physics_process(delta: float) -> void:
 	var storm_ii_active: bool = int(upgrade_stacks.get("storm_ii", 0)) > 0 \
 		and player_aircraft != null and is_instance_valid(player_aircraft) \
 		and not player_aircraft.is_destroyed and player_aircraft.status_overload_active
-	afterburner_charge.update(delta, sig_ab_rate, storm_ii_active)
+	var altitude_cycle_ab_regen: float = 0.0
+	if player_aircraft and is_instance_valid(player_aircraft) and not player_aircraft.is_destroyed \
+			and player_aircraft.altitude_action == Aircraft.AltitudeAction.CLIMB:
+		altitude_cycle_ab_regen = player_aircraft.altitude_cycle_ab_regen_per_sec
+	afterburner_charge.update(delta, sig_ab_rate, storm_ii_active, altitude_cycle_ab_regen)
 
 	# 720 批：僚机阵亡事件（复仇之战/刺客复仇/黑匣子回收）+ 奖励升级弹窗顺延
 	_tick_squad_watch(delta)
@@ -2508,6 +2794,8 @@ func _physics_process(delta: float) -> void:
 	# Boss Debug 模式跳过：不刷杂兵 / 不分配猎手 / 不重写敌机航点（仅 boss 在场）
 	if not _map_preview_only and not _boss_debug_mode and not _bench_map_prewarming:
 		_spawner.update(delta)
+		if _bench_scenario == "boss_hyper_a_lifecycle":
+			_bench_update_hyper_a_lifecycle(delta)
 		if _bench_scenario == "evolution_growth" and _growth_bench != null:
 			_growth_bench.tick(delta)
 		# ALLY 第三方事件调度（AWACS 支援 / 护送任务，spec global-awareness-roe §2.6）
@@ -2542,7 +2830,10 @@ func _physics_process(delta: float) -> void:
 	elif _bench_mode and not _bench_finished and not _bench_map_prewarming:
 		_bench_elapsed += delta
 		if not _bench_weather_capture_done and _bench_elapsed >= 3.0 \
-				and _bench_scenario in ["map_preview_desert", "map_preview_ocean"] \
+				and _bench_scenario in ["map_preview_tokyo", "map_raster_tokyo",
+					"map_preview_desert", "map_preview_ocean",
+					"map_raster_desert", "map_raster_ocean", "boss_hyper_a",
+					"boss_hyper_a_stress"] \
 				and _bench_duration <= 6.5 \
 				and DisplayServer.get_name() != "headless":
 			_bench_weather_capture_done = true
@@ -2590,10 +2881,19 @@ func _physics_process(delta: float) -> void:
 					boss_hp_pct = boss.boss_unit.hp / maxf(boss.boss_unit.params.max_hp, 1.0) * 100.0
 				summary += "boss=MOTHER_GOOSE alive=%s hp_pct=%.1f%%\n" % [
 					"YES" if boss_alive else "NO (defeated)", boss_hp_pct]
+			if _bench_scenario in ["boss_hyper_a", "boss_hyper_a_lifecycle", \
+					"boss_hyper_a_stress"] \
+					and _spawner and _spawner._boss:
+				var hyper_a = _spawner._boss
+				if hyper_a is HyperABossScript:
+					summary += "boss=BLACK_STAR active=%s generation_counts=%s pending_splits=%d terminal_g3=%d hud_entries=%d\n" % [
+						"YES" if hyper_a.active else "NO",
+						str(hyper_a.generation_counts()), hyper_a.pending_split_count(),
+						hyper_a.terminal_defeated_count(), hyper_a.get_hud_entries().size()]
 			_bench_finish_now(summary)
 
 
-## 图2/3 Visual Shadow 探针：固定输出一张真实 viewport，供逐图人工验收天气分布。
+## 图2/3 Visual Shadow 探针：PNG/流式候选都输出真实 viewport，供逐图人工验收完整合成画面。
 func _bench_capture_weather_frame() -> void:
 	var image := get_viewport().get_texture().get_image()
 	if image == null or image.is_empty():
@@ -2819,7 +3119,9 @@ func _update_radar_locks(delta: float) -> void:
 						lock_rate *= 0.6
 				# §C 玩家技能"高度变化时更难锁"：仅作用于玩家被锁路径
 				# alt_velocity_norm = clamp(_alt_velocity / max_climb, 0..1)，rate ×= 1 − norm × factor
-				if other is Aircraft and other.is_player_squad() and other.alt_change_stealth_factor > 0.0 and other.params:
+				if other is Aircraft and other.is_player_squad() \
+						and other.altitude_action != Aircraft.AltitudeAction.NONE \
+						and other.alt_change_stealth_factor > 0.0 and other.params:
 					var max_climb: float = maxf(other.params.climb_rate_max, 1.0)
 					var alt_v_norm: float = clampf(other._alt_velocity / max_climb, 0.0, 1.0)
 					lock_rate *= maxf(1.0 - alt_v_norm * other.alt_change_stealth_factor, 0.1)
@@ -2912,6 +3214,11 @@ func _update_radar_locks(delta: float) -> void:
 					var v: float = max_progress[t]
 					if ally.radar_targets.get(t, 0.0) < v:
 						ally.radar_targets[t] = v
+
+	# 火控饱和：共享照射合并后只检查当前王牌一次；复用 5Hz 锁定 tick，不新增全场扫描。
+	if player_aircraft and is_instance_valid(player_aircraft):
+		SkillHooks.try_fire_control_saturation(
+			player_aircraft, _fire_control_saturation_state, step_delta)
 
 	# F-14 围猎 / EA-18G 伴随压制：全部存活僚机共同满锁同一敌机 → 持续刷新 SLOW / JAM。
 	# 结构真源只读 Squad.members；至少 1 名僚机，ACE 自己不参与共锁交集。
@@ -3159,7 +3466,7 @@ func _update_friendly_squad_lod() -> void:
 		# 玩家僚机一律 LOD 0：与玩家同级别响应频率（60Hz 完整物理）
 		# 旧策略 offscreen→LOD2 / cruise→LOD1 让僚机进入 1/3 速率简化路径，
 		# 表现为"决定 combat_target 却迟迟不去攻击""反应慢半拍"。
-		# 玩家方最多 3 架僚机，全 LOD 0 的 CPU 成本可忽略（~0.3ms/frame）。
+		# 玩家方最多 8 架僚机；全部 LOD 0，保证自由猎杀和显式命令都保持完整响应。
 		ac.lod_level = 0
 		ac.visible = not offscreen
 
@@ -3187,6 +3494,12 @@ func _switch_control_to_slot(slot: int) -> void:
 		return
 	var target := _aircraft_for_squad_slot(slot)
 	if target == null or target == player_aircraft:
+		return
+	if int(upgrade_stacks.get(SkillHooks.SKILL_BERSERK_VIRUS, 0)) > 0:
+		if _zone_hint:
+			_zone_hint.show_temp(tr("SQUAD_BERSERK_SWITCH_BLOCKED"), 2.5)
+		EventLogger.log_event("CONTROL_SWITCH", "Survivor",
+			"blocked by BERSERK VIRUS -> slot %d" % target.squad_slot)
 		return
 	_switch_player_to(target)
 	if is_instance_valid(_wingman_tutorial):

@@ -29,6 +29,8 @@ except ImportError:
     print("需要 pillow: pip install pillow")
     sys.exit(1)
 
+from remove_admin_boundaries import clean_admin_boundaries
+
 
 # ==== 目标区域 ==================================
 # 对应 AGL 游戏世界：中心 (35.44N, 139.76E)，±15000 px = 1 px / 2 m 约 ±30 km
@@ -128,6 +130,10 @@ def main():
                 elapsed = time.time() - t_start
                 print(f"  [{done}/{total_tiles}] elapsed={elapsed:.1f}s")
             time.sleep(0.1)  # 对 CartoDB 友好，别太快
+
+    # 非实体行政边界不进入战斗底图；只清理 CARTO 边界专属色窄带。
+    canvas, boundary_mask = clean_admin_boundaries(canvas, canvas)
+    print(f"[admin-boundary] removed mask={int(boundary_mask.sum())} px")
 
     # 保存图片
     canvas.save(OUT_PNG, optimize=True)

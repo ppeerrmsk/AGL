@@ -3,7 +3,7 @@ id: career-archive
 kind: system
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 7
+spec_version: 8
 owner: 用户（设计）+ Claude（起草）
 depends_on: []
 reconstruction_complete: true
@@ -21,7 +21,7 @@ reconstruction_complete: true
 
 | 用户用词 | 本 spec 落地 | 依据 |
 |---|---|---|
-| "Race"（第一个 BOSS） | **WRAITH_SQUADRON**（雷斯中队 / F-47 四机） | 代码与文档全仓无 "Race" BOSS；BossRegistry 仅有 WRAITH / CSG / GOOSE 三个，拼读最接近 Wraith，且三个 BOSS 恰好与用户列的三顺位一一对应 |
+| "Race"（第一个 BOSS） | **WRAITH_SQUADRON**（雷斯中队 / F-47 四机） | 代码与文档全仓无 "Race" BOSS；该历史口述在 Black Star 加入前已裁定为 Wraith，首位语义保持不变 |
 | "航母"（第二个 BOSS） | **CARRIER_STRIKE_GROUP**（Ladon 战斗群，二阶段 Poltergeist F-14） | 唯一船类 BOSS；内部 id 保留 CARRIER_STRIKE_GROUP，玩家可见名走 `CODEX_CARRIER_STRIKE_GROUP_NAME` |
 | "打过某个 BOSS" | **击败过**（defeats > 0），不是"遇到过" | 轮换规则"打过了下次一定换"只有按击败解释才自洽 |
 | "遇到 BOSS" | BOSS 战**进入 ENGAGED 接战相**的那一刻 | 复用现成 `on_boss_engaged` 回调，零新 API；PRE_STAGE 登场未接战即全灭属极罕见（猎手准则下 BOSS 主动追人） |
@@ -34,7 +34,7 @@ reconstruction_complete: true
 
 - **体验目标**：
   1. 玩家的每一局都在生涯里**留下痕迹**——打了几百架什么机、倒在哪个 BOSS 手上、通关几次，这些数据是未来全局成长系统（图鉴/称号/解锁树）的原料。
-  2. BOSS 登场从纯随机改为**档案驱动的递进轮换**：新玩家按固定顺序初见每个 BOSS（雷斯中队 → 航母 → Mother Goose），打赢一个下次必换，形成"生涯层面的 BOSS 图鉴推进感"；同时顺手把 MOTHER_GOOSE 正式上线（它做完了却一直不在地图池里）。
+  2. BOSS 登场从纯随机改为**档案驱动的递进轮换**：新玩家按固定顺序初见每个 BOSS（雷斯中队 → 航母 → Mother Goose → Black Star），打赢一个下次必换，形成"生涯层面的 BOSS 图鉴推进感"。
   3. 第一个成就作为实验样板：**累计击坠 30 架 UAV 族 → 弹成就 → 忠诚僚机进入战区奖励池**。跑通"档案 → 成就 → 解锁"的完整链路，后续成就照此复制。
 - **Litmus 自检**（引 DESIGN_PHILOSOPHY）：
   - **#9 局外成长节制**：档案只做**记录 + 内容解锁**（换 BOSS、开奖励条目），不加任何局外数值 buff；30 UAV 一两局即可达成，不是进度墙。局内 90/10 比例不受影响。
@@ -83,7 +83,7 @@ reconstruction_complete: true
 | 常量 | 值 | 说明 |
 |---|---|---|
 | 存档路径 | `user://career.cfg` | 与 merit.cfg / aircraft_codex.cfg 同级 |
-| `BOSS_ROTATION` | `["WRAITH_SQUADRON", "CARRIER_STRIKE_GROUP", "MOTHER_GOOSE"]` | 生涯递进顺序（唯一顺序源；将来加新 BOSS 追加到表尾即可） |
+| `BOSS_ROTATION` | `["WRAITH_SQUADRON", "CARRIER_STRIKE_GROUP", "MOTHER_GOOSE", "BLACK_STAR"]` | 生涯递进顺序（唯一顺序源；新 BOSS 追加到表尾） |
 | `ROTATION_ADVANCE_CHANCE` | `0.5` | 未击败当前 BOSS 时，下次仍推进到下一个的概率（单杠杆；打赢则 100% 换） |
 | `UAV_FAMILY` | `{"uav", "ucav", "uav_commander", "uav_laser"}` | UAV 族 enemy_type 集合 |
 | UAV 猎手门槛 | `30` | UAV 族累计击坠达标线 |
@@ -133,7 +133,7 @@ reconstruction_complete: true
 | 非战斗机群 | Tu-160 / AH-64 / CH-47 | 同上 | 累计击坠 |
 | 地面单位 | SAM / AA / 雷达站 | `kills.ground_by_type[tag]` | 累计摧毁 |
 | 王牌中队 | 6 支（含宿敌 ORION） | `ace.defeats[id]` | 击破次数 + 遭遇次数 + 首破日期；**额外解锁 lore 全文 + 专属徽章**；ORION 附"下一架"机号 |
-| BOSS | Wraith 中队 / Ladon 战斗群 / 鹅妈妈 | `boss.defeats[id]` | 击败次数 + 遭遇次数 |
+| BOSS | Wraith 中队 / Ladon 战斗群 / 鹅妈妈 / Black Star | `boss.defeats[id]` | 击败次数 + 遭遇次数 |
 
 **收录边界（显式裁定）**：
 - **王牌 / BOSS 专属机型不单列**（F-47、F-14 Poltergeist、F-15、F-16、Mirage 2000、Su-47、Cre）
@@ -216,13 +216,13 @@ n = len(BOSS_ROTATION)
 最终选择 = 候选序中第一个 通过地图池 ∩ 地形过滤（requires_water）的 boss_id
 ```
 
-- **地形过滤兜底**：CSG 要求出生点在水面。BOSS 锚点本就会吸附海面；若吸附失败导致 CSG 被滤掉，则顺延候选序取下一个（雷斯/Goose 无水面要求，候选序必非空）。实际刷出谁就记谁为 `last_encountered`——轮换指针永远跟随事实，不会因过滤"跳档"。
+- **地形过滤兜底**：CSG 要求出生点在水面。BOSS 锚点本就会吸附海面；若吸附失败导致 CSG 被滤掉，则顺延候选序取下一个（Wraith / Goose / Black Star 无水面要求，候选序必非空）。实际刷出谁就记谁为 `last_encountered`——轮换指针永远跟随事实，不会因过滤"跳档"。
 - **纯随机回退**：不传 history（bench / 老调用方）时保持原纯随机行为不变。
 - **职责边界**：轮换算法只消费 `last/defeated`；`defeat_counts` 保留完整非负整数，供
   `BossEncounterEvent` 在实体生成前注入 [BOSS 通关强化层](boss-clear-progression.md)。
 - **推演样例**（全部打赢的玩家）：局1 雷斯 → 局2 航母 → 局3 Goose → 局4 雷斯（环绕）。
   （一直打不赢雷斯的玩家）：局1 雷斯 → 局2 50% 雷斯 / 50% 航母 → …（每局独立 roll，期望 2 局内见到新 BOSS，不会被卡死）。
-- **地图池变更**：`MAP_POOLS.default` 由 `[WRAITH, CSG]` 扩为**全部三个 BOSS**（MOTHER_GOOSE 正式上线，这是本设计的有意变更）。
+- **地图池现状**：`MAP_POOLS.default` 包含 Wraith、CSG、Mother Goose 与 Black Star 四个正式 BOSS。
 
 ### 3.2 击坠入档判定
 
@@ -259,7 +259,7 @@ n = len(BOSS_ROTATION)
 
 ## 5. 验收标准（Acceptance / Litmus）
 
-- [ ] 新档案首局 BOSS 必为雷斯中队；击败后下一局 BOSS 必不同（航母优先）；三 BOSS 均击败过后循环轮换
+- [ ] 新档案首局 BOSS 必为雷斯中队；击败后下一局 BOSS 必不同（航母优先）；四 BOSS 均击败过后循环轮换
 - [ ] 未击败当前 BOSS 时，多局观察约半数重复、半数推进（0.5 概率）
 - [ ] BOSS 锚点在纯陆地时不会强刷 CSG（顺延候选），档案记录与实际刷出一致
 - [ ] 击坠 UAV 族累计到 30 的当帧弹成就 toast；此后战区奖励可 roll 出忠诚僚机，此前绝不出现（A-10 自带等其它渠道不受影响）
@@ -301,7 +301,7 @@ n = len(BOSS_ROTATION)
 ### 阶段 6 — 敌人图鉴（§2.6，2026-07-28 用户）
 - [x] 逐型地面计数：`record_ground_kill(tag)` + `ground_by_type` schema（旧档兼容：无该键 → 逐型 0、总数保留）+ spawner 按类派生 tag
 - [x] `SurvivorSpawner.type_tag_of()` 静态化（机型标识唯一源）+ `all_type_tags()` 供校验
-- [x] `scripts/meta/enemy_codex.gd`：34 条目注册表（19 空中 / 3 Adds / 3 地面 / 6 王牌 / 3 BOSS）+ 分组 + 计数分派 + 完成度
+- [x] `scripts/meta/enemy_codex.gd`：敌人条目注册表（常规空中 / Adds / 地面 / 王牌 / 4 BOSS）+ 分组 + 计数分派 + 完成度
 - [x] 图鉴页 `scripts/meta/enemy_archive_ui.gd` + `scenes/enemy_archive.tscn`（原 ace_archive 页泛化并改名）；主菜单入口改「敌人图鉴」
 - [x] i18n：`CODEX_*` 页面壳 14 + 分组 5 + 28 条敌人名称/简介（三语）
 - [x] bench 扩 13 断言（id 对齐 / 无漏收录 / 三语齐全 / 分组覆盖 / 计数路由 / 落盘重读 / 旧路径兼容）
@@ -342,5 +342,6 @@ n = len(BOSS_ROTATION)
 | 2026-07-28 | 4 | **游戏信息手册**（用户："再写一个档案库写清所有机制——左键右键每个操作、E 加力模式等；Tab 的小技巧也收进来；与敌人图鉴分成两个分类"）：新增 §2.7——资料库改**双分类页签**（敌人图鉴 / 游戏信息），手册 7 分组 47 条覆盖鼠标·键盘·小队指挥·飞行·武器·一局流程·情报；**Tab 小技巧不复制文本、由条目 `tip` 字段复用译文**（单一数据源，bench 断言对齐轮播表）。顺带修 `TACTICAL_TIP_WEAPON_SWAP` 过期键位（[1/2]→[T]）。**新增 CSV 列数断言**并据此修复 36 行含逗号未加引号的译文错位（含 2 行历史遗留）。career_archive 48 断言 + 回归门 42 项 PASS |
 | 2026-07-28 | 3 | **敌人图鉴**（用户："档案显示所有敌人，包括小杂兵和 BOSS，打败过就有计数"）：新增 §2.6 呈现层规格——原「王牌档案」页泛化为全局图鉴（34 条目 / 5 分组 / 统一"击败即解锁"语义 / 右侧 ×N 计数 / 收录进度）；§2.2 记录表补**逐型地面计数** `ground_by_type`（sam/aa/radar，旧档兼容）与王牌 encounter/defeat 行；收录边界显式裁定（王牌/BOSS 专属机型与舰船不单列）；防腐烂断言 13 条入 bench（career_archive 44 断言 PASS，回归门 41 项 PASS）。附带 `type_tag_of()` 静态化收口机型标识 |
 | 2026-08-01 | 5 | `build_boss_history()` 增加逐 BOSS 完整 `defeat_counts`，旧 `last/defeated` 轮换契约不变；事件层据此驱动 BOSS 通关强化。`career_archive` 56/56 PASS。 |
+| 2026-08-17 | 8 | Black Star 正式入池：轮换尾部追加 `BLACK_STAR`，敌人图鉴追加名称 / 简介与计数入口，轮换回归扩为四 BOSS；`career_archive 62/62`。 |
 | 2026-08-01 | 6 | 修复未达成 `uav_hunter` 时开局战区仍可出现忠诚僚机：正式局改为构造 `ZoneData` 时注入成就上下文，覆盖 A/B 首轮 roll；缺键从 fail-open 收紧为 fail-closed，并补锁定/缺键/已解锁三路回归断言。 |
 | 2026-08-02 | 7 | 增加资料库 Debug 全解锁覆盖：主菜单 `Ctrl+U` 显示全部敌人资料，`Ctrl+Shift+U` 恢复；仅影响本次运行的呈现，不伪造生涯统计。 |

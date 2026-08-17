@@ -3,6 +3,7 @@ extends Node2D
 
 const VectorPreviewRenderer = preload("res://scripts/survivor/map_vector_preview_renderer.gd")
 const DetailTileCache = preload("res://scripts/survivor/map_detail_tile_cache.gd")
+const RasterPreviewRenderer = preload("res://scripts/survivor/raster_basemap_renderer.gd")
 
 ## 正式地图底图加载失败时通知场景主控；UGC 纯矢量模式不会尝试加载，也不会发出此信号。
 signal basemap_load_failed(reason_key: String)
@@ -28,8 +29,11 @@ var _world_rect: Rect2
 func setup(camera: Camera2D, world_rect: Rect2) -> void:
 	_camera = camera
 	_world_rect = world_rect
-	# Loading 场景已预热 packet definitions；正式场景只提前绑定静态节点，首次 A/B 不再现场构图。
-	if OS.is_debug_build() and not ugc_vector_only:
+	raster_preview_enabled = raster_preview_enabled or (OS.is_debug_build() \
+		and OS.get_cmdline_user_args().has("--raster-basemap-preview"))
+	# 纯矢量只在显式诊断参数下预热，常规 PNG/栅格路径不支付百万三角形构图成本。
+	if OS.is_debug_build() and not ugc_vector_only \
+			and OS.get_cmdline_user_args().has("--vector-map-preview"):
 		_prepare_vector_preview()
 	queue_redraw()  # setup 后触发一次绘制；之后地图静态不需要再重绘
 
@@ -80,8 +84,9 @@ var use_basemap := true
 ## 边缘检测强度：>0 则在色彩转换处画描边（海岸/道路/建筑边界）
 @export_range(0.0, 3.0, 0.1) var basemap_edge_strength: float = 1.2
 @export var basemap_edge_color: Color = Color(0.10, 0.12, 0.10, 1.0)
-## CRT 颗粒噪点强度
-@export_range(0.0, 0.3, 0.01) var basemap_noise: float = 0.03
+## 与 streamed 路径共用的世界空间静态蓝噪声；禁止 TIME 动态颗粒。
+@export_range(0.0, 0.05, 0.001) var basemap_noise: float = 0.014
+@export_range(1.0, 128.0, 1.0) var basemap_grain_repeat: float = 64.0
 ## 底图存在时覆盖 OSM 矢量层（不再重绘建筑/道路，纯底图 + 边缘描边）
 @export var basemap_covers_vectors: bool = true
 
@@ -100,6 +105,14 @@ var _manual_loaded := false
 const BASEMAP_SHADER_PATH := "res://resources/shaders/basemap_tacview.gdshader"
 var _basemap_sprite: Sprite2D = null
 var _basemap_loaded := false
+var _legacy_basemap_attempted := false
+var _basemap_world_rect := Rect2()
+var _basemap_grain_texture: Texture2D = null
+
+## V1 栅格金字塔 A/B。默认仍保留正式整图 PNG；Shift+F8 同步切换主图与 Tab。
+var raster_preview_enabled := false
+var _raster_basemap: Node2D = null
+var _streamed_ready_logged := false
 
 ## 开发期 A/B：默认仍走正式 PNG；Shift+F10 才启用 V36 纯矢量候选。
 var vector_preview_enabled := false
@@ -208,10 +221,58 @@ func set_vector_preview_enabled(enabled: bool) -> bool:
 			_vector_preview.visible = false
 		if _detail_tile_preview != null:
 			_detail_tile_preview.set_detail_zoom(_camera.zoom.x if _camera != null else 0.0, false)
-		_ensure_basemap_loaded()
+		_ensure_basemap_loaded(true)
 		if _basemap_sprite != null:
 			_basemap_sprite.visible = true
 	queue_redraw()  # 仅切换时清一次父 CanvasItem 的静态命令缓存。
+	return true
+
+
+func set_raster_preview_enabled(enabled: bool) -> bool:
+	if enabled and ugc_vector_only \
+			and RasterPreviewRenderer.map_key_from_png_path(basemap_png_path).is_empty():
+		return false
+	if enabled:
+		if vector_preview_enabled:
+			set_vector_preview_enabled(false)
+		# 先置位再解析元数据；候选直启时不会短暂解码旧 8704² PNG。
+		raster_preview_enabled = true
+		_ensure_basemap_loaded()
+		if not _prepare_raster_preview():
+			raster_preview_enabled = false
+			_ensure_basemap_loaded(true)
+			return false
+		_raster_basemap.set_active(true)
+		if _basemap_sprite != null:
+			_basemap_sprite.visible = false
+	else:
+		raster_preview_enabled = false
+		if _raster_basemap != null:
+			_raster_basemap.set_active(false)
+		_ensure_basemap_loaded(true)
+		if _basemap_sprite != null:
+			_basemap_sprite.visible = true
+	queue_redraw()
+	return true
+
+
+func _prepare_raster_preview() -> bool:
+	if _raster_basemap != null:
+		return true
+	if _camera == null or _basemap_world_rect.size.x <= 0.0:
+		return false
+	var map_key := RasterPreviewRenderer.map_key_from_png_path(basemap_png_path)
+	if map_key.is_empty():
+		return false
+	_raster_basemap = RasterPreviewRenderer.new()
+	_raster_basemap.name = "RasterBasemapPreview"
+	_raster_basemap.z_index = -1
+	add_child(_raster_basemap)
+	if not _raster_basemap.setup(_camera, _basemap_world_rect, map_key):
+		_raster_basemap.queue_free()
+		_raster_basemap = null
+		return false
+	_raster_basemap.set_active(raster_preview_enabled)
 	return true
 
 func _draw() -> void:
@@ -225,10 +286,12 @@ func _draw() -> void:
 	if use_basemap:
 		_ensure_basemap_loaded()
 	# 底图存在时跳过 sea 色铺底 —— basemap 本身含海面颜色，再盖一层会遮住
-	if _basemap_sprite == null:
+	var has_basemap := (_basemap_sprite != null and _basemap_sprite.visible) \
+		or (raster_preview_enabled and _raster_basemap != null)
+	if not has_basemap:
 		_draw_sea()
 	# 底图由 Sprite2D + ShaderMaterial 自行渲染（见 _ensure_basemap_loaded）
-	if _basemap_sprite == null or not basemap_covers_vectors:
+	if not has_basemap or not basemap_covers_vectors:
 		_draw_land_mask()
 		_draw_ugc_overlays()
 		_draw_urban_districts()
@@ -249,47 +312,62 @@ func _draw() -> void:
 ## 为什么用 Sprite2D 而不是 draw_texture_rect：Sprite2D 挂 ShaderMaterial 后
 ## Inspector 里修改 @export 变量能通过 _process 实时更新 shader uniform，
 ## 玩家看到立即生效（draw_texture_rect 的材质系统做不到这么灵活）
-func _ensure_basemap_loaded() -> void:
-	if _basemap_loaded:
+func _ensure_basemap_loaded(force_legacy: bool = false) -> void:
+	if not _basemap_loaded:
+		_basemap_loaded = true
+		if not use_basemap or basemap_png_path == "" or basemap_meta_path == "":
+			return
+		var meta_file := FileAccess.open(basemap_meta_path, FileAccess.READ)
+		if meta_file == null:
+			_report_basemap_error(
+				"MAP_BASEMAP_ERROR_REASON_MISSING_METADATA",
+				"basemap metadata missing: %s" % basemap_meta_path)
+			return
+		var meta = JSON.parse_string(meta_file.get_as_text())
+		meta_file.close()
+		if meta == null:
+			_report_basemap_error(
+				"MAP_BASEMAP_ERROR_REASON_INVALID_METADATA",
+				"basemap metadata parse failed: %s" % basemap_meta_path)
+			return
+		# bbox 经纬度 → 游戏世界 Rect
+		var bbox: Dictionary = meta.get("bbox_ll", {})
+		var center_ll: Array = meta.get("game_world_center_latlon", [35.44, 139.76])
+		var m_per_lat: float = float(meta.get("game_world_meters_per_degree_lat", 111000.0))
+		var m_per_lon: float = float(meta.get("game_world_meters_per_degree_lon_at_center", 111000.0 * cos(deg_to_rad(35.44))))
+		var px_per_m: float = float(meta.get("game_world_px_per_meter", 0.5))
+		var lat_min: float = float(bbox.get("lat_min", 0))
+		var lat_max: float = float(bbox.get("lat_max", 0))
+		var lon_min: float = float(bbox.get("lon_min", 0))
+		var lon_max: float = float(bbox.get("lon_max", 0))
+		var cx: float = float(center_ll[1])
+		var cy: float = float(center_ll[0])
+		var x0 := (lon_min - cx) * m_per_lon * px_per_m
+		var x1 := (lon_max - cx) * m_per_lon * px_per_m
+		var y0 := -(lat_max - cy) * m_per_lat * px_per_m
+		var y1 := -(lat_min - cy) * m_per_lat * px_per_m
+		_basemap_world_rect = Rect2(Vector2(x0, y0), Vector2(x1 - x0, y1 - y0))
+
+	if _basemap_world_rect.size.x <= 0.0:
 		return
-	_basemap_loaded = true
-	if not use_basemap or basemap_png_path == "" or basemap_meta_path == "":
+	if raster_preview_enabled and not force_legacy and _prepare_raster_preview():
+		_raster_basemap.set_active(true)
+		if _basemap_sprite == null and not _streamed_ready_logged:
+			_streamed_ready_logged = true
+			print("[MapFeatureRenderer] streamed raster basemap ready without legacy PNG")
 		return
+	_ensure_legacy_basemap_loaded()
+
+
+func _ensure_legacy_basemap_loaded() -> void:
+	if _legacy_basemap_attempted or _basemap_sprite != null:
+		return
+	_legacy_basemap_attempted = true
 	if not ResourceLoader.exists(basemap_png_path) and not FileAccess.file_exists(basemap_png_path):
 		_report_basemap_error(
 			"MAP_BASEMAP_ERROR_REASON_MISSING_TEXTURE",
 			"basemap texture missing or not imported: %s" % basemap_png_path)
 		return
-	var meta_file := FileAccess.open(basemap_meta_path, FileAccess.READ)
-	if meta_file == null:
-		_report_basemap_error(
-			"MAP_BASEMAP_ERROR_REASON_MISSING_METADATA",
-			"basemap metadata missing: %s" % basemap_meta_path)
-		return
-	var meta = JSON.parse_string(meta_file.get_as_text())
-	meta_file.close()
-	if meta == null:
-		_report_basemap_error(
-			"MAP_BASEMAP_ERROR_REASON_INVALID_METADATA",
-			"basemap metadata parse failed: %s" % basemap_meta_path)
-		return
-	# bbox 经纬度 → 游戏世界 Rect
-	var bbox: Dictionary = meta.get("bbox_ll", {})
-	var center_ll: Array = meta.get("game_world_center_latlon", [35.44, 139.76])
-	var m_per_lat: float = float(meta.get("game_world_meters_per_degree_lat", 111000.0))
-	var m_per_lon: float = float(meta.get("game_world_meters_per_degree_lon_at_center", 111000.0 * cos(deg_to_rad(35.44))))
-	var px_per_m: float = float(meta.get("game_world_px_per_meter", 0.5))
-	var lat_min: float = float(bbox.get("lat_min", 0))
-	var lat_max: float = float(bbox.get("lat_max", 0))
-	var lon_min: float = float(bbox.get("lon_min", 0))
-	var lon_max: float = float(bbox.get("lon_max", 0))
-	var cx: float = float(center_ll[1])
-	var cy: float = float(center_ll[0])
-	var x0 := (lon_min - cx) * m_per_lon * px_per_m
-	var x1 := (lon_max - cx) * m_per_lon * px_per_m
-	var y0 := -(lat_max - cy) * m_per_lat * px_per_m
-	var y1 := -(lat_min - cy) * m_per_lat * px_per_m
-
 	var tex := load(basemap_png_path) as Texture2D if ResourceLoader.exists(basemap_png_path) else null
 	# 新 PNG 尚未生成 .import 时（例如干净 Shadow）仍可直接解码；正式包优先走导入纹理。
 	if tex == null and FileAccess.file_exists(basemap_png_path):
@@ -308,8 +386,8 @@ func _ensure_basemap_loaded() -> void:
 	_basemap_sprite.centered = false
 	# 缩放匹配 bbox rect
 	var tex_size := tex.get_size()
-	var rect_size := Vector2(x1 - x0, y1 - y0)
-	_basemap_sprite.position = Vector2(x0, y0)
+	var rect_size := _basemap_world_rect.size
+	_basemap_sprite.position = _basemap_world_rect.position
 	_basemap_sprite.scale = Vector2(rect_size.x / tex_size.x, rect_size.y / tex_size.y)
 	_basemap_sprite.z_index = -1  # 在自身 _draw 之下
 	add_child(_basemap_sprite)
@@ -320,6 +398,11 @@ func _ensure_basemap_loaded() -> void:
 		mat.shader = shader
 		_basemap_sprite.material = mat
 		_apply_basemap_shader_params()
+	if OS.is_debug_build() or raster_preview_enabled:
+		_prepare_raster_preview()
+	if raster_preview_enabled and _raster_basemap != null:
+		_basemap_sprite.visible = false
+		_raster_basemap.set_active(true)
 	print("[MapFeatureRenderer] basemap sprite ready: tex=%s rect=%s" % [tex_size, rect_size])
 
 ## 官方底图失败后仍允许旧矢量层兜底，但必须同时留下开发日志并告知玩家当前已降级。
@@ -340,7 +423,12 @@ func _apply_basemap_shader_params() -> void:
 	mat.set_shader_parameter("contrast", basemap_contrast)
 	mat.set_shader_parameter("edge_strength", basemap_edge_strength)
 	mat.set_shader_parameter("edge_color", basemap_edge_color)
-	mat.set_shader_parameter("noise_strength", basemap_noise)
+	mat.set_shader_parameter("grain_strength", basemap_noise)
+	mat.set_shader_parameter("grain_repeat", basemap_grain_repeat)
+	if basemap_noise > 0.0001:
+		if _basemap_grain_texture == null:
+			_basemap_grain_texture = load(RasterPreviewRenderer.GRAIN_TEXTURE_PATH) as Texture2D
+		mat.set_shader_parameter("grain_texture", _basemap_grain_texture)
 
 func _process(_delta: float) -> void:
 	if vector_preview_enabled:

@@ -36,7 +36,7 @@
 | 地图 / 地形 | [§8 加地图](#8-加地图) | [map-pipeline.md](map-pipeline.md) + [manual-map-editing.md](manual-map-editing.md) |
 | 状态效果（FEAR / SLOW / JAM 类新型） | [§9 加状态效果](#9-加状态效果) | 暂无 |
 | **无线电台词 / 剧情对话** | [§10 加无线电台词](#10-加无线电台词) | spec [systems/radio-chatter.md](../specs/systems/radio-chatter.md) |
-| **演出 / 转场 / BOSS 登场镜头** | 直接看方法论 doc → | [cinematic-authoring.md](cinematic-authoring.md)（陷阱清单 + 最短路径）；数值权威 spec [systems/ui-transition.md](../specs/systems/ui-transition.md) |
+| **演出 / 转场 / BOSS 登场镜头** | 直接看方法论 doc → | [cinematic-authoring.md §9](cinematic-authoring.md#9-boss-登场量产流水线身份横幅--镜头--接战)（横幅 + 镜头 + 接战量产流水线）；数值权威 spec [systems/ui-transition.md](../specs/systems/ui-transition.md) |
 | **其它跨实体系统 / 平衡批次** | [§11 加系统](#11-加系统) | [repo-layout.md](repo-layout.md) + [known-seams.md](../architecture/known-seams.md) |
 
 ---
@@ -113,7 +113,8 @@
 ### 第五步：接入 spawn 流程
 
 - `scripts/survivor/boss_registry.gd`：注册 id → class_path / bgm / display_name /
-  name_key / callsign_prefix / requires_water
+  name_key / banner_name_key / banner_role_key / banner_motto_key / banner_palette /
+  callsign_prefix / requires_water
   （`name_key` = 玩家可见名的 i18n key，复用图鉴的 `CODEX_<ID>_NAME`；漏填 → 通关结算副标题
   退回通用文案"敌方主力已被击毁"）
 - `scripts/events/boss_encounter_event.gd`：`encounter is <Boss>` 分支调 `_spawn_<boss>`
@@ -122,16 +123,28 @@
 - `scripts/survivor/survivor_mode.gd`：BOSS 池里加 id（如果走战区机制）
 - 战区奖励 / 全局 BOSS 解锁逻辑（如有）
 
-### 第六步：i18n + 索引
+### 第六步：登场身份横幅 + 镜头演出
+
+严格走 [cinematic-authoring.md §9 BOSS 登场量产流水线](cinematic-authoring.md#9-boss-登场量产流水线身份横幅--镜头--接战)：
+
+- 注册表身份快照 → `BossArrivalBanner`，UI 不按 boss id 分支
+- `get_display_members()` 固定演员顺序，`actors[0]` 是镜头主体
+- `resources/presentation/sequences.json` 增加 `<boss_id 小写>_arrival`
+- 简单主体优先复制 CSG / Mother Goose；只有明确多机分镜才复制 Wraith
+- 横幅退完再切镜，返镜/舞台/暂停/指令全部清理后才进入 ENGAGED
+- 缺序列、缺演员或 UI 覆盖必须 fail-open，不得卡 PRE_STAGE
+
+### 第七步：i18n + 索引
 
 - `i18n/gameplay.csv` 加 `BOSS_DEBUG_<NAME>_NAME` / `_DESC` + tag keys
 - 跑 `bench\run.cmd i18n_build 5 120 Shadow`，把 `bench/results/` 中对应的三语 `.translation` 复制回 `i18n/`
 - `docs/reference/script-index.md` 加 `<boss>_*.gd` 5 行
 - `docs/reference/enemy-index.md` 加 BOSS 条目（如果展示在 enemy index）
 
-### 第七步：验证 + changelog
+### 第八步：验证 + changelog
 
 - F5 → 调试菜单选 BOSS → spawn → 撞死它一遍 / 被它打死一遍
+- `presentation` + `boss_phase` + `boss_arrival_banner_visual`，并完整观看横幅→镜头→返镜→血条接战
 - sentinel 压测 FPS 不掉超 15
 - `docs/changelogs/<date>-<boss>.md` 写完整流程
 

@@ -2,6 +2,7 @@ class_name TacticalMap
 extends CanvasLayer
 
 const VectorPreviewRenderer = preload("res://scripts/survivor/map_vector_preview_renderer.gd")
+const RasterPreviewRenderer = preload("res://scripts/survivor/raster_basemap_renderer.gd")
 
 ## 战术地图（Tab 打开）
 ##
@@ -16,6 +17,7 @@ signal nav_point_selected(world_pos: Vector2)
 signal nav_cleared()
 ## Tab 打开且全场暂停时 SurvivorMode 收不到输入，由本 PROCESS_MODE_ALWAYS 层转发。
 signal vector_preview_toggle_requested()
+signal raster_preview_toggle_requested()
 
 const BG_COLOR := Color(0.02, 0.03, 0.04, 0.92)
 const GRID_COLOR := Color(0.15, 0.35, 0.35, 0.35)
@@ -59,6 +61,8 @@ var _docks: Array = []         ## 停靠点列表（DockPoint，spec zone-reward
 var vector_preview_enabled := false
 var _vector_preview_viewport: SubViewport = null
 var _vector_preview_renderer: Node2D = null
+var raster_preview_enabled := false
+var _mm_raster_tex: Texture2D = null
 ## UGC/内置预览图调色板；空字典保持东京湾缩略图历史配色。
 var ugc_palette: Dictionary = {}
 var use_basemap := true
@@ -102,6 +106,13 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not _is_open:
 		return
 	if event is InputEventKey and event.pressed and not event.echo \
+			and event.keycode == KEY_F8 and event.shift_pressed:
+		get_viewport().set_input_as_handled()
+		if _detail_prepare_in_progress:
+			return
+		raster_preview_toggle_requested.emit()
+		return
+	if event is InputEventKey and event.pressed and not event.echo \
 			and event.keycode == KEY_F10 and event.shift_pressed:
 		get_viewport().set_input_as_handled()
 		if _detail_prepare_in_progress:
@@ -117,6 +128,8 @@ func setup(world_rect: Rect2, player: Aircraft, zones: ZoneData, game_scene: Nod
 	_player = player
 	_zones = zones
 	_game_scene = game_scene
+	raster_preview_enabled = OS.is_debug_build() \
+		and OS.get_cmdline_user_args().has("--raster-basemap-preview")
 
 func set_vector_preview_enabled(enabled: bool) -> bool:
 	if enabled:
@@ -157,6 +170,21 @@ func set_vector_preview_enabled(enabled: bool) -> bool:
 			_vector_preview_viewport.queue_free()
 			_vector_preview_viewport = null
 			_vector_preview_renderer = null
+	if _map_panel != null:
+		_map_panel.queue_redraw()
+	return true
+
+
+func set_raster_preview_enabled(enabled: bool) -> bool:
+	if enabled:
+		if vector_preview_enabled:
+			set_vector_preview_enabled(false)
+		if not _ensure_raster_basemap():
+			return false
+		raster_preview_enabled = true
+	else:
+		raster_preview_enabled = false
+		_mm_raster_tex = null
 	if _map_panel != null:
 		_map_panel.queue_redraw()
 	return true
@@ -342,7 +370,9 @@ func _build_ui() -> void:
 
 func _on_map_draw() -> void:
 	MapGeography.ensure_ready()
-	if not vector_preview_enabled and use_basemap:
+	if raster_preview_enabled:
+		_ensure_raster_basemap()
+	elif not vector_preview_enabled and use_basemap:
 		_ensure_minimap_basemap()
 	var size := _map_panel.size
 	_map_rect = Rect2(Vector2.ZERO, size)
@@ -351,10 +381,12 @@ func _on_map_draw() -> void:
 	# 底图 PNG（如果存在）
 	if vector_preview_enabled:
 		_draw_minimap_vector_preview(size)
+	elif raster_preview_enabled:
+		_draw_minimap_raster(size)
 	else:
 		_draw_minimap_basemap(size)
 	# 矢量细节层（只在没底图时才画 OSM 矢量，避免重复）
-	if not vector_preview_enabled and _mm_basemap_tex == null:
+	if not vector_preview_enabled and not raster_preview_enabled and _mm_basemap_tex == null:
 		_draw_geography(size)
 		_draw_cities(size)
 	_draw_haneda_airport(size)
@@ -410,6 +442,64 @@ var _mm_basemap_tex: Texture2D = null
 var _mm_basemap_world_rect: Rect2 = Rect2()
 var _mm_basemap_loaded := false
 
+
+func _ensure_raster_basemap() -> bool:
+	if _mm_raster_tex != null:
+		return true
+	if not use_basemap or basemap_png_path.is_empty() or basemap_meta_path.is_empty():
+		return false
+	var map_key := RasterPreviewRenderer.map_key_from_png_path(basemap_png_path)
+	var manifest := RasterPreviewRenderer.load_manifest(map_key)
+	if manifest.is_empty() or not _ensure_raster_world_rect():
+		return false
+	var levels: Dictionary = manifest.get("levels", {}) as Dictionary
+	var strategic: Dictionary = levels.get("strategic", {}) as Dictionary
+	var tiles: Array = strategic.get("tiles", []) as Array
+	if tiles.is_empty():
+		return false
+	var record := tiles[0] as Dictionary
+	var texture_path := "%s/%s/%s" % [
+		RasterPreviewRenderer.ROOT_PATH,
+		map_key,
+		String(record.get("path", "strategic.webp")),
+	]
+	var texture := RasterPreviewRenderer.load_texture(texture_path)
+	if texture == null:
+		return false
+	# 正式 Tab 从不套主地图 shader，只对底图做固定中性乘色；候选必须保持同一职责，
+	# 否则主图色准会在 Tab 被重复处理。直接复用常驻 Strategic，避免第二份快照纹理。
+	_mm_raster_tex = texture
+	return true
+
+
+func _ensure_raster_world_rect() -> bool:
+	if _mm_basemap_world_rect.size.x > 0.0:
+		return true
+	var file := FileAccess.open(basemap_meta_path, FileAccess.READ)
+	if file == null:
+		return false
+	var meta = JSON.parse_string(file.get_as_text())
+	file.close()
+	if not meta is Dictionary:
+		return false
+	var bbox: Dictionary = meta.get("bbox_ll", {})
+	var center_ll: Array = meta.get("game_world_center_latlon", [35.44, 139.76])
+	var m_per_lat: float = float(meta.get("game_world_meters_per_degree_lat", 111000.0))
+	var m_per_lon: float = float(meta.get("game_world_meters_per_degree_lon_at_center", 111000.0 * cos(deg_to_rad(35.44))))
+	var px_per_m: float = float(meta.get("game_world_px_per_meter", 0.5))
+	var lat_min: float = float(bbox.get("lat_min", 0.0))
+	var lat_max: float = float(bbox.get("lat_max", 0.0))
+	var lon_min: float = float(bbox.get("lon_min", 0.0))
+	var lon_max: float = float(bbox.get("lon_max", 0.0))
+	var cx: float = float(center_ll[1])
+	var cy: float = float(center_ll[0])
+	var x0 := (lon_min - cx) * m_per_lon * px_per_m
+	var x1 := (lon_max - cx) * m_per_lon * px_per_m
+	var y0 := -(lat_max - cy) * m_per_lat * px_per_m
+	var y1 := -(lat_min - cy) * m_per_lat * px_per_m
+	_mm_basemap_world_rect = Rect2(Vector2(x0, y0), Vector2(x1 - x0, y1 - y0))
+	return _mm_basemap_world_rect.size.x > 0.0
+
 func _ensure_minimap_basemap() -> void:
 	if _mm_basemap_loaded:
 		return
@@ -461,6 +551,15 @@ func _draw_minimap_basemap(size: Vector2) -> void:
 	var p1 := _world_to_map(_mm_basemap_world_rect.position + _mm_basemap_world_rect.size, size)
 	var dst := Rect2(p0, p1 - p0)
 	_map_panel.draw_texture_rect(_mm_basemap_tex, dst, false, MINIMAP_BASEMAP_MODULATE)
+
+
+func _draw_minimap_raster(size: Vector2) -> void:
+	if _mm_raster_tex == null:
+		return
+	var p0 := _world_to_map(_mm_basemap_world_rect.position, size)
+	var p1 := _world_to_map(_mm_basemap_world_rect.end, size)
+	_map_panel.draw_texture_rect(
+		_mm_raster_tex, Rect2(p0, p1 - p0), false, MINIMAP_BASEMAP_MODULATE)
 
 func _draw_minimap_vector_preview(size: Vector2) -> void:
 	if _vector_preview_viewport == null:

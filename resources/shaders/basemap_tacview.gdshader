@@ -10,12 +10,11 @@ uniform float contrast : hint_range(0.5, 2.0) = 1.0;
 // 边缘检测：在色彩转换处画描边（道路、海岸、建筑边界）
 uniform float edge_strength : hint_range(0.0, 3.0) = 0.0;
 uniform vec4 edge_color : source_color = vec4(0.0, 0.0, 0.0, 1.0);
-// 噪点：加一点噪点模拟 CRT 颗粒感
-uniform float noise_strength : hint_range(0.0, 0.3) = 0.0;
-
-float rand(vec2 co) {
-	return fract(sin(dot(co, vec2(12.9898, 78.233))) * 43758.5453);
-}
+// 与 streamed 路径共享的世界空间静态蓝噪声；整图 UV 即全图归一化坐标。
+// 禁止 TIME/hash，避免默认 PNG 路径闪烁并让两条路径使用同一颗粒权威。
+uniform sampler2D grain_texture : repeat_enable, filter_linear_mipmap;
+uniform float grain_strength : hint_range(0.0, 0.05) = 0.0;
+uniform float grain_repeat : hint_range(1.0, 128.0) = 64.0;
 
 void fragment() {
 	vec2 texel = TEXTURE_PIXEL_SIZE;
@@ -49,10 +48,10 @@ void fragment() {
 	// --- 色调 ---
 	color.rgb *= tint.rgb;
 
-	// --- 噪点 ---
-	if (noise_strength > 0.001) {
-		float n = rand(UV * 999.0 + TIME * 0.1) - 0.5;
-		color.rgb += vec3(n * noise_strength);
+	// --- 世界空间静态颗粒 ---
+	if (grain_strength > 0.0001) {
+		float grain = texture(grain_texture, UV * grain_repeat).r - 0.5;
+		color.rgb += vec3(grain * grain_strength);
 	}
 
 	color.rgb = clamp(color.rgb, 0.0, 1.0);

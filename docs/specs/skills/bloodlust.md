@@ -3,7 +3,7 @@ id: bloodlust
 kind: skill
 status: done
 schema_version: 1
-spec_version: 3
+spec_version: 4
 owner: design
 depends_on: [overload, status-effects, seam-001-effective-accessor]
 reconstruction_complete: true
@@ -34,7 +34,7 @@ reconstruction_complete: true
 | `skill_kill_bloodlust` | 击杀 → BLOODLUST 9s | survival | ADVANCED | 1 | — |
 | `skill_damaged_bloodlust` | 受伤 → BLOODLUST 9s（被打刷新） | survival | ADVANCED | 1 | — |
 | `bloodlust_armor_mobility` | **终端**：BLOODLUST 期间减伤+拉G+加速 | survival | ADVANCED | 1 | 五个 BLOODLUST 来源中的任一 |
-| `overload_to_bloodlust` | OVERLOAD 时同时获得 BLOODLUST，击杀刷新两者；`axis=knight` | electronic_warfare | EXPERIMENTAL | 1 | `cloud_overload` / `skill_evade_missile_overload` / `skill_flare_overload` / `jam_self_overload` / `assassin_revenge` / `sig_mig41` / `storm_i` |
+| `overload_to_bloodlust` | OVERLOAD 时同时获得 BLOODLUST，击杀刷新两者；`axis=knight` | electronic_warfare | EXPERIMENTAL | 1 | `cloud_overload` / `skill_evade_missile_overload` / `skill_flare_overload` / `jam_self_overload` / `assassin_revenge` / `sig_mig41` / `storm_i` / `fire_control_saturation` |
 | `full_hp_kill_perma_hp` | **终端**：BLOODLUST 击杀 → 永久 +8 max_hp/+8 hp | survival | EXPERIMENTAL | 1 | 五个 BLOODLUST 来源中的任一 |
 | `ratatat` | **终端**：BLOODLUST 期间机炮射程 +500m、射击间隔 ×0.70、射击锥半角 +8° | survival | ADVANCED | 1 | 五个 BLOODLUST 来源中的任一 |
 
@@ -189,6 +189,7 @@ i18n `UPGRADE_FULL_HP_KILL_PERMA_HP_DESC` 三语文案与 `skill_hooks.gd` 注�
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-17 | 4 | `overload_to_bloodlust` 前置承认新的 OVERLOAD 来源 `fire_control_saturation`。 |
 | 2026-08-06 | 3 | 用户追加 BLOODLUST 基础效果：普通机炮与 CIWS 不耗弹；新增 Ratatat 终端（+500m、间隔 ×0.70、锥半角 +8°）；两个旧终端补齐 QAAM 嗜血与复仇之战来源。 |
 | 2026-08-06 | 2 | `overload_to_bloodlust` 随超载家族迁至骑士轴；终端前置补齐全部 6 个真实 OVERLOAD 来源，保留斗士+1 跨轴桥。 |
 | 2026-05-09 | — | buff 时长统一 8s（见 specs/skills/buff_duration_rebalance.md + changelog 2026-05-09） |

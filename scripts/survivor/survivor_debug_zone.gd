@@ -61,6 +61,7 @@ const DEBUG_REWARD_OPTIONS: Array[Dictionary] = [
 	{"label": "次世代｜凝视压迫", "kind": "nextgen", "id": "fear_on_lock"},
 	{"label": "次世代｜炮艇模式", "kind": "nextgen", "id": "gunship_mode"},
 	{"label": "次世代｜重炮", "kind": "nextgen", "id": "heavy_gun"},
+	{"label": "次世代｜狂化病毒", "kind": "nextgen", "id": "berserk_virus"},
 ]
 
 

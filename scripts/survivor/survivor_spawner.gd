@@ -11,6 +11,7 @@ const BomberMissionScript = preload("res://scripts/survivor/bomber_mission.gd")
 const StrategicTargetScript = preload("res://scripts/strategic_target.gd")
 const STRATEGIC_TARGET_SCENE := preload("res://scenes/strategic_target.tscn")
 const SchemerMultilockScript = preload("res://scripts/survivor/schemer_multilock.gd")
+const HyperABossScript = preload("res://scripts/survivor/hyper_a_boss.gd")
 
 ## 生存模式刷怪系统
 ## 从 survivor_mode.gd 提取：Token 预算、敌人生成、击杀检测、远距清理、猎手指派、航点刷新
@@ -2213,6 +2214,10 @@ func _spawn_boss(encounter: BossEncounter, anchor: Vector2 = Vector2.INF, skip_b
 	elif encounter is MotherGooseBoss:
 		var goose := encounter as MotherGooseBoss
 		goose.spawn(mode, _aircraft_scene, _create_enemy, player_aircraft,
+			bullet_manager, missile_manager, _squads, anchor)
+	elif encounter is HyperABossScript:
+		var hyper_a = encounter
+		hyper_a.spawn(mode, _aircraft_scene, _create_enemy, player_aircraft,
 			bullet_manager, missile_manager, _squads, anchor)
 	else:
 		push_error("_spawn_boss: unsupported encounter type %s" % encounter.get_class())

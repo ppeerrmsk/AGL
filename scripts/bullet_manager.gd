@@ -221,7 +221,11 @@ func spawn_airburst_shell(origin: Vector2, direction: float, speed_ms: float, so
 ##   - 不会被 CIWS 拦截（CIWS 只扫 missile_manager.get_children()，rockets 不在那里）
 ##   - 不被 LaserEquipment 拦截（同上，激光只看 Missile 实例）
 ##   - 不走导弹伤害 cap（Aircraft.take_damage 只在 kind=="missile" 时套 survivor_missile_damage_cap）
-func spawn_rocket(origin: Vector2, direction: float, speed_ms: float, source: CombatUnit, damage: float, max_range_m: float, prox_radius_m: float = 0.0, aoe_radius_m: float = 0.0, aoe_damage: float = 0.0) -> void:
+func spawn_rocket(origin: Vector2, direction: float, speed_ms: float, source: CombatUnit,
+		damage: float, max_range_m: float, prox_radius_m: float = 0.0,
+		aoe_radius_m: float = 0.0, aoe_damage: float = 0.0,
+		spread_offset_rad: float = 0.0, straight_distance_m: float = 0.0,
+		spread_transition_distance_m: float = 0.0) -> void:
 	var ambient_mult := CombatUnit.ambient_damage_multiplier(source)
 	damage *= ambient_mult
 	aoe_damage *= ambient_mult
@@ -256,6 +260,11 @@ func spawn_rocket(origin: Vector2, direction: float, speed_ms: float, source: Co
 		"aoe_damage": aoe_damage,
 		"visual_only": damage <= 0.0 and aoe_damage <= 0.0,
 		"min_damage_mult": 1.0,  ## 默认 1.0 = 无衰减；玩家方调用通过 spawn_rocket_with_falloff 覆盖
+		"rocket_travel_m": 0.0,
+		"rocket_spread_offset_rad": spread_offset_rad,
+		"rocket_spread_applied_rad": 0.0,
+		"rocket_straight_distance_m": maxf(straight_distance_m, 0.0),
+		"rocket_spread_transition_distance_m": maxf(spread_transition_distance_m, 0.0),
 		"spawn_in_building": spawn_in_b,
 		"source_tier": src_tier,
 		"was_in_building": spawn_in_b,
@@ -263,11 +272,49 @@ func spawn_rocket(origin: Vector2, direction: float, speed_ms: float, source: Co
 
 ## 距离衰减版本：玩家版火箭弹专用，让"贴脸高伤、远端衰减"成为身份特征。
 ## 与 spawn_rocket 共享路径，只多设一个 min_damage_mult 字段，引爆/命中时按 flight_ratio 插值。
-func spawn_rocket_with_falloff(origin: Vector2, direction: float, speed_ms: float, source: CombatUnit, damage: float, max_range_m: float, prox_radius_m: float, aoe_radius_m: float, aoe_damage: float, min_damage_mult: float) -> void:
-	spawn_rocket(origin, direction, speed_ms, source, damage, max_range_m, prox_radius_m, aoe_radius_m, aoe_damage)
+func spawn_rocket_with_falloff(origin: Vector2, direction: float, speed_ms: float,
+		source: CombatUnit, damage: float, max_range_m: float, prox_radius_m: float,
+		aoe_radius_m: float, aoe_damage: float, min_damage_mult: float,
+		spread_offset_rad: float = 0.0, straight_distance_m: float = 0.0,
+		spread_transition_distance_m: float = 0.0) -> void:
+	spawn_rocket(origin, direction, speed_ms, source, damage, max_range_m,
+		prox_radius_m, aoe_radius_m, aoe_damage, spread_offset_rad,
+		straight_distance_m, spread_transition_distance_m)
 	# 把刚 append 的最后一颗的 min_damage_mult 改写
 	if not _bullets.is_empty():
 		_bullets[_bullets.size() - 1]["min_damage_mult"] = min_damage_mult
+
+## 火箭散布按世界距离推进；smoothstep 让直飞→扇面两端都没有角速度突变。
+static func rocket_spread_progress(travel_m: float, straight_distance_m: float,
+		transition_distance_m: float) -> float:
+	if travel_m <= straight_distance_m:
+		return 0.0
+	if transition_distance_m <= 0.0:
+		return 1.0
+	var t := clampf((travel_m - straight_distance_m) / transition_distance_m, 0.0, 1.0)
+	return t * t * (3.0 - 2.0 * t)
+
+static func rocket_straight_phase_complete(b: Dictionary) -> bool:
+	return float(b.get("rocket_travel_m", 0.0)) \
+		> float(b.get("rocket_straight_distance_m", 0.0))
+
+## 逐帧只补上 smoothstep 新增的散布角，不重置绝对航向，允许追踪强化继续叠加。
+static func apply_rocket_spread_step(b: Dictionary, step_distance_m: float) -> void:
+	var travel_m: float = float(b.get("rocket_travel_m", 0.0)) + maxf(step_distance_m, 0.0)
+	b["rocket_travel_m"] = travel_m
+	var spread_offset: float = float(b.get("rocket_spread_offset_rad", 0.0))
+	if is_zero_approx(spread_offset):
+		return
+	var progress := rocket_spread_progress(travel_m,
+		float(b.get("rocket_straight_distance_m", 0.0)),
+		float(b.get("rocket_spread_transition_distance_m", 0.0)))
+	var target_applied: float = spread_offset * progress
+	var previous_applied: float = float(b.get("rocket_spread_applied_rad", 0.0))
+	var frame_rotation: float = target_applied - previous_applied
+	if not is_zero_approx(frame_rotation):
+		var velocity: Vector2 = b["vel"]
+		b["vel"] = velocity.rotated(frame_rotation)
+	b["rocket_spread_applied_rad"] = target_applied
 
 ## 玩家技能 SKILL_ROCKET_HOMING：把上一颗 spawn 的火箭弹标记为追踪型
 ## 由 AircraftWeapons._launch_rocket 在 spawn 后立即调用
@@ -620,10 +667,15 @@ func _physics_process(delta: float) -> void:
 	var i := _bullets.size() - 1
 	while i >= 0:
 		var b: Dictionary = _bullets[i]
+		if b.get("is_rocket", false):
+			var rocket_velocity: Vector2 = b["vel"]
+			var step_distance_m: float = rocket_velocity.length() * delta / PIXELS_PER_METER
+			apply_rocket_spread_step(b, step_distance_m)
 
 		# 玩家技能 SKILL_ROCKET_HOMING：标记的火箭弹做轻微转向追踪
+		# 近机直飞段结束后才追踪；随后与延迟散布按增量航向共同生效。
 		# 节流：retarget_timer 0.4s 一次；scan 1200m 半径选最近敌方；速度大小不变
-		if b.get("homing_active", false):
+		if b.get("homing_active", false) and rocket_straight_phase_complete(b):
 			b["homing_retarget_timer"] = float(b.get("homing_retarget_timer", 0.0)) - delta
 			var src_team_h: int = int(b.get("source_team", -1))
 			var hid: int = int(b.get("homing_target_id", 0))

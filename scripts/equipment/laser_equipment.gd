@@ -217,6 +217,7 @@ func _apply_laser_effect(ac, target, damage: float, damage_skill_active: bool) -
 		if intercepts_missiles_directly or damage_skill_active:
 			m.intercept_hp -= damage
 			if m.intercept_hp <= 0.0:
+				m.is_active = false
 				m.queue_free()
 		return
 	# Aircraft：默认 SLOW；技能解锁时额外加 DPS 伤害

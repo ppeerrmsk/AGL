@@ -53,6 +53,11 @@ func engage() -> void:
 func get_display_members() -> Array:
 	return []
 
+## 可选的自定义紧凑 HUD 协议。空数组时 SurvivorHUD 沿用既有 5 卡布局；
+## 多体 / 分裂 BOSS 可返回 {name, generation, hp, max_hp, state, altitude, seconds}。
+func get_hud_entries() -> Array[Dictionary]:
+	return []
+
 ## 玩家机换人时由事件层每帧调用（spec boss-hunter-doctrine §3.6 / SEAM-019）。
 ##
 ## 每个 encounter 都在 spawn 时缓存了玩家引用，而 survivor_mode._set_player_aircraft()

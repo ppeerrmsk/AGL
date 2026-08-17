@@ -75,11 +75,20 @@ const LEGACY_DISPLAY_NAMES: Array[String] = [
 	"X-44 Anvil", "X-77 Phantom Raven", "X-90 Skywhale", "AX-00 Starweaver", "AF-03",
 	"Cre", "DEADAIR", "Snowblind", "Sentinel", "MQ-112",
 	"Aegis UAV", "MQ-X", "DRONE", "Probe", "Mother Goose",
+	"Hyper-A G0", "Hyper-A G1", "Hyper-A G2", "Hyper-A G3",
 ]
 
 const DRAW_SCALE: Dictionary = {
 	"ah64": 1.55, "ch47": 1.85, "b1b": 2.05, "tu160": 2.10,
 	"mq109_family": 0.53,
+}
+
+## 只控制二维滚转投影；不进入物理、碰撞或传感器判定。
+const DEFAULT_VOLUME_THICKNESS: float = 0.22
+const VOLUME_THICKNESS: Dictionary = {
+	"ah64": 0.30, "ch47": 0.30,
+	"b1b": 0.17, "tu160": 0.17,
+	"mq109_family": 0.18,
 }
 
 
@@ -99,6 +108,23 @@ static func key_for(ac: Aircraft) -> String:
 
 static func draw_scale_for(ac: Aircraft) -> float:
 	return float(DRAW_SCALE.get(key_for(ac), 1.0))
+
+
+static func volume_thickness_for(ac: Aircraft) -> float:
+	var key := key_for(ac)
+	if VOLUME_THICKNESS.has(key):
+		return float(VOLUME_THICKNESS[key])
+	var silhouette := String(ac.get_meta("silhouette", ""))
+	match silhouette:
+		"apache", "chinook":
+			return 0.30
+		"bomber":
+			return 0.17
+		"drone":
+			return 0.18
+		"mother_goose", "hyper_a":
+			return 0.14
+	return DEFAULT_VOLUME_THICKNESS
 
 
 static func _texture_for(key: String) -> Texture2D:
@@ -122,7 +148,9 @@ static func _texture_for(key: String) -> Texture2D:
 	return texture
 
 
-static func draw_icon(ac: Aircraft, color: Color, size: float, xform: Transform2D) -> bool:
+static func draw_icon(ac: Aircraft, color: Color, size: float,
+		face_xform: Transform2D, shell_xform: Transform2D,
+		face_alpha: float = 1.0, belly_visible: bool = false) -> bool:
 	var key := key_for(ac)
 	var texture := _texture_for(key)
 	if texture == null:
@@ -133,10 +161,14 @@ static func draw_icon(ac: Aircraft, color: Color, size: float, xform: Transform2
 	var outline := fill.darkened(0.34)
 	var half_extent := size * 1.25 * float(DRAW_SCALE.get(key, 1.0))
 	var rect := Rect2(Vector2(-half_extent, -half_extent), Vector2.ONE * half_extent * 2.0)
-	ac.draw_set_transform_matrix(xform)
-	# 单向同尺寸暗边保留极简层次，同时不从四面填窄进气口/双发尾槽。
+	ac.draw_set_transform_matrix(shell_xform)
+	# 同一暗边在滚转时扩展为壳层；仍只消费一次纹理提交。
 	var outline_offset := Vector2(0.55, 0.65)
 	ac.draw_texture_rect(texture, Rect2(rect.position + outline_offset, rect.size), false, outline)
-	ac.draw_texture_rect(texture, rect, false, fill)
+	if face_alpha > 0.001:
+		var face_fill := fill.darkened(0.18) if belly_visible else fill
+		face_fill.a *= clampf(face_alpha, 0.0, 1.0)
+		ac.draw_set_transform_matrix(face_xform)
+		ac.draw_texture_rect(texture, rect, false, face_fill)
 	ac.draw_set_transform_matrix(Transform2D.IDENTITY)
 	return true

@@ -441,7 +441,16 @@ static func _log_formation_debug(ac: Aircraft, ctx: Dictionary, delta: float) ->
 static func _update_altitude(ac: Aircraft, ctx: Dictionary, delta: float) -> void:
 	var ldr: Aircraft = ctx["ldr"]
 	var b: float = ctx["b"]
+	var previous_altitude := ac.altitude
+	var altitude_diff := ldr.altitude - previous_altitude
 	ac.altitude = lerpf(ac.altitude, ldr.altitude, (2.0 + b * 2.0) * delta)
+	ac.vertical_speed = (ac.altitude - previous_altitude) / maxf(delta, 0.001)
+	if altitude_diff > 0.0 and ac.vertical_speed > Aircraft.ALTITUDE_ACTION_THRESHOLD_MPS:
+		ac._set_altitude_action(Aircraft.AltitudeAction.CLIMB)
+	elif altitude_diff < 0.0 and ac.vertical_speed < -Aircraft.ALTITUDE_ACTION_THRESHOLD_MPS:
+		ac._set_altitude_action(Aircraft.AltitudeAction.DIVE)
+	else:
+		ac._set_altitude_action(Aircraft.AltitudeAction.NONE)
 
 
 # ══════════════════════════════════════════════════════════════════════════

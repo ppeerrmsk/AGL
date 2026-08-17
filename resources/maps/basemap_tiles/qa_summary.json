@@ -1,0 +1,120 @@
+{
+  "maps": {
+    "ocean": {
+      "style_profile_id": "ocean_islands_v8",
+      "disk_bytes": 2656274,
+      "disk_mib": 2.533,
+      "rgb_means": {
+        "detail": [
+          0.8906564,
+          0.9330742,
+          0.9311079
+        ],
+        "operational": [
+          0.8906554,
+          0.9330714,
+          0.9311037
+        ],
+        "strategic": [
+          0.8906592,
+          0.9330842,
+          0.9311029
+        ]
+      },
+      "detail_to_operational_max_mean_delta": 4.2e-06,
+      "detail_to_strategic_max_mean_delta": 1e-05,
+      "parent_mean_gate": true,
+      "detail_seams": {
+        "comparisons": 144,
+        "max_abs_rgb": 0,
+        "mismatch_channel_values": 0,
+        "pass": true
+      },
+      "operational_seams": {
+        "comparisons": 112,
+        "max_abs_rgb": 0,
+        "mismatch_channel_values": 0,
+        "pass": true
+      }
+    },
+    "tokyo": {
+      "style_profile_id": "tokyo_tacview_v10",
+      "disk_bytes": 45918162,
+      "disk_mib": 43.791,
+      "rgb_means": {
+        "detail": [
+          0.921377,
+          0.9423909,
+          0.9096334
+        ],
+        "operational": [
+          0.9212805,
+          0.9422275,
+          0.9092377
+        ],
+        "strategic": [
+          0.9212549,
+          0.9423516,
+          0.9095122
+        ]
+      },
+      "detail_to_operational_max_mean_delta": 0.0003957,
+      "detail_to_strategic_max_mean_delta": 0.0001221,
+      "parent_mean_gate": true,
+      "detail_seams": {
+        "comparisons": 144,
+        "max_abs_rgb": 0,
+        "mismatch_channel_values": 0,
+        "pass": true
+      },
+      "operational_seams": {
+        "comparisons": 112,
+        "max_abs_rgb": 0,
+        "mismatch_channel_values": 0,
+        "pass": true
+      }
+    },
+    "desert": {
+      "style_profile_id": "desert_railway_v8",
+      "disk_bytes": 22594600,
+      "disk_mib": 21.548,
+      "rgb_means": {
+        "detail": [
+          0.900759,
+          0.8034886,
+          0.6818545
+        ],
+        "operational": [
+          0.9007595,
+          0.8034891,
+          0.6818548
+        ],
+        "strategic": [
+          0.9007642,
+          0.803491,
+          0.6818537
+        ]
+      },
+      "detail_to_operational_max_mean_delta": 5e-07,
+      "detail_to_strategic_max_mean_delta": 5.2e-06,
+      "parent_mean_gate": true,
+      "detail_seams": {
+        "comparisons": 144,
+        "max_abs_rgb": 0,
+        "mismatch_channel_values": 0,
+        "pass": true
+      },
+      "operational_seams": {
+        "comparisons": 112,
+        "max_abs_rgb": 0,
+        "mismatch_channel_values": 0,
+        "pass": true
+      }
+    }
+  },
+  "total_bytes": 71169036,
+  "total_mib": 67.872,
+  "all_seams_pass": true,
+  "all_parent_mean_gates_pass": true,
+  "disk_budget_68_mib_pass": true
+}

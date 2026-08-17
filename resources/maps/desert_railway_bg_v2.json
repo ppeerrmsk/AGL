@@ -21,5 +21,5 @@
   "game_world_meters_per_degree_lat": 111000.0,
   "game_world_meters_per_degree_lon_at_center": 101911.35990454842,
   "game_world_px_per_meter": 0.5,
-  "postprocess": "low-contrast generated Pilbara terrain under coordinate-stable CARTO/OSM lines"
+  "postprocess": "low-contrast generated Pilbara terrain under coordinate-stable CARTO/OSM lines; removed non-physical CARTO administrative boundaries"
 }

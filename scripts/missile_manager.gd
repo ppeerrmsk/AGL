@@ -385,6 +385,14 @@ func _physics_process(delta: float) -> void:
 					continue
 			missile._was_in_building = in_b
 
+		# 定距空爆弹在达到累计路径前不建立直接命中；到点只生成 AOE 并销毁弹体。
+		# 放在建筑拦截之后，保留低空 VLS 被街区挡下的既有规则。
+		if missile.params.distance_airburst_distance_m > 0.0:
+			if not distance_airburst_ready(missile):
+				continue
+			_detonate_distance_airburst(missile)
+			continue
+
 		# 命中检测：遍历所有敌方单位
 		var fuse_radius_px := missile.params.proximity_fuse_radius * PIXELS_PER_METER
 		if _update_visual_only_ambient_missile(missile, fuse_radius_px):
@@ -508,9 +516,33 @@ func _physics_process(delta: float) -> void:
 	# 性能埋点（此前 MissileManager 全无 PerfBuckets 覆盖）：命中检测 + AOE + 命中闪光 + 快照
 	PerfBuckets.tick("missile_phys", Time.get_ticks_usec() - _t0)
 
-## 创建 AOE 区域
+## 定距空爆纯规则：用实际累计路径判定，避免弯曲 VLS 用出生点位移提前引爆。
+static func distance_airburst_ready(missile: Missile) -> bool:
+	if missile == null or missile.params == null:
+		return false
+	var trigger_m: float = missile.params.distance_airburst_distance_m
+	return trigger_m > 0.0 \
+		and missile.distance_traveled_px >= trigger_m * PIXELS_PER_METER
+
+
+func _detonate_distance_airburst(missile: Missile) -> void:
+	var p: MissileParams = missile.params
+	var msl_name: String = p.display_name if p != null else "MSL"
+	ExplosionVFXScript.emit(get_tree(), missile.global_position, missile.heading, 1.4)
+	var bomb_ids := ["bomb_distant", "bomb_distant_02", "bomb_distant_03", "bomb_distant_04"]
+	AudioManager.play_sfx_2d(bomb_ids[randi() % 4], missile.global_position, 9.0)
+	_spawn_aoe(missile.global_position, missile.altitude, p.damage, missile.team, null,
+		missile.source, p.distance_airburst_radius_m, p.distance_airburst_duration_s, msl_name)
+	EventLogger.log_event("MISSILE", msl_name,
+		"distance airburst after %.0fm" % p.distance_airburst_distance_m)
+	missile.is_active = false
+	missile.queue_free()
+
+
+## 创建 AOE 区域；半径/持续时间默认沿用玩家近炸引信，BOSS 定距空爆可逐弹覆盖。
 func _spawn_aoe(pos: Vector2, alt: float, damage: float, team: int,
-		direct_hit: CombatUnit, source: Variant = null) -> void:
+		direct_hit: CombatUnit, source: Variant = null, radius_m: float = AOE_RADIUS_M,
+		duration_s: float = AOE_DURATION, event_source: String = "ProxFuze") -> void:
 	var hit_set := {}
 	# 直接命中的单位已受伤，不重复伤害
 	if is_instance_valid(direct_hit):
@@ -519,18 +551,19 @@ func _spawn_aoe(pos: Vector2, alt: float, damage: float, team: int,
 	var zone := {
 		"pos": pos,
 		"altitude": alt,
-		"radius_px": AOE_RADIUS_M * PIXELS_PER_METER,
-		"time_left": AOE_DURATION,
-		"max_time": AOE_DURATION,
+		"radius_px": maxf(radius_m, 0.0) * PIXELS_PER_METER,
+		"time_left": maxf(duration_s, 0.01),
+		"max_time": maxf(duration_s, 0.01),
 		"damage": damage,
 		"team": team,
 		"hit_set": hit_set,
 		"source": safe_source,
+		"event_source": event_source,
 	}
 	_aoe_zones.append(zone)
-	EventLogger.log_event("AOE", "ProxFuze",
+	EventLogger.log_event("AOE", event_source,
 		"spawned at (%.0f,%.0f) alt=%.0f r=%.0fm dmg=%.0f" % [
-			pos.x, pos.y, alt, AOE_RADIUS_M, damage])
+			pos.x, pos.y, alt, radius_m, damage])
 
 ## 每帧更新 AOE 区域：检测新进入的敌方单位，渐退后移除
 func _update_aoe_zones(delta: float) -> void:
@@ -573,27 +606,33 @@ func _update_aoe_zones(delta: float) -> void:
 				# AOE 仍在飞机本体位置画爆炸（不在 AOE 中心），击中/击毁均只此一次
 				var u_head: float = unit.heading if "heading" in unit else 0.0
 				ExplosionVFXScript.emit(get_tree(), unit.global_position, u_head, 1.0)
-				# AOE 区域在导弹爆炸后还要存活 AOE_DURATION 秒，这期间发射者被击落是常态
-				# → 必须净化，否则 take_damage_from 的实参类型检查直接崩
-				var zsrc: Node = CombatUnit.safe_attacker(zone.get("source", null))
-				if unit is GroundUnit:
-					unit.take_missile_damage(zdmg)
-				elif unit is NavalUnit:
-					# 走位置感知路由：用 AOE 中心而不是船中心，让 mount/弱点 routing 更准
-					if zsrc != null and is_instance_valid(zsrc):
-						unit.set_meta("_pending_attacker", zsrc)
-						unit.set_meta("_last_damage_kind", "aoe")
-					(unit as NavalUnit).take_damage_at(zdmg, zpos)
-				else:
-					unit.take_damage_from(zdmg, zsrc, "aoe")
+				_apply_aoe_damage(unit, zone)
 				zhit[uid] = true
 				var tgt_name: String = unit.callsign if unit.callsign != "" else unit.name
-				EventLogger.log_event("AOE", "ProxFuze",
+				EventLogger.log_event("AOE", String(zone.get("event_source", "ProxFuze")),
 					"hit %s (dmg=%.0f)" % [tgt_name, zdmg])
 		needs_redraw = true
 		i -= 1
 	if needs_redraw:
 		queue_redraw()
+
+
+## AOE 单位伤害路由；正式区域循环与无头回归共用，视觉仍由调用方负责。
+func _apply_aoe_damage(unit: CombatUnit, zone: Dictionary) -> void:
+	var zdmg: float = float(zone["damage"])
+	var zpos: Vector2 = zone["pos"]
+	# AOE 区域在导弹爆炸后还要存活一段时间，这期间发射者被击落是常态。
+	var zsrc: Node = CombatUnit.safe_attacker(zone.get("source", null))
+	if unit is GroundUnit:
+		unit.take_missile_damage(zdmg)
+	elif unit is NavalUnit:
+		# 走位置感知路由：用 AOE 中心而不是船中心，让 mount/弱点 routing 更准。
+		if zsrc != null and is_instance_valid(zsrc):
+			unit.set_meta("_pending_attacker", zsrc)
+			unit.set_meta("_last_damage_kind", "aoe")
+		(unit as NavalUnit).take_damage_at(zdmg, zpos)
+	else:
+		unit.take_damage_from(zdmg, zsrc, "aoe")
 
 func _draw() -> void:
 	# 渲染 AOE 红圈

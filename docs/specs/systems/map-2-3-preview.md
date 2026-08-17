@@ -3,13 +3,13 @@ id: map-2-3-preview
 kind: map
 status: in-progress
 schema_version: 1
-spec_version: 7
+spec_version: 19
 owner: design
-depends_on: [map-system, map-editor]
+depends_on: [map-system, map-editor, raster-basemap-streaming]
 reconstruction_complete: false
 ---
 
-# 图 2 / 图 3 PNG 可飞行地图预览
+# 图 2 / 图 3 PNG 可飞行地图预览与共享瓦片迁移
 
 > 复用图一的高细度 PNG + TacView shader 管线，在两张空地图中自由飞行，确认地貌与未来战区布点，再接任务内容。
 
@@ -43,6 +43,8 @@ reconstruction_complete: false
 | edge_strength | 1.20 | 图一正式值 |
 | noise_strength | 0.03 | 图一正式值 |
 | basemap_covers_vectors | true | PNG 存在时不重复绘制陆地/城区/道路矢量视觉层 |
+| 当前运行时纹理 | 每图整张 `8704²` | 当前事实；无 mip、Lossless 导入，任一所选图完整 RGB8 像素量均为 `216.75 MiB` |
+| 已批准候选 | `raster-basemap-streaming` | 与东京湾共用三档 lossless WebP/LRU；profile id 独立，但当前数值回到正式 PNG shader 基线，保留母版自身灰褐/蓝灰色差 |
 
 ### 2.2 图 2：沙漠铁路
 
@@ -87,12 +89,14 @@ reconstruction_complete: false
 ### 3.2 渲染规则
 
 - 两图按 MapDocument 的 `basemap` 字典读取各自 PNG/metadata；不得读取东京湾 PNG、东京湾手画覆盖或东京湾 Aqua-Line。
+- 当前生产路径仍按上一条读取整图；共享瓦片迁移落地后，同一 `basemap` 字典改为优先读取与 `map_id` 精确匹配的 manifest，并保留旧 PNG 作为 A/B 与失败回滚，直到三图共同毕业。
 - PNG 缺失/元数据失败时 fail-open 到既有纯矢量预览，不能变成空白地图。
 - PNG 可用时覆盖海、陆、城区、道路视觉层；MapDocument 仍负责陆海判定、建筑与未来布点数据。
 - 沙漠地貌层只改变底色与自然纹理，不得生成或移动道路、铁路、机场、建筑和任务坐标。
 - 群岛清理只消除大型直角土地覆盖填色，不得平滑、裁切或重画真实海岸线。
 - 地图几何在载入/设置时构建并静态缓存；禁止每帧重建地图几何或触发主地图 `queue_redraw()`。
 - Tab 地图不显示战区圆，只显示同一份海陆、城区、道路与玩家位置。
+- 沙漠使用 `desert_railway_v8` 低饱和灰褐 profile，海洋使用 `ocean_islands_v8` 蓝灰/灰绿 profile；两图共享 shader 结构、LOD 和内存规则，但不得共享艺术参数或静默回退到东京湾 profile。Strategic/Detail 采样补偿为 `1.15/1.20`，Operational 按图使用沙漠 `1.17`、海洋 `1.15`，只补偿缩放边缘，不改变母版色调；三图共用 `64²` L8 蓝噪声的颗粒分布，以全图 `map_uv×64` 锚定相位，但该纹理不得承载任何地图内容。
 
 ### 3.3 建筑群视觉规则
 
@@ -109,7 +113,8 @@ reconstruction_complete: false
 ## 4. 结构与组成（Structure）
 
 - 两份内置 `.aglmap` JSON：存海陆、地形覆盖、城区、道路、建筑、云、出生点、调色板与 basemap 路径。
-- 两组 `8704×8704 PNG + metadata JSON`：分别绑定矿区与 Ironbottom Sound 的真实地理底图。
+- 两组 `8704×8704 PNG + metadata JSON`：分别绑定矿区与 Ironbottom Sound 的真实地理底图；共享瓦片迁移批准后继续作为离线母版和回滚基线。
+- 两份运行时瓦片 manifest：分别登记 `map_id`、`style_profile_id`、三档父子 footprint 与 hash；不得互相复用地图内容瓦片。
 - 地图选择表：登记两张未锁定的预览图，并把路径通过 SceneTree meta 传到既有选机流程。
 - 生存入口：识别 `preview_only`，复用 UGC 注入但关闭所有战区与刷怪推进。
 - 主地图与 Tab：按 MapDocument 切换各自 PNG/metadata，复用图一 shader/六项参数；东京湾正式路径不变。
@@ -122,17 +127,23 @@ reconstruction_complete: false
 - [ ] 海洋图主视野与 Tab 可辨认主岛、4 座小岛、港区、跑道及主航道。
 - [x] 主地图与 Tab 均显示各自 PNG，不出现东京湾串图；PNG 缺失时回退矢量地理。
 - [x] 两图滤镜 uniform 与图一六项正式参数完全一致。
+- [x] 共享瓦片候选中，沙漠与海洋分别使用 approved 独立 profile；静止画面只采样同一共享蓝噪声且不读 `TIME`，缩放只换同源分辨率且不整屏明暗跳变。
 - [ ] 沙漠全图可读出至少三档暖色地貌层次，不再出现占据大部分视野的单一纯色色块，同时道路/铁路仍清晰。
 - [ ] 群岛主岛不再出现保护区造成的直角方块，海岸线、岛链与航道位置不变。
 - [x] 海洋图数据只有西北孤岛火箭基地与机场，无其他散落建筑或机场。
+- [x] Godot 固定地标 A/B 从海洋 MapDocument 注入并断言 `16` 组假 3D 建筑；PNG/streamed 两侧共用同一 `BuildingRenderer`，跑道和基地没有因切底图消失。
 - [ ] 海洋图实机可从装配楼、机库、发射台/塔、储罐、斜向跑道和塔台轮廓读出基地身份。
 - [x] 西北孤岛跑道与全部建筑 footprint 同时位于实际 PNG 陆地像素和运行时陆地多边形内，并留有海岸安全边距。
 - [x] 沙漠图数据只有右侧城区炼油厂建筑群，无其他散落建筑。
+- [x] Godot 固定地标 A/B 从沙漠 MapDocument 注入并断言 `15` 组假 3D 建筑；PNG/streamed 两侧共用同一 `BuildingRenderer`，炼油厂没有因切底图消失。
 - [ ] 沙漠图实机可从处理站、储罐和分散井架读出炼油厂身份，且建筑群完整落在右侧城区内。
 - [x] 两图不存在 footprint 任一边超过 `300 px` 的建筑体块。
 - [x] 连续飞行至少 60 秒无敌机、战区、任务、BOSS 或开局驻防生成。
 - [x] 东京湾仍走正式 PNG + shader，未被预览调色板或 UGC 静态缓存污染。
 - [x] 性能：地图静态绘制；Godot 4.7 Shadow 两张图均为 0 帧低于 60 FPS。
+- [x] 三图候选稳态估算 `59.87 MiB`、16 瓦片硬峰值上界 `76.89 MiB`；Strategic 1520 + Operational 7680 的地图金字塔为 `67.961 MiB`，加共享蓝噪声后运行时资源磁盘合计 `67.965 MiB`。离开地图由 renderer `_exit_tree` 回收挂起线程、ResourceLoader 请求与节点。
+- [x] 两图实际 680×680 Tab 候选直接共享 Strategic 1520 + 正式固定乘色，不创建第二份快照；1520 让沙漠/海洋 Tab 的 1.5 px 低通 RGB MAE 降至 `0.000492/0.000183`，平均亮度差仍近零。
+- [x] 两图分别用真实 `survivor_mode.tscn` 跑 6 秒 PNG/streamed Visual Shadow 并成功抓取完整 viewport；候选未解码 8704² PNG，天气、玩家和 HUD 仍在同一合成链中。
 - [x] i18n：地图名、标签、描述走 `tr()`，中英日三语均有定义。
 - [x] 文档：本 spec 已登记 `_INDEX`；当前文档无失效相对链接。
 
@@ -171,6 +182,14 @@ reconstruction_complete: false
 - [x] 用 Godot 4.7 Shadow 启动验证两份地图载入与空场守卫。
 - [ ] 用户实机跑图后收集地貌与布点反馈。
 
+### 阶段 4 — 共享栅格瓦片迁移
+
+- [x] 沙漠与海洋完成多轮 profile 自审；否决偏棕/偏青稿，最终候选与各自正式 PNG 色调对齐。
+- [x] 同一 cutter 已生成两图 Strategic/Operational/Detail lossless WebP、manifest 与接缝/父子均值报告；不在运行时生成 mip。
+- [x] 主图和 Tab 按精确底图路径映射对应 manifest/profile；旧整图 PNG 仅作默认路径、A/B 与失败回滚。
+- [x] 与东京湾一起通过固定 Visual/内存/启动/FPS 客观门；三图 `42` 组成对机位、建筑缓存、LOD、Tab 和 52 机压力门均已通过。
+- [ ] 用户确认三图最终整图、地标近景与 Tab 后，才允许在同一毕业变更中停止运行时引用大型单 PNG。
+
 ## 7. 索引锚点（Where）
 
 | 关注点 | 文件 |
@@ -199,3 +218,15 @@ reconstruction_complete: false
 | 2026-08-09 | 6 | 修正只验证手工陆地多边形、未验证实际 PNG 海岸线的错误；按 PNG 像素重定位西北孤岛基地/机场，并同步校准该岛运行时陆地轮廓。 |
 | 2026-08-09 | 6 | 主图与 Tab 新增仅预览图生效的静态跑道覆盖；Godot 4.7 Shadow 60 秒平均 144.94 FPS、最差 144.00 FPS、0 帧低于 60。 |
 | 2026-08-15 | 7 | 按用户截图将沙漠图炼油厂从地图中央整体平移至右侧 Newman 城区，中心由约 `(0,0)` 改为约 `(4800,400) px`；体块尺寸、高度与内部排布不变。 |
+| 2026-08-15 | 8 | 用户批准 `raster-basemap-streaming` 并要求图 2/图 3一并改进：两张 8704² PNG 转为各自母版，目标共享三档瓦片/缓存但分别使用暖褐与蓝绿 profile；加入 216.75 MiB 单图基线、换图清缓存和三图共同毕业门。 |
+| 2026-08-15 | 9 | 沙漠/海洋 lossless WebP 金字塔与真实 Survivor 试飞接通，候选直启不解码旧大 PNG；纠正偏色后，Godot Operational/Detail 对正式 PNG 的 RGB MAE 均约 0.0073～0.0075。主图/Tab 同 manifest，旧 PNG 继续保留至用户最终确认。 |
+| 2026-08-15 | 10 | 第二轮补齐实际 680×680 Tab 成对门：候选不再重复套主图 shader，直接复用 Strategic + 正式固定乘色；沙漠/海洋 Tab RGB MAE `0.00089/0.00055`。第二次 Sentinel+52 机两档性能门通过，PNG 仍保留等待用户最终裁决。 |
+| 2026-08-15 | 11 | 与东京湾一起把 Operational 从 4352² 提升到 7680²，并以真实 `zoom=0.26` 的三地图 3×3 同位门复核；沙漠/海洋 Operational RGB MAE 为 `0.00742/0.00771`。三图资源合计 `66.426 MiB`，稳态/硬峰值纹理预算不变；PNG 仍保留等待用户最终裁决。 |
+| 2026-08-15 | 12 | 三图共同完成 Strategic 1024/1280/1536 消融：1536 以 `68.016 MiB` 越门淘汰，1280 以 `67.184 MiB` 晋升并让沙漠/海洋 full 与 Tab 低频误差全部下降。三档 edge gain 固化为 `1.15/1.16/1.20`，最终稳定/硬峰值纹理预算 `57.30/74.32 MiB`；正式大型 PNG 与默认路径仍保留，等待用户实机 A/B。 |
+| 2026-08-15 | 13 | 继续补测 1344/1408/1472/1520，最终 1520 以 `67.961 MiB` 成为 68 MiB 内最高质量点；沙漠/海洋 full 与 Tab 误差继续下降。三档 edge gain 更新为 `1.15/1.17/1.20`，稳定/硬峰值 `59.86/76.88 MiB`；两段 LOD、39 组同位图与 52 机性能门重新通过，正式 PNG 仍保留等待用户实机裁决。 |
+| 2026-08-16 | 14 | 把主题建筑纳入不可绕过的客观门：Visual QA 分别注入沙漠/海洋 MapDocument 并断言 `15/16` 组假 3D 建筑，新增同位地标近景；两图真实 Survivor PNG/streamed 完整合成抓帧均成功。三图客观门已过，仍等待用户最终视觉确认，正式 PNG 未删除且仍为默认。 |
+| 2026-08-16 | 15 | 与东京湾同步采用三档同相位的 footprint 自适应世界颗粒，削弱沙漠平坦区的固定格/摩尔纹并保持海洋大面积海面干净；42 组 PNG/候选同位机位、真实 Survivor 合成、LOD 连续性与 16 格内存门重新通过。正式 PNG 继续作为默认与回滚，等待用户视觉确认。 |
+| 2026-08-16 | 16 | 沙漠与海洋和东京湾一并改为共享 `64×64` L8 蓝噪声颗粒，强度 `0.014`；磁盘只增加 `4,228 B`，完整 mip 内存约 `5,461 B`，不承载地图内容。import 固化 mip 后，真实 Survivor 合成、42 组同位机位、黑点/色准/LOD 门重新通过；最终 52 机 Operational/Detail 为 `144.92/144.89 FPS` 且 0 帧低于 60。正式 PNG 仍为默认与回滚。 |
+| 2026-08-16 | 17 | 三图共同试验 `0.016` 颗粒后，因 Detail 连续两轮出现低于 60 FPS 的尖峰而判退，沙漠/海洋随东京湾统一保留 `0.014`。实际 alpha 取样的完整 Visual QA 与 42 组同位审计重跑通过；正式 PNG 仍为默认与回滚，等待用户最终视觉确认。 |
+| 2026-08-16 | 18 | 三图真实 Survivor 完整 viewport 统一使用仅 bench 生效的固定天气种子，避免随机云形污染 PNG/候选色调比较；正式天气随机性不变。东京湾补齐同级抓图后，三图完整合成亮度差均小于 `0.00014`，低通 RGB MAE 均小于 `0.0026`，平坦区色准全部通过。 |
+| 2026-08-16 | 19 | 沙漠/海洋 Operational 与 Detail 完成真机同位消融：沙漠改动及海洋 Detail `1.21` 均因无稳定收益判退，仅晋升海洋 Operational `1.15` 为 `ocean_islands_v8`；3 px 结构与 5 px 轮廓 F1、42 组色准/LOD/驻留及 Sentinel+52 机性能门全部通过。正式 PNG 继续作为默认和回滚源。 |

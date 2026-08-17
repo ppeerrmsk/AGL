@@ -3,16 +3,16 @@ id: map-system
 kind: map
 status: done
 schema_version: 1
-spec_version: 6
+spec_version: 8
 owner: design
-depends_on: [map-boundary, map-geography]
+depends_on: [map-boundary, map-geography, raster-basemap-streaming]
 reconstruction_complete: false
 ---
 
 # 地图 / 地形系统（边界 + 地理 + 渲染 + 三条流水线，含扩展接入图）
 
-> AGL 的地图是**手画地理覆盖 + OSM 烘焙数据 + 底图 PNG** 三层叠加，配一个方形世界边界。正式东京湾保留 PNG + shader；代码在资源缺失时仍 fail-open 到矢量层。
-> 当前唯一地图是手画的**东京湾**。本 spec 兼作**加新地图的接入图**（§6）。
+> AGL 的地图是**手画地理覆盖 + OSM 烘焙数据 + 栅格底图**三层叠加，配一个方形世界边界。正式默认仍是整图 PNG + shader；已批准的 lossless WebP 分级候选通过 `Shift+F8` 同步供主图与 Tab A/B，资源缺失时仍 fail-open 到矢量层。
+> 正式战役地图仍是**东京湾**；沙漠铁路与海洋群岛是两张内置空图试飞 MapDocument。本 spec 兼作**加新地图的接入图**（§6）。
 > ⚠ `reconstruction_complete: partial`：边界/坐标系/查询 API 已核对源码；Python 流水线脚本细节
 > 引用现有 [map-pipeline.md](../../reference/map-pipeline.md) / [manual-map-editing.md](../../reference/manual-map-editing.md)，不在此重抄。
 
@@ -30,7 +30,8 @@ reconstruction_complete: false
 | **MapBoundary** | `map_boundary.gd` | 世界矩形边界、出界/警戒信号、玩家起点 |
 | **MapGeography** | `map_geography.gd` | 公共查询 API（`is_on_land` / `is_on_land_strict` / `is_on_solid_land` / `is_ground_spawn_safe` / `find_ground_spawn_near` / HIGHWAYS / URBAN）+ 手画陆地多边形 |
 | **MapGeographyData** | `map_geography_data.gd` | JSON 载入器：读 `resources/maps/tokyo_bay.json`（OSM 烘焙几何）填静态数组，`ensure_loaded()` 懒加载一次 |
-| **MapFeatureRenderer** | `map_feature_renderer.gd` | 绘制：底图 PNG + OSM 矢量（陆/城区/路）+ 手画 Polygon2D 覆盖 + vignette |
+| **MapFeatureRenderer** | `map_feature_renderer.gd` | 绘制：默认整图 PNG，或共享 lossless WebP LOD 候选 + OSM/手画/玩法覆盖 + vignette |
+| **RasterBasemapRenderer** | `raster_basemap_renderer.gd` | 候选 manifest、Strategic/Operational/Detail、后台解码、12 张 LRU 与稳定世界空间 shader |
 | （编辑器辅助） | `map_manual_background.gd`（@tool） | 编辑器内显示 OSM 预览 + 网格，辅助手画 `scenes/map_manual.tscn` |
 
 ## 3. 坐标系与边界常量（已核对）
@@ -73,15 +74,16 @@ reconstruction_complete: false
 | **A. OSM 烘焙** | `scripts/tools/bake_tokyo_bay.py`（dev 工具，配 FIXED_LAT_C/LON_C/PX_PER_M/WORLD_HALF） | `resources/maps/tokyo_bay.json`（陆/城区/路/land_mask） | [map-pipeline.md](../../reference/map-pipeline.md) |
 | **B. 底图下载** | `scripts/tools/download_basemap.py`（CartoDB 瓦片；新图可按设计选用） | `tokyo_bay_bg.png` + `_bg.json` 元数据 | [map-pipeline.md](../../reference/map-pipeline.md) |
 | **C. 手画覆盖** | Godot 编辑器画 `scenes/map_manual.tscn` 里的 Polygon2D | 场景文件（渲染时被 MapFeatureRenderer 采集） | [manual-map-editing.md](../../reference/manual-map-editing.md) |
+| **D. 栅格分级** | `scripts/tools/build_lossless_basemap_pyramid.py`（默认输出 `tmp/`，显式指定才更新 runtime） | `resources/maps/basemap_tiles/<map>/` 的 lossless WebP + manifest | [raster-basemap-streaming.md](raster-basemap-streaming.md) |
 
 > JSON 而非 GDScript 静态初始化：避开 @tool 大静态数组的懒初始化 bug，运行时 `FileAccess`+`JSON.parse_string` 稳定。
-> 正式东京湾的 8704×8704 底图 PNG 是保留的生产视觉资产；“缺失则跳过”只是容错行为，不表示它可从打包删除或由现有纯矢量候选替换。
+> 三张 8704×8704 底图 PNG 仍是保留的正式视觉母版与默认回滚路径；当前连续两次通过客观视觉/性能门的是同源 lossless WebP 候选，不是已否决的纯矢量候选。仍须取得 `raster-basemap-streaming` 的用户最终视觉确认，才可另行提议移出发布包。
 > 底图缺失或损坏时游戏继续运行并启用旧矢量兜底；正式生存模式必须同时显示本地化红色错误 toast。UGC 纯矢量地图不报错。
 
 ## 6. 地图注册与选择 + 扩展接入图 ★
 
-地图在 `survivor_map_select.gd` 的 `MAP_LIST` 注册（id/name(i18n)/tags/desc/locked）；当前只有 `default`（东京湾）
-可选，其余 4 槽 locked。选图流程：map_select → 存 `meta("map_id")` → aircraft_select → survivor_mode 读取。
+地图在 `survivor_map_select.gd` 的 `MAP_LIST` 注册（id/name(i18n)/tags/desc/locked）；当前可选 `default`（东京湾）、
+`desert_railway_preview` 与 `ocean_islands_preview`，后两张为无战区内置试飞图；另 2 槽 locked。选图流程：map_select → 存 `meta("map_id")` → aircraft_select → survivor_mode 读取。
 
 **加新地图（如 shanghai）**：
 
@@ -108,6 +110,7 @@ reconstruction_complete: false
 - [x] 越界触发警戒信号 + 联动补给时间税
 - [x] 底图 PNG 缺失时游戏照常跑
 - [x] 正式东京湾主地图与 Tab 默认消费同一 PNG 设计；纯矢量 debug 候选不获得删除/替换授权
+- [x] 三图 lossless WebP 候选主图与 Tab 同 manifest/profile，`Shift+F8` 同步切换；默认与源 PNG 均未删除
 - [x] 底图 PNG 缺失/损坏时游戏照常跑，控制台 `push_error` + 底部红色临时通知明示旧矢量兜底；UGC 纯矢量路径不误报
 - [x] 地图改动走 map_feature_renderer/map_geography，不动 terrain_renderer（沙盒废弃）
 
@@ -119,6 +122,7 @@ reconstruction_complete: false
 | 陆判/地理查询 | `scripts/survivor/map_geography.gd` |
 | JSON 载入 | `scripts/survivor/map_geography_data.gd` |
 | 绘制 | `scripts/survivor/map_feature_renderer.gd` |
+| 栅格候选 | `scripts/survivor/raster_basemap_renderer.gd` · `resources/maps/basemap_tiles/` |
 | 编辑器辅助 | `scripts/survivor/map_manual_background.gd` · `scenes/map_manual.tscn` |
 | 选图注册 | `scripts/survivor/survivor_map_select.gd`（MAP_LIST） |
 | 烘焙/底图工具 | `scripts/tools/bake_tokyo_bay.py` · `download_basemap.py` |
@@ -126,7 +130,7 @@ reconstruction_complete: false
 
 ## 9. 待补 / 不确定
 
-- 多图支持未实现（路径硬编码 tokyo_bay，§6 步 5/6 为改造点）。
+- 东京湾、沙漠铁路、海洋群岛的多图 raster manifest 映射已实现；任意外部 UGC 仍按设计保持 vector-only。新官方图仍须按 §6 登记精确路径与 manifest，禁止模糊回退到东京湾内容。
 - Python 烘焙脚本逐字段细节以 map-pipeline.md 为准（本 spec 只给入口与产物）。
 
 ## 10. 变更记录
@@ -138,4 +142,6 @@ reconstruction_complete: false
 | 2026-08-09 | 3 | 新增实体陆地查询：官方图要求 OSM land mask 与手画陆块同时命中，排除海上道路/桥梁外扩承载地面目标与单位。 |
 | 2026-08-10 | 4 | 港区地面部署收口：正式东京湾以覆盖 60km 全图的 OSM land mask 为正集，用视觉水面环排除港池/河道，再要求 50px 连续陆地净空；固定偏移可在附近确定性重定位，无解缩编。旧 30km 手画轮廓不再作为正式部署硬交集；该蒙版只参与玩法查询，不改变 PNG 生产渲染决策。 |
 | 2026-08-10 | 5 | 合并 main 的底图失败提示链：四类失败原因统一发信号，正式生存模式显示三语红色错误 toast，同时保留旧矢量层保证战局可继续；UGC 纯矢量模式豁免。 |
-| 2026-08-16 | 6 | 遵循全局 UI 双边缘通知规则：底图失败属于临时错误反馈，改由屏幕底部通知通道滑入，不占用顶部紧急信息通道。 |
+| 2026-08-15 | 6 | 接入已批准的三图 lossless WebP 分级候选：主图/Tab 共享 manifest 与稳定 shader，`Shift+F8` A/B；三图直启可跳过旧大 PNG，但默认生产路径和源 PNG 继续保留至最终毕业门。 |
+| 2026-08-15 | 7 | 第二轮对拍修正 Tab 职责：主图继续使用稳定 shader，Tab 直接共享 Strategic 并沿用正式固定中性乘色，不再重复套 shader 或生成第二份快照；三图 680² Tab 成对门和第二次 Sentinel+52 机性能门通过，仍未授权删除 PNG。 |
+| 2026-08-16 | 8 | 遵循全局 UI 双边缘通知规则：底图失败属于临时错误反馈，改由屏幕底部通知通道滑入，不占用顶部紧急信息通道。 |

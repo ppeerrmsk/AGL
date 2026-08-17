@@ -29,6 +29,8 @@
 class_name BossEncounterEvent
 extends GameEvent
 
+const HyperABossScript = preload("res://scripts/survivor/hyper_a_boss.gd")
+
 enum Phase { PRE_STAGE, ENGAGED, VICTORY }
 
 # ── 配置（director 启动时由 mode 注入）──
@@ -43,6 +45,7 @@ var anchor: Vector2 = Vector2.INF
 var heading_deg: float = 0.0
 var map_id: String = "default"
 var boss_id_override: String = ""    ## Boss Debug 强制指定 boss id，绕过地图池随机
+var boss_debug_scenario: String = "full" ## Black Star Debug 直达场景；正式局保持 full
 ## 生涯档案 BOSS 轮换 history（spec career-archive §3.1；mode 在正式局注入，
 ## 空 = 旧纯随机。事件层不直读 CareerArchive autoload，保持可测）
 var boss_history: Dictionary = {}
@@ -51,13 +54,14 @@ var _was_active: bool = false
 var _last_pushed_player: Aircraft = null
 
 func _init(p_anchor: Vector2, p_heading_deg: float, p_map_id: String, p_boss_id_override: String = "",
-		p_boss_history: Dictionary = {}) -> void:
+		p_boss_history: Dictionary = {}, p_boss_debug_scenario: String = "full") -> void:
 	name = "boss_encounter"
 	anchor = p_anchor
 	heading_deg = p_heading_deg
 	map_id = p_map_id
 	boss_id_override = p_boss_id_override
 	boss_history = p_boss_history
+	boss_debug_scenario = p_boss_debug_scenario
 
 # ──────────────── 生命周期 ────────────────
 
@@ -77,6 +81,8 @@ func _start() -> void:
 	var defeat_counts: Dictionary = boss_history.get("defeat_counts", {})
 	encounter.configure_progression(int(defeat_counts.get(encounter.boss_id, 0)))
 	encounter.initial_heading_deg = heading_deg
+	if encounter is HyperABossScript:
+		encounter.configure_debug_scenario(boss_debug_scenario)
 
 	# 2. 刷出 + 进 PRE_STAGE
 	if encounter is CarrierStrikeGroup:
@@ -88,6 +94,9 @@ func _start() -> void:
 	elif encounter is MotherGooseBoss:
 		_spawn_mother_goose()
 		_apply_pre_stage_directives_mother_goose()
+	elif encounter is HyperABossScript:
+		_spawn_hyper_a()
+		_apply_pre_stage_directives_hyper_a()
 	else:
 		push_error("BossEncounterEvent: unsupported encounter type %s" % encounter.get_class())
 		end()
@@ -96,7 +105,7 @@ func _start() -> void:
 	# 3. 登场演出（spec ui-transition §2.8/2.13）。所有 BOSS 都走同一表演导演：
 	#    Wraith 有专属飞行分镜；CSG / Mother Goose 为镜头切主体 + 无线电 + 回玩家。
 	#    成功则台词与镜头全部由序列编排，
-	#    跳过下面的横幅/无线电旧路径；失败（无演出定义 / 缺演员）则回落原行为
+	#    跳过下面的通用 WARNING / 无线电旧路径；失败（无演出定义 / 缺演员）则回落原行为
 	if _try_play_arrival_cinematic():
 		EventLogger.log_event("EVENT", name,
 			"PRE_STAGE: %s 走登场演出" % encounter.display_name)
@@ -120,7 +129,7 @@ func _start() -> void:
 	_enter_engaged()
 
 ## 尝试播 <boss_id 小写>_arrival 演出。返回 false 表示没有该 BOSS 的演出定义，
-## 调用方回落到"横幅 + 无线电"的旧登场路径。
+## 调用方回落到"通用 WARNING + 无线电"的旧登场路径。
 ##
 ## ⚠ 演员指令的所有权【留在本事件】：只把 self 作为 owner 传给导演，导演转手调
 ##    self.set_directive() 下发。事件结束时 EventDirector 会自动 clear_all_directives()
@@ -157,10 +166,11 @@ func _try_play_arrival_cinematic() -> bool:
 		"owner": self,
 		"actors": members,
 		"anchor": anchor,
-		"cp": anchor + inbound * 250.0,      ## 交汇点：锚点前方 250px（按 1.8s 交汇窗 × 机体包线反推）
+		"cp": anchor + inbound * 250.0,      ## 交汇点：锚点前方 250px（按 1.55s 交汇窗 × 机体包线反推）
 		"inbound": inbound,
 		"extra_layers": extra,
 		"callsign_prefix": encounter.callsign_prefix,
+		"boss_banner": BossRegistry.banner_metadata_for(encounter.boss_id),
 		"scatter_seed": inbound.angle(),
 		# BGM 快照：audio 通道在演出开场切 BOSS 曲（导演只拿字符串，不认识 encounter）
 		"bgm_layers": encounter.bgm_layers,
@@ -319,6 +329,10 @@ func _spawn_mother_goose() -> void:
 	var goose := encounter as MotherGooseBoss
 	director.spawner._spawn_boss(goose, anchor, true)  # skip_bgm
 
+func _spawn_hyper_a() -> void:
+	var hyper_a = encounter
+	director.spawner._spawn_boss(hyper_a, anchor, true)  # skip_bgm
+
 ## 猎手进场起点（spec boss-hunter-doctrine §2.4）：玩家【机头前方】±30° 扇面、12 km 处。
 ## 守"事件刷在玩家沿途"约定 —— 不从背后冒出、不逼玩家掉头。
 ## 越界时改指向地图中心（复用 AceSquad.spawn 的同款防越界策略）。
@@ -352,4 +366,8 @@ func _apply_pre_stage_directives_ace() -> void:
 
 ## Mother Goose：spawn 后同帧立刻硬暂停演出；母机与蜂群冻结到回镜，随后统一 ENGAGED。
 func _apply_pre_stage_directives_mother_goose() -> void:
+	pass
+
+## Hyper-A 的首个根机在 PRE_STAGE 只是隐藏的镜头演员，战斗许可由 encounter.engage() 开启。
+func _apply_pre_stage_directives_hyper_a() -> void:
 	pass

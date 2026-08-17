@@ -514,6 +514,9 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 			if p.gun:
 				p.gun = p.gun.duplicate()
 				p.gun.max_range += float(upgrade["value"])
+		"berserk_virus":
+			aircraft.berserk_virus_active = true
+			aircraft.enforce_berserk_virus_free_mode()
 		"hunter":
 			aircraft.hunter_unlocked = true
 		"radar_range":
@@ -781,6 +784,13 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 		"ab_gun_regen":
 			# AB 时机炮 regen/sec（weapons.update_gun 在 ab=true 时累加）
 			aircraft.ab_gun_regen_per_sec = float(upgrade["value"])
+		"altitude_energy_cycle":
+			# DIVE 单机超储供弹 + CLIMB 当前操控机贡献共享加力。
+			aircraft.altitude_cycle_gun_regen_per_sec = float(upgrade["value"])
+			aircraft.altitude_cycle_gun_overstock_mult = float(
+				upgrade.get("gun_overstock_mult", 2.0))
+			aircraft.altitude_cycle_ab_regen_per_sec = float(
+				upgrade.get("ab_regen_per_sec", 0.2))
 		"alt_change_stealth":
 			# 高度变化时 lock_rate 衰减系数（main.gd 雷达循环）
 			aircraft.alt_change_stealth_factor = float(upgrade["value"])

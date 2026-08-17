@@ -3,7 +3,7 @@ id: boss-clear-progression
 kind: system
 status: done
 schema_version: 1
-spec_version: 1
+spec_version: 2
 owner: 用户（设计） / Codex（落地）
 depends_on: [career-archive, wraith-squadron, mother-goose]
 reconstruction_complete: true
@@ -76,7 +76,8 @@ YF-23 支援机规则：
 
 MQ-111 的激光继续对导弹施加 0.5 s 减速（速度上限 45%、转弯 G 上限 50%），并同时按距离/云层衰减后的
 激光 DPS 累计扣除导弹 `intercept_hp`。`intercept_hp ≤ 0` 时销毁导弹；即“先压慢，持续照射到阈值后拦截击毁”。
-MQ-111 专属激光数值不变：射程 2500 m、DPS 80→18、单目标、热量 80、输出/散热 30/s。
+MQ-111 专属激光：射程 2500 m、DPS 80→18、单目标；热量规则与玩家 X-02 完全一致——上限 100、
+输出 +35/s、过热强制停火并以 25/s 散热，降到 30% 才恢复拦截。
 
 ## 3. 行为与公式（How）
 
@@ -113,6 +114,7 @@ MQ-111 专属激光数值不变：射程 2500 m、DPS 80→18、单目标、热�
 - [x] Wraith YF-23 不进演出、不进 BOSS 血条、不阻塞胜利；被追近后回到 4–6 km 距离带；玩家雷达不能锁定。
 - [x] 玩家切控后，两架 YF-23 改追当前操控机，不保留旧玩家引用。
 - [x] MQ-111 光束命中导弹时同时减速与累计扣 `intercept_hp`，累计达到阈值后导弹被删除。
+- [x] MQ-111 连续照射会过热停火，强制散热到 30% 后才恢复；四项热量参数与玩家 X-02 一致。
 - [x] 历史击败次数 ≥2 时不崩溃，当前仍使用强化层 1，完整次数保留给未来层。
 - [ ] 性能：只增加既有实体与既有装备扫描，无新增 `_process/_physics_process/_draw`；跑生存模式 Sentinel + Lv5+ 压测，FPS 掉幅 < 15。
 - [x] 玩家引用持有者校验通过。
@@ -147,3 +149,4 @@ MQ-111 专属激光数值不变：射程 2500 m、DPS 80→18、单目标、热�
 | 日期 | spec_version | 改动 |
 |---|---:|---|
 | 2026-08-01 | 1 | 用户定稿并完成首轮分层：Wraith 双 YF-23、CSG 护航编成、Goose 高级 UAV 门控；`boss_progression` 22/22 及受影响回归通过。第二次通关后的新机制暂缓。 |
+| 2026-08-16 | 2 | MQ-111 仍走共享 LaserEquipment 累计反导，并把热量上限、输出升温、强制散热和 30% 恢复门完全对齐玩家 X-02；回归扩到真实过热循环。 |

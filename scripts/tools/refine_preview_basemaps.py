@@ -9,6 +9,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageFilter
 
+from remove_admin_boundaries import clean_admin_boundaries
+
 
 ROOT = Path(__file__).resolve().parents[2]
 MAP_DIR = ROOT / "resources/maps"
@@ -73,6 +75,7 @@ def refine_desert() -> Path:
             Image.fromarray(np.clip(composed, 0.0, 255.0).astype(np.uint8)),
             (0, y0),
         )
+    output_image, boundary_mask = clean_admin_boundaries(base_image, output_image)
     output_image.save(output, optimize=True, compress_level=6)
     _write_meta(
         MAP_DIR / "desert_railway_bg.json",
@@ -80,6 +83,7 @@ def refine_desert() -> Path:
         "low-contrast generated Pilbara terrain under coordinate-stable CARTO/OSM lines",
     )
     _shader_preview(output, PREVIEW_DIR / "desert_railway_v2_filtered.jpg")
+    print(f"[desert] removed administrative boundary mask={int(boundary_mask.sum())} px")
     return output
 
 
@@ -107,6 +111,7 @@ def refine_ocean() -> Path:
         cleared_pixels += int(rectangular_landcover.sum())
         image[rectangular_landcover] = np.array([251, 248, 243], dtype=np.uint8)
         output_image.paste(Image.fromarray(image), (0, y0))
+    output_image, boundary_mask = clean_admin_boundaries(source_image, output_image)
     output_image.save(output, optimize=True, compress_level=6)
     _write_meta(
         MAP_DIR / "ocean_islands_bg.json",
@@ -115,6 +120,7 @@ def refine_ocean() -> Path:
     )
     _shader_preview(output, PREVIEW_DIR / "ocean_islands_v2_filtered.jpg")
     print(f"[ocean] cleared landcover pixels={cleared_pixels}")
+    print(f"[ocean] removed administrative boundary mask={int(boundary_mask.sum())} px")
     return output
 
 

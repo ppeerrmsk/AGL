@@ -151,6 +151,33 @@ static func lead_heading(ac: Aircraft, tgt: CombatUnit, bullet_speed_mps: float)
 	return atan2(lead_v.x, -lead_v.y)
 
 
+## 统一 GUN_TAILED 纯规则：攻击意图 + 后向锥 + 正式机炮距离/高差/前置解包络。
+static func is_gun_tailed_by(attacker: Aircraft, defender: Aircraft) -> bool:
+	if attacker == null or defender == null or not is_instance_valid(attacker) \
+			or not is_instance_valid(defender) or attacker == defender \
+			or attacker.is_destroyed or defender.is_destroyed or attacker.is_cloaked \
+			or not attacker.is_hostile_to(defender):
+		return false
+	if attacker.combat_target != defender or attacker.weapon_mode != Aircraft.WeaponMode.GUN \
+			or attacker.params == null or attacker.params.gun == null \
+			or (attacker.ammo <= 0 and attacker._gun_burst_rounds_left <= 0) \
+			or attacker.is_sensor_engagement_obscured(defender):
+		return false
+	var to_attacker: Vector2 = attacker.global_position - defender.global_position
+	var distance_px: float = to_attacker.length()
+	if distance_px < 10.0 \
+			or distance_px > attacker.effective_gun_range_m() * CombatUnit.PIXELS_PER_METER:
+		return false
+	var defender_fwd := Vector2(sin(defender.heading), -cos(defender.heading))
+	if defender_fwd.dot(to_attacker / distance_px) >= -0.3:
+		return false
+	if not attacker.flat_altitude and absf(attacker.altitude - defender.altitude) > 500.0:
+		return false
+	var lead: float = lead_heading(attacker, defender, attacker.params.gun.muzzle_velocity)
+	return absf(attacker._angle_diff(lead, attacker.heading)) \
+		<= deg_to_rad(attacker.effective_gun_cone_half_angle_deg())
+
+
 ## 跨 tick 只保存实例 ID，不持有 Node 强引用；目标释放后 instance_from_id 返回 null。
 static func _gun_target_from_id(instance_id: int) -> CombatUnit:
 	if instance_id == 0:
@@ -173,6 +200,9 @@ static func _refresh_committed_gun_aim(ac: Aircraft, gun: GunParams) -> bool:
 		return false
 	if target is GroundUnit and target.is_lock_immune():
 		return false
+	if ac._gun_climb_frozen_target_id == ac._gun_burst_target_id:
+		ac._gun_lead_heading = ac._gun_climb_frozen_heading
+		return true
 	var dist_px: float = ac.global_position.distance_to(target.global_position)
 	if dist_px < 10.0 or dist_px > ac.effective_gun_range_m() * CombatUnit.PIXELS_PER_METER:
 		return false
@@ -345,13 +375,40 @@ static func auto_gun_scan(ac: Aircraft) -> void:
 				int(rad_to_deg(best_angle))])
 
 
-## 编队/LOD 提前返回路径的炮艇专用入口。普通编队机不承担这笔武器 tick 成本；
-## 玩家全队炮艇则必须在没有 combat_target、没有战术开火许可时仍各自扫描与梭射。
+## 编队/LOD 提前返回路径入口。普通编队机只结算 O(1) 的高度循环弹药；
+## 玩家全队炮艇还必须在没有 combat_target、没有战术开火许可时各自扫描与梭射。
 static func update_passive_gunship(ac: Aircraft, delta: float) -> void:
 	if not ac.gunship_mode_active or not ac.is_player_squad():
+		update_altitude_cycle_ammo(ac, delta)
 		return
 	auto_gun_scan(ac)
 	update_gun(ac, delta)
+
+
+static func _regen_gun_ammo(ac: Aircraft, delta: float, per_sec: float,
+		cap: int, accum_key: StringName) -> void:
+	if per_sec <= 0.0 or ac.ammo >= cap:
+		if ac.ammo >= cap:
+			ac.set_meta(accum_key, 0.0)
+		return
+	var accum: float = float(ac.get_meta(accum_key, 0.0)) + per_sec * delta
+	var add: int = int(accum)
+	if add > 0:
+		ac.ammo = mini(ac.ammo + add, cap)
+		accum -= float(add)
+	ac.set_meta(accum_key, accum)
+
+
+## 高度能量循环的独立弹药结算。编队提前返回路径也必须调用，保证每架玩家小队飞机
+## 按自己的 DIVE 状态回复，而不是只结算当前操控机或有 combat_target 的飞机。
+static func update_altitude_cycle_ammo(ac: Aircraft, delta: float) -> void:
+	if not ac.is_player_squad() or ac.altitude_action != Aircraft.AltitudeAction.DIVE \
+			or ac.altitude_cycle_gun_regen_per_sec <= 0.0 or not ac.params or not ac.params.gun:
+		return
+	var overstock_cap := roundi(float(ac.params.gun.max_ammo) \
+		* ac.altitude_cycle_gun_overstock_mult)
+	_regen_gun_ammo(ac, delta, ac.altitude_cycle_gun_regen_per_sec,
+		overstock_cap, &"_altitude_cycle_gun_regen_accum")
 
 ## 机炮梭射状态机（specs/weapons/gun-burst-fire.md）：
 ## 空闲 → 梭起始（装填 burst_count 发）→ 梭内（承诺：无视 is_firing 打完整梭）→ 梭间 CD → …
@@ -372,24 +429,16 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 	# §C 玩家技能"AB 时回机炮弹"：开 AB 时持续 regen（受 max_ammo 上限）
 	if ac.is_player_squad() and ac.is_afterburner and ac.ab_gun_regen_per_sec > 0.0 \
 			and ac.params and ac.params.gun:
-		var max_ammo: int = ac.params.gun.max_ammo
-		if ac.ammo < max_ammo:
-			# 累加 fractional → 整数（剩余分量挂在 _ab_gun_regen_accum）
-			if not ac.has_meta("_ab_gun_regen_accum"):
-				ac.set_meta("_ab_gun_regen_accum", 0.0)
-			var accum: float = float(ac.get_meta("_ab_gun_regen_accum")) + ac.ab_gun_regen_per_sec * delta
-			var add: int = int(accum)
-			if add > 0:
-				ac.ammo = mini(ac.ammo + add, max_ammo)
-				accum -= float(add)
-			ac.set_meta("_ab_gun_regen_accum", accum)
+		_regen_gun_ammo(ac, delta, ac.ab_gun_regen_per_sec,
+			ac.params.gun.max_ammo, &"_ab_gun_regen_accum")
+	update_altitude_cycle_ammo(ac, delta)
 	# 整匣装填（生存模式）：弹药耗尽 → 进入 CD → 一次性补满
 	if ac.enable_gun_reload and ac._gun_reload_active:
 		ac._gun_reload_timer += delta * ac.esm_reload_rate_multiplier()
 		ac.gun_reload_progress = clampf(ac._gun_reload_timer / ac.gun_reload_duration, 0.0, 1.0)
 		if ac._gun_reload_timer >= ac.gun_reload_duration:
 			if ac.params and ac.params.gun:
-				ac.ammo = ac.params.gun.max_ammo
+				ac.ammo = maxi(ac.ammo, ac.params.gun.max_ammo)
 			ac._gun_reload_active = false
 			ac._gun_reload_timer = 0.0
 			ac.gun_reload_progress = 0.0
@@ -453,6 +502,8 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 
 	# 梭起始：装填弹数 + 摇一次梭级瞄准误差（仅玩家，skill=0 → ±5° / skill=1 → ±0.5°）
 	if ac._gun_burst_rounds_left <= 0:
+		# 旧梭若被爬升冻结，许可只覆盖那一梭；新梭必须恢复实时前置解。
+		ac._gun_climb_frozen_target_id = 0
 		# 有显式战斗目标时优先锁它；无点名目标则锁存 3Hz 自动扫描选中的实例。
 		if ac.gunship_mode_active and ac._auto_gun_target_id != 0:
 			ac._gun_burst_target_id = ac._auto_gun_target_id
@@ -466,6 +517,7 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 			ac.is_firing = false
 			ac._gun_burst_rounds_left = 0
 			ac._gun_burst_target_id = 0
+			ac._gun_climb_frozen_target_id = 0
 			return
 		if ac.team == CombatUnit.TEAM_HOSTILE:
 			ac._ai_gun_pause_timer = Aircraft.AI_GUN_PAUSE_DURATION
@@ -491,6 +543,7 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 			ac._fire_cooldown = maxf(float(maxi(gun.burst_count, 1)) * (base_interval - intra), 0.0) \
 			* ac.weapon_master_cd_mult   # 武器大师（720 批 T4）
 			ac._gun_burst_target_id = 0
+			ac._gun_climb_frozen_target_id = 0
 
 ## [GUN_BURST] 梭起始诊断快照（节流 0.5s；仅友方 team 0 / 选中机，敌机静默防刷屏）。
 ## 补可观测性缺口（2026-07-07 追"僚机对空放枪"）：打空的梭在 [GUN]（仅命中记录）/
@@ -661,15 +714,15 @@ static func update_ciws(ac: Aircraft, delta: float) -> void:
 			ac.gun_reload_progress = 0.0
 
 ## ========== 火箭弹（无制导副武器） ==========
-## 对空中或地面目标发射一串无制导火箭。散布很大，命中率故意调低。
+## 对空中或地面目标发射一串无制导火箭。先从左右挂点直飞，再延迟展开散布。
 ## 发射时机：有战斗目标 + 目标在机头前方 + 距离在火箭弹射程内 + 齐射冷却归零。
 ## 齐射内部通过 _rocket_queue 按间隔连发，不立即一次性射出。
 ## 火箭弹更新（全自动扫描齐射，遵循"全武器无手动开火"哲学）
 ## 流程：
 ##   1. CD 倒数 + 队列出膛
 ##   2. 扫描机头前 fire_cone_half_angle 锥内 [min_range, max_fire_range] 是否有敌方
-##   3. 有则启动一次"扇形速发"：burst_count_max 枚火箭从左右挂点同时射出，
-##      角度沿 [-spread_angle, +spread_angle] 等距分布，形成机头前方扇形扩散
+##   3. 有则启动一次双侧涟发：burst_count_max 枚火箭左右逐发交替，
+##      出膛先平行直飞，最终角度沿 [-spread_angle, +spread_angle] 等距展开
 ##   4. 进入 burst_cooldown 等下次扫描
 static func update_rocket(ac: Aircraft, delta: float) -> void:
 	if not ac.params or not ac.params.rocket:
@@ -685,7 +738,8 @@ static func update_rocket(ac: Aircraft, delta: float) -> void:
 			q["delay"] = float(q["delay"]) - delta
 			if q["delay"] <= 0.0:
 				var pylon_val: int = int(q.get("pylon", 0))
-				_launch_rocket(ac, q["heading"], q["pos"], pylon_val)
+				var spread_offset: float = float(q.get("spread_offset", 0.0))
+				_launch_rocket(ac, spread_offset, pylon_val)
 				ac._rocket_queue.remove_at(i)
 			i -= 1
 
@@ -738,30 +792,34 @@ static func update_rocket(ac: Aircraft, delta: float) -> void:
 	if not found_target:
 		return
 
-	# 启动扇形齐射
+	# 启动双侧涟发：每枚独立 delay，左右挂点交替；散布只保存为远段目标偏角。
 	var burst_n: int = rk.burst_count_max
 	if not rk.infinite_ammo:
 		burst_n = mini(burst_n, ac.rockets_remaining)
 	if burst_n <= 0:
 		return
 
-	var spread_rad := deg_to_rad(rk.spread_angle)
-	for n in range(burst_n):
-		# 角度沿 [-spread, +spread] 等距分布
+	for entry in rocket_burst_plan(burst_n, deg_to_rad(rk.spread_angle), rk.burst_interval):
+		ac._rocket_queue.append(entry)
+	ac._rocket_burst_cooldown = rk.burst_cooldown * ac.weapon_master_cd_mult
+
+## 纯函数涟发计划：每枚隔 burst_interval，左/右交替，远段散布覆盖完整扇面。
+static func rocket_burst_plan(burst_n: int, spread_rad: float,
+		burst_interval: float) -> Array[Dictionary]:
+	var plan: Array[Dictionary] = []
+	for n in range(maxi(burst_n, 0)):
 		var ratio: float = 0.5 if burst_n <= 1 else float(n) / float(burst_n - 1)
-		var angle_offset: float = lerpf(-spread_rad, spread_rad, ratio)
-		ac._rocket_queue.append({
-			"delay": float(n / 2) * rk.burst_interval,  # 每对（左右）共享 delay
-			"heading": ac.heading + angle_offset,
-			"pos": ac.global_position,
+		plan.append({
+			"delay": float(n) * maxf(burst_interval, 0.0),
+			"spread_offset": lerpf(-spread_rad, spread_rad, ratio),
 			"pylon": -1 if (n % 2 == 0) else 1,
 		})
-	ac._rocket_burst_cooldown = rk.burst_cooldown * ac.weapon_master_cd_mult
+	return plan
 
 ## 真正把一发火箭弹交给 BulletManager
 ## pylon: -1 = 左挂点 / 1 = 右挂点 / 0 = 机身中线
-## base_heading 已包含 update_rocket 在扇形齐射时计算的角度偏移，这里不再随机 spread
-static func _launch_rocket(ac: Aircraft, base_heading: float, _queued_pos: Vector2, pylon: int = 0) -> void:
+## spread_offset 是远段目标偏角；出膛航向始终取本发实际发射当帧的机体 heading。
+static func _launch_rocket(ac: Aircraft, spread_offset: float, pylon: int = 0) -> void:
 	# 加力窗口全队禁攻击硬断（spec afterburner-mode）：含已入队的延迟出膛弹
 	if ac.afterburner_window_active:
 		return
@@ -776,18 +834,21 @@ static func _launch_rocket(ac: Aircraft, base_heading: float, _queued_pos: Vecto
 	var fwd := Vector2(sin(ac.heading), -cos(ac.heading))
 	var right := Vector2(cos(ac.heading), sin(ac.heading))
 	var muzzle_pos := ac.global_position + fwd * 24.0 + right * (float(pylon) * 18.0)
+	var launch_heading: float = ac.heading
 	if rk.min_damage_mult < 1.0:
 		ac.bullet_manager.spawn_rocket_with_falloff(
-			muzzle_pos, base_heading, rk.muzzle_velocity, ac,
+			muzzle_pos, launch_heading, rk.muzzle_velocity, ac,
 			rk.rocket_damage, rk.max_range,
 			rk.proximity_fuse_radius_m, rk.aoe_radius_m, rk.aoe_damage,
-			rk.min_damage_mult,
+			rk.min_damage_mult, spread_offset,
+			rk.straight_flight_distance, rk.spread_transition_distance,
 		)
 	else:
 		ac.bullet_manager.spawn_rocket(
-			muzzle_pos, base_heading, rk.muzzle_velocity, ac,
+			muzzle_pos, launch_heading, rk.muzzle_velocity, ac,
 			rk.rocket_damage, rk.max_range,
 			rk.proximity_fuse_radius_m, rk.aoe_radius_m, rk.aoe_damage,
+			spread_offset, rk.straight_flight_distance, rk.spread_transition_distance,
 		)
 	# 玩家技能 SKILL_ROCKET_HOMING：把刚生成的火箭弹标记为追踪型
 	if ac.is_player_squad() and ac.has_meta("upgrade_stacks"):

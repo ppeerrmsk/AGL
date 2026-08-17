@@ -86,10 +86,13 @@ var _redraw_accum: float = REDRAW_INTERVAL
 var _sprites: Array = []  ## Array[ImageTexture] — 烘焙好的云贴图
 
 ## 初始化：注入相机、生成噪声、烘焙贴图
-func setup(p_camera: Camera2D) -> void:
+func setup(p_camera: Camera2D, deterministic_seed: int = 0) -> void:
 	camera = p_camera
 	var rng := RandomNumberGenerator.new()
-	rng.randomize()
+	if deterministic_seed != 0:
+		rng.seed = deterministic_seed
+	else:
+		rng.randomize()
 	var theta := rng.randf_range(0.0, TAU)
 	wind_direction = Vector2(cos(theta), sin(theta))
 	wind_speed = rng.randf_range(12.0, 26.0)

@@ -153,19 +153,49 @@
       },
       {
         "at": 0.0,
-        "ch": "stage",
-        "op": "clear",
-        "dur": 0.5,
+        "ch": "overlay",
+        "op": "dim",
+        "to": 0.22,
+        "dur": 0.12,
         "ease": "cubic_out"
       },
       {
-        "at": 0.2,
+        "at": 0.0,
+        "ch": "banner",
+        "op": "reveal",
+        "dur": 1.05,
+        "ease": "back_out"
+      },
+      {
+        "at": 0.05,
         "ch": "audio",
         "op": "boss_bgm",
         "fade": 2.0
       },
       {
-        "at": 0.0,
+        "at": 1.3,
+        "ch": "banner",
+        "op": "dismiss",
+        "dur": 0.2,
+        "ease": "cubic_in"
+      },
+      {
+        "at": 1.3,
+        "ch": "overlay",
+        "op": "dim",
+        "to": 0.0,
+        "dur": 0.2,
+        "ease": "cubic_in"
+      },
+      {
+        "at": 1.3,
+        "ch": "stage",
+        "op": "clear",
+        "dur": 0.45,
+        "ease": "cubic_out"
+      },
+      {
+        "at": 1.5,
         "ch": "actor",
         "op": "echelon_ingress",
         "speed": 1600,
@@ -188,13 +218,13 @@
             255
           ]
         ],
-        "ingress_dist": 730,
+        "ingress_dist": 520,
         "stagger": 0.35,
         "fade": 0.6,
         "dur": 1.65
       },
       {
-        "at": 0.0,
+        "at": 1.5,
         "ch": "camera",
         "op": "cut_to",
         "zoom": 0.85,
@@ -202,94 +232,94 @@
         "actor": 0
       },
       {
-        "at": 0.0,
+        "at": 1.5,
         "ch": "actor",
         "op": "trail_boost"
       },
       {
-        "at": 0.6,
+        "at": 1.83,
         "ch": "radio",
         "op": "line",
         "key": "RADIO_BOSS_WRAITH_SPAWN_1",
         "actor": 0,
-        "dur": 1.8
+        "dur": 1.35
       },
       {
-        "at": 2.5,
+        "at": 3.23,
         "ch": "radio",
         "op": "line",
         "key": "RADIO_BOSS_WRAITH_SPAWN_2",
         "actor": 1,
-        "dur": 0.9
+        "dur": 0.65
       },
       {
-        "at": 3.4,
+        "at": 3.9,
         "ch": "radio",
         "op": "line",
         "key": "RADIO_BOSS_WRAITH_SPAWN_3",
         "actor": 0,
-        "dur": 1.8
+        "dur": 1.3
       },
       {
-        "at": 3.4,
+        "at": 3.9,
         "ch": "actor",
         "op": "converge",
-        "dur": 2.0,
+        "dur": 1.55,
         "arrive_radius": 80
       },
       {
-        "at": 4.2,
+        "at": 4.33,
         "ch": "camera",
         "op": "zoom",
         "from": 1.0,
         "to": 1.3,
-        "dur": 1.4,
+        "dur": 1.1,
         "ease": "cubic_in_out"
       },
       {
-        "at": 3.4,
+        "at": 3.9,
         "ch": "actor",
         "op": "cloak_on_meet",
         "radius": 100,
         "fade": 0.35,
-        "dur": 2.5
+        "dur": 1.98
       },
       {
-        "at": 5.9,
+        "at": 5.88,
         "ch": "actor",
         "op": "scatter",
         "dist": 2600,
         "fan_deg": 135
       },
       {
-        "at": 5.9,
+        "at": 5.88,
         "ch": "actor",
         "op": "trail_fade",
-        "dur": 0.7,
+        "dur": 0.65,
         "ease": "cubic_in"
       },
       {
-        "at": 5.9,
+        "at": 5.88,
         "ch": "stage",
         "op": "restore",
         "dur": 0.8,
         "ease": "cubic_in_out"
       },
       {
-        "at": 5.9,
+        "at": 5.88,
         "ch": "camera",
         "op": "return_to_player",
         "dur": 0.8,
         "ease": "cubic_in_out"
       },
       {
-        "at": 6.6,
+        "at": 6.68,
         "ch": "time",
         "op": "pause",
         "to": 0
       },
       {
-        "at": 6.6,
+        "at": 6.68,
         "ch": "actor",
         "op": "release"
       }
@@ -299,31 +329,58 @@
     "max_sec": 7.0,
     "steps": [
       { "at": 0.0, "ch": "time", "op": "pause", "to": 1 },
-      { "at": 0.0, "ch": "stage", "op": "clear", "dur": 0.45, "ease": "cubic_out" },
-      { "at": 0.1, "ch": "audio", "op": "boss_bgm", "fade": 2.0 },
-      { "at": 0.0, "ch": "camera", "op": "cut_to", "zoom": 0.68, "follow": true, "actor": 0 },
-      { "at": 0.55, "ch": "radio", "op": "line", "key": "RADIO_BOSS_CSG_SPAWN_1", "actor": 0, "dur": 1.8 },
-      { "at": 2.35, "ch": "radio", "op": "line", "key": "RADIO_BOSS_CSG_SPAWN_2", "actor": 0, "dur": 1.8 },
-      { "at": 4.2, "ch": "radio", "op": "line", "key": "RADIO_BOSS_CSG_SPAWN_3", "actor": 0, "dur": 1.8 },
-      { "at": 6.0, "ch": "stage", "op": "restore", "dur": 0.7, "ease": "cubic_in_out" },
-      { "at": 6.0, "ch": "camera", "op": "return_to_player", "dur": 0.7, "ease": "cubic_in_out" },
-      { "at": 6.7, "ch": "time", "op": "pause", "to": 0 },
-      { "at": 6.7, "ch": "actor", "op": "release" }
+      { "at": 0.0, "ch": "overlay", "op": "dim", "to": 0.22, "dur": 0.12, "ease": "cubic_out" },
+      { "at": 0.0, "ch": "banner", "op": "reveal", "dur": 1.05, "ease": "back_out" },
+      { "at": 0.05, "ch": "audio", "op": "boss_bgm", "fade": 2.0 },
+      { "at": 1.3, "ch": "banner", "op": "dismiss", "dur": 0.2, "ease": "cubic_in" },
+      { "at": 1.3, "ch": "overlay", "op": "dim", "to": 0.0, "dur": 0.2, "ease": "cubic_in" },
+      { "at": 1.3, "ch": "stage", "op": "clear", "dur": 0.45, "ease": "cubic_out" },
+      { "at": 1.5, "ch": "camera", "op": "cut_to", "zoom": 0.68, "follow": true, "actor": 0 },
+      { "at": 1.83, "ch": "radio", "op": "line", "key": "RADIO_BOSS_CSG_SPAWN_1", "actor": 0, "dur": 1.35 },
+      { "at": 3.23, "ch": "radio", "op": "line", "key": "RADIO_BOSS_CSG_SPAWN_2", "actor": 0, "dur": 1.35 },
+      { "at": 4.63, "ch": "radio", "op": "line", "key": "RADIO_BOSS_CSG_SPAWN_3", "actor": 0, "dur": 1.35 },
+      { "at": 6.03, "ch": "stage", "op": "restore", "dur": 0.7, "ease": "cubic_in_out" },
+      { "at": 6.03, "ch": "camera", "op": "return_to_player", "dur": 0.7, "ease": "cubic_in_out" },
+      { "at": 6.73, "ch": "time", "op": "pause", "to": 0 },
+      { "at": 6.73, "ch": "actor", "op": "release" }
     ]
   },
   "mother_goose_arrival": {
     "max_sec": 7.0,
     "steps": [
       { "at": 0.0, "ch": "time", "op": "pause", "to": 1 },
-      { "at": 0.0, "ch": "stage", "op": "clear", "dur": 0.45, "ease": "cubic_out" },
-      { "at": 0.1, "ch": "audio", "op": "boss_bgm", "fade": 2.0 },
-      { "at": 0.0, "ch": "camera", "op": "cut_to", "zoom": 0.78, "follow": true, "actor": 0 },
-      { "at": 0.65, "ch": "radio", "op": "line", "key": "RADIO_BOSS_GOOSE_SPAWN_1", "actor": 0, "dur": 1.8 },
-      { "at": 2.5, "ch": "radio", "op": "line", "key": "RADIO_BOSS_GOOSE_SPAWN_2", "actor": 0, "dur": 1.8 },
-      { "at": 4.4, "ch": "stage", "op": "restore", "dur": 0.7, "ease": "cubic_in_out" },
-      { "at": 4.4, "ch": "camera", "op": "return_to_player", "dur": 0.7, "ease": "cubic_in_out" },
-      { "at": 5.1, "ch": "time", "op": "pause", "to": 0 },
-      { "at": 5.1, "ch": "actor", "op": "release" }
+      { "at": 0.0, "ch": "overlay", "op": "dim", "to": 0.22, "dur": 0.12, "ease": "cubic_out" },
+      { "at": 0.0, "ch": "banner", "op": "reveal", "dur": 1.05, "ease": "back_out" },
+      { "at": 0.05, "ch": "audio", "op": "boss_bgm", "fade": 2.0 },
+      { "at": 1.3, "ch": "banner", "op": "dismiss", "dur": 0.2, "ease": "cubic_in" },
+      { "at": 1.3, "ch": "overlay", "op": "dim", "to": 0.0, "dur": 0.2, "ease": "cubic_in" },
+      { "at": 1.3, "ch": "stage", "op": "clear", "dur": 0.45, "ease": "cubic_out" },
+      { "at": 1.5, "ch": "camera", "op": "cut_to", "zoom": 0.78, "follow": true, "actor": 0 },
+      { "at": 1.93, "ch": "radio", "op": "line", "key": "RADIO_BOSS_GOOSE_SPAWN_1", "actor": 0, "dur": 1.8 },
+      { "at": 3.78, "ch": "radio", "op": "line", "key": "RADIO_BOSS_GOOSE_SPAWN_2", "actor": 0, "dur": 1.8 },
+      { "at": 5.63, "ch": "stage", "op": "restore", "dur": 0.7, "ease": "cubic_in_out" },
+      { "at": 5.63, "ch": "camera", "op": "return_to_player", "dur": 0.7, "ease": "cubic_in_out" },
+      { "at": 6.33, "ch": "time", "op": "pause", "to": 0 },
+      { "at": 6.33, "ch": "actor", "op": "release" }
+    ]
+  },
+  "black_star_arrival": {
+    "max_sec": 7.0,
+    "steps": [
+      { "at": 0.0, "ch": "time", "op": "pause", "to": 1 },
+      { "at": 0.0, "ch": "overlay", "op": "dim", "to": 0.28, "dur": 0.12, "ease": "cubic_out" },
+      { "at": 0.0, "ch": "banner", "op": "reveal", "dur": 1.05, "ease": "back_out" },
+      { "at": 0.05, "ch": "audio", "op": "boss_bgm", "fade": 2.0 },
+      { "at": 1.3, "ch": "banner", "op": "dismiss", "dur": 0.2, "ease": "cubic_in" },
+      { "at": 1.3, "ch": "overlay", "op": "dim", "to": 0.0, "dur": 0.2, "ease": "cubic_in" },
+      { "at": 1.3, "ch": "stage", "op": "clear", "dur": 0.45, "ease": "cubic_out" },
+      { "at": 1.5, "ch": "camera", "op": "cut_to", "zoom": 0.72, "follow": true, "actor": 0 },
+      { "at": 1.82, "ch": "radio", "op": "line", "key": "RADIO_BOSS_BLACK_STAR_SPAWN_1", "actor": 0, "dur": 1.35 },
+      { "at": 3.22, "ch": "radio", "op": "line", "key": "RADIO_BOSS_BLACK_STAR_SPAWN_2", "actor": 0, "dur": 1.05 },
+      { "at": 4.32, "ch": "stage", "op": "restore", "dur": 0.7, "ease": "cubic_in_out" },
+      { "at": 4.32, "ch": "camera", "op": "return_to_player", "dur": 0.7, "ease": "cubic_in_out" },
+      { "at": 5.02, "ch": "time", "op": "pause", "to": 0 },
+      { "at": 5.02, "ch": "actor", "op": "release" }
     ]
   }
 }

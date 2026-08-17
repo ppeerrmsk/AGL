@@ -70,6 +70,10 @@ static func run_all() -> bool:
 	test_wingman_complementary_lag_when_leader_tail_chase()
 	test_wingman_complementary_lead_when_leader_tail_chase()
 	test_wingman_follows_leader_extend()
+	test_altitude_preference_high_natural_band()
+	test_altitude_preference_high_turn_sag()
+	test_altitude_preference_high_phase_diversity()
+	test_altitude_preference_high_non_player_unchanged()
 	test_altitude_preference_low_in_cruise()
 	test_altitude_preference_low_in_waypoint()
 	test_crank_stays_in_radar_cone()
@@ -664,12 +668,79 @@ static func test_wingman_no_offset_solo() -> void:
 	# 单机：pursuit_pos 应靠近 LOS 中线（gun_lead 偏移很小）
 	_assert_true("solo.x_near_zero", absf(p.pursuit_pos.x) < 20.0)
 
+## 玩家"爬升优先"：不再锁死 10000m，直飞基准围绕 8400m。
+static func test_altitude_preference_high_natural_band() -> void:
+	var s := Situation.new_for_test({
+		"has_target": false,
+		"missiles": 0,
+		"altitude_preference": 0,
+		"is_player_squad": true,
+		"is_tactical_preference_user": true,
+		"current_time": 0.0,
+		"altitude_variation_phase": 0.0,
+		"my_bank_deg": 0.0,
+	})
+	var p := TacticalPlanner.plan(s)
+	_assert_eq("alt_high_band.semantic_tier", CombatUnit.AltitudeTier.HIGH, p.target_altitude_tier)
+	_assert_true("alt_high_band.center_8400", absf(p.target_altitude_m - 8400.0) < 0.01)
+	_assert_true("alt_high_band.bounded", p.target_altitude_m >= 7600.0 and p.target_altitude_m <= 9000.0)
+
+## 大坡度转弯自然掉高；回正后目标回到同一低频高度带。
+static func test_altitude_preference_high_turn_sag() -> void:
+	var level := Situation.new_for_test({
+		"has_target": false, "missiles": 0,
+		"altitude_preference": 0, "is_player_squad": true,
+		"is_tactical_preference_user": true,
+		"current_time": 0.0, "altitude_variation_phase": 0.0,
+		"my_bank_deg": 0.0,
+	})
+	var turning := Situation.new_for_test({
+		"has_target": false, "missiles": 0,
+		"altitude_preference": 0, "is_player_squad": true,
+		"is_tactical_preference_user": true,
+		"current_time": 0.0, "altitude_variation_phase": 0.0,
+		"my_bank_deg": 75.0,
+	})
+	var level_plan := TacticalPlanner.plan(level)
+	var turning_plan := TacticalPlanner.plan(turning)
+	_assert_true("alt_high_turn.sags_500m",
+			absf((level_plan.target_altitude_m - turning_plan.target_altitude_m) - 500.0) < 0.01)
+
+## 稳定机号相位错开，避免玩家全队同一时刻一起升降。
+static func test_altitude_preference_high_phase_diversity() -> void:
+	var a := Situation.new_for_test({
+		"has_target": false, "missiles": 0,
+		"altitude_preference": 0, "is_player_squad": true,
+		"is_tactical_preference_user": true,
+		"current_time": 0.0, "altitude_variation_phase": 0.0,
+	})
+	var b := Situation.new_for_test({
+		"has_target": false, "missiles": 0,
+		"altitude_preference": 0, "is_player_squad": true,
+		"is_tactical_preference_user": true,
+		"current_time": 0.0, "altitude_variation_phase": PI * 0.5,
+	})
+	var pa := TacticalPlanner.plan(a)
+	var pb := TacticalPlanner.plan(b)
+	_assert_true("alt_high_phase.not_synchronized", absf(pa.target_altitude_m - pb.target_altitude_m) > 100.0)
+
+## 敌机/非玩家仍走既有 HIGH 档，本批只修玩家侧天花板停车。
+static func test_altitude_preference_high_non_player_unchanged() -> void:
+	var s := Situation.new_for_test({
+		"has_target": false, "missiles": 0,
+		"altitude_preference": 0, "is_player_squad": false,
+	})
+	var p := TacticalPlanner.plan(s)
+	_assert_eq("alt_high_non_player.tier", CombatUnit.AltitudeTier.HIGH, p.target_altitude_tier)
+
 ## 玩家"低空优先"：CRUISE 状态下 plan 设 target_altitude_tier = LOW
 static func test_altitude_preference_low_in_cruise() -> void:
 	var s := Situation.new_for_test({
 		"has_target": false,
 		"missiles": 0,
 		"altitude_preference": 1,  # PREFER_LOW
+		"is_player_squad": true,
+		"is_tactical_preference_user": true,
 	})
 	var p := TacticalPlanner.plan(s)
 	_assert_eq("alt_low_cruise.intent", TacticalPlan.Intent.CRUISE, p.intent)
@@ -681,6 +752,8 @@ static func test_altitude_preference_low_in_waypoint() -> void:
 		"has_target": false,
 		"my_pos": Vector2.ZERO, "my_heading": 0.0,
 		"altitude_preference": 1,
+		"is_player_squad": true,
+		"is_tactical_preference_user": true,
 	})
 	var p := TacticalPlanner.plan(s, Vector2(0, -2000.0))
 	_assert_eq("alt_low_wp.intent", TacticalPlan.Intent.WAYPOINT_MOVE, p.intent)

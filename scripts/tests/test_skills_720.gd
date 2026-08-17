@@ -1,5 +1,7 @@
 extends RefCounted
 
+const SurvivorModeScript = preload("res://scripts/survivor/survivor_mode.gd")
+
 ## 无头行为验收：720 技能整改批（spec skills-720-rework）
 ##
 ## T1 归属底座：品类身份映射 / 归属生效谓词（scope/classes/ace/squad_once）/
@@ -23,6 +25,8 @@ func run() -> void:
 	_test_close_range_lock()
 	_test_axis_count_scaling()
 	_test_t5_mechanisms()
+	_test_berserk_virus()
+	_test_altitude_actions_and_cycle()
 	_test_overload_axis_and_terminals()
 	_test_requires_skill_chain()
 	_test_status_build_completion()
@@ -427,11 +431,15 @@ func _test_t5_mechanisms() -> void:
 	vertical_ac.target_altitude = 2000.0
 	vertical_ac.vertical_break_active = true
 	var vertical_started := vertical_ac.try_manual_maneuver()
+	var vertical_published_climb := vertical_ac.altitude_action == Aircraft.AltitudeAction.CLIMB
 	vertical_ac._advance_active_special_maneuver(0.65)
 	var pitch_peak_visible := absf(vertical_ac._active_special_pitch_visual - 1.0) <= 0.01
 	vertical_ac.target_altitude = 5500.0
 	for _i in range(13):
 		vertical_ac._advance_active_special_maneuver(0.05)
+	_check("垂直越过：LOW 全程发布 CLIMB 且 EXIT 回 NONE",
+		vertical_started and vertical_published_climb \
+		and vertical_ac.altitude_action == Aircraft.AltitudeAction.NONE, "")
 	_check("垂直越过：LOW 净拉升 900m", vertical_started and absf(vertical_ac.altitude - 2900.0) <= 10.0,
 		"alt=%.1f" % vertical_ac.altitude)
 	_check("垂直越过：动作中最新高度命令于 EXIT 生效", is_equal_approx(vertical_ac.target_altitude, 5500.0),
@@ -444,11 +452,13 @@ func _test_t5_mechanisms() -> void:
 	dive_ac.target_altitude = 5500.0
 	dive_ac.vertical_break_active = true
 	var dive_started := dive_ac.try_manual_maneuver()
+	var vertical_published_dive := dive_ac.altitude_action == Aircraft.AltitudeAction.DIVE
 	for _i in range(26):
 		dive_ac._advance_active_special_maneuver(0.05)
 	_check("垂直越过：MID 净俯冲 900m 且不突破有效顶速",
 		dive_started and absf(dive_ac.altitude - 4600.0) <= 10.0
-		and dive_ac.speed <= AircraftPhysics.effective_max_speed_kmh(dive_ac) / 3.6 + 0.01,
+		and dive_ac.speed <= AircraftPhysics.effective_max_speed_kmh(dive_ac) / 3.6 + 0.01 \
+		and vertical_published_dive and dive_ac.altitude_action == Aircraft.AltitudeAction.NONE,
 		"alt=%.1f speed=%.1f" % [dive_ac.altitude, dive_ac.speed])
 	dive_ac.free()
 	var clipped_ac := _make_test_aircraft()
@@ -517,11 +527,16 @@ func _test_t5_mechanisms() -> void:
 	# 后方敌机正对僚机开炮 → AI 路径自动滚转；不要求加力/evasion。
 	var tail_enemy := _make_test_aircraft()
 	tail_enemy.team = CombatUnit.TEAM_HOSTILE
+	tail_enemy.params.gun = GunParams.new()
+	tail_enemy.params.gun.max_range = 2000.0
+	tail_enemy.params.gun.fire_cone_half_angle = 15.0
 	tail_enemy.global_position = Vector2(0.0, 100.0)
 	tail_enemy.heading = 0.0
 	tail_enemy.speed = 300.0
 	tail_enemy.is_firing = true
 	CombatUnit.all_units.append(tail_enemy)
+	tail_enemy.combat_target = wing2
+	tail_enemy.weapon_mode = Aircraft.WeaponMode.GUN
 	wing2._update_manual_dodge_skill()
 	_check("胆大妄为 AI 僚机：后方机炮威胁自动释放",
 		wing2._manual_dodge_cd > 0.0 and wing2.status_effects.has(StatusEffects.INVINCIBLE), "")
@@ -530,6 +545,7 @@ func _test_t5_mechanisms() -> void:
 	ai_cobra.add_child(ai_cobra_node)
 	ai_cobra_node._aircraft = ai_cobra
 	ai_cobra.cobra_skill_active = true
+	tail_enemy.combat_target = ai_cobra
 	ai_cobra._update_cobra_skill(0.0)
 	_check("眼镜蛇 AI 僚机：无需加力/evasion，后方机炮威胁自动释放",
 		not ai_cobra.evasion_mode and ai_cobra_node.is_active, "")
@@ -538,17 +554,21 @@ func _test_t5_mechanisms() -> void:
 	ai_herbst.add_child(ai_herbst_node)
 	ai_herbst_node._aircraft = ai_herbst
 	ai_herbst.evasion_herbst_active = true
+	tail_enemy.combat_target = ai_herbst
 	ai_herbst._update_evasion_herbst_skill(0.0)
 	_check("J-Turn AI 僚机：无需加力/evasion，后方机炮威胁自动释放",
 		not ai_herbst.evasion_mode and ai_herbst_node.is_active, "")
 	var ai_roll := _make_test_aircraft()
 	ai_roll.displacement_roll_active = true
+	tail_enemy.combat_target = ai_roll
 	ai_roll._update_active_special_maneuver(0.11)
 	_check("位移滚转 AI 僚机：后方闭合威胁自动释放", ai_roll.is_active_special_maneuver(), "")
 	var ai_vertical := _make_test_aircraft()
 	ai_vertical.altitude = 2000.0
 	ai_vertical.target_altitude = 2000.0
 	ai_vertical.vertical_break_active = true
+	tail_enemy.combat_target = ai_vertical
+	tail_enemy.altitude = ai_vertical.altitude
 	ai_vertical._update_active_special_maneuver(0.11)
 	_check("垂直越过 AI 僚机：后方闭合威胁自动释放", ai_vertical.is_active_special_maneuver(), "")
 	var controlled_cobra := _make_test_aircraft()
@@ -559,6 +579,7 @@ func _test_t5_mechanisms() -> void:
 	var controlled_ai := AIController.new()
 	controlled_ai.manual_control = true
 	controlled_cobra._ai_ref = controlled_ai
+	tail_enemy.combat_target = controlled_cobra
 	controlled_cobra._update_cobra_skill(0.0)
 	var stayed_manual := not controlled_cobra_node.is_active
 	var manual_started := controlled_cobra.try_manual_maneuver()
@@ -606,13 +627,302 @@ func _test_t5_mechanisms() -> void:
 	sp2.free()
 
 
-# ── I. 超载技能轴与终端闭合（2026-08-06：导弹流统一归骑士）──
+# ── I. 狂化病毒：动态僚机门 / FREE 锁定 / 机动与 CD / 击杀嗜血 / 接管边界 ──
+func _test_berserk_virus() -> void:
+	print("── I. 狂化病毒：动态僚机门 / FREE / 机动-CD / BLOODLUST / 切控 ──")
+	var upgrade := SurvivorData.upgrade_by_id(SkillHooks.SKILL_BERSERK_VIRUS)
+	_check("狂化病毒：次世代斗士战区奖励数据存在",
+		not upgrade.is_empty() \
+		and int(upgrade.get("rarity", -1)) == SurvivorData.Rarity.NEXT_GEN \
+		and bool(upgrade.get("evolved", false)) \
+		and SurvivorData.axis_of_upgrade(upgrade) == SurvivorData.AXIS_GLADIATOR \
+		and int(upgrade.get("max_stacks", 0)) == 1, str(upgrade))
+
+	var controlled := _make_test_aircraft()
+	controlled.team = CombatUnit.TEAM_PLAYER
+	controlled.squad_slot = 1
+	var controlled_ai := AIController.new()
+	controlled_ai.aircraft = controlled
+	controlled_ai.manual_control = true
+	controlled.add_child(controlled_ai)
+	controlled._ai_ref = controlled_ai
+	AircraftRenderer.player_ref = controlled
+
+	var wing := _make_test_aircraft()
+	wing.team = CombatUnit.TEAM_PLAYER
+	wing.squad_slot = 2
+	var wing_ai := AIController.new()
+	wing_ai.aircraft = wing
+	wing_ai.manual_control = false
+	wing.add_child(wing_ai)
+	wing._ai_ref = wing_ai
+
+	var sq := Squad.new()
+	sq.add_member(controlled)
+	sq.add_member(wing)
+	sq.leader = controlled
+	controlled_ai.squad = sq
+	wing_ai.squad = sq
+	var sp := SurvivorPlayer.new()
+	sp.aircraft = controlled
+	sp.apply_upgrade_to(controlled, upgrade)
+	sp.apply_upgrade_to(wing, upgrade)
+	controlled.set_meta("upgrade_stacks", {SkillHooks.SKILL_BERSERK_VIRUS: 1})
+	wing.set_meta("upgrade_stacks", {SkillHooks.SKILL_BERSERK_VIRUS: 1})
+
+	_check("狂化病毒：亲控机持旗标但不吃效果，AI 僚机动态生效",
+		controlled.berserk_virus_active and wing.berserk_virus_active \
+		and not controlled.is_berserk_virus_wingman() and wing.is_berserk_virus_wingman(), "")
+	_check("狂化病毒：获得时锁定 FREE + COMBAT_SPREAD",
+		wing_ai.squad_engage_mode == AIController.SquadEngageMode.FREE \
+		and sq.engage_mode == Squad.EngageMode.FREE \
+		and sq.formation == Squad.Formation.COMBAT_SPREAD, "")
+
+	var base_g := AircraftPhysics.effective_max_g(controlled)
+	var base_struct_g := AircraftPhysics.effective_max_g_instant(controlled)
+	var base_roll := AircraftPhysics.base_roll_rate(controlled)
+	_check("狂化病毒：僚机持续/结构 G 与滚转均 ×1.25",
+		is_equal_approx(AircraftPhysics.effective_max_g(wing), base_g * 1.25) \
+		and is_equal_approx(AircraftPhysics.effective_max_g_instant(wing), base_struct_g * 1.25) \
+		and is_equal_approx(AircraftPhysics.base_roll_rate(wing), base_roll * 1.25), "")
+	_check("狂化病毒：僚机加减速 ×1.25，亲控机保持基线",
+		is_equal_approx(AircraftPhysics.effective_accel_mult(wing, false), 1.25) \
+		and is_equal_approx(AircraftPhysics.effective_decel_mult(wing), 1.25) \
+		and is_equal_approx(AircraftPhysics.effective_accel_mult(controlled, false), 1.0) \
+		and is_equal_approx(AircraftPhysics.effective_decel_mult(controlled), 1.0), "")
+	_check("狂化病毒：weapon CD rate ×1.40 / flare rate ×1.50，不改 missile reload",
+		is_equal_approx(wing.cd_rate("weapon"), 1.40) \
+		and is_equal_approx(wing.cd_rate("flare"), 1.50) \
+		and is_equal_approx(wing.cd_rate("missile_reload"), 1.0) \
+		and is_equal_approx(controlled.cd_rate("weapon"), 1.0), "")
+
+	var victim := _make_test_aircraft()
+	victim.team = CombatUnit.TEAM_HOSTILE
+	wing_ai.squad_engage_mode = AIController.SquadEngageMode.GUARD_REAR
+	sq.engage_mode = Squad.EngageMode.GUARD_REAR
+	sq.formation = Squad.Formation.WEDGE
+	wing.combat_target = victim
+	wing.commanded_target = victim
+	wing.target_position = Vector2(321.0, -654.0)
+	wing.enforce_berserk_virus_free_mode()
+	_check("狂化病毒：FREE 兜底不清战斗/点名/移动命令",
+		wing_ai.squad_engage_mode == AIController.SquadEngageMode.FREE \
+		and sq.formation == Squad.Formation.COMBAT_SPREAD \
+		and wing.combat_target == victim and wing.commanded_target == victim \
+		and wing.target_position == Vector2(321.0, -654.0), "")
+	_check("狂化病毒：复用 FREE 局部扫描与既有 leash，不做全图扫荡",
+		is_equal_approx(AIController.SQUAD_FREE_SCAN_RANGE, 1500.0) \
+		and is_equal_approx(AIController.SQUAD_LEASH_DIST, 1800.0) \
+		and is_equal_approx(AIController.SQUAD_LEASH_HYSTERESIS, 0.5), "")
+	SkillHooks.dispatch_on_kill(wing, victim)
+	_check("狂化病毒：AI 僚机击杀进入标准 9 秒 BLOODLUST",
+		is_equal_approx(float(wing.status_effects.get(StatusEffects.BLOODLUST, 0.0)),
+			SkillHooks.KILL_BLOODLUST_DURATION), str(wing.status_effects))
+	SkillHooks.dispatch_on_kill(controlled, victim)
+	_check("狂化病毒：亲控机仅凭本技能击杀不触发 BLOODLUST",
+		not controlled.status_effects.has(StatusEffects.BLOODLUST), str(controlled.status_effects))
+
+	var mode := SurvivorModeScript.new()
+	mode._squad = sq
+	mode.player_aircraft = controlled
+	mode.upgrade_stacks = {SkillHooks.SKILL_BERSERK_VIRUS: 1}
+	mode._switch_control_to_slot(2)
+	_check("狂化病毒：数字键主动接管被拒绝", mode.player_aircraft == controlled, "")
+	controlled.is_destroyed = true
+	sq.leader = wing
+	mode._on_squad_leader_changed(wing)
+	_check("狂化病毒：长机阵亡仍自动继任，新长机立即退出狂化倍率",
+		mode.player_aircraft == wing and wing_ai.manual_control \
+		and not wing.is_berserk_virus_wingman(), "")
+	AircraftRenderer.player_ref = null
+	ObjectiveContext.protectee = null
+	mode.free()
+	sp.free()
+	victim.free()
+	controlled.free()
+	wing.free()
+
+
+# ── I. 高度动作真源 / GUN_TAILED / 4 秒反制 / 高度能量循环 ──
+func _test_altitude_actions_and_cycle() -> void:
+	print("── I. 高度动作：统一状态 / 4 秒反制 / 双向资源循环 ──")
+	var ac := _make_test_aircraft()
+	ac.team = CombatUnit.TEAM_PLAYER
+	ac.speed = 300.0
+	ac.altitude = 5000.0
+	ac.target_altitude = 6000.0
+	AircraftPhysics.update_altitude(ac, 0.01)
+	_check("普通升高：未过 30m/s 不提前发布动作",
+		ac.altitude_action == Aircraft.AltitudeAction.NONE \
+		and ac.altitude_action_enter_serial == 0 and ac.vertical_speed < 30.0,
+		"action=%s vs=%.1f serial=%d" % [ac.altitude_action_name(), ac.vertical_speed,
+			ac.altitude_action_enter_serial])
+	AircraftPhysics.update_altitude(ac, 0.1)
+	var climb_serial: int = ac.altitude_action_enter_serial
+	_check("普通升高：过 30m/s 后发布 CLIMB",
+		ac.altitude_action == Aircraft.AltitudeAction.CLIMB and climb_serial == 1,
+		"action=%s vs=%.1f serial=%d" % [ac.altitude_action_name(), ac.vertical_speed, climb_serial])
+	ac.target_altitude = 4000.0
+	AircraftPhysics.update_altitude(ac, 0.1)
+	_check("普通降高：过 -30m/s 后发布 DIVE 且进入沿只增一次",
+		ac.altitude_action == Aircraft.AltitudeAction.DIVE \
+		and ac.altitude_action_enter_serial == climb_serial + 1,
+		"action=%s vs=%.1f serial=%d" % [ac.altitude_action_name(), ac.vertical_speed,
+			ac.altitude_action_enter_serial])
+	ac.is_stalled = true
+	ac.vertical_speed = -120.0
+	AircraftPhysics.update_altitude(ac, 0.1)
+	_check("失速强制下坠：状态保持 NONE",
+		ac.altitude_action == Aircraft.AltitudeAction.NONE, ac.altitude_action_name())
+	ac.is_stalled = false
+
+	var attacker := _make_test_aircraft()
+	attacker.team = CombatUnit.TEAM_HOSTILE
+	attacker.params.gun = GunParams.new()
+	attacker.params.gun.max_range = 2000.0
+	attacker.params.gun.fire_cone_half_angle = 15.0
+	attacker.params.gun.burst_count = 10
+	attacker.global_position = Vector2(0.0, 200.0)
+	attacker.altitude = ac.altitude
+	attacker.heading = 0.0
+	attacker.combat_target = ac
+	attacker.weapon_mode = Aircraft.WeaponMode.GUN
+	attacker.ammo = 20
+	_check("GUN_TAILED：后方 GUN 意图 + 正式前置解成立",
+		AircraftWeapons.is_gun_tailed_by(attacker, ac), "")
+	attacker.global_position = Vector2(200.0, 0.0)
+	_check("GUN_TAILED：侧向攻击者不成立",
+		not AircraftWeapons.is_gun_tailed_by(attacker, ac), "")
+	attacker.global_position = Vector2(0.0, 2000.0)
+	_check("GUN_TAILED：正式机炮射程外不成立",
+		not AircraftWeapons.is_gun_tailed_by(attacker, ac), "")
+	attacker.global_position = Vector2(0.0, 200.0)
+	attacker.ammo = 0
+	_check("GUN_TAILED：无弹且没有已承诺梭不成立",
+		not AircraftWeapons.is_gun_tailed_by(attacker, ac), "")
+	attacker.ammo = 20
+	attacker.weapon_mode = Aircraft.WeaponMode.MISSILE
+	_check("GUN_TAILED：导弹意图不成立",
+		not AircraftWeapons.is_gun_tailed_by(attacker, ac), "")
+	attacker.weapon_mode = Aircraft.WeaponMode.GUN
+	attacker._gun_burst_rounds_left = 5
+	attacker._gun_burst_target_id = ac.get_instance_id()
+	attacker._gun_lead_heading = 0.0
+	ac._set_altitude_action(Aircraft.AltitudeAction.CLIMB)
+	var attacker_heading_before := attacker.heading
+	ac.report_gun_tailed(attacker)
+	_check("CLIMB 反制：不传送、不强改攻击者航向或取消当前梭",
+		is_equal_approx(attacker.heading, attacker_heading_before) \
+		and attacker.combat_target == ac and attacker._gun_burst_rounds_left == 5, "")
+	var status_ids: Array[StringName] = []
+	for entry in AircraftRenderer.status_label_entries(ac):
+		status_ids.append(StringName(entry.get("id", &"")))
+	_check("状态栏：GUN_TAILED 保留，CLIMB 合并到详细 ALT 行",
+		&"gun_tailed" in status_ids and &"altitude_climb" not in status_ids \
+		and &"altitude_dive" not in status_ids, str(status_ids))
+	ac.global_position.x = 100.0
+	var frozen_ok := AircraftWeapons._refresh_committed_gun_aim(attacker, attacker.params.gun)
+	_check("CLIMB 窗口：已承诺梭保留旧世界射向",
+		frozen_ok and attacker._gun_climb_frozen_target_id == ac.get_instance_id() \
+		and is_zero_approx(attacker._gun_lead_heading),
+		"frozen=%d heading=%.3f" % [attacker._gun_climb_frozen_target_id,
+			attacker._gun_lead_heading])
+	ac._tick_climb_counter_window(4.01)
+	_check("CLIMB 窗口：4 秒后关闭且不靠持续爬升刷新", not ac.climb_counter_window_active(), "")
+
+	var missile := Missile.new()
+	missile.params = MissileParams.new()
+	missile.target = ac
+	missile.is_active = true
+	missile.has_guidance = true
+	missile.global_position = Vector2(100.0, 300.0)
+	missile.heading = 0.0
+	missile.speed = 400.0
+	ac.speed = 200.0
+	ac.heading = 0.0
+	ac._set_altitude_action(Aircraft.AltitudeAction.NONE)
+	ac._set_altitude_action(Aircraft.AltitudeAction.CLIMB)
+	_check("迫近导弹：60m/s + 3.5s 共用门可触发确定性失导",
+		ac.try_climb_counter_missile(missile) and missile.climb_break_disrupted \
+		and missile.is_flare_jammed and not missile.has_guidance, "")
+	missile.free()
+	ac._tick_climb_counter_window(4.01)
+	var late_missile := Missile.new()
+	late_missile.params = MissileParams.new()
+	late_missile.target = ac
+	late_missile.is_active = true
+	late_missile.has_guidance = true
+	late_missile.global_position = Vector2(100.0, 300.0)
+	late_missile.heading = 0.0
+	late_missile.speed = 400.0
+	_check("迫近导弹：4 秒窗口结束后不再失导",
+		not ac.try_climb_counter_missile(late_missile) \
+		and not late_missile.climb_break_disrupted and late_missile.has_guidance, "")
+	late_missile.free()
+
+	ac.altitude = 5000.0
+	attacker.altitude = 5500.0
+	ac._set_altitude_action(Aircraft.AltitudeAction.NONE)
+	AircraftFormation._update_altitude(ac, {"ldr": attacker, "b": 1.0}, 0.1)
+	_check("编队高度：僚机按自身实际垂直速度进入 CLIMB",
+		ac.altitude_action == Aircraft.AltitudeAction.CLIMB and ac.vertical_speed >= 30.0,
+		"action=%s vs=%.1f" % [ac.altitude_action_name(), ac.vertical_speed])
+
+	var cycle := SurvivorData.upgrade_by_id("altitude_energy_cycle")
+	_check("高度能量循环：实验级单层 mobility/骑士定稿数据存在",
+		not cycle.is_empty() and int(cycle.get("rarity", -1)) == SurvivorData.Rarity.EXPERIMENTAL \
+		and int(cycle.get("max_stacks", 0)) == 1 \
+		and str(cycle.get("category", "")) == "mobility" \
+		and SurvivorData.axis_of_upgrade(cycle) == SurvivorData.AXIS_KNIGHT, str(cycle))
+	ac.params.gun = GunParams.new()
+	ac.params.gun.max_ammo = 100
+	ac.ammo = 100
+	var sp := SurvivorPlayer.new()
+	sp.aircraft = ac
+	sp.apply_upgrade_to(ac, cycle)
+	ac._set_altitude_action(Aircraft.AltitudeAction.DIVE)
+	AircraftWeapons.update_gun(ac, 1.0)
+	_check("高度能量循环：DIVE 以 25发/s 越过基础弹仓", ac.ammo == 125,
+		"ammo=%d" % ac.ammo)
+	AircraftWeapons.update_gun(ac, 40.0)
+	_check("高度能量循环：超储硬封顶 2×max_ammo", ac.ammo == 200,
+		"ammo=%d" % ac.ammo)
+	ac._set_altitude_action(Aircraft.AltitudeAction.NONE)
+	AircraftWeapons.update_gun(ac, 1.0)
+	_check("高度能量循环：NONE 不继续回机炮且不截断超储", ac.ammo == 200,
+		"ammo=%d" % ac.ammo)
+	ac.enable_gun_reload = true
+	ac._gun_reload_active = true
+	ac._gun_reload_timer = ac.gun_reload_duration
+	AircraftWeapons.update_gun(ac, 0.01)
+	_check("高度能量循环：基础整匣装填不截断合法超储", ac.ammo == 200,
+		"ammo=%d" % ac.ammo)
+
+	var ab := AfterburnerCharge.new()
+	ab.charge = 0.0
+	ab.update(1.0, 1.0, false, 0.2)
+	_check("高度能量循环：停用加力时基础 0.2 + CLIMB 0.2 = 0.4/s",
+		is_equal_approx(ab.charge, 0.4), "charge=%.2f" % ab.charge)
+	ab.charge = AfterburnerCharge.CHARGE_MAX
+	_check("高度能量循环：加力窗口可启动", ab.toggle(ac), "")
+	ab.update(1.0, 1.0, false, 0.2)
+	_check("高度能量循环：开加力爬升净耗 0.8/s",
+		is_equal_approx(ab.charge, AfterburnerCharge.CHARGE_MAX - 0.8),
+		"charge=%.2f" % ab.charge)
+	ab.toggle(ac)
+	sp.free()
+	attacker.free()
+	ac.free()
+
+
+# ── J. 超载技能轴与终端闭合（2026-08-06：导弹流统一归骑士）──
 func _test_overload_axis_and_terminals() -> void:
-	print("── I. 超载：十一条全归骑士 / 同轴不重复 +1 / 七个来源均可解锁终端 ──")
+	print("── I. 超载：十二条全归骑士 / 同轴不重复 +1 / 八个来源均可解锁终端 ──")
 	var overload_ids: Array[String] = [
 		"cloud_overload", "skill_evade_missile_overload", "skill_flare_overload",
 		"overload_duration_4x", "overload_extended_ammo", "overload_to_bloodlust",
 		"jam_self_overload", "assassin_revenge", "sig_mig41", "storm_i", "storm_ii",
+		"fire_control_saturation",
 	]
 	for uid in overload_ids:
 		var u := SurvivorData.upgrade_by_id(uid)
@@ -632,14 +942,54 @@ func _test_overload_axis_and_terminals() -> void:
 	var overload_sources: Array[String] = [
 		"cloud_overload", "skill_evade_missile_overload", "skill_flare_overload",
 		"jam_self_overload", "assassin_revenge", "sig_mig41", "storm_i",
+		"fire_control_saturation",
 	]
-	for terminal_id in ["overload_duration_4x", "overload_extended_ammo", "overload_to_bloodlust"]:
+	for terminal_id in ["overload_duration_4x", "overload_extended_ammo", "overload_to_bloodlust", "storm_ii"]:
 		var terminal := SurvivorData.upgrade_by_id(terminal_id)
 		var prereq: Array = terminal.get("requires_skill", []) as Array
 		_check("%s 的超载来源前置完整" % terminal_id,
 			prereq.size() == overload_sources.size()
 			and overload_sources.all(func(source_id: String) -> bool: return prereq.has(source_id)),
 			str(prereq))
+
+	var saturation := SurvivorData.upgrade_by_id("fire_control_saturation")
+	_check("火控饱和：实验级 / 骑士轴 / 王牌专属",
+		int(saturation.get("rarity", -1)) == SurvivorData.Rarity.EXPERIMENTAL \
+		and SurvivorData.axis_of_upgrade(saturation) == SurvivorData.AXIS_KNIGHT \
+		and str(saturation.get("scope", "")) == "ace" and not saturation.has("classes"),
+		str(saturation))
+	var ac := _make_test_aircraft()
+	ac.team = CombatUnit.TEAM_PLAYER
+	ac.max_simultaneous_locks = 5
+	ac.set_meta("upgrade_stacks", {"fire_control_saturation": 1})
+	var targets: Array[Aircraft] = []
+	for _i in SkillHooks.FIRE_CONTROL_SATURATION_LOCKS:
+		var target := _make_test_aircraft()
+		target.team = CombatUnit.TEAM_HOSTILE
+		targets.append(target)
+		ac.radar_targets[target] = ac.params.lock_time
+	var state: Dictionary = {"cooldown": 0.0, "latched": false}
+	_check("火控饱和：首次五锁触发 6s 超载并临时 +2 锁数",
+		SkillHooks.try_fire_control_saturation(ac, state, 0.2) \
+		and is_equal_approx(float(ac.status_effects.get(StatusEffects.OVERLOAD, 0.0)), 6.0) \
+		and ac.effective_max_locks() == 7 \
+		and is_equal_approx(float(state.get("cooldown", 0.0)), 20.0), str(state))
+	ac.radar_targets.erase(targets.back())
+	SkillHooks.try_fire_control_saturation(ac, state, 0.0)
+	ac.radar_targets[targets.back()] = ac.params.lock_time
+	_check("火控饱和：CD 内重新跨过五锁不重复触发",
+		not SkillHooks.try_fire_control_saturation(ac, state, 0.0) \
+		and is_equal_approx(float(state.get("cooldown", 0.0)), 20.0), str(state))
+	StatusEffects.update(ac, 6.1)
+	_check("火控饱和：超载结束即收回 +2 锁数", ac.effective_max_locks() == 5, "")
+	ac.radar_targets.erase(targets.back())
+	SkillHooks.try_fire_control_saturation(ac, state, 20.0)
+	ac.radar_targets[targets.back()] = ac.params.lock_time
+	_check("火控饱和：CD 结束且重新跨线后可再次触发",
+		SkillHooks.try_fire_control_saturation(ac, state, 0.0), str(state))
+	for target in targets:
+		target.free()
+	ac.free()
 
 
 # ── J. 前置链（requires_skill）自洽性 —— 派生技必须挂在"能产生该状态的根技"上 ──

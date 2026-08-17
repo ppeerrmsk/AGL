@@ -47,6 +47,8 @@ SQUAD_WEAPON_FMT,V 武器: %s,V Weapon: %s,V 武器: %s
 SQUAD_ENGAGE_FREE,自由交战,Free Engage,自由交戦
 SQUAD_ENGAGE_FOLLOW,跟随长机,Follow Leader,リーダー追従
 SQUAD_ENGAGE_GUARD,守护后方,Guard Rear,後方警戒
+SQUAD_BERSERK_SWITCH_BLOCKED,狂化病毒：无法主动接管僚机,BERSERK VIRUS: Wingman control denied,狂化ウイルス：僚機への操作切替不可
+SQUAD_BERSERK_FREE_LOCKED,狂化病毒：已锁定自由交战,BERSERK VIRUS: Free Engage locked,狂化ウイルス：自由交戦に固定
 WEAPON_PREF_MISSILE,导弹优先,Missile Priority,ミサイル優先
 WEAPON_PREF_GUN,机炮优先,Gun Priority,ガン優先
 WEAPON_GUN,机炮,Gun,ガン
@@ -263,6 +265,7 @@ EDITOR_EXTRACT_DARK,提取暗色区域,Extract dark areas,暗い領域を抽出
 EDITOR_THRESHOLD,亮度阈值,Brightness Threshold,輝度しきい値
 POPUP_DISPLACEMENT_ROLL,位移滚转,DISPLACEMENT ROLL,変位ロール
 POPUP_VERTICAL_BREAK,垂直越过,VERTICAL BREAK,垂直ブレイク
+POPUP_CLIMB_COUNTER,爬升反制,CLIMB BREAK,上昇カウンター
 POPUP_MANEUVER_BLOCKED,机动空间不足,MANEUVER BLOCKED,機動空間不足
 TACTIC_HACKED,已黑入,HACKED,ハッキング完了
 MENU_ARCHIVE_NAME,资料库,Archive,資料庫

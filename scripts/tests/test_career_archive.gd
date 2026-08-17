@@ -10,6 +10,7 @@ extends RefCounted
 const W := "WRAITH_SQUADRON"
 const C := "CARRIER_STRIKE_GROUP"
 const G := "MOTHER_GOOSE"
+const B := "BLACK_STAR"
 const _I18N_CATALOG := preload("res://scripts/i18n_catalog.gd")
 
 var _pass := 0
@@ -39,21 +40,23 @@ func run() -> void:
 func _test_rotation_candidates() -> void:
 	print("── rotation_candidates 偏好序 ──")
 	# 生涯首遇：ROTATION 原序（雷斯中队最优先）
-	_expect_arr("首遇空档案", BossRegistry.rotation_candidates({}, 0.9), [W, C, G])
+	_expect_arr("首遇空档案", BossRegistry.rotation_candidates({}, 0.9), [W, C, G, B])
 	_expect_arr("未知 last 回退原序",
-		BossRegistry.rotation_candidates({"last": "NOPE", "defeated": {}}, 0.9), [W, C, G])
+		BossRegistry.rotation_candidates({"last": "NOPE", "defeated": {}}, 0.9), [W, C, G, B])
 	# 打过 → 必换：下一个优先，last 垫底（roll 无关）
 	_expect_arr("击败雷斯→航母优先",
-		BossRegistry.rotation_candidates({"last": W, "defeated": {W: true}}, 0.9), [C, G, W])
+		BossRegistry.rotation_candidates({"last": W, "defeated": {W: true}}, 0.9), [C, G, B, W])
 	_expect_arr("击败航母→Goose优先",
-		BossRegistry.rotation_candidates({"last": C, "defeated": {C: true}}, 0.9), [G, W, C])
-	_expect_arr("击败Goose→环绕回雷斯",
-		BossRegistry.rotation_candidates({"last": G, "defeated": {G: true}}, 0.9), [W, C, G])
+		BossRegistry.rotation_candidates({"last": C, "defeated": {C: true}}, 0.9), [G, B, W, C])
+	_expect_arr("击败Goose→Black Star 优先",
+		BossRegistry.rotation_candidates({"last": G, "defeated": {G: true}}, 0.9), [B, W, C, G])
+	_expect_arr("击败Black Star→环绕回雷斯",
+		BossRegistry.rotation_candidates({"last": B, "defeated": {B: true}}, 0.9), [W, C, G, B])
 	# 没打过：roll < 0.5 推进 / 否则重复优先
 	_expect_arr("未败雷斯 roll0.1→推进",
-		BossRegistry.rotation_candidates({"last": W, "defeated": {}}, 0.1), [C, G, W])
+		BossRegistry.rotation_candidates({"last": W, "defeated": {}}, 0.1), [C, G, B, W])
 	_expect_arr("未败雷斯 roll0.9→重复",
-		BossRegistry.rotation_candidates({"last": W, "defeated": {W: false}}, 0.9), [W, C, G])
+		BossRegistry.rotation_candidates({"last": W, "defeated": {W: false}}, 0.9), [W, C, G, B])
 
 
 # ── B. 地形过滤顺延（filtered = 地图池∩地形过滤后的候选）──

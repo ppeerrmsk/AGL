@@ -9,6 +9,12 @@ static var player_ref: Aircraft = null
 
 const LABEL_COMPACT_ENTER_SCALE: float = 0.35
 const LABEL_COMPACT_EXIT_SCALE: float = 0.40
+const DATA_LABEL_MIN_RIGHT_PX: float = 24.0
+const DATA_LABEL_ICON_GAP_PX: float = 8.0
+const DATA_LABEL_TOP_PX: float = -12.0
+const AIRCRAFT_ICON_HALF_EXTENT_WORLD: float = 20.0
+const BANK_VOLUME_FACE_OFFSET_RATIO: float = 0.42
+const BANK_VOLUME_FACE_FADE_COS: float = 0.18
 
 ## 锁定框以现有尺寸为高空上限，地面与低空目标按真实高度连续缩小。
 const LOCK_BOX_ALTITUDE_SCALE_KEYS := [
@@ -48,6 +54,45 @@ static func screen_space_inverse_scale(item: CanvasItem) -> float:
 	if item == null or not item.is_inside_tree():
 		return 1.0
 	return inverse_screen_scale_for(item.get_viewport_transform().get_scale().x)
+
+
+## 返回 (可见表面横向倍率, 壳层横向倍率, 可见表面横向偏移倍率)。
+## 90° 时 face=0、shell=thickness，因此正侧面仍保留体积。
+static func bank_volume_projection_for(bank_rad: float, thickness: float) -> Vector3:
+	var safe_thickness := maxf(thickness, 0.0)
+	var bank_cos := cos(bank_rad)
+	var bank_sin := sin(bank_rad)
+	var face_scale := absf(bank_cos)
+	var shell_scale := face_scale + safe_thickness * absf(bank_sin)
+	var face_offset := safe_thickness * BANK_VOLUME_FACE_OFFSET_RATIO * bank_sin
+	return Vector3(face_scale, shell_scale, face_offset)
+
+
+static func bank_volume_face_alpha_for(face_scale: float) -> float:
+	return smoothstep(0.0, BANK_VOLUME_FACE_FADE_COS, clampf(face_scale, 0.0, 1.0))
+
+
+## 飞机旁标签使用屏幕像素锚点：远景保留旧 24px；近景移到放大后的机体外侧。
+## 最终标签原点取整，避免高速移动时字体在亚像素之间反复采样而发虚。
+static func data_label_screen_offset_for(icon_radius_world: float, view_scale: float,
+		screen_origin_px: Vector2, top_px: float = DATA_LABEL_TOP_PX) -> Vector2:
+	var right_px := maxf(DATA_LABEL_MIN_RIGHT_PX,
+		ceilf(maxf(icon_radius_world, 0.0) * absf(view_scale) + DATA_LABEL_ICON_GAP_PX))
+	var desired := Vector2(right_px, top_px)
+	return (screen_origin_px + desired).round() - screen_origin_px
+
+
+static func data_label_screen_offset(ac: Aircraft,
+		top_px: float = DATA_LABEL_TOP_PX) -> Vector2:
+	if ac == null or not ac.is_inside_tree():
+		return Vector2(DATA_LABEL_MIN_RIGHT_PX, top_px)
+	var view_scale := absf(ac.get_viewport_transform().get_scale().x)
+	var icon_radius_world := AIRCRAFT_ICON_HALF_EXTENT_WORLD \
+		* altitude_base_scale(ac) * visual_model_scale(ac) \
+		* AircraftSilhouetteCatalog.draw_scale_for(ac)
+	var screen_origin := ac.get_global_transform_with_canvas().origin
+	return data_label_screen_offset_for(
+		icon_radius_world, view_scale, screen_origin, top_px)
 
 
 static func lock_box_altitude_scale_for(altitude_m: float) -> float:
@@ -262,6 +307,7 @@ static func _status_effect_is_active(ac: Aircraft, sid: String, timed: bool,
 
 
 ## 完整、精简与折叠标签共用同一状态快照，避免缩放 LOD 后漏掉 buff/debuff。
+## 高度动作属于详细档 ALT 行，不在这里生成独立状态行，也不进入战略简略档。
 static func status_label_entries(ac: Aircraft,
 		include_direct_invulnerable: bool = false) -> Array[Dictionary]:
 	var entries: Array[Dictionary] = []
@@ -279,6 +325,12 @@ static func status_label_entries(ac: Aircraft,
 			"id": sid,
 			"text": label,
 			"color": StatusEffects.icon_color(sid),
+		})
+	if ac.gun_tailed_active():
+		entries.append({
+			"id": &"gun_tailed",
+			"text": String(TranslationServer.translate("STATUS_GUN_TAILED")),
+			"color": Color(1.0, 0.30, 0.22),
 		})
 	return entries
 
@@ -304,6 +356,25 @@ static func draw_cloud_state(ac: Aircraft) -> void:
 		var shadow_r: float = 16.0
 		var shadow_alpha: float = 0.22 * ac.cloud_density
 		ac.draw_circle(Vector2(4.0, 5.0), shadow_r, Color(0.35, 0.42, 0.52, shadow_alpha))
+
+
+## CLIMB/DIVE 气流：复用 Aircraft 已有重绘节拍，一次 draw_multiline 提交四条流线。
+static func draw_altitude_airflow(ac: Aircraft) -> void:
+	if ac.altitude_action == Aircraft.AltitudeAction.NONE:
+		return
+	var s: float = altitude_base_scale(ac) * visual_model_scale(ac)
+	var phase: float = fmod(Time.get_ticks_msec() * 0.045, 20.0)
+	var points := PackedVector2Array()
+	var action_sign: float = -1.0 if ac.altitude_action == Aircraft.AltitudeAction.CLIMB else 1.0
+	for i in range(4):
+		var x: float = (-13.0 + float(i) * 8.5) * s
+		var y: float = (-24.0 + fmod(phase + float(i) * 7.0, 28.0)) * s
+		points.append(Vector2(x, y))
+		points.append(Vector2(x + action_sign * 1.5 * s, y + 8.0 * s))
+	var color := Color(0.45, 0.90, 1.0, 0.58) \
+		if ac.altitude_action == Aircraft.AltitudeAction.CLIMB \
+		else Color(1.0, 0.72, 0.28, 0.62)
+	ac.draw_multiline(points, color, maxf(1.0, 1.15 * s), true)
 
 ## 编队调试覆盖层（仅 formation_debug=true 时绘制）
 ## 显示：当前分支、阵型槽位、当前/目标航向射线、bank 差异
@@ -847,9 +918,8 @@ static func draw_aircraft_icon_destroyed(ac: Aircraft) -> void:
 	])
 	ac.draw_colored_polygon(body, gray)
 
-static func draw_aircraft_icon(ac: Aircraft) -> void:
+static func draw_aircraft_icon(ac: Aircraft, bank_volume_enabled: bool = true) -> void:
 	var color: Color = ac.params.icon_color if ac.params else Color.GREEN
-	var outline_color := color.darkened(0.3)
 
 	var size := 16.0
 
@@ -857,8 +927,8 @@ static func draw_aircraft_icon(ac: Aircraft) -> void:
 	var base_scale: float = altitude_base_scale(ac) * visual_model_scale(ac)
 
 	# 滚转变形（常规 bank + 规避时的原地滚转相位）
-	var bank_compress := cos(ac.bank_angle + ac._evade_roll_phase + ac._active_special_roll_visual)
-	var sx := base_scale * bank_compress
+	var bank_visual := ac.bank_angle + ac._evade_roll_phase + ac._active_special_roll_visual
+	var unbanked_sx := base_scale
 	var sy := base_scale
 	# 垂直越过：俯视投影只压缩机体纵轴，保留翼展，明确表现抬头/压头姿态。
 	sy *= lerpf(1.0, Aircraft.VERTICAL_BREAK_PITCH_MIN_SCALE, ac._active_special_pitch_visual)
@@ -873,26 +943,49 @@ static func draw_aircraft_icon(ac: Aircraft) -> void:
 	var _mv := ac.get_maneuver()
 	if _mv and _mv.visual_offset > 0.0:
 		var f: float = lerpf(1.0, 0.35, _mv.visual_offset)
-		sx *= f
+		unbanked_sx *= f
 		sy *= f
 	var _hm := ac.get_herbst()
 	if _hm and _hm.visual_offset > 0.0:
 		var f: float = lerpf(1.0, 0.4, _hm.visual_offset)
-		sx *= f
+		unbanked_sx *= f
 		sy *= f
 
-	var xform := Transform2D(0.0, Vector2.ZERO)
-	xform = xform.scaled(Vector2(sx, sy))
+	var bank_cos := cos(bank_visual)
+	var face_sx := unbanked_sx * bank_cos
+	var shell_sx := face_sx
+	var face_offset := 0.0
+	var face_alpha := 1.0
+	var belly_visible := false
+	if bank_volume_enabled:
+		var thickness := AircraftSilhouetteCatalog.volume_thickness_for(ac)
+		var projection := bank_volume_projection_for(bank_visual, thickness)
+		face_sx = unbanked_sx * projection.x
+		shell_sx = unbanked_sx * projection.y
+		face_offset = size * unbanked_sx * projection.z
+		face_alpha = bank_volume_face_alpha_for(projection.x)
+		belly_visible = bank_cos < 0.0
+	var face_xform := Transform2D(
+		Vector2(face_sx, 0.0), Vector2(0.0, sy), Vector2(face_offset, 0.0))
+	var shell_xform := Transform2D(
+		Vector2(shell_sx, 0.0), Vector2(0.0, sy), Vector2.ZERO)
+	var xform := shell_xform if bank_volume_enabled else face_xform
 
 	# 每个真实/概念机型只消费一张白色 alpha PNG；阵营与王牌差异统一由参数颜色着色。
 	# 未登记的 UGC/临时探针安全回退到下方旧 polygon 绘制。
-	if AircraftSilhouetteCatalog.draw_icon(ac, color, size, xform):
+	if AircraftSilhouetteCatalog.draw_icon(
+			ac, color, size, face_xform, shell_xform, face_alpha, belly_visible):
 		if ac.selected:
 			var ring_color := color
 			ring_color.a = 0.5
 			var ring_scale := AircraftSilhouetteCatalog.draw_scale_for(ac)
 			ac.draw_arc(Vector2.ZERO, size * 1.8 * base_scale * ring_scale, 0, TAU, 48, ring_color, 1.5)
 		return
+
+	# legacy/UGC 没有逐机型侧面资产：只用壳层倍率防止 90° 归零，并平滑压暗机腹。
+	if bank_volume_enabled:
+		color = color.darkened(0.18 * maxf(-bank_cos, 0.0))
+	var outline_color := color.darkened(0.3)
 
 	# 指挥 UAV（哨兵）使用独立的飞翼外观
 	var is_commander: bool = ac.has_meta("enemy_type") and ac.get_meta("enemy_type") == "uav_commander"
@@ -923,6 +1016,10 @@ static func draw_aircraft_icon(ac: Aircraft) -> void:
 	# Mother Goose 巨型空中航母（Arsenal Bird Liberty 灵感）：宽阔飞翼 + 6 发动机舱 + 中部船桥
 	if silhouette == "mother_goose":
 		draw_mother_goose_icon(ac, color, outline_color, size, base_scale, xform)
+		return
+	# Hyper-A：参考 X-43A 的低矮细长升力体、黑色热防护主体与浅色前缘。
+	if silhouette == "hyper_a":
+		draw_hyper_a_icon(ac, color, outline_color, size, base_scale, xform)
 		return
 
 	# 机身主体（填充多边形）
@@ -1031,6 +1128,42 @@ static func draw_aircraft_icon(ac: Aircraft) -> void:
 		var ring_color := color
 		ring_color.a = 0.5
 		ac.draw_arc(Vector2.ZERO, size * 1.8 * base_scale, 0, TAU, 48, ring_color, 1.5)
+
+## Hyper-A 专用低矮升力体轮廓。体型由 AircraftParams.visual_* 统一缩放，
+## 这里仅定义 X-43A 风格的长宽比、楔形前体和浅色热防护边缘。
+static func draw_hyper_a_icon(ac: Aircraft, color: Color, outline_color: Color,
+		size: float, base_scale: float, xform: Transform2D) -> void:
+	var s := size
+	var body := PackedVector2Array([
+		Vector2(0.0, -s * 1.18),
+		Vector2(s * 0.24, -s * 0.86),
+		Vector2(s * 0.48, -s * 0.18),
+		Vector2(s * 0.43, s * 0.52),
+		Vector2(s * 0.25, s * 0.96),
+		Vector2(0.0, s * 1.02),
+		Vector2(-s * 0.25, s * 0.96),
+		Vector2(-s * 0.43, s * 0.52),
+		Vector2(-s * 0.48, -s * 0.18),
+		Vector2(-s * 0.24, -s * 0.86),
+	])
+	var transformed := PackedVector2Array()
+	for p in body:
+		transformed.append(xform * p)
+	ac.draw_colored_polygon(transformed, color)
+	var edge_color: Color = ac.params.wing_color if ac.params \
+			and ac.params.wing_color.a > 0.0 else color.lightened(0.55)
+	for i in range(transformed.size()):
+		var edge := edge_color if i in [0, 1, 8, 9] else outline_color
+		ac.draw_line(transformed[i], transformed[(i + 1) % transformed.size()], edge, 1.5, true)
+	# 腹部进气 / 热防护中线：无人升力体身份，不画座舱。
+	ac.draw_line(xform * Vector2(0, -s * 0.72), xform * Vector2(0, s * 0.72),
+		Color(edge_color.r, edge_color.g, edge_color.b, 0.55), 1.0, true)
+	ac.draw_line(xform * Vector2(-s * 0.18, s * 0.72), xform * Vector2(s * 0.18, s * 0.72),
+		Color(1.0, 0.42, 0.12, 0.7), 1.5, true)
+	if ac.selected:
+		var ring_color := edge_color
+		ring_color.a = 0.55
+		ac.draw_arc(Vector2.ZERO, s * 1.45 * base_scale, 0, TAU, 48, ring_color, 1.5)
 
 ## 指挥 UAV "哨兵" 专用飞翼外观
 static func draw_commander_icon(ac: Aircraft, color: Color, outline_color: Color, size: float, base_scale: float, xform: Transform2D) -> void:
@@ -1500,13 +1633,11 @@ static func draw_data_label_drone(ac: Aircraft) -> void:
 	var text_w: float = ac._font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 	var box_w := text_w + pad * 2.0
 	var box_h := 13.0 + pad * 2.0
-	var origin_local: Vector2 = Vector2(14.0, -box_h * 0.5)
 	# 抵消机身旋转 + 摄像机缩放
-	var inv_zoom: float = 1.0
-	if ac.is_inside_tree():
-		var cam: Camera2D = ac.get_viewport().get_camera_2d()
-		if cam != null:
-			inv_zoom = 1.0 / maxf(cam.zoom.x, 0.0001)
+	var inv_zoom := screen_space_inverse_scale(ac)
+	var inv_rot := -ac.rotation
+	var screen_offset := data_label_screen_offset(ac, -box_h * 0.5)
+	var origin_local := (screen_offset * inv_zoom).rotated(inv_rot)
 	ac.draw_set_transform(origin_local, -ac.global_rotation, Vector2.ONE * inv_zoom)
 	ac.draw_rect(Rect2(Vector2.ZERO, Vector2(box_w, box_h)), Color(0.05, 0.08, 0.05, 0.55), true)
 	ac.draw_string(ac._font, Vector2(pad, pad + ac._font.get_ascent(font_size)), line,
@@ -1532,7 +1663,7 @@ static func draw_data_label_compact(ac: Aircraft) -> void:
 	var inv_zoom: float = screen_space_inverse_scale(ac)
 	var font_size := 11
 	var line_height := 14.0
-	var label_offset := Vector2(24 * inv_zoom, -12 * inv_zoom).rotated(inv_rot)
+	var label_offset := (data_label_screen_offset(ac) * inv_zoom).rotated(inv_rot)
 	var max_w := 0.0
 	for line in lines:
 		max_w = maxf(max_w, ac._font.get_string_size(
@@ -1705,16 +1836,19 @@ static func draw_data_label_minimal(ac: Aircraft) -> void:
 	lines.append("HDG %03d" % roundi(heading_deg))
 	lines.append("%d kt" % roundi(speed_kmh * 0.5399))
 	var alt_line_idx := lines.size()
+	var altitude_action_suffix := "" if ac.altitude_action == Aircraft.AltitudeAction.NONE \
+			else " " + ac.altitude_action_name()
 	if ac.flat_altitude:
 		var tier_now: int = ac.get_altitude_tier()
 		var vs_abs: float = absf(ac.vertical_speed)
 		if vs_abs > 5.0:
 			var arrow: String = "↑" if ac.vertical_speed > 0.0 else "↓"
-			lines.append("ALT %s %s" % [Aircraft.TIER_NAMES[tier_now], arrow])
+			lines.append("ALT %s %s%s" % [
+				Aircraft.TIER_NAMES[tier_now], arrow, altitude_action_suffix])
 		else:
-			lines.append("ALT %s" % Aircraft.TIER_NAMES[tier_now])
+			lines.append("ALT %s%s" % [Aircraft.TIER_NAMES[tier_now], altitude_action_suffix])
 	else:
-		lines.append("ALT %dm" % roundi(ac.altitude))
+		lines.append("ALT %dm%s" % [roundi(ac.altitude), altitude_action_suffix])
 	lines.append("G %.1f" % ac.g_load)
 	# 武器行品牌色映射（与右下角武器栏同源 _wpn_color）
 	var wpn_color_indices: Dictionary = {}
@@ -1771,9 +1905,8 @@ static func draw_data_label_minimal(ac: Aircraft) -> void:
 	var font_size := 11
 	var line_height := 14.0
 	# 缩放补偿
-	var zoom_scale := ac.get_viewport_transform().get_scale()
-	var inv_zoom := 1.0 / maxf(zoom_scale.x, 0.01)
-	var label_offset := Vector2(24 * inv_zoom, -12 * inv_zoom).rotated(inv_rot)
+	var inv_zoom := screen_space_inverse_scale(ac)
+	var label_offset := (data_label_screen_offset(ac) * inv_zoom).rotated(inv_rot)
 
 	var max_w := 0.0
 	for line in lines:
@@ -1833,16 +1966,19 @@ static func draw_data_label(ac: Aircraft) -> void:
 	lines.append("HDG %03d" % roundi(heading_deg))
 	# 第 4 行：高度（vs 非零时附箭头表示正在升降）
 	var alt_line_idx := lines.size()
+	var altitude_action_suffix := "" if ac.altitude_action == Aircraft.AltitudeAction.NONE \
+			else " " + ac.altitude_action_name()
 	if ac.flat_altitude:
 		var tier_now: int = ac.get_altitude_tier()
 		var vs_abs: float = absf(ac.vertical_speed)
 		if vs_abs > 5.0:
 			var arrow: String = "↑" if ac.vertical_speed > 0.0 else "↓"
-			lines.append("ALT %s %s" % [Aircraft.TIER_NAMES[tier_now], arrow])
+			lines.append("ALT %s %s%s" % [
+				Aircraft.TIER_NAMES[tier_now], arrow, altitude_action_suffix])
 		else:
-			lines.append("ALT %s" % Aircraft.TIER_NAMES[tier_now])
+			lines.append("ALT %s%s" % [Aircraft.TIER_NAMES[tier_now], altitude_action_suffix])
 	else:
-		lines.append("ALT %dm" % roundi(ac.altitude))
+		lines.append("ALT %dm%s" % [roundi(ac.altitude), altitude_action_suffix])
 	# 第 5 行：距离（到玩家）
 	if dist_m < 1000.0:
 		lines.append("RNG %dm" % roundi(dist_m))
@@ -1918,9 +2054,8 @@ static func draw_data_label(ac: Aircraft) -> void:
 	var font_size := 11
 	var line_height := 14.0
 	# 缩放补偿：标签大小不随摄像机缩放变化
-	var zoom_scale := ac.get_viewport_transform().get_scale()
-	var inv_zoom := 1.0 / maxf(zoom_scale.x, 0.01)
-	var label_offset := Vector2(24 * inv_zoom, -12 * inv_zoom).rotated(inv_rot)
+	var inv_zoom := screen_space_inverse_scale(ac)
+	var label_offset := (data_label_screen_offset(ac) * inv_zoom).rotated(inv_rot)
 
 	# 测量最大宽度（把数字替换成 "0" 再测，避免 label 框每帧抽搐）
 	var max_w := 0.0

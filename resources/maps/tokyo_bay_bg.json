@@ -19,5 +19,6 @@
   ],
   "game_world_meters_per_degree_lat": 111000.0,
   "game_world_meters_per_degree_lon_at_center": 90434.27326522839,
-  "game_world_px_per_meter": 0.5
+  "game_world_px_per_meter": 0.5,
+  "postprocess": "removed non-physical CARTO administrative boundaries"
 }

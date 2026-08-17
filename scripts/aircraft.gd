@@ -5,7 +5,16 @@ extends CombatUnit
 @export var initial_heading_deg: float = 0.0  ## 度 初始航向（0=北, 90=东, 180=南）
 
 # --- 状态 ---
+enum AltitudeAction { NONE, CLIMB, DIVE }
+const ALTITUDE_ACTION_THRESHOLD_MPS: float = 30.0
+const CLIMB_COUNTER_WINDOW_S: float = 4.0
+const GUN_TAILED_CACHE_MS: int = 250
 var vertical_speed: float = 0.0     ## m/s
+var altitude_action: int = AltitudeAction.NONE ## 统一高度动作真源；不等同于高度档位
+var altitude_action_enter_serial: int = 0      ## 每次动作切换递增，供进入沿技能消费
+var altitude_action_start_tier: int = AltitudeTier.MID ## 当前动作进入沿的高度档
+var _climb_counter_remaining_s: float = 0.0
+var _gun_tailed_until_ms: int = -1              ## 低频汇总缓存；正式判定仍在 AircraftWeapons
 var bank_angle: float = 0.0         ## 弧度
 var _prev_bank_for_rate: float = 0.0  ## 上一帧 bank（用于发射稳定性检查计算 roll rate）
 var _bank_rate_rad_s: float = 0.0     ## 滚转率，rad/s（EMA 平滑，避免单帧噪声）
@@ -121,6 +130,7 @@ var surround_bearing_rad: float = INF
 var command_sprint: bool = false
 var evac_shift_active: bool = false      ## 720 批"阵地转移"：撤离冲刺加成 + 受伤减半（apply_upgrade 置位）
 var guard_zone_buff_active: bool = false ## 720 批"保卫阵地"：防守圈内 buff（SquadCommandController 维护）
+var berserk_virus_active: bool = false   ## 狂化病毒：全队持有，只有非亲控直属僚机动态生效
 var missile_second_stage_active: bool = false ## 720 批"二段推进"：本机发射的导弹续推+转弯渐强
 var missile_chain_active: bool = false ## 战区次世代“连锁弹头”：导弹命中后沿原航向继续飞行
 var gun_bullet_penetration_active: bool = false ## X-44 专属：普通机炮/炮舱弹逐目标穿透
@@ -175,6 +185,8 @@ var _gun_burst_rounds_left: int = 0  ## 当前梭剩余弹数（>0 = 梭承诺�
 var _auto_gun_target_id: int = 0  ## 3Hz 自动扫描本轮候选；只存实例 ID，避免跨帧攥住已释放节点
 var _gun_burst_target_id: int = 0  ## 当前已承诺梭的目标；整梭逐 tick 重算提前点，禁止被 planner 回正
 var _gun_lead_heading: float = 0.0  ## 前置射击方向（由 _update_combat 计算）
+var _gun_climb_frozen_target_id: int = 0 ## 爬升反制：当前梭冻结旧解的目标实例 ID
+var _gun_climb_frozen_heading: float = 0.0 ## 爬升反制：冻结的世界射向
 # ── 武器竞选滞回状态（spec weapon-employment-doctrine §2.2；planner 经 Situation 读、
 #    _apply_tactical_plan 回写；1.5s 滞回在 WeaponSelector.select 内判定）──
 var _primary_weapon_kind: String = ""      ## 当前竞选胜者（""=无战斗/全失格）
@@ -393,6 +405,9 @@ var low_hp_flare_reload_mult: float = 1.0   ## hp < 50% 时 flare reload 倍率�
 var high_alt_lock_speed_bonus: float = 0.0  ## HIGH 档锁定速率 bonus（main 雷达循环）
 var close_range_lock_max_mult: float = 1.0  ## 近距捕获：贴身锁定速率倍率上限（survivor 雷达循环）
 var ab_gun_regen_per_sec: float = 0.0       ## AB 时机炮子弹 regen/s（weapons.update_gun）
+var altitude_cycle_gun_regen_per_sec: float = 0.0 ## 高度能量循环：DIVE 机炮 regen/s
+var altitude_cycle_gun_overstock_mult: float = 1.0 ## 高度能量循环：DIVE 超储上限倍率
+var altitude_cycle_ab_regen_per_sec: float = 0.0 ## 高度能量循环：CLIMB 共享加力 regen/s
 var alt_change_stealth_factor: float = 0.0  ## 高度变化时锁定衰减系数（main 雷达循环）
 var head_on_gun_dodge_bonus: float = 0.0    ## 对头时机炮闪避加成（take_bullet_damage 加查）
 var low_alt_gun_dodge_bonus: float = 0.0    ## 低空时机炮闪避加成（take_bullet_damage 在 LOW/GROUND 档位加）
@@ -504,7 +519,7 @@ var _sig_faxx_cd: float = 0.0              ## 穿透打击：机炮击杀隐身 
 var _sig_a12_revive_used: bool = false     ## 不被期待的计划：每局一次复活已用标记
 var _sig_mig41_dash_cd: float = 0.0        ## 近太空冲刺：触发 CD（30s）计时
 var _sig_mig41_dive_timer: float = 0.0     ## 近太空冲刺：俯冲加速 buff 残余秒数
-var _sig_mig41_prev_tier: int = -9         ## 近太空冲刺：上帧高度档（HIGH→下降沿检测）
+var _sig_mig41_seen_action_serial: int = 0 ## 近太空冲刺：已消费的高度动作进入沿
 var _sig_mig31_fire_timer: float = 0.0     ## 超速截击：加力窗口内自动发射节拍
 var sig_j36_assault_active: bool = false   ## 三发推力：突击 buff 运行时标记（accessor 消费）
 var _sig_j36_cd: float = 0.0               ## 三发推力：重触发 CD（15s）计时
@@ -861,6 +876,71 @@ func show_tactic_popup(text: String) -> void:
 	_tactic_popup_text = text
 	_tactic_popup_timer = TACTIC_POPUP_DURATION
 
+## 高度动作的唯一写入口。普通高度物理和垂直越过都必须经这里发布。
+func _set_altitude_action(next_action: int) -> void:
+	if next_action == altitude_action:
+		return
+	var previous: int = altitude_action
+	altitude_action = next_action
+	altitude_action_enter_serial += 1
+	altitude_action_start_tier = get_altitude_tier()
+	if next_action == AltitudeAction.CLIMB:
+		_climb_counter_remaining_s = CLIMB_COUNTER_WINDOW_S
+	elif previous == AltitudeAction.CLIMB:
+		_climb_counter_remaining_s = 0.0
+	EventLogger.log_event("ALTITUDE_ACTION", _log_name(),
+		"%s serial=%d" % [altitude_action_name(), altitude_action_enter_serial])
+
+func altitude_action_name() -> String:
+	match altitude_action:
+		AltitudeAction.CLIMB:
+			return "CLIMB"
+		AltitudeAction.DIVE:
+			return "DIVE"
+	return "NONE"
+
+func _tick_climb_counter_window(delta: float) -> void:
+	if _climb_counter_remaining_s <= 0.0:
+		return
+	if altitude_action != AltitudeAction.CLIMB:
+		_climb_counter_remaining_s = 0.0
+		return
+	_climb_counter_remaining_s = maxf(_climb_counter_remaining_s - delta, 0.0)
+
+func climb_counter_window_active() -> bool:
+	return is_player_squad() and altitude_action == AltitudeAction.CLIMB \
+		and _climb_counter_remaining_s > 0.0
+
+func gun_tailed_active() -> bool:
+	return Time.get_ticks_msec() <= _gun_tailed_until_ms
+
+## 敌方低频威胁更新上报正式 GUN_TAILED 解；同时消费 4 秒爬升反制窗口。
+func report_gun_tailed(attacker: Aircraft) -> void:
+	_gun_tailed_until_ms = maxi(_gun_tailed_until_ms,
+		Time.get_ticks_msec() + GUN_TAILED_CACHE_MS)
+	if not climb_counter_window_active() or attacker == null or not is_instance_valid(attacker):
+		return
+	if attacker._gun_burst_rounds_left <= 0 \
+			or attacker._gun_burst_target_id != get_instance_id() \
+			or attacker._gun_climb_frozen_target_id == get_instance_id():
+		return
+	attacker._gun_climb_frozen_target_id = get_instance_id()
+	attacker._gun_climb_frozen_heading = attacker._gun_lead_heading
+	show_tactic_popup(tr("POPUP_CLIMB_COUNTER"))
+	EventLogger.log_event("CLIMB_GUN_BREAK", _log_name(),
+		"froze %s committed burst at %.1fs" % [attacker._log_name(), _climb_counter_remaining_s])
+
+## Missile 自身 60Hz tick 调用；纯运动学门复用 MissileEvasion，不扫描全场。
+func try_climb_counter_missile(missile: Missile) -> bool:
+	if not climb_counter_window_active() \
+			or not MissileEvasion.is_imminent_evasion_threat(self, missile):
+		return false
+	missile.disrupt_by_climb_break()
+	show_tactic_popup(tr("POPUP_CLIMB_COUNTER"))
+	EventLogger.log_event("CLIMB_MISSILE_BREAK", _log_name(),
+		"disrupted incoming missile at %.1fs" % _climb_counter_remaining_s)
+	return true
+
 ## 获取挂载的战术机动模块（如有）
 func get_maneuver() -> CobraManeuver:
 	for child in get_children():
@@ -955,6 +1035,7 @@ func _physics_process_impl(delta: float) -> void:
 	PerfBuckets.tick("ac_phys.misc.status_fx", Time.get_ticks_usec() - _t_misc6)
 	# 主动位移技能必须跨 LOD/切控继续推进；无动作时仅 O(1) 计时，AI 威胁扫描固定 10Hz。
 	_update_active_special_maneuver(delta)
+	_tick_climb_counter_window(delta)
 
 	# 旋翼机完全绕过固定翼 bank/G/失速链；武器仍复用 AircraftWeapons。
 	if params and params.flight_model == AircraftParams.FlightModel.ROTORCRAFT:
@@ -1391,13 +1472,12 @@ func _apply_tactical_plan(plan: TacticalPlan) -> void:
 					_log_unit_name(combat_target), aim_off_deg, nose_off_deg
 				])
 
-	# 高度（plan 没指定就保持现状）
-	if plan.target_altitude_m >= 0.0:
-		target_altitude = plan.target_altitude_m
-	# tier 必须走 set_target_tier() 同步 target_altitude（米数），
-	# 直接写字段会让物理插值停在旧高度 → "MID → LOW 永不到达" bug
+	# 高度（plan 没指定就保持现状）。先同步 tier，再让显式米数覆写：玩家 HIGH 自然高度带
+	# 需要保留 target_altitude_tier=HIGH 的状态语义，同时把实际目标放在约 8400m 而非 10000m。
 	if plan.target_altitude_tier >= 0:
 		set_target_tier(plan.target_altitude_tier)
+	if plan.target_altitude_m >= 0.0:
+		target_altitude = plan.target_altitude_m
 	# 交战 intent + flat_altitude → 自动匹配敌机高度档
 	# ⚠ 玩家（use_tactical_preference）跳过本节：玩家高度永远走 altitude_preference，
 	# 不向敌机靠拢（详见 bfm_intent._apply_target_altitude 注释）。
@@ -1530,16 +1610,16 @@ func _update_sig_skills(delta: float) -> void:
 		_sig_viffing_cd = 20.0
 		apply_status(StatusEffects.INVINCIBLE, 4.0, "no_refresh")
 		EventLogger.log_event("SKILL", _log_name(), "VIFFing：低速触发 4s 无敌（CD 20s）")
-	# 近太空冲刺（MiG-41）：从 HIGH 档开始降高瞬间 → 8s OVERLOAD + 俯冲加速 ×1.5（CD 30s）
-	if sig_mig41_active:
-		var tier_now: int = get_altitude_tier()
-		if _sig_mig41_prev_tier == AltitudeTier.HIGH and tier_now != AltitudeTier.HIGH \
-				and vertical_speed < 0.0 and _sig_mig41_dash_cd <= 0.0:
+	# 近太空冲刺（MiG-41）：统一 DIVE 进入沿，且动作起点处于 HIGH。
+	if _sig_mig41_seen_action_serial != altitude_action_enter_serial:
+		_sig_mig41_seen_action_serial = altitude_action_enter_serial
+		if sig_mig41_active and altitude_action == AltitudeAction.DIVE \
+				and altitude_action_start_tier == AltitudeTier.HIGH \
+				and _sig_mig41_dash_cd <= 0.0:
 			_sig_mig41_dash_cd = 30.0
 			_sig_mig41_dive_timer = 8.0
 			apply_status(StatusEffects.OVERLOAD, 8.0)
 			EventLogger.log_event("SKILL", _log_name(), "近太空冲刺：俯冲触发 8s 超载 + 加速强化")
-		_sig_mig41_prev_tier = tier_now
 	# 三发推力（J-36）：命令目标被消灭 / 命令解除 → buff 结束（触发在 SquadCommandController）
 	if sig_j36_assault_active:
 		if commanded_target == null or not is_instance_valid(commanded_target) \
@@ -1754,29 +1834,14 @@ func _herbst_pick_turn_direction() -> float:
 	var my_right: Vector2 = Vector2(cos(heading), sin(heading))
 	return signf(my_right.dot(to_threat))
 
-## 检测后方是否有敌机正在以机炮追尾（敌机在我后半球 + 机头朝我 + 正在开火）
+## 统一 GUN_TAILED 查询：眼镜蛇、J-Turn、胆大妄为与主动位移机动共用正式火控解。
 func _cobra_detect_tail_gun() -> bool:
-	var trigger_sq: float = COBRA_TAIL_DETECT_PX * COBRA_TAIL_DETECT_PX
-	var my_fwd := Vector2(sin(heading), -cos(heading))
 	for u in CombatUnit.all_units:
-		if u == self or not is_hostile_to(u) or u.is_destroyed:
-			continue
-		if not u is Aircraft:
+		if not is_instance_valid(u) or not u is Aircraft:
 			continue
 		var enemy: Aircraft = u as Aircraft
-		if not enemy.is_firing:
-			continue
-		if global_position.distance_squared_to(enemy.global_position) > trigger_sq:
-			continue
-		var to_enemy := (enemy.global_position - global_position).normalized()
-		# 要求敌机在我后半球（dot < -0.3，约 110° 后向锥）
-		if my_fwd.dot(to_enemy) > -0.3:
-			continue
-		# 要求敌机头朝我（dot 与 -to_enemy ≥ 0.7，约 ±45°）
-		var enemy_fwd := Vector2(sin(enemy.heading), -cos(enemy.heading))
-		if enemy_fwd.dot(-to_enemy) < 0.7:
-			continue
-		return true
+		if AircraftWeapons.is_gun_tailed_by(enemy, self):
+			return true
 	return false
 
 ## 侩子手 4 个属性乘数（仅在 executioner_active 且 stacks > 0 时偏离 1.0）
@@ -2112,6 +2177,27 @@ func _propagate_evasion_to_squad(enabled: bool) -> void:
 						ac._escort_flare_tried.clear()  # 关 E：清护卫尝试记录
 				break
 
+const BERSERK_VIRUS_WEAPON_CD_RATE: float = 1.40
+const BERSERK_VIRUS_FLARE_CD_RATE: float = 1.50
+
+## 狂化病毒的动态身份门：技能旗标跟全队，效果只落当前非亲控直属僚机。
+func is_berserk_virus_wingman() -> bool:
+	var current_player := AircraftRenderer.safe_player_ref()
+	return berserk_virus_active and is_player_squad() and self != current_player \
+		and _ai_ref != null and is_instance_valid(_ai_ref) and not _ai_ref.manual_control
+
+## 锁定既有 FREE 语义；不清目标、不切状态，所以显式小队命令仍可临时覆盖。
+func enforce_berserk_virus_free_mode() -> void:
+	if not is_berserk_virus_wingman():
+		return
+	if _ai_ref.squad_engage_mode != AIController.SquadEngageMode.FREE:
+		_ai_ref.squad_engage_mode = AIController.SquadEngageMode.FREE
+	if _ai_ref.squad != null:
+		if _ai_ref.squad.engage_mode != Squad.EngageMode.FREE:
+			_ai_ref.squad.engage_mode = Squad.EngageMode.FREE
+		if _ai_ref.squad.formation != Squad.Formation.COMBAT_SPREAD:
+			_ai_ref.squad.formation = Squad.Formation.COMBAT_SPREAD
+
 ## CD 速率模型（spec modifier-pipeline）：倒计时写基础时长，tick 侧按
 ## delta × rate 消耗。mult < 1 表示 CD 更短，因此 rate = 1 / 乘数栈。
 func cd_rate(channel: String) -> float:
@@ -2132,7 +2218,13 @@ func cd_rate(channel: String) -> float:
 		"missile_reload":
 			if evasion_mode:
 				mult *= float(evasion_modifiers.get("missile_reload_mult", 1.0))
-	return 1.0 / maxf(mult, 0.01)
+	var rate := 1.0 / maxf(mult, 0.01)
+	if is_berserk_virus_wingman():
+		if channel == "weapon":
+			rate *= BERSERK_VIRUS_WEAPON_CD_RATE
+		elif channel == "flare":
+			rate *= BERSERK_VIRUS_FLARE_CD_RATE
+	return rate
 
 ## 触发一次闪避滚转动画（子弹闪避/热诱弹成功时的视觉反馈）
 func _trigger_evasion_roll() -> void:
@@ -2290,6 +2382,7 @@ func _try_start_vertical_break() -> bool:
 	target_altitude = altitude
 	vertical_speed = 0.0
 	_active_special_pitch_visual = 0.0
+	_set_altitude_action(AltitudeAction.CLIMB if climb else AltitudeAction.DIVE)
 	if formation_mode:
 		clear_formation()
 	_start_shared_maneuver_cooldown(VERTICAL_BREAK_COOLDOWN)
@@ -2303,6 +2396,7 @@ func _finish_active_special_maneuver() -> void:
 		altitude = _active_special_end_altitude
 		vertical_speed = 0.0
 		target_altitude = _active_special_queued_altitude if not is_inf(_active_special_queued_altitude) else altitude
+		_set_altitude_action(AltitudeAction.NONE)
 	_active_special = ActiveSpecialManeuver.NONE
 	_active_special_elapsed = 0.0
 	_active_special_prev_ease = 0.0
@@ -2359,22 +2453,7 @@ func _active_special_missile_threat(trigger_px: float) -> bool:
 	return false
 
 func _active_special_tail_threat() -> bool:
-	var my_fwd := Vector2(sin(heading), -cos(heading))
-	var my_vel := my_fwd * speed
-	for unit in CombatUnit.all_units:
-		if not is_instance_valid(unit) or unit == self or unit.is_destroyed or not unit is Aircraft or not is_hostile_to(unit):
-			continue
-		var enemy := unit as Aircraft
-		var rel := enemy.global_position - global_position
-		var dist := rel.length()
-		if dist <= 0.001 or dist > enemy._gun_range_px() * 1.5:
-			continue
-		if my_fwd.dot(rel / dist) > -0.3:
-			continue
-		var enemy_vel := Vector2(sin(enemy.heading), -cos(enemy.heading)) * enemy.speed
-		if -rel.dot(enemy_vel - my_vel) / dist > 0.0:
-			return true
-	return false
+	return _cobra_detect_tail_gun()
 
 func _update_active_special_maneuver(delta: float) -> void:
 	_tick_shared_maneuver_cooldown(delta)
@@ -2879,12 +2958,17 @@ func _sig_f22_reload_all() -> void:
 	EventLogger.log_event("SKILL", _log_name(), "先敌开火：隐身瞬间全武器装填完毕")
 
 
-## 722 sig_f22：STEALTH 期间锁定目标数 +2；其余时刻 = 字段原值
+## 722 sig_f22：STEALTH 期间 +2；火控饱和：OVERLOAD 实际存续期间 +2。
 func effective_max_locks() -> int:
-	if status_stealth_active and has_meta("upgrade_stacks") \
-			and int((get_meta("upgrade_stacks") as Dictionary).get("sig_f22", 0)) > 0:
-		return maxi(max_simultaneous_locks + 2, 1)
-	return maxi(max_simultaneous_locks, 1)
+	var bonus: int = 0
+	if has_meta("upgrade_stacks"):
+		var stacks := get_meta("upgrade_stacks") as Dictionary
+		if status_stealth_active and int(stacks.get("sig_f22", 0)) > 0:
+			bonus += 2
+		if status_effects.has(StatusEffects.OVERLOAD) \
+				and int(stacks.get(SkillHooks.SKILL_FIRE_CONTROL_SATURATION, 0)) > 0:
+			bonus += SkillHooks.FIRE_CONTROL_SATURATION_LOCK_BONUS
+	return maxi(max_simultaneous_locks + bonus, 1)
 
 
 ## 受到伤害（通用：导弹/火箭/爆炸等战斗部伤害）
@@ -2981,8 +3065,8 @@ func take_bullet_damage(amount: float, attacker: Node = null) -> bool:
 		var t: int = get_altitude_tier()
 		if t == AltitudeTier.LOW or t == AltitudeTier.GROUND:
 			effective_dodge += low_alt_gun_dodge_bonus
-	# 722 sig_typhoon·超巡爬升：高度调整进行中机炮闪避 +30%（判定=明显爬升/俯冲中）
-	if sig_typhoon_active and absf(vertical_speed) > 30.0:
+	# 722 sig_typhoon·超巡爬升：统一 CLIMB/DIVE 动作中机炮闪避 +30%。
+	if sig_typhoon_active and altitude_action != AltitudeAction.NONE:
 		effective_dodge += 0.30
 	# 对头机炮闪避（玩家技能）：仅 team==0 + 持有 SKILL_HEAD_ON_GUN_DODGE
 	# 几何门槛 head_on_dot > 0.7（双方机头对冲 ≲ 53°）
@@ -3351,6 +3435,7 @@ func _draw_impl() -> void:
 	if not is_drone:
 		AircraftRenderer.draw_target_line(self)
 	AircraftRenderer.draw_cloud_state(self)
+	AircraftRenderer.draw_altitude_airflow(self)
 	AircraftRenderer.draw_railgun_telegraph(self)
 	AircraftRenderer.draw_aircraft_icon(self)
 	AircraftRenderer.draw_deadair_exposure(self)
@@ -3464,15 +3549,16 @@ func _update_gun_threat_indicator(delta: float) -> void:
 	if not params or not params.gun:
 		_reset_gun_threat()
 		return
+	var threatened: Aircraft = combat_target as Aircraft if combat_target is Aircraft else null
+	if threatened == null or not is_instance_valid(threatened) or threatened.is_destroyed \
+			or not threatened.is_player_squad() \
+			or not AircraftWeapons.is_gun_tailed_by(self, threatened):
+		_reset_gun_threat()
+		return
+	threatened.report_gun_tailed(self)
+	# 机炮锥仍只围绕当前操控机显示；僚机只消费 GUN_TAILED 与爬升反制。
 	var pref: Aircraft = AircraftRenderer.safe_player_ref()
-	if pref == null or not is_instance_valid(pref) or pref.is_destroyed:
-		_reset_gun_threat()
-		return
-	if combat_target != pref or weapon_mode != WeaponMode.GUN:
-		_reset_gun_threat()
-		return
-	var range_px: float = params.gun.max_range * PIXELS_PER_METER * GUN_THREAT_RANGE_MULT
-	if global_position.distance_squared_to(pref.global_position) > range_px * range_px:
+	if pref == null or not is_instance_valid(pref) or threatened != pref:
 		_reset_gun_threat()
 		return
 	_gun_threat_timer += delta

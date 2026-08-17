@@ -5,7 +5,7 @@
 [resource]
 script = ExtResource("1")
 display_name = "Hydra 70 (Wing Pods)"
-; ── 齐射：扇形 8 发速发，左右挂点同时（每对 0.04s 间隔，视觉上接近瞬时） ──
+; ── 涟发：左右挂点逐发交替，每发 0.04s；近段直飞后渐进展开为 14° 扇面 ──
 burst_count_min = 8
 burst_count_max = 8
 burst_interval = 0.04
@@ -18,7 +18,7 @@ rocket_damage = 100.0
 muzzle_velocity = 600.0
 max_range = 3800.0
 min_damage_mult = 0.7
-; spread_angle 现在表示扇形扩散半角（每发火箭按 [-spread, +spread] 等距分布）
+; spread_angle 表示远段最终扇面半角（每发按 [-spread, +spread] 等距分布）
 spread_angle = 14.0
 ; fire_cone_half_angle 现在表示自动扫描锥（前方多大锥内有敌机就触发齐射）
 fire_cone_half_angle = 35.0

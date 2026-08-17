@@ -100,6 +100,7 @@ AGL/
 │   │   ace_tier.gd / ace_squad.gd / ace_support_squad.gd / f47_ace_squad.gd
 │   │   wraith_tactics.gd / poltergeist_squad.gd / poltergeist_tactics.gd
 │   │   boss_registry.gd / boss_encounter.gd / mother_goose_*.gd
+│   │       / hyper_a_boss.gd / hyper_a_threat_overlay.gd
 │   │   carrier_strike_group.gd
 │   │   roe_director.gd / adbs_manager.gd / afterburner_charge.gd
 │   │   aoe_broadcast.gd / aoe_pulse_vfx.gd

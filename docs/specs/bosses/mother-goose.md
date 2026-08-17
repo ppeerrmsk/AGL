@@ -3,7 +3,7 @@ id: mother-goose
 kind: boss
 status: done
 schema_version: 1
-spec_version: 11
+spec_version: 13
 owner: design
 depends_on: [jam-status, vls-salvo, uav-swarm-roles, boss-clear-progression]
 reconstruction_complete: true
@@ -25,6 +25,13 @@ reconstruction_complete: true
   正面 0× 免伤不是隐形墙，而是有清晰几何规则（朝向扇区）可被玩家学习。
 
 ## 2. 数据定义（What —— 全部数值，权威源）
+
+### 2.0 登场身份横幅
+
+继承 [UI 设计规范](../systems/ui-design-guidelines.md) 与
+[表演导演系统 §2.0.1](../systems/ui-transition.md)；无视觉规范例外。Mother Goose 在镜头切向母机前
+固定显示：包装文案 `INVADERS MUST DIE`、主标题 `MOTHER GOOSE`、角色类型
+`AIRBORNE UAV CARRIER`、代号 `CALLSIGN // GOOSE`。横幅完全退出后才能开始母机特写与两句登场无线电。
 
 ### 2.1 本体基础属性（AircraftParams）
 
@@ -109,9 +116,16 @@ ACTIVE 另含两波 UAV 增援：进入阶段立即请求第 1 波，7.5 s 请�
 | 单发间隔 | 0.25 s |
 | 目标 | 当前玩家 |
 | 散布 | ±25°（is_vls_salvo） |
-| 弹种 | `cg_vls_missile.tres`（naval） |
+| 弹种 | `goose_vls_missile.tres`（Mother Goose 专属） |
+| 近身停火距离 | 玩家距母舰 < **3000 m** 时整轮不入队 |
+| 定距自爆 | 每弹累计飞行 **8000 m** 后自爆；此前不建立直接命中 |
+| AOE | 半径 **800 m** · 持续 **1.5 s** · 单位每个区域最多受击一次 |
+| AOE 伤害 / 高度容差 | **22** / **300 m** |
 
-每次齐射 = 存活 VLS 数 × 4 发。两个 VLS 都活时 = 8 发/轮。
+每次齐射 = 存活 VLS 数 × 4 发。两个 VLS 都活时 = 8 发/轮。定距自爆按弹体实际累计路径计算，
+不是出生点直线位移；到达 8000 m 时在当前位置生成 AOE 并销毁弹体，不再继续追踪或结算直接命中。
+Mother Goose 的默认巡逻半径约为 8000 m，因此留在远距输出位的玩家会吃到齐射落区；玩家压到 3000 m
+内时整轮停火，已经在飞的弹仍按原定 8000 m 位置远端自爆，不会折返成近身武器。
 
 ### 2.7 UAV 蜂群
 
@@ -148,7 +162,9 @@ ACTIVE 另含两波 UAV 增援：进入阶段立即请求第 1 波，7.5 s 请�
 通关分层由 [boss-clear-progression](../systems/boss-clear-progression.md) 统一定义：历史击败数为 0 时，
 MQ-111/MQ-112 权重均置 0，且不执行 MQ-112 最低存活保底；历史击败数 ≥1 时恢复上表完整权重与配额。
 MQ-111 激光始终先给导弹刷新 0.5 s 减速（速度上限 45%、转弯 G 上限 50%），并同时按实际激光伤害
-累计扣除 `intercept_hp`；降至 0 后才销毁导弹。即“先压慢，持续照射到阈值后击毁”，不是触碰即删弹。
+累计扣除 `intercept_hp`；降至 0 后把导弹标记为失效并销毁。即“先压慢，持续照射到阈值后击毁”，
+不是触碰即删弹。激光热量规则与玩家 X-02 完全共用同一套状态机和参数：热量上限 100、输出
+每秒 +35、过热时每秒 -25，冷却到 30% 才恢复；过热期间不选目标、不输出光束，也不继续拦截。
 
 角色分配：MQ-110/112 恒 SHOOTER；MQ-111 恒 GUARD（对空，`no_kamikaze`）；
 普通阶段 MQ-109 配额为 25% ATTACKER / 5% DECOY / 50% GUARD，剩余为 RESERVE，
@@ -224,6 +240,8 @@ BGM：循环歌单 `["boss_mothergoose_1", "boss_mothergoose_2"]`（优先于 bg
 - [x] 每轮指定猎杀含两波 UAV 增援（0.0s / 7.5s，各 6 架请求），实际生成始终按 2 架/批节流且不突破 30
 - [x] 每次生成决策把 MQ-112 电磁炮 UAV 补到至少 2、封顶 3；阵亡后可暂低于 2，待下次 ACTIVE 补充
 - [x] 历史击败 0 次时不生成 MQ-111/MQ-112；≥1 次恢复四型号池；MQ-111 对导弹同时减速并累计拦截 HP
+- [x] VLS 仅在玩家距母舰 ≥3000m 时起射；累计飞行 8000m 后自爆为 800m/1.5s AOE，近身不建立直接命中
+- [x] MQ-111 可把 `intercept_hp` 累计打到 0 并令导弹失效；过热/冷却/30% 恢复门与玩家 X-02 完全一致
 - [x] 点击飞翼本体时选择离点击点最近的存活 MountTarget，机身上的普通 UAV 不抢点击
 - [x] HP 跌破 50% 恰好一次性刷 2 架 MQ-X
 - [x] 蜂群 / MQ-X 击杀 **不给 XP、不入生涯档案、不给对头永久 +max_hp**；仍计击杀数
@@ -232,6 +250,7 @@ BGM：循环歌单 `["boss_mothergoose_1", "boss_mothergoose_2"]`（优先于 bg
 - [ ] 性能：UAV 30 上限 + 迷途召回 + 全局离屏 LOD 生效，Lv5+ 压测 FPS 掉幅 < 15（待复测）
 - [x] MountTarget 保留在 all_units（SEAM 未触碰）
 - [x] i18n：display_name 走 HUD 拼接例外；无其它玩家可见硬编码文本
+- [x] 登场横幅先于镜头，显示 `INVADERS MUST DIE / MOTHER GOOSE / AIRBORNE UAV CARRIER / CALLSIGN GOOSE`
 
 ## 6. 实现计划（Task Pipeline）
 
@@ -263,8 +282,9 @@ BGM：循环歌单 `["boss_mothergoose_1", "boss_mothergoose_2"]`（优先于 bg
 | 指定猎杀 | `scripts/survivor/mother_goose_designation.gd` |
 | UAV 蜂群 | `scripts/survivor/mother_goose_uav_swarm.gd` |
 | overlay（视觉） | `mother_goose_shield_overlay.gd` / `mother_goose_designation_overlay.gd` |
+| 登场身份横幅 | `scripts/ui/boss_arrival_banner.gd` · `resources/presentation/sequences.json` |
 | 注册/接线 | `scripts/survivor/boss_registry.gd` · `scripts/survivor/boss_encounter.gd` |
-| 参数资源 | `resources/enemy_mother_goose.tres` · `resources/enemy_uav_mqx.tres` · `resources/naval/cg_vls_missile.tres` |
+| 参数资源 | `resources/enemy_mother_goose.tres` · `resources/enemy_uav_mqx.tres` · `resources/goose_vls_missile.tres` |
 | reference 索引 | enemy-index.md（F-47 同段 BOSS 区） |
 
 ## 8. 变更记录
@@ -284,3 +304,5 @@ BGM：循环歌单 `["boss_mothergoose_1", "boss_mothergoose_2"]`（优先于 bg
 | 2026-07-30 | 9 | JAM 护罩冷却由 40s 延长到 60s，完整循环由 60s 降频为 80s；Mother Goose 的 MQ-109 改用专属参数资源，速度/巡航/加速/G/滚转约削弱 8%~10%，不影响普通关卡 MQ-109。 |
 | 2026-08-01 | 10 | 接入 BOSS 通关强化层：初见禁用 MQ-111 激光/MQ-112 电磁炮，首败后恢复四型号池；MQ-111 开启累计导弹拦截，保留减速并在 `intercept_hp` 归零后销毁。 |
 | 2026-08-01 | 11 | 机炮攻击意图锥的视觉降噪收窄到 Mother Goose 蜂群成员；普通 MQ-109、Sentinel 僚机与 MQ-X 不再被“无人机”总类过滤。 |
+| 2026-08-16 | 12 | 接入统一 BOSS 系统入侵横幅：镜头切母机前显示固定英文包装、英文主标题、空中无人机母舰角色类型与 GOOSE 呼号。 |
+| 2026-08-16 | 13 | VLS 改为 3000m 近身停火、累计飞行 8000m 后生成 800m/1.5s 定距 AOE；MQ-111 激光保留累计反导，并把热量参数和过热恢复门完全对齐玩家 X-02。 |

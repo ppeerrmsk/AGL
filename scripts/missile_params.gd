@@ -49,6 +49,16 @@ const TARGET_PRIO_DOGFIGHT_SIDE: int = 1     ## QMAAM：侧面（off-axis 大）
 ## 近炸引信高度容差 (m)
 @export var proximity_fuse_alt: float = 200.0
 
+@export_group("定距空爆（默认关闭）")
+## >0 时导弹不建立普通直接命中，累计路径达到此距离后在当前位置自爆生成 AOE。
+@export var distance_airburst_distance_m: float = 0.0
+## 发射系统应在目标距离低于此值时停火；0 表示不设近身停火门。
+@export var distance_airburst_min_launch_range_m: float = 0.0
+## 定距空爆区域半径（米）。
+@export var distance_airburst_radius_m: float = 120.0
+## 定距空爆区域持续时间（秒）。
+@export var distance_airburst_duration_s: float = 1.5
+
 @export_group("生存性（抗 CIWS 拦截）")
 ## 被 CIWS 子弹累积打掉多少 HP 才算拦截成功。仅 CIWS 子弹消耗，不影响其他命中机制
 ## 小型 / 短程弹建议 30-40；中程 50-70；大型 / 齐射弹 70-100

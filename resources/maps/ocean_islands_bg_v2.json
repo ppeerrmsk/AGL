@@ -21,5 +21,5 @@
   "game_world_meters_per_degree_lat": 111000.0,
   "game_world_meters_per_degree_lon_at_center": 109556.59668818575,
   "game_world_px_per_meter": 0.5,
-  "postprocess": "removed southern axis-aligned protected-area/landcover fill; coast and linework unchanged"
+  "postprocess": "removed southern axis-aligned protected-area/landcover fill; coast and linework unchanged; removed non-physical CARTO administrative boundaries"
 }

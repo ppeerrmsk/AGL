@@ -38,6 +38,7 @@ const UNIT_TESTS: Dictionary = {
 	"rejoin": "res://scripts/tests/test_formation_rejoin.gd",
 	"weapon": "res://scripts/tests/test_weapon_behavior.gd",
 	"damage_vignette": "res://scripts/tests/test_damage_vignette.gd",
+	"aircraft_bank_volume": "res://scripts/tests/test_aircraft_bank_volume.gd",
 	"escort": "res://scripts/tests/test_escort_evasion.gd",
 	"target_sel": "res://scripts/tests/test_target_selection.gd",
 	"cmd_evade": "res://scripts/tests/test_commanded_evade.gd",
@@ -77,6 +78,7 @@ const UNIT_TESTS: Dictionary = {
 	"skill_audit": "res://scripts/tests/test_skill_audit.gd",
 	"sig_skills": "res://scripts/tests/test_sig_skills.gd",
 	"bullet_grid": "res://scripts/tests/test_bullet_grid.gd",
+	"rocket_trajectory": "res://scripts/tests/test_rocket_trajectory.gd",
 	"zone_rewards": "res://scripts/tests/test_zone_rewards.gd",
 	"career_archive": "res://scripts/tests/test_career_archive.gd",
 	"meta_shop": "res://scripts/tests/test_meta_shop.gd",
@@ -84,6 +86,7 @@ const UNIT_TESTS: Dictionary = {
 	"deadair": "res://scripts/tests/test_deadair.gd",
 	"boss_phase": "res://scripts/tests/test_boss_phase.gd",
 	"boss_progression": "res://scripts/tests/test_boss_progression.gd",
+	"hyper_a": "res://scripts/tests/test_hyper_a_boss.gd",
 	"naval_formation": "res://scripts/tests/test_naval_formation.gd",
 	"naval_zone_water": "res://scripts/tests/test_naval_zone_water.gd",
 	"zone_air_support": "res://scripts/tests/test_zone_air_support.gd",
@@ -111,8 +114,14 @@ const BUILD_TASKS: Dictionary = {
 const VISUAL_TEST_SCENES: Dictionary = {
 	"main_menu_visual": "res://scenes/tests/main_menu_visual_qa.tscn",
 	"player_hud_visual": "res://scenes/tests/player_hud_visual_qa.tscn",
+	"boss_arrival_banner_visual": "res://scenes/tests/boss_arrival_banner_visual_qa.tscn",
+	"boss_debug_select_visual": "res://scenes/tests/boss_debug_select_visual_qa.tscn",
 	"aircraft_silhouette_visual": "res://scenes/tests/aircraft_silhouette_visual_qa.tscn",
+	"aircraft_bank_volume_visual": "res://scenes/tests/aircraft_bank_volume_visual_qa.tscn",
+	"aircraft_label_visual": "res://scenes/tests/aircraft_label_visual_qa.tscn",
+	"rocket_trajectory_visual": "res://scenes/tests/rocket_trajectory_visual_qa.tscn",
 	"map_visual_qa": "res://scenes/tests/map_visual_qa.tscn",
+	"map_raster_visual_qa": "res://scenes/tests/map_raster_visual_qa.tscn",
 	"map_detail_atlas_qa": "res://scenes/tests/map_detail_atlas_qa.tscn",
 	"ui_dev_panel_visual": "res://scenes/tests/ui_dev_panel.tscn",
 	"ui_dev_panel_clean_visual": "res://scenes/tests/ui_dev_panel.tscn",
@@ -125,6 +134,8 @@ const VISUAL_TEST_SCENES: Dictionary = {
 const PREVIEW_BENCH_MAPS: Dictionary = {
 	"map_preview_desert": "res://resources/maps/desert_railway_preview.aglmap",
 	"map_preview_ocean": "res://resources/maps/ocean_islands_preview.aglmap",
+	"map_raster_desert": "res://resources/maps/desert_railway_preview.aglmap",
+	"map_raster_ocean": "res://resources/maps/ocean_islands_preview.aglmap",
 }
 
 var bench_active: bool = false
@@ -200,6 +211,9 @@ func _ready() -> void:
 	get_tree().set_meta("bench_mode", true)
 	get_tree().set_meta("bench_scenario", bench_scenario)
 	get_tree().set_meta("bench_duration", bench_duration)
+	if bench_scenario in ["map_preview_tokyo", "map_raster_tokyo"]:
+		get_tree().set_meta("map_preview_only", true)
+		get_tree().set_meta("survivor_map_id", bench_scenario)
 	if PREVIEW_BENCH_MAPS.has(bench_scenario):
 		get_tree().set_meta("ugc_map_path", PREVIEW_BENCH_MAPS[bench_scenario])
 		get_tree().set_meta("map_preview_only", true)

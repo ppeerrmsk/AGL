@@ -94,6 +94,7 @@ const ENTRIES: Array = [
 	{"id": "WRAITH_SQUADRON", "kind": Kind.BOSS},
 	{"id": "CARRIER_STRIKE_GROUP", "kind": Kind.BOSS},
 	{"id": "MOTHER_GOOSE", "kind": Kind.BOSS},
+	{"id": "BLACK_STAR", "kind": Kind.BOSS},
 ]
 
 ## BOSS 主色（王牌 tier §2.7：BOSS 统一精英红，不占紫红系队色）

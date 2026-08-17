@@ -17,6 +17,8 @@ from pathlib import Path
 
 from PIL import Image
 
+from remove_admin_boundaries import clean_admin_boundaries
+
 
 ROOT = Path(__file__).resolve().parents[2]
 ZOOM = 13
@@ -107,6 +109,8 @@ def bake(map_key: str) -> None:
                 print(f"[{map_key}] {done}/{total} elapsed={time.time() - started:.1f}s")
             time.sleep(0.04)
 
+    canvas, boundary_mask = clean_admin_boundaries(canvas, canvas)
+    print(f"[{map_key}] removed administrative boundary mask={int(boundary_mask.sum())} px")
     config["png"].parent.mkdir(parents=True, exist_ok=True)
     canvas.save(config["png"], optimize=True, compress_level=6)
 

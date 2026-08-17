@@ -3,7 +3,7 @@ id: aircraft-top-view-silhouettes
 kind: system
 status: done
 schema_version: 1
-spec_version: 7
+spec_version: 8
 owner: AGL
 depends_on: [systems/battlefield-visual-scale]
 reconstruction_complete: true
@@ -46,7 +46,7 @@ reconstruction_complete: true
 
 当前正式接入 **40** 张 reviewed PNG。A-12、F-47、F/A-XX、FCAS、GCAP、J-36、MiG-41 不以猜测外形制作正式 PNG。
 
-原创/虚构显示名中 **20** 个继续保留旧 polygon/special renderer，包括 X 系列、AX-00、AF-03、Cre、DEADAIR、Snowblind、Sentinel、MQ-112、Aegis UAV、DRONE、Probe 与 Mother Goose。MQ-109 / MQ-110 / MQ-111 按用户提供并批准的定型顶视参考，共用 `mq109_family` 白色蒙版；三者只以武器、颜色和行为区分，并用 `DRAW_SCALE=0.53` 保持旧无人机约 55% 战斗机视觉尺寸。
+原创/虚构显示名中 **24** 个继续保留旧 polygon/special renderer，包括 X 系列、AX-00、AF-03、Cre、DEADAIR、Snowblind、Sentinel、MQ-112、Aegis UAV、DRONE、Probe、Mother Goose 与 Hyper-A G0–G3。MQ-109 / MQ-110 / MQ-111 按用户提供并批准的定型顶视参考，共用 `mq109_family` 白色蒙版；三者只以武器、颜色和行为区分，并用 `DRAW_SCALE=0.53` 保持旧无人机约 55% 战斗机视觉尺寸。
 
 ### 2.3 同型号复用
 
@@ -59,16 +59,30 @@ reconstruction_complete: true
 - Su-27 / Su-35 → `su27`
 - MiG-31 两个显示名 → `mig31`
 
+### 2.4 滚转体积投影
+
+飞机图标继续使用二维顶视蒙版，不引入 3D 节点、逐机型侧视资产或额外逐帧资源生成。渲染器把现有两次纹理提交解释为“暗色机体壳层 + 当前可见表面”：
+
+- 顶面/机腹横向倍率：`face = abs(cos(roll))`
+- 壳层横向倍率：`shell = face + thickness × abs(sin(roll))`
+- 可见表面横向偏移：`offset = thickness × 0.42 × sin(roll)`
+- `roll` 同时包含常规坡度、规避滚转相位与主动位移滚转视觉相位。
+
+默认 `thickness = 0.22`；低矮飞翼/升力体为 `0.14`，轰炸机为 `0.17`，直升机为 `0.30`，小型无人机为 `0.18`。这些值只控制图标投影，不进入物理、碰撞、雷达或目标判定。
+
+`abs(cos(roll)) < 0.18` 时顶面/机腹透明度平滑衰减，让 90° 正侧面只保留壳层，避免表面从一侧跳到另一侧。`cos(roll) < 0` 时使用同一蒙版的较暗机腹色，不把顶视图以负横向倍率翻转冒充机腹。未经审查的 legacy/UGC 轮廓复用同一壳层倍率，但不新增伪造的逐机型侧面细节。
+
 ## 3. 行为与结构（How）
 
 1. `AircraftParams.display_name` 经目录映射到规范 key。
    生存模式玩家机若已拼接档案代号，则优先用 `SurvivorPlayableSetup` 保存的纯机型 `airframe_label` 映射；呼号与运行时全名不参与轮廓识别。
 2. 目录首次命中时从原始 PNG 解码并缓存 `ImageTexture`。
 3. 渲染器用同一 alpha 蒙版先画深色偏移边，再画运行时纯色填充。
-4. 未审查、原创、虚构或未知 UGC 名称返回未命中，继续调用原有绘制路径。
-5. 原始 PNG 由导出预设显式包含，不依赖开发机的 `.ctex` 缓存。
+4. 滚转时，深色偏移边扩展为壳层，纯色填充保持顶面/机腹投影；正侧面仍有厚度而不会归零。
+5. 未审查、原创、虚构或未知 UGC 名称返回未命中，继续调用原有绘制路径，并至少应用不归零的壳层倍率。
+6. 原始 PNG 由导出预设显式包含，不依赖开发机的 `.ctex` 缓存。
 
-本功能不新增节点、不做场景树扫描、不增加逐帧资源解码；缓存粒度为每个规范机型首次一次。
+本功能不新增节点、不做场景树扫描、不增加逐帧资源解码；缓存粒度为每个规范机型首次一次。PNG 图标每次重绘最多保持原有两次纹理提交，正侧面隐藏表面层时降为一次；滚转体积不得新增第三次逐机绘制提交。
 
 ## 4. 验收标准
 
@@ -77,15 +91,22 @@ reconstruction_complete: true
 - [x] 运行时目录只包含 `reviewed` key；fallback key 不会加载占位 PNG。
 - [x] 同型号玩家/敌人/子型号共享一张 PNG，仅通过颜色区分。
 - [x] 玩家机运行时名称拼接档案代号后仍命中同一机型 PNG；F-14 `Tomcat Warhound` 不回退旧绘制。
-- [x] 20 个未获批准定型参考的原创/虚构显示名和未知 UGC 保留旧绘制；MQ-109/110/111 共用用户参考轮廓。
+- [x] 24 个未获批准定型参考的原创/虚构显示名和未知 UGC 保留旧绘制；MQ-109/110/111 共用用户参考轮廓。
 - [x] 静态审计覆盖当前 86 个 AircraftParams 显示名。
 - [x] Godot 4.7 Shadow 视觉 QA 通过，逐架拼图没有方向、裁切、加载或颜色错误。
+- [x] 0° / 30° / 60° / 80° / 90° / 120° / 180° 滚转样张覆盖现实 PNG、轰炸机、无人机与 legacy 轮廓；90° 壳层宽度大于零。
+- [x] PNG 图标滚转前后都不超过原有两次纹理提交；不新增 Aircraft 子节点、process、场景树扫描或纹理解码。
+- [x] `stress_40` 改前/改后同场压力测试记录 `aircraft_draw`，60 FPS 红线保持。
 - [x] 文档与锚点校验通过。
+
+2026-08-17 Godot 4.7.1 Shadow 验证：角度矩阵以 5 类机体 × 7 角度、每格旧/新并排生成 `aircraft_bank_volume_visual.png`；3150 次强制重绘微基准中，单图标 CPU 构建由 8.861 µs 增至 10.196 µs（+1.335 µs），两组调用数相同。32 架 Headless `stress_40` 的 `aircraft_draw` 由 133 µs/帧变为 138 µs/帧（+0.005 ms/帧），采样帧率同为 146 FPS；改后 Shadow Visual 同场为 523 FPS。
 
 ## 5. 实现锚点
 
 - `scripts/aircraft_silhouette_catalog.gd`
 - `scripts/aircraft_renderer.gd`
+- `scripts/tests/test_aircraft_bank_volume.gd`
+- `scripts/tests/aircraft_bank_volume_visual_qa_runner.gd`
 - `scripts/tools/trace_orthographic_outline.py`
 - `scripts/tools/normalize_aircraft_reference.py`
 - `scripts/tools/audit_aircraft_silhouettes.py`
@@ -100,6 +121,7 @@ reconstruction_complete: true
 - **2026-08-09 / v5**：轮廓目录接入玩家机的纯机型 `airframe_label`，修复 F-14 拼接 `Warhound` 后玩家机回退旧多边形、僚机却正常的问题；视觉 QA 改为实际应用 playable profile。
 - **2026-08-09 / v6**：修正 F-104 误截取顶视图后半段的问题；从同一授权三视图重新提取完整机鼻、主翼、机身与尾翼，并统一机头朝上。
 - **2026-08-09 / v7**：用户提供并批准 MQ-109 系定型参考；从原图严格提取无尾三角翼、双垂尾和尖长机身外轮廓，MQ-109 / MQ-110 / MQ-111 共用一张运行时换色 PNG，并以 0.53 目录缩放保持旧无人机尺寸；MQ-112 保持旧绘制。
+- **2026-08-17 / v8**：滚转由纯 `cos` 纸片压缩改为“壳层 + 顶面/机腹”二维体积投影；不提高原有纹理提交上限，并新增角度矩阵 Visual QA、纯函数回归和 `stress_40` 改前/改后负担记录。
 
 ## 7. 代表性来源
 

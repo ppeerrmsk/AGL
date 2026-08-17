@@ -1,0 +1,35 @@
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/hyper_a_missile.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/ace_combat.tres" id="3"]
+
+[resource]
+script = ExtResource("1")
+display_name = "Hyper-A G2"
+is_unmanned = true
+max_hp = 100.0
+max_speed = 1800.0
+cruise_speed = 1250.0
+stall_speed_base = 200.0
+acceleration = 80.0
+deceleration = 95.0
+g_drag_factor = 2.2
+max_g = 9.0
+max_g_structural = 12.0
+roll_rate = 4.0
+max_altitude = 30000.0
+climb_rate_max = 230.0
+thrust_to_weight = 1.15
+drag_coefficient = 0.02
+afterburner_thrust_mult = 1.45
+fuel_capacity = 3000.0
+radar_range = 3600.0
+radar_half_angle = 38.0
+lock_time = 2.2
+missile = ExtResource("2")
+combat = ExtResource("3")
+icon_color = Color(0.05, 0.055, 0.06, 1)
+wing_color = Color(0.48, 0.51, 0.54, 1)
+visual_length_m = 36.0
+visual_span_m = 22.0

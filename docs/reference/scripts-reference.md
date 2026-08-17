@@ -435,6 +435,21 @@ EventLogger.log_event("MISSILE", "Player", "hit Enemy#3 (dmg=80)")
 | `fire_cone_half_angle` | 允许开火的机头偏角（度） |
 | `max_ammo` | 弹药量 |
 
+### RocketParams (`scripts/rocket_params.gd`)
+
+| 参数 | 说明 |
+|------|------|
+| `burst_count_max` | 单次涟发火箭数；实际发射受剩余弹药钳制 |
+| `burst_interval` | 左右挂点逐发交替时的单发间隔（秒） |
+| `muzzle_velocity` | 火箭初速 (m/s) |
+| `max_range` | 最大射程 (m) |
+| `spread_angle` | 远段最终散布半角（度） |
+| `straight_flight_distance` | 出膛后保持平行直飞的距离；默认 180m |
+| `spread_transition_distance` | 从直飞平滑展开到最终散布角的距离；默认 320m |
+| `fire_cone_half_angle` | 自动开火允许的机头偏角（度） |
+| `min_range` / `max_fire_range` | 自动开火距离带 (m) |
+| `max_ammo` / `infinite_ammo` | 总弹量与无限弹药开关 |
+
 ### MissileParams (`scripts/missile_params.gd`)
 
 | 参数 | 说明 |
@@ -450,6 +465,9 @@ EventLogger.log_event("MISSILE", "Player", "hit Enemy#3 (dmg=80)")
 | `damage` | 命中伤害 |
 | `proximity_fuse_radius` | 近炸引信半径 (m) |
 | `fire_and_forget` | 发射后不管模式 |
+| `distance_airburst_distance_m` | 定距空爆累计路径 (m)，0=关闭 |
+| `distance_airburst_min_launch_range_m` | 定距空爆武器的近身停火距离 (m) |
+| `distance_airburst_radius_m` / `distance_airburst_duration_s` | 定距空爆 AOE 半径 (m) / 持续时间 (s) |
 | `max_count` | 挂载数量 |
 | `cooldown` | 发射间隔 (s) |
 

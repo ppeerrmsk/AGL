@@ -61,6 +61,8 @@ UPGRADE_MULTI_LOCK_NAME,多目标追踪,Multi-Target Tracking,マルチロック
 UPGRADE_MULTI_LOCK_DESC,导弹锁定目标数 +1（每层，最多 3 层）,Missile target locks +1 per stack (max 3),ミサイルロック対象数+1（1スタック毎・最大3）
 UPGRADE_MISSILE_SWARM_NAME,导弹蜂群,Missile Swarm,ミサイルスウォーム
 UPGRADE_MISSILE_SWARM_DESC,当前王牌导弹挂载 +4、锁定目标数 +3；导弹过载能力 ×0.85,"Current ace: +4 missile slots, +3 target locks; missile G ×0.85",現在のエース：ミサイル+4・ロック対象+3；ミサイルG×0.85
+UPGRADE_FIRE_CONTROL_SATURATION_NAME,火控饱和,Fire-Control Saturation,火器管制飽和
+UPGRADE_FIRE_CONTROL_SATURATION_DESC,当前王牌同时满锁至少 5 个目标时获得超载 6 秒；超载期间锁定目标数 +2（内置冷却 20 秒，需先回落到 5 锁以下）,When the current ace fully locks at least 5 targets at once gain 6s Overload; target locks +2 while Overloaded (20s internal cooldown; must first drop below 5 locks),現在のエースが同時に5目標以上を完全ロックすると6秒間オーバーロード；オーバーロード中はロック対象数+2（内部クールダウン20秒・再発動には一度5未満へ低下が必要）
 UPGRADE_GUN_DAMAGE_NAME,穿甲弹药,AP Rounds,徹甲弾
 UPGRADE_GUN_DAMAGE_DESC,机炮伤害 +30%（每层）,Gun damage +30% per stack,機関砲ダメージ+30%/層
 UPGRADE_GUN_MULTISHOT_NAME,机炮吊舱,Gun Pods,ガンポッド
@@ -144,6 +146,11 @@ UPGRADE_CLOSE_RANGE_LOCK_NAME,近距捕获,Close-Range Acquisition,近距離捕�
 UPGRADE_CLOSE_RANGE_LOCK_DESC,距离目标越近主雷达锁定越快：雷达边缘 ×1 / 半程 ×1.5 / 贴身最高 ×2,Primary radar locks faster at close range: ×1 at radar edge / ×1.5 at half range / up to ×2 point-blank,対象に近いほど主レーダーのロックが加速：レーダー端×1・半距離×1.5・至近距離で最大×2
 UPGRADE_AB_GUN_REGEN_NAME,加力供弹,Burner Feeder,アフターバーナー給弾
 UPGRADE_AB_GUN_REGEN_DESC,加力时机炮弹药每秒回复 25 发,AB regenerates 25 gun rounds/s,AB中機関砲弾25発/秒回復
+UPGRADE_ALTITUDE_ENERGY_CYCLE_NAME,高度能量循环,Altitude Energy Cycle,高度エネルギー循環
+UPGRADE_ALTITUDE_ENERGY_CYCLE_DESC,DIVE 时机炮每秒回复 25 发并可超储至 2 倍；CLIMB 时共享加力每秒回复 0.2,DIVE regenerates 25 gun rounds/s up to 2× capacity; CLIMB restores shared afterburner by 0.2/s,DIVE中は機関砲弾を毎秒25発・最大2倍まで補充；CLIMB中は共有アフターバーナーを毎秒0.2回復
+ALTITUDE_ACTION_CLIMB,爬升,CLIMB,上昇
+ALTITUDE_ACTION_DIVE,俯冲,DIVE,降下
+STATUS_GUN_TAILED,机炮咬尾,GUN TAILED,機関砲に追尾中
 UPGRADE_ALT_CHANGE_STEALTH_NAME,垂直机动隐身,Vertical Slip,垂直機動ステルス
 UPGRADE_ALT_CHANGE_STEALTH_DESC,高度变化时更难被敌方雷达锁定,Harder to lock when changing altitude,高度変化中ロック耐性
 UPGRADE_HEAD_ON_GUN_DODGE_NAME,正面回旋,Head-On Slip,正面スリップ
@@ -192,6 +199,8 @@ UPGRADE_GUNSHIP_MODE_NAME,炮艇模式,Gunship Mode,ガンシップモード
 UPGRADE_GUNSHIP_MODE_DESC,全队机炮改为 360° 自动射击，自动扫描敌机与地面单位并显示完整射程圈；最大速度 -40%,Squad guns gain 360° automatic fire against aircraft and ground units plus a full range ring; max speed -40%,全隊の機関砲が航空機・地上ユニットを360°自動射撃し射程円を表示；最高速度-40%
 UPGRADE_HEAVY_GUN_NAME,重型机炮,Heavy Cannon,重機関砲
 UPGRADE_HEAVY_GUN_DESC,全队机炮射程 +1000m,Squad gun range +1000m,全隊の機関砲射程+1000m
+UPGRADE_BERSERK_VIRUS_NAME,狂化病毒,BERSERK VIRUS,狂化ウイルス
+UPGRADE_BERSERK_VIRUS_DESC,"僚机无法手动接管并永远自由交战，但仍服从其它命令。僚机最大G、滚转、加减速×1.25，武器CD恢复×1.40，热诱弹CD与装填恢复×1.50；击杀后进入9秒嗜血。","Wingmen cannot be manually controlled and are permanently set to Free Engage, but still obey other orders. Wingman max G, roll and accel/decel ×1.25; weapon cooldown recovery ×1.40; flare cooldown and reload recovery ×1.50; kills grant 9s Bloodlust.","僚機は手動操作へ切替不能で常時自由交戦。ただし他の命令には従う。最大G・ロール・加減速×1.25、武器CD回復×1.40、フレアCDと再装填回復×1.50。撃破後9秒間ブラッドラスト。"
 UPGRADE_HUNTER_NAME,猎手,Hunter,ハンター
 UPGRADE_HUNTER_DESC,全队执行突击命令时：+2G、加减速 ×1.2、G 能量损失 ×0.7、受到伤害 ×0.7；目标结束即失效,"During Assault orders: squad +2G, accel/decel ×1.2, G-energy loss ×0.7, damage taken ×0.7; ends with the target",全隊が突撃命令中：+2G・加減速×1.2・G損失×0.7・被ダメージ×0.7；目標終了で解除
 UPGRADE_INVASION_ALGORITHM_NAME,入侵算法,Intrusion Algorithm,侵入アルゴリズム

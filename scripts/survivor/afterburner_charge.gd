@@ -29,8 +29,10 @@ func _effective_drain() -> float:
 
 ## 主循环驱动：激活中耗能（期间被动充能暂停）→ 耗尽自动关闭；否则被动充能。
 ## rate_mult：722 签名技能的充能倍率（公路机场·未被锁 ×1.5 / 地形跟随·低空 ×1.5，
-## 由 survivor_mode 每帧按 ACE 状态计算传入；默认 1.0 = baseline 不变）
-func update(delta: float, rate_mult: float = 1.0, storm_ii_active: bool = false) -> void:
+## 由 survivor_mode 每帧按 ACE 状态计算传入；默认 1.0 = baseline 不变）。
+## bonus_recharge_per_sec：高度能量循环等主动来源；激活中也在实际消耗后结算。
+func update(delta: float, rate_mult: float = 1.0, storm_ii_active: bool = false,
+		bonus_recharge_per_sec: float = 0.0) -> void:
 	if active:
 		var consumed: float = 0.0 if storm_ii_active else _effective_drain() * delta
 		charge -= consumed
@@ -46,12 +48,14 @@ func update(delta: float, rate_mult: float = 1.0, storm_ii_active: bool = false)
 			if m != null and is_instance_valid(m) and not m.is_destroyed \
 					and m.sig_su34_active and m.params:
 				m.hp = minf(m.hp + SIG_SU34_HEAL_PER_SEC * delta, m.params.max_hp)
+		charge = minf(charge + maxf(bonus_recharge_per_sec, 0.0) * delta, CHARGE_MAX)
 		if charge <= 0.0:
 			charge = 0.0
 			_deactivate()  # 能量耗尽 → 自动结束
 		return
 	var recharge_mult: float = SkillHooks.STORM_II_RECHARGE_MULT if storm_ii_active else 1.0
-	charge = minf(charge + CHARGE_RATE * rate_mult * recharge_mult * delta, CHARGE_MAX)
+	charge = minf(charge + (CHARGE_RATE * rate_mult * recharge_mult \
+		+ maxf(bonus_recharge_per_sec, 0.0)) * delta, CHARGE_MAX)
 
 ## 击杀充能（空中走 kill_recorded / 地面走 spawner 击杀检测，挂点见 survivor_mode）
 ## 激活中击杀同样入账（边烧边攒，只是被动充能暂停）

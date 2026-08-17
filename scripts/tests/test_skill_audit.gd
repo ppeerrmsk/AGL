@@ -2,7 +2,7 @@ extends RefCounted
 
 const _I18N_CATALOG := preload("res://scripts/i18n_catalog.gd")
 
-## 全量技能审计：158 条逐项验证“配置 → apply/运行时消费点 → 玩家文案”。
+## 全量技能审计：165 条逐项验证“配置 → apply/运行时消费点 → 玩家文案”。
 ##
 ## 直接数值/字段技能会真的应用到一架挂满可选装备的最小测试机，并比较应用前后快照；
 ## skill_flag 事件技能验证正式运行时消费点，避免“表里有、游戏里没人读”的假技能。
@@ -46,7 +46,7 @@ func run() -> void:
 	var seen: Dictionary = {}
 	for upgrade in SurvivorData.UPGRADES:
 		_audit_one(upgrade, translations, apply_source, consumer_source, mode_source, seen)
-	_check("全表数量 = 162", SurvivorData.UPGRADES.size() == 162,
+	_check("全表数量 = 165", SurvivorData.UPGRADES.size() == 165,
 		"got %d" % SurvivorData.UPGRADES.size())
 	_check("技能 ID 无重复", seen.size() == SurvivorData.UPGRADES.size(),
 		"unique=%d total=%d" % [seen.size(), SurvivorData.UPGRADES.size()])

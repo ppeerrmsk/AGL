@@ -15,12 +15,27 @@ func _check(condition: bool, label: String, detail: String = "") -> void:
 func run() -> void:
 	print("=== weather system ===")
 	_test_map_configs()
+	_test_deterministic_capture_seed()
 	_test_desert_cloud_reduction()
 	_test_sandstorm_timeline_and_altitude()
 	_test_aircraft_runtime_effect()
 	_test_ocean_distribution()
 	_test_runtime_consumers()
 	print("WeatherSystem: %s (%d fail)" % ["PASS" if _fail == 0 else "FAIL", _fail])
+
+
+func _test_deterministic_capture_seed() -> void:
+	var camera := Camera2D.new()
+	var first := WeatherSystem.new()
+	var second := WeatherSystem.new()
+	first.setup(camera, 0xA61)
+	second.setup(camera, 0xA61)
+	_check(first.cloud_seed == second.cloud_seed, "Visual bench 固定云层 seed")
+	_check(first.wind_direction.is_equal_approx(second.wind_direction), "Visual bench 固定风向")
+	_check(is_equal_approx(first.wind_speed, second.wind_speed), "Visual bench 固定风速")
+	first.free()
+	second.free()
+	camera.free()
 
 
 func _load_doc(path: String) -> MapDocument:

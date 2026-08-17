@@ -2,7 +2,7 @@ class_name RocketParams
 extends Resource
 
 ## 无制导火箭弹参数（例：F-86 的 FFAR）
-## 直线发射 + 大散布 + 低命中率 + 低伤害。
+## 双侧涟发 + 近段直飞 + 延迟散布 + 低命中率 + 低伤害。
 ## 目标为玩家不走直线时几乎不会被打中。
 
 @export_group("基本")
@@ -22,7 +22,9 @@ extends Resource
 @export var min_damage_mult: float = 1.0
 @export var muzzle_velocity: float = 320.0     ## m/s 火箭初速（慢于炮弹）
 @export var max_range: float = 1800.0          ## 米 有效射程（寿命由此推算）
-@export var spread_angle: float = 8.0          ## 度 散布半角（大散布=低命中）
+@export var spread_angle: float = 8.0          ## 度 最终散布半角（大散布=低命中）
+@export var straight_flight_distance: float = 180.0 ## 米 出膛后保持平行直飞的距离
+@export var spread_transition_distance: float = 320.0 ## 米 从直飞平滑展开到最终散布角的距离
 @export var fire_cone_half_angle: float = 12.0 ## 度 允许开火的机头偏角
 @export var min_range: float = 400.0           ## 米 最小发射距离（太近不放）
 @export var max_fire_range: float = 1500.0    ## 米 超过此距离不发射（大散布远距离无意义）

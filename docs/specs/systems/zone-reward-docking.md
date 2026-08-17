@@ -78,7 +78,7 @@ reconstruction_complete: false
 >   **僚机豁免** = 可重复出现的保底奖励（collectible 用尽后 roll 落到僚机）。取代旧"仅活跃战区去重"。
 > - **航母整局保证**：pity 机制——第 `CARRIER_PITY_ROLLS`(=4) 次 roll 时航母若仍未自然出现 → **第 4 次当次**强制发，确保每局一定出现一次航母奖励。
 
-奖励分为航母、僚机、武器、次世代四类。类别权重、七件武器子池、起始机型偏置和六项次世代清单全部以
+奖励分为航母、僚机、武器、次世代四类。类别权重、七件武器子池、起始机型偏置和七项次世代清单全部以
 [zone-reward-arsenal](zone-reward-arsenal.md) 为唯一权威，本 spec 不再复制数值表。
 
 ### 2.4 航母增援（沿用 aircraft-evolution §2.7 机制，改为限 2 次）

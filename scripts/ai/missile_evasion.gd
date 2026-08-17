@@ -226,6 +226,15 @@ static func _is_evasion_threat(ac: Aircraft, m: Missile, already_evading: bool =
 	return (dist_m / closing_ms) <= tti_max
 
 
+## CLIMB 反制与玩家规避共用的无滞回迫近门；调用方无需重复有效性条件。
+static func is_imminent_evasion_threat(ac: Aircraft, m: Missile) -> bool:
+	if ac == null or m == null or not is_instance_valid(ac) or not is_instance_valid(m) \
+			or not m.is_active or not m.has_guidance or m.is_flare_jammed \
+			or m.target != ac:
+		return false
+	return _is_evasion_threat(ac, m, false)
+
+
 static func check_incoming_missile(ai: AIController) -> bool:
 	return find_nearest_incoming_missile(ai) != null
 

@@ -1,6 +1,7 @@
 ## BOSS 注册表 + 地图池
 ##
-## 每个 BOSS 在 BOSS_DEFS 定义：class_path / bgm / display_name / name_key / callsign_prefix。
+## 每个 BOSS 在 BOSS_DEFS 定义：class_path / bgm / display_name / name_key / callsign_prefix
+## 以及登场横幅的 name / role / motto key 与 palette token。
 ## 每张地图在 MAP_POOLS 声明可刷 BOSS 列表，进 BOSS 阶段时按地图 roll。
 ##
 ## 加新 BOSS 的步骤：
@@ -18,6 +19,10 @@ const BOSS_DEFS: Dictionary = {
 		"bgm": "boss",
 		"display_name": "WRAITH SQUADRON",
 		"name_key": "CODEX_WRAITH_SQUADRON_NAME",
+		"banner_name_key": "BOSS_BANNER_WRAITH_NAME",
+		"banner_role_key": "BOSS_BANNER_WRAITH_ROLE",
+		"banner_motto_key": "BOSS_BANNER_WRAITH_MOTTO",
+		"banner_palette": "wraith_blue",
 		"callsign_prefix": "WRAITH",
 		"requires_water": false,            ## 飞机 BOSS 陆地海上都行
 	},
@@ -26,6 +31,10 @@ const BOSS_DEFS: Dictionary = {
 		"bgm": "boss_csg",                  ## Phase 1 BGM id（AudioManager 注册）
 		"display_name": "LADON STRIKE GROUP",
 		"name_key": "CODEX_CARRIER_STRIKE_GROUP_NAME",
+		"banner_name_key": "BOSS_BANNER_CSG_NAME",
+		"banner_role_key": "BOSS_BANNER_CSG_ROLE",
+		"banner_motto_key": "BOSS_BANNER_CSG_MOTTO",
+		"banner_palette": "terminal_green",
 		"callsign_prefix": "CSG",
 		"requires_water": true,             ## 舰队只能刷海上
 	},
@@ -34,8 +43,24 @@ const BOSS_DEFS: Dictionary = {
 		"bgm": "boss",                      ## v1 复用 F-47 BGM；v2 单独配
 		"display_name": "MOTHER GOOSE",
 		"name_key": "CODEX_MOTHER_GOOSE_NAME",
+		"banner_name_key": "BOSS_BANNER_MOTHER_GOOSE_NAME",
+		"banner_role_key": "BOSS_BANNER_MOTHER_GOOSE_ROLE",
+		"banner_motto_key": "BOSS_BANNER_MOTTO",
+		"banner_palette": "terminal_green",
 		"callsign_prefix": "GOOSE",
 		"requires_water": false,            ## 飞机型，陆海皆可
+	},
+	"BLACK_STAR": {
+		"class_path": "res://scripts/survivor/hyper_a_boss.gd",
+		"bgm": "boss",
+		"display_name": "BLACK STAR // HYPER-A",
+		"name_key": "CODEX_BLACK_STAR_NAME",
+		"banner_name_key": "BOSS_BANNER_BLACK_STAR_NAME",
+		"banner_role_key": "BOSS_BANNER_BLACK_STAR_ROLE",
+		"banner_motto_key": "BOSS_BANNER_BLACK_STAR_MOTTO",
+		"banner_palette": "black_star",
+		"callsign_prefix": "HYPER-A",
+		"requires_water": false,
 	},
 }
 
@@ -44,16 +69,27 @@ static func name_key_for(boss_id: String) -> String:
 	var def: Dictionary = BOSS_DEFS.get(boss_id, {})
 	return String(def.get("name_key", ""))
 
+## BOSS 登场横幅的纯显示快照；UI 不直接认识 boss id。
+static func banner_metadata_for(boss_id: String) -> Dictionary:
+	var def: Dictionary = BOSS_DEFS.get(boss_id, {})
+	return {
+		"name_key": String(def.get("banner_name_key", "")),
+		"role_key": String(def.get("banner_role_key", "")),
+		"motto_key": String(def.get("banner_motto_key", "BOSS_BANNER_MOTTO")),
+		"palette": String(def.get("banner_palette", "terminal_green")),
+		"callsign": String(def.get("callsign_prefix", "BOSS")),
+	}
+
 ## 地图 BOSS 池：map_id → [boss_id]（无档案 history 时等权随机）
 ## 地图 id 来自 survivor_map_select.MAP_LIST 的 "id" 字段
 ## 2026-07-26 MOTHER_GOOSE 随生涯档案轮换正式上线（spec career-archive §3.1，此前一直池外）
 const MAP_POOLS: Dictionary = {
-	"default": ["WRAITH_SQUADRON", "CARRIER_STRIKE_GROUP", "MOTHER_GOOSE"],
+	"default": ["WRAITH_SQUADRON", "CARRIER_STRIKE_GROUP", "MOTHER_GOOSE", "BLACK_STAR"],
 }
 
 ## 生涯递进顺序（spec career-archive §2.3）：新玩家按此序初见每个 BOSS；
 ## 打赢当前 BOSS 下次必换（下一个优先），没打赢则按概率推进/重复。加新 BOSS 追加表尾
-const BOSS_ROTATION: Array = ["WRAITH_SQUADRON", "CARRIER_STRIKE_GROUP", "MOTHER_GOOSE"]
+const BOSS_ROTATION: Array = ["WRAITH_SQUADRON", "CARRIER_STRIKE_GROUP", "MOTHER_GOOSE", "BLACK_STAR"]
 ## 未击败当前 BOSS 时，下次仍推进到下一个的概率（单杠杆；击败则 100% 换）
 const ROTATION_ADVANCE_CHANCE := 0.5
 

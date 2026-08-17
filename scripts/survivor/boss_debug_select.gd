@@ -35,6 +35,21 @@ const BOSS_LIST: Array[Dictionary] = [
 		"desc": "BOSS_DEBUG_GOOSE_DESC",
 		"tags": ["TAG_AIR", "TAG_CARRIER"],
 	},
+	{
+		"id": "BLACK_STAR",
+		"name": "BOSS_DEBUG_BLACK_STAR_NAME",
+		"desc": "BOSS_DEBUG_BLACK_STAR_DESC",
+		"tags": ["TAG_AIR", "TAG_SPLITTER"],
+		"scenarios": [
+			["FULL ENCOUNTER", "full"],
+			["G0 FIGHTER", "g0"],
+			["G1 REENTRY", "g1_reentry"],
+			["G2 DASH", "g2_dash"],
+			["G3 DOGFIGHT", "g3"],
+			["SECOND ROOT", "second_root"],
+			["COOLDOWN WINDOW", "cooldown"],
+		],
+	},
 ]
 
 func _ready() -> void:
@@ -52,6 +67,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_tree().remove_meta("boss_debug_mode")
 		if get_tree().has_meta("boss_debug_id"):
 			get_tree().remove_meta("boss_debug_id")
+		if get_tree().has_meta("boss_debug_scenario"):
+			get_tree().remove_meta("boss_debug_scenario")
 		get_tree().change_scene_to_file("res://scenes/survivor_map_select.tscn")
 
 func _draw() -> void:
@@ -156,7 +173,7 @@ func _build_boss_card(index: int) -> void:
 	style.set_corner_radius_all(4)
 	style.set_content_margin_all(18)
 	panel.add_theme_stylebox_override("panel", style)
-	panel.custom_minimum_size = Vector2(260, 280)
+	panel.custom_minimum_size = Vector2(260, 330 if data.has("scenarios") else 280)
 
 	var inner := VBoxContainer.new()
 	inner.add_theme_constant_override("separation", 8)
@@ -206,6 +223,17 @@ func _build_boss_card(index: int) -> void:
 	desc_label.custom_minimum_size = Vector2(220, 0)
 	inner.add_child(desc_label)
 
+	var scenario_select: OptionButton = null
+	if data.has("scenarios"):
+		scenario_select = OptionButton.new()
+		scenario_select.custom_minimum_size = Vector2(220, 30)
+		scenario_select.add_theme_font_size_override("font_size", 11)
+		for raw_scenario in (data["scenarios"] as Array):
+			var scenario: Array = raw_scenario as Array
+			scenario_select.add_item(String(scenario[0]))
+			scenario_select.set_item_metadata(scenario_select.item_count - 1, String(scenario[1]))
+		inner.add_child(scenario_select)
+
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	inner.add_child(spacer)
@@ -241,7 +269,11 @@ func _build_boss_card(index: int) -> void:
 	btn.add_theme_stylebox_override("pressed", btn_pressed)
 
 	var idx := index
-	btn.pressed.connect(func(): _on_boss_selected(idx))
+	btn.pressed.connect(func():
+		var scenario := "full"
+		if scenario_select != null:
+			scenario = String(scenario_select.get_item_metadata(scenario_select.selected))
+		_on_boss_selected(idx, scenario))
 
 	inner.add_child(btn)
 	_cards_container.add_child(panel)
@@ -250,10 +282,11 @@ func _build_boss_card(index: int) -> void:
 #  选择 → 跳到机型选择
 # ══════════════════════════════════════════════
 
-func _on_boss_selected(index: int) -> void:
+func _on_boss_selected(index: int, scenario: String = "full") -> void:
 	var data: Dictionary = BOSS_LIST[index]
 	# Survivor mode 用一组 meta 切换到 boss_debug 分支
 	get_tree().set_meta("boss_debug_mode", true)
 	get_tree().set_meta("boss_debug_id", data["id"])
+	get_tree().set_meta("boss_debug_scenario", scenario)
 	get_tree().set_meta("survivor_map_id", "boss_debug")
 	get_tree().change_scene_to_file("res://scenes/survivor_select.tscn")

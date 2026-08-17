@@ -144,6 +144,18 @@ BVR 远距协同齐射 BOSS，事件触发：
 - **独立航点**：`category="boss"` meta 使之跳过 `_update_hunters` 和 `_update_enemy_waypoints`
 - **不受远距清理**：`skip_far_cleanup` meta
 
+## Black Star / Hyper-A 高超音速分裂体 BOSS
+
+Black Star 不占 `EnemyType`，也不进入常规 Token 池；四代飞机均由 `HyperABoss` 直接实例化共享 `Aircraft`，权威行为与数值见 [bosses/hypersonic-splitter](../specs/bosses/hypersonic-splitter.md)。
+
+- **入口**：`BossRegistry.BLACK_STAR` → `BossEncounterEvent` / `SurvivorSpawner._spawn_boss` → `HyperABoss.spawn/engage/update`。
+- **资源**：`enemy_hyper_a_g0.tres` 至 `enemy_hyper_a_g3.tres` + `hyper_a_missile.tres`；HP `800/300/100/70`，视觉长度 `96/80/36/10m`，全代 0 flare、4 发弹匣。
+- **拓扑**：两棵独立 `1→2→4→8` 树；路径名追加 `.1/.2`，共 30 个历史节点、16 个终末 G3。
+- **分代火力**：锁容量 `8/4/2/1`；G0 点射激光，G0/G1 冲刺双侧各 5 火箭，G2 冲刺无火箭，G3 机炮狗斗且无冲刺。
+- **再入与散热**：根机、G1、G2 使用同源高度 / AOE 预警；G1/G2 超过 15km 后隐藏免伤。G0–G2 冲刺后靠近当前操控机并自施标准 `SLOW 5s`。
+- **表现与清理**：`silhouette="hyper_a"` 走 X-43A 语汇的原创升力体轮廓；`category="boss"`、`skip_far_cleanup`、`no_kill_reward`；全部节点与最终胜利均不给 XP。
+- **Debug / bench**：Black Star 卡提供 7 个直达场景；`hyper_a`、`boss_hyper_a`、`boss_hyper_a_lifecycle`、`boss_hyper_a_stress` 分别覆盖契约、双根时间线、真实分裂胜利和 16 G3+Sentinel 压力。
+
 ## 全局常量集中位置
 
 **所有 Token / 上限 / 解锁常量** 都在 `survivor_data.gd` 里集中定义：
@@ -170,9 +182,9 @@ BVR 远距协同齐射 BOSS，事件触发：
 3. **`survivor_spawner.gd:42` 起声明 `_<name>_params_base: AircraftParams` 成员**
 4. **`survivor_spawner.gd:119` 起 `preload(...)` 加载资源**
 5. **`survivor_data.gd:1554` 起加解锁/概率常量**（`<NAME>_UNLOCK_LEVEL` / `_CHANCE_PER_LEVEL` / `_CHANCE_MAX`）
-6. **`survivor_data.gd:3415` `TOKEN_COST` 和 `survivor_data.gd:3520` `TOKEN_INSTANCE_CAP` 表补新枚举值**
+6. **`survivor_data.gd:3463` `TOKEN_COST` 和 `survivor_data.gd:3570` `TOKEN_INSTANCE_CAP` 表补新枚举值**
 7. **`survivor_spawner.gd:439` `_pick_enemy_type` 按威胁等级插入概率判定分支**
-8. **`survivor_spawner.gd:2315` `_create_enemy` 的各 match 全部补新 case**：
+8. **`survivor_spawner.gd:2320` `_create_enemy` 的各 match 全部补新 case**：
    - `match etype` 选基础参数（`:1577`）
    - `enemy_scale_for_level` 适用判定（`:1646` 起）
    - 热诱弹失误概率 match（`:1689`）—— 越低级失误率越高

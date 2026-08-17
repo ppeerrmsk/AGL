@@ -5,6 +5,7 @@ extends Node
 ## 职责：序列运行 + 通道分发 + 遮罩层持有 + 热重载。
 ## 阶段 1 通道：time / camera / overlay / panel
 ## 阶段 2 追加：stage / actor / radio
+## 阶段 4 追加：banner（BOSS 身份横幅，纯表现）
 ##
 ## ⚠ 性能：IDLE 时 set_process(false)，零开销。不做任何全场扫描。
 ## ⚠ 时序：process_mode = ALWAYS，保证 hard_pause 期间仍收到 _process；
@@ -13,6 +14,7 @@ extends Node
 signal sequence_finished(seq_name: String)
 
 const SEQ_PATH := "res://resources/presentation/sequences.json"
+const BossArrivalBannerScript := preload("res://scripts/ui/boss_arrival_banner.gd")
 ## 压暗层的【默认】高度：压世界/HUD(10)/战术图(15)，留战区提示(18)/无线电(19)/面板(20) 在亮处。
 ## ⚠ 但面板自身若低于此值（战术图 = 15），固定 16 会把面板一起压黑 ——
 ##   故实际高度取 min(DIM_LAYER, panel.layer - 1)，见 _place_dim_below()
@@ -32,6 +34,7 @@ var _dim_layer: CanvasLayer
 var _dim_rect: ColorRect
 var _fx_layer: CanvasLayer
 var _fx_rect: ColorRect
+var _boss_banner = null
 
 # ── 绑定 ──
 var _camera: CameraController = null
@@ -66,6 +69,8 @@ func _ready() -> void:
 	stage = StageIsolator.new()
 	cast = CinematicCast.new()
 	_build_overlays()
+	_boss_banner = BossArrivalBannerScript.new()
+	add_child(_boss_banner)
 	reload_sequences()
 	set_process(false)
 
@@ -189,6 +194,8 @@ func _end_cinematic() -> void:
 		_radio.suppress_ambient(false)
 	if _camera:
 		_camera.cine_reset()
+	if _boss_banner and _boss_banner.has_method("hide_immediately"):
+		_boss_banner.hide_immediately()
 	time.hard_pause(false)
 	_cine_ctx.clear()
 
@@ -330,6 +337,7 @@ func _apply_tick(tk: SequencePlayer.Tick) -> void:
 		"camera": _ch_camera(tk)
 		"overlay": _ch_overlay(tk)
 		"panel": _ch_panel(tk)
+		"banner": _ch_banner(tk)
 		"stage": _ch_stage(tk)
 		"audio": _ch_audio(tk)
 		"actor": _ch_actor(tk)
@@ -409,6 +417,36 @@ func _ch_overlay(tk: SequencePlayer.Tick) -> void:
 				_fx_rect.visible = false
 		_:
 			push_warning("Presentation: overlay 通道未知 op '%s'" % op)
+
+## BOSS 前导身份横幅：数据来自 play_cinematic ctx，通道本身不认识 boss id。
+func _ch_banner(tk: SequencePlayer.Tick) -> void:
+	if _boss_banner == null:
+		return
+	var op := String(tk.step.get("op", ""))
+	match op:
+		"reveal":
+			var metadata: Dictionary = _cine_ctx.get("boss_banner", {})
+			var name_key := String(metadata.get("name_key", ""))
+			var role_key := String(metadata.get("role_key", ""))
+			if name_key == "" or role_key == "":
+				if tk.first:
+					push_warning("Presentation: BOSS 横幅缺 name_key / role_key，跳过横幅")
+				_boss_banner.hide_immediately()
+				return
+			if tk.first:
+				_boss_banner.show_identity(
+					name_key,
+					role_key,
+					String(metadata.get("callsign", "BOSS")),
+					String(metadata.get("motto_key", "BOSS_BANNER_MOTTO")),
+					String(metadata.get("palette", "terminal_green")),
+				)
+			_boss_banner.set_reveal_progress(tk.t)
+		"dismiss":
+			_boss_banner.set_dismiss_progress(tk.t)
+		_:
+			if tk.first:
+				push_warning("Presentation: banner 通道未知 op '%s'" % op)
 
 ## 面板元素错开出入场。
 ## ⚠ 只动 scale 与 modulate ——【不动 position】。卡片是 HBoxContainer 的子节点，
@@ -558,6 +596,8 @@ func clear_all() -> void:
 	if _fx_rect:
 		_fx_rect.color = Color(1.0, 1.0, 1.0, 0.0)
 		_fx_rect.visible = false
+	if _boss_banner and _boss_banner.has_method("hide_immediately"):
+		_boss_banner.hide_immediately()
 	for c in _panel_elements:
 		if is_instance_valid(c):
 			c.modulate.a = 1.0

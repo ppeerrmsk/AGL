@@ -451,6 +451,18 @@
         }
       ]
     },
+    "BLACK_STAR": {
+      "spawn": [
+        {
+          "slot": 0,
+          "key": "RADIO_BOSS_BLACK_STAR_SPAWN_1"
+        },
+        {
+          "slot": 0,
+          "key": "RADIO_BOSS_BLACK_STAR_SPAWN_2"
+        }
+      ]
+    },
     "_default": {
       "spawn": [
         {

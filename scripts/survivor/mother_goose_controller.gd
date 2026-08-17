@@ -320,6 +320,14 @@ func _update_vls_salvo(delta: float) -> void:
 func _enqueue_vls_salvo() -> void:
 	if boss_encounter == null or boss_unit == null:
 		return
+	if player_ref == null or not is_instance_valid(player_ref) or player_ref.is_destroyed:
+		return
+	var target_distance_px: float = boss_unit.global_position.distance_to(player_ref.global_position)
+	if not vls_can_launch_at_distance(target_distance_px, _vls_missile_params):
+		EventLogger.log_event("BOSS", "MOTHER GOOSE",
+			"VLS salvo held: player inside %.0fm close zone" \
+			% _vls_missile_params.distance_airburst_min_launch_range_m)
+		return
 	var vls_mounts: Array[WeaponMount] = boss_encounter.alive_vls_mounts()
 	if vls_mounts.is_empty():
 		return
@@ -330,6 +338,14 @@ func _enqueue_vls_salvo() -> void:
 		_salvo_queue.append([mw, SALVO_PER_VLS, 0.0])
 	EventLogger.log_event("BOSS", "MOTHER GOOSE",
 		"VLS salvo: %d mounts × %d missiles" % [vls_mounts.size(), SALVO_PER_VLS])
+
+
+## Mother Goose 的 VLS 是远距定距空爆武器；近身时整轮停火，给绕后拆挂点留下明确安全区。
+static func vls_can_launch_at_distance(distance_px: float, params: MissileParams) -> bool:
+	if params == null or params.distance_airburst_min_launch_range_m <= 0.0:
+		return true
+	return distance_px >= params.distance_airburst_min_launch_range_m \
+		* GameConstants.PIXELS_PER_METER
 
 ## 单弹发射 —— 用 boss_unit 当 source（含 team / position 偏到 mount 世界坐标后再修正）
 ## MissileManager.spawn_missile 对 is_vls_salvo 自带 ±25° 散布，无需手动 jitter

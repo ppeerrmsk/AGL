@@ -276,6 +276,21 @@ const UPGRADES: Array[Dictionary] = [
 		"evolved": true,  ## 720 批：进战区奖励池
 	},
 	{
+		"id": "fire_control_saturation",
+		"name": "UPGRADE_FIRE_CONTROL_SATURATION_NAME",
+		"desc": "UPGRADE_FIRE_CONTROL_SATURATION_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "missile",
+		"axis": "knight",
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["missile", "lock", "overload"],
+		"requires": ["missile"],
+		"scope": "ace",
+		"build_role": "source",
+	},
+	{
 		"id": "gun_damage",
 		"name": "UPGRADE_GUN_DAMAGE_NAME",
 		"desc": "UPGRADE_GUN_DAMAGE_DESC",
@@ -668,6 +683,20 @@ const UPGRADES: Array[Dictionary] = [
 		"evolved": true,
 	},
 	{
+		"id": "berserk_virus",
+		"name": "UPGRADE_BERSERK_VIRUS_NAME",
+		"desc": "UPGRADE_BERSERK_VIRUS_DESC",
+		"stat": "berserk_virus",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "survival",
+		"axis": "gladiator",
+		"rarity": Rarity.NEXT_GEN,
+		"keywords": ["squad", "bloodlust", "mobility", "weapon"],
+		"milestone_plus": "gladiator",
+		"evolved": true,
+	},
+	{
 		"id": "evasion_herbst",
 		"name": "UPGRADE_EVASION_HERBST_NAME",
 		"desc": "UPGRADE_EVASION_HERBST_DESC",
@@ -1026,6 +1055,21 @@ const UPGRADES: Array[Dictionary] = [
 		"milestone_plus": "knight",  ## 720 批：骑士+1
 	},
 	{
+		"id": "altitude_energy_cycle",
+		"name": "UPGRADE_ALTITUDE_ENERGY_CYCLE_NAME",
+		"desc": "UPGRADE_ALTITUDE_ENERGY_CYCLE_DESC",
+		"stat": "altitude_energy_cycle",
+		"value": 25.0,                ## DIVE 时每秒 +25 发机炮弹
+		"gun_overstock_mult": 2.0,   ## 可超储到基础弹仓 ×2
+		"ab_regen_per_sec": 0.2,     ## CLIMB 时共享加力 +0.2/s
+		"max_stacks": 1,
+		"category": "mobility",
+		"axis": "knight",
+		"rarity": Rarity.EXPERIMENTAL,
+		"keywords": ["altitude", "gun", "afterburner"],
+		"requires": ["gun"],
+	},
+	{
 		"id": "head_on_gun_dodge",
 		"name": "UPGRADE_HEAD_ON_GUN_DODGE_NAME",
 		"desc": "UPGRADE_HEAD_ON_GUN_DODGE_DESC",
@@ -1157,6 +1201,7 @@ const UPGRADES: Array[Dictionary] = [
 		"requires_skill": [
 			"cloud_overload", "skill_evade_missile_overload", "skill_flare_overload",
 			"jam_self_overload", "assassin_revenge", "sig_mig41", "storm_i",
+			"fire_control_saturation",
 		],
 	},
 	{
@@ -1175,6 +1220,7 @@ const UPGRADES: Array[Dictionary] = [
 		"requires_skill": [
 			"cloud_overload", "skill_evade_missile_overload", "skill_flare_overload",
 			"jam_self_overload", "assassin_revenge", "sig_mig41", "storm_i",
+			"fire_control_saturation",
 		],
 	},
 	{
@@ -1193,6 +1239,7 @@ const UPGRADES: Array[Dictionary] = [
 		"requires_skill": [
 			"cloud_overload", "skill_evade_missile_overload", "skill_flare_overload",
 			"jam_self_overload", "assassin_revenge", "sig_mig41", "storm_i",
+			"fire_control_saturation",
 		],
 		"milestone_plus": "gladiator",  ## 720 批：噬血共振 斗士+1
 	},
@@ -1278,6 +1325,7 @@ const UPGRADES: Array[Dictionary] = [
 		"requires_skill": [
 			"cloud_overload", "skill_evade_missile_overload", "skill_flare_overload",
 			"jam_self_overload", "assassin_revenge", "sig_mig41", "storm_i",
+			"fire_control_saturation",
 		],
 	},
 	{

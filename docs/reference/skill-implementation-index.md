@@ -14,7 +14,7 @@
 
 | 你想知道的 | 去哪 |
 |---|---|
-| 某技能的数值 / 层数 / 稀有度 / 归属 / 轴 / +1 进度 | [skill-table.md](skill-table.md)（自动生成，160 条，`python tools/dump_skill_table.py` 重刷） |
+| 某技能的数值 / 层数 / 稀有度 / 归属 / 轴 / +1 进度 | [skill-table.md](skill-table.md)（自动生成，165 条，`python tools/dump_skill_table.py` 重刷） |
 | 某技能的**效果代码在哪** | 本文 **§4**（先在 skill-table 查到它的 stat / id，再来查消费点） |
 | UPGRADES 条目某字段什么意思 | 本文 **§1** |
 | 技能从抽卡到生效的整条链路 | 本文 **§2** |
@@ -149,12 +149,12 @@ is_upgrade_available_for → pick_card_for_axis →  upgrade_stacks[id]+=1
 
 ---
 
-## 4. 全 stat 消费点速查（158 条全覆盖）
+## 4. 全 stat 消费点速查（163 条全覆盖）
 
 > 用法：skill-table 查到技能的 id → 在 4.1 按 stat（专用 stat 名≈id）或 4.2 按 id 找行。
 > 消费点 = "效果真正发生"的文件+函数/字段。`survivor_player.gd apply_upgrade` 是所有条目的公共 apply 处，不重复写。
 
-### 4.1 专用 stat（88 条；M=模式）
+### 4.1 专用 stat（92 条；M=模式）
 
 **生存/伤害管线**（消费集中在 `aircraft.gd`）
 
@@ -181,6 +181,7 @@ is_upgrade_available_for → pick_card_for_axis →  upgrade_stacks[id]+=1
 | vapor_dodge | M2 | `altitude_authority_mult`（physics cap1.3）+ `cloud_lock_stealth`（锁定循环） |
 | alt_change_stealth | M2 | `update_altitude` 维护 `_alt_velocity` → 锁定循环按爬降速率减敌方锁率 |
 | hunter | M2 | ASSAULT/双击突击开启，目标生命周期关闭；physics effective accessor 注入 +2G、加减速 ×1.2、G 损失 ×0.7，`aircraft._apply_damage` 承伤 ×0.7 |
+| berserk_virus | M2 | 全队字段置位 + 非亲控直属僚机动态门；`aircraft` 锁 FREE 与 weapon/flare CD rate，`aircraft_physics` 注入 G/滚转/加减速，`skill_hooks.dispatch_on_kill` 施加标准 BLOODLUST；主动切控与 C 模式切换分别由 survivor_mode/HUD 拦截 |
 
 **雷达/锁定管线**（消费集中在 `survivor_mode._update_radar_locks`，722 集中注入段）
 
@@ -194,6 +195,7 @@ is_upgrade_available_for → pick_card_for_axis →  upgrade_stacks[id]+=1
 | data_link / f14_squad_lock_slow | M4 | 锁定循环尾部两个队级账本段（照射共享拉平 / 共锁 SLOW） |
 | sig_multiband | M1 | params.radar_half_angle+40°（cap120） |
 | fear_on_lock / head_on_jam | M5 | 阈值字段 → 锁定循环（fear）/ `aircraft` 对头累计 tick（jam）；ACE_FIELD_STATS |
+| fire_control_saturation | M3+M5 | 数据链合并后的低频锁定 tick → `SkillHooks.try_fire_control_saturation`；单局 CD/五锁沿由 survivor_mode 持有，OVERLOAD 期间 `aircraft.effective_max_locks` +2 |
 
 **状态/buff 系**（`status_effects.gd` + `skill_hooks.gd` + `aircraft.apply_status` 覆写）
 
@@ -233,6 +235,7 @@ is_upgrade_available_for → pick_card_for_axis →  upgrade_stacks[id]+=1
 | gun_multishot | M2 | `gun_extra_barrels` → `_fire_gun_round` 翼挂双点 |
 | gun_ciws | M2 | weapons CIWS 自动拦截段 |
 | ab_gun_regen | M2 | 加力时机炮回弹（aircraft + weapons） |
+| altitude_energy_cycle | M2 | `Aircraft` 字段保存定稿参数；每架玩家小队机由 `AircraftWeapons.update_altitude_cycle_ammo` 在 `DIVE` 时以 25 发/s 回复至 `2×max_ammo`，编队提前返回路径同样独立结算；`survivor_mode` 只读取当前操控机 `CLIMB`，向共享 `AfterburnerCharge.update` 注入 +0.2/s，不按小队人数叠加 |
 | missile_count / missile_boost / sig_long_spear | M1 | 直改 params.missile |
 | multi_lock / missile_swarm | M1 | 全队加算 `max_simultaneous_locks`（每层 +1 / 一次 +3）；蜂群另有弹舱 +4、追踪 G ×0.85；`_fire_multi_lock_salvo` 按有效锁数截断且正常冷却 |
 | missile_bounce（连锁弹头） | M2 | `SurvivorPlayer.apply_upgrade` 开启发射快照；`MissileManager` 命中后不销毁，`Missile` 逐弹记录已命中目标并沿原航向直飞 |
@@ -242,7 +245,7 @@ is_upgrade_available_for → pick_card_for_axis →  upgrade_stacks[id]+=1
 
 **特殊武器/装备（M8 全组）**：railgun_charge/range/double → `equipment/railgun_equipment.gd`；laser_cooldown/range/heat/extra_beams → `equipment/laser_equipment.gd`；torpedo_extra/tracking_boost → torpedo params；qmaam_boost → secondary_missile params；wingman_extra/armed → loyal_wingman params（消费 `aircraft_weapons.update_loyal_wingman`）；sig_wyvern → M7 dispatch + railgun 参数。
 
-### 4.2 skill_flag 70 条（apply 无操作，按消费点分组）
+### 4.2 skill_flag 72 条（apply 无操作，按消费点分组）
 
 **SkillHooks 击杀/受击/状态钩子**（`survivor/skill_hooks.gd`，入口 `dispatch_on_kill` / `dispatch_on_hit` / `on_player_jam_landed` / `on_evade_missile` / `on_flare_release`）：
 skill_kill_bloodlust · skill_damaged_bloodlust · skill_head_on_perma_hp · skill_head_on_aoe_fear ·
@@ -254,6 +257,7 @@ bloodlust_armor_mobility（physics `_g_buff_mult`+accel / `_apply_armor` DR）·
 jam_self_overload · invasion_algorithm（JAM→MQ-109～112 坠毁）· flee（新 FEAR→普通载人机撤退）·
 stasis（导弹直伤→2km SLOW）· mental_confusion（新 FEAR→浪费 flare/导弹）·
 ratatat（BLOODLUST 中机炮有效射程/锥/间隔）· storm_i / storm_ii（AfterburnerCharge 实耗/免费充放）·
+fire_control_saturation（当前王牌五锁上升沿→OVERLOAD；20s 单局 CD；状态期间有效锁数 +2）·
 hush（JAM 敌机禁 flare + 导弹失导；队级静态位）·
 adapt_energy（AB 回能/回血）· qmaam_bloodlust（`missile_manager` kind 归因）
 

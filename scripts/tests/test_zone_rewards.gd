@@ -45,9 +45,10 @@ func _test_nextgen_replacement() -> void:
 	_check("连锁弹头 = NEXT_GEN + evolved",
 		int(chain.get("rarity", -1)) == SurvivorData.Rarity.NEXT_GEN
 		and bool(chain.get("evolved", false)), str(chain))
-	_check("NEXT_GEN 池恰有 6 项",
-		nextgen_ids.size() == 6 and nextgen_ids.has("missile_bounce")
-		and nextgen_ids.has("gunship_mode") and nextgen_ids.has("heavy_gun")
+	_check("NEXT_GEN 池恰有 7 项",
+		nextgen_ids.size() == 7 and nextgen_ids.has("missile_bounce")
+		and nextgen_ids.has("gunship_mode") and nextgen_ids.has("heavy_gun") \
+		and nextgen_ids.has("berserk_virus")
 		and not nextgen_ids.has("data_link"), str(nextgen_ids))
 
 
