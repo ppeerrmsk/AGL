@@ -1,6 +1,6 @@
 # Repository Layout
 
-> 最后校订：2026-08-04（对照实际目录与 `project.godot` 重建）。
+> 最后校订：2026-08-19（对照 Git 跟踪目录与 `project.godot` 重建）。
 >
 > 本文只回答"**东西大致在哪个目录**"。单个文件的职责 + 关键入口看
 > [script-index.md](script-index.md)；按功能主题找代码看 [code-index.md](code-index.md)。
@@ -10,6 +10,7 @@
 AGL/
 ├── project.godot              # 项目配置 + AutoLoad 注册（入口场景 = scenes/main_menu.tscn）
 ├── CLAUDE.md / AGENTS.md      # AI 协作导航 + 硬约定
+├── .claude/ / .codex/         # 本项目 Agent 配置与 hooks
 ├── export_presets.cfg
 │
 ├── scenes/
@@ -21,9 +22,12 @@ AGL/
 │   ├── map_editor.tscn            # 地图编辑器（UGC）
 │   ├── map_manual.tscn            # 手画地块编辑参考场景
 │   ├── building_preloader.tscn
+│   ├── archive.tscn / meta_shop.tscn
 │   ├── aircraft.tscn              # 飞机模板（通用）
 │   ├── missile.tscn               # 导弹模板
-│   ├── sam_unit.tscn / aa_gun_unit.tscn / radar_station.tscn
+│   ├── sam_unit.tscn / aa_gun_unit.tscn / airburst_aa_unit.tscn / radar_station.tscn
+│   ├── strategic_target.tscn
+│   ├── tests/                      # Visual QA 与开发面板场景
 │   └── main.tscn                  # ⚠ 沙盒主场景，**已废弃**（只作调试留存，不打包）
 │
 ├── scripts/
@@ -31,6 +35,7 @@ AGL/
 │   │   combat_unit.gd             # 战斗单位基类（team/hp/altitude/雷达/锁定）
 │   │   aircraft.gd                # Aircraft 实体：LOD 路由 + 损伤 + 状态所有者（细节全部委托 aircraft/）
 │   │   aircraft_renderer.gd       # 飞机绘制系统
+│   │   aircraft_silhouette_catalog.gd # 数据驱动飞机剪影目录
 │   │   aircraft_destruction.gd    # 坠毁动画（fighter / bomber / heli 三种风格）
 │   │   ai_controller.gd           # AI 状态机路由（战术/规避/目标选择/编队委托 ai/）
 │   │   pilot_personality.gd       # 飞行员心理（压力 / SA / 判断误差）
@@ -44,6 +49,7 @@ AGL/
 │   │   terrain_renderer.gd / camera_controller.gd
 │   │   lock_warning.gd
 │   │   game_constants.gd / theme_colors.gd
+│   │   i18n_catalog.gd / modifier_trace.gd
 │   │
 │   ├── ── Resource 定义 ──
 │   │   aircraft_params.gd / gun_params.gd / missile_params.gd / rocket_params.gd
@@ -146,10 +152,15 @@ AGL/
 │   │   contour_baker.gd / official_map_converter.gd / ugc_loader.gd
 │   │
 │   ├── audio/                 # audio_manager.gd（AutoLoad）/ audio_settings_panel.gd
+│   ├── ui/                    # 主菜单、HUD、Boss 横幅与通用 UI 表现组件
+│   │   boss_arrival_banner.gd / hud_board_visibility.gd / hud_first_reveal_sequencer.gd
+│   │   hud_color_settings_panel.gd / hud_preferences.gd
+│   │   main_menu_crt_effect.gd / main_menu_crt_shell.gd / main_menu_scope_display.gd
+│   │   terminal_grid_overlay.gd / terminal_text.gd / ui_dev_outline_overlay.gd
 │   ├── util/                  # unit_grid.gd（空间网格）/ perf_buckets.gd
-│   ├── tests/                 # 无头断言测试（~44 个 test_*.gd）
+│   ├── tests/                 # 无头断言测试；场景级 Visual QA 放 scenes/tests/
 │   ├── bench/                 # bench_runner.gd —— `--bench=<name>` 的注册与调度
-│   ├── tools/                 # 地图烘焙 Python（bake_tokyo_bay / bake_buildings / download_basemap）
+│   ├── tools/                 # 地图/剪影生成、打包、审计与 Visual QA Python 工具
 │   │
 │   └── ── 沙盒（已废弃，仅调试留存）──
 │       main.gd / hud.gd / debug_panel.gd
@@ -157,24 +168,27 @@ AGL/
 ├── resources/                 # .tres 参数资源
 │   ├── player/                    # 玩家机档案；精确数量看 aircraft_db / 进化树 spec
 │   ├── evolution/                 # 进化树相关
-│   ├── weapons/ / equipment/      # 武器参数与运行时组件资源（非局外槽位配件）
+│   ├── weapons/                   # 武器参数资源
 │   ├── naval/                     # 舰船
 │   ├── chatter/                   # radio_chatter.json（无线电台词，数据全外置）
 │   ├── presentation/              # sequences.json（演出时间线，F8 热重载）
-│   ├── maps/                      # 地图数据（JSON / PNG 底图）
-│   ├── shaders/                   # 地图 shader
+│   ├── maps/                      # 地图数据、底图、瓦片与烘焙产物
+│   ├── aircraft_silhouettes/      # 详情面板飞机正交剪影 + 清单
+│   ├── fonts/                     # UI 字体与许可证
+│   ├── shaders/                   # 地图、HUD、主菜单与升级媒体 shader
 │   └── *.tres                     # 敌机 / 通用武器 / 战斗风格
 │
 ├── i18n/                      # 五份领域 CSV + 各自三语 .translation；radio.csv 独立无线电
-├── audio/                     # music/ · sfx/ · ui/ · radio/
+├── audio/                     # music/ · sfx/
 ├── tools/                     # 校验与生成脚本（Python / PowerShell）
 │   verify_doc_anchors.py          # 索引锚点校验（commit 前跑）
 │   verify_docs.ps1                # 当前文档断链 + spec 登记/元数据/总表一致性
 │   verify_player_ref_holders.py   # SEAM-019 玩家机引用持有者校验（commit 前跑）
 │   dump_skill_table.py            # 重刷 docs/reference/skill-table.md
 │   seam-report.ps1
-├── bench/                     # bench 输出
+├── bench/                     # crash-safe Godot 启动器、watchdog、后台成长任务与结果
 ├── logs/                      # 编辑器模式的战斗日志（.gitignore 排除）
+├── tmp/                       # 临时探针/生成产物（.gdignore 隔离；仅跟踪隔离标记）
 ├── addons/
 │   └── runtime_tuner/             # RuntimeTuner AutoLoad 插件
 └── docs/                      # 先看 docs/README.md

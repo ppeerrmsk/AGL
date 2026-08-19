@@ -1,6 +1,6 @@
 # AGL 文档入口
 
-> 最后校订：2026-08-04。这里是 `docs/` 的导航与维护约定；游戏设计本身以
+> 最后校订：2026-08-19。这里是 `docs/` 的导航与维护约定；游戏设计本身以
 > [specs/_INDEX.md](specs/_INDEX.md) 为权威源。
 
 ## 先判断你要写哪一种文档
@@ -33,6 +33,21 @@
 | 查已知耦合点 | [architecture/known-seams.md](architecture/known-seams.md) |
 | 查现有功能快照 | [reference/features.md](reference/features.md) |
 
+## 项目结构速览
+
+| 路径 | 当前职责 |
+|---|---|
+| `scenes/` | 可运行场景；`scenes/tests/` 保存 Visual QA 与开发面板场景 |
+| `scripts/` | 游戏逻辑与全局服务；按 `aircraft/`、`ai/`、`survivor/`、`rts/`、`events/`、`ui/` 等子系统分层 |
+| `scripts/tests/` / `scripts/tools/` | 无头断言回归 / 地图、图像与数据生成审计工具 |
+| `resources/` | `.tres` 参数、玩家机、武器、舰船、地图、字体、飞机剪影和 shader 等运行时资源 |
+| `i18n/` / `audio/` | 五个领域的三语本地化资源 / 音乐与音效 |
+| `bench/` / `tools/` / `tmp/` | Godot 隔离启动与结果 / 仓库级校验生成脚本 / 被 Godot 隔离的临时产物 |
+| `docs/` | 设计 SSOT、代码指针、架构、计划、审计与历史记录 |
+
+完整目录树与 AutoLoad 落点见 [reference/repo-layout.md](reference/repo-layout.md)；这里不复制易腐烂的
+单文件清单。
+
 ## 新建文件的落点
 
 ### 设计文档
@@ -61,10 +76,13 @@
 | 飞机实体子模块 | `scripts/aircraft/` |
 | 事件 | `scripts/events/` |
 | 表演与镜头 | `scripts/presentation/` |
+| 主界面、HUD 与通用 UI 表现 | `scripts/ui/`；生存模式专属 HUD 逻辑仍放 `scripts/survivor/` |
 | 舰船 | `scripts/naval/` |
 | 战区 / UGC / 音频 / 局外层 | `scripts/zones/` / `scripts/ugc/` / `scripts/audio/` / `scripts/meta/` |
+| Visual QA 场景 | `scenes/tests/` |
 | 通用数据类 | `scripts/` 根或已有同类子目录 |
 | `.tres` 参数 | `resources/` 的对应分类；玩家机放 `resources/player/` |
+| 地图、字体、剪影与 shader | `resources/maps/` / `resources/fonts/` / `resources/aircraft_silhouettes/` / `resources/shaders/` |
 | 临时探针和生成产物 | `tmp/`，禁止放进 Godot 可扫描目录 |
 
 更细的接入点和清单以 [reference/playbook.md](reference/playbook.md) 为准。不要为了一个新文件新建
