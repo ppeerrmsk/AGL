@@ -1,6 +1,7 @@
 extends RefCounted
 
 const SurvivorModeScript = preload("res://scripts/survivor/survivor_mode.gd")
+const SupportRangeOverlayScript = preload("res://scripts/survivor/support_range_overlay.gd")
 
 ## 无头验收：战区奖励类别保底 + 去重 + 航母整局保证（spec zone-reward-arsenal）：
 ##   A. 开局 A/B 随机各出一个 weapon / nextgen，确保每局至少一武器一技能
@@ -18,6 +19,7 @@ func run() -> void:
 	print("\n════════ 战区奖励类别保底 + 去重 + 航母保证 ════════")
 	_test_nextgen_replacement()
 	_test_reward_tuning()
+	_test_support_range_visual_contract()
 	_test_run_category_guarantees()
 	_test_achievement_reward_gate()
 	_test_no_duplicate_collectibles()
@@ -65,8 +67,30 @@ func _test_reward_tuning() -> void:
 	var esm: Resource = load("res://resources/esm_pod.tres")
 	_check("ESM = Sentinel 3km / 锁定×1.5 / reload×0.7", esm != null
 		and is_equal_approx(float(esm.get("aura_radius_m")), 3000.0)
+		and is_equal_approx(float(esm.get("aura_radius_m")) * CombatUnit.PIXELS_PER_METER,
+			CommanderAura.AURA_RADIUS)
 		and is_equal_approx(float(esm.get("lock_rate_mult")), 1.5)
 		and is_equal_approx(float(esm.get("reload_time_mult")), 0.7), str(esm))
+
+
+func _test_support_range_visual_contract() -> void:
+	print("── 0C. AWACS / ESM 主战场范围色层 ──")
+	var overlay = SupportRangeOverlayScript.new()
+	overlay.setup(AwacsSupportEvent.BUFF_RADIUS_PX, CombatUnit.TEAM_ALLY)
+	var ally_fill: Color = AircraftRenderer.support_range_fill_color(CombatUnit.TEAM_ALLY)
+	var player_fill: Color = AircraftRenderer.support_range_fill_color(CombatUnit.TEAM_PLAYER)
+	_check("AWACS 覆盖层使用权威 8000m 半径", is_equal_approx(overlay.radius_px,
+		AwacsSupportEvent.BUFF_RADIUS_PX), str(overlay.radius_px))
+	_check("范围填充区分 ALLY 绿 / 玩家蓝且保持低 alpha",
+		ally_fill != player_fill
+		and is_equal_approx(ally_fill.a, AircraftRenderer.SUPPORT_RANGE_FILL_ALPHA)
+		and is_equal_approx(player_fill.a, AircraftRenderer.SUPPORT_RANGE_FILL_ALPHA)
+		and is_equal_approx(SupportRangeOverlayScript.RANGE_FILL_ALPHA,
+			AircraftRenderer.SUPPORT_RANGE_FILL_ALPHA)
+		and is_equal_approx(SupportRangeOverlayScript.RANGE_RING_ALPHA,
+			AircraftRenderer.SUPPORT_RANGE_RING_ALPHA),
+		"ally=%s player=%s" % [ally_fill, player_fill])
+	overlay.free()
 
 
 ## 连续 roll n 次（合成 id 绕过 _rewards.has 守卫，不入 ZONES 活跃集 → 只验整局去重链）

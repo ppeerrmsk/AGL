@@ -117,6 +117,8 @@ var tgt_max_g: float = 8.0
 var tgt_roll_rate: float = 4.0
 var tgt_deceleration: float = 80.0
 var radar_half_angle_deg: float = 30.0   ## 雷达扇形半角（度），决定 crank 角度上限
+var missile_max_speed_mps: float = 0.0   ## 当前主导弹最大速度；发射前追踪点与武器层共用前置解
+var missile_support_active: bool = false ## 已出弹后的短时 crank 支援；锁定本身不触发预发射 crank
 
 ## 属性感知狗斗画像（spec engagement-discipline §2.3）。
 const DOGFIGHT_BALANCED := 0
@@ -192,6 +194,7 @@ static func from_aircraft(ac) -> Situation:
 	s.ammo = ac.ammo
 	s.missiles = ac.missiles_remaining
 	s.fuel = ac.fuel
+	s.missile_support_active = ac.is_cranking()
 
 	if ac.params:
 		# ⚠ 性能/机动参考一律走 AircraftPhysics.effective_*() accessor
@@ -212,6 +215,7 @@ static func from_aircraft(ac) -> Situation:
 		if ac.params.missile:
 			s.missile_max_range_m = ac.params.missile.max_range_rear
 			s.missile_min_range_m = ac.params.missile.min_range
+			s.missile_max_speed_mps = ac.params.missile.max_speed
 		# 电磁炮竞选输入（spec weapon-employment-doctrine：距离带实时读 live 参数，
 		# 升级/强化即时生效——禁止烘焙常量）
 		var _rg = ac.params.get_equipment_of_kind("railgun")

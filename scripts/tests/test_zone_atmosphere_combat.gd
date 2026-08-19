@@ -8,8 +8,10 @@ var _fail := 0
 
 func run() -> void:
 	print("\n════════ 正式战区氛围战斗契约 ════════")
+	_test_frequency_gate()
 	_test_launch_multiplier()
 	_test_nonlethal_target_damage()
+	_test_observed_artillery_damage()
 	_test_zero_damage_bullet_fast_path()
 	_test_preferred_ground_target()
 	_test_air_defense_only_targets_aircraft()
@@ -22,6 +24,23 @@ func run() -> void:
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 
 
+func _test_frequency_gate() -> void:
+	var atmosphere_source := FileAccess.get_file_as_string(
+		"res://scripts/survivor/zone_atmosphere_combat.gd")
+	var mission_source := FileAccess.get_file_as_string(
+		"res://scripts/survivor/zone_mission.gd")
+	var mode_source := FileAccess.get_file_as_string(
+		"res://scripts/survivor/survivor_mode.gd")
+	_check(atmosphere_source.contains("const ORDINARY_ZONE_CHANCE := 0.30") \
+			and atmosphere_source.contains("roll, 0.0, 1.0) < ORDINARY_ZONE_CHANCE"),
+		"普通地图气氛战区严格使用 30% 阈值")
+	_check(atmosphere_source.contains("&\"ocean_islands_preview\"") \
+			and mode_source.contains("ZoneAtmosphereCombat.is_decisive_map(_map_id)"),
+		"海洋群岛决战地图全覆盖，普通地图不强制")
+	_check(mission_source.contains("if _zone_atmosphere_enabled.has(zone_id):") \
+			and mission_source.contains("ZONE_ATMOSPHERE_SCRIPT.cached_enabled(") \
+			and mission_source.contains("if not _zone_atmosphere_enabled_for_zone(zone_id):"),
+		"同一战区只抽一次，刷新继续使用本局缓存结果")
 func _test_launch_multiplier() -> void:
 	var source := CombatUnit.new()
 	_check(absf(CombatUnit.ambient_damage_multiplier(source) - 1.0) < 0.001,
@@ -52,6 +71,58 @@ func _test_nonlethal_target_damage() -> void:
 	_check(ship.hull_hp == 1.0 and not ship.is_destroyed,
 		"舰船 TGT 气氛伤害只磨船体到 1，不触碰击毁链")
 	ship.free()
+
+
+func _test_observed_artillery_damage() -> void:
+	var controller: Node2D = ZONE_ATMOSPHERE_SCRIPT.new()
+	var source := GroundUnit.new()
+	var target := GroundUnit.new()
+	source.team = CombatUnit.TEAM_ALLY
+	target.team = CombatUnit.TEAM_HOSTILE
+	source.global_position = Vector2.ZERO
+	target.global_position = Vector2(100.0, 0.0)
+	target.hp = 60.0
+	controller.set("_engagements", {
+		&"TEST-ARTILLERY": {"damage_live": true},
+	})
+	controller.call("_update_artillery_source", &"TEST-ARTILLERY", source, target, 0.5, true)
+	var shells: Array = controller.get("_ballistic_shells")
+	var generated: Dictionary = shells[0] if not shells.is_empty() else {}
+	_check(not generated.is_empty() and is_equal_approx(float(generated.get("damage", 0.0)), 60.0) \
+			and is_equal_approx(float(generated.get("radius_px", 0.0)), 24.0) \
+			and Vector2(generated.get("end", Vector2.INF)).distance_to(target.global_position) <= 80.0,
+		"近距气氛炮弹使用 60 伤害、24px 直击窗与 80px 散布，不再稳定蹭血")
+	var direct_shell := generated.duplicate()
+	direct_shell["end"] = target.global_position
+	controller.call("_resolve_shell", direct_shell)
+	_check(target.is_destroyed and target.hp == 0.0,
+		"玩家近距观察时，气氛 SPG 被一发可信直击明确摧毁")
+	var miss_target := GroundUnit.new()
+	miss_target.team = CombatUnit.TEAM_HOSTILE
+	miss_target.global_position = Vector2(100.0, 0.0)
+	miss_target.hp = 60.0
+	var miss_shell := direct_shell.duplicate()
+	miss_shell["target_id"] = miss_target.get_instance_id()
+	miss_shell["end"] = miss_target.global_position + Vector2(25.0, 0.0)
+	controller.call("_resolve_shell", miss_shell)
+	_check(miss_target.hp == 60.0 and not miss_target.is_destroyed,
+		"直击窗外的近失弹只演出爆点，不累计假伤害")
+	var far_target := GroundUnit.new()
+	far_target.team = CombatUnit.TEAM_HOSTILE
+	far_target.global_position = Vector2(100.0, 0.0)
+	far_target.hp = 60.0
+	var far_shell := direct_shell.duplicate()
+	far_shell["target_id"] = far_target.get_instance_id()
+	far_shell["end"] = far_target.global_position
+	far_shell["can_damage"] = false
+	controller.call("_resolve_shell", far_shell)
+	_check(far_target.hp == 60.0 and not far_target.is_destroyed,
+		"玩家远离时即使视觉弹道直击，双方 SPG 仍不在画外互相磨血")
+	source.free()
+	target.free()
+	miss_target.free()
+	far_target.free()
+	controller.free()
 
 
 func _test_zero_damage_bullet_fast_path() -> void:

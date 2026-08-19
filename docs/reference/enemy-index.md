@@ -53,9 +53,9 @@
 | `MIRAGE2000(26)` | Mirage 2000 | **王牌专属**（GIMMICK 斗士 element） | `enemy_mirage2000.tres`（gladiator_combat） | 0（同上） | — | 事件 | elements 生成；KNIGHT 近战 + ace_gun | `_create_enemy` MIRAGE2000 case | spec 同上 |
 | `SU47(27)` | Su-47 | **王牌专属**（GOOFIGHTERS 眼镜蛇斗士） | `enemy_su47.tres`（gladiator_combat；**无中距弹**、QMAAM 副槽 + spawner 挂 CobraManeuver） | 0（同上） | — | 事件 | profile 生成 ×2；cobra 王牌分层门=flare 耗尽后解锁（CobraManeuver 内 AceTier 判定） | `_create_enemy` SU47 case（AI 分支挂 cobra） | spec [events/ace-goofighters](../specs/events/ace-goofighters.md) |
 | `CRE(28)` | Cre（宿敌 ORION） | **宿敌专属**（跨局成长单机） | `enemy_cre.tres`（default_combat；初始敌机级基线，档位表运行时覆写） | 0（独立轨道事件） | **1** | 事件（game_time ≥300s 每局一次） | OrionNemesisEvent 生成；机号即呼号 Cre-XX；`no_pilot`（无人原型机，静默+FEAR 免疫） | `_create_enemy` CRE case | spec [events/ace-orion](../specs/events/ace-orion.md) |
-| `YF23(29)` | YF-23 Black Widow II | **Wraith 通关强化专属支援** | `enemy_yf23.tres` + `f47_missile.tres`（AIM-260）+ `default_flare.tres`；无机炮 | 0（事件供给，不进随机池/无缩放） | **2** | Wraith 历史击败 ≥1 | `F47AceSquad.engage()` 生成左右各一架；`boss_support`、雷达静默、可选击毁、不进 BOSS 血条/胜利判定 | `_create_enemy` YF23 case | `bvr_only` 4–6km + 高空 + TS_BOSS 追当前玩家；spec [systems/boss-clear-progression](../specs/systems/boss-clear-progression.md) |
+| `YF23(29)` | YF-23 Black Widow II | **Wraith 通关强化专属支援** | `enemy_yf23.tres` + `f47_missile.tres`（AIM-260）+ `default_flare.tres`；无机炮 | 0（事件供给，不进随机池/无缩放） | **2** | Wraith 历史击败 ≥1 | `F47AceSquad.engage()` 在 Wraith 队形后方生成左右各一架；`boss_support`、正常可锁定、可选击毁、不进 BOSS 血条/胜利判定 | `_create_enemy` YF23 case | `bvr_only` 4–6km + 高空 + TS_BOSS 追当前玩家；spec [systems/boss-clear-progression](../specs/systems/boss-clear-progression.md) |
 | `F22(30)` | F-22 Raptor | Schemer 四锁远距 | `enemy_f22.tres` + `enemy_f22_flare.tres` | 10 | **3** | 13 | 1–3 架；阶段累计 6；冷却 150s | 注册表 `_create_enemy` | `f22_multilock.gd`：队级目标去重、每机≤4、0.15s 齐射、12s 脱离 |
-| `SNOWBLIND(31)` | SNOWBLIND | Schemer 纯支援 | `enemy_snowblind.tres` | 4 + 两护卫各自 Token | **1** | 8 | 本体 + 2 架当前响应等级可用战斗机；最低完整编成 10 Token；阶段累计 2；冷却 180s | `_spawn_snowblind_squad` | `snowblind_controller.gd`：4000m 雪幕、5Hz 显隐与双向交战边界；圆心只显示不可交互本体轮廓，真实本体无武器/flare且仍隐藏 |
+| `SNOWBLIND(31)` | SNOWBLIND | Schemer 纯支援 | `enemy_snowblind.tres` | 4 + 两护卫各自 Token | **1** | 8 | 本体 + 2 架当前响应等级可用战斗机；最低完整编成 10 Token；阶段累计 2；冷却 180s | `_spawn_snowblind_squad` | `snowblind_controller.gd`：4000m 雪幕、5Hz 显隐与双向交战边界；`snowblind_shroud_visual.gd` 固定在飞机图标下层并以 0.80s 渐变破幕/复隐，圆心只显示不可交互本体轮廓，真实本体无武器/flare且仍隐藏 |
 | `F15_REGULAR(32)` | F-15 Eagle | Gladiator | `enemy_regular_f15.tres` | 6 | ∞ | 7 | 2–3 架 | 注册表 `_create_enemy` | `_configure_registry_archetype` 持续近战 |
 | `F14(33)` | F-14 Tomcat | Lancer | `enemy_f14.tres` | 6 | **3** | 7 | 2 架 | 注册表 `_create_enemy` | `_configure_registry_archetype` 远程攻击通场 |
 | `A6E(34)` | A-6E Intruder | Lancer | `enemy_a6e.tres` | 3 | ∞ | 3 | 2–3 架 | 注册表 `_create_enemy` | 低空攻击通场 |
@@ -149,12 +149,12 @@ BVR 远距协同齐射 BOSS，事件触发：
 Black Star 不占 `EnemyType`，也不进入常规 Token 池；四代飞机均由 `HyperABoss` 直接实例化共享 `Aircraft`，权威行为与数值见 [bosses/hypersonic-splitter](../specs/bosses/hypersonic-splitter.md)。
 
 - **入口**：`BossRegistry.BLACK_STAR` → `BossEncounterEvent` / `SurvivorSpawner._spawn_boss` → `HyperABoss.spawn/engage/update`。
-- **资源**：`enemy_hyper_a_g0.tres` 至 `enemy_hyper_a_g3.tres` + `hyper_a_missile.tres`；HP `800/300/100/70`，视觉长度 `96/80/36/10m`，全代 0 flare、4 发弹匣。
+- **资源**：`enemy_hyper_a_g0.tres` 至 `enemy_hyper_a_g3.tres` + `hyper_a_missile.tres`；HP `400/200/100/70`，视觉长度 `96/80/36/10m`，全代 0 flare、4 发弹匣。
 - **拓扑**：两棵独立 `1→2→4→8` 树；路径名追加 `.1/.2`，共 30 个历史节点、16 个终末 G3。
-- **分代火力**：锁容量 `8/4/2/1`；G0 点射激光，G0/G1 冲刺双侧各 5 火箭，G2 冲刺无火箭，G3 机炮狗斗且无冲刺。
-- **再入与散热**：根机、G1、G2 使用同源高度 / AOE 预警；G1/G2 超过 15km 后隐藏免伤。G0–G2 冲刺后靠近当前操控机并自施标准 `SLOW 5s`。
+- **分代火力**：锁容量 `8/4/2/1`；四代饱和导弹齐射独立于主武器模式。G0 独有 `180°` 雷达半锥、八目标全向锁定与直接 LOS 离轴发射；G1 恢复普通 `45°` 前向锥和稳定 / 前置发射门。G0 点射激光，G0/G1 冲刺双侧各 5 火箭，G2 冲刺无火箭，G3 机炮狗斗且无冲刺。
+- **冲刺、再入与散热**：根机、G1、G2 使用同源高度 / AOE 预警；G0 分裂生成的两个 G1 创建当帧即进入 30km 隐藏下降，撞击后才显形。G1/G2 循环再入放缓至落地 / 分裂后 `40–50s`，爬升后独立高空等待 `7–10s` 才俯冲；高空序列期间其它分裂体暂停倒数，下一候选者至少再错峰 `12s`。G0–G2 冲刺终点向前释放 `900m / 110° / 45` 急刹扇形冲击波；终点扇区只在线完整延伸后显示，预警 / 判定 / 扩散表现共享 `dash_to + dash_dir`；随后靠近当前操控机并自施标准 `SLOW 6s`。
 - **表现与清理**：`silhouette="hyper_a"` 走 X-43A 语汇的原创升力体轮廓；`category="boss"`、`skip_far_cleanup`、`no_kill_reward`；全部节点与最终胜利均不给 XP。
-- **Debug / bench**：Black Star 卡提供 7 个直达场景；`hyper_a`、`boss_hyper_a`、`boss_hyper_a_lifecycle`、`boss_hyper_a_stress` 分别覆盖契约、双根时间线、真实分裂胜利和 16 G3+Sentinel 压力。
+- **Debug / bench**：Black Star 卡提供 9 个直达场景（含 `G0 OMNI SALVO`、`G1 FORWARD SALVO` 与 `G2 BRAKE WAVE`）；`hyper_a`、`boss_hyper_a`、`boss_hyper_a_dash`、`boss_hyper_a_brake_wave`、`boss_hyper_a_g0_weapons`、`boss_hyper_a_g1_entry`、`boss_hyper_a_g1_weapons`、`boss_hyper_a_lifecycle`、`boss_hyper_a_stress` 分别覆盖契约、双根时间线、背向物理对线、急刹扇区实伤 / Visual、G0 后向全向实弹、隐藏下降、G1 普通前向实弹、真实分裂胜利和 16 G3+Sentinel 压力。
 
 ## 全局常量集中位置
 
@@ -182,15 +182,15 @@ Black Star 不占 `EnemyType`，也不进入常规 Token 池；四代飞机均�
 3. **`survivor_spawner.gd:42` 起声明 `_<name>_params_base: AircraftParams` 成员**
 4. **`survivor_spawner.gd:119` 起 `preload(...)` 加载资源**
 5. **`survivor_data.gd:1554` 起加解锁/概率常量**（`<NAME>_UNLOCK_LEVEL` / `_CHANCE_PER_LEVEL` / `_CHANCE_MAX`）
-6. **`survivor_data.gd:3463` `TOKEN_COST` 和 `survivor_data.gd:3570` `TOKEN_INSTANCE_CAP` 表补新枚举值**
-7. **`survivor_spawner.gd:439` `_pick_enemy_type` 按威胁等级插入概率判定分支**
-8. **`survivor_spawner.gd:2320` `_create_enemy` 的各 match 全部补新 case**：
+6. **`survivor_data.gd:3467` `TOKEN_COST` 和 `survivor_data.gd:3574` `TOKEN_INSTANCE_CAP` 表补新枚举值**
+7. **`survivor_spawner.gd:446` `_pick_enemy_type` 按威胁等级插入概率判定分支**
+8. **`survivor_spawner.gd:2451` `_create_enemy` 的各 match 全部补新 case**：
    - `match etype` 选基础参数（`:1577`）
    - `enemy_scale_for_level` 适用判定（`:1646` 起）
    - 热诱弹失误概率 match（`:1689`）—— 越低级失误率越高
    - `type_tag` 映射（`:1759`）—— 第 10 步的无线电白名单要用这个 tag
    - AI 配置分支（`:1840` 起 — 仿照 F-86/MiG-23 写 `aggression`/`engage_cooldown` 等）
-9. **`survivor_spawner.gd:644` `_update_spawner` 的编队/单机判定里追加**（精英单机 vs 成建制编队）
+9. **`survivor_spawner.gd:651` `_update_spawner` 的编队/单机判定里追加**（精英单机 vs 成建制编队）
 10. **决定它配不配无线电**（spec radio-chatter §2.8）：
     - 有人驾驶且够格说话 → 在 `resources/chatter/radio_chatter.json` 的 `voiced_enemy_types.types`
       加上第 8 步的 `type_tag`

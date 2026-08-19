@@ -445,7 +445,15 @@ static func _update_altitude(ac: Aircraft, ctx: Dictionary, delta: float) -> voi
 	var altitude_diff := ldr.altitude - previous_altitude
 	ac.altitude = lerpf(ac.altitude, ldr.altitude, (2.0 + b * 2.0) * delta)
 	ac.vertical_speed = (ac.altitude - previous_altitude) / maxf(delta, 0.001)
-	if altitude_diff > 0.0 and ac.vertical_speed > Aircraft.ALTITUDE_ACTION_THRESHOLD_MPS:
+	# 玩家编队只镜像长机经 LOW/HIGH 命令或垂直越过发布的动作；追高度本身不算动作。
+	if ac.is_player_squad():
+		var leader_action: int = ldr.altitude_action
+		var mirrored_action := leader_action \
+			if leader_action == Aircraft.AltitudeAction.CLIMB \
+			or leader_action == Aircraft.AltitudeAction.DIVE \
+			else Aircraft.AltitudeAction.NONE
+		ac._set_altitude_action(mirrored_action)
+	elif altitude_diff > 0.0 and ac.vertical_speed > Aircraft.ALTITUDE_ACTION_THRESHOLD_MPS:
 		ac._set_altitude_action(Aircraft.AltitudeAction.CLIMB)
 	elif altitude_diff < 0.0 and ac.vertical_speed < -Aircraft.ALTITUDE_ACTION_THRESHOLD_MPS:
 		ac._set_altitude_action(Aircraft.AltitudeAction.DIVE)

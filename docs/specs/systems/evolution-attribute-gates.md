@@ -3,7 +3,7 @@ id: evolution-attribute-gates
 kind: system
 status: done
 schema_version: 1
-spec_version: 18
+spec_version: 21
 owner: 用户
 depends_on: [aircraft-evolution, aircraft-evolution-tree, player-aircraft-power-curve, squad-upgrade-ownership]
 reconstruction_complete: true
@@ -232,7 +232,15 @@ Tab 菜单（战术图/结算坞同屏）常驻一栏：**三轴量表**——�
 
 ### 3.4 Debug
 
-主菜单 B 的 boss debug 链路**全豁免**（等级+属性门槛都不查）；debug 主题 build roller 的 5 主题按三轴对齐 tag。
+主菜单 B 的 boss debug 不经过结算站，因此仍**豁免进化判定**；但参考态必须和正式成长规则同源：
+
+- 选机只列 `evolution_tree.json` 中 **T4（T5 终端机的前一档）**全部节点，不复用四架起手机白名单；
+- 每项参考态是**至少四架同型机的正式玩家编队**（1 长机 + 至少 3 僚机），必须复用 `wingman_count`、`SquadFactory` 与起手僚机管线；不得把单机样本包装成编队 UI；
+- 等级取该节点自身 `min_level`，技能次数与三轴收入同为 `axis_points_earnable(level)`（当前 T4 为 5~6 次），不得再用旧版 `level - 1`；
+- 三轴先满足该节点 gates，剩余点投入机种主轴，以便在对应等级兑现可观察的里程碑；
+- 特殊武器从正式三星战区奖励池加权、无放回抽取：5 次升级里程碑配 2 件，6 次配 3 件；尾雷/忠诚僚机继续互斥；武器先走正式奖励入口挂到当前 ACE，再筛技能，使硬件门控技能读取真实装备；
+- 技能只从正式普通随机池抽取，并继续尊重机体身份、`max_stacks`、前置与排他；签名第四槽和 evolved 卡不混入；
+- 战斗中 Tab 必须显示这份实际武器、技能、三轴与里程碑。Boss Debug 不加载正式战区地理，仅保留只读构筑面板。
 
 ## 5. 验收（2026-07-20 收口）
 
@@ -242,7 +250,7 @@ Tab 菜单（战术图/结算坞同屏）常驻一栏：**三轴量表**——�
 - [x] **重放断言**：换型前后里程碑加成逐项不变（attr_gates §E 重放 5 断言）。
 - [x] 等级纯门槛：自然成长全链摘除，升级不改任何 params（power-curve §5 同款验收）。
 - [x] Tab 面板量表/里程碑明细/状态块实时正确；树视图缺口徽记 LV/属性双类显示（§3.2/§3.3）。
-- [x] debug 链路不查门槛（boss debug 不经结算站 + 跳级点数补发）。
+- [x] debug 参考态：动态列出全部 7 架 T4；每项实际生成至少四机同型 Squad；节点等级收入 = 技能数 = 三轴点数，分配满足自身 gates；ACE 随机装备等级匹配的正式特殊武器组合；Tab 显示实际武器、技能与已达里程碑。
 - [x] playtest：用户 2026-07-20 手感确认（卡片节奏/量表/明细面板 OK）。
 
 ### 5.1 v9 增量验收（2026-07-28 等级通胀整治 + 树视觉）
@@ -328,13 +336,16 @@ Tab 菜单（战术图/结算坞同屏）常驻一栏：**三轴量表**——�
 - 视觉：`scripts/survivor/axis_bars_panel.gd`（三轴量表）· `scripts/survivor/evolution_tree_view.gd`（双门+缺口徽记）
   · `scripts/survivor/tactical_map.gd`（里程碑明细三列 + y2k 状态块）· `scripts/survivor/survivor_upgrade_ui.gd`（轴徽章）
 - 起手机覆写槽：`scripts/playable_aircraft.gd` `milestone_overrides`
-- 测试：`scripts/tests/test_attribute_gates.gd`（bench `attr_gates`，142 断言，并入回归门；
+- 测试：`scripts/tests/test_attribute_gates.gd`（bench `attr_gates`，146 断言，并入回归门；
   §E2 = `_test_milestone_squad_wide` 全队生效断言）
 
 ## 8. 变更记录
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-18 | 21 | Boss Debug 构筑补齐特殊武器：按 T4 节点等级从正式三星战区奖池加权无放回抽 2~3 件，机尾位互斥；先装到当前 ACE 并入局内武器库，再 roll 技能，使硬件门控候选读取真实装备；Tab 同屏显示实际武器与技能，F8 连同武器重抽。 |
+| 2026-08-18 | 20 | 用户纠正 Boss Debug 参考单位不能是单机：每个 T4 现在以 1 长机 + 至少 3 架同型僚机组成正式四机以上编队，复用 `wingman_count` 起手生成、SquadFactory、切控/HUD 与全队 build/里程碑下发；真实 Visual 断言 `squad=4`。 |
+| 2026-08-18 | 19 | Boss Debug 参考态跟进正式进化环境：选机改为动态读取全部 T4，等级取节点 `min_level`，按正式每 3 级一次的节奏生成 5~6 张普通技能；三轴先满足节点 gates、剩余点投机种主轴并实际触发里程碑；Tab 恢复构筑/三轴/里程碑只读面板。attr_gates 145/145 + 三段真实 Visual 通过。 |
 | 2026-08-08 | 18 | 用户要求并完成主 HUD 三轴路线进度的抽象第一版：经验条上方增加固定 400×18 三格计数器，显示斗士/骑士/策士里程碑进度；等级继续由紧邻的既有经验条显示。固定占位、低对比、无交互与动画。Shadow HUD 80/80、attr_gates 142/142、HUD 接线 26/26 与真实渲染通过，状态转 done。 |
 | 2026-08-08 | 17 | 用户调整策士前两档顺序：2 点改为经验值 `+10%`，3 点才给热诱弹 `+1`；两项数值本身不变。 |
 | 2026-08-08 | 16 | 用户根据实战回调策士第一级（2 点）里程碑：热诱弹 `+2 → +1`；电子对抗套件仍为 `+2`，T1 基础 2 发同时拥有两项加成时由 6 发降至 5 发。 |

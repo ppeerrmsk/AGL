@@ -14,8 +14,9 @@ extends AceSquad
 ## 队级战术状态机（PURSUIT 之内运转；tier 层只管是否交战/是否隐形）
 var tactics: WraithTactics = null
 
-# ── 通关强化层：两架可选 YF-23 雷达静默狙击支援（不进入 BOSS members/HUD/胜利判定）──
-const YF23_SUPPORT_FORWARD_PX: float = 3000.0
+# ── 通关强化层：两架可选 YF-23 后方潜伏狙击支援（不进入 BOSS members/HUD/胜利判定）──
+const YF23_SUPPORT_TRAILING_PX: float = 1800.0
+const YF23_SUPPORT_MIN_PLAYER_DISTANCE_PX: float = 5000.0
 const YF23_SUPPORT_LATERAL_PX: float = 700.0
 var _progression_create_enemy_func: Callable
 var _progression_squads_ref: Array[Squad] = []
@@ -68,6 +69,36 @@ func _on_member_destroyed(member: Aircraft) -> void:
 static func support_count_for_progression(defeat_count: int) -> int:
 	return 2 if defeat_count >= 1 else 0
 
+## 沿“玩家 → Wraith 队形中心”轴继续向后布置支援，不再以玩家位置为出生中心。
+## 最小离玩家 5000px（10km），避免 Wraith 在近处时支援贴脸闪现。
+static func support_spawn_positions(player_pos: Vector2, wraith_center: Vector2,
+		fallback_away: Vector2) -> Array[Vector2]:
+	var away := wraith_center - player_pos
+	if away.length_squared() < 1.0:
+		away = fallback_away
+	if away.length_squared() < 1.0:
+		away = Vector2.UP
+	away = away.normalized()
+	var base_distance := maxf(player_pos.distance_to(wraith_center) + YF23_SUPPORT_TRAILING_PX,
+		YF23_SUPPORT_MIN_PLAYER_DISTANCE_PX)
+	var base := player_pos + away * base_distance
+	var lateral := Vector2(-away.y, away.x)
+	return [
+		base - lateral * YF23_SUPPORT_LATERAL_PX,
+		base + lateral * YF23_SUPPORT_LATERAL_PX,
+	]
+
+## 支援机使用普通飞机的锁定规则；“潜伏”是出生几何，不是永久免锁。
+static func configure_progression_support_aircraft(ac: Aircraft, index: int) -> void:
+	ac.callsign = "BLACKWIDOW-%02d" % (index + 1)
+	ac.prefer_gun_mode = false
+	ac.set_target_tier(CombatUnit.AltitudeTier.HIGH)
+	ac.set_meta(&"category", "boss_support")
+	ac.set_meta(&"skip_far_cleanup", true)
+	ac.set_meta(&"no_kill_reward", true)
+	if ac.has_meta(&"lock_immune_override"):
+		ac.remove_meta(&"lock_immune_override")
+
 ## 演出结束、正式接战时才生成：因此两架支援机不会混进 Wraith 四机登场分镜。
 func engage() -> void:
 	super.engage()
@@ -78,13 +109,22 @@ func _spawn_progression_support() -> void:
 	_progression_support_spawned = true
 	if not _progression_create_enemy_func.is_valid() or _player == null or not is_instance_valid(_player):
 		return
-	var fwd := Vector2(sin(_player.heading), -cos(_player.heading))
-	var lateral := Vector2(cos(_player.heading), sin(_player.heading))
+	var wraith_center := Vector2.ZERO
+	var live_member_count := 0
+	for member in members:
+		if member != null and is_instance_valid(member) and not member.is_destroyed:
+			wraith_center += member.global_position
+			live_member_count += 1
+	var player_forward := Vector2(sin(_player.heading), -cos(_player.heading))
+	if live_member_count > 0:
+		wraith_center /= float(live_member_count)
+	else:
+		wraith_center = _player.global_position + player_forward * YF23_SUPPORT_MIN_PLAYER_DISTANCE_PX
+	var spawn_positions := support_spawn_positions(
+		_player.global_position, wraith_center, player_forward)
 	var support_squad := Squad.new()
 	for i in range(support_count_for_progression(prior_defeats)):
-		var side: float = -1.0 if i == 0 else 1.0
-		var pos := _player.global_position + fwd * YF23_SUPPORT_FORWARD_PX \
-				+ lateral * YF23_SUPPORT_LATERAL_PX * side
+		var pos: Vector2 = spawn_positions[i]
 		pos = MapBoundary.clamp_inside(pos, 800.0)
 		var to_player := (_player.global_position - pos).normalized()
 		var heading_deg := rad_to_deg(atan2(to_player.x, -to_player.y))
@@ -92,13 +132,7 @@ func _spawn_progression_support() -> void:
 				SurvivorSpawner.EnemyType.YF23, pos, heading_deg)
 		if ac == null:
 			continue
-		ac.callsign = "BLACKWIDOW-%02d" % (i + 1)
-		ac.prefer_gun_mode = false
-		ac.set_target_tier(CombatUnit.AltitudeTier.HIGH)
-		ac.set_meta(&"category", "boss_support")
-		ac.set_meta(&"skip_far_cleanup", true)
-		ac.set_meta(&"no_kill_reward", true)
-		ac.set_meta(&"lock_immune_override", true) # 永久雷达静默；仍可目视/机炮攻击
+		configure_progression_support_aircraft(ac, i)
 		var ai: AIController = ac._get_ai_controller()
 		if ai != null:
 			ai.squad = support_squad
@@ -115,7 +149,8 @@ func _spawn_progression_support() -> void:
 	if not support_squad.members.is_empty():
 		_progression_squads_ref.append(support_squad)
 	EventLogger.log_event("BOSS", display_name,
-		"progression tier 1: %d optional YF-23 snipers deployed" % _progression_support.size())
+		"progression tier 1: %d lockable YF-23 snipers deployed behind Wraith" \
+		% _progression_support.size())
 
 ## SEAM-019：可选支援也缓存/追踪玩家，切控时必须和四架 BOSS 本体一起重定向。
 func set_player_ref(p: Aircraft) -> void:

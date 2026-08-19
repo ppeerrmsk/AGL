@@ -324,6 +324,8 @@ static func update_altitude(ac: Aircraft, delta: float) -> void:
 	if ac._active_special == Aircraft.ActiveSpecialManeuver.VERTICAL_BREAK:
 		return
 	if ac.is_stalled:
+		if ac.is_player_squad() and ac.altitude_action != Aircraft.AltitudeAction.NONE:
+			ac.altitude_action_command = Aircraft.AltitudeAction.NONE
 		ac._set_altitude_action(Aircraft.AltitudeAction.NONE)
 		ac.altitude += ac.vertical_speed * delta
 		ac.altitude = maxf(ac.altitude, 0.0)
@@ -360,10 +362,23 @@ static func update_altitude(ac: Aircraft, delta: float) -> void:
 	ac.altitude += ac.vertical_speed * delta
 	ac.altitude = maxf(ac.altitude, 0.0)
 	var next_action := Aircraft.AltitudeAction.NONE
-	if alt_diff > 0.0 and ac.vertical_speed > Aircraft.ALTITUDE_ACTION_THRESHOLD_MPS:
-		next_action = Aircraft.AltitudeAction.CLIMB
-	elif alt_diff < 0.0 and ac.vertical_speed < -Aircraft.ALTITUDE_ACTION_THRESHOLD_MPS:
-		next_action = Aircraft.AltitudeAction.DIVE
+	if ac.is_player_squad():
+		var commanded_action: int = ac.altitude_action_command
+		if commanded_action == Aircraft.AltitudeAction.CLIMB \
+				and alt_diff > 0.0 and ac.vertical_speed > Aircraft.ALTITUDE_ACTION_THRESHOLD_MPS:
+			next_action = Aircraft.AltitudeAction.CLIMB
+		elif commanded_action == Aircraft.AltitudeAction.DIVE \
+				and alt_diff < 0.0 and ac.vertical_speed < -Aircraft.ALTITUDE_ACTION_THRESHOLD_MPS:
+			next_action = Aircraft.AltitudeAction.DIVE
+		if ac.altitude_action == commanded_action \
+				and commanded_action != Aircraft.AltitudeAction.NONE \
+				and next_action == Aircraft.AltitudeAction.NONE:
+			ac.altitude_action_command = Aircraft.AltitudeAction.NONE
+	else:
+		if alt_diff > 0.0 and ac.vertical_speed > Aircraft.ALTITUDE_ACTION_THRESHOLD_MPS:
+			next_action = Aircraft.AltitudeAction.CLIMB
+		elif alt_diff < 0.0 and ac.vertical_speed < -Aircraft.ALTITUDE_ACTION_THRESHOLD_MPS:
+			next_action = Aircraft.AltitudeAction.DIVE
 	ac._set_altitude_action(next_action)
 	if ac.is_player_squad() and ac.alt_change_stealth_factor > 0.0:
 		var instant_v: float = absf(ac.vertical_speed) \

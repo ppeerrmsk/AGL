@@ -3,7 +3,7 @@ id: wraith-squadron
 kind: boss
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 4
+spec_version: 5
 owner: 用户（设计） / Claude（落地）
 depends_on: [ace-squadron-tier, circle-cut-entry, boss-clear-progression]
 reconstruction_complete: false
@@ -128,7 +128,7 @@ tier 级铁律（`aggression ≥ 0.90`、`self_preservation ≤ 0.25`）直接�
 ### 2.6 通关强化支援
 
 历史击败数为 0 时仍为原四架 F-47。历史击败数 ≥1 时，在正式接战而非登场演出阶段追加两架
-YF-23 `BLACKWIDOW-01/02` 远距支援：保持 4–6 km 距离带、永久雷达静默、不进入 Wraith
+YF-23 `BLACKWIDOW-01/02` 远距支援：在 Wraith 队形后方成对潜伏、保持 4–6 km 距离带、按普通飞机规则可锁定、不进入 Wraith
 `members/all_members`、不进入 BOSS 血条且不阻塞胜利。完整机体数值、出生几何与结算边界由
 [boss-clear-progression §2.2](../systems/boss-clear-progression.md) 定义；第二强化层暂不追加机制。
 
@@ -239,7 +239,7 @@ YF-23 `BLACKWIDOW-01/02` 远距支援：保持 4–6 km 距离带、永久雷达
 - [ ] 性能：跑生存模式 Sentinel + Lv5+ 压测，FPS 掉幅 < 15（见 performance-guidelines）
 - [ ] 已知 seam 未触碰 / 已妥善处理（见 architecture/known-seams.md）
 - [ ] i18n：玩家可见文本走 tr()，三语已补（见 reference/i18n.md）
-- [x] 初见不生成额外支援；首败后接战生成两架 YF-23，且不参与演出、血条或胜利判定
+- [x] 初见不生成额外支援；首败后接战在 Wraith 队形后方生成两架可正常锁定的 YF-23，且不参与演出、血条或胜利判定
 
 ## 6. 实现计划（Task Pipeline）
 
@@ -295,6 +295,7 @@ YF-23 `BLACKWIDOW-01/02` 远距支援：保持 4–6 km 距离带、永久雷达
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-18 | 5 | 根据实战反馈修正通关强化 YF-23：取消永久免锁，改为正常可锁定；生成位置改到 Wraith 队形后方，并设离玩家 5000 px 的最小安全距离，不再在玩家机头前附近突然出现。 |
 | 2026-08-01 | 4 | 接入 BOSS 通关强化层：首败后在正式接战阶段追加两架雷达静默 YF-23 远距狙击支援；支援不进入演出、BOSS 血条或胜利判定，第二强化层暂不扩展。 |
 | 2026-07-22 | 3 | **阶段 2 落地**：队级战术状态机 `WraithTactics`（独立模块，F47AceSquad 持有转发；基类只留三个空钩子）。PERCH（爬到玩家+2000m 档、高度差 1500m 或 12s 超时）→ BRACKET（BAIT=二号机不开火、拉到玩家机头前方 3000m 保持在雷达锥内，三翼经 `surround_bearing` 从 ≥60° 离轴方位切入，咬住 4s 收网或 20s 超时）→ PRESS（15s，完全放手给 BFM）→ RESET（8s 脱离 3000m + 爬升，`combat_disabled=false` 脱离是几何行为不是缴械）→ 回 PERCH。退化检测 0.5s 采样、平均机头偏角 >50° 持续 6s 强制 RESET。**包夹复用命令轮盘的包围轴通道**（同一几何概念，不另造），为此在 `Situation` 给 tier=ace 开了窄读取口。顺带修 `_pursuit_enter` 无脑置 `bvr_only=false` 会抹掉 SNIPER 站位带的 bug。`--bench=boss_hunter` 97 断言 + 回归门 34 项 PASS |
 | 2026-07-22 | 2 | **阶段 1 + 阶段 3 落地**。角色真实化（`AceRole{KNIGHT,SNIPER}` 取代两个死 meta，KNIGHT 转身对抗 / SNIPER `bvr_only` 站位带 4~6km）；执行失误落地（拆出 `gun_aim_error_enabled` 开关根治"敌机零瞄准误差"、王牌枪法 0.85 → ±1.2°、减速迟滞 25%×0.6~1.2s）。**冲突裁决**：§2.2 原给 SNIPER 的 `aggression 0.75`/`self_preservation 0.35` 违反 tier §2.1 铁律，判 tier 赢 —— "不贪战"改由 BVR 站位（空间行为）表达，不靠调低交战欲。阶段 2（PERCH/BRACKET/PRESS/RESET）仍未动 | 

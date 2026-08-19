@@ -1,6 +1,8 @@
 class_name AwacsSupportEvent
 extends GameEvent
 
+const SupportRangeOverlayScript = preload("res://scripts/survivor/support_range_overlay.gd")
+
 ## 预警机支援事件（spec global-awareness-roe §2.6c）
 ##
 ## ALLY 大型机（复用 Tu-160 轰炸机轮廓/simple_ai 管线，翻阵营 + 换名换色）从南界外
@@ -46,6 +48,7 @@ var _ingress_t: float = 0.0       ## 进场累计秒数（兜底超时用）
 var _on_station_t: float = 0.0    ## 在站累计秒数
 var _egressing: bool = false      ## 已转入撤离段
 var _egress_t: float = 0.0        ## 撤离累计秒数（兜底超时用）
+var _range_overlay: Node2D = null ## 主战场 8000m 支援范围；随 AWACS transform 移动
 
 
 ## 区内玩家小队 shooter 的锁定速率倍率（survivor_mode._update_radar_locks 调）
@@ -108,6 +111,11 @@ func _start() -> void:
 		ai.current_waypoint_index = 0
 	_awacs = awacs
 	_awacs_ref = awacs
+	var range_overlay: Node2D = SupportRangeOverlayScript.new()
+	range_overlay.name = "AwacsSupportRange"
+	range_overlay.setup(BUFF_RADIUS_PX, awacs.team)
+	awacs.add_child(range_overlay)
+	_range_overlay = range_overlay
 	managed_units.append(awacs)
 	EventLogger.log_event("EVENT", "AWACS",
 		"inbound route=%s↔%s buff_r=%.0fm dwell=%.0fs" % [p_a.round(), p_b.round(),
@@ -203,6 +211,12 @@ func _say(trigger: String) -> void:
 
 
 func _finish() -> void:
+	# buff 下线当帧即隐藏范围；宿主坠毁演出期间不保留误导性的有效区。
+	var overlay_candidate: Variant = _range_overlay
+	if typeof(overlay_candidate) == TYPE_OBJECT and is_instance_valid(overlay_candidate) \
+			and overlay_candidate is CanvasItem:
+		(overlay_candidate as CanvasItem).visible = false
+	_range_overlay = null
 	if _awacs_ref == _awacs:
 		_awacs_ref = null
 	_awacs = null

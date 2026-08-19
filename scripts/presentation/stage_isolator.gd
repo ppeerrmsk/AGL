@@ -23,7 +23,11 @@ func is_active() -> bool:
 func clear(actors: Array, extra_layers: Array, t: float) -> void:
 	if not _active:
 		_active = true
-		_actors = actors.duplicate()
+		# duplicate() 会保留调用方 Array[Aircraft] 等 TypedArray 约束；后续拿全场
+		# CombatUnit 做 has() 时，非 Aircraft 会在查询前触发参数类型错误并逐帧刷屏。
+		# 复用本地无类型容器，只复制元素，不继承调用方的元素类型。
+		_actors.clear()
+		_actors.append_array(actors)
 		_dimmed.clear()
 		# 全场扫描【只在起止各一次】，不进每帧（守性能守则第 2 条）
 		for u in CombatUnit.all_units:
@@ -92,15 +96,19 @@ func force_restore(extra_layers: Array) -> void:
 			_set_alpha(n, 1.0)
 	_finish_restore()
 
-func _set_actor_awake(a: Node, on: bool) -> void:
-	if not is_instance_valid(a):
+func _set_actor_awake(value: Variant, on: bool) -> void:
+	# _actors 跨越整段演出持有快照；演员可能在 restore 前已被释放。
+	# Variant 边界必须先验实例，再收窄，避免 typed 参数在函数体前就拒绝 stale object。
+	if typeof(value) != TYPE_OBJECT or not is_instance_valid(value) or not (value is Node):
 		return
+	var a: Node = value
 	a.process_mode = Node.PROCESS_MODE_ALWAYS if on else Node.PROCESS_MODE_INHERIT
 	if on:
 		# ⚠ 远端刷出的敌机被离屏 LOD 藏着（visible=false + lod_level=2，survivor_mode 离屏扫描），
 		# 而该扫描在演出 hard_pause 期间不跑 —— 不在这里强制解除，演员全场隐形
 		# （探针实锤：alpha 全对、visible 全程 false）。演出结束 LOD 扫描恢复后自行接管
-		a.visible = true
+		if a is CanvasItem:
+			(a as CanvasItem).visible = true
 		if "lod_level" in a:
 			a.lod_level = 0
 	# AIController 是 Aircraft 的子节点，INHERIT 会跟着父级走 —— 显式设置更保险

@@ -207,7 +207,9 @@ func _test_throttle() -> void:
 	_check("Hound-1 入场台词是 scripted", ChatterLines.is_scripted("hound_one_contact"), "")
 	_check("Hound-2 应答台词是 scripted", ChatterLines.is_scripted("hound_two_follow"), "")
 	_check("奖励目标通报是 scripted", ChatterLines.is_scripted("reward_target_available"), "")
-	_check("护送任务通报是 scripted", ChatterLines.is_scripted("bomber_escort_available"), "")
+	_check("护送任务通报是 scripted", ChatterLines.is_scripted("bomber_escort_available") \
+		and ChatterLines.is_scripted("bomber_escort_intercept") \
+		and ChatterLines.is_scripted("bomber_escort_complete"), "开放/截击/完成")
 	_check("splash 是 ambient", not ChatterLines.is_scripted("splash"), "")
 	_check("未登记 trigger 保守按 ambient（不会意外强插）",
 		not ChatterLines.is_scripted("some_unknown_trigger"), "")
@@ -375,12 +377,13 @@ func _test_i18n_coverage() -> void:
 		"缺失=%s" % str(missing))
 	_check("台词表非空（JSON 加载成功）", keys.size() > 20, "实际=%d" % keys.size())
 
-	# 带 %s 的 key 必须真的含占位符，否则回令里的目标名会凭空消失
+	# `_FMT` 必须带字符串或整数占位符，防止回令目标名 / 奖励数值凭空消失。
 	var fmt_bad: Array[String] = []
 	for key in keys:
-		if String(key).ends_with("_FMT") and not tr(String(key)).contains("%s"):
+		if String(key).ends_with("_FMT") \
+				and not tr(String(key)).contains("%s") and not tr(String(key)).contains("%d"):
 			fmt_bad.append(String(key))
-	_check("_FMT 台词均含 %s 占位符", fmt_bad.is_empty(), "异常=%s" % str(fmt_bad))
+	_check("_FMT 台词均含 %s 或 %d 占位符", fmt_bad.is_empty(), "异常=%s" % str(fmt_bad))
 
 	# 每个 trigger 都要有台词可选，否则该事件永远静默（典型的 JSON 打字错）
 	var empty_triggers: Array[String] = []

@@ -26,6 +26,7 @@ func run() -> void:
 	_test_gunship_scans_ground_units()
 	_test_gunship_squad_ground_volley()
 	_test_gun_target_ahead_guard()
+	_test_prelaunch_tracks_launch_solution()
 	_test_crank_no_side_flip()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("════════════════════════════════\n")
@@ -272,8 +273,8 @@ func _test_gunship_scans_ground_units() -> void:
 	source._gun_burst_rounds_left = 0
 	source._fire_cooldown = 0.0
 
-	# 全队 fantasy：AI 僚机即使已有一个射程外空中战术目标，也应让独立炮塔
-	# 扫描并锁存圈内更近的地面单位，不要求攻击命令或 use_tactical_preference。
+	# 全队 fantasy：AI 僚机即使已有一个射程外玩家点名，也应让独立炮塔
+	# 扫描并锁存圈内更近的地面单位；超距命令不能让炮塔空转。
 	var wing := load("res://scripts/aircraft.gd").new() as Aircraft
 	wing.team = CombatUnit.TEAM_PLAYER
 	wing.heading = 0.0
@@ -293,23 +294,55 @@ func _test_gunship_scans_ground_units() -> void:
 	distant_air.global_position = Vector2(0.0, -800.0)  # 1600m，超出 1000m 机炮射程
 	distant_air.altitude = wing.altitude
 	wing.combat_target = distant_air
+	wing.commanded_target = distant_air
 	CombatUnit.all_units = [wing, ground, distant_air]
 	AircraftWeapons.auto_gun_scan(wing)
 	_check("AI 僚机炮艇无需战术许可即可扫描地面单位", wing.is_firing,
 		"firing=%s" % wing.is_firing)
-	_check("炮艇不被射程外空中 combat_target 锁死扫描池",
+	_check("炮艇不被射程外玩家 commanded_target 锁死扫描池",
 		wing._auto_gun_target_id == ground.get_instance_id(),
 		"scan_id=%d ground_id=%d" % [wing._auto_gun_target_id, ground.get_instance_id()])
 	var wing_bullets := BulletManager.new()
 	wing.bullet_manager = wing_bullets
 	wing._sfx_gun_cd = 999.0
 	AircraftWeapons.update_gun(wing, 1.0 / 60.0)
-	_check("炮艇整梭优先承诺独立扫描目标而非战术目标",
+	_check("超距玩家命令回退并承诺独立扫描目标",
 		wing._gun_burst_target_id == ground.get_instance_id(),
 		"burst_id=%d ground_id=%d" % [wing._gun_burst_target_id, ground.get_instance_id()])
+
+	# Mother Goose 复现：玩家点名的是可攻击 MountTarget，但本体 Aircraft 更近且主体免锁。
+	# 有效点名必须压过本体/地面自动候选，并成为下一梭的真实承诺对象。
+	wing._gun_burst_rounds_left = 0
+	wing._gun_burst_target_id = 0
+	wing._fire_cooldown = 0.0
+	wing._auto_gun_scan_timer = 0.0
+	wing.is_firing = false
+	var mother_body := load("res://scripts/aircraft.gd").new() as Aircraft
+	mother_body.team = CombatUnit.TEAM_HOSTILE
+	mother_body.global_position = Vector2(-250.0, 0.0)
+	mother_body.set_meta(&"lock_immune_override", true)
+	var commanded_mount := MountTarget.new()
+	commanded_mount.team = CombatUnit.TEAM_HOSTILE
+	commanded_mount.global_position = Vector2(-450.0, 0.0)
+	wing.combat_target = commanded_mount
+	wing.commanded_target = commanded_mount
+	CombatUnit.all_units = [wing, ground, mother_body, commanded_mount]
+	AircraftWeapons.auto_gun_scan(wing)
+	_check("射程内玩家点名 MountTarget 压过更近 Mother Goose 本体",
+		wing._auto_gun_target_id == commanded_mount.get_instance_id(),
+		"scan_id=%d mount_id=%d body_id=%d" % [
+			wing._auto_gun_target_id, commanded_mount.get_instance_id(), mother_body.get_instance_id()])
+	AircraftWeapons.update_gun(wing, 1.0 / 60.0)
+	_check("炮艇整梭承诺玩家点名 MountTarget",
+		wing._gun_burst_target_id == commanded_mount.get_instance_id(),
+		"burst_id=%d mount_id=%d" % [
+			wing._gun_burst_target_id, commanded_mount.get_instance_id()])
+	wing.commanded_target = null
+	wing.combat_target = null
+	commanded_mount.free()
+	mother_body.free()
 	wing_bullets.free()
 	wing.bullet_manager = null
-	wing.combat_target = null
 	distant_air.free()
 	wing.free()
 
@@ -447,13 +480,70 @@ func _test_gun_target_ahead_guard() -> void:
 			"allow_gun_fire=%s" % str(p_on.allow_gun_fire))
 
 
-## ── H. SEAM-013：导弹 crank 追踪点不再左右翻号 ──
+## ── H. 发射前 planner 与武器门共用拦截解 ──
+## 复现战斗日志中的高速横穿几何：目标 LOS 在右前 30°，以 775m/s 向南横穿。
+## 旧 planner 只瞦 LOS/crank，武器门却要求两轮 TTI lead，因此会永久 LEAD_GEOM 拒发。
+func _test_prelaunch_tracks_launch_solution() -> void:
+	print("── H. 发射前拦截解同源 ──")
+	var ac := Aircraft.new()
+	ac.params = load("res://resources/player/player_f14.tres").duplicate(true)
+	ac.global_position = Vector2.ZERO
+	ac.altitude = 6000.0
+	ac.speed = 283.0
+	ac.bank_angle = 0.0
+	ac._bank_rate_rad_s = 0.0
+
+	var tgt := Aircraft.new()
+	var range_px := 4000.0 * CombatUnit.PIXELS_PER_METER
+	var los_hdg := deg_to_rad(30.0)
+	tgt.global_position = Vector2(sin(los_hdg), -cos(los_hdg)) * range_px
+	tgt.altitude = ac.altitude
+	tgt.heading = deg_to_rad(170.0)
+	tgt.speed = 775.0
+
+	var s := Situation.new()
+	s.target_locked = true
+	s.missile_support_active = false
+	s.missile_max_speed_mps = ac.params.missile.max_speed
+	s.missile_min_range_m = ac.params.missile.min_range
+	s.missile_max_range_m = ac.params.missile.max_range_rear
+	s.dist_m = 4000.0
+	s.my_pos = ac.global_position
+	s.my_heading = ac.heading
+	s.my_speed_ms = ac.speed
+	s.tgt_pos = tgt.global_position
+	s.tgt_heading = tgt.heading
+	s.tgt_speed_ms = tgt.speed
+	s.to_target_dir = (s.tgt_pos - s.my_pos).normalized()
+
+	var expected := AircraftWeapons.missile_lead_point(
+		ac.global_position, ac.speed, tgt.global_position, tgt.heading,
+		tgt.speed, ac.params.missile.max_speed)
+	var pursuit := BfmIntent._missile_engage_pos(s)
+	_check("未出弹时 planner 直接追踪武器门的前置点",
+		pursuit.distance_to(expected) < 0.01,
+		"delta=%.4fpx" % pursuit.distance_to(expected))
+
+	ac.heading = atan2(pursuit.x - ac.global_position.x,
+		-(pursuit.y - ac.global_position.y))
+	var skill: float = ac.params.combat.missile_skill
+	var lead_result := AircraftWeapons._has_lead_intercept_solution(
+		ac, tgt, ac.params.missile, skill)
+	_check("收敛到共享前置点后稳定窗口与 LEAD_GEOM 同时通过",
+		AircraftWeapons._has_stable_launch_window(ac, tgt, skill)
+		and bool(lead_result[0]),
+		"tti=%.2fs off_lead=%.1f°" % [float(lead_result[1]), float(lead_result[2])])
+	ac.free()
+	tgt.free()
+
+
+## ── I. SEAM-013：导弹 crank 追踪点不再左右翻号 ──
 ## 让机头相对目标 LOS 的偏角 nose_off 从 +20° 平滑扫到 −20°（目标横扫过机头），
 ## 每步调 _missile_engage_pos，记录返回追踪点的方位（aim 航向）。
 ## 修复前：nose_off 过零时 crank 侧从 +crank 翻到 −crank → aim 航向跳变 ~2×crank(=30°)。
 ## 修复后：aim 航向随 nose_off 连续变化，相邻步跳变应远小于阈值（无翻号）。
 func _test_crank_no_side_flip() -> void:
-	print("── H. crank 追踪点无翻号(SEAM-013) ──")
+	print("── I. crank 追踪点无翻号(SEAM-013) ──")
 	# 目标锁定、在 crank 包络内（min×1.5=750m < dist=2000m < max×0.7=5600m），雷达半角 30°→crank 15°
 	var dist_px := 2000.0 * CombatUnit.PIXELS_PER_METER
 	var tgt_pos := Vector2(0.0, -dist_px)  # 正北方向（LOS=0°）
@@ -463,6 +553,8 @@ func _test_crank_no_side_flip() -> void:
 	for off_deg in range(20, -21, -1):  # +20 → -20
 		var s := Situation.new()
 		s.target_locked = true
+		s.missile_support_active = true
+		s.missile_max_speed_mps = 1400.0
 		s.dist_m = 2000.0
 		s.missile_min_range_m = 500.0
 		s.missile_max_range_m = 8000.0

@@ -888,10 +888,14 @@ func _layout_ui() -> void:
 ## survivor_mode 调用：注入战区阶段剩余秒数 + 是否进入 BOSS 阶段
 ## 升级面板暂停期间（_physics_process 早 return）由 survivor_mode 在打开面板前同步一次
 func set_warzone_remaining(seconds: float, in_boss_phase: bool) -> void:
-	_warzone_remaining = seconds
+	var clamped_seconds := maxf(seconds, 0.0)
+	var visible_value_changed := _warzone_remaining < 0.0 \
+		or floori(clamped_seconds) != floori(maxf(_warzone_remaining, 0.0)) \
+		or in_boss_phase != _warzone_in_boss_phase
+	_warzone_remaining = clamped_seconds
 	_warzone_in_boss_phase = in_boss_phase
-	if _warzone_timer_panel:
-		_warzone_timer_panel.update_display(seconds, in_boss_phase)
+	if _warzone_timer_panel and visible_value_changed:
+		_warzone_timer_panel.update_display(clamped_seconds, in_boss_phase)
 
 func _update_display() -> void:
 	if not survivor_player:
@@ -1318,10 +1322,10 @@ func _on_altitude_pressed() -> void:
 	var ac: Aircraft = _safe_player_aircraft()
 	if ac == null:
 		return
-	if ac.altitude_preference == Aircraft.AltitudePreference.PREFER_CLIMB:
-		ac.altitude_preference = Aircraft.AltitudePreference.PREFER_LOW
-	else:
-		ac.altitude_preference = Aircraft.AltitudePreference.PREFER_CLIMB
+	var next_preference := Aircraft.AltitudePreference.PREFER_LOW \
+		if ac.altitude_preference == Aircraft.AltitudePreference.PREFER_CLIMB \
+		else Aircraft.AltitudePreference.PREFER_CLIMB
+	ac.command_altitude_preference(next_preference)
 	_update_tactical_buttons()
 	if _tooltip_panel.visible:
 		_update_tooltip()

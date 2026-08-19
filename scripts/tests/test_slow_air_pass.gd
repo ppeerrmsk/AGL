@@ -7,8 +7,9 @@ extends RefCounted
 ##   只在 172.5s 偶然凑出一次机炮窗（0.2s 9 发打死 CHK-03）。其余时间被三道门轮流卡住：
 ##   LOCK 133 次 / WEAPON_MODE 53 次 / OFF_CONE 21 次 / UNSTABLE_WIN 3 次（满锁被 off-axis 门拒发）。
 ##
-## 本测试**同时**步进真实物理 + planner，并如实复刻游戏里的三道发射门
-## （锁定积分含低空 ×0.7 惩罚与出锥 0.3s 清零 / 武器模式 min_range+滞回 / 发射窗口 off-axis 门），
+## 本测试**同时**步进真实物理 + planner，并消费游戏里的真实导弹发射门
+## （锁定积分含低空 ×0.7 惩罚与出锥 0.3s 清零 / 武器模式 min_range+滞回 /
+## 当前目标稳定窗口 + 两轮 TTI 前置几何门），
 ## 因此"打得中"必须是三道门同时开的结果，而不是几何单测的纸面对准。
 ##
 ## A. 导弹机：必须在 30s 内打出**真实可发射窗口**（三门齐开），且不绕圈
@@ -24,8 +25,6 @@ const AI_PERIOD := 3
 # ── 复刻游戏内发射门常量（与 aircraft_weapons.gd / survivor_mode.gd 同源）──
 const LOW_ALT_LOCK_RATE := 0.7          ## survivor_mode._lock_rate_for_target：LOW 档目标 ×0.7
 const OUT_OF_CONE_DUMP_S := 0.3         ## survivor_mode：出锥 0.3s 清零
-const LAUNCH_OFFAX_RATIO_FAF := 0.55    ## aircraft_weapons.LAUNCH_QUALITY_OFFAX_RATIO_FAF
-const LAUNCH_MAX_BANK_FAF := 60.0       ## aircraft_weapons.LAUNCH_QUALITY_MAX_BANK_DEG_FAF
 const WEAPON_MODE_HYSTERESIS_M := 150.0 ## aircraft_combat_tracking.WEAPON_MODE_HYSTERESIS_M
 const GUN_FIRE_CONE_DEG := 5.0          ## BfmIntent.FIRE_CONE_HALF_DEG
 const GUN_TARGET_AHEAD_DEG := 45.6      ## BfmIntent.GUN_TARGET_AHEAD_MIN=0.7 → acos ≈ 45.6°
@@ -154,6 +153,7 @@ func _sim(ac, tgt, p: AircraftParams, duration_s: float, missile_mode: bool) -> 
 	var setup_streak := 0.0
 	var weapon_mode_gun := false     # 复刻 missile_cannot_hit_but_gun_can 的滞回状态
 	var steps := int(duration_s / DT)
+	var missile_skill: float = p.combat.missile_skill if p.combat != null else 0.0
 
 	for i in range(steps):
 		var t: float = float(i) * DT
@@ -181,14 +181,14 @@ func _sim(ac, tgt, p: AircraftParams, duration_s: float, missile_mode: bool) -> 
 		_step(ac)
 		_step_helo(tgt)
 
-		# ── 门 3：发射窗口质量（off-axis / bank）──
+		# ── 门 3：真实发射纪律（目标稳定窗口 + 两轮 TTI 前置点）──
 		if missile_mode and r.first_fire_t < 0.0:
-			var bank_deg: float = absf(rad_to_deg(ac.bank_angle))
 			var can_fire: bool = (not weapon_mode_gun) \
 					and lock_t >= p.lock_time \
 					and dist_m >= p.missile.min_range \
-					and off_deg <= p.radar_half_angle * LAUNCH_OFFAX_RATIO_FAF \
-					and bank_deg <= LAUNCH_MAX_BANK_FAF
+					and AircraftWeapons._has_stable_launch_window(ac, tgt, missile_skill) \
+					and bool(AircraftWeapons._has_lead_intercept_solution(
+						ac, tgt, p.missile, missile_skill)[0])
 			if can_fire:
 				r.first_fire_t = t
 				r.fire_dist_m = dist_m
@@ -247,8 +247,13 @@ func _f14_params(with_missile: bool) -> AircraftParams:
 		m.max_range_rear = 15000.0
 		m.front_rear_ratio = 4.0
 		m.min_range = 500.0
+		m.seeker_fov = 90.0
 		m.fire_and_forget = true
 		p.missile = m
+		var combat := CombatParams.new()
+		combat.missile_skill = 0.85
+		combat.missile_skill_jitter = 0.0
+		p.combat = combat
 	return p
 
 

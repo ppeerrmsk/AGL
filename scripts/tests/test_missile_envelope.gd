@@ -67,13 +67,13 @@ func run() -> void:
 		if new_res[k].hit: ideal_hits += 1
 	_check("理想几何 ≥3/4 命中（性能达标线）", ideal_hits >= 3,
 			"%d/4——若此项挂 = 导弹性能问题实锤" % ideal_hits)
-	# 裁决性断言（2026-07-05 定案）：命中率低的机制 = 发射离轴与导引头视场的边界带。
-	# 玩家质量门允许 ≤22° 离轴发射，OLD FOV60（半角30°）在 20° 离轴+6G 机动叠加时
-	# 末段出视场丢锁（min_dist 34m，差 4 米）；FOV90 把这条"合法发射窗口内的丢锁带"补掉。
-	_check("20°离轴边界带：OLD 丢锁", not old_res["5km 横穿6G+离轴20°"].hit,
-			"质量门内合法发射仍 miss = 上调 FOV 的依据")
+	# 2026-08-19：离架方向已与发射门 / planner 共享两轮 TTI 前置点。
+	# 历史 OLD 参数在 20°+6G 的丢锁带已被更准确的离架几何闭合，不能再把“OLD 必须 miss”
+	# 当成永久回归条件；当前门改为两组参数在合法发射窗口内都必须命中。
+	_check("20°离轴边界带：OLD 共享前置后命中", old_res["5km 横穿6G+离轴20°"].hit,
+			"共享离架前置点应闭合历史边界带")
 	_check("20°离轴边界带：NEW 命中", new_res["5km 横穿6G+离轴20°"].hit,
-			"FOV 90 修复实证")
+			"正式 FOV 90 参数保持命中")
 
 	print("\n══ 裁决摘要 ══")
 	var old_hits := 0
@@ -81,8 +81,8 @@ func run() -> void:
 	for k in old_res:
 		if old_res[k].hit: old_hits += 1
 		if new_res[k].hit: new_hits += 1
-	print("  OLD 参数总命中 %d/8 | NEW 参数总命中 %d/8（参数贡献 = %+d）" % [
-		old_hits, new_hits, new_hits - old_hits])
+	print("  OLD 参数总命中 %d/%d | NEW 参数总命中 %d/%d（参数贡献 = %+d）" % [
+		old_hits, old_res.size(), new_hits, new_res.size(), new_hits - old_hits])
 	print("  理想几何(≤5km,0°离轴) NEW: %d/4 | 远距(8-11km) NEW: %d/3 | crank40°: %s" % [
 		ideal_hits,
 		int(new_res["8km 尾追直线"].hit) + int(new_res["8km 横穿6G"].hit) + int(new_res["11km 尾追直线"].hit),

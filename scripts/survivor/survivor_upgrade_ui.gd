@@ -1,7 +1,7 @@
 class_name SurvivorUpgradeUI
 extends CanvasLayer
 
-## 升级选择面板：暂停时显示3个升级选项
+## 升级选择面板：暂停时显示三选一或带专属第四槽的四选一
 
 signal upgrade_selected(upgrade: Dictionary)
 
@@ -9,26 +9,53 @@ signal upgrade_selected(upgrade: Dictionary)
 ## 刻意避开五档稀有度色（灰白/蓝/紫/金/红）与三轴色（琥珀/青绿/紫），
 ## 让"这是当前机体的看家本领"在一排卡里一眼可辨；边框同时加粗一档作为非色彩线索。
 const SIG_FRAME_COLOR := Color(1.00, 0.25, 0.75)
+const CARD_SIZE := Vector2(240, 300)
+const CARD_GAP := 18
+const NOTE_POPUP_SIZE := Vector2(244, 84)
+const NOTE_POPUP_GAP := 28.0
+## 弹窗刚出现时吞掉玩家上一拍仍在进行的点击，避免误选。
+const INPUT_UNLOCK_DELAY_S := 0.80
+## 确认后直接垂直压入底部槽位：无连线、无透明拖尾，只做快速形变。
+const CONFIRM_INSERT_DURATION_S := 0.055
+const CONFIRM_INSERT_SCALE := Vector2(0.86, 0.055)
+const MEDIA_GLOW_SHADER: Shader = preload("res://resources/shaders/upgrade_media_glow.gdshader")
+const UPGRADE_MEDIA_SURFACE_SCRIPT: Script = preload("res://scripts/survivor/upgrade_media_surface.gd")
+const SURVIVOR_HUD_SCRIPT: Script = preload("res://scripts/survivor/survivor_hud.gd")
+const INFO_FONT_SOURCE: FontFile = preload("res://resources/fonts/Silkscreen-Regular.ttf")
+const DISPLAY_FONT_SOURCE: FontFile = preload("res://resources/fonts/ChakraPetch-Bold.ttf")
 
 var _title: Label
 var _btn_container: HBoxContainer
 var _cards: Array[VBoxContainer] = []
 var _buttons: Array[Button] = []
+var _media_roots: Array[Control] = []
+var _glow_panels: Array[ColorRect] = []
+var _media_surfaces: Array = []
+var _name_labels: Array[Label] = []
+var _description_labels: Array[RichTextLabel] = []
+var _note_popup_layer: Control
+var _note_panels: Array[Panel] = []
+var _scan_lines: Array[ColorRect] = []
 ## §5 稀有度徽章：每张卡片右上角悬浮的"STABLE / ADV / EXP / CLA / NEXT"标签
 var _rarity_badges: Array[Label] = []
 ## 三轴归属徽章：每张卡片左上角的轴色 chip（"斗士 +1"，spec evolution-attribute-gates §3.1）
 var _axis_badges: Array[Label] = []
 ## 归属角标：每张卡片左下角（skills-720 §1.2：通用◈全队 / 品类限定 / 王牌 / 队级单件 + "+1 轴进度"）
 var _scope_badges: Array[Label] = []
-## 状态词条脚注：卡片【下方】的小字，解释这条技能给的 buff/debuff 本身干什么
+## 状态词条旁注：hover / focus 后在整组卡牌一侧浮现，解释 buff/debuff 本身干什么
 ## （0729；内容由 SurvivorData.status_notes_of + StatusEffects.NOTE_I18N_KEY 决定）
 var _status_notes: Array[Label] = []
 ## CLASSIFIED / 专属卡一次性入场闪边覆盖层。
 var _flash_frames: Array[Panel] = []
 var _choices: Array[Dictionary] = []
 var _populate_generation: int = 0
+var _hovered: Array[bool] = [false, false, false, false]
+var _focused: Array[bool] = [false, false, false, false]
+var _note_tweens: Array = [null, null, null, null]
+var _selection_locked: bool = false
+var _input_locked: bool = true
 
-## 脚注文字色：比正文暗一档，不跟卡框/轴色抢视觉
+## 词条浮层文字色：比正文暗一档，不跟卡框/轴色抢视觉
 const NOTE_COLOR := Color(0.62, 0.68, 0.74)
 const FLASH_FIRST_CARD_DELAY_S := 0.42  ## upgrade_in: at .16 + title stagger .06 + elem .20
 const FLASH_CARD_STAGGER_S := 0.06
@@ -47,8 +74,13 @@ func _build_ui() -> void:
 	var root := VBoxContainer.new()
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.alignment = BoxContainer.ALIGNMENT_CENTER
-	root.add_theme_constant_override("separation", 20)
+	root.add_theme_constant_override("separation", 24)
 	add_child(root)
+	# 词条解释独立放到全屏旁注层，避免再覆盖介质标签正文。
+	_note_popup_layer = Control.new()
+	_note_popup_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_note_popup_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_note_popup_layer)
 
 	# 上部空白
 	var spacer_top := Control.new()
@@ -59,59 +91,72 @@ func _build_ui() -> void:
 	_title = Label.new()
 	_title.text = tr("UPGRADE_HEADER")
 	_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_title.add_theme_font_size_override("font_size", 24)
-	_title.add_theme_color_override("font_color", ThemeColors.TEXT_ACCENT)
+	_title.add_theme_font_override("font", DISPLAY_FONT_SOURCE)
+	_title.add_theme_font_size_override("font_size", 28)
+	_title.add_theme_color_override("font_color", ThemeColors.TEXT_PRIMARY)
 	root.add_child(_title)
 
 	# 按钮容器
 	_btn_container = HBoxContainer.new()
 	_btn_container.alignment = BoxContainer.ALIGNMENT_CENTER
-	_btn_container.add_theme_constant_override("separation", 20)
+	_btn_container.add_theme_constant_override("separation", CARD_GAP)
 	_btn_container.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	root.add_child(_btn_container)
 
-	# 最多 4 个按钮：每张卡是一列 VBox = [按钮][状态词条脚注]，
-	# 脚注放在按钮【外面】而不是塞进 Button.text —— 按钮内部靠 anchor 定位的三个角标
-	# 已经把四角占满，再往正文里加行会顶到左下角归属标签上
+	# 最多 4 个同尺寸介质按钮。所有信息都压进物理标签；状态词条以固定覆盖层浮现，
+	# 不参与 HBox 尺寸计算，因此三卡 / 四卡不会因为说明行数不同而跳动。
 	for i in range(4):
 		var card := VBoxContainer.new()
-		card.add_theme_constant_override("separation", 4)
+		card.custom_minimum_size = CARD_SIZE
 		card.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 		_btn_container.add_child(card)
 		_cards.append(card)
 
 		var btn := Button.new()
-		btn.custom_minimum_size = Vector2(220, 120)
-		btn.add_theme_font_size_override("font_size", 14)
-
-		var style_normal := StyleBoxFlat.new()
-		style_normal.bg_color = Color(ThemeColors.BTN_NORMAL_BG, 0.85)
-		style_normal.border_color = ThemeColors.BTN_NORMAL_BORDER
-		style_normal.set_border_width_all(1)
-		style_normal.set_corner_radius_all(4)
-		style_normal.set_content_margin_all(12)
-		btn.add_theme_stylebox_override("normal", style_normal)
-
-		var style_hover := StyleBoxFlat.new()
-		style_hover.bg_color = Color(ThemeColors.BTN_HOVER_BG, 0.9)
-		style_hover.border_color = Color(ThemeColors.TEXT_ACCENT, 0.8)
-		style_hover.set_border_width_all(2)
-		style_hover.set_corner_radius_all(4)
-		style_hover.set_content_margin_all(12)
-		btn.add_theme_stylebox_override("hover", style_hover)
-
-		var style_pressed := StyleBoxFlat.new()
-		style_pressed.bg_color = Color(ThemeColors.BTN_PRESSED_BG, 0.95)
-		style_pressed.border_color = Color(ThemeColors.BTN_PRESSED_BORDER, 1.0)
-		style_pressed.set_border_width_all(2)
-		style_pressed.set_corner_radius_all(4)
-		style_pressed.set_content_margin_all(12)
-		btn.add_theme_stylebox_override("pressed", style_pressed)
+		btn.custom_minimum_size = CARD_SIZE
+		btn.focus_mode = Control.FOCUS_ALL
+		btn.clip_contents = false
+		btn.text = ""
+		for state in ["normal", "hover", "pressed", "focus", "disabled"]:
+			var transparent_style := StyleBoxFlat.new()
+			transparent_style.bg_color = Color.TRANSPARENT
+			transparent_style.border_color = Color.TRANSPARENT
+			transparent_style.set_content_margin_all(0)
+			btn.add_theme_stylebox_override(state, transparent_style)
 
 		var idx := i
 		btn.pressed.connect(func(): _on_choice_pressed(idx))
+		btn.mouse_entered.connect(func(): _set_card_hovered(idx, true))
+		btn.mouse_exited.connect(func(): _set_card_hovered(idx, false))
+		btn.focus_entered.connect(func(): _set_card_focused(idx, true))
+		btn.focus_exited.connect(func(): _set_card_focused(idx, false))
 		card.add_child(btn)
 		_buttons.append(btn)
+
+		var media_root := Control.new()
+		media_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		media_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		media_root.pivot_offset = CARD_SIZE * 0.5
+		btn.add_child(media_root)
+		_media_roots.append(media_root)
+
+		# GPU halo 只覆盖 288×348 的四个小区域；用 TIME 驱动，不加 _process / queue_redraw。
+		var glow := ColorRect.new()
+		glow.position = Vector2(-24, -24)
+		glow.size = CARD_SIZE + Vector2(48, 48)
+		glow.color = Color.WHITE
+		glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var glow_material := ShaderMaterial.new()
+		glow_material.shader = MEDIA_GLOW_SHADER
+		glow.material = glow_material
+		media_root.add_child(glow)
+		_glow_panels.append(glow)
+
+		var surface: Variant = UPGRADE_MEDIA_SURFACE_SCRIPT.new()
+		surface.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		surface.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		media_root.add_child(surface)
+		_media_surfaces.append(surface)
 
 		# 只画边框的覆盖层：Tween 动 alpha，不改按钮本体样式，hover 时也能看见闪光。
 		var flash_frame := Panel.new()
@@ -123,76 +168,120 @@ func _build_ui() -> void:
 		flash_style.bg_color = Color.TRANSPARENT
 		flash_style.border_color = Color.WHITE
 		flash_style.set_border_width_all(4)
-		flash_style.set_corner_radius_all(4)
 		flash_frame.add_theme_stylebox_override("panel", flash_style)
-		btn.add_child(flash_frame)
+		media_root.add_child(flash_frame)
 		_flash_frames.append(flash_frame)
 
-		# §5 稀有度徽章：右上角小标签（pos 由 _layout_rarity_badge 在 show_choices 设置）
+		# 入场时横扫介质的读写线，模拟机器突然识别到新软盘/光盘。
+		var scan_line := ColorRect.new()
+		scan_line.position = Vector2(10, 18)
+		scan_line.size = Vector2(CARD_SIZE.x - 20, 3)
+		scan_line.color = Color.WHITE
+		scan_line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		scan_line.visible = false
+		media_root.add_child(scan_line)
+		_scan_lines.append(scan_line)
+
+		# 稀有度与三轴归属印在介质标签第一行。
 		var badge := Label.new()
 		badge.text = ""
+		badge.add_theme_font_override("font", INFO_FONT_SOURCE)
 		badge.add_theme_font_size_override("font_size", 11)
 		badge.add_theme_color_override("font_color", Color.WHITE)
-		# 半透明黑底 + 圆角，让浅色字在任何背景上都可读
 		var badge_bg := StyleBoxFlat.new()
-		badge_bg.bg_color = Color(0.0, 0.0, 0.0, 0.55)
-		badge_bg.set_corner_radius_all(3)
-		badge_bg.set_content_margin_all(4)
+		badge_bg.bg_color = Color(0.0, 0.0, 0.0, 0.30)
+		badge_bg.set_content_margin_all(2)
 		badge.add_theme_stylebox_override("normal", badge_bg)
-		# 不参与父容器布局：通过 anchor 钉到按钮右上
-		badge.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-		badge.position = Vector2(-90, 6)
+		badge.position = Vector2(137, 91)
 		badge.size = Vector2(82, 18)
 		badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		badge.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		btn.add_child(badge)
+		media_root.add_child(badge)
 		_rarity_badges.append(badge)
 
-		# 三轴归属徽章：左上角轴色 chip——大一号字 + 轴色左粗边 + 轴色文字，
-		# "属于哪个轴"一眼可辨（2026-07-19 用户令；颜色 = SurvivorData.AXIS_COLORS）
 		var axis_badge := Label.new()
 		axis_badge.text = ""
-		axis_badge.add_theme_font_size_override("font_size", 15)
+		axis_badge.add_theme_font_override("font", INFO_FONT_SOURCE)
+		axis_badge.add_theme_font_size_override("font_size", 11)
 		var axis_bg := StyleBoxFlat.new()
-		axis_bg.bg_color = Color(0.0, 0.0, 0.0, 0.6)
-		axis_bg.set_corner_radius_all(3)
-		axis_bg.set_content_margin_all(4)
-		axis_bg.content_margin_left = 8.0
+		axis_bg.bg_color = Color(0.0, 0.0, 0.0, 0.22)
+		axis_bg.set_content_margin_all(2)
+		axis_bg.content_margin_left = 7.0
 		axis_badge.add_theme_stylebox_override("normal", axis_bg)
-		axis_badge.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
-		axis_badge.position = Vector2(6, 6)
-		axis_badge.size = Vector2(108, 22)
+		axis_badge.position = Vector2(22, 91)
+		axis_badge.size = Vector2(110, 18)
+		axis_badge.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		axis_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		btn.add_child(axis_badge)
+		media_root.add_child(axis_badge)
 		_axis_badges.append(axis_badge)
 
-		# 归属角标：左下角小标签——"这条强化谁吃得到"选卡时可见（skills-720 §1.2）
+		var skill_name := Label.new()
+		skill_name.position = Vector2(25, 116)
+		skill_name.size = Vector2(190, 29)
+		skill_name.add_theme_font_override("font", DISPLAY_FONT_SOURCE)
+		skill_name.add_theme_font_size_override("font_size", 18)
+		skill_name.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		skill_name.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		skill_name.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		media_root.add_child(skill_name)
+		_name_labels.append(skill_name)
+
+		var desc := RichTextLabel.new()
+		desc.position = Vector2(25, 148)
+		desc.size = Vector2(190, 68)
+		desc.bbcode_enabled = true
+		desc.fit_content = false
+		desc.scroll_active = false
+		desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		desc.add_theme_font_override("normal_font", DISPLAY_FONT_SOURCE)
+		desc.add_theme_font_size_override("normal_font_size", 12)
+		desc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		media_root.add_child(desc)
+		_description_labels.append(desc)
+
+		# 限定信息固定印在标签底边。
 		var scope_badge := Label.new()
 		scope_badge.text = ""
-		scope_badge.add_theme_font_size_override("font_size", 11)
-		var scope_bg := StyleBoxFlat.new()
-		scope_bg.bg_color = Color(0.0, 0.0, 0.0, 0.55)
-		scope_bg.set_corner_radius_all(3)
-		scope_bg.set_content_margin_all(4)
-		scope_badge.add_theme_stylebox_override("normal", scope_bg)
-		scope_badge.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
-		scope_badge.position = Vector2(6, -26)
-		scope_badge.size = Vector2(200, 18)
+		scope_badge.add_theme_font_override("font", INFO_FONT_SOURCE)
+		scope_badge.add_theme_font_size_override("font_size", 10)
+		scope_badge.position = Vector2(25, 219)
+		scope_badge.size = Vector2(190, 18)
+		scope_badge.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		scope_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		btn.add_child(scope_badge)
+		media_root.add_child(scope_badge)
 		_scope_badges.append(scope_badge)
 
-		# 状态词条脚注：卡片下方的小字。autowrap + 与按钮同宽的最小宽度，
-		# 保证长句往下折行而不是把整排卡撑宽
+		# 状态词条解释默认隐藏；hover / focus 时在整组卡牌一侧横向滑出。
+		var note_panel := Panel.new()
+		note_panel.position = Vector2.ZERO
+		note_panel.size = NOTE_POPUP_SIZE
+		note_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		note_panel.modulate.a = 0.0
+		note_panel.visible = false
+		var note_style := StyleBoxFlat.new()
+		note_style.bg_color = Color(0.01, 0.015, 0.025, 0.96)
+		note_style.border_color = Color(NOTE_COLOR, 0.75)
+		note_style.set_border_width_all(1)
+		note_style.set_content_margin_all(8)
+		note_panel.add_theme_stylebox_override("panel", note_style)
+		_note_popup_layer.add_child(note_panel)
+		_note_panels.append(note_panel)
+
 		var note := Label.new()
 		note.text = ""
-		note.custom_minimum_size = Vector2(220, 0)
+		note.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		note.offset_left = 8
+		note.offset_top = 7
+		note.offset_right = -8
+		note.offset_bottom = -7
 		note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		note.add_theme_font_override("font", DISPLAY_FONT_SOURCE)
 		note.add_theme_font_size_override("font_size", 11)
 		note.add_theme_color_override("font_color", NOTE_COLOR)
+		note.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		note.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		note.visible = false
-		card.add_child(note)
+		note_panel.add_child(note)
 		_status_notes.append(note)
 
 	# 下部空白
@@ -232,74 +321,85 @@ func _reset_transition_state() -> void:
 func populate(choices: Array[Dictionary], points_capped: bool = false) -> void:
 	_populate_generation += 1
 	_choices = choices
-	var four_card_layout := choices.size() > 3
+	_selection_locked = false
+	_input_locked = true
 	for i in range(_buttons.size()):
+		_hovered[i] = false
+		_focused[i] = false
 		if i < choices.size():
-			_buttons[i].visible = true
-			_buttons[i].custom_minimum_size = Vector2(240, 180) if four_card_layout else Vector2(220, 120)
-			var cat: String = choices[i].get("category", "")
-			var cat_prefix := _axis_prefix(cat)
+			var choice := choices[i]
+			var btn := _buttons[i]
+			btn.visible = true
+			btn.disabled = true
+			btn.mouse_filter = Control.MOUSE_FILTER_STOP
+			btn.custom_minimum_size = CARD_SIZE
+			_media_roots[i].position = Vector2.ZERO
+			_media_roots[i].scale = Vector2.ONE
+			_media_roots[i].rotation = 0.0
+			_media_roots[i].modulate = Color.WHITE
 			var is_sig: bool = SurvivorData.is_signature_upgrade(choices[i])
 			var is_signature_offer: bool = bool(choices[i].get("signature_offer", false))
-			# 轴归属交给左上角轴色徽章（大字+轴色），正文不再重复轴名——首行留白给徽章行
 			var axis: StringName = SurvivorData.axis_of_upgrade(choices[i])
 			var axis_color: Color = SurvivorData.AXIS_COLORS.get(axis, Color.WHITE)
-			if is_signature_offer:
-				var aircraft_name := tr(String(choices[i].get("signature_aircraft_name_key", "")))
-				_buttons[i].text = "\n%s\n%s\n\n%s" % [
-					_format_one("UPGRADE_SIGNATURE_AIRCRAFT_FMT", aircraft_name),
-					tr(choices[i]["name"]), tr(choices[i]["desc"])]
-			else:
-				_buttons[i].text = "\n%s%s\n\n%s" % [cat_prefix, tr(choices[i]["name"]), tr(choices[i]["desc"])]
+
+			var rarity: int = SurvivorData.get_rarity(choices[i])
+			var rarity_color: Color = SurvivorData.RARITY_COLORS[rarity] \
+				if rarity < SurvivorData.RARITY_COLORS.size() else Color.WHITE
+			var frame_color: Color = SIG_FRAME_COLOR if is_sig else rarity_color
+			_media_surfaces[i].configure(rarity, frame_color, is_sig)
+			_media_surfaces[i].set_selected(false)
+
+			# 稀有度越高，介质后的 shader 辉光越强；低档软盘保持近乎实体材质。
+			var glow_levels := [0.0, 0.07, 0.20, 0.58, 0.92]
+			var glow_intensity: float = float(glow_levels[clampi(rarity, 0, glow_levels.size() - 1)])
+			if is_sig:
+				glow_intensity = maxf(glow_intensity, 0.78)
+			var glow_material := _glow_panels[i].material as ShaderMaterial
+			glow_material.set_shader_parameter("glow_color", frame_color)
+			glow_material.set_shader_parameter("intensity", glow_intensity)
+			glow_material.set_shader_parameter("optical_mix", 1.0 if _media_surfaces[i].optical else 0.0)
+
+			var light_label: bool = not bool(_media_surfaces[i].label_is_dark)
+			var primary_text := Color(0.055, 0.06, 0.075) if light_label else Color(0.94, 0.96, 1.0)
+			var secondary_text := Color(0.11, 0.12, 0.15, 0.96) if light_label else Color(0.73, 0.79, 0.88)
+			_name_labels[i].text = tr(str(choice.get("name", "")))
+			_name_labels[i].add_theme_color_override("font_color", primary_text)
+			_description_labels[i].text = _description_bbcode(choice, secondary_text)
 			if i < _axis_badges.size():
 				var ab := _axis_badges[i]
 				var axis_name := tr(str(SurvivorData.AXIS_I18N_KEY.get(axis, "")))
 				ab.text = tr("UPGRADE_SIGNATURE_BADGE") if is_signature_offer \
 					else (axis_name if points_capped else "%s +1" % axis_name)
-				ab.add_theme_color_override("font_color", SIG_FRAME_COLOR if is_signature_offer else axis_color)
+				var axis_display := SIG_FRAME_COLOR if is_signature_offer else axis_color
+				if light_label:
+					axis_display = axis_display.darkened(0.38)
+				ab.add_theme_color_override("font_color", axis_display)
 				var ab_bg: StyleBoxFlat = ab.get_theme_stylebox("normal")
 				if ab_bg is StyleBoxFlat:
 					var badge_color := SIG_FRAME_COLOR if is_signature_offer else axis_color
 					ab_bg.border_color = badge_color
 					ab_bg.border_width_left = 4
-					ab_bg.bg_color = Color(badge_color.r, badge_color.g, badge_color.b, 0.14)
+					ab_bg.bg_color = Color(badge_color.r, badge_color.g, badge_color.b, 0.12)
 				ab.visible = true
 
-			# §5 稀有度边框 + 徽章（覆盖原 5 轴边框颜色，让稀有度成为主视觉）
-			var rarity: int = SurvivorData.get_rarity(choices[i])
-			var rarity_color: Color = SurvivorData.RARITY_COLORS[rarity] if rarity < SurvivorData.RARITY_COLORS.size() else Color.WHITE
 			var rarity_label: String = ""
 			if rarity < SurvivorData.RARITY_LABEL_KEYS.size():
 				rarity_label = tr(SurvivorData.RARITY_LABEL_KEYS[rarity])
-			# 高稀有度更粗边框，更醒目
-			var border_w: int = 1 + clampi(rarity, 0, 4) / 2 + (1 if rarity >= SurvivorData.Rarity.CLASSIFIED else 0)
-
-			# 签名技走独立卡框色：sig_* 全是 CLASSIFIED，混在一堆金框里认不出来，
-			# 而"只有开这台机才拿得到"比稀有度更值得一眼看见。徽章仍保留真稀有度色。
-			var frame_color: Color = SIG_FRAME_COLOR if is_sig else rarity_color
-			if is_sig:
-				border_w += 1
-
-			var style_normal: StyleBoxFlat = _buttons[i].get_theme_stylebox("normal").duplicate()
-			var style_hover: StyleBoxFlat = _buttons[i].get_theme_stylebox("hover").duplicate()
-			# normal 用 70% 不透明的框色，hover 满色 + 更粗
-			style_normal.border_color = Color(frame_color, 0.7)
-			style_hover.border_color = frame_color
-			style_normal.set_border_width_all(border_w)
-			style_hover.set_border_width_all(border_w + 1)
-			# 签名技 / Next-Gen 给一点发光底色（让"这张不一样"视觉就能区分）
-			if is_sig:
-				style_normal.bg_color = Color(frame_color, 0.16).blend(style_normal.bg_color)
-			elif rarity == SurvivorData.Rarity.NEXT_GEN:
-				style_normal.bg_color = Color(frame_color, 0.10).blend(style_normal.bg_color)
-			_buttons[i].add_theme_stylebox_override("normal", style_normal)
-			_buttons[i].add_theme_stylebox_override("hover", style_hover)
-
-			# 徽章文本 + 边框颜色
 			if i < _rarity_badges.size():
 				var badge := _rarity_badges[i]
 				badge.text = rarity_label
-				badge.add_theme_color_override("font_color", rarity_color)
+				var badge_style := badge.get_theme_stylebox("normal") as StyleBoxFlat
+				if light_label:
+					# 浅色纸标签上使用实体深色铭牌，避免灰字叠灰底呈现为 disabled。
+					badge_style.bg_color = Color(0.075, 0.085, 0.10, 0.94)
+					badge_style.border_color = Color(rarity_color, 0.82)
+					badge_style.set_border_width_all(1)
+					badge.add_theme_color_override("font_color", rarity_color.lightened(0.62))
+				else:
+					badge_style.bg_color = Color(0.0, 0.0, 0.0, 0.42)
+					badge_style.border_color = Color(rarity_color, 0.52)
+					badge_style.set_border_width_all(1)
+					badge.add_theme_color_override("font_color", rarity_color.lightened(0.10))
 				badge.visible = rarity_label != ""
 
 			# 归属角标（skills-720 §1.2）：通用◈全队 / 品类=系名+轴色 / 王牌金色 / 队级单件
@@ -311,7 +411,8 @@ func populate(choices: Array[Dictionary], points_capped: bool = false) -> void:
 				var scope: String = SurvivorData.upgrade_scope(choices[i])
 				var cls: Array = SurvivorData.upgrade_classes(choices[i])
 				if is_signature_offer:
-					parts.append(tr(str(SurvivorData.AXIS_I18N_KEY.get(axis, ""))))
+					var aircraft_name := tr(String(choices[i].get("signature_aircraft_name_key", "")))
+					parts.append(_format_one("UPGRADE_SIGNATURE_AIRCRAFT_FMT", aircraft_name))
 				if scope == "ace":
 					sb_color = Color(1.0, 0.84, 0.3)
 					parts.append(tr("UPGRADE_SCOPE_ACE"))
@@ -331,10 +432,10 @@ func populate(choices: Array[Dictionary], points_capped: bool = false) -> void:
 				if mp != &"":
 					parts.append(tr("UPGRADE_MILESTONE_PLUS_FMT") % tr(str(SurvivorData.AXIS_I18N_KEY.get(mp, ""))))
 				sb.text = " · ".join(PackedStringArray(parts))
-				sb.add_theme_color_override("font_color", sb_color)
+				sb.add_theme_color_override("font_color", sb_color.darkened(0.42) if light_label else sb_color)
 				sb.visible = true
 
-			# 状态词条脚注（0729）：这条技能给的 buff/debuff 本身干什么
+			# 状态词条解释：先填内容，默认隐藏；hover / focus 再浮现。
 			if i < _status_notes.size():
 				var nb := _status_notes[i]
 				var note_lines: Array = []
@@ -343,15 +444,25 @@ func populate(choices: Array[Dictionary], points_capped: bool = false) -> void:
 					if nk != "":
 						note_lines.append(tr(nk))
 				nb.text = "\n".join(PackedStringArray(note_lines))
-				nb.visible = not note_lines.is_empty()
+				_note_panels[i].visible = false
+				_note_panels[i].modulate.a = 0.0
+				_note_panels[i].position = Vector2.ZERO
+				var note_style := _note_panels[i].get_theme_stylebox("panel") as StyleBoxFlat
+				note_style.border_color = Color(frame_color, 0.86)
 
 			if i < _flash_frames.size():
 				_flash_frames[i].visible = false
 				_flash_frames[i].modulate.a = 0.0
+			if i < _scan_lines.size():
+				_scan_lines[i].visible = false
+				_scan_lines[i].modulate.a = 0.0
 		else:
 			_buttons[i].visible = false
+			_buttons[i].disabled = true
+			_buttons[i].mouse_filter = Control.MOUSE_FILTER_IGNORE
 			if i < _status_notes.size():
-				_status_notes[i].visible = false
+				_status_notes[i].text = ""
+				_note_panels[i].visible = false
 			if i < _rarity_badges.size():
 				_rarity_badges[i].visible = false
 			if i < _axis_badges.size():
@@ -360,6 +471,186 @@ func populate(choices: Array[Dictionary], points_capped: bool = false) -> void:
 				_scope_badges[i].visible = false
 		if i < _cards.size():
 			_cards[i].visible = i < choices.size()
+	_schedule_input_unlock()
+
+
+## pause-process timer 让保护时间在游戏硬暂停期间仍正常流逝；generation 防旧弹窗回调串场。
+func _schedule_input_unlock() -> void:
+	if not is_inside_tree():
+		return
+	var generation := _populate_generation
+	_begin_input_unlock_delay.call_deferred(generation)
+
+
+func _begin_input_unlock_delay(generation: int) -> void:
+	await get_tree().process_frame
+	if generation != _populate_generation:
+		return
+	await get_tree().create_timer(INPUT_UNLOCK_DELAY_S, true, false, true).timeout
+	if generation == _populate_generation and visible:
+		_unlock_choice_input(generation)
+
+
+func _unlock_choice_input(generation: int) -> void:
+	if generation != _populate_generation or _selection_locked:
+		return
+	_input_locked = false
+	for i in range(_buttons.size()):
+		var enabled := i < _choices.size() and _buttons[i].visible
+		_buttons[i].disabled = not enabled
+		_buttons[i].mouse_filter = Control.MOUSE_FILTER_STOP if enabled else Control.MOUSE_FILTER_IGNORE
+		if enabled:
+			_refresh_card_active(i)
+
+
+
+## 把明确标注的代价句单独染成 UI 规范危险红；普通效果仍按介质标签的明暗配色。
+## warning_sentence_count 是纯展示元数据，不用文本关键词猜测，避免把“不可被命中”误判为警告。
+func _description_bbcode(choice: Dictionary, normal_color: Color) -> String:
+	var raw := tr(str(choice.get("desc", "")))
+	var warning_count := maxi(0, int(choice.get("warning_sentence_count", 0)))
+	var escaped := _escape_bbcode(raw)
+	if warning_count == 0 or raw == "":
+		return "[color=#%s]%s[/color]" % [normal_color.to_html(false), escaped]
+	var split_at := _warning_prefix_length(raw, warning_count)
+	var warning_text := _escape_bbcode(raw.substr(0, split_at))
+	var normal_text := _escape_bbcode(raw.substr(split_at))
+	return "[color=#%s]%s[/color][color=#%s]%s[/color]" % [
+		ThemeColors.UI_DANGER_RED.to_html(false), warning_text,
+		normal_color.to_html(false), normal_text,
+	]
+
+
+func _warning_prefix_length(text: String, sentence_count: int) -> int:
+	var cursor := 0
+	for _sentence in range(sentence_count):
+		var full_stop := text.find("。", cursor)
+		var period := text.find(". ", cursor)
+		var boundary := -1
+		var advance := 1
+		if full_stop >= 0:
+			boundary = full_stop
+		if period >= 0 and (boundary < 0 or period < boundary):
+			boundary = period
+			advance = 2
+		if boundary < 0:
+			return text.length()
+		cursor = boundary + advance
+	return cursor
+
+
+func _escape_bbcode(text: String) -> String:
+	return text.replace("[", "[lb]")
+
+
+func _set_card_hovered(index: int, value: bool) -> void:
+	if index < 0 or index >= _hovered.size():
+		return
+	_hovered[index] = value
+	_refresh_card_active(index)
+
+
+func _set_card_focused(index: int, value: bool) -> void:
+	if index < 0 or index >= _focused.size():
+		return
+	_focused[index] = value
+	_refresh_card_active(index)
+
+
+func _refresh_card_active(index: int) -> void:
+	if index < 0 or index >= _buttons.size() or not _buttons[index].visible:
+		return
+	var active := (_hovered[index] or _focused[index]) and not _selection_locked and not _input_locked
+	_media_surfaces[index].set_selected(active)
+	_media_roots[index].scale = Vector2(1.018, 1.018) if active else Vector2.ONE
+	_set_note_revealed(index, active)
+
+
+func _set_note_revealed(index: int, revealed: bool) -> void:
+	if index < 0 or index >= _status_notes.size():
+		return
+	var panel := _note_panels[index]
+	var old_tween: Variant = _note_tweens[index]
+	if old_tween is Tween:
+		(old_tween as Tween).kill()
+	_note_tweens[index] = null
+	if _status_notes[index].text == "":
+		panel.visible = false
+		return
+	if not is_inside_tree():
+		panel.visible = revealed
+		panel.modulate.a = 1.0 if revealed else 0.0
+		return
+	var target_position := _note_popup_position(index)
+	var hidden_position := _note_popup_hidden_position(target_position)
+	var tween := create_tween().set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
+	_note_tweens[index] = tween
+	if revealed:
+		# 键盘 focus 与鼠标 hover 可能短暂指向不同卡；旁注层始终只显示最新一张。
+		for other_index in range(_note_panels.size()):
+			if other_index == index:
+				continue
+			var other_tween: Variant = _note_tweens[other_index]
+			if other_tween is Tween:
+				(other_tween as Tween).kill()
+				_note_tweens[other_index] = null
+			_note_panels[other_index].visible = false
+		if not panel.visible:
+			panel.position = hidden_position
+		panel.visible = true
+		tween.set_parallel(true)
+		tween.tween_property(panel, "modulate:a", 1.0, 0.14).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		tween.tween_property(panel, "position", target_position, 0.14).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	else:
+		tween.set_parallel(true)
+		tween.tween_property(panel, "modulate:a", 0.0, 0.10).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+		tween.tween_property(panel, "position", hidden_position, 0.10).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+		tween.chain().tween_callback(func() -> void:
+			if is_instance_valid(panel) and panel.modulate.a <= 0.01:
+				panel.visible = false
+			_note_tweens[index] = null)
+
+
+func _note_popup_position(index: int) -> Vector2:
+	var viewport_size := get_viewport().get_visible_rect().size
+	var row_rect := _btn_container.get_global_rect()
+	var card_rect := _buttons[index].get_global_rect()
+	var right_x := row_rect.end.x + NOTE_POPUP_GAP
+	var left_x := row_rect.position.x - NOTE_POPUP_SIZE.x - NOTE_POPUP_GAP
+	var x := right_x
+	if right_x + NOTE_POPUP_SIZE.x > viewport_size.x - 16.0 and left_x >= 16.0:
+		x = left_x
+	elif right_x + NOTE_POPUP_SIZE.x > viewport_size.x - 16.0:
+		x = clampf(card_rect.end.x + NOTE_POPUP_GAP, 16.0,
+			viewport_size.x - NOTE_POPUP_SIZE.x - 16.0)
+	var y := clampf(card_rect.position.y + 112.0, 16.0,
+		viewport_size.y - NOTE_POPUP_SIZE.y - 16.0)
+	return Vector2(x, y)
+
+
+func _note_popup_hidden_position(target_position: Vector2) -> Vector2:
+	var row_center_x := _btn_container.get_global_rect().get_center().x
+	var toward_cards := -12.0 if target_position.x > row_center_x else 12.0
+	return target_position + Vector2(toward_cards, 0)
+
+
+func _play_media_boot(index: int) -> void:
+	if index < 0 or index >= _scan_lines.size() or not _buttons[index].visible:
+		return
+	var line := _scan_lines[index]
+	var choice := _choices[index]
+	line.color = entry_flash_color(choice)
+	line.position = Vector2(10, 18)
+	line.modulate.a = 0.0
+	line.visible = true
+	var tween := create_tween().set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
+	tween.set_parallel(true)
+	tween.tween_property(line, "position:y", CARD_SIZE.y - 24.0, 0.26).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
+	tween.tween_property(line, "modulate:a", 0.92, 0.06).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.chain().tween_property(line, "modulate:a", 0.0, 0.16)
+	tween.chain().tween_callback(func() -> void:
+		if is_instance_valid(line):
+			line.visible = false)
 
 ## upgrade_in 的每张卡完成错开入场后，CLASSIFIED / 专属卡闪边一次。
 ## SceneTreeTimer 与 Tween 都设为 pause-process，硬暂停期间照常播放；generation 防旧弹窗回调串场。
@@ -374,15 +665,14 @@ func _schedule_entry_flashes_deferred(generation: int) -> void:
 	if generation != _populate_generation:
 		return
 	for i in range(_choices.size()):
-		var choice: Dictionary = _choices[i]
-		if not should_flash_entry(choice):
-			continue
 		var idx := i
 		var timer := get_tree().create_timer(
 			FLASH_FIRST_CARD_DELAY_S + FLASH_CARD_STAGGER_S * float(i), true, false, true)
 		timer.timeout.connect(func() -> void:
 			if generation == _populate_generation and visible:
-				_play_border_flash(idx))
+				_play_media_boot(idx)
+				if idx < _choices.size() and should_flash_entry(_choices[idx]):
+					_play_border_flash(idx))
 
 func _play_border_flash(index: int) -> void:
 	if index < 0 or index >= _choices.size() or index >= _flash_frames.size():
@@ -446,6 +736,33 @@ static func _axis_colors(axis: String) -> Array:
 ## 只发信号，【不自己隐藏】——退场由 survivor_mode 走 Presentation.dismiss() 驱动。
 ## 若无导演（bench / 单测），survivor_mode 的兜底分支会直接置 visible = false
 func _on_choice_pressed(index: int) -> void:
-	if index < _choices.size():
-		_populate_generation += 1  # 取消尚未开始的入场闪边 timer
-		upgrade_selected.emit(_choices[index])
+	if index < 0 or index >= _choices.size() or _selection_locked or _input_locked:
+		return
+	_selection_locked = true
+	_populate_generation += 1  # 取消尚未开始的入场闪边 timer
+	var selected_choice := _choices[index]
+	for btn in _buttons:
+		btn.disabled = true
+		btn.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_media_surfaces[index].set_selected(true)
+	_set_note_revealed(index, false)
+	if not is_inside_tree():
+		upgrade_selected.emit(selected_choice)
+		return
+	# 不建立连线、不淡出：卡带保持实体，垂直压入底部成长槽并压成薄片。
+	var media := _media_roots[index]
+	var start_position := media.position
+	var card_center := media.get_global_rect().get_center()
+	var viewport_size := get_viewport().get_visible_rect().size
+	var slot_center_y: float = float(
+		SURVIVOR_HUD_SCRIPT.bottom_axis_rect(viewport_size).get_center().y)
+	var target_position := start_position + Vector2(0, slot_center_y - card_center.y)
+	media.modulate.a = 1.0
+	var insert_tween := create_tween().set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
+	insert_tween.set_parallel(true)
+	insert_tween.tween_property(media, "position", target_position,
+		CONFIRM_INSERT_DURATION_S).set_trans(Tween.TRANS_LINEAR)
+	insert_tween.tween_property(media, "scale", CONFIRM_INSERT_SCALE,
+		CONFIRM_INSERT_DURATION_S).set_trans(Tween.TRANS_LINEAR)
+	insert_tween.finished.connect(func() -> void:
+		upgrade_selected.emit(selected_choice))

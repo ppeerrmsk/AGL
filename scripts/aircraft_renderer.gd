@@ -15,6 +15,10 @@ const DATA_LABEL_TOP_PX: float = -12.0
 const AIRCRAFT_ICON_HALF_EXTENT_WORLD: float = 20.0
 const BANK_VOLUME_FACE_OFFSET_RATIO: float = 0.42
 const BANK_VOLUME_FACE_FADE_COS: float = 0.18
+const SUPPORT_RANGE_FILL_ALPHA: float = 0.07
+const SUPPORT_RANGE_RING_ALPHA: float = 0.42
+const SUPPORT_RANGE_RING_WIDTH: float = 2.0
+const SUPPORT_RANGE_SEGMENTS: int = 96
 
 ## 锁定框以现有尺寸为高空上限，地面与低空目标按真实高度连续缩小。
 const LOCK_BOX_ALTITUDE_SCALE_KEYS := [
@@ -42,6 +46,15 @@ static func safe_player_ref() -> Aircraft:
 	if safe_ref == null:
 		player_ref = null
 	return safe_ref
+
+
+## Sentinel 风格的范围色层；RGB 只走 FactionPalette，蓝=玩家直属、绿=第三方友军。
+static func support_range_fill_color(team: int) -> Color:
+	return GameConstants.team_radar_color(team, SUPPORT_RANGE_FILL_ALPHA)
+
+
+static func support_range_ring_color(team: int) -> Color:
+	return GameConstants.team_radar_color(team, SUPPORT_RANGE_RING_ALPHA)
 
 ## 世界内 CanvasItem 上的 HUD 符号使用这个比例抵消实际视口缩放。
 ## 读 viewport transform 而不是 CameraController.target_zoom，才能覆盖平滑缩放、
@@ -357,24 +370,6 @@ static func draw_cloud_state(ac: Aircraft) -> void:
 		var shadow_alpha: float = 0.22 * ac.cloud_density
 		ac.draw_circle(Vector2(4.0, 5.0), shadow_r, Color(0.35, 0.42, 0.52, shadow_alpha))
 
-
-## CLIMB/DIVE 气流：复用 Aircraft 已有重绘节拍，一次 draw_multiline 提交四条流线。
-static func draw_altitude_airflow(ac: Aircraft) -> void:
-	if ac.altitude_action == Aircraft.AltitudeAction.NONE:
-		return
-	var s: float = altitude_base_scale(ac) * visual_model_scale(ac)
-	var phase: float = fmod(Time.get_ticks_msec() * 0.045, 20.0)
-	var points := PackedVector2Array()
-	var action_sign: float = -1.0 if ac.altitude_action == Aircraft.AltitudeAction.CLIMB else 1.0
-	for i in range(4):
-		var x: float = (-13.0 + float(i) * 8.5) * s
-		var y: float = (-24.0 + fmod(phase + float(i) * 7.0, 28.0)) * s
-		points.append(Vector2(x, y))
-		points.append(Vector2(x + action_sign * 1.5 * s, y + 8.0 * s))
-	var color := Color(0.45, 0.90, 1.0, 0.58) \
-		if ac.altitude_action == Aircraft.AltitudeAction.CLIMB \
-		else Color(1.0, 0.72, 0.28, 0.62)
-	ac.draw_multiline(points, color, maxf(1.0, 1.15 * s), true)
 
 ## 编队调试覆盖层（仅 formation_debug=true 时绘制）
 ## 显示：当前分支、阵型槽位、当前/目标航向射线、bank 差异
@@ -2607,5 +2602,6 @@ static func draw_esm_aura(ac: Aircraft) -> void:
 	if esm == null:
 		return
 	var radius_px: float = float(esm.get("aura_radius_m")) * CombatUnit.PIXELS_PER_METER
-	ac.draw_arc(Vector2.ZERO, radius_px, 0.0, TAU, 96,
-		Color(0.15, 0.85, 1.0, 0.42), 2.0, true)
+	ac.draw_circle(Vector2.ZERO, radius_px, support_range_fill_color(ac.team))
+	ac.draw_arc(Vector2.ZERO, radius_px, 0.0, TAU, SUPPORT_RANGE_SEGMENTS,
+		support_range_ring_color(ac.team), SUPPORT_RANGE_RING_WIDTH, true)

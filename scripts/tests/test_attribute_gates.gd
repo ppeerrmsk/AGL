@@ -23,6 +23,7 @@ func run() -> void:
 	_test_classified_card_pity()
 	_test_weapon_inventory()
 	_test_evolution_gates()
+	_test_boss_debug_reference_builds()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
 
@@ -613,6 +614,74 @@ func _test_evolution_gates() -> void:
 				unreachable_edges.append("%s→%s" % [source_id, target_id])
 	_check("进化树边数 = 124", edge_count == 124, "got %d" % edge_count)
 	_check("三轴上限 8：永久不可达边 = 0", unreachable_edges.is_empty(), str(unreachable_edges))
+
+
+# ── I. Boss Debug T4 参考态（正式树 / 等级 / build / 里程碑同源）──
+func _test_boss_debug_reference_builds() -> void:
+	print("── I. Boss Debug：7 架 T4 / 等级 / 门槛 build / 正式武器与技能池 ──")
+	var nodes := BossDebugBuilds.reference_nodes()
+	var expected_ids := [&"yf23", &"f47", &"mig41", &"faxx", &"fcas", &"gcap", &"j36"]
+	var actual_ids: Array[StringName] = []
+	var all_valid := true
+	var all_weapon_loadouts_valid := true
+	var formal_weapon_pool: Dictionary = ZoneData.REWARD_WEAPON_WEIGHTS[
+		BossDebugBuilds.REFERENCE_WEAPON_DIFFICULTY]
+	for node in nodes:
+		var node_id := StringName(String(node.get("id", "")))
+		actual_ids.append(node_id)
+		var level := EvolutionSystem.min_level_of(node)
+		var targets := BossDebugBuilds.target_axis_points(node_id, level)
+		var total := 0
+		for axis in SurvivorData.AXES:
+			total += int(targets.get(axis, 0))
+		if int(node.get("tier", 0)) != BossDebugBuilds.REFERENCE_TIER \
+				or total != SurvivorData.axis_points_earnable(level) \
+				or not EvolutionSystem.gates_passed(node, targets):
+			all_valid = false
+			continue
+		var profile := AircraftDB.get_profile(StringName(String(node.get("profile", ""))))
+		if profile == null or profile.base_params == null:
+			all_valid = false
+			continue
+		# 连续抽样覆盖随机主题/排他组合，避免单次绿灯掩盖偶发空池。
+		for _sample in 12:
+			var weapons := BossDebugBuilds.roll_weapon_loadout(level)
+			var expected_weapon_count := 2 if total <= 5 else 3
+			var unique_weapons: Dictionary = {}
+			for weapon_id in weapons:
+				unique_weapons[weapon_id] = true
+				if not formal_weapon_pool.has(weapon_id):
+					all_weapon_loadouts_valid = false
+			if weapons.size() != expected_weapon_count \
+					or unique_weapons.size() != weapons.size() \
+					or (weapons.has("tail_mine") and weapons.has("loyal_wingman")):
+				all_weapon_loadouts_valid = false
+			var roll := BossDebugBuilds.roll_reference_build(node_id, profile.base_params)
+			var picks: Array = roll.get("picks", [])
+			if int(roll.get("level", 0)) != level or picks.size() != total:
+				all_valid = false
+				continue
+			var picked_axes: Dictionary = {}
+			for pick in picks:
+				if pick.get("evolved", false) or not SurvivorData.is_normal_random_candidate(pick):
+					all_valid = false
+				var pick_axis := SurvivorData.axis_of_upgrade(pick)
+				picked_axes[pick_axis] = int(picked_axes.get(pick_axis, 0)) + 1
+			for axis in SurvivorData.AXES:
+				if int(picked_axes.get(axis, 0)) != int(targets.get(axis, 0)):
+					all_valid = false
+	_check("参考名单 = 全部 7 架 T4", actual_ids.size() == expected_ids.size()
+		and expected_ids.all(func(id): return actual_ids.has(id)), str(actual_ids))
+	_check("每架参考态：等级收入=技能数=轴点，且满足自身 gates", all_valid, "见上方节点")
+	_check("武器构筑：三星正式池、5点配2件/6点配3件、无重复且机尾位互斥",
+		all_weapon_loadouts_valid, "见上方节点")
+	_check("专精 T4 的剩余点兑现 6 点里程碑",
+		int(BossDebugBuilds.target_axis_points(&"faxx", 18).get(
+			SurvivorData.AXIS_GLADIATOR, 0)) == 6
+		and int(BossDebugBuilds.target_axis_points(&"fcas", 19).get(
+			SurvivorData.AXIS_SCHEMER, 0)) == 6
+		and int(BossDebugBuilds.target_axis_points(&"gcap", 19).get(
+			SurvivorData.AXIS_KNIGHT, 0)) == 6, "")
 
 
 # ── G. 局内武器库（spec inrun-weapon-inventory：快照/补挂/互斥/不重复/底线不入库）──

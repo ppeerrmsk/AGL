@@ -3,7 +3,7 @@ id: squad-control-switching
 kind: system
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 7
+spec_version: 8
 owner: noelu
 depends_on: [survivor-loop, squad-upgrade-ownership]
 reconstruction_complete: false
@@ -78,6 +78,7 @@ AGL 正在 RTS 化。本功能让"小队"成为可操控单位池：玩家随时
 |---|---|---|
 | `manual_control: bool` | AIController（新增） | true = 该机被玩家亲控，AI **休眠**：不发 target_position、不选战术、不设速度/高度目标；但**仍维护内部状态**（_current_target 等）以便恢复延续。auto-missile-evasion 反射保留（§3.5） |
 | 当前操控机引用 | survivor_mode `player_aircraft` + `AircraftRenderer.player_ref` | 唯一真源；切换走单一 chokepoint `set_player_aircraft()` 原子更新所有消费者 |
+| `use_tactical_preference: bool` | Aircraft | 当前操控角色的物理/战术权限；全队恰好一架为 true。换机必须同一事务中设 `old=false` / `new=true`，否则新操控机会误吃导弹 phase-2 的 35% 坡度上限，旧机则永久保留玩家豁免 |
 
 ## 3. 行为与公式（How）
 
@@ -101,7 +102,8 @@ AGL 正在 RTS 化。本功能让"小队"成为可操控单位池：玩家随时
 3. **编队换长机**：`squad.set_leader(new_ac)`（§3.3）→ 触发 `leader_changed`（只动 squad_index，**不动 squad_slot**）。
 4. **旧机降级**：`old_ac.ai.manual_control = false`（AI 唤醒）→ §3.4 平滑降级（带 grace）。
 5. **重定向操控真源**（单一 chokepoint `set_player_aircraft(new_ac)`）：
-   - `survivor_mode.player_aircraft = new_ac`
+   - `old_ac.use_tactical_preference = false`，`new_ac.use_tactical_preference = true`
+   - `survivor_mode.player_aircraft = new_ac`
    - `AircraftRenderer.player_ref = new_ac`
    - `_camera_ctrl.set_follow_target(new_ac)` + 相机位置即时 snap
    - HUD 右下状态面板刷新到 new_ac
@@ -170,6 +172,7 @@ func set_leader(new_leader):
 |---|---|---|
 | `Aircraft.squad_slot` | 稳定号机号（1-4），键绑定 + 显示 | **新增字段**，spawn 时赋值 |
 | `set_player_aircraft(ac)` chokepoint | 原子重定向 player_aircraft / player_ref / 相机 / HUD | **新增**（survivor_mode） |
+| `Aircraft.use_tactical_preference` | 玩家操控角色的全坡度战术权限 | 由同一 chokepoint 原子从旧机转给新机 |
 | KEY_1..4 切换监听 | §3.1 | 改 _unhandled_input（survivor_mode） |
 | 武器偏好键迁移 KEY_1/2 → KEY_Q | 腾出数字键 | 改（survivor_mode + 键位帮助文本 + i18n） |
 | `Squad.set_leader(new_leader)` | 显式换帅，只动 squad_index | **新增**（squad.gd） |
@@ -189,6 +192,7 @@ func set_leader(new_leader):
 - [ ] **底色三态**：全场至多一架白底；友方其余蓝底；敌机始终红底（敌我识别不丢）。
 - [ ] **战术键位真相化**：T 切导弹/机炮、Q 切爬升/低空、C/V 切小队交战/小队武器均正常；数字键 1-9 只切控不再碰战术；HUD 标签与悬浮提示显示的键与实际一致。
 - [ ] **休眠反射**：亲控时来袭导弹仍自动闪避、武器仍自动开火；仅主动战术导航交玩家。
+- [x] **操控权限单例**：任意主动切控/长机阵亡接管后，新操控机 `use_tactical_preference=true`、旧机=false；新机不会因导弹 phase 2 在 35%/100% 坡度权限间反复切换。
 - [ ] **击落接管**：操控机被击落 → 自动接管下一存活号机、相机 snap；全队覆灭才 Game Over。
 - [ ] **边界**：按当前机的键=no-op；按对应已死/不存在号机的键=忽略；单机无僚机时无异常。
 - [ ] 性能：切换为输入事件级；生存模式 Sentinel + Lv5+ 满编队压测 FPS 掉幅 < 15。
@@ -205,6 +209,7 @@ func set_leader(new_leader):
 
 ### 阶段 2 — 操控真源 chokepoint ✅（早前会话，commit 04a7a44）
 - [x] 操控真源切换（chokepoint 内联在 `_switch_control_to_slot`）：原子更新 player_aircraft / player_ref / 相机 snap / HUD（§3.2 步骤 5）。命名与 spec 的 `set_player_aircraft` 不同（内联实现），功能等价。
+- [x] `_set_player_aircraft` 同时转移 `use_tactical_preference`；旧机清除、新机授予，覆盖手动切控与阵亡接管。
 - [x] 全队初始化：所有友机挂 AIController；初始 1 号机 `manual_control = true`。
 
 ### 阶段 3 — 键位与切换交互 ✅（早前会话，commit 04a7a44）
@@ -247,3 +252,4 @@ func set_leader(new_leader):
 | 2026-07-29 | 5 | **固定号机号重新收口**：撤销后续曾引入的“按存活列表动态压缩”实现，数字键恢复严格匹配稳定 `squad_slot`。小队面板显示当前操控机与全部僚机的固定数字；阵亡号位留空，新入队飞机回填最小空号。 |
 | 2026-08-03 | 6 | **修长机阵亡后全队指挥失联**：武器在 survivor 死亡检查后击毁长机时，僚机 AI 会先把 `AI.squad` 清空；下一帧仅晋升 leader 未恢复反向引用，轮盘遂退化为单机命令。`Squad.members/leader` 定为结构真源，cleanup/换帅时原子恢复全员 `AI.squad`、连续重排 `squad_index`、刷新编队缓存；自动接管新长机完整 `clear_formation()`。`squad_cmd_ui` 新增真实时序回归，26/26。 |
 | 2026-08-04 | 7 | 文档维护：把摘要中遗留的 1–4 改为已在 v4 落地的 1–9；机制与代码不变。 |
+| 2026-08-18 | 8 | 修复换机只转移 player_ref、未转移 `use_tactical_preference`的角色半切状态：新操控机曾被当作普通 AI，在导弹发射锥边界反复切换 35%/100% 坡度上限，导致滚转与 G 值抽动。现由唯一 chokepoint 原子转移，`squad_cmd_ui` 28/28 直接对比两种坡度 cap。 |

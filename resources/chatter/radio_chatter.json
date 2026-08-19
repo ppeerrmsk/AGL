@@ -100,6 +100,22 @@
         "RADIO_BOMBER_ESCORT_REQUEST"
       ]
     },
+    "bomber_escort_intercept": {
+      "_doc": "玩家选择轰炸护送任务、敌方截击包真实生成时，由指挥中心只报告军事态势，不解释失败阈值。",
+      "class": "scripted",
+      "weight": 97,
+      "lines": [
+        "RADIO_BOMBER_ESCORT_INTERCEPT"
+      ]
+    },
+    "bomber_escort_complete": {
+      "_doc": "战略目标被实际炸毁后，由指挥中心只确认目标摧毁与编队撤离；奖励另由 HUD 显示。",
+      "class": "scripted",
+      "weight": 98,
+      "lines": [
+        "RADIO_BOMBER_ESCORT_COMPLETE"
+      ]
+    },
     "zone_naval_contact": {
       "_doc": "海战任务首次触发，由本战区真实存活敌舰低优先级随机喊话。",
       "class": "ambient",

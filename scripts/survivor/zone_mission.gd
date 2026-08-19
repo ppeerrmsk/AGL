@@ -31,8 +31,14 @@ const MIN_UNIT_SEPARATION_PX := 650.0   ## 地面单位最小间距（≈1.3km�
 const MIN_ROAD_DISTANCE_PX := 180.0     ## 距道路/高速的最小距离（≈360m）
 const MAX_SAMPLE_ATTEMPTS := 80         ## 每个单位最多尝试 N 次随机位置
 const MISSION_SPAWN_RADIO_LEAD_S := 6.0
+## 玩家已按 Tab 选中任务并抵达战区边缘时，不能让“生成区碰到视野”安全门永久
+## 卡住实体。空中敌人统一从地图边界外入场；地面/舰船静态目标保持既有可达性语义。
+const VISIBLE_SPAWN_RECOVERY_APPROACH_PX := 400.0
+## 战区空军进入巡逻环外沿后结束 ingress 冻结豁免；之后恢复普通 zone_air LOD。
+const ZONE_AIR_INGRESS_ARRIVE_BAND_PX := 320.0
 const BOMBER_ESCORT_COUNT := 3
 const BOMBER_ESCORT_FIGHTER_COUNT := 2
+const BOMBER_ESCORT_BOMBER_HP := 30.0
 const BOMBER_ESCORT_TARGET_HP := 75.0
 const BOMBER_ESCORT_RADIUS_PX := 900.0
 const BOMBER_ESCORT_DEADLINE_S := 150.0
@@ -42,6 +48,15 @@ const BOMBER_ESCORT_INGRESS_LEG_PX := 12500.0
 const BOMBER_ESCORT_LINEUP_PX := 1500.0
 const BOMBER_ESCORT_EXIT_PX := 3500.0
 const BOMBER_ESCORT_CACHE_TICK_S := 0.1
+const BOMBER_ESCORT_MIN_RESPONSE_LEVEL := 5
+const BOMBER_ESCORT_THREAT_BUDGET_BASE := 24
+const BOMBER_ESCORT_THREAT_BUDGET_PER_STAR := 4
+const BOMBER_ESCORT_THREAT_BUDGET_PER_WINGMAN := 3
+const BOMBER_ESCORT_PLAYER_SUPPORT_RADIUS_PX := 3500.0
+const BOMBER_ESCORT_RESPONSE_LAUNCH_PROGRESS := 0.06
+const BOMBER_ESCORT_RESPONSE_ARM_PROGRESS := 0.32
+const BOMBER_ESCORT_RESERVE_TRIGGER_PROGRESS := 0.40
+const BOMBER_ESCORT_UNATTENDED_ABORT_PROGRESS := 0.58
 ## 专用护送航线目录：普通 A–G 只借用任务/奖励槽位，不再提供目标地理。
 ## axis 是同一条航线的正向进攻轴；运行时只允许反转该轴来避开玩家，不临时换线。
 const BOMBER_ESCORT_ROUTE_CATALOG: Array[Dictionary] = [
@@ -121,12 +136,15 @@ var _support_tick_accum: float = 0.0
 var _bomber_cache_accum: float = 0.0
 ## 每项战区支援权益每局只出动一次；fighter / attack 分账，避免互相吞额度。
 var _support_dispatched_kinds: Dictionary = {}
+## 普通地图每个战区只抽一次；刷新/安全降级不得让气氛层反复出现或消失。
+var _zone_atmosphere_enabled: Dictionary = {}
+var _force_all_zone_atmosphere := false
 
 func setup(p_mode: Node, zones: ZoneData, player: Aircraft,
 		sam_scene: PackedScene, sam_params: Resource,
 		aa_scene: PackedScene, aa_params: Resource,
 		bullet_mgr: Node2D, missile_mgr: Node2D,
-		spawner: SurvivorSpawner) -> void:
+		spawner: SurvivorSpawner, force_all_zone_atmosphere: bool = false) -> void:
 	mode = p_mode
 	_zones = zones
 	_player = player
@@ -137,6 +155,7 @@ func setup(p_mode: Node, zones: ZoneData, player: Aircraft,
 	_bullet_manager = bullet_mgr
 	_missile_manager = missile_mgr
 	_spawner = spawner
+	_force_all_zone_atmosphere = force_all_zone_atmosphere
 	_zone_atmosphere = ZONE_ATMOSPHERE_SCRIPT.new()
 	_zone_atmosphere.name = "ZoneAtmosphereCombat"
 	add_child(_zone_atmosphere)
@@ -231,14 +250,26 @@ func _ensure_spawned_for_active_zones(delta: float = 0.0) -> void:
 			_spawn_lead_timers[zid] = remaining
 			if remaining > 0.0:
 				continue
-			_spawn_lead_timers.erase(zid)
 		# 铁则：战区**生成半径**与玩家视野有重叠时推迟刷新（下帧再试）
 		# 只测中心点远远不够 —— 空中中队生成环离中心 720px、陆基单位散布到 radius×0.85，
 		# 所以只要战区可能刷出的任何单位会落在屏幕里就往后推
 		if mode and mode.has_method("is_world_pos_visible"):
 			var spawn_reach: float = float(z["radius"]) * SCATTER_RADIUS_SCALE
-			if mode.is_world_pos_visible(_zones.get_zone_center(zid), spawn_reach):
-				continue
+			var zone_center := _zones.get_zone_center(zid)
+			if mode.is_world_pos_visible(zone_center, spawn_reach):
+				var player_distance := _player.global_position.distance_to(zone_center)
+				var entered_zone := player_distance <= float(z["radius"])
+				var selected_at_edge := state == ZoneData.State.SELECTED \
+						and player_distance <= float(z["radius"]) \
+							+ VISIBLE_SPAWN_RECOVERY_APPROACH_PX
+				if not entered_zone and not selected_at_edge:
+					continue
+				# 所有空中敌机都从地图边界外进场；静态目标沿用既有死锁恢复语义。
+				EventLogger.log_event("ZONE", "VisibleSpawnRecovery",
+					"id=%s state=%d mission=%s distance=%.0f radius=%.0f air_ingress=edge" % [
+						zid, state, mission_type, player_distance, float(z["radius"])])
+		# 倒计时归零后若仍被可见性门挡住，保留 0 秒计时器，避免每帧重开 6 秒并重复播报。
+		_spawn_lead_timers.erase(zid)
 		_spawn_zone_units(zid, z)
 
 func _requires_spawn_announcement(zone_id: StringName, mission_type: String) -> bool:
@@ -288,6 +319,8 @@ func _register_zone_atmosphere(zone_id: StringName, mission_type: String,
 		zone: Dictionary) -> void:
 	if _zone_atmosphere == null or mission_type == "bomber_escort":
 		return
+	if not _zone_atmosphere_enabled_for_zone(zone_id):
+		return
 	var hostiles: Array = []
 	for value in _spawned_zones.get(zone_id, []):
 		if is_instance_valid(value) and not hostiles.has(value):
@@ -296,6 +329,17 @@ func _register_zone_atmosphere(zone_id: StringName, mission_type: String,
 		if is_instance_valid(value) and not hostiles.has(value):
 			hostiles.append(value)
 	_zone_atmosphere.register_zone(zone_id, mission_type, zone, hostiles, _player)
+
+func _zone_atmosphere_enabled_for_zone(zone_id: StringName) -> bool:
+	if _force_all_zone_atmosphere:
+		return true
+	if _zone_atmosphere_enabled.has(zone_id):
+		return bool(_zone_atmosphere_enabled[zone_id])
+	var enabled: bool = ZONE_ATMOSPHERE_SCRIPT.cached_enabled(
+		_zone_atmosphere_enabled, zone_id, randf())
+	EventLogger.log_event("ZONE", "AtmosphereRoll", "id=%s chance=%.2f enabled=%s" % [
+		zone_id, ZONE_ATMOSPHERE_SCRIPT.ORDINARY_ZONE_CHANCE, str(enabled)])
+	return enabled
 
 func _retire_zone_atmosphere(zone_id: StringName) -> void:
 	if _zone_atmosphere == null:
@@ -423,16 +467,103 @@ func _start_bomber_escort(zone_id: StringName) -> void:
 		return
 	var controller := _spawner.spawn_bomber_mission(CombatUnit.TEAM_ALLY, route,
 		target.global_position, BOMBER_ESCORT_COUNT, target, BOMBER_ESCORT_DEADLINE_S,
-		SurvivorSpawner.BomberFormation.TRAIL, 1, BOMBER_ESCORT_FIGHTER_COUNT) as BomberMission
+		SurvivorSpawner.BomberFormation.TRAIL, 1, BOMBER_ESCORT_FIGHTER_COUNT,
+		BOMBER_ESCORT_BOMBER_HP) as BomberMission
 	if controller == null:
 		fail_zone(zone_id, "bomber_spawn_failed")
 		return
+	var difficulty := _zones.get_difficulty(zone_id) if _zones else 1
+	var response_level := maxi(BOMBER_ESCORT_MIN_RESPONSE_LEVEL,
+		_spawner.get_response_level())
+	var player_squad_size := _spawner.player_squad_size()
+	var variant_seed := hash(String(zone_id))
+	var response_plan := bomber_interceptor_plan(response_level, difficulty,
+		player_squad_size, variant_seed)
 	run["controller"] = controller
+	run["interceptors"] = []
+	run["response_plan"] = response_plan
+	run["initial_response_spawned"] = false
+	run["response_level"] = response_level
+	run["player_squad_size"] = player_squad_size
+	run["variant_seed"] = variant_seed
+	run["player_intervened"] = false
+	run["response_armed"] = false
+	run["reserve_spawned"] = false
+	run["route_progress"] = 0.0
 	_bomber_escort_runs[zone_id] = run
 	controller.mission_failed.connect(_on_bomber_escort_failed.bind(zone_id))
 	EventLogger.log_event("ZONE", "BomberEscortStarted",
-		"id=%s bombers=%d escorts=%d release_each=1 deadline=%.0f" % [zone_id,
-			BOMBER_ESCORT_COUNT, BOMBER_ESCORT_FIGHTER_COUNT, BOMBER_ESCORT_DEADLINE_S])
+		"id=%s stars=%d response=%d squad=%d bombers=%d escorts=%d response_pending=true plan=%s release_each=1 deadline=%.0f" % [
+			zone_id, difficulty, response_level, player_squad_size, BOMBER_ESCORT_COUNT,
+			BOMBER_ESCORT_FIGHTER_COUNT, bomber_interceptor_plan_summary(response_plan),
+			BOMBER_ESCORT_DEADLINE_S])
+
+## 根据正式敌机池组建“截击 B-1B + 扫荡 F-4E”混编。响应等级决定机型时代，
+## 星级和直属僚机数只改变 Token 威胁预算，避免固定机型/固定人头硬压。
+static func bomber_interceptor_plan(response_level: int, difficulty: int,
+		player_squad_size: int, variant_seed: int = 0) -> Array[Dictionary]:
+	var response := maxi(BOMBER_ESCORT_MIN_RESPONSE_LEVEL, response_level)
+	var strike_rows := _bomber_role_rows(response, "intercept")
+	var screen_rows := _bomber_role_rows(response, "dogfight")
+	if strike_rows.is_empty() or screen_rows.is_empty():
+		return []
+	var strike_row: Dictionary = strike_rows[posmod(variant_seed, strike_rows.size())]
+	var screen_row: Dictionary = screen_rows[posmod(variant_seed * 3 + 1, screen_rows.size())]
+	var stars := clampi(difficulty, 1, 3)
+	var wingmen := clampi(player_squad_size - 1, 0, 3)
+	var budget := BOMBER_ESCORT_THREAT_BUDGET_BASE \
+		+ BOMBER_ESCORT_THREAT_BUDGET_PER_STAR * stars \
+		+ BOMBER_ESCORT_THREAT_BUDGET_PER_WINGMAN * wingmen
+	var strike_budget := int(round(float(budget) * 0.67))
+	var screen_budget := maxi(1, budget - strike_budget)
+	var strike_count := clampi(int(round(float(strike_budget) \
+		/ float(maxi(1, int(strike_row["token_cost"]))))), 3, 5)
+	var screen_count := clampi(int(round(float(screen_budget) \
+		/ float(maxi(1, int(screen_row["token_cost"]))))), 2, 3)
+	return [
+		{"type": int(strike_row["type"]), "count": strike_count,
+			"assignment": "bomber", "role": "intercept"},
+		{"type": int(screen_row["type"]), "count": screen_count,
+			"assignment": "escort", "role": "dogfight"},
+	]
+
+static func bomber_reserve_plan(response_level: int, difficulty: int,
+		bombers_alive: int, active_strikers: int, variant_seed: int = 0) -> Array[Dictionary]:
+	if bombers_alive <= 0:
+		return []
+	var response := maxi(BOMBER_ESCORT_MIN_RESPONSE_LEVEL, response_level)
+	var rows := _bomber_role_rows(response, "intercept")
+	if rows.is_empty():
+		return []
+	var row: Dictionary = rows[posmod(variant_seed * 5 + 1, rows.size())]
+	var missing_pressure := bombers_alive * 2 - maxi(0, active_strikers)
+	var count := clampi(missing_pressure + clampi(difficulty, 1, 3) - 1, 2, 4)
+	return [{"type": int(row["type"]), "count": count,
+		"assignment": "bomber", "role": "intercept"}]
+
+static func _bomber_role_rows(response_level: int, role: String) -> Array[Dictionary]:
+	var broad: Array[Dictionary] = []
+	var current_band: Array[Dictionary] = []
+	for raw_row in EnemyPoolRegistry.ROWS:
+		var row: Dictionary = raw_row
+		if String(row.get("role", "")) != role:
+			continue
+		var unlock := int(row.get("unlock", 999))
+		var retire := int(row.get("retire", -1))
+		if unlock > response_level or (retire >= 0 and response_level > retire):
+			continue
+		broad.append(row)
+		if unlock >= response_level - 3:
+			current_band.append(row)
+	return current_band if not current_band.is_empty() else broad
+
+static func bomber_interceptor_plan_summary(plan: Array[Dictionary]) -> String:
+	var parts: PackedStringArray = []
+	for group in plan:
+		parts.append("%s:%s×%d" % [String(group.get("role", "?")),
+			SurvivorSpawner.type_tag_of(int(group.get("type", -1))),
+			int(group.get("count", 0))])
+	return ",".join(parts)
 
 func _update_bomber_escort_caches(delta: float) -> void:
 	if not _zones:
@@ -451,9 +582,29 @@ func _update_bomber_escort_caches(delta: float) -> void:
 			if center != Vector2.INF:
 				_zones.set_dynamic_center(zid, center, BOMBER_ESCORT_RADIUS_PX,
 					controller.get_live_heading())
-		_zones.set_mission_status(zid, _bomber_status_snapshot(target, controller))
+				var route: PackedVector2Array = run.get("route", PackedVector2Array())
+				run["route_progress"] = bomber_route_progress(route, center)
+			_spawn_bomber_initial_response_if_ready(zid, run, controller)
+			_update_bomber_player_intervention(run, controller)
+			_update_bomber_response_fire(run)
+			_spawn_bomber_reserve_if_needed(zid, run, controller)
+			_retarget_bomber_interceptors(run, controller)
+			_bomber_escort_runs[zid] = run
+			if should_abort_bomber_escort(float(run.get("route_progress", 0.0)),
+					bool(run.get("player_intervened", false))) \
+					and not controller.is_outcome_resolved() \
+					and (target == null or not is_instance_valid(target) or not target.is_destroyed):
+				EventLogger.log_event("BOMBER_MISSION", "ESCORT_ABSENT",
+					"zone=%s progress=%.3f response=%d" % [zid,
+						float(run.get("route_progress", 0.0)),
+						int(run.get("response_level", BOMBER_ESCORT_MIN_RESPONSE_LEVEL))])
+				controller.abort("escort_absent")
+				continue
+		_zones.set_mission_status(zid, _bomber_status_snapshot(target, controller,
+			run.get("interceptors", []), run))
 
-func _bomber_status_snapshot(target: StrategicTarget, controller: BomberMission) -> Dictionary:
+func _bomber_status_snapshot(target: StrategicTarget, controller: BomberMission,
+		interceptors: Array = [], run: Dictionary = {}) -> Dictionary:
 	var max_hp := 150.0
 	var hp := 0.0
 	if target != null and is_instance_valid(target):
@@ -469,7 +620,172 @@ func _bomber_status_snapshot(target: StrategicTarget, controller: BomberMission)
 		"bombers_total": BOMBER_ESCORT_COUNT,
 		"escorts_alive": controller.get_alive_escort_count() if controller != null and is_instance_valid(controller) else BOMBER_ESCORT_FIGHTER_COUNT,
 		"escorts_total": BOMBER_ESCORT_FIGHTER_COUNT,
+		"interceptors_alive": _alive_aircraft_count(interceptors),
+		"interceptors_total": interceptors.size(),
+		"route_progress": float(run.get("route_progress", 0.0)),
+		"player_intervened": bool(run.get("player_intervened", false)),
 	}
+
+static func bomber_route_progress(route: PackedVector2Array, world_pos: Vector2) -> float:
+	if route.size() < 3:
+		return 0.0
+	var leg := route[2] - route[0]
+	var length_sq := leg.length_squared()
+	if length_sq <= 0.001:
+		return 0.0
+	return clampf((world_pos - route[0]).dot(leg) / length_sq, 0.0, 1.0)
+
+static func should_abort_bomber_escort(route_progress: float,
+		player_intervened: bool) -> bool:
+	return not player_intervened \
+		and route_progress >= BOMBER_ESCORT_UNATTENDED_ABORT_PROGRESS
+
+static func bomber_response_weapons_should_arm(route_progress: float) -> bool:
+	return route_progress >= BOMBER_ESCORT_RESPONSE_ARM_PROGRESS
+
+## 轰炸机先飞完 6% 航程（约 750px），响应队才从实时航迹后方同向追入。
+static func bomber_response_should_launch(route_progress: float) -> bool:
+	return route_progress >= BOMBER_ESCORT_RESPONSE_LAUNCH_PROGRESS
+
+func _spawn_bomber_initial_response_if_ready(zone_id: StringName, run: Dictionary,
+		controller: BomberMission) -> void:
+	if bool(run.get("initial_response_spawned", false)):
+		return
+	var center := controller.get_live_center()
+	if center == Vector2.INF or not bomber_response_should_launch(
+			float(run.get("route_progress", 0.0))):
+		return
+	run["initial_response_spawned"] = true
+	var response_plan: Array[Dictionary] = run.get("response_plan", [])
+	var interceptors := _spawner.spawn_bomber_interceptors(center,
+		Vector2(sin(controller.get_live_heading()), -cos(controller.get_live_heading())),
+		controller.get_bombers(), controller.get_escort_fighters(), response_plan, 0)
+	run["interceptors"] = interceptors
+	EventLogger.log_event("BOMBER_MISSION", "REAR_PURSUIT_LAUNCHED",
+		"zone=%s progress=%.3f spawned=%d center=%s plan=%s" % [zone_id,
+			float(run.get("route_progress", 0.0)), interceptors.size(), center.round(),
+			bomber_interceptor_plan_summary(response_plan)])
+
+## 响应队从后方真实接近与建立锁定；32% 航程前只维持共享武器
+## cooldown，避免高阶远射让任务刚刷新就结束。过线一次性放行，此后不再扫描。
+func _update_bomber_response_fire(run: Dictionary) -> void:
+	if bool(run.get("response_armed", false)):
+		return
+	var route_progress := float(run.get("route_progress", 0.0))
+	var arm_now := bomber_response_weapons_should_arm(route_progress)
+	for raw in run.get("interceptors", []):
+		if typeof(raw) != TYPE_OBJECT or raw == null or not is_instance_valid(raw) \
+				or not (raw is Aircraft) or (raw as Aircraft).is_destroyed:
+			continue
+		var interceptor := raw as Aircraft
+		if arm_now:
+			interceptor._fire_cooldown = 0.0
+			interceptor._missile_cooldown = 0.0
+		else:
+			interceptor._fire_cooldown = maxf(interceptor._fire_cooldown, 0.35)
+			interceptor._missile_cooldown = maxf(interceptor._missile_cooldown, 0.35)
+	if arm_now:
+		run["response_armed"] = true
+		EventLogger.log_event("BOMBER_MISSION", "RESPONSE_WEAPONS_ARMED",
+			"progress=%.3f" % route_progress)
+
+func _update_bomber_player_intervention(run: Dictionary,
+		controller: BomberMission) -> void:
+	if bool(run.get("player_intervened", false)):
+		return
+	var center := controller.get_live_center()
+	if center != Vector2.INF and _player != null and is_instance_valid(_player) \
+			and not _player.is_destroyed \
+			and _player.global_position.distance_to(center) \
+				<= BOMBER_ESCORT_PLAYER_SUPPORT_RADIUS_PX:
+		run["player_intervened"] = true
+		EventLogger.log_event("BOMBER_MISSION", "PLAYER_ESCORT_ESTABLISHED",
+			"source=proximity progress=%.3f" % float(run.get("route_progress", 0.0)))
+		return
+	for raw in run.get("interceptors", []):
+		if typeof(raw) != TYPE_OBJECT or raw == null or not is_instance_valid(raw) \
+				or not (raw is Aircraft):
+			continue
+		var interceptor := raw as Aircraft
+		var player_damage := int(interceptor.get_meta("kill_attacker_team", -1)) \
+			== CombatUnit.TEAM_PLAYER
+		if not player_damage and interceptor.has_meta("_pending_attacker"):
+			var attacker := CombatUnit.safe_attacker(
+				interceptor.get_meta("_pending_attacker"))
+			player_damage = attacker is CombatUnit \
+				and (attacker as CombatUnit).team == CombatUnit.TEAM_PLAYER
+		if player_damage:
+			run["player_intervened"] = true
+			EventLogger.log_event("BOMBER_MISSION", "PLAYER_ESCORT_ESTABLISHED",
+				"source=damage progress=%.3f" % float(run.get("route_progress", 0.0)))
+			return
+
+func _spawn_bomber_reserve_if_needed(zone_id: StringName, run: Dictionary,
+		controller: BomberMission) -> void:
+	if bool(run.get("reserve_spawned", false)) \
+			or bool(run.get("player_intervened", false)) \
+			or float(run.get("route_progress", 0.0)) < BOMBER_ESCORT_RESERVE_TRIGGER_PROGRESS:
+		return
+	run["reserve_spawned"] = true
+	var active_strikers := 0
+	for raw in run.get("interceptors", []):
+		if typeof(raw) == TYPE_OBJECT and raw != null and is_instance_valid(raw) \
+				and raw is Aircraft and not (raw as Aircraft).is_destroyed \
+				and String((raw as Aircraft).get_meta(
+					"bomber_intercept_assignment", "bomber")) == "bomber":
+			active_strikers += 1
+	var difficulty := _zones.get_difficulty(zone_id) if _zones else 1
+	var reserve_plan := bomber_reserve_plan(
+		int(run.get("response_level", BOMBER_ESCORT_MIN_RESPONSE_LEVEL)),
+		difficulty, controller.get_alive_bomber_count(), active_strikers,
+		int(run.get("variant_seed", 0)))
+	if reserve_plan.is_empty():
+		return
+	var center := controller.get_live_center()
+	var reserve := _spawner.spawn_bomber_interceptors(center,
+		Vector2(sin(controller.get_live_heading()), -cos(controller.get_live_heading())),
+		controller.get_bombers(), controller.get_escort_fighters(), reserve_plan, 1)
+	var interceptors: Array = run.get("interceptors", [])
+	interceptors.append_array(reserve)
+	run["interceptors"] = interceptors
+	EventLogger.log_event("BOMBER_MISSION", "HOSTILE_RESERVE",
+		"zone=%s progress=%.3f alive_bombers=%d active_strikers=%d spawned=%d plan=%s" % [
+			zone_id, float(run.get("route_progress", 0.0)),
+			controller.get_alive_bomber_count(), active_strikers, reserve.size(),
+			bomber_interceptor_plan_summary(reserve_plan)])
+
+func _retarget_bomber_interceptors(run: Dictionary, controller: BomberMission) -> void:
+	if _spawner == null or controller == null or not is_instance_valid(controller):
+		return
+	var alive_bombers: Array[Aircraft] = []
+	for bomber in controller.get_bombers():
+		if is_instance_valid(bomber) and not bomber.is_destroyed:
+			alive_bombers.append(bomber)
+	if alive_bombers.is_empty():
+		return
+	var interceptors: Array = run.get("interceptors", [])
+	for i in range(interceptors.size()):
+		var raw: Variant = interceptors[i]
+		if typeof(raw) != TYPE_OBJECT or raw == null or not is_instance_valid(raw) \
+				or not (raw is Aircraft) or (raw as Aircraft).is_destroyed:
+			continue
+		var interceptor := raw as Aircraft
+		var assigned_raw: Variant = interceptor.get_meta("bomber_intercept_target", null)
+		var assigned_alive := typeof(assigned_raw) == TYPE_OBJECT and assigned_raw != null \
+			and is_instance_valid(assigned_raw) and assigned_raw is Aircraft \
+			and not (assigned_raw as Aircraft).is_destroyed
+		if not assigned_alive:
+			_spawner.assign_bomber_intercept_target(interceptor,
+				alive_bombers[0])
+			interceptor.set_meta("bomber_intercept_assignment", "bomber")
+
+static func _alive_aircraft_count(values: Array) -> int:
+	var count := 0
+	for raw in values:
+		if typeof(raw) == TYPE_OBJECT and raw != null and is_instance_valid(raw) \
+				and raw is Aircraft and not (raw as Aircraft).is_destroyed:
+			count += 1
+	return count
 
 func _on_bomber_escort_failed(reason: String, zone_id: StringName) -> void:
 	# BomberMission 已经按“成功优先 + 在途炸弹落地窗口”裁决；这里只转入统一失败链。
@@ -574,11 +890,10 @@ func _spawn_airfield_ground(zone_id: StringName, zone: Dictionary) -> void:
 		"id=%s heat_star=%d ground=%d center=%s"
 		% [zone_id, _zones.get_difficulty(zone_id) if _zones else 1, units.size(), center])
 
-## 空战中队：在战区中心刷一队敌机，绕战区盘旋，不受 Token 限制
-## 复用 SurvivorSpawner 的 _create_enemy → 然后挂锚定 waypoint + adds 标记
+## 空战中队：从地图边界外飞向战区巡逻环，不受 Token 限制。
+## 复用 SurvivorSpawner 的边缘候选算法与 _create_enemy 工厂。
 const AIR_SQUADRON_COUNT := 4
 const AIR_SQUADRON_ORBIT_RADIUS := 1200.0   ## 地板值；实际取 max(地板, zone.radius × 0.48)（2026-07-06 战区扩到 3500 后随半径撑开）
-const AIR_SQUADRON_SPAWN_RING_RATIO := 0.6  ## 初始生成环 = 轨道半径 × 此值
 const AIR_SQUADRON_PATROL_WAYPOINTS := 4    ## 绕中心的航点数
 const AIR_SQUADRON_ORBIT_RADIUS_FRAC := 0.48  ## 轨道半径 = zone.radius × 此值（与地板取大）
 
@@ -587,6 +902,38 @@ const AIR_SQUADRON_ORBIT_RADIUS_FRAC := 0.48  ## 轨道半径 = zone.radius × �
 ## 攻克战区后自动撤离（queue_free）
 const GARRISON_ORBIT_RADIUS := 1800.0        ## 地板值；实际取 max(地板, zone.radius × 0.72)，比 air_squadron 稍大避免与 SAM 扎堆
 const GARRISON_ORBIT_RADIUS_FRAC := 0.72     ## 驻守环 = zone.radius × 此值（与地板取大）
+
+## 正式战区空军与旅途增援共用同一边界外生成算法。fallback 只服务缺少完整
+## SurvivorSpawner/player 的单元测试或 fail-open 场景，仍保证落在世界边界外。
+func _zone_air_spawn_origin(center: Vector2) -> Vector2:
+	if _spawner != null and _spawner.player_aircraft != null \
+			and is_instance_valid(_spawner.player_aircraft):
+		return _spawner._ingress_spawn_point(center)
+	var half := MapBoundary.world_half_px() + SurvivorData.INGRESS_SPAWN_OUTSET_PX
+	if absf(center.x) > absf(center.y):
+		var sx := 1.0 if center.x >= 0.0 else -1.0
+		return Vector2(sx * half, clampf(center.y, -half, half))
+	var sy := 1.0 if center.y >= 0.0 else -1.0
+	if center == Vector2.ZERO:
+		sy = -1.0
+	return Vector2(clampf(center.x, -half, half), sy * half)
+
+static func _zone_air_heading_deg(from: Vector2, center: Vector2) -> float:
+	var direction := (center - from).normalized()
+	return rad_to_deg(atan2(direction.x, -direction.y))
+
+static func _zone_patrol_entry_index(entry: Vector2, center: Vector2,
+		waypoint_count: int) -> int:
+	var entry_angle := (entry - center).angle()
+	return posmod(int(round(entry_angle / TAU * float(waypoint_count))), waypoint_count)
+
+func _tag_zone_air_ingress(ac: Aircraft, center: Vector2,
+		arrive_radius: float) -> void:
+	ac.set_meta("category", "zone_air")
+	ac.set_meta("skip_far_cleanup", true)
+	ac.set_meta("zone_ingress", true)
+	ac.set_meta("zone_ingress_center", center)
+	ac.set_meta("zone_ingress_arrive_radius", arrive_radius)
 
 func _spawn_air_squadron(zone_id: StringName, zone: Dictionary) -> void:
 	if not _spawner:
@@ -615,10 +962,9 @@ func _spawn_air_squadron(zone_id: StringName, zone: Dictionary) -> void:
 	## 轨道半径随战区半径撑开（战区 3500 时 ≈1680，占住扩大后的圈）
 	var orbit_r: float = maxf(AIR_SQUADRON_ORBIT_RADIUS, float(zone["radius"]) * AIR_SQUADRON_ORBIT_RADIUS_FRAC)
 
-	# 长机起始位置：战区生成环上随机一点，朝切线方向飞
-	var leader_angle := randf() * TAU
-	var leader_pos := center + Vector2(cos(leader_angle), sin(leader_angle)) * orbit_r * AIR_SQUADRON_SPAWN_RING_RATIO
-	var heading_deg := rad_to_deg(leader_angle + PI * 0.5)
+	# 长机在地图边界外生成，机头指向战区；进入巡逻环后按既有航点盘旋。
+	var leader_pos := _zone_air_spawn_origin(center)
+	var heading_deg := _zone_air_heading_deg(leader_pos, center)
 	var heading_rad := deg_to_rad(heading_deg)
 
 	# 预生成长机盘旋航点（绕战区中心），仅长机持有
@@ -626,8 +972,9 @@ func _spawn_air_squadron(zone_id: StringName, zone: Dictionary) -> void:
 	for k in range(AIR_SQUADRON_PATROL_WAYPOINTS):
 		var wa := float(k) / float(AIR_SQUADRON_PATROL_WAYPOINTS) * TAU
 		leader_waypoints.append(center + Vector2(cos(wa), sin(wa)) * orbit_r)
-	# 从当前 leader_angle 的下一个扇区开始，使长机往前飞而不是折返
-	var start_idx := int(floor((leader_angle + PI * 0.5) / TAU * AIR_SQUADRON_PATROL_WAYPOINTS)) % AIR_SQUADRON_PATROL_WAYPOINTS
+	# 先切入靠近入场边的环点，避免横穿战区中心。
+	var start_idx := _zone_patrol_entry_index(leader_pos, center,
+		AIR_SQUADRON_PATROL_WAYPOINTS)
 
 	var sq := SquadFactory.create()
 	sq.formation = Squad.random_formation()  # 杂鱼随机阵型（凝聚已由 FOLLOW_LEADER 默认继承）
@@ -643,10 +990,10 @@ func _spawn_air_squadron(zone_id: StringName, zone: Dictionary) -> void:
 		var ac: Aircraft = _spawner._create_enemy(leader_etype if i == 0 else etype, spawn_pos, heading_deg)
 		if not ac:
 			continue
-		# 跳过全局 hunter / far_cleanup / boundary_discipline
+		# 入场完成前豁免远距冻结；到达巡逻环后由 spawner 8s 航点 tick 清标。
+		_tag_zone_air_ingress(ac, center,
+			orbit_r + ZONE_AIR_INGRESS_ARRIVE_BAND_PX)
 		ac.set_meta("zone_mission", zone_id)
-		ac.set_meta("category", "zone_air")
-		ac.set_meta("skip_far_cleanup", true)
 
 		if i == 0:
 			SquadFactory.register_leader(sq, ac)
@@ -665,8 +1012,9 @@ func _spawn_air_squadron(zone_id: StringName, zone: Dictionary) -> void:
 	_spawned_zones[zone_id] = units
 	# TGT 标记在玩家进入战区（mission_triggered）时才打上，预刷阶段不标
 	EventLogger.log_event("ZONE", "PreSpawnAir",
-		"id=%s type=%d aircraft=%d lvl=%d tgt_lvl=%d diff=%d center=%s"
-		% [zone_id, etype, units.size(), lvl, tgt_lvl, difficulty, center])
+		"id=%s type=%d aircraft=%d lvl=%d tgt_lvl=%d diff=%d entry=%s center=%s"
+		% [zone_id, etype, units.size(), lvl, tgt_lvl, difficulty,
+		leader_pos.round(), center])
 
 ## 驻守敌机：Token 预算制（2026-04-21 改）
 ##
@@ -718,7 +1066,6 @@ func _spawn_zone_defenders(zone_id: StringName, zone: Dictionary, mission_type: 
 	## 驻守环随战区半径撑开（战区 3500 时 ≈2520，填满扩大后的圈）
 	var garrison_r: float = maxf(GARRISON_ORBIT_RADIUS, float(zone["radius"]) * GARRISON_ORBIT_RADIUS_FRAC)
 	var units: Array[Aircraft] = []
-	var squad_index := 0
 	var guard := 12  ## 死循环保险（每循环刷一整队）
 
 	while budget > 0 and guard > 0:
@@ -745,10 +1092,9 @@ func _spawn_zone_defenders(zone_id: StringName, zone: Dictionary, mission_type: 
 				continue
 			squad_size = mini(squad_size, room)
 
-		var slot_angle: float = float(squad_index) / 6.0 * TAU + randf_range(-0.3, 0.3)
-		var leader_pos: Vector2 = center + Vector2(cos(slot_angle), sin(slot_angle)) * garrison_r * 0.7
-		var heading_rad: float = slot_angle + PI * 0.5
-		var heading_deg: float = rad_to_deg(heading_rad)
+		var leader_pos := _zone_air_spawn_origin(center)
+		var heading_deg := _zone_air_heading_deg(leader_pos, center)
+		var heading_rad := deg_to_rad(heading_deg)
 
 		## 预生成盘旋航点（绕战区中心）—— 全队共用
 		var wp := PackedVector2Array()
@@ -756,7 +1102,7 @@ func _spawn_zone_defenders(zone_id: StringName, zone: Dictionary, mission_type: 
 		for k in range(n_wp):
 			var wa := float(k) / float(n_wp) * TAU
 			wp.append(center + Vector2(cos(wa), sin(wa)) * garrison_r)
-		var start_wp_idx: int = int(floor((slot_angle + PI * 0.5) / TAU * n_wp)) % n_wp
+		var start_wp_idx := _zone_patrol_entry_index(leader_pos, center, n_wp)
 
 		var sq := SquadFactory.create()
 		sq.formation = Squad.random_formation()  # 杂鱼随机阵型（凝聚已由 FOLLOW_LEADER 默认继承）
@@ -774,9 +1120,9 @@ func _spawn_zone_defenders(zone_id: StringName, zone: Dictionary, mission_type: 
 			if not ac:
 				## 实例上限击中 → 放弃该队剩余槽位
 				break
+			_tag_zone_air_ingress(ac, center,
+				garrison_r + ZONE_AIR_INGRESS_ARRIVE_BAND_PX)
 			ac.set_meta("zone_garrison", zone_id)
-			ac.set_meta("category", "zone_air")
-			ac.set_meta("skip_far_cleanup", true)
 			if i == 0:
 				SquadFactory.register_leader(sq, ac)
 			else:
@@ -789,15 +1135,14 @@ func _spawn_zone_defenders(zone_id: StringName, zone: Dictionary, mission_type: 
 			units.append(ac)
 			budget -= cost
 			spawned_in_squad += 1
-		squad_index += 1
 		## 如果这一队一架都没刷出来（通常是 cap 击中且 room=0），guard 会逐步耗尽
 		if spawned_in_squad == 0:
 			continue
 
 	_garrison_zones[zone_id] = units
 	EventLogger.log_event("ZONE", "Garrison",
-		"id=%s diff=%d lvl=%d mission=%s defenders=%d budget_left=%d"
-		% [zone_id, difficulty, lvl, mission_type, units.size(), budget])
+		"id=%s diff=%d lvl=%d mission=%s defenders=%d edge_ingress=%d budget_left=%d"
+		% [zone_id, difficulty, lvl, mission_type, units.size(), units.size(), budget])
 
 ## 场景中某类型当前活着的敌机数（给 instance cap 检查用）
 func _count_type_in_scene(etype: int) -> int:
@@ -827,12 +1172,17 @@ func _spawn_sentinel_garrison(zone_id: StringName, zone: Dictionary) -> void:
 		return
 	var center: Vector2 = zone["center"]
 	var garrison: Array = _garrison_zones.get(zone_id, [])
-	var ac: Aircraft = _spawner._create_enemy(SurvivorSpawner.EnemyType.UAV_COMMANDER, center, 0.0)
+	var garrison_r: float = maxf(GARRISON_ORBIT_RADIUS,
+		float(zone["radius"]) * GARRISON_ORBIT_RADIUS_FRAC)
+	var leader_pos := _zone_air_spawn_origin(center)
+	var heading_deg := _zone_air_heading_deg(leader_pos, center)
+	var ac: Aircraft = _spawner._create_enemy(
+		SurvivorSpawner.EnemyType.UAV_COMMANDER, leader_pos, heading_deg)
 	if not ac:
 		return
+	_tag_zone_air_ingress(ac, center,
+		garrison_r + ZONE_AIR_INGRESS_ARRIVE_BAND_PX)
 	ac.set_meta("zone_garrison", zone_id)
-	ac.set_meta("category", "zone_air")
-	ac.set_meta("skip_far_cleanup", true)
 	# 挂载光环 + 视觉覆盖（仿照 survivor_spawner._spawn_commander_squad）
 	var aura := CommanderAura.new()
 	aura.name = "CommanderAura"
@@ -846,14 +1196,14 @@ func _spawn_sentinel_garrison(zone_id: StringName, zone: Dictionary) -> void:
 	var leader_ai := _get_ai_of(ac)
 	if leader_ai:
 		## 长机绕驻守环盘旋（与普通驻守机同一半径规则）
-		var garrison_r: float = maxf(GARRISON_ORBIT_RADIUS, float(zone["radius"]) * GARRISON_ORBIT_RADIUS_FRAC)
 		var wp := PackedVector2Array()
 		var n_wp := 4
 		for k in range(n_wp):
 			var wa := float(k) / float(n_wp) * TAU
 			wp.append(center + Vector2(cos(wa), sin(wa)) * garrison_r)
 		leader_ai.waypoints = wp
-		leader_ai.current_waypoint_index = 0
+		leader_ai.current_waypoint_index = _zone_patrol_entry_index(
+			leader_pos, center, n_wp)
 	garrison.append(ac)
 
 	# Sentinel 自带 MQ-109 小队（光环 buff 的作用对象，硬性 ≥ 5 架，纯 MQ-109）
@@ -863,13 +1213,14 @@ func _spawn_sentinel_garrison(zone_id: StringName, zone: Dictionary) -> void:
 	for i in range(escort_count):
 		var rand_angle := randf() * TAU
 		var rand_dist := randf_range(220.0, 420.0)
-		var spawn_pos := center + Vector2(cos(rand_angle), sin(rand_angle)) * rand_dist
-		var wingman: Aircraft = _spawner._create_enemy(SurvivorSpawner.EnemyType.UAV, spawn_pos, rad_to_deg(rand_angle))
+		var spawn_pos := leader_pos + Vector2(cos(rand_angle), sin(rand_angle)) * rand_dist
+		var wingman: Aircraft = _spawner._create_enemy(
+			SurvivorSpawner.EnemyType.UAV, spawn_pos, heading_deg)
 		if not wingman:
 			continue
+		_tag_zone_air_ingress(wingman, center,
+			garrison_r + ZONE_AIR_INGRESS_ARRIVE_BAND_PX)
 		wingman.set_meta("zone_garrison", zone_id)
-		wingman.set_meta("category", "zone_air")
-		wingman.set_meta("skip_far_cleanup", true)
 		wingman.set_meta("sentinel_native_escort", true)
 		sq.add_member(wingman)
 		var wai := _get_ai_of(wingman)
@@ -885,8 +1236,8 @@ func _spawn_sentinel_garrison(zone_id: StringName, zone: Dictionary) -> void:
 		garrison.append(wingman)
 	_garrison_zones[zone_id] = garrison
 	EventLogger.log_event("ZONE", "SentinelGarrison",
-		"id=%s center=%s escorts=%d lvl=%d diff=%d (obstacle, not TGT)"
-		% [zone_id, center, escort_count, _player_level(),
+		"id=%s entry=%s center=%s escorts=%d lvl=%d diff=%d (obstacle, not TGT)"
+		% [zone_id, leader_pos.round(), center, escort_count, _player_level(),
 		_zones.get_difficulty(zone_id) if _zones else 1])
 
 ## 海上舰队 —— 按难度缩放编队组成；数量对齐空战任务的 4/5/6 个 TGT。
@@ -1805,6 +2156,18 @@ func _retire_bomber_run(zone_id: StringName) -> void:
 		controller.retire()
 		for escort in controller.get_escort_fighters():
 			_schedule_despawn(escort)
+	for raw in run.get("interceptors", []):
+		if typeof(raw) != TYPE_OBJECT or raw == null or not is_instance_valid(raw) \
+				or not (raw is Aircraft) or (raw as Aircraft).is_destroyed:
+			continue
+		var interceptor := raw as Aircraft
+		var ai := _get_ai_of(interceptor)
+		if ai != null:
+			ai.enable_combat = false
+			ai.set_event_directive(AIDirective.fly_to(_support_exit_point(
+				interceptor.global_position), AIDirective.OnArrival.HOLD, 300.0))
+		interceptor.set_meta("bomber_intercept_target", null)
+		_schedule_despawn(interceptor)
 	_bomber_escort_runs.erase(zone_id)
 
 ## 每帧扫描 _pending_despawn：飘出视线的立即 free。

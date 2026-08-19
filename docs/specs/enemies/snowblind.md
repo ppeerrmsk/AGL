@@ -3,7 +3,7 @@ id: snowblind
 kind: enemy
 status: in-progress
 schema_version: 1
-spec_version: 9
+spec_version: 11
 owner: noelu
 depends_on: [enemy-pool-expansion, squad-xp-threat-balance, global-awareness-roe]
 reconstruction_complete: false
@@ -101,7 +101,7 @@ reconstruction_complete: false
 
 | 状态 | 填充 | 边缘 | 风雪层 | 圈内单位 |
 |---|---|---|---|---|
-| 圈外观察/未破幕 | 冷灰白，主体 alpha `1.00` | 220px 软羽化，外缘 alpha `0.92` | 连续低速雾团 + 稀疏斜向雪带 | 全部实体隐藏；圆心只画静态本体轮廓 |
+| 圈外观察/未破幕 | 冷灰白，主体 alpha `1.00` | 220px 软羽化，外缘 alpha `0.92` | 连续低速雾团 + 稀疏斜向雪带 | 敌方实体隐藏；直属飞机与操控反馈始终在雪幕上层；圆心只画静态本体轮廓 |
 | 已破幕 | 同色 alpha `0.08–0.12` | 外缘 alpha `0.12` | 低对比残留风雪 | 全部显形，正常标签/尾迹；shader 圆心轮廓消失 |
 | 坍塌 | 以上数值在 `0.80s` 内缓出到 0 | 同左 | UV 漂移同时减速到 0 | 从坍塌开始永久显形 |
 
@@ -111,9 +111,13 @@ reconstruction_complete: false
 - 世界视图与 Tab 战术图都显示灰色覆盖；世界视图的同一个雪幕 shader 在圆心绘制暖灰红静态机体轮廓，
   只表达“这里有始作俑者”。该轮廓没有独立节点、碰撞、标签或目标身份，不能选择、下令、锁定或触发自动攻击；
   真实 Snowblind Aircraft 与其他圈内敌机在破幕前仍不得泄露呼号、标签、尾迹或可交战位置。
-- 未破幕雪幕必须是 alpha `1.00` 的**实体遮蔽层**，主体区域完全不透出地图与圈内单位；只有 220px 边缘羽化带允许渐透明。
-  破幕后才把 `concealment` shader uniform 从 `1` 切到 `0`，降为低 alpha 残留风雪以便读取真实编成。
-- 圈内隐藏飞机同时隐藏机体、数据标签、目标框、生命条、雷达点和尾迹；旧尾迹在 `0.25s` 内淡出，
+- 未破幕雪幕必须是 alpha `1.00` 的**实体遮蔽层**，主体区域完全不透出地图、地面/海面单位与被隐藏的圈内敌机；
+  只有 220px 边缘羽化带允许渐透明。直属蓝色飞机、第三方友军飞机及其操控反馈属于明确例外，始终绘制在雪幕上层，
+  不能因进入雪幕而丢失自身位置。
+  破幕状态边沿把 `concealment` shader uniform 的目标从 `1` 改为 `0`，用 `0.80s` sine ease-in-out 平滑降为低 alpha 残留风雪；
+  复隐状态边沿同样用 `0.80s` 从当前值平滑回到 `1`。若过渡中反向触发，必须从当前值折返，不能跳到任一端点。
+  敌机显隐、锁定清理与跨边界交战规则仍在控制器状态边沿即时生效，不等待视觉过渡结束。
+- 圈内被隐藏的敌机同时隐藏机体、数据标签、目标框、生命条、雷达点和尾迹；旧尾迹在 `0.25s` 内淡出，
   避免用残留尾迹定位。雪幕本身始终可见。
 - 一个雪幕只允许一个圆形 mesh / CanvasItem；动画完全在 shader 内进行，不每帧生成噪点或调用 `queue_redraw()`。
 
@@ -245,6 +249,8 @@ is_sensor_hidden = is_cloaked OR shroud_concealed
 - [ ] 圆心轮廓不是实体：没有标签、呼号、雷达点、碰撞或独立节点，不能选中、下令、锁定或触发自动攻击。
 - [ ] 圈外看不到圈内任何真实敌机，无法选中/下令/积累锁定；已有玩家锁定清零，已发射导弹失去制导后直飞。
 - [ ] 隐藏单位不是无敌：向灰区盲射的子弹/火箭若真实碰撞，照常造成伤害。
+- [ ] 当前操控机、直属僚机与第三方友军飞机进入未破幕雪幕后仍清晰可见；雪幕层级不得随 Snowblind/护卫生成先后变化。
+- [ ] 直属机进圈破幕时雪幕在 0.80s 内由实体态平滑降到残留态；满足复隐条件后在 0.80s 内平滑恢复，途中反向不跳变；玩法显隐仍即时切换。
 - [ ] 任一直属蓝色飞机进入 4000m 后，至多 0.20s 内让圈内其他敌机对整支直属小队显形；绿色 Allied 进入不触发。
 - [ ] 擦边后至少显形 3.0s；所有直属飞机离开 4500m 并持续 2.0s 才复隐，无边界闪烁。
 - [ ] CONCEALED 时圈内敌机不能锁定/攻击圈外玩家；REVEALED 后双方锁定都从 0 开始，不发生破幕当帧预蓄力齐射。
@@ -254,7 +260,8 @@ is_sensor_hidden = is_cloaked OR shroud_concealed
       并逐架消费 Token/实例上限；预算不足、冷却中、同场已有或累计达到 2 时不生成。
 - [ ] 单机、3机、6机、9机各实测：单机可以亲自破幕；多机可以派侦察机破幕并由外圈队员接战；机制不要求多机才能解。
 - [ ] 世界视图和 Tab 图都能读出灰区边界；连续雾雪不高频闪烁，圆心提示轮廓稳定清晰但不会被误认成可点击实体。
-- [ ] 未破幕主体 alpha =1.00，地图和圈内单位完全不会透出；破幕后 alpha 降至 0.08–0.12，真实机体与标签清晰可读。
+- [ ] 未破幕主体 alpha =1.00，地图、地面/海面单位和被隐藏的圈内敌机完全不会透出，直属/友军飞机保持在上层；
+      破幕后 alpha 降至 0.08–0.12，真实敌机与标签清晰可读。
 - [ ] F5 单机/普通编队两种入口刷 Snowblind：创建当帧本体不可选，编成完成当帧护卫不可见；不等待下一轮旅途刷怪 Token 重算。
 - [ ] 性能：控制器严格 5Hz、同场上限 1、无每实体 `_process`/`_draw`、无 CPU 随机雪花；
       生存模式 Sentinel + Lv5/Lv15 + 9直属机压力测试 FPS 不低于 60，较对照掉幅 <15。
@@ -297,6 +304,7 @@ is_sensor_hidden = is_cloaked OR shroud_concealed
 | 传感器隐藏语义 | `scripts/aircraft.gd`、`scripts/aircraft_renderer.gd`、`scripts/missile.gd`、`scripts/aircraft/aircraft_weapons.gd` |
 | 刷怪/包生成 | `scripts/survivor/survivor_spawner.gd`、`scripts/survivor/survivor_data.gd` |
 | 视觉 shader / 场景 | `scripts/survivor/snowblind_shroud_visual.gd`（运行时构建单 mesh + shader） |
+| 层级 Visual QA | `scenes/tests/snowblind_layer_visual_qa.tscn`、`scripts/tests/snowblind_layer_visual_qa_runner.gd` |
 | 战术图 | `scripts/survivor/tactical_map.gd` |
 | reference 索引 | `docs/reference/enemy-index.md`、`docs/reference/script-index.md`、`docs/reference/code-index.md` |
 
@@ -313,3 +321,5 @@ is_sensor_hidden = is_cloaked OR shroud_concealed
 | 2026-08-02 | 7 | 用户澄清“圈外显示本体位置”只指不可交互轮廓：真实 Snowblind 仍由雪幕隐藏，不能选择、锁定或攻击；同一个雪幕 shader 在圆心绘制静态机体轮廓，仅提示这个圈有始作俑者。 |
 | 2026-08-02 | 8 | 截图回归修复：F5/debug 刷怪未及时重算 `_token_count_by_type`，导致控制器不 tick、真实本体与护卫全部泄露。改为创建当帧主动注册并隐藏本体、编成完成同帧刷新护卫，不再依赖 Token 门；未破幕视觉由透明覆盖改为主体 alpha 1.00 的实体风雪层，破幕后才降至 0.08–0.12。 |
 | 2026-08-04 | 9 | 用户实机反馈 Snowblind 长期难以遇见；本体是无武器、无 flare、无战斗 AI 的纯支援机，Token 从 7 降为 4。双护卫仍各自正常计价，最低完整编成预算随之从 13 降为 10。 |
+| 2026-08-18 | 10 | 修复雪幕 Canvas 层级依赖生成顺序：实体遮蔽层固定在地图/地面海面单位之上、所有飞机图标与操控反馈之下；玩家、直属僚机与第三方友军入圈后不再被雪幕盖住，隐藏敌机语义不变。 |
+| 2026-08-18 | 11 | 用户要求进出圈不能瞬间切掉效果：破幕与复隐的 `concealment` 改为 0.80s sine ease-in-out，过渡中反向从当前值折返；敌机显隐、锁定与交战规则仍在状态边沿即时生效。 |

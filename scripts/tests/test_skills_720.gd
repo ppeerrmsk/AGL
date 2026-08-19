@@ -750,25 +750,48 @@ func _test_altitude_actions_and_cycle() -> void:
 	ac.team = CombatUnit.TEAM_PLAYER
 	ac.speed = 300.0
 	ac.altitude = 5000.0
+	ac.altitude_preference = Aircraft.AltitudePreference.PREFER_LOW
 	ac.target_altitude = 6000.0
 	AircraftPhysics.update_altitude(ac, 0.01)
-	_check("普通升高：未过 30m/s 不提前发布动作",
+	_check("Q 爬升命令前：未过 30m/s 不发布动作",
 		ac.altitude_action == Aircraft.AltitudeAction.NONE \
 		and ac.altitude_action_enter_serial == 0 and ac.vertical_speed < 30.0,
 		"action=%s vs=%.1f serial=%d" % [ac.altitude_action_name(), ac.vertical_speed,
 			ac.altitude_action_enter_serial])
 	AircraftPhysics.update_altitude(ac, 0.1)
-	var climb_serial: int = ac.altitude_action_enter_serial
-	_check("普通升高：过 30m/s 后发布 CLIMB",
-		ac.altitude_action == Aircraft.AltitudeAction.CLIMB and climb_serial == 1,
-		"action=%s vs=%.1f serial=%d" % [ac.altitude_action_name(), ac.vertical_speed, climb_serial])
-	ac.target_altitude = 4000.0
-	AircraftPhysics.update_altitude(ac, 0.1)
-	_check("普通降高：过 -30m/s 后发布 DIVE 且进入沿只增一次",
-		ac.altitude_action == Aircraft.AltitudeAction.DIVE \
-		and ac.altitude_action_enter_serial == climb_serial + 1,
+	_check("同档自然升高：即使过 30m/s 也保持 NONE",
+		ac.altitude_action == Aircraft.AltitudeAction.NONE \
+		and ac.altitude_action_enter_serial == 0 and ac.vertical_speed > 30.0,
 		"action=%s vs=%.1f serial=%d" % [ac.altitude_action_name(), ac.vertical_speed,
 			ac.altitude_action_enter_serial])
+	ac.command_altitude_preference(Aircraft.AltitudePreference.PREFER_CLIMB)
+	AircraftPhysics.update_altitude(ac, 0.01)
+	var climb_serial: int = ac.altitude_action_enter_serial
+	_check("Q LOW→HIGH：过 30m/s 后发布一次 CLIMB",
+		ac.altitude_action == Aircraft.AltitudeAction.CLIMB and climb_serial == 1 \
+		and ac.altitude_action_command == Aircraft.AltitudeAction.CLIMB,
+		"action=%s vs=%.1f serial=%d" % [ac.altitude_action_name(), ac.vertical_speed, climb_serial])
+	ac.target_altitude = 4000.0
+	ac.command_altitude_preference(Aircraft.AltitudePreference.PREFER_LOW)
+	AircraftPhysics.update_altitude(ac, 0.1)
+	_check("Q HIGH→LOW：过 -30m/s 后发布一次 DIVE",
+		ac.altitude_action == Aircraft.AltitudeAction.DIVE \
+		and ac.altitude_action_enter_serial > climb_serial \
+		and ac.altitude_action_command == Aircraft.AltitudeAction.DIVE,
+		"action=%s vs=%.1f serial=%d" % [ac.altitude_action_name(), ac.vertical_speed,
+			ac.altitude_action_enter_serial])
+	ac.target_altitude = ac.altitude
+	AircraftPhysics.update_altitude(ac, 0.1)
+	var consumed_serial: int = ac.altitude_action_enter_serial
+	ac.target_altitude = 4000.0
+	ac.vertical_speed = -120.0
+	AircraftPhysics.update_altitude(ac, 0.01)
+	_check("同一 Q 命令消费后：再次自然俯冲不重入 DIVE",
+		ac.altitude_action == Aircraft.AltitudeAction.NONE \
+		and ac.altitude_action_command == Aircraft.AltitudeAction.NONE \
+		and ac.altitude_action_enter_serial == consumed_serial,
+		"action=%s command=%d serial=%d" % [ac.altitude_action_name(),
+			ac.altitude_action_command, ac.altitude_action_enter_serial])
 	ac.is_stalled = true
 	ac.vertical_speed = -120.0
 	AircraftPhysics.update_altitude(ac, 0.1)
@@ -864,9 +887,15 @@ func _test_altitude_actions_and_cycle() -> void:
 	attacker.altitude = 5500.0
 	ac._set_altitude_action(Aircraft.AltitudeAction.NONE)
 	AircraftFormation._update_altitude(ac, {"ldr": attacker, "b": 1.0}, 0.1)
-	_check("编队高度：僚机按自身实际垂直速度进入 CLIMB",
-		ac.altitude_action == Aircraft.AltitudeAction.CLIMB and ac.vertical_speed >= 30.0,
+	_check("编队自然追高度：即使过 30m/s 也保持 NONE",
+		ac.altitude_action == Aircraft.AltitudeAction.NONE and ac.vertical_speed >= 30.0,
 		"action=%s vs=%.1f" % [ac.altitude_action_name(), ac.vertical_speed])
+	attacker._set_altitude_action(Aircraft.AltitudeAction.CLIMB)
+	AircraftFormation._update_altitude(ac, {"ldr": attacker, "b": 1.0}, 0.1)
+	_check("编队 Q 换档：僚机镜像长机 CLIMB",
+		ac.altitude_action == Aircraft.AltitudeAction.CLIMB,
+		"action=%s vs=%.1f" % [ac.altitude_action_name(), ac.vertical_speed])
+	attacker._set_altitude_action(Aircraft.AltitudeAction.NONE)
 
 	var cycle := SurvivorData.upgrade_by_id("altitude_energy_cycle")
 	_check("高度能量循环：实验级单层 mobility/骑士定稿数据存在",

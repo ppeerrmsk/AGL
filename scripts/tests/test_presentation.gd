@@ -824,6 +824,25 @@ func _test_freed_aircraft_reference_safety() -> void:
 	hud.free()
 	survivor.free()
 
+	# Wraith 等 BOSS 直接返回 Array[Aircraft]。StageIsolator 必须复制成无类型快照，
+	# 否则 restore 用任意非 Aircraft CombatUnit 查询 has() 都会触发 TypedArray 刷屏。
+	var stage := StageIsolator.new()
+	var actor := Aircraft.new()
+	var outsider := CombatUnit.new()
+	var typed_actors: Array[Aircraft] = [actor]
+	CombatUnit.all_units.clear()
+	CombatUnit.all_units.append(actor)
+	CombatUnit.all_units.append(outsider)
+	stage.clear(typed_actors, [], 1.0)
+	_assert_true("stage.演员快照去除 TypedArray 约束", not stage._actors.is_typed())
+	stage.restore([], 0.5)
+	_assert_near("stage.异类 CombatUnit 可正常恢复", outsider.modulate.a, 0.5)
+	CombatUnit.all_units.clear()
+	actor.free()
+	stage.force_restore([])
+	_assert_true("stage.已释放演员不阻断强制收尾", not stage.is_active())
+	outsider.free()
+
 
 func _test_incoming_missile_warning_rule() -> void:
 	_assert_true("missile_warning.真实来袭显示",

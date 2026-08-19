@@ -230,7 +230,7 @@ BOSS 只识别 JAM，其它状态仅对 Aircraft 生效"。但 NavalUnit 实现�
 **踩到次数**：2（这次 + 用户记忆中至少一次同样症状）
 
 **解法**（2026-05-12）：在 [aircraft_physics.gd:322](../../scripts/aircraft/aircraft_physics.gd:322)
-和 [aircraft_physics.gd:1440 step_altitude](../../scripts/aircraft/aircraft_physics.gd:1318)
+和 [aircraft_physics.gd:1455 step_altitude](../../scripts/aircraft/aircraft_physics.gd:1318)
 两处把 `max_climb` 改为 `base_climb * minf(alt_mult, 1.3)`。`gain` / `smooth_rate` 仍由
 `alt_mult` 全幅放大（响应度保留），物理顶速最多 +30%（PE↔KE 损耗回到可承受档）。
 
@@ -432,18 +432,20 @@ update_speed 自然拉回巡航）——谓词按阶段区分，不是一刀切�
 友方一律=0）与 AI 侧按事件写（set_formation_target=1 / exit_evade=1 / disengage 等）
 互相覆盖，"最后写者赢"。历史已产生需在 aircraft.gd LOD0 编队分支打补丁的 bug；
 生存模式里 LOD1 非编队分支实为死代码；`_update_friendly_squad_lod` docstring 与实现
-曾自相矛盾（2026-07-03 已修注释，B5）。
+曾自相矛盾（2026-07-03 已修注释，B5）。同一循环还直接覆盖 `Aircraft.visible`：Black Star
+G1 已进入隐藏再入并写入 `visible=false` 后，下一次屏内 LOD 刷新会把机体和数据标签重新显形。
 
 **根因**：LOD 无单一 owner。survivor_mode（相机视角）与 AI（行为语义）都认为自己有权决定。
 
-**踩到次数**：1 次显性 bug + 多次注释级困惑
+**踩到次数**：2 次显性 bug + 多次注释级困惑
 
 **解法状态**：**未修**。归属方案（mode 唯一决策者 vs Aircraft 自决）在重构计划
 Phase 4 定夺，见 [docs/planning/physics-ai-control-refactor.md](../planning/physics-ai-control-refactor.md) §5。
 
 **约束（过渡期）**：不要再新增 lod_level 写入者；需要改 LOD 语义先读
 `_update_friendly_squad_lod` / `_update_offscreen_lod` 的每帧覆盖行为，明白你的写会被
-下一帧盖掉。
+下一帧盖掉。遭遇或技能若有独立的语义隐藏，必须以 `force_hidden_visual` meta 明示，
+由 LOD 可见性合并点保留；不能只在功能脚本里单写一次 `visible=false`。
 
 ---
 
@@ -604,7 +606,12 @@ Game Over 同步断开两个缓存；`presentation` 用真实 `free()` 后的强
 调用点先经 `CombatUnit.safe_attacker()` 净化，AOE 创建入口同时改收 `Variant` 并只缓存净化结果；
 `weapon` bench 用真实 `free()` 的发射者直接覆盖该边界。
 
-**踩到次数**：5
+**2026-08-19 第六次实证**：敌机的机炮威胁提示每帧读取跨帧 `combat_target`，目标释放后仍先执行
+`combat_target is Aircraft`，报 `Left operand of 'is' is a previously freed instance` 并中断战局。
+`_update_gun_threat_indicator` 改为 `Variant → safe_aircraft_ref` 后再访问字段；`gun_burst` bench
+用真实 `free()` 的目标覆盖威胁复位路径。
+
+**踩到次数**：6
 
 ## SEAM-021 · "玩家显式命令"在移动层是铁律，在武器发射层却没有代表权
 
@@ -683,12 +690,16 @@ preference 的隐性依赖）：railgun LINE_UP 不该复用导弹 crank 的 wea
 ## SEAM-023 · planner 追踪几何与武器发射门数值耦合但互不知情 → "无声拒发"反复复发
 
 **症状**：飞机看起来在正常执行攻击战术（锁定、绕target、保持包络），但导弹/机炮一发不出，
-无任何 UI 反馈，只有 EventLogger `MSL_BLOCK` 能看出被门拒。同一类病已独立复发 **3 次**：
+无任何 UI 反馈，只有 EventLogger `MSL_BLOCK` 能看出被门拒。同一类病已独立复发 **4 次**：
 1. 慢速空目标（直升机）：交会点引导常驻前置偏置 → 锁攒满但机头卡在发射门外（slow-air spec 修）；
 2. 慢速空目标机炮跑：交会点 vs 机炮解 10° 稳态偏差 → 机炮锥永不开门（slow-air spec 修）；
 3. **地面/舰船 STANDOFF（2026-07-26，log 20260726_165536）**：crank 稳态离轴
    `radar_half×0.5` 恰在发射窗质量门（`×0.5(SARH)/0.55(f&f)`）外沿 → UNSTABLE_WIN 永拒；
    同批还撞出包络"高度差>5000m"门被 STANDOFF MID 学说高度恒触（面目标已豁免）。
+4. **高速空对空横穿（2026-08-18，log 20260818_003917）**：发射前 planner 在 LOS/crank 点稳态保持，发射门却要求另一个两轮 TTI 前置点，最后一枚导弹连续 `UNSTABLE_WIN/LEAD_GEOM` 永拒。
+5. **慢速空目标特殊分支（2026-08-19）**：通用空战已改为共享前置点，但 `ground_strafe`
+   的直升机 RUN 仍保留旧目标本体纯追踪；贴脸重攻锁定满后被新增 `LEAD_GEOM` 门拒发，旧 bench
+   又只复刻历史离轴常量，无法覆盖真实发射纪律。
 
 **耦合点**：追踪点几何住 `bfm_intent`（crank/交会点/机炮解），发射门住
 `aircraft_weapons._has_stable_launch_window`（离轴 `radar_half×0.5/0.55`）+
@@ -696,7 +707,7 @@ preference 的隐性依赖）：railgun LINE_UP 不该复用导弹 crank 的 wea
 无共享常量：planner 让机头停在哪里，与武器层"机头必须在哪里才肯开火"没有任何编译期/测试期约束。
 **行为验收若只断言运动几何（保距/相位/收敛），武器层门永远不在环内 → bug 全绿穿过验收**。
 
-**踩到次数**：3
+**踩到次数**：5
 
 **解法状态**（模式已成文，2026-07-26）：
 - 引导点原则：**终端段（意图开火的相位）必须让机头稳态收敛进发射门**——静止/慢速目标直接
@@ -704,8 +715,9 @@ preference 的隐性依赖）：railgun LINE_UP 不该复用导弹 crank 的 wea
   **发射后**（fpole_hold）或**明确不打算开火**的相位使用。
 - 验收原则：任何攻击类战术的行为 sim **必须带"真出弹"断言**（复刻发射门序列：
   包络→锥→锁→发射窗质量+冷却），范本 `test_surface_pass.gd _launch_gate_open`。
-- 未根治的残留：`_missile_engage_pos` 的空对空 crank 上限仍 = SARH 发射门（`radar_half×0.5`
-  两者相等），空战靠目标机动让 LOS 摆过零点才有发射窗——对空若再出"锁着不发射"，先查这里。
+- 2026-08-18 空对空残留已根治：`AircraftWeapons.missile_lead_point` 成为发射门、发射前 planner 与离架航向的共享真源；`_missile_engage_pos` 未出弹时收敛该点，只在已出弹支援期使用既有连续 crank。`weapon` bench 同时断言 planner 追踪点与真实发射门序列。
+- 2026-08-19 慢速空目标分支也改为消费同一 `missile_lead_point`；`slow_air_pass` 不再复制已退役
+  常量，而是直接调用真实稳定窗口与前置几何门，防止发射纪律演进后测试继续假绿或误红。
 
 **约束**：新增/修改任何"武器就绪期的追踪点"几何时，先对照发射门数值算稳态离轴；
 配套 sim 必须含出弹断言，别只信运动几何全绿。
@@ -823,12 +835,19 @@ Aircraft 物理移动，渲染帧就可能出界。世界外框是不变量，�
 先用 Variant 接住、验证有效后才 cast。`faction_conversion` bench 真实调用激光 `_advance_hack()`，
 并显式构造护卫/群组缓存和已释放 successor，保证两条路径先红后绿。
 
+**2026-08-18 第二次实证**：`StageIsolator` 用 `actors.duplicate()` 保存 Wraith 的
+`Array[Aircraft]` 后，快照仍保留 TypedArray 元素约束；`restore()` 再拿全场 `CombatUnit` 调
+`_actors.has(u)`，非 Aircraft 单位会在 `has()` 执行前逐帧报参数类型错误。此类“只读查询”同样受
+TypedArray 边界约束。舞台快照改为复用无类型 `Array` 并逐元素复制，`presentation` bench 同时覆盖
+异类单位查询与演员中途释放。
+
 **约束**：跨继承层操作 TypedArray 时，先收窄到数组元素类型；从可能残留 freed object 的强类型
-容器取值时，不得直接赋给强类型局部变量，必须先用 Variant + `is_instance_valid()`。技能审计的
+容器取值时，不得直接赋给强类型局部变量，必须先用 Variant + `is_instance_valid()`；若容器需要和
+异类基类对象做 `has` / `find` 等查询，则在入口复制进无类型快照，不要保留调用方 TypedArray 约束。技能审计的
 注册/字段/消费点全绿不能替代真实 runtime consumer 测试；带转换、销毁、换阵营或编队重绑的技能，
 专项 bench 必须至少执行一次完整状态跃迁。
 
-**踩到次数**：1
+**踩到次数**：2
 
 ## SEAM-030 · 3Hz 自动火控与 60Hz 战术回写共享射击方向，梭射会在采样间隔内回正
 
@@ -836,11 +855,74 @@ Aircraft 物理移动，渲染帧就可能出界。世界外框是不变量，�
 
 **根因**：`auto_gun_scan()` 只在 3Hz 扫描帧写 `_gun_lead_heading`，而 `_apply_tactical_plan()` 每个物理 tick 都会在无显式 `combat_target` 时把它重置为机头。`update_gun()` 的“整梭承诺”只锁存剩余弹数，没有锁存承诺对象，因此剩余弹忠实地沿被覆盖后的机头方向继续出膛。与此同时 `_fire_gun_round()` 的炮口出生点和双管横轴也始终取机体 heading。CIWS 又复用了普通机炮的可变射界，和炮艇模式组合时会从正面反导静默膨胀为 360° 反导。更上游还有三道旧纪律门：非 `use_tactical_preference` 的 AI 僚机无条件退出自动扫描；有 `combat_target` 时 planner 把扫描池锁死为该目标；编队 LOD0/1/2 又在武器主循环前提前返回，只保留编队导弹。它们对普通固定机炮合理，却让“全队独立炮塔”名存实亡。
 
-**解法状态（2026-08-04 已修）**：自动扫描与梭射分别保存目标实例 ID；梭起始锁存承诺对象，之后每个武器 tick 重新求同一目标提前点，目标释放或失格即掐断残梭。炮艇炮口与双管基线按实际射向旋转。航空 CIWS 改用独立 5° 正面锥，并新增节流后的 `CIWS_FIRE` 日志，和普通 `GUN_BURST` 明确分流。炮艇另有显式纪律例外：所有 PLAYER 持有者（含 AI 僚机）都运行独立扫描，不锁 planner 当前目标池、不受 MISSILE 主武器模式静默，并按最近合法目标选取；编队和屏外 LOD 提前返回路径通过专用入口继续 tick 炮塔；普通机炮路径保持原纪律。
+**解法状态（2026-08-18 已补）**：自动扫描与梭射分别保存目标实例 ID；梭起始锁存承诺对象，之后每个武器 tick 重新求同一目标提前点，目标释放或失格即掐断残梭。炮艇炮口与双管基线按实际射向旋转。航空 CIWS 改用独立 5° 正面锥，并新增节流后的 `CIWS_FIRE` 日志，和普通 `GUN_BURST` 明确分流。炮艇另有显式纪律例外：所有 PLAYER 持有者（含 AI 僚机）都运行独立扫描，不受 MISSILE 主武器模式静默；有效且在射程内的玩家 `commanded_target`（含 MountTarget）优先，失格或超距才回退最近 Aircraft/GroundUnit，普通 planner 目标仍不锁池。编队和屏外 LOD 提前返回路径通过专用入口继续 tick 炮塔；普通机炮路径保持原纪律。
 
 **约束**：凡是“慢频率选择 + 快频率消费”的火控状态，不得只共享一个会被其它系统覆盖的瞬时方向量；慢频率层保存对象身份，快频率层从对象事实重算派生方向。新增全向/扩锥技能时，逐项审计普通攻击、CIWS、防御火力等消费者，不得让同一个可变 GunParams 角度隐式扩散到不同武器通道。
 
-**踩到次数**：3（2026-04-26 自动扫描 lead 冻结；2026-08-04 planner 回正与炮艇/CIWS 串线；2026-08-04 AI 僚机/战术目标纪律门吞掉全队对地炮塔）
+**踩到次数**：4（2026-04-26 自动扫描 lead 冻结；2026-08-04 planner 回正与炮艇/CIWS 串线；2026-08-04 AI 僚机/战术目标纪律门吞掉全队对地炮塔；2026-08-18 独立最近目标扫描反压玩家点名且忽略 MountTarget）
+
+## SEAM-031 · 操控真源只转引用、不转角色权限，会产生“新机是玩家又不是玩家”的半切状态
+
+**症状**：数字键切到僚机后，相机、HUD、标签都已把新机当当前操控机，但它在导弹交战时突然反复打滚、G 值上下抽动；旧长机反而继续保留玩家专用机动语义。
+
+**根因**：`survivor_mode._set_player_aircraft` 已原子重定向多个“谁是玩家机”的引用消费者（SEAM-019），却漏了住在 Aircraft 实例上的角色权限 `use_tactical_preference`。新机保持 false，`compute_target_bank` 在导弹 phase 2 把坡度上限压到 35%；目标又在发射锥边缘使 phase 0/2 来回切换，于是同向坡度命令在 100%/35% 间跳变，bank 与由 `1/cos(bank)` 派生的 G 值一起抽动。
+
+**解法状态（2026-08-18 已修）**：唯一 chokepoint 现在先令旧操控机 `use_tactical_preference=false`，再令新机为 true；主动切控和长机阵亡接管均走同一链。`squad_cmd_ui` bench 直接断言权限单例，并对比同一 phase-2 输入下玩家全坡度与普通 AI 35% cap。
+
+**约束**：“当前操控角色”不仅是引用，还包括所有住在实例上的行为权限。新增此类 flag 时，必须登记在同一 `_set_player_aircraft` 事务中，同时定义旧角色的退出值；只更新 player_ref/HUD 不算完成切控。
+
+**踩到次数**：1
+
+## SEAM-032 · Boss Debug 构筑契约跨三场景与 SceneTree meta，任一端漂移都会静默降级
+
+**症状**：正式进化树已经扩为 T1~T5，B 键 Debug 仍只显示四架起手机；即使换成 T4 卡片，运行时仍可能只生成一架孤立参考机；进入战斗后 Tab 被输入层消费却没有面板；旧 roller 固定 Lv15 并按 `level - 1` 塞 14 张卡，和正式“每 3 级一次”完全脱节，也没有当前 T4 节点、随机武器、门槛分配或里程碑语义。
+
+**根因**：同一份“参考机 → 节点等级 → 武器 → 技能 build → 三轴 → Tab 展示”状态分散在 `boss_debug_select`、`survivor_select`、`SceneTree meta`、`survivor_mode` 与 `tactical_map`；旧代码还把正式局四起手机白名单误当成 Debug 全谱入口，并只随机技能、不消费正式战区武器池。每个局部看起来都能运行，因此数据源升级时不会报错，只会继续生成过时样本。
+
+**解法状态（2026-08-18 已修）**：`BossDebugBuilds` 从正式 `evolution_tree.json` 动态产出全部 T4 节点，并统一负责节点等级、gates 三轴计划与正式卡池 build；选机页只渲染该列表并传 node/level，运行时消费同一节点，把 duplicate 档案的 `wingman_count` 最低提升到 3，复用正式起手管线生成至少四机同型 Squad。从 `ZoneData.REWARD_WEAPON_WEIGHTS[3]` 加权无放回抽取等级匹配的 2~3 件特殊武器，先走正式奖励入口挂到当前 ACE 并入库，再筛硬件门控技能；全队继续应用技能与里程碑但不复制 ACE 武器。F8 保留参考节点并重抽完整构筑；`TacticalMap.readout_only` 让 Tab 保留武器/技能/三轴/里程碑读数而不加载战区地理。`attr_gates` 锁住 7 架 T4 / 等级 / 武器组合 / 技能数 / gates / 6 点里程碑，Visual 锁住完整三段链路、实际挂载及 `squad>=4`。
+
+**约束**：以后进化树档位、升级节奏、正式武器池或签名卡规则变化时，只改正式 SSOT 与 `BossDebugBuilds` 的适配；不得在选机 UI 或 `survivor_mode` 重新硬编码机型、等级、武器名单、技能数。Boss Debug 的参考单位恒为至少四机正式 Squad，不能退回单机；玩家特殊武器只随当前 ACE，不得为了“编队感”复制到每架僚机。新增跨场景字段必须在选择、F8 重开、运行时消费与三段 Visual 中成套覆盖。
+
+**踩到次数**：1
+
+## SEAM-033 · 战区可用状态与任务实体异步落地，生成可见性门会把两者永久拆开
+
+**症状**：Tab 已显示重新开放的任务战区并可选中，HQ 也播了“6 秒后上传目标数据”，但玩家抵达
+圈边后现场没有任何任务单位；只要玩家继续留在附近，目标就永远不出现，旧实现还会重新开始 6 秒
+倒计时并重复播报。
+
+**根因**：`ZoneData` 独立把战区置为 AVAILABLE/SELECTED，`ZoneMission` 再异步等待 6 秒并要求整个
+生成区域不碰当前视野。玩家在倒计时内飞到圈边后，可见性条件会一直为真；实体表尚未建立，而空表
+又不满足完成判定，于是地图真值与实体真值不再收敛。倒计时在可见性检查前被擦除，使下一帧还会
+把同一任务当成首次广播。
+
+**解法状态（2026-08-18 已修）**：正常任务仍严格画外生成；倒计时归零但被可见性门阻塞时保留
+零秒计时器，禁止重复广播。若玩家已经入圈，或已选中任务并进入圈边外 400 px 的接近带，则只对
+这一任务放行一次生成并进入原触发链。`zone_air_support` 回归覆盖完整 6 秒前置、E 圈边复现、远距
+负例、零秒计时器与手动入圈，共 60/60。
+
+**约束**：任何“先公开可交互状态、后异步创建实体”的流程都必须定义可证明收敛的恢复口；可见性
+安全门可以延迟创建，但不得让玩家已经履行到达条件后仍永久无目标，也不得因等待条件重复发首次事件。
+
+**踩到次数**：1
+
+## SEAM-034 · 运行时管理器依赖 SceneTree，脱树物理仿真会把正常“无天气”路径放大成错误风暴
+
+**症状**：`bench all` 运行导弹包线仿真时，测试创建的 Missile 与 MissileManager 没有挂入
+SceneTree；每个物理步查询云层都会对空 tree 调 `get_first_node_in_group()`，产生大量错误并使全量门退出 1。
+
+**根因**：`MissileManager.get_in_cloud()` 把“管理器已进入正式运行时 SceneTree”当成隐含前提，
+而 `test_missile_envelope` 为了做确定性离线积分，会直接调用脱树 Missile 的真实物理入口。云层是可选
+环境条件，脱树时本应等价于“当前无天气”，却没有在查询组节点前定义这个降级语义。
+
+**解法状态（2026-08-19 已修）**：`get_in_cloud()` 只在管理器存在父节点时读取 SceneTree；
+离线测试可继续显式注入 weather，孤立且无 weather 的包络仿真退化为 false。正式入树后只取一次
+SceneTree 并由两条快照分支复用，运行时行为不变。
+
+**约束**：可被单元仿真直接调用的运行时 helper，不得无守卫依赖 `get_tree()`、父节点或场景组；
+可选环境查询必须定义脱树降级值。若 helper 的语义必须依赖场景，则测试应显式挂树，不能靠错误日志继续跑。
+
+**踩到次数**：1
 
 ## 维护约定
 

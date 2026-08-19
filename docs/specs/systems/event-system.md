@@ -119,10 +119,12 @@ VICTORY → `mode.on_boss_victory()` + `end()`。详见 [bosses/mother-goose](..
 
 ## 4. zone 任务（并行系统，非 GameEvent）
 
-zone 任务在 `zone_mission.gd` 内自管，流程：**预刷**（离屏 + 不在镜头内才刷，防 pop-in）→ **触发**（玩家进圈
+zone 任务在 `zone_mission.gd` 内自管，流程：**预刷/入场**（沿用既有画外优先 + 抵达死锁恢复；
+空战 TGT 与所有驻守空军从地图边界外真实飞入，静态目标语义不变，见 [reinforcement-ingress](reinforcement-ingress.md) §3.8）→ **触发**（玩家进圈
 或任一 TGT 被打到 hp<max）→ **完成**（该区 TGT 全灭）→ **奖励**（发 evolved 强卡，见 [survivor-loop §7](survivor-loop.md)）。
 任务类型 air/squadron/naval/ground 由 zone_data 运行时 roll（elite 已移除，
-spec [early-game-uav-rework](early-game-uav-rework.md) §2.3）。刷点遵循"玩家前方扇形"约定（见 feedback_event_spawn_ahead）。
+spec [early-game-uav-rework](early-game-uav-rework.md) §2.3）。战区空军复用地图边缘候选算法；其它事件仍按各自航线或
+"玩家前方扇形"约定（见 feedback_event_spawn_ahead）。
 具体常量（编队数/orbit 半径/escort 数等）见 zone_mission.gd —— 不在此重列。
 
 ## 5. 扩展接入图（加新事件）★ 本 spec 重点

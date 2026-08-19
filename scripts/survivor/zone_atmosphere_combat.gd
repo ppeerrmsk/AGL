@@ -12,10 +12,26 @@ const FFG_PARAMS: NavalParams = preload("res://resources/naval/frigate_ffg.tres"
 const DDG_PARAMS: NavalParams = preload("res://resources/naval/destroyer_ddg.tres")
 
 const ACTOR_GROUP := &"zone_atmosphere_actor"
+const ORDINARY_ZONE_CHANCE := 0.30
+## 当前第三图仍以 preview id 运行；正式毕业时保留该 id 即自动沿用决战全覆盖。
+const DECISIVE_MAP_IDS: Array[StringName] = [&"ocean_islands_preview"]
 const TICK_S := 0.5
 const DAMAGE_LIVE_ENTER_PX := 1500.0
 const DAMAGE_LIVE_EXIT_PX := 1800.0
 const ALLY_DAMAGE_MULT := 0.10
+
+static func enabled_for_roll(force_all: bool, roll: float) -> bool:
+	return force_all or clampf(roll, 0.0, 1.0) < ORDINARY_ZONE_CHANCE
+
+static func cached_enabled(cache: Dictionary, zone_id: StringName, roll: float) -> bool:
+	if cache.has(zone_id):
+		return bool(cache[zone_id])
+	var enabled := enabled_for_roll(false, roll)
+	cache[zone_id] = enabled
+	return enabled
+
+static func is_decisive_map(map_id: String) -> bool:
+	return DECISIVE_MAP_IDS.has(StringName(map_id))
 
 const ARTILLERY_COUNT := 3
 const ARTILLERY_FORMATIONS: Array[StringName] = [&"staggered", &"echelon", &"wedge"]
@@ -33,8 +49,10 @@ const ARTILLERY_PHASE_JITTER_RAD := 0.22
 const ARTILLERY_INITIAL_CLEARANCE_PX := 100.0
 const ARTILLERY_RANGE_PX := 2600.0
 const ARTILLERY_SHELL_TIME_S := 2.2
-const ARTILLERY_DAMAGE := 6.0
-const ARTILLERY_AOE_RADIUS_PX := 55.0
+const ARTILLERY_HP := 60.0
+const ARTILLERY_DAMAGE := 60.0
+const ARTILLERY_DIRECT_HIT_RADIUS_PX := 24.0
+const ARTILLERY_SCATTER_PX := 80.0
 
 const NAVAL_PATROL_RADII: Array = [240.0, 120.0, 0.0]
 const NAVAL_WING_OFFSET := Vector2(-210.0, 230.0)
@@ -352,7 +370,7 @@ func _spawn_artillery_group(zone_id: StringName, center: Vector2, radius: float,
 			var unit: GroundUnit = ARTILLERY_SCRIPT.new()
 			var params := AA_PARAMS.duplicate(true) as AircraftParams
 			params.display_name = "SPG"
-			params.max_hp = 120.0
+			params.max_hp = ARTILLERY_HP
 			params.radar_range = 0.0
 			params.gun = null
 			unit.params = params
@@ -594,7 +612,7 @@ func _update_artillery_source(zone_id: StringName, source: GroundUnit, target: G
 	if ready > 0.0 or to_target.length() > ARTILLERY_RANGE_PX:
 		return
 	_spawn_shell(zone_id, source, target, "artillery", ARTILLERY_SHELL_TIME_S,
-		ARTILLERY_DAMAGE, ARTILLERY_AOE_RADIUS_PX, 22.0, source_is_ally,
+		ARTILLERY_DAMAGE, ARTILLERY_DIRECT_HIT_RADIUS_PX, ARTILLERY_SCATTER_PX, source_is_ally,
 		bool(_engagements[zone_id].get("damage_live", false)))
 	var slot := int(source.get_meta(&"ambient_slot", source.get_instance_id() % 3))
 	_weapon_ready[key] = 4.5 + float(slot) * 0.5

@@ -19,6 +19,7 @@ class LaserHost:
 func run() -> void:
 	print("\n════════ BOSS 通关强化测试 ════════")
 	_test_progression_counts()
+	_test_wraith_support_deployment()
 	_test_carrier_composition()
 	_test_goose_variant_gate()
 	_test_goose_vls_distance_airburst()
@@ -35,6 +36,30 @@ func _test_progression_counts() -> void:
 	_check("Wraith 初见无支援", F47AceSquad.support_count_for_progression(0) == 0, "")
 	_check("Wraith 首败后双支援", F47AceSquad.support_count_for_progression(1) == 2, "")
 	_check("Wraith 二败暂沿用双支援", F47AceSquad.support_count_for_progression(2) == 2, "")
+
+func _test_wraith_support_deployment() -> void:
+	var player_pos := Vector2.ZERO
+	var wraith_center := Vector2(0.0, -3600.0)
+	var positions := F47AceSquad.support_spawn_positions(player_pos, wraith_center, Vector2.UP)
+	_check("Wraith 支援几何返回双机", positions.size() == 2, str(positions))
+	if positions.size() != 2:
+		return
+	var away := (wraith_center - player_pos).normalized()
+	var lateral := Vector2(-away.y, away.x)
+	var center := (positions[0] + positions[1]) * 0.5
+	_check("YF-23 位于 Wraith 后方", (center - wraith_center).dot(away)
+		>= F47AceSquad.YF23_SUPPORT_TRAILING_PX - 0.1, "center=%s" % center)
+	_check("YF-23 不在玩家近处闪现", center.distance_to(player_pos)
+		>= F47AceSquad.YF23_SUPPORT_MIN_PLAYER_DISTANCE_PX, "distance=%.1f" % center.length())
+	_check("YF-23 在后方轴两侧对称潜伏",
+		is_equal_approx((positions[0] - center).dot(lateral),
+			-(positions[1] - center).dot(lateral)), str(positions))
+	var support := Aircraft.new()
+	support.set_meta(&"lock_immune_override", true)
+	F47AceSquad.configure_progression_support_aircraft(support, 0)
+	_check("YF-23 支援按普通飞机规则可锁定",
+		not support.has_meta(&"lock_immune_override") and not support.is_lock_immune(), "")
+	support.free()
 
 func _test_carrier_composition() -> void:
 	var first: Dictionary = CarrierStrikeGroup.escort_counts_for_progression(0)

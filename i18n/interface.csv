@@ -269,7 +269,7 @@ POPUP_CLIMB_COUNTER,爬升反制,CLIMB BREAK,上昇カウンター
 POPUP_MANEUVER_BLOCKED,机动空间不足,MANEUVER BLOCKED,機動空間不足
 TACTIC_HACKED,已黑入,HACKED,ハッキング完了
 MENU_ARCHIVE_NAME,资料库,Archive,資料庫
-MENU_ARCHIVE_DESC,敌人图鉴与全部游戏机制说明,Enemy codex and the full manual of game mechanics,敵機名鑑とゲームシステム解説
+MENU_ARCHIVE_DESC,查阅作战手册、敌情档案与交战记录。,"Browse the field manual, threat files, and engagement records.",作戦マニュアル、敵情ファイル、交戦記録を閲覧する。
 SQUAD_CONTROLLED,操控中,CONTROLLED,操作中
 MENU_META_SHOP_NAME,生涯商店,Career Shop,キャリアショップ
 MENU_META_SHOP_DESC,用功勋购买飞机与持久强化,Spend merit on aircraft and permanent perks,功績で機体と永続強化を購入

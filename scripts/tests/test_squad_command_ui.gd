@@ -27,6 +27,7 @@ func run() -> void:
 	_test_fixed_squad_slots()
 	_test_wingman_tutorial_slot_hint()
 	_test_leader_down_repairs_squad_bindings()
+	_test_control_role_transfers_tactical_preference()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
 
@@ -250,6 +251,40 @@ func _test_leader_down_repairs_squad_bindings() -> void:
 	_check("接管后全队广播仍覆盖全部幸存飞机",
 		wing2.target_position == regroup_point and wing3.target_position == regroup_point
 		and wing2.command_sprint and wing3.command_sprint)
+
+	mode.free()
+	spawner.free()
+
+
+# ── G. 操控角色运行时权限必须随换机原子转移 ──
+
+func _test_control_role_transfers_tactical_preference() -> void:
+	print("── G. 操控角色的战术转弯权限随换机转移 ──")
+	var env := _mk_mode()
+	var mode: Node2D = env[0]
+	var spawner: SurvivorSpawner = env[1]
+	var old_player: Aircraft = env[2]
+	var new_player := _mk_ac()
+	mode.add_child(new_player)
+	old_player.use_tactical_preference = true
+	new_player.use_tactical_preference = false
+
+	mode._set_player_aircraft(new_player)
+	_check("新操控机获得玩家战术权限，旧机立即失去",
+		mode.player_aircraft == new_player
+		and new_player.use_tactical_preference
+		and not old_player.use_tactical_preference)
+
+	var max_bank := deg_to_rad(85.0)
+	var player_bank := AircraftPhysics.compute_target_bank(
+		0.5, 0.0, 0.0, 283.0, max_bank, true, new_player.use_tactical_preference,
+		Aircraft.WeaponMode.MISSILE, 2, false, 1.0, 0.02, 4.5, 0.75)
+	var ai_bank := AircraftPhysics.compute_target_bank(
+		0.5, 0.0, 0.0, 283.0, max_bank, true, old_player.use_tactical_preference,
+		Aircraft.WeaponMode.MISSILE, 2, false, 1.0, 0.02, 4.5, 0.75)
+	_check("换机后玩家不再误吃导弹 phase-2 的 35% 坡度上限",
+		absf(player_bank) > max_bank * 0.95 and absf(ai_bank) <= max_bank * 0.351,
+		"player=%.1f° old_ai=%.1f°" % [rad_to_deg(player_bank), rad_to_deg(ai_bank)])
 
 	mode.free()
 	spawner.free()

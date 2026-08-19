@@ -66,6 +66,7 @@ var _mm_raster_tex: Texture2D = null
 ## UGC/内置预览图调色板；空字典保持东京湾缩略图历史配色。
 var ugc_palette: Dictionary = {}
 var use_basemap := true
+var readout_only := false  ## Boss Debug：只保留 build/三轴/里程碑读数，不加载或绘制地图几何。
 # ── 底部"随机战场简报" + 右下"操作指南" ──
 const _TIP_KEYS: Array[String] = [
 	"TACTICAL_TIP_BOUNDARY",
@@ -91,6 +92,8 @@ var _tip_label: RichTextLabel
 var _last_tip_idx: int = -1
 # ── 左栏（三轴/机体状态）+ 右缘"已激活技能"面板 ──
 var _game_scene: Node = null              ## survivor_mode，提供 upgrade_stacks
+var _weapon_loadout_panel: VBoxContainer  ## Boss Debug：ACE 随机构筑的特殊武器
+var _weapon_loadout_label: Label
 var _upgrades_list: VBoxContainer         ## 右缘技能清单（2026-07-27 用户令从左栏移出）
 var _upgrade_detail: RichTextLabel        ## 右缘 hover 详情框
 var _axis_panel: VBoxContainer            ## 三轴常驻面板（spec evolution-attribute-gates §3.2）
@@ -369,13 +372,18 @@ func _build_ui() -> void:
 # ══════════════════════════════════════════════
 
 func _on_map_draw() -> void:
+	var size := _map_panel.size
+	_map_rect = Rect2(Vector2.ZERO, size)
+	if readout_only:
+		_map_panel.draw_rect(_map_rect, BG_COLOR)
+		_map_panel.draw_rect(_map_rect, FRAME_COLOR, false, 2.0)
+		_draw_minimap_scanlines_and_vignette(size)
+		return
 	MapGeography.ensure_ready()
 	if raster_preview_enabled:
 		_ensure_raster_basemap()
 	elif not vector_preview_enabled and use_basemap:
 		_ensure_minimap_basemap()
-	var size := _map_panel.size
-	_map_rect = Rect2(Vector2.ZERO, size)
 	# 底色 = 海（如果有底图 PNG 覆盖，下面会盖住）
 	_map_panel.draw_rect(_map_rect, _map_color("sea", MapGeography.SEA_COLOR))
 	# 底图 PNG（如果存在）
@@ -1190,6 +1198,23 @@ func _build_skills_panel() -> void:
 	panel.add_theme_constant_override("separation", 8)
 	_root.add_child(panel)
 
+	_weapon_loadout_panel = VBoxContainer.new()
+	_weapon_loadout_panel.add_theme_constant_override("separation", 3)
+	_weapon_loadout_panel.visible = false
+	panel.add_child(_weapon_loadout_panel)
+
+	var weapon_title := Label.new()
+	weapon_title.text = tr("TACTICAL_MAP_WEAPONS_TITLE")
+	weapon_title.add_theme_font_size_override("font_size", 16)
+	weapon_title.add_theme_color_override("font_color", NAV_MARKER_COLOR)
+	_weapon_loadout_panel.add_child(weapon_title)
+
+	_weapon_loadout_label = Label.new()
+	_weapon_loadout_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_weapon_loadout_label.add_theme_font_size_override("font_size", 12)
+	_weapon_loadout_label.add_theme_color_override("font_color", TEXT_COLOR)
+	_weapon_loadout_panel.add_child(_weapon_loadout_label)
+
 	var title := Label.new()
 	title.text = tr("TACTICAL_MAP_UPGRADES_TITLE")
 	title.add_theme_font_size_override("font_size", 16)
@@ -1336,6 +1361,7 @@ func _build_controls_panel() -> void:
 func _refresh_upgrades_list() -> void:
 	_refresh_axis_panel()
 	_refresh_status_panel()
+	_refresh_weapon_loadout()
 	if not _upgrades_list:
 		return
 	for child in _upgrades_list.get_children():
@@ -1386,6 +1412,28 @@ func _refresh_upgrades_list() -> void:
 		empty.add_theme_font_size_override("font_size", 12)
 		empty.add_theme_color_override("font_color", Color(0.5, 0.5, 0.5))
 		_upgrades_list.add_child(empty)
+
+
+## Boss Debug 只读构筑：展示本局实际抽取并挂到 ACE 的正式特殊武器。
+## 普通生存局仍等 inrun-weapon-inventory 的完整图标行批次，不在这里扩张 UI 范围。
+func _refresh_weapon_loadout() -> void:
+	if not _weapon_loadout_panel or not _weapon_loadout_label:
+		return
+	_weapon_loadout_panel.visible = false
+	_weapon_loadout_label.text = ""
+	if not _game_scene or not "_boss_debug_weapons" in _game_scene:
+		return
+	var weapon_ids: Array = _game_scene._boss_debug_weapons
+	if weapon_ids.is_empty():
+		return
+	var lines: Array[String] = []
+	for raw_weapon_id in weapon_ids:
+		var weapon_id := String(raw_weapon_id)
+		var name_key := String(ZoneData.REWARD_WEAPON_NAME_KEYS.get(weapon_id, ""))
+		var display_name := tr(name_key) if not name_key.is_empty() else weapon_id
+		lines.append("• %s" % display_name)
+	_weapon_loadout_label.text = "\n".join(lines)
+	_weapon_loadout_panel.visible = true
 
 ## 三轴常驻面板（spec evolution-attribute-gates §3.2）：
 ## 每轴一行 = 轴名 + 点数 + ●○ 进度（到下一档刻度）+ 下一档预览；标题行 = 总点数 + 路线倾向。
@@ -1713,6 +1761,8 @@ func _refresh_info() -> void:
 			int(status.get("bombers_alive", 3)), int(status.get("bombers_total", 3)),
 			tr("ZONE_BOMBER_ESCORTS"), int(status.get("escorts_alive", 2)),
 			int(status.get("escorts_total", 2))])
+		lines.append("  [color=#ff8a66]%s  %d / %d[/color]" % [tr("ZONE_BOMBER_INTERCEPTORS"),
+			int(status.get("interceptors_alive", 0)), int(status.get("interceptors_total", 0))])
 		lines.append("  %s  %s" % [tr("ZONE_BOMBER_PHASE"), tr(phase_key)])
 
 	if state == ZoneData.State.AVAILABLE:

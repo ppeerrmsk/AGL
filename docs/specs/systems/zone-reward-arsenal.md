@@ -3,7 +3,7 @@ id: zone-reward-arsenal
 kind: balance
 status: done
 schema_version: 1
-spec_version: 10
+spec_version: 11
 owner: noelu（设计）/ Codex（规格化与落地）
 depends_on: [zone-reward-docking, inrun-weapon-inventory, skills-720-rework]
 reconstruction_complete: true
@@ -112,7 +112,7 @@ reconstruction_complete: true
 
 - 七项均为 `NEXT_GEN`、`max_stacks = 1`，从普通升级池排除。
 - 连锁弹头没有机型、战斗等级或前置技能门槛；“连锁”描述的是一弹连续穿过多个目标，不再弹跳改向。
-- 炮艇模式的 360° 是绝对射界；当前机与 AI 僚机各自运行独立被动炮塔扫描，候选包含敌对 `Aircraft` / `GroundUnit` 并取最近合法目标，不受当前战术目标锁池；普通机炮仍仅自动扫描飞机并遵守交战纪律。机炮吊舱绘制两条随射向旋转的火线并显示圆形射程提示，AI 突击飞行行为不改。
+- 炮艇模式的 360° 是绝对射界；当前机与 AI 僚机各自运行独立被动炮塔扫描。有效且在射程内的玩家 `commanded_target`（含 `MountTarget`）优先；没有可射击的玩家点名时，候选池在敌对 `Aircraft` / `GroundUnit` 中取最近合法目标，不被普通战术 `combat_target` 锁死。普通机炮仍仅自动扫描飞机并遵守交战纪律。机炮吊舱绘制两条随射向旋转的火线并显示圆形射程提示，AI 突击飞行行为不改。
 
 ### 2.5 僚机实体奖励
 
@@ -184,6 +184,7 @@ roll 战区奖励
 
 | 日期 | spec_version | 改动 |
 |---|---:|---|
+| 2026-08-18 | 11 | 炮艇火控补玩家命令优先：射程内 `commanded_target`（含挂点代理）压过自动最近目标，超距或失格时保留独立扫描回退。 |
 | 2026-08-17 | 10 | 新增斗士次世代技能“狂化病毒”；次世代池 6→7，F6 战区奖励直发 15→16，并补动态僚机与压力回归。 |
 | 2026-08-04 | 8 | 用户补充炮艇模式行为：3Hz 自动机炮扫描额外纳入敌对 GroundUnit；普通机炮仍仅自动扫描 Aircraft，并补运行时正反例。 |
 | 2026-08-09 | 9 | 首批 A/B 奖励目标延迟到战斗满 60 秒且 Lv3 后开放；先播 HQ 无线电，6 秒后生成实体；保留武器/次世代双保底。 |

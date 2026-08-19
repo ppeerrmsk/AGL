@@ -3,7 +3,7 @@ id: gunship-mode
 kind: skill
 status: done
 schema_version: 1
-spec_version: 4
+spec_version: 5
 owner: noelu（设计）/ Codex（规格化与落地）
 depends_on: [zone-reward-arsenal, squad-upgrade-ownership]
 reconstruction_complete: true
@@ -33,7 +33,7 @@ reconstruction_complete: true
 
 自动扫描选中目标后，一整个机炮梭射必须锁存该目标，并在每个武器 tick 重算提前点；战术计划不得在 3Hz 扫描间隔内把剩余子弹重置回机头方向。炮艇模式的炮口出生点与双管横向间距跟随实际射击方向旋转，不得固定在机鼻前方。近防炮是独立武器通道：始终只拦截正面来袭导弹，不继承炮艇模式的 180° 射界，也不借炮艇模式变成全向反导。机炮吊舱显示左右两条火线；机体显示完整圆形射程提示。AI 的 ASSAULT 决策不改。
 
-炮艇扫描是玩家全队每架持有者各自运行的独立炮塔通道：当前操控机与 AI 僚机均无需 `combat_target`、攻击命令或战术开火许可即可工作；已有空中/地面战术目标不得把扫描池锁死，planner 当前选择 `MISSILE` 主武器模式也不得使炮塔静默。编队跟随与屏外 LOD0/1/2 的提前返回路径也必须继续 tick 该炮塔，不能因为只保留编队导弹更新而漏掉机炮。每次 3Hz 扫描在全部合法 Aircraft / GroundUnit 中选择距离最近者，整梭锁存该对象；因此近处地面机器人不会被更贴近机头但更远的空中战术目标长期饿死。普通机炮继续遵守既有交战纪律。
+炮艇扫描是玩家全队每架持有者各自运行的独立炮塔通道：当前操控机与 AI 僚机均无需 `combat_target`、攻击命令或战术开火许可即可工作；普通 AI / planner 产生的空中或地面 `combat_target` 不得把扫描池锁死，planner 当前选择 `MISSILE` 主武器模式也不得使炮塔静默。玩家显式下达的有效 `commanded_target` 例外：只要目标敌对、未毁、未被传感器遮蔽、可攻击且在机炮射程内，本次扫描与下一梭都必须优先该目标；显式通道接受任意合法 `CombatUnit`，包括 Mother Goose / 舰船的 `MountTarget`。点名目标失格或超出射程时不让炮塔空转，而是回退到全部合法 Aircraft / GroundUnit 中距离最近者。编队跟随与屏外 LOD0/1/2 的提前返回路径也必须继续 tick 该炮塔，不能因为只保留编队导弹更新而漏掉机炮。整梭锁存所选对象；因此玩家命令不会被自动火控夺走，同时近处机会目标也不会因一个当前不可射击的远距命令而长期饿死。普通机炮继续遵守既有交战纪律。
 
 ## 4. 结构与组成（Structure）
 
@@ -50,7 +50,8 @@ reconstruction_complete: true
 - [x] 同时持有近防炮时，CIWS 仍只覆盖机头正面，不因炮艇模式获得 360° 反导。
 - [x] AI 僚机无需战术目标也会独立扫描并射击圈内 GroundUnit；planner 处于 MISSILE 模式也不静默炮塔。
 - [x] 编队跟随与屏外 LOD0/1/2 提前返回路径均接入炮艇 tick，不会只更新编队导弹。
-- [x] 已有射程外空中 `combat_target` 时，炮艇仍会选中更近的圈内 GroundUnit，且整梭承诺对象是扫描目标而非空中目标。
+- [x] 射程内的玩家 `commanded_target` 优先于更近的自动候选，且显式点名的 `MountTarget` 可成为整梭承诺对象。
+- [x] 玩家 `commanded_target` 超出射程或失格时，炮艇仍会选中更近的圈内合法目标，不被远距命令锁死扫描池。
 - [x] 两条机炮吊舱火线与完整射程圈可见。
 - [x] 不改变 AI 突击行为，不引入手动扳机。
 - [x] `skill_audit` 通过。
@@ -74,6 +75,7 @@ reconstruction_complete: true
 
 | 日期 | spec_version | 改动 |
 |---|---:|---|
+| 2026-08-18 | 5 | 用户定稿玩家点名优先：有效且在射程内的 `commanded_target`（含 Mother Goose / 舰船 `MountTarget`）压过最近目标扫描；失格或超距时仍回退独立炮塔自动选敌。 |
 | 2026-08-04 | 4 | 根据 220856 实机日志补全 fantasy：炮艇成为全队独立被动炮塔通道，AI 僚机也扫描；不受 planner 当前目标锁池与 MISSILE 主武器模式影响；编队/屏外 LOD 提前返回仍 tick 炮塔；以最近合法目标选取，避免圈内地面单位被远处空中目标饿死。 |
 | 2026-08-04 | 3 | 根据实机日志修正炮艇出弹：整梭锁存目标并逐 tick 更新提前点；炮口随射向旋转；CIWS 射界与炮艇 180° 机炮射界隔离。 |
 | 2026-08-04 | 2 | 用户补充：自动机炮扫描必须把地面单位算在内；仅炮艇模式扩池，普通机炮维持仅对空扫描。 |

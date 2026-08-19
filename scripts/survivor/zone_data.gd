@@ -756,7 +756,7 @@ func _nextgen_candidates(used: Dictionary, ctx: Dictionary) -> Array:
 	for u in SurvivorData.UPGRADES:
 		if int(u.get("rarity", -1)) != SurvivorData.Rarity.NEXT_GEN:
 			continue
-		if not SurvivorData.is_normal_random_candidate(u):
+		if not SurvivorData.is_normal_random_candidate(u, true):
 			continue  # 专属技只走每机每局一次的第四槽，禁止其它奖励池旁路
 		if MetaShop.is_upgrade_gated(u):
 			continue  # Doctrine 门控（spec doctrine-unlocks §3.3：战区奖励池同样不发无证牌）

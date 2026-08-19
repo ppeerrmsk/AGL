@@ -4,6 +4,7 @@ extends Aircraft
 
 var draw_runtime_label: bool = false
 var draw_bank_volume: bool = true
+var draw_esm_range: bool = false
 var draw_probe_calls: int = 0
 var draw_probe_usec: int = 0
 
@@ -16,6 +17,8 @@ func _ready() -> void:
 
 func _draw() -> void:
 	var started_usec := Time.get_ticks_usec()
+	if draw_esm_range:
+		AircraftRenderer.draw_esm_aura(self)
 	AircraftRenderer.draw_aircraft_icon(self, draw_bank_volume)
 	if draw_runtime_label:
 		if _font == null:

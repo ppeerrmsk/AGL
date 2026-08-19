@@ -77,8 +77,8 @@ func run() -> void:
 	_check("鹞失速地板 140（全谱最低签名）", is_equal_approx(p["harrier"].stall_speed_base, 140.0),
 		"got %.0f" % p["harrier"].stall_speed_base)
 	_check("其余机失速地板 220（模板）", is_equal_approx(p["a6e"].stall_speed_base, 220.0), "")
-	_check("EA-18G 锚点（135HP/1900/雷达3450/锥44/锁2.1/弹3）",
-		_row_eq(p["ea18g"], 135, 1900, 3450, 44, 2.1, 3), _row_str(p["ea18g"]))
+	_check("EA-18G 锚点（135HP/1900/雷达3450/锥44/锁2.1/弹2）",
+		_row_eq(p["ea18g"], 135, 1900, 3450, 44, 2.1, 2), _row_str(p["ea18g"]))
 	_check("F/A-XX 锚点（185HP/2700/雷达3200/锥38/锁1.9/弹3）",
 		_row_eq(p["faxx"], 185, 2700, 3200, 38, 1.9, 3), _row_str(p["faxx"]))
 	var faxx_profile := AircraftDB.get_profile(&"faxx")

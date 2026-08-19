@@ -21,6 +21,9 @@ extends RefCounted
 
 const AUTO_GUN_SCAN_INTERVAL := 0.3
 const AIRCRAFT_CIWS_CONE_HALF_ANGLE_DEG := 5.0  ## 独立正面防御锥；不得继承炮艇/X-44/瞄准辅助射界
+const META_HYPER_A_SATURATION_SALVO: StringName = &"hyper_a_saturation_salvo"
+const META_HYPER_A_G0_OMNIDIRECTIONAL_SALVO: StringName = &"hyper_a_g0_omnidirectional_salvo"
+const META_HYPER_A_WEAPONS_ENABLED: StringName = &"hyper_a_weapons_enabled"
 ## 机炮梭射节奏（specs/weapons/gun-burst-fire.md）：梭内间隔 = 平均间隔 × DUTY（触底一帧一发），
 ## 梭间 CD 按平均射速守恒推出 —— fire_rate 越高梭内越密、梭间越短，长期 DPS 与匀速点射完全一致
 const GUN_BURST_DUTY := 0.3            ## 梭内射速 ≈ 3.3 × fire_rate
@@ -105,15 +108,14 @@ static func _has_lead_intercept_solution(ac: Aircraft, target_unit: CombatUnit,
 		msl: MissileParams, skill: float) -> Array:
 	if not ac.params or not is_instance_valid(target_unit) or msl == null:
 		return [true, 0.0, 0.0]
+	var lead := missile_lead_point(ac.global_position, ac.speed,
+		target_unit.global_position, target_unit.heading, target_unit.speed,
+		msl.max_speed)
 	var avg_speed_ms := maxf(ac.speed, msl.max_speed * LEAD_MISSILE_AVG_SPEED_FRAC)
 	avg_speed_ms = maxf(avg_speed_ms, 100.0)
 	var avg_speed_px := avg_speed_ms * CombatUnit.PIXELS_PER_METER
-	var target_velocity := Vector2(sin(target_unit.heading), -cos(target_unit.heading)) \
-		* target_unit.speed * CombatUnit.PIXELS_PER_METER
-	var tti := ac.global_position.distance_to(target_unit.global_position) / avg_speed_px
-	var lead := target_unit.global_position + target_velocity * tti
-	tti = ac.global_position.distance_to(lead) / avg_speed_px
-	lead = target_unit.global_position + target_velocity * tti
+	var tti := ac.global_position.distance_to(lead) / avg_speed_px
+	# 发射门、planner 与离架航向必须消费同一个前置点。
 	if not AircraftCombatTracking.envelope_pass_at(ac, lead, target_unit.heading,
 			target_unit.altitude, target_unit is Aircraft, msl):
 		return [false, tti,
@@ -186,6 +188,31 @@ static func _gun_target_from_id(instance_id: int) -> CombatUnit:
 	if obj == null or not is_instance_valid(obj) or not obj is CombatUnit:
 		return null
 	return obj as CombatUnit
+
+
+## 炮艇的玩家点名优先通道。只返回当前确实可由机炮攻击的 commanded_target；
+## 超距 / 失格时返回 null，让 3Hz 独立炮塔继续回退到最近合法机会目标。
+## Variant 先接住跨帧引用，避免 MountTarget 销毁帧在 typed cast 前抛 freed-instance。
+static func _gunship_command_target(ac: Aircraft) -> CombatUnit:
+	if not ac.gunship_mode_active or not ac.is_player_squad():
+		return null
+	var candidate_value: Variant = ac.commanded_target
+	if candidate_value == null or not is_instance_valid(candidate_value) \
+			or not candidate_value is CombatUnit:
+		return null
+	var target := candidate_value as CombatUnit
+	if target.is_destroyed or not ac.is_hostile_to(target) or target.is_lock_immune() \
+			or ac.is_sensor_engagement_obscured(target):
+		return null
+	if target is Aircraft and (not ac.attack_air_targets or (target as Aircraft).is_cloaked):
+		return null
+	var dist_px: float = ac.global_position.distance_to(target.global_position)
+	if dist_px < 10.0 or dist_px > ac.effective_gun_range_m() * CombatUnit.PIXELS_PER_METER:
+		return null
+	if target is Aircraft and not ac.flat_altitude \
+			and absf(ac.altitude - (target as Aircraft).altitude) > 500.0:
+		return null
+	return target
 
 
 ## 已承诺梭每个武器 tick 都重算同一目标的提前点，防止 planner 在 3Hz 扫描间隔内
@@ -285,6 +312,7 @@ static func auto_gun_scan(ac: Aircraft) -> void:
 	var bullet_speed_px := gun.muzzle_velocity * CombatUnit.PIXELS_PER_METER
 	var my_pos := ac.global_position
 	var my_fwd := Vector2(sin(ac.heading), -cos(ac.heading))
+	var player_command_target := _gunship_command_target(ac)
 
 	# 节流：候选选择只需 ~3Hz；整梭的目标实例与提前点由 update_gun 每 tick 锁存/刷新，
 	# 因此 planner 在两次扫描之间回写 is_firing/lead 也不会把剩余弹扳回机头。
@@ -318,14 +346,15 @@ static func auto_gun_scan(ac: Aircraft) -> void:
 		var target_unit := unit as CombatUnit
 		var is_aircraft: bool = target_unit is Aircraft
 		var is_gunship_ground: bool = ac.gunship_mode_active and target_unit is GroundUnit
-		if not is_aircraft and not is_gunship_ground:
+		var is_player_command: bool = gunship_passive and target_unit == player_command_target
+		if not is_aircraft and not is_gunship_ground and not is_player_command:
 			continue
 		if not ac.is_hostile_to(target_unit) or target_unit.is_destroyed \
 				or ac.is_sensor_engagement_obscured(target_unit):
 			continue
 		if is_aircraft and (not ac.attack_air_targets or (target_unit as Aircraft).is_cloaked):
 			continue
-		if is_gunship_ground and target_unit.is_lock_immune():
+		if (is_gunship_ground or is_player_command) and target_unit.is_lock_immune():
 			continue
 
 		var to_unit: Vector2 = target_unit.global_position - my_pos
@@ -353,14 +382,17 @@ static func auto_gun_scan(ac: Aircraft) -> void:
 
 		if angle_diff > fire_cone:
 			continue
-		# 普通固定机炮优先最贴近机头的解；炮艇炮塔优先最近威胁，避免近处地面单位
-		# 被更贴机头但更远的空中战术目标长期饿死。
-		var better_target: bool = dist < best_dist if gunship_passive else angle_diff <= best_angle
+		# 玩家点名在合法且射程内时压过自动火控；否则普通固定机炮优先最贴近机头，
+		# 炮艇炮塔优先最近威胁，避免超距命令让近处机会目标长期饿死。
+		var better_target: bool = is_player_command \
+				or (dist < best_dist if gunship_passive else angle_diff <= best_angle)
 		if better_target:
 			best_dist = dist
 			best_angle = angle_diff
 			best_target = target_unit
 			ac._gun_lead_heading = angle_to_lead
+			if is_player_command:
+				break
 
 	var _was_firing: bool = ac.is_firing
 	ac._auto_gun_target_id = best_target.get_instance_id() if best_target != null else 0
@@ -504,8 +536,11 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 	if ac._gun_burst_rounds_left <= 0:
 		# 旧梭若被爬升冻结，许可只覆盖那一梭；新梭必须恢复实时前置解。
 		ac._gun_climb_frozen_target_id = 0
-		# 有显式战斗目标时优先锁它；无点名目标则锁存 3Hz 自动扫描选中的实例。
-		if ac.gunship_mode_active and ac._auto_gun_target_id != 0:
+		# 玩家点名是铁律：合法且在射程内时压过 3Hz 自动扫描；超距 / 失格才回退。
+		var player_command_target := _gunship_command_target(ac)
+		if player_command_target != null:
+			ac._gun_burst_target_id = player_command_target.get_instance_id()
+		elif ac.gunship_mode_active and ac._auto_gun_target_id != 0:
 			ac._gun_burst_target_id = ac._auto_gun_target_id
 		elif ac.combat_target != null and is_instance_valid(ac.combat_target) \
 				and not ac.combat_target.is_destroyed:
@@ -973,6 +1008,10 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 	ac._msl_block_log_timer = maxf(ac._msl_block_log_timer - delta, 0.0)
 	ac._salvo_skip_log_timer = maxf(ac._salvo_skip_log_timer - delta, 0.0)
 	var formation_opportunity_fire: bool = ac.is_player_squad() and ac.formation_mode
+	var hyper_a_salvo: bool = ac.has_meta(META_HYPER_A_SATURATION_SALVO) \
+			and bool(ac.get_meta(META_HYPER_A_WEAPONS_ENABLED, false))
+	var hyper_a_g0_omnidirectional_salvo: bool = hyper_a_salvo \
+			and ac.has_meta(META_HYPER_A_G0_OMNIDIRECTIONAL_SALVO)
 
 	# JAM 干扰：完全无法发射导弹（仍允许 cooldown 走完，恢复后立刻能打）
 	if ac.status_jam_active:
@@ -995,11 +1034,15 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 		return
 	if ac.external_missile_control:
 		return
+	# Hyper-A 的独立齐射只在 BOSS 状态机明确开放武器时工作；下降 / 爬升 / 冲锋期硬静默。
+	# 放在装填更新之后：特殊动作禁止发射，但不会无故冻结 20s 自动装填时钟。
+	if ac.has_meta(META_HYPER_A_SATURATION_SALVO) and not hyper_a_salvo:
+		return
 
 	# 机炮优先模式下不自动发射导弹（双击冲锋同样阻断：双击 = 纯机炮专注）
 	if ac.use_tactical_preference and ac.weapon_preference == Aircraft.WeaponPreference.PREFER_GUN:
 		return
-	if ac.weapon_mode != Aircraft.WeaponMode.MISSILE:
+	if ac.weapon_mode != Aircraft.WeaponMode.MISSILE and not hyper_a_salvo:
 		ac._log_msl_block("WEAPON_MODE", "mode=%d" % ac.weapon_mode)
 		return
 	if ac._missile_cooldown > 0.0:
@@ -1047,7 +1090,7 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 	if ac.use_tactical_preference and not ac.missile_auto_fire and ac._salvo_skip_log_timer <= 0.0:
 		ac._log_salvo_skip("GATE 齐射闸门关闭：missile_auto_fire=false（若 HUD 显示 ON 即为脱节）")
 	var passive_auto_fire: bool = ac.missile_auto_fire and (
-			ac.use_tactical_preference or formation_opportunity_fire)
+			ac.use_tactical_preference or formation_opportunity_fire or hyper_a_salvo)
 	if passive_auto_fire:
 		if _fire_multi_lock_salvo(ac, msl):
 			return
@@ -1120,7 +1163,8 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 	# 722 sig_f35·传感器融合：僚机对 ACE 满锁目标越肩发射（豁免自机锥门与锁定门；
 	# 包线与发射窗口质量照查——见下方两门的 or 分支）
 	var f35_relay: bool = _sig_f35_relay_ok(ac, ac.combat_target)
-	if not ac.is_in_radar_cone(ac.combat_target.global_position) and not f35_relay:
+	if not ac.is_in_radar_cone(ac.combat_target.global_position) \
+			and not f35_relay and not hyper_a_g0_omnidirectional_salvo:
 		var to_tgt := ac.combat_target.global_position - ac.global_position
 		var hdg_to_tgt := atan2(to_tgt.x, -to_tgt.y)
 		var off_axis_deg := absf(rad_to_deg(ac._angle_diff(hdg_to_tgt, ac.heading)))
@@ -1141,7 +1185,8 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 
 	# 发射纪律：所有飞机按 combat 档案先过稳定窗口，再过预测前置点。
 	var skill := _missile_skill(ac)
-	if not _has_stable_launch_window(ac, ac.combat_target, skill):
+	if not hyper_a_g0_omnidirectional_salvo \
+			and not _has_stable_launch_window(ac, ac.combat_target, skill):
 		var bank_deg: float = absf(rad_to_deg(ac.bank_angle))
 		var roll_deg_s: float = absf(rad_to_deg(ac._bank_rate_rad_s))
 		var to_tgt2: Vector2 = ac.combat_target.global_position - ac.global_position
@@ -1151,7 +1196,7 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 					skill, bank_deg, roll_deg_s, off_ax])
 		return
 	var lead_result := _has_lead_intercept_solution(ac, ac.combat_target, msl, skill)
-	if not bool(lead_result[0]):
+	if not hyper_a_g0_omnidirectional_salvo and not bool(lead_result[0]):
 		ac._log_msl_block("LEAD_GEOM",
 				"skill=%.2f tti=%.1fs detail=%.0f" % [
 					skill, float(lead_result[1]), float(lead_result[2])])
@@ -1224,6 +1269,10 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 	# 加力窗口全队禁攻击硬断（spec afterburner-mode）：齐射路径内部直接 spawn，需独立盖到
 	if ac.afterburner_window_active:
 		return false
+	var hyper_a_salvo: bool = ac.has_meta(META_HYPER_A_SATURATION_SALVO) \
+			and bool(ac.get_meta(META_HYPER_A_WEAPONS_ENABLED, false))
+	var hyper_a_g0_omnidirectional_salvo: bool = hyper_a_salvo \
+			and ac.has_meta(META_HYPER_A_G0_OMNIDIRECTIONAL_SALVO)
 	var locked_targets: Array[CombatUnit] = []
 	# 锁定阈值：AI 模式额外加 1 秒稳定缓冲；玩家战术偏好模式直接用 lock_time，
 	# 与单发路径保持一致——否则齐射路径要求更高，combat_target 经常 fall-through
@@ -1235,7 +1284,9 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 
 	# 诊断（2026-07-20）：统计各道过滤踢掉的候选数，齐射空手时打进 [SALVO_SKIP]。
 	# 只对玩家机开启（全场 1 架），循环内只做字典计数、不做字符串格式化 —— 见性能守则第 6 条
-	var diag: bool = ac.use_tactical_preference
+	var hyper_a_generation: int = int(ac.get_meta(&"hyper_a_generation", 99))
+	var diag: bool = ac.use_tactical_preference \
+			or (hyper_a_salvo and hyper_a_generation <= 1)
 	var skip: Dictionary = {}
 	var ct_reason: String = ""   ## combat_target 自己被哪道踢掉（最相关的一条）
 
@@ -1310,13 +1361,14 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 			continue
 		# 发射纪律：稳定窗口和预测前置点必须同时通过。
 		var skill := _missile_skill(ac)
-		if not _has_stable_launch_window(ac, target_unit, skill):
+		if not hyper_a_g0_omnidirectional_salvo \
+				and not _has_stable_launch_window(ac, target_unit, skill):
 			if diag:
 				skip["UNSTABLE_WIN"] = int(skip.get("UNSTABLE_WIN", 0)) + 1
 				if is_ct: ct_reason = "UNSTABLE_WIN"
 			continue
 		var lead_result := _has_lead_intercept_solution(ac, target_unit, msl, skill)
-		if not bool(lead_result[0]):
+		if not hyper_a_g0_omnidirectional_salvo and not bool(lead_result[0]):
 			if diag:
 				skip["LEAD_GEOM"] = int(skip.get("LEAD_GEOM", 0)) + 1
 				if is_ct: ct_reason = "LEAD_GEOM"
@@ -1802,3 +1854,19 @@ static func _pick_closest_locked(ac: Aircraft) -> CombatUnit:
 			best_dist = d
 			best = unit
 	return best
+
+
+## 普通空对空导弹的两轮 TTI 前置点真源。发射门、发射前战术追踪与离架航向共用，
+## 避免 planner 对准 LOS/crank、武器层却要求另一个 lead 点而永久拒发。
+static func missile_lead_point(source_pos: Vector2, source_speed_mps: float,
+		target_pos: Vector2, target_heading: float, target_speed_mps: float,
+		missile_max_speed_mps: float) -> Vector2:
+	var avg_speed_mps := maxf(source_speed_mps,
+		missile_max_speed_mps * LEAD_MISSILE_AVG_SPEED_FRAC)
+	var avg_speed_px := maxf(avg_speed_mps, 100.0) * CombatUnit.PIXELS_PER_METER
+	var target_velocity := Vector2(sin(target_heading), -cos(target_heading)) \
+		* target_speed_mps * CombatUnit.PIXELS_PER_METER
+	var tti := source_pos.distance_to(target_pos) / avg_speed_px
+	var lead := target_pos + target_velocity * tti
+	tti = source_pos.distance_to(lead) / avg_speed_px
+	return target_pos + target_velocity * tti

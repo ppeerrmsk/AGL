@@ -78,8 +78,9 @@
 > WhiteTea 使用王牌专属 `enemy_fck1.tres` + `whitetea_gun.tres`：F-CK-1 ×3，2100/1050 km/h、
 > 持续 G 9、4×5 受控短梭、无导弹；完整战术与命数预算见 [ace-whitetea-fck1](../specs/events/ace-whitetea-fck1.md)。
 > Black Star / Hyper-A 使用 `enemy_hyper_a_g0.tres` 至 `enemy_hyper_a_g3.tres` +
-> `hyper_a_missile.tres`：HP 800/300/100/70、视觉长度 96/80/36/10m、全代 0 flare、
-> 4 发导弹弹匣；分代特殊行为见 [hypersonic-splitter](../specs/bosses/hypersonic-splitter.md)。
+> `hyper_a_missile.tres`：HP 400/200/100/70、视觉长度 96/80/36/10m、全代 0 flare、
+> 4 发导弹弹匣；G0 使用 `1.2s` 锁定、`180°` 雷达半锥与全向离轴齐射许可，G1 恢复普通 `45°` 前向规则；分代特殊行为见
+> [hypersonic-splitter](../specs/bosses/hypersonic-splitter.md)。
 
 | 参数 | MiG-29 | J-7 截击机 | MQ-109 | MQ-110 | Sentinel指挥 |
 |------|--------|-----------|-----|------|-------------|

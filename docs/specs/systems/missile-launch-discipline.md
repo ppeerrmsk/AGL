@@ -3,7 +3,7 @@ id: missile-launch-discipline
 kind: system
 status: done
 schema_version: 1
-spec_version: 2
+spec_version: 3
 owner: user
 depends_on: [systems/weapon-employment-doctrine, systems/multi-target-missile-locks]
 reconstruction_complete: true
@@ -72,9 +72,11 @@ reconstruction_complete: true
 5. `机头到预测点偏角 ≤ seeker_fov × 0.5 × lerp(1, tight_ratio, skill)`；
 6. 全部通过后按现有自动开火路径发射。
 
+已锁定且进入中距发射带时，发射前 planner 必须直接追踪与第 3–5 步同一个两轮 TTI 前置点；锁定本身不得提前触发 crank。只有导弹已出筒、需要短时支援时才进入既有 crank 几何。当前目标 LOS、发射门前置解与 planner 追踪点不得各自重算或分叉。
+
 ### 3.2 初始朝向
 
-飞机发射的导弹复用 §2.3 的两轮前置点，把初始 heading 指向预测命中点，再相对发射机 heading 限制到 `±60°`；初始位置沿最终 heading 前移 `15 px`。这样 `guidance_delay` 内也直接朝前置点飞。
+飞机发射的导弹复用 §2.3 的两轮前置点，把初始 heading 指向预测命中点，再相对发射机 heading 限制到 `±60°`；初始位置沿最终 heading 前移 `15 px`。发射门、发射前 planner 与离架航向共用 `AircraftWeapons.missile_lead_point`，使 `guidance_delay` 内也直接朝同一前置点飞。
 
 VLS 继续使用 LOS 加每发 `±25°` 散布；地面与舰载 SAM 继续使用 source-to-target LOS；两者不进入飞机发射纪律。
 
@@ -88,6 +90,7 @@ VLS 继续使用 LOS 加每发 `±25°` 散布；地面与舰载 SAM 继续使�
 
 - CombatParams 保存基础 skill 与 jitter；各 `.tres` 只复制本 spec 数值。
 - AircraftWeapons 计算有效 skill、稳定窗口与前置解，并同时服务单锁和多锁路径。
+- BfmIntent 在未出弹的发射带追踪 AircraftWeapons 同源前置点；出弹后才恢复 crank 支援。
 - AircraftCombatTracking 暴露“任意预测点走现有导弹包络”的纯几何入口。
 - MissileManager 只负责飞机导弹的前置出筒 heading；地面、舰船与 VLS 分支保持隔离。
 
@@ -97,6 +100,8 @@ VLS 继续使用 LOS 加每发 `±25°` 散布；地面与舰载 SAM 继续使�
 - [x] skill 高档比低档更少在高 bank、大滚转率和大前置偏角下发射。
 - [x] 单锁与多锁齐射使用同一门槛；齐射不会绕过前置包络。
 - [x] 飞机导弹出筒即朝预测命中点；VLS、SAM 与舰载发射朝向不变。
+- [x] 高速横穿目标已锁定时，发射前 planner 收敛到真实发射门的前置点；不再持续 `LEAD_GEOM` 拒发。
+- [x] crank 仅在出弹后支援期生效，既有连续无翻号几何不变。
 - [x] 玩家仍只通过走位和武器偏好影响自动开火，不新增手动发射键。
 - [x] 性能：无全场新扫描；Sentinel 与 `stress_40` 的 Lv8/32 机压力样本末秒均为 145 帧。
 - [x] i18n：无新增玩家可见文本。
@@ -116,12 +121,18 @@ VLS 继续使用 LOS 加每发 `±25°` 散布；地面与舰载 SAM 继续使�
 - [x] 增加确定性聚焦测试与日志契约。
 - [x] 跑武器、BOSS、齐射分配和 Sentinel 回归。
 
+### 阶段 4 — 发射前几何闭环
+- [x] 抽取单一 `missile_lead_point`，发射门、planner、离架航向共用。
+- [x] 区分未出弹的拦截收敛与已出弹的 crank 支援。
+- [x] 聚焦回归复制高速横穿的真实发射门序列。
+
 ## 7. 索引锚点（Where —— 唯一允许放指针的地方）
 
 | 关注点 | 文件 |
 |---|---|
 | 参数 | `scripts/combat_params.gd`、`resources/*_combat.tres` |
 | 发射门 | `scripts/aircraft/aircraft_weapons.gd` |
+| 发射前战术追踪 | `scripts/ai/tactical/bfm_intent.gd` |
 | 包络几何 | `scripts/aircraft/aircraft_combat_tracking.gd` |
 | 初始朝向 | `scripts/missile_manager.gd` |
 | 聚焦测试 | `scripts/tests/test_waypoint_fire_control.gd`、`scripts/tests/test_weapon_behavior.gd` |
@@ -133,3 +144,4 @@ VLS 继续使用 LOS 加每发 `±25°` 散布；地面与舰载 SAM 继续使�
 |---|---|---|
 | 2026-08-16 | 1 | 将历史 missile-skill-gate 按当前主线架构重建为权威规格；保留前置几何与技能档位，明确排除地面/舰载/VLS。 |
 | 2026-08-16 | 2 | 当前主线语义移植完成；weapon 29/29、waypoint 30/30、surface pass 32/32、TIGHT 齐射 10/10、fire allocation 15/15、BOSS 33/33，两个压力场末秒均为 145 帧。 |
+| 2026-08-18 | 3 | 修复高速横穿时 planner 的预发射 crank/LOS 与武器层前置门不一致：三个消费者共用两轮 TTI 前置点，crank 限已出弹支援期；`weapon` 33/33。 |

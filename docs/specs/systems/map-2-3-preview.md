@@ -3,7 +3,7 @@ id: map-2-3-preview
 kind: map
 status: in-progress
 schema_version: 1
-spec_version: 19
+spec_version: 20
 owner: design
 depends_on: [map-system, map-editor, raster-basemap-streaming]
 reconstruction_complete: false
@@ -18,6 +18,8 @@ reconstruction_complete: false
 - **体验目标**：图 2 一眼读成“沙漠铁路工业走廊”，图 3 一眼读成“开放海域与岛链”；玩家能用主视野与 Tab 地图寻找未来适合放置战区、舰队、地面冲突和机场的位置。
 - **Litmus 自检**：地图变化必须直接可见，并改变玩家对航线、陆海空间和地标的判断；不以隐藏数值或纯 UI 文案代替差异。
 - **反模式规避**：本轮不制作战区、任务、敌人、BOSS、奖励、地面冲突或跨局 Build；不改东京湾生产底图；不把两张地图合成同一种地貌。
+
+> 三图正式串联、双队 build 继承与 BOSS 顺延由 [three-map-campaign-continuity](three-map-campaign-continuity.md) 单独定义。本 spec 仍只负责地图输入、渲染与空图试飞，不因总流程草案而提前加入关卡内容。
 
 ## 2. 数据定义（What —— 本轮数值）
 
@@ -230,3 +232,4 @@ reconstruction_complete: false
 | 2026-08-16 | 17 | 三图共同试验 `0.016` 颗粒后，因 Detail 连续两轮出现低于 60 FPS 的尖峰而判退，沙漠/海洋随东京湾统一保留 `0.014`。实际 alpha 取样的完整 Visual QA 与 42 组同位审计重跑通过；正式 PNG 仍为默认与回滚，等待用户最终视觉确认。 |
 | 2026-08-16 | 18 | 三图真实 Survivor 完整 viewport 统一使用仅 bench 生效的固定天气种子，避免随机云形污染 PNG/候选色调比较；正式天气随机性不变。东京湾补齐同级抓图后，三图完整合成亮度差均小于 `0.00014`，低通 RGB MAE 均小于 `0.0026`，平坦区色准全部通过。 |
 | 2026-08-16 | 19 | 沙漠/海洋 Operational 与 Detail 完成真机同位消融：沙漠改动及海洋 Detail `1.21` 均因无稳定收益判退，仅晋升海洋 Operational `1.15` 为 `ocean_islands_v8`；3 px 结构与 5 px 轮廓 F1、42 组色准/LOD/驻留及 Sentinel+52 机性能门全部通过。正式 PNG 继续作为默认和回滚源。 |
+| 2026-08-18 | 20 | 补充与三图战役总流程的职责边界：本 spec 继续只管图 2/3 地图输入、渲染与空图试飞；双队继承、会师、BOSS 顺延及正式任务统一由 `three-map-campaign-continuity` 承接。 |

@@ -3,15 +3,16 @@ id: reinforcement-ingress
 kind: system
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 1
+spec_version: 3
 owner: noelu
 depends_on: [survivor-loop, map-system, map-expansion]
 reconstruction_complete: false
 ---
 
-# 增援入场 —— 地图边缘中队涌入 + 中央锚点巡逻
+# 增援与战区空军入场 —— 地图边缘中队涌入 + 锚点巡逻
 
 > 玩家视角：增援敌机不再"凭空出现在面前"，而是以完整中队从地图边缘飞入，向地图中部集结巡逻；
+> 新开放战区的空战目标、普通驻守机与 Sentinel 驻守队同样从地图外围飞向战区。
 > 镜头拉到任何地方，看到的敌机都有可信的来路。战场有"前线不断有敌人涌入"的持续感。
 
 ## 1. 设计意图（Why）
@@ -35,6 +36,9 @@ reconstruction_complete: false
 
 - **出现即有来路**：每一架增援敌机的首次出现位置都在地图边界之外，向内飞入。
   观察者无论何时把镜头对准任何一块内陆空域，都不会看到敌机 materialize。
+- **战区不贴脸刷空军**：战区在玩家附近开放时，纯空战任务可按时成立，但全部敌机
+  从地图边界外真实飞入；含地面/舰船任务的空中驻守队同样从外围进入，静态目标的
+  任务可达性处理不在本次变更范围内。
 - **前线感**：增援以中队建制涌入 → 向地图中部集结 → 驻空盘旋，Tab 战术图上能看到
   敌人"占据中央空域"的持续存在，而不是一团跟着玩家漂的雾。
 - **压力守恒**：主动威胁继续由猎手系统（hunter）供给，不因巡逻锚点离开玩家而变成挂机局。
@@ -65,6 +69,7 @@ reconstruction_complete: false
 | `EGRESS_FREE_OUTSET_PX` | 800 | 全员飞出边界线外此距离才释放（绝不在画面内消失） |
 | `EGRESS_MAX_CONCURRENT` | 1 | 同时处于退场状态的中队数上限（避免"集体大撤退"观感） |
 | `OPENING_GARRISON_SQUADS` | 3 | 开局 t≈0 直接以 ONSTATION 状态预置在锚点上的中队数（原 2，2026-07-06 [60km-density-pass](60km-density-pass.md) 上调） |
+| `ZONE_AIR_INGRESS_ARRIVE_BAND_PX` | 320 | 战区空军进入既有巡逻环外沿 +320 px 后，撤销在途远距冻结豁免 |
 
 ### 2.2 退役 / 语义变更的旧常量
 
@@ -83,7 +88,7 @@ reconstruction_complete: false
 | `_pick_enemy_type` 加权选型、"杂鱼一律 ≥2 建制、精英孤狼单机" | 不变（孤狼也走边缘入场，单机 TRANSIT） |
 | Hunter 制度（最少 2 + level/3，每 5 s 指派） | 不变，仅加资格过滤（§3.4） |
 | Adds 族群（Tu-160/AH-64/CH-47）固定航线穿场 | 不变（它们本来就是"飞过战场"的观感，已带 `skip_far_cleanup`） |
-| 战区任务敌人（zone_air / ground / naval）、BOSS 事件 | 不变（战区目标由 zone_mission 独立管理，不属于本 spec 范围） |
+| 战区地面/舰船目标、BOSS 事件 | 不变；只有 `zone_air` 的出生位置与在途 LOD 纳入本 spec，任务归属/数量/预算/完成条件仍由 zone_mission 管理 |
 | 玩家可见文本 | 无新增（无 i18n 工作） |
 
 ## 3. 行为与公式（How）
@@ -176,9 +181,24 @@ reconstruction_complete: false
    等效取代原设计的三点式 `[入场点→中途点→锚点]`。
 5. 常量拆分：`PATROL_RING_RADIUS_PX 1400±400` 落地为 `_BASE_PX 1400` + `_JITTER_PX 400`。
 
+### 3.8 战区空军边缘入场（2026-08-19）
+
+- **适用对象**：空战 TGT 中队、所有非 naval 战区的普通空中驻守队、Sentinel + MQ-109
+  驻守队。机型、数量、Token 预算、TGT/非 TGT 归属与完成判定完全不变。
+- **出生与航线**：每支中队以战区中心为 anchor，复用 §3.2 的边界候选算法；长机在
+  世界边界外生成并朝向中心，僚机按既有阵型偏移展开。第一航点取入场边最近的巡逻环点，
+  避免横穿环心。
+- **可见性恢复带**：广播 6 秒后玩家已经抵达时，继续沿用既有任务死锁恢复，不改变
+  地面/舰船静态目标的可达性语义；无论任务类型为何，其中所有空中 TGT/驻守敌机都改从
+  地图边界外生成，不再随静态目标或战区圈一起贴脸出现。
+- **在途冻结**：战区空军生成时打 `zone_ingress=true`、中心与抵达半径 meta；
+  survivor_mode 的离屏 LOD 只在该标记存在时豁免完全冻结。既有 8 秒航点 tick 检测到单位进入
+  `巡逻环半径 + 320 px` 后清除三项 meta，恢复普通 `zone_air` LOD。无新增逐帧扫描。
+
 ## 4. 结构与组成（Structure）
 
-- **不新增节点/子控制器**。全部逻辑住在 SurvivorSpawner 既有 tick 里。
+- **不新增节点/子控制器**。旅途增援逻辑住在 SurvivorSpawner 既有 tick；战区空军的
+  生成归 ZoneMission，抵达清标复用 SurvivorSpawner 既有 8 秒航点 tick。
 - 单位标记（meta）：
   - `category = "reinforcement"`（与既有 `adds` / `boss` / `zone_air` 同一套查询语义）
   - `reinf_phase ∈ {transit, onstation, egress}`（ENGAGE 由 AI 状态本身表达，不重复记）
@@ -195,7 +215,10 @@ reconstruction_complete: false
 - [ ] 中央空域驻留 ≥1 个巡逻中队时，Tab 图可见其绕锚点盘旋（非跟随玩家漂移）
 - [ ] 压力守恒：Lv≥3 时击杀当前追击者后 ≤60 s 内有新 hunter 接敌（hunter 制度未被削弱）
 - [ ] 退场中队全程可见可追，被攻击立即回头应战；释放时刻全员在镜头外且在边界外
-- [ ] 战区任务敌人 / Adds / BOSS 行为与本改动前完全一致（类别过滤未误伤）
+- [ ] 玩家已在新开放纯空战圈内时：空战 TGT、普通驻守与 Sentinel 驻守均从地图边界外飞来，
+      玩家周围和战区中心无任何敌机瞬时出现
+- [ ] 地面/舰船任务保留既有可见性死锁恢复与完成语义，其中空中驻守机仍全部从外围入场
+- [ ] 战区任务数量/预算/TGT 归属、Adds / BOSS 行为与本改动前一致
 - [ ] 性能：无新增每帧全场扫描（全部骑既有 5 s/8 s/4 s tick）；Sentinel + Lv5+ 压测 FPS 掉幅 < 15
 - [ ] survivor-loop spec §4.2 刷怪位置段落已加 superseded 指针 → 本 spec
 - [ ] i18n：无新增玩家可见文本（无需三语）
@@ -225,16 +248,25 @@ reconstruction_complete: false
 - [x] 无头回归：`tests/test_map_expansion.gd` 入场段（周长参数点/外法线/退场点/锚点避区 4/4）
 - [ ] §5 验收 playtest 项（镜头挪回/ZOOM_MIN 悬停/压力守恒/退场观察）+ Sentinel+Lv5 性能压测 → status: done
 
+### 阶段 5 — 战区空军纳入边缘入场
+- [x] air/squadron TGT、普通驻守、Sentinel 驻守统一从地图边界外生成并朝战区飞行
+- [x] 保留既有可见性死锁恢复；只替换其中全部空中敌人的出生与入场路径
+- [x] `zone_ingress` 离屏冻结豁免 + 既有 8 秒 tick 抵达清标，无新增逐帧扫描
+- [x] `zone_air_support` 聚焦回归覆盖边界外位置、朝向、LOD meta 生命周期及三条正式消费路径
+- [ ] 正式 Visual/playtest：新战区贴近玩家开放时观察整批敌机从外围进入
+
 ## 7. 索引锚点（Where —— 指针，会腐烂，非权威）
 
 | 关注点 | 文件 |
 |---|---|
 | 刷怪总管 / 三个生成入口 / INGRESS 辅助函数组（`_ingress_spawn_point` / `_pick_reinf_anchor` / `_tick_reinforcement_waypoints` / `_update_reinf_egress` / `_spawn_opening_garrison` 等） | `scripts/survivor/survivor_spawner.gd` |
 | 常量（INGRESS_* / ANCHOR_* / PATROL_RING_* / EGRESS_* / OPENING_GARRISON_SQUADS） | `scripts/survivor/survivor_data.gd` |
-| 离屏冻结豁免（reinforcement 分支） | `scripts/survivor/survivor_mode.gd`（LOD 冻结块） |
+| 战区空军边缘生成 / 巡逻环 / ingress meta | `scripts/survivor/zone_mission.gd`（`_zone_air_spawn_origin` / `_tag_zone_air_ingress` / 三条空军生成路径） |
+| 离屏冻结豁免（reinforcement / zone_ingress 分支） | `scripts/survivor/survivor_mode.gd`（LOD 冻结块） |
+| 战区空军抵达清标 | `scripts/survivor/survivor_spawner.gd`（`_tick_zone_air_ingress`，既有 8 秒航点 tick） |
 | 边界 API（distance_to_edge / clamp_inside / world_half_px） | `scripts/survivor/map_boundary.gd` |
 | PATROL 航点消费 | `scripts/ai_controller.gd` |
-| 无头回归（入场纯函数段） | `scripts/tests/test_map_expansion.gd` |
+| 无头回归（旅途入场纯函数 / 战区空军入场） | `scripts/tests/test_map_expansion.gd` / `scripts/tests/test_zone_air_support.gd` |
 | 被取代的旧设计记录 | `docs/specs/systems/survivor-loop.md` §4.2 |
 
 ## 8. 变更记录
@@ -243,3 +275,4 @@ reconstruction_complete: false
 |---|---|---|
 | 2026-07-05 | 1 | 初稿：边缘中队入场 + 中央锚点巡逻 + EGRESS 物理化轮换 + 开局驻防；实证两条 pop-in 根因（镜头挪回 / ZOOM_MIN 0.2 下软约束必然失败）。同日 **定稿 approved**（锚点盘样例值按拍板的 60 km 图更新） |
 | 2026-07-05 | 2 | **阶段 1~4 代码落地**（60km 图上，与 map-expansion 同批）：§3.7 实现期修订 ×5（离屏冻结第 4 适配点 = pop-in 另一半根因"刷出即冻结原地杵着"/锚点避全区/驻防降级/单点航线/常量拆分）；无头回归入场段 4/4 绿；status → in-progress，差 playtest/性能验收 |
+| 2026-08-19 | 3 | 用户截图指出新开放战区整批敌机贴脸刷新：把空战 TGT、普通驻守与 Sentinel 驻守纳入同一地图边缘入口；保留既有任务死锁恢复与静态目标语义，只替换空中敌人的出生路径；在途 LOD 豁免复用 8 秒 tick 清标。 |

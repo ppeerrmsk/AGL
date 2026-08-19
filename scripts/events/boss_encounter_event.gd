@@ -275,15 +275,23 @@ func _on_victory() -> void:
 ## 快照会指向一架不再是玩家的飞机，甚至一个已释放的实例（SEAM-020 硬崩）。
 ## director.player 已在 survivor_mode._set_player_aircraft() chokepoint 登记，是活的。
 func _live_player() -> Aircraft:
-	var p: Aircraft = director.player if director else null
-	if p == null or not is_instance_valid(p) or p.is_destroyed:
+	# 跨帧玩家引用必须先以 Variant 净化；把已释放实例直接赋给 Aircraft
+	# 会在进入 is_instance_valid 守卫前触发 "previously freed instance"。
+	var raw_player: Variant = director.player if director else null
+	if typeof(raw_player) != TYPE_OBJECT or not is_instance_valid(raw_player):
+		return null
+	var p := raw_player as Aircraft
+	if p == null or p.is_destroyed:
 		return null
 	return p
 
 ## 把活的玩家引用推给 encounter（各子类在 set_player_ref 里负责自己的全部缓存）
 func _refresh_encounter_player() -> void:
 	var p := _live_player()
-	if p == null or p == _last_pushed_player:
+	if p == null:
+		return
+	var raw_last: Variant = _last_pushed_player
+	if typeof(raw_last) == TYPE_OBJECT and is_instance_valid(raw_last) and p == raw_last:
 		return
 	_last_pushed_player = p
 	encounter.set_player_ref(p)

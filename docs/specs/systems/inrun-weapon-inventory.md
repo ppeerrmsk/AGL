@@ -3,7 +3,7 @@ id: inrun-weapon-inventory
 kind: system
 status: draft        # ⏳ 2026-07-19 用户"武器装备系统修改（重点调整）"成稿；细节待 review
 schema_version: 1
-spec_version: 2
+spec_version: 3
 owner: 用户
 depends_on: [evolution-attribute-gates, aircraft-evolution-tree, player-aircraft-power-curve, zone-reward-docking]
 reconstruction_complete: true
@@ -69,6 +69,7 @@ reconstruction_complete: true
 - 拿到电磁炮 → 换开 F-22 → F-22 机头也有电磁炮，充能强化原样生效。零弹窗零解释，武器就在那。
 - 进化结算界面的武器清单列"机体底线 + 你的武器库"两段（既有 UI 已显示武器清单，分段即可）。
 - Tab 三轴面板（gates §3.2）旁列武器库图标行（只读）。
+- Boss Debug 参考构筑从正式三星战区奖励池加权、无放回抽取特殊武器：5 次升级里程碑配 2 件，6 次配 3 件；尾雷/忠诚僚机保持机尾位互斥。武器先通过正式奖励入口挂到当前 ACE 并入库，再 roll 技能，Tab 同屏显示本局实际武器与技能；F8 重开时一起重抽。四机以上编队不复制 ACE 武器，保持正式“武器库跟当前操控机走”的归属语义。
 
 ## 5. 验收
 
@@ -78,7 +79,7 @@ reconstruction_complete: true
 - [ ] 底线不入库：起手机机炮/导弹/flare 不出现在武器库；换机后武器库为空（若无入手）。
 - [ ] 战区奖励武器走同一入库/继承路径（忠诚僚机换机后仍在）。
 - [ ] 每局清零断言：新局武器库为空。
-- [ ] debug 链路：boss debug 可直接勾选任意特殊武器组合进场（配合全谱选机测试）。
+- [x] debug 链路：F4 可直接配置装备；Boss Debug 按参考等级随机搭配 2~3 件正式特殊武器，并在 Tab 显示实际结果。
 
 ## 6. 实施计划（与 gates/power-curve 实施交错）
 
@@ -90,7 +91,7 @@ reconstruction_complete: true
       比逐 grant 钩子更简且天然捕获强化后的资源）+ 换型后 remount_weapons（与 gates 重放同批同点）。
       同批带上**升级卡重放**（_replay_player_upgrades：卡片技能记玩家层；weapon 类强化跳过防双叠）。✅ 2026-07-19
 - [ ] 阶段 4：进化结算武器清单分段显示 + Tab 武器库图标行 + i18n（⏳ UI 润色，随 playtest 批）。
-- [ ] 阶段 5：debug 面板武器勾选（⏳ 随 debug 全谱选机批）；bench 断言已并入 `--bench=attr_gates` §G ✅。
+- [x] 阶段 5：F4 装备直达沿用既有入口；Boss Debug 全谱参考态随机装备正式武器组合，先装武器再筛技能，Tab 可核对；bench 断言并入 `--bench=attr_gates` §I，真实挂载并入 `boss_debug_select_visual`。✅ 2026-08-18
 
 ## 4. 开放点（⏳ review 时定）
 
@@ -107,5 +108,6 @@ reconstruction_complete: true
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-18 | 3 | Boss Debug 随机构筑纳入特殊武器：正式三星战区池加权无放回抽取，5 次升级配 2 件、6 次配 3 件，尾雷/忠诚僚机互斥；走正式奖励入口挂到 ACE 并记录武器库后再 roll 技能，Tab 显示本局武器，F8 一起重抽。至少四机的参考编队仍只由当前 ACE 持有玩家武器库，避免复制放大。 |
 | 2026-07-23 | 2 | **特殊武器一律不自带（用户令，反转 §1 第 4 点 + §2.2 第 1 点）**：起因=进化到 Su-34 被自动塞火箭。作废"机型固有入手/首驾入库/不剥武器"，**改采当初被否的"全谱只留机炮+导弹+热诱弹"剥离方案**。剥离落地：7 攻击线机（a6e/a10/f15e/su34/tornado/viggen/x44）的 `rocket` + X-02 的 `equipment`（电磁炮+激光）从 `player_*.tres` 移除；获取收敛为战区奖励（zone-reward-arsenal，rocket/railgun/laser 已在池）+ 签名技能（sig_x02/sf47/x90，选卡换来非自带）。火箭归类开放点随之定案。回归守卫=bench `player_params`"41 机无一自带特殊武器"断言。 |
 | 2026-07-19 | 1 | 初稿（用户"武器装备系统修改·重点调整"）：特殊武器=局内玩家外部装备，到手即永久、换机/进化全继承（含强化）；获取=机型固有首驾入库+战区奖励；底线武器（机炮/导弹/flare）仍随机体；作废"武器绑机型不继承"（2026-06-28）与"局外多武器 loadout"（meta-progression 轴）；重放与 gates §2.7 同机制同时点；开放点 3 条（火箭归类/挂载上限/重复补偿）。 |

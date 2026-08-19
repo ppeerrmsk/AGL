@@ -196,14 +196,27 @@ func _test_bomber_escort_xp_reward() -> void:
 	_check(ZoneData.bomber_escort_xp_reward(2) == 300, "二星护送固定奖励 300 XP")
 	_check(ZoneData.bomber_escort_xp_reward(3) == 450, "三星护送固定奖励 450 XP")
 	var i18n_ready := true
+	var pursuit_phrase := {"zh": "后方", "en": "behind", "ja": "後方"}
 	for locale in ["zh", "en", "ja"]:
-		var translation := load("res://i18n/gameplay.%s.translation" % locale) as Translation
-		i18n_ready = i18n_ready and translation != null \
-			and not str(translation.get_message("ZONE_REWARD_BOMBER_XP_FMT")).is_empty() \
-			and not str(translation.get_message("ZONE_CLEARED_BOMBER_XP_FMT")).is_empty() \
-			and not str(translation.get_message("ZONE_OPTIONAL_MISSION_TAG")).is_empty() \
-			and not str(translation.get_message("ZONE_OPTIONAL_BOMBER_ESCORT_NAME")).is_empty()
-	_check(i18n_ready, "中英日 Translation 资源包含可选任务类别、护送名称与 XP 提示")
+		var gameplay_translation := load(
+			"res://i18n/gameplay.%s.translation" % locale) as Translation
+		var radio_translation := load(
+			"res://i18n/radio.%s.translation" % locale) as Translation
+		i18n_ready = i18n_ready and gameplay_translation != null \
+			and radio_translation != null \
+			and not str(gameplay_translation.get_message("ZONE_REWARD_BOMBER_XP_FMT")).is_empty() \
+			and not str(gameplay_translation.get_message("ZONE_CLEARED_BOMBER_XP_FMT")).is_empty() \
+			and not str(gameplay_translation.get_message("ZONE_BOMBER_INTERCEPTORS")).is_empty() \
+			and not str(gameplay_translation.get_message("ZONE_BOMBER_FORMATION_ABORTED_FMT")).is_empty() \
+			and str(radio_translation.get_message("RADIO_BOMBER_ESCORT_INTERCEPT")).contains( \
+				String(pursuit_phrase[locale])) \
+			and not str(radio_translation.get_message("RADIO_BOMBER_ESCORT_INTERCEPT")).contains("玩家") \
+			and not str(radio_translation.get_message("RADIO_BOMBER_ESCORT_INTERCEPT")).to_lower().contains("player") \
+			and not str(radio_translation.get_message("RADIO_BOMBER_ESCORT_INTERCEPT")).contains("プレイヤー") \
+			and not str(radio_translation.get_message("RADIO_BOMBER_ESCORT_COMPLETE")).contains("XP") \
+			and not str(gameplay_translation.get_message("ZONE_OPTIONAL_MISSION_TAG")).is_empty() \
+			and not str(gameplay_translation.get_message("ZONE_OPTIONAL_BOMBER_ESCORT_NAME")).is_empty()
+	_check(i18n_ready, "中英日 Translation 资源以军事态势包装护送无线电，机制与 XP 只留在 HUD")
 
 	var untouched_roll_count := zones._reward_roll_count
 	zones.debug_set_mission_type(&"C", "bomber_escort")
@@ -341,6 +354,85 @@ func _test_bomber_escort_package_geometry() -> void:
 		"二号轰炸机在长机正后方 300px")
 	_check(absf(slot_2.cross(flight_dir)) < 0.01 and is_equal_approx(slot_2.dot(flight_dir), -600.0),
 		"三号轰炸机在长机正后方 600px")
+	var early_plan := ZoneMission.bomber_interceptor_plan(5, 1, 1, 0)
+	var late_plan := ZoneMission.bomber_interceptor_plan(12, 3, 4, 0)
+	var early_roles: Array[String] = []
+	var early_total := 0
+	var early_valid := early_plan.size() == 2
+	for group in early_plan:
+		early_roles.append(String(group.get("role", "")))
+		early_total += int(group.get("count", 0))
+		var row := EnemyPoolRegistry.row_for_type(int(group.get("type", -1)))
+		early_valid = early_valid and not row.is_empty() \
+			and int(row.get("unlock", 999)) <= 5 \
+			and (int(row.get("retire", -1)) < 0 or int(row.get("retire", -1)) >= 5)
+	_check(early_valid and "intercept" in early_roles and "dogfight" in early_roles \
+			and early_total >= 5 and early_total <= 8,
+		"Lv5 一星按正式解锁/退役门生成截击+扫荡混编，不固定成 J-7 海")
+	var late_current_band := late_plan.size() == 2
+	for group in late_plan:
+		var row := EnemyPoolRegistry.row_for_type(int(group.get("type", -1)))
+		late_current_band = late_current_band and not row.is_empty() \
+			and int(row.get("unlock", 0)) >= 9 and int(row.get("unlock", 999)) <= 12
+	_check(late_current_band,
+		"Lv12 三星混编只从当前响应等级前三档选择，不回退早期杂鱼")
+	var varied_types: Dictionary = {}
+	for seed in range(12):
+		var plan := ZoneMission.bomber_interceptor_plan(7, 2, 2, seed)
+		if not plan.is_empty():
+			varied_types[int(plan[0].get("type", -1))] = true
+	_check(varied_types.size() >= 2,
+		"不同航线稳定种子会在同强度截击候选间轮换机型")
+	var reserve_plan := ZoneMission.bomber_reserve_plan(7, 2, 3, 4, 0)
+	_check(reserve_plan.size() == 1 \
+			and String(reserve_plan[0].get("role", "")) == "intercept" \
+			and int(reserve_plan[0].get("count", 0)) >= 2 \
+			and int(reserve_plan[0].get("count", 0)) <= 4,
+		"无人护送增援按存活轰炸机/现存直取火力补 2–4 架截断队")
+	_check(is_equal_approx(ZoneMission.BOMBER_ESCORT_BOMBER_HP, 30.0),
+		"护送任务 B-1B 使用 30 HP 任务资产副本，普通 B-1B 资源不变")
+	_check(is_equal_approx(SurvivorSpawner.BOMBER_INTERCEPT_FIRE_CONE_DEG, 10.0)
+			and SurvivorSpawner.BOMBER_INTERCEPT_BURST_COUNT == 16,
+		"任务 J-7 使用 10°/16 发真实机炮火力纪律")
+	var entered_center := MapBoundary.clamp_inside(entry + flight_dir * 1800.0, 1.0)
+	var intercept_positions := SurvivorSpawner.bomber_pursuit_spawn_positions(
+		entered_center, flight_dir, 6)
+	var lateral := Vector2(-flight_dir.y, flight_dir.x)
+	var has_left := false
+	var has_right := false
+	var all_behind := true
+	for pos in intercept_positions:
+		var offset := pos - entered_center
+		var side_offset := offset.dot(lateral)
+		has_left = has_left or side_offset < -SurvivorSpawner.BOMBER_PURSUIT_LATERAL_PX + 0.1
+		has_right = has_right or side_offset > SurvivorSpawner.BOMBER_PURSUIT_LATERAL_PX - 0.1
+		all_behind = all_behind and offset.dot(flight_dir) \
+			<= -SurvivorSpawner.BOMBER_PURSUIT_REAR_STANDOFF_PX + 0.1
+	_check(intercept_positions.size() == 6 and has_left and has_right and all_behind,
+		"首批响应队全部位于轰炸编队实时航迹后方，并以两列追击阵位接近")
+	_check(not ZoneMission.bomber_response_should_launch(0.059) \
+			and ZoneMission.bomber_response_should_launch(0.06),
+		"轰炸机先飞完 6% 航程，响应队才允许从后方开始追击")
+	var reserve_center := first_route[0].lerp(first_route[2], 0.40)
+	var reserve_positions := SurvivorSpawner.bomber_pursuit_spawn_positions(
+		reserve_center, flight_dir, 3)
+	var reserve_all_behind := true
+	for pos in reserve_positions:
+		reserve_all_behind = reserve_all_behind \
+			and (pos - reserve_center).dot(flight_dir) \
+				<= -SurvivorSpawner.BOMBER_PURSUIT_REAR_STANDOFF_PX + 0.1
+	_check(reserve_positions.size() == 3 and reserve_all_behind,
+		"40% 无人护送增援也从轰炸编队实时后方追上，不在前方凭空截断")
+	_check(not ZoneMission.bomber_response_weapons_should_arm(0.319) \
+			and ZoneMission.bomber_response_weapons_should_arm(0.32),
+		"动态响应队在航程 32% 前保持武器冷却，过线才允许真实开火")
+	_check(not ZoneMission.should_abort_bomber_escort(0.579, false) \
+			and ZoneMission.should_abort_bomber_escort(0.58, false) \
+			and not ZoneMission.should_abort_bomber_escort(0.90, true),
+		"航程 58% 是无人护送确定性中止边界，玩家介入后永久豁免")
+	_check(is_equal_approx(ZoneMission.bomber_route_progress(first_route,
+		first_route[0].lerp(first_route[2], 0.58)), 0.58),
+		"无人护送中止读取真实航线投影进度而非任务计时猜测")
 
 	var aircraft_list: Array[Aircraft] = []
 	var routes: Array = []
@@ -359,8 +451,9 @@ func _test_bomber_escort_package_geometry() -> void:
 		"既有气氛轰炸任务默认仍保持五枚投弹")
 	mission.setup(aircraft_list, routes, target_pos, bm, null, 150.0, 1)
 	_check(mission.get_release_count() == 1, "护送任务每架轰炸机只释放一枚炸弹")
-	_check(mission.get_alive_bomber_count() == 3 and mission.get_phase_key() == "ingress",
-		"地图状态接口能报告三架存活轰炸机与进入航段")
+	_check(mission.get_alive_bomber_count() == 3 and mission.get_bombers().size() == 3 \
+			and mission.get_phase_key() == "ingress",
+		"地图/截击接口能报告三架轰炸机与进入航段")
 	_spawned.append_array([bm, mission])
 
 	var zones := ZoneData.new(Callable())

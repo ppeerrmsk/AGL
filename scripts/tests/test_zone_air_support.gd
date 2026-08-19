@@ -24,6 +24,19 @@ class StubMode extends Node2D:
 		return false
 
 
+class VisibleSpawnMode extends Node2D:
+	func is_world_pos_visible(_pos: Vector2, _extra_radius: float = 0.0) -> bool:
+		return true
+
+
+class SpawnProbeMission extends ZoneMission:
+	var spawn_calls: Array[StringName] = []
+
+	func _spawn_zone_units(zone_id: StringName, _zone: Dictionary) -> void:
+		spawn_calls.append(zone_id)
+		_spawned_zones[zone_id] = [RefCounted.new()]
+
+
 class StubDirector extends RefCounted:
 	var mode: Node2D
 	var player: Aircraft
@@ -32,6 +45,8 @@ class StubDirector extends RefCounted:
 
 func run() -> void:
 	print("\n════════ 战区友军空中支援 ════════")
+	_test_visible_spawn_deadlock_recovery()
+	_test_hostile_zone_edge_ingress()
 	_test_support_count()
 	_test_activation_gate_and_once()
 	_test_ally_label_identity()
@@ -43,6 +58,119 @@ func run() -> void:
 	_test_ace_f15_intercept_support()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════\n")
+
+
+func _test_visible_spawn_deadlock_recovery() -> void:
+	var zones := ZoneData.new(Callable(), false, true)
+	for zone in ZoneData.ZONES:
+		zones.set_state(zone["id"], ZoneData.State.LOCKED)
+	var zone_e := zones.get_zone_by_id(&"E")
+	var center: Vector2 = zone_e["center"]
+	var radius: float = float(zone_e["radius"])
+	var mode := VisibleSpawnMode.new()
+	zones.set_mission_type(&"E", "air")
+
+	# 截图回归：任务已选中，玩家停在 E 圈边外约 300m；旧代码会被可见性门永久拦住。
+	var selected_player := Aircraft.new()
+	selected_player.position = center + Vector2(radius + 150.0, 0.0)
+	zones.set_state(&"E", ZoneData.State.AVAILABLE)
+	zones.select_zone(&"E")
+	zones._rewards[&"E"] = {"id": "spawn_lead_probe"}
+	var selected_mission := SpawnProbeMission.new()
+	selected_mission.mode = mode
+	selected_mission._zones = zones
+	selected_mission._player = selected_player
+	selected_mission._ensure_spawned_for_active_zones()
+	_check("高价值任务先完整等待 6 秒广播前置",
+		selected_mission.spawn_calls.is_empty()
+		and selected_mission._spawn_lead_timers.has(&"E"))
+	selected_mission._ensure_spawned_for_active_zones(ZoneMission.MISSION_SPAWN_RADIO_LEAD_S)
+	_check("已选中纯空战并抵达圈边时改走边缘入场，不被可见性门锁死",
+		selected_mission.spawn_calls == [&"E"])
+
+	# 仍在远处的任务继续守住“不在玩家画面内刷新”铁则。
+	selected_mission._spawned_zones.clear()
+	selected_mission.spawn_calls.clear()
+	selected_player.position = center + Vector2(radius
+		+ ZoneMission.VISIBLE_SPAWN_RECOVERY_APPROACH_PX + 1.0, 0.0)
+	selected_mission._ensure_spawned_for_active_zones()
+	selected_mission._ensure_spawned_for_active_zones(ZoneMission.MISSION_SPAWN_RADIO_LEAD_S)
+	_check("已选中但尚未抵达时仍禁止画面内生成",
+		selected_mission.spawn_calls.is_empty())
+	_check("可见性阻塞时保留归零计时器且不重复广播",
+		selected_mission._spawn_lead_timers.has(&"E")
+		and is_zero_approx(float(selected_mission._spawn_lead_timers[&"E"])))
+
+	# 玩家手动飞入未选中战区也必须能开始任务，不能形成空圈。
+	zones.set_state(&"E", ZoneData.State.AVAILABLE)
+	zones.selected_id = &""
+	selected_player.position = center
+	selected_mission._ensure_spawned_for_active_zones()
+	_check("手动进入未选中战区时恢复实体生成",
+		selected_mission.spawn_calls == [&"E"])
+
+	# 静态任务仍保留原有死锁恢复；本次只改变其中空中驻守队的出生路径。
+	selected_mission._spawned_zones.clear()
+	selected_mission.spawn_calls.clear()
+	selected_mission._spawn_lead_timers.clear()
+	zones.set_mission_type(&"E", "ground")
+	selected_player.position = center
+	selected_mission._ensure_spawned_for_active_zones()
+	selected_mission._ensure_spawned_for_active_zones(ZoneMission.MISSION_SPAWN_RADIO_LEAD_S)
+	_check("地面/舰船类任务保留既有可见性死锁恢复",
+		selected_mission.spawn_calls == [&"E"])
+
+	selected_mission.free()
+	selected_player.free()
+	mode.free()
+
+
+func _test_hostile_zone_edge_ingress() -> void:
+	var mode := StubMode.new()
+	var player := Aircraft.new()
+	player.global_position = Vector2(1200.0, 2600.0)
+	player.heading = 0.0
+	var spawner := SurvivorSpawner.new()
+	spawner.mode = mode
+	spawner.player_aircraft = player
+	var mission := ZoneMission.new()
+	mission._spawner = spawner
+
+	var center := Vector2(-2200.0, -1800.0)
+	var entry: Vector2 = mission._zone_air_spawn_origin(center)
+	_check("战区敌机入口结构性位于地图边界外",
+		MapBoundary.distance_to_edge(entry)
+			<= -SurvivorData.INGRESS_SPAWN_OUTSET_PX + 0.01)
+	var heading_deg: float = ZoneMission._zone_air_heading_deg(entry, center)
+	var heading_dir := Vector2(sin(deg_to_rad(heading_deg)),
+		-cos(deg_to_rad(heading_deg)))
+	_check("战区敌机生成航向指向战区中心",
+		heading_dir.dot((center - entry).normalized()) > 0.999)
+
+	var aircraft := Aircraft.new()
+	aircraft.global_position = entry
+	mission._tag_zone_air_ingress(aircraft, center, 1500.0)
+	spawner._tick_zone_air_ingress(aircraft)
+	_check("尚未抵达巡逻环时保留远距冻结豁免",
+		bool(aircraft.get_meta("zone_ingress", false)))
+	aircraft.global_position = center + Vector2(1499.0, 0.0)
+	spawner._tick_zone_air_ingress(aircraft)
+	_check("抵达巡逻环后撤销远距冻结豁免",
+		not aircraft.has_meta("zone_ingress")
+		and not aircraft.has_meta("zone_ingress_center")
+		and not aircraft.has_meta("zone_ingress_arrive_radius"))
+
+	var mission_source := FileAccess.get_file_as_string(
+		"res://scripts/survivor/zone_mission.gd")
+	_check("空战 TGT、普通驻守与 Sentinel 驻守均消费同一边缘入口",
+		mission_source.count("_zone_air_spawn_origin(center)") >= 3
+		and mission_source.count("_tag_zone_air_ingress(") >= 5)
+
+	aircraft.free()
+	mission.free()
+	spawner.free()
+	player.free()
+	mode.free()
 
 
 func _test_support_count() -> void:

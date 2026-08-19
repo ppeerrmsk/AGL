@@ -3,7 +3,7 @@ id: boss-clear-progression
 kind: system
 status: done
 schema_version: 1
-spec_version: 2
+spec_version: 3
 owner: 用户（设计） / Codex（落地）
 depends_on: [career-archive, wraith-squadron, mother-goose]
 reconstruction_complete: true
@@ -45,9 +45,9 @@ YF-23 支援机规则：
 | 项目 | 值 |
 |---|---|
 | 数量 | 2 |
-| 出生 | 玩家机头前方 3000 px，左右各偏 700 px；地图边界内缩 800 px |
+| 出生 | 以 Wraith 存活四机的队形中心为基准，沿“玩家 → Wraith”轴在 Wraith 后方再退 1800 px；总体离玩家不少于 5000 px，左右各偏 700 px；地图边界内缩 800 px |
 | 角色 | SNIPER；低于 2000 px（4000 m）开始脱离，拉到 3000 px（6000 m）重新站位 |
-| 雷达静默 | 永久 `lock_immune_override=true`：玩家雷达不积累锁定，仍可目视并用机炮攻击 |
+| 锁定 | 不设 `lock_immune_override`：玩家及僚机按普通飞机规则发现、积累锁定并可使用导弹攻击；“后方潜伏”是生成几何，不等于永久免锁 |
 | BOSS 结算 | 不加入 Wraith `members/all_members`；不进 BOSS 血条；不阻塞胜利 |
 | 击杀计价 | `no_kill_reward=true`，BOSS 阶段不额外产出 |
 | 机体 | HP 75；装甲 0；最大速度 2200 km/h；巡航 1100；失速 220；加速度 72；减速度 90；持续/结构 G 10.0/13.0；滚转 4.5；最大高度 18000 m；爬升 380 m/s |
@@ -91,7 +91,7 @@ MQ-111 专属激光：射程 2500 m、DPS 80→18、单目标；热量规则与�
 ### 3.2 Wraith 可选支援生命周期
 
 - YF-23 在 `engage()` 才生成，因此不会进入 `<boss_id>_arrival` 演员列表。
-- 两机组成独立 Squad，目标来源使用 BOSS 优先级，玩家切控时必须随 encounter 的 `set_player_ref()` 重定向。
+- 两机组成独立 Squad，从 Wraith 队形后方进场，目标来源使用 BOSS 优先级，玩家切控时必须随 encounter 的 `set_player_ref()` 重定向。
 - Wraith 四机全灭仍立即胜利；YF-23 存活与否不参与判定。
 
 ### 3.3 Mother Goose 型号门
@@ -111,7 +111,7 @@ MQ-111 专属激光：射程 2500 m、DPS 80→18、单目标；热量规则与�
 
 - [x] 新档/0 次击败：Wraith 仍为四机；CSG 无 CG 且为 2 DDG+6 FFG；Goose 不生成 MQ-111/112。
 - [x] 各自击败 1 次后：Wraith 接战新增 2 YF-23；CSG 为 2 CG+2 DDG+8 FFG；Goose 恢复四型号。
-- [x] Wraith YF-23 不进演出、不进 BOSS 血条、不阻塞胜利；被追近后回到 4–6 km 距离带；玩家雷达不能锁定。
+- [x] Wraith YF-23 不进演出、不进 BOSS 血条、不阻塞胜利；在 Wraith 队形后方且离玩家至少 5000 px 处成对生成；被追近后回到 4–6 km 距离带；可被正常锁定。
 - [x] 玩家切控后，两架 YF-23 改追当前操控机，不保留旧玩家引用。
 - [x] MQ-111 光束命中导弹时同时减速与累计扣 `intercept_hp`，累计达到阈值后导弹被删除。
 - [x] MQ-111 连续照射会过热停火，强制散热到 30% 后才恢复；四项热量参数与玩家 X-02 一致。
@@ -148,5 +148,6 @@ MQ-111 专属激光：射程 2500 m、DPS 80→18、单目标；热量规则与�
 
 | 日期 | spec_version | 改动 |
 |---|---:|---|
+| 2026-08-18 | 3 | 按实战反馈修正 Wraith 强化支援：YF-23 取消永久 `lock_immune_override`，改为普通可锁定目标；出生基准从“玩家机头前方”改为“Wraith 队形后方 1800 px，且离玩家至少 5000 px”，避免贴近玩家突然闪现。 |
 | 2026-08-01 | 1 | 用户定稿并完成首轮分层：Wraith 双 YF-23、CSG 护航编成、Goose 高级 UAV 门控；`boss_progression` 22/22 及受影响回归通过。第二次通关后的新机制暂缓。 |
 | 2026-08-16 | 2 | MQ-111 仍走共享 LaserEquipment 累计反导，并把热量上限、输出升温、强制散热和 30% 恢复门完全对齐玩家 X-02；回归扩到真实过热循环。 |

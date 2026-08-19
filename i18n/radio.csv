@@ -90,6 +90,8 @@ RADIO_SPEAKER_COMMAND_CENTER,指挥中心,COMMAND CENTER,指揮司令部
 RADIO_SPEAKER_TEMP_TOWER,临时塔台,TEMPORARY TOWER,臨時管制塔
 RADIO_BOMBER_ESCORT_COORD_FMT,这里是指挥中心，正在执行%s方向坐标的打击任务。,This is Command. Strike mission underway at coordinates approximately %s.,こちら指揮司令部。%s方面の座標に対する攻撃任務を実行中。
 RADIO_BOMBER_ESCORT_REQUEST,友军轰炸编队请求护航。,Friendly bomber formation requests escort.,友軍爆撃編隊より護衛要請。
+RADIO_BOMBER_ESCORT_INTERCEPT,敌方追击编队正从轰炸队后方接近。轰炸编队请求近空掩护。,Hostile pursuit aircraft are closing from behind the bomber formation. Bomber formation requests close air cover.,敵追撃編隊が爆撃隊後方から接近中。爆撃編隊より近接航空援護の要請。
+RADIO_BOMBER_ESCORT_COMPLETE,目标确认摧毁。轰炸编队正在脱离战区。,Target destruction confirmed. Bomber formation is exiting the combat area.,目標破壊を確認。爆撃編隊は戦域より離脱中。
 RADIO_DIRECTION_NORTH,北,north,北
 RADIO_DIRECTION_NORTHEAST,东北,northeast,北東
 RADIO_DIRECTION_EAST,东,east,東

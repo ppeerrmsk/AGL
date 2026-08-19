@@ -173,6 +173,16 @@ func get_live_heading() -> float:
 func get_release_count() -> int:
 	return _release_count
 
+## 任务层只读编队成员，用于给专属截击机重新分配仍存活的护送目标。
+func get_bombers() -> Array[Aircraft]:
+	var bombers: Array[Aircraft] = []
+	for member in _members:
+		var ac_raw: Variant = member.get("aircraft")
+		if typeof(ac_raw) == TYPE_OBJECT and ac_raw != null and is_instance_valid(ac_raw) \
+				and ac_raw is Aircraft:
+			bombers.append(ac_raw as Aircraft)
+	return bombers
+
 func set_escort_fighters(escorts: Array[Aircraft]) -> void:
 	_escort_fighters = escorts
 

@@ -629,13 +629,15 @@ func _test_altitude_preference_display() -> void:
 		and PlayerInstrumentPanelScript.altitude_mode_text(ac) == "HIGH")
 	SurvivorModeScript._cycle_player_altitude_preference(ac)
 	_check("Q 保留爬升优先到低空优先的真实切换",
-		ac.altitude_preference == Aircraft.AltitudePreference.PREFER_LOW)
+		ac.altitude_preference == Aircraft.AltitudePreference.PREFER_LOW \
+		and ac.altitude_action_command == Aircraft.AltitudeAction.DIVE)
 	_check("Q 低空优先显示固定正式字体 LOW",
 		PlayerInstrumentPanelScript.altitude_preference_name_key(ac) == "TOOLTIP_ALT_LOW_TITLE"
 		and PlayerInstrumentPanelScript.altitude_mode_text(ac) == "LOW")
 	SurvivorModeScript._cycle_player_altitude_preference(ac)
 	_check("Q 再按返回爬升优先",
-		ac.altitude_preference == Aircraft.AltitudePreference.PREFER_CLIMB)
+		ac.altitude_preference == Aircraft.AltitudePreference.PREFER_CLIMB \
+		and ac.altitude_action_command == Aircraft.AltitudeAction.CLIMB)
 	_check("高度指针严格使用 20 到 160 度并让 LOW HIGH 分居左右",
 		is_equal_approx(PlayerInstrumentPanelScript.altimeter_target_degrees(0.0, true), 20.0)
 		and is_equal_approx(PlayerInstrumentPanelScript.altimeter_target_degrees(20000.0, true), 85.0)

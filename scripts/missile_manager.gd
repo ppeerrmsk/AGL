@@ -81,6 +81,12 @@ func spawn_missile(source: CombatUnit, target: CombatUnit, missile_params: Missi
 		var los := target.global_position - source.global_position
 		var base := atan2(los.x, -los.y)
 		initial_heading = base + randf_range(-0.44, 0.44)  # ±25°
+	elif source is Aircraft and source.has_meta(&"hyper_a_g0_omnidirectional_salvo") \
+			and bool(source.get_meta(&"hyper_a_weapons_enabled", false)) \
+			and target and is_instance_valid(target):
+		# G0 专属全向离轴发射：弹体直接朝当前 LOS 离架，机体自身不瞬转。
+		var los := target.global_position - source.global_position
+		initial_heading = atan2(los.x, -los.y)
 	elif missile_params and missile_params.launch_toward_target and target and is_instance_valid(target):
 		var los := target.global_position - source.global_position
 		initial_heading = atan2(los.x, -los.y)
@@ -129,16 +135,15 @@ func spawn_missile(source: CombatUnit, target: CombatUnit, missile_params: Missi
 ## 上层发射纪律通常会把实际偏角收得更小；这里的钳位只防止异常几何爆角。
 func _compute_lead_launch_heading(source: CombatUnit, target: CombatUnit,
 		msl: MissileParams) -> float:
-	var avg_speed_ms := maxf(source.speed,
-		msl.max_speed * AircraftWeapons.LEAD_MISSILE_AVG_SPEED_FRAC)
-	avg_speed_ms = maxf(avg_speed_ms, 100.0)
-	var avg_speed_px := avg_speed_ms * PIXELS_PER_METER
-	var target_velocity := Vector2(sin(target.heading), -cos(target.heading)) \
-		* target.speed * PIXELS_PER_METER
-	var tti := source.global_position.distance_to(target.global_position) / avg_speed_px
-	var lead := target.global_position + target_velocity * tti
-	tti = source.global_position.distance_to(lead) / avg_speed_px
-	lead = target.global_position + target_velocity * tti
+	var lead := AircraftWeapons.missile_lead_point(
+		source.global_position, source.speed,
+		target.global_position, target.heading,
+		target.speed, msl.max_speed)
+	# 与发射门、发射前 planner 共享两轮 TTI 前置点。
+	# 此处只保留离架 ±60° 的容错钳位。
+	# 正常发射窗口会在上层把实际偏角收得更小。
+	# 不在此处重复一套独立的前置解算。
+
 	var to_lead := lead - source.global_position
 	var lead_heading := atan2(to_lead.x, -to_lead.y)
 	var offset := wrapf(lead_heading - source.heading, -PI, PI)
@@ -282,8 +287,11 @@ func get_lock_progress(source: CombatUnit, target: CombatUnit) -> float:
 
 ## Missile 调用：战斗遮蔽物在位（按 256px 网格 + 高度档量化共享）
 func get_in_cloud(world_pos: Vector2, altitude_m: float = 10000.0) -> bool:
+	# 离线测试可显式注入 weather；包络仿真则创建无父节点、无 weather 的管理器。
+	var tree: SceneTree = get_tree() if get_parent() != null else null
 	if not SurvivorData.ENABLE_MISSILE_FRAME_SNAPSHOT:
-		var w := get_tree().get_first_node_in_group("weather")
+		var w: Node = _weather_ref if _weather_ref != null \
+			else (tree.get_first_node_in_group("weather") if tree != null else null)
 		if w == null:
 			return false
 		return w.is_obscured(world_pos, altitude_m) if w.has_method("is_obscured") \
@@ -293,8 +301,8 @@ func get_in_cloud(world_pos: Vector2, altitude_m: float = 10000.0) -> bool:
 		int(world_pos.y / _CLOUD_SNAP_GRID_PX), altitude_band)
 	if _cloud_snap.has(grid):
 		return _cloud_snap[grid]
-	if _weather_ref == null:
-		_weather_ref = get_tree().get_first_node_in_group("weather")
+	if _weather_ref == null and tree != null:
+		_weather_ref = tree.get_first_node_in_group("weather")
 	var in_c: bool = false
 	if _weather_ref != null:
 		in_c = _weather_ref.is_obscured(world_pos, altitude_m) \
@@ -737,10 +745,14 @@ func _draw_hit_flash(flash: Dictionary) -> void:
 		# 退化守卫：heading 轴对齐（sin/cos≈0）时侧面四边形塌成线段，
 		# draw_colored_polygon 三角化失败刷 "Invalid polygon data" 错误 → 面积近零直接跳过
 		var v: PackedVector2Array = f["v"]
-		var area2: float = absf((v[1] - v[0]).cross(v[3] - v[0])) + absf((v[1] - v[2]).cross(v[3] - v[2]))
-		if area2 < 0.5:
-			continue
-		draw_colored_polygon(v, f["c"])
+		# 四边形在近轴向 heading 下可能窄到三角化器拒绝；拆成两个带面积
+		# 守卫的三角形，避免运行时持续刷 Invalid polygon data。
+		var tri_a := PackedVector2Array([v[0], v[1], v[2]])
+		var tri_b := PackedVector2Array([v[0], v[2], v[3]])
+		if absf((tri_a[1] - tri_a[0]).cross(tri_a[2] - tri_a[0])) >= 0.5:
+			draw_colored_polygon(tri_a, f["c"])
+		if absf((tri_b[1] - tri_b[0]).cross(tri_b[2] - tri_b[0])) >= 0.5:
+			draw_colored_polygon(tri_b, f["c"])
 	# 顶面（最后画，在侧面之上）
 	var top_verts := PackedVector2Array([t_fr, t_fl, t_bl, t_br])
 	draw_colored_polygon(top_verts, col_top)

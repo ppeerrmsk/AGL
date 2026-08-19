@@ -17,7 +17,7 @@ AGL/
 │   ├── survivor_mode.tscn         # 生存模式主场景（BulletManager + MissileManager + Camera2D）
 │   ├── survivor_map_select.tscn   # 地图选择（生存流程第一步；B → boss_debug_select）
 │   ├── survivor_select.tscn       # 机型选择
-│   ├── boss_debug_select.tscn     # BOSS 测试场（全机型 × 技能组合）
+│   ├── boss_debug_select.tscn     # BOSS 测试入口（Boss 场景 → T4 四机以上参考编队 → 等级匹配 build）
 │   ├── map_editor.tscn            # 地图编辑器（UGC）
 │   ├── map_manual.tscn            # 手画地块编辑参考场景
 │   ├── building_preloader.tscn

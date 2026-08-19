@@ -99,6 +99,7 @@ const PITY_THRESHOLD: Dictionary = {
 #   build_role: source/bridge/support/terminal — 审计角色，不替代 requires_skill
 #   terminal_for: Array[String] — 为哪些词条偿还终端债务
 #   doctrine_any: Array[String] — 门控关键词 OR 组；组内任一学说已购即可（其余门控词仍为 AND）
+#   warning_sentence_count: int — 纯 UI 元数据；把 desc 开头 N 句按危险红显示，不改变技能行为
 #
 # ── 归属词汇 v6（spec skills-720-rework §1.2 / squad-upgrade-ownership §2.8）──
 #   scope: "" 缺省 = 通用全队（全队逐机生效）
@@ -693,6 +694,7 @@ const UPGRADES: Array[Dictionary] = [
 		"axis": "gladiator",
 		"rarity": Rarity.NEXT_GEN,
 		"keywords": ["squad", "bloodlust", "mobility", "weapon"],
+		"warning_sentence_count": 1,  ## “无法切控 + 永远自由交战”是不可逆的玩家决策代价
 		"milestone_plus": "gladiator",
 		"evolved": true,
 	},
@@ -2741,9 +2743,11 @@ static func is_signature_upgrade(upgrade: Dictionary) -> bool:
 	return uid.begins_with("sig_") or uid == "f14_squad_lock_slow"
 
 
-## 正式局普通随机来源统一过滤器；debug/bench 显式授予可不经过这里。
-static func is_normal_random_candidate(upgrade: Dictionary) -> bool:
-	return not is_signature_upgrade(upgrade)
+## 正式局普通升级选取统一过滤器：排除签名技与红色 NEXT_GEN。
+## 战区奖励是 NEXT_GEN 的独立正式入口，显式传 allow_nextgen=true；debug/bench 授予可不经过这里。
+static func is_normal_random_candidate(upgrade: Dictionary, allow_nextgen: bool = false) -> bool:
+	return not is_signature_upgrade(upgrade) \
+		and (allow_nextgen or get_rarity(upgrade) <= Rarity.CLASSIFIED)
 
 
 ## 注入随机值的纯判定，供逐机本局状态机与 deterministic bench 共用。

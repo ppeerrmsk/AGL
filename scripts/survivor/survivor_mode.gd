@@ -179,13 +179,17 @@ var debug_boss_id_override: String = ""
 # ── Boss Debug 模式 ──
 ## 进入路径：survivor_map_select 按 B → boss_debug_select 选 boss → set_meta → 此处读取
 ## 与正常生存模式的差异：跳过地图渲染（空白）、跳过 BuildingRenderer、_ready 末尾 _setup_boss_debug_scenario()
-## 自动跳到 15 级 + 主题化随机 build + 立即触发 BossEncounterEvent
+## 选择 T4 参考机 + 按该机解锁等级/门槛生成 build + 立即触发 BossEncounterEvent
 var _boss_debug_mode: bool = false
 var _boss_debug_id: String = ""
 var _boss_debug_scenario: String = "full"
 var _boss_debug_theme: String = ""              ## 当前主题名（HUD 显示用，备用）
-var _boss_debug_picks: Array[Dictionary] = []    ## 当前 build 的 14 张技能
+var _boss_debug_picks: Array[Dictionary] = []    ## 当前等级按每 3 级节奏生成的技能
+var _boss_debug_weapons: Array[String] = []      ## 正式三星战区池抽出的 ACE 特殊武器
+var _boss_debug_node_id: StringName = &""        ## T4 参考节点（正式 evolution_tree id）
+var _boss_debug_level: int = 1                   ## 参考节点自身 min_level
 var _player_profile_path: String = ""            ## boss debug F8 重启需要原档案路径
+const BOSS_DEBUG_MIN_SQUAD_SIZE := 4              ## 长机 + 至少 3 僚机；走正式起手编队管线
 
 # ── Bench 模式（headless 性能压测）──
 ## 入口：BenchRunner autoload 解析 --bench=<scenario> CLI → set_meta → 切到 survivor_mode.tscn
@@ -279,6 +283,12 @@ func _ready() -> void:
 	if get_tree().has_meta("boss_debug_scenario"):
 		_boss_debug_scenario = String(get_tree().get_meta("boss_debug_scenario"))
 		get_tree().remove_meta("boss_debug_scenario")
+	if get_tree().has_meta("boss_debug_node_id"):
+		_boss_debug_node_id = StringName(String(get_tree().get_meta("boss_debug_node_id")))
+		get_tree().remove_meta("boss_debug_node_id")
+	if get_tree().has_meta("boss_debug_level"):
+		_boss_debug_level = int(get_tree().get_meta("boss_debug_level"))
+		get_tree().remove_meta("boss_debug_level")
 
 	# Bench 模式 meta（BenchRunner 在 autoload _ready 写入；这里读完即清，防止重启场景时残留）
 	if get_tree().has_meta("bench_mode"):
@@ -421,8 +431,13 @@ func _ready() -> void:
 	if profile == null or profile.base_params == null:
 		push_error("survivor_mode: 无效的 PlayableAircraft：%s" % profile_path)
 		return
+	# Boss Debug 验收的是当前 T4 编队而非单机：保留档案更大的既有编成，最低补到四机。
+	# 只改 duplicate 的 wingman_count；生成、SquadFactory 装配与全队 build 下发都走正式管线。
+	if _boss_debug_mode and profile.wingman_count < BOSS_DEBUG_MIN_SQUAD_SIZE - 1:
+		profile = profile.duplicate()
+		profile.wingman_count = BOSS_DEBUG_MIN_SQUAD_SIZE - 1
 	# demo 模式：强制 4 架僚机，方便观察编队跟随/归队（默认机型 wingman_count 多为 0）
-	if _bench_demo and profile.wingman_count < 4:
+	elif _bench_demo and profile.wingman_count < 4:
 		profile = profile.duplicate()
 		profile.wingman_count = 4
 	# reversal 模式：玩家方为 4 机编队（长机 + 3 僚机）对抗敌方编队
@@ -629,8 +644,16 @@ func _ready() -> void:
 	EventLogger.wingman_joined.connect(_on_radio_wingman_joined)
 
 	# ── 战术地图 + 战区系统（P2）──
-	# Boss Debug / Bench 模式跳过：bench 不要战区任务/ADBS 干扰压力测试样本
-	if _map_preview_only and not _boss_debug_mode and not _bench_mode:
+	# Boss Debug 仍需要 Tab 查看 build/三轴/里程碑，但不构造正式地图与战区。
+	if _boss_debug_mode and not _bench_mode:
+		_tactical_map = TacticalMap.new()
+		_tactical_map.use_basemap = false
+		_tactical_map.readout_only = true
+		add_child(_tactical_map)
+		_tactical_map.setup(_map_boundary.get_world_rect(), player_aircraft, null, self)
+		_tactical_map.nav_point_selected.connect(_on_nav_point_selected)
+		_tactical_map.nav_cleared.connect(_on_nav_cleared)
+	elif _map_preview_only and not _bench_mode:
 		_tactical_map = TacticalMap.new()
 		if _ugc_doc != null:
 			_tactical_map.ugc_palette = _ugc_doc.style.get("palette", {}).duplicate(true)
@@ -691,7 +714,8 @@ func _ready() -> void:
 		add_child(_zone_mission)
 		_zone_mission.setup(self, _zone_data, player_aircraft,
 			_sam_scene, _sam_params, _aa_scene, _aa_params,
-			bullet_manager, missile_manager, _spawner)
+			bullet_manager, missile_manager, _spawner,
+			ZoneAtmosphereCombat.is_decisive_map(_map_id))
 		_zone_mission.mission_triggered.connect(_on_zone_mission_triggered)
 		_zone_mission.mission_completed.connect(_on_zone_mission_completed)
 		_zone_mission.mission_failed.connect(_on_zone_mission_failed)
@@ -754,11 +778,11 @@ func _show_basemap_error(reason_key: String) -> void:
 ## ════════════════════════════════════════════════
 ##
 ## 在 _ready 末尾 deferred 调用：
-##   1. 玩家直接到 15 级（不触发 leveled_up 信号 → 无升级 UI 弹窗）
-##   2. 按主题随机 roll 14 张升级（level 1→15 的总升级次数）
-##   3. 批量 apply（走 SurvivorPlayer.apply_upgrade + 维护 upgrade_stacks）
-##   4. 启动 BossEncounterEvent，强制使用 _boss_debug_id 而非地图池随机
-const BOSS_DEBUG_LEVEL := 15
+##   1. 玩家直接到 T4 参考机自身解锁等级（不触发升级 UI）
+##   2. 从正式三星战区池抽 2~3 件特殊武器，走正式奖励入口挂到 ACE
+##   3. 按节点 gates 规划三轴，按正式每 3 级一次的节奏 roll 5~6 张升级
+##   4. 批量 apply（走 SurvivorPlayer.apply_upgrade + 维护 upgrade_stacks）
+##   5. 启动 BossEncounterEvent，强制使用 _boss_debug_id 而非地图池随机
 const BOSS_DEBUG_BOSS_DISTANCE_PX := 4500.0  ## 玩家正前方多远生成 boss anchor
 
 func _setup_boss_debug_scenario() -> void:
@@ -767,25 +791,42 @@ func _setup_boss_debug_scenario() -> void:
 	if not survivor_player or not is_instance_valid(player_aircraft):
 		return
 
-	# 1. 直接拉到 15 级（绕过 add_xp 动画 + leveled_up 信号 → 不触发升级 UI 暂停）
-	survivor_player.level = BOSS_DEBUG_LEVEL
+	# 1. 直接拉到参考机等级；旧存档/外部入口没传节点时从当前档案回查。
+	if _boss_debug_node_id == &"":
+		_boss_debug_node_id = EvolutionSystem.node_id_for_profile(_player_profile_id)
+	var node := EvolutionSystem.node_of(_boss_debug_node_id)
+	if not node.is_empty():
+		_boss_debug_level = EvolutionSystem.min_level_of(node)
+	player_aircraft.set_meta("evo_node", _boss_debug_node_id)
+	player_aircraft.set_meta("evo_history", [_boss_debug_node_id])
+	survivor_player.level = _boss_debug_level
 	survivor_player.xp = 0
-	survivor_player.xp_to_next = SurvivorData.xp_for_level(BOSS_DEBUG_LEVEL + 1)
+	survivor_player.xp_to_next = SurvivorData.xp_for_level(_boss_debug_level + 1)
 	survivor_player._awaiting_level_up = false
 	# 自然成长已退役——跳级不再补 HP/导弹（等级纯门槛）。
-	# boss debug 的三轴点数补发（floor(15/3)=5 点随机/主题分配）随属性门槛豁免一并接（gates §3.4）。
+	# boss debug 三轴按参考节点 gates 规划；正式门槛不在 Debug 再判一次。
 
-	# 2. 主题化 roll
-	var roll: Dictionary = BossDebugBuilds.roll_build(
-		BOSS_DEBUG_LEVEL, _player_profile_id, player_aircraft.params)
+	# 2. 武器先于技能挂载：硬件门控技能必须看到这局真实抽到的装备。
+	_boss_debug_weapons = BossDebugBuilds.roll_weapon_loadout(_boss_debug_level)
+	for weapon_id in _boss_debug_weapons:
+		_claim_weapon_reward(weapon_id)
+	survivor_player.record_special_weapons()
+
+	# 3. T4 节点 + 主题化技能 roll
+	var roll := BossDebugBuilds.roll_reference_build(
+		_boss_debug_node_id, player_aircraft.params)
+	if roll.is_empty():
+		roll = BossDebugBuilds.roll_build(
+			_boss_debug_level, _player_profile_id, player_aircraft.params)
 	_boss_debug_theme = String(roll.get("theme", ""))
 	_boss_debug_picks = roll.get("picks", []) as Array[Dictionary]
 
 	EventLogger.log_event("BOSS_DEBUG", "Setup",
-		"level=%d theme=%s picks=%d boss=%s" % [
-			BOSS_DEBUG_LEVEL, _boss_debug_theme, _boss_debug_picks.size(), _boss_debug_id])
+		"node=%s level=%d theme=%s weapons=%s picks=%d boss=%s" % [
+			_boss_debug_node_id, _boss_debug_level, _boss_debug_theme,
+			str(_boss_debug_weapons), _boss_debug_picks.size(), _boss_debug_id])
 
-	# 3. 批量 apply 每张升级（与升级 UI 选择路径走同一份逻辑：归属分流 + "+1 轴进度"）
+	# 4. 批量 apply 每张升级（与升级 UI 选择路径走同一份逻辑：归属分流 + "+1 轴进度"）
 	for upgrade in _boss_debug_picks:
 		_distribute_upgrade(upgrade)
 		var uid: String = String(upgrade["id"])
@@ -794,16 +835,17 @@ func _setup_boss_debug_scenario() -> void:
 	# 生效子集 + 词条联动逐机重建（与正常升级链一致）
 	_refresh_squad_effective_stacks()
 
-	# 3.5 三轴点数补发（自然成长退役后跳级点数为 0）：按主题 build 的轴分布补满
-	# floor(15/3)=5 点，里程碑随加点自动生效——回填 debug 机体强度；debug 不查进化门槛
-	var _earnable: int = SurvivorData.axis_points_earnable(BOSS_DEBUG_LEVEL)
-	for pi in _earnable:
-		var ax: StringName = SurvivorData.AXIS_GLADIATOR
-		if not _boss_debug_picks.is_empty():
-			ax = SurvivorData.axis_of_upgrade(_boss_debug_picks[pi % _boss_debug_picks.size()])
-		survivor_player.add_axis_point(ax, _player_profile)
+	# 4.5 三轴点数与 build 同源；add_axis_point 会按新机 profile 立即兑现对应里程碑。
+	var axis_points: Dictionary = roll.get("axis_points", {})
+	if axis_points.is_empty():
+		for pick in _boss_debug_picks:
+			var pick_axis := SurvivorData.axis_of_upgrade(pick)
+			axis_points[pick_axis] = int(axis_points.get(pick_axis, 0)) + 1
+	for axis in SurvivorData.AXES:
+		for _point in int(axis_points.get(axis, 0)):
+			survivor_player.add_axis_point(axis, _player_profile)
 
-	# 4. 启动 BossEncounterEvent（PRE_STAGE → 玩家飞近自动 ENGAGED → VICTORY）
+	# 5. 启动 BossEncounterEvent（PRE_STAGE → 玩家飞近自动 ENGAGED → VICTORY）
 	if _event_director == null:
 		push_error("Boss Debug: _event_director is null")
 		return
@@ -986,6 +1028,27 @@ func _setup_bench_scenario() -> void:
 			_bench_force_spawn_boss_mg()
 		elif _bench_scenario == "boss_hyper_a":
 			_bench_force_spawn_boss_hyper_a()
+		elif _bench_scenario == "boss_hyper_a_dash":
+			_bench_spawn_hyper_a("g2_dash")
+		elif _bench_scenario == "boss_hyper_a_brake_wave":
+			_bench_spawn_hyper_a("brake_wave")
+			# 专项只冻结玩家位移，冲刺、急刹判定与伤害仍走真实 encounter 链路。
+			player_aircraft.set_physics_process(false)
+			var brake_player_ai := _get_ai(player_aircraft)
+			if brake_player_ai:
+				brake_player_ai.enable_combat = false
+		elif _bench_scenario == "boss_hyper_a_g0_weapons":
+			_bench_spawn_hyper_a("g0_weapons")
+			var g0_player_ai := _get_ai(player_aircraft)
+			if g0_player_ai:
+				g0_player_ai.enable_combat = false
+		elif _bench_scenario == "boss_hyper_a_g1_weapons":
+			_bench_spawn_hyper_a("g1_weapons")
+			var g1_player_ai := _get_ai(player_aircraft)
+			if g1_player_ai:
+				g1_player_ai.enable_combat = false
+		elif _bench_scenario == "boss_hyper_a_g1_entry":
+			_bench_spawn_hyper_a("g1_reentry")
 		elif _bench_scenario == "boss_hyper_a_lifecycle":
 			_bench_force_spawn_boss_hyper_a_lifecycle()
 		elif _bench_scenario == "boss_hyper_a_stress":
@@ -1282,6 +1345,9 @@ func _bench_force_zone_support() -> void:
 ## 可失败移动战区的真实场景验证：A 区强制改为护送任务，选择后由场外任务包入场。
 func _bench_force_bomber_escort_zone() -> void:
 	# 专项只保留被强制的 A 路线，避免正式局保底的额外可选任务同时入场污染样本。
+	# 正式任务最早 Lv5 开放；bench 同步最低合法态，避免用 Lv1 参数验证 Lv5 响应编成。
+	if survivor_player != null and is_instance_valid(survivor_player):
+		survivor_player.level = maxi(survivor_player.level, ZoneData.OPTIONAL_MISSION_UNLOCK_LEVEL)
 	_zone_data = ZoneData.new(Callable(), false)
 	_zone_mission = ZoneMission.new()
 	add_child(_zone_mission)
@@ -1315,7 +1381,7 @@ func _bench_force_zone_atmosphere() -> void:
 	add_child(_zone_mission)
 	_zone_mission.setup(self, _zone_data, player_aircraft,
 		_sam_scene, _sam_params, _aa_scene, _aa_params,
-		bullet_manager, missile_manager, _spawner)
+		bullet_manager, missile_manager, _spawner, true)
 	_spawner.set_zone_mission(_zone_mission)
 	# 性能硬门：正式全战区氛围之上再叠 Sentinel + 5 护卫。
 	_spawner._spawn_commander_squad(5)
@@ -1866,6 +1932,8 @@ func _boss_debug_respawn_reroll() -> void:
 	get_tree().set_meta("boss_debug_mode", true)
 	get_tree().set_meta("boss_debug_id", _boss_debug_id)
 	get_tree().set_meta("boss_debug_scenario", _boss_debug_scenario)
+	get_tree().set_meta("boss_debug_node_id", String(_boss_debug_node_id))
+	get_tree().set_meta("boss_debug_level", _boss_debug_level)
 	get_tree().set_meta("survivor_map_id", "boss_debug")
 	get_tree().set_meta("survivor_aircraft_resource", _player_profile_path)
 	# 立刻关掉游戏暂停态（升级 UI 占了暂停时不重置会卡住）
@@ -2381,9 +2449,10 @@ func _unhandled_input(event: InputEvent) -> void:
 static func _cycle_player_altitude_preference(ac: Aircraft) -> void:
 	if ac == null or not is_instance_valid(ac):
 		return
-	ac.altitude_preference = Aircraft.AltitudePreference.PREFER_LOW \
+	var next_preference := Aircraft.AltitudePreference.PREFER_LOW \
 		if ac.altitude_preference == Aircraft.AltitudePreference.PREFER_CLIMB \
 		else Aircraft.AltitudePreference.PREFER_CLIMB
+	ac.command_altitude_preference(next_preference)
 
 
 ## T 键唯一规则：缺失武器不进入偏好循环；只剩一种时顺便真相化内部偏好。
@@ -2510,8 +2579,9 @@ func _on_wheel_command(context: int, slot_id: String, world_pos: Vector2, target
 					to_climb = player_aircraft.altitude_preference != Aircraft.AltitudePreference.PREFER_CLIMB
 				else:
 					to_climb = option == "climb"
-				player_aircraft.altitude_preference = Aircraft.AltitudePreference.PREFER_CLIMB \
-						if to_climb else Aircraft.AltitudePreference.PREFER_LOW
+				player_aircraft.command_altitude_preference(
+					Aircraft.AltitudePreference.PREFER_CLIMB \
+					if to_climb else Aircraft.AltitudePreference.PREFER_LOW)
 				if hud: hud._update_tactical_buttons()
 		"autofire":
 			if player_aircraft and not player_aircraft.is_destroyed:
@@ -2829,11 +2899,24 @@ func _physics_process(delta: float) -> void:
 				_bench_force_spawn_mixed(6)
 	elif _bench_mode and not _bench_finished and not _bench_map_prewarming:
 		_bench_elapsed += delta
-		if not _bench_weather_capture_done and _bench_elapsed >= 3.0 \
+		var bench_visual_capture_at := 3.0
+		if _bench_scenario == "boss_hyper_a_dash":
+			bench_visual_capture_at = 1.2
+		elif _bench_scenario == "boss_hyper_a_brake_wave":
+			bench_visual_capture_at = 4.0
+		elif _bench_scenario == "boss_hyper_a_g1_weapons":
+			bench_visual_capture_at = 4.2
+		elif _bench_scenario == "boss_hyper_a_g1_entry":
+			bench_visual_capture_at = 3.5
+		elif _bench_scenario == "boss_hyper_a_lifecycle":
+			bench_visual_capture_at = 2.0
+		if not _bench_weather_capture_done and _bench_elapsed >= bench_visual_capture_at \
 				and _bench_scenario in ["map_preview_tokyo", "map_raster_tokyo",
 					"map_preview_desert", "map_preview_ocean",
 					"map_raster_desert", "map_raster_ocean", "boss_hyper_a",
-					"boss_hyper_a_stress"] \
+					"boss_hyper_a_dash", "boss_hyper_a_brake_wave",
+					"boss_hyper_a_g1_weapons", "boss_hyper_a_g1_entry",
+					"boss_hyper_a_lifecycle", "boss_hyper_a_stress"] \
 				and _bench_duration <= 6.5 \
 				and DisplayServer.get_name() != "headless":
 			_bench_weather_capture_done = true
@@ -2871,6 +2954,52 @@ func _physics_process(delta: float) -> void:
 					and _bench_atmosphere_experiment != null \
 					and is_instance_valid(_bench_atmosphere_experiment):
 				summary += _bench_atmosphere_experiment.naval_summary()
+			if _bench_scenario == "bomber_escort_zone":
+				var bomber_count := 0
+				var escort_count := 0
+				var interceptor_count := 0
+				var directed_interceptor_count := 0
+				var bomber_hp := 0.0
+				var bomber_max_hp := 0.0
+				var bomber_refs: Array[Aircraft] = []
+				var interceptor_refs: Array[Aircraft] = []
+				for child in get_children():
+					if not (child is Aircraft) or (child as Aircraft).is_destroyed:
+						continue
+					var aircraft := child as Aircraft
+					if String(aircraft.get_meta("enemy_type", "")) == "b1b":
+						bomber_count += 1
+						bomber_refs.append(aircraft)
+						bomber_hp += aircraft.hp
+						if aircraft.params != null:
+							bomber_max_hp += aircraft.params.max_hp
+					elif aircraft.get_meta("bomber_escort_fighter", false):
+						escort_count += 1
+					elif aircraft.get_meta("bomber_interceptor", false):
+						interceptor_count += 1
+						interceptor_refs.append(aircraft)
+						var assigned_raw: Variant = aircraft.get_meta(
+							"bomber_intercept_target", null)
+						if typeof(assigned_raw) == TYPE_OBJECT and assigned_raw != null \
+								and is_instance_valid(assigned_raw) and assigned_raw is Aircraft \
+								and not (assigned_raw as Aircraft).is_destroyed:
+								directed_interceptor_count += 1
+				var combat_interceptor_count := 0
+				var closest_intercept_px := INF
+				for interceptor in interceptor_refs:
+					if interceptor.combat_target in bomber_refs:
+						combat_interceptor_count += 1
+					for bomber in bomber_refs:
+						closest_intercept_px = minf(closest_intercept_px,
+							interceptor.global_position.distance_to(bomber.global_position))
+				var bomber_status := _zone_data.get_mission_status(&"A") \
+					if _zone_data != null else {}
+				summary += "bomber_escort zone_state=%d phase=%s bombers=%d hp=%.1f/%.1f escorts=%d interceptors=%d directed=%d combat=%d closest_px=%.0f\n" % [
+					int(_zone_data.get_state(&"A")) if _zone_data != null else -1,
+					String(bomber_status.get("phase", "retired")), bomber_count,
+					bomber_hp, bomber_max_hp, escort_count, interceptor_count,
+					directed_interceptor_count, combat_interceptor_count,
+					closest_intercept_px if is_finite(closest_intercept_px) else -1.0]
 			# boss_mother_goose scenario：附加 boss 终态信息
 			if _bench_scenario == "boss_mother_goose" and _spawner and _spawner._boss:
 				var boss: BossEncounter = _spawner._boss
@@ -2881,16 +3010,26 @@ func _physics_process(delta: float) -> void:
 					boss_hp_pct = boss.boss_unit.hp / maxf(boss.boss_unit.params.max_hp, 1.0) * 100.0
 				summary += "boss=MOTHER_GOOSE alive=%s hp_pct=%.1f%%\n" % [
 					"YES" if boss_alive else "NO (defeated)", boss_hp_pct]
-			if _bench_scenario in ["boss_hyper_a", "boss_hyper_a_lifecycle", \
+			if _bench_scenario in ["boss_hyper_a", "boss_hyper_a_dash", "boss_hyper_a_brake_wave", "boss_hyper_a_g0_weapons", "boss_hyper_a_g1_weapons", "boss_hyper_a_g1_entry", "boss_hyper_a_lifecycle", \
 					"boss_hyper_a_stress"] \
 					and _spawner and _spawner._boss:
 				var hyper_a = _spawner._boss
 				if hyper_a is HyperABossScript:
-					summary += "boss=BLACK_STAR active=%s generation_counts=%s pending_splits=%d terminal_g3=%d hud_entries=%d\n" % [
-						"YES" if hyper_a.active else "NO",
-						str(hyper_a.generation_counts()), hyper_a.pending_split_count(),
-						hyper_a.terminal_defeated_count(), hyper_a.get_hud_entries().size()]
+						summary += "boss=BLACK_STAR active=%s generation_counts=%s pending_splits=%d terminal_g3=%d hud_entries=%d\n" % [
+							"YES" if hyper_a.active else "NO",
+							str(hyper_a.generation_counts()), hyper_a.pending_split_count(),
+							hyper_a.terminal_defeated_count(), hyper_a.get_hud_entries().size()]
+			if _bench_scenario in ["boss_hyper_a_g0_weapons", "boss_hyper_a_g1_weapons"]:
+				var g1_weapon_stats := EventLogger.format_stats_summary()
+				if not g1_weapon_stats.is_empty():
+					summary += g1_weapon_stats + "\n"
 			_bench_finish_now(summary)
+
+	# HUD 只消费权威时钟；自身按信息层节奏刷新显示。
+	hud.game_time = game_time
+	hud.kill_count = _spawner.kill_count
+	var warzone_remaining: float = maxf(0.0, WARZONE_PHASE_DURATION - game_time)
+	hud.set_warzone_remaining(warzone_remaining, _is_in_boss_phase())
 
 
 ## 图2/3 Visual Shadow 探针：PNG/流式候选都输出真实 viewport，供逐图人工验收完整合成画面。
@@ -2901,13 +3040,6 @@ func _bench_capture_weather_frame() -> void:
 	var path := "res://bench/results/%s_visual_latest.png" % _bench_scenario
 	var err := image.save_png(path)
 	print("[Bench] weather visual capture %s (%s)" % [path, error_string(err)])
-
-	# 更新HUD
-	hud.game_time = game_time
-	hud.kill_count = _spawner.kill_count
-	# 战区阶段倒计时（在 BOSS 阶段切换为"BOSS PHASE"文案，game_time 已冻结）
-	var _remaining: float = maxf(0.0, WARZONE_PHASE_DURATION - game_time)
-	hud.set_warzone_remaining(_remaining, _is_in_boss_phase())
 
 func _cleanup_references() -> void:
 	var valid: Array[Aircraft] = []
@@ -3383,6 +3515,14 @@ func _update_offscreen_lod() -> void:
 				is_critical_off = true
 			if not is_critical_off and ac.has_meta("category") and ac.get_meta("category") == "adds":
 				is_critical_off = true
+			# 护送任务的敌机必须在镜头外也真实截击；只豁免“完全冻结”，
+			# Aircraft 仍走 LOD2 的 20Hz 完整处理，不把 6~10 架截击机抬到屏内成本。
+			if not is_critical_off and ac.get_meta("bomber_interceptor", false):
+				is_critical_off = true
+			# 战区空军从地图边界飞向任务巡逻环期间必须持续物理移动；抵达后由
+			# SurvivorSpawner 的既有 8s 航点 tick 清标，恢复普通 zone_air 冻结策略。
+			if not is_critical_off and ac.get_meta("zone_ingress", false):
+				is_critical_off = true
 			#   - 增援（spec reinforcement-ingress）：TRANSIT/EGRESS 是位移任务（同 adds 理由，
 			#     冻结就永远到不了锚点/飞不出边界）；ONSTATION 被点名交战（非 PATROL）也不能冻。
 			#     仅"驻空 + 闲置巡逻"允许冻结省性能——被观察/被 hunter 点名后下一帧自动解冻恢复绕环。
@@ -3407,7 +3547,8 @@ func _update_offscreen_lod() -> void:
 		# 3) LOD 2 内部 delta*3 物理在屏幕内还继续跑 → 转向过激
 		# 敌机（含 simple_ai）屏幕内都应该走完整 LOD 0 路径，用户能看到细节渲染
 		# 详见 docs/changelogs/player-ai-log.md 2026-04-20 (11)
-		ac.visible = true
+		# encounter 的语义隐藏优先于相机 LOD；否则屏内刷新会把高空再入机体重新显形。
+		ac.visible = not bool(ac.get_meta(&"force_hidden_visual", false))
 		ac.lod_level = 0
 		# 王牌中队 / BOSS 之类关键目标强制全速，不参与预算排队（spec ace-squadron-tier §2.1）
 		var is_critical: bool = AceTier.is_ace(ac) \
@@ -3573,13 +3714,16 @@ func _update_objective_context(delta: float) -> void:
 func _set_player_aircraft(ac: Aircraft) -> void:
 	if not ac or not is_instance_valid(ac):
 		return
+	var prev_controlled: Aircraft = player_aircraft
+	if prev_controlled != null and is_instance_valid(prev_controlled) and prev_controlled != ac:
+		prev_controlled.use_tactical_preference = false
+	ac.use_tactical_preference = true
 	# 单基础武器机进入操控态时立即真相化 PRIORITY，避免 HUD 出现不可见偏好。
 	var has_missile := ac.params != null and ac.params.missile != null
 	var has_gun := ac.params != null and ac.params.gun != null
 	if has_missile != has_gun:
 		ac.weapon_preference = Aircraft.WeaponPreference.PREFER_MISSILE \
 			if has_missile else Aircraft.WeaponPreference.PREFER_GUN
-	var prev_controlled: Aircraft = player_aircraft
 	player_aircraft = ac
 	AircraftRenderer.player_ref = ac
 	_hacked_ally_force.set_leader(ac)
@@ -3591,9 +3735,7 @@ func _set_player_aircraft(ac: Aircraft) -> void:
 	if _camera_ctrl:
 		_camera_ctrl.set_follow_target(ac)
 		_camera_ctrl.snap_to_follow()
-	# ⚠ 下面这批消费者在 _ready 里 setup(player_aircraft) 缓存了初始机引用。
-	# 漏掉任何一个 → 切控/换帅后旧机被击落释放，消费者持有已 free 实例：
-	# spawner 曾因此在 BOSS 生成时把 freed Aircraft 当 arg4 传进 CarrierStrikeGroup.spawn 崩溃。
+	# ⚠ 下面消费者缓存初始机；漏重定向会在旧机 free 后触发 previously-freed 崩溃。
 	if _spawner:
 		_spawner.player_aircraft = ac
 	if zone_manager:
@@ -3624,7 +3766,6 @@ func _set_player_aircraft(ac: Aircraft) -> void:
 	if prev_controlled != ac:
 		_migrate_ace_field_upgrades(prev_controlled, ac)
 		_refresh_squad_effective_stacks()
-
 ## 通用能力入口：装备完成敌机转换后，把它交给当前长机的非玩家可控护航账本。
 func adopt_hacked_ally(ac: Aircraft) -> void:
 	_hacked_ally_force.adopt(ac)
@@ -4489,6 +4630,18 @@ func _say_bomber_escort_available(zone_id: StringName) -> void:
 	_radio.say_text("bomber_escort_available", speaker, color,
 		tr("RADIO_BOMBER_ESCORT_REQUEST"))
 
+func _say_bomber_escort_intercept() -> void:
+	if _radio == null or not is_instance_valid(_radio):
+		return
+	_radio.say("bomber_escort_intercept", tr("RADIO_SPEAKER_COMMAND_CENTER"),
+		RadioChatter.color_for_team(CombatUnit.TEAM_ALLY))
+
+func _say_bomber_escort_completed() -> void:
+	if _radio == null or not is_instance_valid(_radio):
+		return
+	_radio.say("bomber_escort_complete", tr("RADIO_SPEAKER_COMMAND_CENTER"),
+		RadioChatter.color_for_team(CombatUnit.TEAM_ALLY))
+
 ## 战术地图选中战区（P2）
 func _on_zone_selected(zone_id: StringName) -> void:
 	EventLogger.log_event("ZONE", "Selected", "id=%s" % zone_id)
@@ -4589,7 +4742,9 @@ func _on_zone_mission_triggered(zone_id: StringName) -> void:
 		_zone_data.take_newly_opened()
 	if _radio == null or not is_instance_valid(_radio):
 		return
-	if mt == "naval" and _zone_mission != null:
+	if mt == "bomber_escort":
+		_say_bomber_escort_intercept()
+	elif mt == "naval" and _zone_mission != null:
 		var hostile := _zone_mission.get_live_hostile_target(zone_id)
 		if hostile != null:
 			_radio.say_unit("zone_naval_contact", hostile)
@@ -4616,6 +4771,7 @@ func _on_zone_mission_completed(zone_id: StringName) -> void:
 	if mission_type == "bomber_escort":
 		# 护送任务不读取任何普通战区奖励；成功的唯一替代奖励是固定星级经验。
 		bomber_xp_reward = _grant_bomber_escort_xp(zone_id)
+		_say_bomber_escort_completed()
 	else:
 		reward = ZoneRewardRegistry.get_reward_for(zone_id)
 		if reward.is_empty():
@@ -4662,11 +4818,12 @@ func _on_zone_mission_completed(zone_id: StringName) -> void:
 			msg = tr("ZONE_CLEARED_WITH_REWARD_FMT") % [label, reward_name]
 		else:
 			msg = tr("ZONE_CLEARED_FMT") % label
-		_zone_hint.show_temp(msg, 4.5)
+		_zone_hint.show_temp(msg, 7.0 if bomber_xp_reward > 0 else 4.5)
 
 	# 常驻提示：进化/回血仍在停靠点（机场/航母）——引导去停靠结算
 	var _opened := _zone_data.peek_newly_opened()
-	if _zone_hint:
+	# 轰炸护送已经直接发完 XP，不显示与该奖励无关的“去停靠点结算”。
+	if _zone_hint and mission_type != "bomber_escort":
 		_zone_hint.show_persistent(tr("DOCK_HINT_GO_SETTLE"))
 
 	# 进化内容标记（面板由停靠点打开，spec zone-reward-docking；旧自动弹已移除）
@@ -4691,7 +4848,8 @@ func _grant_bomber_escort_xp(zone_id: StringName) -> int:
 func _on_zone_mission_failed(zone_id: StringName, reason: String) -> void:
 	if not _zone_data:
 		return
-	var was_optional := ZoneData.is_optional_mission_type(_zone_data.get_mission_type(zone_id))
+	var failed_mission_type := _zone_data.get_mission_type(zone_id)
+	var was_optional := ZoneData.is_optional_mission_type(failed_mission_type)
 	_zone_data.mark_failed(zone_id, reason)
 	if _tactical_map:
 		_tactical_map.refresh_zone_state()
@@ -4699,8 +4857,10 @@ func _on_zone_mission_failed(zone_id: StringName, reason: String) -> void:
 		_zone_mission.reset_zone(zone_id)
 	if _zone_hint:
 		_zone_hint.hide_persistent()
-		var failure_key := "ZONE_OPTIONAL_MISSION_FAILED_FMT" if was_optional \
-			else "ZONE_MISSION_FAILED_FMT"
+		var failure_key := "ZONE_BOMBER_FORMATION_ABORTED_FMT" \
+			if failed_mission_type == "bomber_escort" and reason == "escort_absent" \
+			else ("ZONE_OPTIONAL_MISSION_FAILED_FMT" if was_optional \
+			else "ZONE_MISSION_FAILED_FMT")
 		_zone_hint.show_temp(tr(failure_key) % _zone_label(zone_id), 5.0)
 	EventLogger.log_event("ZONE", "FailureSettled",
 		"id=%s reason=%s cleared_count=%d" % [zone_id, reason, _zone_data.cleared_count])

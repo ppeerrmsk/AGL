@@ -8,7 +8,7 @@
 script = ExtResource("1")
 display_name = "Hyper-A G1"
 is_unmanned = true
-max_hp = 300.0
+max_hp = 200.0
 max_speed = 2000.0
 cruise_speed = 1450.0
 stall_speed_base = 220.0
@@ -25,7 +25,7 @@ drag_coefficient = 0.019
 afterburner_thrust_mult = 1.5
 fuel_capacity = 4000.0
 radar_range = 4400.0
-radar_half_angle = 42.0
+radar_half_angle = 45.0
 lock_time = 2.1
 missile = ExtResource("2")
 combat = ExtResource("3")

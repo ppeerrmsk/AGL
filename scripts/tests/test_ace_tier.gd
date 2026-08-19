@@ -11,6 +11,7 @@ extends RefCounted
 
 var _pass := 0
 var _fail := 0
+var _test_cfg := OS.get_temp_dir().path_join("agl_ace_career_test_%d.cfg" % OS.get_process_id())
 
 ## 玩家可用导弹伤害（resources/*.tres 的落地值，spec §2.3 表）
 const PLAYER_MISSILE_DAMAGE := {
@@ -236,8 +237,11 @@ func _test_callsign_reservation() -> void:
 # ── 8. 生涯留档（tier §2.7：encounter/defeat + 首破日期；orion 计数=成长轴）──
 func _test_ace_archive() -> void:
 	print("── 生涯留档 ──")
+	# 与 career_archive bench 一致：测试档放系统临时目录，Shadow/CI 不依赖 user:// 写权限。
+	if FileAccess.file_exists(_test_cfg):
+		DirAccess.remove_absolute(_test_cfg)
 	var archive = load("res://scripts/meta/career_archive.gd").new()
-	archive.config_path = "user://_test_ace_career.cfg"
+	archive.config_path = _test_cfg
 	archive.record_ace_encounter("marathon")
 	archive.record_ace_defeat("marathon")
 	archive.record_ace_defeat("marathon")
@@ -253,12 +257,12 @@ func _test_ace_archive() -> void:
 		"%d" % archive.get_orion_kills())
 	# 落盘→重读闭环
 	var archive2 = load("res://scripts/meta/career_archive.gd").new()
-	archive2.config_path = "user://_test_ace_career.cfg"
+	archive2.config_path = _test_cfg
 	archive2.reload_from_disk()
 	_check("落盘重读一致", archive2.get_ace_defeats("marathon") == 2 \
 		and archive2.get_orion_kills() == 1, "defeats=%d orion=%d" \
 		% [archive2.get_ace_defeats("marathon"), archive2.get_orion_kills()])
-	DirAccess.remove_absolute("user://_test_ace_career.cfg")
+	DirAccess.remove_absolute(_test_cfg)
 	archive.free()
 	archive2.free()
 

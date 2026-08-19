@@ -11,6 +11,7 @@ const CLIMB_COUNTER_WINDOW_S: float = 4.0
 const GUN_TAILED_CACHE_MS: int = 250
 var vertical_speed: float = 0.0     ## m/s
 var altitude_action: int = AltitudeAction.NONE ## 统一高度动作真源；不等同于高度档位
+var altitude_action_command: int = AltitudeAction.NONE ## 玩家 LOW/HIGH 命令的一次性动作闸门
 var altitude_action_enter_serial: int = 0      ## 每次动作切换递增，供进入沿技能消费
 var altitude_action_start_tier: int = AltitudeTier.MID ## 当前动作进入沿的高度档
 var _climb_counter_remaining_s: float = 0.0
@@ -890,6 +891,18 @@ func _set_altitude_action(next_action: int) -> void:
 		_climb_counter_remaining_s = 0.0
 	EventLogger.log_event("ALTITUDE_ACTION", _log_name(),
 		"%s serial=%d" % [altitude_action_name(), altitude_action_enter_serial])
+
+## 玩家高度命令唯一写入口：只有 LOW/HIGH 真的发生变化才武装一次普通高度动作。
+func command_altitude_preference(next_preference: int) -> void:
+	var normalized := clampi(next_preference,
+		AltitudePreference.PREFER_CLIMB, AltitudePreference.PREFER_LOW)
+	if normalized == altitude_preference:
+		return
+	altitude_preference = normalized
+	altitude_action_command = AltitudeAction.CLIMB \
+		if normalized == AltitudePreference.PREFER_CLIMB else AltitudeAction.DIVE
+	if _active_special != ActiveSpecialManeuver.VERTICAL_BREAK:
+		_set_altitude_action(AltitudeAction.NONE)
 
 func altitude_action_name() -> String:
 	match altitude_action:
@@ -2382,6 +2395,7 @@ func _try_start_vertical_break() -> bool:
 	target_altitude = altitude
 	vertical_speed = 0.0
 	_active_special_pitch_visual = 0.0
+	altitude_action_command = AltitudeAction.NONE
 	_set_altitude_action(AltitudeAction.CLIMB if climb else AltitudeAction.DIVE)
 	if formation_mode:
 		clear_formation()
@@ -2773,7 +2787,9 @@ func _tick_aura_accumulator(accum_dict: Dictionary,
 ## 同一 reason 连续触发时不重复记录，直到 reason 改变或间隔到期
 ## 范围：玩家 + 玩家方友军（team=0），以便排查"僚机决定 combat_target 却不开火"类问题
 func _log_msl_block(reason: String, detail: String) -> void:
-	if not is_player_squad():
+	var hyper_a_diag: bool = String(get_meta(&"enemy_type", "")) == "hyper_a" \
+			and int(get_meta(&"hyper_a_generation", 99)) <= 1
+	if not is_player_squad() and not hyper_a_diag:
 		return
 	if combat_target == null or not is_instance_valid(combat_target):
 		return
@@ -2791,9 +2807,13 @@ func _log_msl_block(reason: String, detail: String) -> void:
 ## 记录内容：auto_fire 开关的**运行时实际值** + 每个候选目标被哪道过滤踢掉。
 ## 用于区分两种病因：开关显示 ON 但运行时 false（UI 脱节） vs 开关真 ON 但过滤器踢光候选。
 func _log_salvo_skip(detail: String) -> void:
-	if not is_player_squad():
+	var hyper_a_diag: bool = String(get_meta(&"enemy_type", "")) == "hyper_a" \
+			and int(get_meta(&"hyper_a_generation", 99)) <= 1
+	if not is_player_squad() and not hyper_a_diag:
 		return
-	_salvo_skip_log_timer = SALVO_SKIP_LOG_INTERVAL
+	# G0/G1 的高速交战窗口可能短于玩家诊断默认的 2s；1s 足以捕获瞬时过滤门，
+	# 且最多只覆盖两根 G0 / 四架 G1，不向普通敌群扩散日志成本。
+	_salvo_skip_log_timer = 1.0 if hyper_a_diag else SALVO_SKIP_LOG_INTERVAL
 	EventLogger.log_event("SALVO_SKIP", _log_name(), detail)
 
 ## 威胁态势快照：转储所有正在攻击玩家的导弹 + 所有正在锁定/已锁定玩家的敌方单位
@@ -3131,7 +3151,9 @@ func _apply_damage(amount: float) -> void:
 		amount *= maxf(1.0 - gun_fire_dr_amount, 0.0)
 	# 座舱护甲（720 批）：地面/舰面火力（SAM/AA/CIWS）来源伤害减免
 	if is_player_squad() and ground_damage_taken_mult < 1.0:
-		var ground_atk: Node = CombatUnit.safe_attacker(get_meta("_pending_attacker", null))
+		var raw_ground_atk: Variant = get_meta("_pending_attacker") \
+			if has_meta("_pending_attacker") else null
+		var ground_atk: Node = CombatUnit.safe_attacker(raw_ground_atk)
 		if ground_atk is GroundUnit or ground_atk is NavalUnit or ground_atk is MountTarget:
 			amount *= ground_damage_taken_mult
 	# 阵地转移（720 批）：撤离冲刺中受到伤害 -50%
@@ -3155,7 +3177,9 @@ func _apply_damage(amount: float) -> void:
 		# `_pending_attacker` meta 会一直留到 _record_kill_attribution 才清，
 		# 期间攻击者可能已被击落 → 读出来的是野指针，dispatch_on_hit 的 attacker: Node
 		# 实参类型检查会直接崩。归因失效只是"这次受击不记凶手"，可以接受。
-		var atk: Node = CombatUnit.safe_attacker(get_meta("_pending_attacker", null))
+		var raw_atk: Variant = get_meta("_pending_attacker") \
+			if has_meta("_pending_attacker") else null
+		var atk: Node = CombatUnit.safe_attacker(raw_atk)
 		var kind: String = String(get_meta("_last_damage_kind", ""))
 		SkillHooks.dispatch_on_hit(self, atk, kind, amount)
 	# 侩子手：受到任意伤害 → 清零连击与层数
@@ -3276,7 +3300,7 @@ func _record_kill_attribution() -> void:
 ## （take_damage / take_bullet_damage 在调 _apply_damage 前都已写入）。
 ## 用 TS_DIRECTIVE 下发：护卫是事件编成，不该被 ROE 察觉门挡住，也不该被自发评分抢回去。
 func _alert_escort_guards() -> void:
-	var atk = get_meta("_pending_attacker", null)
+	var atk: Variant = get_meta("_pending_attacker") if has_meta("_pending_attacker") else null
 	if atk == null or not is_instance_valid(atk) or not (atk is Aircraft):
 		return
 	var target: Aircraft = atk
@@ -3434,8 +3458,8 @@ func _draw_impl() -> void:
 	# drone（忠诚僚机）跳过预测线 / 锁定指示 / 目标括号 / 数据标签 — 纯 2D 极简视觉
 	if not is_drone:
 		AircraftRenderer.draw_target_line(self)
+	AircraftRenderer.draw_esm_aura(self)
 	AircraftRenderer.draw_cloud_state(self)
-	AircraftRenderer.draw_altitude_airflow(self)
 	AircraftRenderer.draw_railgun_telegraph(self)
 	AircraftRenderer.draw_aircraft_icon(self)
 	AircraftRenderer.draw_deadair_exposure(self)
@@ -3446,7 +3470,6 @@ func _draw_impl() -> void:
 		AircraftRenderer.draw_muzzle_flash(self)
 	AircraftRenderer.draw_railgun_beam(self)
 	AircraftRenderer.draw_laser_beams(self)
-	AircraftRenderer.draw_esm_aura(self)
 	if is_afterburner:
 		AircraftRenderer.draw_afterburner_glow(self)
 	AircraftRenderer.draw_flare_particles(self)
@@ -3549,7 +3572,10 @@ func _update_gun_threat_indicator(delta: float) -> void:
 	if not params or not params.gun:
 		_reset_gun_threat()
 		return
-	var threatened: Aircraft = combat_target as Aircraft if combat_target is Aircraft else null
+	# combat_target 跨帧缓存可能在目标销毁后短暂保留野指针；必须先以 Variant
+	# 进入生命周期净化边界，不能直接做 `is` / `as`（会在守卫前硬报错）。
+	var target_value: Variant = combat_target
+	var threatened: Aircraft = AircraftRenderer.safe_aircraft_ref(target_value)
 	if threatened == null or not is_instance_valid(threatened) or threatened.is_destroyed \
 			or not threatened.is_player_squad() \
 			or not AircraftWeapons.is_gun_tailed_by(self, threatened):

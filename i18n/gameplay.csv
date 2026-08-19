@@ -112,6 +112,7 @@ ZONE_CLICK_TO_SELECT,>> 点击选择 <<,>> CLICK TO SELECT <<,>> クリックし
 TACTICAL_MAP_INFO_TITLE,战区简报,ZONE BRIEFING,エリア概況
 TACTICAL_MAP_INFO_BODY,把鼠标悬停在战区上查看奖励和任务信息。\n前 3 个战区攻克后，BOSS 决战点解锁。,Hover a zone to see rewards and mission details.\nBoss unlocks after 3 zones are cleared.,エリアにマウスをかざすと報酬とミッションが表示されます。\n3エリア攻略後にBOSS決戦が解放されます。
 TACTICAL_MAP_UPGRADES_TITLE,已激活技能,ACTIVE UPGRADES,習得スキル
+TACTICAL_MAP_WEAPONS_TITLE,ACE 特殊武器,ACE SPECIAL WEAPONS,ACE 特殊武装
 TACTICAL_MAP_UPGRADES_HINT,详情,DETAILS,詳細
 TACTICAL_MAP_UPGRADES_HOVER_HINT,鼠标悬停技能查看详情,Hover a skill to see details,スキルにカーソルを合わせると詳細表示
 TACTICAL_MAP_UPGRADES_EMPTY,暂无已激活技能。升级或攻克战区以获得技能。,No upgrades yet. Level up or clear zones to acquire skills.,習得スキルなし。レベルアップやエリア攻略で習得
@@ -137,6 +138,7 @@ ZONE_OPTIONAL_BOMBER_ESCORT_NAME,轰炸机护送,BOMBER ESCORT,爆撃隊護衛
 ZONE_CLEARED_FMT,✓ 战区 %s 已攻克,✓ ZONE %s CLEARED,✓ エリア %s 攻略完了
 ZONE_MISSION_FAILED_FMT,✕ 战区 %s 任务失败,✕ ZONE %s MISSION FAILED,✕ エリア %s 作戦失敗
 ZONE_OPTIONAL_MISSION_FAILED_FMT,✕ 可选战区任务 %s 失败,✕ OPTIONAL ZONE MISSION %s FAILED,✕ 任意戦域ミッション %s 失敗
+ZONE_BOMBER_FORMATION_ABORTED_FMT,✕ 轰炸编队中止 %s 打击任务并脱离战区,✕ BOMBER FORMATION ABORTED THE STRIKE IN ZONE %s AND IS WITHDRAWING,✕ 爆撃編隊はエリア %s の攻撃任務を中止し戦域より離脱
 ZONE_CLEARED_WITH_REWARD_FMT,✓ 战区 %s 已攻克 — 获得奖励：%s,✓ ZONE %s CLEARED — REWARD: %s,✓ エリア %s 攻略完了 — 報酬: %s
 ZONE_CLEARED_BOMBER_XP_FMT,✓ 可选战区任务 %s 护送成功 — 特殊经验 +%d,✓ OPTIONAL ZONE MISSION %s SUCCESS — SPECIAL XP +%d,✓ 任意戦域ミッション %s 護衛成功 — 特別XP +%d
 ZONE_REFRESHED_AFTER_CLEAR,⚡ 其他战区敌情升级 — 敌人已换防,⚡ OTHER ZONES REINFORCED — Enemies rotated,⚡ 他エリア敵勢力強化 — 敵部隊交代
@@ -158,6 +160,7 @@ ZONE_BOMBER_TARGET_HP,目标 HP,TARGET HP,目標 HP
 ZONE_BOMBER_TIME_LEFT,剩余时间,TIME LEFT,残り時間
 ZONE_BOMBER_BOMBERS,轰炸机,BOMBERS,爆撃機
 ZONE_BOMBER_ESCORTS,护航机,ESCORTS,護衛機
+ZONE_BOMBER_INTERCEPTORS,敌方截击机,HOSTILE INTERCEPTORS,敵迎撃機
 ZONE_BOMBER_PHASE,航段,LEG,航程
 ZONE_BOMBER_PHASE_STANDBY,等待入场,STANDBY,進入待機
 ZONE_BOMBER_PHASE_INGRESS,航线进入,INGRESS,進入中
@@ -171,21 +174,21 @@ ZONE_REWARD_AIRFIELD,机场开放补给（回血 / 进化 / 僚机）,Airfield o
 ZONE_AIRFIELD_LIBERATED_FMT,✓ %s 已解放 — 机场开放补给,✓ %s LIBERATED — airfield open for resupply,✓ %s 解放完了 — 飛行場が補給開放
 PLAYER_OFFSCREEN_HINT,切回主视角,Recenter on player,主視点に戻る
 TACTICAL_TIP_PREFIX,// 战场简报,// INTEL BRIEF,// 戦場情報
-TACTICAL_TIP_BOUNDARY,靠近战区边界可补给恢复生命值，但会加速时间流逝——敌人会随之变强。,Approach the zone boundary to resupply and heal — but time speeds up and enemies grow stronger.,戦区境界に接近すると補給で HP を回復できるが、時間が加速し敵も強化される。
-TACTICAL_TIP_DIFFICULTY,敌人的实力会随时间推移逐渐增强。不要拖延。,Enemies grow stronger over time. Do not stall.,時間経過で敵はどんどん強くなる。長引かせるな。
-TACTICAL_TIP_WEAPON_SWAP,按 [T] 切换导弹/机炮优先；导弹耗尽时会自动切换至机炮模式。,Press [T] to toggle missile/gun priority. Runs out of missiles? Auto-switches to guns.,[T] でミサイル/ガン優先切替。ミサイルが尽きると自動でガンモードへ。
-TACTICAL_TIP_FLARE,受导弹威胁时战机会自动释放热诱弹——命中瞬间内不会被击中。,Your aircraft auto-releases flares against incoming missiles — hits are nullified in that window.,来襲ミサイルに対して機体が自動でフレアを放出し、命中を無効化する。
-TACTICAL_TIP_ALT_HIGH,高空空气稀薄阻力小，顶速更高、雷达更远，且更难被低空雷达锁定。,High altitude — thin air means higher top speed and longer radar range; harder for low-altitude radar to lock you.,高高度では空気が薄く最高速度・レーダー距離ともに伸び、低空レーダーにも捕捉されにくい。
-TACTICAL_TIP_ALT_LOW,低空动压大顶速较低，但难被远距雷达锁定；从高空俯冲下来可短暂保留速度。,Low altitude has lower top speed (denser air) but evades long-range radar; diving from high altitude briefly preserves speed.,低空は空気が濃く最高速度は低下するが長距離レーダーから逃れやすい。高高度からの降下で速度を一時的に維持可能。
-TACTICAL_TIP_ALT_CLOUDS,云层中敌机雷达会失效——但要小心近距对头遭遇，那足以致命。,"Clouds blind enemy radar — but beware head-on encounters inside them, they can be fatal.",雲中は敵レーダーが無効化される——ただし接近戦や正面遭遇は致命的になりうる。
-TACTICAL_TIP_SENTINEL,Sentinel 哨兵指挥机范围内的 MQ-109 会被增幅，甚至会对玩家自爆。,MQ-109s within a Sentinel commander's aura are empowered and may kamikaze the player.,Sentinel 指揮機のオーラ内の MQ-109 は強化され、自爆攻撃を仕掛けてくる。
+TACTICAL_TIP_BOUNDARY,接近战区边界可进行补给并恢复生命值，但会加速时间流逝。敌方强度将随时间同步提高。,"Approaching a warzone boundary enables resupply and restores health, but accelerates the passage of time. Enemy strength increases with that elapsed time.",戦区境界へ接近すると補給と耐久回復が可能になるが、時間の進行が加速する。敵戦力も経過時間に応じて強化される。
+TACTICAL_TIP_DIFFICULTY,敌方单位的数量与作战能力会随时间逐步提高。持续延误将增加后续战区与 BOSS 阶段的压力。,Enemy numbers and combat capability increase over time. Continued delays raise the pressure in later warzones and the boss phase.,敵ユニットの数と戦闘能力は時間とともに上昇する。遅延が続くほど、後続戦区と BOSS フェーズの圧力が高まる。
+TACTICAL_TIP_WEAPON_SWAP,按 \[T\] 切换导弹或机炮优先级。导弹弹药耗尽后，系统会自动切换至机炮模式。,"Press [T] to switch between missile and gun priority. When missile ammunition is depleted, the system automatically switches to gun mode.",[T] でミサイルまたはガンの優先度を切り替える。ミサイル弾薬が尽きると、自動的にガンモードへ移行する。
+TACTICAL_TIP_FLARE,受到导弹威胁时，飞机会自动释放热诱弹。在热诱弹生效窗口内，来袭导弹的命中将被抵消。,Aircraft automatically deploy flares when threatened by a missile. A missile hit during the active flare window is negated.,ミサイル脅威を受けると、機体は自動的にフレアを放出する。フレアの有効時間内に受けたミサイル命中は無効化される。
+TACTICAL_TIP_ALT_HIGH,高空空气密度较低，飞机可获得更高最大速度和更远雷达距离，同时更难被低空雷达锁定。,Lower air density at high altitude allows a higher maximum speed and longer radar range while making the aircraft more difficult for low-altitude radar to lock.,高高度では空気密度が低く、最大速度とレーダー距離が向上する。また、低空レーダーからロックされにくくなる。
+TACTICAL_TIP_ALT_LOW,低空空气密度较高，最大速度较低，但更难被远距离雷达锁定。从高空俯冲时可在短时间内保留额外速度。,Higher air density at low altitude reduces maximum speed but makes long-range radar locks more difficult. A dive from high altitude preserves additional speed for a short time.,低高度では空気密度が高く、最大速度は低下するが、遠距離レーダーからロックされにくい。高高度から降下すると、短時間だけ追加速度を維持できる。
+TACTICAL_TIP_ALT_CLOUDS,进入云层后，敌方雷达将失去目标信息。云层同时会缩短有效接触距离，应注意突然发生的近距迎头交战。,"Enemy radar loses target information inside clouds. Clouds also reduce effective contact distance, increasing the risk of sudden close-range head-on engagements.",雲層内では敵レーダーが目標情報を失う。同時に有効接触距離も短くなるため、近距離で突然正面交戦が発生する可能性がある。
+TACTICAL_TIP_SENTINEL,Sentinel 可强化作用范围内的 MQ-109，并可能指挥其实施自毁攻击。优先摧毁指挥机可削弱附近无人机编队。,Sentinel strengthens MQ-109 units within its area of effect and may direct them to conduct self-destruct attacks. Destroying the command aircraft first weakens the nearby drone formation.,Sentinel は効果範囲内の MQ-109 を強化し、自爆攻撃を指示する場合がある。指揮機を優先して撃破すると、周辺の無人機編隊を弱体化できる。
 TACTICAL_TIP_STAMINA,持续高 G 机动会消耗飞行员耐力。耐力耗尽后可用 G 力大幅下降，留点时间给它恢复。,"Sustained high-G maneuvers drain pilot stamina. Once exhausted, max G drops sharply — give it time to recover.",高G機動の継続はパイロットの耐久を削る。尽きると使用可能Gが大幅低下、回復の時間を確保せよ。
-TACTICAL_TIP_TURN_RADIUS,转弯半径与速度的平方成正比，与最大 G 成反比——想咬尾时，减速比硬拉更划算。,Turn radius scales with speed squared and inversely with max G — slowing down turns tighter than brute-forcing G.,旋回半径は速度の二乗に比例し最大Gに反比例する——引き撃ちは減速の方が硬引きより有利。
-TACTICAL_TIP_CORNER_SPEED,"每架飞机都有""最佳角速度""速度，在该速度下转弯率最高；过快或过慢都会变钝。",Each aircraft has a corner speed where turn rate peaks — going faster or slower both make you sluggish.,各機体には旋回率が最大になる「コーナー速度」があり、速すぎても遅すぎても鈍る。
-TACTICAL_TIP_MISSILE_RANGE,导弹射程随高度和接近率变化：高空迎头发射最远，低空尾追射程最短。,Missile range depends on altitude and closure: high-altitude head-on shots fly farthest; low tail-chase shots fall short.,ミサイル射程は高度と接近率に依存：高空ヘッドオンが最長、低空の追尾は最短。
-TACTICAL_TIP_MISSILE_SWEET_SPOT,导弹不是越远发射越好：最大射程边缘能量不足常被对方规避，最佳杀伤区在射程中段。,Max range ≠ best range — missiles at the edge run out of energy and get defeated. Fire in the middle of the envelope to score hits.,最大射程で撃つと終端でエネルギー切れし回避されやすい。実際の必殺ゾーンは射程の中程。
-TACTICAL_TIP_CRANK,发射导弹后飞机会减速并持续把机头指向目标——这是在用雷达为导弹提供照射；一旦脱离照射，导弹就会失去制导。,After launch your jet decelerates and keeps its nose on target to keep the missile illuminated by radar. Break lock and the missile goes blind.,発射後、機体は減速し機首を目標に向け続けレーダー照射を維持する。照射が切れるとミサイルは迷子になる。
-TACTICAL_TIP_RELOAD,导弹、机炮、热诱弹打光后都会自动进入冷却并重新装填；HUD 会显示装填进度条——这段时间要靠另一种武器挺过去。,"Missiles, guns, and flares all auto-reload after running dry — watch the HUD progress bar. You'll have to make do with what's left during the cooldown.",ミサイル・ガン・フレアはいずれも尽きると自動でクールダウンして再装填され、HUD にゲージが出る。その間は残った武器でしのぐこと。
+TACTICAL_TIP_TURN_RADIUS,转弯半径与速度的平方成正比，并随可用过载提高而缩小。适当减速通常比继续增加过载更有利于近距跟踪。,"Turn radius increases with the square of speed and decreases as available G increases. In close tracking, controlled deceleration is often more effective than applying additional G.",旋回半径は速度の二乗に比例し、使用可能な G が高いほど小さくなる。近距離追従では、さらに G を加えるより適切に減速する方が有効な場合が多い。
+TACTICAL_TIP_CORNER_SPEED,每架飞机均有对应的角点速度，在该速度附近可获得最高转弯率。速度过高或过低都会降低持续转弯效率。,Each aircraft has a defined corner speed. Near this speed it achieves its highest turn rate; speeds above or below it reduce sustained turning efficiency.,各機体には固有のコーナー速度があり、その付近で最高の旋回率を得られる。速度が高すぎても低すぎても、持続旋回効率は低下する。
+TACTICAL_TIP_MISSILE_RANGE,导弹射程受高度和目标接近率影响。高空迎头发射可获得最大射程；低空尾追时的有效射程最短。,Missile range varies with altitude and target closure rate. A high-altitude head-on launch provides the greatest range; a low-altitude tail chase provides the shortest effective range.,ミサイル射程は高度と目標への接近率で変化する。高高度の正面発射で最大射程を得られ、低高度の後方追撃では有効射程が最短となる。
+TACTICAL_TIP_MISSILE_SWEET_SPOT,最大射程并不等于最佳发射距离。导弹在射程边缘容易因能量不足被规避，射程中段通常具有更高命中率。,"Maximum range is not the optimal launch distance. Near the edge of its range, a missile can be defeated by energy loss; the middle of the engagement envelope generally provides a higher probability of hit.",最大射程は最適な発射距離ではない。射程限界付近ではミサイルがエネルギー不足で回避されやすく、交戦包絡線の中間域では一般に命中率が高くなる。
+TACTICAL_TIP_CRANK,导弹发射后，飞机会减速并保持雷达指向目标，以持续提供制导信息。若目标脱离照射范围，导弹将失去制导。,"After launch, the aircraft decelerates and keeps its radar pointed at the target to continue providing guidance. If the target leaves the illumination envelope, the missile loses guidance.",発射後、機体は減速しながらレーダーを目標へ向け続け、誘導情報を提供する。目標が照射範囲から外れると、ミサイルは誘導を失う。
+TACTICAL_TIP_RELOAD,导弹、机炮和热诱弹耗尽后会自动进入装填流程，HUD 将显示剩余时间。装填期间应切换其他可用武器，或暂时脱离交战。,"Missiles, guns, and flares automatically begin reloading when depleted, and the HUD displays the remaining time. During reload, switch to another available weapon or temporarily disengage.",ミサイル、機関砲、フレアは残量が尽きると自動的に装填へ入り、HUD に残り時間が表示される。装填中は別の使用可能な武器へ切り替えるか、一時的に離脱する。
 TACTICAL_CONTROLS_TITLE,[ 操作 ],[ CONTROLS ],[ 操作 ]
 TACTICAL_CONTROLS_LMB,[color=#ffe08a][左键][/color]  指定目标,[color=#ffe08a][LMB][/color]  Set target,[color=#ffe08a][左クリック][/color]  目標指定
 TACTICAL_CONTROLS_RMB,[color=#ffe08a][右键][/color]  解除任务,[color=#ffe08a][RMB][/color]  Clear order,[color=#ffe08a][右クリック][/color]  任務解除
@@ -213,9 +216,12 @@ TAG_LASER_360,360° 激光,360° Laser,360°レーザー
 TAG_NO_FLARE,无热诱弹,No Flares,フレアなし
 BOSS_DEBUG_ENTRY_HINT,按 B  // BOSS DEBUG,Press B  // BOSS DEBUG,B キー  // BOSS DEBUG
 BOSS_DEBUG_TITLE,[ BOSS DEBUG ],[ BOSS DEBUG ],[ BOSS DEBUG ]
-BOSS_DEBUG_SUBTITLE,空白地图 + 15 级满 build + 直进 BOSS 战,Blank arena · Level 15 + Random Build · Instant Boss,空白マップ・Lv15満ビルド・即ボス戦
-BOSS_DEBUG_HINT_ESC,ESC 返回   //   F7 无敌   //   F8 复活+重抽,ESC Back   //   F7 Invuln   //   F8 Respawn+Reroll,ESC 戻る   //   F7 無敵   //   F8 復活+再抽選
+BOSS_DEBUG_SUBTITLE,空白地图 + T4 参考编队 + 等级匹配 build + 直进 BOSS 战,Blank arena · T4 reference formation · Level-matched build · Instant Boss,空白マップ・T4参考編隊・レベル準拠ビルド・即ボス戦
+BOSS_DEBUG_HINT_ESC,ESC 返回   //   战斗中 Tab 查看 build/里程碑   //   Shift+F7 无敌   //   F8 重抽,ESC Back   //   In combat: Tab for build/milestones   //   Shift+F7 Invuln   //   F8 Reroll,ESC 戻る   //   戦闘中 Tab でビルド/マイルストーン   //   Shift+F7 無敵   //   F8 再抽選
 BOSS_DEBUG_LAUNCH_BUTTON,>> 出击 <<,>> ENGAGE <<,>> 出撃 <<
+BOSS_DEBUG_AIRCRAFT_TITLE,[ 选择 T4 参考编队 ],[ Select T4 Reference Formation ],[ T4 参考編隊を選択 ]
+BOSS_DEBUG_AIRCRAFT_SUBTITLE,每项至少四架同型机；按解锁等级生成技能、三轴与里程碑,T4 entries deploy 4+ same-type aircraft with level-matched skills axes and milestones,T4各項目は同型4機以上；解禁レベル準拠のスキル・三軸・マイルストーン
+BOSS_DEBUG_REFERENCE_FMT,T4 // LV%d // ≥4机 // %s,T4 // LV%d // 4+ AIRCRAFT // %s,T4 // LV%d // 4機以上 // %s
 BOSS_DEBUG_WRAITH_NAME,Wraith 中队 (F-47),Wraith Squadron (F-47),Wraith 中隊 (F-47)
 BOSS_DEBUG_WRAITH_DESC,4 架光学隐身 BVR 王牌；协同齐射 + 赫尔贝特反杀,4× optical-cloak BVR aces; coordinated salvo + Herbst reversal,光学ステルス4機 協調斉射＋ハーブストJターン
 BOSS_DEBUG_CSG_NAME,Ladon 战斗群 (CSG),Ladon Strike Group (CSG),Ladon 打撃群 (CSG)
@@ -240,7 +246,7 @@ BOSS_BANNER_MOTHER_GOOSE_NAME,MOTHER GOOSE,MOTHER GOOSE,MOTHER GOOSE
 BOSS_BANNER_MOTHER_GOOSE_ROLE,AIRBORNE UAV CARRIER,AIRBORNE UAV CARRIER,AIRBORNE UAV CARRIER
 BOSS_BANNER_BLACK_STAR_NAME,BLACK STAR // HYPER-A,BLACK STAR // HYPER-A,BLACK STAR // HYPER-A
 BOSS_BANNER_BLACK_STAR_ROLE,HYPERSONIC SPLIT-BODY,HYPERSONIC SPLIT-BODY,HYPERSONIC SPLIT-BODY
-BOSS_BANNER_BLACK_STAR_MOTTO,BURN // BREAK // MULTIPLY,BURN // BREAK // MULTIPLY,BURN // BREAK // MULTIPLY
+BOSS_BANNER_BLACK_STAR_MOTTO,Blame it on the falling sky,Blame it on the falling sky,Blame it on the falling sky
 TAG_AIR,空战,AIR,空戦
 TAG_NAVAL,海上,NAVAL,海上
 TAG_CARRIER,空中航母,SKY CARRIER,空中空母
@@ -330,13 +336,13 @@ ACE_SQUAD_GIMMICK_NAME,把戏,Gimmick,ギミック
 ACE_SQUAD_GOOFIGHTERS_NAME,怪火,Goo Fighters,怪火
 ACE_SQUAD_VULTURE_NAME,秃鹫,Vulture,ハゲワシ
 ACE_SQUAD_WHITETEA_NAME,WhiteTea,WhiteTea,WhiteTea
-ACE_SQUAD_MARATHON_LORE,佣兵中队，只接消耗战合同。队规只有一条：猎物会先累。保持着 42 分钟不间断咬尾追击的战区纪录——那一单雇主付了双倍，因为目标是在第 41 分钟自己栽进海里的。,A mercenary squadron that only takes attrition contracts. One standing rule: the prey tires first. Holds the theater record — a 42-minute uninterrupted tail chase. The client paid double: the target ditched itself into the sea at minute 41.,消耗戦の依頼だけを受ける傭兵飛行隊。隊訓はただ一つ——先にバテるのは獲物の方だ。42分間ノンストップの追撃という戦域記録を持つ。その依頼の報酬は倍額だった。獲物は41分目に自分から海へ墜ちたからだ。
-ACE_SQUAD_2NDWAVE_LORE,敌军高等战术学校的毕业考核编队。四名学员驾驶最新锐的 F-15，而教官那架 F-4E 比他们的座机整整老两代。开课三十年，没有任何学员在毕业考核里击落过 Teacher——这一届的考题，是你。,The graduation-exam flight of the enemy's advanced tactics school. Four cadets fly factory-new F-15s; the instructor's F-4E is two full generations older. In thirty years no student has ever scored a kill on Teacher. This year's exam question is you.,敵軍高等戦術学校の卒業試験編隊。四人の学生は最新鋭のF-15を、教官は二世代も古いF-4Eを駆る。開校三十年、卒業試験でTeacherを墜とした学生は一人もいない。今年の試験問題は——君だ。
-ACE_SQUAD_ORION_LORE,Cre 系对抗学习原型机。制造者只写了一条需求：输了就学，学了就再来。每一架被击落的 Cre，都会把最后三十秒的数据留给下一架。合同排到第 99 架为止——按测算，到那时它应该已经赢了。,"The Cre-series adversarial learning prototype. Its maker wrote a single requirement: lose, learn, return. Every Cre shot down bequeaths its final thirty seconds of data to the next airframe. The contract runs to unit 99 — by then, the projections say, it should already have won.",Cre系対抗学習試作機。発注書の要求はただ一行——負けたら学べ。学んだら戻れ。撃墜された機体は最後の三十秒のデータを次の機体へ残す。契約は99号機まで。試算では、その頃にはもう勝っているはずだった。
-ACE_SQUAD_GIMMICK_LORE,一支只会一套把戏的中队：远处两架让你追，追到一半、幻影从侧面咬住你。情报部门早把这套路写进了新兵教材。所有人都知道，所有人还是会上当——因为知道和做到之间，隔着一整场空战。,"A squadron with exactly one trick: two fighters at range daring you to chase, and two Mirages on your six the moment you do. Intelligence put the routine in the cadet handbook years ago. Everyone knows it. Everyone still falls for it — because between knowing and doing lies an entire air battle.",たった一つの手品しか持たない飛行隊。遠くの二機を追えば、その瞬間ミラージュが横から食らいつく。この手口はとっくに新兵教本に載っている。誰もが知っていて、誰もが引っかかる——知ることと出来ることの間には、空戦一回分の距離があるからだ。
-ACE_SQUAD_GOOFIGHTERS_LORE,"雷达兵拒绝在报告里写""敌机""，因为没有敌机那样飞：垂直悬停半秒、原地调头、出现在刚刚还不可能出现的方位。上一个时代的飞行员管这种光叫""怪火""。他们只有两架。到目前为止，够用。","The radar operators refuse to log them as aircraft, because no aircraft flies like that — hanging vertical for half a second, turning on a point, appearing where nothing could be. Pilots of an older war had a name for lights like these: foo fighters. There are only two of them. So far, that has been enough.",レーダー手は報告書に「敵機」と書くのを拒む。敵機はあんな飛び方をしないからだ——半秒の垂直静止、その場での転回、ありえない方位への出現。昔の戦争のパイロットはこういう光を「怪火」と呼んだ。彼らは二機だけ。今のところ、それで足りている。
-ACE_SQUAD_WHITETEA_LORE,情报员最初以为 WhiteTea 是通讯误录：Tea、Cola、Bottle，怎么听都不像同一支中队。直到三架 F-CK-1 用完全相同的方式穿过交战区——一轮机炮、一次脱离；谁追上去，谁就会看见那架飞机在眼前把航向翻转一百八十度。名字很随意，动作从不随意。,"Intelligence first dismissed WhiteTea as a transcription error: Tea, Cola, Bottle hardly sounded like one squadron. Then three F-CK-1s crossed the fight the same way—one gun pass, one extension. Whoever followed saw the aircraft reverse its heading in front of them. The names are casual. The flying never is.",情報員は当初、WhiteTea を通信記録の誤りだと思った。Tea、Cola、Bottle——同じ飛行隊の名には聞こえない。だが三機の F-CK-1 は全く同じやり方で戦域を横切った。機関砲を一連射し、離脱する。追った者は目の前で百八十度反転する機体を見ることになる。名前は気軽だ。飛び方は決してそうではない。
-ACE_SQUAD_VULTURE_LORE,"高空截击团，别名""收尸队""。他们从不缠斗——秃鹫不搏斗，只等你飞不动。八机横墙、一轮齐射、扬长而去。地勤证实：他们的机体在交付当天就拆掉了机炮。","A high-altitude interceptor regiment nicknamed the burial detail. They never dogfight — a vulture doesn't fight, it waits for you to stop flying. Eight abreast, one volley, gone. Ground crews confirm the cannons were removed on delivery day.",高高度迎撃連隊、通称「死体回収班」。彼らは格闘戦をしない——ハゲワシは戦わない。獲物が飛べなくなるのを待つだけだ。横一列の八機、一斉射、そして離脱。機関砲は納入当日に降ろされたと整備班は証言する。
+ACE_SQUAD_MARATHON_LORE,执行消耗战任务的佣兵中队，以持续追踪和迫使目标耗尽能量见长。其最长确认追击记录为 42 分钟，目标在第 41 分钟失控坠海。,"Mercenary squadron specializing in attrition contracts, with sustained pursuit and exhausting a target's energy as its primary strengths. Its longest confirmed pursuit lasted 42 minutes; the target lost control and crashed during the forty-first minute.",消耗戦契約を専門とする傭兵中隊。継続追尾と目標のエネルギー消耗を得意とする。最長確認追撃記録は 42 分で、目標は 41 分目に制御を失って墜落した。
+ACE_SQUAD_2NDWAVE_LORE,敌军高级战术学校的毕业考核编队。四名学员驾驶 F-15，教官 Teacher 驾驶较旧的 F-4E。该校三十年来尚无学员在毕业考核中击落 Teacher；本次考核将玩家编队列为作战目标。,"Graduation assessment formation from an advanced enemy tactics school. Four trainees fly F-15s while their instructor, Teacher, flies an older F-4E. No trainee has shot down Teacher during a graduation assessment in the school's thirty-year history; this assessment designates the player's formation as the combat objective.",敵軍上級戦術学校の卒業評価編隊。4 名の訓練生が F-15 を、教官 Teacher が旧式の F-4E を操縦する。開校 30 年間、卒業評価で Teacher を撃墜した訓練生はいない。今回の評価ではプレイヤー編隊が作戦目標に指定されている。
+ACE_SQUAD_ORION_LORE,Cre 系自适应对抗原型机。每架被击落的 Cre 都会将最后 30 秒的交战数据传递给后继机体，用于迭代调整战术。测试序列计划持续至 Cre-99。,Cre-series adaptive combat prototypes. Each destroyed Cre transfers the final 30 seconds of engagement data to its successor for iterative tactical adjustment. The test sequence is scheduled to continue through Cre-99.,Cre 系適応対抗試作機。撃破された各 Cre は最後の 30 秒間の交戦データを後継機へ転送し、戦術を反復調整する。試験系列は Cre-99 まで継続する予定。
+ACE_SQUAD_GIMMICK_LORE,混编诱导中队。两架 F-16 在远距离吸引追击，两架 Mirage 2000 从侧翼进入近距交战。该战术已被情报部门记录，但仍保持较高成功率。,"Mixed decoy squadron. Two F-16s draw pursuit at range while two Mirage 2000s enter short-range combat from the flank. Intelligence services have documented the tactic, but it continues to achieve a high success rate.",混成誘導中隊。2 機の F-16 が遠距離で追撃を誘い、2 機の Mirage 2000 が側面から近距離交戦へ入る。この戦術は情報部に記録済みだが、現在も高い成功率を維持している。
+ACE_SQUAD_GOOFIGHTERS_LORE,由两架 Su-47 组成的高机动中队。可实施短时垂直悬停和快速航向变化，常从常规机动难以覆盖的方位重新进入交战。“怪火”是早期飞行员对其目视特征的称呼。,"Highly maneuverable squadron composed of two Su-47s. It can briefly hover vertically and change heading rapidly, often reentering combat from directions outside conventional maneuver coverage. “Goofighters” was the name earlier pilots gave to its visual signature.",2 機の Su-47 で構成される高機動中隊。短時間の垂直静止と急速な針路変更が可能で、通常機動では対応しにくい方向から再び交戦へ入る。「怪火」は初期の操縦者がその目視特徴に付けた呼称である。
+ACE_SQUAD_WHITETEA_LORE,由三架 F-CK-1 组成的高速突击中队，成员呼号为 Tea、Cola 与 Bottle。编队采用一次机炮攻击后立即脱离的战术；遭到追击时，可通过快速 180° 航向反转重新取得攻击位置。,"High-speed strike squadron composed of three F-CK-1s, with members using the callsigns Tea, Cola, and Bottle. The formation conducts one gun attack and immediately disengages; when pursued, it can use a rapid 180-degree heading reversal to regain an attack position.",Tea、Cola、Bottle の呼称を持つ 3 機の F-CK-1 で構成された高速突撃中隊。編隊は機関砲攻撃を 1 回行った後に直ちに離脱し、追撃を受けると急速な 180 度針路反転で攻撃位置を取り戻す。
+ACE_SQUAD_VULTURE_LORE,高空截击中队，采用八机横列和协同导弹齐射实施远程压制，完成攻击后立即脱离。该中队全部机体均拆除了机炮，不参与持续近距格斗。,High-altitude interceptor squadron that uses an eight-aircraft wall formation and coordinated missile salvos for long-range suppression before immediately disengaging. Every aircraft in the squadron has had its gun removed and does not participate in sustained short-range combat.,8 機の横列編隊と協同ミサイル斉射で遠距離制圧を行い、攻撃後すぐ離脱する高高度迎撃中隊。全機が機関砲を撤去しており、持続的な近距離格闘には参加しない。
 DOCK_AIRFIELD_SPENT_FMT,%s 补给完毕，机场关闭,%s resupplied — airfield closed,%s 補給完了・飛行場閉鎖
 MAP_VECTOR_PREVIEW_ON,纯矢量地图 V11：已开启（Shift+F10 返回 PNG）,Pure-vector map V11 enabled (Shift+F10 returns to PNG),純ベクターマップ V11：オン（Shift+F10 で PNG に戻る）
 MAP_VECTOR_PREVIEW_OFF,纯矢量地图 V11：已关闭（当前为 PNG）,Pure-vector map V11 disabled (PNG active),純ベクターマップ V11：オフ（PNG 表示）

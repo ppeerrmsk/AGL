@@ -3,7 +3,7 @@ id: altitude-action-states
 kind: system
 status: done
 schema_version: 1
-spec_version: 3
+spec_version: 5
 owner: noelu
 depends_on: [systems/flight-model-realism, systems/afterburner-mode, skills/vertical-break]
 reconstruction_complete: true
@@ -26,13 +26,15 @@ reconstruction_complete: true
 | 状态 | 普通高度调整的进入条件 | 垂直越过的进入条件 | 退出条件 |
 |---|---|---|---|
 | `NONE` | 无有效高度动作 | 无垂直越过动作 | — |
-| `CLIMB` | 目标高度高于当前高度，且实际垂直速度 `> 30 m/s` | 垂直越过终点高于起点 | 普通调整的垂直速度回到 `≤ 30 m/s`；或垂直越过结束 |
-| `DIVE` | 目标高度低于当前高度，且实际垂直速度 `< -30 m/s` | 垂直越过终点低于起点 | 普通调整的垂直速度回到 `≥ -30 m/s`；或垂直越过结束 |
+| `CLIMB` | 玩家小队：高度命令由 LOW 切到 HIGH 后，实际垂直速度 `> 30 m/s`；非玩家：目标高度高于当前高度且过同一速度门 | 垂直越过终点高于起点 | 普通调整的垂直速度回到 `≤ 30 m/s`；或垂直越过结束 |
+| `DIVE` | 玩家小队：高度命令由 HIGH 切到 LOW 后，实际垂直速度 `< -30 m/s`；非玩家：目标高度低于当前高度且过同一速度门 | 垂直越过终点低于起点 | 普通调整的垂直速度回到 `≥ -30 m/s`；或垂直越过结束 |
 
 - `30 m/s` 沿用现有“明显变更高度”技能门槛，不新增另一组近似阈值。
 - 失速恢复强制下坠不算 `DIVE`；动作必须来自有效高度目标或垂直越过。
 - 状态描述的是物理动作，不等同于 LOW/MID/HIGH 高度档；处于任何高度档都可以根据运动方向进入 `CLIMB` / `DIVE`。
 - 普通动作只在实际爬升/俯冲达到门槛后生效，避免仅切换偏好但尚未改变飞行状态时提前获得收益。
+- 玩家小队的普通动作必须由 Q、HUD 或命令轮盘造成一次真实的 LOW/HIGH 偏好变化来武装；同一档内的自然高度漂移、转弯掉高、编队追随与 AI 目标修正均不得自行进入动作。
+- 一次高度命令只允许形成一段动作；动作退出时消费该命令，即使飞机随后在同一高度档内再次越过速度门，也必须等待下一次 LOW/HIGH 切换。
 
 ### 2.2 “正在被敌机机炮咬尾”状态
 
@@ -64,8 +66,9 @@ reconstruction_complete: true
 
 ```text
 普通高度控制：
-  有效目标高度差 + 实际 vertical_speed 过门槛 -> CLIMB / DIVE
-  速度回到门槛内                              -> NONE
+  玩家：LOW/HIGH 命令变化武装 + 实际 vertical_speed 过门槛 -> CLIMB / DIVE
+  玩家：速度回到门槛内并消费本次命令                    -> NONE
+  非玩家：有效目标高度差 + 实际 vertical_speed 过门槛    -> CLIMB / DIVE
 
 垂直越过：
   ENTER 时按 end_altitude - start_altitude 确定 CLIMB / DIVE
@@ -100,17 +103,18 @@ reconstruction_complete: true
 
 ## 4. 结构与组成（Structure）
 
-- Aircraft 持有 O(1) 的当前高度动作枚举和进入沿序号；物理更新与垂直越过共同写入，所有技能只读。
+- Aircraft 持有 O(1) 的当前高度动作枚举、玩家高度命令闸门和进入沿序号；物理更新与垂直越过共同写入，所有技能只读。
 - 机炮威胁使用正式机炮包络纯函数；受击路径可按具体攻击者做 O(1) 复核，避免为一次命中再扫全场。
 - 当前操控机的可见 `GUN_TAILED` 汇总可复用既有低频机炮威胁更新，不在每架 Aircraft 的 `_draw()` 中新增全场扫描。
 - 迫近导弹复用既有闭合速度/TTI 纯规则；不得建立第二套“来袭”阈值。
-- 当前操控机的 `CLIMB / DIVE` 作为状态栏 buff 显示；成功破坏咬尾或导弹时复用飞机现有短时战术提示。
-- 动作中复用低成本机体气流视觉，不新增 Aircraft 子节点、独立 `_process()` 或 `_draw()` 全场扫描。
+- 详细（非战略）飞机标签把固定英文 `CLIMB / DIVE` 合并进现有 `ALT` 行；战略简略档可省略动作词。成功破坏咬尾或导弹时复用飞机现有短时战术提示。
+- 高度动作不绘制专属机体气流；机体周围不得因 `CLIMB / DIVE` 新增蓝色、黄色或其它方向流线。
 
 ## 5. 验收标准（Acceptance / Litmus）
 
 - [x] 普通升高和垂直越过向上段都只发布 `CLIMB`；普通降高和垂直越过向下段都只发布 `DIVE`；失速下坠保持 `NONE`。
-- [x] Q 切换但飞机尚未达到 30 m/s 垂直速度时不提前进入普通动作状态；达到/离开门槛时状态只切换一次，不在零点附近抖动。
+- [x] Q/HUD/轮盘真实切换 LOW/HIGH 后，飞机尚未达到 30 m/s 垂直速度时不提前进入；达到/离开门槛时只形成一段动作并消费命令。
+- [x] 玩家同一高度档内的自然漂移、转弯掉高、AI 目标修正与编队高度追随不会进入 `CLIMB/DIVE`，不会在两者之间反复切换。
 - [x] `GUN_TAILED` 只在敌机以 GUN 意图从后方取得正式前置开火解时成立；远处、侧向、导弹意图和无弹攻击者均不成立。
 - [x] 进入 CLIMB 后只开启一次 4.0 秒窗口；同一段爬升不刷新，退出 CLIMB 立即关闭。
 - [x] 窗口内触发反制后，当前敌机梭射仍生成真实弹丸但沿旧解打空；攻击者没有被传送或强制改向，闭合率足够时可自然飞过。
@@ -118,7 +122,7 @@ reconstruction_complete: true
 - [x] MiG-41、Typhoon、垂直机动隐身、云雾机动和垂直越过按 §3.3 一一对应，零技能时原飞行模型不变。
 - [x] 性能：不在 `_draw()` 新增扫描；当前操控机的威胁汇总低频运行；Sentinel + Lv5+ 压测不低于 60 FPS。
 - [x] 已知 seam：跨帧单位引用按 `Variant -> TYPE_OBJECT -> is_instance_valid -> typed cast` 净化；垂直越过的专属高度曲线仍能发布动作而不把虚拟速度重复送入 PE↔KE。
-- [x] i18n：状态栏动作 buff 与反制提示走 `tr()`，三语齐全；动作中可见低成本气流反馈。
+- [x] 反馈：详细 ALT 行使用固定英文 `CLIMB / DIVE`，战略简略档可省略；反制提示保持本地化，动作中无专属蓝/黄气流。
 - [x] 文档：本 spec 已登记总表；实现后同步 reference 索引并通过当前文档校验。
 
 ## 6. 实现计划（Task Pipeline —— 工作令）
@@ -148,7 +152,7 @@ reconstruction_complete: true
 | 导弹失导 | `scripts/missile.gd` |
 | 输入与玩家提示接线 | `scripts/survivor/survivor_mode.gd` |
 | 既有技能数据与授予 | `scripts/survivor/survivor_data.gd` / `scripts/survivor/survivor_player.gd` |
-| 状态栏与气流反馈 | `scripts/aircraft_renderer.gd` |
+| 详细 ALT 行与威胁提示 | `scripts/aircraft_renderer.gd` |
 | 聚焦回归 | `scripts/tests/test_skills_720.gd` |
 
 ## 8. 变更记录
@@ -158,3 +162,5 @@ reconstruction_complete: true
 | 2026-08-17 | 1 | 按用户方向建立 CLIMB/DIVE 与 GUN_TAILED 统一语义，审计五类现有高度技能；反制窗口与表现方案等待用户定稿。 |
 | 2026-08-17 | 2 | 用户定稿：进入 CLIMB 后的反制窗口为 4.0 秒；确认旧解梭射、确定性导弹失导、自然飞过、状态栏 buff 与气流反馈。 |
 | 2026-08-17 | 3 | 实现完成：统一动作、严格咬尾、4 秒双威胁反制、既有技能迁移、三语与低成本反馈落地；聚焦 267/267、表现 224/224、Visual 压力场 45 机/38 敌且末秒 333 FPS，文档与引用校验通过。 |
+| 2026-08-17 | 4 | 用户取消蓝色/黄色动作气流；高度动作只在详细标签的既有 ALT 行使用固定英文显示，战略简略档可省略，反制与资源语义不变。 |
+| 2026-08-17 | 5 | 玩家普通 CLIMB/DIVE 改为“一次真实 LOW/HIGH 命令切换只形成一段动作”；自然高度漂移、转弯掉高、编队追随和 AI 修正不再触发，垂直越过保持明确动作入口。 |

@@ -5,6 +5,12 @@ extends RefCounted
 
 const RADIUS_PX: float = 2000.0
 const SEGMENTS: int = 64
+## 世界遮蔽层：压住地图/地面与海面单位，但必须低于 z=0 的飞机与操控反馈。
+const WORLD_Z_INDEX: int = -1
+## 破幕与复隐共用视觉节奏；玩法显隐仍由控制器在状态边沿即时切换。
+const TRANSITION_S: float = 0.8
+const _TARGET_META: StringName = &"_snowblind_concealment_target"
+const _TWEEN_META: StringName = &"_snowblind_concealment_tween"
 
 const SHADER_CODE: String = """
 shader_type canvas_item;
@@ -89,6 +95,9 @@ void fragment() {
 static func attach(host: Aircraft) -> Polygon2D:
 	var shroud := Polygon2D.new()
 	shroud.name = "SnowblindShroud"
+	# 不继承宿主层级，避免场景树生成先后决定玩家机是否被雪幕盖住。
+	shroud.z_as_relative = false
+	shroud.z_index = WORLD_Z_INDEX
 	var points := PackedVector2Array()
 	for i in range(SEGMENTS):
 		var a := TAU * float(i) / float(SEGMENTS)
@@ -99,6 +108,48 @@ static func attach(host: Aircraft) -> Polygon2D:
 	shader.code = SHADER_CODE
 	var material := ShaderMaterial.new()
 	material.shader = shader
+	# Shader uniform 的源码默认值在材质侧首次读取可能仍是 null；显式建立运行时真值。
+	material.set_shader_parameter("concealment", 1.0)
 	shroud.material = material
+	shroud.set_meta(_TARGET_META, true)
 	host.add_child(shroud)
 	return shroud
+
+
+## 只渐变 shader 遮蔽强度；敌机传感器显隐、锁定与交战边界不等待视觉过渡。
+## 若过渡中反向触发，从当前值平滑折返，不跳回端点。
+static func set_concealed(host: Aircraft, concealed: bool, immediate: bool = false) -> void:
+	if host == null or not is_instance_valid(host):
+		return
+	var shroud := host.get_node_or_null("SnowblindShroud") as Polygon2D
+	if shroud == null or not shroud.material is ShaderMaterial:
+		return
+	var material := shroud.material as ShaderMaterial
+	var current_variant: Variant = material.get_shader_parameter("concealment")
+	var current := float(current_variant) \
+		if typeof(current_variant) in [TYPE_FLOAT, TYPE_INT] else (1.0 if concealed else 0.0)
+	var previous_target := bool(shroud.get_meta(_TARGET_META, current >= 0.5))
+	if not immediate and previous_target == concealed:
+		return
+	_stop_transition(shroud)
+	shroud.set_meta(_TARGET_META, concealed)
+	var target := 1.0 if concealed else 0.0
+	if immediate or not host.is_inside_tree() or is_equal_approx(current, target):
+		material.set_shader_parameter("concealment", target)
+		return
+	var tween := host.create_tween()
+	tween.set_trans(Tween.TRANS_SINE)
+	tween.set_ease(Tween.EASE_IN_OUT)
+	tween.tween_property(material, ^"shader_parameter/concealment", target, TRANSITION_S).from(current)
+	shroud.set_meta(_TWEEN_META, tween)
+
+
+static func _stop_transition(shroud: Polygon2D) -> void:
+	if not shroud.has_meta(_TWEEN_META):
+		return
+	var raw_tween: Variant = shroud.get_meta(_TWEEN_META)
+	if typeof(raw_tween) == TYPE_OBJECT and raw_tween != null and is_instance_valid(raw_tween):
+		var tween := raw_tween as Tween
+		if tween != null and tween.is_valid():
+			tween.kill()
+	shroud.remove_meta(_TWEEN_META)

@@ -59,7 +59,7 @@
         "ch": "panel",
         "op": "stagger_out",
         "stagger": 0.0,
-        "dur": 0.12,
+        "dur": 0.04,
         "ease": "cubic_in"
       },
       {

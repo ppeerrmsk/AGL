@@ -256,7 +256,7 @@ func _test_af03_visibility() -> void:
 
 # ── F. 签名技普通池排除 ──
 func _test_signature_random_exclusion() -> void:
-	print("── F. 机体专属：普通随机池排除 + 第四槽 30% ──")
+	print("── F. 普通升级池：专属/次世代排除 + 第四槽 30% ──")
 	_check("专属第四槽概率 = 0.30",
 		is_equal_approx(SurvivorData.SIGNATURE_OFFER_CHANCE, 0.30), "")
 	_check("is_signature_upgrade 认 sig_ 前缀",
@@ -271,8 +271,9 @@ func _test_signature_random_exclusion() -> void:
 		not SurvivorData.is_normal_random_candidate({"id": "sig_f15"}), "")
 	_check("F-14 围猎不进普通随机池",
 		not SurvivorData.is_normal_random_candidate({"id": "f14_squad_lock_slow"}), "")
-	_check("普通技能仍进普通随机池",
-		SurvivorData.is_normal_random_candidate({"id": "gun_damage"}), "")
+	_check("普通金卡仍进池、次世代红卡不进池",
+		SurvivorData.is_normal_random_candidate({"id": "gold", "rarity": SurvivorData.Rarity.CLASSIFIED})
+		and not SurvivorData.is_normal_random_candidate({"id": "red", "rarity": SurvivorData.Rarity.NEXT_GEN}), "")
 
 
 # ── G. 常规敌机数据注册表 ──
@@ -428,6 +429,20 @@ func _test_regular_enemy_registry() -> void:
 	_check("Snowblind 未破幕为实体高遮蔽层，破幕后才降为低透明度",
 		SnowblindShroudVisual.SHADER_CODE.contains("solid_alpha = 1.0") \
 			and SnowblindShroudVisual.SHADER_CODE.contains("uniform float concealment"), "")
+	_check("Snowblind 进出圈视觉共用 0.8s 缓入缓出且不拖延玩法显隐",
+		is_equal_approx(SnowblindShroudVisual.TRANSITION_S, 0.8) \
+			and visual_method_names.has("set_concealed") \
+			and snowblind_controller_source.contains("SnowblindShroudVisual.set_concealed"),
+			str(visual_method_names))
+	var visual_host := Aircraft.new()
+	var shroud := SnowblindShroudVisual.attach(visual_host)
+	_check("Snowblind 雪幕固定在飞机下层且不继承宿主 Z，玩家入圈后机体仍可读",
+		shroud.z_index == SnowblindShroudVisual.WORLD_Z_INDEX \
+			and not shroud.z_as_relative \
+			and shroud.z_index < 0 \
+			and shroud.z_index > -10, str({"z": shroud.z_index,
+				"relative": shroud.z_as_relative}))
+	visual_host.free()
 
 	var batch_a_ok := true
 	var batch_a_detail := ""

@@ -11,7 +11,7 @@ const BG_COLOR := ThemeColors.SCENE_BG
 
 var _time := 0.0
 var _canvas: CanvasLayer
-var _cards_container: HBoxContainer
+var _cards_container: GridContainer
 var _selected_index: int = -1
 
 # ── 可选主角档案 ──
@@ -52,18 +52,37 @@ var _list: Array[Dictionary] = []
 
 ## 生涯解锁门控（spec career-shop §2.1，2026-07-26 用户改版）：未解锁机型走 locked
 ## 占位形态——**不加载档案、不显示任何机体数据**（名字 ???、无武器/数值/描述），
-## 只在按钮位显示解锁条件句。boss debug 链路全谱放行（debug 测试场必须全谱选机）。
+## 只在按钮位显示解锁条件句。Boss Debug 另走正式树的 T4 参考名单，不受生涯门控。
 func _effective_list() -> Array[Dictionary]:
+	if get_tree().has_meta("boss_debug_mode"):
+		return _boss_debug_reference_list()
 	var out: Array[Dictionary] = []
-	var debug_bypass: bool = get_tree().has_meta("boss_debug_mode")
 	for entry in PLAYABLE_LIST:
 		var e: Dictionary = entry.duplicate()
 		var aid := String(e.get("id", ""))
-		if not debug_bypass and aid != "" and not MetaShop.is_aircraft_unlocked(aid):
+		if aid != "" and not MetaShop.is_aircraft_unlocked(aid):
 			e["locked"] = true
 			e["slot_desc"] = ""   # 压掉占位卡默认的"新机型开发中"文案（这不是开发中）
 			e["unlock_text"] = _unlock_hint_for(aid)
 		out.append(e)
+	return out
+
+
+## Boss Debug 不再复用四架起手机：直接列正式进化树的全部 T4（T5 前一档）参考机。
+func _boss_debug_reference_list() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for node in BossDebugBuilds.reference_nodes():
+		var profile_id := StringName(String(node.get("profile", "")))
+		var profile := AircraftDB.get_profile(profile_id)
+		if profile == null or profile.resource_path.is_empty():
+			continue
+		out.append({
+			"id": String(profile_id),
+			"resource": profile.resource_path,
+			"locked": false,
+			"boss_debug_node_id": String(node.get("id", "")),
+			"boss_debug_level": EvolutionSystem.min_level_of(node),
+		})
 	return out
 
 ## 锁定卡按钮上的解锁条件句（career-shop §2.4）
@@ -146,19 +165,24 @@ func _build_ui() -> void:
 	root.add_child(spacer_top)
 
 	# 标题
+	var boss_debug := get_tree().has_meta("boss_debug_mode")
 	var title := Label.new()
-	title.text = tr("AIRCRAFT_SELECT_TITLE")
+	title.text = tr("BOSS_DEBUG_AIRCRAFT_TITLE") if boss_debug else tr("AIRCRAFT_SELECT_TITLE")
 	title.add_theme_font_size_override("font_size", 28)
 	title.add_theme_color_override("font_color", ThemeColors.TEXT_TITLE_GREEN)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	root.add_child(title)
 
 	# 副标题
 	var subtitle := Label.new()
-	subtitle.text = tr("AIRCRAFT_SELECT_SUBTITLE")
+	subtitle.text = tr("BOSS_DEBUG_AIRCRAFT_SUBTITLE") if boss_debug \
+		else tr("AIRCRAFT_SELECT_SUBTITLE")
 	subtitle.add_theme_font_size_override("font_size", 13)
 	subtitle.add_theme_color_override("font_color", ThemeColors.TEXT_SUBTITLE)
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	subtitle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	subtitle.custom_minimum_size = Vector2(0, 22)
 	root.add_child(subtitle)
 
 	var sep := Control.new()
@@ -166,9 +190,10 @@ func _build_ui() -> void:
 	root.add_child(sep)
 
 	# 机型卡片容器
-	_cards_container = HBoxContainer.new()
-	_cards_container.alignment = BoxContainer.ALIGNMENT_CENTER
-	_cards_container.add_theme_constant_override("separation", 16)
+	_cards_container = GridContainer.new()
+	_cards_container.columns = 4
+	_cards_container.add_theme_constant_override("h_separation", 16)
+	_cards_container.add_theme_constant_override("v_separation", 16)
 	_cards_container.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	root.add_child(_cards_container)
 
@@ -318,6 +343,27 @@ func _build_aircraft_card(index: int) -> void:
 			perk.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 			inner.add_child(perk)
 
+	# Boss Debug 参考态：把进化档位、匹配等级与门槛 build 直接写在卡上。
+	if not locked and profile and data.has("boss_debug_node_id"):
+		var node_id := StringName(String(data["boss_debug_node_id"]))
+		var axis_points := BossDebugBuilds.target_axis_points(
+			node_id, int(data.get("boss_debug_level", 1)))
+		var axis_parts: PackedStringArray = []
+		for axis in SurvivorData.AXES:
+			var points := int(axis_points.get(axis, 0))
+			if points > 0:
+				axis_parts.append("%s %d" % [
+					tr(String(SurvivorData.AXIS_I18N_KEY[axis])), points])
+		var reference := Label.new()
+		reference.text = tr("BOSS_DEBUG_REFERENCE_FMT") % [
+			int(data.get("boss_debug_level", 1)), " · ".join(axis_parts)]
+		reference.add_theme_font_size_override("font_size", 11)
+		reference.add_theme_color_override("font_color", ThemeColors.TEXT_TAG_UNLOCKED)
+		reference.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		reference.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		reference.custom_minimum_size = Vector2(220, 0)
+		inner.add_child(reference)
+
 	# 描述
 	var desc_label := Label.new()
 	if locked:
@@ -415,5 +461,8 @@ func _on_aircraft_selected(index: int) -> void:
 		return
 	# 通过 scene tree meta 传递选择的 PlayableAircraft 资源路径
 	get_tree().set_meta("survivor_aircraft_resource", data["resource"])
+	if data.has("boss_debug_node_id"):
+		get_tree().set_meta("boss_debug_node_id", data["boss_debug_node_id"])
+		get_tree().set_meta("boss_debug_level", int(data.get("boss_debug_level", 1)))
 	# 直接出击（配件机库已随槽位配件系统退役，spec doctrine-unlocks §3.5）
 	get_tree().change_scene_to_file("res://scenes/building_preloader.tscn")

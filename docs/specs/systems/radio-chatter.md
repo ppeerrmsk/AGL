@@ -3,7 +3,7 @@ id: radio-chatter
 kind: system
 status: done  # 2026-08-10 Notion 修订已实现并完成聚焦回归
 schema_version: 1
-spec_version: 8
+spec_version: 11
 owner: noelu
 depends_on: [combat-feed, command-wheel, global-awareness-roe]
 reconstruction_complete: true
@@ -93,7 +93,9 @@ reconstruction_complete: true
 |---|---|
 | `boss_spawn` / `boss_engage` | `100` |
 | `wraith_member_down` | `98` |
+| `bomber_escort_complete` | `98` |
 | `airfield_liberated` | `97` |
+| `bomber_escort_intercept` | `97` |
 | `bomber_escort_available` | `96` |
 | `hound_one_contact` / `hound_two_follow` | `94` / `93` |
 | `zone_ground_thanks` | `91` |
@@ -297,6 +299,8 @@ BOSS 序列的说话人由 `encounter` 提供：`"<callsign_prefix>-%02d" % (slo
 | `wingman_join` | 僚机加入玩家小队 | 新成员 | `RADIO_JOIN_*` |
 | `reward_target_available` | 首批奖励战区达到 60 秒 + Lv3 门槛；目标实体生成前 6 秒 | HQ | `RADIO_REWARD_TARGET_AVAILABLE` |
 | `bomber_escort_available` | 可选护送任务达到 150 秒 + Lv5 门槛；目标实体生成前 6 秒 | 指挥中心 | 固定双句：先按真实目标坐标计算八方向并通报打击方位，再播护航请求 |
+| `bomber_escort_intercept` | 玩家选择可选护送任务，轰炸编队开始入场且敌方后方追击计划建立 | 指挥中心 | mandatory：只报告敌方追击编队正从轰炸队后方接近，并请求近空掩护；不暴露玩家介入判定、航程阈值或强制失败机制 |
+| `bomber_escort_complete` | 战略目标被 `bomber_bomb` 实际摧毁，专属 XP 已加入共享经验池 | 指挥中心 | mandatory：只确认目标摧毁、任务完成与轰炸编队撤离；不播报 XP 数值 |
 | `zone_naval_contact` | `ZoneMission.mission_triggered`，任务类型为 `naval` | 本战区真实存活敌舰 | `RADIO_ZONE_NAVAL_CONTACT`；低优先级、随机 |
 | `zone_air_support_request` | `ZoneMission.mission_triggered`，任务类型为 `air` / `squadron` | 玩家编队中真实存活的非玩家友机；单机时静默 | `RADIO_ZONE_AIR_SUPPORT_REQUEST_FMT`，地区名取战区 `name_key`；低优先级、随机 |
 | `zone_ground_thanks` | `ZoneMission.mission_completed`，任务类型为 `ground`，且战区气氛层至少一辆友军单位存活 | 该真实存活友军单位 | `RADIO_ZONE_GROUND_THANKS`；条件成立即播 |
@@ -446,6 +450,9 @@ BOSS 序列的说话人由 `encounter` 提供：`"<callsign_prefix>-%02d" % (slo
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-19 | 11 | 护送响应改为轰炸队后方追击后，无线电同步报告敌追击编队从后方接近并请求近空掩护；保持纯军事态势包装，不暴露玩家介入、航程阈值、强制失败或 XP 数值。 |
+| 2026-08-19 | 10 | 护送开始通报从固定 J-7 截击包改为动态敌方响应编队，并明确告知航程中段前必须建立玩家护航，否则轰炸编队会中止任务。 |
+| 2026-08-18 | 9 | 轰炸护送任务增加两条 mandatory scripted 通报：截击包实际生成时明确提示护航压力；目标摧毁并发放经验后确认任务完成与实际 XP 数值。 |
 | 2026-08-10 | 8 | 按用户更新的 Notion 原页扩写三语台词并完成运行时触发：WRAITH 首次减员、CSG 定期 F/A-18 / 双句 Phase 2、Mother Goose MQ-X Phase 2；轰炸护送按真实目标坐标通报八方向；海/空/地战区与机场解放无线电；`ack_pursue` 允许格式化句与普通句共池。Shadow 聚焦回归：chatter 101/101、boss_phase 33/33、boss_hunter 119/119、boss_progression 22/22、zone_atmosphere 29/29，三语 radio 资源各 103 条。字体与完整实机试听留后续。 |
 | 2026-08-10 | 7 | 本地化拆分后将全部 `RADIO_*` 文本迁入独立 `i18n/radio.csv`，运行时 key 与 `radio_chatter.json` 结构保持不变；新增跨分表唯一性/资源注册审计，Shadow `chatter` 91/91。 |
 | 2026-08-09 | 6 | 新增奖励目标与轰炸护送两个 scripted 通报；两者均在目标实体生成前 6 秒入队，不受 ambient 节流影响。Shadow `chatter` 91/91。 |

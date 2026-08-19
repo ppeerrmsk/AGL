@@ -180,6 +180,18 @@ func run() -> void:
 			"category=%s" % str(goose_swarm.get_meta(&"category", "")))
 	goose_swarm.free()
 
+	# ── 10. 威胁目标生命周期：目标已释放时不得先做类型判断而闪退 ──
+	var stale_threat := _make_shooter(600.0, 10, CombatUnit.TEAM_HOSTILE)
+	var released_target := Aircraft.new()
+	stale_threat.combat_target = released_target
+	stale_threat._gun_threat_timer = 1.0
+	released_target.free()
+	stale_threat._update_gun_threat_indicator(DT)
+	_check("机炮威胁目标已释放时安全复位",
+			is_zero_approx(stale_threat._gun_threat_timer),
+			"不访问 freed combat_target，timer=%.2f" % stale_threat._gun_threat_timer)
+	_free(stale_threat)
+
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
 

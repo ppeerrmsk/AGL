@@ -191,11 +191,7 @@ func _conceal_one(ac: Aircraft, shroud_id: int, host: Aircraft) -> void:
 
 
 func _set_visual_concealed(host: Aircraft, concealed: bool) -> void:
-	var shroud := host.get_node_or_null("SnowblindShroud") as Polygon2D
-	if shroud == null or not shroud.material is ShaderMaterial:
-		return
-	(shroud.material as ShaderMaterial).set_shader_parameter(
-		"concealment", 1.0 if concealed else 0.0)
+	SnowblindShroudVisual.set_concealed(host, concealed)
 
 
 func _clear_concealment() -> void:

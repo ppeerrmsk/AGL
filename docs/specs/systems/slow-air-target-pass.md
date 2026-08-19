@@ -3,9 +3,9 @@ id: slow-air-target-pass
 kind: system
 status: done
 schema_version: 1
-spec_version: 1
+spec_version: 2
 owner: 用户 + Claude
-depends_on: [surface-attack-pass, weapon-employment-doctrine, engagement-discipline]
+depends_on: [surface-attack-pass, weapon-employment-doctrine, engagement-discipline, missile-launch-discipline]
 reconstruction_complete: true
 ---
 
@@ -32,7 +32,7 @@ reconstruction_complete: true
 |---|---|---|
 | 1 | **几何极限环** | 角点速度下最小转弯半径 550m，目标 1 秒只走 60m → 尾追几何不成立。旧补丁只有"太近就 extend 1.5s / 否则 wide_turn"两行：1.5s extend 在 700km/h 下只拉开 ~290m，而重攻门槛 825m，拉完还在圈内立刻重触发 → 极限环。 |
 | 2 | **锁定攒不满** | CH-47 在 LOW 档 → 锁定速率 ×0.7 → 需**连续 4.3s** 照射；出雷达锥 0.3s 即清零。绕圈时机头持续扫过目标 → 锁定反复 0.00/1.82 归零。 |
-| 3 | **满锁却拒发** | 发射门要求离轴 ≤ `radar_half × 0.55`（F-14 = 19.25°），而 `LEAD_TURN` 等 intent **主动**把机头摆在 27~31° 滞后位 → intent 与发射门互相打架。 |
+| 3 | **满锁却拒发** | 稳定窗口与两轮 TTI 前置几何门都要求机头收敛到可发射区域，而 `LEAD_TURN` 等 intent **主动**把机头摆在 27~31° 滞后位 → intent 与发射门互相打架。 |
 | 4 | **锁定→转不动死锁** | `_get_missile_phase()` 一旦锁定满就返回 phase 2，坡度上限被压到 35%（为 crank 保稳设计）。若此刻仍在发射锥外，飞机**再也转不进锥**：锁上了→转不动→打不出去→机头飘走→丢锁。无头 sim 实证：满锁 3.30s 时 nose 27°、坡度仅 27.6°/1.1G（可用 7.5G），随后 27°→31°→43° 越飘越远。 |
 
 > 第 4 条是**通用 bug**，不限直升机：任何"锁定完成但机头尚未进锥"的交战都会踩到。
@@ -73,7 +73,7 @@ reconstruction_complete: true
 | 相位 | pursuit 瞄准点 | 速度 | 为什么 |
 |---|---|---|---|
 | SETUP | **碰撞航路交会点** | corner | 纯追踪对横切目标有常驻滞后角（实测卡死 35°，进不了 30° 门）；交会解才收敛 |
-| RUN / STANDOFF（导弹） | **目标本体**（纯追踪） | **corner**（不加速） | 发射门量的是"机头 vs 目标本体"离轴角；交会点带 `asin(v_t/v_m)` 常驻偏置，close-in 还会放大到 30°+ → 满锁却拒发。速度也不能加：纯追踪要求转率按 1/R 发散，高速下半径变大反而越追越偏（实测 29°→38°→54°） |
+| RUN / STANDOFF（导弹） | **`AircraftWeapons.missile_lead_point` 两轮 TTI 前置点** | **corner**（不加速） | 2026-08-18 后飞机导弹的发射门、发射前 planner 与离架航向必须共用该点；继续瞄目标本体会让当前目标稳定窗通过却卡在前置几何门。速度不能加：近距前置点所需转率按 1/R 发散，高速下半径变大反而越追越偏 |
 | RUN / ASSAULT（机炮） | **机炮提前点**（弹速解） | cruise×1.4 | 机炮解按弹速 1050m/s 求（前置 ~3°），交会点按本机速度求（前置可达 21°）；拿交会点当机炮引导，机头恒停在离目标 ~10° 掠过，5° 火控锥永不开门（实测两趟 pass 掠到 174m/254m，0 次开火） |
 | EGRESS | 沿脱离方向外推 | 转出后 AB 全速 | 同 surface 版 |
 
@@ -85,8 +85,10 @@ reconstruction_complete: true
 `_get_missile_phase()` 返回 2（坡度上限 35%，为保锁而柔化）的条件收紧为：
 
 - `is_cranking()`（**发射后**的支援照射，几何本就稳定）→ 恒 2，不变；
-- 锁定已满 **且 目标已进入发射离轴门**（`radar_half × 0.55`）→ 2；
+- 锁定已满 **且目标已进入当前档案的稳定离轴门** → 2；
 - 锁定已满 **但仍在门外** → **0（满转弯权限）**。语义 = "还在对准段"。
+
+这只是转弯权限门；实际发射还必须同时通过 `missile-launch-discipline` 的两轮 TTI 前置几何门。
 
 ## 3. 行为与公式（How）
 
@@ -129,15 +131,16 @@ EGRESS --dist ≥ reentry-------> SETUP
 
 ## 5. 验收标准（Acceptance / Litmus）
 
-无头验收 `--bench=slow_air_pass`，**必须同时步进真实物理 + 真实 planner，并如实复刻游戏内三道发射门**
-（锁定积分含 LOW ×0.7 与出锥 0.3s 清零 / 武器模式 min_range+150m 滞回 / 发射窗口 off-axis 门）——
+无头验收 `--bench=slow_air_pass`，**必须同时步进真实物理 + 真实 planner，并消费游戏内真实三道发射门**
+（锁定积分含 LOW ×0.7 与出锥 0.3s 清零 / 武器模式 min_range+150m 滞回 /
+当前目标稳定窗口 + 两轮 TTI 前置几何门）——
 "打得中"必须是三门齐开的结果，不能是几何单测的纸面对准。
 
 | # | 场景 | 判据 | 实测 |
 |---|---|---|---|
 | A | 导弹机 vs CH-47，起手侧后背对 | 30s 内打出真实发射窗；锁定攒满；连续 SETUP < 15s；发射距离 ≥ min_range | ✅ t=17.1s, 2929m, 离轴 1.7° |
 | B | 机炮机 vs CH-47 | 30s 内打出真实机炮窗；窗口 ≥ 0.3s（log 实证 0.2s 足够击坠）；不绕圈 | ✅ t=17.4s, 累计 4.57s |
-| C | 贴脸起手 244m（目标钻进转弯圆） | 30s 内开火；距离幅度 > 1200m（对照旧补丁 ~290m）；不绕圈 | ✅ t=20.1s, 幅度 2674m |
+| C | 贴脸起手 244m（目标钻进转弯圆） | 30s 内开火；距离幅度 > 1200m（对照旧补丁 ~290m）；不绕圈 | ✅ t=19.4s, 幅度 2674m |
 | D | 回归守卫 | CH-47 判慢 / UAV 839km/h 判快 / 300km/h 判快 / 地面目标不重复标记 | ✅ |
 
 回归：`--bench=all` 其余全绿，`surface_pass` 28/28 不受影响。
@@ -159,3 +162,5 @@ EGRESS --dist ≥ reentry-------> SETUP
 
 - **2026-07-20 v1**：立项 + 落地。根因四层（几何极限环 / 锁定攒不满 / 满锁拒发 / 锁定→转不动死锁）
   一并根治，14 条无头断言全绿。触发来源：用户报告 + log 20260720_115041。
+- **2026-08-19 v2**：同步 `missile-launch-discipline` v3：慢速目标的导弹 RUN 从旧目标本体纯追踪
+  切到共享两轮 TTI 前置点；bench 改为直接消费真实稳定窗口与前置几何门，贴脸重攻恢复 19.4s 开火。

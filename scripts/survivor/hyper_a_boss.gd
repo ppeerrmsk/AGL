@@ -18,22 +18,36 @@ const DESCENT_START_ALTITUDE := 30000.0
 const HIDE_ALTITUDE := 15000.0
 const DESCENT_DURATION := 4.0
 const SECOND_ROOT_DELAY := 18.0
-const REENTRY_COOLDOWN := 26.0
+const REENTRY_COOLDOWN := 40.0
+const REENTRY_COOLDOWN_JITTER := 10.0
+const REENTRY_QUEUE_SPACING := 12.0
 const CLIMB_DURATION := 2.5
+const HIGH_ALTITUDE_HOLD_MIN := 7.0
+const HIGH_ALTITUDE_HOLD_MAX := 10.0
 const SPLIT_DELAY := 0.65
 const CHILD_SEPARATION_PX := 160.0
 const CHILD_HEADING_OFFSET := deg_to_rad(18.0)
 const CHILD_GUARD_DURATION := 0.8
 
-const DASH_TELEGRAPH_DURATION := 1.6
+const DASH_TELEGRAPH_DURATION := 2.4
+const DASH_ALIGN_TIMEOUT := 12.0
+const DASH_ALIGN_TOLERANCE := deg_to_rad(6.0)
+const DASH_CHARGE_CRUISE_MULT := 0.45
+const DASH_CHARGE_STALL_MULT := 1.35
+const DASH_CHARGE_SPEED_CAP_KMH := 600.0
 const DASH_DURATION := 1.2
 const DASH_DISTANCE_PX := 3200.0
 const DASH_WIDTH_PX := 140.0 * CombatUnit.PIXELS_PER_METER
 const DASH_DAMAGE := 55.0
+const BRAKE_SHOCKWAVE_RADIUS_M := 900.0
+const BRAKE_SHOCKWAVE_RADIUS_PX := BRAKE_SHOCKWAVE_RADIUS_M * CombatUnit.PIXELS_PER_METER
+const BRAKE_SHOCKWAVE_HALF_ANGLE := deg_to_rad(55.0)
+const BRAKE_SHOCKWAVE_DAMAGE := 45.0
+const BRAKE_SHOCKWAVE_VISUAL_DURATION := 0.65
 const POST_DASH_DELAY := 1.2
 const COOLDOWN_APPROACH_DISTANCE_PX := 700.0
 const COOLDOWN_APPROACH_MAX := 5.0
-const COOLDOWN_DURATION := 5.0
+const COOLDOWN_DURATION := 6.0
 const MAX_CONCURRENT_DASH := 2
 const ROCKETS_PER_SIDE := 5
 const ROCKET_DAMAGE := 24.0
@@ -47,11 +61,16 @@ const REENTRY_DAMAGE: Array[float] = [0.0, 50.0, 40.0, 0.0]
 const LOCK_CAPACITY: Array[int] = [8, 4, 2, 1]
 const FIRST_DASH_DELAY: Array[float] = [9.0, 8.0, 7.0, 0.0]
 const DASH_COOLDOWN: Array[float] = [12.0, 10.0, 9.0, 0.0]
+const META_SATURATION_SALVO: StringName = &"hyper_a_saturation_salvo"
+const META_G0_OMNIDIRECTIONAL_SALVO: StringName = &"hyper_a_g0_omnidirectional_salvo"
+const META_WEAPONS_ENABLED: StringName = &"hyper_a_weapons_enabled"
+const META_FORCE_HIDDEN_VISUAL: StringName = &"force_hidden_visual"
 
 const STATE_STAGED := "STAGED"
 const STATE_DESCENT := "DESCENT"
 const STATE_FIGHTER := "FIGHTER"
 const STATE_CLIMB := "CLIMB"
+const STATE_HIGH_ALTITUDE_HOLD := "HIGH_ALTITUDE_HOLD"
 const STATE_TELEGRAPH := "TELEGRAPH"
 const STATE_DASH := "DASH"
 const STATE_POST_DASH := "POST_DASH"
@@ -254,7 +273,11 @@ func _spawn_body(generation: int, path: String, root_index: int, pos: Vector2,
 	ac.set_meta("silhouette", "hyper_a")
 	ac.set_meta("hyper_a_generation", generation)
 	ac.set_meta("saturation_attacker", true)
+	ac.set_meta(META_SATURATION_SALVO, true)
 	ac.set_meta(&"fear_immune", true)
+	if generation == 0:
+		ac.set_meta(META_G0_OMNIDIRECTIONAL_SALVO, true)
+	ac.set_meta(META_WEAPONS_ENABLED, combat_enabled)
 	_scene_root.add_child(ac)
 
 	var ai := AIController.new()
@@ -288,7 +311,7 @@ func _spawn_body(generation: int, path: String, root_index: int, pos: Vector2,
 		"state": STATE_FIGHTER,
 		"timer": 0.0,
 		"special_cd": FIRST_DASH_DELAY[generation] + randf_range(0.0, 2.5),
-		"reentry_cd": REENTRY_COOLDOWN + randf_range(0.0, 4.0),
+		"reentry_cd": REENTRY_COOLDOWN + randf_range(0.0, REENTRY_COOLDOWN_JITTER),
 		"spawn_guard": CHILD_GUARD_DURATION,
 		"guard_owned": true,
 		"death_handled": false,
@@ -308,6 +331,8 @@ func _update_body(record: Dictionary, ac: Aircraft, delta: float) -> void:
 			_update_descent(record, ac, delta)
 		STATE_CLIMB:
 			_update_climb(record, ac, delta)
+		STATE_HIGH_ALTITUDE_HOLD:
+			_update_high_altitude_hold(record, ac, delta)
 		STATE_TELEGRAPH:
 			_update_telegraph(record, ac, delta)
 		STATE_DASH:
@@ -332,10 +357,12 @@ func _update_fighter(record: Dictionary, ac: Aircraft, delta: float) -> void:
 		return
 	record["special_cd"] = float(record["special_cd"]) - delta
 	if generation in [1, 2]:
-		record["reentry_cd"] = float(record["reentry_cd"]) - delta
-		if float(record["reentry_cd"]) <= 0.0 and not _has_active_descent():
-			_begin_climb(record, ac)
-			return
+		# 另一架占用高空序列时暂停本机倒计时，避免多分裂体排队连续轰炸。
+		if not _has_active_descent():
+			record["reentry_cd"] = float(record["reentry_cd"]) - delta
+			if float(record["reentry_cd"]) <= 0.0:
+				_begin_climb(record, ac)
+				return
 	if float(record["special_cd"]) <= 0.0 and _dash_slot_count() < MAX_CONCURRENT_DASH \
 			and not _has_active_descent():
 		_begin_dash_telegraph(record, ac)
@@ -379,6 +406,9 @@ func _update_descent(record: Dictionary, ac: Aircraft, delta: float) -> void:
 		_roots_arrived += 1
 		if int(record.get("root", 1)) == 1 and not _root_b_started:
 			_second_root_timer = SECOND_ROOT_DELAY
+	else:
+		record["reentry_cd"] = REENTRY_COOLDOWN \
+			+ randf_range(0.0, REENTRY_COOLDOWN_JITTER)
 	EventLogger.log_event("BOSS", String(record["path"]),
 		"atmospheric impact radius=%.0fm damage=%.0f" % [
 			radius_px / CombatUnit.PIXELS_PER_METER, float(record.get("aoe_damage", 0.0))])
@@ -388,7 +418,7 @@ func _begin_climb(record: Dictionary, ac: Aircraft) -> void:
 	record["state"] = STATE_CLIMB
 	record["timer"] = CLIMB_DURATION
 	record["climb_start_altitude"] = ac.altitude
-	record["reentry_cd"] = REENTRY_COOLDOWN
+	_stagger_other_reentries(record)
 	_set_combat(record, false)
 	ac.target_speed_kmh = ac.params.cruise_speed if ac.params else 1200.0
 
@@ -401,6 +431,36 @@ func _update_climb(record: Dictionary, ac: Aircraft, delta: float) -> void:
 	if ac.altitude >= HIDE_ALTITUDE and ac.visible:
 		_set_hidden(record, true)
 	if float(record["timer"]) <= 0.0:
+		_begin_high_altitude_hold(record, ac)
+
+
+func _begin_high_altitude_hold(record: Dictionary, ac: Aircraft) -> void:
+	record["state"] = STATE_HIGH_ALTITUDE_HOLD
+	record["timer"] = randf_range(HIGH_ALTITUDE_HOLD_MIN, HIGH_ALTITUDE_HOLD_MAX)
+	ac.altitude = DESCENT_START_ALTITUDE
+	ac.target_position = Vector2.INF
+	_set_hidden(record, true)
+	_set_combat(record, false)
+	EventLogger.log_event("BOSS", String(record["path"]),
+		"high altitude hold %.1fs before dive" % float(record["timer"]))
+
+
+func _stagger_other_reentries(active_record: Dictionary) -> void:
+	var active_path := String(active_record.get("path", ""))
+	for raw_record in _records.values():
+		var other: Dictionary = raw_record
+		if String(other.get("path", "")) == active_path:
+			continue
+		if int(other.get("generation", 0)) not in [1, 2] \
+				or String(other.get("state", "")) != STATE_FIGHTER:
+			continue
+		other["reentry_cd"] = maxf(float(other.get("reentry_cd", 0.0)),
+			REENTRY_QUEUE_SPACING)
+
+
+func _update_high_altitude_hold(record: Dictionary, _ac: Aircraft, delta: float) -> void:
+	record["timer"] = float(record["timer"]) - delta
+	if float(record["timer"]) <= 0.0:
 		_begin_descent(record, false)
 
 
@@ -411,27 +471,57 @@ func _begin_dash_telegraph(record: Dictionary, ac: Aircraft) -> void:
 		dir = Vector2(sin(ac.heading), -cos(ac.heading))
 	record["state"] = STATE_TELEGRAPH
 	record["timer"] = DASH_TELEGRAPH_DURATION
+	record["telegraph_elapsed"] = 0.0
 	record["dash_from"] = ac.global_position
 	record["dash_to"] = ac.global_position + dir * DASH_DISTANCE_PX
 	record["dash_dir"] = dir
+	var stall_kmh: float = ac.params.stall_speed_base if ac.params else 220.0
+	var cruise_kmh: float = ac.params.cruise_speed if ac.params else 1200.0
+	record["charge_speed_kmh"] = maxf(stall_kmh * DASH_CHARGE_STALL_MULT,
+		minf(cruise_kmh * DASH_CHARGE_CRUISE_MULT, DASH_CHARGE_SPEED_CAP_KMH))
 	record["rockets_fired"] = false
 	record["dash_hits"] = {}
+	record["brake_wave_fired"] = false
 	_set_combat(record, false)
-	ac.target_position = ac.global_position
-	ac.speed = 0.0
+	# 蓄力仍走共享飞机物理：减速、可受击，并真实滚转对准锁存攻击线。
+	# 禁止归零速度或直接改 heading；背向且 12 秒仍对不准就取消本轮。
+	ac.target_position = ac.global_position + dir * DASH_DISTANCE_PX
+	ac.target_speed_kmh = float(record["charge_speed_kmh"])
+	ac.is_afterburner = false
+	EventLogger.log_event("BOSS", String(record["path"]),
+		"hyper dash charge nose=%.0f° line=%.0f° speed=%.0fkm/h" % [
+			rad_to_deg(ac.heading), rad_to_deg(atan2(dir.x, -dir.y)), ac.speed * 3.6])
 
 
 func _update_telegraph(record: Dictionary, ac: Aircraft, delta: float) -> void:
-	record["timer"] = float(record["timer"]) - delta
-	if float(record["timer"]) > 0.0:
+	var elapsed: float = float(record.get("telegraph_elapsed", 0.0)) + delta
+	record["telegraph_elapsed"] = elapsed
+	record["timer"] = maxf(DASH_TELEGRAPH_DURATION - elapsed, 0.0)
+	var dir: Vector2 = record.get("dash_dir", Vector2.UP)
+	# 飞机在真实转弯中仍会前移，危险线近端必须跟随当前机位；方向保持锁存。
+	record["dash_from"] = ac.global_position
+	record["dash_to"] = ac.global_position + dir * DASH_DISTANCE_PX
+	ac.target_position = record["dash_to"]
+	ac.target_speed_kmh = float(record.get("charge_speed_kmh", DASH_CHARGE_SPEED_CAP_KMH))
+	ac.is_afterburner = false
+	var desired_heading := atan2(dir.x, -dir.y)
+	var aligned := absf(angle_difference(ac.heading, desired_heading)) <= DASH_ALIGN_TOLERANCE
+	if elapsed < DASH_TELEGRAPH_DURATION or not aligned:
+		if elapsed >= DASH_ALIGN_TIMEOUT:
+			record["special_cd"] = 3.0
+			_enter_fighter(record, ac)
+			EventLogger.log_event("BOSS", String(record["path"]),
+				"hyper dash cancelled: alignment timeout")
 		return
 	record["state"] = STATE_DASH
 	record["timer"] = DASH_DURATION
 	ac.global_position = record["dash_from"]
-	var dir: Vector2 = record["dash_dir"]
-	ac.heading = atan2(dir.x, -dir.y)
-	ac.rotation = ac.heading
+	ac.target_position = Vector2.INF
+	ac.speed = DASH_DISTANCE_PX / CombatUnit.PIXELS_PER_METER / DASH_DURATION
 	ac.clear_trail()
+	EventLogger.log_event("BOSS", String(record["path"]),
+		"hyper dash launch charge=%.1fs align=%.1f°" % [
+			elapsed, rad_to_deg(absf(angle_difference(ac.heading, desired_heading)))])
 
 
 func _update_dash(record: Dictionary, ac: Aircraft, delta: float) -> void:
@@ -440,7 +530,7 @@ func _update_dash(record: Dictionary, ac: Aircraft, delta: float) -> void:
 	var ratio := clampf(1.0 - float(record["timer"]) / DASH_DURATION, 0.0, 1.0)
 	var new_pos: Vector2 = (record["dash_from"] as Vector2).lerp(record["dash_to"], ratio)
 	ac.global_position = new_pos
-	ac.speed = 0.0
+	ac.speed = DASH_DISTANCE_PX / CombatUnit.PIXELS_PER_METER / DASH_DURATION
 	_apply_dash_sweep(record, ac, old_pos, new_pos)
 	if ratio >= 0.33 and not bool(record.get("rockets_fired", false)) \
 			and int(record["generation"]) <= 1:
@@ -449,6 +539,9 @@ func _update_dash(record: Dictionary, ac: Aircraft, delta: float) -> void:
 	if float(record["timer"]) > 0.0:
 		return
 	ac.global_position = record["dash_to"]
+	_trigger_brake_shockwave(record, ac)
+	ac.speed = (ac.params.cruise_speed if ac.params else 1200.0) / 3.6
+	ac.target_speed_kmh = ac.params.cruise_speed if ac.params else 1200.0
 	record["state"] = STATE_POST_DASH
 	record["timer"] = POST_DASH_DELAY
 	record["special_cd"] = DASH_COOLDOWN[int(record["generation"])]
@@ -467,8 +560,44 @@ func _apply_dash_sweep(record: Dictionary, source: Aircraft, from: Vector2, to: 
 			continue
 		if _distance_to_segment(unit.global_position, from, to) <= DASH_WIDTH_PX * 0.5:
 			hit_ids[id] = true
-			unit.take_damage(DASH_DAMAGE)
+			unit.take_damage(DASH_DAMAGE, source, "aoe")
 	record["dash_hits"] = hit_ids
+
+
+func _trigger_brake_shockwave(record: Dictionary, source: Aircraft) -> void:
+	if bool(record.get("brake_wave_fired", false)):
+		return
+	record["brake_wave_fired"] = true
+	var center: Vector2 = record.get("dash_to", source.global_position)
+	var dir: Vector2 = record.get("dash_dir",
+		Vector2(sin(source.heading), -cos(source.heading)))
+	dir = dir.normalized()
+	var hit_count := 0
+	if _debug_scenario == "brake_wave" and _valid_player():
+		var player_offset := _player.global_position - center
+		EventLogger.log_event("BOSS", String(record.get("path", "Hyper-A")),
+			"brake probe d=%.0fm off=%.1f° hostile=%s in_sector=%s" % [
+				player_offset.length() / CombatUnit.PIXELS_PER_METER,
+				rad_to_deg(dir.angle_to(player_offset.normalized())),
+				str(source.is_hostile_to(_player)),
+				str(_point_in_sector(_player.global_position, center, dir,
+					BRAKE_SHOCKWAVE_RADIUS_PX, BRAKE_SHOCKWAVE_HALF_ANGLE))])
+	for raw in CombatUnit.all_units:
+		if typeof(raw) != TYPE_OBJECT or not is_instance_valid(raw):
+			continue
+		var unit := raw as CombatUnit
+		if unit == null or unit.is_destroyed or not source.is_hostile_to(unit):
+			continue
+		if not _point_in_sector(unit.global_position, center, dir,
+				BRAKE_SHOCKWAVE_RADIUS_PX, BRAKE_SHOCKWAVE_HALF_ANGLE):
+			continue
+		unit.take_damage(BRAKE_SHOCKWAVE_DAMAGE, source, "aoe")
+		hit_count += 1
+	_add_brake_flash(center, dir)
+	EventLogger.log_event("BOSS", String(record.get("path", "Hyper-A")),
+		"brake shockwave radius=%.0fm arc=%.0f° damage=%.0f hits=%d" % [
+			BRAKE_SHOCKWAVE_RADIUS_M, rad_to_deg(BRAKE_SHOCKWAVE_HALF_ANGLE) * 2.0,
+			BRAKE_SHOCKWAVE_DAMAGE, hit_count])
 
 
 func _fire_lateral_rockets(record: Dictionary, ac: Aircraft) -> void:
@@ -561,9 +690,14 @@ func _update_pending_splits(delta: float) -> void:
 		for child_index in [1, 2]:
 			var sign_value := -1.0 if child_index == 1 else 1.0
 			var child_heading := heading + CHILD_HEADING_OFFSET * sign_value
-			_spawn_body(int(split["generation"]), "%s.%d" % [split["path"], child_index],
+			var child := _spawn_body(int(split["generation"]),
+				"%s.%d" % [split["path"], child_index],
 				int(split["root"]), pos + side * CHILD_SEPARATION_PX * sign_value,
 				child_heading, true)
+			# G0→G1 首次生成就是一次从不可见高空落下的入场；同帧隐藏，
+			# 状态栏 / 危险区先于机体出现，撞击完成后才进入常态战斗。
+			if int(split["generation"]) == 1 and not child.is_empty():
+				_begin_descent(child, false)
 		_pending_splits.remove_at(i)
 
 
@@ -585,6 +719,21 @@ func _apply_debug_start() -> void:
 	_terminal_g3_defeated = 0
 	var center := _player.global_position + Vector2.UP * 1500.0 if _valid_player() else Vector2.ZERO
 	match _debug_scenario:
+		"g0_weapons":
+			_expected_terminal_g3 = 8
+			# 置于玩家前方并背向玩家，验证 G0 全向锁定 / 离轴发射；不注入锁定进度。
+			var player_fwd := Vector2(sin(_player.heading), -cos(_player.heading)) \
+					if _valid_player() else Vector2.UP
+			var g0_pos := (_player.global_position + player_fwd * 1600.0) \
+					if _valid_player() else center
+			var g0_heading := _player.heading if _valid_player() else 0.0
+			var g0 := _spawn_body(0, "Hyper-A1", 1, g0_pos, g0_heading, true)
+			var g0_ac := _aircraft_from(g0)
+			if g0_ac != null and _valid_player():
+				# 玩家位于正后方，不注入雷达锁；专项 bench 覆盖真实全向锁定与发射链。
+				g0_ac.combat_target = _player
+				g0_ac.target_position = _player.global_position
+				g0["special_cd"] = 999.0
 		"second_root":
 			_expected_terminal_g3 = 16
 			_pending_roots = 1
@@ -597,10 +746,40 @@ func _apply_debug_start() -> void:
 			_expected_terminal_g3 = 4
 			var g1 := _spawn_body(1, "Hyper-A1.1", 1, center, 0.0, true)
 			_begin_climb(g1, _aircraft_from(g1))
+		"g1_weapons":
+			_expected_terminal_g3 = 4
+			var g1_pos := _player.global_position + Vector2.UP * 2500.0 \
+					if _valid_player() else center
+			var g1 := _spawn_body(1, "Hyper-A1.1", 1, g1_pos, PI, true)
+			var g1_ac := _aircraft_from(g1)
+			if g1_ac != null:
+				# 拉远并降到安全巡航速度，保证 2.1s 锁定完成前不会掠过玩家；
+				# 不注入锁定进度，雷达与发射仍走普通运行时链路。
+				g1_ac.use_tactical_planner = false
+				var g1_ai := g1_ac.get_node_or_null("AIController") as AIController
+				if g1_ai:
+					g1_ai.enable_combat = false
+					g1_ai.set_process(false)
+					g1_ai.set_physics_process(false)
+				g1_ac.target_position = _player.global_position if _valid_player() \
+						else g1_ac.global_position + Vector2.DOWN * 4000.0
+				g1_ac.speed = 600.0 / 3.6
+				g1_ac.target_speed_kmh = 600.0
+				g1["special_cd"] = 999.0
+				g1["reentry_cd"] = 999.0
 		"g2_dash":
 			_expected_terminal_g3 = 2
 			var g2 := _spawn_body(2, "Hyper-A1.1.1", 1, center, 0.0, true)
 			_begin_dash_telegraph(g2, _aircraft_from(g2))
+		"brake_wave":
+			_expected_terminal_g3 = 2
+			# 预留扇区半径与蓄力滑行距离，抵消 2.4 秒共享物理蓄力时的前移；
+			# 冲刺路径仍停在玩家前方，玩家只会被终点冲击波覆盖。
+			var brake_offset := DASH_DISTANCE_PX + BRAKE_SHOCKWAVE_RADIUS_PX * 1.6
+			var brake_pos := _player.global_position + Vector2.UP * brake_offset \
+					if _valid_player() else center
+			var brake := _spawn_body(2, "Hyper-A1.1.1", 1, brake_pos, PI, true)
+			_begin_dash_telegraph(brake, _aircraft_from(brake))
 		"g3":
 			_expected_terminal_g3 = 1
 			_spawn_body(3, "Hyper-A1.1.1.1", 1, center, 0.0, true)
@@ -639,8 +818,10 @@ func _set_hidden(record: Dictionary, hidden: bool) -> void:
 	ac.visible = not hidden
 	ac.invulnerable = hidden
 	if hidden:
+		ac.set_meta(META_FORCE_HIDDEN_VISUAL, true)
 		ac.set_meta(&"lock_immune_override", true)
 	else:
+		ac.remove_meta(META_FORCE_HIDDEN_VISUAL)
 		ac.remove_meta(&"lock_immune_override")
 
 
@@ -648,6 +829,7 @@ func _set_combat(record: Dictionary, enabled: bool) -> void:
 	var ac := _aircraft_from(record)
 	if ac == null:
 		return
+	ac.set_meta(META_WEAPONS_ENABLED, enabled)
 	var ai := ac.get_node_or_null("AIController") as AIController
 	if ai:
 		ai.enable_combat = enabled
@@ -670,7 +852,8 @@ func _update_spawn_guard(record: Dictionary, delta: float) -> void:
 		ac.invulnerable = true
 		record["guard_owned"] = true
 	if remain <= 0.0 and bool(record.get("guard_owned", false)) \
-			and String(record.get("state", "")) not in [STATE_DESCENT, STATE_STAGED]:
+			and String(record.get("state", "")) not in [
+				STATE_DESCENT, STATE_HIGH_ALTITUDE_HOLD, STATE_STAGED]:
 		ac.invulnerable = false
 		record["guard_owned"] = false
 
@@ -686,13 +869,28 @@ func _apply_aoe(source: Aircraft, center: Vector2, radius_px: float, damage: flo
 			continue
 		if unit.global_position.distance_to(center) > radius_px:
 			continue
-		unit.take_damage(damage)
+		unit.take_damage(damage, source, "aoe")
 		var hit_heading: float = unit.heading if unit is Aircraft else 0.0
 		ExplosionVFX.emit(_scene_root.get_tree(), unit.global_position, hit_heading, 1.6)
 
 
 func _add_flash(center: Vector2, radius_px: float) -> void:
-	_flashes.append({"center": center, "radius_px": radius_px, "life": 0.7, "max_life": 0.7})
+	_flashes.append({"kind": "radial", "center": center, "radius_px": radius_px,
+		"life": 0.7, "max_life": 0.7})
+	if _flashes.size() > 8:
+		_flashes.pop_front()
+
+
+func _add_brake_flash(center: Vector2, dir: Vector2) -> void:
+	_flashes.append({
+		"kind": "brake_shockwave",
+		"center": center,
+		"dir": dir,
+		"radius_px": BRAKE_SHOCKWAVE_RADIUS_PX,
+		"half_angle": BRAKE_SHOCKWAVE_HALF_ANGLE,
+		"life": BRAKE_SHOCKWAVE_VISUAL_DURATION,
+		"max_life": BRAKE_SHOCKWAVE_VISUAL_DURATION,
+	})
 	if _flashes.size() > 8:
 		_flashes.pop_front()
 
@@ -721,14 +919,25 @@ func _sync_overlay() -> void:
 			lines.append({
 				"from": record.get("dash_from", Vector2.ZERO),
 				"to": record.get("dash_to", Vector2.ZERO),
+				"dir": record.get("dash_dir", Vector2.UP),
 				"width_px": DASH_WIDTH_PX,
+				"brake_radius_px": BRAKE_SHOCKWAVE_RADIUS_PX,
+				"brake_half_angle": BRAKE_SHOCKWAVE_HALF_ANGLE,
+				"progress": 1.0 if state == STATE_DASH else clampf(
+					float(record.get("telegraph_elapsed", 0.0)) / DASH_TELEGRAPH_DURATION,
+					0.0, 1.0),
 			})
 	var flashes: Array = []
 	for flash in _flashes:
-		flashes.append({
+		var snapshot := {
+			"kind": flash.get("kind", "radial"),
 			"center": flash["center"], "radius_px": flash["radius_px"],
 			"ratio": 1.0 - float(flash["life"]) / float(flash["max_life"]),
-		})
+		}
+		if String(flash.get("kind", "radial")) == "brake_shockwave":
+			snapshot["dir"] = flash.get("dir", Vector2.UP)
+			snapshot["half_angle"] = flash.get("half_angle", BRAKE_SHOCKWAVE_HALF_ANGLE)
+		flashes.append(snapshot)
 	_overlay.sync(aoes, lines, flashes)
 
 
@@ -746,7 +955,8 @@ func _check_victory() -> void:
 
 func _has_active_descent() -> bool:
 	for record in _records.values():
-		if String(record.get("state", "")) in [STATE_CLIMB, STATE_DESCENT]:
+		if String(record.get("state", "")) in [
+				STATE_CLIMB, STATE_HIGH_ALTITUDE_HOLD, STATE_DESCENT]:
 			return true
 	return false
 
@@ -822,6 +1032,8 @@ func _hud_state(record: Dictionary, ac: Aircraft) -> String:
 			return "DESCENT"
 		STATE_CLIMB:
 			return "CLIMB"
+		STATE_HIGH_ALTITUDE_HOLD:
+			return "HIGH HOLD"
 		STATE_TELEGRAPH:
 			return "LOCKED LINE"
 		STATE_DASH:
@@ -840,3 +1052,17 @@ static func _distance_to_segment(point: Vector2, a: Vector2, b: Vector2) -> floa
 		return point.distance_to(a)
 	var t := clampf((point - a).dot(ab) / ab.length_squared(), 0.0, 1.0)
 	return point.distance_to(a + ab * t)
+
+
+static func _point_in_sector(point: Vector2, center: Vector2, dir: Vector2,
+		radius_px: float, half_angle: float) -> bool:
+	var offset := point - center
+	var distance_sq := offset.length_squared()
+	if radius_px <= 0.0 or distance_sq > radius_px * radius_px:
+		return false
+	if distance_sq <= 0.0001:
+		return true
+	var forward := dir.normalized()
+	if forward.length_squared() <= 0.5:
+		return false
+	return offset.normalized().dot(forward) >= cos(half_angle)

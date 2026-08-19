@@ -42,9 +42,11 @@ const BOSS_LIST: Array[Dictionary] = [
 		"tags": ["TAG_AIR", "TAG_SPLITTER"],
 		"scenarios": [
 			["FULL ENCOUNTER", "full"],
-			["G0 FIGHTER", "g0"],
+			["G0 OMNI SALVO", "g0_weapons"],
 			["G1 REENTRY", "g1_reentry"],
+			["G1 FORWARD SALVO", "g1_weapons"],
 			["G2 DASH", "g2_dash"],
+			["G2 BRAKE WAVE", "brake_wave"],
 			["G3 DOGFIGHT", "g3"],
 			["SECOND ROOT", "second_root"],
 			["COOLDOWN WINDOW", "cooldown"],

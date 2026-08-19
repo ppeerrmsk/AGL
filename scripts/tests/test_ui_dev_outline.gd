@@ -112,6 +112,31 @@ func _test_edge_bar_contract() -> void:
 		and WarzoneTimePanelScript.label_rect() == Rect2(0.0, 36.0, 178.0, 18.0)
 		and WarzoneTimePanelScript.formatted_remaining_time(125.9) == "02:05"
 		and warzone_panel._grid_overlay.edge_insets == Vector4(0.5, 0.5, 0.5, 0.5))
+	var mode_source := FileAccess.get_file_as_string(
+		"res://scripts/survivor/survivor_mode.gd")
+	var physics_start := mode_source.find("func _physics_process(delta: float) -> void:")
+	var capture_start := mode_source.find("func _bench_capture_weather_frame() -> void:")
+	var elapsed_sync := mode_source.find("hud.game_time = game_time", physics_start)
+	var remaining_sync := mode_source.find("hud.set_warzone_remaining(", physics_start)
+	_check("正式物理主循环持续注入当前与战区时间，截图 Bench 不得吞掉 HUD 同步块",
+		physics_start >= 0 and capture_start > physics_start
+		and elapsed_sync > physics_start and elapsed_sync < capture_start
+		and remaining_sync > elapsed_sync and remaining_sync < capture_start)
+	var timer_hud = SurvivorHUDScript.new()
+	timer_hud._build_ui()
+	timer_hud.set_warzone_remaining(372.9, false)
+	var first_visible_seconds: float = timer_hud._warzone_timer_panel._seconds
+	timer_hud.set_warzone_remaining(372.1, false)
+	var same_visible_second: float = timer_hud._warzone_timer_panel._seconds
+	timer_hud.set_warzone_remaining(371.9, false)
+	var next_visible_second: float = timer_hud._warzone_timer_panel._seconds
+	timer_hud.set_warzone_remaining(371.8, true)
+	_check("战区时间只在可见整数秒或 BOSS 状态变化时请求重绘",
+		is_equal_approx(first_visible_seconds, 372.9)
+		and is_equal_approx(same_visible_second, 372.9)
+		and is_equal_approx(next_visible_second, 371.9)
+		and timer_hud._warzone_timer_panel._boss_phase)
+	timer_hud.free()
 	_check("3u 常驻栏由等宽侧板、2u 三方向和 1u 经验条完整填满",
 		group == Rect2(618.0, 1026.0, 684.0, 54.0)
 		and axis == Rect2(756.0, 1026.0, 408.0, 36.0)

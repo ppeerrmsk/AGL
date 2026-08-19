@@ -522,22 +522,16 @@ static func ground_strafe(s: Situation) -> TacticalPlan:
 				p.rationale = "对面 RUN[STANDOFF/F-Pole]：弹在飞环外等待 dist=%.0fm ring=%.0fm" % [
 						s.dist_m, inner_m + AA_FPOLE_RING_PAD_M]
 			elif is_standoff and s.tgt_is_slow_air:
-				# 慢速空中目标不 crank：crank 是为了对**会还击的**目标做 F-Pole 侧偏，
-				# 直升机没有反击弹，侧偏只有代价——机头离轴 30~40° 会同时
-				# ①拖慢/清空雷达锁积分（出锥 0.3s 清零）②撞上发射窗口的 off-axis 门。
-				# 直接压向碰撞航路交会点 = 机头最快稳定在目标上 = 锁定最快攒满 = 最早开火。
-				# 终端导弹跑瞄目标本体（纯追踪），不瞄交会点——与机炮跑瞄机炮解同理：
-				# 发射门量的是"机头 vs 目标本体"的离轴角（≤ radar_half×0.55 ≈ 19°），
-				# 而交会点带 asin(v_t/v_m) 的常驻前置偏置，close-in 段动态滞后还会放大到 30°+。
-				# 结果是锁定攒满了却卡在发射门外，正是用户报的"锁定上了却不发射"
-				# （无头 sim C 段实证：21.0s lock=3.30/3.00 满锁、nose=34.5° → 拒发，随后出锥清零）。
-				# SETUP 段仍用交会点收敛；只有终端这一段切成纯追踪把离轴角压到 0。
-				p.pursuit_pos = s.tgt_pos
-				# 全程 corner speed（不加速到 cruise×1.15）：纯追踪要求的转率随距离按 1/R 发散
-				# （LOS 率 = v·sin(off)/R），高速下转弯半径变大反而追不上——无头 sim 实证
-				# 加速版在 RUN 里离轴角一路 29°→38°→54° 越追越偏，从没进过 19° 发射门。
-				# corner speed 是最大转率点，纯追踪必收敛。慢速目标不还击，也没有"快点冲进去"的理由：
-				# 关键路径是"把离轴角压进发射门"，不是"尽快抵达"。
+				# 慢速目标同样服从 missile-launch-discipline 的单一前置点：发射门、
+				# 发射前 planner 与离架航向必须消费同一个两轮 TTI 解。旧版终端纯追踪
+				# 只照顾了目标本体离轴门，新前置几何门启用后会在贴脸重攻中锁满却拒发。
+				p.pursuit_pos = AircraftWeapons.missile_lead_point(
+					s.my_pos, s.my_speed_ms, s.tgt_pos, s.tgt_heading,
+					s.tgt_speed_ms, s.missile_max_speed_mps) \
+					if s.missile_max_speed_mps > 0.0 else s.tgt_pos
+				# 全程 corner speed（不加速到 cruise×1.15）：近距前置点所需转率随距离
+				# 按 1/R 发散，高速下转弯半径变大反而追不上。慢速目标没有对空反击，
+				# 关键路径是稳定收敛发射几何，不是尽快冲进 inner 环。
 				p.target_speed_kmh = s.corner_speed_kmh
 				p.afterburner = false
 				_surface_altitude(s, p, true)
@@ -780,7 +774,7 @@ static func _missile_engage_speed(s: Situation) -> Array:
 		# 太近：拉远 max + AB
 		return [s.max_speed_kmh, true]
 
-## 导弹交战瞄准点（crank geometry）
+## 导弹交战瞄准点（发射前拦截几何 / 发射后 crank geometry）
 ##
 ## 导弹交战的几何完全不同于机炮：
 ## - 机炮要求小火控锥（5°）→ 必须正对目标 → pursuit_pos = 前置点
@@ -792,7 +786,8 @@ static func _missile_engage_speed(s: Situation) -> Array:
 ## 决策矩阵（按 lock 状态 + 距离）：
 ## - 未锁定（任何距离）：LOS 直瞄，全力建立锁
 ## - 已锁 + 远（dist > max × 0.7）：LOS 直接闭合
-## - 已锁 + 中距（min × 1.5 < dist < max × 0.7）：crank ~15° 保持锁 + 不冲过 min_range
+## - 已锁 + 中距 + 未出弹：追踪武器层同源两轮 TTI 前置点，主动收敛到可发射几何
+## - 已出弹支援期：crank ~15° 保持锁 + 不冲过 min_range
 ## - 任何距离 < min × 1.5：朝反 LOS 脱离 3km，重整
 static func _missile_engage_pos(s: Situation) -> Vector2:
 	var optimal_far: float = s.missile_max_range_m * 0.7
@@ -811,7 +806,14 @@ static func _missile_engage_pos(s: Situation) -> Vector2:
 	if s.dist_m > optimal_far:
 		return s.tgt_pos
 
-	# 已锁定 + 包络内：crank radar_half × 0.5
+	# 发射前：与 AircraftWeapons 发射门/离架航向追踪同一个两轮 TTI 前置点。
+	# 锁定只代表雷达条件成立，不应提前进入 crank 而远离发射门要求的几何。
+	if not s.missile_support_active and s.missile_max_speed_mps > 0.0:
+		return AircraftWeapons.missile_lead_point(
+			s.my_pos, s.my_speed_ms, s.tgt_pos, s.tgt_heading,
+			s.tgt_speed_ms, s.missile_max_speed_mps)
+
+	# 已出弹支援期：crank radar_half × 0.5
 	# 旧实现按"哪侧更对齐机头"离散选 crank 侧（ccw/cw）。目标接近正前方时两侧 align 几乎相等，
 	# 单帧噪声就让 crank 侧翻号 → 追踪点在机身两侧 ±5000px(=10000m) 瞬移 → 平滑 bank 控制器
 	# 忠实追摆 → 长机原地大坡摇摆打转（SEAM-013）。

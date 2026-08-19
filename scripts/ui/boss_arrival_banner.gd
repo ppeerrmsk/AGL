@@ -272,8 +272,11 @@ func _layout() -> void:
 		Rect2(Vector2(0.0, 136.0), Vector2(main_width, 32.0)),
 	]
 
-	_motto.position = Vector2(_main_base_position.x, _main_base_position.y - 2.0 * U_HEIGHT)
-	_motto.size = Vector2(12.0 * U_WIDTH, U_HEIGHT)
+	# 长句 motto 需要避开右下方第 5 个级联警告窗；向左借一个 U，
+	# 保持左上包装语义并让 Black Star 的完整句子可读。
+	_motto.position = Vector2(_main_base_position.x - U_WIDTH,
+		_main_base_position.y - 2.0 * U_HEIGHT)
+	_motto.size = Vector2(13.0 * U_WIDTH, U_HEIGHT)
 	for index in range(_windows.size()):
 		var data := _windows[index]
 		var width := minf(13.0 * U_WIDTH + index * 2.0 * U_WIDTH, main_width - 3.0 * U_WIDTH)

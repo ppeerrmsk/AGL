@@ -30,6 +30,13 @@ enum BomberFormation { LINE_ABREAST, TRAIL }
 
 const BOMBER_TRAIL_SPACING_PX := 300.0
 const BOMBER_ESCORT_SPACING_M := 220.0
+## 护送任务响应队从轰炸编队后方同向追赶；不能预置到航线前方与边界纪律对冲。
+const BOMBER_PURSUIT_REAR_STANDOFF_PX := 3600.0
+const BOMBER_PURSUIT_LATERAL_PX := 520.0
+const BOMBER_PURSUIT_RANK_SPACING_PX := 180.0
+const BOMBER_PURSUIT_ALONG_SPACING_PX := 240.0
+const BOMBER_INTERCEPT_FIRE_CONE_DEG := 10.0
+const BOMBER_INTERCEPT_BURST_COUNT := 16
 
 # ── 经验常量 ──
 const XP_PER_KILL := 40  ## 基础经验值（MiG）
@@ -1119,6 +1126,19 @@ func _tick_reinforcement_waypoints(ac: Aircraft) -> void:
 		if ai.waypoints != ring:
 			_apply_patrol_ring(ai, ac, ring)
 
+## 战区空军从边界飞抵自己的巡逻环后，撤销远距冻结豁免。
+## 骑既有 8s 航点 tick，不新增逐帧扫描；zone_air 的航点仍归 ZoneMission 所有。
+func _tick_zone_air_ingress(ac: Aircraft) -> void:
+	if not bool(ac.get_meta("zone_ingress", false)):
+		return
+	var center: Vector2 = ac.get_meta("zone_ingress_center", Vector2.ZERO)
+	var arrive_radius := float(ac.get_meta("zone_ingress_arrive_radius", 0.0))
+	if arrive_radius <= 0.0 or ac.global_position.distance_to(center) > arrive_radius:
+		return
+	ac.remove_meta("zone_ingress")
+	ac.remove_meta("zone_ingress_center")
+	ac.remove_meta("zone_ingress_arrive_radius")
+
 ## 开局驻防：t≈0 直接以 ONSTATION 预置中队（免 TRANSIT，抹掉首波入场 60~90s 的冷场）。
 ## 合法性：锚点距玩家 ≥5000px 且开局镜头（START_ZOOM 可视对角半径 ≈3150px）看不到；
 ## 开局前无任何观察历史，不构成凭空出现（spec reinforcement-ingress §3.6）。
@@ -1801,7 +1821,7 @@ func spawn_bomber_mission(team: int, route: PackedVector2Array, target_pos: Vect
 		deadline_s: float = BomberMission.MAX_LIFETIME_S,
 		formation: int = BomberFormation.LINE_ABREAST,
 		release_count: int = BomberMission.RELEASE_COUNT,
-		escort_count: int = 0) -> Node:
+		escort_count: int = 0, friendly_hp_override: float = -1.0) -> Node:
 	if route.size() < 3 or count <= 0:
 		push_warning("spawn_bomber_mission requires route with at least 3 points")
 		return null
@@ -1816,6 +1836,8 @@ func spawn_bomber_mission(team: int, route: PackedVector2Array, target_pos: Vect
 		var bomber := _create_enemy(EnemyType.TU160, route[0] + offset, heading_deg)
 		if team == CombatUnit.TEAM_ALLY:
 			var friendly_params: AircraftParams = _b1b_params_base.duplicate(true)
+			if friendly_hp_override > 0.0:
+				friendly_params.max_hp = friendly_hp_override
 			bomber.params = friendly_params
 			bomber.hp = friendly_params.max_hp
 			bomber.fuel = friendly_params.fuel_capacity
@@ -1905,6 +1927,115 @@ func _spawn_bomber_escort_fighters(bombers: Array[Aircraft], route: PackedVector
 			bomber.escort_guards = escorts
 	_squads.append(sq)
 	return escorts
+
+## 可选护送任务的动态敌方响应编队。计划由 ZoneMission 按当前响应等级/星级/小队
+## 组建；本层只负责把不同机型放到轰炸编队实时航迹后方并分配 B-1B / F-4E 目标。
+## 不使用 commanded_target（玩家命令专用），而以事件 directive 持有任务目标。
+func spawn_bomber_interceptors(formation_center: Vector2, flight_dir: Vector2,
+		bombers: Array[Aircraft], escorts: Array[Aircraft], plan: Array[Dictionary],
+		wave_index: int = 0) -> Array[Aircraft]:
+	var interceptors: Array[Aircraft] = []
+	if formation_center == Vector2.INF or bombers.is_empty() or plan.is_empty():
+		return interceptors
+	var pursuit_dir := flight_dir.normalized()
+	if pursuit_dir.length_squared() < 0.1:
+		pursuit_dir = Vector2.UP
+	var total_count := 0
+	for group in plan:
+		total_count += maxi(0, int(group.get("count", 0)))
+	var positions := bomber_pursuit_spawn_positions(
+		formation_center, pursuit_dir, total_count)
+	var cursor := 0
+	for group in plan:
+		var type_idx := int(group.get("type", int(EnemyType.INTERCEPTOR)))
+		if type_idx < 0 or type_idx >= EnemyType.size():
+			continue
+		var etype := type_idx as EnemyType
+		var assignment := String(group.get("assignment", "bomber"))
+		var group_count := maxi(0, int(group.get("count", 0)))
+		var cutoff_start := ceili(float(group_count) * 2.0 / 3.0)
+		for group_index in range(group_count):
+			if cursor >= positions.size():
+				break
+			var target: Aircraft = null
+			if assignment == "escort" and not escorts.is_empty():
+				var escort := escorts[group_index % escorts.size()]
+				if is_instance_valid(escort) and not escort.is_destroyed:
+					target = escort
+			if target == null:
+				target = bombers[bombers.size() - 1] \
+					if group_index >= cutoff_start else bombers[0]
+			var spawn_pos := positions[cursor]
+			cursor += 1
+			# 初始姿态与轰炸编队同向；directive 随后从后方建立真实追击解。
+			var heading_deg := rad_to_deg(atan2(pursuit_dir.x, -pursuit_dir.y))
+			var interceptor := _create_enemy(etype, spawn_pos, heading_deg)
+			interceptor.set_meta("bomber_interceptor", true)
+			interceptor.set_meta("bomber_intercept_assignment", assignment)
+			interceptor.set_meta("bomber_intercept_wave", wave_index)
+			interceptor.set_meta("skip_far_cleanup", true)
+			interceptor.set_target_tier(CombatUnit.AltitudeTier.HIGH)
+			interceptor.altitude = CombatUnit.TIER_ALTITUDE[CombatUnit.AltitudeTier.HIGH]
+			interceptor.speed = interceptor.params.cruise_speed / 3.6
+			interceptor._fire_cooldown = maxf(interceptor._fire_cooldown, 0.35)
+			interceptor._missile_cooldown = maxf(interceptor._missile_cooldown, 0.35)
+			# 护送任务明确不用火箭：保留正式机炮/导弹，删除任务实例的火箭资源。
+			if interceptor.params != null:
+				interceptor.params.rocket = null
+				interceptor.rockets_remaining = 0
+			var ai := interceptor._get_ai_controller()
+			if ai != null:
+				ai.engage_duration = 999.0
+				ai.engage_cooldown = 0.5
+				ai.focus = 1.0
+				ai.self_preservation = 0.05
+				# 只有 J-7 沿用任务专属的紧凑 joust；其它机型保留正式战术性格。
+				if etype == EnemyType.INTERCEPTOR:
+					ai.joust_enabled = true
+					ai.joust_reentry_range_px = 500.0
+					ai.joust_giveup_closing_mps = 0.0
+					ai.joust_run_max_s = 30.0
+			if etype == EnemyType.INTERCEPTOR and interceptor.params != null \
+					and interceptor.params.gun != null:
+				interceptor.params.gun.fire_cone_half_angle = BOMBER_INTERCEPT_FIRE_CONE_DEG
+				interceptor.params.gun.burst_count = BOMBER_INTERCEPT_BURST_COUNT
+			assign_bomber_intercept_target(interceptor, target)
+			interceptors.append(interceptor)
+	EventLogger.log_event("BOMBER_MISSION", "HOSTILE_INTERCEPT",
+		"wave=%d spawned=%d bombers=%d escorts=%d rear_standoff=%.0f center=%s" % [
+			wave_index, interceptors.size(), bombers.size(), escorts.size(),
+			BOMBER_PURSUIT_REAR_STANDOFF_PX, formation_center.round()])
+	return interceptors
+
+## 轰炸编队后方的两列追击生成位；所有槽位都在实时航向后半平面，越靠后排越迟接近。
+static func bomber_pursuit_spawn_positions(formation_center: Vector2,
+		flight_dir: Vector2, count: int) -> PackedVector2Array:
+	var positions := PackedVector2Array()
+	if formation_center == Vector2.INF or count <= 0:
+		return positions
+	var pursuit_dir := flight_dir.normalized()
+	if pursuit_dir.length_squared() < 0.1:
+		pursuit_dir = Vector2.UP
+	var lateral := Vector2(-pursuit_dir.y, pursuit_dir.x)
+	var pursuit_base := formation_center \
+		- pursuit_dir * BOMBER_PURSUIT_REAR_STANDOFF_PX
+	for i in range(count):
+		var side := -1.0 if i % 2 == 0 else 1.0
+		var rank := float(i >> 1)
+		positions.append(pursuit_base
+			+ lateral * side * (BOMBER_PURSUIT_LATERAL_PX
+				+ rank * BOMBER_PURSUIT_RANK_SPACING_PX)
+			- pursuit_dir * rank * BOMBER_PURSUIT_ALONG_SPACING_PX)
+	return positions
+
+func assign_bomber_intercept_target(interceptor: Aircraft, target: Aircraft) -> void:
+	if not is_instance_valid(interceptor) or interceptor.is_destroyed \
+			or not is_instance_valid(target) or target.is_destroyed:
+		return
+	interceptor.set_meta("bomber_intercept_target", target)
+	var ai := interceptor._get_ai_controller()
+	if ai != null:
+		ai.set_event_directive(AIDirective.engage_target(target))
 
 func _pick_bomber_ground_target(source_team: int, fallback: Vector2) -> Vector2:
 	var best_pos := fallback
@@ -3393,6 +3524,10 @@ func _update_boundary_discipline(_delta: float) -> void:
 		# （ace_support：猎手语义永追玩家，不受边界纪律拽回；出入界由事件层管理）
 		if cat == "adds" or cat == "zone_air" or cat == "ace_support":
 			continue
+		# 护送响应机由任务 directive 从编队后方追入，并由任务终态显式撤离。
+		# 通用 PATROL 回场若介入，会与 ENGAGE_TARGET 每帧抢写并造成边界反复弹回。
+		if bool(ac.get_meta("bomber_interceptor", false)):
+			continue
 		# 普通敌机纪律需要玩家位置；BOSS 硬护栏已经在上面独立执行。
 		if not has_live_player:
 			continue
@@ -3459,7 +3594,10 @@ func _update_enemy_waypoints(delta: float) -> void:
 		if child is Aircraft and child.team == CombatUnit.TEAM_HOSTILE and not child.is_destroyed:
 			# Adds 杂兵 / Boss / 王牌支援中队 有独立航点管理，不被绕玩家航点覆盖
 			var cat2: String = child.get_meta("category", "")
-			if cat2 == "adds" or cat2 == "boss" or cat2 == "zone_air" or cat2 == "ace_support":
+			if cat2 == "zone_air":
+				_tick_zone_air_ingress(child)
+				continue
+			if cat2 == "adds" or cat2 == "boss" or cat2 == "ace_support":
 				continue
 			# 增援：锚点生命周期（TRANSIT 到站翻转 / ONSTATION 环维护），
 			# 不再发"绕玩家 800~1500px"磁铁环（spec reinforcement-ingress §3.4）
