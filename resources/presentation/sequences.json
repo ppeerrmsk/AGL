@@ -373,14 +373,8 @@
       { "at": 0.05, "ch": "audio", "op": "boss_bgm", "fade": 2.0 },
       { "at": 1.3, "ch": "banner", "op": "dismiss", "dur": 0.2, "ease": "cubic_in" },
       { "at": 1.3, "ch": "overlay", "op": "dim", "to": 0.0, "dur": 0.2, "ease": "cubic_in" },
-      { "at": 1.3, "ch": "stage", "op": "clear", "dur": 0.45, "ease": "cubic_out" },
-      { "at": 1.5, "ch": "camera", "op": "cut_to", "zoom": 0.72, "follow": true, "actor": 0 },
-      { "at": 1.82, "ch": "radio", "op": "line", "key": "RADIO_BOSS_BLACK_STAR_SPAWN_1", "actor": 0, "dur": 1.35 },
-      { "at": 3.22, "ch": "radio", "op": "line", "key": "RADIO_BOSS_BLACK_STAR_SPAWN_2", "actor": 0, "dur": 1.05 },
-      { "at": 4.32, "ch": "stage", "op": "restore", "dur": 0.7, "ease": "cubic_in_out" },
-      { "at": 4.32, "ch": "camera", "op": "return_to_player", "dur": 0.7, "ease": "cubic_in_out" },
-      { "at": 5.02, "ch": "time", "op": "pause", "to": 0 },
-      { "at": 5.02, "ch": "actor", "op": "release" }
+      { "at": 1.5, "ch": "time", "op": "pause", "to": 0 },
+      { "at": 1.5, "ch": "actor", "op": "release" }
     ]
   }
 }

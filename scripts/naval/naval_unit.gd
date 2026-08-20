@@ -1,6 +1,8 @@
 class_name NavalUnit
 extends CombatUnit
 
+const MOUNT_DETAIL_MIN_VIEW_SCALE: float = 0.26
+
 ## 海上单位基类 —— 所有船（FFG / DDG / CG / CV / SS）的公共骨架
 ##
 ## 本次实装（步骤 1）只包含：
@@ -175,6 +177,14 @@ var _last_lock_warning_active: bool = false
 var _last_zoom_quant: int = -1
 
 func _physics_process(delta: float) -> void:
+	var perf_detail := PerfBuckets.detail_capture_enabled()
+	var perf_t0 := Time.get_ticks_usec() if perf_detail else 0
+	_physics_process_impl(delta)
+	if perf_detail:
+		PerfBuckets.tick("naval_phys", Time.get_ticks_usec() - perf_t0)
+
+
+func _physics_process_impl(delta: float) -> void:
 	if is_destroyed:
 		_update_destroy(delta)
 		queue_redraw()
@@ -877,15 +887,34 @@ func _draw_hull_placeholder() -> void:
 	draw_colored_polygon(body, color)
 	# 轮廓线
 	var outline_color := color.darkened(0.3)
-	for i in body.size():
-		var a := body[i]
-		var b := body[(i + 1) % body.size()]
-		draw_line(a, b, outline_color, 1.5)
+	var outline := body.duplicate()
+	outline.append(body[0])
+	draw_polyline(outline, outline_color, 1.5)
 
 func _draw_mounts_placeholder() -> void:
 	# 本地坐标系：+Y 船头方向 = 本地 -Y（见 _draw_hull_placeholder 注释）
 	# WeaponMountParams.local_offset：+X 船头, +Y 右舷（世界定义）
 	# 转到绘制本地坐标系：local_offset.x → 本地 -Y（翻转），local_offset.y → 本地 +X
+	if not mount_detail_visible_at_scale(AircraftRenderer.label_lod_scale(self),
+			Input.is_key_pressed(KEY_ALT)):
+		var live_marks := PackedVector2Array()
+		var dead_marks := PackedVector2Array()
+		for m in mounts:
+			if m.params == null:
+				continue
+			var lo: Vector2 = m.params.local_offset
+			var pos := Vector2(lo.y, -lo.x)
+			var dst := dead_marks if m.destroyed else live_marks
+			var size := 3.0
+			dst.append(pos + Vector2(-size, 0))
+			dst.append(pos + Vector2(size, 0))
+			dst.append(pos + Vector2(0, -size))
+			dst.append(pos + Vector2(0, size))
+		if not live_marks.is_empty():
+			draw_multiline(live_marks, Color(0.95, 0.9, 0.7), 1.3)
+		if not dead_marks.is_empty():
+			draw_multiline(dead_marks, Color(0.35, 0.35, 0.35, 0.8), 1.3)
+		return
 	for m in mounts:
 		if m.params == null:
 			continue
@@ -895,6 +924,11 @@ func _draw_mounts_placeholder() -> void:
 			_draw_dead_mount(draw_pos)
 		else:
 			_draw_alive_mount(draw_pos, m.params.weapon_type)
+
+
+static func mount_detail_visible_at_scale(view_scale: float,
+		force_full: bool = false) -> bool:
+	return force_full or view_scale >= MOUNT_DETAIL_MIN_VIEW_SCALE
 
 func _draw_alive_mount(pos: Vector2, wtype: int) -> void:
 	var size := 6.0
@@ -914,8 +948,10 @@ func _draw_alive_mount(pos: Vector2, wtype: int) -> void:
 			draw_colored_polygon(tri, c)
 		WeaponMountParams.WeaponType.NAVAL_AA:
 			# 十字（区分于 CIWS 圆点），代表旋转机炮
-			draw_line(pos + Vector2(-size * 0.5, 0), pos + Vector2(size * 0.5, 0), c, 1.5)
-			draw_line(pos + Vector2(0, -size * 0.5), pos + Vector2(0, size * 0.5), c, 1.5)
+			draw_multiline(PackedVector2Array([
+				pos + Vector2(-size * 0.5, 0), pos + Vector2(size * 0.5, 0),
+				pos + Vector2(0, -size * 0.5), pos + Vector2(0, size * 0.5),
+			]), c, 1.5)
 		WeaponMountParams.WeaponType.NAVAL_FLAK:
 			# 放射星标识空爆炮；四条短射线一次批量提交。
 			var rays := PackedVector2Array([
@@ -930,8 +966,10 @@ func _draw_alive_mount(pos: Vector2, wtype: int) -> void:
 func _draw_dead_mount(pos: Vector2) -> void:
 	var size := 5.0
 	var c := Color(0.35, 0.35, 0.35, 0.8)
-	draw_line(pos + Vector2(-size, -size), pos + Vector2(size, size), c, 1.5)
-	draw_line(pos + Vector2(-size, size), pos + Vector2(size, -size), c, 1.5)
+	draw_multiline(PackedVector2Array([
+		pos + Vector2(-size, -size), pos + Vector2(size, size),
+		pos + Vector2(-size, size), pos + Vector2(size, -size),
+	]), c, 1.5)
 
 func _draw_weak_point_placeholder() -> void:
 	if weak_point == null or not weak_point.revealed:
@@ -958,18 +996,12 @@ func _draw_target_bracket() -> void:
 	draw_set_transform(Vector2.ZERO, -rotation, Vector2.ONE)
 	var s: float = half_size
 	var c: float = corner
-	# 左上
-	draw_line(Vector2(-s, -s), Vector2(-s + c, -s), color, w)
-	draw_line(Vector2(-s, -s), Vector2(-s, -s + c), color, w)
-	# 右上
-	draw_line(Vector2(s, -s), Vector2(s - c, -s), color, w)
-	draw_line(Vector2(s, -s), Vector2(s, -s + c), color, w)
-	# 左下
-	draw_line(Vector2(-s, s), Vector2(-s + c, s), color, w)
-	draw_line(Vector2(-s, s), Vector2(-s, s - c), color, w)
-	# 右下
-	draw_line(Vector2(s, s), Vector2(s - c, s), color, w)
-	draw_line(Vector2(s, s), Vector2(s, s - c), color, w)
+	draw_multiline(PackedVector2Array([
+		Vector2(-s, -s), Vector2(-s + c, -s), Vector2(-s, -s), Vector2(-s, -s + c),
+		Vector2(s, -s), Vector2(s - c, -s), Vector2(s, -s), Vector2(s, -s + c),
+		Vector2(-s, s), Vector2(-s + c, s), Vector2(-s, s), Vector2(-s, s - c),
+		Vector2(s, s), Vector2(s - c, s), Vector2(s, s), Vector2(s, s - c),
+	]), color, w)
 	# TGT 文字（在框上方）
 	if _font == null:
 		_font = ThemeDB.fallback_font
@@ -1027,8 +1059,8 @@ func _draw_status_label() -> void:
 	var scale_v := Vector2(inv_zoom, inv_zoom)
 	draw_set_transform(rotated_offset, inv_rot, scale_v)
 	draw_rect(Rect2(-1, -1, box_w, box_h), bg_color)
-	for i in lines.size():
-		draw_string(_font, Vector2(2, 10 + i * line_height), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
+	draw_multiline_string(_font, Vector2(2, 10), "\n".join(lines),
+		HORIZONTAL_ALIGNMENT_LEFT, box_w - 4.0, font_size, lines.size(), text_color)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 ## _draw_destroyed 已被 NavalDestruction.draw 取代，保留作兼容接口但不再使用

@@ -37,7 +37,7 @@ Node
 
 RefCounted
 ├── Squad                          # 编队数据与阵型计算
-├── SurvivorData                   # 生存模式静态数据（技能表 / 波次定义 / XP 曲线）
+├── SurvivorData                   # 生存模式静态数据（技能表 / Token 刷怪配置 / XP 曲线）
 ├── CallsignDB                     # 呼号分配器
 ├── GameEvent                      # 剧本基类
 └── AIDirective                    # 声明式 AI 覆盖指令

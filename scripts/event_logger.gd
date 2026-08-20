@@ -44,12 +44,20 @@ func _process(delta: float) -> void:
 ## subject: 事件主体名称，如 "Enemy#3", "Player"
 ## message: 事件描述
 func log_event(category: String, subject: String, message: String) -> void:
+	var perf_t0: int = Time.get_ticks_usec() if PerfBuckets.detail_capture_enabled() else 0
 	_events.append({
 		"time": _game_time,
 		"category": category,
 		"subject": subject,
 		"message": message,
 	})
+	if perf_t0 > 0:
+		PerfBuckets.tick("event_log", Time.get_ticks_usec() - perf_t0)
+		PerfBuckets.count("event_log_calls")
+		PerfBuckets.mark_frame_event("event_log")
+		if category.contains("SKILL") or category.contains("UPGRADE"):
+			PerfBuckets.count("skill_events")
+			PerfBuckets.mark_frame_event("skill_event")
 
 ## 战报累计：给某射手的某项计数 +n（key 不存在则初始化）。
 ## 在命中/击杀/发射/脱靶等低频点调用，cost ≈ 1 次 dict 查 + 1 次 int 加。

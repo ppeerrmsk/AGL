@@ -4,6 +4,7 @@ const StrategicTargetScript = preload("res://scripts/strategic_target.gd")
 const BomberMissionScript = preload("res://scripts/survivor/bomber_mission.gd")
 const AtmosphereArtilleryScript = preload("res://scripts/survivor/atmosphere_artillery_unit.gd")
 const SurvivorModeScript = preload("res://scripts/survivor/survivor_mode.gd")
+const AdbsManagerScript = preload("res://scripts/survivor/adbs_manager.gd")
 
 var _pass := 0
 var _fail := 0
@@ -13,6 +14,7 @@ func run() -> void:
 	print("\n════════ 轰炸 / 旋翼机 / 空爆炮验收 ════════")
 	_test_strategic_damage_gate()
 	_test_bomber_outcome_priority()
+	_test_city_heli_schedule()
 	_test_optional_mission_frequency()
 	_test_spawn_announcement_lead()
 	_test_bomber_escort_xp_reward()
@@ -110,8 +112,45 @@ func _test_bomber_outcome_priority() -> void:
 	_check(timeout_reason[0] == "timeout", "150 秒截止时目标仍存活会失败")
 	_spawned.append_array([target, mission, timeout_target, timeout_mission])
 
+func _test_city_heli_schedule() -> void:
+	print("── A3. 城区直升机低频 / 互斥 / 远端生成 ──")
+	_check(AdbsManagerScript.city_heli_schedule_allows(0.0, 0, 0) \
+			and AdbsManagerScript.city_heli_schedule_allows(0.249999, 1, 0),
+		"每个调度窗只有低于 25% 的骰值可生成")
+	_check(not AdbsManagerScript.city_heli_schedule_allows(0.25, 0, 0) \
+			and not AdbsManagerScript.city_heli_schedule_allows(1.0, 0, 0),
+		"25% 边界及以上不会生成")
+	_check(not AdbsManagerScript.city_heli_schedule_allows(0.0, 2, 0),
+		"城区直升机整局硬上限为两次")
+	_check(not AdbsManagerScript.city_heli_schedule_allows(0.0, 1, 1),
+		"上一组仍在场时禁止第二组并存")
+	_check(not AdbsManagerScript.city_heli_spawn_candidate_allowed(
+		Vector2.ZERO, Vector2(5999.0, 0.0), false),
+		"距玩家不足 12km 的城区被拒绝")
+	_check(AdbsManagerScript.city_heli_spawn_candidate_allowed(
+		Vector2.ZERO, Vector2(7000.0, 0.0), false),
+		"超过旧 8km 附近圈的地图城区可成为探索目标")
+	_check(not AdbsManagerScript.city_heli_spawn_candidate_allowed(
+		Vector2.ZERO, Vector2(12000.0, 0.0), false),
+		"距边界不足 8km 的城区被拒绝，保留截击时间")
+	_check(not AdbsManagerScript.city_heli_spawn_candidate_allowed(
+		Vector2.ZERO, Vector2(7000.0, 0.0), true),
+		"活跃战区内的城区仍被拒绝")
+	MapGeography.ensure_ready()
+	var manager = AdbsManagerScript.new()
+	var player := Aircraft.new()
+	player.global_position = MapBoundary.PLAYER_START_OFFSET_PX
+	manager._player = player
+	seed(20260820)
+	var candidate: Vector2 = manager._pick_city_center()
+	_check(candidate != Vector2.INF \
+			and player.global_position.distance_to(candidate) >= AdbsManagerScript.CITY_HELI_MIN_PLAYER_DIST_PX \
+			and MapBoundary.distance_to_edge(candidate) >= AdbsManagerScript.CITY_HELI_MIN_EDGE_DIST_PX,
+		"东京湾正式地图存在满足远端探索合同的城区候选")
+	_spawned.append_array([manager, player])
+
 func _test_optional_mission_frequency() -> void:
-	print("── A3. 可选战区任务整局频率 / 额外候选槽 ──")
+	print("── A4. 可选战区任务整局频率 / 额外候选槽 ──")
 	_check(ZoneData.optional_mission_quota_for_roll(0.0) == 2 \
 			and ZoneData.optional_mission_quota_for_roll(0.199999) == 2,
 		"整局骰低于 20% 时配额固定为两次")
@@ -517,7 +556,7 @@ func _test_special_projectile_contracts() -> void:
 		"空爆 220m 半径正确换算为 110px")
 	_check(int(bm._airburst_shells[0]["burst_id"]) == 7, "三连发共享 burst id")
 	bm.spawn_bullet(Vector2.ZERO, 0.0, 900.0, src, 0.0)
-	_check(bool(bm._bullets.back().get("visual_only", false)),
+	_check(bm.visual_bullet_count() == 1 and bm._bullets.is_empty(),
 		"零伤害气氛弹仍生成但进入免碰撞视觉快路径")
 	var mission = BomberMissionScript.new()
 	_spawned.append(mission)

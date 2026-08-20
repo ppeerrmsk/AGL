@@ -118,7 +118,7 @@
 
 ⚠ **不要直接读 `params.*` 做 AI 战术判断**。速度 / G / 失速 / 角点速度必须经
 `AircraftPhysics.effective_*()` accessor，否则运行时 buff（加力模式 / BLOODLUST / 被锁恐慌等）
-对 AI 战术层失明。见 [CLAUDE.md 加机动性 buff 的规范](../../CLAUDE.md)（SEAM-001）。
+对 AI 战术层失明。见 [AGENTS.md 加机动性 buff 的规范](../../AGENTS.md)（SEAM-001）。
 
 ---
 

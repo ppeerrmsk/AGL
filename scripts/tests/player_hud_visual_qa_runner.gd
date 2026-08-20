@@ -128,7 +128,7 @@ func _ready() -> void:
 		Vector2(1920.0, 1080.0)).position
 	add_child(experience_panel)
 	move_child(axis_counter, get_child_count() - 1)
-	experience_panel.update_display(progression_player)
+	experience_panel.update_display(progression_player, true)
 
 	# 先在非黑背景上关闭全部复合框板，确认没有遮罩黑底或残留边线。
 	var player_visibility = HudBoardVisibilityScript.new(panel)

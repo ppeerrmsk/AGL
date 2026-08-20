@@ -28,7 +28,7 @@
 - `effective_corner_speed_kmh(ac)` — 自动随 effective_max_g 抬升
 
 **约束**：禁止在 `update_speed` / `update_bank` / `update_heading` 等物理 tick 里
-散点 if-else 乘 buff，禁止在 Situation 里直读 `ac.params.*`。详见 [CLAUDE.md](../../CLAUDE.md)
+散点 if-else 乘 buff，禁止在 Situation 里直读 `ac.params.*`。详见 [AGENTS.md](../../AGENTS.md)
 "加机动性 buff 的规范"段。
 
 **2026-07-03 审计备注**：planner 主干（Situation/tactical/）已零旁路 ✅；但 **legacy
@@ -444,8 +444,17 @@ Phase 4 定夺，见 [docs/planning/physics-ai-control-refactor.md](../planning/
 
 **约束（过渡期）**：不要再新增 lod_level 写入者；需要改 LOD 语义先读
 `_update_friendly_squad_lod` / `_update_offscreen_lod` 的每帧覆盖行为，明白你的写会被
-下一帧盖掉。遭遇或技能若有独立的语义隐藏，必须以 `force_hidden_visual` meta 明示，
-由 LOD 可见性合并点保留；不能只在功能脚本里单写一次 `visible=false`。
+下一帧盖掉。遭遇或技能若有独立的高空语义隐藏，必须以 `force_hidden_visual` meta 明示；
+纯演出隐藏则用 `Aircraft.META_PRESENTATION_FORCE_HIDDEN_VISUAL`，不得借机改锁定 / 受伤语义。
+两种标记都要在敌机屏内与玩家长机这两个 LOD 可见性合并点保留；不能只在功能脚本里单写
+一次 `visible=false`。Black Star 初次再入曾只修敌机合并点，结果玩家长机又被友军 LOD
+每帧写回可见，Visual 才暴露这条双入口覆盖链。
+
+**目标所有权是另一条链**：`force_hidden_visual` 与 `lock_immune` 只控制绘制 / 新锁定，
+不会撤销既有 `combat_target` 或玩家铁律 `commanded_target`。语义离场若要求彻底脱离战区，
+必须在状态切换同拍调用 `CombatUnit.release_target_refs()`；Black Star 的 15km 爬升隐藏已据此
+同时清理主 / 副目标、主 / 副雷达锁存与旧追击点，HUD 状态条则由 encounter 账本独立保留。
+雷达 HUD 也必须按同一个 `force_hidden_visual` 标记删除扫描余辉，不能继续把离场单位画成红点。
 
 ---
 
@@ -506,7 +515,7 @@ instant G 时忘改预测侧）；②`step_speed` 只守卫 Cobra 不守卫 Herb
 `_set_player_aircraft()` 自称"操控真源单一 chokepoint"，但只重定向了后面那 3 个 + 自身 +
 `selected_aircraft`。前面 8 个 setup-time 缓存**全部漏掉**。
 
-**为什么绊倒 fix**：漏掉的引用在切控（1-4 切槽）/ 换帅（长机被击落自动接管）/ 进化换机
+**为什么绊倒 fix**：漏掉的引用在切控（1–9 切槽）/ 换帅（长机被击落自动接管）/ 进化换机
 之后仍指向旧机。旧机后续被击落 → `queue_free()` → 持有者拿到的是**已释放实例**。
 GDScript 读已 free 对象的字段常常"看起来能跑"（返回 null / 假值），所以问题会潜伏很久，
 直到某处把它**当强类型参数传出去**才炸。
@@ -522,7 +531,7 @@ The Object-derived class of argument 4 (previously freed) is not a subclass of t
 2. `_spawn_boss` 加 `is_instance_valid` 防御守卫（宁可跳过生成也不硬崩）；
 3. 新增 `tools/verify_player_ref_holders.py` —— 静态扫 `survivor_mode.gd`，
    把"把 `player_aircraft` 交出去的接收方"与 chokepoint 函数体比对，漏登记即退出码 1。
-   已挂进 CLAUDE.md 的 commit 前流程。
+   已挂进 AGENTS.md 的 commit 前流程。
 
 **校验器顺手抓到的第二个洞**：`AudioManager._engine_host` 同样是 setup-time 缓存且未重定向。
 它有 `is_instance_valid` 守卫所以不崩，但切控后引擎声会**静默消失**——
@@ -924,6 +933,18 @@ SceneTree 并由两条快照分支复用，运行时行为不变。
 
 **踩到次数**：1
 
+## SEAM-035 · `_draw` 消费全局 RNG，会让渲染帧率反向改变战斗时间线
+
+**症状**：同一固定 seed 的 CSG 性能 A/B 只隐藏某类 Canvas，物理、命中和音频全部保留，最终弹丸/导弹数量仍会漂移；不同 FPS 的运行无法比较同一负载。
+
+**根因**：机炮闪光、加力火焰、导弹尾焰与电磁炮抖动在 `_draw` 中调用 `randf/randf_range`。渲染帧数与可见性决定全局 RNG 被消费多少次，后续 VLS 散布、Flak、闪避与目标选择因而拿到不同随机数。
+
+**解法状态（2026-08-20 已修核心路径）**：上述四条高频绘制改用 `AircraftRenderer.visual_noise01`，由时间量化、实例 ID 与 salt 生成纯视觉噪声；CSG bench 固定 seed 后三次最终负载一致。战斗随机仍沿原全局 RNG，不改变既有概率语义。
+
+**约束**：任何 `_draw`、纯表现 `_process`、截图或 UI 动画不得消费会被战斗逻辑继续读取的全局 RNG。视觉抖动必须用确定性噪声或独立 `RandomNumberGenerator`；新增固定 seed 性能门时，负载计数不一致应先查 RNG 污染，不能直接比较 FPS。
+
+**踩到次数**：1
+
 ## 维护约定
 
 - 修 bug 时撞到地基 → 先来这里看是否已记。已记 → 票数 +1，可能升级到 refactor 优先级。
@@ -931,7 +952,7 @@ SceneTree 并由两条快照分支复用，运行时行为不变。
 - "踩到次数 ≥ 2 + 30 天内" 的 seam 在 plan 工作流里会被升级到 `refactor/<seam>` 分支
   做档 3 集中修。
 - 解法已实施的 seam 不删，留作历史 + 模式参考。新成员看到能避免重复发明。
-- 这份文档 + [CLAUDE.md](../../CLAUDE.md) "加机动性 buff 的规范" + [docs/DESIGN_PHILOSOPHY.md](../DESIGN_PHILOSOPHY.md)
+- 这份文档 + [AGENTS.md](../../AGENTS.md) “加机动性 buff 的规范” + [docs/DESIGN_PHILOSOPHY.md](../DESIGN_PHILOSOPHY.md)
   共同构成 AGL 的"防撞抗体"。
 
 ### Git log 自动计票约定

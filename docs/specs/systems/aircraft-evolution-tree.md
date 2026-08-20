@@ -5,13 +5,15 @@ status: done
 schema_version: 1
 spec_version: 8
 owner: noelu
-depends_on: [aircraft-evolution, squad-upgrade-ownership, playable-aircraft-workflow]
+depends_on: [zone-reward-docking, evolution-attribute-gates, inrun-weapon-inventory, player-aircraft-power-curve, squad-control-switching]
 reconstruction_complete: true
 ---
 
 # 进化科技树（具体名单）—— 5 档位 / 43 机 / 每步 ≥3 选 / 苏美欧系穿插 + 虚构超凡档
 
-> 本文是 [aircraft-evolution](aircraft-evolution.md) §2.3 预留的"进化科技树子 spec"。父 spec 定**机制**（结算/换型/槽位继承），本 spec 定**具体名单 + 每架的进化出口**。
+> 本文定**具体名单 + 每架的进化出口**。早期总纲 [aircraft-evolution](aircraft-evolution.md) 已归档；
+> 当前结算/换型、双门与武器继承分别以 zone-reward-docking、evolution-attribute-gates 和
+> inrun-weapon-inventory 为权威。
 > 2026-08-07 已完成 43 机版：新增 EA-18G 与 F/A-XX，门槛改为具体三轴，并通过五组 Shadow 回归。
 
 ## 1. 设计铁律（Why + 硬约束）
@@ -34,25 +36,27 @@ reconstruction_complete: true
 
 > 2026-07-03 的 4 档合并作废（用户 2026-07-19"增加阶级"）：T4 拆回"现实六代/试验"与"原创超凡"两档，
 > 即回归本 spec v1 的 5 档结构；X-02 保持 LV22 锚点，**AX-00 织星者 = 新满级压轴 LV26**。
-> **§4 的完整树（节点/出口）待按 power-curve §2 的 41 机矩阵重排**（欧系 11 款入树：幻影 III→幻影 2000
-> 家族链、鹰狮 C→E 家族链、狂风/雷/鹞入攻击线、FCAS/GCAP 入六代档；每步仍 ≥3 选 + 相邻环不变；
-> X-90 天鲸=跨类专属边）。矩阵 review 定稿后一并改。
+> §4 已按 43 机矩阵完成重排：欧系家族链、EA-18G、F/A-XX、现实六代档与原创超凡档均已入树，
+> 当前 JSON 与本 spec 一致；后续新增机体仍须同时满足入边、出口、等级和具体三轴门槛审计。
 
 > 门槛等级留待 [survivor-loop](survivor-loop.md) 经济/曲线定稿后回填；等级**只做门槛、不加属性**（aircraft-evolution §2.3；
 > 旧"自然成长"违规残留随 power-curve §6 阶段 2 退役）。
 > **2026-07-19 起进化 = 双门**：`LV 达标 且 三轴属性达标`（斗士/骑士/策士加点，逐机门槛公式/特例见
 > [evolution-attribute-gates](evolution-attribute-gates.md)）——纯等级门槛下每局可复刻同一路线，进化无意义（用户）。
 
-## 3. 升级亲和绑定（接 squad-upgrade-ownership）
+## 3. 路线身份与 Build 的关系
 
-| 角色线 | 升级 affinity | 代表 |
+| 角色线 | 主要 Build 倾向 | 代表 |
 |---|---|---|
-| 制空 / 综合 | `GUN` + `MISSILE` | F-15 线 |
-| 多用途 / 电战 | `EW` | F-16 线 |
-| 远程截击 | `MISSILE` | F-14 线 |
-| 攻击 / 肉 / AoE | `GUN` + 对地 AoE | Su-25 线 |
+| 制空 / 综合 | 斗士 + 骑士 | F-15 线 |
+| 多用途 / 电战 | 骑士 + 策士 | F-16 / EA-18G 线 |
+| 远程截击 | 骑士 | F-14 / MiG-31 线 |
+| 攻击 / 肉 / AoE | 斗士 + 对地装备联动 | A-6E / A-10 线 |
 
-进化换线 = 换 affinity 主轴；绑机型规则见 [squad-upgrade-ownership](squad-upgrade-ownership.md)。
+路线只决定机体参数、装备包线、签名技能身份与进化门槛，不建立“技能绑机型 build”。普通卡片仍按
+三轴与正式门控抽取，王牌作用域随当前操控机迁移，特殊武器跟局内玩家继承。现行规则见
+[skills-720-rework](skills-720-rework.md)、[aircraft-signature-progression](aircraft-signature-progression.md)
+与 [inrun-weapon-inventory](inrun-weapon-inventory.md)。
 
 > ~~⚠ **武器绑机型、不继承**（用户定 2026-06-28）~~ —— **2026-07-19 作废**：特殊武器改为局内玩家外部装备，
 > 换机/进化**全继承**（含强化）；机体只保底线武器（机炮/导弹/flare）。权威修订见

@@ -1,9 +1,14 @@
 # 性能守则（Performance Guidelines）
 
-> **给未来的自己和 Claude**：做任何新机制（敌人/武器/UI/特效/地图要素）之前先读这份文档。
+> **给未来维护者与 agent**：做任何新机制（敌人/武器/UI/特效/地图要素）之前先读这份文档。
 > 过去的 bug 全部归档在末尾"历史教训"，同类的问题一次就够了。
 
-AGL 帧预算 = 16.6 ms/frame（60 FPS）。**60 FPS 是不可突破的硬底线**——见 [DESIGN_PHILOSOPHY.md §11](../DESIGN_PHILOSOPHY.md)。生存模式 + Sentinel 小队 + 20+ 敌机的压力测试是验收标杆，任何让这个场景**掉一帧**的新代码都要砍掉或改写。不接受"偶发掉到 X FPS"的妥协。
+AGL 帧预算 = 16.6 ms/frame（60 FPS）。**60 FPS 是不可突破的硬底线**——见 [DESIGN_PHILOSOPHY.md §11](../DESIGN_PHILOSOPHY.md)。性能验收必须发生在**真实 GL Compatibility、真实 Survivor 渲染链和代表性大规模交战**中；单位数量、同屏比例、弹丸/尾迹/爆炸、标签、天气、地图与 UI 都必须在负载合同里明确。
+
+> **2026-08-20 口径更新**：Sentinel 只是一个具体敌方编成，不再充当通用性能标杆；`stress_40`
+> 只证明自动 Survivor 启动、人口增长和短时稳定，不能证明大规模战斗的 draw 压力。通用核心门改为
+> `battlefield_atmosphere_stress_36` 的 8 km 全可见混合战场；涉及全局扫描/LOD 时再加
+> `battlefield_atmosphere_stress_48_24km`。Sentinel 只在改动确实涉及它的光环、护卫或 LOD 豁免时作为专项负载。
 
 ---
 
@@ -90,8 +95,22 @@ Aircraft 有 22 架、Missile 有 10 枚。挂在它们上面的每个子节点�
 做新效果前先算：**每实体 × 实体数 × 60Hz = 总频率**。
 如果得到六位数，就得改。
 
-### R7. 新功能必须跑一下 Sentinel 压力测试
-任何加入 `_process` / `_physics_process` / `_draw` 的代码，提交前去生存模式触发 Sentinel 小队 + 打到 level 5+（20+ 敌机），记录 FPS。**60 FPS 不可掉**——只要有一帧低于 60 就立即回滚或改写。这是 [DESIGN_PHILOSOPHY.md §11](../DESIGN_PHILOSOPHY.md) 的硬底线。
+### R7. 性能门必须匹配真实成本形状
+任何新增 `_process` / `_physics_process` / `_draw`、扩大同屏实体/弹丸/标签，或改变地图、天气、HUD 合成的改动，都必须先跑核心密集混合战场；再按改动的成本形状追加专项剖面。**不能用“场上有很多单位”代替“触发了我改动的热点”，也不能用 headless 结果代替 draw 证据。**
+
+通用核心门：
+
+```powershell
+bench\run.cmd battlefield_atmosphere_stress_36 30 180 Shadow Visual
+```
+
+它在 8 km 主交战带内维持约 36 名混合演员，覆盖固定翼、旋翼机、火炮、地面锚、舰船、轰炸机、尾迹、弹道、爆炸与数据标签。涉及全场扫描、远距更新、LOD、地图跨度或多战线调度时，再跑：
+
+```powershell
+bench\run.cmd battlefield_atmosphere_stress_48_24km 30 180 Shadow Visual
+```
+
+专项场景按下文“性能验证流程”选择。若改动不新增常驻 tick、draw、实体或弹丸，只需 E0 静态审计 + 聚焦回归，但必须在 spec 里写明豁免理由。
 
 ### R8. 单帧成本随 N 增长的代码必须支持拥挤度自适应
 任何"每个单位都要做的事情"（AI 决策 / 雷达扫描 / 状态广播 / 装备 update），单帧成本随 N 线性或更高增长。**N 不是常数**——生存模式中后期可能突破 30。
@@ -104,10 +123,86 @@ Aircraft 有 22 架、Missile 有 10 枚。挂在它们上面的每个子节点�
 
 **例外**：玩家、BOSS、Sentinel — 永不降级。任何降级方案都要支持"豁免名单"。
 
+**大规模战斗 fantasy 保护顺序**：60 FPS 是硬底线，但优化不能把“地图上到处都在交战”的目标一起削掉。
+遇到 C1/C2 压力时按以下顺序找解：
+
+1. 去掉重复扫描、重复分配、逐实体重复 draw 和不必要的高频决策；
+2. 把同一编成的目标选择、攻击、脱离和重整提升为**战斗群/小队级决策**，成员只消费队级意图；
+3. 对远距非关键战斗群降频或简化求解，但保留可见运动、开火、烟迹和战线变化；
+4. 只有前三层仍不足且有成对证据时，才讨论减少同时可见内容，并把损失作为设计取舍显式批准。
+
+战斗群目前是优化方向，不是现成运行时合同；编组、队长失效、成员脱队、玩家介入和精确/简化切换必须
+先写 approved spec，再修改 AI 权威。不得把“合并计算”误做成全队瞬移、同步转向或虚假弹道。
+
 **当前实现参考**：
 - AI 决策：`AIController.AIScaleClass {IMMUNE/NORMAL/CHEAP}` + 自动派生（team / category / is_unmanned）+ 30+ 敌机时拉到 max_mult
 - 雷达锁定：`RADAR_LOCK_STRIDE = 4` 子集轮转 + HOSTILE/非 HOSTILE 候选预分桶
 - 屏幕外远距：`FAR_FREEZE_DIST_SQ` 硬冻结（survivor_mode._update_offscreen_lod）
+
+---
+
+## 性能验证流程（Performance Validation Flow）
+
+### 1. 先写负载合同
+
+性能验收前必须在 spec §5 写清四件事：
+
+1. **成本形状**：CPU 决策/扫描、物理、draw 提交、GPU fill、纹理/streaming、UI 合成，还是瞬时生成/释放；
+2. **触发态**：改动必须实际激活，不能在 benchmark 里处于 idle、画外裁剪或零弹丸状态；bench build 必须确定性，不能让随机选卡改变 draw/弹丸负载；
+3. **人口与可见度**：飞机/地面/舰船/挂点、弹丸数量、主交战带范围、camera zoom；
+4. **对照条件**：同一机器、Godot 版本、GL Compatibility、地图、seed、camera、时长、冷/暖缓存与可见 UI。
+
+若 benchmark 结束时实际演员数、弹丸/炮弹数或功能状态没有达到合同，本次结果无效，即使 FPS 很高。
+
+### 2. 核心与专项剖面
+
+| 剖面 | 必跑场景 | 证明范围 |
+|---|---|---|
+| **C0 静态合规** | `rg`/审计 + focused bench | 无非法每帧 redraw、场景树扫描、实体倍增；不证明运行性能 |
+| **C1 密集全可见混战** | `battlefield_atmosphere_stress_36`，30s，`Shadow Visual` | 通用渲染门：混合单位、尾迹、标签、炮弹、爆炸与多种 draw 同屏 |
+| **C2 多战线/LOD** | `battlefield_atmosphere_stress_48_24km`，30s，`Shadow Visual` | 全局扫描、远距世界更新、LOD/冻结与极低 zoom；不代替近景 fill 压力 |
+| **S1 弹幕/海战** | `naval_zone_stress` 或更窄的正式武器压力场，`Shadow Visual` | VLS、CIWS、Flak、导弹、子弹、挂点与爆炸热点 |
+| **S2 BOSS/Adds** | 对应 `boss_*_stress`，`Shadow Visual` | 阶段控制器、Adds、专属 VFX/HUD 与生命周期峰值 |
+| **S3 地图/天气/UI** | 同 seed/镜头/负载的 A/B + transition/cold path | shader、纹理、streaming、透明层与合成；必须成对，不能跨战局比较 |
+| **L1 完整局** | 12–20 分钟真实操作 | 自然人口波动、累积泄漏、任务/BOSS/Tab/UI 切换；不能由 30s bench 冒充 |
+
+`stress_40` 可继续作为 crash/smoke 与普通人口增长样本，但不属于 C1/C2。功能专项场景只证明自己的热点，不能因为名字含 `stress` 就自动满足通用 draw 门。
+
+### 3. 采样与对照
+
+- 自动场景前 3 秒只预热，不计入帧统计；当前混合战场与地图压力场已经这样实现。
+- 优化/A-B 改动用**同条件连续 3 次**，比较三次中位数；单次排序不得宣称稳定收益。
+- 冷启动、LOD transition 与运行稳态分开记录。暖缓存通过不能覆盖冷启动尖峰；首次失败也不能被静默丢弃。
+- draw/GPU/合成结论必须带 `Visual`。Shadow headless 只可定位 CPU、状态机、泄漏与人口守恒。
+- 结果至少记录 Godot 版本、headless、场景、时长、实际成员数/范围、`avg_fps`、`p1_fps`、
+  `worst_frame_fps`、`frames_below_60`，以及 PerfBuckets 的单位/弹丸快照和热点桶。
+
+### 4. 通过线
+
+稳态样本同时满足：
+
+- `frames_below_60 == 0`、`p1_fps >= 60`、`worst_frame_fps >= 60`；
+- 三次中位 `avg_fps` 相对同条件基线回退不超过 **5%**；
+- 三次中位 `p1_fps` 回退不超过 **10%**；
+- 实际演员/弹丸/功能激活达到负载合同，没有靠提前死亡、画外不画、功能未触发或动态降载把压力卸掉；
+- 画面仍有目标气氛与可读性。通过 FPS 但把尾迹、标签、炮火或爆炸删到看不见，算功能失败。
+
+如果基线本身低于 60，它是已知性能债，不是新改动的豁免；新改动不得继续回退，并必须在审计中保留失败值。冷启动/transition 若出现低于 60 的帧，必须单列，连续三次仍出现即失败。
+
+旧文档里的通用“Sentinel + Lv5 / FPS 掉幅 <15”从本次起按本节解释：尚未执行的验收改跑 C1 + 适用专项；历史已经执行的数值作为当时证据保留，不反向改写。
+
+### 5. 按改动类型选门
+
+| 改动 | 最低组合 |
+|---|---|
+| 新 AI、雷达、全场扫描、每实体状态 | C0 + C1 + C2；确认 crowd/LOD 真正启动且关键单位不退化 |
+| Aircraft/Missile 子节点、尾迹、标签、粒子、爆炸 | C0 + C1 Visual + 能最大化该效果的专项 Visual |
+| 武器、弹丸、舰载挂点、AOE | C1 + S1；记录 bullets/missiles/shells 与对应 phys/draw bucket |
+| BOSS、王牌、支援大编成 | C1 + S2；专项必须维持最坏阶段/满编，不允许战斗自然减员卸载 |
+| 地图、天气、shader、streaming | C1 + S3；同镜头成对跑暖稳态、冷启动和 transition |
+| HUD/Tab/演出透明层 | C1 Visual + 极端面板/长文本/多目标状态；同时检查可读性 |
+| 纯事件级/O(1) 数据变更 | C0 + focused；若不增加实体、tick、draw，可书面豁免 C1 |
+| 内容批/地图发布 | 上述适用项 + L1；至少一局覆盖高密度战区、Tab、任务、BOSS 与结算 |
 
 ---
 
@@ -328,9 +423,15 @@ else:
 - [ ] 单帧成本与 N 强相关？→ 必须支持降频/冻结/简化中至少一种（套路 II/III/IV/V）
 - [ ] 设置了 IMMUNE 豁免名单？（玩家 / BOSS / Sentinel 永不降级）
 - [ ] N 大时降级行为可接受？（用户已明确"允许行为退化"也要确认 BOSS 不退化）
+- [ ] 优化是否保住多线交战、可见开火和战场事件密度，而不是通过静音、停火或减员偷过门？
+- [ ] 多架同编成是否仍在重复做可提升为战斗群/小队级的目标、攻击、脱离与重整决策？
 
 ### 验收
-- [ ] 改完了跑 Sentinel + Lv5+（20+ 敌机）压力测试 — 60 FPS 不可掉
-- [ ] 改完了跑 Lv8+（30+ 敌机）压力测试 — 验证拥挤度自适应是否启动
-- [ ] F9 导出 log 看有没有新增 push_warning / null deref
+- [ ] 写清成本形状、触发态、人口/弹丸/zoom 与同条件 baseline
+- [ ] 跑 C1 `battlefield_atmosphere_stress_36` 的 `Shadow Visual` 三次中位；60 FPS、p1 与相对回退均过门
+- [ ] 涉及全局扫描/LOD 时跑 C2 `battlefield_atmosphere_stress_48_24km`，确认拥挤度自适应实际启动
+- [ ] 按改动追加 S1/S2/S3；结果里的实际成员、弹丸和功能状态达到负载合同
+- [ ] draw 结论来自 Visual；headless 只报告 CPU/状态/泄漏，不冒充渲染性能
+- [ ] F9/bench 结果检查新增 push_warning、null deref、单位/弹丸泄漏与 PerfBuckets 热点
+- [ ] 内容批或发布候选跑 L1 完整局，覆盖高密度战区、Tab、任务、BOSS 与结算
 - [ ] 改了 R4-R8 任一硬规则的实现？→ 全仓库 grep 一遍同模式残留

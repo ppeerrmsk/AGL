@@ -14,21 +14,29 @@ const CONTROL_EDGE_INSETS := Vector4(0.5, 0.5, 0.5, 0.5)
 
 var regions: Array[Rect2] = []:
 	set(value):
+		if regions == value:
+			return
 		regions = value
 		queue_redraw()
 
-var line_color: Color = ThemeColors.UI_TERMINAL_GREEN:
+var line_color: Color = ThemeColors.UI_TERMINAL_WHITE:
 	set(value):
+		if line_color.is_equal_approx(value):
+			return
 		line_color = value
 		queue_redraw()
 
 var override_regions: Array[Rect2] = []:
 	set(value):
+		if override_regions == value:
+			return
 		override_regions = value
 		queue_redraw()
 
 var override_color: Color = ThemeColors.UI_TERMINAL_INVERSE:
 	set(value):
+		if override_color.is_equal_approx(value):
+			return
 		override_color = value
 		queue_redraw()
 
@@ -37,6 +45,8 @@ var override_color: Color = ThemeColors.UI_TERMINAL_INVERSE:
 ## center inside clipped controls and physical render-target edges.
 var edge_insets := CONTROL_EDGE_INSETS:
 	set(value):
+		if edge_insets.is_equal_approx(value):
+			return
 		edge_insets = value
 		queue_redraw()
 
@@ -45,12 +55,58 @@ func _init() -> void:
 	clip_contents = false
 
 func _draw() -> void:
-	for region in regions:
-		draw_rect(edge_safe_region(region, size, edge_insets), line_color,
-			false, SCALE_INVARIANT_LINE_WIDTH, false)
-	for region in override_regions:
-		draw_rect(edge_safe_region(region, size, edge_insets), override_color,
-			false, SCALE_INVARIANT_LINE_WIDTH, false)
+	var perf_detail := PerfBuckets.detail_capture_enabled()
+	var perf_t0 := Time.get_ticks_usec() if perf_detail else 0
+	_draw_impl()
+	if perf_detail:
+		PerfBuckets.tick("hud_grid_draw", Time.get_ticks_usec() - perf_t0)
+
+
+func _draw_impl() -> void:
+	var normal_segments := outline_segments_for(regions, size, edge_insets)
+	if not normal_segments.is_empty():
+		draw_multiline(normal_segments, line_color,
+			SCALE_INVARIANT_LINE_WIDTH, false)
+	var inverted_segments := outline_segments_for(override_regions, size, edge_insets)
+	if not inverted_segments.is_empty():
+		draw_multiline(inverted_segments, override_color,
+			SCALE_INVARIANT_LINE_WIDTH, false)
+
+
+## 将全部框板边线合成一个 multiline，并去掉父子/相邻矩形的完全重合边。
+## 返回值每两个点是一条独立线段，不会把不相邻的边错误连接起来。
+static func outline_segments_for(source_regions: Array[Rect2], canvas_size: Vector2,
+		insets: Vector4) -> PackedVector2Array:
+	var unique_segments: Dictionary = {}
+	for source_region in source_regions:
+		var region := edge_safe_region(source_region, canvas_size, insets)
+		if region.size.x <= 0.0 or region.size.y <= 0.0:
+			continue
+		var top_left := region.position
+		var top_right := Vector2(region.end.x, region.position.y)
+		var bottom_left := Vector2(region.position.x, region.end.y)
+		var bottom_right := region.end
+		_append_unique_segment(unique_segments, top_left, top_right)
+		_append_unique_segment(unique_segments, top_right, bottom_right)
+		_append_unique_segment(unique_segments, bottom_left, bottom_right)
+		_append_unique_segment(unique_segments, top_left, bottom_left)
+	var points := PackedVector2Array()
+	for segment: PackedVector2Array in unique_segments.values():
+		points.append_array(segment)
+	return points
+
+
+static func _append_unique_segment(target: Dictionary, first: Vector2,
+		second: Vector2) -> void:
+	var start := first
+	var finish := second
+	if finish.x < start.x or (is_equal_approx(finish.x, start.x) and finish.y < start.y):
+		start = second
+		finish = first
+	var key := Vector4(start.x, start.y, finish.x, finish.y)
+	if target.has(key):
+		return
+	target[key] = PackedVector2Array([start, finish])
 
 
 static func edge_safe_region(region: Rect2, canvas_size: Vector2,

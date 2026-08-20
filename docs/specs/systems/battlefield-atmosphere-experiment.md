@@ -3,7 +3,7 @@ id: battlefield-atmosphere-experiment
 kind: system
 status: in-progress
 schema_version: 1
-spec_version: 10
+spec_version: 11
 owner: 用户 + Codex
 depends_on: [bomber-strike-missions, rotorcraft-combat, strategic-hardened-targets, global-awareness-roe]
 reconstruction_complete: true
@@ -180,13 +180,15 @@ bomber_bomb_damage = always_formal_mission_rule
 - [ ] 快速拉镜头看到远距气氛组时，已有弹丸处于飞行中段，不出现“镜头到场后才集体开火”；轰炸机炸弹不受该伤害 LOD 影响。
 - [ ] 实验演员不产出 XP/生涯档案，不占 Token；清理按钮只移除本次实验演员。
 - [ ] 重复启动不会叠出两组实验；演员被玩家击落后 0.5s 内完成合法重指派或退出交战。
-- [ ] 性能：集中控制器 2Hz；无逐演员新增 `_process`；Sentinel + Lv5+ 压测 FPS 掉幅 < 15。
+- [ ] 性能：集中控制器 2Hz、无逐演员新增 `_process`；C1 `battlefield_atmosphere_stress_36`
+  作为项目通用全可见 draw 门，C2 `battlefield_atmosphere_stress_48_24km` 作为多战线/LOD 门；
+  两者按 performance-guidelines 以 `Shadow Visual` 三次中位记录 avg/p1/worst/<60 与实际成员/弹丸。
 - [ ] 已知 seam：玩家 `commanded_target`、事件 directive、正式任务 TGT 权限和第三方收益隔离均未被改写。
 - [ ] 文档：本 spec 已登记 `_INDEX.md`，文档校验与锚点校验通过。
 
-### 5.1 容量压测矩阵
+### 5.1 容量压测矩阵与项目性能核心门
 
-容量结论必须来自真实 `survivor_mode`，演员保持无敌以维持整段满载。每档预热 3 秒后记录平均 FPS、最慢单帧折算 FPS、1% low、低于 60 FPS 的帧数、实际 CombatUnit 数与弹丸数；60 FPS 是硬底线。
+容量结论必须来自真实 `survivor_mode`，演员保持无敌以维持整段满载。每档预热 3 秒后记录平均 FPS、最慢单帧折算 FPS、1% low、低于 60 FPS 的帧数、实际 CombatUnit 数与弹丸数；60 FPS 是硬底线。自 v11 起，36 名/8 km 档正式承担 [performance-guidelines](../../reference/performance-guidelines.md) 的 C1 通用 draw 门，48 名/24 km 档承担 C2 多战线/LOD 门；容量更高档仍用于找上限，不是每个改动的固定必跑项。
 
 | 维度 | 档位 | 用途 |
 |---|---|---|
@@ -263,3 +265,4 @@ bomber_bomb_damage = always_formal_mission_rule
 | 2026-08-08 | 8 | 完成 F-4E 换型后的 8km 容量夹逼：36 名通过，40/44/48 名均触碰或跌破 60 FPS；24km/48 名短测通过，48km 档因共享 bench 锁待复验。 |
 | 2026-08-08 | 9 | 海战移动由 2400px 直线往返改为小范围安全巡航圈：默认半径 240px，水域不足时降到 120px / 原地驻泊；完整校验旗舰与 FFG 的旋转轨道，消除端点掉头和冲岸风险。 |
 | 2026-08-08 | 10 | LOD 改为“连续演出、近距实伤”：离屏仍保持原开火节奏和在途弹体，玩家距交战中心 3km 内才恢复 10% AI 实伤，3.6km 外冻结 HP；轰炸机任务炸弹永久豁免。 |
+| 2026-08-20 | 11 | 性能验收口径升级：Sentinel 从通用标杆降为专项演员；36 名/8 km 混合全可见战场升为 C1 核心 draw 门，48 名/24 km 升为 C2 多战线/LOD 门。要求 `Shadow Visual`、确定性 bench build、三次中位、实际演员/弹丸合同与 avg/p1/worst/<60 联合裁定。 |

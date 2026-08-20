@@ -3,6 +3,9 @@ extends BossEncounter
 
 const HyperAThreatOverlayScript = preload("res://scripts/survivor/hyper_a_threat_overlay.gd")
 
+signal root_descent_started(root_index: int)
+signal root_descent_finished(root_index: int)
+
 ## Black Star / Hyper-A：双根、三次二分、集中式特殊行为编排。
 ## 所有特殊状态由本 encounter 一次更新；每架飞机只保留共享 Aircraft/AIController 循环。
 
@@ -384,6 +387,8 @@ func _begin_descent(record: Dictionary, root_arrival: bool) -> void:
 	ac.altitude = DESCENT_START_ALTITUDE
 	_set_hidden(record, true)
 	_set_combat(record, false)
+	if root_arrival:
+		root_descent_started.emit(int(record.get("root", 1)))
 
 
 func _update_descent(record: Dictionary, ac: Aircraft, delta: float) -> void:
@@ -406,6 +411,7 @@ func _update_descent(record: Dictionary, ac: Aircraft, delta: float) -> void:
 		_roots_arrived += 1
 		if int(record.get("root", 1)) == 1 and not _root_b_started:
 			_second_root_timer = SECOND_ROOT_DELAY
+		root_descent_finished.emit(int(record.get("root", 1)))
 	else:
 		record["reentry_cd"] = REENTRY_COOLDOWN \
 			+ randf_range(0.0, REENTRY_COOLDOWN_JITTER)
@@ -815,11 +821,15 @@ func _set_hidden(record: Dictionary, hidden: bool) -> void:
 	var ac := _aircraft_from(record)
 	if ac == null:
 		return
+	var was_hidden := bool(ac.get_meta(META_FORCE_HIDDEN_VISUAL, false))
 	ac.visible = not hidden
 	ac.invulnerable = hidden
 	if hidden:
 		ac.set_meta(META_FORCE_HIDDEN_VISUAL, true)
 		ac.set_meta(&"lock_immune_override", true)
+		# 越过 15km 后是语义离场，不是隐形：立即撤销玩家 / AI 的全部目标与锁存。
+		if not was_hidden:
+			CombatUnit.release_target_refs(ac)
 	else:
 		ac.remove_meta(META_FORCE_HIDDEN_VISUAL)
 		ac.remove_meta(&"lock_immune_override")

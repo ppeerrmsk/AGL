@@ -3,7 +3,7 @@ id: rotorcraft-combat
 kind: system
 status: in-progress
 schema_version: 1
-spec_version: 1
+spec_version: 4
 owner: 用户 + Codex
 depends_on: [slow-air-target-pass, surface-attack-pass, global-awareness-roe, battlefield-visual-scale]
 reconstruction_complete: true
@@ -17,7 +17,7 @@ reconstruction_complete: true
 
 - **体验目标**：玩家能直接看见“机头盯住目标、机体侧向绕圈、突然刹停悬停、再横移”的直升机语言，而不是看它用固定翼 bank 做大半径慢转。
 - **战术身份**：攻击直升机靠持续视线和位置控制打地面；固定翼靠 pass。两者不共用对面攻击相位机。
-- **绝对边界**：AH-64 只选 `GroundUnit`，机炮和火箭的兜底扫描同样排除 Aircraft；它可以被战斗机攻击，但永远不反打战斗机。
+- **绝对边界**：普通任务 AH-64 只选 `GroundUnit`；气氛变体还可选择属于地面实体的正式锁定点。机炮和火箭的兜底扫描始终排除 Aircraft；它可以被战斗机攻击，但永远不反打战斗机或玩家。
 - **物理抽象**：不是 1:1 旋翼空气动力学；只实现平面速度向量与机头朝向解耦、加减速、偏航、环绕和悬停这五个玩家能感知的事实。
 - **Litmus 自检**：行为差异强可见；自动开火；没有瞬移；决策 20Hz 错相、运动 60Hz；不新增每机每帧全场扫描。
 - **显式速度例外**：设计哲学的 600–2200 km/h 区间针对固定翼敌机。AH-64/CH-47 保留 279/302 km/h 级真实身份，否则“直升机”会变成喷气机皮肤。
@@ -88,6 +88,15 @@ reconstruction_complete: true
 - `HOVER`：事件/任务调用方可在航点标记 `hold_seconds`；默认 0，城区逃离事件仍不停留。
 - 无 `ORBIT_ATTACK`、无目标搜索、无武器；受击散开改为 2.5s 侧向加速脉冲，不再用固定翼 S 形 waypoint 修正。
 
+### 2.5 地面气氛组武装直升机变体
+
+- [正式战区氛围战斗](zone-atmosphere-combat.md) 可以用同一套 AH-64 参数/运动/武器创建 `ALLY` 或 `HOSTILE` 气氛直升机；任务 Adds 与气氛变体是两种生成身份，不复制资源或物理状态机。
+- 气氛变体的目标池是敌对 `GroundUnit`，以及父级属于地面任务实体的可攻击锁定点；因此可以攻击 SPG、普通坦克、沙漠攻城坦克、超级巨炮的四底座与炮身。Aircraft、NavalUnit 与非地面挂点始终非法。
+- 友敌气氛直升机可以同时存在，但双方互不攻击；它们只与地面目标交战。地面 AA/SAM/CIWS 可以按既有规则反击直升机，超级巨炮因无防空能力不能反击。
+- 气氛变体不是正式 TGT，不占 Token、不阻塞任务，也不加入玩家小队。玩家或正式小队击毁 `HOSTILE` 气氛 AH-64 时沿用当前 `XP_PER_KILL_AH64 = 50`；第三方击毁或 `ALLY` 损失不产生玩家收益。
+- 对气氛 GroundUnit 的伤害可正常致死；对正式 TGT/挂点必须走非致死入口、最低保留 1 HP。气氛变体发射的机炮/火箭继续读取 3/3.6km 气氛伤害 LOD。
+- 纯地面、只追加友军直升机、只追加敌军直升机、双方直升机同时存在等组合由气氛系统选择；本 spec 只拥有单机飞行/火控与目标边界。
+
 ## 3. 行为与公式（How）
 
 ### 3.1 AH-64 状态机
@@ -130,9 +139,9 @@ desired_velocity = clamp_length((hover_anchor - pos) × 1.2, 12 m/s)
 
 必须同时保留三道门：
 
-1. 目标选择只接受敌对 `GroundUnit`；
+1. 普通 AH-64 只接受敌对 `GroundUnit`；气氛变体只额外接受属于地面任务实体的锁定点；
 2. `attack_air_targets=false`，公共自动机炮扫描不能命中 Aircraft；
-3. 发射瞬间再次验证目标仍是 GroundUnit 且敌对。
+3. 发射瞬间再次验证目标仍是合法地面目标且敌对，并按气氛演员/正式 TGT 选择致死或非致死入口。
 
 任一门失效时测试必须报红；不能只信 AI 的 `combat_target`。
 
@@ -151,6 +160,8 @@ desired_velocity = clamp_length((hover_anchor - pos) × 1.2, 12 m/s)
 - [ ] ORBIT 7–11s 后能真实减速到 ≤15km/h，悬停 3.5–6s，随后恢复同方向环绕。
 - [ ] ORBIT/HOVER 均能以 M230 自动点射 GroundUnit；无目标时不朝空地乱射。
 - [ ] 玩家飞机从 AH-64 机头 100m 内穿过，AH-64 不选中、不瞄准、不伤害它。
+- [x] `ALLY/HOSTILE` 气氛 AH-64 可分别攻击敌对 SPG、坦克、攻城坦克和巨炮 GroundUnit 锁定点；双方同场互不攻击，玩家/飞机不是目标且弹丸拒绝 Aircraft。
+- [x] 气氛 AH-64 不是 TGT/Token；敌对实例保留现有 50 XP 玩家归因，友军关闭收益；其火力可击毁气氛地面演员但不能清掉正式 TGT。
 - [ ] AH-64 目标被毁后 0.5s 内回到原任务航路，不在尸体旁永远盘旋。
 - [ ] CH-47 按航路平移，指定 hold 航点能悬停后继续；城区逃离事件默认不停留。
 - [ ] 受击散开对旋翼机表现为侧向平移脉冲，结束后能回到航路；不触发固定翼失速/G 逻辑。
@@ -175,6 +186,7 @@ desired_velocity = clamp_length((hover_anchor - pos) × 1.2, 12 m/s)
 ### 阶段 4 — 回归与压测
 - [x] 新增 rotorcraft 专项 bench；通过速度向量、机头解耦、悬停与尺寸断言。
 - [ ] Godot 4.7 生存实机观察环绕、悬停和压力帧率。
+- [x] 气氛系统接入双阵营同场、GroundUnit/巨炮锁定点、玩家/飞机负例、非致死 TGT 与 50 XP 身份回归。
 
 ## 7. 索引锚点（Where）
 
@@ -186,10 +198,14 @@ desired_velocity = clamp_length((hover_anchor - pos) × 1.2, 12 m/s)
 | 参数 | `scripts/aircraft_params.gd` · `resources/enemy_ah64.tres` · `resources/enemy_ch47.tres` |
 | 绘制 | `scripts/aircraft_renderer.gd` |
 | 回归 | `scripts/tests/test_bomber_rotor_airburst.gd` |
+| 气氛生成与弹丸边界 | `scripts/survivor/zone_atmosphere_combat.gd` · `scripts/survivor/survivor_spawner.gd` · `scripts/bullet_manager.gd` |
+| 气氛回归 | `scripts/tests/test_zone_atmosphere_combat.gd` |
 
 ## 8. 变更记录
 
 | 日期 | spec_version | 改动 |
 |---|---:|---|
-| 2026-08-01 | 1 | 初稿：参数驱动旋翼飞行模型；AH-64 500m 环绕、7–11s 环绕/3.5–6s 悬停循环、M230 只对地；CH-47 支持平飞与任务悬停。 |
+| 2026-08-21 | 4 | 地面气氛变体正式接入：ALLY/HOSTILE AH-64 复用现有旋翼状态机，只扫描 GroundUnit；新发机炮/火箭快照地面专用与正式 TGT 非致死标记；四种组合、Aircraft 负例、气氛致死/正式非致死及奖励身份由 zone_atmosphere bench 覆盖。 |
+| 2026-08-21 | 3 | 用户批准把 AH-64 作为地面气氛组双阵营演员：可与 SPG、坦克、攻城坦克、超级巨炮地面锁定点组合交战；不是 TGT/Token，绝不攻击玩家或任何 Aircraft；敌对实例由玩家/正式小队击毁时给现有 50 XP。对气氛地面单位可致死，对正式 TGT 始终非致死。当前尚未接入气氛生成。 |
 | 2026-08-01 | 2 | 实现速度向量/机头解耦、AH-64 环绕—刹停—悬停循环、对地短点射与三道对空禁火；CH-47 迁移至同一旋翼运动模型；专项 bench 已通过。 |
+| 2026-08-01 | 1 | 初稿：参数驱动旋翼飞行模型；AH-64 500m 环绕、7–11s 环绕/3.5–6s 悬停循环、M230 只对地；CH-47 支持平飞与任务悬停。 |

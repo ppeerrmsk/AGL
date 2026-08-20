@@ -3,20 +3,21 @@
 > # ⚠ 历史快照（2026-04-11），**勿作为现状依据**
 >
 > 本文停留在 2026-04 的项目状态，此后项目经历了 RTS 化转向、战区/停靠结算循环、
-> 41 机进化树、三轴卡片技能制、60km 扩图、沙盒模式废弃等一系列方向变更。
+> 43 机进化树、三轴卡片技能制、60km 扩图、沙盒模式废弃等一系列方向变更。
 > 下面的 Phase 划分、"大地图战区系统"设想、"技能树重做"方案、模式边界表都已被取代或用别的方案落地。
 >
 > **现状与在办事项一律看这些**：
 > - **[docs/specs/_INDEX.md](../specs/_INDEX.md)** —— 唯一的设计现状源（每份 spec 带 status 与剩余工作）
 > - [docs/reference/features.md](../reference/features.md) —— 现在有什么功能
 > - [docs/project-overview.md](../project-overview.md) —— 项目现在是什么
+> - [content-production-workflow.md](content-production-workflow.md) —— 当前铺量顺序、WIP 与完成线
 > - `docs/changelogs/` —— 具体某次改动
 >
 > 保留本文只为记录当时的判断依据。**要加新东西请走 spec-first 流程**（[playbook.md](../reference/playbook.md)），
 > 不要往本文追加新计划。
 >
 > 已过时的具体点（举例）：沙盒模式已废弃只打生存包；`survivor_map_select` 5 槽设想已被战区推进循环取代；
-> "技能树重做"已由三轴卡片制 + 144 条技能表落地；下面 P0/P1 反馈项多数已解决或被更大改动吞掉。
+> "技能树重做"已由三轴卡片制 + 自动生成技能表落地；下面 P0/P1 反馈项多数已解决或被更大改动吞掉。
 
 ---
 

@@ -1,7 +1,7 @@
 ---
 id: ace-system
 kind: system
-status: draft        # ⏳ 用户 2026-06-28 定核心定义；资源分配为提案、待确认。设计推敲中，勿据此派生代码。
+status: superseded   # 历史“长机角色 = ACE”草案；当前作用域、切控与进化权威已拆分
 schema_version: 1
 spec_version: 1
 owner: noelu
@@ -10,6 +10,12 @@ reconstruction_complete: false
 ---
 
 # 王牌系统（ACE）—— 单英雄进化 + 王冠继任，调和"英雄 vs 编队"
+
+> ⚠ **历史草案，禁止继续派生实现。** 当前技能语义中的“王牌”指玩家**当前操控机**并随切控迁移，
+> 不再是本稿的固定长机角色。现行权威见 [skills-720-rework](skills-720-rework.md)、
+> [squad-control-switching](squad-control-switching.md)、
+> [aircraft-evolution-tree](aircraft-evolution-tree.md) 与
+> [evolution-attribute-gates](evolution-attribute-gates.md)。下文只保留早期调和方案的历史过程。
 
 > 解决地基矛盾：进化是"单机英雄"逻辑，编队是"RTS 指挥"逻辑。ACE 让**只有一架是英雄（吃进化树）**，
 > 僚机走另一套轻成长，王冠在 ACE 阵亡时传给击坠最多者——单英雄进化与编队指挥两立。

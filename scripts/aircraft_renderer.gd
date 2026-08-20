@@ -9,6 +9,7 @@ static var player_ref: Aircraft = null
 
 const LABEL_COMPACT_ENTER_SCALE: float = 0.35
 const LABEL_COMPACT_EXIT_SCALE: float = 0.40
+const TARGET_MARKER_DETAIL_MIN_SCALE: float = 0.26
 const DATA_LABEL_MIN_RIGHT_PX: float = 24.0
 const DATA_LABEL_ICON_GAP_PX: float = 8.0
 const DATA_LABEL_TOP_PX: float = -12.0
@@ -46,6 +47,20 @@ static func safe_player_ref() -> Aircraft:
 	if safe_ref == null:
 		player_ref = null
 	return safe_ref
+
+
+## 纯视觉确定性噪声：不得在 _draw 路径消费全局 randf，否则渲染帧数会改变战斗 RNG 序列。
+static func visual_noise01_for(instance_id: int, salt: int, tick_index: int) -> float:
+	var phase := float(tick_index) * 12.9898 \
+		+ float(instance_id % 100003) * 78.233 + float(salt) * 37.719
+	var wave := sin(phase) * 43758.5453
+	return wave - floor(wave)
+
+
+static func visual_noise01(item: Object, salt: int, quantum_ms: int = 33) -> float:
+	var instance_id := item.get_instance_id() if item != null else 0
+	var tick_index := int(Time.get_ticks_msec() / maxi(quantum_ms, 1))
+	return visual_noise01_for(instance_id, salt, tick_index)
 
 
 ## Sentinel 风格的范围色层；RGB 只走 FactionPalette，蓝=玩家直属、绿=第三方友军。
@@ -162,6 +177,11 @@ static func should_draw_compact_label(ac: Aircraft) -> bool:
 	# Alt 只临时覆盖显示，不重置迟滞状态；松开即可回到当前缩放档。
 	return compact_label_visible(ac._compact_data_label_active,
 		Input.is_key_pressed(KEY_ALT))
+
+
+static func target_marker_detail_visible_at_scale(view_scale: float,
+		is_controlled: bool, force_full: bool = false) -> bool:
+	return force_full or is_controlled or view_scale >= TARGET_MARKER_DETAIL_MIN_SCALE
 
 ## 飞机绘制系统（静态工具类）
 ## 从 aircraft.gd 提取的所有 _draw_* 子函数
@@ -743,7 +763,7 @@ static func draw_target_bracket(node: Node2D, is_target: bool) -> void:
 	node.draw_set_transform(Vector2.ZERO, 0.0)
 
 static func draw_muzzle_flash(ac: Aircraft) -> void:
-	var flash_alpha := randf_range(0.6, 1.0)
+	var flash_alpha := lerpf(0.6, 1.0, visual_noise01(ac, 11))
 	var flash_color := Color(1.0, 0.9, 0.3, flash_alpha)
 	var s := altitude_base_scale(ac) * visual_model_scale(ac)
 	var pitch_compress := lerpf(1.0, Aircraft.VERTICAL_BREAK_PITCH_MIN_SCALE, ac._active_special_pitch_visual)
@@ -754,7 +774,7 @@ static func draw_muzzle_flash(ac: Aircraft) -> void:
 	ac.draw_circle(tip, 7.0 * s, flash2)
 
 static func draw_afterburner_glow(ac: Aircraft) -> void:
-	var flicker := randf_range(0.7, 1.0)
+	var flicker := lerpf(0.7, 1.0, visual_noise01(ac, 23))
 	var glow_color := Color(1.0, 0.5, 0.1, 0.8 * flicker)
 	var core_color := Color(1.0, 0.85, 0.4, 0.9 * flicker)
 	# 基础大小与机身图标一致（乘 altitude_base_scale）
@@ -771,7 +791,7 @@ static func draw_afterburner_glow(ac: Aircraft) -> void:
 	sy_compress *= lerpf(1.0, Aircraft.VERTICAL_BREAK_PITCH_MIN_SCALE, ac._active_special_pitch_visual)
 	# 尾喷口位置（本地坐标，飞机朝 -Y）
 	var tail := Vector2(0, 16.0 * sy_compress)
-	var flame_len := randf_range(10.0, 16.0) * sy_compress
+	var flame_len := lerpf(10.0, 16.0, visual_noise01(ac, 29)) * sy_compress
 	# 火焰三角（横向半宽也随 s 缩放）
 	var half_w := 3.0 * s
 	var flame := PackedVector2Array([
@@ -1675,7 +1695,11 @@ static func draw_data_label_compact(ac: Aircraft) -> void:
 	var box := Rect2(0, 0, max_w + 10.0, lines.size() * line_height + 6.0)
 	ac.draw_rect(box, bg_color)
 	ac.draw_rect(box, text_color * Color(1, 1, 1, 0.4), false, 1.0)
-	for i in range(lines.size()):
+	# 身份 + 速度同色，合为一次文字提交；状态行继续逐行保留独立颜色。
+	ac.draw_multiline_string(ac._font, Vector2(5, 12),
+		"\n".join(lines.slice(0, mini(2, lines.size()))),
+		HORIZONTAL_ALIGNMENT_LEFT, max_w, font_size, mini(2, lines.size()), text_color)
+	for i in range(2, lines.size()):
 		var color: Color = text_color
 		if status_line_indices.has(i):
 			color = status_line_indices[i]
@@ -2131,10 +2155,17 @@ static func draw_target_line(ac: Aircraft) -> void:
 		var ct_local := ac.to_local(ac.combat_target.global_position)
 		# 单层中细线：兼顾地图上的可读性与轻量感，不恢复深色粗描边。
 		ac.draw_line(Vector2.ZERO, ct_local, ct_color, ct_width, true)
+		var player: Aircraft = safe_player_ref()
+		if not target_marker_detail_visible_at_scale(label_lod_scale(ac), ac == player,
+				Input.is_key_pressed(KEY_ALT)):
+			return
 		var ct_d := 8.0
 		var marker_width: float = 1.6 if ac.charge_attack else 1.3
-		ac.draw_line(ct_local + Vector2(-ct_d, 0), ct_local + Vector2(ct_d, 0), ct_color, marker_width)
-		ac.draw_line(ct_local + Vector2(0, -ct_d), ct_local + Vector2(0, ct_d), ct_color, marker_width)
+		var marker_points := PackedVector2Array([
+			ct_local + Vector2(-ct_d, 0), ct_local + Vector2(ct_d, 0),
+			ct_local + Vector2(0, -ct_d), ct_local + Vector2(0, ct_d),
+		])
+		ac.draw_multiline(marker_points, ct_color, marker_width)
 
 		# 战斗目标外围方框：4 个 L 角"瞄准框"风格，跟随当前连线色。
 		# 仅玩家（team=0）画，因为 AI 的 combat_target 不需要 UI 指示
@@ -2149,13 +2180,17 @@ static func draw_target_line(ac: Aircraft) -> void:
 					Vector2( box_half,  box_half),  # 右下
 					Vector2(-box_half,  box_half),  # 左下
 			]
-			# 每角画两段：水平 + 垂直
+			# 每角两段合成一次 multiline 提交：几何/颜色/线宽不变，Canvas 命令 8→1。
+			var corner_points := PackedVector2Array()
 			for k in range(4):
 				var corner: Vector2 = corners[k]
 				var sx: float = -1.0 if corner.x > 0 else 1.0
 				var sy: float = -1.0 if corner.y > 0 else 1.0
-				ac.draw_line(ct_local + corner, ct_local + corner + Vector2(corner_len * sx, 0), box_col, box_w)
-				ac.draw_line(ct_local + corner, ct_local + corner + Vector2(0, corner_len * sy), box_col, box_w)
+				corner_points.append(ct_local + corner)
+				corner_points.append(ct_local + corner + Vector2(corner_len * sx, 0))
+				corner_points.append(ct_local + corner)
+				corner_points.append(ct_local + corner + Vector2(0, corner_len * sy))
+			ac.draw_multiline(corner_points, box_col, box_w)
 		return
 
 	if ac.target_position == Vector2.INF:
@@ -2542,7 +2577,8 @@ static func draw_railgun_beam(ac: Aircraft) -> void:
 	jitter_color.a *= 0.7
 	for i in range(1, 5):
 		var seg_t := float(i) / 5.0
-		var p := start_local + diff * seg_t + perp * randf_range(-15.0, 15.0) * t
+		var jitter := lerpf(-15.0, 15.0, visual_noise01(ac, 100 + i, 24))
+		var p := start_local + diff * seg_t + perp * jitter * t
 		ac.draw_line(prev, p, jitter_color, 1.5, true)
 		prev = p
 	ac.draw_line(prev, end_local, jitter_color, 1.5, true)

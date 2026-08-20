@@ -5,7 +5,7 @@ status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
 spec_version: 8
 owner: noelu
-depends_on: [survivor-loop, squad-upgrade-ownership]
+depends_on: [survivor-loop, evolution-attribute-gates]
 reconstruction_complete: false
 ---
 
@@ -18,7 +18,7 @@ reconstruction_complete: false
 AGL 正在 RTS 化。本功能让"小队"成为可操控单位池：玩家随时切换"亲自驾驶哪一架"，其余交给 AI 僚机自主打。这是"满地图都在交战、既混乱又有秩序"氛围的第一步玩家侧抓手。
 
 **体验目标**：
-- 操控权切换**即时**：按 1-4 直接上手对应号机；相机直接切（不插值）。
+- 操控权切换**即时**：按 1–9 直接上手对应号机；相机直接切（不插值）。
 - **行为延续**：接管后飞机延续它当前的航向/攻击目标，不突变。
 - **平滑降级**：原长机变僚机后，**先完成当前动作**（带延迟）再融入编队，不瞬间甩头归队。
 - **视觉锚点**：当前操控机状态栏底色**白色**，其余友机**蓝色**，敌机**红色**——一眼看出"我现在是谁"。
@@ -43,7 +43,7 @@ AGL 正在 RTS 化。本功能让"小队"成为可操控单位池：玩家随时
 
 | 编号 | 字段 | 稳定性 | 用途 |
 |---|---|---|---|
-| **号机号 squad_slot（1-4）** | `Aircraft.squad_slot: int`（新增） | **出生即定，永不变**（即使该机被接管成长机或降为僚机） | 数字键绑定（键 N → squad_slot==N）+ 状态栏显示"1/2/3/4" |
+| **号机号 squad_slot（1–9）** | `Aircraft.squad_slot: int` | **出生即定，永不变**（即使该机被接管成长机或降为僚机） | 数字键绑定（键 N → squad_slot==N）+ 状态栏显示对应号机 |
 | **编队角色 squad_index（0=长机）** | 既有 `squad_index` | **随接管变动**（当前操控机 = 长机 = index 0） | 编队阵型槽位计算 |
 
 > 例：你按 3 切到 3 号机，3 号机 squad_slot 仍是 3（身份不变），但它现在 squad_index=0（成为长机）；原 1 号机 squad_slot 仍是 1，squad_index 变为非 0（降为僚机）。**数字键永远对应同一架物理飞机。**
@@ -170,7 +170,7 @@ func set_leader(new_leader):
 
 | 组成 | 角色 | 新增/改动 |
 |---|---|---|
-| `Aircraft.squad_slot` | 稳定号机号（1-4），键绑定 + 显示 | **新增字段**，spawn 时赋值 |
+| `Aircraft.squad_slot` | 稳定号机号（1–9），键绑定 + 显示 | spawn 时赋值 |
 | `set_player_aircraft(ac)` chokepoint | 原子重定向 player_aircraft / player_ref / 相机 / HUD | **新增**（survivor_mode） |
 | `Aircraft.use_tactical_preference` | 玩家操控角色的全坡度战术权限 | 由同一 chokepoint 原子从旧机转给新机 |
 | KEY_1..4 切换监听 | §3.1 | 改 _unhandled_input（survivor_mode） |

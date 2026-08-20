@@ -53,6 +53,14 @@ static func exits_of(id: StringName) -> Array:
 			out.append(nd)
 	return out
 
+
+## 当前节点是否至少有一个同时通过等级与三轴门槛的直接出口。
+static func has_available_exit(id: StringName, level: int, axis_points: Dictionary) -> bool:
+	for nd in exits_of(id):
+		if level >= min_level_of(nd) and gates_passed(nd, axis_points):
+			return true
+	return false
+
 ## 逐机解锁等级（spec player-aircraft-power-curve §1.8）：节点带 min_level 字段则优先；
 ## 否则回退档位默认（tier_min_level）。
 static func min_level_of(nd: Dictionary) -> int:

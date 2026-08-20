@@ -1,6 +1,8 @@
 extends CanvasLayer
 class_name AudioSettingsPanel
 
+const TerminalUiStyleScript := preload("res://scripts/ui/terminal_ui_style.gd")
+
 ## 音频设置面板（纯程序化 UI，不依赖 .tscn）
 ##
 ## 用法：
@@ -19,12 +21,8 @@ const BUS_LABEL_KEYS := {
 	"UI": "AUDIO_BUS_UI",
 }
 
-const PANEL_BG := Color(0.05, 0.08, 0.05, 0.94)
+const PANEL_BG := Color(0.0, 0.0, 0.0, 0.94)
 const OVERLAY_BG := Color(0, 0, 0, 0.55)
-const BORDER_COLOR := Color(0.4, 0.8, 0.4, 0.6)
-const TEXT_COLOR := Color(0.7, 1.0, 0.7)
-const VALUE_COLOR := Color(0.5, 0.9, 0.5)
-const SECONDARY_COLOR := Color(0.5, 0.7, 0.5, 0.85)
 
 var _sliders: Dictionary = {}
 var _value_labels: Dictionary = {}
@@ -65,17 +63,13 @@ func _build_ui() -> void:
 	add_child(overlay)
 
 	var root := PanelContainer.new()
-	root.custom_minimum_size = Vector2(520, 0)
+	root.name = "TerminalAudioSettings"
+	root.custom_minimum_size = Vector2(600, 0)
 	# 居中
 	root.set_anchors_preset(Control.PRESET_CENTER)
 	root.position = -root.custom_minimum_size * 0.5
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = PANEL_BG
-	sb.border_color = BORDER_COLOR
-	sb.set_border_width_all(2)
-	sb.set_corner_radius_all(4)
-	sb.set_content_margin_all(22)
-	root.add_theme_stylebox_override("panel", sb)
+	TerminalUiStyleScript.apply_panel(
+		root, TerminalUiStyleScript.accent(), PANEL_BG, 18.0, 1)
 	add_child(root)
 
 	var vb := VBoxContainer.new()
@@ -87,14 +81,14 @@ func _build_ui() -> void:
 	vb.add_child(title_row)
 	var title := Label.new()
 	title.text = tr("AUDIO_SETTINGS_TITLE")
-	title.add_theme_font_size_override("font_size", 22)
-	title.add_theme_color_override("font_color", TEXT_COLOR)
+	TerminalUiStyleScript.apply_label(
+		title, 24, TerminalUiStyleScript.accent(), true)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title_row.add_child(title)
 	var close_btn := Button.new()
 	close_btn.text = "×"
 	close_btn.custom_minimum_size = Vector2(32, 32)
-	close_btn.add_theme_font_size_override("font_size", 20)
+	TerminalUiStyleScript.apply_button(close_btn, TerminalUiStyleScript.accent())
 	close_btn.pressed.connect(close_panel)
 	title_row.add_child(close_btn)
 
@@ -115,12 +109,14 @@ func _build_ui() -> void:
 	var reset_btn := Button.new()
 	reset_btn.text = tr("AUDIO_SETTINGS_RESET")
 	reset_btn.custom_minimum_size = Vector2(100, 32)
+	TerminalUiStyleScript.apply_button(reset_btn, TerminalUiStyleScript.accent())
 	reset_btn.pressed.connect(_on_reset)
 	btn_row.add_child(reset_btn)
 
 	var save_btn := Button.new()
 	save_btn.text = tr("AUDIO_SETTINGS_SAVE")
 	save_btn.custom_minimum_size = Vector2(100, 32)
+	TerminalUiStyleScript.apply_button(save_btn, TerminalUiStyleScript.accent(), false, true)
 	save_btn.pressed.connect(_on_save)
 	btn_row.add_child(save_btn)
 
@@ -131,7 +127,8 @@ func _build_slider_row(bus: String) -> Control:
 	var label := Label.new()
 	label.text = tr(BUS_LABEL_KEYS[bus])
 	label.custom_minimum_size = Vector2(80, 0)
-	label.add_theme_color_override("font_color", TEXT_COLOR)
+	TerminalUiStyleScript.apply_terminal_label(
+		label, 13, TerminalUiStyleScript.accent())
 	row.add_child(label)
 
 	var slider := HSlider.new()
@@ -140,6 +137,7 @@ func _build_slider_row(bus: String) -> Control:
 	slider.step = 0.01
 	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	slider.custom_minimum_size = Vector2(260, 0)
+	slider.modulate = TerminalUiStyleScript.accent()
 	slider.value_changed.connect(func(v: float): _on_slider_changed(bus, v))
 	row.add_child(slider)
 	_sliders[bus] = slider
@@ -147,13 +145,16 @@ func _build_slider_row(bus: String) -> Control:
 	var val_lbl := Label.new()
 	val_lbl.custom_minimum_size = Vector2(44, 0)
 	val_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	val_lbl.add_theme_color_override("font_color", VALUE_COLOR)
+	TerminalUiStyleScript.apply_terminal_label(
+		val_lbl, 13, TerminalUiStyleScript.accent())
 	row.add_child(val_lbl)
 	_value_labels[bus] = val_lbl
 
 	var mute_btn := CheckButton.new()
 	mute_btn.text = tr("AUDIO_SETTINGS_MUTE")
-	mute_btn.add_theme_color_override("font_color", SECONDARY_COLOR)
+	mute_btn.add_theme_color_override(
+		"font_color", Color(TerminalUiStyleScript.accent(), 0.72))
+	mute_btn.add_theme_color_override("font_hover_color", TerminalUiStyleScript.accent())
 	mute_btn.toggled.connect(func(p: bool): AudioManager.set_bus_mute(bus, p))
 	row.add_child(mute_btn)
 	_mute_buttons[bus] = mute_btn

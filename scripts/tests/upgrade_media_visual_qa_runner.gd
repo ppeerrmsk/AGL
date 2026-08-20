@@ -120,7 +120,7 @@ func _build_progression_target() -> void:
 	var experience_panel = BottomExperiencePanelScript.new()
 	experience_panel.position = SurvivorHUDScript.bottom_progress_rect(viewport_size).position
 	add_child(experience_panel)
-	experience_panel.update_display(progression_player)
+	experience_panel.update_display(progression_player, true)
 	var axis_counter = MilestoneAxisCounterScript.new()
 	axis_counter.position = SurvivorHUDScript.bottom_axis_rect(viewport_size).position
 	add_child(axis_counter)

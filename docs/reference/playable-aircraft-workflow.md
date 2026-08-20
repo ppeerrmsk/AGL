@@ -147,7 +147,7 @@ static var _paths: Dictionary = {
 
 ### 步骤 6：登记进化树节点（必需）
 
-41 机全谱中除起手四卡外全部经进化树获得。`resources/evolution/evolution_tree.json` 的 `nodes` 数组追加节点（加载方 `scripts/survivor/evolution_system.gd` 只读表）：
+43 机全谱中除起手四卡外全部经进化树获得。`resources/evolution/evolution_tree.json` 的 `nodes` 数组追加节点（加载方 `scripts/survivor/evolution_system.gd` 只读表）：
 
 ```json
 {
@@ -158,12 +158,13 @@ static var _paths: Dictionary = {
   "name_key": "AIRCRAFT_<NAME>_DISPLAY",
   "min_level": 4,
   "exits": ["f22", "f35", "j20"],
-  "gates": { "sum_gk": 1 }
+  "gates": { "knight": 1 }
 }
 ```
 
 - `profile` = 步骤 5 在 AircraftDB 注册的 id；`name_key` 要在 `i18n/gameplay.csv` 有行
-- `gates`（T2+ 必填）：`gladiator`/`knight`/`schemer` 单轴、`any`（或门）、`sum_gk`（斗骑合计）、`sum_all`（三轴合计）；设计值查 spec `evolution-attribute-gates` §2.3/§2.4
+- `gates`（T2+ 必填）：只用 `gladiator` / `knight` / `schemer` 具体单轴与 `any`（或门）；
+  旧 `sum_gk` / `sum_all` 已废除。设计值查 spec `evolution-attribute-gates` §2.3/§2.4
 - **同时把上游机型节点的 `exits` 数组补上本机 id**——没有入边的节点玩家永远换不到
 - 非终点节点出口 ≥3（ACE 手动三选铁律，T5 终端档豁免）；tier/角色定位查 spec `player-aircraft-power-curve` §2
 - 改完通过统一 bench wrapper 跑进化树详情与属性门槛冒烟测试（profile 加载、树路由、属性门和 i18n）：
@@ -206,7 +207,7 @@ const PLAYABLE_LIST: Array[Dictionary] = [
 
 这条**已经原生支持**，不需要任何额外代码：
 
-- **基本转弯/能量管理**：`aircraft.gd:1011 _physics_process` 调度物理子模块，基础机动仍由机体参数决定
+- **基本转弯/能量管理**：`aircraft.gd:1036 _physics_process` 调度物理子模块，基础机动仍由机体参数决定
 - **战术决策（BFM）**：`ai/bfm_tactics.gd:107 choose_tactic` 基于几何、能量和态势，武器只通过射程/就绪态影响可用意图
 - **武器射程**：`ai/bfm_tactics.gd:64 gun_range_px` 从当前 `gun.max_range` 换算，无 gun 时为 0
 - **导弹发射时机**：`aircraft/aircraft_weapons.gd:1004 update_missile` 统一判定射程、最小距离、射界与锁定；导弹换型主要通过 `.tres`
@@ -367,7 +368,7 @@ SurvivorData.is_upgrade_available_for(upgrade, aircraft_id, params) -> bool
 9. （如有专属技能）在 `SurvivorData.UPGRADES` 末尾追加专属条目，`exclusive_to = ["<name>"]`
 10. （如有专属技能）在 `survivor_player.gd::apply_upgrade` 的 `match stat:` 中加对应分支
 11. （如新文件较多）更新 `docs/reference/playable-aircraft-workflow.md` 的"现有主角清单"
-12. （重大变更）更新 `CLAUDE.md` Script Index
+12. （重大变更）更新 `AGENTS.md` 类树/硬约定，并同步 `script-index.md` / `code-index.md`
 
 **完全不需要改的**：
 - `aircraft.gd`（武器是 null-safe 的）
@@ -386,11 +387,12 @@ SurvivorData.is_upgrade_available_for(upgrade, aircraft_id, params) -> bool
 | `a6e` | 攻击/肉，轻火箭 | `resources/player/playable_a6e.tres` | 累计 30 地面击杀（`CareerArchive.get_ground_kills`，进度实时显示在锁定卡按钮上） |
 | `mirage3` | 电战线之根 | `resources/player/playable_mirage3.tres` | 生涯商店购买 |
 
-门控实现在 `survivor_select.gd::_effective_list()`：按 `MetaShop.is_aircraft_unlocked(id)` 给未解锁条目翻 `dev_locked` 标志，不删条目；boss debug 链路全谱放行。
+门控实现在 `survivor_select.gd::_effective_list()`：按 `MetaShop.is_aircraft_unlocked(id)` 给未解锁条目翻
+`locked` 占位标志，不删条目、也不加载/泄露机体数据；boss debug 另列正式 T4 参考节点并放行。
 
 旧起手位变迁：F-16 降为进化分支、A-10 降为 T2 进化获得（起手位由 A-6E 取代）、X-02 移入 T5 树内 LV22 进化获得。
 
-### 10.2 41 机全谱注册表（`aircraft_db.gd::_paths`）
+### 10.2 43 机全谱注册表（`aircraft_db.gd::_paths`）
 
 **权威注册表是 `scripts/survivor/aircraft_db.gd`，本表只是快照**；tier/角色/数值矩阵查 spec `player-aircraft-power-curve` §2（v7），树结构查 `resources/evolution/evolution_tree.json`。除起手四卡外全部经进化树获得。
 
@@ -399,3 +401,4 @@ SurvivorData.is_upgrade_available_for(upgrade, aircraft_id, params) -> bool
 | 老 13 机（根目录 5） | `resources/`（base_params 已重指向 `resources/player/`） | `f15` `f16` `f14` `a10` `x02` |
 | 老 13 机（进化切片 8） | `resources/evolution/` | `f22` `f35` `mig31` `su34` `x09` `x13` `x21` `x44` |
 | 扩谱 28 机（2026-07-19） | `resources/player/`（profile 与 params 同住） | `a6e` `mirage3` `mirage2000` `f15c` `f15e` `fa18e` `gripen_c` `su27` `rafale` `tornado` `typhoon` `viggen` `harrier` `f15smtd` `su35` `gripen_e` `su57` `j20` `a12` `yf23` `f47` `mig41` `fcas` `gcap` `j36` `x77` `x90` `ax00` |
+| v15 增补 2 机（2026-08-07） | `resources/player/` | `ea18g` `faxx` |

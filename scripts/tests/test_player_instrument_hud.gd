@@ -41,8 +41,8 @@ func _test_speed_units() -> void:
 		1852.0, HudPreferencesScript.SPEED_KT) == 1000)
 	_check("km/h 保持整数显示", HudPreferencesScript.speed_value_for(
 		945.0, HudPreferencesScript.SPEED_KMH) == 945)
-	_check("默认 HUD 使用通用终端绿且面板背景精确为 70%",
-		HudPreferencesScript.DEFAULT_COLOR.is_equal_approx(ThemeColors.UI_TERMINAL_GREEN)
+	_check("默认 HUD 使用白色主调且面板背景精确为 70%",
+		HudPreferencesScript.DEFAULT_COLOR.is_equal_approx(HudPreferencesScript.PRESET_WHITE)
 		and is_equal_approx(ThemeColors.UI_BLOCK_BACKGROUND.a, 0.70))
 
 
@@ -518,6 +518,8 @@ func _test_milestone_axis_counter() -> void:
 		and MilestoneAxisCounterScript.cell_rect(1) == Rect2(136.0, 0.0, 136.0, 36.0)
 		and MilestoneAxisCounterScript.cell_rect(2) == Rect2(272.0, 0.0, 136.0, 36.0)
 		and MilestoneAxisCounterScript.name_rect(0).size == Vector2(64.0, 36.0)
+		and MilestoneAxisCounterScript.axis_title_rect(0).size == Vector2(64.0, 18.0)
+		and MilestoneAxisCounterScript.axis_value_rect(0) == Rect2(0.0, 18.0, 64.0, 18.0)
 		and MilestoneAxisCounterScript.point_rect(0, 0).size == Vector2(9.0, 36.0)
 		and MilestoneAxisCounterScript.point_rect(0, 7).end.x
 			== MilestoneAxisCounterScript.cell_rect(0).end.x)
@@ -553,9 +555,9 @@ func _test_milestone_axis_counter() -> void:
 	player.level = 12
 	player.xp = 84
 	player.xp_to_next = 160
-	bottom.update_display(player)
+	bottom.update_display(player, true)
 	bottom._accent = Color.TRANSPARENT
-	bottom.update_display(player)
+	bottom.update_display(player, true)
 	_check("底栏中央为 2u 三方向加 1u 经验条，两侧为等宽 3u 面板",
 		bottom.size == Vector2(684.0, 54.0)
 		and bottom._grid_overlay.edge_insets == Vector4(0.5, 0.5, 0.5, 0.5)
@@ -565,8 +567,38 @@ func _test_milestone_axis_counter() -> void:
 		and BottomExperiencePanelScript.LEVEL_DIGIT_WIDTH
 			== PlayerInstrumentPanelScript.THREE_U_DIGIT_WIDTH
 		and BottomExperiencePanelScript.xp_rect() == Rect2(138.0, 36.0, 408.0, 18.0)
-		and BottomExperiencePanelScript.current_xp_rect() == Rect2(546.0, 0.0, 138.0, 36.0)
-		and BottomExperiencePanelScript.max_xp_rect() == Rect2(546.0, 36.0, 138.0, 18.0))
+		and BottomExperiencePanelScript.xp_remaining_rect()
+			== Rect2(546.0, 0.0, 138.0, 36.0)
+		and BottomExperiencePanelScript.xp_remaining_label_rect()
+			== Rect2(546.0, 36.0, 80.0, 18.0)
+		and BottomExperiencePanelScript.evolution_ready_rect()
+			== Rect2(626.0, 36.0, 58.0, 18.0))
+	_check("经验数字显示距下一级差值，进化格读取独立权威状态",
+		BottomExperiencePanelScript.xp_remaining(84, 160) == 76
+		and BottomExperiencePanelScript.xp_remaining(160, 160) == 0
+		and bottom._evolution_ready)
+	_check("进化出口必须同时通过等级与三轴门槛",
+		not EvolutionSystem.has_available_exit(&"f15", 3, {})
+		and not EvolutionSystem.has_available_exit(&"f15", 5, {})
+		and EvolutionSystem.has_available_exit(&"f15", 5,
+			{SurvivorData.AXIS_KNIGHT: 1}))
+	var mode = SurvivorModeScript.new()
+	mode.survivor_player = player
+	mode._player_profile_id = &"f15"
+	player.level = 5
+	player.axis_points = {SurvivorData.AXIS_KNIGHT: 1}
+	_check("没有可用停靠点时不误报进化就绪",
+		not mode.has_ready_aircraft_evolution())
+	var dock := DockPoint.new()
+	mode._dock_points.append(dock)
+	_check("真实可用停靠点与可进化出口同时存在才亮提示",
+		mode.has_ready_aircraft_evolution())
+	dock.mark_spent()
+	_check("一次性机场消费后立即撤下进化提示",
+		not mode.has_ready_aircraft_evolution())
+	mode._dock_points.clear()
+	dock.free()
+	mode.free()
 	var level_accent := Color.WHITE
 	_check("LV 两位数字复用框版前导零灰色规则且不与经验区重叠",
 		BottomExperiencePanelScript.formatted_level_digits(0) == "00"
@@ -657,7 +689,9 @@ func _test_altitude_preference_display() -> void:
 	panel._process(0.1)
 	_check("高度指针按角速度追随而不是瞬间跳到目标",
 		panel._altimeter_needle_degrees > 20.0
-		and panel._altimeter_needle_degrees < 160.0)
+		and panel._altimeter_needle_degrees < 160.0
+		and panel._altimeter_needle_layer != null
+		and panel._altimeter_needle_layer.size == panel.size)
 	panel.free()
 	ac.free()
 

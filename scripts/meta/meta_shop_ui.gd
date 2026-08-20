@@ -1,11 +1,14 @@
 extends Node2D
 
+const TerminalPageShellScript := preload("res://scripts/ui/terminal_page_shell.gd")
+const TerminalUiStyleScript := preload("res://scripts/ui/terminal_ui_style.gd")
+
 ## MetaShopUI — 生涯商店界面（spec aircraft-signature-progression §2.4）
 ##
 ## 主菜单进入的局外界面；数据层全在 MetaShop autoload（本类只渲染与转发购买）。
 ## 全代码构建四分页：【战术学说】【机体专属】【战场支援】【机体与后勤】。
 
-const BG_COLOR := Color(0.04, 0.06, 0.05)
+const BG_COLOR := Color("010202")
 
 var _tabs: TabContainer
 var _doctrine_box: VBoxContainer
@@ -26,25 +29,21 @@ func _unhandled_input(event: InputEvent) -> void:
 func _build_ui() -> void:
 	var canvas := CanvasLayer.new()
 	add_child(canvas)
-
+	var shell := TerminalPageShellScript.new()
+	canvas.add_child(shell)
+	var frame := TerminalUiStyleScript.build_page(
+		shell.content, tr("METASHOP_TITLE"), tr("MENU_META_SHOP_DESC"), "MERIT // 03")
+	var body := frame["body"] as PanelContainer
+	var footer := frame["footer"] as HBoxContainer
 	var root := VBoxContainer.new()
-	root.set_anchors_preset(Control.PRESET_FULL_RECT)
-	root.alignment = BoxContainer.ALIGNMENT_CENTER
-	root.add_theme_constant_override("separation", 12)
-	canvas.add_child(root)
-
-	# 标题
-	var title := Label.new()
-	title.text = tr("METASHOP_TITLE")
-	title.add_theme_font_size_override("font_size", 26)
-	title.add_theme_color_override("font_color", Color(0.85, 0.75, 0.35))
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	root.add_child(title)
+	root.add_theme_constant_override("separation", 0)
+	body.add_child(root)
 
 	# 功勋徽章 + 余额（样式同主菜单 _build_merit_display，实时刷新走 _refresh 整体重建）
 	var merit_row := HBoxContainer.new()
-	merit_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	merit_row.alignment = BoxContainer.ALIGNMENT_END
 	merit_row.add_theme_constant_override("separation", 8)
+	merit_row.custom_minimum_size = Vector2(0, 34)
 	root.add_child(merit_row)
 	var coin := preload("res://scripts/meta/merit_coin_icon.gd").new()
 	coin.radius = 11.0
@@ -52,37 +51,26 @@ func _build_ui() -> void:
 	var merit_label := Label.new()
 	merit_label.name = "MeritLabel"
 	merit_label.text = "%s  %d" % [tr("MENU_MERIT_LABEL"), MeritLedger.get_total()]
-	merit_label.add_theme_font_size_override("font_size", 18)
-	merit_label.add_theme_color_override("font_color", Color(0.85, 0.75, 0.35))
+	TerminalUiStyleScript.apply_terminal_label(
+		merit_label, 15, TerminalUiStyleScript.accent())
 	merit_row.add_child(merit_label)
-
-	var sep := Control.new()
-	sep.custom_minimum_size = Vector2(0, 8)
-	root.add_child(sep)
 
 	# 四分页：每页独立滚动，购买刷新时保留当前页。
 	_tabs = TabContainer.new()
-	_tabs.custom_minimum_size = Vector2(1040, 610)
-	_tabs.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_tabs.custom_minimum_size = Vector2(0, 0)
+	_tabs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	TerminalUiStyleScript.apply_tab_container(_tabs, TerminalUiStyleScript.accent())
 	root.add_child(_tabs)
 	_doctrine_box = _add_page("METASHOP_TAB_DOCTRINE")
 	_signature_box = _add_page("METASHOP_TAB_SIGNATURE")
 	_support_box = _add_page("METASHOP_TAB_SUPPORT")
 	_career_box = _add_page("METASHOP_TAB_CAREER")
 
-	var sep2 := Control.new()
-	sep2.custom_minimum_size = Vector2(0, 16)
-	root.add_child(sep2)
-
-	# 返回
-	var back_btn := Button.new()
-	back_btn.text = tr("LOADOUT_BACK")
-	back_btn.custom_minimum_size = Vector2(220, 44)
-	back_btn.add_theme_font_size_override("font_size", 16)
-	back_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	back_btn.pressed.connect(_on_back_pressed)
-	root.add_child(back_btn)
+	TerminalUiStyleScript.build_footer_hint(
+		footer, "%s  //  %s" % [tr("MENU_MERIT_LABEL"), str(MeritLedger.get_total())])
+	TerminalUiStyleScript.build_footer_button(
+		footer, tr("LOADOUT_BACK"), _on_back_pressed, 220.0)
 
 	_refresh()
 
@@ -94,15 +82,15 @@ func _add_page(title_key: String) -> VBoxContainer:
 	_tabs.add_child(scroll)
 	_tabs.set_tab_title(_tabs.get_tab_count() - 1, tr(title_key))
 	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 18)
-	margin.add_theme_constant_override("margin_right", 18)
-	margin.add_theme_constant_override("margin_top", 16)
-	margin.add_theme_constant_override("margin_bottom", 16)
+	margin.add_theme_constant_override("margin_left", 10)
+	margin.add_theme_constant_override("margin_right", 10)
+	margin.add_theme_constant_override("margin_top", 10)
+	margin.add_theme_constant_override("margin_bottom", 10)
 	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(margin)
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 10)
-	box.custom_minimum_size = Vector2(960, 0)
+	box.add_theme_constant_override("separation", 0)
+	box.custom_minimum_size = Vector2(850, 0)
 	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	margin.add_child(box)
 	return box
@@ -136,8 +124,7 @@ func _refresh() -> void:
 func _make_section_label(text: String, color: Color) -> Label:
 	var lbl := Label.new()
 	lbl.text = text
-	lbl.add_theme_font_size_override("font_size", 13)
-	lbl.add_theme_color_override("font_color", color)
+	TerminalUiStyleScript.apply_terminal_label(lbl, 13, color)
 	return lbl
 
 func _build_signature_page() -> void:
@@ -161,8 +148,8 @@ func _build_signature_page() -> void:
 	if not revealed.is_empty():
 		var known_grid := GridContainer.new()
 		known_grid.columns = 2
-		known_grid.add_theme_constant_override("h_separation", 12)
-		known_grid.add_theme_constant_override("v_separation", 12)
+		known_grid.add_theme_constant_override("h_separation", 0)
+		known_grid.add_theme_constant_override("v_separation", 0)
 		known_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_signature_box.add_child(known_grid)
 		for nd in revealed:
@@ -173,8 +160,8 @@ func _build_signature_page() -> void:
 			tr("METASHOP_SIGNATURE_UNKNOWN"), ThemeColors.TEXT_LOCKED))
 		var unknown_grid := GridContainer.new()
 		unknown_grid.columns = 6
-		unknown_grid.add_theme_constant_override("h_separation", 8)
-		unknown_grid.add_theme_constant_override("v_separation", 8)
+		unknown_grid.add_theme_constant_override("h_separation", 0)
+		unknown_grid.add_theme_constant_override("v_separation", 0)
 		unknown_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_signature_box.add_child(unknown_grid)
 		for _i in unknown_count:
@@ -188,14 +175,13 @@ func _build_signature_tile(nd: Dictionary) -> Control:
 	var owned := MetaShop.is_owned(item_id)
 
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(462, 0)
+	panel.custom_minimum_size = Vector2(420, 0)
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(SurvivorUpgradeUI.SIG_FRAME_COLOR, 0.09).blend(ThemeColors.CARD_UNLOCKED_BG)
+	sb.bg_color = Color(0.0, 0.0, 0.0, 0.78)
 	sb.border_color = Color(SurvivorUpgradeUI.SIG_FRAME_COLOR, 0.72)
-	sb.set_border_width_all(2)
-	sb.set_corner_radius_all(4)
-	sb.set_content_margin_all(12)
+	sb.set_border_width_all(1)
+	sb.set_content_margin_all(9)
 	panel.add_theme_stylebox_override("panel", sb)
 
 	var box := VBoxContainer.new()
@@ -236,17 +222,17 @@ func _build_signature_tile(nd: Dictionary) -> Control:
 		btn.pressed.connect(func() -> void:
 			if MetaShop.buy(item_id):
 				_refresh())
+	TerminalUiStyleScript.apply_button(btn, TerminalUiStyleScript.accent())
 	box.add_child(btn)
 	return panel
 
 func _build_unknown_signature_tile() -> Control:
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(145, 54)
+	panel.custom_minimum_size = Vector2(140, 54)
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = ThemeColors.CARD_LOCKED_BG
-	sb.border_color = ThemeColors.CARD_LOCKED_BORDER
+	sb.bg_color = Color(0.0, 0.0, 0.0, 0.58)
+	sb.border_color = Color(TerminalUiStyleScript.accent(), 0.20)
 	sb.set_border_width_all(1)
-	sb.set_corner_radius_all(4)
 	panel.add_theme_stylebox_override("panel", sb)
 	var label := Label.new()
 	label.text = tr("METASHOP_SIGNATURE_UNKNOWN")
@@ -265,13 +251,9 @@ func _build_doctrine_tile(doctrine_id: String) -> Control:
 	var owned: bool = MetaShop.is_owned(doctrine_id)
 
 	var panel := PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = ThemeColors.CARD_UNLOCKED_BG if listed else ThemeColors.CARD_LOCKED_BG
-	sb.border_color = (def["color"] as Color) * Color(1, 1, 1, 0.7) if listed else ThemeColors.CARD_LOCKED_BORDER
-	sb.set_border_width_all(1)
-	sb.set_corner_radius_all(4)
-	sb.set_content_margin_all(12)
-	panel.add_theme_stylebox_override("panel", sb)
+	TerminalUiStyleScript.apply_panel(panel,
+		Color(TerminalUiStyleScript.accent(), 0.72 if listed else 0.20),
+		Color(0.0, 0.0, 0.0, 0.78 if listed else 0.52), 9.0)
 
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
@@ -336,6 +318,7 @@ func _build_doctrine_tile(doctrine_id: String) -> Control:
 			btn.pressed.connect(func() -> void:
 				if MetaShop.buy(doctrine_id):
 					_refresh())
+		TerminalUiStyleScript.apply_button(btn, TerminalUiStyleScript.accent())
 		row.add_child(btn)
 
 	return panel
@@ -347,13 +330,9 @@ func _build_item_tile(item_id: String) -> Control:
 	var owned: bool = MetaShop.is_owned(item_id)
 
 	var panel := PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = ThemeColors.CARD_UNLOCKED_BG if listed else ThemeColors.CARD_LOCKED_BG
-	sb.border_color = Color(0.85, 0.75, 0.35, 0.7) if listed else ThemeColors.CARD_LOCKED_BORDER
-	sb.set_border_width_all(1)
-	sb.set_corner_radius_all(4)
-	sb.set_content_margin_all(12)
-	panel.add_theme_stylebox_override("panel", sb)
+	TerminalUiStyleScript.apply_panel(panel,
+		Color(TerminalUiStyleScript.accent(), 0.72 if listed else 0.20),
+		Color(0.0, 0.0, 0.0, 0.78 if listed else 0.52), 9.0)
 
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
@@ -396,6 +375,7 @@ func _build_item_tile(item_id: String) -> Control:
 			btn.pressed.connect(func() -> void:
 				if MetaShop.buy(item_id):
 					_refresh())
+		TerminalUiStyleScript.apply_button(btn, TerminalUiStyleScript.accent())
 		row.add_child(btn)
 
 	return panel

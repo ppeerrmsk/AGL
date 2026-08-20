@@ -183,6 +183,23 @@ func _exit_tree() -> void:
 func deadair_field_snapshot() -> Dictionary:
 	return _deadair_controller.field_snapshot() if _deadair_controller else {}
 
+
+func retire_deadair_source(host: Aircraft) -> void:
+	if _deadair_controller:
+		_deadair_controller.retire(host)
+
+
+## ZoneMission 只交付完整编队与正式来源；Spawner 继续独占 squad 列表和场型控制器。
+## 3★ 来源优先于随机 Snowblind/DEADAIR，旧场同拍消失且不会在新来源死亡后复活。
+func register_tier3_deadair_squad(squad: Squad, host: Aircraft) -> void:
+	if squad != null and squad not in _squads:
+		_squads.append(squad)
+	if _snowblind_controller:
+		_snowblind_controller.retire_for_priority_field()
+	if _deadair_controller:
+		_deadair_controller.replace_with_priority(host)
+		_deadair_controller.refresh_now()
+
 ## 由 survivor_mode 在创建 zone_mission 之后注入，用于旅途刷怪的战区状态门禁
 func set_zone_mission(zm: ZoneMission) -> void:
 	zone_mission = zm
@@ -2449,6 +2466,7 @@ static func all_type_tags() -> Array:
 
 ## 创建单架敌机并添加到场景（公共逻辑）
 func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tier_override: int = -1) -> Aircraft:
+	var perf_spawn_t0: int = Time.get_ticks_usec() if PerfBuckets.detail_capture_enabled() else 0
 	# 选择基础参数
 	var base_params: AircraftParams
 	match etype:
@@ -2670,6 +2688,10 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tie
 
 	var type_tag := type_tag_of(etype)
 	enemy.set_meta("enemy_type", type_tag)
+	if etype == EnemyType.AH64:
+		# AH-64 的弹丸权限与选敌权限同样只对地；否则俯视几何上穿过飞机的
+		# 机炮/火箭仍可能被 BulletManager 当成有效对空命中。
+		enemy.set_meta(CombatUnit.META_PROJECTILES_GROUND_ONLY, true)
 	var silhouette_family := _regular_silhouette_family(etype)
 	if silhouette_family != "":
 		enemy.set_meta("silhouette", silhouette_family)
@@ -3202,7 +3224,46 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tie
 		var cobra := CobraManeuver.new()
 		cobra.name = "CobraManeuver"
 		enemy.add_child(cobra)
+	if perf_spawn_t0 > 0:
+		PerfBuckets.tick("spawn_enemy", Time.get_ticks_usec() - perf_spawn_t0)
+		PerfBuckets.count("spawn_enemy_count")
+		PerfBuckets.mark_frame_event("spawn_enemy")
 	return enemy
+
+## 正式战区气氛层复用既有 AH-64 工厂；这里只改变生成身份、阵营与任务巡逻环，
+## 不复制旋翼物理/武器/AI。敌对实例保留现有 50 XP，友军损失由击杀管线自然忽略。
+func spawn_atmosphere_ah64(team: int, spawn_pos: Vector2, heading_deg: float,
+		zone_id: StringName, patrol_center: Vector2, patrol_radius: float = 900.0) -> Aircraft:
+	var heli := _create_enemy(EnemyType.AH64, spawn_pos, heading_deg, 5)
+	if heli == null:
+		return null
+	heli.team = team
+	heli.set_meta("zone_atmosphere_actor", true)
+	heli.set_meta("zone_atmosphere_zone", zone_id)
+	heli.set_meta("zone_atmosphere_role", "helicopter")
+	heli.set_meta(CombatUnit.META_FACTION_CONVERSION_LOCKED, true)
+	heli.set_meta(CombatUnit.META_PROJECTILES_GROUND_ONLY, true)
+	heli.set_meta(CombatUnit.META_AMBIENT_TGT_NONLETHAL, true)
+	heli.set_meta("token_cost", 0)
+	heli.set_meta("skip_far_cleanup", true)
+	heli.remove_meta("despawn_after")
+	if team != CombatUnit.TEAM_HOSTILE:
+		heli.set_meta("no_kill_reward", true)
+	var ai := heli._get_ai_controller()
+	if ai != null:
+		var radius := maxf(patrol_radius, 400.0)
+		ai.waypoints = PackedVector2Array([
+			patrol_center + Vector2(radius, 0.0),
+			patrol_center + Vector2(0.0, radius),
+			patrol_center + Vector2(-radius, 0.0),
+			patrol_center + Vector2(0.0, -radius),
+		])
+		ai.current_waypoint_index = 0
+		ai.patrol_altitude = 2000.0
+	heli.set_target_tier(CombatUnit.AltitudeTier.LOW)
+	EventLogger.log_event("ZONE_ATMOSPHERE", "HelicopterSpawn",
+		"zone=%s team=%d callsign=%s" % [zone_id, team, heli.callsign])
+	return heli
 
 
 func _regular_silhouette_family(etype: EnemyType) -> String:
@@ -3297,6 +3358,7 @@ func _update_far_cleanup(delta: float) -> void:
 				# 防止 _detect_kills 在同帧误判为击杀
 				ac.set_meta("xp_granted", true)
 				ac.queue_free()
+				PerfBuckets.mark_frame_event("free_far_enemy")
 				removed += 1
 
 	if removed > 0:
@@ -3343,6 +3405,7 @@ func _update_boss_phase_purge(delta: float) -> void:
 			ac.set_meta("xp_granted", true)
 			CombatUnit.release_target_refs(ac)
 			ac.queue_free()
+			PerfBuckets.mark_frame_event("free_boss_purge")
 			freed += 1
 			continue
 

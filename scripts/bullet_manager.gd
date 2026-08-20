@@ -25,6 +25,10 @@ var flat_altitude_mode: bool = false       ## 扁平高度模式：跳过高度�
 
 ## 弹丸数据：{ pos: Vector2, vel: Vector2, owner: CombatUnit, damage: float, life: float }
 var _bullets: Array[Dictionary] = []
+## 纯视觉普通弹使用紧凑 SoA；无 source/team/collision 字段，避免每 tick 的 Dictionary/Variant 热路径。
+var _visual_bullet_positions := PackedVector2Array()
+var _visual_bullet_velocities := PackedVector2Array()
+var _visual_bullet_lifetimes := PackedFloat32Array()
 var _hit_sparks: Array[Dictionary] = []  ## {pos, age, angle, scale}
 
 ## 装饰弹软上限（②，2026-07-24 航母群掉帧修复）：
@@ -37,6 +41,9 @@ const MAX_BULLETS: int = 1200
 const GRID_CELL_SIZE: float = 256.0
 var _unit_grid: UnitGrid = UnitGrid.new()
 var _grid_buf: Array = []   ## 命中循环复用的候选缓冲（大单位 + 邻格小单位），每弹 clear 后重填
+var _large_targets_for_player: Array = []
+var _large_targets_for_hostile: Array = []
+var _large_targets_for_ally: Array = []
 
 ## 空中漂浮雷（独立数组，不污染子弹热路径）
 ## 数据结构：{ pos, drift_vel_px, source, source_team, params, target_id,
@@ -58,6 +65,35 @@ func reassign_projectiles_from(source: CombatUnit, new_team: int) -> void:
 		for projectile in bucket:
 			if projectile.get("source", null) == source:
 				projectile["source_team"] = new_team
+
+
+func visual_bullet_count() -> int:
+	return _visual_bullet_positions.size()
+
+
+func total_bullet_count() -> int:
+	return _bullets.size() + visual_bullet_count()
+
+
+func _remove_visual_bullet_at(index: int) -> void:
+	var last := _visual_bullet_positions.size() - 1
+	if index != last:
+		_visual_bullet_positions[index] = _visual_bullet_positions[last]
+		_visual_bullet_velocities[index] = _visual_bullet_velocities[last]
+		_visual_bullet_lifetimes[index] = _visual_bullet_lifetimes[last]
+	_visual_bullet_positions.resize(last)
+	_visual_bullet_velocities.resize(last)
+	_visual_bullet_lifetimes.resize(last)
+
+
+func _update_visual_bullets(delta: float) -> void:
+	var i := _visual_bullet_positions.size() - 1
+	while i >= 0:
+		_visual_bullet_positions[i] += _visual_bullet_velocities[i] * delta
+		_visual_bullet_lifetimes[i] -= delta
+		if _visual_bullet_lifetimes[i] <= 0.0:
+			_remove_visual_bullet_at(i)
+		i -= 1
 
 
 ## 建筑拦截概率查表（与 missile_manager._building_block_prob_for_tier 一致）
@@ -136,6 +172,36 @@ func _build_frame_cache() -> void:
 		_frame_enemy_missiles_by_team[CombatUnit.TEAM_HOSTILE] = t_hostile_side
 	_frame_cache_filled = true
 
+
+## 舰船不会移动阵营筛选语义；每 tick 预分一次，避免同阵营舰炮真弹逐发扫描整支舰队后才拒绝。
+func _rebuild_large_target_buckets() -> void:
+	_large_targets_for_player.clear()
+	_large_targets_for_hostile.clear()
+	_large_targets_for_ally.clear()
+	for value in _unit_grid.large_units:
+		if typeof(value) != TYPE_OBJECT or value == null or not is_instance_valid(value):
+			continue
+		var unit := value as CombatUnit
+		if unit == null or unit.is_destroyed:
+			continue
+		if CombatUnit.teams_hostile(unit.team, CombatUnit.TEAM_PLAYER):
+			_large_targets_for_player.append(unit)
+		if CombatUnit.teams_hostile(unit.team, CombatUnit.TEAM_HOSTILE):
+			_large_targets_for_hostile.append(unit)
+		if CombatUnit.teams_hostile(unit.team, CombatUnit.TEAM_ALLY):
+			_large_targets_for_ally.append(unit)
+
+
+func _large_targets_for_source_team(source_team: int) -> Array:
+	match source_team:
+		CombatUnit.TEAM_PLAYER:
+			return _large_targets_for_player
+		CombatUnit.TEAM_HOSTILE:
+			return _large_targets_for_hostile
+		CombatUnit.TEAM_ALLY:
+			return _large_targets_for_ally
+	return _unit_grid.large_units
+
 ## visual_only: 视觉装饰弹 —— 正常飞行 / 渲染 / 寿命结束，但跳过所有命中判定
 ## 用于制造"CIWS 密集弹幕"的观感，同时不影响平衡（真实伤害由另一部分子弹承担）
 func spawn_bullet(origin: Vector2, direction: float, speed_ms: float, source: CombatUnit, damage: float, is_ciws: bool = false, visual_only: bool = false, life_seconds: float = 2.0) -> void:
@@ -145,10 +211,15 @@ func spawn_bullet(origin: Vector2, direction: float, speed_ms: float, source: Co
 	# 快路径跳过近炸、建筑和单位命中计算。CIWS 的导弹拦截语义不由伤害值决定，不能自动降级。
 	visual_only = visual_only or (damage <= 0.0 and not is_ciws)
 	# 装饰弹软上限：弹幕洪峰时丢弃多余的纯视觉弹，真弹不受影响（②）
-	if visual_only and _bullets.size() >= MAX_BULLETS:
+	if visual_only and total_bullet_count() >= MAX_BULLETS:
 		return
 	var speed_px := speed_ms * PIXELS_PER_METER
 	var vel := Vector2(sin(direction), -cos(direction)) * speed_px
+	if visual_only:
+		_visual_bullet_positions.append(origin)
+		_visual_bullet_velocities.append(vel)
+		_visual_bullet_lifetimes.append(life_seconds)
+		return
 	# ⚠ 快照 team 到 dict：弹丸寿命中射手可能被释放，
 	#   后续命中判定必须靠 source_team 而不是 source.team。
 	# 建筑"从内向外射"规则：spawn 时源在街区内 → 永久免疫建筑拦截
@@ -169,6 +240,8 @@ func spawn_bullet(origin: Vector2, direction: float, speed_ms: float, source: Co
 		"vel": vel,
 		"source": source,
 		"source_team": source.team if is_instance_valid(source) else -1,
+		"ground_targets_only": bool(source.get_meta(CombatUnit.META_PROJECTILES_GROUND_ONLY, false)) if is_instance_valid(source) else false,
+		"ambient_tgt_nonlethal": bool(source.get_meta(CombatUnit.META_AMBIENT_TGT_NONLETHAL, false)) if is_instance_valid(source) else false,
 		"damage": damage,
 		"life": life_seconds,
 		"max_life": life_seconds,
@@ -250,6 +323,8 @@ func spawn_rocket(origin: Vector2, direction: float, speed_ms: float, source: Co
 		"vel": vel,
 		"source": source,
 		"source_team": source.team if is_instance_valid(source) else -1,
+		"ground_targets_only": bool(source.get_meta(CombatUnit.META_PROJECTILES_GROUND_ONLY, false)) if is_instance_valid(source) else false,
+		"ambient_tgt_nonlethal": bool(source.get_meta(CombatUnit.META_AMBIENT_TGT_NONLETHAL, false)) if is_instance_valid(source) else false,
 		"damage": damage,
 		"life": life,
 		"max_life": life,
@@ -532,6 +607,8 @@ func _explode_rocket(b: Dictionary, world_pos: Vector2, exclude_unit: CombatUnit
 	for unit in combat_unit_list:
 		if not is_instance_valid(unit) or unit.is_destroyed:
 			continue
+		if not projectile_allows_target(b, unit):
+			continue
 		if unit == exclude_unit:
 			continue
 		if not CombatUnit.teams_hostile(unit.team, src_team):
@@ -560,7 +637,22 @@ func _explode_rocket(b: Dictionary, world_pos: Vector2, exclude_unit: CombatUnit
 				(unit as NavalUnit).set_meta("_last_damage_kind", "rocket")
 			(unit as NavalUnit).take_damage_at(aoe_dmg, world_pos, 0.5, true)
 		else:
-			unit.take_damage(aoe_dmg, CombatUnit.safe_attacker(b["source"]), "rocket")
+			_apply_projectile_damage(unit, aoe_dmg, b, "rocket")
+
+## 气氛飞机命中正式地面 TGT 时走既有非致死入口；普通气氛演员和玩家武器
+## 继续走正常伤害。发射时快照，射手中途被释放也不改变弹丸权限。
+func _apply_projectile_damage(unit: CombatUnit, amount: float, projectile: Dictionary,
+		kind: String) -> void:
+	var attacker := CombatUnit.safe_attacker(projectile.get("source", null))
+	var formal_ground_tgt: bool = unit is GroundUnit and unit.has_meta(&"zone_mission")
+	if bool(projectile.get("ambient_tgt_nonlethal", false)) and formal_ground_tgt:
+		unit.take_atmosphere_damage(amount, attacker, kind)
+	else:
+		unit.take_damage(amount, attacker, kind)
+
+
+static func projectile_allows_target(projectile: Dictionary, unit: CombatUnit) -> bool:
+	return not bool(projectile.get("ground_targets_only", false)) or unit is GroundUnit
 
 func _update_special_projectiles(delta: float) -> void:
 	var i := _bombs.size() - 1
@@ -651,6 +743,7 @@ func _explode_airburst_shell(shell: Dictionary) -> void:
 func _physics_process(delta: float) -> void:
 	var _t0 := Time.get_ticks_usec()
 	_update_hit_sparks(delta)
+	_update_visual_bullets(delta)
 	# ── 帧级缓存：每帧重建一次，所有子弹共用 ──
 	_frame_cache_filled = false
 	if SurvivorData.ENABLE_BULLET_FRAME_CACHE:
@@ -659,6 +752,7 @@ func _physics_process(delta: float) -> void:
 	# ── 命中广相网格：每物理帧按当前单位位置重建一次，所有真弹共用（③）──
 	# 小单位入格 / 大单位（NavalUnit）进 large_units 线性表。命中循环只查邻格 + 大单位。
 	_unit_grid.rebuild(combat_unit_list, GRID_CELL_SIZE)
+	_rebuild_large_target_buckets()
 	_update_special_projectiles(delta)
 
 	# ── 空中鱼雷（独立循环，不污染子弹热路径）──
@@ -781,7 +875,7 @@ func _physics_process(delta: float) -> void:
 		# 等价于旧的"遍历 combat_unit_list"，但候选从全场缩到近邻（无漏判证明见 test_bullet_grid）。
 		# ⚠ 候选是本帧快照，循环内仍保留 is_instance_valid + is_destroyed 守卫（同帧可能已被别的弹击毁）。
 		_grid_buf.clear()
-		_grid_buf.append_array(_unit_grid.large_units)
+		_grid_buf.append_array(_large_targets_for_source_team(source_team))
 		_unit_grid.query_into(b["pos"], _grid_buf)
 		for ac in _grid_buf:
 			if not is_instance_valid(ac) or ac.is_destroyed:
@@ -791,6 +885,9 @@ func _physics_process(delta: float) -> void:
 				continue
 			# 跳过非敌对阵营（无论射手死活都用快照 team 判定；PLAYER↔ALLY 互不误伤）
 			if not CombatUnit.teams_hostile(ac.team, source_team):
+				continue
+			# 对地直升机的弹丸即使几何上穿过飞机，也不得建立命中。
+			if not projectile_allows_target(b, ac):
 				continue
 			var pierced_ids: Dictionary = b.get("hit_unit_ids", {})
 			if bool(b.get("pierces_units", false)) and pierced_ids.has(ac.get_instance_id()):
@@ -885,7 +982,7 @@ func _physics_process(delta: float) -> void:
 							(ac as NavalUnit).set_meta("_last_damage_kind", "rocket")
 						(ac as NavalUnit).take_damage_at(actual_dmg, b["pos"], 0.5, true)
 					else:
-						ac.take_damage(actual_dmg, CombatUnit.safe_attacker(b["source"]), "rocket")
+						_apply_projectile_damage(ac, actual_dmg, b, "rocket")
 				elif ac is Aircraft:
 					# false = 本发被闪避；此时不记命中、不出火星。
 					# attacker 传入用于"对头机炮闪避"几何检查
@@ -901,7 +998,7 @@ func _physics_process(delta: float) -> void:
 						(ac as NavalUnit).set_meta("_last_damage_kind", "gun")
 					(ac as NavalUnit).take_damage_at(b["damage"] * dmg_mult, b["pos"], 0.15, true)
 				else:
-					ac.take_damage(b["damage"] * dmg_mult, CombatUnit.safe_attacker(b["source"]), "gun")
+					_apply_projectile_damage(ac, b["damage"] * dmg_mult, b, "gun")
 				if is_rocket or damage_applied:
 					var evt_tag := "ROCKET" if is_rocket else "GUN"
 					EventLogger.log_event(evt_tag, src_name,
@@ -968,7 +1065,9 @@ func _physics_process(delta: float) -> void:
 	# 性能埋点（此前 BulletManager 全无 PerfBuckets 覆盖 → 帧时间盲区）：
 	# 物理+命中循环耗时 + 当前子弹总数（CIWS 弹幕高峰用于诊断）
 	PerfBuckets.tick("bullet_phys", Time.get_ticks_usec() - _t0)
-	PerfBuckets.set_value("bullet_count", _bullets.size())
+	PerfBuckets.set_value("bullet_count", total_bullet_count())
+	PerfBuckets.set_value("visual_bullet_count", visual_bullet_count())
+	PerfBuckets.set_value("bullet_area_flash_count", _area_flashes.size())
 
 ## 只推进当前短寿命火星；无火星时零循环开销。
 func _update_hit_sparks(delta: float) -> void:
@@ -1079,6 +1178,10 @@ func _draw() -> void:
 			var tail: Vector2 = b["pos"] - dir * TRACER_LENGTH
 			tracer_pts.push_back(b["pos"])
 			tracer_pts.push_back(tail)
+	for i in range(_visual_bullet_positions.size()):
+		var visual_dir: Vector2 = _visual_bullet_velocities[i].normalized()
+		tracer_pts.push_back(_visual_bullet_positions[i])
+		tracer_pts.push_back(_visual_bullet_positions[i] - visual_dir * TRACER_LENGTH)
 	if not tracer_pts.is_empty():
 		draw_multiline(tracer_pts, Color(1.0, 0.95, 0.4, 0.9), 1.5)
 	# 命中火星最多 12 组，每组 3 道；亮芯/橙边各一次批量提交，固定 2 draw calls。

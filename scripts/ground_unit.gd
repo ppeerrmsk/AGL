@@ -59,6 +59,14 @@ func _ready() -> void:
 			ammo = params.gun.max_ammo
 
 func _physics_process(delta: float) -> void:
+	var perf_detail := PerfBuckets.detail_capture_enabled()
+	var perf_t0 := Time.get_ticks_usec() if perf_detail else 0
+	_physics_process_impl(delta)
+	if perf_detail:
+		PerfBuckets.tick("ground_phys", Time.get_ticks_usec() - perf_t0)
+
+
+func _physics_process_impl(delta: float) -> void:
 	if is_destroyed:
 		_update_destroy(delta)
 		queue_redraw()
@@ -307,6 +315,14 @@ func is_in_radar_cone(target_global_pos: Vector2) -> bool:
 # ========== 绘制 ==========
 
 func _draw() -> void:
+	var perf_detail := PerfBuckets.detail_capture_enabled()
+	var perf_t0 := Time.get_ticks_usec() if perf_detail else 0
+	_draw_impl()
+	if perf_detail:
+		PerfBuckets.tick("ground_draw", Time.get_ticks_usec() - perf_t0)
+
+
+func _draw_impl() -> void:
 	if is_destroyed:
 		_draw_destroyed()
 		return

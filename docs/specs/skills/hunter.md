@@ -5,7 +5,7 @@ status: done
 schema_version: 1
 spec_version: 1
 owner: noelu（设计）/ Codex（规格化与落地）
-depends_on: [rts-command, squad-upgrade-ownership]
+depends_on: [rts-command, skills-720-rework]
 reconstruction_complete: true
 ---
 

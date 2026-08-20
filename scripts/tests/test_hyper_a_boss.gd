@@ -5,7 +5,7 @@ extends RefCounted
 
 const HyperAScript := preload("res://scripts/survivor/hyper_a_boss.gd")
 const BossDebugScript := preload("res://scripts/survivor/boss_debug_select.gd")
-const EXPECTED_ASSERTIONS := 98
+const EXPECTED_ASSERTIONS := 107
 
 class FreedPlayerDirector:
 	extends RefCounted
@@ -37,6 +37,8 @@ func _test_registry_and_debug_entry() -> void:
 	_check("注册表可实例化 BLACK_STAR", encounter != null and encounter is HyperAScript)
 	if encounter != null:
 		_check("注册表呼号为 HYPER-A", encounter.callsign_prefix == "HYPER-A")
+		_check("根机下降开始信号可供事件层绑定无线电", encounter.has_signal("root_descent_started"))
+		_check("根机下降结束信号可供事件层恢复玩家视觉", encounter.has_signal("root_descent_finished"))
 	var black_star: Dictionary = {}
 	for row in BossDebugScript.BOSS_LIST:
 		if String(row.get("id", "")) == "BLACK_STAR":
@@ -51,8 +53,31 @@ func _test_registry_and_debug_entry() -> void:
 			scenario_ids.append(String(pair[1]))
 	for expected in ["full", "g0_weapons", "g1_reentry", "g1_weapons", "g2_dash", "brake_wave", "g3", "second_root", "cooldown"]:
 		_check("Debug 场景可达：%s" % expected, scenario_ids.has(expected))
-	_check("fallback 无线电登记双句 Black Star 登场",
-		ChatterLines.boss_sequence("BLACK_STAR", "spawn").size() == 2)
+	var black_star_radio := ChatterLines.boss_sequence("BLACK_STAR", "spawn")
+	_check("Black Star 双根无线电登记为一号 / 二号机",
+		black_star_radio.size() == 2
+		and int(black_star_radio[0].get("slot", -1)) == 0
+		and int(black_star_radio[1].get("slot", -1)) == 1)
+	var radio_i18n := FileAccess.get_file_as_string("res://i18n/radio.csv")
+	_check("Black Star 双根均自报突破十马赫与高速下降",
+		radio_i18n.contains("RADIO_BOSS_BLACK_STAR_SPAWN_1,一号机已突破十马赫，正在高速下降中。")
+		and radio_i18n.contains("RADIO_BOSS_BLACK_STAR_SPAWN_2,二号机已突破十马赫，正在高速下降中。"))
+	var visual_player := Aircraft.new()
+	var visual_director := FreedPlayerDirector.new()
+	visual_director.player = visual_player
+	var visual_event := BossEncounterEvent.new(Vector2.ZERO, 0.0, "default")
+	visual_event.director = visual_director
+	visual_event._set_arrival_player_visual_hidden(true)
+	_check("初次根机下降只隐藏玩家绘制",
+		not visual_player.visible
+		and bool(visual_player.get_meta(Aircraft.META_PRESENTATION_FORCE_HIDDEN_VISUAL, false)))
+	_check("演出视觉隐藏不授予玩法隐形或无敌",
+		not visual_player.is_cloaked and not visual_player.sensor_hidden and not visual_player.invulnerable)
+	visual_event._set_arrival_player_visual_hidden(false)
+	_check("初次根机撞击后恢复玩家绘制",
+		visual_player.visible
+		and not visual_player.has_meta(Aircraft.META_PRESENTATION_FORCE_HIDDEN_VISUAL))
+	visual_player.free()
 
 
 func _test_generation_resources() -> void:
@@ -381,23 +406,60 @@ func _test_charge_alignment_regression() -> void:
 	climb_ac.params = load(HyperAScript.PARAM_PATHS[1]) as AircraftParams
 	climb_ac.altitude = HyperAScript.COMBAT_ALTITUDE
 	var climb_record := {"ac": climb_ac, "path": "Hyper-A1.1", "generation": 1}
+	climb_boss._records[climb_ac.get_instance_id()] = climb_record
 	var queued_record := {
 		"path": "Hyper-A1.2", "generation": 1,
 		"state": HyperAScript.STATE_FIGHTER, "reentry_cd": 0.0,
 	}
 	climb_boss._records[1] = queued_record
+	var target_holder := Aircraft.new()
+	var holder_ai := AIController.new()
+	holder_ai.name = "AIController"
+	target_holder.add_child(holder_ai)
+	target_holder.combat_target = climb_ac
+	target_holder.commanded_target = climb_ac
+	target_holder.secondary_combat_target = climb_ac
+	target_holder.target_position = Vector2(800.0, 400.0)
+	target_holder.radar_targets[climb_ac] = 1.0
+	target_holder.secondary_radar_targets[climb_ac] = 1.0
+	holder_ai._current_target = climb_ac
+	var saved_all_units: Array[CombatUnit] = CombatUnit.all_units.duplicate()
+	var isolated_units: Array[CombatUnit] = [climb_ac, target_holder]
+	CombatUnit.all_units = isolated_units
 	climb_boss._begin_climb(climb_record, climb_ac)
 	_check("一架开始高空序列后其余分裂体至少再错峰 12 秒",
 		float(queued_record.get("reentry_cd", 0.0)) >= HyperAScript.REENTRY_QUEUE_SPACING)
 	climb_boss._update_climb(climb_record, climb_ac, HyperAScript.CLIMB_DURATION + 0.1)
+	_check("爬升消失时立即解除主副目标、命令目标、雷达锁存与旧追击点",
+		target_holder.combat_target == null
+		and target_holder.commanded_target == null
+		and target_holder.secondary_combat_target == null
+		and holder_ai._current_target == null
+		and target_holder.target_position == Vector2.INF
+		and not target_holder.radar_targets.has(climb_ac)
+		and not target_holder.secondary_radar_targets.has(climb_ac))
 	_check("爬升完成先进入独立高空等待而非立刻俯冲",
 		String(climb_record.get("state", "")) == HyperAScript.STATE_HIGH_ALTITUDE_HOLD
 		and not climb_ac.visible)
+	var hold_entries := climb_boss.get_hud_entries()
+	_check("模型消失后状态栏仍保留高空等待高度与倒数",
+		hold_entries.size() == 1
+		and String(hold_entries[0].get("state", "")) == "HIGH HOLD"
+		and is_equal_approx(float(hold_entries[0].get("altitude", 0.0)),
+			HyperAScript.DESCENT_START_ALTITUDE)
+		and float(hold_entries[0].get("seconds", 0.0)) >= HyperAScript.HIGH_ALTITUDE_HOLD_MIN)
+	var hud := SurvivorHUD.new()
+	var hold_text := hud._format_custom_boss_entries(hold_entries)
+	_check("高空等待条目明确显示 HIGH HOLD、30km 与剩余秒数",
+		hold_text.contains("HIGH HOLD 30.0km") and hold_text.contains("s"))
+	hud.free()
 	climb_boss._update_high_altitude_hold(climb_record, climb_ac,
 		HyperAScript.HIGH_ALTITUDE_HOLD_MAX + 0.1)
 	_check("高空等待结束后才开始 4 秒俯冲预警",
 		String(climb_record.get("state", "")) == HyperAScript.STATE_DESCENT
 		and is_equal_approx(float(climb_record.get("timer", 0.0)), HyperAScript.DESCENT_DURATION))
+	CombatUnit.all_units = saved_all_units
+	target_holder.free()
 	climb_ac.free()
 	var crash_guards := FileAccess.get_file_as_string(
 		"res://scripts/events/boss_encounter_event.gd") \
@@ -443,7 +505,6 @@ func _test_arrival_sequence() -> void:
 	var reveal_at := INF
 	var dismiss_end := -INF
 	var cut_at := INF
-	var return_at := -INF
 	var release_at := -INF
 	var radio_count := 0
 	for step in seq.get("steps", []):
@@ -457,16 +518,14 @@ func _test_arrival_sequence() -> void:
 			dismiss_end = end
 		elif channel == "camera" and op == "cut_to":
 			cut_at = at
-		elif channel == "camera" and op == "return_to_player":
-			return_at = at
 		elif channel == "actor" and op == "release":
 			release_at = at
 		elif channel == "radio" and op == "line":
 			radio_count += 1
 	_check("状态横幅从第 0 秒开始", is_equal_approx(reveal_at, 0.0))
-	_check("镜头在横幅退完后才切入", cut_at >= dismiss_end)
-	_check("登场有双句无线电", radio_count >= 2)
-	_check("镜头返回后才释放演员", release_at >= return_at)
+	_check("隐藏根机不再切到固定事件锚点", is_inf(cut_at))
+	_check("双根无线电改由真实下降信号触发", radio_count == 0)
+	_check("横幅退完后立即释放演员进入真实下降", release_at >= dismiss_end)
 
 
 func _check(label: String, ok: bool) -> void:

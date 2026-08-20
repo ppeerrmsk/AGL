@@ -285,6 +285,14 @@ func is_active() -> bool:
 
 
 func _physics_process(delta: float) -> void:
+	var perf_detail := PerfBuckets.detail_capture_enabled()
+	var perf_t0 := Time.get_ticks_usec() if perf_detail else 0
+	_physics_process_impl(delta)
+	if perf_detail:
+		PerfBuckets.tick("atmosphere_tick", Time.get_ticks_usec() - perf_t0)
+
+
+func _physics_process_impl(delta: float) -> void:
 	if not _active:
 		return
 	_update_ballistic_shells(delta)
@@ -292,6 +300,7 @@ func _physics_process(delta: float) -> void:
 	_tick_accum += delta
 	if _tick_accum < RETARGET_TICK_S:
 		return
+	PerfBuckets.mark_frame_event("atmosphere_2hz")
 	var fire_delta := _tick_accum
 	_tick_accum = 0.0
 	_cleanup_refs()
@@ -1124,6 +1133,12 @@ func _emit_status() -> void:
 			and is_instance_valid(_spawner.player_aircraft):
 		distance_km = _spawner.player_aircraft.global_position.distance_to(_battle_center) / 500.0
 	var damage_label := "10%" if _damage_live or _sample_kind == "mixed" else "演出层(0%)"
+	PerfBuckets.set_value("atmosphere.live_members", air_alive + ground_alive + naval_alive)
+	PerfBuckets.set_value("atmosphere.aircraft", air_alive)
+	PerfBuckets.set_value("atmosphere.ground", ground_alive)
+	PerfBuckets.set_value("atmosphere.naval", naval_alive)
+	PerfBuckets.set_value("atmosphere.shells", _ballistic_shells.size())
+	PerfBuckets.set_value("atmosphere.flashes", _impact_flashes.size())
 	status_changed.emit("%s运行中 · 中心距玩家%.1fkm · 空中%d 地面%d 舰船%d · 弹丸%d · AI伤害%s" % [
 		label, distance_km, air_alive, ground_alive, naval_alive,
 		_ballistic_shells.size(), damage_label,

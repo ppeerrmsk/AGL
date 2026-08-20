@@ -2,6 +2,7 @@ class_name HudColorSettingsPanel
 extends CanvasLayer
 
 const HudPreferencesScript := preload("res://scripts/ui/hud_preferences.gd")
+const TerminalUiStyleScript := preload("res://scripts/ui/terminal_ui_style.gd")
 
 ## 主菜单 HUD 色盘：四个预设 + 自定义色，保存到 HudPreferences。
 
@@ -40,15 +41,12 @@ func _build_ui() -> void:
 	add_child(overlay)
 
 	var root := PanelContainer.new()
+	root.name = "TerminalHudColorSettings"
 	root.custom_minimum_size = Vector2(520, 0)
 	root.set_anchors_preset(Control.PRESET_CENTER)
 	root.position = Vector2(-260, -250)
-	var frame := StyleBoxFlat.new()
-	frame.bg_color = Color(0.03, 0.05, 0.03, 0.97)
-	frame.border_color = HudPreferencesScript.hud_color()
-	frame.set_border_width_all(2)
-	frame.set_content_margin_all(20)
-	root.add_theme_stylebox_override("panel", frame)
+	TerminalUiStyleScript.apply_panel(root, HudPreferencesScript.hud_color(),
+		Color(0.0, 0.0, 0.0, 0.97), 18.0, 1)
 	add_child(root)
 
 	var column := VBoxContainer.new()
@@ -58,8 +56,8 @@ func _build_ui() -> void:
 	var title := Label.new()
 	title.text = tr("HUD_COLOR_SETTINGS_TITLE")
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 22)
-	title.add_theme_color_override("font_color", HudPreferencesScript.hud_color())
+	TerminalUiStyleScript.apply_label(
+		title, 24, HudPreferencesScript.hud_color(), true)
 	column.add_child(title)
 
 	var presets := HBoxContainer.new()
@@ -83,10 +81,12 @@ func _build_ui() -> void:
 	column.add_child(actions)
 	var cancel := Button.new()
 	cancel.text = tr("HUD_COLOR_CANCEL")
+	TerminalUiStyleScript.apply_button(cancel, HudPreferencesScript.hud_color())
 	cancel.pressed.connect(close_panel)
 	actions.add_child(cancel)
 	var save := Button.new()
 	save.text = tr("HUD_COLOR_SAVE")
+	TerminalUiStyleScript.apply_button(save, HudPreferencesScript.hud_color(), false, true)
 	save.pressed.connect(_on_save)
 	actions.add_child(save)
 
@@ -95,12 +95,7 @@ func _add_preset(parent: HBoxContainer, label_text: String, color: Color) -> voi
 	var btn := Button.new()
 	btn.text = label_text
 	btn.custom_minimum_size = Vector2(106, 34)
-	var normal := StyleBoxFlat.new()
-	normal.bg_color = Color(color, 0.2)
-	normal.border_color = color
-	normal.set_border_width_all(2)
-	btn.add_theme_stylebox_override("normal", normal)
-	btn.add_theme_color_override("font_color", color)
+	TerminalUiStyleScript.apply_button(btn, color)
 	btn.pressed.connect(func(): _picker.color = color)
 	parent.add_child(btn)
 

@@ -5,8 +5,8 @@ extends CanvasLayer
 ##
 ## 核心能力：
 ##   1. 列出所有战区 (A/B/C/D/E)，显示当前状态 + mission_type
-##   2. 为每个战区选择新的 mission_type（含可选战区任务 bomber_escort）
-##   3. 一键 "Set & Spawn"：强制战区变为 AVAILABLE + 设定新类型 + 清旧单位 + 刷新内容
+##   2. 为每个战区选择星级、mission_type 与地面 3★ profile
+##   3. 一键 "Set & Spawn"：强制 AVAILABLE + 定星/类型/profile + 清旧单位 + 刷新
 ##   4. "Mark Cleared" / "Mark Locked" 改战区状态
 ##   5. "跳到 BOSS 战"：选定关底 BOSS + 计时器清零 → BOSS 立即出场
 ##   6. "跳到半局"：只推进 game_time 到 50%，直接观察中场天气，不触发 BOSS
@@ -43,6 +43,8 @@ const MISSION_TYPE_LABELS: Dictionary = {
 	"naval": "海军舰队（DDG+FFG）",
 	"bomber_escort": "可选任务｜护送轰炸机",
 }
+const TIER3_PROFILE_IDS: Array[StringName] = [&"auto", &"super_cannon", &"siege_tank"]
+const TIER3_PROFILE_LABELS: Array[String] = ["3★自动", "3★巨炮", "3★攻城坦克"]
 
 ## Debug 必须覆盖完整战区奖励表；新增奖励时 skill_audit 会校验本清单是否同步。
 const DEBUG_REWARD_OPTIONS: Array[Dictionary] = [
@@ -111,7 +113,12 @@ func _compute_state_hash() -> String:
 		return ""
 	var parts: PackedStringArray = PackedStringArray()
 	for zid in ZoneData.get_all_zone_ids():
-		parts.append("%s:%d:%s:%d" % [zid, zd.get_state(zid), zd.get_mission_type(zid), zd.get_difficulty(zid)])
+		var profile := &"auto"
+		var zm := _get_zone_mission()
+		if zm != null and zm.has_method("debug_get_tier3_profile"):
+			profile = zm.debug_get_tier3_profile(zid)
+		parts.append("%s:%d:%s:%d:%s" % [zid, zd.get_state(zid),
+			zd.get_mission_type(zid), zd.get_difficulty(zid), profile])
 	# BOSS 解锁也要进指纹 —— 否则跳转后战区列表不刷新，看不到"全部战区已关闭"
 	parts.append("boss:%s" % str(zd.boss_unlocked))
 	return "|".join(parts)
@@ -278,7 +285,7 @@ func _build_ui() -> void:
 	_content.add_child(_zones_list_container)
 
 	var hint := Label.new()
-	hint.text = "F6 关闭  |  Set & Spawn: 强制 AVAILABLE + 换类型 + 刷新内容  |  跳 BOSS 会清掉全部战区残兵"
+	hint.text = "F6 关闭  |  Set & Spawn: 定星/类型/3★来源并刷新  |  Neutralize: 真实摧毁威胁来源"
 	hint.add_theme_font_size_override("font_size", 10)
 	hint.add_theme_color_override("font_color", Color(0.5, 0.6, 0.65, 0.6))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -363,6 +370,23 @@ func _build_zone_row(zid: StringName, zd: ZoneData) -> PanelContainer:
 			break
 	apply_row.add_child(type_opt)
 
+	var star_opt := OptionButton.new()
+	star_opt.add_theme_font_size_override("font_size", 10)
+	for star in range(1, 4):
+		star_opt.add_item("%d★" % star, star - 1)
+	star_opt.selected = clampi(zd.get_difficulty(zid) - 1, 0, 2)
+	apply_row.add_child(star_opt)
+
+	var profile_opt := OptionButton.new()
+	profile_opt.add_theme_font_size_override("font_size", 10)
+	for i in range(TIER3_PROFILE_IDS.size()):
+		profile_opt.add_item(TIER3_PROFILE_LABELS[i], i)
+	var zm := _get_zone_mission()
+	var current_profile: StringName = StringName(zm.debug_get_tier3_profile(zid)) \
+		if zm != null and zm.has_method("debug_get_tier3_profile") else &"auto"
+	profile_opt.selected = maxi(TIER3_PROFILE_IDS.find(current_profile), 0)
+	apply_row.add_child(profile_opt)
+
 	var apply_btn := Button.new()
 	apply_btn.text = "Set & Spawn"
 	apply_btn.add_theme_font_size_override("font_size", 10)
@@ -371,7 +395,10 @@ func _build_zone_row(zid: StringName, zd: ZoneData) -> PanelContainer:
 		var idx := type_opt.selected
 		if idx < 0 or idx >= MISSION_TYPES.size():
 			return
-		_apply_zone_change(zid, MISSION_TYPES[idx]))
+		var profile_idx := profile_opt.selected
+		var profile: StringName = TIER3_PROFILE_IDS[profile_idx] \
+			if profile_idx >= 0 and profile_idx < TIER3_PROFILE_IDS.size() else &"auto"
+		_apply_zone_change(zid, MISSION_TYPES[idx], star_opt.selected + 1, profile))
 	apply_row.add_child(apply_btn)
 
 	# 状态按钮：Mark Cleared / Mark Locked / Purge Only
@@ -404,6 +431,14 @@ func _build_zone_row(zid: StringName, zd: ZoneData) -> PanelContainer:
 	purge_btn.pressed.connect(func(): _on_purge_only(zid))
 	state_row.add_child(purge_btn)
 
+	var neutralize_btn := Button.new()
+	neutralize_btn.text = "⊘ Neutralize"
+	neutralize_btn.add_theme_font_size_override("font_size", 10)
+	neutralize_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_apply_btn_style(neutralize_btn, Color(0.9, 0.45, 0.2))
+	neutralize_btn.pressed.connect(func(): _on_neutralize_tier3(zid))
+	state_row.add_child(neutralize_btn)
+
 	return row
 
 
@@ -429,14 +464,19 @@ func _on_grant_reward() -> void:
 			Color(0.45, 0.9, 0.55) if ok else Color(0.95, 0.45, 0.35))
 
 ## 核心：把战区切到 AVAILABLE + 指定 mission_type + 重刷内容
-func _apply_zone_change(zid: StringName, new_mission_type: String) -> void:
+func _apply_zone_change(zid: StringName, new_mission_type: String,
+		difficulty: int = -1, tier3_profile: StringName = &"auto") -> void:
 	var zd := _get_zone_data()
 	var zm := _get_zone_mission()
 	if zd == null or zm == null:
 		return
 
-	# 覆写 mission_type
+	# 覆写 mission_type / Debug profile；难度仍走 ZoneData 唯一 3★槽，不能由 F6 绕过。
 	zd.debug_set_mission_type(zid, new_mission_type)
+	if zm.has_method("debug_set_tier3_profile"):
+		zm.debug_set_tier3_profile(zid, tier3_profile)
+	if difficulty >= ZoneData.DIFFICULTY_MIN:
+		zd.debug_set_difficulty(zid, difficulty)
 
 	var state := zd.get_state(zid)
 	if state == ZoneData.State.LOCKED or state == ZoneData.State.CLEARED \
@@ -448,7 +488,17 @@ func _apply_zone_change(zid: StringName, new_mission_type: String) -> void:
 		zm.debug_force_respawn_zone(zid)
 
 	EventLogger.log_event("ZONE", "DebugApply",
-		"id=%s new_mt=%s prev_state=%d" % [zid, new_mission_type, state])
+		"id=%s new_mt=%s star=%d profile=%s prev_state=%d" % [zid,
+			new_mission_type, zd.get_difficulty(zid), tier3_profile, state])
+	_rebuild_zones_list()
+
+
+func _on_neutralize_tier3(zid: StringName) -> void:
+	var zm := _get_zone_mission()
+	if zm == null or not zm.has_method("debug_neutralize_tier3_sources"):
+		return
+	var count := int(zm.debug_neutralize_tier3_sources(zid))
+	EventLogger.log_event("TIER3", "F6Neutralize", "zone=%s sources=%d" % [zid, count])
 	_rebuild_zones_list()
 
 ## 跳到 BOSS 战：选定关底 BOSS → 计时器清零 → BOSS 立即出场

@@ -24,7 +24,7 @@
 - **Godot bench 并发隔离**：多个 Codex task 共享同一工作树；运行 Godot/import/bench 时不得有其他 task 正在写项目文件。生成图片、宠物、探针脚本等临时产物一律放 `tmp/`（该目录由 `.gdignore` 隔离）或项目外，禁止在 Godot 可扫描目录中边写资源边启动引擎。Agent **只能通过 `bench/run.cmd` / `bench/run.sh` 启动 bench，禁止直接执行 Godot**；默认 `Shadow` 模式把已保存的运行时项目文件同步到系统临时目录的稳定隔离副本，复用其独立 `.godot` 缓存，因此允许原工作区常驻 Godot editor（编辑器内未保存修改不会进入测试）。显式第四参数 `InPlace` 才在原工作区运行，且检测到任何 Godot 进程即拒绝。两种模式共用原工作区带 owner PID 的原子锁拒绝 bench 并发；独立 `watch_godot.ps1` 在超时或调用 agent 消失时显式 `taskkill /T /F` 回收测试进程树，并以 Windows Job Object 作为二次兜底；内部有限超时默认为 `max(120s, duration+90s)`，进程级 error mode 禁止原生崩溃弹窗。`project.godot` 必须保持 `debug/file_logging/enable_file_logging.pc=false`：Godot 4.7.1 的 `RotatedFileLogger` 在本机无头启动时会因 `Ref<RegEx>` 实例化失败而读取空指针 `+0x58`；AGL 已由 EventLogger / bench 结果承担日志。若出现不可复现的 `signal 11`，先检查并发 task 与测试副本自身 `.godot/imported` 的同刻导入记录，不得直接归咎于 GDScript
 - F9 导出战斗日志。**编辑器模式**写到项目内 `logs/combat_log_*.txt`（`/logs/` 被 .gitignore 排除）；**导出包**写到 `user://combat_log_*.txt`。路径切换逻辑在 `event_logger.gd:dump_to_file`
 - 生存模式 F11 切换友方僚机编队调试覆盖层（橙线 → 阵型槽位 / 蓝射线 → 当前 hdg / 黄射线 → 目标 hdg / 文本: branch + slot_d + bank delta）；F12 抓一帧编队状态快照到控制台 + EventLogger
-- 无正式测试框架，通过运行时观察 + EventLogger 日志调试
+- 不使用第三方测试框架；项目自有 BenchRunner 提供断言、压力与 Visual 场景，运行时观察 + EventLogger 仍是完整局证据
 
 ## AutoLoads（初始化顺序）
 
@@ -72,9 +72,9 @@ Resource:   AircraftParams / GunParams / RocketParams / MissileParams / CombatPa
 2. `_draw` 里不得有全场扫描（用 `AircraftRenderer.player_ref` / `CombatUnit.all_units`）
 3. 多次 `draw_polygon` / `draw_line` 要合并（用 `RenderingServer.canvas_item_add_triangle_array`）
 4. `_process` / `_physics_process` 禁用 `get_parent().get_children()`
-5. AI 决策默认从 20Hz 甚至 10Hz 起步（`ai_tick_divisor ≥ 3`）
+5. 现有 simple AI 以 20Hz/10Hz 分频；新增慢决策/扫描默认先从 1–3Hz 起步，确有可见需要再提高
 6. 挂到 Aircraft/Missile 子节点要先乘实体数（22 架 × 60Hz）
-7. 新功能必须跑生存模式 Sentinel + Lv5+ 压力测试，FPS 掉 >15 就回滚
+7. 新增常驻 tick/draw/实体/弹丸必须按性能守则跑代表性负载：核心为 36 名混合海陆空全可见战场 `Shadow Visual`；再按成本形状追加多战线/弹幕/BOSS/地图专项，Sentinel 不再是通用性能标杆
 8. 随实体数增长的单帧成本必须支持降频 / 冻结 / 简化，并保留玩家、BOSS、Sentinel 豁免
 
 历史翻车清单（尾迹 40 万 draw_polygon/秒、地图每帧重算、数据标签 O(N²) 扫描等）见守则末尾"历史教训"段。
@@ -156,8 +156,8 @@ script-index / code-index）只写"代码在哪"（纯指针）。样板见 [bos
   - 若确认对方只是传参不存引用 → 加进脚本的 `NON_HOLDERS` 并写明理由（显式裁定，不要注释掉检查）
 - **commit 前** 跑 `python tools/verify_doc_anchors.py` 校验索引锚点没写错行号
   （`--doc <file>` / `--section <标题>` 可只校验你动过的那段；退出码 1 = 有腐烂）
-  - ✅ 2026-08-04 已再次全量刷新：149 份当前文档、702 个锚点全绿（含同行 `:line symbol` 简写）。
-    **现在报红就是真出事了**，请当场修掉；可先用 `--fix` 保守机械刷新，多义项仍要人工判断
+  - 文档与锚点数量以校验器实时输出为准，禁止在导航里冻结总数；**现在报红就是真出事了**，请当场修掉；
+    可先用 `--fix` 保守机械刷新，多义项仍要人工判断
   - 写锚点**带上符号名**（`aircraft/aircraft_physics.gd:222 update_speed`）才能强校验；
     只写行号只能验"没越界"—— 历史上正是弱锚点掩盖了指错文件的错误
 - **commit 前** 跑 `powershell -ExecutionPolicy Bypass -File tools/verify_docs.ps1` 校验当前文档断链、spec 漏登记、元数据与总表漂移
@@ -193,6 +193,10 @@ script-index / code-index）只写"代码在哪"（纯指针）。样板见 [bos
 **规划**（docs/planning/）
 - [physics-ai-control-refactor.md](docs/planning/physics-ai-control-refactor.md) — 操控权限重构计划（分支布局 / 回归门 / 交接）
 - [evolution-vertical-slice.md](docs/planning/evolution-vertical-slice.md) — 进化循环垂直切片
+- [content-production-workflow.md](docs/planning/content-production-workflow.md) — 当前铺量顺序、批次/WIP、证据等级与完成线
+- [20-hour-content-exposure-plan.md](docs/planning/20-hour-content-exposure-plan.md) — 约 20 小时首次体验窗口、节拍槽与确定的地图/BOSS 内容缺口
+- [audio-visual-production-workflow.md](docs/planning/audio-visual-production-workflow.md) — 音效/音乐/机体地图细节/战斗表现素材清单、批次与完成线
+- [quantitative-content-balance-model.md](docs/planning/quantitative-content-balance-model.md) — 难度/玩家上限/敌压/新鲜度/时长/内容缺口的可复算模型工作流
 - ⚠ `roadmap.md` / `roadmap-overview.md` 是 2026-04 历史快照；当前状态看 [docs/specs/_INDEX.md](docs/specs/_INDEX.md)
 
 **子系统设计**（docs/systems/）
@@ -200,7 +204,7 @@ script-index / code-index）只写"代码在哪"（纯指针）。样板见 [bos
 - [aircraft-system.md](docs/systems/aircraft-system.md) — Aircraft 物理流程（LOD 三档）+ 战斗追踪 + 武器模式
 - [event-system.md](docs/systems/event-system.md) — GameEvent + AIDirective + EventDirector（剧本系统）
 - [squad-tactics-design.md](docs/systems/squad-tactics-design.md) — 编队战术 / 三段式托管
-- [survivor-mode.md](docs/systems/survivor-mode.md) — 生存模式波次/升级表
+- [survivor-mode.md](docs/systems/survivor-mode.md) — 生存模式战区循环 / 进化 / 升级架构
 - [survivor-skills.md](docs/systems/survivor-skills.md) — 技能设计哲学 + 系统概念 + 需求 backlog
 - [missile-system.md](docs/systems/missile-system.md) — 导弹系统
 - [radar-system.md](docs/systems/radar-system.md) — 雷达系统 + 锁定算法
@@ -223,7 +227,7 @@ script-index / code-index）只写"代码在哪"（纯指针）。样板见 [bos
 - [playable-aircraft-workflow.md](docs/reference/playable-aircraft-workflow.md) — 加新主角飞机的完整流程
 - [i18n.md](docs/reference/i18n.md) — 本地化 / 翻译 key 约定
 - [features.md](docs/reference/features.md) — 已实现功能清单
-- [performance-guidelines.md](docs/reference/performance-guidelines.md) — 8 条性能硬规则 + 历史教训
+- [performance-guidelines.md](docs/reference/performance-guidelines.md) — 8 条性能硬规则 + 混合战场/专项剖面验证流 + 历史教训
 - `tools/verify_doc_anchors.py` — 索引锚点校验器（覆盖当前 docs + AGENTS/CLAUDE，刻意不扫 changelogs）
 - `tools/verify_docs.ps1` — 当前文档断链 + spec 登记/front matter/总表一致性校验（默认不改写历史层）
 - [map-pipeline.md](docs/reference/map-pipeline.md) — 地图流水线（OSM 烘焙 / 底图 / `is_on_land`）

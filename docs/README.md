@@ -1,6 +1,6 @@
 # AGL 文档入口
 
-> 最后校订：2026-08-19。这里是 `docs/` 的导航与维护约定；游戏设计本身以
+> 最后校订：2026-08-20。这里是 `docs/` 的导航与维护约定；游戏设计本身以
 > [specs/_INDEX.md](specs/_INDEX.md) 为权威源。
 
 ## 先判断你要写哪一种文档
@@ -32,6 +32,15 @@
 | 看仓库目录 | [reference/repo-layout.md](reference/repo-layout.md) |
 | 查已知耦合点 | [architecture/known-seams.md](architecture/known-seams.md) |
 | 查现有功能快照 | [reference/features.md](reference/features.md) |
+| 看铺量阶段下一步与完成线 | [planning/content-production-workflow.md](planning/content-production-workflow.md) |
+| 看约 20 小时首次体验窗口与确定的内容缺口 | [planning/20-hour-content-exposure-plan.md](planning/20-hour-content-exposure-plan.md) |
+| 交付音效/音乐/美术素材并做表现批 | [planning/audio-visual-production-workflow.md](planning/audio-visual-production-workflow.md) |
+| 量化难度、玩家上限、敌压、新鲜度、时长与内容缺口 | [planning/quantitative-content-balance-model.md](planning/quantitative-content-balance-model.md) |
+| 选性能核心门/专项剖面并判定结果 | [reference/performance-guidelines.md](reference/performance-guidelines.md) |
+
+当前阶段不再读 2026-04 roadmap 排期；`roadmap*` 与 `evolution-vertical-slice` 仅保留历史判断过程。
+生产顺序、WIP 上限、20 小时内容目标、证据等级和地图内容包完成定义统一看上面的铺量 workflow；
+音画素材清单、表现目标与 Build 变强可视化走音画生产工作流。
 
 ## 项目结构速览
 

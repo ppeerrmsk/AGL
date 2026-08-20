@@ -5,7 +5,7 @@ status: done
 schema_version: 1
 spec_version: 2
 owner: 用户
-depends_on: [aircraft-signature-skills, evolution-attribute-gates, zone-reward-arsenal, squad-upgrade-ownership]
+depends_on: [aircraft-signature-skills, evolution-attribute-gates, zone-reward-arsenal, skills-720-rework]
 reconstruction_complete: true
 ---
 

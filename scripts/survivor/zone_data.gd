@@ -17,6 +17,9 @@ enum State {
 ## 战区难度（1~3 星，影响驻守敌机强度/数量）
 const DIFFICULTY_MIN := 1
 const DIFFICULTY_MAX := 3
+## 三级战区是全图单槽战略威胁。所有正式开放路径（普通、机场、可选任务、Debug）
+## 都必须经 `_tier3_allowed_for`，不能各自维护一份上限。
+const MAX_CONCURRENT_TIER3_ZONES := 1
 
 ## 轰炸机护送不是普通战区军械奖励：成功只给固定星级经验。
 ## 该值不走击杀 XP 乘区/小队分摊，保证 Tab 预告值与实际到账完全一致。
@@ -351,7 +354,10 @@ func is_airfield(id: StringName) -> bool:
 
 ## 机场战区难度定档（ZoneMission 首刷时按当前热度写入；不走 _roll_difficulty 随机）
 func set_airfield_difficulty(id: StringName, star: int) -> void:
-	_difficulties[id] = clampi(star, DIFFICULTY_MIN, DIFFICULTY_MAX)
+	var desired := clampi(star, DIFFICULTY_MIN, DIFFICULTY_MAX)
+	if desired == DIFFICULTY_MAX and not _tier3_allowed_for(id):
+		desired = DIFFICULTY_MAX - 1
+	_difficulties[id] = desired
 
 ## 解放机场（spec airfield-liberation-zones §3.1）：独立于普通战区 mark_cleared 的
 ## churn（不改 _last_cleared / 不进重开池 / 不 erase 奖励 / 不触发 _refresh_availability）。
@@ -981,10 +987,33 @@ func _roll_difficulty(id: StringName, max_diff: int = DIFFICULTY_MAX) -> void:
 	if _difficulties.has(id):
 		return
 	var hi: int = clampi(max_diff, DIFFICULTY_MIN, DIFFICULTY_MAX)
+	if hi == DIFFICULTY_MAX and not _tier3_allowed_for(id):
+		hi = DIFFICULTY_MAX - 1
 	_difficulties[id] = DIFFICULTY_MIN + randi() % (hi - DIFFICULTY_MIN + 1)
 
 func get_difficulty(id: StringName) -> int:
 	return int(_difficulties.get(id, DIFFICULTY_MIN))
+
+## 当前仍占三级单槽的正式战区。只统计玩家可见/可选/执行中的 AVAILABLE/SELECTED；
+## 已清除、失败、锁定或尚未写难度的战区都不占名额。
+func active_tier3_zone_ids(except_id: StringName = &"") -> Array[StringName]:
+	var out: Array[StringName] = []
+	for zid_value in _states.keys():
+		var zid := StringName(zid_value)
+		if zid == except_id:
+			continue
+		var state: int = int(_states[zid])
+		if state != State.AVAILABLE and state != State.SELECTED:
+			continue
+		if int(_difficulties.get(zid, DIFFICULTY_MIN)) == DIFFICULTY_MAX:
+			out.append(zid)
+	return out
+
+func has_active_tier3(except_id: StringName = &"") -> bool:
+	return not active_tier3_zone_ids(except_id).is_empty()
+
+func _tier3_allowed_for(id: StringName) -> bool:
+	return active_tier3_zone_ids(id).size() < MAX_CONCURRENT_TIER3_ZONES
 
 # ══════════════════════════════════════════════
 #  任务类型（runtime roll，覆盖 ZONES 的默认 mission_type）
@@ -1111,6 +1140,14 @@ func debug_set_mission_type(id: StringName, new_type: String) -> void:
 			and get_state(id) in [State.AVAILABLE, State.SELECTED]:
 		# 从护送任务切回普通任务时恢复 F6 的“可直接验收完整战区”语义。
 		_assign_reward(id)
+
+## Debug 仍服从正式单槽；测试若要覆盖保护性多源场，必须显式传 allow_multiple_tier3。
+func debug_set_difficulty(id: StringName, star: int,
+		allow_multiple_tier3: bool = false) -> void:
+	var desired := clampi(star, DIFFICULTY_MIN, DIFFICULTY_MAX)
+	if desired == DIFFICULTY_MAX and not allow_multiple_tier3 and not _tier3_allowed_for(id):
+		desired = DIFFICULTY_MAX - 1
+	_difficulties[id] = desired
 
 ## Debug：强制把战区置为 CLEARED（不走 mark_cleared 的 refresh 逻辑）
 func debug_mark_cleared(id: StringName) -> void:

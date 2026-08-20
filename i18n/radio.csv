@@ -63,8 +63,8 @@ RADIO_BOSS_GOOSE_SPAWN_1,mother_goose.boot(); status = ONLINE;,mother_goose.boot
 RADIO_BOSS_GOOSE_SPAWN_2,brood.launch(ALL);,brood.launch(ALL);,brood.launch(ALL);
 RADIO_BOSS_GOOSE_ENGAGE_1,targets.acquire(type: INTRUDER); goslings.execute(PURGE);,targets.acquire(type: INTRUDER); goslings.execute(PURGE);,targets.acquire(type: INTRUDER); goslings.execute(PURGE);
 RADIO_BOSS_GOOSE_PHASE2_1,engagement.phase++;reserve_units.commit();,engagement.phase++;reserve_units.commit();,engagement.phase++;reserve_units.commit();
-RADIO_BOSS_BLACK_STAR_SPAWN_1,发现高空热源。高度三万，仍在快速下降。,High-altitude thermal contact. Thirty thousand and dropping fast.,高高度に熱源。高度三万、急速降下中。
-RADIO_BOSS_BLACK_STAR_SPAWN_2,不是一架。重复，不是一架。,It is not alone. Repeat: not alone.,一機ではない。繰り返す、一機ではない。
+RADIO_BOSS_BLACK_STAR_SPAWN_1,一号机已突破十马赫，正在高速下降中。,Unit One has exceeded Mach 10. High-speed descent in progress.,1号機、マッハ10を突破。高速降下中。
+RADIO_BOSS_BLACK_STAR_SPAWN_2,二号机已突破十马赫，正在高速下降中。,Unit Two has exceeded Mach 10. High-speed descent in progress.,2号機、マッハ10を突破。高速降下中。
 RADIO_BOSS_DEFAULT_SPAWN_1,目标已确认，全队进入交战阵位。,Target confirmed. All elements to engagement stations.,目標確認、全機交戦配置につけ。
 RADIO_BOSS_DEFAULT_SPAWN_2,这将会很短暂。,This won't take long.,すぐに終わる。
 RADIO_BOSS_DEFAULT_ENGAGE_1,交战开始。别让他们活着离开。,Engaging. They don't leave this airspace.,交戦開始。生きて帰すな。

@@ -6,8 +6,8 @@ extends Node
 ## 负责触发与调度：
 ##   1. **开局教程**：game_time ≈ 5s 时在玩家正前方刷 2 架轰炸机，背对玩家逃离
 ##      （"第一桶金"教学）
-##   2. **城区直升机事件**：周期性（60-120s）在随机城区刷一队 CH-47，飞向最近地图边界
-##      弹出 HUD 提示。若玩家不理会，单位逃出地图后事件自动结束（靠 despawn_after meta）
+##   2. **城区直升机事件**：低概率（每个 60-120s 调度窗 25%）在远端城区刷一队 CH-47，
+##      飞向最近地图边界。玩家从战术地图主动寻找；若不理会，单位逃出地图后自动结束
 ##   3. （未来可扩展：空袭预警 / 王牌单发 / 护航等）
 ##
 ## 事件单位一律走 Adds 族群系统（不占 Token，逃离即消失），玩家击坠给高 XP 奖励。
@@ -16,8 +16,7 @@ extends Node
 const EVENT_INTERVAL_MIN := 60.0
 const EVENT_INTERVAL_MAX := 120.0
 const EVENT_DEFER_COOLDOWN := 30.0          ## 被跳过（玩家在战区内）后多久再 roll
-const EVENT_NO_CANDIDATE_COOLDOWN := 25.0   ## 附近没合适城区时多久再 roll
-const EVENT_SPAWN_MAX_DIST_PX := 4000.0     ## 事件生成点距玩家上限（≈8km）
+const EVENT_NO_CANDIDATE_COOLDOWN := 25.0   ## 全图没有合适城区时多久再 roll
 const EVENT_DEFER_WHEN_IN_ZONE := true      ## 玩家在战区圆内时不刷支线
 
 ## ── 教程轰炸机 ──
@@ -35,6 +34,10 @@ const TUTORIAL_BOMBER_ANCHOR := MapBoundary.PLAYER_START_OFFSET_PX + Vector2(0.0
 
 ## ── 城区直升机事件 ──
 const CITY_HELI_COUNT := 3
+const CITY_HELI_ROLL_CHANCE := 0.25          ## 每个调度窗 25% 概率，保持偶遇感
+const CITY_HELI_MAX_PER_RUN := 2             ## 一局最多两次
+const CITY_HELI_MIN_PLAYER_DIST_PX := 6000.0 ## 至少 12km，必须从战术地图主动寻找
+const CITY_HELI_MIN_EDGE_DIST_PX := 4000.0   ## 至少 8km 撤离航程，给玩家截击时间
 ## 全歼本次运输队的奖励：作战时间 +20s（走 survivor_mode.grant_time_extension，
 ## 与王牌中队全灭 +60s 同一注入点）。给的是"局内时间"而不是功勋 ——
 ## 玩家要有当场去打它的理由，而不是打完才发现只加了点局外货币。
@@ -51,12 +54,14 @@ var active_units: Array[Aircraft] = []
 ## 本次城区直升机事件的编队与已确认击落数（全灭 → 奖励作战时间）
 var _city_heli_group: Array[Aircraft] = []
 var _city_heli_killed: int = 0
+var _city_heli_spawn_count: int = 0
 
 func setup(p_mode: Node, spawner: SurvivorSpawner, player: Aircraft, hint: ZoneHint) -> void:
 	mode = p_mode
 	_spawner = spawner
 	_player = player
 	_zone_hint = hint
+	_city_heli_spawn_count = 0
 	_event_timer = randf_range(EVENT_INTERVAL_MIN * 0.6, EVENT_INTERVAL_MAX * 0.8)
 	# 开局教程：立刻把 3 架轰炸机放在玩家前方（不触发 toast）
 	_spawn_tutorial_bombers()
@@ -81,11 +86,14 @@ func _physics_process(delta: float) -> void:
 	if boss_phase or boss_spawned:
 		return
 
-	# 城区事件：每 60-120s 一次
+	if _city_heli_spawn_count >= CITY_HELI_MAX_PER_RUN and _city_heli_group.is_empty():
+		return
+
+	# 城区事件：每 60-120s 开一个调度窗，每窗仅 25% 概率真正生成
 	_event_timer -= delta
 	if _event_timer <= 0.0:
 		_event_timer = randf_range(EVENT_INTERVAL_MIN, EVENT_INTERVAL_MAX)
-		_trigger_city_heli_event()
+		_trigger_city_heli_event(randf())
 
 # ══════════════════════════════════════════════
 #  教程：开局轰炸机（3 架纵阵，左右交替偏置；不弹 toast）
@@ -120,20 +128,32 @@ func _spawn_tutorial_bombers() -> void:
 #  城区直升机事件
 # ══════════════════════════════════════════════
 
-func _trigger_city_heli_event() -> void:
+func _trigger_city_heli_event(roll: float) -> void:
 	if not _spawner or not _player:
 		return
+	MapGeography.ensure_ready()
 	if MapGeography.URBAN_DISTRICTS.is_empty():
+		return
+	if _city_heli_spawn_count >= CITY_HELI_MAX_PER_RUN:
+		return
+	# 同屏只允许一组：旧组未全灭/撤离时不覆盖其结算引用。
+	if not _city_heli_group.is_empty():
+		_event_timer = EVENT_DEFER_COOLDOWN
+		EventLogger.log_event("ADBS", "Defer", "heli group still active, postponing")
 		return
 	# 冲突处理：玩家正在某个战区圈内执行任务 → 跳过，短冷却后再 roll
 	if EVENT_DEFER_WHEN_IN_ZONE and _player_in_any_zone():
 		_event_timer = EVENT_DEFER_COOLDOWN
 		EventLogger.log_event("ADBS", "Defer", "player in-zone, skipping heli event")
 		return
-	# 过滤：只从玩家附近的城区中选
-	var city_center := _pick_nearby_city_center()
+	# 过滤：从全图远端城区选，不在玩家附近凭空出现。
+	var city_center := _pick_city_center()
 	if city_center == Vector2.INF:
 		_event_timer = EVENT_NO_CANDIDATE_COOLDOWN
+		return
+	if not city_heli_schedule_allows(roll, _city_heli_spawn_count, _city_heli_group.size()):
+		EventLogger.log_event("ADBS", "ChanceMiss",
+			"city heli roll %.3f >= %.2f" % [roll, CITY_HELI_ROLL_CHANCE])
 		return
 	# 铁则：城区中心落在玩家视野内就延迟（避免凭空出现）
 	if mode and mode.has_method("is_world_pos_visible") and mode.is_world_pos_visible(city_center):
@@ -142,15 +162,34 @@ func _trigger_city_heli_event() -> void:
 		return
 	var flee_dir := _direction_to_nearest_border(city_center)
 	var spawned := _spawner.spawn_heli_flee(city_center, flee_dir, CITY_HELI_COUNT)
+	if spawned.is_empty():
+		_event_timer = EVENT_NO_CANDIDATE_COOLDOWN
+		return
 	_city_heli_group = spawned
 	_city_heli_killed = 0
+	_city_heli_spawn_count += 1
 	for h in spawned:
 		h.is_mission_target = true
 		active_units.append(h)
 	_show_toast(tr("ADBS_CITY_HELIS_FMT") % _compass_label(flee_dir), 5.0)
 	EventLogger.log_event("ADBS", "CityHeli",
-		"heli flock spawned at %s fleeing %s (dist=%.0fpx)" %
-			[city_center, _compass_label(flee_dir), _player.global_position.distance_to(city_center)])
+		"heli flock %d/%d spawned at %s fleeing %s (dist=%.0fpx)" %
+			[_city_heli_spawn_count, CITY_HELI_MAX_PER_RUN, city_center,
+			_compass_label(flee_dir), _player.global_position.distance_to(city_center)])
+
+## 调度纯函数：25% 概率、整局上限 2 次、活跃组互斥。
+static func city_heli_schedule_allows(roll: float, spawned_count: int, active_count: int) -> bool:
+	return spawned_count < CITY_HELI_MAX_PER_RUN \
+			and active_count == 0 \
+			and roll >= 0.0 \
+			and roll < CITY_HELI_ROLL_CHANCE
+
+## 远端城区候选合同：距玩家 ≥12km、距边界 ≥8km、不得落入活跃战区。
+static func city_heli_spawn_candidate_allowed(player_pos: Vector2, city_center: Vector2,
+		in_active_zone: bool) -> bool:
+	return not in_active_zone \
+			and player_pos.distance_to(city_center) >= CITY_HELI_MIN_PLAYER_DIST_PX \
+			and MapBoundary.distance_to_edge(city_center) >= CITY_HELI_MIN_EDGE_DIST_PX
 
 ## 指定位置是否落在任意 AVAILABLE / SELECTED 战区圈内（通用）
 func _pos_in_any_zone(pos: Vector2) -> bool:
@@ -176,10 +215,10 @@ func _player_in_any_zone() -> bool:
 		return false
 	return _pos_in_any_zone(_player.global_position)
 
-## 从所有城区多边形中挑一个距玩家 ≤ EVENT_SPAWN_MAX_DIST_PX 的，
-## 且城区中心本身不落在任何活跃战区圈内（ADBS 奖励任务只刷在战区外）。
+## 从全图城区多边形中挑一个远离玩家、离边界有足够撤离航程、
+## 且城区中心不落在任何活跃战区圈内的候选（ADBS 奖励任务只刷在战区外）。
 ## 失败返回 Vector2.INF
-func _pick_nearby_city_center() -> Vector2:
+func _pick_city_center() -> Vector2:
 	var pp := _player.global_position
 	var candidates: Array[Vector2] = []
 	for poly_any in MapGeography.URBAN_DISTRICTS:
@@ -187,10 +226,8 @@ func _pick_nearby_city_center() -> Vector2:
 		if poly.is_empty():
 			continue
 		var c := _polygon_centroid(poly)
-		if pp.distance_to(c) > EVENT_SPAWN_MAX_DIST_PX:
-			continue
-		## 铁则：刷怪点落在任何活跃战区圆内 → 跳过，避免奖励任务污染战区任务空域
-		if _pos_in_any_zone(c):
+		## 铁则：远离玩家、保留截击时间，且不污染战区任务空域。
+		if not city_heli_spawn_candidate_allowed(pp, c, _pos_in_any_zone(c)):
 			continue
 		candidates.append(c)
 	if candidates.is_empty():

@@ -59,7 +59,8 @@
 **AI Archetype 是内部词汇**：Gladiator/Lancer/Schemer 不要在 UI / Debug 面板 / display_name
 里出现（user memory `feedback_ai_archetype_internal`）。
 
-**事件 / 任务刷点必须沿玩家 heading 前方扇形**（user memory `feedback_event_spawn_ahead`）。
+**普通拦截压力默认从玩家 heading 前方的地图边缘入场**；任务/追击必须从自己的遭遇空间派生，
+例如轰炸机追击从被护送编队实时 heading 的后方同向进入。不要把“前方扇形”硬套到所有任务。
 
 ---
 
@@ -184,7 +185,7 @@ GunEquipment / MissileEquipment / RocketEquipment / LaserEquipment / RailgunEqui
 ### 已有装备类的新变种（如新型 missile 参数）
 
 直接复制现有 `.tres` 改字段就行，不需要写 .gd。**踩坑提醒**：
-- `Resource` 用 `preload()` + `duplicate(true)` 避免共享修改（CLAUDE.md 已写）
+- `Resource` 用 `preload()` + `duplicate(true)` 避免共享修改（AGENTS.md 已写）
 - 参数字段命名沿用现有约定，方便 `effective_*()` accessor 通用扩展
 
 ### i18n
@@ -251,8 +252,9 @@ HUD/log 拼接）。详见 [i18n.md](i18n.md)。
 剧本系统。
 
 要点：
-- 事件 / 任务 / Adds 波次默认沿玩家 heading 前方扇形刷出（user memory
-  `feedback_event_spawn_ahead`），**不要刷玩家身后**
+- 先定义生成几何的权威：普通拦截压力走玩家前方地图边缘；护送/追击走任务航线与被护送对象
+  实时 heading；海军/BOSS 走水域和遭遇锚点。共同底线是有可信来路、避免画面内凭空生成，
+  不是所有事件都固定刷在玩家前方
 - 事件类继承 `GameEvent`：实现 `_start` / `update` / `_check_complete`
 - 接入 `EventDirector`：注册 + 触发条件 + 冷却
 
@@ -267,7 +269,7 @@ HUD/log 拼接）。详见 [i18n.md](i18n.md)。
 RadarStation 都继承 `GroundUnit extends CombatUnit`。
 
 要点：
-- 覆写 `is_in_radar_cone` / `take_damage` / `is_lock_immune`（CLAUDE.md 已写）
+- 覆写 `is_in_radar_cone` / `take_damage` / `is_lock_immune`（AGENTS.md 已写）
 - 没有飞行物理，只有原地武器逻辑
 - HUD 显示：`scripts/aircraft_renderer.gd` 的 ground 路径 / 或自己 _draw
 

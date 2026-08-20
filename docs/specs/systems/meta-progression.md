@@ -1,7 +1,7 @@
 ---
 id: meta-progression
 kind: system
-status: draft        # ⏳ 方向 stub（用户 2026-06-28 定大方向）：局内/局外彻底分层。细节待补。
+status: superseded   # 历史“局外武器 loadout”草案；当前局外与局内权威已拆分
 schema_version: 1
 spec_version: 1
 owner: noelu
@@ -10,6 +10,12 @@ reconstruction_complete: false
 ---
 
 # 局外成长（Meta-Progression）—— 局内/局外彻底分层
+
+> ⚠ **历史草案，禁止继续派生实现。** 局外武器 loadout 已被明确否决。当前局外权威为
+> [career-archive](career-archive.md)、[career-shop](career-shop.md)、
+> [doctrine-unlocks](doctrine-unlocks.md) 与
+> [aircraft-signature-progression](aircraft-signature-progression.md)；特殊武器纯局内，见
+> [inrun-weapon-inventory](inrun-weapon-inventory.md)。下文只保留 2026-06-28 的设计过程。
 
 > ⏳ **方向 stub**：用户 2026-06-28 定调"把局外成长结合进来，局内/局外完全分开"。本文先存大方向 + 例子 + 待定项，细节后补。
 

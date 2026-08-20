@@ -5,7 +5,7 @@ status: done
 schema_version: 1
 spec_version: 21
 owner: 用户
-depends_on: [aircraft-evolution, aircraft-evolution-tree, player-aircraft-power-curve, squad-upgrade-ownership]
+depends_on: [aircraft-evolution-tree, player-aircraft-power-curve, skills-720-rework, inrun-weapon-inventory, zone-reward-docking]
 reconstruction_complete: true
 ---
 
@@ -24,12 +24,13 @@ reconstruction_complete: true
 - **Litmus 自检**（DESIGN_PHILOSOPHY）：
   - 单杠杆：一个事件（卡片）同时是随机性来源（抽哪张技能）、build 承诺（加哪个轴）、进化钥匙（门槛）。
   - 效果即反馈：门槛缺口画在进化树卡上；三轴状态常驻 Tab（§3.2），不加新 HUD 页面。
-  - 复用既有数值：三轴 = squad-upgrade-ownership 的 affinity（GUN/MISSILE/EW）；奖励全是既有字段（HP/弹量/雷达/flare）。
+  - 复用既有数值：三轴沿用技能数据的 `affinity`（GUN/MISSILE/EW）；奖励全是既有字段（HP/弹量/雷达/flare）。
   - 中队级粒度：技能点/里程碑是**玩家全局单池**，ACE/僚机进化查同一份。
 - **反模式规避**：无 respec；无强制硬保底；4 级金卡只走
   [classified-card-pity](classified-card-pity.md) 的隐性递增权重；三轴就是三个（用户订正）。
-- **与既有决策的关系**：不动"停靠结算进化"经济流；"升级不打断"照旧（卡片事件本就是既有三选一节奏）；
-  **武器仍绑机型不继承**（tree §3.5 注）——跟玩家走的是技能卡与里程碑加成，不是武器。
+- **与既有决策的关系**：不动“停靠结算进化”经济流；“升级不打断”照旧（卡片事件本就是既有三选一节奏）；
+  技能卡、里程碑加成与特殊武器都跟玩家局内库存走，机体底线武装仍随机体变化；武器权威见
+  [inrun-weapon-inventory](inrun-weapon-inventory.md)。
 
 ## 2. 数据定义（What —— 全部数值，权威源）
 
@@ -171,7 +172,7 @@ reconstruction_complete: true
 | 达成新里程碑 | 对**当时存活的每一架**小队成员各发一次 |
 | **新僚机入队** | 入队时**全量补挂**已达成的全部里程碑（晚入队不吃亏） |
 | **换型（进化）** | 对全队**逐机重放**，且**每机恰好一次**——重放的语义是"先清账再全量重挂"，同一架机重复调用会把加成叠两遍 |
-| **换帅**（1-4 切控 / 长机阵亡顶替） | 加成**不丢**：新操控机身上本来就挂着自己那份 |
+| **换帅**（1–9 切控 / 长机阵亡顶替） | 加成**不丢**：新操控机身上本来就挂着自己那份 |
 
 > 🐞 **顺带修掉的 bug（v10 前长期存在）**：玩家级单账本 + 只发当前操控机 ⇒ 换帅后新操控机
 > **一条里程碑加成都没有**，且因为玩家级账本"已发过"已经记满，**永远补不上**。

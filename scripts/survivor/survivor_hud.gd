@@ -6,6 +6,7 @@ const WingmanInstrumentPanelScript := preload("res://scripts/survivor/wingman_in
 const MilestoneAxisCounterScript := preload("res://scripts/survivor/milestone_axis_counter.gd")
 const BottomExperiencePanelScript := preload("res://scripts/survivor/bottom_experience_panel.gd")
 const WarzoneTimePanelScript := preload("res://scripts/survivor/warzone_time_panel.gd")
+const ZoneHintScript := preload("res://scripts/survivor/zone_hint.gd")
 const UiDevOutlineOverlayScript := preload("res://scripts/ui/ui_dev_outline_overlay.gd")
 const HudFirstRevealSequencerScript := preload("res://scripts/ui/hud_first_reveal_sequencer.gd")
 const HudBoardVisibilityScript := preload("res://scripts/ui/hud_board_visibility.gd")
@@ -92,6 +93,7 @@ var _kill_feed_entries: Array = []   ## 每项 {label: Label, age: float}
 # ── 其他 ──
 var _game_over_panel: PanelContainer
 var _game_over_label: RichTextLabel
+var _game_over_dim: ColorRect
 var _threat_overlay: Control
 var _damage_vignette: Control
 
@@ -112,6 +114,7 @@ const HUD_REVEAL_GAME_OVER := &"game_over"
 # ── 正式生存 HUD 根节点；缩放仅施加于右侧玩家仪表 ──
 var _ui_root: Control
 var _player_hud_scale := PLAYER_HUD_SCALE_DEFAULT
+var _static_layout_viewport := Vector2(-1.0, -1.0)
 
 # ── F7 UI Dev 定位覆盖层 ──
 var _ui_dev_overlay: Control
@@ -135,6 +138,9 @@ const XP_BAR_HEIGHT := BottomExperiencePanelScript.U_HEIGHT
 const BOTTOM_BAR_HEIGHT := 54.0
 const PERSISTENT_HUD_LAYER := 10
 const TIME_PANEL_SIZE := Vector2(200.0, 18.0)
+const TOP_ENCOUNTER_GAP := 6.0
+const TOP_ENCOUNTER_Y := (
+	ZoneHintScript.TOP_RESERVED_HEIGHT + ZoneHintScript.NOTICE_HEIGHT + TOP_ENCOUNTER_GAP)
 const STATUS_PANEL_WIDTH := 220.0
 const HUD_DATA_REFRESH_INTERVAL := 0.5
 const UI_DEV_TOGGLE_KEY := KEY_F7
@@ -352,24 +358,38 @@ func _build_ui() -> void:
 	_add_ui_child(_radar)
 
 	# ── Game Over 面板 ──
+	_game_over_dim = ColorRect.new()
+	_game_over_dim.name = "ResultScreenDim"
+	_game_over_dim.visible = false
+	_game_over_dim.color = Color(0.0, 0.0, 0.0, 0.90)
+	_game_over_dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_game_over_dim.z_index = 90
+	_add_ui_child(_game_over_dim)
 	_game_over_panel = PanelContainer.new()
 	_game_over_panel.visible = false
+	_game_over_panel.z_index = 91
 	_add_ui_child(_game_over_panel)
 
 	var go_style := StyleBoxFlat.new()
-	go_style.bg_color = ThemeColors.PANEL_BG_GAMEOVER
-	go_style.border_color = ThemeColors.PANEL_BORDER_GAMEOVER
-	go_style.set_border_width_all(2)
-	go_style.set_corner_radius_all(4)
-	go_style.set_content_margin_all(30)
+	go_style.bg_color = Color(0.0, 0.0, 0.0, 0.92)
+	go_style.border_color = HudPreferencesScript.hud_color()
+	go_style.set_border_width_all(1)
+	go_style.set_content_margin_all(24)
 	_game_over_panel.add_theme_stylebox_override("panel", go_style)
 
 	_game_over_label = RichTextLabel.new()
 	_game_over_label.bbcode_enabled = true
-	_game_over_label.fit_content = true
-	_game_over_label.custom_minimum_size = Vector2(300, 200)
-	_game_over_label.add_theme_font_size_override("normal_font_size", 14)
-	_game_over_label.add_theme_color_override("default_color", ThemeColors.TEXT_PRIMARY)
+	_game_over_label.fit_content = false
+	_game_over_label.scroll_active = false
+	_game_over_label.custom_minimum_size = Vector2(570, 300)
+	_game_over_label.add_theme_font_override(
+		"normal_font", TerminalTextScript.CHAKRA_PETCH_MEDIUM)
+	_game_over_label.add_theme_font_override(
+		"bold_font", TerminalTextScript.CHAKRA_PETCH_BOLD)
+	_game_over_label.add_theme_font_size_override("normal_font_size", 16)
+	_game_over_label.add_theme_font_size_override("bold_font_size", 30)
+	_game_over_label.add_theme_color_override(
+		"default_color", HudPreferencesScript.hud_color())
 	_game_over_panel.add_child(_game_over_label)
 
 	# ── 屏幕外威胁方位指示 ──
@@ -389,14 +409,22 @@ func _build_ui() -> void:
 	_debug_panel.visible = false
 	var dbg_style := StyleBoxFlat.new()
 	dbg_style.bg_color = ThemeColors.PANEL_BG_DEBUG
-	dbg_style.set_corner_radius_all(3)
-	dbg_style.set_content_margin_all(8)
+	dbg_style.border_color = ThemeColors.TEXT_DEBUG
+	dbg_style.set_border_width_all(1)
+	dbg_style.set_corner_radius_all(2)
+	dbg_style.set_content_margin_all(10)
 	_debug_panel.add_theme_stylebox_override("panel", dbg_style)
+	_debug_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_debug_panel.z_index = 200
 	_add_ui_child(_debug_panel)
 
 	_debug_label = Label.new()
-	_debug_label.add_theme_font_size_override("font_size", 11)
+	_debug_label.custom_minimum_size = Vector2(920.0, 0.0)
+	_debug_label.add_theme_font_size_override("font_size", 13)
 	_debug_label.add_theme_color_override("font_color", ThemeColors.TEXT_DEBUG)
+	_debug_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.9))
+	_debug_label.add_theme_constant_override("outline_size", 2)
+	_debug_label.add_theme_constant_override("line_spacing", 2)
 	_debug_panel.add_child(_debug_label)
 
 	# ── 战况栏 / kill feed（左上角，订阅 EventLogger 击杀信号）──
@@ -535,11 +563,24 @@ func _update_ui_dev_scale_label() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and event.keycode == KEY_F3:
-		_debug_visible = not _debug_visible
-		_debug_panel.visible = _debug_visible
+	if event is InputEventKey and event.pressed and not event.echo \
+			and event.keycode == KEY_F3:
+		set_performance_panel_visible(not _debug_visible)
+		get_viewport().set_input_as_handled()
+
+
+## F3 面板的统一入口；Visual bench 也通过这里打开真实运行时面板。
+func set_performance_panel_visible(active: bool) -> void:
+	_debug_visible = active
+	_debug_panel.visible = active
+	PerfBuckets.configure_runtime_panel(active)
+	_debug_update_timer = 0.0
+	if active:
+		_update_debug_panel()
 
 func _process(delta: float) -> void:
+	var perf_detail := PerfBuckets.detail_capture_enabled()
+	var perf_t0 := Time.get_ticks_usec() if perf_detail else 0
 	_layout_ui()
 	if _damage_vignette != null:
 		_damage_vignette.call(&"set_player", _safe_player_aircraft())
@@ -557,6 +598,13 @@ func _process(delta: float) -> void:
 		if _debug_update_timer <= 0.0:
 			_debug_update_timer = 0.25
 			_update_debug_panel()
+	if perf_detail:
+		PerfBuckets.tick("hud_process", Time.get_ticks_usec() - perf_t0)
+
+
+func _exit_tree() -> void:
+	if _debug_visible:
+		PerfBuckets.configure_runtime_panel(false)
 
 func _update_hud_data_layer(delta: float) -> void:
 	_hud_data_refresh_timer -= delta
@@ -788,53 +836,57 @@ func _layout_ui() -> void:
 	var vp := hud_viewport_size()
 	if vp == Vector2.ZERO:
 		return
-	if _damage_vignette != null:
-		_damage_vignette.position = Vector2.ZERO
-		_damage_vignette.size = vp
-	_ui_root.position = Vector2.ZERO
-	_ui_root.size = vp
-	var time_rect := top_time_rect(vp)
-	_time_panel.position = time_rect.position
-	_time_panel.size = time_rect.size
-	_time_grid.position = Vector2.ZERO
-	_time_grid.size = time_rect.size
-	_time_label.position = Vector2.ZERO
-	_time_label.size = time_rect.size
-	var remaining_rect := warzone_time_rect(vp)
-	_warzone_timer_panel.position = remaining_rect.position
-	_warzone_timer_panel.size = remaining_rect.size
+	if vp != _static_layout_viewport:
+		_static_layout_viewport = vp
+		if _damage_vignette != null:
+			_damage_vignette.position = Vector2.ZERO
+			_damage_vignette.size = vp
+		if _game_over_dim != null:
+			_game_over_dim.position = Vector2.ZERO
+			_game_over_dim.size = vp
+		_ui_root.position = Vector2.ZERO
+		_ui_root.size = vp
+		var time_rect := top_time_rect(vp)
+		_time_panel.position = time_rect.position
+		_time_panel.size = time_rect.size
+		_time_grid.position = Vector2.ZERO
+		_time_grid.size = time_rect.size
+		_time_label.position = Vector2.ZERO
+		_time_label.size = time_rect.size
+		var remaining_rect := warzone_time_rect(vp)
+		_warzone_timer_panel.position = remaining_rect.position
+		_warzone_timer_panel.size = remaining_rect.size
 
-	# 战况栏：左上角（最新在上，向下堆叠）
-	if _kill_feed_container:
-		_kill_feed_container.position = Vector2(16, 92)
+		# 战况栏：左上角（最新在上，向下堆叠）
+		if _kill_feed_container:
+			_kill_feed_container.position = Vector2(16, 92)
 
-	# BOSS 小队面板：屏幕中上方，击杀标签下方
+		var bottom_bar := bottom_bar_rect(vp)
+		_bottom_bar_bg.position = bottom_bar.position
+		_bottom_bar_bg.size = bottom_bar.size
+		_bottom_bar_grid.position = Vector2.ZERO
+		_bottom_bar_grid.size = _bottom_bar_bg.size
+		var bottom_bar_regions: Array[Rect2] = [Rect2(Vector2.ZERO, _bottom_bar_bg.size)]
+		_bottom_bar_grid.regions = bottom_bar_regions
+		var axis_rect := bottom_axis_rect(vp)
+		var xp_rect := bottom_xp_rect(vp)
+		_bottom_experience_panel.position = bottom_progress_rect(vp).position
+		_milestone_axis_counter.position = axis_rect.position
+		if _xp_vfx:
+			_xp_vfx.bar_rect = xp_rect
+
+	# BOSS / 王牌条固定在顶部通知通道下方，避免通知出现时挤压或跳位。
 	if _boss_panel and _boss_panel.visible:
 		_boss_panel.position = Vector2(
 			vp.x * 0.5 - _boss_panel.size.x * 0.5,
-			86
+			TOP_ENCOUNTER_Y
 		)
 	# 王牌中队血条：与 BOSS 面板同一锚位（两者互斥，BOSS 条优先，tier §2.8）
 	if _ace_panel and _ace_panel.visible:
 		_ace_panel.position = Vector2(
 			vp.x * 0.5 - _ace_panel.size.x * 0.5,
-			86
+			TOP_ENCOUNTER_Y
 		)
-
-	var bottom_bar := bottom_bar_rect(vp)
-	_bottom_bar_bg.position = bottom_bar.position
-	_bottom_bar_bg.size = bottom_bar.size
-	_bottom_bar_grid.position = Vector2.ZERO
-	_bottom_bar_grid.size = _bottom_bar_bg.size
-	_bottom_bar_grid.line_color = HudPreferencesScript.hud_color()
-	var bottom_bar_regions: Array[Rect2] = [Rect2(Vector2.ZERO, _bottom_bar_bg.size)]
-	_bottom_bar_grid.regions = bottom_bar_regions
-	var axis_rect := bottom_axis_rect(vp)
-	var xp_rect := bottom_xp_rect(vp)
-	_bottom_experience_panel.position = bottom_progress_rect(vp).position
-	_milestone_axis_counter.position = axis_rect.position
-	if _xp_vfx:
-		_xp_vfx.bar_rect = xp_rect
 
 	# 状态面板：右下角，经验条上方
 	_status_panel.position = Vector2(
@@ -877,7 +929,7 @@ func _layout_ui() -> void:
 		)
 
 	if _debug_panel.visible:
-		_debug_panel.position = Vector2(vp.x - _debug_panel.size.x - 16, 16)
+		_debug_panel.position = Vector2(12.0, 12.0)
 
 	if _game_over_panel.visible:
 		_game_over_panel.position = Vector2(
@@ -887,16 +939,16 @@ func _layout_ui() -> void:
 
 ## survivor_mode 调用：注入战区阶段剩余秒数 + 是否进入 BOSS 阶段
 ## 升级面板暂停期间（_physics_process 早 return）由 survivor_mode 在打开面板前同步一次
-func set_warzone_remaining(seconds: float, in_boss_phase: bool) -> void:
+func set_warzone_remaining(seconds: float, in_boss_phase: bool, elapsed_seconds: float = -1.0) -> void:
+	if elapsed_seconds >= 0.0 and _time_label != null:
+		_time_label.text = formatted_elapsed_time(elapsed_seconds)
 	var clamped_seconds := maxf(seconds, 0.0)
 	var visible_value_changed := _warzone_remaining < 0.0 \
-		or floori(clamped_seconds) != floori(maxf(_warzone_remaining, 0.0)) \
-		or in_boss_phase != _warzone_in_boss_phase
+		or floori(clamped_seconds) != floori(maxf(_warzone_remaining, 0.0)) or in_boss_phase != _warzone_in_boss_phase
 	_warzone_remaining = clamped_seconds
 	_warzone_in_boss_phase = in_boss_phase
 	if _warzone_timer_panel and visible_value_changed:
 		_warzone_timer_panel.update_display(clamped_seconds, in_boss_phase)
-
 func _update_display() -> void:
 	if not survivor_player:
 		return
@@ -909,7 +961,10 @@ func _update_display() -> void:
 	_bottom_bar_grid.line_color = hud_accent
 
 	# 经验条
-	_bottom_experience_panel.update_display(survivor_player)
+	var evolution_ready := game_scene != null \
+		and game_scene.has_method(&"has_ready_aircraft_evolution") \
+		and bool(game_scene.call(&"has_ready_aircraft_evolution"))
+	_bottom_experience_panel.update_display(survivor_player, evolution_ready)
 	_milestone_axis_counter.update_display(survivor_player)
 
 	_update_player_instrument()
@@ -1714,7 +1769,7 @@ func _format_custom_boss_entries(entries: Array[Dictionary]) -> String:
 		var hp_color := "ff4d4d" if ratio <= 0.3 else ("ffcc44" if ratio <= 0.6 else "66e36f")
 		var state := String(entry.get("state", ""))
 		var extra := state
-		if state in ["DESCENT", "CLIMB"]:
+		if state in ["DESCENT", "CLIMB", "HIGH HOLD"]:
 			extra = "%s %.1fkm %.1fs" % [state,
 				float(entry.get("altitude", 0.0)) / 1000.0,
 				float(entry.get("seconds", 0.0))]
@@ -2037,41 +2092,7 @@ func _on_squad_weapon_pressed() -> void:
 		"wingman weapon pref → %s" % ("MISSILE" if _squad_weapon_pref == Aircraft.WeaponPreference.PREFER_MISSILE else "GUN"))
 
 func _update_debug_panel() -> void:
-	if not game_scene:
-		return
-	var fps := Engine.get_frames_per_second()
-	var frame_time := 1000.0 / maxf(fps, 1.0)
-	var node_count := _count_nodes(get_tree().root)
-	var enemy_count := 0
-	var aircraft_count := 0
-	var missile_count := 0
-	for child in game_scene.get_children():
-		if child is Aircraft:
-			aircraft_count += 1
-			if child.team == CombatUnit.TEAM_HOSTILE and not child.is_destroyed:
-				enemy_count += 1
-	if game_scene.missile_manager:
-		missile_count = game_scene.missile_manager.get_child_count()
-	var mem := OS.get_static_memory_usage() / 1048576.0
-
-	var text := "FPS: %d (%.1f ms)\n" % [fps, frame_time]
-	text += "Enemies: %d\n" % enemy_count
-	text += "Aircraft: %d\n" % aircraft_count
-	text += "Missiles: %d\n" % missile_count
-	text += "Nodes: %d\n" % node_count
-	text += "Memory: %.1f MB" % mem
-	# Perf 桶（PerfBuckets autoload 喂数据）：units 分类 / AI 拥挤度 / 各热区 µs/帧
-	# 用来定位 CSG BOSS 等高压场景的掉帧根因（MountTarget 是否撑大 all_units，
-	# 进而拉升 ai.crowd_t、把 AI 全员推到降频路径上去）
-	for line in PerfBuckets.format_hud_lines():
-		text += "\n" + line
-	_debug_label.text = text
-
-func _count_nodes(node: Node) -> int:
-	var count := 1
-	for child in node.get_children():
-		count += _count_nodes(child)
-	return count
+	_debug_label.text = "\n".join(PerfBuckets.format_detailed_hud_lines())
 
 ## ── 经验表现层公开入口（spawner / survivor_mode 调用）──
 
@@ -2083,20 +2104,27 @@ func spawn_xp_gain(amount: int) -> void:
 ## 升级表现：等级板、经验条、经验数字从左到右各反色一次，不再生成底部弹字。
 func show_level_up(_level: int) -> void:
 	if _bottom_experience_panel:
-		_bottom_experience_panel.update_display(survivor_player)
+		var evolution_ready := game_scene != null \
+			and game_scene.has_method(&"has_ready_aircraft_evolution") \
+			and bool(game_scene.call(&"has_ready_aircraft_evolution"))
+		_bottom_experience_panel.update_display(survivor_player, evolution_ready)
 		_bottom_experience_panel.flash_level_up()
 
 func show_game_over(level: int, time: float, kills: int,
 		xp_gained: int = 0, merit_earned: int = 0) -> void:
 	var mins := int(time) / 60
 	var secs := int(time) % 60
-	var text := "[center][color=#ff6655][b]%s[/b][/color]\n\n" % tr("HUD_GAMEOVER_TITLE")
-	text += "[color=#aaddaa]%s\n" % (tr("HUD_GAMEOVER_LEVEL_FMT") % level)
+	var accent_hex := HudPreferencesScript.hud_color().to_html(false)
+	var text := "[center][color=#ff493d][font_size=32][b]%s[/b][/font_size][/color]\n" \
+		% tr("HUD_GAMEOVER_TITLE")
+	text += "[color=#%s]────────────────────────[/color]\n\n" % accent_hex
+	text += "[color=#%s]%s\n" % [accent_hex, tr("HUD_GAMEOVER_LEVEL_FMT") % level]
 	text += "%s\n" % (tr("HUD_GAMEOVER_TIME_FMT") % [mins, secs])
 	text += "%s[/color]\n\n" % (tr("HUD_GAMEOVER_KILLS_FMT") % kills)
 	text += _format_merit_line(xp_gained, merit_earned)
-	text += "[color=#888888]%s[/color][/center]" % tr("HUD_GAMEOVER_HINT")
+	text += "[color=#727872]%s[/color][/center]" % tr("HUD_GAMEOVER_HINT")
 	_game_over_label.text = text
+	_game_over_dim.visible = true
 	_game_over_panel.visible = true
 
 ## boss_id 决定副标题里的 BOSS 名（空 / 未注册 id → 通用文案，沙盒与老调用方安全）
@@ -2107,14 +2135,18 @@ func show_victory(level: int, time: float, kills: int,
 	var name_key := BossRegistry.name_key_for(boss_id)
 	var subtitle := tr("HUD_VICTORY_SUBTITLE_GENERIC") if name_key.is_empty() \
 		else tr("HUD_VICTORY_SUBTITLE_FMT") % tr(name_key)
-	var text := "[center][color=#55ffaa][b]%s[/b][/color]\n\n" % tr("HUD_VICTORY_TITLE")
-	text += "[color=#ddffee]%s[/color]\n\n" % subtitle
-	text += "[color=#aaddaa]%s\n" % (tr("HUD_GAMEOVER_LEVEL_FMT") % level)
+	var accent_hex := HudPreferencesScript.hud_color().to_html(false)
+	var text := "[center][color=#%s][font_size=32][b]%s[/b][/font_size][/color]\n" \
+		% [accent_hex, tr("HUD_VICTORY_TITLE")]
+	text += "[color=#%s]────────────────────────[/color]\n" % accent_hex
+	text += "[color=#%s]%s[/color]\n\n" % [accent_hex, subtitle]
+	text += "[color=#%s]%s\n" % [accent_hex, tr("HUD_GAMEOVER_LEVEL_FMT") % level]
 	text += "%s\n" % (tr("HUD_GAMEOVER_TIME_FMT") % [mins, secs])
 	text += "%s[/color]\n\n" % (tr("HUD_GAMEOVER_KILLS_FMT") % kills)
 	text += _format_merit_line(xp_gained, merit_earned)
-	text += "[color=#888888]%s[/color][/center]" % tr("HUD_GAMEOVER_HINT")
+	text += "[color=#727872]%s[/color][/center]" % tr("HUD_GAMEOVER_HINT")
 	_game_over_label.text = text
+	_game_over_dim.visible = true
 	_game_over_panel.visible = true
 
 ## 结算面板里的"功勋 +N"行（XP=0 时返回空串，沙盒/老调用方安全）
@@ -2136,6 +2168,9 @@ class RadarDisplay extends Control:
 	const RADAR_MARGIN := 20.0        ## 距屏幕左下角边距
 	const RADAR_RANGE := 5000.0       ## 雷达显示的世界范围（像素）
 	const SWEEP_SPEED := 2.5          ## 扫描线旋转速度（rad/s）
+	const REDRAW_INTERVAL_NORMAL := 1.0 / 30.0
+	const REDRAW_INTERVAL_CROWDED := 1.0 / 20.0
+	const REDRAW_CROWD_THRESHOLD := 30
 	const RING_COUNT := 3             ## 同心圆数量
 	const BG_COLOR := ThemeColors.RADAR_BG
 	const RING_COLOR := ThemeColors.RADAR_RING
@@ -2147,6 +2182,7 @@ class RadarDisplay extends Control:
 
 	var _sweep_angle: float = 0.0
 	var _blip_ages: Dictionary = {}  ## { Aircraft instance_id : float } 扫描到的时间
+	var _redraw_accumulator := 0.0
 
 	func _ready() -> void:
 		mouse_filter = MOUSE_FILTER_IGNORE
@@ -2155,11 +2191,17 @@ class RadarDisplay extends Control:
 		_sweep_angle += SWEEP_SPEED * delta
 		if _sweep_angle > TAU:
 			_sweep_angle -= TAU
+		_redraw_accumulator += delta
+		var redraw_interval := redraw_interval_for_unit_count(CombatUnit.all_units.size())
+		if _redraw_accumulator < redraw_interval:
+			return
+		var elapsed := _redraw_accumulator
+		_redraw_accumulator = fmod(_redraw_accumulator, redraw_interval)
 
 		# 衰减 blip 亮度
 		var keys_to_remove: Array = []
 		for key in _blip_ages:
-			_blip_ages[key] += delta
+			_blip_ages[key] += elapsed
 			if float(_blip_ages[key]) > 4.0:
 				keys_to_remove.append(key)
 		for key in keys_to_remove:
@@ -2167,7 +2209,18 @@ class RadarDisplay extends Control:
 
 		queue_redraw()
 
+	static func redraw_interval_for_unit_count(unit_count: int) -> float:
+		return REDRAW_INTERVAL_CROWDED \
+			if unit_count >= REDRAW_CROWD_THRESHOLD else REDRAW_INTERVAL_NORMAL
+
 	func _draw() -> void:
+		var perf_detail := PerfBuckets.detail_capture_enabled()
+		var perf_t0 := Time.get_ticks_usec() if perf_detail else 0
+		_draw_impl()
+		if perf_detail:
+			PerfBuckets.tick("hud_radar_draw", Time.get_ticks_usec() - perf_t0)
+
+	func _draw_impl() -> void:
 		if not hud or not hud.game_scene or not hud.survivor_player:
 			return
 		var player_ac: Aircraft = hud._safe_player_aircraft()
@@ -2194,14 +2247,21 @@ class RadarDisplay extends Control:
 		var sweep_end := center + Vector2(cos(sweep_world - PI / 2.0), sin(sweep_world - PI / 2.0)) * RADAR_RADIUS
 		draw_line(center, sweep_end, SWEEP_COLOR, 1.5)
 
-		# 扫描尾迹
+		# 扫描尾迹：每条线仍保留自己的透明度，但统一交给一次 multiline 提交。
 		var trail_steps := 15
+		var trail_points := PackedVector2Array()
+		var trail_colors := PackedColorArray()
 		for i in range(trail_steps):
 			var t := float(i) / float(trail_steps)
 			var a := sweep_world - t * 0.6
 			var trail_end := center + Vector2(cos(a - PI / 2.0), sin(a - PI / 2.0)) * RADAR_RADIUS
 			var alpha := 0.25 * (1.0 - t)
-			draw_line(center, trail_end, Color(0.2, 0.7, 0.2, alpha), 1.0)
+			var trail_color := Color(0.2, 0.7, 0.2, alpha)
+			trail_points.append(center)
+			trail_points.append(trail_end)
+			trail_colors.append(trail_color)
+		RenderingServer.canvas_item_add_multiline(
+			get_canvas_item(), trail_points, trail_colors, 1.0, false)
 
 		# 更新 blip 并绘制战斗单位（飞机 + 地面）
 		var player_pos := player_ac.global_position
@@ -2209,6 +2269,10 @@ class RadarDisplay extends Control:
 
 		for unit in CombatUnit.all_units:
 			if not is_instance_valid(unit) or unit == player_ac or unit.is_destroyed:
+				continue
+			# 语义离场单位不属于雷达空间；同时删除旧扫描余辉，避免模型消失后仍留红点。
+			if bool(unit.get_meta(&"force_hidden_visual", false)):
+				_blip_ages.erase(unit.get_instance_id())
 				continue
 
 			var rel := unit.global_position - player_pos
@@ -2261,14 +2325,13 @@ class RadarDisplay extends Control:
 				var tr_p := blip_pos + Vector2(bd, -bd)
 				var bl_p := blip_pos + Vector2(-bd, bd)
 				var br_p := blip_pos + Vector2(bd, bd)
-				draw_line(tl, tl + Vector2(bl, 0), blip_color, thick)
-				draw_line(tl, tl + Vector2(0, bl), blip_color, thick)
-				draw_line(tr_p, tr_p + Vector2(-bl, 0), blip_color, thick)
-				draw_line(tr_p, tr_p + Vector2(0, bl), blip_color, thick)
-				draw_line(bl_p, bl_p + Vector2(bl, 0), blip_color, thick)
-				draw_line(bl_p, bl_p + Vector2(0, -bl), blip_color, thick)
-				draw_line(br_p, br_p + Vector2(-bl, 0), blip_color, thick)
-				draw_line(br_p, br_p + Vector2(0, -bl), blip_color, thick)
+				var bracket_points := PackedVector2Array([
+					tl, tl + Vector2(bl, 0), tl, tl + Vector2(0, bl),
+					tr_p, tr_p + Vector2(-bl, 0), tr_p, tr_p + Vector2(0, bl),
+					bl_p, bl_p + Vector2(bl, 0), bl_p, bl_p + Vector2(0, -bl),
+					br_p, br_p + Vector2(-bl, 0), br_p, br_p + Vector2(0, -bl),
+				])
+				draw_multiline(bracket_points, blip_color, thick, false)
 			else:
 				draw_circle(blip_pos, 2.5, blip_color)
 				# 锁定目标加方框
@@ -2367,6 +2430,13 @@ class ThreatOverlay extends Control:
 		queue_redraw()
 
 	func _draw() -> void:
+		var perf_detail := PerfBuckets.detail_capture_enabled()
+		var perf_t0 := Time.get_ticks_usec() if perf_detail else 0
+		_draw_impl()
+		if perf_detail:
+			PerfBuckets.tick("hud_threat_draw", Time.get_ticks_usec() - perf_t0)
+
+	func _draw_impl() -> void:
 		if not hud or not hud.game_scene or not hud.survivor_player:
 			return
 		var player_ac: Aircraft = hud._safe_player_aircraft()

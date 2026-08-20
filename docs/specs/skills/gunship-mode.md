@@ -5,7 +5,7 @@ status: done
 schema_version: 1
 spec_version: 5
 owner: noelu（设计）/ Codex（规格化与落地）
-depends_on: [zone-reward-arsenal, squad-upgrade-ownership]
+depends_on: [zone-reward-arsenal, skills-720-rework]
 reconstruction_complete: true
 ---
 

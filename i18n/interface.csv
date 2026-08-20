@@ -1,4 +1,6 @@
 keys,zh,en,ja
+HUD_XP_REMAINING,距升级,XP LEFT,次LVまで
+HUD_EVOLUTION_READY_SHORT,进化,EVO,進化
 MENU_TITLE,A G L,A G L,A G L
 MENU_SUBTITLE,AIR  GROUND  LINK  //  俯视战斗机模拟,AIR  GROUND  LINK  //  Top-Down Fighter Sim,AIR  GROUND  LINK  //  トップダウン戦闘機シム
 MENU_MODE_LABEL,[ 选择模式 ],[ Select Mode ],[ モード選択 ]

@@ -5,7 +5,7 @@ status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
 spec_version: 12
 owner: noelu
-depends_on: [aircraft-evolution, ace-system, survivor-loop, event-system]
+depends_on: [aircraft-evolution-tree, evolution-attribute-gates, inrun-weapon-inventory, survivor-loop, event-system]
 reconstruction_complete: false
 ---
 
@@ -31,7 +31,9 @@ reconstruction_complete: false
 | Tab **原地**结算（"不强迫飞去某处"） | 攻克后**必须飞到停靠点减速**才能结算升级/进化（着陆仪式感） |
 | 武器不进局内结算（06-28 决策"武器=机型自带"） | **追加武器**回归为战区奖励之一；完整七件子池与数值由 `zone-reward-arsenal` 负责 |
 
-进化机制本身（宝可梦式/等级门槛/整机替换/ACE 触发规则）不变，仍归 aircraft-evolution + ace-system。
+进化名单与出口归 [aircraft-evolution-tree](aircraft-evolution-tree.md)，三轴门槛与当前操控机的玩家级成长归
+[evolution-attribute-gates](evolution-attribute-gates.md)，特殊武器继承归
+[inrun-weapon-inventory](inrun-weapon-inventory.md)。本 spec 只保留停靠、回血和奖励发放时序权威。
 
 ## 1. 设计意图（Why）
 
@@ -56,7 +58,7 @@ reconstruction_complete: false
 | 奖励发放 | 攻克瞬间 apply_upgrade → 后改"入库待结算" | **攻克即领**：僚机/武器/技能当场发放（`_grant_reward_now`），与机场解耦 |
 | 回血 | 攻克瞬间全队满血 | **移到停靠点**（§2.2）：飞到机场/航母停靠才全队满血 |
 
-### 2.2 停靠结算机制（升级/进化的唯一入口）
+### 2.2 停靠结算机制（回血/进化入口）
 
 | 项 | 值/规则 |
 |---|---|
@@ -66,7 +68,7 @@ reconstruction_complete: false
 | 着陆判定 | 进入停靠圈（半径 ~600 px）+ **减速至 ≤ 着陆阈值**持续 **1.0 s** → 判定"已停靠"。阈值**动态随机型** = `max(300 km/h, 失速基数 × 1.3)`（2026-07-06 playtest 修复：原固定 250 压在玩家机 1G 失速地板 ~252 之下物理减不到；提示文本跟随实际阈值）。**2026-07-24 修订：速度比较用 g 中和当量**（实测速度 ÷ `g^0.4`）而非绝对速度——飞机转弯拉 G 时物理最低速被抬到角点速度（500~790 km/h），绝对 300 判定使绕圈进近永远够不到；g 中和把"已减到本机当前 G 最低速"折回 1G 当量（≈231）再比阈值，直线/绕圈进近都能触发。超阈时进度不清零、改快速衰减（`HOLD_DECAY_MULT`）防 G 抖动打回原点。1G 直飞时 `g^0.4=1`，行为与旧实现一致 |
 | 停靠后 | **全队满血** + 打开进化面板（达门槛时可选进化）。战区奖励已攻克即领，不在此领（2026-07-24 修订） |
 | 结算范围 | ✅ 停靠只接管**进化 + 回血**；战区奖励改攻克即领（§2.1）；XP 升级流程维持现状不动（用户确认；按 RTS 方向废三选一的收束另启工单） |
-| UI 引导 | 停靠圈上方提示"减速至 250 以下完成停靠" |
+| UI 引导 | 停靠圈上方显示按当前机型计算的动态着陆阈值，禁止写死 250 km/h |
 | 时间语义 | 停靠结算 UI 打开期间暂停（与现结算一致），飞行赶路**不暂停**（路程本身是代价） |
 
 ### 2.3 战区奖励表（预分配、Tab 可见、质量随难度与 ACE 等级）
@@ -94,9 +96,9 @@ reconstruction_complete: false
 
 ```
 领取时（2026-07-24 修订：一次给 2 架）：
-  ace = 当前王牌/操控机
-  在 ace 侧后爆出最多 2 架同型新僚机（出现特效 + 自动入队）
-  编队上限：9（squad-upgrade-ownership 上限）——能塞几架塞几架
+  current = 当前操控机
+  在 current 侧后爆出最多 2 架同型新僚机（出现特效 + 自动入队）
+  编队上限：9（squad-control-switching 的当前队伍合同）——能塞几架塞几架
   不提升王牌等级，不发战斗等级，不灌经验
 ```
 
@@ -120,7 +122,8 @@ reconstruction_complete: false
 
 ### 2.8 Tab 展示
 
-- 战区圈旁：奖励图标（航母/僚机/武器）+ 名称 + 质量星；已领取显示"待停靠结算"状态。
+- 战区圈旁：奖励图标（航母/僚机/武器）+ 名称 + 质量星；攻克即领后显示“已领取”。
+  停靠点的“可用/已使用”独立显示，不再把奖励伪装成待停靠领取。
 - 停靠点在 Tab 与主地图上有专属标记：**机场=跑道方框、航母=蓝菱形**，均带深色描边衬底 +
   **名称标签**（深底亮字，和 HUD 数据标签同风格），保证在浅色底图上清晰可辨。
 
@@ -145,7 +148,7 @@ reconstruction_complete: false
 | DockPoint（停靠圈 + 减速判定 + UI 提示） | **新增**（机场/航母共用组件） |
 | FriendlyCarrier（carrier_ship team0 + DockPoint + 入场事件） | **新增**（复用资产） |
 | 奖励 roll/入库/领取（zone_data._rewards 扩展 + survivor_mode 待领栏） | 改 |
-| ACE 检测 + 僚机爆出 | **新增**（survivor 层，读 ace-system 规则） |
+| 当前操控机解析 + 僚机爆出 | **新增**（survivor 层，操控机权威由 `survivor_mode._set_player_aircraft()` 统一重定向） |
 | ADBS 护卫编队 | 改（adbs_manager + spawner flee 系列） |
 | Tab 奖励/停靠标记 | 改（tactical_map） |
 | 结算 UI | 改（evolution_ui 扩展为停靠结算站） |
@@ -163,11 +166,10 @@ reconstruction_complete: false
 
 ## 6. 实现计划（2026-07-06 全阶段落地）
 
-- [x] 阶段 1 停靠机制：DockPoint 组件（600px 圈 + ≤250km/h 持续 1s + 离圈重武装 + 减速提示/进度环）
+- [x] 阶段 1 停靠机制：DockPoint 组件（600px 圈 + 动态阈值持续 1s + 离圈重武装 + 减速提示/进度环）
       + 固定机场 3 处 + Tab/主图标记
-- [x] 阶段 2 攻克流程：全队满血、奖励入"待领取"、常驻停靠引导、旧"自动弹结算面板"移除、
-      docked → 领奖 + 打开结算面板（复用 evolution_ui）
-- [x] 阶段 3 奖励表：zone_data 三类 roll（难度先行 + 权重表 + 航母余量门）+ Tab 圈下奖励名 + i18n
+- [x] 阶段 2 攻克流程：奖励攻克即领；停靠独立负责全队回血与打开进化面板（复用 evolution_ui）
+- [x] 阶段 3 奖励表：zone_data 四类 roll（难度先行 + 权重表 + 航母余量门）+ Tab 圈下奖励名 + i18n
 - [x] 阶段 4 友军航母：carrier_cv team0 南入北上 + 甲板 DockPoint + 登舰回血/扣次 + 用尽南撤 +
       被击沉=机会清零
 - [x] 阶段 5 僚机奖励（同型、最多 2 架、满编 9 截断、不加等级/XP）+ 七件追加武器

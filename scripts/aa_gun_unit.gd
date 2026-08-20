@@ -47,11 +47,10 @@ func _update_aa_target_selection(delta: float) -> void:
 
 	var attack_range := (params.gun.max_range if params and params.gun else 600.0) * PIXELS_PER_METER * 1.5
 	var best_dist := attack_range
-	if not get_parent():
-		return
-
-	for child in get_parent().get_children():
-		if not child is Aircraft:
+	# 多战区/移动挂点下 GroundUnit 不一定与 Aircraft 同父节点；统一读取维护式注册表，
+	# 同时避免每座 AA 每 0.5s 扫描 survivor_mode 的全部直属子节点。
+	for child in CombatUnit.all_units:
+		if child == null or not is_instance_valid(child) or not child is Aircraft:
 			continue
 		if child == self or not is_hostile_to(child) or child.is_destroyed:
 			continue

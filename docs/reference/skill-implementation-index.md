@@ -19,7 +19,7 @@
 | UPGRADES 条目某字段什么意思 | 本文 **§1** |
 | 技能从抽卡到生效的整条链路 | 本文 **§2** |
 | **加一条新技能** | 本文 **§5 决策树** → 选中模式后照 §3 该模式的"新增步骤" → [playbook §4](playbook.md) 检查单 |
-| 为什么这样设计 / 数值权威源 | specs：[skills-720-rework](../specs/systems/skills-720-rework.md)（归属词汇/+1 轴）· [aircraft-signature-skills](../specs/systems/aircraft-signature-skills.md)（41 机签名技）· [evolution-attribute-gates](../specs/systems/evolution-attribute-gates.md)（三轴/里程碑/换机重放） |
+| 为什么这样设计 / 数值权威源 | specs：[skills-720-rework](../specs/systems/skills-720-rework.md)（归属词汇/+1 轴）· [aircraft-signature-skills](../specs/systems/aircraft-signature-skills.md)（43 机签名技）· [evolution-attribute-gates](../specs/systems/evolution-attribute-gates.md)（三轴/里程碑/换机重放） |
 | 玩法设计需求 / 未实装的技能想法 | [survivor-skills.md](../systems/survivor-skills.md)（设计层，骑士/恐惧/EMP/环境四系列 backlog） |
 
 ---
@@ -102,7 +102,7 @@ is_upgrade_available_for → pick_card_for_axis →  upgrade_stacks[id]+=1
 
 ### M1 · 纯 params/资源直改（apply 即终点，无运行时判定）
 - **识别**：apply 分支直接 `p.xxx = / *= / +=`，此后物理/武器读 params 自然生效。
-- **适用**：永久数值（HP/伤害/射程/G/滚转/弹量/锥角/装填…）。机动类必须直改 params（AI 经 `effective_*()` 自动感知，CLAUDE.md 类别 1）。
+- **适用**：永久数值（HP/伤害/射程/G/滚转/弹量/锥角/装填…）。机动类必须直改 params（AI 经 `effective_*()` 自动感知，AGENTS.md 类别 1）。
 - **改哪**：`survivor_player.apply_upgrade` 加 case；**duplicate 再改**共享子资源（gun/missile 先 `p.gun = p.gun.duplicate()`——虽然产生路径已深拷，双保险防污染，见 §6-4）。
 - **新增步骤**：表条目（专用 stat 名）→ apply case → 完事（消费零改动）。
 - **成员**：见 §4.1 标 M1 的行。
@@ -297,11 +297,11 @@ bench 断言（单机制优先追加 skills720 / sig_skills / attr_gates；全�
 
 ## 6. 铁律（改技能系统前先读，每条都烧过手）
 
-1. **换机重放不查门控**：`_replay_player_upgrades` 刻意不调 `is_upgrade_available_for` —— 这是"技能跟人走"的根基。看着像漏了校验，**别补**（补了 = 41 条签名技换机全失效）。
+1. **换机重放不查门控**：`_replay_player_upgrades` 刻意不调 `is_upgrade_available_for` —— 这是"技能跟人走"的根基。看着像漏了校验，**别补**（补了 = 43 条签名技换机全失效）。
 2. **ACE 字段技必配 strip**：scope:"ace" 且写字段/params → `ACE_FIELD_STATS` 登记 + `strip_upgrade_from` 逆操作，否则切控双重叠加。
 3. **static 账本位三件套**：新加静态开关必须 同步（refresh 尾部）+ 新局清零（`_ready`）+ 源码断言，缺一即跨局残留。
 4. **共享资源深拷契约**：玩家机产生的四条路径（出生/起始僚机/奖励僚机/进化）都必须 `deep_dup_weapons`；`duplicate(true)` **不深拷子资源**（实测），少一处 = 玩家升级写进共享 .tres、敌机跟着变强（power-curve §2.7）。
 5. **计数缩放必须差量幂等**：M6 用 applied 记账（重放序言清零、重算补回），直接 `+=` 会叠爆。
 6. **改数值必同步三语 desc**（feedback 铁律）+ 重跑 dump_skill_table。
 7. **FEAR/JAM/SLOW 联动走集中 helper**：AOE 必经 `AOEBroadcast.apply_status_in_radius`（team_filter 传 `TEAM_HOSTILE`，传 -1 会误伤友军——寒蝉 bug 原案）；单体玩家 FEAR 走 `_apply_player_fear`（SEAM-004）。
-8. **机动 buff 只在两处注入**（CLAUDE.md 强制）：永久 → params；状态 → `effective_*()`。物理 tick 里散点 if-else 会让 AI 战术层失明。
+8. **机动 buff 只在两处注入**（AGENTS.md 强制）：永久 → params；状态 → `effective_*()`。物理 tick 里散点 if-else 会让 AI 战术层失明。

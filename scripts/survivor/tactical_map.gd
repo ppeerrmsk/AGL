@@ -1697,6 +1697,8 @@ func _refresh_info() -> void:
 	var difficulty: int = _zones.get_difficulty(_hover_zone_id)
 	var stars: String = "★".repeat(difficulty) + "☆".repeat(ZoneData.DIFFICULTY_MAX - difficulty)
 	lines.append("[color=#aaaaaa]%s[/color] [color=#ff9966]%s[/color]" % [tr("ZONE_INFO_DIFFICULTY"), stars])
+	if difficulty == 3:
+		lines.append("[color=#ff6b5f]%s[/color]" % tr("ZONE_INFO_TIER3_GLOBAL_THREAT"))
 
 	# 奖励详情（按 reward.kind 渲染，spec airfield-liberation-zones §3.4：
 	# 修正旧 desc/category 死路径——新奖励字典只有 kind/quality/id/name/weapon，

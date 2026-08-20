@@ -58,6 +58,19 @@ func shutdown() -> void:
 	_spawner = null
 
 
+## 3★ DEADAIR 占用唯一场型支援槽时退役旧雪幕；实体仍可自然交战/离场，但不会被扫描复活。
+func retire_for_priority_field() -> void:
+	if _host != null and is_instance_valid(_host):
+		_set_visual_concealed(_host, false)
+		_host.set_meta(&"support_field_retired", true)
+	_clear_concealment()
+	_revealed = false
+	_reveal_elapsed = 0.0
+	_outside_elapsed = 0.0
+	_host = null
+	_tick_accum = 0.0
+
+
 func tick(delta: float) -> void:
 	_tick_accum += delta
 	if _tick_accum < TICK_INTERVAL_S:
@@ -131,6 +144,7 @@ func _find_host() -> Aircraft:
 		return _host
 	for unit in CombatUnit.all_units:
 		if unit is Aircraft and is_instance_valid(unit) and not unit.is_destroyed \
+				and not bool(unit.get_meta(&"support_field_retired", false)) \
 				and str(unit.get_meta("enemy_type", "")) == "snowblind":
 			_host = unit as Aircraft
 			return _host

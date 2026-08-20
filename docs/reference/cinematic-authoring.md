@@ -421,7 +421,7 @@ bench\run.cmd boss_arrival_banner_visual 1 180 Shadow Visual
 | 退化 | 临时改错序列名验证 fallback：仍有 WARNING/无线电并立即接战，不锁死一局 |
 
 针对性 bench 和独立截图不是完整生存 playtest。新 BOSS 本体仍按 playbook 跑击杀/被击杀、阶段转换、
-Sentinel + Lv5+ 压测与完整胜利结算。
+C1 混合全可见战场 + 对应 S2 BOSS/演出专项 `Shadow Visual`，并完成真实胜利结算。
 
 ### 9.8 量产勾选表
 

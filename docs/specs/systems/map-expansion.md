@@ -81,7 +81,7 @@ reconstruction_complete: false
   在 0.2 的可读性是已经调过的既得成果，不动它就不欠图标 LOD 的债。
 - **阶段 2（另立工单，可选）**：战略缩放档（候选 `ZOOM_MIN` 0.12，或"一屏看全图"动态下限
   = viewport/world）**必须**配"战略图标 LOD"（远档切固定屏幕尺寸的点/三角标记），并按
-  performance-guidelines 跑 Sentinel + Lv5 压测（更多单位入镜）。
+  按 performance-guidelines 跑 C1 混合全可见 + C2 多战线/LOD（更多单位入镜）。
   注意与 [reinforcement-ingress](reinforcement-ingress.md) 的交互：能看全图的缩放档下，
   边缘入场"跨线飞入"会直接可见——这按雷达开机的 RTS 语义**视为特性**（边缘出现的是
   战略图标点，不是"面前 materialize 的线框机"），非 bug。
@@ -176,7 +176,7 @@ A/D 旧手画 ground_spawn_polygons 已作废删除（走 center+0.85R 散布 fa
 - [ ] `is_on_land` 新外圈抽查正确（海岸线 / 战区新址）
 - [ ] 玩家出生位置语义不变（南侧、距边 1100 px、警戒带外、Tab 图定位正确）
 - [ ] 战区阶段节奏可玩：单局能完成 ≥3 个战区（playtest 主观确认不发闷）
-- [ ] 性能：更大世界不引入新的每帧成本（边界绘制 tick 数随周长增加，确认无掉帧）；Sentinel + Lv5 压测 FPS 掉幅 < 15
+- [ ] 性能：更大世界不引入新的每帧成本（边界绘制 tick 数随周长增加，确认无掉帧）；C1 + C2 满足当前绝对/相对门
 - [ ] i18n：无新增玩家可见文本
 
 ## 6. 实现计划（Task Pipeline —— 工作令）

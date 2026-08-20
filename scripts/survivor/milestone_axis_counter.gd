@@ -71,15 +71,26 @@ func _draw() -> void:
 			draw_rect(point_rect(axis_index, point_index),
 				axis_color if lit else ThemeColors.UI_BLOCK_BACKGROUND, true)
 		_draw_axis_name(axis, axis_index, ThemeColors.UI_TERMINAL_INVERSE)
+		_draw_axis_value(axis_index, ThemeColors.UI_TERMINAL_INVERSE)
 	if _grid_overlay != null:
 		_grid_overlay.line_color = accent
 
 
 func _draw_axis_name(axis: StringName, index: int, color: Color) -> void:
 	var text := axis_label(axis)
-	var rect := name_rect(index)
+	var rect := axis_title_rect(index)
 	var font := _localized_font if uses_theme_font_for_locale(
 		TranslationServer.get_locale()) else _info_font
+	_draw_axis_text(text, rect, font, color)
+
+
+func _draw_axis_value(index: int, color: Color) -> void:
+	var value := clampi(_values[index], 0, POINT_CELL_COUNT)
+	_draw_axis_text("%d/%d" % [value, POINT_CELL_COUNT], axis_value_rect(index),
+		_info_font, color)
+
+
+func _draw_axis_text(text: String, rect: Rect2, font: Font, color: Color) -> void:
 	var font_size := FONT_SIZE
 	var height := font.get_height(font_size)
 	var baseline_y := rect.position.y + (rect.size.y - height) * 0.5 \
@@ -120,6 +131,14 @@ static func name_rect(index: int) -> Rect2:
 	return Rect2(float(index) * AXIS_WIDTH, 0.0, NAME_WIDTH, COUNTER_SIZE.y)
 
 
+static func axis_title_rect(index: int) -> Rect2:
+	return Rect2(float(index) * AXIS_WIDTH, 0.0, NAME_WIDTH, U_HEIGHT)
+
+
+static func axis_value_rect(index: int) -> Rect2:
+	return Rect2(float(index) * AXIS_WIDTH, U_HEIGHT, NAME_WIDTH, U_HEIGHT)
+
+
 static func point_rect(axis_index: int, point_index: int) -> Rect2:
 	return Rect2(float(axis_index) * AXIS_WIDTH + NAME_WIDTH
 		+ float(point_index) * POINT_CELL_WIDTH,
@@ -129,7 +148,8 @@ static func point_rect(axis_index: int, point_index: int) -> Rect2:
 static func grid_regions() -> Array[Rect2]:
 	var result: Array[Rect2] = []
 	for axis_index in range(SurvivorData.AXES.size()):
-		result.append(name_rect(axis_index))
+		result.append(axis_title_rect(axis_index))
+		result.append(axis_value_rect(axis_index))
 		for point_index in range(POINT_CELL_COUNT):
 			result.append(point_rect(axis_index, point_index))
 	return result

@@ -3,9 +3,9 @@ id: zone-atmosphere-combat
 kind: system
 status: done
 schema_version: 1
-spec_version: 8
+spec_version: 11
 owner: 用户 + Codex
-depends_on: [battlefield-atmosphere-experiment, zone-air-support-naval-safety, global-awareness-roe]
+depends_on: [battlefield-atmosphere-experiment, zone-air-support-naval-safety, rotorcraft-combat, global-awareness-roe]
 reconstruction_complete: true
 ---
 
@@ -38,7 +38,7 @@ reconstruction_complete: true
 | 既有敌军近距伤害 | 100% | 玩家接近后恢复正式战区武器伤害 |
 | 新增友军近距伤害 | 10% | 只负责缓慢改变场面，不能抢走任务完成权 |
 | 任务目标最低剩余生命 | 1 | 友军气氛炮火走专用非致死入口，不击毁 TGT/挂点/弱点 |
-| 气氛击杀奖励 | 关闭 | 新增友军带 `no_kill_reward=true`、`token_cost=0` |
+| 气氛击杀奖励 | SPG/友军关闭；敌对气氛直升机例外为 50 XP | 新增友军带 `no_kill_reward=true`、`token_cost=0`；只有玩家或正式小队击毁 `HOSTILE` 气氛 AH-64 时沿用现有击杀经验，第三方击毁不记给玩家 |
 | 专用 SPG 生命 | 60 | 双方专用气氛演员；玩家武器与可信火炮直击都能明确击毁 |
 
 伤害权限在武器发射瞬间快照：在途弹丸不会因为玩家跨过 3/3.6 km 边界而中途变成实弹或空包弹。零伤害普通弹走既有 `visual_only` 快路径，跳过单位碰撞、建筑碰撞和近炸运算；导弹仍保留离架、飞行、曳光与爆炸表现，但零伤害导弹不创建持续 AOE。
@@ -50,12 +50,23 @@ reconstruction_complete: true
 | 战区类型 | 友方气氛单位 | 敌方气氛单位 | 空间硬闸 |
 |---|---|---|---|
 | 空中 / 中队 | 不新增，避免继续抬高空中密度 | 复用该战区全部既有空中 TGT 与驻守机 | 既有飞机保持正式高度/物理 |
-| 陆地 / 机场 | 自行火炮 ×3；连续安全陆地不足时依次降为 2 / 1 / 0 | 敌军专用 SPG ×3，同样允许降级；驻守机同时加入近距玩家优先名单 | 两侧火炮出生点与解析式椭圆轨道全部通过水面排除与 50px 连续陆地净空；既有 AA/SAM 不参加炮战 |
+| 陆地 / 机场 | 自行火炮 ×3；25% 构图追加 `ALLY` AH-64 ×1，另 25% 双方各追加一架 | 敌军专用 SPG ×3；25% 构图追加 `HOSTILE` AH-64 ×1，另 25% 双方各追加一架；驻守机同时加入近距玩家优先名单 | 两侧火炮出生点与解析式椭圆轨道全部通过水面排除与 50px 连续陆地净空；直升机复用旋翼模型并只扫描 GroundUnit |
 | 海上 | DDG ×1 + FFG ×1；水域不足时降为单 DDG，再无解则 0 | 复用该战区既有 NavalUnit TGT | 240 / 120 / 0 px 巡航半径降级；完整同心轨迹逐 40 px 校验水面 |
 
 陆地火炮沿 600–760 × 70–110 px 的解析式椭圆轨道以 3 m/s 移动。每组生成时从错列纵队、斜列、浅楔形三种阵型中随机选择；横向间隔 165–235 px、纵深 70–140 px，再给每门炮加入 ±25 px 槽位扰动。三门炮的初始轨道相位按约 120° 错开并各自加入 ±0.22 rad 扰动，轨道朝向整组加入 ±0.18 rad 扰动，避免不同阵营或同组单位沿同一条线互相“顶替”。这些随机量只在生成时采样，战斗中不瞬移、不换轨，也不增加逐帧决策。海上友军 DDG 为巡航旗舰，FFG 以 `formation_leader/formation_offset=(-210, 230)` 刚体跟随。
 
 气氛演员带固定阵营标记。友方 SPG 从出生到撤离始终是 `ALLY`，敌方 SPG 始终是 `HOSTILE`；玩家攻击只进入正常 IFF/伤害判定，绝不把敌方 SPG 改成友军。机场解放后出现的绿色 AA/SAM 是新部署的正式友军防空伞，不是旧敌方实例换色。
+
+#### 2.2.1 地面气氛武装直升机
+
+- 地面气氛层可生成 `ALLY` 与 `HOSTILE` 两个阵营的武装直升机。它们直接复用 [旋翼机战斗](rotorcraft-combat.md) 的 AH-64 飞行、环绕、悬停与对地火控，不复制第二套直升机物理。
+- 地面战区等权选择四种构图：纯地面互射、追加 1 架友军直升机、追加 1 架敌军直升机、双方各追加 1 架。每种构图都可与 SPG、攻城坦克、超级巨炮或其它合法 GroundUnit 组合；每个战区只在登记时抽一次。
+- 气氛直升机只选择敌对地面目标：气氛 `GroundUnit`、普通地面单位、攻城坦克，以及巨炮的四底座/炮身锁定点。双方直升机即使同时存在也互不攻击，因为 Aircraft 永远不是合法目标。
+- 它们不会选择、锁定或攻击玩家及任何天上的飞机；机炮、火箭和所有兜底扫描都必须在发射瞬间再次拒绝 Aircraft。反过来，地面 AA/SAM/CIWS 可以按既有对空规则攻击它们；超级巨炮本体没有防空能力，不能反击近身直升机。
+- 气氛直升机不是正式 TGT，不占战区目标数，也不能阻塞或提前完成任务；不占普通敌机 Token，不加入玩家 RTS 小队。
+- 玩家或玩家正式小队击毁 `HOSTILE` 气氛直升机时，按现有 AH-64 基线给予 **50 XP**。第三方单位击毁、友军直升机损失或其它无玩家归因结果不给玩家 XP/击杀数。
+- 气氛直升机可以正常击毁敌对气氛地面演员；攻击正式任务 TGT/挂点时继续走非致死入口，最低保留 1 HP，不能替玩家清掉攻城坦克、巨炮五点或其它任务目标。
+- 作为气氛来源，它们的新发对地武器仍读取 3/3.6km 伤害 LOD：画外保留环绕、瞄准、弹道与爆炸，但不在玩家看不见时偷偷清空气氛组。三级超级单位自己的正式威胁武器仍按各自 spec 豁免该规则。
 
 ### 2.3 表演武器
 
@@ -65,6 +76,8 @@ reconstruction_complete: true
 | 舰炮 | 3.0–3.8 s，稳定错峰 | 1.6 s | 1.8 | 锁定目标必然命中；弹体为沿航向的细长曳光，不生成鱼雷 |
 
 正式地面/舰船自身已有的防空武器继续按原节奏工作；AA 与 SAM 的选敌和开火权限严格限定为 Aircraft，不能把 GroundUnit 当作目标。本系统的地面炮战只在两侧专用 SPG 之间进行，不借用 AA、SAM、雷达站或正式任务 TGT 充当火炮；海战仍不创建第二套敌舰。
+
+3★地面任务只有一个显式例外，由 [三级战区全局威胁与超级单位](tier-3-zone-global-threats.md) 拥有：沙漠攻城坦克的**独立主炮**把本战区 `ALLY` 专用 SPG 作为气氛交火目标，每次可信直击一炮摧毁一个；该主炮属于正式三级威胁，不读取本系统 3/3.6km 的气氛伤害 LOD。`ALLY` SPG 可以反击攻城坦克，但仍通过正式 TGT 非致死入口，最低保留 1 HP。两个 CIWS、远射程 SAM 与空爆挂点继续只对空。
 
 专用 SPG 不再通过每发稳定命中的 6 点伤害长时间磨血。玩家在 1500 px（3 km）内观察时，火炮才启用上述 60 点直击结算；加大的落点散布与缩小的直击窗口让多数炮弹成为明确近失弹，真正命中则立即产生击毁结果。玩家退出 1800 px（3.6 km）后，新发炮弹继续保留完整轨迹和爆点，但无论落点是否覆盖目标都造成 0 伤害，双方不会在画外偷偷消耗生命。
 
@@ -84,6 +97,7 @@ zone_spawn_finished(zone_id):
     if ground/airfield:
         roll formation + spacing + route size/orientation + staggered phases once
         spawn 3→2→1 allied and hostile SPG groups on fully valid solid-land routes
+        roll one of four equal helicopter compositions; spawn 0–2 reused AH-64 actors
     if naval: spawn allied DDG+FFG, degrade to DDG or none until full orbit is water
 ```
 
@@ -106,7 +120,7 @@ new_allied_launch_multiplier = 0.10 if live else 0.0
 - 玩家进入 1500 px 后，现有敌机以 `TS_DIRECTIVE` 目标所有权指向玩家；离开 1800 px 后释放该所有权，恢复战区巡逻/自主评分。
 - 现有地面单位和舰船读取通用 `preferred_combat_target`；目标合法、进入本武器射程且满足高度门时，优先选玩家，否则继续原有最近目标逻辑。
 - 地面与海上表演炮火仍在背景中继续，不阻断正式防空武器。
-- 地面炮火只命中双方专用 SPG；舰船表演炮火命中正式 TGT 时仍走非致死伤害入口，船体最低 1 且不触碰挂点和弱点；因此任务完成仍需要玩家/正式小队击杀。
+- SPG 表演炮火只命中双方专用 SPG；舰船表演炮火命中正式 TGT 时仍走非致死伤害入口，船体最低 1 且不触碰挂点和弱点；因此任务完成仍需要玩家/正式小队击杀。
 - 地面炮弹以发射瞬间的目标位置为中心采样 0–80 px 偏移；抵达时只检查既定目标是否仍在 24 px 直击窗口内。窗口外只播放爆点，不扣除“擦边伤害”；窗口内对 60 HP 专用 SPG 造成 60 点伤害并进入正常两秒击毁清理。
 - AI 的全阵营 `radar_targets` 继续照常累计并供武器开火；但玩家可见的 `is_locked / locked_by / incoming_lock_progress` 只汇总至少一端为 `PLAYER` 的锁定配对。`ALLY↔HOSTILE` 互锁不画红框，也不触发玩家专属被锁反应。
 
@@ -122,7 +136,8 @@ new_allied_launch_multiplier = 0.10 if live else 0.0
 
 - [x] 普通地图仅约 30% 的正式 air/squadron、ground/airfield、naval 战区登记气氛层；每区只抽一次且刷新不重抽；决战地图全部登记；bomber_escort 始终不额外刷演员。
 - [x] 空战不新增飞机；只复用战区已有空中 TGT/驻守机。
-- [x] 陆战只生成双方专用 SPG；AA/SAM 不作为炮击来源或目标；任何火炮出生点与完整轨道均通过港池水面排除和连续陆地净空。
+- [x] 陆战生成双方专用 SPG；AA/SAM 不作为 SPG 炮击来源或目标；火炮出生点与完整轨道均通过港池水面排除和连续陆地净空。
+- [x] 纯地面、友军直升机、敌军直升机、双方直升机四类等权组合均可生成；AH-64 目标层只接受 GroundUnit，弹丸层再次拒绝 Aircraft。
 - [x] 每组 SPG 在三种阵型中随机选一种，并拥有不同槽位扰动、轨道尺寸和初始相位；出生点至少间隔 100 px，不再三门同相位整齐重叠。
 - [x] AA / SAM 只选择并攻击 Aircraft，不能向任何地面单位开火。
 - [x] 海战只新增友军 DDG+FFG（必要时安全缩编）；敌方是战区已有舰队；完整巡航轨道没有船位上岸。
@@ -131,7 +146,9 @@ new_allied_launch_multiplier = 0.10 if live else 0.0
 - [ ] 快速拉镜头时能看到已经在途的弹体，不出现“镜头到场才齐射”。
 - [x] 玩家近距时，既有敌机、地面防空和舰载防空优先攻击玩家；玩家离开后只释放本系统持有的目标权，恢复普通目标处理。
 - [x] 友军气氛炮火不能把正式 TGT 压到 0，也不能摧毁舰船挂点/弱点；战区不能在玩家未击杀 TGT 时自动完成。
+- [x] 沙漠攻城坦克主炮可在任意玩家距离一炮摧毁一个 `ALLY` 气氛 GroundUnit；SPG/直升机反击正式 TGT 最低留 1 HP，四个防空挂点不借此攻击 GroundUnit。
 - [x] 新增友军不产出 XP、不占 Token，不进入玩家 RTS 小队；重刷/完成/失败/阶段取消会注销控制权并按既有可见性规则撤离。
+- [x] 气氛直升机不进入任务 TGT 列表、Token=0；`HOSTILE` 不带 `no_kill_reward`，沿用 AH-64 50 XP 玩家归因；`ALLY` 关闭奖励。其对正式 TGT 的攻击始终非致死。
 - [x] 同一气氛 SPG 的阵营从出生到撤离不可转换；中弹或机场解放不会让敌方实例变绿。
 - [x] AI 对 AI 仍正常锁定/开火，但只有含玩家阵营的锁定配对会写入锁框与玩家反应状态。
 - [x] 性能：集中 2 Hz 调度，无逐演员新增 `_process`；Sentinel + Lv5+ 正式样本 128 个对象时末秒 139 FPS。
@@ -144,10 +161,12 @@ new_allied_launch_multiplier = 0.10 if live else 0.0
 ### 阶段 1 — 正式生命周期
 - [x] 新增集中控制器，并由 ZoneMission 在生成/重刷/完成/失败/取消时登记与注销。
 - [x] 空战复用既有名单；陆战生成双方 SPG，海战只生成友方演员，并分别通过实体陆地/水域硬闸。
+- [x] 为地面气氛层追加四种双阵营武装直升机组合，复用 AH-64 旋翼模型并保持非 TGT/Token 身份。
 
 ### 阶段 2 — 伤害与目标权
 - [x] 接入发射瞬间气氛伤害倍率、零伤害快路径与导弹 AOE 跳过。
 - [x] 接入玩家近距优先和任务目标非致死伤害入口。
+- [x] 接直升机对气氛地面演员正常致死、对正式 TGT 非致死、对 Aircraft 目标/弹丸禁火，以及敌对直升机 50 XP 的既有玩家归因结算。
 
 ### 阶段 3 — 验证
 - [x] 增加正式战区气氛专项 bench，覆盖三类登记、地形、远近伤害和清理。
@@ -163,12 +182,17 @@ new_allied_launch_multiplier = 0.10 if live else 0.0
 | 火炮轨道与外观 | `scripts/survivor/atmosphere_artillery_unit.gd` |
 | 发射瞬间伤害快照 | `scripts/combat_unit.gd` · `scripts/bullet_manager.gd` · `scripts/missile_manager.gd` |
 | 地面/舰船优先目标与非致死入口 | `scripts/ground_unit.gd` · `scripts/naval/naval_unit.gd` · `scripts/naval/naval_weapons.gd` |
+| 双阵营气氛 AH-64 | `scripts/survivor/survivor_spawner.gd` · `scripts/ai_controller.gd` |
+| 聚焦回归 | `scripts/tests/test_zone_atmosphere_combat.gd` |
 | reference 索引 | `docs/reference/script-index.md` · `docs/reference/code-index.md` |
 
 ## 8. 变更记录
 
 | 日期 | spec_version | 改动 |
 |---|---:|---|
+| 2026-08-21 | 11 | 实装地面气氛 AH-64：四种等权构图，每边至多一架；复用旋翼 GroundUnit-only AI；弹丸再以 `ground_targets_only` 拒绝 Aircraft；正式 TGT 非致死、气氛 GroundUnit 可击毁；敌对实例保留 50 XP 资格，友军关闭奖励，双方 Token=0。攻城坦克主炮例外同步转为已实装。 |
+| 2026-08-21 | 10 | 用户新增地面气氛武装直升机：`ALLY/HOSTILE` 双阵营，支持纯地面/单边直升机/双方直升机等组合，并可与 SPG、攻城坦克、超级巨炮和普通地面目标交战。它们不是 TGT/Token，绝不攻击玩家或任何 Aircraft；玩家/正式小队击毁敌对气氛 AH-64 按现有基线给 50 XP。它们可击毁气氛地面演员，但对正式 TGT 始终非致死；当前尚未实装。 |
+| 2026-08-20 | 9 | 登记未来 3★沙漠攻城坦克的窄例外：独立主炮可与 `ALLY` 气氛 SPG 交火并在可信直击时一炮摧毁一个，不读取 3/3.6km 气氛伤害 LOD；SPG 反击正式坦克仍非致死，四个防空挂点仍不得攻击 GroundUnit。当前三级单位未实装，本轮不改变现有运行时。 |
 | 2026-08-18 | 8 | 按玩家要求降低正式气氛密度：普通地图改为每个合资格战区首次生成时独立 30% 抽取并缓存本局结果，刷新不重抽；海洋群岛决战地图保持 100% 全覆盖。 |
 | 2026-08-18 | 7 | 按玩家观感重做 SPG 互射结算：移除“稳定命中但每发只扣 6”的磨血表现；专用 SPG 改为 60 HP，近距炮弹采用 0–80 px 散布与 24 px 直击窗口，近失弹零伤害、可信直击 60 点并可一发击毁；玩家退出 3.6 km 后仍只有弹道/爆点且完全不磨血。 |
 | 2026-08-10 | 6 | SPG 生成增加错列纵队/斜列/浅楔形三种随机阵型、槽位扰动、轨道尺寸/朝向扰动与错开初始相位；随机仅发生一次，完整随机轨道仍逐点通过安全陆地校验。 |

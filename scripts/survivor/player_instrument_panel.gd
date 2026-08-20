@@ -87,6 +87,16 @@ const MANEUVER_NAME_KEYS := {
 	&"vertical_break": "UPGRADE_VERTICAL_BREAK_NAME",
 }
 
+class AltimeterNeedleLayer extends Control:
+	var panel
+
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func _draw() -> void:
+		if panel != null and is_instance_valid(panel):
+			panel._draw_altimeter_needle(self)
+
 var aircraft: Aircraft
 var afterburner_charge: AfterburnerCharge
 var _last_redraw_ms: int = -REDRAW_INTERVAL_MS
@@ -94,6 +104,7 @@ var _info_font: Font
 var _display_font: Font
 var _localized_font: Font
 var _grid_overlay
+var _altimeter_needle_layer: Control
 var primary_value_font_size := 1
 var secondary_value_font_size := 1
 var spd_digit_font_size := 1
@@ -169,10 +180,13 @@ var _kill_flash_started_ms := -KILL_FLASH_DURATION_MS
 
 func _ready() -> void:
 	_info_font = INFO_FONT_SOURCE.duplicate() as Font
-	_display_font = DISPLAY_FONT_SOURCE.duplicate() as Font
+	_display_font = DISPLAY_FONT_SOURCE.duplicate(true) as Font
 	if _info_font is FontFile:
 		(_info_font as FontFile).antialiasing = TextServer.FONT_ANTIALIASING_NONE
 		(_info_font as FontFile).subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_DISABLED
+	if _display_font is FontFile:
+		# 右侧仪表默认以 0.9x 整体缩放；MSDF 避免大号数字在非整数倍率下笔画裂开。
+		(_display_font as FontFile).multichannel_signed_distance_field = true
 	_info_font.fallbacks.append(ThemeDB.fallback_font)
 	_display_font.fallbacks.append(ThemeDB.fallback_font)
 	_localized_font = get_theme_default_font()
@@ -182,6 +196,10 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	focus_mode = Control.FOCUS_NONE
 	set_process(true)
+	_altimeter_needle_layer = AltimeterNeedleLayer.new()
+	_altimeter_needle_layer.panel = self
+	_altimeter_needle_layer.size = size
+	add_child(_altimeter_needle_layer)
 	_grid_overlay = TerminalGridOverlayScript.new()
 	_grid_overlay.size = size
 	add_child(_grid_overlay)
@@ -199,6 +217,8 @@ func update_display(ac: Aircraft, charge: AfterburnerCharge) -> void:
 		_manual_flare_key_known = true
 		_manual_flare_key_visible = next_manual_flare_key
 		_altimeter_needle_initialized = false
+		if _altimeter_needle_layer != null:
+			_altimeter_needle_layer.queue_redraw()
 	elif _manual_flare_key_known and next_manual_flare_key and not _manual_flare_key_visible:
 		_begin_manual_flare_key_flash()
 	_manual_flare_key_known = true
@@ -211,6 +231,8 @@ func update_display(ac: Aircraft, charge: AfterburnerCharge) -> void:
 			aircraft.altitude,
 			aircraft.altitude_preference == Aircraft.AltitudePreference.PREFER_LOW)
 		_altimeter_needle_initialized = true
+		if _altimeter_needle_layer != null:
+			_altimeter_needle_layer.queue_redraw()
 	var now := Time.get_ticks_msec()
 	if now - _last_redraw_ms < REDRAW_INTERVAL_MS:
 		return
@@ -244,13 +266,13 @@ func _process(delta: float) -> void:
 	if not _altimeter_needle_initialized:
 		_altimeter_needle_degrees = target
 		_altimeter_needle_initialized = true
-		queue_redraw()
+		_altimeter_needle_layer.queue_redraw()
 		return
 	var next_angle := move_toward(
 		_altimeter_needle_degrees, target, ALT_GAUGE_NEEDLE_SPEED * delta)
 	if not is_equal_approx(next_angle, _altimeter_needle_degrees):
 		_altimeter_needle_degrees = next_angle
-		queue_redraw()
+		_altimeter_needle_layer.queue_redraw()
 
 
 func _configure_layout() -> void:
@@ -443,6 +465,8 @@ func _configure_layout() -> void:
 		position += previous_size - configured_size
 	if _grid_overlay != null:
 		_grid_overlay.size = size
+	if _altimeter_needle_layer != null:
+		_altimeter_needle_layer.size = size
 
 
 func _expanded_value_width(reference_text: String, font_size: int,
@@ -461,6 +485,14 @@ static func decorative_aligned_width(base_width: float, target_width: float) -> 
 
 
 func _draw() -> void:
+	var perf_detail := PerfBuckets.detail_capture_enabled()
+	var perf_t0 := Time.get_ticks_usec() if perf_detail else 0
+	_draw_impl()
+	if perf_detail:
+		PerfBuckets.tick("hud_player_draw", Time.get_ticks_usec() - perf_t0)
+
+
+func _draw_impl() -> void:
 	var accent: Color = HudPreferencesScript.hud_color()
 	var animation_now := _weapon_animation_now_ms()
 	var blink_on := int(animation_now / BLINK_STEP_MS) % 2 == 0
@@ -940,11 +972,20 @@ func _draw_altimeter_gauge(accent: Color) -> void:
 	var radius := minf((alt_gauge_rect.size.x - 12.0) * 0.5,
 		alt_gauge_rect.size.y - 10.0)
 	draw_arc(pivot, radius, PI, TAU, 48, accent, ALT_GAUGE_ARC_WIDTH, false)
+
+
+func _draw_altimeter_needle(canvas: CanvasItem) -> void:
+	if aircraft == null or not is_instance_valid(aircraft) or aircraft.is_destroyed:
+		return
+	var pivot := Vector2(alt_gauge_rect.get_center().x, alt_gauge_rect.end.y - 5.0)
+	var radius := minf((alt_gauge_rect.size.x - 12.0) * 0.5,
+		alt_gauge_rect.size.y - 10.0)
 	var degrees := clampf(_altimeter_needle_degrees,
 		ALT_GAUGE_MIN_DEGREES, ALT_GAUGE_MAX_DEGREES)
 	var angle := PI + deg_to_rad(degrees)
 	var needle_end := pivot + Vector2(cos(angle), sin(angle)) * (radius - 4.0)
-	draw_line(pivot, needle_end, accent, ALT_GAUGE_NEEDLE_WIDTH, false)
+	canvas.draw_line(pivot, needle_end, HudPreferencesScript.hud_color(),
+		ALT_GAUGE_NEEDLE_WIDTH, false)
 
 
 func _draw_unit_cell(rect: Rect2, text: String, selected: bool, accent: Color) -> void:

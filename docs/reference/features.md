@@ -1,6 +1,6 @@
 # 已实现功能清单
 
-> 最后校订：2026-08-04。本文回答"**这个游戏现在有什么**"，是给人看的粗粒度盘点。
+> 最后校订：2026-08-20。本文回答"**这个游戏现在有什么**"，是给人看的粗粒度盘点。
 >
 > - 想知道**数值/公式/为什么** → [docs/specs/](../specs/_INDEX.md)（权威源）
 > - 想知道**代码在哪** → [script-index.md](script-index.md) / [code-index.md](code-index.md)
@@ -41,7 +41,7 @@
 - 失速 `V_stall = V_stall_base × √G`；**角点速度地板**保证不会"转弯转到失速"
 - 空气密度比 `σ = e^(-alt/8500)` 影响高空最大速度
 - 转弯控制器为**临界阻尼 PD**（2026 重写，见 SEAM-012）
-- 机动性 buff 统一走 `effective_*()` accessor 层，AI 战术层自动感知（CLAUDE.md 强制约定）
+- 机动性 buff 统一走 `effective_*()` accessor 层，AI 战术层自动感知（AGENTS.md / SEAM-001 强制约定）
 
 权威源：[architecture.md](../architecture.md) · [specs/systems/flight-model-realism](../specs/systems/flight-model-realism.md)
 
@@ -119,16 +119,17 @@
 - **战区推进 → BOSS 战 → 击败 BOSS 即过关**（不是无尽波次）
 - 战区任务：地面 TGT 打光 / 空中中队歼灭 / 机场解放；攻克后开新战区
 - **停靠结算**：飞到停靠点减速着陆 → 领奖励 / 换机进化 / 全队满血
-- **进化树**：41 节点宝可梦式机型进化（T1 起手四选一 → T5 原创超凡），带 LV + 三轴属性双门槛
+- **进化树**：43 节点宝可梦式机型进化（T1 起手四卡，按生涯逐步解锁 → T5 原创超凡），带 LV + 三轴属性双门槛
 - **三轴卡片制**：每升 3 级三选一（斗士 / 骑士 / 策士各一张），选卡 = 技能 + 该轴 1 点
-- **技能系统**：当前自动生成表共 146 条，含 41 条机型签名技；签名技经生涯揭示/购买后进入每机每局一次的第四槽机会，到手跟玩家走
+- **技能系统**：当前自动生成表共 165 条，含 43 条机型签名技；签名技经生涯揭示/购买后进入每机每局一次的第四槽机会，到手跟玩家走
 - **局内武器库**：特殊武器到手即永久，换机 / 进化全继承
 - **局外功勋**（MeritLedger）：局内 XP 按系数折算，节制原则（局内 90% / 局外 10%）
 - 敌人谱已有 50+ 个 `EnemyType` 条目（含常规机、直升机、轰炸机、无人机、舰载机与王牌专属单位）
 - Token 预算刷怪 + 热度驱动的增援入场（边缘中队涌入 → 驻空 → 物理飞离）
 - 王牌中队分层（AceTier）：不吃 LOD / 无等级缩放 / 热诱弹即命数
-- BOSS：Mother Goose 飞行翼母舰 / WRAITH 中队 / POLTERGEIST 中队（CSG 二阶段）/ F-47
-- 第三方事件：机场防空 / AWACS 支援 / 王牌支援中队（友军护送直升机事件 2026-07-28 已删除）
+- BOSS 注册表四项：WRAITH F-47 中队 / LADON 航母战斗群（POLTERGEIST 二阶段）/
+  Mother Goose 飞行翼母舰 / Black Star（Hyper-A 双根分裂）
+- 第三方与可选任务：机场防空 / AWACS / 战区制空与对地支援 / 王牌截击支援 / B-1B 轰炸机护送
 - 动态性能控制：FPS 采样 → 自动收敛敌机上限
 
 权威源：[systems/survivor-mode.md](../systems/survivor-mode.md) ·
@@ -154,6 +155,8 @@
 - 战区分布 A–G，含机场解放战区（羽田 / 木更津 / 調布）
 - 天气系统：云层影响锁定与导弹制导
 - **地图编辑器核心**（UGC P1）：已有格子笔刷、矢量后端与官方图转换代码；完整产品化状态以 map-editor spec 为准
+- 沙漠铁路与海洋群岛已有可飞行预览和天气/底图候选，但尚未达到独立完整局；当前铺量顺序见
+  [content-production-workflow](../planning/content-production-workflow.md)
 
 权威源：[specs/systems/map-system](../specs/systems/map-system.md) ·
 [specs/systems/map-expansion](../specs/systems/map-expansion.md) ·

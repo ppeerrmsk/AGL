@@ -2,6 +2,8 @@ class_name ZoneMission
 extends Node
 
 const ZONE_ATMOSPHERE_SCRIPT := preload("res://scripts/survivor/zone_atmosphere_combat.gd")
+const TIER3_SUPER_CANNON_SCRIPT := preload("res://scripts/survivor/tier3_super_cannon_part.gd")
+const TIER3_SIEGE_TANK_SCRIPT := preload("res://scripts/survivor/tier3_siege_tank.gd")
 
 ## 战区任务执行器
 ##
@@ -20,6 +22,7 @@ signal mission_triggered(zone_id: StringName)  ## 玩家进入 SELECTED 战区
 signal mission_completed(zone_id: StringName)
 signal mission_failed(zone_id: StringName, reason: String)
 signal mission_spawn_announced(zone_id: StringName, mission_type: String)
+signal tier3_threat_changed(zone_id: StringName, profile: StringName, active: bool)
 
 const SAM_COUNT := 3
 const AA_COUNT := 3
@@ -95,6 +98,18 @@ const _RADAR_SCENE := preload("res://scenes/radar_station.tscn")
 const _RADAR_PARAMS := preload("res://resources/radar_station_params.tres")
 const _AIRBURST_AA_SCENE := preload("res://scenes/airburst_aa_unit.tscn")
 const _AIRBURST_AA_PARAMS := preload("res://resources/airburst_aa_params.tres")
+const _TIER3_GROUND_BASE_PARAMS := preload("res://resources/aa_gun_params.tres")
+
+const TIER3_DESERT_MAP_ID := "desert_railway_preview"
+const TIER3_VLS_RANGE_M := 40000.0
+const TIER3_VLS_LIFETIME_S := 65.0
+const TIER3_CANNON_BASE_HP := 220.0
+const TIER3_CANNON_BODY_HP := 320.0
+const TIER3_SIEGE_TANK_HP := 600.0
+const TIER3_CANNON_PART_OFFSETS: Array[Vector2] = [
+	Vector2(-85.0, -85.0), Vector2(85.0, -85.0),
+	Vector2(-85.0, 85.0), Vector2(85.0, 85.0), Vector2.ZERO,
+]
 
 var mode: Node
 var _zones: ZoneData
@@ -139,6 +154,10 @@ var _support_dispatched_kinds: Dictionary = {}
 ## 普通地图每个战区只抽一次；刷新/安全降级不得让气氛层反复出现或消失。
 var _zone_atmosphere_enabled: Dictionary = {}
 var _force_all_zone_atmosphere := false
+## F6 专用：zone_id → super_cannon / siege_tank；空或 auto 服从正式地图 profile。
+var _debug_tier3_profile_by_zone: Dictionary = {}
+var _tier3_sources_by_zone: Dictionary = {} ## zone_id → {profile, sources, active}
+var _tier3_source_tick_s := 0.0
 
 func setup(p_mode: Node, zones: ZoneData, player: Aircraft,
 		sam_scene: PackedScene, sam_params: Resource,
@@ -166,6 +185,7 @@ func _physics_process(delta: float) -> void:
 		return
 	if _zone_atmosphere != null:
 		_zone_atmosphere.update(delta, _player)
+	_update_tier3_source_states(delta)
 
 	# 每帧处理待撤离队列：单位飘到视线外就 free（与 BOSS 阶段共用机制）
 	if not _pending_despawn.is_empty():
@@ -312,6 +332,8 @@ func _spawn_zone_units(zone_id: StringName, zone: Dictionary) -> void:
 	# naval 任务不加空中驻守（玩家专心打船）
 	if mission_type != "naval":
 		_spawn_zone_defenders(zone_id, zone, mission_type)
+	if _zones != null and _zones.get_difficulty(zone_id) == ZoneData.DIFFICULTY_MAX:
+		_spawn_tier3_profile(zone_id, mission_type, zone)
 	_register_zone_atmosphere(zone_id, mission_type, zone)
 
 ## 正式气氛层只复用本战区已经生成的敌军名单，不做全场扫描，也不重复生成敌方。
@@ -845,6 +867,241 @@ func _spawn_ground_garrison(zone_id: StringName, zone: Dictionary) -> void:
 		"id=%s lvl=%d diff=%d units=%d center=%s"
 		% [zone_id, lvl, difficulty, units.size(), center])
 
+
+## 地面 3★ 的地图身份。东京湾/default 固定巨炮；沙漠等权抽巨炮/攻城坦克。
+## roll 参数是专项测试 seam，运行时只调用一次并把结果固化在已生成实体上。
+static func tier3_ground_profile_for(map_id: String, roll: float) -> StringName:
+	if map_id == TIER3_DESERT_MAP_ID:
+		return &"siege_tank" if clampf(roll, 0.0, 1.0) < 0.5 else &"super_cannon"
+	return &"super_cannon"
+
+
+func _spawn_tier3_profile(zone_id: StringName, mission_type: String,
+		zone: Dictionary) -> void:
+	var registered_profile: StringName = &""
+	match mission_type:
+		"ground":
+			var map_id := String(mode.get("_map_id")) if mode != null and "_map_id" in mode \
+				else "default"
+			var profile := StringName(_debug_tier3_profile_by_zone.get(zone_id, &""))
+			if profile != &"super_cannon" and profile != &"siege_tank":
+				profile = tier3_ground_profile_for(map_id, randf())
+			if profile == &"siege_tank":
+				_spawn_tier3_siege_tank(zone_id, zone)
+			else:
+				_spawn_tier3_super_cannon(zone_id, zone)
+			registered_profile = profile
+		"air", "squadron":
+			_spawn_tier3_deadair(zone_id, zone)
+			registered_profile = &"deadair"
+		"naval":
+			# 舰船已在 `_spawn_naval_formation` 实例化前拿到深拷贝的远程 VLS 参数。
+			registered_profile = &"long_range_vls"
+	if registered_profile != &"":
+		_register_tier3_sources(zone_id, registered_profile)
+
+
+func _register_tier3_sources(zone_id: StringName, profile: StringName) -> void:
+	var sources: Array = []
+	for value in _spawned_zones.get(zone_id, []):
+		if typeof(value) == TYPE_OBJECT and value != null and is_instance_valid(value) \
+				and value is CombatUnit and bool(value.get_meta(&"tier3_threat_source", false)):
+			sources.append(value)
+	if sources.is_empty():
+		push_error("ZoneMission: Tier3 profile %s has no live source in zone %s" % [profile, zone_id])
+		return
+	_tier3_sources_by_zone[zone_id] = {
+		"profile": profile,
+		"sources": sources,
+		"active": true,
+	}
+	tier3_threat_changed.emit(zone_id, profile, true)
+
+
+func _update_tier3_source_states(delta: float) -> void:
+	_tier3_source_tick_s = maxf(_tier3_source_tick_s - delta, 0.0)
+	if _tier3_source_tick_s > 0.0:
+		return
+	_tier3_source_tick_s = 0.25
+	for zone_id_value in _tier3_sources_by_zone.keys():
+		var zone_id := StringName(zone_id_value)
+		var entry: Dictionary = _tier3_sources_by_zone[zone_id]
+		var live := false
+		for value in entry.get("sources", []):
+			if typeof(value) == TYPE_OBJECT and value != null and is_instance_valid(value) \
+					and value is CombatUnit and not (value as CombatUnit).is_destroyed:
+				live = true
+				break
+		if bool(entry.get("active", false)) and not live:
+			entry["active"] = false
+			_tier3_sources_by_zone[zone_id] = entry
+			tier3_threat_changed.emit(zone_id, StringName(entry.get("profile", &"")), false)
+
+
+func _end_tier3_zone(zone_id: StringName) -> void:
+	if not _tier3_sources_by_zone.has(zone_id):
+		return
+	var entry: Dictionary = _tier3_sources_by_zone[zone_id]
+	if bool(entry.get("active", false)):
+		tier3_threat_changed.emit(zone_id, StringName(entry.get("profile", &"")), false)
+	_tier3_sources_by_zone.erase(zone_id)
+
+
+func _existing_zone_target_positions(zone_id: StringName) -> Array[Vector2]:
+	var positions: Array[Vector2] = []
+	for value in _spawned_zones.get(zone_id, []):
+		if typeof(value) == TYPE_OBJECT and value != null and is_instance_valid(value) \
+				and value is Node2D:
+			positions.append((value as Node2D).global_position)
+	return positions
+
+
+func _find_cannon_compound_center(center: Vector2, radius: float,
+		placed: Array[Vector2]) -> Vector2:
+	for _attempt in range(MAX_SAMPLE_ATTEMPTS):
+		var candidate := _random_pos_in_circle(center, radius * 0.55)
+		if not _far_from_placed(candidate, placed) or not _far_from_roads(candidate):
+			continue
+		var all_safe := true
+		for offset in TIER3_CANNON_PART_OFFSETS:
+			if not MapGeography.is_ground_spawn_safe(candidate + offset):
+				all_safe = false
+				break
+		if all_safe:
+			return candidate
+	return Vector2.INF
+
+
+func _tier3_ground_params(display_name: String, hp_value: float) -> AircraftParams:
+	var p := _TIER3_GROUND_BASE_PARAMS.duplicate(true) as AircraftParams
+	p.display_name = display_name
+	p.max_hp = hp_value
+	p.radar_range = 0.0
+	p.lock_time = 2.5
+	p.gun = null
+	p.missile = null
+	return p
+
+
+func _spawn_tier3_super_cannon(zone_id: StringName, zone: Dictionary) -> void:
+	var center := _find_cannon_compound_center(zone["center"], float(zone["radius"]),
+		_existing_zone_target_positions(zone_id))
+	if center == Vector2.INF:
+		push_warning("ZoneMission: no safe Tier3 super cannon compound for %s" % zone_id)
+		return
+	var units: Array = _spawned_zones.get(zone_id, [])
+	for i in range(TIER3_CANNON_PART_OFFSETS.size()):
+		var part = TIER3_SUPER_CANNON_SCRIPT.new()
+		var is_body := i == TIER3_CANNON_PART_OFFSETS.size() - 1
+		part.params = _tier3_ground_params("STONEHENGE" if is_body else "STONEHENGE BASE",
+			TIER3_CANNON_BODY_HP if is_body else TIER3_CANNON_BASE_HP)
+		part.position = center + TIER3_CANNON_PART_OFFSETS[i]
+		part.team = CombatUnit.TEAM_HOSTILE
+		part.callsign = "STONEHENGE-%s" % ("BODY" if is_body else "B%d" % (i + 1))
+		part.configure(TIER3_SUPER_CANNON_SCRIPT.PartKind.BODY if is_body \
+			else TIER3_SUPER_CANNON_SCRIPT.PartKind.BASE, zone_id)
+		part.set_meta(&"zone_mission", zone_id)
+		part.set_meta(&"tier3_special_unit", true)
+		part.set_meta(&"tier3_profile", &"super_cannon")
+		if is_body:
+			part.set_meta(&"tier3_threat_source", true)
+		mode.add_child(part)
+		units.append(part)
+	_spawned_zones[zone_id] = units
+	EventLogger.log_event("TIER3", "SuperCannonSpawn",
+		"zone=%s targets=5 center=%s" % [zone_id, center.round()])
+
+
+func _spawn_tier3_siege_tank(zone_id: StringName, zone: Dictionary) -> void:
+	var placed := _existing_zone_target_positions(zone_id)
+	var pos := _find_valid_spawn_pos(zone["center"], float(zone["radius"]) * 0.55,
+		placed, zone.get("ground_spawn_polygons", []))
+	if pos == Vector2.INF:
+		push_warning("ZoneMission: no safe Tier3 siege tank position for %s" % zone_id)
+		return
+	var tank = TIER3_SIEGE_TANK_SCRIPT.new()
+	tank.params = _tier3_ground_params("SIEGE TANK", TIER3_SIEGE_TANK_HP)
+	tank.position = pos
+	tank.team = CombatUnit.TEAM_HOSTILE
+	tank.callsign = "SIEGE-%s" % zone_id
+	tank.configure(zone_id)
+	tank.set_meta(&"zone_mission", zone_id)
+	tank.set_meta(&"tier3_special_unit", true)
+	tank.set_meta(&"tier3_threat_source", true)
+	tank.set_meta(&"tier3_profile", &"siege_tank")
+	mode.add_child(tank)
+	tank.arm_mounts(mode, _bullet_manager, _missile_manager)
+	var units: Array = _spawned_zones.get(zone_id, [])
+	units.append(tank)
+	_spawned_zones[zone_id] = units
+	EventLogger.log_event("TIER3", "SiegeTankSpawn",
+		"zone=%s mounts=2CIWS+LR-SAM+AIRBURST pos=%s" % [zone_id, pos.round()])
+
+
+func _spawn_tier3_deadair(zone_id: StringName, zone: Dictionary) -> void:
+	if _spawner == null:
+		return
+	var center: Vector2 = zone["center"]
+	var orbit_r := maxf(AIR_SQUADRON_ORBIT_RADIUS,
+		float(zone["radius"]) * AIR_SQUADRON_ORBIT_RADIUS_FRAC)
+	var origin := _zone_air_spawn_origin(center)
+	var heading_deg := _zone_air_heading_deg(origin, center)
+	var heading_rad := deg_to_rad(heading_deg)
+	var waypoints := PackedVector2Array()
+	for k in range(AIR_SQUADRON_PATROL_WAYPOINTS):
+		var angle := float(k) / float(AIR_SQUADRON_PATROL_WAYPOINTS) * TAU
+		waypoints.append(center + Vector2(cos(angle), sin(angle)) * orbit_r)
+	var sq := SquadFactory.create()
+	sq.formation = Squad.Formation.WEDGE
+	var core := _spawner._create_enemy(SurvivorSpawner.EnemyType.DEADAIR,
+		origin, heading_deg)
+	if core == null:
+		return
+	_tag_zone_air_ingress(core, center, orbit_r + ZONE_AIR_INGRESS_ARRIVE_BAND_PX)
+	core.set_meta(&"zone_mission", zone_id)
+	core.set_meta(&"tier3_special_unit", true)
+	core.set_meta(&"tier3_threat_source", true)
+	core.set_meta(&"tier3_profile", &"deadair")
+	SquadFactory.register_leader(sq, core)
+	var core_ai := _get_ai_of(core)
+	if core_ai != null:
+		core_ai.waypoints = waypoints
+	var escorts: Array[Aircraft] = []
+	var escort_types: Array[int] = _tier3_deadair_escort_types()
+	for i in range(2):
+		var offset := sq.get_formation_offset(i + 1).rotated(heading_rad)
+		var escort := _spawner._create_enemy(escort_types[i], origin + offset, heading_deg)
+		if escort == null:
+			continue
+		_tag_zone_air_ingress(escort, center, orbit_r + ZONE_AIR_INGRESS_ARRIVE_BAND_PX)
+		escort.set_meta(&"zone_garrison", zone_id)
+		SquadFactory.register_wingman(sq, escort, true)
+		var escort_ai := _get_ai_of(escort)
+		if escort_ai != null:
+			escort_ai.waypoints = waypoints
+		escorts.append(escort)
+	_spawner.register_tier3_deadair_squad(sq, core)
+	var targets: Array = _spawned_zones.get(zone_id, [])
+	targets.append(core)
+	_spawned_zones[zone_id] = targets
+	var garrison: Array = _garrison_zones.get(zone_id, [])
+	garrison.append_array(escorts)
+	_garrison_zones[zone_id] = garrison
+	EventLogger.log_event("TIER3", "DeadairSpawn",
+		"zone=%s core=1 escorts=%d" % [zone_id, escorts.size()])
+
+
+func _tier3_deadair_escort_types() -> Array[int]:
+	var lvl := SurvivorData.tgt_level_for_zone(ZoneData.DIFFICULTY_MAX, _player_level())
+	var pool := SurvivorData.get_zone_enemy_pool(lvl, true, true)
+	var result: Array[int] = []
+	for _i in range(2):
+		var picked := SurvivorData.pick_zone_enemy(pool, 999, lvl)
+		var etype := int(picked.get("type", SurvivorSpawner.EnemyType.F15)) \
+			if not picked.is_empty() else int(SurvivorSpawner.EnemyType.F15)
+		result.append(etype)
+	return result
+
 ## 机场难度定档（spec airfield-liberation-zones §2.3）：读 ROE 热度 → 1/2/3★。
 ## heat<34→1★，<67→2★，≥67→3★。_roe 未就绪则回退 1★。
 func _airfield_difficulty_from_heat() -> int:
@@ -1323,13 +1580,13 @@ func _spawn_naval_formation(zone_id: StringName, center: Vector2, difficulty: in
 		match kind:
 			&"CG":
 				ship_classes.append(CruiserShip)
-				ship_params.append(cg_params)
+				ship_params.append(_tier3_naval_params(cg_params) if difficulty == 3 else cg_params)
 			&"DDG":
 				ship_classes.append(DestroyerShip)
-				ship_params.append(ddg_params)
+				ship_params.append(_tier3_naval_params(ddg_params) if difficulty == 3 else ddg_params)
 			_:
 				ship_classes.append(FrigateShip)
-				ship_params.append(ffg_params)
+				ship_params.append(_tier3_naval_params(ffg_params) if difficulty == 3 else ffg_params)
 
 	var full_offsets: Array = NAVAL_ESCORT_OFFSETS.get(difficulty, NAVAL_ESCORT_OFFSETS[1])
 	if ship_classes.size() != full_offsets.size() + 1:
@@ -1379,6 +1636,31 @@ func _spawn_naval_formation(zone_id: StringName, center: Vector2, difficulty: in
 		escort.append(ship)
 	_spawned_zones[zone_id] = build_naval_target_roster(leader, escort)
 	return true
+
+
+## 只复制并延长 VLS 弹体的真实可达距离/寿命；CIWS、Flak、SAM、舰体和冷却保持普通舰队值。
+## 外部 .tres 绝不原地改，避免一个 3★ 把后续 1★/2★舰队一并升级。
+static func _tier3_naval_params(source: Resource) -> Resource:
+	var original := source as NavalParams
+	if original == null:
+		return source
+	var cloned := original.duplicate() as NavalParams
+	var mount_configs: Array[WeaponMountParams] = []
+	var has_vls := false
+	for original_mount in original.mount_configs:
+		var mount := original_mount.duplicate() as WeaponMountParams
+		if mount.weapon_type == WeaponMountParams.WeaponType.VLS_SALVO \
+				and original_mount.weapon_params is MissileParams:
+			var missile := (original_mount.weapon_params as MissileParams).duplicate() as MissileParams
+			missile.max_range_rear = maxf(missile.max_range_rear, TIER3_VLS_RANGE_M)
+			missile.max_lifetime = maxf(missile.max_lifetime, TIER3_VLS_LIFETIME_S)
+			mount.weapon_params = missile
+			has_vls = true
+		mount_configs.append(mount)
+	cloned.mount_configs = mount_configs
+	if has_vls:
+		cloned.set_meta(&"tier3_vls_source", true)
+	return cloned
 
 ## 安全方案实际生成的全舰登记为 TGT；集中成纯 helper，防止未来又退化成只登记旗舰。
 static func build_naval_target_roster(leader: NavalUnit, escorts: Array) -> Array:
@@ -1449,6 +1731,10 @@ func _make_zone_ship(ship: NavalUnit, params_res: Resource, pos: Vector2, headin
 	ship.set_meta("zone_mission", zone_id)
 	ship.set_meta("category", "zone_naval")
 	ship.set_meta("skip_far_cleanup", true)
+	if params_res != null and params_res.has_meta(&"tier3_vls_source"):
+		ship.set_meta(&"tier3_special_unit", true)
+		ship.set_meta(&"tier3_threat_source", true)
+		ship.set_meta(&"tier3_profile", &"long_range_vls")
 	mode.add_child(ship)
 	_inject_ship_managers(ship)
 	return ship
@@ -1842,6 +2128,26 @@ func get_nearest_triggered_objective(from_pos: Vector2) -> Dictionary:
 			best = {"center": c, "units": units}
 	return best
 
+
+## 普通失败/Debug 撤离先停火再等画外回收；BOSS 转场按已批准契约直接移除来源组件。
+func _retire_tier3_unit(value: Variant, immediate: bool) -> void:
+	if typeof(value) != TYPE_OBJECT or value == null or not is_instance_valid(value) \
+			or not (value is CombatUnit):
+		return
+	var unit := value as CombatUnit
+	if not bool(unit.get_meta(&"tier3_special_unit", false)):
+		return
+	if unit.has_method("cease_tier3_threat"):
+		unit.call("cease_tier3_threat")
+	elif unit is NavalUnit:
+		unit.apply_status(StatusEffects.JAM, 9999.0)
+	if unit is Aircraft and String(unit.get_meta(&"tier3_profile", "")) == "deadair" \
+			and _spawner != null:
+		_spawner.retire_deadair_source(unit as Aircraft)
+	if immediate:
+		CombatUnit.release_target_refs(unit)
+		unit.queue_free()
+
 ## 8 分钟战区阶段结束时调用（由 survivor_mode._check_warzone_phase_timeout）：
 ## 取消所有战区任务 —— 已刷的 TGT 单位继续存活、可击杀给 XP，但不再发完成信号、
 ## 不再发奖励、UI 上 TGT 括号去掉。是"任务取消但敌人留场"的语义。
@@ -1859,8 +2165,12 @@ func cancel_all_zone_missions() -> void:
 		var units: Array = _spawned_zones.get(zid, [])
 		for u in units:
 			if is_instance_valid(u) and u is CombatUnit:
+				if bool(u.get_meta(&"tier3_special_unit", false)):
+					_retire_tier3_unit(u, true)
+					continue
 				u.is_mission_target = false
 				u.queue_redraw()
+		_end_tier3_zone(StringName(zid))
 		canceled_count += 1
 	_spawned_zones.clear()
 	_spawn_lead_timers.clear()
@@ -1875,6 +2185,7 @@ func cancel_all_zone_missions() -> void:
 ## 时能干净地重刷一批单位。
 func reset_zone(zone_id: StringName) -> void:
 	_begin_air_support_egress(zone_id, "zone reset")
+	_end_tier3_zone(zone_id)
 	_retire_zone_atmosphere(zone_id)
 	_retire_bomber_run(zone_id)
 	_spawned_zones.erase(zone_id)
@@ -1892,14 +2203,16 @@ func fail_zone(zone_id: StringName, reason: String) -> void:
 	if _completed_zones.has(zone_id) or _failed_zones.has(zone_id):
 		return
 	_failed_zones[zone_id] = reason
+	_end_tier3_zone(zone_id)
 	_begin_air_support_egress(zone_id, "mission failed")
 	_retire_zone_atmosphere(zone_id)
 	var targets: Array = _spawned_zones.get(zone_id, [])
 	for unit in targets:
 		if is_instance_valid(unit) and unit is CombatUnit:
+			_retire_tier3_unit(unit, false)
 			unit.is_mission_target = false
 			unit.queue_redraw()
-		_schedule_despawn(unit)
+			_schedule_despawn(unit)
 	_spawned_zones.erase(zone_id)
 	_spawn_lead_timers.erase(zone_id)
 	_despawn_garrison(zone_id)
@@ -1914,11 +2227,13 @@ func fail_zone(zone_id: StringName, reason: String) -> void:
 ## 走"视线外延迟 free"队列，铁则依然遵守
 func debug_purge_zone(zone_id: StringName) -> void:
 	_begin_air_support_egress(zone_id, "debug purge")
+	_end_tier3_zone(zone_id)
 	_retire_zone_atmosphere(zone_id)
 	_retire_bomber_run(zone_id)
 	# 任务目标（_spawned_zones）
 	var tgts: Array = _spawned_zones.get(zone_id, [])
 	for u in tgts:
+		_retire_tier3_unit(u, false)
 		_schedule_despawn(u)
 	_spawned_zones.erase(zone_id)
 	_spawn_lead_timers.erase(zone_id)
@@ -1952,11 +2267,13 @@ func debug_force_respawn_zone(id: StringName) -> void:
 
 	# 撤走旧驻守 + 旧 TGT（视线内的延迟 free）
 	_begin_air_support_egress(id, "debug respawn")
+	_end_tier3_zone(id)
 	_retire_zone_atmosphere(id)
 	_retire_bomber_run(id)
 	_despawn_garrison(id)
 	var tgts: Array = _spawned_zones.get(id, [])
 	for u in tgts:
+		_retire_tier3_unit(u, false)
 		_schedule_despawn(u)
 	_spawned_zones.erase(id)
 	_spawn_lead_timers.erase(id)
@@ -1968,6 +2285,39 @@ func debug_force_respawn_zone(id: StringName) -> void:
 	EventLogger.log_event("ZONE", "DebugRespawn",
 		"id=%s new_mt=%s" % [id, _zones.get_mission_type(id)])
 
+
+func debug_set_tier3_profile(id: StringName, profile: StringName) -> void:
+	if profile == &"super_cannon" or profile == &"siege_tank":
+		_debug_tier3_profile_by_zone[id] = profile
+	else:
+		_debug_tier3_profile_by_zone.erase(id)
+
+
+func debug_get_tier3_profile(id: StringName) -> StringName:
+	return StringName(_debug_tier3_profile_by_zone.get(id, &"auto"))
+
+
+## 通过真实伤害入口摧毁当前 3★来源，用于 F6 验证 NEUTRALIZED；不直接改状态或伪造结果。
+func debug_neutralize_tier3_sources(id: StringName) -> int:
+	var destroyed := 0
+	for value in _spawned_zones.get(id, []):
+		if typeof(value) != TYPE_OBJECT or value == null or not is_instance_valid(value) \
+				or not (value is CombatUnit):
+			continue
+		var unit := value as CombatUnit
+		if not bool(unit.get_meta(&"tier3_threat_source", false)) or unit.is_destroyed:
+			continue
+		if unit is NavalUnit:
+			var ship := unit as NavalUnit
+			ship.take_damage_at(maxf(ship.hull_hp, ship.hull_hp_max) + 9999.0,
+				ship.global_position, 0.0, true)
+		else:
+			unit.take_damage(maxf(unit.hp, 1.0) + 9999.0, _player, "debug")
+		destroyed += 1
+	EventLogger.log_event("TIER3", "DebugNeutralize",
+		"zone=%s sources=%d" % [id, destroyed])
+	return destroyed
+
 ## 强制解锁某战区并立即刷内容（LOCKED / CLEARED → AVAILABLE + spawn）
 func debug_force_unlock_zone(id: StringName) -> void:
 	if not _zones:
@@ -1977,11 +2327,13 @@ func debug_force_unlock_zone(id: StringName) -> void:
 		return
 	# 先清旧
 	_begin_air_support_egress(id, "debug unlock")
+	_end_tier3_zone(id)
 	_retire_zone_atmosphere(id)
 	_retire_bomber_run(id)
 	_despawn_garrison(id)
 	var tgts: Array = _spawned_zones.get(id, [])
 	for u in tgts:
+		_retire_tier3_unit(u, false)
 		_schedule_despawn(u)
 	_spawned_zones.erase(id)
 	_spawn_lead_timers.erase(id)

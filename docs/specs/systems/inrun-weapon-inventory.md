@@ -1,7 +1,7 @@
 ---
 id: inrun-weapon-inventory
 kind: system
-status: draft        # ⏳ 2026-07-19 用户"武器装备系统修改（重点调整）"成稿；细节待 review
+status: in-progress  # 核心快照/补挂/重放已落地；普通局结算清单与 Tab 武器库行仍待收口
 schema_version: 1
 spec_version: 3
 owner: 用户
@@ -74,7 +74,7 @@ reconstruction_complete: true
 ## 5. 验收
 
 - [ ] 继承断言：入手电磁炮（含任意强化）→ 进化/换机 → 新机拥有电磁炮且强化数值逐项不变。
-- [x] **不自带断言（2026-07-23）**：41 机 `player_*.tres` 无一含 rocket/equipment/僚机/雷/QMAAM（bench `player_params`）。
+- [x] **不自带断言（当前 43 机）**：全部 `player_*.tres` 无一含 rocket/equipment/僚机/雷/QMAAM（bench `player_params`）。
 - [ ] 战区入手 → 继承：战区领电磁炮（含强化）→ 进化/换机 → 新机拥有电磁炮且强化逐项不变。
 - [ ] 底线不入库：起手机机炮/导弹/flare 不出现在武器库；换机后武器库为空（若无入手）。
 - [ ] 战区奖励武器走同一入库/继承路径（忠诚僚机换机后仍在）。

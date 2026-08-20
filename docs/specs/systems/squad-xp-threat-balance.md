@@ -5,7 +5,7 @@ status: in-progress
 schema_version: 1
 spec_version: 2
 owner: noelu
-depends_on: [survivor-loop, global-awareness-roe, squad-upgrade-ownership]
+depends_on: [survivor-loop, global-awareness-roe, squad-control-switching]
 reconstruction_complete: false
 ---
 

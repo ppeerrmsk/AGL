@@ -110,7 +110,8 @@ reconstruction_complete: true
 - [x] 编队存在 `_salvo_pending` 且临时目标未满锁时，不得走旧协同齐射简化门发射；到期信号可消费，但弹药必须不变。
 - [x] `--bench=waypoint_fire` 全绿；相关 `weapon`、`missile_env`、`fire_discipline`、`tight_volley` 全绿。
 - [x] 自动性能：新增评估固定 20 Hz，只挂玩家编队；`stress_swarm` Lv15、10 架玩家方编队、20 敌机、14 地面单位与 CSG 的 10 秒样本保持 145 headless 帧/s，武器物理桶 38 μs/帧。
-- [ ] 手动性能：有渲染的 Sentinel + Lv5+ 实战保持 60 FPS；headless bench 不替代这项肉眼验收。
+- [ ] 性能：C1 混合全可见战场 `Shadow Visual` 保持 60 FPS，并在航点火控真实激活的专项场景记录
+  导弹/子弹数量和 `ac_phys.wpn`；headless bench 不替代 draw 与肉眼验收。
 - [x] 无新增 UI 文本，无 i18n 变更。
 
 ## 6. 实现计划（Task Pipeline —— 工作令）
@@ -145,4 +146,4 @@ reconstruction_complete: true
 | 2026-07-31 | 1 | 用户确认分两阶段；第一阶段只解耦导航/火控并测试，所有导弹质量门保持原值；第二阶段调参延期。 |
 | 2026-07-31 | 1 | 阶段一代码与 bench 落地；协调要求停止 Godot editor/直接调用，最终启动器回归待其他 task idle 后补跑。此前在“旧协同齐射旁路”最终收紧前，waypoint_fire/weapon/fire_discipline/tight_volley/missile_env 均返回 0；该结果只证明主体接线，不作为最终补跑替代。 |
 | 2026-08-01 | 1 | 仅经 `bench/run.cmd` 完成正式行为回归：`waypoint_fire` 27/27、`weapon` 7/7、`missile_env` 4/4、`fire_discipline` 10/10、`tight_volley` 10/10、`target_arb` 25/25、`friendly_asset_aggro` 27/27。 |
-| 2026-08-01 | 1 | `stress_swarm` 10 秒压力样本通过：33 架飞机/80 单位，末秒 145 headless 帧、`ac_phys.wpn` 38 μs/帧；此前 30 秒样本触发启动器 120 秒超时并被完整回收，未生成结果，因此不计为通过。保留 Sentinel + Lv5+ 有渲染手动验收。 |
+| 2026-08-01 | 1 | `stress_swarm` 10 秒压力样本通过：33 架飞机/80 单位，末秒 145 headless 帧、`ac_phys.wpn` 38 μs/帧；此前 30 秒样本触发启动器 120 秒超时并被完整回收，未生成结果，因此不计为通过。该证据只覆盖 CPU/状态，仍需当前 C1 + 火控激活专项 Visual。 |

@@ -43,7 +43,7 @@ var layout_text: String = "":
 		_layout_valid = false
 		queue_redraw()
 
-var font_color: Color = ThemeColors.UI_TERMINAL_GREEN:
+var font_color: Color = ThemeColors.UI_TERMINAL_WHITE:
 	set(value):
 		if font_color == value:
 			return

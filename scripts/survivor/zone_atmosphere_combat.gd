@@ -19,6 +19,8 @@ const TICK_S := 0.5
 const DAMAGE_LIVE_ENTER_PX := 1500.0
 const DAMAGE_LIVE_EXIT_PX := 1800.0
 const ALLY_DAMAGE_MULT := 0.10
+const HELICOPTER_SPAWN_RADIUS_PX := 1100.0
+const HELICOPTER_PATROL_RADIUS_PX := 900.0
 
 static func enabled_for_roll(force_all: bool, roll: float) -> bool:
 	return force_all or clampf(roll, 0.0, 1.0) < ORDINARY_ZONE_CHANCE
@@ -32,6 +34,14 @@ static func cached_enabled(cache: Dictionary, zone_id: StringName, roll: float) 
 
 static func is_decisive_map(map_id: String) -> bool:
 	return DECISIVE_MAP_IDS.has(StringName(map_id))
+
+## 四种构图等权：纯地面、仅友军、仅敌军、双方直升机。
+static func helicopter_sides_for_roll(roll: float) -> Dictionary:
+	var bucket := mini(int(clampf(roll, 0.0, 0.999999) * 4.0), 3)
+	return {
+		"ally": bucket == 1 or bucket == 3,
+		"hostile": bucket == 2 or bucket == 3,
+	}
 
 const ARTILLERY_COUNT := 3
 const ARTILLERY_FORMATIONS: Array[StringName] = [&"staggered", &"echelon", &"wedge"]
@@ -110,6 +120,17 @@ func register_zone(zone_id: StringName, mission_type: String, zone: Dictionary,
 				_average_position(hostiles, center), CombatUnit.TEAM_ALLY, "ALLY")
 			opposition = _spawn_artillery_group(zone_id, center, radius,
 				_average_position(allies, center), CombatUnit.TEAM_HOSTILE, "HOSTILE")
+			var heli_sides := helicopter_sides_for_roll(randf())
+			if bool(heli_sides["ally"]):
+				var ally_heli := _spawn_atmosphere_helicopter(zone_id, center, radius,
+					CombatUnit.TEAM_ALLY, -1.0)
+				if ally_heli != null:
+					allies.append(ally_heli)
+			if bool(heli_sides["hostile"]):
+				var hostile_heli := _spawn_atmosphere_helicopter(zone_id, center, radius,
+					CombatUnit.TEAM_HOSTILE, 1.0)
+				if hostile_heli != null:
+					opposition.append(hostile_heli)
 		"naval":
 			allies = _spawn_allied_naval(zone_id, center, radius, hostiles)
 	entry["allies"] = allies
@@ -393,6 +414,22 @@ func _spawn_artillery_group(zone_id: StringName, center: Vector2, radius: float,
 	return []
 
 
+func _spawn_atmosphere_helicopter(zone_id: StringName, center: Vector2, radius: float,
+		team: int, side: float) -> Aircraft:
+	if _spawner == null:
+		return null
+	var spawn_radius := minf(HELICOPTER_SPAWN_RADIUS_PX, radius * 0.42)
+	var spawn_pos := center + Vector2(spawn_radius * side, -spawn_radius * 0.35)
+	var to_center := (center - spawn_pos).normalized()
+	var heading_deg := rad_to_deg(atan2(to_center.x, -to_center.y))
+	var heli := _spawner.spawn_atmosphere_ah64(team, spawn_pos, heading_deg, zone_id,
+		center, minf(HELICOPTER_PATROL_RADIUS_PX, radius * 0.35))
+	if heli == null:
+		return null
+	_mark_actor(heli, zone_id, "helicopter", team == CombatUnit.TEAM_HOSTILE)
+	return heli
+
+
 func _find_land_artillery_plan(center: Vector2, radius: float, hostile_center: Vector2,
 		count: int, rng: RandomNumberGenerator) -> Dictionary:
 	var away := (center - hostile_center).normalized()
@@ -561,7 +598,8 @@ func _spawn_ship(zone_id: StringName, script: GDScript, base_params: NavalParams
 	return ship
 
 
-func _mark_actor(unit: CombatUnit, zone_id: StringName, role: String) -> void:
+func _mark_actor(unit: CombatUnit, zone_id: StringName, role: String,
+		rewardable_hostile: bool = false) -> void:
 	unit.add_to_group(ACTOR_GROUP)
 	unit.set_meta(&"zone_atmosphere_zone", zone_id)
 	unit.set_meta(&"zone_atmosphere_role", role)
@@ -569,7 +607,10 @@ func _mark_actor(unit: CombatUnit, zone_id: StringName, role: String) -> void:
 	# 气氛演员的敌我身份是编成契约，不得因中弹、机场解放或动态转换机制倒戈。
 	unit.set_meta(CombatUnit.META_FACTION_CONVERSION_LOCKED, true)
 	unit.set_meta(&"skip_far_cleanup", true)
-	unit.set_meta(&"no_kill_reward", true)
+	if rewardable_hostile:
+		unit.remove_meta(&"no_kill_reward")
+	else:
+		unit.set_meta(&"no_kill_reward", true)
 	unit.set_meta(&"token_cost", 0)
 
 

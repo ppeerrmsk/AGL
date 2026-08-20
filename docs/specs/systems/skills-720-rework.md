@@ -5,7 +5,7 @@ status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
 spec_version: 12
 owner: 用户
-depends_on: [evolution-attribute-gates, squad-upgrade-ownership, afterburner-mode, inrun-weapon-inventory, command-wheel, zone-reward-docking]
+depends_on: [evolution-attribute-gates, afterburner-mode, active-special-maneuvers, inrun-weapon-inventory, command-wheel, zone-reward-docking]
 reconstruction_complete: true
 ---
 
@@ -249,8 +249,8 @@ reconstruction_complete: true
 | QAAM 归因链 | `scripts/missile_manager.gd`（`spawn_missile(is_secondary)`）＋ `scripts/missile.gd`（`is_secondary_weapon`）＋ kind `"qmaam"` |
 | 新机制四件 | `scripts/aircraft/aircraft_weapons.gd`（机炮吊舱翼挂段）/ `scripts/equipment/railgun_equipment.gd`（`double_shot` followup）/ `scripts/missile.gd`（`second_stage` `_second_stage_g_mult`）/ `scripts/aircraft.gd`（`try_manual_maneuver` / `do_manual_dodge`）＋ R 键入口 `survivor_mode` |
 | 量表加成格 / 卡面归属角标 | `scripts/survivor/axis_bars_panel.gd`（`show_state(…, milestone_bonus)`）/ `scripts/survivor/survivor_upgrade_ui.gd`（`_scope_badges`） |
-| 生成器 / 现状全表 | `tools/dump_skill_table.py` → `docs/reference/skill-table.md`（当前 152 条） |
-| 验收 bench | `scripts/tests/test_skills_720.gd`（`--bench=skills720`，169 断言；含超载轴/终端来源闭合与 R 手动/AI 自动/三向互斥/全队下发；随 `--bench=all` 回归门） |
+| 生成器 / 现状全表 | `tools/dump_skill_table.py` → `docs/reference/skill-table.md`（当前 165 条） |
+| 验收 bench | `scripts/tests/test_skills_720.gd`（`--bench=skills720`；含超载轴/终端来源闭合与 R 手动/AI 自动/互斥/全队下发；R 槽的当前五向权威与专项证据见 `active-special-maneuvers`；随 `--bench=all` 回归门） |
 
 ## 8. 变更记录
 

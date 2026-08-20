@@ -14,6 +14,7 @@ const JAM_REFRESH_S: float = 0.5
 const PRESSURE_RADIUS_PX: float = 1000.0
 const ESCAPE_DISTANCE_PX: float = 2250.0
 const TICK_INTERVAL_S: float = 0.2
+const META_DEADAIR_JAM_OWNED: StringName = &"deadair_jam_owned"
 
 var _spawner
 var _host: Aircraft = null
@@ -33,6 +34,18 @@ func register(host: Aircraft) -> void:
 	if _host != null and is_instance_valid(_host) and _host != host:
 		push_warning("[DEADAIR] 同场只支持一个干扰场，忽略重复本体 %s" % host.callsign)
 		return
+	_host = host
+	_tick_accum = TICK_INTERVAL_S
+
+
+## 3★ 正式来源优先占用唯一干扰场。旧随机来源保留实体但永久退役其场，避免来源死亡后被扫描复活。
+func replace_with_priority(host: Aircraft) -> void:
+	if host == null or not is_instance_valid(host):
+		return
+	if _host != null and is_instance_valid(_host) and _host != host:
+		FieldVisual.collapse(_host)
+		_host.set_meta(&"support_field_retired", true)
+	_clear_all_exposure()
 	_host = host
 	_tick_accum = TICK_INTERVAL_S
 
@@ -57,6 +70,17 @@ func shutdown() -> void:
 	_clear_all_exposure()
 	_host = null
 	_spawner = null
+
+
+## 任务层直接撤走指定来源时，同拍收掉场与未完成累积；若当前 host 不是该实例则不误伤。
+func retire(host: Aircraft) -> void:
+	if host == null or _host != host:
+		return
+	if is_instance_valid(host):
+		FieldVisual.collapse(host)
+	_clear_all_exposure()
+	_host = null
+	_tick_accum = 0.0
 
 
 func tick(delta: float) -> void:
@@ -101,7 +125,9 @@ func _find_host() -> Aircraft:
 		if not is_instance_valid(unit) or not unit is Aircraft:
 			continue
 		var aircraft := unit as Aircraft
-		if not aircraft.is_destroyed and str(aircraft.get_meta("enemy_type", "")) == "deadair":
+		if not aircraft.is_destroyed \
+				and not bool(aircraft.get_meta(&"support_field_retired", false)) \
+				and str(aircraft.get_meta("enemy_type", "")) == "deadair":
 			_host = aircraft
 			return aircraft
 	return null
@@ -128,6 +154,8 @@ func _tick_units(host: Aircraft, step: float) -> void:
 		target.set_deadair_exposure_ratio(exposure / UNIT_THRESHOLD_S)
 		if exposure >= UNIT_THRESHOLD_S - 0.001:
 			target.apply_status(StatusEffects.JAM, JAM_REFRESH_S)
+			if target.has_status(StatusEffects.JAM):
+				target.set_meta(META_DEADAIR_JAM_OWNED, true)
 
 	for id_any in _unit_exposure.keys():
 		var id := int(id_any)
@@ -145,6 +173,9 @@ func _tick_units(host: Aircraft, step: float) -> void:
 		_unit_exposure[id] = exposure
 		_unit_outside[id] = float(state["outside"])
 		target.set_deadair_exposure_ratio(exposure / UNIT_THRESHOLD_S)
+		if target.has_meta(META_DEADAIR_JAM_OWNED) \
+				and not target.has_status(StatusEffects.JAM):
+			target.remove_meta(META_DEADAIR_JAM_OWNED)
 		if exposure <= 0.0:
 			_unit_exposure.erase(id)
 			_unit_outside.erase(id)
@@ -214,7 +245,11 @@ func _clear_all_exposure() -> void:
 	for id_any in _unit_exposure.keys():
 		var unit_any: Variant = instance_from_id(int(id_any))
 		if is_instance_valid(unit_any) and unit_any is CombatUnit:
-			(unit_any as CombatUnit).set_deadair_exposure_ratio(0.0)
+			var unit := unit_any as CombatUnit
+			unit.set_deadair_exposure_ratio(0.0)
+			if unit.has_meta(META_DEADAIR_JAM_OWNED):
+				unit.remove_status(StatusEffects.JAM)
+				unit.remove_meta(META_DEADAIR_JAM_OWNED)
 	for id_any in _missile_exposure.keys():
 		var missile_any: Variant = instance_from_id(int(id_any))
 		if is_instance_valid(missile_any) and missile_any is Missile:

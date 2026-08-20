@@ -6,6 +6,10 @@ static var active_missiles: Array[Missile] = []
 
 const PIXELS_PER_METER: float = GameConstants.PIXELS_PER_METER
 const GRAVITY: float = GameConstants.GRAVITY
+## 战略远景只省略非关键导弹的两行数据标签；弹体、尾迹、命中和来袭警告不受影响。
+const DATA_LABEL_MIN_VIEW_SCALE: float = 0.26
+## 小于该缩放时，普通导弹只保留弹体轮廓 + 尾迹；玩家弹和真实来袭弹仍画完整翼面/尾焰。
+const BODY_DETAIL_MIN_VIEW_SCALE: float = 0.26
 
 var params: MissileParams
 var source: CombatUnit        ## 发射单位（SARH 需要持续照射）
@@ -128,6 +132,9 @@ func _ready() -> void:
 	_trail_ribbon.ribbon_color = trail_color
 	_deadair_base_trail_color = trail_color
 	add_child(_trail_ribbon)
+	var parent_manager := get_parent()
+	if parent_manager != null and parent_manager.has_method("register_missile_trail"):
+		parent_manager.register_missile_trail(_trail_ribbon)
 	_prev_heading = heading
 	# 从 params 读取拦截抗性（不同型号可以配置不同的抗 CIWS 能力）
 	if params:
@@ -557,13 +564,50 @@ func _update_vls_non_terminal(delta: float) -> void:
 	queue_redraw()
 
 func _draw() -> void:
+	var perf_detail := PerfBuckets.detail_capture_enabled()
+	var perf_t0 := Time.get_ticks_usec() if perf_detail else 0
+	_draw_impl()
+	if perf_detail:
+		PerfBuckets.tick("missile_draw", Time.get_ticks_usec() - perf_t0)
+
+
+func _draw_impl() -> void:
 	if not is_active:
 		return
 	_draw_body()
-	if age < params.motor_burn_time:
+	var player: Aircraft = AircraftRenderer.safe_player_ref()
+	var player_owned := player != null and is_instance_valid(source) and source == player
+	var incoming := is_incoming_warning_for(player)
+	var full_body_detail := body_detail_visible_at_scale(
+		AircraftRenderer.label_lod_scale(self), player_owned, incoming,
+		Input.is_key_pressed(KEY_ALT))
+	if full_body_detail:
+		_draw_body_fins()
+	if full_body_detail and age < params.motor_burn_time:
 		_draw_motor_flame()
-	_draw_data_label()
+	if _should_draw_data_label():
+		PerfBuckets.count("missile_labels_drawn")
+		_draw_data_label()
 	_draw_incoming_warning()
+
+
+static func data_label_visible_at_scale(view_scale: float, player_owned: bool,
+		force_full: bool = false) -> bool:
+	return force_full or view_scale >= DATA_LABEL_MIN_VIEW_SCALE \
+		or player_owned
+
+
+static func body_detail_visible_at_scale(view_scale: float, player_owned: bool,
+		incoming_warning: bool, force_full: bool = false) -> bool:
+	return force_full or view_scale >= BODY_DETAIL_MIN_VIEW_SCALE \
+		or player_owned or incoming_warning
+
+
+func _should_draw_data_label() -> bool:
+	var player: Aircraft = AircraftRenderer.safe_player_ref()
+	var player_owned := player != null and is_instance_valid(source) and source == player
+	return data_label_visible_at_scale(AircraftRenderer.label_lod_scale(self),
+		player_owned, Input.is_key_pressed(KEY_ALT))
 
 
 ## 真实在途导弹警告：一弹一线一三角，不聚合、不去重。
@@ -571,6 +615,7 @@ func _draw_incoming_warning() -> void:
 	var player: Aircraft = AircraftRenderer.safe_player_ref()
 	if not is_incoming_warning_for(player):
 		return
+	PerfBuckets.count("missile_warnings_drawn")
 
 	var flash: bool = age < LockWarning.FLASH_DURATION
 	var blink_hz: float = LockWarning.FLASH_BLINK_HZ if flash else LockWarning.PRE_LAUNCH_BLINK_HZ
@@ -587,10 +632,12 @@ func _draw_incoming_warning() -> void:
 	draw_line(Vector2.ZERO, local_player, line_color, line_width, true)
 	var marker_radius: float = (LockWarning.FLASH_MARKER_RADIUS if flash \
 		else LockWarning.PRE_LAUNCH_MARKER_RADIUS) * inv_zoom
-	draw_line(local_player + Vector2(-marker_radius, 0),
-		local_player + Vector2(marker_radius, 0), line_color, line_width)
-	draw_line(local_player + Vector2(0, -marker_radius),
-		local_player + Vector2(0, marker_radius), line_color, line_width)
+	draw_multiline(PackedVector2Array([
+		local_player + Vector2(-marker_radius, 0),
+		local_player + Vector2(marker_radius, 0),
+		local_player + Vector2(0, -marker_radius),
+		local_player + Vector2(0, marker_radius),
+	]), line_color, line_width)
 	draw_arc(local_player, marker_radius, 0.0, TAU, 20,
 		Color(line_color, 0.7 * blink), 1.2 * inv_zoom, true)
 
@@ -629,21 +676,30 @@ func _draw_body() -> void:
 	])
 	draw_colored_polygon(body, color)
 
+
+
+func _draw_body_fins() -> void:
+	var color := GameConstants.missile_body_color(team)
+	var length := 10.0
+	var nose := 3.0
+	var half_len := length * 0.5
 	# 前翼（中段十字）
 	var mid_fin := 2.0
 	var mid_y := -half_len + nose + 1.5
-	draw_line(Vector2(-mid_fin, mid_y), Vector2(mid_fin, mid_y), color, 1.2)
-
 	# 尾翼（后段十字，稍宽）
 	var tail_fin := 2.6
 	var tail_y := half_len - 0.8
-	draw_line(Vector2(-tail_fin, tail_y), Vector2(tail_fin, tail_y), color, 1.4)
+	# 两段合为一次 Canvas 提交；统一 1.3px 是原 1.2/1.4 的视觉中值。
+	draw_multiline(PackedVector2Array([
+		Vector2(-mid_fin, mid_y), Vector2(mid_fin, mid_y),
+		Vector2(-tail_fin, tail_y), Vector2(tail_fin, tail_y),
+	]), color, 1.3)
 
 func _draw_motor_flame() -> void:
-	var flicker := randf_range(0.6, 1.0)
+	var flicker := lerpf(0.6, 1.0, AircraftRenderer.visual_noise01(self, 41))
 	var glow := Color(1.0, 0.5, 0.1, 0.7 * flicker)
 	var tail := Vector2(0, 5.0)
-	var flame_len := randf_range(6.0, 10.0)
+	var flame_len := lerpf(6.0, 10.0, AircraftRenderer.visual_noise01(self, 47))
 	var flame := PackedVector2Array([
 		tail + Vector2(-2.0, 0),
 		tail + Vector2(2.0, 0),

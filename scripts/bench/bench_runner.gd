@@ -78,6 +78,8 @@ const UNIT_TESTS: Dictionary = {
 	"skill_audit": "res://scripts/tests/test_skill_audit.gd",
 	"sig_skills": "res://scripts/tests/test_sig_skills.gd",
 	"bullet_grid": "res://scripts/tests/test_bullet_grid.gd",
+	"visual_bullet_soa": "res://scripts/tests/test_visual_bullet_soa.gd",
+	"missile_grid": "res://scripts/tests/test_missile_grid.gd",
 	"rocket_trajectory": "res://scripts/tests/test_rocket_trajectory.gd",
 	"zone_rewards": "res://scripts/tests/test_zone_rewards.gd",
 	"career_archive": "res://scripts/tests/test_career_archive.gd",
@@ -95,6 +97,7 @@ const UNIT_TESTS: Dictionary = {
 	"waypoint_fire": "res://scripts/tests/test_waypoint_fire_control.gd",
 	"bomber_rotor_airburst": "res://scripts/tests/test_bomber_rotor_airburst.gd",
 	"zone_atmosphere": "res://scripts/tests/test_zone_atmosphere_combat.gd",
+	"tier3_zone": "res://scripts/tests/test_tier3_zone_threats.gd",
 	"faction_conversion": "res://scripts/tests/test_faction_conversion.gd",
 	"map_preview_test": "res://scripts/tests/test_map_vector_preview.gd",
 	"map_vector_preview": "res://scripts/tests/test_map_vector_preview.gd",
@@ -103,6 +106,11 @@ const UNIT_TESTS: Dictionary = {
 	"terminal_text": "res://scripts/tests/test_terminal_text.gd",
 	"ui_dev_outline": "res://scripts/tests/test_ui_dev_outline.gd",
 	"local_fixes": "res://scripts/tests/test_local_fix_integration.gd",
+	"perf_trace": "res://scripts/tests/test_perf_frame_trace.gd",
+	"component_cache": "res://scripts/tests/test_aircraft_component_cache.gd",
+	"missile_visual_lod": "res://scripts/tests/test_missile_visual_lod.gd",
+	"trail_ribbon_lod": "res://scripts/tests/test_trail_ribbon_lod.gd",
+	"target_marker_lod": "res://scripts/tests/test_target_marker_lod.gd",
 }
 
 ## 只显式调用、不会滚入 `all` 的构建任务。
@@ -113,6 +121,7 @@ const BUILD_TASKS: Dictionary = {
 ## 需要真实 RenderingServer 的固定画面采集；必须由 run.cmd 的 Visual 模式启动。
 const VISUAL_TEST_SCENES: Dictionary = {
 	"main_menu_visual": "res://scenes/tests/main_menu_visual_qa.tscn",
+	"ui_iteration_visual": "res://scenes/tests/ui_iteration_visual_qa.tscn",
 	"player_hud_visual": "res://scenes/tests/player_hud_visual_qa.tscn",
 	"upgrade_media_visual": "res://scenes/tests/upgrade_media_visual_qa.tscn",
 	"boss_arrival_banner_visual": "res://scenes/tests/boss_arrival_banner_visual_qa.tscn",
@@ -271,6 +280,7 @@ func bench_finish(extra_summary: String = "", exit_code: int = 0) -> void:
 	if not bench_active:
 		return
 	var dump: String = PerfBuckets.format_full_dump()
+	var frame_trace_dump: String = PerfBuckets.format_frame_trace_dump()
 	var f: FileAccess = FileAccess.open(_out_path, FileAccess.WRITE)
 	if f:
 		f.store_string("=== AGL BENCH RESULT ===\n")
@@ -283,6 +293,8 @@ func bench_finish(extra_summary: String = "", exit_code: int = 0) -> void:
 			f.store_string(extra_summary)
 			f.store_string("\n")
 		f.store_string(dump)
+		if not frame_trace_dump.is_empty():
+			f.store_string(frame_trace_dump)
 		f.close()
 		print("[Bench] wrote %s" % ProjectSettings.globalize_path(_out_path))
 	else:

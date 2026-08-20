@@ -1,7 +1,7 @@
 ---
 id: squad-upgrade-ownership
 kind: system
-status: draft        # ⏳ 新模型成稿待 review→approved。绑机型 + 全 41 技能归类 + 僚机生产 + Session-only。
+status: superseded   # 历史绑机型 build 草案；已被当前技能归属、三轴、切控与局内武器库拆分取代
 schema_version: 1
 spec_version: 4
 owner: noelu
@@ -10,6 +10,12 @@ reconstruction_complete: false
 ---
 
 # 小队升级归属 —— 绑机型 / 专属 vs 全局 / 僚机生产 / Session 内 Roguelike
+
+> ⚠ **历史草案，禁止继续派生实现。** “升级一律绑机型”没有成为当前规则。现行权威已拆分为：
+> [skills-720-rework](skills-720-rework.md)（技能作用域 / 王牌迁移）、
+> [evolution-attribute-gates](evolution-attribute-gates.md)（三轴与全队里程碑）、
+> [inrun-weapon-inventory](inrun-weapon-inventory.md)（特殊武器跟局内玩家）、
+> [squad-control-switching](squad-control-switching.md)（1–9 切控 / 换帅）。下文只保留 2026-06～07 的设计过程。
 
 > ⚠ **本 spec 已整体重写（spec_version 2，2026-06-28）**，取代 v1 的"数值跟队共享 + 独特武器跟机实例"旧模型。
 > 用户定调：**升级一律绑机型（aircraft TYPE，不绑实例、不跟队共享）**，只有显式标 `GLOBAL` 的少数技能才全队生效。

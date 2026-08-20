@@ -125,7 +125,7 @@ func _build_sample_aircraft() -> Aircraft:
 	result.missiles_remaining = 2
 	result._missile_reload_active = true
 	result.missile_reload_progress = 0.62
-	result.ammo = 0
+	result.ammo = 81
 	result._gun_reload_active = true
 	result.gun_reload_progress = 0.28
 	return result
@@ -257,8 +257,36 @@ func _add_bottom_bar() -> void:
 func _add_notification_preview() -> void:
 	var hint = ZoneHintScript.new()
 	add_child(hint)
-	hint.show_persistent("⚠ EMERGENCY  ACE SQUADRON INBOUND")
+	hint.show_persistent("⚠ 敌王牌中队 [GIMMICK] 进入战区，全部击坠可延长战区时间 +1:00")
 	hint.show_temp("✓ TIP  PRIORITY TARGET UPDATED", 5.0)
+
+	# 复用正式王牌条构造器，直观看清顶部通知通道与 BOSS / 王牌共用通道的间距。
+	var preview_hud = SurvivorHUDScript.new()
+	preview_hud._build_ace_panel()
+	var encounter_panel: PanelContainer = preview_hud._ace_panel
+	preview_hud._ui_root.remove_child(encounter_panel)
+	preview_hud._ace_title_label.text = "♛ GIMMICK"
+	var accent := Color("de45ed")
+	preview_hud._ace_title_label.add_theme_color_override(
+		"font_color", accent.lightened(0.25))
+	preview_hud._ace_emblem.set_emblem("gimmick", accent.lightened(0.15))
+	for alive in [true, true, true, false]:
+		var segment := Panel.new()
+		segment.custom_minimum_size = Vector2(
+			SurvivorHUDScript.ACE_SEG_W, SurvivorHUDScript.ACE_SEG_H)
+		var segment_style := StyleBoxFlat.new()
+		segment_style.bg_color = accent if alive else SurvivorHUDScript.ACE_SEG_DEAD
+		segment_style.set_corner_radius_all(1)
+		segment.add_theme_stylebox_override("panel", segment_style)
+		preview_hud._ace_seg_box.add_child(segment)
+	encounter_panel.visible = true
+	encounter_panel.position = Vector2(
+		CANVAS_SIZE.x * 0.5 - 100.0, SurvivorHUDScript.TOP_ENCOUNTER_Y)
+	var encounter_layer := CanvasLayer.new()
+	encounter_layer.layer = SurvivorHUDScript.PERSISTENT_HUD_LAYER
+	add_child(encounter_layer)
+	encounter_layer.add_child(encounter_panel)
+	preview_hud.free()
 
 
 func _add_time_preview() -> void:
@@ -283,13 +311,13 @@ func _add_time_preview() -> void:
 	time_text.font_face = TerminalTextScript.FontFace.CHAKRA_PETCH_BOLD
 	time_text.size_rule = TerminalTextScript.SizeRule.ONE_U_FIXED_15
 	time_text.layout_text = "TIME  99:59"
-	time_text.text = "TIME  08:42"
+	time_text.text = "TIME  06:20"
 	time_text.font_color = HudPreferencesScript.hud_color()
 	panel.add_child(time_text)
 	var remaining = WarzoneTimePanelScript.new()
 	remaining.position = SurvivorHUDScript.warzone_time_rect(CANVAS_SIZE).position
 	hud_layer.add_child(remaining)
-	remaining.update_display(125.0, false)
+	remaining.update_display(859.0, false)
 
 
 func _add_bottom_experience_panel() -> void:
@@ -300,7 +328,7 @@ func _add_bottom_experience_panel() -> void:
 	var panel = BottomExperiencePanelScript.new()
 	panel.position = BOTTOM_PROGRESS_POSITION
 	add_child(panel)
-	panel.update_display(progression_player)
+	panel.update_display(progression_player, true)
 	progression_player.free()
 
 

@@ -5,7 +5,7 @@ status: approved
 schema_version: 1
 spec_version: 20
 owner: noelu
-depends_on: [aircraft-evolution-tree, ace-system]
+depends_on: [aircraft-evolution-tree, evolution-attribute-gates, inrun-weapon-inventory]
 reconstruction_complete: false
 ---
 

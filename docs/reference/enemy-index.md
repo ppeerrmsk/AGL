@@ -80,7 +80,19 @@
 | `J20(53)` | J-20 | Lancer | `enemy_j20.tres` | 9 | **2** | 12 | 1–2 架 | 注册表 `_create_enemy` | 远程高速攻击通场 |
 | `A12(54)` | A-12 Avenger II | Schemer 远距 | `enemy_a12.tres` | 8 | **2** | 13 | 1–2 架 | 注册表 `_create_enemy` | 单目标远距重击后换位 |
 | `FCK1(55)` | F-CK-1 | **王牌专属**（WhiteTea 机炮骑士） | `enemy_fck1.tres` + `whitetea_gun.tres`（4×5 受控短梭；纯机炮无导弹） | 0（事件供给，不进随机池/无缩放） | **3** | 事件（240s 统一王牌池） | WhiteTea profile 生成 ×3；逐机 joust 打带逃，1 flare 耗尽后解锁一次性 J-turn；2→1 时幸存者投降转 ALLY、本人喊话后被动离场 | `_create_enemy` FCK1 case | AceSupportSquad `gun_lancer`；`AceReinforcementEvent._try_whitetea_surrender`；spec [events/ace-whitetea-fck1](../specs/events/ace-whitetea-fck1.md) / [systems/dynamic-faction-conversion](../specs/systems/dynamic-faction-conversion.md) |
-| `DEADAIR(56)` | DEADAIR 断讯 | Schemer 纯支援 | `enemy_deadair.tres` | 4 + 两护卫各自 Token | **1** | 9 | 本体 + 2 架动态合格护卫；最低完整编成 10 Token；阶段累计 2；冷却 180s；与 Snowblind 在场互斥 | `_spawn_deadair_squad` | `deadair_controller.gd`：3000m 场、5Hz 累积；CombatUnit 8s 标准 JAM，制导导弹 4×（2s）永久失导；本体 HP55、无武器/flare，近身压力下按普通顶速逃离 |
+| `DEADAIR(56)` | DEADAIR 断讯 | Schemer 纯支援 | `enemy_deadair.tres` | 4 + 两护卫各自 Token | **1** | 9 | 普通池为本体 + 2 架动态合格护卫；3★ 空战区复用同一 JAM 本体并配两架非 TGT 护卫，优先替换普通支援场 | `_spawn_deadair_squad` / `register_tier3_deadair_squad` | `deadair_controller.gd`：3000m 场、5Hz 累积；CombatUnit 8s 标准 JAM，制导导弹 4×（2s）永久失导；来源摧毁后立刻撤销场、累积与自有 JAM，已失导弹体不倒带 |
+
+## 3★ 正式战区特殊目标
+
+这些单位由 `ZoneMission` 按地图/profile 生成，不进入 `EnemyType` 随机池；正式任务完成条件仍是清空该区全部 `META_MISSION_TARGET`，高威胁来源先被消灭只会结束其效果。
+
+| 身份 | 运行时类型 | 正式 TGT | 生成与核心契约 |
+|---|---|---:|---|
+| 超级巨炮 | `Tier3SuperCannonPart` | 5 | 四个底座 + 一个炮身均可锁定；仅炮身从 2.5–36k px 远距转向、冻结射线并发射直线 AOE；自身无 AA，近身完全依赖周围普通 AA/SAM |
+| 沙漠攻城坦克 | `Tier3SiegeTank` | 1 | 本体是唯一正式 TGT；2×CIWS、1×远程 SAM、1×空爆挂点跟随本体且不可单独锁定；主炮只打同区友军气氛地面单位，可信直击一炮摧毁 |
+| 远程 VLS 舰队 | 既有 `NavalUnit` 编成 | 全舰 | 仅 3★ 舰只的 VLS 深拷贝为远射程/长寿命版本；其余舰队规则、奖励与全舰清空完成条件不变 |
+| DEADAIR 特殊支援机 | 既有 `DEADAIR(56)` + 两护卫 | 本体 1 | 本体 JAM 方案不另起新规则；护卫不是 TGT；来源被摧毁或 Boss 转场时场、累积和它施加的 JAM 同拍消失 |
+| 气氛武装直升机 | 既有 `AH64(13)` | 0 | 友/敌双方都可能生成，只与地面单位交战，永不攻击或命中 Aircraft；敌军由玩家/正式小队击毁时给经验，友军无奖励 |
 
 ### 敌人作战高度分档（2026-07-28）
 
@@ -183,14 +195,14 @@ Black Star 不占 `EnemyType`，也不进入常规 Token 池；四代飞机均�
 4. **`survivor_spawner.gd:119` 起 `preload(...)` 加载资源**
 5. **`survivor_data.gd:1554` 起加解锁/概率常量**（`<NAME>_UNLOCK_LEVEL` / `_CHANCE_PER_LEVEL` / `_CHANCE_MAX`）
 6. **`survivor_data.gd:3467` `TOKEN_COST` 和 `survivor_data.gd:3574` `TOKEN_INSTANCE_CAP` 表补新枚举值**
-7. **`survivor_spawner.gd:446` `_pick_enemy_type` 按威胁等级插入概率判定分支**
-8. **`survivor_spawner.gd:2451` `_create_enemy` 的各 match 全部补新 case**：
+7. **`survivor_spawner.gd:464` `_pick_enemy_type` 按威胁等级插入概率判定分支**
+8. **`survivor_spawner.gd:2468` `_create_enemy` 的各 match 全部补新 case**：
    - `match etype` 选基础参数（`:1577`）
    - `enemy_scale_for_level` 适用判定（`:1646` 起）
    - 热诱弹失误概率 match（`:1689`）—— 越低级失误率越高
    - `type_tag` 映射（`:1759`）—— 第 10 步的无线电白名单要用这个 tag
    - AI 配置分支（`:1840` 起 — 仿照 F-86/MiG-23 写 `aggression`/`engage_cooldown` 等）
-9. **`survivor_spawner.gd:651` `_update_spawner` 的编队/单机判定里追加**（精英单机 vs 成建制编队）
+9. **`survivor_spawner.gd:669` `_update_spawner` 的编队/单机判定里追加**（精英单机 vs 成建制编队）
 10. **决定它配不配无线电**（spec radio-chatter §2.8）：
     - 有人驾驶且够格说话 → 在 `resources/chatter/radio_chatter.json` 的 `voiced_enemy_types.types`
       加上第 8 步的 `type_tag`

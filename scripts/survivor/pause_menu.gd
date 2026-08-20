@@ -1,6 +1,8 @@
 class_name PauseMenu
 extends CanvasLayer
 
+const TerminalUiStyleScript := preload("res://scripts/ui/terminal_ui_style.gd")
+
 ## 生存模式：暂停菜单（spec pause-menu）
 ##
 ## ESC 不再无确认地直接销毁战局回主菜单，而是：冻结全场 → 弹确认页 →
@@ -18,15 +20,6 @@ extends CanvasLayer
 
 signal resumed
 signal quit_to_menu
-
-const PANEL_BG := Color(0.04, 0.05, 0.06, 0.92)
-const PANEL_BORDER := Color(0.35, 0.75, 1.0, 0.9)
-const TEXT_TITLE := Color(0.6, 0.9, 1.0, 1.0)
-const TEXT_BODY := Color(0.75, 0.8, 0.8, 1.0)
-const TEXT_WARN := Color(0.95, 0.65, 0.35, 1.0)
-const BTN_BG := Color(0.08, 0.1, 0.11, 1.0)
-const BTN_BORDER := Color(0.35, 0.5, 0.5, 0.8)
-const BTN_HOVER_BG := Color(0.15, 0.2, 0.22, 1.0)
 
 var _root: Control
 var _is_open: bool = false
@@ -101,13 +94,8 @@ func _build_ui() -> void:
 	panel.offset_right = 230
 	panel.offset_top = -150
 	panel.offset_bottom = 150
-	var style := StyleBoxFlat.new()
-	style.bg_color = PANEL_BG
-	style.border_color = PANEL_BORDER
-	style.set_border_width_all(2)
-	style.set_corner_radius_all(6)
-	style.set_content_margin_all(24)
-	panel.add_theme_stylebox_override("panel", style)
+	TerminalUiStyleScript.apply_panel(panel, TerminalUiStyleScript.accent(),
+		Color(0.0, 0.0, 0.0, 0.92), 24.0, 1)
 	_root.add_child(panel)
 
 	var vb := VBoxContainer.new()
@@ -116,23 +104,23 @@ func _build_ui() -> void:
 
 	var title := Label.new()
 	title.text = tr("PAUSE_MENU_TITLE")
-	title.add_theme_font_size_override("font_size", 22)
-	title.add_theme_color_override("font_color", TEXT_TITLE)
+	TerminalUiStyleScript.apply_label(
+		title, 24, TerminalUiStyleScript.accent(), true)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(title)
 
 	var body := Label.new()
 	body.text = tr("PAUSE_MENU_BODY")
-	body.add_theme_font_size_override("font_size", 12)
-	body.add_theme_color_override("font_color", TEXT_BODY)
+	TerminalUiStyleScript.apply_label(
+		body, 12, Color(TerminalUiStyleScript.accent(), 0.78))
 	body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vb.add_child(body)
 
 	var warn := Label.new()
 	warn.text = tr("PAUSE_MENU_WARN")
-	warn.add_theme_font_size_override("font_size", 11)
-	warn.add_theme_color_override("font_color", TEXT_WARN)
+	TerminalUiStyleScript.apply_terminal_label(
+		warn, 11, TerminalUiStyleScript.WARNING)
 	warn.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	warn.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vb.add_child(warn)
@@ -142,31 +130,20 @@ func _build_ui() -> void:
 	vb.add_child(sp)
 
 	# 顺序：继续（安全项）在上，退出（破坏性）在下，避免误点丢整局
-	var btn_resume := _make_button(tr("PAUSE_BTN_RESUME"))
+	var btn_resume := _make_button(tr("PAUSE_BTN_RESUME"), false)
 	btn_resume.pressed.connect(_on_resume_pressed)
 	vb.add_child(btn_resume)
 
-	var btn_quit := _make_button(tr("PAUSE_BTN_QUIT"))
+	var btn_quit := _make_button(tr("PAUSE_BTN_QUIT"), true)
 	btn_quit.pressed.connect(_on_quit_pressed)
 	vb.add_child(btn_quit)
 
-func _make_button(label: String) -> Button:
+func _make_button(label: String, danger: bool) -> Button:
 	var btn := Button.new()
 	btn.text = label
 	btn.custom_minimum_size = Vector2(360, 40)
-	btn.add_theme_font_size_override("font_size", 14)
-	btn.add_theme_color_override("font_color", TEXT_BODY)
-	var s := StyleBoxFlat.new()
-	s.bg_color = BTN_BG
-	s.border_color = BTN_BORDER
-	s.set_border_width_all(1)
-	s.set_corner_radius_all(3)
-	s.set_content_margin_all(8)
-	btn.add_theme_stylebox_override("normal", s)
-	var sh := s.duplicate() as StyleBoxFlat
-	sh.bg_color = BTN_HOVER_BG
-	sh.border_color = PANEL_BORDER
-	btn.add_theme_stylebox_override("hover", sh)
+	TerminalUiStyleScript.apply_button(
+		btn, TerminalUiStyleScript.accent(), danger)
 	return btn
 
 # ══════════════════════════════════════════════

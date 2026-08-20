@@ -11,11 +11,11 @@ reconstruction_complete: false
 
 # 生存模式核心循环 · 时间制战区（含扩展接入图）
 
-> 生存模式一局的主循环：**10 分钟战区阶段**（靠 Token 预算前方扇形刷怪、打 zone 任务、击杀升级选卡）
+> 生存模式一局的主循环：**10 分钟战区阶段**（靠 Token 预算边缘增援/拦截波、打 zone 任务、击杀升级选卡）
 > → 时间到 → **BOSS 阶段**（game_time 冻结、停刷、BOSS 决战）。本 spec 兼作**加新功能的接入图**
 > （见 §8）：想加敌人/阶段行为/奖励/全局修正/胜负条件时，直接查"想加 X → 改 Y"。
 
-> ⚠ `reconstruction_complete: partial`：headline 常量与主流程已逐一核对源码；**逐敌刷怪概率表**
+> ⚠ `reconstruction_complete: false`：headline 常量与主流程已逐一核对源码；**逐敌刷怪概率表**
 > 不在此重列（见各敌人 spec + [enemy-index.md](../../reference/enemy-index.md)），避免重复维护两份。
 
 ## 1. 设计意图（Why）
@@ -137,19 +137,19 @@ budget = min(budget, TOKEN_BUDGET_MAX(55))
 见 [enemy-index.md](../../reference/enemy-index.md) 大表 + 各敌人 spec（如 [af-03](../enemies/af-03.md)）。
 Adds（Tu-160/AH-64/CH-47/FA-18）`TOKEN_COST=0`，不占预算。
 
-### 4.2 刷怪节奏与位置（已核对）
+### 4.2 刷怪节奏与入场（已核对）
 
-> ⚠ **位置机制已被取代（2026-07-05）**：本节"刷怪距离 3200 / 前方 ±70° 扇形"的**位置**部分
-> 由 [reinforcement-ingress](reinforcement-ingress.md) 取代——增援改从地图边缘成建制入场、
-> 飞向中央锚点驻空、token 饿着时物理飞离；远距清理对增援停用（改 EGRESS）。
-> **节奏**（间隔 45→25s / 单次数量 / gate）仍以本节为准。下表位置两行仅作历史记录。
+旅途增援的旧“玩家周围 3200px / 前方 ±70°”生成方式已经退役。当前普通增援从地图边界外成建制
+进入，飞向中央锚点驻空；hunter 配额缺口达到门槛时，本次旅途增援改为**拦截波**，从玩家前方
+±90° 对应的地图边缘进入并持续指向玩家。完整几何与退场权威分别见
+[reinforcement-ingress](reinforcement-ingress.md) 与 [battlefield-tempo-pass](battlefield-tempo-pass.md)。
 
 | 项 | 值 |
 |---|---|
 | 刷怪间隔 | `TRAVEL_SPAWN_INTERVAL_BASE=32.0`（Lv1）→ `TRAVEL_SPAWN_INTERVAL_MIN=18.0`（高等级），按等级插值（07-06 density-pass：原 45/25） |
 | 首次延迟 | `BASE × 0.5 = 16 s`（让首批巡逻先就位） |
-| 刷怪距离 | `SPAWN_DISTANCE=3200 px`（玩家前方；须 > 最小 zoom 可视对角半径） |
-| 刷怪扇形 | `TRAVEL_SPAWN_FAN_HALF = π×70/180`（沿玩家 heading ±70°，前方扇形，**不刷身后**） |
+| 普通增援入场 | 世界边界外 400px；合法候选距玩家 ≥5000px，向中央锚点 TRANSIT |
+| 拦截波入场 | hunter 缺口 ≥2 时，从玩家 heading ±90° 对应的合法边缘候选进入；无合法候选才回退全周长 |
 | 单次数量 | 1–3 架（`_pick_enemy_type` 加权抽取） |
 
 跳过刷怪的 gate：玩家死亡 / BOSS 阶段 / 玩家正在任务中（`_spawn_timer=2.0` 缓一下）/ 预算耗尽。
@@ -166,7 +166,7 @@ Lv≥`LATE_GAME_LEVEL(10)` 强制最低 Token ≥3（禁刷杂鱼）；若剩余
 
 | 机制 | 值 |
 |---|---|
-| 远距清理 | 距玩家 > `FAR_CLEANUP_DISTANCE=7000 px`，每 `FAR_CLEANUP_INTERVAL=4.0 s` 检查，移除并释放 Token；**Adds 豁免**（`skip_far_cleanup`） |
+| 远距清理 | `FAR_CLEANUP_DISTANCE=7000 px` / `FAR_CLEANUP_INTERVAL=4.0 s` 只处理非 reinforcement 遗留/Debug 单位；正式增援满足陈旧/画外/token 饥饿条件后物理 EGRESS；Adds 豁免 |
 | 实例上限 | `MAX_ENEMIES_DEFAULT=36` / `MAX_ENEMIES_HARD=48` / 动态下限 8（07-06 density-pass：原 30/40） |
 | 动态降载 | FPS 采样：avg < TARGET_FPS 降 cap、avg > TARGET_FPS+10 升 cap（+1，封顶 40） |
 
@@ -256,7 +256,7 @@ Lv≥`LATE_GAME_LEVEL(10)` 强制最低 Token ≥3（禁刷杂鱼）；若剩余
 
 | 想加 | 改哪里（接入点） | 备注 / 参考 |
 |---|---|---|
-| **普通敌机** | `EnemyType` enum + `TOKEN_COST`/`TOKEN_INSTANCE_CAP` + 解锁等级常量 + `_pick_enemy_type` 分支 + `_create_enemy` case + 资源 preload + `ENEMY_TIER_OFFSET` | 走 [playbook §1](../../reference/playbook.md) + [enemy-index 12 步](../../reference/enemy-index.md)；样板 [af-03](../enemies/af-03.md) |
+| **普通敌机** | `EnemyType` enum + `TOKEN_COST`/`TOKEN_INSTANCE_CAP` + 解锁等级常量 + `_pick_enemy_type` 分支 + `_create_enemy` case + 资源 preload + `ENEMY_TIER_OFFSET` | 走 [playbook §1](../../reference/playbook.md) + [enemy-index 13 步](../../reference/enemy-index.md)；样板 [af-03](../enemies/af-03.md) |
 | **Adds 族群波** | `EnemyType` + flock 尺寸/间距常量 + 独立 spawn 事件（`_spawn_xxx_flock`）+ 资源 preload | 不占 Token、远距豁免；仿 Tu-160/AH-64 |
 | **改阶段时长/结构** | `WARZONE_PHASE_DURATION` + `_check_warzone_phase_timeout()` | 多阶段需扩 zone_data 状态机；记得同步 HUD 计时 |
 | **新全局修正**（昼夜难度等） | `_get_token_budget()` 乘子 / `_create_enemy` 缩放 / 存 `mode.global_difficulty_mult` | 单点注入，避免散落 |
@@ -278,8 +278,8 @@ Lv≥`LATE_GAME_LEVEL(10)` 强制最低 Token ≥3（禁刷杂鱼）；若剩余
 - [x] BOSS 阶段不产出（§3.2）：Goose 蜂群 / MQ-X / CSG F/A-18 击杀 0 XP、不入档、不给永久 +max_hp；
       CSG F/A-18 整场累计上限 8 架（无头回归 `--bench=boss_phase`，26 断言）
 - [x] Token 预算 = 8 + int(level×1.8) + bonus，封顶 55（60km 密度调优后的值，见 §4.1）
-- [x] 刷怪沿玩家前方 ±70° 扇形、距 3200px，不刷身后
-- [x] 远距 7000px/4s 清理，Adds 豁免
+- [x] 普通增援从地图边界外进入并向中央锚点驻空；拦截波仅在 hunter 缺口 ≥2 时从前方 ±90° 边缘进入
+- [x] 正式增援以物理 EGRESS 回收 Token；7000px/4s 直接清理仅保留给非 reinforcement 遗留/Debug 单位，Adds 豁免
 - [x] xp_for_level = 15×L^1.3（指数 2026-07-28 由 1.15 上调）
 - [x] 出界补给：回血 + game_time **+30s**（clamp 600）+ 2 token；BOSS 阶段禁用；按钮文案写明 −30 秒
 - [ ] 高度分档：18 型按权重抽档，巡逻高度随档同步（LOW 1500~3000 / MID 4500~6500 / HIGH 8500~11000）；
@@ -292,7 +292,7 @@ Lv≥`LATE_GAME_LEVEL(10)` 强制最低 Token ≥3（禁刷杂鱼）；若剩余
 > 已落地（status: done，见 changelog 2026-05-09-time-gated-warzone-loop）。保留作重建 + 扩展参考。
 
 - [x] 战区阶段（初版 8 分钟，2026-07-02 改 10 分钟）+ 一次性过渡闸 + BOSS 阶段冻结
-- [x] Token 预算 + 加权抽取 + 实例上限 + 前方扇形刷怪
+- [x] Token 预算 + 加权抽取 + 实例上限 + 边缘增援 / hunter 缺口拦截波
 - [x] XP 曲线 + 击杀 XP + 三轴三选一升级 + 4 级金卡软 pity
       （⚠ 升级选卡时机后被 [evolution-attribute-gates](evolution-attribute-gates.md) 改为**每 3 级**
       触发三轴卡片，等级升级本身不再弹窗；本 spec 只管循环骨架，选卡规则以那份 spec 为准）

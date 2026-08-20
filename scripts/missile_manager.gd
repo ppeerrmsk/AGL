@@ -7,12 +7,21 @@ const PIXELS_PER_METER: float = GameConstants.PIXELS_PER_METER
 const AOE_RADIUS_M: float = 120.0       ## AOE 半径（米）
 const AOE_DURATION: float = 1.5         ## 持续时间（秒）
 const AOE_ALT_TOLERANCE: float = 300.0  ## 高度容差（米）
+## 必须大于所有非舰船单位的最大导弹有效引信半径；舰船由 UnitGrid.large_units 恒扫。
+const TARGET_GRID_CELL_SIZE: float = 256.0
+const MISSILE_TRAIL_BATCH_SLOTS: int = TrailRibbon.SAMPLE_PHASE_SLOTS
 
 var _missile_scene: PackedScene = preload("res://scenes/missile.tscn")
+const MissileTrailBatchScript = preload("res://scripts/missile_trail_batch.gd")
 const ExplosionVFXScript = preload("res://scripts/explosion_vfx.gd")
 
 ## 场景中所有战斗单位的缓存引用，由 main.gd 每帧更新
 var target_list: Array[CombatUnit] = []
+var _target_grid: UnitGrid = UnitGrid.new()
+var _target_grid_buf: Array = []
+var _target_order_by_id: Dictionary = {}
+var _missile_trail_batches: Array[Node2D] = []
+var _missile_trail_batch_root: Node2D = null
 
 ## 活跃的 AOE 区域列表
 var _aoe_zones: Array = []  # [{pos, altitude, radius_px, time_left, max_time, damage, team, hit_set}]
@@ -37,6 +46,55 @@ func _ready() -> void:
 	add_to_group("explosion_vfx")
 	# 让 MissileManager._physics_process 早于其 Missile 子节点运行 → 子节点能读到当帧快照
 	process_priority = -10
+	# 批次节点使用内部子树：默认 get_child_count/get_children 不包含 internal，HUD/测试沿用
+	# “直属可见子节点 == 导弹数”的既有契约，同时生命周期自动跟随 Manager。
+	_missile_trail_batch_root = Node2D.new()
+	_missile_trail_batch_root.name = "MissileTrailBatches"
+	_missile_trail_batch_root.z_index = -1
+	add_child(_missile_trail_batch_root, false, Node.INTERNAL_MODE_BACK)
+	for slot in range(MISSILE_TRAIL_BATCH_SLOTS):
+		var batch: Node2D = MissileTrailBatchScript.new()
+		batch.name = "MissileTrailBatch%d" % slot
+		_missile_trail_batch_root.add_child(batch)
+		batch.setup(self, slot)
+		_missile_trail_batches.append(batch)
+
+
+func register_missile_trail(trail: TrailRibbon) -> void:
+	if trail == null or _missile_trail_batches.is_empty():
+		return
+	var slot := trail.missile_batch_phase_slot() % _missile_trail_batches.size()
+	trail.assign_missile_batch(_missile_trail_batches[slot])
+
+
+## 每个物理 tick 只重建一次。order map 保留旧 target_list 的首命中顺序，避免空间查询
+## 在多个目标重叠时改变导弹落点/伤害归属。
+func _rebuild_target_grid() -> void:
+	_target_grid.rebuild(target_list, TARGET_GRID_CELL_SIZE)
+	_target_order_by_id.clear()
+	for i in range(target_list.size()):
+		var raw: Variant = target_list[i]
+		if typeof(raw) != TYPE_OBJECT or raw == null or not is_instance_valid(raw):
+			continue
+		var unit := raw as CombatUnit
+		if unit == null:
+			continue
+		_target_order_by_id[unit.get_instance_id()] = i
+
+
+func _target_candidate_precedes(a: Variant, b: Variant) -> bool:
+	var ai: int = _target_order_by_id.get(a.get_instance_id(), 2147483647)
+	var bi: int = _target_order_by_id.get(b.get_instance_id(), 2147483647)
+	return ai < bi
+
+
+## 返回复用缓冲；调用方不得跨帧持有。候选集合是全扫命中集合的超集，并按 target_list 排序。
+func _ordered_target_candidates(position: Vector2) -> Array:
+	_target_grid_buf.clear()
+	_target_grid_buf.append_array(_target_grid.large_units)
+	_target_grid.query_into(position, _target_grid_buf)
+	_target_grid_buf.sort_custom(_target_candidate_precedes)
+	return _target_grid_buf
 
 func spawn_missile(source: CombatUnit, target: CombatUnit, missile_params: MissileParams, is_secondary: bool = false) -> Missile:
 	var missile: Missile = _missile_scene.instantiate()
@@ -352,6 +410,9 @@ func _update_visual_only_ambient_missile(missile: Missile, fuse_radius_px: float
 
 func _physics_process(delta: float) -> void:
 	var _t0 := Time.get_ticks_usec()
+	_rebuild_target_grid()
+	var broadphase_queries := 0
+	var broadphase_candidates := 0
 	# ── 导弹命中检测 ──
 	for child in get_children():
 		if not child is Missile:
@@ -401,12 +462,19 @@ func _physics_process(delta: float) -> void:
 			_detonate_distance_airburst(missile)
 			continue
 
-		# 命中检测：遍历所有敌方单位
+		# 命中检测：空间网格只返回邻近小单位 + 全部舰船；候选仍按旧 target_list 顺序处理。
 		var fuse_radius_px := missile.params.proximity_fuse_radius * PIXELS_PER_METER
 		if _update_visual_only_ambient_missile(missile, fuse_radius_px):
 			continue
-		for unit in target_list:
-			if not is_instance_valid(unit) or unit.is_destroyed:
+		var target_candidates: Array = _ordered_target_candidates(missile.global_position)
+		broadphase_queries += 1
+		broadphase_candidates += target_candidates.size()
+		for unit_value in target_candidates:
+			if typeof(unit_value) != TYPE_OBJECT or unit_value == null \
+					or not is_instance_valid(unit_value):
+				continue
+			var unit := unit_value as CombatUnit
+			if unit == null or unit.is_destroyed:
 				continue
 			if not CombatUnit.teams_hostile(unit.team, missile.team):
 				continue
@@ -515,6 +583,8 @@ func _physics_process(delta: float) -> void:
 				break
 
 	# ── AOE 区域更新 ──
+	PerfBuckets.count("missile_target_full_pairs", broadphase_queries * target_list.size())
+	PerfBuckets.count("missile_target_candidates", broadphase_candidates)
 	_update_aoe_zones(delta)
 	# ── 命中闪光更新 ──
 	_update_hit_flashes(delta)
@@ -523,6 +593,7 @@ func _physics_process(delta: float) -> void:
 	_build_frame_snapshot()
 	# 性能埋点（此前 MissileManager 全无 PerfBuckets 覆盖）：命中检测 + AOE + 命中闪光 + 快照
 	PerfBuckets.tick("missile_phys", Time.get_ticks_usec() - _t0)
+	PerfBuckets.set_value("missile_count", get_child_count())
 
 ## 定距空爆纯规则：用实际累计路径判定，避免弯曲 VLS 用出生点位移提前引爆。
 static func distance_airburst_ready(missile: Missile) -> bool:

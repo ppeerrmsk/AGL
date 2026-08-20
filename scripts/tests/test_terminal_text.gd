@@ -18,6 +18,7 @@ func run() -> void:
 	_check_shared_grid_coordinates()
 	_check_grid_flash_override_types()
 	_check_viewport_edge_hairline_insets()
+	_check_grid_outline_batching()
 	_check_scale_invariant_grid_lines()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════\n")
@@ -238,6 +239,22 @@ func _check_viewport_edge_hairline_insets() -> void:
 		"bottom=%s internal=%s" % [bottom_safe, internal_safe]
 	)
 	overlay.free()
+
+
+func _check_grid_outline_batching() -> void:
+	var regions: Array[Rect2] = [
+		Rect2(0.0, 0.0, 40.0, 18.0),
+		Rect2(40.0, 0.0, 40.0, 18.0),
+		Rect2(40.0, 0.0, 40.0, 18.0),
+	]
+	var segments := TerminalGridOverlayScript.outline_segments_for(
+		regions, Vector2(80.0, 18.0),
+		TerminalGridOverlayScript.CONTROL_EDGE_INSETS)
+	_check(
+		"Adjacent and duplicate grid boards share one batched seam",
+		segments.size() == 14,
+		"segments=%d expected=14" % segments.size()
+	)
 
 
 func _check_scale_invariant_grid_lines() -> void:

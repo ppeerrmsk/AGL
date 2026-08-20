@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "target": {
+    "hours": 20.0,
+    "run_minutes_expected": 25.0,
+    "novelty_beat_interval_minutes": 30.0,
+    "major_beat_interval_minutes": 120.0,
+    "release_ready_maps": 3,
+    "bosses_minimum": 6
+  },
+  "progression": {
+    "merit_per_run_low": 2500,
+    "merit_per_run_high": 7500,
+    "planned_long_term_sink": 123000,
+    "mastery_upper_multiplier": 1.15,
+    "expected_end_level_low": 18,
+    "expected_end_level_high": 22
+  },
+  "player_power": {
+    "tier_multiplier": {"1": 1.0, "2": 1.12, "3": 1.25, "4": 1.38, "5": 1.5},
+    "provisional_build_gain_per_level": 0.012,
+    "provisional_build_gain_cap": 0.25
+  },
+  "novelty": {
+    "provisional_credit_per_aircraft": 0.35,
+    "provisional_credit_per_skill": 0.08,
+    "provisional_credit_per_boss": 1.5,
+    "provisional_credit_per_release_ready_map": 3.0
+  },
+  "confidence": {
+    "A": "当前代码或自动生成数据，可直接复算",
+    "B": "approved/done spec 的设计约束",
+    "C": "规划假设，必须经遥测或实玩校准",
+    "D": "尚无可靠输入，模型只报告缺口"
+  }
+}

@@ -31,7 +31,10 @@ func _init() -> void:
 
 
 func _ready() -> void:
-	_display_font = DISPLAY_FONT_SOURCE.duplicate() as Font
+	_display_font = DISPLAY_FONT_SOURCE.duplicate(true) as Font
+	if _display_font is FontFile:
+		# 分格数字会按可见轮廓撑满 2u，使用 MSDF 保持斜笔画连续。
+		(_display_font as FontFile).multichannel_signed_distance_field = true
 	_display_font.fallbacks.append(ThemeDB.fallback_font)
 	_localized_font = get_theme_default_font()
 	if _localized_font == null:

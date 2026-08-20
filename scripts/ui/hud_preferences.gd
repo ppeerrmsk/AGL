@@ -6,11 +6,12 @@ extends RefCounted
 const CONFIG_PATH := "user://hud.cfg"
 const SPEED_KT := "kt"
 const SPEED_KMH := "kmh"
-const DEFAULT_COLOR := ThemeColors.UI_TERMINAL_GREEN
 const PRESET_GREEN := ThemeColors.UI_TERMINAL_GREEN
 const PRESET_CYAN := Color("42d9e8")
 const PRESET_AMBER := Color("f0b43c")
-const PRESET_WHITE := Color("e8f2e8")
+const PRESET_WHITE := ThemeColors.UI_TERMINAL_WHITE
+## 2026-08-21 UI 迭代：新档默认以白色为主调；已有玩家保存的色盘选择不覆盖。
+const DEFAULT_COLOR := PRESET_WHITE
 
 static var _loaded: bool = false
 static var _speed_unit: String = SPEED_KT

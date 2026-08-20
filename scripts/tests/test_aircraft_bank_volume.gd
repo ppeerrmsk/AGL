@@ -12,6 +12,7 @@ func run() -> void:
 	_test_projection_geometry()
 	_test_face_fade()
 	_test_family_thickness()
+	_test_visual_noise()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 
 
@@ -54,6 +55,15 @@ func _test_family_thickness() -> void:
 	ac.set_meta("silhouette", "hyper_a")
 	_check("低矮升力体厚度 14%", _near(Catalog.volume_thickness_for(ac), 0.14), "hyper_a")
 	ac.free()
+
+
+func _test_visual_noise() -> void:
+	var a := Renderer.visual_noise01_for(123, 7, 456)
+	var b := Renderer.visual_noise01_for(123, 7, 456)
+	var c := Renderer.visual_noise01_for(123, 8, 456)
+	_check("视觉噪声同输入可复现", is_equal_approx(a, b), "a=%.6f b=%.6f" % [a, b])
+	_check("视觉噪声限制在 0..1", a >= 0.0 and a < 1.0, "a=%.6f" % a)
+	_check("视觉噪声 salt 可分流", not is_equal_approx(a, c), "a=%.6f c=%.6f" % [a, c])
 
 
 func _near(actual: float, expected: float, epsilon: float = 0.0001) -> bool:

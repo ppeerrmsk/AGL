@@ -1,6 +1,8 @@
 class_name Aircraft
 extends CombatUnit
 
+const META_PRESENTATION_FORCE_HIDDEN_VISUAL: StringName = &"presentation_force_hidden_visual"
+
 @export var params: AircraftParams
 @export var initial_heading_deg: float = 0.0  ## 度 初始航向（0=北, 90=东, 180=南）
 
@@ -87,6 +89,9 @@ var kill_tally: int = 0
 ## 旧 API 把这两个字段在 Aircraft 上镜像了一份导致每帧手动同步，2026-05-04 重构删除。
 ## 子模块 AircraftFormation 通过 ac._ai_ref 直接读 AI 端的值，单一权威源。
 var _ai_ref: AIController = null             ## 由 AIController._ready 回写；编队/规避代码读 blend/jitter
+var _cobra_maneuver_ref: CobraManeuver = null
+var _herbst_maneuver_ref: HerbstManeuver = null
+var _maneuver_cache_child_count: int = -1
 var target_altitude: float = 5000.0
 var target_speed_kmh: float = 900.0  ## km/h, 玩家/AI设定
 var target_altitude_tier: int = AltitudeTier.MID   ## 目标高度档位（flat_altitude时使用）
@@ -956,10 +961,8 @@ func try_climb_counter_missile(missile: Missile) -> bool:
 
 ## 获取挂载的战术机动模块（如有）
 func get_maneuver() -> CobraManeuver:
-	for child in get_children():
-		if child is CobraManeuver:
-			return child
-	return null
+	_refresh_maneuver_cache()
+	return _cobra_maneuver_ref
 
 func _get_ai_controller() -> AIController:
 	if _ai_ref:
@@ -1003,10 +1006,32 @@ func clear_formation() -> void:
 	target_position = Vector2.INF
 
 func get_herbst() -> HerbstManeuver:
+	_refresh_maneuver_cache()
+	return _herbst_maneuver_ref
+
+
+## Cobra/Herbst 在 AircraftPhysics/AI/武器/规避中每物理帧会查询多次。
+## 子节点结构不变时只读 O(1) 缓存；增删/换装通过 CHILD_ORDER_CHANGED 失效。
+func _refresh_maneuver_cache() -> void:
+	if _maneuver_cache_child_count == get_child_count() \
+			and (_cobra_maneuver_ref == null or is_instance_valid(_cobra_maneuver_ref)) \
+			and (_herbst_maneuver_ref == null or is_instance_valid(_herbst_maneuver_ref)):
+		return
+	_maneuver_cache_child_count = get_child_count()
+	_cobra_maneuver_ref = null
+	_herbst_maneuver_ref = null
 	for child in get_children():
-		if child is HerbstManeuver:
-			return child
-	return null
+		if child is CobraManeuver:
+			_cobra_maneuver_ref = child
+		elif child is HerbstManeuver:
+			_herbst_maneuver_ref = child
+	if PerfBuckets.detail_capture_enabled():
+		PerfBuckets.count("maneuver_cache_scans")
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_CHILD_ORDER_CHANGED:
+		_maneuver_cache_child_count = -1
 
 func _physics_process(delta: float) -> void:
 	# Perf 包装：整个飞机物理 / 武器 / 战斗追踪 / 装备 / 状态效果聚合到 aircraft_phys 桶
@@ -3442,6 +3467,8 @@ func _draw_impl() -> void:
 		self_modulate = Color(1.0, 1.0, 1.0, _cloak_alpha)
 	elif self_modulate.a < 1.0:
 		self_modulate = Color(1.0, 1.0, 1.0, 1.0)
+	var draw_section_trace := PerfBuckets.detail_capture_enabled()
+	var draw_section_t0: int = Time.get_ticks_usec() if draw_section_trace else 0
 	if is_hovered:
 		# 无主雷达锁定武器时不画主雷达锥；副槽仍由独立锁定锥表达。
 		if params and params.has_lock_capable_weapon():
@@ -3461,8 +3488,14 @@ func _draw_impl() -> void:
 	AircraftRenderer.draw_esm_aura(self)
 	AircraftRenderer.draw_cloud_state(self)
 	AircraftRenderer.draw_railgun_telegraph(self)
+	if draw_section_trace:
+		PerfBuckets.tick("aircraft_draw.overlays", Time.get_ticks_usec() - draw_section_t0)
+		draw_section_t0 = Time.get_ticks_usec()
 	AircraftRenderer.draw_aircraft_icon(self)
 	AircraftRenderer.draw_deadair_exposure(self)
+	if draw_section_trace:
+		PerfBuckets.tick("aircraft_draw.icon", Time.get_ticks_usec() - draw_section_t0)
+		draw_section_t0 = Time.get_ticks_usec()
 	if not is_drone:
 		AircraftRenderer.draw_lock_indicator(self)
 		AircraftRenderer.draw_target_bracket(self, is_mission_target)
@@ -3473,6 +3506,9 @@ func _draw_impl() -> void:
 	if is_afterburner:
 		AircraftRenderer.draw_afterburner_glow(self)
 	AircraftRenderer.draw_flare_particles(self)
+	if draw_section_trace:
+		PerfBuckets.tick("aircraft_draw.effects", Time.get_ticks_usec() - draw_section_t0)
+		draw_section_t0 = Time.get_ticks_usec()
 	var compact_label := false
 	if is_drone:
 		# drone 用极简一行标签：DRONE + 速度（无 callsign / altitude / HDG / G）
@@ -3488,6 +3524,8 @@ func _draw_impl() -> void:
 	if compact_label:
 		AircraftRenderer.draw_reload_indicators(self)
 	AircraftRenderer.draw_tactic_popup(self)
+	if draw_section_trace:
+		PerfBuckets.tick("aircraft_draw.labels", Time.get_ticks_usec() - draw_section_t0)
 	# 飞机的 buff/debuff 由完整、精简和折叠数据标签统一以文本+百分比形式显示
 	# （地面单位 SAM/AAA/ground_unit 仍走 draw_status_icons 的进度条，因其没有数据标签）
 	if formation_debug:

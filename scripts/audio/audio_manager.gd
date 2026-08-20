@@ -470,6 +470,9 @@ func set_music_muffled(muffled: bool, duration: float = 0.35) -> void:
 ## 若 world_pos 不在当前相机视口内（含 200px 容差）直接忽略，实现"指挥官只听视野里的事"。
 ## 视距内由 AudioStreamPlayer2D 自身的距离衰减决定音量（越远越轻，约 4000px 处不可闻）。
 func play_sfx_2d(id: String, world_pos: Vector2, volume_db: float = 0.0) -> void:
+	var perf_t0: int = Time.get_ticks_usec() if PerfBuckets.detail_capture_enabled() else 0
+	if perf_t0 > 0:
+		PerfBuckets.count("audio_sfx_requests")
 	if not _is_on_screen(world_pos):
 		return
 	var stream := _get_sfx(id)
@@ -483,6 +486,9 @@ func play_sfx_2d(id: String, world_pos: Vector2, volume_db: float = 0.0) -> void
 	p.volume_db = volume_db
 	p.pitch_scale = randf_range(0.95, 1.05)
 	p.play()
+	if perf_t0 > 0:
+		PerfBuckets.tick("audio_sfx_play", Time.get_ticks_usec() - perf_t0)
+		PerfBuckets.mark_frame_event("audio_sfx")
 
 # ═══════════════════════════════════════════════════
 #  玩家引擎环境音（单循环源，挂到玩家机身上）
@@ -584,6 +590,9 @@ func _is_on_screen(world_pos: Vector2) -> bool:
 ## 与 play_ui 分开：UI 点击不得截断台词底噪，反之亦然。
 ## 素材缺失 = 静默 no-op，且【不 push_warning】—— 每条台词都会调一次，warning 会刷屏。
 func play_radio(id: String, volume_db: float = 0.0) -> void:
+	var perf_t0: int = Time.get_ticks_usec() if PerfBuckets.detail_capture_enabled() else 0
+	if perf_t0 > 0:
+		PerfBuckets.count("radio_requests")
 	if _radio_player == null:
 		return
 	var path: String = RADIO_FILES.get(id, "")
@@ -595,6 +604,9 @@ func play_radio(id: String, volume_db: float = 0.0) -> void:
 	_radio_player.stream = stream
 	_radio_player.volume_db = volume_db
 	_radio_player.play()
+	if perf_t0 > 0:
+		PerfBuckets.tick("radio_play", Time.get_ticks_usec() - perf_t0)
+		PerfBuckets.mark_frame_event("radio_line")
 
 func play_ui(id: String, volume_db: float = 0.0) -> void:
 	var stream := _get_ui(id)

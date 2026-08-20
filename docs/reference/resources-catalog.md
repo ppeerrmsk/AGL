@@ -4,7 +4,7 @@
 >
 > ⚠ **本文是选摘，不是全量**。飞机部分只覆盖**早期的几个基准 .tres**，
 > 后来加的大量机型不在这里：
-> - **玩家机（41 机）** → `resources/player/player_*.tres`；配平规范看
+> - **玩家机（43 机）** → `resources/player/player_*.tres`；配平规范看
 >   [specs/systems/player-aircraft-power-curve](../specs/systems/player-aircraft-power-curve.md)，
 >   进化树看 [specs/systems/aircraft-evolution-tree](../specs/systems/aircraft-evolution-tree.md)
 > - **敌机** → [enemy-index.md](enemy-index.md) 的 Enemy Index 表（当前 50+ 个 `EnemyType` 条目；含 `.tres` / Token / 上限 / 解锁等级）

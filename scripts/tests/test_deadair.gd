@@ -15,6 +15,7 @@ func run() -> void:
 	_test_runtime_jam_path()
 	_test_registry_and_body()
 	_test_support_field_mutual_exclusion()
+	_test_tier3_priority_replacement()
 	_test_i18n_resources()
 	_test_automation_music_gate()
 	print("──────── 结果：%d 通过 / %d 失败 ────────\n" % [_pass, _fail])
@@ -70,6 +71,7 @@ func _test_runtime_jam_path() -> void:
 	hostile_peer.global_position = Vector2(180.0, 0.0)
 	CombatUnit.all_units = [host, friendly, ally, ground, naval, hostile_peer]
 	var controller := DeadairController.new(null)
+	controller.register(host)
 	for _i in range(40):
 		controller._tick_units(host, 0.2)
 	_check("真实 CombatUnit 路径在 8s 写入标准 JAM 容器", friendly.has_status(StatusEffects.JAM),
@@ -88,6 +90,16 @@ func _test_runtime_jam_path() -> void:
 		controller._tick_missiles(host, 0.2)
 	_check("真实 Missile 路径在 2s 永久失导", missile.is_flare_jammed and not missile.has_guidance,
 		"jam=%s guidance=%s" % [missile.is_flare_jammed, missile.has_guidance])
+	controller.retire(host)
+	_check("来源退役同拍移除它施加的 JAM 与暴露效果",
+		not friendly.has_status(StatusEffects.JAM) and not ally.has_status(StatusEffects.JAM) \
+			and not ground.has_status(StatusEffects.JAM) and not naval.has_status(StatusEffects.JAM) \
+			and is_zero_approx(friendly.deadair_exposure_ratio),
+		"friendly=%s ally=%s ground=%s naval=%s" % [friendly.status_effects,
+			ally.status_effects, ground.status_effects, naval.status_effects])
+	_check("来源退役不倒带已经结算的导弹永久失导", missile.is_flare_jammed \
+		and not missile.has_guidance, "jam=%s guidance=%s" % [missile.is_flare_jammed,
+			missile.has_guidance])
 	Missile.active_missiles.erase(missile)
 	CombatUnit.all_units.assign(saved_units)
 	missile.free()
@@ -119,6 +131,23 @@ func _test_support_field_mutual_exclusion() -> void:
 	_check("DEADAIR 在场时禁止生成 Snowblind", not spawner._can_spawn_type(
 		int(SurvivorSpawner.EnemyType.SNOWBLIND), 99), "")
 	spawner.free()
+
+
+func _test_tier3_priority_replacement() -> void:
+	var old_host := Aircraft.new()
+	old_host.global_position = Vector2(100.0, 0.0)
+	var tier3_host := Aircraft.new()
+	tier3_host.global_position = Vector2(900.0, 0.0)
+	var controller := DeadairController.new(null)
+	controller.register(old_host)
+	controller.replace_with_priority(tier3_host)
+	var snapshot := controller.field_snapshot()
+	_check("3★ DEADAIR 优先接管唯一干扰场且旧来源不会复活",
+		bool(old_host.get_meta(&"support_field_retired", false)) \
+			and snapshot.get("position", Vector2.ZERO) == tier3_host.global_position, str(snapshot))
+	controller.shutdown()
+	old_host.free()
+	tier3_host.free()
 
 
 func _test_i18n_resources() -> void:

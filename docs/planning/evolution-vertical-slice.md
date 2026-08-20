@@ -1,6 +1,15 @@
 # 进化系统垂直切片 —— 思考记录 + 实施计划
 
-> 分支：`feature/aircraft-evolution`（退路 = main @ e93e1d5）。
+> # ⚠ 已关闭的历史切片（2026-07-02～07-03），勿作为当前实施计划
+>
+> 本切片的 12 节点、1–4 切控、旧升级并存与“武器绑机体”等前提已被正式 43 机树、1–9 切控、
+> 三轴卡片、里程碑、局内武器库和当前进化结算取代。当前设计看
+> [aircraft-evolution-tree](../specs/systems/aircraft-evolution-tree.md)、
+> [evolution-attribute-gates](../specs/systems/evolution-attribute-gates.md) 与
+> [inrun-weapon-inventory](../specs/systems/inrun-weapon-inventory.md)；下一阶段排期看
+> [content-production-workflow](content-production-workflow.md)。下文只保留当时的验证过程，不继续勾选 Phase 4。
+
+> 历史分支：`feature/aircraft-evolution`（当时退路 = main @ e93e1d5）。
 > 目的：**验证设计好不好玩**，不是做完整版。设计权威见 specs：ace-system / aircraft-evolution(+tree) / meta-progression。
 
 ## 0. 排序决策（思考记录，2026-07-02 与用户定）

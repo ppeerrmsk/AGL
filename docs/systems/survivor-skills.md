@@ -1,7 +1,7 @@
 # 生存模式技能系统 —— 设计哲学与需求（设计层文档）
 
 > **三层分工（2026-07-24 重构，查东西先认层）：**
-> - **数值/归属现状** → [skill-table.md](../reference/skill-table.md)（自动生成 152 条，`python tools/dump_skill_table.py` 重刷）
+> - **数值/归属现状** → [skill-table.md](../reference/skill-table.md)（自动生成；当前 165 条，`python tools/dump_skill_table.py` 重刷）
 > - **配置字段 / 实装模式 / 效果代码在哪** → [skill-implementation-index.md](../reference/skill-implementation-index.md)（八模式 + 全 stat 消费点速查，**AI 查代码首选入口**）
 > - **数值为什么这样 / 权威定稿** → specs：[skills-720-rework](../specs/systems/skills-720-rework.md) · [aircraft-signature-skills](../specs/systems/aircraft-signature-skills.md) · [evolution-attribute-gates](../specs/systems/evolution-attribute-gates.md) · [afterburner-mode](../specs/systems/afterburner-mode.md)
 >
@@ -49,7 +49,7 @@
 - 三轴点数、里程碑、已选技能全部**记玩家层，换机重放不丢**（roguelike 局内清零）。
 - 里程碑（每轴 2/4/6/8 点档的纯属性奖励）**不是技能**，归 [evolution-attribute-gates](../specs/systems/evolution-attribute-gates.md)。
   归属与技能一致：**跟玩家不跟机体，且下发全队**（2026-07-28 起）——记账从"玩家级单账本"改成**逐机记账**，
-  所以晚入队的僚机会补挂、换型（进化）全队重挂、换帅（1-4 切控 / 长机阵亡顶替）后新操控机也不再是白板。
+  所以晚入队的僚机会补挂、换型（进化）全队重挂、换帅（1–9 切控 / 长机阵亡顶替）后新操控机也不再是白板。
 
 ### 归属词汇 v6（720 批）
 
@@ -58,14 +58,15 @@
 
 ### 机型签名技能（722 批）
 
-进化树 41 机**每机一条专属技**：驾驶该机型时才刷得出（CLASSIFIED），获得后永久跟玩家（换机不丢）。
+进化树 43 机**每机一条专属技**：驾驶该机型并完成生涯揭示/购买后，才有第四槽出示机会；获得后永久跟玩家（换机不丢）。
 权威源 [aircraft-signature-skills](../specs/systems/aircraft-signature-skills.md)。
 
 - **出率**：`sig_*` 另吃一个独立权重乘区（2026-07-28 起 ×2.5，抽卡与轴内挑卡两处都乘），
   等效把签名技从 CLASSIFIED 的低权重抬到 ADVANCED 档——不然"驾驶该机型才刷得出"实际等于刷不出来。
 - **卡框**：签名卡在三选一面板上用**洋红**专属边框（加粗 + 淡洋红底），一眼认出"这张是本机专属"；
   稀有度徽章仍显示真实稀有度色，不被卡框覆盖。
-未来可能上锁进 Meta Progression（功勋解锁后才进池）——数据结构已预留，现阶段全开放。
+当前已接入生涯揭示与功勋购买，具体获取规则以
+[aircraft-signature-progression](../specs/systems/aircraft-signature-progression.md) 为准；不再走“全开放普通池”。
 
 ### 加力模式（充能制）—— 玩家的核心战术按钮
 
@@ -86,7 +87,10 @@ E 键 / HUD 按钮触发的**小队级充能资源**（前身是语义模糊的"
 
 > 键于本模式的技能（全部随激活期存续，按实际烧的时长算，不再是固定 6s）：超频加力 / 蓄势狂暴 / 弹仓过载 / 雾隐机动 / 检讨 / 强化加力 / 适应 / 加力供弹 / su34 鸭嘴兽厨房 / mig31 超速截击 等。**眼镜蛇与危机赫尔贝特已从加力触发链拆出**：当前操控机按 R 手动释放，AI 僚机受威胁自动释放。
 
-**R 机动槽**：眼镜蛇 / 危机赫尔贝特（J-Turn）/ 胆大妄为三向互斥，任取其一后另两张不再出现；眼镜蛇与 J-Turn 无需先开加力。三者均全队下发：当前操控机按 R，AI 僚机受威胁自动释放。
+**R 机动槽**：眼镜蛇 / 危机赫尔贝特（J-Turn）/ 胆大妄为 / 位移滚转 / 垂直越过五向互斥，
+玩家只持有一种；均不要求先开加力。技能全队下发：当前操控机按 R，AI 僚机按各自威胁条件自动释放。
+共享冷却、切控续播与不可命中规则以
+[active-special-maneuvers](../specs/systems/active-special-maneuvers.md) 为权威。
 
 ### 获取渠道三条
 

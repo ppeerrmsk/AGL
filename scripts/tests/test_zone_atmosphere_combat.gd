@@ -9,7 +9,10 @@ var _fail := 0
 func run() -> void:
 	print("\n════════ 正式战区氛围战斗契约 ════════")
 	_test_frequency_gate()
+	_test_helicopter_compositions()
+	_test_helicopter_reward_identity()
 	_test_launch_multiplier()
+	_test_helicopter_projectile_boundaries()
 	_test_nonlethal_target_damage()
 	_test_observed_artillery_damage()
 	_test_zero_damage_bullet_fast_path()
@@ -41,6 +44,56 @@ func _test_frequency_gate() -> void:
 			and mission_source.contains("ZONE_ATMOSPHERE_SCRIPT.cached_enabled(") \
 			and mission_source.contains("if not _zone_atmosphere_enabled_for_zone(zone_id):"),
 		"同一战区只抽一次，刷新继续使用本局缓存结果")
+
+
+func _test_helicopter_compositions() -> void:
+	var signatures: Dictionary = {}
+	for roll in [0.0, 0.25, 0.50, 0.75]:
+		var sides := ZoneAtmosphereCombat.helicopter_sides_for_roll(roll)
+		signatures["%s/%s" % [sides["ally"], sides["hostile"]]] = true
+	_check(signatures.size() == 4, "地面气氛层覆盖纯地面、仅友军、仅敌军、双方直升机四种组合")
+
+
+func _test_helicopter_reward_identity() -> void:
+	var controller: Node2D = ZONE_ATMOSPHERE_SCRIPT.new()
+	var hostile := Aircraft.new()
+	var ally := Aircraft.new()
+	controller.call("_mark_actor", hostile, &"TEST", "helicopter", true)
+	controller.call("_mark_actor", ally, &"TEST", "helicopter", false)
+	_check(not hostile.has_meta(&"no_kill_reward") and int(hostile.get_meta(&"token_cost", -1)) == 0 \
+			and bool(ally.get_meta(&"no_kill_reward", false)),
+		"敌对气氛直升机保留 AH-64 经验资格，友军关闭奖励且双方均不占 Token")
+	hostile.free()
+	ally.free()
+	controller.free()
+
+
+func _test_helicopter_projectile_boundaries() -> void:
+	var projectile := {
+		"ground_targets_only": true,
+		"ambient_tgt_nonlethal": true,
+		"source": null,
+	}
+	var aircraft := Aircraft.new()
+	var formal := GroundUnit.new()
+	formal.hp = 20.0
+	formal.set_meta(&"zone_mission", &"TEST")
+	var atmosphere := GroundUnit.new()
+	atmosphere.hp = 20.0
+	var manager := BulletManager.new()
+	_check(not BulletManager.projectile_allows_target(projectile, aircraft) \
+		and BulletManager.projectile_allows_target(projectile, formal),
+		"对地直升机弹丸永不碰撞 Aircraft，只允许 GroundUnit")
+	manager._apply_projectile_damage(formal, 99.0, projectile, "gun")
+	manager._apply_projectile_damage(atmosphere, 99.0, projectile, "gun")
+	_check(formal.hp == 1.0 and not formal.is_destroyed,
+		"直升机攻击正式地面 TGT 最低保留 1 HP")
+	_check(atmosphere.is_destroyed,
+		"直升机可以真实摧毁敌对地面气氛演员")
+	manager.free()
+	aircraft.free()
+	formal.free()
+	atmosphere.free()
 func _test_launch_multiplier() -> void:
 	var source := CombatUnit.new()
 	_check(absf(CombatUnit.ambient_damage_multiplier(source) - 1.0) < 0.001,
@@ -130,9 +183,7 @@ func _test_zero_damage_bullet_fast_path() -> void:
 	var source := CombatUnit.new()
 	source.set_meta(CombatUnit.META_AMBIENT_DAMAGE_MULTIPLIER, 0.0)
 	manager.spawn_bullet(Vector2.ZERO, 0.0, 500.0, source, 60.0)
-	var bullets: Array = manager.get("_bullets")
-	_check(bullets.size() == 1 and float(bullets[0]["damage"]) == 0.0 \
-		and bool(bullets[0]["visual_only"]),
+	_check(manager.visual_bullet_count() == 1 and manager._bullets.is_empty(),
 		"远距仍生成弹道，但直接进入零碰撞 visual_only 快路径")
 	source.free()
 	manager.free()
@@ -185,6 +236,10 @@ func _test_air_defense_only_targets_aircraft() -> void:
 	root.add_child(aa)
 	root.add_child(ground)
 	root.add_child(aircraft)
+	# AA 正式路径读取 CombatUnit 维护式注册表，不再扫描共同父节点。
+	CombatUnit.all_units.append(aa)
+	CombatUnit.all_units.append(ground)
+	CombatUnit.all_units.append(aircraft)
 	aa.combat_target = ground
 	aa._update_aa_target_selection(1.0)
 	_check(aa.combat_target == aircraft,
@@ -224,6 +279,9 @@ func _test_air_defense_only_targets_aircraft() -> void:
 		"SAM 发射门会安全清理已释放目标，而不会先执行 is 类型判断")
 	sam.missile_manager.free()
 	sam.free()
+	CombatUnit.all_units.erase(aa)
+	CombatUnit.all_units.erase(ground)
+	CombatUnit.all_units.erase(aircraft)
 	root.free()
 
 

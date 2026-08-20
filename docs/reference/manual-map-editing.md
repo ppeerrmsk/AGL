@@ -189,7 +189,8 @@ Root (Node2D)
 ## 7. 保存 + 测试
 
 1. **Ctrl + S** 保存场景
-2. 回到 Godot 编辑器，**F5** 运行游戏（或直接 PowerShell `./Godot project.godot` 运行）
+2. 人工编辑时回到 Godot 4.7+ 编辑器，**F5** 运行游戏；agent 自动验证必须经
+   `bench/run.cmd` / `bench/run.sh`，不得从 PowerShell 直接启动 Godot
 3. 进入生存模式，地图上应该能看到你画的形状
 4. **调试日志**：游戏启动时控制台会打印：
    ```

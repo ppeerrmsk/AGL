@@ -124,18 +124,19 @@ func _test_edge_bar_contract() -> void:
 		and remaining_sync > elapsed_sync and remaining_sync < capture_start)
 	var timer_hud = SurvivorHUDScript.new()
 	timer_hud._build_ui()
-	timer_hud.set_warzone_remaining(372.9, false)
+	timer_hud.set_warzone_remaining(372.9, false, 27.9)
 	var first_visible_seconds: float = timer_hud._warzone_timer_panel._seconds
 	timer_hud.set_warzone_remaining(372.1, false)
 	var same_visible_second: float = timer_hud._warzone_timer_panel._seconds
 	timer_hud.set_warzone_remaining(371.9, false)
 	var next_visible_second: float = timer_hud._warzone_timer_panel._seconds
-	timer_hud.set_warzone_remaining(371.8, true)
+	timer_hud.set_warzone_remaining(371.8, true, 28.1)
 	_check("战区时间只在可见整数秒或 BOSS 状态变化时请求重绘",
 		is_equal_approx(first_visible_seconds, 372.9)
 		and is_equal_approx(same_visible_second, 372.9)
 		and is_equal_approx(next_visible_second, 371.9)
-		and timer_hud._warzone_timer_panel._boss_phase)
+		and timer_hud._warzone_timer_panel._boss_phase
+		and timer_hud._time_label.text == "TIME  00:28")
 	timer_hud.free()
 	_check("3u 常驻栏由等宽侧板、2u 三方向和 1u 经验条完整填满",
 		group == Rect2(618.0, 1026.0, 684.0, 54.0)
@@ -147,13 +148,27 @@ func _test_edge_bar_contract() -> void:
 			== BottomExperiencePanelScript.right_panel_rect().size)
 	var hint = ZoneHintScript.new()
 	hint._build()
-	_check("顶部常驻与底部临时通知使用独立 60% 宽滑入通道",
+	var hud_source := FileAccess.get_file_as_string(
+		"res://scripts/survivor/survivor_hud.gd")
+	var encounter_layout_start := hud_source.find("# BOSS / 王牌条固定在顶部通知通道下方")
+	var encounter_layout_end := hud_source.find("# 状态面板：右下角", encounter_layout_start)
+	var encounter_layout := ""
+	if encounter_layout_start >= 0 and encounter_layout_end > encounter_layout_start:
+		encounter_layout = hud_source.substr(
+			encounter_layout_start, encounter_layout_end - encounter_layout_start)
+	_check("顶部通知与 BOSS / 王牌共用锚位按固定通道依次堆叠",
 		ZoneHintScript.NOTICE_HEIGHT == 36.0
 		and ZoneHintScript.NOTICE_ANCHOR_LEFT == 0.2
 		and ZoneHintScript.NOTICE_ANCHOR_RIGHT == 0.8
 		and ZoneHintScript.BOTTOM_RESERVED_HEIGHT == SurvivorHUDScript.BOTTOM_BAR_HEIGHT
 		and ZoneHintScript.TOP_RESERVED_HEIGHT
 			== SurvivorHUDScript.TIME_PANEL_SIZE.y + WarzoneTimePanelScript.PANEL_SIZE.y
+		and SurvivorHUDScript.TOP_ENCOUNTER_Y
+			== ZoneHintScript.TOP_RESERVED_HEIGHT + ZoneHintScript.NOTICE_HEIGHT
+				+ SurvivorHUDScript.TOP_ENCOUNTER_GAP
+		and SurvivorHUDScript.TOP_ENCOUNTER_Y == 114.0
+		and encounter_layout_start >= 0 and encounter_layout_end > encounter_layout_start
+		and encounter_layout.count("TOP_ENCOUNTER_Y") == 2
 		and ZoneHintScript.NOTIFICATION_LAYER
 			== SurvivorHUDScript.PERSISTENT_HUD_LAYER - 1
 		and ZoneHintScript.SLIDE_DURATION == 0.25

@@ -151,7 +151,7 @@ reconstruction_complete: false
 
 ### 2.9 交战姿态（posture，随 `commanded_target` 走铁律通道）
 
-`enum EngagePosture { DEFAULT, STANDOFF, ASSAULT }`，作为字段挂在命令上，逐机持久、跨 1-4 切控不丢，清除时机与 `commanded_target` 相同。
+`enum EngagePosture { DEFAULT, STANDOFF, ASSAULT }`，作为字段挂在命令上，逐机持久、跨 1–9 切控不丢，清除时机与 `commanded_target` 相同。
 
 **定义轴是交战几何，不是武器类别**——武器选择交给 [[weapon-employment-doctrine]] 距离带竞选，姿态只约束几何节奏，保证任意 loadout（含纯机炮机）都能执行：
 

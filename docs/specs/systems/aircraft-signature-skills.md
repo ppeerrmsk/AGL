@@ -207,13 +207,13 @@ _apply_damage 结算后 hp ≤ 0 时（按序判定，命中一条即止）：
 
 ## 5. 验收标准（Acceptance / Litmus）
 
-- [x] 身份约束：`exclusive_to` 仍确保 41 条映射与机型一一对应；第四槽许可与每局状态机验收见 `aircraft-signature-progression` ✅
+- [x] 身份约束：`exclusive_to` 仍确保 43 条映射与机型一一对应；第四槽许可与每局状态机验收见 `aircraft-signature-progression` ✅
 - [x] 继承：升级账本记玩家层 + `_replay_player_upgrades` 无条件重放（既有机制，bench attr_gates §E 重放断言覆盖底座；params 类 apply 断言 §D）✅
 - [x] milestone_plus 数组：ax00 双轴 list、单值口径兼容（bench §C；cap=2 语义不变——沿用 skills720 §C 双计数断言）✅
 - [x] 致死拦截：钛浴缸 CD/血线、A-12 每局一次、共存判序（bench §E 8 断言）✅
 - [x] 窗口禁火豁免：sig_mig31 走独立发射通道（不经 `_fire_missile_at` 硬断），其余武器路径六处禁火未动 ✅
 - [ ] 超速截击发射几何：只从当前机头前半球与雷达锥的交集挑选目标；后半球满锁即使仍落在扩宽至 ±120° 的雷达锥内且距离更近也不得发射（bench `sig_skills` 对照；代码与用例已落地，等待 Godot 空闲后执行）
-- [x] 全表 i18n 三语齐；重跑 dump_skill_table → 152 条，milestone_plus 数组已兼容 ✅
+- [x] 全表 i18n 三语齐；重跑 dump_skill_table → 当前 165 条，milestone_plus 数组已兼容 ✅
 - [x] 性能：全部判定 O(1) 字段读 / 复用既有 tick（锁定循环集中注入、0.5s squad watch、25s 周期生成）；无新增每帧扫描 ✅
 - [x] 传感器融合行为门：技能关闭/ACE 未满锁/非 ACE 当前目标均拒绝；ACE 满锁同目标时僚机越肩门放行（bench `sig_skills` §J）✅
 - [ ] 本批 F-22 加算锁数、全队范围与超速截击正面发射门由 sig_skills 66 断言覆盖（新增 2 条尚待 Godot 空闲后执行）。
@@ -251,7 +251,7 @@ _apply_damage 结算后 hp ≤ 0 时（按序判定，命中一条即止）：
 | 机动完成事件发射点 | `scripts/cobra_maneuver.gd` / `scripts/herbst_maneuver.gd`（phase→NONE 处） |
 | 加力充能倍率入参 + 窗口回血 | `scripts/survivor/afterburner_charge.gd`（update rate_mult） |
 | 验收 bench | `scripts/tests/test_sig_skills.gd`（`--bench=sig_skills`，66 断言；随 `--bench=all` 回归门） |
-| 生成器（milestone_plus 数组兼容） | `tools/dump_skill_table.py` → `docs/reference/skill-table.md`（152 条） |
+| 生成器（milestone_plus 数组兼容） | `tools/dump_skill_table.py` → `docs/reference/skill-table.md`（当前 165 条） |
 
 ## 8. 变更记录
 

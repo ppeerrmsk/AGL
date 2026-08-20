@@ -1,6 +1,6 @@
 # AGL — 项目概述
 
-> 最后校订：2026-08-04。本文只写"AGL 是什么 / 由什么组成 / 去哪里查"。
+> 最后校订：2026-08-20。本文只写"AGL 是什么 / 由什么组成 / 去哪里查"。
 > **设计权威源是 [docs/specs/](specs/_INDEX.md)**，数值与行为一律以那里为准；本文不放数值。
 
 ## 是什么
@@ -12,8 +12,9 @@
 武器全部按状态自动开火，玩家只负责把飞机开进"该开火的位置"
 （见 [DESIGN_PHILOSOPHY.md](DESIGN_PHILOSOPHY.md) 原则 10）。
 
-项目方向已从"单机吸血鬼幸存者"转为**操控小队的 RTS 空战**：
-数字键 1–9 接管对应号机、命令轮盘对全队广播命令、僚机按学说自主配合。
+项目方向已从"单机吸血鬼幸存者"转为**操控小队的 RTS 空战 Roguelike**：
+数字键 1–9 接管对应号机、命令轮盘对全队广播命令、僚机按学说自主配合；局内成长同时由
+**机型进化路线**与**三轴 Build / 局内武器库**构成，两者都是核心选择。
 
 ## 两个模式
 
@@ -57,7 +58,7 @@
 | 剧本 | `scripts/events/` | GameEvent + EventDirector + AIDirective |
 | 演出 | `scripts/presentation/` | TimeAuthority / SequencePlayer / 舞台隔离 |
 | 地图 / UGC | `scripts/zones/` + `scripts/ugc/` | 战区 + 地图编辑器 + 烘焙 |
-| 无头测试 | `scripts/tests/` + `scripts/bench/` | `--bench=<name>` 跑断言，无正式测试框架 |
+| 无头测试 | `scripts/tests/` + `scripts/bench/` | 项目自有 BenchRunner 断言/压力/Visual 场景；统一经 `bench/run.*` 启动 |
 
 ## AutoLoads（初始化顺序）
 
@@ -74,4 +75,5 @@ Presentation → MeritLedger → CareerArchive → MetaShop → PerfBuckets → 
 | 知道某个机制**为什么这样设计、数值是多少** | [specs/_INDEX.md](specs/_INDEX.md) |
 | 找某段代码在哪 | [reference/script-index.md](reference/script-index.md) → [reference/code-index.md](reference/code-index.md) |
 | 知道设计红线 | [DESIGN_PHILOSOPHY.md](DESIGN_PHILOSOPHY.md) + [reference/performance-guidelines.md](reference/performance-guidelines.md) |
+| 知道铺量阶段先做什么、做到哪里 | [planning/content-production-workflow.md](planning/content-production-workflow.md) |
 | 知道某次改动当时做了什么 | `docs/changelogs/` |

@@ -130,7 +130,14 @@ ZONE_REWARD_ALREADY_GRANTED,※ 奖励已发放,※ Reward already granted,※ �
 ZONE_MISSION_STARTED_FMT,⚔ 战区 %s 任务开始 — 清剿地面单位,⚔ ZONE %s — ENGAGE GROUND UNITS,⚔ エリア %s 開戦 — 地上目標を殲滅
 ZONE_MISSION_STARTED_AIR_FMT,⚔ 战区 %s 任务开始 — 歼灭敌方中队,⚔ ZONE %s — DESTROY ENEMY SQUADRON,⚔ エリア %s 開戦 — 敵中隊を撃墜
 ZONE_MISSION_STARTED_SQUADRON_FMT,⚔ 战区 %s 任务开始 — 击败敌方中队,⚔ ZONE %s — DEFEAT ENEMY SQUADRON,⚔ エリア %s 開戦 — 敵中隊を撃破
-ZONE_MISSION_STARTED_NAVAL_FMT,⚔ 战区 %s 任务开始 — 击毁舰队旗舰,⚔ ZONE %s — SINK FLEET FLAGSHIP,⚔ エリア %s 開戦 — 艦隊旗艦を撃沈
+ZONE_MISSION_STARTED_NAVAL_FMT,⚔ 战区 %s 任务开始 — 击毁全部舰艇,⚔ ZONE %s — DESTROY ALL FLEET TARGETS,⚔ エリア %s 開戦 — 全艦艇目標を撃沈
+TIER3_PROFILE_SUPER_CANNON,超级巨炮,SUPER CANNON,超大型砲
+TIER3_PROFILE_SIEGE_TANK,沙漠攻城坦克,DESERT SIEGE TANK,砂漠攻城戦車
+TIER3_PROFILE_LONG_RANGE_VLS,远程 VLS 舰队,LONG-RANGE VLS FLEET,長射程VLS艦隊
+TIER3_PROFILE_DEADAIR,DEADAIR 干扰支援机,DEADAIR JAM SUPPORT,DEADAIR妨害支援機
+TIER3_PROFILE_UNKNOWN,未知高威胁来源,UNKNOWN HIGH-THREAT SOURCE,不明な高脅威源
+TIER3_THREAT_ACTIVE_FMT,⚠ 3★ 全局威胁：战区 %s // %s 仍在运作,⚠ 3-STAR GLOBAL THREAT: ZONE %s // %s ACTIVE,⚠ 3★広域脅威：エリア %s // %s 作動中
+TIER3_THREAT_NEUTRALIZED_FMT,✓ 战区 %s 的全局威胁已解除：%s；继续清空全部 TGT,✓ ZONE %s GLOBAL THREAT NEUTRALIZED: %s; CLEAR ALL REMAINING TGTs,✓ エリア %s の広域脅威を無力化：%s；残存TGTを全滅せよ
 ZONE_MISSION_STARTED_BOMBER_ESCORT_FMT,⚔ 可选战区任务 %s — 护送轰炸机完成投弹（150秒）,⚔ OPTIONAL ZONE MISSION %s — ESCORT BOMBERS TO TARGET (150 SEC),⚔ 任意戦域ミッション %s — 爆撃隊を目標まで護衛（150秒）
 ZONE_OPTIONAL_MISSION_TAG,可选战区任务,OPTIONAL ZONE MISSION,任意戦域ミッション
 ZONE_OPTIONAL_MISSION_TAG_SHORT,可选任务,OPTIONAL,任意任務
@@ -148,6 +155,7 @@ ADBS_TUTORIAL_BOMBERS,⚠ 雷达捕获：2 架敌方轰炸机正前方！击落�
 ADBS_CITY_HELIS_FMT,⚠ 城区上空：敌方直升机编队向 %s 方向逃离——全歼可延长作战时间,⚠ CITY ALERT: Enemy heli flight fleeing %s — wipe them out to extend mission time,⚠ 都市上空：敵ヘリ編隊が %s 方向へ逃走——全滅で作戦時間延長
 ADBS_CITY_HELIS_CLEARED_FMT,运输队全歼——作战时间 +%d 秒,Transport flight destroyed — mission time +%ds,輸送隊全滅——作戦時間 +%d秒
 ZONE_INFO_DIFFICULTY,难度,Difficulty,難易度
+ZONE_INFO_TIER3_GLOBAL_THREAT,⚠ 全局威胁：高威胁来源被摧毁后效果消失；任务仍需清空全部 TGT,⚠ GLOBAL THREAT: Destroying the high-threat source removes its effect; all TGTs are still required,⚠ 広域脅威：高脅威源の撃破で効果は消えるが、任務には全TGTの殲滅が必要
 ZONE_MISSION_GROUND,※ 清剿战区内的地面单位（SAM / AA）,※ Eliminate ground installations in the zone (SAM / AA),※ エリア内の地上目標を殲滅 (SAM / AA)
 ZONE_MISSION_AIR,※ 歼灭盘旋在战区上空的敌方中队,※ Destroy the enemy squadron patrolling the zone,※ 上空を警戒する敵飛行隊を撃墜
 ZONE_MISSION_SQUADRON,※ 击败锁定战区的敌方中队,※ Defeat the enemy squadron holding the zone,※ エリアを制圧中の敵中隊を撃破

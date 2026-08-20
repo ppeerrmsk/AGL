@@ -14,6 +14,8 @@ const LEVEL_DIGIT_WIDTH := PlayerInstrumentPanelScript.THREE_U_DIGIT_WIDTH
 const LEVEL_DIGIT_COUNT := 2
 const SIDE_WIDTH := LEVEL_LABEL_WIDTH + LEVEL_DIGIT_WIDTH * LEVEL_DIGIT_COUNT
 const CENTER_WIDTH := 408.0
+const XP_LABEL_WIDTH := 80.0
+const EVOLUTION_READY_WIDTH := SIDE_WIDTH - XP_LABEL_WIDTH
 const TOTAL_SIZE := Vector2(SIDE_WIDTH * 2.0 + CENTER_WIDTH, U_HEIGHT * 3.0)
 const FLASH_PANEL_DURATION := 0.14
 const FLASH_PANEL_COUNT := 3
@@ -22,6 +24,7 @@ const FLASH_DURATION := FLASH_PANEL_DURATION * FLASH_PANEL_COUNT
 var _level := 1
 var _xp := 0
 var _xp_to_next := 1
+var _evolution_ready := false
 var _flash_elapsed := -1.0
 var _accent := Color.TRANSPARENT
 var _info_font: Font
@@ -55,7 +58,7 @@ func _ready() -> void:
 	set_process(false)
 
 
-func update_display(player: SurvivorPlayer) -> void:
+func update_display(player: SurvivorPlayer, evolution_ready: bool = false) -> void:
 	if player == null:
 		return
 	var next_level := player.level
@@ -63,11 +66,13 @@ func update_display(player: SurvivorPlayer) -> void:
 	var next_xp_to_next := maxi(player.xp_to_next, 1)
 	var next_accent: Color = HudPreferencesScript.hud_color()
 	if _level == next_level and _xp == next_xp and _xp_to_next == next_xp_to_next \
+			and _evolution_ready == evolution_ready \
 			and _accent.is_equal_approx(next_accent):
 		return
 	_level = next_level
 	_xp = next_xp
 	_xp_to_next = next_xp_to_next
+	_evolution_ready = evolution_ready
 	_accent = next_accent
 	if _grid_overlay != null:
 		_grid_overlay.line_color = _accent
@@ -131,9 +136,17 @@ func _draw_right_panel(accent: Color, inverted: bool) -> void:
 	var background := accent if inverted else ThemeColors.UI_BLOCK_BACKGROUND
 	var text_color := ThemeColors.UI_TERMINAL_INVERSE if inverted else accent
 	draw_rect(right_panel_rect(), background, true)
-	_draw_text(str(_xp), current_xp_rect(), text_color, "9999", true, 0)
-	_draw_text("MAX %d" % _xp_to_next, max_xp_rect(), text_color,
-		"MAX 9999", false, 15)
+	_draw_text(str(xp_remaining(_xp, _xp_to_next)), xp_remaining_rect(),
+		text_color, "9999", true, 0)
+	var xp_label := tr("HUD_XP_REMAINING")
+	_draw_text(xp_label, xp_remaining_label_rect(), text_color,
+		xp_label, false, 0)
+	if _evolution_ready:
+		var evolution_rect := evolution_ready_rect()
+		draw_rect(evolution_rect, ThemeColors.UI_WARNING_YELLOW, true)
+		var evolution_label := tr("HUD_EVOLUTION_READY_SHORT")
+		_draw_text(evolution_label, evolution_rect,
+			ThemeColors.UI_TERMINAL_INVERSE, evolution_label, false, 0)
 
 
 func _draw_text(text: String, rect: Rect2, color: Color, layout_text: String,
@@ -182,6 +195,10 @@ static func level_digit_color(digits: String, index: int, accent: Color,
 		else accent
 
 
+static func xp_remaining(current_xp: int, xp_to_next: int) -> int:
+	return maxi(xp_to_next - current_xp, 0)
+
+
 static func left_panel_rect() -> Rect2:
 	return Rect2(0.0, 0.0, SIDE_WIDTH, TOTAL_SIZE.y)
 
@@ -211,20 +228,26 @@ static func xp_rect() -> Rect2:
 	return Rect2(SIDE_WIDTH, U_HEIGHT * 2.0, CENTER_WIDTH, U_HEIGHT)
 
 
-static func current_xp_rect() -> Rect2:
+static func xp_remaining_rect() -> Rect2:
 	return Rect2(SIDE_WIDTH + CENTER_WIDTH, 0.0, SIDE_WIDTH, U_HEIGHT * 2.0)
 
 
-static func max_xp_rect() -> Rect2:
+static func xp_remaining_label_rect() -> Rect2:
 	return Rect2(SIDE_WIDTH + CENTER_WIDTH, U_HEIGHT * 2.0,
-		SIDE_WIDTH, U_HEIGHT)
+		XP_LABEL_WIDTH, U_HEIGHT)
+
+
+static func evolution_ready_rect() -> Rect2:
+	return Rect2(SIDE_WIDTH + CENTER_WIDTH + XP_LABEL_WIDTH, U_HEIGHT * 2.0,
+		EVOLUTION_READY_WIDTH, U_HEIGHT)
 
 
 static func grid_regions() -> Array[Rect2]:
 	return [
 		level_blank_rect(), level_label_rect(),
 		level_digit_rect(0), level_digit_rect(1),
-		xp_rect(), current_xp_rect(), max_xp_rect(),
+		xp_rect(), xp_remaining_rect(), xp_remaining_label_rect(),
+		evolution_ready_rect(),
 	]
 
 
@@ -236,6 +259,7 @@ static func flash_regions(index: int) -> Array[Rect2]:
 		1:
 			return [xp_rect()]
 		2:
-			return [current_xp_rect(), max_xp_rect()]
+			return [xp_remaining_rect(), xp_remaining_label_rect(),
+				evolution_ready_rect()]
 		_:
 			return []

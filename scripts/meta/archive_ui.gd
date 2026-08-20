@@ -1,5 +1,8 @@
 extends Node2D
 
+const TerminalPageShellScript := preload("res://scripts/ui/terminal_page_shell.gd")
+const TerminalUiStyleScript := preload("res://scripts/ui/terminal_ui_style.gd")
+
 ## ArchiveUI — 资料库（spec career-archive §2.6 / §2.7）
 ##
 ## 主菜单进入的局外界面，两个并列分类（顶部页签切换）：
@@ -9,11 +12,11 @@ extends Node2D
 ##
 ## 本类只渲染：条目清单在两个 Codex，包装（王牌主色/lore/徽章）在 AceSquadProfiles。
 
-const BG_COLOR := Color(0.04, 0.06, 0.05)
+const BG_COLOR := Color("010202")
 const COL_DIM := Color(0.45, 0.45, 0.42)
 const COL_INFO := Color(0.45, 0.72, 0.95)      ## 游戏信息分类主色（与敌方暖色区分）
 const COL_TIP := Color(0.95, 0.55, 0.45)       ## 战场情报角标（对齐 Tab 小技巧的红调）
-const ROW_W := 640
+const ROW_W := 840
 
 ## 顺序即页签顺序：先「游戏信息」（新玩家进来最需要的是说明书），再「敌人图鉴」（收集品）
 enum Category { INFO, ENEMY }
@@ -33,24 +36,21 @@ func _unhandled_input(event: InputEvent) -> void:
 func _build_ui() -> void:
 	var canvas := CanvasLayer.new()
 	add_child(canvas)
-
+	var shell := TerminalPageShellScript.new()
+	canvas.add_child(shell)
+	var frame := TerminalUiStyleScript.build_page(
+		shell.content, tr("ARCHIVE_TITLE"), tr("INFO_SUBTITLE"), "DB // 04")
+	var body := frame["body"] as PanelContainer
+	var footer := frame["footer"] as HBoxContainer
 	var root := VBoxContainer.new()
-	root.set_anchors_preset(Control.PRESET_FULL_RECT)
-	root.alignment = BoxContainer.ALIGNMENT_CENTER
-	root.add_theme_constant_override("separation", 8)
-	canvas.add_child(root)
-
-	var title := Label.new()
-	title.text = tr("ARCHIVE_TITLE")
-	title.add_theme_font_size_override("font_size", 26)
-	title.add_theme_color_override("font_color", Color(0.8, 0.72, 0.5))
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	root.add_child(title)
+	root.add_theme_constant_override("separation", 0)
+	body.add_child(root)
 
 	# 分类页签
 	var tabs := HBoxContainer.new()
-	tabs.alignment = BoxContainer.ALIGNMENT_CENTER
-	tabs.add_theme_constant_override("separation", 10)
+	tabs.alignment = BoxContainer.ALIGNMENT_BEGIN
+	tabs.add_theme_constant_override("separation", 0)
+	tabs.custom_minimum_size = Vector2(0, 42)
 	root.add_child(tabs)
 	_tab_buttons.clear()
 	for spec in [
@@ -59,37 +59,26 @@ func _build_ui() -> void:
 	]:
 		var btn := Button.new()
 		btn.text = tr(String(spec["key"]))
-		btn.custom_minimum_size = Vector2(190, 34)
-		btn.add_theme_font_size_override("font_size", 14)
+		btn.custom_minimum_size = Vector2(210, 42)
+		TerminalUiStyleScript.apply_button(btn, TerminalUiStyleScript.accent())
 		var cat := int(spec["cat"])
 		btn.pressed.connect(func() -> void: _switch_to(cat))
 		tabs.add_child(btn)
 		_tab_buttons.append(btn)
 
-	var sep := Control.new()
-	sep.custom_minimum_size = Vector2(0, 2)
-	root.add_child(sep)
-
 	var scroll := ScrollContainer.new()
-	scroll.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	scroll.custom_minimum_size = Vector2(ROW_W + 20, 440)
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	root.add_child(scroll)
 	_rows = VBoxContainer.new()
-	_rows.add_theme_constant_override("separation", 6)
+	_rows.add_theme_constant_override("separation", 0)
 	_rows.custom_minimum_size = Vector2(ROW_W, 0)
+	_rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(_rows)
-
-	var sep2 := Control.new()
-	sep2.custom_minimum_size = Vector2(0, 10)
-	root.add_child(sep2)
-
-	var back_btn := Button.new()
-	back_btn.text = tr("LOADOUT_BACK")
-	back_btn.custom_minimum_size = Vector2(220, 44)
-	back_btn.add_theme_font_size_override("font_size", 16)
-	back_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	back_btn.pressed.connect(_on_back_pressed)
-	root.add_child(back_btn)
+	TerminalUiStyleScript.build_footer_hint(
+		footer, "%s  //  ESC" % tr("CODEX_SUBTITLE"))
+	TerminalUiStyleScript.build_footer_button(
+		footer, tr("LOADOUT_BACK"), _on_back_pressed, 220.0)
 
 	_switch_to(Category.INFO)
 
@@ -97,9 +86,9 @@ func _switch_to(cat: int) -> void:
 	_category = cat
 	for i in range(_tab_buttons.size()):
 		var on := (i == cat)
-		_tab_buttons[i].add_theme_color_override("font_color",
-			Color(0.95, 0.85, 0.55) if on else Color(0.55, 0.55, 0.5))
-		_tab_buttons[i].disabled = on   # 当前页签不可再点，兼作选中态
+		TerminalUiStyleScript.apply_button(
+			_tab_buttons[i], TerminalUiStyleScript.accent(), false, on)
+		_tab_buttons[i].disabled = false
 	_rebuild_rows()
 
 func _rebuild_rows() -> void:
@@ -299,16 +288,9 @@ func _make_info_row(entry: Dictionary) -> PanelContainer:
 
 func _make_panel(col: Color, solid: bool) -> PanelContainer:
 	var panel := PanelContainer.new()
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.06, 0.08, 0.07, 0.9)
-	style.border_color = Color(col.r, col.g, col.b, 0.5 if solid else 0.22)
-	style.set_border_width_all(1)
-	style.set_corner_radius_all(3)
-	style.content_margin_left = 10
-	style.content_margin_right = 10
-	style.content_margin_top = 6
-	style.content_margin_bottom = 6
-	panel.add_theme_stylebox_override("panel", style)
+	TerminalUiStyleScript.apply_panel(panel,
+		Color(col.r, col.g, col.b, 0.62 if solid else 0.24),
+		Color(0.0, 0.0, 0.0, 0.78), 8.0)
 	return panel
 
 func _make_body(text: String, col: Color) -> RichTextLabel:
@@ -327,7 +309,7 @@ func _make_caption(text: String) -> Label:
 	var l := Label.new()
 	l.text = text
 	l.add_theme_font_size_override("font_size", 12)
-	l.add_theme_color_override("font_color", COL_DIM)
+	TerminalUiStyleScript.apply_terminal_label(l, 12, COL_DIM)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	return l
 
@@ -339,8 +321,8 @@ func _make_section_header(title: String, suffix: String) -> Control:
 	box.add_child(pad)
 	var label := Label.new()
 	label.text = title
-	label.add_theme_font_size_override("font_size", 14)
-	label.add_theme_color_override("font_color", Color(0.75, 0.7, 0.5))
+	TerminalUiStyleScript.apply_terminal_label(
+		label, 14, TerminalUiStyleScript.accent())
 	box.add_child(label)
 	if suffix != "":
 		var count := Label.new()

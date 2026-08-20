@@ -418,6 +418,12 @@ func _test_simple_boss_sequences_wellformed() -> void:
 			if ch == "actor" and op == "release":
 				has_release = true
 				release_at = float(s.get("at", -1.0))
+		if seq_name == "black_star_arrival":
+			_assert_true("black_star_arrival: 隐藏根机不切固定锚点特写", not has_cut)
+			_assert_true("black_star_arrival: 双根无线电交给真实下降信号", not has_radio)
+			_assert_true("black_star_arrival: 不制造冗余回玩家镜头", not has_return)
+			_assert_true("black_star_arrival: 横幅收尾即释放演出", has_release and release_at >= 1.5)
+			continue
 		_assert_true("%s: 镜头跟随 BOSS 主体" % seq_name, has_cut)
 		_assert_true("%s: 播放登场无线电" % seq_name, has_radio)
 		_assert_true("%s: 镜头回玩家" % seq_name, has_return)
@@ -466,8 +472,10 @@ func _test_boss_banner_contract() -> void:
 			reveal_end - reveal_at >= 1.0)
 		_assert_true("banner.%s reveal 先于 dismiss" % boss_id,
 			reveal_end > 0.0 and dismiss_at >= reveal_end)
-		_assert_true("banner.%s 完全退场后才切镜" % boss_id,
-			dismiss_end > 0.0 and first_cut < INF and first_cut >= dismiss_end - 0.001)
+		var cut_contract_ok := first_cut == INF if String(boss_id) == "BLACK_STAR" \
+			else first_cut < INF and first_cut >= dismiss_end - 0.001
+		_assert_true("banner.%s 完全退场后才切镜（Black Star 不切固定镜头）" % boss_id,
+			dismiss_end > 0.0 and cut_contract_ok)
 
 	for index in range(1, BossArrivalBannerScript.WINDOW_COUNT):
 		var next_start: float = float(index) * BossArrivalBannerScript.WINDOW_REVEAL_STAGGER

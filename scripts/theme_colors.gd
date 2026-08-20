@@ -12,6 +12,7 @@ const GRID_LINE := Color(0.3, 0.7, 0.3, 0.5)
 # ── 面板背景 ──
 ## 主界面语义色；与 docs/specs/systems/ui-design-guidelines.md 颜色表对齐。
 const UI_BLOCK_BACKGROUND := Color(0.0, 0.0, 0.0, 0.7)
+const UI_TERMINAL_WHITE := Color("e8f2e8")
 const UI_TERMINAL_GREEN := Color("00ff41")
 const UI_TERMINAL_INVERSE := Color("000000")
 const UI_INACTIVE_DIGIT := Color("404040")

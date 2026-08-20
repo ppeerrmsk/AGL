@@ -30,6 +30,11 @@ AGL Spec 模板 —— 设计单一数据源（SSOT）
   执行阶段 — 按 §6 实现计划 逐条打勾，代码从 spec 派生（执行很 cheap）
   收尾阶段 — 跑 §5 验收，更新 §7 锚点，写 §8 变更记录，status: done
   全阶段   — 建档当天登记 _INDEX.md；状态或 reconstruction_complete 改变时同步总表
+
+证据口径（详见 docs/planning/content-production-workflow.md）：
+  E0 静态 → E1 聚焦 Shadow → E2 集成/压力 Shadow → E3 Visual → E4 完整局。
+  只勾本内容真正需要的门，并在 §5 写明；focused/headless 不能写成 Visual 或实机通过。
+  “以后还可以调数值”不阻塞 done；只有玩家契约或 spec 明定的必需验收未过才保持 in-progress。
 ================================================================================
 -->
 ---
@@ -97,10 +102,20 @@ reconstruction_complete: false      # 数值/行为是否已全部写下、足�
 <!-- 可观察的通过条件，做完后逐条勾。包含性能守则与已知 seam 检查。 -->
 
 - [ ] <可观察行为 1>
-- [ ] 性能：跑生存模式 Sentinel + Lv5+ 压测，FPS 掉幅 < 15（见 performance-guidelines）
+- [ ] 性能：按 performance-guidelines 写负载合同并选择 C1 + 适用专项；draw 结论使用 `Shadow Visual`，记录 avg/p1/worst/<60、实际成员/弹丸与同条件 baseline（纯事件级 O(1) 可写明豁免）
 - [ ] 已知 seam 未触碰 / 已妥善处理（见 architecture/known-seams.md）
 - [ ] i18n：玩家可见文本走 tr()，三语已补（见 reference/i18n.md）
 - [ ] 文档：本 spec 已登记 _INDEX；状态/重建标记一致；当前文档无失效相对链接
+
+### 5.1 证据记录
+
+| 等级 | 场景 / 命令 / 产物 | 结论 |
+|---|---|---|
+| E0 静态 |  |  |
+| E1 聚焦 Shadow |  |  |
+| E2 集成 / 压力 Shadow |  |  |
+| E3 Visual |  |  |
+| E4 完整局 |  |  |
 
 ## 6. 实现计划（Task Pipeline —— 工作令）
 

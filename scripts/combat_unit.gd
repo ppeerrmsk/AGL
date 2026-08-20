@@ -75,6 +75,10 @@ const META_FRIENDLY_ASSET_ACTIVE: StringName = &"friendly_asset_active"
 ## 倍率在武器发射时快照；不存在 meta = 正式 100% 伤害。
 const META_AMBIENT_DAMAGE_MULTIPLIER: StringName = &"ambient_damage_multiplier"
 const META_PREFERRED_COMBAT_TARGET: StringName = &"preferred_combat_target"
+## 对地气氛飞机的弹丸边界在发射时快照：绝不碰撞 Aircraft；命中正式战区
+## GroundUnit 时最低保留 1 HP，不能替玩家清 TGT。
+const META_PROJECTILES_GROUND_ONLY: StringName = &"projectiles_ground_only"
+const META_AMBIENT_TGT_NONLETHAL: StringName = &"ambient_tgt_nonlethal"
 ## 固定剧本演员不得被投降/黑客/支援生成等动态转换路径翻转阵营。
 const META_FACTION_CONVERSION_LOCKED: StringName = &"faction_conversion_locked"
 
@@ -225,8 +229,9 @@ static func safe_attacker(n: Variant) -> Node:
 static func safe_unit(n: Variant) -> CombatUnit:
 	return n if is_instance_valid(n) else null
 
-## 释放前净化：把全场对 `unit` 的战斗引用（combat_target / commanded_target /
-## secondary_combat_target / AIController._current_target）清成 null。
+## 释放 / 语义离场前净化：把全场对 `unit` 的战斗引用（combat_target / commanded_target /
+## secondary_combat_target / AIController._current_target）清成 null，并清除主 / 副雷达锁存；
+## 若主目标被撤销，同拍清掉旧追击点，避免目标已离场但玩家仍看到航迹线。
 ## **所有 free CombatUnit 的地方**（沉船 / 挂点代理 / 撤离出界 / 事件静默回收）
 ## 都必须在 queue_free 之前调它一次。
 ##
@@ -246,20 +251,29 @@ static func release_target_refs(unit: CombatUnit) -> void:
 	for u in all_units:
 		if u == null or not is_instance_valid(u) or u == unit:
 			continue
+		u.radar_targets.erase(unit)
 		if u is Aircraft:
 			var ac: Aircraft = u
+			var released_primary := false
+			ac.secondary_radar_targets.erase(unit)
 			if ac.commanded_target == unit:
 				ac.commanded_target = null
+				released_primary = true
 			if ac.secondary_combat_target == unit:
 				ac.secondary_combat_target = null
 			if ac.combat_target == unit:
 				ac.clear_combat_target()
+				released_primary = true
 			for child in ac.get_children():
 				if child is AIController:
 					var ai: AIController = child
 					if ai._current_target == unit:
 						ai._current_target = null
+						released_primary = true
 					break
+			if released_primary:
+				ac.target_position = Vector2.INF
+				ac.ai_override_pursuit = false
 		elif "combat_target" in u and u.combat_target == unit:
 			u.combat_target = null
 

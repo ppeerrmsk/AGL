@@ -1,15 +1,13 @@
 extends Node2D
 
+const TerminalPageShellScript := preload("res://scripts/ui/terminal_page_shell.gd")
+const TerminalUiStyleScript := preload("res://scripts/ui/terminal_ui_style.gd")
+
 ## 生存模式 — 机型选择界面
 ## 选中飞机后进入 survivor_mode 场景
 
-# 视觉参数（与 main_menu 一致）
-const GRID_SPACING := 80.0
-const GRID_COLOR := ThemeColors.GRID_COLOR
-const LINE_COLOR := ThemeColors.GRID_LINE
 const BG_COLOR := ThemeColors.SCENE_BG
 
-var _time := 0.0
 var _canvas: CanvasLayer
 var _cards_container: GridContainer
 var _selected_index: int = -1
@@ -102,10 +100,6 @@ func _ready() -> void:
 	RenderingServer.set_default_clear_color(BG_COLOR)
 	_build_ui()
 
-func _process(delta: float) -> void:
-	_time += delta
-	queue_redraw()
-
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
 		# Boss Debug 模式：返回到 boss 选择界面而不是普通地图选择
@@ -113,35 +107,6 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_tree().change_scene_to_file("res://scenes/boss_debug_select.tscn")
 		else:
 			get_tree().change_scene_to_file("res://scenes/survivor_map_select.tscn")
-
-func _draw() -> void:
-	var vp := get_viewport_rect().size
-	_draw_grid(vp)
-	_draw_corners(vp)
-
-func _draw_grid(vp: Vector2) -> void:
-	var cols := int(vp.x / GRID_SPACING) + 1
-	var rows := int(vp.y / GRID_SPACING) + 1
-	for i in range(cols + 1):
-		var x := i * GRID_SPACING
-		draw_line(Vector2(x, 0), Vector2(x, vp.y), GRID_COLOR, 1.0)
-	for j in range(rows + 1):
-		var y := j * GRID_SPACING
-		draw_line(Vector2(0, y), Vector2(vp.x, y), GRID_COLOR, 1.0)
-
-func _draw_corners(vp: Vector2) -> void:
-	var margin := 40.0
-	var corner_len := 20.0
-	var c := LINE_COLOR
-	# 四角装饰
-	draw_line(Vector2(margin, margin), Vector2(margin + corner_len, margin), c, 1.5)
-	draw_line(Vector2(margin, margin), Vector2(margin, margin + corner_len), c, 1.5)
-	draw_line(Vector2(vp.x - margin, margin), Vector2(vp.x - margin - corner_len, margin), c, 1.5)
-	draw_line(Vector2(vp.x - margin, margin), Vector2(vp.x - margin, margin + corner_len), c, 1.5)
-	draw_line(Vector2(margin, vp.y - margin), Vector2(margin + corner_len, vp.y - margin), c, 1.5)
-	draw_line(Vector2(margin, vp.y - margin), Vector2(margin, vp.y - margin - corner_len), c, 1.5)
-	draw_line(Vector2(vp.x - margin, vp.y - margin), Vector2(vp.x - margin - corner_len, vp.y - margin), c, 1.5)
-	draw_line(Vector2(vp.x - margin, vp.y - margin), Vector2(vp.x - margin, vp.y - margin - corner_len), c, 1.5)
 
 # ══════════════════════════════════════════════
 #  UI 构建
@@ -151,73 +116,37 @@ func _build_ui() -> void:
 	_canvas = CanvasLayer.new()
 	_canvas.layer = 10
 	add_child(_canvas)
-
-	var root := VBoxContainer.new()
-	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	root.alignment = BoxContainer.ALIGNMENT_CENTER
-	root.add_theme_constant_override("separation", 0)
-	_canvas.add_child(root)
-
-	# 上部空白
-	var spacer_top := Control.new()
-	spacer_top.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	spacer_top.size_flags_stretch_ratio = 0.25
-	root.add_child(spacer_top)
-
-	# 标题
+	var shell := TerminalPageShellScript.new()
+	_canvas.add_child(shell)
 	var boss_debug := get_tree().has_meta("boss_debug_mode")
-	var title := Label.new()
-	title.text = tr("BOSS_DEBUG_AIRCRAFT_TITLE") if boss_debug else tr("AIRCRAFT_SELECT_TITLE")
-	title.add_theme_font_size_override("font_size", 28)
-	title.add_theme_color_override("font_color", ThemeColors.TEXT_TITLE_GREEN)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	root.add_child(title)
-
-	# 副标题
-	var subtitle := Label.new()
-	subtitle.text = tr("BOSS_DEBUG_AIRCRAFT_SUBTITLE") if boss_debug \
+	var title_text := tr("BOSS_DEBUG_AIRCRAFT_TITLE") if boss_debug \
+		else tr("AIRCRAFT_SELECT_TITLE")
+	var subtitle_text := tr("BOSS_DEBUG_AIRCRAFT_SUBTITLE") if boss_debug \
 		else tr("AIRCRAFT_SELECT_SUBTITLE")
-	subtitle.add_theme_font_size_override("font_size", 13)
-	subtitle.add_theme_color_override("font_color", ThemeColors.TEXT_SUBTITLE)
-	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	subtitle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	subtitle.custom_minimum_size = Vector2(0, 22)
-	root.add_child(subtitle)
-
-	var sep := Control.new()
-	sep.custom_minimum_size = Vector2(0, 30)
-	root.add_child(sep)
-
-	# 机型卡片容器
+	var frame := TerminalUiStyleScript.build_page(
+		shell.content, title_text, subtitle_text, "AIRFRAME // 02")
+	var body := frame["body"] as PanelContainer
+	var footer := frame["footer"] as HBoxContainer
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	body.add_child(scroll)
 	_cards_container = GridContainer.new()
 	_cards_container.columns = 4
-	_cards_container.add_theme_constant_override("h_separation", 16)
-	_cards_container.add_theme_constant_override("v_separation", 16)
-	_cards_container.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	root.add_child(_cards_container)
+	_cards_container.add_theme_constant_override("h_separation", 0)
+	_cards_container.add_theme_constant_override("v_separation", 0)
+	_cards_container.custom_minimum_size = Vector2(868, 0)
+	_cards_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(_cards_container)
 
 	_list = _effective_list()
 	for i in range(_list.size()):
 		_build_aircraft_card(i)
 
-	# 下方提示
-	var sep2 := Control.new()
-	sep2.custom_minimum_size = Vector2(0, 24)
-	root.add_child(sep2)
-
-	var hint := Label.new()
-	hint.text = tr("AIRCRAFT_SELECT_HINT_ESC")
-	hint.add_theme_font_size_override("font_size", 12)
-	hint.add_theme_color_override("font_color", Color(0.4, 0.5, 0.4, 0.4))
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	root.add_child(hint)
-
-	# 下部空白
-	var spacer_bottom := Control.new()
-	spacer_bottom.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	spacer_bottom.size_flags_stretch_ratio = 0.4
-	root.add_child(spacer_bottom)
+	TerminalUiStyleScript.build_footer_hint(
+		footer, "%s  //  %s" % [tr("AIRCRAFT_SELECT_HINT_ESC"), "01—04"])
+	TerminalUiStyleScript.build_footer_button(
+		footer, tr("LOADOUT_BACK"), _on_back_from_select, 200.0)
 
 func _build_aircraft_card(index: int) -> void:
 	var data: Dictionary = _list[index]
@@ -231,18 +160,10 @@ func _build_aircraft_card(index: int) -> void:
 
 	# 卡片面板背景
 	var panel := PanelContainer.new()
-	var style := StyleBoxFlat.new()
-	if locked:
-		style.bg_color = ThemeColors.CARD_LOCKED_BG
-		style.border_color = ThemeColors.CARD_LOCKED_BORDER
-	else:
-		style.bg_color = ThemeColors.CARD_UNLOCKED_BG
-		style.border_color = ThemeColors.CARD_UNLOCKED_BORDER
-	style.set_border_width_all(1)
-	style.set_corner_radius_all(4)
-	style.set_content_margin_all(18)
-	panel.add_theme_stylebox_override("panel", style)
-	panel.custom_minimum_size = Vector2(260, 340)
+	TerminalUiStyleScript.apply_panel(panel,
+		Color(TerminalUiStyleScript.accent(), 0.20 if locked else 0.82),
+		Color(0.0, 0.0, 0.0, 0.54 if locked else 0.80), 10.0)
+	panel.custom_minimum_size = Vector2(217, 340)
 
 	var inner := VBoxContainer.new()
 	inner.add_theme_constant_override("separation", 8)
@@ -252,8 +173,9 @@ func _build_aircraft_card(index: int) -> void:
 	var idx_label := Label.new()
 	idx_label.text = tr("SLOT_PILOT_INDEX_FMT") % (index + 1)
 	idx_label.add_theme_font_size_override("font_size", 11)
-	idx_label.add_theme_color_override("font_color",
-		ThemeColors.TEXT_UNLOCKED_INDEX if not locked else ThemeColors.TEXT_LOCKED_INDEX)
+	TerminalUiStyleScript.apply_terminal_label(idx_label, 11,
+		Color(TerminalUiStyleScript.accent(), 0.74) if not locked \
+		else TerminalUiStyleScript.LOCKED_TEXT)
 	idx_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	inner.add_child(idx_label)
 
@@ -265,10 +187,11 @@ func _build_aircraft_card(index: int) -> void:
 	else:
 		name_label.text = tr(profile.display_name) if profile else tr("SLOT_NAME_UNKNOWN")
 		name_label.add_theme_color_override("font_color", ThemeColors.TEXT_PRIMARY)
-	name_label.add_theme_font_size_override("font_size", 20)
+	TerminalUiStyleScript.apply_label(name_label, 20,
+		TerminalUiStyleScript.LOCKED_TEXT if locked else TerminalUiStyleScript.accent(), true)
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	name_label.custom_minimum_size = Vector2(220, 0)
+	name_label.custom_minimum_size = Vector2(190, 0)
 	inner.add_child(name_label)
 
 	# 副名（codename）
@@ -282,7 +205,7 @@ func _build_aircraft_card(index: int) -> void:
 
 	# 分隔线
 	var sep_line := ColorRect.new()
-	sep_line.color = ThemeColors.CARD_SEPARATOR_UNLOCKED if not locked else ThemeColors.CARD_SEPARATOR_LOCKED
+	sep_line.color = Color(TerminalUiStyleScript.accent(), 0.62 if not locked else 0.18)
 	sep_line.custom_minimum_size = Vector2(0, 1)
 	inner.add_child(sep_line)
 
@@ -326,7 +249,7 @@ func _build_aircraft_card(index: int) -> void:
 			wpn_label.add_theme_font_size_override("font_size", 11)
 			wpn_label.add_theme_color_override("font_color", ThemeColors.CATEGORY_WEAPON)
 			wpn_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			wpn_label.custom_minimum_size = Vector2(220, 0)
+			wpn_label.custom_minimum_size = Vector2(190, 0)
 			wpn_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 			inner.add_child(wpn_label)
 
@@ -339,7 +262,7 @@ func _build_aircraft_card(index: int) -> void:
 			perk.add_theme_font_size_override("font_size", 11)
 			perk.add_theme_color_override("font_color", Color(0.6, 0.95, 0.6, 0.8))
 			perk.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			perk.custom_minimum_size = Vector2(220, 0)
+			perk.custom_minimum_size = Vector2(190, 0)
 			perk.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 			inner.add_child(perk)
 
@@ -361,7 +284,7 @@ func _build_aircraft_card(index: int) -> void:
 		reference.add_theme_color_override("font_color", ThemeColors.TEXT_TAG_UNLOCKED)
 		reference.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		reference.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		reference.custom_minimum_size = Vector2(220, 0)
+		reference.custom_minimum_size = Vector2(190, 0)
 		inner.add_child(reference)
 
 	# 描述
@@ -374,7 +297,7 @@ func _build_aircraft_card(index: int) -> void:
 		desc_label.add_theme_color_override("font_color", ThemeColors.TEXT_DESC_UNLOCKED)
 	desc_label.add_theme_font_size_override("font_size", 12)
 	desc_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	desc_label.custom_minimum_size = Vector2(220, 0)
+	desc_label.custom_minimum_size = Vector2(190, 0)
 	inner.add_child(desc_label)
 
 	# 弹性空间
@@ -399,10 +322,11 @@ func _build_aircraft_card(index: int) -> void:
 
 	# 出击/未解锁按钮
 	var btn := Button.new()
-	btn.custom_minimum_size = Vector2(220, 40)
+	btn.custom_minimum_size = Vector2(190, 40)
 	btn.add_theme_font_size_override("font_size", 16)
 
 	if locked or dev_locked:
+		btn.disabled = true
 		# 生涯门控卡（career-shop）：按钮显示解锁条件句；无条件句才落回"开发中/未解锁"
 		if data.has("unlock_text"):
 			btn.text = String(data["unlock_text"])
@@ -410,42 +334,11 @@ func _build_aircraft_card(index: int) -> void:
 		else:
 			btn.text = tr("SLOT_DEV_LOCKED_BUTTON") if dev_locked else tr("SLOT_LOCKED_BUTTON")
 		btn.disabled = true
-		var dis_style := StyleBoxFlat.new()
-		dis_style.bg_color = ThemeColors.SELECT_BTN_DISABLED_BG
-		dis_style.border_color = ThemeColors.SELECT_BTN_DISABLED_BORDER
-		dis_style.set_border_width_all(1)
-		dis_style.set_corner_radius_all(3)
-		dis_style.set_content_margin_all(6)
-		btn.add_theme_stylebox_override("disabled", dis_style)
-		btn.add_theme_color_override("font_disabled_color", ThemeColors.SELECT_BTN_DISABLED_TEXT)
 	else:
 		btn.text = tr("AIRCRAFT_SELECT_LAUNCH_BUTTON")
-		var btn_style := StyleBoxFlat.new()
-		btn_style.bg_color = ThemeColors.SELECT_BTN_NORMAL_BG
-		btn_style.border_color = ThemeColors.SELECT_BTN_NORMAL_BORDER
-		btn_style.set_border_width_all(1)
-		btn_style.set_corner_radius_all(3)
-		btn_style.set_content_margin_all(6)
-		btn.add_theme_stylebox_override("normal", btn_style)
-
-		var btn_hover := StyleBoxFlat.new()
-		btn_hover.bg_color = ThemeColors.SELECT_BTN_HOVER_BG
-		btn_hover.border_color = ThemeColors.SELECT_BTN_HOVER_BORDER
-		btn_hover.set_border_width_all(2)
-		btn_hover.set_corner_radius_all(3)
-		btn_hover.set_content_margin_all(6)
-		btn.add_theme_stylebox_override("hover", btn_hover)
-
-		var btn_pressed := StyleBoxFlat.new()
-		btn_pressed.bg_color = ThemeColors.SELECT_BTN_PRESSED_BG
-		btn_pressed.border_color = ThemeColors.SELECT_BTN_PRESSED_BORDER
-		btn_pressed.set_border_width_all(2)
-		btn_pressed.set_corner_radius_all(3)
-		btn_pressed.set_content_margin_all(6)
-		btn.add_theme_stylebox_override("pressed", btn_pressed)
-
 		var idx := index
 		btn.pressed.connect(func(): _on_aircraft_selected(idx))
+	TerminalUiStyleScript.apply_button(btn, TerminalUiStyleScript.accent())
 
 	inner.add_child(btn)
 
@@ -466,3 +359,10 @@ func _on_aircraft_selected(index: int) -> void:
 		get_tree().set_meta("boss_debug_level", int(data.get("boss_debug_level", 1)))
 	# 直接出击（配件机库已随槽位配件系统退役，spec doctrine-unlocks §3.5）
 	get_tree().change_scene_to_file("res://scenes/building_preloader.tscn")
+
+
+func _on_back_from_select() -> void:
+	if get_tree().has_meta("boss_debug_mode"):
+		get_tree().change_scene_to_file("res://scenes/boss_debug_select.tscn")
+	else:
+		get_tree().change_scene_to_file("res://scenes/survivor_map_select.tscn")

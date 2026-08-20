@@ -52,6 +52,10 @@ var boss_history: Dictionary = {}
 var _was_active: bool = false
 ## 上次推给 encounter 的玩家引用（换人检测，避免每帧重复下推）
 var _last_pushed_player: Aircraft = null
+## Black Star 初次再入期间只隐藏玩家绘制，不改 is_cloaked / 雷达 / 受伤语义。
+## Variant 持有者必须在恢复前重新验实例，防玩家切控 / 阵亡窗口读到 freed object。
+var _arrival_hidden_player: Variant = null
+var _arrival_player_visual_hidden: bool = false
 
 func _init(p_anchor: Vector2, p_heading_deg: float, p_map_id: String, p_boss_id_override: String = "",
 		p_boss_history: Dictionary = {}, p_boss_debug_scenario: String = "full") -> void:
@@ -120,7 +124,8 @@ func _start() -> void:
 	# 4. 无线电：BOSS 中队登场挑衅（spec radio-chatter §3.3）
 	# 说话人呼号由 encounter 的 callsign_prefix 合成，不依赖机体 _ready() 是否已分配呼号。
 	var radio = director.mode.get("_radio") if director and director.mode else null
-	if radio:
+	# Black Star 的两句台词绑定各自真实根机下降信号，不能在开场一次性提前播完。
+	if radio and not encounter is HyperABossScript:
 		radio.say_boss_sequence(encounter.boss_id, "spawn", encounter.callsign_prefix)
 
 	EventLogger.log_event("EVENT", name,
@@ -236,6 +241,7 @@ func _update(delta: float) -> void:
 	_was_active = encounter.active
 
 func _finish() -> void:
+	_set_arrival_player_visual_hidden(false)
 	# 通知 mode（survivor_mode 会做 hud / state 清理）
 	if director and director.mode and director.mode.has_method("on_boss_event_finished"):
 		director.mode.on_boss_event_finished(self)
@@ -293,6 +299,9 @@ func _refresh_encounter_player() -> void:
 	var raw_last: Variant = _last_pushed_player
 	if typeof(raw_last) == TYPE_OBJECT and is_instance_valid(raw_last) and p == raw_last:
 		return
+	if _arrival_player_visual_hidden:
+		_set_arrival_player_visual_hidden(false)
+		_set_arrival_player_visual_hidden(true, p)
 	_last_pushed_player = p
 	encounter.set_player_ref(p)
 
@@ -339,7 +348,61 @@ func _spawn_mother_goose() -> void:
 
 func _spawn_hyper_a() -> void:
 	var hyper_a = encounter
+	if hyper_a.has_signal("root_descent_started"):
+		hyper_a.connect("root_descent_started", _on_hyper_a_root_descent_started)
+	if hyper_a.has_signal("root_descent_finished"):
+		hyper_a.connect("root_descent_finished", _on_hyper_a_root_descent_finished)
 	director.spawner._spawn_boss(hyper_a, anchor, true)  # skip_bgm
+
+
+## 根机无线电绑定真实下降开始，而不是身份横幅的固定时间点。
+## 第一个根机同时触发玩家机纯视觉隐身；第二根机战中再入不夺走玩家视觉 / 控制。
+func _on_hyper_a_root_descent_started(root_index: int) -> void:
+	if root_index == 1:
+		_set_arrival_player_visual_hidden(true)
+	var radio = director.mode.get("_radio") if director and director.mode else null
+	if radio == null or not is_instance_valid(radio):
+		return
+	var sequence := ChatterLines.boss_sequence("BLACK_STAR", "spawn")
+	var item_index := root_index - 1
+	if item_index < 0 or item_index >= sequence.size():
+		return
+	var item: Dictionary = sequence[item_index]
+	var key := String(item.get("key", ""))
+	if key.is_empty():
+		return
+	var speaker := "BLACK STAR-%02d" % root_index
+	radio.say_text("boss_spawn", speaker, GameConstants.COL_ENEMY_ELITE, tr(key))
+
+
+func _on_hyper_a_root_descent_finished(root_index: int) -> void:
+	if root_index == 1:
+		_set_arrival_player_visual_hidden(false)
+
+
+## 只控制 CanvasItem 可见性；不写 is_cloaked、sensor_hidden、invulnerable 或任何锁定状态。
+func _set_arrival_player_visual_hidden(on: bool, override_player: Aircraft = null) -> void:
+	if on:
+		if _arrival_player_visual_hidden:
+			return
+		var player := override_player if override_player != null else _live_player()
+		if player == null:
+			return
+		_arrival_hidden_player = player
+		_arrival_player_visual_hidden = true
+		player.set_meta(Aircraft.META_PRESENTATION_FORCE_HIDDEN_VISUAL, true)
+		player.visible = false
+		return
+	var raw: Variant = _arrival_hidden_player
+	_arrival_hidden_player = null
+	_arrival_player_visual_hidden = false
+	if typeof(raw) != TYPE_OBJECT or not is_instance_valid(raw):
+		return
+	var player := raw as Aircraft
+	if player == null:
+		return
+	player.remove_meta(Aircraft.META_PRESENTATION_FORCE_HIDDEN_VISUAL)
+	player.visible = not bool(player.get_meta(&"force_hidden_visual", false))
 
 ## 猎手进场起点（spec boss-hunter-doctrine §2.4）：玩家【机头前方】±30° 扇面、12 km 处。
 ## 守"事件刷在玩家沿途"约定 —— 不从背后冒出、不逼玩家掉头。
