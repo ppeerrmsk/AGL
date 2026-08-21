@@ -1,6 +1,11 @@
 # Script Index — 关键文件职责
 
-> 本节内容原在 CLAUDE.md，2026-05-05 移出。
+> 本节内容原在 CLAUDE.md，2026-05-05 移出。第一次进入仓库或不确定该查哪个索引时，先读
+> [Reference Index](_INDEX.md)。本表只回答“哪个脚本负责、类是什么、关键入口有哪些”；按功能找精确锚点去
+> [Code Index](code-index.md)，目录边界去 [Repository Layout](repo-layout.md)。
+
+**路径约定**：表内 GDScript 路径默认相对 `scripts/`；同一文件的独立职责可拆成多行，但不得因此复制设计数值。
+先在本表搜索文件名 / 类名 / 功能名，找到目标后只读取对应符号附近 50–100 行。只有本表未覆盖或需要验证跨文件引用时才用全仓库搜索。
 
 **模式归属图例**：`[共享]` = 共享层；`[沙盒]` = 只在沙盒模式（**沙盒已废弃**，仅调试留存，验证不必再跑它）；`[生存]` = 只在生存模式（主玩法）。
 
@@ -202,6 +207,7 @@
 | `tests/test_evolution_growth_benchmark.gd` | `EvolutionGrowthBenchmark extends RefCounted` | [测试] 14 分钟正常规则成长单局：4 条固定进化路线、1/3/5/9 机、固定种子、每 60 秒结算、有效战斗覆盖、KIA 剔除、XP/击杀/首次进化/具体缺轴 JSON | `configure_from_environment` `setup` `handle_level_up` `tick` `finish`；bench `evolution_growth` |
 | `tools/aggregate_evolution_growth.py` | Python CLI | [审计] 聚合有效成长样本，输出 runs/group CSV、P50/P75/P90、Tier 到达、缺轴、经验补偿建议与 Markdown/JSON 结论 | `main` `group_row` `build_conclusions` `render_markdown` |
 | `tools/audit_evolution_growth.py` | Python CLI | [审计] 读取正式 tree/profile/params/签名表，生成 43 机三轴静态成长 CSV/JSON/Markdown；检查斗士线、主导弹/flare 精确分档及直接跨 Tier 边无倒退 | `main` `load_aircraft` `tier_summary` `ordnance_violations` `render_report` |
+| `tools/analysis/agl_quantitative_model.py`（仓库根） | Python CLI | [规划/审计] 从当前 spec、技能表、进化树与集中配置复算玩家上限、敌压、首次体验窗口和内容缺口；可检查基线或重写审计报告，模型输出用于校准而不是运行时数值权威 | `main` `render_report` `validate_sources` `--check` `--write-report` |
 | `tools/trace_orthographic_outline.py` / `tools/normalize_aircraft_reference.py` | Python CLI | [资产提取] 从已核实的闭合正投影线稿、alpha 或实色层直接提取轮廓，再统一为 128×128 白色 alpha PNG；不生成或补画飞机几何 | `flood_outside` `large_components` `main` |
 | `tools/audit_aircraft_silhouettes.py` | Python CLI | [审计] 检查 reviewed 清单与运行时目录一致、40 张 PNG 的尺寸/模式/透明角/白 RGB/覆盖率/对称性/alpha 哈希，并验证当前 AircraftParams 在 66 个 PNG 别名或 20 个原创旧绘制别名中恰好命中一侧 | `aircraft_param_files` `main` |
 | `tools/raster_basemap_preview.py` | Python CLI/共享模块 | [地图资产] 东京湾、沙漠、海洋正式 PNG/profile 的同位预览、边缘/色彩诊断与候选参数 SSOT；输出只写 `tmp/raster_basemap_preview/` | `MAPS` `render_current` `render_candidate` `main` |

@@ -1,5 +1,8 @@
 # Runtime Tuner
 
+这是独立 Debug 插件的局部说明；项目级代码域和 AutoLoad 导航见
+[Reference Index](../../docs/reference/_INDEX.md) 与 [Repository Layout](../../docs/reference/repo-layout.md)。
+
 游戏中实时调试 .tres / Aircraft 字段的滑条 overlay。
 
 ## 用法

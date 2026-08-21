@@ -18,7 +18,7 @@
 
 | 资源 | 用途 |
 |---|---|
-| `resources/aircraft_silhouettes/*.png` | 39 张 128×128 白色 alpha 顶视蒙版，逐架从已审查来源直接提取；原创/虚构/未验证概念机保留旧绘制 |
+| `resources/aircraft_silhouettes/*.png` | 40 张 128×128 白色 alpha 顶视蒙版，逐架从已审查来源直接提取；原创/虚构/未验证概念机保留旧绘制 |
 | `resources/aircraft_silhouettes/README.md` | 格式、直接提取流程、来源边界与禁止项 |
 | `resources/aircraft_silhouettes/reference_manifest.json` | 逐机审查状态、来源、许可/署名、处理边界与 alpha 哈希 |
 

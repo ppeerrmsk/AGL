@@ -1,7 +1,10 @@
 # AGL 文档入口
 
-> 最后校订：2026-08-20。这里是 `docs/` 的导航与维护约定；游戏设计本身以
+> 最后校订：2026-08-21。这里是 `docs/` 的导航与维护约定；游戏设计本身以
 > [specs/_INDEX.md](specs/_INDEX.md) 为权威源。
+
+AI 或新维护者先读 [Reference Index](reference/_INDEX.md)：它把仓库目录、脚本职责、功能锚点、内容注册表和
+专项工作流收敛成一条读码路径。本文只负责文档分层、生命周期和新文件落点，不重复代码清单。
 
 ## 先判断你要写哪一种文档
 
@@ -24,6 +27,7 @@
 | 我想…… | 从这里开始 |
 |---|---|
 | 快速理解项目 | [project-overview.md](project-overview.md) |
+| 不确定代码 / 资源 / 文档该从哪里找 | [reference/_INDEX.md](reference/_INDEX.md) |
 | 设计或实现一个新内容 | [reference/playbook.md](reference/playbook.md) → [specs/_TEMPLATE.md](specs/_TEMPLATE.md) |
 | 查设计红线 | [DESIGN_PHILOSOPHY.md](DESIGN_PHILOSOPHY.md) |
 | 查某个设计的当前状态 | [specs/_INDEX.md](specs/_INDEX.md) |

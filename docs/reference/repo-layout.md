@@ -1,13 +1,15 @@
 # Repository Layout
 
-> 最后校订：2026-08-19（对照 Git 跟踪目录与 `project.godot` 重建）。
+> 最后校订：2026-08-21（对照 Git 跟踪目录与 `project.godot` 重建）。
 >
 > 本文只回答"**东西大致在哪个目录**"。单个文件的职责 + 关键入口看
-> [script-index.md](script-index.md)；按功能主题找代码看 [code-index.md](code-index.md)。
+> [script-index.md](script-index.md)；按功能主题找代码看 [code-index.md](code-index.md)；不确定先读
+> [Reference Index](_INDEX.md)。
 > 这里**刻意不写行号也不写行数**——那种注解一定会腐烂。
 
 ```
 AGL/
+├── README.md                  # 人类与 AI 的仓库起点；只做入口路由，不复制易腐烂清单
 ├── project.godot              # 项目配置 + AutoLoad 注册（入口场景 = scenes/main_menu.tscn）
 ├── CLAUDE.md / AGENTS.md      # AI 协作导航 + 硬约定
 ├── .claude/ / .codex/         # 本项目 Agent 配置与 hooks
@@ -39,7 +41,7 @@ AGL/
 │   │   aircraft_destruction.gd    # 坠毁动画（fighter / bomber / heli 三种风格）
 │   │   ai_controller.gd           # AI 状态机路由（战术/规避/目标选择/编队委托 ai/）
 │   │   pilot_personality.gd       # 飞行员心理（压力 / SA / 判断误差）
-│   │   missile.gd / missile_manager.gd
+│   │   missile.gd / missile_manager.gd / missile_trail_batch.gd
 │   │   bullet_manager.gd
 │   │   ground_unit.gd / sam_unit.gd / aa_gun_unit.gd / radar_station.gd / ground_convoy.gd
 │   │   squad.gd / squad_factory.gd    # 编队数据结构 + 阵型计算
@@ -100,6 +102,8 @@ AGL/
 │   │   survivor_select.gd / survivor_map_select.gd
 │   │   survivor_playable_setup.gd                  # PlayableAircraft → Aircraft 应用器
 │   │   zone_data.gd / zone_mission.gd / zone_arrow.gd / zone_hint.gd / dock_point.gd
+│   │   tier3_super_cannon_part.gd / tier3_siege_tank.gd
+│   │       / tier3_siege_ciws.gd / tier3_siege_sam.gd / tier3_siege_flak.gd
 │   │   evolution_system.gd / evolution_ui.gd / evolution_tree_view.gd
 │   │       / evolution_detail_panel.gd / axis_bars_panel.gd
 │   │   aircraft_db.gd / aircraft_codex.gd
@@ -156,7 +160,8 @@ AGL/
 │   │   boss_arrival_banner.gd / hud_board_visibility.gd / hud_first_reveal_sequencer.gd
 │   │   hud_color_settings_panel.gd / hud_preferences.gd
 │   │   main_menu_crt_effect.gd / main_menu_crt_shell.gd / main_menu_scope_display.gd
-│   │   terminal_grid_overlay.gd / terminal_text.gd / ui_dev_outline_overlay.gd
+│   │   terminal_grid_overlay.gd / terminal_text.gd / terminal_page_shell.gd
+│   │       / terminal_ui_style.gd / terminal_map_preview.gd / ui_dev_outline_overlay.gd
 │   ├── util/                  # unit_grid.gd（空间网格）/ perf_buckets.gd
 │   ├── tests/                 # 无头断言测试；场景级 Visual QA 放 scenes/tests/
 │   ├── bench/                 # bench_runner.gd —— `--bench=<name>` 的注册与调度
@@ -181,11 +186,13 @@ AGL/
 ├── i18n/                      # 五份领域 CSV + 各自三语 .translation；radio.csv 独立无线电
 ├── audio/                     # music/ · sfx/
 ├── tools/                     # 校验与生成脚本（Python / PowerShell）
-│   verify_doc_anchors.py          # 索引锚点校验（commit 前跑）
-│   verify_docs.ps1                # 当前文档断链 + spec 登记/元数据/总表一致性
-│   verify_player_ref_holders.py   # SEAM-019 玩家机引用持有者校验（commit 前跑）
-│   dump_skill_table.py            # 重刷 docs/reference/skill-table.md
-│   seam-report.ps1
+│   ├── analysis/                  # 可复算的生产 / 平衡规划模型与集中配置
+│   │   └── agl_quantitative_model.py / agl_quantitative_model_config.json
+│   ├── verify_doc_anchors.py      # 索引锚点校验（commit 前跑）
+│   ├── verify_docs.ps1            # 当前文档断链 + spec 登记/元数据/总表一致性
+│   ├── verify_player_ref_holders.py # SEAM-019 玩家机引用持有者校验（commit 前跑）
+│   ├── dump_skill_table.py        # 重刷 docs/reference/skill-table.md
+│   └── seam-report.ps1
 ├── bench/                     # crash-safe Godot 启动器、watchdog、后台成长任务与结果
 ├── logs/                      # 编辑器模式的战斗日志（.gitignore 排除）
 ├── tmp/                       # 临时探针/生成产物（.gdignore 隔离；仅跟踪隔离标记）
@@ -193,7 +200,7 @@ AGL/
 │   └── runtime_tuner/             # RuntimeTuner AutoLoad 插件
 └── docs/                      # 先看 docs/README.md
     ├── specs/                     # 设计 SSOT
-    ├── reference/                 # 代码/资源指针与工作流
+    ├── reference/                 # `_INDEX.md` 统一入口 + 代码/资源指针与工作流
     ├── systems/ / architecture/   # 架构叙述与已知 seam
     ├── planning/                  # 活跃计划与历史计划
     ├── audits/ / changelogs/      # 审计记录 / 历史改动

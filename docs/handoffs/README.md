@@ -1,5 +1,8 @@
 # Handoffs
 
+返回 [文档入口](../README.md)；要把交接稿里的代码发现固化为长期导航，更新
+[Reference Index](../reference/_INDEX.md) 及对应专项索引。
+
 阶段性交接稿统一放在这里，命名为 `YYYY-MM-DD-<topic>.md`。
 
 交接稿只保存“下一位维护者继续工作所需的临时上下文”，不承载设计权威。设计决策与数值必须回写

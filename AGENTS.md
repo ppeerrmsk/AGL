@@ -135,14 +135,13 @@ script-index / code-index）只写"代码在哪"（纯指针）。样板见 [bos
 
 ### 查找代码的顺序
 
-1. **先查 Script Index**（[docs/reference/script-index.md](docs/reference/script-index.md)）找文件 + 关键入口
-2. **用 Read 的 `offset`/`limit` 只读需要的行段**（通常 50~100 行）
-3. **不要通读大型入口脚本**（`aircraft.gd` / `ai_controller.gd` 已拆出 `scripts/aircraft/`、`scripts/ai/` 与 `scripts/ai/tactical/` 子模块；具体规模以索引为准，不在这里硬编码行数）
-4. **不要对已索引的功能用 Grep/Glob 全文搜索**
+1. 不确定代码域、文档层或该查哪个表时，先看 [Reference Index](docs/reference/_INDEX.md)
+2. **查 Script Index**（[docs/reference/script-index.md](docs/reference/script-index.md)）找文件 + 关键入口
+3. 按功能找精确锚点时查 [Code Index](docs/reference/code-index.md)，再用 Read 的 `offset`/`limit` 只读需要的行段（通常 50~100 行）
+4. **不要通读大型入口脚本**（`aircraft.gd` / `ai_controller.gd` 已拆出 `scripts/aircraft/`、`scripts/ai/` 与 `scripts/ai/tactical/` 子模块；具体规模以索引为准，不在这里硬编码行数）
+5. **不要对已索引的功能用 Grep/Glob 全文搜索**
 
 只有这些情况才用 Grep：查找 Script Index 里没覆盖的新功能 / 验证符号是否仍然存在 / 跨文件的引用关系。
-
-更细粒度的索引（按功能主题而非按文件）见 [docs/reference/code-index.md](docs/reference/code-index.md)。
 
 ### 索引维护
 
@@ -164,8 +163,8 @@ script-index / code-index）只写"代码在哪"（纯指针）。样板见 [bos
 
 ### 触发短语
 
-- `"用 index"` / `"走索引"` — 严格按 Script Index → Read offset 流程，不读全文件
-- `"更新 index"` — 重新扫描代码更新 script-index.md + code-index.md
+- `"用 index"` / `"走索引"` — 严格按 Reference Index → Script / Code Index → Read offset 流程，不读全文件
+- `"更新 index"` — 对照真实目录与代码，更新 `_INDEX.md`、script-index、code-index 及受影响的专项注册表
 
 ### 代码规范
 
@@ -216,6 +215,7 @@ script-index / code-index）只写"代码在哪"（纯指针）。样板见 [bos
 - [known-seams.md](docs/architecture/known-seams.md) — **反复绊倒 fix 的耦合点登记**。修 bug 时撞到地基先来这里看，未记则加新条目。下一轮 refactor 排期的输入。
 
 **查询手册**（docs/reference/）
+- [_INDEX.md](docs/reference/_INDEX.md) — **AI 读码统一入口**：仓库、代码域、索引层级、专项工作流与文档结构地图
 - [playbook.md](docs/reference/playbook.md) — **"加新 X" 总入口索引**（敌机 / BOSS / 武器 / 技能 / 主角飞机 / 事件 / 地面单位 / 地图 / 状态 / 无线电台词 / 跨域系统 11 类）
 - [script-index.md](docs/reference/script-index.md) — **关键文件职责大表**（按文件，含行号 + 入口）
 - [enemy-index.md](docs/reference/enemy-index.md) — **敌人索引大表 + Adds/F-47 细节 + 创建新敌人 13 步清单 + AI Archetype**

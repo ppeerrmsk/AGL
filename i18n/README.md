@@ -1,5 +1,8 @@
 # 本地化源表
 
+本文件只说明 `i18n/` 目录的数据契约；完整新增 key、构建、审计与代码入口见
+[本地化工作流](../docs/reference/i18n.md)，项目级导航见 [Reference Index](../docs/reference/_INDEX.md)。
+
 所有 CSV 使用同一表头 `keys,zh,en,ja`，key 在全部分表之间必须唯一。
 
 | 文件 | 内容 | 路由规则 |

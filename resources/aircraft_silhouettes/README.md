@@ -1,5 +1,8 @@
 # 飞机顶视轮廓资产
 
+项目级代码入口见 [Reference Index](../../docs/reference/_INDEX.md)；设计与验收契约见
+[aircraft-top-view-silhouettes spec](../../docs/specs/systems/aircraft-top-view-silhouettes.md)。
+
 本目录只保存已经逐架核对过来源的现实飞机顶视轮廓。当前正式目录由
 `reference_manifest.json` 中 `status = reviewed` 的条目决定；只有这些条目可以出现在
 `AircraftSilhouetteCatalog.TEXTURE_PATHS` 中。
