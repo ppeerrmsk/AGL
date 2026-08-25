@@ -59,6 +59,10 @@ func _test_wraith_support_deployment() -> void:
 	F47AceSquad.configure_progression_support_aircraft(support, 0)
 	_check("YF-23 支援按普通飞机规则可锁定",
 		not support.has_meta(&"lock_immune_override") and not support.is_lock_immune(), "")
+	var yf23_params := load("res://resources/enemy_yf23.tres") as AircraftParams
+	_check("YF-23 支援启用传感器隐形但无永久免锁",
+		yf23_params != null and yf23_params.sensor_stealth_enabled \
+		and not support.is_lock_immune(), "")
 	support.free()
 
 func _test_carrier_composition() -> void:

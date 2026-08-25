@@ -34,6 +34,7 @@ func run() -> void:
 	_test_decel_lag()
 	_test_wraith_tactics_pure()
 	_test_wraith_phase_machine()
+	_test_wraith_cloak_cadence()
 	_test_wraith_member_down_radio()
 	_test_naval_engage_triggers()
 
@@ -59,6 +60,41 @@ func _test_wraith_member_down_radio() -> void:
 	squad = null
 	mode._radio.free()
 	mode.free()
+
+
+func _test_wraith_cloak_cadence() -> void:
+	print("── K. WRAITH cloak CD / 近距揭露 ──")
+	var squad := F47AceSquad.new()
+	var player := Aircraft.new()
+	var member := Aircraft.new()
+	player.team = CombatUnit.TEAM_PLAYER
+	member.team = CombatUnit.TEAM_HOSTILE
+	player.global_position = Vector2.ZERO
+	member.global_position = Vector2(2000.0, 0.0)
+	squad._player = player
+	squad.members = [member]
+	_check("cloak 严格 60s CD", is_equal_approx(squad.cloak_cycle, 60.0) \
+			and is_zero_approx(squad.cloak_cycle_jitter), "无随机抖动")
+	_check("cloak 渐变延长为 1s", is_equal_approx(squad.cloak_fade, 1.0), "")
+	_check("Wraith 禁用导弹紧急绕 CD", not squad.cloak_emergency_enabled, "")
+	squad._cloak_cd_timer = 0.1
+	_check("CD 未归零不能使用", not squad._should_enter_cloak(), "剩余 0.1s")
+	squad._cloak_cd_timer = 0.0
+	_check("CD 归零且远距可使用", squad._should_enter_cloak(), "")
+	squad._cloak_enter()
+	squad._cloak_exit()
+	_check("每次结束后重置 60s CD", is_equal_approx(squad._cloak_cd_timer, 60.0), "可重复使用")
+	member.global_position = Vector2(SensorStealthController.PROXIMITY_REVEAL_PX - 1.0, 0.0)
+	squad._cloak_cd_timer = 0.0
+	_check("近距时禁止启动 cloak", not squad._should_enter_cloak(), "2000m 内强制显形")
+	squad.squad_state = AceSquad.SquadState.CLOAK
+	squad._cloak_remaining = 4.0
+	_check("cloak 中进入近距圈提前显形",
+		squad._decide_next_state(0.1) == AceSquad.SquadState.PURSUIT, "")
+	squad.members.clear()
+	member.free()
+	player.free()
+	squad = null
 
 
 # ── 1. PURSUE_UNIT verb ──
@@ -139,12 +175,14 @@ func _test_ace_world_boundary() -> void:
 	boss._ai_ref = ai
 	boss.callsign = "EDGE-01"
 	boss.set_meta("category", "boss")
-	boss.global_position = Vector2(-half + 1500.0, 321.0)
+	# 新外圈只在真实边缘前 300px 收容；旧核心线（距真边缘 1000px）不再误触返场。
+	boss.global_position = Vector2(
+		-half + AceSquad.BOUNDARY_TRIGGER_PX - 10.0, 321.0)
 	sq.members = [boss]
 	sq.squad_state = AceSquad.SquadState.PURSUIT
 
 	var recovery_pt := AceSquad.boundary_recovery_point(boss.global_position)
-	_check("返场目标越过 3000px 解除线",
+	_check("返场目标越过解除线",
 			is_equal_approx(MapBoundary.distance_to_edge(recovery_pt), AceSquad.BOUNDARY_TARGET_MARGIN_PX),
 			"edge=%.0fpx" % MapBoundary.distance_to_edge(recovery_pt))
 	_check("先解除再触发抵达 HOLD",
@@ -155,8 +193,8 @@ func _test_ace_world_boundary() -> void:
 			"不回 BOSS 锚点")
 
 	var recovering := sq._update_boundary_recovery()
-	_check("进入 2000px 边缘带即收容", recovering and sq._boundary_recovery_active,
-			"edge=1500px")
+	_check("进入真实边缘转弯带即收容", recovering and sq._boundary_recovery_active,
+			"edge=%.0fpx" % MapBoundary.distance_to_edge(boss.global_position))
 	_check("下发真实 fly_to 返场", ai._directive != null \
 			and ai._directive.type == AIDirective.Type.FLY_TO_POINT,
 			"不用瞬移完成正常返场")

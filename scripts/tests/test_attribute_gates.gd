@@ -232,7 +232,7 @@ func _test_milestone_apply_and_replay() -> void:
 		and is_equal_approx(ac4.params.max_g_structural, base_structural_g + 2.0),
 		"got %.1f/%.1f" % [ac4.params.max_g, ac4.params.max_g_structural])
 
-	# 用户 2026-08-08 实战回归：T1 基础 2 + 电子对抗套件 2 + 策士 3 点档 1 = 5。
+	# 用户 2026-08-23 平衡回归：电子对抗套件不再增加载弹量，策士 3 点档仍 +1。
 	var sp5 := SurvivorPlayer.new()
 	var ac5 := Aircraft.new()
 	ac5.params = _make_fresh_params(100.0, 2, 2, 3000.0)
@@ -241,12 +241,12 @@ func _test_milestone_apply_and_replay() -> void:
 	sp5.apply_upgrade(SurvivorData.upgrade_by_id("flare_shield"))
 	sp5.add_axis_point(SurvivorData.AXIS_SCHEMER)
 	sp5.add_axis_point(SurvivorData.AXIS_SCHEMER)
-	_check("策士 2 点时 T1(2) + 电子对抗(+2) 仍为 4/4",
-		ac5.params.flare.max_flares == 4 and ac5.flares_remaining == 4,
+	_check("策士 2 点时 T1(2) + 电子对抗仍为 2/2",
+		ac5.params.flare.max_flares == 2 and ac5.flares_remaining == 2,
 		"got %d/%d" % [ac5.flares_remaining, ac5.params.flare.max_flares])
 	sp5.add_axis_point(SurvivorData.AXIS_SCHEMER)
-	_check("T1(2) + 电子对抗(+2) + 策士 3 点档(+1) = 5/5",
-		ac5.params.flare.max_flares == 5 and ac5.flares_remaining == 5,
+	_check("T1(2) + 电子对抗 + 策士 3 点档(+1) = 3/3",
+		ac5.params.flare.max_flares == 3 and ac5.flares_remaining == 3,
 		"got %d/%d" % [ac5.flares_remaining, ac5.params.flare.max_flares])
 
 	ac.free()

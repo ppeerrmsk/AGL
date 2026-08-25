@@ -23,7 +23,9 @@ func _draw() -> void:
 	if draw_runtime_label:
 		if _font == null:
 			_font = ThemeDB.fallback_font
-		if hide_data_label:
+		if AircraftRenderer.should_draw_compact_label(self):
+			AircraftRenderer.draw_data_label_compact(self)
+		elif hide_data_label:
 			AircraftRenderer.draw_data_label_minimal(self)
 		else:
 			AircraftRenderer.draw_data_label(self)

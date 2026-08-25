@@ -62,7 +62,7 @@ func _test_profile_row() -> void:
 	_check("载弹 6 发/机", int(p.get("missile_count", 0)) == 6, "%d" % int(p.get("missile_count", 0)))
 	_check("横列阵型", String(p.get("formation", "")) == "line", String(p.get("formation", "")))
 	_check("lancer 战术", String(p.get("tactics", "")) == "lancer", String(p.get("tactics", "")))
-	_check("统一轮换窗 240s", is_equal_approx(float(p.get("pool_time", 0.0)), 240.0),
+	_check("固定第一槽 210s", is_equal_approx(float(p.get("pool_time", 0.0)), 210.0),
 		"%.0f" % float(p.get("pool_time", 0.0)))
 	_check("机型 MIG31", int(p.get("enemy_type", -1)) == SurvivorSpawner.EnemyType.MIG31, "")
 	_check("全队零 flare", int(p.get("flares", -1)) == 0, "%d" % int(p.get("flares", -1)))

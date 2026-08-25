@@ -12,6 +12,7 @@ func run() -> void:
 	print("\n════════ 终端文字可见字形撑高验收 ════════")
 	_check_visible_fill("Chakra 105 / 2u", "105", TerminalText.FontFace.CHAKRA_PETCH_BOLD, 36.0)
 	_check_one_u_fixed_15("Silkscreen SPD / 1u", "SPD", 18.0)
+	_check_ink_bounds_cache()
 	_check_layout_reference_controls_width()
 	_check_height_first_q_expansion()
 	_check_horizontal_alignment_rule()
@@ -55,6 +56,20 @@ func _check_visible_fill(label: String, value: String, face: int, height: float)
 		]
 	)
 	terminal_text.free()
+
+
+func _check_ink_bounds_cache() -> void:
+	TerminalText._ink_bounds_cache.clear()
+	var font: Font = TerminalText.CHAKRA_PETCH_BOLD
+	var first := TerminalText.measure_ink_bounds(font, "105", 36)
+	var entries_after_first := TerminalText._ink_bounds_cache.size()
+	var second := TerminalText.measure_ink_bounds(font, "105", 36)
+	_check(
+		"Repeated glyph contour measurement reuses the bounded cache",
+		first == second and entries_after_first == 1
+			and TerminalText._ink_bounds_cache.size() == entries_after_first,
+		"entries=%d bounds=%s" % [TerminalText._ink_bounds_cache.size(), first]
+	)
 
 func _check_one_u_fixed_15(label: String, value: String, height: float) -> void:
 	var terminal_text := TerminalText.new()

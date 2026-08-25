@@ -69,7 +69,7 @@ func _test_strategic_damage_gate() -> void:
 	escort_target.team = CombatUnit.TEAM_HOSTILE
 	escort_target.set_bomber_escort_objective(true)
 	_check(escort_target.bomber_escort_objective and escort_target.is_mission_target,
-		"护送目标在 AVAILABLE 预刷阶段即启用世界 TGT 提示")
+		"护送目标创建同拍即启用世界 TGT 提示")
 	escort_target.take_bomber_damage(75.0, CombatUnit.TEAM_PLAYER, player)
 	_check(escort_target.is_destroyed and escort_target.hp <= 0.0,
 		"任意一架轰炸机的一枚 75 伤害炸弹即可摧毁护送目标")
@@ -131,7 +131,9 @@ func _test_city_heli_schedule() -> void:
 		Vector2.ZERO, Vector2(7000.0, 0.0), false),
 		"超过旧 8km 附近圈的地图城区可成为探索目标")
 	_check(not AdbsManagerScript.city_heli_spawn_candidate_allowed(
-		Vector2.ZERO, Vector2(12000.0, 0.0), false),
+		Vector2.ZERO, Vector2(
+			MapBoundary.WORLD_HALF_PX - AdbsManagerScript.CITY_HELI_MIN_EDGE_DIST_PX + 1.0,
+			0.0), false),
 		"距边界不足 8km 的城区被拒绝，保留截击时间")
 	_check(not AdbsManagerScript.city_heli_spawn_candidate_allowed(
 		Vector2.ZERO, Vector2(7000.0, 0.0), true),
@@ -281,6 +283,9 @@ func _test_spawn_announcement_lead() -> void:
 	print("── A3b. 目标广播先于实体生成 ──")
 	var zones := ZoneData.new(Callable(), true, true)
 	zones.release_initial_reward_zones()
+	# 本测试验证普通战区广播；3★公开即 LIVE 由 offscreen_world 专项覆盖。
+	for zid in [&"A", &"B"]:
+		zones._difficulties[zid] = 2
 	for airport_id in ZoneData.AIRFIELD_IDS:
 		zones.set_state(airport_id, ZoneData.State.LOCKED)
 	var mode = SurvivorModeScript.new()
@@ -293,10 +298,15 @@ func _test_spawn_announcement_lead() -> void:
 	mission.mission_spawn_announced.connect(func(zid: StringName, mission_type: String):
 		announced.append([zid, mission_type]))
 	mission._ensure_spawned_for_active_zones(0.0)
-	_check(announced.size() == 2 and mission._spawn_lead_timers.size() == 2,
-		"A/B 开放时先发广播信号并建立两个 6 秒倒计时")
+	_check(announced.is_empty() and mission._spawn_lead_timers.is_empty(),
+		"A/B 仅公开但未关注时不广播、不建立生成倒计时")
 	_check(mission._spawned_zones.is_empty(),
-		"广播所在 tick 不生成任何奖励目标实体")
+		"未关注普通战区不生成任何奖励目标实体")
+	zones.select_zone(&"A")
+	mission._ensure_spawned_for_active_zones(0.0)
+	_check(announced.size() == 1 and announced[0][0] == &"A"
+			and mission._spawn_lead_timers.size() == 1,
+		"选择战区后才广播并建立该区 6 秒倒计时")
 	mission._player.free()
 	mission.free()
 	mode.free()
@@ -304,6 +314,7 @@ func _test_spawn_announcement_lead() -> void:
 	var optional_zones := ZoneData.new(Callable(), true, true)
 	optional_zones.release_initial_reward_zones()
 	var optional_id := optional_zones.release_first_optional_mission()
+	optional_zones._difficulties[optional_id] = 2
 	for z in ZoneData.ZONES:
 		var zid: StringName = z["id"]
 		if zid != optional_id:
@@ -318,9 +329,13 @@ func _test_spawn_announcement_lead() -> void:
 	optional_mission.mission_spawn_announced.connect(
 		func(_zid: StringName, mt: String): optional_types.append(mt))
 	optional_mission._ensure_spawned_for_active_zones(0.0)
+	_check(optional_types.is_empty() and optional_mission._spawn_lead_timers.is_empty(),
+		"未选择的可选护送任务同样保持战略层")
+	optional_zones.select_zone(optional_id)
+	optional_mission._ensure_spawned_for_active_zones(0.0)
 	_check(optional_types == ["bomber_escort"] \
 			and is_equal_approx(float(optional_mission._spawn_lead_timers[optional_id]), 6.0),
-		"护送任务同样先广播并保持 6 秒实体生成前导")
+		"选择护送任务后才广播并保持 6 秒实体生成前导")
 	optional_mission._player.free()
 	optional_mission.free()
 	optional_mode.free()

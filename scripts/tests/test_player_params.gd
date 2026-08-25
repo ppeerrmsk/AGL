@@ -266,10 +266,9 @@ func _test_flare_tiers(p: Dictionary) -> void:
 		and is_equal_approx(enemy_flare.base_jam_chance, 0.55), "")
 
 
-## 换机继承：技能加成必须叠在【新机自身基数】之上，且 max 与 remaining 同步
-## （用户 2026-07-23 要求；分档前 41 机同为 30 发时此 bug 不可见）
+## 换机继承：电子对抗套件只提供锁定防护，不改变新机自身热诱弹基数。
 func _test_flare_inheritance() -> void:
-	print("── 换机继承：新机基数 + 技能加成（max 与 remaining 同步）──")
+	print("── 换机继承：电子对抗套件不改变热诱弹基数 ──")
 	var sp := SurvivorPlayer.new()
 	var ac := Aircraft.new()
 	ac.params = AircraftParams.new()
@@ -279,20 +278,20 @@ func _test_flare_inheritance() -> void:
 	sp.aircraft = ac
 	var shield: Dictionary = _find_upgrade("flare_shield")
 	sp.apply_upgrade(shield)
-	_check("T1(2) + 电子对抗(+2) → max 4", ac.params.flare.max_flares == 4,
+	_check("T1(2) + 电子对抗 → max 仍为 2", ac.params.flare.max_flares == 2,
 		"got %d" % ac.params.flare.max_flares)
-	_check("T1 叠加后 remaining 同步 4", ac.flares_remaining == 4, "got %d" % ac.flares_remaining)
+	_check("T1 电子对抗后 remaining 仍为 2", ac.flares_remaining == 2, "got %d" % ac.flares_remaining)
 
 	# 模拟进化换机：换成 T3 档新机 params（evolve() 的 flare 重置语义）
 	ac.params = AircraftParams.new()
 	ac.params.flare = load("res://resources/player/flare_t3.tres").duplicate()
 	ac.flares_remaining = ac.params.flare.max_flares
 	_check("换 T3 机：基数回到 4（未叠技能前）", ac.params.flare.max_flares == 4, "")
-	# 换机重放（_replay_player_upgrades 语义：已持有技能无条件重挂）
+	# 换机重放（_replay_player_upgrades 语义：已持有技能无条件重挂）不改变新机基数。
 	sp.apply_upgrade(shield)
-	_check("换机重放后 max = 新机基数 4 + 加成 2 = 6", ac.params.flare.max_flares == 6,
+	_check("换机重放后 max 仍为新机基数 4", ac.params.flare.max_flares == 4,
 		"got %d" % ac.params.flare.max_flares)
-	_check("换机重放后 remaining 同步 6（不停留在旧基数）", ac.flares_remaining == 6,
+	_check("换机重放后 remaining 仍为新机基数 4", ac.flares_remaining == 4,
 		"got %d" % ac.flares_remaining)
 	ac.free()
 	sp.free()

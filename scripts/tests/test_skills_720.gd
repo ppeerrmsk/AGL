@@ -22,6 +22,14 @@ func run() -> void:
 	_test_pool_class_gate()
 	_test_t3_hooks()
 	_test_lock_count_upgrades()
+	_test_merged_skill_definitions()
+	_test_requested_skill_adjustments()
+	_test_weakness_first_aid_merge()
+	_test_cockpit_armor_dodge_merge()
+	_test_qmaam_merge()
+	_test_laser_cooling_overload_merge()
+	_test_hedgehopper_sky_chariot_merge()
+	_test_today_full_build_loadout()
 	_test_close_range_lock()
 	_test_axis_count_scaling()
 	_test_t5_mechanisms()
@@ -142,9 +150,9 @@ func _test_pool_class_gate() -> void:
 		SurvivorData.is_upgrade_available_for({"id": "y"}, &"f15", null, {}, [&"gladiator"]), "")
 
 
-# ── E. T3 钩子（spec §6 T3：AB 修正 / 免耗弹窗 / QAAM 嗜血 / 适应回能 / 升级回复挂点在 mode）──
+# ── E. T3 钩子（spec §6 T3：AB 修正 / 免耗弹窗 / QAAM 强化嗜血 / 适应回能 / 升级回复挂点在 mode）──
 func _test_t3_hooks() -> void:
-	print("── E. T3 钩子：AB 账本修正 / 免耗弹窗口 / QAAM 嗜血 / 适应回能 ──")
+	print("── E. T3 钩子：AB 账本修正 / 免耗弹窗口 / QAAM 强化嗜血 / 适应回能 ──")
 	var ab := AfterburnerCharge.new()
 	ab.kill_charge_bonus = 0.6
 	ab.charge = 0.0
@@ -165,7 +173,7 @@ func _test_t3_hooks() -> void:
 	var ac := _make_test_aircraft()
 	ac.params.gun = GunParams.new()
 	_check("免耗弹窗口：无技能 → false", not SkillHooks.in_free_missile_window(ac), "")
-	ac.set_meta("upgrade_stacks", {"gun_out_free_missile": 1})
+	ac.set_meta("upgrade_stacks", {"close_range_lock": 1})
 	ac._gun_reload_active = true
 	_check("免耗弹窗口：技能+装填中 → true", SkillHooks.in_free_missile_window(ac), "")
 	ac._gun_reload_active = false
@@ -173,7 +181,7 @@ func _test_t3_hooks() -> void:
 	ac.free()
 
 	var killer := _make_test_aircraft()
-	killer.set_meta("upgrade_stacks", {"qmaam_bloodlust": 1, "adapt_energy": 1})
+	killer.set_meta("upgrade_stacks", {"qmaam_boost": 1, "adapt_energy": 1})
 	killer.altitude = 5000.0
 	var victim := _make_test_aircraft()
 	victim.team = 1
@@ -183,7 +191,7 @@ func _test_t3_hooks() -> void:
 	ab2.charge = 0.0
 	SkillHooks.afterburner = ab2
 	SkillHooks.dispatch_on_kill(killer, victim)
-	_check("QAAM 嗜血：格斗弹击杀 → BLOODLUST",
+	_check("QAAM 强化：格斗弹击杀 → BLOODLUST",
 		killer.status_effects.has(StatusEffects.BLOODLUST), "")
 	_check("适应：低位击杀 → 充能 +0.6", is_equal_approx(ab2.charge, 0.6), "got %.1f" % ab2.charge)
 	victim.altitude = 9000.0
@@ -244,12 +252,401 @@ func _test_lock_count_upgrades() -> void:
 	sp.free()
 
 
-# ── F2. 近距捕获（斗士稳定技能）──
+# ── F2. 五组技能合并后的正式表与复合效果 ──
+func _test_merged_skill_definitions() -> void:
+	print("── F2. 技能合并：僚机 / 激光 / 机炮 / 引擎 / 近距捕获 ──")
+	for removed_id in ["laser_extra_beams", "aim_assist", "speed_by_knight", "gun_out_free_missile"]:
+		_check("旧技能已移出正式表：%s" % removed_id,
+			SurvivorData.upgrade_by_id(removed_id).is_empty(), "")
+
+	var wingman: Dictionary = SurvivorData.upgrade_by_id("wingman_extra")
+	_check("忠诚僚机·额外：单层 +2 且立即部署 2 架",
+		int(wingman.get("max_stacks", 0)) == 1
+		and int(wingman.get("value", 0)) == 2
+		and int(wingman.get("immediate_count", 0)) == 2, str(wingman))
+
+	var sp := SurvivorPlayer.new()
+	var ac := _make_test_aircraft()
+	sp.aircraft = ac
+	var laser := LaserEquipment.new()
+	laser.equipment_kind = "laser"
+	laser.max_range_m = 1000.0
+	laser.max_simultaneous_targets = 1
+	ac.params.equipment = [laser]
+	sp.apply_upgrade(SurvivorData.upgrade_by_id("laser_range"))
+	_check("激光合并：每层射程 +20% 且同时目标 +1",
+		is_equal_approx(laser.max_range_m, 1200.0)
+		and laser.max_simultaneous_targets == 2, "range=%.0f targets=%d" % [
+			laser.max_range_m, laser.max_simultaneous_targets])
+
+	ac.params.gun = GunParams.new()
+	ac.params.gun.spread_angle = 2.0
+	ac.params.gun.fire_cone_half_angle = 10.0
+	ac.params.gun.lifetime = 2.0
+	ac.pilot_aim_skill = 0.3
+	sp.apply_upgrade(SurvivorData.upgrade_by_id("gun_accuracy"))
+	_check("机炮合并：精度、弹寿命与自动开火锥同层生效",
+		is_equal_approx(ac.params.gun.spread_angle, 1.6)
+		and is_equal_approx(ac.params.gun.fire_cone_half_angle, 12.5)
+		and is_equal_approx(ac.params.gun.lifetime, 2.4)
+		and is_equal_approx(ac.pilot_aim_skill, 0.48), str(ac.params.gun))
+
+	var engine: Dictionary = SurvivorData.upgrade_by_id("speed_up")
+	var max_speed_before: float = ac.params.max_speed
+	var accel_before: float = ac.params.acceleration
+	sp.apply_upgrade(engine)
+	_check("引擎合并：单层基础极速 +10%、加速 +10%",
+		int(engine.get("max_stacks", 0)) == 1
+		and is_equal_approx(ac.params.max_speed, max_speed_before * 1.10)
+		and is_equal_approx(ac.params.acceleration, accel_before * 1.10), str(engine))
+	ac.free()
+	sp.free()
+
+
+# ── F2b. 2026-08-24 用户点名的稀有度与穿甲弹仓调整 ──
+func _test_requested_skill_adjustments() -> void:
+	print("── F2b. 复仇之战稳定级 / 穿甲弹药复合增益 ──")
+	var revenge: Dictionary = SurvivorData.upgrade_by_id("squad_revenge")
+	_check("复仇之战：改为稳定级",
+		int(revenge.get("rarity", -1)) == SurvivorData.Rarity.STABLE, str(revenge))
+	var assassin_revenge: Dictionary = SurvivorData.upgrade_by_id("assassin_revenge")
+	_check("刺客复仇：改为稳定级",
+		int(assassin_revenge.get("rarity", -1)) == SurvivorData.Rarity.STABLE,
+		str(assassin_revenge))
+
+	var ap: Dictionary = SurvivorData.upgrade_by_id("gun_damage")
+	var sp := SurvivorPlayer.new()
+	var ac := _make_test_aircraft()
+	ac.params.gun = GunParams.new()
+	ac.params.gun.bullet_damage = 30.0
+	ac.params.gun.max_ammo = 100
+	ac.ammo = 100
+	sp.aircraft = ac
+	sp.apply_upgrade(ap)
+	_check("穿甲弹药：每层伤害 +30%、弹仓与当前弹药 +50%",
+		is_equal_approx(ac.params.gun.bullet_damage, 39.0)
+		and ac.params.gun.max_ammo == 150
+		and ac.ammo == 150, "damage=%.1f cap=%d ammo=%d" % [
+			ac.params.gun.bullet_damage, ac.params.gun.max_ammo, ac.ammo])
+	sp.apply_upgrade(ap)
+	_check("穿甲弹药：第二层继续乘算至伤害 ×1.69、弹仓 ×2.25",
+		is_equal_approx(ac.params.gun.bullet_damage, 50.7)
+		and ac.params.gun.max_ammo == 225
+		and ac.ammo == 225, "damage=%.1f cap=%d ammo=%d" % [
+			ac.params.gun.bullet_damage, ac.params.gun.max_ammo, ac.ammo])
+	ac.free()
+	sp.free()
+
+
+# ── F2c. 虐弱合并战场急救：保留条件奖励并覆盖所有击杀 ──
+func _test_weakness_first_aid_merge() -> void:
+	print("── F2c. 虐弱 + 战场急救合并 ──")
+	_check("战场急救旧 ID 已移出正式表",
+		SurvivorData.upgrade_by_id("kill_heal").is_empty(), "")
+	var merged: Dictionary = SurvivorData.upgrade_by_id("skill_kill_status_heal")
+	_check("虐弱保留先进单层、策士 +1 与 5+30 定稿数值",
+		int(merged.get("rarity", -1)) == SurvivorData.Rarity.ADVANCED
+		and int(merged.get("max_stacks", 0)) == 1
+		and is_equal_approx(float(merged.get("value", 0.0)), 5.0)
+		and is_equal_approx(float(merged.get("status_bonus", 0.0)), 30.0)
+		and str(merged.get("milestone_plus", "")) == "schemer", str(merged))
+
+	var killer := _make_test_aircraft()
+	killer.team = CombatUnit.TEAM_PLAYER
+	killer.set_meta("upgrade_stacks", {SkillHooks.SKILL_KILL_STATUS_HEAL: 1})
+	var victim := _make_test_aircraft()
+	victim.team = CombatUnit.TEAM_HOSTILE
+	killer.hp = 50.0
+	SkillHooks.dispatch_on_kill(killer, victim)
+	_check("虐弱：普通击杀回复 5 HP", is_equal_approx(killer.hp, 55.0),
+		"hp=%.1f" % killer.hp)
+	killer.hp = 50.0
+	victim.apply_status(StatusEffects.JAM, 5.0)
+	SkillHooks.dispatch_on_kill(killer, victim)
+	_check("虐弱：异常状态击杀回复 35 HP", is_equal_approx(killer.hp, 85.0),
+		"hp=%.1f" % killer.hp)
+	killer.free()
+	victim.free()
+
+
+# ── F2d. 座舱护甲合并闪避机动 ──
+func _test_cockpit_armor_dodge_merge() -> void:
+	print("── F2d. 座舱护甲 + 闪避机动合并 ──")
+	_check("闪避机动旧 ID 已移出正式表",
+		SurvivorData.upgrade_by_id("bullet_dodge").is_empty(), "")
+	var merged: Dictionary = SurvivorData.upgrade_by_id("cockpit_armor")
+	_check("座舱护甲保留先进两层并合入每层 20% 机炮闪避",
+		int(merged.get("rarity", -1)) == SurvivorData.Rarity.ADVANCED
+		and int(merged.get("max_stacks", 0)) == 2
+		and is_equal_approx(float(merged.get("value", 0.0)), 0.5)
+		and is_equal_approx(float(merged.get("bullet_dodge_bonus", 0.0)), 0.20),
+		str(merged))
+
+	var sp := SurvivorPlayer.new()
+	var ac := _make_test_aircraft()
+	sp.aircraft = ac
+	sp.apply_upgrade(merged)
+	_check("座舱护甲第一层同时给予地面伤害 ×0.5 与闪避 +20%",
+		is_equal_approx(ac.ground_damage_taken_mult, 0.5)
+		and is_equal_approx(ac.bullet_dodge_chance, 0.20),
+		"ground=%.2f dodge=%.2f" % [ac.ground_damage_taken_mult, ac.bullet_dodge_chance])
+	sp.apply_upgrade(merged)
+	_check("座舱护甲第二层累积至地面伤害 ×0.25 与闪避 +40%",
+		is_equal_approx(ac.ground_damage_taken_mult, 0.25)
+		and is_equal_approx(ac.bullet_dodge_chance, 0.40),
+		"ground=%.2f dodge=%.2f" % [ac.ground_damage_taken_mult, ac.bullet_dodge_chance])
+	ac.free()
+	sp.free()
+
+
+# ── F2e. QAAM 强化合并 QAAM 嗜血 ──
+func _test_qmaam_merge() -> void:
+	print("── F2e. QAAM 强化 + QAAM 嗜血合并 ──")
+	_check("QAAM 嗜血旧 ID 已移出正式表",
+		SurvivorData.upgrade_by_id("qmaam_bloodlust").is_empty(), "")
+	var merged: Dictionary = SurvivorData.upgrade_by_id("qmaam_boost")
+	var keywords: Array = merged.get("keywords", [])
+	_check("QAAM 强化保留稳定两层并继承嗜血词条",
+		int(merged.get("rarity", -1)) == SurvivorData.Rarity.STABLE
+		and int(merged.get("max_stacks", 0)) == 2
+		and is_equal_approx(float(merged.get("value", 0.0)), 1.0)
+		and is_equal_approx(float(merged.get("range_bonus", 0.0)), 0.10)
+		and keywords.has("missile") and keywords.has("bloodlust"), str(merged))
+	for terminal_id in ["bloodlust_armor_mobility", "full_hp_kill_perma_hp", "ratatat"]:
+		var terminal: Dictionary = SurvivorData.upgrade_by_id(terminal_id)
+		var sources: Array = terminal.get("requires_skill", [])
+		_check("%s 前置承认合并后的 QAAM 强化" % terminal_id,
+			sources.has("qmaam_boost") and not sources.has("qmaam_bloodlust"), str(sources))
+
+
+# ── F2f. 激光散热合并激光过载 ──
+func _test_laser_cooling_overload_merge() -> void:
+	print("── F2f. 激光散热 + 激光过载合并 ──")
+	_check("激光过载旧 ID 已移出正式表",
+		SurvivorData.upgrade_by_id("laser_heat").is_empty(), "")
+	var merged: Dictionary = SurvivorData.upgrade_by_id("laser_cooldown")
+	_check("激光散热保留先进两层并合入每层 50% 过热阈值",
+		int(merged.get("rarity", -1)) == SurvivorData.Rarity.ADVANCED
+		and int(merged.get("max_stacks", 0)) == 2
+		and is_equal_approx(float(merged.get("value", 0.0)), 0.40)
+		and is_equal_approx(float(merged.get("heat_bonus", 0.0)), 0.50), str(merged))
+
+	var sp := SurvivorPlayer.new()
+	var ac := _make_test_aircraft()
+	sp.aircraft = ac
+	var laser := LaserEquipment.new()
+	laser.equipment_kind = "laser"
+	ac.params.equipment = [laser]
+	laser.heat_cooldown_per_second = 25.0
+	laser.heat_max = 100.0
+	sp.apply_upgrade(merged)
+	_check("激光散热第一层同时令散热 ×1.4、阈值 ×1.5",
+		is_equal_approx(laser.heat_cooldown_per_second, 35.0)
+		and is_equal_approx(laser.heat_max, 150.0),
+		"cool=%.2f heat=%.2f" % [laser.heat_cooldown_per_second, laser.heat_max])
+	sp.apply_upgrade(merged)
+	_check("激光散热第二层累积至散热 ×1.96、阈值 ×2.25",
+		is_equal_approx(laser.heat_cooldown_per_second, 49.0)
+		and is_equal_approx(laser.heat_max, 225.0),
+		"cool=%.2f heat=%.2f" % [laser.heat_cooldown_per_second, laser.heat_max])
+	ac.free()
+	sp.free()
+
+
+# ── F2g. 地表狂奔合并空中战车 ──
+func _test_hedgehopper_sky_chariot_merge() -> void:
+	print("── F2g. 地表狂奔 + 空中战车合并 ──")
+	_check("空中战车旧 ID 已移出正式表",
+		SurvivorData.upgrade_by_id("skill_lowest_alt_kill_invul").is_empty(), "")
+	var merged: Dictionary = SurvivorData.upgrade_by_id("low_alt_gun_dodge")
+	_check("地表狂奔为全机型机密一层，保留低空机炮闪避 +50%",
+		int(merged.get("rarity", -1)) == SurvivorData.Rarity.CLASSIFIED
+		and int(merged.get("max_stacks", 0)) == 1
+		and is_equal_approx(float(merged.get("value", 0.0)), 0.50)
+		and not merged.has("exclusive_to") and not merged.has("classes"), str(merged))
+
+	var sp := SurvivorPlayer.new()
+	var killer := _make_test_aircraft()
+	var victim := _make_test_aircraft()
+	victim.team = CombatUnit.TEAM_HOSTILE
+	sp.aircraft = killer
+	sp.apply_upgrade(merged)
+	killer.set_meta("upgrade_stacks", {"low_alt_gun_dodge": 1})
+	_check("地表狂奔仍写入低空机炮闪避 +50%",
+		is_equal_approx(killer.low_alt_gun_dodge_bonus, 0.50),
+		"got %.2f" % killer.low_alt_gun_dodge_bonus)
+	killer.altitude = 1000.0
+	SkillHooks.dispatch_on_kill(killer, victim)
+	_check("合并后低空击杀给予 8 秒无敌",
+		killer.status_effects.has(StatusEffects.INVINCIBLE)
+		and is_equal_approx(float(killer.status_effects[StatusEffects.INVINCIBLE]),
+			SkillHooks.LOWEST_ALT_KILL_INVUL_DURATION), str(killer.status_effects))
+	killer.status_effects.erase(StatusEffects.INVINCIBLE)
+	killer.altitude = 5000.0
+	SkillHooks.dispatch_on_kill(killer, victim)
+	_check("中空击杀不触发无敌", not killer.status_effects.has(StatusEffects.INVINCIBLE),
+		str(killer.status_effects))
+	victim.free()
+	killer.free()
+	sp.free()
+
+
+# ── F2h. 今日改动全装构筑：13 张保留卡 / 19 层同机共存 ──
+func _test_today_full_build_loadout() -> void:
+	print("── F2h. 今日技能全装：13 张 / 19 层 / 非 A-10 / 正式下发与触发 ──")
+	var sp := SurvivorPlayer.new()
+	var mode := SurvivorModeScript.new()
+	var ac := _make_test_aircraft()
+	ac.team = CombatUnit.TEAM_PLAYER
+	ac.set_meta("profile_id", "f16")  # 明确验证地表狂奔已解除 A-10 限定
+	ac.params.max_speed = 1000.0
+	ac.params.acceleration = 100.0
+	ac.params.gun = GunParams.new()
+	ac.params.gun.bullet_damage = 30.0
+	ac.params.gun.max_ammo = 100
+	ac.params.gun.spread_angle = 2.0
+	ac.params.gun.fire_cone_half_angle = 10.0
+	ac.params.gun.lifetime = 2.0
+	ac.ammo = 100
+	ac.pilot_aim_skill = 0.30
+	ac.params.missile = MissileParams.new()
+	ac.params.secondary_missile = MissileParams.new()
+	ac.params.secondary_missile.max_count = 2
+	ac.params.secondary_missile.max_range_rear = 1000.0
+	ac.params.secondary_missile.lock_max_range_px = 800.0
+	ac.secondary_missiles_remaining = 2
+	var laser := LaserEquipment.new()
+	laser.equipment_kind = "laser"
+	laser.heat_cooldown_per_second = 25.0
+	laser.heat_max = 100.0
+	laser.max_range_m = 1000.0
+	laser.max_simultaneous_targets = 1
+	ac.params.equipment = [laser]
+	var loyal := LoyalWingmanParams.new()
+	loyal.max_simultaneous = 2
+	loyal.drone_aircraft_params = _make_fresh_params(30.0)
+	loyal.drone_aircraft_params.gun = GunParams.new()
+	ac.params.loyal_wingman = loyal
+
+	sp.aircraft = ac
+	mode.player_aircraft = ac
+	mode.survivor_player = sp
+	var today_layers: Dictionary = {
+		"wingman_extra": 1,
+		"laser_range": 2,
+		"gun_accuracy": 2,
+		"speed_up": 1,
+		"close_range_lock": 1,
+		"squad_revenge": 1,
+		"gun_damage": 2,
+		"assassin_revenge": 1,
+		"skill_kill_status_heal": 1,
+		"cockpit_armor": 2,
+		"qmaam_boost": 2,
+		"laser_cooldown": 2,
+		"low_alt_gun_dodge": 1,
+	}
+	var total_layers: int = 0
+	for uid in today_layers:
+		var upgrade: Dictionary = SurvivorData.upgrade_by_id(uid)
+		var layers: int = int(today_layers[uid])
+		_check("全装技能存在且层数合法：%s ×%d" % [uid, layers],
+			not upgrade.is_empty() and layers <= int(upgrade.get("max_stacks", 0)), str(upgrade))
+		for _layer in layers:
+			mode.upgrade_stacks[uid] = int(mode.upgrade_stacks.get(uid, 0)) + 1
+			mode._distribute_upgrade(upgrade)
+			total_layers += 1
+	mode._refresh_squad_effective_stacks()
+	var effective: Dictionary = ac.get_meta("upgrade_stacks", {})
+	_check("今日全装账本为 13 张 / 19 层，队级复仇不误落单机 meta",
+		mode.upgrade_stacks.size() == 13 and total_layers == 19
+		and effective.size() == 11
+		and not effective.has("squad_revenge") and not effective.has("assassin_revenge"),
+		"squad=%s effective=%s layers=%d" % [mode.upgrade_stacks, effective, total_layers])
+
+	_check("全装后机炮复合属性共存",
+		is_equal_approx(ac.params.gun.bullet_damage, 50.7)
+		and ac.params.gun.max_ammo == 225 and ac.ammo == 225
+		and is_equal_approx(ac.params.gun.spread_angle, 1.28)
+		and is_equal_approx(ac.params.gun.fire_cone_half_angle, 15.625)
+		and is_equal_approx(ac.params.gun.lifetime, 2.88)
+		and is_equal_approx(ac.pilot_aim_skill, 0.66),
+		"damage=%.2f ammo=%d/%d spread=%.3f cone=%.3f life=%.3f aim=%.2f" % [
+			ac.params.gun.bullet_damage, ac.ammo, ac.params.gun.max_ammo,
+			ac.params.gun.spread_angle, ac.params.gun.fire_cone_half_angle,
+			ac.params.gun.lifetime, ac.pilot_aim_skill])
+	_check("全装后引擎与两种防御复合属性共存",
+		is_equal_approx(ac.params.max_speed, 1100.0)
+		and is_equal_approx(ac.params.acceleration, 110.0)
+		and is_equal_approx(ac.ground_damage_taken_mult, 0.25)
+		and is_equal_approx(ac.bullet_dodge_chance, 0.40)
+		and is_equal_approx(ac.low_alt_gun_dodge_bonus, 0.50),
+		"speed=%.1f accel=%.1f ground=%.2f dodge=%.2f low=%.2f" % [
+			ac.params.max_speed, ac.params.acceleration, ac.ground_damage_taken_mult,
+			ac.bullet_dodge_chance, ac.low_alt_gun_dodge_bonus])
+	_check("全装后激光双强化满层共存",
+		is_equal_approx(laser.heat_cooldown_per_second, 49.0)
+		and is_equal_approx(laser.heat_max, 225.0)
+		and is_equal_approx(laser.max_range_m, 1440.0)
+		and laser.max_simultaneous_targets == 3,
+		"cool=%.1f heat=%.1f range=%.1f targets=%d" % [
+			laser.heat_cooldown_per_second, laser.heat_max,
+			laser.max_range_m, laser.max_simultaneous_targets])
+	_check("全装后 QAAM 满层与近距捕获共存",
+		ac.params.secondary_missile.max_count == 4
+		and ac.secondary_missiles_remaining == 4
+		and is_equal_approx(ac.params.secondary_missile.max_range_rear, 1210.0)
+		and is_equal_approx(ac.params.secondary_missile.lock_max_range_px, 968.0)
+		and is_equal_approx(ac.close_range_lock_max_mult, 2.0),
+		"qmaam=%d/%d rear=%.1f lock=%.1f close=%.1f" % [
+			ac.secondary_missiles_remaining, ac.params.secondary_missile.max_count,
+			ac.params.secondary_missile.max_range_rear,
+			ac.params.secondary_missile.lock_max_range_px, ac.close_range_lock_max_mult])
+	_check("忠诚僚机升级实际把上限 2→4 并立即部署 2 架",
+		ac.params.loyal_wingman.max_simultaneous == 4
+		and ac._alive_drones.size() == 2
+		and mode._regular_oneshot_done.has("wingman_extra"),
+		"alive=%d cap=%d" % [ac._alive_drones.size(), ac.params.loyal_wingman.max_simultaneous])
+	ac._gun_reload_active = true
+	_check("全装构筑的机炮装填期导弹免耗弹仍生效",
+		SkillHooks.in_free_missile_window(ac), "")
+
+	var victim := _make_test_aircraft()
+	victim.team = CombatUnit.TEAM_HOSTILE
+	victim.set_meta("_last_damage_kind", "qmaam")
+	victim.apply_status(StatusEffects.JAM, 5.0)
+	ac.altitude = 1000.0
+	ac.hp = 50.0
+	SkillHooks.dispatch_on_kill(ac, victim)
+	_check("同一次低空 QAAM 异常目标击杀同时触发回血 / 嗜血 / 无敌",
+		is_equal_approx(ac.hp, 85.0)
+		and is_equal_approx(float(ac.status_effects.get(StatusEffects.BLOODLUST, 0.0)), 10.0)
+		and is_equal_approx(float(ac.status_effects.get(StatusEffects.INVINCIBLE, 0.0)), 8.0),
+		"hp=%.1f status=%s" % [ac.hp, ac.status_effects])
+	mode._on_squad_member_down()
+	_check("两张复仇技能同装时阵亡事件同时给予四种 15 秒状态",
+		[StatusEffects.BLOODLUST, StatusEffects.INVINCIBLE,
+			StatusEffects.OVERLOAD, StatusEffects.STEALTH].all(
+			func(status_id: String) -> bool:
+				return is_equal_approx(float(ac.status_effects.get(status_id, 0.0)), 15.0)),
+		str(ac.status_effects))
+
+	for raw_drone in ac._alive_drones.duplicate():
+		if is_instance_valid(raw_drone):
+			raw_drone.free()
+	ac._alive_drones.clear()
+	victim.free()
+	mode.free()
+	ac.free()
+	sp.free()
+
+
+# ── F3. 近距捕获（斗士先进技能，合并副武器）──
 func _test_close_range_lock() -> void:
-	print("── F2. 近距捕获：斗士稳定 / 全队 / 距离线性倍率 ──")
+	print("── F3. 近距捕获：斗士先进 / 全队 / 距离倍率 + 装填免耗弹 ──")
 	var u: Dictionary = SurvivorData.upgrade_by_id("close_range_lock")
-	_check("表中存在斗士稳定技能 close_range_lock", not u.is_empty()
-		and int(u.get("rarity", -1)) == SurvivorData.Rarity.STABLE
+	_check("表中存在斗士先进技能 close_range_lock", not u.is_empty()
+		and int(u.get("rarity", -1)) == SurvivorData.Rarity.ADVANCED
 		and SurvivorData.axis_of_upgrade(u) == SurvivorData.AXIS_GLADIATOR, str(u))
 	_check("单层、全队、贴身上限 ×2", str(u.get("stat", "")) == "close_range_lock"
 		and int(u.get("max_stacks", 0)) == 1
@@ -274,6 +671,9 @@ func _test_close_range_lock() -> void:
 	_check("长机与僚机同吃 ×2 上限",
 		is_equal_approx(lead.close_range_lock_max_mult, 2.0)
 		and is_equal_approx(wing.close_range_lock_max_mult, 2.0), "")
+	lead.set_meta("upgrade_stacks", {"close_range_lock": 1})
+	lead._gun_reload_active = true
+	_check("合并副武器：装填期发射导弹免耗弹", SkillHooks.in_free_missile_window(lead), "")
 	lead.free()
 	wing.free()
 	sp.free()
@@ -281,7 +681,7 @@ func _test_close_range_lock() -> void:
 
 # ── G. T4 按轴计数缩放（recompute_axis_count_skills；spec §6 T4）──
 func _test_axis_count_scaling() -> void:
-	print("── G. T4 计数缩放：历战者 / 全速推进 / 电子战专家 / 武器大师 ──")
+	print("── G. T4 计数缩放：历战者 / 引擎强化 / 电子战专家 / 武器大师 ──")
 	var ac := _make_test_aircraft()
 	ac.params.gun = GunParams.new()
 	ac.params.missile = MissileParams.new()
@@ -293,15 +693,15 @@ func _test_axis_count_scaling() -> void:
 	SurvivorData.recompute_axis_count_skills(ac, stacks)
 	_check("历战者：重算幂等（仍 115）", is_equal_approx(ac.params.max_hp, 115.0),
 		"got %.1f" % ac.params.max_hp)
-	stacks["kill_heal"] = 1
+	stacks["skill_kill_status_heal"] = 1
 	SurvivorData.recompute_axis_count_skills(ac, stacks)
-	_check("历战者：+1 斗士技 → 120", is_equal_approx(ac.params.max_hp, 120.0),
+	_check("历战者：合并后的虐弱仍计 1 条斗士技 → 120", is_equal_approx(ac.params.max_hp, 120.0),
 		"got %.1f" % ac.params.max_hp)
-	# 全速推进：骑士轴 2 技（speed_by_knight 自身 + missile_count）→ ×1.10
-	stacks["speed_by_knight"] = 1
+	# 引擎强化已合并全速推进：骑士轴 2 技（自身 + missile_count）→ ×1.10
+	stacks["speed_up"] = 1
 	stacks["missile_count"] = 1
 	SurvivorData.recompute_axis_count_skills(ac, stacks)
-	_check("全速推进：骑士轴 2 技 → ×1.10", is_equal_approx(ac.speed_by_knight_mult, 1.10),
+	_check("引擎强化：骑士轴 2 技 → 额外 ×1.10", is_equal_approx(ac.speed_by_knight_mult, 1.10),
 		"got %.2f" % ac.speed_by_knight_mult)
 	# 电子战专家：策士轴 1 技（自身）→ +50px（=100m）
 	stacks["ew_expert"] = 1
@@ -631,10 +1031,11 @@ func _test_t5_mechanisms() -> void:
 func _test_berserk_virus() -> void:
 	print("── I. 狂化病毒：动态僚机门 / FREE / 机动-CD / BLOODLUST / 切控 ──")
 	var upgrade := SurvivorData.upgrade_by_id(SkillHooks.SKILL_BERSERK_VIRUS)
-	_check("狂化病毒：次世代斗士战区奖励数据存在",
+	_check("狂化病毒：实验级斗士普通池数据存在",
 		not upgrade.is_empty() \
-		and int(upgrade.get("rarity", -1)) == SurvivorData.Rarity.NEXT_GEN \
-		and bool(upgrade.get("evolved", false)) \
+		and int(upgrade.get("rarity", -1)) == SurvivorData.Rarity.EXPERIMENTAL \
+		and not bool(upgrade.get("evolved", false)) \
+		and SurvivorData.is_normal_random_candidate(upgrade) \
 		and SurvivorData.axis_of_upgrade(upgrade) == SurvivorData.AXIS_GLADIATOR \
 		and int(upgrade.get("max_stacks", 0)) == 1, str(upgrade))
 

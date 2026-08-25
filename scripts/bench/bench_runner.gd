@@ -5,7 +5,7 @@ extends Node
 ## 用法（统一经 bench/run.cmd 或 bench/run.sh，禁止 Agent 直接启动 Godot）：
 ##   bench/run.cmd stress_40 30     # Windows 性能压测
 ##   bench/run.cmd weapon           # Windows 单跑一项无头测试
-##   bench/run.cmd all              # Windows 全量回归门（任一失败退出码=1）
+##   bench/run.cmd all              # Windows 全量回归门（单测 + 生命周期终态；任一失败退出码=1）
 ##   ./bench/run.sh all             # 其它平台
 ##
 ## 流程：
@@ -102,20 +102,33 @@ const UNIT_TESTS: Dictionary = {
 	"map_preview_test": "res://scripts/tests/test_map_vector_preview.gd",
 	"map_vector_preview": "res://scripts/tests/test_map_vector_preview.gd",
 	"map_gold_slice": "res://scripts/tests/test_map_gold_slice.gd",
+	"map_boundary": "res://scripts/tests/test_map_boundary.gd",
 	"weather": "res://scripts/tests/test_weather_system.gd",
 	"terminal_text": "res://scripts/tests/test_terminal_text.gd",
 	"ui_dev_outline": "res://scripts/tests/test_ui_dev_outline.gd",
 	"local_fixes": "res://scripts/tests/test_local_fix_integration.gd",
 	"perf_trace": "res://scripts/tests/test_perf_frame_trace.gd",
+	"bench_camera_patrol": "res://scripts/tests/test_bench_camera_patrol.gd",
 	"component_cache": "res://scripts/tests/test_aircraft_component_cache.gd",
 	"missile_visual_lod": "res://scripts/tests/test_missile_visual_lod.gd",
 	"trail_ribbon_lod": "res://scripts/tests/test_trail_ribbon_lod.gd",
 	"target_marker_lod": "res://scripts/tests/test_target_marker_lod.gd",
+	"predicted_path": "res://scripts/tests/test_predicted_path_incremental.gd",
+	"offscreen_world": "res://scripts/tests/test_offscreen_world_simulation.gd",
+	"sensor_stealth": "res://scripts/tests/test_sensor_stealth.gd",
 }
 
 ## 只显式调用、不会滚入 `all` 的构建任务。
 const BUILD_TASKS: Dictionary = {
 	"i18n_build": "res://scripts/tests/build_translations.gd",
+	"flare_impact_ab": "res://scripts/tests/test_flare_impact_ab.gd",
+}
+
+## 无需 RenderingServer、但必须真实跨帧处理 queue_free / SceneTree 信号顺序的集成测试场。
+## `all` 在同步单测全绿后强制进入 lifecycle_gauntlet；不能被单项断言替代。
+const HEADLESS_TEST_SCENES: Dictionary = {
+	"lifecycle_gauntlet": "res://scenes/tests/lifecycle_gauntlet.tscn",
+	"runtime_error_probe": "res://scenes/tests/runtime_error_probe.tscn",
 }
 
 ## 需要真实 RenderingServer 的固定画面采集；必须由 run.cmd 的 Visual 模式启动。
@@ -129,26 +142,36 @@ const VISUAL_TEST_SCENES: Dictionary = {
 	"aircraft_silhouette_visual": "res://scenes/tests/aircraft_silhouette_visual_qa.tscn",
 	"aircraft_bank_volume_visual": "res://scenes/tests/aircraft_bank_volume_visual_qa.tscn",
 	"aircraft_label_visual": "res://scenes/tests/aircraft_label_visual_qa.tscn",
+	"unit_status_label_visual": "res://scenes/tests/unit_status_label_visual_qa.tscn",
 	"snowblind_layer_visual": "res://scenes/tests/snowblind_layer_visual_qa.tscn",
 	"support_range_visual": "res://scenes/tests/support_range_visual_qa.tscn",
 	"rocket_trajectory_visual": "res://scenes/tests/rocket_trajectory_visual_qa.tscn",
+	"flare_visual": "res://scenes/tests/flare_visual_qa.tscn",
+	"hit_flash_visual": "res://scenes/tests/hit_flash_visual_qa.tscn",
 	"map_visual_qa": "res://scenes/tests/map_visual_qa.tscn",
-	"map_raster_visual_qa": "res://scenes/tests/map_raster_visual_qa.tscn",
 	"map_detail_atlas_qa": "res://scenes/tests/map_detail_atlas_qa.tscn",
 	"ui_dev_panel_visual": "res://scenes/tests/ui_dev_panel.tscn",
 	"ui_dev_panel_clean_visual": "res://scenes/tests/ui_dev_panel.tscn",
 	"ui_dev_panel_manual_flare_visual": "res://scenes/tests/ui_dev_panel.tscn",
 	"ui_dev_panel_scale_visual": "res://scenes/tests/ui_dev_panel.tscn",
 	"ui_notification_bars_visual": "res://scenes/tests/ui_dev_panel.tscn",
+	"sensor_stealth_visual": "res://scenes/tests/sensor_stealth_visual_qa.tscn",
 }
 
 ## 图2/图3空地图试飞的运行时载入探针；仍统一经 Shadow bench 启动。
 const PREVIEW_BENCH_MAPS: Dictionary = {
-	"map_preview_desert": "res://resources/maps/desert_railway_preview.aglmap",
-	"map_preview_ocean": "res://resources/maps/ocean_islands_preview.aglmap",
 	"map_raster_desert": "res://resources/maps/desert_railway_preview.aglmap",
 	"map_raster_ocean": "res://resources/maps/ocean_islands_preview.aglmap",
+	"map_boundary_crop_desert": "res://resources/maps/desert_railway_preview.aglmap",
+	"map_boundary_crop_ocean": "res://resources/maps/ocean_islands_preview.aglmap",
 }
+
+## 海洋决战性能 A/B：复用 Boss Debug 的正式编成与海洋地图，只改变额外压力和镜头。
+const FINAL_WAR_BENCH_SCENARIOS: Array[String] = [
+	"final_war_ocean_baseline", "final_war_ocean_stress",
+]
+const FINAL_WAR_BENCH_MAP_PATH := "res://resources/maps/ocean_islands_preview.aglmap"
+const FINAL_WAR_BENCH_PROFILE_PATH := "res://resources/player/playable_f47.tres"
 
 var bench_active: bool = false
 var bench_scenario: String = ""
@@ -170,11 +193,12 @@ func _ready() -> void:
 			bench_duration = maxf(1.0, float(a.substr(11)))
 	if bench_scenario == "":
 		return
-	# 自动测试统一静音音乐；总线 mute 会覆盖测试期间后续播放，且只影响本次 bench 进程。
-	var music_bus_idx := AudioServer.get_bus_index("Music")
-	if music_bus_idx >= 0:
-		AudioServer.set_bus_mute(music_bus_idx, true)
-		printerr("[Bench] Music bus muted for automated test")
+	# 自动测试统一静音 Master：覆盖音乐、世界音效、UI、无线电及任何后续新增总线。
+	# mute 只活在本次 bench 进程，不写 user://audio.cfg；播放状态与音频逻辑仍正常执行。
+	var master_bus_idx := AudioServer.get_bus_index("Master")
+	if master_bus_idx >= 0:
+		AudioServer.set_bus_mute(master_bus_idx, true)
+		printerr("[Bench] Master bus muted for automated test")
 	if VISUAL_TEST_SCENES.has(bench_scenario):
 		if DisplayServer.get_name() == "headless":
 			printerr("[Bench] %s requires: bench/run.cmd %s 1 180 Shadow Visual" % [
@@ -186,14 +210,16 @@ func _ready() -> void:
 		get_tree().set_meta("bench_duration", bench_duration)
 		call_deferred("_swap_to_visual_test", String(VISUAL_TEST_SCENES[bench_scenario]))
 		return
+	if HEADLESS_TEST_SCENES.has(bench_scenario):
+		get_tree().set_meta("bench_mode", true)
+		get_tree().set_meta("bench_scenario", bench_scenario)
+		get_tree().set_meta("bench_duration", bench_duration)
+		call_deferred("_swap_to_test_scene", String(HEADLESS_TEST_SCENES[bench_scenario]))
+		return
 	if BUILD_TASKS.has(bench_scenario):
-		var build_script: GDScript = load(String(BUILD_TASKS[bench_scenario]))
-		var build = build_script.new() if build_script else null
-		var build_fail := 1
-		if build != null and build.has_method("run"):
-			build.run()
-			build_fail = int(build.get("_fail"))
-		get_tree().quit(1 if build_fail > 0 else 0)
+		# AutoLoad _ready 期间 SceneTree 根仍在装配子节点；需要真实 SceneTree 的报告任务
+		# 不能同步 add_child。统一 deferred 一拍，普通构建任务的结果语义不变。
+		call_deferred("_run_build_task", bench_scenario)
 		return
 
 	# ── 无头单元/行为测试（不切 survivor 场景，直接跑 + quit）──
@@ -208,6 +234,13 @@ func _ready() -> void:
 		if bench_scenario == "all":
 			print("[Bench] ══════ 回归门 %s：共 %d 项测试，失败 %d ══════" % [
 				"PASS ✓" if total_fail == 0 else "FAIL ✗", keys.size(), total_fail])
+			if total_fail == 0:
+				get_tree().set_meta("bench_mode", true)
+				get_tree().set_meta("bench_scenario", "lifecycle_gauntlet")
+				get_tree().set_meta("bench_duration", bench_duration)
+				call_deferred("_swap_to_test_scene",
+					String(HEADLESS_TEST_SCENES["lifecycle_gauntlet"]))
+				return
 		get_tree().quit(1 if total_fail > 0 else 0)
 		return
 
@@ -223,9 +256,18 @@ func _ready() -> void:
 	get_tree().set_meta("bench_mode", true)
 	get_tree().set_meta("bench_scenario", bench_scenario)
 	get_tree().set_meta("bench_duration", bench_duration)
-	if bench_scenario in ["map_preview_tokyo", "map_raster_tokyo"]:
+	if bench_scenario in FINAL_WAR_BENCH_SCENARIOS:
+		get_tree().set_meta("boss_debug_mode", true)
+		get_tree().set_meta("boss_debug_id", "BLACK_STAR")
+		get_tree().set_meta("boss_debug_scenario", "final_war")
+		get_tree().set_meta("boss_debug_node_id", "f47")
+		get_tree().set_meta("survivor_aircraft_resource", FINAL_WAR_BENCH_PROFILE_PATH)
+		get_tree().set_meta("survivor_map_id", "ocean_islands_preview")
+		get_tree().set_meta("ugc_map_path", FINAL_WAR_BENCH_MAP_PATH)
+		get_tree().set_meta("map_preview_only", false)
+	if bench_scenario == "map_raster_tokyo" or bench_scenario == "map_boundary_crop_tokyo":
 		get_tree().set_meta("map_preview_only", true)
-		get_tree().set_meta("survivor_map_id", bench_scenario)
+		get_tree().set_meta("survivor_map_id", "map_raster_tokyo")
 	if PREVIEW_BENCH_MAPS.has(bench_scenario):
 		get_tree().set_meta("ugc_map_path", PREVIEW_BENCH_MAPS[bench_scenario])
 		get_tree().set_meta("map_preview_only", true)
@@ -259,6 +301,17 @@ func _run_unit_test(key: String) -> int:
 	return int(f) if f != null else 0
 
 
+## 显式构建/报告任务在 AutoLoad _ready 完成后执行，允许任务挂载真实 SceneTree 样本。
+func _run_build_task(key: String) -> void:
+	var build_script: GDScript = load(String(BUILD_TASKS[key]))
+	var build = build_script.new() if build_script else null
+	var build_fail := 1
+	if build != null and build.has_method("run"):
+		build.run()
+		build_fail = int(build.get("_fail"))
+	get_tree().quit(1 if build_fail > 0 else 0)
+
+
 func _swap_to_survivor() -> void:
 	printerr("[Bench] swapping to survivor_mode.tscn")
 	var err: int = get_tree().change_scene_to_file("res://scenes/survivor_mode.tscn")
@@ -272,6 +325,14 @@ func _swap_to_visual_test(scene_path: String) -> void:
 	var err: int = get_tree().change_scene_to_file(scene_path)
 	if err != OK:
 		push_error("[Bench] failed to load visual test scene (err=%d)" % err)
+		get_tree().quit(1)
+
+
+func _swap_to_test_scene(scene_path: String) -> void:
+	printerr("[Bench] swapping to headless integration test: %s" % scene_path)
+	var err: int = get_tree().change_scene_to_file(scene_path)
+	if err != OK:
+		push_error("[Bench] failed to load integration test scene (err=%d)" % err)
 		get_tree().quit(1)
 
 

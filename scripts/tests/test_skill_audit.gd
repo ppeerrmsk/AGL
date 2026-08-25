@@ -2,7 +2,7 @@ extends RefCounted
 
 const _I18N_CATALOG := preload("res://scripts/i18n_catalog.gd")
 
-## 全量技能审计：165 条逐项验证“配置 → apply/运行时消费点 → 玩家文案”。
+## 全量技能审计：158 条逐项验证“配置 → apply/运行时消费点 → 玩家文案”。
 ##
 ## 直接数值/字段技能会真的应用到一架挂满可选装备的最小测试机，并比较应用前后快照；
 ## skill_flag 事件技能验证正式运行时消费点，避免“表里有、游戏里没人读”的假技能。
@@ -20,9 +20,9 @@ const RUNTIME_CONSUMER_FILES: Array[String] = [
 	"res://scripts/survivor/survivor_spawner.gd",
 ]
 
-## 四条计数缩放技能的消费点与定义同在 survivor_data.gd；不能用“跨文件字面量”规则检查。
+## 三条纯 skill_flag 计数缩放技能的消费点与定义同在 survivor_data.gd；不能用跨文件字面量规则检查。
 const DATA_LOCAL_CONSUMERS: Array[String] = [
-	"veteran_hp", "speed_by_knight", "ew_expert", "weapon_master",
+	"veteran_hp", "ew_expert", "weapon_master",
 ]
 
 ## X-02 是一次性武器入库动作，不走 apply_upgrade match。
@@ -46,7 +46,7 @@ func run() -> void:
 	var seen: Dictionary = {}
 	for upgrade in SurvivorData.UPGRADES:
 		_audit_one(upgrade, translations, apply_source, consumer_source, mode_source, seen)
-	_check("全表数量 = 165", SurvivorData.UPGRADES.size() == 165,
+	_check("全表数量 = 158", SurvivorData.UPGRADES.size() == 158,
 		"got %d" % SurvivorData.UPGRADES.size())
 	_check("技能 ID 无重复", seen.size() == SurvivorData.UPGRADES.size(),
 		"unique=%d total=%d" % [seen.size(), SurvivorData.UPGRADES.size()])
@@ -232,7 +232,13 @@ func _test_regression_contracts(mode_source: String) -> void:
 		is_equal_approx(float(fear.get("value", 0.0)), 4.0), str(fear))
 	_check("局内永久 HP 在进化重放中恢复",
 		replay_tail.contains("head_on_perma_hp_gained")
-		and replay_tail.contains("bloodlust_perma_hp_gained"), "")
+		and replay_tail.contains("bloodlust_perma_hp_gained")
+		and replay_tail.contains("ghost_buster_hp_bonus_applied"), "")
+	_check("忠诚僚机·额外由统一获得入口即时部署且换型幂等",
+		mode_source.contains("func _dispatch_regular_oneshot")
+		and mode_source.contains('uid != "wingman_extra"')
+		and mode_source.contains("_loyal_wingman_cooldown = maxf(")
+		and mode_source.contains("_regular_oneshot_done"), "")
 	_check("无败之鹰保持基线 = 满血门槛 / +20%",
 		is_equal_approx(Aircraft.SIG_F15_HP_RATIO, 1.0)
 		and is_equal_approx(Aircraft.SIG_F15_BONUS_MULT, 1.20), "")

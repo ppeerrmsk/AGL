@@ -7,6 +7,7 @@ extends RefCounted
 ##    真实 RailgunEquipment 步进实弹 ≥1 发（对照 log 183044 全场 0 充能）
 ## B. 骑士节奏 —— 机炮包络 joust vs 横穿目标：60s ≥2 个完整循环 + 每轮机炮窗
 ## C. 闭合放弃 —— 目标 2× 速度逃逸：give-up 判定转 BREAK，不死追
+## D. Mother Goose MQ-X —— 生产配置使用攻击跑，三发点射/导弹/拦截激光/传感器隐形齐备
 ##
 ## 运行：godot --headless --path . -- --bench=joust（或 --bench=all）
 ## 步进模型：AI tick 每 3 帧（÷3 分频 ×3 delta 补偿，同真实 simple_ai），物理 60Hz
@@ -27,6 +28,7 @@ func run() -> void:
 	_test_railgun_deadlock_fixed()
 	_test_gun_lancer_rhythm()
 	_test_giveup()
+	_test_mqx_attack_run_and_loadout()
 	_root.free()
 	_root = null
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
@@ -187,6 +189,108 @@ func _test_giveup() -> void:
 	_check("give-up 触发（追不上不死追）", gave_up_at >= 0.0, "t=%.1fs 转 BREAK" % gave_up_at)
 	_check("give-up 及时（<8s）", gave_up_at >= 0.0 and gave_up_at < 8.0,
 		"阈值持续 2s + 出包络判定" if gave_up_at >= 0.0 else "未触发")
+	_free_pair(ac, tgt)
+
+
+# ── D. MQ-X 生产配置 + 攻击跑几何 ──
+func _test_mqx_attack_run_and_loadout() -> void:
+	print("── D. MQ-X：三发点射 + 导弹 + 反导 + F-22 级隐形 + 攻击跑 ──")
+	var p := load("res://resources/enemy_uav_mqx.tres") as AircraftParams
+	var f22 := load("res://resources/enemy_f22.tres") as AircraftParams
+	var laser := p.get_equipment_of_kind("laser") as LaserEquipment if p != null else null
+	_check("MQ-X 点射激光是三发短梭",
+		p != null and p.gun != null and p.gun.burst_count == 3 \
+		and is_equal_approx(p.gun.max_range, 2200.0) \
+		and is_equal_approx(p.gun.fire_cone_half_angle, 8.0),
+		"burst/range/cone=%s" % str([p.gun.burst_count, p.gun.max_range,
+			p.gun.fire_cone_half_angle] if p != null and p.gun != null else []))
+	_check("MQ-X 强化导弹数据已接入",
+		p != null and p.missile != null and is_equal_approx(p.missile.damage, 60.0) \
+		and is_equal_approx(p.missile.max_speed, 1200.0) \
+		and is_equal_approx(p.missile.cooldown, 3.2),
+		"dmg/speed/cd=%s" % str([p.missile.damage, p.missile.max_speed,
+			p.missile.cooldown] if p != null and p.missile != null else []))
+	_check("MQ-X 独立拦截激光只打导弹",
+		laser != null and laser.intercepts_missiles_directly \
+		and laser.can_target_missiles and not laser.can_target_aircraft \
+		and not laser.can_target_ground and laser.max_simultaneous_targets == 1,
+		"laser=%s" % (laser.display_name if laser != null else "null"))
+	_check("MQ-X 反导激光使用玩家 X-02 同款过热门",
+		laser != null and is_equal_approx(laser.heat_max, 100.0) \
+		and is_equal_approx(laser.heat_per_second, 35.0) \
+		and is_equal_approx(laser.heat_cooldown_per_second, 25.0) \
+		and is_equal_approx(laser.overheat_exit_threshold, 0.3), "")
+	var intercept_holder := Node2D.new()
+	var incoming := Missile.new()
+	incoming.intercept_hp = 30.0
+	intercept_holder.add_child(incoming)
+	laser._apply_laser_effect(null, incoming, 15.0, false)
+	_check("MQ-X 反导激光真实累计消耗导弹拦截 HP",
+		is_equal_approx(incoming.intercept_hp, 15.0) and not incoming.is_queued_for_deletion(),
+		"intercept_hp=%.1f" % incoming.intercept_hp)
+	laser._apply_laser_effect(null, incoming, 15.0, false)
+	_check("MQ-X 反导激光到阈值令导弹立即失效",
+		incoming.is_queued_for_deletion() and not incoming.is_active,
+		"active=%s" % incoming.is_active)
+	intercept_holder.free()
+	_check("MQ-X 与 F-22 同级启用传感器隐形",
+		p != null and f22 != null and p.sensor_stealth_enabled \
+		and p.sensor_stealth_enabled == f22.sensor_stealth_enabled,
+		"mqx=%s f22=%s" % [p.sensor_stealth_enabled if p != null else false,
+			f22.sensor_stealth_enabled if f22 != null else false])
+
+	# 调生产唯一配置入口，不在测试里手抄 joust 参数。
+	var ac = _make_ac(p.duplicate(true), Vector2.ZERO, 0.0)
+	var tp := AircraftParams.new()
+	tp.max_speed = 1200.0
+	tp.cruise_speed = 470.0
+	var tgt = _make_ac(tp, Vector2(0.0, -2500.0), PI / 2.0)
+	tgt.speed = 130.0
+	ac.combat_target = tgt
+	var anchor := Aircraft.new()
+	anchor.altitude = 5500.0
+	var pair := Squad.new()
+	pair.leader = ac
+	pair.add_member(ac)
+	var ai := AIController.new()
+	MotherGooseBoss.configure_mqx_ai(ai, ac, anchor, pair, 0)
+	ai._current_target = tgt
+	_check("MQ-X 生产 AI 启用攻击跑而非切向绕圈",
+		ai.simple_ai and ai.joust_enabled \
+		and is_zero_approx(ai.preferred_standoff_range_px) \
+		and is_equal_approx(ai.joust_break_range_px, MotherGooseBoss.MQX_JOUST_BREAK_PX) \
+		and is_equal_approx(ai.joust_reentry_range_px, MotherGooseBoss.MQX_JOUST_REENTRY_PX), "")
+
+	var phase_seq: Array = [ai._joust_phase]
+	var gun_window := 0.0
+	var best_gun_window := 0.0
+	for i in range(60 * 60):
+		if i % AI_PERIOD == 0:
+			JoustController.update(ai, DT * AI_PERIOD)
+		if phase_seq[-1] != ai._joust_phase:
+			phase_seq.append(ai._joust_phase)
+		_step(ac)
+		_move_straight(tgt)
+		var dist: float = ac.global_position.distance_to(tgt.global_position)
+		if _nose_off_deg(ac, tgt) <= p.gun.fire_cone_half_angle \
+				and dist <= p.gun.max_range * CombatUnit.PIXELS_PER_METER:
+			gun_window += DT
+			best_gun_window = maxf(best_gun_window, gun_window)
+		else:
+			gun_window = 0.0
+	_check("MQ-X 60s 实飞有火力窗且完成脱离再入",
+		best_gun_window >= 0.25 and _count_cycles(phase_seq) >= 1,
+		"最长±8°点射窗 %.2fs，循环=%d" % [best_gun_window, _count_cycles(phase_seq)])
+	# 测试手动构造了生产反向引用，在 free 前先拆环，不把泄漏噪声带进 bench。
+	ai._current_target = null
+	ai.squad = null
+	ai.aircraft = null
+	ai.combat_zone_anchor = null
+	pair.members.clear()
+	pair.leader = null
+	ac.combat_target = null
+	ai.free()
+	anchor.free()
 	_free_pair(ac, tgt)
 
 

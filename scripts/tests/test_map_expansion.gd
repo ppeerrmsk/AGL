@@ -6,7 +6,7 @@ const _I18N_CATALOG := preload("res://scripts/i18n_catalog.gd")
 ## 用法: <godot> --headless --path . --script res://scripts/tests/test_map_expansion.gd
 ## 覆盖：
 ##   1. 关键脚本 parse 冒烟（spawner / survivor_mode 等 load 不报错）
-##   2. 世界常量派生（WORLD_HALF_PX=15000 / 出生点距南边界 1100px）
+##   2. 世界常量派生（真边界 WORLD_HALF_PX=16000 / 旧核心入口=15000 / 出生点距入口 1100px）
 ##   3. 战区几何约束（随机战区两两缘距 ≥2000 / 离边 ≥1500，spec map-expansion §2.4；
 ##      机场战区圆心=现实机场烘焙坐标不可挪，豁免为 缘距 ≥1000 / 离边 ≥0，
 ##      裁决见 spec airfield-liberation-zones §2.5）
@@ -104,9 +104,12 @@ func _check_basemap_error_contract() -> void:
 
 func _check_constants() -> void:
 	print("[const] 世界常量")
-	_ok(is_equal_approx(MapBoundary.WORLD_HALF_PX, 15000.0), "WORLD_HALF_PX=15000", str(MapBoundary.WORLD_HALF_PX))
-	var edge := MapBoundary.WORLD_HALF_PX - MapBoundary.PLAYER_START_OFFSET_PX.y
-	_ok(is_equal_approx(edge, 1100.0), "出生点距南边界 1100px", str(edge))
+	_ok(is_equal_approx(MapBoundary.WORLD_HALF_PX, 16000.0), "WORLD_HALF_PX=16000", str(MapBoundary.WORLD_HALF_PX))
+	_ok(is_equal_approx(MapBoundary.CORE_HALF_PX, 15000.0), "旧 60km 核心入口=15000", str(MapBoundary.CORE_HALF_PX))
+	var core_edge := MapBoundary.CORE_HALF_PX - MapBoundary.PLAYER_START_OFFSET_PX.y
+	var world_edge := MapBoundary.WORLD_HALF_PX - MapBoundary.PLAYER_START_OFFSET_PX.y
+	_ok(is_equal_approx(core_edge, 1100.0), "出生点距外缘入口 1100px", str(core_edge))
+	_ok(is_equal_approx(world_edge, 2100.0), "出生点距真边界 2100px", str(world_edge))
 
 func _check_zone_geometry() -> void:
 	print("[zone] 几何约束（spec map-expansion §2.4；机场豁免见 airfield-liberation-zones §2.5）")

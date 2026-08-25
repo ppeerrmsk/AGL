@@ -135,7 +135,7 @@ func _test_milestone_plus_list() -> void:
 
 # ── D. apply 分支：params 类签名技的字段写入 ──
 func _test_apply_branches() -> void:
-	print("── D. apply：静不稳定 / 多波段 / 霹雳长矛 / 高速炮艇（含 aim_assist 不倒退）/ 唯一的锁定 ──")
+	print("── D. apply：静不稳定 / 多波段 / 霹雳长矛 / 高速炮艇（含机炮瞄准不倒退）/ 唯一的锁定 ──")
 	var sp := SurvivorPlayer.new()
 	var ac := _make_combat_aircraft()
 	sp.aircraft = ac
@@ -159,8 +159,8 @@ func _test_apply_branches() -> void:
 	_check("高速炮艇：锥半角 → 90°", is_equal_approx(ac.params.gun.fire_cone_half_angle, 90.0),
 		"got %.1f" % ac.params.gun.fire_cone_half_angle)
 	_check("高速炮艇：普通机炮弹穿透开关已启用", ac.gun_bullet_penetration_active, "")
-	sp.apply_upgrade(_find_upgrade("aim_assist"))
-	_check("aim_assist 不把 90° 缩回 45°（cap 不倒退）",
+	sp.apply_upgrade(_find_upgrade("gun_accuracy"))
+	_check("合并后的机炮瞄准不把 90° 缩回 45°（cap 不倒退）",
 		ac.params.gun.fire_cone_half_angle >= 90.0, "got %.1f" % ac.params.gun.fire_cone_half_angle)
 	var rr0: float = ac.params.radar_range
 	sp.apply_upgrade(_find_upgrade("sig_viggen"))

@@ -101,7 +101,10 @@ func _test_sandstorm_timeline_and_altitude() -> void:
 	var start_center := weather.sandstorm_center_world().x
 	weather.set_game_time(330.0, 600.0)
 	var moved_px := weather.sandstorm_center_world().x - start_center
-	_check(is_equal_approx(weather.sandstorm_duration_s, 1400.0), "70 km 全程按 180 km/h 计算为 1400 秒")
+	var expected_duration := ((MapBoundary.world_half_px() * 2.0 + 5000.0) \
+		/ GameConstants.PIXELS_PER_METER) / (180.0 / 3.6)
+	_check(is_equal_approx(weather.sandstorm_duration_s, expected_duration),
+		"64km 真边界 + 10km 风暴带按 180 km/h 计算为 1480 秒")
 	_check(is_equal_approx(moved_px, 1500.0), "速度翻倍后一分钟推进 3 km", "move_px=%.1f" % moved_px)
 	weather.set_debug_midgame(300.0, 600.0)
 	var center_density := weather.sample_sandstorm_density(Vector2.ZERO)

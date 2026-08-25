@@ -29,6 +29,13 @@ class VisibleSpawnMode extends Node2D:
 		return true
 
 
+class ToggleVisibilityMode extends Node2D:
+	var everything_visible := true
+
+	func is_world_pos_visible(_pos: Vector2, _extra_radius: float = 0.0) -> bool:
+		return everything_visible
+
+
 class SpawnProbeMission extends ZoneMission:
 	var spawn_calls: Array[StringName] = []
 
@@ -47,12 +54,14 @@ func run() -> void:
 	print("\n════════ 战区友军空中支援 ════════")
 	_test_visible_spawn_deadlock_recovery()
 	_test_hostile_zone_edge_ingress()
+	_test_conquered_garrison_egress()
 	_test_support_count()
 	_test_activation_gate_and_once()
 	_test_ally_label_identity()
 	_test_ally_contract_and_air_only_targeting()
 	_test_ground_support_targeting_and_a10_loadout()
 	_test_third_party_reward_isolation()
+	_test_merged_weakness_ground_heal()
 	_test_egress_lifecycle()
 	_test_ace_f15_spawn_factory()
 	_test_ace_f15_intercept_support()
@@ -88,9 +97,19 @@ func _test_visible_spawn_deadlock_recovery() -> void:
 	_check("已选中纯空战并抵达圈边时改走边缘入场，不被可见性门锁死",
 		selected_mission.spawn_calls == [&"E"])
 
+	# 一旦进入 LIVE，同生命周期内取消选择也不能把战斗暂停或重抽。
+	zones.set_state(&"E", ZoneData.State.AVAILABLE)
+	zones.selected_id = &""
+	selected_player.position = center + Vector2(radius + 5000.0, 0.0)
+	selected_mission._ensure_spawned_for_active_zones()
+	_check("已生成战区取消选择后仍保持同一批 LIVE 内容",
+		selected_mission.spawn_calls == [&"E"]
+		and selected_mission._spawned_zones.has(&"E"))
+
 	# 仍在远处的任务继续守住“不在玩家画面内刷新”铁则。
 	selected_mission._spawned_zones.clear()
 	selected_mission.spawn_calls.clear()
+	zones.select_zone(&"E")
 	selected_player.position = center + Vector2(radius
 		+ ZoneMission.VISIBLE_SPAWN_RECOVERY_APPROACH_PX + 1.0, 0.0)
 	selected_mission._ensure_spawned_for_active_zones()
@@ -170,6 +189,52 @@ func _test_hostile_zone_edge_ingress() -> void:
 	mission.free()
 	spawner.free()
 	player.free()
+	mode.free()
+
+
+func _test_conquered_garrison_egress() -> void:
+	var mode := ToggleVisibilityMode.new()
+	var mission := ZoneMission.new()
+	mission.mode = mode
+	var enemy := _make_aircraft(CombatUnit.TEAM_HOSTILE, Vector2(1200.0, 800.0))
+	enemy.params = AircraftParams.new()
+	enemy.params.max_speed = 1400.0
+	enemy.is_mission_target = true
+	mode.add_child(enemy)
+	mission._garrison_zones[&"A"] = [enemy]
+
+	mission._begin_conquered_garrison_egress(&"A")
+	var ai := enemy._ai_ref
+	var exit_point: Vector2 = ai._directive.params.get("target", Vector2.ZERO)
+	_check("攻克后幸存驻守敌机进入真实撤离",
+		bool(enemy.get_meta(&"zone_retiring", false))
+		and not mission._garrison_zones.has(&"A")
+		and mission._pending_despawn == [enemy])
+	_check("撤离清目标、脱编队、关闭重新交战并开加力",
+		not enemy.is_mission_target and not ai.enable_combat
+		and enemy.combat_target == null and enemy.is_afterburner)
+	_check("撤离指令直飞最近地图边界外",
+		ai._directive != null and ai._directive.combat_disabled
+		and ai._directive.priority == ZoneMission.RETIRE_DIRECTIVE_PRIORITY
+		and MapBoundary.distance_to_edge(exit_point) < 0.0)
+
+	# 可见期间不允许释放；短暂离屏后重新看见必须把宽限计时清零。
+	mission._flush_pending_despawn(ZoneMission.CONQUERED_RETIRE_OFFSCREEN_GRACE_S)
+	_check("画面内撤离机不会凭空消失", not enemy.is_queued_for_deletion())
+	mode.everything_visible = false
+	mission._flush_pending_despawn(1.0)
+	mode.everything_visible = true
+	mission._flush_pending_despawn(ZoneMission.RETIRE_VISIBILITY_CHECK_INTERVAL_S)
+	mode.everything_visible = false
+	mission._flush_pending_despawn(1.8)
+	_check("重新进入视野会重置离屏宽限", not enemy.is_queued_for_deletion())
+	mission._flush_pending_despawn(0.2)
+	_check("持续离屏两秒后静默关闭实体",
+		enemy.is_queued_for_deletion()
+		and bool(enemy.get_meta("xp_granted", false))
+		and mission._pending_despawn.is_empty())
+
+	mission.free()
 	mode.free()
 
 
@@ -314,7 +379,7 @@ func _test_third_party_reward_isolation() -> void:
 	player.params = AircraftParams.new()
 	player.params.max_hp = 100.0
 	player.hp = 50.0
-	player.kill_heal_amount = 25.0
+	mode.upgrade_stacks = {SkillHooks.SKILL_KILL_STATUS_HEAL: 1}
 	mode.add_child(player)
 	spawner.player_aircraft = player
 	var survivor_player := SurvivorPlayer.new()
@@ -334,6 +399,32 @@ func _test_third_party_reward_isolation() -> void:
 	_check("ALLY 击落不触发玩家击杀回血", is_equal_approx(player.hp, 50.0))
 	_check("ALLY 击落仍完成尸体结算", bool(victim.get_meta("xp_granted", false)))
 
+	survivor_player.free()
+	spawner.free()
+	mode.free()
+
+
+func _test_merged_weakness_ground_heal() -> void:
+	var mode := StubMode.new()
+	mode.upgrade_stacks = {SkillHooks.SKILL_KILL_STATUS_HEAL: 1}
+	var spawner := SurvivorSpawner.new()
+	spawner.mode = mode
+	var player := _make_aircraft(CombatUnit.TEAM_PLAYER, Vector2.ZERO)
+	player.params = AircraftParams.new()
+	player.params.max_hp = 100.0
+	player.hp = 50.0
+	var survivor_player := SurvivorPlayer.new()
+	survivor_player.aircraft = player
+	spawner.survivor_player = survivor_player
+	var victim := GroundUnit.new()
+	spawner._kill_heal(victim)
+	_check("虐弱合并：普通地面击杀回复 5 HP", is_equal_approx(player.hp, 55.0))
+	player.hp = 50.0
+	victim.status_effects[StatusEffects.JAM] = 5.0
+	spawner._kill_heal(victim)
+	_check("虐弱合并：异常地面击杀回复 35 HP", is_equal_approx(player.hp, 85.0))
+	victim.free()
+	player.free()
 	survivor_player.free()
 	spawner.free()
 	mode.free()

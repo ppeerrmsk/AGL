@@ -43,6 +43,7 @@ func run() -> void:
 	_test_compact_aircraft_labels()
 	_test_presentation_label_refinements()
 	_test_freed_aircraft_reference_safety()
+	_test_cast_combat_state_isolation()
 	_test_incoming_missile_warning_rule()
 
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
@@ -704,6 +705,66 @@ func _test_compact_aircraft_labels() -> void:
 		is_equal_approx(snapped_origin.x, roundf(snapped_origin.x))
 		and is_equal_approx(snapped_origin.y, roundf(snapped_origin.y)))
 
+	# 共享状态栏必须抵消单位/父节点/镜头的组合旋转与非均匀缩放。
+	var item_to_screen := Transform2D(0.73, Vector2(111.25, 222.75))
+	item_to_screen.x *= 2.4
+	item_to_screen.y *= 0.65
+	var panel_local := AircraftRenderer.screen_space_panel_transform_for(
+		item_to_screen, Vector2(37.0, -12.0))
+	var composed := item_to_screen * panel_local
+	_assert_true("unit_status.组合变换后仍为屏幕正交单位矩阵",
+		composed.x.is_equal_approx(Vector2.RIGHT)
+		and composed.y.is_equal_approx(Vector2.DOWN))
+	_assert_true("unit_status.组合变换后原点钉在整数像素",
+		is_equal_approx(composed.origin.x, roundf(composed.origin.x))
+		and is_equal_approx(composed.origin.y, roundf(composed.origin.y)))
+	_assert_true("unit_status.单发伤害播放完整蓝白周期",
+		AircraftRenderer.status_damage_flash_phase(10.0, 10.0, 10.0) == 0
+		and AircraftRenderer.status_damage_flash_phase(10.0, 10.0, 10.13) == 1
+		and AircraftRenderer.status_damage_flash_phase(10.0, 10.0, 10.97) == -1)
+	_assert_true("unit_status.连续机炮只续窗且相位仍从首发起算",
+		AircraftRenderer.status_damage_flash_phase(10.0, 10.5, 10.66) == 1
+		and AircraftRenderer.status_damage_flash_phase(10.0, 10.5, 11.45) >= 0)
+	var blue_phase := AircraftRenderer.status_damage_panel_colors(
+		Color.BLACK, Color.GREEN, 0)
+	var white_phase := AircraftRenderer.status_damage_panel_colors(
+		Color.BLACK, Color.GREEN, 1)
+	_assert_true("unit_status.整块面板及数字蓝白反相",
+		blue_phase == [ThemeColors.UI_DAMAGE_FLASH_BLUE, ThemeColors.UI_TERMINAL_WHITE]
+		and white_phase == [ThemeColors.UI_TERMINAL_WHITE, ThemeColors.UI_DAMAGE_FLASH_BLUE])
+	var damaged_player := Aircraft.new()
+	damaged_player.team = CombatUnit.TEAM_PLAYER
+	damaged_player.set_meta(AircraftRenderer.STATUS_DAMAGE_STARTED_META, 10.0)
+	damaged_player.set_meta(AircraftRenderer.STATUS_DAMAGE_LAST_META, 10.5)
+	_assert_true("unit_status.玩家小队成员读取各自独立受伤窗口",
+		AircraftRenderer.status_damage_flash_phase_for(damaged_player, 10.66) == 1)
+	damaged_player.team = CombatUnit.TEAM_HOSTILE
+	_assert_true("unit_status.敌机不借用玩家状态栏受伤动画",
+		AircraftRenderer.status_damage_flash_phase_for(damaged_player, 10.66) == -1)
+	damaged_player.free()
+	var damage_recording := Aircraft.new()
+	damage_recording.team = CombatUnit.TEAM_PLAYER
+	damage_recording.hp = 100.0
+	var recording_now := EventLogger.get_game_time()
+	damage_recording.set_meta(
+		AircraftRenderer.STATUS_DAMAGE_STARTED_META, recording_now - 0.40)
+	damage_recording.set_meta(
+		AircraftRenderer.STATUS_DAMAGE_LAST_META, recording_now - 0.10)
+	damage_recording._apply_damage(5.0)
+	_assert_true("unit_status.正式伤害入口续窗但不重置连续机炮起始相位",
+		is_equal_approx(float(damage_recording.get_meta(
+			AircraftRenderer.STATUS_DAMAGE_STARTED_META)), recording_now - 0.40)
+		and float(damage_recording.get_meta(
+			AircraftRenderer.STATUS_DAMAGE_LAST_META)) >= recording_now - 0.10)
+	var zero_damage := Aircraft.new()
+	zero_damage.team = CombatUnit.TEAM_PLAYER
+	zero_damage.hp = 100.0
+	zero_damage._apply_damage(0.0)
+	_assert_true("unit_status.零伤害不启动状态栏动画",
+		not zero_damage.has_meta(AircraftRenderer.STATUS_DAMAGE_LAST_META))
+	damage_recording.free()
+	zero_damage.free()
+
 
 func _test_presentation_label_refinements() -> void:
 	_assert_near("lock_box.ground_scale", AircraftRenderer.lock_box_altitude_scale_for(0.0), 0.55)
@@ -850,6 +911,22 @@ func _test_freed_aircraft_reference_safety() -> void:
 	stage.force_restore([])
 	_assert_true("stage.已释放演员不阻断强制收尾", not stage.is_active())
 	outsider.free()
+
+
+func _test_cast_combat_state_isolation() -> void:
+	var actor := Aircraft.new()
+	actor.sensor_contact_hidden = true
+	actor._sensor_contact_visual_alpha = 0.0
+	var cast := CinematicCast.new()
+	cast.bind([actor], RefCounted.new())
+	_assert_true("cast.bind 建立虚拟演员所有权并绕过战斗隐形",
+		actor.has_meta(CombatUnit.META_PRESENTATION_ACTOR_ACTIVE) \
+		and not actor.is_hidden_from_player_sensors())
+	cast.release()
+	_assert_true("cast.release 清所有权并恢复战斗隐形",
+		not actor.has_meta(CombatUnit.META_PRESENTATION_ACTOR_ACTIVE) \
+		and actor.is_hidden_from_player_sensors())
+	actor.free()
 
 
 func _test_incoming_missile_warning_rule() -> void:

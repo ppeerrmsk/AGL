@@ -5,7 +5,7 @@ extends RefCounted
 
 const HyperAScript := preload("res://scripts/survivor/hyper_a_boss.gd")
 const BossDebugScript := preload("res://scripts/survivor/boss_debug_select.gd")
-const EXPECTED_ASSERTIONS := 107
+const EXPECTED_ASSERTIONS := 108
 
 class FreedPlayerDirector:
 	extends RefCounted
@@ -46,12 +46,12 @@ func _test_registry_and_debug_entry() -> void:
 			break
 	_check("Debug 面板含 BLACK_STAR", not black_star.is_empty())
 	var scenarios: Array = black_star.get("scenarios", [])
-	_check("Debug 面板提供 9 个专项直达场景", scenarios.size() == 9)
+	_check("Debug 面板提供 10 个专项直达场景", scenarios.size() == 10)
 	var scenario_ids: Array[String] = []
 	for pair in scenarios:
 		if pair is Array and pair.size() >= 2:
 			scenario_ids.append(String(pair[1]))
-	for expected in ["full", "g0_weapons", "g1_reentry", "g1_weapons", "g2_dash", "brake_wave", "g3", "second_root", "cooldown"]:
+	for expected in ["final_war", "full", "g0_weapons", "g1_reentry", "g1_weapons", "g2_dash", "brake_wave", "g3", "second_root", "cooldown"]:
 		_check("Debug 场景可达：%s" % expected, scenario_ids.has(expected))
 	var black_star_radio := ChatterLines.boss_sequence("BLACK_STAR", "spawn")
 	_check("Black Star 双根无线电登记为一号 / 二号机",
@@ -465,10 +465,10 @@ func _test_charge_alignment_regression() -> void:
 		"res://scripts/events/boss_encounter_event.gd") \
 		+ FileAccess.get_file_as_string("res://scripts/aircraft.gd") \
 		+ FileAccess.get_file_as_string("res://scripts/missile_manager.gd")
-	_check("闪退路径包含 Variant 生命周期、meta 与三角形守卫",
+	_check("闪退路径包含 Variant 生命周期、meta 与三角形直提交流程",
 		crash_guards.contains("var raw_player: Variant")
 		and crash_guards.contains("has_meta(\"_pending_attacker\")")
-		and crash_guards.contains("var tri_a := PackedVector2Array"))
+		and crash_guards.contains("RenderingServer.canvas_item_add_triangle_array("))
 	var stale_player := Aircraft.new()
 	var fake_director := FreedPlayerDirector.new()
 	fake_director.player = stale_player

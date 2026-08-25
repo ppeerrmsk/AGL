@@ -1,6 +1,6 @@
 extends RefCounted
 
-## 玩家仪表确定性验收：单位换算、纯显示交互、武器优先跳过缺失项、
+## 玩家/僚机 HUD 确定性验收：单位换算、纯显示交互、武器优先跳过缺失项、
 ## 十枚热诱弹视觉波与星号/装填进度同步。
 
 const SurvivorModeScript := preload("res://scripts/survivor/survivor_mode.gd")
@@ -19,13 +19,14 @@ var _fail := 0
 
 
 func run() -> void:
-	print("\n════════ 玩家仪表 HUD 验收 ════════")
+	print("\n════════ 玩家/僚机 HUD 验收 ════════")
 	_test_speed_units()
 	_test_display_is_mouse_transparent()
 	_test_wingman_rows_follow_live_count()
 	_test_layout_contract()
 	_test_milestone_axis_counter()
 	_test_progress_color_contract()
+	_test_damage_flash_contract()
 	_test_altitude_preference_display()
 	_test_special_weapon_status()
 	_test_first_reveal_sequence()
@@ -81,12 +82,64 @@ func _test_wingman_rows_follow_live_count() -> void:
 		is_equal_approx(panel.size.y, WingmanInstrumentPanelScript.total_height_for_count(2)))
 	_check("两架僚机不会被首次显现合成一个整体",
 		panel.reveal_panel_regions().size() == 2)
-	_check("僚机仪表鼠标穿透且不可获焦",
+	_check("僚机 HUD 信息行鼠标穿透且不可获焦",
 		panel.mouse_filter == Control.MOUSE_FILTER_IGNORE
 		and panel.focus_mode == Control.FOCUS_NONE)
 	panel.update_display([])
 	_check("无僚机时信息行完全隐藏", not panel.visible and panel.size.y == 0.0)
 	panel.free()
+
+
+func _test_damage_flash_contract() -> void:
+	var panel = PlayerInstrumentPanelScript.new()
+	panel._ready()
+	panel.register_damage_event(1.0, 1000)
+	_check("导弹单发立即启动完整 HP 红色受伤闪烁",
+		PlayerInstrumentPanelScript.damage_flash_phase(
+			panel._damage_flash_started_ms, panel._damage_flash_until_ms, 1000) == 0
+		and PlayerInstrumentPanelScript.damage_flash_phase(
+			panel._damage_flash_started_ms, panel._damage_flash_until_ms, 1120) == 1
+		and panel._damage_flash_until_ms == 1960)
+	panel.register_damage_event(2.0, 1500)
+	_check("连续机炮命中延长窗口但不重置闪烁相位",
+		panel._damage_flash_started_ms == 1000
+		and panel._damage_flash_until_ms == 2460
+		and PlayerInstrumentPanelScript.damage_flash_active(
+			panel._damage_flash_started_ms, panel._damage_flash_until_ms, 2400))
+	panel.register_damage_event(2.0, 1600)
+	_check("同一伤害 token 不会伪造重复触发", panel._damage_flash_until_ms == 2460)
+	_check("右下角 HUD 框架保持原色、只有 HP 模块红色分相",
+		PlayerInstrumentPanelScript.damage_hp_color(Color.GREEN, true, true)
+			== ThemeColors.UI_DANGER_RED
+		and PlayerInstrumentPanelScript.damage_hp_color(Color.GREEN, true, false)
+			== Color.GREEN
+		and panel.hp_damage_regions().has(panel.hp_rect)
+		and panel.hp_damage_regions().has(panel.hp_digit_rect(0)))
+	panel.free()
+
+	var wingman_panel = WingmanInstrumentPanelScript.new()
+	wingman_panel._ready()
+	wingman_panel.damage_animation_time_override_ms = 1000
+	var row := {
+		"slot": 2,
+		"callsign": "VIPER",
+		"hp": "84/100",
+		"damage_token": 1.0,
+		"damage_recent": true,
+	}
+	wingman_panel.update_display([row])
+	_check("僚机单发受伤按独立行启动闪烁",
+		wingman_panel.damage_flash_active_for_slot(2, 1000))
+	wingman_panel.damage_animation_time_override_ms = 1500
+	wingman_panel.update_display([row.merged({"damage_token": 2.0}, true)])
+	_check("僚机连续伤害延长同一行闪烁窗口",
+		wingman_panel.damage_flash_active_for_slot(2, 2400)
+		and not wingman_panel.damage_flash_active_for_slot(2, 2460))
+	wingman_panel.update_display([])
+	_check("僚机离队后清理受伤动画状态",
+		not wingman_panel._last_damage_token_by_slot.has(2)
+		and not wingman_panel._damage_flash_until_by_slot.has(2))
+	wingman_panel.free()
 
 
 func _test_color_panel_builds() -> void:
@@ -104,7 +157,7 @@ func _test_layout_contract() -> void:
 	var reveal_ids: Array[StringName] = []
 	for descriptor in reveal_regions:
 		reveal_ids.append(StringName(descriptor.get("id", &"")))
-	_check("玩家仪表首次显现拆成逐功能框而非整组目标",
+	_check("玩家 HUD 首次显现拆成逐功能框而非整组目标",
 		reveal_regions.size() >= 20
 		and reveal_ids.has(&"player_hp") and reveal_ids.has(&"player_g")
 		and reveal_ids.has(&"player_alt") and reveal_ids.has(&"player_spd")
@@ -922,7 +975,7 @@ func _test_flare_visual_progress() -> void:
 		ac.flare_visual_burst_emitted == 2
 		and PlayerInstrumentPanelScript.flare_lit_star_count(ac) == 8)
 	for _i in range(5):
-		AircraftFlares._update_particles(ac, 0.12)
+		AircraftFlares._update_particles(ac, 0.18)
 	_check("最后一波后严格生成十枚", ac.flare_visual_burst_emitted == 10
 		and ac._flare_particles.size() == 10)
 	_check("短冷却期间十星保持全灭", PlayerInstrumentPanelScript.flare_lit_star_count(ac) == 0)

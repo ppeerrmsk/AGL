@@ -17,7 +17,7 @@ func run() -> void:
 	_test_support_field_mutual_exclusion()
 	_test_tier3_priority_replacement()
 	_test_i18n_resources()
-	_test_automation_music_gate()
+	_test_automation_audio_gate()
 	print("──────── 结果：%d 通过 / %d 失败 ────────\n" % [_pass, _fail])
 
 
@@ -163,10 +163,10 @@ func _test_i18n_resources() -> void:
 	_check("图鉴名称与说明已写入中英日 Translation 资源", ok, detail)
 
 
-func _test_automation_music_gate() -> void:
-	var source := FileAccess.get_file_as_string("res://scripts/bench/bench_runner.gd")
-	_check("所有 --bench 自动静音 Music 总线", source.contains(
-		"AudioServer.set_bus_mute(music_bus_idx, true)"), "")
+func _test_automation_audio_gate() -> void:
+	var master_bus_idx := AudioServer.get_bus_index("Master")
+	_check("所有 --bench 运行时静音 Master 总线",
+		master_bus_idx >= 0 and AudioServer.is_bus_mute(master_bus_idx), "")
 
 
 func _check(label: String, ok: bool, detail: String) -> void:

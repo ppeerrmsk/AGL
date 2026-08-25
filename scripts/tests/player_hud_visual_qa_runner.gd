@@ -75,6 +75,7 @@ func _ready() -> void:
 
 	var panel = PlayerInstrumentPanelScript.new()
 	panel.weapon_animation_time_override_ms = 1000
+	panel.damage_animation_time_override_ms = 0
 	add_child(panel)
 	panel.position = SurvivorHUDScript.right_anchored_player_rect(
 		Vector2(1920.0, 1080.0), panel.size, 1.0).position
@@ -85,6 +86,7 @@ func _ready() -> void:
 	panel.queue_redraw()
 
 	var wingman_panel = WingmanInstrumentPanelScript.new()
+	wingman_panel.damage_animation_time_override_ms = 0
 	add_child(wingman_panel)
 	var wing_rows: Array = []
 	var callsigns := ["LONE", "DUSK", "HAVEN", "TAIGA", "WARRANT", "REFLEX", "FINCH"]
@@ -97,6 +99,8 @@ func _ready() -> void:
 			"action": "编队跟随",
 			"kills": 3 if index == 0 else 0,
 			"is_heir": index == 0,
+			"damage_token": 1.0 if index == 0 else -INF,
+			"damage_recent": index == 0,
 			"has_msl": true,
 			"msl": "62%" if reloading else "2/2",
 			"msl_busy": reloading,
@@ -157,7 +161,8 @@ func _ready() -> void:
 	var damage_vignette = DamageVignetteScript.new()
 	damage_vignette.size = Vector2(1920.0, 1080.0)
 	add_child(damage_vignette)
-	_sample_aircraft.set_meta(&"hud_last_damage_at", EventLogger.get_game_time())
+	_sample_aircraft.set_meta(
+		AircraftRenderer.STATUS_DAMAGE_LAST_META, EventLogger.get_game_time())
 	damage_vignette.set_player(_sample_aircraft)
 	damage_vignette._process(0.1)
 	for descriptor in player_regions:

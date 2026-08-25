@@ -36,6 +36,7 @@ func _test_nextgen_replacement() -> void:
 	var data_link := SurvivorData.upgrade_by_id("data_link")
 	var penetration := SurvivorData.upgrade_by_id("missile_penetration")
 	var chain := SurvivorData.upgrade_by_id("missile_bounce")
+	var berserk := SurvivorData.upgrade_by_id("berserk_virus")
 	var nextgen_ids: Array[String] = []
 	for u in SurvivorData.UPGRADES:
 		if int(u.get("rarity", -1)) == SurvivorData.Rarity.NEXT_GEN:
@@ -47,10 +48,14 @@ func _test_nextgen_replacement() -> void:
 	_check("连锁弹头 = NEXT_GEN + evolved",
 		int(chain.get("rarity", -1)) == SurvivorData.Rarity.NEXT_GEN
 		and bool(chain.get("evolved", false)), str(chain))
-	_check("NEXT_GEN 池恰有 7 项",
-		nextgen_ids.size() == 7 and nextgen_ids.has("missile_bounce")
+	_check("狂化病毒 = EXPERIMENTAL 普通池、非战区奖励",
+		int(berserk.get("rarity", -1)) == SurvivorData.Rarity.EXPERIMENTAL
+		and not bool(berserk.get("evolved", false))
+		and SurvivorData.is_normal_random_candidate(berserk), str(berserk))
+	_check("NEXT_GEN 池恰有 6 项，重型机炮保持不动",
+		nextgen_ids.size() == 6 and nextgen_ids.has("missile_bounce")
 		and nextgen_ids.has("gunship_mode") and nextgen_ids.has("heavy_gun") \
-		and nextgen_ids.has("berserk_virus")
+		and not nextgen_ids.has("berserk_virus")
 		and not nextgen_ids.has("data_link"), str(nextgen_ids))
 
 

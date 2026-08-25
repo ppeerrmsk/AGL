@@ -34,6 +34,7 @@ func run() -> void:
 	_test_herbst_profile_gate()
 	_test_callsign_reservation()
 	_test_ace_archive()
+	_test_ace_music_contract()
 
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 
@@ -136,11 +137,11 @@ func _test_profiles() -> void:
 			seen[cs] = true
 	_check("固定呼号不在 800 池内", pool_clash.is_empty(), "撞名=%s" % str(pool_clash))
 	_check("固定呼号全表无重复", dup.is_empty(), "重复=%s" % str(dup))
-	# 统一轮换窗（2026-08-02）：六支非宿敌 240s 同池；宿敌/未实装仍排除
-	_check("239s 池为空", AceSquadProfiles.pool_at(239.0).is_empty(),
-		str(AceSquadProfiles.pool_at(239.0)))
-	_check("240s 池含 marathon", AceSquadProfiles.pool_at(240.0).has("marathon"),
-		str(AceSquadProfiles.pool_at(240.0)))
+	# 固定第一槽（2026-08-23）：六支非宿敌 210s 同池；宿敌/未实装仍排除
+	_check("209.9s 池为空", AceSquadProfiles.pool_at(209.9).is_empty(),
+		str(AceSquadProfiles.pool_at(209.9)))
+	_check("210s 池含 marathon", AceSquadProfiles.pool_at(210.0).has("marathon"),
+		str(AceSquadProfiles.pool_at(210.0)))
 	_check("宿敌 orion 永不进轮换池", not AceSquadProfiles.pool_at(9999.0).has("orion"),
 		str(AceSquadProfiles.pool_at(9999.0)))
 	var unimplemented_leak := false
@@ -154,9 +155,23 @@ func _test_profiles() -> void:
 func _test_rotation_balance() -> void:
 	print("── 随机轮换 / TTK 预算 ──")
 	var ids := ["marathon", "2ndwave", "gimmick", "goofighters", "vulture", "whitetea"]
-	var pool := AceSquadProfiles.pool_at(240.0)
+	var pool := AceSquadProfiles.pool_at(210.0)
 	for id in ids:
-		_check("240s 统一池含 %s" % id, pool.has(id), str(pool))
+		_check("210s 第一槽含 %s" % id, pool.has(id), str(pool))
+	_check("默认局 209.9s 尚未开放第一槽",
+		AceSquadProfiles.scheduled_wave_count(209.9, 600.0) == 0, "209.9/600")
+	_check("默认局 210.0s 开放第一槽",
+		AceSquadProfiles.scheduled_wave_count(210.0, 600.0) == 1, "210/600")
+	_check("默认局 419.9s 尚未开放第二槽",
+		AceSquadProfiles.scheduled_wave_count(419.9, 600.0) == 1, "419.9/600")
+	_check("默认局 420.0s 开放第二槽",
+		AceSquadProfiles.scheduled_wave_count(420.0, 600.0) == 2, "420/600")
+	_check("延长局在真实倒数 180s 开放第二槽",
+		AceSquadProfiles.scheduled_wave_count(449.9, 630.0) == 1 \
+		and AceSquadProfiles.scheduled_wave_count(450.0, 630.0) == 2, "450/630")
+	_check("第二槽到点后不被王牌 +60s 倒拨关闭",
+		AceSquadProfiles.advance_scheduled_wave_count(2, 360.0, 600.0) == 2,
+		"opened=2, rewound=360/600")
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 20260801
 	var order := AceSquadProfiles.build_run_order(rng, "marathon")
@@ -265,6 +280,57 @@ func _test_ace_archive() -> void:
 	DirAccess.remove_absolute(_test_cfg)
 	archive.free()
 	archive2.free()
+
+
+# ── 9. 非 BOSS 王牌专属 BGM 契约 ──
+func _test_ace_music_contract() -> void:
+	print("── 王牌专属 BGM 生命周期 ──")
+	var ace_ids := ["ace_battle_01", "ace_battle_02", "ace_battle_03", "ace_battle_04"]
+	var pool_ready := true
+	for i in ace_ids.size():
+		var id := String(ace_ids[i])
+		pool_ready = pool_ready and String(AudioManager.MUSIC_FILES.get(id, "")) \
+			== "res://audio/music/ace_battle_%02d.ogg" % (i + 1) \
+			and AudioManager.has_music(id) and AudioManager._get_music(id) != null
+	_check("四首 ace_battle 随机池已登记且可加载", pool_ready, str(ace_ids))
+	_check("单曲自然结束信号已登记", AudioManager.has_signal("music_track_finished"),
+		"music_track_finished(id)")
+	var mode = load("res://scripts/survivor/survivor_mode.gd").new()
+	var started := bool(mode.begin_ace_battle_music())
+	var picked_id := AudioManager.current_music_id()
+	_check("血条浮现从四首可用池随机取得一首 one-shot",
+		started and picked_id in ace_ids and String(mode._active_ace_music_id) == picked_id,
+		"picked=%s" % picked_id)
+	mode._on_music_track_finished(picked_id)
+	_check("Ace 单曲自然结束即恢复普通歌单",
+		String(mode._active_ace_music_id).is_empty() \
+			and AudioManager.current_music_id() == "battle_coast",
+		"current=%s" % AudioManager.current_music_id())
+	mode.free()
+	_check("普通战斗歌单资源可加载",
+		AudioManager.has_music("battle_coast") and AudioManager.has_music("battle_coast_2"),
+		"battle_coast + battle_coast_2")
+	var previous_id := AudioManager.current_music_id()
+	AudioManager.crossfade_music("__missing_ace_music_probe__", 0.0, true)
+	_check("缺失曲不会夺走当前 BGM 权威",
+		AudioManager.current_music_id() == previous_id,
+		"before=%s after=%s" % [previous_id, AudioManager.current_music_id()])
+	var export_cfg := ConfigFile.new()
+	var export_ok := export_cfg.load("res://export_presets.cfg") == OK
+	var export_exclude := String(export_cfg.get_value("preset.0", "exclude_filter", "")) \
+		if export_ok else ""
+	var patch_exclude := String(export_cfg.get_value(
+		"preset.0", "patch_delta_exclude_filters", "")) if export_ok else ""
+	_check("正式导出明确排除全部音频收件母版",
+		export_ok and "audio_intake/*" in export_exclude \
+			and "audio_intake/*" in patch_exclude,
+		"export=%s patch=%s" % [export_exclude, patch_exclude])
+	_check("主菜单循环曲已登记且可加载",
+		String(AudioManager.MUSIC_FILES.get("main_menu", "")) \
+			== "res://audio/music/main_menu.ogg" \
+			and AudioManager.has_music("main_menu") \
+			and AudioManager._get_music("main_menu") != null,
+		"main_menu.ogg")
 
 
 func _check(name: String, got: bool, note: String) -> void:

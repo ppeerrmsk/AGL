@@ -12,6 +12,7 @@ func run() -> void:
 	print("\n════════ 性能尖峰追踪测试 ════════")
 	_test_disabled_dump_is_empty()
 	_test_slow_frame_captures_buckets_events_and_load()
+	_test_slow_frame_keeps_pre_and_post_context()
 	_test_runtime_panel_history_and_hotspots()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 
@@ -37,12 +38,12 @@ func _test_slow_frame_captures_buckets_events_and_load() -> void:
 	tracker.set_value("all_units.total", 72)
 	tracker.set_value("missile_count", 14)
 	tracker.configure_frame_trace(true)
-	tracker.begin_render_frame(0.020)
+	tracker.begin_render_frame(0.010)
 	tracker.mark_physics_tick()
 	tracker.tick("trail_draw", 1800)
 	tracker.count("radar_pairs", 240)
 	tracker.mark_frame_event("radar_tick")
-	tracker.begin_render_frame(0.010)
+	tracker.begin_render_frame(0.020)
 	var dump: String = tracker.format_frame_trace_dump()
 	_check("慢帧被捕获", dump.contains("below60=1 captured=1"), dump)
 	_check("已测与未归因帧时间分离",
@@ -52,6 +53,33 @@ func _test_slow_frame_captures_buckets_events_and_load() -> void:
 	_check("事件与负载随慢帧保存",
 		dump.contains("radar_tick=1") and dump.contains("units=72")
 		and dump.contains("missiles=14"))
+	tracker.free()
+
+
+func _test_slow_frame_keeps_pre_and_post_context() -> void:
+	var tracker := PerfBucketsScript.new()
+	tracker.configure_frame_trace(true)
+	# 两个快帧上下文。
+	tracker.begin_render_frame(0.010)
+	tracker.begin_render_frame(0.010)
+	tracker.begin_render_frame(0.011)
+	tracker.mark_physics_tick()
+	tracker.tick("aircraft_draw", 12000)
+	# 结算慢帧，再补两个后续快帧；窗口此时仍是合法的 partial capture。
+	tracker.begin_render_frame(0.020)
+	tracker.begin_render_frame(0.010)
+	tracker.begin_render_frame(0.010)
+	var dump := tracker.format_frame_trace_dump()
+	_check("追踪报告包含 p95/p99/max 与保守归因率",
+		dump.contains("detail_stride=4") and dump.contains("frame_ms p95=")
+		and dump.contains("conservative_attribution=1/1 (100.0%)")
+		and dump.contains("class=script_hotspot"), dump)
+	_check("慢帧保留前后上下文",
+		dump.contains("context_windows=1 pre_limit=120 post_target=30")
+		and dump.contains("pre_frames=2")
+		and dump.contains("triggers=[3]")
+		and dump.contains("complete=false")
+		and dump.contains("! f=3 dt=20.000"), dump)
 	tracker.free()
 
 

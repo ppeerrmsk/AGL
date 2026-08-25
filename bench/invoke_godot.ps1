@@ -267,6 +267,45 @@ function New-KillOnCloseJob {
     return $handle
 }
 
+function Get-BenchRuntimeErrorBlocks([string]$stdoutText, [string]$stderrText) {
+    # Godot can abort only the current GDScript method, print a red runtime error,
+    # and still exit the process with code 0. Treat those diagnostics as test failures.
+    # Compiler warnings and known non-script shutdown noise are intentionally excluded.
+    $combined = $stdoutText + "`n" + $stderrText
+    $lines = @($combined -split "`r?`n")
+    $fatalPatterns = @(
+        '^\s*SCRIPT ERROR:',
+        'Trying to (?:cast|assign).*freed',
+        'previously freed',
+        'freed instance',
+        '^\s*ERROR:\s+.*(?:Invalid call|Invalid access|Invalid type in function)',
+        '^\s*ERROR:\s+.*(?:Attempt to call|Attempted to erase|on a null value|Stack overflow)',
+        '^\s*ERROR:\s+\[BenchRuntimeErrorProbe\]'
+    )
+    $blocks = New-Object System.Collections.Generic.List[string]
+    $seen = @{}
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $line = $lines[$i]
+        $fatal = $false
+        foreach ($pattern in $fatalPatterns) {
+            if ($line -match $pattern) {
+                $fatal = $true
+                break
+            }
+        }
+        if (-not $fatal) {
+            continue
+        }
+        $end = [Math]::Min($lines.Count - 1, $i + 3)
+        $block = (($lines[$i..$end] | Where-Object { $_ -ne '' }) -join [Environment]::NewLine).Trim()
+        if ($block -ne '' -and -not $seen.ContainsKey($block)) {
+            $seen[$block] = $true
+            $blocks.Add($block)
+        }
+    }
+    return @($blocks)
+}
+
 try {
     if (-not (Test-Path -LiteralPath $GodotExe -PathType Leaf)) {
         throw "Godot does not exist: $GodotExe"
@@ -383,11 +422,24 @@ try {
     $watchdog.WaitForExit(2000) | Out-Null
     # Always surface the captured engine output, including watchdog timeouts.
     # Without this, the most useful import/crash breadcrumb was discarded on exit 124.
-    [Console]::Out.Write($stdoutTask.Result)
-    [Console]::Error.Write($stderrTask.Result)
+    $stdoutText = $stdoutTask.Result
+    $stderrText = $stderrTask.Result
+    [Console]::Out.Write($stdoutText)
+    [Console]::Error.Write($stderrText)
     if (Test-Path -LiteralPath $timeoutMarker) {
         [Console]::Error.WriteLine("[bench] ERROR: Godot exceeded ${TimeoutSeconds}s; its entire process tree was terminated.")
         exit 124
+    }
+    $runtimeErrorBlocks = @(Get-BenchRuntimeErrorBlocks $stdoutText $stderrText)
+    if ($runtimeErrorBlocks.Count -gt 0) {
+        [Console]::Error.WriteLine("[bench] ERROR: runtime-error gate found $($runtimeErrorBlocks.Count) fatal diagnostic block(s).")
+        foreach ($block in $runtimeErrorBlocks) {
+            [Console]::Error.WriteLine("[bench] RUNTIME ERROR:`n$block")
+        }
+        if ($child.ExitCode -eq 0) {
+            # Distinct from assertion failure (1), launcher failure (2), lock (3), timeout (124).
+            exit 86
+        }
     }
     exit $child.ExitCode
 } catch {
