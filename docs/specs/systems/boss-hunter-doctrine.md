@@ -3,7 +3,7 @@ id: boss-hunter-doctrine
 kind: system
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 5
+spec_version: 6
 owner: 用户（设计定档） / Claude（落地）
 depends_on: [ace-squadron-tier, event-system, global-awareness-roe, wraith-squadron]
 reconstruction_complete: true
@@ -237,10 +237,10 @@ playtest 同时暴露了两个**看起来像猎手问题、实际不是**的现�
 
 | 现象 | 真实归属 | 结论 |
 |---|---|---|
-| "BOSS 完全没有要躲的意思" | `is_boss_attacker()` 是一个**总的自保关闭开关**，它按设计屏蔽了王牌的全部规避机动入口 | **不改**。[ace-squadron-tier](ace-squadron-tier.md) 已定档"王牌不靠机动躲，靠热诱弹当命数（4 命，不解锁规避机动）"。本 spec 不推翻它 |
-| "一轮骑射掉半数" | 热诱弹命数契约**从未实装**：spec 要 `max_flares=4 / burst_count=1`（4 条命），实际资源是 `max_flares=2 / burst_count=3` → 一次投放打光全部弹量 = **1 条命** | 归 ace-squadron-tier 阶段 3，与本 spec 并行修复 |
+| "BOSS 完全没有要躲的意思" | `is_boss_attacker()` 继续屏蔽常态自保规避，避免 BOSS 放弃猎杀；但实际投焰后允许最长 1.25 s 的局部 break | 由 [flare-evasion-coupling](flare-evasion-coupling.md) 统一：轨迹没变仍会命中，局部 break 不等于恢复常态 beam / notch |
+| "一轮骑射掉半数" | flare 数量现在表示有限尝试数，不是保证命数；BOSS 仍按资源配置拥有更多尝试 | 由 ace-squadron-tier 与 flare-evasion-coupling 共同约束 |
 
-猎手化解决的是"BOSS 不来 + 挨打不算接战"；上面两条解决的是"BOSS 太脆"。三者叠加才是完整修复。
+猎手化解决的是"BOSS 不来 + 挨打不算接战"；投焰后的局部 break 只解决"按钮式无敌"，不改变持续追猎权威。
 
 ### 2.8 逐 BOSS 猎手化对照表
 
@@ -426,6 +426,7 @@ BOSS 又整体豁免于 ROE —— 为 BOSS 单独引一套姿态字段是纯粹
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-23 | 6 | 跟随 flare-evasion-coupling：BOSS 仍不做常态自保规避，但实际投焰后允许最长 1.25 s 局部 break；轨迹不变时不再瞬时无敌。 |
 | 2026-08-04 | 5 | **用户裁定 BOSS 绝不允许飞出边界**：现有 `AceSquad` 软返场仍可能因 encounter tick/指令所有权/物理更新顺序失守。把 40 px 兜底从“越线后补救”升级为“触线前硬护栏”，并在 `SurvivorSpawner` 增加不依赖玩家引用与 encounter 状态的第二所有者；只钳位置/航向，不覆写 BOSS 战术与火控。 |
 | 2026-08-01 | 4 | **修复飞机类 BOSS 出界**：全局边界纪律为保护专属战术会跳过 boss，但 `AceSquad` 原无对等收容，导致 LADON 二阶段 PLTGST-01 实际飞进地图左侧黑区。新增基类级世界边缘收容（2000 px 预警、3000 px 内侧返场、越线 40 px 硬兜底），明确它只守世界矩形、不是被废除的锚点 leash。 |
 | 2026-07-22 | 1 | 初稿并定档。用户裁定：取消"BOSS 飞到圈里等玩家"的概念，全 BOSS 王牌机改猎手型（知道玩家位置 + 主动追击）。由 playtest log 20260722_005100 驱动（BOSS 锚点空转 47.6s、玩家 10km 外白嫖、苏醒 3s 内长机阵亡）。核心四条：INBOUND 相追玩家实时位置 / 接战触发器扩到四条（+被锁定 +受伤）/ 废除 ANCHOR_HOLD 归巢 / 出生点从"最远地图角"改"机头前方 12km"。舰船不猎手（物理不可行），CSG 猎手性由舰载机承担 |

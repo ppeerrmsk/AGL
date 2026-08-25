@@ -3,7 +3,7 @@ id: ui-transition
 kind: system
 status: in-progress
 schema_version: 1
-spec_version: 24
+spec_version: 25
 owner: noelu
 depends_on: [command-wheel, survivor-loop, zone-reward-docking, radio-chatter, event-system, ui-design-guidelines]
 reconstruction_complete: true
@@ -40,6 +40,8 @@ reconstruction_complete: true
     速度、盘旋半径对不上，跟旁边正常飞的飞机一比立刻穿帮。
   - **不造第二套 AI 所有权**：演员指令一律经既有 `AIDirective` + `GameEvent` 的 owner/cleanup 下发。
   - **不做模式污染**：导演是 autoload，但只被生存模式链路调用；共享层（aircraft / ai / weapons）不碰。
+  - **虚拟环境隔离**：`CinematicCast.bind()` 到 `release()` 是导演对演员的显式所有权窗口。
+    真实战斗传感器隐形在该窗口内冻结且不得影响演员绘制、尾迹或玩家侧观察；分镜隐身只改导演视觉字段。
   - **演出必须短**：生存模式虽有终点，但升级与多局 BOSS 登场仍是高频重复内容。**不可跳过**是已定决策
     （见 §3.6），代价必须用时长来还 —— BOSS 演出硬上限 **7 秒**。
 
@@ -287,7 +289,7 @@ BOSS 演出期间把世界"清空"成一片空旷天空的参数。**不新建�
 > `_cloak_enter()` 会置 `_cloak_in_state`，而 PRE_STAGE 下状态机休眠、`_cloak_remaining`
 > 永不倒数，实测四机**永久隐身**、玩家满地图找不到 BOSS。
 > `release` 时三字段一起复位（`_cloak_alpha` / `is_cloaked` / `suppress_flares`），
-> 剧情结束即解除；真隐身仍由战斗中的 110s±jitter 循环自行触发。
+> 剧情结束即解除；真隐身仍由战斗中的严格 60s CD 循环自行触发。
 
 **导演不等无线电**（§3.5）—— 这些是入队时刻，不是保证出声时刻。
 
@@ -700,6 +702,7 @@ func get_transition_elements() -> Array[Control]
 - [ ] **时间泄漏**：任意 present/dismiss 配对后 `Engine.time_scale == 1.0`；中途 `clear_all` 亦然
 - [ ] **舞台泄漏**：`clear` → `restore` 后全部非演员 `modulate.a == 1.0`；演出中途单位失效不阻断 restore
 - [ ] **演员泄漏**：演出结束后全部演员 `_directive == null`；超时路径同样释放
+- [x] **战斗状态隔离**：导演演员在 bind/release 窗口内不推进传感器失联，不被真实隐形逻辑隐藏或停尾迹；release 后恢复真实状态（`presentation` 235/235）
 - [ ] 超时：`_elapsed > max_sec` 触发强制收尾，三类状态全复原
 - [x] 横幅：所有注册 BOSS 都有 `banner_name_key` / `banner_role_key`；镜头切换严格晚于横幅退场
 - [x] 横幅清理：正常结束、超时、UI 覆盖和 `clear_all()` 后均隐藏且不拦截输入
@@ -735,7 +738,7 @@ func get_transition_elements() -> Array[Control]
 - [ ] **题眼镜头**：机体消失后尾迹仍在，四线交叉于一点后才淡出（验证尾迹未继承机体 alpha）
 - [ ] 尾迹够长：0.50 广角下单条尾迹约占屏宽 40%+（验证 `max_points 240` 覆写生效）
 - [ ] `release` 后尾迹参数还原为 `80 / 8.0`（**不得泄漏给常规战斗**，这是性能红线）
-- [ ] 隐身边界：`release` 清除演出专属淡出，战斗真隐身只由既有 110s+jitter 循环触发
+- [ ] 隐身边界：`release` 清除演出专属淡出，战斗真隐身只由严格 60s CD 循环触发
 - [ ] 演出期间玩家绝对安全（世界冻结），演出结束后玩家机与敌人状态与演出前一致
 - [ ] 演出中飞行是**真物理**：四机有真实坡度、转弯半径、速度，与常规飞行无视觉差异
 - [ ] 无线电条在演出期间**不被压暗**（DIM_LAYER=16 生效）
@@ -829,6 +832,7 @@ func get_transition_elements() -> Array[Control]
 | 升级触发/解除 | `scripts/survivor/survivor_mode.gd` |
 | BOSS 演出接入 | `scripts/events/boss_encounter_event.gd`、`scripts/events/event_director.gd` |
 | Wraith 中队 | `scripts/survivor/f47_ace_squad.gd`、`scripts/survivor/ace_squad.gd` |
+| 演员所有权 / 战斗隐形隔离 | `scripts/presentation/cinematic_cast.gd`、`scripts/combat_unit.gd`、`scripts/aircraft.gd` |
 | 演员指令 | `scripts/events/ai_directive.gd`、`scripts/events/game_event.gd` |
 | 无线电压制 | `scripts/survivor/radio_chatter.gd` |
 | HUD 首次显现状态机 | `scripts/ui/hud_first_reveal_sequencer.gd` |
@@ -841,6 +845,7 @@ func get_transition_elements() -> Array[Control]
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-21 | 25 | 修复真实战斗隐形污染开局演出：CinematicCast 绑定期间给演员显式虚拟环境所有权，冻结传感器失联并绕过其逻辑/绘制/尾迹门；release 后清标记并恢复真实状态。 |
 | 2026-08-10 | 20 | 修复进入树到首次 `_process` 之间仍短暂绘制总体 `1px` 描边：复合仪表新框板改为默认关闭，HUD 在 `_ready` 的首次绘制前完成零时刻显现同步；源关闭区域向外覆盖 `1px`，一并收掉描边的半像素外溢。 |
 | 2026-08-10 | 19 | 修复首显前仍能看到黑色底板：删除逐框 `ColorRect` 遮罩，改由 `HudBoardVisibility` 直接开关复合控件的源绘制区域；背景、文字和边线同步消失，常亮后卸下临时材质。 |
 | 2026-08-10 | 18 | 按用户复测反馈把单框板两闪总时长从 `0.20s` 调整为 `0.50s`，四个明灭相位同步改为 `0.125s`；`0.02s` 快速错峰、并发播放与逐框拆分不变。 |

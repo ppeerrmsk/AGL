@@ -3,7 +3,7 @@ id: hypersonic-splitter
 kind: boss
 status: done
 schema_version: 1
-spec_version: 16
+spec_version: 17
 owner: 用户
 depends_on: [systems/boss-hunter-doctrine, systems/ui-transition, systems/ui-design-guidelines, systems/multi-target-missile-locks]
 reconstruction_complete: true
@@ -198,7 +198,11 @@ G3：GUN_DOGFIGHT；无冲刺、无火箭、无高空再入、无散热循环。
 
 ### 3.4 Debug 与验证入口
 
-Boss Debug 的 Black Star 卡提供 `FULL ENCOUNTER`、`G0 OMNI SALVO`、`G1 REENTRY`、`G1 FORWARD SALVO`、`G2 DASH`、`G2 BRAKE WAVE`、`G3 DOGFIGHT`、`SECOND ROOT`、`COOLDOWN WINDOW`。`G0 OMNI SALVO` 把玩家摆在 G0 后方，`G1 FORWARD SALVO` 把玩家摆在 G1 正前方；两者都不注入锁定进度或伪造发射。`G2 BRAKE WAVE` 只把玩家放到真实冲刺终点扇区内，不直接扣血或跳过冲刺状态机。场景选择通过 `boss_debug_scenario` meta 传给 encounter；F8 重开 / 重 roll 保留它。Debug 只改变起始状态，不伪造伤害、锁定、SLOW 或分裂的运行时语义。
+Boss Debug 的 Black Star 卡提供 `FINAL WAR // OCEAN`、`FULL ENCOUNTER`、`G0 OMNI SALVO`、`G1 REENTRY`、`G1 FORWARD SALVO`、`G2 DASH`、`G2 BRAKE WAVE`、`G3 DOGFIGHT`、`SECOND ROOT`、`COOLDOWN WINDOW`。`G0 OMNI SALVO` 把玩家摆在 G0 后方，`G1 FORWARD SALVO` 把玩家摆在 G1 正前方；两者都不注入锁定进度或伪造发射。`G2 BRAKE WAVE` 只把玩家放到真实冲刺终点扇区内，不直接扣血或跳过冲刺状态机。
+
+`FINAL WAR // OCEAN` 是关底规模校准沙盒：加载海洋群岛正式 MapDocument / 底图 / 天气，把玩家选择的 T4 路线自动推进到一个相连的 T5 终局节点，并生成同型四机队、8 点三轴、3 件三星战区军械和同级正式技能 Build；另一支 AI 控制的友方玩家队使用不同 T5 节点并遵守同一满配规则。战场另有 4 架普通友机、2 艘友舰、6 架先进敌机和 2 艘敌舰。全部单位使用真实阵营、AI、武器、伤害与死亡语义，不锁血；普通友军 / 敌军不伪装成玩家队，Black Star 仍走双根、分裂、再入与唯一胜利条件。F8 完整重开并重抽两支玩家队的正式 Build。
+
+场景选择通过 `boss_debug_scenario` meta 传给 encounter；F8 重开 / 重 roll 保留它。Debug 只改变起始编成和状态，不伪造伤害、锁定、SLOW、分裂或胜利语义。
 
 ## 4. 结构与组成（Structure）
 
@@ -234,7 +238,7 @@ Boss Debug 的 Black Star 卡提供 `FULL ENCOUNTER`、`G0 OMNI SALVO`、`G1 REE
 - [x] 初次横幅不切到固定事件锚点展示隐藏根机；横幅收尾后第一根机在玩家附近真实下降，玩家仅视觉隐身且状态栏连续显示高度。
 - [x] 第一 / 第二根机在各自真实下降开始时由 `BLACK STAR-01 / 02` 自报“一号机 / 二号机已突破十马赫，正在高速下降中”，不提前泄露第二根机。
 - [x] 所有节点和最终胜利均为 `0 XP`；Debug 局不入档。
-- [x] 九个 Black Star Debug 场景可直达（含 `G0 OMNI SALVO`、`G1 FORWARD SALVO` 与 `G2 BRAKE WAVE`），专项 Shadow bench 与 Visual 验收通过。
+- [x] 十个 Black Star Debug 场景可直达；`FINAL WAR // OCEAN` 实际加载海洋地图并生成两支 T5 四机满配队、4 架普通友机、6 架先进敌机与敌我各 2 艘舰船，全部可正常交战和减员。
 - [x] 16 个 G3 + Sentinel + Lv5+ 压测维持 60 FPS 红线；攻击线、火箭和分裂特效有硬上限。
 - [x] 三语、spec 索引、enemy / script / code / resource 索引与文档校验全部通过。
 
@@ -242,7 +246,7 @@ Boss Debug 的 Black Star 卡提供 `FULL ENCOUNTER`、`G0 OMNI SALVO`、`G1 REE
 
 | 证据 | 结果 |
 |---|---|
-| `hyper_a` | `107/107`：Registry、四代资源、Debug 九入口、G0/G1/G2/G3 为 400/200/100/70 HP、G1 首次隐藏 / 撞击揭示、G0 180° 半锥 / 全向四目标离轴实弹、G1 45° 前向锥 / 侧向成熟锁拒射、四代独立饱和齐射与特殊状态静默、40–50s 再入间隔、7–10s 高空等待、爬升消失时目标 / 锁存原子解除且状态栏保留高度倒数、其它分裂体暂停倒数 / 至少 12s 错峰、6s SLOW、冲锋物理对线 / 伸展预警 / 延迟终点扇区、急刹扇区几何 / 实伤 / 单次结算、双根真实时刻无线电、玩家纯视觉隐藏 / 恢复、崩溃防护与 arrival 契约 |
+| `hyper_a` | `108/108`：Registry、四代资源、Debug 十入口（含 FINAL WAR）、G0/G1/G2/G3 为 400/200/100/70 HP、G1 首次隐藏 / 撞击揭示、G0 180° 半锥 / 全向四目标离轴实弹、G1 45° 前向锥 / 侧向成熟锁拒射、四代独立饱和齐射与特殊状态静默、40–50s 再入间隔、7–10s 高空等待、爬升消失时目标 / 锁存原子解除且状态栏保留高度倒数、其它分裂体暂停倒数 / 至少 12s 错峰、6s SLOW、冲锋物理对线 / 伸展预警 / 延迟终点扇区、急刹扇区几何 / 实伤 / 单次结算、双根真实时刻无线电、玩家纯视觉隐藏 / 恢复、崩溃防护与 arrival 契约 |
 | `boss_hyper_a_g0_weapons` 7s | 不注入锁定进度；G0 背向玩家仍在 `2.2s` 自然锁满后发射 BLACK STAR MRM，日志记录 `tgt_off=-155° lock=1.50s`，战报持久化 `G0 msl_fired=1` |
 | `boss_hyper_a_g1_weapons` 7s | 不注入锁定进度；G1 通过普通前向雷达、稳定窗口与前置解后于 `5.7s` 发射 BLACK STAR MRM，日志记录 `tgt_off=+26° lock=2.40s`，战报持久化 `G1 msl_fired=1`；契约另确认 ±90° 侧向成熟锁拒射 |
 | `boss_hyper_a_g1_entry` 17s | `2.6s` 完成爬升后进入 `8.2s` 独立高空等待；约 `10.8s` 才开始俯冲，`14.8s` 记录 atmospheric impact，确认爬升与俯冲不再首尾连放 |
@@ -252,6 +256,8 @@ Boss Debug 的 Black Star 卡提供 `FULL ENCOUNTER`、`G0 OMNI SALVO`、`G1 REE
 | `boss_hyper_a` 35s | 双根完整时间线；G0 在非专项交战中于 `4.8s`、`tgt_off=-24°` 向玩家发射，战报为 `G0 msl_fired=1`；终态 `generation_counts=[2,0,0,0]`，确认第二根按独立计时加入 |
 | `boss_hyper_a_arrival` 5s / 25s | 正式 `BossEncounterEvent → black_star_arrival → ENGAGED` 链通过；5 秒终态 `hud_entries=1`，25 秒终态 `generation_counts=[2,0,0,0] / hud_entries=2`，确认第二根按第一根撞击后 18 秒的真实时钟开始下降，而非开场提前播报。 |
 | `boss_hyper_a_stress` 15s | `16 G3 + Sentinel/5`，23 个 Aircraft；v13 收尾复测采样 `77 FPS`、`hud_entries=16`，高于 60 FPS 红线 |
+| `boss_debug_select_visual` FINAL WAR | 海洋 MapDocument / streamed raster 实际加载；PRIMARY 自动由 F-47 路线进化为 X-09，Lv26、8 技能点、3 件三星军械、四机；SUPPORT 四机；普通友机 4、先进敌机 6、友 / 敌舰各 2。舰船水域检查通过，全部非 BOSS 编成均未锁血；稳态最近 120 帧 `avg 8.64ms / p95 9.09ms / worst 12.68ms / below60 0`，1920×1080 真战斗截图已生成。 |
+| `final_war_ocean_baseline/stress` 30s Visual 诊断 | baseline 为原 6 架隐形敌机 + 固定镜头；stress 仅测试层追加 F-35×2 / J-20×2，并完成 `x=-6520..520 / y=3800..10200 / zoom=0.20..0.34` 的 8/8 段巡检。初始三次中位：baseline `avg 240.83 / p1 157.46 / worst 44.35 / below60 1`，stress `avg 186.02 / p1 116.57 / worst 32.15 / below60 1`。消除同向 Tween 重建、同步 Canvas redraw / AC_TICK 与长局日志头删后，stress 三次中位 `avg 188.34 / p1 110.47 / p95 8.33ms / p99 9.09ms / worst 67.49 / below60 0`，三次均 `<60=0`。敌机行为和更新频率未改变；自然减员与 Black Star 代际会分歧，结果仍不替代锁定满编的 S2 毕业门。 |
 | `presentation` / `chatter` / `boss_phase` / `boss_progression` | `233/233`、`101/101`、`33/33`、`38/38` |
 | Visual | `boss_hyper_a_arrival_visual_latest.png` 在 3 秒显示玩家附近同源危险圆、`DESCENT 23.5km 2.9s` 连续状态栏与 `BLACK STAR-01 << 一号机已突破十马赫，正在高速下降中。 >>`；玩家机体 / 标签 / 航迹均不可见，但 HP、速度与操控 HUD 保留。另有 Black Star 横幅、G2 冲锋 / 急刹、v15 G1 `HIGH HOLD` 与 16 G3 树 HUD 的既有 1920×1080 截图验收。 |
 
@@ -271,6 +277,7 @@ Boss Debug 的 Black Star 卡提供 `FULL ENCOUNTER`、`G0 OMNI SALVO`、`G1 REE
 - [x] 阶段 11：v14 完成 G0 全向 / G1 前向身份纠正、Debug 与专项验证，并将 G1 HP 降为 `200` 后恢复 `done`。
 - [x] 阶段 12：v15 在高空语义离场时原子解除目标 / 雷达锁存，并让 `HIGH HOLD` 状态栏持续显示 30km 高度与倒数。
 - [x] 阶段 13：v16 移除初次登场的固定锚点根机特写，把第一根真实下降与玩家附近镜头 / 玩家视觉隐身 / 状态栏连续高度合并，并让两架根机按真实入场时刻自行报数与十马赫下降。
+- [x] 阶段 14：v17 增加 `FINAL WAR // OCEAN` 决战校准沙盒：海洋底图、双 T5 满配玩家队、常规友军与先进敌军海空编成共同接入真实 Black Star 遭遇。
 
 ## 7. 索引锚点（Where）
 
@@ -300,3 +307,5 @@ Boss Debug 的 Black Star 卡提供 `FULL ENCOUNTER`、`G0 OMNI SALVO`、`G1 REE
 | 2026-08-18 | 14 | 纠正导弹方向身份：G0 改为 `180°` 半锥的 360° 全向锁定 / 直接 LOS 离轴发射，G1 恢复普通 `45°` 前向锥与稳定 / 前置门；Debug 改为 G0 全向与 G1 前向专项。按用户确认将 G1 HP 从 `400` 降为 `200`，每树总 HP 降至 `1760`。契约 `98/98`，G0 在 `-155°` 后向、G1 在 `+26°` 前向均记录真实发射，G1 ±90° 侧向成熟锁拒射，验证后恢复 `done`。 |
 | 2026-08-19 | 15 | 按实机反馈把 G1 / G2 越过 `15,000m` 的消失明确为高空语义离场：同拍解除所有主目标、玩家命令、副目标、主 / 副雷达锁存与旧追击点，不残留空地图追踪线或雷达红点；隐藏期间保持免锁，树 HUD 的 `HIGH HOLD` 持续显示 `30.0km` 与剩余秒数。契约扩至 `101/101`。 |
 | 2026-08-19 | 16 | 按实机反馈移除 Black Star 初次登场对固定事件锚点隐藏根机的无效特写；身份横幅收尾后，第一根机直接在当前玩家附近进入真实 4 秒下降，玩家只做无玩法收益的视觉隐身，状态栏连续显示高度。两架根机改为在各自真实下降开始时由 `BLACK STAR-01 / 02` 自报已突破十马赫并高速下降。 |
+| 2026-08-22 | 17 | 增加海洋决战校准沙盒：玩家选择路线自动推进 T5，另生成一支独立 AI T5 满配玩家队，并叠加真实可减员的普通友军、先进敌机与敌我舰队共同迎战 Black Star。 |
+| 2026-08-24 | 17（证据更新） | 增加不改变手动沙盒编成的 FINAL WAR 性能 A/B：baseline 保留原场，stress 仅在测试层追加 4 架隐形机与全战线缩放巡检；记录初始尖峰与不改变敌机行为的 redraw / 诊断日志错峰优化后三次严格通过证据。 |

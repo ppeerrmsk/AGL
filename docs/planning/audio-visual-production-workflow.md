@@ -20,6 +20,16 @@
 
 制作人提供原始素材或方向参考；项目侧负责整理、转码、命名、注册、混音、接入、变体、性能和验收。
 
+音频统一从 [`audio_intake/`](../../audio_intake/README.md) 收件。制作人不知道类别时直接投放到
+`audio_intake/00_unsorted/`；整个 `audio_intake/` 由 `.gdignore` 与正式运行资源隔离，并在
+`export_presets.cfg` 的正式导出/增量补丁过滤器中显式排除，原始大文件默认不进入 Git 或包体。
+项目侧按 `catalog.csv` 登记来源、许可、声音家族、目标状态/触发点、Bus、变体与处理状态；筛选后的派生文件
+才进入 `audio/` 并由 `AudioManager` 注册。原始母版不得被转码结果覆盖。
+
+音乐生成、世界音效与无线电无语义人声纹理/蜂鸣的起始提示词见
+[`audio_intake/PROMPT_GUIDE.md`](../../audio_intake/PROMPT_GUIDE.md)。提示词只负责产出候选，不代替真实游戏链路中的
+听感选择与许可登记。
+
 每批素材交付附一份清单，至少包含：
 
 | 字段 | 要求 |

@@ -22,9 +22,15 @@ AGL 的音频全部走 `AudioManager` AutoLoad（[scripts/audio/audio_manager.gd
 | Music | -12 | BGM | LowPassFilter（默认禁用，菜单打开时用做模糊效果） |
 | SFX | -4 | 世界音效 | HighPass + LowPass + Reverb（远距无线电） |
 | UI | -6 | 界面反馈 | — |
-| Radio | -10 | 无线电人声（Step 2 未启用） | HighPass + LowPass + Distortion |
+| Radio | -10 | 无语义、不可辨词句的无线电人声纹理（素材待接入） | HighPass + LowPass + Distortion |
 
 默认值在 `AudioManager.DEFAULT_BUS_DB`。用户通过[音频设置面板](../../scripts/audio/audio_settings_panel.gd)调整后持久化到 `user://audio.cfg`。
+
+### 自动测试隔离
+
+所有带 `--bench` 的进程由 `BenchRunner` 在识别参数后直接 mute `Master` 总线，保证 Music、SFX、UI、
+Radio 以及未来新增总线均不占用用户的听觉环境。该 mute 只存在于测试进程，不调用 `save_settings()`；
+播放器、播放入口、signal 与 Bus 状态仍按正式逻辑执行，所以音频行为断言不能因静音而被跳过。
 
 ## API 一览
 
@@ -35,11 +41,17 @@ AudioManager.play_music(id, fade_in=1.5, loop=true)
 AudioManager.stop_music(fade_out=2.0)
 AudioManager.crossfade_music(id, duration=2.0, loop=true)
 AudioManager.play_music_playlist(ids, fade_in=2.0, crossfade_between=2.0)
+AudioManager.crossfade_music_playlist(ids, duration=2.0, crossfade_between=2.0)
+AudioManager.has_music(id) -> bool
 AudioManager.set_music_muffled(muffled, duration=0.35)
 ```
 
 双播放器轮换实现 crossfade（`_music_player_a` / `_music_player_b`）。
 **播放列表模式**：首曲淡入后 `loop=false`，播完触发 `finished` → 自动 crossfade 下一首，周而复始。调用 `play_music/crossfade_music/stop_music` 会自动退出 playlist 模式（BOSS 登场就是靠这个）。
+`crossfade_music_playlist` 用于临时主题结束后从当前曲等功率切回播放列表；`has_music` 同时检查登记与资源存在，事件可在素材缺失时保持当前歌单不中断。
+非 playlist 的 one-shot 曲自然结束时，`AudioManager.music_track_finished(id)` 发出完成信号；Ace 音乐据此淡入恢复普通歌单。
+新加入的 OGG 若尚未由编辑器生成 `.import`，`_get_music` 会用 `AudioStreamOggVorbis.load_from_file`
+直接读取原始文件；导入完成后自动回到标准 `ResourceLoader` 路径。
 **模糊（muffle）效果**：预挂 Music Bus 上的 `AudioEffectLowPassFilter`，菜单打开时启用并 tween cutoff 20000→600Hz，关闭时反向 tween 回去并禁用效果。
 
 ### SFX（2D 定位）
@@ -85,6 +97,22 @@ AudioManager.save_settings()  # 写 user://audio.cfg
 - `UI_FILES`（字典，暂空）—— UI 音效
 
 新增音频文件 → 放到对应 `audio/{music,sfx,ui}/` → 在对应字典里加一行 id → 路径。
+非 BOSS 王牌使用 `ace_battle_01`～`04` 四首随机池，正式路径为
+`audio/music/ace_battle_01.ogg`～`04.ogg`；WAV 母版保留在 `audio_intake/10_music/ace_battle/`。
+每次血条浮现只抽一首且不循环，曲终或中队终止后恢复普通歌单；部分文件缺失只缩小随机池。
+
+### 包体边界
+
+`audio_intake/` 是制作源，不是运行时资源：目录内 `.gdignore` 阻止 Godot 导入；
+`export_presets.cfg` 的 `exclude_filter` 与 `patch_delta_exclude_filters` 同时显式排除
+`audio_intake/*,audio_intake/**/*`。因此收件区的 WAV 母版、来源截图和许可证明均不进正式包或增量补丁。
+不能全局排除 `*.wav`：`audio/sfx/` 下的正式机炮、导弹、爆炸和引擎音效仍需要随包发布。
+
+### 主菜单音乐
+
+`main_menu` → `audio/music/main_menu.ogg`，48kHz stereo、Vorbis Quality 5、循环播放。
+`main_menu._ready` 仅在该曲尚未播放时以 2.0 秒淡入/交叉淡化取得音乐；资料库、商店与选图等
+菜单链路不会重复重启。`survivor_mode._ready` 以 `crossfade_music_playlist` 平滑交给普通战斗双曲歌单。
 
 ## 音量调整速查
 
@@ -98,13 +126,16 @@ AudioManager.save_settings()  # 写 user://audio.cfg
 
 ## 格式要求
 
-- **BGM**：`.ogg` Vorbis, 44.1kHz stereo, Quality 5（~160 kbps）
+- **BGM**：`.ogg` Vorbis, 48kHz stereo, Quality 5（约 146～162 kbps；与现有正式 BGM 一致）
 - **SFX**：`.wav` PCM, 44.1kHz **mono**（定位音效必须 mono）, 16-bit, ≤ 2s
 - **UI**：`.wav`, 可 stereo（非定位）, ≤ 0.5s
 
 ## 集成点
 
 - `survivor_mode._ready` 启动 playlist + 玩家引擎音
+- `main_menu._ready` → 幂等播放 `main_menu` 循环曲；生存模式开局平滑交给普通战斗 playlist
+- `ace_reinforcement_event` 的 Ace 中队血条浮现 → `survivor_mode.begin_ace_battle_music` 随机抽一首；
+  `music_track_finished` 或中队终态 → `end_ace_battle_music`，仅当当前仍为该王牌曲且未进 Boss/Game Over 时恢复普通歌单
 - `survivor_mode._unhandled_input` ESC 退主菜单 → `stop_music(1.0)`
 - `_on_player_leveled_up` / `_on_upgrade_selected` → `set_music_muffled(true/false)`
 - `tactical_map.open/close` → `set_music_muffled(true/false)`

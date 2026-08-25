@@ -64,7 +64,7 @@ AXIS_BY_CAT = {"survival": "斗士", "secondary": "斗士", "mobility": "骑士"
                "missile": "骑士", "weapon": "骑士", "electronic_warfare": "策士"}
 OVERRIDE = {"dogfight": "斗士", "fear_squad_spread": "策士", "fear_chills": "策士",
             "skill_gun_kill_flare_drop": "策士", "laser_cooldown": "策士",
-            "laser_range": "策士", "laser_heat": "策士"}
+            "laser_range": "策士"}
 AXIS_ZH = {"gladiator": "斗士", "knight": "骑士", "schemer": "策士"}
 ## 装备门控 = 特殊装备 requires（gun/missile/flare 人人都有，不算门控）
 SPECIAL_GEAR = {"railgun", "laser", "rocket", "torpedo", "loyal_wingman", "secondary_missile"}

@@ -3,7 +3,7 @@ id: ace-2ndwave
 kind: event
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 3
+spec_version: 5
 owner: noelu（设计输入 2026-07-27）/ Claude（细化）
 depends_on: [ace-squadron-tier, ace-support-squadron, ace-lancer-mig31, joust-attack-run]
 reconstruction_complete: false
@@ -49,18 +49,18 @@ reconstruction_complete: false
 | Teacher AI | `skill_level / composure / focus / situational_awareness = 1.0`（**顶格**，高于王牌门槛 0.90）；aggression 0.95 | 用户："AI 很高操作很好" |
 | 学员 AI | 王牌档（同 MARATHON：≥0.90 / aggression 0.95） | — |
 | 涂装 | **电紫 `#B44DFF`**（tier §2.7 主色表） | 紫/红系；与 MARATHON 猩红、VULTURE 酒红可区分 |
-| 登场 | **统一轮换窗**（240 s，与其余四队一同洗牌） | 2026-08-01 轮换修订 |
+| 登场 | 固定两槽候选（开局 3:30 / BOSS 前最后 3:00） | 2026-08-23 时序修订 |
 
 ### 2.2 生存模型（统一可数）
 
 | 项 | Teacher（F-4E） | 学员（F-15 ×4） |
 |---|---|---|
 | `max_hp` | 不豁免 cap（≤75）→ **一发死** | 同左，一发死 |
-| flare | **1 枚必定躲**（jam 1.00 / fail 0 / 不补充） | 同左 |
-| 导弹防御 | 不做持续机动规避 | 同左 |
+| flare | **1 次高成功率 break 尝试**（fail 0 / 不补充） | 同左 |
+| 导弹防御 | 只在实际投焰后做最长 1.25 s 局部 break，不做持续机动规避 | 同左 |
 | 机炮闪避 | **特高档 0.50** | 基线档 0.20 |
 
-**Teacher 击杀读数**：第 1 个有效导弹解消耗 flare，第 2 发命中即坠；机炮仍可直接击杀，
+**Teacher 击杀读数**：第 1 个来袭导弹会消耗 flare 尝试；若 break 成功，下一发命中即坠，若动作失败或被近距追上则首发即可命中。机炮仍可直接击杀，
 但 0.50 闪避让弹流命中率约减半。全队共 10 DU，`access_s=20`，预计击破时间 70 秒。
 
 ### 2.3 火力
@@ -96,9 +96,9 @@ reconstruction_complete: false
 
 ### 2.5 触发与调度
 
-统一轮换窗：`game_time ≥ 240 s` 与其余四支非宿敌队同时进池；新局无放回洗牌，连续两局
-首队不同，同局不重复。
-间隔 150 s / 540 s 截止 / 同场 ≤1 支 / BOSS 阶段不触发——全部沿用。BOSS 闸落下：全队转撤离（含 Teacher），
+固定两槽：`game_time ≥ 210 s` 开放第一波，距 BOSS 解锁 `≤180 s` 开放第二波；与其余五支
+非宿敌队无放回洗牌，连续两局首队不同，同局不重复。无终态冷却 / 同场 ≤1 支 / BOSS 阶段
+不触发——全部沿用。BOSS 闸落下：全队转撤离（含 Teacher），
 撤离中击败无时间奖励（tier §2.9 通用契约）。
 
 ### 2.6 奖励
@@ -189,7 +189,7 @@ VULTURE 掠袭状态机（§2.4 参数覆写 + 掠袭轴改指缠斗圈）。**�
 - [ ] **学员=标准骑士**：1 骗 + 第 2 发死；回转窗口可强杀；弹尽 element 撤离
 - [ ] **包装合规**：血条 5 段 + Teacher 段三角标；代号提示条；固定呼号出现在 kill feed；
       全灭入档 `2ndwave`
-- [x] **轮换**：240 s 五队同池，新局洗牌且同局无重复
+- [x] **轮换**：固定 3:30 / BOSS 前 3:00 两槽，六队洗牌且同局无重复
 - [ ] tier 待遇全套（LOD/缩放/token/实例打标——杂兵 F-4E 零影响）
 - [ ] 性能：5 机 LOD 豁免过 Sentinel + Lv5 压测；i18n 三语
 
@@ -208,7 +208,7 @@ VULTURE 掠袭状态机（§2.4 参数覆写 + 掠袭轴改指缠斗圈）。**�
 - [ ] 掠袭轴 = 缠斗圈锚（Teacher 当前对手位置，0.5 s 软更新）
 
 ### 阶段 3 — 包装与调度
-- [x] 统一 240 s 新局洗牌轮换
+- [x] 固定两槽新局洗牌轮换
 - [ ] 血条 / 呼号 / 徽章 / lore / 提示条 / 留档（tier §6 阶段 7 通用件就位后接线）
 - [ ] Teacher 专属入场行（可选）
 - [ ] F5 debug 面板加项
@@ -228,6 +228,8 @@ VULTURE 掠袭状态机（§2.4 参数覆写 + 掠袭轴改指缠斗圈）。**�
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-23 | 5 | 跟随 flare-evasion-coupling：Teacher 与学员的 1 flare 改为高成功率局部 break 尝试，轨迹未变、执行失败或近距追上时首发仍可命中。 |
+| 2026-08-23 | 4 | 跟随统一调度改为固定 3:30 第一波与 BOSS 前最后 3:00 第二波。 |
 | 2026-08-01 | 3 | Teacher 改为 1 枚 flare 并撤下持续 evade；五队统一 240s 洗牌；2NDWAVE=10 DU+20s access=预计 70s。 |
 | 2026-07-28 | 2 | **核心落地**（用户"开始执行"）：enemy_f15.tres 新建；AceSquadProfiles elements 混编（tier §3.7 条款首个实装：Teacher=F-4E KNIGHT+ace_gun+零 flare+evade 解锁[ace_evader meta 免 boss_attacker]+dodge 0.50+AI 顶格 1.0；学员=F-15×4 骑士 element 复用 lancer_squad_tactics、载弹 6 硬预算）。**落地修订四则**：①掠袭轴 v1 = 玩家小队质心（spec §9 备选案，"轴指缠斗圈"留 playtest 升级）②Teacher XP 溢价未做（统一 100/架）③学员弹尽不单独撤离——is_ammo_dry 只在"存活成员全为骑士且弹尽"时真（Teacher 死战不退的字面执行；Teacher 阵亡后学员弹尽自然转撤离）④Teacher 专属台词行未加（可选项）。bench：--bench=lancer_squad B2 混编解析断言 + 回归门 41 项 PASS。差 §5 playtest |
 | 2026-07-27 | 1 | 初稿（draft）：用户需求（F-4E "Teacher" 带 4× F-15 / 斗士+骑士混编 / Teacher 零 flare 高 AI 靠机动闪避 / 缠斗时被 F-15 围攻 / 早期登场）→ tier §3.7 混编条款首例 + §3.4 零 flare 机动规避型首例。包装（2NDWAVE / 电紫 / 双叠浪 / 学籍呼号）与数值草案待定稿 |

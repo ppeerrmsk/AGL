@@ -3,7 +3,7 @@ id: airfield-liberation-zones
 kind: system
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 8
+spec_version: 9
 owner: ppeerrmsk
 depends_on: [zone-reward-docking, survivor-loop]
 reconstruction_complete: false
@@ -62,9 +62,9 @@ reconstruction_complete: false
 | C | `(2055.66, -5507.35)` | `(1186.12, -7011.18)` | `1737 / 3474` | `30 / 60` |
 | D（离岸） | `(1965.63, -4661.78)` | `(2805.72, -5579.76)` | `1244 / 2488` | `30 / 60` |
 
-- **视觉层级**：暗色道面、浅色边缘、虚线中线与两端入口标线，压在正式 PNG 上方并沿用港湾滤镜色系。
+- **视觉层级**：暗色道面、浅色边缘、虚线中线与两端入口标线，压在正式瓦片底图上方并沿用港湾滤镜色系。
 - **性能边界**：主地图只在 CanvasItem 静态缓存中绘制一次；Tab 仅缓存四条跑道的八个端点，不增加 `_process`、全图扫描或任务逻辑。
-- **验收**：四条中线必须与 `tokyo_bay_bg.png` 中已有跑道像素重合，不能跨出机场陆地；长度与角度以本表为准，不凭视觉二次旋转或缩放。
+- **验收**：四条中线必须与东京湾 Detail 瓦片中已有跑道像素重合，不能跨出机场陆地；长度与角度以本表为准，不凭视觉二次旋转或缩放。
 
 ### 2.2 地面防空编成（TGT —— 打完＝解放）
 
@@ -280,7 +280,7 @@ on 首次 _spawn_zone_units(airfield_zone):
 - [x] 数据层单测进 `test_zone_rewards.gd`（22/22 PASS）；`--bench=all` 回归门 37/37 PASS
 - [x] `verify_player_ref_holders.py` 通过；`verify_doc_anchors.py` 修掉本次改动引入的 6 处 survivor_mode 锚点位移
 - [x] 回填 §7 锚点 + 同步 reference 索引（code-index / script-index）
-- [x] 羽田跑道 PNG 叠图与 Godot 4.7.1 Visual QA 通过；`map_png_stress` 60s 平均 144.88 FPS、最差 140.83、低于 60 帧为 0
+- [x] 羽田跑道与正式栅格底图叠图通过 Godot 4.7.1 Visual QA；旧 PNG 压力数字保留为历史基线，当前地图性能走 `map_raster_*` 门
 - [ ] §5 §5 playtest（进引擎实飞验证：靠近刷怪 / 解放开补给 / 渐进 ALLY / Tab 文案）
 
 ## 7. 索引锚点（Where —— 唯一允许放指针的地方）
@@ -300,6 +300,7 @@ on 首次 _spawn_zone_units(airfield_zone):
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-22 | 9 | 同步官方底图毕业：羽田跑道上层从整图 PNG 改为正式 Detail 瓦片同位叠加；玩法几何与既有跑道数值不变，性能验收改引用 `map_raster_*`。 |
 | 2026-08-10 | 8 | 明确机场附近气氛 SPG 与正式防空 TGT/解放后驻军隔离：气氛演员固定阵营，解放只撤离旧演员并新建友军 AA/SAM，禁止中弹或结算翻阵营。 |
 | 2026-07-24 | 1 | 初稿（三机场解放战区：敌占→解放→一次性补给点；难度＝热度；Tab 奖励块去"生存"死词；BOSS 纯时间闸澄清） |
 | 2026-07-24 | 2 | 用户订正：友军防空伞在**解放即刻渐进刷出**（每 4s 一个，不 dock 门控）；status → approved |

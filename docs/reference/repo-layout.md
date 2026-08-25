@@ -184,7 +184,8 @@ AGL/
 │   └── *.tres                     # 敌机 / 通用武器 / 战斗风格
 │
 ├── i18n/                      # 五份领域 CSV + 各自三语 .translation；radio.csv 独立无线电
-├── audio/                     # music/ · sfx/
+├── audio/                     # 正式运行资源：music/ · sfx/（筛选并由 AudioManager 注册）
+├── audio_intake/              # 音频原始素材收件区（.gdignore 隔离；未分类/音乐/SFX/无线电/参考/待定）
 ├── tools/                     # 校验与生成脚本（Python / PowerShell）
 │   ├── analysis/                  # 可复算的生产 / 平衡规划模型与集中配置
 │   │   └── agl_quantitative_model.py / agl_quantitative_model_config.json

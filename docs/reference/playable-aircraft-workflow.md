@@ -39,7 +39,7 @@ PlayableAircraft (.tres)             ← 档案：装载 base + 生存模式调�
 | `rocket` | 没有火箭弹，不进入火箭决策分支 | `aircraft.gd:1536` `1599` |
 | `missile` | 没有主导弹，武器模式自动锁定 GUN | `aircraft.gd:1622` `1683` |
 | `secondary_missile` | 没有副导弹，仅用主导弹 | `aircraft.gd:1963` |
-| `flare` | 没有热诱弹，`AircraftFlares.release` 直接 return | `aircraft/aircraft_flares.gd:231` release |
+| `flare` | 没有热诱弹，`AircraftFlares.release` 直接 return | `aircraft/aircraft_flares.gd:241` release |
 
 **结论**：要给新机型不同的武器组合，**只需要调整 AircraftParams 上的字段是否为 null + 指向哪个 .tres**。无需改 aircraft.gd。
 
@@ -207,7 +207,7 @@ const PLAYABLE_LIST: Array[Dictionary] = [
 
 这条**已经原生支持**，不需要任何额外代码：
 
-- **基本转弯/能量管理**：`aircraft.gd:1036 _physics_process` 调度物理子模块，基础机动仍由机体参数决定
+- **基本转弯/能量管理**：`aircraft.gd:1130 _physics_process` 调度物理子模块，基础机动仍由机体参数决定
 - **战术决策（BFM）**：`ai/bfm_tactics.gd:107 choose_tactic` 基于几何、能量和态势，武器只通过射程/就绪态影响可用意图
 - **武器射程**：`ai/bfm_tactics.gd:64 gun_range_px` 从当前 `gun.max_range` 换算，无 gun 时为 0
 - **导弹发射时机**：`aircraft/aircraft_weapons.gd:1004 update_missile` 统一判定射程、最小距离、射界与锁定；导弹换型主要通过 `.tres`
@@ -228,7 +228,7 @@ combat_override.approach_speed_mult = 1.2    # 慢速接敌
 
 这条也是原生支持的：
 
-- **没有热诱弹**：`PlayableAircraft.base_params.flare = null` 即可。`aircraft/aircraft_flares.gd:52 update` 会跳过释放逻辑，AI 仍可做导弹规避机动，但不会撒诱饵
+- **没有热诱弹**：`PlayableAircraft.base_params.flare = null` 即可。`aircraft/aircraft_flares.gd:56 update` 会跳过释放逻辑，AI 仍可做导弹规避机动，但不会撒诱饵
 - **不同释放性格**：FlareParams 的 `nervousness` `panic_distance` `calm_distance` 控制
 - **不同干扰率**：`base_jam_chance` `aspect_bonus` `maneuvering_bonus` `close_range_penalty`
 - **不同弹量/连发**：`max_flares` `burst_count` `cooldown`
@@ -302,7 +302,7 @@ combat_override.approach_speed_mult = 1.2    # 慢速接敌
 
 | 类别 | requires | exclusive_to | 例子 |
 |---|---|---|---|
-| **通用基础** | 缺 | 缺 | `hp_up`（装甲）`speed_up`（引擎）`maneuver_up`（飞控）`kill_heal`（战场急救）`radar_range`（雷达升级）`lock_time`（火控）`dogfight`（格斗大师）|
+| **通用基础** | 缺 | 缺 | `hp_up`（装甲）`speed_up`（引擎）`maneuver_up`（飞控）`skill_kill_status_heal`（虐弱，已合并战场急救）`radar_range`（雷达升级）`lock_time`（火控）`dogfight`（格斗大师）|
 | **硬件依赖** | 有 | 缺 | `gun_*` 系列（要求 gun）`missile_*` 系列（要求 missile）`flare_cooldown` `flare_shield`（要求 flare）|
 | **机型专属** | 任意 | 有 | （F-14 的专属升级待用户后续定义；模板见下） |
 

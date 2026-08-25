@@ -3,7 +3,7 @@ id: deadair
 kind: enemy
 status: in-progress
 schema_version: 1
-spec_version: 3
+spec_version: 4
 owner: noelu
 depends_on: [enemy-pool-expansion, squad-xp-threat-balance, global-awareness-roe, enemies/snowblind]
 reconstruction_complete: false
@@ -85,7 +85,7 @@ reconstruction_complete: false
 | 作用 CombatUnit | 与本体敌对的全部存活单位 | 包含 `TEAM_PLAYER` 直属小队与 `TEAM_ALLY` 飞机、地面单位、舰船；不含 HOSTILE |
 | 作用 Missile | 与本体敌对、`is_active && has_guidance && !is_flare_jammed` 的导弹 | 包含玩家、ALLY 飞机/SAM/舰船发射的制导弹 |
 | 不作用对象 | 子弹、火箭、炸弹、无制导弹体、敌方导弹 | 机炮是主要反制；不把 JAM 偷换成物理护盾 |
-| 重叠 | DEADAIR 同场最多 1；且与 Snowblind 互斥 | 两种移动支援场不能同时存在；不设计场叠加或优先级 |
+| 重叠 | DEADAIR 同场最多 1；**可与 Snowblind 同场** | 两种移动支援场独立结算，不合并半径、不共享累积，也不替换或退休对方 |
 
 ### 2.3 刷怪经济
 
@@ -105,6 +105,9 @@ reconstruction_complete: false
 | 作战高度权重 | LOW/MID/HIGH = `0.10 / 0.65 / 0.25` | 以中空支援为主；本体与初始护卫同档 |
 | 击杀 XP | `80` | 走统一小队共享/稀释管线；护卫各自正常计 XP |
 | 等级缩放 | 本体全部固定 | 难度来自 JAM 场与动态护卫，不缩放 HP/场半径/累积率 |
+
+本版只取消 DEADAIR/Snowblind 的跨类型互斥；现有权重、180s 同型冷却、同型上限 1 和阶段累计上限 2 暂不调整。
+用户已确认这些特殊支援机制在普通完整局里整体过于难遇，但全局刷怪/曝光机制留给后续独立任务：届时必须同时减少长期空窗并避免单局把所有花样一次展示完，按 [20 小时内容首次体验排期骨架](../../planning/20-hour-content-exposure-plan.md) 的 `first_seen_run/hour`、单局重复数和连续空窗证据校准。
 
 ### 2.4 视觉规格
 
@@ -188,8 +191,8 @@ reconstruction_complete: false
 | `COLLAPSE` | 击毁、撤离完成或模式清理 | 停止扫描，清未完成累积，0.60s 消散 | 结束后释放视觉/控制器 |
 
 - 动态护卫保持各自原型 AI、Token、武器、flare、XP 和实例上限；进入场不会获得数值强化。
-- DEADAIR 与 Snowblind 共用“移动支援场在场互斥”门：任一仍在场时，另一种特殊包本轮直接跳过；
-  只禁止同时在场，不合并两者各自的阶段累计次数或同型冷却。
+- DEADAIR 与 Snowblind 没有跨类型互斥门：两种特殊包都合法抽中且预算足够时可以同场存在。
+  两者继续独立维护阶段累计次数、同型冷却、场成员、效果所有权和清理；任一本体死亡/撤离不得关闭另一种场。
 - F5/debug 创建必须同帧注册核心与两架护卫、同帧启用场，不依赖下一轮 Token 统计。
 
 ## 4. 结构与组成（Structure）
@@ -200,7 +203,7 @@ reconstruction_complete: false
 - CombatUnit 累积表现：控制器只写一个 `0..1` 的显示值；共享渲染器在既有绘制路径中画 8 段短弧，不创建子节点。
 - Missile 累积表现：控制器写一个 `0..1` 显示值；既有尾迹读取它做颜色插值，不新增逐弹 `_process/_draw`。
 - 活跃导弹集合必须由导弹生命周期维护的共享注册表提供；控制器不得在 5Hz tick 中调用 `get_children()` 或扫描场景树。
-- 刷怪层使用“特殊支援包”入口创建本体与两架动态护卫，并维护 DEADAIR/Snowblind 在场互斥、Token、冷却与阶段累计。
+- 刷怪层使用“特殊支援包”入口创建本体与两架动态护卫，并分别维护 DEADAIR 的 Token、同型上限、冷却与阶段累计；Snowblind 在场不构成阻断条件。
 - 生命周期只有控制器拥有本场累积状态；死亡、撤离、BOSS 转阶段、换场与 debug 清理统一走幂等 `collapse()`。
 
 ## 5. 验收标准（Acceptance / Litmus）
@@ -216,12 +219,13 @@ reconstruction_complete: false
 - [ ] 玩家在圈内拖延超过 8s 后机炮确实被标准 JAM 门封锁；离圈恢复后可以再次组织攻击跑。
 - [ ] 标准 JAM 免疫不被绕过；已有 JAM 导弹恢复制导后若仍在圈内，会从 0 再次累积。
 - [ ] 本体击毁后 0.60s 内场视觉坍塌、所有未完成累积表现消失、CombatUnit JAM 最迟 0.50s 自然消退；其它来源 JAM 不被误删。
-- [x] 初始编成固定为 1 本体 + 2 动态护卫；预算不足、同场已有 DEADAIR/Snowblind、同型冷却中或阶段累计已满时不生成。
+- [x] 初始编成固定为 1 本体 + 2 动态护卫；预算不足、同场已有 DEADAIR、同型冷却中或阶段累计已满时不生成。
+- [ ] Snowblind 在场不阻断 DEADAIR，DEADAIR 也不退休或替换 Snowblind；两场同在时各自效果、死亡和清理互不污染。
 - [x] 动态护卫使用各自独立普通敌版参数并正常计 Token/上限/XP；场不会强化护卫，也不作用于敌方导弹。
 - [x] F5/debug 可直接刷 DEADAIR 特殊包，创建当帧场与护卫完整生效；不等待正式刷怪计数刷新。
 - [ ] 世界视图与 Tab 图均能读出边界/核心；8段累积环和导弹尾迹变色与真实进度一致，无友军色身份误判。
 - [ ] 生命周期：本体死亡、撤离、BOSS 转阶段、返回主菜单、debug 清场均不残留累积字典、视觉或已释放引用。
-- [ ] 自动回归覆盖阈值、衰减、阵营、导弹失导、近距存活窗口、互斥生成、清理与标准免疫。
+- [ ] 自动回归覆盖阈值、衰减、阵营、导弹失导、近距存活窗口、与 Snowblind 同场生成/独立清理及标准免疫。
 - [ ] 性能：控制器严格 5Hz、同场最多1、无逐实体处理节点、无 tick 内场景树扫描；Sentinel + Lv5/Lv15 压测 FPS 不低于60且相对掉幅 <15。
 - [x] i18n：图鉴名/描述/debug 标签三语齐全；Archetype 不进入玩家可见文本。
 - [x] 文档：本 spec 已登记 `_INDEX.md`；实现后同步 enemy/script/code index，并通过当前文档校验。
@@ -239,7 +243,8 @@ reconstruction_complete: false
 - [ ] 做真实运动/自动火控闭环 bench，断言 600km/h 基线从圈缘进入机炮窗后能在 8s 前实际出膛并击毁核心。
 
 ### 阶段 3 — 刷怪、debug、图鉴与回归
-- [x] 按 enemy-index 13 步清单接 EnemyType、注册表、Token、2护卫特殊包、DEADAIR/Snowblind互斥、F5 与图鉴/i18n。
+- [x] 按 enemy-index 13 步清单接 EnemyType、注册表、Token、2护卫特殊包、F5 与图鉴/i18n。
+- [ ] 移除 DEADAIR/Snowblind 跨类型互斥与优先替换路径，补同场效果所有权、任一来源死亡和双清理回归；不在本任务调整总体特殊支援权重。
 - [ ] 新增定向 bench，覆盖玩家/ALLY/地面/海军/导弹、免疫、恢复制导再累积、死亡/BOSS/换场清理。
 - [ ] 跑 spawn_pool、文档校验、Sentinel + Lv5/Lv15 压测与人工机炮攻击跑；用日志校准 8s/4×，不靠加 HP 调难度。
 
@@ -260,6 +265,7 @@ reconstruction_complete: false
 
 | 日期 | spec_version | 改动 |
 |---|---:|---|
+| 2026-08-22 | 4 | 用户取消 DEADAIR 与 Snowblind 的在场互斥：两种普通随机特殊支援包可同场存在，各自保留同型上限、Token、冷却、阶段累计、效果与清理所有权。本版不调整总体刷新权重；支援机制单局难遇与长线曝光留给后续独立任务，须兼顾持续新鲜刺激与单局不穷举全部花样。 |
 | 2026-08-08 | 1 | 初稿：3000m 移动 JAM 场；CombatUnit 8s、导弹 4×=2s 累积；标准 JAM 0.5s 刷新；圈外 1s 宽限后 2/s 衰减；HP55 无武装核心 + 2动态护卫；与 Snowblind 在场互斥；明确近距机炮攻击跑为主要解法。 |
 | 2026-08-08 | 2 | 核心实现：5Hz 集中控制器、CombatUnit/Missile 真实 JAM 路径、活动导弹注册表、单 mesh 场/八段环/尾迹与 Tab 表现、特殊包与正式/debug 互斥、图鉴/i18n；新增 `deadair` 定向回归和 `deadair_stress` 主循环压力场。保留人工视觉与真实机炮攻击跑验收后再转 done。 |
 | 2026-08-08 | 3 | 修正 F5 可达性：普通单机、小队、Sentinel 与经这些入口生成的 Snowblind/DEADAIR 特殊包不再复用地图边缘 ingress，改为玩家周围约 2200m 外六方位轮换即时生成；正式增援与事件航路不变。 |

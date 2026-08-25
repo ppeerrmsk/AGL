@@ -6,10 +6,10 @@ uid="uid://c5m8u2j7rxp0a"
 
 [deps]
 
-files=["res://i18n/skills.ja.translation", "res://i18n/skills.en.translation", "res://i18n/skills.ja.translation"]
+files=["res://i18n/skills.zh.translation", "res://i18n/skills.en.translation", "res://i18n/skills.ja.translation"]
 
 source_file="res://i18n/skills.csv"
-dest_files=["res://i18n/skills.ja.translation", "res://i18n/skills.en.translation", "res://i18n/skills.ja.translation"]
+dest_files=["res://i18n/skills.zh.translation", "res://i18n/skills.en.translation", "res://i18n/skills.ja.translation"]
 
 [params]
 

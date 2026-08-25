@@ -14,7 +14,7 @@
 
 | 你想知道的 | 去哪 |
 |---|---|
-| 某技能的数值 / 层数 / 稀有度 / 归属 / 轴 / +1 进度 | [skill-table.md](skill-table.md)（自动生成，165 条，`python tools/dump_skill_table.py` 重刷） |
+| 某技能的数值 / 层数 / 稀有度 / 归属 / 轴 / +1 进度 | [skill-table.md](skill-table.md)（自动生成，158 条，`python tools/dump_skill_table.py` 重刷） |
 | 某技能的**效果代码在哪** | 本文 **§4**（先在 skill-table 查到它的 stat / id，再来查消费点） |
 | UPGRADES 条目某字段什么意思 | 本文 **§1** |
 | 技能从抽卡到生效的整条链路 | 本文 **§2** |
@@ -136,7 +136,7 @@ is_upgrade_available_for → pick_card_for_axis →  upgrade_stacks[id]+=1
 ### M6 · 计数缩放（recompute 幂等重算）
 - **识别**：效果=「按某个动态数量 × 每单位加成」；apply 是 skill_flag，真身在 `recompute_axis_count_skills`（挂 `recompute_category_bonuses` 尾部，拿技能/换机/入队都会重跑）或专用 watch 重算。
 - **铁律**：**差量幂等记账**（`veteran_hp_bonus_applied` / meta `sig_gcap_layers` 模式）——换机重放序言清账、重算整额补回；直接 `+=` 会随重算无限叠。
-- **成员**：veteran_hp（斗士轴技能数×HP）/ speed_by_knight（骑士轴×极速）/ ew_expert（策士轴×雷达）/ weapon_master（装备数×CD）/ sig_gcap（僚机存活数×导弹+雷达，0.5s watch）。
+- **成员**：veteran_hp（斗士轴技能数×HP）/ speed_up（合并全速推进，骑士轴×极速）/ ew_expert（策士轴×雷达）/ weapon_master（装备数×CD）/ sig_gcap（僚机存活数×导弹+雷达，0.5s watch）。
 
 ### M7 · 一次性 dispatch（生成/入库类即时动作）
 - **识别**：获得瞬间做一次性动作（生成僚机/武器入库），不是持续效果。挂 `_distribute_upgrade` 的 squad_once 分支 → `_dispatch_sig_oneshot`，**`_sig_oneshot_done` 字典防换机重放重复执行**。
@@ -145,11 +145,11 @@ is_upgrade_available_for → pick_card_for_axis →  upgrade_stacks[id]+=1
 ### M8 · 武器资源改动（category="weapon"，随武器库迁移）
 - **识别**：效果长在**武器/装备资源**上（railgun/laser/torpedo/qmaam/loyal_wingman params）。`category: "weapon"` → **换机重放跳过**（防双叠），继承靠 `record_special_weapons`（进化前快照资源引用，强化随引用走）+ `remount_weapons`。
 - **改哪**：apply case 里改对应资源字段（同样 duplicate 语义）；武器本体逻辑在 `equipment/*.gd` / `missile.gd`。
-- **成员**：railgun_charge/range/double、laser_cooldown/range/heat/extra_beams、torpedo_extra/tracking_boost、qmaam_boost、wingman_extra/armed、sig_wyvern。
+- **成员**：railgun_charge/range/double、laser_cooldown/range（cooldown 已合并过载，range 已合并分束）、torpedo_extra/tracking_boost、qmaam_boost、wingman_extra/armed、sig_wyvern。
 
 ---
 
-## 4. 全 stat 消费点速查（163 条全覆盖）
+## 4. 全 stat 消费点速查（158 条全覆盖）
 
 > 用法：skill-table 查到技能的 id → 在 4.1 按 stat（专用 stat 名≈id）或 4.2 按 id 找行。
 > 消费点 = "效果真正发生"的文件+函数/字段。`survivor_player.gd apply_upgrade` 是所有条目的公共 apply 处，不重复写。
@@ -160,10 +160,10 @@ is_upgrade_available_for → pick_card_for_axis →  upgrade_stacks[id]+=1
 
 | stat | M | apply 做什么 → 消费点 |
 |---|---|---|
-| max_hp / armor / kill_heal | M1 | 直改 params（kill_heal 消费在 `survivor_spawner._kill_heal`） |
-| bullet_dodge_flat / low_alt_gun_dodge / head_on_gun_dodge | M2 | 字段 → `aircraft.take_bullet_damage` 闪避累加区（全局 cap 0.85） |
+| max_hp / armor | M1 | 直改 params；旧 `kill_heal` 已并入 `skill_kill_status_heal` |
+| low_alt_gun_dodge / head_on_gun_dodge | M2/M5 | 字段 → `aircraft.take_bullet_damage` 闪避累加区（全局 cap 0.85）；前者已合并空中战车，并由 `skill_hooks.dispatch_on_kill` 在低空击杀后赋予 8s 无敌 |
 | gun_fire_dr | M2 | 窗口字段 → `aircraft._apply_damage`（开火后减伤窗） |
-| cockpit_armor | M2 | `ground_damage_taken_mult` → `_apply_damage`（地面来源过滤） |
+| cockpit_armor | M2 | `ground_damage_taken_mult` → `_apply_damage`（地面来源过滤）；`bullet_dodge_chance` → `take_bullet_damage`（全局 cap 0.85） |
 | shock_absorb | M2 | 字段 → `_apply_damage` 排队回血 + `aircraft_physics` 缓回 tick |
 | evac_shift | M2 | 字段 → `_apply_damage`（撤离减伤）+ `aircraft_physics` accessor（冲刺提速） |
 | xp_mult / sig_xp_wisdom | M4 | `SurvivorPlayer.xp_multiplier / sig_xp_mult` → `survivor_spawner._detect_kills` 两处乘（同乘区还有第三因子：机体特性 `PlayableAircraft.xp_gain_mult`，非技能 stat，幻影 III=1.1，经 `_aircraft_xp_mult()` 读 `_player_profile`） |
@@ -190,7 +190,7 @@ is_upgrade_available_for → pick_card_for_axis →  upgrade_stacks[id]+=1
 | sig_lock_retention | M1+M2 | params.radar_range+250px + 出锥 grace 冻结窗（`_sig_lock_grace` 字典） |
 | sig_f15c / sig_f15e / sig_a6e / sig_mig41 / sig_f15 | M2 | 锁定循环 722 段（f15/f15e 的伤害半段在 bullet_manager / missile_manager 命中处） |
 | high_alt_lock_speed | M2 | 锁定循环（HIGH 档我方锁敌加速） |
-| close_range_lock | M2 | Aircraft 缓存贴身倍率上限 → 锁定循环按“当前距离 / 当前有效雷达射程”线性计算（边缘 ×1、贴身最高 ×2） |
+| close_range_lock | M2+M3 | Aircraft 缓存贴身倍率上限 → 锁定循环按“当前距离 / 当前有效雷达射程”线性计算（边缘 ×1、贴身最高 ×2）；`SkillHooks.in_free_missile_window` 同时提供机炮装填期导弹免耗 |
 | ecm_pod | M2 | `ecm_range_mult` → 锁定循环（敌雷达对我有效距离缩短） |
 | data_link / f14_squad_lock_slow | M4 | 锁定循环尾部两个队级账本段（照射共享拉平 / 共锁 SLOW） |
 | sig_multiband | M1 | params.radar_half_angle+40°（cap120） |
@@ -219,7 +219,7 @@ is_upgrade_available_for → pick_card_for_axis →  upgrade_stacks[id]+=1
 
 | stat | M | 消费点 |
 |---|---|---|
-| flare_shield | M2 | `flare_lock_immunity` → flares release 清锁+豁免窗；bonus_flares 直改 params |
+| flare_shield | M2 | `flare_lock_immunity` → flares release 清锁+豁免窗；不改变热诱弹载弹量 |
 | low_hp_flare_reload | M2 | flares 低血装填加速段 |
 | manual_dodge | M5 | 全队下发；`aircraft.try_manual_maneuver → do_manual_dodge`（受控机 R）/ `_update_manual_dodge_skill`（AI 威胁自动）+ flares 禁普通自动早退；占用五选一主动机动槽 |
 | cobra_skill / evasion_herbst / manual_dodge / displacement_roll / vertical_break | M2 | 当前操控机由 `aircraft.try_manual_maneuver` 响应 R；AI 僚机按技能各自威胁距离自动触发；五项 `excludes` 双向互斥，冷却写 `Squad.active_maneuver_cooldown_s`；新两项轨迹与命中资格走 `aircraft._update_active_special_maneuver / can_accept_new_hit` |
@@ -230,7 +230,7 @@ is_upgrade_available_for → pick_card_for_axis →  upgrade_stacks[id]+=1
 
 | stat | M | 消费点 |
 |---|---|---|
-| gun_damage / gun_accuracy / aim_assist / sig_x44 | M1 | 直改 params.gun；X-44 为正面 180°绝对射界并开启普通机炮/炮舱子弹逐目标贯穿 |
+| gun_damage / gun_accuracy / sig_x44 | M1 | `gun_damage` 每层同步乘算机炮伤害 ×1.30、弹仓上限与当前弹药 ×1.50；`gun_accuracy` 已合并瞄准辅助，直改散布、瞄准、弹寿命与自动开火锥；X-44 为正面 180°绝对射界并开启普通机炮/炮舱子弹逐目标贯穿 |
 | gunship_mode / heavy_gun | M1 | 全队机炮半角设 180°且 max_speed ×0.60；当前机与 AI 僚机各自以 3Hz `auto_gun_scan` 扫描最近敌对 Aircraft/GroundUnit，不受 planner 当前目标锁池或 MISSILE 主武器模式静默；`update_gun` 整梭锁存扫描目标并逐 tick 刷新提前点，炮口随射向旋转；CIWS 保持独立正面 5°锥 / 全队机炮 range +1000m |
 | gun_multishot | M2 | `gun_extra_barrels` → `_fire_gun_round` 翼挂双点 |
 | gun_ciws | M2 | weapons CIWS 自动拦截段 |
@@ -243,13 +243,13 @@ is_upgrade_available_for → pick_card_for_axis →  upgrade_stacks[id]+=1
 | missile_second_stage | M2 | `missile.second_stage`（spawn 打标）→ missile 续推/渐强曲线 |
 | rocket_firerate_range | M1/M8 | 直改 rocket params（A-10 族；火箭现属外部装备） |
 
-**特殊武器/装备（M8 全组）**：railgun_charge/range/double → `equipment/railgun_equipment.gd`；laser_cooldown/range/heat/extra_beams → `equipment/laser_equipment.gd`；torpedo_extra/tracking_boost → torpedo params；qmaam_boost → secondary_missile params；wingman_extra/armed → loyal_wingman params（消费 `aircraft_weapons.update_loyal_wingman`）；sig_wyvern → M7 dispatch + railgun 参数。
+**特殊武器/装备（M8 全组）**：railgun_charge/range/double → `equipment/railgun_equipment.gd`；laser_cooldown/range → `equipment/laser_equipment.gd`（cooldown 同时扩散热与阈值，range 同时扩射程与分束）；torpedo_extra/tracking_boost → torpedo params；qmaam_boost → secondary_missile params + `skill_hooks.dispatch_on_kill` 嗜血触发；wingman_extra/armed → loyal_wingman params（extra 经 `survivor_mode._dispatch_regular_oneshot` 即时部署，再由 `aircraft_weapons.update_loyal_wingman` 维护）；sig_wyvern → M7 dispatch + railgun 参数。
 
-### 4.2 skill_flag 72 条（apply 无操作，按消费点分组）
+### 4.2 skill_flag 73 条（apply 无操作，按消费点分组）
 
 **SkillHooks 击杀/受击/状态钩子**（`survivor/skill_hooks.gd`，入口 `dispatch_on_kill` / `dispatch_on_hit` / `on_player_jam_landed` / `on_evade_missile` / `on_flare_release`）：
 skill_kill_bloodlust · skill_damaged_bloodlust · skill_head_on_perma_hp · skill_head_on_aoe_fear ·
-skill_missile_hit_invul · skill_lowest_alt_kill_invul · skill_gun_kill_fear · skill_kill_status_heal ·
+skill_missile_hit_invul · skill_gun_kill_fear · skill_kill_status_heal ·
 skill_flare_aoe_jam · skill_gun_kill_flare_drop · skill_missile_hit_aoe_jam · skill_laser_damage · skill_laser_hack ·
 skill_torpedo_aoe_jam · skill_rocket_homing · skill_evade_missile_overload · skill_flare_overload ·
 overload_duration_4x（`aircraft.apply_status` 覆写乘区）· overload_extended_ammo · overload_to_bloodlust ·
@@ -258,14 +258,17 @@ jam_self_overload · invasion_algorithm（JAM→MQ-109～112 坠毁）· flee（
 stasis（导弹直伤→2km SLOW）· mental_confusion（新 FEAR→浪费 flare/导弹）·
 ratatat（BLOODLUST 中机炮有效射程/锥/间隔）· storm_i / storm_ii（AfterburnerCharge 实耗/免费充放）·
 fire_control_saturation（当前王牌五锁上升沿→OVERLOAD；20s 单局 CD；状态期间有效锁数 +2）·
+ghost_buster（隐形单位击杀→队级永久 max_hp +10；晚入队/换机补齐）·
 hush（JAM 敌机禁 flare + 导弹失导；队级静态位）·
-adapt_energy（AB 回能/回血）· qmaam_bloodlust（`missile_manager` kind 归因）
+adapt_energy（AB 回能/回血）· qmaam_boost 合并嗜血（`missile_manager` kind 归因）
 
 **survivor_mode 事件段**：squad_revenge / assassin_revenge / blackbox_recovery（`_on_squad_member_down` 僚机阵亡 watcher）· levelup_heal（`leveled_up`）· ground_crew（停靠减半 `dock_point` + 起飞奖励卡）· ab_kill_charge / ab_duration（充能账本同步段）· headon_xp（`survivor_spawner` XP 段）
 
-**720 计数缩放 M6**：veteran_hp · speed_by_knight · ew_expert · weapon_master（`survivor_data.recompute_axis_count_skills` → aircraft 字段 → physics/weapons/锁定消费）
+**敌机传感器隐形段**：counter_stealth / ghost_buster（`sensor_stealth_controller` 复用既有雷达配对与 tick 尾玩家观察者集合，处理 120% 扩距、被锁现形、`combat_target` 保持和光学 cloak 覆盖；无第二次全场扫描）。
 
-**720 弹尽/轮盘**：gun_reserve_mag / gun_out_free_missile（`skill_hooks.try_gun_reserve_mag / in_free_missile_window` ← weapons 扣弹口）· guard_zone_buff / evac_shift 联动（`rts/squad_command_controller` 维护 flag → physics/_apply_damage）
+**720 计数缩放 M6**：veteran_hp · speed_up（含原全速推进）· ew_expert · weapon_master（`survivor_data.recompute_axis_count_skills` → aircraft 字段 → physics/weapons/锁定消费）
+
+**720 弹尽/轮盘**：gun_reserve_mag / close_range_lock（后者合并原副武器；`skill_hooks.try_gun_reserve_mag / in_free_missile_window` ← weapons 扣弹口）· guard_zone_buff / evac_shift 联动（`rts/squad_command_controller` 维护 flag → physics/_apply_damage）
 
 **722 签名技（spec aircraft-signature-skills §4 有完整分层）**：
 sig_mirage3 / sig_rafale（flares release 722 段）· sig_su27 / sig_su35（`on_special_maneuver_done` ← cobra/herbst 完成点）· sig_x77（dispatch_on_kill 导弹击杀→隐身）· sig_a10 / sig_a12（`aircraft._try_sig_death_save` 致死拦截）· sig_f22（`apply_status` STEALTH 上升沿装填 + `effective_max_locks` 隐身齐射）· sig_fcas（`broadcast_combat_cloud` + apply_status 覆写；静态位）· sig_f35（weapons `_sig_f35_relay_ok` 越肩发射；静态位）· sig_x13（`status_effects.tick` 流速；静态位）· sig_x90（`whale_pod_share` 均摊 ← `_apply_damage` + 25s 周期生成；静态位）· sig_x09（`missile_manager.spawn_missile` 打标 → `ai/missile_evasion` 单点过滤）· sig_x21（spawn 打标 → `missile.gd` 被偏转重索敌）· sig_mig31 / sig_su34（`aircraft._update_sig_skills` 窗口自动发射 / `afterburner_charge.update` 窗口回血）· sig_gripen_c / sig_fa18e / sig_yf23（survivor_mode 充能倍率 / 起飞钩子两条）· sig_j36（`try_trigger_j36_assault` ← 轮盘 ASSAULT+双击冲锋 → physics 三注入）· sig_gcap（`_update_sig_gcap` M6）· sig_f47 / sig_ax00（`_dispatch_sig_oneshot` M7）
@@ -292,6 +295,8 @@ sig_mirage3 / sig_rafale（flares release 722 段）· sig_su27 / sig_su35（`on
 
 每条新技能收尾四件套：i18n 三语（`UPGRADE_<ID>_NAME/_DESC`）→ `python tools/dump_skill_table.py` 重刷表 →
 bench 断言（单机制优先追加 skills720 / sig_skills / attr_gates；全表契约跑 skill_audit）→ 本文 §4 加一行。完整检查单见 [playbook §4](playbook.md)。
+
+同日或同批合并多张技能时，还必须补一条“同一架飞机全部装满”的共存验收，避免各技能单测通过但共享字段、装备门控或事件钩子互相覆盖。当前基线为 `test_skills_720.gd::_test_today_full_build_loadout`：非 A-10 测试机 13 张/19 层，并验证忠诚僚机实际生成与复合触发。
 
 ---
 

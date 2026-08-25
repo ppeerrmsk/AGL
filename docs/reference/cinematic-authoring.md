@@ -302,6 +302,10 @@ bench\run.cmd i18n_build 5 180 Shadow
 已经存在、武器受控、没有提前接战。简单特写可以只让事件持有现有巡逻/待机指令；复杂走位仍由
 `CinematicCast` 通过事件的 `set_directive()` 借用控制权。
 
+`CinematicCast.bind()` 到 `release()` 同时是演员的**虚拟环境所有权窗口**：真实战斗传感器隐形在此期间
+冻结计时并绕过逻辑、绘制与尾迹门，不能抢走导演的表现控制；分镜需要隐身时只改演员视觉字段。
+任何正常结束、超时或 `clear_all` 路径都必须走 `release()` 清除此所有权，之后真实战斗状态继续生效。
+
 ### 9.4 第三步：身份横幅固定骨架
 
 身份差异全部来自 `BossRegistry.banner_metadata_for()` 返回的快照：

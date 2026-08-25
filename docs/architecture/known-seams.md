@@ -620,7 +620,14 @@ Game Over 同步断开两个缓存；`presentation` 用真实 `free()` 后的强
 `_update_gun_threat_indicator` 改为 `Variant → safe_aircraft_ref` 后再访问字段；`gun_burst` bench
 用真实 `free()` 的目标覆盖威胁复位路径。
 
-**踩到次数**：6
+**2026-08-22 第七次实证与统一测试门**：`ZoneMission._bomber_escort_runs` 同时缓存战略目标与
+`BomberMission`。目标在战区完成判定前已释放时，10 Hz 缓存先执行 `as StrategicTarget`，函数在后续
+`is_instance_valid` 前中断，导致完成链也无法继续。两类读取统一改为 Variant 净化；Headless
+`lifecycle_gauntlet` 用真实 `queue_free()` 后的目标、控制器和截击机覆盖成功/失败/退役。外层 bench
+wrapper 同时扫描 stderr：Godot 即使退出 0，只要出现 `SCRIPT ERROR` / freed-object 等致命诊断也以
+86 失败；`all` 强制串联该 gauntlet。以后同类 bug 不再只依赖某个专项刚好写到断言。
+
+**踩到次数**：7
 
 ## SEAM-021 · "玩家显式命令"在移动层是铁律，在武器发射层却没有代表权
 
@@ -944,6 +951,33 @@ SceneTree 并由两条快照分支复用，运行时行为不变。
 **约束**：任何 `_draw`、纯表现 `_process`、截图或 UI 动画不得消费会被战斗逻辑继续读取的全局 RNG。视觉抖动必须用确定性噪声或独立 `RandomNumberGenerator`；新增固定 seed 性能门时，负载计数不一致应先查 RNG 污染，不能直接比较 FPS。
 
 **踩到次数**：1
+
+## SEAM-036 · 世界单位状态栏分散在兵种脚本，局部反变换无法形成 UI 合同
+
+**症状**：飞机、地面炮、SAM、雷达站与舰船旁的数据框看似相近，但字号、内边距、阵营色、
+边框和缩放档位各不相同；某些单位转向、挂在旋转父节点或镜头平滑缩放时，状态栏会跟随转动、
+拉伸、发虚或突然改变尺寸。修好飞机标签后，新增地面/BOSS 单位仍会复制旧问题。
+
+**根因**：各兵种在自己的 `_draw` 中重复实现 `-rotation + inv_zoom + 固定世界偏移`。这种近似只
+抵消当前节点的局部旋转和单轴缩放，无法抵消父节点、Camera2D、Canvas stretch、非均匀 scale 或
+斜切；之前的 Visual 回归也只覆盖飞机，没有任何跨兵种组合变换门。UI 规范当时只约束固定 HUD，
+没有把世界单位数据框定义为统一屏幕 UI。
+
+**解法状态（2026-08-22 已修）**：UI 规范 v31 建立“世界单位矢量状态栏”合同；
+`AircraftRenderer.draw_unit_status_panel` 使用完整 item-to-screen 逆变换，统一 11px 字体、14px 行高、
+5/3px 内边距、1px 描边、阵营色、实际图标半径锚点与整数像素。飞机、地面、SAM、雷达、战略目标
+和舰船已迁移；buff/debuff 条复用同一变换。`presentation` 检查组合矩阵，
+`unit_status_label_visual` 同画面覆盖五类基础单位与 AURORA LANCE。2026-08-24 再补一层约束：若单位
+直接旋转承载状态栏 draw command 的根 CanvasItem，朝向变化时必须 `queue_redraw()`，否则缓存的
+屏幕空间逆矩阵会滞留在旧朝向，标签仍会被新旋转带走。
+2026-08-24 AURORA LANCE 进一步把固定基盘/状态栏留在不旋转的根 CanvasItem，只在 `_draw` 内让
+上层炮架消费 `heading`，从结构上消除该单位的模型旋转与屏幕 UI 变换耦合。
+
+**约束**：新战斗单位只能提供状态栏内容行和实际图标半径，不得自行复制面板绘制或写
+`-rotation/inv_zoom` 补偿。状态栏几何、屏幕变换、LOD 与阵营色只能改共享渲染器和 UI 规范；
+任何改动必须跑跨兵种 Visual，而非仅截单一单位。
+
+**踩到次数**：4
 
 ## 维护约定
 

@@ -1,7 +1,7 @@
 # 生存模式技能系统 —— 设计哲学与需求（设计层文档）
 
 > **三层分工（2026-07-24 重构，查东西先认层）：**
-> - **数值/归属现状** → [skill-table.md](../reference/skill-table.md)（自动生成；当前 165 条，`python tools/dump_skill_table.py` 重刷）
+> - **数值/归属现状** → [skill-table.md](../reference/skill-table.md)（自动生成；当前 158 条，`python tools/dump_skill_table.py` 重刷）
 > - **配置字段 / 实装模式 / 效果代码在哪** → [skill-implementation-index.md](../reference/skill-implementation-index.md)（八模式 + 全 stat 消费点速查，**AI 查代码首选入口**）
 > - **数值为什么这样 / 权威定稿** → specs：[skills-720-rework](../specs/systems/skills-720-rework.md) · [aircraft-signature-skills](../specs/systems/aircraft-signature-skills.md) · [evolution-attribute-gates](../specs/systems/evolution-attribute-gates.md) · [afterburner-mode](../specs/systems/afterburner-mode.md)
 >
@@ -155,7 +155,7 @@ static func xp_for_level(level: int) -> int:
 | ✅ | 对头恐惧 | 对头击杀 → 大范围 FEAR（`skill_head_on_aoe_fear`） |
 | ✅ | 骑士心脏·历练 | 对头击杀 XP ×1.5（`headon_xp`，720 批——即旧"正面对决 Joust Bonus"想法） |
 | ✅ | 对头机炮闪避 | 与攻击者对头时机炮闪避 +60%（`head_on_gun_dodge`） |
-| ✅ | 低空击杀无敌 | LOW 档击杀 → 8s 无敌（`skill_lowest_alt_kill_invul`——"低空王"的落地形态） |
+| ✅ | 地表狂奔 | LOW/GROUND 档机炮闪避 +50%，且击杀后自身获得 8s 无敌（`low_alt_gun_dodge`；已合并“空中战车”并移除 A-10 限定） |
 | ⏳ | 冲锋盾 | 低空+高速+机头对敌 → 前方 wedge 能量盾（吸收 50，缓充；护盾在 armor 外层）。实现思路：Aircraft 字段 + bullet/missile 命中前 wedge 几何判定 + renderer 光晕 |
 | ⏳ | 直面 BVR（Stare Down） | 被锁定时机头朝锁定者 ±20° → 敌方锁定速率 ×0.5（锁定循环有现成乘区位） |
 | ⏳ | 决斗者（Duelist） | 5s 内 1v1 → 伤害 +25%，第三方介入打破 |

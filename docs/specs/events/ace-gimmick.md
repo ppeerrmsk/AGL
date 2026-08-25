@@ -3,7 +3,7 @@ id: ace-gimmick
 kind: event
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 4
+spec_version: 5
 owner: noelu（设计输入 2026-07-27）/ Claude（细化）
 depends_on: [ace-squadron-tier, ace-support-squadron, bosses/wraith-squadron]
 reconstruction_complete: false
@@ -45,7 +45,7 @@ reconstruction_complete: false
 | 生存 | 全员**一发死 + 1 枚必躲 flare**（默认档） | tier §2.2 |
 | 机炮闪避 | 全员基线 0.20 | 无难缠档个体 |
 | 涂装 | **洋红 `#E23A8E`**（tier §2.7 主色表） | — |
-| 登场 | **统一轮换窗**（`game_time ≥ 240 s`，预计 TTK 70 s） | 2026-08-01 平衡修订 |
+| 登场 | 固定两槽候选（开局 3:30 / BOSS 前最后 3:00，预计 TTK 70 s） | 2026-08-23 时序修订 |
 
 ### 2.2 狙击 element（F-16 ×2）
 
@@ -73,8 +73,8 @@ reconstruction_complete: false
 
 ### 2.5 调度 / 奖励
 
-统一轮换池（五队新局洗牌；间隔 150 s / 540 s 截止 / 同场 ≤1 支 / BOSS 闸撤离
-无时间奖励——tier 契约全沿用）。击杀 XP 100/架；全灭 `game_time −60`（+1 分钟）；
+固定两槽轮换池（六队新局洗牌；3:30 第一波 / BOSS 前 3:00 第二波 / 无终态冷却 /
+同场 ≤1 支 / BOSS 闸撤离无时间奖励——tier 契约全沿用）。击杀 XP 100/架；全灭 `game_time −60`（+1 分钟）；
 留档 `record_ace_defeat("gimmick")`。
 
 ### 2.6 包装（tier §2.7 五件套；文案待用户过目）
@@ -133,7 +133,7 @@ reconstruction_complete: false
 - [ ] **反制答案可执行**：先拆幻影后，压 F-16 的追击战玩家胜率显著高于直接追
 - [ ] 击杀序列全员 1 骗 + 第 2 发死；机炮闪避 0.20 可测
 - [ ] 包装合规：血条 4 段 + BLUFF 段标记 / 代号提示条 / 固定呼号 / 全灭入档 / 洋红涂装
-- [x] 统一 240 s 进池；新局洗牌；tier 待遇全套（杂鱼不受影响——
+- [x] 固定 3:30 / BOSS 前 3:00 两槽；新局洗牌；tier 待遇全套（杂鱼不受影响——
       注意 F-16 / Mirage 2000 当前无杂鱼版，实例打标仍必须走通）
 - [ ] 性能 / i18n 三语
 
@@ -157,6 +157,7 @@ reconstruction_complete: false
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-23 | 5 | 跟随统一调度改为固定 3:30 第一波与 BOSS 前最后 3:00 第二波。 |
 | 2026-08-01 | 4 | 接入统一 240s 新局洗牌轮换；GIMMICK=8 DU+30s access=预计 70s。 |
 | 2026-07-28 | 3 | **核心落地**（用户"开始执行"）：enemy_f16.tres / enemy_mirage2000.tres 新建；profile elements 混编——F-16×2 归 `AceRole.SNIPER`（**Wraith SNIPER 站位带 4~6km 基建直接复用**，被贴近打带跑=既有 bvr_only 行为，长机 BLUFF 在狙击位）+ 幻影×2 KNIGHT 斗士；全员 ace_gun/1 枚必躲/AI 0.92。**落地修订两则**：①"施压偏好"（优先打缠斗中的玩家单位）v1 未做——狙击输出走既有 BVR 目标选择，偏好加权留 playtest 批②F-16 弹尽机炮自卫续场=is_ammo_dry 骑士限定语义天然成立（本队无骑士成员，永不弹尽撤离）。bench：--bench=lancer_squad B2 断言（4 机编成/狙击斗士角色分配）+ 回归门 41 项 PASS。差 §5 playtest |
 | 2026-07-27 | 2 | **用户拍板 F-16 归位**：确认非掠袭骑士——语义即"更倾向于用导弹、被追倾向于跑开"，狙击 `schemer` 归位成立；§2.2 战术/被追两行改按用户原话语义重写（站位带降级为实现草案非硬几何），§9 开放项 1 关闭 |

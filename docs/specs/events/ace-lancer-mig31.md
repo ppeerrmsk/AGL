@@ -3,7 +3,7 @@ id: ace-lancer-mig31
 kind: event
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 4
+spec_version: 6
 owner: noelu（设计输入 2026-07-26）/ Claude（细化）
 depends_on: [ace-squadron-tier, ace-support-squadron, event-system, joust-attack-run]
 reconstruction_complete: false
@@ -79,9 +79,8 @@ reconstruction_complete: false
 
 ### 2.5 触发与调度（共用支援调度器）
 
-沿用 ace-support-squadron §2.4 门槛（间隔 150 s / 540 s 截止 / 同场 1 支 / BOSS 阶段
-不触发让位撤离）。2026-08-01 起归入 **240 s 统一轮换窗**；零 flare 与 80 秒预计 TTK
-使其无需再靠 400 秒后期门遮蔽强度。
+沿用 ace-support-squadron §2.4 固定两槽（3:30 第一波 / BOSS 前 3:00 第二波 / 无终态冷却 /
+同场 1 支 / BOSS 阶段不触发让位撤离）。零 flare 与 80 秒预计 TTK 使其无需再靠后期门遮蔽强度。
 
 ### 2.6 奖励（同支援中队档）
 
@@ -100,7 +99,7 @@ reconstruction_complete: false
 | 项 | 值 |
 |---|---|
 | 中队代号 | **VULTURE / 秃鹫**（用户命名） |
-| 登场 | **240 s 统一轮换窗**（§2.5） |
+| 登场 | 固定两槽候选（开局 3:30 / BOSS 前最后 3:00，§2.5） |
 | 主色 | 酒红 `#8E2450` |
 | 徽章 | 三根直线构成的俯冲展翼 V 形，翼下一个小点（猎物）——秃鹫永远在猎物上方 |
 | 血条 | 8 段命条，交战开始亮（tier §2.8；首波齐射发射瞬间即触发） |
@@ -170,7 +169,7 @@ VOLLEY 窗口开启帧：
 - **队级层**：新增独立小模块（横列保持 / 齐射窗口 / 目标分配 / extend-turnback 触发），
   走 AceSquad `_tactics_*` 钩子（同 wraith_tactics / poltergeist_tactics 的挂法，但**只有
   一套循环、无多相战术升级**——那是 BOSS 专属待遇）；
-- **flare / 被锁**：既有 aircraft_flares 链路自动生效（jam 1.00 tier 分支已在）。
+- **flare / 被锁**：本队当前 flare 为 0；若未来重新配置，则统一走“投焰后真实 break + 等级判定”链路，不恢复 tier 即时 jam 特权。
 
 ## 4. 结构与组成（Structure）
 
@@ -205,7 +204,7 @@ VOLLEY 窗口开启帧：
 ### 阶段 0 — 编成 profile 参数化（tier §4.3 欠账，本批还）✅ 2026-07-28
 - [x] `AceSupportSquad` 编成抽 profile 表（AceSquadProfiles 单点登记：编成/装备/战术/阵型；
       Marathon 为第一行，回归门守住）
-- [x] 调度器接统一 240 s 池 + 新局洗牌（同局不重复）
+- [x] 调度器接固定两槽 + 新局洗牌（同局不重复）
 
 ### 阶段 1 — 骑士编成 ✅ 2026-07-28
 - [x] profile 加 MiG-31 行（8 机 / lancer / 酒红涂装 / gun none / 导弹 6 / 横列 600px）
@@ -241,6 +240,8 @@ VOLLEY 窗口开启帧：
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-23 | 6 | 跟随 flare-evasion-coupling 删除旧 tier 即时 jam 语义；本队当前仍为零 flare，未来若恢复也必须真实 break。 |
+| 2026-08-23 | 5 | 跟随统一调度改为固定 3:30 第一波与 BOSS 前最后 3:00 第二波。 |
 | 2026-08-01 | 4 | VULTURE 全队 flare 1→0；16 DU/预计 120s 降为 8 DU+40s access=80s；400s 后期档改统一 240s 洗牌。 |
 | 2026-07-28 | 3 | **核心落地**（用户"开始执行"）：阶段 0~3 实装 + `--bench=lancer_squad` 19 断言绿 + 回归门 41 项 PASS。**落地修订三则**：① TURNBACK 不设独立状态——回转由"CHARGE 航点重指玩家质心"的物理转弯**涌现**（状态机收敛为 CHARGE→VOLLEY→EXTEND 三态）；② 齐射窗口落地为**队级 6 s 超时**（spec 原"单机 2 s 放弃"合并进队级窗口，单机纪律由"射出 1 发立即抽回 EXTEND 腿、不追着拧"承担）；③ 齐射发射复用既有 ENGAGE 锁定/发射链路（对准锥由武器语义自带，不另设 ±20° 常量）。角色条款补充：骑士编成不吃 KNIGHT/SNIPER 分工（SNIPER 站位带会毁横列，全员中性掠袭配置）。差 §5 playtest |
 | 2026-07-27 | 2 | **包装批**：正名 **VULTURE / 秃鹫**；登场档改**后期**（≥400 s，用户"避免强队开局出现"）；涂装暖白→酒红（紫红系定档）；成员固定呼号表（CARRION 长机 + 食腐鸟主题 ×7）；徽章（俯冲 V）与 lore 三语草案；血条 8 段；机炮闪避基线 0.20。仍为 draft，连同 v1 数值一并待定稿 |

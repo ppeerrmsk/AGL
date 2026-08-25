@@ -126,14 +126,16 @@ SLOT_MAP_INDEX_FMT,MAP %02d,MAP %02d,MAP %02d
 SLOT_STARTING_SQUAD_FMT,[ 起始小队 +%d 僚机 ],[ Starting Squad +%d Wingmen ],[ 開始小隊 +%d 僚機 ]
 SLOT_TAG_WRAP_FMT,[ %s ],[ %s ],[ %s ]
 SLOT_NAME_UNKNOWN,???,???,???
-BOUNDARY_APPROACH_WARN,◈ 接近战场边界 — %.1f km — 继续前进可获得补给 / 回血,◈ APPROACHING BORDER — %.1f km — continue for supply & heal,◈ 戦場境界に接近 — %.1f km — 続けて前進すると補給・回復が可能
-BOUNDARY_MENU_TITLE,[ 越界提示 ],[ BORDER REACHED ],[ 境界到達 ]
-BOUNDARY_MENU_BODY,你已到达战场边界。选择下一步行动。,You have reached the edge of the combat zone. Choose your next action.,戦場の境界に到達しました。次の行動を選択してください。
+BOUNDARY_APPROACH_WARN,◈ 接近外缘空域 — %.1f km — 进入后开始边界决策倒计时,◈ APPROACHING OUTER AIRSPACE — %.1f km — entry starts the boundary decision countdown,◈ 外縁空域まで %.1f km — 進入すると境界判断カウントダウン開始
+BOUNDARY_EXIT_COUNTDOWN_FMT,◈ 外缘空域 — %d — 倒计时结束后选择补给 / 调头 / 撤退,◈ OUTER AIRSPACE — %d — then choose supply / turn back / retreat,◈ 外縁空域 — %d — 終了後に補給 / 反転 / 撤退を選択
+BOUNDARY_EXIT_COUNTDOWN_BOSS_FMT,◈ 外缘空域 — %d — BOSS 阶段只能调头或撤退,◈ OUTER AIRSPACE — %d — BOSS phase allows turn back or retreat only,◈ 外縁空域 — %d — BOSS戦では反転または撤退のみ
+BOUNDARY_MENU_TITLE,[ 外缘决策 ],[ OUTER-AIRSPACE DECISION ],[ 外縁空域判断 ]
+BOUNDARY_MENU_BODY,外缘空域倒计时结束。选择补给、调头或撤退。,"Outer-airspace countdown complete. Choose supply, turn back, or retreat.",外縁空域のカウントダウン終了。補給・反転・撤退を選択してください。
 BOUNDARY_BTN_RETREAT,撤退 — 结束战局 结算奖励,RETREAT — End mission and collect rewards,撤退 — 戦闘を終了し報酬を確定
 BOUNDARY_BTN_SUPPLY,补给 — 回血（战区时间 -30 秒，敌方增援增加）,SUPPLY — Restore HP (−30s zone time; enemy reinforcement rises),補給 — HP回復（戦区時間 −30秒・敵の増援増加）
 BOUNDARY_BTN_CANCEL,取消 — 调头继续作战,CANCEL — Turn back and continue,キャンセル — 反転して戦闘継続
 BOUNDARY_SUPPLY_BLOCKED_BOSS,BOSS 战斗中无法补给 — 返回战场,No supply during BOSS fight — return to combat,BOSS戦闘中は補給不可 — 戦場に戻れ
-BOUNDARY_APPROACH_WARN_BOSS,◈ 接近战场边界 — %.1f km — BOSS 阶段无法补给 / 回血，请返回战场,◈ APPROACHING BORDER — %.1f km — Supply disabled during BOSS — return to combat,◈ 戦場境界に接近 — %.1f km — BOSS戦闘中は補給不可 — 戦場へ戻れ
+BOUNDARY_APPROACH_WARN_BOSS,◈ 接近外缘空域 — %.1f km — BOSS 阶段无法补给，请返回战场,◈ APPROACHING OUTER AIRSPACE — %.1f km — supply disabled during BOSS phase,◈ 外縁空域まで %.1f km — BOSS戦では補給不可
 PAUSE_MENU_TITLE,[ 已暂停 ],[ PAUSED ],[ 一時停止 ]
 PAUSE_MENU_BODY,战局已冻结。按 ESC 或点击「继续作战」回到战斗。,Combat frozen. Press ESC or click Resume to return.,戦闘は停止中。ESC または「戦闘再開」で復帰。
 PAUSE_MENU_WARN,返回主菜单将放弃本局，本局功勋不结算。,Leaving abandons this run — no merit will be settled.,メインメニューへ戻ると今回の出撃は放棄され、功勲は清算されません。

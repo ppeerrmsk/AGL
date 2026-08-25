@@ -3,7 +3,7 @@ id: status-build-completion
 kind: balance
 status: done
 schema_version: 1
-spec_version: 2
+spec_version: 3
 owner: 用户
 depends_on: [classified-card-pity, skills-720-rework, afterburner-mode, doctrine-unlocks, bloodlust]
 reconstruction_complete: true
@@ -124,7 +124,7 @@ status_focus(无关卡) = max(0.65, 1 - 0.15 × A(p))
 | FEAR | `fear_chills`、`flee`、`skill_kill_status_heal`、`mental_confusion` |
 | JAM | `jam_self_overload`、`invasion_algorithm`、`skill_kill_status_heal`、`hush` |
 
-嗜血终端前置必须承认 `qmaam_bloodlust` 与 `squad_revenge`；恐惧终端必须承认 `fear_on_lock`
+嗜血终端前置必须承认合并后的 `qmaam_boost` 与 `squad_revenge`；恐惧终端必须承认 `fear_on_lock`
 与 `sig_su27`；签名来源可以解锁普通终端，但签名卡自身仍不进入普通三轴池。
 
 ## 3. 行为与公式（How）
@@ -222,5 +222,6 @@ StormⅡ 免费窗口：charge 不变，storm_i_spent 也不增加
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-25 | 3 | QAAM 嗜血并入 QAAM 强化后，三个 BLOODLUST 终端的来源前置统一改认 `qmaam_boost`。 |
 | 2026-08-06 | 2 | 实装完成：158 条技能、六项运行时、BLOODLUST 基础免弹、四词条软聚焦与第三事件终端保证；100000 次强制 100%，定向 bench 全绿，压力样本 146 FPS。卡池降档使旧金卡均值下滑后，将 pity miss 斜率 2.0→3.5 保持原 10 分钟目标。 |
 | 2026-08-06 | 1 | 用户确认开始推进：冻结软聚焦、三事件终端保底、六项技能、既有稀有度/闭合调整与 BLOODLUST 基础免费机炮弹药。 |

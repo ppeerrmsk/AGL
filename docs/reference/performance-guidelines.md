@@ -14,6 +14,14 @@ AGL 帧预算 = 16.6 ms/frame（60 FPS）。**60 FPS 是不可突破的硬底线
 
 ## 硬规则（严禁违反）
 
+### 世界模拟前置裁决：未关注普通战区先保持 0 实体
+
+在讨论降频、LOD 或批绘前，先判断这件事是否需要进入真实世界模拟。普通 1★/2★战区只在玩家选择
+或进入后实例化；未关注的 `AVAILABLE` 战区只保留 ZoneData 战略信息，不运行飞行、AI、雷达、武器、
+伤害或气氛弹道。3★全局威胁因为已经直接影响玩家而例外。完整状态合同见
+[offscreen-world-simulation](../specs/systems/offscreen-world-simulation.md)。已经激活、玩家可见或正在影响
+玩家的内容才进入下列 R1–R8 的降频/简化/批绘路径，不能拿这条前置裁决删除眼前战斗。
+
 ### R1. 静态内容禁止每帧 `queue_redraw()`
 Godot 的 CanvasItem 自带命令列表缓存——**只要不重绘就不重算**。如果内容不变（地图、边界、静态图标、非动画 UI），画一次就够。
 
@@ -110,6 +118,26 @@ bench\run.cmd battlefield_atmosphere_stress_36 30 180 Shadow Visual
 bench\run.cmd battlefield_atmosphere_stress_48_24km 30 180 Shadow Visual
 ```
 
+C1/C2 的标准镜头不是固定截图：3 秒预热后按 18 秒确定性周期巡检全战线，平移到南北与左右战场边缘，
+在基础总览与 `×1.70` 近景间缩放，并在 `-14°..+12°` 内缓慢旋转。结果必须包含
+`camera_patrol=on segments=8/8` 以及实际 zoom / x / y / rotation 范围；不足 8 段的样本无效。
+该轨迹用于触发地图、标签、尾迹、可见性、LOD 与合成的切换尖峰，默认只接入通用 atmosphere stress；
+`final_war_ocean_stress` 是用户要求的诊断例外：复用同一 18 秒节拍，并按海洋战线横纵尺度分别放大位移。
+其它 BOSS、武器和 UI 专项继续锁定自己的验收对象。2026-08-24 之前的固定镜头结果可保留为历史证据，
+但不得与巡检镜头结果直接计算性能回退比例。
+
+海洋决战诊断 A/B：
+
+```powershell
+bench\run.cmd final_war_ocean_baseline 30 240 Shadow Visual
+bench\run.cmd final_war_ocean_stress 30 240 Shadow Visual
+```
+
+`baseline` 保留手动 `FINAL WAR // OCEAN` 的原编成、6 架隐形敌机与固定跟随镜头；`stress` 额外加入
+F-35×2 / J-20×2，并完成 `x=-6520..520 / y=3800..10200 / zoom=0.20..0.34` 的 8/8 段巡检。
+两者都走真实 Black Star、AI、武器、伤害与自然减员，因此适合暴露实战短板和做同机趋势对照；由于人口与
+Black Star 分裂代际会随战斗分歧，它们不是“维持最坏阶段”的 S2 毕业门，不能替代专门锁定满编的 BOSS 压测。
+
 专项场景按下文“性能验证流程”选择。若改动不新增常驻 tick、draw、实体或弹丸，只需 E0 静态审计 + 聚焦回归，但必须在 spec 里写明豁免理由。
 
 ### R8. 单帧成本随 N 增长的代码必须支持拥挤度自适应
@@ -139,6 +167,12 @@ bench\run.cmd battlefield_atmosphere_stress_48_24km 30 180 Shadow Visual
 - 雷达锁定：`RADAR_LOCK_STRIDE = 4` 子集轮转 + HOSTILE/非 HOSTILE 候选预分桶
 - 屏幕外远距：`FAR_FREEZE_DIST_SQ` 硬冻结（survivor_mode._update_offscreen_lod）
 
+诊断路径同样受帧预算约束：逐机采样必须错开相位，禁止同批实体同帧格式化大量字符串；长时事件缓冲禁止
+使用 `Array.pop_front()` 逐条过期，因为每次头删都会搬移剩余全部元素。`AC_TICK` 保留每机 10Hz 采样但按实例
+相位摊开，`EventLogger` 用单调序号 Dictionary 做 O(1) 追加与过期删除；两者只改变观测成本，不改变战斗行为。
+同理，逐机 30Hz Canvas redraw 必须按实例分相；“所有飞机同一偶数帧重绘”不是降频，而是把原本可摊开的
+Canvas 命令重建压成周期尖峰。
+
 ---
 
 ## 性能验证流程（Performance Validation Flow）
@@ -150,7 +184,7 @@ bench\run.cmd battlefield_atmosphere_stress_48_24km 30 180 Shadow Visual
 1. **成本形状**：CPU 决策/扫描、物理、draw 提交、GPU fill、纹理/streaming、UI 合成，还是瞬时生成/释放；
 2. **触发态**：改动必须实际激活，不能在 benchmark 里处于 idle、画外裁剪或零弹丸状态；bench build 必须确定性，不能让随机选卡改变 draw/弹丸负载；
 3. **人口与可见度**：飞机/地面/舰船/挂点、弹丸数量、主交战带范围、camera zoom；
-4. **对照条件**：同一机器、Godot 版本、GL Compatibility、地图、seed、camera、时长、冷/暖缓存与可见 UI。
+4. **对照条件**：同一机器、Godot 版本、GL Compatibility、地图、seed、camera 轨迹、时长、冷/暖缓存与可见 UI。
 
 若 benchmark 结束时实际演员数、弹丸/炮弹数或功能状态没有达到合同，本次结果无效，即使 FPS 很高。
 
@@ -171,6 +205,7 @@ bench\run.cmd battlefield_atmosphere_stress_48_24km 30 180 Shadow Visual
 ### 3. 采样与对照
 
 - 自动场景前 3 秒只预热，不计入帧统计；当前混合战场与地图压力场已经这样实现。
+- C1/C2 必须完成标准巡检镜头全部 8 段；固定中心、只缩放或覆盖不完整的结果不能冒充通用门。
 - 优化/A-B 改动用**同条件连续 3 次**，比较三次中位数；单次排序不得宣称稳定收益。
 - 冷启动、LOD transition 与运行稳态分开记录。暖缓存通过不能覆盖冷启动尖峰；首次失败也不能被静默丢弃。
 - draw/GPU/合成结论必须带 `Visual`。Shadow headless 只可定位 CPU、状态机、泄漏与人口守恒。
@@ -393,6 +428,17 @@ else:
 **修复**：4 处全部改用 `CombatUnit.all_units` + `is_instance_valid()` 守卫。
 
 **教训** → R4。新规则立时要全仓库扫一遍合规情况，别只改一处样板。
+
+### 同步 AC_TICK + EventLogger 头删制造长局尖峰（2026-08-24）
+**原因**：同批飞机进入大坡度后以相同相位每 0.1s 写 `AC_TICK`；运行超过 300s 后，日志缓冲又对每条过期事件
+执行 `Array.pop_front()`，把数千项搬移成本叠在战斗物理帧上。隐形机只是增加了高机动完整实体，并没有改变敌机行为。
+
+**修复**：逐机 10Hz 采样按实例 ID 分成 10 个相位；事件队列改用单调整数 key，追加与过期删除均为 O(1)。
+
+同批飞机的 30Hz `queue_redraw` 也曾共用 `_lod_frame % 2`，导致全体同帧重建 Canvas 命令；现按实例奇偶分相，
+保持每架原更新频率不变，同时把提交负载均匀摊到相邻物理帧。
+
+**教训** → R6 + R8。诊断代码也必须按实体数和长局时长计算，不能因“不属于玩法”而免除帧预算。
 
 ### Sentinel 数据链虚线（commander_overlay.gd）（2026-04-18）
 **原因**：每帧画 Sentinel → 每个僚机的虚线连接，小循环拆成 50+ 条 `draw_line`。5 个僚机 × 50 条 × 60Hz = 1.5 万 draw_line/s，纯装饰。

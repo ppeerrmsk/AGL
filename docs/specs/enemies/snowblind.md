@@ -3,7 +3,7 @@ id: snowblind
 kind: enemy
 status: in-progress
 schema_version: 1
-spec_version: 11
+spec_version: 12
 owner: noelu
 depends_on: [enemy-pool-expansion, squad-xp-threat-balance, global-awareness-roe]
 reconstruction_complete: false
@@ -76,7 +76,7 @@ reconstruction_complete: false
 | `COLLAPSE_S` | **0.80s** | 本体击毁/清理后的灰场消散时长 |
 | 作用对象 | 圈内全部存活敌方 `Aircraft`，含本体 | 圈外的本体轮廓只是 shader 提示，不是 Aircraft 实体；地面单位、舰船、导弹、子弹不被隐藏 |
 | BOSS 阶段 | 不生成；进入 BOSS 阶段前仍在场者撤离 | 因而不会把 BOSS 或登场演出盖住 |
-| 重叠 | 同时最多 1 个雪幕场 | 不设计场叠加、半径合并或优先级 |
+| 重叠 | 同时最多 1 个雪幕场；**可与 DEADAIR 同场** | 两种特殊支援场独立结算，不合并半径、不共享成员，也不替换或退休对方 |
 
 ### 2.3 刷怪经济
 
@@ -240,7 +240,7 @@ is_sensor_hidden = is_cloaked OR shroud_concealed
 - `SnowblindShroudVisual`：单圆 mesh + 单材质；世界视图 shader 动画与 Tab 图简化覆盖共享同一状态数据。
 - `shroud_concealed`：Aircraft 的独立传感器隐藏标志；与 `is_cloaked` 合并到 `is_sensor_hidden()` 查询，
   但不继承光学隐形的物理子弹免疫。
-- 刷怪层使用“特殊支援包”入口创建本体和两个独立动态护卫槽；不把这种跨机型混编包塞进常规单机型 Squad 抽取。
+- 刷怪层使用“特殊支援包”入口创建本体和两个独立动态护卫槽；不把这种跨机型混编包塞进常规单机型 Squad 抽取。DEADAIR 在场不构成 Snowblind 的生成阻断条件。
 - 生命周期只有 Snowblind 控制器拥有隐藏状态；退出树、清理、BOSS 转阶段和本体死亡都必须统一走一次幂等清场。
 
 ## 5. 验收标准（Acceptance / Litmus）
@@ -258,6 +258,7 @@ is_sensor_hidden = is_cloaked OR shroud_concealed
 - [ ] 本体击毁后 0.80s 内雪幕坍塌，所有被覆盖敌机永久显形，锁定/选敌恢复，无残留隐藏状态。
 - [ ] 初始包固定为 1 本体 + 2 动态护卫；两槽从当刻热度允许的任何常规战斗机独立抽取，可同型或混编，
       并逐架消费 Token/实例上限；预算不足、冷却中、同场已有或累计达到 2 时不生成。
+- [ ] DEADAIR 与 Snowblind 可同场正常刷新；任一本体死亡、撤离或清理只移除自己的场、成员状态与视觉，不影响另一来源。
 - [ ] 单机、3机、6机、9机各实测：单机可以亲自破幕；多机可以派侦察机破幕并由外圈队员接战；机制不要求多机才能解。
 - [ ] 世界视图和 Tab 图都能读出灰区边界；连续雾雪不高频闪烁，圆心提示轮廓稳定清晰但不会被误认成可点击实体。
 - [ ] 未破幕主体 alpha =1.00，地图、地面/海面单位和被隐藏的圈内敌机完全不会透出，直属/友军飞机保持在上层；
@@ -288,6 +289,7 @@ is_sensor_hidden = is_cloaked OR shroud_concealed
 ### 阶段 4 — 刷怪与内容接入
 - [x] EnemyType、Token/上限/冷却/累计上限、高度权重、XP、EW 桶登记。
 - [x] 特殊支援包生成：两护卫槽独立复用当前热度常规战斗机池，逐架重算 Token/实例上限，支持同型与混编。
+- [ ] 移除 DEADAIR/Snowblind 跨类型互斥与优先替换路径，补双场同时存在、任一来源先死亡和模式清理回归；总体特殊支援权重留给后续独立任务。
 - [x] 接 debug spawn、敌人图鉴、i18n；因 no_pilot 不进入无线电白名单。
 
 ### 阶段 5 — 验收与调参
@@ -312,6 +314,7 @@ is_sensor_hidden = is_cloaked OR shroud_concealed
 
 | 日期 | spec_version | 改动 |
 |---|---:|---|
+| 2026-08-22 | 12 | 用户取消 Snowblind 与 DEADAIR 的在场互斥：两种普通随机特殊支援包可同场存在，各自维护同型上限、Token、冷却、阶段累计、效果与清理所有权。本版不调整总体刷新频率；后续独立任务需减少长期遇不到特殊机制的空窗，同时避免单局穷举全部机制。 |
 | 2026-08-01 | 1 | 初稿：6000m 移动雪幕、直属机入圈后全队共享显形、6500m/2s 复隐滞回；隐藏影响视觉/锁定/制导但不提供物理无敌；跨边界双向停火；无武装 Schemer 本体、1+2 特殊支援包、Token 7、权重 0.45、同场 1/战区累计 2/180s 冷却；单 mesh 预生成噪点 shader 视觉方案。 |
 | 2026-08-01 | 2 | 用户定调护卫不绑定机型：两个护卫槽分别从生成当刻符合当前热度的任何常规战斗机中独立抽取，可同型或混编；保留各机 Token、实例上限、冷却与原型行为，仅排除 Snowblind/BOSS/王牌/Adds/事件专属/非战斗支援。 |
 | 2026-08-01 | 3 | 按“敌版不得复制玩家数据”补参数审计：飞行取 A-7/Sentinel 之间、生存取 Su-27 HP60、雷达取 J-7 2500px、单 flare 取 AH-64 fail0.35；明确无玩家资源依赖，动态护卫进入雪幕后不获得任何数值强化。 |

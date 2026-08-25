@@ -97,8 +97,7 @@ reconstruction_complete: false
 | `gun_reload` | STAT | |
 | `gun_firerate` | STAT | |
 | `gun_range` | STAT | |
-| `gun_accuracy` | STAT | |
-| `aim_assist` | STAT | 自动开火扇区 |
+| `gun_accuracy` | STAT | 已合并瞄准辅助：同时修改精度、弹寿命与自动开火扇区 |
 | `gun_multishot` | TRANSFORM | 一次 +2 弹 |
 | `gun_ciws` | TRANSFORM | 自动 CIWS 拦弹 |
 | `gun_kill_fear` | STATUS | 机炮击杀 AOE 注入恐惧（触发者机炮系） |
@@ -133,12 +132,11 @@ reconstruction_complete: false
 | `proximity_fuze` | TRANSFORM | 近炸 AOE |
 | `missile_bounce` | TRANSFORM | 命中弹跳 |
 
-#### ✈ PER_TYPE · UNIVERSAL（任意机型可抽、抽到即绑当时机型，共 11 条）
+#### ✈ PER_TYPE · UNIVERSAL（任意机型可抽、抽到即绑当时机型，共 10 条）
 | id | flavor | 备注 |
 |---|---|---|
 | `hp_up` | STAT | |
 | `armor_up` | STAT | |
-| `kill_heal` | STAT | |
 | `speed_up` | STAT | |
 | `maneuver_up` | STAT | |
 | `dogfight` | STAT | 综合格斗包 |
@@ -152,12 +150,12 @@ reconstruction_complete: false
 | id | flavor | 备注 |
 |---|---|---|
 | `skill_missile_hit_invul` | STATUS | 被弹→自身 INVUL（**无敌盾**，专属强技） |
-| `skill_lowest_alt_kill_invul` | STATUS | 低空击杀→自身 INVUL |
+| `low_alt_gun_dodge` | STATUS | 地表狂奔已合并空中战车：低空机炮闪避 +50%，低空击杀→自身 INVUL；全机型可用 |
 | `bloodlust_armor_mobility` | STATUS | 嗜血修饰（减伤+G+加速） |
 | `full_hp_kill_perma_hp` | STATUS | 满血嗜血击杀→永久+HP（仅本局） |
 | `skill_head_on_perma_hp` | STATUS | 对头击杀→永久+HP（仅本局） |
 | `skill_head_on_aoe_fear` | STATUS | 对头击杀→AOE 恐惧（触发者绑机型） |
-| `skill_kill_status_heal` | STATUS | 击杀异常状态敌→回血 |
+| `skill_kill_status_heal` | STATUS | 已合并战场急救：每次击杀 +5 HP，异常状态目标再 +30 HP |
 
 #### ⚙ PER_TYPE · HARDWARE（机型自带特色武器，§2.6：绑机型不继承，共 6 条）
 | id | flavor | 备注 |
@@ -165,11 +163,10 @@ reconstruction_complete: false
 | `railgun_charge` | STAT | 电磁炮（X-02 等机型自带；离开该机型即无） |
 | `railgun_range` | STAT | |
 | `railgun_damage` | STAT | |
-| `laser_cooldown` | STAT | 激光（载机自带） |
+| `laser_cooldown` | STAT | 激光（载机自带）；已合并过热阈值强化 |
 | `laser_range` | STAT | |
-| `laser_heat` | STAT | |
 
-> **统计**：GLOBAL 4 · GUN 10 · EW 14 · MISSILE 8 · UNIVERSAL 18 · HARDWARE 6 ＝ 60 行（含状态家族细分），对应代码 41 条 `UPGRADES`（部分一条多效）。新增技能必须在本表登记三字段。
+> **统计**：GLOBAL 4 · GUN 10 · EW 14 · MISSILE 8 · UNIVERSAL 17 · HARDWARE 6 ＝ 59 行（含状态家族细分），对应代码 40 条 `UPGRADES`（部分一条多效）。新增技能必须在本表登记三字段。
 
 ### 2.3 机型系 ↔ 机型 映射（affinity 落到具体机型）
 
@@ -254,13 +251,12 @@ reconstruction_complete: false
 > 中坚触发技与数值技一律通用保卡池厚度（目标：每轴卡池中品类限定占比 ≤ ⅓）。
 > 危险叠加由品类数量天然限幅：混编队同系 1~2 架 = 安全；满编单系队 = 刻意 build 收益（D 观察）。
 
-**斗士系**（攻击/制空/桥接/母舰/omni 持有斗士身份的机，4 条）：
+**斗士系**（攻击/制空/桥接/母舰/omni 持有斗士身份的机，3 条）：
 
 | 技能 | 原危险点 | 归系理由 |
 |---|---|---|
 | gun_ciws | CIWS ×N 敌导弹全灭 | ★用户点名"攻击机才有"——攻击机队近防网=品类特色 |
 | skill_missile_hit_invul | 全队轮流无敌 | 强技：近战肉的保命底牌 |
-| skill_lowest_alt_kill_invul | 同上 | 强技：低空=攻击机地盘 |
 | executioner | 逐机 streak 速度发散 | 稀有技；攻击机速度基线低发散可控（D 观察） |
 
 **骑士系**（远程/制空/桥接/母舰/隐身/omni 持有骑士身份的机，10 条）：
@@ -313,7 +309,7 @@ overstock / herbst · cobra_skill（双体现语义不变，见 B 表）。
 
 #### C. 武器门控自限（**放心全队**——只有装备该武器的机受益，天然限幅）
 
-railgun_charge/range/damage · laser_cooldown/range/heat/extra_beams · skill_laser_damage · rocket_firerate_range · torpedo_tracking_boost
+railgun_charge/range/damage · laser_cooldown/range/extra_beams · skill_laser_damage · rocket_firerate_range · torpedo_tracking_boost
 → 全队语义 + `requires_equipment_kind` 现成门控：僚机没有电磁炮/激光/火箭 = 自然无效；武器库武器跟王牌走，强化随资源引用迁移（inrun-weapon-inventory）。
 
 #### D. 观察名单（全队放行，bench/playtest 盯量级）
@@ -327,8 +323,8 @@ railgun_charge/range/damage · laser_cooldown/range/heat/extra_beams · skill_la
 
 #### E. 通用标配：**默认全队直给**（基础数值 + 中坚触发技，卡池厚度的基本盘——用户裁定）
 
-hp_up · armor_up · bullet_dodge · speed_up · maneuver_up · dogfight · flare_shield · shock_absorb · kill_heal ·
-missile_count · missile_boost · gun_damage · gun_accuracy · aim_assist ·
+hp_up · armor_up · cockpit_armor · speed_up · maneuver_up · dogfight · flare_shield · shock_absorb ·
+missile_count · missile_boost · gun_damage · gun_accuracy ·
 skill_kill_bloodlust · skill_damaged_bloodlust · skill_head_on_perma_hp · low_alt_gun_dodge · skill_kill_status_heal ·
 evasion_speed_boost · evasion_weapon_cd · evasion_overstock · evasion_herbst · cobra_skill · manual_dodge（后六条=全队双体现，B 表）
 （+后续新技能默认入此类，除非命中识别模式）

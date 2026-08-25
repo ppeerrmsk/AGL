@@ -131,7 +131,7 @@ ZONE_MISSION_STARTED_FMT,⚔ 战区 %s 任务开始 — 清剿地面单位,⚔ Z
 ZONE_MISSION_STARTED_AIR_FMT,⚔ 战区 %s 任务开始 — 歼灭敌方中队,⚔ ZONE %s — DESTROY ENEMY SQUADRON,⚔ エリア %s 開戦 — 敵中隊を撃墜
 ZONE_MISSION_STARTED_SQUADRON_FMT,⚔ 战区 %s 任务开始 — 击败敌方中队,⚔ ZONE %s — DEFEAT ENEMY SQUADRON,⚔ エリア %s 開戦 — 敵中隊を撃破
 ZONE_MISSION_STARTED_NAVAL_FMT,⚔ 战区 %s 任务开始 — 击毁全部舰艇,⚔ ZONE %s — DESTROY ALL FLEET TARGETS,⚔ エリア %s 開戦 — 全艦艇目標を撃沈
-TIER3_PROFILE_SUPER_CANNON,超级巨炮,SUPER CANNON,超大型砲
+TIER3_PROFILE_SUPER_CANNON,极光长枪,AURORA LANCE,オーロラ・ランス
 TIER3_PROFILE_SIEGE_TANK,沙漠攻城坦克,DESERT SIEGE TANK,砂漠攻城戦車
 TIER3_PROFILE_LONG_RANGE_VLS,远程 VLS 舰队,LONG-RANGE VLS FLEET,長射程VLS艦隊
 TIER3_PROFILE_DEADAIR,DEADAIR 干扰支援机,DEADAIR JAM SUPPORT,DEADAIR妨害支援機
@@ -156,13 +156,21 @@ ADBS_CITY_HELIS_FMT,⚠ 城区上空：敌方直升机编队向 %s 方向逃离�
 ADBS_CITY_HELIS_CLEARED_FMT,运输队全歼——作战时间 +%d 秒,Transport flight destroyed — mission time +%ds,輸送隊全滅——作戦時間 +%d秒
 ZONE_INFO_DIFFICULTY,难度,Difficulty,難易度
 ZONE_INFO_TIER3_GLOBAL_THREAT,⚠ 全局威胁：高威胁来源被摧毁后效果消失；任务仍需清空全部 TGT,⚠ GLOBAL THREAT: Destroying the high-threat source removes its effect; all TGTs are still required,⚠ 広域脅威：高脅威源の撃破で効果は消えるが、任務には全TGTの殲滅が必要
-ZONE_MISSION_GROUND,※ 清剿战区内的地面单位（SAM / AA）,※ Eliminate ground installations in the zone (SAM / AA),※ エリア内の地上目標を殲滅 (SAM / AA)
+ZONE_MISSION_GROUND,※ 摧毁战区内全部地面 TGT（SAM / AA / 雷达）,※ Destroy every ground TGT in the zone (SAM / AA / radar),※ 戦域内の地上TGTを全て破壊せよ（SAM / AA / レーダー）
 ZONE_MISSION_AIR,※ 歼灭盘旋在战区上空的敌方中队,※ Destroy the enemy squadron patrolling the zone,※ 上空を警戒する敵飛行隊を撃墜
 ZONE_MISSION_SQUADRON,※ 击败锁定战区的敌方中队,※ Defeat the enemy squadron holding the zone,※ エリアを制圧中の敵中隊を撃破
-ZONE_MISSION_NAVAL,※ 击毁海上舰队旗舰,※ Sink the enemy fleet flagship,※ 敵艦隊旗艦を撃沈せよ
+ZONE_MISSION_NAVAL,※ 击毁战区内全部敌方舰艇,※ Destroy every hostile vessel in the zone,※ 戦域内の敵艦艇を全て撃沈せよ
 ZONE_MISSION_BOMBER_ESCORT,※ 护送轰炸机沿标定航线摧毁战略目标,※ Escort the bombers along the marked route and destroy the strategic target,※ 指定航路で爆撃隊を護衛し戦略目標を破壊せよ
 ZONE_MISSION_BOSS,※ 击溃来袭的 BOSS 部队,※ Destroy the incoming BOSS force,※ 襲来する BOSS 部隊を撃破せよ
 ZONE_MISSION_AIRFIELD,※ 解放机场：摧毁驻守的地面防空（SAM / AA）,※ Liberate the airfield: destroy the ground air-defenses (SAM / AA),※ 飛行場を解放せよ：地上防空(SAM / AA)を破壊
+ZONE_MISSION_TIER3_SUPER_CANNON,※ 摧毁极光长枪并清空全部守军；它会随机瞄准长机或僚机且整条预警带同时受击，近身后无法反击,"※ Destroy AURORA LANCE and clear every defender; it randomly targets the lead or a wingman and strikes the entire warning lane at once, but cannot fight at close range",※ オーロラ・ランスと全守備隊を撃破せよ；長機または僚機を無作為に狙い警告帯全域を同時攻撃するが近距離では反撃不能
+ZONE_MISSION_TIER3_SIEGE_TANK,※ 摧毁攻城坦克并清空全部守军；注意 2×CIWS、长射程 SAM、空爆炮及对地主炮,"※ Destroy the siege tank and clear every defender; beware its 2×CIWS, long-range SAM, airburst gun, and ground-attack main cannon",※ 攻城戦車を破壊し全守備隊を殲滅せよ；2基のCIWS、長射程SAM、空中炸裂砲、対地主砲に注意
+ZONE_MISSION_TIER3_LONG_RANGE_VLS,※ 击毁全部敌方舰艇；远程 VLS 可从战区外发动攻击,"※ Sink every hostile vessel; the long-range VLS can attack beyond the zone",※ 敵艦艇を全て撃沈せよ；長射程VLSは戦域外から攻撃可能
+ZONE_MISSION_TIER3_DEADAIR,※ 击落 DEADAIR 干扰支援机并歼灭全部护航；来源被毁后其 JAM 效果立即消失,"※ Shoot down the DEADAIR jammer and destroy every escort; its JAM effect ends immediately when the source is destroyed",※ DEADAIR妨害支援機と全護衛機を撃墜せよ；発生源の破壊と同時にJAM効果は消失する
+ZONE_MISSION_STARTED_TIER3_SUPER_CANNON_FMT,⚠ 战区 %s — 摧毁极光长枪并清空守军,⚠ ZONE %s — DESTROY AURORA LANCE AND CLEAR ITS DEFENDERS,⚠ エリア %s — オーロラ・ランスと全守備隊を撃破せよ
+ZONE_MISSION_STARTED_TIER3_SIEGE_TANK_FMT,⚠ 战区 %s — 摧毁攻城坦克并清空守军,⚠ ZONE %s — DESTROY THE SIEGE TANK AND CLEAR ITS DEFENDERS,⚠ エリア %s — 攻城戦車と全守備隊を撃破せよ
+ZONE_MISSION_STARTED_TIER3_LONG_RANGE_VLS_FMT,⚠ 战区 %s — 击毁全部远程 VLS 舰艇,⚠ ZONE %s — DESTROY ALL LONG-RANGE VLS VESSELS,⚠ エリア %s — 長射程VLS艦を全て撃沈せよ
+ZONE_MISSION_STARTED_TIER3_DEADAIR_FMT,⚠ 战区 %s — 击落 DEADAIR 干扰机及全部护航,⚠ ZONE %s — DESTROY THE DEADAIR JAMMER AND ALL ESCORTS,⚠ エリア %s — DEADAIR妨害機と全護衛機を撃墜せよ
 ZONE_BOMBER_STATUS_TITLE,轰炸任务状态,BOMBER MISSION STATUS,爆撃任務ステータス
 ZONE_BOMBER_TARGET_HP,目标 HP,TARGET HP,目標 HP
 ZONE_BOMBER_TIME_LEFT,剩余时间,TIME LEFT,残り時間
@@ -352,9 +360,6 @@ ACE_SQUAD_GOOFIGHTERS_LORE,由两架 Su-47 组成的高机动中队。可实施�
 ACE_SQUAD_WHITETEA_LORE,由三架 F-CK-1 组成的高速突击中队，成员呼号为 Tea、Cola 与 Bottle。编队采用一次机炮攻击后立即脱离的战术；遭到追击时，可通过快速 180° 航向反转重新取得攻击位置。,"High-speed strike squadron composed of three F-CK-1s, with members using the callsigns Tea, Cola, and Bottle. The formation conducts one gun attack and immediately disengages; when pursued, it can use a rapid 180-degree heading reversal to regain an attack position.",Tea、Cola、Bottle の呼称を持つ 3 機の F-CK-1 で構成された高速突撃中隊。編隊は機関砲攻撃を 1 回行った後に直ちに離脱し、追撃を受けると急速な 180 度針路反転で攻撃位置を取り戻す。
 ACE_SQUAD_VULTURE_LORE,高空截击中队，采用八机横列和协同导弹齐射实施远程压制，完成攻击后立即脱离。该中队全部机体均拆除了机炮，不参与持续近距格斗。,High-altitude interceptor squadron that uses an eight-aircraft wall formation and coordinated missile salvos for long-range suppression before immediately disengaging. Every aircraft in the squadron has had its gun removed and does not participate in sustained short-range combat.,8 機の横列編隊と協同ミサイル斉射で遠距離制圧を行い、攻撃後すぐ離脱する高高度迎撃中隊。全機が機関砲を撤去しており、持続的な近距離格闘には参加しない。
 DOCK_AIRFIELD_SPENT_FMT,%s 补给完毕，机场关闭,%s resupplied — airfield closed,%s 補給完了・飛行場閉鎖
-MAP_VECTOR_PREVIEW_ON,纯矢量地图 V11：已开启（Shift+F10 返回 PNG）,Pure-vector map V11 enabled (Shift+F10 returns to PNG),純ベクターマップ V11：オン（Shift+F10 で PNG に戻る）
-MAP_VECTOR_PREVIEW_OFF,纯矢量地图 V11：已关闭（当前为 PNG）,Pure-vector map V11 disabled (PNG active),純ベクターマップ V11：オフ（PNG 表示）
-MAP_VECTOR_PREVIEW_UNAVAILABLE,纯矢量预览不可用：已保留 PNG,Vector preview unavailable; PNG retained,純ベクタープレビューを使用できません。PNG を維持します
-MAP_RASTER_PREVIEW_ON,无损瓦片地图：已开启（Shift+F8 返回整图 PNG）,Lossless tiled map enabled (Shift+F8 returns to full PNG),ロスレス・タイル地図：オン（Shift+F8 で全面 PNG に戻る）
-MAP_RASTER_PREVIEW_OFF,无损瓦片地图：已关闭（当前为整图 PNG）,Lossless tiled map disabled (full PNG active),ロスレス・タイル地図：オフ（全面 PNG 表示）
-MAP_RASTER_PREVIEW_UNAVAILABLE,无损瓦片预览不可用：已保留整图 PNG,Lossless tile preview unavailable; full PNG retained,ロスレス・タイルプレビューを使用できません。全面 PNG を維持します
+MAP_VECTOR_PREVIEW_ON,纯矢量地图 V11：已开启（Shift+F10 返回正式瓦片）,Pure-vector map V11 enabled (Shift+F10 returns to production tiles),純ベクターマップ V11：オン（Shift+F10 で正式タイルに戻る）
+MAP_VECTOR_PREVIEW_OFF,纯矢量地图 V11：已关闭（当前为正式瓦片）,Pure-vector map V11 disabled (production tiles active),純ベクターマップ V11：オフ（正式タイル表示）
+MAP_VECTOR_PREVIEW_UNAVAILABLE,纯矢量预览不可用：已保留正式瓦片,Vector preview unavailable; production tiles retained,純ベクタープレビューを使用できません。正式タイルを維持します

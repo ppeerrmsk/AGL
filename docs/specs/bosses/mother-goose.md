@@ -3,7 +3,7 @@ id: mother-goose
 kind: boss
 status: done
 schema_version: 1
-spec_version: 13
+spec_version: 14
 owner: design
 depends_on: [jam-status, vls-salvo, uav-swarm-roles, boss-clear-progression]
 reconstruction_complete: true
@@ -186,7 +186,19 @@ Mother Goose 专属 MQ-109 机动力：最大速度 1100 km/h、巡航 650 km/h�
 | 出生位 | boss 左右翼 ±500 px |
 | 牵引半径 | 7000 px |
 | 侧翼偏移 | ±600 px |
-| AI | engage_cd 0.3s / duration 120s；aggression 1.0；skill 0.90；composure 0.85；focus 0.95；纯狗斗 standoff=0 |
+| 生存 | HP 300 · armor 5 · flare 1 · 无限油/弹 |
+| 传感器隐形 | `sensor_stealth_enabled=true`，与 F-22 同级；有效接触内仍可正常锁定，不等于永久免锁 |
+| AI | engage_cd 0.3s / duration 120s；aggression 1.0；skill 0.90；composure 0.85；focus 0.95；standoff=0 |
+| 攻击跑 | `RUN_IN → BREAK → RUN_IN`；break 550 px，reentry 2600 px，火力窗内 1200 km/h |
+
+MQ-X 三路武器同时存在：点射激光和导弹负责攻击玩家，拦截激光独立扫描来袭导弹。
+
+| 武器 | 权威数值 |
+|---|---|
+| 三发点射激光 | 180 RPM；3 发/梭；25 伤害/发；2400 m/s；2200 m 射程；散布 0.10°；开火锥 ±8° |
+| MQ-X AAM | 1200 m/s；加速 170；24G；N=4.0；后半球 7000 m；前后比 2.0；最小射程 350 m；伤害 60；导引头 60°；制导延迟 0.35s；4 发；冷却 3.2s |
+| 拦截激光 | 只打导弹；2500 m；95→25 DPS；单目标；真实累计消耗 `intercept_hp` |
+| 拦截激光过热 | 上限 100；输出 +35/s；过热强制停火并 -25/s；降至 30% 恢复 |
 
 ## 3. 行为与公式（How）
 
@@ -214,6 +226,18 @@ Mother Goose 专属 MQ-109 机动力：最大速度 1100 km/h、巡航 650 km/h�
 玩家点击 Mother Goose 飞翼机身时，不把锁定免疫的本体作为 `combat_target`，而是在该母体当前存活、
 可攻击的 `MountTarget`（挂点；核心暴露后含核心）中选择**离点击世界坐标最近**的一项。机身上的普通 UAV
 不得抢走这次点击；机身范围外仍沿用常规敌人近点选择。
+
+### 3.5 MQ-X 攻击几何
+
+MQ-X 不再使用“高机动 + 窄开火锥 + 近距离纯 lead 追转”的持续狗斗。该组合会在两机侧翼
+偏移与目标转弯里形成共速圆，机头长期进不了旧 ±5° 开火窗，玩家只看到绕圈。
+
+生产 AI 统一走 joust：
+
+1. `RUN_IN`：朝目标提前点对准；火力窗外全速闭合，进入导弹包络后降到 1200 km/h 稳定开火。
+2. 在 2200 m 内允许三发点射；导弹依旧走雷达锁定与发射门，不伪造命中。
+3. 距目标 550 px 时切 `BREAK`，高速穿越脱离；拉开到 2600 px 后再折返。
+4. 拦截激光不参与走位竞选，始终以载机为圆心独立拦截最近来袭导弹，并受过热门限制。
 
 ## 4. 结构与组成（Structure）
 
@@ -244,6 +268,8 @@ BGM：循环歌单 `["boss_mothergoose_1", "boss_mothergoose_2"]`（优先于 bg
 - [x] MQ-111 可把 `intercept_hp` 累计打到 0 并令导弹失效；过热/冷却/30% 恢复门与玩家 X-02 完全一致
 - [x] 点击飞翼本体时选择离点击点最近的存活 MountTarget，机身上的普通 UAV 不抢点击
 - [x] HP 跌破 50% 恰好一次性刷 2 架 MQ-X
+- [x] MQ-X 三发点射、强化导弹、独立拦截激光与 F-22 级传感器隐形同时存在
+- [x] MQ-X 生产 AI 经唯一配置入口启用 joust；60s 物理步进至少产生一次点射窗与完整脱离再入循环
 - [x] 蜂群 / MQ-X 击杀 **不给 XP、不入生涯档案、不给对头永久 +max_hp**；仍计击杀数
       （无头回归 `--bench=boss_phase` F 组，含"普通 MQ-109 照常计价"对照）
 - [x] 镜头平移/缩放不改变 UAV 存亡；母舰在玩家 4000px 巡逻环外时，守舰 UAV 不会被误删
@@ -306,3 +332,4 @@ BGM：循环歌单 `["boss_mothergoose_1", "boss_mothergoose_2"]`（优先于 bg
 | 2026-08-01 | 11 | 机炮攻击意图锥的视觉降噪收窄到 Mother Goose 蜂群成员；普通 MQ-109、Sentinel 僚机与 MQ-X 不再被“无人机”总类过滤。 |
 | 2026-08-16 | 12 | 接入统一 BOSS 系统入侵横幅：镜头切母机前显示固定英文包装、英文主标题、空中无人机母舰角色类型与 GOOSE 呼号。 |
 | 2026-08-16 | 13 | VLS 改为 3000m 近身停火、累计飞行 8000m 后生成 800m/1.5s 定距 AOE；MQ-111 激光保留累计反导，并把热量参数和过热恢复门完全对齐玩家 X-02。 |
+| 2026-08-24 | 14 | 根治 MQ-X 近距离共速绕圈：改走可读 joust 攻击跑；点射收口为三发短梭并扩大火力窗，导弹强化，新增带过热的真实拦截激光，并启用 F-22 级传感器隐形。 |

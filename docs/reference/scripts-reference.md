@@ -162,9 +162,8 @@ HIGH——tier 门控效果（+20% 机炮闪避、AA 散布 ×3 等）在 7500m 
 | `enable_missile_reload` | 自动装填导弹 |
 | `missile_reload_duration` | 装填总时间（可通过升级缩短） |
 | `max_simultaneous_locks` | 多目标同时锁定数 |
-| `bullet_dodge_chance` | 机炮闪避概率（装甲升级给） |
+| `bullet_dodge_chance` | 机炮闪避概率（机体基线 + 座舱护甲等技能） |
 | `flare_lock_immunity` | 热诱弹释放后锁定免疫秒数 |
-| `kill_heal_amount` | 击杀回血量 |
 | `gun_extra_barrels` | 多管齐射额外管数 |
 | `missile_bounce_count` | 连锁弹头弹跳次数 |
 | `infinite_fuel` | 无限燃油 |
@@ -375,7 +374,7 @@ FLUID_FOUR     流体四机（两对战斗翼）
 **文件**: `scripts/event_logger.gd`  
 **类型**: 自动加载单例 (Autoload)
 
-环形缓冲区，保留最近 60 秒事件。F9 导出：编辑器模式写 `<project>/logs/combat_log_*.txt`，导出包写 `user://combat_log_*.txt`（路径策略见 `dump_to_file` 注释）。
+O(1) 环形事件队列，保留最近 300 秒事件；逐条过期不搬移剩余缓冲。F9 导出：编辑器模式写 `<project>/logs/combat_log_*.txt`，导出包写 `user://combat_log_*.txt`（路径策略见 `dump_to_file` 注释）。
 
 ```gdscript
 EventLogger.log_event("MISSILE", "Player", "hit Enemy#3 (dmg=80)")

@@ -3,7 +3,7 @@ id: berserk-virus
 kind: skill
 status: done
 schema_version: 1
-spec_version: 2
+spec_version: 3
 owner: design
 depends_on: [skills/bloodlust, systems/squad-control-switching, systems/squad-cohesion]
 reconstruction_complete: true
@@ -32,8 +32,8 @@ reconstruction_complete: true
 | stat | `berserk_virus` | M2 字段置位；高频消费读 Aircraft 布尔字段 |
 | value / max_stacks | `1 / 1` | 不叠加 |
 | category / axis | `survival / gladiator` | 显式归斗士轴 |
-| rarity | `NEXT_GEN` | 次世代 |
-| evolved | `true` | 仅进入战区次世代奖励渠道，不进普通升级卡池 |
+| rarity | `EXPERIMENTAL` | 实验级；强度不足以占用战区次世代奖励位 |
+| 获取渠道 | 斗士普通三轴卡池 | 不设置 `evolved`；仍因 `bloodlust` 关键词受嗜血学说门控 |
 | scope | 默认全队 | 当前与后来入队的玩家小队飞机都取得能力旗标；是否生效由当前操控身份动态判定 |
 | keywords | `squad, bloodlust, mobility, weapon` | BLOODLUST 是真实状态语义并接受对应学说门控 |
 | milestone_plus | `gladiator` | 获得时斗士里程碑进度 +1 |
@@ -92,7 +92,7 @@ if berserk_wingman and channel == "flare":  final_cd_rate *= 1.50
 
 ## 4. 结构与组成（Structure）
 
-- `SurvivorData.UPGRADES`：次世代斗士奖励条目。
+- `SurvivorData.UPGRADES`：实验级斗士普通卡池条目；不进入战区次世代奖励池。
 - `SurvivorPlayer.apply_upgrade`：给全队飞机置 `berserk_virus_active`，并立即校正小队 FREE 状态。
 - `Aircraft`：持有布尔旗标、动态僚机身份查询与 weapon/flare CD 乘区。
 - `AircraftPhysics`：G、滚转、加速与减速的唯一模式 buff 注入层。
@@ -111,6 +111,7 @@ if berserk_wingman and channel == "flare":  final_cd_rate *= 1.50
 - [x] 性能：Lv15、直属 9 机、扩池 17 敌 + Sentinel/5 护卫同负载 Shadow A/B 为 139→134 FPS（-5）；8 架狂化僚机均由既有友军 LOD 所有者钉在 LOD 0。
 - [x] i18n：技能名、描述和两类拒绝提示三语齐全；普通 UI 规则继续继承 `systems/ui-design-guidelines`。
 - [x] Debug：F4 从正式技能表自动列出并可绕过门控强制授予，仍尊重 `max_stacks=1`。
+- [x] 获取：稀有度为 `EXPERIMENTAL`、无 `evolved`，可进入普通三轴卡池；因 `bloodlust` 关键词仍需嗜血学说。
 - [x] 文档：本 spec 已登记 `_INDEX`，技能表与实现索引同步，当前文档校验通过。
 
 ## 6. 实现计划（Task Pipeline —— 工作令）
@@ -147,5 +148,6 @@ if berserk_wingman and channel == "flare":  final_cd_rate *= 1.50
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-24 | 3 | 用户裁定强度不配作为战区奖励：稀有度由 `NEXT_GEN` 改为 `EXPERIMENTAL`，移除 `evolved` 并进入斗士普通卡池；效果、单层上限、代价警告和嗜血学说门控均不变。 |
 | 2026-08-17 | 2 | 完成实现与回归：290 项定向技能断言、185 项全表审计、44 项战区奖励通过；同负载压力场 139→134 FPS，确认 8 架僚机保持 LOD 0。 |
 | 2026-08-17 | 1 | 用户将名称定为“狂化病毒”并要求开始实现；按已确认的锁定 FREE、禁止主动切控、其它命令保留和击杀嗜血语义固化首版数值。 |

@@ -42,7 +42,7 @@
 | 海军与地面单位 | `scripts/naval/`、`scripts/ground_unit.gd` 及派生类 | CombatUnit 公共生命期；舰船用挂点/弱点路由 | [ground units](../systems/ground-units.md) |
 | UI、HUD 与演出 | `scripts/ui/`、`scripts/survivor/*hud*.gd`、`scripts/presentation/` | UI 通用组件；Presentation 是时间与镜头权威 | [UI 规范](../specs/systems/ui-design-guidelines.md)、[cinematic authoring](cinematic-authoring.md) |
 | 局外层与本地化 | `scripts/meta/`、`i18n/`、`scripts/i18n_catalog.gd` | Merit/Career/Shop AutoLoad；五份 CSV 是文本真源 | [i18n](i18n.md) |
-| 测试、bench 与工具 | `scripts/tests/`、`scenes/tests/`、`scripts/bench/`、`bench/`、`tools/` | 断言测试 / Visual QA / 受保护 Shadow runner / 仓库校验器 | [performance](performance-guidelines.md) |
+| 测试、bench 与工具 | `scripts/tests/`、`scenes/tests/`、`scripts/bench/`、`bench/`、`tools/` | 断言测试 / 生命周期终态 / Visual QA / 受保护 Shadow runner / 仓库校验器 | [runtime validation](runtime-validation-workflow.md)、[performance](performance-guidelines.md) |
 
 ## `reference/` 现有内容
 
@@ -65,6 +65,7 @@
 - [i18n.md](i18n.md)：本地化 key、分表与构建流程。
 - [cinematic-authoring.md](cinematic-authoring.md)：表演与登场演出的编排方法。
 - [performance-guidelines.md](performance-guidelines.md)：热路径硬规则与验证剖面。
+- [runtime-validation-workflow.md](runtime-validation-workflow.md)：focused → `all`、运行时错误门、生命周期 gauntlet、退出码与新增终态清单。
 
 ## 文档结构地图
 

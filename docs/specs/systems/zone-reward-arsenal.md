@@ -3,7 +3,7 @@ id: zone-reward-arsenal
 kind: balance
 status: done
 schema_version: 1
-spec_version: 11
+spec_version: 12
 owner: noelu（设计）/ Codex（规格化与落地）
 depends_on: [zone-reward-docking, inrun-weapon-inventory, skills-720-rework]
 reconstruction_complete: true
@@ -106,11 +106,9 @@ reconstruction_complete: true
 | `fear_on_lock` | 凝视压迫 | 当前王牌 | 对同一目标连续锁定 4 秒后施加 6 秒恐惧 | 策士 +1 |
 | `gunship_mode` | 炮艇模式 | 全队 | 机炮 360° 自动射击，自动扫描敌机与地面单位；最大速度 ×0.60 | 斗士 +1 |
 | `heavy_gun` | 重型机炮 | 全队 | 机炮射程 +1000m | 斗士 +1 |
-| `berserk_virus` | 狂化病毒 | 全队旗标 / AI 僚机动态生效 | 僚机锁定 FREE，机动与 weapon/flare CD 强化，击杀后进入标准 BLOODLUST；禁止主动切控 | 斗士 +1 |
-
 补充规则：
 
-- 七项均为 `NEXT_GEN`、`max_stacks = 1`，从普通升级池排除。
+- 六项均为 `NEXT_GEN`、`max_stacks = 1`，从普通升级池排除。狂化病毒已改为 `EXPERIMENTAL` 并回到斗士普通卡池，不属于战区奖励。
 - 连锁弹头没有机型、战斗等级或前置技能门槛；“连锁”描述的是一弹连续穿过多个目标，不再弹跳改向。
 - 炮艇模式的 360° 是绝对射界；当前机与 AI 僚机各自运行独立被动炮塔扫描。有效且在射程内的玩家 `commanded_target`（含 `MountTarget`）优先；没有可射击的玩家点名时，候选池在敌对 `Aircraft` / `GroundUnit` 中取最近合法目标，不被普通战术 `combat_target` 锁死。普通机炮仍仅自动扫描飞机并遵守交战纪律。机炮吊舱绘制两条随射向旋转的火线并显示圆形射程提示，AI 突击飞行行为不改。
 
@@ -136,7 +134,7 @@ roll 战区奖励
 
 - `ZoneData` 持有类别权重、武器权重、整局去重、航母 pity 与起始机型偏置。
 - `SurvivorMode` 负责即时发放武器、技能、航母与僚机。
-- `SurvivorData` 是七项次世代技能的权威数据表。
+- `SurvivorData` 是六项次世代技能的权威数据表。
 - `SurvivorPlayer` 把技能账本应用到当前王牌或全队，并在换机时重放。
 - 各武器行为由对应 equipment/manager/physics 消费点实现。
 
@@ -146,18 +144,18 @@ roll 战区奖励
 - [x] 正式局 60 秒或 Lv3 之前 A/B 不开放；达到双门槛后至少一个武器、一个次世代；第 4 次未出航母则强制航母。
 - [x] A/B 奖励目标先播 HQ 无线电，6 秒后才生成实体。
 - [x] 僚机奖励最多生成 2 架且不增加任何战斗等级或 XP。
-- [x] 次世代池恰为七项；`missile_penetration` 查询为空。
+- [x] 次世代池恰为六项且保留重型机炮；狂化病毒为实验级普通池技能；`missile_penetration` 查询为空。
 - [x] 连锁弹头直穿且逐弹逐目标只伤害一次。
 - [x] ESM 3000m、锁定 ×1.5、reload ×0.7；热诱弹 reload 与其它乘区相乘。
 - [x] 漂浮雷、忠诚僚机、电磁炮、激光按 §2.3 工作。
-- [x] F6 可逐项直发全部 16 个战区奖励；F4 可强制授予全部技能并直接挂载 ESM。
-- [x] `zone_rewards` 44/44、`weapon` 28/28、`skill_audit` 185/185。
+- [x] F6 可逐项直发全部 15 个战区奖励；F4 可强制授予全部技能并直接挂载 ESM。
+- [x] `zone_rewards` 47/47、`weapon` 28/28、`skill_audit` 187/187。
 - [x] Sentinel + Lv5+ 压测最低 60 FPS，记录到本 spec 变更记录。
 
 ## 6. 实现计划（Task Pipeline）
 
 - [x] 更新奖励与武器权重、起始机型偏置、航母第 4 次 pity。
-- [x] 重做七项次世代池并删除独立穿透弹头技能。
+- [x] 重做六项次世代池并删除独立穿透弹头技能。
 - [x] 落地漂浮雷、忠诚僚机、电磁炮、激光与 ESM 行为。
 - [x] 僚机奖励改为最多 2 架且不加等级。
 - [x] 更新 i18n、自动技能表与专项 bench。
@@ -184,6 +182,7 @@ roll 战区奖励
 
 | 日期 | spec_version | 改动 |
 |---|---:|---|
+| 2026-08-24 | 12 | 用户裁定狂化病毒移出战区奖励并改为实验级普通池技能；次世代池 7→6、F6 奖励直发 16→15，重型机炮及其余次世代技能不变。 |
 | 2026-08-18 | 11 | 炮艇火控补玩家命令优先：射程内 `commanded_target`（含挂点代理）压过自动最近目标，超距或失格时保留独立扫描回退。 |
 | 2026-08-17 | 10 | 新增斗士次世代技能“狂化病毒”；次世代池 6→7，F6 战区奖励直发 15→16，并补动态僚机与压力回归。 |
 | 2026-08-04 | 8 | 用户补充炮艇模式行为：3Hz 自动机炮扫描额外纳入敌对 GroundUnit；普通机炮仍仅自动扫描 Aircraft，并补运行时正反例。 |

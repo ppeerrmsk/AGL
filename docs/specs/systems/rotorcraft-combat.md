@@ -3,7 +3,7 @@ id: rotorcraft-combat
 kind: system
 status: in-progress
 schema_version: 1
-spec_version: 4
+spec_version: 5
 owner: 用户 + Codex
 depends_on: [slow-air-target-pass, surface-attack-pass, global-awareness-roe, battlefield-visual-scale]
 reconstruction_complete: true
@@ -91,7 +91,7 @@ reconstruction_complete: true
 ### 2.5 地面气氛组武装直升机变体
 
 - [正式战区氛围战斗](zone-atmosphere-combat.md) 可以用同一套 AH-64 参数/运动/武器创建 `ALLY` 或 `HOSTILE` 气氛直升机；任务 Adds 与气氛变体是两种生成身份，不复制资源或物理状态机。
-- 气氛变体的目标池是敌对 `GroundUnit`，以及父级属于地面任务实体的可攻击锁定点；因此可以攻击 SPG、普通坦克、沙漠攻城坦克、超级巨炮的四底座与炮身。Aircraft、NavalUnit 与非地面挂点始终非法。
+- 气氛变体的目标池是敌对 `GroundUnit`，以及父级属于地面任务实体的可攻击锁定点；因此可以攻击 SPG、普通坦克、沙漠攻城坦克，以及一体化巨炮单体。Aircraft、NavalUnit 与非地面挂点始终非法。
 - 友敌气氛直升机可以同时存在，但双方互不攻击；它们只与地面目标交战。地面 AA/SAM/CIWS 可以按既有规则反击直升机，超级巨炮因无防空能力不能反击。
 - 气氛变体不是正式 TGT，不占 Token、不阻塞任务，也不加入玩家小队。玩家或正式小队击毁 `HOSTILE` 气氛 AH-64 时沿用当前 `XP_PER_KILL_AH64 = 50`；第三方击毁或 `ALLY` 损失不产生玩家收益。
 - 对气氛 GroundUnit 的伤害可正常致死；对正式 TGT/挂点必须走非致死入口、最低保留 1 HP。气氛变体发射的机炮/火箭继续读取 3/3.6km 气氛伤害 LOD。
@@ -160,7 +160,7 @@ desired_velocity = clamp_length((hover_anchor - pos) × 1.2, 12 m/s)
 - [ ] ORBIT 7–11s 后能真实减速到 ≤15km/h，悬停 3.5–6s，随后恢复同方向环绕。
 - [ ] ORBIT/HOVER 均能以 M230 自动点射 GroundUnit；无目标时不朝空地乱射。
 - [ ] 玩家飞机从 AH-64 机头 100m 内穿过，AH-64 不选中、不瞄准、不伤害它。
-- [x] `ALLY/HOSTILE` 气氛 AH-64 可分别攻击敌对 SPG、坦克、攻城坦克和巨炮 GroundUnit 锁定点；双方同场互不攻击，玩家/飞机不是目标且弹丸拒绝 Aircraft。
+- [x] `ALLY/HOSTILE` 气氛 AH-64 可分别攻击敌对 SPG、坦克、攻城坦克和一体化巨炮 GroundUnit；双方同场互不攻击，玩家/飞机不是目标且弹丸拒绝 Aircraft。
 - [x] 气氛 AH-64 不是 TGT/Token；敌对实例保留现有 50 XP 玩家归因，友军关闭收益；其火力可击毁气氛地面演员但不能清掉正式 TGT。
 - [ ] AH-64 目标被毁后 0.5s 内回到原任务航路，不在尸体旁永远盘旋。
 - [ ] CH-47 按航路平移，指定 hold 航点能悬停后继续；城区逃离事件默认不停留。
@@ -205,6 +205,7 @@ desired_velocity = clamp_length((hover_anchor - pos) × 1.2, 12 m/s)
 
 | 日期 | spec_version | 改动 |
 |---|---:|---|
+| 2026-08-22 | 5 | 跟随三级巨炮一体化裁决更新目标池：AH-64 只把整座巨炮视为一个 GroundUnit/TGT，不再看到四底座与炮身五个独立锁定点；正式 TGT 非致死边界不变。 |
 | 2026-08-21 | 4 | 地面气氛变体正式接入：ALLY/HOSTILE AH-64 复用现有旋翼状态机，只扫描 GroundUnit；新发机炮/火箭快照地面专用与正式 TGT 非致死标记；四种组合、Aircraft 负例、气氛致死/正式非致死及奖励身份由 zone_atmosphere bench 覆盖。 |
 | 2026-08-21 | 3 | 用户批准把 AH-64 作为地面气氛组双阵营演员：可与 SPG、坦克、攻城坦克、超级巨炮地面锁定点组合交战；不是 TGT/Token，绝不攻击玩家或任何 Aircraft；敌对实例由玩家/正式小队击毁时给现有 50 XP。对气氛地面单位可致死，对正式 TGT 始终非致死。当前尚未接入气氛生成。 |
 | 2026-08-01 | 2 | 实现速度向量/机头解耦、AH-64 环绕—刹停—悬停循环、对地短点射与三道对空禁火；CH-47 迁移至同一旋翼运动模型；专项 bench 已通过。 |

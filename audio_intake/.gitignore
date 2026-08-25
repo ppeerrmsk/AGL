@@ -1,0 +1,9 @@
+# 原始音频通常体积很大，只保留目录、说明与清单；正式接入文件进入 ../audio/。
+*
+!/.gitignore
+!/.gdignore
+!/README.md
+!/PROMPT_GUIDE.md
+!/catalog.csv
+!/**/
+!/**/.keep

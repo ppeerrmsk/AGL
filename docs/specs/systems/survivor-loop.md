@@ -3,7 +3,7 @@ id: survivor-loop
 kind: system
 status: done
 schema_version: 1
-spec_version: 5
+spec_version: 6
 owner: design
 depends_on: [token-economy, zone-missions, upgrade-pool]
 reconstruction_complete: false
@@ -231,9 +231,13 @@ Lv≥`LATE_GAME_LEVEL(10)` 强制最低 Token ≥3（禁刷杂鱼）；若剩余
   其余 archetype 的 mult（UAV/Sentinel 等）见 survivor_data 缩放段（⚠ 未逐一核对）。
 - 机炮伤害乘子：同型公式（mult≈0.08）。导弹数：`初始 + floor((level-1)/4)`。
 
-## 6. 出界回血时间税（Supply，已核对）
+## 6. 外缘空域决策与回血时间税（Supply，已核对）
 
-玩家在地图边界按补给：
+旧 60km 核心边界外现有四边各 2km 的外缘空域。玩家越过核心入口后连续倒计时 `2.5s`；
+返回核心区立即取消并重置，只有倒计时耗尽才打开边界决策。正常阶段可选补给、调头继续作战或撤退；
+BOSS 阶段补给禁用，只能调头或撤退。
+
+玩家在外缘决策中按补给：
 1. 回满 HP
 2. **`game_time += SUPPLY_TIME_COST(30.0)`**，clamp 到 `WARZONE_PHASE_DURATION`(600)（防一次跨过阶段闸）
    —— **2026-07-28 由 15.0 上调为 30.0**（10 分钟战区里 15s 太便宜，来回补给几乎无痛）
@@ -241,7 +245,8 @@ Lv≥`LATE_GAME_LEVEL(10)` 强制最低 Token ≥3（禁刷杂鱼）；若剩余
 
 **BOSS 阶段禁用**（`_is_in_boss_phase()` 提前返回，不回血不推时间）。
 设计意图：苟边墙回血要付"把局往 BOSS 推进 30s"的节奏代价（战区总时长的 1/20）。
-边界补给按钮文案写明"战区时间 −30 秒"——代价必须在按下去之前就看得到。
+边界补给按钮文案写明"战区时间 −30 秒"——代价必须在按下去之前就看得到。相机始终裁在
+64km 真边界内，不因玩家进入外缘或滚轮缩放露出底图外黑边。
 
 ## 7. 奖励 / 战区强卡池
 
@@ -310,6 +315,7 @@ Lv≥`LATE_GAME_LEVEL(10)` 强制最低 Token ≥3（禁刷杂鱼）；若剩余
 | 常量（预算/间隔/距离/清理/XP/解锁） | `scripts/survivor/survivor_data.gd` |
 | XP / 升级 apply | `scripts/survivor/survivor_player.gd` |
 | zone 任务 / BOSS 解锁 / 阶段判定 | `scripts/survivor/zone_data.gd` · `zone_mission*.gd` |
+| 外缘空域倒计时 / 相机裁切 / 决策 UI | `scripts/survivor/map_boundary.gd` · `scripts/survivor/boundary_ui.gd` |
 | 升级池 / 进化技能 | `scripts/survivor/survivor_data.gd`（UPGRADES）+ survivor-skills.md |
 | reference 索引 | survivor-mode.md · survivor-skills.md · enemy-index.md |
 
@@ -329,3 +335,4 @@ Lv≥`LATE_GAME_LEVEL(10)` 强制最低 Token ≥3（禁刷杂鱼）；若剩余
 | 2026-07-28 | 3 | **时间税加倍 + 敌人高度分档**：①出界补给时间税 `SUPPLY_TIME_COST` 15.0 → **30.0**（10 分钟战区里 15s 太便宜，来回补给近乎无痛；边界按钮文案同步写明"战区时间 −30 秒"）；②新增 §4.4 **敌人作战高度分档**——18 型按 `[LOW,MID,HIGH]` 权重抽档（攻击机偏低 / 截击机与 AF-03 偏高 / 多用途偏中 / 无人机按定位），巡逻高度随档取值（1500~3000 / 4500~6500 / 8500~11000），**档位与巡逻高度必须同步**否则分化只作用于巡逻段；未登记类型（BOSS/Adds/事件单位）维持均匀随机 + 4000~8000；③同批修 **F-47 / F-14 Poltergeist 漏进常规刷怪**（后期随机桶按 cost≥3 遍历时靠 cost 10 混入，与 enemy-index 记载不符），改按 BOSS 专属名单显式排除 |
 | 2026-07-28 | 2 | **等级通胀整治（用户裁决）**：①XP 曲线指数 1.15→1.3（温和档）——每级击杀数随等级爬升，平均局收 LV18~22，顶级机不保底；②Adds 等级计价废除（单只=一级全额 → 普通公式 Tu-160 80 / AH-64 50 / CH-47 40 + level×8）；③联动 evolution-attribute-gates v9 三轴点数收入封顶 8 |
 | 2026-08-03 | 5 | **空池退役门修复**：常规选型无合格候选时跳过本轮，不再绝对兜底 MQ-109；ADBS 逃跑护卫使用独立零 Token 候选池，避免事件护卫被常规 Token 余量污染。 |
+| 2026-08-24 | 6 | 出界决策改为三图统一外缘空域：旧 60km 核心线外连续停留 2.5s 才打开补给/调头/撤退；返回核心取消，BOSS 阶段仍禁补给；真边界 64km 且相机严格裁切。 |

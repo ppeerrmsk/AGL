@@ -3,7 +3,7 @@ id: doctrine-unlocks
 kind: system
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 3
+spec_version: 4
 owner: 用户（2026-07-27 拍板：移除槽位配件系统，只保留 doctrine 词条解锁件并搬进功勋商店）
 depends_on: [career-shop, skills-720-rework, aircraft-signature-skills]
 reconstruction_complete: false
@@ -88,7 +88,7 @@ reconstruction_complete: false
 | `EQUIPMENT_DOCTRINE_STEALTH_DESC` | 解锁【隐身】系 in-run 升级 | Unlocks stealth in-run upgrades | ステルス系を解禁 |
 | `EQUIPMENT_DOCTRINE_STEALTH_FLAVOR` | 别眨眼。 | Don't blink. | まばたきしないで。 |
 
-### 2.3 门控覆盖清单（145 条技能里的 45 条）
+### 2.3 门控覆盖清单（158 条技能里的 44 条）
 
 **权威表**。技能的 `keywords` 数组里带下列词 → 未拥有对应 doctrine 时不进任何随机池。
 标注惯例：`head_on` 是**触发词**（不门控），家族词（chivalry/fear/jam）才受门控——
@@ -96,14 +96,14 @@ reconstruction_complete: false
 
 | keyword | 技能 id |
 |---|---|
-| `chivalry`（5） | `low_alt_gun_dodge` · `skill_head_on_perma_hp` · `skill_lowest_alt_kill_invul` · `head_on_gun_dodge` · `headon_xp` |
-| `bloodlust`（7） | `skill_kill_bloodlust` · `skill_damaged_bloodlust` · `overload_to_bloodlust` · `bloodlust_armor_mobility` · `full_hp_kill_perma_hp` · `squad_revenge` · `qmaam_bloodlust` |
+| `chivalry`（4） | `low_alt_gun_dodge` · `skill_head_on_perma_hp` · `head_on_gun_dodge` · `headon_xp` |
+| `bloodlust`（7） | `skill_kill_bloodlust` · `skill_damaged_bloodlust` · `overload_to_bloodlust` · `bloodlust_armor_mobility` · `full_hp_kill_perma_hp` · `squad_revenge` · `qmaam_boost` |
 | `fear`（7） | `fear_squad_spread` · `fear_chills` · `skill_head_on_aoe_fear` · `skill_gun_kill_fear` · `skill_kill_status_heal` · `fear_on_lock` · **`sig_su27`** |
 | `overload`（8） | `cloud_overload` · `skill_evade_missile_overload` · `skill_flare_overload` · `overload_duration_4x` · `overload_extended_ammo` · `overload_to_bloodlust` · `jam_self_overload` · `assassin_revenge` |
 | `jam`（9） | `jam_aura` · `skill_flare_aoe_jam` · `skill_gun_kill_flare_drop` · `skill_missile_hit_aoe_jam` · `skill_torpedo_aoe_jam` · `head_on_jam` · `jam_self_overload` · **`sig_rafale`** · **`sig_x13`** |
 | `stealth`（11） | `vapor_dodge` · `ecm_pod` · `evasion_stealth` · `alt_change_stealth` · `missile_cd_stealth` · **`sig_a6e`** · **`sig_f22`** · **`sig_yf23`** · **`sig_mig41`** · **`sig_x09`** · **`sig_x77`** |
 
-- keyword 槽位合计 47，**去重后 45 条技能**（`overload_to_bloodlust` 与 `jam_self_overload` 各占两个 keyword —— 二者**任一** doctrine 缺失即被门控，不是"任一拥有即放行"）
+- keyword 槽位合计 46，**去重后 44 条技能**（`overload_to_bloodlust` 与 `jam_self_overload` 各占两个 keyword —— 二者**任一** doctrine 缺失即被门控，不是"任一拥有即放行"）
 - **粗体 9 条为 `sig_*` 机体签名技**，见 D3
 - `evasion_stealth` 与 `fear_on_lock` 同时是 `evolved: true`（战区奖励池），见 §3.3
 
@@ -271,6 +271,7 @@ survivor_mode        3 处门控消费点（升级池 / 三轴池 / 战区奖励
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-25 | 4 | QAAM 嗜血并入 QAAM 强化后，`bloodlust` 门控成员以 `qmaam_boost` 替换旧 id，数量仍为 7。 |
 | 2026-07-27 | 1 | 初稿。用户拍板移除槽位配件系统，doctrine 搬进主菜单功勋商店。附带查明并记录：战区奖励池门控漏点（2 条技能）、9 条 `sig_*` 签名技被 doctrine 二次门控的冲突 |
 | 2026-07-28 | 2 | D1~D5 裁决入档（D2 改不退款）；漏点定位修正为 NEXT_GEN 候选过滤；§6 阶段 0~5 全落地（47 断言 + 回归门 40 项 PASS），余 playtest 定价校准 |
 | 2026-07-28 | 3 | playtest 首个战果：用户未购骑士学说仍抽到 `headon_xp`（骑士心脏·历练）——720 批漏标家族词 `chivalry`（只带触发词 `head_on`）。补标后 chivalry 4→5 张、定价 700→800、全买 6400→6500；§2.3 补"触发词≠家族词"标注惯例 |

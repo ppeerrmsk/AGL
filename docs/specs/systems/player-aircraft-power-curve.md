@@ -3,7 +3,7 @@ id: player-aircraft-power-curve
 kind: balance
 status: approved
 schema_version: 1
-spec_version: 20
+spec_version: 21
 owner: noelu
 depends_on: [aircraft-evolution-tree, evolution-attribute-gates, inrun-weapon-inventory]
 reconstruction_complete: false
@@ -197,9 +197,10 @@ reconstruction_complete: false
 **硬约束**：玩家机**不得**再引用 `default_flare.tres`（bench `player_params` 有解耦断言守着）；
 敌机侧 `default_flare` 保持原值不动（且 spawner 对多数敌机强制 `max_flares=1`），两侧从此互不牵动。
 
-**与加成来源的关系**（用户 2026-07-23 明确要求）：技能/里程碑给的 flare 加成是**叠在新机自身基数之上**的，
+**与加成来源的关系**（用户 2026-07-23 明确要求）：里程碑/技能给的 flare 数量加成是**叠在新机自身基数之上**的，
 换机后 `max_flares = 新机档位基数 + Σ加成`，且 `flares_remaining` 必须同步（三处加成源
-`flare_shield +2` / 策士 3 点里程碑 `flare_count +1`（10 点预留档再 +1）/ `manual_dodge +6` 均已 max 与 remaining 同步递增）。
+中的数量项现为策士 3 点里程碑 `flare_count +1`（10 点预留档再 +1）与 `manual_dodge +6`，均已 max 与 remaining 同步递增）。
+`flare_shield` 自 2026-08-23 起只提供清锁与 3 秒锁定免疫，**不参与** `Σ加成`。
 分档前 41 机同为 30 发时这条不可见，分档后成为可观测契约 → bench 断言锁死。
 
 **刻意没做**：按机种类（电战线）再 +1。理由=单杠杆（DESIGN_PHILOSOPHY 设计往简单收敛）——
@@ -309,6 +310,7 @@ reconstruction_complete: false
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-23 | 21 | 用户按实验级强度预算移除电子对抗套件 `flare_shield` 的热诱弹 `+2`；保留释放时清锁与 3 秒锁定免疫，换机重放不再改变新机档位基数。 |
 | 2026-07-03 | 1 | 初稿：诊断（异基数乘法=曲线失控根因 / X-02 无机炮）+ 7 条规则（F-14 锚点/档位预算/同类纯升级/单 tradeoff/雷达走廊/武器底线）+ 12 机有效值矩阵 + resources/player/ 解耦方案。待用户 review 数字。 |
 | 2026-07-03 | 2 | **升 4 档 20 机**（用户）：T1 起手 / T2 四代半（F-16 档）/ T3 现代顶尖（F-22/Su-57 档，与 F-16 拉开）/ **T4 新增**=原创+科幻实验+现今最顶（F-47/MiG-41/X 系）。Roster 铺量：F-15 出 C/E 变种；新增 Su-57/F-35/J-20/A-12/F-47/MiG-41。预算改 100/112/125/140%；门槛 LV1/4/7/10。树结构连带重排待矩阵定稿。 |
 | 2026-07-03 | 3 | 攻击线重排（用户）：**A-10 上移 T2**（160HP/1200/最强机炮，A-6E 直系升级）；**A-6E 新建为 T1 攻击起手**（140HP/1000/轻火箭，全新资产：params+卡片+i18n 实装时建）。攻击线成型：A-6E→A-10/F-15E/Su-34→A-12→X-44。全谱 21 机。 |

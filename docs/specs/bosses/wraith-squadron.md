@@ -1,11 +1,11 @@
 ---
 id: wraith-squadron
 kind: boss
-status: done  # 2026-07-29 用户确认工程落地可收口
+status: done
 schema_version: 1
-spec_version: 5
+spec_version: 8
 owner: 用户（设计） / Claude（落地）
-depends_on: [ace-squadron-tier, circle-cut-entry, boss-clear-progression]
+depends_on: [ace-squadron-tier, circle-cut-entry, boss-clear-progression, enemy-sensor-stealth]
 reconstruction_complete: false
 ---
 
@@ -128,9 +128,20 @@ tier 级铁律（`aggression ≥ 0.90`、`self_preservation ≤ 0.25`）直接�
 ### 2.6 通关强化支援
 
 历史击败数为 0 时仍为原四架 F-47。历史击败数 ≥1 时，在正式接战而非登场演出阶段追加两架
-YF-23 `BLACKWIDOW-01/02` 远距支援：在 Wraith 队形后方成对潜伏、保持 4–6 km 距离带、按普通飞机规则可锁定、不进入 Wraith
+YF-23 `BLACKWIDOW-01/02` 远距支援：在 Wraith 队形后方成对潜伏、保持 4–6 km 距离带；不具备永久免锁，
+但启用传感器隐形，只有维持有效雷达接触时才可按普通飞机规则锁定；不进入 Wraith
 `members/all_members`、不进入 BOSS 血条且不阻塞胜利。完整机体数值、出生几何与结算边界由
 [boss-clear-progression §2.2](../systems/boss-clear-progression.md) 定义；第二强化层暂不追加机制。
+
+### 2.7 双层隐形与目标释放
+
+- 四架 F-47 本体与强化层 YF-23 均显式开启 [enemy-sensor-stealth](../systems/enemy-sensor-stealth.md)：光学隐身窗外，脱离全部有效玩家小队雷达照射且处于全部玩家机 1000px 外满 5.0s 后才丢失接触。YF-23 没有永久锁定免疫；被有效雷达照射或进入 1000px 近距圈即显形，建立接触后仍按普通飞机规则可锁定。
+- 原有 5.5s 周期光学隐身不被替换，但节奏削弱为：开战后先等 60.0s，使用结束后再进入严格 60.0s CD，CD 完成可重复使用；取消来袭导弹绕过 CD 的紧急触发。淡入/淡出各 1.0s。
+- 当前操控玩家机进入任一 Wraith 成员 1000px（2000m）内时，全队光学 cloak 不得启动；若已启动则提前结束并显形。传感器隐形与 `is_cloaked` 分别持有生命周期和透明度，重叠时除该近距揭露规则外不得互相覆盖。
+- 任何一层进入隐形时，所有存活玩家小队成员对该 F-47 的 `combat_target`、主雷达锁和副雷达锁必须立即释放。
+- 光学短窗保留既有 `commanded_target` 指针，显形后自动重接；传感器硬失联清除该点名。两者都不得影响 Wraith 自身对玩家的目标。
+- 保留点名不等于保留火控：所有玩家小队 `combat_target` 写入入口必须拒绝隐形 Wraith，防止 RTS 命令铁律在下一 tick 把点名重新挂回。
+- 左下雷达盘在两种隐形期间都继续显示低亮度匿名位置提示，帮助玩家追索；该提示不恢复世界模型、目标数据、锁定或武器制导。
 
 ## 3. 行为与公式（How）
 
@@ -239,7 +250,11 @@ YF-23 `BLACKWIDOW-01/02` 远距支援：在 Wraith 队形后方成对潜伏、�
 - [ ] 性能：跑生存模式 Sentinel + Lv5+ 压测，FPS 掉幅 < 15（见 performance-guidelines）
 - [ ] 已知 seam 未触碰 / 已妥善处理（见 architecture/known-seams.md）
 - [ ] i18n：玩家可见文本走 tr()，三语已补（见 reference/i18n.md）
-- [x] 初见不生成额外支援；首败后接战在 Wraith 队形后方生成两架可正常锁定的 YF-23，且不参与演出、血条或胜利判定
+- [x] 初见不生成额外支援；首败后接战在 Wraith 队形后方生成两架启用传感器隐形、接触建立后可正常锁定的 YF-23，且不参与演出、血条或胜利判定
+- [x] 四架 F-47 与两架 YF-23 均开启传感器隐形；传感器/光学任一隐形沿都立即清除所有玩家小队成员的 `combat_target`，且光学显形后点名可自动重接
+- [x] Wraith 光学 cloak 开战后 60s 才首次可用；每次结束后严格等待 60s 可再次使用，导弹来袭不能提前触发
+- [x] 任一玩家小队成员进入目标 1000px 内时传感器隐形立即揭露；当前操控玩家机进入任一 Wraith 1000px 内时光学 cloak 禁止启动或提前结束；左下雷达在隐形期间保留匿名位置提示
+- [x] 光学短窗保留的 `commanded_target` 在隐形中不能被任何 RTS/AI 路径重写为 `combat_target`，显形后才自动重接
 
 ## 6. 实现计划（Task Pipeline）
 
@@ -288,6 +303,7 @@ YF-23 `BLACKWIDOW-01/02` 远距支援：在 Wraith 队形后方成对潜伏、�
 | 误差开关字段 `gun_aim_error_enabled` | `scripts/aircraft.gd` |
 | 角色驱动的 `is_boss_attacker()` 兜底 | `scripts/ai_controller.gd` |
 | HUD 角色标签（只显示行为，不暴露角色代号） | `scripts/survivor/survivor_hud.gd` |
+| F-47 传感器开关 / 隐形沿目标释放 / 双层尾迹所有权 | `resources/enemy_f47.tres` · `scripts/survivor/sensor_stealth_controller.gd` · `scripts/survivor/ace_squad.gd` · `scripts/aircraft.gd` |
 | 王牌专属热诱弹资源 | `resources/ace_flare.tres` |
 | 无头断言（`--bench=boss_hunter`） | `scripts/tests/test_boss_hunter.gd` |
 
@@ -295,6 +311,9 @@ YF-23 `BLACKWIDOW-01/02` 远距支援：在 Wraith 队形后方成对潜伏、�
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-22 | 8 | 实战可读性削弱：Wraith cloak 改为可重复但每次结束后严格 60s CD（首次也等 60s，取消紧急提前触发），1000px 内禁止/打断光学隐身，光学渐变 1.0s；传感器隐形改为 5s 失联并同样近距揭露；左下雷达保留匿名提示，目标写入权威堵住隐身中 combat_target 重挂。 |
+| 2026-08-21 | 7 | 用户追加 YF-23 隐形并反馈隐形沿顿卡：YF-23 开启传感器隐形但不恢复永久免锁；F-47 四机同步光学隐形改为一次批量清理玩家观察者，登场导演演员由虚拟环境所有权隔离。 |
+| 2026-08-21 | 6 | F-47/Wraith 纳入敌机传感器隐形首批；保留原周期光学隐身。两层任一隐形沿立即释放全体玩家机 `combat_target` 与雷达锁；光学短窗保留点名供显形重接，传感器硬失联清点名；YF-23 支援保持普通可锁定。 |
 | 2026-08-18 | 5 | 根据实战反馈修正通关强化 YF-23：取消永久免锁，改为正常可锁定；生成位置改到 Wraith 队形后方，并设离玩家 5000 px 的最小安全距离，不再在玩家机头前附近突然出现。 |
 | 2026-08-01 | 4 | 接入 BOSS 通关强化层：首败后在正式接战阶段追加两架雷达静默 YF-23 远距狙击支援；支援不进入演出、BOSS 血条或胜利判定，第二强化层暂不扩展。 |
 | 2026-07-22 | 3 | **阶段 2 落地**：队级战术状态机 `WraithTactics`（独立模块，F47AceSquad 持有转发；基类只留三个空钩子）。PERCH（爬到玩家+2000m 档、高度差 1500m 或 12s 超时）→ BRACKET（BAIT=二号机不开火、拉到玩家机头前方 3000m 保持在雷达锥内，三翼经 `surround_bearing` 从 ≥60° 离轴方位切入，咬住 4s 收网或 20s 超时）→ PRESS（15s，完全放手给 BFM）→ RESET（8s 脱离 3000m + 爬升，`combat_disabled=false` 脱离是几何行为不是缴械）→ 回 PERCH。退化检测 0.5s 采样、平均机头偏角 >50° 持续 6s 强制 RESET。**包夹复用命令轮盘的包围轴通道**（同一几何概念，不另造），为此在 `Situation` 给 tier=ace 开了窄读取口。顺带修 `_pursuit_enter` 无脑置 `bvr_only=false` 会抹掉 SNIPER 站位带的 bug。`--bench=boss_hunter` 97 断言 + 回归门 34 项 PASS |

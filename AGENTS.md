@@ -22,6 +22,9 @@
 - **禁止用 Godot 4.6.2 跑本项目**：`project.godot` 的 feature tag 是 4.7；旧版 Mono 在无头 bench 中已发生原生访问冲突并卡住崩溃弹窗。CLI/bench 只用 4.7+ 的 `*_console.exe --headless`，命令必须设有限超时；不得把 GUI exe 配进 Codex/MCP 自动启动项
 - 本机已验证的 4.7.1 Steam 可执行文件：`D:\Program Files (x86)\Steam\steamapps\common\Godot Engine\godot.windows.opt.tools.64.exe`。Steam 包没有单独的 `*_console.exe`，CLI 时必须加 `--headless`；优先通过 `bench/run.cmd` / `bench/run.sh` 调用，禁止复用 `.claude/settings*.json` 或历史 changelog 中的 4.6.2 命令
 - **Godot bench 并发隔离**：多个 Codex task 共享同一工作树；运行 Godot/import/bench 时不得有其他 task 正在写项目文件。生成图片、宠物、探针脚本等临时产物一律放 `tmp/`（该目录由 `.gdignore` 隔离）或项目外，禁止在 Godot 可扫描目录中边写资源边启动引擎。Agent **只能通过 `bench/run.cmd` / `bench/run.sh` 启动 bench，禁止直接执行 Godot**；默认 `Shadow` 模式把已保存的运行时项目文件同步到系统临时目录的稳定隔离副本，复用其独立 `.godot` 缓存，因此允许原工作区常驻 Godot editor（编辑器内未保存修改不会进入测试）。显式第四参数 `InPlace` 才在原工作区运行，且检测到任何 Godot 进程即拒绝。两种模式共用原工作区带 owner PID 的原子锁拒绝 bench 并发；独立 `watch_godot.ps1` 在超时或调用 agent 消失时显式 `taskkill /T /F` 回收测试进程树，并以 Windows Job Object 作为二次兜底；内部有限超时默认为 `max(120s, duration+90s)`，进程级 error mode 禁止原生崩溃弹窗。`project.godot` 必须保持 `debug/file_logging/enable_file_logging.pc=false`：Godot 4.7.1 的 `RotatedFileLogger` 在本机无头启动时会因 `Ref<RegEx>` 实例化失败而读取空指针 `+0x58`；AGL 已由 EventLogger / bench 结果承担日志。若出现不可复现的 `signal 11`，先检查并发 task 与测试副本自身 `.godot/imported` 的同刻导入记录，不得直接归咎于 GDScript
+- **自动运行时错误门**：所有 `bench/run.cmd` / `run.sh` 场景都会扫描 Godot stdout/stderr；`SCRIPT ERROR`、freed-object、Invalid call/access/type、null 调用、TypedArray 非法操作等即使 Godot 自身退出 0，也由 wrapper 改判退出码 **86**。禁止只看断言摘要或原始退出码，禁止关闭错误门或用宽泛 `ERROR` 白名单绕过。细则见 [runtime-validation-workflow](docs/reference/runtime-validation-workflow.md)
+- **自动测试全局静音**：任何带 `--bench` 的进程都由 BenchRunner mute `Master` 总线，覆盖 Music/SFX/UI/Radio 与未来新增总线；只影响该测试进程，不保存用户设置。测试仍正常执行播放逻辑与状态断言，禁止为静音在玩法调用点散加 `if bench_mode`
+- **默认全量回归**：涉及运行时代码的交付先跑最窄 focused bench，再跑 `bench\run.cmd all 1 300 Shadow Headless`；`all` 已自动串联全部同步断言与真实 SceneTree `lifecycle_gauntlet`，用户不需要另记第二个终态命令。普通文档-only / 资源-only 修改可不跑 Godot，但仍跑对应静态校验
 - F9 导出战斗日志。**编辑器模式**写到项目内 `logs/combat_log_*.txt`（`/logs/` 被 .gitignore 排除）；**导出包**写到 `user://combat_log_*.txt`。路径切换逻辑在 `event_logger.gd:dump_to_file`
 - 生存模式 F11 切换友方僚机编队调试覆盖层（橙线 → 阵型槽位 / 蓝射线 → 当前 hdg / 黄射线 → 目标 hdg / 文本: branch + slot_d + bank delta）；F12 抓一帧编队状态快照到控制台 + EventLogger
 - 不使用第三方测试框架；项目自有 BenchRunner 提供断言、压力与 Visual 场景，运行时观察 + EventLogger 仍是完整局证据
@@ -67,7 +70,8 @@ Resource:   AircraftParams / GunParams / RocketParams / MissileParams / CombatPa
 
 **任何**新增 `_process` / `_physics_process` / `_draw` / `queue_redraw` / 挂在 Aircraft/Missile 下的子节点，都必须先读 [docs/reference/performance-guidelines.md](docs/reference/performance-guidelines.md)。
 
-8 条硬规则速记：
+前置裁决 + 8 条硬规则速记：
+0. 未关注普通战区先保持战略层 0 实体；选择/进入后才实例化，3★全局威胁例外（见 `offscreen-world-simulation`）
 1. 静态内容禁止每帧 `queue_redraw`（地图/边界都吃过亏）
 2. `_draw` 里不得有全场扫描（用 `AircraftRenderer.player_ref` / `CombatUnit.all_units`）
 3. 多次 `draw_polygon` / `draw_line` 要合并（用 `RenderingServer.canvas_item_add_triangle_array`）
@@ -133,6 +137,15 @@ script-index / code-index）只写"代码在哪"（纯指针）。样板见 [bos
 - Debug 只绕过“获得条件”，不得伪造运行时触发条件；例如全向干扰场仍需实际挂载 ESM 才生效。
 - 更新表后必须补/更新自动审计，确保 Debug 清单覆盖正式数据源，避免“代码已加但测试界面调不出”。
 
+### 生命周期终态回归（强制）
+
+新增或修改敌人/来源死亡、任务成功/失败/取消、奖励结算、战区刷新、BOSS 解锁/胜利、事件完成、阵营转换、切控/换帅、场景退出或任何跨帧 Object 缓存时：
+
+- 缓存读取必须按 `Variant → TYPE_OBJECT → is_instance_valid → is/as/字段`；带 Object 类型形参不能靠函数体内守卫保护已释放实参；
+- focused 测试必须走真实伤害或正式 signal/终态入口，终态后至少继续一个 SceneTree 帧并跨过消费者下一缓存 tick；
+- 同时断言 signal、权威状态、缓存清空与调用确实执行到末尾；新的 `success / failure / cancel / cleanup` 分支必须加入 `lifecycle_gauntlet` 或证明已有等价案例；
+- 先跑 focused，再跑默认 `all`；任何退出码 86 都先从首个 `RUNTIME ERROR` 块修起。完整清单见 [自动运行时验证工作流](docs/reference/runtime-validation-workflow.md)。
+
 ### 查找代码的顺序
 
 1. 不确定代码域、文档层或该查哪个表时，先看 [Reference Index](docs/reference/_INDEX.md)
@@ -174,7 +187,7 @@ script-index / code-index）只写"代码在哪"（纯指针）。样板见 [bos
 - **信号**：通过 signal 解耦，不用全局变量共享状态
 - **Resource 复用**：`.tres` 文件通过 `preload()` 加载，生成子节点时用 `duplicate(true)` 避免共享修改
 - **CombatUnit 基类**：所有战斗单位（包括地面）共用 `team/hp/altitude/radar_targets/is_locked`，扩展时覆写 `is_in_radar_cone` / `take_damage` / `is_lock_immune`
-- **i18n 约束**：玩家可见的 UI / 升级 / 机型 / 地图 / 弹窗文本**一律走 `tr("KEY")`**，按领域在 `i18n/*.csv` 对应分表定义 key；无线电固定进 `i18n/radio.csv`。新增 UI 文本流程见 [docs/reference/i18n.md](docs/reference/i18n.md)。例外：`AircraftParams.display_name`（HUD/日志拼接用）、EventLogger、debug 面板
+- **i18n 约束**：玩家可见的 UI / 升级 / 机型 / 地图 / 弹窗文本**一律走 `tr("KEY")`**，按领域在 `i18n/*.csv` 对应分表定义 key；无线电固定进 `i18n/radio.csv`。新增 UI 文本流程见 [docs/reference/i18n.md](docs/reference/i18n.md)。例外：`AircraftParams.display_name`（HUD/日志拼接用）、EventLogger、debug 面板。**新增战斗单位的世界状态栏首行统一使用 locale-independent 英文战术名/型号，不得把 `tr()` 后的中日文名称写入运行时 `params.display_name`；本地化全名只用于任务简报、图鉴与菜单。**
 - **模式隔离**：禁止在共享层代码里写 `if in_survivor_mode` / `if in_sandbox`，必须走参数资源 `duplicate(true)` 或 PlayableAircraft 档案注入
 
 ## 相关文档（按需加载）

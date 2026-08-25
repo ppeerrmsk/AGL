@@ -75,6 +75,8 @@
 > 激光型 `enemy_uav_mg_laser.tres` 挂 `uav_mg_laser.tres`：真实累计消耗导弹 `intercept_hp`，
 > 热量 100、输出 +35/s、过热散热 25/s、30% 恢复门与玩家 X-02 一致。Mother Goose 专属
 > `goose_vls_missile.tres` 在 3000m 内停火，累计飞行 8000m 后生成 800m/1.5s 定距 AOE。
+> 半血精英对 `enemy_uav_mqx.tres` 使用三发 `mqx_pulse_cannon.tres` + 强化
+> `uav_mqx_missile.tres` + 只打导弹的 `mqx_intercept_laser.tres`，并启用 F-22 级传感器隐形。
 > WhiteTea 使用王牌专属 `enemy_fck1.tres` + `whitetea_gun.tres`：F-CK-1 ×3，2100/1050 km/h、
 > 持续 G 9、4×5 受控短梭、无导弹；完整战术与命数预算见 [ace-whitetea-fck1](../specs/events/ace-whitetea-fck1.md)。
 > Black Star / Hyper-A 使用 `enemy_hyper_a_g0.tres` 至 `enemy_hyper_a_g3.tres` +
@@ -208,7 +210,7 @@
 | 低能量导弹加成 | +20% |
 | 飞行员焦虑度 | 0.0（冷静型：等逼近才投） |
 
-> 技能/里程碑加成（`flare_shield` +2 / 策士 3 点里程碑 +1、预留档 +1 / `manual_dodge` +6）叠在**新机档位基数**之上，
+> 数量加成（策士 3 点里程碑 +1、预留档 +1 / `manual_dodge` +6）叠在**新机档位基数**之上；`flare_shield` 只提供清锁与锁定免疫，不增加载弹量。
 > 换机后 `max_flares` 与 `flares_remaining` 同步 = 基数 + Σ加成。验收 bench `player_params`。
 > 其它专用变体：`ace_flare`(4，命数语义) / `ace_support_flare`(2) / `f47_flare`(2) / `uav_mqx_flare`(1)。
 

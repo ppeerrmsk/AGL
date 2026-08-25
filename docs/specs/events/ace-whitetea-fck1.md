@@ -3,7 +3,7 @@ id: ace-whitetea-fck1
 kind: event
 status: in-progress
 schema_version: 1
-spec_version: 5
+spec_version: 6
 owner: noelu（设计输入 2026-08-02）/ Codex（规格细化）
 depends_on: [ace-squadron-tier, ace-rotation-balance]
 reconstruction_complete: true
@@ -124,10 +124,10 @@ reconstruction_complete: true
 | 字段 | 值 | 说明 |
 |---|---:|---|
 | 轮换池 | 当前非宿敌王牌池的**第 6 支** | 与既有五队一同洗牌，无放回 |
-| 进池时间 | `game_time >= 240 s` | “中期出现”的统一精确定义 |
+| 第一槽 | `game_time >= 210 s` | 开局 3:30 后可成为第一支 |
+| 第二槽 | 距 BOSS 解锁 `<= 180 s` | 最后三分钟可成为第二支 |
 | 同场上限 | 1 支王牌中队 | 沿轮换契约 |
-| 前队结束冷却 | 150 s | 沿轮换契约 |
-| 新刷截止 | 540 s | BOSS 前不再新刷 |
+| 前队结束冷却 | 0 s | 第二槽占场时待触发，终态后立即刷新 |
 | 机体 DU | 3 | 1/架 |
 | flare DU | 3 | 1/枚必躲 flare |
 | 动作 DU | 3 | 1/次确定性 J-turn |
@@ -229,7 +229,7 @@ reconstruction_complete: true
 
 ## 5. 验收标准（Acceptance / Litmus）
 
-- [ ] **三机与中期池**：`game_time < 240 s` 永不入池；达到 240 s 后 WhiteTea 有资格成为
+- [x] **三机与固定槽**：`game_time < 210 s` 永不入池；达到 210 s 后 WhiteTea 有资格成为
       本局第一支，局内只出现一次，编成严格为 3 架 F-CK-1。
 - [ ] **机炮打带逃**：入场后全员以玩家当前操控机为优先目标；至少完成一次
       RUN_IN→机炮开火窗→BREAK→拉开910 px→折返闭环；不得抱尾绕圈。
@@ -299,6 +299,7 @@ reconstruction_complete: true
 
 | 日期 | spec_version | 改动 |
 |---|---:|---|
+| 2026-08-23 | 6 | 跟随统一调度改为 3:30 第一槽与 BOSS 前最后 3:00 第二槽，取消前队终态冷却。 |
 | 2026-08-02 | 5 | 修复首轮 playtest：Debug 事件仅强制显示王牌血条、不污染交战计时；WhiteTea 从通用 150 伤 `ace_gun` 改为 4×5=20 伤受控短梭，梭间隔约 0.47s，三机同步首梭也不秒满血玩家。 |
 | 2026-08-02 | 4 | 代码接线完成：F-CK-1 资源/枚举、profile、机炮 joust、可配置单次 J-turn、包装图鉴三语、Debug 正式事件入口与静态回归；待 bench、实战计时和压力测试。 |
 | 2026-08-02 | 3 | 用户批准并开始实现。 |

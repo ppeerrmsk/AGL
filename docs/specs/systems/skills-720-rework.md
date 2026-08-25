@@ -3,7 +3,7 @@ id: skills-720-rework
 kind: system
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 12
+spec_version: 19
 owner: 用户
 depends_on: [evolution-attribute-gates, afterburner-mode, active-special-maneuvers, inrun-weapon-inventory, command-wheel, zone-reward-docking]
 reconstruction_complete: true
@@ -56,13 +56,12 @@ reconstruction_complete: true
 | id（拟） | 技能 | 归属 | 稀 | 层 | 效果 |
 |---|---|---|---|---|---|
 | torpedo_extra | 漂浮雷：额外 | 装备门控 | 1 | ×2 | 漂浮雷数量 +1/层（骑士+1） |
-| qmaam_boost | QAAM 强化 | 装备门控 | 1 | ×2 | 格斗弹 +1、射程 +10% |
-| qmaam_bloodlust | QAAM 嗜血 | 装备门控 | 1 | ×1 | 格斗弹击杀 → 10s 嗜血 |
+| qmaam_boost | QAAM 强化 | 装备门控 | 1 | ×2 | 格斗弹 +1、射程 +10%/层；格斗弹击杀 → 10s 嗜血 |
 | gun_reserve_mag | 备用弹仓 | 通用 | 3 | ×2 | 机炮弹尽后 30%（双层 50%）概率立刻回满 |
 | gun_out_free_missile | 副武器 | 通用 | 2 | ×1 | 机炮弹尽冷却期内发射导弹不消耗弹药 |
-| squad_revenge | 复仇之战 | 队级单实例 | 3 | ×1 | 僚机/王牌被击坠 → 全队嗜血+无敌 15s |
+| squad_revenge | 复仇之战 | 队级单实例 | 1 | ×1 | 僚机/王牌被击坠 → 全队嗜血+无敌 15s |
 | guard_zone_buff | 保卫阵地 | 队级单实例 | 2 | ×1 | 轮盘【防守此区】圈内全队减伤 + 回转/减速强化 |
-| cockpit_armor | 座舱护甲 | 通用 | 2 | ×2 | 地面火力（SAM/AA/CIWS）伤害 −50% |
+| cockpit_armor | 座舱护甲 | 通用 | 2 | ×2 | 地面火力（SAM/AA/CIWS）伤害 −50%、机炮闪避 +20%/层 |
 | weapon_master | 武器大师 | 王牌 | 2 | ×1 | 按装备武器数降低全武器 CD（每件 5%，上限 30%；起手 gun+msl=10%） |
 | veteran_hp | 历战者 | 通用 | 1 | ×1 | 按已持有【斗士轴】技能数 ×(+5 HP) 提升全队血量，上限 +100 |
 
@@ -76,7 +75,7 @@ reconstruction_complete: true
 | missile_second_stage | 二段推进 | 通用 | 3 | ×1 | 导弹越飞越快、转弯渐强（距离越远越准） |
 | adapt_energy | 适应 | 通用 | 4 | ×1 | 击杀低于自己高度的敌人回加力能量；高于自己回 20 HP |
 | evac_shift | 阵地转移 | 通用 | 2 | ×1 | 轮盘【撤离此区】后移速更快 + 全伤害 −50% |
-| assassin_revenge | 刺客复仇 | 队级单实例 | 2 | ×1 | 僚机/王牌被击坠 → 全队 15s 超载+隐身 |
+| assassin_revenge | 刺客复仇 | 队级单实例 | 1 | ×1 | 僚机/王牌被击坠 → 全队 15s 超载+隐身 |
 | manual_dodge | 胆大妄为 | 通用全队 | 3 | ×1 | 全队禁普通自动 flare、flare +6；受控机 R 手动闪避，AI 僚机受威胁自动；无 flare 也可滚转，命中瞬间 i-frame 时机严格 |
 | speed_by_knight | 全速推进 | 通用 | 1 | ×1 | 按已持有【骑士轴】技能数提升最高速度，上限 +40% |
 
@@ -101,10 +100,10 @@ reconstruction_complete: true
 | 多管齐射→**机炮吊舱** | 三道(前+左右15°) → **两道翼挂朝前**；归属"斗士限定·全队" |
 | 血誓不竭 | 去掉"满血"前置条件（嗜血期间击杀即可）；机密→实验 |
 | 枪械精度 | ×4→×2；追加"子弹生存时间加长" |
-| 穿甲弹药 | +55%→**+30%**、×1→×2 |
+| 穿甲弹药 | +55%→**每层伤害 +30%、弹仓上限与当前弹药 +50%**、×1→×2 |
 | 火力护盾 | 0.4s→0.5s |
 | 装甲强化 | +80→**+30**、×1→×2 |
-| 战场急救 | 10HP→5HP、×3→×1 |
+| 战场急救 | 10HP→5HP、×3→×1；2026-08-24 后并入“虐弱”，不再作为独立卡出现 |
 | 反击本能/猎杀本能 | 8s→9s |
 | 侩子手 | 斗士限定→**骑士**；机密→先进 |
 | 骑士心脏/正面回旋 | 斗士轴→**骑士轴**（category 迁移） |
@@ -118,13 +117,33 @@ reconstruction_complete: true
 | 引擎强化 | +30%/+20%→**+20%/+10%**、×1→×2 |
 | 平流层雷达/绝境装填 | 策士轴→**骑士轴** |
 | 云中超载 | 骑士限定+**王牌**；2026-08-06 起技能轴直接归骑士，不再额外骑士+1 |
+
+### 2.4 2026-08-24 合并收口（取代 §2.2–2.3 中同名旧行）
+
+| 保留 id | 合并结果 |
+|---|---|
+| `wingman_extra` | 一层；同屏上限 +2，并在获得当下立即部署 2 架忠诚僚机。 |
+| `laser_range` | 两层；每层同时获得激光射程 +20% 与同时照射目标 +1；删除 `laser_extra_beams`。 |
+| `gun_accuracy` | 两层；每层同时获得散布 -20%、瞄准精度 +18%、弹寿命 +20%、自动开火锥 +25%（半角上限 45°）；删除 `aim_assist`。 |
+| `speed_up` | 一层；基础最大速度 +10%、加速 +10%，并保留原“全速推进”的骑士轴计数极速 +5%/条（上限 +40%）；删除 `speed_by_knight`。 |
+| `close_range_lock` | 一层、先进级；保留近距锁定曲线并获得机炮装填期导弹免耗；删除 `gun_out_free_missile`。 |
+
+正式技能总数因此由 167 条收口为 163 条；旧 id 不再进入正式池或 F4 动态清单。
+
+### 2.5 2026-08-24 稀有度与穿甲弹药追补
+
+| 技能 | 定稿调整 |
+|---|---|
+| `squad_revenge`（复仇之战） | 稀有度由实验级改为稳定级；触发条件、15 秒嗜血与无敌效果、单层队级语义不变。 |
+| `assassin_revenge`（刺客复仇） | 稀有度由先进级改为稳定级；触发条件、15 秒超载与隐身效果、单层队级语义不变。 |
+| `gun_damage`（穿甲弹药） | 保持稳定级两层；每层机炮伤害 +30%，并同步令机炮弹仓上限与当前弹药 +50%。多层按每次获得时的当前值乘算。 |
+
 | 雾隐机动 | 策士限定→**通用全队**；骑士+1；**进战区奖励池** |
 | 寒颤 | 策士限定→通用 |
 | 惊鸿扩散 | 策士限定+**王牌**；8s→5s |
 | 全向干扰场 | 骑士限定→**斗士限定**；干扰时长明确 4s |
 | 共振反馈 | 骑士限定＋需要词条（requires_skill：**JAM 来源技**——729 修正，原写"超载入门技"是错的，见 §8 v9）；技能轴归骑士 |
-| 激光散热 | +25%→+40%、×3→×2 |
-| 激光过载 | +30%→+50%、×3→×1 |
+| 激光散热（合并激光过载） | ×2；每层散热效率 +40%、过热阈值 +50% |
 | 激光增距 | ×3→×2 |
 | 过载/燃尽/噬血共振 | 骑士限定→**通用＋需要词条**；技能轴均归骑士（噬血共振保留斗士+1 跨轴桥） |
 | 后半球减速光环 | 骑士限定→**斗士限定＋王牌**；斗士+1 |
@@ -139,6 +158,54 @@ reconstruction_complete: true
 | 弹后潜匿 | 5s→4s |
 | QAAM/漂浮雷/忠诚僚机强化 | 见 §2.2 新增（装备门控家族扩容） |
 | 稀有度全表 | 按 720 表数字列重标（1~5 → 稳定~次世代） |
+
+### 2.6 2026-08-24 虐弱 / 战场急救合并
+
+保留 `skill_kill_status_heal`（虐弱），删除独立 `kill_heal`（战场急救）。合并卡保持先进级、一层、
+通用全队、策士里程碑 +1 与原有恐惧/JAM 词条前置：
+
+- 每次由玩家小队成员完成击杀时，实际击杀者回复 5 HP；
+- 被击杀目标带任意异常状态时，再额外回复 30 HP，即合计 35 HP；
+- 地面目标不经过 Aircraft 击杀钩子，由 `survivor_spawner` 的地面结算入口补齐同一数值；
+- 正式技能总数由 163 条收口为 162 条，旧 id 不再进入正式池或 F4 动态清单。
+
+### 2.7 2026-08-24 座舱护甲 / 闪避机动合并
+
+保留 `cockpit_armor`（座舱护甲），删除独立 `bullet_dodge`（闪避机动）。合并卡保持先进级、两层、
+通用全队；每层同时提供：
+
+- 来自地面火力（SAM/高炮/CIWS）的伤害 ×0.5；
+- 机炮闪避 +20%，继续受全局 85% 闪避上限约束；
+- 正式技能总数由 162 条收口为 161 条，旧 id 不再进入正式池或 F4 动态清单。
+
+### 2.8 2026-08-25 QAAM 强化 / QAAM 嗜血合并
+
+保留 `qmaam_boost`（QAAM 强化），删除独立 `qmaam_bloodlust`（QAAM 嗜血）。合并卡保持稳定级、
+两层、斗士轴与格斗弹装备门控，并继承 `bloodlust` 词条门控：
+
+- 每层格斗弹携带量 +1、射程 +10%；
+- 从第一层起，格斗弹击杀使实际击杀者进入嗜血状态 10 秒；
+- 三个嗜血终端的合法来源由旧 id 改为 `qmaam_boost`；
+- 正式技能总数由 161 条收口为 160 条，旧 id 不再进入正式池或 F4 动态清单。
+
+### 2.9 2026-08-25 激光散热 / 激光过载合并
+
+保留 `laser_cooldown`（激光散热），删除独立 `laser_heat`（激光过载）。合并卡保持先进级、两层、
+策士轴与激光装备门控；每层同时提供：
+
+- 散热效率 +40%；
+- 过热阈值 +50%；
+- 两层按每次获得时的当前值乘算，满层分别为基线 ×1.96 与 ×2.25；
+- 正式技能总数由 160 条收口为 159 条，旧 id 不再进入正式池或 F4 动态清单。
+
+### 2.10 2026-08-25 地表狂奔 / 空中战车合并
+
+保留 `low_alt_gun_dodge`（地表狂奔），删除独立 `skill_lowest_alt_kill_invul`（空中战车）。合并卡为
+机密级、一层、通用全队，不再带 A-10 或任何机型限定，并继续要求机炮：
+
+- LOW/GROUND 档位受到机炮攻击时，机炮闪避 +50%，继续受全局 85% 闪避上限约束；
+- LOW/GROUND 档位击杀敌人后，自身获得 8 秒无敌；
+- 正式技能总数由 159 条收口为 158 条，旧 id 不再进入正式池或 F4 动态清单。
 
 ### 2.4 超载技能轴统一（2026-08-06 定稿）
 
@@ -164,7 +231,7 @@ reconstruction_complete: true
 |---|---|
 | 检讨/适应 | `afterburner_charge` 击杀充能钩子（2026-07-20 现成）+ 高度比较 |
 | 强化加力 | 加力耗能减慢参数（`duration_mult`） |
-| QAAM 嗜血 | 击杀归因含武器类型（combat-feed 已做）→ apply_status BLOODLUST |
+| QAAM 强化（合并嗜血） | 击杀归因含武器类型（combat-feed 已做）→ apply_status BLOODLUST |
 | 升级回复 | `leveled_up` 信号 → 全队回血 |
 | 保卫阵地 | SquadCommandController `_tick_guard` 圈内状态现成 → 注入队 buff |
 | 阵地转移 | 撤离 `command_sprint` 状态现成 → 叠减伤/提速 |
@@ -178,7 +245,7 @@ reconstruction_complete: true
 |---|---|
 | **僚机阵亡事件**（Squad 成员 destroyed → 队级信号） | 复仇之战 / 刺客复仇 / 黑匣子回收（三技共用一个钩子） |
 | **机炮弹尽事件**（ammo 耗尽瞬间信号） | 备用弹仓 / 副武器 |
-| **地面来源减伤**（take_damage 按攻击方 is GroundUnit 过滤） | 座舱护甲 |
+| **地面来源减伤 + 机炮闪避**（take_damage 按攻击方 is GroundUnit 过滤；闪避复用既有字段与全局 cap） | 座舱护甲 |
 | **子弹寿命字段**（bullet lifetime +） | 枪械精度新增段 |
 | **milestone_bonus 轴进度**（§1.1，含量表加成格显示） | 全部 +1 技能（13 条） |
 | **品类过滤分流**（squad-upgrade-ownership §2.8 的 classes/ace/squad_once 落地——此前搁置，并入本批） | 全部品类/王牌/单实例技能 |
@@ -220,6 +287,7 @@ reconstruction_complete: true
 - [x] 数值 delta 全表三语 desc 同步（⚠ feedback 铁律）；重跑 dump_skill_table 与 720 表零 diff。✅ 三语 63 改/46 新键；生成表 104 条与数据零 diff（720 原始表未入库，按 §2 明细执行）
 - [x] 排查双项闭环（数据链结论写回本 spec；寒蝉 team 过滤修复）。✅ §4
 - [x] 超载轴统一：9 条相关技能全归骑士；云中超载/焰诱共振无同轴重复 +1；3 个终端均接受 6 个真实来源。✅ bench `skills720` I 组
+- [x] 2026-08-25 今日技能改动全装共存：以非 A-10 的 F-16 身份测试机，经正式 `_distribute_upgrade` / `_refresh_squad_effective_stacks` 路径装入 13 张保留卡、共 19 层；机炮、引擎、座舱、激光、QAAM、近距捕获与低空防御复合效果同时成立，忠诚僚机上限 2→4 且即时生成 2 架。低空 QAAM 击杀 JAM 目标同时回复 35 HP、触发 10 秒嗜血与 8 秒无敌；队员阵亡时复仇之战与刺客复仇共同触发嗜血/无敌/超载/隐身四个 15 秒状态。✅ `skills720` F2h 22 项；focused 350/350；`all` 83 组 0 失败，lifecycle 80/80
 - [ ] 回归门全绿 ✅（32 项）+ **playtest ⏳（待用户：吊舱手感/胆大妄为时机窗/保守暂定数值调档——历练 ×1.5、适应 +3s、保卫 30%/15%、转移 15%/50%、全速 +5%/条、专家 +100m/条、QAAM +10%、僚机 +30%/20%、子弹寿命 +20%）**
 
 ## 6. 任务拆分（依赖序）
@@ -241,7 +309,7 @@ reconstruction_complete: true
 | 归属分流 / 生效子集 meta / 王牌迁移 / 入队补挂 | `scripts/survivor/survivor_mode.gd`（`_distribute_upgrade` `_refresh_squad_effective_stacks` `_migrate_ace_field_upgrades` `_apply_build_to_new_member`，chokepoint `_set_player_aircraft`） |
 | +1 轴进度双计数（cap=2） | `scripts/survivor/survivor_player.gd`（`milestone_bonus` `add_milestone_bonus` `get_milestone_progress`）＋发放点 `survivor_mode._grant_milestone_plus` |
 | 定向应用 / 王牌剥离 | `scripts/survivor/survivor_player.gd`（`apply_upgrade_to` `strip_upgrade_from`） |
-| 计数缩放四技 | `scripts/survivor/survivor_data.gd`（`recompute_axis_count_skills` `count_owned_by_axis`）＋ `scripts/aircraft.gd` 四字段＋消费点（`get_radar_range` / CD 赋值点 / physics accessor） |
+| 计数缩放四效 | `scripts/survivor/survivor_data.gd`（`recompute_axis_count_skills` `count_owned_by_axis`；极速计数已并入 `speed_up`）＋ `scripts/aircraft.gd` 四字段＋消费点（`get_radar_range` / CD 赋值点 / physics accessor） |
 | 僚机阵亡 / 弹尽 / 升级回复 / 奖励升级 | `scripts/survivor/survivor_mode.gd`（`_tick_squad_watch` `_on_squad_member_down` `_queue_bonus_upgrade` `_try_present_bonus_upgrade`）＋ `scripts/survivor/skill_hooks.gd`（`try_gun_reserve_mag` `in_free_missile_window`） |
 | AB 三技（检讨/强化加力/适应） | `scripts/survivor/afterburner_charge.gd`（`kill_charge_bonus` `duration_mult`）＋ `skill_hooks.gd`（`afterburner` 静态引用、dispatch_on_kill 适应段） |
 | 轮盘联动（保卫阵地/阵地转移） | `scripts/rts/squad_command_controller.gd`（`_update_guard_zone_buff`）＋ `scripts/aircraft/aircraft_physics.gd`（`GUARD_ZONE_G_MULT` `EVAC_SHIFT_SPRINT_BONUS`）＋ `scripts/aircraft.gd`（`_apply_damage` 720 段） |
@@ -249,13 +317,20 @@ reconstruction_complete: true
 | QAAM 归因链 | `scripts/missile_manager.gd`（`spawn_missile(is_secondary)`）＋ `scripts/missile.gd`（`is_secondary_weapon`）＋ kind `"qmaam"` |
 | 新机制四件 | `scripts/aircraft/aircraft_weapons.gd`（机炮吊舱翼挂段）/ `scripts/equipment/railgun_equipment.gd`（`double_shot` followup）/ `scripts/missile.gd`（`second_stage` `_second_stage_g_mult`）/ `scripts/aircraft.gd`（`try_manual_maneuver` / `do_manual_dodge`）＋ R 键入口 `survivor_mode` |
 | 量表加成格 / 卡面归属角标 | `scripts/survivor/axis_bars_panel.gd`（`show_state(…, milestone_bonus)`）/ `scripts/survivor/survivor_upgrade_ui.gd`（`_scope_badges`） |
-| 生成器 / 现状全表 | `tools/dump_skill_table.py` → `docs/reference/skill-table.md`（当前 165 条） |
-| 验收 bench | `scripts/tests/test_skills_720.gd`（`--bench=skills720`；含超载轴/终端来源闭合与 R 手动/AI 自动/互斥/全队下发；R 槽的当前五向权威与专项证据见 `active-special-maneuvers`；随 `--bench=all` 回归门） |
+| 生成器 / 现状全表 | `tools/dump_skill_table.py` → `docs/reference/skill-table.md`（当前 158 条） |
+| 验收 bench | `scripts/tests/test_skills_720.gd`（`--bench=skills720`；`_test_today_full_build_loadout` 验证今日 13 张/19 层在非 A-10 同机满层共存、忠诚僚机实际生成及复合击杀/阵亡触发；另含超载轴/终端来源闭合与 R 手动/AI 自动/互斥/全队下发；R 槽的当前五向权威与专项证据见 `active-special-maneuvers`；随 `--bench=all` 回归门） |
 
 ## 8. 变更记录
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-25 | 19 | 用户要求将今日全部技能改动装备测试：新增非 A-10 测试机 13 张/19 层同机满层共存验收，覆盖忠诚僚机实际生成、低空 QAAM 异常目标复合击杀，以及两张复仇卡并发触发；focused 350/350、全量 83 组 0 失败、lifecycle 80/80。 |
+| 2026-08-25 | 18 | 用户定稿“地表狂奔 + 空中战车”：保留机密一层地表狂奔，同时提供低空机炮闪避 +50% 与低空击杀后 8 秒无敌；移除 A-10 限定并删除旧 `skill_lowest_alt_kill_invul`，正式表 159→158。 |
+| 2026-08-25 | 17 | 用户定稿“激光散热 + 激光过载”：保留先进两层激光散热，每层同时提供散热效率 +40% 与过热阈值 +50%；删除旧 `laser_heat`，正式表 160→159。 |
+| 2026-08-25 | 16 | 用户定稿“QAAM 强化 + QAAM 嗜血”：保留稳定两层 QAAM 强化，每层 +1 格斗弹、射程 +10%，第一层起格斗弹击杀触发 10 秒嗜血；继承嗜血词条门控并替换三个终端来源，删除旧 `qmaam_bloodlust`，正式表 161→160。 |
+| 2026-08-24 | 15 | 用户定稿“座舱护甲 + 闪避机动”：保留先进两层座舱护甲，每层同时提供地面伤害 ×0.5 与机炮闪避 +20%；删除旧 `bullet_dodge`，正式表 162→161。 |
+| 2026-08-24 | 14 | 用户定稿“虐弱 + 战场急救”：保留先进单层虐弱，普通击杀回复 5 HP，异常目标击杀合计回复 35 HP；删除旧 `kill_heal`，正式表 163→162。 |
+| 2026-08-24 | 13 | 用户定稿五组合并：忠诚僚机额外改为单层 +2 并即时部署两机；激光射程并分束、机炮精度并瞄准、引擎强化并全速推进、近距捕获并副武器。删除四张独立卡，正式表 167→163。 |
 | 2026-08-06 | 12 | 用户定稿“超载是骑士的导弹流”：7 条旧策士超载卡显式迁骑士，与原有刺客复仇/MiG-41 合计 9 条；删除云中超载/焰诱共振的同轴骑士+1，噬血共振保留斗士+1 跨轴桥；三个超载终端前置补齐共振反馈/刺客复仇/MiG-41，共覆盖 6 个真实来源。 |
 | 2026-08-01 | 11 | R 升格为统一机动入口：当前操控机手动、AI 僚机自动，特殊机动不再要求先开加力。眼镜蛇/J-Turn/胆大妄为组成三向互斥组，任取其一后另两张不再出现；代码优先级只作旧档/debug 共存兜底。胆大妄为从 ace scope 改为全队下发：AI 僚机在近弹/后方机炮威胁下自动滚转投焰，数值与“禁普通自动 flare”代价不变。 |
 | 2026-07-29 | 10 | F4 技能 Debug 面板从已腐烂的五类（生存/机动/导弹/副武器/电子战）改为读取 `axis_of_upgrade` 的正式三轴（斗士/骑士/策士）分组与 SSOT 配色；Debug `+` 获得技能时补齐正式选卡的对应轴 +1（仍受全局 8 点 cap），实时状态显示三轴计数。 |
