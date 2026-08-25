@@ -1,5 +1,7 @@
 extends Node
 
+signal music_track_finished(id: String)
+
 ## 音频管理器（AutoLoad）
 ##
 ## 职责：
@@ -28,8 +30,14 @@ const CONFIG_PATH := "user://audio.cfg"
 
 # ────── 资源库（id → 路径）──────
 const MUSIC_FILES := {
+	"main_menu": "res://audio/music/main_menu.ogg",
 	"battle_coast": "res://audio/music/battlebgm1.ogg",
 	"battle_coast_2": "res://audio/music/battlebgm2.ogg",
+	# 非 BOSS 王牌血条浮现时从四首中随机抽一首；one-shot 播完即回普通歌单。
+	"ace_battle_01": "res://audio/music/ace_battle_01.ogg",
+	"ace_battle_02": "res://audio/music/ace_battle_02.ogg",
+	"ace_battle_03": "res://audio/music/ace_battle_03.ogg",
+	"ace_battle_04": "res://audio/music/ace_battle_04.ogg",
 	"boss": "res://audio/music/bossbattle.ogg",
 	# CarrierStrikeGroup BOSS 双阶段 BGM —— 层叠同步播放（两首等长 + Loop 导入开）
 	"boss_csg": "res://audio/music/boss2phase1.ogg",
@@ -253,7 +261,16 @@ var _current_music_id: String = ""
 func current_music_id() -> String:
 	return _current_music_id
 
+## 只报告可实际加载的已登记音乐。事件切歌前先查此门，避免缺素材时退出当前 playlist。
+func has_music(id: String) -> bool:
+	var path := String(MUSIC_FILES.get(id, ""))
+	if path.is_empty():
+		return false
+	return ResourceLoader.exists(path) or FileAccess.file_exists(path)
+
 func crossfade_music(id: String, duration: float = 2.0, loop: bool = true) -> void:
+	if not has_music(id):
+		return
 	_playlist_active = false
 	_stop_layered_internal(duration)
 	_crossfade_music_internal(id, duration, loop)
@@ -338,11 +355,27 @@ func play_music_playlist(ids: Array, fade_in: float = 2.0, crossfade_between: fl
 	# 首曲禁用 loop，这样播完触发 finished → 自动切下一首
 	_play_music_internal(_playlist[0], fade_in, false)
 
+## 从当前曲等功率切入播放列表首曲；用于临时战斗主题结束后无空洞地恢复常规歌单。
+func crossfade_music_playlist(ids: Array, duration: float = 2.0,
+		crossfade_between: float = 2.0) -> void:
+	if ids.is_empty() or not has_music(String(ids[0])):
+		return
+	_stop_layered_internal(duration)
+	_playlist = ids.duplicate()
+	_playlist_idx = 0
+	_playlist_crossfade = crossfade_between
+	_playlist_active = true
+	_playlist_advance_armed = true
+	_crossfade_music_internal(String(_playlist[0]), duration, false)
+	_playlist_active = true
+
 func _on_music_player_finished(player: AudioStreamPlayer) -> void:
 	# 只有活跃播放器自然播完才推进（fade-out 的旧 player 被 stop() 不会触发 finished，但以防万一）
 	if player != _active_music:
 		return
 	if not _playlist_active or _playlist.is_empty():
+		if not _current_music_id.is_empty():
+			music_track_finished.emit(_current_music_id)
 		return
 	_playlist_idx = (_playlist_idx + 1) % _playlist.size()
 	# 下一首也禁用 loop，周而复始
@@ -665,7 +698,12 @@ func _get_music(id: String) -> AudioStream:
 	if path.is_empty():
 		push_warning("AudioManager: unknown music id '%s'" % id)
 		return null
-	return load(path) as AudioStream
+	if ResourceLoader.exists(path):
+		return load(path) as AudioStream
+	# 新收件 OGG 在编辑器首次导入前还没有 .import；正式运行仍可直接从原始 Vorbis 读取。
+	if path.get_extension().to_lower() == "ogg" and FileAccess.file_exists(path):
+		return AudioStreamOggVorbis.load_from_file(path)
+	return null
 
 func _get_sfx(id: String) -> AudioStream:
 	var path: String = SFX_FILES.get(id, "")

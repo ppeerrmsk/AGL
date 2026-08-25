@@ -5,7 +5,8 @@ extends CanvasLayer
 ##
 ## 由 MapBoundary 的信号驱动：
 ##   approach_warning(active, distance_m)  → 顶部闪烁红条
-##   boundary_crossed                       → 弹出模态菜单
+##   boundary_countdown(active, remaining) → 外缘空域倒计时
+##   boundary_crossed                       → 倒计时耗尽后弹出模态菜单
 ##
 ## 撤退菜单回发信号：
 ##   retreat_confirmed    → 结束战局（由 survivor_mode 处理）
@@ -31,6 +32,8 @@ var _warn_label: Label
 var _warn_bg: ColorRect
 var _menu_root: Control
 var _menu_visible: bool = false
+var _approach_active: bool = false
+var _countdown_active: bool = false
 ## 可选：指向 ZoneData —— BOSS 阶段下警告条改文案，告诉玩家无法补给
 var zones: ZoneData
 
@@ -52,6 +55,7 @@ func _process(_delta: float) -> void:
 # ══════════════════════════════════════════════
 
 func on_approach(active: bool, distance_m: float) -> void:
+	_approach_active = active
 	if active:
 		_warn_bg.visible = true
 		# 与补给禁用闸同源（spec survivor-loop §3.1）：BOSS **解锁**就换"无法补给"文案，
@@ -59,10 +63,21 @@ func on_approach(active: bool, distance_m: float) -> void:
 		var boss_phase: bool = zones != null and (zones.is_boss_phase() or zones.boss_unlocked)
 		var key := "BOUNDARY_APPROACH_WARN_BOSS" if boss_phase else "BOUNDARY_APPROACH_WARN"
 		_warn_label.text = tr(key) % (distance_m / 1000.0)
-	else:
+	elif not _countdown_active:
+		_warn_bg.visible = false
+
+func on_countdown(active: bool, remaining_s: float) -> void:
+	_countdown_active = active
+	if active:
+		_warn_bg.visible = true
+		var boss_phase: bool = zones != null and (zones.is_boss_phase() or zones.boss_unlocked)
+		var key := "BOUNDARY_EXIT_COUNTDOWN_BOSS_FMT" if boss_phase else "BOUNDARY_EXIT_COUNTDOWN_FMT"
+		_warn_label.text = tr(key) % maxi(1, int(ceil(remaining_s)))
+	elif not _approach_active:
 		_warn_bg.visible = false
 
 func on_crossed() -> void:
+	_countdown_active = false
 	_open_menu()
 
 # ══════════════════════════════════════════════

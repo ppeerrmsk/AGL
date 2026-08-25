@@ -41,17 +41,18 @@ var target_position: Vector2 = Vector2.INF  ## 世界坐标, INF=无目标
 var keep_target_on_arrival: bool = false    ## true=外部管理target_position，到达时不清除
 
 ## ── 预测路径缓存（世界坐标）──
-## 玩家专用，~20Hz 重算（每 50ms 一次）。每帧渲染只做 O(N) 的 to_local 转换。
+## 玩家专用，完成缓存后至少间隔 200ms 才重算。每帧渲染只消费抽样后的显示缓存。
 ## 不每帧重算的两个原因：
 ##   ① 600 步 × N 个 helper 的 dictionary 查询太贵，单帧能吃 5-10ms 把 FPS 砸到 30-
 ##   ② FE 积分在长程上对 state 微扰非常敏感，每帧重算的 "尾端" 会肉眼可见地抖动
-## 50ms 间隔下，玩家 800km/h 飞约 11m / 22px，世界点缓存对预测末端的视觉稳定性贡献巨大
+## 构建期间保留旧缓存，世界点缓存对预测末端的视觉稳定性贡献巨大。
 ## 预测窗口 ~6 秒（360 步 × 1/60s）—— 比 3 秒长是因为 G10 拉 90° 弯本身就要 4-5 秒，
 ## 短窗口只看得到能量崩溃段（红色），看不到转完恢复（蓝色），视觉上呈现"红短线突然变蓝长线"。
 ## 6 秒能容纳完整的"拉 G 掉速 → 对准目标 → 加速恢复"能量曲线，自然平滑。
-## 性能：20Hz × 360 步 × ~5µs ≈ 36ms/秒（3.6% 预算），可接受。
 const PRED_MAX_STEPS: int = 360
-var _predicted_path_world: PackedVector2Array = PackedVector2Array()        ## 最新 cache（target，20Hz 跳变）
+const PRED_STEPS_PER_FRAME: int = 24
+const PRED_DISPLAY_STRIDE: int = 4
+var _predicted_path_world: PackedVector2Array = PackedVector2Array()        ## 最新抽样显示 cache
 var _predicted_path_healths: PackedFloat32Array = PackedFloat32Array()
 ## 平滑视图：每帧 lerp 向 _predicted_path_world，实际渲染用这个
 ## 修复"6 秒预测推进时高速瞬移"的视觉问题——cache 在 20Hz 离散更新，
@@ -60,11 +61,13 @@ var _predicted_path_smooth_world: PackedVector2Array = PackedVector2Array()
 var _predicted_path_smooth_healths: PackedFloat32Array = PackedFloat32Array()
 const PRED_SMOOTH_LERP_RATE: float = 24.0  ## 时常数 ~42ms，差不多 cache 间隔
 var _predicted_path_cache_ms: int = 0
+var _predicted_path_build: AircraftPhysics.PredictionWork
+var _predicted_path_build_target: Vector2 = Vector2.INF
 ## 长度平滑保留：处理 arrival_dist 阈值穿越时的边界跳变（极少见）
 var _predicted_path_visible_n_smooth: float = 0.0
 var _predicted_path_last_draw_ms: int = 0
 var _predicted_path_last_target: Vector2 = Vector2.INF
-const PREDICTED_PATH_REFRESH_MS: int = 50
+const PREDICTED_PATH_REFRESH_MS: int = 200
 const PRED_LEN_LERP_RATE: float = 6.0
 const PRED_TARGET_RESET_PX: float = 200.0
 ## 诊断：保存上次 prediction 用于计算两次 refresh 之间形状偏移量
@@ -105,6 +108,13 @@ var selected: bool = false
 # --- 光学隐形（F-47 BOSS 专用） ---
 var is_cloaked: bool = false          ## 当前是否处于隐形状态
 var _cloak_alpha: float = 1.0        ## 渲染透明度（1.0=可见, 0.0=完全隐形）
+var counter_stealth_revealed: bool = false ## 反隐技能现形：压过光学 cloak，但不改 cloak 计时所有权
+## 敌机传感器隐形：只遮蔽玩家侧接触，不改变敌机自身 AI、碰撞或伤害。
+var sensor_contact_hidden: bool = false
+var sensor_contact_lost_s: float = 0.0
+var _sensor_contact_visual_alpha: float = 1.0
+var _sensor_contact_tween: Tween = null
+const SENSOR_CONTACT_FADE_S: float = 0.5
 var suppress_flares: bool = false     ## 抑制热诱弹释放（隐形 CD 已好时由 BOSS 管理器设置）
 var bullet_immune: bool = false       ## 子弹完全免疫（BOSS 专属：子弹穿过不造成伤害）
 var invulnerable: bool = false        ## 全免伤（用于起飞甲板/出场无敌窗口；导弹与机炮伤害都吃掉）
@@ -266,7 +276,12 @@ var _pursuit_last_turn_sign: float = 0.0      ## 上次观察到的 _committed_t
 # 触发条件（OR）：Herbst/Cobra 机动激活中 / |bank| > 60° / _overshoot_timer > 0
 # 10Hz 节流，正常巡航零日志污染，激烈机动时以 0.1s 粒度采样位姿，能看出 60Hz 亚帧颤抖的能量
 var _ac_tick_log_timer: float = 0.0
+var _ac_tick_log_active: bool = false
 const AC_TICK_LOG_INTERVAL: float = 0.1
+## 同批出生飞机的 30Hz redraw 必须错峰；只改变 Canvas 命令重建相位，不改变物理/AI。
+var _visual_redraw_phase: int = 0
+var _ac_tick_log_phase: int = 0
+static var _next_perf_phase_slot: int = 0
 ## deg。默认 60° 只抓硬机动；reversal bench 把它调低到 ~20° 以完整记录每次 180° 反转的全弧（含过零段）
 static var AC_TICK_BANK_THRESHOLD := 60.0
 var _gun_aim_log_until: float = 0.0  # 节流 [GUN_AIM] 诊断：0.5s 一次
@@ -311,8 +326,25 @@ var attack_air_targets: bool = true
 
 # --- 击毁 ---
 var _destroy_timer: float = 0.0
+var _destroy_duration_total: float = 0.0  ## 坠毁总时长，用于归一化视觉进度
+var _destroy_start_altitude: float = 0.0  ## 坠毁起始高度，低空提前触地时仍能完成渐隐
 var _destroy_spin: float = 0.0      ## 坠落旋转速度（heading 偏航）
 var _destroy_bank_rate: float = 0.0  ## 坠落滚转速度（仅轰炸机侧翻用）
+var _destroy_visual_scale: float = 1.0  ## 仅作用于坠毁机体轮廓，不缩放状态栏
+var _destroy_visual_alpha: float = 1.0  ## 仅作用于坠毁机体轮廓，不淡出状态栏
+var _destroy_status_timer: float = 0.0  ## 所有坠毁状态栏的短暂保留时间
+var _destroy_breakup_emitted: bool = false  ## 坠毁终点只补一次解体爆炸
+var _destroy_linger_timer: float = 0.0  ## 终点爆炸后机体继续可见的保留时间
+var _last_hit_zone: StringName = &"center"  ## 最后一次真实受击分区，坠毁开始时冻结
+var _last_hit_local_norm: Vector2 = Vector2.ZERO  ## 机体局部归一化命中点：x 前后 / y 左右
+var _last_hit_world_pos: Vector2 = Vector2.ZERO  ## 贴合机体轮廓后的命中世界坐标
+var _last_hit_incoming_velocity: Vector2 = Vector2.ZERO
+var _damage_hit_prepared: bool = false  ## take_damage_at 已写命中点，防薄壳 take_damage 重置
+var _destroy_random_seed: int = 0
+var _destroy_descent_mult: float = 1.0
+var _destroy_speed_decay_mult: float = 1.0
+var _destroy_move_mult: float = 1.0
+var _destroy_size_class: StringName = &"small"
 
 # --- 族群散开（Adds 直升机专用：受击时编队解体 + 扭转闪避）---
 ## > 0 时 AIController 在 simple_ai 的 waypoint 分支会对目标点施加时变侧向偏移，
@@ -367,7 +399,7 @@ var gun_reload_duration: float = 25.0    ## 装填总时间（比导弹略久；
 var gun_reload_progress: float = 0.0     ## 0.0-1.0, HUD 读取用
 var infinite_fuel: bool = false      ## 生存模式：无限燃油
 var orbit_speed_cap: float = 0.0     ## AI 轨道限速（m/s），0=不限制。由 AIController 设置
-var bullet_dodge_chance: float = 0.0  ## 机炮弹丸闪避概率（装甲强化升级）
+var bullet_dodge_chance: float = 0.0  ## 机炮弹丸闪避概率（机体基线 + 座舱护甲等技能）
 var lock_resistance_mult: float = 1.0  ## 雷达锁定抗性（强化吊舱升级，每层 ×1.35），敌人对我累积锁定速率 ÷此值
 var altitude_authority_mult: float = 1.0  ## 高度操纵权威（云雾机动）：gain/smooth_rate 全幅放大，max_climb 顶 +30% 防 PE↔KE 反抽
 var cloud_lock_stealth: bool = false      ## 云雾隐身（云雾机动战区奖励）：云中任意高度档 lock_rate ×0.1
@@ -375,7 +407,7 @@ var ecm_range_mult: float = 1.0           ## ECM 吊舱（战区奖励）：敌�
 var category_radar_mult: float = 1.0      ## 词条联动：电子战类技能数量 → 雷达/锁定范围。由 SurvivorData.recompute_category_bonuses 写
 ## ── 720 批 T4 按轴计数缩放（同由 recompute_category_bonuses 写；零技能=默认值零变化）──
 var veteran_hp_bonus_applied: float = 0.0 ## 历战者：已应用的 HP 加成（差量幂等；换型重放序言清零）
-var speed_by_knight_mult: float = 1.0     ## 全速推进：顶速倍率（aircraft_physics.effective_max_speed_kmh 消费）
+var speed_by_knight_mult: float = 1.0     ## 引擎强化合并全速推进后的骑士轴计数顶速倍率
 var ew_expert_radar_bonus_px: float = 0.0 ## 电子战专家：雷达距离加成（王牌；get_radar_range 消费）
 var weapon_master_cd_mult: float = 1.0    ## 武器大师：全武器 CD 倍率（王牌；各 CD 赋值点消费）
 
@@ -556,7 +588,6 @@ const EXECUTIONER_FIRST_STACK_KILLS: int = 2  ## 首层所需击杀数（之后�
 const EXECUTIONER_MAX_STACKS: int = 5
 var flare_lock_immunity: float = 0.0  ## 释放热诱弹后的锁定免疫时间（秒）
 var _lock_immunity_timer: float = 0.0  ## 当前剩余锁定免疫时间
-var kill_heal_amount: float = 0.0     ## 击杀敌机时回复的HP
 var gun_extra_barrels: int = 0        ## 额外机炮管数（多管齐射进化）
 var missile_bounce_count: int = 0     ## 导弹弹跳次数（连锁弹头进化）
 var missile_proximity_aoe: bool = false  ## 近炸引信进化：导弹爆炸产生 AOE
@@ -720,6 +751,7 @@ const FIGHTER_YAW_SPIN_RANGE := 4.0              ## 战斗机偏航范围（±�
 const FIGHTER_DESCENT_MPS := 300.0               ## 战斗机下坠速率（m/s）
 const FIGHTER_SPEED_DECAY := 20.0                ## 战斗机减速率
 const FIGHTER_MIN_SPEED := 50.0                  ## 战斗机最低速度
+const DESTROY_STATUS_HOLD_S := 0.85              ## 所有坠毁状态栏保留时间
 
 # --- LOD ---
 var lod_level: int = 0  ## 0=完整, 1=简化（编队僚机巡航）, 2=最小化（屏幕外）
@@ -768,6 +800,64 @@ func clear_trail() -> void:
 	if _trail_ribbon:
 		_trail_ribbon.clear_trail()
 
+## 两种隐形各管自己的状态，但尾迹只在两者都显形时恢复。
+func sync_stealth_trail_emission() -> void:
+	if _trail_ribbon:
+		var presentation_actor := has_meta(CombatUnit.META_PRESENTATION_ACTOR_ACTIVE)
+		_trail_ribbon.self_modulate.a = 1.0 if presentation_actor \
+			else _sensor_contact_visual_alpha
+		_trail_ribbon.set_emission_enabled(
+			not is_hidden_from_player_sensors() and not is_cloaked)
+
+func is_hidden_from_player_sensors() -> bool:
+	return sensor_contact_hidden \
+		and not has_meta(CombatUnit.META_PRESENTATION_ACTOR_ACTIVE)
+
+## 逻辑接触立即切换，视觉从当前 alpha 连续反向；同一时刻最多一个 tween。
+func set_sensor_contact_hidden(hidden: bool, fade_s: float = SENSOR_CONTACT_FADE_S) -> void:
+	var target_alpha := 0.0 if hidden else 1.0
+	var tween_running := _sensor_contact_tween != null \
+		and _sensor_contact_tween.is_valid() and _sensor_contact_tween.is_running()
+	# 雷达 5Hz tick 与多名玩家观察者可能在同一渐变期间重复写入相同状态。
+	# 同向命令必须幂等：让现有 Tween 自然完成，禁止每 0.2s kill + 重建。
+	if sensor_contact_hidden == hidden \
+			and (is_equal_approx(_sensor_contact_visual_alpha, target_alpha) or tween_running):
+		return
+	if tween_running:
+		_sensor_contact_tween.kill()
+	sensor_contact_hidden = hidden
+	# 逻辑沿只重建一次绘制命令；渐变本身走 CanvasItem self_modulate，
+	# 不再按渲染帧重复清空整架飞机的 draw command cache。
+	queue_redraw()
+	if not hidden:
+		sync_stealth_trail_emission()
+	if fade_s <= 0.0 or not is_inside_tree():
+		_set_sensor_contact_visual_alpha(target_alpha)
+		return
+	_sensor_contact_tween = create_tween()
+	_sensor_contact_tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_sensor_contact_tween.tween_method(
+		Callable(self, "_set_sensor_contact_visual_alpha"),
+		_sensor_contact_visual_alpha, target_alpha, fade_s)
+
+func _set_sensor_contact_visual_alpha(value: float) -> void:
+	var was_fully_hidden := is_hidden_from_player_sensors() \
+		and _sensor_contact_visual_alpha <= 0.001
+	_sensor_contact_visual_alpha = clampf(value, 0.0, 1.0)
+	var contact_alpha := 1.0 if has_meta(
+		CombatUnit.META_PRESENTATION_ACTOR_ACTIVE) else _sensor_contact_visual_alpha
+	self_modulate = Color(1.0, 1.0, 1.0, minf(_cloak_alpha, contact_alpha))
+	if _trail_ribbon != null:
+		var trail_alpha := 1.0 if has_meta(
+			CombatUnit.META_PRESENTATION_ACTOR_ACTIVE) else _sensor_contact_visual_alpha
+		_trail_ribbon.self_modulate = Color(1.0, 1.0, 1.0, trail_alpha)
+		if is_hidden_from_player_sensors() and _sensor_contact_visual_alpha <= 0.001:
+			sync_stealth_trail_emission()
+	# 渐隐终点再清一次缓存，随后完全隐形的非任务目标不再参与常规重绘。
+	if not was_fully_hidden and is_hidden_from_player_sensors() \
+			and _sensor_contact_visual_alpha <= 0.001:
+		queue_redraw()
+
 ## 阵营切换后的单次视觉刷新；不进入每帧路径。
 func refresh_faction_visuals() -> void:
 	if params:
@@ -783,6 +873,10 @@ func refresh_faction_visuals() -> void:
 	queue_redraw()
 
 func _ready() -> void:
+	var perf_phase_slot := _next_perf_phase_slot
+	_next_perf_phase_slot += 1
+	_visual_redraw_phase = perf_phase_slot % 2
+	_ac_tick_log_phase = perf_phase_slot % 10
 	# 分配唯一 callsign
 	if callsign == "":
 		callsign = CallsignDB.allocate()
@@ -1043,6 +1137,9 @@ func _physics_process(delta: float) -> void:
 
 func _physics_process_impl(delta: float) -> void:
 	_lod_frame += 1
+	# 玩家与僚机受伤后的短窗内强制刷新飞机旁状态栏；仅持续 0.96s。
+	if AircraftRenderer.status_damage_flash_phase_for(self) >= 0:
+		queue_redraw()
 	if _tactic_popup_timer > 0.0:
 		_tactic_popup_timer -= delta
 	if aa_fire_timer > 0.0:
@@ -1194,7 +1291,10 @@ func _physics_process_impl(delta: float) -> void:
 		if every3:
 			AircraftFlares.update(self, delta * 3.0)  # 同款 ×3 补偿：flare CD/粒子寿命
 		_update_visuals()
-		if selected or is_hovered or every3:
+		var visual_every3 := (_lod_frame + _visual_redraw_phase) % 3 == 0
+		if (not is_hidden_from_player_sensors() \
+				or _sensor_contact_visual_alpha > 0.001 or is_mission_target) \
+				and (selected or is_hovered or visual_every3):
 			queue_redraw()
 		return
 
@@ -1286,7 +1386,10 @@ func _physics_process_impl(delta: float) -> void:
 	_log_ac_tick(delta)
 	PerfBuckets.tick("ac_phys.visual", Time.get_ticks_usec() - _t_visual)
 	# LOD 0 非玩家非悬停：每 2 帧重绘一次，减半 _draw 开销
-	if selected or is_hovered or _lod_frame % 2 == 0:
+	if (not is_hidden_from_player_sensors() \
+			or _sensor_contact_visual_alpha > 0.001 or is_mission_target) \
+			and (selected or is_hovered \
+				or (_lod_frame + _visual_redraw_phase) % 2 == 0):
 		queue_redraw()
 
 ## 旋翼机专用的轻量物理/武器路径。运动由 AircraftPhysics.update_rotorcraft 统一处理，
@@ -1305,7 +1408,10 @@ func _physics_process_rotorcraft(delta: float) -> void:
 
 	AircraftFlares.update(self, delta)
 	_update_visuals()
-	if selected or is_hovered or _lod_frame % 2 == 0:
+	if (not is_hidden_from_player_sensors() \
+			or _sensor_contact_visual_alpha > 0.001 or is_mission_target) \
+			and (selected or is_hovered \
+				or (_lod_frame + _visual_redraw_phase) % 2 == 0):
 		queue_redraw()
 
 # ══════════════════════════════════════════════
@@ -1540,12 +1646,19 @@ func _log_ac_tick(delta: float) -> void:
 	var high_bank: bool = absf(rad_to_deg(bank_angle)) > AC_TICK_BANK_THRESHOLD
 	var in_overshoot: bool = _overshoot_timer > 0.0
 	if not (maneuver_active or high_bank or in_overshoot):
-		_ac_tick_log_timer = 0.0  # 条件失效就重置节流，下次进入立即采样
+		_ac_tick_log_timer = 0.0
+		_ac_tick_log_active = false
 		return
+	if not _ac_tick_log_active:
+		_ac_tick_log_active = true
+		# 同批出生的飞机经常同帧进入大坡度；按实例相位把 10Hz 诊断写入摊开，
+		# 保留每机采样频率与全部字段，不让纯观测日志制造战斗帧尖峰。
+		_ac_tick_log_timer = AC_TICK_LOG_INTERVAL \
+			* float(_ac_tick_log_phase) / 10.0
 	_ac_tick_log_timer -= delta
 	if _ac_tick_log_timer > 0.0:
 		return
-	_ac_tick_log_timer = AC_TICK_LOG_INTERVAL
+	_ac_tick_log_timer += AC_TICK_LOG_INTERVAL
 
 	var hdg_norm_deg: float = rad_to_deg(wrapf(heading, -PI, PI))
 	var bnk_deg: int = int(rad_to_deg(bank_angle))
@@ -1963,6 +2076,13 @@ func _log_unit_name(unit: CombatUnit) -> String:
 	return unit.name
 
 func set_combat_target(target: CombatUnit) -> void:
+	# 玩家火控写入权威：光学/传感器隐形目标即使仍被 commanded_target 持有，也不能被 RTS
+	# 铁律、分火、防守或齐射在下一 tick 重新挂回 combat_target。
+	if target != null and is_player_squad() \
+			and (is_sensor_engagement_obscured(target) \
+				or (target is Aircraft and (target as Aircraft).is_cloaked)):
+		clear_combat_target()
+		return
 	combat_target = target
 	is_firing = false
 	_strafe_state = 0  # 重置舔地状态机
@@ -3020,23 +3140,38 @@ func effective_max_locks() -> int:
 ## 位置感知伤害入口：MountTarget 等子部件命中时调，传入命中世界坐标。
 ## 默认转发给 take_damage(amount)；如果飞机注册了 damage_router meta（例：Mother Goose
 ## 通过 MotherGooseController 接管路由），则委托给 router.route_damage(amount, hit_pos)。
-func take_damage_at(amount: float, hit_pos: Vector2) -> void:
+func take_damage_at(amount: float, hit_pos: Vector2, attacker: Node = null,
+		kind: String = "", incoming_velocity: Vector2 = Vector2.ZERO) -> void:
 	if has_meta(&"damage_router"):
 		var router: Object = get_meta(&"damage_router")
 		if router and is_instance_valid(router) and router.has_method(&"route_damage"):
+			if attacker != null:
+				set_meta("_pending_attacker", attacker)
+			if kind != "":
+				set_meta("_last_damage_kind", kind)
 			router.call(&"route_damage", amount, hit_pos)
 			return
-	take_damage(amount)
+	AircraftDestruction.record_hit(self, hit_pos, incoming_velocity)
+	_damage_hit_prepared = true
+	take_damage(amount, attacker, kind)
 
 ## 战斗部类伤害：受"弹头穿甲"系数影响，只计一半护甲（见 MISSILE_ARMOR_PENETRATION）
 ## 默认 kind="missile"（旧调用点 take_damage(x) 默认按导弹处理）；显式传 kind 覆盖
 func take_damage(amount: float, attacker: Node = null, kind: String = "") -> void:
+	var hit_prepared := _damage_hit_prepared
+	_damage_hit_prepared = false
 	if is_destroyed:
 		return
 	if not can_accept_new_hit(kind if kind != "" else "missile"):
 		return
 	if invulnerable:
 		return
+	# 旧伤害入口没有弹体坐标时，用攻击者方向推导入射面；完全无几何才安全退化 CENTER。
+	if not hit_prepared:
+		var incoming := Vector2.ZERO
+		if attacker is Node2D and is_instance_valid(attacker):
+			incoming = global_position - (attacker as Node2D).global_position
+		AircraftDestruction.record_hit(self, global_position, incoming)
 	# Mother Goose / 类似挂点 BOSS：弱点暴露后玩家直锁主体的伤害也要走 router
 	## router.route_damage(amount, hit_pos) —— 这里没有命中坐标，传 boss 中心
 	if has_meta(&"damage_router"):
@@ -3061,7 +3196,7 @@ func take_damage(amount: float, attacker: Node = null, kind: String = "") -> voi
 
 ## 受到机炮伤害（可被装甲闪避）
 ## 闪避率累加来源（**线性加和 + 全局 cap MAX_BULLET_DODGE_CAP**）：
-##   - 基础 bullet_dodge_chance（PlayableAircraft 0.10-0.20 基础 + hp_up 升级 cap 0.40）
+##   - 基础 bullet_dodge_chance（PlayableAircraft 基线 + 座舱护甲等技能）
 ##   - 规避模式额外 +20%（战术面板开启"回避/规避模式"时生效）
 ##   - HIGH 高度档位额外 +20%（高空机炮更难命中）
 ##   - §C 玩家技能"对头机炮闪避"：与攻击者夹角对头时 +60%
@@ -3071,7 +3206,9 @@ func take_damage(amount: float, attacker: Node = null, kind: String = "") -> voi
 ##
 ## 设计权衡：用 cap 而不是乘法递减（1−Π(1−d_i)），简单可读 + 玩家容易心算"我大概多少闪避"。
 const MAX_BULLET_DODGE_CAP: float = 0.85
-func take_bullet_damage(amount: float, attacker: Node = null) -> bool:
+func take_bullet_damage(amount: float, attacker: Node = null,
+		hit_pos: Vector2 = Vector2.INF,
+		incoming_velocity: Vector2 = Vector2.ZERO) -> bool:
 	if is_destroyed:
 		return false
 	if not can_accept_new_hit("gun"):
@@ -3144,6 +3281,8 @@ func take_bullet_damage(amount: float, attacker: Node = null) -> bool:
 	set_meta("_last_damage_kind", "gun")
 	if attacker != null:
 		set_meta("_pending_attacker", attacker)
+	var resolved_hit_pos := global_position if hit_pos == Vector2.INF else hit_pos
+	AircraftDestruction.record_hit(self, resolved_hit_pos, incoming_velocity)
 	_apply_damage(amount)
 	return true
 
@@ -3195,7 +3334,14 @@ func _apply_damage(amount: float) -> void:
 	EventLogger.log_event("DAMAGE", _log_name(),
 		"took %.0f damage (hp=%.0f→%.0f)" % [amount, old_hp, hp])
 	if amount > 0.0 and is_player_squad():
-		set_meta(&"hud_last_damage_at", EventLogger.get_game_time())
+		var damage_now := EventLogger.get_game_time()
+		var previous_damage_at := float(get_meta(
+			AircraftRenderer.STATUS_DAMAGE_LAST_META, -INF))
+		if not is_finite(previous_damage_at) or damage_now - previous_damage_at \
+				>= AircraftRenderer.STATUS_DAMAGE_FLASH_DURATION_S:
+			set_meta(AircraftRenderer.STATUS_DAMAGE_STARTED_META, damage_now)
+		set_meta(AircraftRenderer.STATUS_DAMAGE_LAST_META, damage_now)
+		queue_redraw()
 	# 受击钩子链（玩家系技能：受伤进嗜血 / 被导弹击中无敌 / 周围 JAM 等）
 	# early-return：only Aircraft 玩家小队 + has upgrade_stacks → 不命中开销 ≈ 1 dict.has
 	if hp > 0.0 and is_player_squad():
@@ -3453,6 +3599,8 @@ func _draw_impl() -> void:
 		return
 	if is_destroyed:
 		AircraftRenderer.draw_aircraft_icon_destroyed(self)
+		if _destroy_status_timer > 0.0:
+			AircraftRenderer.draw_destroyed_status_label(self)
 		# 坠毁时仍绘制 tactic popup（例如 UAV "舍身"自爆瞬间会走这里）
 		AircraftRenderer.draw_tactic_popup(self)
 		return
@@ -3462,34 +3610,68 @@ func _draw_impl() -> void:
 			self_modulate = Color(1.0, 1.0, 1.0, 1.0)
 		AircraftRenderer.draw_tactic_popup(self)
 		return
+	# 传感器接触完全丢失：普通敌机零绘制；任务目标只保留匿名 TGT 占位。
+	var contact_hidden := is_hidden_from_player_sensors()
+	var contact_visual_alpha := 1.0 if has_meta(
+		CombatUnit.META_PRESENTATION_ACTOR_ACTIVE) else _sensor_contact_visual_alpha
+	if contact_hidden and contact_visual_alpha <= 0.001:
+		if self_modulate.a < 1.0:
+			self_modulate = Color.WHITE
+		if is_mission_target:
+			AircraftRenderer.draw_sensor_unknown_target(self)
+		return
 	# 半透明淡入/淡出：通过 self_modulate 控制整体透明度
-	if _cloak_alpha < 1.0:
-		self_modulate = Color(1.0, 1.0, 1.0, _cloak_alpha)
+	var visual_alpha := minf(_cloak_alpha, contact_visual_alpha)
+	if visual_alpha < 1.0:
+		self_modulate = Color(1.0, 1.0, 1.0, visual_alpha)
 	elif self_modulate.a < 1.0:
 		self_modulate = Color(1.0, 1.0, 1.0, 1.0)
+	# 渐隐阶段只保留机体与机体自有瞬时效果，精确传感器叠层立即撤销。
+	if contact_hidden:
+		AircraftRenderer.draw_aircraft_icon(self)
+		if is_firing:
+			AircraftRenderer.draw_muzzle_flash(self)
+		if is_afterburner:
+			AircraftRenderer.draw_afterburner_glow(self)
+		AircraftRenderer.draw_flare_particles(self)
+		return
 	var draw_section_trace := PerfBuckets.detail_capture_enabled()
 	var draw_section_t0: int = Time.get_ticks_usec() if draw_section_trace else 0
+	var draw_overlay_t0 := draw_section_t0
 	if is_hovered:
 		# 无主雷达锁定武器时不画主雷达锥；副槽仍由独立锁定锥表达。
 		if params and params.has_lock_capable_weapon():
 			AircraftRenderer.draw_radar_cone(self)
 		AircraftRenderer.draw_aura_ranges(self)
+	if draw_section_trace:
+		PerfBuckets.tick("aircraft_draw.overlays.hover", Time.get_ticks_usec() - draw_section_t0)
+		draw_section_t0 = Time.get_ticks_usec()
 	# 副导弹槽（仅玩家、装备副弹时画）
 	#   - 锁定锥：hover-only（draw_secondary_lock_cone 自身判断 is_hovered）
 	#   - 锁定指示括号：长期可见，提示"QMAAM 已就绪可以打"
 	if AircraftRenderer.safe_player_ref() == self:
 		AircraftRenderer.draw_secondary_lock_cone(self)
 		AircraftRenderer.draw_secondary_lock_indicators(self)
+	if draw_section_trace:
+		PerfBuckets.tick("aircraft_draw.overlays.secondary", Time.get_ticks_usec() - draw_section_t0)
+		draw_section_t0 = Time.get_ticks_usec()
 	# 友方 hover 时显示参考机炮锥；敌方对玩家提交机炮攻击时持续显示锥（条件在 draw_gun_cone 内判）
 	AircraftRenderer.draw_gun_cone(self)
+	if draw_section_trace:
+		PerfBuckets.tick("aircraft_draw.overlays.gun", Time.get_ticks_usec() - draw_section_t0)
+		draw_section_t0 = Time.get_ticks_usec()
 	# drone（忠诚僚机）跳过预测线 / 锁定指示 / 目标括号 / 数据标签 — 纯 2D 极简视觉
 	if not is_drone:
 		AircraftRenderer.draw_target_line(self)
+	if draw_section_trace:
+		PerfBuckets.tick("aircraft_draw.overlays.target", Time.get_ticks_usec() - draw_section_t0)
+		draw_section_t0 = Time.get_ticks_usec()
 	AircraftRenderer.draw_esm_aura(self)
 	AircraftRenderer.draw_cloud_state(self)
 	AircraftRenderer.draw_railgun_telegraph(self)
 	if draw_section_trace:
-		PerfBuckets.tick("aircraft_draw.overlays", Time.get_ticks_usec() - draw_section_t0)
+		PerfBuckets.tick("aircraft_draw.overlays.environment", Time.get_ticks_usec() - draw_section_t0)
+		PerfBuckets.tick("aircraft_draw.overlays", Time.get_ticks_usec() - draw_overlay_t0)
 		draw_section_t0 = Time.get_ticks_usec()
 	AircraftRenderer.draw_aircraft_icon(self)
 	AircraftRenderer.draw_deadair_exposure(self)
@@ -3526,8 +3708,8 @@ func _draw_impl() -> void:
 	AircraftRenderer.draw_tactic_popup(self)
 	if draw_section_trace:
 		PerfBuckets.tick("aircraft_draw.labels", Time.get_ticks_usec() - draw_section_t0)
-	# 飞机的 buff/debuff 由完整、精简和折叠数据标签统一以文本+百分比形式显示
-	# （地面单位 SAM/AAA/ground_unit 仍走 draw_status_icons 的进度条，因其没有数据标签）
+	# 飞机的 buff/debuff 由完整、精简和折叠数据标签统一以文本+百分比形式显示；
+	# 地面/舰船既有独立进度条也复用同一屏幕空间矢量变换。
 	if formation_debug:
 		AircraftRenderer.draw_formation_debug(self)
 
@@ -3591,6 +3773,17 @@ func is_lock_immune() -> bool:
 		if bool(get_meta(&"lock_immune_override")):
 			return true
 	return _lock_immunity_timer > 0.0 or is_cloaked or sensor_hidden
+
+
+func set_counter_stealth_revealed(revealed: bool) -> void:
+	if counter_stealth_revealed == revealed and not (revealed and is_cloaked):
+		return
+	counter_stealth_revealed = revealed
+	if revealed and is_cloaked:
+		is_cloaked = false
+		_cloak_alpha = 1.0
+		sync_stealth_trail_emission()
+		queue_redraw()
 
 ## HUD 用：热诱弹冷却比例（委托 AircraftFlares）
 func get_flare_cooldown_ratio() -> float:

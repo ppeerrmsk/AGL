@@ -21,6 +21,7 @@ extends EquipmentParams
 
 const STATE_KEY := "laser"
 const FactionTransitionScript = preload("res://scripts/events/faction_transition.gd")
+const ExplosionVFXScript = preload("res://scripts/explosion_vfx.gd")
 const HACK_THRESHOLD_S := 2.5
 const HACK_GRACE_S := 0.30
 const HACK_DECAY_PER_S := 1.0
@@ -217,6 +218,9 @@ func _apply_laser_effect(ac, target, damage: float, damage_skill_active: bool) -
 		if intercepts_missiles_directly or damage_skill_active:
 			m.intercept_hp -= damage
 			if m.intercept_hp <= 0.0:
+				if ac != null and is_instance_valid(ac) and ac.is_inside_tree():
+					ExplosionVFXScript.emit(ac.get_tree(), m.global_position, m.heading,
+						AircraftDestruction.MISSILE_BREAKUP_SCALE)
 				m.is_active = false
 				m.queue_free()
 		return

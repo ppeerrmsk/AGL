@@ -19,13 +19,18 @@ const FRAME_BUDGET_S: float = 1.0 / 60.0
 const FRAME_TRACE_MAX_SPIKES: int = 128
 const FRAME_TRACE_REPORT_SPIKES: int = 16
 const FRAME_TRACE_ENGINE_SAMPLE_STRIDE: int = 30
+const FRAME_TRACE_PRE_CONTEXT_FRAMES: int = 120
+const FRAME_TRACE_POST_CONTEXT_FRAMES: int = 30
+const FRAME_TRACE_MAX_CONTEXT_WINDOWS: int = 8
 const RUNTIME_FRAME_HISTORY_SIZE: int = 120
 const RUNTIME_HOTSPOT_LIMIT: int = 10
 const FRAME_TRACE_ROOT_BUCKETS := [
-	"aircraft_phys", "aircraft_draw", "trail_draw", "naval_draw",
-	"mount_target_phys", "bullet_phys", "bullet_draw", "missile_phys",
-	"radar_locks", "ai_tick", "event_log", "audio_sfx_play", "radio_play",
-	"spawn_enemy",
+	"aircraft_phys", "ai_tick", "radar_locks", "ground_phys", "naval_phys",
+	"mount_target_phys", "bullet_phys", "missile_phys", "atmosphere_tick",
+	"aircraft_draw", "trail_draw", "ground_draw", "naval_draw", "bullet_draw",
+	"missile_draw", "missile_trail_draw", "hud_process", "hud_player_draw",
+	"hud_grid_draw", "hud_radar_draw", "hud_threat_draw", "event_log",
+	"audio_sfx_play", "radio_play", "spawn_enemy",
 ]
 
 # ── 当前窗口累加 ──
@@ -57,8 +62,10 @@ var _runtime_frame_count: int = 0
 # ── Bench-only 逐帧尖峰追踪 ──
 # 普通游戏恒关闭；开启后只保留超过 60 FPS 帧预算的紧凑摘要，避免追踪器自身制造大数组。
 var frame_trace_enabled: bool = false
+var _trace_detail_stride: int = 1
+var _trace_detail_this_frame: bool = false
 var _trace_frame_index: int = 0
-var _trace_pending_delta: float = 0.0
+var _trace_has_pending_frame: bool = false
 var _trace_physics_ticks: int = 0
 var _trace_frame_us: Dictionary = {}
 var _trace_frame_counts: Dictionary = {}
@@ -70,6 +77,10 @@ var _trace_spike_event_counts: Dictionary = {}
 var _trace_engine_sample_sum: Dictionary = {}
 var _trace_engine_sample_max: Dictionary = {}
 var _trace_engine_samples: int = 0
+var _trace_frame_deltas_ms := PackedFloat32Array()
+var _trace_recent_frames: Array[Dictionary] = []
+var _trace_context_windows: Array[Dictionary] = []
+var _trace_active_context: Dictionary = {}
 
 
 ## 累加一段代码的 µs 耗时
@@ -113,14 +124,22 @@ func configure_runtime_panel(active: bool) -> void:
 
 
 func detail_capture_enabled() -> bool:
-	return frame_trace_enabled or runtime_panel_enabled
+	return runtime_panel_enabled or (frame_trace_enabled and _trace_detail_this_frame)
 
 
 ## 仅由代表性性能 bench 开启；重置上一次场景遗留的追踪状态。
 func configure_frame_trace(active: bool) -> void:
-	frame_trace_enabled = active
+	var requested_mode := OS.get_environment("AGL_BENCH_FRAME_TRACE_MODE").strip_edges().to_lower()
+	frame_trace_enabled = active and requested_mode != "off"
+	# G0 默认用 1/4 细分采样控制观察者效应；根桶、慢帧 delta、事件和引擎快照仍逐帧。
+	# 复现单个尖峰需要全部子桶时显式设 AGL_BENCH_FRAME_TRACE_MODE=full。
+	_trace_detail_stride = 1 if requested_mode == "full" else 4
+	if requested_mode == "sampled":
+		var stride_text := OS.get_environment("AGL_BENCH_TRACE_DETAIL_STRIDE").strip_edges()
+		_trace_detail_stride = maxi(int(stride_text) if stride_text.is_valid_int() else 4, 2)
+	_trace_detail_this_frame = false
 	_trace_frame_index = 0
-	_trace_pending_delta = 0.0
+	_trace_has_pending_frame = false
 	_trace_physics_ticks = 0
 	_trace_frame_us.clear()
 	_trace_frame_counts.clear()
@@ -132,6 +151,10 @@ func configure_frame_trace(active: bool) -> void:
 	_trace_engine_sample_sum.clear()
 	_trace_engine_sample_max.clear()
 	_trace_engine_samples = 0
+	_trace_frame_deltas_ms.clear()
+	_trace_recent_frames.clear()
+	_trace_context_windows.clear()
+	_trace_active_context.clear()
 
 
 ## SurvivorMode 在渲染帧开头调用：结算上一帧并开始收集当前帧。
@@ -140,16 +163,18 @@ func begin_render_frame(delta: float) -> void:
 		_record_runtime_frame(delta)
 	if not frame_trace_enabled:
 		return
-	if _trace_pending_delta > 0.0:
+	if _trace_has_pending_frame:
 		var engine_snapshot: Dictionary = {}
-		# 只在已经知道上一帧超预算时读监视器，快帧不承担 RenderingServer 查询成本。
-		if _trace_pending_delta > FRAME_BUDGET_S:
+		# 当前 delta 是从上次 _process 开头到本次 _process 开头的真实耗时，必须与期间
+		# 收集的桶配对；旧实现误用上次 delta，导致桶/physics 与慢帧整体错位一帧。
+		if delta > FRAME_BUDGET_S:
 			engine_snapshot = _trace_engine_snapshot()
-		_finalize_trace_frame(_trace_pending_delta, engine_snapshot)
+		_finalize_trace_frame(delta, engine_snapshot)
 	_trace_frame_index += 1
+	_trace_detail_this_frame = (_trace_frame_index - 1) % _trace_detail_stride == 0
 	if _trace_frame_index % FRAME_TRACE_ENGINE_SAMPLE_STRIDE == 0:
 		_accumulate_engine_baseline(_trace_engine_snapshot())
-	_trace_pending_delta = delta
+	_trace_has_pending_frame = true
 	_trace_physics_ticks = 0
 	_trace_frame_us.clear()
 	_trace_frame_counts.clear()
@@ -205,17 +230,8 @@ func mark_frame_event(name: String) -> void:
 
 
 func _finalize_trace_frame(delta: float, engine_snapshot: Dictionary) -> void:
-	if delta <= FRAME_BUDGET_S:
-		return
 	var known_us := _trace_known_root_us()
-	_trace_frames_below_60 += 1
-	for event_name in _trace_frame_events:
-		_trace_spike_event_counts[event_name] = int(
-			_trace_spike_event_counts.get(event_name, 0)) + int(_trace_frame_events[event_name])
-	if _trace_spikes.size() >= FRAME_TRACE_MAX_SPIKES:
-		_trace_dropped_spikes += 1
-		return
-	_trace_spikes.append({
+	var frame_summary := {
 		"frame": _trace_frame_index,
 		"delta_ms": delta * 1000.0,
 		"known_ms": float(known_us) / 1000.0,
@@ -226,7 +242,76 @@ func _finalize_trace_frame(delta: float, engine_snapshot: Dictionary) -> void:
 		"events": _trace_frame_events.duplicate(),
 		"load": _trace_load_snapshot(),
 		"engine": engine_snapshot,
-	})
+	}
+	_trace_frame_deltas_ms.append(delta * 1000.0)
+	var is_slow := delta > FRAME_BUDGET_S
+	if is_slow:
+		_trace_frames_below_60 += 1
+		for event_name in _trace_frame_events:
+			_trace_spike_event_counts[event_name] = int(
+				_trace_spike_event_counts.get(event_name, 0)) \
+				+ int(_trace_frame_events[event_name])
+		if _trace_spikes.size() >= FRAME_TRACE_MAX_SPIKES:
+			_trace_dropped_spikes += 1
+		else:
+			_trace_spikes.append(frame_summary.duplicate(true))
+	_update_trace_context(frame_summary, is_slow)
+	_trace_recent_frames.append(_compact_trace_frame(frame_summary))
+	if _trace_recent_frames.size() > FRAME_TRACE_PRE_CONTEXT_FRAMES:
+		_trace_recent_frames.pop_front()
+
+
+## 每个尖峰簇保留前 120 / 后 30 帧；后续尖峰会延长同一窗口，避免重复保存重叠上下文。
+func _update_trace_context(frame_summary: Dictionary, is_slow: bool) -> void:
+	var started_now := false
+	if is_slow and _trace_active_context.is_empty() \
+			and _trace_context_windows.size() < FRAME_TRACE_MAX_CONTEXT_WINDOWS:
+		var pre_frames: Array[Dictionary] = []
+		for prior in _trace_recent_frames:
+			pre_frames.append(prior.duplicate(true))
+		_trace_active_context = {
+			"start_frame": int(frame_summary["frame"]) - pre_frames.size(),
+			"pre_frames": pre_frames.size(),
+			"trigger_frames": [int(frame_summary["frame"])],
+			"post_remaining": FRAME_TRACE_POST_CONTEXT_FRAMES,
+			"frames": pre_frames,
+			"complete": false,
+		}
+		started_now = true
+	if _trace_active_context.is_empty():
+		return
+	var frames: Array = _trace_active_context.get("frames", [])
+	frames.append(_compact_trace_frame(frame_summary))
+	_trace_active_context["frames"] = frames
+	if is_slow:
+		var triggers: Array = _trace_active_context.get("trigger_frames", [])
+		if not started_now:
+			triggers.append(int(frame_summary["frame"]))
+		_trace_active_context["trigger_frames"] = triggers
+		_trace_active_context["post_remaining"] = FRAME_TRACE_POST_CONTEXT_FRAMES
+		return
+	var remaining := int(_trace_active_context.get(
+		"post_remaining", FRAME_TRACE_POST_CONTEXT_FRAMES)) - 1
+	_trace_active_context["post_remaining"] = remaining
+	if remaining <= 0:
+		_trace_active_context["complete"] = true
+		_trace_active_context["end_frame"] = int(frame_summary["frame"])
+		_trace_context_windows.append(_trace_active_context)
+		_trace_active_context = {}
+
+
+func _compact_trace_frame(frame_summary: Dictionary) -> Dictionary:
+	return {
+		"frame": int(frame_summary.get("frame", 0)),
+		"delta_ms": float(frame_summary.get("delta_ms", 0.0)),
+		"known_ms": float(frame_summary.get("known_ms", 0.0)),
+		"physics_ticks": int(frame_summary.get("physics_ticks", 0)),
+		"buckets_us": (frame_summary.get("buckets_us", {}) as Dictionary).duplicate(),
+		"counts": (frame_summary.get("counts", {}) as Dictionary).duplicate(),
+		"events": (frame_summary.get("events", {}) as Dictionary).duplicate(),
+		"load": (frame_summary.get("load", {}) as Dictionary).duplicate(),
+		"engine": (frame_summary.get("engine", {}) as Dictionary).duplicate(),
+	}
 
 
 func _trace_known_root_us() -> int:
@@ -559,6 +644,12 @@ func format_frame_trace_dump() -> String:
 	s += "completed_frames=%d below60=%d captured=%d dropped=%d\n" % [
 		maxi(_trace_frame_index - 1, 0), _trace_frames_below_60,
 		_trace_spikes.size(), _trace_dropped_spikes]
+	s += "detail_stride=%d\n" % _trace_detail_stride
+	var frame_percentiles := _trace_frame_percentiles()
+	s += "frame_ms p95=%.3f p99=%.3f max=%.3f\n" % [
+		float(frame_percentiles.get("p95", 0.0)),
+		float(frame_percentiles.get("p99", 0.0)),
+		float(frame_percentiles.get("max", 0.0))]
 	var event_names: Array = _trace_spike_event_counts.keys()
 	event_names.sort()
 	var event_parts := PackedStringArray()
@@ -571,16 +662,95 @@ func format_frame_trace_dump() -> String:
 		_format_trace_map(_trace_engine_sample_max, 10)]
 	var ranked: Array[Dictionary] = _trace_spikes.duplicate()
 	ranked.sort_custom(_sort_spike_desc)
+	var class_counts: Dictionary = {}
+	var attributed_spikes := 0
+	for spike in ranked:
+		var spike_class := _trace_spike_class(spike)
+		class_counts[spike_class] = int(class_counts.get(spike_class, 0)) + 1
+		if spike_class in [&"physics_catchup", &"script_hotspot", &"canvas_pressure"]:
+			attributed_spikes += 1
+	var attributed_pct := 0.0
+	if not ranked.is_empty():
+		attributed_pct = float(attributed_spikes) * 100.0 / float(ranked.size())
+	s += "conservative_attribution=%d/%d (%.1f%%) classes=[%s]\n" % [
+		attributed_spikes, ranked.size(), attributed_pct,
+		_format_trace_map(class_counts, 10)]
 	for i in range(mini(ranked.size(), FRAME_TRACE_REPORT_SPIKES)):
 		var spike: Dictionary = ranked[i]
-		s += "  #%02d frame=%d delta=%.3fms known=%.3fms unaccounted=%.3fms physics=%d buckets=[%s] counts=[%s] events=[%s] load=[%s] engine=[%s]\n" % [
-			i + 1, int(spike["frame"]), float(spike["delta_ms"]),
+		s += "  #%02d frame=%d class=%s delta=%.3fms known=%.3fms unaccounted=%.3fms physics=%d buckets=[%s] counts=[%s] events=[%s] load=[%s] engine=[%s]\n" % [
+			i + 1, int(spike["frame"]), _trace_spike_class(spike),
+			float(spike["delta_ms"]),
 			float(spike["known_ms"]), float(spike["unaccounted_ms"]),
 			int(spike["physics_ticks"]), _format_trace_map(spike["buckets_us"], 6, "us"),
 			_format_trace_map(spike["counts"], 5), _format_trace_map(spike["events"], 5),
 			_format_trace_map(spike["load"], 10), _format_trace_map(spike["engine"], 10)]
+	var context_windows := _trace_context_windows.duplicate(true)
+	if not _trace_active_context.is_empty():
+		context_windows.append(_trace_active_context.duplicate(true))
+	s += "context_windows=%d pre_limit=%d post_target=%d\n" % [
+		context_windows.size(), FRAME_TRACE_PRE_CONTEXT_FRAMES,
+		FRAME_TRACE_POST_CONTEXT_FRAMES]
+	for window_index in range(context_windows.size()):
+		var window: Dictionary = context_windows[window_index]
+		var frames: Array = window.get("frames", [])
+		s += "  window=%d start=%d end=%d pre_frames=%d triggers=[%s] complete=%s frames=%d\n" % [
+			window_index + 1, int(window.get("start_frame", 0)),
+			int(window.get("end_frame", frames.back().get("frame", 0) if not frames.is_empty() else 0)),
+			int(window.get("pre_frames", 0)),
+			_format_trace_values(window.get("trigger_frames", [])),
+			str(bool(window.get("complete", false))), frames.size()]
+		for context_frame in frames:
+			var context: Dictionary = context_frame
+			var delta_ms := float(context.get("delta_ms", 0.0))
+			var marker := "!" if delta_ms > FRAME_BUDGET_S * 1000.0 else "."
+			s += "    %s f=%d dt=%.3f known=%.3f phys=%d buckets=[%s] events=[%s] engine=[%s]\n" % [
+				marker, int(context.get("frame", 0)), delta_ms,
+				float(context.get("known_ms", 0.0)), int(context.get("physics_ticks", 0)),
+				_format_trace_map(context.get("buckets_us", {}), 4, "us"),
+				_format_trace_map(context.get("events", {}), 4),
+				_format_trace_map(context.get("engine", {}), 6)]
 	s += "=== END FRAME SPIKE TRACE ===\n"
 	return s
+
+
+func _trace_frame_percentiles() -> Dictionary:
+	if _trace_frame_deltas_ms.is_empty():
+		return {"p95": 0.0, "p99": 0.0, "max": 0.0}
+	var sorted := Array(_trace_frame_deltas_ms)
+	sorted.sort()
+	return {
+		"p95": float(sorted[clampi(ceili(sorted.size() * 0.95) - 1, 0, sorted.size() - 1)]),
+		"p99": float(sorted[clampi(ceili(sorted.size() * 0.99) - 1, 0, sorted.size() - 1)]),
+		"max": float(sorted.back()),
+	}
+
+
+## 只把有直接证据的三类计入归因率；零物理 tick 只能标记候选，不冒充已证明根因。
+func _trace_spike_class(spike: Dictionary) -> StringName:
+	var delta_ms := float(spike.get("delta_ms", 0.0))
+	var known_ms := float(spike.get("known_ms", 0.0))
+	var physics_ticks := int(spike.get("physics_ticks", 0))
+	if physics_ticks >= 2:
+		return &"physics_catchup"
+	if delta_ms > 0.0 and known_ms / delta_ms >= 0.5:
+		return &"script_hotspot"
+	var engine: Dictionary = spike.get("engine", {})
+	var baseline := _trace_engine_baseline_avg()
+	var draw_calls := int(engine.get("canvas_draw_calls", 0))
+	var baseline_draw_calls := int(baseline.get("canvas_draw_calls", 0))
+	if baseline_draw_calls > 0 and draw_calls >= baseline_draw_calls + 50 \
+			and draw_calls >= roundi(float(baseline_draw_calls) * 1.20):
+		return &"canvas_pressure"
+	if physics_ticks == 0 and known_ms <= 2.0:
+		return &"render_wait_candidate"
+	return &"unknown"
+
+
+static func _format_trace_values(values: Array) -> String:
+	var parts := PackedStringArray()
+	for value in values:
+		parts.append(str(value))
+	return ",".join(parts) if not parts.is_empty() else "none"
 
 
 static func _sort_spike_desc(a: Dictionary, b: Dictionary) -> bool:

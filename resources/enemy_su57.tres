@@ -31,6 +31,7 @@ fuel_rate_afterburner = 10.0
 radar_range = 4600.0
 radar_half_angle = 30.0
 lock_time = 2.8
+sensor_stealth_enabled = true
 gun = ExtResource("2")
 missile = ExtResource("4")
 flare = ExtResource("5")

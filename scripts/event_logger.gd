@@ -1,7 +1,7 @@
 extends Node
 
 ## 全局事件日志系统
-## 环形缓冲区记录最近 60 秒的游戏事件，按 F9 导出到文件
+## O(1) 环形事件队列记录最近 300 秒的游戏事件，按 F9 导出到文件
 
 const BUFFER_DURATION := 300.0  ## 保留最近多少秒的事件（5 分钟，配合 F47 BOSS 诊断）
 
@@ -24,7 +24,11 @@ signal afterburner_engaged(callsign: String, team: int)
 ## 在 SquadFactory.register_wingman 真正新增成员时 emit（开局建队也会触发，订阅方自行过滤）。
 signal wingman_joined(callsign: String, team: int)
 
-var _events: Array[Dictionary] = []
+## 单调序号 Dictionary 充当 O(1) 环形队列。Array.pop_front() 会在每次过期时搬移
+## 数千条事件，长局进入 BUFFER_DURATION 后把诊断日志本身变成持续帧尖峰。
+var _events: Dictionary = {}  ## event_id -> event Dictionary
+var _event_first_id: int = 0
+var _event_next_id: int = 0
 var _game_time: float = 0.0
 
 ## ── 本局战报累计统计（不进环形缓冲，整局持续累加，F9 导出时汇总）──
@@ -36,8 +40,15 @@ func _process(delta: float) -> void:
 	_game_time += delta
 	# 清理超过 60 秒的旧事件
 	var cutoff := _game_time - BUFFER_DURATION
-	while _events.size() > 0 and _events[0]["time"] < cutoff:
-		_events.pop_front()
+	while _event_first_id < _event_next_id:
+		var oldest: Dictionary = _events.get(_event_first_id, {})
+		if oldest.is_empty():
+			_event_first_id += 1
+			continue
+		if float(oldest["time"]) >= cutoff:
+			break
+		_events.erase(_event_first_id)
+		_event_first_id += 1
 
 ## 记录一条事件
 ## category: 分类字符串，如 "AI_STATE", "MISSILE", "DAMAGE" 等
@@ -45,12 +56,13 @@ func _process(delta: float) -> void:
 ## message: 事件描述
 func log_event(category: String, subject: String, message: String) -> void:
 	var perf_t0: int = Time.get_ticks_usec() if PerfBuckets.detail_capture_enabled() else 0
-	_events.append({
+	_events[_event_next_id] = {
 		"time": _game_time,
 		"category": category,
 		"subject": subject,
 		"message": message,
-	})
+	}
+	_event_next_id += 1
 	if perf_t0 > 0:
 		PerfBuckets.tick("event_log", Time.get_ticks_usec() - perf_t0)
 		PerfBuckets.count("event_log_calls")
@@ -125,7 +137,10 @@ func dump_to_file() -> String:
 	file.store_line("=" .repeat(40))
 	file.store_line("")
 
-	for ev in _events:
+	for event_id in range(_event_first_id, _event_next_id):
+		var ev: Dictionary = _events.get(event_id, {})
+		if ev.is_empty():
+			continue
 		file.store_line("[%.1f] [%s] %s: %s" % [
 			ev["time"], ev["category"], ev["subject"], ev["message"]])
 

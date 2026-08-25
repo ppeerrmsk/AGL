@@ -47,6 +47,7 @@ enum RotorcraftRole { NONE, ATTACK, TRANSPORT }
 @export var radar_range: float = 300.0          ## 探测距离（像素）
 @export var radar_half_angle: float = 30.0      ## 扇形半角（度）
 @export var lock_time: float = 3.0              ## 锁定所需持续照射时间（秒）
+@export var sensor_stealth_enabled: bool = false ## 玩家侧雷达失联后进入传感器隐形
 
 @export_group("机炮")
 @export var gun: GunParams

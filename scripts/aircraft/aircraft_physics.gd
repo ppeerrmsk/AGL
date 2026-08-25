@@ -627,7 +627,7 @@ const EVAC_SHIFT_SPRINT_BONUS := 1.15   ## 阵地转移：撤离冲刺追加提�
 static func effective_max_speed_kmh(ac: Aircraft) -> float:
 	var v := base_max_speed_kmh(ac)
 	v *= ac._executioner_speed_mult()  # 侩子手 stack：每层 +5%
-	v *= ac.speed_by_knight_mult       # 全速推进（720 批 T4）：按骑士轴技能数，cap +40%
+	v *= ac.speed_by_knight_mult       # 引擎强化（合并全速推进）：按骑士轴技能数，cap +40%
 	# 722 sig_tornado·地形跟随：低空 +8%（低空突防增速）
 	if ac.sig_tornado_active and ac.get_altitude_tier() == CombatUnit.AltitudeTier.LOW:
 		v *= 1.08
@@ -1588,6 +1588,17 @@ static func step_speed(st: FlightState, delta: float) -> void:
 # ══════════════════════════════════════════════════════════════════════
 #  predict_player_path — 玩家飞行轨迹精确预测
 # ══════════════════════════════════════════════════════════════════════
+class PredictionWork extends RefCounted:
+	var aircraft: Aircraft
+	var state: FlightState
+	var points := PackedVector2Array()
+	var healths := PackedFloat32Array()
+	var stall_base_ms: float = 0.0
+	var cruise_health_span: float = 1.0
+	var remaining_steps: int = 0
+	var complete: bool = false
+
+
 ## prediction 专用：在 sim 的每一步重新决定 target_speed_kmh / is_afterburner
 ## 等价于 BfmIntent.waypoint_move 的速度/AB 分支，只是输入用 sim state 而非 Situation
 ## 必须与 [bfm_intent.gd:waypoint_move](scripts/ai/tactical/bfm_intent.gd) 公式一致 ——
@@ -1621,23 +1632,25 @@ static func _predict_inline_planner_waypoint_move(st: FlightState) -> void:
 ## 返回 Dictionary：
 ##   points: PackedVector2Array — **世界坐标**点列（首点是飞机当前 global_position）
 ##   healths: PackedFloat32Array — 同长度，每点 (speed - stall_floor_at_g) / (cruise - stall_floor_1g)
-static func predict_player_path(ac: Aircraft, max_steps: int = 180) -> Dictionary:
-	var result := {
-		"points": PackedVector2Array(),
-		"healths": PackedFloat32Array(),
-	}
+static func begin_player_path_prediction(ac: Aircraft, max_steps: int = 180) -> PredictionWork:
+	var work := PredictionWork.new()
 	if ac == null or not is_instance_valid(ac):
-		return result
+		work.complete = true
+		return work
 	if ac.target_position == Vector2.INF:
-		return result
+		work.complete = true
+		return work
 
 	var stall_base_kmh: float = base_stall_kmh(ac)
 	var cruise_kmh: float = base_cruise_kmh(ac)
 	var cruise_ms: float = cruise_kmh / 3.6
-	var stall_base_ms: float = stall_base_kmh / 3.6
-	var cruise_health_span: float = maxf(cruise_ms - stall_base_ms * 1.05, 1.0)
+	work.aircraft = ac
+	work.stall_base_ms = stall_base_kmh / 3.6
+	work.cruise_health_span = maxf(cruise_ms - work.stall_base_ms * 1.05, 1.0)
+	work.remaining_steps = maxi(max_steps, 0)
 
 	var st := FlightState.from_aircraft(ac, true)
+	work.state = st
 
 	# ── 频繁调用的 helper 在这里只读一次 ac.* 就缓存到 state，省掉 180×N 的字典查询 ──
 	# 这些字段在 prediction 期间不变（cloud_state / is_locked / status_bloodlust /
@@ -1650,17 +1663,30 @@ static func predict_player_path(ac: Aircraft, max_steps: int = 180) -> Dictionar
 	st.cached_corner_speed_kmh = effective_corner_speed_kmh(ac)
 	st.cached_max_speed_kmh = effective_max_speed_kmh(ac)
 
-	var pts: PackedVector2Array = result["points"]
-	var healths: PackedFloat32Array = result["healths"]
-
 	# 起点：飞机当前世界位置
-	pts.append(st.position)
-	var start_floor: float = stall_base_ms * pow(maxf(st.g_load, 1.0), 0.4) * 1.05
-	healths.append((st.speed - start_floor) / cruise_health_span)
+	work.points.append(st.position)
+	var start_floor: float = work.stall_base_ms * pow(maxf(st.g_load, 1.0), 0.4) * 1.05
+	work.healths.append((st.speed - start_floor) / work.cruise_health_span)
+	if work.remaining_steps == 0:
+		work.complete = true
+	return work
 
-	for i in range(max_steps):
+
+## 将一次完整预测分摊到多个渲染帧；只有 complete 后调用方才替换可见缓存。
+static func advance_player_path_prediction(work: PredictionWork, step_budget: int) -> bool:
+	if work == null or work.complete:
+		return true
+	if work.aircraft == null or not is_instance_valid(work.aircraft) or work.state == null:
+		work.complete = true
+		return true
+	var ac := work.aircraft
+	var st := work.state
+	var steps := mini(maxi(step_budget, 1), work.remaining_steps)
+
+	for i in range(steps):
 		step_target_heading(st)
 		if st.target_position == Vector2.INF:
+			work.remaining_steps = 0
 			break  # 已到达目标
 		# ── inline planner（WAYPOINT_MOVE 决策）──
 		# 必须在 step_speed 之前更新 st.target_speed_kmh / st.is_afterburner，让 sim plane
@@ -1686,11 +1712,25 @@ static func predict_player_path(ac: Aircraft, max_steps: int = 180) -> Dictionar
 		var velocity := Vector2(sin(st.heading), -cos(st.heading)) * st.speed * CombatUnit.PIXELS_PER_METER
 		st.position += velocity * PHYSICS_DT
 
-		pts.append(st.position)
-		var floor_at_g: float = stall_base_ms * pow(maxf(st.g_load, 1.0), 0.4) * 1.05
-		healths.append((st.speed - floor_at_g) / cruise_health_span)
+		work.points.append(st.position)
+		var floor_at_g: float = work.stall_base_ms * pow(maxf(st.g_load, 1.0), 0.4) * 1.05
+		work.healths.append((st.speed - floor_at_g) / work.cruise_health_span)
+		work.remaining_steps -= 1
 
-	return result
+	work.complete = work.remaining_steps <= 0
+	return work.complete
+
+
+static func player_path_prediction_result(work: PredictionWork) -> Dictionary:
+	if work == null:
+		return {"points": PackedVector2Array(), "healths": PackedFloat32Array()}
+	return {"points": work.points, "healths": work.healths}
+
+
+static func predict_player_path(ac: Aircraft, max_steps: int = 180) -> Dictionary:
+	var work := begin_player_path_prediction(ac, max_steps)
+	advance_player_path_prediction(work, maxi(max_steps, 1))
+	return player_path_prediction_result(work)
 
 
 ## 旋翼机运动：平面速度与机头方向解耦，可切向平移、刹停和悬停。

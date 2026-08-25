@@ -16,6 +16,7 @@ extends EquipmentParams
 
 const STATE_KEY := "railgun"
 const TELEGRAPH_INITIAL_HALF_ANGLE_DEG := 30.0  ## 扇形初始半角
+const ExplosionVFXScript = preload("res://scripts/explosion_vfx.gd")
 
 enum LockTrajectory {
 	AT_CHARGE_START,  ## 敌人版：扇形开始时锁死目标位置（玩家可靠机动躲掉）
@@ -469,7 +470,13 @@ func _apply_hitscan_damage(ac, beam_start: Vector2, beam_end: Vector2) -> void:
 			continue
 		var ship: Node = _naval_damage_sink(unit)
 		if ship == null:
-			unit.take_damage_from(damage, ac, "railgun")
+			if unit is Aircraft:
+				var hit_t := _segment_param(unit.global_position, beam_start, beam_end)
+				var hit_pos := beam_start + (beam_end - beam_start) * hit_t
+				(unit as Aircraft).take_damage_at(
+					damage, hit_pos, ac, "railgun", beam_end - beam_start)
+			else:
+				unit.take_damage_from(damage, ac, "railgun")
 			continue
 		var t := _segment_param(unit.global_position, beam_start, beam_end)
 		if not naval_hit.has(ship) or t < float(naval_hit_t[ship]):
@@ -491,7 +498,11 @@ func _apply_hitscan_damage(ac, beam_start: Vector2, beam_end: Vector2) -> void:
 				continue
 			var d := _point_to_segment_distance(m.global_position, beam_start, beam_end)
 			if d <= hit_radius_px:
-				# 导弹被电磁炮命中 → 直接销毁
+				# 小型导弹被电磁炮击毁：一次普通方框后销毁。
+				if ac != null and is_instance_valid(ac) and ac.is_inside_tree():
+					ExplosionVFXScript.emit(ac.get_tree(), m.global_position, m.heading,
+						AircraftDestruction.MISSILE_BREAKUP_SCALE)
+				m.is_active = false
 				m.queue_free()
 
 

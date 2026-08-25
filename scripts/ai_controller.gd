@@ -1088,7 +1088,8 @@ func get_target_source() -> int:
 func acquire_target(tgt: CombatUnit, source: int, why: String = "") -> bool:
 	if tgt == null or not is_instance_valid(tgt) or tgt.is_destroyed:
 		return false
-	if aircraft.is_sensor_engagement_obscured(tgt):
+	if aircraft.is_sensor_engagement_obscured(tgt) \
+			or (tgt is Aircraft and (tgt as Aircraft).is_cloaked):
 		return false
 	# 战区临时空中支援：只参与对空，不因附近机场/地面战区的目标被跨区拽去舔地。
 	# 用通用 meta 收口在目标唯一入口，避免在各套评分/编队扫描里散落生存模式判断。
@@ -1168,7 +1169,8 @@ func _enforce_commanded_target() -> bool:
 	# _target_holder_pri（仅 is_destroyed 降级）以 4>1 拒绝 → 每 tick acquire↔disengage 死锁空转。
 	# 只认 is_cloaked（真隐形）不认整个 is_lock_immune()：弹射/出场免疫窗与 MountTarget 不该丢命令。
 	# 解除隐形后本函数下一 tick 自动 acquire 重接 ENGAGE，玩家无需重新点名。
-	if cmd is Aircraft and (cmd as Aircraft).is_cloaked:
+	if cmd is Aircraft and ((cmd as Aircraft).is_cloaked \
+			or aircraft.is_sensor_engagement_obscured(cmd)):
 		if _current_target == cmd:
 			release_target(TargetSource.TS_COMMANDED, "commanded target cloaked (yield)")
 		return false
@@ -1605,7 +1607,8 @@ func _process_simple(delta: float) -> void:
 	# set_combat_target(_current_target)，把 aircraft_combat_tracking 的隐形清除每帧顶回去
 	# （spec ace-squadron-tier §3.5）
 	if not _current_target or not is_instance_valid(_current_target) \
-			or _current_target.is_destroyed or _current_target.is_lock_immune():
+			or _current_target.is_destroyed or _current_target.is_lock_immune() \
+			or aircraft.is_sensor_engagement_obscured(_current_target):
 		if _current_target != null:
 			release_target(TargetSource.TS_SCORED, "simple target invalid")
 
@@ -2276,7 +2279,8 @@ func _process_engage(delta: float) -> void:
 	# 隐形在战术上完全没有价值。与雷达累积循环 erase(is_lock_immune) 的既有语义一致。
 	# （spec ace-squadron-tier §3.5）
 	if not _current_target or not is_instance_valid(_current_target) \
-			or _current_target.is_destroyed or _current_target.is_lock_immune():
+			or _current_target.is_destroyed or _current_target.is_lock_immune() \
+			or aircraft.is_sensor_engagement_obscured(_current_target):
 		TargetSelection.disengage(self)
 		return
 

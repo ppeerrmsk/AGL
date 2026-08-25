@@ -75,7 +75,8 @@ static func update_combat(ac: Aircraft, _delta: float) -> void:
 		ac.target_position = Vector2.INF  # 目标被击毁，停止直飞
 		return
 	# 目标隐形 → 取消交战（从地图上消失）
-	if ac.combat_target is Aircraft and ac.combat_target.is_cloaked:
+	if ac.combat_target is Aircraft and (ac.combat_target.is_cloaked \
+			or ac.is_sensor_engagement_obscured(ac.combat_target)):
 		ac.clear_combat_target()
 		return
 

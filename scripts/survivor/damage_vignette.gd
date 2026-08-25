@@ -55,7 +55,8 @@ func _process(delta: float) -> void:
 	var warn_active := false
 	var heal_active := false
 	if aircraft != null and not aircraft.is_destroyed:
-		var last_damage_at := float(aircraft.get_meta(&"hud_last_damage_at", -999.0))
+		var last_damage_at := float(aircraft.get_meta(
+			AircraftRenderer.STATUS_DAMAGE_LAST_META, -999.0))
 		hurt_active = EventLogger.get_game_time() - last_damage_at < HURT_HOLD
 		warn_active = aircraft.is_locked or aircraft.status_fear_active \
 			or aircraft.status_jam_active or aircraft.status_slow_active

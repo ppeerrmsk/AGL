@@ -43,15 +43,17 @@ const MOUNT_VLS_HP: float = 350.0          ## VLS 挂点 HP（更耐打）
 const WEAK_POINT_HP: float = 800.0         ## 弱点暴露后的最终 HP（≈ 1 发玩家高伤导弹无法秒）
 const WEAK_POINT_RADIUS: float = 220.0     ## 弱点点击命中半径
 
-# ── MQ-X 精英无人机（半血触发，两机编队，点射激光 + 导弹 + 1 flare）──
+# ── MQ-X 精英无人机（半血触发，两机编队，点射激光 + 导弹 + 拦截激光 + 1 flare）──
 const MQX_PARAMS_PATH: String = "res://resources/enemy_uav_mqx.tres"
 const MQX_SPAWN_HP_RATIO: float = 0.5      ## boss 总 HP 降到 50% 以下触发一次
 const MQX_SPAWN_OFFSET_PX: float = 500.0   ## 两机间距（boss starboard 方向 ±）
 const MQX_LEASH_RADIUS_PX: float = 7000.0  ## 精英无人机不要跑出 boss 战圈，比普通 hunter 更宽
-## MQ-X 是近战 dogfighter（脉冲炮 1800m + 导弹），不走 standoff 而走"flank 双翼夹击"模式：
-## 一架攻击目标右翼、一架攻击左翼，每架 lead_pos 加 ±MQX_FLANK_OFFSET_PX 横向偏置
-## 既保证两机不重叠又能持续给玩家压力
+## MQ-X 主走 joust 攻击跑，用明确的对准、开火、脱离取代近距离无穷追转。
+## flank 偏置只作 joust 未接管时的兜底，近距离依旧自动衰减。
 const MQX_FLANK_OFFSET_PX: float = 600.0   ## flank 偏置（≈ 玩家 turn radius 量级）
+const MQX_JOUST_BREAK_PX: float = 550.0    ## 1100m：仍在 2200m 脉冲激光包络内就穿越脱离
+const MQX_JOUST_REENTRY_PX: float = 2600.0 ## 5200m：不拉到默认导弹外缘的 1.3× 才折返
+const MQX_JOUST_RUN_SPEED_KMH: float = 1200.0 ## 火力窗内稳定平台，高于旧 1000km/h 巡航
 
 ## 8 个螺旋桨 —— 与 [aircraft_renderer.gd:draw_mother_goose_icon] prop_xs 对齐
 ## 渲染 prop 在 ry=0.42 → mount.x = -0.42 * 151 ≈ -63
@@ -443,7 +445,8 @@ func update(delta: float) -> void:
 # ──────────────────────── MQ-X 精英无人机 ────────────────────────
 
 ## boss 半血触发：在 boss 左右翼 spawn 两架 MQ-X 编队
-## MQ-X = "无人机最强档" — 点射激光 + 强化导弹 + 1 flare，HP 300、双武器、F-47 级加减速
+## MQ-X = "无人机最强档" — 点射激光 + 强化导弹 + 拦截激光 + 1 flare，
+## HP 300、F-47 级加减速、F-22 级传感器隐形
 ## 两机共享同一个 Squad（leader + wingman），CommanderAura / 其他系统能识别为编队
 func _spawn_mqx_pair() -> void:
 	if _scene_root == null or _aircraft_scene == null:
@@ -532,11 +535,19 @@ func _make_mqx(base_params: AircraftParams, spawn_pos: Vector2, callsign: String
 	if idx == 0:
 		pair_squad.leader = uav
 
-	# AI：simple_ai hunter + standoff + 高 aggression（精英追着玩家打，不让玩家脱离）
+	# AI：simple_ai hunter + joust 攻击跑（对准开火→脱离→再进入）
 	var ai := AIController.new()
 	ai.name = "AI_MQX"
+	configure_mqx_ai(ai, uav, boss_unit, pair_squad, idx)
+	uav.add_child(ai)
+	return uav
+
+
+## MQ-X 唯一 AI 配置入口；测试直接调用以防止回归到近距离绕圈。
+static func configure_mqx_ai(ai: AIController, uav: Aircraft, anchor: Aircraft,
+		pair_squad: Squad, idx: int) -> void:
 	ai.aircraft = uav
-	ai.patrol_altitude = boss_unit.altitude
+	ai.patrol_altitude = anchor.altitude
 	ai.enable_combat = true
 	ai.squad = pair_squad
 	ai.squad_index = idx
@@ -551,13 +562,15 @@ func _make_mqx(base_params: AircraftParams, spawn_pos: Vector2, callsign: String
 	ai.composure = 0.85
 	ai.focus = 0.95
 	ai.self_preservation = 0.20
-	ai.combat_zone_anchor = boss_unit
+	ai.combat_zone_anchor = anchor
 	ai.combat_zone_radius = MQX_LEASH_RADIUS_PX
-	ai.preferred_standoff_range_px = 0.0     ## 近战 dogfighter，不走 standoff（避免长期 tangent orbit 吃光能量）
-	# Flank 偏置：idx 0 攻目标右翼 / idx 1 攻左翼，两机不重叠
+	ai.preferred_standoff_range_px = 0.0
+	ai.joust_enabled = true
+	ai.joust_break_range_px = MQX_JOUST_BREAK_PX
+	ai.joust_reentry_range_px = MQX_JOUST_REENTRY_PX
+	ai.joust_run_speed_kmh = MQX_JOUST_RUN_SPEED_KMH
+	# Flank 偏置仅在 joust 未接管时生效；两机分左右备用入场线。
 	ai.flank_offset_lateral_px = MQX_FLANK_OFFSET_PX if idx == 0 else -MQX_FLANK_OFFSET_PX
-	uav.add_child(ai)
-	return uav
 
 
 # ──────────────────────── HUD ────────────────────────

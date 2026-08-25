@@ -158,6 +158,8 @@ static func draw_icon(ac: Aircraft, color: Color, size: float,
 	var fill := color
 	if ac.params != null and ac.params.wing_color.a > 0.01:
 		fill = ac.params.wing_color
+		# presentation_alpha 通过 color.a 传入；自定义翼色只替换 RGB/自身 alpha，不能吞掉坠毁渐隐。
+		fill.a *= clampf(color.a, 0.0, 1.0)
 	var outline := fill.darkened(0.34)
 	var half_extent := size * 1.25 * float(DRAW_SCALE.get(key, 1.0))
 	var rect := Rect2(Vector2(-half_extent, -half_extent), Vector2.ONE * half_extent * 2.0)

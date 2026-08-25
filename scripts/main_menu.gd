@@ -45,6 +45,8 @@ func _ready() -> void:
 	RenderingServer.set_default_clear_color(ThemeColors.SCENE_BG)
 	CombatUnit.reset_id_allocator()
 	CallsignDB.reset()
+	if AudioManager.current_music_id() != "main_menu" or not AudioManager.is_music_playing():
+		AudioManager.crossfade_music("main_menu", 2.0, true)
 	_build_ui()
 
 

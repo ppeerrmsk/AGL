@@ -149,47 +149,18 @@ func _draw_datalink_range() -> void:
 			# 需要反向旋转来抵消节点自身旋转
 			draw_line(p.rotated(-rotation), p2.rotated(-rotation), color, 1.0)
 
-func _draw_data_label() -> void:
-	if not _font:
-		_font = ThemeDB.fallback_font
-
+func _status_label_lines(compact: bool) -> PackedStringArray:
 	var display_name: String = params.display_name if params else "RADAR"
-	var font_size := 10
-	var line_height := 12.0
-	var label_offset := Vector2(14, -8)
-
-	var lines: PackedStringArray = PackedStringArray()
-	lines.append(display_name)
-	if not _should_draw_compact_data_label():
-		lines.append("HP %d" % roundi(hp))
-
-		# 显示已锁定目标数
-		var lock_time_val := params.lock_time if params else 3.0
-		var locked_count := 0
-		for key in radar_targets:
-			if radar_targets[key] >= lock_time_val:
-				locked_count += 1
-		if locked_count > 0:
-			lines.append("TRK %d" % locked_count)
-		lines.append("DLINK")
-
-	var inv_rot := -rotation
-	var max_w := 0.0
-	for line in lines:
-		var w := _font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-		max_w = maxf(max_w, w)
-	var box_w := max_w + 6.0
-	var box_h := lines.size() * line_height + 4.0
-
-	# FactionPalette 统一（友好阵营 0/2 冷色系 / 敌暖色系）
-	var _lc := GameConstants.ground_label_colors(team)
-	var text_color: Color = _lc[0]
-	var bg_color: Color = _lc[1]
-
-	var inv_zoom := AircraftRenderer.screen_space_inverse_scale(self)
-	var rotated_offset := (label_offset * inv_zoom).rotated(inv_rot)
-	draw_set_transform(rotated_offset, inv_rot, Vector2.ONE * inv_zoom)
-	draw_rect(Rect2(-1, -1, box_w, box_h), bg_color)
-	for i in lines.size():
-		draw_string(_font, Vector2(2, 10 + i * line_height), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	var lines := PackedStringArray([display_name])
+	if compact:
+		return lines
+	lines.append("HP %d" % roundi(hp))
+	var lock_time_val := params.lock_time if params else 3.0
+	var locked_count := 0
+	for key in radar_targets:
+		if radar_targets[key] >= lock_time_val:
+			locked_count += 1
+	if locked_count > 0:
+		lines.append("TRK %d" % locked_count)
+	lines.append("DLINK")
+	return lines

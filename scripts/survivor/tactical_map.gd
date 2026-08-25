@@ -2,7 +2,7 @@ class_name TacticalMap
 extends CanvasLayer
 
 const VectorPreviewRenderer = preload("res://scripts/survivor/map_vector_preview_renderer.gd")
-const RasterPreviewRenderer = preload("res://scripts/survivor/raster_basemap_renderer.gd")
+const RasterBasemapRendererScript = preload("res://scripts/survivor/raster_basemap_renderer.gd")
 
 ## 战术地图（Tab 打开）
 ##
@@ -17,7 +17,6 @@ signal nav_point_selected(world_pos: Vector2)
 signal nav_cleared()
 ## Tab 打开且全场暂停时 SurvivorMode 收不到输入，由本 PROCESS_MODE_ALWAYS 层转发。
 signal vector_preview_toggle_requested()
-signal raster_preview_toggle_requested()
 
 const BG_COLOR := Color(0.02, 0.03, 0.04, 0.92)
 const GRID_COLOR := Color(0.15, 0.35, 0.35, 0.35)
@@ -61,7 +60,7 @@ var _docks: Array = []         ## 停靠点列表（DockPoint，spec zone-reward
 var vector_preview_enabled := false
 var _vector_preview_viewport: SubViewport = null
 var _vector_preview_renderer: Node2D = null
-var raster_preview_enabled := false
+var tile_basemap_enabled := true
 var _mm_raster_tex: Texture2D = null
 ## UGC/内置预览图调色板；空字典保持东京湾缩略图历史配色。
 var ugc_palette: Dictionary = {}
@@ -109,13 +108,6 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not _is_open:
 		return
 	if event is InputEventKey and event.pressed and not event.echo \
-			and event.keycode == KEY_F8 and event.shift_pressed:
-		get_viewport().set_input_as_handled()
-		if _detail_prepare_in_progress:
-			return
-		raster_preview_toggle_requested.emit()
-		return
-	if event is InputEventKey and event.pressed and not event.echo \
 			and event.keycode == KEY_F10 and event.shift_pressed:
 		get_viewport().set_input_as_handled()
 		if _detail_prepare_in_progress:
@@ -131,8 +123,6 @@ func setup(world_rect: Rect2, player: Aircraft, zones: ZoneData, game_scene: Nod
 	_player = player
 	_zones = zones
 	_game_scene = game_scene
-	raster_preview_enabled = OS.is_debug_build() \
-		and OS.get_cmdline_user_args().has("--raster-basemap-preview")
 
 func set_vector_preview_enabled(enabled: bool) -> bool:
 	if enabled:
@@ -177,20 +167,6 @@ func set_vector_preview_enabled(enabled: bool) -> bool:
 		_map_panel.queue_redraw()
 	return true
 
-
-func set_raster_preview_enabled(enabled: bool) -> bool:
-	if enabled:
-		if vector_preview_enabled:
-			set_vector_preview_enabled(false)
-		if not _ensure_raster_basemap():
-			return false
-		raster_preview_enabled = true
-	else:
-		raster_preview_enabled = false
-		_mm_raster_tex = null
-	if _map_panel != null:
-		_map_panel.queue_redraw()
-	return true
 
 func set_adbs(adbs: AdbsManager) -> void:
 	_adbs = adbs
@@ -380,21 +356,21 @@ func _on_map_draw() -> void:
 		_draw_minimap_scanlines_and_vignette(size)
 		return
 	MapGeography.ensure_ready()
-	if raster_preview_enabled:
-		_ensure_raster_basemap()
-	elif not vector_preview_enabled and use_basemap:
+	if tile_basemap_enabled and not _ensure_raster_basemap():
+		tile_basemap_enabled = false
+	if not tile_basemap_enabled and not vector_preview_enabled and use_basemap:
 		_ensure_minimap_basemap()
-	# 底色 = 海（如果有底图 PNG 覆盖，下面会盖住）
+	# 底色 = 海（如果有正式瓦片或 UGC PNG 覆盖，下面会盖住）
 	_map_panel.draw_rect(_map_rect, _map_color("sea", MapGeography.SEA_COLOR))
-	# 底图 PNG（如果存在）
+	# 正式瓦片；外部 UGC 可降级到兼容 PNG。
 	if vector_preview_enabled:
 		_draw_minimap_vector_preview(size)
-	elif raster_preview_enabled:
+	elif tile_basemap_enabled:
 		_draw_minimap_raster(size)
 	else:
 		_draw_minimap_basemap(size)
 	# 矢量细节层（只在没底图时才画 OSM 矢量，避免重复）
-	if not vector_preview_enabled and not raster_preview_enabled and _mm_basemap_tex == null:
+	if not vector_preview_enabled and not tile_basemap_enabled and _mm_basemap_tex == null:
 		_draw_geography(size)
 		_draw_cities(size)
 	_draw_haneda_airport(size)
@@ -441,10 +417,10 @@ const MINIMAP_LAND_COLOR := Color(0.32, 0.35, 0.27, 1.0)
 const MINIMAP_URBAN_COLOR := Color(0.42, 0.38, 0.28, 1.0)
 const MINIMAP_ROAD_COLOR := Color(0.86, 0.78, 0.55, 1.0)
 
-## ---- 底图 PNG 缓存（和主地图共享同一张图 + 元数据）----
-const MM_BASEMAP_PNG := "res://resources/maps/tokyo_bay_bg.png"
+## ---- 正式 Strategic 瓦片 + bbox 元数据；PNG 仅供外部 UGC 兼容 ----
 const MM_BASEMAP_META := "res://resources/maps/tokyo_bay_bg.json"
-var basemap_png_path: String = MM_BASEMAP_PNG
+var basemap_map_key := "tokyo"
+var basemap_png_path := ""
 var basemap_meta_path: String = MM_BASEMAP_META
 var _mm_basemap_tex: Texture2D = null
 var _mm_basemap_world_rect: Rect2 = Rect2()
@@ -454,10 +430,10 @@ var _mm_basemap_loaded := false
 func _ensure_raster_basemap() -> bool:
 	if _mm_raster_tex != null:
 		return true
-	if not use_basemap or basemap_png_path.is_empty() or basemap_meta_path.is_empty():
+	if not use_basemap or basemap_map_key.is_empty() or basemap_meta_path.is_empty():
 		return false
-	var map_key := RasterPreviewRenderer.map_key_from_png_path(basemap_png_path)
-	var manifest := RasterPreviewRenderer.load_manifest(map_key)
+	var map_key := basemap_map_key
+	var manifest := RasterBasemapRendererScript.load_manifest(map_key)
 	if manifest.is_empty() or not _ensure_raster_world_rect():
 		return false
 	var levels: Dictionary = manifest.get("levels", {}) as Dictionary
@@ -467,11 +443,11 @@ func _ensure_raster_basemap() -> bool:
 		return false
 	var record := tiles[0] as Dictionary
 	var texture_path := "%s/%s/%s" % [
-		RasterPreviewRenderer.ROOT_PATH,
+		RasterBasemapRendererScript.ROOT_PATH,
 		map_key,
 		String(record.get("path", "strategic.webp")),
 	]
-	var texture := RasterPreviewRenderer.load_texture(texture_path)
+	var texture := RasterBasemapRendererScript.load_texture(texture_path)
 	if texture == null:
 		return false
 	# 正式 Tab 从不套主地图 shader，只对底图做固定中性乘色；候选必须保持同一职责，
@@ -1729,18 +1705,14 @@ func _refresh_info() -> void:
 			if dkey != "":
 				reward_desc = tr(dkey)
 
-	# 任务描述（按 ground / air / airfield / boss 区分）
+	# 任务描述：3★由 ZoneMission 预先固化 profile，普通任务按 mission_type 分流。
 	var mission_desc_key: String
 	if _hover_zone_id == &"BOSS":
 		mission_desc_key = "ZONE_MISSION_BOSS"
+	elif _game_scene != null and _game_scene.has_method("zone_mission_desc_key_for"):
+		mission_desc_key = String(_game_scene.call("zone_mission_desc_key_for", _hover_zone_id))
 	else:
-		match mission_type:
-			"air":       mission_desc_key = "ZONE_MISSION_AIR"
-			"squadron":  mission_desc_key = "ZONE_MISSION_SQUADRON"
-			"naval":     mission_desc_key = "ZONE_MISSION_NAVAL"
-			"airfield":  mission_desc_key = "ZONE_MISSION_AIRFIELD"
-			"bomber_escort": mission_desc_key = "ZONE_MISSION_BOMBER_ESCORT"
-			_:           mission_desc_key = "ZONE_MISSION_GROUND"
+		mission_desc_key = ZoneMission.mission_desc_key_for(mission_type)
 
 	lines.append("")
 	lines.append("[color=#aaaaaa]%s[/color]" % tr("ZONE_INFO_REWARD"))

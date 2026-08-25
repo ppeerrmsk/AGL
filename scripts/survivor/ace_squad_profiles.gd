@@ -18,6 +18,9 @@ class_name AceSquadProfiles
 const TTK_TARGET_MIN_S := 60.0
 const TTK_TARGET_MAX_S := 90.0
 const DEFEAT_UNIT_SECONDS := 5.0
+const FIRST_WAVE_TIME_S := 210.0
+const FINAL_WAVE_REMAINING_S := 180.0
+const MAX_WAVES_PER_RUN := 2
 
 const PROFILES: Dictionary = {
 	"marathon": {
@@ -25,7 +28,7 @@ const PROFILES: Dictionary = {
 		"name_key": "ACE_SQUAD_MARATHON_NAME",
 		"lore_key": "ACE_SQUAD_MARATHON_LORE",
 		"color": Color(1.0, 0.180, 0.239),   # 猩红 #FF2E3D（727 包装批：紫红系，金橙退役）
-		"pool_time": 240.0,                  # 统一轮换窗：强度改由 60~90s TTK 预算约束
+		"pool_time": 210.0,                  # 固定第一槽：开局 3:30
 		"callsigns": ["Pacer", "Miler", "Sprinter", "Kicker", "Sweeper"],
 		"dodge": 0.20,                       # 机炮闪避基线档（tier §2.2）
 		"xp_per_kill": 100,
@@ -45,7 +48,7 @@ const PROFILES: Dictionary = {
 		"name_key": "ACE_SQUAD_2NDWAVE_NAME",
 		"lore_key": "ACE_SQUAD_2NDWAVE_LORE",
 		"color": Color(0.706, 0.302, 1.0),   # 电紫 #B44DFF
-		"pool_time": 240.0,                  # 统一轮换窗（首队由新局洗牌决定）
+		"pool_time": 210.0,                  # 固定第一槽（首队由新局洗牌决定）
 		"callsigns": ["Teacher", "Senior", "Junior", "Sophomore", "Freshman"],
 		"dodge": 0.20,                       # 学员基线；Teacher 特高 0.50 在 element 覆写
 		"xp_per_kill": 100,
@@ -83,7 +86,7 @@ const PROFILES: Dictionary = {
 		"name_key": "ACE_SQUAD_GIMMICK_NAME",
 		"lore_key": "ACE_SQUAD_GIMMICK_LORE",
 		"color": Color(0.886, 0.227, 0.557), # 洋红 #E23A8E
-		"pool_time": 240.0,                  # 统一轮换窗
+		"pool_time": 210.0,                  # 固定第一槽
 		"callsigns": ["Bluff", "Feint", "Bait", "Switch"],
 		"dodge": 0.20,
 		"xp_per_kill": 100,
@@ -108,7 +111,7 @@ const PROFILES: Dictionary = {
 		"name_key": "ACE_SQUAD_GOOFIGHTERS_NAME",
 		"lore_key": "ACE_SQUAD_GOOFIGHTERS_LORE",
 		"color": Color(0.482, 0.247, 0.894), # 深紫罗兰 #7B3FE4
-		"pool_time": 240.0,                  # 统一轮换窗
+		"pool_time": 210.0,                  # 固定第一槽
 		"callsigns": ["Wisp", "Orb"],
 		"dodge": 0.35,                       # 高档（难缠机：缠斗专家，tier §2.2）
 		"xp_per_kill": 150,
@@ -128,7 +131,7 @@ const PROFILES: Dictionary = {
 		"name_key": "ACE_SQUAD_WHITETEA_NAME",
 		"lore_key": "ACE_SQUAD_WHITETEA_LORE",
 		"color": Color(0.780, 0.208, 0.404), # 覆盆子红 #C73567
-		"pool_time": 240.0,
+		"pool_time": 210.0,
 		"callsigns": ["Tea", "Cola", "Bottle"],
 		"dodge": 0.20,
 		"xp_per_kill": 100,
@@ -158,7 +161,7 @@ const PROFILES: Dictionary = {
 		"name_key": "ACE_SQUAD_VULTURE_NAME",
 		"lore_key": "ACE_SQUAD_VULTURE_LORE",
 		"color": Color(0.557, 0.141, 0.314), # 酒红 #8E2450
-		"pool_time": 240.0,                  # 零 flare 后进入统一轮换窗
+		"pool_time": 210.0,                  # 零 flare 后进入固定第一槽
 		"callsigns": ["Carrion", "Buzzard", "Wake", "Kettle", "Pinion", "Perch", "Feast", "Famine"],
 		"dodge": 0.20,
 		"xp_per_kill": 100,
@@ -199,13 +202,27 @@ static func pool_at(game_time: float) -> Array:
 			continue
 		if bool(p.get("nemesis", false)):
 			continue   # 宿敌走独立轨道（tier §2.9 / §3.8）
-		if game_time >= float(p.get("pool_time", 240.0)):
+		if game_time >= float(p.get("pool_time", FIRST_WAVE_TIME_S)):
 			out.append(id)
 	out.sort_custom(func(a, b):
 		var ta := float(PROFILES[a].get("pool_time", 0.0))
 		var tb := float(PROFILES[b].get("pool_time", 0.0))
 		return ta < tb if not is_equal_approx(ta, tb) else String(a) < String(b))
 	return out
+
+## 本局已经开放的固定王牌时间槽数：3:30 第一槽，BOSS 前最后 3:00 第二槽。
+## 第二槽使用真实战区时长，因此生涯商店延时与补给时间税都自然落在同一权威时钟上。
+static func scheduled_wave_count(game_time: float, warzone_duration: float) -> int:
+	if game_time < FIRST_WAVE_TIME_S:
+		return 0
+	if warzone_duration - game_time <= FINAL_WAVE_REMAINING_S:
+		return MAX_WAVES_PER_RUN
+	return 1
+
+## 时间槽只会开放、不会因击破王牌的 +60s 倒拨而重新关闭。
+static func advance_scheduled_wave_count(
+		opened_count: int, game_time: float, warzone_duration: float) -> int:
+	return maxi(opened_count, scheduled_wave_count(game_time, warzone_duration))
 
 ## 一局的无放回随机顺序。previous_first 非空时避免连续两局首队相同；
 ## 随机性只决定顺序，不绕过 pool_time / implemented / nemesis 门。

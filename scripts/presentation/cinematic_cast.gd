@@ -25,6 +25,13 @@ var _scattered: bool = false
 func bind(p_actors: Array, p_owner) -> void:
 	actors = p_actors.duplicate()
 	owner_event = p_owner
+	for a in actors:
+		if not is_instance_valid(a) or not (a is CombatUnit):
+			continue
+		a.set_meta(CombatUnit.META_PRESENTATION_ACTOR_ACTIVE, true)
+		if a is Aircraft:
+			a.sync_stealth_trail_emission()
+			a.queue_redraw()
 	_trail_boosted = false
 	_ingress_started = false
 	_converge_started = false
@@ -196,7 +203,7 @@ func cloak_on_meet(elapsed: float, span: float, radius: float, fade: float) -> v
 ## 只借隐身的视觉语言，绝不碰 AceSquad 的隐身状态机：`_cloak_enter()` 会置
 ## `_cloak_in_state = true`，而 PRE_STAGE 下小队状态机休眠、`_cloak_remaining` 永不倒数
 ## —— 实测四机【永久隐身】，玩家满地图找不到 BOSS。
-## release() 时解除全部视觉状态；真隐身仍由战斗中的 110s±jitter 循环自行触发。
+## release() 时解除全部视觉状态；真隐身仍由战斗中的严格 60s CD 循环自行触发。
 func cloak_vanish(t: float) -> void:
 	var p: float = clampf(t, 0.0, 1.0)
 	for a in alive_actors():
@@ -228,11 +235,17 @@ func release() -> void:
 	trail_restore()
 	# 演出隐身只活在飞机演出里：剧情结束当帧解除（用户裁定）。
 	# CSG 的镜头演员是 NavalUnit，没有这些字段，必须按类型收窄。
-	for a in alive_actors():
+	for a in actors:
+		if not is_instance_valid(a) or not (a is CombatUnit):
+			continue
 		if a is Aircraft:
 			a._cloak_alpha = 1.0
 			a.is_cloaked = false
 			a.suppress_flares = false
+		a.remove_meta(CombatUnit.META_PRESENTATION_ACTOR_ACTIVE)
+		if a is Aircraft:
+			a.sync_stealth_trail_emission()
+			a.queue_redraw()
 	if owner_event and owner_event.has_method("clear_all_directives"):
 		owner_event.clear_all_directives()
 	actors.clear()

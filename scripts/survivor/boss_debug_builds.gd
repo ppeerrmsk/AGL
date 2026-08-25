@@ -154,11 +154,13 @@ static func is_weapon_mounted(params: AircraftParams, weapon_id: String) -> bool
 
 
 ## T4 节点专用入口：返回 level/theme/picks/axis_points，供运行时一次性配置。
-static func roll_reference_build(node_id: StringName, params: AircraftParams) -> Dictionary:
+static func roll_reference_build(node_id: StringName, params: AircraftParams,
+		reference_level: int = -1) -> Dictionary:
 	var node: Dictionary = EvolutionSystem.node_of(node_id)
 	if node.is_empty():
 		return {}
-	var level := EvolutionSystem.min_level_of(node)
+	var min_level := EvolutionSystem.min_level_of(node)
+	var level := min_level if reference_level < 0 else maxi(reference_level, min_level)
 	var theme_name := _theme_for_category(String(node.get("category", "")))
 	var axis_points := target_axis_points(node_id, level)
 	var axis_plan := _axis_plan(axis_points)

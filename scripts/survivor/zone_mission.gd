@@ -8,8 +8,8 @@ const TIER3_SIEGE_TANK_SCRIPT := preload("res://scripts/survivor/tier3_siege_tan
 ## 战区任务执行器
 ##
 ## 职责拆分：
-##   1. **静态刷怪**：当前 AVAILABLE 的奖励/护送战区先广播并等待 6 秒，再把
-##      TGT + 驻守单位刷出来。玩家没来也一直存在。
+##   1. **按需刷怪**：已受玩家关注的奖励/护送战区先广播并等待 6 秒，再把
+##      TGT + 驻守单位刷出来；未关注普通战区保持战略层 0 实体。
 ##   2. **任务触发（双通道）**：满足任一条件即激活任务
 ##        - A. 玩家进入战区圆
 ##        - B. 玩家在圈外就击中了 TGT —— 既然能打到，就算玩家正在做这个
@@ -34,6 +34,12 @@ const MIN_UNIT_SEPARATION_PX := 650.0   ## 地面单位最小间距（≈1.3km�
 const MIN_ROAD_DISTANCE_PX := 180.0     ## 距道路/高速的最小距离（≈360m）
 const MAX_SAMPLE_ATTEMPTS := 80         ## 每个单位最多尝试 N 次随机位置
 const MISSION_SPAWN_RADIO_LEAD_S := 6.0
+## 战区攻克后，幸存驻守敌机先真实撤离；持续离开玩家视野后才静默释放。
+## 5Hz 检查 + 每 tick 释放预算避免整支编队同帧 queue_free 制造终态 spike。
+const CONQUERED_RETIRE_OFFSCREEN_GRACE_S := 2.0
+const RETIRE_VISIBILITY_CHECK_INTERVAL_S := 0.2
+const RETIRE_FREE_BUDGET_PER_TICK := 4
+const RETIRE_DIRECTIVE_PRIORITY := 100
 ## 玩家已按 Tab 选中任务并抵达战区边缘时，不能让“生成区碰到视野”安全门永久
 ## 卡住实体。空中敌人统一从地图边界外入场；地面/舰船静态目标保持既有可达性语义。
 const VISIBLE_SPAWN_RECOVERY_APPROACH_PX := 400.0
@@ -103,10 +109,10 @@ const _TIER3_GROUND_BASE_PARAMS := preload("res://resources/aa_gun_params.tres")
 const TIER3_DESERT_MAP_ID := "desert_railway_preview"
 const TIER3_VLS_RANGE_M := 40000.0
 const TIER3_VLS_LIFETIME_S := 65.0
-const TIER3_CANNON_BASE_HP := 220.0
-const TIER3_CANNON_BODY_HP := 320.0
+const TIER3_CANNON_HP := 320.0
 const TIER3_SIEGE_TANK_HP := 600.0
-const TIER3_CANNON_PART_OFFSETS: Array[Vector2] = [
+## 单体炮塔仍按完整占地采样，四角只用于陆地净空，不再生成独立底座 TGT。
+const TIER3_CANNON_FOOTPRINT_OFFSETS: Array[Vector2] = [
 	Vector2(-85.0, -85.0), Vector2(85.0, -85.0),
 	Vector2(-85.0, 85.0), Vector2(85.0, 85.0), Vector2.ZERO,
 ]
@@ -142,6 +148,7 @@ var _bomber_escort_runs: Dictionary = {}
 ## 由 _despawn_garrison / refresh_active_zones_for_level 等共用
 ## （BOSS 阶段清场已改由 survivor_spawner._update_boss_phase_purge 统一负责，不再走本队列）
 var _pending_despawn: Array = []
+var _pending_despawn_tick_s: float = 0.0
 ## 支援飞行队生命周期。允许旧队 EGRESS 时同战区重开并生成新队，故用 generation id
 ## 区分，而不是只存 zone_id → members。
 var _support_flights: Array[Dictionary] = []
@@ -156,6 +163,8 @@ var _zone_atmosphere_enabled: Dictionary = {}
 var _force_all_zone_atmosphere := false
 ## F6 专用：zone_id → super_cannon / siege_tank；空或 auto 服从正式地图 profile。
 var _debug_tier3_profile_by_zone: Dictionary = {}
+## 3★内容在首次被 UI 查询或生成时一次性固化，保证 Tab 简报、开始提示与实体编成一致。
+var _resolved_tier3_profile_by_zone: Dictionary = {}
 var _tier3_sources_by_zone: Dictionary = {} ## zone_id → {profile, sources, active}
 var _tier3_source_tick_s := 0.0
 
@@ -187,9 +196,15 @@ func _physics_process(delta: float) -> void:
 		_zone_atmosphere.update(delta, _player)
 	_update_tier3_source_states(delta)
 
-	# 每帧处理待撤离队列：单位飘到视线外就 free（与 BOSS 阶段共用机制）
+	# 低频处理待撤离队列；攻克终态带离屏宽限并限制单 tick 释放数，避免终态尖峰。
 	if not _pending_despawn.is_empty():
-		_flush_pending_despawn()
+		_pending_despawn_tick_s += delta
+		if _pending_despawn_tick_s >= RETIRE_VISIBILITY_CHECK_INTERVAL_S:
+			var retire_step := _pending_despawn_tick_s
+			_pending_despawn_tick_s = 0.0
+			_flush_pending_despawn(retire_step)
+	else:
+		_pending_despawn_tick_s = 0.0
 	# 支援撤离必须在 BOSS 闸门之前继续推进，否则战区阶段结束后绿色飞机会冻结在场内。
 	_update_air_support(delta)
 
@@ -201,7 +216,7 @@ func _physics_process(delta: float) -> void:
 	if _is_boss_phase():
 		return
 
-	# 1. 为所有当前 AVAILABLE/SELECTED 的战区确保已刷怪
+	# 1. 只为已受玩家关注的 AVAILABLE/SELECTED 战区确保已刷怪
 	_ensure_spawned_for_active_zones(delta)
 	_update_bomber_escort_caches(delta)
 
@@ -233,7 +248,7 @@ func _physics_process(delta: float) -> void:
 		if _triggered_zones.has(zid):
 			if _all_zone_units_destroyed(zid):
 				_completed_zones[zid] = true
-				_despawn_garrison(zid)      ## 撤离驻守敌机
+				_begin_conquered_garrison_egress(zid)
 				_begin_air_support_egress(zid, "mission completed")
 				mission_completed.emit(zid)
 
@@ -247,7 +262,7 @@ func _ensure_spawned_for_active_zones(delta: float = 0.0) -> void:
 	for z in ZoneData.ZONES:
 		var zid: StringName = z["id"]
 		var state := _zones.get_state(zid)
-		# 只给"玩家可见的"战区（AVAILABLE/SELECTED）刷怪，不给 LOCKED/CLEARED 刷
+		# LOCKED/CLEARED 不生成；普通 AVAILABLE 还要通过下方玩家相关性激活门。
 		if state != ZoneData.State.AVAILABLE and state != ZoneData.State.SELECTED:
 			_spawn_lead_timers.erase(zid)
 			continue
@@ -258,6 +273,14 @@ func _ensure_spawned_for_active_zones(delta: float = 0.0) -> void:
 		# 现在改成：战区重开的残留清理由 reset_zone() 在 mark_cleared 之后主动调用，
 		# 这里只负责"没刷过就刷一次"。
 		if _spawned_zones.has(zid):
+			_spawn_lead_timers.erase(zid)
+			continue
+		# 未关注普通战区只保留 ZoneData 战略信息，不创建任何战斗实体。
+		# 选择/进入是一次性 LIVE 门；3★有真实全局投射，公开即属于玩家当前威胁。
+		var player_distance := _player.global_position.distance_to(
+			_zones.get_zone_center(zid))
+		if not zone_simulation_should_activate(
+				state, _zones.get_difficulty(zid), player_distance, float(z["radius"])):
 			_spawn_lead_timers.erase(zid)
 			continue
 		var mission_type := _zones.get_mission_type(zid)
@@ -277,20 +300,31 @@ func _ensure_spawned_for_active_zones(delta: float = 0.0) -> void:
 			var spawn_reach: float = float(z["radius"]) * SCATTER_RADIUS_SCALE
 			var zone_center := _zones.get_zone_center(zid)
 			if mode.is_world_pos_visible(zone_center, spawn_reach):
-				var player_distance := _player.global_position.distance_to(zone_center)
-				var entered_zone := player_distance <= float(z["radius"])
+				var visible_player_distance := _player.global_position.distance_to(zone_center)
+				var entered_zone := visible_player_distance <= float(z["radius"])
 				var selected_at_edge := state == ZoneData.State.SELECTED \
-						and player_distance <= float(z["radius"]) \
+						and visible_player_distance <= float(z["radius"]) \
 							+ VISIBLE_SPAWN_RECOVERY_APPROACH_PX
 				if not entered_zone and not selected_at_edge:
 					continue
 				# 所有空中敌机都从地图边界外进场；静态目标沿用既有死锁恢复语义。
 				EventLogger.log_event("ZONE", "VisibleSpawnRecovery",
 					"id=%s state=%d mission=%s distance=%.0f radius=%.0f air_ingress=edge" % [
-						zid, state, mission_type, player_distance, float(z["radius"])])
+						zid, state, mission_type, visible_player_distance, float(z["radius"])])
 		# 倒计时归零后若仍被可见性门挡住，保留 0 秒计时器，避免每帧重开 6 秒并重复播报。
 		_spawn_lead_timers.erase(zid)
 		_spawn_zone_units(zid, z)
+
+## 普通战区的战略层 → 实体层单向激活门。纯值函数供专项回归与 100+ 潜在编成审计复用。
+static func zone_simulation_should_activate(state: int, difficulty: int,
+		player_distance: float, zone_radius: float) -> bool:
+	if state != ZoneData.State.AVAILABLE and state != ZoneData.State.SELECTED:
+		return false
+	if difficulty >= 3:
+		return true
+	if state == ZoneData.State.SELECTED:
+		return true
+	return player_distance <= zone_radius
 
 func _requires_spawn_announcement(zone_id: StringName, mission_type: String) -> bool:
 	if mode != null and "_bench_mode" in mode and bool(mode.get("_bench_mode")):
@@ -472,17 +506,30 @@ static func build_bomber_escort_route(zone_id: StringName, player_pos: Vector2,
 static func _snap_bomber_target_to_land(anchor: Vector2) -> Vector2:
 	return MapGeography.find_ground_spawn_near(anchor, 5000.0)
 
+## 护送任务字典跨帧持有节点；已释放对象不能先进入 `as` / 强类型局部变量。
+static func _live_bomber_target(value: Variant) -> StrategicTarget:
+	if typeof(value) != TYPE_OBJECT or value == null or not is_instance_valid(value) \
+			or not (value is StrategicTarget):
+		return null
+	return value as StrategicTarget
+
+static func _live_bomber_controller(value: Variant) -> BomberMission:
+	if typeof(value) != TYPE_OBJECT or value == null or not is_instance_valid(value) \
+			or not (value is BomberMission):
+		return null
+	return value as BomberMission
+
 func _start_bomber_escort(zone_id: StringName) -> void:
 	if not _bomber_escort_runs.has(zone_id):
 		fail_zone(zone_id, "escort_not_prepared")
 		return
 	var run: Dictionary = _bomber_escort_runs[zone_id]
-	if run.get("controller") != null:
+	if _live_bomber_controller(run.get("controller")) != null:
 		return
 	if run.has("error"):
 		fail_zone(zone_id, String(run["error"]))
 		return
-	var target: StrategicTarget = run.get("target") as StrategicTarget
+	var target := _live_bomber_target(run.get("target"))
 	var route: PackedVector2Array = run.get("route", PackedVector2Array())
 	if not is_instance_valid(target) or route.size() < 3:
 		fail_zone(zone_id, "escort_setup_invalid")
@@ -597,8 +644,8 @@ func _update_bomber_escort_caches(delta: float) -> void:
 	for zid_any in _bomber_escort_runs.keys():
 		var zid: StringName = zid_any
 		var run: Dictionary = _bomber_escort_runs[zid]
-		var target := run.get("target") as StrategicTarget
-		var controller := run.get("controller") as BomberMission
+		var target := _live_bomber_target(run.get("target"))
+		var controller := _live_bomber_controller(run.get("controller"))
 		if controller != null and is_instance_valid(controller):
 			var center := controller.get_live_center()
 			if center != Vector2.INF:
@@ -876,27 +923,82 @@ static func tier3_ground_profile_for(map_id: String, roll: float) -> StringName:
 	return &"super_cannon"
 
 
-func _spawn_tier3_profile(zone_id: StringName, mission_type: String,
-		zone: Dictionary) -> void:
-	var registered_profile: StringName = &""
+## 任务内容与玩家文案共用的 profile 裁决；实例方法负责按战区缓存随机结果。
+func resolve_tier3_profile(zone_id: StringName, mission_type: String,
+		map_id_override: String = "", roll_override: float = -1.0) -> StringName:
+	if _resolved_tier3_profile_by_zone.has(zone_id):
+		var cached: Dictionary = _resolved_tier3_profile_by_zone[zone_id]
+		if String(cached.get("mission_type", "")) == mission_type:
+			return StringName(cached.get("profile", &""))
+		# 地面/海军安全门可能在生成前降级为空战；介绍必须跟随真实类型重新裁决。
+		_resolved_tier3_profile_by_zone.erase(zone_id)
+	var profile: StringName = &""
 	match mission_type:
 		"ground":
-			var map_id := String(mode.get("_map_id")) if mode != null and "_map_id" in mode \
-				else "default"
-			var profile := StringName(_debug_tier3_profile_by_zone.get(zone_id, &""))
+			profile = StringName(_debug_tier3_profile_by_zone.get(zone_id, &""))
 			if profile != &"super_cannon" and profile != &"siege_tank":
-				profile = tier3_ground_profile_for(map_id, randf())
-			if profile == &"siege_tank":
-				_spawn_tier3_siege_tank(zone_id, zone)
-			else:
-				_spawn_tier3_super_cannon(zone_id, zone)
-			registered_profile = profile
+				var map_id := map_id_override
+				if map_id == "":
+					map_id = String(mode.get("_map_id")) if mode != null \
+						and "_map_id" in mode else "default"
+				var roll := roll_override if roll_override >= 0.0 else randf()
+				profile = tier3_ground_profile_for(map_id, roll)
 		"air", "squadron":
-			_spawn_tier3_deadair(zone_id, zone)
-			registered_profile = &"deadair"
+			profile = &"deadair"
 		"naval":
+			profile = &"long_range_vls"
+	if profile != &"":
+		_resolved_tier3_profile_by_zone[zone_id] = {
+			"mission_type": mission_type,
+			"profile": profile,
+		}
+	return profile
+
+
+static func mission_desc_key_for(mission_type: String,
+		tier3_profile: StringName = &"") -> String:
+	match tier3_profile:
+		&"super_cannon": return "ZONE_MISSION_TIER3_SUPER_CANNON"
+		&"siege_tank": return "ZONE_MISSION_TIER3_SIEGE_TANK"
+		&"long_range_vls": return "ZONE_MISSION_TIER3_LONG_RANGE_VLS"
+		&"deadair": return "ZONE_MISSION_TIER3_DEADAIR"
+	match mission_type:
+		"air": return "ZONE_MISSION_AIR"
+		"squadron": return "ZONE_MISSION_SQUADRON"
+		"naval": return "ZONE_MISSION_NAVAL"
+		"airfield": return "ZONE_MISSION_AIRFIELD"
+		"bomber_escort": return "ZONE_MISSION_BOMBER_ESCORT"
+		_: return "ZONE_MISSION_GROUND"
+
+
+static func mission_started_fmt_key_for(mission_type: String,
+		tier3_profile: StringName = &"") -> String:
+	match tier3_profile:
+		&"super_cannon": return "ZONE_MISSION_STARTED_TIER3_SUPER_CANNON_FMT"
+		&"siege_tank": return "ZONE_MISSION_STARTED_TIER3_SIEGE_TANK_FMT"
+		&"long_range_vls": return "ZONE_MISSION_STARTED_TIER3_LONG_RANGE_VLS_FMT"
+		&"deadair": return "ZONE_MISSION_STARTED_TIER3_DEADAIR_FMT"
+	match mission_type:
+		"air": return "ZONE_MISSION_STARTED_AIR_FMT"
+		"squadron": return "ZONE_MISSION_STARTED_SQUADRON_FMT"
+		"naval": return "ZONE_MISSION_STARTED_NAVAL_FMT"
+		"bomber_escort": return "ZONE_MISSION_STARTED_BOMBER_ESCORT_FMT"
+		_: return "ZONE_MISSION_STARTED_FMT"
+
+
+func _spawn_tier3_profile(zone_id: StringName, mission_type: String,
+		zone: Dictionary) -> void:
+	var registered_profile := resolve_tier3_profile(zone_id, mission_type)
+	match registered_profile:
+		&"siege_tank":
+				_spawn_tier3_siege_tank(zone_id, zone)
+		&"super_cannon":
+				_spawn_tier3_super_cannon(zone_id, zone)
+		&"deadair":
+			_spawn_tier3_deadair(zone_id, zone)
+		&"long_range_vls":
 			# 舰船已在 `_spawn_naval_formation` 实例化前拿到深拷贝的远程 VLS 参数。
-			registered_profile = &"long_range_vls"
+			pass
 	if registered_profile != &"":
 		_register_tier3_sources(zone_id, registered_profile)
 
@@ -939,6 +1041,7 @@ func _update_tier3_source_states(delta: float) -> void:
 
 
 func _end_tier3_zone(zone_id: StringName) -> void:
+	_resolved_tier3_profile_by_zone.erase(zone_id)
 	if not _tier3_sources_by_zone.has(zone_id):
 		return
 	var entry: Dictionary = _tier3_sources_by_zone[zone_id]
@@ -963,7 +1066,7 @@ func _find_cannon_compound_center(center: Vector2, radius: float,
 		if not _far_from_placed(candidate, placed) or not _far_from_roads(candidate):
 			continue
 		var all_safe := true
-		for offset in TIER3_CANNON_PART_OFFSETS:
+		for offset in TIER3_CANNON_FOOTPRINT_OFFSETS:
 			if not MapGeography.is_ground_spawn_safe(candidate + offset):
 				all_safe = false
 				break
@@ -990,26 +1093,22 @@ func _spawn_tier3_super_cannon(zone_id: StringName, zone: Dictionary) -> void:
 		push_warning("ZoneMission: no safe Tier3 super cannon compound for %s" % zone_id)
 		return
 	var units: Array = _spawned_zones.get(zone_id, [])
-	for i in range(TIER3_CANNON_PART_OFFSETS.size()):
-		var part = TIER3_SUPER_CANNON_SCRIPT.new()
-		var is_body := i == TIER3_CANNON_PART_OFFSETS.size() - 1
-		part.params = _tier3_ground_params("STONEHENGE" if is_body else "STONEHENGE BASE",
-			TIER3_CANNON_BODY_HP if is_body else TIER3_CANNON_BASE_HP)
-		part.position = center + TIER3_CANNON_PART_OFFSETS[i]
-		part.team = CombatUnit.TEAM_HOSTILE
-		part.callsign = "STONEHENGE-%s" % ("BODY" if is_body else "B%d" % (i + 1))
-		part.configure(TIER3_SUPER_CANNON_SCRIPT.PartKind.BODY if is_body \
-			else TIER3_SUPER_CANNON_SCRIPT.PartKind.BASE, zone_id)
-		part.set_meta(&"zone_mission", zone_id)
-		part.set_meta(&"tier3_special_unit", true)
-		part.set_meta(&"tier3_profile", &"super_cannon")
-		if is_body:
-			part.set_meta(&"tier3_threat_source", true)
-		mode.add_child(part)
-		units.append(part)
+	var cannon = TIER3_SUPER_CANNON_SCRIPT.new()
+	cannon.params = _tier3_ground_params(TIER3_SUPER_CANNON_SCRIPT.DISPLAY_NAME,
+		TIER3_CANNON_HP)
+	cannon.position = center
+	cannon.team = CombatUnit.TEAM_HOSTILE
+	cannon.callsign = "AURORA-LANCE-%s" % zone_id
+	cannon.configure(zone_id)
+	cannon.set_meta(&"zone_mission", zone_id)
+	cannon.set_meta(&"tier3_special_unit", true)
+	cannon.set_meta(&"tier3_profile", &"super_cannon")
+	cannon.set_meta(&"tier3_threat_source", true)
+	mode.add_child(cannon)
+	units.append(cannon)
 	_spawned_zones[zone_id] = units
 	EventLogger.log_event("TIER3", "SuperCannonSpawn",
-		"zone=%s targets=5 center=%s" % [zone_id, center.round()])
+		"zone=%s name=AURORA_LANCE targets=1 center=%s" % [zone_id, center.round()])
 
 
 func _spawn_tier3_siege_tank(zone_id: StringName, zone: Dictionary) -> void:
@@ -1746,8 +1845,54 @@ func _inject_ship_managers(ship: NavalUnit) -> void:
 	if "missile_manager" in mode:
 		ship.missile_manager = mode.missile_manager
 
-## 攻克战区后，让驻守机"撤离"
-## 【铁则】不允许在玩家画面内消失 —— 视线内的单位入队等它飘出屏外再 free
+## 攻克战区后让幸存驻守敌机真实撤离。
+## 可见时沿最近边界物理飞出；持续离屏 2 秒后才静默释放，短暂裁剪会重置计时。
+func _begin_conquered_garrison_egress(zone_id: StringName) -> void:
+	var units: Array = _garrison_zones.get(zone_id, [])
+	var retiring := 0
+	for value in units:
+		if typeof(value) != TYPE_OBJECT or value == null or not is_instance_valid(value) \
+				or not (value is Aircraft) or (value as Aircraft).is_destroyed:
+			continue
+		var ac := value as Aircraft
+		_command_conquered_enemy_exit(ac)
+		_schedule_despawn(ac, CONQUERED_RETIRE_OFFSCREEN_GRACE_S)
+		retiring += 1
+	_garrison_zones.erase(zone_id)
+	if retiring > 0:
+		EventLogger.log_event("ZONE", "GarrisonEgress",
+			"id=%s aircraft=%d offscreen_grace=%.1fs" % [
+				zone_id, retiring, CONQUERED_RETIRE_OFFSCREEN_GRACE_S])
+
+func _command_conquered_enemy_exit(ac: Aircraft) -> void:
+	ac.set_meta(&"zone_retiring", true)
+	ac.remove_meta(&"zone_ingress")
+	ac.remove_meta(&"zone_ingress_center")
+	ac.remove_meta(&"zone_ingress_arrive_radius")
+	ac.is_mission_target = false
+	ac.is_firing = false
+	ac.clear_formation()
+	ac.clear_combat_target()
+	ac.is_afterburner = true
+	if ac.params:
+		ac.target_speed_kmh = AircraftPhysics.effective_max_speed_kmh(ac)
+	var exit_point := _support_exit_point(ac.global_position)
+	var ai := _get_ai_of(ac)
+	if ai == null:
+		ac.target_position = exit_point
+		return
+	ai.release_target(AIController.TargetSource.TS_COMMANDED,
+		"zone conquered evacuation")
+	ai.combat_zone_anchor = null
+	ai.combat_zone_radius = 0.0
+	ai.enable_combat = false
+	ai.enter_patrol_state(false)
+	var directive := AIDirective.fly_to(
+		exit_point, AIDirective.OnArrival.HOLD, 300.0)
+	directive.priority = RETIRE_DIRECTIVE_PRIORITY
+	ai.set_event_directive(directive)
+
+## 失败、Debug 与等级刷新沿用既有延迟清理，不改变它们的终态语义。
 func _despawn_garrison(zone_id: StringName) -> void:
 	var units: Array = _garrison_zones.get(zone_id, [])
 	for u in units:
@@ -2289,8 +2434,13 @@ func debug_force_respawn_zone(id: StringName) -> void:
 func debug_set_tier3_profile(id: StringName, profile: StringName) -> void:
 	if profile == &"super_cannon" or profile == &"siege_tank":
 		_debug_tier3_profile_by_zone[id] = profile
+		_resolved_tier3_profile_by_zone[id] = {
+			"mission_type": "ground",
+			"profile": profile,
+		}
 	else:
 		_debug_tier3_profile_by_zone.erase(id)
+		_resolved_tier3_profile_by_zone.erase(id)
 
 
 func debug_get_tier3_profile(id: StringName) -> StringName:
@@ -2485,25 +2635,33 @@ func _is_boss_phase() -> bool:
 		return bool(mode.is_boss_phase())
 	return _zones != null and _zones.is_boss_phase()
 
-## 加入待撤离队列：offscreen 立即 free，onscreen 入队等它飘出屏外
-## 【铁则】敌人不允许在玩家画面内凭空消失
-func _schedule_despawn(u) -> void:
-	if not is_instance_valid(u):
+## 加入待撤离队列。普通清理保持 offscreen 立即 free；攻克撤离可指定持续离屏宽限。
+## 【铁则】敌人不允许在玩家画面内凭空消失。
+func _schedule_despawn(value: Variant, offscreen_grace_s: float = 0.0) -> void:
+	if typeof(value) != TYPE_OBJECT or value == null or not is_instance_valid(value):
+		return
+	var u := value as Node2D
+	if u == null:
 		return
 	if "is_destroyed" in u and u.is_destroyed:
 		return
 	if mode and mode.has_method("is_world_pos_visible") \
-			and not mode.is_world_pos_visible(u.global_position, 0.0):
-		u.queue_free()
+			and not mode.is_world_pos_visible(u.global_position, 0.0) \
+			and offscreen_grace_s <= 0.0:
+		_free_retired_unit(u)
 		return
-	if not _pending_despawn.has(u):
-		_pending_despawn.append(u)
+	u.set_meta(&"retire_offscreen_s", 0.0)
+	u.set_meta(&"retire_offscreen_grace_s", maxf(
+		float(u.get_meta(&"retire_offscreen_grace_s", 0.0)), offscreen_grace_s))
+	if _pending_despawn.has(u):
+		return
+	_pending_despawn.append(u)
 
 func _retire_bomber_run(zone_id: StringName) -> void:
 	if not _bomber_escort_runs.has(zone_id):
 		return
 	var run: Dictionary = _bomber_escort_runs[zone_id]
-	var controller := run.get("controller") as BomberMission
+	var controller := _live_bomber_controller(run.get("controller"))
 	if controller != null and is_instance_valid(controller):
 		controller.retire()
 		for escort in controller.get_escort_fighters():
@@ -2522,22 +2680,48 @@ func _retire_bomber_run(zone_id: StringName) -> void:
 		_schedule_despawn(interceptor)
 	_bomber_escort_runs.erase(zone_id)
 
-## 每帧扫描 _pending_despawn：飘出视线的立即 free。
-## 单位沿自身 AI 航线继续飞（不强制撤离朝向）；玩家视线跟随谁，队列就等谁。
-func _flush_pending_despawn() -> void:
+## 5Hz 扫描待撤离队列；可见会清零离屏计时，持续离屏达到宽限才释放。
+## 每次最多释放固定数量，防止整支编队同帧析构造成 spike。
+func _flush_pending_despawn(delta: float) -> void:
 	if not mode or not mode.has_method("is_world_pos_visible"):
 		return
 	var kept: Array = []
-	for u in _pending_despawn:
-		if not is_instance_valid(u):
+	var free_budget := RETIRE_FREE_BUDGET_PER_TICK
+	for value in _pending_despawn:
+		if typeof(value) != TYPE_OBJECT or value == null or not is_instance_valid(value):
+			continue
+		var u := value as Node2D
+		if u == null:
 			continue
 		if "is_destroyed" in u and u.is_destroyed:
 			continue
 		if mode.is_world_pos_visible(u.global_position, 0.0):
+			u.set_meta(&"retire_offscreen_s", 0.0)
 			kept.append(u)
-		else:
-			u.queue_free()
+			continue
+		var offscreen_s := float(u.get_meta(&"retire_offscreen_s", 0.0)) + delta
+		u.set_meta(&"retire_offscreen_s", offscreen_s)
+		var grace_s := float(u.get_meta(&"retire_offscreen_grace_s", 0.0))
+		if offscreen_s + 0.0001 < grace_s or free_budget <= 0:
+			kept.append(u)
+			continue
+		_free_retired_unit(u)
+		free_budget -= 1
 	_pending_despawn = kept
+
+func _free_retired_unit(value: Variant) -> void:
+	if typeof(value) != TYPE_OBJECT or value == null or not is_instance_valid(value):
+		return
+	var u := value as Node
+	if u == null:
+		return
+	if u is CombatUnit:
+		(u as CombatUnit).set_meta("xp_granted", true)
+		CombatUnit.release_target_refs(u as CombatUnit)
+	u.set_process(false)
+	u.set_physics_process(false)
+	u.queue_free()
+	PerfBuckets.mark_frame_event("free_zone_retire")
 
 ## 多边形面积（shoelace，绝对值）。接受 Array[Vector2] 或 PackedVector2Array
 func _polygon_area(poly) -> float:

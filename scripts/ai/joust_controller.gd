@@ -96,10 +96,10 @@ static func update(ai: AIController, delta: float) -> bool:
 		if away == Vector2.ZERO:
 			away = Vector2(sin(ac.heading), -cos(ac.heading))
 		var edge_dist: float = MapBoundary.distance_to_edge(ac.global_position)
-		if edge_dist <= MapBoundary.WARN_DISTANCE_PX + 1000.0:
+		if edge_dist <= MapBoundary.AI_EDGE_TURN_MARGIN_PX:
 			var inward: Vector2 = (Vector2.ZERO - ac.global_position).normalized()
 			if away.dot(inward) < 0.0:
-				var blend: float = clampf(1.0 - edge_dist / (MapBoundary.WARN_DISTANCE_PX + 1000.0), 0.3, 1.0)
+				var blend: float = clampf(1.0 - edge_dist / MapBoundary.AI_EDGE_TURN_MARGIN_PX, 0.3, 1.0)
 				away = away.lerp(inward, blend).normalized()
 		ac.target_position = ac.global_position + away * BREAK_EXTEND_PX
 		if ai.joust_break_speed_kmh > 0.0:

@@ -12,31 +12,38 @@ extends RefCounted
 ## 调用约定（来自 aircraft.gd _physics_process）：
 ##   AircraftFlares.update(self, delta)
 
-const MISSILE_PHASE_DURATION: float = 1.0     ## 热诱弹释放后的导弹穿透窗口（秒）
+const MISSILE_PHASE_DURATION: float = 1.0     ## 玩家既有 guaranteed-flare 导弹穿透窗口（秒）
 ## 躲弹中放焰距离（像素，≈3km）：AI 躲弹是满加力朝远点猛冲，会把追来的导弹一直甩在
 ## 常规 release_dist 之外 → 永远不放焰 → 导弹烧到寿命尽头才解除（十几秒乱飞、脱队"查无此人"）。
-## 躲弹中把释放距离抬到这里，让飞机尽早放焰干扰；guaranteed-jam 飞行员一发即 jam → 下一 tick
-## find_nearest_incoming_missile 过滤掉它 → process_evade 退出 → 立刻归位。
+## 躲弹中把敌机释放距离抬到这里，让它有机会在 1.25s break 窗内真实改变航迹。
 const EVADE_FLARE_RELEASE_DIST: float = 1500.0
 const FLARE_IGNORE_CLEANUP_S := 2.0            ## 已忽略导弹清理间隔（秒）
 const FLARE_PARTICLE_DRAG := 0.96              ## 粒子速度衰减率
 const FLARE_PARTICLE_JITTER := 3.0             ## 粒子随机抖动幅度
-const FLARE_SPREAD_MAX := 0.6                  ## 扩散角最大值
-const FLARE_VEL_MIN := 70.0                    ## 粒子速度下限
-const FLARE_VEL_MAX := 130.0                   ## 粒子速度上限
+const FLARE_SIDE_BACK_COMPONENT := 0.25        ## 侧抛方向附带少量斜后分量
+const FLARE_SIDE_JITTER := 0.18                ## 侧抛方向轻微散布
+const FLARE_VEL_MIN := 80.0                    ## 粒子速度下限
+const FLARE_VEL_MAX := 140.0                   ## 粒子速度上限
 const FLARE_SPAWN_DIST_MIN := 8.0              ## 生成距离下限
 const FLARE_SPAWN_DIST_MAX := 15.0             ## 生成距离上限
 const FLARE_SPAWN_PERP_MAX := 4.0              ## 生成横向偏移最大值
-const FLARE_LIFE_MIN := 2.0                    ## 粒子寿命下限（秒）
-const FLARE_LIFE_MAX := 3.5                    ## 粒子寿命上限（秒）
+const FLARE_LIFE_MIN := 3.0                    ## 粒子寿命下限（秒）
+const FLARE_LIFE_MAX := 4.8                    ## 粒子寿命上限（秒）
 
 # ── 玩家方智能放焰（TTI 触发，2026-06-14）──
 # 用户反馈：玩家/僚机经常在导弹还很远、甚至对速度慢追不上的导弹就放焰，很浪费。
 # 玩家方改为按"命中剩余时间(TTI)"判定：只对【正在逼近(会命中)且即将到达】的导弹放焰。
-# 敌方 AI 路径不变（维持难度）。
-const FLARE_TTI_THRESHOLD := 1.5      ## 命中剩余时间 ≤ 此值(s)才放焰（确保导弹确实即将命中）
-const FLARE_MIN_DIST_M := 300.0       ## 距离 ≤ 此值(m)的逼近导弹无条件放焰（终端兜底，防慢速 TTI 偏大漏放）
+# 敌方 AI 的投放时机不在此处调整；其投焰后的 break 语义见下方敌机分流。
+const FLARE_TTI_THRESHOLD := 1.0      ## 命中剩余时间 ≤ 此值(s)才放焰（确保导弹已进入末段）
+const FLARE_MIN_DIST_M := 200.0       ## 距离 ≤ 此值(m)的逼近导弹无条件放焰（终端兜底，防慢速 TTI 偏大漏放）
 const FLARE_MIN_CLOSING_MS := 30.0    ## 闭合速度 < 此值(m/s) → 追不上/在远离 → 不是会命中的威胁，绝不放焰
+
+# ── 敌机投焰后的真实 break（spec flare-evasion-coupling）──
+## 敌机只要有 flare 就会认真尝试 break：等级决定 80%→95% 的执行可靠性，
+## 不再让低级敌人大多数时候因双重概率门而完全失去反制能力。
+const ENEMY_RELEASE_FAIL_SCALE := 0.10
+const ENEMY_BREAK_CHANCE_MIN := 0.80
+const ENEMY_BREAK_CHANCE_MAX := 0.95
 
 # ── 僚机护卫 flare（spec wingman-escort-evasion §2.2）──
 # 玩家按 E 进护卫姿态时，编队待命的僚机替长机投焰干扰追长机的导弹。
@@ -44,7 +51,7 @@ const ESCORT_FLARE_LEADER_RANGE_M := 800.0  ## 僚机距长机 ≤ 此值才能�
 const ESCORT_BASE_JAM := 0.70               ## 僚机紧贴长机(距离≈0)时干扰概率上限；按近度线性衰减到 0
 
 const _BURST_WAVE_COUNT := 6                   ## 视觉分波数
-const _BURST_WAVE_INTERVAL := 0.12             ## 每波间隔（秒）
+const _BURST_WAVE_INTERVAL := 0.18             ## 每波间隔（秒），六波共持续 0.90s
 const FLARE_VISUAL_WAVE_COUNTS := [2, 2, 1, 2, 2, 1]  ## 保留六波节奏，总数严格 10
 
 ## 主入口：每帧由 aircraft._physics_process 调用
@@ -196,6 +203,9 @@ static func update(ac: Aircraft, delta: float) -> void:
 			var missile_dir := (nearest_missile.global_position - ac.global_position).normalized()
 			if my_dir.dot(missile_dir) > 0.5:
 				actual_fail = maxf(actual_fail - fp.head_on_fail_reduction, 0.0)
+		# 敌方 fail_chance 保留机型相对纪律，但只作为小概率失误权重；玩家方语义不变。
+		if not is_player_side:
+			actual_fail = enemy_release_fail_chance_for_configured(actual_fail)
 		if randf() < actual_fail:
 			ac._flare_ignored_missiles[mid] = true
 			return
@@ -262,8 +272,8 @@ static func release(ac: Aircraft, target_missile: Missile = null) -> void:
 	# 722 sig_mirage3·幻影：flare 保护窗（穿透窗 + 锁定豁免）时长 ×1.6
 	var sig_m3: bool = ac.has_meta("upgrade_stacks") \
 			and int((ac.get_meta("upgrade_stacks") as Dictionary).get("sig_mirage3", 0)) > 0
-	# 导弹穿透窗口：玩家 / BOSS 享有
-	if ac.flares_guaranteed or ac.boss_flare_immunity:
+	# 导弹穿透窗口只保留玩家既有技能语义；敌机投焰后必须先完成真实 break。
+	if ac.is_player_squad() and ac.flares_guaranteed:
 		ac.missile_phase_timer = MISSILE_PHASE_DURATION * (1.6 if sig_m3 else 1.0)
 
 	# 电子对抗升级：清除所有雷达锁定 + 锁定免疫
@@ -285,13 +295,26 @@ static func release(ac: Aircraft, target_missile: Missile = null) -> void:
 	if target_missile.target != ac:
 		return
 
+	# 敌机投焰只发起一次“可命中”的 break 尝试：此刻不写 jam，不给穿透窗。
+	# AI 会继续走 MissileEvasion 的转向/加速/换高度；导弹只在真实轨迹达门后兑现失导。
+	if not ac.is_player_squad():
+		var break_chance: float = enemy_flare_break_chance(ac)
+		var roll_passed: bool = randf() < break_chance
+		if target_missile.begin_enemy_flare_break(ac, roll_passed, break_chance):
+			# 普通敌机通常已在 EVADE；BOSS 攻击手原本被入口门排除，这里只在实际投焰后
+			# 窄触发一次 break，不改变它们平时的强攻击欲或玩家侧行为。
+			var enemy_ai: AIController = ac._ai_ref
+			if enemy_ai != null and is_instance_valid(enemy_ai) and not enemy_ai._evading:
+				MissileEvasion.enter_evade(enemy_ai)
+			var pending_name: String = target_missile.params.display_name \
+					if target_missile.params else "MSL"
+			EventLogger.log_event("MISSILE", pending_name,
+				"enemy flare break pending (target=%s skill_chance=%.0f%%)" % [
+					ac._log_name(), break_chance * 100.0])
+		return
+
 	var jam_chance: float
-	if AceTier.is_ace(ac):
-		# 王牌中队：热诱弹即命数，干扰恒定 100%（spec ace-squadron-tier §3.3）。
-		# 引入概率会让"1 枚 = 1 条命"不成立 —— 玩家无法从"骗掉几发"推断剩余命数，
-		# 且迎头交战时命数会随机蒸发（正是 Wraith"偶尔一发就死"的体感来源）
-		jam_chance = 1.0
-	elif ac.flares_guaranteed:
+	if ac.flares_guaranteed:
 		# 后侧方 + 斜前方 100% 干扰，只有正面对冲走概率
 		var missile_to_me := (ac.global_position - target_missile.global_position).normalized()
 		var my_fwd := Vector2(sin(ac.heading), -cos(ac.heading))
@@ -334,6 +357,29 @@ static func release(ac: Aircraft, target_missile: Missile = null) -> void:
 		EventLogger.log_event("MISSILE", msl_name_f,
 			"flare FAILED to jam (target %s, jam_chance=%.0f%%, missile still tracking)" % [
 				ac._log_name(), jam_chance * 100.0])
+
+
+## 敌机投焰后的执行成功率：使用 AI 有效操控水平，低级 80% → 顶级 95%。
+## 概率只决定机动执行是否有效；没有真实轨迹变化时即使 roll 通过也不会失导。
+static func enemy_flare_break_chance(ac: Aircraft) -> float:
+	var skill: float = 0.0
+	if ac != null and is_instance_valid(ac):
+		var ai: AIController = ac._ai_ref
+		if ai != null and is_instance_valid(ai):
+			skill = ai._effective_skill()
+	return enemy_flare_break_chance_for_skill(skill)
+
+
+## 纯函数入口供 deterministic focused test 使用。
+static func enemy_flare_break_chance_for_skill(skill: float) -> float:
+	return lerpf(ENEMY_BREAK_CHANCE_MIN, ENEMY_BREAK_CHANCE_MAX,
+		clampf(skill, 0.0, 1.0))
+
+
+## 敌机的资源 fail_chance 是相对纪律权重；实际“完全没投出来”只保留十分之一。
+## 例如低级机配置 0.85 → 实际 8.5%，仍明显高于高端机配置 0.10 → 1%。
+static func enemy_release_fail_chance_for_configured(configured_fail: float) -> float:
+	return clampf(configured_fail, 0.0, 1.0) * ENEMY_RELEASE_FAIL_SCALE
 
 ## 护卫 flare（spec wingman-escort-evasion §3.2）：编队待命的僚机替长机投焰，
 ## 干扰【追长机】且【即将命中长机】的导弹。仅玩家方僚机在长机护卫广播期间由
@@ -507,9 +553,11 @@ static func _update_particles(ac: Aircraft, delta: float) -> void:
 		q["delay"] -= delta
 		q["pos"] = ac.global_position   # 跟随飞机
 		q["heading"] = ac.heading
-		if float(q["delay"]) <= 0.0:
+		# 0.90 - 5×0.18 可能留下极小正浮点尾差；到点容差避免末波无意义晚一帧。
+		if float(q["delay"]) <= 0.0001:
 			var wave_count: int = int(q.get("count", 0))
-			_spawn_wave(ac, q["pos"] as Vector2, float(q["heading"]), wave_count)
+			_spawn_wave(ac, q["pos"] as Vector2, float(q["heading"]), wave_count,
+				int(q.get("wave", 0)))
 			ac.flare_visual_burst_emitted = mini(
 				ac.flare_visual_burst_emitted + wave_count, 10)
 		else:
@@ -530,7 +578,7 @@ static func _update_particles(ac: Aircraft, delta: float) -> void:
 		kept.append(p)
 	ac._flare_particles = kept
 
-## 保留既有 6 波 / 0.12s 节奏，但固定每波数量，使一次投放严格等于 HUD 的 10 颗星。
+## 六波间隔延长到 0.18s，并固定每波数量，使一次投放严格等于 HUD 的 10 颗星。
 static func _queue_visual_burst(ac: Aircraft) -> void:
 	ac.flare_visual_burst_emitted = 0
 	for w in range(_BURST_WAVE_COUNT):
@@ -539,19 +587,30 @@ static func _queue_visual_burst(ac: Aircraft) -> void:
 			"heading": ac.heading,
 			"pos": ac.global_position,
 			"count": int(FLARE_VISUAL_WAVE_COUNTS[w]),
+			"wave": w,
 		})
 
 
-## 生成一波热诱弹粒子（从飞机当前位置向后方喷射）
-static func _spawn_wave(ac: Aircraft, spawn_pos: Vector2, spawn_heading: float, wave_count: int) -> void:
+## 生成一波热诱弹粒子：双枚波左右各一，单枚波按波序左右交替，均略向斜后方。
+static func _spawn_wave(ac: Aircraft, spawn_pos: Vector2, spawn_heading: float,
+		wave_count: int, wave_index: int) -> void:
 	var back_dir := Vector2(-sin(spawn_heading), cos(spawn_heading))
 	var perp := Vector2(back_dir.y, -back_dir.x)
 	for k in range(wave_count):
-		var spread := randf_range(-FLARE_SPREAD_MAX, FLARE_SPREAD_MAX)
-		var vel := (back_dir + perp * spread) * randf_range(FLARE_VEL_MIN, FLARE_VEL_MAX)
+		var side_sign: float
+		if wave_count >= 2:
+			side_sign = -1.0 if k % 2 == 0 else 1.0
+		else:
+			side_sign = -1.0 if wave_index % 2 == 0 else 1.0
+		var side_dir: Vector2 = (perp * side_sign \
+				+ back_dir * FLARE_SIDE_BACK_COMPONENT \
+				+ perp * randf_range(-FLARE_SIDE_JITTER, FLARE_SIDE_JITTER)).normalized()
+		var vel := side_dir * randf_range(FLARE_VEL_MIN, FLARE_VEL_MAX)
 		var is_bright := k == 0
 		ac._flare_particles.append({
-			"pos": spawn_pos + back_dir * randf_range(FLARE_SPAWN_DIST_MIN, FLARE_SPAWN_DIST_MAX) + perp * randf_range(-FLARE_SPAWN_PERP_MAX, FLARE_SPAWN_PERP_MAX),
+			"pos": spawn_pos \
+					+ back_dir * randf_range(FLARE_SPAWN_DIST_MIN, FLARE_SPAWN_DIST_MAX) \
+					+ perp * side_sign * randf_range(FLARE_SPAWN_PERP_MAX, FLARE_SPAWN_PERP_MAX + 4.0),
 			"vel": vel,
 			"life": randf_range(FLARE_LIFE_MIN, FLARE_LIFE_MAX),
 			"bright": is_bright,

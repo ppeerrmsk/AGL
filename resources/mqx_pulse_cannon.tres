@@ -5,13 +5,13 @@
 [resource]
 script = ExtResource("1")
 display_name = "MQ-X Pulse Cannon"
-; ── 精英版"点射激光"——比 loyal_wingman_laser 射程更远 + 更精准 + 单发更狠 ──
-; loyal_wingman_laser : range 1400 / spread 0.3 / dmg 20 / vel 1800
-; MQ-X             : range 1800 / spread 0.15 / dmg 25 / vel 2200
-fire_rate = 50.0
+; ── 精英版"点射激光"：三发短梭，截图中 2km 交战距离仍在包络内 ──
+; 三发全中 = 75 伤害；两架同步全中仍可以杀伤玩家，但不靠单架一梭秒杀。
+fire_rate = 180.0
 bullet_damage = 25.0
-muzzle_velocity = 2200.0
-max_range = 1800.0
-spread_angle = 0.15
-fire_cone_half_angle = 5.0
+muzzle_velocity = 2400.0
+max_range = 2200.0
+spread_angle = 0.10
+fire_cone_half_angle = 8.0
+burst_count = 3
 max_ammo = 999

@@ -46,6 +46,22 @@ const MISSION_TYPE_LABELS: Dictionary = {
 const TIER3_PROFILE_IDS: Array[StringName] = [&"auto", &"super_cannon", &"siege_tank"]
 const TIER3_PROFILE_LABELS: Array[String] = ["3★自动", "3★巨炮", "3★攻城坦克"]
 
+
+## 具体地面 3★ profile 是原子 Debug 预设，不能与旧的 1★/空战选择拼成无效组合。
+static func normalize_zone_change_request(mission_type: String, difficulty: int,
+		tier3_profile: StringName) -> Dictionary:
+	if tier3_profile == &"super_cannon" or tier3_profile == &"siege_tank":
+		return {
+			"mission_type": "ground",
+			"difficulty": ZoneData.DIFFICULTY_MAX,
+			"tier3_profile": tier3_profile,
+		}
+	return {
+		"mission_type": mission_type,
+		"difficulty": difficulty,
+		"tier3_profile": tier3_profile,
+	}
+
 ## Debug 必须覆盖完整战区奖励表；新增奖励时 skill_audit 会校验本清单是否同步。
 const DEBUG_REWARD_OPTIONS: Array[Dictionary] = [
 	{"label": "航母增援", "kind": "carrier", "id": "carrier"},
@@ -63,7 +79,7 @@ const DEBUG_REWARD_OPTIONS: Array[Dictionary] = [
 	{"label": "次世代｜凝视压迫", "kind": "nextgen", "id": "fear_on_lock"},
 	{"label": "次世代｜炮艇模式", "kind": "nextgen", "id": "gunship_mode"},
 	{"label": "次世代｜重炮", "kind": "nextgen", "id": "heavy_gun"},
-	{"label": "次世代｜狂化病毒", "kind": "nextgen", "id": "berserk_virus"},
+	# 狂化病毒已移入实验级普通卡池；仍可从 F4 技能面板直接授予。
 ]
 
 
@@ -386,6 +402,18 @@ func _build_zone_row(zid: StringName, zd: ZoneData) -> PanelContainer:
 		if zm != null and zm.has_method("debug_get_tier3_profile") else &"auto"
 	profile_opt.selected = maxi(TIER3_PROFILE_IDS.find(current_profile), 0)
 	apply_row.add_child(profile_opt)
+	profile_opt.item_selected.connect(func(index: int):
+		if index <= 0 or index >= TIER3_PROFILE_IDS.size():
+			return
+		type_opt.select(MISSION_TYPES.find("ground"))
+		star_opt.select(ZoneData.DIFFICULTY_MAX - 1))
+	type_opt.item_selected.connect(func(index: int):
+		if index >= 0 and index < MISSION_TYPES.size() \
+				and MISSION_TYPES[index] != "ground" and profile_opt.selected > 0:
+			profile_opt.select(0))
+	star_opt.item_selected.connect(func(index: int):
+		if index + 1 < ZoneData.DIFFICULTY_MAX and profile_opt.selected > 0:
+			profile_opt.select(0))
 
 	var apply_btn := Button.new()
 	apply_btn.text = "Set & Spawn"
@@ -471,12 +499,27 @@ func _apply_zone_change(zid: StringName, new_mission_type: String,
 	if zd == null or zm == null:
 		return
 
-	# 覆写 mission_type / Debug profile；难度仍走 ZoneData 唯一 3★槽，不能由 F6 绕过。
+	var request := normalize_zone_change_request(new_mission_type, difficulty, tier3_profile)
+	new_mission_type = String(request["mission_type"])
+	difficulty = int(request["difficulty"])
+	tier3_profile = StringName(request["tier3_profile"])
+
+	# F6 强制 3★时转移正式唯一槽：先撤销并重刷旧占用者，再生成新来源。
+	# 这样既不会把用户请求静默压成 2★，也不会短暂保留两套活跃全局威胁。
+	var displaced_tier3: Array[StringName] = []
+	if difficulty == ZoneData.DIFFICULTY_MAX:
+		displaced_tier3 = zd.debug_claim_tier3_slot(zid)
+		for old_id in displaced_tier3:
+			if zm.has_method("debug_set_tier3_profile"):
+				zm.debug_set_tier3_profile(old_id, &"auto")
+			zm.debug_force_respawn_zone(old_id)
+	elif difficulty >= ZoneData.DIFFICULTY_MIN:
+		zd.debug_set_difficulty(zid, difficulty)
+
+	# 覆写 mission_type / Debug profile；具体地面 profile 已在上方归一为 ground + 3★。
 	zd.debug_set_mission_type(zid, new_mission_type)
 	if zm.has_method("debug_set_tier3_profile"):
 		zm.debug_set_tier3_profile(zid, tier3_profile)
-	if difficulty >= ZoneData.DIFFICULTY_MIN:
-		zd.debug_set_difficulty(zid, difficulty)
 
 	var state := zd.get_state(zid)
 	if state == ZoneData.State.LOCKED or state == ZoneData.State.CLEARED \
@@ -488,8 +531,9 @@ func _apply_zone_change(zid: StringName, new_mission_type: String,
 		zm.debug_force_respawn_zone(zid)
 
 	EventLogger.log_event("ZONE", "DebugApply",
-		"id=%s new_mt=%s star=%d profile=%s prev_state=%d" % [zid,
-			new_mission_type, zd.get_difficulty(zid), tier3_profile, state])
+		"id=%s new_mt=%s star=%d profile=%s displaced=%s prev_state=%d" % [zid,
+			new_mission_type, zd.get_difficulty(zid), tier3_profile,
+			str(displaced_tier3), state])
 	_rebuild_zones_list()
 
 

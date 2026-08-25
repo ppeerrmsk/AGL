@@ -27,6 +27,9 @@
 class_name AceSquad
 extends BossEncounter
 
+const SENSOR_STEALTH_CONTROLLER := preload(
+	"res://scripts/survivor/sensor_stealth_controller.gd")
+
 # ══════════════════════════════════════════════
 #  状态机
 # ══════════════════════════════════════════════
@@ -56,7 +59,8 @@ var cloak_cycle: float = 60.0       ## 基础 CD（秒）
 var cloak_duration: float = 5.5
 var cloak_fade: float = 0.5
 var cloak_cycle_jitter: float = 20.0
-const CLOAK_EMERGENCY_MIN_ELAPSED: float = 10.0  ## 紧急隐形最早触发的间隔
+var cloak_emergency_enabled: bool = true
+const CLOAK_EMERGENCY_MIN_ELAPSED: float = 10.0  ## 非 Wraith 子类的既有紧急隐形最早触发间隔
 
 ## 距离
 var standoff_radius_min: float = 1800.0
@@ -68,10 +72,10 @@ var force_pursuit_distance: float = 2500.0  ## 距玩家 > 此值时开加力（
 const PURSUIT_MAINTAIN_INTERVAL := 0.5
 
 ## 世界边缘收容（boss-hunter-doctrine §2.4.1）。这是世界外框硬约束，不是已删除的锚点 leash。
-const BOUNDARY_TRIGGER_PX := 2000.0
-const BOUNDARY_RECOVER_MARGIN_PX := 3000.0
-const BOUNDARY_TARGET_MARGIN_PX := 3500.0
-const BOUNDARY_ARRIVAL_RADIUS_PX := 300.0  ## 目标比解除线深 500px，保证抵达 HOLD 前已释放
+const BOUNDARY_TRIGGER_PX := MapBoundary.AI_EDGE_TURN_MARGIN_PX
+const BOUNDARY_RECOVER_MARGIN_PX := 800.0
+const BOUNDARY_TARGET_MARGIN_PX := MapBoundary.EXTENSION_WIDTH_PX + 200.0
+const BOUNDARY_ARRIVAL_RADIUS_PX := 300.0  ## 目标比解除线深 400px，保证抵达 HOLD 前已释放
 const BOUNDARY_HARD_CLAMP_MARGIN_PX := 40.0
 const BOUNDARY_DIRECTIVE_PRIORITY := 100
 
@@ -408,18 +412,22 @@ func _decide_next_state(delta: float) -> int:
 			if cloak_enabled and _should_enter_cloak():
 				return SquadState.CLOAK
 		SquadState.CLOAK:
+			if _has_close_player_contact():
+				return SquadState.PURSUIT
 			_cloak_remaining -= delta
 			if _cloak_remaining <= 0.0:
 				return SquadState.PURSUIT
 	return squad_state
 
-## CLOAK 触发条件：CD 到了 OR 紧急（CD 已过最短间隔且有导弹来袭）
+## CLOAK 触发条件：CD 完成且玩家不在近距揭露圈；可选紧急触发仅供非 Wraith 子类。
 func _should_enter_cloak() -> bool:
+	if _has_close_player_contact():
+		return false
 	if _cloak_cd_timer <= 0.0:
 		return true
-	# 紧急隐形：CD 已过最短间隔 + 有导弹锁住任一成员
 	var elapsed_in_cd := cloak_cycle - _cloak_cd_timer
-	if elapsed_in_cd >= CLOAK_EMERGENCY_MIN_ELAPSED and _has_incoming_missile():
+	if cloak_emergency_enabled and elapsed_in_cd >= CLOAK_EMERGENCY_MIN_ELAPSED \
+			and _has_incoming_missile():
 		EventLogger.log_event("BOSS", display_name, "emergency cloak (incoming missile)")
 		return true
 	return false
@@ -573,12 +581,6 @@ func _pursuit_update(delta: float) -> void:
 func _cloak_enter() -> void:
 	_cloak_in_state = true
 	_cloak_remaining = cloak_duration
-	# 玩家若锁着我们，清掉锁（给视觉效果一个清爽起点）
-	if _player.combat_target and is_instance_valid(_player.combat_target):
-		for m in members:
-			if _player.combat_target == m:
-				_player.clear_combat_target()
-				break
 	# 黄色战术框
 	var popup_text := tr("POPUP_CLOAK")
 	for m in members:
@@ -588,9 +590,11 @@ func _cloak_enter() -> void:
 
 func _cloak_update(_delta: float) -> void:
 	# 衰减视觉
+	var newly_cloaked: Array[Aircraft] = []
 	for m in members:
 		if not is_instance_valid(m):
 			continue
+		var was_cloaked := m.is_cloaked
 		if _cloak_remaining > cloak_duration - cloak_fade:
 			# 起 fade-in 阶段：alpha 1→0
 			var fade_progress := (cloak_duration - _cloak_remaining) / cloak_fade
@@ -604,7 +608,19 @@ func _cloak_update(_delta: float) -> void:
 		else:
 			m._cloak_alpha = 0.0
 			m.is_cloaked = true
+		if m.counter_stealth_revealed:
+			m._cloak_alpha = 1.0
+			m.is_cloaked = false
+		if m.is_cloaked and not was_cloaked:
+			newly_cloaked.append(m)
+			m.sync_stealth_trail_emission()
+		elif was_cloaked and not m.is_cloaked:
+			m.sync_stealth_trail_emission()
 		m.suppress_flares = true
+	# 四机通常在同帧跨过隐形沿；合批后全场玩家观察者只扫描一次。
+	if not newly_cloaked.is_empty():
+		SENSOR_STEALTH_CONTROLLER.release_player_sensor_refs_batch(
+			newly_cloaked, CombatUnit.all_units, false, "optical cloak")
 
 func _cloak_exit() -> void:
 	_cloak_in_state = false
@@ -615,7 +631,20 @@ func _cloak_exit() -> void:
 		m.is_cloaked = false
 		m._cloak_alpha = 1.0
 		m.suppress_flares = false
+		m.sync_stealth_trail_emission()
 	EventLogger.log_event("BOSS", display_name, "cloak deactivated")
+
+
+func _has_close_player_contact() -> bool:
+	if _player == null or not is_instance_valid(_player) or _player.is_destroyed:
+		return false
+	var reveal_dist_sq := SensorStealthController.PROXIMITY_REVEAL_PX \
+		* SensorStealthController.PROXIMITY_REVEAL_PX
+	for member in members:
+		if is_instance_valid(member) and not member.is_destroyed \
+				and member.global_position.distance_squared_to(_player.global_position) <= reveal_dist_sq:
+			return true
+	return false
 
 # ══════════════════════════════════════════════
 #  外部触发（BossEncounterEvent 调用）

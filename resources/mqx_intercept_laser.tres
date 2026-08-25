@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="LaserEquipment" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/equipment/laser_equipment.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+equipment_kind = "laser"
+display_name = "MQ-X Intercept Laser"
+max_range_m = 2500.0
+dps_max = 95.0
+dps_min = 25.0
+falloff_exp = 1.5
+can_target_aircraft = false
+can_target_missiles = true
+can_target_ground = false
+max_simultaneous_targets = 1
+intercepts_missiles_directly = true
+heat_max = 100.0
+heat_per_second = 35.0
+heat_cooldown_per_second = 25.0
+overheat_exit_threshold = 0.3
+cloud_damage_factor_min = 0.30
+cloud_beam_thickness_factor_min = 0.40
+beam_color = Color(0.35, 0.9, 1.0, 1.0)
+beam_thickness_base = 2.2

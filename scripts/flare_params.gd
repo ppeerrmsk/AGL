@@ -17,8 +17,9 @@ extends Resource
 @export var low_energy_bonus: float = 0.2  ## 导弹低能量（发动机熄火后）时的额外成功率
 
 @export_group("释放纪律")
-## 面对来袭导弹未能及时释放的概率 (0=必定释放, 1=必定失误)
-## 编队低级机设高值（~0.5-0.85），精英单机设低值（~0.15）
+## 面对来袭导弹未能及时释放的纪律权重 (0=必定释放, 1=最易失误)。
+## 敌机运行时按 flare-evasion-coupling 缩放为 10% 的实际失误率；玩家方仍直接使用该值。
+## 编队低级机设高值（~0.5-0.85），精英单机设低值（~0.15），保留相对等级差。
 @export var fail_chance: float = 0.0
 ## 导弹从正前方来时，失误率降低量（Lancer 型对头冲刺时更警觉）
 @export var head_on_fail_reduction: float = 0.0

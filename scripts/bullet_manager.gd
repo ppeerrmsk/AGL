@@ -647,6 +647,9 @@ func _apply_projectile_damage(unit: CombatUnit, amount: float, projectile: Dicti
 	var formal_ground_tgt: bool = unit is GroundUnit and unit.has_meta(&"zone_mission")
 	if bool(projectile.get("ambient_tgt_nonlethal", false)) and formal_ground_tgt:
 		unit.take_atmosphere_damage(amount, attacker, kind)
+	elif unit is Aircraft:
+		(unit as Aircraft).take_damage_at(amount, Vector2(projectile.get("pos", unit.global_position)),
+			attacker, kind, Vector2(projectile.get("vel", Vector2.ZERO)))
 	else:
 		unit.take_damage(amount, attacker, kind)
 
@@ -726,7 +729,9 @@ func _explode_airburst_shell(shell: Dictionary) -> void:
 				continue
 			if not unit.can_accept_new_hit("airburst"):
 				continue
-			unit.take_damage(float(shell["damage"]), attacker, "airburst")
+			(unit as Aircraft).take_damage_at(
+				float(shell["damage"]), pos, attacker, "airburst",
+				unit.global_position - pos)
 	_area_flashes.append({
 		"pos": pos,
 		"radius": radius_px,
@@ -974,7 +979,11 @@ func _physics_process(delta: float) -> void:
 				if is_rocket:
 					# 火箭不进入子弹闪避系统
 					# 爆炸 + AOE 一并处理（_explode_rocket 内部判断 aoe_radius，无 AOE 时仅出 VFX）
-					_explode_rocket(b, ac.global_position, ac)
+					var rocket_impact_pos: Vector2 = ac.global_position
+					if ac is Aircraft:
+						rocket_impact_pos = AircraftDestruction.record_hit(
+							ac as Aircraft, Vector2(b["pos"]), Vector2(b["vel"]))
+					_explode_rocket(b, rocket_impact_pos, ac)
 					if ac is NavalUnit:
 						# 火箭对船体总血削 50%，可以打穿弱点（破甲效果）
 						if is_instance_valid(b["source"]):
@@ -987,7 +996,8 @@ func _physics_process(delta: float) -> void:
 					# false = 本发被闪避；此时不记命中、不出火星。
 					# attacker 传入用于"对头机炮闪避"几何检查
 					damage_applied = ac.take_bullet_damage(
-						b["damage"] * dmg_mult, CombatUnit.safe_attacker(b["source"]))
+						b["damage"] * dmg_mult, CombatUnit.safe_attacker(b["source"]),
+						Vector2(b["pos"]), Vector2(b["vel"]))
 				elif ac is NavalUnit:
 					# 机炮子弹：
 					#   - 总血削 15%（高射速高伤害 → 低总血贡献，避免一梭子秒船）
@@ -1049,7 +1059,10 @@ func _physics_process(delta: float) -> void:
 					if dmg > 0.0:
 						msl.intercept_hp -= dmg
 						if msl.intercept_hp <= 0.0:
-							# CIWS 拦截无爆炸 VFX → 走渐隐 coasting，与寿命到期保持一致视觉
+							# 小型导弹被击毁只播放一次普通方框，不进入任何连续爆炸序列。
+							if is_inside_tree():
+								ExplosionVFXScript.emit(get_tree(), msl.global_position,
+									msl.heading, AircraftDestruction.MISSILE_BREAKUP_SCALE)
 							msl._start_fade_out()
 							EventLogger.log_event("CIWS", "Player",
 								"intercepted missile (final dist=%.0f, factor=%.2f)" % [msl_to_src, factor])

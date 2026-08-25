@@ -41,6 +41,7 @@ func _init() -> void:
 	cloak_duration = SurvivorData.F47_CLOAK_DURATION
 	cloak_fade = SurvivorData.F47_CLOAK_FADE
 	cloak_cycle_jitter = SurvivorData.F47_CLOAK_CYCLE_JITTER
+	cloak_emergency_enabled = false  # Wraith 的 60s CD 不允许来袭导弹绕过
 
 	# 距离
 	standoff_radius_min = SurvivorData.F47_STANDOFF_RADIUS_MIN

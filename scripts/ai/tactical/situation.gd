@@ -302,7 +302,8 @@ static func from_aircraft(ac) -> Situation:
 	# 的隐形清除被 use_tactical_planner early-return 跳过，若不在此拦，玩家亲控机会对隐形目标保持
 	# 零误差位置跟踪（只扳机哑火）。只认 is_cloaked（与 combat_tracking:78 同款），不认 is_lock_immune()
 	# —— MountTarget（船挂点）合法可打，不能因其 lock_immune 路由 trick 丢目标
-	if tgt is Aircraft and (tgt as Aircraft).is_cloaked:
+	if tgt is Aircraft and ((tgt as Aircraft).is_cloaked \
+			or ac.is_sensor_engagement_obscured(tgt)):
 		tgt = null
 	if tgt != null and is_instance_valid(tgt) and not tgt.is_destroyed:
 		s.has_target = true

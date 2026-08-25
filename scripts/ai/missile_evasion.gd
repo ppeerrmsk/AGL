@@ -168,10 +168,10 @@ static func exit_evade(ai: AIController) -> void:
 ##   ① 无真威胁导弹 → 不躲。_is_evasion_threat 已滤掉"追不上/还很远/已过头"的导弹，
 ##      被雷达锁定本身不构成脱离命令/编队的理由。
 ##   ② 有真威胁但 flare 还能兜底（弹量/CD 就绪）→ 不进运动学规避，留在命令/编队航线，
-##      智能 flare 会在末段（TTI≤1.5s）自动出手——多数导弹到此为止，不脱队。
+##      智能 flare 会在末段（TTI≤1.0s）自动出手——多数导弹到此为止，不脱队。
 ##   ③ flare 不可用（弹尽/装填/冷却/隐身抑制/机动中）或 flare 已对这枚弹失误放弃
 ##      → 才允许加速散开躲弹（此时命令铁律让位，见 _enforce_commanded_target）。
-## 敌方不受 flare 门约束（维持难度，行为与旧 check_incoming_missile 完全一致）。
+## 敌方不受玩家 flare 门约束；实际投焰后仍由本模块执行局部 break，是否失导由 Missile 验证真实轨迹。
 static func should_enter_evade(ai: AIController) -> bool:
 	# leash 拽回后的再入冷却：归队意志压过规避一小段（回程即变向，且回到护卫焰覆盖内）
 	if ai._evade_reenter_cd > 0.0:

@@ -10,6 +10,9 @@ const GRID_SPACING := 80.0
 const GRID_COLOR := ThemeColors.GRID_COLOR
 const LINE_COLOR := ThemeColors.GRID_LINE
 const BG_COLOR := ThemeColors.SCENE_BG
+const FINAL_WAR_SCENARIO := "final_war"
+const FINAL_WAR_MAP_ID := "ocean_islands_preview"
+const FINAL_WAR_MAP_PATH := "res://resources/maps/ocean_islands_preview.aglmap"
 
 var _time := 0.0
 var _canvas: CanvasLayer
@@ -41,6 +44,7 @@ const BOSS_LIST: Array[Dictionary] = [
 		"desc": "BOSS_DEBUG_BLACK_STAR_DESC",
 		"tags": ["TAG_AIR", "TAG_SPLITTER"],
 		"scenarios": [
+			["FINAL WAR // OCEAN", FINAL_WAR_SCENARIO],
 			["FULL ENCOUNTER", "full"],
 			["G0 OMNI SALVO", "g0_weapons"],
 			["G1 REENTRY", "g1_reentry"],
@@ -71,6 +75,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_tree().remove_meta("boss_debug_id")
 		if get_tree().has_meta("boss_debug_scenario"):
 			get_tree().remove_meta("boss_debug_scenario")
+		if get_tree().has_meta("ugc_map_path"):
+			get_tree().remove_meta("ugc_map_path")
+		if get_tree().has_meta("map_preview_only"):
+			get_tree().remove_meta("map_preview_only")
 		get_tree().change_scene_to_file("res://scenes/survivor_map_select.tscn")
 
 func _draw() -> void:
@@ -290,5 +298,13 @@ func _on_boss_selected(index: int, scenario: String = "full") -> void:
 	get_tree().set_meta("boss_debug_mode", true)
 	get_tree().set_meta("boss_debug_id", data["id"])
 	get_tree().set_meta("boss_debug_scenario", scenario)
-	get_tree().set_meta("survivor_map_id", "boss_debug")
+	if scenario == FINAL_WAR_SCENARIO:
+		get_tree().set_meta("survivor_map_id", FINAL_WAR_MAP_ID)
+		get_tree().set_meta("ugc_map_path", FINAL_WAR_MAP_PATH)
+		get_tree().set_meta("map_preview_only", false)
+	else:
+		get_tree().set_meta("survivor_map_id", "boss_debug")
+		if get_tree().has_meta("ugc_map_path"):
+			get_tree().remove_meta("ugc_map_path")
+		get_tree().set_meta("map_preview_only", false)
 	get_tree().change_scene_to_file("res://scenes/survivor_select.tscn")

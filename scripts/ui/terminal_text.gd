@@ -25,6 +25,11 @@ const ONE_U_FONT_SIZE := 15
 
 static var _silkscreen_font: FontFile
 const MAX_INK_FONT_SIZE_MULTIPLIER := 8.0
+const MAX_INK_BOUNDS_CACHE_ENTRIES := 2048
+
+# TextServer 的 glyph contour 查询远重于真正的 draw_string。终端 HUD 会反复以
+# 相同字体/字号绘制有限的数字与短标签，因此在通用文字入口缓存可见轮廓。
+static var _ink_bounds_cache: Dictionary = {}
 
 var text: String = "":
 	set(value):
@@ -216,6 +221,10 @@ static func layout_fits(font: Font, value: String, font_size: int, ink: Vector2,
 
 
 static func measure_ink_bounds(font: Font, value: String, font_size: int) -> Vector2:
+	var cache_key := "%d:%d:%s" % [font.get_instance_id(), font_size, value]
+	if _ink_bounds_cache.has(cache_key):
+		return _ink_bounds_cache[cache_key] as Vector2
+
 	var text_server := TextServerManager.get_primary_interface()
 	var shaped := text_server.create_shaped_text()
 	var added := text_server.shaped_text_add_string(
@@ -262,7 +271,11 @@ static func measure_ink_bounds(font: Font, value: String, font_size: int) -> Vec
 		bottom = maxf(bottom, glyph_bottom)
 
 	text_server.free_rid(shaped)
-	return Vector2(top, bottom)
+	var result := Vector2(top, bottom)
+	if _ink_bounds_cache.size() >= MAX_INK_BOUNDS_CACHE_ENTRIES:
+		_ink_bounds_cache.clear()
+	_ink_bounds_cache[cache_key] = result
+	return result
 
 
 static func has_visible_ink(bounds: Vector2) -> bool:

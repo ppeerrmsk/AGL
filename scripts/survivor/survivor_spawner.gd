@@ -2608,7 +2608,8 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tie
 		if etype != EnemyType.F47 and etype != EnemyType.F14_POLTERGEIST:
 			enemy_params.flare.burst_count = 1
 			enemy_params.flare.max_flares = 1
-		# 热诱弹失误概率：编队低级机高失误率，精英单机低失误率
+		# 热诱弹配置纪律：低级机权重较高、精英较低；实际“不投焰”概率由
+		# flare-evasion-coupling 统一缩放为该值的 10%，避免低级敌人因双重概率门过弱。
 		match etype:
 			EnemyType.UAV:
 				enemy_params.flare.fail_chance = 0.85
@@ -2640,10 +2641,10 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tie
 			EnemyType.UAV_COMMANDER:
 				enemy_params.flare.fail_chance = 0.0
 			EnemyType.AH64:
-				# 攻击直升机：战斗机组，反应快但只有 1 枚热诱弹，35% 概率未能释放
+				# 攻击直升机：战斗机组，反应快但只有 1 枚；配置 35% → 实际不投 3.5%
 				enemy_params.flare.fail_chance = 0.35
 			EnemyType.CH47:
-				# 运输直升机：机组偏向飞行而非战斗，50% 概率未能释放
+				# 运输直升机：纪律弱于战斗机；配置 50% → 实际不投 5%
 				enemy_params.flare.fail_chance = 0.50
 			EnemyType.F47, EnemyType.F14_POLTERGEIST:
 				# 王牌中队：失误率恒 0（spec ace-squadron-tier §2.2 / §3.3）。
@@ -2652,7 +2653,7 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tie
 				# 与 §3.3 判定 jam 恒为 1.00 的理由完全相同，故一并归零
 				enemy_params.flare.fail_chance = 0.0
 				enemy_params.flare.head_on_fail_reduction = 0.0
-		# 新常规敌版按 Token 走统一防御走廊，绝不继承事件/玩家资源的热诱弹纪律。
+		# 新常规敌版按 Token 走统一配置纪律，绝不继承事件/玩家资源的热诱弹规则。
 		var regular_row := EnemyPoolRegistry.row_for_type(int(etype))
 		if int(etype) >= int(EnemyType.F15_REGULAR) and not regular_row.is_empty():
 			var regular_token := int(regular_row["token_cost"])
@@ -3540,10 +3541,10 @@ func _update_hunters(delta: float) -> void:
 ## 定期更新敌机巡逻航点，使其围绕玩家当前位置巡逻
 ## 边界纪律：防止敌人越界 + 玩家靠近边缘时敌人放弃攻击
 ## 每帧运行，直接覆写 AI 的 waypoints/state/combat_target。
-const BOUNDARY_ENEMY_MARGIN_PX := 2000.0   ## 敌人距边界 ≤4km 强制转向地图中心
+const BOUNDARY_ENEMY_MARGIN_PX := MapBoundary.AI_EDGE_TURN_MARGIN_PX  ## 外缘带大部可进入，只在真边界前收容
 const BOUNDARY_DISENGAGE_TARGET_DIST := 4000.0  ## 转向目标点离当前位置的距离
 const BOUNDARY_HARD_CLAMP_MARGIN_PX := 40.0     ## 触线前 hard clamp 到边内的安全距
-const BOUNDARY_BOSS_INWARD_TARGET_MARGIN_PX := 3500.0  ## 与 AceSquad 软返场目标同语义
+const BOUNDARY_BOSS_INWARD_TARGET_MARGIN_PX := MapBoundary.EXTENSION_WIDTH_PX + 200.0  ## 落到核心入口内侧
 
 ## BOSS 世界外框的模式级物理硬护栏（SEAM-027）。不依赖玩家/encounter tick，
 ## 也绝不覆写 directive、目标或火控；只修正已经触到 40px 护栏的位置与航向。
@@ -3568,9 +3569,9 @@ func _update_boundary_discipline(_delta: float) -> void:
 		return
 	var has_live_player := player_aircraft != null \
 			and is_instance_valid(player_aircraft) and not player_aircraft.is_destroyed
-	# 玩家是否处于警戒区（≤2km 边界距离）→ 触发全局 disengage
+	# 玩家抵达真边界软护栏 → 触发全局 disengage；进入外缘带本身不赶走 AI。
 	var player_near_edge := has_live_player \
-			and MapBoundary.distance_to_edge(player_aircraft.global_position) <= MapBoundary.WARN_DISTANCE_PX
+			and MapBoundary.distance_to_edge(player_aircraft.global_position) <= BOUNDARY_ENEMY_MARGIN_PX
 
 	for child in mode.get_children():
 		if not (child is Aircraft):
@@ -3813,7 +3814,6 @@ func _detect_kills() -> void:
 						mode.hud.spawn_xp_gain(xp_value)
 				if not third_party_kill:
 					kill_count += 1
-					_kill_heal()
 					if not no_reward:
 						_check_head_on_kill_bonus(child)
 					## 教程钩子：Tu-160 击落通知（前 3 架击落后首次教程整体淡出）
@@ -3849,7 +3849,7 @@ func _detect_kills() -> void:
 				if not player_ground_kill:
 					continue
 				kill_count += 1
-				_kill_heal()
+				_kill_heal(child as CombatUnit)
 				# 热度：击毁地面 TGT（spec global-awareness-roe §2.4；地面击杀现阶段
 				# 必为玩家小队所为——ALLY 按 ROE 不打地面）
 				if _roe:
@@ -3925,13 +3925,19 @@ func _check_head_on_kill_bonus(victim: Node) -> void:
 		"+%.0f max_hp (now %.0f) head_on=%.2f aim=%.2f" % [
 			HEAD_ON_KILL_HP_BONUS, pl_ac.params.max_hp, head_on, atk_aim])
 
-## 击杀回血（_detect_kills 共用）
-## 注意：BLOODLUST 状态触发的击杀回血放在 StatusEffects.on_kill，敌我对称生效，不在这里硬编码玩家。
-func _kill_heal() -> void:
-	if survivor_player.aircraft and survivor_player.aircraft.kill_heal_amount > 0.0:
-		var ac := survivor_player.aircraft
-		var max_hp_val: float = ac.params.max_hp if ac.params else 100.0
-		ac.hp = minf(ac.hp + ac.kill_heal_amount, max_hp_val)
+## 地面目标不经过 Aircraft 的 SkillHooks.dispatch_on_kill，在结算层补齐“虐弱”合并后的回血。
+## 空中击杀已由 SkillHooks 给实际击杀者结算，禁止在此重复回复。
+func _kill_heal(victim: CombatUnit) -> void:
+	if int(mode.upgrade_stacks.get(SkillHooks.SKILL_KILL_STATUS_HEAL, 0)) <= 0:
+		return
+	var ac: Aircraft = survivor_player.aircraft
+	if ac == null or not is_instance_valid(ac):
+		return
+	var heal_amount: float = SkillHooks.KILL_BASE_HEAL_AMOUNT
+	if victim != null and not victim.status_effects.is_empty():
+		heal_amount += SkillHooks.KILL_STATUS_HEAL_AMOUNT
+	var max_hp_val: float = ac.params.max_hp if ac.params else 100.0
+	ac.hp = minf(ac.hp + heal_amount, max_hp_val)
 	# 侩子手（战区奖励）：每次击杀后累加连击计数
 	if survivor_player.aircraft and survivor_player.aircraft.executioner_active:
 		survivor_player.aircraft.bump_executioner_kill()

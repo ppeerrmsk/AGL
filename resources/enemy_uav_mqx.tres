@@ -1,10 +1,11 @@
-[gd_resource type="Resource" script_class="AircraftParams" load_steps=6 format=3]
+[gd_resource type="Resource" script_class="AircraftParams" load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://scripts/aircraft_params.gd" id="1"]
 [ext_resource type="Resource" path="res://resources/uav_mqx_missile.tres" id="2"]
 [ext_resource type="Resource" path="res://resources/default_combat.tres" id="3"]
 [ext_resource type="Resource" path="res://resources/mqx_pulse_cannon.tres" id="4"]
 [ext_resource type="Resource" path="res://resources/uav_mqx_flare.tres" id="5"]
+[ext_resource type="Resource" path="res://resources/mqx_intercept_laser.tres" id="6"]
 
 [resource]
 script = ExtResource("1")
@@ -35,9 +36,11 @@ fuel_rate_afterburner = 4.0
 radar_range = 4600.0
 radar_half_angle = 40.0
 lock_time = 1.0
+sensor_stealth_enabled = true
 gun = ExtResource("4")
 missile = ExtResource("2")
 combat = ExtResource("3")
 flare = ExtResource("5")
+equipment = [ExtResource("6")]
 icon_color = Color(1.0, 0.15, 0.15, 1)
 wing_color = Color(0.55, 0.05, 0.05, 1)

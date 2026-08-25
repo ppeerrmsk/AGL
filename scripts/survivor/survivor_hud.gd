@@ -1802,6 +1802,8 @@ func _format_boss_aircraft_card(ac: Aircraft) -> String:
 	var max_hp: float = ac.params.max_hp if ac.params else 70.0
 	if ac.is_destroyed:
 		return "[color=#444444][b]%s[/b] DOWN\n░░░░░░░░ 0/%d[/color]" % [ac.callsign, int(max_hp)]
+	if ac.is_hidden_from_player_sensors():
+		return "[color=#ffcc44][b]???[/b]\n???[/color]"
 	var hp_ratio: float = clampf(ac.hp / maxf(max_hp, 0.01), 0.0, 1.0)
 	var status_text: String
 	var status_color: String
@@ -1990,6 +1992,8 @@ func _update_squad_panel() -> void:
 		var gun_busy := has_gun and wm.enable_gun_reload and wm._gun_reload_active
 		var flr_busy := has_flr and wm.enable_flare_reload and wm.flares_remaining <= 0 \
 			and wm.flare_reload_progress > 0.01
+		var damage_token := float(wm.get_meta(
+			AircraftRenderer.STATUS_DAMAGE_LAST_META, -INF))
 		var msl_text := ""
 		if has_msl:
 			msl_text = "%d%%" % int(wm.missile_reload_progress * 100.0) if msl_busy \
@@ -2008,6 +2012,9 @@ func _update_squad_panel() -> void:
 			"kills": wm.kill_tally,
 			"hp": "%d/%d" % [ceili(wm.hp), max_hp],
 			"action": _wingman_action_text(wm),
+			"damage_token": damage_token,
+			"damage_recent": is_finite(damage_token) and EventLogger.get_game_time() \
+				- damage_token <= PlayerInstrumentPanelScript.DAMAGE_RECENT_EVENT_WINDOW_S,
 			"has_msl": has_msl,
 			"msl": msl_text,
 			"msl_busy": msl_busy,
@@ -2213,6 +2220,10 @@ class RadarDisplay extends Control:
 		return REDRAW_INTERVAL_CROWDED \
 			if unit_count >= REDRAW_CROWD_THRESHOLD else REDRAW_INTERVAL_NORMAL
 
+	static func stealth_hint_contact_for(unit: CombatUnit) -> bool:
+		return unit is Aircraft and ((unit as Aircraft).is_hidden_from_player_sensors() \
+			or (unit as Aircraft).is_cloaked)
+
 	func _draw() -> void:
 		var perf_detail := PerfBuckets.detail_capture_enabled()
 		var perf_t0 := Time.get_ticks_usec() if perf_detail else 0
@@ -2274,6 +2285,9 @@ class RadarDisplay extends Control:
 			if bool(unit.get_meta(&"force_hidden_visual", false)):
 				_blip_ages.erase(unit.get_instance_id())
 				continue
+			var stealth_hint_contact := stealth_hint_contact_for(unit)
+			if stealth_hint_contact:
+				_blip_ages.erase(unit.get_instance_id())
 
 			var rel := unit.global_position - player_pos
 			var dist := rel.length()
@@ -2289,16 +2303,17 @@ class RadarDisplay extends Control:
 			var blip_angle := fmod(angle + TAU, TAU)
 			var sweep_norm := fmod(_sweep_angle + TAU, TAU)
 			var angle_diff := fmod(sweep_norm - blip_angle + TAU, TAU)
-			if angle_diff < 0.3:
+			if angle_diff < 0.3 and not stealth_hint_contact:
 				_blip_ages[unit.get_instance_id()] = 0.0
 
 			# TGT 任务目标：提前标注，不依赖扫描线，永远可见
 			var is_tgt: bool = unit.is_mission_target
 			var age: float = _blip_ages.get(unit.get_instance_id(), 99.0)
-			if not is_tgt and age > 3.5:
+			if not is_tgt and not stealth_hint_contact and age > 3.5:
 				continue  # 非 TGT 且太久没扫到，不显示
 
-			var fade: float = 1.0 if is_tgt else clampf(1.0 - age / 3.5, 0.0, 1.0)
+			var fade: float = 1.0 if is_tgt else (0.55 if stealth_hint_contact \
+				else clampf(1.0 - age / 3.5, 0.0, 1.0))
 
 			# 颜色：TGT=黄色（优先级最高），锁定=黄色，友方=蓝色，普通敌=红色
 			var blip_color: Color
@@ -2308,8 +2323,14 @@ class RadarDisplay extends Control:
 				blip_color = PLAYER_COLOR
 			elif unit.team == 2:
 				blip_color = GameConstants.COL_FRIEND_ALLY   # 第三方友军（FactionPalette）
+			elif stealth_hint_contact:
+				blip_color = ENEMY_COLOR.lightened(0.18)
 			elif unit is Aircraft and player_ac.combat_target == unit:
 				blip_color = LOCKED_COLOR
+			elif stealth_hint_contact:
+				# 匿名位置提示：空心环 + 中心弱点，不复用锁定框/扫描余辉。
+				draw_arc(blip_pos, 3.5, 0.0, TAU, 12, blip_color, 1.0)
+				draw_circle(blip_pos, 1.0, blip_color)
 			else:
 				blip_color = ENEMY_COLOR
 

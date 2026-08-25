@@ -66,7 +66,7 @@ var coastlines: Array = []  # [[[x,y]...]...] 海岸线折线（官方转换保�
 var buildings: Array = []   # [{footprint:[[x,y]...], h_m}]
 var zones: Array = []       # [{center:[x,y], radius, type}]
 var spawn: Dictionary = {}  # {pos:[x,y], heading_deg}
-var basemap: Dictionary = {} # {png_path, meta_path}；空 = 纯矢量 fail-open
+var basemap: Dictionary = {} # 官方 {tile_map_key, meta_path}；外部 UGC 可兼容 {png_path, meta_path}
 var cloud: Dictionary = {   # mask 为空 = 全 1.0（纯噪声，官方行为）
 	"seed": 0, "coverage": 0.35, "frequency": 0.00055,
 	"secondary_mix": 0.0, "wind_dir_deg": 0.0, "wind_speed_ms": 18.0,

@@ -408,52 +408,38 @@ func _draw_destroyed() -> void:
 func _draw_data_label() -> void:
 	if not _font:
 		_font = ThemeDB.fallback_font
+	var compact := _should_draw_compact_data_label()
+	var xform := get_global_transform_with_canvas()
+	var view_scale := xform.basis_xform(Vector2.RIGHT).length()
+	var screen_offset := AircraftRenderer.unit_status_screen_offset_for(
+		_status_label_icon_radius_world(), view_scale, xform.origin)
+	AircraftRenderer.draw_unit_status_panel(self, _font,
+		_status_label_lines(compact), team, screen_offset)
 
+
+## 子类只覆写内容，不得再复制状态栏几何、旋转或缩放代码。
+func _status_label_lines(compact: bool) -> PackedStringArray:
 	var display_name: String = params.display_name if params else "GND"
-	var font_size := 10
-	var line_height := 12.0
-	var label_offset := Vector2(14, -8)
+	var lines := PackedStringArray([display_name])
+	if compact:
+		return lines
+	lines.append("ALT GND")
+	var dist_m := _status_label_distance_m()
+	if dist_m < 1000.0:
+		lines.append("RNG %dm" % roundi(dist_m))
+	else:
+		lines.append("RNG %.1fkm" % (dist_m / 1000.0))
+	if ammo > 0:
+		lines.append("GUN %d" % ammo)
+	return lines
 
-	# 计算到玩家（team 0）的距离 —— 用全局 player_ref，避免每帧扫 parent.get_children()
-	var dist_m := 0.0
+
+func _status_label_distance_m() -> float:
 	var pref := AircraftRenderer.safe_player_ref()
-	if pref and is_instance_valid(pref) and not pref.is_destroyed:
-		dist_m = global_position.distance_to(pref.global_position) / PIXELS_PER_METER
+	if pref == null or pref.is_destroyed:
+		return 0.0
+	return global_position.distance_to(pref.global_position) / PIXELS_PER_METER
 
-	var lines: PackedStringArray = PackedStringArray()
-	# 名称
-	lines.append(display_name)
-	if not _should_draw_compact_data_label():
-		# 高度（地面单位永远 GND）
-		lines.append("ALT GND")
-		# 距离
-		if dist_m < 1000.0:
-			lines.append("RNG %dm" % roundi(dist_m))
-		else:
-			lines.append("RNG %.1fkm" % (dist_m / 1000.0))
-		# 弹药
-		if ammo > 0:
-			lines.append("GUN %d" % ammo)
 
-	var inv_rot := -rotation
-	# 缩放补偿：标签大小不随摄像机缩放变化（与 AircraftRenderer.draw_data_label 一致）
-	var zoom_scale := get_viewport_transform().get_scale()
-	var inv_zoom := 1.0 / maxf(zoom_scale.x, 0.01)
-	var max_w := 0.0
-	for line in lines:
-		var w := _font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-		max_w = maxf(max_w, w)
-	var box_w := max_w + 6.0
-	var box_h := lines.size() * line_height + 4.0
-
-	var _glc := GameConstants.ground_label_colors(team)
-	var text_color: Color = _glc[0]
-	var bg_color: Color = _glc[1]
-
-	var rotated_offset := (label_offset * inv_zoom).rotated(inv_rot)
-	var scale_v := Vector2(inv_zoom, inv_zoom)
-	draw_set_transform(rotated_offset, inv_rot, scale_v)
-	draw_rect(Rect2(-1, -1, box_w, box_h), bg_color)
-	for i in lines.size():
-		draw_string(_font, Vector2(2, 10 + i * line_height), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+func _status_label_icon_radius_world() -> float:
+	return 18.0

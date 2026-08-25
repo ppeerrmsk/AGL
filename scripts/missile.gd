@@ -26,6 +26,22 @@ var has_guidance: bool = true
 var is_flare_jammed: bool = false  ## 被热诱弹干扰，永久失去制导
 var climb_break_disrupted: bool = false ## 被 CLIMB 反制：永久失导且禁止签名技重索敌
 var _guidance_ever_lost: bool = false  ## 飞行中曾丢制导(出 FOV/照射中断)——脱靶日志区分"末段丢锁"vs"全程制导仍脱靶"
+## 敌机投焰不会立刻 jam；本弹保存一次有限 break 快照，真实轨迹达门且等级 roll 通过后才失导。
+var enemy_flare_break_pending: bool = false
+var _enemy_flare_break_target_id: int = 0
+var _enemy_flare_break_start_pos: Vector2 = Vector2.ZERO
+var _enemy_flare_break_start_heading: float = 0.0
+var _enemy_flare_break_start_speed: float = 0.0
+var _enemy_flare_break_start_altitude: float = 0.0
+var _enemy_flare_break_elapsed: float = 0.0
+var _enemy_flare_break_roll_passed: bool = false
+var _enemy_flare_break_chance: float = 0.0
+const ENEMY_FLARE_BREAK_WINDOW_S: float = 1.25
+const ENEMY_FLARE_BREAK_HEADING_RAD: float = deg_to_rad(22.0)
+const ENEMY_FLARE_BREAK_LATERAL_PX: float = 120.0
+const ENEMY_FLARE_BREAK_SPEED_MIN_MS: float = 45.0
+const ENEMY_FLARE_BREAK_SPEED_RATIO: float = 0.18
+const ENEMY_FLARE_BREAK_ALTITUDE_M: float = 450.0
 ## ── 722 批签名技能（spec aircraft-signature-skills，spawn_missile 按发射者技能打标）──
 var sig_silent: bool = false          ## 夜枭（X-09）：敌机对本弹无警觉（不规避、不投焰）
 var sig_retarget_armed: bool = false  ## 超越地平（X-21）：被 flare 偏转后可重索敌（每弹一次）
@@ -163,12 +179,95 @@ func disrupt_by_climb_break() -> void:
 	has_guidance = false
 	_guidance_ever_lost = true
 	sig_retarget_armed = false
+	enemy_flare_break_pending = false
+
+
+## 敌机投焰只开始一次 break 观察窗；pending 期间导弹仍有制导、警告与碰撞资格。
+func begin_enemy_flare_break(ac: Aircraft, roll_passed: bool, chance: float) -> bool:
+	if ac == null or not is_instance_valid(ac) or not is_active or is_flare_jammed \
+			or target != ac:
+		return false
+	enemy_flare_break_pending = true
+	_enemy_flare_break_target_id = ac.get_instance_id()
+	_enemy_flare_break_start_pos = ac.global_position
+	_enemy_flare_break_start_heading = ac.heading
+	_enemy_flare_break_start_speed = ac.speed
+	_enemy_flare_break_start_altitude = ac.altitude
+	_enemy_flare_break_elapsed = 0.0
+	_enemy_flare_break_roll_passed = roll_passed
+	_enemy_flare_break_chance = clampf(chance, 0.0, 1.0)
+	return true
+
+
+## 返回本次相对原航迹已经完成的 break 类型；空串表示轨迹变化尚未达门。
+static func enemy_flare_break_action(start_pos: Vector2, start_heading: float,
+		start_speed: float, start_altitude: float, ac: Aircraft) -> StringName:
+	if ac == null or not is_instance_valid(ac):
+		return &""
+	var heading_delta: float = absf(wrapf(ac.heading - start_heading, -PI, PI))
+	if heading_delta >= ENEMY_FLARE_BREAK_HEADING_RAD:
+		return &"turn"
+	var start_fwd := Vector2(sin(start_heading), -cos(start_heading))
+	var start_perp := Vector2(start_fwd.y, -start_fwd.x)
+	var lateral_px: float = absf((ac.global_position - start_pos).dot(start_perp))
+	if lateral_px >= ENEMY_FLARE_BREAK_LATERAL_PX:
+		return &"lateral"
+	var speed_gate: float = maxf(ENEMY_FLARE_BREAK_SPEED_MIN_MS,
+		start_speed * ENEMY_FLARE_BREAK_SPEED_RATIO)
+	if ac.speed - start_speed >= speed_gate:
+		return &"speed"
+	if absf(ac.altitude - start_altitude) >= ENEMY_FLARE_BREAK_ALTITUDE_M:
+		return &"altitude"
+	return &""
+
+
+## 由真实 Missile 物理 tick 驱动；失败不改变制导，成功才切换 jammed 无害契约。
+func update_enemy_flare_break(delta: float) -> void:
+	if not enemy_flare_break_pending:
+		return
+	var target_value: Variant = target
+	if typeof(target_value) != TYPE_OBJECT or target_value == null \
+			or not is_instance_valid(target_value) or not target_value is Aircraft:
+		enemy_flare_break_pending = false
+		return
+	var ac := target_value as Aircraft
+	if ac.get_instance_id() != _enemy_flare_break_target_id or ac.is_destroyed \
+			or not is_active or is_flare_jammed:
+		enemy_flare_break_pending = false
+		return
+	_enemy_flare_break_elapsed += delta
+	var action: StringName = enemy_flare_break_action(_enemy_flare_break_start_pos,
+		_enemy_flare_break_start_heading, _enemy_flare_break_start_speed,
+		_enemy_flare_break_start_altitude, ac)
+	if action != &"":
+		enemy_flare_break_pending = false
+		var msl_name: String = params.display_name if params else "MSL"
+		if _enemy_flare_break_roll_passed:
+			is_flare_jammed = true
+			has_guidance = false
+			_guidance_ever_lost = true
+			ac._trigger_evasion_roll()
+			EventLogger.log_event("MISSILE", msl_name,
+				"enemy flare break SUCCESS (target=%s action=%s chance=%.0f%%)" % [
+					ac._log_name(), action, _enemy_flare_break_chance * 100.0])
+		else:
+			EventLogger.log_event("MISSILE", msl_name,
+				"enemy flare break FAILED skill roll (target=%s action=%s chance=%.0f%%)" % [
+					ac._log_name(), action, _enemy_flare_break_chance * 100.0])
+		return
+	if _enemy_flare_break_elapsed >= ENEMY_FLARE_BREAK_WINDOW_S:
+		enemy_flare_break_pending = false
+		var timeout_name: String = params.display_name if params else "MSL"
+		EventLogger.log_event("MISSILE", timeout_name,
+			"enemy flare break FAILED no maneuver (target=%s window=%.2fs)" % [
+				ac._log_name(), ENEMY_FLARE_BREAK_WINDOW_S])
 
 func _physics_process(delta: float) -> void:
 	if not is_active:
 		return
 
 	age += delta
+	update_enemy_flare_break(delta)
 
 	# 激光减速倒数：VLS / 渐隐 / 主路径都需要倒计时（否则 VLS 弹被照射后永久减速）
 	# 倒数放在所有分支之前，确保 timer 不被旁路
@@ -266,6 +365,7 @@ func _physics_process(delta: float) -> void:
 	var t_destroyed: bool = true
 	var t_is_aircraft: bool = false
 	var t_is_cloaked: bool = false
+	var t_sensor_contact_hidden: bool = false
 	var t_flat_altitude: bool = false
 	var t_alt_tier: int = 0
 	if t_valid:
@@ -278,6 +378,8 @@ func _physics_process(delta: float) -> void:
 			t_destroyed = target.is_destroyed
 			t_is_aircraft = target is Aircraft
 			t_is_cloaked = t_is_aircraft and (target as Aircraft).is_cloaked
+			t_sensor_contact_hidden = t_is_aircraft \
+				and (target as Aircraft).is_hidden_from_player_sensors()
 			t_flat_altitude = target.flat_altitude
 			t_alt_tier = target.get_altitude_tier()
 		else:
@@ -288,6 +390,7 @@ func _physics_process(delta: float) -> void:
 			t_destroyed = snap["is_destroyed"]
 			t_is_aircraft = snap["is_aircraft"]
 			t_is_cloaked = snap["is_cloaked"]
+			t_sensor_contact_hidden = snap.get("sensor_contact_hidden", false)
 			t_flat_altitude = snap["flat_altitude"]
 			t_alt_tier = snap["alt_tier"]
 
@@ -298,7 +401,7 @@ func _physics_process(delta: float) -> void:
 		# 发射后不管（AGM 等）：不需要持续照射，不受热诱弹干扰
 		if not t_valid or t_destroyed:
 			has_guidance = false
-		elif t_is_cloaked:
+		elif target_breaks_guidance(t_is_cloaked, t_sensor_contact_hidden):
 			has_guidance = false  # 光学隐形：导弹丢失制导
 		else:
 			has_guidance = true
@@ -321,7 +424,7 @@ func _physics_process(delta: float) -> void:
 							"超越地平：被偏转导弹重索敌 → %s" % _unit_name(new_tgt))
 		elif not t_valid or t_destroyed:
 			has_guidance = false
-		elif t_is_cloaked:
+		elif target_breaks_guidance(t_is_cloaked, t_sensor_contact_hidden):
 			has_guidance = false  # 光学隐形：SARH 导弹丢失
 		elif source == null or not is_instance_valid(source) or source.is_destroyed:
 			has_guidance = false
@@ -436,6 +539,11 @@ func continue_after_penetration(hit_unit: CombatUnit) -> void:
 func already_penetrated(unit: CombatUnit) -> bool:
 	return unit != null and _penetrated_unit_ids.has(unit.get_instance_id())
 
+## 光学隐形与玩家侧传感器失联都让现有导引解算立即失效；弹体仍按惯性继续飞行。
+static func target_breaks_guidance(is_cloaked: bool,
+		sensor_contact_hidden: bool) -> bool:
+	return is_cloaked or sensor_contact_hidden
+
 ## 722 sig_x21·超越地平：重索敌——导引头 FOV 内、4000px 内最近的敌方单位（TEAM_HOSTILE）
 func _sig_find_retarget() -> CombatUnit:
 	var fov_rad: float = deg_to_rad(params.seeker_fov if params else 30.0)
@@ -446,6 +554,9 @@ func _sig_find_retarget() -> CombatUnit:
 		if u == null or not is_instance_valid(u) or u.is_destroyed:
 			continue
 		if u.team != CombatUnit.TEAM_HOSTILE or u.is_lock_immune():
+			continue
+		if source != null and is_instance_valid(source) \
+				and source.is_sensor_engagement_obscured(u):
 			continue
 		var to_u: Vector2 = u.global_position - global_position
 		var d: float = to_u.length()

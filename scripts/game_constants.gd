@@ -71,14 +71,6 @@ const PLAYER_CTRL_LABEL_BG := Color(0.91, 0.94, 1.0, 0.90)
 ## 白底上的深色基础文字
 const PLAYER_CTRL_LABEL_TEXT := Color(0.08, 0.10, 0.18, 1.0)
 
-# ── 地面单位信息标签色（玩家=既有蓝 / ALLY=绿）──
-const GROUND_LABEL_TEXT_PLAYER := Color(0.5, 0.8, 1.0)
-const GROUND_LABEL_BG_PLAYER   := Color(0.0, 0.1, 0.2, 0.6)
-const GROUND_LABEL_TEXT_ALLY   := Color(0.6, 0.95, 0.65)
-const GROUND_LABEL_BG_ALLY     := Color(0.02, 0.14, 0.05, 0.6)
-const GROUND_LABEL_TEXT_RED    := Color(1.0, 0.6, 0.4)
-const GROUND_LABEL_BG_RED      := Color(0.2, 0.05, 0.0, 0.6)
-
 ## 阵营强调色统一入口（team：0=玩家小队 亮青 / 2=第三方 海绿 / 其它=敌 暖红）
 static func team_color(team: int) -> Color:
 	if team == 0:
@@ -127,14 +119,6 @@ static func aa_range_color(team: int, alpha: float = 0.08) -> Color:
 	elif team == 2:
 		c = AA_RANGE_ALLY
 	return Color(c.r, c.g, c.b, alpha)
-
-static func ground_label_colors(team: int) -> Array:
-	## 返回 [text_color, bg_color]
-	if team == 0:
-		return [GROUND_LABEL_TEXT_PLAYER, GROUND_LABEL_BG_PLAYER]
-	if team == 2:
-		return [GROUND_LABEL_TEXT_ALLY, GROUND_LABEL_BG_ALLY]
-	return [GROUND_LABEL_TEXT_RED, GROUND_LABEL_BG_RED]
 
 static func aircraft_label_colors(team: int) -> Array:
 	## 返回 [bg_color, text_color]

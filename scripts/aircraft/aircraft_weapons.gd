@@ -1710,12 +1710,7 @@ static func update_secondary_radar(ac: Aircraft, delta: float) -> void:
 	for unit in ac.bullet_manager.combat_unit_list:
 		if unit == null or not is_instance_valid(unit): continue
 		if not ac.is_hostile_to(unit) or unit.is_destroyed: continue
-		if ac.is_sensor_engagement_obscured(unit):
-			ac.secondary_radar_targets.erase(unit); continue
-		# 光学隐形 / 锁定免疫：清掉累积（与主雷达 erase(is_lock_immune) 对称）。
-		# 缺此门时隐形目标能积满副雷达锁 → 被 QMAAM 打 + 被画锁定框
-		# （spec ace-squadron-tier §3.5）
-		if unit.is_lock_immune():
+		if ac.is_sensor_shroud_obscured(unit):
 			ac.secondary_radar_targets.erase(unit); continue
 		# filter 不匹配的从累积清掉
 		if (sec.target_filter & _secondary_target_class_bit(unit)) == 0:
@@ -1726,6 +1721,18 @@ static func update_secondary_radar(ac: Aircraft, delta: float) -> void:
 			ac.secondary_radar_targets.erase(unit); continue
 		var hdg_to: float = atan2(to_unit.x, -to_unit.y)
 		if absf(Aircraft._angle_diff(hdg_to, ac.heading)) > cone_half_rad:
+			ac.secondary_radar_targets.erase(unit); continue
+		# 独立副雷达同样能恢复玩家侧接触；不依赖生存控制器引用。
+		if ac.is_player_squad() and unit is Aircraft:
+			var stealth := unit as Aircraft
+			if stealth.params != null and stealth.params.sensor_stealth_enabled:
+				stealth.sensor_contact_lost_s = 0.0
+				stealth.set_sensor_contact_hidden(false,
+					Aircraft.SENSOR_CONTACT_FADE_S)
+		if ac.is_sensor_engagement_obscured(unit):
+			ac.secondary_radar_targets.erase(unit); continue
+		# 光学隐形 / 锁定免疫：清掉累积（与主雷达 erase(is_lock_immune) 对称）。
+		if unit.is_lock_immune():
 			ac.secondary_radar_targets.erase(unit); continue
 		# 累积锁定：用 aircraft 共享 lock_time（自动吃 lock_time 升级）
 		var lock_time_val: float = ac.params.lock_time

@@ -7,7 +7,7 @@ const TerminalTextScript := preload("res://scripts/ui/terminal_text.gd")
 const INFO_FONT_SOURCE := preload("res://resources/fonts/Silkscreen-Regular.ttf")
 const DISPLAY_FONT_SOURCE := preload("res://resources/fonts/ChakraPetch-Bold.ttf")
 
-## 生存模式右侧玩家仪表。纯显示、鼠标穿透；每条信息行只使用自身左上角局部坐标。
+## 生存模式右下角常驻玩家 HUD。纯显示、鼠标穿透；不属于飞机旁的状态栏。
 const U_SIZE := Vector2(40.0, 18.0)
 const Q_SIZE := Vector2(18.0, 18.0)
 const DECORATIVE_HALF_U_HEIGHT := U_SIZE.y * 0.5
@@ -61,6 +61,9 @@ const WEAPON_RELOAD_INFO_HEIGHT := U_SIZE.y * 2.0
 const WEAPON_RELOAD_VALUE_SIZE := Vector2(U_SIZE.x * 2.0, U_SIZE.y * 2.0)
 const BLINK_STEP_MS := 500
 const RELOAD_BLINK_STEP_MS := 250
+const DAMAGE_FLASH_STEP_MS := 120
+const DAMAGE_FLASH_DURATION_MS := DAMAGE_FLASH_STEP_MS * 8
+const DAMAGE_RECENT_EVENT_WINDOW_S := 0.6
 const NEW_KEY_FLASH_MS := 5000
 const REDRAW_INTERVAL_MS := 50
 const FLARE_STAR_COUNT := 10
@@ -176,6 +179,11 @@ var _status_initialized := false
 var _in_cloud := false
 var _status_kill_count := 0
 var _kill_flash_started_ms := -KILL_FLASH_DURATION_MS
+var _last_damage_token := -INF
+var _damage_flash_started_ms := -DAMAGE_FLASH_DURATION_MS
+var _damage_flash_until_ms := -DAMAGE_FLASH_DURATION_MS
+var _last_damage_draw_phase := -2
+var damage_animation_time_override_ms := -1
 
 
 func _ready() -> void:
@@ -214,6 +222,7 @@ func update_display(ac: Aircraft, charge: AfterburnerCharge) -> void:
 		_configure_layout()
 	var next_manual_flare_key := manual_flare_key_visible(ac)
 	if aircraft != ac:
+		_reset_damage_flash_tracking(ac)
 		_manual_flare_key_known = true
 		_manual_flare_key_visible = next_manual_flare_key
 		_altimeter_needle_initialized = false
@@ -253,6 +262,8 @@ func update_status(in_cloud: bool, kills: int) -> void:
 
 
 func _process(delta: float) -> void:
+	_sync_aircraft_damage_event()
+	_update_damage_flash_redraw()
 	if kill_flash_active():
 		queue_redraw()
 	elif _kill_flash_started_ms >= 0:
@@ -273,6 +284,78 @@ func _process(delta: float) -> void:
 	if not is_equal_approx(next_angle, _altimeter_needle_degrees):
 		_altimeter_needle_degrees = next_angle
 		_altimeter_needle_layer.queue_redraw()
+
+
+func _reset_damage_flash_tracking(ac: Aircraft) -> void:
+	_last_damage_token = -INF
+	_damage_flash_started_ms = -DAMAGE_FLASH_DURATION_MS
+	_damage_flash_until_ms = -DAMAGE_FLASH_DURATION_MS
+	_last_damage_draw_phase = -2
+	if ac == null or not is_instance_valid(ac):
+		return
+	var token := float(ac.get_meta(AircraftRenderer.STATUS_DAMAGE_LAST_META, -INF))
+	_last_damage_token = token
+	if is_finite(token) \
+			and EventLogger.get_game_time() - token <= DAMAGE_RECENT_EVENT_WINDOW_S:
+		register_damage_event(token, _damage_animation_now_ms(), true)
+
+
+func _sync_aircraft_damage_event() -> void:
+	if aircraft == null or not is_instance_valid(aircraft) or aircraft.is_destroyed:
+		return
+	var token := float(aircraft.get_meta(AircraftRenderer.STATUS_DAMAGE_LAST_META, -INF))
+	register_damage_event(token, _damage_animation_now_ms())
+
+
+## 同一机炮串的后续命中只延长窗口，不重置相位；新的离散命中从蓝相重新开始。
+func register_damage_event(token: float, now_ms: int, allow_equal: bool = false) -> void:
+	if not is_finite(token) or (not allow_equal and token <= _last_damage_token):
+		return
+	_last_damage_token = token
+	if not damage_flash_active(_damage_flash_started_ms, _damage_flash_until_ms, now_ms):
+		_damage_flash_started_ms = now_ms
+		_damage_flash_until_ms = now_ms + DAMAGE_FLASH_DURATION_MS
+		_last_damage_draw_phase = -2
+		queue_redraw()
+	else:
+		_damage_flash_until_ms = now_ms + DAMAGE_FLASH_DURATION_MS
+
+
+func _update_damage_flash_redraw() -> void:
+	var now_ms := _damage_animation_now_ms()
+	var phase := damage_flash_phase(_damage_flash_started_ms, _damage_flash_until_ms, now_ms)
+	if phase == _last_damage_draw_phase:
+		return
+	_last_damage_draw_phase = phase
+	queue_redraw()
+
+
+func _damage_animation_now_ms() -> int:
+	return damage_animation_time_override_ms \
+		if damage_animation_time_override_ms >= 0 else Time.get_ticks_msec()
+
+
+static func damage_flash_active(started_ms: int, until_ms: int, now_ms: int) -> bool:
+	return now_ms >= started_ms and now_ms < until_ms
+
+
+static func damage_flash_phase(started_ms: int, until_ms: int, now_ms: int) -> int:
+	if not damage_flash_active(started_ms, until_ms, now_ms):
+		return -1
+	return int((now_ms - started_ms) / DAMAGE_FLASH_STEP_MS) % 2
+
+
+static func damage_hp_color(base_accent: Color, active: bool, red_on: bool) -> Color:
+	if not active:
+		return base_accent
+	return ThemeColors.UI_DANGER_RED if red_on else base_accent
+
+
+func hp_damage_regions() -> Array[Rect2]:
+	var result: Array[Rect2] = [hp_rect]
+	for digit_index in range(HP_DIGIT_COUNT):
+		result.append(hp_digit_rect(digit_index))
+	return result
 
 
 func _configure_layout() -> void:
@@ -493,7 +576,16 @@ func _draw() -> void:
 
 
 func _draw_impl() -> void:
-	var accent: Color = HudPreferencesScript.hud_color()
+	var perf_detail := PerfBuckets.detail_capture_enabled()
+	var section_t0 := Time.get_ticks_usec() if perf_detail else 0
+	var base_accent: Color = HudPreferencesScript.hud_color()
+	var damage_now := _damage_animation_now_ms()
+	var damage_phase := damage_flash_phase(
+		_damage_flash_started_ms, _damage_flash_until_ms, damage_now)
+	var damage_active := damage_phase >= 0
+	var damage_blue_on := damage_phase == 0
+	var hp_flash_color := damage_hp_color(
+		base_accent, damage_active, damage_blue_on)
 	var animation_now := _weapon_animation_now_ms()
 	var blink_on := int(animation_now / BLINK_STEP_MS) % 2 == 0
 	var reload_blink_on := int(animation_now / RELOAD_BLINK_STEP_MS) % 2 == 0
@@ -504,63 +596,79 @@ func _draw_impl() -> void:
 	var maneuver_rect := active_maneuver_rect(maneuver_visible, manual_flare_visible)
 	var engage_row_rect := active_engage_rect(manual_flare_visible)
 	var fire_row_rect := active_fire_rect(manual_flare_visible)
-	_grid_overlay.line_color = accent
+	_grid_overlay.line_color = base_accent
 	_grid_overlay.regions = grid_regions(maneuver_visible, manual_flare_visible)
+	var hp_override_regions: Array[Rect2] = []
+	if damage_active:
+		hp_override_regions = hp_damage_regions()
+	_grid_overlay.override_regions = hp_override_regions
+	_grid_overlay.override_color = hp_flash_color
 
-	_draw_module(status_rect, accent)
-	_draw_module(hp_rect, accent)
-	_draw_module(hp_decorative_rect, accent)
-	_draw_module(spd_rect, accent)
-	_draw_module(spd_decorative_rect, accent)
-	_draw_module(alt_rect, accent)
-	_draw_module(ab_rect, accent)
-	_draw_module(active_autopilot_rect(manual_flare_visible), accent)
-	_draw_module(active_control_empty_rect(manual_flare_visible), accent)
-	_draw_module(flare_rect, accent)
-	_draw_module(maneuver_rect, accent)
-	_draw_module(weapon_spacer_rect, accent)
-	_draw_module(weapon_title_rect, accent)
-	_draw_module(weapon_row_rect(0), accent)
-	_draw_module(weapon_middle_spacer_rect, accent)
-	_draw_module(weapon_row_rect(1), accent)
+	_draw_module(status_rect, base_accent)
+	_draw_module(hp_rect, base_accent)
+	_draw_module(hp_decorative_rect, base_accent)
+	_draw_module(spd_rect, base_accent)
+	_draw_module(spd_decorative_rect, base_accent)
+	_draw_module(alt_rect, base_accent)
+	_draw_module(ab_rect, base_accent)
+	_draw_module(active_autopilot_rect(manual_flare_visible), base_accent)
+	_draw_module(active_control_empty_rect(manual_flare_visible), base_accent)
+	_draw_module(flare_rect, base_accent)
+	_draw_module(maneuver_rect, base_accent)
+	_draw_module(weapon_spacer_rect, base_accent)
+	_draw_module(weapon_title_rect, base_accent)
+	_draw_module(weapon_row_rect(0), base_accent)
+	_draw_module(weapon_middle_spacer_rect, base_accent)
+	_draw_module(weapon_row_rect(1), base_accent)
 	if not _special_weapon_rows.is_empty():
-		_draw_module(special_weapon_spacer_rect, accent)
-		_draw_module(special_weapon_title_rect, accent)
+		_draw_module(special_weapon_spacer_rect, base_accent)
+		_draw_module(special_weapon_title_rect, base_accent)
 		for row_index in range(_special_weapon_rows.size()):
-			_draw_module(special_weapon_row_rect(row_index), accent)
-	_draw_keycap_at("Q", keycap_left_of(alt_rect), accent)
-	_draw_keycap_at("E", keycap_left_of(ab_rect), accent)
-	_draw_keycap_at("G", keycap_left_of(engage_row_rect), accent)
-	_draw_keycap_at("F", keycap_left_of(fire_row_rect), accent)
-	_draw_keycap_at("T", keycap_left_of(weapon_title_rect), accent)
+			_draw_module(special_weapon_row_rect(row_index), base_accent)
+	_draw_keycap_at("Q", keycap_left_of(alt_rect), base_accent)
+	_draw_keycap_at("E", keycap_left_of(ab_rect), base_accent)
+	_draw_keycap_at("G", keycap_left_of(engage_row_rect), base_accent)
+	_draw_keycap_at("F", keycap_left_of(fire_row_rect), base_accent)
+	_draw_keycap_at("T", keycap_left_of(weapon_title_rect), base_accent)
 	if maneuver_visible:
 		var r_rect := manual_flare_key_rect() if manual_flare_visible else maneuver_key_rect()
-		_draw_keycap_at("R", r_rect, accent,
+		_draw_keycap_at("R", r_rect, base_accent,
 			manual_flare_visible and manual_flare_key_flash_on())
-	_draw_player_status(accent)
+	if perf_detail:
+		PerfBuckets.tick("hud_player_draw.structure", Time.get_ticks_usec() - section_t0)
+		section_t0 = Time.get_ticks_usec()
+	_draw_player_status(base_accent)
 	if not has_aircraft:
 		return
+	if perf_detail:
+		PerfBuckets.tick("hud_player_draw.status", Time.get_ticks_usec() - section_t0)
+		section_t0 = Time.get_ticks_usec()
 
-	_draw_flight_data(accent, blink_on)
-	_draw_afterburner(accent)
+	_draw_flight_data(base_accent, blink_on, hp_flash_color, damage_active)
+	_draw_afterburner(base_accent)
 	_draw_toggle_row(engage_row_rect, tr(engage_state_key(aircraft.auto_engage_enabled)),
-		aircraft.auto_engage_enabled, accent)
+		aircraft.auto_engage_enabled, base_accent)
 	_draw_toggle_row(fire_row_rect, tr(fire_state_key(aircraft.missile_auto_fire)),
-		aircraft.missile_auto_fire, accent)
-	_draw_flares(flare_rect, accent)
+		aircraft.missile_auto_fire, base_accent)
+	_draw_flares(flare_rect, base_accent)
 	if maneuver_visible:
-		_draw_maneuver_charge(maneuver_rect, accent)
+		_draw_maneuver_charge(maneuver_rect, base_accent)
+	if perf_detail:
+		PerfBuckets.tick("hud_player_draw.flight", Time.get_ticks_usec() - section_t0)
+		section_t0 = Time.get_ticks_usec()
 	var weapon_title := tr("HUD_PRIORITY_WEAPON")
 	if weapon_title == "HUD_PRIORITY_WEAPON":
 		weapon_title = "PRIORITY WEAPON"
 	_draw_localized_text_in_rect(weapon_title, weapon_title_rect, 15,
-		accent, false, HORIZONTAL_ALIGNMENT_LEFT)
-	_draw_weapons(accent, reload_blink_on)
+		base_accent, false, HORIZONTAL_ALIGNMENT_LEFT)
+	_draw_weapons(base_accent, reload_blink_on)
 	if not _special_weapon_rows.is_empty():
 		_draw_localized_text_in_rect(tr("HUD_SPECIAL_WEAPON"), special_weapon_title_rect,
-			15, accent, false, HORIZONTAL_ALIGNMENT_LEFT)
+			15, base_accent, false, HORIZONTAL_ALIGNMENT_LEFT)
 		for row_index in range(_special_weapon_rows.size()):
-			_draw_special_weapon_row(row_index, _special_weapon_rows[row_index], accent)
+			_draw_special_weapon_row(row_index, _special_weapon_rows[row_index], base_accent)
+	if perf_detail:
+		PerfBuckets.tick("hud_player_draw.weapons", Time.get_ticks_usec() - section_t0)
 
 
 func _draw_module(rect: Rect2, accent: Color) -> void:
@@ -906,18 +1014,22 @@ static func cloud_status_text_color(in_cloud: bool, accent: Color) -> Color:
 		else ThemeColors.UI_INACTIVE_DIGIT
 
 
-func _draw_flight_data(accent: Color, blink_on: bool) -> void:
+func _draw_flight_data(accent: Color, blink_on: bool, hp_flash_color: Color,
+		damage_active: bool) -> void:
 	var current_hp := ceili(aircraft.hp)
 	var max_hp := ceili(aircraft.params.max_hp) if aircraft.params else current_hp
-	_draw_text_in_rect("HP", hp_title_rect, 15, accent, false,
+	var hp_text_color := hp_flash_color if damage_active else accent
+	_draw_text_in_rect("HP", hp_title_rect, 15, hp_text_color, false,
 		HORIZONTAL_ALIGNMENT_LEFT)
 	var hp_digits := formatted_three_digit_value(current_hp)
 	for digit_index in range(HP_DIGIT_COUNT):
-		var digit_color := shared_digit_color(hp_digits, digit_index, accent)
+		var digit_color := hp_flash_color if damage_active \
+			else shared_digit_color(hp_digits, digit_index, accent)
 		_draw_text_in_rect(hp_digits.substr(digit_index, 1), hp_digit_rect(digit_index),
 			primary_value_font_size, digit_color, true, HORIZONTAL_ALIGNMENT_CENTER, "9")
-	_draw_text_in_rect("/", hp_separator_rect, 0, accent, true)
-	_draw_text_in_rect(str(max_hp), hp_max_rect, secondary_value_font_size, accent, true,
+	var hp_support_color := hp_flash_color if damage_active else accent
+	_draw_text_in_rect("/", hp_separator_rect, 0, hp_support_color, true)
+	_draw_text_in_rect(str(max_hp), hp_max_rect, secondary_value_font_size, hp_support_color, true,
 		HORIZONTAL_ALIGNMENT_CENTER, HP_VALUE_LAYOUT_TEXT)
 	_draw_text_in_rect("G", g_title_rect, 15, accent, false,
 		HORIZONTAL_ALIGNMENT_LEFT)

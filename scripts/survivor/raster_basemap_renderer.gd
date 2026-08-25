@@ -50,18 +50,6 @@ var _peak_resident_tiles := 0
 var _grain_texture: Texture2D = null
 
 
-static func map_key_from_png_path(png_path: String) -> String:
-	var filename := png_path.get_file()
-	match filename:
-		"tokyo_bay_bg.png":
-			return "tokyo"
-		"desert_railway_bg_v2.png":
-			return "desert"
-		"ocean_islands_bg_v2.png":
-			return "ocean"
-	return ""
-
-
 static func manifest_path_for(map_key: String) -> String:
 	return "%s/%s/manifest.json" % [ROOT_PATH, map_key]
 

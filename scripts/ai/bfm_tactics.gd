@@ -515,10 +515,10 @@ static func execute_extension(ai: AIController, s: AIController.SituationData) -
 	if feared:
 		var pos_for_bound := ai.aircraft.global_position
 		var edge_dist := MapBoundary.distance_to_edge(pos_for_bound)
-		if edge_dist <= MapBoundary.WARN_DISTANCE_PX + 1000.0:
+		if edge_dist <= MapBoundary.AI_EDGE_TURN_MARGIN_PX:
 			var inward := (Vector2.ZERO - pos_for_bound).normalized()
 			if away_dir.dot(inward) < 0.0:
-				var blend := clampf(1.0 - edge_dist / (MapBoundary.WARN_DISTANCE_PX + 1000.0), 0.3, 1.0)
+				var blend := clampf(1.0 - edge_dist / MapBoundary.AI_EDGE_TURN_MARGIN_PX, 0.3, 1.0)
 				away_dir = away_dir.lerp(inward, blend).normalized()
 
 	# 低技能飞行员脱离方向可能有偏差

@@ -8,6 +8,8 @@ signal faction_changed(old_team: int, new_team: int, reason_id: String)
 
 const GRAVITY: float = GameConstants.GRAVITY
 const PIXELS_PER_METER: float = GameConstants.PIXELS_PER_METER
+## 表演导演绑定演员时的所有权标记。真实战斗系统在该窗口内不得改写演员表现语义。
+const META_PRESENTATION_ACTOR_ACTIVE: StringName = &"presentation_actor_active"
 
 # ── 全局唯一 ID 分配器 ──
 static var _next_id: int = 1           ## 下一个可用 ID
@@ -325,12 +327,19 @@ func is_lock_immune() -> bool:
 	return false
 
 ## 两单位分处未揭露传感器幕内外时禁止跨边界建立交战关系。
-## 物理命中链不调用本函数，盲射弹丸仍可造成伤害。
-func is_sensor_engagement_obscured(other: CombatUnit) -> bool:
+func is_sensor_shroud_obscured(other: CombatUnit) -> bool:
 	if other == null:
 		return false
 	return sensor_shroud_id != other.sensor_shroud_id \
 			and (sensor_shroud_id != 0 or other.sensor_shroud_id != 0)
+
+## 观察者侧传感器交战门。物理命中链不调用本函数，盲射弹丸仍可造成伤害。
+## 敌机传感器隐形只遮蔽玩家小队；目标自身仍能观察和攻击玩家。
+func is_sensor_engagement_obscured(other: CombatUnit) -> bool:
+	if is_sensor_shroud_obscured(other):
+		return true
+	return team == TEAM_PLAYER and other is Aircraft \
+			and (other as Aircraft).is_hidden_from_player_sensors()
 
 # ── 锁定攻击警告线（飞机 / SAM / 海军共用） ──
 ## 状态机/计时常量/绘制 全部模块化在 LockWarning（scripts/lock_warning.gd）

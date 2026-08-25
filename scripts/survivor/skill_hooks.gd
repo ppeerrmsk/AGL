@@ -22,7 +22,7 @@ const SKILL_BERSERK_VIRUS := "berserk_virus"
 const SKILL_DAMAGED_BLOODLUST := "skill_damaged_bloodlust"
 const SKILL_HEAD_ON_PERMA_HP := "skill_head_on_perma_hp"
 const SKILL_HEAD_ON_AOE_FEAR := "skill_head_on_aoe_fear"
-const SKILL_LOWEST_ALT_KILL_INVUL := "skill_lowest_alt_kill_invul"
+const SKILL_LOW_ALT_GUN_DODGE := "low_alt_gun_dodge"
 const SKILL_MISSILE_HIT_INVUL := "skill_missile_hit_invul"
 const SKILL_KILL_STATUS_HEAL := "skill_kill_status_heal"
 const SKILL_FLARE_AOE_JAM := "skill_flare_aoe_jam"
@@ -45,6 +45,8 @@ const SKILL_RATATAT := "ratatat"
 const SKILL_MENTAL_CONFUSION := "mental_confusion"
 const SKILL_HUSH := "hush"
 const SKILL_STASIS := "stasis"
+const SKILL_COUNTER_STEALTH := "counter_stealth"
+const SKILL_GHOST_BUSTER := "ghost_buster"
 const SKILL_EVASION_HERBST := "evasion_herbst"   ## evasion 模式被攻击启动 J-Turn（与 UPGRADES id 对齐）
 ## ── A-10 实验武器技能（火箭弹 / 漂浮雷专属） ──
 const SKILL_TORPEDO_AOE_JAM := "skill_torpedo_aoe_jam"     ## 漂浮雷引爆后范围干扰
@@ -206,7 +208,9 @@ const BLOODLUST_ARMOR_DR := 0.30            ## BLOODLUST 期间额外减伤 30%
 const BLOODLUST_G_MULT := 1.20              ## BLOODLUST 期间 max_g ×1.2
 const BLOODLUST_ACCEL_MULT := 1.30          ## BLOODLUST 期间加/减速 ×1.3（与 OVERLOAD 1.6 区别开）
 const FULL_HP_KILL_HP_BONUS := 8.0          ## 满血 + BL 击杀 +8 max_hp/+8 hp
+const GHOST_BUSTER_HP_BONUS := 10.0
 const JAM_SELF_OVERLOAD_DURATION := 8.0     ## JAM 命中至少 1 个敌人 -> 自身 OVERLOAD 8s
+const KILL_BASE_HEAL_AMOUNT := 5.0
 const KILL_STATUS_HEAL_AMOUNT := 30.0
 const FLARE_AOE_JAM_RADIUS_PX := 600.0
 const FLARE_AOE_JAM_DURATION := 3.0
@@ -245,7 +249,7 @@ const ROCKET_HOMING_TURN_DPS := 35.0     ## 比鱼雷略快但比导弹弱很多
 const ROCKET_HOMING_RETARGET_INTERVAL := 0.4
 
 ## ── 720 批 T3：钩子技能常量 ──
-const SKILL_QMAAM_BLOODLUST := "qmaam_bloodlust"
+const SKILL_QMAAM_BOOST := "qmaam_boost"
 const QMAAM_BLOODLUST_DURATION := 10.0      ## 格斗弹击杀 → 嗜血 10s
 const SIG_X77_STEALTH_DURATION := 5.0       ## 引渡人：导弹击杀隐身
 const SIG_FAXX_STEALTH_DURATION := 5.0      ## 穿透打击：本机机炮击杀隐身
@@ -256,11 +260,12 @@ const ADAPT_ENERGY_HEAL := 20.0             ## 击杀高于自己高度的敌人
 const SKILL_GUN_RESERVE_MAG := "gun_reserve_mag"
 const GUN_RESERVE_MAG_BASE_CHANCE := 0.30   ## 首层 30%，双层 50%
 const GUN_RESERVE_MAG_PER_STACK := 0.20
-const SKILL_GUN_OUT_FREE_MISSILE := "gun_out_free_missile"
+const SKILL_CLOSE_RANGE_LOCK := "close_range_lock"
 
 ## 加力充能队级实例引用（survivor_mode 建场时注入；"适应"击杀回能经此触达。
 ## 场景重建时重新注入覆盖旧引用，RefCounted 由 mode 持有不悬空）
 static var afterburner: AfterburnerCharge = null
+static var ghost_buster_team_hp_gained: float = 0.0
 
 
 ## ── 击杀钩子分发入口 ──
@@ -327,11 +332,13 @@ static func dispatch_on_kill(killer: Aircraft, victim: Aircraft) -> void:
 	if stacks.get(SKILL_KILL_BLOODLUST, 0) > 0 or killer.is_berserk_virus_wingman():
 		killer.apply_status(StatusEffects.BLOODLUST, KILL_BLOODLUST_DURATION)
 
-	# ── 钩子：击杀有异常状态者回 30 HP ──
+	# ── 虐弱（合并战场急救）：每次击杀回 5 HP，异常状态目标额外回 30 HP ──
 	if stacks.get(SKILL_KILL_STATUS_HEAL, 0) > 0:
+		var heal_amount: float = KILL_BASE_HEAL_AMOUNT
 		if not victim.status_effects.is_empty():
-			var max_hp: float = killer.params.max_hp if killer.params else 100.0
-			killer.hp = minf(killer.hp + KILL_STATUS_HEAL_AMOUNT, max_hp)
+			heal_amount += KILL_STATUS_HEAL_AMOUNT
+		var max_hp: float = killer.params.max_hp if killer.params else 100.0
+		killer.hp = minf(killer.hp + heal_amount, max_hp)
 
 	# ── 钩子：对头击杀 +5 max_hp + +5 hp（永久局内） ──
 	if is_head_on and stacks.get(SKILL_HEAD_ON_PERMA_HP, 0) > 0:
@@ -366,16 +373,29 @@ static func dispatch_on_kill(killer: Aircraft, victim: Aircraft) -> void:
 		EventLogger.log_event("SKILL_HOOK", killer.callsign,
 			"full_hp_kill_perma_hp → max_hp+%d (now %.0f)" % [int(FULL_HP_KILL_HP_BONUS), killer.params.max_hp])
 
-	# ── 钩子：最低空击杀 INVINCIBLE（自身） ──
+	# Ghost Buster: stealth-capable kills permanently grow the whole squad.
+	if stacks.get(SKILL_GHOST_BUSTER, 0) > 0 \
+			and victim.params != null and victim.params.sensor_stealth_enabled:
+		ghost_buster_team_hp_gained += GHOST_BUSTER_HP_BONUS
+		for raw in CombatUnit.all_units:
+			if is_instance_valid(raw) and raw is Aircraft:
+				var member := raw as Aircraft
+				if not member.is_destroyed and member.is_player_squad():
+					sync_ghost_buster_team_hp_bonus(member)
+		EventLogger.log_event("SKILL_HOOK", killer.callsign,
+			"ghost_buster → squad max_hp+%d (earned %.0f)" % [
+				int(GHOST_BUSTER_HP_BONUS), ghost_buster_team_hp_gained])
+
+	# ── 地表狂奔（合并空中战车）：最低空击杀 INVINCIBLE（自身） ──
 	# 用 max 模式（不是 no_refresh）：击杀是奖励，应该能延长已有 INVINCIBLE，
 	# 否则与 SKILL_MISSILE_HIT_INVUL 的 no_refresh 互锁（命中后 4s 内击杀奖励静默失效）
-	if stacks.get(SKILL_LOWEST_ALT_KILL_INVUL, 0) > 0:
+	if stacks.get(SKILL_LOW_ALT_GUN_DODGE, 0) > 0:
 		var tier: int = killer.get_altitude_tier()
 		if tier == CombatUnit.AltitudeTier.LOW or tier == CombatUnit.AltitudeTier.GROUND:
 			killer.apply_status(StatusEffects.INVINCIBLE, LOWEST_ALT_KILL_INVUL_DURATION)
 
-	# ── 720 批：QAAM 嗜血——格斗弹（副槽 QMAAM）击杀 → 嗜血 10s ──
-	if kind == "qmaam" and stacks.get(SKILL_QMAAM_BLOODLUST, 0) > 0:
+	# ── QAAM 强化合并嗜血：格斗弹（副槽 QMAAM）击杀 → 嗜血 10s ──
+	if kind == "qmaam" and stacks.get(SKILL_QMAAM_BOOST, 0) > 0:
 		killer.apply_status(StatusEffects.BLOODLUST, QMAAM_BLOODLUST_DURATION)
 
 	# ── 720 批：适应——击杀不高于自己的敌人回加力能量；高于自己的回 20 HP ──
@@ -408,13 +428,13 @@ static func try_gun_reserve_mag(ac: Aircraft) -> bool:
 	return true
 
 
-## 副武器：机炮弹尽装填期内发射导弹不消耗弹药（_fire_missile_at / 齐射扣弹前查）
+## 近距捕获：合并“副武器”后，机炮装填期内发射导弹不消耗弹药。
 static func in_free_missile_window(ac: Aircraft) -> bool:
 	if ac == null or not is_instance_valid(ac) or not ac.is_player_squad():
 		return false
 	if not ac._gun_reload_active:
 		return false
-	return int(_get_upgrade_stacks(ac).get(SKILL_GUN_OUT_FREE_MISSILE, 0)) > 0
+	return int(_get_upgrade_stacks(ac).get(SKILL_CLOSE_RANGE_LOCK, 0)) > 0
 
 
 ## ── 受击钩子分发入口 ──
@@ -650,3 +670,18 @@ static func _get_upgrade_stacks(ac: Aircraft) -> Dictionary:
 	if ac.has_meta("upgrade_stacks"):
 		return ac.get_meta("upgrade_stacks")
 	return {}
+
+
+static func sync_ghost_buster_team_hp_bonus(ac: Aircraft) -> void:
+	if ac == null or not is_instance_valid(ac) or ac.params == null:
+		return
+	var stacks: Dictionary = _get_upgrade_stacks(ac)
+	if int(stacks.get(SKILL_GHOST_BUSTER, 0)) <= 0:
+		return
+	var applied: float = float(ac.get_meta("ghost_buster_hp_bonus_applied", 0.0))
+	var delta: float = ghost_buster_team_hp_gained - applied
+	if delta <= 0.01:
+		return
+	ac.params.max_hp += delta
+	ac.hp = minf(ac.hp + delta, ac.params.max_hp)
+	ac.set_meta("ghost_buster_hp_bonus_applied", ghost_buster_team_hp_gained)

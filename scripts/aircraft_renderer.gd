@@ -14,6 +14,10 @@ const DATA_LABEL_MIN_RIGHT_PX: float = 24.0
 const DATA_LABEL_ICON_GAP_PX: float = 8.0
 const DATA_LABEL_TOP_PX: float = -12.0
 const AIRCRAFT_ICON_HALF_EXTENT_WORLD: float = 20.0
+const UNIT_STATUS_FONT_SIZE: int = 11
+const UNIT_STATUS_LINE_HEIGHT_PX: float = 14.0
+const UNIT_STATUS_PAD_X_PX: float = 5.0
+const UNIT_STATUS_PAD_Y_PX: float = 3.0
 const BANK_VOLUME_FACE_OFFSET_RATIO: float = 0.42
 const BANK_VOLUME_FACE_FADE_COS: float = 0.18
 const SUPPORT_RANGE_FILL_ALPHA: float = 0.07
@@ -104,6 +108,15 @@ static func bank_volume_face_alpha_for(face_scale: float) -> float:
 ## 最终标签原点取整，避免高速移动时字体在亚像素之间反复采样而发虚。
 static func data_label_screen_offset_for(icon_radius_world: float, view_scale: float,
 		screen_origin_px: Vector2, top_px: float = DATA_LABEL_TOP_PX) -> Vector2:
+	return unit_status_screen_offset_for(
+		icon_radius_world, view_scale, screen_origin_px, top_px)
+
+
+## 全体战斗单位共用的屏幕像素锚点。标签只在屏幕空间布局，不能把单位的
+## heading、父节点 scale 或相机 zoom 烤进面板几何。
+static func unit_status_screen_offset_for(icon_radius_world: float,
+		view_scale: float, screen_origin_px: Vector2,
+		top_px: float = DATA_LABEL_TOP_PX) -> Vector2:
 	var right_px := maxf(DATA_LABEL_MIN_RIGHT_PX,
 		ceilf(maxf(icon_radius_world, 0.0) * absf(view_scale) + DATA_LABEL_ICON_GAP_PX))
 	var desired := Vector2(right_px, top_px)
@@ -121,6 +134,106 @@ static func data_label_screen_offset(ac: Aircraft,
 	var screen_origin := ac.get_global_transform_with_canvas().origin
 	return data_label_screen_offset_for(
 		icon_radius_world, view_scale, screen_origin, top_px)
+
+
+## 求一个局部 draw transform，使 CanvasItem 后续绘制在最终屏幕上保持单位矩阵。
+## `item_to_screen * result` 的基向量恒为屏幕 X/Y，故父节点旋转、非均匀缩放、
+## Camera2D zoom/rotation 都不能扭转状态栏；原点同时钉在整数像素。
+static func screen_space_panel_transform_for(item_to_screen: Transform2D,
+		screen_offset_px: Vector2) -> Transform2D:
+	if absf(item_to_screen.determinant()) <= 0.000001:
+		return Transform2D.IDENTITY
+	var screen_origin := item_to_screen.origin
+	var desired_origin := (screen_origin + screen_offset_px).round()
+	var desired := Transform2D(0.0, desired_origin)
+	return item_to_screen.affine_inverse() * desired
+
+
+static func screen_space_panel_transform(item: CanvasItem,
+		screen_offset_px: Vector2) -> Transform2D:
+	if item == null or not item.is_inside_tree():
+		return Transform2D(0.0, screen_offset_px.round())
+	return screen_space_panel_transform_for(
+		item.get_global_transform_with_canvas(), screen_offset_px)
+
+
+const STATUS_DAMAGE_FLASH_STEP_S := 0.12
+const STATUS_DAMAGE_FLASH_DURATION_S := STATUS_DAMAGE_FLASH_STEP_S * 8.0
+const STATUS_DAMAGE_STARTED_META := &"status_bar_damage_started_at"
+const STATUS_DAMAGE_LAST_META := &"status_bar_last_damage_at"
+
+
+## 状态栏受伤相位：单发完整播放；连续命中只移动 last_at，绝不重置 started_at。
+static func status_damage_flash_phase(started_at: float, last_at: float,
+		now: float) -> int:
+	if not is_finite(started_at) or not is_finite(last_at) \
+			or now < started_at or now >= last_at + STATUS_DAMAGE_FLASH_DURATION_S:
+		return -1
+	return int(floor((now - started_at) / STATUS_DAMAGE_FLASH_STEP_S)) % 2
+
+
+static func status_damage_flash_phase_for(item: Node2D, now: float = NAN) -> int:
+	if not item is Aircraft:
+		return -1
+	var ac := item as Aircraft
+	if not ac.is_player_squad():
+		return -1
+	var sample_now := EventLogger.get_game_time() if is_nan(now) else now
+	return status_damage_flash_phase(
+		float(ac.get_meta(STATUS_DAMAGE_STARTED_META, -INF)),
+		float(ac.get_meta(STATUS_DAMAGE_LAST_META, -INF)), sample_now)
+
+
+## 返回 [背景色, 前景色]；整块状态栏与其中数字同步进行蓝白反相。
+static func status_damage_panel_colors(base_bg: Color, base_text: Color,
+		phase: int) -> Array[Color]:
+	if phase < 0:
+		return [base_bg, base_text]
+	if phase == 0:
+		return [ThemeColors.UI_DAMAGE_FLASH_BLUE, ThemeColors.UI_TERMINAL_WHITE]
+	return [ThemeColors.UI_TERMINAL_WHITE, ThemeColors.UI_DAMAGE_FLASH_BLUE]
+
+
+## 飞机、地面单位与舰船共用的矢量状态栏。内容行可按兵种不同，但字体、
+## 内边距、边框、阵营颜色、像素对齐和屏幕空间变换只有这一份实现。
+static func draw_unit_status_panel(item: Node2D, font: Font,
+		lines: PackedStringArray, team: int, screen_offset_px: Vector2,
+		row_colors: Dictionary = {}, controlled: bool = false) -> void:
+	if item == null or font == null or lines.is_empty():
+		return
+	var max_w := 0.0
+	for line in lines:
+		max_w = maxf(max_w, font.get_string_size(
+			_digit_stable(line), HORIZONTAL_ALIGNMENT_LEFT, -1,
+			UNIT_STATUS_FONT_SIZE).x)
+	var box_w := max_w + UNIT_STATUS_PAD_X_PX * 2.0
+	var box_h := lines.size() * UNIT_STATUS_LINE_HEIGHT_PX \
+		+ UNIT_STATUS_PAD_Y_PX * 2.0
+	var colors := GameConstants.aircraft_label_colors(team)
+	var bg_color: Color = colors[0]
+	var text_color: Color = colors[1]
+	if controlled:
+		bg_color = GameConstants.PLAYER_CTRL_LABEL_BG
+		text_color = GameConstants.PLAYER_CTRL_LABEL_TEXT
+	var damage_phase := status_damage_flash_phase_for(item)
+	var damage_colors := status_damage_panel_colors(bg_color, text_color, damage_phase)
+	bg_color = damage_colors[0]
+	text_color = damage_colors[1]
+
+	item.draw_set_transform_matrix(screen_space_panel_transform(
+		item, screen_offset_px))
+	var box := Rect2(Vector2.ZERO, Vector2(box_w, box_h))
+	item.draw_rect(box, bg_color, true)
+	item.draw_rect(box, text_color * Color(1.0, 1.0, 1.0, 0.4), false, 1.0)
+	for i in range(lines.size()):
+		var color: Color = text_color if damage_phase >= 0 else row_colors.get(i, text_color)
+		if damage_phase < 0 and controlled and color != text_color:
+			color = GameConstants.darken_for_light_bg(color)
+		item.draw_string(font, Vector2(UNIT_STATUS_PAD_X_PX,
+			UNIT_STATUS_PAD_Y_PX + 9.0 + i * UNIT_STATUS_LINE_HEIGHT_PX),
+			lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1,
+			UNIT_STATUS_FONT_SIZE, color)
+	item.draw_set_transform_matrix(Transform2D.IDENTITY)
 
 
 static func lock_box_altitude_scale_for(altitude_m: float) -> float:
@@ -762,6 +875,16 @@ static func draw_target_bracket(node: Node2D, is_target: bool) -> void:
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 12, color)
 	node.draw_set_transform(Vector2.ZERO, 0.0)
 
+## 传感器隐形任务目标：只暴露任务位置，不泄露机型、距离、HP 或运动数据。
+static func draw_sensor_unknown_target(ac: Aircraft) -> void:
+	draw_target_bracket(ac, true)
+	var color := Color(1.0, 0.85, 0.2, 0.95)
+	var inv_rot := -ac.rotation
+	ac.draw_set_transform(Vector2(-13.0, 39.0).rotated(inv_rot), inv_rot)
+	ac.draw_string(ThemeDB.fallback_font, Vector2.ZERO, "???",
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 12, color)
+	ac.draw_set_transform(Vector2.ZERO, 0.0)
+
 static func draw_muzzle_flash(ac: Aircraft) -> void:
 	var flash_alpha := lerpf(0.6, 1.0, visual_noise01(ac, 11))
 	var flash_color := Color(1.0, 0.9, 0.3, flash_alpha)
@@ -864,17 +987,12 @@ static func draw_status_icons(ac: CombatUnit) -> void:
 	if active_ids.is_empty():
 		return
 
-	# 抵消摄像机缩放：UI 元素保持固定屏幕尺寸（与 draw_data_label 同思路）
-	var zoom_scale := ac.get_viewport_transform().get_scale()
-	var inv_zoom: float = 1.0 / maxf(zoom_scale.x, 0.01)
-	var w := StatusEffects.BAR_WIDTH * inv_zoom
-	var h := StatusEffects.BAR_HEIGHT * inv_zoom
-	var gap := StatusEffects.BAR_GAP * inv_zoom
+	# 共享屏幕空间变换一次抵消单位、父节点与相机的全部旋转/缩放。
+	var w := StatusEffects.BAR_WIDTH
+	var h := StatusEffects.BAR_HEIGHT
+	var gap := StatusEffects.BAR_GAP
 	var step := h + gap
-
-	# 抵消飞机 rotation；最底下的条贴近 BAR_OFFSET_Y，往上摞
-	var t := Transform2D(-ac.rotation, Vector2.ZERO)
-	ac.draw_set_transform_matrix(t)
+	ac.draw_set_transform_matrix(screen_space_panel_transform(ac, Vector2.ZERO))
 
 	var font := ThemeDB.fallback_font
 	var font_size := StatusEffects.BAR_FONT_SIZE
@@ -885,7 +1003,7 @@ static func draw_status_icons(ac: CombatUnit) -> void:
 		var id: String = active_ids[i]
 		var col: Color = StatusEffects.icon_color(id)
 		# 第 0 条最靠近飞机，第 n-1 条最靠上
-		var y := StatusEffects.BAR_OFFSET_Y * inv_zoom - step * float(i)
+		var y := StatusEffects.BAR_OFFSET_Y - step * float(i)
 		var bg_rect := Rect2(x0, y, w, h)
 
 		# 背景（半透明黑）
@@ -902,44 +1020,61 @@ static func draw_status_icons(ac: CombatUnit) -> void:
 
 		# 边框（buff 金 / debuff 红）
 		var border_col: Color = Color(1.0, 0.85, 0.2, 0.9) if StatusEffects.is_buff(id) else Color(0.95, 0.2, 0.2, 0.9)
-		ac.draw_rect(bg_rect, border_col, false, 1.0 * inv_zoom)
+		ac.draw_rect(bg_rect, border_col, false, 1.0)
 
 		# 标签：黑底色高亮，居中显示中文短标签
 		var label := StatusEffects.short_label(id)
-		var sized_font := float(font_size) * inv_zoom
-		var text_w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_CENTER, -1, int(sized_font)).x
+		var text_w := font.get_string_size(label,
+			HORIZONTAL_ALIGNMENT_CENTER, -1, font_size).x
 		var text_pos := Vector2(x0 + (w - text_w) * 0.5, y + h - h * 0.22)
 		# 描边（黑色 1px 偏移 4 方向）
 		var outline := Color(0, 0, 0, 0.9)
-		var off: float = 1.0 * inv_zoom
+		var off: float = 1.0
 		for dx in [-off, off]:
 			for dy in [-off, off]:
 				ac.draw_string(font, text_pos + Vector2(dx, dy), label,
-					HORIZONTAL_ALIGNMENT_LEFT, -1, int(sized_font), outline)
+					HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, outline)
 		ac.draw_string(font, text_pos, label,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, int(sized_font), Color.WHITE)
+			HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.WHITE)
 
 	ac.draw_set_transform_matrix(Transform2D.IDENTITY)
 
 
 static func draw_aircraft_icon_destroyed(ac: Aircraft) -> void:
-	# 灰色闪烁图标
-	var blink := absf(sin(Time.get_ticks_msec() * 0.008))
-	var gray := Color(0.5, 0.5, 0.5, lerpf(0.3, 0.7, blink))
-	var size := 12.0
-	var body := PackedVector2Array([
-		Vector2(0, -size), Vector2(size * 0.5, size * 0.3),
-		Vector2(0, size), Vector2(-size * 0.5, size * 0.3),
-	])
-	ac.draw_colored_polygon(body, gray)
+	# 使用正式机型轮廓；缩小/渐隐只烘进本次 icon draw，不污染状态栏的屏幕空间变换。
+	if ac._destroy_visual_alpha <= 0.001 or ac._destroy_visual_scale <= 0.001:
+		return
+	draw_aircraft_icon(ac, true,
+		ac._destroy_visual_scale, ac._destroy_visual_alpha)
 
-static func draw_aircraft_icon(ac: Aircraft, bank_volume_enabled: bool = true) -> void:
+
+## 所有坠毁共用的短暂终态栏：沿用世界单位共享屏幕空间面板，不跟着失控机体旋转。
+static func draw_destroyed_status_label(ac: Aircraft) -> void:
+	if ac._font == null:
+		return
+	var identity := ac.callsign.strip_edges()
+	if identity.is_empty():
+		identity = airframe_identity_label(ac)
+	var speed_kmh := ac.speed * 3.6
+	var lines := PackedStringArray([
+		identity,
+		"%d kt" % roundi(speed_kmh * 0.5399),
+		"ALT %dm ↓" % maxi(roundi(ac.altitude), 0),
+	])
+	var row_colors := {2: Color(1.0, 0.35, 0.28, 1.0)}
+	draw_unit_status_panel(ac, ac._font, lines, ac.team,
+		data_label_screen_offset(ac), row_colors, false)
+
+static func draw_aircraft_icon(ac: Aircraft, bank_volume_enabled: bool = true,
+		presentation_scale: float = 1.0, presentation_alpha: float = 1.0) -> void:
 	var color: Color = ac.params.icon_color if ac.params else Color.GREEN
+	color.a *= clampf(presentation_alpha, 0.0, 1.0)
 
 	var size := 16.0
 
 	# 高度缩放（档位离散 / 沙盒连续，见 altitude_base_scale）
-	var base_scale: float = altitude_base_scale(ac) * visual_model_scale(ac)
+	var base_scale: float = altitude_base_scale(ac) * visual_model_scale(ac) \
+		* maxf(presentation_scale, 0.0)
 
 	# 滚转变形（常规 bank + 规避时的原地滚转相位）
 	var bank_visual := ac.bank_angle + ac._evade_roll_phase + ac._active_special_roll_visual
@@ -990,7 +1125,7 @@ static func draw_aircraft_icon(ac: Aircraft, bank_volume_enabled: bool = true) -
 	# 未登记的 UGC/临时探针安全回退到下方旧 polygon 绘制。
 	if AircraftSilhouetteCatalog.draw_icon(
 			ac, color, size, face_xform, shell_xform, face_alpha, belly_visible):
-		if ac.selected:
+		if ac.selected and not ac.is_destroyed:
 			var ring_color := color
 			ring_color.a = 0.5
 			var ring_scale := AircraftSilhouetteCatalog.draw_scale_for(ac)
@@ -1643,21 +1778,8 @@ static func draw_data_label_drone(ac: Aircraft) -> void:
 		return
 	var speed_kmh := ac.speed * 3.6
 	var line: String = "DRONE  %d kt" % roundi(speed_kmh * 0.5399)
-	var font_size := 11
-	var pad := 4.0
-	var text_w: float = ac._font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-	var box_w := text_w + pad * 2.0
-	var box_h := 13.0 + pad * 2.0
-	# 抵消机身旋转 + 摄像机缩放
-	var inv_zoom := screen_space_inverse_scale(ac)
-	var inv_rot := -ac.rotation
-	var screen_offset := data_label_screen_offset(ac, -box_h * 0.5)
-	var origin_local := (screen_offset * inv_zoom).rotated(inv_rot)
-	ac.draw_set_transform(origin_local, -ac.global_rotation, Vector2.ONE * inv_zoom)
-	ac.draw_rect(Rect2(Vector2.ZERO, Vector2(box_w, box_h)), Color(0.05, 0.08, 0.05, 0.55), true)
-	ac.draw_string(ac._font, Vector2(pad, pad + ac._font.get_ascent(font_size)), line,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.7, 0.95, 0.7, 0.85))
-	ac.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	draw_unit_status_panel(ac, ac._font, PackedStringArray([line]), ac.team,
+		data_label_screen_offset(ac))
 
 
 ## 当前操控机显示纯机型编号 + 完整呼号；其它单位缩机名后缀、不缩呼号。
@@ -1674,40 +1796,8 @@ static func draw_data_label_compact(ac: Aircraft) -> void:
 	var status_line_indices: Dictionary = {}
 	_append_status_label_lines(ac, lines, status_line_indices, ac == safe_player_ref())
 
-	var inv_rot: float = -ac.rotation
-	var inv_zoom: float = screen_space_inverse_scale(ac)
-	var font_size := 11
-	var line_height := 14.0
-	var label_offset := (data_label_screen_offset(ac) * inv_zoom).rotated(inv_rot)
-	var max_w := 0.0
-	for line in lines:
-		max_w = maxf(max_w, ac._font.get_string_size(
-			_digit_stable(line), HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x)
-
-	var colors := GameConstants.aircraft_label_colors(ac.team)
-	var bg_color: Color = colors[0]
-	var text_color: Color = colors[1]
-	if is_player:
-		bg_color = GameConstants.PLAYER_CTRL_LABEL_BG
-		text_color = GameConstants.PLAYER_CTRL_LABEL_TEXT
-
-	ac.draw_set_transform(label_offset, inv_rot, Vector2.ONE * inv_zoom)
-	var box := Rect2(0, 0, max_w + 10.0, lines.size() * line_height + 6.0)
-	ac.draw_rect(box, bg_color)
-	ac.draw_rect(box, text_color * Color(1, 1, 1, 0.4), false, 1.0)
-	# 身份 + 速度同色，合为一次文字提交；状态行继续逐行保留独立颜色。
-	ac.draw_multiline_string(ac._font, Vector2(5, 12),
-		"\n".join(lines.slice(0, mini(2, lines.size()))),
-		HORIZONTAL_ALIGNMENT_LEFT, max_w, font_size, mini(2, lines.size()), text_color)
-	for i in range(2, lines.size()):
-		var color: Color = text_color
-		if status_line_indices.has(i):
-			color = status_line_indices[i]
-		if is_player and color != text_color:
-			color = GameConstants.darken_for_light_bg(color)
-		ac.draw_string(ac._font, Vector2(5, 12 + i * line_height), lines[i],
-			HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
-	ac.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	draw_unit_status_panel(ac, ac._font, lines, ac.team,
+		data_label_screen_offset(ac), status_line_indices, is_player)
 
 
 ## 玩家装填提示独立于右侧数据标签，固定在机体屏幕空间左上角。
@@ -1920,44 +2010,16 @@ static func draw_data_label_minimal(ac: Aircraft) -> void:
 	var status_line_indices: Dictionary = {}
 	_append_status_label_lines(ac, lines, status_line_indices, true)
 
-	var inv_rot := -ac.rotation
-	var font_size := 11
-	var line_height := 14.0
-	# 缩放补偿
-	var inv_zoom := screen_space_inverse_scale(ac)
-	var label_offset := (data_label_screen_offset(ac) * inv_zoom).rotated(inv_rot)
-
-	var max_w := 0.0
-	for line in lines:
-		var w := ac._font.get_string_size(_digit_stable(line), HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-		max_w = maxf(max_w, w)
-
-	var scale_v := Vector2(inv_zoom, inv_zoom)
-	var team_color: Color = ac.params.icon_color if ac.params else Color.GREEN
-	var bg_color := Color(team_color.r * 0.15, team_color.g * 0.15, team_color.b * 0.2, 0.7)
-	var default_text_color := Color(0.85, 0.9, 0.85, 0.9)
-	# 当前操控机=白底（偏蓝，spec squad-control-switching §2.2）+ 默认文字转深色
+	var row_colors: Dictionary = {}
 	if is_player:
-		bg_color = GameConstants.PLAYER_CTRL_LABEL_BG
-		default_text_color = GameConstants.PLAYER_CTRL_LABEL_TEXT
-
-	ac.draw_set_transform(label_offset, inv_rot, scale_v)
-	ac.draw_rect(Rect2(-2, -2, max_w + 6, lines.size() * line_height + 4), bg_color)
-	# 仅玩家自己标 ALT 颜色；敌机保持统一色
-	var alt_color := altitude_tier_color(ac.get_altitude_tier(), ac.flat_altitude and absf(ac.vertical_speed) > 5.0) if is_player else default_text_color
-	for i in range(lines.size()):
-		var col := default_text_color
-		if is_player and i == alt_line_idx:
-			col = alt_color
-		elif status_line_indices.has(i):
-			col = status_line_indices[i]
-		elif wpn_color_indices.has(i):
-			col = wpn_color_indices[i]
-		# 白底压暗：彩色行（status/wpn/alt）原本是高亮浅色，在白底上看不清 → 压暗保色相
-		if is_player and col != default_text_color:
-			col = GameConstants.darken_for_light_bg(col)
-		ac.draw_string(ac._font, Vector2(0, i * line_height + 11), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, col)
-	ac.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		row_colors[alt_line_idx] = altitude_tier_color(ac.get_altitude_tier(),
+			ac.flat_altitude and absf(ac.vertical_speed) > 5.0)
+	for idx in status_line_indices:
+		row_colors[idx] = status_line_indices[idx]
+	for idx in wpn_color_indices:
+		row_colors[idx] = wpn_color_indices[idx]
+	draw_unit_status_panel(ac, ac._font, lines, ac.team,
+		data_label_screen_offset(ac), row_colors, is_player)
 
 static func draw_data_label(ac: Aircraft) -> void:
 	var display_name := compact_aircraft_name(ac.params.display_name) if ac.params else "???"
@@ -2069,53 +2131,19 @@ static func draw_data_label(ac: Aircraft) -> void:
 	var status_line_indices: Dictionary = {}
 	_append_status_label_lines(ac, lines, status_line_indices)
 
-	var inv_rot := -ac.rotation
-	var font_size := 11
-	var line_height := 14.0
-	# 缩放补偿：标签大小不随摄像机缩放变化
-	var inv_zoom := screen_space_inverse_scale(ac)
-	var label_offset := (data_label_screen_offset(ac) * inv_zoom).rotated(inv_rot)
-
-	# 测量最大宽度（把数字替换成 "0" 再测，避免 label 框每帧抽搐）
-	var max_w := 0.0
-	for line in lines:
-		var w := ac._font.get_string_size(_digit_stable(line), HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-		max_w = maxf(max_w, w)
-	var box_w := max_w + 10.0
-	var box_h := lines.size() * line_height + 6.0
-
-	# 背景色（spec squad-control-switching §2.2）：当前操控机=白底，其余友机=蓝底，敌机=红底。
-	# 白底只标"玩家当前亲控那一架"（safe_player_ref），让玩家一眼看出"我现在是谁"。
-	var _alc := GameConstants.aircraft_label_colors(ac.team)
-	var bg_color: Color = _alc[0]
-	var text_color: Color = _alc[1]
 	var is_player := ac == safe_player_ref()
-	if is_player:
-		bg_color = GameConstants.PLAYER_CTRL_LABEL_BG   # 偏蓝白底（不纯白，避免刺眼）
-		text_color = GameConstants.PLAYER_CTRL_LABEL_TEXT  # 深色基础文字
-
-	var scale_v := Vector2(inv_zoom, inv_zoom)
-	ac.draw_set_transform(label_offset, inv_rot, scale_v)
-	ac.draw_rect(Rect2(0, 0, box_w, box_h), bg_color)
-	ac.draw_rect(Rect2(0, 0, box_w, box_h), text_color * Color(1, 1, 1, 0.4), false, 1.0)
-
 	# 高度变化检测：用 vs 而不是 tier 跨边界（vs > 5 m/s 视为真在升降）
 	var alt_changing: bool = ac.flat_altitude and absf(ac.vertical_speed) > 5.0
-	var alt_color := altitude_tier_color(ac.get_altitude_tier(), alt_changing) if is_player else text_color
-	for i in range(lines.size()):
-		var col := text_color
-		if is_player and i == alt_line_idx:
-			col = alt_color
-		elif status_line_indices.has(i):
-			col = status_line_indices[i]
-		elif wpn_color_indices.has(i):
-			col = wpn_color_indices[i]
-		# 白底压暗：彩色行（status/wpn/alt 等高亮浅色）在白底上看不清 → 压暗保色相
-		if is_player and col != text_color:
-			col = GameConstants.darken_for_light_bg(col)
-		ac.draw_string(ac._font, Vector2(5, 12 + i * line_height), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, col)
-
-	ac.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	var row_colors: Dictionary = {}
+	if is_player:
+		row_colors[alt_line_idx] = altitude_tier_color(
+			ac.get_altitude_tier(), alt_changing)
+	for idx in status_line_indices:
+		row_colors[idx] = status_line_indices[idx]
+	for idx in wpn_color_indices:
+		row_colors[idx] = wpn_color_indices[idx]
+	draw_unit_status_panel(ac, ac._font, lines, ac.team,
+		data_label_screen_offset(ac), row_colors, is_player)
 
 static func draw_tactic_popup(ac: Aircraft) -> void:
 	if ac._tactic_popup_timer <= 0.0 or ac._tactic_popup_text == "":
@@ -2144,10 +2172,13 @@ static func draw_target_line(ac: Aircraft) -> void:
 	# 规避模式：玩家不需要看到 target_position 抖动出来的预测线（每帧扭头会让线扭动）
 	# 战斗连接线也无意义（规避中不主动接战）
 	if ac.evasion_mode:
+		ac._predicted_path_build = null
 		return
 
 	# 有战斗目标时：连接线指向敌机
 	if ac.combat_target and is_instance_valid(ac.combat_target) and not ac.combat_target.is_destroyed:
+		# 分段预测持有的是开工时快照；战斗结束后不得续算战前的半成品。
+		ac._predicted_path_build = null
 		# 普通线跟随当前操控机线框色；双击突击保留独立黄线语义。
 		var body_color: Color = ac.params.icon_color if ac.params else GameConstants.team_color(ac.team)
 		var ct_color := Color(1.0, 0.78, 0.2, 0.84) if ac.charge_attack else Color(body_color, 0.68)
@@ -2194,6 +2225,7 @@ static func draw_target_line(ac: Aircraft) -> void:
 		return
 
 	if ac.target_position == Vector2.INF:
+		ac._predicted_path_build = null
 		return
 
 	if ac.team != 0:
@@ -2248,92 +2280,118 @@ static func draw_target_line(ac: Aircraft) -> void:
 	ac.draw_circle(local_target, 3.0, Color(1.0, 1.0, 1.0, 1.0))
 	ac.draw_circle(local_target, 1.5, marker_color)
 
-## 玩家飞行轨迹精确预测（同源 step_X 演化版）
-##
-## 设计：调 AircraftPhysics.predict_player_path（与实物理 tick 共享 step_target_heading
-## / step_bank / step_heading / step_speed），PHYSICS_DT = 1/60s 与物理 tick 严格同步。
-## 默认 180 步 ≈ 3 秒预测窗口；到达目标自动终止。
-## 缓存 20Hz refresh（PREDICTED_PATH_REFRESH_MS=50ms），每帧只做 to_local 转换。
-##
-## 战斗中（combat_target != null）不画 —— 那时 target_position 由 update_combat 每 tick
-## 改写成 lead pursuit 点，预测必然跟着乱跳。L 角方框已经标了战斗目标，足够。
+## 生存模式每个渲染帧只为当前操控机调用一次；飞机 _draw 不得推进物理预测。
+static func update_predicted_path_cache(ac: Aircraft) -> void:
+	if ac.target_position == Vector2.INF \
+			or (ac.combat_target != null and is_instance_valid(ac.combat_target)):
+		ac._predicted_path_build = null
+		return
+	var now_ms := Time.get_ticks_msec()
+	if ac._predicted_path_build != null \
+			and ac.target_position.distance_to(ac._predicted_path_build_target) \
+				> Aircraft.PRED_TARGET_RESET_PX:
+		ac._predicted_path_build = null
+	if ac._predicted_path_build == null \
+			and (now_ms - ac._predicted_path_cache_ms > Aircraft.PREDICTED_PATH_REFRESH_MS \
+				or ac._predicted_path_world.size() < 2):
+		ac._predicted_path_build = AircraftPhysics.begin_player_path_prediction(
+			ac, Aircraft.PRED_MAX_STEPS)
+		ac._predicted_path_build_target = ac.target_position
+
+	if ac._predicted_path_build != null and AircraftPhysics.advance_player_path_prediction(
+			ac._predicted_path_build, Aircraft.PRED_STEPS_PER_FRAME):
+		var pred: Dictionary = AircraftPhysics.player_path_prediction_result(
+			ac._predicted_path_build)
+		ac._predicted_path_build = null
+		var full_points: PackedVector2Array = pred.get("points", PackedVector2Array())
+		var full_healths: PackedFloat32Array = pred.get("healths", PackedFloat32Array())
+		if bool(ac.get_meta(&"prediction_diag", false)):
+			_log_prediction_diag(ac, full_points, full_healths)
+		var display := prediction_display_result(
+			full_points, full_healths, Aircraft.PRED_DISPLAY_STRIDE)
+		ac._predicted_path_world = display["points"]
+		ac._predicted_path_healths = display["healths"]
+		ac._predicted_path_cache_ms = now_ms
+
+
+## 显示只抽样，不改变 360 步物理解算；终点无条件保留。
+static func prediction_display_result(points: PackedVector2Array,
+		healths: PackedFloat32Array, stride: int) -> Dictionary:
+	var out_points := PackedVector2Array()
+	var out_healths := PackedFloat32Array()
+	if points.is_empty():
+		return {"points": out_points, "healths": out_healths}
+	var safe_stride := maxi(stride, 1)
+	for i in range(0, points.size(), safe_stride):
+		out_points.append(points[i])
+		out_healths.append(healths[i] if i < healths.size() else 1.0)
+	var last := points.size() - 1
+	if (last % safe_stride) != 0:
+		out_points.append(points[last])
+		out_healths.append(healths[last] if last < healths.size() else 1.0)
+	return {"points": out_points, "healths": out_healths}
+
+
+## 昂贵的逐点差异统计默认关闭，仅显式 prediction_diag 标记时执行。
+static func _log_prediction_diag(ac: Aircraft, points: PackedVector2Array,
+		healths: PackedFloat32Array) -> void:
+	var n: int = points.size()
+	var prev_n: int = ac._predicted_path_prev_world.size()
+	var max_div: float = 0.0
+	var mean_div: float = 0.0
+	var div_n: int = mini(n, prev_n)
+	if div_n > 0:
+		var sum_div: float = 0.0
+		for i in range(div_n):
+			var d: float = points[i].distance_to(ac._predicted_path_prev_world[i])
+			if d > max_div:
+				max_div = d
+			sum_div += d
+		mean_div = sum_div / float(div_n)
+	var hdg_to_target: float = 0.0
+	var diff: Vector2 = ac.target_position - ac.global_position
+	if diff.length_squared() > 1.0:
+		hdg_to_target = atan2(diff.x, -diff.y)
+	var hdiff: float = Aircraft._angle_diff(hdg_to_target, ac.heading)
+	var end_pt: Vector2 = points[n - 1] if n > 0 else ac.global_position
+	var end_local: Vector2 = ac.to_local(end_pt)
+	var end_h: float = healths[n - 1] if (n > 0 and n - 1 < healths.size()) else 0.0
+	var start_h: float = healths[0] if healths.size() > 0 else 0.0
+	var msg: String = "step=%d hdg=%d° hdiff=%+d° spd=%dkt bank=%d° g=%.1f vs=%dms alt=%dm tspd=%dkt tdist=%dpx tsign=%+d evas=%d n=%d/%d end_local=(%d,%d) hstart=%.2f hend=%.2f max_div=%dpx mean_div=%dpx prev_n=%d" % [
+		ac._predicted_path_diag_step,
+		int(rad_to_deg(ac.heading)), int(rad_to_deg(hdiff)),
+		int(ac.speed * 3.6 / 1.852), int(rad_to_deg(ac.bank_angle)), ac.g_load,
+		int(ac.vertical_speed), int(ac.altitude), int(ac.target_speed_kmh / 1.852),
+		int(diff.length()), int(ac._committed_turn_sign), int(ac.evasion_mode),
+		n, Aircraft.PRED_MAX_STEPS, int(end_local.x), int(end_local.y),
+		start_h, end_h, int(max_div), int(mean_div), prev_n,
+	]
+	EventLogger.log_event("PRED_DIAG", ac._log_name(), msg)
+	if max_div > Aircraft.PRED_JUMP_PX_THRESHOLD and prev_n > 0:
+		EventLogger.log_event("PRED_JUMP", ac._log_name(),
+			"step=%d max_div=%dpx mean_div=%dpx (n=%d, prev_n=%d) — 看上一条 PRED_DIAG 找原因" % [
+				ac._predicted_path_diag_step, int(max_div), int(mean_div), n, prev_n])
+	ac._predicted_path_diag_step += 1
+	ac._predicted_path_prev_world = points.duplicate()
+
+
+## 玩家飞行轨迹绘制只消费已完成的抽样缓存。
+## 战斗中 target_position 是每 tick 改写的追踪点，只保留 L 角方框。
 static func draw_predicted_path(ac: Aircraft, _local_target: Vector2, base_color: Color) -> void:
 	if ac.target_position == Vector2.INF:
 		return
 	if ac.combat_target != null and is_instance_valid(ac.combat_target):
-		return  # 战斗中走 L 角方框，不画预测线
-
-	# 20Hz 缓存重算
+		return
 	var now_ms := Time.get_ticks_msec()
-	if now_ms - ac._predicted_path_cache_ms > Aircraft.PREDICTED_PATH_REFRESH_MS \
-			or ac._predicted_path_world.size() < 2:
-		# 留住上一次结果，下面算两次预测之间的形状偏移用
-		ac._predicted_path_prev_world = ac._predicted_path_world
-		var pred: Dictionary = AircraftPhysics.predict_player_path(ac, Aircraft.PRED_MAX_STEPS)
-		ac._predicted_path_world = pred.get("points", PackedVector2Array())
-		ac._predicted_path_healths = pred.get("healths", PackedFloat32Array())
-		ac._predicted_path_cache_ms = now_ms
-
-		# ── 诊断日志：每次 cache refresh 都打 PRED_DIAG，按需 F9 导出 ──
-		# 想抓"抽搐瞬间"就 grep PRED_JUMP（max_div > 阈值）
-		# 想看完整时间线就 grep PRED_DIAG，按 step= 排序
-		var n: int = ac._predicted_path_world.size()
-		var prev_n: int = ac._predicted_path_prev_world.size()
-		var max_div: float = 0.0
-		var mean_div: float = 0.0
-		var div_n: int = mini(n, prev_n)
-		if div_n > 0:
-			var sum_div: float = 0.0
-			for i in range(div_n):
-				var d: float = ac._predicted_path_world[i].distance_to(ac._predicted_path_prev_world[i])
-				if d > max_div:
-					max_div = d
-				sum_div += d
-			mean_div = sum_div / float(div_n)
-		var hdg_to_target: float = 0.0
-		var diff: Vector2 = ac.target_position - ac.global_position
-		if diff.length_squared() > 1.0:
-			hdg_to_target = atan2(diff.x, -diff.y)
-		var hdiff: float = Aircraft._angle_diff(hdg_to_target, ac.heading)
-		var end_pt: Vector2 = ac._predicted_path_world[n - 1] if n > 0 else ac.global_position
-		var end_local: Vector2 = ac.to_local(end_pt)
-		var end_h: float = ac._predicted_path_healths[n - 1] if (n > 0 and n - 1 < ac._predicted_path_healths.size()) else 0.0
-		var start_h: float = ac._predicted_path_healths[0] if ac._predicted_path_healths.size() > 0 else 0.0
-		var msg: String = "step=%d hdg=%d° hdiff=%+d° spd=%dkt bank=%d° g=%.1f vs=%dms alt=%dm tspd=%dkt tdist=%dpx tsign=%+d evas=%d n=%d/%d end_local=(%d,%d) hstart=%.2f hend=%.2f max_div=%dpx mean_div=%dpx prev_n=%d" % [
-			ac._predicted_path_diag_step,
-			int(rad_to_deg(ac.heading)),
-			int(rad_to_deg(hdiff)),
-			int(ac.speed * 3.6 / 1.852),  # m/s -> kt
-			int(rad_to_deg(ac.bank_angle)),
-			ac.g_load,
-			int(ac.vertical_speed),
-			int(ac.altitude),
-			int(ac.target_speed_kmh / 1.852),
-			int(diff.length()),
-			int(ac._committed_turn_sign),
-			int(ac.evasion_mode),
-			n, Aircraft.PRED_MAX_STEPS,
-			int(end_local.x), int(end_local.y),
-			start_h, end_h,
-			int(max_div), int(mean_div),
-			prev_n,
-		]
-		EventLogger.log_event("PRED_DIAG", ac._log_name(), msg)
-		if max_div > Aircraft.PRED_JUMP_PX_THRESHOLD and prev_n > 0:
-			EventLogger.log_event("PRED_JUMP", ac._log_name(),
-				"step=%d max_div=%dpx mean_div=%dpx (n=%d, prev_n=%d) — 看上一条 PRED_DIAG 找原因" % [
-					ac._predicted_path_diag_step, int(max_div), int(mean_div), n, prev_n])
-		ac._predicted_path_diag_step += 1
 
 	var target_world: PackedVector2Array = ac._predicted_path_world
 	var target_healths: PackedFloat32Array = ac._predicted_path_healths
 	if target_world.size() < 2:
 		return
 
-	# ── 时间平滑（解决"6 秒预测每 50ms 离散更新看起来在瞬移"的视觉问题）──
-	# cache 是 20Hz 离散刷新，每次刷新所有 360 个 world point 同时跳到新值。
-	# 平滑视图（_predicted_path_smooth_*）每帧 lerp 向 target，把 50ms 的台阶
-	# 摊成连续过渡。target_position 大变 / 数组长度变了就 snap 重置，避免跨目标插值。
+	# ── 时间平滑（解决分段预测缓存原子换入时的跳变）──
+	# 平滑视图每帧 lerp 向抽样后的 target。target_position 大变或数组长度改变时
+	# 直接 snap，避免跨目标插值。
 	var dt_ms: int = mini(now_ms - ac._predicted_path_last_draw_ms, 200)
 	ac._predicted_path_last_draw_ms = now_ms
 	var dt: float = maxf(float(dt_ms) / 1000.0, 0.0)

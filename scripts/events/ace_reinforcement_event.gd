@@ -44,6 +44,7 @@ var _reengage_timer := 0.0   ## >0 = 撤离被打断、正在回头应战
 var _hp_watch := -1.0        ## 撤离期 HP 总和快照（掉血 = 被伤害 → 应战）
 var _escaped := 0            ## 撤离出界释放数（>0 = 非全灭，不入"击破"档案）
 var _battle_joined := false  ## 交战血条已亮（tier §2.8：首次开火/受击触发，入场不亮）
+var _ace_music_started := false ## 仅本事件成功取得专属 BGM 后为 true；终态幂等归还
 var _withdraw_reason := ""   ## "boss unlocked" / "ammo dry"（骑士弹尽）
 var _encounter_elapsed_s := 0.0 ## 从生成起的在场时长（诊断入场/接敌开销）
 var _combat_elapsed_s := 0.0    ## 从首次开火/受击到终态的实际击破计时
@@ -159,6 +160,8 @@ func _update(delta: float) -> void:
 		_battle_joined = _detect_battle_joined()
 		if _battle_joined:
 			_combat_elapsed_s = 0.0
+			# 与 battle_bar_info() 从空变为可见严格同一上升沿：血条浮现即切专属 BGM。
+			_begin_ace_battle_music()
 			EventLogger.log_event("BALANCE", "AceTTK",
 				"%s combat start | estimated=%.1fs" % [AceSquadProfiles.codename(profile_id),
 					AceSquadProfiles.estimated_ttk_s(profile_id)])
@@ -321,6 +324,7 @@ func _maintain_ally_support_targets() -> void:
 
 func _handle_ace_terminal() -> void:
 	_ace_terminal_handled = true
+	_end_ace_battle_music()
 	var codename := AceSquadProfiles.codename(profile_id)
 	if not _withdrawing and director.mode and director.mode.has_method("grant_time_extension"):
 		director.mode.grant_time_extension(TIME_EXTENSION_S)
@@ -401,6 +405,9 @@ func _tick_ally_support_egress(delta: float) -> bool:
 func _begin_withdraw(reason: String = "boss unlocked") -> void:
 	_withdrawing = true
 	_withdraw_reason = reason
+	# Boss 的演出/BGM 权威更高；普通弹尽撤离则仍保持王牌曲直到中队真正离场。
+	if reason == "boss unlocked":
+		_end_ace_battle_music()
 	_squad.combat_phase_active = false   # 停状态机软维护（不再补 ENGAGE）
 	_hp_watch = _members_hp()
 	_reengage_timer = 0.0
@@ -498,7 +505,34 @@ func _log_balance_terminal(result: String) -> void:
 			AceSquadProfiles.codename(profile_id), result, _combat_elapsed_s, _encounter_elapsed_s,
 			AceSquadProfiles.estimated_ttk_s(profile_id)])
 
+func _music_mode() -> Node:
+	var director_value: Variant = director
+	if typeof(director_value) != TYPE_OBJECT or not is_instance_valid(director_value):
+		return null
+	var value: Variant = director_value.mode
+	if typeof(value) != TYPE_OBJECT or not is_instance_valid(value):
+		return null
+	return value as Node
+
+func _begin_ace_battle_music() -> void:
+	if _ace_music_started:
+		return
+	var mode := _music_mode()
+	if mode == null or not mode.has_method("begin_ace_battle_music"):
+		return
+	_ace_music_started = bool(mode.begin_ace_battle_music())
+
+func _end_ace_battle_music() -> void:
+	if not _ace_music_started:
+		return
+	# 先释放所有权，保证 finish / terminal / boss withdraw 多入口重复调用仍只归还一次。
+	_ace_music_started = false
+	var mode := _music_mode()
+	if mode != null and mode.has_method("end_ace_battle_music"):
+		mode.end_ace_battle_music()
+
 func _finish() -> void:
+	_end_ace_battle_music()
 	# 玩家先被击败 / 场景被终止也留样本，但 result 单列，不能混进正常击破 P50。
 	if not _balance_terminal_logged and _battle_joined:
 		var result := "cancelled"

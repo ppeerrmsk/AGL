@@ -30,6 +30,7 @@ var _cached_fade: float = -1.0
 var _cached_color := Color.TRANSPARENT
 var _cached_width: float = -1.0
 var _cached_point_step: int = 1
+var _emission_enabled: bool = true
 
 ## 屏外 cull → 进入可见的 fade-in（避免镜头切到飞机时 80 点尾迹"瞬间显形"）
 ## 初值 true → spawn 时第一帧也算"进入可见"，新尾迹也是渐显出来
@@ -82,6 +83,18 @@ func clear_trail() -> void:
 	_sample_timer = _sample_phase_offset
 	_geometry_dirty = true
 	_request_redraw()
+
+## 完全传感器隐形时同时停采样和绘制；恢复时从空轨迹重新淡入，杜绝幽灵尾迹。
+func set_emission_enabled(enabled: bool) -> void:
+	if _emission_enabled == enabled:
+		return
+	_emission_enabled = enabled
+	clear_trail()
+	visible = enabled
+	set_process(enabled)
+	if enabled:
+		_was_culled = true
+		_visibility_fade_in = 0.0
 
 func _process(delta: float) -> void:
 	# 尾迹点本来就是世界坐标；抵消父机变换后，缓存网格可跨帧复用且仍留在原世界位置。

@@ -18,6 +18,8 @@ const UI_TERMINAL_INVERSE := Color("000000")
 const UI_INACTIVE_DIGIT := Color("404040")
 const UI_WARNING_YELLOW := Color("f2d34f")
 const UI_DANGER_RED := Color("ff493d")
+## 受伤反馈：飞机旁状态栏使用蓝白相位；右下角 HUD 仅 HP 模块使用危险红。
+const UI_DAMAGE_FLASH_BLUE := Color("4d99ff")
 const UI_WRAITH_BLUE := Color("36a7ff")
 const UI_WRAITH_ICE := Color("9edcff")
 const UI_WRAITH_DEEP_BLUE := Color("315dff")

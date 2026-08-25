@@ -3,7 +3,7 @@ extends Node2D
 
 const VectorPreviewRenderer = preload("res://scripts/survivor/map_vector_preview_renderer.gd")
 const DetailTileCache = preload("res://scripts/survivor/map_detail_tile_cache.gd")
-const RasterPreviewRenderer = preload("res://scripts/survivor/raster_basemap_renderer.gd")
+const RasterBasemapRendererScript = preload("res://scripts/survivor/raster_basemap_renderer.gd")
 
 ## 正式地图底图加载失败时通知场景主控；UGC 纯矢量模式不会尝试加载，也不会发出此信号。
 signal basemap_load_failed(reason_key: String)
@@ -29,12 +29,12 @@ var _world_rect: Rect2
 func setup(camera: Camera2D, world_rect: Rect2) -> void:
 	_camera = camera
 	_world_rect = world_rect
-	raster_preview_enabled = raster_preview_enabled or (OS.is_debug_build() \
-		and OS.get_cmdline_user_args().has("--raster-basemap-preview"))
 	# 纯矢量只在显式诊断参数下预热，常规 PNG/栅格路径不支付百万三角形构图成本。
 	if OS.is_debug_build() and not ugc_vector_only \
 			and OS.get_cmdline_user_args().has("--vector-map-preview"):
 		_prepare_vector_preview()
+	if use_basemap:
+		_ensure_basemap_loaded()
 	queue_redraw()  # setup 后触发一次绘制；之后地图静态不需要再重绘
 
 func _ready() -> void:
@@ -62,12 +62,11 @@ const OSM_ROAD_HALF_WIDTH := 2.2
 ## 每个 Polygon2D 的 polygon + color 独立读取，可各自定制
 const MANUAL_MAP_PATH := "res://scenes/map_manual.tscn"
 
-## 可选真实底图（OSM no-labels 瓦片拼成的 PNG）
-## 如果两个文件都存在，底图会作为最底层渲染，覆盖游戏世界内 bbox 对应区域
-## 图像 + 元数据由 scripts/tools/download_basemap.py 生成
-const BASEMAP_PNG_PATH := "res://resources/maps/tokyo_bay_bg.png"
+## 正式底图直接消费 lossless WebP 金字塔；JSON 只保留 bbox → 世界坐标元数据。
+## png_path 仅为外部 UGC 的兼容入口，官方三图不再携带整图 PNG。
 const BASEMAP_META_PATH := "res://resources/maps/tokyo_bay_bg.json"
-var basemap_png_path: String = BASEMAP_PNG_PATH
+var basemap_map_key := "tokyo"
+var basemap_png_path := ""
 var basemap_meta_path: String = BASEMAP_META_PATH
 var use_basemap := true
 
@@ -105,12 +104,12 @@ var _manual_loaded := false
 const BASEMAP_SHADER_PATH := "res://resources/shaders/basemap_tacview.gdshader"
 var _basemap_sprite: Sprite2D = null
 var _basemap_loaded := false
-var _legacy_basemap_attempted := false
+var _legacy_basemap_attempted := false  ## 仅外部 UGC PNG 兼容路径
 var _basemap_world_rect := Rect2()
 var _basemap_grain_texture: Texture2D = null
 
-## V1 栅格金字塔 A/B。默认仍保留正式整图 PNG；Shift+F8 同步切换主图与 Tab。
-var raster_preview_enabled := false
+## 正式栅格金字塔；官方三图始终启用，LOD 淡变属于生产渲染链。
+var tile_basemap_enabled := true
 var _raster_basemap: Node2D = null
 var _streamed_ready_logged := false
 
@@ -212,6 +211,8 @@ func set_vector_preview_enabled(enabled: bool) -> bool:
 		_vector_preview.update_lod()
 		if _detail_tile_preview != null:
 			_detail_tile_preview.set_detail_zoom(_camera.zoom.x, true)
+		if _raster_basemap != null:
+			_raster_basemap.set_active(false)
 		if _basemap_sprite != null:
 			_basemap_sprite.visible = false
 		vector_preview_enabled = true
@@ -221,58 +222,32 @@ func set_vector_preview_enabled(enabled: bool) -> bool:
 			_vector_preview.visible = false
 		if _detail_tile_preview != null:
 			_detail_tile_preview.set_detail_zoom(_camera.zoom.x if _camera != null else 0.0, false)
-		_ensure_basemap_loaded(true)
+		_ensure_basemap_loaded()
+		if _raster_basemap != null:
+			_raster_basemap.set_active(true)
 		if _basemap_sprite != null:
 			_basemap_sprite.visible = true
 	queue_redraw()  # 仅切换时清一次父 CanvasItem 的静态命令缓存。
 	return true
 
 
-func set_raster_preview_enabled(enabled: bool) -> bool:
-	if enabled and ugc_vector_only \
-			and RasterPreviewRenderer.map_key_from_png_path(basemap_png_path).is_empty():
-		return false
-	if enabled:
-		if vector_preview_enabled:
-			set_vector_preview_enabled(false)
-		# 先置位再解析元数据；候选直启时不会短暂解码旧 8704² PNG。
-		raster_preview_enabled = true
-		_ensure_basemap_loaded()
-		if not _prepare_raster_preview():
-			raster_preview_enabled = false
-			_ensure_basemap_loaded(true)
-			return false
-		_raster_basemap.set_active(true)
-		if _basemap_sprite != null:
-			_basemap_sprite.visible = false
-	else:
-		raster_preview_enabled = false
-		if _raster_basemap != null:
-			_raster_basemap.set_active(false)
-		_ensure_basemap_loaded(true)
-		if _basemap_sprite != null:
-			_basemap_sprite.visible = true
-	queue_redraw()
-	return true
-
-
-func _prepare_raster_preview() -> bool:
+func _prepare_raster_basemap() -> bool:
 	if _raster_basemap != null:
 		return true
 	if _camera == null or _basemap_world_rect.size.x <= 0.0:
 		return false
-	var map_key := RasterPreviewRenderer.map_key_from_png_path(basemap_png_path)
+	var map_key := basemap_map_key
 	if map_key.is_empty():
 		return false
-	_raster_basemap = RasterPreviewRenderer.new()
-	_raster_basemap.name = "RasterBasemapPreview"
+	_raster_basemap = RasterBasemapRendererScript.new()
+	_raster_basemap.name = "RasterBasemap"
 	_raster_basemap.z_index = -1
 	add_child(_raster_basemap)
 	if not _raster_basemap.setup(_camera, _basemap_world_rect, map_key):
 		_raster_basemap.queue_free()
 		_raster_basemap = null
 		return false
-	_raster_basemap.set_active(raster_preview_enabled)
+	_raster_basemap.set_active(tile_basemap_enabled)
 	return true
 
 func _draw() -> void:
@@ -287,7 +262,7 @@ func _draw() -> void:
 		_ensure_basemap_loaded()
 	# 底图存在时跳过 sea 色铺底 —— basemap 本身含海面颜色，再盖一层会遮住
 	var has_basemap := (_basemap_sprite != null and _basemap_sprite.visible) \
-		or (raster_preview_enabled and _raster_basemap != null)
+		or (tile_basemap_enabled and _raster_basemap != null)
 	if not has_basemap:
 		_draw_sea()
 	# 底图由 Sprite2D + ShaderMaterial 自行渲染（见 _ensure_basemap_loaded）
@@ -298,8 +273,8 @@ func _draw() -> void:
 		_draw_highways()
 	_draw_manual_overlays()        # 手画 Polygon2D 叠加层
 	_draw_haneda_airport()         # 港湾正式图：按冻结 OSM 中线补画羽田四条跑道
-	_draw_ugc_airports()           # 预览图跑道必须压在 PNG 上方；正式东京湾不重复描画
-	# Aqua-Line 虚线不再绘制：底图 PNG 已烘焙了真实桥体像素，再画手画路径会双线对不齐
+	_draw_ugc_airports()           # 预览图跑道必须压在底图上方；正式东京湾不重复描画
+	# Aqua-Line 虚线不再绘制：正式底图已包含真实桥体，再画手画路径会双线对不齐
 	# （曾做过 z_index=-5 的 MapBridgeLayer 实色覆盖，同样对不齐，已移除）
 	# 解决"船穿桥"的方案改为：BOSS 刷新位置强制在桥南（见 ZoneData.BOSS_NORTH_CENTER）
 	_draw_tacview_crosses()
@@ -312,10 +287,11 @@ func _draw() -> void:
 ## 为什么用 Sprite2D 而不是 draw_texture_rect：Sprite2D 挂 ShaderMaterial 后
 ## Inspector 里修改 @export 变量能通过 _process 实时更新 shader uniform，
 ## 玩家看到立即生效（draw_texture_rect 的材质系统做不到这么灵活）
-func _ensure_basemap_loaded(force_legacy: bool = false) -> void:
+func _ensure_basemap_loaded() -> void:
 	if not _basemap_loaded:
 		_basemap_loaded = true
-		if not use_basemap or basemap_png_path == "" or basemap_meta_path == "":
+		if not use_basemap or basemap_meta_path == "" \
+				or (basemap_map_key.is_empty() and basemap_png_path.is_empty()):
 			return
 		var meta_file := FileAccess.open(basemap_meta_path, FileAccess.READ)
 		if meta_file == null:
@@ -350,11 +326,18 @@ func _ensure_basemap_loaded(force_legacy: bool = false) -> void:
 
 	if _basemap_world_rect.size.x <= 0.0:
 		return
-	if raster_preview_enabled and not force_legacy and _prepare_raster_preview():
-		_raster_basemap.set_active(true)
-		if _basemap_sprite == null and not _streamed_ready_logged:
-			_streamed_ready_logged = true
-			print("[MapFeatureRenderer] streamed raster basemap ready without legacy PNG")
+	if not basemap_map_key.is_empty():
+		if tile_basemap_enabled:
+			if _prepare_raster_basemap():
+				_raster_basemap.set_active(true)
+				if _basemap_sprite == null and not _streamed_ready_logged:
+					_streamed_ready_logged = true
+					print("[MapFeatureRenderer] tiled raster basemap ready: %s" % basemap_map_key)
+				return
+			tile_basemap_enabled = false
+			_report_basemap_error(
+				"MAP_BASEMAP_ERROR_REASON_MISSING_TEXTURE",
+				"tiled basemap unavailable: %s" % basemap_map_key)
 		return
 	_ensure_legacy_basemap_loaded()
 
@@ -398,11 +381,6 @@ func _ensure_legacy_basemap_loaded() -> void:
 		mat.shader = shader
 		_basemap_sprite.material = mat
 		_apply_basemap_shader_params()
-	if OS.is_debug_build() or raster_preview_enabled:
-		_prepare_raster_preview()
-	if raster_preview_enabled and _raster_basemap != null:
-		_basemap_sprite.visible = false
-		_raster_basemap.set_active(true)
 	print("[MapFeatureRenderer] basemap sprite ready: tex=%s rect=%s" % [tex_size, rect_size])
 
 ## 官方底图失败后仍允许旧矢量层兜底，但必须同时留下开发日志并告知玩家当前已降级。
@@ -427,7 +405,7 @@ func _apply_basemap_shader_params() -> void:
 	mat.set_shader_parameter("grain_repeat", basemap_grain_repeat)
 	if basemap_noise > 0.0001:
 		if _basemap_grain_texture == null:
-			_basemap_grain_texture = load(RasterPreviewRenderer.GRAIN_TEXTURE_PATH) as Texture2D
+			_basemap_grain_texture = load(RasterBasemapRendererScript.GRAIN_TEXTURE_PATH) as Texture2D
 		mat.set_shader_parameter("grain_texture", _basemap_grain_texture)
 
 func _process(_delta: float) -> void:

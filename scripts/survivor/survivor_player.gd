@@ -443,14 +443,10 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 
 	match stat:
 		"max_hp":
-			# 纯 HP 提升（已拆掉闪避加成 → 见 bullet_dodge_flat 独立技能）
+			# 纯 HP 提升；机炮闪避现由座舱护甲的复合效果提供
 			var add: float = upgrade["value"]
 			p.max_hp += add
 			aircraft.hp += add  # 升级时也恢复
-		"bullet_dodge_flat":
-			# 独立 +N% 机炮闪避（不通过 hp_up，直接累加）
-			# take_bullet_damage 全局 cap MAX_BULLET_DODGE_CAP=0.85 兜底，无需此处 cap
-			aircraft.bullet_dodge_chance += float(upgrade["value"])
 		"missile_count":
 			# 玩家无副导弹（2026-04-29），只 +主槽
 			if p.missile:
@@ -485,6 +481,10 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 		"gun_damage":
 			if p.gun:
 				p.gun.bullet_damage *= (1.0 + float(upgrade["value"]))
+				var ammo_bonus: int = int(round(
+					p.gun.max_ammo * float(upgrade.get("ammo_bonus", 0.0))))
+				p.gun.max_ammo += ammo_bonus
+				aircraft.ammo += ammo_bonus
 		"gun_multishot":
 			# 进化：多管齐射，额外射出左右两道子弹
 			aircraft.gun_extra_barrels = int(upgrade["value"])
@@ -573,7 +573,7 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 					p.secondary_missile.lock_max_range_px *= qr
 				aircraft.secondary_missiles_remaining += int(upgrade["value"])
 		"wingman_extra":
-			# 忠诚僚机·额外：同屏上限 +1/层（释放 cap 在 spawn 入口读 max_simultaneous）
+			# 忠诚僚机·额外：单层同屏上限 +2；即时部署由 SurvivorMode 统一获得入口执行。
 			if p.loyal_wingman:
 				p.loyal_wingman = p.loyal_wingman.duplicate()
 				p.loyal_wingman.max_simultaneous += int(upgrade["value"])
@@ -590,22 +590,12 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 						dp.gun.max_range *= (1.0 + float(upgrade.get("range_bonus", 0.20)))
 				p.loyal_wingman.kamikaze_aoe_damage *= wd
 		"cockpit_armor":
-			# 座舱护甲：地面火力（SAM/AA/CIWS）伤害倍率 ×value/层（消费点 take_damage 地面来源过滤）
+			# 座舱护甲：地面火力减伤 + 机炮闪避（闪避由 take_bullet_damage 的全局 cap 兜底）
 			aircraft.ground_damage_taken_mult *= float(upgrade["value"])
-		"laser_extra_beams":
-			# 激光：可同时照射的目标数 +N
-			# 装备数组已由 SurvivorPlayableSetup.deep_dup_weapons 深拷贝，直接改即可
-			var laser_eq := p.get_equipment_of_kind("laser") as LaserEquipment
-			if laser_eq:
-				laser_eq.max_simultaneous_targets += int(upgrade["value"])
+			aircraft.bullet_dodge_chance += float(upgrade.get("bullet_dodge_bonus", 0.0))
 		"flare_shield":
-			# 电子对抗套件：每层增加锁定免疫时间
+			# 电子对抗套件：释放时解除锁定，并延长锁定免疫时间；不增加载弹量
 			aircraft.flare_lock_immunity += float(upgrade["value"])
-			# 额外赠送热诱弹
-			var _bf: int = int(upgrade.get("bonus_flares", 2))
-			if p.flare:
-				p.flare.max_flares += _bf
-				aircraft.flares_remaining += _bf
 		"fear_squad_spread":
 			# 恐惧扩散：玩家击杀任意敌机后对同小队成员施加 FEAR
 			aircraft.fear_squad_spread_duration = float(upgrade["value"])
@@ -631,7 +621,7 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 				p.missile = p.missile.duplicate()
 				p.missile.seeker_fov = minf(p.missile.seeker_fov * fov_mult, fov_cap)
 		"gun_accuracy":
-			# 枪械精度：spread_angle ×(1-value)，硬 floor min_deg
+			# 合并“瞄准辅助 + 枪械精度”：散布、引导误差、弹寿命与自动开火锥同层成长。
 			if p.gun:
 				p.gun = p.gun.duplicate()
 				p.gun.spread_angle = maxf(p.gun.spread_angle * (1.0 - float(upgrade["value"])), float(upgrade.get("min_deg", 0.1)))
@@ -642,13 +632,12 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 			# 720 批追加：子弹生存时间加长（远端弹道延伸，bullet_manager 用 gun.lifetime 定寿命）
 			if p.gun and float(upgrade.get("lifetime_bonus", 0.0)) > 0.0:
 				p.gun.lifetime *= (1.0 + float(upgrade["lifetime_bonus"]))
-		"aim_assist":
-			# 瞄准辅助：fire_cone_half_angle ×(1+value)，硬 cap max_deg。
 			# cap 对"已超 cap"的锥角不倒退（722 sig_x44 置 90° 后再拿本技能不得缩回 45°）
 			if p.gun:
-				p.gun = p.gun.duplicate()
 				var aa_cap: float = maxf(float(upgrade.get("max_deg", 45.0)), p.gun.fire_cone_half_angle)
-				p.gun.fire_cone_half_angle = minf(p.gun.fire_cone_half_angle * (1.0 + float(upgrade["value"])), aa_cap)
+				p.gun.fire_cone_half_angle = minf(
+					p.gun.fire_cone_half_angle * (1.0 + float(upgrade.get("fire_cone_bonus", 0.0))),
+					aa_cap)
 		"missile_boost":
 			# 火箭助推：cooldown ×0.85 + burn_time ×1.15 + motor_accel ×1.10（每层复合）
 			if p.missile:
@@ -715,25 +704,19 @@ func apply_upgrade(upgrade: Dictionary) -> void:
 			aircraft.vertical_break_active = true
 		# ── X-02 激光升级 ──
 		"laser_cooldown":
-			# 散热效率 +25%（每层）
+			# 激光散热合并过载：每层同时提高散热效率与过热阈值
 			var le := p.get_equipment_of_kind("laser") as LaserEquipment
 			if le:
 				le.heat_cooldown_per_second *= (1.0 + float(upgrade["value"]))
+				le.heat_max *= (1.0 + float(upgrade.get("heat_bonus", 0.0)))
 		"laser_range":
 			var le2 := p.get_equipment_of_kind("laser") as LaserEquipment
 			if le2:
 				le2.max_range_m *= (1.0 + float(upgrade["value"]))
-		"laser_heat":
-			# 过热阈值 +30% → 输出更久
-			var le3 := p.get_equipment_of_kind("laser") as LaserEquipment
-			if le3:
-				le3.heat_max *= (1.0 + float(upgrade["value"]))
+				le2.max_simultaneous_targets += int(upgrade.get("extra_targets", 0))
 		"lock_resistance":
 			# 强化吊舱：敌人对我累积锁定速率 ÷ lock_resistance_mult（可堆叠）
 			aircraft.lock_resistance_mult *= (1.0 + float(upgrade["value"]))
-		"kill_heal":
-			# 战场急救：击杀回血，叠加层数记录在 aircraft 上
-			aircraft.kill_heal_amount += float(upgrade["value"])
 		"data_link":
 			# F-14 数据链：长机 aura_skill 标记开启 + 现役队友（team 0 飞机）雷达范围加成
 			# 锁定共享由 survivor_mode._update_radar_locks 读 aura_skill 触发；发射仍受

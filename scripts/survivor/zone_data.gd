@@ -1149,6 +1149,15 @@ func debug_set_difficulty(id: StringName, star: int,
 		desired = DIFFICULTY_MAX - 1
 	_difficulties[id] = desired
 
+## F6 强制验收 3★内容：保持正式唯一槽，但把槽位转移给用户指定战区。
+## 返回被降为 2★的旧占用者，调用方须在生成新来源前先重刷这些战区。
+func debug_claim_tier3_slot(id: StringName) -> Array[StringName]:
+	var displaced := active_tier3_zone_ids(id)
+	for old_id in displaced:
+		_difficulties[old_id] = DIFFICULTY_MAX - 1
+	_difficulties[id] = DIFFICULTY_MAX
+	return displaced
+
 ## Debug：强制把战区置为 CLEARED（不走 mark_cleared 的 refresh 逻辑）
 func debug_mark_cleared(id: StringName) -> void:
 	_states[id] = State.CLEARED

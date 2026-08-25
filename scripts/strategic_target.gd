@@ -74,6 +74,8 @@ func _draw() -> void:
 			draw_line(Vector2(17, -17), Vector2(-17, 17), outline, 2.0)
 	# 无锁定框，只保留任务目标括号和血量刻度。
 	AircraftRenderer.draw_target_bracket(self, is_mission_target)
+	AircraftRenderer.draw_status_icons(self)
+	_draw_data_label()
 	if bomber_escort_objective and is_mission_target:
 		_draw_bomber_escort_hint()
 	var hp_ratio: float = clampf(hp / maxf(params.max_hp if params else 150.0, 1.0), 0.0, 1.0)

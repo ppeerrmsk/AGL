@@ -93,6 +93,7 @@ const PATROL_LOOKAHEAD_RAD: float = 0.25   ## 圆周前视 carrot 角（≈14°�
 # ── 视觉 ──
 var _font: Font
 var _weak_pulse_time: float = 0.0       ## 弱点脉动计时
+var _compact_data_label_active: bool = false
 
 # ── 销毁 ──
 var _destroy_timer: float = 0.0
@@ -718,6 +719,7 @@ func _draw_impl() -> void:
 	_draw_weak_point_placeholder()
 	_draw_target_bracket()
 	_draw_lock_indicator()
+	AircraftRenderer.draw_status_icons(self)
 	_draw_status_label()
 
 
@@ -1022,10 +1024,22 @@ func _draw_lock_indicator() -> void:
 func _draw_status_label() -> void:
 	if not _font:
 		_font = ThemeDB.fallback_font
-
-	var lines: PackedStringArray = PackedStringArray()
-	lines.append(ship_class_label)
-	lines.append(full_name)
+	var view_lod := AircraftRenderer.label_lod_scale(self)
+	_compact_data_label_active = AircraftRenderer.next_compact_label_state(
+		_compact_data_label_active, view_lod)
+	var compact := AircraftRenderer.compact_label_visible(
+		_compact_data_label_active, Input.is_key_pressed(KEY_ALT))
+	var lines := PackedStringArray([full_name])
+	if compact:
+		var compact_xform := get_global_transform_with_canvas()
+		var compact_scale := compact_xform.basis_xform(Vector2.RIGHT).length()
+		var compact_radius := maxf(params.hull_width, params.hull_length) * 0.55
+		var compact_offset := AircraftRenderer.unit_status_screen_offset_for(
+			compact_radius, compact_scale, compact_xform.origin)
+		AircraftRenderer.draw_unit_status_panel(self, _font, lines, team,
+			compact_offset)
+		return
+	lines.insert(0, ship_class_label)
 	var heading_deg := rad_to_deg(heading)
 	while heading_deg < 0.0:
 		heading_deg += 360.0
@@ -1035,32 +1049,12 @@ func _draw_status_label() -> void:
 	# 速度：内部是 m/s，显示为 节（1 节 ≈ 0.5144 m/s）
 	var knots := speed / 0.5144
 	lines.append("%d KTS" % roundi(knots))
-
-	var font_size := 10
-	var line_height := 12.0
-	var label_offset := Vector2(params.hull_width * 0.6 + 10.0, 0.0)
-
-	var inv_rot := -rotation
-	var zoom_scale := get_viewport_transform().get_scale()
-	var inv_zoom := 1.0 / maxf(zoom_scale.x, 0.01)
-
-	var max_w := 0.0
-	for line in lines:
-		var w := _font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-		max_w = maxf(max_w, w)
-	var box_w := max_w + 6.0
-	var box_h := lines.size() * line_height + 4.0
-
-	var glc := GameConstants.ground_label_colors(team)
-	var text_color: Color = glc[0]
-	var bg_color: Color = glc[1]
-
-	var rotated_offset := (label_offset * inv_zoom).rotated(inv_rot)
-	var scale_v := Vector2(inv_zoom, inv_zoom)
-	draw_set_transform(rotated_offset, inv_rot, scale_v)
-	draw_rect(Rect2(-1, -1, box_w, box_h), bg_color)
-	draw_multiline_string(_font, Vector2(2, 10), "\n".join(lines),
-		HORIZONTAL_ALIGNMENT_LEFT, box_w - 4.0, font_size, lines.size(), text_color)
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	var xform := get_global_transform_with_canvas()
+	var view_scale := xform.basis_xform(Vector2.RIGHT).length()
+	var icon_radius := maxf(params.hull_width, params.hull_length) * 0.55
+	var screen_offset := AircraftRenderer.unit_status_screen_offset_for(
+		icon_radius, view_scale, xform.origin)
+	AircraftRenderer.draw_unit_status_panel(self, _font, lines, team,
+		screen_offset)
 
 ## _draw_destroyed 已被 NavalDestruction.draw 取代，保留作兼容接口但不再使用
