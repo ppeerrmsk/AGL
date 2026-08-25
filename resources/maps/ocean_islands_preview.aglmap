@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "display_name": "Ocean Islands Preview",
-  "world_size_m": 60000,
+  "world_size_m": 64000,
   "layer_polygons": {
     "land": [
       [[-10300,-4600],[-8500,-6400],[-5600,-7100],[-2500,-6500],[600,-4800],[3600,-3100],[6500,-900],[8100,1900],[7200,4100],[4700,5200],[1600,4700],[-1200,3000],[-3900,1500],[-6800,300],[-9200,-1600]],
@@ -73,7 +73,7 @@
   "zones": [],
   "spawn": {"pos":[-10500,10500],"heading_deg":45},
   "basemap": {
-    "png_path": "res://resources/maps/ocean_islands_bg_v2.png",
+    "tile_map_key": "ocean",
     "meta_path": "res://resources/maps/ocean_islands_bg_v2.json"
   },
   "cloud": {"seed":314159,"coverage":0.20,"frequency":0.00024,"secondary_mix":0.70,"wind_dir_deg":125,"wind_speed_ms":22,"mask":""},

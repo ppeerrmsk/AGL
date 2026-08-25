@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "display_name": "Desert Railway Preview",
-  "world_size_m": 60000,
+  "world_size_m": 64000,
   "layer_polygons": {
     "land": [[[-15000,-15000],[15000,-15000],[15000,15000],[-15000,15000]]],
     "mountain": [
@@ -61,7 +61,7 @@
   "zones": [],
   "spawn": {"pos":[-10500,10500],"heading_deg":45},
   "basemap": {
-    "png_path": "res://resources/maps/desert_railway_bg_v2.png",
+    "tile_map_key": "desert",
     "meta_path": "res://resources/maps/desert_railway_bg_v2.json"
   },
   "cloud": {

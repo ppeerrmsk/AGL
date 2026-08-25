@@ -1,9 +1,9 @@
 ---
 id: map-editor
 kind: system
-status: approved     # ✅ 用户定稿；2026-08-08 明确保留正式东京湾 PNG
+status: approved
 schema_version: 1
-spec_version: 19
+spec_version: 20
 owner: noelu
 depends_on: [ugc-editor, map-system, map-expansion]
 reconstruction_complete: false
@@ -26,9 +26,9 @@ reconstruction_complete: false
 - **审核责任裁决（用户定 2026-08-05）**：编辑器与 agent 工具链必须支持批量固定机位、同位擦除、
   分层诊断和多轮参数迭代。用户不逐轮调色或查错；agent 先按 [map-pipeline §0](../../reference/map-pipeline.md)
   至少完成 3 轮内部迭代，只提交过客观门的里程碑候选。
-- **⚑ 正式底图 PNG 保留（用户定 2026-08-08，替代 2026-07-04 退役决定）**：东京湾主地图与 Tab 地图继续使用
-  `tokyo_bay_bg.png` + shader；编辑器不得把“官方图 dogfood”解释为强制重制或删除 PNG。UGC 试飞仍按现有
-  vector-only 边界运行，地形覆盖、调色板、颗粒与描边能力服务于 UGC/新增地图，不再承担复刻正式 PNG 的毕业义务。
+- **⚑ 正式底图现状（用户定 2026-08-22，替代 2026-08-08 保留决定）**：东京湾、沙漠与海洋主图统一使用
+  lossless WebP 分级瓦片，Tab 复用 Strategic；整图 PNG 已从仓库退役。编辑器不得把“官方图 dogfood”解释为
+  重启纯矢量替换；UGC 可保持 vector-only 或使用自带 PNG，地形覆盖、调色板与描边能力继续服务 UGC/新增地图。
 
 ## 2. 数据定义（What —— 全部数值，权威源）
 
@@ -325,9 +325,9 @@ UGC/编辑器矢量视觉与官方 PNG 路径共同遵守以下规则（performa
 - [ ] 矢量视觉替代包（§3.5）：地形覆盖渲染 + 噪声颗粒 shader + 多边形描边 + 三角合并
 - [ ] 视觉 QA 工作台（§3.6）：固定矩阵批量截图 + wipe/diff/layer solo + 指标报告 + 离线参数 sweep；产物写 `tmp/`
 
-### 阶段 5 — 官方图兼容与 PNG 保留
-- [ ] 官方东京湾转换/编辑只修改 gameplay 矢量数据；试飞与正式主地图继续挂接现有 PNG + shader
-- [ ] 主地图与 Tab 的 PNG 路径做一致性回归；禁止编辑器保存、导出或打包流程删除/覆盖 `tokyo_bay_bg.png`
+### 阶段 5 — 官方瓦片兼容
+- [ ] 官方东京湾转换/编辑只修改 gameplay 矢量数据；正式底图继续挂接已验收的 `tile_map_key` / manifest
+- [ ] 主地图与 Tab 的 manifest key 做一致性回归；编辑器保存/导出不得覆盖正式瓦片或静默套用其它地图 profile
 
 ## 7. 索引锚点（Where）
 
@@ -366,3 +366,4 @@ UGC/编辑器矢量视觉与官方 PNG 路径共同遵守以下规则（performa
 | 2026-08-07 | 18 | 固化跨尺度盐点审计：全图与 Tab 必须自动检查亚像素逐栋噪点；官方主图只在 zoom 0.18–0.30 连续恢复两个建筑 feature packet，所有不透明 base/骨架层保持固定，禁止整图交叉淡化。 |
 | 2026-08-07 | 14 | 增加整图 atlas 毕业门：固定机位不再代替全覆盖证明；显式 Visual bench 必须逐格复用生产 renderer 和缓存色阶，把所有瓦片叠在同一 Operational 世界底图上，并自动审计预期空格、真实失败与 30 条横纵边界的额外 RGB 跳变。产物仅进 `tmp/`。 |
 | 2026-08-08 | 19 | 用户最终否决全东京湾纯矢量替换效果，撤销 v4 的 PNG 退役目标：正式主地图与 Tab 保留 8704×8704 `tokyo_bay_bg.png` + shader。编辑器仍提供 UGC vector-only 与 gameplay 矢量编辑能力，但官方转换不得删除、覆盖或重烘焙 PNG；阶段 5 改为官方图兼容与保留回归。 |
+| 2026-08-22 | 20 | 用户在同源 lossless WebP 三图方案完成多轮验收后最终改定：官方主图与 Tab 统一采用瓦片 manifest，整图 PNG 退役；本 spec 只同步官方底图现状，不把已否决的纯矢量研究重新晋升。 |

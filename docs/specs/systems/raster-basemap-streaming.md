@@ -1,17 +1,17 @@
 ---
 id: raster-basemap-streaming
 kind: map
-status: approved
+status: done
 schema_version: 1
-spec_version: 44
+spec_version: 45
 owner: user
 depends_on: [map-system, ui-design-guidelines]
-reconstruction_complete: false
+reconstruction_complete: true
 ---
 
 # 三地图栅格底图分级流送与稳定 Shader
 
-> 东京湾、沙漠铁路、海洋群岛保留各自 PNG 的美术信息与既有玩法叠层，把单张超大常驻纹理改成同源分辨率金字塔、按视口预取的栅格瓦片和无闪烁的轻量 shader；主地图与 Tab 消费同一份渲染描述。
+> 东京湾、沙漠铁路、海洋群岛以同源 lossless WebP 金字塔保留已验收的美术信息与既有玩法叠层；主地图按视口预取瓦片，Tab 复用 Strategic，整图 PNG 不再进入仓库或运行时。
 
 ## 1. 设计意图（Why）
 
@@ -27,7 +27,7 @@ reconstruction_complete: false
 
 | 字段 | 值 | 说明 |
 |---|---:|---|
-| 每地图正式母版 | `8704×8704` RGB PNG | 保留为构建输入和回滚基线；迁移完成后运行时不得整张载入 |
+| 每地图离线母版 | `8704×8704` RGB PNG | 仅在项目外/临时制作区作为重建输入；仓库与发布包不保存整图母版 |
 | 每地图完整 RGB8 像素 | `216.75 MiB` | `8704×8704×3 / 1024²`；与 PNG 的磁盘压缩率无关 |
 | 瓦片内容尺寸 | `1024×1024 px` | 标准方形内容区 |
 | 过滤外挤 | 四边各 `16 px` | 每张运行时纹理最大 `1056×1056 px`；外挤只供采样，不扩张世界矩形 |
@@ -39,7 +39,7 @@ reconstruction_complete: false
 | manifest | 每地图一份 JSON | 记录 bbox、层级、行列、内容 rect、外挤、hash、色彩 profile 和磁盘字节数 |
 | 小型共享纹理 | `64×64` L8 蓝噪声 PNG，`4,228 B` | 三图共用，只承载零均值颗粒分布，不承载任何地图内容；import 固化完整 mip 链，运行时约 `5,461 B` |
 
-三张正式母版只允许由离线工具读取。发布包可以只包含 Strategic 与瓦片生成物；在删除或移出任一母版前，必须先通过 §5 的三图视觉、性能与回滚门。
+三张离线母版只允许由离线工具读取；manifest 以源文件名与 SHA-256 记录 provenance。正式仓库和发布包只包含 Strategic 与瓦片生成物，当前删除已通过 §5 的三图视觉、性能门并由用户最终确认。
 
 三图母版进入金字塔前必须运行确定性行政边界清理：以未调色 CARTO 源图识别 `#e1c5c7` 边界核心，只沿同一粉灰色相的抗锯齿邻域扩张并作窄带八邻域修补。清理范围必须输出 mask 与前后对比；mask 外像素必须逐像素不变。生成式修图、全局深线阈值和运行时 shader 猜测均不允许承担该步骤。
 
@@ -51,7 +51,7 @@ reconstruction_complete: false
 | `desert_railway_preview` | `desert_railway_bg_v2.png` | `13,908,532` | `desert_railway_v8` | `21.621 MiB` |
 | `ocean_islands_preview` | `ocean_islands_bg_v2.png` | `2,384,811` | `ocean_islands_v8` | `2.550 MiB` |
 
-- 当前三图 Strategic/Operational/Detail 无损资源实测合计 `67.979836 MiB`；加共享蓝噪声后为 `67.983868 MiB`，距 `68 MiB` 门仍余 `21,144 B`；毕业发布包不得再重复包含三张 `8704²` 母版。
+- 当前三图 Strategic/Operational/Detail 无损资源实测合计 `67.979836 MiB`；加共享蓝噪声后为 `67.983868 MiB`，距 `68 MiB` 门仍余 `21,144 B`；仓库与发布包不再重复包含三张 `8704²` 母版。
 - 每份 manifest 必须登记 `map_id` 与 `style_profile_id`；找不到精确匹配时失败回退，禁止静默套用东京湾 profile。
 - 换图、返回主菜单或加载 UGC 时必须清空上一地图的 LRU、挂起请求和短暂过渡纹理；同一时刻只允许一个正式地图 cache 活跃。
 
@@ -177,9 +177,9 @@ else:
 ### 3.4 失败与回滚
 
 - 单瓦片损坏：显示父层对应区域，开发日志记录地图 id、LOD、行列和 hash；战斗不中断。
-- manifest 损坏：只显示 Strategic；Strategic 也失败时回到现有正式单 PNG 路径，直到毕业迁移完成。
-- 候选开关关闭：完整走当前正式 PNG + shader，不混用候选 tile cache。
-- 在主图和 Tab 同时通过毕业门前，不删除、不覆盖、不降质 `tokyo_bay_bg.png`。
+- manifest 损坏：只显示最近可用父层；Strategic 也失败时回到现有矢量地理层并显示本地化错误通知。
+- 官方地图没有瓦片关闭开关或整图 PNG 回滚路径；`Shift+F8` 不再占用地图输入。
+- 外部 UGC 可继续以 `{png_path, meta_path}` 使用自带 PNG；该兼容路径不作为官方地图回滚源。
 
 ## 4. 结构与组成（Structure）
 
@@ -187,7 +187,7 @@ else:
 - **BasemapTileManifest**：每地图运行时只读描述，映射世界 bbox、LOD、父子 footprint 和资源路径。
 - **RasterBasemapTileCache**：异步请求、12 张 LRU、可见集合完整性和失败回退；不持有玩法地理。
 - **RasterBasemapRenderer**：一个常驻 Strategic canvas + 最多 12 个静态可见瓦片 canvas；只在集合变化时增删，稳定态仅做 `10 Hz` 轻量集合检查。
-- **MapFeatureRenderer adapter**：继续承载正式玩法覆盖、机场、建筑和 vignette；底图来源由开关选择旧单 PNG 或共享 tile renderer。
+- **MapFeatureRenderer adapter**：继续承载正式玩法覆盖、机场、建筑和 vignette；官方底图按 `tile_map_key` 直连共享 tile renderer，外部 UGC 可单独使用兼容 PNG。
 - **TacticalMap adapter**：直接取得共享 Strategic 纹理并沿用正式固定乘色，继续绘制战区、单位、扫描线与暗角；不生成第二份快照纹理。
 - **离线 QA**：固定全图、Operational、Detail、玩法地标/假 3D、Tab 五类机位，生成同位擦除、差分、接缝和亮度报告；沙漠/海洋地标来自各自 MapDocument，不得回退东京湾建筑缓存。
 
@@ -226,7 +226,7 @@ else:
 - [x] V37 Strategic 反锐化重采样同样判退并固化为制作规则：10% 虽让 Tab `0.001994→0.001990`，却让 full `0.005715→0.005750` 且 zoom 梯度 `10.5022%>10%`；5% 全门通过，但 full 仍变差到 `0.005721`，Tab 仅改善 `0.000001`，小于肉眼与采集波动。新地图不得为追逐正式 PNG 的缩小混叠而默认加 Sobel/Unsharp；Strategic 优先使用原图 Lanczos、按图分配像素预算，并以 full 与 Tab 同时改善作为晋升条件。
 - [x] V38 继续评估非锐化缩小链：东京 `8704→4096→1536` 双阶段 Lanczos 在模拟 mip 下低频误差改善约 `10.8%`，连共享噪声后仍以 `2,326 B` 余量守住 `68 MiB`。真实 Godot 全门虽通过，full 仅 `0.005715→0.005702`、暗点密度略降，Tab 却 `0.001994→0.002004`；肉眼并排无可辨收益，故不晋升并逐字节恢复 V36。中间尺寸或离线代理分数不能替代真实 full/Tab 双赢门。
 - [x] V39 在 V38 回退后重新从正式 `survivor_mode.tscn` 抓取三图 PNG/V36 六张完整 viewport，streamed 三次均确认未加载旧 8704² PNG。东京/沙漠/海洋合成亮度差为 `+0.000077/+0.000110/-0.000105`，1.5 px 低通 RGB MAE 为 `0.000290/0.000753/0.000597`，低通相关为 `0.995847/0.989240/0.994665`，平坦区最坏色差为 `0.008093/0.013620/0.014064 < 4/255`；自动门和肉眼并排均通过，没有发现可归因于 streamed 的合成层次退化。
-- [ ] 用户只审核完成内部至少 3 轮自审后的单一推荐稿；反馈必须回写本 spec/profile，不能让下一张地图重新调同一问题。
+- [x] 用户审核完成内部至少 3 轮自审后的单一推荐稿，并于 2026-08-22 确认正式采用瓦片版本。
 
 ### 5.2 性能与内存
 
@@ -249,7 +249,7 @@ else:
 - [x] 正式东京湾、内置沙漠/海洋试飞与任意 UGC vector-only 分流；只有能映射到精确内置 manifest 的底图可打开栅格候选。
 - [x] Tab 和主图共用 manifest/Strategic；主图读取 profile，Tab 保留正式固定乘色，候选路径不存在第二套硬编码东京湾底图。
 - [x] 文档：本 spec、map-system、map-2-3-preview、map-pipeline 与 reference 索引已同步并通过全量链接/锚点验证。
-- [ ] 删除毕业门：连续两次同机 Visual A/B 全部通过本节，用户确认最终整图与 Tab 画面，debug 往返回滚和发布回滚包均已验证，才允许在同一变更中让主图与 Tab 同时停止引用大型单 PNG；此前禁止删除原文件。
+- [x] 删除毕业门：连续多轮同机 Visual/A-B 与性能门已通过，用户确认最终整图与 Tab；同一变更让主图与 Tab 停止引用大型单 PNG，并删除旧母版与切换 Debug 页。
 
 ## 6. 实现计划（Task Pipeline —— 工作令）
 
@@ -270,7 +270,7 @@ else:
 - [x] 静态地图不重绘，uniform 只在纹理创建时写入；集合检查限制为 `10 Hz`。
 
 ### 阶段 3 — 主地图、载入与 Tab 接线
-- [x] 三张地图在场景载入阶段预热对应 Strategic + 出生视口；编辑器/Debug 的正常官方地图默认启用 streamed 候选，`Shift+F8` 同步把主图与 Tab 回退到整图 PNG 再切回。发布构建仍默认 PNG，Boss Debug、bench 基准与无法精确映射内置 manifest 的外部 UGC 不受影响。
+- [x] 三张地图在场景载入阶段预热对应 Strategic + 出生视口；发布、编辑器与 Debug 的正常官方地图统一启用 streamed 正式路径。Boss Debug 不加载地图，无法精确映射内置 manifest 的外部 UGC 保持 vector-only 或自带 PNG。
 - [x] TacticalMap 候选直接读取同一 manifest 的 Strategic、复用正式 Tab 固定乘色；不重复套主图 shader、不创建第二份 SubViewport 快照，动态标记和 UI 后处理不变。
 - [x] 玩法建筑/假 3D 楼、机场、手画覆盖、天气与所有 gameplay 层在两侧复用同一正式节点。
 
@@ -280,10 +280,10 @@ else:
 - [x] 决策保留 lossless WebP，不在本次毕业前引入 GPU 有损压缩变量；当前磁盘/纹理预算已过门，画质优先。
 
 ### 阶段 5 — 毕业切换与回滚
-- [ ] 用户确认三张地图的最终整图、主题细节和 Tab 里程碑。
+- [x] 用户确认三张地图采用最终瓦片版本。
 - [x] 在真实 Godot 运行时验证 `旧 PNG → streamed → 旧 PNG → streamed` 主图往返，以及 Tab 关闭/重开；三图回滚截图相对初始 PNG 平均亮度差绝对值均不超过 `0.000007`，局部平坦区逐通道差不超过 `0.000675`。
-- [ ] 用户确认后，在同一变更中把主地图与 Tab 默认切至共享瓦片，并验证发布回滚包。
-- [ ] 仅在两次完整视觉/性能门通过后，另行提议移出或删除大型单 PNG；未获明确授权不得执行。
+- [x] 主地图与 Tab 已统一切至共享瓦片；正式 fallback 为父层/矢量地理，不再携带 PNG 回滚包。
+- [x] 已获得明确授权并删除五张旧/正式地图 PNG、导入旁车与专用 A/B Debug 页面。
 
 ## 7. 索引锚点（Where —— 唯一允许放指针的地方）
 
@@ -292,14 +292,13 @@ else:
 | 当前正式主图 | `scripts/survivor/map_feature_renderer.gd` |
 | 当前正式 shader | `resources/shaders/basemap_tacview.gdshader` |
 | 当前 Tab 地图 | `scripts/survivor/tactical_map.gd` |
-| 当前三图母版 | `resources/maps/tokyo_bay_bg.png` / `resources/maps/desert_railway_bg_v2.png` / `resources/maps/ocean_islands_bg_v2.png` |
-| 图 2/图 3 元数据与绑定 | `resources/maps/desert_railway_bg_v2.json` / `resources/maps/ocean_islands_bg_v2.json` / `resources/maps/desert_railway_preview.aglmap` / `resources/maps/ocean_islands_preview.aglmap` |
+| 三图 bbox 元数据与 provenance | `resources/maps/tokyo_bay_bg.json` / `resources/maps/desert_railway_bg_v2.json` / `resources/maps/ocean_islands_bg_v2.json` / `resources/maps/basemap_tiles/*/manifest.json` |
+| 图 2/图 3 `tile_map_key` 绑定 | `resources/maps/desert_railway_preview.aglmap` / `resources/maps/ocean_islands_preview.aglmap` |
 | 离线构建与预览 | `scripts/tools/build_lossless_basemap_pyramid.py` / `scripts/tools/build_shared_blue_noise.py` / `scripts/tools/raster_basemap_preview.py` |
 | 共享 renderer / shader | `scripts/survivor/raster_basemap_renderer.gd` / `resources/shaders/basemap_streamed.gdshader` |
 | 三图 manifest / 瓦片 | `resources/maps/basemap_tiles/` |
-| 固定 Godot Visual QA | `scripts/tests/map_raster_visual_qa_runner.gd` / `scenes/tests/map_raster_visual_qa.tscn` |
-| 三图成对感知门 | `scripts/tools/audit_raster_basemap_captures.py`（消费 Godot capture，不自行渲染） |
-| 三图完整 Survivor 合成门 | `scripts/tools/audit_raster_survivor_composites.py`（消费六张 Visual bench 完整 viewport） |
+| 正式三图 Visual/载入探针 | `survivor_mode.gd` 的 `map_raster_tokyo` / `map_raster_desert` / `map_raster_ocean` bench |
+| 正式 LOD 过渡压力 | `survivor_mode.gd` 的 `map_raster_transition_stress` bench |
 | reference 索引 | `docs/reference/map-pipeline.md` / `docs/reference/script-index.md` / `docs/reference/code-index.md` |
 
 ## 8. 变更记录
@@ -350,3 +349,4 @@ else:
 | 2026-08-16 | 42 | 完成真实 Godot 4.7.1 Lossy q95/q98 隔离导入与三图 Visual 审计。q95 的 438 张 `.ctex` 为 `30,450,300 B`（含噪声 `29.045036 MiB`），比无损导入减少 `63.40%`；q98 含噪声为 `38.981434 MiB`。两档结构、时序、驻留和四向过渡均绿，但 24 点连续 zoom 的最差低通梯度为 `10.4963%/10.5938%`，均超过 `10%` 硬门，且真实截图 SHA-256 已确认不同于无损基线。因此两档全部判退，不放宽门限、不修改生产 sidecar；下一步评估仅压 Detail 的分层有损方案。当前正常 F5 仍是无损 streamed 候选，三张母版继续保留。 |
 | 2026-08-16 | 43 | 完成“Strategic/Operational 无损 + Detail q95”分层导入。三档实测为 `3.37/45.36/15.58 MiB`，含噪声总计 `64.316940 MiB`；24 点 zoom 恢复到无损基线 `9.6665%` 并通过，四向过渡、结构、时序和驻留也通过，但东京近景 Detail/Landmark 低通 RGB MAE `0.006924/0.006974 > 0.004`，故判退。该试验再次证明不能用有损导入换取包体而牺牲近景美观度；生产仍保持无损 streamed，用户正常 F5 所见版本不受影响。 |
 | 2026-08-17 | 44 | 将“非实体行政边界不进入战斗底图”固化并落实为三图制作规则。清理只由未调色 CARTO 源图的边界专属粉灰核心生成窄带 mask，在 mask 内确定性修补；东京湾/沙漠/海洋分别改变 `26,148/15,314/3,968 px`，mask 外逐像素不变。三图 PNG 与 442 个三档文件同步重建为 `67.872 MiB`，全部接缝/父子均值、Godot Visual、36 机位结构、zoom、四向 transition、时序和驻留门通过；52 机热缓存复跑 `144.77 FPS`、最差 `130.50 FPS`、0 帧低于 60，首次冷缓存 2 帧低于 60 记为后续冷启动观察项。 |
+| 2026-08-22 | 45 | 用户最终确认采用 lossless WebP 瓦片版本。发布/Debug 与 Tab 改为按 `tile_map_key` 直接消费 manifest/Strategic，删除五张旧/正式地图 PNG 及导入旁车、`Shift+F8` A/B、PNG 压力场、切换对拍 Debug 场景和其专用审计脚本；保留正式 LOD 淡变、三图 Visual/载入探针、过渡压力场、父层/矢量 fallback 与外部 UGC PNG 兼容。 |

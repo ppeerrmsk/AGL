@@ -3,7 +3,7 @@ id: pure-vector-map-preview
 kind: system
 status: superseded
 schema_version: 1
-spec_version: 45
+spec_version: 46
 owner: noelu
 depends_on: [map-system, map-editor]
 reconstruction_complete: true
@@ -11,14 +11,14 @@ reconstruction_complete: true
 
 # V45 全东京湾纯矢量研究归档与游戏内 A/B
 
-> 本 spec 归档 V1–V44 的研究过程与 debug A/B 证据。用户于 2026-08-08 最终裁定候选达不到正式 PNG 的视觉预期；东京湾主地图与 Tab 地图保留 PNG 设计，纯矢量候选不再作为当前生产迁移目标。
+> 本 spec 归档 V1–V44 的研究过程与 debug A/B 证据。用户于 2026-08-08 最终裁定候选达不到正式栅格视觉预期；2026-08-22 生产底图改为同源 lossless WebP 瓦片，但纯矢量候选仍不作为生产迁移目标。
 
 ## 1. 设计意图（Why）
 
 - **体验目标**：把离线样张放进真实相机、HUD、天气、建筑与战斗负载中观察，提前暴露“截图好看、游戏里不成立”的问题。
 - **Litmus 自检**：变化当帧可见；不改变玩法判定；遵守 60 FPS 硬底线；地图静态内容不持续重绘。
 - **反模式规避**：禁止把 V11 截图重新作为地图贴图；预览必须消费普通矢量数据并提交静态绘制批次。
-- **最终生产裁决（用户定 2026-08-08）**：正式东京湾继续使用 `tokyo_bay_bg.png` + shader，Tab 地图继续使用同一 PNG。V44 renderer、数据、QA 与 `Shift+F10` 只作为冻结的 debug 研究材料保留，不获得发布或 PNG 退役授权。
+- **最终生产裁决（用户定 2026-08-22）**：正式东京湾与 Tab 使用同源 lossless WebP 瓦片；这次只晋升栅格瓦片方案。V44 纯矢量 renderer、数据、QA 与 `Shift+F10` 仍是冻结的 debug 研究材料，不获得发布授权。
 - **恢复条件**：未来若重启纯矢量替换，必须新建并获批后继 spec；不得以本 spec 已完成的结构/性能门绕过新的整图主观视觉验收。
 
 ## 2. 数据定义（What）
@@ -313,3 +313,4 @@ Shift+F10
 | 2026-08-08 | 44 | 用户以纸板总平面参考否决 V43 的花绿功能色与均匀拼布感。density/context/relief 保留分类数据但统一为暖灰纸板色相，以明度、纸面叠层和中性阴影区分；三个 density 锚点满足暖纸色族与 `0.02..0.08` 距离门。台地从 360 收至 220 块，宏观采样 1.1k world px、单块半径约 320–700px，Operational `terrain_context` 降至 14,496 三角，总量 26 draw calls / 1,236,202 三角，水面命中 0，首次结构预热 1,327ms。真实 GL 全固定机位、六档/滚轮/连续扫频全部通过；120 秒 PNG/矢量为 117.91/119.33 FPS、低帧 3/1，战斗结果不同故只裁定无性能回退。PNG 默认、回滚与删除门不变。 |
 | 2026-08-07 | 29 | 固定机位不足以证明整图完成，新增独立 `map_detail_atlas_qa` Visual bench：逐格复用生产 DirectRenderer 与 3072²→1536² 缓存路径，将 Detail 缩略层叠到世界对齐的 Operational 底图。56.575 秒处理清单全部 203 格，其中 199 非空、4 预期空、真实失败 0；全图 30 条横纵边界平均额外跳变 0.396 RGB、峰值 1.5805 RGB，通过 `<3` 门。atlas 肉眼无黑白坏块、规则格或明显断层；它证明全图数据/样式/接缝一致，不改变 PNG edge-density 尚未毕业与 PNG 保留裁定。 |
 | 2026-08-08 | 45 | 用户最终裁定本计划无法达到预期视觉效果，正式东京湾与 Tab 地图保留 8704×8704 PNG + shader。纯矢量候选从生产迁移计划降为冻结的 debug 研究档案，状态改为 `superseded`；本轮不删 PNG、不删候选资产、不改生产默认，未来重启须另立 approved spec 并重新通过整图主观视觉门。 |
+| 2026-08-22 | 46 | 同步后续栅格方案毕业：正式底图从整图 PNG 改为同源 lossless WebP 瓦片，不改变本纯矢量候选的 superseded 身份；`Shift+F10` 仍仅作冻结研究入口。 |

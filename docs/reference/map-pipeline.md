@@ -15,7 +15,7 @@ AGL 生存模式使用**真实地图底图 + 程序化矢量数据 + 手画覆�
 3. **内部迭代至少 3 轮**：每轮必须有明确假设、改动和复测，禁止只改版本号。已有成熟 style profile 且首轮全部过门时可以提前结束；否则未完成 3 轮不得要求用户审核。
 4. **连续最多 8 轮**：两轮没有可测改善，或第 8 轮仍过不了客观门时，停止盲调并报告真正阻塞项（例如缺 residential/service 道路、建筑覆盖或 renderer 能力），不得把八张半成品依次丢给用户。
 5. **代理自审**：在 100% 与 200% 尺寸检查固定机位；全图、湾区、港区/机场细节、Tab 四档均过门后，才整理 1 个推荐稿；只有存在真正不同的美术方向时才附最多 2 个备选。
-6. **用户里程碑审核**：用户只在方向选择、候选里程碑和 PNG 退役毕业门拍板。收到反馈后必须转写成 style/profile/验收规则，后续地图继承，不能让用户在下一张图重新指出同一种问题。
+6. **用户里程碑审核**：用户只在方向选择、候选里程碑和正式资源毕业门拍板。收到反馈后必须转写成 style/profile/验收规则，后续地图继承，不能让用户在下一张图重新指出同一种问题。
 
 ### 0.2 客观预检门
 
@@ -39,29 +39,17 @@ AGL 生存模式使用**真实地图底图 + 程序化矢量数据 + 手画覆�
 - Notion 只上传用户需要查看的里程碑候选与最终裁决，不上传每轮 scratch 图；里程碑图片必须标注参考/候选、LOD、版本和仍未过门项。
 - 每个里程碑至少包含三地图同 zoom 九宫格、两段阈值各 25%/50%/75% 过渡帧、主图/Tab 往返与真实 LOD 性能对照；只要任一自动门失败，agent 继续内部定位和复跑，不把失败稿交给用户逐项找错。
 
-### 0.5 当前 lossless WebP 分档 A/B（approved，尚未毕业）
+### 0.5 当前 lossless WebP 正式底图（done）
 
-- 当前迁移路线是 [raster-basemap-streaming.md](../specs/systems/raster-basemap-streaming.md)，不是继续完善纯矢量 V44。8704×8704 PNG 继续作为默认、视觉权威和回滚源；只有三图主地图、Tab 图、连续缩放、内存，以及同条件 C1 + S3 暖稳态/冷启动/transition 成对性能全部过门并获用户最终确认后，才允许同时移除大型地图 PNG。
-- 东京湾、沙漠铁路和海洋群岛从各自正式 PNG 离线切成**原始 RGB 像素完全无损**的 WebP 瓦片，不把 tint、grain、暗角或地图内容预烘进公共 shader。三个 level 分别为 Strategic 东京 1536²、沙漠/海洋 1504² 单图，Operational 7680² 8×8，Detail 8704² 9×9；瓦片内容 1024px，四周 16px gutter。重新解码后像素 mismatch 为 0。Operational 必须以 `zoom=0.18` 验收；主要战斗缩放 `0.26` 单列为 Battle 并必须落入 Detail，不能把两者混名。
-- V36 三图地图金字塔体积实测为东京湾 43.826435 MiB、沙漠 21.605158 MiB、海洋 2.548243 MiB，共 67.979836 MiB；再加跨图共享 `64×64` L8 蓝噪声 `4,228 B` 后总计 67.983868 MiB。Strategic 按图分配为东京湾 1536²、沙漠/海洋 1504²；运行时常驻 Strategic + 当前视野最多 12 格，硬上限 16 格，不再同时解码 8704² 全图。
-- LOD 使用带迟滞的三档状态机：Strategic→Operational 名义阈值 `0.10`、Operational→Strategic `<0.08`、Operational→Detail `0.24`、Detail→Operational `<0.20`；若目标可见集超过 12 格则继续保留父层。1920×1080 逻辑视口中，7680 Operational 在约 `0.1066` 才降至 12 格，因此固定 QA 从 `0.107` 起验收升档。整层切换用 0.40s 静态覆盖淡入：目标瓦片层临时置顶从 `0→1`，旧层保持不透明直到结束；降至 Strategic 时才单独淡出旧瓦片层，禁止双层同时淡化露出底色。60 FPS 正弦 alpha 单帧理论上界为 `π/(2×0.40×60)≈0.06545≤0.07`。每 tick 最多请求 4 格、绑定 2 格；不在 `_draw` 中扫描，不每帧重绘地图。每档先取全部可见格，再用 12 格总额的剩余位置做邻接预取；只有可见格完整才升档，禁止截断可见区。大幅滚轮跳档若前后集合会越过 16 格，先以 Strategic 桥接。Visual QA 会在放大/缩小四个方向各抓取 25%/50%/75% 三帧，并断言 alpha、z 顺序、最终像素哈希、亮度/梯度连续性、可见格完整性和 resident 硬门；只改变节点 alpha 但 shader 未消费 `COLOR/modulate` 会直接失败。
-- 过渡专用压力场景 `map_raster_transition_stress` 使用固定 52 机负载，每 `0.8s` 跨一次 Operational/Detail，同时覆盖 Strategic 桥接；V30 12 秒实测平均 `317.78 FPS`、最坏帧 `87.91 FPS`、0 帧低于 60。该数字是历史样本；当前裁定按 performance-guidelines 的 S3 三次成对流程。场景只在 bench 生效，不给正式 `_process` 增加常驻工作。
-- `basemap_streamed.gdshader` 复用正式 PNG 的 saturation/brightness/contrast/tint/Sobel 风格；grain 采样确定性 `shared_blue_noise_64.png`，使用全图 `map_uv×64` 保持三档/瓦片同相位，线性 mip 自动按 footprint 取样，不读 `TIME`、不在 fragment 计算 hash。边缘从当前采样动态求 Sobel，避免 gutter 把轮廓重复烘进内容；Strategic 与 Detail 8704 分别用 `1.15/1.20`，Operational 7680 则按图使用东京/沙漠 `1.17`、海洋 `1.15`。`luma_scale_by_lod` 只在 Sprite 创建时一次性写 `self_modulate`：东京 `0.9895/1.0016/1.0`、沙漠 `1.020/1.0/1.0`、海洋全档 `1.0`；海洋 Strategic `1.003` 因低频结构与平坦区色差恶化而否决。静止与缩放时均不更新 shader。
-- debug build 用 `Shift+F8` 同步切换主地图与 Tab 图的 PNG/streamed A/B；`Shift+F10` 仍只进入冻结纯矢量研究。`--raster-basemap-preview` 可让 Visual bench 从 loading 直接走候选；候选初始化成功后不加载 legacy 全图 PNG，失败则原子回滚。自动门还会对三图执行一次实际 `PNG→streamed→PNG→streamed` 主图往返，并实例化正式 TacticalMap 验证 Tab 关闭/重开；回滚截图相对初始 PNG 的平均亮度差绝对值最大 `0.000007`。
-- Tab 图直接消费同图 Strategic 原始纹理（东京 1536²、沙漠/海洋 1504²）并沿用正式固定中性乘色，不再重复套主地图 shader或创建第二份 SubViewport 快照；战区、单位、航点和 CRT 层仍走既有动态路径。三张内置图共享 manifest schema；任意外部 UGC 仍保持 vector-only，不能误读某张官方图的 raster 内容。
-- `map_raster_visual_qa` 在真实 Godot 4.7.1 GL Compatibility 中对拍三图 full/Operational `0.18`/主要战斗 `0.26`/Detail/实际 680² Tab、Operational 3×3 网格、回滚帧，并让正式 PNG 与候选执行相同 24 点 zoom sweep。V35 东京湾 Operational/主要战斗低通 RGB MAE 为 `0.002586/0.000087`；36 个强结构机位最差道路/海岸与大轮廓 F1 为 `0.955073/0.968759`。候选最大相邻亮度变化 `0.3947%`，正式 PNG 为 `0.1232%`，候选减 PNG 的额外残差 `0.2715% ≤0.5%`；四向 25%/50%/75% 过渡最大相邻亮度变化 `0.000388`、低通梯度相对变化 `9.1622%`。12 格 resident、16 格硬门均通过。东京湾 Strategic 主动消除旧 8704² 无 mip 极缩时的黑色混叠。
-- 全图/Tab 另执行孤立暗点门：亮表面上比 3×3 中值暗 `>0.07` 的单像素密度，候选不得超过同位 PNG `1.05×`。1520 相对旧 PNG 的减少率为东京湾 `56.0%/96.4%`、沙漠 `82.6%/100%`、海洋 `33.4%/96.2%`；地图制作规则要求保留低频结构、主路和海岸，但禁止为了追逐 RGB MAE 重新引入旧全图缩放黑点。
-- 每次里程碑还须从三图九宫格自动选 RGB MAE 最大区域，输出原尺寸正式 PNG / 候选 / 低频差异放大。东京全档统一 `edge_gain=1.20` 已因 10/11 个中景机位误差上升且亮度跳变恶化到 `0.7910%` 而否决；后续 `1.10/1.15/1.17` 同帧消融证明 Strategic 保持 `1.15` 最稳，1520 东京实机再证明其 Operational 需 `1.17` 才能收拢升档端点；海洋 V8 的同位消融则证明 Operational `1.15` 更接近母版。8192² Operational 因体积增加且 RGB 误差恶化约 `18.2%` 淘汰；7680² `1.18` 虽离线近似更锐，真机却使东京低通误差与 LOD 连续性变差，也已回滚。V9 又否决 Strategic `1.20`（低通梯度 `12.8254% >10%`），改用不增加边缘的一次性 `0.9895` 低频乘色；原尺寸 Detail 仍使用 `1.20`，不得把任一档补偿外推成全档统一值。
-- Strategic 先做统一 1024/1280/1344/1408/1472/1520/1536 消融，再于 V36 改为按图分配：东京湾 1536²、沙漠/海洋 1504²，以 `67.979836 MiB` 保持在 68 MiB 内。真实 Godot full/Tab 低通 RGB MAE 为东京 `0.005715/0.001994`、沙漠 `0.001059/0.000499`、海洋 `0.000563/0.000184`；24 点 zoom 最大亮度步进 `0.003885`，没有放宽既有门限。
-- Strategic 制作禁忌：不得为了追逐正式 PNG 直接缩小时产生的黑点/混叠，默认追加 Sobel 或 Unsharp。东京 V37 已实测 Sobel 1.20、Unsharp 10% 均使 full 或 zoom 退化；Unsharp 5% 的 Tab 改善仅 `0.000001` 且 full 仍变差。V38 的 `8704→4096→1536` 双阶段 Lanczos 虽改善离线 mip 代理与真实 full，却让 Tab `0.001994→0.002004` 且肉眼无可辨收益，同样否决。新地图必须从原图单阶段 Lanczos 起步，优先按图分配分辨率；锐化或多阶段缩小只有在真实 Godot 的 full 与 Tab **同时产生可见改善**、孤立暗点不增加且 zoom/四向过渡全过时才可晋升，离线代理分数不得单独晋升。
-- Godot capture 完成后必须运行 `scripts/tools/audit_raster_basemap_captures.py`。它不会替代引擎渲染，而是对三图 full/Operational/主要战斗/Detail/玩法地标/Tab 与 27 个 Operational 网格共 45 组成对机位执行可失败的平均亮度、逐通道平均 RGB 色偏 `≤0.004`、1.5 px 低通结构、8×8 平坦区、full/Tab 孤立暗点、候选与正式 PNG 同步 zoom 连续性及 `≤0.5%` 额外残差、transition 三帧哈希/亮度/梯度/覆盖及 16 格驻留门；同一工具还对正式 PNG 的 3 px 梯度 `p99≥0.007` 的有效机位执行道路/海岸结构（3 px 低通、92 百分位、3 px 容差）与大轮廓（5 px 低通、94 百分位、4 px 容差）F1，两档均须 `≥0.80`，并要求三图正式 PNG 与候选在主要战斗同机位间隔 `0.5s` 的双帧 SHA-256 相同、最大逐通道像素差 `0`。纯平海和不可见微纹理不强行计分。固定 runner 还会逐图恢复/注入真实 MapDocument 并断言东京湾/沙漠/海洋 `189/15/16` 组建筑缓存。当前门限写在脚本常量并由 `raster-basemap-streaming` §5 授权。
-- 三图还必须分别运行 `map_preview_*` / `map_raster_*` Visual bench，在相同确定性天气种子下抓取六张完整 Survivor viewport，再由 `scripts/tools/audit_raster_survivor_composites.py` 执行亮度、1.5 px 低通 RGB、平坦区逐通道色准与低通结构相关硬门。底图专项门通过但完整合成门失败时，不得晋升 profile。V39 在 V38 回退后的当前 V36 复核值为东京/沙漠/海洋低通 RGB MAE `0.000290/0.000753/0.000597`、低通相关 `0.995847/0.989240/0.994665`，六张正式 Survivor viewport 全过且肉眼并排无 streamed 专属层次退化。
-- 三张内置地图还必须分别从真实 `survivor_mode.tscn` 抓取 PNG/候选完整 viewport，覆盖天气、玩家、HUD、机场、建筑与底图共同合成。抓图场景向 WeatherSystem 注入同一固定种子；禁止用两次随机云形的差异判断地图明暗或色偏。正式游戏不传该种子，继续随机天气。
-- 旧三轮把 `zoom=0.35` 错标为 Operational，实际已进入 Detail，只保留为历史诊断。共享蓝噪声最终保留 `0.014`；受控 `0.016` 因 Detail 连续两轮各有 3 帧 `<60` 而淘汰。V36 最新 52 机三档循环为 `144.82 FPS`、最差帧 `138.81 FPS`、0 帧 `<60`；三图完整 Visual 生存场景最低单帧 `325.78/303.98/258.46 FPS`。Visual QA 按渲染器实际 alpha 逐帧抓四向过渡，不使用固定毫秒等待；会话驻留峰值 `14/16`。客观门通过，仍不代替用户最终视觉确认。
+- 当前生产路线是 [raster-basemap-streaming.md](../specs/systems/raster-basemap-streaming.md)，不是纯矢量 V44。东京湾、沙漠铁路和海洋群岛按 `tile_map_key` 直接消费同源 lossless WebP manifest；五张旧/正式地图 PNG、导入旁车、`Shift+F8` A/B 与切换对拍 Debug 页面已于 2026-08-22 退役。
+- 三档为 Strategic 东京 1536²、沙漠/海洋 1504²，Operational 7680² 8×8，Detail 8704² 9×9；瓦片内容 1024px、四周 16px gutter。三图金字塔加共享蓝噪声约 67.98 MiB；运行时常驻 Strategic + 当前视野最多 12 格，过渡硬上限 16 格。
+- LOD 阈值与迟滞保持：Strategic `<0.10`、Operational `0.08…0.24`、Detail `≥0.20`；目标视口完整后以 0.40s 覆盖淡入。每 tick 最多请求 4 格、绑定 2 格，静止地图不重绘、不逐帧改 shader。
+- Tab 直接消费同图 Strategic 并沿用固定中性乘色；战区、单位、航点与 CRT 层仍走既有动态路径。三张官方图必须登记精确 manifest key；外部 UGC 可保持 vector-only 或使用自带 `{png_path, meta_path}`，不得误读官方 raster 内容。
+- 正式回归入口为三图 `map_raster_tokyo/desert/ocean` Visual/载入探针、`map_raster_operational_stress`、`map_raster_stress`、`map_raster_detail_stress` 与 `map_raster_transition_stress`。旧 PNG 成对基线和专用对拍页不再属于当前工作流。
 
 ### 0.6 游戏内 V44 A/B 入口（冻结研究）
 
-- **最终生产裁决（用户定 2026-08-08）**：V44 整图视觉未达到预期，正式东京湾主地图与 Tab 地图保留 8704×8704 `tokyo_bay_bg.png` + shader。不得删除、覆盖、降质或把该 PNG 标成过渡资产。
+- **最终生产裁决（用户定 2026-08-22）**：V44 纯矢量整图仍未达到预期；正式东京湾主地图与 Tab 改用同源 lossless WebP 瓦片，不代表纯矢量候选晋升。
 - debug build 中的 `Shift+F10` A/B、候选 renderer、矢量包与 QA 仅冻结作研究/回归材料；它们不再是当前生产迁移路径。未来重启须新建 approved spec 并重新经过整图主观视觉验收。
 - 中远景数据是 `tokyo_bay_vector_preview.json` + `tokyo_bay_operational_density.agod.gz` + `tokyo_bay_operational_buildings.agob.gz` + `tokyo_bay_operational_roads.agor.gz`；道路包是从本地 Kanto PBF 按 2 km 分区配额简化出的 18,874 条真实街区骨架，不是全量住宅路。neighborhood 只提交单层低对比 core；Operational 仅保留 large 概括体块与单一 casing。近景由 `tokyo_bay_detail_tiles_full.json` 索引 199 个 AGDT gzip 矢量包；AGLW 只消费 OSM `height` / `building:levels`，普通楼不超过 52px 投影，真实 `>=80m` 地标按分段曲线放宽到最多 122px，并用投影 bbox 跨瓦片分配。所有侧墙仍合入原 packet，缺高度建筑继续低浮雕。运行时不读取 `tmp/`，截图、diff 与缓存纹理都不得作为地图内容资产。
 - 203 个原始 detail JSON 是约 995 MB 的构建中间产物，只能放在 `tmp/full_map_detail/detail_tiles_source/`；`prepare_tokyo_bay_detail_grid.py`、`bake_tokyo_bay_full_detail.py` 和 `pack_tokyo_bay_detail_tiles.py` 必须维持该边界。`resources/maps/` 只放 AGDT/AGLW 与 manifest，禁止把 raw JSON 为了方便回流到 Godot 扫描目录。
@@ -92,8 +80,8 @@ AGL 生存模式使用**真实地图底图 + 程序化矢量数据 + 手画覆�
 │  scenes/survivor_mode.tscn                       │
 │  ├── MapBoundary          游戏世界边界 (±7500px) │
 │  ├── MapFeatureRenderer   主地图渲染器            │
-│  │    ├── Sprite2D + Shader  默认整图 PNG        │
-│  │    ├── RasterBasemapRenderer  可选分档瓦片    │
+│  │    ├── RasterBasemapRenderer  正式分档瓦片    │
+│  │    ├── Sprite2D + Shader  外部 UGC PNG 兼容   │
 │  │    ├── _draw()            矢量层 + vignette   │
 │  │    └── manual_overlay    加载 map_manual.tscn │
 │  ├── WeatherSystem        云层/天气               │
@@ -111,8 +99,8 @@ AGL 生存模式使用**真实地图底图 + 程序化矢量数据 + 手画覆�
              │                    │
     MapGeographyData (加载器)     │
     └── ensure_loaded() ─────────→ resources/maps/tokyo_bay.json
-                                   resources/maps/tokyo_bay_bg.png
                                    resources/maps/tokyo_bay_bg.json
+                                   resources/maps/basemap_tiles/tokyo/
 ```
 
 ---
@@ -197,9 +185,7 @@ https://a.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}@2x.png
 python scripts/tools/download_basemap.py
 ```
 
-输出：
-- `resources/maps/tokyo_bay_bg.png` — 当前正式东京湾底图（8704×8704，36,075,000 bytes；生产资产，禁止被转换器覆盖）
-- `resources/maps/tokyo_bay_bg.json` — 元数据（bbox → 游戏坐标系转换参数）
+该历史脚本当前仍写 `resources/maps/tokyo_bay_bg.png/.json`；正式生产时先把输出改到 `tmp/` 或项目外制作目录。PNG 只作为 8704×8704 离线金字塔输入，不提交仓库；bbox → 游戏坐标元数据可单独同步到 `resources/maps/tokyo_bay_bg.json`。
 
 > **尺寸权衡**：ZOOM=13 够用，玩家缩放后不模糊；ZOOM=14 更清晰但 4 倍大小。ZOOM=15 以上不建议（文件暴涨，对 CartoDB 不友好）。
 
@@ -319,9 +305,8 @@ static func is_on_land(pos: Vector2) -> bool:
 | URBAN_POLYGONS | ~160 个 | OSM landuse |
 | ROADS_MOTORWAY/TRUNK/PRIMARY/SECONDARY | 1012 条总计 | 短于 200px 的丢 |
 | COASTLINE_LINES | 21 段 | OSM 海岸线 |
-| 底图 PNG | 8704×8704 px / 36,075,000 bytes | 当前正式生产资产；主地图 + Tab 保留 |
-| Lossless WebP 候选 | 三图金字塔 67.979836 MiB；含共享蓝噪声 67.983868 MiB | Strategic 东京 1536²、沙漠/海洋 1504² / Operational 7680² / Detail 8704²；仍未获 PNG 退役授权 |
-| 候选 GPU 纹理常驻 | 稳定约 59.87 MiB / 硬上限约 76.89 MiB | Strategic + 12 格 LRU + 约 5.3 KiB 蓝噪声 mip，绝不常驻完整 8704² |
+| Lossless WebP 正式底图 | 三图金字塔 67.979836 MiB；含共享蓝噪声 67.983868 MiB | Strategic 东京 1536²、沙漠/海洋 1504² / Operational 7680² / Detail 8704² |
+| 正式 GPU 纹理常驻 | 稳定约 59.87 MiB / 硬上限约 76.89 MiB | Strategic + 12 格 LRU + 约 5.3 KiB 蓝噪声 mip，不常驻完整 8704² |
 | JSON 数据 | ~100 KB | FileAccess + JSON.parse |
 | 启动加载 | ~30 ms | 一次性 `ensure_loaded` |
 
@@ -329,8 +314,8 @@ static func is_on_land(pos: Vector2) -> bool:
 
 | 症状 | 原因 | 修法 |
 |---|---|---|
-| 主地图空白 | `tokyo_bay_bg.png` 缺失 / 元数据 JSON 损坏 | 重跑 `download_basemap.py` |
-| 主地图全是海色 | 底图 PNG 被 `_draw_sea` 遮住（z 顺序 bug） | `map_feature_renderer._draw` 里确认底图存在时跳过 `_draw_sea` |
+| 主地图空白 | manifest/Strategic 缺失或元数据 JSON 损坏 | 校验 `resources/maps/basemap_tiles/<map>/manifest.json` 与对应 Strategic 纹理 |
+| 主地图全是海色 | 正式瓦片初始化失败或被 `_draw_sea` 遮住 | 先看底部错误通知，再确认 `map_feature_renderer._draw` 的 basemap 判定 |
 | `is_on_land` 永远返回 false | `MapGeographyData.ensure_loaded()` 没被调 | 已在 `is_on_land` 开头自动调；若自定义入口，手动调一次 |
 | 战术地图空白/全是扫描线 | `minimap_retro.gdshader` 的 `hint_screen_texture` 在 Control 里 bug | 已移除，改用 `clip_contents=true` + 后绘制 `draw_line` |
 | 编辑器 MapManualBackground 显示 `land 0 / urban 0 / roads 0` | class_name 懒初始化 bug | 已改用 JSON 加载，强制 `MapGeographyData.ensure_loaded()` |
@@ -343,17 +328,15 @@ static func is_on_land(pos: Vector2) -> bool:
 
 ### 工具脚本（不进打包，开发时用）
 - `scripts/tools/bake_tokyo_bay.py` — OSM GeoJSON → JSON 矢量数据 + 陆地 mask union
-- `scripts/tools/download_basemap.py` — CartoDB 瓦片拼接 → 底图 PNG + 元数据
+- `scripts/tools/download_basemap.py` — CartoDB 瓦片拼接 → 离线母版 PNG + 元数据；运行前必须把历史硬编码输出改到 `tmp/`/项目外，母版不提交正式资源目录
 - `scripts/tools/bake_preview_basemaps.py` — 图2 Mount Whaleback / 图3 Ironbottom Sound 各 17×17 张 zoom 13 `@2x` 瓦片 → 两组 8704² PNG + 元数据
 - `scripts/tools/refine_preview_basemaps.py` — 图2低对比沙漠地貌来源层 + 坐标稳定道路底图 → v2；图3清除主岛南部保护区/土地覆盖直角色块 → v2
 - `scripts/tools/remove_admin_boundaries.py` — 三图母版进入金字塔前的强制离线步骤：只识别与 CARTO `#e1c5c7` 行政边界核心连通的窄像素带并确定性修补；默认写 `tmp/admin-boundary-cleanup/`，显式 `--write-runtime` 才原子替换母图。道路、铁路、河道、海岸与建筑不得进入 mask。
-- `scripts/tools/raster_basemap_preview.py` — 三图正式 PNG/profile 同位预览与内部调色诊断；所有图片输出固定写入 `tmp/raster_basemap_preview/`
+- `scripts/tools/raster_basemap_preview.py` — 需要外部母版时的离线 profile 诊断；所有图片输出固定写入 `tmp/raster_basemap_preview/`
 - `scripts/tools/build_lossless_basemap_pyramid.py` — 三图原始 RGB → Strategic/Operational/Detail lossless WebP + gutter/复解码/父子均值 QA；默认输出 `tmp/raster_basemap_tiles/`。`--operational-only --base-root ... --operational-size 7680` 与 `--strategic-only --base-root ... --strategic-size 1520` 可复制已验证金字塔并只重建单档，避免重复编码 Detail；最终产物仍须先在 `tmp/` 过门再晋升 runtime
 - `scripts/tools/build_shared_blue_noise.py` — 确定性生成三图共用的 `64×64` L8 蓝噪声；只承载颗粒分布，输出前校验均值、低频能量与 SHA-256，默认写入 `tmp/`
 - 三图 manifest 的 `style_profile.grain_repeat` 只在 Sprite/瓦片材质创建时写入；当前锁定 `64`。V33 真机消融证明 `48/32` 会让三图低频误差单调上升并把最差道路/海岸结构 F1 降到 `0.794665/0.766250`，不得用粗化 shader 颗粒伪造地图层次。
-- 正式整图 PNG 的 `basemap_tacview.gdshader` 与 streamed shader 共用 `shared_blue_noise_64.png`、强度 `0.014`、重复 `64` 和全图归一化相位；主地图 shader 禁止 `TIME`、程序 hash 或三角函数动态颗粒。V34 统一后 42 组平均 RGB/低通误差下降到 `0.002083/0.001068`，三图两路径 0.5s 时间双帧均零像素变化。
-- `scripts/tools/audit_raster_basemap_captures.py` — 消费 `map_raster_visual_qa` 的三图真实 Godot PNG/streamed 同位截图，输出 `raster_visual_audit.json` 并在色调、低频结构、局部平坦区、LOD 连续性、transition 或驻留超门时返回非零
-- `scripts/tools/audit_raster_survivor_composites.py` — 消费三图 PNG/streamed Visual bench 的六张完整 Survivor viewport，在合成亮度、低频色差、平坦区色准或低频结构相关超门时返回非零
+- 正式 streamed shader 共用 `shared_blue_noise_64.png`、强度 `0.014`、重复 `64` 和全图归一化相位；主地图 shader 禁止 `TIME`、程序 hash 或三角函数动态颗粒。
 - `resources/maps/source/` — 带 `.gdignore` 的离线地貌来源层与生成 prompt；不参与 Godot 导入或运行时打包
 - `scripts/tools/build_vector_preview_data.py` — 已审中远景研究矢量 → 自包含运行时预览数据
 - `scripts/tools/bake_yokohama_gold_slice.py` — Overpass OSM → 横滨 4×4 km 纯矢量金样
@@ -370,21 +353,19 @@ static func is_on_land(pos: Vector2) -> bool:
 ### 运行时代码
 - `scripts/survivor/map_geography.gd` — 公开 API（is_on_land / URBAN_DISTRICTS / HIGHWAYS / get_*）
 - `scripts/survivor/map_geography_data.gd` — JSON 加载器（从 `tokyo_bay.json` 填充静态数组）
-- `scripts/survivor/map_feature_renderer.gd` — 主地图渲染（Sprite2D 底图 + 矢量 + vignette）
+- `scripts/survivor/map_feature_renderer.gd` — 主地图渲染（正式瓦片 + 矢量 + vignette；外部 UGC PNG 兼容）
 - `scripts/survivor/raster_basemap_renderer.gd` — 三档静态 raster 瓦片 renderer；迟滞、0.40s crossfade、请求/绑定预算和 12 格 LRU
 - `scripts/survivor/map_vector_preview_renderer.gd` — 冻结的 V44 debug 研究 renderer；不作为正式东京湾 PNG 替换路径
 - `scripts/survivor/map_detail_vector_renderer.gd` — Detail AGDT + 可选 AGLW 实际高度侧墙静态合批 renderer；仅供 loading/安全暂停的一次性临时 viewport 使用
 - `scripts/tools/bake_tokyo_bay_landmark_walls.py` — 从本地 OSM 高度标签离线生成 AGLW sidecar
 - `scripts/survivor/map_detail_tile_cache.gd` — 2× 超采样、1536² 内容 + 4 px 过滤外挤、12 格 LRU；正式主图绑定静态 texture
 - `scripts/tests/map_visual_qa_runner.gd` — PNG/vector 固定机位真实运行时采集
-- `scripts/tests/map_raster_visual_qa_runner.gd` — 三图 PNG/streamed 同位对拍；逐图注入真实 MapDocument 的玩法地标/假 3D 建筑近景与数量断言；实际主图往返回滚、正式 Tab 关闭/重开、zoom sweep、resident/亮度连续性门
 - `scripts/survivor/map_manual_background.gd` — @tool 编辑器预览（显示 OSM 给你描边用）
 - `scripts/survivor/tactical_map.gd` — 战术缩略图（含 CRT 扫描线 / 暗角后绘制）
 
 ### 资源
 - `resources/maps/tokyo_bay.json` — 矢量数据
-- `resources/maps/tokyo_bay_bg.png` — 底图
-- `resources/maps/tokyo_bay_bg.json` — 底图元数据
+- `resources/maps/tokyo_bay_bg.json` — 东京湾 bbox/坐标元数据
 - `resources/maps/basemap_tiles/{tokyo,desert,ocean}/` — 三图 lossless WebP 三档瓦片、manifest 与 QA 摘要
 - `resources/maps/tokyo_bay_vector_preview.json` — V15 中远景补充矢量（无地图内容栅格）
 - `resources/maps/tokyo_bay_operational_density.agod.gz` — 513² 量化 OSM 标量场，不是地图贴图
