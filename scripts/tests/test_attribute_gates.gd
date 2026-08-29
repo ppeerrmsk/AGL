@@ -20,6 +20,7 @@ func run() -> void:
 	_test_milestone_apply_and_replay()
 	_test_milestone_squad_wide()
 	_test_card_axis_mapping()
+	_test_airframe_affinity_fourth_card()
 	_test_classified_card_pity()
 	_test_weapon_inventory()
 	_test_evolution_gates()
@@ -279,6 +280,7 @@ func _test_milestone_squad_wide() -> void:
 		"got %.1f" % lead.params.gun.max_range)
 	_check("僚机机炮射程 ×1.20（同吃）", is_equal_approx(wing.params.gun.max_range, base_gun_range * 1.20),
 		"got %.1f" % wing.params.gun.max_range)
+	_check("逐机里程碑下发不篡改当前操控机引用", sp.aircraft == lead, "")
 
 	# 逐机幂等：再跨同一档不重复叠
 	sp.apply_crossed_milestones(SurvivorData.AXIS_GLADIATOR)
@@ -424,9 +426,91 @@ func _test_card_axis_mapping() -> void:
 	_check("空池返回空 dict", SurvivorData.pick_card_for_axis([], {}, 5).is_empty(), "")
 
 
-# ── I. 4 级金卡软 pity（spec classified-card-pity）──
+# ── I. 机体战术适配第四卡（spec airframe-affinity-fourth-card）──
+func _test_airframe_affinity_fourth_card() -> void:
+	print("── I. 机体战术适配：15% 边界 / 身份轴等概率 / 50 机审计 ──")
+	_check("0.149999 命中第四槽",
+		SurvivorData.airframe_affinity_offer_hit(0.149999), "")
+	_check("0.15 边界不命中第四槽",
+		not SurvivorData.airframe_affinity_offer_hit(0.15), "")
+	_check("负随机值不命中",
+		not SurvivorData.airframe_affinity_offer_hit(-0.001), "")
+	_check("单轴机固定返回骑士",
+		SurvivorData.airframe_affinity_axis([&"knight"], 0.99) == SurvivorData.AXIS_KNIGHT, "")
+	var dual_identity: Array = [&"knight", &"gladiator", &"knight"]
+	_check("双轴前半段按稳定顺序选斗士",
+		SurvivorData.airframe_affinity_axis(dual_identity, 0.499999) == SurvivorData.AXIS_GLADIATOR, "")
+	_check("双轴后半段选骑士",
+		SurvivorData.airframe_affinity_axis(dual_identity, 0.5) == SurvivorData.AXIS_KNIGHT, "")
+	var omni_identity: Array = [&"schemer", &"knight", &"gladiator"]
+	_check("三轴 1/3 分段为斗士/骑士/策士",
+		SurvivorData.airframe_affinity_axis(omni_identity, 0.0) == SurvivorData.AXIS_GLADIATOR
+		and SurvivorData.airframe_affinity_axis(omni_identity, 1.0 / 3.0) == SurvivorData.AXIS_KNIGHT
+		and SurvivorData.airframe_affinity_axis(omni_identity, 2.0 / 3.0) == SurvivorData.AXIS_SCHEMER, "")
+	_check("未知身份不生成第四轴",
+		SurvivorData.airframe_affinity_axis([&"unknown"], 0.2) == &"", "")
+	var shown_terminal := {"id": "shown_terminal", "terminal_for": ["jam"]}
+	var duplicate := {"id": "shown_terminal", "rarity": SurvivorData.Rarity.STABLE}
+	var second_terminal := {"id": "second_terminal", "terminal_for": ["jam"]}
+	var independent_gold := {"id": "independent_gold", "rarity": SurvivorData.Rarity.CLASSIFIED}
+	var filtered := SurvivorData.airframe_affinity_candidates(
+		[duplicate, second_terminal, independent_gold], [shown_terminal], "jam")
+	_check("第四槽排除同轮重复 id 与第二张当前流派终端",
+		filtered.size() == 1 and filtered[0] == independent_gold, str(filtered))
+	var picked_gold := SurvivorData.pick_card_for_axis(filtered, {}, 9)
+	_check("第四槽使用独立普通稀有度抽取，不复制基础卡档位",
+		SurvivorData.get_rarity(shown_terminal) == SurvivorData.Rarity.STABLE
+		and SurvivorData.get_rarity(picked_gold) == SurvivorData.Rarity.CLASSIFIED, str(picked_gold))
+
+	var nodes := EvolutionSystem.all_nodes()
+	var missing_identity: Array[String] = []
+	var invalid_axis: Array[String] = []
+	var missing_signature: Array[String] = []
+	var implemented_signatures := 0
+	var placeholder_signatures := 0
+	for nd in nodes:
+		var node_id := StringName(str(nd.get("id", "")))
+		var profile_id := StringName(str(nd.get("profile", "")))
+		var identity := EvolutionSystem.class_identity_of_profile(profile_id)
+		if identity.is_empty():
+			missing_identity.append(String(node_id))
+		for axis in identity:
+			if StringName(str(axis)) not in SurvivorData.AXES:
+				invalid_axis.append("%s:%s" % [node_id, axis])
+		var signature := SurvivorData.signature_upgrade_for_aircraft(node_id)
+		if signature.is_empty():
+			missing_signature.append(String(node_id))
+		elif SurvivorData.is_signature_placeholder(signature):
+			placeholder_signatures += 1
+		else:
+			implemented_signatures += 1
+	_check("50 架机体均有合法战术身份轴", nodes.size() == 50
+		and missing_identity.is_empty() and invalid_axis.is_empty(),
+		"nodes=%d missing=%s invalid=%s" % [nodes.size(), missing_identity, invalid_axis])
+	_check("全谱专属槽审计为 43 已实装 + 7 延期占位，且与普通第四槽隔离",
+		nodes.size() == 50 and implemented_signatures == 43 and placeholder_signatures == 7
+		and missing_signature.is_empty(),
+		"implemented=%d placeholder=%d missing=%s" % [
+			implemented_signatures, placeholder_signatures, missing_signature])
+
+	var mode_src := FileAccess.get_file_as_string("res://scripts/survivor/survivor_mode.gd")
+	var roll_start := mode_src.find("func _roll_axis_cards")
+	var roll_end := mode_src.find("func _current_evolution_node_id", roll_start)
+	var roll_flow := mode_src.substr(roll_start, roll_end - roll_start) \
+		if roll_start >= 0 and roll_end > roll_start else ""
+	_check("第四槽只在自然升级开关下且需全局权益",
+		roll_flow.contains("apply_classified_pity and MetaShop.is_airframe_affinity_entitled"), "")
+	var catalog_src := FileAccess.get_file_as_string(
+		"res://scripts/survivor/survivor_skill_catalog.gd")
+	_check("第四槽仍从 is_normal_random_candidate 过滤后的普通池取卡",
+		roll_flow.contains("SurvivorSkillCatalogScript.normal_candidates")
+		and catalog_src.contains("SurvivorData.is_normal_random_candidate")
+		and roll_flow.contains("bonus_pool") and not roll_flow.contains("signature_upgrade_for_aircraft"), "")
+
+
+# ── J. 4 级金卡软 pity（spec classified-card-pity）──
 func _test_classified_card_pity() -> void:
-	print("── I. 4 级金卡软 pity：倍率 / 清零 / 入口隔离 / 10 分钟标定 ──")
+	print("── J. 4 级金卡软 pity：倍率 / 清零 / 入口隔离 / 10 分钟标定 ──")
 	_check("未出 0 次 → ×1",
 		is_equal_approx(SurvivorData.classified_pity_weight_multiplier(0), 1.0), "")
 	_check("未出 1 次 → ×4.5",
@@ -439,24 +523,23 @@ func _test_classified_card_pity() -> void:
 	var stable := {"id": "stable", "rarity": SurvivorData.Rarity.STABLE}
 	var gold := {"id": "gold", "rarity": SurvivorData.Rarity.CLASSIFIED}
 	var nextgen := {"id": "nextgen", "rarity": SurvivorData.Rarity.NEXT_GEN}
-	_check("普通三卡未见金 → 累计 +1",
+	_check("普通候选卡未见金 → 累计 +1",
 		SurvivorData.classified_pity_next_misses([stable], 2) == 3, "")
-	_check("任一普通卡见金 → 累计清零",
+	_check("含适配第四卡时任一普通卡见金 → 累计清零",
 		SurvivorData.classified_pity_next_misses([stable, gold], 4) == 0, "")
 	_check("NEXT_GEN 不冒充 4 级金卡清零",
 		SurvivorData.classified_pity_next_misses([nextgen], 3) == 4, "")
 
-	# 结构守门：自然升级必须显式开启 pity，且先结算普通三卡再追加第四槽；奖励升级走缺省关闭。
+	# 结构守门：自然升级必须显式开启 pity；专属技不得再追加为第四槽；奖励升级走缺省关闭。
 	var mode_src := FileAccess.get_file_as_string("res://scripts/survivor/survivor_mode.gd")
 	var level_start := mode_src.find("func _on_player_leveled_up")
 	var level_end := mode_src.find("func _roll_upgrade_choices", level_start)
 	var level_flow := mode_src.substr(level_start, level_end - level_start) \
 		if level_start >= 0 and level_end > level_start else ""
 	var roll_pos := level_flow.find("_roll_axis_cards(true)")
-	var signature_pos := level_flow.find("_append_signature_offer(cards)")
 	_check("自然升级显式开启金卡 pity", roll_pos >= 0, "")
-	_check("普通三卡 pity 先结算，专属第四槽后追加",
-		roll_pos >= 0 and signature_pos > roll_pos, "")
+	_check("普通三卡后不再追加专属第四槽",
+		roll_pos >= 0 and not level_flow.contains("signature"), "")
 	var bonus_start := mode_src.find("func _try_present_bonus_upgrade")
 	var bonus_end := mode_src.find("func _apply_upgrade_choice", bonus_start)
 	var bonus_flow := mode_src.substr(bonus_start, bonus_end - bonus_start) \
@@ -503,7 +586,7 @@ func _simulate_classified_pity_average(event_count: int, runs: int) -> float:
 
 # ── H. 进化属性门槛（spec evolution-attribute-gates §2.3：具体轴判定 + 全边可达）──
 func _test_evolution_gates() -> void:
-	print("── H. 属性门槛：具体轴判定 / 树 JSON 完备性 / 124 条边全可达 ──")
+	print("── H. 属性门槛：具体轴判定 / 树 JSON 完备性 / 155 条边全可达 ──")
 	var nd_single: Dictionary = {"gates": {"knight": 2}}
 	_check("单轴门：1/2 不过", not EvolutionSystem.gates_passed(nd_single, {&"knight": 1}), "")
 	_check("单轴门：2/2 过", EvolutionSystem.gates_passed(nd_single, {&"knight": 2}), "")
@@ -517,21 +600,29 @@ func _test_evolution_gates() -> void:
 		EvolutionSystem.gates_passed(nd_air, {&"gladiator": 2, &"knight": 2}), "")
 	_check("无 gates 字段 = 无门槛", EvolutionSystem.gates_passed({}, {}), "")
 
-	var t1_clean := true
+	var t0_clean := true
+	var low_t1_gated := true
+	var standard_t1_clean := true
 	var t2plus_gated := true
 	var legacy_sum_gate_count := 0
 	for nd in EvolutionSystem.all_nodes():
 		var tier: int = int(nd.get("tier", 1))
 		var g: Dictionary = EvolutionSystem.gates_of(nd)
-		if tier <= 1 and not g.is_empty():
-			t1_clean = false
+		if tier == 0 and not g.is_empty():
+			t0_clean = false
+		if tier == 1 and EvolutionSystem.min_level_of(nd) == 4 and g.is_empty():
+			low_t1_gated = false
+		if tier == 1 and EvolutionSystem.min_level_of(nd) == 5 and not g.is_empty():
+			standard_t1_clean = false
 		if tier >= 2 and g.is_empty():
 			t2plus_gated = false
 			print("    ! 缺门槛节点：%s" % nd.get("id"))
 		legacy_sum_gate_count += int(g.has("sum_gk")) + int(g.has("sum_all"))
-	_check("进化树节点数 = 43", EvolutionSystem.all_nodes().size() == 43,
+	_check("进化树节点数 = 50", EvolutionSystem.all_nodes().size() == 50,
 		"got %d" % EvolutionSystem.all_nodes().size())
-	_check("tier1 起手机无门槛", t1_clean, "")
+	_check("T0 起手机无门槛", t0_clean, "")
+	_check("低位 T1(LV4) 有单轴门，标准 T1(LV5) 无门槛",
+		low_t1_gated and standard_t1_clean, "")
 	_check("tier≥2 节点全部有门槛", t2plus_gated, "")
 	_check("旧合计门键已从全部节点移除", legacy_sum_gate_count == 0,
 		"got %d" % legacy_sum_gate_count)
@@ -612,7 +703,7 @@ func _test_evolution_gates() -> void:
 					break
 			if not reachable:
 				unreachable_edges.append("%s→%s" % [source_id, target_id])
-	_check("进化树边数 = 124", edge_count == 124, "got %d" % edge_count)
+	_check("进化树边数 = 155", edge_count == 155, "got %d" % edge_count)
 	_check("三轴上限 8：永久不可达边 = 0", unreachable_edges.is_empty(), str(unreachable_edges))
 
 

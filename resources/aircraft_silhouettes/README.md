@@ -18,14 +18,17 @@
 
 ## 维护流程
 
+这是新增 / 更新现实飞机的**必经交付门**，不是可选美术润色。只要 AircraftParams 新增现实机显示名，或更新会改变机型 / 子型号外形，就必须在同一批次完成下列流程；静态审计出现 unmapped display name 时不得交付。
+
 1. 在 `tmp/aircraft_refs/` 保存下载的工作副本，不把参考原图提交进生产资源目录。
 2. 用 `scripts/tools/trace_orthographic_outline.py` 从闭合线稿或已有实色层提取外轮廓；用 `scripts/tools/normalize_aircraft_reference.py` 统一尺寸与边距。
 3. 人工逐架叠图检查；在 `reference_manifest.json` 登记来源、许可、署名、处理边界与 alpha 哈希。
 4. 只有通过审查的 key 才加入 `scripts/aircraft_silhouette_catalog.gd`。
-5. 运行：
+5. 把该机加入 `aircraft_silhouette_visual` 代表样张，运行：
 
 ```powershell
 C:\Users\noelu\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe scripts/tools/audit_aircraft_silhouettes.py
+bench\run.cmd aircraft_silhouette_visual 1 120 Shadow Visual
 ```
 
-审计会验证清单与运行时映射一致、PNG 契约、当前 AircraftParams 覆盖，以及生产 alpha 与已审参考哈希一致。
+审计会验证清单与运行时映射一致、PNG 契约、当前 AircraftParams 覆盖，以及生产 alpha 与已审参考哈希一致；Visual 必须通过 Godot 真实 CanvasItem / AircraftRenderer 路径检查方向、裁切、辨识度和运行时命中。

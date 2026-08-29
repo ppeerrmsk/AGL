@@ -3,7 +3,7 @@ id: career-shop
 kind: system
 status: in-progress
 schema_version: 1
-spec_version: 7
+spec_version: 9
 owner: 用户（设计）+ Claude（起草）
 depends_on: [career-archive]
 reconstruction_complete: true
@@ -11,8 +11,8 @@ reconstruction_complete: true
 
 # 起手机解锁与生涯商店（Career Shop）
 
-> 生涯档案第一次产生"局外成长"：起手机从四选一收紧为**只有 F-15**，其余三架按生涯条件
-> 解锁或花功勋购买；主菜单「生涯商店」出售后勤、学说、机体专属与战场支援等持久商品。
+> 生涯档案提供局外成长：选机页保留既有 F-15 / F-14 / A-6E / Mirage III 四卡及原解锁条件，
+> 另追加 MiG-21F-13 / F-104C / J 35F / EA-6B 四卡；新四卡各通过一项生涯商店采购案永久解锁。
 > 战区 F-86 / A-10 与王牌来袭时的 F-15 友军支援都必须分别花功勋取得永久授权。
 > 机场防空网也属于永久战场支援：购入后，每局解放机场都自动追加一座一次性友军 SAM。
 
@@ -28,6 +28,7 @@ reconstruction_complete: true
 | 第一次撤离 → 解锁商品"行动时间 +30s" | 商品 `op_time_30s` 上架条件 = `runs.retreats ≥ 1`；效果 = 战区阶段总时长 600s → **630s** | "撤离"沿 career-archive §0 定义 = 出界撤退菜单结算 |
 | （通用） | 商品均为**一次性买断、不可叠加**（v1）；解锁/购买只在正式局生效，bench / boss debug 局一律视为全解锁（保回归确定性 + debug 全谱选机铁律） | 要做可叠加（+60s、送 2 架）再修订 |
 | 把机场 SAM 做进功勋商店，不是技能 | 删除局内 `airfield_sam_network` 升级；新增恒上架商品 `support_airfield_sam`，购入后每局每座解放机场自动追加 SAM×1 | 价格跟战场支援页其它授权统一为 3000；基础 AA×2、战损不重生与敌占编成不变 |
+| 第四技能槽做成全局升级 | 新增恒上架商品 `global_airframe_affinity`，3000 功勋；购入后自然升级有 15% 概率追加当前机体身份轴的普通第四卡 | 详细概率、轴选择与抽卡规则由 `airframe-affinity-fourth-card` 统一定义 |
 
 ## 1. 设计意图（Why）
 
@@ -43,7 +44,7 @@ reconstruction_complete: true
 
 ## 2. 数据定义（What —— 全部数值，权威源）
 
-### 2.1 起手机解锁表（选机界面四卡）
+### 2.1 起手机解锁表（选机界面八卡）
 
 | 卡位 | id | 解锁判定（实时推导，不落盘） | 锁定时卡片按钮文本 |
 |---|---|---|---|
@@ -51,12 +52,16 @@ reconstruction_complete: true
 | 2 | `f14` | `CareerArchive.get_boss_defeats("CARRIER_STRIKE_GROUP") ≥ 1` | 「击败 Ladon 战斗群 解锁」 |
 | 3 | `a6e` | `CareerArchive.get_ground_kills() ≥ 30` | 「摧毁 30 个地面单位解锁（x/30）」 |
 | 4 | `mirage3` | `MetaShop.is_owned("mirage3_starter")` | 「生涯商店有售」 |
+| 5 | `mig21f13` | `owned["aircraft_mig21f13"]` | 生涯商店采购后可用 |
+| 6 | `f104c` | `owned["aircraft_f104c"]` | 生涯商店采购后可用 |
+| 7 | `j35f` | `owned["aircraft_j35f"]` | 生涯商店采购后可用 |
+| 8 | `ea6b` | `owned["aircraft_ea6b"]` | 生涯商店采购后可用 |
 
 - 锁定形态 = 选机卡 **locked 占位**分支（**不加载档案**：名字 ???、TAG 未解锁、无武器/数值/描述），按钮文本 = 上表条件句（v1 曾用 dev_locked 全信息形态，2026-07-27 用户裁定改占位）。
-- **debug 放行**：`boss_debug_mode` meta 存在时四卡全解锁（调试链路与正常选机共用场景）。
+- **debug 分流**：`boss_debug_mode` 使用独立 T4 参考名单；正常选机页始终显示八卡。
 - 生存模式缺省档案兜底 = F-15（与"恒解锁"一致，无需改动）。
 
-### 2.2 生涯商店基础商品目录（v1 共 3 件，目录写死在代码常量）
+### 2.2 生涯商店基础商品目录（目录写死在代码常量）
 
 > 2026-08-01 扩展并随 43 机树同步：商店改为四分页，当前有 43 条机体专属许可与 `support_awacs`。
 > 2026-08-01 再扩展：战场支援页新增两项独立战区支援授权；机体专属商品仍以 `aircraft-signature-progression` 为权威源。
@@ -64,8 +69,13 @@ reconstruction_complete: true
 | 商品 id | 名称 | 价格（功勋） | 上架条件（读档案） | 效果 |
 |---|---|---|---|---|
 | `mirage3_starter` | 幻影 III 采购案 | **2000** | 恒上架 | 幻影 III 加入起手可选 |
+| `aircraft_mig21f13` | MiG-21F-13 采购案 | **1000** | 恒上架 | MiG-21F-13 永久加入可选起手机 |
+| `aircraft_f104c` | F-104C 采购案 | **1000** | 恒上架 | F-104C 永久加入可选起手机 |
+| `aircraft_j35f` | J 35F 采购案 | **1000** | 恒上架 | J 35F 永久加入可选起手机 |
+| `aircraft_ea6b` | EA-6B 采购案 | **1000** | 恒上架 | EA-6B 永久加入可选起手机 |
 | `dock_wingman` | 停靠补给僚机 | **3000** | `dockings["airfield"] ≥ 1` | 每次停靠（机场或航母）送 1 架同型僚机（= 门控现有机制） |
 | `op_time_30s` | 行动时间延长 | **2500** | `retreats ≥ 1` | 战区阶段总时长 600s → 630s（永久） |
+| `global_airframe_affinity` | 机体战术适配 | **3000** | 恒上架 | 自然升级有 15% 概率追加当前机体身份轴的普通第四技能卡 |
 | `support_zone_air` | 战区制空支援协定 | **3000** | 恒上架 | 每局首次对空战区 ACTIVE 后生成 2～4 架 F-86 友军 |
 | `support_zone_ground` | 战区对地支援协定 | **3000** | 恒上架 | 每局首次非机场对地战区 ACTIVE 后生成 2 架 A-10 友军 |
 | `support_ace_f15` | 王牌截击支援协定 | **3000** | 恒上架 | 每局首次非 BOSS 敌军王牌事件生成 2 架 F-15；事件终态后撤离 |
@@ -124,10 +134,14 @@ aircraft_unlocked(id):
   f14      → defeats["CARRIER_STRIKE_GROUP"] ≥ 1
   a6e      → ground_total ≥ 30
   mirage3  → owned["mirage3_starter"]
+  mig21f13 → owned["aircraft_mig21f13"]
+  f104c    → owned["aircraft_f104c"]
+  j35f     → owned["aircraft_j35f"]
+  ea6b     → owned["aircraft_ea6b"]
   其它/未列 → true（向后兼容：新增起手机默认不锁）
 
 item_listed(id):
-  mirage3_starter / support_awacs / support_zone_air / support_zone_ground / support_ace_f15 / support_airfield_sam → true
+  五项机体采购 / support_awacs / support_zone_air / support_zone_ground / support_ace_f15 / support_airfield_sam → true
   dock_wingman    → dockings["airfield"] ≥ 1
   op_time_30s     → retreats ≥ 1
 
@@ -139,7 +153,7 @@ buy(id)：已拥有 → 拒绝；未上架 → 拒绝；MeritLedger.spend(price)
 
 | 商品 | 消费点行为 |
 |---|---|
-| `mirage3_starter` | 仅影响选机界面解锁判定（§2.1），局内无消费点 |
+| 五项机体采购 | 仅影响选机界面解锁判定（§2.1），局内无消费点 |
 | `dock_wingman` | 停靠结算的"送 1 架僚机"段加门控：`正式局 且 未拥有 → 跳过赠送`；**非正式局（bench/boss debug）视为已拥有**，保旧行为与回归确定性 |
 | `op_time_30s` | 战区阶段时长常量改为运行时变量：开局初始化时 `正式局 且 已拥有 → 时长 += 30`；HUD 倒计时/超时判定/补给时间税 clamp/F6 跳 BOSS 全部读同一变量，自动自洽 |
 | `support_zone_air` | 战区任务执行器在本局首次 `air/squadron` ACTIVE 时查询；正式局未购不生成，非正式局 fail-open；出动后本局不再响应后续同类战区 |
@@ -166,7 +180,7 @@ buy(id)：已拥有 → 拒绝；未上架 → 拒绝；MeritLedger.spend(price)
 
 ## 5. 验收标准（Acceptance / Litmus）
 
-- [ ] 新档案进选机页：仅 F-15 可选；F-14/A-6E/幻影 III 显示 ??? 占位卡（无机体数据）+ 各自条件文本（A-6E 带实时进度）
+- [ ] 选机页共八卡：原四卡与原解锁条件保持；新四卡未购时显示 ??? + 商店条件，购买后显示完整档案并可出击
 - [ ] 击败航母 BOSS 通关一次后，F-14 卡解锁可选；地面击杀累计 30 后 A-6E 解锁；商店购入幻影后幻影解锁
 - [ ] boss debug（选图页按 B）链路四卡恒解锁，不受档案影响
 - [ ] 生涯商店：幻影恒上架；首次机场停靠后 dock_wingman 上架（停靠当帧弹上架 toast）；首次撤离后 op_time_30s 上架；未上架商品灰条显示条件
@@ -241,3 +255,5 @@ buy(id)：已拥有 → 拒绝；未上架 → 拒绝；MeritLedger.spend(price)
 | 2026-08-08 | 7 | 用户裁定：F-86、A-10、F-15 三项已购空中支援分别改为每局首次合资格事件出动一次，不再随每个战区/王牌遭遇重复派遣；同步三语商品说明。Shadow `meta_shop` 88/88。 |
 | 2026-08-01 | 5 | 战场支援页新增 `support_ace_f15` 永久授权，3000 功勋且恒上架；正式局门控非 BOSS 王牌轮换的 2 架 F-15 截击支援，非正式局 fail-open。`meta_shop` 81/81、支援链 46/46。 |
 | 2026-08-02 | 6 | 用户裁定：机场防空网从局内技能池移除，改为战场支援页 `support_airfield_sam` 永久授权（3000 功勋）；购入后每局每座解放机场自动追加一次性 SAM×1。 |
+| 2026-08-26 | 8 | 机体与后勤页新增恒上架全局商品“机体战术适配”（3000 功勋）；购买后启用自然升级 15% 普通第四卡机制。 |
+| 2026-08-27 | 9 | 选机页从四卡扩为八卡：原 F-15/F-14/A-6E/Mirage III 与既有门控保留；MiG-21F-13/F-104C/J 35F/EA-6B 各以 1000 功勋采购案永久解锁。 |

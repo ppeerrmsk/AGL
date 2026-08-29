@@ -1,0 +1,27 @@
+[gd_resource type="Resource" script_class="PlayableAircraft" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/playable_aircraft.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/player/player_mig21f13.tres" id="2"]
+
+[resource]
+script = ExtResource("1")
+id = &"mig21f13"
+display_name = "AIRCRAFT_MIG21F13_DISPLAY"
+codename = "Fishbed-C"
+card_desc = "AIRCRAFT_MIG21F13_CARDDESC"
+base_params = ExtResource("2")
+starting_benefit_id = &"gun_multishot"
+gun_ammo_override = 240
+gun_damage_mult = 1.125
+gun_range_override = 850.0
+gun_cone_override = 7.0
+base_pilot_aim_skill = 0.55
+flares_guaranteed = true
+enable_missile_reload = true
+enable_flare_reload = true
+enable_gun_reload = true
+infinite_fuel = true
+missile_damage_cap = 30.0
+bullet_damage_cap = 5.0
+bullet_dodge_chance = 0.08
+wingman_count = 0

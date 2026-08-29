@@ -670,7 +670,7 @@ static func envelope_pass_at(ac: Aircraft, point: Vector2, target_heading: float
 		return false
 
 	# 高度差限制（扁平模式下忽略）——**仅对空中目标**：
-	# 5000m 上限：use_combat_altitude 把 AI 高度 clamp 到 ±2500m，正常情况下不会触底；
+	# 5000m 上限：AIAltitudePolicy.use_combat_preference 把 AI 高度 clamp 到 ±2500m，正常情况下不会触底；
 	# 触发本限制说明 AI 处在 yoyo / extension 等过渡状态，应当禁火等高度回落。
 	# 面目标（非 Aircraft：地面/舰船 altitude≈0）豁免（2026-07-26，log 20260726_165536）：
 	# STANDOFF 学说命令 MID(3500~7500) 高位打带跑，其上半带（>5000m）+ 玩家 PREFER_CLIMB

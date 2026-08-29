@@ -3,7 +3,7 @@ id: evolution-attribute-gates
 kind: system
 status: done
 schema_version: 1
-spec_version: 22
+spec_version: 23
 owner: 用户
 depends_on: [aircraft-evolution-tree, player-aircraft-power-curve, skills-720-rework, inrun-weapon-inventory, zone-reward-docking]
 reconstruction_complete: true
@@ -18,8 +18,9 @@ reconstruction_complete: true
 ## 1. 设计意图（Why）
 
 - **问题（用户 2026-07-19）**：进化只查等级 → 每局必然能选同一架机 → 进化无意义、局与局无差异。
-- **一个事件、一种货币（用户反推定案）**：每 3 级一次**卡片三选一**，三张卡 = 斗士/骑士/策士**各一张**
-  （家系内随机抽具体技能）；选卡 = 得该技能 **且** 该轴 +1 技能点。
+- **一个事件、一种货币（用户反推定案）**：每 3 级一次升级选卡，基础三张 = 斗士/骑士/策士**各一张**
+  （家系内随机抽具体技能）；已购机体战术适配时有 15% 概率追加当前机体身份轴的普通第四张。
+  无论选哪张，结果都是得该技能 **且** 该卡所属轴 +1 技能点。
   点数收入 = `floor(LV ÷ 3)`，满级 LV26 ≈ **8 点** —— 全部门槛按这个总量级设计（§2.3）。
 - **Litmus 自检**（DESIGN_PHILOSOPHY）：
   - 单杠杆：一个事件（卡片）同时是随机性来源（抽哪张技能）、build 承诺（加哪个轴）、进化钥匙（门槛）。
@@ -44,7 +45,8 @@ reconstruction_complete: true
 
 ### 2.2 事件节奏与收入
 
-- **每升 3 级**（L3/6/9/…/24）触发卡片三选一：斗士卡 / 骑士卡 / 策士卡各一张（家系池内随机抽技能）。
+- **每升 3 级**（L3/6/9/…/24）触发升级选卡：基础为斗士卡 / 骑士卡 / 策士卡各一张；
+  可选第四卡机制以 [airframe-affinity-fourth-card](airframe-affinity-fourth-card.md) 为权威源，不改变基础三轴供应。
 - 选卡 = 技能入手 + 对应轴 **+1 技能点**。不选不补发（错过=错过，无堆积）。
 - 收入公式：`points(LV) = min(floor(LV / 3), 8)`。关键刻度：LV4→1 · LV9→3 · LV10→3 · LV16→5 · LV21→7 · LV24+→8（顶）。
 - **收入封顶 8（2026-07-28 v9，用户裁决）**：局内**无等级上限**（"满级 LV26"只是设计刻度，实际曲线可继续升），
@@ -240,7 +242,7 @@ Tab 菜单（战术图/结算坞同屏）常驻一栏：**三轴量表**——�
 - 等级取该节点自身 `min_level`，技能次数与三轴收入同为 `axis_points_earnable(level)`（当前 T4 为 5~6 次），不得再用旧版 `level - 1`；
 - 三轴先满足该节点 gates，剩余点投入机种主轴，以便在对应等级兑现可观察的里程碑；
 - 特殊武器从正式三星战区奖励池加权、无放回抽取：5 次升级里程碑配 2 件，6 次配 3 件；尾雷/忠诚僚机继续互斥；武器先走正式奖励入口挂到当前 ACE，再筛技能，使硬件门控技能读取真实装备；
-- 技能只从正式普通随机池抽取，并继续尊重机体身份、`max_stacks`、前置与排他；签名第四槽和 evolved 卡不混入；
+- 技能只从正式普通随机池抽取，并继续尊重机体身份、`max_stacks`、前置与排他；机场专属技能和 evolved 卡不混入；
 - 战斗中 Tab 必须显示这份实际武器、技能、三轴与里程碑。Boss Debug 不加载正式战区地理，仅保留只读构筑面板。
 
 ## 5. 验收（2026-07-20 收口）
@@ -330,13 +332,14 @@ Tab 菜单（战术图/结算坞同屏）常驻一栏：**三轴量表**——�
 
 ## 7. 实现锚点（2026-07-20 回填；纯文件指针，行号看 script-index）
 
-- 三轴点数 / 里程碑应用器（含全队下发的逐机版）/ 换型重放 / 武器库：`scripts/survivor/survivor_player.gd`
+- 三轴点数 / 里程碑应用器（含全队下发的逐机版）/ 武器库：`scripts/survivor/survivor_player.gd`
   （`axis_points` `add_axis_point` `apply_crossed_milestones` `reapply_all_milestones`
   `apply_crossed_milestones_to` `apply_all_milestones_to` `reapply_all_milestones_to`
   `milestone_targets_provider` `MILESTONE_RECORD_META` `record_special_weapons` `remount_weapons`）
 - 数据表与映射：`scripts/survivor/survivor_data.gd`
   （`AXIS_*` `MILESTONE_TABLE` `milestones_for` `AXIS_BY_CATEGORY`+覆写 `pick_card_for_axis` `make_axis_focus_card` `AXIS_COLORS` `MILESTONE_STAT_I18N`）
-- 卡片流 / 升级重放 / debug 点数补发：`scripts/survivor/survivor_mode.gd`
+- 卡片候选、归属有效层与升级重放计划：`scripts/survivor/survivor_skill_catalog.gd`
+- 卡片流 / 升级重放执行 / debug 点数补发：`scripts/survivor/survivor_mode.gd`
   （`_on_player_leveled_up` %3 触发 / `_roll_axis_cards` / `_on_upgrade_selected` / `_replay_player_upgrades` / 玩家层重放三连）
 - 门槛判定：`scripts/survivor/evolution_system.gd`（`gates_of/gates_passed/gates_missing`，具体轴 + `any`）
   + `resources/evolution/evolution_tree.json` 逐节点 `gates` 字段（43 机设计值）

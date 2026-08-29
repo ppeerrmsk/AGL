@@ -1,5 +1,7 @@
 extends RefCounted
 
+const AIAltitudePolicy := preload("res://scripts/ai/ai_altitude_policy.gd")
+
 ## 无头验收：Phase 2 状态机正交化（重构计划 §5 Phase 2）
 ##
 ## A. 过渡函数字段集 —— enter_engage/squad_follow/patrol 的字段清单唯一化断言
@@ -33,22 +35,30 @@ func _test_transition_fields() -> void:
 	print("── A. 过渡函数：字段清单唯一化 ──")
 	var ai := _make_ai()
 
-	# enter_engage_state 全重置
-	ai._tactic = AIController.EngageTactic.SCISSORS
-	ai._tactic_timer = 9.9
+	# enter_engage_state 全重置 planner 滞回
+	ai.aircraft._last_plan = TacticalPlan.new()
+	ai.aircraft._bfm_prev_intent = TacticalPlan.Intent.EXTEND_RECOVER
+	ai.aircraft._bfm_intent_started_at = 9.9
+	ai.aircraft._bfm_extend_until = 99.0
 	ai._engage_timer = 9.9
 	ai.enter_engage_state()
-	_check("enter_engage：state+timer+tactic 重置",
+	_check("enter_engage：state+timer+plan 重置",
 		ai._state == AIController.AIState.ENGAGE and ai._engage_timer == 0.0 \
-		and ai._tactic == AIController.EngageTactic.LEAD_PURSUIT and ai._tactic_timer == 0.0,
+		and ai.aircraft._last_plan == null and ai.aircraft._bfm_prev_intent == -1 \
+		and ai.aircraft._bfm_intent_started_at == 0.0 and ai.aircraft._bfm_extend_until == 0.0,
 		"新交战完整重置")
 
-	# enter_engage_state(false) 软重连保留战术
-	ai._tactic = AIController.EngageTactic.HIGH_YOYO
-	ai._tactic_timer = 3.3
+	# enter_engage_state(false) 软重连保留 planner 滞回
+	var held_plan := TacticalPlan.new()
+	held_plan.intent = TacticalPlan.Intent.LEAD_TURN
+	ai.aircraft._last_plan = held_plan
+	ai.aircraft._bfm_prev_intent = TacticalPlan.Intent.LEAD_TURN
+	ai.aircraft._bfm_intent_started_at = 3.3
 	ai.enter_engage_state(false)
-	_check("enter_engage(false)：软重连不打断战术",
-		ai._tactic == AIController.EngageTactic.HIGH_YOYO and ai._tactic_timer == 3.3 \
+	_check("enter_engage(false)：软重连不打断 plan",
+		ai.aircraft._last_plan == held_plan \
+		and ai.aircraft._bfm_prev_intent == TacticalPlan.Intent.LEAD_TURN \
+		and ai.aircraft._bfm_intent_started_at == 3.3 \
 		and ai._engage_timer == 0.0,
 		"BOSS 维持/躲弹恢复用")
 
@@ -74,6 +84,28 @@ func _test_transition_fields() -> void:
 	_check("enter_patrol(false)：state + 清 override，航点归调用方",
 		ai._state == AIController.AIState.PATROL and not ai.aircraft.ai_override_pursuit,
 		"zone 回拉等自带航点路径")
+
+	# 高度策略不再寄生在旧 BFMTactics；状态过渡、规避恢复与战术执行共享独立模块。
+	ai.aircraft.flat_altitude = false
+	ai.patrol_altitude = 8200.0
+	AIAltitudePolicy.set_patrol(ai)
+	_check("高度策略：连续巡逻高度", is_equal_approx(ai.aircraft.target_altitude, 8200.0),
+		"独立模块接管 patrol profile")
+	var altitude_target := _make_enemy()
+	altitude_target.altitude = 1000.0
+	ai._current_target = altitude_target
+	AIAltitudePolicy.use_combat_preference(ai)
+	_check("高度策略：作战偏好钳到目标 ±2500m",
+		is_equal_approx(ai.aircraft.target_altitude, 3500.0), "保留高度优势但不脱离武器包线")
+	AIAltitudePolicy.match_target(ai)
+	_check("高度策略：近距直接匹配目标", is_equal_approx(ai.aircraft.target_altitude, 1000.0),
+		"机炮战共用入口")
+	ai.aircraft.flat_altitude = true
+	altitude_target.altitude = 9000.0
+	AIAltitudePolicy.match_target(ai)
+	_check("高度策略：扁平模式匹配档位",
+		ai.aircraft.target_altitude_tier == CombatUnit.AltitudeTier.HIGH, "不写连续高度")
+	altitude_target.free()
 
 	_free_ai(ai)
 
@@ -104,17 +136,21 @@ func _test_evade_modifier() -> void:
 	_check("exit_evade 路线 C：→ PATROL",
 		not ai._evading and ai._state == AIController.AIState.PATROL, "")
 
-	# 三路重定 · 路线 A：目标存活 → ENGAGE（软恢复，_tactic 保留）
+	# 三路重定 · 路线 A：目标存活 → ENGAGE（软恢复，planner 滞回保留）
 	var tgt := _make_enemy()
 	ai._current_target = tgt
-	ai._tactic = AIController.EngageTactic.LAG_PURSUIT
+	var evade_plan := TacticalPlan.new()
+	evade_plan.intent = TacticalPlan.Intent.LAG_PURSUIT
+	ai.aircraft._last_plan = evade_plan
+	ai.aircraft._bfm_prev_intent = TacticalPlan.Intent.LAG_PURSUIT
 	MissileEvasion.enter_evade(ai)
 	MissileEvasion.exit_evade(ai)
-	_check("exit_evade 路线 A：→ ENGAGE + 战术保留",
+	_check("exit_evade 路线 A：→ ENGAGE + plan 保留",
 		ai._state == AIController.AIState.ENGAGE \
-		and ai._tactic == AIController.EngageTactic.LAG_PURSUIT \
+		and ai.aircraft._last_plan == evade_plan \
+		and ai.aircraft._bfm_prev_intent == TacticalPlan.Intent.LAG_PURSUIT \
 		and ai.aircraft.combat_target == tgt,
-		"躲弹前的 BFM 选择不被打断")
+		"躲弹前的 planner 选择不被打断")
 
 	# 三路重定 · 路线 B：目标已亡 + 有编队 → SQUAD_FOLLOW
 	var leader := _make_enemy()

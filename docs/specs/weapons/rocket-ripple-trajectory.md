@@ -3,7 +3,7 @@ id: rocket-ripple-trajectory
 kind: weapon
 status: done
 schema_version: 1
-spec_version: 2
+spec_version: 3
 owner: 用户（发射语义）+ Codex（距离与平滑曲线细化）
 depends_on: [systems/weapon-employment-doctrine]
 reconstruction_complete: true
@@ -43,13 +43,24 @@ reconstruction_complete: true
 | 初始航向 | 每枚实际出膛当帧的飞机当前 `heading` |
 | 最终散布偏移 | `burst_count_max` 枚在 `[-spread_angle, +spread_angle]` 内等距分配；单发时为 0° |
 
+### 2.3 发射机速度继承
+
+| 项目 | 值/规则 |
+|---|---|
+| 速度取样时刻 | 每枚火箭实际出膛当帧，不锁存齐射开始时速度 |
+| 发射机输入 | Aircraft 当帧前向速度 `max(speed, 0)`，单位 m/s |
+| 出膛地速 | `launch_speed = RocketParams.muzzle_velocity + aircraft.speed` |
+| 阵营语义 | PLAYER / ALLY / HOSTILE 全部共用，不按机型或阵营分支 |
+
+该加成为全量前向速度继承：飞机每快 `1m/s`，火箭的出膛地速同步提高 `1m/s`。射程仍以世界距离计，因此高速只缩短飞行时间，不额外延长射程。
+
 ## 3. 行为与公式（How）
 
 ### 3.1 发射状态
 
 1. 自动火控的目标、距离、高差、机头锥、JAM、加力禁攻、冷却与弹药门保持原样。
 2. 一次齐射仍取 `burst_count_max` 并受剩余弹药钳制；队列仅保存 delay、左右挂点与最终散布偏移。
-3. delay 到期时，从飞机当帧姿态计算挂点与初始航向，交给 BulletManager；飞机在涟发期间转动时，后续火箭自然跟随新的机体朝向直出。
+3. delay 到期时，从飞机当帧姿态计算挂点与初始航向，并取当帧前向速度叠加到火箭自身初速后交给 BulletManager；飞机在涟发期间转动或变速时，后续火箭自然跟随新的机体姿态出膛。
 
 ### 3.2 延迟散开曲线
 
@@ -75,7 +86,8 @@ frame_rotation = target_applied_angle - previous_applied_angle
 | 自动开火条件与武器使用准则 | 不变 |
 | 齐射弹数、总弹药、齐射大冷却 | 不变 |
 | 最终 `spread_angle` | 不变 |
-| 初速、最大射程、伤害与距离衰减 | 不变 |
+| 资源自身初速 | 数值不变；实际出膛地速额外叠加发射机当帧前向速度 |
+| 最大射程、伤害与距离衰减 | 不变 |
 | 直击、近炸、AOE、建筑遮挡、高度判定 | 不变 |
 | 橙红尾迹与白色弹头 | 不变 |
 | Black Star 等脚本直发且无散布偏移的火箭 | 保持其既定直线弹道 |
@@ -89,7 +101,8 @@ frame_rotation = target_applied_angle - previous_applied_angle
 
 ## 5. 验收标准（Acceptance / Litmus）
 
-- [x] `--bench=rocket_trajectory` 46/46：0–180m 累计偏转严格为 0；250m 处只完成部分偏转；500m 处达到完整原散布角，PLAYER / HOSTILE 实际出膛入口一致。
+- [x] `--bench=rocket_trajectory` 50/50：0–180m 累计偏转严格为 0；250m 处只完成部分偏转；500m 处达到完整原散布角，PLAYER / HOSTILE 实际出膛入口一致。
+- [x] 静止发射机仍为资源自身初速；发射机增速 `Δv` 时，火箭出膛地速同步增加 `Δv`；589 kt F-104C 发射 320m/s FFAR 时地速约 623m/s。
 - [x] `--bench=rocket_trajectory`：8 发队列按左右交替、每发 `burst_interval` 递增，最终偏移覆盖 `[-spread,+spread]`。
 - [x] 敌我均走相同参数与生成入口；无阵营专用弹道分支。
 - [x] Visual 样张：近段两条平行火箭流清晰，中段连续展开，远段形成旧版扇面且无画面裁切。
@@ -129,3 +142,4 @@ frame_rotation = target_applied_angle - previous_applied_angle
 |---|---:|---|
 | 2026-08-17 | 1 | 用户定调敌我通用的“两侧连续直飞，离机一段距离后再渐进散开”；细化为 180m 直飞 + 320m smoothstep 展开。 |
 | 2026-08-17 | 2 | 正式实现敌我共享涟发、增量散布与追踪兼容；专项、相关回归、45 架压力样本和真实 Visual 样张通过，状态转 done。 |
+| 2026-08-30 | 3 | 火箭在每枚实际出膛时全量继承发射机当帧前向速度；高速攻击跑缩短弹道飞行时间，射程与伤害不变。 |

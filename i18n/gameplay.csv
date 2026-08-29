@@ -8,12 +8,26 @@ MAP_BASEMAP_ERROR_REASON_MISSING_METADATA,底图元数据缺失,the metadata fil
 MAP_BASEMAP_ERROR_REASON_INVALID_METADATA,底图元数据损坏,the metadata file is invalid,背景メタデータが破損しています
 MAP_BASEMAP_ERROR_REASON_TEXTURE_LOAD_FAILED,底图纹理无法加载,the texture could not be loaded,背景テクスチャを読み込めません
 EVOLUTION_TITLE,机体进化,Evolution,機体進化
-SETTLEMENT_TITLE,战区结算 · 规划站,Zone cleared · Planning,戦区制圧 · 作戦計画
-SETTLEMENT_EVO_HEADER,机体进化（全队跟随）,Evolve airframe (squad follows),機体進化（編隊追従）
-SETTLEMENT_UPGRADE_HEADER,强化当前机体,Upgrade current airframe,現行機を強化
+AIRFRAME_AFFINITY_CARD_BADGE,机体适配增援,AIRFRAME AFFINITY,機体適応増援
+SETTLEMENT_TITLE,机场整备 · 机体决策,AIRFIELD REFIT · AIRFRAME DECISION,飛行場整備 · 機体選択
+SETTLEMENT_EVO_HEADER,进化路线,Evolution routes,進化ルート
+SETTLEMENT_DECISION_HEADER,地勤决策,Ground crew decision,地上クルー判断
+SETTLEMENT_DECISION_BANNER,本次停靠必须二选一：保留当前机体并装备专属技能 / 进化并放弃本次专属装备,CHOOSE ONE FOR THIS STOP: RETAIN + EQUIP SIGNATURE / EVOLVE + FORGO SIGNATURE,今回の停機では二者択一：現行機を維持して専用スキル装備 / 進化して今回は見送る
+SETTLEMENT_RETAIN_OPTION,方案 A // 保留当前机体,OPTION A // RETAIN CURRENT AIRFRAME,選択 A // 現行機を維持
+SETTLEMENT_EVOLVE_OPTION,方案 B // 进化机体,OPTION B // EVOLVE AIRFRAME,選択 B // 機体を進化
+SETTLEMENT_DECISION_OR,── 或 / OR ──,── OR ──,── または ──
+SETTLEMENT_RETAIN_CONFIRM,保留机体并装备专属技能,Retain airframe + equip signature,現行機を維持 + 専用スキル装備
+SETTLEMENT_EVOLVE_SELECT_TARGET,先在左侧选择一个当前可进化的机体,Select an evolvable airframe on the left,左側で進化可能な機体を選択
+SETTLEMENT_EVOLVE_TARGET_FMT,已选择：%s,Selected: %s,選択：%s
+SETTLEMENT_SIGNATURE_READY,许可有效。保留当前机体即可立即装备。,License active. Retain this airframe to equip it now.,ライセンス有効。現行機を維持すると即時装備します。
+SETTLEMENT_SIGNATURE_LICENSE_REQUIRED,未购买专属许可。请先在功勋商店解锁。,Signature license not owned. Unlock it in the Merit Shop.,専用ライセンス未購入。功績ショップで解禁してください。
+SETTLEMENT_SIGNATURE_EQUIPPED,本局已装备该专属技能。,Signature already equipped for this run.,この出撃では専用スキルを装備済みです。
+SETTLEMENT_SIGNATURE_MISSING,错误：该机体缺少专属技能映射,ERROR: signature skill mapping missing,エラー：専用スキルの対応がありません
+SETTLEMENT_SIGNATURE_RESERVED,专属技能槽已预留；效果尚未设计。,Signature slot reserved; effect not designed yet.,専用スキル枠は予約済みです。効果は未設計です。
+SETTLEMENT_DECISION_REQUIRED,请选择保留并装备或进化机体,Choose retain + equip or evolve,維持して装備 / 機体進化を選択
+SETTLEMENT_SIGNATURE_EQUIPPED_POPUP_FMT,专属技能已装备：%s,Signature equipped: %s,専用スキル装備：%s
 SETTLEMENT_CONTINUE,继续出击,Return to combat,出撃続行
 SETTLEMENT_NO_EVO,已到进化路线尽头,Evolution line complete,進化ルート完了
-SETTLEMENT_NO_UPGRADE,暂无可用强化,No upgrades available,強化なし
 SETTLEMENT_PICKED_FMT,✓ %s,✓ %s,✓ %s
 EVOLUTION_TREE_CURRENT,当前,Current,現在
 EVOLUTION_TREE_UNKNOWN,？？？,???,？？？
@@ -24,6 +38,7 @@ EVOLUTION_DETAIL_CURRENT,当前机体,Current,現行機
 EVOLUTION_DETAIL_TARGET,可进化,Evolvable,進化可能
 EVOLUTION_DETAIL_LOCKED,未解锁,Locked,未解放
 EVOLUTION_DETAIL_WEAPONS,武器,Armament,武装
+EVOLUTION_DETAIL_SIGNATURE,机体专属技能,Aircraft signature,機体専用スキル
 EVOLUTION_DETAIL_PERKS,机体特性,Airframe traits,機体特性
 EVOLUTION_DETAIL_PERKS_VS,机体特性（对比当前机）,Airframe traits (vs current),機体特性（現行機比）
 EVOLUTION_DETAIL_SAME,与当前机体持平,Identical to current airframe,現行機と同等
@@ -40,7 +55,7 @@ EVO_STAT_RADAR,雷达范围,Radar range,レーダー範囲
 EVO_STAT_LOCK,锁定时间,Lock time,ロック時間
 EVO_STAT_MISSILE,导弹挂载,Missile load,ミサイル搭載
 LEVEL_UP_TOAST_FMT,LV %d — 进化解锁进度已累计,LV %d — evolution unlock progress,LV %d — 進化解放が進行
-EVOLUTION_SUBTITLE_FMT,王牌 %s — 选择进化路线（僚机将跟随）,Ace %s — choose an evolution (wingmen follow),エース %s — 進化先を選択（僚機は追従）
+EVOLUTION_SUBTITLE_FMT,王牌 %s — 保留并装备专属技能 / 进化后全队跟随,Ace %s — retain + equip signature / evolve with squad,エース %s — 維持して専用装備 / 編隊ごと進化
 EVOLUTION_SKIP,暂不进化,Not now,今回は見送る
 EVOLUTION_LOCKED_FMT,需要 LV %d,Requires LV %d,LV %d が必要
 EVOLUTION_DONE_FMT,全队进化 → %s,Squad evolved → %s,編隊が進化 → %s
@@ -89,6 +104,11 @@ AIRCRAFT_SELECT_TITLE,[ 选择机型 ],[ Select Aircraft ],[ 機体選択 ]
 AIRCRAFT_SELECT_SUBTITLE,生存模式  //  SURVIVAL MODE,SURVIVAL MODE,サバイバル  //  SURVIVAL MODE
 AIRCRAFT_SELECT_HINT_ESC,ESC 返回地图选择,ESC to return to map select,ESC でマップ選択へ
 AIRCRAFT_SELECT_LAUNCH_BUTTON,出  击,L A U N C H,出   撃
+AIRCRAFT_HOLOGRAM_TITLE,全息机体投影  //  TOP VIEW,HOLOGRAPHIC AIRFRAME  //  TOP VIEW,機体ホログラム  //  TOP VIEW
+AIRCRAFT_HOLOGRAM_LINK_FMT,视觉链路稳定  //  槽位 %02d/%02d,VISUAL LINK STABLE  //  SLOT %02d/%02d,映像リンク安定  //  SLOT %02d/%02d
+AIRCRAFT_HOLOGRAM_NO_DATA,矢量模型数据缺失,VECTOR MODEL DATA UNAVAILABLE,ベクターモデルデータなし
+AIRCRAFT_HOLOGRAM_LOCKED,机体数据已加密,AIRFRAME DATA ENCRYPTED,機体データ暗号化
+AIRCRAFT_HOLOGRAM_LOCKED_SLOT_FMT,未取得许可  //  槽位 %02d/%02d,CLEARANCE REQUIRED  //  SLOT %02d/%02d,権限が必要  //  SLOT %02d/%02d
 AIRCRAFT_STATS_FMT,HP %d  |  速度 %d km/h  |  G %.0f  |  导弹 %d,HP %d  |  Speed %d km/h  |  G %.0f  |  Missiles %d,HP %d  |  速度 %d km/h  |  G %.0f  |  ミサイル %d
 TACTICAL_MAP_TITLE,[ 战术地图 ],[ TACTICAL MAP ],[ 戦術マップ ]
 TACTICAL_MAP_SUBTITLE,海岸线 // 30 × 30 km,COASTLINE // 30 × 30 km,海岸線 // 30 × 30 km
@@ -301,6 +321,30 @@ EVOLUTION_CAT_CARRIER,空中母舰,Carrier,空中母艦
 EVOLUTION_CAT_LEGEND,传说,Legend,レジェンド
 AIRCRAFT_A6E_DISPLAY,A-6E 入侵者,A-6E Intruder,A-6E イントルーダー
 AIRCRAFT_A6E_PERK_GUN,强化机炮：伤害 +25% / 射程 +15%,Reinforced cannon: +25% damage / +15% range,強化機関砲：ダメージ+25% / 射程+15%
+AIRCRAFT_MIG21F13_DISPLAY,米格-21F-13 鱼窝,MiG-21F-13 Fishbed,MiG-21F-13 フィッシュベッド
+AIRCRAFT_MIG21F13_CARDDESC,轻型高速截击机；感知有限但机炮与两枚导弹循环完整。,Light high-speed interceptor with limited sensors and a complete cannon / two-missile loop.,軽量高速迎撃機。センサーは限定的だが機関砲と2発のミサイルを備える。
+AIRCRAFT_F104C_DISPLAY,F-104C 星式,F-104C Starfighter,F-104C スターファイター
+AIRCRAFT_F104C_CARDDESC,极速和爬升优先；高失速与窄雷达锥要求精确航线。,Speed and climb first; high stall speed and a narrow radar cone demand precise lines.,速度と上昇を優先。高い失速速度と狭いレーダーコーンが正確な航路を要求する。
+AIRCRAFT_J35F_DISPLAY,J 35F 龙,J 35F Draken,J 35F ドラケン
+AIRCRAFT_J35F_CARDDESC,宽锥全天候截击与瞬时机动；需要谨慎管理能量。,Wide-cone all-weather interception and sharp transient maneuvering; manage energy carefully.,広角全天候迎撃と鋭い瞬間機動。エネルギー管理が必要。
+AIRCRAFT_EA6B_DISPLAY,EA-6B 徘徊者,EA-6B Prowler,EA-6B プラウラー
+AIRCRAFT_EA6B_CARDDESC,与 A-6E 同级速度的高耐久电子支援起点；机炮舱与自卫弹为 AGL 改装。,Durable electronic-support starter with A-6E-class speed; gun pod and self-defense missiles are AGL modifications.,A-6E級の速度を持つ高耐久電子支援機。ガンポッドと自衛ミサイルはAGL改修。
+AIRCRAFT_STARTING_BENEFIT_FMT,开局补给：%s｜进化继承,START: %s | RETAINED ON EVOLUTION,初期補給：%s｜進化後も継承
+AIRCRAFT_STARTING_BENEFIT_FFAR_NAME,FFAR 火箭吊舱,FFAR Rocket Pod,FFARロケットポッド
+AIRCRAFT_MIG23_DISPLAY,米格-23 鞭挞者,MiG-23 Flogger,MiG-23 フロッガー
+AIRCRAFT_MIG23_CARDDESC,低位 T1 高速纵向斗士；以速度与加速取胜，不靠超档雷达。,Low-T1 vertical fighter built around speed and acceleration rather than over-tier sensors.,速度と加速を軸にした低位T1縦戦闘機。過剰なセンサーには頼らない。
+AIRCRAFT_F4E_DISPLAY,F-4E 鬼怪 II,F-4E Phantom II,F-4E ファントムII
+AIRCRAFT_F4E_CARDDESC,双发高耐久骑士；内置炮和完整武器换来高失速与笨重转向。,"Durable twin-engine knight with an internal cannon and full weapons, paid for with high stall speed and heavy turning.",双発高耐久の騎士。内蔵砲と完全兵装の代償に高い失速速度と重い旋回を持つ。
+AIRCRAFT_JAGUAR_DISPLAY,美洲虎 GR.1A,Jaguar GR.1A,ジャギュア GR.1A
+AIRCRAFT_JAGUAR_CARDDESC,低空策士攻击机；低失速、可靠机炮与贴地包线是主要预算。,"Low-level schemer strike aircraft whose budget sits in low stall speed, a reliable cannon and terrain-hugging handling.",低空策士攻撃機。低失速・信頼性の高い機関砲・地形追随性能が主力。
+AIRCRAFT_SIGNATURE_RESERVED_DESC,专属技能效果尚未设计；当前仅保留不可取得的占位槽。,Signature effect not designed; this is a non-acquirable reserved slot.,専用スキル効果は未設計。現在は取得不能の予約枠のみ。
+AIRCRAFT_SIG_MIG21F13_NAME,鱼窝截击,Fishbed Intercept,フィッシュベッド迎撃
+AIRCRAFT_SIG_F104C_NAME,载人导弹,Manned Missile,有人ミサイル
+AIRCRAFT_SIG_J35F_NAME,龙翼警戒,Dragon-Wing Watch,竜翼警戒
+AIRCRAFT_SIG_EA6B_NAME,电磁徘徊,Electromagnetic Prowl,電磁徘徊
+AIRCRAFT_SIG_MIG23_NAME,鞭挞者,Flogger,フロッガー
+AIRCRAFT_SIG_F4E_NAME,鬼怪武库,Phantom Arsenal,ファントム兵器庫
+AIRCRAFT_SIG_JAGUAR_NAME,贴地猎手,Terrain Hunter,地形追従ハンター
 AIRCRAFT_MIRAGE3_DISPLAY,幻影 III,Mirage III,ミラージュ III
 AIRCRAFT_MIRAGE3_PERK_XP,电战数据链：击杀经验 +10%,EW datalink: +10% kill XP,電子戦データリンク：撃墜経験値+10%
 AIRCRAFT_MIRAGE2000_DISPLAY,幻影 2000,Mirage 2000,ミラージュ 2000

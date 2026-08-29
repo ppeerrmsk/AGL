@@ -1,68 +1,50 @@
 class_name EvolutionUI
 extends CanvasLayer
 
-## 战区结算规划站（Phase 2/3，spec ace-system §2.4 + 用户反馈 2026-07-03）
-## 三栏布局（2026-07-20 用户反馈重排）：
-##   左 = 机体进化树（EvolutionTreeView，皇牌空战式自下而上：亮色可进化/灰色未解锁/金色爬线历史），
-##        套 ScrollContainer —— 树宽随节点数增长，禁止再让它撑爆面板。
-##   中 = 机体详情卡（EvolutionDetailPanel）：开局摊开**当前机**，点树上任意已揭示机体即切换；
-##        含 特性对比（相对当前机的属性增减）+ 进化需求（等级门 / 三轴属性门 逐条 have/need）。
-##   右 = 三轴量表 + 强化当前机体（三选一升级）。
-## 进化与强化各限一次；"继续出击"关闭。
-## 面板本身铺满视口（PRESET_FULL_RECT + 留边），不做手动居中——旧的 _center() 在树超宽时给出负坐标，
-## 导致"进化到第二架后画面整体上移"（用户 2026-07-20 反馈的 bug）。
+## 机场停靠规划站：当前机体签名技与进化严格二选一。
+##
+## 左栏 = 进化树；中栏 = 当前/目标机详情；右栏 = 明确的地勤决策台。
+## 专属技能不再进入等级三轴抽选。许可已购且本局尚未取得时，选择保留当前机体会
+## 立即装备当前机体专属技能；选择任一可用进化则放弃本次停靠的专属装备机会。
 
 signal evolution_chosen(node_id: StringName)
-signal upgrade_chosen(upgrade: Dictionary)
+signal signature_chosen(upgrade: Dictionary)
 signal closed()
 
-const PANE_WIDTH := 340.0
+const DECISION_WIDTH := 380.0
 const DETAIL_WIDTH := 440.0
-const SCREEN_MARGIN := 32.0    ## 面板四边留白（面板本身铺满视口，靠内部滚动容纳大树）
+const SCREEN_MARGIN := 32.0
+const SIGNATURE_COLOR := Color(1.00, 0.25, 0.75)
+const TERMINAL_COLOR := ThemeColors.UI_TERMINAL_WHITE
 
 var _panel: PanelContainer
 var _root: VBoxContainer
 var _evo_pane: VBoxContainer
 var _detail_pane: VBoxContainer
-var _up_pane: VBoxContainer
+var _decision_pane: VBoxContainer
 var _tree: EvolutionTreeView
 var _detail: EvolutionDetailPanel
 var _evo_confirm: Button
+var _signature_confirm: Button
+var _evo_target_label: Label
 var _subtitle: Label
+var _done_button: Button
 var _evo_selected: StringName = &""
 var _current_id: StringName = &""
 var _team_level: int = 1
 var _axis_points: Dictionary = {}
-var _evo_picked: bool = false
-var _up_picked: bool = false
-var _up_buttons: Array = []
+var _decision_committed: bool = false
+var _signature_ready: bool = false
 
-## 升级 category → 主题色（右栏卡片，对齐 HUD 分类色）
-const UP_CAT_COLORS := {
-	"survival": ThemeColors.CATEGORY_DEFENSE,
-	"mobility": ThemeColors.CATEGORY_MOBILITY,
-	"electronic_warfare": ThemeColors.CATEGORY_SYSTEM,
-	"missile": ThemeColors.CATEGORY_WEAPON,
-	"secondary": ThemeColors.CATEGORY_WEAPON,
-	"weapon": ThemeColors.CATEGORY_WEAPON,
-}
 
 func _ready() -> void:
 	layer = 20
-	process_mode = Node.PROCESS_MODE_ALWAYS  # 暂停期间可交互
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	visible = false
 	_panel = PanelContainer.new()
-	var style := StyleBoxFlat.new()
-	style.bg_color = ThemeColors.PANEL_BG_SOLID
-	style.border_color = ThemeColors.PANEL_BORDER_ACCENT
-	style.set_border_width_all(2)
-	style.set_corner_radius_all(4)
-	style.set_content_margin_all(18)
-	_panel.add_theme_stylebox_override("panel", style)
+	_panel.add_theme_stylebox_override("panel", _panel_style(TERMINAL_COLOR, 1, 18.0))
 	add_child(_panel)
-	# 面板铺满视口（留边），大树靠内部 ScrollContainer 滚动。
-	# ⚠ 不要退回"按 size 手动居中"：树宽随档位节点数增长（T2 已 15 格 ≈1.6k px），
-	# 一旦超出视口，居中公式给出负坐标 → 画面整体上移/左移（用户 2026-07-20 反馈的 bug）
+	# 锚死四边；大树只能在 ScrollContainer 内增长，不能再次用内容尺寸手动居中。
 	_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_panel.offset_left = SCREEN_MARGIN
 	_panel.offset_top = SCREEN_MARGIN
@@ -72,54 +54,89 @@ func _ready() -> void:
 	_root.add_theme_constant_override("separation", 10)
 	_panel.add_child(_root)
 
-## current = 当前节点（可空）；exits = 出口；choices = 升级三选一；history = 爬线历史（节点 id 序列）；
-## axis_points = 三轴属性点（属性门槛缺口显示，spec evolution-attribute-gates）
-func show_offer(current: Dictionary, exits: Array, team_level: int, choices: Array, history: Array = [], axis_points: Dictionary = {}, milestone_bonus: Dictionary = {}) -> void:
-	_evo_picked = false
-	_up_picked = false
+
+## current = 当前节点；exits = 进化出口；signature = 当前机体专属技能。
+## signature_license_owned 只表示局外许可；signature_equipped 表示本局玩家层账本已持有。
+func show_offer(current: Dictionary, exits: Array, team_level: int, signature: Dictionary,
+		signature_license_owned: bool, signature_equipped: bool, history: Array = [],
+		axis_points: Dictionary = {}, milestone_bonus: Dictionary = {}) -> void:
+	_decision_committed = false
 	_evo_selected = &""
 	_subtitle = null
-	_up_buttons.clear()
 	_current_id = StringName(current.get("id", ""))
 	_team_level = team_level
 	_axis_points = axis_points
+	_signature_ready = not signature.is_empty() \
+		and not SurvivorData.is_signature_placeholder(signature) \
+		and signature_license_owned and not signature_equipped
 	for c in _root.get_children():
 		c.queue_free()
-		_root.remove_child(c)  # 立即摘出：queue_free 是延迟的，留着会让容器按旧内容算尺寸
+		_root.remove_child(c)
 
-	# ── 标题区 ──
-	var title := Label.new()
-	title.text = tr("SETTLEMENT_TITLE")
-	title.add_theme_font_size_override("font_size", 20)
-	title.add_theme_color_override("font_color", ThemeColors.TEXT_ACCENT)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_root.add_child(title)
-	if not current.is_empty():
-		_subtitle = Label.new()
-		_subtitle.text = tr("EVOLUTION_SUBTITLE_FMT") % tr(String(current.get("name_key", "")))
-		_subtitle.add_theme_font_size_override("font_size", 12)
-		_subtitle.add_theme_color_override("font_color", ThemeColors.TEXT_MUTED)
-		_subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		_root.add_child(_subtitle)
+	_build_title(current)
+	_build_decision_banner()
 
-	# ── 三栏：进化树 / 机体详情 / 强化 ──
 	var cols := HBoxContainer.new()
 	cols.add_theme_constant_override("separation", 18)
 	cols.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_root.add_child(cols)
-	_evo_pane = _make_pane(cols, tr("SETTLEMENT_EVO_HEADER"), 0.0)  # 宽度吃剩余空间
+	_evo_pane = _make_pane(cols, tr("SETTLEMENT_EVO_HEADER"), 0.0)
 	_evo_pane.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_detail_pane = _make_pane(cols, tr("SETTLEMENT_DETAIL_HEADER"), DETAIL_WIDTH)
-	_up_pane = _make_pane(cols, tr("SETTLEMENT_UPGRADE_HEADER"), PANE_WIDTH)
+	_decision_pane = _make_pane(cols, tr("SETTLEMENT_DECISION_HEADER"), DECISION_WIDTH)
 
-	# 三轴量表（竖条分格 + 里程碑刻度圈，2026-07-19 用户 mockup）：
-	# 强化栏迁回等级流后，右栏顶部改陈列点数分配现状——选进化目标时门槛差多少一目了然
-	var bars := AxisBarsPanel.new()
-	bars.show_state(axis_points, null, milestone_bonus)
-	bars.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	_up_pane.add_child(bars)
+	_build_tree(exits, history, team_level, axis_points)
+	_build_detail(team_level, axis_points)
+	_build_decision_console(current, signature, signature_license_owned, signature_equipped,
+		milestone_bonus)
 
-	# 左：进化树视图（皇牌空战式，自下而上）——套 ScrollContainer，树再大也不顶飞面板
+	_done_button = Button.new()
+	_done_button.custom_minimum_size = Vector2(260, 42)
+	_done_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_style_button(_done_button, TERMINAL_COLOR)
+	if _signature_ready:
+		# “继续出击”不能成为空手跳过奖励的第三条路；有待领取技能时，
+		# 底部主按钮就是方案 A 的快捷入口，并走同一权威授予信号。
+		_done_button.text = tr("SETTLEMENT_RETAIN_CONFIRM")
+		var signature_copy: Dictionary = signature.duplicate(true)
+		_done_button.pressed.connect(
+			func() -> void: _confirm_signature(signature_copy))
+	else:
+		_done_button.text = tr("SETTLEMENT_CONTINUE")
+		_done_button.pressed.connect(_close)
+	_root.add_child(_done_button)
+
+
+func _build_title(current: Dictionary) -> void:
+	var title := Label.new()
+	title.text = tr("SETTLEMENT_TITLE")
+	title.add_theme_font_size_override("font_size", 20)
+	title.add_theme_color_override("font_color", TERMINAL_COLOR)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_root.add_child(title)
+	if current.is_empty():
+		return
+	_subtitle = Label.new()
+	_subtitle.text = tr("EVOLUTION_SUBTITLE_FMT") % tr(String(current.get("name_key", "")))
+	_subtitle.add_theme_font_size_override("font_size", 12)
+	_subtitle.add_theme_color_override("font_color", ThemeColors.TEXT_MUTED)
+	_subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_root.add_child(_subtitle)
+
+
+func _build_decision_banner() -> void:
+	var banner := PanelContainer.new()
+	banner.add_theme_stylebox_override("panel", _panel_style(TERMINAL_COLOR, 1, 8.0))
+	var label := Label.new()
+	label.text = tr("SETTLEMENT_DECISION_BANNER")
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", 13)
+	label.add_theme_color_override("font_color", TERMINAL_COLOR)
+	banner.add_child(label)
+	_root.add_child(banner)
+
+
+func _build_tree(exits: Array, history: Array, team_level: int, axis_points: Dictionary) -> void:
 	_tree = EvolutionTreeView.new()
 	_tree.setup(EvolutionSystem.all_nodes(), _current_id, history, team_level, axis_points)
 	_tree.node_selected.connect(_on_tree_node_selected)
@@ -133,17 +150,11 @@ func show_offer(current: Dictionary, exits: Array, team_level: int, choices: Arr
 	hint.text = tr("EVOLUTION_TREE_HINT") if not exits.is_empty() else tr("SETTLEMENT_NO_EVO")
 	hint.add_theme_font_size_override("font_size", 11)
 	hint.add_theme_color_override("font_color", ThemeColors.TEXT_MUTED)
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_evo_pane.add_child(hint)
-	_evo_confirm = Button.new()
-	_evo_confirm.text = tr("EVOLUTION_CONFIRM")
-	_evo_confirm.disabled = true
-	_evo_confirm.add_theme_font_size_override("font_size", 14)
-	_evo_confirm.custom_minimum_size = Vector2(180, 34)
-	_evo_confirm.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	_evo_confirm.pressed.connect(_confirm_evolution)
-	_evo_pane.add_child(_evo_confirm)
 
-	# 中：机体详情卡（默认先摊开当前机——"我现在开的是什么、什么水平"，用户 2026-07-20）
+
+func _build_detail(team_level: int, axis_points: Dictionary) -> void:
 	_detail = EvolutionDetailPanel.new()
 	var detail_scroll := ScrollContainer.new()
 	detail_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -154,34 +165,92 @@ func show_offer(current: Dictionary, exits: Array, team_level: int, choices: Arr
 	if _current_id != &"":
 		_detail.show_node(_current_id, _current_id, team_level, axis_points)
 
-	# 右：强化当前机体（升级三选一 + 描述）
-	if choices.is_empty():
-		_add_empty_hint(_up_pane, tr("SETTLEMENT_NO_UPGRADE"))
-	else:
-		for u in choices:
-			var col: Color = UP_CAT_COLORS.get(String(u.get("category", "")), ThemeColors.TEXT_PRIMARY)
-			var btn := _make_card_button(tr(String(u.get("name", ""))), col)
-			var desc := Label.new()
-			desc.text = tr(String(u.get("desc", "")))
-			desc.add_theme_font_size_override("font_size", 11)
-			desc.add_theme_color_override("font_color", ThemeColors.TEXT_DESC_UNLOCKED)
-			desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			desc.custom_minimum_size = Vector2(PANE_WIDTH - 16, 0)
-			var up_copy: Dictionary = u
-			btn.pressed.connect(func() -> void: _pick_upgrade(up_copy, btn))
-			_up_pane.add_child(btn)
-			_up_pane.add_child(desc)
-			_up_buttons.append(btn)
 
-	# ── 底部：继续出击 ──
-	var done := Button.new()
-	done.text = tr("SETTLEMENT_CONTINUE")
-	done.add_theme_font_size_override("font_size", 15)
-	done.custom_minimum_size = Vector2(220, 40)
-	done.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	done.pressed.connect(_close)
-	_root.add_child(done)
-	# 显示与入场动画由 Presentation.present() 驱动（survivor_mode._open_evolution_offer）
+func _build_decision_console(current: Dictionary, signature: Dictionary,
+		signature_license_owned: bool, signature_equipped: bool,
+		milestone_bonus: Dictionary) -> void:
+	var bars := AxisBarsPanel.new()
+	bars.show_state(_axis_points, null, milestone_bonus)
+	bars.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_decision_pane.add_child(bars)
+
+	_build_signature_card(current, signature, signature_license_owned, signature_equipped)
+	var or_label := Label.new()
+	or_label.text = tr("SETTLEMENT_DECISION_OR")
+	or_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	or_label.add_theme_font_size_override("font_size", 12)
+	or_label.add_theme_color_override("font_color", ThemeColors.TEXT_MUTED)
+	_decision_pane.add_child(or_label)
+	_build_evolution_card()
+
+
+func _build_signature_card(current: Dictionary, signature: Dictionary,
+		signature_license_owned: bool, signature_equipped: bool) -> void:
+	var card := VBoxContainer.new()
+	card.add_theme_constant_override("separation", 6)
+	var frame := PanelContainer.new()
+	frame.add_theme_stylebox_override("panel", _panel_style(
+		SIGNATURE_COLOR if _signature_ready else ThemeColors.TEXT_LOCKED, 2, 10.0,
+		Color(SIGNATURE_COLOR, 0.10) if _signature_ready else ThemeColors.UI_BLOCK_BACKGROUND))
+	frame.add_child(card)
+	_decision_pane.add_child(frame)
+
+	card.add_child(_label(tr("SETTLEMENT_RETAIN_OPTION"), 11,
+		SIGNATURE_COLOR if _signature_ready else ThemeColors.TEXT_MUTED))
+	card.add_child(_label(tr(String(current.get("name_key", ""))), 16, TERMINAL_COLOR, true))
+	if signature.is_empty():
+		card.add_child(_label(tr("SETTLEMENT_SIGNATURE_MISSING"), 11, ThemeColors.UI_DANGER_RED, true))
+	else:
+		card.add_child(_label(tr(String(signature.get("name", ""))), 15, SIGNATURE_COLOR, true))
+		card.add_child(_label(tr(String(signature.get("desc", ""))), 11,
+			ThemeColors.TEXT_DESC_UNLOCKED, true))
+	var status_key := "SETTLEMENT_SIGNATURE_READY"
+	var status_color := SIGNATURE_COLOR
+	if signature.is_empty():
+		status_key = "SETTLEMENT_SIGNATURE_MISSING"
+		status_color = ThemeColors.UI_DANGER_RED
+	elif SurvivorData.is_signature_placeholder(signature):
+		status_key = "SETTLEMENT_SIGNATURE_RESERVED"
+		status_color = ThemeColors.TEXT_MUTED
+	elif signature_equipped:
+		status_key = "SETTLEMENT_SIGNATURE_EQUIPPED"
+		status_color = ThemeColors.HP_OK
+	elif not signature_license_owned:
+		status_key = "SETTLEMENT_SIGNATURE_LICENSE_REQUIRED"
+		status_color = ThemeColors.UI_WARNING_YELLOW
+	card.add_child(_label(tr(status_key), 11, status_color, true))
+
+	_signature_confirm = Button.new()
+	_signature_confirm.text = tr("SETTLEMENT_RETAIN_CONFIRM")
+	_signature_confirm.custom_minimum_size = Vector2(DECISION_WIDTH - 42.0, 42)
+	_signature_confirm.disabled = not _signature_ready
+	_style_button(_signature_confirm, SIGNATURE_COLOR)
+	if _signature_ready:
+		var signature_copy: Dictionary = signature.duplicate(true)
+		_signature_confirm.pressed.connect(
+			func() -> void: _confirm_signature(signature_copy))
+	card.add_child(_signature_confirm)
+
+
+func _build_evolution_card() -> void:
+	var card := VBoxContainer.new()
+	card.add_theme_constant_override("separation", 6)
+	var frame := PanelContainer.new()
+	frame.add_theme_stylebox_override("panel", _panel_style(TERMINAL_COLOR, 1, 10.0))
+	frame.add_child(card)
+	_decision_pane.add_child(frame)
+	card.add_child(_label(tr("SETTLEMENT_EVOLVE_OPTION"), 11, TERMINAL_COLOR))
+	_evo_target_label = _label(tr("SETTLEMENT_EVOLVE_SELECT_TARGET"), 12,
+		ThemeColors.TEXT_MUTED, true)
+	card.add_child(_evo_target_label)
+	_evo_confirm = Button.new()
+	_evo_confirm.text = tr("EVOLUTION_CONFIRM")
+	_evo_confirm.disabled = true
+	_evo_confirm.custom_minimum_size = Vector2(DECISION_WIDTH - 42.0, 42)
+	_style_button(_evo_confirm, TERMINAL_COLOR)
+	_evo_confirm.pressed.connect(_confirm_evolution)
+	card.add_child(_evo_confirm)
+
 
 func _make_pane(parent: HBoxContainer, header_text: String, min_w: float) -> VBoxContainer:
 	var pane := VBoxContainer.new()
@@ -191,78 +260,111 @@ func _make_pane(parent: HBoxContainer, header_text: String, min_w: float) -> VBo
 	var header := Label.new()
 	header.text = header_text
 	header.add_theme_font_size_override("font_size", 15)
-	header.add_theme_color_override("font_color", ThemeColors.TEXT_TITLE_GREEN)
+	header.add_theme_color_override("font_color", TERMINAL_COLOR)
 	pane.add_child(header)
-	var sep := HSeparator.new()
-	pane.add_child(sep)
+	pane.add_child(HSeparator.new())
 	parent.add_child(pane)
 	return pane
 
-func _make_card_button(text_: String, accent: Color) -> Button:
-	var btn := Button.new()
-	btn.text = text_
-	btn.add_theme_font_size_override("font_size", 14)
-	btn.add_theme_color_override("font_color", accent)
-	btn.add_theme_color_override("font_hover_color", accent.lightened(0.3))
-	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	btn.custom_minimum_size = Vector2(PANE_WIDTH - 8, 40)
-	btn.clip_text = false
-	return btn
 
-func _add_empty_hint(pane: VBoxContainer, text_: String) -> void:
-	var lbl := Label.new()
-	lbl.text = text_
-	lbl.add_theme_font_size_override("font_size", 12)
-	lbl.add_theme_color_override("font_color", ThemeColors.TEXT_LOCKED)
-	pane.add_child(lbl)
-
-## 树上点了任意已揭示机体 → 中栏详情卡（特性 + 需求）；只有真能进化时才放行确认按钮
 func _on_tree_node_selected(node_id: StringName) -> void:
-	if _evo_picked:
+	if _decision_committed:
 		return
 	_detail.show_node(node_id, _current_id, _team_level, _axis_points)
 	if _tree.can_evolve(node_id):
 		_evo_selected = node_id
 		_evo_confirm.disabled = false
+		var nd := EvolutionSystem.node_of(node_id)
+		_evo_target_label.text = tr("SETTLEMENT_EVOLVE_TARGET_FMT") % tr(
+			String(nd.get("name_key", "")))
+		_evo_target_label.add_theme_color_override("font_color", TERMINAL_COLOR)
 	else:
 		_evo_selected = &""
 		_evo_confirm.disabled = true
+		_evo_target_label.text = tr("SETTLEMENT_EVOLVE_SELECT_TARGET")
+		_evo_target_label.add_theme_color_override("font_color", ThemeColors.TEXT_MUTED)
+
 
 func _confirm_evolution() -> void:
-	if _evo_picked or _evo_selected == &"":
+	if _decision_committed or _evo_selected == &"":
 		return
-	_evo_picked = true
-	_tree.interactive = false
-	_evo_confirm.disabled = true
-	_evo_confirm.text = tr("SETTLEMENT_PICKED_FMT") % _evo_confirm.text
+	_decision_committed = true
+	_lock_decision_controls()
 	evolution_chosen.emit(_evo_selected)
 
-## 权威换型成功后同步仍打开的规划站：当前框、标题和详情一并迁到新机体。
-func mark_evolution_applied(node_id: StringName, history: Array) -> void:
-	_current_id = node_id
-	_evo_selected = &""
-	if _tree:
-		_tree.set_current(node_id, history)
-	var nd := EvolutionSystem.node_of(node_id)
-	if _subtitle and not nd.is_empty():
-		_subtitle.text = tr("EVOLUTION_SUBTITLE_FMT") % tr(String(nd.get("name_key", "")))
-	if _detail:
-		_detail.show_node(node_id, node_id, _team_level, _axis_points)
 
-func _pick_upgrade(upgrade: Dictionary, btn: Button) -> void:
-	if _up_picked:
+func _confirm_signature(signature: Dictionary) -> void:
+	if _decision_committed or not _signature_ready or signature.is_empty():
 		return
-	_up_picked = true
-	for b in _up_buttons:
-		b.disabled = true
-	btn.text = tr("SETTLEMENT_PICKED_FMT") % btn.text
-	upgrade_chosen.emit(upgrade)
+	_decision_committed = true
+	_lock_decision_controls()
+	signature_chosen.emit(signature)
 
-## 只发信号，【不自己隐藏】——退场由 survivor_mode 走 Presentation.dismiss() 驱动
+
+func _lock_decision_controls() -> void:
+	if _tree:
+		_tree.interactive = false
+	if _evo_confirm:
+		_evo_confirm.disabled = true
+	if _signature_confirm:
+		_signature_confirm.disabled = true
+	if _done_button:
+		_done_button.disabled = true
+
+
+## 权威层拒绝了已提交的选择时恢复输入，避免防御性校验失败后把停靠面板锁死。
+func reject_decision() -> void:
+	_decision_committed = false
+	if _tree:
+		_tree.interactive = true
+	if _signature_confirm:
+		_signature_confirm.disabled = not _signature_ready
+	if _done_button:
+		_done_button.disabled = false
+	_evo_selected = &""
+	if _evo_confirm:
+		_evo_confirm.disabled = true
+	if _evo_target_label:
+		_evo_target_label.text = tr("SETTLEMENT_EVOLVE_SELECT_TARGET")
+		_evo_target_label.add_theme_color_override("font_color", ThemeColors.TEXT_MUTED)
+
+
+func _style_button(button: Button, accent: Color) -> void:
+	button.add_theme_font_size_override("font_size", 13)
+	button.add_theme_color_override("font_color", accent)
+	button.add_theme_color_override("font_hover_color", ThemeColors.UI_TERMINAL_INVERSE)
+	button.add_theme_color_override("font_pressed_color", ThemeColors.UI_TERMINAL_INVERSE)
+	button.add_theme_color_override("font_disabled_color", ThemeColors.TEXT_LOCKED)
+	button.add_theme_stylebox_override("normal", _panel_style(accent, 1, 8.0))
+	button.add_theme_stylebox_override("hover", _panel_style(accent, 1, 8.0, Color(accent, 0.92)))
+	button.add_theme_stylebox_override("pressed", _panel_style(accent, 1, 8.0, Color(accent, 0.72)))
+	button.add_theme_stylebox_override("disabled", _panel_style(ThemeColors.TEXT_LOCKED, 1, 8.0))
+
+
+func _panel_style(border: Color, width: int, margin: float,
+		background: Color = ThemeColors.UI_BLOCK_BACKGROUND) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = background
+	style.border_color = border
+	style.set_border_width_all(width)
+	style.set_content_margin_all(margin)
+	return style
+
+
+func _label(text_: String, size: int, color: Color, wrap: bool = false) -> Label:
+	var label := Label.new()
+	label.text = text_
+	label.add_theme_font_size_override("font_size", size)
+	label.add_theme_color_override("font_color", color)
+	if wrap:
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	return label
+
+
 func _close() -> void:
 	closed.emit()
 
-## 表演导演的错开出入场元素（spec ui-transition §4.3）
+
 func get_transition_elements() -> Array[Control]:
 	var out: Array[Control] = []
 	if _root:

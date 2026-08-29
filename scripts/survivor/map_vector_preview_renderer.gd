@@ -1,6 +1,8 @@
 class_name MapVectorPreviewRenderer
 extends Node2D
 
+const TrianglePacket = preload("res://scripts/rendering/canvas_triangle_packet.gd")
+
 ## 东京湾 V43 全图纯矢量候选渲染器。
 ##
 ## 所有几何只在首次进入某个 LOD 时构建一次；每个有序图层合并为一个
@@ -143,9 +145,7 @@ class StaticPacket extends Node2D:
 		packet_colors = definition.get("colors", PackedColorArray())
 
 	func _draw() -> void:
-		if packet_points.is_empty():
-			return
-		RenderingServer.canvas_item_add_triangle_array(
+		TrianglePacket.submit_arrays(
 			get_canvas_item(), packet_indices, packet_points, packet_colors)
 
 
@@ -334,13 +334,12 @@ static func smoke_submit_triangle_array() -> bool:
 	var item := RenderingServer.canvas_item_create()
 	if not item.is_valid():
 		return false
-	RenderingServer.canvas_item_add_triangle_array(
-		item,
-		PackedInt32Array([0, 1, 2]),
+	var submitted := TrianglePacket.submit_arrays(
+		item, PackedInt32Array([0, 1, 2]),
 		PackedVector2Array([Vector2.ZERO, Vector2.RIGHT, Vector2.DOWN]),
 		PackedColorArray([Color.WHITE, Color.WHITE, Color.WHITE]))
 	RenderingServer.free_rid(item)
-	return true
+	return submitted
 
 
 func _build_lod_root(lod: int) -> void:
@@ -1302,34 +1301,16 @@ static func _width_for_lod(lod: int, strategic_px: float, operational_px: float,
 
 
 static func _packet(layers: Dictionary, name: String) -> Dictionary:
-	if not layers.has(name):
-		layers[name] = {
-			"points": PackedVector2Array(),
-			"indices": PackedInt32Array(),
-			"colors": PackedColorArray(),
-		}
-	return layers[name]
+	return TrianglePacket.layer(layers, name)
 
 
 static func _add_triangle(layers: Dictionary, name: String, a: Vector2, b: Vector2,
 		c: Vector2, color: Color) -> void:
-	var p := _packet(layers, name)
-	var points: PackedVector2Array = p.points
-	var indices: PackedInt32Array = p.indices
-	var colors: PackedColorArray = p.colors
-	var base := points.size()
-	points.append_array(PackedVector2Array([a, b, c]))
-	indices.append_array(PackedInt32Array([base, base + 1, base + 2]))
-	colors.append_array(PackedColorArray([color, color, color]))
+	TrianglePacket.append_triangle(_packet(layers, name), a, b, c, color)
 
 
 static func _add_rect(layers: Dictionary, name: String, rect: Rect2, color: Color) -> void:
-	var a := rect.position
-	var b := Vector2(rect.end.x, rect.position.y)
-	var c := rect.end
-	var d := Vector2(rect.position.x, rect.end.y)
-	_add_triangle(layers, name, a, b, c, color)
-	_add_triangle(layers, name, a, c, d, color)
+	TrianglePacket.append_rect(_packet(layers, name), rect, color)
 
 
 static func _add_polygon(layers: Dictionary, name: String, poly: PackedVector2Array,
@@ -1339,10 +1320,7 @@ static func _add_polygon(layers: Dictionary, name: String, poly: PackedVector2Ar
 	var triangulation := _triangulate_polygon(poly)
 	var vertices: PackedVector2Array = triangulation.vertices
 	var triangles: PackedInt32Array = triangulation.indices
-	for i in range(0, triangles.size(), 3):
-		if i + 2 < triangles.size():
-			_add_triangle(layers, name, vertices[triangles[i]], vertices[triangles[i + 1]],
-				vertices[triangles[i + 2]], color)
+	TrianglePacket.append_indexed(_packet(layers, name), vertices, triangles, color)
 
 
 static func _triangulate_polygon(poly: PackedVector2Array) -> Dictionary:

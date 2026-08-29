@@ -42,6 +42,8 @@ AudioManager.stop_music(fade_out=2.0)
 AudioManager.crossfade_music(id, duration=2.0, loop=true)
 AudioManager.play_music_playlist(ids, fade_in=2.0, crossfade_between=2.0)
 AudioManager.crossfade_music_playlist(ids, duration=2.0, crossfade_between=2.0)
+AudioManager.crossfade_music_interrupt(id, duration=2.0, loop=false) -> bool
+AudioManager.resume_interrupted_music(duration=2.0) -> bool
 AudioManager.has_music(id) -> bool
 AudioManager.set_music_muffled(muffled, duration=0.35)
 ```
@@ -49,7 +51,9 @@ AudioManager.set_music_muffled(muffled, duration=0.35)
 双播放器轮换实现 crossfade（`_music_player_a` / `_music_player_b`）。
 **播放列表模式**：首曲淡入后 `loop=false`，播完触发 `finished` → 自动 crossfade 下一首，周而复始。调用 `play_music/crossfade_music/stop_music` 会自动退出 playlist 模式（BOSS 登场就是靠这个）。
 `crossfade_music_playlist` 用于临时主题结束后从当前曲等功率切回播放列表；`has_music` 同时检查登记与资源存在，事件可在素材缺失时保持当前歌单不中断。
-非 playlist 的 one-shot 曲自然结束时，`AudioManager.music_track_finished(id)` 发出完成信号；Ace 音乐据此淡入恢复普通歌单。
+非 playlist 的 one-shot 曲自然结束时，`AudioManager.music_track_finished(id)` 发出完成信号。Ace 插入曲通过
+`crossfade_music_interrupt` 冻结地图歌单当时的曲目与播放位置；自然结束或中队终态后，
+`resume_interrupted_music` 从被打断的位置继续，而不是从普通歌单首曲重头播放。Boss / Game Over / 其它演出接管时丢弃该恢复点。
 新加入的 OGG 若尚未由编辑器生成 `.import`，`_get_music` 会用 `AudioStreamOggVorbis.load_from_file`
 直接读取原始文件；导入完成后自动回到标准 `ResourceLoader` 路径。
 **模糊（muffle）效果**：预挂 Music Bus 上的 `AudioEffectLowPassFilter`，菜单打开时启用并 tween cutoff 20000→600Hz，关闭时反向 tween 回去并禁用效果。
@@ -99,7 +103,7 @@ AudioManager.save_settings()  # 写 user://audio.cfg
 新增音频文件 → 放到对应 `audio/{music,sfx,ui}/` → 在对应字典里加一行 id → 路径。
 非 BOSS 王牌使用 `ace_battle_01`～`04` 四首随机池，正式路径为
 `audio/music/ace_battle_01.ogg`～`04.ogg`；WAV 母版保留在 `audio_intake/10_music/ace_battle/`。
-每次血条浮现只抽一首且不循环，曲终或中队终止后恢复普通歌单；部分文件缺失只缩小随机池。
+每次血条浮现只抽一首且不循环，曲终或中队终止后从先前被打断的位置继续普通歌单；部分文件缺失只缩小随机池。
 
 ### 包体边界
 

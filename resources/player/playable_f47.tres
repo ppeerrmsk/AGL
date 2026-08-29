@@ -9,6 +9,7 @@ id = &"f47"
 display_name = "AIRCRAFT_F47_DISPLAY"
 codename = "NGAD"
 base_params = ExtResource("2")
+gun_ammo_override = 240
 gun_damage_mult = 1.5
 gun_range_override = 1400.0
 gun_cone_override = 10.0

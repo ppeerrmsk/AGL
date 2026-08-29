@@ -1,6 +1,8 @@
 class_name LaserEquipment
 extends EquipmentParams
 
+const WeaponHitResolverScript = preload("res://scripts/weapon_hit_resolver.gd")
+
 ## 360° 激光照射器（commit 9/13 — 第二个全新机制装备）
 ##
 ## 核心机制（2026-05-04 重做）：
@@ -216,17 +218,14 @@ func _apply_laser_effect(ac, target, damage: float, damage_skill_active: bool) -
 		var m: Missile = target
 		m._laser_slow_timer = SkillHooks.LASER_MISSILE_SLOW_DURATION
 		if intercepts_missiles_directly or damage_skill_active:
-			m.intercept_hp -= damage
-			if m.intercept_hp <= 0.0:
+			if m.take_intercept_damage(damage, false):
 				if ac != null and is_instance_valid(ac) and ac.is_inside_tree():
 					ExplosionVFXScript.emit(ac.get_tree(), m.global_position, m.heading,
 						AircraftDestruction.MISSILE_BREAKUP_SCALE)
-				m.is_active = false
-				m.queue_free()
 		return
 	# Aircraft：默认 SLOW；技能解锁时额外加 DPS 伤害
 	if target is Aircraft:
-		if not target.can_accept_new_hit("laser"):
+		if not WeaponHitResolverScript.can_accept_unit_hit(target, "laser"):
 			return
 		# 飞机被光束扫到 → 短暂 SLOW（每帧刷新；脱离 0.4s 自动消失）
 		target.apply_status(StatusEffects.SLOW, SkillHooks.LASER_SLOW_REFRESH_DURATION)
@@ -235,12 +234,10 @@ func _apply_laser_effect(ac, target, damage: float, damage_skill_active: bool) -
 			Time.get_ticks_msec() + int(SkillHooks.LASER_SLOW_REFRESH_DURATION * 1000.0))
 	if damage_skill_active:
 		# 玩家解锁"激光致伤"：飞机 + 地面单位都吃完整 DPS
-		# take_damage_from 走归因入口 — 触发恐惧扩散 / 寒颤 / 击杀回血等下游技能
-		var laser_src: Node = CombatUnit.safe_attacker(ac)
-		if target.has_method("take_damage_from"):
-			target.take_damage_from(damage, laser_src, "laser")
-		else:
-			target.take_damage(damage, laser_src, "laser")
+		# resolver 统一归因和目标类型分派，继续触发恐惧扩散 / 寒颤 / 击杀回血等下游技能。
+		if target is CombatUnit:
+			WeaponHitResolverScript.resolve_unit_hit(
+				target, damage, ac, "laser", target.global_position)
 
 
 ## 检测 source 飞机是否持有"激光致伤"技能（仅玩家系 team 0 生效）

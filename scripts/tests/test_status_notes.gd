@@ -9,7 +9,7 @@ const _I18N_CATALOG := preload("res://scripts/i18n_catalog.gd")
 ##
 ## A 映射：keywords 主路径 / EXTRA 补漏 / OVERRIDE 修个例 / 上限 / 无状态技能不挂
 ## B 文案：7 个状态词条都有 note key，且 key 在本地化分表里存在
-## C UI：3/4 卡同尺寸、低档软盘/高档光盘、词条按交互浮现、空位一律隐藏
+## C UI：基础三卡 / 条件第四卡同尺寸、低档软盘/高档光盘、词条按交互浮现
 ##
 ## 运行：godot --headless --path . -- --bench=status_notes（或 --bench=all）
 
@@ -179,24 +179,13 @@ func _test_ui_binding() -> void:
 		ui.get_transition_elements().has(ui._cards[0])
 		and not ui.get_transition_elements().has(ui._status_notes[0]))
 
-	var signature := SurvivorData.upgrade_by_id("sig_f15").duplicate(true)
-	signature["signature_offer"] = true
-	signature["signature_aircraft_name_key"] = "AIRCRAFT_F15_DISPLAY"
-	ui.populate([cards[0], cards[1], cards[2], signature] as Array[Dictionary])
-	_check("第四槽完整显示且进入转场",
-		ui._buttons[3].visible and ui._cards[3].visible
-		and ui.get_transition_elements().size() == 5
-		and ui.get_transition_elements().has(ui._cards[3]))
-	_check("四卡与三卡保持同尺寸", ui._buttons[0].custom_minimum_size == SurvivorUpgradeUI.CARD_SIZE
-		and ui._buttons[3].custom_minimum_size == SurvivorUpgradeUI.CARD_SIZE)
-	_check("专属高档卡使用光盘介质", ui._media_surfaces[3].optical)
-	_check("专属卡显示专属徽章", ui._axis_badges[3].text == tr("UPGRADE_SIGNATURE_BADGE"))
+	_check("升级面板预建四槽，普通三卡只产生标题 + 三卡转场", ui._buttons.size() == 4
+		and ui._cards.size() == 4 and ui.get_transition_elements().size() == 4
+		and not ui._buttons[3].visible)
 	_check("普通 CLASSIFIED 卡需要闪边",
 		SurvivorUpgradeUI.should_flash_entry(SurvivorData.upgrade_by_id("f14_squad_lock_slow")))
 	_check("低于 CLASSIFIED 的普通卡不闪边",
 		not SurvivorUpgradeUI.should_flash_entry(SurvivorData.upgrade_by_id("hp_up")))
-	_check("专属卡闪边使用洋红优先色",
-		SurvivorUpgradeUI.entry_flash_color(signature) == SurvivorUpgradeUI.SIG_FRAME_COLOR)
 	var berserk := SurvivorData.upgrade_by_id("berserk_virus")
 	_check("明确代价句使用危险红",
 		ui._description_bbcode(berserk, Color.WHITE).contains(ThemeColors.UI_DANGER_RED.to_html(false)))
@@ -210,5 +199,20 @@ func _test_ui_binding() -> void:
 	_check("换卡后旧脚注不残留",
 		ui._status_notes[0].text == "" and ui._status_notes[2].text == ""
 		and not ui._note_panels[0].visible and not ui._note_panels[2].visible)
+
+	var airframe_bonus := SurvivorData.upgrade_by_id("speed_up").duplicate(true)
+	airframe_bonus["airframe_bonus_offer"] = true
+	airframe_bonus["airframe_bonus_axis"] = "knight"
+	var four_cards: Array[Dictionary] = [cards[0], cards[1], cards[2], airframe_bonus]
+	ui.populate(four_cards)
+	_check("机体适配命中时显示第四张并加入转场",
+		ui._buttons[3].visible and ui.get_transition_elements().size() == 5)
+	_check("第四张显示机体适配来源且保留自身骑士轴色",
+		ui._source_badges[3].visible
+		and ui._source_badges[3].text.contains(tr("AIRFRAME_AFFINITY_CARD_BADGE"))
+		and SurvivorData.axis_of_upgrade(airframe_bonus) == SurvivorData.AXIS_KNIGHT)
+	_check("前三张不误显示机体适配来源",
+		not ui._source_badges[0].visible and not ui._source_badges[1].visible
+		and not ui._source_badges[2].visible)
 
 	ui.free()

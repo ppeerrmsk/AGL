@@ -3,18 +3,32 @@ id: aircraft-evolution-tree
 kind: system
 status: done
 schema_version: 1
-spec_version: 8
+spec_version: 9
 owner: noelu
-depends_on: [zone-reward-docking, evolution-attribute-gates, inrun-weapon-inventory, player-aircraft-power-curve, squad-control-switching]
+depends_on: [zone-reward-docking, evolution-attribute-gates, inrun-weapon-inventory, player-aircraft-power-curve, squad-control-switching, t0-low-t1-aircraft-expansion]
 reconstruction_complete: true
 ---
 
-# 进化科技树（具体名单）—— 5 档位 / 43 机 / 每步 ≥3 选 / 苏美欧系穿插 + 虚构超凡档
+# 进化科技树（具体名单）—— T0~T5 / 50 机 / 苏美欧系穿插 + 虚构超凡档
 
 > 本文定**具体名单 + 每架的进化出口**。早期总纲 [aircraft-evolution](aircraft-evolution.md) 已归档；
 > 当前结算/换型、双门与武器继承分别以 zone-reward-docking、evolution-attribute-gates 和
 > inrun-weapon-inventory 为权威。
-> 2026-08-07 已完成 43 机版：新增 EA-18G 与 F/A-XX，门槛改为具体三轴，并通过五组 Shadow 回归。
+> 2026-08-26 已扩为 50 机。新增层与入口的当前权威见
+> [t0-low-t1-aircraft-expansion](t0-low-t1-aircraft-expansion.md)，完整机器可读出口以
+> `resources/evolution/evolution_tree.json` 为派生数据；下方 v8 的 43 机图保留为历史记录。
+
+## 当前 v9 摘要
+
+- 层数 `T0/T1/T2/T3/T4/T5 = 4/7/16/8/7/8`；节点 50，边 155。
+- T0 追加起手：MiG-21F-13、F-104C、J 35F、EA-6B；均为 LV1、无属性门，各自经生涯商店采购后进入选机页可选态。
+- 低位 T1：MiG-23、F-4E、Jaguar GR.1A；LV4、单轴 1 点门，只能由进化取得。
+- 标准 T1：F-15、F-14、A-6E、Mirage III；LV5、无属性门，同时保留其既有选机卡与既有解锁条件。
+- MiG-21F-13 出口为 MiG-23 / Jaguar / F-4E / F-15；其余新增边见扩谱 spec §3。
+- 所有 50 节点均有合法战术身份与专属槽；新增七机的槽是不可授予占位，不是已实装技能。
+- T2 以后沿用 v8 主体并完成 155/155 边门槛可达审计。
+
+## 历史 v8 设计正文（43 机；层级和入口已被上文覆盖）
 
 ## 1. 设计铁律（Why + 硬约束）
 

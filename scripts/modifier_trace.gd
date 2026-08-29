@@ -33,7 +33,7 @@ static func _sources(ac: Aircraft) -> Array:
 		{"name": "afterburner", "keys": ["is_afterburner"],
 			"clear": func(): ac.is_afterburner = false},
 		{"name": "afterburner_window", "keys": ["afterburner_window_active"],
-			"clear": func(): ac.afterburner_window_active = false},
+			"clear": func(): ac.set_afterburner_mode_active(false)},
 		{"name": "command_sprint", "keys": ["command_sprint"],
 			"clear": func(): ac.command_sprint = false},
 		{"name": "guard_zone", "keys": ["guard_zone_buff_active"],

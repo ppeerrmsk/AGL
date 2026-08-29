@@ -31,11 +31,9 @@
 散点 if-else 乘 buff，禁止在 Situation 里直读 `ac.params.*`。详见 [AGENTS.md](../../AGENTS.md)
 "加机动性 buff 的规范"段。
 
-**2026-07-03 审计备注**：planner 主干（Situation/tactical/）已零旁路 ✅；但 **legacy
-路径系统性直读 params.***（bfm_tactics set_engage_speed 全家 / ai_controller
-`_process_simple` orbit 等 10+ 处）。当前未爆雷仅因敌机现有 buff（指挥光环）直改 params
-字段。给敌机加任何"状态型"机动 buff（走 effective_* if 块）前，必须先修这条直读带，
-否则 SEAM-001 原病灶在敌机侧完整复发。
+**2026-08-27 收口**：planner 主干（Situation/tactical/）保持零旁路；系统性直读 params 的
+旧 `BFMTactics` 已删除。simple AI 仍保留其独立低成本策略，但速度/G/滚转等机动查询已走
+`AircraftPhysics.effective_*` / `base_*`。新增状态型机动 buff 仍必须按本节 accessor 纪律接入。
 
 ---
 
@@ -223,14 +221,14 @@ BOSS 只识别 JAM，其它状态仅对 Aircraft 生效"。但 NavalUnit 实现�
 三处：`max_climb` / `gain` / `smooth_rate`。其中 `max_climb` 被放大到 500+ m/s 后，PE↔KE
 公式 `gravity_effect = GRAVITY · vs / spd · PE_KE_BOOST(2.5)` 反向抽 spd，每秒 ≈ 110 m/s
 速度损失，加力推力（≈ 17 m/s²）完全顶不住。
-[scripts/aircraft/aircraft_physics.gd:322 update_altitude](../../scripts/aircraft/aircraft_physics.gd:336)
-× [scripts/aircraft/aircraft_physics.gd:314 gravity_effect](../../scripts/aircraft/aircraft_physics.gd:328)
+[scripts/aircraft/aircraft_physics.gd:417 update_altitude](../../scripts/aircraft/aircraft_physics.gd:336)
+× [scripts/aircraft/aircraft_physics.gd:410 gravity_effect](../../scripts/aircraft/aircraft_physics.gd:328)
 两段都涉及 vs，缺一个出血点。
 
 **踩到次数**：2（这次 + 用户记忆中至少一次同样症状）
 
 **解法**（2026-05-12）：在 [aircraft_physics.gd:322](../../scripts/aircraft/aircraft_physics.gd:322)
-和 [aircraft_physics.gd:1455 step_altitude](../../scripts/aircraft/aircraft_physics.gd:1318)
+和 [aircraft_physics.gd:1522 step_altitude](../../scripts/aircraft/aircraft_physics.gd:1318)
 两处把 `max_climb` 改为 `base_climb * minf(alt_mult, 1.3)`。`gain` / `smooth_rate` 仍由
 `alt_mult` 全幅放大（响应度保留），物理顶速最多 +30%（PE↔KE 损耗回到可承受档）。
 
@@ -473,9 +471,11 @@ instant G 时忘改预测侧）；②`step_speed` 只守卫 Cobra 不守卫 Herb
 
 **解法**（2026-07-03 两处已修：`_eff_max_g_instant_st` + `cached_max_g_instant` /
 `step_speed` 改用 `maneuver_overrides_speed` + 预测 g_load 加 `maneuver_overrides_g`）。
-**根治**在重构计划 Phase 3：逐对提取共享纯函数（`compute_target_bank` 已是样板），
-两侧变薄壳后契约自动成立。过渡期约束：**改任何 update_* 前 grep 对应 step_* 并同步**，
-改完跑 `--bench=all`。
+**根治完成（2026-08-27）**：速度、目标航向、航向积分、高度积分，以及 bank 的方向锁、
+坡度帽、滚转权限、失速回正与 EMA 积分均已提取共享纯函数；`update_*` 与 `step_*` 只负责
+解包各自状态及实飞日志，并由 `predicted_path` bench 以 13 项断言逐帧校验同值。同时收掉
+Typhoon 速度惩罚豁免与爬升率 ×1.5 两处只存在于实飞侧的漂移。以后修改飞行公式只改
+共享纯函数，并跑 focused `predicted_path` + 默认 `all`，不再维护双份实现。
 
 ---
 
@@ -627,7 +627,14 @@ Game Over 同步断开两个缓存；`presentation` 用真实 `free()` 后的强
 wrapper 同时扫描 stderr：Godot 即使退出 0，只要出现 `SCRIPT ERROR` / freed-object 等致命诊断也以
 86 失败；`all` 强制串联该 gauntlet。以后同类 bug 不再只依赖某个专项刚好写到断言。
 
-**踩到次数**：7
+**2026-08-26 第八次实证与诊断增强**：玩家 `combat_target`、`commanded_target` 或 AI
+`_current_target` 可在目标释放后短暂残留；另一个敌机进入隐形沿时，批清理把旧引用传给
+`_target_is_in_batch(value: CombatUnit)`，函数体内虽有 `is_instance_valid` 仍在参数检查阶段中断。
+边界改收 `Variant`，批清理同时把三类失效缓存净化为真实 `TYPE_NIL`。gauntlet 固化“目标 A 跨帧释放、
+目标 B 再触发隐形批清理”的确定性顺序；wrapper 同时改为保留完整 GDScript backtrace，并输出
+`FREED_OBJECT_LIFECYCLE` 自动归因，避免只看到 helper 而漏掉生产调用者。
+
+**踩到次数**：8
 
 ## SEAM-021 · "玩家显式命令"在移动层是铁律，在武器发射层却没有代表权
 
@@ -972,12 +979,97 @@ SceneTree 并由两条快照分支复用，运行时行为不变。
 屏幕空间逆矩阵会滞留在旧朝向，标签仍会被新旋转带走。
 2026-08-24 AURORA LANCE 进一步把固定基盘/状态栏留在不旋转的根 CanvasItem，只在 `_draw` 内让
 上层炮架消费 `heading`，从结构上消除该单位的模型旋转与屏幕 UI 变换耦合。
+2026-08-29 继续收口数据语义：飞机/地面/SAM/雷达/舰船/导弹改用共享英文
+`HDG/SPD/ALT/RNG/HP` 格式器，修复 `HDG 360`、虚假地面武装、档位冒充数值高度和舰种重复；
+导弹删除独立旧面板并进入同一屏幕空间渲染与 Visual 门。
 
 **约束**：新战斗单位只能提供状态栏内容行和实际图标半径，不得自行复制面板绘制或写
 `-rotation/inv_zoom` 补偿。状态栏几何、屏幕变换、LOD 与阵营色只能改共享渲染器和 UI 规范；
-任何改动必须跑跨兵种 Visual，而非仅截单一单位。
+任何改动必须跑跨兵种（含导弹武器实体）Visual，而非仅截单一单位；状态栏内容禁止本地化调用，
+非英文身份必须回退到英文战术名。
 
 **踩到次数**：4
+
+## SEAM-037 · 武器管理器各自复制命中分派，会让目标规则与归因静默漂移
+
+**症状**：机炮、火箭、导弹直击/AOE、电磁炮和激光都能“正常扣血”，但各自维护一套
+`Aircraft/GroundUnit/NavalUnit` 分支；新增闪避、软目标一击必杀、舰船倍率、BOSS 位置路由或击杀归因时，
+常出现只对部分武器生效，已释放 source 还可能在跨帧 AOE 中变成野引用。反导路径也分别直接修改
+`intercept_hp/is_active/queue_free`，生命周期差异没有明确所有者。
+
+**根因**：碰撞检测、武器数值、目标伤害规则与弹体终态混在调用点；“命中后该调用目标哪个入口”没有
+独立权威层，导致复制分支看似局部清楚、整体却无法保证等价。
+
+**解法状态（2026-08-27 已修）**：新增无状态 `WeaponHitResolver`，由 Bullet、Missile、Railgun、Laser
+共用资格、source 清洗、归因与目标类型分派；轨迹、衰减、天气 miss 和 VFX 留在各管理器。飞机单发与
+多锁齐射共用 `_emit_missile`，一轮冷却另由 `_finish_main_missile_cycle` 提交。导弹拦截 HP 与回收收回
+`Missile.take_intercept_damage/destroy_from_intercept`。focused `weapon_hit` 锁住核心分派合同。
+
+**约束**：新增武器不得复制目标类型伤害树，也不得直接改导弹拦截 HP/活动态/回收；新目标语义必须先
+扩展 resolver 或目标自身 API，并补 focused 合同。resolver 不负责碰撞、衰减、随机 miss 或表现，且不得
+在逐弹热路径创建请求对象。
+
+**踩到次数**：1
+
+## SEAM-038 · 技能总账本、单机有效层与静态效果混在场景控制器，会让重放和切控互相污染
+
+**症状**：普通三选一与三轴卡各复制一遍候选过滤；晚入队、换型、王牌切控又各扫描一遍技能总表。
+装备资源层、`squad_once`、`ace/classes` 和自动 `skill_flag` 混在这些扫描中，新增技能容易只在获得瞬间
+生效，换型后重复叠加，或僚机/切控后静默丢失。定向下发曾通过临时替换 `SurvivorPlayer.aircraft`
+复用巨型 match，同步调用链稍有扩展就会把“当前操控机”暴露成错误目标。
+
+**根因**：`UPGRADES` 数据 SSOT 存在，但缺少从总表到“候选、单机有效层、重放计划、队级状态”的
+纯投影层；静态效果执行也隐式读取玩家对象上的当前飞机引用。
+
+**解法状态（2026-08-28 已修）**：`SurvivorSkillCatalog` 统一候选、三轴分组、单机有效层与重放计划；
+`SurvivorSkillRuntime` 统一队级自动状态同步/新局清零；`SurvivorSkillEffects` 显式接收目标飞机。
+`SurvivorPlayer` 只保留公开入口与玩家状态，旧 `evolves_to` 残链和临时换引用技巧已删除。
+
+**约束**：新增随机渠道必须调用 Catalog，禁止复制普通池过滤；自动触发只读单机有效 meta 或 Runtime
+队级投影；换型重放不得重新检查获得门槛，`category=weapon` 仍随深复制资源迁移并跳过重放；静态效果
+必须显式传目标，禁止通过改写当前操控机引用共享逻辑。
+
+**踩到次数**：3（重复随机池、晚入队补挂、切控隐式目标）
+
+## SEAM-039 · 战场净时间、阶段闸与事件调度分散在模式脚本，重开只能靠逐字段清零
+
+**症状**：`game_time` 可被物理帧、补给、王牌奖励、Debug 分别直接改写；战区超时另靠 bool 锁存，
+BOSS 阶段再由多个 ZoneData 字段拼接，王牌还单独保存时间槽、无放回顺序和已用表。增加新局/重开入口时，
+任何漏清字段都会产生第二波不刷新、ORION 消失、上一局静态血条或技能开关残留等“只在下一局发生”的问题。
+
+**根因**：场景控制器既做 Node/信号/UI 执行，又充当规则状态容器；同一局生命周期没有可独立 reset 的
+聚合根。RefCounted 事件与技能 static 又不会随 SceneTree 销毁，退出和进入各维护一份清理清单。
+
+**解法状态（2026-08-28 已修）**：`BattlefieldFlow` 独占净时间轴、战区/BOSS 阶段、战区关闭事务、
+王牌固定槽/无放回账本与 ORION 门；`SurvivorMode` 通过兼容属性向旧消费者公开时间，只保留事件启动和
+场景副作用。`SurvivorRuntimeReset` 统一新局/退局 static 清理。`battlefield_flow` 专项锁住补给/倒拨、
+阶段幂等、第二槽倒拨锁存、宿敌新局复位与双端 reset。
+
+**约束**：新的模式级时间修正、阶段锁存或一次性战场事件必须进入 `BattlefieldFlow`，不得在
+`SurvivorMode` 再加平行 bool/计数器；Node 生命周期和实体终态仍归 Mode/ZoneMission/EventDirector，
+不要把场景对象强引用存进 Flow。新增跨场景 static 必须登记到 `SurvivorRuntimeReset` 并补进入+退出测试。
+
+**踩到次数**：1
+
+## SEAM-040 · 表现几何散落在管理器与领域 renderer，批次合同会静默漂移
+
+**症状**：`BulletManager` / `MissileManager` 同时承担碰撞、生命周期和上百行 `_draw`；地图矢量、
+飞机尾迹、导弹尾迹与爆点各自拼 `points/indices/colors` 并直接调用 RenderingServer。某处漏掉面积门、
+颜色长度或索引对齐时，Godot 可能静默少画；为复用画法改 manager 又容易误碰命中热路径。
+
+**根因**：领域表现语义与底层三角提交没有分层；“数据谁拥有”“画法谁负责”“批次如何合法提交”
+三种强度不同的职责混在同一脚本。
+
+**解法状态（2026-08-28 已修核心路径）**：`BulletPresenter` 接管弹丸/火箭/Flak/火星/漂浮雷画法，
+`ExplosionPresenter` 接管 AOE 与统一方框爆点，manager 只保留状态和生命周期；无领域语义的
+`CanvasTrianglePacket` 统一面积门、数组对齐与提交，并由地图静态 packet、飞机/导弹尾迹及爆点复用。
+正式栅格 streaming、地图 LOD 与 retained Canvas 缓存仍留在原 renderer。
+
+**约束**：新增表现先放对应领域 presenter；manager 只保存足以重建画面的值数据，不创建每弹 VFX
+子节点。只有三角组包/提交可进入 `CanvasTrianglePacket`，禁止把地图、弹丸、HUD 语义塞进通用层。
+静态地图不得逐帧重绘，`_draw` 不得消费战斗 RNG；新增高频画法必须补 focused 几何门和 Visual/C1。
+
+**踩到次数**：3（尾迹多 draw、爆点近轴塌面、地图静态层逐帧重绘）
 
 ## 维护约定
 

@@ -70,8 +70,8 @@ func _ready() -> void:
 	_sample_aircraft.gun_reload_progress = 0.28
 
 	var charge := AfterburnerCharge.new()
-	charge.active = true
 	charge.charge = AfterburnerCharge.CHARGE_MAX * 0.64
+	charge.activate(_sample_aircraft)
 
 	var panel = PlayerInstrumentPanelScript.new()
 	panel.weapon_animation_time_override_ms = 1000
@@ -179,6 +179,21 @@ func _ready() -> void:
 	var path := "res://bench/results/player_hud_visual.png"
 	var err := get_viewport().get_texture().get_image().save_png(path)
 	print("[player_hud_visual] screenshot=%s err=%d" % [path, err])
+	# 第二张样张：热诱弹刚进入 CD、加力资源可用，E 键处于确定性的反色提示相。
+	charge.deactivate(&"visual_hint")
+	charge.charge = AfterburnerCharge.CHARGE_MAX
+	_sample_aircraft._flare_cooldown = 0.0
+	panel.update_display(_sample_aircraft, charge)
+	panel.afterburner_hint_time_override_ms = 1000
+	panel._sync_afterburner_flare_hint(1000)
+	_sample_aircraft._flare_cooldown = 1.0
+	panel._sync_afterburner_flare_hint(1000)
+	panel.queue_redraw()
+	await get_tree().process_frame
+	await RenderingServer.frame_post_draw
+	var hint_path := "res://bench/results/player_hud_afterburner_hint_visual.png"
+	var hint_err := get_viewport().get_texture().get_image().save_png(hint_path)
+	print("[player_hud_visual] hint_screenshot=%s err=%d" % [hint_path, hint_err])
 	_sample_aircraft.free()
 	panel.queue_free()
 	wingman_panel.queue_free()
@@ -189,4 +204,4 @@ func _ready() -> void:
 	bottom_bar.queue_free()
 	background.queue_free()
 	await get_tree().process_frame
-	get_tree().quit(0 if err == OK and hidden_err == OK else 1)
+	get_tree().quit(0 if err == OK and hidden_err == OK and hint_err == OK else 1)

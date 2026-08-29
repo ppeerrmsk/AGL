@@ -4,7 +4,7 @@
 >
 > ⚠ **本文是选摘，不是全量**。飞机部分只覆盖**早期的几个基准 .tres**，
 > 后来加的大量机型不在这里：
-> - **玩家机（43 机）** → `resources/player/player_*.tres`；配平规范看
+> - **玩家机（50 机）** → `resources/player/player_*.tres`；配平规范看
 >   [specs/systems/player-aircraft-power-curve](../specs/systems/player-aircraft-power-curve.md)，
 >   进化树看 [specs/systems/aircraft-evolution-tree](../specs/systems/aircraft-evolution-tree.md)
 > - **敌机** → [enemy-index.md](enemy-index.md) 的 Enemy Index 表（当前 50+ 个 `EnemyType` 条目；含 `.tres` / Token / 上限 / 解锁等级）
@@ -127,6 +127,10 @@
 | 火控角 | 5.0° | 15.0° | 3.0° |
 | 弹药 | 200 | 2000 | 200 |
 
+> `default_gun` 的 200 是共享回退值，不代表 50 架玩家机都固定 200。生存模式在深拷资源后由
+> `PlayableAircraft.gun_ammo_override` 按定位覆盖为 180/200/240/280/320；精确逐机表见
+> [player-aircraft-power-curve](../specs/systems/player-aircraft-power-curve.md) 当前曲线契约。
+
 ---
 
 ## 导弹参数总表（选摘）
@@ -170,13 +174,14 @@
 
 | Tier | 默认 `max_count` | 允许例外 |
 |---|---:|---|
+| T0 | 2 | 无 |
 | T1 | 2 | 无 |
 | T2 | 2 | 无 |
 | T3 | 3 | 无 |
-| T4 | 3 | 无 |
+| T4 | 3 | MiG-41 / GCAP / J-36 远程承接点为 4 |
 | T5 | 4 | 仅 `category=range` 的远程导弹专精机可为 5；当前仅 X-21 |
 
-> 43 份玩家机 profile/params 按此表验收。攻击机与其它非远程分类不得使用 5 发默认挂载；直接跨 Tier 进化边不得倒退。
+> 50 份玩家机 profile/params 按此表验收。T0~T2=2、T3=3、T4 常规=3；MiG-41/GCAP/J-36=4；T5=4，X-21=5。直接进化边不得倒退且单步最多 +1。
 
 ---
 
@@ -196,11 +201,11 @@
 | 低能量导弹加成 | +20% |
 | 飞行员焦虑度 | 0.5 |
 
-**玩家族 `resources/player/flare_t1~t5.tres`**（43 机按进化树 tier 引用）
+**玩家族 `resources/player/flare_t0~t5.tres`**（50 机按进化树 tier 引用）
 
 | 参数 | 值 |
 |------|-----|
-| 携带量 | **T1=2 / T2=3 / T3=4 / T4=5 / T5=6**（分档唯一变量） |
+| 携带量 | **T0=1 / T1=2 / T2=3 / T3=4 / T4=5 / T5=6**；EA-6B 为 T0 电战特例 2 |
 | 每次释放 | 1 枚（"1 枚 = 1 次机会"记账） |
 | 冷却 / 装填 | 1.5s / 12.0s（装填是否启用看 `PlayableAircraft.enable_flare_reload`） |
 | 基础干扰率 | 90% |

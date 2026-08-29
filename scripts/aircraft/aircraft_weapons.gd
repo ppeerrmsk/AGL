@@ -268,7 +268,7 @@ static func auto_gun_scan(ac: Aircraft) -> void:
 	# 方向狂喷子弹（= 用户反馈"规避中朝没有目标的地方开火"）。与 cobra/herbst 同款静默。
 	# 见 docs/changelogs/player-ai-log.md（2026-06-15 规避盲射根治）
 	# afterburner_window_active：加力窗口全队禁攻击（僚机不置 evasion_mode，需独立盖到）
-	if ac.evasion_mode or ac.afterburner_window_active:
+	if ac.evasion_mode or ac.is_afterburner_mode_active():
 		ac.is_firing = false
 		ac._auto_gun_target_id = 0
 		return
@@ -459,7 +459,8 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 			and ac._ai_gun_pause_timer > 0.0:
 		ac._ai_gun_pause_timer = maxf(ac._ai_gun_pause_timer - delta, 0.0)
 	# §C 玩家技能"AB 时回机炮弹"：开 AB 时持续 regen（受 max_ammo 上限）
-	if ac.is_player_squad() and ac.is_afterburner and ac.ab_gun_regen_per_sec > 0.0 \
+	if ac.is_player_squad() and ac.is_afterburner_mode_active() \
+			and ac.ab_gun_regen_per_sec > 0.0 \
 			and ac.params and ac.params.gun:
 		_regen_gun_ammo(ac, delta, ac.ab_gun_regen_per_sec,
 			ac.params.gun.max_ammo, &"_ab_gun_regen_accum")
@@ -487,7 +488,7 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 	# 规避模式：掐断残梭 —— 机头大角度机动中绝不朝旧 lead 方向喷完剩余弹
 	# （同 auto_gun_scan 的规避静默语义，见 2026-06-15 规避盲射根治）
 	# afterburner_window_active：加力窗口全队禁攻击（spec afterburner-mode）
-	if ac.evasion_mode or ac.afterburner_window_active:
+	if ac.evasion_mode or ac.is_afterburner_mode_active():
 		ac._gun_burst_rounds_left = 0
 		ac._gun_burst_target_id = 0
 	# 目标当帧已毁但尚未被 clear_combat_target 摘除（AI 分频检测有 1~3 帧滞后）：
@@ -612,7 +613,7 @@ static func _log_burst_start(ac: Aircraft, gun: GunParams) -> void:
 ## 单发出弹：散布/云雾/机动惩罚/多管齐射/音效/弹药，从旧 update_gun 原样抽出
 static func _fire_gun_round(ac: Aircraft, gun: GunParams) -> void:
 	# 加力窗口全队禁攻击硬断（spec afterburner-mode）；CIWS 拦截弹不走本函数、照常防御
-	if ac.afterburner_window_active:
+	if ac.is_afterburner_mode_active():
 		return
 	# 生成弹丸：朝前置射击方向发射
 	if ac.bullet_manager and ac.bullet_manager.has_method("spawn_bullet"):
@@ -856,7 +857,7 @@ static func rocket_burst_plan(burst_n: int, spread_rad: float,
 ## spread_offset 是远段目标偏角；出膛航向始终取本发实际发射当帧的机体 heading。
 static func _launch_rocket(ac: Aircraft, spread_offset: float, pylon: int = 0) -> void:
 	# 加力窗口全队禁攻击硬断（spec afterburner-mode）：含已入队的延迟出膛弹
-	if ac.afterburner_window_active:
+	if ac.is_afterburner_mode_active():
 		return
 	if not ac.params or not ac.params.rocket:
 		return
@@ -870,9 +871,11 @@ static func _launch_rocket(ac: Aircraft, spread_offset: float, pylon: int = 0) -
 	var right := Vector2(cos(ac.heading), sin(ac.heading))
 	var muzzle_pos := ac.global_position + fwd * 24.0 + right * (float(pylon) * 18.0)
 	var launch_heading: float = ac.heading
+	# 火箭继承发射机当帧前向速度：高速攻击跑会得到更高地速，且飞机不会追过自己的火箭。
+	var launch_speed_ms: float = rk.muzzle_velocity + maxf(ac.speed, 0.0)
 	if rk.min_damage_mult < 1.0:
 		ac.bullet_manager.spawn_rocket_with_falloff(
-			muzzle_pos, launch_heading, rk.muzzle_velocity, ac,
+			muzzle_pos, launch_heading, launch_speed_ms, ac,
 			rk.rocket_damage, rk.max_range,
 			rk.proximity_fuse_radius_m, rk.aoe_radius_m, rk.aoe_damage,
 			rk.min_damage_mult, spread_offset,
@@ -880,7 +883,7 @@ static func _launch_rocket(ac: Aircraft, spread_offset: float, pylon: int = 0) -
 		)
 	else:
 		ac.bullet_manager.spawn_rocket(
-			muzzle_pos, launch_heading, rk.muzzle_velocity, ac,
+			muzzle_pos, launch_heading, launch_speed_ms, ac,
 			rk.rocket_damage, rk.max_range,
 			rk.proximity_fuse_radius_m, rk.aoe_radius_m, rk.aoe_damage,
 			spread_offset, rk.straight_flight_distance, rk.spread_transition_distance,
@@ -995,7 +998,7 @@ static func update_formation_passive_missile(ac: Aircraft, delta: float) -> void
 		return
 	var previous_mode: int = ac.weapon_mode
 	var fire_allowed: bool = ac.missile_auto_fire \
-			and not ac.evasion_mode and not ac.afterburner_window_active
+			and not ac.evasion_mode and not ac.is_afterburner_mode_active()
 	ac.weapon_mode = Aircraft.WeaponMode.MISSILE if fire_allowed else Aircraft.WeaponMode.GUN
 	update_missile(ac, delta)
 	ac.weapon_mode = previous_mode
@@ -1230,44 +1233,58 @@ static func _sig_f35_relay_ok(ac: Aircraft, target: CombatUnit) -> bool:
 
 ## 对指定目标发射一枚导弹
 static func _fire_missile_at(ac: Aircraft, target_unit: CombatUnit, msl: MissileParams, is_secondary: bool = false) -> void:
-	# 加力窗口全队禁攻击硬断（spec afterburner-mode）：主/副导弹发射统一收口
-	if ac.afterburner_window_active:
+	if not _emit_missile(ac, target_unit, msl, is_secondary, true):
 		return
+	if not is_secondary:
+		_finish_main_missile_cycle(ac, msl)
+
+
+## 单枚导弹的共享提交边界：发射、日志、战报、通知、音效与弹药只在这里结算一次。
+## cooldown/reload 属于“本轮发射”而非单弹；单发包装与齐射分别在成功后调用 cycle helper。
+static func _emit_missile(ac: Aircraft, target_unit: CombatUnit, msl: MissileParams,
+		is_secondary: bool = false, play_audio: bool = true,
+		diagnostic_suffix: String = "") -> bool:
+	# 加力窗口全队禁攻击硬断（spec afterburner-mode）：主/副导弹发射统一收口
+	if ac.is_afterburner_mode_active():
+		return false
 	# Snowblind 只拦截新交战/发射；已经离架的实体导弹仍按物理链飞行和命中。
 	if ac.is_sensor_engagement_obscured(target_unit):
-		return
+		return false
 	var dist_m := ac.global_position.distance_to(target_unit.global_position) / CombatUnit.PIXELS_PER_METER
 	var remaining := (ac.secondary_missiles_remaining - 1) if is_secondary else (ac.missiles_remaining - 1)
 	EventLogger.log_event("MISSILE", ac._log_name(),
-		"fired %s → %s (range=%.0fm, remaining=%d)" % [
+		"fired %s → %s (range=%.0fm, remaining=%d%s)" % [
 			msl.display_name if msl.display_name else "missile",
-			ac._log_unit_name(target_unit), dist_m, remaining])
+			ac._log_unit_name(target_unit), dist_m, remaining, diagnostic_suffix])
 	EventLogger.tally(ac._log_name(), "msl_fired")
 	ac.missile_manager.spawn_missile(ac, target_unit, msl, is_secondary)
 	ac.notify_missile_fired_at(target_unit)
-	AudioManager.play_sfx_2d("missile_launch" if randf() < 0.5 else "missile_launch_alt", ac.global_position, -12.0)
+	if play_audio:
+		AudioManager.play_sfx_2d("missile_launch" if randf() < 0.5 else "missile_launch_alt", ac.global_position, -12.0)
 	# 720 批"副武器"：机炮弹尽装填期内发射导弹不消耗弹药
 	if not ac.infinite_ammo and not _overload_ammo_free(ac) and not SkillHooks.in_free_missile_window(ac):
 		if is_secondary:
 			ac.secondary_missiles_remaining -= 1
 		else:
 			ac.missiles_remaining -= 1
-	# 主弹路径：写共享 _missile_cooldown / _crank_timer / 装填触发
-	# 副槽路径：cooldown / reload 全在 update_secondary_missile 自管，这里不动
-	if not is_secondary:
-		ac._missile_cooldown = msl.cooldown * ac.weapon_master_cd_mult
-		ac._crank_timer = Aircraft.CRANK_DURATION
-		if ac.enable_missile_reload and ac.missiles_remaining <= 0:
-			ac._missile_reload_active = true
-			ac._missile_reload_timer = 0.0
-			ac.missile_reload_progress = 0.0
+	return true
+
+
+## 主弹一轮发射完成后的共享 cooldown / crank / reload 提交。
+static func _finish_main_missile_cycle(ac: Aircraft, msl: MissileParams) -> void:
+	ac._missile_cooldown = msl.cooldown * ac.weapon_master_cd_mult
+	ac._crank_timer = Aircraft.CRANK_DURATION
+	if ac.enable_missile_reload and ac.missiles_remaining <= 0:
+		ac._missile_reload_active = true
+		ac._missile_reload_timer = 0.0
+		ac.missile_reload_progress = 0.0
 
 
 ## 多目标齐射：选出多个已锁定目标，每个目标发射一枚
 ## 返回是否至少发射了一枚导弹
 static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 	# 加力窗口全队禁攻击硬断（spec afterburner-mode）：齐射路径内部直接 spawn，需独立盖到
-	if ac.afterburner_window_active:
+	if ac.is_afterburner_mode_active():
 		return false
 	var hyper_a_salvo: bool = ac.has_meta(META_HYPER_A_SATURATION_SALVO) \
 			and bool(ac.get_meta(META_HYPER_A_WEAPONS_ENABLED, false))
@@ -1419,43 +1436,27 @@ static func _fire_multi_lock_salvo(ac: Aircraft, msl: MissileParams) -> bool:
 	# （722 sig_f22·先敌开火：隐身期间在当前锁数上临时 +2）
 	var fire_count: int = _salvo_fire_count(ac.effective_max_locks(), locked_targets.size(),
 		ac.missiles_remaining)
-	var msl_display: String = msl.display_name if msl.display_name else "missile"
 	# 规范化到 [0, 360°)，与游戏内 HDG 显示一致
 	var hdg_deg := fposmod(rad_to_deg(ac.heading), 360.0)
+	var emitted_count: int = 0
 	for i in range(fire_count):
 		var tgt: CombatUnit = locked_targets[i]
-		var dist_m := ac.global_position.distance_to(tgt.global_position) / CombatUnit.PIXELS_PER_METER
 		# 诊断：目标相对机头的偏角
 		var to_tgt := tgt.global_position - ac.global_position
 		var hdg_to_tgt := atan2(to_tgt.x, -to_tgt.y)
 		var off_axis_deg := rad_to_deg(ac._angle_diff(hdg_to_tgt, ac.heading))
 		var tgt_abs_brg := fposmod(rad_to_deg(hdg_to_tgt), 360.0)
 		var lock_val: float = ac.radar_targets.get(tgt, 0.0)
-		EventLogger.log_event("MISSILE", ac._log_name(),
-			"fired %s → %s (range=%.0fm, remaining=%d, salvo %d/%d, hdg=%03.0f° tgt_brg=%03.0f° tgt_off=%+.0f° lock=%.2fs)" % [
-				msl_display, ac._log_unit_name(tgt), dist_m,
-				ac.missiles_remaining - 1, i + 1, fire_count,
-				hdg_deg, tgt_abs_brg, off_axis_deg, lock_val])
-		EventLogger.tally(ac._log_name(), "msl_fired")
-		ac.missile_manager.spawn_missile(ac, tgt, msl)
-		ac.notify_missile_fired_at(tgt)
-		# 音效：齐射整体只响一下
-		if i == 0:
-			AudioManager.play_sfx_2d("missile_launch" if randf() < 0.5 else "missile_launch_alt", ac.global_position, -12.0)
-		if not ac.infinite_ammo and not _overload_ammo_free(ac) \
-				and not SkillHooks.in_free_missile_window(ac):
-			ac.missiles_remaining -= 1
+		var suffix := ", salvo %d/%d, hdg=%03.0f° tgt_brg=%03.0f° tgt_off=%+.0f° lock=%.2fs" % [
+			i + 1, fire_count, hdg_deg, tgt_abs_brg, off_axis_deg, lock_val]
+		if _emit_missile(ac, tgt, msl, false, emitted_count == 0, suffix):
+			emitted_count += 1
 
-	if fire_count > 0:
+	if emitted_count > 0:
 		# 一次齐射只消耗一轮正常冷却；锁数提升覆盖面，不提供免冷却。
-		ac._missile_cooldown = msl.cooldown * ac.weapon_master_cd_mult
-		ac._crank_timer = Aircraft.CRANK_DURATION
-		if ac.enable_missile_reload and ac.missiles_remaining <= 0:
-			ac._missile_reload_active = true
-			ac._missile_reload_timer = 0.0
-			ac.missile_reload_progress = 0.0
+		_finish_main_missile_cycle(ac, msl)
 		if ac.use_tactical_preference:
-			ac._log_threat_picture("after salvo x%d" % fire_count)
+			ac._log_threat_picture("after salvo x%d" % emitted_count)
 		return true
 	return false
 
@@ -1476,19 +1477,24 @@ static func _overload_ammo_free(ac: Aircraft) -> bool:
 	return int(stacks.get(SkillHooks.SKILL_OVERLOAD_EXTENDED_AMMO, 0)) > 0
 
 
+## 加力专属载荷的唯一门。TORP / WMN 共用，禁止各自回退到 evasion_mode 或物理 AB。
+static func afterburner_payload_enabled(ac: Aircraft) -> bool:
+	return ac != null and is_instance_valid(ac) and ac.is_afterburner_mode_active()
+
+
 ## 空中漂浮雷：加力窗口中 CD 完毕自动在机身周围投下若干颗
 ## 投下后留在原地缓慢漂移 + 缓降，不追踪，敌人靠近自爆 AOE
-## 不需要装填弹药，CD 持续倒数（不论是否在规避模式），但只在规避模式下才会触发投放
+## 不需要装填弹药，CD 持续倒数，但只在加力窗口中才会触发投放
 static func update_torpedo(ac: Aircraft, delta: float) -> void:
 	if not ac.params or not ac.params.torpedo:
 		return
 	var tp: TorpedoParams = ac.params.torpedo
 
-	# 冷却持续倒数（不在规避模式时也减，但不会发射 → 进入规避瞬间不会立刻获得免费一发）
+	# 冷却持续倒数（窗口外也减，但不投放）
 	ac._torpedo_cooldown = maxf(ac._torpedo_cooldown - delta, 0.0)
 
 	# 仅在加力窗口中投放
-	if not ac.afterburner_window_active:
+	if not afterburner_payload_enabled(ac):
 		return
 	if ac._torpedo_cooldown > 0.0:
 		return
@@ -1546,8 +1552,11 @@ static func update_loyal_wingman(ac: Aircraft, delta: float) -> void:
 						d.set_meta("_drone_offscreen_timer", t)
 		i -= 1
 
-	# 冷却持续倒数（即使不在规避模式 — 进规避瞬间不送免费一发）
+	# 冷却持续倒数（加力窗口外也减，但不召唤）
 	ac._loyal_wingman_cooldown = maxf(ac._loyal_wingman_cooldown - delta, 0.0)
+	# 忠诚僚机与 TORP 共用肉鸽加力窗口门；普通 AI 规避/物理 AB 不得触发。
+	if not afterburner_payload_enabled(ac):
+		return
 
 	# 早退：CD 未到 / 已达 cap / JAM 干扰
 	if ac._loyal_wingman_cooldown > 0.0:
@@ -1762,7 +1771,7 @@ static func update_secondary_missile(ac: Aircraft, delta: float) -> void:
 	# （= 用户反馈"规避中朝没有目标的地方发射导弹"）。cooldown 继续倒数，退出规避即可发。
 	# 见 docs/changelogs/player-ai-log.md（2026-06-15 规避盲射根治）
 	# afterburner_window_active：加力窗口全队禁攻击（spec afterburner-mode）
-	if ac.evasion_mode or ac.afterburner_window_active: return
+	if ac.evasion_mode or ac.is_afterburner_mode_active(): return
 
 	# 装填（独立计时器，与主弹无关）
 	if ac._secondary_reload_active:

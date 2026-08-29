@@ -498,6 +498,9 @@ func _add_tile(
 	by_key[key] = sprite
 	_peak_resident_tiles = maxi(_peak_resident_tiles, resident_tile_count())
 	_touch_lru(_resident_key(lod, key))
+	if fade_in:
+		PerfBuckets.mark_frame_event("raster_tile_bind")
+		PerfBuckets.count("raster_tile_binds")
 	if fade_in and lod == _current_lod and layer.visible:
 		sprite.modulate.a = 0.0
 		var tween := sprite.create_tween()
@@ -518,6 +521,7 @@ func _try_begin_transition() -> void:
 
 func _begin_transition(next_lod: StringName) -> void:
 	_transitioning = true
+	PerfBuckets.mark_frame_event("raster_lod_transition")
 	var old_lod := _current_lod
 	_transition_from_lod = old_lod
 	var old_layer := _layers.get(old_lod) as Node2D

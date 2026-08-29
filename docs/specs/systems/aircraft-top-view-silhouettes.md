@@ -3,7 +3,7 @@ id: aircraft-top-view-silhouettes
 kind: system
 status: done
 schema_version: 1
-spec_version: 8
+spec_version: 9
 owner: AGL
 depends_on: [systems/battlefield-visual-scale]
 reconstruction_complete: true
@@ -44,7 +44,7 @@ reconstruction_complete: true
 - `fallback_source_not_clean`：现实机，但没有找到足够干净且可复用的顶视来源，继续旧绘制。
 - `fallback_unverified_concept`：原创、未定型或仅有概念外形，不制作正式轮廓。
 
-当前正式接入 **40** 张 reviewed PNG。A-12、F-47、F/A-XX、FCAS、GCAP、J-36、MiG-41 不以猜测外形制作正式 PNG。
+当前正式接入 **44** 张 reviewed PNG。A-12、F-47、F/A-XX、FCAS、GCAP、J-36、MiG-41 不以猜测外形制作正式 PNG。
 
 原创/虚构显示名中 **24** 个继续保留旧 polygon/special renderer，包括 X 系列、AX-00、AF-03、Cre、DEADAIR、Snowblind、Sentinel、MQ-112、Aegis UAV、DRONE、Probe、Mother Goose 与 Hyper-A G0–G3。MQ-109 / MQ-110 / MQ-111 按用户提供并批准的定型顶视参考，共用 `mq109_family` 白色蒙版；三者只以武器、颜色和行为区分，并用 `DRAW_SCALE=0.53` 保持旧无人机约 55% 战斗机视觉尺寸。
 
@@ -58,6 +58,11 @@ reconstruction_complete: true
 - Gripen C / E → `gripen`
 - Su-27 / Su-35 → `su27`
 - MiG-31 两个显示名 → `mig31`
+- F-104 / F-104C → `f104`
+- F-4 / F-4E Phantom II → `f4`
+- MiG-23 / MiG-23 Flogger → `mig23`
+
+MiG-21F-13、J 35F Draken、EA-6B Prowler 与 Jaguar GR.1A 各用独立 reviewed key，不以 J-7、A-6E 或其他近似机型代替。
 
 ### 2.4 滚转体积投影
 
@@ -86,13 +91,13 @@ reconstruction_complete: true
 
 ## 4. 验收标准
 
-- [x] 40 张正式 PNG 均为 128 × 128 RGBA、白色 alpha 蒙版、透明四角、机头朝上。
+- [x] 44 张正式 PNG 均为 128 × 128 RGBA、白色 alpha 蒙版、透明四角、机头朝上。
 - [x] 每个正式 key 都有来源、许可/署名（适用时）、处理边界和 alpha 哈希。
 - [x] 运行时目录只包含 `reviewed` key；fallback key 不会加载占位 PNG。
 - [x] 同型号玩家/敌人/子型号共享一张 PNG，仅通过颜色区分。
 - [x] 玩家机运行时名称拼接档案代号后仍命中同一机型 PNG；F-14 `Tomcat Warhound` 不回退旧绘制。
 - [x] 24 个未获批准定型参考的原创/虚构显示名和未知 UGC 保留旧绘制；MQ-109/110/111 共用用户参考轮廓。
-- [x] 静态审计覆盖当前 86 个 AircraftParams 显示名。
+- [x] 静态审计覆盖当前全部 AircraftParams 显示名；七架 T0 / 低位 T1 新机零 unmapped。
 - [x] Godot 4.7 Shadow 视觉 QA 通过，逐架拼图没有方向、裁切、加载或颜色错误。
 - [x] 0° / 30° / 60° / 80° / 90° / 120° / 180° 滚转样张覆盖现实 PNG、轰炸机、无人机与 legacy 轮廓；90° 壳层宽度大于零。
 - [x] PNG 图标滚转前后都不超过原有两次纹理提交；不新增 Aircraft 子节点、process、场景树扫描或纹理解码。
@@ -122,6 +127,7 @@ reconstruction_complete: true
 - **2026-08-09 / v6**：修正 F-104 误截取顶视图后半段的问题；从同一授权三视图重新提取完整机鼻、主翼、机身与尾翼，并统一机头朝上。
 - **2026-08-09 / v7**：用户提供并批准 MQ-109 系定型参考；从原图严格提取无尾三角翼、双垂尾和尖长机身外轮廓，MQ-109 / MQ-110 / MQ-111 共用一张运行时换色 PNG，并以 0.53 目录缩放保持旧无人机尺寸；MQ-112 保持旧绘制。
 - **2026-08-17 / v8**：滚转由纯 `cos` 纸片压缩改为“壳层 + 顶面/机腹”二维体积投影；不提高原有纹理提交上限，并新增角度矩阵 Visual QA、纯函数回归和 `stress_40` 改前/改后负担记录。
+- **2026-08-28 / v9**：为 T0 / 低位 T1 扩谱补齐七架现实机运行时模型：F-104C、F-4E、MiG-23 复用已审同型号 key；MiG-21F-13、J 35F、EA-6B、Jaguar 从公共领域三视图新增独立蒙版。并把逐机参考、manifest、静态审计与 Godot Visual 写入主角飞机新增 / 更新流程硬门。
 
 ## 7. 代表性来源
 

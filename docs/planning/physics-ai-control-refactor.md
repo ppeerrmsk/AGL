@@ -264,9 +264,9 @@ ControlIntent { source: enum, priority: int,
 > 关键实现事实：
 > ①`AIState` 收缩为三值，`_evading` modifier 由 MissileEvasion enter/exit 独占（enter 幂等；
 >   exit 三路重定复用过渡函数）；分发层 `if _evading` 短路排在铁律之前（B1 让位保持）。
-> ②过渡函数 `enter_engage_state(reset_tactic)` / `enter_squad_follow_state(snap)` /
+> ②过渡函数 `enter_engage_state(reset_plan)` / `reset_tactical_plan()` / `enter_squad_follow_state(snap)` /
 >   `enter_patrol_state(pick_waypoint)` 收口全部 23 个 _state 写点（含 HUD/ace/poltergeist
->   外部直写→API）。软重连语义（reset_tactic=false）覆盖 BOSS 维持/躲弹恢复/directive。
+>   外部直写→API）。软重连语义（reset_plan=false）覆盖 BOSS 维持/躲弹恢复/directive。
 > ③约束层 `_apply_constraints`（节流后、分发前）：combat_zone + 小队 leash 合一，
 >   交战/躲弹一视同仁（SEAM-010 三份拷贝退役）；铁律豁免仅 ENGAGE（EVADE 无豁免=旧语义）。
 > ④踩点修正：spawn 守卫/escort 分支/pilot_personality 压力累积各加 `not _evading` 门
@@ -288,18 +288,42 @@ ControlIntent { source: enum, priority: int,
 
 ### Phase 3 · 战术执行器归一（风险：中低，收益：删代码）
 
-前提：沙盒模式确认废弃（memory 已确认只打生存包）。
+> **物理子切片 1 已落地（2026-08-27）**：速度目标约束与速度积分提取为
+> `AircraftPhysics._speed_target_ms` / `_integrate_speed_ms`，实飞 `update_speed` 与预测
+> `step_speed` 只保留状态解包薄壳，删除约 85 行镜像公式；同时修正 Typhoon 超巡爬升
+> 豁免只存在于实飞侧的预测漂移。`predicted_path` 新增正常飞行 180 步 + 急刹 120 步
+> 逐帧同值断言；focused 与 `all`（83 项 + lifecycle 82）通过。
+> **物理子切片 2 已落地（2026-08-27）**：目标航向、协调转弯航向积分、高度积分继续
+> 提取为 `_target_heading_state` / `_integrate_heading_rad` / `_integrate_altitude_state`；
+> `predicted_path` 扩到 12 项逐帧同值断言，并收掉 Typhoon 爬升率 ×1.5 仅存在于实飞侧的
+> 第二处预测漂移。至此除 bank 控制器外，主要 update/step 物理镜像均已单一化。
+> **物理子切片 3 已落地（2026-08-27）**：方向锁状态迁移、坡度帽、滚转权限、失速回正及
+> bank-rate EMA 积分提取为共享纯函数，`update_bank` / `step_bank` 只保留状态与日志薄壳；
+> `predicted_path` 扩到 13 项，新增滚转 240 步逐帧同值断言。至此主要 update/step 飞行物理
+> 镜像已全部单一化，SEAM-017 不再依赖人肉同步。
+> **AI 子切片 1 已落地（2026-08-27）**：巡逻、远距作战偏好与近距匹配高度从 legacy
+> `BFMTactics` 移入无状态 `AIAltitudePolicy`；AI 状态过渡与导弹规避恢复不再为一个飞行
+> 剖面 helper 依赖整套旧执行器。`state_machine` 增加连续高度、包线钳制、近距匹配与
+> 扁平档位 4 项行为断言。
+> **AI 子切片 2 已落地（2026-08-27）**：新增无状态 `PursuitGeometry`，把机炮两轮前置、
+> simple UAV、护驾自爆机与忠诚无人机的闭合时间外推收进同一几何模块；各调用点保留原
+> 预测窗、闭合速度与 lead 系数，`bfm_intent` 以公式等价断言防行为漂移。
+> **AI 子切片 3 已落地（2026-08-27）**：全功能 AI 主路由强制启用 TacticalPlanner，
+> simple AI 保留低成本独立路径；删除已不可达的 `BFMTactics` 九执行器、分发块与迁移期开关
+> `ENABLE_PLANNER_FOR_REGULAR_AI`。演出体若关闭 planner，必须同时停用 AIController。
 
-- SNIPER_HOLD 移植为第 14 个 intent；`prefer_nose_aligned_weapon` 机型迁入 planner；
-  沙盒 main.gd 停止使用旧路径 → **整体删除 BFMTactics 9 执行器**及其死状态
-  （`_tactic_timer/_yoyo_phase/_scissors_*/_lufberry_*/_gun_jink_*`）。
-  yo-yo 若实测需要，作为 intent 补齐；否则明确放弃（记入 spec）。
+前提：沙盒模式已按项目入口约定废弃，只保留物理调试用途，不再作为正式玩法兼容目标。
+
+- ~~全功能 AI 统一走 planner，整体删除 BFMTactics 9 执行器。~~ **执行器与分发已删除；**
+  旧兼容状态字段仍有目标选择、飞行员心理、王牌脚本与测试引用，留待下一小切片逐项改名/
+  删除。yo-yo 若实测需要，作为新 intent 重新设计，不恢复旧执行器。
 - PilotPersonality 误差注入在 planner 路径补对等接入点（apply 到 resolve 后的 intent，
   单点注入，符合 SEAM-001 的 accessor 哲学）——恢复"飞行员会犯错"。
-- `_process_simple` 与 `_process_drone_engage` 的 lead-pursuit 换用 BfmIntent 的
-  纯函数（消灭 5 份实现 → 1 份）。
-- `update_*` vs `step_*`：逐对提取共享纯函数（`compute_target_bank` 已是样板），
-  两侧变成薄壳，"人肉同步"注释删除。
+- ~~`_process_simple` 与 `_process_drone_engage` 的 lead-pursuit 换用共享纯函数。~~
+  **首批已完成**：机炮 / simple / drone / kamikaze 四条外推路由已归入 `PursuitGeometry`；
+  特殊 swarm lane、standoff、joust 继续保留各自战术语义。
+- ~~`update_*` vs `step_*`：逐对提取共享纯函数（`compute_target_bank` 已是样板），
+  两侧变成薄壳，"人肉同步"注释删除。~~ **已完成（2026-08-27，物理子切片 1~3）。**
 - 编队私有 speed/altitude/position 物理收口到 AircraftPhysics
   （复制 2026-06-07 bank/heading 收口的成功路径）；收口后删除
   "每帧回写 target_speed_kmh 防残留"补丁。
@@ -460,11 +484,10 @@ spec weapon-employment-doctrine §8 v5 有完整记录。回归门 14 项全绿�
    （engage_duration 定时器伪打带跑已由 joust 自循环取代）。过 → spec 转 done。
 3. 观察项（用户已知，待拍板是否做）：①电磁炮竞选无超杀去重——开局 5 机集火同一 UAV；
    ②QMAAM 格斗弹无人挂载（预留资源，装备位设计机会）；③电磁炮射击节奏（cooldown 数值活）。
-4. 重构主线剩余：~~Phase 2 状态正交化+约束层~~ **已落地（2026-07-05，
-   --bench=state_machine 15 断言 + 回归门 17 项全绿，详见 §5 Phase 2 标注）**。
-   下一块：Phase 1 step4/5（BOSS/旧BFM 的 pursuit 直写迁移，低优先，可并入 Phase 3）→
-   **Phase 3 执行器归一**（删旧 BFMTactics/update-step 合一 SEAM-017 根治/PilotPersonality
-   接入 planner，净删 1000+ 行）→ Phase 4 频率/LOD → Phase 5 小队学说层（§7）。
+4. 重构主线：~~Phase 2 状态正交化+约束层~~ **已落地（2026-07-05）**；
+   ~~Phase 3 执行器归一~~ **已落地（2026-08-27）**：全功能 AI 统一 TacticalPlanner，
+   旧 BFMTactics、EngageTactic、SituationData 与迁移期开关已删除；update/step 物理积分同源，
+   PilotPersonality 改读 TacticalPlan intent。下一块为 Phase 4 频率/LOD → Phase 5 小队学说层（§7）。
    anchor 区域保护（§7.1）的地基已就位（约束层 _apply_constraints），命令轮盘
    "防守此区"实装时直接在约束层加第三条。
 5. 小项：legacy AI 直读 params 带（SEAM-001 备注，给敌机加状态型 buff 前必修）、

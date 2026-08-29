@@ -2,6 +2,17 @@ extends Node2D
 
 const TerminalPageShellScript := preload("res://scripts/ui/terminal_page_shell.gd")
 const TerminalUiStyleScript := preload("res://scripts/ui/terminal_ui_style.gd")
+const AircraftHologramPreviewScript := preload(
+	"res://scripts/survivor/aircraft_hologram_preview.gd")
+
+## T0 起手机机场等价礼包的玩家可见名称。授予仍只认 profile.starting_benefit_id；
+## 这里仅把正式技能 / 战区武器名称接到选机卡，避免把礼包误读成机体底线武器。
+const STARTING_BENEFIT_NAME_KEYS: Dictionary = {
+	&"gun_multishot": "UPGRADE_GUN_MULTISHOT_NAME",
+	&"rocket_ffar": "AIRCRAFT_STARTING_BENEFIT_FFAR_NAME",
+	&"qmaam": "REWARD_WEAPON_QMAAM_NAME",
+	&"esm_pod": "REWARD_WEAPON_ESM_NAME",
+}
 
 ## 生存模式 — 机型选择界面
 ## 选中飞机后进入 survivor_mode 场景
@@ -10,7 +21,10 @@ const BG_COLOR := ThemeColors.SCENE_BG
 
 var _canvas: CanvasLayer
 var _cards_container: GridContainer
+var _hologram_preview: Control
 var _selected_index: int = -1
+var _card_panels: Array[PanelContainer] = []
+var _profile_by_index: Dictionary = {}
 
 # ── 可选主角档案 ──
 # 每个条目对应一个 PlayableAircraft 资源（res://resources/playable_*.tres）
@@ -18,29 +32,51 @@ var _selected_index: int = -1
 # 加新主角的工作流程见 docs/reference/playable-aircraft-workflow.md
 const PLAYABLE_LIST: Array[Dictionary] = [
 	{
-		# F-15 起手（制空/综合，路线最多；spec player-aircraft-power-curve §2 T1）——恒解锁
+		# 既有起手 1：制空 / 综合
 		"id": "f15",
 		"resource": "res://resources/playable_f15.tres",
 		"locked": false,
 	},
 	{
-		# A-6E 起手（攻击/肉，轻火箭；矩阵 v7 新建，取代旧 A-10 起手位——A-10 降为 T2 进化获得）
-		# ——30 地面击杀解锁（career-shop §2.1）
+		# 既有起手 2：远程 / 双机编队
+		"id": "f14",
+		"resource": "res://resources/playable_f14.tres",
+		"locked": false,
+	},
+	{
+		# 既有起手 3：攻击 / 肉盾
 		"id": "a6e",
 		"resource": "res://resources/player/playable_a6e.tres",
 		"locked": false,
 	},
 	{
-		# 幻影 III 起手（电战线之根，补齐四角色四选一；X-02 移入 T5 树内 LV22 进化获得）
-		# ——生涯商店购买解锁（career-shop §2.1）
+		# 既有起手 4：电战 / 多用途
 		"id": "mirage3",
 		"resource": "res://resources/player/playable_mirage3.tres",
 		"locked": false,
 	},
 	{
-		# F-14 起手（远程/团队，开局送 1 僚机组成双机编队；全谱最弱锚点）——首败航母 BOSS 解锁（career-shop §2.1）
-		"id": "f14",
-		"resource": "res://resources/playable_f14.tres",
+		# 局外解锁：T0 斗士，轻型高速截击
+		"id": "mig21f13",
+		"resource": "res://resources/player/playable_mig21f13.tres",
+		"locked": false,
+	},
+	{
+		# 局外解锁：T0 骑士，极速 / 窄锥截击
+		"id": "f104c",
+		"resource": "res://resources/player/playable_f104c.tres",
+		"locked": false,
+	},
+	{
+		# 局外解锁：T0 斗士，宽锥全天候截击
+		"id": "j35f",
+		"resource": "res://resources/player/playable_j35f.tres",
+		"locked": false,
+	},
+	{
+		# 局外解锁：T0 策士支援，A-6E 同级速度 / 本档最高感知
+		"id": "ea6b",
+		"resource": "res://resources/player/playable_ea6b.tres",
 		"locked": false,
 	},
 ]
@@ -66,7 +102,7 @@ func _effective_list() -> Array[Dictionary]:
 	return out
 
 
-## Boss Debug 不再复用四架起手机：直接列正式进化树的全部 T4（T5 前一档）参考机。
+## Boss Debug 不复用正常八卡：直接列正式进化树的全部 T4（T5 前一档）参考机。
 func _boss_debug_reference_list() -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
 	for node in BossDebugBuilds.reference_nodes():
@@ -93,6 +129,14 @@ func _unlock_hint_for(aircraft_id: String) -> String:
 				CareerArchive.get_ground_kills(), MetaShop.A6E_GROUND_KILLS_REQUIRED)
 		"mirage3":
 			return tr("UNLOCK_HINT_MIRAGE3")
+		"mig21f13":
+			return tr("UNLOCK_HINT_MIG21F13")
+		"f104c":
+			return tr("UNLOCK_HINT_F104C")
+		"j35f":
+			return tr("UNLOCK_HINT_J35F")
+		"ea6b":
+			return tr("UNLOCK_HINT_EA6B")
 		_:
 			return tr("SLOT_DEV_LOCKED_BUTTON")
 
@@ -119,32 +163,44 @@ func _build_ui() -> void:
 	var shell := TerminalPageShellScript.new()
 	_canvas.add_child(shell)
 	var boss_debug := get_tree().has_meta("boss_debug_mode")
+	_list = _effective_list()
 	var title_text := tr("BOSS_DEBUG_AIRCRAFT_TITLE") if boss_debug \
 		else tr("AIRCRAFT_SELECT_TITLE")
 	var subtitle_text := tr("BOSS_DEBUG_AIRCRAFT_SUBTITLE") if boss_debug \
 		else tr("AIRCRAFT_SELECT_SUBTITLE")
 	var frame := TerminalUiStyleScript.build_page(
-		shell.content, title_text, subtitle_text, "AIRFRAME // 02")
+		shell.content, title_text, subtitle_text, "AIRFRAME // %02d" % _list.size())
 	var body := frame["body"] as PanelContainer
 	var footer := frame["footer"] as HBoxContainer
+	var body_row := HBoxContainer.new()
+	body_row.name = "AircraftSelectionBody"
+	body_row.add_theme_constant_override("separation", 8)
+	body_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	body.add_child(body_row)
+	_hologram_preview = AircraftHologramPreviewScript.new()
+	body_row.add_child(_hologram_preview)
 	var scroll := ScrollContainer.new()
+	scroll.name = "AircraftCardScroll"
 	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	body.add_child(scroll)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	body_row.add_child(scroll)
 	_cards_container = GridContainer.new()
-	_cards_container.columns = 4
+	_cards_container.columns = 3
 	_cards_container.add_theme_constant_override("h_separation", 0)
 	_cards_container.add_theme_constant_override("v_separation", 0)
-	_cards_container.custom_minimum_size = Vector2(868, 0)
+	# 固定全息窗 + 三列卡片共同落在 23u 安全区内，滚动只发生在卡片侧。
+	_cards_container.custom_minimum_size = Vector2(630, 0)
 	_cards_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(_cards_container)
 
-	_list = _effective_list()
 	for i in range(_list.size()):
 		_build_aircraft_card(i)
+	_show_initial_preview()
 
 	TerminalUiStyleScript.build_footer_hint(
-		footer, "%s  //  %s" % [tr("AIRCRAFT_SELECT_HINT_ESC"), "01—04"])
+		footer, "%s  //  %s" % [tr("AIRCRAFT_SELECT_HINT_ESC"), "01—%02d" % _list.size()])
 	TerminalUiStyleScript.build_footer_button(
 		footer, tr("LOADOUT_BACK"), _on_back_from_select, 200.0)
 
@@ -157,13 +213,17 @@ func _build_aircraft_card(index: int) -> void:
 	var profile: PlayableAircraft = null
 	if not locked:
 		profile = load(data["resource"])
+		_profile_by_index[index] = profile
 
 	# 卡片面板背景
 	var panel := PanelContainer.new()
 	TerminalUiStyleScript.apply_panel(panel,
 		Color(TerminalUiStyleScript.accent(), 0.20 if locked else 0.82),
 		Color(0.0, 0.0, 0.0, 0.54 if locked else 0.80), 10.0)
-	panel.custom_minimum_size = Vector2(217, 340)
+	panel.custom_minimum_size = Vector2(210, 340)
+	panel.mouse_filter = Control.MOUSE_FILTER_PASS
+	panel.mouse_entered.connect(func(): _show_aircraft_preview(index))
+	_card_panels.append(panel)
 
 	var inner := VBoxContainer.new()
 	inner.add_theme_constant_override("separation", 8)
@@ -253,6 +313,20 @@ func _build_aircraft_card(index: int) -> void:
 			wpn_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 			inner.add_child(wpn_label)
 
+	# T0 作为本局起手机时额外获得的一次机场等价收益；不是机体底线武器。
+	if not locked and not dev_locked and profile and profile.starting_benefit_id != &"":
+		var benefit_name_key := String(STARTING_BENEFIT_NAME_KEYS.get(
+			profile.starting_benefit_id, ""))
+		var benefit := Label.new()
+		benefit.name = "StartingBenefit"
+		benefit.text = tr("AIRCRAFT_STARTING_BENEFIT_FMT") % tr(benefit_name_key)
+		benefit.add_theme_font_size_override("font_size", 11)
+		benefit.add_theme_color_override("font_color", ThemeColors.UI_WARNING_YELLOW)
+		benefit.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		benefit.custom_minimum_size = Vector2(190, 0)
+		benefit.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		inner.add_child(benefit)
+
 	# 机体特性行（card_perks：数值级差异如强化机炮/经验加成；
 	# 未解锁卡不展示——用户 2026-07-27，只给已解锁玩家看细账）
 	if not locked and not dev_locked and profile:
@@ -338,6 +412,7 @@ func _build_aircraft_card(index: int) -> void:
 		btn.text = tr("AIRCRAFT_SELECT_LAUNCH_BUTTON")
 		var idx := index
 		btn.pressed.connect(func(): _on_aircraft_selected(idx))
+		btn.focus_entered.connect(func(): _show_aircraft_preview(idx))
 	TerminalUiStyleScript.apply_button(btn, TerminalUiStyleScript.accent())
 
 	inner.add_child(btn)
@@ -347,6 +422,40 @@ func _build_aircraft_card(index: int) -> void:
 # ══════════════════════════════════════════════
 #  选择 & 进入游戏
 # ══════════════════════════════════════════════
+
+func _show_initial_preview() -> void:
+	for i in range(_list.size()):
+		var data: Dictionary = _list[i]
+		if not data.get("locked", false) and not data.get("dev_locked", false):
+			_show_aircraft_preview(i)
+			return
+	if not _list.is_empty():
+		_show_aircraft_preview(0)
+
+
+func _show_aircraft_preview(index: int) -> void:
+	if index < 0 or index >= _list.size() or _hologram_preview == null:
+		return
+	_selected_index = index
+	var data: Dictionary = _list[index]
+	if data.get("locked", false) or data.get("dev_locked", false):
+		_hologram_preview.call("show_locked", index, _list.size())
+	else:
+		var profile := _profile_by_index.get(index, null) as PlayableAircraft
+		_hologram_preview.call("show_profile", profile, index, _list.size())
+	_refresh_card_highlights()
+
+
+func _refresh_card_highlights() -> void:
+	for i in range(_card_panels.size()):
+		var data: Dictionary = _list[i]
+		var locked: bool = data.get("locked", false) or data.get("dev_locked", false)
+		var active := i == _selected_index
+		var border_alpha := 0.34 if locked and active else (0.20 if locked else (1.0 if active else 0.82))
+		var background_alpha := 0.60 if active and not locked else (0.54 if locked else 0.80)
+		TerminalUiStyleScript.apply_panel(
+			_card_panels[i], Color(TerminalUiStyleScript.accent(), border_alpha),
+			Color(0.0, 0.0, 0.0, background_alpha), 10.0, 2 if active else 1)
 
 func _on_aircraft_selected(index: int) -> void:
 	var data: Dictionary = _list[index] if index < _list.size() else PLAYABLE_LIST[index]

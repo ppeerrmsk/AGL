@@ -1020,7 +1020,7 @@ func _draw_lock_indicator() -> void:
 	AircraftRenderer.draw_lock_box(self, p, is_locked)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
-## 状态栏标签：舰种 / 代号 / 朝向 / 速度（仿 GroundUnit._draw_data_label 风格）
+## 状态栏标签：唯一舰名 / 航向 / 航速 / 真实船体生命值。
 func _draw_status_label() -> void:
 	if not _font:
 		_font = ThemeDB.fallback_font
@@ -1029,7 +1029,8 @@ func _draw_status_label() -> void:
 		_compact_data_label_active, view_lod)
 	var compact := AircraftRenderer.compact_label_visible(
 		_compact_data_label_active, Input.is_key_pressed(KEY_ALT))
-	var lines := PackedStringArray([full_name])
+	var lines := PackedStringArray([
+		AircraftRenderer.english_status_identity(full_name, ship_class_label)])
 	if compact:
 		var compact_xform := get_global_transform_with_canvas()
 		var compact_scale := compact_xform.basis_xform(Vector2.RIGHT).length()
@@ -1039,16 +1040,9 @@ func _draw_status_label() -> void:
 		AircraftRenderer.draw_unit_status_panel(self, _font, lines, team,
 			compact_offset)
 		return
-	lines.insert(0, ship_class_label)
-	var heading_deg := rad_to_deg(heading)
-	while heading_deg < 0.0:
-		heading_deg += 360.0
-	while heading_deg >= 360.0:
-		heading_deg -= 360.0
-	lines.append("HDG %03d" % roundi(heading_deg))
-	# 速度：内部是 m/s，显示为 节（1 节 ≈ 0.5144 m/s）
-	var knots := speed / 0.5144
-	lines.append("%d KTS" % roundi(knots))
+	lines.append(AircraftRenderer.status_heading_text(heading))
+	lines.append(AircraftRenderer.status_speed_knots_text(speed))
+	lines.append(AircraftRenderer.status_hp_text(hull_hp, hull_hp_max))
 	var xform := get_global_transform_with_canvas()
 	var view_scale := xform.basis_xform(Vector2.RIGHT).length()
 	var icon_radius := maxf(params.hull_width, params.hull_length) * 0.55

@@ -1,15 +1,14 @@
 extends Node2D
 
-## 真实 Godot 渲染验收：同一 1920×1080 画布依次采集三卡、词条浮层、四卡与高档词条浮层。
+## 真实 Godot 渲染验收：同一 1920×1080 画布采集基础三轴卡、机体适配第四卡、词条浮层与确认插槽动画。
 
 const MilestoneAxisCounterScript := preload("res://scripts/survivor/milestone_axis_counter.gd")
 const BottomExperiencePanelScript := preload("res://scripts/survivor/bottom_experience_panel.gd")
 const SurvivorHUDScript := preload("res://scripts/survivor/survivor_hud.gd")
 const OUTPUT_THREE := "res://bench/results/upgrade_media_cards_3.png"
+const OUTPUT_FOUR := "res://bench/results/upgrade_media_cards_4_airframe.png"
 const OUTPUT_BOOT := "res://bench/results/upgrade_media_boot_scan.png"
 const OUTPUT_THREE_HOVER := "res://bench/results/upgrade_media_cards_3_hover.png"
-const OUTPUT_FOUR := "res://bench/results/upgrade_media_cards_4.png"
-const OUTPUT_FOUR_HOVER := "res://bench/results/upgrade_media_cards_4_hover.png"
 const OUTPUT_INSERT := "res://bench/results/upgrade_media_card_insert.png"
 
 
@@ -32,6 +31,18 @@ func _ready() -> void:
 	await _settle()
 	var entrance_lock_ok := ui._input_locked and ui._buttons[0].disabled and ui._buttons[2].disabled
 	var errors: Array[int] = [await _capture(OUTPUT_THREE)]
+	var airframe_bonus := SurvivorData.upgrade_by_id("speed_up").duplicate(true)
+	airframe_bonus["airframe_bonus_offer"] = true
+	airframe_bonus["airframe_bonus_axis"] = "knight"
+	var four: Array[Dictionary] = three.duplicate()
+	four.append(airframe_bonus)
+	ui.show_choices(four)
+	await _settle()
+	var fourth_layout_ok := ui._buttons[3].visible and ui._source_badges[3].visible \
+		and ui.get_transition_elements().size() == 5
+	errors.append(await _capture(OUTPUT_FOUR))
+	ui.show_choices(three)
+	await _settle()
 
 	ui._play_media_boot(0)
 	await _settle(4)
@@ -46,31 +57,6 @@ func _ready() -> void:
 	var note_popup_ok := _note_popup_clear_of_cards(ui, 1)
 	errors.append(await _capture(OUTPUT_THREE_HOVER))
 	ui._set_card_hovered(1, false)
-
-	var signature := SurvivorData.upgrade_by_id("sig_f15").duplicate(true)
-	signature["signature_offer"] = true
-	signature["signature_aircraft_name_key"] = "AIRCRAFT_F15_DISPLAY"
-	var four: Array[Dictionary] = [
-		SurvivorData.upgrade_by_id("gun_damage"),
-		SurvivorData.upgrade_by_id("cloud_overload"),
-		SurvivorData.upgrade_by_id("ecm_pod"),
-		signature,
-	]
-	selection_ceiling_ok = selection_ceiling_ok and four.all(func(choice: Dictionary) -> bool:
-		return SurvivorData.get_rarity(choice) <= SurvivorData.Rarity.CLASSIFIED)
-	ui.show_choices(four)
-	await _settle()
-	entrance_lock_ok = entrance_lock_ok and ui._input_locked and ui._buttons[3].disabled
-	errors.append(await _capture(OUTPUT_FOUR))
-
-	await get_tree().create_timer(
-		SurvivorUpgradeUI.INPUT_UNLOCK_DELAY_S + 0.10, true, false, true).timeout
-	await _settle(2)
-	unlock_ok = unlock_ok and not ui._input_locked and not ui._buttons[3].disabled
-	ui._set_card_hovered(1, true)
-	await _settle(12)
-	note_popup_ok = note_popup_ok and _note_popup_clear_of_cards(ui, 1)
-	errors.append(await _capture(OUTPUT_FOUR_HOVER))
 
 	ui.upgrade_selected.connect(func(_upgrade: Dictionary) -> void:
 		ui.set_meta("visual_selection_emitted", true))
@@ -88,16 +74,16 @@ func _ready() -> void:
 		SurvivorUpgradeUI.CONFIRM_INSERT_DURATION_S * 0.55, true, false, true).timeout
 	await _settle(2)
 
-	var ok := selection_ceiling_ok and entrance_lock_ok and unlock_ok and note_popup_ok and direct_insert_ok \
+	var ok := selection_ceiling_ok and entrance_lock_ok and fourth_layout_ok \
+		and unlock_ok and note_popup_ok and direct_insert_ok \
 		and bool(ui.get_meta("visual_selection_emitted", false))
-	print("[upgrade_media_visual] checks ceiling=%s entrance=%s unlock=%s note=%s direct=%s emitted=%s" % [
-		str(selection_ceiling_ok), str(entrance_lock_ok), str(unlock_ok), str(note_popup_ok), str(direct_insert_ok),
+	print("[upgrade_media_visual] checks ceiling=%s entrance=%s fourth=%s unlock=%s note=%s direct=%s emitted=%s" % [
+		str(selection_ceiling_ok), str(entrance_lock_ok), str(fourth_layout_ok), str(unlock_ok), str(note_popup_ok), str(direct_insert_ok),
 		str(bool(ui.get_meta("visual_selection_emitted", false)))])
 	for error in errors:
 		ok = ok and error == OK
 	print("[upgrade_media_visual] outputs=%s ok=%s" % [str([
-		OUTPUT_THREE, OUTPUT_BOOT, OUTPUT_THREE_HOVER, OUTPUT_FOUR, OUTPUT_FOUR_HOVER,
-		OUTPUT_INSERT]), str(ok)])
+		OUTPUT_THREE, OUTPUT_FOUR, OUTPUT_BOOT, OUTPUT_THREE_HOVER, OUTPUT_INSERT]), str(ok)])
 	get_tree().quit(0 if ok else 1)
 
 

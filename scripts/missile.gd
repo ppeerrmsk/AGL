@@ -10,7 +10,6 @@ const GRAVITY: float = GameConstants.GRAVITY
 const DATA_LABEL_MIN_VIEW_SCALE: float = 0.26
 ## 小于该缩放时，普通导弹只保留弹体轮廓 + 尾迹；玩家弹和真实来袭弹仍画完整翼面/尾焰。
 const BODY_DETAIL_MIN_VIEW_SCALE: float = 0.26
-
 var params: MissileParams
 var source: CombatUnit        ## 发射单位（SARH 需要持续照射）
 var target: CombatUnit        ## 目标
@@ -539,6 +538,30 @@ func continue_after_penetration(hit_unit: CombatUnit) -> void:
 func already_penetrated(unit: CombatUnit) -> bool:
 	return unit != null and _penetrated_unit_ids.has(unit.get_instance_id())
 
+
+## 反导伤害的唯一生命值入口；返回 true 表示本次把导弹击毁。
+## CIWS 使用渐隐，持续激光使用立即回收，视觉爆点仍由命中武器在返回 true 后各自播放。
+func take_intercept_damage(amount: float, fade_out_on_destroy: bool) -> bool:
+	if not is_active or amount <= 0.0:
+		return false
+	intercept_hp -= amount
+	if intercept_hp > 0.0:
+		return false
+	return destroy_from_intercept(fade_out_on_destroy)
+
+
+## 电磁炮等一击反导入口；集中维护 active / guidance / 回收状态。
+func destroy_from_intercept(fade_out_on_destroy: bool) -> bool:
+	if not is_active or _fading_out:
+		return false
+	if fade_out_on_destroy:
+		_start_fade_out("被近防拦截")
+	else:
+		is_active = false
+		has_guidance = false
+		queue_free()
+	return true
+
 ## 光学隐形与玩家侧传感器失联都让现有导引解算立即失效；弹体仍按惯性继续飞行。
 static func target_breaks_guidance(is_cloaked: bool,
 		sensor_contact_hidden: bool) -> bool:
@@ -828,52 +851,18 @@ func _draw_data_label() -> void:
 	if target and is_instance_valid(target) and not target.is_destroyed:
 		dist_to_tgt_m = global_position.distance_to(target.global_position) / 0.5  # PIXELS_PER_METER
 
-	var lines: PackedStringArray = PackedStringArray()
-	lines.append(display_name)
-	if dist_to_tgt_m > 0.0:
-		if dist_to_tgt_m < 1000.0:
-			lines.append("RNG %dm" % roundi(dist_to_tgt_m))
-		else:
-			lines.append("RNG %.1fkm" % (dist_to_tgt_m / 1000.0))
-	else:
-		lines.append("RNG --")
-
-	var inv_rot := -rotation
-	var font_size := 10
-	var line_height := 12.0
-	# 缩放补偿：标签大小不随摄像机缩放变化（与 AircraftRenderer.draw_data_label 一致）
-	var zoom_scale := get_viewport_transform().get_scale()
-	var inv_zoom := 1.0 / maxf(zoom_scale.x, 0.01)
-	var label_offset := (Vector2(14, -8) * inv_zoom).rotated(inv_rot)
-
-	# 测量最大宽度（把数字替换成 "0" 再测，避免 label 框因 hdg/rng/mach 每帧抽搐）
-	# 详见 docs/changelogs/player-ai-log.md 2026-04-21 (10)
-	var max_w := 0.0
-	for line in lines:
-		var stable := ""
-		for i in range(line.length()):
-			var c := line[i]
-			if c >= "0" and c <= "9":
-				stable += "0"
-			else:
-				stable += c
-		var w := _font.get_string_size(stable, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-		max_w = maxf(max_w, w)
-	var box_w := max_w + 8.0
-	var box_h := lines.size() * line_height + 4.0
-
-	var _lc := GameConstants.missile_label_colors(team)
-	var bg_color: Color = _lc[0]
-	var text_color: Color = _lc[1]
-
-	draw_set_transform(label_offset, inv_rot, Vector2(inv_zoom, inv_zoom))
-	draw_rect(Rect2(0, 0, box_w, box_h), bg_color)
-	draw_rect(Rect2(0, 0, box_w, box_h), text_color * Color(1, 1, 1, 0.3), false, 1.0)
-
-	for i in range(lines.size()):
-		draw_string(_font, Vector2(4, 10 + i * line_height), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
-
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	var lines := PackedStringArray([
+		AircraftRenderer.english_status_identity(display_name, "MISSILE"),
+		AircraftRenderer.status_speed_knots_text(speed),
+		AircraftRenderer.status_range_text(dist_to_tgt_m, dist_to_tgt_m > 0.0),
+		"GUIDED" if has_guidance else "UNGUIDED",
+	])
+	var xform := get_global_transform_with_canvas()
+	var view_scale := xform.basis_xform(Vector2.RIGHT).length()
+	var screen_offset := AircraftRenderer.unit_status_screen_offset_for(
+		10.0, view_scale, xform.origin)
+	AircraftRenderer.draw_unit_status_panel(self, _font, lines, team,
+		screen_offset, {}, false, GameConstants.missile_label_colors(team))
 
 ## 低空目标导引头性能衰减（地面杂波干扰 + 云层穿越累计损耗）
 ## 低空衰减仅在扁平高度模式（生存模式）下生效

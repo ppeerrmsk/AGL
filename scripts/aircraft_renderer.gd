@@ -18,12 +18,17 @@ const UNIT_STATUS_FONT_SIZE: int = 11
 const UNIT_STATUS_LINE_HEIGHT_PX: float = 14.0
 const UNIT_STATUS_PAD_X_PX: float = 5.0
 const UNIT_STATUS_PAD_Y_PX: float = 3.0
+const MAX_STATUS_TEXT_WIDTH_CACHE_ENTRIES: int = 2048
 const BANK_VOLUME_FACE_OFFSET_RATIO: float = 0.42
 const BANK_VOLUME_FACE_FADE_COS: float = 0.18
 const SUPPORT_RANGE_FILL_ALPHA: float = 0.07
 const SUPPORT_RANGE_RING_ALPHA: float = 0.42
 const SUPPORT_RANGE_RING_WIDTH: float = 2.0
 const SUPPORT_RANGE_SEGMENTS: int = 96
+
+## 状态栏会反复测量同一批数字稳定化短文本；字体 shaping 结果只取决于字体、字号与文本。
+## 有界缓存只省重复 CPU 工作，不改变标签内容、刷新频率或像素宽度。
+static var _status_text_width_cache: Dictionary = {}
 
 ## 锁定框以现有尺寸为高空上限，地面与低空目标按真实高度连续缩小。
 const LOCK_BOX_ALTITUDE_SCALE_KEYS := [
@@ -198,18 +203,31 @@ static func status_damage_panel_colors(base_bg: Color, base_text: Color,
 ## 内边距、边框、阵营颜色、像素对齐和屏幕空间变换只有这一份实现。
 static func draw_unit_status_panel(item: Node2D, font: Font,
 		lines: PackedStringArray, team: int, screen_offset_px: Vector2,
-		row_colors: Dictionary = {}, controlled: bool = false) -> void:
+		row_colors: Dictionary = {}, controlled: bool = false,
+		palette: Array = []) -> void:
 	if item == null or font == null or lines.is_empty():
 		return
 	var max_w := 0.0
 	for line in lines:
-		max_w = maxf(max_w, font.get_string_size(
-			_digit_stable(line), HORIZONTAL_ALIGNMENT_LEFT, -1,
-			UNIT_STATUS_FONT_SIZE).x)
+		var stable_line := _digit_stable(line)
+		var cache_key := "%d:%d:%s" % [
+			font.get_instance_id(), UNIT_STATUS_FONT_SIZE, stable_line]
+		var cached_width: Variant = _status_text_width_cache.get(cache_key, null)
+		var line_width: float
+		if cached_width != null:
+			line_width = float(cached_width)
+		else:
+			line_width = font.get_string_size(stable_line,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, UNIT_STATUS_FONT_SIZE).x
+			if _status_text_width_cache.size() >= MAX_STATUS_TEXT_WIDTH_CACHE_ENTRIES:
+				_status_text_width_cache.clear()
+			_status_text_width_cache[cache_key] = line_width
+		max_w = maxf(max_w, line_width)
 	var box_w := max_w + UNIT_STATUS_PAD_X_PX * 2.0
 	var box_h := lines.size() * UNIT_STATUS_LINE_HEIGHT_PX \
 		+ UNIT_STATUS_PAD_Y_PX * 2.0
-	var colors := GameConstants.aircraft_label_colors(team)
+	var colors := palette if palette.size() >= 2 \
+		else GameConstants.aircraft_label_colors(team)
 	var bg_color: Color = colors[0]
 	var text_color: Color = colors[1]
 	if controlled:
@@ -234,6 +252,57 @@ static func draw_unit_status_panel(item: Node2D, font: Font,
 			lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1,
 			UNIT_STATUS_FONT_SIZE, color)
 	item.draw_set_transform_matrix(Transform2D.IDENTITY)
+
+
+## 世界状态栏的战术读数统一格式。所有角度先量化再归一化，避免 359.6° 被显示成
+## 不存在的 HDG 360；单位一律使用大写英文航空缩写。
+static func status_heading_text(heading_rad: float) -> String:
+	var heading_deg := posmod(roundi(rad_to_deg(heading_rad)), 360)
+	return "HDG %03d" % heading_deg
+
+
+static func status_speed_knots_text(speed_ms: float) -> String:
+	return "SPD %d KT" % maxi(roundi(maxf(speed_ms, 0.0) / 0.514444), 0)
+
+
+static func status_ground_speed_text(speed_ms: float) -> String:
+	return "SPD %d KM/H" % maxi(roundi(maxf(speed_ms, 0.0) * 3.6), 0)
+
+
+static func status_altitude_text(altitude_m: float,
+		vertical_speed_ms: float = 0.0) -> String:
+	var line := "ALT %d M" % maxi(roundi(altitude_m), 0)
+	if vertical_speed_ms > 5.0:
+		line += " CLIMB"
+	elif vertical_speed_ms < -5.0:
+		line += " DESCENT"
+	return line
+
+
+static func status_range_text(distance_m: float, available: bool = true) -> String:
+	if not available:
+		return "RNG ---"
+	var safe_distance := maxf(distance_m, 0.0)
+	if safe_distance < 1000.0:
+		return "RNG %d M" % roundi(safe_distance)
+	return "RNG %.1f KM" % (safe_distance / 1000.0)
+
+
+static func status_hp_text(current_hp: float, maximum_hp: float) -> String:
+	return "HP %d/%d" % [maxi(ceili(current_hp), 0), maxi(ceili(maximum_hp), 0)]
+
+
+## 状态栏是 locale-independent 英文战术层。资源或呼号若误塞入本地化字符，
+## 在世界标签处 fail closed，而不是把中文/日文泄漏到共享面板。
+static func english_status_identity(text: String, fallback: String) -> String:
+	var clean := text.strip_edges()
+	if clean.is_empty():
+		return fallback
+	for i in range(clean.length()):
+		var code := clean.unicode_at(i)
+		if code < 32 or code > 126:
+			return fallback
+	return clean
 
 
 static func lock_box_altitude_scale_for(altitude_m: float) -> float:
@@ -457,6 +526,12 @@ static func _status_effect_is_active(ac: Aircraft, sid: String, timed: bool,
 static func status_label_entries(ac: Aircraft,
 		include_direct_invulnerable: bool = false) -> Array[Dictionary]:
 	var entries: Array[Dictionary] = []
+	if ac.is_afterburner_mode_active():
+		entries.append({
+			"id": &"afterburner",
+			"text": "AFTERBURNER",
+			"color": Color(0.20, 0.92, 1.0),
+		})
 	for sid in StatusEffects.DISPLAY_ORDER:
 		var timed: bool = ac.status_effects.has(sid)
 		if not _status_effect_is_active(ac, sid, timed, include_direct_invulnerable):
@@ -475,7 +550,7 @@ static func status_label_entries(ac: Aircraft,
 	if ac.gun_tailed_active():
 		entries.append({
 			"id": &"gun_tailed",
-			"text": String(TranslationServer.translate("STATUS_GUN_TAILED")),
+			"text": "GUN TAILED",
 			"color": Color(1.0, 0.30, 0.22),
 		})
 	return entries
@@ -739,11 +814,20 @@ static func should_show_enemy_gun_threat(ac: Aircraft) -> bool:
 	return ac.get_meta(&"category", "") != "boss_mother_goose_uav"
 
 
+static func should_show_friendly_gun_reference(ac: Aircraft) -> bool:
+	if ac.team != 0:
+		return false
+	if ac.is_hovered:
+		return true
+	var player := safe_player_ref()
+	return ac.hard_brake and player == ac
+
+
 static func draw_gun_cone(ac: Aircraft) -> void:
 	if not ac.params or not ac.params.gun:
 		return
 	# 友方 hover 时显示参考锥；敌方对玩家提交机炮攻击 ≥0.3s 显示威胁锥（同为橙黄）
-	var show_friendly: bool = (ac.team == 0 and ac.is_hovered)
+	var show_friendly: bool = should_show_friendly_gun_reference(ac)
 	var show_enemy_threat: bool = should_show_enemy_gun_threat(ac)
 	if not show_friendly and not show_enemy_threat:
 		return
@@ -1052,16 +1136,18 @@ static func draw_aircraft_icon_destroyed(ac: Aircraft) -> void:
 static func draw_destroyed_status_label(ac: Aircraft) -> void:
 	if ac._font == null:
 		return
-	var identity := ac.callsign.strip_edges()
+	var identity := controlled_identity_label(ac) if ac.is_player_squad() \
+			else ally_identity_label(ac) if ac.team == CombatUnit.TEAM_ALLY \
+			else ac.callsign.strip_edges()
 	if identity.is_empty():
 		identity = airframe_identity_label(ac)
-	var speed_kmh := ac.speed * 3.6
 	var lines := PackedStringArray([
-		identity,
-		"%d kt" % roundi(speed_kmh * 0.5399),
-		"ALT %dm ↓" % maxi(roundi(ac.altitude), 0),
+		english_status_identity(identity, "AIRCRAFT"),
+		"DESTROYED",
+		status_speed_knots_text(ac.speed),
+		status_altitude_text(ac.altitude, -maxf(absf(ac.vertical_speed), 5.1)),
 	])
-	var row_colors := {2: Color(1.0, 0.35, 0.28, 1.0)}
+	var row_colors := {1: Color(1.0, 0.35, 0.28, 1.0)}
 	draw_unit_status_panel(ac, ac._font, lines, ac.team,
 		data_label_screen_offset(ac), row_colors, false)
 
@@ -1772,27 +1858,26 @@ static func draw_chinook_icon(ac: Aircraft, color: Color, outline_color: Color, 
 		ac.draw_arc(Vector2.ZERO, s * 1.8 * base_scale, 0, TAU, 48, ring_color, 1.5)
 
 ## 极简标签：忠诚僚机 / 漂浮装置等不需要 callsign / altitude 的小型单位
-## 只显示一行 "DRONE  482 kt"（kind 名 + 速度）
+## 无人机沿用身份 + 真实速度两行，和其它战略精简标签同构。
 static func draw_data_label_drone(ac: Aircraft) -> void:
 	if ac._font == null:
 		return
-	var speed_kmh := ac.speed * 3.6
-	var line: String = "DRONE  %d kt" % roundi(speed_kmh * 0.5399)
-	draw_unit_status_panel(ac, ac._font, PackedStringArray([line]), ac.team,
+	var lines := PackedStringArray(["DRONE", status_speed_knots_text(ac.speed)])
+	draw_unit_status_panel(ac, ac._font, lines, ac.team,
 		data_label_screen_offset(ac))
 
 
-## 当前操控机显示纯机型编号 + 完整呼号；其它单位缩机名后缀、不缩呼号。
+## 玩家小队显示纯机型编号 + 完整呼号；其它单位缩机名后缀、不缩呼号。
 static func draw_data_label_compact(ac: Aircraft) -> void:
 	if ac._font == null:
 		return
 	var display_name := compact_aircraft_name(ac.params.display_name) if ac.params else "???"
 	var is_player: bool = ac == safe_player_ref()
-	var identity := controlled_identity_label(ac) if is_player \
+	var identity := controlled_identity_label(ac) if ac.is_player_squad() \
 			else ally_identity_label(ac) if ac.team == CombatUnit.TEAM_ALLY \
 			else "%s [%s]" % [display_name, ac.callsign]
-	var lines := PackedStringArray([identity])
-	lines.append("%d kt" % roundi(ac.speed * 3.6 * 0.5399))
+	var lines := PackedStringArray([english_status_identity(identity, "AIRCRAFT")])
+	lines.append(status_speed_knots_text(ac.speed))
 	var status_line_indices: Dictionary = {}
 	_append_status_label_lines(ac, lines, status_line_indices, ac == safe_player_ref())
 
@@ -1923,7 +2008,7 @@ static func airframe_identity_label(ac: Aircraft) -> String:
 	return aircraft_model_designation(ac.params.display_name) if ac.params else "???"
 
 
-## 当前操控机不显示 profile 机名后缀，但完整保留飞行员呼号。
+## 玩家小队不显示 profile 机名后缀，但每架都完整保留各自飞行员呼号。
 static func controlled_identity_label(ac: Aircraft) -> String:
 	var airframe := airframe_identity_label(ac)
 	return airframe if ac.callsign.is_empty() else "%s [%s]" % [airframe, ac.callsign]
@@ -1933,31 +2018,15 @@ static func controlled_identity_label(ac: Aircraft) -> String:
 ## 是否使用精简标签（无导弹/无热诱弹的简单单位）
 ## 生存模式玩家用精简标签：只显示朝向、速度、高度、G、耐力
 static func draw_data_label_minimal(ac: Aircraft) -> void:
-	var speed_kmh := ac.speed * 3.6
-	var heading_deg := rad_to_deg(ac.heading)
-	if heading_deg < 0:
-		heading_deg += 360.0
-
 	var is_player := ac == safe_player_ref()
 	var lines := PackedStringArray()
-	lines.append(controlled_identity_label(ac) if is_player \
-			else ally_identity_label(ac) if ac.team == CombatUnit.TEAM_ALLY else ac.callsign)
-	lines.append("HDG %03d" % roundi(heading_deg))
-	lines.append("%d kt" % roundi(speed_kmh * 0.5399))
+	var raw_identity := controlled_identity_label(ac) if ac.is_player_squad() \
+			else ally_identity_label(ac) if ac.team == CombatUnit.TEAM_ALLY else ac.callsign
+	lines.append(english_status_identity(raw_identity, "AIRCRAFT"))
+	lines.append(status_heading_text(ac.heading))
+	lines.append(status_speed_knots_text(ac.speed))
 	var alt_line_idx := lines.size()
-	var altitude_action_suffix := "" if ac.altitude_action == Aircraft.AltitudeAction.NONE \
-			else " " + ac.altitude_action_name()
-	if ac.flat_altitude:
-		var tier_now: int = ac.get_altitude_tier()
-		var vs_abs: float = absf(ac.vertical_speed)
-		if vs_abs > 5.0:
-			var arrow: String = "↑" if ac.vertical_speed > 0.0 else "↓"
-			lines.append("ALT %s %s%s" % [
-				Aircraft.TIER_NAMES[tier_now], arrow, altitude_action_suffix])
-		else:
-			lines.append("ALT %s%s" % [Aircraft.TIER_NAMES[tier_now], altitude_action_suffix])
-	else:
-		lines.append("ALT %dm%s" % [roundi(ac.altitude), altitude_action_suffix])
+	lines.append(status_altitude_text(ac.altitude, ac.vertical_speed))
 	lines.append("G %.1f" % ac.g_load)
 	# 武器行品牌色映射（与右下角武器栏同源 _wpn_color）
 	var wpn_color_indices: Dictionary = {}
@@ -1970,8 +2039,8 @@ static func draw_data_label_minimal(ac: Aircraft) -> void:
 		wpn_color_indices[lines.size()] = weapon_label_color("MSL_RELOAD", is_player_label)
 		lines.append("MSL RELOAD %d%%" % roundi(ac.missile_reload_progress * 100.0))
 	if ac._secondary_reload_active and ac.params and ac.params.secondary_missile:
-		var sec_name_min := ac.params.secondary_missile.display_name
-		if sec_name_min.is_empty(): sec_name_min = "SP"
+		var sec_name_min := english_status_identity(
+			ac.params.secondary_missile.display_name, "SP")
 		wpn_color_indices[lines.size()] = weapon_label_color("SP_RELOAD", is_player_label)
 		lines.append("%s RELOAD %d%%" % [sec_name_min,
 			roundi(secondary_reload_progress(ac) * 100.0)])
@@ -2023,48 +2092,33 @@ static func draw_data_label_minimal(ac: Aircraft) -> void:
 
 static func draw_data_label(ac: Aircraft) -> void:
 	var display_name := compact_aircraft_name(ac.params.display_name) if ac.params else "???"
-	var speed_kmh := ac.speed * 3.6
-	var heading_deg := rad_to_deg(ac.heading)
-	if heading_deg < 0:
-		heading_deg += 360.0
 	var status := "STALL" if ac.is_stalled else ""
 
 	# 计算到玩家的距离（米）——用全局玩家引用，避免每帧扫 parent.get_children() 的 O(N)
 	var dist_m := 0.0
+	var range_available := false
 	var pref := safe_player_ref()
 	if pref and pref != ac and is_instance_valid(pref) and not pref.is_destroyed:
 		dist_m = ac.global_position.distance_to(pref.global_position) / Aircraft.PIXELS_PER_METER
+		range_available = true
 
 	# 统一标签格式（所有飞机通用）
 	var lines: PackedStringArray = PackedStringArray()
-	# 第 1 行：当前操控机只写机型编号；其它单位保留代号信息。
-	lines.append(controlled_identity_label(ac) if ac == pref \
+	# 第 1 行：玩家小队每架都写机型编号 + 完整呼号；其它单位保留原代号信息。
+	var raw_identity := controlled_identity_label(ac) if ac.is_player_squad() \
 			else ally_identity_label(ac) if ac.team == CombatUnit.TEAM_ALLY \
-			else "%s [%s]" % [ac.callsign, display_name])
-	# 第 2 行：速度（kt）
-	lines.append("%d kt" % roundi(speed_kmh * 0.5399))
-	# 第 3 行：朝向
-	lines.append("HDG %03d" % roundi(heading_deg))
-	# 第 4 行：高度（vs 非零时附箭头表示正在升降）
+			else "%s [%s]" % [ac.callsign, display_name]
+	lines.append(english_status_identity(raw_identity, "AIRCRAFT"))
+	# 第 2 行：朝向
+	lines.append(status_heading_text(ac.heading))
+	# 第 3 行：速度（KT）
+	lines.append(status_speed_knots_text(ac.speed))
+	# 第 4 行：真实数值高度 + 实际垂直运动词。
 	var alt_line_idx := lines.size()
-	var altitude_action_suffix := "" if ac.altitude_action == Aircraft.AltitudeAction.NONE \
-			else " " + ac.altitude_action_name()
-	if ac.flat_altitude:
-		var tier_now: int = ac.get_altitude_tier()
-		var vs_abs: float = absf(ac.vertical_speed)
-		if vs_abs > 5.0:
-			var arrow: String = "↑" if ac.vertical_speed > 0.0 else "↓"
-			lines.append("ALT %s %s%s" % [
-				Aircraft.TIER_NAMES[tier_now], arrow, altitude_action_suffix])
-		else:
-			lines.append("ALT %s%s" % [Aircraft.TIER_NAMES[tier_now], altitude_action_suffix])
-	else:
-		lines.append("ALT %dm%s" % [roundi(ac.altitude), altitude_action_suffix])
+	lines.append(status_altitude_text(ac.altitude, ac.vertical_speed))
 	# 第 5 行：距离（到玩家）
-	if dist_m < 1000.0:
-		lines.append("RNG %dm" % roundi(dist_m))
-	else:
-		lines.append("RNG %.1fkm" % (dist_m / 1000.0))
+	if range_available:
+		lines.append(status_range_text(dist_m))
 	# 武器行品牌色映射：line_idx → Color，draw 阶段优先于 text_color。
 	# 约定：武器/装备颜色只标在玩家自己 label 上（玩家需要知道的信息）；
 	# 敌机/友机走 team text_color，buff/debuff 仍由 status_line_indices 单独上色。
@@ -2110,8 +2164,8 @@ static func draw_data_label(ac: Aircraft) -> void:
 		wpn_color_indices[lines.size()] = weapon_label_color("MSL_RELOAD", is_player_label)
 		lines.append("MSL RELOAD %d%%" % roundi(ac.missile_reload_progress * 100.0))
 	if ac._secondary_reload_active and ac.params and ac.params.secondary_missile:
-		var sec_name := ac.params.secondary_missile.display_name
-		if sec_name.is_empty(): sec_name = "SP"
+		var sec_name := english_status_identity(
+			ac.params.secondary_missile.display_name, "SP")
 		wpn_color_indices[lines.size()] = weapon_label_color("SP_RELOAD", is_player_label)
 		lines.append("%s RELOAD %d%%" % [sec_name,
 			roundi(secondary_reload_progress(ac) * 100.0)])

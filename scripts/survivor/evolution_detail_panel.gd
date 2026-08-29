@@ -28,6 +28,7 @@ const STAT_ROWS: Array = [
 const COL_UP := Color(0.45, 0.95, 0.5)
 const COL_DOWN := Color(0.95, 0.45, 0.4)
 const COL_FLAT := Color(0.5, 0.55, 0.5, 0.7)
+const COL_SIGNATURE := Color(1.00, 0.25, 0.75)
 
 ## 进化种类 → 主题色（与 EvolutionUI.EVO_CAT_COLORS 同源语义）
 const CAT_COLORS := {
@@ -58,6 +59,7 @@ func show_node(node_id: StringName, current_id: StringName, team_level: int, axi
 	var cur_prof := AircraftDB.get_profile(StringName(cur_nd.get("profile", ""))) if not cur_nd.is_empty() else null
 
 	_build_header(nd, prof, is_current, node_id, current_id, team_level, axis_points)
+	_build_signature(node_id)
 	_build_stats(prof, cur_prof if not is_current else null)
 	if not is_current:
 		_build_requirements(nd, team_level, axis_points)
@@ -109,6 +111,18 @@ func _build_header(nd: Dictionary, prof: PlayableAircraft, is_current: bool,
 			tags.add_child(_label(tr("SLOT_TAG_WRAP_FMT") % tr(t), 10, ThemeColors.TEXT_TAG_UNLOCKED))
 	if prof.card_desc != "":
 		add_child(_label(tr(prof.card_desc), 12, ThemeColors.TEXT_DESC_UNLOCKED, true))
+
+
+## 每个进化节点都直接展示其专属技能；43 机映射缺项会在正式 UI 中显红并由 sig_skills bench 报错。
+func _build_signature(node_id: StringName) -> void:
+	add_child(_section_header(tr("EVOLUTION_DETAIL_SIGNATURE"), COL_SIGNATURE))
+	var signature := SurvivorData.signature_upgrade_for_aircraft(node_id)
+	if signature.is_empty():
+		add_child(_label(tr("SETTLEMENT_SIGNATURE_MISSING"), 11, COL_DOWN, true))
+		return
+	add_child(_label(tr(String(signature.get("name", ""))), 13, COL_SIGNATURE, true))
+	add_child(_label(tr(String(signature.get("desc", ""))), 11,
+		ThemeColors.TEXT_DESC_UNLOCKED, true))
 
 
 # ── ② 机体特性（含相对当前机的增减）──────────────────────
@@ -262,9 +276,9 @@ func _label(text_: String, size: int, col: Color, wrap: bool = false) -> Label:
 	return l
 
 
-func _section_header(text_: String) -> Control:
+func _section_header(text_: String, color: Color = ThemeColors.TEXT_TITLE_GREEN) -> Control:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 2)
-	box.add_child(_label(text_, 13, ThemeColors.TEXT_TITLE_GREEN))
+	box.add_child(_label(text_, 13, color))
 	box.add_child(HSeparator.new())
 	return box

@@ -41,7 +41,7 @@
 | `AH64(13)` | AH-64 Apache | **Adds 直升机（对地）** | `enemy_ah64.tres` + `ah64_gun.tres`（M230 30mm）+ `ah64_rocket.tres`（Hydra 70）+ 1 枚热诱弹 | **0** | ∞ | 事件触发 | **菱形 Flock** 4 架（队长前 + 左右两翼 + 殿后） | `_create_enemy` AH64 case | simple_ai + `ground_combat_only=true` + `attack_air_targets=false` |
 | `CH47(14)` | CH-47 Chinook | **Adds 运输直升机** | `enemy_ch47.tres`（1 枚热诱弹，配置 fail 50% → 实际不投 5%） | **0** | ∞ | 事件触发 | **纵阵 Flock** 3 架 | `_create_enemy` CH47 case | AI 简化(simple_ai, 与 Tu-160 同) |
 | `F47(15)` | F-47 | **BOSS 王牌狙击小队** | `enemy_f47.tres` + `default_gun.tres` + `f47_missile.tres`（AIM-260）+ `ace_flare.tres`（max_flares=4 / burst=1 → 整场 4 次高可靠真实 break，fail_chance=0、不补充）+ `ace_combat.tres` | **10** | **4** | 事件触发 | **菱形编队** 4 架（队长+两翼+殿后）| `_create_enemy` F47 case + `_spawn_f47_squad` | BVR 狙击模式(bvr_only) + 协同齐射(salvo_leader) + 距离切换由 `aircraft_weapons.update_weapon_mode` GUN/MISSILE 枚举管 |
-| `AF03(17)` | AF-03 | **Schemer 电磁炮狙击** | `enemy_af03.tres` + `enemy_railgun.tres`（充能 2.0s + 锁定 0.5s, AT_FIRE_TIME 预测命中, dmg 60, range 14000m, base+cloud+lowalt miss 加成）| **7** | **1** | **7**（旅途随机池 + 战区池）| 单机 | `_create_enemy` AF03 case + `_pick_enemy_type` 优先级 ≈ Su-27（常量 `survivor_data.gd` `AF03_UNLOCK_LEVEL/_CHANCE_PER_LEVEL/_CHANCE_MAX`）+ `ZONE_ENEMY_TABLE` type 17 行（战区池）| bvr_only @ 5-8km + prefer_nose_aligned_weapon (SNIPER_HOLD) + Lancer 节奏（10s/7s）+ 等级缩放 |
+| `AF03(17)` | AF-03 | **Schemer 电磁炮狙击** | `enemy_af03.tres` + `enemy_railgun.tres`（充能 2.0s + 锁定 0.5s, AT_FIRE_TIME 预测命中, dmg 60, range 14000m, base+cloud+lowalt miss 加成）| **7** | **1** | **7**（旅途随机池 + 战区池）| 单机 | `_create_enemy` AF03 case + `_pick_enemy_type` 优先级 ≈ Su-27（常量 `survivor_data.gd` `AF03_UNLOCK_LEVEL/_CHANCE_PER_LEVEL/_CHANCE_MAX`）+ `ZONE_ENEMY_TABLE` type 17 行（战区池）| bvr_only @ 5-8km + TacticalPlanner `LINE_UP` 电磁炮纪律 + Lancer 节奏（10s/7s）+ 等级缩放 |
 | `UAV_LASER(18)` | Aegis UAV | **拦截支援 Schemer** | `enemy_uav_laser.tres` + `enemy_laser_interceptor.tres`（target_filter 仅 missiles, dps_max=80, range 1200m）| **2** | 2 | 跟随 Sentinel 自动出现 | Sentinel 编队的一部分 | `_create_enemy` UAV_LASER case + `_spawn_commander_squad` 末尾追加 2 架 | simple_ai + `enable_combat=false`（laser 自己扫描，AI 不开火）+ `attack_air_targets=false` |
 | `F4(19)` | F-4 Phantom | Gladiator 中段（导弹卡车） | `enemy_f4.tres` + `default_gun.tres` + `default_missile.tres` + `agm_missile.tres`（双弹种 sparrow+sidewinder 总弹量大）| **5** | ∞ | **6** | 编队 2-3 架 | `_create_enemy` F4 case | gladiator_combat + 中等 aggression / engage_cooldown 2.5s（重而不灵活但导弹齐射强） |
 | `F104(20)` | F-104 Starfighter | Lancer 纯速度截击 | `enemy_f104.tres` + `default_gun.tres` + `default_missile.tres` | **4** | ∞ | **5** | 编队 2-3 架 | `_create_enemy` F104 case | lancer_combat + 高 aggression / engage_cooldown 7s / engage_duration 5.5s（极速通过+一次发射后脱离，HP 32 纸糊） |
@@ -194,7 +194,7 @@ Black Star 不占 `EnemyType`，也不进入常规 Token 池；四代飞机均�
 3. **`survivor_spawner.gd:42` 起声明 `_<name>_params_base: AircraftParams` 成员**
 4. **`survivor_spawner.gd:119` 起 `preload(...)` 加载资源**
 5. **`survivor_data.gd:1554` 起加解锁/概率常量**（`<NAME>_UNLOCK_LEVEL` / `_CHANCE_PER_LEVEL` / `_CHANCE_MAX`）
-6. **`survivor_data.gd:3391` `TOKEN_COST` 和 `survivor_data.gd:3498` `TOKEN_INSTANCE_CAP` 表补新枚举值**
+6. **`survivor_data.gd:3477` `TOKEN_COST` 和 `survivor_data.gd:3584` `TOKEN_INSTANCE_CAP` 表补新枚举值**
 7. **`survivor_spawner.gd:464` `_pick_enemy_type` 按威胁等级插入概率判定分支**
 8. **`survivor_spawner.gd:2468` `_create_enemy` 的各 match 全部补新 case**：
    - `match etype` 选基础参数（`:1577`）

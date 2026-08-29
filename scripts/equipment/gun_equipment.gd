@@ -9,7 +9,7 @@ extends EquipmentParams
 ##
 ## 迁移期 hack：Aircraft._ready 检测到 GunEquipment 时，会把内部 gun 字段
 ## 发布到 params.gun，让所有现存 25 处 `params.gun` 读取继续工作（renderer / hud /
-## debug / situation / bfm_tactics / aircraft_weapons / aircraft_combat_tracking）。
+## debug / situation / aircraft_weapons / aircraft_combat_tracking）。
 ## 这是 commit 12 清理前的兼容层。
 
 @export var gun: GunParams

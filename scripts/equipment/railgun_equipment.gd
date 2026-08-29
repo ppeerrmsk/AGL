@@ -1,6 +1,8 @@
 class_name RailgunEquipment
 extends EquipmentParams
 
+const WeaponHitResolverScript = preload("res://scripts/weapon_hit_resolver.gd")
+
 ## 电磁炮装备（commit 8/13 — 第一个全新机制装备）
 ##
 ## 核心机制：
@@ -463,20 +465,17 @@ func _apply_hitscan_damage(ac, beam_start: Vector2, beam_end: Vector2) -> void:
 			continue
 		if unit is Aircraft and (unit as Aircraft).is_cloaked:
 			continue
-		if not unit.can_accept_new_hit("railgun"):
+		if not WeaponHitResolverScript.can_accept_unit_hit(unit, "railgun"):
 			continue
 		var d := _point_to_segment_distance(unit.global_position, beam_start, beam_end)
 		if d > hit_radius_px:
 			continue
 		var ship: Node = _naval_damage_sink(unit)
 		if ship == null:
-			if unit is Aircraft:
-				var hit_t := _segment_param(unit.global_position, beam_start, beam_end)
-				var hit_pos := beam_start + (beam_end - beam_start) * hit_t
-				(unit as Aircraft).take_damage_at(
-					damage, hit_pos, ac, "railgun", beam_end - beam_start)
-			else:
-				unit.take_damage_from(damage, ac, "railgun")
+			var hit_t := _segment_param(unit.global_position, beam_start, beam_end)
+			var hit_pos := beam_start + (beam_end - beam_start) * hit_t
+			WeaponHitResolverScript.resolve_unit_hit(
+				unit, damage, ac, "railgun", hit_pos, beam_end - beam_start)
 			continue
 		var t := _segment_param(unit.global_position, beam_start, beam_end)
 		if not naval_hit.has(ship) or t < float(naval_hit_t[ship]):
@@ -484,8 +483,10 @@ func _apply_hitscan_damage(ac, beam_start: Vector2, beam_end: Vector2) -> void:
 			naval_hit_t[ship] = t
 	for ship in naval_hit:
 		var hit_node = naval_hit[ship]
-		if is_instance_valid(hit_node):
-			hit_node.take_damage_from(damage, ac, "railgun")
+		if is_instance_valid(hit_node) and hit_node is CombatUnit:
+			WeaponHitResolverScript.resolve_unit_hit(
+				hit_node, damage, ac, "railgun", hit_node.global_position,
+				beam_end - beam_start)
 
 	# 2) 在飞导弹（如果当前 ac 持有 missile_manager 引用）
 	var mm = ac.missile_manager
@@ -499,11 +500,10 @@ func _apply_hitscan_damage(ac, beam_start: Vector2, beam_end: Vector2) -> void:
 			var d := _point_to_segment_distance(m.global_position, beam_start, beam_end)
 			if d <= hit_radius_px:
 				# 小型导弹被电磁炮击毁：一次普通方框后销毁。
-				if ac != null and is_instance_valid(ac) and ac.is_inside_tree():
+				if m.destroy_from_intercept(false) and ac != null \
+						and is_instance_valid(ac) and ac.is_inside_tree():
 					ExplosionVFXScript.emit(ac.get_tree(), m.global_position, m.heading,
 						AircraftDestruction.MISSILE_BREAKUP_SCALE)
-				m.is_active = false
-				m.queue_free()
 
 
 ## 该单位的伤害最终落到哪艘舰上（用于一发一舰去重）；非海军单位返回 null

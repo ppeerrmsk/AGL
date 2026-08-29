@@ -1,6 +1,8 @@
 class_name CommanderOverlay
 extends Node2D
 
+const TrianglePacket = preload("res://scripts/rendering/canvas_triangle_packet.gd")
+
 ## 指挥 UAV 视觉效果：影响范围圈 + 数据链连接线
 
 var _commander: Aircraft = null
@@ -54,7 +56,7 @@ const DIAMOND_R := 4.0
 
 ## 把所有僚机的虚线段 + 菱形合并为 2 次 GPU 命令：
 ## - 一条 draw_multiline 画所有虚线
-## - 一次 RenderingServer.canvas_item_add_triangle_array 画所有菱形
+## - 一次 CanvasTrianglePacket triangle-array 提交画所有菱形
 func _draw_datalinks(alpha_mult: float) -> void:
 	var link_col := LINK_COLOR
 	link_col.a *= alpha_mult
@@ -108,6 +110,5 @@ func _draw_datalinks(alpha_mult: float) -> void:
 
 	# 一次性提交：所有菱形（低层 API，比多次 draw_colored_polygon 快）
 	if tri_indices.size() >= 3:
-		RenderingServer.canvas_item_add_triangle_array(
-			get_canvas_item(), tri_indices, tri_verts, tri_colors
-		)
+		TrianglePacket.submit_arrays(
+			get_canvas_item(), tri_indices, tri_verts, tri_colors)

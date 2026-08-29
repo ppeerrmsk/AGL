@@ -464,7 +464,8 @@ func _test_charge_alignment_regression() -> void:
 	var crash_guards := FileAccess.get_file_as_string(
 		"res://scripts/events/boss_encounter_event.gd") \
 		+ FileAccess.get_file_as_string("res://scripts/aircraft.gd") \
-		+ FileAccess.get_file_as_string("res://scripts/missile_manager.gd")
+		+ FileAccess.get_file_as_string("res://scripts/missile_manager.gd") \
+		+ FileAccess.get_file_as_string("res://scripts/rendering/canvas_triangle_packet.gd")
 	_check("闪退路径包含 Variant 生命周期、meta 与三角形直提交流程",
 		crash_guards.contains("var raw_player: Variant")
 		and crash_guards.contains("has_meta(\"_pending_attacker\")")

@@ -44,7 +44,9 @@
 
 | 文件 | 说明 |
 |------|------|
-| `survivor/survivor_mode.gd` | 主控：帧循环调度 / 阶段闸 / 玩家机登记（SEAM-019 chokepoint）/ 胜负 |
+| `survivor/survivor_mode.gd` | 场景执行：帧循环 / Node 与信号 / 玩家机登记（SEAM-019 chokepoint）/ UI / 胜负 |
+| `survivor/battlefield_flow.gd` | 规则状态：净时间轴 / 战区关闭事务 / BOSS 阶段 / 王牌与 ORION 调度 |
+| `survivor/survivor_runtime_reset.gd` | 新局与退局共用的跨场景 static 清理 |
 | `survivor/survivor_spawner.gd` | 刷怪总管：Token 预算 / 猎手指派 / 增援入场 / FPS 动态降载 |
 | `survivor/survivor_data.gd` | 静态数据：技能表 / Token 成本 / 波次与缩放常量 / XP 曲线 |
 | `survivor/survivor_player.gd` | 经验 / 等级 / 升级应用（`apply_upgrade`）|
@@ -66,7 +68,7 @@ RTS 指挥逻辑**不在** `survivor/` 下，独立在 `scripts/rts/`（`SquadCo
 | 阶段 | 区间 | 行为 |
 |------|------|------|
 | 战区阶段 | `game_time` 0 → `WARZONE_PHASE_DURATION` | 战区可循环刷新；攻克 1 个 → 立即开新战区 |
-| 过渡 | 到点瞬时（一次性闸 `_warzone_phase_ended`） | 取消全部 zone 任务、锁所有战区、`boss_unlocked = true`；敌人留场（继续给 XP，不再给奖励）|
+| 过渡 | 到点瞬时（`BattlefieldFlow` 阶段只允许 WARZONE→BOSS 一次） | 取消全部 zone 任务、锁所有战区、`boss_unlocked = true`；敌人留场（继续给 XP，不再给奖励）|
 | BOSS 阶段 | 到点之后 | `game_time` 冻结；`_update_boss_phase` 启动 `BossEncounterEvent` |
 
 **`game_time` 是可倒拨的时间轴，不等于真实秒表**：

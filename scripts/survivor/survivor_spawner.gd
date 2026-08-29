@@ -3114,7 +3114,7 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tie
 			# 三层组合（2026-07-05 阶段3 迁入 planner，spec weapon-employment-doctrine）：
 			#   1. bvr_only + 自定义 standoff/flee (5-8km)：维持远距站位（走位学说，保留）
 			#   2. planner 武器竞选：远距竞选出 railgun → LINE_UP 直线稳瞄
-			#      （取代旧 prefer_nose_aligned_weapon=SNIPER_HOLD legacy 路径）
+			#      （取代旧 AIController 机头直瞄专用分支）
 			#   3. Lancer engage_duration/cooldown：打完一发 disengage 拉开
 			ai.bvr_only = true
 			ai.bvr_standoff_min_px_override = 2500.0  ## 5km
@@ -3181,23 +3181,21 @@ func _create_enemy(etype: EnemyType, spawn_pos: Vector2, heading_deg: float, tie
 		enemy.bullet_dodge_chance = 0.35
 		enemy.boss_flare_immunity = true
 
-	# P4：实验性 — TacticalPlanner 接管 BFM 几何/速度决策（关闭 BFMTactics 执行）
-	# 由 SurvivorData.ENABLE_PLANNER_FOR_REGULAR_AI 主开关控制，默认 false
+	# 全功能空战机统一由 TacticalPlanner 接管 BFM 几何 / 速度决策。
 	# 跳过 adds（Tu-160/AH-64/CH-47，simple_ai 无 BFM）/ Schemer（Sentinel commander_aura buff 系统）
 	# F-47/F-14_Poltergeist BOSS 已纳入：BVR flee / Herbst / Cloak 独立模块在 planner 之后写
 	# target_position 自然覆写；aggression 0.85+ 自动跳过 BOOM_ZOOM_OUT（commit 设计）
-	if SurvivorData.ENABLE_PLANNER_FOR_REGULAR_AI:
-		var is_planner_eligible: bool = etype in [
-			EnemyType.MIG, EnemyType.INTERCEPTOR, EnemyType.F86,
-			EnemyType.MIG23, EnemyType.F100, EnemyType.A7, EnemyType.Q5,
-			EnemyType.MIG31, EnemyType.SU27,
-			EnemyType.F4, EnemyType.F104, EnemyType.SU35,
-			EnemyType.F22,
-			EnemyType.FA18,
-			EnemyType.F47, EnemyType.F14_POLTERGEIST,  # BOSS 王牌中队
-		]
-		if is_planner_eligible:
-			enemy.use_tactical_planner = true
+	var is_planner_eligible: bool = etype in [
+		EnemyType.MIG, EnemyType.INTERCEPTOR, EnemyType.F86,
+		EnemyType.MIG23, EnemyType.F100, EnemyType.A7, EnemyType.Q5,
+		EnemyType.MIG31, EnemyType.SU27,
+		EnemyType.F4, EnemyType.F104, EnemyType.SU35,
+		EnemyType.F22,
+		EnemyType.FA18,
+		EnemyType.F47, EnemyType.F14_POLTERGEIST,  # BOSS 王牌中队
+	]
+	if is_planner_eligible:
+		enemy.use_tactical_planner = true
 
 	# 王牌中队 tier 标记（按 etype 的打标处；通用机型的非 BOSS 王牌走**实例打标**——
 	# AceSupportSquad._configure_spawn 里 AceTier.mark，勿把 SU35 整机型加进 is_ace_type）。
@@ -3527,9 +3525,7 @@ func _update_hunters(delta: float) -> void:
 					ai._engage_timer = 0.0
 					ai._cooldown_timer = 0.0
 					if not ai.simple_ai:
-						ai._tactic = AIController.EngageTactic.LEAD_PURSUIT
-						ai._tactic_timer = 0.0
-						ai._tactic_min_duration = 0.5
+						ai.reset_tactical_plan()
 						ai._target_eval_timer = 0.0
 						enemy.ai_override_pursuit = true
 					target_pressure[hunt_target.get_instance_id()] = int(
@@ -3630,7 +3626,7 @@ func _update_boundary_discipline(_delta: float) -> void:
 		if enemy_near_edge or player_near_edge:
 			if ai.release_target(AIController.TargetSource.TS_BOSS, "boundary discipline"):
 				ai._state = AIController.AIState.PATROL
-				ai._tactic_timer = 0.0
+				ai.reset_tactical_plan()
 				ac.ai_override_pursuit = false
 				ac.target_position = inward_pt
 		# 覆盖 waypoints，让 PATROL 分支朝内飞

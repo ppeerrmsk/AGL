@@ -34,6 +34,11 @@ signal 或总线路由断言，也不写入 `user://audio.cfg`；正常 F5 游�
 `WARNING` 不等于运行时错误。若确有稳定的引擎退出噪音，需要精确匹配单条文本后才能加入白名单；
 禁止跳过全部 `ERROR` 或关闭错误门。
 
+`RUNTIME ERROR` 块会保留完整 GDScript backtrace，不再固定截成四行。命中 `previously freed` / freed instance
+时，wrapper 会追加 `FREED_OBJECT_LIFECYCLE` 诊断：优先检查最深 GDScript 调用者持有的跨帧 Object 缓存，
+并确认边界是否在类型检查之前完成 `Variant → TYPE_OBJECT → is_instance_valid` 净化。该提示负责缩小范围，
+不能替代生产调用链和确定性回归。
+
 ## `all` 实际包含什么
 
 1. `BenchRunner.UNIT_TESTS` 全部同步断言；

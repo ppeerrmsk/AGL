@@ -10,7 +10,7 @@ extends RefCounted
 ## 状态仍住在 AIController。本模块不持有状态，只在 ai 上读写。
 ##
 ## 枚举/常量引用保留在 AIController：
-##   AIController.AIState / AIController.EngageTactic / AIController.MIN_DUR_LEAD_PURSUIT
+##   AIController.AIState / AIController.TargetSource
 ##
 ## 注意：_try_engage_in_tether_range 与 _try_engage_simple 是 simple_ai 路径，
 ## 仍保留在 AIController，未提取。
@@ -158,8 +158,7 @@ static func reevaluate_target(ai: AIController) -> void:
 	var old_target := ai._current_target
 	if not ai.acquire_target(best_target, AIController.TargetSource.TS_SCORED, "reevaluate switch"):
 		return  # 目标被更高优先级来源持有 → 维持原目标
-	ai._tactic_timer = 0.0
-	ai._yoyo_phase = 0
+	ai.reset_tactical_plan()
 	EventLogger.log_event("TARGET", ai._log_name(),
 		"switched target: %s → %s (old_score=%.2f, new_score=%.2f)" % [
 			ai._log_target_name(old_target), ai._log_target_name(best_target),
@@ -168,8 +167,7 @@ static func reevaluate_target(ai: AIController) -> void:
 static func disengage(ai: AIController) -> void:
 	# ── BOSS 攻击手：不真正脱离，重新锁定玩家 ──
 	# 【关键】只重置 _engage_timer + _cooldown_timer 防止下一帧又触发 disengage；
-	# 绝不动 _tactic_timer / _tactic_min_duration / 当前 tactic ——
-	# 让正在跑的 BFM 战术自然完成最小持续时间（否则每帧重置 → BOSS 决策瘫痪）
+	# 绝不重置 TacticalPlanner 滞回，让正在跑的 plan 自然完成（否则每帧重置 → 决策瘫痪）。
 	if ai.is_boss_attacker():
 		var player: Aircraft = null
 		# is_lock_immune()（光学隐形 / 锁定免疫）→ 不可再锁，走下面的扫描；扫描同样过滤，
@@ -228,7 +226,7 @@ static func disengage(ai: AIController) -> void:
 
 ## 带感知粘性（spec battlefield-gravity §2.1.3）：当前目标是生存候选 → SURVIVAL_STICKY(8.0)。
 ## threat01 随距离连续变化（Δ300px≈4 分），base 尺度的 0.10/0.18 在 60~100 带内形同虚设，
-## 无此滞回则防守僚机在两个追击者间每秒横跳、_tactic_timer 狂重置。
+## 无此滞回则防守僚机在两个追击者间每秒横跳、planner 状态反复重置。
 ## objective 带刻意不加：+40 是常数，带内分差回落 base 尺度 → 现有阈值继续管用（设计的不对称）。
 static func _sticky_for(ai: AIController) -> float:
 	if ObjectiveContext.enabled and ai.aircraft.is_player_squad() \

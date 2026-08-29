@@ -229,6 +229,8 @@ METASHOP_TAB_CAREER,机体与后勤,Aircraft & Logistics,機体・兵站
 METASHOP_SIGNATURE_UNKNOWN,？？？,???,？？？
 METASHOP_ITEM_AWACS_NAME,预警支援协定,AWACS Support Accord,AWACS 支援協定
 METASHOP_ITEM_AWACS_DESC,允许友军预警机在正式行动中进场支援,Enables allied AWACS support during formal operations,正式作戦で友軍 AWACS の支援を解禁
+METASHOP_ITEM_AIRFRAME_AFFINITY_NAME,机体战术适配,Airframe Tactical Affinity,機体戦術適応
+METASHOP_ITEM_AIRFRAME_AFFINITY_DESC,自然升级时有 15% 概率追加一张当前机体身份轴的普通第四技能卡,Grants a 15% chance for natural upgrades to add a fourth ordinary skill card from the current airframe's identity axes,自然レベルアップ時に15%の確率で現行機体の系統軸から通常スキルの第4候補を追加
 METASHOP_ITEM_ZONE_AIR_SUPPORT_NAME,战区制空支援协定,Warzone Air Support Accord,戦域制空支援協定
 METASHOP_ITEM_ZONE_AIR_SUPPORT_DESC,每局首次对空战区激活后派遣 2～4 架 F-86 友军,Dispatches 2–4 allied F-86s to the first air mission each run,各出撃で最初の対空戦域開始後に友軍 F-86 を 2～4 機派遣
 METASHOP_ITEM_ZONE_GROUND_SUPPORT_NAME,战区对地支援协定,Warzone Ground Support Accord,戦域対地支援協定
@@ -241,6 +243,14 @@ METASHOP_SECTION_ITEMS,▼ 生涯商品,▼ CAREER ITEMS,▼ キャリア商品
 METASHOP_LOCKED_HINT_DOCTRINE,先掌握两门入门学说（嗜血 / 骑士）后上架,Listed after mastering both starter doctrines (Bloodlust / Chivalry),入門ドクトリン2種（血戦/騎士）の取得後に入荷
 METASHOP_ITEM_MIRAGE3_NAME,幻影 III 采购案,Mirage III Procurement,ミラージュ III 調達計画
 METASHOP_ITEM_MIRAGE3_DESC,幻影 III 加入起手机名单（电战线起点）,Adds Mirage III to the starting roster (EW line),ミラージュ III が初期機体に追加（電子戦系統）
+METASHOP_ITEM_MIG21F13_NAME,米格-21F-13 采购案,MiG-21F-13 Procurement,MiG-21F-13 調達計画
+METASHOP_ITEM_MIG21F13_DESC,永久加入可选起手机名单；轻型斗士与低感知路线。,Permanently adds the lightweight fighter and low-sensor route to the starting roster.,軽量戦闘機・低センサー系統を初期選択へ恒久追加。
+METASHOP_ITEM_F104C_NAME,F-104C 采购案,F-104C Procurement,F-104C 調達計画
+METASHOP_ITEM_F104C_DESC,永久加入可选起手机名单；极速与窄锥截击路线。,Permanently adds the high-speed narrow-cone interceptor route to the starting roster.,高速・狭角迎撃系統を初期選択へ恒久追加。
+METASHOP_ITEM_J35F_NAME,J 35F 采购案,J 35F Procurement,J 35F 調達計画
+METASHOP_ITEM_J35F_DESC,永久加入可选起手机名单；宽锥三角翼路线。,Permanently adds the wide-cone delta-wing route to the starting roster.,広角デルタ翼系統を初期選択へ恒久追加。
+METASHOP_ITEM_EA6B_NAME,EA-6B 采购案,EA-6B Procurement,EA-6B 調達計画
+METASHOP_ITEM_EA6B_DESC,永久加入可选起手机名单；高耐久电子支援路线。,Permanently adds the durable electronic-support route to the starting roster.,高耐久電子支援系統を初期選択へ恒久追加。
 METASHOP_ITEM_DOCK_WINGMAN_NAME,停靠补给僚机,Docking Wingman Resupply,着艦補給ウィングマン
 METASHOP_ITEM_DOCK_WINGMAN_DESC,每次在机场或航母停靠，补给 1 架同型僚机入队,Each airfield or carrier docking grants +1 wingman,飛行場・空母に着くたび僚機 1 機を補充
 METASHOP_ITEM_OP_TIME_NAME,行动时间延长,Extended Operation Time,作戦時間延長
@@ -251,3 +261,7 @@ METASHOP_LISTED_TOAST,生涯商店新货上架,New item listed in the Career Sho
 UNLOCK_HINT_F14,击败 Ladon 战斗群 解锁,Defeat the Ladon Strike Group to unlock,Ladon 打撃群を撃破で解禁
 UNLOCK_HINT_A6E_FMT,摧毁 30 个地面单位解锁（%d/30）,Destroy 30 ground units to unlock (%d/30),地上ユニット 30 撃破で解禁（%d/30）
 UNLOCK_HINT_MIRAGE3,生涯商店有售,Available in the Career Shop,キャリアショップで購入可能
+UNLOCK_HINT_MIG21F13,生涯商店采购后可用,Purchase in the Career Shop,キャリアショップで購入すると使用可能
+UNLOCK_HINT_F104C,生涯商店采购后可用,Purchase in the Career Shop,キャリアショップで購入すると使用可能
+UNLOCK_HINT_J35F,生涯商店采购后可用,Purchase in the Career Shop,キャリアショップで購入すると使用可能
+UNLOCK_HINT_EA6B,生涯商店采购后可用,Purchase in the Career Shop,キャリアショップで購入すると使用可能

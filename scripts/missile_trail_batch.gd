@@ -1,5 +1,7 @@
 extends Node2D
 
+const TrianglePacket = preload("res://scripts/rendering/canvas_triangle_packet.gd")
+
 ## 同一采样相位的导弹尾迹共用一个 retained CanvasItem。
 ## 尾迹几何仍由各 TrailRibbon 维护；本节点只负责把缓存拼成一次 triangle-array 提交。
 
@@ -39,5 +41,4 @@ func _draw_impl() -> void:
 	PerfBuckets.set_value("missile_trail_batch_%d_verts" % phase_slot, verts.size())
 	if indices.is_empty():
 		return
-	RenderingServer.canvas_item_add_triangle_array(
-		get_canvas_item(), indices, verts, colors)
+	TrianglePacket.submit_arrays(get_canvas_item(), indices, verts, colors)

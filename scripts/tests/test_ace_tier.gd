@@ -295,17 +295,27 @@ func _test_ace_music_contract() -> void:
 	_check("四首 ace_battle 随机池已登记且可加载", pool_ready, str(ace_ids))
 	_check("单曲自然结束信号已登记", AudioManager.has_signal("music_track_finished"),
 		"music_track_finished(id)")
+	AudioManager.play_music_playlist(["battle_coast", "battle_coast_2"], 0.0, 2.0)
+	AudioManager._active_music.seek(12.5)
+	var interrupted_position := AudioManager._active_music.get_playback_position()
 	var mode = load("res://scripts/survivor/survivor_mode.gd").new()
 	var started := bool(mode.begin_ace_battle_music())
 	var picked_id := AudioManager.current_music_id()
 	_check("血条浮现从四首可用池随机取得一首 one-shot",
 		started and picked_id in ace_ids and String(mode._active_ace_music_id) == picked_id,
 		"picked=%s" % picked_id)
+	var interrupted_player: AudioStreamPlayer = AudioManager._music_interrupt_checkpoint.get("player") \
+		as AudioStreamPlayer
+	var cut_position := interrupted_player.get_playback_position()
 	mode._on_music_track_finished(picked_id)
-	_check("Ace 单曲自然结束即恢复普通歌单",
+	var resumed_position := AudioManager._active_music.get_playback_position()
+	_check("Ace 单曲自然结束后从被掐断位置继续地图曲",
 		String(mode._active_ace_music_id).is_empty() \
-			and AudioManager.current_music_id() == "battle_coast",
-		"current=%s" % AudioManager.current_music_id())
+			and AudioManager.current_music_id() == "battle_coast" \
+			and AudioManager._active_music == interrupted_player \
+			and absf(resumed_position - cut_position) < 0.1,
+		"current=%s trigger=%.2f cut=%.2f resumed=%.2f" % [AudioManager.current_music_id(),
+			interrupted_position, cut_position, resumed_position])
 	mode.free()
 	_check("普通战斗歌单资源可加载",
 		AudioManager.has_music("battle_coast") and AudioManager.has_music("battle_coast_2"),

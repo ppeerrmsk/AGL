@@ -1,6 +1,10 @@
 extends RefCounted
 
 const SurvivorModeScript = preload("res://scripts/survivor/survivor_mode.gd")
+const SurvivorSkillCatalogScript = preload(
+	"res://scripts/survivor/survivor_skill_catalog.gd")
+const SurvivorSkillRuntimeScript = preload(
+	"res://scripts/survivor/survivor_skill_runtime.gd")
 
 ## 无头行为验收：720 技能整改批（spec skills-720-rework）
 ##
@@ -20,6 +24,8 @@ func run() -> void:
 	_test_applies_to_predicate()
 	_test_milestone_bonus_double_count()
 	_test_pool_class_gate()
+	_test_skill_catalog_projections()
+	_test_team_runtime_projection()
 	_test_t3_hooks()
 	_test_lock_count_upgrades()
 	_test_merged_skill_definitions()
@@ -148,6 +154,89 @@ func _test_pool_class_gate() -> void:
 		SurvivorData.is_upgrade_available_for(u, &"f15", null, {}, []), "")
 	_check("无 classes 技能不受门控影响",
 		SurvivorData.is_upgrade_available_for({"id": "y"}, &"f15", null, {}, [&"gladiator"]), "")
+
+
+## 随机池、单机有效子集与重放层必须由同一纯规则模块投影，避免主场景各自扫描总表。
+func _test_skill_catalog_projections() -> void:
+	print("── D2. 技能目录投影：随机池 / 轴分组 / 僚机归属 / 装备重放 ──")
+	var upgrades: Array = [
+		{"id": "plain", "category": "gladiator", "max_stacks": 2},
+		{"id": "full", "category": "gladiator", "max_stacks": 1},
+		{"id": "equip", "category": "weapon", "requires": ["gun"], "max_stacks": 2},
+		{"id": "schemer", "category": "schemer", "classes": ["schemer"], "max_stacks": 1},
+		{"id": "ace", "category": "knight", "scope": "ace", "max_stacks": 1},
+		{"id": "once", "category": "knight", "scope": "squad_once", "max_stacks": 1},
+		{"id": "reward", "category": "gladiator", "evolved": true, "max_stacks": 1},
+		{"id": "sig_test", "category": "schemer", "max_stacks": 1},
+	]
+	var p := AircraftParams.new()
+	p.gun = GunParams.new()
+	var owned := {"full": 1, "equip": 1, "schemer": 1, "ace": 1, "once": 1}
+	var candidates: Array[Dictionary] = SurvivorSkillCatalogScript.normal_candidates(
+		upgrades, &"f16", p, owned, [&"schemer"])
+	var candidate_ids: Array[String] = []
+	for u in candidates:
+		candidate_ids.append(str(u["id"]))
+	_check("随机池统一过滤满层 / 奖励技 / 签名技，保留装备与可用普通技",
+		candidate_ids == ["plain", "equip"], "got=%s" % [candidate_ids])
+	var by_axis: Dictionary = SurvivorSkillCatalogScript.candidates_by_axis(candidates)
+	_check("轴分组复用同一候选，不复制过滤链",
+		(by_axis[&"gladiator"] as Array).size() == 1
+		and (by_axis[&"knight"] as Array).size() == 1, "got=%s" % [by_axis])
+
+	var ace_eff: Dictionary = SurvivorSkillCatalogScript.effective_stacks_for_machine(
+		upgrades, owned, [&"schemer"], true)
+	var wing_eff: Dictionary = SurvivorSkillCatalogScript.effective_stacks_for_machine(
+		upgrades, owned, [&"gladiator"], false)
+	_check("操控机有效子集含通用、装备、品类与王牌，不含 squad_once",
+		ace_eff == {"full": 1, "equip": 1, "schemer": 1, "ace": 1}, "got=%s" % [ace_eff])
+	_check("僚机有效子集保留通用层，剔除不匹配品类、王牌与 squad_once",
+		wing_eff == {"full": 1, "equip": 1}, "got=%s" % [wing_eff])
+
+	var replay: Array[Dictionary] = SurvivorSkillCatalogScript.replay_layers_for_machine(
+		upgrades, owned, [&"schemer"], true)
+	var replay_ids: Array[String] = []
+	for layer in replay:
+		replay_ids.append(str((layer["upgrade"] as Dictionary)["id"]))
+	_check("换型重放保留自动生效层且跳过装备资源层",
+		replay_ids == ["full", "schemer", "ace"], "got=%s" % [replay_ids])
+	var owned_replay: Array[Dictionary] = SurvivorSkillCatalogScript.owned_replay_layers(
+		upgrades, owned)
+	_check("全队重放计划保留 squad_once、跳过装备资源层",
+		owned_replay.size() == 4
+		and str((owned_replay.back()["upgrade"] as Dictionary)["id"]) == "once", "got=%s" % [owned_replay])
+
+	var leader := _make_test_aircraft()
+	var wingman := _make_test_aircraft()
+	var player := SurvivorPlayer.new()
+	player.aircraft = leader
+	player.apply_upgrade_to(wingman, {"stat": "max_hp", "value": 25.0})
+	_check("定向效果执行不篡改当前操控机引用",
+		player.aircraft == leader and is_equal_approx(leader.params.max_hp, 100.0)
+		and is_equal_approx(wingman.params.max_hp, 125.0), "")
+	leader.free()
+	wingman.free()
+	player.free()
+
+
+func _test_team_runtime_projection() -> void:
+	print("── D3. 队级运行时投影：加力资源 / 自动技能静态开关 / 新局清零 ──")
+	var ab := AfterburnerCharge.new()
+	SurvivorSkillRuntimeScript.sync_team_state({
+		"ab_kill_charge": 2, "ab_duration": 1, "sig_x13": 1,
+		"sig_f35": 1, "hush": 1,
+	}, ab)
+	_check("队级叠层一次投影到加力资源",
+		is_equal_approx(ab.kill_charge_bonus, 1.2)
+		and is_equal_approx(ab.duration_mult, 1.5), "")
+	_check("队级自动技能一次投影到静态消费点",
+		StatusEffects.sig_x13_active and SkillHooks.sig_f35_active
+		and SkillHooks.hush_active and not SkillHooks.sig_fcas_active, "")
+	SurvivorSkillRuntimeScript.reset_team_state()
+	_check("新局清零队级静态状态",
+		not StatusEffects.sig_x13_active and not SkillHooks.sig_fcas_active
+		and not SkillHooks.sig_f35_active and not SkillHooks.sig_x90_active
+		and not SkillHooks.hush_active, "")
 
 
 # ── E. T3 钩子（spec §6 T3：AB 修正 / 免耗弹窗 / QAAM 强化嗜血 / 适应回能 / 升级回复挂点在 mode）──

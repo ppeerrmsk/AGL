@@ -1,6 +1,8 @@
 class_name MissileEvasion
 extends RefCounted
 
+const AIAltitudePolicy := preload("res://scripts/ai/ai_altitude_policy.gd")
+
 ## 导弹规避子系统（静态工具类）
 ## 从 ai_controller.gd 提取的 EVADE_MISSILE 状态逻辑：
 ##   process_evade            — EVADE 主循环：垂直规避 + Herbst 机动触发 + 高度档位切换
@@ -147,9 +149,8 @@ static func exit_evade(ai: AIController) -> void:
 	if ai._current_target and is_instance_valid(ai._current_target) \
 			and not ai._current_target.is_destroyed and not ai._current_target.is_lock_immune():
 		ai.aircraft.set_combat_target(ai._current_target)
-		BFMTactics.set_patrol_altitude(ai)
-		ai.enter_engage_state(false)  # 恢复交战：不打断躲弹前的战术选择
-		ai._tactic_timer = 0.0        # 但允许下一 tick 立刻重挑战术（旧行为）
+		AIAltitudePolicy.set_patrol(ai)
+		ai.enter_engage_state(false)  # 恢复交战：保留躲弹前的 planner 滞回
 	elif ai.squad and is_instance_valid(ai.squad.leader) and not ai.squad.leader.is_destroyed:
 		ai.enter_squad_follow_state()
 		ai.aircraft.clear_combat_target()

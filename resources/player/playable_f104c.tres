@@ -1,0 +1,27 @@
+[gd_resource type="Resource" script_class="PlayableAircraft" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/playable_aircraft.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/player/player_f104c.tres" id="2"]
+
+[resource]
+script = ExtResource("1")
+id = &"f104c"
+display_name = "AIRCRAFT_F104C_DISPLAY"
+codename = "Starfighter"
+card_desc = "AIRCRAFT_F104C_CARDDESC"
+base_params = ExtResource("2")
+starting_benefit_id = &"rocket_ffar"
+gun_ammo_override = 180
+gun_damage_mult = 1.0625
+gun_range_override = 900.0
+gun_cone_override = 6.0
+base_pilot_aim_skill = 0.55
+flares_guaranteed = true
+enable_missile_reload = true
+enable_flare_reload = true
+enable_gun_reload = true
+infinite_fuel = true
+missile_damage_cap = 30.0
+bullet_damage_cap = 5.0
+bullet_dodge_chance = 0.08
+wingman_count = 0

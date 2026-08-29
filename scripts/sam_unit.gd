@@ -199,14 +199,13 @@ func _draw_sam_icon() -> void:
 
 func _status_label_lines(compact: bool) -> PackedStringArray:
 	var display_name: String = params.display_name if params else "SAM"
-	var lines := PackedStringArray([display_name])
+	var lines := PackedStringArray([
+		AircraftRenderer.english_status_identity(display_name, "SAM")])
 	if compact:
 		return lines
-	lines.append("ALT GND")
+	lines.append(AircraftRenderer.status_hp_text(
+		hp, params.max_hp if params else hp))
 	var dist_m := _status_label_distance_m()
-	if dist_m < 1000.0:
-		lines.append("RNG %dm" % roundi(dist_m))
-	else:
-		lines.append("RNG %.1fkm" % (dist_m / 1000.0))
-	lines.append("MSL %d" % missiles_remaining)
+	lines.append(AircraftRenderer.status_range_text(dist_m))
+	lines.append("MSL %d" % maxi(missiles_remaining, 0))
 	return lines

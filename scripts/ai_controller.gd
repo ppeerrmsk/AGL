@@ -6,6 +6,8 @@ extends Node
 
 # 显式 preload 兜底新增的 class_name 类（Godot 全局类缓存有时不刷新）
 const EscortBehavior := preload("res://scripts/ai/escort_behavior.gd")
+const AIAltitudePolicy := preload("res://scripts/ai/ai_altitude_policy.gd")
+const PursuitGeometry := preload("res://scripts/ai/pursuit_geometry.gd")
 
 # Phase 2 状态正交化（2026-07-05，重构计划 §5 Phase 2）：
 # EVADE 不再是 _state 轴上的值 —— 它与 PATROL/ENGAGE/SQUAD_FOLLOW 正交，实现为
@@ -14,29 +16,6 @@ const EscortBehavior := preload("res://scripts/ai/escort_behavior.gd")
 # 同理 directive / manual_control 本就是分发层旁路（正交模态），只是没占 _state 轴。
 enum AIState { PATROL, ENGAGE, SQUAD_FOLLOW }
 enum RotorcraftState { TRANSIT, REPOSITION, ORBIT, BRAKE, HOVER, EGRESS }
-enum EngageTactic {
-	LEAD_PURSUIT,    ## 前置追踪：积极闭合
-	LAG_PURSUIT,     ## 滞后追踪：保持后半球不冲过
-	LEAD_TURN,       ## 提前转弯：迎头时抢角度
-	HIGH_YOYO,       ## 高悠悠：拉高防冲过
-	LOW_YOYO,        ## 低悠悠：俯冲加速闭合
-	BREAK_TURN,      ## 急转：被咬尾时防御
-	EXTENSION,       ## 加速脱离：拉开距离
-	SCISSORS,        ## 剪刀机动：近距反复交叉
-	SNIPER_HOLD,     ## 狙击稳瞄：减速 + 不取 lead，机头死锁玩家当前位置（电磁炮 / 激光等需机头对准武器用）
-}
-
-const TACTIC_DISPLAY_NAME: Dictionary = {
-	EngageTactic.LEAD_PURSUIT: "",
-	EngageTactic.LAG_PURSUIT: "",
-	EngageTactic.LEAD_TURN: "",
-	EngageTactic.HIGH_YOYO: "高悠悠",
-	EngageTactic.LOW_YOYO: "低悠悠",
-	EngageTactic.BREAK_TURN: "",
-	EngageTactic.EXTENSION: "加速脱离",
-	EngageTactic.SCISSORS: "",
-	EngageTactic.SNIPER_HOLD: "狙击稳瞄",
-}
 
 # ── 基础巡逻 ──
 @export var aircraft: Aircraft
@@ -88,11 +67,6 @@ var _tick_phase: int = 0   ## 0..ai_tick_divisor-1，随机错开各 AI 的决�
 @export var bvr_standoff_min_px_override: float = 0.0
 @export var bvr_flee_distance_px_override: float = 0.0
 
-## 偏好"机头对准型武器"（电磁炮 / 激光剑 / 任何需要机头死锁目标的武器）
-## 启用后 BFM 在交战阶段优先选 SNIPER_HOLD 战术 —— 减速 + 直瞄目标当前位置（不取 lead），
-## 避免 LEAD_PURSUIT 的"追前置点导致永远在转弯"问题。
-## 用法：装电磁炮 / 激光剑等武器的 AI 设此为 true（AF-03、未来 BOSS 机型等）。
-@export var prefer_nose_aligned_weapon: bool = false
 var boss_attacker: bool = false               ## BOSS 攻击手：禁止 EXTENSION/脱离/自保，死追玩家
 
 ## ── SwarmDirector 接口（Mother Goose UAV 协同用）──
@@ -390,102 +364,10 @@ const HERBST_MIN_ALTITUDE_M := 1500.0      ## J-Turn DECEL 段会刹到 ~69m/s�
 const GUN_ATTACK_DOT := 0.3                ## 机炮攻击威胁朝向点积
 const GUN_ATTACK_THREAT_DIST := 800.0      ## 机炮攻击威胁距离（像素）
 const EVASION_TARGET_DIST := 2000.0        ## 规避目标距离（像素）
-const LOCK_AWARE_DEFENSE_MULT := 0.1       ## 锁定感知防御概率乘数
 const ALTITUDE_MATCH_THRESH := 500.0       ## 高度匹配阈值（像素）
-
-# ── 拉弗伯雷检测 ──
-const LUFBERRY_CLOSE_MULT := 2.0           ## 近距判定 = 机炮射程 × 此值
-const LUFBERRY_THRESH_MIN := 2.5           ## 王牌最短触发时间（秒）
-const LUFBERRY_THRESH_MAX := 4.0           ## 菜鸟最长触发时间（秒）
-const LUFBERRY_COOLDOWN := 6.0             ## 脱出冷却（秒）
 
 # ── 距离倍率（gun_range ×） ──
 const BVR_CLOSE_MULT := 5.0               ## BVR 近距判定倍率
-const TACTIC_CLOSE_MULT := 2.0            ## 战术选择近距倍率
-const TACTIC_MID_MULT := 5.0              ## 战术选择中距倍率
-
-# ── 战斗决策阈值 ──
-const HEALTH_EXTEND_THRESH := 0.4          ## 血量低于此比例考虑脱离
-const SPEED_EXTEND_THRESH := 0.8           ## 速度比低于此值考虑脱离
-const DEFENSIVE_COUNTER_TIME := 5.0        ## 防御累计时间超过此值反击（秒）
-const AGGRESSION_COUNTER_THRESH := 0.4     ## 反击所需最低攻击倾向
-const SCISSORS_LOW_SPEED := 200.0          ## 低速进入剪刀机动阈值（m/s）
-const HEALTH_AGGRESSIVE_EXTEND := 0.25     ## 激进脱离血量阈值
-const MAX_MISTAKE_CHANCE := 0.15           ## 战术决策最大失误概率
-
-# ── 战术最小持续时间（秒）──
-const MIN_DUR_LEAD_PURSUIT := 0.5
-const MIN_DUR_LAG_PURSUIT := 1.0
-const MIN_DUR_LEAD_TURN := 1.5
-const MIN_DUR_HIGH_YOYO := 2.0
-const MIN_DUR_LOW_YOYO := 2.0
-const MIN_DUR_BREAK_TURN := 1.5
-const MIN_DUR_EXTENSION := 3.0
-const MIN_DUR_SCISSORS := 1.0
-
-# ── 闭合率阈值（pixels/frame）──
-const CR_HIGHYOYO_CLOSE := 80.0            ## 近距高悠悠闭合率
-const CR_LAG_PURSUIT := 50.0               ## 滞后追踪闭合率
-const CR_LOWYOYO_FAR := 20.0              ## 远距低悠悠闭合率
-const CR_HIGHYOYO_SIDE := 60.0             ## 侧面高悠悠闭合率
-const CR_LOWYOYO_SIDE := 10.0             ## 侧面低悠悠闭合率
-const SPEED_RATIO_LAG := 1.1               ## 滞后追踪速度比阈值
-const MID_RANGE_LOWYOYO := 0.7             ## 中距低悠悠判定比例
-
-# ── 滞后追踪参数 ──
-const LAG_OFFSET_MIN := 80.0              ## 滞后偏移最小距离（像素）
-const LAG_SPEED_RATIO := 0.95              ## 滞后追踪速度比
-const LAG_MIN_SPEED := 400.0               ## 滞后追踪最低速度（km/h）
-
-# ── 前置转弯参数 ──
-const LEAD_TURN_CLOSING_ADJ := 50.0        ## 通过时间闭合率调整
-const LEAD_TURN_SIXOCLOCK_MIN := 100.0     ## 6 点钟偏移最小值（像素）
-const LEAD_TURN_SIXOCLOCK_MULT := 1.2      ## 6 点钟偏移比例乘数
-
-# ── 高悠悠参数 ──
-const HIGH_YOYO_CLIMB_MIN := 300.0         ## 爬升刹车高度最小值（米）
-const HIGH_YOYO_LAG_RATIO := 0.6           ## 滞后追踪点枪程比
-const HIGH_YOYO_LEAD_MIN := 0.3            ## 俯冲阶段提前量最小（秒）
-const HIGH_YOYO_LEAD_MAX := 2.0            ## 俯冲阶段提前量最大（秒）
-
-# ── 低悠悠参数 ──
-const LOW_YOYO_LEAD_MIN := 0.5             ## 俯冲阶段提前量最小（秒）
-const LOW_YOYO_LEAD_MAX := 3.0             ## 俯冲阶段提前量最大（秒）
-const LOW_YOYO_APPROACH_SCALE := 0.15      ## 接近速度缩放因子
-const LOW_YOYO_CLIMB_LEAD_MIN := 0.3       ## 爬升阶段提前量最小（秒）
-const LOW_YOYO_CLIMB_LEAD_MAX := 2.0       ## 爬升阶段提前量最大（秒）
-
-# ── 急转参数 ──
-const BREAK_TURN_DIST := 1500.0            ## 急转目标位置距离（像素）
-const BREAK_TURN_ALT_REDUCE := 300.0       ## 急转降高（米）
-const BREAK_TURN_COUNTER_LEAD := 0.5       ## 反击阶段提前量比例
-const BREAK_TURN_COUNTER_SPEED := 1.3      ## 反击速度倍率
-
-# ── 脱离参数 ──
-const EXTENSION_DISTANCE := 2000.0         ## 脱离目标距离（像素）
-const EXTENSION_ESCAPE_MIN := 0.85         ## 逃跑速度最低比
-const EXTENSION_ESCAPE_MAX := 0.95         ## 逃跑速度最高比
-const EXTENSION_CLIMB := 200.0             ## 脱离爬升（米）
-const EXTENSION_SUCCESS_DIST := 800.0      ## 脱离成功判定距离（像素）
-const EXTENSION_SUCCESS_MULT := 4.0        ## 脱离成功枪程倍率
-
-# ── 剪刀参数 ──
-const SCISSORS_REVERSE_MIN := 0.8          ## 反转间隔最短（秒）
-const SCISSORS_REVERSE_MAX := 2.5          ## 反转间隔最长（秒）
-const SCISSORS_LATERAL := 300.0            ## 侧向偏移（像素）
-const SCISSORS_FORWARD := 50.0             ## 前向接近（像素）
-const SCISSORS_SAFE_SPEED := 1.3           ## 最低安全速度比
-const SCISSORS_FALLBACK_SPEED := 400.0     ## 兜底速度（km/h）
-
-# ── 机炮闪避 jink ──
-const GUN_JINK_RANGE_MULT := 2.5           ## 触发范围 = 机炮射程 × 此值
-const GUN_JINK_GRACE := 0.5                ## 停火后继续闪避宽限（秒）
-const GUN_JINK_AMP_MIN := 60.0             ## 闪避振幅最小（像素，低技能）
-const GUN_JINK_AMP_MAX := 150.0            ## 闪避振幅最大（像素，高技能）
-const GUN_JINK_PERIOD_MIN := 0.8           ## 闪避周期最短（秒，高技能）
-const GUN_JINK_PERIOD_MAX := 1.5           ## 闪避周期最长（秒，低技能）
-const GUN_JINK_NOISE_FREQ := 3.7           ## 低技能噪声频率
-const GUN_JINK_NOISE_AMP := 0.4            ## 低技能噪声振幅
 
 # ── 交战速度 ──
 const FALLBACK_ENGAGE_SPEED := 900.0       ## 兜底交战速度（km/h）
@@ -530,18 +412,7 @@ var _evade_committed_dir: Vector2 = Vector2.ZERO  ## 规避承诺的 break 方�
 var _evade_reenter_cd: float = 0.0       ## leash 拽回后的规避再入冷却（防 EVADE↔SQUAD_FOLLOW 0.5s 振荡，2026-07-03）
 var _current_target: CombatUnit = null   ## 当前交战目标（飞机或地面单位）
 
-# ── 战术机动状态 ──
-var _tactic: EngageTactic = EngageTactic.LEAD_PURSUIT
-var _tactic_timer: float = 0.0          ## 当前战术已持续时间
-var _tactic_min_duration: float = 0.0   ## 当前战术最小持续时间（防抖动）
-var _yoyo_phase: int = 0                ## Yo-Yo 阶段：0=拉高/俯冲, 1=恢复追踪
-var _yoyo_base_alt: float = 0.0         ## Yo-Yo 开始时的高度
-var _scissors_side: float = 1.0         ## 剪刀机动当前方向（1 或 -1）
-var _scissors_reverse_timer: float = 0.0 ## 剪刀反转计时
-var _extension_start_pos: Vector2 = Vector2.ZERO ## 脱离起始位置
-var _prev_tactic: EngageTactic = EngageTactic.LEAD_PURSUIT ## 上一个战术（用于调试）
-var _defensive_time: float = 0.0        ## 持续处于防御态势的累计时间
-var _break_phase: int = 0               ## Break Turn 阶段：0=急转, 1=反转迎头
+# ── 交战状态 ──
 var _target_eval_timer: float = 0.0     ## 交战中目标重评估计时器
 var _overkill_retarget_cd: float = 0.0 ## 超杀让路重评冷却；避免武器 tick 反复触发全候选扫描
 var _gravity_low_evals: int = 0         ## 战场引力：顺手目标连续低于交战地板的评估次数（spec battlefield-gravity §2.1.1，≥2 脱离）
@@ -552,19 +423,10 @@ var _fear_was_active: bool = false      ## 上一帧 FEAR 状态（用于边沿�
 var _post_fear_no_ab_timer: float = 0.0 ## FEAR 解除后禁加力倒计时（秒）
 const POST_FEAR_NO_AB_DURATION: float = 3.0
 
-# ── 机炮闪避（斗士型蛇形机动） ──
-var _gun_jink_active: bool = false      ## 正在执行机炮闪避蛇形机动
-var _gun_jink_timer: float = 0.0        ## 蛇形相位计时器
-var _gun_jink_grace: float = 0.0        ## 停火后继续闪避的宽限倒计时
-
 # ── 飞行员心理/性格子系统（压力/SA/判断误差）──
 ## 性格特征（skill_level/composure/focus 等 @export）保留在本类，由 spawner 设置。
 ## 派生状态（_stress/_drift_*/_sa_*）和更新逻辑都移到 PilotPersonality。
 var personality: PilotPersonality = PilotPersonality.new()
-
-# ── 拉弗伯雷圆圈（mutual orbit）检测 ──
-var _lufberry_timer: float = 0.0         ## 处于互相绕圈状态的累计时间
-var _lufberry_cooldown: float = 0.0      ## 脱出后冷却，避免反复触发
 
 # ── Simple AI 近距绕圈疲劳（UAV 狗斗削弱） ──
 var _simple_orbit_time: float = 0.0      ## 近距持续绕圈累计时间
@@ -707,13 +569,13 @@ func _physics_process_impl(delta: float) -> void:
 		return
 
 	# ── FEAR 边沿 + 解除后禁加力 ──
-	# 上升沿：仅记录；下降沿：清战术冷却（立即重选战术 / 归队），开 3s 禁 AB 窗口
+	# 上升沿：仅记录；下降沿：清 planner 滞回（立即重选战术 / 归队），开 3s 禁 AB 窗口
 	# 禁 AB 用 SLOW 同款写法（status_effects.gd:161），避免 FEAR 一过又全速冲出战场
 	# 放在节流门控之前：timer 即使在 throttle skip 帧也照样推进
 	var _fear_now: bool = aircraft.status_fear_active
 	if _fear_was_active and not _fear_now:
 		_post_fear_no_ab_timer = POST_FEAR_NO_AB_DURATION
-		_tactic_min_duration = 0.0
+		reset_tactical_plan()
 		_target_eval_timer = 0.0
 	_fear_was_active = _fear_now
 	if _post_fear_no_ab_timer > 0.0:
@@ -779,6 +641,11 @@ func _physics_process_impl(delta: float) -> void:
 	# SEAM-010 根治：现收口 _apply_constraints 单点。
 	if _apply_constraints(delta):
 		return
+
+	# Phase 3：全功能 AI 统一走 TacticalPlanner。simple_ai 继续走自己的低成本路径；
+	# 特殊演出若关闭 planner，也必须同时停用本控制器，避免旧 BFM 执行器复活成第二套权威。
+	if not simple_ai and not aircraft.use_tactical_planner:
+		aircraft.use_tactical_planner = true
 
 	if simple_ai:
 		# simple AI 只承袭固定 aggression，不受压力/SA 影响
@@ -890,15 +757,19 @@ func request_overkill_retarget() -> void:
 # ══════════════════════════════════════════════
 
 ## 进入/维持 ENGAGE。前置：目标已由 acquire_target 建立（本函数不碰目标所有权）。
-## reset_tactic=true：新交战，重置战术选择；false：软重连/恢复交战
-## （BOSS 维持、躲弹后恢复——不打断进行中的 BFM 战术选择）。
-func enter_engage_state(reset_tactic: bool = true) -> void:
+## reset_plan=true：新交战，重置 TacticalPlanner 滞回；false：软重连/恢复交战
+## （BOSS 维持、躲弹后恢复——不打断进行中的 plan）。
+func enter_engage_state(reset_plan: bool = true) -> void:
 	_state = AIState.ENGAGE
 	_engage_timer = 0.0
-	if reset_tactic:
-		_tactic = EngageTactic.LEAD_PURSUIT
-		_tactic_timer = 0.0
-		_tactic_min_duration = MIN_DUR_LEAD_PURSUIT
+	if reset_plan:
+		reset_tactical_plan()
+
+
+## 清除 TacticalPlanner 跨帧滞回。目标切换、特殊机动结束等需要立即重新裁决的入口统一调用；
+## 普通 ENGAGE 软重连不调用，避免躲弹/BOSS 维持时打断当前 plan。
+func reset_tactical_plan() -> void:
+	aircraft.reset_tactical_plan_state()
 
 
 ## 进入 SQUAD_FOLLOW（编队跟随）。snap=false：从 0 开始渐变归队（常规）；
@@ -918,7 +789,7 @@ func enter_patrol_state(pick_waypoint: bool = true) -> void:
 	_state = AIState.PATROL
 	aircraft.ai_override_pursuit = false
 	if pick_waypoint:
-		BFMTactics.set_patrol_altitude(self)
+		AIAltitudePolicy.set_patrol(self)
 		_set_next_waypoint()
 
 
@@ -1699,10 +1570,10 @@ func _process_simple(delta: float) -> void:
 
 					if _current_target and is_instance_valid(_current_target) and not _current_target.is_destroyed:
 						# 飞向敌人（前置追踪）
-						var tgt_fwd := Vector2(sin(_current_target.heading), -cos(_current_target.heading))
 						var dist_to_tgt := aircraft.global_position.distance_to(_current_target.global_position)
-						var lead_time := dist_to_tgt / maxf(aircraft.speed * Aircraft.PIXELS_PER_METER, 1.0)
-						var lead_pos := _current_target.global_position + tgt_fwd * _current_target.speed * Aircraft.PIXELS_PER_METER * lead_time * 0.8
+						var lead_pos := PursuitGeometry.closing_time_lead_point(
+							aircraft.global_position, _current_target.global_position,
+							_current_target.heading, _current_target.speed, aircraft.speed, 0.8)
 						aircraft.target_position = lead_pos
 						aircraft.ai_override_pursuit = true
 						aircraft.orbit_speed_cap = 0.0  # 解除限速，全速追击
@@ -1870,9 +1741,7 @@ func _process_simple(delta: float) -> void:
 				return
 
 	# 前置追踪（护驾 UAV / hunter 用更激进的预判系数）
-	var tgt_fwd := Vector2(sin(_current_target.heading), -cos(_current_target.heading))
-	var closing_speed := maxf(aircraft.speed + _current_target.speed, 1.0) * Aircraft.PIXELS_PER_METER
-	var lead_time := dist / closing_speed
+	var tgt_fwd := PursuitGeometry.forward_vector(_current_target.heading)
 	var lead_factor: float
 	if _is_sentinel_escort:
 		lead_factor = ESCORT_UAV_LEAD
@@ -1880,7 +1749,9 @@ func _process_simple(delta: float) -> void:
 		lead_factor = HUNTER_UAV_LEAD
 	else:
 		lead_factor = REGULAR_UAV_LEAD
-	var lead_pos := _current_target.global_position + tgt_fwd * _current_target.speed * Aircraft.PIXELS_PER_METER * lead_time * lead_factor
+	var lead_pos := PursuitGeometry.closing_time_lead_point(
+		aircraft.global_position, _current_target.global_position, _current_target.heading,
+		_current_target.speed, aircraft.speed + _current_target.speed, lead_factor)
 	# 横向 flank 偏置：让两架同队 hunter 攻击目标不同侧，避免在 lead_pos 收敛重叠
 	# 距离衰减：远距(>1500px)满偏 / 近距(<500px)归零，让 AI 贴脸时仍能直瞄开火
 	if flank_offset_lateral_px != 0.0:
@@ -2162,7 +2033,6 @@ func _is_target_already_squad_engaged(target: CombatUnit) -> bool:
 
 func _process_engage(delta: float) -> void:
 	_engage_timer += delta
-	_tactic_timer += delta
 	_target_eval_timer += delta
 
 	# ── Drone 直冲式攻击（loyal_wingman 专用）──
@@ -2221,12 +2091,6 @@ func _process_engage(delta: float) -> void:
 				TargetSelection.disengage(self)
 				return
 
-	# 累积防御态势时间
-	if _tactic in [EngageTactic.BREAK_TURN, EngageTactic.EXTENSION, EngageTactic.SCISSORS]:
-		_defensive_time += delta
-	else:
-		_defensive_time = maxf(_defensive_time - delta * 0.5, 0.0)
-
 	# ── 战术机动防御：敌机从后方用机炮攻击时触发 ──
 	var _me := aircraft.get_maneuver()
 	if _me and not _me.is_used and not _me.is_active:
@@ -2263,15 +2127,6 @@ func _process_engage(delta: float) -> void:
 			# exit_evade 无缝恢复同一交战。避免"每次躲弹都丢目标 → 重新咬另一架 → 大坡反转"churn。
 			MissileEvasion.enter_evade(self)
 			return
-
-	# ── 被锁定警觉（需要飞行员意识到 + 高自保飞行员主动脱离） ──
-	var _esp := _effective_self_preservation()
-	if personality.lock_aware and _esp > 0.7:
-		# 高自保 + 意识到被锁定 → 如果不在防御战术中，立即切防御
-		if _tactic not in [EngageTactic.BREAK_TURN, EngageTactic.EXTENSION, EngageTactic.SCISSORS]:
-			var defense_chance := (_esp - 0.5) * LOCK_AWARE_DEFENSE_MULT
-			if randf() < defense_chance:
-				_tactic_timer = _tactic_min_duration  # 强制允许战术切换
 
 	# 目标有效性检查
 	# is_lock_immune()（光学隐形 / 锁定免疫窗口）也算失效 —— 否则 BFM 层会继续读
@@ -2344,58 +2199,10 @@ func _process_engage(delta: float) -> void:
 		current_tactic_name = "JOUST_RUN_IN" if _joust_phase == JoustController.Phase.RUN_IN else "JOUST_BREAK"
 		return
 
-	# ── 态势评估 ──
-	# P4：planner 模式下整段 BFMTactics 链都跳过（assess_situation / lufberry / choose / execute / gun_jink）
-	# 这些原本是为旧 BFMTactics.execute_* 服务，planner 接管后全是死代码 —— 省去每帧 SituationData 构造 + 战术选择 + jink 偏移计算
-	if aircraft.use_tactical_planner:
-		aircraft.ai_override_pursuit = false  # 让 planner 自由控制 target_position
-		# HUD 战术显示：planner 飞机用 plan 的 intent 名（玩家飞机自己更新；AI 飞机用 _last_plan）
-		if aircraft._last_plan:
-			current_tactic_name = TacticalPlan.intent_name(aircraft._last_plan.intent)
-		return
-
-	# ── 旧 BFMTactics 路径（沙盒模式 / 未迁移机型）──
-	var sit := BFMTactics.assess_situation(self)
-
-	# ── 交战中默认目标高度：使用自身作战高度（patrol_altitude clamp 到目标 ±2500m），
-	# 各战术执行器需要时会覆写为 match_target_altitude（机炮战）──
-	if absf(sit.alt_diff) > ALTITUDE_MATCH_THRESH:
-		BFMTactics.use_combat_altitude(self)
-
-	# ── 拉弗伯雷圆圈检测（每帧更新，不受战术切换防抖限制） ──
-	BFMTactics.update_lufberry_detection(self, sit, delta)
-
-	# ── 战术选择（带最小持续时间防抖） ──
-	if _tactic_timer >= _tactic_min_duration:
-		BFMTactics.choose_tactic(self, sit)
-
-	# ── 执行当前战术 ──
-	aircraft.ai_override_pursuit = true
-	match _tactic:
-		EngageTactic.LEAD_PURSUIT:
-			BFMTactics.execute_lead_pursuit(self, sit)
-		EngageTactic.LAG_PURSUIT:
-			BFMTactics.execute_lag_pursuit(self, sit)
-		EngageTactic.LEAD_TURN:
-			BFMTactics.execute_lead_turn(self, sit)
-		EngageTactic.HIGH_YOYO:
-			BFMTactics.execute_high_yoyo(self, sit, delta)
-		EngageTactic.LOW_YOYO:
-			BFMTactics.execute_low_yoyo(self, sit, delta)
-		EngageTactic.BREAK_TURN:
-			BFMTactics.execute_break_turn(self, sit)
-		EngageTactic.EXTENSION:
-			BFMTactics.execute_extension(self, sit)
-		EngageTactic.SCISSORS:
-			BFMTactics.execute_scissors(self, sit, delta)
-		EngageTactic.SNIPER_HOLD:
-			BFMTactics.execute_sniper_hold(self, sit)
-
-	# ── 机炮闪避（斗士型：被追尾射击时叠加蛇形偏移） ──
-	BFMTactics.update_gun_jink(self, sit, delta)
-
-	# 更新战术名称（附带压力和技能信息）
-	current_tactic_name = EngageTactic.keys()[_tactic]
+	# 全功能 AI 的移动 / 速度 / 武器权威只来自 Aircraft 上的 TacticalPlanner。
+	aircraft.ai_override_pursuit = false
+	if aircraft._last_plan:
+		current_tactic_name = TacticalPlan.intent_name(aircraft._last_plan.intent)
 
 # ══════════════════════════════════════════════
 #  Drone 直冲式 engage（loyal_wingman 专用，跳过 BFM 决策）
@@ -2406,13 +2213,9 @@ func _process_engage(delta: float) -> void:
 func _process_drone_engage(delta: float) -> void:
 	var tgt := _current_target
 	# 目标 lead：以自身闭合时间为预测窗口（BFM lead pursuit 的简化版本）
-	var to_tgt := tgt.global_position - aircraft.global_position
-	var dist_px := to_tgt.length()
-	var my_speed_px := maxf(aircraft.speed * Aircraft.PIXELS_PER_METER, 1.0)
-	var t_to_target := minf(dist_px / my_speed_px, 1.5)  # 上限 1.5s 防过冲
-	var tgt_fwd := Vector2(sin(tgt.heading), -cos(tgt.heading))
-	var tgt_speed_px := tgt.speed * Aircraft.PIXELS_PER_METER
-	var lead_pos := tgt.global_position + tgt_fwd * tgt_speed_px * t_to_target * 0.6
+	var lead_pos := PursuitGeometry.closing_time_lead_point(
+		aircraft.global_position, tgt.global_position, tgt.heading, tgt.speed,
+		aircraft.speed, 0.6, 1.5)  # 上限 1.5s 防过冲
 
 	aircraft.target_position = lead_pos
 	aircraft.ai_override_pursuit = true
@@ -2428,29 +2231,6 @@ func _process_drone_engage(delta: float) -> void:
 		aircraft.target_altitude = tgt.altitude
 
 	current_tactic_name = "TACTIC_DRONE_STRIKE"
-
-# ══════════════════════════════════════════════
-#  态势评估
-# ══════════════════════════════════════════════
-
-class SituationData:
-	var dist_px: float          ## 距离（像素）
-	var aspect_angle: float     ## 我在敌机的偏置角（0=正后方, PI=正前方）
-	var my_aot: float           ## 敌机在我的攻击角（0=正前方, PI=正后方）
-	var closing_rate: float     ## 闭合率（正=接近）
-	var my_speed: float         ## 我的速度 m/s
-	var tgt_speed: float        ## 敌机速度 m/s
-	var speed_ratio: float      ## 速度比 我/敌
-	var alt_diff: float         ## 高度差（正=我更高）
-	var in_rear_hemi: bool      ## 我在敌机后半球
-	var enemy_in_my_rear: bool  ## 敌机在我的后半球
-	var tgt_pos: Vector2
-	var tgt_fwd: Vector2
-	var my_pos: Vector2
-	var my_fwd: Vector2
-	var to_target: Vector2      ## 归一化方向
-	var gun_range_px: float
-	var is_head_on: bool        ## 迎头接近
 
 # ══════════════════════════════════════════════
 #  EVADE_MISSILE — 导弹规避

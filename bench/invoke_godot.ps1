@@ -296,12 +296,27 @@ function Get-BenchRuntimeErrorBlocks([string]$stdoutText, [string]$stderrText) {
         if (-not $fatal) {
             continue
         }
-        $end = [Math]::Min($lines.Count - 1, $i + 3)
+        # Keep the complete GDScript backtrace. A fixed four-line slice drops the
+        # production caller as soon as the failing helper adds one stack frame.
+        $end = $i
+        for ($j = $i + 1; $j -lt $lines.Count; $j++) {
+            $candidate = $lines[$j]
+            if ($candidate -match '^\s*(?:SCRIPT ERROR|ERROR|WARNING):') {
+                break
+            }
+            if ($candidate -eq '') {
+                break
+            }
+            $end = $j
+        }
         $block = (($lines[$i..$end] | Where-Object { $_ -ne '' }) -join [Environment]::NewLine).Trim()
         if ($block -ne '' -and -not $seen.ContainsKey($block)) {
             $seen[$block] = $true
             $blocks.Add($block)
         }
+        # Do not emit overlapping blocks when a continuation line also contains
+        # "previously freed" or another fatal token from the same diagnostic.
+        $i = $end
     }
     return @($blocks)
 }
@@ -435,6 +450,12 @@ try {
         [Console]::Error.WriteLine("[bench] ERROR: runtime-error gate found $($runtimeErrorBlocks.Count) fatal diagnostic block(s).")
         foreach ($block in $runtimeErrorBlocks) {
             [Console]::Error.WriteLine("[bench] RUNTIME ERROR:`n$block")
+            if ($block -match '(?i)previously freed|freed instance|Trying to (?:cast|assign).*freed') {
+                [Console]::Error.WriteLine(
+                    "[bench] DIAGNOSIS: FREED_OBJECT_LIFECYCLE - a stale Object cache crossed a typed boundary. " +
+                    "Inspect the deepest GDScript caller above; receive the value as Variant, then validate " +
+                    "TYPE_OBJECT and is_instance_valid before is/as/field access.")
+            }
         }
         if ($child.ExitCode -eq 0) {
             # Distinct from assertion failure (1), launcher failure (2), lock (3), timeout (124).

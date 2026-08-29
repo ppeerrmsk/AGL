@@ -173,11 +173,32 @@ static func release_player_sensor_refs_batch(targets: Array[Aircraft],
 			if target != null and is_instance_valid(target):
 				observer.radar_targets.erase(target)
 				observer.secondary_radar_targets.erase(target)
-		var held_target := _target_is_in_batch(observer.combat_target, target_ids)
-		var commanded := _target_is_in_batch(observer.commanded_target, target_ids)
+		# 三个目标字段都可能比被击毁单位多活一帧。先用 Variant 接住；若把已释放
+		# 实例直接传给 CombatUnit 形参，Godot 会在函数体守卫运行前完成类型拒绝。
+		var held_value: Variant = observer.combat_target
+		var commanded_value: Variant = observer.commanded_target
+		var held_stale := typeof(held_value) == TYPE_OBJECT \
+			and not is_instance_valid(held_value)
+		var commanded_stale := typeof(commanded_value) == TYPE_OBJECT \
+			and not is_instance_valid(commanded_value)
+		var held_target := _target_is_in_batch(held_value, target_ids)
+		var commanded := _target_is_in_batch(commanded_value, target_ids)
+		if held_stale:
+			# 先断开野引用再走正式清理，避免 clear_combat_target 的日志再读取旧目标。
+			observer.combat_target = null
+			observer.clear_combat_target()
+		if commanded_stale:
+			observer.commanded_target = null
+			observer.attack_posture = Situation.POSTURE_AUTO
+			observer.surround_bearing_rad = INF
 		var ai := observer._ai_ref
+		var ai_target_value: Variant = ai._current_target \
+			if ai != null and is_instance_valid(ai) else null
+		var ai_target_stale := typeof(ai_target_value) == TYPE_OBJECT \
+			and not is_instance_valid(ai_target_value)
 		if ai != null and is_instance_valid(ai) \
-				and _target_is_in_batch(ai._current_target, target_ids):
+				and (ai_target_stale \
+					or _target_is_in_batch(ai_target_value, target_ids)):
 			ai.release_target(AIController.TargetSource.TS_COMMANDED,
 				reason)
 		elif held_target:
@@ -186,10 +207,14 @@ static func release_player_sensor_refs_batch(targets: Array[Aircraft],
 			observer.commanded_target = null
 			observer.attack_posture = Situation.POSTURE_AUTO
 			observer.surround_bearing_rad = INF
-		if held_target or commanded:
+		if held_target or commanded or held_stale or commanded_stale \
+				or ai_target_stale:
 			observer.target_position = Vector2.INF
 
 
-static func _target_is_in_batch(value: CombatUnit, target_ids: Dictionary) -> bool:
-	return value != null and is_instance_valid(value) \
-		and target_ids.has(value.get_instance_id())
+static func _target_is_in_batch(value: Variant, target_ids: Dictionary) -> bool:
+	if typeof(value) != TYPE_OBJECT or value == null or not is_instance_valid(value):
+		return false
+	if not (value is CombatUnit):
+		return false
+	return target_ids.has(value.get_instance_id())

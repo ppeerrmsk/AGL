@@ -29,6 +29,12 @@ extends Resource
 ## ⚠ 加载后会被深拷贝，原 .tres 不会被修改
 @export var base_params: AircraftParams
 
+# ── 仅开局结算的机场等价礼包 ──
+@export_group("起手机 / 机场等价礼包")
+## 只在本档案被选为本局起手机时结算一次；进化取得同型机不触发。
+## 正式 id 由 survivor_mode._grant_starting_benefit 消费，特殊武器进入局内武器库。
+@export var starting_benefit_id: StringName = &""
+
 # ── 生存模式：基础属性倍率/加成 ──
 @export_group("生存模式 / 基础属性")
 @export var radar_range_mult: float = 1.0     ## 雷达范围倍率
@@ -48,6 +54,7 @@ extends Resource
 
 # ── 生存模式：机炮 ──
 @export_group("生存模式 / 机炮")
+@export var gun_ammo_override: int = 0       ## 0 = 不修改；玩家正式档案下限 180
 @export var gun_damage_mult: float = 1.0      ## 机炮伤害倍率
 @export var gun_range_override: float = 0.0   ## 0 = 不修改
 @export var gun_cone_override: float = 0.0    ## 0 = 不修改

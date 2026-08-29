@@ -1,14 +1,11 @@
 class_name SurvivorUpgradeUI
 extends CanvasLayer
 
-## 升级选择面板：暂停时显示三选一或带专属第四槽的四选一
+## 升级选择面板：基础三轴三选一；机体战术适配可稀有追加一张普通第四卡。
+## 机体专属技能仍只在机场停靠二选一中取得。
 
 signal upgrade_selected(upgrade: Dictionary)
 
-## 机体签名技（sig_*）专属卡框色 —— 洋红。
-## 刻意避开五档稀有度色（灰白/蓝/紫/金/红）与三轴色（琥珀/青绿/紫），
-## 让"这是当前机体的看家本领"在一排卡里一眼可辨；边框同时加粗一档作为非色彩线索。
-const SIG_FRAME_COLOR := Color(1.00, 0.25, 0.75)
 const CARD_SIZE := Vector2(240, 300)
 const CARD_GAP := 18
 const NOTE_POPUP_SIZE := Vector2(244, 84)
@@ -40,12 +37,14 @@ var _scan_lines: Array[ColorRect] = []
 var _rarity_badges: Array[Label] = []
 ## 三轴归属徽章：每张卡片左上角的轴色 chip（"斗士 +1"，spec evolution-attribute-gates §3.1）
 var _axis_badges: Array[Label] = []
+## 机体战术适配第四卡的来源标识；不改写该卡自身稀有度视觉。
+var _source_badges: Array[Label] = []
 ## 归属角标：每张卡片左下角（skills-720 §1.2：通用◈全队 / 品类限定 / 王牌 / 队级单件 + "+1 轴进度"）
 var _scope_badges: Array[Label] = []
 ## 状态词条旁注：hover / focus 后在整组卡牌一侧浮现，解释 buff/debuff 本身干什么
 ## （0729；内容由 SurvivorData.status_notes_of + StatusEffects.NOTE_I18N_KEY 决定）
 var _status_notes: Array[Label] = []
-## CLASSIFIED / 专属卡一次性入场闪边覆盖层。
+## CLASSIFIED 卡一次性入场闪边覆盖层。
 var _flash_frames: Array[Panel] = []
 var _choices: Array[Dictionary] = []
 var _populate_generation: int = 0
@@ -103,8 +102,8 @@ func _build_ui() -> void:
 	_btn_container.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	root.add_child(_btn_container)
 
-	# 最多 4 个同尺寸介质按钮。所有信息都压进物理标签；状态词条以固定覆盖层浮现，
-	# 不参与 HBox 尺寸计算，因此三卡 / 四卡不会因为说明行数不同而跳动。
+	# 预建 4 个同尺寸介质按钮；普通轮次隐藏第四槽，机体适配命中时才显现。
+	# 状态词条以固定覆盖层浮现，不参与 HBox 尺寸计算。
 	for i in range(4):
 		var card := VBoxContainer.new()
 		card.custom_minimum_size = CARD_SIZE
@@ -140,7 +139,7 @@ func _build_ui() -> void:
 		btn.add_child(media_root)
 		_media_roots.append(media_root)
 
-		# GPU halo 只覆盖 288×348 的四个小区域；用 TIME 驱动，不加 _process / queue_redraw。
+		# GPU halo 只覆盖 288×348 的三个小区域；用 TIME 驱动，不加 _process / queue_redraw。
 		var glow := ColorRect.new()
 		glow.position = Vector2(-24, -24)
 		glow.size = CARD_SIZE + Vector2(48, 48)
@@ -215,6 +214,24 @@ func _build_ui() -> void:
 		axis_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		media_root.add_child(axis_badge)
 		_axis_badges.append(axis_badge)
+
+		var source_badge := Label.new()
+		source_badge.text = tr("AIRFRAME_AFFINITY_CARD_BADGE")
+		source_badge.add_theme_font_override("font", INFO_FONT_SOURCE)
+		source_badge.add_theme_font_size_override("font_size", 11)
+		var source_bg := StyleBoxFlat.new()
+		source_bg.bg_color = Color(0.01, 0.02, 0.025, 0.94)
+		source_bg.set_border_width_all(1)
+		source_bg.set_content_margin_all(2)
+		source_badge.add_theme_stylebox_override("normal", source_bg)
+		source_badge.position = Vector2(25, 64)
+		source_badge.size = Vector2(190, 20)
+		source_badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		source_badge.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		source_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		source_badge.visible = false
+		media_root.add_child(source_badge)
+		_source_badges.append(source_badge)
 
 		var skill_name := Label.new()
 		skill_name.position = Vector2(25, 116)
@@ -296,7 +313,7 @@ func get_transition_elements() -> Array[Control]:
 	for i in range(_cards.size()):
 		if not _buttons[i].visible:
 			continue
-		# 整列作为一个动画元素，按钮/背景/脚注同步入场；第四卡加入后元素数固定为标题+卡数。
+		# 整列作为一个动画元素，按钮/背景/脚注同步入场；元素数为标题+当前可见卡。
 		out.append(_cards[i])
 	return out
 
@@ -320,14 +337,19 @@ func _reset_transition_state() -> void:
 ## 选卡仍得技能但不再加点，徽章去掉"+1"避免撒谎
 func populate(choices: Array[Dictionary], points_capped: bool = false) -> void:
 	_populate_generation += 1
-	_choices = choices
+	_choices.clear()
+	for choice in choices:
+		if _choices.size() >= _buttons.size():
+			push_error("SurvivorUpgradeUI 最多接受四张普通轴卡；多余候选已拒绝显示")
+			break
+		_choices.append(choice)
 	_selection_locked = false
 	_input_locked = true
 	for i in range(_buttons.size()):
 		_hovered[i] = false
 		_focused[i] = false
-		if i < choices.size():
-			var choice := choices[i]
+		if i < _choices.size():
+			var choice := _choices[i]
 			var btn := _buttons[i]
 			btn.visible = true
 			btn.disabled = true
@@ -337,23 +359,19 @@ func populate(choices: Array[Dictionary], points_capped: bool = false) -> void:
 			_media_roots[i].scale = Vector2.ONE
 			_media_roots[i].rotation = 0.0
 			_media_roots[i].modulate = Color.WHITE
-			var is_sig: bool = SurvivorData.is_signature_upgrade(choices[i])
-			var is_signature_offer: bool = bool(choices[i].get("signature_offer", false))
-			var axis: StringName = SurvivorData.axis_of_upgrade(choices[i])
+			var axis: StringName = SurvivorData.axis_of_upgrade(choice)
 			var axis_color: Color = SurvivorData.AXIS_COLORS.get(axis, Color.WHITE)
 
-			var rarity: int = SurvivorData.get_rarity(choices[i])
+			var rarity: int = SurvivorData.get_rarity(choice)
 			var rarity_color: Color = SurvivorData.RARITY_COLORS[rarity] \
 				if rarity < SurvivorData.RARITY_COLORS.size() else Color.WHITE
-			var frame_color: Color = SIG_FRAME_COLOR if is_sig else rarity_color
-			_media_surfaces[i].configure(rarity, frame_color, is_sig)
+			var frame_color: Color = rarity_color
+			_media_surfaces[i].configure(rarity, frame_color, false)
 			_media_surfaces[i].set_selected(false)
 
 			# 稀有度越高，介质后的 shader 辉光越强；低档软盘保持近乎实体材质。
 			var glow_levels := [0.0, 0.07, 0.20, 0.58, 0.92]
 			var glow_intensity: float = float(glow_levels[clampi(rarity, 0, glow_levels.size() - 1)])
-			if is_sig:
-				glow_intensity = maxf(glow_intensity, 0.78)
 			var glow_material := _glow_panels[i].material as ShaderMaterial
 			glow_material.set_shader_parameter("glow_color", frame_color)
 			glow_material.set_shader_parameter("intensity", glow_intensity)
@@ -368,19 +386,27 @@ func populate(choices: Array[Dictionary], points_capped: bool = false) -> void:
 			if i < _axis_badges.size():
 				var ab := _axis_badges[i]
 				var axis_name := tr(str(SurvivorData.AXIS_I18N_KEY.get(axis, "")))
-				ab.text = tr("UPGRADE_SIGNATURE_BADGE") if is_signature_offer \
-					else (axis_name if points_capped else "%s +1" % axis_name)
-				var axis_display := SIG_FRAME_COLOR if is_signature_offer else axis_color
+				ab.text = axis_name if points_capped else "%s +1" % axis_name
+				var axis_display := axis_color
 				if light_label:
 					axis_display = axis_display.darkened(0.38)
 				ab.add_theme_color_override("font_color", axis_display)
 				var ab_bg: StyleBoxFlat = ab.get_theme_stylebox("normal")
 				if ab_bg is StyleBoxFlat:
-					var badge_color := SIG_FRAME_COLOR if is_signature_offer else axis_color
+					var badge_color := axis_color
 					ab_bg.border_color = badge_color
 					ab_bg.border_width_left = 4
 					ab_bg.bg_color = Color(badge_color.r, badge_color.g, badge_color.b, 0.12)
 				ab.visible = true
+			if i < _source_badges.size():
+				var source_badge := _source_badges[i]
+				var is_airframe_bonus := bool(choice.get("airframe_bonus_offer", false))
+				source_badge.text = "◆ %s" % tr("AIRFRAME_AFFINITY_CARD_BADGE")
+				source_badge.add_theme_color_override("font_color", axis_color.lightened(0.18))
+				var source_style := source_badge.get_theme_stylebox("normal") as StyleBoxFlat
+				source_style.border_color = Color(axis_color, 0.88)
+				source_style.bg_color = Color(0.01, 0.02, 0.025, 0.94)
+				source_badge.visible = is_airframe_bonus
 
 			var rarity_label: String = ""
 			if rarity < SurvivorData.RARITY_LABEL_KEYS.size():
@@ -408,11 +434,8 @@ func populate(choices: Array[Dictionary], points_capped: bool = false) -> void:
 				var sb := _scope_badges[i]
 				var parts: Array = []
 				var sb_color := Color(0.72, 0.76, 0.8)
-				var scope: String = SurvivorData.upgrade_scope(choices[i])
-				var cls: Array = SurvivorData.upgrade_classes(choices[i])
-				if is_signature_offer:
-					var aircraft_name := tr(String(choices[i].get("signature_aircraft_name_key", "")))
-					parts.append(_format_one("UPGRADE_SIGNATURE_AIRCRAFT_FMT", aircraft_name))
+				var scope: String = SurvivorData.upgrade_scope(choice)
+				var cls: Array = SurvivorData.upgrade_classes(choice)
 				if scope == "ace":
 					sb_color = Color(1.0, 0.84, 0.3)
 					parts.append(tr("UPGRADE_SCOPE_ACE"))
@@ -428,7 +451,7 @@ func populate(choices: Array[Dictionary], points_capped: bool = false) -> void:
 					parts.append(tr("UPGRADE_CLASS_LIMITED_FMT") % "/".join(PackedStringArray(cls_names)))
 				if parts.is_empty():
 					parts.append(tr("UPGRADE_SCOPE_SQUAD"))
-				var mp: StringName = SurvivorData.milestone_plus_of(choices[i])
+				var mp: StringName = SurvivorData.milestone_plus_of(choice)
 				if mp != &"":
 					parts.append(tr("UPGRADE_MILESTONE_PLUS_FMT") % tr(str(SurvivorData.AXIS_I18N_KEY.get(mp, ""))))
 				sb.text = " · ".join(PackedStringArray(parts))
@@ -439,7 +462,7 @@ func populate(choices: Array[Dictionary], points_capped: bool = false) -> void:
 			if i < _status_notes.size():
 				var nb := _status_notes[i]
 				var note_lines: Array = []
-				for sid in SurvivorData.status_notes_of(choices[i]):
+				for sid in SurvivorData.status_notes_of(choice):
 					var nk: String = StatusEffects.note_i18n_key(sid)
 					if nk != "":
 						note_lines.append(tr(nk))
@@ -469,6 +492,8 @@ func populate(choices: Array[Dictionary], points_capped: bool = false) -> void:
 				_axis_badges[i].visible = false
 			if i < _scope_badges.size():
 				_scope_badges[i].visible = false
+			if i < _source_badges.size():
+				_source_badges[i].visible = false
 		if i < _cards.size():
 			_cards[i].visible = i < choices.size()
 	_schedule_input_unlock()
@@ -652,7 +677,7 @@ func _play_media_boot(index: int) -> void:
 		if is_instance_valid(line):
 			line.visible = false)
 
-## upgrade_in 的每张卡完成错开入场后，CLASSIFIED / 专属卡闪边一次。
+## upgrade_in 的每张卡完成错开入场后，CLASSIFIED 卡闪边一次。
 ## SceneTreeTimer 与 Tween 都设为 pause-process，硬暂停期间照常播放；generation 防旧弹窗回调串场。
 func schedule_entry_flashes() -> void:
 	if not is_inside_tree():
@@ -678,11 +703,10 @@ func _play_border_flash(index: int) -> void:
 	if index < 0 or index >= _choices.size() or index >= _flash_frames.size():
 		return
 	var choice: Dictionary = _choices[index]
-	var is_sig := SurvivorData.is_signature_upgrade(choice)
 	var rarity := SurvivorData.get_rarity(choice)
 	var color := entry_flash_color(choice)
 	var normal_w: int = 1 + clampi(rarity, 0, 4) / 2 \
-		+ (1 if rarity >= SurvivorData.Rarity.CLASSIFIED else 0) + (1 if is_sig else 0)
+		+ (1 if rarity >= SurvivorData.Rarity.CLASSIFIED else 0)
 	var frame := _flash_frames[index]
 	var style := frame.get_theme_stylebox("panel") as StyleBoxFlat
 	style.border_color = color
@@ -698,20 +722,12 @@ func _play_border_flash(index: int) -> void:
 			frame.visible = false)
 
 static func should_flash_entry(choice: Dictionary) -> bool:
-	return SurvivorData.is_signature_upgrade(choice) \
-		or SurvivorData.get_rarity(choice) == SurvivorData.Rarity.CLASSIFIED
+	return SurvivorData.get_rarity(choice) == SurvivorData.Rarity.CLASSIFIED
 
 static func entry_flash_color(choice: Dictionary) -> Color:
-	if SurvivorData.is_signature_upgrade(choice):
-		return SIG_FRAME_COLOR
 	var rarity := SurvivorData.get_rarity(choice)
 	return SurvivorData.RARITY_COLORS[rarity] if rarity < SurvivorData.RARITY_COLORS.size() \
 		else Color.WHITE
-
-## 无翻译资源的轻量 bench 中 tr(key) 会原样返回 key；避免对无占位字符串直接做 `%`。
-func _format_one(key: String, value: String) -> String:
-	var fmt := tr(key)
-	return fmt % value if fmt.contains("%s") else "%s %s" % [fmt, value]
 
 ## 5 轴前缀（i18n key）
 func _axis_prefix(axis: String) -> String:

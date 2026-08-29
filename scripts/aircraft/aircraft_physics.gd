@@ -33,6 +33,14 @@ const STALL_BANK_MIN := 0.1                      ## 失速时bank角最小（rad
 const STALL_BANK_RANGE := 0.2                    ## 失速时bank角范围（rad）
 const AIR_DENSITY_SCALE_M := 8500.0              ## 空气密度指数衰减标尺高度（米）
 
+# ── 速度积分（实飞 / 预测共享）──
+const HARD_BRAKE_DRAG_FLOOR := 0.35              ## 急刹接近失速地板时的最低减速效率
+const G_DRAG_GLOBAL_MULT := 0.4                   ## 过载诱导阻力全局倍率
+const STRUCT_BLEED_FACTOR := 6.0                  ## 超持续 G 的额外掉速（m/s² per G）
+const PE_KE_BOOST := 2.5                          ## 高度势能与动能交换的手感倍率
+const BRAKE_STEER_DEADZONE_PX := 12.0             ## 右键按下点左右死区（逻辑像素）
+const BRAKE_STEER_FULL_PX := 110.0                ## 达到满舵的水平拖拽距离（逻辑像素）
+
 # ── 临界阻尼 PD 转弯控制（SEAM-012 根治，2026-06-07）──
 # 控制律：target_turn_rate = kp·heading_diff − kd·current_turn_rate
 #         bank = atan(target_turn_rate · v / g)（协调转弯反推）
@@ -63,10 +71,9 @@ const SHOCK_ABSORB_RATE: float = 1.0      ## HP/秒回复速率（慢，强调"�
 
 ## ⚠ 性能取舍：update_* 直接读写 ac，避免 FlightState populate/write_back 的 22+12 字段
 ## 拷贝开销（22 ac × 60Hz × 5 wrappers ≈ 449k 字段操作/秒，~13ms/秒）。
-## step_*(state) 仍然是 prediction 唯一入口。两份实现的算法**必须一致**——任何对
-## 物理公式的改动都要同时改 update_*（这里）和 step_*（下方），否则预测会与实飞行撕裂。
-## 共享纯 helper：compute_target_bank / max_bank_angle_at_speed_pure / effective_max_g 等
-## 同时被两边调用，是公式真正的"单一来源"。
+## step_*(state) 仍然是 prediction 唯一入口；两条薄壳把 mutable state 解包后调用共享纯
+## helper。速度公式已由 _speed_target_ms / _integrate_speed_ms 单一持有，其余镜像按同样
+## 方式逐步收口（SEAM-017）。
 
 static func update_target_heading(ac: Aircraft) -> void:
 	var _hm_th := ac.get_herbst()
@@ -74,15 +81,126 @@ static func update_target_heading(ac: Aircraft) -> void:
 		return
 	if ac.target_position == Vector2.INF:
 		return
-	var diff := ac.target_position - ac.global_position
-	var dist := diff.length()
-	var arrival_dist := maxf(150.0, ac.speed * CombatUnit.PIXELS_PER_METER * 2.0)
-	if dist < arrival_dist and ac.combat_target == null and not ac.keep_target_on_arrival:
+	var result := _target_heading_state(
+		ac.target_position, ac.global_position, ac.speed,
+		ac.combat_target == null and not ac.keep_target_on_arrival)
+	if result.z > 0.5:
 		ac.target_position = Vector2.INF
 		ac._evasion_override = false
 		return
-	ac._cached_target_heading = atan2(diff.x, -diff.y)
-	ac._proximity_damping = clampf((dist - arrival_dist) / (arrival_dist * 2.0), 0.0, 1.0)
+	ac._cached_target_heading = result.x
+	ac._proximity_damping = result.y
+
+
+## 目标航向与接近衰减的共享纯函数。Vector3 = (heading, damping, arrived 0/1)。
+static func _target_heading_state(
+		target_position: Vector2, position: Vector2, speed: float, can_clear_on_arrival: bool
+		) -> Vector3:
+	var diff := target_position - position
+	var dist := diff.length()
+	var arrival_dist := maxf(150.0, speed * CombatUnit.PIXELS_PER_METER * 2.0)
+	if can_clear_on_arrival and dist < arrival_dist:
+		return Vector3(0.0, 0.0, 1.0)
+	return Vector3(
+		atan2(diff.x, -diff.y),
+		clampf((dist - arrival_dist) / (arrival_dist * 2.0), 0.0, 1.0),
+		0.0)
+
+
+## 方向锁纯状态迁移。Vector2 = (受锁修正后的 heading_diff, committed_turn_sign)。
+static func _resolve_turn_lock_state(heading_diff: float, committed_turn_sign: float) -> Vector2:
+	if absf(heading_diff) > 2.5:
+		if committed_turn_sign == 0.0:
+			committed_turn_sign = signf(heading_diff)
+		heading_diff = absf(heading_diff) * committed_turn_sign
+	elif absf(heading_diff) < 1.5:
+		committed_turn_sign = 0.0
+	return Vector2(heading_diff, committed_turn_sign)
+
+
+## 基础结构 G 坡度帽 + plan 坡度帽 + 低激进度持续 G 坡度帽。
+static func _bank_limit_rad(
+		ac: Aircraft, speed: float, stall_base_ms: float, max_g: float, max_g_instant: float,
+		safe_margin: float, heading_diff: float) -> float:
+	var limit := max_bank_angle_at_speed_pure(speed, stall_base_ms, max_g_instant, safe_margin)
+	if ac._plan_bank_limit_rad > 0.0:
+		limit = minf(limit, ac._plan_bank_limit_rad)
+	if ac.combat_target != null and absf(heading_diff) > 0.5 and ac.tactical_aggression < 0.999:
+		var turn_g_capped := lerpf(
+			max_g * 0.7, max_g,
+			clampf((PI - absf(heading_diff)) / (PI - 0.5), 0.0, 1.0))
+		var turn_g := lerpf(
+			turn_g_capped, max_g, clampf(ac.tactical_aggression, 0.0, 1.0))
+		limit = minf(limit, acos(1.0 / maxf(turn_g, 1.01)))
+	return limit
+
+
+## 低速操纵权限、高空滚转增益与 J-36 突击增益的唯一计算点。
+static func _bank_roll_rate_rad_s(
+		ac: Aircraft, speed: float, g_load: float, altitude: float, stall_base_kmh: float
+		) -> float:
+	var rate := base_roll_rate(ac)
+	var stall_at_g_ms := stall_base_kmh * pow(maxf(g_load, 1.0), 0.4) / 3.6
+	if speed < stall_at_g_ms:
+		rate *= clampf(speed / maxf(stall_at_g_ms, 1.0), 0.1, 1.0)
+	rate *= 1.0 + clampf(altitude / 15000.0, 0.0, 1.0) * 0.30
+	if ac.sig_j36_assault_active:
+		rate *= 1.3
+	return rate
+
+
+## 滚转积分与 bank-rate EMA。Vector3 = (bank, bank_rate, prev_bank)。
+static func _integrate_bank_state(
+		bank_angle: float, target_bank: float, roll_rate: float,
+		bank_rate: float, prev_bank: float, delta: float) -> Vector3:
+	bank_angle += clampf(target_bank - bank_angle, -roll_rate * delta, roll_rate * delta)
+	if delta > 0.0:
+		var instant_rate := (bank_angle - prev_bank) / delta
+		bank_rate = bank_rate * 0.5 + instant_rate * 0.5
+	return Vector3(bank_angle, bank_rate, bank_angle)
+
+
+static func _apply_bank_recovery(
+		target_bank: float, is_stalled: bool, stall_recovery_timer: float) -> float:
+	if is_stalled:
+		return 0.0
+	if stall_recovery_timer > 0.0:
+		return target_bank * (1.0 - clampf(stall_recovery_timer, 0.0, 1.0))
+	return target_bank
+
+
+## 右键水平拖拽 → [-1,1] 操纵量。中位细调、外侧平滑建立至满舵。
+static func brake_steer_input_from_dx(dx: float) -> float:
+	var magnitude := absf(dx)
+	if magnitude <= BRAKE_STEER_DEADZONE_PX:
+		return 0.0
+	var x := clampf(
+		(magnitude - BRAKE_STEER_DEADZONE_PX) /
+			(BRAKE_STEER_FULL_PX - BRAKE_STEER_DEADZONE_PX),
+		0.0, 1.0)
+	return signf(dx) * smoothstep(0.0, 1.0, x)
+
+
+## BRAKE 坡度主张。返回 NAN 表示让现有目标航向/正式机动继续拥有坡度。
+## 满舵只使用持续 G 上限；失速及完整恢复保护期间强制回平，不能继续拧机头。
+static func _brake_steer_target_bank(
+		ac: Aircraft, sustained_max_g: float,
+		is_stalled: bool, stall_recovery_timer: float) -> float:
+	if not ac.hard_brake or ac.evasion_mode:
+		return NAN
+	var cobra := ac.get_maneuver()
+	if cobra != null and cobra.is_active:
+		return NAN
+	var herbst := ac.get_herbst()
+	if herbst != null and herbst.is_active:
+		return NAN
+	if is_stalled or stall_recovery_timer > 0.0:
+		return 0.0
+	var input := clampf(ac.brake_steer_input, -1.0, 1.0)
+	var sustained_bank := acos(1.0 / maxf(sustained_max_g, 1.01))
+	# 急刹拖拽刻意不消费普通航点的低速防失速坡度帽：持续压舵可以把飞机带到正式失速，
+	# 届时上方失速闸门收权。仍受持续 G 与真实滚转率限制，不直接改 heading/bank。
+	return signf(input) * sustained_bank * smoothstep(0.0, 1.0, absf(input))
 
 
 static func update_bank(ac: Aircraft, delta: float) -> void:
@@ -93,7 +211,11 @@ static func update_bank(ac: Aircraft, delta: float) -> void:
 		ac.bank_angle = move_toward(ac.bank_angle, 0.0, roll_rate_h * delta)
 		return
 
-	if ac.target_position == Vector2.INF and abs(ac.bank_angle) < 0.01:
+	var brake_bank_requested := ac.hard_brake and not is_zero_approx(ac.brake_steer_input) \
+			and not ac.is_stalled and ac._stall_recovery_timer <= 0.0 \
+			and not ac.evasion_mode
+	if ac.target_position == Vector2.INF and abs(ac.bank_angle) < 0.01 \
+			and not brake_bank_requested:
 		ac.bank_angle = 0.0
 		return
 
@@ -103,25 +225,23 @@ static func update_bank(ac: Aircraft, delta: float) -> void:
 		heading_diff = 0.0
 		ac._committed_turn_sign = 0.0
 
-	# 转弯方向锁定
-	if abs(heading_diff) > 2.5:
-		if ac._committed_turn_sign == 0.0:
-			ac._committed_turn_sign = signf(heading_diff)
-			if ac.use_tactical_preference and ac.combat_target != null:
-				EventLogger.log_event("PURSUIT_LOCK", ac._log_name(),
-					"turn_sign=%+d (hdg_diff=%+d°, tgt=%s) branch=%s" % [
-						int(ac._committed_turn_sign), int(rad_to_deg(heading_diff)),
-						ac._log_unit_name(ac.combat_target), ac._pursuit_branch])
-		heading_diff = absf(heading_diff) * ac._committed_turn_sign
-	elif abs(heading_diff) < 1.5:
-		if ac._committed_turn_sign != 0.0 and ac.use_tactical_preference and ac.combat_target != null:
+	var raw_heading_diff := heading_diff
+	var old_turn_sign := ac._committed_turn_sign
+	var lock_state := _resolve_turn_lock_state(heading_diff, old_turn_sign)
+	heading_diff = lock_state.x
+	ac._committed_turn_sign = lock_state.y
+	if ac.use_tactical_preference and ac.combat_target != null:
+		if old_turn_sign == 0.0 and ac._committed_turn_sign != 0.0:
+			EventLogger.log_event("PURSUIT_LOCK", ac._log_name(),
+				"turn_sign=%+d (hdg_diff=%+d°, tgt=%s) branch=%s" % [
+					int(ac._committed_turn_sign), int(rad_to_deg(raw_heading_diff)),
+					ac._log_unit_name(ac.combat_target), ac._pursuit_branch])
+		elif old_turn_sign != 0.0 and ac._committed_turn_sign == 0.0:
 			EventLogger.log_event("PURSUIT_UNLOCK", ac._log_name(),
 				"turn_sign cleared (hdg_diff=%+d°, tgt=%s)" % [
-					int(rad_to_deg(heading_diff)), ac._log_unit_name(ac.combat_target)])
-		ac._committed_turn_sign = 0.0
+					int(rad_to_deg(raw_heading_diff)), ac._log_unit_name(ac.combat_target)])
 
 	var stall_base_kmh: float = base_stall_kmh(ac)
-	var stall_at_g_ms: float = stall_base_kmh * pow(maxf(ac.g_load, 1.0), 0.4) / 3.6
 
 	# 当前实际转速（带符号），= PD 控制律的 D 项输入（协调转弯 ω = g·tan(bank)/v）
 	# 低通滤波破除"协调转弯下 ω 一帧跟上指令 → (−kd)^n 单帧交替"代数环（见 TURN_RATE_FILT_ALPHA）
@@ -146,19 +266,10 @@ static func update_bank(ac: Aircraft, delta: float) -> void:
 			ac._los_rate_filt = 0.0
 		ff_los = ac._los_rate_filt
 
-	# max_bank（直接调原版 max_bank_angle，避免 effective_max_g + _dynamic_safe_margin 重复 fetch）
-	var max_bank := max_bank_angle(ac)
-	# plan 级坡度上限（LINE_UP 充能平台等武器纪律；⚠ step_bank 镜像同步，SEAM-017）
-	if ac._plan_bank_limit_rad > 0.0:
-		max_bank = minf(max_bank, ac._plan_bank_limit_rad)
 	var in_combat := ac.combat_target != null
-
-	if in_combat and abs(heading_diff) > 0.5 and ac.tactical_aggression < 0.999:
-		var sustained_g: float = effective_max_g(ac)
-		var turn_g_capped := lerpf(sustained_g * 0.7, sustained_g, clampf((PI - abs(heading_diff)) / (PI - 0.5), 0.0, 1.0))
-		var turn_g := lerpf(turn_g_capped, effective_max_g(ac), clampf(ac.tactical_aggression, 0.0, 1.0))
-		var sustained_bank := acos(1.0 / maxf(turn_g, 1.01))
-		max_bank = minf(max_bank, sustained_bank)
+	var max_bank := _bank_limit_rad(
+		ac, ac.speed, stall_base_kmh / 3.6, effective_max_g(ac),
+		effective_max_g_instant(ac), _dynamic_safe_margin(ac), heading_diff)
 
 	# PD 增益：Kp 受战斗激进度缩放；Kd 随 roll_rate 反比（维持临界阻尼，慢滚机阻尼更大）
 	var roll_rate_base: float = base_roll_rate(ac)
@@ -173,53 +284,42 @@ static func update_bank(ac: Aircraft, delta: float) -> void:
 			heading_diff, damp_turn_rate, ff_los, cur_v, max_bank, in_combat,
 			ac.use_tactical_preference, ac.weapon_mode, msl_phase_now,
 			ac.formation_mode and not ac._formation_full_bank, ac._proximity_damping, deadzone, kp, kd)
+	var brake_target_bank := _brake_steer_target_bank(
+		ac, effective_max_g(ac), ac.is_stalled, ac._stall_recovery_timer)
+	if not is_nan(brake_target_bank):
+		target_bank = brake_target_bank
 
-	# 失速回正
-	if ac.is_stalled:
-		target_bank = 0.0
-	elif ac._stall_recovery_timer > 0.0:
-		var recovery_ratio := 1.0 - clampf(ac._stall_recovery_timer / 1.0, 0.0, 1.0)
-		target_bank *= recovery_ratio
-
-	# Roll rate
-	var roll_rate_val: float = base_roll_rate(ac)
-	if ac.speed < stall_at_g_ms:
-		var ctrl := clampf(ac.speed / maxf(stall_at_g_ms, 1.0), 0.1, 1.0)
-		roll_rate_val *= ctrl
-	var alt_factor := clampf(ac.altitude / 15000.0, 0.0, 1.0)
-	roll_rate_val *= 1.0 + alt_factor * 0.30
-	# 722 sig_j36·三发推力：突击 buff 期间滚转 ×1.3
-	if ac.sig_j36_assault_active:
-		roll_rate_val *= 1.3
-
-	var bank_diff := target_bank - ac.bank_angle
-	var max_roll := roll_rate_val * delta
-	ac.bank_angle += clampf(bank_diff, -max_roll, max_roll)
-
-	# Bank rate EMA
-	if delta > 0.0:
-		var instant_rate: float = (ac.bank_angle - ac._prev_bank_for_rate) / delta
-		ac._bank_rate_rad_s = ac._bank_rate_rad_s * 0.5 + instant_rate * 0.5
-	ac._prev_bank_for_rate = ac.bank_angle
+	target_bank = _apply_bank_recovery(target_bank, ac.is_stalled, ac._stall_recovery_timer)
+	var roll_rate_val := _bank_roll_rate_rad_s(
+		ac, ac.speed, ac.g_load, ac.altitude, stall_base_kmh)
+	var next_bank := _integrate_bank_state(
+		ac.bank_angle, target_bank, roll_rate_val,
+		ac._bank_rate_rad_s, ac._prev_bank_for_rate, delta)
+	ac.bank_angle = next_bank.x
+	ac._bank_rate_rad_s = next_bank.y
+	ac._prev_bank_for_rate = next_bank.z
 
 
 static func update_heading(ac: Aircraft, delta: float) -> void:
 	var _hm_hdg := ac.get_herbst()
 	if _hm_hdg and _hm_hdg.is_active:
 		return
-	if abs(ac.bank_angle) < 0.001:
-		return
-	var speed_ms := maxf(ac.speed, 1.0)
-	var turn_rate := CombatUnit.GRAVITY * tan(ac.bank_angle) / speed_ms
+	ac.heading = _integrate_heading_rad(
+		ac.heading, ac.bank_angle, ac.speed, ac.g_load, base_stall_kmh(ac), delta)
 
-	var stall_base_kmh: float = base_stall_kmh(ac)
-	var stall_at_g_ms := stall_base_kmh * pow(maxf(ac.g_load, 1.0), 0.4) / 3.6
-	if ac.speed < stall_at_g_ms:
-		var control_ratio := clampf(ac.speed / maxf(stall_at_g_ms, 1.0), 0.0, 1.0)
+
+## 协调转弯航向积分的共享纯函数：ω=g×tan(bank)/V，低于载荷失速速度时衰减权限。
+static func _integrate_heading_rad(
+		heading: float, bank_angle: float, speed: float, g_load: float,
+		stall_base_kmh: float, delta: float) -> float:
+	if abs(bank_angle) < 0.001:
+		return heading
+	var turn_rate := CombatUnit.GRAVITY * tan(bank_angle) / maxf(speed, 1.0)
+	var stall_at_g_ms := stall_base_kmh * pow(maxf(g_load, 1.0), 0.4) / 3.6
+	if speed < stall_at_g_ms:
+		var control_ratio := clampf(speed / maxf(stall_at_g_ms, 1.0), 0.0, 1.0)
 		turn_rate *= control_ratio * control_ratio
-
-	ac.heading += turn_rate * delta
-	ac.heading = fmod(ac.heading + PI, TAU) - PI
+	return fmod(heading + turn_rate * delta + PI, TAU) - PI
 
 
 static func update_speed(ac: Aircraft, delta: float) -> void:
@@ -227,96 +327,91 @@ static func update_speed(ac: Aircraft, delta: float) -> void:
 	# Herbst ACCEL 阶段刻意交还本函数（开 AB 让物理自然拉回巡航）
 	if maneuver_overrides_speed(ac):
 		return
+	var target_ms := _speed_target_ms(
+		ac, ac.target_speed_kmh, ac.g_load, ac.vertical_speed,
+		ac.is_stalled, ac._stall_recovery_timer, max_speed_at_altitude(ac) / 3.6)
+	ac.speed = _integrate_speed_ms(
+		ac, ac.speed, target_ms, ac.g_load, ac.vertical_speed, ac.altitude,
+		ac.is_afterburner, delta)
 
-	var target_ms: float
+
+## 实飞与预测共用的目标速度约束。调用者只负责提供各自的 mutable state 快照。
+static func _speed_target_ms(
+		ac: Aircraft, target_speed_kmh: float, g_load: float, vertical_speed: float,
+		is_stalled: bool, stall_recovery_timer: float, max_speed_alt_ms: float) -> float:
 	if ac.hard_brake:
-		# 急刹（2026-07-03 用户定稿）：减到失速软地板为止——刹车 = 减到最小可控速度，
-		# 不能刹进失速自杀。配合 survivor_mode 急刹只作用亲控长机（僚机靠编队逻辑自行减速）。
-		var stall_base_hb: float = base_stall_kmh(ac)
-		target_ms = stall_base_hb * pow(maxf(ac.g_load, 1.0), 0.4) / 3.6 * 1.05
-	else:
-		var t_kmh: float = ac.target_speed_kmh
-		if ac.evasion_mode:
-			var cruise_mult: float = float(ac.evasion_modifiers.get("cruise_speed_mult", 1.0))
-			if cruise_mult != 1.0:
-				t_kmh *= cruise_mult
-		# 加力窗口（spec afterburner-mode）：目标速度地板 = 有效顶速——
-		# 无论有无移动命令都全速（含僚机；玩家中途下令退出 evasion 后地板仍在）
-		if ac.afterburner_window_active:
-			t_kmh = maxf(t_kmh, effective_max_speed_kmh(ac))
-		if ac.status_slow_active and t_kmh > StatusEffects.SLOW_SPEED_CAP_KMH:
-			t_kmh = StatusEffects.SLOW_SPEED_CAP_KMH
-		if ac.laser_stall_pressure_active():
-			t_kmh = minf(t_kmh, stall_speed(ac) * 0.90)
-		target_ms = t_kmh / 3.6
+		# 直线急刹仍用当前 G 的安全软地板；拖拽有操纵权时改用 1G 地板，
+		# 让持续压舵产生的真实载荷失速成为终点，而不是低速安全帽提前收坡。
+		var steering_has_authority := not is_zero_approx(ac.brake_steer_input) \
+				and not is_stalled and stall_recovery_timer <= 0.0 and not ac.evasion_mode
+		var brake_floor_g := 1.0 if steering_has_authority else maxf(g_load, 1.0)
+		return base_stall_kmh(ac) * pow(brake_floor_g, 0.4) / 3.6 * 1.05
 
-		var max_climb_norm: float = ac.params.climb_rate_max if ac.params else 250.0
-		var vs_norm: float = clampf(ac.vertical_speed / maxf(max_climb_norm, 1.0), -1.0, 1.0)
-		# 722 sig_typhoon·超巡爬升：只在统一 CLIMB 动作中免目标速度惩罚。
-		if not (ac.sig_typhoon_active and ac.altitude_action == Aircraft.AltitudeAction.CLIMB):
-			target_ms *= 1.0 - vs_norm * 0.10
+	var t_kmh := target_speed_kmh
+	var afterburner_speed_mult: float = 1.0
+	if ac.is_afterburner_mode_active():
+		afterburner_speed_mult = float(
+			ac.evasion_modifiers.get("cruise_speed_mult", 1.0))
+		t_kmh *= afterburner_speed_mult
+	if ac.is_afterburner_mode_active():
+		t_kmh = maxf(t_kmh, effective_max_speed_kmh(ac))
+	if ac.status_slow_active:
+		t_kmh = minf(t_kmh, StatusEffects.SLOW_SPEED_CAP_KMH)
+	var laser_stall_pressure := ac.laser_stall_pressure_active()
+	if laser_stall_pressure:
+		t_kmh = minf(t_kmh, stall_speed(ac) * 0.90)
 
-		var max_speed_ms := max_speed_at_altitude(ac) / 3.6
-		if ac.evasion_mode:
-			var cm: float = float(ac.evasion_modifiers.get("cruise_speed_mult", 1.0))
-			if cm > 1.0:
-				max_speed_ms *= cm
-		# 加力窗口：物理 cap 放开到有效顶速（与 evasion cruise_mult 抬 cap 同语义）
-		if ac.afterburner_window_active:
-			max_speed_ms = maxf(max_speed_ms, effective_max_speed_kmh(ac) / 3.6)
-		target_ms = minf(target_ms, max_speed_ms)
+	var target_ms := t_kmh / 3.6
+	var max_climb_norm: float = ac.params.climb_rate_max if ac.params else 250.0
+	var vs_norm := clampf(vertical_speed / maxf(max_climb_norm, 1.0), -1.0, 1.0)
+	# 722 sig_typhoon·超巡爬升：只在统一 CLIMB 动作中免目标速度惩罚。
+	if not (ac.sig_typhoon_active and ac.altitude_action == Aircraft.AltitudeAction.CLIMB):
+		target_ms *= 1.0 - vs_norm * 0.10
 
-		var stall_base_kmh: float = base_stall_kmh(ac)
-		var stall_at_g_ms := stall_base_kmh * pow(maxf(ac.g_load, 1.0), 0.4) / 3.6
-		var min_safe_ms := stall_at_g_ms * 1.05
-		if not ac.laser_stall_pressure_active():
-			target_ms = maxf(target_ms, min_safe_ms)
+	if afterburner_speed_mult > 1.0:
+		max_speed_alt_ms *= afterburner_speed_mult
+	if ac.is_afterburner_mode_active():
+		max_speed_alt_ms = maxf(max_speed_alt_ms, effective_max_speed_kmh(ac) / 3.6)
+	target_ms = minf(target_ms, max_speed_alt_ms)
 
-	var accel_rate: float = base_accel(ac) * effective_accel_mult(ac, ac.is_afterburner)
-	var decel_rate: float = (ac.params.deceleration if ac.params else 80.0) * effective_decel_mult(ac)
+	if not laser_stall_pressure:
+		var stall_at_g_ms := base_stall_kmh(ac) * pow(maxf(g_load, 1.0), 0.4) / 3.6
+		target_ms = maxf(target_ms, stall_at_g_ms * 1.05)
+	return target_ms
+
+
+## 实飞与预测共用的速度积分：加减速 → G 掉速 → PE/KE 交换 → 外部速度帽。
+static func _integrate_speed_ms(
+		ac: Aircraft, speed: float, target_ms: float, g_load: float, vertical_speed: float,
+		altitude: float, is_afterburner: bool, delta: float) -> float:
+	var accel_rate := base_accel(ac) * effective_accel_mult(ac, is_afterburner)
+	var decel_rate := (ac.params.deceleration if ac.params else 80.0) * effective_decel_mult(ac)
 	if ac.hard_brake:
-		# 急刹减速效率随速度衰减（阻力 ∝ v）：巡航段全额 deceleration，逼近失速地板时
-		# 衰减到 35%。deceleration 按机型差异化（低级机天然刹得肉），
-		# "轻按一秒速度就到底"不再发生。验收：--bench=hard_brake。
-		const HARD_BRAKE_DRAG_FLOOR := 0.35  # ⚠ 与 step_speed 镜像同步（SEAM-017）
-		var cruise_ms_hb: float = base_cruise_kmh(ac) / 3.6
-		decel_rate *= clampf(ac.speed / maxf(cruise_ms_hb, 1.0), HARD_BRAKE_DRAG_FLOOR, 1.0)
+		var cruise_ms_hb := base_cruise_kmh(ac) / 3.6
+		decel_rate *= clampf(speed / maxf(cruise_ms_hb, 1.0), HARD_BRAKE_DRAG_FLOOR, 1.0)
 
-	var speed_diff := target_ms - ac.speed
-	if speed_diff >= 0:
-		ac.speed += minf(speed_diff, accel_rate * delta)
+	var speed_diff := target_ms - speed
+	if speed_diff >= 0.0:
+		speed += minf(speed_diff, accel_rate * delta)
 	else:
-		ac.speed += maxf(speed_diff, -decel_rate * delta)
+		speed += maxf(speed_diff, -decel_rate * delta)
 
-	const G_DRAG_GLOBAL_MULT := 0.4
-	const STRUCT_BLEED_FACTOR := 6.0  # 超持续 max_g 部分的额外掉速 (m/s² per G)；手感调参旋钮
-	var alt_factor := clampf(ac.altitude / 15000.0, 0.0, 1.0)
-	var alt_drag_mult := 1.0 - alt_factor * 0.30
+	var alt_drag_mult := 1.0 - clampf(altitude / 15000.0, 0.0, 1.0) * 0.30
 	var g_drag := (ac.params.g_drag_factor if ac.params else 3.0) * G_DRAG_GLOBAL_MULT * alt_drag_mult
-	var base_loss := maxf(ac.g_load - 1.0, 0.0) * g_drag
-	# 双层 G 能量自限：超过持续 max_g 的部分额外狠掉速（瞬时结构 G 维持不住）
-	# 编队托管豁免：僚机归队/追赶时频繁切向急转，若再吃结构超 G 掉速会"追不上长机"
-	# → formation_mode 下只保留 base_loss，跳过 struct_loss（追赶手感优先；战斗/玩家不豁免）
-	var sustained_g := effective_max_g(ac)
-	var over_g := maxf(ac.g_load - sustained_g, 0.0)
+	var base_loss := maxf(g_load - 1.0, 0.0) * g_drag
+	var over_g := maxf(g_load - effective_max_g(ac), 0.0)
 	var struct_loss := 0.0 if ac.formation_mode else over_g * STRUCT_BLEED_FACTOR * alt_drag_mult
-	# 🚫 头号硬约束：G 引致掉速最多拽到角点速度地板，绝不更低（转弯不得自陷失速）
-	# 只钳制 G 掉速；直线按 target_speed 正常减速不受影响
 	var g_loss_total := base_loss + struct_loss
 	if ac.hunter_assault_active:
 		g_loss_total *= 0.7
-	var no_stall_floor_ms := corner_speed_kmh(ac) / 3.6
-	var allowed_g_loss := maxf(ac.speed - no_stall_floor_ms, 0.0)
-	ac.speed = maxf(ac.speed - minf(g_loss_total * delta, allowed_g_loss), 0.0)
+	var allowed_g_loss := maxf(speed - corner_speed_kmh(ac) / 3.6, 0.0)
+	speed = maxf(speed - minf(g_loss_total * delta, allowed_g_loss), 0.0)
 
-	const PE_KE_BOOST := 2.5
-	var spd := maxf(ac.speed, 10.0)
-	var gravity_effect := CombatUnit.GRAVITY * ac.vertical_speed / spd * PE_KE_BOOST
-	ac.speed -= gravity_effect * delta
-
-	ac.speed = maxf(ac.speed, 0.0)
-	if ac.orbit_speed_cap > 0.0 and ac.speed > ac.orbit_speed_cap:
-		ac.speed = ac.orbit_speed_cap
+	var gravity_effect := CombatUnit.GRAVITY * vertical_speed / maxf(speed, 10.0) * PE_KE_BOOST
+	speed = maxf(speed - gravity_effect * delta, 0.0)
+	if ac.orbit_speed_cap > 0.0:
+		speed = minf(speed, ac.orbit_speed_cap)
+	return speed
 
 
 static func update_altitude(ac: Aircraft, delta: float) -> void:
@@ -327,40 +422,18 @@ static func update_altitude(ac: Aircraft, delta: float) -> void:
 		if ac.is_player_squad() and ac.altitude_action != Aircraft.AltitudeAction.NONE:
 			ac.altitude_action_command = Aircraft.AltitudeAction.NONE
 		ac._set_altitude_action(Aircraft.AltitudeAction.NONE)
-		ac.altitude += ac.vertical_speed * delta
-		ac.altitude = maxf(ac.altitude, 0.0)
+		var stalled_state := _integrate_altitude_state(
+			ac, ac.altitude, ac.vertical_speed, ac.speed, ac.g_load, true,
+			ac._stall_recovery_timer, delta)
+		ac.altitude = stalled_state.x
+		ac.vertical_speed = stalled_state.y
 		return
 	var alt_diff := ac.target_altitude - ac.altitude
-	var alt_mult: float = ac.altitude_authority_mult
-	# alt_mult 只放大响应度(gain/smooth)，物理顶速最多 +30% —— 防止 PE↔KE 反抽吃光横速
-	# (vapor_dodge × HIGH 档 target_altitude 翻车点，见 docs/architecture/known-seams.md)
-	var base_climb: float = ac.params.climb_rate_max if ac.params else 250.0
-	# 722 sig_typhoon·超巡爬升：高度调整速率 ×1.5（直接抬物理爬升顶速）
-	if ac.sig_typhoon_active:
-		base_climb *= 1.5
-	var max_climb := base_climb * minf(alt_mult, 1.3)
-	var gain := 0.4 * alt_mult
-	var smooth_rate := 8.0 * alt_mult
-	var target_vs: float
-	if abs(alt_diff) < 10.0:
-		target_vs = 0.0
-	else:
-		target_vs = clampf(alt_diff * gain, -max_climb, max_climb)
-
-	if ac._stall_recovery_timer > 0.0 and target_vs > 0.0:
-		target_vs = 0.0
-
-	if target_vs > 0.0:
-		var stall_base_kmh: float = base_stall_kmh(ac)
-		var stall_at_g_ms: float = stall_base_kmh * pow(maxf(ac.g_load, 1.0), 0.4) / 3.6
-		var speed_margin := ac.speed - stall_at_g_ms
-		if speed_margin < 50.0:
-			var climb_authority := clampf(speed_margin / 50.0, 0.0, 1.0)
-			target_vs *= climb_authority
-
-	ac.vertical_speed = lerpf(ac.vertical_speed, target_vs, delta * smooth_rate)
-	ac.altitude += ac.vertical_speed * delta
-	ac.altitude = maxf(ac.altitude, 0.0)
+	var next_state := _integrate_altitude_state(
+		ac, ac.altitude, ac.vertical_speed, ac.speed, ac.g_load, false,
+		ac._stall_recovery_timer, delta)
+	ac.altitude = next_state.x
+	ac.vertical_speed = next_state.y
 	var next_action := Aircraft.AltitudeAction.NONE
 	if ac.is_player_squad():
 		var commanded_action: int = ac.altitude_action_command
@@ -384,6 +457,34 @@ static func update_altitude(ac: Aircraft, delta: float) -> void:
 		var instant_v: float = absf(ac.vertical_speed) \
 			if ac.altitude_action != Aircraft.AltitudeAction.NONE else 0.0
 		ac._alt_velocity = lerpf(ac._alt_velocity, instant_v, clampf(delta * 4.0, 0.0, 1.0))
+
+
+## 高度与垂直速度的共享纯积分。Vector2 = (altitude, vertical_speed)。
+static func _integrate_altitude_state(
+		ac: Aircraft, altitude: float, vertical_speed: float, speed: float, g_load: float,
+		is_stalled: bool, stall_recovery_timer: float, delta: float) -> Vector2:
+	if is_stalled:
+		return Vector2(maxf(altitude + vertical_speed * delta, 0.0), vertical_speed)
+
+	var alt_diff := ac.target_altitude - altitude
+	var alt_mult: float = ac.altitude_authority_mult
+	# authority 只放大响应度；物理顶速最多 +30%，避免 PE/KE 反抽吃光横速。
+	var base_climb: float = ac.params.climb_rate_max if ac.params else 250.0
+	if ac.sig_typhoon_active:
+		base_climb *= 1.5
+	var max_climb := base_climb * minf(alt_mult, 1.3)
+	var target_vs := 0.0 if absf(alt_diff) < 10.0 \
+		else clampf(alt_diff * 0.4 * alt_mult, -max_climb, max_climb)
+	if stall_recovery_timer > 0.0 and target_vs > 0.0:
+		target_vs = 0.0
+	if target_vs > 0.0:
+		var stall_at_g_ms := base_stall_kmh(ac) * pow(maxf(g_load, 1.0), 0.4) / 3.6
+		var speed_margin := speed - stall_at_g_ms
+		if speed_margin < 50.0:
+			target_vs *= clampf(speed_margin / 50.0, 0.0, 1.0)
+	vertical_speed = lerpf(vertical_speed, target_vs, delta * 8.0 * alt_mult)
+	altitude = maxf(altitude + vertical_speed * delta, 0.0)
+	return Vector2(altitude, vertical_speed)
 
 
 static func update_stall(ac: Aircraft) -> void:
@@ -549,7 +650,7 @@ static func effective_accel_mult(ac: Aircraft, is_ab: bool) -> float:
 	var mult := 1.0
 	if ac.status_overload_active:
 		mult *= StatusEffects.OVERLOAD_ACCEL_MULT
-	if ac.afterburner_window_active:
+	if ac.is_afterburner_mode_active():
 		mult *= AB_WINDOW_ACCEL_MULT
 	if ac.is_player_squad() and ac.status_bloodlust_active and ac.has_meta("upgrade_stacks") \
 			and int((ac.get_meta("upgrade_stacks") as Dictionary).get(
@@ -631,7 +732,7 @@ static func effective_max_speed_kmh(ac: Aircraft) -> float:
 	# 722 sig_tornado·地形跟随：低空 +8%（低空突防增速）
 	if ac.sig_tornado_active and ac.get_altitude_tier() == CombatUnit.AltitudeTier.LOW:
 		v *= 1.08
-	if ac.evasion_mode:
+	if ac.is_afterburner_mode_active():
 		var cm: float = float(ac.evasion_modifiers.get("cruise_speed_mult", 1.0))
 		if cm > 1.0:
 			v *= cm
@@ -650,7 +751,7 @@ static func effective_cruise_speed_kmh(ac: Aircraft) -> float:
 	# 722 sig_tornado·地形跟随：低空 +8%（与顶速同源）
 	if ac.sig_tornado_active and ac.get_altitude_tier() == CombatUnit.AltitudeTier.LOW:
 		v *= 1.08
-	if ac.evasion_mode:
+	if ac.is_afterburner_mode_active():
 		var cm: float = float(ac.evasion_modifiers.get("cruise_speed_mult", 1.0))
 		if cm > 1.0:
 			v *= cm
@@ -1296,15 +1397,15 @@ static func step_target_heading(st: FlightState) -> void:
 		return
 	if st.target_position == Vector2.INF:
 		return
-	var diff := st.target_position - st.position
-	var dist := diff.length()
-	var arrival_dist := maxf(150.0, st.speed * CombatUnit.PIXELS_PER_METER * 2.0)
-	if dist < arrival_dist and st.ac.combat_target == null and not st.ac.keep_target_on_arrival:
+	var result := _target_heading_state(
+		st.target_position, st.position, st.speed,
+		st.ac.combat_target == null and not st.ac.keep_target_on_arrival)
+	if result.z > 0.5:
 		st.target_position = Vector2.INF
 		st.evasion_override = false
 		return
-	st.cached_target_heading = atan2(diff.x, -diff.y)
-	st.proximity_damping = clampf((dist - arrival_dist) / (arrival_dist * 2.0), 0.0, 1.0)
+	st.cached_target_heading = result.x
+	st.proximity_damping = result.y
 
 
 ## bank 演化（最复杂的一步：方向锁定 + 过冲补偿 + max_bank cap + bank flip 守卫 +
@@ -1317,7 +1418,11 @@ static func step_bank(st: FlightState, delta: float) -> void:
 		st.bank_angle = move_toward(st.bank_angle, 0.0, roll_rate_h * delta)
 		return
 
-	if st.target_position == Vector2.INF and abs(st.bank_angle) < 0.01:
+	var brake_bank_requested := st.ac.hard_brake and not is_zero_approx(st.ac.brake_steer_input) \
+			and not st.is_stalled and st.stall_recovery_timer <= 0.0 \
+			and not st.ac.evasion_mode
+	if st.target_position == Vector2.INF and abs(st.bank_angle) < 0.01 \
+			and not brake_bank_requested:
 		st.bank_angle = 0.0
 		return
 
@@ -1327,26 +1432,23 @@ static func step_bank(st: FlightState, delta: float) -> void:
 		heading_diff = 0.0
 		st.committed_turn_sign = 0.0
 
-	# 转弯方向锁定（详见原 update_bank 注释）
-	if abs(heading_diff) > 2.5:
-		if st.committed_turn_sign == 0.0:
-			st.committed_turn_sign = signf(heading_diff)
-			if not st.is_prediction and st.ac.use_tactical_preference and st.ac.combat_target != null:
-				EventLogger.log_event("PURSUIT_LOCK", st.ac._log_name(),
-					"turn_sign=%+d (hdg_diff=%+d°, tgt=%s) branch=%s" % [
-						int(st.committed_turn_sign), int(rad_to_deg(heading_diff)),
-						st.ac._log_unit_name(st.ac.combat_target), st.ac._pursuit_branch])
-		heading_diff = absf(heading_diff) * st.committed_turn_sign
-	elif abs(heading_diff) < 1.5:
-		if st.committed_turn_sign != 0.0 and not st.is_prediction \
-				and st.ac.use_tactical_preference and st.ac.combat_target != null:
+	var raw_heading_diff := heading_diff
+	var old_turn_sign := st.committed_turn_sign
+	var lock_state := _resolve_turn_lock_state(heading_diff, old_turn_sign)
+	heading_diff = lock_state.x
+	st.committed_turn_sign = lock_state.y
+	if not st.is_prediction and st.ac.use_tactical_preference and st.ac.combat_target != null:
+		if old_turn_sign == 0.0 and st.committed_turn_sign != 0.0:
+			EventLogger.log_event("PURSUIT_LOCK", st.ac._log_name(),
+				"turn_sign=%+d (hdg_diff=%+d°, tgt=%s) branch=%s" % [
+					int(st.committed_turn_sign), int(rad_to_deg(raw_heading_diff)),
+					st.ac._log_unit_name(st.ac.combat_target), st.ac._pursuit_branch])
+		elif old_turn_sign != 0.0 and st.committed_turn_sign == 0.0:
 			EventLogger.log_event("PURSUIT_UNLOCK", st.ac._log_name(),
 				"turn_sign cleared (hdg_diff=%+d°, tgt=%s)" % [
-					int(rad_to_deg(heading_diff)), st.ac._log_unit_name(st.ac.combat_target)])
-		st.committed_turn_sign = 0.0
+					int(rad_to_deg(raw_heading_diff)), st.ac._log_unit_name(st.ac.combat_target)])
 
 	var stall_base_kmh: float = base_stall_kmh(st.ac)
-	var stall_at_g_ms: float = stall_base_kmh * pow(maxf(st.g_load, 1.0), 0.4) / 3.6
 
 	# 当前实际转速（带符号），= PD 控制律的 D 项输入（低通破单帧代数环，与 update_bank 同源）
 	var cur_v: float = maxf(st.speed, 50.0)
@@ -1368,23 +1470,12 @@ static func step_bank(st: FlightState, delta: float) -> void:
 			st.los_rate_filt = 0.0
 		ff_los = st.los_rate_filt
 
-	# max_bank（state-aware：prediction 走 cached_*，real tick 走 lazy）
-	# 基础上限用结构 G（与实飞 max_bank_angle 同口径）；持续 G 只给下方 sustained cap 用
-	var stall_base_ms: float = stall_base_kmh / 3.6
+	# prediction 读 cached_*，实飞读同一 accessor；坡度公式只保留一份。
 	var eff_max_g := _eff_max_g_st(st)
-	var safe_margin := _safe_margin_st(st)
-	var max_bank := max_bank_angle_at_speed_pure(st.speed, stall_base_ms, _eff_max_g_instant_st(st), safe_margin)
-	# plan 级坡度上限（与实飞 update_bank 镜像同步，SEAM-017）
-	if st.ac._plan_bank_limit_rad > 0.0:
-		max_bank = minf(max_bank, st.ac._plan_bank_limit_rad)
+	var max_bank := _bank_limit_rad(
+		st.ac, st.speed, stall_base_kmh / 3.6, eff_max_g,
+		_eff_max_g_instant_st(st), _safe_margin_st(st), heading_diff)
 	var in_combat := st.ac.combat_target != null
-
-	if in_combat and abs(heading_diff) > 0.5 and st.ac.tactical_aggression < 0.999:
-		var sustained_g: float = _eff_max_g_st(st)
-		var turn_g_capped := lerpf(sustained_g * 0.7, sustained_g, clampf((PI - abs(heading_diff)) / (PI - 0.5), 0.0, 1.0))
-		var turn_g := lerpf(turn_g_capped, eff_max_g, clampf(st.ac.tactical_aggression, 0.0, 1.0))
-		var sustained_bank := acos(1.0 / maxf(turn_g, 1.01))
-		max_bank = minf(max_bank, sustained_bank)
 
 	# PD 增益（与实物理 update_bank 严格同源）
 	var roll_rate_base: float = base_roll_rate(st.ac)
@@ -1399,34 +1490,21 @@ static func step_bank(st: FlightState, delta: float) -> void:
 			heading_diff, damp_turn_rate, ff_los, cur_v, max_bank, in_combat,
 			st.ac.use_tactical_preference, st.ac.weapon_mode, msl_phase_now,
 			st.ac.formation_mode and not st.ac._formation_full_bank, st.proximity_damping, deadzone, kp, kd)
+	var brake_target_bank := _brake_steer_target_bank(
+		st.ac, eff_max_g, st.is_stalled, st.stall_recovery_timer)
+	if not is_nan(brake_target_bank):
+		target_bank = brake_target_bank
 
-	# 失速回正
-	if st.is_stalled:
-		target_bank = 0.0
-	elif st.stall_recovery_timer > 0.0:
-		var recovery_ratio := 1.0 - clampf(st.stall_recovery_timer / 1.0, 0.0, 1.0)
-		target_bank *= recovery_ratio
-
-	# 滚转速率限制（低速 + 高度加成）
-	var roll_rate_val: float = base_roll_rate(st.ac)
-	if st.speed < stall_at_g_ms:
-		var ctrl := clampf(st.speed / maxf(stall_at_g_ms, 1.0), 0.1, 1.0)
-		roll_rate_val *= ctrl
-	var alt_factor := clampf(st.altitude / 15000.0, 0.0, 1.0)
-	roll_rate_val *= 1.0 + alt_factor * 0.30
-	# 与实飞 update_bank 同源：J-36 突击窗口滚转 ×1.3。
-	if st.ac.sig_j36_assault_active:
-		roll_rate_val *= 1.3
-
-	var bank_diff := target_bank - st.bank_angle
-	var max_roll := roll_rate_val * delta
-	st.bank_angle += clampf(bank_diff, -max_roll, max_roll)
-
-	# Bank rate EMA 追踪
-	if delta > 0.0:
-		var instant_rate: float = (st.bank_angle - st.prev_bank_for_rate) / delta
-		st.bank_rate_rad_s = st.bank_rate_rad_s * 0.5 + instant_rate * 0.5
-	st.prev_bank_for_rate = st.bank_angle
+	target_bank = _apply_bank_recovery(
+		target_bank, st.is_stalled, st.stall_recovery_timer)
+	var roll_rate_val := _bank_roll_rate_rad_s(
+		st.ac, st.speed, st.g_load, st.altitude, stall_base_kmh)
+	var next_bank := _integrate_bank_state(
+		st.bank_angle, target_bank, roll_rate_val,
+		st.bank_rate_rad_s, st.prev_bank_for_rate, delta)
+	st.bank_angle = next_bank.x
+	st.bank_rate_rad_s = next_bank.y
+	st.prev_bank_for_rate = next_bank.z
 
 
 ## heading 演化：ω = g·tan(bank)/V，低速衰减
@@ -1434,60 +1512,19 @@ static func step_heading(st: FlightState, delta: float) -> void:
 	var _hm := st.ac.get_herbst()
 	if _hm and _hm.is_active:
 		return
-	if abs(st.bank_angle) < 0.001:
-		return
-	var speed_ms := maxf(st.speed, 1.0)
-	var turn_rate := CombatUnit.GRAVITY * tan(st.bank_angle) / speed_ms
-
-	var stall_base_kmh: float = base_stall_kmh(st.ac)
-	var stall_at_g_ms := stall_base_kmh * pow(maxf(st.g_load, 1.0), 0.4) / 3.6
-	if st.speed < stall_at_g_ms:
-		var control_ratio := clampf(st.speed / maxf(stall_at_g_ms, 1.0), 0.0, 1.0)
-		turn_rate *= control_ratio * control_ratio
-
-	st.heading += turn_rate * delta
-	st.heading = fmod(st.heading + PI, TAU) - PI
+	st.heading = _integrate_heading_rad(
+		st.heading, st.bank_angle, st.speed, st.g_load, base_stall_kmh(st.ac), delta)
 
 
 ## altitude / vertical_speed 演化：target_altitude 收敛 + 速度余量限制 + 失速恢复门控
 ## 预测期间用此函数让 vertical_speed 自然衰减到 0（飞机抵达目标高度后 PE/KE 不再耗速度
 ## → 预测线长度回归"巡航段长度"），不再因为冻结 vertical_speed 导致预测全程都被拉短
 static func step_altitude(st: FlightState, delta: float) -> void:
-	if st.is_stalled:
-		st.altitude += st.vertical_speed * delta
-		st.altitude = maxf(st.altitude, 0.0)
-		return
-	var alt_diff: float = st.ac.target_altitude - st.altitude
-	var alt_mult: float = st.ac.altitude_authority_mult
-	# 与 update_altitude 保持同步：alt_mult 只放大响应度，物理顶速最多 +30%
-	var base_climb: float = st.ac.params.climb_rate_max if st.ac.params else 250.0
-	var max_climb: float = base_climb * minf(alt_mult, 1.3)
-	var gain: float = 0.4 * alt_mult
-	var smooth_rate: float = 8.0 * alt_mult
-	var target_vs: float
-	if abs(alt_diff) < 10.0:
-		target_vs = 0.0
-	else:
-		target_vs = clampf(alt_diff * gain, -max_climb, max_climb)
-
-	if st.stall_recovery_timer > 0.0 and target_vs > 0.0:
-		target_vs = 0.0
-
-	if target_vs > 0.0:
-		var stall_base_kmh: float = base_stall_kmh(st.ac)
-		var stall_at_g_ms: float = stall_base_kmh * pow(maxf(st.g_load, 1.0), 0.4) / 3.6
-		var speed_margin: float = st.speed - stall_at_g_ms
-		if speed_margin < 50.0:
-			var climb_authority: float = clampf(speed_margin / 50.0, 0.0, 1.0)
-			target_vs *= climb_authority
-
-	st.vertical_speed = lerpf(st.vertical_speed, target_vs, delta * smooth_rate)
-	st.altitude += st.vertical_speed * delta
-	st.altitude = maxf(st.altitude, 0.0)
-	# §C 玩家"高度变化更难锁"副作用：仅 real tick 写回，prediction 跳过
-	if not st.is_prediction and st.ac.is_player_squad() and st.ac.alt_change_stealth_factor > 0.0:
-		var instant_v: float = absf(st.vertical_speed)
-		st.ac._alt_velocity = lerpf(st.ac._alt_velocity, instant_v, clampf(delta * 4.0, 0.0, 1.0))
+	var next_state := _integrate_altitude_state(
+		st.ac, st.altitude, st.vertical_speed, st.speed, st.g_load, st.is_stalled,
+		st.stall_recovery_timer, delta)
+	st.altitude = next_state.x
+	st.vertical_speed = next_state.y
 
 
 ## speed 演化：target → 加/减速 → g_drag → PE/KE → orbit cap
@@ -1497,92 +1534,14 @@ static func step_speed(st: FlightState, delta: float) -> void:
 	# 玩家危机赫尔贝特期间实机速度被模块钳在近失速、预测线却自由加减速 → 撕裂）
 	if maneuver_overrides_speed(ac):
 		return
-
-	var target_ms: float
-	if ac.hard_brake:
-		# 急刹失速软地板（与实物理 update_speed 镜像同步，2026-07-03）
-		var stall_base_hb: float = base_stall_kmh(ac)
-		target_ms = stall_base_hb * pow(maxf(st.g_load, 1.0), 0.4) / 3.6 * 1.05
-	else:
-		# ⚠ 读 st.target_speed_kmh 而非 ac —— 让 prediction 的 inline planner 能在循环里
-		# 演化 target_speed（详见 predict_player_path 注释）。实物理 tick 里 st 是 ac 的快照，
-		# 行为完全一致
-		var t_kmh: float = st.target_speed_kmh
-		if ac.evasion_mode:
-			var cruise_mult: float = float(ac.evasion_modifiers.get("cruise_speed_mult", 1.0))
-			if cruise_mult != 1.0:
-				t_kmh *= cruise_mult
-		# 加力窗口速度地板（与实物理 update_speed 镜像同步，spec afterburner-mode）
-		if ac.afterburner_window_active:
-			t_kmh = maxf(t_kmh, effective_max_speed_kmh(ac))
-		if ac.status_slow_active and t_kmh > StatusEffects.SLOW_SPEED_CAP_KMH:
-			t_kmh = StatusEffects.SLOW_SPEED_CAP_KMH
-		if ac.laser_stall_pressure_active():
-			t_kmh = minf(t_kmh, stall_speed(ac) * 0.90)
-		target_ms = t_kmh / 3.6
-
-		var max_climb_norm: float = ac.params.climb_rate_max if ac.params else 250.0
-		var vs_norm: float = clampf(st.vertical_speed / maxf(max_climb_norm, 1.0), -1.0, 1.0)
-		target_ms *= 1.0 - vs_norm * 0.10
-
-		var max_speed_ms := _max_speed_alt_ms_st(st)
-		if ac.evasion_mode:
-			var cm: float = float(ac.evasion_modifiers.get("cruise_speed_mult", 1.0))
-			if cm > 1.0:
-				max_speed_ms *= cm
-		# 加力窗口 cap 放开（与实物理 update_speed 镜像同步，spec afterburner-mode）
-		if ac.afterburner_window_active:
-			max_speed_ms = maxf(max_speed_ms, effective_max_speed_kmh(ac) / 3.6)
-		target_ms = minf(target_ms, max_speed_ms)
-
-		var stall_base_kmh: float = base_stall_kmh(ac)
-		var stall_at_g_ms := stall_base_kmh * pow(maxf(st.g_load, 1.0), 0.4) / 3.6
-		var min_safe_ms := stall_at_g_ms * 1.05
-		if not ac.laser_stall_pressure_active():
-			target_ms = maxf(target_ms, min_safe_ms)
-
-	# AB 走 st 而非 ac，保证 prediction 内联 planner 时读取快照值。
-	var accel_rate: float = base_accel(ac) * effective_accel_mult(ac, st.is_afterburner)
-	var decel_rate: float = (ac.params.deceleration if ac.params else 80.0) * effective_decel_mult(ac)
-	if ac.hard_brake:
-		# 急刹阻力随速度衰减（与实物理 update_speed 镜像同步，SEAM-017）
-		const HARD_BRAKE_DRAG_FLOOR := 0.35
-		var cruise_ms_hb: float = base_cruise_kmh(ac) / 3.6
-		decel_rate *= clampf(st.speed / maxf(cruise_ms_hb, 1.0), HARD_BRAKE_DRAG_FLOOR, 1.0)
-
-	var speed_diff := target_ms - st.speed
-	if speed_diff >= 0:
-		st.speed += minf(speed_diff, accel_rate * delta)
-	else:
-		st.speed += maxf(speed_diff, -decel_rate * delta)
-
-	# 与实物理 update_speed 严格同源（双层 G 能量自限 + 角点速度失速地板）——
-	# 任何对那边掉速公式的改动都要同步到此，否则预测线与实飞行轨迹"撕裂"（known-seams）
-	const G_DRAG_GLOBAL_MULT := 0.4
-	const STRUCT_BLEED_FACTOR := 6.0
-	var alt_factor := clampf(st.altitude / 15000.0, 0.0, 1.0)
-	var alt_drag_mult := 1.0 - alt_factor * 0.30
-	var g_drag := (ac.params.g_drag_factor if ac.params else 3.0) * G_DRAG_GLOBAL_MULT * alt_drag_mult
-	var base_loss := maxf(st.g_load - 1.0, 0.0) * g_drag
-	var sustained_g := effective_max_g(ac)
-	var over_g := maxf(st.g_load - sustained_g, 0.0)
-	# 编队托管豁免结构超 G 掉速（与实物理 update_speed 同源）
-	var struct_loss := 0.0 if ac.formation_mode else over_g * STRUCT_BLEED_FACTOR * alt_drag_mult
-	var g_loss_total := base_loss + struct_loss
-	if ac.hunter_assault_active:
-		g_loss_total *= 0.7
-	var no_stall_floor_ms := corner_speed_kmh(ac) / 3.6
-	var allowed_g_loss := maxf(st.speed - no_stall_floor_ms, 0.0)
-	st.speed = maxf(st.speed - minf(g_loss_total * delta, allowed_g_loss), 0.0)
-
-	const PE_KE_BOOST := 2.5
-	var spd := maxf(st.speed, 10.0)
-	var gravity_effect := CombatUnit.GRAVITY * st.vertical_speed / spd * PE_KE_BOOST
-	st.speed -= gravity_effect * delta
-
-	st.speed = maxf(st.speed, 0.0)
-	if ac.orbit_speed_cap > 0.0 and st.speed > ac.orbit_speed_cap:
-		st.speed = ac.orbit_speed_cap
+	# target_speed / AB 从 FlightState 取值，使 prediction 内联 planner 可逐步演化；
+	# 公式本身与实飞只保留这一份。
+	var target_ms := _speed_target_ms(
+		ac, st.target_speed_kmh, st.g_load, st.vertical_speed,
+		st.is_stalled, st.stall_recovery_timer, _max_speed_alt_ms_st(st))
+	st.speed = _integrate_speed_ms(
+		ac, st.speed, target_ms, st.g_load, st.vertical_speed, st.altitude,
+		st.is_afterburner, delta)
 
 
 # ══════════════════════════════════════════════════════════════════════

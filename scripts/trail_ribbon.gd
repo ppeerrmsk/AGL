@@ -1,6 +1,8 @@
 class_name TrailRibbon
 extends Node2D
 
+const TrianglePacket = preload("res://scripts/rendering/canvas_triangle_packet.gd")
+
 ## 飞行轨迹丝带效果
 ## 作为子节点挂载到 Aircraft 或 Missile 上
 
@@ -196,9 +198,8 @@ func _draw_impl() -> void:
 		return
 
 	# RenderingServer 层一次性提交缓存网格（比 N 次 draw_polygon 快一个数量级）
-	RenderingServer.canvas_item_add_triangle_array(
-		get_canvas_item(), _cached_indices, _cached_verts, _cached_colors
-	)
+	TrianglePacket.submit_arrays(
+		get_canvas_item(), _cached_indices, _cached_verts, _cached_colors)
 
 
 ## 将世界坐标缓存追加到导弹批次；几何、颜色、战略 LOD 与淡入语义均沿用独立尾迹。

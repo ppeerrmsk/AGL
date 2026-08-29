@@ -6,9 +6,17 @@ extends RefCounted
 ## 将来 UgcLoader 只需调 register() 注入 user:// 内容，进化/生成代码零改动。
 
 ## id → 档案资源路径（官方内容内置表；UGC 运行时经 register() 追加）
-## 43 机全谱（spec player-aircraft-power-curve §2 v15）：老机保留原路径（base_params 已重指向
+## 50 机全谱（spec t0-low-t1-aircraft-expansion）：老机保留原路径（base_params 已重指向
 ## resources/player/），扩谱机 profile 与 params 同住 resources/player/
 static var _paths: Dictionary = {
+	# T0 初始层 + 低位 T1（2026-08-26）
+	&"mig21f13": "res://resources/player/playable_mig21f13.tres",
+	&"f104c": "res://resources/player/playable_f104c.tres",
+	&"j35f": "res://resources/player/playable_j35f.tres",
+	&"ea6b": "res://resources/player/playable_ea6b.tres",
+	&"mig23": "res://resources/player/playable_mig23.tres",
+	&"f4e": "res://resources/player/playable_f4e.tres",
+	&"jaguar": "res://resources/player/playable_jaguar.tres",
 	&"f15": "res://resources/playable_f15.tres",
 	&"f16": "res://resources/playable_f16.tres",
 	&"f14": "res://resources/playable_f14.tres",

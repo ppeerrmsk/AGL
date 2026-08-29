@@ -14,6 +14,7 @@ const DamageVignetteScript := preload("res://scripts/survivor/damage_vignette.gd
 const TerminalGridOverlayScript := preload("res://scripts/ui/terminal_grid_overlay.gd")
 const TerminalTextScript := preload("res://scripts/ui/terminal_text.gd")
 const HudPreferencesScript := preload("res://scripts/ui/hud_preferences.gd")
+const BrakeSteeringOverlayScript := preload("res://scripts/survivor/brake_steering_overlay.gd")
 
 ## 生存模式 HUD：右下角状态面板 + 顶部时间/击杀 + 底部经验条
 
@@ -96,6 +97,7 @@ var _game_over_label: RichTextLabel
 var _game_over_dim: ColorRect
 var _threat_overlay: Control
 var _damage_vignette: Control
+var _brake_steering_overlay: Control
 
 var _hud_data_refresh_timer: float = 0.0
 
@@ -161,6 +163,11 @@ func _ready() -> void:
 
 func _build_ui() -> void:
 	_ensure_ui_root()
+	_brake_steering_overlay = BrakeSteeringOverlayScript.new()
+	_brake_steering_overlay.name = "BrakeSteeringOverlay"
+	_brake_steering_overlay.z_index = 45
+	_brake_steering_overlay.visible = false
+	_add_ui_child(_brake_steering_overlay)
 	# ── 战区阶段倒计时（顶部最上方，始终可见，升级面板暂停时也保留）──
 	# process_mode=ALWAYS 确保 get_tree().paused=true 时 Label 仍能 process（虽然 Label 本身没 _process，
 	# 但保险起见显式设置；setter 调用是同步赋值，process_mode 主要影响子节点 / 信号回调）
@@ -471,6 +478,33 @@ func _ensure_ui_root() -> void:
 func _add_ui_child(child: Node) -> void:
 	_ensure_ui_root()
 	_ui_root.add_child(child)
+
+
+func begin_brake_steering(screen_pos: Vector2) -> void:
+	if _brake_steering_overlay != null:
+		_brake_steering_overlay.call(&"begin", screen_pos)
+
+
+func update_brake_steering(screen_pos: Vector2, steer_input: float) -> void:
+	if _brake_steering_overlay != null:
+		_brake_steering_overlay.call(&"update_steer", screen_pos, steer_input)
+
+
+func set_brake_steering_stall_locked(locked: bool) -> void:
+	if _brake_steering_overlay != null:
+		_brake_steering_overlay.call(&"set_stall_locked", locked)
+
+
+func set_brake_steering_flight_data(speed_kmh: float, gun_range_m: float,
+		gun_ammo: int, gun_max_ammo: int, gun_ammo_infinite: bool) -> void:
+	if _brake_steering_overlay != null:
+		_brake_steering_overlay.call(&"set_flight_data", speed_kmh, gun_range_m,
+			gun_ammo, gun_max_ammo, gun_ammo_infinite)
+
+
+func end_brake_steering() -> void:
+	if _brake_steering_overlay != null:
+		_brake_steering_overlay.call(&"end")
 
 
 static func snap_player_hud_scale(value: float) -> float:
@@ -846,6 +880,9 @@ func _layout_ui() -> void:
 			_game_over_dim.size = vp
 		_ui_root.position = Vector2.ZERO
 		_ui_root.size = vp
+		if _brake_steering_overlay != null:
+			_brake_steering_overlay.position = Vector2.ZERO
+			_brake_steering_overlay.size = vp
 		var time_rect := top_time_rect(vp)
 		_time_panel.position = time_rect.position
 		_time_panel.size = time_rect.size
@@ -1169,14 +1206,14 @@ func _update_status_panel() -> void:
 		if tp.cooldown > 0.0:
 			cd_ratio_t = clampf(ac._torpedo_cooldown / tp.cooldown, 0.0, 1.0)
 		var torp_color := "55ddee"
-		if not ac.evasion_mode:
+		if not ac.is_afterburner_mode_active():
 			torp_color = "557788"  # 灰色：规避未激活，不会投放
 		elif cd_ratio_t > 0.01:
 			torp_color = "338899"
 		if cd_ratio_t > 0.01:
 			text += "[color=#%s]TORP CD %d%%[/color]\n" % [torp_color, int(cd_ratio_t * 100)]
 		else:
-			if ac.evasion_mode:
+			if ac.is_afterburner_mode_active():
 				text += "[color=#%s]TORP READY[/color]\n" % torp_color
 			else:
 				text += "[color=#%s]TORP (AB)[/color]\n" % torp_color
@@ -1189,7 +1226,7 @@ func _update_status_panel() -> void:
 		if lw.cooldown > 0.0:
 			cd_ratio_w = clampf(ac._loyal_wingman_cooldown / lw.cooldown, 0.0, 1.0)
 		var wmn_color := "88ddaa"  # 默认绿
-		if not ac.evasion_mode:
+		if not ac.is_afterburner_mode_active():
 			wmn_color = "557766"   # 灰：规避未激活
 		elif alive >= lw.max_simultaneous:
 			wmn_color = "667788"   # 蓝灰：到达 cap
@@ -1200,7 +1237,7 @@ func _update_status_panel() -> void:
 		elif cd_ratio_w > 0.01:
 			text += "[color=#%s]WMN  %d/%d  CD %d%%[/color]\n" % [wmn_color, alive, lw.max_simultaneous, int(cd_ratio_w * 100)]
 		else:
-			if ac.evasion_mode:
+			if ac.is_afterburner_mode_active():
 				text += "[color=#%s]WMN  %d/%d  READY[/color]\n" % [wmn_color, alive, lw.max_simultaneous]
 			else:
 				text += "[color=#%s]WMN  %d/%d  (AB)[/color]\n" % [wmn_color, alive, lw.max_simultaneous]
@@ -1228,7 +1265,7 @@ func _update_status_panel() -> void:
 	if ac.evasion_stealth_active:
 		if ac._in_evasion_stealth:
 			text += "[color=#b373d9][b]STLH  ACTIVE[/b][/color]\n"
-		elif ac.evasion_mode:
+		elif ac.is_afterburner_mode_active():
 			var rem: float = maxf(Aircraft.EVASION_STEALTH_DELAY - ac._evasion_stealth_timer, 0.0)
 			text += "[color=#7755aa]STLH  ARM %.1fs[/color]\n" % rem
 
@@ -1456,7 +1493,8 @@ func _update_tooltip() -> void:
 				hint_key = "TOOLTIP_ALT_LOW_HINT"
 		"evasion":
 			# 加力模式：ON 文案 = 加力激活中（或兜底旧 evasion 开关）
-			if (afterburner_charge != null and afterburner_charge.is_active()) or ac.evasion_mode:
+			if (afterburner_charge != null and afterburner_charge.is_active()) \
+					or ac.is_afterburner_mode_active():
 				title_key = "TOOLTIP_EVADE_ON_TITLE"
 				body_key = "TOOLTIP_EVADE_ON_BODY"
 				hint_key = "TOOLTIP_EVADE_ON_HINT"

@@ -9,6 +9,7 @@ id = &"j36"
 display_name = "AIRCRAFT_J36_DISPLAY"
 codename = "J-36"
 base_params = ExtResource("2")
+gun_ammo_override = 180
 gun_damage_mult = 1.5
 gun_range_override = 1400.0
 gun_cone_override = 10.0

@@ -26,7 +26,7 @@ seeker_fov = 90.0
 guidance_delay = 0.5
 cooldown = 2.0
 fire_and_forget = true
-max_count = 3
+max_count = 4
 
 [resource]
 script = ExtResource("1")
@@ -53,7 +53,7 @@ afterburner_thrust_mult = 1.5
 fuel_capacity = 3000.0
 fuel_rate_normal = 1.5
 fuel_rate_afterburner = 8.0
-radar_range = 3700.0
+radar_range = 3600.0
 radar_half_angle = 36.0
 lock_time = 2.0
 gun = ExtResource("2")

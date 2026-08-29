@@ -170,7 +170,7 @@ script-index / code-index）只写"代码在哪"（纯指针）。样板见 [bos
   （`--doc <file>` / `--section <标题>` 可只校验你动过的那段；退出码 1 = 有腐烂）
   - 文档与锚点数量以校验器实时输出为准，禁止在导航里冻结总数；**现在报红就是真出事了**，请当场修掉；
     可先用 `--fix` 保守机械刷新，多义项仍要人工判断
-  - 写锚点**带上符号名**（`aircraft/aircraft_physics.gd:222 update_speed`）才能强校验；
+  - 写锚点**带上符号名**（`aircraft/aircraft_physics.gd:325 update_speed`）才能强校验；
     只写行号只能验"没越界"—— 历史上正是弱锚点掩盖了指错文件的错误
 - **commit 前** 跑 `powershell -ExecutionPolicy Bypass -File tools/verify_docs.ps1` 校验当前文档断链、spec 漏登记、元数据与总表漂移
 
@@ -204,6 +204,7 @@ script-index / code-index）只写"代码在哪"（纯指针）。样板见 [bos
 
 **规划**（docs/planning/）
 - [physics-ai-control-refactor.md](docs/planning/physics-ai-control-refactor.md) — 操控权限重构计划（分支布局 / 回归门 / 交接）
+- [boss-system-refactor.md](docs/planning/boss-system-refactor.md) — BOSS 战流程 / 行为 / 隐形 / 公共生命周期重构计划
 - [evolution-vertical-slice.md](docs/planning/evolution-vertical-slice.md) — 进化循环垂直切片
 - [content-production-workflow.md](docs/planning/content-production-workflow.md) — 当前铺量顺序、批次/WIP、证据等级与完成线
 - [20-hour-content-exposure-plan.md](docs/planning/20-hour-content-exposure-plan.md) — 约 20 小时首次体验窗口、节拍槽与确定的地图/BOSS 内容缺口

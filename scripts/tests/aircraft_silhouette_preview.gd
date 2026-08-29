@@ -23,7 +23,10 @@ func _draw() -> void:
 	if draw_runtime_label:
 		if _font == null:
 			_font = ThemeDB.fallback_font
-		if AircraftRenderer.should_draw_compact_label(self):
+		# 与 Aircraft._draw 保持同一状态栏分流，UAV 不能被 QA helper 误画成载人机完整栏。
+		if is_drone:
+			AircraftRenderer.draw_data_label_drone(self)
+		elif AircraftRenderer.should_draw_compact_label(self):
 			AircraftRenderer.draw_data_label_compact(self)
 		elif hide_data_label:
 			AircraftRenderer.draw_data_label_minimal(self)

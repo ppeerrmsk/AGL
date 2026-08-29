@@ -1,6 +1,6 @@
 # 主角飞机制作工作流程（Playable Aircraft Workflow）
 
-> 目标：把"加一个新的可玩主角"变成纯粹的 .tres 编辑工作 + 两处一行注册（`AircraftDB._paths` + 进化树节点）。只有起手卡才额外动 `PLAYABLE_LIST`。
+> 目标：把“加 / 更新一个可玩主角”变成可重复的参数、武器、**独立模型**、注册、测试流程。现实机的可靠顶视参考与运行时模型是交付硬门，不再允许参数完成后继续复用无关的旧轮廓。
 
 ## 一、系统概览
 
@@ -17,7 +17,12 @@ PlayableAircraft (.tres)             ← 档案：装载 base + 生存模式调�
         └─ combat: CombatParams  (可空)
   ├─ combat_override (可空)        ← 替换 base.combat
   ├─ flare_override  (可空)        ← 替换 base.flare
+  ├─ gun_ammo_override (0=不改)    ← 玩家机按定位覆盖深拷后的机炮弹量
+  ├─ starting_benefit_id (可空)     ← 仅作为本局起手机时结算的机场等价礼包
   └─ wingman_params (可空)         ← 起始僚机机型（可与主角不同）
+
+AircraftSilhouetteCatalog
+  └─ reviewed 128×128 顶视 alpha 蒙版 ← 现实机运行时独立模型；同型号可复用
 ```
 
 加载流程（`survivor_mode.gd:_ready`）：
@@ -28,6 +33,7 @@ PlayableAircraft (.tres)             ← 档案：装载 base + 生存模式调�
 4. `SurvivorPlayableSetup.apply(player_aircraft, profile)` 应用所有调味
 5. 通用主角配置（HUD/扁平高度/战术面板）—— 与机型无关
 6. 若 `wingman_count > 0`，调用 `_spawn_starting_wingmen(profile)`
+7. 若 `starting_benefit_id` 非空，在开局装配末尾经正式技能 / 武器奖励入口结算一次；后来进化到同型机不触发
 
 ## 二、武器系统是已经"灵活组装"的
 
@@ -39,9 +45,9 @@ PlayableAircraft (.tres)             ← 档案：装载 base + 生存模式调�
 | `rocket` | 没有火箭弹，不进入火箭决策分支 | `aircraft.gd:1536` `1599` |
 | `missile` | 没有主导弹，武器模式自动锁定 GUN | `aircraft.gd:1622` `1683` |
 | `secondary_missile` | 没有副导弹，仅用主导弹 | `aircraft.gd:1963` |
-| `flare` | 没有热诱弹，`AircraftFlares.release` 直接 return | `aircraft/aircraft_flares.gd:241` release |
+| `flare` | 没有热诱弹，`AircraftFlares.release` 直接 return | `aircraft/aircraft_flares.gd:245` release |
 
-**结论**：要给新机型不同的武器组合，**只需要调整 AircraftParams 上的字段是否为 null + 指向哪个 .tres**。无需改 aircraft.gd。
+**结论**：机体固有的底线武器组合由 AircraftParams 字段决定；只在“作为本局起手机”发放的外部装备则写 `PlayableAircraft.starting_benefit_id`，不得烤进 AircraftParams。两者都无需改 `aircraft.gd`。
 
 `AIController` 也只在一个地方读取武器（`ai_controller.gd:910` 取 `gun.max_range`）。所有 BFM 战术、规避、巡逻完全和武器无关。
 
@@ -126,13 +132,33 @@ base_params = ExtResource("2")
 # max_speed_mult = 1.15
 # max_g_bonus = 1.0
 # missile_count_override = 4
+# gun_ammo_override = 240  # 正式 50 机只用 180/200/240/280/320，最低 180
 # combat_override = ExtResource("3")
 # flare_override  = ExtResource("4")
 # wingman_count = 3
 # wingman_params = ExtResource("5")
 ```
 
-### 步骤 5：注册到 AircraftDB（必需）
+### 步骤 5：制作并接入独立顶视模型（现实机必需）
+
+每次**新增现实飞机**，以及更新到会改变机型 / 子型号外形的飞机后，都必须执行
+[飞机顶视轮廓资产](../../resources/aircraft_silhouettes/README.md) 的完整流程：
+
+1. 找到许可清楚、视角可靠的顶视图、正投影三视图或作者发布剪影；优先公共领域 / 官方来源。把工作副本放进 `tmp/aircraft_refs/`。
+2. 人工确认参考图对应当前档案的真实型号；不能只因名字相近就复用另一架飞机。确属同型号 / 同外形家族时可以复用已有 reviewed key，并在映射中显式登记别名。
+3. 用 `trace_orthographic_outline.py` 提取闭合外轮廓，再用 `normalize_aircraft_reference.py` 生成 128×128、机头向上、7px 安全边距的白色透明蒙版。只允许裁切、移除明确外挂 / 辅助线、旋转、等比缩放、居中、抗锯齿；禁止生成式近似或凭印象补画。
+4. 人工在深色底上检查翼型、机身比例、尾翼、方向和裁切；把正式 PNG 放入 `resources/aircraft_silhouettes/`。
+5. 在 `reference_manifest.json` 登记来源、许可 / 署名、处理边界和 alpha SHA-256；只有 `status=reviewed` 才可进入 `AircraftSilhouetteCatalog.TEXTURE_PATHS` 与 `DISPLAY_KEYS`。
+6. 运行静态审计，再通过 `aircraft_silhouette_visual` 的 Godot 真实渲染样张验收。任何现实 `AircraftParams.display_name` 未直接映射都判交付失败。
+
+```powershell
+C:\Users\noelu\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe scripts/tools/audit_aircraft_silhouettes.py
+bench\run.cmd aircraft_silhouette_visual 1 120 Shadow Visual
+```
+
+原创 / 未定型概念机只有在没有可靠定型参考时才允许继续 legacy renderer，并必须在 manifest 记录 fallback 原因；这不是现实机跳过模型制作的捷径。
+
+### 步骤 6：注册到 AircraftDB（必需）
 
 `scripts/survivor/aircraft_db.gd` 顶部的 `_paths` 注册表加一行：
 
@@ -143,11 +169,11 @@ static var _paths: Dictionary = {
 }
 ```
 
-所有"按 id 取档案"的链路（进化换机 / 生涯商店 / debug 选机 / 换机技能重放）都走 `AircraftDB.get_profile(id)`，禁止散落 preload（UGC 护栏 2）。**漏掉这行 = 机型对整个进化/商店体系不存在。**
+所有“按 id 取档案”的链路（进化换机 / 生涯商店 / debug 选机 / 换机技能重放）都走 `AircraftDB.get_profile(id)`，禁止散落 preload（UGC 护栏 2）。**漏掉这行 = 机型对整个进化/商店体系不存在。**
 
-### 步骤 6：登记进化树节点（必需）
+### 步骤 7：登记进化树节点（必需）
 
-43 机全谱中除起手四卡外全部经进化树获得。`resources/evolution/evolution_tree.json` 的 `nodes` 数组追加节点（加载方 `scripts/survivor/evolution_system.gd` 只读表）：
+50 机全谱中，正常选机页包含既有四卡与四架局外采购 T0；其余机型经进化树获得。`resources/evolution/evolution_tree.json` 的 `nodes` 数组追加节点（加载方 `scripts/survivor/evolution_system.gd` 只读表）：
 
 ```json
 {
@@ -177,9 +203,9 @@ bench\run.cmd attr_gates
 Linux/macOS 使用同名 `./bench/run.sh` 命令。`test_evolution_tree.gd` 是未接入
 `BenchRunner` 的旧 SceneTree 脚本，Agent 不得为了跑它绕过 wrapper 直接启动 Godot。
 
-### 步骤 7：（仅起手卡）注册到选择界面
+### 步骤 8：（仅起手卡）注册到选择界面
 
-`scripts/survivor/survivor_select.gd` 顶部的 `PLAYABLE_LIST` 只放**起手四卡**，普通机型不进这里。条目带 `"id"` 字段——生涯解锁门控按它查 `MetaShop.is_aircraft_unlocked`：
+`scripts/survivor/survivor_select.gd` 顶部的 `PLAYABLE_LIST` 只放**正常选机页八卡**，普通进化机型不进这里。条目带 `"id"` 字段——生涯解锁门控按它查 `MetaShop.is_aircraft_unlocked`：
 
 ```gdscript
 const PLAYABLE_LIST: Array[Dictionary] = [
@@ -192,7 +218,7 @@ const PLAYABLE_LIST: Array[Dictionary] = [
 - 运行时实际名单走 `_effective_list()`：未解锁条目翻 `dev_locked` 标志（全信息展示 + 按钮禁用，按钮文本换成 `_unlock_hint_for()` 的解锁条件句）；boss debug 链路全谱放行
 - 新起手卡若带解锁条件：`scripts/meta/meta_shop.gd::is_aircraft_unlocked` 加分支 + `_unlock_hint_for` 加提示句 + i18n 三语 key（spec `career-shop` §2.1/§2.4）
 
-### 步骤 8：测试
+### 步骤 9：测试
 
 1. F5 启动游戏 → 主菜单 → 生存模式 → 地图选择 → 机型选择
 2. 检查卡片：名称、副名、标签、描述、属性栏是否正确
@@ -200,6 +226,8 @@ const PLAYABLE_LIST: Array[Dictionary] = [
 4. 检查 HUD 标题栏（替换显示主角呼号 + display_name）
 5. 检查武器：开火逻辑、装填、热诱弹（如有）
 6. 若有起始僚机：检查阵型是否在玩家两侧/后方就位、是否跟随长机攻击
+7. 检查新 / 更新现实机实际命中自己的 reviewed 顶视模型；不得只看卡片缩略图或旧 polygon 回退
+8. 若有 `starting_benefit_id`：验证只有选作起手机时获得、进化到同型机不触发，并在下一次换型后仍从库存补挂
 
 ## 四、AI 行为如何随武器变化
 
@@ -207,9 +235,9 @@ const PLAYABLE_LIST: Array[Dictionary] = [
 
 这条**已经原生支持**，不需要任何额外代码：
 
-- **基本转弯/能量管理**：`aircraft.gd:1130 _physics_process` 调度物理子模块，基础机动仍由机体参数决定
-- **战术决策（BFM）**：`ai/bfm_tactics.gd:107 choose_tactic` 基于几何、能量和态势，武器只通过射程/就绪态影响可用意图
-- **武器射程**：`ai/bfm_tactics.gd:64 gun_range_px` 从当前 `gun.max_range` 换算，无 gun 时为 0
+- **基本转弯/能量管理**：`aircraft.gd:1151 _physics_process` 调度物理子模块，基础机动仍由机体参数决定
+- **战术决策（BFM）**：`scripts/ai/tactical/situation.gd` 建态势快照，`scripts/ai/tactical/tactical_planner.gd:76 plan` 选择 intent，`scripts/ai/tactical/bfm_intent.gd` 生成纯计划
+- **武器射程/竞选**：`scripts/ai/tactical/weapon_selector.gd` 与 `Situation` 从当前挂载读取包络，无 gun 时不会竞选机炮
 - **导弹发射时机**：`aircraft/aircraft_weapons.gd:1004 update_missile` 统一判定射程、最小距离、射界与锁定；导弹换型主要通过 `.tres`
 - **武器模式切换**：`aircraft/aircraft_weapons.gd:896 update_weapon_mode` 根据挂载、弹量和战术计划切换 GUN ↔ MISSILE
 - **机会射击宽容度**：通过 `combat.opportunity_cone_mult` `opportunity_range_mult` 调，不在代码里
@@ -362,13 +390,14 @@ SurvivorData.is_upgrade_available_for(upgrade, aircraft_id, params) -> bool
 3. （如有）`resources/playable_<name>_combat.tres` (CombatParams override)
 4. （如有）`resources/playable_<name>_flare.tres` (FlareParams override)
 5. `resources/playable_<name>.tres` (PlayableAircraft) ← 主档案，**记得设 `id = &"<name>"`**
-6. **`scripts/survivor/aircraft_db.gd::_paths` 注册一行**（必需，漏了 = 进化/商店取不到档案）
-7. **`resources/evolution/evolution_tree.json` 追加节点 + 上游 `exits` 补边**（必需，除起手卡外唯一获取途径）→ 跑 `test_evolution_tree.gd` 冒烟
-8. （仅起手卡）`scripts/survivor/survivor_select.gd::PLAYABLE_LIST` 追加条目（**带 `"id"` 字段**；解锁门控同步 `meta_shop.gd::is_aircraft_unlocked` + `_unlock_hint_for`）
-9. （如有专属技能）在 `SurvivorData.UPGRADES` 末尾追加专属条目，`exclusive_to = ["<name>"]`
-10. （如有专属技能）在 `survivor_player.gd::apply_upgrade` 的 `match stat:` 中加对应分支
-11. （如新文件较多）更新 `docs/reference/playable-aircraft-workflow.md` 的"现有主角清单"
-12. （重大变更）更新 `AGENTS.md` 类树/硬约定，并同步 `script-index.md` / `code-index.md`
+6. **现实机模型硬门**：参考图 → 128×128 蒙版 → manifest → catalog 映射 → 静态审计 + Visual；更新机型 / 子型号也必须复核
+7. **`scripts/survivor/aircraft_db.gd::_paths` 注册一行**（必需，漏了 = 进化/商店取不到档案）
+8. **`resources/evolution/evolution_tree.json` 追加节点 + 上游 `exits` 补边**（必需，除起手卡外唯一获取途径）→ 跑 `evo_detail` 冒烟
+9. （仅起手卡）`scripts/survivor/survivor_select.gd::PLAYABLE_LIST` 追加条目（**带 `"id"` 字段**；解锁门控同步 `meta_shop.gd::is_aircraft_unlocked` + `_unlock_hint_for`）
+10. （如有已批准专属技能）在 `SurvivorData.UPGRADES` 末尾追加专属条目，`exclusive_to = ["<name>"]`；只有预留名时使用 `SIGNATURE_PLACEHOLDERS`，不得进入技能池或商店
+11. （如有专属技能）在 `survivor_player.gd::apply_upgrade` 的 `match stat:` 中加对应分支
+12. （如新文件较多）更新 `docs/reference/playable-aircraft-workflow.md` 的“现有主角清单”
+13. （重大变更）更新 `AGENTS.md` 类树/硬约定，并同步 `script-index.md` / `code-index.md`
 
 **完全不需要改的**：
 - `aircraft.gd`（武器是 null-safe 的）
@@ -378,23 +407,27 @@ SurvivorData.is_upgrade_available_for(upgrade, aircraft_id, params) -> bool
 
 ## 十、现有主角清单
 
-### 10.1 起手四卡（`survivor_select.gd::PLAYABLE_LIST`）
+### 10.1 正常选机页八卡（`survivor_select.gd::PLAYABLE_LIST`）
 
 | ID | 起手定位 | 档案 | 解锁条件（spec `career-shop` §2.1） |
 |---|---|---|---|
-| `f15` | 制空/综合，进化路线最多 | `resources/playable_f15.tres` | 恒解锁 |
-| `f14` | 远程/团队，开局送 1 僚机组成双机编队（全谱最弱锚点） | `resources/playable_f14.tres` | 首败航母 BOSS |
-| `a6e` | 攻击/肉，轻火箭 | `resources/player/playable_a6e.tres` | 累计 30 地面击杀（`CareerArchive.get_ground_kills`，进度实时显示在锁定卡按钮上） |
-| `mirage3` | 电战线之根 | `resources/player/playable_mirage3.tres` | 生涯商店购买 |
+| `f15` | 制空 / 综合 | `resources/playable_f15.tres` | 恒解锁 |
+| `f14` | 远程 / 团队 | `resources/playable_f14.tres` | 首败航母 BOSS |
+| `a6e` | 攻击 / 耐久 | `resources/player/playable_a6e.tres` | 累计 30 地面击杀 |
+| `mirage3` | 电战 / 多用途 | `resources/player/playable_mirage3.tres` | 生涯商店 2000 功勋 |
+| `mig21f13` | 斗士 / 轻型格斗 | `resources/player/playable_mig21f13.tres` | 生涯商店 1000 功勋 |
+| `f104c` | 骑士 / 高速截击 | `resources/player/playable_f104c.tres` | 生涯商店 1000 功勋 |
+| `j35f` | 斗士 / 宽锥三角翼 | `resources/player/playable_j35f.tres` | 生涯商店 1000 功勋 |
+| `ea6b` | 策士 / 电子支援 | `resources/player/playable_ea6b.tres` | 生涯商店 1000 功勋 |
 
 门控实现在 `survivor_select.gd::_effective_list()`：按 `MetaShop.is_aircraft_unlocked(id)` 给未解锁条目翻
 `locked` 占位标志，不删条目、也不加载/泄露机体数据；boss debug 另列正式 T4 参考节点并放行。
 
-旧起手位变迁：F-16 降为进化分支、A-10 降为 T2 进化获得（起手位由 A-6E 取代）、X-02 移入 T5 树内 LV22 进化获得。
+F-15 / F-14 / A-6E / Mirage III 同时保留为 LV5 标准 T1 树节点；F-16、A-10 与 X-02 继续只位于后续树。
 
-### 10.2 43 机全谱注册表（`aircraft_db.gd::_paths`）
+### 10.2 50 机全谱注册表（`aircraft_db.gd::_paths`）
 
-**权威注册表是 `scripts/survivor/aircraft_db.gd`，本表只是快照**；tier/角色/数值矩阵查 spec `player-aircraft-power-curve` §2（v7），树结构查 `resources/evolution/evolution_tree.json`。除起手四卡外全部经进化树获得。
+**权威注册表是 `scripts/survivor/aircraft_db.gd`，本表只是快照**；tier/角色/数值矩阵查当前 power-curve 与 T0 扩谱 spec，树结构查 `resources/evolution/evolution_tree.json`。除正常选机页八卡外，其余全部经进化树获得。
 
 | 批次 | 档案目录 | 机型 id |
 |---|---|---|
@@ -402,3 +435,4 @@ SurvivorData.is_upgrade_available_for(upgrade, aircraft_id, params) -> bool
 | 老 13 机（进化切片 8） | `resources/evolution/` | `f22` `f35` `mig31` `su34` `x09` `x13` `x21` `x44` |
 | 扩谱 28 机（2026-07-19） | `resources/player/`（profile 与 params 同住） | `a6e` `mirage3` `mirage2000` `f15c` `f15e` `fa18e` `gripen_c` `su27` `rafale` `tornado` `typhoon` `viggen` `harrier` `f15smtd` `su35` `gripen_e` `su57` `j20` `a12` `yf23` `f47` `mig41` `fcas` `gcap` `j36` `x77` `x90` `ax00` |
 | v15 增补 2 机（2026-08-07） | `resources/player/` | `ea18g` `faxx` |
+| T0 / 低位 T1 增补 7 机（2026-08-26） | `resources/player/` | `mig21f13` `f104c` `j35f` `ea6b` `mig23` `f4e` `jaguar` |

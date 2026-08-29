@@ -209,13 +209,15 @@ func _test_gunship_scans_ground_units() -> void:
 	source.params.gun.fire_cone_half_angle = 180.0
 	source.params.gun.spread_angle = 0.0
 	source.gunship_mode_active = true
+	source.hard_brake = true
+	source.brake_steer_input = 0.75
 
 	var ground := GroundUnit.new()
 	ground.team = CombatUnit.TEAM_HOSTILE
 	ground.global_position = Vector2(400.0, 0.0)  # 正右侧 90°，在 1000m=500px 射程内
 	CombatUnit.all_units = [source, ground]
 	AircraftWeapons.auto_gun_scan(source)
-	_check("炮艇模式无需点名即可侧射地面单位", source.is_firing,
+	_check("急刹拖拽中炮艇仍无需点名即可侧射地面单位", source.is_firing,
 		"firing=%s lead=%.0f°" % [source.is_firing, rad_to_deg(source._gun_lead_heading)])
 
 	# 真正跑梭射执行层：扫描后的下一 tick 即使 planner 把 lead 重置回机头，
@@ -361,8 +363,23 @@ func _test_gunship_scans_ground_units() -> void:
 	source.is_firing = false
 	source._auto_gun_scan_timer = 0.0
 	AircraftWeapons.auto_gun_scan(source)
-	_check("普通机炮原有对空扫描不回归", source.is_firing,
+	_check("急刹拖拽中普通机炮仍自动扫描视野内敌机", source.is_firing,
 		"firing=%s" % source.is_firing)
+
+	# 机炮吊舱只改变出膛点/弹耗，不得因急刹转向丢失普通自动火控许可。
+	var pod_bullets := BulletManager.new()
+	source.bullet_manager = pod_bullets
+	source.gun_extra_barrels = 2
+	source._gun_burst_rounds_left = 0
+	source._gun_burst_target_id = 0
+	source._fire_cooldown = 0.0
+	source._sfx_gun_cd = 999.0
+	AircraftWeapons.update_gun(source, 1.0 / 60.0)
+	_check("急刹拖拽中机炮吊舱保持双翼挂齐射", pod_bullets._bullets.size() == 2,
+		"bullets=%d" % pod_bullets._bullets.size())
+	source.bullet_manager = null
+	pod_bullets.free()
+	source.gun_extra_barrels = 0
 
 	var hardened := StrategicTarget.new()
 	hardened.team = CombatUnit.TEAM_HOSTILE

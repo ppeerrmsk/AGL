@@ -420,24 +420,26 @@ func _draw_data_label() -> void:
 ## 子类只覆写内容，不得再复制状态栏几何、旋转或缩放代码。
 func _status_label_lines(compact: bool) -> PackedStringArray:
 	var display_name: String = params.display_name if params else "GND"
-	var lines := PackedStringArray([display_name])
+	var lines := PackedStringArray([
+		AircraftRenderer.english_status_identity(display_name, "GROUND UNIT")])
 	if compact:
 		return lines
-	lines.append("ALT GND")
+	lines.append(AircraftRenderer.status_hp_text(
+		hp, params.max_hp if params else hp))
 	var dist_m := _status_label_distance_m()
-	if dist_m < 1000.0:
-		lines.append("RNG %dm" % roundi(dist_m))
-	else:
-		lines.append("RNG %.1fkm" % (dist_m / 1000.0))
-	if ammo > 0:
-		lines.append("GUN %d" % ammo)
+	lines.append(AircraftRenderer.status_range_text(dist_m, dist_m >= 0.0))
+	if speed > 0.5:
+		lines.append(AircraftRenderer.status_ground_speed_text(speed))
+	# 默认 ammo=500 只是 GroundUnit 的兼容初值；没有真实 GunParams 时绝不能伪报武装。
+	if params != null and params.gun != null:
+		lines.append("GUN %d" % maxi(ammo, 0))
 	return lines
 
 
 func _status_label_distance_m() -> float:
 	var pref := AircraftRenderer.safe_player_ref()
 	if pref == null or pref.is_destroyed:
-		return 0.0
+		return -1.0
 	return global_position.distance_to(pref.global_position) / PIXELS_PER_METER
 
 

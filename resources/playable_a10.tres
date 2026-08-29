@@ -11,6 +11,7 @@ codename = "Warthog"
 card_tags = PackedStringArray("装甲", "强化机炮", "对地攻击")
 card_desc = "厚重耐打的亚音速对地攻击机，以强化机炮和中程导弹持续压制。火箭弹需从战区奖励获得。"
 base_params = ExtResource("2")
+gun_ammo_override = 320
 gun_damage_mult = 1.3
 gun_range_override = 1200.0
 gun_cone_override = 8.0

@@ -4,7 +4,7 @@
 
 [resource]
 script = ExtResource("1")
-display_name = "57mm 火箭弹"
+display_name = "57MM ROCKET"
 burst_count_min = 3
 burst_count_max = 6
 burst_interval = 0.06

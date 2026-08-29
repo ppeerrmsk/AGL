@@ -256,9 +256,7 @@ func _test_af03_visibility() -> void:
 
 # ── F. 签名技普通池排除 ──
 func _test_signature_random_exclusion() -> void:
-	print("── F. 普通升级池：专属/次世代排除 + 第四槽 30% ──")
-	_check("专属第四槽概率 = 0.30",
-		is_equal_approx(SurvivorData.SIGNATURE_OFFER_CHANCE, 0.30), "")
+	print("── F. 普通升级池：专属/次世代排除（专属只走机场二选一）──")
 	_check("is_signature_upgrade 认 sig_ 前缀",
 		SurvivorData.is_signature_upgrade({"id": "sig_f15"}), "")
 	_check("is_signature_upgrade 认 F-14 围猎特例",

@@ -1,14 +1,17 @@
 extends RefCounted
 
-## 无头验收：resources/player/ 43 份玩家机 params（spec player-aircraft-power-curve §2 v18 矩阵）
-## 全量加载 / 矩阵锚点抽查 / 同族链逐轴单调 / 雷达走廊 / 王冠不越位 / 攻击线火箭
+const SurvivorSelectScript := preload("res://scripts/survivor/survivor_select.gd")
+
+## 无头验收：resources/player/ 50 份玩家机 params。
+## 全量加载 / 进化边雷达与武器平滑 / 雷达最终上限 / 王冠不越位 / 特殊武器隔离。
 ## 运行：godot --headless --path . -- --bench=player_params（或 --bench=all）
 
 var _pass := 0
 var _fail := 0
 
 const IDS: Array[String] = [
-	"f14", "f15", "a6e", "mirage3",
+	"mig21f13", "f104c", "j35f", "ea6b",
+	"mig23", "f4e", "jaguar", "f14", "f15", "a6e", "mirage3",
 	"mirage2000", "f15c", "f15e", "fa18e", "ea18g", "f16", "gripen_c", "su27", "a10",
 	"rafale", "tornado", "typhoon", "su34", "viggen", "mig31", "harrier",
 	"f15smtd", "su35", "f35", "gripen_e", "f22", "su57", "j20", "a12",
@@ -16,42 +19,47 @@ const IDS: Array[String] = [
 	"x09", "x13", "x02", "x21", "x44", "x77", "x90", "ax00",
 ]
 
-const MISSILE_T1_T2_IDS: Array[String] = [
-	"f14", "f15", "a6e", "mirage3",
+const MISSILE_T0_T2_IDS: Array[String] = [
+	"mig21f13", "f104c", "j35f", "ea6b",
+	"mig23", "f4e", "jaguar", "f14", "f15", "a6e", "mirage3",
 	"mirage2000", "f15c", "f15e", "fa18e", "ea18g", "f16", "gripen_c", "su27", "a10",
 	"rafale", "tornado", "typhoon", "su34", "viggen", "mig31", "harrier",
 ]
-const MISSILE_T3_T4_IDS: Array[String] = [
-	"f15smtd", "su35", "f35", "gripen_e", "f22", "su57", "j20", "a12",
-	"yf23", "f47", "mig41", "faxx", "fcas", "gcap", "j36",
-]
+const MISSILE_T3_IDS: Array[String] = ["f15smtd", "su35", "f35", "gripen_e", "f22", "su57", "j20", "a12"]
+const MISSILE_T4_STANDARD_IDS: Array[String] = ["yf23", "f47", "faxx", "fcas"]
+const MISSILE_T4_RANGE_IDS: Array[String] = ["mig41", "gcap", "j36"]
 const MISSILE_T5_STANDARD_IDS: Array[String] = ["x09", "x13", "x02", "x44", "x77", "x90", "ax00"]
 
-## 雷达三带走廊（spec radar-range-normalization §2.1/§2.2）：主题=航电身份，电战>骑士>斗士
-## omni（X-02/AX-00）特则=同档电战王冠×≈0.9，走廊归电战带
-const RADAR_BANDS: Dictionary = {
-	"gladiator": [2100.0, 3400.0],   # 斗士：制空/攻击/格斗/隐身
-	"knight": [2600.0, 4400.0],      # 骑士：远程/桥接/母舰
-	"schemer": [3000.0, 5000.0],     # 电战 + omni 特则
+## 机炮弹量按游戏定位分档，不随 tier 单调上升；180 是用户确认的易用性硬下限。
+const GUN_AMMO_BY_ID: Dictionary = {
+	"f104c": 180, "ea6b": 180, "f14": 180, "ea18g": 180, "mig31": 180,
+	"f35": 180, "j20": 180, "yf23": 180, "mig41": 180, "gcap": 180,
+	"j36": 180, "x13": 180, "x21": 180, "x77": 180,
+	"f4e": 200, "mirage3": 200, "fa18e": 200, "f16": 200, "gripen_c": 200,
+	"rafale": 200, "gripen_e": 200, "fcas": 200, "x02": 200, "x90": 200,
+	"ax00": 200,
+	"mig21f13": 240, "j35f": 240, "mig23": 240, "f15": 240, "mirage2000": 240,
+	"f15c": 240, "su27": 240, "typhoon": 240, "f15smtd": 240, "su35": 240,
+	"f22": 240, "su57": 240, "f47": 240, "x09": 240,
+	"jaguar": 280, "a6e": 280, "f15e": 280, "tornado": 280, "su34": 280,
+	"viggen": 280, "harrier": 280, "a12": 280, "faxx": 280,
+	"a10": 320, "x44": 320,
 }
-const RADAR_BAND_BY_ID: Dictionary = {
-	"f15": "gladiator", "a6e": "gladiator", "mirage2000": "gladiator",
-	"f15c": "gladiator", "f15e": "gladiator", "su27": "gladiator", "a10": "gladiator",
-	"tornado": "gladiator", "typhoon": "gladiator", "su34": "gladiator",
-	"viggen": "gladiator", "harrier": "gladiator", "f15smtd": "gladiator",
-	"su35": "gladiator", "f22": "gladiator", "su57": "gladiator", "a12": "gladiator",
-	"yf23": "gladiator", "f47": "gladiator", "faxx": "gladiator", "x09": "gladiator", "x44": "gladiator",
-	"x77": "gladiator",
-	"f14": "knight", "mig31": "knight", "j20": "knight", "mig41": "knight",
-	"gcap": "knight", "j36": "knight", "x21": "knight", "fa18e": "knight", "x90": "knight",
-	"mirage3": "schemer", "ea18g": "schemer", "f16": "schemer", "gripen_c": "schemer", "rafale": "schemer",
-	"f35": "schemer", "gripen_e": "schemer", "fcas": "schemer", "x13": "schemer",
-	"x02": "schemer", "ax00": "schemer",
+const GUN_AMMO_BANDS: Array[int] = [180, 200, 240, 280, 320]
+
+## 各 tier 的基础雷达走廊；机种身份在带内分化，代际位置由走廊和进化边共同约束。
+const RADAR_TIER_BANDS: Dictionary = {
+	0: [1900.0, 2400.0],
+	1: [2200.0, 2800.0],
+	2: [2550.0, 3200.0],
+	3: [2850.0, 3400.0],
+	4: [3200.0, 3900.0],
+	5: [3450.0, 4400.0],
 }
 
 
 func run() -> void:
-	print("\n════════ 玩家机 params 验收（43 机矩阵 v18） ════════")
+	print("\n════════ 玩家机 params 验收（50 机平滑曲线） ════════")
 	var p: Dictionary = {}
 	var all_loaded := true
 	for id in IDS:
@@ -61,26 +69,56 @@ func run() -> void:
 			print("    ! 加载失败：%s" % id)
 			continue
 		p[id] = res
-	_check("43 份全部加载为 AircraftParams", all_loaded and p.size() == 43, "got %d" % p.size())
-	if p.size() != 43:
+	_check("50 份全部加载为 AircraftParams", all_loaded and p.size() == 50, "got %d" % p.size())
+	if p.size() != 50:
 		_finish()
 		return
+	var start_ids: Array[String] = []
+	for entry in SurvivorSelectScript.PLAYABLE_LIST:
+		start_ids.append(str(entry.get("id", "")))
+	_check("选机页保留既有四机，并追加四架局外解锁 T0",
+		start_ids == ["f15", "f14", "a6e", "mirage3", "mig21f13", "f104c", "j35f", "ea6b"],
+		str(start_ids))
+	var expected_start_benefits := {
+		"mig21f13": &"gun_multishot", "f104c": &"rocket_ffar",
+		"j35f": &"qmaam", "ea6b": &"esm_pod",
+	}
+	var start_benefits_ok := true
+	var start_benefit_names_ok := true
+	for id in expected_start_benefits:
+		var profile := AircraftDB.get_profile(StringName(id))
+		start_benefits_ok = start_benefits_ok and profile != null \
+			and profile.starting_benefit_id == expected_start_benefits[id]
+		var benefit_id: StringName = expected_start_benefits[id]
+		start_benefit_names_ok = start_benefit_names_ok \
+			and SurvivorSelectScript.STARTING_BENEFIT_NAME_KEYS.has(benefit_id) \
+			and not String(SurvivorSelectScript.STARTING_BENEFIT_NAME_KEYS[benefit_id]).is_empty()
+	_check("T0 四机声明机场等价开局礼包", start_benefits_ok, str(expected_start_benefits))
+	_check("选机页为 T0 四种开局礼包声明玩家可见名称", start_benefit_names_ok,
+		str(SurvivorSelectScript.STARTING_BENEFIT_NAME_KEYS))
+	_check("MiG-21 开局机炮吊舱复用正式技能条目",
+		not SurvivorData.upgrade_by_id("gun_multishot").is_empty(), "")
 
 	# 锚点抽查（矩阵 §2 直写值；雷达列按 radar-range-normalization §2.3）
 	# 弹 2：F-14 是 T1 起手机，弹数与其余三张起手卡（F-15/A-6E/幻影 III）对齐（2026-07-29 用户定）
-	_check("F-14 锚点（110HP/2000/雷达2600/锥32/锁2.8/弹2）",
-		_row_eq(p["f14"], 110, 2000, 2600, 32, 2.8, 2), _row_str(p["f14"]))
-	_check("X-13 航电王（雷达5000/锥46/锁1.4）",
-		is_equal_approx(p["x13"].radar_range, 5000.0) and is_equal_approx(p["x13"].radar_half_angle, 46.0)
+	_check("T0 四机雷达均位于 1900~2400",
+		p["mig21f13"].radar_range == 1900.0 and p["f104c"].radar_range == 1950.0
+		and p["j35f"].radar_range == 2200.0 and p["ea6b"].radar_range == 2400.0, "")
+	_check("F-104C 高速代价锁定 72 HP", is_equal_approx(p["f104c"].max_hp, 72.0),
+		"got %.0f" % p["f104c"].max_hp)
+	_check("F-14 锚点（110HP/2000/雷达2500/锥32/锁2.8/弹2）",
+		_row_eq(p["f14"], 110, 2000, 2500, 32, 2.8, 2), _row_str(p["f14"]))
+	_check("X-13 航电王（雷达4400/锥46/锁1.4）",
+		is_equal_approx(p["x13"].radar_range, 4400.0) and is_equal_approx(p["x13"].radar_half_angle, 46.0)
 		and is_equal_approx(p["x13"].lock_time, 1.4), _row_str(p["x13"]))
 	_check("X-44 全谱最肉（HP 200）", is_equal_approx(p["x44"].max_hp, 200.0), "")
 	_check("鹞失速地板 140（全谱最低签名）", is_equal_approx(p["harrier"].stall_speed_base, 140.0),
 		"got %.0f" % p["harrier"].stall_speed_base)
 	_check("其余机失速地板 220（模板）", is_equal_approx(p["a6e"].stall_speed_base, 220.0), "")
-	_check("EA-18G 锚点（135HP/1900/雷达3450/锥44/锁2.1/弹2）",
-		_row_eq(p["ea18g"], 135, 1900, 3450, 44, 2.1, 2), _row_str(p["ea18g"]))
-	_check("F/A-XX 锚点（185HP/2700/雷达3200/锥38/锁1.9/弹3）",
-		_row_eq(p["faxx"], 185, 2700, 3200, 38, 1.9, 3), _row_str(p["faxx"]))
+	_check("EA-18G 锚点（135HP/1900/雷达3150/锥44/锁2.1/弹2）",
+		_row_eq(p["ea18g"], 135, 1900, 3150, 44, 2.1, 2), _row_str(p["ea18g"]))
+	_check("F/A-XX 锚点（185HP/2700/雷达3300/锥38/锁1.9/弹3）",
+		_row_eq(p["faxx"], 185, 2700, 3300, 38, 1.9, 3), _row_str(p["faxx"]))
 	var faxx_profile := AircraftDB.get_profile(&"faxx")
 	_check("F/A-XX 机炮核心档案（伤×1.5/程1400/锥10/瞄准0.75）",
 		faxx_profile != null and is_equal_approx(faxx_profile.gun_damage_mult, 1.5)
@@ -95,20 +133,23 @@ func run() -> void:
 			structural_ok = false
 	_check("全谱 max_g_structural = max_g + 3", structural_ok, "")
 
-	# 雷达三带走廊（spec radar-range-normalization：全谱硬界 2100~5000）
+	# 雷达按 tier 平滑，同时检查每条真实进化边，防跨级跳变与反向大跌。
+	var tiers := _load_tree_tiers()
 	var corridor_ok := true
 	for id in IDS:
-		var band: Array = RADAR_BANDS[RADAR_BAND_BY_ID[id]]
+		var band: Array = RADAR_TIER_BANDS[int(tiers[id])]
 		if p[id].radar_range < float(band[0]) or p[id].radar_range > float(band[1]):
 			corridor_ok = false
-			print("    ! 带外：%s(%s) radar=%.0f 带 %.0f~%.0f" % [
-				id, RADAR_BAND_BY_ID[id], p[id].radar_range, float(band[0]), float(band[1])])
-	_check("雷达三带走廊（斗士2100~3400/骑士2600~4400/电战·omni3000~5000）", corridor_ok, "")
+			print("    ! 带外：%s(T%d) radar=%.0f 带 %.0f~%.0f" % [
+				id, int(tiers[id]), p[id].radar_range, float(band[0]), float(band[1])])
+	_check("雷达 tier 走廊 T0 1900~2400 → T5 3450~4400", corridor_ok, "")
 	_check("三带分层抽查 T2（F-16电战 > MiG-31骑士 > F-15C斗士）",
 		p["f16"].radar_range > p["mig31"].radar_range
 		and p["mig31"].radar_range > p["f15c"].radar_range, "")
-	_check("F-14 初始雷达收窄（≤2600，规范化主诉求）",
-		p["f14"].radar_range <= 2600.0, "got %.0f" % p["f14"].radar_range)
+	_check("F-14 雷达收窄（≤2500）", p["f14"].radar_range <= 2500.0, "got %.0f" % p["f14"].radar_range)
+	_test_evolution_edge_smoothing(p)
+	_test_effective_radar_cap()
+	_test_enemy_weapon_scaling()
 
 	# 同族链逐轴单调（同类纯升级规则 §1.3 抽查）
 	_check("F-15→F-15C→S/MTD 逐轴不倒退",
@@ -124,16 +165,20 @@ func run() -> void:
 	_check("AX-00 不夺 G 冠（< X-09）", p["ax00"].max_g < p["x09"].max_g, "")
 	_check("AX-00 不夺肉冠（HP < X-44）", p["ax00"].max_hp < p["x44"].max_hp, "")
 
-	# 主导弹分档（内联 missile 单一权威源）：T1/T2=2、T3/T4=3、T5=4；仅 T5 远程 X-21=5。
+	# 主导弹分档：T0~T2=2、T3=3、T4=3（远程三机4）、T5=4、X-21=5。
 	var missile_tier_ok := true
-	for id in MISSILE_T1_T2_IDS:
+	for id in MISSILE_T0_T2_IDS:
 		missile_tier_ok = missile_tier_ok and p[id].missile != null and p[id].missile.max_count == 2
-	for id in MISSILE_T3_T4_IDS:
+	for id in MISSILE_T3_IDS:
 		missile_tier_ok = missile_tier_ok and p[id].missile != null and p[id].missile.max_count == 3
+	for id in MISSILE_T4_STANDARD_IDS:
+		missile_tier_ok = missile_tier_ok and p[id].missile != null and p[id].missile.max_count == 3
+	for id in MISSILE_T4_RANGE_IDS:
+		missile_tier_ok = missile_tier_ok and p[id].missile != null and p[id].missile.max_count == 4
 	for id in MISSILE_T5_STANDARD_IDS:
 		missile_tier_ok = missile_tier_ok and p[id].missile != null and p[id].missile.max_count == 4
 	missile_tier_ok = missile_tier_ok and p["x21"].missile != null and p["x21"].missile.max_count == 5
-	_check("主导弹分档 T1/T2=2、T3/T4=3、T5=4、仅 X-21=5", missile_tier_ok, "")
+	_check("主导弹分档 T0~T2=2、T3=3、T4远程=4、T5=4、X-21=5", missile_tier_ok, "")
 	# T1 四张起手卡弹数一致（F-14 曾是 4，卡面写"导弹缩水"却比 F-16 多，2026-07-29 拉平为 2）
 	_check("T1 起手四卡弹数齐平 = 2",
 		p["f14"].missile.max_count == 2 and p["f15"].missile.max_count == 2
@@ -143,8 +188,8 @@ func run() -> void:
 		f14_profile != null and f14_profile.missile_count_override == 2, "")
 	_check("F-14 起手为双机编队（长机 + 1 僚机）",
 		f14_profile != null and f14_profile.wingman_count == 1, "")
-	# 特殊武器不自带（用户 2026-07-23 令："所有飞机都不要自带特殊武器，要从战区获取"）
-	# 底线武器（机炮/导弹/热诱弹）仍随机体；火箭/电磁炮/激光/僚机/漂浮雷/QMAAM 一律战区+签名技获取
+	# 特殊武器不烤入机体；T0 机场等价礼包只写 profile，开局走正式授予入口入库。
+	# 底线武器（机炮/导弹/热诱弹）仍随机体。
 	var carries_special: String = ""
 	for id in IDS:
 		var prm: AircraftParams = p[id]
@@ -154,7 +199,7 @@ func run() -> void:
 			carries_special += "%s(equipment) " % id
 		if prm.loyal_wingman != null or prm.torpedo != null or prm.secondary_missile != null:
 			carries_special += "%s(wingman/mine/qmaam) " % id
-	_check("43 机无一自带特殊武器（火箭/电磁炮/激光/僚机/雷/QMAAM）", carries_special == "", carries_special)
+	_check("50 机基参无一烤入特殊武器（火箭/电磁炮/激光/僚机/雷/QMAAM）", carries_special == "", carries_special)
 	_check("玩家 A-10 默认无火箭（只能从战区奖励取得）", p["a10"].rocket == null, "")
 	var a10_legacy_base := load("res://resources/playable_a10_base.tres") as AircraftParams
 	var a10_drone_variant := load("res://resources/playable_a10_drone.tres") as AircraftParams
@@ -165,6 +210,7 @@ func run() -> void:
 		p["a10"].gun != null and p["a10"].missile != null
 		and p["su34"].missile != null and p["x44"].gun != null, "")
 
+	_test_gun_ammo_profiles(p)
 	# 热诱弹分档 + 敌我解耦（spec player-aircraft-power-curve §2.6）
 	_test_flare_tiers(p)
 	_test_flare_inheritance()
@@ -225,22 +271,73 @@ func _test_shared_resource_isolation() -> void:
 	sp.free()
 
 
+## 玩家机炮弹量通过 profile 覆盖共享 default_gun；出生应用和进化换机都必须拿到新机满仓。
+func _test_gun_ammo_profiles(p: Dictionary) -> void:
+	print("── 机炮弹量：按定位五档 + 180 易用性地板 + 进化装满 ──")
+	_check("机炮弹量表覆盖全部 50 机", GUN_AMMO_BY_ID.size() == IDS.size(),
+		"got %d" % GUN_AMMO_BY_ID.size())
+	var bad: String = ""
+	var seen_bands: Dictionary = {}
+	var base_bad: String = ""
+	for id in IDS:
+		var expected: int = int(GUN_AMMO_BY_ID.get(id, -1))
+		var profile := AircraftDB.get_profile(StringName(id))
+		if profile == null:
+			bad += "%s(profile missing); " % id
+			continue
+		if profile.gun_ammo_override != expected or not GUN_AMMO_BANDS.has(expected):
+			bad += "%s(expect=%d profile=%d); " % [id, expected, profile.gun_ammo_override]
+			continue
+		seen_bands[expected] = true
+		if p[id].gun == null or p[id].gun.max_ammo != 200:
+			base_bad += "%s(base=%s); " % [id, str(p[id].gun.max_ammo if p[id].gun else -1)]
+			continue
+		var ac := Aircraft.new()
+		ac.params = profile.base_params.duplicate(true)
+		SurvivorPlayableSetup.deep_dup_weapons(ac.params)
+		SurvivorPlayableSetup.apply(ac, profile)
+		if ac.params.gun == null or ac.params.gun.max_ammo != expected:
+			bad += "%s(applied=%s); " % [id, str(ac.params.gun.max_ammo if ac.params.gun else -1)]
+		ac.free()
+	_check("50 机 profile 弹量精确命中 180/200/240/280/320 表", bad == "", bad)
+	_check("五个弹量档均有机体且最低档为 180",
+		seen_bands.size() == GUN_AMMO_BANDS.size() and seen_bands.has(180), str(seen_bands.keys()))
+	_check("50 份 base 仍保持共享回退值 200（只在深拷 profile 上覆盖）", base_bad == "", base_bad)
+	var shared_gun := load("res://resources/default_gun.tres") as GunParams
+	_check("敌机/未配置档案 default_gun 仍为 200", shared_gun != null and shared_gun.max_ammo == 200, "")
+
+	# 真实 evolve() 路径：旧机剩 17 发，换 A-10 后必须同时得到 320 上限与 320 当前弹量。
+	var start_profile := AircraftDB.get_profile(&"f14")
+	var evo_ac := Aircraft.new()
+	evo_ac.params = start_profile.base_params.duplicate(true)
+	SurvivorPlayableSetup.deep_dup_weapons(evo_ac.params)
+	SurvivorPlayableSetup.apply(evo_ac, start_profile)
+	evo_ac.ammo = 17
+	var evolved: bool = EvolutionSystem.evolve(evo_ac, &"a10", false, false)
+	_check("进化换机把机炮当前弹量重置为新机满仓",
+		evolved and evo_ac.params.gun != null and evo_ac.params.gun.max_ammo == 320
+		and evo_ac.ammo == 320,
+		"evolved=%s max=%s ammo=%d" % [str(evolved),
+			str(evo_ac.params.gun.max_ammo if evo_ac.params and evo_ac.params.gun else -1), evo_ac.ammo])
+	evo_ac.free()
+
+
 ## 热诱弹按 tier 分档（2/3/4/5/6）+ 全族玩家特性统一 + 与敌机 default_flare 解耦
 func _test_flare_tiers(p: Dictionary) -> void:
 	print("── 热诱弹：tier 分档 2/3/4/5/6 + 玩家族特性统一 + 敌我解耦 ──")
-	var want: Dictionary = {1: 2, 2: 3, 3: 4, 4: 5, 5: 6}
+	var want: Dictionary = {0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6}
 	var tree: Dictionary = _load_tree_tiers()
-	_check("进化树 tier 表可读（43 机）", tree.size() == 43, "got %d" % tree.size())
+	_check("进化树 tier 表可读（50 机）", tree.size() == 50, "got %d" % tree.size())
 	var bad: String = ""
 	for id in IDS:
 		var prm: AircraftParams = p[id]
 		if prm.flare == null:
 			bad += "%s 无 flare; " % id
 			continue
-		var expect: int = int(want.get(int(tree.get(id, 0)), -1))
+		var expect: int = 2 if id == "ea6b" else int(want.get(int(tree.get(id, 0)), -1))
 		if prm.flare.max_flares != expect:
 			bad += "%s(T%d) 期望 %d 实得 %d; " % [id, int(tree.get(id, 0)), expect, prm.flare.max_flares]
-	_check("43 机 flare 数量全部符合 tier 档位", bad == "", bad)
+	_check("50 机 flare 数量符合 tier 档位（EA-6B 以 2 发体现电战生存性）", bad == "", bad)
 
 	# 玩家族统一特性（与敌用 default_flare 的 burst2 / jam0.55 / nervous0.5 区分开）
 	var traits_bad: String = ""
@@ -252,7 +349,7 @@ func _test_flare_tiers(p: Dictionary) -> void:
 				or not is_equal_approx(f.nervousness, 0.0):
 			traits_bad += "%s(burst=%d jam=%.2f nerv=%.2f); " % [
 				id, f.burst_count, f.base_jam_chance, f.nervousness]
-	_check("43 机 flare 特性统一（burst=1 / jam=0.90 / nervousness=0）", traits_bad == "", traits_bad)
+	_check("50 机 flare 特性统一（burst=1 / jam=0.90 / nervousness=0）", traits_bad == "", traits_bad)
 
 	# 解耦：玩家机不得再引用敌用 default_flare（改敌机数值不牵动玩家手感）
 	var enemy_flare = load("res://resources/default_flare.tres")
@@ -309,6 +406,66 @@ func _load_tree_tiers() -> Dictionary:
 		for n in nodes:
 			out[str(n.get("id", ""))] = int(n.get("tier", 0))
 	return out
+
+
+## 所有真实进化边都必须保持雷达、机炮与导弹的局部平滑；允许换定位时小幅回撤，禁止跨档暴涨。
+func _test_evolution_edge_smoothing(p: Dictionary) -> void:
+	print("── 真实进化边：雷达 / 机炮 / 导弹局部平滑 ──")
+	var txt: String = FileAccess.get_file_as_string("res://resources/evolution/evolution_tree.json")
+	var data: Variant = JSON.parse_string(txt)
+	var nodes: Array = data.get("nodes", []) if data is Dictionary else []
+	var bad: String = ""
+	for n in nodes:
+		var parent_id := str(n.get("id", ""))
+		if not p.has(parent_id):
+			continue
+		var parent_profile := AircraftDB.get_profile(StringName(parent_id))
+		for child_v in n.get("exits", []):
+			var child_id := str(child_v)
+			if not p.has(child_id):
+				continue
+			var child_profile := AircraftDB.get_profile(StringName(child_id))
+			var radar_ratio: float = p[child_id].radar_range / maxf(p[parent_id].radar_range, 1.0)
+			var gun_ratio: float = child_profile.gun_damage_mult / maxf(parent_profile.gun_damage_mult, 0.01)
+			var parent_range: float = parent_profile.gun_range_override if parent_profile.gun_range_override > 0.0 else 800.0
+			var child_range: float = child_profile.gun_range_override if child_profile.gun_range_override > 0.0 else 800.0
+			var range_ratio := child_range / maxf(parent_range, 1.0)
+			var missile_step: int = p[child_id].missile.max_count - p[parent_id].missile.max_count
+			if radar_ratio < 0.90 or radar_ratio > 1.35 \
+				or gun_ratio < 0.90 or gun_ratio > 1.35 \
+				or range_ratio < 0.85 or range_ratio > 1.35 \
+				or missile_step < 0 or missile_step > 1:
+				bad += "%s→%s(radar %.2f gun %.2f range %.2f missile %+d); " % [
+					parent_id, child_id, radar_ratio, gun_ratio, range_ratio, missile_step]
+	_check("全部进化边的雷达/机炮不倒退过量且单步≤35%，导弹单步≤1", bad == "", bad)
+
+
+func _test_effective_radar_cap() -> void:
+	var ac := Aircraft.new()
+	ac.params = AircraftParams.new()
+	ac.params.radar_range = 99999.0
+	ac.altitude = 15000.0
+	ac.category_radar_mult = 9.0
+	ac.ew_expert_radar_bonus_px = 99999.0
+	_check("最终有效雷达硬上限 = 9000 px",
+		is_equal_approx(ac.effective_radar_range_px(), Aircraft.MAX_EFFECTIVE_RADAR_RANGE_PX),
+		"got %.0f" % ac.effective_radar_range_px())
+	ac.free()
+
+
+func _test_enemy_weapon_scaling() -> void:
+	var f4e := load("res://resources/enemy_f4e.tres") as AircraftParams
+	var af03 := load("res://resources/enemy_af03.tres") as AircraftParams
+	_check("敌 F-4E 雷达回到前期带（2600 / 锁定3.4s）",
+		f4e != null and is_equal_approx(f4e.radar_range, 2600.0)
+		and is_equal_approx(f4e.lock_time, 3.4), "")
+	_check("AF-03 远程特色保留但基础雷达压到 4800", af03 != null
+		and is_equal_approx(af03.radar_range, 4800.0), "")
+	var lv20 := SurvivorData.enemy_scale_for_level(20)
+	_check("普通敌机等级只加耐久，不再重复增加弹量/机炮伤害",
+		float(lv20.get("hp_mult", 1.0)) > 1.0
+		and int(lv20.get("missile_add", -1)) == 0
+		and is_equal_approx(float(lv20.get("gun_damage_mult", 0.0)), 1.0), str(lv20))
 
 
 func _find_upgrade(id: String) -> Dictionary:

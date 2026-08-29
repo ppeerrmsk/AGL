@@ -1,6 +1,8 @@
 class_name MapDetailVectorRenderer
 extends Node2D
 
+const TrianglePacket = preload("res://scripts/rendering/canvas_triangle_packet.gd")
+
 ## 4 km 城市细节瓦片的直接矢量烘焙源。
 ## 所有三角形在 setup 时按层合并提交；加载后零 _process / queue_redraw。
 
@@ -64,9 +66,7 @@ class StaticPacket extends Node2D:
 		packet_colors = definition.get("colors", PackedColorArray())
 
 	func _draw() -> void:
-		if packet_points.is_empty():
-			return
-		RenderingServer.canvas_item_add_triangle_array(
+		TrianglePacket.submit_arrays(
 			get_canvas_item(), packet_indices, packet_points, packet_colors)
 
 

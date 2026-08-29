@@ -38,6 +38,7 @@ AI 或新维护者先读 [Reference Index](reference/_INDEX.md)：它把仓库�
 | 查现有功能快照 | [reference/features.md](reference/features.md) |
 | 看铺量阶段下一步与完成线 | [planning/content-production-workflow.md](planning/content-production-workflow.md) |
 | 看约 20 小时首次体验窗口与确定的内容缺口 | [planning/20-hour-content-exposure-plan.md](planning/20-hour-content-exposure-plan.md) |
+| 看 BOSS 战流程、行为、隐形与公共生命周期重构 | [planning/boss-system-refactor.md](planning/boss-system-refactor.md) |
 | 交付音效/音乐/美术素材并做表现批 | [planning/audio-visual-production-workflow.md](planning/audio-visual-production-workflow.md) |
 | 量化难度、玩家上限、敌压、新鲜度、时长与内容缺口 | [planning/quantitative-content-balance-model.md](planning/quantitative-content-balance-model.md) |
 | 选性能核心门/专项剖面并判定结果 | [reference/performance-guidelines.md](reference/performance-guidelines.md) |

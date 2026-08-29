@@ -10,6 +10,7 @@ display_name = "AIRCRAFT_A6E_DISPLAY"
 codename = "Intruder"
 card_perks = PackedStringArray("AIRCRAFT_A6E_PERK_GUN")
 base_params = ExtResource("2")
+gun_ammo_override = 280
 gun_damage_mult = 1.25
 gun_range_override = 1150.0
 base_pilot_aim_skill = 0.6

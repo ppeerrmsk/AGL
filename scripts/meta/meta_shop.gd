@@ -18,8 +18,13 @@ signal owned_changed(item_id: String)
 const SECTION := "shop"
 
 const ITEM_MIRAGE3 := "mirage3_starter"
+const ITEM_MIG21F13 := "aircraft_mig21f13"
+const ITEM_F104C := "aircraft_f104c"
+const ITEM_J35F := "aircraft_j35f"
+const ITEM_EA6B := "aircraft_ea6b"
 const ITEM_DOCK_WINGMAN := "dock_wingman"
 const ITEM_OP_TIME := "op_time_30s"
+const ITEM_AIRFRAME_AFFINITY := "global_airframe_affinity"
 const ITEM_AWACS := "support_awacs"
 const ITEM_ZONE_AIR_SUPPORT := "support_zone_air"
 const ITEM_ZONE_GROUND_SUPPORT := "support_zone_ground"
@@ -41,6 +46,13 @@ const OP_TIME_BONUS_S := 30.0
 ## A-6E 起手解锁所需地面击杀数（spec career-shop §2.1）
 const A6E_GROUND_KILLS_REQUIRED := 30
 
+const EXTRA_STARTER_ITEM_BY_AIRCRAFT: Dictionary = {
+	"mig21f13": ITEM_MIG21F13,
+	"f104c": ITEM_F104C,
+	"j35f": ITEM_J35F,
+	"ea6b": ITEM_EA6B,
+}
+
 ## 商品目录（spec career-shop §2.2；价格为草案，playtest 后校准）。
 ## locked_hint_key = "" 表示恒上架
 const CATALOG: Dictionary = {
@@ -48,6 +60,34 @@ const CATALOG: Dictionary = {
 		"price": 2000,
 		"name_key": "METASHOP_ITEM_MIRAGE3_NAME",
 		"desc_key": "METASHOP_ITEM_MIRAGE3_DESC",
+		"locked_hint_key": "",
+		"category": "career",
+	},
+	ITEM_MIG21F13: {
+		"price": 1000,
+		"name_key": "METASHOP_ITEM_MIG21F13_NAME",
+		"desc_key": "METASHOP_ITEM_MIG21F13_DESC",
+		"locked_hint_key": "",
+		"category": "career",
+	},
+	ITEM_F104C: {
+		"price": 1000,
+		"name_key": "METASHOP_ITEM_F104C_NAME",
+		"desc_key": "METASHOP_ITEM_F104C_DESC",
+		"locked_hint_key": "",
+		"category": "career",
+	},
+	ITEM_J35F: {
+		"price": 1000,
+		"name_key": "METASHOP_ITEM_J35F_NAME",
+		"desc_key": "METASHOP_ITEM_J35F_DESC",
+		"locked_hint_key": "",
+		"category": "career",
+	},
+	ITEM_EA6B: {
+		"price": 1000,
+		"name_key": "METASHOP_ITEM_EA6B_NAME",
+		"desc_key": "METASHOP_ITEM_EA6B_DESC",
 		"locked_hint_key": "",
 		"category": "career",
 	},
@@ -63,6 +103,13 @@ const CATALOG: Dictionary = {
 		"name_key": "METASHOP_ITEM_OP_TIME_NAME",
 		"desc_key": "METASHOP_ITEM_OP_TIME_DESC",
 		"locked_hint_key": "METASHOP_LOCKED_HINT_OP_TIME",
+		"category": "career",
+	},
+	ITEM_AIRFRAME_AFFINITY: {
+		"price": 3000,
+		"name_key": "METASHOP_ITEM_AIRFRAME_AFFINITY_NAME",
+		"desc_key": "METASHOP_ITEM_AIRFRAME_AFFINITY_DESC",
+		"locked_hint_key": "",
 		"category": "career",
 	},
 	ITEM_AWACS: {
@@ -181,24 +228,26 @@ func _ready() -> void:
 
 ## 起手机解锁判定。未列入门控表的机型默认不锁（向后兼容新增起手机）
 static func aircraft_unlock_ok(aircraft_id: String, csg_defeats: int,
-		ground_kills: int, mirage_owned: bool) -> bool:
+		ground_kills: int, mirage_owned: bool, extra_owned: Dictionary = {}) -> bool:
 	match aircraft_id:
 		"f15": return true
 		"f14": return csg_defeats >= 1
 		"a6e": return ground_kills >= A6E_GROUND_KILLS_REQUIRED
 		"mirage3": return mirage_owned
+		"mig21f13", "f104c", "j35f", "ea6b": return bool(extra_owned.get(aircraft_id, false))
 		_: return true
 
 ## 商品上架判定
 static func item_listed_ok(item_id: String, airfield_dockings: int, retreats: int) -> bool:
 	match item_id:
-		ITEM_MIRAGE3, ITEM_AWACS, ITEM_ZONE_AIR_SUPPORT, ITEM_ZONE_GROUND_SUPPORT, \
+		ITEM_MIRAGE3, ITEM_MIG21F13, ITEM_F104C, ITEM_J35F, ITEM_EA6B, \
+				ITEM_AIRFRAME_AFFINITY, ITEM_AWACS, ITEM_ZONE_AIR_SUPPORT, ITEM_ZONE_GROUND_SUPPORT, \
 				ITEM_ACE_F15_SUPPORT, ITEM_AIRFIELD_SAM_SUPPORT: return true
 		ITEM_DOCK_WINGMAN: return airfield_dockings >= 1
 		ITEM_OP_TIME: return retreats >= 1
 		_: return false
 
-## ── 机体专属商品纯查询（41 节点由进化树派生，效果 id 由 SurvivorData 单点映射）──
+## ── 机体专属商品纯查询（50 节点中只上架 43 个已实装效果；占位不成商品）──
 
 static func signature_item_id(node_id: StringName) -> String:
 	return SIGNATURE_ITEM_PREFIX + String(node_id)
@@ -213,7 +262,10 @@ static func signature_node_id(item_id: String) -> StringName:
 
 static func signature_item_known(item_id: String) -> bool:
 	var node_id := signature_node_id(item_id)
-	return node_id != &"" and not SurvivorData.signature_upgrade_for_aircraft(node_id).is_empty()
+	if node_id == &"":
+		return false
+	var signature := SurvivorData.signature_upgrade_for_aircraft(node_id)
+	return not signature.is_empty() and not SurvivorData.is_signature_placeholder(signature)
 
 static func signature_price_for_tier(tier: int) -> int:
 	return int(SIGNATURE_PRICE_BY_TIER.get(tier, 0))
@@ -222,7 +274,14 @@ static func signature_listed_ok(item_id: String, discovered: bool) -> bool:
 	return discovered and signature_item_known(item_id)
 
 static func signature_nodes() -> Array:
-	return EvolutionSystem.all_nodes()
+	var out: Array = []
+	for raw in EvolutionSystem.all_nodes():
+		var nd := raw as Dictionary
+		var signature := SurvivorData.signature_upgrade_for_aircraft(
+			StringName(String(nd.get("id", ""))))
+		if not signature.is_empty() and not SurvivorData.is_signature_placeholder(signature):
+			out.append(nd)
+	return out
 
 ## 学说上架纯判定（spec doctrine-unlocks §3.2）：入门两张恒上架，
 ## 进阶四张在两张入门都拥有后才上架
@@ -236,10 +295,13 @@ static func doctrine_listed_ok(doctrine_id: String, starters_owned: bool) -> boo
 # ── 实例 API（读 CareerArchive 真档案）──
 
 func is_aircraft_unlocked(aircraft_id: String) -> bool:
+	var extra_owned: Dictionary = {}
+	for aid in EXTRA_STARTER_ITEM_BY_AIRCRAFT:
+		extra_owned[aid] = is_owned(str(EXTRA_STARTER_ITEM_BY_AIRCRAFT[aid]))
 	return aircraft_unlock_ok(aircraft_id,
 		CareerArchive.get_boss_defeats("CARRIER_STRIKE_GROUP"),
 		CareerArchive.get_ground_kills(),
-		is_owned(ITEM_MIRAGE3))
+		is_owned(ITEM_MIRAGE3), extra_owned)
 
 func is_listed(item_id: String) -> bool:
 	if DOCTRINES.has(item_id):
@@ -275,7 +337,7 @@ func buy(item_id: String) -> bool:
 	owned_changed.emit(item_id)
 	return true
 
-## 当前机型是否已购买专属第四槽资格。
+## 当前机型是否已购买机场“保留机体并装备专属技能”的资格。
 func is_signature_owned_for_aircraft(node_id: StringName) -> bool:
 	return is_owned(signature_item_id(node_id))
 
@@ -297,6 +359,10 @@ func is_ace_f15_support_entitled(formal_run: bool) -> bool:
 ## 机场防空网权益：正式局查永久购买态；bench / boss debug fail-open。
 func is_airfield_sam_entitled(formal_run: bool) -> bool:
 	return not formal_run or is_owned(ITEM_AIRFIELD_SAM_SUPPORT)
+
+## 机体战术适配：正式局查永久购买态；bench / boss debug fail-open。
+func is_airframe_affinity_entitled(formal_run: bool) -> bool:
+	return not formal_run or is_owned(ITEM_AIRFRAME_AFFINITY)
 
 # ── 学说门控（spec doctrine-unlocks §3.1；消费点=升级三选一/三轴卡池/战区 NEXT_GEN 池）──
 
@@ -320,7 +386,7 @@ func is_keyword_unlocked(kw: String) -> bool:
 ## 缺省 AND 语义：keywords 中任一词属于 GATED_KEYWORDS 且对应学说未购 → true。
 ## 个别跨词条桥接卡可声明 doctrine_any（如 fear/jam）：组内任一学说已购即可，
 ## 组外的其它门控关键词仍保持 AND。
-## 豁免：机体签名技（含 F-14 的“围猎”；第四槽许可另行门控）。
+## 豁免：机体签名技（含 F-14 的“围猎”；机场装备许可另行门控）。
 ## fail-open：boss debug 局不受局外存档门控（非正式局铁律）。
 func is_upgrade_gated(upgrade: Dictionary) -> bool:
 	if SurvivorData.is_signature_upgrade(upgrade):

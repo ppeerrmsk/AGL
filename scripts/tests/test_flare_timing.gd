@@ -36,6 +36,8 @@ func run() -> void:
 			"闭合 50，TTI=6s 且 300m>200m → 等")
 	_case("慢弹逼近·仍远800m",    300.0, 400.0, 350.0, 0.0, false,
 			"闭合 50，TTI=16s 且 800m>200m → 等（进 200m 才放）")
+	_test_player_threat_eligibility()
+	_test_player_auto_release_path()
 
 	_test_enemy_break_chance()
 	_test_enemy_break_actions()
@@ -54,6 +56,84 @@ func run() -> void:
 
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("════════════════════════════════\n")
+
+
+func _test_player_threat_eligibility() -> void:
+	print("── 玩家阵营资格门：失导/错目标/友军/加力窗口不浪费热诱弹 ──")
+	var ac = load("res://scripts/aircraft.gd").new()
+	ac.global_position = Vector2.ZERO
+	ac.heading = 0.0
+	ac.speed = 300.0
+	ac.team = CombatUnit.TEAM_PLAYER
+	var m := Missile.new()
+	m.global_position = Vector2(0.0, 200.0)
+	m.heading = 0.0
+	m.speed = 1100.0
+	m.team = CombatUnit.TEAM_HOSTILE
+	m.target = ac
+	m.is_active = true
+	m.has_guidance = true
+	_record(AircraftFlares.player_flare_should_trigger(ac, m), "真实末段来袭会投焰")
+	m.has_guidance = false
+	_record(not AircraftFlares.player_flare_should_trigger(ac, m), "已经失导不投焰")
+	m.has_guidance = true
+	m.team = CombatUnit.TEAM_PLAYER
+	_record(not AircraftFlares.player_flare_should_trigger(ac, m), "同阵营导弹不投焰")
+	m.team = CombatUnit.TEAM_HOSTILE
+	m.target = null
+	_record(not AircraftFlares.player_flare_should_trigger(ac, m), "目标不匹配不投焰")
+	m.target = ac
+	ac.set_afterburner_mode_active(true)
+	_record(not AircraftFlares.player_flare_should_trigger(ac, m), "加力窗口接管时不投焰")
+	ac.set_afterburner_mode_active(false)
+	_record(AircraftFlares.player_flare_should_trigger(ac, m), "退出加力后真实威胁恢复投焰")
+	m.free()
+	ac.free()
+
+
+func _test_player_auto_release_path() -> void:
+	print("── 玩家自动投放链路：加力中保留库存，退出后才释放 ──")
+	var ac = load("res://scripts/aircraft.gd").new()
+	ac.global_position = Vector2.ZERO
+	ac.heading = 0.0
+	ac.speed = 300.0
+	ac.team = CombatUnit.TEAM_PLAYER
+	ac.params = AircraftParams.new()
+	ac.params.flare = FlareParams.new()
+	ac.params.flare.max_flares = 2
+	ac.params.flare.burst_count = 1
+	ac.params.flare.fail_chance = 0.0
+	ac.flares_remaining = 2
+	var mm := Node2D.new()
+	ac.missile_manager = mm
+	var m := Missile.new()
+	m.params = MissileParams.new()
+	m.global_position = Vector2(0.0, 200.0)
+	m.heading = 0.0
+	m.speed = 1100.0
+	m.team = CombatUnit.TEAM_HOSTILE
+	m.target = ac
+	m.is_active = true
+	m.has_guidance = true
+	mm.add_child(m)
+	ac.set_afterburner_mode_active(true)
+	AircraftFlares.update(ac, 0.0)
+	_record(ac.flares_remaining == 2 and ac._flare_cooldown == 0.0,
+		"加力中真实末段来袭也不消耗")
+	ac.set_afterburner_mode_active(false)
+	AircraftFlares.update(ac, 0.0)
+	_record(ac.flares_remaining == 1 and ac._flare_cooldown > 0.0,
+		"退出加力后同一威胁正常消耗并进 CD")
+	ac.team = CombatUnit.TEAM_ALLY
+	ac.flares_remaining = 2
+	ac._flare_cooldown = 0.0
+	m.is_flare_jammed = false
+	AircraftFlares.update(ac, 0.0)
+	_record(ac.flares_remaining == 1, "TEAM_ALLY 友军也走智能自动投放链")
+	mm.remove_child(m)
+	m.free()
+	mm.free()
+	ac.free()
 
 
 func _test_enemy_break_chance() -> void:
@@ -251,10 +331,15 @@ func _case(name: String, ac_spd: float, m_dist_px: float, m_spd: float,
 	ac.global_position = Vector2.ZERO
 	ac.heading = 0.0
 	ac.speed = ac_spd
+	ac.team = CombatUnit.TEAM_PLAYER
 	var m := Missile.new()
 	m.global_position = Vector2(0.0, m_dist_px)   # 机尾后方 +y
 	m.heading = deg_to_rad(m_hdg_deg)
 	m.speed = m_spd
+	m.team = CombatUnit.TEAM_HOSTILE
+	m.target = ac
+	m.is_active = true
+	m.has_guidance = true
 	var got: bool = AircraftFlares.player_flare_should_trigger(ac, m)
 	var dist_m := m_dist_px / PPM
 	var ok := got == expect

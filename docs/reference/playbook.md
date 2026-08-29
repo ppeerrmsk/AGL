@@ -172,7 +172,8 @@ GunEquipment / MissileEquipment / RocketEquipment / LaserEquipment / RailgunEqui
    `<weapon>_equipment.gd` 上
 3. 飞机 loadout 资源里引用：`flight_loadout.tres` 加 `equipment` 数组项
 4. AI 决策接入 `scripts/ai/`：
-   - `bfm_tactics.gd` 是否要加新战术（如 SNIPER_HOLD 已存在的"机头对准型武器"通用战术）
+   - `tactical/weapon_selector.gd` 是否要给新武器加入竞选语义
+   - `tactical/bfm_intent.gd` 是否需要复用/新增 intent 纯函数（不要在 AIController 直写第二套战术）
    - `target_selection.gd` 武器射程 / 弹药约束
 5. HUD 集成：
    - `scripts/hud.gd` / `scripts/survivor/survivor_hud.gd` 武器槽位显示

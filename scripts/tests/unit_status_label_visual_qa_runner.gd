@@ -25,13 +25,16 @@ func _ready() -> void:
 	add_child(stage)
 
 	var aircraft := _spawn_aircraft(stage, Vector2(-520.0, -190.0), "Ultra", true)
+	aircraft.set_afterburner_mode_active(true)
 	var wingman := _spawn_aircraft(stage, Vector2(-520.0, 10.0), "LONE", false)
 	var ground := _spawn_ground(stage, Vector2(-130.0, -190.0))
 	var sam := _spawn_sam(stage, Vector2(260.0, -190.0))
+	var drone := _spawn_drone(stage, Vector2(610.0, -190.0))
 	var radar := _spawn_radar(stage, Vector2(-520.0, 210.0))
 	var naval := _spawn_naval(stage, Vector2(-130.0, 210.0))
 	var cannon := _spawn_super_cannon(stage, Vector2(260.0, 210.0))
-	var units: Array[Node2D] = [aircraft, wingman, ground, sam, radar, naval]
+	var missile := _spawn_missile(stage, Vector2(610.0, 210.0), aircraft)
+	var units: Array[Node2D] = [aircraft, wingman, ground, sam, drone, radar, naval, missile]
 
 	var overlay := CanvasLayer.new()
 	add_child(overlay)
@@ -42,7 +45,7 @@ func _ready() -> void:
 	title.add_theme_color_override("font_color", Color("182026"))
 	overlay.add_child(title)
 	var note := Label.new()
-	note.text = "PLAYER + WINGMAN DAMAGE FLASH / GROUND / SAM / RADAR / NAVAL / AURORA"
+	note.text = "AIRCRAFT / UAV / GROUND / SAM / RADAR / NAVAL / MISSILE / AURORA — ENGLISH DATA CONTRACT"
 	note.position = Vector2(42.0, 62.0)
 	note.add_theme_font_size_override("font_size", 16)
 	note.add_theme_color_override("font_color", Color("3c4a52"))
@@ -127,6 +130,20 @@ func _spawn_ground(parent: Node2D, pos: Vector2) -> GroundUnit:
 	return unit
 
 
+func _spawn_drone(parent: Node2D, pos: Vector2) -> Aircraft:
+	var unit := PreviewAircraft.new()
+	unit.params = (load("res://resources/enemy_uav.tres") as AircraftParams).duplicate(true)
+	unit.position = pos
+	unit.team = CombatUnit.TEAM_ALLY
+	unit.is_drone = true
+	unit.speed = 220.0
+	unit.altitude = 3500.0
+	unit.draw_runtime_label = true
+	parent.add_child(unit)
+	unit.set_physics_process(false)
+	return unit
+
+
 func _spawn_sam(parent: Node2D, pos: Vector2) -> SAMUnit:
 	var unit := SAMUnit.new()
 	unit.params = (load("res://resources/sam_params.tres") as AircraftParams).duplicate(true)
@@ -163,6 +180,21 @@ func _spawn_super_cannon(parent: Node2D, pos: Vector2) -> Tier3SuperCannonPart:
 	unit.position = pos
 	unit.team = CombatUnit.TEAM_HOSTILE
 	unit.configure(&"VISUAL_QA")
+	parent.add_child(unit)
+	unit.set_physics_process(false)
+	return unit
+
+
+func _spawn_missile(parent: Node2D, pos: Vector2, target: CombatUnit) -> Missile:
+	var unit := Missile.new()
+	unit.params = (load("res://resources/default_missile.tres") as MissileParams).duplicate(true)
+	unit.position = pos
+	unit.heading = deg_to_rad(359.6)
+	unit.rotation = unit.heading
+	unit.speed = 850.0
+	unit.altitude = 6200.0
+	unit.target = target
+	unit.team = CombatUnit.TEAM_HOSTILE
 	parent.add_child(unit)
 	unit.set_physics_process(false)
 	return unit

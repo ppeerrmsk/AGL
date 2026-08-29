@@ -19,6 +19,7 @@ func run() -> void:
 	print("\n════════ 战区奖励类别保底 + 去重 + 航母保证 ════════")
 	_test_nextgen_replacement()
 	_test_reward_tuning()
+	_test_t0_starting_weapon_benefits()
 	_test_support_range_visual_contract()
 	_test_run_category_guarantees()
 	_test_achievement_reward_gate()
@@ -76,6 +77,66 @@ func _test_reward_tuning() -> void:
 			CommanderAura.AURA_RADIUS)
 		and is_equal_approx(float(esm.get("lock_rate_mult")), 1.5)
 		and is_equal_approx(float(esm.get("reload_time_mult")), 0.7), str(esm))
+
+
+## T0 机场等价礼包必须复用正式奖励 / 库存入口：挂载可立即使用，资源引用已入库。
+func _test_t0_starting_weapon_benefits() -> void:
+	print("── 0C. T0 起手 FFAR / QAAM / ESM 正式入库 ──")
+	var mig_mode = SurvivorModeScript.new()
+	var mig_ac := Aircraft.new()
+	var mig_profile := AircraftDB.get_profile(&"mig21f13")
+	mig_ac.params = mig_profile.base_params.duplicate(true)
+	SurvivorPlayableSetup.deep_dup_weapons(mig_ac.params)
+	mig_ac.set_meta("profile_id", &"mig21f13")
+	var mig_owner := SurvivorPlayer.new()
+	mig_owner.aircraft = mig_ac
+	mig_mode.player_aircraft = mig_ac
+	mig_mode.survivor_player = mig_owner
+	mig_mode._player_profile_id = &"mig21f13"
+	mig_mode._player_profile = mig_profile
+	mig_mode._grant_starting_benefit(mig_profile)
+	_check("MiG-21 开局礼包授予机炮吊舱 1 层且不加轴点",
+		int(mig_mode.upgrade_stacks.get("gun_multishot", 0)) == 1
+		and mig_ac.gun_extra_barrels == 2 and mig_owner.total_axis_points() == 0,
+		"stacks=%s barrels=%d axes=%d" % [
+			str(mig_mode.upgrade_stacks), mig_ac.gun_extra_barrels, mig_owner.total_axis_points()])
+	mig_mode.free()
+	mig_ac.free()
+	mig_owner.free()
+	var cases: Array[Dictionary] = [
+		{"id": "rocket_ffar", "profile": &"f104c", "inventory": &"rocket"},
+		{"id": "qmaam", "profile": &"j35f", "inventory": &"secondary_missile"},
+		{"id": "esm_pod", "profile": &"ea6b", "inventory": &"esm_pod"},
+	]
+	for c in cases:
+		var mode = SurvivorModeScript.new()
+		var ac := Aircraft.new()
+		var profile := AircraftDB.get_profile(c.profile)
+		ac.params = profile.base_params.duplicate(true)
+		SurvivorPlayableSetup.deep_dup_weapons(ac.params)
+		var owner := SurvivorPlayer.new()
+		owner.aircraft = ac
+		mode.player_aircraft = ac
+		mode.survivor_player = owner
+		mode._claim_weapon_reward(String(c.id))
+		var mounted := false
+		match String(c.id):
+			"rocket_ffar":
+				mounted = ac.params.rocket != null \
+					and ac.params.rocket.display_name == "Mighty Mouse FFAR" \
+					and ac.rockets_remaining == ac.params.rocket.max_ammo
+			"qmaam":
+				mounted = ac.params.secondary_missile != null \
+					and ac.params.secondary_missile.display_name == "QMAAM" \
+					and ac.secondary_missiles_remaining == ac.params.secondary_missile.max_count
+			"esm_pod":
+				mounted = ac.params.get_equipment_of_kind("esm_pod") != null
+		_check("%s 开局礼包挂载并立即可用" % String(c.profile), mounted, String(c.id))
+		_check("%s 开局礼包写入局内武器库" % String(c.profile),
+			owner.weapon_inventory.get(c.inventory) != null, str(owner.weapon_inventory.keys()))
+		mode.free()
+		ac.free()
+		owner.free()
 
 
 func _test_support_range_visual_contract() -> void:

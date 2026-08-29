@@ -74,7 +74,8 @@ AGL/
 │   │   ├── control_intent.gd / flight_state.gd
 │   │
 │   ├── ai/                    # AI 子系统（RefCounted 静态模块，首参 ai: AIController）
-│   │   ├── bfm_tactics.gd              # BFM 战术执行器 + choose_tactic + assess_situation
+│   │   ├── ai_altitude_policy.gd        # 巡逻 / 作战偏好 / 近距匹配高度剖面
+│   │   ├── pursuit_geometry.gd           # 机炮 / simple / drone 共用无状态追击点几何
 │   │   ├── target_selection.gd         # 交战 / 重评估 / 脱战
 │   │   ├── missile_evasion.gd          # 规避 + 来袭检测 + Herbst 触发
 │   │   ├── squad_coordination.gd       # 编队协同 + 后半球扫描 + cover + salvo 广播

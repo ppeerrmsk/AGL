@@ -3,7 +3,7 @@ id: survivor-loop
 kind: system
 status: done
 schema_version: 1
-spec_version: 6
+spec_version: 7
 owner: design
 depends_on: [token-economy, zone-missions, upgrade-pool]
 reconstruction_complete: false
@@ -33,7 +33,7 @@ reconstruction_complete: false
 `survivor_mode.gd:_physics_process(delta)` 主要子系统更新顺序（高层）：
 
 1. game_over / 升级暂停 → 提前返回
-2. **时间线**：`game_time += delta`（**BOSS 阶段冻结**，不再累加）
+2. **时间线**：`BattlefieldFlow.advance_time(delta)`（**BOSS 阶段冻结**，不再累加）
 3. 单位表 + 雷达锁定累积（O(N²) 分帧 strided）
 4. 性能：FPS 采样 + 离屏单位 LOD 冻结/解冻
 5. 友军编队 LOD 重 tick
@@ -45,15 +45,16 @@ reconstruction_complete: false
 11. bench 模式计时（压测用）
 12. HUD 同步（战区倒计时 + 击杀数）
 
-一局运行态标志：`game_time`（0–600，BOSS 阶段冻结）、`is_game_over`、`is_paused_for_upgrade`、
-`_warzone_phase_ended`（600s 跨越一次性闸）、`upgrade_stacks{id→次数}`、4 级金卡连续未出计数。
+一局战场规则状态由 `BattlefieldFlow` 聚合：`game_time`（0–600，BOSS 阶段冻结）、阶段枚举、
+王牌固定槽/无放回账本与 ORION 一次性门。`SurvivorMode` 保留 `is_game_over`、升级暂停、场景对象、
+信号与 UI；跨场景 static 由 `SurvivorRuntimeReset` 在新局/退局双端统一清理。
 
 ## 3. 时间制战区时间线（What —— 全部数值，权威源）
 
 | 阶段 | 时长/区间 | 行为 | 触发 |
 |---|---|---|---|
 | **战区 WARZONE** | 0 → 600.0 s（10:00） | Token 预算刷怪、接 zone 任务、升级选卡 | 开局即入 |
-| **过渡 TRANSITION** | 600.0s 瞬时（一次性） | `cancel_all_zone_missions()` 清 TGT 标记/已完成区；现存敌机留着给 XP 但**无奖励**；所有可选区置 LOCKED；`boss_unlocked=true` | `game_time >= 600` 且 `not _warzone_phase_ended` |
+| **过渡 TRANSITION** | 600.0s 瞬时（一次性） | `cancel_all_zone_missions()` 清 TGT 标记/已完成区；现存敌机留着给 XP 但**无奖励**；所有可选区置 LOCKED；`boss_unlocked=true` | `game_time >= 600` 且 Flow 仍为 `WARZONE` |
 | **BOSS 阶段** | 600s → 胜/负 | game_time 冻结、停刷、**全场撤离**、BOSS 决战 | 过渡后下一帧 `_update_boss_phase()` 起 BossEncounterEvent |
 
 ### 3.1 BOSS 阶段闸门与清场（2026-07-28 修订）
@@ -112,7 +113,7 @@ BOSS 阶段没有任何击杀 XP 来源；玩家以进入阶段时已经成型�
 核心常量（已核对 2026-07-26）：
 - `WARZONE_PHASE_DURATION = 600.0`（survivor_mode.gd）—— 2026-07-02 由 480.0 上调为 600.0
 - `SUPPLY_TIME_COST = 30.0`（出界补给时间税，见 §6）—— 2026-07-28 由 15.0 上调为 30.0
-- 超时检查：`if game_time >= WARZONE_PHASE_DURATION and not _warzone_phase_ended` → 置闸 + 取消 zone + 锁区 + `boss_unlocked=true`
+- 超时检查：`BattlefieldFlow.close_warzone_if_due()` 在 `game_time >= warzone_duration_s` 时原子锁存 BOSS、取消 zone、锁区并令 `boss_unlocked=true`
 
 ⚠ `game_time` 是**可倒拨**的：王牌支援中队全灭 `game_time -= 60`（等于整局 +1 分钟）、
 城区直升机 3 架全歼 `-20`（[event-system §3.1](event-system.md)）；出界补给 `+30`。
@@ -222,8 +223,9 @@ Lv≥`LATE_GAME_LEVEL(10)` 强制最低 Token ≥3（禁刷杂鱼）；若剩余
 - `xp_mult` 升级：每层 +20%，封顶 ×1.4。
 - 升级流程：击杀 add_xp → 逐帧把 `_pending_xp` 灌进可见 xp 条 → 每 3 级暂停弹三轴三选一 →
   `apply_upgrade()` 写入 → `upgrade_stacks[id]++`。
-- 稀有度：STABLE/ADVANCED/EXPERIMENTAL/CLASSIFIED/NEXT_GEN；4 级金卡仅自然三轴三卡走
-  [classified-card-pity](classified-card-pity.md) 的隐性递增权重，普通三卡见金清零；专属第四槽与奖励升级隔离。
+- 稀有度：STABLE/ADVANCED/EXPERIMENTAL/CLASSIFIED/NEXT_GEN；4 级金卡仅自然升级普通候选（基础三卡 +
+  [airframe-affinity-fourth-card](airframe-affinity-fourth-card.md) 的可选第四卡）走 [classified-card-pity](classified-card-pity.md)
+  的隐性递增权重，本轮任一普通卡见金清零；机场专属技能与奖励升级隔离。
 
 ### 5.1 敌人随等级缩放
 
@@ -263,7 +265,7 @@ BOSS 阶段补给禁用，只能调头或撤退。
 |---|---|---|
 | **普通敌机** | `EnemyType` enum + `TOKEN_COST`/`TOKEN_INSTANCE_CAP` + 解锁等级常量 + `_pick_enemy_type` 分支 + `_create_enemy` case + 资源 preload + `ENEMY_TIER_OFFSET` | 走 [playbook §1](../../reference/playbook.md) + [enemy-index 13 步](../../reference/enemy-index.md)；样板 [af-03](../enemies/af-03.md) |
 | **Adds 族群波** | `EnemyType` + flock 尺寸/间距常量 + 独立 spawn 事件（`_spawn_xxx_flock`）+ 资源 preload | 不占 Token、远距豁免；仿 Tu-160/AH-64 |
-| **改阶段时长/结构** | `WARZONE_PHASE_DURATION` + `_check_warzone_phase_timeout()` | 多阶段需扩 zone_data 状态机；记得同步 HUD 计时 |
+| **改阶段时长/结构** | `BattlefieldFlow.warzone_duration_s` + `close_warzone_if_due()` | 多阶段先扩 Flow 阶段枚举与事务，再同步 HUD；不要在 Mode 加平行 bool |
 | **新全局修正**（昼夜难度等） | `_get_token_budget()` 乘子 / `_create_enemy` 缩放 / 存 `mode.global_difficulty_mult` | 单点注入，避免散落 |
 | **新升级技能** | `UPGRADES` 加条目 + `apply_upgrade()` 匹配 `stat` + i18n 三语 + （触发型）`SkillHooks` 钩子 | 走 [playbook §4](../../reference/playbook.md)；机动 buff 必经 effective_*() accessor（SEAM-001）；样板 [bloodlust](../skills/bloodlust.md) |
 | **新副武器** | `qmaam` 同款：MissileParams + `target_priority` 分支 + 槽位接入 | 样板 [qmaam](../weapons/qmaam.md) |
@@ -311,6 +313,8 @@ BOSS 阶段补给禁用，只能调头或撤退。
 | 关注点 | 文件 |
 |---|---|
 | 主循环 / 阶段 / 时间税 / HUD 同步 | `scripts/survivor/survivor_mode.gd` |
+| 净时间轴 / 战区关闭事务 / 王牌槽与宿敌门 | `scripts/survivor/battlefield_flow.gd` |
+| 新局 / 退局跨场景 static 清理 | `scripts/survivor/survivor_runtime_reset.gd` |
 | 刷怪总管 / Token / 加权抽取 / 清理 / FPS 降载 | `scripts/survivor/survivor_spawner.gd` |
 | 常量（预算/间隔/距离/清理/XP/解锁） | `scripts/survivor/survivor_data.gd` |
 | XP / 升级 apply | `scripts/survivor/survivor_player.gd` |
@@ -329,6 +333,7 @@ BOSS 阶段补给禁用，只能调头或撤退。
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-28 | 7 | 行为保持重构：`BattlefieldFlow` 统一净时间轴、阶段关闭事务、王牌固定槽/无放回与 ORION 门；`SurvivorRuntimeReset` 统一新局/退局 static 清理。10 分钟、补给 +30s、固定双王牌槽与 BOSS 规则不变。 |
 | 2026-07-29 | 4 | BOSS 阶段从 `boss_unlocked`（含演出 PRE_STAGE）起统一封锁全部空中/地面击杀 XP；击杀计数、回血与连击保留。CSG F/A-18 整场累计上限 8 架，击落不返还机库名额。 |
 | 2026-05-09 | — | 时间制战区循环落地（8 分钟阶段 + 加权抽取 + 出界时间税，见 changelog） |
 | 2026-05-30 | 1 | 回填为 system spec + 扩展接入图；核对 headline 常量；修正 xp_for_level=15（非 20）、UAV_RETIRE=4 |

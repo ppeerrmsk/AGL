@@ -44,14 +44,85 @@ func _capture_scene(capture_id: String, scene_path: String) -> void:
 	if packed == null:
 		_failures.append("%s 场景无法加载" % capture_id)
 		return
+	# 选机视觉样本只在内存中临时解锁四架 T0，确保截图和结构断言覆盖开局礼包文案；
+	# 不调用 debug_grant（会写用户存档），页面释放后恢复原账本。
+	var owned_snapshot: Dictionary = {}
+	if capture_id == "aircraft_select":
+		owned_snapshot = (MetaShop.get("_owned") as Dictionary).duplicate(true)
+		var preview_owned := owned_snapshot.duplicate(true)
+		for item_id in [MetaShop.ITEM_MIG21F13, MetaShop.ITEM_F104C,
+				MetaShop.ITEM_J35F, MetaShop.ITEM_EA6B]:
+			preview_owned[item_id] = true
+		MetaShop.set("_owned", preview_owned)
 	var page := packed.instantiate()
 	add_child(page)
 	await _settle()
 	if page.find_child("TerminalPageShell", true, false) == null:
 		_failures.append("%s 未使用共享终端页壳" % capture_id)
+	if capture_id == "aircraft_select":
+		var cards := page.get("_cards_container") as GridContainer
+		if cards == null or cards.get_child_count() != 8:
+			_failures.append("aircraft_select 未渲染八张正常局机型卡")
+		elif cards.columns != 3:
+			_failures.append("aircraft_select 全息窗旁不是三列卡片布局")
+		else:
+			var scroll := cards.get_parent() as ScrollContainer
+			if scroll == null or scroll.get_h_scroll_bar().visible:
+				_failures.append("aircraft_select 三列内容触发了横向滚动")
+			if scroll == null or not scroll.get_v_scroll_bar().visible:
+				_failures.append("aircraft_select 八卡没有可用的纵向滚动")
+		var preview := page.get("_hologram_preview") as Control
+		if preview == null:
+			_failures.append("aircraft_select 缺少正式全息机体预览")
+		elif not bool(preview.call("has_model_texture")):
+			_failures.append("aircraft_select 默认已解锁机没有加载真实轮廓")
+		elif String(preview.call("displayed_airframe")).is_empty():
+			_failures.append("aircraft_select 全息机体预览没有机型名")
+		if cards != null and preview != null:
+			var rendered_list: Array = page.get("_list")
+			var benefit_count := 0
+			for i in range(rendered_list.size()):
+				var entry: Dictionary = rendered_list[i]
+				var benefit_label := (cards.get_child(i) as PanelContainer).find_child(
+					"StartingBenefit", true, false) as Label
+				var expects_benefit: bool = String(entry.get("id", "")) in [
+					"mig21f13", "f104c", "j35f", "ea6b"]
+				if benefit_label != null:
+					benefit_count += 1
+				if expects_benefit != (benefit_label != null):
+					_failures.append("aircraft_select 起手机礼包行与档案不一致: %s" %
+						String(entry.get("id", "")))
+				elif benefit_label != null and benefit_label.text.strip_edges().is_empty():
+					_failures.append("aircraft_select 起手机礼包文案为空: %s" %
+						String(entry.get("id", "")))
+			if benefit_count != 4:
+				_failures.append("aircraft_select 没有恰好显示四条 T0 开局礼包")
+			# 锁定卡泄露只需抽查第一张；与上面的八卡礼包计数分开，避免提前 break。
+			for i in range(rendered_list.size()):
+				var entry: Dictionary = rendered_list[i]
+				if not entry.get("locked", false) and not entry.get("dev_locked", false):
+					continue
+				(cards.get_child(i) as PanelContainer).mouse_entered.emit()
+				if bool(preview.call("has_model_texture")):
+					_failures.append("aircraft_select 锁定卡悬停泄露了机体轮廓")
+				break
+			# 测试直接喂档案，不改变正式锁定门；守 EA-6B 在全息窗能解析同一张生产 PNG。
+			var ea6b_profile := load(
+				"res://resources/player/playable_ea6b.tres") as PlayableAircraft
+			preview.call("show_profile", ea6b_profile, 7, rendered_list.size())
+			if not bool(preview.call("has_model_texture")):
+				_failures.append("aircraft_select EA-6B 全息窗没有解析正式轮廓")
+			page.call("_show_initial_preview")
+			# 最终证据图停在第二排，让四架 T0 的开局礼包文案直接可见。
+			var benefit_scroll := cards.get_parent() as ScrollContainer
+			if benefit_scroll != null:
+				benefit_scroll.scroll_vertical = int(benefit_scroll.get_v_scroll_bar().max_value)
+				await _settle(3)
 	await _save(capture_id)
 	page.queue_free()
 	await get_tree().process_frame
+	if capture_id == "aircraft_select":
+		MetaShop.set("_owned", owned_snapshot)
 
 
 func _capture_settings(capture_id: String) -> void:

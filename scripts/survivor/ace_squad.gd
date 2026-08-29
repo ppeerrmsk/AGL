@@ -552,17 +552,17 @@ func _pursuit_update(delta: float) -> void:
 		var herbst_just_exited := m.has_meta("ace_herbst_was_active")
 		if herbst_just_exited:
 			m.remove_meta("ace_herbst_was_active")
-		# 软重连：只在掉出 ENGAGE 时补回，不动 _tactic_timer
+		# 软重连：只在掉出 ENGAGE 时补回，不动 planner 滞回
 		var need_target := ai._current_target == null \
 				or not is_instance_valid(ai._current_target) \
 				or (ai._current_target is Aircraft and (ai._current_target as Aircraft).is_destroyed)
 		if ai._state != AIController.AIState.ENGAGE or need_target or herbst_just_exited:
 			# 经 acquire_target(TS_BOSS) 指派，优先级仲裁防抢写；软重连不打断战术选择
 			if ai.acquire_target(_player, AIController.TargetSource.TS_BOSS, "ace PURSUIT maintain"):
-				ai.enter_engage_state(false)  # reset_tactic=false：只补状态+engage_timer
+				ai.enter_engage_state(false)  # reset_plan=false：只补状态+engage_timer
 				ai.boss_attacker = not m.has_meta(&"ace_evader")
 				if herbst_just_exited:
-					ai._tactic_timer = 0.0   ## Herbst 退出后让 BFM 重新挑战术（避免一路 EXTEND）
+					ai.reset_tactical_plan()  ## Herbst 退出后重新裁决，避免沿用特殊机动前的 EXTEND
 		# 远距加力（燃油守卫 2026-07-03：裸写发生在该机 update_fuel 之后，无检查会
 		# 零燃油白嫖 AB 推力——当前被 spawner 的 infinite_fuel 掩盖，防未来关无限油翻车）
 		var dist := m.global_position.distance_to(pp)

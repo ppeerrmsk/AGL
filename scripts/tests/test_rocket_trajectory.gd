@@ -115,9 +115,10 @@ func _test_burst_plan() -> void:
 
 
 func _test_shared_launch_path() -> void:
-	print("── F. PLAYER / HOSTILE 共用实际出膛入口 ──")
-	var player := _launch_one(CombatUnit.TEAM_PLAYER)
-	var hostile := _launch_one(CombatUnit.TEAM_HOSTILE)
+	print("── F. PLAYER / HOSTILE 共用实际出膛入口 + 发射机速度继承 ──")
+	var player := _launch_one(CombatUnit.TEAM_PLAYER, 300.0)
+	var hostile := _launch_one(CombatUnit.TEAM_HOSTILE, 180.0)
+	var stationary := _launch_one(CombatUnit.TEAM_PLAYER, 0.0)
 	var player_bullet: Dictionary = player["bullet"]
 	var hostile_bullet: Dictionary = hostile["bullet"]
 	_check(player_bullet["source_team"] == CombatUnit.TEAM_PLAYER, "PLAYER IFF 快照保留")
@@ -138,17 +139,31 @@ func _test_shared_launch_path() -> void:
 	var hostile_velocity: Vector2 = hostile_bullet["vel"]
 	_near(_heading_of(player_velocity), 0.0, 0.0001, "PLAYER 出膛先沿机头直飞")
 	_near(_heading_of(hostile_velocity), 0.0, 0.0001, "HOSTILE 出膛先沿机头直飞")
+	_near(player_velocity.length() / CombatUnit.PIXELS_PER_METER, 620.0, 0.001,
+		"PLAYER 320m/s 火箭继承 300m/s 发射机速度")
+	_near(hostile_velocity.length() / CombatUnit.PIXELS_PER_METER, 500.0, 0.001,
+		"HOSTILE 共用全量速度继承")
+	var stationary_bullet: Dictionary = stationary["bullet"]
+	var stationary_velocity: Vector2 = stationary_bullet["vel"]
+	_near(stationary_velocity.length() / CombatUnit.PIXELS_PER_METER, 320.0, 0.001,
+		"静止发射机保留资源自身初速")
+	_near(player_velocity.length() / CombatUnit.PIXELS_PER_METER
+		- hostile_velocity.length() / CombatUnit.PIXELS_PER_METER, 120.0, 0.001,
+		"发射机快 120m/s 时火箭地速同步快 120m/s")
 	(player["manager"] as BulletManager).free()
 	(player["aircraft"] as Aircraft).free()
 	(hostile["manager"] as BulletManager).free()
 	(hostile["aircraft"] as Aircraft).free()
+	(stationary["manager"] as BulletManager).free()
+	(stationary["aircraft"] as Aircraft).free()
 
 
-func _launch_one(team: int) -> Dictionary:
+func _launch_one(team: int, aircraft_speed_ms: float) -> Dictionary:
 	var ac := Aircraft.new()
 	ac.team = team
 	ac.altitude = 5000.0
 	ac.heading = 0.0
+	ac.speed = aircraft_speed_ms
 	ac.params = AircraftParams.new()
 	ac.params.rocket = RocketParams.new()
 	ac.rockets_remaining = 10

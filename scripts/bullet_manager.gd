@@ -1,18 +1,21 @@
 class_name BulletManager
 extends Node2D
 
+const WeaponHitResolverScript = preload("res://scripts/weapon_hit_resolver.gd")
+const BulletPresenterScript = preload("res://scripts/rendering/bullet_presenter.gd")
+
 const PIXELS_PER_METER: float = GameConstants.PIXELS_PER_METER
 const HIT_RADIUS: float = 12.0   ## 2D命中判定半径（像素）
 const ROCKET_HIT_RADIUS: float = 18.0  ## 火箭命中判定半径（略大）
 const ALT_TOLERANCE: float = 500.0  ## 米 高度差容差
-const TRACER_LENGTH: float = 8.0  ## 曳光弹绘制长度（像素）
-const ROCKET_TRAIL_LENGTH: float = 16.0  ## 火箭尾迹绘制长度
-const FADE_OUT_DURATION: float = 0.25  ## 寿命最后 0.25s 内逐帧淡出（替代瞬间消失）
+const TRACER_LENGTH: float = BulletPresenterScript.TRACER_LENGTH
+const ROCKET_TRAIL_LENGTH: float = BulletPresenterScript.ROCKET_TRAIL_LENGTH
+const FADE_OUT_DURATION: float = BulletPresenterScript.FADE_OUT_DURATION
 const ExplosionVFXScript = preload("res://scripts/explosion_vfx.gd")
 const StrategicTargetScript = preload("res://scripts/strategic_target.gd")
 
 ## 机炮命中火星：每目标独立节流、单管理器批量绘制，不创建粒子节点。
-const HIT_SPARK_DURATION: float = 0.16
+const HIT_SPARK_DURATION: float = BulletPresenterScript.HIT_SPARK_DURATION
 const HIT_SPARK_COOLDOWN_MS: int = 110
 const MAX_HIT_SPARKS: int = 12
 const HIT_SPARK_READY_META: StringName = &"_gun_hit_spark_ready_ms"
@@ -596,7 +599,6 @@ func _explode_rocket(b: Dictionary, world_pos: Vector2, exclude_unit: CombatUnit
 	var falloff_mult: float = _rocket_falloff_mult(b)
 	var aoe_dmg: float = float(b.get("aoe_damage", 0.0)) * falloff_mult
 	var src_team: int = int(b.get("source_team", -1))
-	var src_alive: bool = is_instance_valid(b["source"])
 	# VFX 缩放：AOE 大小决定爆炸尺寸（aoe 100px ≈ scale 1.4）
 	var vfx_scale: float = 1.0 if aoe_r <= 0.0 else clampf(aoe_r / 80.0, 0.8, 2.0)
 	ExplosionVFXScript.emit(get_tree(), world_pos, 0.0, vfx_scale)
@@ -613,7 +615,7 @@ func _explode_rocket(b: Dictionary, world_pos: Vector2, exclude_unit: CombatUnit
 			continue
 		if not CombatUnit.teams_hostile(unit.team, src_team):
 			continue
-		if not unit.can_accept_new_hit("rocket"):
+		if not WeaponHitResolverScript.can_accept_unit_hit(unit, "rocket"):
 			continue
 		# 跳过免疫（cobra/herbst 等）
 		if unit is Aircraft:
@@ -629,29 +631,18 @@ func _explode_rocket(b: Dictionary, world_pos: Vector2, exclude_unit: CombatUnit
 		if not flat_altitude_mode and not (unit is GroundUnit) and not (unit is NavalUnit):
 			if absf(rocket_alt - unit.altitude) > ALT_TOLERANCE:
 				continue
-		if src_alive and unit is Aircraft:
-			unit.set_meta("_pending_attacker", b["source"])
-		if unit is NavalUnit:
-			if src_alive:
-				(unit as NavalUnit).set_meta("_pending_attacker", b["source"])
-				(unit as NavalUnit).set_meta("_last_damage_kind", "rocket")
-			(unit as NavalUnit).take_damage_at(aoe_dmg, world_pos, 0.5, true)
-		else:
-			_apply_projectile_damage(unit, aoe_dmg, b, "rocket")
+		_apply_projectile_damage(unit, aoe_dmg, b, "rocket", 0.5)
 
 ## 气氛飞机命中正式地面 TGT 时走既有非致死入口；普通气氛演员和玩家武器
 ## 继续走正常伤害。发射时快照，射手中途被释放也不改变弹丸权限。
 func _apply_projectile_damage(unit: CombatUnit, amount: float, projectile: Dictionary,
-		kind: String) -> void:
-	var attacker := CombatUnit.safe_attacker(projectile.get("source", null))
-	var formal_ground_tgt: bool = unit is GroundUnit and unit.has_meta(&"zone_mission")
-	if bool(projectile.get("ambient_tgt_nonlethal", false)) and formal_ground_tgt:
-		unit.take_atmosphere_damage(amount, attacker, kind)
-	elif unit is Aircraft:
-		(unit as Aircraft).take_damage_at(amount, Vector2(projectile.get("pos", unit.global_position)),
-			attacker, kind, Vector2(projectile.get("vel", Vector2.ZERO)))
-	else:
-		unit.take_damage(amount, attacker, kind)
+		kind: String, naval_hull_damage_mult: float = 1.0) -> bool:
+	return WeaponHitResolverScript.resolve_unit_hit(
+		unit, amount, projectile.get("source", null), kind,
+		Vector2(projectile.get("pos", unit.global_position)),
+		Vector2(projectile.get("vel", Vector2.ZERO)),
+		naval_hull_damage_mult, true,
+		bool(projectile.get("ambient_tgt_nonlethal", false)))
 
 
 static func projectile_allows_target(projectile: Dictionary, unit: CombatUnit) -> bool:
@@ -727,10 +718,10 @@ func _explode_airburst_shell(shell: Dictionary) -> void:
 				continue
 			if pos.distance_to(unit.global_position) > radius_px or absf(unit.altitude - burst_altitude) > 1000.0:
 				continue
-			if not unit.can_accept_new_hit("airburst"):
+			if not WeaponHitResolverScript.can_accept_unit_hit(unit, "airburst"):
 				continue
-			(unit as Aircraft).take_damage_at(
-				float(shell["damage"]), pos, attacker, "airburst",
+			WeaponHitResolverScript.resolve_unit_hit(
+				unit, float(shell["damage"]), attacker, "airburst", pos,
 				unit.global_position - pos)
 	_area_flashes.append({
 		"pos": pos,
@@ -826,6 +817,7 @@ func _physics_process(delta: float) -> void:
 			if prox_r > 0.0:
 				var src_team_p: int = int(b.get("source_team", -1))
 				var rocket_alt_p: float = float(b.get("altitude", 5000.0))
+				var prox_r_sq := prox_r * prox_r
 				var prox_triggered := false
 				for u_check in combat_unit_list:
 					if not is_instance_valid(u_check) or u_check.is_destroyed:
@@ -834,8 +826,7 @@ func _physics_process(delta: float) -> void:
 						continue
 					if u_check is Aircraft and (u_check as Aircraft).is_cloaked:
 						continue
-					var d_check: float = b["pos"].distance_to(u_check.global_position)
-					if d_check > prox_r:
+					if b["pos"].distance_squared_to(u_check.global_position) > prox_r_sq:
 						continue
 					# 高度容差（地面/海面忽略）
 					if not flat_altitude_mode and not (u_check is GroundUnit) and not (u_check is NavalUnit):
@@ -876,6 +867,15 @@ func _physics_process(delta: float) -> void:
 		var source_raw: Variant = b["source"]
 		var source_alive: bool = is_instance_valid(source_raw)
 		var source_team: int = int(b.get("source_team", -1))
+		# 每弹不变量只解析一次；CSG 弹幕下同一颗弹会命中多个网格候选，禁止在内层
+		# 重复做 Dictionary 查询、类型判断与高度转换。
+		var is_friendly := source_team == 0
+		var is_rocket: bool = bool(b.get("is_rocket", false))
+		var pierces_units: bool = bool(b.get("pierces_units", false))
+		var bullet_altitude: float = float(b["altitude"])
+		var source_is_ground := source_alive \
+			and (source_raw is GroundUnit or source_raw is NavalUnit)
+		var pierced_ids: Dictionary = b.get("hit_unit_ids", {})
 		# 广相候选集（③）：大单位（NavalUnit）恒扫 + 本弹位置 3×3 邻格的小单位。
 		# 等价于旧的"遍历 combat_unit_list"，但候选从全场缩到近邻（无漏判证明见 test_bullet_grid）。
 		# ⚠ 候选是本帧快照，循环内仍保留 is_instance_valid + is_destroyed 守卫（同帧可能已被别的弹击毁）。
@@ -894,8 +894,7 @@ func _physics_process(delta: float) -> void:
 			# 对地直升机的弹丸即使几何上穿过飞机，也不得建立命中。
 			if not projectile_allows_target(b, ac):
 				continue
-			var pierced_ids: Dictionary = b.get("hit_unit_ids", {})
-			if bool(b.get("pierces_units", false)) and pierced_ids.has(ac.get_instance_id()):
+			if pierces_units and pierced_ids.has(ac.get_instance_id()):
 				continue
 			# 光学隐形：子弹/火箭弹穿过隐形目标
 			if ac is Aircraft and ac.is_cloaked:
@@ -914,10 +913,8 @@ func _physics_process(delta: float) -> void:
 					if _hm_b and _hm_b.is_active:
 						continue
 			# 命中判定：2D 距离 + 高度容差（分别检查）
-			var dist_2d: float = b["pos"].distance_to(ac.global_position)
-			var alt_diff: float = absf(float(b["altitude"]) - ac.altitude)
-			var is_friendly := source_team == 0
-			var is_rocket: bool = b.get("is_rocket", false)
+			var dist_2d_sq: float = b["pos"].distance_squared_to(ac.global_position)
+			var alt_diff: float = absf(bullet_altitude - ac.altitude)
 			var hit_r: float
 			if is_rocket:
 				hit_r = ROCKET_HIT_RADIUS
@@ -929,12 +926,11 @@ func _physics_process(delta: float) -> void:
 				if nu.params:
 					hit_r = maxf(hit_r, nu.params.hull_length * 0.5)
 			# 涉及地面 / 海上单位时跳过高度检查（俯视视角用 2D 判定）
-			var source_is_ground := source_alive and (source_raw is GroundUnit or source_raw is NavalUnit)
 			var alt_ok := flat_altitude_mode or alt_diff < ALT_TOLERANCE or ac is GroundUnit or ac is NavalUnit or source_is_ground
-			if dist_2d < hit_r and alt_ok:
+			if dist_2d_sq < hit_r * hit_r and alt_ok:
 				# 主动特殊机动是“未建立命中”：弹体继续飞，不出特效、不记命中。
 				var hit_kind := "rocket" if is_rocket else "gun"
-				if not ac.can_accept_new_hit(hit_kind):
+				if not WeaponHitResolverScript.can_accept_unit_hit(ac, hit_kind):
 					continue
 				var dmg_mult: float = 1.0
 				if not is_rocket:
@@ -972,9 +968,6 @@ func _physics_process(delta: float) -> void:
 				if ac is Aircraft and ac.params:
 					var side2 := "Friend" if ac.team == 0 else "Enemy"
 					tgt_name = "%s/%s[%s]" % [side2, ac.params.display_name, ac.callsign]
-				# 归因：把射手写到目标 meta，aircraft._record_kill_attribution 在致死时读取
-				if is_instance_valid(b["source"]) and ac is Aircraft:
-					ac.set_meta("_pending_attacker", b["source"])
 				var damage_applied: bool = true
 				if is_rocket:
 					# 火箭不进入子弹闪避系统
@@ -984,31 +977,11 @@ func _physics_process(delta: float) -> void:
 						rocket_impact_pos = AircraftDestruction.record_hit(
 							ac as Aircraft, Vector2(b["pos"]), Vector2(b["vel"]))
 					_explode_rocket(b, rocket_impact_pos, ac)
-					if ac is NavalUnit:
-						# 火箭对船体总血削 50%，可以打穿弱点（破甲效果）
-						if is_instance_valid(b["source"]):
-							(ac as NavalUnit).set_meta("_pending_attacker", b["source"])
-							(ac as NavalUnit).set_meta("_last_damage_kind", "rocket")
-						(ac as NavalUnit).take_damage_at(actual_dmg, b["pos"], 0.5, true)
-					else:
-						_apply_projectile_damage(ac, actual_dmg, b, "rocket")
-				elif ac is Aircraft:
-					# false = 本发被闪避；此时不记命中、不出火星。
-					# attacker 传入用于"对头机炮闪避"几何检查
-					damage_applied = ac.take_bullet_damage(
-						b["damage"] * dmg_mult, CombatUnit.safe_attacker(b["source"]),
-						Vector2(b["pos"]), Vector2(b["vel"]))
-				elif ac is NavalUnit:
-					# 机炮子弹：
-					#   - 总血削 15%（高射速高伤害 → 低总血贡献，避免一梭子秒船）
-					#   - 弱点可被机炮磨爆（can_hit_weak_point=true）—— 弱点有 HP 不是"导弹斩杀点"
-					#   - 挂点仍然按全额扣（机炮剥部件依然有效）
-					if is_instance_valid(b["source"]):
-						(ac as NavalUnit).set_meta("_pending_attacker", b["source"])
-						(ac as NavalUnit).set_meta("_last_damage_kind", "gun")
-					(ac as NavalUnit).take_damage_at(b["damage"] * dmg_mult, b["pos"], 0.15, true)
+					damage_applied = _apply_projectile_damage(ac, actual_dmg, b, "rocket", 0.5)
 				else:
-					_apply_projectile_damage(ac, b["damage"] * dmg_mult, b, "gun")
+					# Aircraft 闪避、Naval 0.15× 船体倍率和通用单位归因统一在 resolver。
+					damage_applied = _apply_projectile_damage(
+						ac, actual_dmg, b, "gun", 0.15)
 				if is_rocket or damage_applied:
 					var evt_tag := "ROCKET" if is_rocket else "GUN"
 					EventLogger.log_event(evt_tag, src_name,
@@ -1016,7 +989,7 @@ func _physics_process(delta: float) -> void:
 					if not is_rocket:
 						EventLogger.tally(src_name, "gun_hits")
 						_emit_hit_spark(b["pos"], b["vel"], tgt_unit)
-				if bool(b.get("pierces_units", false)) and not is_rocket:
+				if pierces_units and not is_rocket:
 					# 闪避成功不登记命中；实际结算后才防止同一弹重复伤害同一单位。
 					if damage_applied:
 						pierced_ids[ac.get_instance_id()] = true
@@ -1046,8 +1019,8 @@ func _physics_process(delta: float) -> void:
 				var msl: Missile = m_var as Missile
 				if msl == null or not msl.is_active:
 					continue
-				var dist_m: float = Vector2(b["pos"]).distance_to(msl.global_position)
-				if dist_m < HIT_RADIUS:
+				if Vector2(b["pos"]).distance_squared_to(msl.global_position) \
+						< HIT_RADIUS * HIT_RADIUS:
 					# 距离衰减因子：导弹离 CIWS 发射源越近，拦截伤害越高
 					var msl_to_src: float = 9999.0
 					var factor: float = 0.0
@@ -1056,16 +1029,13 @@ func _physics_process(delta: float) -> void:
 						factor = clampf((800.0 - msl_to_src) / 550.0, 0.0, 1.0)
 					# 累积伤害到 intercept_hp；归零才真正击落
 					var dmg: float = float(b["damage"]) * factor
-					if dmg > 0.0:
-						msl.intercept_hp -= dmg
-						if msl.intercept_hp <= 0.0:
-							# 小型导弹被击毁只播放一次普通方框，不进入任何连续爆炸序列。
-							if is_inside_tree():
-								ExplosionVFXScript.emit(get_tree(), msl.global_position,
-									msl.heading, AircraftDestruction.MISSILE_BREAKUP_SCALE)
-							msl._start_fade_out()
-							EventLogger.log_event("CIWS", "Player",
-								"intercepted missile (final dist=%.0f, factor=%.2f)" % [msl_to_src, factor])
+					if msl.take_intercept_damage(dmg, true):
+						# 小型导弹被击毁只播放一次普通方框，不进入任何连续爆炸序列。
+						if is_inside_tree():
+							ExplosionVFXScript.emit(get_tree(), msl.global_position,
+								msl.heading, AircraftDestruction.MISSILE_BREAKUP_SCALE)
+						EventLogger.log_event("CIWS", "Player",
+							"intercepted missile (final dist=%.0f, factor=%.2f)" % [msl_to_src, factor])
 					hit = true
 					break
 
@@ -1113,133 +1083,6 @@ func _emit_hit_spark(pos: Vector2, velocity: Vector2, target: CombatUnit) -> voi
 
 func _draw() -> void:
 	var _t0 := Time.get_ticks_usec()
-	# 曳光弹批量绘制（性能守则 R3）：CIWS 弹幕高峰 ~1400 颗，原先逐颗 draw_line(抗锯齿)
-	# = 1400 次 draw call/帧。收集成线段对，一次 draw_multiline 提交（与 naval_unit
-	# 边缘线"48 段一调用"同款、已验证可用的 API）。火箭数量少且带圆头/淡出 → 保留逐颗。
-	# ⚠ 用单色 draw_multiline，不用 draw_multiline_colors —— 后者 colors 数组长度语义
-	#   （逐点 vs 逐段）在不同 Godot 版本不一致，长度不匹配会【静默不画】(曾致曳光弹全消失)。
-	#   代价：曳光弹放弃逐颗末段淡出（改为寿命到点瞬间消失，密集弹幕里几乎不可见）。
-	var tracer_pts := PackedVector2Array()
-	# 重型炸弹：随落地进度略微放大；空爆弹使用冷白短曳光，和普通黄弹流区分。
-	for bomb in _bombs:
-		var progress: float = 1.0 - float(bomb["life"]) / maxf(float(bomb["max_life"]), 0.01)
-		draw_circle(bomb["pos"], lerpf(2.0, 4.5, progress), Color(0.95, 0.72, 0.28, 0.95))
-		draw_line(bomb["pos"], bomb["pos"] - Vector2(bomb["vel"]).normalized() * 10.0,
-			Color(0.35, 0.25, 0.15, 0.7), 2.0)
-	for shell in _airburst_shells:
-		var sdir: Vector2 = Vector2(shell["vel"]).normalized()
-		draw_line(shell["pos"], shell["pos"] - sdir * 12.0, Color(0.78, 0.9, 1.0, 0.9), 1.8)
-	for flash in _area_flashes:
-		var ft: float = clampf(float(flash["age"]) / maxf(float(flash["duration"]), 0.01), 0.0, 1.0)
-		var flash_pos: Vector2 = flash["pos"]
-		if flash["kind"] == "bomb":
-			var fr: float = float(flash["radius"]) * ease(ft, -1.5)
-			var fc := Color(1.0, 0.58, 0.18, (1.0 - ft) * 0.75)
-			draw_arc(flash_pos, maxf(fr, 2.0), 0, TAU, 36, fc, 2.0)
-			draw_arc(flash_pos, maxf(fr * 0.65, 1.0), 0, TAU, 28, fc, 1.0)
-			continue
-
-		# Flak 不能画成水波：先给一个短促放射爆心，再留下不规则黑灰烟团。
-		# AOE 半径只以 0.22s 的断续危险圈提示一次，不做持续扩张同心圆。
-		var visual_seed: int = int(flash.get("visual_seed", 0))
-		var base_angle := fposmod(float(visual_seed) * 2.399963, TAU)
-		var blast_t := clampf(ft / 0.22, 0.0, 1.0)
-		if ft < 0.22:
-			var danger_segments := PackedVector2Array()
-			var danger_radius: float = float(flash["radius"])
-			for seg in range(24):
-				if seg % 4 == 3:
-					continue
-				var a0 := float(seg) / 24.0 * TAU
-				var a1 := float(seg + 1) / 24.0 * TAU
-				danger_segments.push_back(flash_pos + Vector2.from_angle(a0) * danger_radius)
-				danger_segments.push_back(flash_pos + Vector2.from_angle(a1) * danger_radius)
-			draw_multiline(danger_segments, Color(1.0, 0.42, 0.12, (1.0 - blast_t) * 0.7), 1.2, true)
-
-			var blast_rays := PackedVector2Array()
-			for ray in range(10):
-				var ray_angle := base_angle + float(ray) / 10.0 * TAU + sin(float(ray * 17 + visual_seed)) * 0.09
-				var ray_dir := Vector2.from_angle(ray_angle)
-				var ray_len := lerpf(7.0, 34.0 + float(ray % 3) * 3.0, ease(blast_t, -1.6))
-				blast_rays.push_back(flash_pos + ray_dir * 3.0)
-				blast_rays.push_back(flash_pos + ray_dir * ray_len)
-			draw_multiline(blast_rays, Color(1.0, 0.55, 0.16, (1.0 - blast_t) * 0.95), 2.0, true)
-			draw_circle(flash_pos, lerpf(8.0, 2.0, blast_t),
-				Color(1.0, 0.96, 0.72, (1.0 - blast_t) * 0.95))
-
-		var smoke_in := clampf((ft - 0.04) / 0.16, 0.0, 1.0)
-		var smoke_alpha := smoke_in * (1.0 - ft) * 0.72
-		var smoke_spread := lerpf(7.0, 20.0, ft)
-		for puff in range(7):
-			var puff_angle := base_angle + float(puff) / 7.0 * TAU + sin(float(puff * 23 + visual_seed)) * 0.22
-			var puff_dist := smoke_spread * (0.45 + 0.08 * float(puff % 4))
-			var puff_pos := flash_pos + Vector2.from_angle(puff_angle) * puff_dist
-			var puff_radius := (7.0 + float((puff * 5 + absi(visual_seed)) % 6)) * lerpf(0.75, 1.35, ft)
-			draw_circle(puff_pos, puff_radius, Color(0.28, 0.31, 0.34, smoke_alpha))
-		draw_circle(flash_pos, lerpf(8.0, 14.0, ft), Color(0.12, 0.14, 0.16, smoke_alpha * 0.9))
-	for b in _bullets:
-		var dir: Vector2 = b["vel"].normalized()
-		if b.get("is_rocket", false):
-			# 火箭：橙红色较长尾迹 + 亮白头（逐颗——数量少、保留末段淡出）
-			var life_left: float = float(b["life"])
-			var fade: float = clampf(life_left / FADE_OUT_DURATION, 0.0, 1.0)
-			var tail: Vector2 = b["pos"] - dir * ROCKET_TRAIL_LENGTH
-			draw_line(b["pos"], tail, Color(1.0, 0.45, 0.15, 0.85 * fade), 2.2, true)
-			draw_circle(b["pos"], 2.0, Color(1.0, 0.95, 0.8, fade))
-		else:
-			# 曳光弹：亮黄色短线（收集，循环后一次性提交）
-			var tail: Vector2 = b["pos"] - dir * TRACER_LENGTH
-			tracer_pts.push_back(b["pos"])
-			tracer_pts.push_back(tail)
-	for i in range(_visual_bullet_positions.size()):
-		var visual_dir: Vector2 = _visual_bullet_velocities[i].normalized()
-		tracer_pts.push_back(_visual_bullet_positions[i])
-		tracer_pts.push_back(_visual_bullet_positions[i] - visual_dir * TRACER_LENGTH)
-	if not tracer_pts.is_empty():
-		draw_multiline(tracer_pts, Color(1.0, 0.95, 0.4, 0.9), 1.5)
-	# 命中火星最多 12 组，每组 3 道；亮芯/橙边各一次批量提交，固定 2 draw calls。
-	var spark_outer := PackedVector2Array()
-	var spark_inner := PackedVector2Array()
-	for spark in _hit_sparks:
-		var life_ratio: float = clampf(1.0 - float(spark["age"]) / HIT_SPARK_DURATION, 0.0, 1.0)
-		var reach: float = float(spark["scale"]) * life_ratio
-		var origin: Vector2 = spark["pos"]
-		var base_angle: float = float(spark["angle"])
-		for ray in range(3):
-			var dir := Vector2.from_angle(base_angle + (float(ray) - 1.0) * 0.68)
-			spark_outer.push_back(origin + dir * 1.2)
-			spark_outer.push_back(origin + dir * reach)
-			spark_inner.push_back(origin + dir * 1.2)
-			spark_inner.push_back(origin + dir * reach * 0.55)
-	if not spark_outer.is_empty():
-		draw_multiline(spark_outer, Color(1.0, 0.42, 0.08, 0.9), 2.0, true)
-		draw_multiline(spark_inner, Color(1.0, 0.96, 0.65, 1.0), 1.0, true)
+	BulletPresenterScript.draw(self, _bombs, _airburst_shells, _area_flashes, _bullets,
+		_visual_bullet_positions, _visual_bullet_velocities, _hit_sparks, _torpedoes)
 	PerfBuckets.tick("bullet_draw", Time.get_ticks_usec() - _t0)
-
-	# 空中漂浮雷：弹体 + 上方降落伞罩（半圆 + 两根伞线）
-	for t in _torpedoes:
-		var pos: Vector2 = t["pos"]
-		var tp: TorpedoParams = t["params"]
-		var canopy_col: Color = tp.canopy_color
-		var body_col: Color = tp.body_color
-		# 漂浮雷用蓝色脉冲闪烁提示威胁；仅绘制时取时间，不进入物理热路径。
-		var blue_pulse: float = 0.45 + 0.55 * absf(sin(Time.get_ticks_msec() * 0.009))
-		body_col = body_col.lerp(Color(0.55, 0.9, 1.0, body_col.a), blue_pulse)
-		# 寿命末段淡出
-		var life_left_t: float = float(t["life"])
-		var fade_t: float = clampf(life_left_t / 0.6, 0.0, 1.0)
-		# 弹体（小圆）
-		draw_circle(pos, 3.0 + blue_pulse, Color(body_col.r, body_col.g, body_col.b, body_col.a * fade_t))
-		# 降落伞罩：屏幕上方 8 px 处一段弧线（用 polyline 模拟）
-		var canopy_center := pos + Vector2(0, -8.0)
-		var canopy_pts := PackedVector2Array([
-			canopy_center + Vector2(-5, 1),
-			canopy_center + Vector2(-3, -2),
-			canopy_center + Vector2(0, -3),
-			canopy_center + Vector2(3, -2),
-			canopy_center + Vector2(5, 1),
-		])
-		draw_polyline(canopy_pts, Color(canopy_col.r, canopy_col.g, canopy_col.b, canopy_col.a * fade_t), 1.5, true)
-		# 两根伞线
-		draw_line(canopy_pts[0], pos, Color(canopy_col.r, canopy_col.g, canopy_col.b, 0.5 * fade_t), 1.0, true)
-		draw_line(canopy_pts[4], pos, Color(canopy_col.r, canopy_col.g, canopy_col.b, 0.5 * fade_t), 1.0, true)

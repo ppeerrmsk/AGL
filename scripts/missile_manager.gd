@@ -1,6 +1,8 @@
 class_name MissileManager
 extends Node2D
 
+const WeaponHitResolverScript = preload("res://scripts/weapon_hit_resolver.gd")
+
 const PIXELS_PER_METER: float = GameConstants.PIXELS_PER_METER
 
 ## ── 近炸引信 AOE 常量 ──
@@ -14,6 +16,7 @@ const MISSILE_TRAIL_BATCH_SLOTS: int = TrailRibbon.SAMPLE_PHASE_SLOTS
 var _missile_scene: PackedScene = preload("res://scenes/missile.tscn")
 const MissileTrailBatchScript = preload("res://scripts/missile_trail_batch.gd")
 const ExplosionVFXScript = preload("res://scripts/explosion_vfx.gd")
+const ExplosionPresenterScript = preload("res://scripts/rendering/explosion_presenter.gd")
 
 ## 场景中所有战斗单位的缓存引用，由 main.gd 每帧更新
 var target_list: Array[CombatUnit] = []
@@ -28,8 +31,8 @@ var _aoe_zones: Array = []  # [{pos, altitude, radius_px, time_left, max_time, d
 
 ## 命中闪光效果（类 3D 白色实色方块，一闪即淡出）
 ## 全场所有爆炸特效的统一宿主，通过 ExplosionVFX.emit() 接入
-const HIT_FLASH_DURATION: float = 0.30
-const HIT_FLASH_BASE_SIZE: float = 22.0
+const HIT_FLASH_DURATION: float = ExplosionPresenterScript.HIT_FLASH_DURATION
+const HIT_FLASH_BASE_SIZE: float = ExplosionPresenterScript.HIT_FLASH_BASE_SIZE
 const AIRFRAME_WAVE_INTERVAL: float = 0.11
 enum AirframeWaveRoute {
 	NOSE_PORT_SWEEP,
@@ -524,7 +527,7 @@ func _physics_process(delta: float) -> void:
 			if dist_2d < effective_fuse and alt_ok:
 				# ACTIVE 窗口内不建立接触/近炸命中；导弹保留目标并继续飞行。
 				var direct_kind := "qmaam" if missile.is_secondary_weapon else "missile"
-				if not unit.can_accept_new_hit(direct_kind):
+				if not WeaponHitResolverScript.can_accept_unit_hit(unit, direct_kind):
 					continue
 				# 普通云/HIGH 与沙尘暴/LOW 共用同一密度 miss roll（导弹“看不清”目标）。
 				var weather := get_tree().get_first_node_in_group("weather")
@@ -541,7 +544,7 @@ func _physics_process(delta: float) -> void:
 				# 弹置 is_flare_jammed 走既有偏飞契约（不再参与命中/CIWS 拦截/补射计伤），
 				# 目标触发滚转动画；10% = "非常极限的情况"照常命中。jam 后本弹不会再进
 				# 此分支、失败当帧即爆 → 每弹天然只 roll 一次。与热诱弹无关（无 flare 兜底层）。
-				if unit is Aircraft and unit.afterburner_window_active:
+				if unit is Aircraft and (unit as Aircraft).is_afterburner_mode_active():
 					if randf() < 0.90:
 						missile.is_flare_jammed = true
 						unit._trigger_evasion_roll()
@@ -576,30 +579,16 @@ func _physics_process(delta: float) -> void:
 				# 爆炸音效：4 种 bomb_distant 随机选一种
 				var bomb_ids := ["bomb_distant", "bomb_distant_02", "bomb_distant_03", "bomb_distant_04"]
 				AudioManager.play_sfx_2d(bomb_ids[randi() % 4], unit.global_position, 9.0)
-				# 归因：把发射单位写到目标 meta，aircraft._record_kill_attribution 在致死时读取
-				if ambient_mult > 0.0 and is_instance_valid(missile.source):
-					unit.set_meta("_pending_attacker", missile.source)
-					unit.set_meta("_last_damage_kind", "qmaam" if missile.is_secondary_weapon else "missile")
 				var sig_msl_dmg: float = effective_damage
 				# 722 sig_f15e·对地特化：对地面/舰船单位导弹伤害 ×1.3（发射者持有技能时）
 				if is_instance_valid(missile.source) and missile.source is Aircraft \
 						and (missile.source as Aircraft).sig_f15e_active and not (unit is Aircraft):
 					sig_msl_dmg *= 1.3
-				if ambient_mult <= 0.0:
-					pass
-				elif unit is GroundUnit:
-					unit.take_missile_damage(sig_msl_dmg)
-				elif unit is NavalUnit:
-					# 船走位置感知路由：伤害给最近的挂点或弱点
-					(unit as NavalUnit).take_damage_at(sig_msl_dmg, missile.global_position)
-				elif unit is Aircraft:
-					(unit as Aircraft).take_damage_at(effective_damage, missile.global_position,
-						CombatUnit.safe_attacker(missile.source),
-						"qmaam" if missile.is_secondary_weapon else "missile",
-						incoming_velocity)
-				else:
-					unit.take_damage(effective_damage, CombatUnit.safe_attacker(missile.source),
-						"qmaam" if missile.is_secondary_weapon else "missile")
+				if ambient_mult > 0.0:
+					var resolved_damage: float = effective_damage if unit is Aircraft else sig_msl_dmg
+					WeaponHitResolverScript.resolve_unit_hit(
+						unit, resolved_damage, missile.source, direct_kind,
+						missile.global_position, incoming_velocity)
 				# 近炸引信：在爆炸点产生 AOE 区域
 				if missile.proximity_aoe and effective_damage > 0.0:
 					var aoe_source: Node = CombatUnit.safe_attacker(missile.source)
@@ -716,7 +705,7 @@ func _update_aoe_zones(delta: float) -> void:
 			var alt_ok := alt_diff < AOE_ALT_TOLERANCE \
 					or unit is GroundUnit or unit is NavalUnit or unit is MountTarget
 			if dist_2d < zradius and alt_ok:
-				if not unit.can_accept_new_hit("aoe"):
+				if not WeaponHitResolverScript.can_accept_unit_hit(unit, "aoe"):
 					continue
 				# AOE 命中同样只播放一次；飞机按爆心方向贴到机体表面分区。
 				var u_head: float = unit.heading if "heading" in unit else 0.0
@@ -741,54 +730,12 @@ func _apply_aoe_damage(unit: CombatUnit, zone: Dictionary) -> void:
 	var zdmg: float = float(zone["damage"])
 	var zpos: Vector2 = zone["pos"]
 	# AOE 区域在导弹爆炸后还要存活一段时间，这期间发射者被击落是常态。
-	var zsrc: Node = CombatUnit.safe_attacker(zone.get("source", null))
-	if unit is GroundUnit:
-		unit.take_missile_damage(zdmg)
-	elif unit is NavalUnit:
-		# 走位置感知路由：用 AOE 中心而不是船中心，让 mount/弱点 routing 更准。
-		if zsrc != null and is_instance_valid(zsrc):
-			unit.set_meta("_pending_attacker", zsrc)
-			unit.set_meta("_last_damage_kind", "aoe")
-		(unit as NavalUnit).take_damage_at(zdmg, zpos)
-	elif unit is Aircraft:
-		(unit as Aircraft).take_damage_at(
-			zdmg, zpos, zsrc, "aoe", unit.global_position - zpos)
-	else:
-		unit.take_damage_from(zdmg, zsrc, "aoe")
+	WeaponHitResolverScript.resolve_unit_hit(
+		unit, zdmg, zone.get("source", null), "aoe", zpos,
+		unit.global_position - zpos)
 
 func _draw() -> void:
-	# 渲染 AOE 红圈
-	for zone in _aoe_zones:
-		var ratio: float = zone["time_left"] / zone["max_time"]
-		var alpha := ratio * 0.35
-		var pos: Vector2 = zone["pos"] - global_position  # 转为本地坐标
-		var radius: float = zone["radius_px"]
-		# 半透明填充
-		draw_circle(pos, radius, Color(1.0, 0.15, 0.1, alpha * 0.4))
-		# 描边
-		draw_arc(pos, radius, 0.0, TAU, 48, Color(1.0, 0.2, 0.1, alpha), 2.0)
-	# 命中闪光：全场当前可见方块的面/棱分别合成一次提交。
-	var fill_points := PackedVector2Array()
-	var fill_colors := PackedColorArray()
-	var edge_points := PackedVector2Array()
-	var edge_colors := PackedColorArray()
-	for flash in _hit_flashes:
-		if float(flash.get("delay", 0.0)) > 0.0:
-			continue
-		var packet := _hit_flash_draw_packet(flash)
-		fill_points.append_array(packet["points"])
-		fill_colors.append_array(packet["colors"])
-		edge_points.append_array(packet["edge_points"])
-		edge_colors.append_array(packet["edge_colors"])
-	if not fill_points.is_empty():
-		var fill_indices := PackedInt32Array()
-		fill_indices.resize(fill_points.size())
-		for i in fill_indices.size():
-			fill_indices[i] = i
-		RenderingServer.canvas_item_add_triangle_array(
-			get_canvas_item(), fill_indices, fill_points, fill_colors)
-	if not edge_points.is_empty():
-		draw_multiline_colors(edge_points, edge_colors, 1.6, true)
+	ExplosionPresenterScript.draw(self, _aoe_zones, _hit_flashes, global_position)
 
 ## 统一爆炸闪光接入点（由 ExplosionVFX.emit 路由而来，外部模块不要直接 call）。
 func spawn_flash(pos: Vector2, heading: float = 0.0, scale: float = 1.0) -> void:
@@ -858,105 +805,13 @@ func _update_hit_flashes(delta: float) -> void:
 	queue_redraw()
 
 func _hit_flash_draw_packet(flash: Dictionary) -> Dictionary:
-	var t_left: float = flash["time_left"]
-	var ratio: float = clampf(t_left / HIT_FLASH_DURATION, 0.0, 1.0)
-	var age: float = 1.0 - ratio
-	# 初始亮闪阶段 + 线性淡出
-	var intensity: float
-	if age < 0.18:
-		intensity = 1.0
-	else:
-		intensity = ratio / 0.82
-	var alpha: float = clampf(intensity, 0.0, 1.0)
-	# 每个结构爆点只在原地脉冲，不产生离心位移；连续感来自机体多点延迟点火。
-	var flash_scale: float = flash.get("scale", 1.0)
-	var pulse: float = 0.72 + 0.46 * sin(age * PI) + 0.08 * age
-	var size: float = HIT_FLASH_BASE_SIZE * pulse * flash_scale
-	var pos: Vector2 = flash["pos"] - global_position
-	var h: float = float(flash["heading"]) \
-		+ float(flash.get("turn_sign", 1.0)) * sin(age * PI) * 0.14
-	return _hit_flash_cube_packet(pos, h, size, alpha)
+	return ExplosionPresenterScript.hit_flash_draw_packet(flash, global_position)
 
 
 ## 单个假 3D 方块转成三角面 + 棱线 packet；调用方把全场可见爆点合批提交。
 func _hit_flash_cube_packet(pos: Vector2, heading: float, size: float,
 		alpha: float) -> Dictionary:
-	var fwd := Vector2(sin(heading), -cos(heading))
-	var right := Vector2(cos(heading), sin(heading))
-	var half: float = maxf(size, 2.0) * 0.5
-	# 假 3D：顶面整体上移以模拟高度
-	var tilt := Vector2(0.0, -size * 0.55)
-	# 底面 4 角（b = bottom）
-	var b_fr := pos + fwd * half + right * half
-	var b_fl := pos + fwd * half - right * half
-	var b_bl := pos - fwd * half - right * half
-	var b_br := pos - fwd * half + right * half
-	# 顶面 4 角（t = top）
-	var t_fr := b_fr + tilt
-	var t_fl := b_fl + tilt
-	var t_bl := b_bl + tilt
-	var t_br := b_br + tilt
-	# 面颜色：核心白，侧面稍暗以分面
-	var col_top := Color(1.0, 1.0, 1.0, alpha * 0.85)
-	var col_side_bright := Color(0.92, 0.95, 1.0, alpha * 0.65)
-	var col_side_dim := Color(0.78, 0.82, 0.92, alpha * 0.5)
-	var col_edge := Color(1.0, 1.0, 1.0, alpha)
-	# 可见侧面：outward-normal 屏幕 y>0（面朝下 / 朝观察者）的面才画。
-	var faces: Array[Dictionary] = []
-	# front 面（+fwd 方向的侧壁）
-	if fwd.y > 0.0:
-		var verts := PackedVector2Array([b_fr, b_fl, t_fl, t_fr])
-		faces.append({"v": verts, "c": col_side_bright if fwd.y > 0.5 else col_side_dim, "y": (b_fr.y + b_fl.y) * 0.5})
-	# back 面（-fwd）
-	if fwd.y < 0.0:
-		var verts2 := PackedVector2Array([b_bl, b_br, t_br, t_bl])
-		faces.append({"v": verts2, "c": col_side_bright if fwd.y < -0.5 else col_side_dim, "y": (b_bl.y + b_br.y) * 0.5})
-	# right 面 (+right)
-	if right.y > 0.0:
-		var verts3 := PackedVector2Array([b_br, b_fr, t_fr, t_br])
-		faces.append({"v": verts3, "c": col_side_bright if right.y > 0.5 else col_side_dim, "y": (b_br.y + b_fr.y) * 0.5})
-	# left 面 (-right)
-	if right.y < 0.0:
-		var verts4 := PackedVector2Array([b_fl, b_bl, t_bl, t_fl])
-		faces.append({"v": verts4, "c": col_side_bright if right.y < -0.5 else col_side_dim, "y": (b_fl.y + b_bl.y) * 0.5})
-	# 从远到近（y 小到大）写入 packet，顶面最后写入。
-	faces.sort_custom(func(a, b): return a["y"] < b["y"])
-	var points := PackedVector2Array()
-	var colors := PackedColorArray()
-	for f in faces:
-		var v: PackedVector2Array = f["v"]
-		var face_color: Color = f["c"]
-		if absf((v[1] - v[0]).cross(v[2] - v[0])) < 0.5:
-			continue
-		for idx in [0, 1, 2, 0, 2, 3]:
-			points.append(v[idx])
-			colors.append(face_color)
-	var top := PackedVector2Array([t_fr, t_fl, t_bl, t_br])
-	for idx in [0, 1, 2, 0, 2, 3]:
-		points.append(top[idx])
-		colors.append(col_top)
-
-	var edge_points := PackedVector2Array()
-	var edge_colors := PackedColorArray()
-	var bottom_edge := Color(1.0, 1.0, 1.0, alpha * 0.55)
-	var edge_pairs: Array = [
-		[t_fr, t_fl, col_edge], [t_fl, t_bl, col_edge],
-		[t_bl, t_br, col_edge], [t_br, t_fr, col_edge],
-		[b_fr, b_fl, bottom_edge], [b_fl, b_bl, bottom_edge],
-		[b_bl, b_br, bottom_edge], [b_br, b_fr, bottom_edge],
-		[b_fr, t_fr, col_edge], [b_fl, t_fl, col_edge],
-		[b_bl, t_bl, col_edge], [b_br, t_br, col_edge],
-	]
-	for edge in edge_pairs:
-		edge_points.append(edge[0])
-		edge_points.append(edge[1])
-		edge_colors.append(edge[2])
-	return {
-		"points": points,
-		"colors": colors,
-		"edge_points": edge_points,
-		"edge_colors": edge_colors,
-	}
+	return ExplosionPresenterScript.hit_flash_cube_packet(pos, heading, size, alpha)
 
 ## 建筑拦截概率查表（target 默认在 LOW 档；同 bullet_manager._building_block_prob_for_tier）
 ##   HIGH (≥7500m) → 40%（陡降弹大多漏过城市间隙）

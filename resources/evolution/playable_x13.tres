@@ -9,3 +9,7 @@ id = &"x13"
 display_name = "AIRCRAFT_X13_DISPLAY"
 codename = "Skyfalcon"
 base_params = ExtResource("2")
+gun_ammo_override = 180
+gun_damage_mult = 1.45
+gun_range_override = 1350.0
+base_pilot_aim_skill = 0.80

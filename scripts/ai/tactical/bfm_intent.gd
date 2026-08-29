@@ -1,5 +1,7 @@
 class_name BfmIntent extends RefCounted
 
+const PursuitGeometry := preload("res://scripts/ai/pursuit_geometry.gd")
+
 ## BFM 战术意图函数集 —— 每个函数纯输入输出，可单独单元测试。
 ##
 ## 调用约定：
@@ -949,11 +951,8 @@ static func _gun_lead_point(s: Situation) -> Vector2:
 	# params.gun.muzzle_velocity 算的 lead 不一致，导致挂非 1050 初速机炮的飞机
 	# 机头永远瞄在扳机认可点旁边（spec ace-squadron-tier 阶段 1）
 	var bullet_speed_ms: float = s.gun_muzzle_mps if s.gun_muzzle_mps > 0.0 else 1050.0
-	var bullet_speed_px: float = bullet_speed_ms * CombatUnit.PIXELS_PER_METER
-	var t1: float = s.dist_px / maxf(bullet_speed_px, 100.0)
-	var lead1: Vector2 = s.tgt_pos + s.tgt_fwd * (s.tgt_speed_ms * CombatUnit.PIXELS_PER_METER) * t1
-	var t2: float = s.my_pos.distance_to(lead1) / maxf(bullet_speed_px, 100.0)
-	return s.tgt_pos + s.tgt_fwd * (s.tgt_speed_ms * CombatUnit.PIXELS_PER_METER) * t2
+	return PursuitGeometry.projectile_lead_point(
+		s.my_pos, s.tgt_pos, s.tgt_fwd, s.tgt_speed_ms, bullet_speed_ms)
 
 ## 从 from 看 to 的航向角（弧度，0=北顺时针）
 static func _heading_to(from: Vector2, to: Vector2) -> float:

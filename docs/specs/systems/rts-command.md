@@ -3,7 +3,7 @@ id: rts-command
 kind: system
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 8
+spec_version: 9
 owner: 设计/用户
 depends_on: []
 reconstruction_complete: true
@@ -60,7 +60,7 @@ reconstruction_complete: true
 | Tab 开图，点 **AVAILABLE 战区** | 原 `zone_selected` 流程不变；**清航点标记** + 额外算边缘点设为巡航目标；**不关图** |
 | Tab 开图，**右键** | 发 `nav_cleared` → 清航点标记 + 对 `selected_aircraft` 清目标 + `target_position=INF`（取消巡航指令） |
 | 战场内左键点敌机 | 不变（手动指定 `combat_target`，可双击冲锋） |
-| 战场内右键 | 不变（清目标 + `target_position=INF`，急刹） |
+| 战场内右键 | 清目标 + `target_position=INF` 并持续急刹；按住后左右拖拽可在减速中微调机头或持续盘旋，详细手势、物理与失速边界以 [急刹拖拽转向](brake-steering.md) 为准 |
 
 **航点标记（交互反馈）**：玩家点空白处留下脉冲十字标记（`_nav_marker_world`），告知"这里已被选中"。选战区会清掉它（目标改为战区），地图右键清掉它。地图保持打开 = 可交互规划面板。
 
@@ -182,3 +182,4 @@ tgt = 半径内最近有效敌方(CombatUnit.all_units, radius)
 | 2026-07-03 | 6 | 右键长按急刹重定义（用户定稿）：仍作用全体 selected（整队一起减速），但物理端加**失速软地板**——减到 stall×1.05 最小可控速度为止、刹不进失速，任何高度档都**无法通过减速自杀坠机**；减速率 = 各机 params.deceleration × 随速度衰减的阻力因子（高速刹得动、低速效率变差、低级机天然刹得肉，"轻按一秒到底"消失）。预测线 step_speed 镜像同步。验收 `--bench=hard_brake` 5 断言（1 秒不到底/软地板/收敛/阻力衰减/机型差异化） |
 | 2026-07-29 | 7 | **小队指挥 UI 与机型解绑（用户报"只有 F-14 时才有用"）**：面板本身没有机型门，真源是"玩家队有没有登记进 `SurvivorSpawner._squads`"——这一步原先只挂在 `_spawn_starting_wingmen` 末尾，而那条路只有 `wingman_count>0` 的机型（41 机里仅 F-14）会走。其余 40 机走 `_ensure_player_squad` 懒建队路径（战区 +1 僚机奖励 / 停靠送僚机 / 双子星克隆），队伍建了却从不入表 → `SurvivorHUD._get_player_squad()` 反查恒为 null（面板永不显示），且 `_cleanup_squads` 不清理它（阵亡僚机永不从 members 剔除）。修法=登记点上移到 `_ensure_player_squad` 这条**公共**装配链（幂等，`_spawn_starting_wingmen` 不再重复 append）。顺带修同源缺口：`sig_ax00`（双子星）在无 `_squad` 时整段静默 early-return，复制 0 架却记 3 架 → 补先 `_ensure_player_squad`。验收 `--bench=squad_cmd_ui` 10 断言（登记 4 / 幂等 2 / HUD 反查 4）；回归门 47 项全绿。 |
 | 2026-08-03 | 8 | 玩家点名目标优先级补全到跟打僚机：僚机不复制逐机命令所有权，但跟随长机同一 `commanded_target` 时，普通归队 leash、超距、交战超时和自主换目标均让位；长机取消/改点后恢复正常归队，规避仍优先。 |
+| 2026-08-28 | 9 | 战场内右键扩展为急刹拖拽转向：本 spec 只保留指令取消语义；手势、机型物理差异、正式失速禁用边界及机炮兼容契约统一下沉到 `systems/brake-steering`。 |

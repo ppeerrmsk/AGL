@@ -174,6 +174,8 @@ static func evolve(ac: Aircraft, node_id: StringName, is_wingman: bool,
 	# 武器 = 新机型自带，载弹/热诱弹重置为新机满额
 	if ac.params.missile:
 		ac.missiles_remaining = ac.params.missile.max_count
+	if ac.params.gun:
+		ac.ammo = ac.params.gun.max_ammo
 	if ac.params.secondary_missile:
 		ac.secondary_missiles_remaining = ac.params.secondary_missile.max_count
 	if ac.params.flare:

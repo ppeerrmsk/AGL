@@ -135,9 +135,12 @@ func _test_cd_rate_and_boundary_stability() -> void:
 	ac._fire_cooldown = 4.0
 	ac.set_evasion_mode(true)
 	_check("切换模式不改写运行中 CD", is_equal_approx(ac._fire_cooldown, 4.0))
-	_check("规避×云中武器 CD rate 乘法叠加", is_equal_approx(ac.cd_rate("weapon"), 4.0))
+	_check("普通规避不冒充加力武器 CD", is_equal_approx(ac.cd_rate("weapon"), 2.0))
 	_check("规避 flare rate 生效", is_equal_approx(ac.cd_rate("flare"), 2.0))
 	_check("规避导弹装填 rate 生效", is_equal_approx(ac.cd_rate("missile_reload"), 4.0))
+	ac.set_afterburner_mode_active(true)
+	_check("加力×云中武器 CD rate 乘法叠加", is_equal_approx(ac.cd_rate("weapon"), 4.0))
+	ac.set_afterburner_mode_active(false)
 	ac.set_evasion_mode(false)
 	_check("退出模式仍不改写运行中 CD", is_equal_approx(ac._fire_cooldown, 4.0))
 	ac.free()

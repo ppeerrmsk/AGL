@@ -636,7 +636,8 @@ var gun_aim_error_enabled: bool = false
 ## latched = 本次进入治理区是否已掷过骰；timer > 0 = 正在迟滞（不压速，会冲过头）
 var _ace_decel_lag_latched: bool = false
 var _ace_decel_lag_timer: float = 0.0
-## P1：启用新版 TacticalPlanner 决策路径（仅玩家飞机）。开启后 _physics_process 顶层调 planner，
+## 启用 TacticalPlanner 决策路径。正式全功能 AI 与玩家机均开启；simple_ai 保持 false 并走低成本路径。
+## 开启后 _physics_process 顶层调 planner，
 ## update_weapon_mode / update_combat / update_energy_management 全部 early-return 不再各自决策，
 ## 玩家飞机的 target_position / target_speed / weapon_mode / is_firing 由 plan 统一写入
 var use_tactical_planner: bool = false
@@ -675,11 +676,25 @@ var escort_cover_active: bool = false
 var _escort_flare_tried: Dictionary = {}
 
 ## ── 加力窗口（spec afterburner-mode）──
-## 玩家小队充能资源激活的 6s 强 buff 窗口标志（生存层 AfterburnerCharge 写入全队快照；
-## 沙盒/敌机/友军番队恒 false）。与 evasion_mode 解耦：窗口内玩家中途下令会照旧退出
-## evasion_mode，但本标志独立倒计时满 6s——强 buff（100% 机炮闪避 / 90% 甩导弹 /
-## 武器静默 / 满速地板 + 加速 ×3）不因指挥操作而中断。
+## 玩家小队充能资源的强 buff 标志（AfterburnerCharge 写入激活快照；沙盒/敌机/
+## 友军番队恒 false）。玩家世界指令会先从状态机对称退出，再执行原命令；退出不改写
+## 当前速度或物理积分状态。
 var afterburner_window_active: bool = false
+
+## 肉鸽加力窗口唯一查询/生命周期边界。不得用 evasion_mode（规避几何）或
+## is_afterburner（物理发动机）代判肉鸽技能、专属载荷与 HUD。
+func is_afterburner_mode_active() -> bool:
+	return afterburner_window_active
+
+
+func set_afterburner_mode_active(enabled: bool) -> void:
+	if afterburner_window_active == enabled:
+		return
+	afterburner_window_active = enabled
+	# 加力隐身和弹仓过载按每次窗口重新计时；退出必须对称清派生状态。
+	_evasion_stealth_timer = 0.0
+	_in_evasion_stealth = false
+	_evasion_overstock_timer = 0.0
 
 ## ── §1.2 evasion_modifiers：模式切换时按差量缩放运行时倒计时（避免每帧重算） ──
 ## 技能 apply 时往该 dict 写倍率（< 1.0 = cd 缩短，> 1.0 = cd 延长）；
@@ -696,9 +711,10 @@ var evasion_modifiers: Dictionary = {
 ## 速度由现有战斗逻辑（aircraft_physics.update_energy_management 机炮分支）按距离自适应
 ## 自动清除：set_combat_target / clear_combat_target 默认清零，由调用方（survivor_mode）在双击时显式置 true
 var charge_attack: bool = false
-## 玩家右键长按急刹：油门归零 + 跳过失速安全余量，让飞机一路减速到失速坠落
-## 期间保持航向（target_position = INF 让 update_bank 回正），加力强制关闭
+## 玩家右键长按急刹：减到当前 G 的失速软地板；水平拖拽可请求受真实 G/滚转/失速约束的坡度。
+## 失速/恢复、规避与正式机动期间 brake_steer_input 不获得操纵权。
 var hard_brake: bool = false
+var brake_steer_input: float = 0.0       ## [-1,1]：右正左负；仅 hard_brake 时由物理消费
 
 # ── 控制意图仲裁（Phase 1，见 scripts/aircraft/control_intent.gd 顶注 + 重构计划 §5）──
 var _intent_slots: Dictionary = {}   ## source:int → ControlIntent（sticky slot，跨帧保持）
@@ -1066,6 +1082,11 @@ func _get_ai_controller() -> AIController:
 			_ai_ref = child
 			return child
 	return null
+
+## Squad.members / leader 是结构真源；供队级资源与机动模块做 O(S) 快照，避免全场扫描。
+func squad_ref() -> Squad:
+	var ai := _get_ai_controller()
+	return ai.squad if ai != null and is_instance_valid(ai) else null
 
 ## 当前是否由玩家直接操控。特殊机动据此分流：受控机听 R，AI 接管机按威胁自动释放。
 func is_manual_maneuver_controlled() -> bool:
@@ -1497,7 +1518,14 @@ static func _intent_src_name(src: int) -> String:
 
 
 ## P1：TacticalPlanner 入口。建态势 → 决策 → 应用。
-## 仅在 use_tactical_planner=true 时跑，不影响默认旧路径。
+## 仅在 use_tactical_planner=true 时跑；false 只供 simple_ai / 已停用控制器的演出体。
+func reset_tactical_plan_state() -> void:
+	_last_plan = null
+	_bfm_prev_intent = -1
+	_bfm_intent_started_at = 0.0
+	_bfm_extend_until = 0.0
+
+
 func _run_tactical_planner_if_enabled() -> void:
 	if not use_tactical_planner:
 		return
@@ -1784,7 +1812,7 @@ func _update_sig_skills(delta: float) -> void:
 			EventLogger.log_event("SKILL", _log_name(), "猎手：目标消灭/命令解除，buff 结束")
 	# 超速截击（MiG-31）：加力窗口内对机头前半球∩雷达锥中的满锁+包线目标每 1.2s 自动发射一枚
 	# （唯一绕开窗口禁火的通道——独立发射路径不经 _fire_missile_at 的硬断；弹速 ×1.3）
-	if sig_mig31_active and afterburner_window_active and params and params.missile \
+	if sig_mig31_active and is_afterburner_mode_active() and params and params.missile \
 			and missiles_remaining > 0 and missile_manager:
 		_sig_mig31_fire_timer -= delta
 		if _sig_mig31_fire_timer <= 0.0:
@@ -1799,7 +1827,7 @@ func _update_sig_skills(delta: float) -> void:
 					missiles_remaining -= 1
 				EventLogger.log_event("SKILL", _log_name(),
 					"超速截击：窗口自动发射 → %s（弹速×1.3）" % _log_unit_name(mig_tgt))
-	elif _sig_mig31_fire_timer > 0.0 and not afterburner_window_active:
+	elif _sig_mig31_fire_timer > 0.0 and not is_afterburner_mode_active():
 		_sig_mig31_fire_timer = 0.0
 
 
@@ -2275,18 +2303,6 @@ func _target_within_launch_cone() -> bool:
 func set_evasion_mode(enabled: bool, suppress_radio: bool = false) -> void:
 	var was_enabled := evasion_mode
 	evasion_mode = enabled
-	# §C 玩家技能"evasion 隐身"：进入不立即激活，由 _update_evasion 累计 2s 后置位
-	# 派生标记由 StatusEffects.update OR 进 status_stealth_active
-	if evasion_stealth_active:
-		if enabled:
-			_evasion_stealth_timer = 0.0
-			_in_evasion_stealth = false   # 进入瞬间一定不隐身
-		else:
-			_in_evasion_stealth = false
-			_evasion_stealth_timer = 0.0
-	# §C 玩家技能"evasion 4s 装填"：进入时重置 timer（避免短停短进取巧累积）
-	if enabled and evasion_overstock_interval > 0.0:
-		_evasion_overstock_timer = 0.0
 	if enabled:
 		# 取消当前移动指令和交战目标，专心躲避
 		clear_combat_target()
@@ -2314,26 +2330,21 @@ func set_evasion_mode(enabled: bool, suppress_radio: bool = false) -> void:
 ## 不再直接置 evasion_mode —— 否则 planner 的 evasion_intent 会让待命僚机 max+AB 散开。
 ## 僚机收到后：自己被真威胁才 enter_evade 逃命；否则回编队待命 + 替长机投护卫 flare。
 func _propagate_evasion_to_squad(enabled: bool) -> void:
-	for u in CombatUnit.all_units:
-		if u == null or not is_instance_valid(u) or u.is_destroyed:
+	var squad := squad_ref()
+	if squad == null:
+		return
+	for ac in squad.members:
+		if ac == null or not is_instance_valid(ac) or ac.is_destroyed \
+				or ac == self or ac.team != team:
 			continue
-		if not (u is Aircraft) or u == self or u.team != team:
-			continue
-		var ac: Aircraft = u
 		# 跳过忠诚僚机 drone：它有自己的 kamikaze 导弹拦截路径（不靠 EVADE_MISSILE 状态机），
 		# 收到 evasion 广播会被 ai_controller.gd:535 的强制 EVADE 守卫卡住，永远不能跟玩家
 		# 攻击 combat_target，看起来"无视玩家锁定的敌人"。
 		if ac.is_drone:
 			continue
-		# 通过 AIController 找 squad
-		for child in ac.get_children():
-			if child is AIController:
-				var ai_ctrl: AIController = child
-				if ai_ctrl.squad and ai_ctrl.squad.leader == self:
-					ac.escort_cover_active = enabled
-					if not enabled:
-						ac._escort_flare_tried.clear()  # 关 E：清护卫尝试记录
-				break
+		ac.escort_cover_active = enabled
+		if not enabled:
+			ac._escort_flare_tried.clear()  # 关 E：清护卫尝试记录
 
 const BERSERK_VIRUS_WEAPON_CD_RATE: float = 1.40
 const BERSERK_VIRUS_FLARE_CD_RATE: float = 1.50
@@ -2362,7 +2373,7 @@ func cd_rate(channel: String) -> float:
 	var mult := 1.0
 	match channel:
 		"weapon":
-			if evasion_mode:
+			if is_afterburner_mode_active():
 				mult *= float(evasion_modifiers.get("weapon_cd_mult", 1.0))
 			if cloud_weapon_cd_mult != 1.0 and cloud_state >= 1:
 				mult *= cloud_weapon_cd_mult
@@ -2403,9 +2414,7 @@ func can_accept_new_hit(kind: String) -> bool:
 	return kind not in ["gun", "rocket", "bomber_bomb", "airburst", "missile", "qmaam", "aoe", "laser", "railgun", "collision"]
 
 func _maneuver_squad() -> Squad:
-	if _ai_ref != null and is_instance_valid(_ai_ref) and _ai_ref.squad != null:
-		return _ai_ref.squad
-	return null
+	return squad_ref()
 
 func _shared_maneuver_cooldown() -> float:
 	var sq := _maneuver_squad()
@@ -2685,7 +2694,8 @@ func _update_evasion(delta: float) -> void:
 	_evade_roll_cooldown = maxf(_evade_roll_cooldown - delta, 0.0)
 	_manual_dodge_cd = maxf(_manual_dodge_cd - delta, 0.0)   # 胆大妄为 R/AI 共用冷却
 	# §C 玩家技能"evasion 4s 装填"：仅 evasion ON 时累加 timer，退出 evasion 不进入此分支
-	if evasion_mode and evasion_overstock_interval > 0.0 and params and params.missile:
+	if is_afterburner_mode_active() and evasion_overstock_interval > 0.0 \
+			and params and params.missile:
 		_evasion_overstock_timer += delta
 		if _evasion_overstock_timer >= evasion_overstock_interval:
 			_evasion_overstock_timer -= evasion_overstock_interval
@@ -2697,7 +2707,7 @@ func _update_evasion(delta: float) -> void:
 					"+1 missile (now %d / cap %d)" % [missiles_remaining, hard_cap])
 
 	# §C 玩家技能"evasion 隐身"：进入 evasion 后持续 2s 才激活
-	if evasion_mode and evasion_stealth_active and not _in_evasion_stealth:
+	if is_afterburner_mode_active() and evasion_stealth_active and not _in_evasion_stealth:
 		_evasion_stealth_timer += delta
 		if _evasion_stealth_timer >= EVASION_STEALTH_DELAY:
 			_in_evasion_stealth = true
@@ -3266,7 +3276,7 @@ func take_bullet_damage(amount: float, attacker: Node = null,
 	effective_dodge = clampf(effective_dodge, 0.0, MAX_BULLET_DODGE_CAP)
 	# 加力窗口（spec afterburner-mode）：唯一绕 cap 通道——6s 限时 + 30s 充能代价，
 	# 换取窗口内机炮完全打不中（100%）。敌机永不置窗口标志，不影响敌方规避闪避。
-	if afterburner_window_active:
+	if is_afterburner_mode_active():
 		effective_dodge = 1.0
 	if not is_adds and effective_dodge > 0.0 and randf() < effective_dodge:
 		_trigger_evasion_roll()  # 闪避滚转动画
@@ -3544,6 +3554,9 @@ const RADAR_RANGE_ALT_KEYS := [
 	[10000.0, 1.40],
 	[15000.0, 1.50],
 ]
+## 最终有效雷达上限：任何机体、类别联动与高度倍率叠加后都不能超过该值。
+## 9000 px 仍保留高空/预警机特色，但不会覆盖当前整张战区地图。
+const MAX_EFFECTIVE_RADAR_RANGE_PX := 9000.0
 
 
 ## 雷达有效距离（params.radar_range × 当前高度连续倍率）
@@ -3552,15 +3565,16 @@ func effective_radar_range_px() -> float:
 	var base: float = (params.radar_range if params else 300.0) * category_radar_mult \
 		+ ew_expert_radar_bonus_px   # 电子战专家（720 批 T4）：按策士轴技能数加距，cap 1km
 	var alt: float = altitude
+	var altitude_mult := float(RADAR_RANGE_ALT_KEYS[RADAR_RANGE_ALT_KEYS.size() - 1][1])
 	# 锚点表线性插值 — 与 AircraftRenderer.altitude_base_scale 同思路
 	for i in range(RADAR_RANGE_ALT_KEYS.size() - 1):
 		var lo: Array = RADAR_RANGE_ALT_KEYS[i]
 		var hi: Array = RADAR_RANGE_ALT_KEYS[i + 1]
 		if alt <= float(hi[0]):
 			var t := (alt - float(lo[0])) / maxf(float(hi[0]) - float(lo[0]), 0.001)
-			var mult: float = lerpf(float(lo[1]), float(hi[1]), clampf(t, 0.0, 1.0))
-			return base * mult
-	return base * float(RADAR_RANGE_ALT_KEYS[RADAR_RANGE_ALT_KEYS.size() - 1][1])
+			altitude_mult = lerpf(float(lo[1]), float(hi[1]), clampf(t, 0.0, 1.0))
+			break
+	return minf(base * altitude_mult, MAX_EFFECTIVE_RADAR_RANGE_PX)
 
 
 ## 判断目标世界坐标是否在本机雷达锥内

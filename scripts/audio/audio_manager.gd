@@ -100,6 +100,7 @@ var _playlist_idx: int = 0
 var _playlist_active: bool = false
 var _playlist_crossfade: float = 2.0
 var _playlist_advance_armed: bool = false  ## 当前曲未到尾段（防重复触发预交叉淡化）
+var _music_interrupt_checkpoint: Dictionary = {} ## 临时插入曲打断前的歌单、曲目与播放位置
 const MUFFLE_CUTOFF_OPEN := 20000.0  # 直通（听起来无效果）
 const MUFFLE_CUTOFF_MENU := 600.0    # 模糊状态，像隔了层雾
 
@@ -227,6 +228,7 @@ func _make_music_player() -> AudioStreamPlayer:
 # ═══════════════════════════════════════════════════
 
 func play_music(id: String, fade_in: float = 1.5, loop: bool = true) -> void:
+	_discard_music_interrupt_checkpoint()
 	_playlist_active = false
 	_stop_layered_internal(fade_in)
 	_play_music_internal(id, fade_in, loop)
@@ -245,6 +247,7 @@ func _play_music_internal(id: String, fade_in: float, loop: bool) -> void:
 	_fade_to(_active_music, 0.0, fade_in)
 
 func stop_music(fade_out: float = 2.0) -> void:
+	_discard_music_interrupt_checkpoint()
 	_playlist_active = false
 	_stop_layered_internal(fade_out)
 	if _active_music == null or not _active_music.playing:
@@ -271,11 +274,13 @@ func has_music(id: String) -> bool:
 func crossfade_music(id: String, duration: float = 2.0, loop: bool = true) -> void:
 	if not has_music(id):
 		return
+	_discard_music_interrupt_checkpoint()
 	_playlist_active = false
 	_stop_layered_internal(duration)
 	_crossfade_music_internal(id, duration, loop)
 
-func _crossfade_music_internal(id: String, duration: float, loop: bool) -> void:
+func _crossfade_music_internal(id: String, duration: float, loop: bool,
+		from_position: float = 0.0, pause_out: bool = false) -> void:
 	var stream := _get_music(id)
 	if stream == null:
 		return
@@ -290,10 +295,14 @@ func _crossfade_music_internal(id: String, duration: float, loop: bool) -> void:
 	# 等功率曲线开始：新轨从 -∞（≈-80dB）起步
 	new_player.volume_db = -80.0
 	new_player.play()
+	if from_position > 0.0:
+		# 仅用于原播放器失效后的降级恢复；正常插入曲恢复复用暂停的 decoder，
+		# 不依赖原始 OGG fallback 在 Windows 上的页粒度 seek 精度。
+		new_player.seek(from_position)
 	# 等功率交叉淡化：避免线性 dB 在中点产生 -6dB 凹陷（两轨听感同时变小），
 	# 用 sin/cos 让两轨幅度的平方和恒为 1，听感音量平稳，节奏过渡更自然。
 	if old_player.playing:
-		_equal_power_crossfade(old_player, new_player, duration)
+		_equal_power_crossfade(old_player, new_player, duration, pause_out)
 	else:
 		# 旧轨已停 → 退化为单纯淡入新轨（仍走幅度曲线，更平滑）
 		_fade_amplitude(new_player, 1.0, duration)
@@ -303,10 +312,14 @@ func _crossfade_music_internal(id: String, duration: float, loop: bool) -> void:
 ##   t ∈ [0,1]，old.gain = cos(t·π/2)，new.gain = sin(t·π/2)
 ##   对应 dB：linear_to_db(gain)，gain≈0 时 clamp 到 -80
 ## 比起 dB 线性插值，这样在中点两轨各保持 -3dB（幅度 0.707），合成感知音量持平。
-func _equal_power_crossfade(out_player: AudioStreamPlayer, in_player: AudioStreamPlayer, duration: float) -> void:
+func _equal_power_crossfade(out_player: AudioStreamPlayer, in_player: AudioStreamPlayer,
+		duration: float, pause_out: bool = false) -> void:
 	if duration <= 0.01:
 		out_player.volume_db = -80.0
-		out_player.stop()
+		if pause_out:
+			out_player.stream_paused = true
+		else:
+			out_player.stop()
 		in_player.volume_db = 0.0
 		return
 	var tween := create_tween().set_parallel(false)
@@ -324,7 +337,10 @@ func _equal_power_crossfade(out_player: AudioStreamPlayer, in_player: AudioStrea
 	tween.tween_callback(func():
 			if is_instance_valid(out_player):
 				out_player.volume_db = -80.0
-				out_player.stop())
+				if pause_out:
+					out_player.stream_paused = true
+				else:
+					out_player.stop())
 
 ## 单轨幅度淡入/淡出（target_amp ∈ [0,1]，0 = 静音 / -80dB，1 = 0dB）
 ## 内部用 method tween 走线性幅度曲线再换算 dB，听感比 dB 直接线性更自然。
@@ -346,6 +362,7 @@ func _fade_amplitude(player: AudioStreamPlayer, target_amp: float, duration: flo
 func play_music_playlist(ids: Array, fade_in: float = 2.0, crossfade_between: float = 2.0) -> void:
 	if ids.is_empty():
 		return
+	_discard_music_interrupt_checkpoint()
 	_stop_layered_internal(fade_in)
 	_playlist = ids.duplicate()
 	_playlist_idx = 0
@@ -360,6 +377,7 @@ func crossfade_music_playlist(ids: Array, duration: float = 2.0,
 		crossfade_between: float = 2.0) -> void:
 	if ids.is_empty() or not has_music(String(ids[0])):
 		return
+	_discard_music_interrupt_checkpoint()
 	_stop_layered_internal(duration)
 	_playlist = ids.duplicate()
 	_playlist_idx = 0
@@ -368,6 +386,78 @@ func crossfade_music_playlist(ids: Array, duration: float = 2.0,
 	_playlist_advance_armed = true
 	_crossfade_music_internal(String(_playlist[0]), duration, false)
 	_playlist_active = true
+
+## 用 one-shot 临时打断当前歌单，并冻结打断瞬间的曲目位置。只支持一层插入曲；
+## BOSS 等其它音乐入口会清掉 checkpoint，避免演出接管后又抢回旧地图曲。
+func crossfade_music_interrupt(id: String, duration: float = 2.0,
+		loop: bool = false) -> bool:
+	if not has_music(id) or not _music_interrupt_checkpoint.is_empty():
+		return false
+	if _playlist_active and not _playlist.is_empty() and _active_music != null \
+			and _active_music.playing:
+		_music_interrupt_checkpoint = {
+			"playlist": _playlist.duplicate(),
+			"playlist_idx": _playlist_idx,
+			"crossfade": _playlist_crossfade,
+			"music_id": _current_music_id,
+			"playback_position": _active_music.get_playback_position(),
+			"player": _active_music,
+		}
+	_playlist_active = false
+	_stop_layered_internal(duration)
+	_crossfade_music_internal(id, duration, loop, 0.0,
+		not _music_interrupt_checkpoint.is_empty())
+	return _current_music_id == id
+
+## 继续临时插入曲打断前的同一首歌、同一播放位置；没有 checkpoint 时由调用方决定 fallback。
+func resume_interrupted_music(duration: float = 2.0) -> bool:
+	if _music_interrupt_checkpoint.is_empty():
+		return false
+	var checkpoint := _music_interrupt_checkpoint.duplicate()
+	_music_interrupt_checkpoint.clear()
+	var ids: Array = checkpoint.get("playlist", [])
+	var id := String(checkpoint.get("music_id", ""))
+	if ids.is_empty() or not has_music(id):
+		return false
+	_playlist = ids
+	_playlist_idx = clampi(int(checkpoint.get("playlist_idx", 0)), 0, ids.size() - 1)
+	_playlist_crossfade = float(checkpoint.get("crossfade", 2.0))
+	_playlist_active = true
+	_playlist_advance_armed = true
+	var resume_player: Variant = checkpoint.get("player")
+	if typeof(resume_player) == TYPE_OBJECT and is_instance_valid(resume_player) \
+			and resume_player is AudioStreamPlayer and resume_player != _active_music:
+		var resumed: AudioStreamPlayer = resume_player as AudioStreamPlayer
+		var old_player := _active_music
+		_kill_tween(old_player)
+		_kill_tween(resumed)
+		resumed.volume_db = -80.0
+		resumed.stream_paused = false
+		_current_music_id = id
+		if old_player.playing:
+			_equal_power_crossfade(old_player, resumed, duration)
+		else:
+			_fade_amplitude(resumed, 1.0, duration)
+		_active_music = resumed
+	else:
+		_crossfade_music_internal(id, duration, false,
+			float(checkpoint.get("playback_position", 0.0)))
+	_playlist_active = true
+	return _current_music_id == id
+
+func discard_interrupted_music() -> void:
+	_discard_music_interrupt_checkpoint()
+
+func _discard_music_interrupt_checkpoint() -> void:
+	if _music_interrupt_checkpoint.is_empty():
+		return
+	var player: Variant = _music_interrupt_checkpoint.get("player")
+	_music_interrupt_checkpoint.clear()
+	if typeof(player) == TYPE_OBJECT and is_instance_valid(player) \
+			and player is AudioStreamPlayer and player != _active_music:
+		var interrupted: AudioStreamPlayer = player as AudioStreamPlayer
+		_kill_tween(interrupted)
+		interrupted.stop()
 
 func _on_music_player_finished(player: AudioStreamPlayer) -> void:
 	# 只有活跃播放器自然播完才推进（fade-out 的旧 player 被 stop() 不会触发 finished，但以防万一）
@@ -398,6 +488,7 @@ func play_layered_music(ids: Array, fade_in: float = 2.0, active_index: int = 0)
 		_current_music_id = String(ids[0])
 	if ids.is_empty():
 		return
+	_discard_music_interrupt_checkpoint()
 	# 先关掉 a/b 主轨（层叠期间独占 BGM）
 	_playlist_active = false
 	_fade_out_main_music(fade_in)

@@ -84,8 +84,11 @@ func update_situational_awareness(ai: AIController, delta: float) -> void:
 		var check_success_chance := 0.3 + esa * 0.7  # 最低30%，最高100%
 		# Phase 2：躲弹期间背景 _state 可能滞留 ENGAGE，加 not _evading 保持旧语义
 		# （规避中不算"专注追踪"）
+		var intent: int = aircraft._last_plan.intent if aircraft._last_plan else aircraft._bfm_prev_intent
 		if ai._state == AIController.AIState.ENGAGE and not ai._evading \
-				and ai._tactic in [AIController.EngageTactic.LEAD_PURSUIT, AIController.EngageTactic.LEAD_TURN]:
+				and intent in [TacticalPlan.Intent.TAIL_CHASE, TacticalPlan.Intent.CLOSE_TAIL,
+					TacticalPlan.Intent.LEAD_TURN, TacticalPlan.Intent.LEAD_PURSUIT,
+					TacticalPlan.Intent.LAG_PURSUIT]:
 			# 专注追踪时更容易忽略后方
 			check_success_chance *= 0.7
 		rear_threat_aware = randf() < check_success_chance
@@ -208,7 +211,7 @@ func update_drift(ai: AIController, delta: float) -> void:
 		speed_error_timer = 0.0
 		speed_error = randf_range(-1.0, 1.0) * error_magnitude * 0.2
 
-	# 高度误差：每次战术切换时重新采样（在 _choose_tactic 中）
+	# 高度误差由 planner 态势采样消费；本模块只维护慢变认知偏差。
 
 # ══════════════════════════════════════════════
 #  误差应用（供 AIController 在瞄准/速度计算时调用）

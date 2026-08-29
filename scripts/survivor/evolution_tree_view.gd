@@ -40,7 +40,8 @@ const CAT_AXES := {
 
 var interactive: bool = true       ## 选定进化后由 UI 置 false（只看不点）
 
-var _nodes: Array = []             ## 全部节点 Dictionary
+var _all_nodes: Array = []         ## 数据源中的全部节点 Dictionary
+var _nodes: Array = []             ## 当前历史链与可达后继节点 Dictionary
 var _rects: Dictionary = {}        ## id(StringName) → Rect2
 var _current: StringName = &""
 var _history: Array = []           ## 爬线历史节点 id（顺序）
@@ -51,7 +52,8 @@ var _selected: StringName = &""
 var _edge_routes: Dictionary = {}  ## "from>to" → 正交折线路径（_layout 时一次性缓存）
 
 func setup(all_nodes: Array, current: StringName, history: Array, team_level: int, axis_points: Dictionary = {}) -> void:
-	_nodes = all_nodes
+	_all_nodes = all_nodes
+	_nodes = _relevant_nodes(all_nodes, current, history)
 	_current = current
 	_history = history.duplicate()
 	_team_level = team_level
@@ -61,15 +63,53 @@ func setup(all_nodes: Array, current: StringName, history: Array, team_level: in
 	_layout()
 	queue_redraw()
 
+
+## 只展示本局已经走过的路径，以及当前机体仍可能进入的后继。
+## 可达但未拥有的后继仍按战争迷雾显示“？？？”；只有结构上永久不可达的旁支不进入布局。
+static func _relevant_nodes(all_nodes: Array, current: StringName, history: Array) -> Array:
+	var by_id: Dictionary = {}
+	for nd in all_nodes:
+		var nid := StringName(nd.get("id", ""))
+		if nid != &"":
+			by_id[nid] = nd
+	if current == &"" or not by_id.has(current):
+		return all_nodes.duplicate()
+
+	var visible: Dictionary = {}
+	for history_id in history:
+		var hid := StringName(str(history_id))
+		if by_id.has(hid):
+			visible[hid] = true
+	var traversed: Dictionary = {}
+	var pending: Array[StringName] = [current]
+	while not pending.is_empty():
+		var nid: StringName = pending.pop_back()
+		if traversed.has(nid):
+			continue
+		traversed[nid] = true
+		visible[nid] = true
+		for exit_id in (by_id[nid] as Dictionary).get("exits", []):
+			var eid := StringName(str(exit_id))
+			if by_id.has(eid) and not traversed.has(eid):
+				pending.append(eid)
+
+	var result: Array = []
+	for nd in all_nodes:
+		if visible.has(StringName(nd.get("id", ""))):
+			result.append(nd)
+	return result
+
 ## 进化成功后把“当前机体”标记迁到新节点；候选白框清掉，当前金框成为唯一位置指示。
 func set_current(current: StringName, history: Array = []) -> void:
-	if current == &"" or not _rects.has(current):
+	if current == &"" or EvolutionSystem.node_of(current).is_empty():
 		return
 	_current = current
 	if not history.is_empty():
 		_history = history.duplicate()
 	_selected = &""
+	_nodes = _relevant_nodes(_all_nodes, _current, _history)
 	_refresh_current_exits()
+	_layout()
 	queue_redraw()
 
 func _refresh_current_exits() -> void:

@@ -23,8 +23,10 @@ func run() -> void:
 	_test_requirement_rows()
 	_test_can_evolve()
 	_test_panel_never_drifts_offscreen()
+	_test_airfield_binary_decision()
 	_test_gate_pips()
 	_test_tree_routes_and_current_marker()
+	_test_tree_hides_unreachable_routes()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
 
@@ -128,7 +130,9 @@ func _test_panel_never_drifts_offscreen() -> void:
 	for pass_i in [0, 1]:
 		var cur: Dictionary = first if pass_i == 0 else second
 		# 顺带冒烟：show_offer 本身不得抛错（三栏构建 / 详情卡默认摊开当前机）
-		ui.show_offer(cur, EvolutionSystem.exits_of(StringName(cur.get("id", ""))), 26, [],
+		var cur_id := StringName(cur.get("id", ""))
+		ui.show_offer(cur, EvolutionSystem.exits_of(cur_id), 26,
+			SurvivorData.signature_upgrade_for_aircraft(cur_id), true, false,
 			[], {&"gladiator": 4, &"knight": 3, &"schemer": 2})
 		var panel: PanelContainer = ui.get_child(0)
 		var label := "第 %d 次打开（%s）" % [pass_i + 1, cur.get("id", "?")]
@@ -151,7 +155,49 @@ func _test_panel_never_drifts_offscreen() -> void:
 	print("  （树节点 %d，最宽档位由 ScrollContainer 吸收）" % nodes.size())
 
 
-# ── F. 树视图 pip 徽记（spec evolution-attribute-gates §3.3 v15）──
+func _test_airfield_binary_decision() -> void:
+	print("── F. 机场二选一：专属技能不进抽选且与进化互斥 ──")
+	var ui := EvolutionUI.new()
+	ui._ready()
+	var current := EvolutionSystem.node_of(&"f15")
+	var signature := SurvivorData.signature_upgrade_for_aircraft(&"f15")
+	ui.show_offer(current, EvolutionSystem.exits_of(&"f15"), 26, signature, true, false,
+		[&"f15"], {&"gladiator": 8, &"knight": 8, &"schemer": 8})
+	_check("许可已购且未装备 → 保留机体按钮可用", not ui._signature_confirm.disabled, "")
+	_check("有待领取专属技 → 底部按钮明确指向保留并装备",
+		not ui._done_button.disabled
+		and ui._done_button.text == tr("SETTLEMENT_RETAIN_CONFIRM"), "")
+	var forwarded_signatures: Array[Dictionary] = []
+	ui.signature_chosen.connect(func(upgrade: Dictionary) -> void:
+		forwarded_signatures.append(upgrade))
+	ui._done_button.pressed.emit()
+	_check("底部主按钮不能空手关闭：直接提交正式专属技能分支",
+		ui._decision_committed and forwarded_signatures.size() == 1
+		and String(forwarded_signatures[0].get("id", "")) == String(signature.get("id", "")), "")
+	_check("底部主按钮提交后锁死进化按钮与树", ui._evo_confirm.disabled
+		and ui._signature_confirm.disabled and ui._done_button.disabled
+		and not ui._tree.interactive, "")
+	ui.reject_decision()
+	_check("权威拒绝后恢复二选一输入", not ui._decision_committed
+		and not ui._signature_confirm.disabled and ui._tree.interactive
+		and ui._evo_confirm.disabled and not ui._done_button.disabled, "")
+
+	ui.show_offer(current, EvolutionSystem.exits_of(&"f15"), 26, signature, true, true,
+		[&"f15"], {&"gladiator": 8, &"knight": 8, &"schemer": 8})
+	_check("本局已装备 → 不重复授予且可继续出击",
+		ui._signature_confirm.disabled and not ui._done_button.disabled, "")
+	var t0_current := EvolutionSystem.node_of(&"mig21f13")
+	var placeholder := SurvivorData.signature_upgrade_for_aircraft(&"mig21f13")
+	ui.show_offer(t0_current, EvolutionSystem.exits_of(&"mig21f13"), 5,
+		placeholder, false, false, [&"mig21f13"],
+		{&"gladiator": 2, &"knight": 0, &"schemer": 0})
+	_check("延期专属技只显示占位：不可确认、不会阻断继续出击",
+		SurvivorData.is_signature_placeholder(placeholder)
+		and ui._signature_confirm.disabled and not ui._done_button.disabled, "")
+	ui.free()
+
+
+# ── G. 树视图 pip 徽记（spec evolution-attribute-gates §3.3 v15）──
 ## 槽位算法纯逻辑可无头验：具体轴门=轴色纯色 pip / 或门=一枚分瓣；
 ## 实心随 _axis_points 实时判定（_draw 本身依赖渲染，无头不跑）。
 func _test_gate_pips() -> void:
@@ -194,9 +240,11 @@ func _test_tree_routes_and_current_marker() -> void:
 	tv.setup(EvolutionSystem.all_nodes(), &"f15", [&"f15"], 26,
 		{&"gladiator": 10, &"knight": 10, &"schemer": 10})
 	var expected_edges := 0
-	for nd in EvolutionSystem.all_nodes():
+	for nd in tv._nodes:
 		var exits: Array = nd.get("exits", [])
-		expected_edges += exits.size()
+		for exit_id in exits:
+			if tv._rects.has(StringName(str(exit_id))):
+				expected_edges += 1
 	_check("全部 %d 条数据边都有布局路径" % expected_edges,
 		tv._edge_routes.size() == expected_edges, "got %d" % tv._edge_routes.size())
 	var bad_routes: Array[String] = []
@@ -218,6 +266,34 @@ func _test_tree_routes_and_current_marker() -> void:
 	_check("进化后候选白框清除", tv._selected == &"", str(tv._selected))
 	_check("进化后出口按新当前机重建", tv._exit_lv.has(&"f22"), str(tv._exit_lv.keys()))
 	tv.free()
+
+
+func _test_tree_hides_unreachable_routes() -> void:
+	print("── H. 只隐藏结构不可达树枝，可达未知机仍保留？？？ ──")
+	var codex_loaded_before := AircraftCodex._loaded
+	var codex_before := AircraftCodex._discovered.duplicate(true)
+	AircraftCodex._loaded = true
+	AircraftCodex._discovered.clear()
+	var tv := EvolutionTreeView.new()
+	tv.setup(EvolutionSystem.all_nodes(), &"f16", [&"mig21f13", &"mig23", &"f16"], 26,
+		{&"gladiator": 8, &"knight": 8, &"schemer": 8})
+	_check("历史链节点继续显示", tv._rects.has(&"mig21f13") and tv._rects.has(&"mig23"), "")
+	_check("当前机体节点继续显示", tv._rects.has(&"f16"), "")
+	_check("当前机体的后继路线继续显示",
+		EvolutionSystem.exits_of(&"f16").all(func(nd: Dictionary) -> bool:
+			return tv._rects.has(StringName(nd.get("id", "")))), "")
+	_check("结构可达但尚未拥有的远端机仍保留为？？？",
+		tv._rects.has(&"x44") and not tv._is_revealed(&"x44"), "")
+	_check("已经错过且从当前机不可达的旁支完全隐藏",
+		not tv._rects.has(&"f15") and not tv._rects.has(&"f14"), "")
+	for key in tv._edge_routes:
+		var ends := String(key).split(">")
+		_check("可见连线两端都属于当前路线：%s" % key,
+			ends.size() == 2 and tv._rects.has(StringName(ends[0]))
+			and tv._rects.has(StringName(ends[1])), "")
+	tv.free()
+	AircraftCodex._discovered = codex_before
+	AircraftCodex._loaded = codex_loaded_before
 
 
 func _filled_count(slots: Array) -> int:

@@ -1,0 +1,26 @@
+[gd_resource type="Resource" script_class="PlayableAircraft" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/playable_aircraft.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/player/player_jaguar.tres" id="2"]
+
+[resource]
+script = ExtResource("1")
+id = &"jaguar"
+display_name = "AIRCRAFT_JAGUAR_DISPLAY"
+codename = "GR.1A"
+card_desc = "AIRCRAFT_JAGUAR_CARDDESC"
+base_params = ExtResource("2")
+gun_ammo_override = 280
+gun_damage_mult = 1.25
+gun_range_override = 1100.0
+gun_cone_override = 8.0
+base_pilot_aim_skill = 0.60
+flares_guaranteed = true
+enable_missile_reload = true
+enable_flare_reload = true
+enable_gun_reload = true
+infinite_fuel = true
+missile_damage_cap = 30.0
+bullet_damage_cap = 5.0
+bullet_dodge_chance = 0.10
+wingman_count = 0

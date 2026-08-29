@@ -16,6 +16,7 @@ const RUNTIME_CONSUMER_FILES: Array[String] = [
 	"res://scripts/rts/squad_command_controller.gd",
 	"res://scripts/survivor/dock_point.gd",
 	"res://scripts/survivor/skill_hooks.gd",
+	"res://scripts/survivor/survivor_skill_runtime.gd",
 	"res://scripts/survivor/survivor_mode.gd",
 	"res://scripts/survivor/survivor_spawner.gd",
 ]
@@ -38,7 +39,8 @@ var _fail: int = 0
 func run() -> void:
 	print("\n════════ 全量技能审计（逐条 apply / 消费点 / 玩家文案） ════════")
 	var translations := _load_translations()
-	var apply_source := FileAccess.get_file_as_string("res://scripts/survivor/survivor_player.gd")
+	var apply_source := FileAccess.get_file_as_string(
+		"res://scripts/survivor/survivor_skill_effects.gd")
 	var consumer_source := ""
 	for path in RUNTIME_CONSUMER_FILES:
 		consumer_source += "\n" + FileAccess.get_file_as_string(path)

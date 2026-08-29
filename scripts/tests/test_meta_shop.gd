@@ -46,6 +46,14 @@ func _test_aircraft_unlock() -> void:
 	_expect("a6e 30地面解锁", MetaShop.aircraft_unlock_ok("a6e", 0, 30, false), true)
 	_expect("mirage3 未购锁定", MetaShop.aircraft_unlock_ok("mirage3", 9, 999, false), false)
 	_expect("mirage3 已购解锁", MetaShop.aircraft_unlock_ok("mirage3", 0, 0, true), true)
+	_expect("四架新 T0 未购时锁定",
+		not MetaShop.aircraft_unlock_ok("mig21f13", 9, 999, true)
+		and not MetaShop.aircraft_unlock_ok("f104c", 9, 999, true)
+		and not MetaShop.aircraft_unlock_ok("j35f", 9, 999, true)
+		and not MetaShop.aircraft_unlock_ok("ea6b", 9, 999, true), true)
+	_expect("局外采购只解锁对应新 T0",
+		MetaShop.aircraft_unlock_ok("f104c", 0, 0, false, {"f104c": true})
+		and not MetaShop.aircraft_unlock_ok("ea6b", 0, 0, false, {"f104c": true}), true)
 	_expect("未列机型默认不锁", MetaShop.aircraft_unlock_ok("f16", 0, 0, false), true)
 
 
@@ -54,6 +62,11 @@ func _test_aircraft_unlock() -> void:
 func _test_item_listed() -> void:
 	print("── item_listed_ok ──")
 	_expect("幻影恒上架", MetaShop.item_listed_ok(MetaShop.ITEM_MIRAGE3, 0, 0), true)
+	_expect("四架新 T0 采购案恒上架",
+		MetaShop.item_listed_ok(MetaShop.ITEM_MIG21F13, 0, 0)
+		and MetaShop.item_listed_ok(MetaShop.ITEM_F104C, 0, 0)
+		and MetaShop.item_listed_ok(MetaShop.ITEM_J35F, 0, 0)
+		and MetaShop.item_listed_ok(MetaShop.ITEM_EA6B, 0, 0), true)
 	_expect("dock_wingman 无停靠不架", MetaShop.item_listed_ok(MetaShop.ITEM_DOCK_WINGMAN, 0, 9), false)
 	_expect("dock_wingman 首停靠上架", MetaShop.item_listed_ok(MetaShop.ITEM_DOCK_WINGMAN, 1, 0), true)
 	_expect("op_time 无撤离不架", MetaShop.item_listed_ok(MetaShop.ITEM_OP_TIME, 9, 0), false)
@@ -210,6 +223,7 @@ func _test_support_entitlements() -> void:
 	_expect("对地支援恒上架", MetaShop.item_listed_ok(MetaShop.ITEM_ZONE_GROUND_SUPPORT, 0, 0), true)
 	_expect("王牌截击支援恒上架", MetaShop.item_listed_ok(MetaShop.ITEM_ACE_F15_SUPPORT, 0, 0), true)
 	_expect("机场防空网授权恒上架", MetaShop.item_listed_ok(MetaShop.ITEM_AIRFIELD_SAM_SUPPORT, 0, 0), true)
+	_expect("机体战术适配恒上架", MetaShop.item_listed_ok(MetaShop.ITEM_AIRFRAME_AFFINITY, 0, 0), true)
 	_expect("两项战区支援各定价 3000",
 		int((MetaShop.CATALOG[MetaShop.ITEM_ZONE_AIR_SUPPORT] as Dictionary)["price"]) == 3000
 		and int((MetaShop.CATALOG[MetaShop.ITEM_ZONE_GROUND_SUPPORT] as Dictionary)["price"]) == 3000, true)
@@ -217,7 +231,11 @@ func _test_support_entitlements() -> void:
 		int((MetaShop.CATALOG[MetaShop.ITEM_ACE_F15_SUPPORT] as Dictionary)["price"]) == 3000, true)
 	_expect("机场防空网授权定价 3000",
 		int((MetaShop.CATALOG[MetaShop.ITEM_AIRFIELD_SAM_SUPPORT] as Dictionary)["price"]) == 3000, true)
+	_expect("机体战术适配定价 3000",
+		int((MetaShop.CATALOG[MetaShop.ITEM_AIRFRAME_AFFINITY] as Dictionary)["price"]) == 3000, true)
 	var shop := _fresh_shop()
+	_expect("未购机体战术适配正式局关闭", shop.is_airframe_affinity_entitled(true), false)
+	_expect("未购机体战术适配非正式局 fail-open", shop.is_airframe_affinity_entitled(false), true)
 	_expect("未购 AWACS 正式局关闭", shop.is_awacs_entitled(true), false)
 	_expect("未购 AWACS 非正式局 fail-open", shop.is_awacs_entitled(false), true)
 	_expect("未购制空支援正式局关闭", shop.is_zone_air_support_entitled(true), false)
@@ -233,11 +251,13 @@ func _test_support_entitlements() -> void:
 	shop.debug_grant(MetaShop.ITEM_ZONE_GROUND_SUPPORT)
 	shop.debug_grant(MetaShop.ITEM_ACE_F15_SUPPORT)
 	shop.debug_grant(MetaShop.ITEM_AIRFIELD_SAM_SUPPORT)
+	shop.debug_grant(MetaShop.ITEM_AIRFRAME_AFFINITY)
 	_expect("购入 AWACS 正式局开启", shop.is_awacs_entitled(true), true)
 	_expect("购入制空支援正式局开启", shop.is_zone_air_support_entitled(true), true)
 	_expect("购入对地支援正式局开启", shop.is_zone_ground_support_entitled(true), true)
 	_expect("购入王牌截击支援正式局开启", shop.is_ace_f15_support_entitled(true), true)
 	_expect("购入机场防空网正式局开启", shop.is_airfield_sam_entitled(true), true)
+	_expect("购入机体战术适配正式局开启", shop.is_airframe_affinity_entitled(true), true)
 	shop.free()
 
 
@@ -254,7 +274,7 @@ func _test_shop_categories() -> void:
 	var signature_box := ui.get("_signature_box") as VBoxContainer
 	_expect("商店恰有四个分类页", tabs.get_tab_count() == 4, true)
 	_expect("战场支援页有 AWACS + 四项战斗支援", support_box.get_child_count() == 5, true)
-	_expect("机体与后勤页保留三件基础商品", career_box.get_child_count() == 3, true)
+	_expect("机体与后勤页含原四件 + 四架新 T0 采购案", career_box.get_child_count() == 8, true)
 	_expect("机体专属页已生成内容", signature_box.get_child_count() > 0, true)
 	ui.free()
 

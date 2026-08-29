@@ -13,7 +13,7 @@ extends RefCounted
 ## 状态仍住在 AIController。本模块不持有状态，只在 ai 上读写。
 ##
 ## 枚举/常量引用：
-##   AIController.AIState / EngageTactic / SquadEngageMode / SquadRole / MIN_DUR_LEAD_PURSUIT
+##   AIController.AIState / SquadEngageMode / SquadRole
 ##   AIController.COVER_SCAN_RANGE / SQUAD_FREE_SCAN_RANGE / SQUAD_FREE_MIN_DIST / SQUAD_SCAN_RADAR_MULT
 ##   Squad.FORMATION_SWITCH_THRESH / FORMATION_REACT_BASE / FORMATION_JITTER_AMP /
 ##   Squad.FORMATION_JITTER_ADD / WINGMAN_ENGAGE_DELAY_MIN / WINGMAN_ENGAGE_DELAY_MAX

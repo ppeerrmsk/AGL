@@ -11,6 +11,7 @@ codename = "Wraith"
 card_tags = PackedStringArray("TAG_RAILGUN", "TAG_LASER_360", "TAG_NO_FLARE")
 card_desc = "AIRCRAFT_X02_CARDDESC"
 base_params = ExtResource("2")
+gun_ammo_override = 200
 roll_rate_mult = 1.0
 gun_damage_mult = 1.6
 gun_range_override = 1500.0

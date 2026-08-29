@@ -93,6 +93,18 @@ func _test_missile_qualifies() -> void:
 	_check("慢弹追不上", AircraftFlares._escort_missile_qualifies(w, leader, m_slow), false,
 			"闭合不足 → player_flare_should_trigger=false")
 
+	# 已经失导 / 加力已接管 → 不替长机浪费护卫焰；资源仍保持就绪，避免僚机误入运动学规避
+	m_imminent.has_guidance = false
+	_check("失导不护卫", AircraftFlares._escort_missile_qualifies(w, leader, m_imminent), false,
+			"结构威胁资格已失效")
+	m_imminent.has_guidance = true
+	leader.set_afterburner_mode_active(true)
+	_check("长机加力中不护卫", AircraftFlares._escort_missile_qualifies(w, leader, m_imminent), false,
+			"加力窗口接管防导弹")
+	_check("加力中资源仍就绪", AircraftFlares.flare_ready(w), true,
+			"不把暂缓投放误报成无 flare 兜底")
+	leader.set_afterburner_mode_active(false)
+
 	m_imminent.free(); m_other.free(); m_slow.free()
 	other.free(); w.free(); leader.free()
 
@@ -150,6 +162,11 @@ func _test_integration() -> void:
 
 	var far_ammo0: int = w_far.flares_remaining
 	var near_ammo0: int = w_near.flares_remaining
+	leader.set_afterburner_mode_active(true)
+	var ab_fired := AircraftFlares.try_cover_flare(w_near, leader)
+	_check("长机加力中不投护卫焰", ab_fired, false, "加力窗口独占导弹防御")
+	_check("加力中近机弹量不变", w_near.flares_remaining == near_ammo0, true, "未消耗 flare")
+	leader.set_afterburner_mode_active(false)
 
 	# 先调较远的：裁决应让它给最近且就绪的 w_near 让位 → 不投、弹量不变
 	var far_fired := AircraftFlares.try_cover_flare(w_far, leader)
@@ -225,7 +242,9 @@ func _make_missile(pos: Vector2, hdg: float, spd: float, target) -> Missile:
 	m.global_position = pos
 	m.heading = hdg
 	m.speed = spd
+	m.team = CombatUnit.TEAM_HOSTILE
 	m.is_active = true
+	m.has_guidance = true
 	m.is_flare_jammed = false
 	m.target = target
 	return m

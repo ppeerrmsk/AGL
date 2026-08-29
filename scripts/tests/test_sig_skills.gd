@@ -2,7 +2,7 @@ extends RefCounted
 
 ## 无头行为验收：机体签名技能批（spec aircraft-signature-skills）
 ##
-## A 表完整性（43 条约定）/ B 驾驶门控与前置 / C milestone_plus 数组化 /
+## A 表完整性（43 条已实装 + 7 条空占位）/ B 驾驶门控与前置 / C milestone_plus 数组化 /
 ## D apply 分支（params 类）/ E 致死拦截判序 / F 负面状态免疫 /
 ## G 全频段压制流速 / H 先敌开火（锁数+装填）/ I 机动 accessor 注入 /
 ## J 超速截击正面发射门 / K 传感器融合越肩发射门 / L 静态账本清零
@@ -66,17 +66,10 @@ func _test_table_conventions() -> void:
 
 
 func _test_offer_rules() -> void:
-	print("── B. 第四槽规则：30% 边界 / 43 机映射 / 前置不阻断出示 ──")
-	_check("专属第四槽概率 = 30%",
-		is_equal_approx(SurvivorData.SIGNATURE_OFFER_CHANCE, 0.30), "")
-	_check("roll=0 命中", SurvivorData.signature_offer_hit(0.0), "")
-	_check("roll<0.30 命中", SurvivorData.signature_offer_hit(0.299999), "")
-	_check("roll=0.30 不命中", not SurvivorData.signature_offer_hit(0.30), "")
-	_check("越界 roll 不命中",
-		not SurvivorData.signature_offer_hit(-0.01)
-		and not SurvivorData.signature_offer_hit(1.0), "")
-
+	print("── B. 机场规则：50 机槽位 / 7 占位不授予 / 前置不阻断装备 ──")
 	var mapped_count := 0
+	var implemented_count := 0
+	var placeholder_count := 0
 	var mapped_ok := true
 	for raw in EvolutionSystem.all_nodes():
 		var node: Dictionary = raw
@@ -85,17 +78,41 @@ func _test_offer_rules() -> void:
 		if not upgrade.is_empty():
 			mapped_count += 1
 			mapped_ok = mapped_ok and SurvivorData.is_signature_upgrade(upgrade)
-	_check("43 个进化节点均映射到专属技能", mapped_count == 43 and mapped_ok,
-		"mapped=%d" % mapped_count)
+			if SurvivorData.is_signature_placeholder(upgrade):
+				placeholder_count += 1
+			else:
+				implemented_count += 1
+	_check("50 个进化节点均有专属槽：43 已实装 + 7 空占位",
+		mapped_count == 50 and implemented_count == 43 and placeholder_count == 7 and mapped_ok,
+		"mapped=%d implemented=%d placeholder=%d" % [mapped_count, implemented_count, placeholder_count])
+	var placeholder_ids := [&"mig21f13", &"f104c", &"j35f", &"ea6b", &"mig23", &"f4e", &"jaguar"]
+	var placeholders_detached := true
+	for aircraft_id in placeholder_ids:
+		var placeholder := SurvivorData.signature_upgrade_for_aircraft(aircraft_id)
+		placeholders_detached = placeholders_detached \
+			and SurvivorData.is_signature_placeholder(placeholder) \
+			and SurvivorData.upgrade_by_id(str(placeholder.get("id", ""))).is_empty() \
+			and not MetaShop.signature_item_known(MetaShop.signature_item_id(aircraft_id))
+	_check("7 个占位不进入 UPGRADES、随机池、商店或效果应用", placeholders_detached, "")
 	_check("F-14 映射围猎",
 		SurvivorData.signature_upgrade_id_for_aircraft(&"f14") == "f14_squad_lock_slow", "")
 	_check("EA-18G 映射伴随压制",
 		SurvivorData.signature_upgrade_id_for_aircraft(&"ea18g") == "sig_ea18g", "")
 	_check("F/A-XX 映射穿透打击",
 		SurvivorData.signature_upgrade_id_for_aircraft(&"faxx") == "sig_faxx", "")
+	var mode_src := FileAccess.get_file_as_string("res://scripts/survivor/survivor_mode.gd")
+	var level_start := mode_src.find("func _on_player_leveled_up")
+	var level_end := mode_src.find("func _roll_upgrade_choices", level_start)
+	var level_flow := mode_src.substr(level_start, level_end - level_start) \
+		if level_start >= 0 and level_end > level_start else ""
+	_check("等级三轴抽选不再追加专属第四槽",
+		not level_flow.contains("signature") and not mode_src.contains("_append_signature_offer"), "")
+	_check("机场规划站接入专属装备分支",
+		mode_src.contains("signature_chosen.connect(_on_settlement_signature)")
+		and mode_src.contains("func _on_settlement_signature"), "")
 
 	var gated := _find_upgrade("sig_su27")
-	_check("技能前置仍由效果层自然等待，不改变专属身份",
+	_check("技能前置仍由效果层自然等待，不改变专属身份或机场展示",
 		SurvivorData.is_signature_upgrade(gated)
 		and not SurvivorData.is_upgrade_available_for(gated, &"su27", null, {}, []), "")
 
@@ -413,15 +430,27 @@ func _test_new_signatures() -> void:
 	victim.free()
 
 
-# ── M. 队级账本位（static）跨局清零：survivor_mode._ready 必须显式重置 ──
+# ── M. 队级账本位（static）跨局清零：ready/exit 必须调用统一跨场景 reset ──
 func _test_static_ledger_reset() -> void:
-	print("── M. 静态账本位：源码含新局清零（跨局残留防回归）──")
-	var src: String = FileAccess.get_file_as_string("res://scripts/survivor/survivor_mode.gd")
-	var ready_idx: int = src.find("func _ready()")
-	var head: String = src.substr(ready_idx, 2000) if ready_idx >= 0 else ""
+	print("── M. 静态账本位：新局调用统一清零（跨局残留防回归）──")
+	var mode_src: String = FileAccess.get_file_as_string("res://scripts/survivor/survivor_mode.gd")
+	var ready_idx: int = mode_src.find("func _ready()")
+	var head: String = mode_src.substr(ready_idx, 2000) if ready_idx >= 0 else ""
+	var exit_idx: int = mode_src.find("func _exit_tree()")
+	var exit_head: String = mode_src.substr(exit_idx, 1000) if exit_idx >= 0 else ""
+	var reset_src: String = FileAccess.get_file_as_string(
+		"res://scripts/survivor/survivor_runtime_reset.gd")
+	_check("新局/退局共用 SurvivorRuntimeReset 并委托技能清零",
+		head.contains("SurvivorRuntimeResetScript.reset_cross_scene_state(true)")
+		and exit_head.contains("SurvivorRuntimeResetScript.reset_cross_scene_state(false)")
+		and reset_src.contains("SurvivorSkillRuntimeScript.reset_team_state()"),
+		"ready/exit/reset 委托链不完整")
+	var runtime_src: String = FileAccess.get_file_as_string(
+		"res://scripts/survivor/survivor_skill_runtime.gd")
 	for f in ["StatusEffects.sig_x13_active = false", "SkillHooks.sig_fcas_active = false",
-			"SkillHooks.sig_f35_active = false", "SkillHooks.sig_x90_active = false"]:
-		_check("_ready 清零 %s" % f.split(" =")[0], head.contains(f), "未在 _ready 头部找到")
+			"SkillHooks.sig_f35_active = false", "SkillHooks.sig_x90_active = false",
+			"SkillHooks.hush_active = false"]:
+		_check("Runtime 清零 %s" % f.split(" =")[0], runtime_src.contains(f), "统一 reset 缺失")
 
 
 # ── helpers ──

@@ -9,6 +9,8 @@ const TerminalUiStyleScript := preload("res://scripts/ui/terminal_ui_style.gd")
 ## 全代码构建四分页：【战术学说】【机体专属】【战场支援】【机体与后勤】。
 
 const BG_COLOR := Color("010202")
+## 专属许可页自己的语义色；不依赖已退役的升级第四卡 UI。
+const SIGNATURE_COLOR := Color(1.00, 0.25, 0.75)
 
 var _tabs: TabContainer
 var _doctrine_box: VBoxContainer
@@ -179,7 +181,7 @@ func _build_signature_tile(nd: Dictionary) -> Control:
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.0, 0.0, 0.0, 0.78)
-	sb.border_color = Color(SurvivorUpgradeUI.SIG_FRAME_COLOR, 0.72)
+	sb.border_color = Color(SIGNATURE_COLOR, 0.72)
 	sb.set_border_width_all(1)
 	sb.set_content_margin_all(9)
 	panel.add_theme_stylebox_override("panel", sb)
@@ -190,7 +192,7 @@ func _build_signature_tile(nd: Dictionary) -> Control:
 	var badge := Label.new()
 	badge.text = "%s · T%d" % [tr("UPGRADE_SIGNATURE_BADGE"), int(nd.get("tier", 0))]
 	badge.add_theme_font_size_override("font_size", 11)
-	badge.add_theme_color_override("font_color", SurvivorUpgradeUI.SIG_FRAME_COLOR)
+	badge.add_theme_color_override("font_color", SIGNATURE_COLOR)
 	box.add_child(badge)
 	var aircraft := Label.new()
 	aircraft.text = tr(String(nd.get("name_key", "")))

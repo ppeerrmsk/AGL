@@ -132,7 +132,7 @@ static func update(ac: Aircraft, delta: float) -> void:
 	var nearest_dist := 99999.0
 	var player_trigger_missile: Missile = null
 	var player_trigger_dist := 99999.0
-	var is_player_side: bool = ac.is_player_squad()
+	var uses_friendly_smart_flare: bool = ac.team != CombatUnit.TEAM_HOSTILE
 	for child in ac.missile_manager.get_children():
 		if not child is Missile:
 			continue
@@ -146,7 +146,7 @@ static func update(ac: Aircraft, delta: float) -> void:
 			nearest_dist = dist_px
 			nearest_missile = m
 		# 玩家方智能放焰：只把"正在逼近(会命中) + TTI 够短/已很近"的导弹列为放焰目标
-		if is_player_side and dist_px < player_trigger_dist and player_flare_should_trigger(ac, m):
+		if uses_friendly_smart_flare and dist_px < player_trigger_dist and player_flare_should_trigger(ac, m):
 			player_trigger_dist = dist_px
 			player_trigger_missile = m
 
@@ -172,8 +172,8 @@ static func update(ac: Aircraft, delta: float) -> void:
 			return
 
 	var fp := ac.params.flare
-	if is_player_side:
-		# ── 玩家方智能放焰：导弹必须"会命中且即将到达"（player_flare_should_trigger）才放 ──
+	if uses_friendly_smart_flare:
+		# ── 玩家/友军智能放焰：导弹必须"会命中且即将到达"（player_flare_should_trigger）才放 ──
 		# 替代旧的"性格距离 + 躲弹 3km 抬升"：不再对慢速/追不上的导弹浪费诱饵，也不再在导弹
 		# 还在远处就提前甩光仅有的几发。无符合条件的来袭导弹 → 直接不放。
 		if player_trigger_missile == null:
@@ -204,7 +204,7 @@ static func update(ac: Aircraft, delta: float) -> void:
 			if my_dir.dot(missile_dir) > 0.5:
 				actual_fail = maxf(actual_fail - fp.head_on_fail_reduction, 0.0)
 		# 敌方 fail_chance 保留机型相对纪律，但只作为小概率失误权重；玩家方语义不变。
-		if not is_player_side:
+		if not uses_friendly_smart_flare:
 			actual_fail = enemy_release_fail_chance_for_configured(actual_fail)
 		if randf() < actual_fail:
 			ac._flare_ignored_missiles[mid] = true
@@ -212,13 +212,17 @@ static func update(ac: Aircraft, delta: float) -> void:
 
 	release(ac, nearest_missile)
 
-## 玩家方智能放焰判定：这枚导弹是否值得现在放焰。
-## 规则（满足"会命中(逼近) 且 即将到达"才放）：
-##   1. 闭合速度 < FLARE_MIN_CLOSING_MS → 追不上/在远离 → 不会命中 → 不放（杜绝对慢速导弹浪费）。
-##   2. 否则按命中剩余时间 TTI = 距离 / 闭合速度：TTI ≤ 阈值 → 即将命中 → 放。
-##   3. 兜底：距离 ≤ FLARE_MIN_DIST_M 的逼近导弹无条件放（防慢速逼近 TTI 偏大却已贴脸漏放）。
-## 纯几何判断（无副作用），可单测。closing = (导弹速度 − 本机速度) 在 LOS 上的投影。
+## 玩家与友军智能放焰唯一判定：这枚导弹是否仍是真威胁、且值得现在消耗热诱弹。
+## 先复用 Missile 的来袭警告真源（激活/制导/jam/目标/敌对/朝向），再叠末段资源门：
+##   1. 加力窗口已接管防导弹 → 暂缓投焰；窗口结束后仍有威胁才恢复。
+##   2. 闭合速度 < FLARE_MIN_CLOSING_MS → 追不上/在远离 → 不放。
+##   3. 否则 TTI ≤ 阈值才放；距离 ≤ FLARE_MIN_DIST_M 的逼近导弹作贴脸兜底。
+## 无副作用，可单测。closing = (导弹速度 − 本机速度) 在 LOS 上的投影。
 static func player_flare_should_trigger(ac: Aircraft, m: Missile) -> bool:
+	if ac == null or not is_instance_valid(ac) or m == null or not is_instance_valid(m):
+		return false
+	if ac.is_afterburner_mode_active() or not m.is_incoming_warning_for(ac):
+		return false
 	var los: Vector2 = ac.global_position - m.global_position
 	var dist_px: float = los.length()
 	if dist_px < 1.0:

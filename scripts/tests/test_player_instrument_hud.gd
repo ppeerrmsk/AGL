@@ -33,6 +33,7 @@ func run() -> void:
 	_test_color_panel_builds()
 	_test_weapon_priority_cycle()
 	_test_flare_visual_progress()
+	_test_afterburner_flare_hint()
 	_test_unique_r_maneuver_cooldown()
 	print("──────── 结果：%d 通过 / %d 失败 ────────\n" % [_pass, _fail])
 
@@ -990,6 +991,37 @@ func _test_flare_visual_progress() -> void:
 	ac.flare_reload_progress = 0.91
 	_check("装填末段十星先填满且数字仍为零",
 		PlayerInstrumentPanelScript.flare_lit_star_count(ac) == 10 and ac.flares_remaining == 0)
+	ac.free()
+
+
+func _test_afterburner_flare_hint() -> void:
+	var panel = PlayerInstrumentPanelScript.new()
+	panel._ready()
+	var ac := _make_aircraft()
+	ac.params.flare = FlareParams.new()
+	ac._flare_cooldown = 0.0
+	var charge := AfterburnerCharge.new()
+	panel.afterburner_hint_time_override_ms = 1000
+	panel.update_display(ac, charge)
+	ac._flare_cooldown = 2.0
+	panel._sync_afterburner_flare_hint(1000)
+	_check("热诱弹进入 CD 且加力可用时 E 键开始反色闪烁",
+		panel.afterburner_flare_hint_on(1000)
+		and not panel.afterburner_flare_hint_on(1500)
+		and panel.afterburner_flare_hint_on(2000))
+	_check("E 键提示最多持续五秒", not panel.afterburner_flare_hint_on(6000))
+	charge.activate(ac)
+	panel._sync_afterburner_flare_hint(2100)
+	_check("启动加力后 E 键 CD 提示立即停止", not panel.afterburner_flare_hint_on(2100))
+	charge.deactivate(&"hud_test")
+	ac._flare_cooldown = 0.0
+	panel._sync_afterburner_flare_hint(2200)
+	charge.charge = 0.0
+	ac._flare_cooldown = 2.0
+	panel._sync_afterburner_flare_hint(2300)
+	_check("加力无能量时热诱弹 CD 不伪造 E 键提示",
+		not panel.afterburner_flare_hint_on(2300))
+	panel.free()
 	ac.free()
 
 

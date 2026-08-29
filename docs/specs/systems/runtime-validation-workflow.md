@@ -3,7 +3,7 @@ id: runtime-validation-workflow
 kind: system
 status: done
 schema_version: 1
-spec_version: 3
+spec_version: 4
 owner: AGL
 depends_on: [systems/survivor-loop, systems/event-system]
 reconstruction_complete: true
@@ -54,6 +54,10 @@ reconstruction_complete: true
 
 普通 `WARNING` 不自动失败。若引擎存在稳定、已证实无害的退出噪音，只能用精确文本白名单排除；禁止按 `ERROR` 大类整体放行。
 
+错误门输出必须保留同一诊断块的完整 GDScript backtrace，直到空行或下一条 Godot 诊断为止；不得用固定四行
+截断而丢失生产调用者。命中 freed-object 族错误时，wrapper 额外输出 `FREED_OBJECT_LIFECYCLE` 归因，明确提示
+从最深 GDScript 调用者检查跨帧缓存和带类型边界，但最终修复仍以真实调用链为准。
+
 ## 3. 行为与公式（How）
 
 ### 3.1 默认执行链
@@ -95,6 +99,7 @@ Focused gauntlet 必须显式隔离不属于本案例的下游 owner。例如终
 - 特殊任务控制器或目标任一先释放；
 - 成功 / 失败 / 取消共用退役链面对已释放成员；
 - 缓存状态快照在失效引用下安全降级；
+- 玩家 `combat_target`、`commanded_target` 与 AI `_current_target` 同时残留已释放目标时，另一目标进入传感器隐形批处理仍能净化三类缓存；
 - 一体化巨炮经正式伤害入口销毁后，底座、炮管、在途效果和来源缓存同拍退役，跨过 `queue_free()` 后不残留独立 TGT；
 - 既有全量注册表中的攻击者死亡、玩家切控/死亡、BOSS 清场、阵营转换、舞台演员释放与 TypedArray 边界回归继续纳入 `all`。
 
@@ -124,9 +129,11 @@ Variant → typeof == TYPE_OBJECT → 非 null → is_instance_valid → is / as
 
 - [x] 当前 bomber escort freed-object 路径使用 Variant 生命周期边界并有真实释放回归。
 - [x] 任意 bench 出现 `SCRIPT ERROR` 或 freed-object 诊断时，即使 Godot 返回 0，wrapper 也返回 86。
-- [x] `runtime_error_probe` 稳定证明错误门会改判。
+- [x] 错误门保留完整 GDScript 调用栈，并对 freed-object 边界输出可执行的自动归因提示。
+- [x] `runtime_error_probe` 同时注入普通红错与 freed-object 类型边界，稳定证明错误门会改判、保留栈并输出自动归因。
 - [x] `lifecycle_gauntlet` 覆盖完成、失败、退役和两类缓存对象释放顺序。
 - [x] `lifecycle_gauntlet` 覆盖一体化巨炮销毁、跨帧释放、来源缓存清除和无底座残留。
+- [x] `lifecycle_gauntlet` 覆盖传感器批处理面对三个玩家目标缓存的跨帧失效引用。
 - [x] `all` 自动串行执行同步断言与生命周期 gauntlet，用户无需另记第二条命令。
 - [x] 任意 `--bench` 场景统一静音 Master，且播放逻辑、状态断言与用户持久化设置不被绕过或改写。
 - [x] 所有新增终态机制的 onboarding 清单已写入 Agent 工作约定。
@@ -144,6 +151,11 @@ Variant → typeof == TYPE_OBJECT → 非 null → is_instance_valid → is / as
 | E3 Visual | 本系统无视觉输出 | 豁免 |
 | E4 完整局 | 后续真实完整局继续提供未知组合证据 | 不作为基础设施落地阻塞 |
 
+2026-08-26 增量证据：`sensor_stealth` 63/63；`lifecycle_gauntlet` 82/82；修复前新增案例稳定触发
+`_target_is_in_batch argument 1 (previously freed)` 并由 wrapper 改判 86，增强后完整保留生产调用帧并输出
+`FREED_OBJECT_LIFECYCLE`；修复后三类缓存均为真实 `TYPE_NIL`。错误门双探针同时覆盖普通红错与
+freed-object 类型边界，Godot 主动退出 0 时 wrapper 仍改判 86。
+
 ## 6. 实现计划（Task Pipeline —— 工作令）
 
 ### 阶段 1 — 错误传播
@@ -159,6 +171,11 @@ Variant → typeof == TYPE_OBJECT → 非 null → is_instance_valid → is / as
 ### 阶段 3 — 固化工作流
 - [x] 更新 Agent 强制约定、reference 工作流与索引。
 - [x] 完成文档/锚点/玩家引用/diff 校验并回填证据。
+
+### 阶段 4 — 传感器缓存抗体与诊断上下文
+- [x] 把目标批判定边界改为 `Variant`，并净化玩家与 AI 的三个失效目标缓存。
+- [x] gauntlet 复现“目标 A 释放后由目标 B 隐形触发批清理”的真实跨帧顺序。
+- [x] wrapper 从固定四行升级为完整 GDScript backtrace，并输出 freed-object 自动归因。
 
 ## 7. 索引锚点（Where —— 唯一允许放指针的地方）
 
@@ -176,6 +193,7 @@ Variant → typeof == TYPE_OBJECT → 非 null → is_instance_valid → is / as
 
 | 日期 | spec_version | 改动 |
 |---|---:|---|
+| 2026-08-26 | 4 | 修复传感器批清理的三个已释放目标缓存；gauntlet 固化跨帧抗体；错误门保留完整调用栈并输出 freed-object 生命周期归因。 |
 | 2026-08-22 | 3 | gauntlet 增加一体化巨炮的正式伤害、跨帧释放、来源缓存清除与无底座残留案例；同步当前 20/20 与全量 80 项证据。 |
 | 2026-08-22 | 2 | bench 从仅静音 Music 收口为进程级 Master 静音，覆盖 SFX/UI/Radio 与未来子总线，并增加运行时断言。 |
 | 2026-08-22 | 1 | 建立 stderr 运行时错误硬门、真实释放 gauntlet 与默认 all 串联契约。 |

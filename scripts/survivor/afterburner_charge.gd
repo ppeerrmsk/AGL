@@ -1,136 +1,202 @@
-## 加力模式充能资源（spec afterburner-mode）
-## 小队级单实例·充能制（电池模型）：只要有能量就能一键启动，激活中持续耗能，
-## 耗尽自动结束，玩家可随时再按 E 提前关闭（剩余能量保留）。被动充能 + 击杀充能。
-## 由 survivor_mode 建实例并驱动 update(delta)（升级 UI 暂停时不被驱动 → 计时自然冻结）。
-## 不缓存长机引用（SEAM-019：toggle 传参即用）；窗口成员是激活瞬间快照，
-## 中途换帅/新僚机入场不改变本次加力的 buff 归属。
+## 加力模式队级状态机（spec afterburner-mode）。
+##
+## 资源、激活会话与对称清理只住在这里；调用方只负责驱动 update、转发 E 键或
+## 在玩家世界指令前调用 cancel_for_manual_command。激活成员使用 Squad 权威列表的
+## 弱引用快照，既不扫描全场，也不跨帧强持有 Aircraft（SEAM-019）。
 class_name AfterburnerCharge
 extends RefCounted
 
-const CHARGE_MAX: float = 6.0         ## 能量池上限（秒）= 满能量下最多连烧 6s 加力（对齐旧窗口时长）
-const CHARGE_RATE: float = 0.2        ## 被动充能速率（/s），空 → 满 ≈ 30s（6 ÷ 0.2）
-const DRAIN_RATE: float = 1.0         ## 激活时耗能速率（/s），能量按秒 1:1 消耗
-const KILL_CHARGE: float = 0.8        ## 小队击杀 1 个敌人（空中/地面）+0.8s（占满池 13%，满池仍需 ~7.5 杀）
+signal phase_changed(active: bool, reason: StringName)
 
-var charge: float = CHARGE_MAX        ## 当前能量（开局满格，让新机制第一时间可用）
-var active: bool = false              ## 加力是否正在启用（true = 正在耗能）
-var _window_members: Array = []       ## 激活瞬间全队快照（Aircraft），关闭时统一清 flag
-var _storm_i_spent: float = 0.0       ## 本次激活实际消耗的能量；免费维持不计入
-var _storm_i_triggered: bool = false  ## 暴风雨 I 每次激活最多触发一次
+enum Phase { CHARGING, ACTIVE }
 
-## ── 720 批技能修正（队级单实例语义：survivor_mode 按账本同步，不逐机应用）──
-var kill_charge_bonus: float = 0.0    ## 检讨：击杀充能奖励 +0.6s/层（基线 KILL_CHARGE=0.8）
-var duration_mult: float = 1.0        ## 强化加力：耗能减慢 ×(1+0.5/层)，同能量烧更久
+const CHARGE_MAX: float = 6.0
+const CHARGE_RATE: float = 0.2
+const DRAIN_RATE: float = 1.0
+const KILL_CHARGE: float = 0.8
 const SIG_SU34_HEAL_PER_SEC: float = 2.0
 
-## 有效耗能速率：duration_mult 越大 → 耗得越慢 → 加力越持久
-func _effective_drain() -> float:
-	return DRAIN_RATE / maxf(duration_mult, 0.01)
+var charge: float = CHARGE_MAX
+var phase: Phase = Phase.CHARGING
 
-## 主循环驱动：激活中耗能（期间被动充能暂停）→ 耗尽自动关闭；否则被动充能。
-## rate_mult：722 签名技能的充能倍率（公路机场·未被锁 ×1.5 / 地形跟随·低空 ×1.5，
-## 由 survivor_mode 每帧按 ACE 状态计算传入；默认 1.0 = baseline 不变）。
-## bonus_recharge_per_sec：高度能量循环等主动来源；激活中也在实际消耗后结算。
+## 720 批技能修正：队级账本一次投影，不逐机叠加。
+var kill_charge_bonus: float = 0.0
+var duration_mult: float = 1.0
+
+var _leader_ref: WeakRef
+var _member_refs: Array[WeakRef] = []
+var _storm_i_spent: float = 0.0
+var _storm_i_triggered: bool = false
+
+
 func update(delta: float, rate_mult: float = 1.0, storm_ii_active: bool = false,
 		bonus_recharge_per_sec: float = 0.0) -> void:
-	if active:
-		var consumed: float = 0.0 if storm_ii_active else _effective_drain() * delta
+	var bonus_rate := maxf(bonus_recharge_per_sec, 0.0)
+	if phase == Phase.ACTIVE:
+		var consumed := 0.0 if storm_ii_active else _effective_drain() * delta
 		charge -= consumed
 		_storm_i_spent += consumed
-		if not _storm_i_triggered and _storm_i_spent >= SkillHooks.STORM_I_CHARGE_SPENT:
-			_storm_i_triggered = true
-			for m in _window_members:
-				if m != null and is_instance_valid(m) and not m.is_destroyed \
-						and SkillHooks.has_skill(m, SkillHooks.SKILL_STORM_I):
-					m.apply_status(StatusEffects.OVERLOAD, SkillHooks.STORM_I_OVERLOAD_DURATION)
-		# 722 sig_su34·鸭嘴兽厨房：加力期间成员每秒回 2 HP（逐机字段判定）
-		for m in _window_members:
-			if m != null and is_instance_valid(m) and not m.is_destroyed \
-					and m.sig_su34_active and m.params:
-				m.hp = minf(m.hp + SIG_SU34_HEAL_PER_SEC * delta, m.params.max_hp)
-		charge = minf(charge + maxf(bonus_recharge_per_sec, 0.0) * delta, CHARGE_MAX)
+		_update_active_member_effects(delta)
+		charge = minf(charge + bonus_rate * delta, CHARGE_MAX)
 		if charge <= 0.0:
 			charge = 0.0
-			_deactivate()  # 能量耗尽 → 自动结束
+			deactivate(&"depleted")
 		return
-	var recharge_mult: float = SkillHooks.STORM_II_RECHARGE_MULT if storm_ii_active else 1.0
-	charge = minf(charge + (CHARGE_RATE * rate_mult * recharge_mult \
-		+ maxf(bonus_recharge_per_sec, 0.0)) * delta, CHARGE_MAX)
 
-## 击杀充能（空中走 kill_recorded / 地面走 spawner 击杀检测，挂点见 survivor_mode）
-## 激活中击杀同样入账（边烧边攒，只是被动充能暂停）
+	var recharge_mult := SkillHooks.STORM_II_RECHARGE_MULT if storm_ii_active else 1.0
+	charge = minf(charge + (
+		CHARGE_RATE * maxf(rate_mult, 0.0) * recharge_mult + bonus_rate) * delta,
+		CHARGE_MAX)
+
+
 func on_kill_charge() -> void:
 	charge = minf(charge + KILL_CHARGE + kill_charge_bonus, CHARGE_MAX)
 
-## 玩家触发（E 键 / HUD 按钮）——开关切换。
-##   激活中按下 → 立即关闭（剩余能量保留），返回 false。
-##   未激活且有能量（charge > 0）→ 启动，返回 true；能量为 0 时失败静默（条状态即反馈）。
-## 启动链路：全队快照置窗口标志（强 buff 层）+ 长机走既有 set_evasion_mode(true, suppress_radio=true)
-## （planner EVADE max+AB、escort_cover_active 广播、§1.2 技能钩子全保留；无线电改喊"加力冲刺"而非"break"）
+
+## E 键统一开关。返回 true 只表示本次成功进入 ACTIVE。
 func toggle(leader: Aircraft) -> bool:
-	if leader == null or not is_instance_valid(leader) or leader.is_destroyed:
+	if is_active():
+		deactivate(&"toggle")
 		return false
-	if active:
-		_deactivate()  # 玩家提前关闭
+	return activate(leader)
+
+
+func activate(leader: Aircraft) -> bool:
+	if not is_available() or not _valid_aircraft(leader):
 		return false
-	if charge <= 0.0:
-		return false   # 无能量，启动失败
-	active = true
+
+	phase = Phase.ACTIVE
 	_storm_i_spent = 0.0
 	_storm_i_triggered = false
-	_window_members = [leader]
-	# 与 Aircraft._propagate_evasion_to_squad 同判据收集僚机（squad.leader == 长机；drone 除外）
-	for u in CombatUnit.all_units:
-		if u == null or not is_instance_valid(u) or u.is_destroyed:
-			continue
-		if not (u is Aircraft) or u == leader or u.team != leader.team:
-			continue
-		var ac: Aircraft = u
-		if ac.is_drone:
-			continue
-		for child in ac.get_children():
-			if child is AIController:
-				var ai_ctrl: AIController = child
-				if ai_ctrl.squad and ai_ctrl.squad.leader == leader:
-					_window_members.append(ac)
-				break
-	for m in _window_members:
-		m.afterburner_window_active = true
-	leader.set_evasion_mode(true, true)  # suppress_radio：加力另走 afterburner_engaged，不喊 break
-	# 无线电"加力冲刺"呼叫（玩家主动，语义非躲导弹）——上升沿只播一次，冷却/概率在订阅方
+	_capture_members(leader)
+	_set_window_members_active(true)
+
+	## 复用 AI 规避几何与护卫广播，但加力状态权威仍是本模块，不是 evasion_mode。
+	leader.set_evasion_mode(true, true)
 	if leader.callsign != "" and leader.can_speak_on_radio():
 		EventLogger.afterburner_engaged.emit(leader.callsign, leader.team)
 	EventLogger.log_event("AFTERBURNER", leader._log_name(),
-		"activate, charge %.1fs, squad size %d" % [charge, _window_members.size()])
+		"activate charge=%.1fs squad=%d" % [charge, _member_refs.size()])
+	phase_changed.emit(true, &"activate")
 	return true
 
-## 关闭加力：清全队标志 + 长机对称退出 evasion（玩家中途下令已退出则为 no-op）
-## 由玩家提前关闭 / 能量耗尽 / 长机销毁（成员数组有 valid 守卫）共用
-func _deactivate() -> void:
-	active = false
-	_storm_i_spent = 0.0
-	_storm_i_triggered = false
-	for m in _window_members:
-		if m != null and is_instance_valid(m):
-			m.afterburner_window_active = false
-	if not _window_members.is_empty():
-		var leader = _window_members[0]
-		if leader != null and is_instance_valid(leader) and not leader.is_destroyed:
-			leader.set_evasion_mode(false)
-	_window_members.clear()
 
-# ── HUD 查询器 ──
+## 玩家世界指令的唯一取消入口。只退出模式并开始充能；刻意不写 speed、
+## target_speed_kmh、is_afterburner 或物理积分状态，保留取消当帧的速度与动力学连续性。
+func cancel_for_manual_command() -> bool:
+	if not is_active():
+		return false
+	deactivate(&"manual_command")
+	return true
+
+
+## E 提前关闭、玩家指令取消、能量耗尽与场景清理共用同一对称出口。
+func deactivate(reason: StringName = &"shutdown") -> void:
+	if not is_active():
+		return
+	phase = Phase.CHARGING
+	_set_window_members_active(false)
+	var leader := _leader()
+	if _valid_aircraft(leader):
+		leader.set_evasion_mode(false)
+		EventLogger.log_event("AFTERBURNER", leader._log_name(),
+			"deactivate reason=%s charge=%.1fs" % [reason, charge])
+	_clear_activation()
+	phase_changed.emit(false, reason)
+
 
 func is_active() -> bool:
-	return active
+	return phase == Phase.ACTIVE
+
+
+func is_available() -> bool:
+	return phase == Phase.CHARGING and charge > 0.0
+
 
 func is_full() -> bool:
-	return not active and charge >= CHARGE_MAX
+	return phase == Phase.CHARGING and charge >= CHARGE_MAX
 
-## 充能进度 0..1（激活中随耗能实时收缩，做电池放空的可视）
+
 func ratio() -> float:
 	return clampf(charge / CHARGE_MAX, 0.0, 1.0)
 
-## 当前能量还能烧多少秒加力（考虑 duration_mult 减耗）
+
 func remaining_seconds() -> float:
 	return charge / _effective_drain()
+
+
+func _effective_drain() -> float:
+	return DRAIN_RATE / maxf(duration_mult, 0.01)
+
+
+func _capture_members(leader: Aircraft) -> void:
+	_clear_activation()
+	_leader_ref = weakref(leader)
+	var squad := leader.squad_ref()
+	var candidates: Array[Aircraft] = []
+	if squad != null:
+		candidates.assign(squad.members)
+	else:
+		candidates.append(leader)
+	for member in candidates:
+		if not _valid_aircraft(member) or member.team != leader.team or member.is_drone:
+			continue
+		_member_refs.append(weakref(member))
+	if _member_refs.is_empty():
+		_member_refs.append(weakref(leader))
+
+
+func _set_window_members_active(enabled: bool) -> void:
+	for member_ref in _member_refs:
+		var value: Variant = member_ref.get_ref()
+		if typeof(value) != TYPE_OBJECT or not is_instance_valid(value):
+			continue
+		var member := value as Aircraft
+		if member != null:
+			# 清理边界也覆盖已进入 destroyed 终态、但尚未释放的成员。
+			member.set_afterburner_mode_active(enabled)
+
+
+func _update_active_member_effects(delta: float) -> void:
+	for member in _live_members():
+		if not _storm_i_triggered and _storm_i_spent >= SkillHooks.STORM_I_CHARGE_SPENT \
+				and SkillHooks.has_skill(member, SkillHooks.SKILL_STORM_I):
+			member.apply_status(StatusEffects.OVERLOAD, SkillHooks.STORM_I_OVERLOAD_DURATION)
+		if member.sig_su34_active and member.params != null:
+			member.hp = minf(
+				member.hp + SIG_SU34_HEAL_PER_SEC * delta, member.params.max_hp)
+	if not _storm_i_triggered and _storm_i_spent >= SkillHooks.STORM_I_CHARGE_SPENT:
+		_storm_i_triggered = true
+
+
+func _live_members() -> Array[Aircraft]:
+	var result: Array[Aircraft] = []
+	for member_ref in _member_refs:
+		var value: Variant = member_ref.get_ref()
+		if typeof(value) != TYPE_OBJECT or not is_instance_valid(value):
+			continue
+		var member := value as Aircraft
+		if _valid_aircraft(member):
+			result.append(member)
+	return result
+
+
+func _leader() -> Aircraft:
+	if _leader_ref == null:
+		return null
+	var value: Variant = _leader_ref.get_ref()
+	if typeof(value) != TYPE_OBJECT or not is_instance_valid(value):
+		return null
+	return value as Aircraft
+
+
+func _clear_activation() -> void:
+	_leader_ref = null
+	_member_refs.clear()
+	_storm_i_spent = 0.0
+	_storm_i_triggered = false
+
+
+static func _valid_aircraft(value: Variant) -> bool:
+	return typeof(value) == TYPE_OBJECT and is_instance_valid(value) \
+		and value is Aircraft and not (value as Aircraft).is_destroyed

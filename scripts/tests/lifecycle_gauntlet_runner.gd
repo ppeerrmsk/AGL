@@ -71,6 +71,7 @@ func _run() -> void:
 	await _test_zone_failure_after_deferred_free()
 	await _test_super_cannon_destroy_after_deferred_free()
 	await _test_ace_music_cleanup_after_deferred_free()
+	await _test_sensor_release_with_freed_target_caches()
 	await _test_all_damage_kinds_enter_aircraft_crash()
 	await _test_unified_aircraft_breakup()
 	await _test_hit_location_crash_response()
@@ -295,6 +296,62 @@ func _test_ace_music_cleanup_after_deferred_free() -> void:
 	await get_tree().process_frame
 	_check(not late_event._ace_music_started,
 		"Mode queue_free 后跨下一帧清理仍安全释放王牌 BGM 所有权")
+
+
+func _test_sensor_release_with_freed_target_caches() -> void:
+	var observer := Aircraft.new()
+	observer.team = CombatUnit.TEAM_PLAYER
+	observer.params = AircraftParams.new()
+	observer.set_physics_process(false)
+	add_child(observer)
+	var ai := AIController.new()
+	ai.aircraft = observer
+	observer._ai_ref = ai
+	observer.add_child(ai)
+
+	var stale_target := Aircraft.new()
+	stale_target.team = CombatUnit.TEAM_HOSTILE
+	stale_target.params = AircraftParams.new()
+	stale_target.set_physics_process(false)
+	add_child(stale_target)
+	observer.combat_target = stale_target
+	observer.commanded_target = stale_target
+	ai._current_target = stale_target
+	var stale_value: Variant = stale_target
+	stale_target.queue_free()
+	await get_tree().process_frame
+	var stale_combat_value: Variant = observer.combat_target
+	var stale_commanded_value: Variant = observer.commanded_target
+	var stale_ai_value: Variant = ai._current_target
+	_check(not is_instance_valid(stale_value)
+		and typeof(stale_combat_value) == TYPE_OBJECT
+		and not is_instance_valid(stale_combat_value)
+		and typeof(stale_commanded_value) == TYPE_OBJECT
+		and not is_instance_valid(stale_commanded_value)
+		and typeof(stale_ai_value) == TYPE_OBJECT
+		and not is_instance_valid(stale_ai_value),
+		"传感器清理前目标已跨帧释放但三个玩家目标缓存仍持有旧引用")
+
+	# 真实漏判顺序：目标 A 已释放后，另一个目标 B 的隐形沿才触发全队批清理。
+	var hidden_target := Aircraft.new()
+	hidden_target.team = CombatUnit.TEAM_HOSTILE
+	hidden_target.params = AircraftParams.new()
+	hidden_target.set_physics_process(false)
+	add_child(hidden_target)
+	var targets: Array[Aircraft] = [hidden_target]
+	var units: Array[CombatUnit] = [observer, hidden_target]
+	SensorStealthController.release_player_sensor_refs_batch(
+		targets, units, true, "lifecycle gauntlet")
+	await get_tree().process_frame
+	var combat_value: Variant = observer.combat_target
+	var commanded_value: Variant = observer.commanded_target
+	var ai_value: Variant = ai._current_target
+	_check(typeof(combat_value) == TYPE_NIL
+		and typeof(commanded_value) == TYPE_NIL
+		and typeof(ai_value) == TYPE_NIL,
+		"另一目标进入隐形批处理时安全清除 combat/commanded/AI 三类失效缓存")
+	observer.free()
+	hidden_target.free()
 
 
 func _new_aircraft_for_destruction() -> Aircraft:

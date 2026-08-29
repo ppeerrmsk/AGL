@@ -1,6 +1,8 @@
 class_name BuildingRenderer
 extends Node2D
 
+const TrianglePacket = preload("res://scripts/rendering/canvas_triangle_packet.gd")
+
 ## 横浜伪 3D 城市街区渲染器（生存模式独立模块）
 ##
 ## 数据来源：resources/maps/yokohama_buildings.json（由 bake_buildings.py 烘焙）
@@ -367,7 +369,7 @@ func _draw() -> void:
 		for idx in st:
 			sh_indices.append(idx + base)
 	if not sh_indices.is_empty():
-		RenderingServer.canvas_item_add_triangle_array(ci, sh_indices, sh_verts, sh_colors)
+		TrianglePacket.submit_arrays(ci, sh_indices, sh_verts, sh_colors)
 
 	# Pass 2: 伪 3D 街区（远 → 近排序）
 	visible.sort_custom(func(x, y): return x["d_sq"] > y["d_sq"])
@@ -422,7 +424,7 @@ func _draw_one(ci: RID, d: Dictionary, cam_pos: Vector2) -> void:
 		indices.append(idx + roof_base)
 
 	if not indices.is_empty():
-		RenderingServer.canvas_item_add_triangle_array(ci, indices, verts, colors)
+		TrianglePacket.submit_arrays(ci, indices, verts, colors)
 
 	# === 描边：单个闭合 polyline（n_pts+1 个点，最后回到起点）===
 	var outline := PackedVector2Array()

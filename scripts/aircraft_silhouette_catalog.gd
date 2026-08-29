@@ -9,6 +9,7 @@ const TEXTURE_PATHS: Dictionary = {
 	"ah64": "res://resources/aircraft_silhouettes/ah64_detail.png",
 	"b1b": "res://resources/aircraft_silhouettes/b1b_detail.png",
 	"ch47": "res://resources/aircraft_silhouettes/ch47_detail.png",
+	"ea6b": "res://resources/aircraft_silhouettes/ea6b_detail.png",
 	"f4": "res://resources/aircraft_silhouettes/f4_detail.png",
 	"f86": "res://resources/aircraft_silhouettes/f86_detail.png",
 	"f100": "res://resources/aircraft_silhouettes/f100_detail.png",
@@ -24,8 +25,11 @@ const TEXTURE_PATHS: Dictionary = {
 	"fck1": "res://resources/aircraft_silhouettes/fck1_detail.png",
 	"gripen": "res://resources/aircraft_silhouettes/gripen_detail.png",
 	"harrier": "res://resources/aircraft_silhouettes/harrier_detail.png",
+	"j35f": "res://resources/aircraft_silhouettes/j35f_detail.png",
 	"j7": "res://resources/aircraft_silhouettes/j7_detail.png",
+	"jaguar": "res://resources/aircraft_silhouettes/jaguar_detail.png",
 	"j20": "res://resources/aircraft_silhouettes/j20_detail.png",
+	"mig21f13": "res://resources/aircraft_silhouettes/mig21f13_detail.png",
 	"mig29": "res://resources/aircraft_silhouettes/mig29_detail.png",
 	"mig23": "res://resources/aircraft_silhouettes/mig23_detail.png",
 	"mig31": "res://resources/aircraft_silhouettes/mig31_detail.png",
@@ -50,17 +54,20 @@ static var _texture_cache: Dictionary = {}
 const DISPLAY_KEYS: Dictionary = {
 	"A-6E Intruder": "a6e", "A-7": "a7", "A-10": "a10", "A-10 Thunderbolt II": "a10",
 	"A-12 Avenger II": "a12", "AH-64": "ah64", "B-1B": "b1b", "CH-47": "ch47",
-	"F-4 Phantom": "f4", "F-4E": "f4", "F-86": "f86", "F-100": "f100",
-	"F-104 Starfighter": "f104", "F-14": "f14", "F-14 Tomcat": "f14",
+	"EA-6B Prowler": "ea6b", "F-4 Phantom": "f4", "F-4E": "f4", "F-4E Phantom II": "f4",
+	"F-86": "f86", "F-100": "f100", "F-104 Starfighter": "f104",
+	"F-104C Starfighter": "f104", "F-14": "f14", "F-14 Tomcat": "f14",
 	"F-15": "f15", "F-15 Eagle": "f15", "F-15C Eagle": "f15", "F-15E Strike Eagle": "f15",
 	"F-15 S/MTD": "f15smtd", "F-16": "f16", "F-16 Fighting Falcon": "f16",
 	"F-22 Raptor": "f22", "F-35 Lightning II": "f35", "F-47": "f47", "F-47 NGAD": "f47",
 	"F/A-18": "fa18", "F/A-18E Super Hornet": "fa18e", "EA-18G Growler": "fa18e",
 	"F/A-XX": "faxx", "FCAS NGF": "fcas", "F-CK-1": "fck1", "GCAP Tempest": "gcap",
 	"JAS 39 Gripen C": "gripen", "JAS 39 Gripen E": "gripen", "JAS 39C Gripen": "gripen",
-	"JAS 39E Gripen": "gripen", "Harrier GR.7": "harrier", "J-7": "j7",
+	"JAS 39E Gripen": "gripen", "Harrier GR.7": "harrier", "J 35F Draken": "j35f",
+	"J-7": "j7", "Jaguar GR.1A": "jaguar",
 	"J-20 Mighty Dragon": "j20", "J-36": "j36", "MiG-23": "mig23", "MiG-29": "mig29",
-	"MiG-31": "mig31", "MiG-31 Foxhound": "mig31", "MiG-41 PAK DP": "mig41",
+	"MiG-21F-13": "mig21f13", "MiG-23 Flogger": "mig23", "MiG-31": "mig31",
+	"MiG-31 Foxhound": "mig31", "MiG-41 PAK DP": "mig41",
 	"Mirage III": "mirage3", "Mirage 2000": "mirage2000",
 	"MQ-109": "mq109_family", "MQ-110": "mq109_family", "MQ-111": "mq109_family", "Q-5": "q5",
 	"Dassault Rafale": "rafale", "Rafale": "rafale", "Su-27": "su27", "Su-27 Flanker": "su27",
@@ -104,6 +111,12 @@ static func key_for(ac: Aircraft) -> String:
 		if airframe_key != "":
 			return airframe_key
 	return ""
+
+
+## UI 等非 Aircraft 载体按基础机型名读取同一份正式轮廓，避免另建预览模型目录。
+static func texture_for_display_name(display_name: String) -> Texture2D:
+	var key := String(DISPLAY_KEYS.get(display_name.strip_edges(), ""))
+	return _texture_for(key)
 
 
 static func draw_scale_for(ac: Aircraft) -> float:

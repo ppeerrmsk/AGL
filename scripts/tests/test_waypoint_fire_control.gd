@@ -123,7 +123,7 @@ func _test_waste_prevention_gates() -> void:
 	c.ac.evasion_mode = true
 	_assert_no_fire("规避中不发", c)
 	c = _make_case(0.0, 3.0, false)
-	c.ac.afterburner_window_active = true
+	c.ac.set_afterburner_mode_active(true)
 	_assert_no_fire("加力窗口不发", c)
 	c = _make_case(0.0, 3.0, false)
 	c.ac.team = CombatUnit.TEAM_HOSTILE

@@ -9,6 +9,7 @@ id = &"faxx"
 display_name = "AIRCRAFT_FAXX_DISPLAY"
 codename = "Penetrator"
 base_params = ExtResource("2")
+gun_ammo_override = 280
 gun_damage_mult = 1.5
 gun_range_override = 1400.0
 gun_cone_override = 10.0

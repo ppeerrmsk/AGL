@@ -36,9 +36,9 @@ fuel_capacity = 2800.0
 fuel_rate_normal = 2.1
 fuel_rate_afterburner = 11.0
 ; ── 雷达（弱于 F-16 基准，杂鱼档；锁定迟钝给玩家反应窗口）──
-radar_range = 4200.0
+radar_range = 2600.0
 radar_half_angle = 30.0
-lock_time = 2.6
+lock_time = 3.4
 ; ── 武器：只有导弹（用户硬性指令：无机炮、无热诱弹——初始敌机，玩家导弹必中）──
 ; missile 为占位，运行时被 V-tier 注入覆盖
 missile = ExtResource("2")

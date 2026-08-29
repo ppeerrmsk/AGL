@@ -1,5 +1,7 @@
 class_name BfmIntentTest extends RefCounted
 
+const PursuitGeometry := preload("res://scripts/ai/pursuit_geometry.gd")
+
 ## TacticalPlanner / BfmIntent 单元测试
 ##
 ## 调用方式：
@@ -33,6 +35,7 @@ static func run_all() -> bool:
 	test_tail_chase_in_range()
 	test_lead_turn_unaligned()
 	test_lead_pursuit_side()
+	test_shared_pursuit_geometry()
 	test_lag_pursuit_circling()
 	test_merge_pass_head_on()
 	test_wide_turn()
@@ -228,6 +231,44 @@ static func test_lead_pursuit_side() -> void:
 	})
 	var p := TacticalPlanner.plan(s)
 	_assert_eq("lead_pursuit.intent", TacticalPlan.Intent.LEAD_PURSUIT, p.intent)
+
+
+static func test_shared_pursuit_geometry() -> void:
+	var my_pos := Vector2(100.0, 50.0)
+	var target_pos := Vector2(900.0, -350.0)
+	var target_heading := deg_to_rad(35.0)
+	var target_speed := 180.0
+	var target_fwd := Vector2(sin(target_heading), -cos(target_heading))
+	var closing_speed := 420.0
+	var factor := 0.7
+	var prediction_s := my_pos.distance_to(target_pos) \
+			/ (closing_speed * CombatUnit.PIXELS_PER_METER)
+	var expected := target_pos + target_fwd \
+			* (target_speed * CombatUnit.PIXELS_PER_METER * prediction_s * factor)
+	_assert_true("pursuit_geometry.closing_time_preserves_formula",
+		PursuitGeometry.closing_time_lead_point(
+			my_pos, target_pos, target_heading, target_speed, closing_speed, factor
+		).is_equal_approx(expected))
+
+	var capped_expected := target_pos + target_fwd \
+			* (target_speed * CombatUnit.PIXELS_PER_METER * 0.5 * factor)
+	_assert_true("pursuit_geometry.prediction_cap",
+		PursuitGeometry.closing_time_lead_point(
+			my_pos, target_pos, target_heading, target_speed, closing_speed, factor, 0.5
+		).is_equal_approx(capped_expected))
+
+	var projectile_speed := 970.0
+	var projectile_px := maxf(projectile_speed * CombatUnit.PIXELS_PER_METER, 100.0)
+	var t1 := my_pos.distance_to(target_pos) / projectile_px
+	var first_lead := target_pos + target_fwd \
+			* (target_speed * CombatUnit.PIXELS_PER_METER * t1)
+	var t2 := my_pos.distance_to(first_lead) / projectile_px
+	var projectile_expected := target_pos + target_fwd \
+			* (target_speed * CombatUnit.PIXELS_PER_METER * t2)
+	_assert_true("pursuit_geometry.projectile_two_pass_preserves_formula",
+		PursuitGeometry.projectile_lead_point(
+			my_pos, target_pos, target_fwd, target_speed, projectile_speed
+		).is_equal_approx(projectile_expected))
 
 static func test_lag_pursuit_circling() -> void:
 	# 敌在玩家右侧绕圈（bank 75°），距离 1200m（清晰在 LAG 触发带 < gun_range × 3 = 3000m 内）

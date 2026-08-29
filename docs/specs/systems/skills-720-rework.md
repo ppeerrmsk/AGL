@@ -3,7 +3,7 @@ id: skills-720-rework
 kind: system
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 19
+spec_version: 20
 owner: 用户
 depends_on: [evolution-attribute-gates, afterburner-mode, active-special-maneuvers, inrun-weapon-inventory, command-wheel, zone-reward-docking]
 reconstruction_complete: true
@@ -306,9 +306,10 @@ reconstruction_complete: true
 |---|---|
 | 归属四字段文档 + 查询/谓词/池门控/ACE 白名单 | `scripts/survivor/survivor_data.gd`（UPGRADES 头注释、`upgrade_scope` `upgrade_classes` `milestone_plus_of` `upgrade_applies_to_machine` `is_upgrade_available_for(squad_classes)` `ACE_FIELD_STATS`） |
 | 品类身份映射（机种类→轴） | `scripts/survivor/evolution_system.gd`（`CLASS_IDENTITY_BY_CATEGORY` `class_identity_of_profile`） |
-| 归属分流 / 生效子集 meta / 王牌迁移 / 入队补挂 | `scripts/survivor/survivor_mode.gd`（`_distribute_upgrade` `_refresh_squad_effective_stacks` `_migrate_ace_field_upgrades` `_apply_build_to_new_member`，chokepoint `_set_player_aircraft`） |
+| 候选 / 归属 / 重放纯投影 | `scripts/survivor/survivor_skill_catalog.gd`（`normal_candidates` `candidates_by_axis` `effective_stacks_for_machine` `replay_layers_for_machine` `owned_replay_layers`） |
+| 归属执行 / 生效子集 meta / 王牌迁移 / 入队补挂 | `scripts/survivor/survivor_mode.gd`（`_distribute_upgrade` `_refresh_squad_effective_stacks` `_migrate_ace_field_upgrades` `_apply_build_to_new_member`，chokepoint `_set_player_aircraft`） |
 | +1 轴进度双计数（cap=2） | `scripts/survivor/survivor_player.gd`（`milestone_bonus` `add_milestone_bonus` `get_milestone_progress`）＋发放点 `survivor_mode._grant_milestone_plus` |
-| 定向应用 / 王牌剥离 | `scripts/survivor/survivor_player.gd`（`apply_upgrade_to` `strip_upgrade_from`） |
+| 定向应用 / 静态效果 / 王牌剥离 | `scripts/survivor/survivor_player.gd`（`apply_upgrade_to` `strip_upgrade_from`）→ `scripts/survivor/survivor_skill_effects.gd`（`apply`）；队级自动状态由 `survivor_skill_runtime.gd` 同步 |
 | 计数缩放四效 | `scripts/survivor/survivor_data.gd`（`recompute_axis_count_skills` `count_owned_by_axis`；极速计数已并入 `speed_up`）＋ `scripts/aircraft.gd` 四字段＋消费点（`get_radar_range` / CD 赋值点 / physics accessor） |
 | 僚机阵亡 / 弹尽 / 升级回复 / 奖励升级 | `scripts/survivor/survivor_mode.gd`（`_tick_squad_watch` `_on_squad_member_down` `_queue_bonus_upgrade` `_try_present_bonus_upgrade`）＋ `scripts/survivor/skill_hooks.gd`（`try_gun_reserve_mag` `in_free_missile_window`） |
 | AB 三技（检讨/强化加力/适应） | `scripts/survivor/afterburner_charge.gd`（`kill_charge_bonus` `duration_mult`）＋ `skill_hooks.gd`（`afterburner` 静态引用、dispatch_on_kill 适应段） |
@@ -324,6 +325,7 @@ reconstruction_complete: true
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-28 | 20 | 工程等价重构：普通随机候选、三轴分组、单机有效层与重放计划收口到纯 Catalog；队级自动状态独立 Runtime；静态效果显式接收目标飞机，删除临时换操控机引用与无数据使用的 `evolves_to` 残链。数值/归属/触发行为不变。 |
 | 2026-08-25 | 19 | 用户要求将今日全部技能改动装备测试：新增非 A-10 测试机 13 张/19 层同机满层共存验收，覆盖忠诚僚机实际生成、低空 QAAM 异常目标复合击杀，以及两张复仇卡并发触发；focused 350/350、全量 83 组 0 失败、lifecycle 80/80。 |
 | 2026-08-25 | 18 | 用户定稿“地表狂奔 + 空中战车”：保留机密一层地表狂奔，同时提供低空机炮闪避 +50% 与低空击杀后 8 秒无敌；移除 A-10 限定并删除旧 `skill_lowest_alt_kill_invul`，正式表 159→158。 |
 | 2026-08-25 | 17 | 用户定稿“激光散热 + 激光过载”：保留先进两层激光散热，每层同时提供散热效率 +40% 与过热阈值 +50%；删除旧 `laser_heat`，正式表 160→159。 |

@@ -3,7 +3,7 @@ id: wingman-escort-evasion
 kind: system
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 1
+spec_version: 4
 owner: ppeerrmsk
 depends_on: [rts-command, squad-cohesion, squad-ai-escort]
 reconstruction_complete: true
@@ -61,8 +61,8 @@ reconstruction_complete: true
 | `MissileEvasion` | `EVADE_MIN_CLOSING_MS` | 60 m/s | 判"僚机自己是否被真威胁追"（沿用现有威胁门）。 |
 | `MissileEvasion` | `EVADE_TTI_THRESHOLD` | 3.5 s | 同上。 |
 | `AircraftFlares` | `FLARE_MIN_CLOSING_MS` | 30 m/s | 判"长机是否即将被命中"（护卫触发用长机视角的 `player_flare_should_trigger`）。 |
-| `AircraftFlares` | `FLARE_TTI_THRESHOLD` | 1.5 s | 同上：护卫焰是末段救援，只对即将命中长机的导弹投。 |
-| `AircraftFlares` | `FLARE_MIN_DIST_M` | 300 m | 同上终端兜底。 |
+| `AircraftFlares` | `FLARE_TTI_THRESHOLD` | 1.0 s | 同上：护卫焰是末段救援，只对即将命中长机的导弹投。 |
+| `AircraftFlares` | `FLARE_MIN_DIST_M` | 200 m | 同上终端兜底。 |
 
 ## 3. 行为与公式（How）
 
@@ -111,7 +111,10 @@ reconstruction_complete: true
 
 ### 3.3 与既有 flare / 难度的关系
 
-- 护卫焰是**长机自卫焰之外的额外一层**：两层独立按概率 jam 同一枚导弹 → 提升长机末段存活率，但都受 `player_flare_should_trigger`（即将命中）门约束，不会对慢弹/远弹乱放。
+- 玩家飞机、直属僚机（`TEAM_PLAYER`）与友军 NPC 飞机（`TEAM_ALLY`）的自卫焰统一经过 `player_flare_should_trigger`；直属僚机的护卫焰也复用同一入口：先用 `Missile.is_incoming_warning_for` 确认导弹仍激活、仍有制导、未被干扰、目标匹配、阵营敌对且朝目标来袭，再叠加相对闭合速度与末段 TTI/距离门。已经失导、追错目标、同阵营、飞离或客观追不上的导弹都不得消耗热诱弹。
+- **加力窗口拥有防导弹优先权**：被保护的玩家或僚机 `is_afterburner_mode_active()` 为 true 时，自卫焰与替该机释放的护卫焰都暂缓；窗口结束后若威胁仍成立，统一判定会恢复投放。加力仍保留 90% 躲弹 / 10% 极限命中的既定风险，不为这 10% 预先浪费热诱弹。
+- `flare_ready` 只表示库存/CD/状态上的资源就绪，**不**把加力作为“不就绪”：这样僚机知道仍有末段兜底，不会在加力已经保护全队时额外脱队进入运动学规避；真正投放由上述统一触发门抑制。
+- 护卫焰是**长机自卫焰之外的额外一层**：窗口外两层独立按概率 jam 同一枚导弹 → 提升长机末段存活率，但都受同一“值得消耗”门约束。
 - 单弹单次 + 近度衰减 + 消耗僚机自身弹量三重约束，防止"N 架僚机轮流 jam 同一弹 = 长机无敌"。
 
 ## 4. 结构与组成（Structure）
@@ -128,6 +131,8 @@ reconstruction_complete: true
 - [ ] 玩家按 E、某僚机**自己被真威胁导弹咬住**时：该僚机照旧 `enter_evade` 加速规避逃命（行为与现状一致）。
 - [ ] 长机被即将命中的导弹追、附近（≤800m）有就绪僚机时：僚机投护卫焰（`ESCORT_FLARE` 日志），按 `escort_jam_chance` 概率把追长机的导弹 `is_flare_jammed`，长机威胁解除。
 - [ ] 长机自卫焰行为不变；玩家手控机（长机）的 evasion_mode 自卫机制（cobra/herbst/智能焰）零回归。
+- [ ] 玩家或僚机处于加力窗口时，即使命中窗口已近，自卫焰与护卫焰也不消耗；窗口退出后同一真实威胁恢复正常投放。
+- [ ] 已失去制导、目标不匹配、同阵营或不再朝目标飞行的导弹，不触发玩家/僚机自卫焰或护卫焰。
 - [ ] 难度防护：单枚导弹不会被同一僚机重复护卫；距长机 ~800m 边缘护卫概率趋近 0；护卫消耗僚机 flare 弹量。
 - [ ] 性能：跑生存模式 Sentinel + Lv5+ 压测，FPS 掉幅 < 15（见 [performance-guidelines](../../reference/performance-guidelines.md)）。
 - [ ] 已知 seam：检查 SEAM-011（长机相对量勿缓存成 AI 分频死点）——护卫触发读 leader 实时位置/导弹，勿缓存（见 [known-seams](../../architecture/known-seams.md)）。
@@ -150,11 +155,17 @@ reconstruction_complete: true
 - [ ] 验证（playtest）：长机被追、僚机在 800m 内 → 出 `ESCORT_FLARE` + 导弹被 jam；边缘距离概率趋零；单弹不重复。
 
 ### 阶段 3 — 收尾
-- [x] 护卫 bench（`--bench=escort`，`scripts/tests/test_escort_evasion.gd`）**24/24 通过**：jam 概率公式 / flare 就绪门 / 目标合格判定 / 「一次一架」全队裁决（含 CD 兜底·超界排除·平局决断）/ **端到端**（真实 missile_manager 扫描→裁决→投焰→消耗 flare→进 CD→单弹单次）/ **jam 应用率**（贴脸 3000 发 ≈ 0.69）。
-- [x] flare 单元 bench（`--bench=flare`）9/9 通过（既有威胁门未回归）；全项目编译干净。
+- [x] 护卫 bench（`--bench=escort`，`scripts/tests/test_escort_evasion.gd`）**29/29 通过**：jam 概率公式 / flare 就绪门 / 完整来袭资格 / 加力暂缓 / 「一次一架」全队裁决 / 真实扫描投焰 / jam 应用率。
+- [x] flare 单元 bench（`--bench=flare`）40/40 通过（含玩家与 TEAM_ALLY 自动投放、加力暂缓/退出恢复、失导/错目标/同阵营负例）；全项目编译干净。
 - [ ] 跑 Sentinel + Lv5+ 压测确认 60 FPS（playtest）。
 - [x] 同步 `script-index.md` / `code-index.md`；写 `docs/changelogs/` 当日记录 + `player-ai-log.md`。
 - [x] `_INDEX.md` 总表登记；本 spec `reconstruction_complete: true`，待 playtest 后转 `done`。
+
+### 阶段 4 — v4 智能资源保留
+- [x] 自卫与护卫统一复用导弹来袭警告真源，再叠加玩家阵营的相对闭合/TTI 门。
+- [x] 加力窗口内暂缓自卫焰与护卫焰；`flare_ready` 资源语义保持不变。
+- [x] focused（flare 40/40、escort 29/29）与 `all`（88 项 + lifecycle 82/82）回归通过。
+- [ ] 实机观感验收。
 
 ## 7. 索引锚点（Where —— 唯一允许放指针的地方）
 
@@ -174,3 +185,4 @@ reconstruction_complete: true
 | 2026-06-15 | 1 | 初稿（draft）：定义 escort_cover_active 解耦 + 护卫 flare 机制 + 三分支决策。待用户定稿。 |
 | 2026-06-16 | 2 | 用户定稿（护卫概率 0.70/范围 800m 采纳）→ 阶段 1+2 代码落地：解耦广播标志、三分支守卫（含召回编队）、废除 scatter-on-broadcast、`try_cover_flare`/`release_cover`。flare bench 9/9 通过、编译干净。剩 playtest（§5）转 done。 |
 | 2026-07-03 | 3 | B1 分层规避（用户定稿，见 planning/physics-ai-control-refactor.md §3）：全部 `enter_evade` 入口（含 §3.1 广播分支、ENGAGE/PATROL/SQUAD_FOLLOW）统一走 `should_enter_evade` 三层门——真威胁 + flare 可用 → 只扔 flare 不脱队；flare 不可用才运动学规避；躲弹期间命令铁律让位但有界（威胁消失立即恢复命令目标）。就绪门 `_escort_flare_ready` 改名 `flare_ready` 三方共用。验收：`--bench=cmd_evade` 23/23 + `--bench=escort` 24/24。 |
+| 2026-08-30 | 4 | 玩家、直属僚机与 TEAM_ALLY 友军的自卫热诱弹，以及僚机护卫热诱弹，统一使用完整来袭资格；失导、错目标、同阵营、飞离与追不上目标的导弹不再浪费资源。加力窗口接管防导弹时暂缓自动热诱弹，窗口结束后按同一规则恢复。同步修正现行末段阈值为 TTI 1.0s / 200m。 |

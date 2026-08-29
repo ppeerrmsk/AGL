@@ -140,11 +140,11 @@ func run() -> void:
 	hit_ac.params = AircraftParams.new()
 	hit_ac.hp = 100.0
 	# 普通闪避有 0.85 全局 cap，测试用加力窗口的合法 100% 通道获得确定性结果。
-	hit_ac.afterburner_window_active = true
+	hit_ac.set_afterburner_mode_active(true)
 	var dodged: bool = not hit_ac.take_bullet_damage(5.0)
 	_check("闪避弹不算真命中", dodged and is_equal_approx(hit_ac.hp, 100.0),
 			"applied=%s hp=%.0f" % [str(not dodged), hit_ac.hp])
-	hit_ac.afterburner_window_active = false
+	hit_ac.set_afterburner_mode_active(false)
 	var applied: bool = hit_ac.take_bullet_damage(5.0)
 	_check("未闪避弹返回已结算", applied and is_equal_approx(hit_ac.hp, 95.0),
 			"applied=%s hp=%.0f" % [str(applied), hit_ac.hp])

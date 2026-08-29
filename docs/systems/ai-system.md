@@ -3,8 +3,9 @@
 ## 概述
 
 `AIController`（`scripts/ai_controller.gd`）作为子节点附加到 Aircraft 上，通过状态机控制飞机行为。
-主体已拆成子模块：战术执行 `ai/bfm_tactics.gd`、导弹规避 `ai/missile_evasion.gd`、
-目标选择 `ai/target_selection.gd`、编队协同 `ai/squad_coordination.gd`、战术层 `ai/tactical/`。
+主体已拆成子模块：导弹规避 `ai/missile_evasion.gd`、目标选择 `ai/target_selection.gd`、
+编队协同 `ai/squad_coordination.gd`、高度剖面 `ai/ai_altitude_policy.gd`、追击点几何
+`ai/pursuit_geometry.gd`，以及统一战术层 `ai/tactical/`。
 
 > ⚠ 本文是**架构叙述**。具体数值 / 触发阈值以 [docs/specs/](../specs/_INDEX.md) 为准
 > （尤其 [global-awareness-roe](../specs/systems/global-awareness-roe.md) ·
@@ -74,26 +75,15 @@ enum AIState { PATROL, ENGAGE, SQUAD_FOLLOW }
 
 ---
 
-## 战术机动 (EngageTactic)
+## 战术机动（TacticalPlanner）
 
-基于 Shaw《Fighter Combat》的 BFM 决策树。
+全功能 AI 与玩家自动战术共用 `Situation → TacticalPlanner → TacticalPlan` 管线；
+`AIController` 只管理状态、目标和特殊覆盖，不再持有第二套 `EngageTactic` 执行器。
+低成本 `simple_ai` 保留独立的低频前置追踪路径。
 
-```gdscript
-enum EngageTactic {
-    LEAD_PURSUIT,    # 前置追踪：积极闭合
-    LAG_PURSUIT,     # 滞后追踪：保持后半球不冲过
-    LEAD_TURN,       # 提前转弯：迎头时抢角度
-    HIGH_YOYO,       # 高悠悠：拉高防冲过
-    LOW_YOYO,        # 低悠悠：俯冲加速闭合
-    BREAK_TURN,      # 急转：被咬尾时防御
-    EXTENSION,       # 加速脱离：拉开距离
-    SCISSORS,        # 剪刀机动：近距反复交叉
-    SNIPER_HOLD,     # 狙击稳瞄：减速 + 不取 lead，机头死锁目标当前位置
-}
-```
-
-`SNIPER_HOLD` 是机头对准型武器（电磁炮 / 激光）专用：AI 通过
-`prefer_nose_aligned_weapon = true` 启用，给装备稳定的锁定 + 充能窗口。
+`TacticalPlan.Intent` 覆盖巡航/航点、尾追闭合、前置/滞后追踪、对头穿越、宽转、
+脱离重整、俯冲攻击和导弹规避。电磁炮等机头对准武器由 `WeaponSelector` 竞选并输出
+`LINE_UP`，不再依赖 AIController 的武器专用战术开关。
 
 ### 战术决策逻辑（简化）
 
@@ -104,14 +94,13 @@ enum EngageTactic {
 ├── 是否在后半球/被咬尾
 └── 压力值/态势感知
 
-决策树:
-├── 被咬尾 + 能量差 → BREAK_TURN（急转防御）
-├── 近距离 + 速度快 → HIGH_YOYO（拉高防冲过）
-├── 远距离 + 能量不足 → LOW_YOYO（俯冲加速）
-├── 互相绕圈（Lufberry） → SCISSORS / EXTENSION（打破僵局）
-├── 后半球优势 → LAG_PURSUIT（滞后追踪）
-├── 迎头接近 → LEAD_TURN（提前转弯抢角度）
-└── 默认 → LEAD_PURSUIT（前置追踪）
+planner:
+├── 武器纪律先竞选（含 LINE_UP）
+├── 被咬尾/飞越目标 → EXTEND_RECOVER / BOOM_ZOOM_OUT
+├── 尾后优势 → TAIL_CHASE / CLOSE_TAIL
+├── 侧翼几何 → LEAD_PURSUIT / LAG_PURSUIT
+├── 迎头接近 → MERGE_PASS / LEAD_TURN
+└── 大角度修正 → WIDE_TURN
 ```
 
 ---
@@ -218,12 +207,11 @@ Adds 类还被 ROE 察觉体系整体排除——结果是敌方护卫机长期�
 
 ---
 
-## Lufberry 圆圈检测
+## 绕圈死锁治理
 
-检测两架飞机互相绕圈的僵局：
-- `_lufberry_timer` 累计互相绕圈时间
-- 超过阈值后选择 SCISSORS 或 EXTENSION 打破僵局
-- 脱出后有冷却期避免反复触发
+普通全功能 AI 由 `EngagementSpeedGovernor` 根据角速度需求与有效最大 G 反解速度上限，
+减少双方高速等角速度绕圈。特定王牌编队需要换手时，由各自队级战术模块处理；
+AIController 不再维护一套 Lufberry 计时器或剪刀机动状态。
 
 ---
 
@@ -238,33 +226,31 @@ Adds 类还被 ROE 察觉体系整体排除——结果是敌方护卫机长期�
 
 ## 状态机小结
 
-`ai_controller.gd` **三状态** + 9 战术机动 + 叠加式规避标志：
+`ai_controller.gd` **三状态** + TacticalPlanner intent + 叠加式规避标志：
 
 - **PATROL** — 航路点巡逻，周期性扫描
-- **ENGAGE** — BFM 决策树选择战术机动（9 种，见上）
+- **ENGAGE** — 全功能 AI 由 TacticalPlanner 决策 intent；simple AI 走低成本追击路径
 - **SQUAD_FOLLOW** — 编队跟随 + 掩护扫描（每 0.5s 扫长机后半球）
   - 子状态：`_rejoining`（归队）/ `_formation_react_timer`（阵型调整）/ `_squad_attacking_leader_target`（协同攻击）
 - **`_evading`** — 与状态正交的规避标志
 
-## TacticalPlanner（P4 重构，玩家 + 僚机 + 常规敌机走的统一决策路径）
+## TacticalPlanner（玩家 + 僚机 + 全功能敌机的统一决策路径）
 
 新设计核心：**决策（planner） / 执行（physics/weapons/combat_tracking）分离**。详见 [scripts/ai/tactical/](../../scripts/ai/tactical/) 4 文件。
 
-**接入方式**：`Aircraft.use_tactical_planner = true` → `_physics_process` 顶层调 `_run_tactical_planner_if_enabled()`：
+**接入方式**：全功能 AIController 会保证 `Aircraft.use_tactical_planner = true`，Aircraft
+`_physics_process` 顶层调 `_run_tactical_planner_if_enabled()`：
 1. `Situation.from_aircraft(self)` 抽快照
 2. `TacticalPlanner.plan(s, waypoint)` → 13 种 intent 之一
 3. `_apply_tactical_plan(plan)` 写入 `target_position` / `target_speed_kmh` / `is_afterburner` / `weapon_mode` / `is_firing` / `_gun_lead_heading`
 4. 后续 `update_weapon_mode` / `update_combat` / `update_energy_management` 全部检查 `use_tactical_planner` early-return
 
-**已迁移**：玩家 / 玩家僚机 / 全部常规战机（MIG / INTERCEPTOR / F86 / MIG23 / F100 / A7 / Q5 / MIG31 / SU27 / SU35 / F4 / F104 / FA18 等）
-
-**未迁移**（保留旧 BFMTactics 路径）：BOSS 王牌中队（特殊：BVR / Herbst / cloak / salvo，另有各自的队级战术模块）/ Adds（Tu-160 / AH-64 / CH-47，simple_ai）/ Sentinel（commander_aura buff）
+**统一路径**：玩家 / 玩家僚机 / 全部常规战机 / 王牌中队等全功能空战 AI。
+Adds、旋翼机、Sentinel 护卫等 `simple_ai` 不进 BFM 决策树，继续走 20Hz 低成本路径；
+这不是旧 planner 的兼容分支。旧 `BFMTactics` 执行器已于 2026-08-27 删除。
 
 ⚠ 已迁移机型的**准确清单**看 [enemy-index.md](../reference/enemy-index.md) 与代码，
 不要依赖本文的举例——敌人谱一直在扩。
-
-**主开关**：`SurvivorData.ENABLE_PLANNER_FOR_REGULAR_AI` —— **现已默认 `true`**
-（旧文档写"默认 false"是 P4 迁移期的状态，早已 flip）
 
 **13 种 intent**（按优先级）：EVADE_MISSILE / EXTEND_RECOVER（残余）/ CRUISE / WAYPOINT_MOVE / PASSIVE_AUTO_FIRE / GROUND_STRAFE / 5b: overshoot 触发 EXTEND / 5b: BOOM_ZOOM_OUT 触发 EXTEND / WIDE_TURN / MERGE_PASS / TAIL_CHASE / CLOSE_TAIL / LEAD_TURN / LAG_PURSUIT / LEAD_PURSUIT
 

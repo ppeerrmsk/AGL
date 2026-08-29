@@ -171,6 +171,10 @@ var aligned_content_width := BASE_CONTENT_W
 var _manual_flare_key_known := false
 var _manual_flare_key_visible := false
 var _manual_flare_key_flash_started_ms := -NEW_KEY_FLASH_MS
+var _afterburner_hint_flash_started_ms := -NEW_KEY_FLASH_MS
+var _flare_cooldown_was_active := false
+var _last_afterburner_hint_draw_phase := -2
+var afterburner_hint_time_override_ms := -1
 var weapon_animation_time_override_ms := -1
 var _special_weapon_rows: Array[Dictionary] = []
 var _altimeter_needle_degrees := ALT_GAUGE_MIN_DEGREES
@@ -214,6 +218,7 @@ func _ready() -> void:
 
 
 func update_display(ac: Aircraft, charge: AfterburnerCharge) -> void:
+	var aircraft_changed := aircraft != ac
 	var next_special_weapon_rows := special_weapon_rows(ac)
 	var special_weapon_count_changed := (
 		next_special_weapon_rows.size() != _special_weapon_rows.size())
@@ -221,7 +226,7 @@ func update_display(ac: Aircraft, charge: AfterburnerCharge) -> void:
 	if special_weapon_count_changed:
 		_configure_layout()
 	var next_manual_flare_key := manual_flare_key_visible(ac)
-	if aircraft != ac:
+	if aircraft_changed:
 		_reset_damage_flash_tracking(ac)
 		_manual_flare_key_known = true
 		_manual_flare_key_visible = next_manual_flare_key
@@ -234,6 +239,10 @@ func update_display(ac: Aircraft, charge: AfterburnerCharge) -> void:
 	_manual_flare_key_visible = next_manual_flare_key
 	aircraft = ac
 	afterburner_charge = charge
+	if aircraft_changed:
+		_reset_afterburner_hint_tracking(ac)
+	else:
+		_sync_afterburner_flare_hint()
 	if aircraft != null and is_instance_valid(aircraft) and not aircraft.is_destroyed \
 			and not _altimeter_needle_initialized:
 		_altimeter_needle_degrees = altimeter_target_degrees(
@@ -264,6 +273,7 @@ func update_status(in_cloud: bool, kills: int) -> void:
 func _process(delta: float) -> void:
 	_sync_aircraft_damage_event()
 	_update_damage_flash_redraw()
+	_sync_afterburner_flare_hint()
 	if kill_flash_active():
 		queue_redraw()
 	elif _kill_flash_started_ms >= 0:
@@ -626,7 +636,8 @@ func _draw_impl() -> void:
 		for row_index in range(_special_weapon_rows.size()):
 			_draw_module(special_weapon_row_rect(row_index), base_accent)
 	_draw_keycap_at("Q", keycap_left_of(alt_rect), base_accent)
-	_draw_keycap_at("E", keycap_left_of(ab_rect), base_accent)
+	_draw_keycap_at("E", keycap_left_of(ab_rect), base_accent,
+		afterburner_flare_hint_on())
 	_draw_keycap_at("G", keycap_left_of(engage_row_rect), base_accent)
 	_draw_keycap_at("F", keycap_left_of(fire_row_rect), base_accent)
 	_draw_keycap_at("T", keycap_left_of(weapon_title_rect), base_accent)
@@ -768,9 +779,58 @@ static func manual_flare_key_visible(ac: Aircraft) -> bool:
 func manual_flare_key_flash_on(now_ms: int = -1) -> bool:
 	if now_ms < 0:
 		now_ms = Time.get_ticks_msec()
-	var elapsed := now_ms - _manual_flare_key_flash_started_ms
-	return elapsed >= 0 and elapsed < NEW_KEY_FLASH_MS \
+	return key_flash_on(_manual_flare_key_flash_started_ms, now_ms)
+
+
+func afterburner_flare_hint_on(now_ms: int = -1) -> bool:
+	if now_ms < 0:
+		now_ms = _afterburner_hint_now_ms()
+	return _afterburner_hint_is_relevant() \
+		and key_flash_on(_afterburner_hint_flash_started_ms, now_ms)
+
+
+static func key_flash_on(started_ms: int, now_ms: int,
+		duration_ms: int = NEW_KEY_FLASH_MS) -> bool:
+	var elapsed := now_ms - started_ms
+	return elapsed >= 0 and elapsed < duration_ms \
 		and int(elapsed / BLINK_STEP_MS) % 2 == 0
+
+
+func _reset_afterburner_hint_tracking(ac: Aircraft) -> void:
+	_flare_cooldown_was_active = ac != null and is_instance_valid(ac) \
+		and not ac.is_destroyed and ac._flare_cooldown > 0.0
+	_afterburner_hint_flash_started_ms = -NEW_KEY_FLASH_MS
+	_last_afterburner_hint_draw_phase = -2
+
+
+func _sync_afterburner_flare_hint(now_ms: int = -1) -> void:
+	if now_ms < 0:
+		now_ms = _afterburner_hint_now_ms()
+	var cooldown_active := aircraft != null and is_instance_valid(aircraft) \
+		and not aircraft.is_destroyed and aircraft._flare_cooldown > 0.0
+	if cooldown_active and not _flare_cooldown_was_active and _afterburner_available():
+		_afterburner_hint_flash_started_ms = now_ms
+		_last_afterburner_hint_draw_phase = -2
+	_flare_cooldown_was_active = cooldown_active
+	if not _afterburner_hint_is_relevant():
+		_afterburner_hint_flash_started_ms = -NEW_KEY_FLASH_MS
+	var phase_now := 1 if afterburner_flare_hint_on(now_ms) else 0
+	if phase_now != _last_afterburner_hint_draw_phase:
+		_last_afterburner_hint_draw_phase = phase_now
+		queue_redraw()
+
+
+func _afterburner_available() -> bool:
+	return afterburner_charge != null and afterburner_charge.is_available()
+
+
+func _afterburner_hint_is_relevant() -> bool:
+	return _flare_cooldown_was_active and _afterburner_available()
+
+
+func _afterburner_hint_now_ms() -> int:
+	return afterburner_hint_time_override_ms \
+		if afterburner_hint_time_override_ms >= 0 else Time.get_ticks_msec()
 
 
 func _begin_manual_flare_key_flash() -> void:
@@ -1540,7 +1600,7 @@ static func special_weapon_rows(ac: Aircraft) -> Array[Dictionary]:
 			"name_key": "HUD_SP_TAIL_MINE",
 			"detail": "",
 			"state": "cooldown" if torpedo_remaining > 0.0 else (
-				"ready" if ac.evasion_mode else "standby"),
+				"ready" if ac.is_afterburner_mode_active() else "standby"),
 			"ready_ratio": cooldown_ready_ratio(torpedo_remaining, torpedo.cooldown)
 				if torpedo_remaining > 0.0 else 1.0,
 			"remaining_s": torpedo_remaining,
@@ -1550,7 +1610,7 @@ static func special_weapon_rows(ac: Aircraft) -> Array[Dictionary]:
 		var wingman: LoyalWingmanParams = ac.params.loyal_wingman
 		var wingman_remaining := maxf(ac._loyal_wingman_cooldown, 0.0)
 		var alive_drones := ac._alive_drones.size()
-		var wingman_state := "ready" if ac.evasion_mode else "standby"
+		var wingman_state := "ready" if ac.is_afterburner_mode_active() else "standby"
 		if alive_drones >= wingman.max_simultaneous:
 			wingman_state = "max"
 		elif wingman_remaining > 0.0:

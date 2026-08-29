@@ -279,3 +279,10 @@ MENU_META_SHOP_NAME,生涯商店,Career Shop,キャリアショップ
 MENU_META_SHOP_DESC,用功勋购买飞机与持久强化,Spend merit on aircraft and permanent perks,功績で機体と永続強化を購入
 PRELOAD_BUILDINGS_LABEL,正在载入地图与城市数据,Loading map and city data,マップと都市データを読み込み中
 PRELOAD_BUILDINGS_HINT,东京湾 / Tokyo Bay,Tokyo Bay,東京湾 / Tokyo Bay
+HUD_BRAKE_ACTIVE,减速中,BRAKING,減速中
+HUD_BRAKE_STEER_HINT,左右拖拽 // 调整机头,DRAG L/R // STEER NOSE,左右ドラッグ // 機首調整
+HUD_BRAKE_STEER_LEFT,左转,TURN LEFT,左旋回
+HUD_BRAKE_STEER_RIGHT,右转,TURN RIGHT,右旋回
+HUD_BRAKE_STALL_LOCK,失速 // 转向锁定,STALL // STEERING LOCK,失速 // 操舵ロック
+HUD_BRAKE_TELEMETRY_FMT,速度 %d km/h // 机炮弹药 %s // 射程 %dm,SPD %d km/h // GUN AMMO %s // RNG %dm,速度 %d km/h // 機関砲弾薬 %s // 射程 %dm
+HUD_BRAKE_TELEMETRY_NO_GUN_FMT,速度 %d km/h // 无机炮,SPD %d km/h // NO GUN,速度 %d km/h // 機関砲なし

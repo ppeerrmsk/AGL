@@ -13,6 +13,7 @@ func run() -> void:
 	_test_disabled_dump_is_empty()
 	_test_slow_frame_captures_buckets_events_and_load()
 	_test_slow_frame_keeps_pre_and_post_context()
+	_test_trace_reports_full_run_root_averages()
 	_test_runtime_panel_history_and_hotspots()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 
@@ -83,6 +84,23 @@ func _test_slow_frame_keeps_pre_and_post_context() -> void:
 	tracker.free()
 
 
+func _test_trace_reports_full_run_root_averages() -> void:
+	var tracker := PerfBucketsScript.new()
+	tracker.configure_frame_trace(true)
+	tracker.begin_render_frame(0.010)
+	tracker.tick("aircraft_phys", 1000)
+	tracker.tick("survivor_lod", 500)
+	tracker.begin_render_frame(0.010)
+	tracker.tick("aircraft_phys", 3000)
+	tracker.begin_render_frame(0.020)
+	var dump := tracker.format_frame_trace_dump()
+	_check("逐帧根桶输出全程均值而非最后一秒",
+		dump.contains("trace_roots frames=2 known_avg=2.250ms frame_avg=15.000ms")
+		and dump.contains("aircraft_phys=2.000ms@2/2")
+		and dump.contains("survivor_lod=0.250ms@1/2"), dump)
+	tracker.free()
+
+
 func _test_runtime_panel_history_and_hotspots() -> void:
 	var tracker := PerfBucketsScript.new()
 	tracker.configure_runtime_panel(true)
@@ -98,6 +116,9 @@ func _test_runtime_panel_history_and_hotspots() -> void:
 		str(stats))
 	tracker.tick("aircraft_phys", 4200)
 	tracker.tick("bullet_phys", 2100)
+	tracker.tick("survivor_cache", 300)
+	tracker.tick("survivor_lod", 200)
+	tracker.tick("survivor_spawner", 100)
 	tracker.count("skill_events", 3)
 	tracker.set_value("all_units.total", 57)
 	tracker.set_value("bullet_count", 80)
@@ -115,6 +136,7 @@ func _test_runtime_panel_history_and_hotspots() -> void:
 		and text.contains("运算根桶")
 		and text.contains("绘制CPU")
 		and text.contains("HUD CPU")
+		and text.contains("生存主循环  缓存 0.30  LOD 0.20  刷怪器 0.10 ms")
 		and text.contains("单位  total 57")
 		and text.contains("BOSS PHASE")
 		and text.contains("skill 3.0")

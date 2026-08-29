@@ -48,10 +48,13 @@ const RARITY_BASE_WEIGHT: Array[float] = [
 	0.02,   # NEXT_GEN
 ]
 
-## 4 级金卡软 pity（spec classified-card-pity）：自然三轴三卡每空一次，
+## 4 级金卡软 pity（spec classified-card-pity）：自然升级的本轮普通候选每空一次，
 ## 本批卡池降档后提高 miss 斜率以维持 10 分钟金卡总量；首轮权重不变。
 ## 倍率序列 ×1/×4.5/×8/×11.5…（spec classified-card-pity v2）。
 const CLASSIFIED_PITY_WEIGHT_PER_MISS: float = 3.5
+
+## 机体战术适配（spec airframe-affinity-fourth-card）：自然升级追加第四张普通轴卡的概率。
+const AIRFRAME_AFFINITY_OFFER_CHANCE: float = 0.15
 
 ## 状态词条构筑聚焦（spec status-build-completion）：只对已有通用终端的四条主构筑启用硬保底。
 const TERMINAL_BUILD_TAGS: Array[String] = ["overload", "bloodlust", "fear", "jam"]
@@ -61,9 +64,6 @@ const STATUS_UNRELATED_FLOOR: float = 0.65
 const TERMINAL_FIRST_WEIGHT_MULT: float = 2.0
 const TERMINAL_SECOND_WEIGHT_MULT: float = 4.0
 const TERMINAL_GUARANTEE_MISSES: int = 2
-
-## 机体专属第四槽：每机每局首次符合事件的出示概率（spec aircraft-signature-progression）。
-const SIGNATURE_OFFER_CHANCE: float = 0.30
 
 ## Pity 阈值：连续 N 次升级未出该档则下次保底必出
 ## advanced 不设 pity（base 25% 足够），exp/cla/next 强保底
@@ -84,7 +84,7 @@ const PITY_THRESHOLD: Dictionary = {
 #   rarity: Rarity 枚举（默认 STABLE）— §5 抽卡分槽 + UI 染色用
 #   keywords: Array[String] — §7 流派引导关键词（如 ["fear","head_on"]）；纯数值技能可不挂
 #   evolved: true = 进化技能，不出现在随机池中，由基础技能满级自动触发（§4 后已弃用）
-#   evolves_to: "xxx" = 满级后自动进化为指定技能（仍保留旧链）
+#   evolved: true = 仅由战区奖励等专门入口提供，不进普通随机池
 #   requires: 数组 — 飞机必须具备的硬件标签才能获得此升级
 #               可选值: "gun" / "missile" / "flare" / "rocket"
 #               例：["gun"] 表示无机炮的飞机不会出现该升级
@@ -547,13 +547,13 @@ const UPGRADES: Array[Dictionary] = [
 	# 这些技能的 id 与 SkillHooks 中的 SKILL_* 常量一一对应
 	# 实际效果由 SkillHooks.dispatch_on_kill / dispatch_on_hit 触发，stat 字段仅占位
 	# ══════════════════════════════════════════════════════════════
-	# ── §1.2 Evasion 模式扩展（直接写 evasion_modifiers，set_evasion_mode 切换时差量应用）──
+	# ── §1.2 加力模式扩展（历史 stat id 保留 evasion_ 前缀，窗口 accessor 统一消费）──
 	{
 		"id": "evasion_overstock",
 		"name": "UPGRADE_EVASION_OVERSTOCK_NAME",
 		"desc": "UPGRADE_EVASION_OVERSTOCK_DESC",
 		"stat": "evasion_overstock",
-		"value": 4.0,                ## evasion 期间每 4s 装填 1 发，cap = max_count×2
+		"value": 4.0,                ## 加力窗口每 4s 装填 1 发，cap = max_count×2
 		"max_stacks": 1,
 		"category": "missile",
 		"rarity": Rarity.CLASSIFIED,
@@ -672,18 +672,18 @@ const UPGRADES: Array[Dictionary] = [
 		"name": "UPGRADE_EVASION_SPEED_BOOST_NAME",
 		"desc": "UPGRADE_EVASION_SPEED_BOOST_DESC",
 		"stat": "evasion_speed_boost",
-		"value": 1.4,                ## evasion 模式 cruise ×1.4（≈ +40%）
+		"value": 1.4,                ## 加力模式顶速 ×1.4（+40%）
 		"max_stacks": 1,
 		"category": "mobility",
 		"rarity": Rarity.EXPERIMENTAL,
-		"keywords": ["evasion_mode", "speed"],
+		"keywords": ["afterburner", "speed"],
 	},
 	{
 		"id": "evasion_weapon_cd",
 		"name": "UPGRADE_EVASION_WEAPON_CD_NAME",
 		"desc": "UPGRADE_EVASION_WEAPON_CD_DESC",
 		"stat": "evasion_weapon_cd",
-		"value": 0.5,                ## evasion 模式 武器 cd ×0.5（更快）
+		"value": 0.5,                ## 加力模式武器 cd ×0.5（流速×2）
 		"max_stacks": 1,
 		"category": "mobility",
 		"rarity": Rarity.EXPERIMENTAL,
@@ -2324,7 +2324,8 @@ const CATEGORY_BONUSES: Array[Dictionary] = [
 	{
 		"category": "electronic_warfare",
 		"field": "category_radar_mult",   ## Aircraft 上的运行时倍率字段
-		"per_skill": 0.10,                ## 每持有 1 个该类技能 +10%
+		"per_skill": 0.03,                ## 每持有 1 个该类技能 +3%
+		"max_mult": 1.30,                 ## 防止类别联动把高阶雷达推到地图级范围
 	},
 ]
 
@@ -2393,7 +2394,10 @@ static func recompute_category_bonuses(aircraft: Aircraft, stacks: Dictionary) -
 		for uid in stacks.keys():
 			if int(stacks[uid]) > 0 and id_to_cat.get(uid, "") == cat:
 				count += 1
-		var mult := 1.0 + float(rule["per_skill"]) * float(count)
+		var mult := minf(
+			1.0 + float(rule["per_skill"]) * float(count),
+			float(rule.get("max_mult", INF))
+		)
 		aircraft.set(rule["field"], mult)
 	# 720 批 T4：按轴计数缩放四技（同一重算点，历战者/全速推进/电子战专家/武器大师）
 	recompute_axis_count_skills(aircraft, stacks)
@@ -2618,12 +2622,52 @@ static func classified_pity_weight_multiplier(misses: int) -> float:
 	return 1.0 + CLASSIFIED_PITY_WEIGHT_PER_MISS * float(maxi(misses, 0))
 
 
-## 普通三卡生成后的累计结算：见金即清零，没见金则 +1；NEXT_GEN 不算金卡。
+## 本轮 3～4 张普通卡生成后的累计结算：见金即清零，没见金则 +1；NEXT_GEN 不算金卡。
 static func classified_pity_next_misses(cards: Array, current_misses: int) -> int:
 	for card in cards:
 		if card is Dictionary and get_rarity(card) == Rarity.CLASSIFIED:
 			return 0
 	return maxi(current_misses, 0) + 1
+
+
+## 机体战术适配概率边界：roll == 0.15 不命中。
+static func airframe_affinity_offer_hit(roll: float) -> bool:
+	return roll >= 0.0 and roll < AIRFRAME_AFFINITY_OFFER_CHANCE
+
+
+## 从当前机体身份里等概率选择一条合法轴；去重并按 AXES 稳定排序，便于确定性验收。
+static func airframe_affinity_axis(identity: Array, roll: float) -> StringName:
+	var valid: Array[StringName] = []
+	for axis in AXES:
+		for raw_axis in identity:
+			if StringName(str(raw_axis)) == axis:
+				valid.append(axis)
+				break
+	if valid.is_empty():
+		return &""
+	var normalized_roll := clampf(roll, 0.0, 0.999999)
+	var index := mini(int(floor(normalized_roll * float(valid.size()))), valid.size() - 1)
+	return valid[index]
+
+
+## 第四槽候选去重；若基础卡已出现当前服务流派终端，则同轮不再追加同流派终端。
+static func airframe_affinity_candidates(
+		axis_pool: Array, shown_cards: Array, service_tag: String) -> Array:
+	var shown_ids: Dictionary = {}
+	var terminal_already_offered := false
+	for shown_card in shown_cards:
+		shown_ids[str(shown_card.get("id", ""))] = true
+		if service_tag != "" and is_terminal_for(shown_card, service_tag):
+			terminal_already_offered = true
+	var out: Array = []
+	for candidate in axis_pool:
+		if shown_ids.has(str(candidate.get("id", ""))):
+			continue
+		if terminal_already_offered and service_tag != "" \
+				and is_terminal_for(candidate, service_tag):
+			continue
+		out.append(candidate)
+	return out
 
 
 ## §7 流派引导：根据 owned_stacks 计算每个 keyword 的推荐倍率
@@ -2653,16 +2697,64 @@ static func compute_keyword_steering_weights(owned_stacks: Dictionary, level: in
 	return steering
 
 
-## 机型 → 专属升级 id。F-14 沿用既有“围猎”id，其余 42 架遵循 sig_<机型>。
+## 新增 T0 / 低位 T1 的专属技能效果由用户延期设计。
+## 这里返回的只是详情页占位，不进入 UPGRADES、商店、抽卡、Debug 或 apply。
+const SIGNATURE_PLACEHOLDERS: Dictionary = {
+	&"mig21f13": {
+		"id": "sig_mig21f13", "name": "AIRCRAFT_SIG_MIG21F13_NAME",
+		"desc": "AIRCRAFT_SIGNATURE_RESERVED_DESC", "placeholder": true,
+		"max_stacks": 1, "exclusive_to": ["mig21f13"],
+	},
+	&"f104c": {
+		"id": "sig_f104c", "name": "AIRCRAFT_SIG_F104C_NAME",
+		"desc": "AIRCRAFT_SIGNATURE_RESERVED_DESC", "placeholder": true,
+		"max_stacks": 1, "exclusive_to": ["f104c"],
+	},
+	&"j35f": {
+		"id": "sig_j35f", "name": "AIRCRAFT_SIG_J35F_NAME",
+		"desc": "AIRCRAFT_SIGNATURE_RESERVED_DESC", "placeholder": true,
+		"max_stacks": 1, "exclusive_to": ["j35f"],
+	},
+	&"ea6b": {
+		"id": "sig_ea6b", "name": "AIRCRAFT_SIG_EA6B_NAME",
+		"desc": "AIRCRAFT_SIGNATURE_RESERVED_DESC", "placeholder": true,
+		"max_stacks": 1, "exclusive_to": ["ea6b"],
+	},
+	&"mig23": {
+		"id": "sig_mig23", "name": "AIRCRAFT_SIG_MIG23_NAME",
+		"desc": "AIRCRAFT_SIGNATURE_RESERVED_DESC", "placeholder": true,
+		"max_stacks": 1, "exclusive_to": ["mig23"],
+	},
+	&"f4e": {
+		"id": "sig_f4e", "name": "AIRCRAFT_SIG_F4E_NAME",
+		"desc": "AIRCRAFT_SIGNATURE_RESERVED_DESC", "placeholder": true,
+		"max_stacks": 1, "exclusive_to": ["f4e"],
+	},
+	&"jaguar": {
+		"id": "sig_jaguar", "name": "AIRCRAFT_SIG_JAGUAR_NAME",
+		"desc": "AIRCRAFT_SIGNATURE_RESERVED_DESC", "placeholder": true,
+		"max_stacks": 1, "exclusive_to": ["jaguar"],
+	},
+}
+
+
+## 机型 → 专属升级 id。F-14 沿用既有“围猎”id，其余机型遵循 sig_<机型>。
 static func signature_upgrade_id_for_aircraft(aircraft_id: StringName) -> String:
 	return "f14_squad_lock_slow" if aircraft_id == &"f14" else "sig_%s" % String(aircraft_id)
 
 
 static func signature_upgrade_for_aircraft(aircraft_id: StringName) -> Dictionary:
-	return upgrade_by_id(signature_upgrade_id_for_aircraft(aircraft_id))
+	var implemented := upgrade_by_id(signature_upgrade_id_for_aircraft(aircraft_id))
+	if not implemented.is_empty():
+		return implemented
+	return SIGNATURE_PLACEHOLDERS.get(aircraft_id, {}).duplicate(true)
 
 
-## 是否机体签名技。普通池排除、第四槽、卡面与商店共用同一判别式。
+static func is_signature_placeholder(upgrade: Dictionary) -> bool:
+	return bool(upgrade.get("placeholder", false))
+
+
+## 是否机体签名技。普通池排除、机场二选一、详情卡与商店共用同一判别式。
 static func is_signature_upgrade(upgrade: Dictionary) -> bool:
 	var uid := str(upgrade.get("id", ""))
 	return uid.begins_with("sig_") or uid == "f14_squad_lock_slow"
@@ -2673,12 +2765,6 @@ static func is_signature_upgrade(upgrade: Dictionary) -> bool:
 static func is_normal_random_candidate(upgrade: Dictionary, allow_nextgen: bool = false) -> bool:
 	return not is_signature_upgrade(upgrade) \
 		and (allow_nextgen or get_rarity(upgrade) <= Rarity.CLASSIFIED)
-
-
-## 注入随机值的纯判定，供逐机本局状态机与 deterministic bench 共用。
-static func signature_offer_hit(roll: float) -> bool:
-	return roll >= 0.0 and roll < SIGNATURE_OFFER_CHANCE
-
 
 ## 取技能"流派权重倍率"——若技能挂多个 keyword，取最高 steering（鼓励同流派多归一）
 static func _keyword_weight_mult(upgrade: Dictionary, steering: Dictionary) -> float:
@@ -3546,13 +3632,6 @@ const LATE_GAME_MIN_TOKEN := 3
 ## 导弹一击必杀：敌机 HP 上限（低于最弱玩家导弹 80 伤害），Sentinel 除外
 const ENEMY_HP_MISSILE_CAP := 75.0
 
-## P4：所有空战飞机走 TacticalPlanner（与玩家相同的决策路径）
-## 2026-04-26 默认翻 true，迁移已覆盖：常规战机 9 种 + BOSS 中队 2 种 + 玩家僚机
-## 仍走旧路径：Adds（Tu-160/AH-64/CH-47, simple_ai）/ Schemer（Sentinel, enable_combat=false）
-## 这些类型不进 BFM 决策树，planner 对它们无意义
-## 沙盒模式（main.gd 入口）不读此开关，敌机继续旧 BFMTactics 路径以保留沙盒兼容
-const ENABLE_PLANNER_FOR_REGULAR_AI := true
-
 # ── 敌人武器等级（V1-V8）─────────────────────────────────
 # 仅作用于敌人。玩家武器不走 V_N（保持机型绑定 + 技能升级树强化）。
 # 详见 docs/changelogs/2026-05-04-enemy-weapon-tiers.md
@@ -3853,8 +3932,9 @@ static func pick_zone_enemy(pool: Array, budget: int, player_level: int) -> Dict
 static func enemy_scale_for_level(level: int) -> Dictionary:
 	return {
 		"hp_mult": 1.0 + (level - 1) * 0.15,
-		"missile_add": int(level / 4),
-		"gun_damage_mult": 1.0 + (level - 1) * 0.08,
+		# 武器强度由敌机档案和战区编成负责；等级只抬耐久，避免双重成长。
+		"missile_add": 0,
+		"gun_damage_mult": 1.0,
 	}
 
 ## UAV 敌人的属性缩放（较温和）

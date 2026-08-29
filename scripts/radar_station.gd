@@ -151,10 +151,12 @@ func _draw_datalink_range() -> void:
 
 func _status_label_lines(compact: bool) -> PackedStringArray:
 	var display_name: String = params.display_name if params else "RADAR"
-	var lines := PackedStringArray([display_name])
+	var lines := PackedStringArray([
+		AircraftRenderer.english_status_identity(display_name, "RADAR")])
 	if compact:
 		return lines
-	lines.append("HP %d" % roundi(hp))
+	lines.append(AircraftRenderer.status_hp_text(
+		hp, params.max_hp if params else hp))
 	var lock_time_val := params.lock_time if params else 3.0
 	var locked_count := 0
 	for key in radar_targets:
@@ -162,5 +164,5 @@ func _status_label_lines(compact: bool) -> PackedStringArray:
 			locked_count += 1
 	if locked_count > 0:
 		lines.append("TRK %d" % locked_count)
-	lines.append("DLINK")
+	lines.append("DATA LINK ACTIVE" if datalink_range > 0.0 else "DATA LINK OFFLINE")
 	return lines

@@ -81,6 +81,8 @@ static func apply(aircraft: Node, profile: PlayableAircraft, is_wingman: bool = 
 
 	# ── 机炮 ──
 	if p.gun:
+		if profile.gun_ammo_override > 0:
+			p.gun.max_ammo = profile.gun_ammo_override
 		if profile.gun_damage_mult != 1.0:
 			p.gun.bullet_damage *= profile.gun_damage_mult
 		if profile.gun_range_override > 0.0:

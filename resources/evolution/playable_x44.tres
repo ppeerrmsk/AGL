@@ -9,6 +9,7 @@ id = &"x44"
 display_name = "AIRCRAFT_X44_DISPLAY"
 codename = "Anvil"
 base_params = ExtResource("2")
+gun_ammo_override = 320
 gun_damage_mult = 1.6
 gun_range_override = 1500.0
 gun_cone_override = 11.0

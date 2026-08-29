@@ -154,7 +154,7 @@ func _test_sequence_durations() -> void:
 ## 错开动画的跨度不变式：dur ≥ elem_dur + stagger*(n-1)。
 ## 违反则最后一个元素的进度跑不满，会永久停在半透明——本项目已经踩过一次
 func _test_stagger_span_invariant(defs: Dictionary) -> void:
-	const PANEL_ELEMS := 5    ## 标题 + 最多 4 张卡（机体专属第四槽）
+	const PANEL_ELEMS := 5    ## 标题 + 最多 4 张普通轴卡；第四张由机体战术适配稀有追加
 	for seq_name in defs.keys():
 		if typeof(defs[seq_name]) != TYPE_DICTIONARY:
 			continue
@@ -767,6 +767,34 @@ func _test_compact_aircraft_labels() -> void:
 
 
 func _test_presentation_label_refinements() -> void:
+	_assert_true("status_text.heading_rounds_through_north_to_000",
+		AircraftRenderer.status_heading_text(deg_to_rad(359.6)) == "HDG 000")
+	_assert_true("status_text.heading_normalizes_negative_values",
+		AircraftRenderer.status_heading_text(deg_to_rad(-0.6)) == "HDG 359")
+	_assert_true("status_text.air_speed_uses_labeled_uppercase_knots",
+		AircraftRenderer.status_speed_knots_text(310.0) == "SPD 603 KT")
+	_assert_true("status_text.ground_speed_uses_kilometers_per_hour",
+		AircraftRenderer.status_ground_speed_text(5.0) == "SPD 18 KM/H")
+	_assert_true("status_text.altitude_is_numeric_and_motion_is_english",
+		AircraftRenderer.status_altitude_text(10000.0, -20.0)
+		== "ALT 10000 M DESCENT")
+	_assert_true("status_text.range_units_are_consistent",
+		AircraftRenderer.status_range_text(920.0) == "RNG 920 M"
+		and AircraftRenderer.status_range_text(1800.0) == "RNG 1.8 KM"
+		and AircraftRenderer.status_range_text(0.0, false) == "RNG ---")
+	_assert_true("status_text.non_english_identity_fails_closed",
+		AircraftRenderer.english_status_identity("57mm 火箭弹", "MISSILE") == "MISSILE")
+	var unarmed_ground := GroundUnit.new()
+	unarmed_ground.params = AircraftParams.new()
+	unarmed_ground.params.display_name = "STATIC TARGET"
+	unarmed_ground.params.max_hp = 75.0
+	unarmed_ground.hp = 50.0
+	var ground_lines := unarmed_ground._status_label_lines(false)
+	_assert_true("status_text.unarmed_ground_does_not_report_phantom_gun_ammo",
+		ground_lines == PackedStringArray([
+			"STATIC TARGET", "HP 50/75", "RNG ---"]))
+	unarmed_ground.params = null
+	unarmed_ground.free()
 	_assert_near("lock_box.ground_scale", AircraftRenderer.lock_box_altitude_scale_for(0.0), 0.55)
 	_assert_near("lock_box.low_scale", AircraftRenderer.lock_box_altitude_scale_for(2000.0), 0.70)
 	_assert_near("lock_box.mid_scale", AircraftRenderer.lock_box_altitude_scale_for(5500.0), 0.85)
@@ -798,6 +826,7 @@ func _test_presentation_label_refinements() -> void:
 	var player := Aircraft.new()
 	player.params = AircraftParams.new()
 	player.params.display_name = "F-14 Tomcat"
+	player.team = CombatUnit.TEAM_PLAYER
 	var profile := PlayableAircraft.new()
 	profile.codename = "Warhound"
 	SurvivorPlayableSetup.apply(player, profile)
@@ -806,6 +835,9 @@ func _test_presentation_label_refinements() -> void:
 		AircraftRenderer.airframe_identity_label(player) == "F-14")
 	_assert_true("label_name.战场标签完整保留呼号",
 		AircraftRenderer.controlled_identity_label(player) == "F-14 [Ultra]")
+	player.callsign = "Checkmate"
+	_assert_true("label_name.玩家僚机同样显示机型与完整呼号",
+		AircraftRenderer.controlled_identity_label(player) == "F-14 [Checkmate]")
 	_assert_true("label_name.单词机名后缀缩为首字母",
 		AircraftRenderer.compact_aircraft_name("F-15 Eagle") == "F-15 E")
 	_assert_true("label_name.多词机名后缀也只留一个首字母",

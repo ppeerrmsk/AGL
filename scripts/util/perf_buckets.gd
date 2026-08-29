@@ -30,7 +30,8 @@ const FRAME_TRACE_ROOT_BUCKETS := [
 	"aircraft_draw", "trail_draw", "ground_draw", "naval_draw", "bullet_draw",
 	"missile_draw", "missile_trail_draw", "hud_process", "hud_player_draw",
 	"hud_grid_draw", "hud_radar_draw", "hud_threat_draw", "event_log",
-	"audio_sfx_play", "radio_play", "spawn_enemy",
+	"audio_sfx_play", "radio_play", "survivor_cache", "survivor_lod",
+	"survivor_spawner",
 ]
 
 # ── 当前窗口累加 ──
@@ -78,6 +79,11 @@ var _trace_engine_sample_sum: Dictionary = {}
 var _trace_engine_sample_max: Dictionary = {}
 var _trace_engine_samples: int = 0
 var _trace_frame_deltas_ms := PackedFloat32Array()
+var _trace_root_total_us: Dictionary = {}
+var _trace_root_active_frames: Dictionary = {}
+var _trace_total_known_us: int = 0
+var _trace_total_frame_us: int = 0
+var _trace_completed_frames: int = 0
 var _trace_recent_frames: Array[Dictionary] = []
 var _trace_context_windows: Array[Dictionary] = []
 var _trace_active_context: Dictionary = {}
@@ -152,6 +158,14 @@ func configure_frame_trace(active: bool) -> void:
 	_trace_engine_sample_max.clear()
 	_trace_engine_samples = 0
 	_trace_frame_deltas_ms.clear()
+	_trace_root_total_us.clear()
+	_trace_root_active_frames.clear()
+	for root_name in FRAME_TRACE_ROOT_BUCKETS:
+		_trace_root_total_us[root_name] = 0
+		_trace_root_active_frames[root_name] = 0
+	_trace_total_known_us = 0
+	_trace_total_frame_us = 0
+	_trace_completed_frames = 0
 	_trace_recent_frames.clear()
 	_trace_context_windows.clear()
 	_trace_active_context.clear()
@@ -231,6 +245,23 @@ func mark_frame_event(name: String) -> void:
 
 func _finalize_trace_frame(delta: float, engine_snapshot: Dictionary) -> void:
 	var known_us := _trace_known_root_us()
+	_trace_completed_frames += 1
+	_trace_total_known_us += known_us
+	_trace_total_frame_us += roundi(delta * 1000000.0)
+	# 根桶在 trace 期间逐帧采集；这里形成全程口径，避免 bench 只用最后 1 秒
+	# 的 Perf Snapshot 判断热点。子桶仍只用于慢帧上下文和 sampled/full 深挖。
+	# 只扫本帧实际出现的桶；预填充的 root totals 同时充当 O(1) membership set。
+	# Visual trace 可达数万渲染帧，不能为监控本身每帧遍历完整根桶表。
+	for bucket_name in _trace_frame_us:
+		if not _trace_root_total_us.has(bucket_name):
+			continue
+		var root_us := int(_trace_frame_us.get(bucket_name, 0))
+		if root_us <= 0:
+			continue
+		_trace_root_total_us[bucket_name] = int(
+			_trace_root_total_us.get(bucket_name, 0)) + root_us
+		_trace_root_active_frames[bucket_name] = int(
+			_trace_root_active_frames.get(bucket_name, 0)) + 1
 	var frame_summary := {
 		"frame": _trace_frame_index,
 		"delta_ms": delta * 1000.0,
@@ -531,10 +562,13 @@ func format_detailed_hud_lines() -> Array[String]:
 		_bucket_ms("hud_process"), _bucket_ms("hud_player_draw"),
 		_bucket_ms("hud_grid_draw"), _bucket_ms("hud_radar_draw"),
 		_bucket_ms("hud_threat_draw")])
-	lines.append("系统CPU  舰载武器 %.2f  气氛 %.2f  音效 %.2f  无线电 %.2f  日志 %.2f  生成 %.2f ms" % [
+	lines.append("系统CPU  舰载武器 %.2f  气氛 %.2f  音效 %.2f  无线电 %.2f  日志 %.2f  单次生成 %.2f ms" % [
 		_bucket_ms("naval_weapons"), _bucket_ms("atmosphere_tick"),
 		_bucket_ms("audio_sfx_play"), _bucket_ms("radio_play"),
 		_bucket_ms("event_log"), _bucket_ms("spawn_enemy")])
+	lines.append("生存主循环  缓存 %.2f  LOD %.2f  刷怪器 %.2f ms" % [
+		_bucket_ms("survivor_cache"), _bucket_ms("survivor_lod"),
+		_bucket_ms("survivor_spawner")])
 
 	lines.append("单位  total %d | aircraft %d  naval %d  ground %d  mounts %d | BOSS %s | AI crowd %.2f div %d/%d" % [
 		int(_values.get("all_units.total", 0)), int(_values.get("all_units.aircraft", 0)),
@@ -660,6 +694,37 @@ func format_frame_trace_dump() -> String:
 		_trace_engine_samples, FRAME_TRACE_ENGINE_SAMPLE_STRIDE,
 		_format_trace_map(_trace_engine_baseline_avg(), 10),
 		_format_trace_map(_trace_engine_sample_max, 10)]
+	var known_avg_ms := 0.0
+	var frame_avg_ms := 0.0
+	var known_share_pct := 0.0
+	if _trace_completed_frames > 0:
+		known_avg_ms = float(_trace_total_known_us) / float(_trace_completed_frames) / 1000.0
+		frame_avg_ms = float(_trace_total_frame_us) / float(_trace_completed_frames) / 1000.0
+	if _trace_total_frame_us > 0:
+		known_share_pct = float(_trace_total_known_us) * 100.0 / float(_trace_total_frame_us)
+	s += "trace_roots frames=%d known_avg=%.3fms frame_avg=%.3fms known_share=%.1f%%\n" % [
+		_trace_completed_frames, known_avg_ms, frame_avg_ms, known_share_pct]
+	var root_entries: Array[Dictionary] = []
+	for root_name in _trace_root_total_us:
+		if int(_trace_root_total_us[root_name]) <= 0:
+			continue
+		root_entries.append({
+			"name": String(root_name),
+			"value": int(_trace_root_total_us[root_name]),
+		})
+	root_entries.sort_custom(_sort_trace_entry_desc)
+	var root_parts := PackedStringArray()
+	for root_index in range(mini(root_entries.size(), FRAME_TRACE_ROOT_BUCKETS.size())):
+		var root_entry: Dictionary = root_entries[root_index]
+		var root_name := String(root_entry["name"])
+		var root_avg_ms := float(root_entry["value"]) \
+			/ float(maxi(_trace_completed_frames, 1)) / 1000.0
+		root_parts.append("%s=%.3fms@%d/%d" % [
+			root_name, root_avg_ms,
+			int(_trace_root_active_frames.get(root_name, 0)),
+			_trace_completed_frames])
+	s += "trace_root_avg: %s\n" % (
+		" | ".join(root_parts) if not root_parts.is_empty() else "none")
 	var ranked: Array[Dictionary] = _trace_spikes.duplicate()
 	ranked.sort_custom(_sort_spike_desc)
 	var class_counts: Dictionary = {}
