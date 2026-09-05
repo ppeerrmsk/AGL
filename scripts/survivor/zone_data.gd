@@ -261,6 +261,9 @@ const RUN_GUARANTEED_REWARD_KINDS: Array[String] = ["weapon", "nextgen"]
 var _guaranteed_reward_kinds: Array[String] = []
 var _difficulties: Dictionary = {}            ## id → int (DIFFICULTY_MIN..DIFFICULTY_MAX)
 var _mission_types: Dictionary = {}            ## id → String（运行时 mission_type，覆盖 ZONES 默认）
+## 当前地图的战区定义副本。默认与海岸线 ZONES 完全一致；其它正式地图只覆盖地理字段，
+## 保留稳定 id 与通用机场解放生命周期，避免把海岸线地名/坐标泄漏到别的地图。
+var _zone_definitions: Array[Dictionary] = []
 ## 标记哪些战区是"新开放"的（最近一轮 refresh 打开的），便于 UI 再次提示玩家
 var _newly_opened: Array[StringName] = []
 const INITIAL_REWARD_UNLOCK_TIME_S := 60.0
@@ -271,6 +274,8 @@ var _initial_reward_zones_released := false
 
 func _init(reward_context: Callable = Callable(), schedule_optional_missions: bool = true,
 		defer_initial_zones: bool = false) -> void:
+	for zone in ZONES:
+		_zone_definitions.append(zone.duplicate(true))
 	nextgen_context = reward_context
 	_guaranteed_reward_kinds.assign(RUN_GUARANTEED_REWARD_KINDS)
 	_guaranteed_reward_kinds.shuffle()  # A/B 每局换位，避免固定“一区必武器、二区必技能”
@@ -373,12 +378,39 @@ func liberate_airfield(id: StringName) -> void:
 
 ## 查找战区数据（不含 Boss）
 func get_zone_by_id(id: StringName) -> Dictionary:
-	for z in ZONES:
+	for z in _zone_definitions:
 		if z["id"] == id:
 			return z
 	if boss_zone["id"] == id:
 		return boss_zone
 	return {}
+
+## 将 MapDocument.zones 中与稳定 id 匹配的条目覆盖到当前局副本。
+## 只改变本局实例，不污染海岸线常量，也不改变存档/统计使用的 AF_* id。
+func apply_map_zone_overrides(overrides: Array) -> void:
+	for raw_override in overrides:
+		if not raw_override is Dictionary:
+			continue
+		var override: Dictionary = raw_override
+		var id := StringName(String(override.get("id", "")))
+		if id == &"":
+			continue
+		for index in range(_zone_definitions.size()):
+			if _zone_definitions[index].get("id", &"") != id:
+				continue
+			var resolved: Dictionary = _zone_definitions[index].duplicate(true)
+			for key in override:
+				resolved[key] = override[key]
+			var center_data = resolved.get("center", Vector2.INF)
+			if center_data is Array and center_data.size() >= 2:
+				resolved["center"] = Vector2(float(center_data[0]), float(center_data[1]))
+			if resolved.get("center", Vector2.INF) is Vector2 \
+					and (resolved["center"] as Vector2).is_finite():
+				_zone_definitions[index] = resolved
+			break
+
+func get_zone_definitions() -> Array[Dictionary]:
+	return _zone_definitions
 
 ## 战区运行时圆心。护送等移动任务由任务控制器持续写入；无覆盖时返回静态圆心。
 func get_zone_center(id: StringName) -> Vector2:
@@ -503,7 +535,7 @@ func finalize_boss_placement() -> void:
 ## 把所有 AVAILABLE 状态的战区压回 LOCKED，except_id 保留不动（玩家正在打的）
 ## 用途：10 分钟战区阶段结束时调用，让 BOSS 阶段视野干净
 func lock_all_open_zones_except(except_id: StringName) -> void:
-	for z in ZONES:
+	for z in _zone_definitions:
 		var zid: StringName = z["id"]
 		if zid == except_id:
 			continue
@@ -588,7 +620,7 @@ func _refresh_availability_after_resolution() -> void:
 	# 而不只是无差别随机（早期 LOCKED 数量远多于 CLEARED 时几乎抽不到）
 	var pool: Array[StringName] = []
 	var weights: Array[float] = []
-	for z in ZONES:
+	for z in _zone_definitions:
 		var zid: StringName = z["id"]
 		if zid == _last_resolved:
 			continue
@@ -809,7 +841,7 @@ static func category_hint_key(category: StringName) -> String:
 ## 尤其航母）。CLEARED 战区的 reward 已在 mark_cleared 时 erase → 不算占用。
 func _active_reward_ids(exclude_id: StringName) -> Dictionary:
 	var used: Dictionary = {}
-	for z in ZONES:
+	for z in _zone_definitions:
 		var zid: StringName = z["id"]
 		if zid == exclude_id:
 			continue

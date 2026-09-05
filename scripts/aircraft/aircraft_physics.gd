@@ -56,13 +56,15 @@ static var PD_KD_MAX: float = 1.60       ## kd 上限（极慢滚转机防过阻
 static var TURN_RATE_FILT_ALPHA: float = 0.30  ## D 项转速低通系数：协调转弯下 ω 几乎一帧跟上指令，
                                           ## 直接反馈裸 ω 会形成单帧代数环(−kd)^n 交替抖；低通到 ~3 帧时间常数即破环
                                           ## 又保留真实滚出时标(~0.2~0.4s)的阻尼。是 PD 跨"近瞬时执行器"稳定的关键。
-# LOS 前馈：理论上尾追转弯目标(e≈0 仍需稳态转速)需要它，但无头扫参实测在离散物理 +
-# AI 分频跳变参考下恒为害（前馈在参考跳变时尖刺过冲，得不偿失），故默认 0 关闭。
-# 保留管线，待将来有抗跳变的 LOS 估计再启用。残留的是同向 bank 幅度"呼吸"，非用户关心的大坡反转。
-static var PD_LOS_FF: float = 0.0         ## 目标 LOS 角速度前馈系数（默认 0 关闭，见上）
+# LOS 前馈：尾追转弯目标在 e≈0 时仍需稳态转速。解析系数 (1+kd) 抵消 D 项对必要
+# 转速的扣减；LOS 变化率限制 + 小角目标航向参考低通共同吸收 AI 分频 lead 台阶。
+static var PD_LOS_FF: float = 1.0         ## 解析 LOS 前馈倍率；1.0 对应 (1+kd)×LOS rate 的稳态解
 static var PD_LOS_RATE_CAP: float = 0.45  ## LOS 角速度前馈封顶（rad/s）：喂入前馈的合法 LOS 上限
-static var PD_LOS_FILT_ALPHA: float = 0.08  ## LOS 角速度专用慢低通
+static var PD_LOS_FILT_ALPHA: float = 0.10 ## LOS 角速度专用低通；覆盖 3/6 帧分频参考的脉冲周期
 static var PD_LOS_SANE_CAP: float = 1.0   ## LOS 异常剔除阈值（rad/s）：超过此值视为参考跳变尖刺(瞬移/AI 分频重指 lead 点)，丢弃不喂前馈滤波
+static var PD_LOS_ACCEL_CAP: float = 0.5  ## LOS 前馈变化率上限（rad/s²）：吸收未越过 sane cap 的 AI 分频 lead 点台阶
+static var PD_HEADING_REF_ALPHA: float = 0.15 ## 小角目标航向参考低通：约 7 帧收敛，吸收 AI 3/6 帧 lead 台阶
+static var PD_HEADING_REF_SNAP_RAD: float = 0.35 ## ≥20° 视为新机动命令，立即接管，不牺牲大角转向响应
 
 # ── 冲击吸收 ──
 const SHOCK_ABSORB_RATE: float = 1.0      ## HP/秒回复速率（慢，强调"逐渐恢复"而非"立即抵消"）
@@ -116,6 +118,16 @@ static func _resolve_turn_lock_state(heading_diff: float, committed_turn_sign: f
 	elif absf(heading_diff) < 1.5:
 		committed_turn_sign = 0.0
 	return Vector2(heading_diff, committed_turn_sign)
+
+
+## 目标航向参考整形：小角 lead/航点台阶低通，大角新命令直接接管。
+## 角度差走最短弧并归一化，供实飞与预测线共用，避免两条路径重新分叉。
+static func _filter_heading_reference(current: float, target: float) -> float:
+	if is_nan(current) \
+			or absf(Aircraft._angle_diff(target, current)) >= PD_HEADING_REF_SNAP_RAD:
+		return target
+	var step := Aircraft._angle_diff(target, current) * PD_HEADING_REF_ALPHA
+	return fmod(current + step + PI, TAU) - PI
 
 
 ## 基础结构 G 坡度帽 + plan 坡度帽 + 低激进度持续 G 坡度帽。
@@ -219,7 +231,13 @@ static func update_bank(ac: Aircraft, delta: float) -> void:
 		ac.bank_angle = 0.0
 		return
 
-	var heading_diff := Aircraft._angle_diff(ac._cached_target_heading, ac.heading)
+	if ac.target_position != Vector2.INF:
+		ac._heading_ref_pd = _filter_heading_reference(
+			ac._heading_ref_pd, ac._cached_target_heading)
+	else:
+		ac._heading_ref_pd = NAN
+	var heading_diff := Aircraft._angle_diff(ac._heading_ref_pd, ac.heading) \
+			if not is_nan(ac._heading_ref_pd) else 0.0
 
 	if ac.target_position == Vector2.INF:
 		heading_diff = 0.0
@@ -250,8 +268,7 @@ static func update_bank(ac: Aircraft, delta: float) -> void:
 	ac._turn_rate_filt = lerpf(ac._turn_rate_filt, current_turn_rate, TURN_RATE_FILT_ALPHA)
 	var damp_turn_rate: float = ac._turn_rate_filt
 
-	# 目标 LOS 角速度（前馈项）：追转弯目标时补偿稳态转速。
-	# 默认 PD_LOS_FF=0（前馈关闭，见常量注释）→ 跳过整段计算，零成本
+	# 目标 LOS 角速度（前馈项）：追转弯目标时补偿稳态转速；变化率限制吸收分频尖峰。
 	var ff_los: float = 0.0
 	if PD_LOS_FF != 0.0:
 		if ac.target_position != Vector2.INF:
@@ -259,7 +276,10 @@ static func update_bank(ac: Aircraft, delta: float) -> void:
 				var raw: float = Aircraft._angle_diff(ac._cached_target_heading, ac._prev_tgt_heading_pd) / maxf(delta, 0.0001)
 				# 异常剔除：瞬移/AI 分频重指 lead 点产生的 LOS 尖刺远超物理转速 → 丢弃，保持上次滤波值（防前馈过冲）
 				if absf(raw) <= PD_LOS_SANE_CAP:
-					ac._los_rate_filt = lerpf(ac._los_rate_filt, clampf(raw, -PD_LOS_RATE_CAP, PD_LOS_RATE_CAP), PD_LOS_FILT_ALPHA)
+					var candidate := clampf(raw, -PD_LOS_RATE_CAP, PD_LOS_RATE_CAP)
+					var slewed := move_toward(
+						ac._los_rate_filt, candidate, PD_LOS_ACCEL_CAP * delta)
+					ac._los_rate_filt = lerpf(ac._los_rate_filt, slewed, PD_LOS_FILT_ALPHA)
 			ac._prev_tgt_heading_pd = ac._cached_target_heading
 		else:
 			ac._prev_tgt_heading_pd = NAN
@@ -884,14 +904,16 @@ static func compute_target_bank(
 		dz = maxf(dz, 0.05)
 		prox = proximity_damping
 
-	# P 项死区：航向误差很小就不再压坡（防微抖）；D 阻尼项始终生效 → 残余转速被吸收滚平。
-	var e: float = heading_diff if absf(heading_diff) >= dz else 0.0
+	# P 项连续死区：越过 dz 后从 0 连续长出，不能把完整误差一步灌回控制器。
+	# 旧式“区内=0、区外=原误差”会在 AI 分频目标跨过边界时制造约 1° 的误差台阶；
+	# 高速下经 bank=atan(ω·v/g) 放大成几十度坡度命令，正是同向滚转/G 抽搐的触发器。
+	var e: float = signf(heading_diff) * maxf(absf(heading_diff) - dz, 0.0)
 	var target_turn_rate: float = kp * kp_scale * e - kd * current_turn_rate
-	# LOS 前馈（默认 PD_LOS_FF=0 关闭，见常量注释 —— 实测各种形态均为害，保留管线待将来）：
-	# 仅"尾追对准"(误差小)时投入，门控 1@对准→0@大误差，避免硬转/跳变时过冲
+	# LOS 前馈只在“尾追对准”时投入；(1+kd) 是稳态解析系数，使 e→0 时
+	# ω = -kd·ω + (1+kd)·LOS_rate 仍能收敛到目标 LOS 转速。
 	if PD_LOS_FF != 0.0:
 		var ff_gate: float = 1.0 - smoothstep(0.08, 0.35, absf(heading_diff))
-		target_turn_rate += PD_LOS_FF * los_rate * cap_frac * ff_gate
+		target_turn_rate += PD_LOS_FF * (1.0 + kd) * los_rate * cap_frac * ff_gate
 	# 协调转弯反推坡度：bank = atan(ω · v / g)
 	var bank_cmd: float = atan(target_turn_rate * speed / CombatUnit.GRAVITY)
 	var cap: float = max_bank * cap_frac
@@ -1426,7 +1448,13 @@ static func step_bank(st: FlightState, delta: float) -> void:
 		st.bank_angle = 0.0
 		return
 
-	var heading_diff := Aircraft._angle_diff(st.cached_target_heading, st.heading)
+	if st.target_position != Vector2.INF:
+		st.heading_ref_pd = _filter_heading_reference(
+			st.heading_ref_pd, st.cached_target_heading)
+	else:
+		st.heading_ref_pd = NAN
+	var heading_diff := Aircraft._angle_diff(st.heading_ref_pd, st.heading) \
+			if not is_nan(st.heading_ref_pd) else 0.0
 
 	if st.target_position == Vector2.INF:
 		heading_diff = 0.0
@@ -1456,14 +1484,17 @@ static func step_bank(st: FlightState, delta: float) -> void:
 	st.turn_rate_filt = lerpf(st.turn_rate_filt, current_turn_rate, TURN_RATE_FILT_ALPHA)
 	var damp_turn_rate: float = st.turn_rate_filt
 
-	# 目标 LOS 角速度前馈（与 update_bank 同源）；默认关闭则跳过，零成本
+	# 目标 LOS 角速度前馈（与 update_bank 同源）
 	var ff_los: float = 0.0
 	if PD_LOS_FF != 0.0:
 		if st.target_position != Vector2.INF:
 			if not is_nan(st.prev_tgt_heading_pd):
 				var raw: float = Aircraft._angle_diff(st.cached_target_heading, st.prev_tgt_heading_pd) / maxf(delta, 0.0001)
 				if absf(raw) <= PD_LOS_SANE_CAP:
-					st.los_rate_filt = lerpf(st.los_rate_filt, clampf(raw, -PD_LOS_RATE_CAP, PD_LOS_RATE_CAP), PD_LOS_FILT_ALPHA)
+					var candidate := clampf(raw, -PD_LOS_RATE_CAP, PD_LOS_RATE_CAP)
+					var slewed := move_toward(
+						st.los_rate_filt, candidate, PD_LOS_ACCEL_CAP * delta)
+					st.los_rate_filt = lerpf(st.los_rate_filt, slewed, PD_LOS_FILT_ALPHA)
 			st.prev_tgt_heading_pd = st.cached_target_heading
 		else:
 			st.prev_tgt_heading_pd = NAN

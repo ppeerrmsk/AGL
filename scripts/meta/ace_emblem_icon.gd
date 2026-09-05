@@ -99,6 +99,71 @@ func _draw() -> void:
 				]), col, w)
 				var hook_center := tip - outward * r * 0.08 + sideways * r * 0.10
 				draw_arc(hook_center, r * 0.16, a - PI * 0.15, a + PI * 0.85, 8, col, w)
+		"moirai":
+			# 三命运女神：三角三点 + 中央断线。
+			var pts := PackedVector2Array([c + Vector2(0, -r), c + Vector2(r * 0.86, r * 0.55), c + Vector2(-r * 0.86, r * 0.55), c + Vector2(0, -r)])
+			draw_polyline(pts, col, w)
+			for p in pts.slice(0, 3): draw_circle(p, r * 0.10, col)
+			draw_line(c + Vector2(-r * 0.3, 0), c + Vector2(r * 0.3, 0), col, w)
+		"lash":
+			# 鞭梢：四段折线由粗至尖。
+			draw_polyline(PackedVector2Array([c + Vector2(-r, r * 0.55), c + Vector2(-r * 0.4, -r * 0.5), c + Vector2(r * 0.15, r * 0.3), c + Vector2(r, -r * 0.65)]), col, w)
+			draw_circle(c + Vector2(-r, r * 0.55), r * 0.16, col)
+		"ido":
+			# 分布式网络：中央核心连接四节点。
+			draw_circle(c, r * 0.18, col)
+			for d in [Vector2.UP, Vector2.RIGHT, Vector2.DOWN, Vector2.LEFT]:
+				draw_line(c + d * r * 0.2, c + d * r * 0.78, col, w)
+				draw_circle(c + d * r * 0.86, r * 0.11, col)
+		"undertow":
+			_draw_wave(c - Vector2(0, r * 0.35), r * 0.85, r * 0.24, col, w)
+			_draw_wave(c, r * 0.70, r * 0.24, col, w)
+			_draw_wave(c + Vector2(0, r * 0.35), r * 0.55, r * 0.24, col, w)
+		"croupier":
+			var card := PackedVector2Array([c + Vector2(0, -r), c + Vector2(r * 0.68, 0), c + Vector2(0, r), c + Vector2(-r * 0.68, 0), c + Vector2(0, -r)])
+			draw_polyline(card, col, w)
+			draw_circle(c, r * 0.14, col)
+		"tallyman":
+			for i in range(4):
+				var x := c.x - r * 0.65 + float(i) * r * 0.4
+				draw_line(Vector2(x, c.y - r * 0.75), Vector2(x, c.y + r * 0.75), col, w)
+			draw_line(c + Vector2(-r * 0.85, r * 0.55), c + Vector2(r * 0.85, -r * 0.55), col, w)
+		"palimpsest":
+			for i in range(4):
+				var y := c.y - r * 0.65 + float(i) * r * 0.42
+				draw_line(Vector2(c.x - r * (0.85 - i * 0.12), y), Vector2(c.x + r * (0.85 - i * 0.12), y), col, w)
+		"quorum":
+			for a in [-PI * 0.5, PI * 0.166, PI * 0.834]:
+				var p := c + Vector2(cos(a), sin(a)) * r * 0.62
+				draw_circle(p, r * 0.20, col, false, w)
+				draw_line(c, p, col, w * 0.7)
+		"deadeye":
+			draw_arc(c, r * 0.72, 0, TAU, 24, col, w)
+			draw_circle(c, r * 0.12, col)
+			draw_line(c + Vector2(-r, 0), c + Vector2(r, 0), col, w * 0.65)
+			draw_line(c + Vector2(0, -r), c + Vector2(0, r), col, w * 0.65)
+		"mirror":
+			draw_polyline(PackedVector2Array([c + Vector2(-r, -r * 0.7), c + Vector2(-r * 0.25, 0), c + Vector2(-r, r * 0.7)]), col, w)
+			draw_polyline(PackedVector2Array([c + Vector2(r, -r * 0.7), c + Vector2(r * 0.25, 0), c + Vector2(r, r * 0.7)]), col, w)
+		"funeral":
+			draw_arc(c + Vector2(0, -r * 0.05), r * 0.62, PI, TAU, 16, col, w)
+			draw_line(c + Vector2(-r * 0.62, -r * 0.05), c + Vector2(-r * 0.62, r * 0.55), col, w)
+			draw_line(c + Vector2(r * 0.62, -r * 0.05), c + Vector2(r * 0.62, r * 0.55), col, w)
+			draw_line(c + Vector2(-r * 0.8, r * 0.55), c + Vector2(r * 0.8, r * 0.55), col, w)
+			draw_circle(c + Vector2(0, r * 0.72), r * 0.11, col)
+		"hound":
+			# 对称猎犬獠牙：双机仍在时读作夹击，单看任一半也保持尖锐威胁。
+			draw_polyline(PackedVector2Array([
+				c + Vector2(-r * 0.9, -r * 0.55),
+				c + Vector2(-r * 0.35, r * 0.75),
+				c + Vector2(0, r * 0.15),
+			]), col, w)
+			draw_polyline(PackedVector2Array([
+				c + Vector2(r * 0.9, -r * 0.55),
+				c + Vector2(r * 0.35, r * 0.75),
+				c + Vector2(0, r * 0.15),
+			]), col, w)
+			draw_circle(c + Vector2(0, -r * 0.25), r * 0.10, col)
 		_:
 			draw_arc(c, r * 0.7, 0.0, TAU, 24, col, w)
 

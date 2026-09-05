@@ -3,7 +3,7 @@ id: aircraft-top-view-silhouettes
 kind: system
 status: done
 schema_version: 1
-spec_version: 9
+spec_version: 11
 owner: AGL
 depends_on: [systems/battlefield-visual-scale]
 reconstruction_complete: true
@@ -33,6 +33,9 @@ reconstruction_complete: true
 | 背景 | alpha = 0 |
 | 内容 | 仅机体顶视外轮廓；来源明确标注的外挂或辅助线可剔除 |
 | 运行时颜色 | `icon_color`；若 `wing_color.a > 0.01` 则使用 `wing_color` |
+
+`icon_color/wing_color` 是机体涂装唯一权威源，与阵营、当前操控权及战术 UI 配色解耦。
+出生、进化、僚机复制、切控和阵营切换均不得为了标识阵营而改写这两个字段；阵营必须由尾迹、状态栏、雷达与指令线各自的语义色表达。
 
 允许的加工只有：裁切、剔除明确标注的武器/辅助线、旋转、等比缩放、居中和抗锯齿。禁止补画或改造飞机几何。
 
@@ -95,6 +98,7 @@ MiG-21F-13、J 35F Draken、EA-6B Prowler 与 Jaguar GR.1A 各用独立 reviewed
 - [x] 每个正式 key 都有来源、许可/署名（适用时）、处理边界和 alpha 哈希。
 - [x] 运行时目录只包含 `reviewed` key；fallback key 不会加载占位 PNG。
 - [x] 同型号玩家/敌人/子型号共享一张 PNG，仅通过颜色区分。
+- [x] 非默认玩家机涂装（基准：紫色 EA-18G）经运行时档案应用与阵营刷新后保值，且不改变玩家小队统一蓝的 combat target 线或状态栏语义色。
 - [x] 玩家机运行时名称拼接档案代号后仍命中同一机型 PNG；F-14 `Tomcat Warhound` 不回退旧绘制。
 - [x] 24 个未获批准定型参考的原创/虚构显示名和未知 UGC 保留旧绘制；MQ-109/110/111 共用用户参考轮廓。
 - [x] 静态审计覆盖当前全部 AircraftParams 显示名；七架 T0 / 低位 T1 新机零 unmapped。
@@ -128,6 +132,8 @@ MiG-21F-13、J 35F Draken、EA-6B Prowler 与 Jaguar GR.1A 各用独立 reviewed
 - **2026-08-09 / v7**：用户提供并批准 MQ-109 系定型参考；从原图严格提取无尾三角翼、双垂尾和尖长机身外轮廓，MQ-109 / MQ-110 / MQ-111 共用一张运行时换色 PNG，并以 0.53 目录缩放保持旧无人机尺寸；MQ-112 保持旧绘制。
 - **2026-08-17 / v8**：滚转由纯 `cos` 纸片压缩改为“壳层 + 顶面/机腹”二维体积投影；不提高原有纹理提交上限，并新增角度矩阵 Visual QA、纯函数回归和 `stress_40` 改前/改后负担记录。
 - **2026-08-28 / v9**：为 T0 / 低位 T1 扩谱补齐七架现实机运行时模型：F-104C、F-4E、MiG-23 复用已审同型号 key；MiG-21F-13、J 35F、EA-6B、Jaguar 从公共领域三视图新增独立蒙版。并把逐机参考、manifest、静态审计与 Godot Visual 写入主角飞机新增 / 更新流程硬门。
+- **2026-09-05 / v10**：确立机体涂装与战术 UI 的硬边界：`icon_color/wing_color` 在出生、进化、切控与阵营切换中保值，不再污染 combat target 线或状态栏。
+- **2026-09-05 / v11**：按用户纠正确认普通玩家 combat target 线统一使用玩家蓝，不再用当前操控权区分白/蓝；机体涂装和突击黄保持独立。
 
 ## 7. 代表性来源
 

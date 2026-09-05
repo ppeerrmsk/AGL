@@ -221,14 +221,14 @@ BOSS 只识别 JAM，其它状态仅对 Aircraft 生效"。但 NavalUnit 实现�
 三处：`max_climb` / `gain` / `smooth_rate`。其中 `max_climb` 被放大到 500+ m/s 后，PE↔KE
 公式 `gravity_effect = GRAVITY · vs / spd · PE_KE_BOOST(2.5)` 反向抽 spd，每秒 ≈ 110 m/s
 速度损失，加力推力（≈ 17 m/s²）完全顶不住。
-[scripts/aircraft/aircraft_physics.gd:417 update_altitude](../../scripts/aircraft/aircraft_physics.gd:336)
-× [scripts/aircraft/aircraft_physics.gd:410 gravity_effect](../../scripts/aircraft/aircraft_physics.gd:328)
+[scripts/aircraft/aircraft_physics.gd:437 update_altitude](../../scripts/aircraft/aircraft_physics.gd:336)
+× [scripts/aircraft/aircraft_physics.gd:430 gravity_effect](../../scripts/aircraft/aircraft_physics.gd:328)
 两段都涉及 vs，缺一个出血点。
 
 **踩到次数**：2（这次 + 用户记忆中至少一次同样症状）
 
 **解法**（2026-05-12）：在 [aircraft_physics.gd:322](../../scripts/aircraft/aircraft_physics.gd:322)
-和 [aircraft_physics.gd:1522 step_altitude](../../scripts/aircraft/aircraft_physics.gd:1318)
+和 [aircraft_physics.gd:1553 step_altitude](../../scripts/aircraft/aircraft_physics.gd:1318)
 两处把 `max_climb` 改为 `base_climb * minf(alt_mult, 1.3)`。`gain` / `smooth_rate` 仍由
 `alt_mult` 全幅放大（响应度保留），物理顶速最多 +30%（PE↔KE 损耗回到可承受档）。
 
@@ -300,25 +300,32 @@ modifier，天然被覆盖），两份 leash 拷贝退役。**AI 侧的"按状�
 
 ---
 
-## SEAM-012 · 战斗转弯控制器欠阻尼 —— 激进机动时机身大坡反转颤抖
+## SEAM-012 · 战斗转弯控制器欠阻尼 / 离散参考台阶 —— 机身滚转与 G 抽搐
 
 **症状**：飞机硬转 / 追击机动目标 / 躲弹归队时机身剧烈来回压坡（bank ±70°）。慢速机（F-86，cruise 700）
-最明显。表现为 bank 在目标方位附近反复过冲反转。
+最明显。表现既可能是 bank 在目标方位附近反复过冲反转，也可能始终在同一侧以 64°↔80° 快速收放，
+后者会经 `G=1/cos(bank)` 放大成约 2.3G↔5.8G 的 HUD 抽搐。
 
 **根因**：`aircraft_physics.gd` 的转弯控制（`update_bank` → `compute_target_bank` + `update_heading`）
 本质是**欠阻尼**的位置式（P）控制：bank 追 heading_diff，但缺有效的速度阻尼（D）项，高 bank 时航向过冲
 目标 → heading_diff 翻号 → target_bank 翻号 → 来回。多个放大器叠加：①`compute_target_bank` 硬台阶
 ②`combat_full_bank_diff` 太小（小误差就满坡度）③过冲补偿近似失真且被 cap 卡死。
 
-**踩到次数**：1（2026-06-07 系统排查，分 ~7 层补丁）
+**踩到次数**：2（2026-06-07 跨零反转；2026-09-05 同向滚转 / G 抽搐）
 
 **第一轮（治标，2026-06-07）**：台阶→连续斜坡；`combat_full_bank_diff` 放宽；过冲补偿改滚出航向精确积分
 `(G/v)·t_roll·(-ln(cosB)/B)` + 临界阻尼式扣减。把"每帧猛翻 buzz"从 501 次/局压到个位数。
 
-**第二轮（治本=根治，2026-06-07）**：把 `compute_target_bank` 整个重写成**临界阻尼 PD 控制**：
+**第二轮（跨零反转根治，2026-06-07）**：把 `compute_target_bank` 整个重写成**临界阻尼 PD 控制**：
 `target_turn_rate = kp·heading_diff − kd·current_turn_rate`，`bank = atan(target_turn_rate·v/g)`（协调转弯反推）。
 位置式(P)缺失的速度阻尼(D)项接近目标航向时自动提前滚出，从根上消除"过冲→翻号→来回"。
 删除所有治标补丁：bank-flip 守卫 / target_bank 翻转去抖 / 滚出精确积分过冲补偿全部移除。
+
+**第三轮（同向滚转 / G 根治，2026-09-05）**：现场日志证明目标方位可稳定在 +23°~+24°，bank 却在
+64°~80° 内快速收放；显示层只是如实呈现物理值。根因是两项连续性缺口叠加：①稳态转弯缺 LOS 前馈，
+D 项会持续抵消追上转弯参考所必需的转速；②旧 P 死区在边界外把完整误差一步灌回，高速下约 1° 的
+分频 lead 台阶经 `atan(ω·v/g)` 放大成几十度坡度命令。现用解析 `(1+kd)·LOS_rate` 前馈、LOS 变化率
+限制、小角目标航向参考低通（≥20° 新命令仍立即接管）和连续死区共同闭合。
 
 **实现要点（踩坑记录，改这块前必看）**：
 1. **命令转速再反推坡度**：(g/v) 与 (v/g) 抵消 → 闭环阻尼与速度无关，跨机型/速度稳健。这是用 turn_rate
@@ -326,20 +333,21 @@ modifier，天然被覆盖），两份 leash 拷贝退役。**AI 侧的"按状�
 2. **D 项必须低通**（`TURN_RATE_FILT_ALPHA`）：协调转弯下 ω 几乎一帧跟上指令，直接反馈裸 ω 形成单帧
    代数环 `ω_n = kp·e − kd·ω_{n-1}` → `(−kd)^n` 每帧交替 Nyquist 抖。低通到 ~3 帧时间常数破环。
 3. **kd 随 roll_rate 反比**（`kd = clamp(PD_KD_SCALE/roll_rate, …)`）：慢滚机阻尼更大维持临界阻尼。
-4. **LOS 前馈试过但关掉**（`PD_LOS_FF=0`）：理论上尾追转弯目标(e≈0 仍需稳态转速)需要它，否则同向
-   bank 幅度"呼吸"；但无头扫参实测在离散物理 + AI 分频跳变参考下前馈尖刺过冲恒为害。管线保留待将来抗跳变 LOS 估计。
-5. **度量要分清"符号反转"vs"同向呼吸"**：用户抱怨的"大坡反转"是 bank 过零硬翻（左↔右），不是同向幅度脉动。
-   harness 两个指标都报。PD 把**符号反转**全场景压到 ≤2（根治目标达成）；残留的是同向呼吸（追内圈出转目标时
-   的结构性弛豫，非用户痛点）。盲优化"总反转"会被同向呼吸误导（本轮实测教训）。
+4. **LOS 前馈不能直接喂裸差分**：`PD_LOS_FF=1` 的稳态系数必须是 `(1+kd)`；裸 LOS 差分还要经
+   合法上限、变化率限制和低通，否则 AI 3/6 帧 lead 参考会变成前馈脉冲。
+5. **度量要分清"符号反转"vs"快速同向 G 峰谷"**：跨零硬翻和同侧坡度抽动都属于用户痛点；普通慢滚入/
+   滚出不是。harness 因而保留 bank 呼吸诊断，同时把“0.2s 内 ≥0.75G 的局部峰谷”纳入自动失败门。
 
 调参旋钮全在 `aircraft_physics.gd` 顶部 `PD_*` static var（用 static 方便 harness 扫参）；逐机型经
 `combat_bank_aggression`(→kp 缩放) 透传。验证：通过 `bench/run.cmd turn_physics`（Windows）或
 `bench/run.sh turn_physics`（其它平台）运行
-（看"符号反转"列，全场景 ≤2）；扫参 `--pd-sweep`；可视 `--bench=demo`。
-详见 changelogs/2026-06-07-bank-twitch-rootfix-and-test-harness.md。
+（看“符号反转”与“G抽搐”列，自动失败门必须为 0）；扫参 `--pd-sweep`；可视 `--bench=demo`。
+详见 changelogs/2026-06-07-bank-twitch-rootfix-and-test-harness.md 与
+changelogs/2026-09-05-bank-breathing-los-feedforward-rootfix.md。
 
-**约束**：以后改任何"飞机追目标/航点的转弯"逻辑，先用 harness 量化**符号反转**（≤2），别靠肉眼，也别用
-同向呼吸总数误导自己。`update_bank`（实物理）与 `step_bank`（预测线）两份必须同步改，否则预测路径撕裂。
+**约束**：以后改任何“飞机追目标/航点的转弯”逻辑，先用 harness 同时量化**符号反转**与**快速 G 峰谷**，
+别靠肉眼，也别把正常慢滚入/滚出算成抽搐。`update_bank`（实物理）与 `step_bank`（预测线）必须消费同一
+参考整形 / LOS 前馈 / 连续死区语义，否则预测路径撕裂。
 
 ---
 
@@ -982,13 +990,19 @@ SceneTree 并由两条快照分支复用，运行时行为不变。
 2026-08-29 继续收口数据语义：飞机/地面/SAM/雷达/舰船/导弹改用共享英文
 `HDG/SPD/ALT/RNG/HP` 格式器，修复 `HDG 360`、虚假地面武装、档位冒充数值高度和舰种重复；
 导弹删除独立旧面板并进入同一屏幕空间渲染与 Visual 门。
+2026-09-05 对 combat target 线的诊断证明同一类 retained-mode 所有权问题仍存在：
+`AircraftRenderer.draw_target_line` 把目标世界坐标经 `Aircraft.to_local()` 烘进会旋转的 Aircraft
+CanvasItem；绘制命令缓存后，机体继续转向会带着旧端点一起转，下次 `queue_redraw()` 又突然吸回真实目标。
+僚机编队路径虽每帧同步 `rotation`，却默认只在 `every3` 刷新，因而比当前操控机更容易显示“转走—吸回”抽搐。
+本轮只确诊，未改变连线几何的持有者或刷新频率。
 
 **约束**：新战斗单位只能提供状态栏内容行和实际图标半径，不得自行复制面板绘制或写
 `-rotation/inv_zoom` 补偿。状态栏几何、屏幕变换、LOD 与阵营色只能改共享渲染器和 UI 规范；
 任何改动必须跑跨兵种（含导弹武器实体）Visual，而非仅截单一单位；状态栏内容禁止本地化调用，
 非英文身份必须回退到英文战术名。
+任何一端连单位、另一端连世界目标的持续线框，不得把世界端点快照缓存在会旋转的单位 CanvasItem 上；应由不旋转的世界覆盖层持有，或以经性能门证明的逐帧刷新作为回退。
 
-**踩到次数**：4
+**踩到次数**：5
 
 ## SEAM-037 · 武器管理器各自复制命中分派，会让目标规则与归因静默漂移
 

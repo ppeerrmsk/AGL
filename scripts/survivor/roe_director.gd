@@ -44,7 +44,11 @@ var _squad_heat_initialized: bool = false
 
 func _init(spawner) -> void:
 	sp = spawner
-	for z in ZoneData.ZONES:
+	var definitions: Array[Dictionary] = ZoneData.ZONES
+	if sp != null and sp.mode != null and "_zone_data" in sp.mode \
+			and sp.mode._zone_data != null:
+		definitions = sp.mode._zone_data.get_zone_definitions()
+	for z in definitions:
 		_zone_lookup[String(z["id"])] = {"center": z["center"], "radius": float(z["radius"])}
 	# 击杀热度走既有击杀归因信号（air kill；地面击杀由 spawner._detect_kills 直调 add_heat）
 	if sp != null:

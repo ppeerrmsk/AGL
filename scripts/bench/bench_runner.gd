@@ -30,7 +30,8 @@ const OUT_DIR_REL: String = "bench/results"
 
 ## 无头测试注册表：--bench=<key> 单跑 / --bench=all 全跑（回归门）。
 ## 约定：实例 run() 跑完后若有 `_fail` 计数属性 → 读它判定退出码；
-## 纯指标报告型测试（turn_physics / rejoin 自带阈值打印，靠人读指标）无 _fail → 记 0。
+## 纯指标报告型测试（如 rejoin，自带阈值打印，靠人读指标）无 _fail → 记 0；
+## turn_physics 已把跨零大坡反转与快速 G 峰谷接入 `_fail` 自动门。
 ## "bfm_intent" 特例：BfmIntentTest.run_all() 静态入口，返回 bool。
 const UNIT_TESTS: Dictionary = {
 	"turn_physics": "res://scripts/tests/test_turn_physics.gd",
@@ -40,6 +41,7 @@ const UNIT_TESTS: Dictionary = {
 	"weapon_hit": "res://scripts/tests/test_weapon_hit_resolver.gd",
 	"damage_vignette": "res://scripts/tests/test_damage_vignette.gd",
 	"aircraft_bank_volume": "res://scripts/tests/test_aircraft_bank_volume.gd",
+	"volume_world": "res://scripts/tests/test_volume_world.gd",
 	"escort": "res://scripts/tests/test_escort_evasion.gd",
 	"target_sel": "res://scripts/tests/test_target_selection.gd",
 	"cmd_evade": "res://scripts/tests/test_commanded_evade.gd",
@@ -93,6 +95,9 @@ const UNIT_TESTS: Dictionary = {
 	"boss_phase": "res://scripts/tests/test_boss_phase.gd",
 	"battlefield_flow": "res://scripts/tests/test_battlefield_flow.gd",
 	"boss_progression": "res://scripts/tests/test_boss_progression.gd",
+	"armored_train": "res://scripts/tests/test_armored_train.gd",
+	"land_carrier": "res://scripts/tests/test_land_carrier.gd",
+	"the_crucible": "res://scripts/tests/test_the_crucible.gd",
 	"hyper_a": "res://scripts/tests/test_hyper_a_boss.gd",
 	"naval_formation": "res://scripts/tests/test_naval_formation.gd",
 	"naval_zone_water": "res://scripts/tests/test_naval_zone_water.gd",
@@ -133,11 +138,14 @@ const BUILD_TASKS: Dictionary = {
 ## `all` 在同步单测全绿后强制进入 lifecycle_gauntlet；不能被单项断言替代。
 const HEADLESS_TEST_SCENES: Dictionary = {
 	"lifecycle_gauntlet": "res://scenes/tests/lifecycle_gauntlet.tscn",
+	"desert_theater": "res://scenes/tests/desert_theater_smoke.tscn",
 	"runtime_error_probe": "res://scenes/tests/runtime_error_probe.tscn",
 }
 
 ## 需要真实 RenderingServer 的固定画面采集；必须由 run.cmd 的 Visual 模式启动。
 const VISUAL_TEST_SCENES: Dictionary = {
+	"volume_3d_lab": "res://scenes/tests/volume_3d_lab.tscn",
+	"volume_3d_combat": "res://scenes/tests/volume_3d_combat.tscn",
 	"main_menu_visual": "res://scenes/tests/main_menu_visual_qa.tscn",
 	"ui_iteration_visual": "res://scenes/tests/ui_iteration_visual_qa.tscn",
 	"player_hud_visual": "res://scenes/tests/player_hud_visual_qa.tscn",
@@ -184,6 +192,22 @@ var bench_active: bool = false
 var bench_scenario: String = ""
 var bench_duration: float = DEFAULT_DURATION
 var _out_path: String = ""
+
+## 相同正式负载 + 相同三维地图，成对只切换机体显示；不会进入发布默认路径。
+const VOLUME_SCENARIOS := {
+	"volume_3d_airframes_mother_goose": "boss_mother_goose",
+	"volume_3d_baseline_airframes_mother_goose": "boss_mother_goose",
+	"volume_3d_baseline_c1": "battlefield_atmosphere_stress_36",
+	"volume_3d_baseline_c2": "battlefield_atmosphere_stress_48_24km",
+	"volume_3d_baseline_mother_goose": "boss_mother_goose",
+	"volume_3d_c1": "battlefield_atmosphere_stress_36",
+	"volume_2d_c1": "battlefield_atmosphere_stress_36",
+	"volume_3d_c2": "battlefield_atmosphere_stress_48_24km",
+	"volume_2d_c2": "battlefield_atmosphere_stress_48_24km",
+	"volume_3d_mother_goose": "boss_mother_goose",
+	"volume_2d_mother_goose": "boss_mother_goose",
+}
+var _volume_probe_ref: WeakRef
 
 func _ready() -> void:
 	# Godot 4 把 `--` 之后的用户参数放 get_cmdline_user_args() 而非 get_cmdline_args()
@@ -279,12 +303,27 @@ func _ready() -> void:
 		get_tree().set_meta("ugc_map_path", PREVIEW_BENCH_MAPS[bench_scenario])
 		get_tree().set_meta("map_preview_only", true)
 		get_tree().set_meta("survivor_map_id", bench_scenario)
+	if bench_scenario.begins_with("the_crucible_"):
+		get_tree().set_meta("ugc_map_path", "res://resources/maps/desert_railway_preview.aglmap")
+		get_tree().set_meta("survivor_map_id", "desert_railway_preview")
+		get_tree().set_meta("map_preview_only", false)
 	# demo 模式（--bench=demo）：渲染运行 + 不退出 + 持续补敌，供肉眼观察小队战斗/物理/表现。
 	# 用法（注意：不要加 --headless）：godot --path . -- --bench=demo
 	if bench_scenario == "demo" or bench_scenario == "weapon_demo":
 		get_tree().set_meta("bench_demo", true)
 
 	printerr("[Bench] scenario=%s duration=%.1fs out=%s" % [bench_scenario, bench_duration, _out_path])
+	if VOLUME_SCENARIOS.has(bench_scenario):
+		if DisplayServer.get_name() == "headless":
+			push_error("Volume paired performance scenarios require Shadow Visual")
+			get_tree().quit(1)
+			return
+		# 专项明确使用真实 F-47 档案，保证本批模型参与战斗；双方负载一致。
+		if bench_scenario.contains("_airframes_"):
+			get_tree().set_meta("survivor_aircraft_resource", "res://resources/player/playable_f47.tres")
+		get_tree().set_meta("bench_scenario", VOLUME_SCENARIOS[bench_scenario])
+		call_deferred("_swap_to_volume_experiment")
+		return
 	# 切场景必须 deferred —— autoload _ready 早于主场景实例化，直接 change_scene 会撞到
 	# "current scene not yet ready" 的内部断言
 	call_deferred("_swap_to_survivor")
@@ -327,6 +366,20 @@ func _swap_to_survivor() -> void:
 		get_tree().quit(1)
 
 
+func _swap_to_volume_experiment() -> void:
+	_swap_to_survivor()
+	await get_tree().scene_changed
+	var mode := get_tree().current_scene
+	var probe_script: GDScript = load("res://scripts/experiments/volume_world_probe.gd")
+	if probe_script == null or not probe_script.can_instantiate():
+		get_tree().quit(1)
+		return
+	var probe: Node = probe_script.new()
+	mode.add_child(probe)
+	probe.setup(mode, bench_scenario)
+	_volume_probe_ref = weakref(probe)
+
+
 func _swap_to_visual_test(scene_path: String) -> void:
 	printerr("[Bench] swapping to visual test: %s" % scene_path)
 	var err: int = get_tree().change_scene_to_file(scene_path)
@@ -347,6 +400,18 @@ func _swap_to_test_scene(scene_path: String) -> void:
 func bench_finish(extra_summary: String = "", exit_code: int = 0) -> void:
 	if not bench_active:
 		return
+	if _volume_probe_ref != null:
+		var probe: Variant = _volume_probe_ref.get_ref()
+		if typeof(probe) == TYPE_OBJECT and is_instance_valid(probe):
+			extra_summary += "\n" + str(probe.summary())
+			if probe.max_projection_error_px > 0.1 or (probe.bodies_enabled and probe.max_body_count == 0):
+				exit_code = 1
+			if bench_scenario.ends_with("mother_goose") and probe.bodies_enabled \
+					and (not probe.goose_seen or probe.goose_visible_frames < 300):
+				exit_code = 1
+			# 仅本实验把硬帧率门接进退出码；不改变既有其它 bench 的采样语义。
+			if int(get_tree().current_scene.get("_bench_render_frames_below_60")) > 0:
+				exit_code = 1
 	var dump: String = PerfBuckets.format_full_dump()
 	var frame_trace_dump: String = PerfBuckets.format_frame_trace_dump()
 	var f: FileAccess = FileAccess.open(_out_path, FileAccess.WRITE)
@@ -370,6 +435,11 @@ func bench_finish(extra_summary: String = "", exit_code: int = 0) -> void:
 	# 同时 dump EventLogger 事件日志（确定性场景的 churn/twitch 离线分析用）
 	if Engine.has_singleton("EventLogger") or EventLogger:
 		EventLogger.dump_to_file()
+	# 结果窗口已经结束并封存；此时才读回截图，避免 PNG 编码污染 30s 性能采样。
+	if _volume_probe_ref != null:
+		var capture_probe: Variant = _volume_probe_ref.get_ref()
+		if typeof(capture_probe) == TYPE_OBJECT and is_instance_valid(capture_probe):
+			await capture_probe._capture(0)
 	# 给 print 一帧时间被 stdout 吐出
 	await get_tree().process_frame
 	get_tree().quit(exit_code)

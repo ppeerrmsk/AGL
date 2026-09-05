@@ -90,13 +90,14 @@ TAG_COAST,海岸,Coast,海岸
 TAG_HILLS,丘陵,Hills,丘陵
 TAG_DESERT,沙漠,Desert,砂漠
 TAG_RAILWAY,铁路,Railway,鉄道
+TAG_GROUND_WAR,陆战,Ground War,地上戦
 TAG_OCEAN,海洋,Ocean,海洋
 TAG_ISLANDS,群岛,Islands,島嶼
 TAG_PREVIEW,预览,Preview,プレビュー
 TAG_TBA,未解锁,Locked,未解放
 MAP_DEFAULT_NAME,海岸线,Coastal,海岸線
 MAP_DESERT_RAILWAY_NAME,赤土铁路,Red Dune Railway,赤土鉄道
-MAP_DESERT_RAILWAY_DESC,空地图预览：沙漠铁路、矿区、盐碱地与工业节点。,"Empty-map preview: desert railway, mines, salt flats, and industrial anchors.",空マッププレビュー：砂漠鉄道・鉱区・塩原・工業拠点。
+MAP_DESERT_RAILWAY_DESC,争夺沙漠铁路与工业据点，在超级武器列车逃离前将其摧毁。,Capture desert rail and industrial strongpoints. Destroy the superweapon train before it escapes.,砂漠鉄道と工業拠点を奪取し、超兵器列車が離脱する前に撃破せよ。
 MAP_OCEAN_ISLANDS_NAME,铁底群岛,Ironbottom Islands,鉄底諸島
 MAP_OCEAN_ISLANDS_DESC,空地图预览：开放海域、主岛、外海锚点岛与港区。,"Empty-map preview: open sea, a main island, offshore anchors, and harbors.",空マッププレビュー：外洋・主島・沖合の島・港湾。
 MAP_DEFAULT_DESC,默认作战区域。多样的海岸与内陆地形，适合熟悉机型与战术。,Default combat zone. Diverse coastal and inland terrain for learning aircraft and tactics.,デフォルト作戦区域。多彩な海岸・内陸地形、機体と戦術に慣れるのに最適。
@@ -266,6 +267,13 @@ BOSS_DEBUG_GOOSE_NAME,鹅妈妈 (空中航母),Mother Goose (Sky Carrier),マザ
 BOSS_DEBUG_GOOSE_DESC,3000HP 巨型空中航母；UAV 蜂群 12-30 + 周期干扰场（每 60s 扩张 16s）,"3000HP airborne carrier; 12-30 UAV swarm + cyclic jam-field (every 60s, 16s expand+sustain)",3000HP巨大空中空母 UAV12-30機 60s周期干渉場
 BOSS_DEBUG_BLACK_STAR_NAME,Black Star（Hyper-A 分裂体）,Black Star (Hyper-A Splitter),ブラックスター（Hyper-A分裂体）
 BOSS_DEBUG_BLACK_STAR_DESC,双根高空俯冲；三次二分至 16 个 G3；可直达代际与招式,Two high-altitude roots; split three times into 16 G3; direct phase tests,高高度から双根突入・三段分裂でG3×16・世代/技を直接テスト
+BOSS_DEBUG_ARMORED_TRAIN_NAME,超级武器列车（逃脱目标）,Superweapon Train (Escape Objective),超兵器列車（離脱目標）
+BOSS_DEBUG_ARMORED_TRAIN_DESC,1800HP 十五节装甲列车；8 个真实防空挂点，车尾驶离东侧即任务失败,1800HP fifteen-car armored train with 8 active AA mounts; the run ends when its tail clears the eastern boundary,1800HP・15両編成の装甲列車。実働対空マウント8基を備え、最後尾が東端を抜けると作戦失敗
+BOSS_DEBUG_LAND_CARRIER_NAME,陆地航母（舰载机母舰）,Land Carrier (Airwing Host),陸上空母（航空隊母艦）
+BOSS_DEBUG_LAND_CARRIER_DESC,1800HP 独立履带航空母舰；甲板停放 4 架舰载机并分批放飞；配备 8 个真实防空挂点,1800HP independent tracked aircraft carrier; parks four deck aircraft; launches them in waves; mounts eight active AA systems,1800HPの独立履帯式航空母艦。甲板に4機を駐機し順次発艦。実働対空マウント8基を装備
+BOSS_DEBUG_THE_CRUCIBLE_NAME,The Crucible（王牌大混战）,The Crucible (Ace Furball),The Crucible（エース大乱戦）
+BOSS_DEBUG_THE_CRUCIBLE_DESC,六支 Ace 队共 27 架依次进入沙漠自由混战；活到最后并全歼敌机,Six Ace squadrons and 27 aircraft enter a desert free-for-all; survive and eliminate them all,6個エース隊・全27機が砂漠の乱戦へ順次突入。生き残り全機撃墜せよ
+CODEX_THE_CRUCIBLE_NAME,THE CRUCIBLE,THE CRUCIBLE,THE CRUCIBLE
 BOSS_BANNER_MOTTO,INVADERS MUST DIE,INVADERS MUST DIE,INVADERS MUST DIE
 BOSS_BANNER_WRAITH_MOTTO,NOTHING BUT THIEVES,NOTHING BUT THIEVES,NOTHING BUT THIEVES
 BOSS_BANNER_CSG_MOTTO,AN AWESOME WAVE,AN AWESOME WAVE,AN AWESOME WAVE
@@ -283,16 +291,31 @@ BOSS_BANNER_MOTHER_GOOSE_ROLE,AIRBORNE UAV CARRIER,AIRBORNE UAV CARRIER,AIRBORNE
 BOSS_BANNER_BLACK_STAR_NAME,BLACK STAR // HYPER-A,BLACK STAR // HYPER-A,BLACK STAR // HYPER-A
 BOSS_BANNER_BLACK_STAR_ROLE,HYPERSONIC SPLIT-BODY,HYPERSONIC SPLIT-BODY,HYPERSONIC SPLIT-BODY
 BOSS_BANNER_BLACK_STAR_MOTTO,Blame it on the falling sky,Blame it on the falling sky,Blame it on the falling sky
+BOSS_BANNER_ARMORED_TRAIN_NAME,IRON SERPENT,IRON SERPENT,IRON SERPENT
+BOSS_BANNER_ARMORED_TRAIN_ROLE,RAILWAY SUPERWEAPON,RAILWAY SUPERWEAPON,RAILWAY SUPERWEAPON
+BOSS_BANNER_ARMORED_TRAIN_MOTTO,Seven sticks of dynamite,Seven sticks of dynamite,Seven sticks of dynamite
+DESERT_TRAIN_ESCAPED,超级武器列车已完全突破东侧边界——任务失败,The superweapon train cleared the eastern boundary — mission failed,超兵器列車が東側境界を完全に突破——作戦失敗
+BOSS_BANNER_LAND_CARRIER_NAME,BEHEMOTH,BEHEMOTH,BEHEMOTH
+BOSS_BANNER_LAND_CARRIER_ROLE,TRACKED AVIATION FORTRESS,TRACKED AVIATION FORTRESS,TRACKED AVIATION FORTRESS
+BOSS_BANNER_LAND_CARRIER_MOTTO,THE DESERT HAS A FLIGHT DECK,THE DESERT HAS A FLIGHT DECK,THE DESERT HAS A FLIGHT DECK
+BOSS_BANNER_THE_CRUCIBLE_NAME,THE CRUCIBLE,THE CRUCIBLE,THE CRUCIBLE
+BOSS_BANNER_THE_CRUCIBLE_ROLE,MULTI-SQUADRON ACE FURBALL,MULTI-SQUADRON ACE FURBALL,MULTI-SQUADRON ACE FURBALL
+BOSS_BANNER_THE_CRUCIBLE_MOTTO,LAST ONE FLYING,LAST ONE FLYING,LAST ONE FLYING
 TAG_AIR,空战,AIR,空戦
+TAG_GROUND,地面战,GROUND,地上戦
 TAG_NAVAL,海上,NAVAL,海上
 TAG_CARRIER,空中航母,SKY CARRIER,空中空母
 TAG_STEALTH,隐身,STEALTH,ステルス
 TAG_TWO_PHASE,二阶段,2-PHASE,二段階
 TAG_SPLITTER,分裂体,SPLITTER,分裂体
+TAG_ESCAPE,逃脱目标,ESCAPE OBJECTIVE,離脱目標
 BOSS_DEBUG_HUD_LOADED_FMT,BUILD: %s   //   BOSS: %s,BUILD: %s   //   BOSS: %s,BUILD: %s   //   BOSS: %s
 DOCK_HANEDA_NAME,羽田机场,Haneda Airfield,羽田飛行場
 DOCK_KISARAZU_NAME,木更津基地,Kisarazu Base,木更津駐屯地
 DOCK_CHOFU_NAME,調布机场,Chofu Airfield,調布飛行場
+DOCK_NEWMAN_NAME,纽曼机场,Newman Airport,ニューマン空港
+DOCK_WESTERN_RIDGE_NAME,西部山脊作业机场,Western Ridge Operations Strip,ウェスタン・リッジ作業飛行場
+DOCK_OPHTHALMIA_NAME,奥夫萨尔米亚前线机场,Ophthalmia Forward Airfield,オフサルミア前線飛行場
 DOCK_CARRIER_NAME,友军航母,Allied Carrier,友軍空母
 DOCK_HINT_SLOW,减速至 %d km/h 以下停靠,Slow below %d km/h to dock,%d km/h 以下に減速して着陸
 DOCK_HINT_DOCKING,停靠中…,Docking…,着陸中…
@@ -403,6 +426,30 @@ ACE_SQUAD_GIMMICK_LORE,混编诱导中队。两架 F-16 在远距离吸引追击
 ACE_SQUAD_GOOFIGHTERS_LORE,由两架 Su-47 组成的高机动中队。可实施短时垂直悬停和快速航向变化，常从常规机动难以覆盖的方位重新进入交战。“怪火”是早期飞行员对其目视特征的称呼。,"Highly maneuverable squadron composed of two Su-47s. It can briefly hover vertically and change heading rapidly, often reentering combat from directions outside conventional maneuver coverage. “Goofighters” was the name earlier pilots gave to its visual signature.",2 機の Su-47 で構成される高機動中隊。短時間の垂直静止と急速な針路変更が可能で、通常機動では対応しにくい方向から再び交戦へ入る。「怪火」は初期の操縦者がその目視特徴に付けた呼称である。
 ACE_SQUAD_WHITETEA_LORE,由三架 F-CK-1 组成的高速突击中队，成员呼号为 Tea、Cola 与 Bottle。编队采用一次机炮攻击后立即脱离的战术；遭到追击时，可通过快速 180° 航向反转重新取得攻击位置。,"High-speed strike squadron composed of three F-CK-1s, with members using the callsigns Tea, Cola, and Bottle. The formation conducts one gun attack and immediately disengages; when pursued, it can use a rapid 180-degree heading reversal to regain an attack position.",Tea、Cola、Bottle の呼称を持つ 3 機の F-CK-1 で構成された高速突撃中隊。編隊は機関砲攻撃を 1 回行った後に直ちに離脱し、追撃を受けると急速な 180 度針路反転で攻撃位置を取り戻す。
 ACE_SQUAD_VULTURE_LORE,高空截击中队，采用八机横列和协同导弹齐射实施远程压制，完成攻击后立即脱离。该中队全部机体均拆除了机炮，不参与持续近距格斗。,High-altitude interceptor squadron that uses an eight-aircraft wall formation and coordinated missile salvos for long-range suppression before immediately disengaging. Every aircraft in the squadron has had its gun removed and does not participate in sustained short-range combat.,8 機の横列編隊と協同ミサイル斉射で遠距離制圧を行い、攻撃後すぐ離脱する高高度迎撃中隊。全機が機関砲を撤去しており、持続的な近距離格闘には参加しない。
+ACE_SQUAD_MOIRAI_NAME,命运女神,Moirai,モイライ
+ACE_SQUAD_LASH_NAME,鞭梢,Lash,ラッシュ
+ACE_SQUAD_IDO_NAME,本我,Ido,イド
+ACE_SQUAD_UNDERTOW_NAME,暗流,Undertow,アンダートウ
+ACE_SQUAD_CROUPIER_NAME,荷官,Croupier,クルーピエ
+ACE_SQUAD_TALLYMAN_NAME,记账人,Tallyman,タリーマン
+ACE_SQUAD_PALIMPSEST_NAME,重写本,Palimpsest,パリンプセスト
+ACE_SQUAD_QUORUM_NAME,法定人数,Quorum,クォーラム
+ACE_SQUAD_DEADEYE_NAME,死眼,Deadeye,デッドアイ
+ACE_SQUAD_MIRROR_NAME,镜像,Mirror,ミラー
+ACE_SQUAD_FUNERAL_NAME,葬列,Funeral,フューネラル
+ACE_SQUAD_HOUND_NAME,猎犬,Hound,ハウンド
+ACE_SQUAD_MOIRAI_LORE,三架不同隐身机分别纺线、丈量与剪断战局。它们不共享一种打法，而是用固定分工把目标一步步送进终局。,Three different stealth fighters spin measure and cut the engagement. They share no single tactic; fixed roles carry the target toward one ending.,異なる三機のステルス機が戦局を紡ぎ、測り、断つ。一つの戦法ではなく固定分担で目標を結末へ運ぶ。
+ACE_SQUAD_LASH_LORE,四架 Su-57 像一根鞭子依次抽击。只有鞭梢全力贴近，其余成员保持张力，六秒后攻击权传给下一机。,Four Su-57s strike in sequence like a whip. Only the tip commits while the others hold tension; the attack passes every six seconds.,4 機の Su-57 が鞭のように順次打撃する。全力で踏み込むのは鞭先だけで、攻撃権は 6 秒ごとに次機へ移る。
+ACE_SQUAD_IDO_LORE,Sentinel 与 MQ-109、110、111、112 及 MQ-X2 组成的八节点无人网络。所有节点共用两次防御资源，打掉任一节点都会缩小网络。,An eight-node drone network of Sentinel MQ-109 110 111 112 and MQ-X2. All nodes share two defensive responses and every loss shrinks the network.,Sentinel と MQ-109・110・111・112・MQ-X2 で構成された八ノード無人ネットワーク。防御反応 2 回を全機で共有する。
+ACE_SQUAD_UNDERTOW_LORE,三架 Typhoon 分占高、中、低空并周期换位。追进其中一层，就会把另一层让到自己的盲区。,Three Typhoons occupy high middle and low altitude and rotate positions. Chasing one layer exposes a blind side to another.,3 機の Typhoon が高・中・低空を占め周期的に交代する。一層を追えば別の層へ死角を渡す。
+ACE_SQUAD_CROUPIER_LORE,两架 F-15E 与两架 Su-34 把玩家小队当作一副牌拆开分配。落单者不会得到公平的一对一。,Two F-15Es and two Su-34s deal the player formation like cards. An isolated aircraft is never offered a fair duel.,F-15E 2 機と Su-34 2 機がプレイヤー隊をカードのように配る。孤立機に公平な一対一は与えない。
+ACE_SQUAD_TALLYMAN_LORE,四架 Gripen E 始终核对损伤账本并集中追杀最虚弱的玩家机。换位和掩护比单纯闪避更有效。,Four Gripen Es keep a damage ledger and converge on the weakest player aircraft. Rotation and cover work better than simple evasion.,4 機の Gripen E が損傷台帳を更新し最も弱ったプレイヤー機へ集中する。単純回避より交代と援護が効く。
+ACE_SQUAD_PALIMPSEST_LORE,F-86、F-104、F-4E 与 F-15C 把四代空战教条叠写在同一片天空。每一架都只坚持属于自己年代的纯粹战法。,F-86 F-104 F-4E and F-15C overwrite four generations of doctrine onto one sky. Each flies only the pure tactic of its era.,F-86・F-104・F-4E・F-15C が四世代の教義を同じ空へ重ね書きする。各機は自らの時代の戦法だけを貫く。
+ACE_SQUAD_QUORUM_LORE,Rafale、Typhoon 与 Gripen E 以三票决定战术。三机齐全时协同最强；打破法定人数后，它们转为更直接的个人攻击。,Rafale Typhoon and Gripen E decide tactics by three votes. Coordination peaks at full quorum; once broken they fall back to direct individual attacks.,Rafale・Typhoon・Gripen E が三票で戦術を決める。定足数が揃う時に最強で、崩れると直接的な個人攻撃へ移る。
+ACE_SQUAD_DEADEYE_LORE,两架 Viggen 与两架 Tornado 把玩家小队分进交叉射界，从不同距离同时形成射击解。,Two Viggens and two Tornados divide the player formation into crossing fields of fire and build firing solutions from different ranges.,Viggen 2 機と Tornado 2 機がプレイヤー隊を交差射界へ分け、異なる距離から同時に射撃解を作る。
+ACE_SQUAD_MIRROR_LORE,三架 F-15 S/MTD 复制玩家长机的高度层与武器偏好。改变自己的节奏，镜中的敌人才会跟着露出破绽。,Three F-15 S/MTDs mirror the player leader's altitude and weapon preference. Change your own rhythm and the reflection exposes itself.,3 機の F-15 S/MTD がプレイヤー長機の高度と武器選好を写す。自分のリズムを変えれば鏡像に隙が出る。
+ACE_SQUAD_FUNERAL_LORE,四架 J-20 以严格队形飞行。每出现一个空位，幸存者便把哀悼改写成一次更凶狠的贴身攻击。,Four J-20s fly a rigid procession. Every empty slot turns the survivors' mourning into a more violent close attack.,4 機の J-20 が厳格な隊形で飛ぶ。空席が生じるたび、生存機は弔いをより激しい近接攻撃へ変える。
+ACE_SQUAD_HOUND_LORE,Hound-1 与 Hound-2 是曾经受雇掩护玩家的 F-15 双机。熔炉给出了更高报价；他们保留熟悉的协同方式，把枪口转向了原雇主。,Hound-1 and Hound-2 are an F-15 pair once hired to cover the player. The Crucible offered a higher price; they kept their familiar teamwork and turned their weapons on their former employer.,Hound-1 と Hound-2 は、かつてプレイヤーを援護するため雇われた F-15 のペアだ。クルーシブルはより高い報酬を提示し、彼らは慣れた連携のまま元雇用主へ銃口を向けた。
 DOCK_AIRFIELD_SPENT_FMT,%s 补给完毕，机场关闭,%s resupplied — airfield closed,%s 補給完了・飛行場閉鎖
 MAP_VECTOR_PREVIEW_ON,纯矢量地图 V11：已开启（Shift+F10 返回正式瓦片）,Pure-vector map V11 enabled (Shift+F10 returns to production tiles),純ベクターマップ V11：オン（Shift+F10 で正式タイルに戻る）
 MAP_VECTOR_PREVIEW_OFF,纯矢量地图 V11：已关闭（当前为正式瓦片）,Pure-vector map V11 disabled (production tiles active),純ベクターマップ V11：オフ（正式タイル表示）

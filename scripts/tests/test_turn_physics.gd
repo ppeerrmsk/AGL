@@ -4,13 +4,13 @@ extends RefCounted
 ## 目的：自动复现/量化"高G急转时机身颤抖"bug，无需进引擎手测。
 ##
 ## 运行（经 BenchRunner，正常项目上下文 → autoload 可用 → aircraft_physics 可编译）：
-##   godot --headless --path . -- --bench=turn_physics
-## PD 扫参（找 kd/alpha 最优）：
-##   godot --headless --path . -- --bench=turn_physics --pd-sweep
+##   bench/run.cmd turn_physics 1 180 Shadow Headless
+## `_run_sweep` 保留供临时调参接线；正式回归只走上述受锁 wrapper 命令。
 ##
 ## 做法：裸构造 Aircraft 实例（不入树、不触发 _ready），手填物理字段，逐帧调
-## AircraftPhysics 静态函数，记录 heading/bank，统计"bank 角速度符号反转次数"：
-## 平滑转弯应 0~3 次，颤抖会有很多次（机身来回打滚）。
+## AircraftPhysics 静态函数，记录 heading/bank，分别统计：
+## 1) 大坡度跨零反转；2) 同一侧快速收坡/加坡造成的 ≥0.75G 峰谷。
+## 两种用户可见抽搐都进入自动失败门；低幅慢变化的“呼吸”只保留诊断计数。
 
 const DT := 1.0 / 60.0
 
@@ -18,7 +18,11 @@ static var VERBOSE := true
 static var QUIET := false   ## 扫参时静默逐条 print，只回收 net_sign
 static var _last_sign := 0
 static var _last_breath := 0
+static var _last_g_twitch := 0
 static var _breath_total := 0  ## 扫参用：累计同向呼吸（次要优化目标）
+static var _gate_failures := 0
+
+var _fail := 0
 
 
 const PARAM_SET := [
@@ -29,6 +33,8 @@ const PARAM_SET := [
 ]
 
 func run() -> void:
+	_fail = 0
+	_gate_failures = 0
 	var args := PackedStringArray()
 	args.append_array(OS.get_cmdline_args())
 	args.append_array(OS.get_cmdline_user_args())
@@ -44,7 +50,9 @@ func run() -> void:
 			continue
 		print("── 机型: %s ──" % str(params.display_name))
 		grand += _run_all(params)
+	_fail = _gate_failures
 	print("──────── 全机型总净 buzz = %d ────────" % grand)
+	print("──────── 自动失败门 = %d ────────" % _fail)
 	print("════════════════════════════════\n")
 
 
@@ -62,6 +70,7 @@ static func _run_all(params: Resource) -> int:
 	t += _run_pursuit_aitick("  AI分频追500(6f)", params, 500.0, 6)
 	t += _run_pursuit_aitick("  AI分频追350(6f)", params, 350.0, 6)
 	t += _run_pursuit_aitick("  AI分频追350(3f)", params, 350.0, 3)
+	t += _run_pursuit("  爬升跟随移动航点800", params, 800.0, false, true)
 	t += _run_near_target("  近目标200(战斗)", params, 200.0, true)
 	return t
 
@@ -159,10 +168,15 @@ static func _run_s_turn(name: String, params: Resource, switch_frames: int) -> i
 
 ## 真实战斗仿真：目标以固定半径转圈，本机用 combat 路径追击。
 ## target_position 跟随移动目标 → 持续诱发 target_heading 变化（实战颤抖最常出现的场景）。
-static func _run_pursuit(name: String, params: Resource, radius: float) -> int:
+static func _run_pursuit(
+		name: String, params: Resource, radius: float,
+		in_combat: bool = true, climb: bool = false) -> int:
 	var ac = _make_ac(params)
 	var dummy = _make_ac(params)
-	ac.combat_target = dummy
+	if in_combat:
+		ac.combat_target = dummy
+	if climb:
+		ac.target_altitude = 10000.0
 	# 目标起始在前方 1500px，绕一个圆心转圈
 	var center := Vector2(radius, -1500.0)
 	var tgt_spd_ms: float = params.cruise_speed / 3.6
@@ -245,6 +259,8 @@ static func _step(ac) -> void:
 	AircraftPhysics.update_bank(ac, DT)
 	AircraftPhysics.update_heading(ac, DT)
 	AircraftPhysics.update_speed(ac, DT)
+	AircraftPhysics.update_stall(ac)
+	AircraftPhysics.update_altitude(ac, DT)
 	AircraftPhysics.update_g_load(ac)
 	AircraftPhysics.apply_movement(ac, DT)
 
@@ -281,15 +297,50 @@ static func _report(name: String, hdgs: Array, banks: Array, expected: int = 0) 
 	var net_sign: int = maxi(0, sign_rev - expected)
 	_last_sign = net_sign
 	_last_breath = maxi(0, net_buzz - net_sign)
+	# G 是 bank 的非线性映射，80°附近几度变化就会跳数个 G；只数 0.2 秒内完成、
+	# 摆幅 ≥0.75G 的快速局部极值反转，避免把正常滚入/滚出也误判成用户报告的抽搐。
+	const MIN_G_SWING := 0.75
+	const MAX_G_TWITCH_FRAMES := 12
+	var g_reversals := 0
+	var last_g_ext := absf(1.0 / cos(banks[0]))
+	var last_g_ext_i := 0
+	var cur_g_dir := 0.0
+	var run_g_peak := last_g_ext
+	for i in range(1, banks.size()):
+		var g_now := absf(1.0 / cos(banks[i]))
+		var g_prev := absf(1.0 / cos(banks[i - 1]))
+		var dv := g_now - g_prev
+		if absf(dv) < 0.002:
+			continue
+		var d := signf(dv)
+		if cur_g_dir == 0.0:
+			cur_g_dir = d
+		elif d != cur_g_dir:
+			if absf(run_g_peak - last_g_ext) >= MIN_G_SWING \
+					and i - 1 - last_g_ext_i <= MAX_G_TWITCH_FRAMES:
+				g_reversals += 1
+			last_g_ext = run_g_peak
+			last_g_ext_i = i - 1
+			cur_g_dir = d
+		run_g_peak = g_now
+	_last_g_twitch = g_reversals
 	_breath_total += _last_breath
 	if QUIET:
 		return net_sign   # 扫参/总分以"符号反转"为准（用户真正的 bug 度量）
-	var verdict := "平滑 ✓" if net_sign <= 2 else ("反转颤抖 ✗ (%d 次大坡反转)" % net_sign)
+	var smooth := net_sign <= 2 and (expected > 0 or _last_g_twitch <= 2)
+	var verdict := "平滑 ✓" if smooth else "滚转/G 抽搐 ✗"
 	var exp_str := (" (基线%d)" % expected) if expected > 0 else ""
-	print("  [%-20s] 符号反转=%-2d%s 同向呼吸=%-2d 末bank=%.0f° → %s" % [
-		name, net_sign, exp_str, maxi(0, net_buzz - net_sign),
+	print("  [%-20s] 符号反转=%-2d%s 同向呼吸=%-2d G抽搐=%-2d 末bank=%.0f° → %s" % [
+		name, net_sign, exp_str, maxi(0, net_buzz - net_sign), _last_g_twitch,
 		rad_to_deg(banks[banks.size() - 1]), verdict])
-	if net_sign > 2 and VERBOSE:
+	if net_sign > 2:
+		_gate_failures += 1
+		printerr("[turn_physics] FAIL %s: 大坡反转 %d > 2" % [name.strip_edges(), net_sign])
+	# 非命令式转弯允许一次滚入/滚出；超过 2 次大幅 G 极值反转即是持续抽搐。
+	if expected == 0 and _last_g_twitch > 2:
+		_gate_failures += 1
+		printerr("[turn_physics] FAIL %s: G 抽搐 %d > 2" % [name.strip_edges(), _last_g_twitch])
+	if (net_sign > 2 or _last_g_twitch > 2) and VERBOSE:
 		var line := "      轨迹(每6帧 bank°): "
 		for i in range(0, banks.size(), 6):
 			line += "%d " % int(rad_to_deg(banks[i]))

@@ -125,8 +125,8 @@ func _test_status_bar_feedback() -> void:
 		ids.append(StringName(entry.get("id", &"")))
 		if StringName(entry.get("id", &"")) == &"afterburner":
 			label = String(entry.get("text", ""))
-	_check("加力激活时状态栏显示明确 AFTERBURNER 行",
-		&"afterburner" in ids and label == "AFTERBURNER")
+	_check("加力激活时状态栏显示明确 AB 行",
+		&"afterburner" in ids and label == "AB")
 	ac.free()
 
 

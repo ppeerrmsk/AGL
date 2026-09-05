@@ -153,7 +153,7 @@ script-index / code-index）只写"代码在哪"（纯指针）。样板见 [bos
   （`--doc <file>` / `--section <标题>` 可只校验你动过的那段；退出码 1 = 有腐烂）
   - 文档与锚点数量以校验器实时输出为准，禁止在导航里冻结总数；**现在报红就是真出事了**，请当场修掉；
     可先用 `--fix` 保守机械刷新，多义项仍要人工判断
-  - 写锚点**带上符号名**（`aircraft/aircraft_physics.gd:325 update_speed`）才能强校验；
+  - 写锚点**带上符号名**（`aircraft/aircraft_physics.gd:345 update_speed`）才能强校验；
     只写行号只能验"没越界"—— 历史上正是弱锚点掩盖了指错文件的错误
 - **commit 前** 跑 `powershell -ExecutionPolicy Bypass -File tools/verify_docs.ps1` 校验当前文档断链、spec 漏登记、元数据与总表漂移
 

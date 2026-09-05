@@ -5,6 +5,7 @@ extends Node
 
 const STRATEGIC_TARGET_SCENE := preload("res://scenes/strategic_target.tscn")
 const SUPER_CANNON_SCRIPT := preload("res://scripts/survivor/tier3_super_cannon_part.gd")
+const ARMORED_TRAIN_SCRIPT := preload("res://scripts/survivor/armored_train_unit.gd")
 
 class FakeAceMusicMode:
 	extends Node
@@ -70,12 +71,15 @@ func _run() -> void:
 	await _test_conquered_garrison_retire_after_offscreen_grace()
 	await _test_zone_failure_after_deferred_free()
 	await _test_super_cannon_destroy_after_deferred_free()
+	await _test_armored_train_segment_break_after_deferred_free()
 	await _test_ace_music_cleanup_after_deferred_free()
 	await _test_sensor_release_with_freed_target_caches()
 	await _test_all_damage_kinds_enter_aircraft_crash()
 	await _test_unified_aircraft_breakup()
 	await _test_hit_location_crash_response()
 	await _test_large_aircraft_structural_breakup()
+	var volume_case: RefCounted = load("res://scripts/tests/volume_world_lifecycle_case.gd").new()
+	_fail += await volume_case.run(self)
 	print("[LifecycleGauntlet] result pass=%d fail=%d" % [_pass, _fail])
 	get_tree().quit(0 if _fail == 0 else 1)
 
@@ -268,6 +272,57 @@ func _test_super_cannon_destroy_after_deferred_free() -> void:
 	_check(mission._all_zone_units_destroyed(&"A"),
 		"单体巨炮释放后不残留底座 TGT，并允许普通战区完成判定继续")
 	mission.free()
+
+
+func _test_armored_train_segment_break_after_deferred_free() -> void:
+	var saved_units := CombatUnit.all_units
+	var bullet_manager := Node2D.new()
+	add_child(bullet_manager)
+	var train = ARMORED_TRAIN_SCRIPT.new()
+	add_child(train)
+	train.configure_route(PackedVector2Array([
+		Vector2.ZERO, Vector2(5000.0, 0.0)]))
+	train.arm_segments(self, bullet_manager, null)
+	await get_tree().process_frame
+
+	var observer := Aircraft.new()
+	observer.params = AircraftParams.new()
+	observer.team = CombatUnit.TEAM_PLAYER
+	observer.set_physics_process(false)
+	add_child(observer)
+	var tail: GroundUnit = train.segment_at(ARMORED_TRAIN_SCRIPT.REAR_GUARD_INDEX)
+	var next: GroundUnit = train.segment_at(ARMORED_TRAIN_SCRIPT.TAIL_BATTERY_INDEX)
+	observer.combat_target = tail
+	observer.commanded_target = tail
+	var tail_value: Variant = tail
+	var tail_mount_value: Variant = train._mounts_by_segment[
+		ARMORED_TRAIN_SCRIPT.REAR_GUARD_INDEX][0]
+	CombatUnit.all_units = [observer, tail, next]
+
+	tail.take_damage(tail.hp, observer, "gun")
+	_check(tail.is_destroyed and bool(tail.get("detached"))
+		and bool(next.get("damageable"))
+		and train.active_tail_index() == ARMORED_TRAIN_SCRIPT.TAIL_BATTERY_INDEX
+		and is_equal_approx(train.current_speed_kmh(), 480.0),
+		"列车尾段经正式伤害入口打断时同拍脱离、使前段可打断并让整车加速")
+	_check(observer.combat_target == null and observer.commanded_target == null,
+		"断节同拍释放玩家 combat/commanded 旧目标引用")
+
+	tail._update_destroy(3.0)
+	await get_tree().process_frame
+	_check(not is_instance_valid(tail_value) and not is_instance_valid(tail_mount_value),
+		"断节车体与所属功能挂点 queue_free 均越过真实下一帧")
+	CombatUnit.all_units = [observer, next]
+	await get_tree().process_frame
+	_check(next.can_accept_new_hit("missile") and next.is_mission_target
+		and not next.is_lock_immune(),
+		"下一次单位缓存刷新后新尾段可打断，已释放旧尾段无残留")
+
+	train.queue_free()
+	observer.queue_free()
+	bullet_manager.queue_free()
+	await get_tree().process_frame
+	CombatUnit.all_units = saved_units
 
 func _test_ace_music_cleanup_after_deferred_free() -> void:
 	var mode := FakeAceMusicMode.new()

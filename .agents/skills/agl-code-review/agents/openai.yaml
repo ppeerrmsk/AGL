@@ -1,0 +1,6 @@
+interface:
+  display_name: "AGL Code Review"
+  short_description: "Review AGL changes across standards, spec, and proof"
+  default_prompt: "Use $agl-code-review to review the current AGL changes across all three axes."
+policy:
+  allow_implicit_invocation: false

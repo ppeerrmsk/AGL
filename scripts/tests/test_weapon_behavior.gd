@@ -453,7 +453,10 @@ func _test_gunship_squad_ground_volley() -> void:
 		all_committed_ground and bullets._bullets.size() >= 4,
 		"ground_committed=%s bullets=%d" % [all_committed_ground, bullets._bullets.size()])
 	var aircraft_source := FileAccess.get_file_as_string("res://scripts/aircraft.gd")
-	var passive_entry_count := aircraft_source.count("AircraftWeapons.update_passive_gunship(self, delta)")
+	var passive_entry_count := aircraft_source.count(
+		"AircraftWeapons.update_passive_gunship(self,") \
+		+ aircraft_source.count(
+			"AircraftWeapons.update_formation_opportunity_weapons(self, delta * 3.0)")
 	_check("编队与屏外 LOD 主循环均接入炮艇专用入口", passive_entry_count >= 5,
 		"main_loop_entries=%d" % passive_entry_count)
 	CombatUnit.all_units.clear()

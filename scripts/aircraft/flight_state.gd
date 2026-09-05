@@ -36,6 +36,7 @@ var proximity_damping: float
 var committed_turn_sign: float
 var bank_rate_rad_s: float
 var turn_rate_filt: float           ## 低通滤波航向角速度（PD D 项输入）
+var heading_ref_pd: float           ## PD 消费的平滑目标航向
 var prev_tgt_heading_pd: float      ## 上一帧目标方位（LOS 角速度用）
 var los_rate_filt: float            ## 低通滤波目标 LOS 角速度（PD 前馈项）
 var prev_bank_for_rate: float
@@ -83,6 +84,7 @@ func populate_from(a: Aircraft, prediction: bool = false) -> void:
 	committed_turn_sign = a._committed_turn_sign
 	bank_rate_rad_s = a._bank_rate_rad_s
 	turn_rate_filt = a._turn_rate_filt
+	heading_ref_pd = a._heading_ref_pd
 	prev_tgt_heading_pd = a._prev_tgt_heading_pd
 	los_rate_filt = a._los_rate_filt
 	prev_bank_for_rate = a._prev_bank_for_rate
@@ -123,6 +125,7 @@ func write_back() -> void:
 	ac._committed_turn_sign = committed_turn_sign
 	ac._bank_rate_rad_s = bank_rate_rad_s
 	ac._turn_rate_filt = turn_rate_filt
+	ac._heading_ref_pd = heading_ref_pd
 	ac._prev_tgt_heading_pd = prev_tgt_heading_pd
 	ac._los_rate_filt = los_rate_filt
 	ac._prev_bank_for_rate = prev_bank_for_rate

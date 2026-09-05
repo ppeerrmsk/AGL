@@ -41,15 +41,17 @@ func _test_player_waypoint_keeps_auto_fire() -> void:
 
 
 func _test_formation_fire_without_navigation_takeover() -> void:
-	print("── B. 编队僚机：无 combat_target 也可严格机会射击 ──")
+	print("── B. 敌方编队僚机：保持导航时也可严格机会射击 ──")
 	var c := _make_case(0.0, 3.0, false)
 	var ac: Aircraft = c.ac
 	var tgt: CombatUnit = c.target
 	var mm: MissileManager = c.manager
+	ac.team = CombatUnit.TEAM_HOSTILE
+	tgt.team = CombatUnit.TEAM_PLAYER
 	var old_waypoint: Vector2 = ac.target_position
 	var old_mode: int = ac.weapon_mode
 	AircraftWeapons.update_formation_passive_missile(ac, 0.05)
-	_check("合法正前方满锁窗口发射一枚", mm.get_child_count() == 1 \
+	_check("敌方合法正前方满锁窗口发射一枚", mm.get_child_count() == 1 \
 			and ac.missiles_remaining == 1, "20Hz 火控调用成功")
 	_check("发射目标来自雷达锁而非 combat_target", mm.get_child(0).target == tgt \
 			and ac.combat_target == null and ac.commanded_target == null, "火控目标短命、不写导航状态")
@@ -127,7 +129,7 @@ func _test_waste_prevention_gates() -> void:
 	_assert_no_fire("加力窗口不发", c)
 	c = _make_case(0.0, 3.0, false)
 	c.ac.team = CombatUnit.TEAM_HOSTILE
-	_assert_no_fire("敌方单位不走新增编队机会射击", c)
+	_assert_no_fire("敌方编队不向同阵营目标开火", c)
 
 	# 旧协同齐射只查包络+雷达锥；编队机会火控必须绕开它，不能拿未满锁临时目标盲发。
 	c = _make_case(0.0, 0.0, false)

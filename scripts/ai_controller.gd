@@ -101,7 +101,37 @@ func set_event_directive(directive: AIDirective) -> void:
 		aircraft.orbit_speed_cap = 0.0
 	if directive == null and aircraft:
 		# 释放时清掉事件期间留下的强制目标，让正常 AI 重新选目标
+		aircraft.withdraw_intent(ControlIntent.SOURCE_DIRECTIVE)
+		aircraft.orbit_speed_cap = 0.0
 		aircraft.clear_combat_target()
+
+
+## Aircraft 的 TacticalPlanner 在父节点物理帧先于本控制器执行；不显式暴露此门时，
+## combat_disabled directive 虽跳过 AI 路由，仍会被父层旧 TACTIC intent 抢写操控量。
+func directive_suspends_combat() -> bool:
+	return _directive != null and _directive.is_owner_alive() and _directive.combat_disabled
+
+
+## Aircraft 是父节点，物理 tick 先于本 AI 子节点；独占飞行指令必须在父层 planner/
+## physics 之前镜像一次控制量，否则本帧仍会消费上一帧战术意图并继续向外飞。
+func prepare_parent_directive_control() -> bool:
+	if not directive_suspends_combat() or aircraft == null:
+		return false
+	aircraft.clear_combat_target()
+	aircraft.withdraw_intent(ControlIntent.SOURCE_TACTIC)
+	if _directive.type == AIDirective.Type.FLY_TO_POINT:
+		var intent := ControlIntent.new()
+		intent.pursuit_pos = _directive.params.get("target", aircraft.global_position)
+		aircraft.keep_target_on_arrival = false
+		if _directive.params.has("target_speed"):
+			intent.target_speed_kmh = float(_directive.params["target_speed"])
+		if _directive.params.has("afterburner"):
+			intent.afterburner = 1 if bool(_directive.params["afterburner"]) else 0
+		if _directive.params.has("speed_cap_kmh"):
+			aircraft.orbit_speed_cap = float(_directive.params["speed_cap_kmh"]) / 3.6
+		aircraft.submit_intent(ControlIntent.SOURCE_DIRECTIVE, intent)
+	return true
+
 
 ## 实际 boss_attacker 状态（综合 boss_attacker 标志 + 王牌角色 meta）
 ## 即使标志延迟一帧未更新，角色 meta 实时检查也能正确判断
@@ -1105,6 +1135,13 @@ func _process_directive(delta: float) -> void:
 			var tgt: Vector2 = d.params.get("target", aircraft.global_position)
 			aircraft.target_position = tgt
 			aircraft.keep_target_on_arrival = false
+			# 返场/撤离可显式要求速度；未配置的既有 directive 逐字保持旧行为。
+			if d.params.has("target_speed"):
+				aircraft.target_speed_kmh = float(d.params["target_speed"])
+			if d.params.has("afterburner"):
+				AircraftPhysics.set_afterburner(aircraft, bool(d.params["afterburner"]))
+			if d.params.has("speed_cap_kmh"):
+				aircraft.orbit_speed_cap = float(d.params["speed_cap_kmh"]) / 3.6
 			# 抵达检查
 			if aircraft.global_position.distance_to(tgt) < d.arrival_radius:
 				_directive_arrival_dispatch()

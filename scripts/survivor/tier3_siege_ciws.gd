@@ -29,8 +29,11 @@ func _physics_process(delta: float) -> void:
 		_release_engaged_missile()
 		queue_free()
 		return
-	global_position = owner_tank.global_position + local_mount_offset.rotated(owner_tank.heading)
-	heading = owner_tank.heading
+	var pose: Dictionary = owner_tank.mount_world_pose(local_mount_offset) \
+		if owner_tank.has_method("mount_world_pose") else {}
+	global_position = Vector2(pose.get("position",
+		owner_tank.global_position + local_mount_offset.rotated(owner_tank.heading)))
+	heading = float(pose.get("heading", owner_tank.heading))
 	rotation = heading
 	StatusEffects.tick(self, delta)
 	_acquire_s = maxf(_acquire_s - delta, 0.0)

@@ -3,7 +3,7 @@ id: runtime-validation-workflow
 kind: system
 status: done
 schema_version: 1
-spec_version: 4
+spec_version: 5
 owner: AGL
 depends_on: [systems/survivor-loop, systems/event-system]
 reconstruction_complete: true
@@ -50,7 +50,7 @@ reconstruction_complete: true
 - 对 freed / previously freed 实例的转换、赋值、类型判断、参数检查或调用；
 - `Invalid call`、`Invalid access`、函数参数 `Invalid type`；
 - null value 调用、TypedArray 非法 erase、stack overflow；
-- 错误门自检探针的专用标记。
+- 错误门自检探针的专用标记，以及测试代码主动发出的精确 `ERROR: [Bench]` 前缀。
 
 普通 `WARNING` 不自动失败。若引擎存在稳定、已证实无害的退出噪音，只能用精确文本白名单排除；禁止按 `ERROR` 大类整体放行。
 
@@ -128,9 +128,9 @@ Variant → typeof == TYPE_OBJECT → 非 null → is_instance_valid → is / as
 ## 5. 验收标准（Acceptance / Litmus）
 
 - [x] 当前 bomber escort freed-object 路径使用 Variant 生命周期边界并有真实释放回归。
-- [x] 任意 bench 出现 `SCRIPT ERROR` 或 freed-object 诊断时，即使 Godot 返回 0，wrapper 也返回 86。
+- [x] 任意 bench 出现 `SCRIPT ERROR`、freed-object 或精确前缀 `ERROR: [Bench]` 诊断时，即使 Godot 返回 0，wrapper 也返回 86；不宽泛吞并环境 `ERROR`。
 - [x] 错误门保留完整 GDScript 调用栈，并对 freed-object 边界输出可执行的自动归因提示。
-- [x] `runtime_error_probe` 同时注入普通红错与 freed-object 类型边界，稳定证明错误门会改判、保留栈并输出自动归因。
+- [x] `runtime_error_probe` 同时注入专用探针、通用 `ERROR: [Bench]` 红错与 freed-object 类型边界，稳定证明错误门会改判、保留栈并输出自动归因。
 - [x] `lifecycle_gauntlet` 覆盖完成、失败、退役和两类缓存对象释放顺序。
 - [x] `lifecycle_gauntlet` 覆盖一体化巨炮销毁、跨帧释放、来源缓存清除和无底座残留。
 - [x] `lifecycle_gauntlet` 覆盖传感器批处理面对三个玩家目标缓存的跨帧失效引用。
@@ -193,6 +193,7 @@ freed-object 类型边界，Godot 主动退出 0 时 wrapper 仍改判 86。
 
 | 日期 | spec_version | 改动 |
 |---|---:|---|
+| 2026-09-03 | 5 | 把测试代码主动发出的 `ERROR: [Bench]` 纳入精确致命模式，避免压力场只写红错但进程退出 0 的假绿灯；环境级普通 `ERROR` 仍保持非致命并单独审计。 |
 | 2026-08-26 | 4 | 修复传感器批清理的三个已释放目标缓存；gauntlet 固化跨帧抗体；错误门保留完整调用栈并输出 freed-object 生命周期归因。 |
 | 2026-08-22 | 3 | gauntlet 增加一体化巨炮的正式伤害、跨帧释放、来源缓存清除与无底座残留案例；同步当前 20/20 与全量 80 项证据。 |
 | 2026-08-22 | 2 | bench 从仅静音 Music 收口为进程级 Master 静音，覆盖 SFX/UI/Radio 与未来子总线，并增加运行时断言。 |

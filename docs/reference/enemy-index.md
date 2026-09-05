@@ -156,6 +156,13 @@ BVR 远距协同齐射 BOSS，事件触发：
 - **独立航点**：`category="boss"` meta 使之跳过 `_update_hunters` 和 `_update_enemy_waypoints`
 - **不受远距清理**：`skip_far_cleanup` meta
 
+## 沙漠专属 BOSS
+
+- **超级武器列车 `ARMORED_TRAIN`**：不占 `EnemyType`；`ArmoredTrainBoss` 生成十四个真实 `ArmoredTrainSegment`，按正式底图矿区 railway 弧长与活动车钩贴轨，只允许从车尾逐节打断；断节关闭该节功能并加速，电磁炮车投射海岸巨炮同款直线 AOE，当前车尾逃脱触发 Game Over。权威规格见 [bosses/armored-train](../specs/bosses/armored-train.md)。
+- **王牌熔炉 `THE_CRUCIBLE`**：这是战斗主题/决战事件，不是同名 BOSS、中队或单位，故不占 `EnemyType`；`TheCrucibleEncounter` 依次激活/生成全部 17 支已实装非 BOSS Ace 队，共 71 架；前三队预生成供真实长机切镜，主题本身无无线电。各队使用独立 FFA team 真实互打；每四架固定三架主攻玩家、一架维持队际混战，高击坠敌 Ace 可抢走仇恨，未激活队不会提前成为射手或目标；所有成员保持视觉 LOD0 与 60Hz 位移，完整模拟均匀错分四相。权威规格见 [events/the-crucible](../specs/events/the-crucible.md) 与 [events/ace-squadron-expansion-wave](../specs/events/ace-squadron-expansion-wave.md)。
+- **陆地航母 `LAND_CARRIER`**：不占 `EnemyType`；`LandCarrierBoss` 生成单体 `LandCarrierUnit`，不走铁路，甲板驻留 4 架标准 F/A-18，接战/周期从甲板真实放飞，8 个防空挂点。权威规格见 [bosses/land-carrier](../specs/bosses/land-carrier.md)。
+- 三者均通过 `BossRegistry` → `BossEncounterEvent` → `SurvivorSpawner._spawn_boss` 的 custom spawn 分支接入；这是复用既有决战生命周期的内部技术路径，不把 The Crucible 定义成 BOSS。Debug 可分别直达；正式沙漠决战池在列车与 The Crucible 间等权随机，陆地航母已注册但不进入该池。
+
 ## Black Star / Hyper-A 高超音速分裂体 BOSS
 
 Black Star 不占 `EnemyType`，也不进入常规 Token 池；四代飞机均由 `HyperABoss` 直接实例化共享 `Aircraft`，权威行为与数值见 [bosses/hypersonic-splitter](../specs/bosses/hypersonic-splitter.md)。
@@ -195,14 +202,14 @@ Black Star 不占 `EnemyType`，也不进入常规 Token 池；四代飞机均�
 4. **`survivor_spawner.gd:119` 起 `preload(...)` 加载资源**
 5. **`survivor_data.gd:1554` 起加解锁/概率常量**（`<NAME>_UNLOCK_LEVEL` / `_CHANCE_PER_LEVEL` / `_CHANCE_MAX`）
 6. **`survivor_data.gd:3477` `TOKEN_COST` 和 `survivor_data.gd:3584` `TOKEN_INSTANCE_CAP` 表补新枚举值**
-7. **`survivor_spawner.gd:464` `_pick_enemy_type` 按威胁等级插入概率判定分支**
-8. **`survivor_spawner.gd:2468` `_create_enemy` 的各 match 全部补新 case**：
+7. **`survivor_spawner.gd:477` `_pick_enemy_type` 按威胁等级插入概率判定分支**
+8. **`survivor_spawner.gd:2792` `_create_enemy` 的各 match 全部补新 case**：
    - `match etype` 选基础参数（`:1577`）
    - `enemy_scale_for_level` 适用判定（`:1646` 起）
    - 热诱弹配置纪律 match（`:1689`）—— 越低级配置值越高，实际不投概率由 flare-evasion-coupling 统一缩放
    - `type_tag` 映射（`:1759`）—— 第 10 步的无线电白名单要用这个 tag
    - AI 配置分支（`:1840` 起 — 仿照 F-86/MiG-23 写 `aggression`/`engage_cooldown` 等）
-9. **`survivor_spawner.gd:669` `_update_spawner` 的编队/单机判定里追加**（精英单机 vs 成建制编队）
+9. **`survivor_spawner.gd:682` `_update_spawner` 的编队/单机判定里追加**（精英单机 vs 成建制编队）
 10. **决定它配不配无线电**（spec radio-chatter §2.8）：
     - 有人驾驶且够格说话 → 在 `resources/chatter/radio_chatter.json` 的 `voiced_enemy_types.types`
       加上第 8 步的 `type_tag`

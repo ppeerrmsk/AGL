@@ -164,7 +164,7 @@ Black Star 分裂代际会随战斗分歧，它们不是“维持最坏阶段”
 
 **当前实现参考**：
 - AI 决策：`AIController.AIScaleClass {IMMUNE/NORMAL/CHEAP}` + 自动派生（team / category / is_unmanned）+ 30+ 敌机时拉到 max_mult
-- 雷达锁定：`RADAR_LOCK_STRIDE = 4` 子集轮转 + HOSTILE/非 HOSTILE 候选预分桶
+- 雷达锁定：普通单位 `RADAR_LOCK_STRIDE = 4`、高密度高细节单位 16 相子集轮转 + HOSTILE/非 HOSTILE候选预分桶；均按实际 stride 补偿锁定进度
 - 屏幕外远距：`FAR_FREEZE_DIST_SQ` 硬冻结（survivor_mode._update_offscreen_lod）
 
 诊断路径同样受帧预算约束：逐机采样必须错开相位，禁止同批实体同帧格式化大量字符串；长时事件缓冲禁止
@@ -359,7 +359,7 @@ else:
 | 屏幕外敌机节流 | `survivor_mode._update_offscreen_lod` | `survivor_mode.gd` |
 | 屏幕外远距冻结距离 | `FAR_FREEZE_DIST_SQ`（1.5km²） | `survivor_mode.gd` |
 | simple_ai 预算池 | `SIMPLE_AI_FULL_TICK_BUDGET` | `survivor_mode.gd` |
-| 雷达锁定子集轮转 + ROE 候选预分桶 | `RADAR_LOCK_STRIDE=4` + `_radar_lock_phase` + `_rebuild_radar_target_buckets` | `survivor_mode.gd:_update_radar_locks` |
+| 雷达锁定子集轮转 + ROE 候选预分桶 | 普通 `RADAR_LOCK_STRIDE=4` / 高密度 `DENSE_BATTLE_RADAR_STRIDE=16` + `_radar_lock_phase` + `_rebuild_radar_target_buckets` | `survivor_mode.gd:_update_radar_locks` |
 | 云层采样缓存 | `CombatUnit._cloud_cache_*` + `_cached_is_in_cloud` | `survivor_mode.gd` / `main.gd` |
 | LOD 1 编队降频边界 | `aircraft/aircraft_formation.gd:update_follow`（speed/altitude 20Hz，bank/heading 60Hz） | 套路 II 实例 |
 

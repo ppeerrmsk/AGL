@@ -17,11 +17,12 @@ extends RefCounted
 ## Phase 1 Step 1 首批仲裁字段只有 3 个（pursuit / speed / AB）；
 ## weapon_mode / is_firing / 高度 tier 仍由各控制者直写，后批迁移。
 
-## 意图来源（优先级见 PRIORITY；后批迁移 MANUAL / MANEUVER / DIRECTIVE / FORMATION 等）
+## 意图来源（优先级见 PRIORITY；后批迁移 MANUAL / MANEUVER / FORMATION 等）
 enum {
 	SOURCE_TACTIC = 0,  ## TacticalPlanner 输出（60Hz，Aircraft 帧顶提交）
 	SOURCE_EVADE = 1,   ## 规避几何（玩家 _update_evasion 60Hz / AI process_evade AI-tick，互斥）
 	SOURCE_BRAKE = 2,   ## 玩家右键急刹（事件式旗桥接，见 Aircraft._resolve_intents）
+	SOURCE_DIRECTIVE = 3, ## 事件独占飞行指令（返场/撤离等），压过本帧其余 AI 主张
 }
 
 ## 源优先级：大者胜。固化"谁覆盖谁"，取代散布的 early-return/帧序默契。
@@ -29,6 +30,7 @@ const PRIORITY := {
 	SOURCE_TACTIC: 20,
 	SOURCE_EVADE: 30,
 	SOURCE_BRAKE: 40,
+	SOURCE_DIRECTIVE: 50,
 }
 
 var pursuit_pos: Vector2 = Vector2.INF  ## 追踪点主张；INF = 不主张

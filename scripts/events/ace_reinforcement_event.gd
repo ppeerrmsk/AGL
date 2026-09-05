@@ -325,6 +325,8 @@ func _maintain_ally_support_targets() -> void:
 func _handle_ace_terminal() -> void:
 	_ace_terminal_handled = true
 	_end_ace_battle_music()
+	if director.mode and director.mode.has_method("begin_encounter_recovery"):
+		director.mode.begin_encounter_recovery()
 	var codename := AceSquadProfiles.codename(profile_id)
 	if not _withdrawing and director.mode and director.mode.has_method("grant_time_extension"):
 		director.mode.grant_time_extension(TIME_EXTENSION_S)

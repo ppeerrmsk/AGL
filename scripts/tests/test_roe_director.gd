@@ -1,5 +1,7 @@
 extends RefCounted
 
+const EncounterDirectorScript = preload("res://scripts/survivor/encounter_director.gd")
+
 ## ROE 全图察觉与交战规则回归（spec global-awareness-roe）
 ## 覆盖：热度纯函数、直属小队 XP/Token/出击规模 + 姿态派生 + 感知门（察觉/守区 leash）
 ## 运行：godot --headless --path . -- --bench=roe（或 --bench=all）
@@ -13,6 +15,8 @@ func run() -> void:
 
 	_test_heat_math()
 	_test_squad_balance_math()
+	_test_encounter_director_math()
+	_test_formation_assault_keeps_squad()
 	_test_posture_derive()
 	_test_scored_engage_gate()
 
@@ -89,6 +93,74 @@ func _test_squad_balance_math() -> void:
 	natural_ground.free()
 	ground.free()
 	attacker.free()
+
+
+func _test_encounter_director_math() -> void:
+	print("── Encounter Director：PR / Lethal Slot / Flight 解析 ──")
+	_check("Token 迁移公式 1/4/9 → 1.0/1.75/3.0",
+		is_equal_approx(EncounterDirectorScript.pressure_cost_from_token(1), 1.0) \
+			and is_equal_approx(EncounterDirectorScript.pressure_cost_from_token(4), 1.75) \
+			and is_equal_approx(EncounterDirectorScript.pressure_cost_from_token(9), 3.0), "")
+	_check("临时友军不进入 PR target 参数；直属 1→4 只按 N 提升",
+		EncounterDirectorScript.pressure_target_for(4, 50.0) \
+			> EncounterDirectorScript.pressure_target_for(1, 50.0), "target 只接收直属 N")
+	_check("单机 PR 基线与 N=4/Heat78 原目标不变",
+		is_equal_approx(EncounterDirectorScript.pressure_target_for(1, 0.0), 3.2) \
+			and is_equal_approx(EncounterDirectorScript.pressure_target_for(4, 78.0), 7.925), "")
+	_check("N>=4 开局驻防稳定三机；小队不足时保留 2～3 机 roll",
+		EncounterDirectorScript.opening_garrison_size_for(4, 2) == 3 \
+			and EncounterDirectorScript.opening_garrison_size_for(1, 2) == 2 \
+			and EncounterDirectorScript.opening_garrison_size_for(3, 3) == 3, "")
+	_check("Heat 提升致命攻击容量但封顶 6.5",
+		EncounterDirectorScript.lethal_capacity_for(4, 80.0) \
+			> EncounterDirectorScript.lethal_capacity_for(4, 20.0) \
+			and EncounterDirectorScript.lethal_capacity_for(99, 100.0) == 6.5, "")
+	_check("N>=4/Heat>=60 的 4 机包按 roll 可解析 2+2",
+		EncounterDirectorScript.resolve_flight_elements(4, 60.0, 4, 0.59) == [2, 2], "")
+	_check("单机玩家或低 Heat 保持单 Element，不硬镜像",
+		EncounterDirectorScript.resolve_flight_elements(1, 100.0, 4, 0.0) == [4] \
+			and EncounterDirectorScript.resolve_flight_elements(4, 59.9, 4, 0.0) == [4], "")
+	_check("PR 缺口门通过后，完整包 headroom 服从 1.30 倍 Spike Cap",
+		is_equal_approx(EncounterDirectorScript.pressure_headroom(5.0, 8.0), 5.4) \
+			and is_equal_approx(EncounterDirectorScript.pressure_headroom(8.0, 8.0), 2.4), "")
+	_check("Global Recovery 只由敌对 Presence 真正清零触发",
+		EncounterDirectorScript.should_begin_global_recovery(3, 0) \
+			and not EncounterDirectorScript.should_begin_global_recovery(3, 2) \
+			and not EncounterDirectorScript.should_begin_global_recovery(0, 0), "")
+
+
+func _test_formation_assault_keeps_squad() -> void:
+	print("── 编队优先：共享目标不夺走僚机导航权 ──")
+	var leader := Aircraft.new()
+	var wing := Aircraft.new()
+	var target := CombatUnit.new()
+	leader.team = CombatUnit.TEAM_HOSTILE
+	wing.team = CombatUnit.TEAM_HOSTILE
+	target.team = CombatUnit.TEAM_PLAYER
+	leader.params = AircraftParams.new()
+	wing.params = AircraftParams.new()
+	var ai := AIController.new()
+	ai.aircraft = wing
+	ai.enable_combat = true
+	ai.evade_missiles = false
+	ai._defense_scan_timer = 1.0
+	ai.squad_engage_mode = AIController.SquadEngageMode.FOLLOW_LEADER
+	wing.use_tactical_planner = true
+	wing._ai_ref = ai
+	wing.add_child(ai)
+	var sq := SquadFactory.create(Squad.Formation.WEDGE, Squad.EngageMode.FOLLOW_LEADER)
+	SquadFactory.register_leader(sq, leader)
+	SquadFactory.register_wingman(sq, wing, true)
+	leader.set_combat_target(target)
+	SquadCoordination.process_squad_follow(ai, 0.1)
+	_check("FOLLOW_LEADER 僚机保留 SQUAD_FOLLOW 与 formation_mode",
+		ai._state == AIController.AIState.SQUAD_FOLLOW and wing.formation_mode, "")
+	_check("共享目标只进入火控，战术标记为 FORMATION_ASSAULT",
+		wing.combat_target == target and not wing.ai_override_pursuit \
+			and ai.current_tactic_name == "TACTIC_FORMATION_ASSAULT", "")
+	leader.free()
+	wing.free()
+	target.free()
 
 
 # ── 2. 姿态派生 ──

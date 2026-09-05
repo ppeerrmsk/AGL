@@ -3,7 +3,7 @@ id: airfield-liberation-zones
 kind: system
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 9
+spec_version: 10
 owner: ppeerrmsk
 depends_on: [zone-reward-docking, survivor-loop]
 reconstruction_complete: false
@@ -34,6 +34,8 @@ reconstruction_complete: false
 ## 2. 数据定义（What —— 全部数值，权威源）
 
 ### 2.1 三座机场战区（固定，开局全部可打）
+
+本节表格是**海岸线地图默认布局**。`AF_HANEDA` / `AF_KISARAZU` / `AF_CHOFU` 是跨地图兼容用的内部稳定 id，不是其它地图必须显示的地名或坐标；正式沙漠等地图必须通过自己的 MapDocument `zones` 覆盖玩家可见名称、圆心与补给点 key，同时保留本 spec 的解放生命周期。
 
 | id | 名称 key | 补给点 key | 圆心（px） | 半径（px） | 方位 |
 |---|---|---|---|---|---|
@@ -300,6 +302,7 @@ on 首次 _spawn_zone_units(airfield_zone):
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-08-30 | 10 | 明确羽田/木更津/調布只属于海岸线默认布局；其它正式地图可在 MapDocument 按稳定 id 覆盖本局名称、坐标与补给点 key，不得把日本地名和坐标泄漏到沙漠。 |
 | 2026-08-22 | 9 | 同步官方底图毕业：羽田跑道上层从整图 PNG 改为正式 Detail 瓦片同位叠加；玩法几何与既有跑道数值不变，性能验收改引用 `map_raster_*`。 |
 | 2026-08-10 | 8 | 明确机场附近气氛 SPG 与正式防空 TGT/解放后驻军隔离：气氛演员固定阵营，解放只撤离旧演员并新建友军 AA/SAM，禁止中弹或结算翻阵营。 |
 | 2026-07-24 | 1 | 初稿（三机场解放战区：敌占→解放→一次性补给点；难度＝热度；Tab 奖励块去"生存"死词；BOSS 纯时间闸澄清） |

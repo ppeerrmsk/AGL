@@ -198,7 +198,7 @@ func _pos_in_any_zone(pos: Vector2) -> bool:
 	var zones: ZoneData = mode.get("_zone_data") if "_zone_data" in mode else null
 	if not zones:
 		return false
-	for z_any in ZoneData.ZONES:
+	for z_any in zones.get_zone_definitions():
 		var z: Dictionary = z_any
 		var zid: StringName = z["id"]
 		var state := zones.get_state(zid)

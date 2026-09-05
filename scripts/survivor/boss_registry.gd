@@ -62,6 +62,44 @@ const BOSS_DEFS: Dictionary = {
 		"callsign_prefix": "HYPER-A",
 		"requires_water": false,
 	},
+	"ARMORED_TRAIN": {
+		"class_path": "res://scripts/survivor/armored_train_boss.gd",
+		"bgm": "boss_midnight_march",
+		"bgm_fallback": "boss",
+		"display_name": "ARMORED TRAIN",
+		"name_key": "CODEX_ARMORED_TRAIN_NAME",
+		"banner_name_key": "BOSS_BANNER_ARMORED_TRAIN_NAME",
+		"banner_role_key": "BOSS_BANNER_ARMORED_TRAIN_ROLE",
+		"banner_motto_key": "BOSS_BANNER_ARMORED_TRAIN_MOTTO",
+		"banner_palette": "terminal_green",
+		"callsign_prefix": "IRON SERPENT",
+		"requires_water": false,
+	},
+	"THE_CRUCIBLE": {
+		"class_path": "res://scripts/survivor/the_crucible_boss.gd",
+		"bgm": "boss_round_table",
+		"bgm_fallback": "boss",
+		"display_name": "THE CRUCIBLE",
+		"name_key": "CODEX_THE_CRUCIBLE_NAME",
+		"banner_name_key": "BOSS_BANNER_THE_CRUCIBLE_NAME",
+		"banner_role_key": "BOSS_BANNER_THE_CRUCIBLE_ROLE",
+		"banner_motto_key": "BOSS_BANNER_THE_CRUCIBLE_MOTTO",
+		"banner_palette": "wraith_blue",
+		"personified": false,
+		"requires_water": false,
+	},
+	"LAND_CARRIER": {
+		"class_path": "res://scripts/survivor/land_carrier_boss.gd",
+		"bgm": "boss",
+		"display_name": "BEHEMOTH LAND CARRIER",
+		"name_key": "CODEX_LAND_CARRIER_NAME",
+		"banner_name_key": "BOSS_BANNER_LAND_CARRIER_NAME",
+		"banner_role_key": "BOSS_BANNER_LAND_CARRIER_ROLE",
+		"banner_motto_key": "BOSS_BANNER_LAND_CARRIER_MOTTO",
+		"banner_palette": "terminal_green",
+		"callsign_prefix": "BEHEMOTH",
+		"requires_water": false,
+	},
 }
 
 ## BOSS 的玩家可见名 i18n key（结算面板等 UI 用）。未知 id → 空串，调用方回退通用文案
@@ -85,6 +123,7 @@ static func banner_metadata_for(boss_id: String) -> Dictionary:
 ## 2026-07-26 MOTHER_GOOSE 随生涯档案轮换正式上线（spec career-archive §3.1，此前一直池外）
 const MAP_POOLS: Dictionary = {
 	"default": ["WRAITH_SQUADRON", "CARRIER_STRIKE_GROUP", "MOTHER_GOOSE", "BLACK_STAR"],
+	"desert_railway_preview": ["ARMORED_TRAIN", "THE_CRUCIBLE"],
 }
 
 ## 生涯递进顺序（spec career-archive §2.3）：新玩家按此序初见每个 BOSS；
@@ -176,5 +215,7 @@ static func instantiate(boss_id: String) -> BossEncounter:
 	if def.has("callsign_prefix"):
 		enc.callsign_prefix = String(def["callsign_prefix"])
 	if def.has("bgm"):
-		enc.bgm_track = String(def["bgm"])
+		var preferred := String(def["bgm"])
+		var fallback := String(def.get("bgm_fallback", preferred))
+		enc.bgm_track = preferred if AudioManager.has_music(preferred) else fallback
 	return enc

@@ -1,8 +1,9 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://scripts/survivor/survivor_mode.gd" id="1_surv"]
 [ext_resource type="Script" path="res://scripts/bullet_manager.gd" id="2_bm"]
 [ext_resource type="Script" path="res://scripts/missile_manager.gd" id="3_mm"]
+[ext_resource type="Script" path="res://scripts/ui/world_unit_status_overlay.gd" id="4_status_overlay"]
 
 [node name="SurvivorMode" type="Node2D"]
 script = ExtResource("1_surv")
@@ -14,3 +15,9 @@ script = ExtResource("2_bm")
 script = ExtResource("3_mm")
 
 [node name="Camera2D" type="Camera2D" parent="."]
+
+[node name="WorldUnitStatusLayer" type="CanvasLayer" parent="."]
+layer = 1
+
+[node name="WorldUnitStatusOverlay" type="Node2D" parent="WorldUnitStatusLayer"]
+script = ExtResource("4_status_overlay")

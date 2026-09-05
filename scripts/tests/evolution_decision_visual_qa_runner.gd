@@ -26,8 +26,8 @@ func _ready() -> void:
 	ui.visible = true
 	await _settle(8)
 	var ready_ok := _layout_ok(ui) and not ui._signature_confirm.disabled \
-		and not ui._done_button.disabled \
-		and ui._done_button.text == tr("SETTLEMENT_RETAIN_CONFIRM") \
+		and ui._done_button.disabled \
+		and ui._done_button.text == tr("SETTLEMENT_DECISION_REQUIRED") \
 		and ui._tree.interactive and _tree_scope_ok(ui)
 	var ready_error := await _capture(OUTPUT_READY)
 

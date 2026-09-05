@@ -489,7 +489,8 @@ static func _update_position(ac: Aircraft, ctx: Dictionary, delta: float) -> voi
 # ⑨ 节流更新 + 视觉同步
 # ══════════════════════════════════════════════════════════════════════════
 
-## every3 帧做一次 fuel / g_load 更新（LOD 1 节流）；每帧同步 rotation 和重绘。
+## every3 帧做一次 fuel / g_load 与常规重绘（LOD 1 节流）；rotation 每帧同步，
+## 只有选中/悬停对象才逐帧重绘。持续世界连线不得假设这里会每帧刷新。
 static func _periodic_and_visuals(ac: Aircraft, ctx: Dictionary, delta: float) -> void:
 	if ctx["every3"]:
 		AircraftPhysics.update_fuel(ac, delta)

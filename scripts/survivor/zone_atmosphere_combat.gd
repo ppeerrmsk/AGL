@@ -14,7 +14,7 @@ const DDG_PARAMS: NavalParams = preload("res://resources/naval/destroyer_ddg.tre
 const ACTOR_GROUP := &"zone_atmosphere_actor"
 const ORDINARY_ZONE_CHANCE := 0.30
 ## 当前第三图仍以 preview id 运行；正式毕业时保留该 id 即自动沿用决战全覆盖。
-const DECISIVE_MAP_IDS: Array[StringName] = [&"ocean_islands_preview"]
+const DECISIVE_MAP_IDS: Array[StringName] = [&"ocean_islands_preview", &"desert_railway_preview"]
 const TICK_S := 0.5
 const DAMAGE_LIVE_ENTER_PX := 1500.0
 const DAMAGE_LIVE_EXIT_PX := 1800.0

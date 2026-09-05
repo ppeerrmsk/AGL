@@ -1,0 +1,7 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/survivor_mode.tscn" id="1"]
+[ext_resource type="Script" path="res://scripts/experiments/volume_3d_combat.gd" id="2"]
+
+[node name="Volume3DCombat" instance=ExtResource("1")]
+script = ExtResource("2")

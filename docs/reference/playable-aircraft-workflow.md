@@ -78,7 +78,16 @@ resources/playable_<name>_base.tres   # AircraftParams
 - `max_speed` `cruise_speed` `acceleration` —— 速度系
 - `max_g` `max_g_structural` `roll_rate` —— 机动系（用户列表里说的"结构 G 力 / 速度差异"就在这里）
 - `radar_range` `radar_half_angle` `lock_time` —— 雷达
-- `icon_color` —— 屏幕图标主色
+- `icon_color` / `wing_color` —— **只表示机体涂装**。它们随 `base_params`
+  进入出生、进化与僚机深拷路径，切换操控权或阵营时不得改写。
+  EA-18G 等电战机可保留紫色机体；这不会把紫色传给指令线或状态栏。
+
+机体涂装与战术 UI 配色是两个不可交叉的边界：
+
+- 普通 combat target 指令线对整个玩家小队统一使用玩家蓝，不区分当前操控机与僚机；双击突击始终使用独立黄色。
+- 世界状态栏只使用阵营与当前操控语义色。
+- 上述两者不得读取 `AircraftParams.icon_color` / `wing_color`；新增机型颜色不得要求同步改 UI 颜色。
+- 验收时至少要覆盖一架非默认涂装机（现有基准是紫色 EA-18G），同时断言机体保色、玩家小队指令线统一蓝、状态栏语义色三者互不污染。
 
 ### 步骤 2：准备武器 .tres（如有定制需求）
 
@@ -239,7 +248,7 @@ const PLAYABLE_LIST: Array[Dictionary] = [
 - **战术决策（BFM）**：`scripts/ai/tactical/situation.gd` 建态势快照，`scripts/ai/tactical/tactical_planner.gd:76 plan` 选择 intent，`scripts/ai/tactical/bfm_intent.gd` 生成纯计划
 - **武器射程/竞选**：`scripts/ai/tactical/weapon_selector.gd` 与 `Situation` 从当前挂载读取包络，无 gun 时不会竞选机炮
 - **导弹发射时机**：`aircraft/aircraft_weapons.gd:1004 update_missile` 统一判定射程、最小距离、射界与锁定；导弹换型主要通过 `.tres`
-- **武器模式切换**：`aircraft/aircraft_weapons.gd:896 update_weapon_mode` 根据挂载、弹量和战术计划切换 GUN ↔ MISSILE
+- **武器模式切换**：`aircraft/aircraft_weapons.gd:950 update_weapon_mode` 根据挂载、弹量和战术计划切换 GUN ↔ MISSILE
 - **机会射击宽容度**：通过 `combat.opportunity_cone_mult` `opportunity_range_mult` 调，不在代码里
 
 要专属定制 AI 倾向，**改 `combat_override`** 而不是改代码。例如要做"放风筝型"：

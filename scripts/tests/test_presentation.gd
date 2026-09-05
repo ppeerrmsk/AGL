@@ -35,6 +35,8 @@ func run() -> void:
 	_test_upgrade_sequences_wellformed()
 	_test_wraith_sequence_wellformed()
 	_test_simple_boss_sequences_wellformed()
+	_test_armored_train_arrival_sequence()
+	_test_crucible_arrival_sequence()
 	_test_boss_banner_contract()
 	_test_converge_speed_solve()
 	_test_dim_layer_placement()
@@ -431,6 +433,69 @@ func _test_simple_boss_sequences_wellformed() -> void:
 		_assert_true("%s: 回镜后释放演出" % seq_name,
 			has_release and release_at >= return_at)
 
+
+func _test_armored_train_arrival_sequence() -> void:
+	var defs := _load_real_sequences()
+	var seq: Dictionary = defs.get("armored_train_arrival", {})
+	_assert_true("armored_train_arrival: 序列存在", not seq.is_empty())
+	if seq.is_empty():
+		return
+	var p := SequencePlayer.new()
+	p.load_sequence("armored_train_arrival", seq)
+	_assert_true("armored_train_arrival: 总时长 ≤ 7s", p.total_duration() <= 7.0)
+	var banner_dismiss_at := -1.0
+	var cut_at := -1.0
+	var return_at := -1.0
+	var release_at := -1.0
+	var follows_train_center := false
+	var train_zoom := 1.0
+	var clears_stage := false
+	var unpause_before_release := false
+	for s in seq.get("steps", []):
+		var ch := String(s.get("ch", ""))
+		var op := String(s.get("op", ""))
+		var at := float(s.get("at", -1.0))
+		if ch == "banner" and op == "dismiss":
+			banner_dismiss_at = at
+		elif ch == "camera" and op == "cut_to":
+			cut_at = at
+			follows_train_center = bool(s.get("follow", false)) and int(s.get("actor", -1)) == 6
+			train_zoom = float(s.get("zoom", 1.0))
+		elif ch == "camera" and op == "return_to_player":
+			return_at = at
+		elif ch == "stage" and op == "clear":
+			clears_stage = true
+		elif ch == "time" and op == "pause" and int(s.get("to", 1)) == 0:
+			unpause_before_release = true
+		elif ch == "actor" and op == "release":
+			release_at = at
+	_assert_true("armored_train_arrival: 横幅结束后才切入列车镜头",
+		banner_dismiss_at >= 0.0 and cut_at > banner_dismiss_at)
+	_assert_true("armored_train_arrival: 镜头持续跟随 actor6 编组中部至少 4 秒",
+		follows_train_center and return_at - cut_at >= 4.0)
+	_assert_true("armored_train_arrival: 十四节超长编组使用广角镜头",
+		train_zoom <= 0.30)
+	_assert_true("armored_train_arrival: 保留铁路背景而不清空舞台", not clears_stage)
+	_assert_true("armored_train_arrival: 回玩家后解除暂停并释放",
+		return_at > cut_at and unpause_before_release and release_at >= return_at + 0.7)
+
+
+func _test_crucible_arrival_sequence() -> void:
+	var defs := _load_real_sequences()
+	var steps: Array = defs.get("the_crucible_arrival", {}).get("steps", [])
+	var cut_actors: Array[int] = []
+	var has_radio := false
+	for step in steps:
+		var ch := String(step.get("ch", ""))
+		var op := String(step.get("op", ""))
+		if ch == "camera" and op == "cut_to":
+			cut_actors.append(int(step.get("actor", -1)))
+		elif ch == "radio":
+			has_radio = true
+	_assert_true("the_crucible_arrival: 依次切前三队真实长机",
+		cut_actors == [0, 5, 10])
+	_assert_true("the_crucible_arrival: 主题本身没有无线电", not has_radio)
+
 ## 所有注册 BOSS 共用同一横幅通道；身份数据留在注册表，镜头必须等横幅退完才切。
 func _test_boss_banner_contract() -> void:
 	var defs := _load_real_sequences()
@@ -445,8 +510,9 @@ func _test_boss_banner_contract() -> void:
 		_assert_true("banner.%s 有 motto key" % boss_id, not motto_key.is_empty())
 		_assert_true("banner.%s palette 可解析" % boss_id,
 			BossArrivalBannerScript.has_palette(palette_id))
-		_assert_true("banner.%s 有 callsign" % boss_id,
-			not String(definition.get("callsign_prefix", "")).is_empty())
+		var personified := bool(definition.get("personified", true))
+		_assert_true("banner.%s 人格化对象才需要 callsign" % boss_id,
+			not personified or not String(definition.get("callsign_prefix", "")).is_empty())
 
 		var seq_name := "%s_arrival" % String(boss_id).to_lower()
 		var steps: Array = defs.get(seq_name, {}).get("steps", [])
@@ -718,6 +784,12 @@ func _test_compact_aircraft_labels() -> void:
 	_assert_true("unit_status.组合变换后原点钉在整数像素",
 		is_equal_approx(composed.origin.x, roundf(composed.origin.x))
 		and is_equal_approx(composed.origin.y, roundf(composed.origin.y)))
+	# 正式覆盖层只消费屏幕原点；单位 basis 即使在缓存后继续旋转，也没有路径污染标签轴。
+	var overlay_panel := AircraftRenderer.status_panel_overlay_transform_for(
+		item_to_screen.origin, Vector2(37.0, -12.0))
+	_assert_true("unit_status.覆盖层最终轴绝对水平且与单位旋转无关",
+		overlay_panel.x.is_equal_approx(Vector2.RIGHT)
+		and overlay_panel.y.is_equal_approx(Vector2.DOWN))
 	_assert_true("unit_status.单发伤害播放完整蓝白周期",
 		AircraftRenderer.status_damage_flash_phase(10.0, 10.0, 10.0) == 0
 		and AircraftRenderer.status_damage_flash_phase(10.0, 10.0, 10.13) == 1
@@ -732,6 +804,28 @@ func _test_compact_aircraft_labels() -> void:
 	_assert_true("unit_status.整块面板及数字蓝白反相",
 		blue_phase == [ThemeColors.UI_DAMAGE_FLASH_BLUE, ThemeColors.UI_TERMINAL_WHITE]
 		and white_phase == [ThemeColors.UI_TERMINAL_WHITE, ThemeColors.UI_DAMAGE_FLASH_BLUE])
+	var controlled_panel := AircraftRenderer.unit_status_panel_colors(
+		CombatUnit.TEAM_PLAYER, true)
+	var wingman_panel := AircraftRenderer.unit_status_panel_colors(
+		CombatUnit.TEAM_PLAYER, false)
+	_assert_true("unit_status.配色只读阵营与操控语义",
+		controlled_panel == [GameConstants.PLAYER_CTRL_LABEL_BG,
+			GameConstants.PLAYER_CTRL_LABEL_TEXT]
+		and wingman_panel == GameConstants.aircraft_label_colors(
+			CombatUnit.TEAM_PLAYER))
+	var controlled_target_line := AircraftRenderer.combat_target_line_color(
+		CombatUnit.TEAM_PLAYER, false)
+	var wingman_target_line := AircraftRenderer.combat_target_line_color(
+		CombatUnit.TEAM_PLAYER, false)
+	var assault_target_line := AircraftRenderer.combat_target_line_color(
+		CombatUnit.TEAM_PLAYER, true)
+	_assert_true("combat_target.机体涂装不进入指令线配色边界",
+		controlled_target_line == Color(
+			GameConstants.COL_FRIEND_PLAYER.r,
+			GameConstants.COL_FRIEND_PLAYER.g,
+			GameConstants.COL_FRIEND_PLAYER.b, 0.68)
+		and wingman_target_line == controlled_target_line
+		and assault_target_line == Color(1.0, 0.78, 0.2, 0.84))
 	var damaged_player := Aircraft.new()
 	damaged_player.team = CombatUnit.TEAM_PLAYER
 	damaged_player.set_meta(AircraftRenderer.STATUS_DAMAGE_STARTED_META, 10.0)

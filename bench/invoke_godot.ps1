@@ -280,7 +280,8 @@ function Get-BenchRuntimeErrorBlocks([string]$stdoutText, [string]$stderrText) {
         'freed instance',
         '^\s*ERROR:\s+.*(?:Invalid call|Invalid access|Invalid type in function)',
         '^\s*ERROR:\s+.*(?:Attempt to call|Attempted to erase|on a null value|Stack overflow)',
-        '^\s*ERROR:\s+\[BenchRuntimeErrorProbe\]'
+        '^\s*ERROR:\s+\[BenchRuntimeErrorProbe\]',
+        '^\s*ERROR:\s+\[Bench\]'
     )
     $blocks = New-Object System.Collections.Generic.List[string]
     $seen = @{}

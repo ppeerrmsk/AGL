@@ -164,23 +164,18 @@ func _test_airfield_binary_decision() -> void:
 	ui.show_offer(current, EvolutionSystem.exits_of(&"f15"), 26, signature, true, false,
 		[&"f15"], {&"gladiator": 8, &"knight": 8, &"schemer": 8})
 	_check("许可已购且未装备 → 保留机体按钮可用", not ui._signature_confirm.disabled, "")
-	_check("有待领取专属技 → 底部按钮明确指向保留并装备",
-		not ui._done_button.disabled
-		and ui._done_button.text == tr("SETTLEMENT_RETAIN_CONFIRM"), "")
-	var forwarded_signatures: Array[Dictionary] = []
-	ui.signature_chosen.connect(func(upgrade: Dictionary) -> void:
-		forwarded_signatures.append(upgrade))
-	ui._done_button.pressed.emit()
-	_check("底部主按钮不能空手关闭：直接提交正式专属技能分支",
-		ui._decision_committed and forwarded_signatures.size() == 1
-		and String(forwarded_signatures[0].get("id", "")) == String(signature.get("id", "")), "")
-	_check("底部主按钮提交后锁死进化按钮与树", ui._evo_confirm.disabled
+	_check("什么都没选 → 底部按钮灰色且不能继续",
+		ui._done_button.disabled
+		and ui._done_button.text == tr("SETTLEMENT_DECISION_REQUIRED"), "")
+	ui._confirm_signature(signature)
+	_check("主动选择右侧技能后锁死进化按钮与树", ui._decision_committed
+		and ui._evo_confirm.disabled
 		and ui._signature_confirm.disabled and ui._done_button.disabled
 		and not ui._tree.interactive, "")
 	ui.reject_decision()
 	_check("权威拒绝后恢复二选一输入", not ui._decision_committed
 		and not ui._signature_confirm.disabled and ui._tree.interactive
-		and ui._evo_confirm.disabled and not ui._done_button.disabled, "")
+		and ui._evo_confirm.disabled and ui._done_button.disabled, "")
 
 	ui.show_offer(current, EvolutionSystem.exits_of(&"f15"), 26, signature, true, true,
 		[&"f15"], {&"gladiator": 8, &"knight": 8, &"schemer": 8})

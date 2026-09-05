@@ -115,8 +115,8 @@ func _test_marking() -> void:
 # ── 6. 编成 profile 注册表（spec ace-squadron-tier §2.7 / §2.9，728 实装批）──
 func _test_profiles() -> void:
 	print("── profile 注册表 ──")
-	# 七队齐 + 字段完整
-	var expected := ["marathon", "2ndwave", "orion", "gimmick", "goofighters", "vulture", "whitetea"]
+	# 19 个档案（17 支轮换队 + ORION 独立宿敌 + HOUND 熔炉专属）字段完整
+	var expected := AceSquadProfiles.PROFILES.keys()
 	for id in expected:
 		var p: Dictionary = AceSquadProfiles.get_profile(id)
 		_check("profile %s 存在且字段齐" % id,
@@ -137,12 +137,15 @@ func _test_profiles() -> void:
 			seen[cs] = true
 	_check("固定呼号不在 800 池内", pool_clash.is_empty(), "撞名=%s" % str(pool_clash))
 	_check("固定呼号全表无重复", dup.is_empty(), "重复=%s" % str(dup))
-	# 固定第一槽（2026-08-23）：六支非宿敌 210s 同池；宿敌/未实装仍排除
+	# 固定第一槽：全部已实装非宿敌 210s 同池；宿敌/未实装仍排除
 	_check("209.9s 池为空", AceSquadProfiles.pool_at(209.9).is_empty(),
 		str(AceSquadProfiles.pool_at(209.9)))
 	_check("210s 池含 marathon", AceSquadProfiles.pool_at(210.0).has("marathon"),
 		str(AceSquadProfiles.pool_at(210.0)))
 	_check("宿敌 orion 永不进轮换池", not AceSquadProfiles.pool_at(9999.0).has("orion"),
+		str(AceSquadProfiles.pool_at(9999.0)))
+	_check("Hound 背叛版永不进常规轮换池",
+		not AceSquadProfiles.pool_at(9999.0).has("hound"),
 		str(AceSquadProfiles.pool_at(9999.0)))
 	var unimplemented_leak := false
 	for id in AceSquadProfiles.pool_at(9999.0):
@@ -154,7 +157,7 @@ func _test_profiles() -> void:
 # ── 6b. 新局轮换 + 标准化击破时间预算 ──
 func _test_rotation_balance() -> void:
 	print("── 随机轮换 / TTK 预算 ──")
-	var ids := ["marathon", "2ndwave", "gimmick", "goofighters", "vulture", "whitetea"]
+	var ids := AceSquadProfiles.pool_at(210.0)
 	var pool := AceSquadProfiles.pool_at(210.0)
 	for id in ids:
 		_check("210s 第一槽含 %s" % id, pool.has(id), str(pool))
@@ -194,6 +197,9 @@ func _test_rotation_balance() -> void:
 	_check("WhiteTea 标准化 TTK = 70s",
 		is_equal_approx(AceSquadProfiles.estimated_ttk_s("whitetea"), 70.0),
 		"%.0fs" % AceSquadProfiles.estimated_ttk_s("whitetea"))
+	_check("IDO 八节点共享两次防御 = 10 DU",
+		is_equal_approx(AceSquadProfiles.defeat_units("ido"), 10.0),
+		"%.0f DU" % AceSquadProfiles.defeat_units("ido"))
 	var wt: Dictionary = AceSquadProfiles.PROFILES["whitetea"]
 	var wt_herbst: Dictionary = wt.get("herbst", {})
 	_check("WhiteTea 机炮骑士 + J-turn 分层配置",

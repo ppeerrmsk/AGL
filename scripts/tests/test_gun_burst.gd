@@ -7,7 +7,7 @@ extends RefCounted
 ##   3. 梭承诺：火控窗口只开一帧也打完整梭（根治"一闪只漏一发孤弹"）
 ##   4. 硬中止：evasion / 弹尽 / 目标被毁 立即掐断残梭
 ##   5. 敌机安全门：一次机会只打一梭，末发后至少停火 3 秒；同帧多入口查询不吞许可
-##   6. 机炮意图锥：普通 MQ-109 / MQ-X 显示，仅 Mother Goose 蜂群隐藏
+##   6. 敌方/FFA 安全门与 hover 参考范围一致；枪口闪光只由真实出弹刷新
 ## 运行：godot --headless --path . -- --bench=gun_burst（或 --bench=all）
 
 var _pass := 0
@@ -180,6 +180,56 @@ func run() -> void:
 			"category=%s" % str(goose_swarm.get_meta(&"category", "")))
 	goose_swarm.free()
 
+	var hover_ffa := _make_threat_probe("res://resources/enemy_uav.tres")
+	hover_ffa.team = CombatUnit.TEAM_FREE_FOR_ALL_BASE
+	hover_ffa.is_hovered = true
+	_check("FFA 敌机 hover 显示雷达与机炮参考范围",
+			AircraftRenderer.should_show_hover_radar_range(hover_ffa)
+			and AircraftRenderer.should_show_gun_reference(hover_ffa),
+			"team=%d radar=%.0f gun=%s" % [hover_ffa.team,
+				hover_ffa.effective_radar_range_px(), str(hover_ffa.params.gun != null)])
+	hover_ffa.free()
+
+	var no_lock_hover := _make_shooter(600.0, 3, CombatUnit.TEAM_FREE_FOR_ALL_BASE)
+	no_lock_hover.params.radar_range = 1600.0
+	no_lock_hover.is_hovered = true
+	_check("无锁定武器的敌机 hover 仍显示机体雷达范围",
+			AircraftRenderer.should_show_hover_radar_range(no_lock_hover)
+			and not no_lock_hover.params.has_lock_capable_weapon(),
+			"radar=%.0f lock_weapon=%s" % [no_lock_hover.effective_radar_range_px(),
+				str(no_lock_hover.params.has_lock_capable_weapon())])
+	_free(no_lock_hover)
+
+	var player_probe := _make_shooter(600.0, 3, CombatUnit.TEAM_PLAYER)
+	var ffa_threat := _make_shooter(600.0, 3, CombatUnit.TEAM_FREE_FOR_ALL_BASE)
+	player_probe.heading = 0.0
+	player_probe.global_position = Vector2.ZERO
+	ffa_threat.heading = 0.0
+	ffa_threat.global_position = Vector2(0.0, 200.0)
+	ffa_threat.combat_target = player_probe
+	AircraftRenderer.player_ref = player_probe
+	ffa_threat._update_gun_threat_indicator(Aircraft.GUN_THREAT_DISPLAY_DELAY)
+	_check("FFA 敌机对当前玩家的机炮意图进入威胁锥",
+			ffa_threat._gun_threat_timer >= Aircraft.GUN_THREAT_DISPLAY_DELAY
+			and AircraftRenderer.should_show_enemy_gun_threat(ffa_threat),
+			"timer=%.2f team=%d" % [ffa_threat._gun_threat_timer, ffa_threat.team])
+	AircraftRenderer.player_ref = null
+	ffa_threat.combat_target = null
+	_free(ffa_threat)
+	_free(player_probe)
+
+	var flash_probe := _make_shooter(180.0, 1, CombatUnit.TEAM_FREE_FOR_ALL_BASE)
+	flash_probe.is_firing = true
+	var intent_only_hidden := not AircraftRenderer.should_draw_gun_muzzle_flash(flash_probe)
+	AircraftWeapons.update_gun(flash_probe, DT)
+	_check("枪口闪光只由真实出弹刷新，不随持续开火意图常亮",
+			intent_only_hidden and AircraftRenderer.should_draw_gun_muzzle_flash(flash_probe)
+			and (flash_probe.bullet_manager as BulletStub).shot_times.size() == 1,
+			"intent_only_hidden=%s flash=%.3f shots=%d" % [str(intent_only_hidden),
+				flash_probe._gun_muzzle_flash_remaining_s,
+				(flash_probe.bullet_manager as BulletStub).shot_times.size()])
+	_free(flash_probe)
+
 	# ── 10. 威胁目标生命周期：目标已释放时不得先做类型判断而闪退 ──
 	var stale_threat := _make_shooter(600.0, 10, CombatUnit.TEAM_HOSTILE)
 	var released_target := Aircraft.new()
@@ -226,6 +276,8 @@ func _make_shooter(fire_rate: float, burst_count: int,
 	g.fire_rate = fire_rate
 	g.burst_count = burst_count
 	g.muzzle_velocity = 1000.0
+	g.max_range = 1000.0
+	g.fire_cone_half_angle = 15.0
 	p.gun = g
 	ac.params = p
 	ac.ammo = 10000

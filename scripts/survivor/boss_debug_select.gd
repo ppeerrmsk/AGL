@@ -13,6 +13,8 @@ const BG_COLOR := ThemeColors.SCENE_BG
 const FINAL_WAR_SCENARIO := "final_war"
 const FINAL_WAR_MAP_ID := "ocean_islands_preview"
 const FINAL_WAR_MAP_PATH := "res://resources/maps/ocean_islands_preview.aglmap"
+const DESERT_MAP_ID := "desert_railway_preview"
+const DESERT_MAP_PATH := "res://resources/maps/desert_railway_preview.aglmap"
 
 var _time := 0.0
 var _canvas: CanvasLayer
@@ -55,6 +57,24 @@ const BOSS_LIST: Array[Dictionary] = [
 			["SECOND ROOT", "second_root"],
 			["COOLDOWN WINDOW", "cooldown"],
 		],
+	},
+	{
+		"id": "ARMORED_TRAIN",
+		"name": "BOSS_DEBUG_ARMORED_TRAIN_NAME",
+		"desc": "BOSS_DEBUG_ARMORED_TRAIN_DESC",
+		"tags": ["TAG_GROUND", "TAG_RAILWAY", "TAG_ESCAPE"],
+	},
+	{
+		"id": "LAND_CARRIER",
+		"name": "BOSS_DEBUG_LAND_CARRIER_NAME",
+		"desc": "BOSS_DEBUG_LAND_CARRIER_DESC",
+		"tags": ["TAG_GROUND", "TAG_CARRIER", "TAG_AIR"],
+	},
+	{
+		"id": "THE_CRUCIBLE",
+		"name": "BOSS_DEBUG_THE_CRUCIBLE_NAME",
+		"desc": "BOSS_DEBUG_THE_CRUCIBLE_DESC",
+		"tags": ["TAG_AIR", "TAG_TWO_PHASE"],
 	},
 ]
 
@@ -298,7 +318,11 @@ func _on_boss_selected(index: int, scenario: String = "full") -> void:
 	get_tree().set_meta("boss_debug_mode", true)
 	get_tree().set_meta("boss_debug_id", data["id"])
 	get_tree().set_meta("boss_debug_scenario", scenario)
-	if scenario == FINAL_WAR_SCENARIO:
+	if String(data["id"]) in ["ARMORED_TRAIN", "LAND_CARRIER", "THE_CRUCIBLE"]:
+		get_tree().set_meta("survivor_map_id", DESERT_MAP_ID)
+		get_tree().set_meta("ugc_map_path", DESERT_MAP_PATH)
+		get_tree().set_meta("map_preview_only", false)
+	elif scenario == FINAL_WAR_SCENARIO:
 		get_tree().set_meta("survivor_map_id", FINAL_WAR_MAP_ID)
 		get_tree().set_meta("ugc_map_path", FINAL_WAR_MAP_PATH)
 		get_tree().set_meta("map_preview_only", false)

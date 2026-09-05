@@ -95,12 +95,9 @@ func show_offer(current: Dictionary, exits: Array, team_level: int, signature: D
 	_done_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_style_button(_done_button, TERMINAL_COLOR)
 	if _signature_ready:
-		# “继续出击”不能成为空手跳过奖励的第三条路；有待领取技能时，
-		# 底部主按钮就是方案 A 的快捷入口，并走同一权威授予信号。
-		_done_button.text = tr("SETTLEMENT_RETAIN_CONFIRM")
-		var signature_copy: Dictionary = signature.duplicate(true)
-		_done_button.pressed.connect(
-			func() -> void: _confirm_signature(signature_copy))
+		# 未作决定时不替玩家默认选择；必须主动选右侧技能或左侧进化目标。
+		_done_button.text = tr("SETTLEMENT_DECISION_REQUIRED")
+		_done_button.disabled = true
 	else:
 		_done_button.text = tr("SETTLEMENT_CONTINUE")
 		_done_button.pressed.connect(_close)
@@ -320,7 +317,7 @@ func reject_decision() -> void:
 	if _signature_confirm:
 		_signature_confirm.disabled = not _signature_ready
 	if _done_button:
-		_done_button.disabled = false
+		_done_button.disabled = _signature_ready
 	_evo_selected = &""
 	if _evo_confirm:
 		_evo_confirm.disabled = true

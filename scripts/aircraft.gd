@@ -22,6 +22,7 @@ var bank_angle: float = 0.0         ## 弧度
 var _prev_bank_for_rate: float = 0.0  ## 上一帧 bank（用于发射稳定性检查计算 roll rate）
 var _bank_rate_rad_s: float = 0.0     ## 滚转率，rad/s（EMA 平滑，避免单帧噪声）
 var _turn_rate_filt: float = 0.0      ## 低通滤波后的航向角速度，rad/s（PD 控制 D 项输入；破除单帧代数环 Nyquist 抖）
+var _heading_ref_pd: float = NAN      ## PD 消费的平滑目标航向；大角命令立即接管，小角分频参考连续收敛
 var _prev_tgt_heading_pd: float = NAN ## 上一帧目标方位（算 LOS 角速度用；NAN=未初始化）
 var _los_rate_filt: float = 0.0       ## 低通滤波目标 LOS 角速度，rad/s（PD 前馈项：跟随转弯目标时补偿稳态转速，免得 D 项与必要转速对抗成弛豫振荡）
 var _committed_turn_sign: float = 0.0  ## 转弯方向锁定：0=未锁定, +1/-1=锁定方向
@@ -198,6 +199,8 @@ var ammo: int = 500
 var _auto_gun_scan_timer: float = 0.0
 var _fire_cooldown: float = 0.0
 var _gun_burst_rounds_left: int = 0  ## 当前梭剩余弹数（>0 = 梭承诺中，打完才停；见 specs/weapons/gun-burst-fire.md）
+const GUN_MUZZLE_FLASH_DURATION_S := 0.06
+var _gun_muzzle_flash_remaining_s: float = 0.0  ## 只由真实出弹刷新；不得用持续火控意图伪造枪口闪光
 var _auto_gun_target_id: int = 0  ## 3Hz 自动扫描本轮候选；只存实例 ID，避免跨帧攥住已释放节点
 var _gun_burst_target_id: int = 0  ## 当前已承诺梭的目标；整梭逐 tick 重算提前点，禁止被 planner 回正
 var _gun_lead_heading: float = 0.0  ## 前置射击方向（由 _update_combat 计算）
@@ -209,7 +212,7 @@ var _primary_weapon_kind: String = ""      ## 当前竞选胜者（""=无战斗/
 var _primary_weapon_hold_s: float = 999.0  ## 胜者已保持秒数（初值大 → 首次竞选立即生效）
 var _plan_bank_limit_rad: float = -1.0     ## plan 级坡度上限（LINE_UP 充能平台=30°；-1=无限制）
 ## 敌方飞机机炮安全门：每次火控机会只准启动一梭，梭结束/硬中止后强制停火。
-## 统一执行在 AircraftWeapons.update_gun；仅 HOSTILE 生效，PLAYER / ALLY 不受限。
+## 统一执行在 AircraftWeapons.update_gun；HOSTILE 与剧本 FFA 生效，PLAYER / ALLY 不受限。
 const AI_GUN_PAUSE_DURATION: float = 3.0
 var _ai_gun_pause_timer: float = 0.0  ## 敌机当前强制停火剩余秒数（梭内不递减）
 var _in_rear_hemisphere: bool = false  ## 是否处于敌机后半球（由 _update_combat 计算）
@@ -874,16 +877,9 @@ func _set_sensor_contact_visual_alpha(value: float) -> void:
 			and _sensor_contact_visual_alpha <= 0.001:
 		queue_redraw()
 
-## 阵营切换后的单次视觉刷新；不进入每帧路径。
+## 阵营切换后的单次视觉刷新；不进入每帧路径。机体 icon/wing 是机型涂装，
+## 不是阵营语义色；阵营变更只更新尾迹，状态栏/指令线由各自的语义色入口决定。
 func refresh_faction_visuals() -> void:
-	if params:
-		match team:
-			CombatUnit.TEAM_PLAYER:
-				params.icon_color = GameConstants.COL_FRIEND_PLAYER
-				params.wing_color = Color(0.25, 0.48, 0.85)
-			CombatUnit.TEAM_ALLY:
-				params.icon_color = GameConstants.COL_FRIEND_ALLY
-				params.wing_color = Color(0.22, 0.50, 0.28)
 	if _trail_ribbon:
 		_trail_ribbon.ribbon_color = GameConstants.team_trail_color(team)
 	queue_redraw()
@@ -1158,6 +1154,9 @@ func _physics_process(delta: float) -> void:
 
 func _physics_process_impl(delta: float) -> void:
 	_lod_frame += 1
+	var movement_delta := delta
+	if _gun_muzzle_flash_remaining_s > 0.0:
+		_gun_muzzle_flash_remaining_s = maxf(_gun_muzzle_flash_remaining_s - delta, 0.0)
 	# 玩家与僚机受伤后的短窗内强制刷新飞机旁状态栏；仅持续 0.96s。
 	if AircraftRenderer.status_damage_flash_phase_for(self) >= 0:
 		queue_redraw()
@@ -1169,6 +1168,22 @@ func _physics_process_impl(delta: float) -> void:
 		_update_destroy(delta)
 		queue_redraw()
 		return
+	# AI 是子节点、执行顺序晚于 Aircraft；先镜像独占 directive，确保本帧物理不会
+	# 继续消费上一帧 TACTIC intent。无 directive 时仅一次空判断。
+	if _ai_ref != null:
+		_ai_ref.prepare_parent_directive_control()
+	# 超密集决战成员保持 LOD0/完整绘制，但把完整逻辑按稳定相位错开；跳帧仍 60Hz 位移。
+	# 在 misc/status 之前返回，避免 71 架在同一帧重复跑不需要 60Hz 的装备与状态扫描。
+	var dense_sim_divisor := maxi(1, int(get_meta(&"dense_battle_sim_divisor", 1)))
+	var dense_sim_phase := posmod(int(get_meta(&"dense_battle_sim_phase", 0)), dense_sim_divisor)
+	if dense_sim_divisor > 1:
+		if (_lod_frame + dense_sim_phase) % dense_sim_divisor != 0:
+			AircraftPhysics.apply_movement(self, movement_delta)
+			AircraftWeapons.update_passive_gunship(self, movement_delta)
+			# heading 只在完整更新帧改变；跳帧不得重复写 CanvasItem.rotation。
+			# 否则缓存的屏幕空间状态栏逆变换会被新 rotation 二次旋转，标签随飞机倾斜。
+			return
+		delta *= float(dense_sim_divisor)
 	# Perf 子桶 ac_phys.misc.* —— 拆 6 段精确定位 misc 膨胀来源
 	# 全 LOD 共用，每段单独埋点，misc 总和仍由 PerfBuckets 自然累加（看 sum 即可）
 	var _t_misc1: int = Time.get_ticks_usec()
@@ -1198,20 +1213,26 @@ func _physics_process_impl(delta: float) -> void:
 		_physics_process_rotorcraft(delta)
 		return
 
-	# LOD 2（屏幕外）：每3帧完整处理，其余帧仅位移
-	if lod_level >= 2:
+	# LOD 2（屏幕外）或超密集决战错帧：完整战术/武器按 divisor 更新，其余帧仍 60Hz 位移。
+	# dense_battle_sim_divisor 不改变 lod_level/visible/_draw，专供 The Crucible 保留高细节绘制；
+	# 只是把 71 架重复的战术规划错开，不删单位、不停火，delta 放大保持计时与射速语义。
+	if lod_level >= 2 or dense_sim_divisor > 1:
+		# dense 分频已在上方按成员 phase 完成门控并把 delta 放大；这里不得再用
+		# `_lod_frame % sim_divisor` 二次门控，否则 phase!=0 的成员永远没有完整更新帧。
+		var dense_already_gated := dense_sim_divisor > 1
+		var sim_divisor := dense_sim_divisor if dense_already_gated else 3
 		# 编队跟随机：屏外也必须维持编队几何，否则 leader 机动后 follower 漂出阵型
 		# （旧版 LOD 2 完全不调 update_follow → 三轰炸机/Sentinel UAV 漂离）
 		# update_follow 内部已按 _lod_frame % 3 把 speed/altitude 节流到 20Hz；
 		# heading/bank/position 60Hz 是必要开销（leader 转向时槽位变化太快）
 		if formation_mode and _formation_leader and is_instance_valid(_formation_leader):
 			AircraftFormation.update_follow(self, delta)
-			AircraftWeapons.update_passive_gunship(self, delta)
-			if _lod_frame % 3 == 0:
-				AircraftWeapons.update_formation_passive_missile(self, delta * 3.0)
+			if _lod_frame % sim_divisor == 0:
+				var formation_delta := delta * float(sim_divisor) if lod_level >= 2 else delta
+				AircraftWeapons.update_formation_opportunity_weapons(self, formation_delta)
 			AircraftFlares.update(self, delta)  # 编队中也要更新/清除 flare 粒子，否则残留不消失
 			return
-		if _lod_frame % 3 != 0:
+		if not dense_already_gated and _lod_frame % sim_divisor != 0:
 			AircraftPhysics.apply_movement(self, delta)
 			AircraftWeapons.update_passive_gunship(self, delta)
 			# rotation = heading 每帧同步，防止 LOD 2 下镜头切回来看到过时朝向
@@ -1226,7 +1247,7 @@ func _physics_process_impl(delta: float) -> void:
 		# 之前用 delta 直接调会让 heading/bank/speed 以 1/3 真实速率更新，导致
 		# BOSS 离屏时转弯慢 3 倍追不上玩家，越飞越远（bug 2026-04-20 (10) Bug 2）。
 		# _apply_movement 和计时器类继续用 delta（每帧都要跑 → 累计不变）
-		var lod_delta: float = delta * 3.0
+		var lod_delta: float = delta if dense_already_gated else delta * float(sim_divisor)
 		_run_tactical_planner_if_enabled()  # P4：LOD 2 也需 planner 写决策（每 3 帧一次）
 		AircraftWeapons.update_weapon_mode(self)
 		AircraftCombatTracking.update_combat(self, lod_delta)
@@ -1241,7 +1262,7 @@ func _physics_process_impl(delta: float) -> void:
 		AircraftPhysics.update_fuel(self, lod_delta)
 		_check_ground_crash()
 		AircraftPhysics.update_g_load(self)
-		AircraftPhysics.apply_movement(self, delta)  # 本帧 1/60s 的位移（前 2 帧已各 apply 一次，合计 3×1/60）
+		AircraftPhysics.apply_movement(self, movement_delta)  # 位移始终 60Hz；其它逻辑用补偿 delta
 		if gunship_mode_active and is_player_squad():
 			AircraftWeapons.update_passive_gunship(self, delta)
 		elif combat_target != null:
@@ -1270,9 +1291,8 @@ func _physics_process_impl(delta: float) -> void:
 			# 原因：191 行算法塞在 _physics_process 中间，排查编队 bug 时动线长
 			# 拆分后常见 bug 回溯地图、三段式分支图都在 AircraftFormation 顶部注释
 			AircraftFormation.update_follow(self, delta)
-			AircraftWeapons.update_passive_gunship(self, delta)
 			if every3:
-				AircraftWeapons.update_formation_passive_missile(self, delta * 3.0)
+				AircraftWeapons.update_formation_opportunity_weapons(self, delta * 3.0)
 			AircraftFlares.update(self, delta)  # 编队中也要更新/清除 flare 粒子，否则残留不消失
 			return
 
@@ -1326,9 +1346,8 @@ func _physics_process_impl(delta: float) -> void:
 	# 都不会命中此分支，照走下面完整 LOD0；只有真正编队跟随的僚机走 update_follow。
 	if formation_mode and _formation_leader and is_instance_valid(_formation_leader):
 		AircraftFormation.update_follow(self, delta)
-		AircraftWeapons.update_passive_gunship(self, delta)
 		if _lod_frame % 3 == 0:
-			AircraftWeapons.update_formation_passive_missile(self, delta * 3.0)
+			AircraftWeapons.update_formation_opportunity_weapons(self, delta * 3.0)
 		AircraftFlares.update(self, delta)  # 编队中也要更新/清除 flare 粒子，否则残留不消失
 		return
 
@@ -1410,6 +1429,7 @@ func _physics_process_impl(delta: float) -> void:
 	if (not is_hidden_from_player_sensors() \
 			or _sensor_contact_visual_alpha > 0.001 or is_mission_target) \
 			and (selected or is_hovered \
+				or dense_sim_divisor > 1 \
 				or (_lod_frame + _visual_redraw_phase) % 2 == 0):
 		queue_redraw()
 
@@ -1514,6 +1534,7 @@ static func _intent_src_name(src: int) -> String:
 		ControlIntent.SOURCE_TACTIC: return "TACTIC"
 		ControlIntent.SOURCE_EVADE: return "EVADE"
 		ControlIntent.SOURCE_BRAKE: return "BRAKE"
+		ControlIntent.SOURCE_DIRECTIVE: return "DIRECTIVE"
 	return "none"
 
 
@@ -1528,6 +1549,11 @@ func reset_tactical_plan_state() -> void:
 
 func _run_tactical_planner_if_enabled() -> void:
 	if not use_tactical_planner:
+		return
+	# 事件 directive 是更高层的独占控制权；父 Aircraft 比子 AIController 先 tick，
+	# 因此必须在这里撤掉上一帧 TACTIC 槽，不能等 AI 子节点事后覆盖。
+	if _ai_ref != null and _ai_ref.directive_suspends_combat():
+		withdraw_intent(ControlIntent.SOURCE_TACTIC)
 		return
 	# ── 目标死亡守卫（与 aircraft_combat_tracking.update_combat 73-76 行对称）──
 	# planner 的 CRUISE intent 不写 target_position（保留给 evade 自己控制），
@@ -2144,9 +2170,15 @@ func clear_combat_target() -> void:
 ## 敌机机炮意图门：无副作用，允许同帧被 planner / tracking / scan 重复查询。
 ## 真正的“一次机会一梭”与 pause 计时统一由 AircraftWeapons.update_gun 执行，避免调用路径绕过。
 func _ai_gun_burst_allowed(want_fire: bool, _delta: float) -> bool:
-	if team != TEAM_HOSTILE:
+	if not _uses_enemy_gun_burst_gate():
 		return want_fire
 	return want_fire and _ai_gun_pause_timer <= 0.0
+
+
+## 敌军与剧本 FFA 阵营都由 AI 操作并吃“一次机会一梭”；第三方友军保持原连续节奏。
+func _uses_enemy_gun_burst_gate() -> bool:
+	return team == TEAM_HOSTILE or team >= TEAM_FREE_FOR_ALL_BASE
+
 
 func _missile_cannot_hit_but_gun_can() -> bool:
 	return AircraftCombatTracking.missile_cannot_hit_but_gun_can(self)
@@ -3606,6 +3638,7 @@ func _draw() -> void:
 
 
 func _draw_impl() -> void:
+	AircraftRenderer.clear_unit_status_panel(self)
 	if not _font:
 		_font = ThemeDB.fallback_font
 	# 传感器幕只跳过本机 CPU 绘制；Snowblind 的 Polygon2D 子网格仍由 GPU 独立绘制。
@@ -3643,7 +3676,7 @@ func _draw_impl() -> void:
 	# 渐隐阶段只保留机体与机体自有瞬时效果，精确传感器叠层立即撤销。
 	if contact_hidden:
 		AircraftRenderer.draw_aircraft_icon(self)
-		if is_firing:
+		if AircraftRenderer.should_draw_gun_muzzle_flash(self):
 			AircraftRenderer.draw_muzzle_flash(self)
 		if is_afterburner:
 			AircraftRenderer.draw_afterburner_glow(self)
@@ -3653,8 +3686,8 @@ func _draw_impl() -> void:
 	var draw_section_t0: int = Time.get_ticks_usec() if draw_section_trace else 0
 	var draw_overlay_t0 := draw_section_t0
 	if is_hovered:
-		# 无主雷达锁定武器时不画主雷达锥；副槽仍由独立锁定锥表达。
-		if params and params.has_lock_capable_weapon():
+		# 雷达探测范围属于机体传感器，不依赖是否挂载可锁定武器；FFA Ace 同样显示。
+		if AircraftRenderer.should_show_hover_radar_range(self):
 			AircraftRenderer.draw_radar_cone(self)
 		AircraftRenderer.draw_aura_ranges(self)
 	if draw_section_trace:
@@ -3669,7 +3702,7 @@ func _draw_impl() -> void:
 	if draw_section_trace:
 		PerfBuckets.tick("aircraft_draw.overlays.secondary", Time.get_ticks_usec() - draw_section_t0)
 		draw_section_t0 = Time.get_ticks_usec()
-	# 友方 hover 时显示参考机炮锥；敌方对玩家提交机炮攻击时持续显示锥（条件在 draw_gun_cone 内判）
+	# 任意悬停飞机显示参考机炮锥；敌方对玩家提交机炮攻击时也持续显示威胁锥。
 	AircraftRenderer.draw_gun_cone(self)
 	if draw_section_trace:
 		PerfBuckets.tick("aircraft_draw.overlays.gun", Time.get_ticks_usec() - draw_section_t0)
@@ -3695,7 +3728,7 @@ func _draw_impl() -> void:
 	if not is_drone:
 		AircraftRenderer.draw_lock_indicator(self)
 		AircraftRenderer.draw_target_bracket(self, is_mission_target)
-	if is_firing:
+	if AircraftRenderer.should_draw_gun_muzzle_flash(self):
 		AircraftRenderer.draw_muzzle_flash(self)
 	AircraftRenderer.draw_railgun_beam(self)
 	AircraftRenderer.draw_laser_beams(self)
@@ -3706,7 +3739,10 @@ func _draw_impl() -> void:
 		PerfBuckets.tick("aircraft_draw.effects", Time.get_ticks_usec() - draw_section_t0)
 		draw_section_t0 = Time.get_ticks_usec()
 	var compact_label := false
-	if is_drone:
+	if has_meta("parent_carrier"):
+		# 海上/陆地航母甲板驻机是母舰视觉组成，不叠加普通飞行数据牌；起飞摘掉 meta 后自动恢复。
+		pass
+	elif is_drone:
 		# drone 用极简一行标签：DRONE + 速度（无 callsign / altitude / HDG / G）
 		AircraftRenderer.draw_data_label_drone(self)
 	else:
@@ -3811,7 +3847,8 @@ func _update_visuals() -> void:
 ## 敌方对玩家提交机炮攻击时累计计时；持续 ≥0.3s 显示机炮锥威胁提示。
 ## 条件中断立即归零，避免 weapon_mode GUN/MISSILE 抖动时锥反复闪烁。
 func _update_gun_threat_indicator(delta: float) -> void:
-	if team != TEAM_HOSTILE or is_destroyed or is_cloaked:
+	var pref: Aircraft = AircraftRenderer.safe_player_ref()
+	if pref == null or is_destroyed or is_cloaked or not is_hostile_to(pref):
 		_reset_gun_threat()
 		return
 	if not params or not params.gun:
@@ -3828,7 +3865,6 @@ func _update_gun_threat_indicator(delta: float) -> void:
 		return
 	threatened.report_gun_tailed(self)
 	# 机炮锥仍只围绕当前操控机显示；僚机只消费 GUN_TAILED 与爬升反制。
-	var pref: Aircraft = AircraftRenderer.safe_player_ref()
 	if pref == null or not is_instance_valid(pref) or threatened != pref:
 		_reset_gun_threat()
 		return

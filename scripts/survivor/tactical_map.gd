@@ -715,7 +715,7 @@ func _map_poly(src: PackedVector2Array, size: Vector2) -> PackedVector2Array:
 	return out
 
 func _draw_zones(size: Vector2) -> void:
-	for z in ZoneData.ZONES:
+	for z in _zones.get_zone_definitions() if _zones else ZoneData.ZONES:
 		var zid: StringName = z["id"]
 		if _should_hide_zone(zid):
 			continue
@@ -1103,7 +1103,7 @@ func _zone_id_at(map_pos: Vector2) -> StringName:
 		if map_pos.distance_to(bc) <= br:
 			return bz["id"]
 	# 普通战区：隐藏的直接跳过
-	for z in ZoneData.ZONES:
+	for z in _zones.get_zone_definitions():
 		if _should_hide_zone(z["id"]):
 			continue
 		var c := _world_to_map(_zone_primary_center(z["id"]), size)

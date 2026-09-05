@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "display_name": "Desert Railway Preview",
+  "display_name": "Red Dune Railway",
   "world_size_m": 64000,
   "layer_polygons": {
     "land": [[[-15000,-15000],[15000,-15000],[15000,15000],[-15000,15000]]],
@@ -24,7 +24,9 @@
     ]
   },
   "airports": [
-    {"polygon":[[-10300,8850],[-6500,6550],[-6250,6950],[-10050,9250]]}
+    {"polygon":[[8230,4589],[9078,3995],[9114,4047],[8266,4641]]},
+    {"polygon":[[-8913,-1682],[-8067,-1374],[-8087,-1318],[-8933,-1626]]},
+    {"polygon":[[-3182,12413],[-2874,11567],[-2818,11587],[-3126,12433]]}
   ],
   "roads": [
     {"points":[[-11800,13200],[-9800,9800],[-7800,6900],[-5200,3700],[-2700,700],[-100,-2500],[2800,-5200],[6100,-8500],[9800,-12600]],"width_class":"motorway"},
@@ -39,6 +41,9 @@
     {"points":[[-11200,9000],[-9200,8200],[-7800,6900]],"width_class":"tertiary"},
     {"points":[[-3500,-200],[-1200,-900],[900,-300],[2200,1200]],"width_class":"tertiary"},
     {"points":[[5900,-8700],[7900,-8200],[10200,-7300]],"width_class":"tertiary"}
+  ],
+  "railways": [
+    {"id":"iron_serpent_main","source":"desert_basemap_primary_rail_corridor","strategic_lod_max_error_px":3.0,"points":[[-19535,-11992],[-18999,-12093],[-18367,-12143],[-17734,-11714],[-17101,-11663],[-16468,-11384],[-15835,-10852],[-15203,-10650],[-12672,-10473],[-10773,-9588],[-8242,-7411],[-7610,-6651],[-6977,-6322],[-1914,-5411],[-649,-4475],[-17,-3285],[1249,-2854],[2515,-2069],[3780,-1690],[4413,-1335],[5679,562],[7576,1803]]}
   ],
   "coastlines": [],
   "buildings": [
@@ -58,7 +63,11 @@
     {"footprint":[[4723,-223],[4773,-227],[4777,-177],[4727,-173]],"h_m":45},
     {"footprint":[[4884,1018],[4932,1034],[4916,1082],[4868,1066]],"h_m":45}
   ],
-  "zones": [],
+  "zones": [
+    {"id":"AF_HANEDA","name_key":"DOCK_NEWMAN_NAME","dock_name_key":"DOCK_NEWMAN_NAME","center":[8672,4318],"radius":2000,"mission_type":"airfield","airfield":true},
+    {"id":"AF_KISARAZU","name_key":"DOCK_WESTERN_RIDGE_NAME","dock_name_key":"DOCK_WESTERN_RIDGE_NAME","center":[-8500,-1500],"radius":2000,"mission_type":"airfield","airfield":true},
+    {"id":"AF_CHOFU","name_key":"DOCK_OPHTHALMIA_NAME","dock_name_key":"DOCK_OPHTHALMIA_NAME","center":[-3000,12000],"radius":2000,"mission_type":"airfield","airfield":true}
+  ],
   "spawn": {"pos":[-10500,10500],"heading_deg":45},
   "basemap": {
     "tile_map_key": "desert",

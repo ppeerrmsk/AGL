@@ -12,6 +12,7 @@ const StrategicTargetScript = preload("res://scripts/strategic_target.gd")
 const STRATEGIC_TARGET_SCENE := preload("res://scenes/strategic_target.tscn")
 const SchemerMultilockScript = preload("res://scripts/survivor/schemer_multilock.gd")
 const HyperABossScript = preload("res://scripts/survivor/hyper_a_boss.gd")
+const EncounterDirectorScript = preload("res://scripts/survivor/encounter_director.gd")
 
 ## 生存模式刷怪系统
 ## 从 survivor_mode.gd 提取：Token 预算、敌人生成、击杀检测、远距清理、猎手指派、航点刷新
@@ -118,6 +119,7 @@ var _schemer_multilock = null    ## Gripen/Rafale/F-35/Gripen E 的共享低频�
 var _squad_cleanup_timer: float = 0.0
 var _boss_purge_timer: float = 0.0
 var _sentinel_escort_watchdog_timer: float = 0.0
+var encounter_director: RefCounted = null
 
 # ── 编队 ──
 var _squads: Array[Squad] = []  ## 活跃分队列表
@@ -161,6 +163,7 @@ func setup(p_mode: Node2D, p_player: Aircraft, p_sp: SurvivorPlayer, p_bm: Bulle
 	_snowblind_controller = SnowblindControllerScript.new(self)
 	_deadair_controller = DeadairControllerScript.new(self)
 	_schemer_multilock = SchemerMultilockScript.new(self)
+	encounter_director = EncounterDirectorScript.new(self)
 	_preload_resources()
 
 
@@ -174,10 +177,13 @@ func _exit_tree() -> void:
 		_f22_multilock.shutdown()
 	if _schemer_multilock:
 		_schemer_multilock.shutdown()
+	if encounter_director:
+		encounter_director.shutdown()
 	_snowblind_controller = null
 	_deadair_controller = null
 	_f22_multilock = null
 	_schemer_multilock = null
+	encounter_director = null
 
 
 func deadair_field_snapshot() -> Dictionary:
@@ -278,6 +284,8 @@ func update(delta: float) -> void:
 	if _roe == null:
 		_roe = RoeDirector.new(self)
 	_roe.tick(delta)
+	if encounter_director:
+		encounter_director.tick(delta)
 
 	# 开局驻防：首个 tick 在中央锚点预置中队（spec reinforcement-ingress §3.6）
 	if _opening_garrison_pending:
@@ -338,6 +346,11 @@ func update(delta: float) -> void:
 
 func get_squads() -> Array[Squad]:
 	return _squads
+
+
+func begin_encounter_recovery(seconds: float = 10.0) -> void:
+	if encounter_director:
+		encounter_director.begin_recovery(seconds)
 
 func get_boss() -> BossEncounter:
 	return _boss
@@ -721,108 +734,266 @@ func _update_spawner(delta: float) -> void:
 			current_enemies, _dynamic_enemy_cap,
 			" INTERCEPT" if intercept_wave else ""])
 
-	var spawned := 0
-	while spawned < count:
-		var remaining := budget - _token_used
-		if remaining <= 0:
-			break
+	_try_spawn_global_package(count, budget, current_enemies, intercept_wave)
 
-		var etype_idx := _pick_enemy_type()
-		if etype_idx < 0:
-			break
-		var etype := etype_idx as EnemyType
-		if not _can_spawn_type(int(etype), remaining):
-			break  # 防御兜底：选型与本轮记账之间若预算变化，直接结束本轮
 
-		var cost: int = int(SurvivorData.TOKEN_COST.get(int(etype), 1))
-		var is_late_game := get_response_level() >= SurvivorData.LATE_GAME_LEVEL
+func _try_spawn_global_package(count: int, budget: int, current_enemies: int,
+		intercept_wave: bool) -> void:
+	var remaining := budget - _token_used
+	if remaining <= 0 or current_enemies >= _dynamic_enemy_cap:
+		return
+	var etype_idx := _pick_enemy_type()
+	if etype_idx < 0 or not _can_spawn_type(etype_idx, remaining):
+		return
+	var etype := etype_idx as EnemyType
+	var row := EnemyPoolRegistry.row_for_type(etype_idx)
+	var cost := int(SurvivorData.TOKEN_COST.get(etype_idx, 1))
+	var package_id: StringName = encounter_director.next_package_id(str(row.get("id", "regular"))) \
+			if encounter_director else StringName("global_%d" % Time.get_ticks_msec())
+	var base_context := {
+		"encounter_id": &"global",
+		"package_id": package_id,
+		"theme": "PATROL_LIGHT",
+		"element_role": "FORMATION_ASSAULT",
+	}
 
-		if etype == EnemyType.SNOWBLIND or etype == EnemyType.DEADAIR:
-			# 支援机本体不单独出现；两名护卫分别从当前合格常规战斗机池独立抽取。
-			var escort_rows := _pick_snowblind_escort_rows(remaining - cost)
-			if escort_rows.size() != 2:
-				break
-			if etype == EnemyType.SNOWBLIND:
-				_spawn_snowblind_squad(escort_rows, intercept_wave)
-			else:
-				_spawn_deadair_squad(escort_rows, intercept_wave)
-			_record_regular_spawn(etype, 1)
-			var full_cost := cost
-			_token_count_by_type[int(etype)] = int(_token_count_by_type.get(int(etype), 0)) + 1
-			for escort_row in escort_rows:
-				var escort_type := int(escort_row["type"]) as EnemyType
-				var escort_cost := int(escort_row["token_cost"])
-				full_cost += escort_cost
-				_token_count_by_type[int(escort_type)] = int(_token_count_by_type.get(int(escort_type), 0)) + 1
-				_record_type_spawn_limits(escort_type, 1)
-			_token_used += full_cost
-			spawned += 3
+	if etype == EnemyType.SNOWBLIND or etype == EnemyType.DEADAIR:
+		var escort_rows := _pick_snowblind_escort_rows(remaining - cost)
+		if escort_rows.size() != 2:
+			_consume_package_denial("ew_missing_escort")
+			return
+		var full_cost := cost
+		var pressure := EncounterDirectorScript.pressure_cost_from_token(cost, true)
+		for escort_row in escort_rows:
+			full_cost += int(escort_row["token_cost"])
+			pressure += EncounterDirectorScript.pressure_cost_from_token(int(escort_row["token_cost"]))
+		if remaining < full_cost or not _admit_global_package(pressure, 3):
+			return
+		base_context["theme"] = "EW_ESCORT"
+		var created := _spawn_snowblind_squad(escort_rows, intercept_wave, false, base_context) \
+			if etype == EnemyType.SNOWBLIND else \
+			_spawn_deadair_squad(escort_rows, intercept_wave, false, base_context)
+		if created.size() != 3:
+			_rollback_package(created, _squads.size() - 1)
+			_consume_package_denial("ew_atomic_failure")
+			return
+		_record_regular_spawn(etype, 1)
+		_token_count_by_type[etype_idx] = int(_token_count_by_type.get(etype_idx, 0)) + 1
+		for escort_row in escort_rows:
+			var escort_type := int(escort_row["type"])
+			_token_count_by_type[escort_type] = int(_token_count_by_type.get(escort_type, 0)) + 1
+			_record_type_spawn_limits(escort_type as EnemyType, 1)
+		_token_used += full_cost
+		_commit_global_package(package_id, "EW_ESCORT", created.size())
+		return
+
+	if etype == EnemyType.UAV_COMMANDER:
+		var wingman_count := SurvivorData.COMMANDER_SQUAD_MAX
+		var uav_cost := int(SurvivorData.TOKEN_COST.get(int(EnemyType.UAV), 1))
+		var aegis_cost := int(SurvivorData.TOKEN_COST.get(int(EnemyType.UAV_LASER), 2))
+		var full_cost := cost + uav_cost * wingman_count + aegis_cost
+		var pressure := EncounterDirectorScript.pressure_cost_from_token(cost, false, true) \
+			+ EncounterDirectorScript.pressure_cost_from_token(uav_cost) * wingman_count \
+			+ EncounterDirectorScript.pressure_cost_from_token(aegis_cost)
+		if remaining < full_cost or not _admit_global_package(pressure, wingman_count + 2):
+			return
+		base_context["theme"] = "SENTINEL_COMMAND"
+		base_context["element_role"] = "ORBIT_GUARD"
+		var created := _spawn_commander_squad(wingman_count, false, base_context)
+		if created.size() != wingman_count + 2:
+			_rollback_package(created, _squads.size() - 1)
+			_consume_package_denial("sentinel_atomic_failure")
+			return
+		_record_regular_spawn(etype, 1)
+		_token_used += full_cost
+		_token_count_by_type[int(EnemyType.UAV_COMMANDER)] = int(
+			_token_count_by_type.get(int(EnemyType.UAV_COMMANDER), 0)) + 1
+		_token_count_by_type[int(EnemyType.UAV)] = int(
+			_token_count_by_type.get(int(EnemyType.UAV), 0)) + wingman_count
+		_token_count_by_type[int(EnemyType.UAV_LASER)] = int(
+			_token_count_by_type.get(int(EnemyType.UAV_LASER), 0)) + 1
+		_commit_global_package(package_id, "SENTINEL_COMMAND", created.size())
+		return
+
+	var is_late_game := get_response_level() >= SurvivorData.LATE_GAME_LEVEL
+	var spawn_as_single := etype == EnemyType.MIG31 or etype == EnemyType.SU27 \
+			or etype == EnemyType.AF03 \
+			or (etype == EnemyType.INTERCEPTOR and not is_late_game)
+	if spawn_as_single:
+		var pressure := EncounterDirectorScript.pressure_cost_from_token(cost)
+		if not _admit_global_package(pressure, 1):
+			return
+		base_context["theme"] = "ELITE_SINGLE"
+		base_context["element_id"] = str(package_id) + "_solo"
+		base_context["element_role"] = "LOOSE_SOLO"
+		var created := _spawn_single(etype, intercept_wave, false, base_context)
+		if created.size() != 1:
+			_consume_package_denial("solo_atomic_failure")
+			return
+		_record_regular_spawn(etype, 1)
+		_token_used += cost
+		_token_count_by_type[etype_idx] = int(_token_count_by_type.get(etype_idx, 0)) + 1
+		_commit_global_package(package_id, "ELITE_SINGLE", 1)
+		return
+
+	var formation_class := SurvivorData.pick_enemy_formation_class(
+		player_squad_size(), randf_range(0.85, 1.15), randf_range(0.85, 1.15),
+		randf_range(0.85, 1.15), randf())
+	var desired_size := formation_class
+	if formation_class == 3:
+		desired_size = SurvivorData.pick_enemy_flight_size(randf())
+	# Resolve 阶段先按当前 PR headroom 把过大的 Flight 解析为较小的完整 Element。
+	# 这不是失败后的补刷/拆半包：候选 Package 尚未 Validate/Commit，且至少保留机型 spawn_min。
+	if encounter_director:
+		var unit_pressure := EncounterDirectorScript.pressure_cost_from_token(cost)
+		var pressure_fit := int(floor(encounter_director.global_pressure_headroom()
+			/ maxf(unit_pressure, 0.001)))
+		desired_size = mini(desired_size, pressure_fit)
+	var elements: Array[Dictionary] = []
+	var split_sizes := EncounterDirectorScript.resolve_flight_elements(
+		player_squad_size(), float(_roe.heat) if _roe else 0.0, desired_size, randf())
+	if split_sizes.size() == 2 and _row_can_spawn_count(row, 2, remaining):
+		var companion := _pick_role_companion(row, remaining - cost * 2, 2)
+		if not companion.is_empty():
+			elements = [
+				{"row": row, "size": 2, "role": "FRONT_ATTACK"},
+				{"row": companion, "size": 2, "role": "SIDE_ATTACK"},
+			]
+	if elements.is_empty():
+		var squad_size := mini(desired_size, int(row.get("spawn_max", desired_size)))
+		squad_size = maxi(squad_size, int(row.get("spawn_min", 1)))
+		squad_size = mini(mini(squad_size, count), int(remaining / maxi(cost, 1)))
+		var type_cap := int(row.get("instance_cap", -1))
+		if type_cap > 0:
+			squad_size = mini(squad_size, type_cap - int(_token_count_by_type.get(etype_idx, 0)))
+		if squad_size < int(row.get("spawn_min", 1)):
+			_consume_package_denial("formation_constraints")
+			return
+		elements = [{"row": row, "size": squad_size, "role": "FRONT_ATTACK"}]
+
+	var total_cost := 0
+	var total_pressure := 0.0
+	var total_presence := 0
+	for element in elements:
+		var erow: Dictionary = element["row"]
+		var esize := int(element["size"])
+		total_cost += int(erow["token_cost"]) * esize
+		total_pressure += EncounterDirectorScript.pressure_cost_from_token(
+			int(erow["token_cost"])) * esize
+		total_presence += esize
+	if total_cost > remaining or current_enemies + total_presence > _dynamic_enemy_cap \
+			or not _admit_global_package(total_pressure, total_presence):
+		return
+
+	base_context["theme"] = "MIXED_FLIGHT" if elements.size() > 1 else "DOGFIGHT_ELEMENT"
+	var geometry := _global_package_geometry(intercept_wave)
+	var created_all: Array[Aircraft] = []
+	var squad_count_before := _squads.size()
+	for i in range(elements.size()):
+		var element: Dictionary = elements[i]
+		var erow: Dictionary = element["row"]
+		var esize := int(element["size"])
+		var context := base_context.duplicate()
+		context["element_id"] = "%s_e%d" % [String(package_id), i + 1]
+		context["element_role"] = element["role"]
+		context["anchor"] = geometry["anchor"]
+		context["heading"] = geometry["heading"]
+		var lateral := Vector2(550.0 * (float(i) - float(elements.size() - 1) * 0.5), 0.0) \
+			.rotated(deg_to_rad(float(geometry["heading"])))
+		context["leader_pos"] = (geometry["leader_pos"] as Vector2) + lateral
+		var members := _spawn_squad(int(erow["type"]) as EnemyType, esize, false,
+			intercept_wave, false, context) if esize > 1 else \
+			_spawn_single(int(erow["type"]) as EnemyType, intercept_wave, false, context)
+		created_all.append_array(members)
+	if created_all.size() != total_presence:
+		_rollback_package(created_all, squad_count_before)
+		_consume_package_denial("package_atomic_failure")
+		return
+	for element in elements:
+		var erow: Dictionary = element["row"]
+		var etype_value := int(erow["type"])
+		var esize := int(element["size"])
+		_record_regular_spawn(etype_value as EnemyType, esize)
+		_token_count_by_type[etype_value] = int(_token_count_by_type.get(etype_value, 0)) + esize
+	_token_used += total_cost
+	_commit_global_package(package_id, str(base_context["theme"]), total_presence)
+
+
+func _admit_global_package(pressure: float, presence: int) -> bool:
+	if encounter_director == null:
+		return true
+	var result: Dictionary = encounter_director.global_admission(pressure, presence)
+	if bool(result.get("admitted", false)):
+		return true
+	var reason := str(result.get("reason", "director_denied"))
+	EventLogger.log_event("DIRECTOR", "CandidateRejected",
+		"reason=%s pr=%.2f headroom=%.2f presence=%d" % [
+			reason, pressure, encounter_director.global_pressure_headroom(), presence])
+	_consume_package_denial(reason)
+	return false
+
+
+func _consume_package_denial(reason: String) -> void:
+	if encounter_director:
+		encounter_director.consume_denied_opportunity(reason)
+	EventLogger.log_event("DIRECTOR", "PackageDenied", reason)
+
+
+func _commit_global_package(package_id: StringName, theme: String, presence: int) -> void:
+	if encounter_director:
+		encounter_director.commit_global_package(package_id)
+	EventLogger.log_event("DIRECTOR", "Package",
+		"id=%s theme=%s units=%d" % [String(package_id), theme, presence])
+
+
+func _global_package_geometry(intercept: bool) -> Dictionary:
+	var anchor := player_aircraft.global_position if intercept else _pick_reinf_anchor()
+	var leader_pos := _ingress_spawn_point(anchor, intercept)
+	return {"anchor": anchor, "leader_pos": leader_pos,
+		"heading": _heading_deg_towards(leader_pos, anchor)}
+
+
+func _row_can_spawn_count(row: Dictionary, required: int, remaining: int) -> bool:
+	if row.is_empty() or required < int(row.get("spawn_min", 1)) \
+			or required > int(row.get("spawn_max", 1)) \
+			or int(row["token_cost"]) * required > remaining:
+		return false
+	var type_idx := int(row["type"])
+	var cap := int(row.get("instance_cap", -1))
+	return cap <= 0 or int(_token_count_by_type.get(type_idx, 0)) + required <= cap
+
+
+func _pick_role_companion(root_row: Dictionary, remaining: int, required: int) -> Dictionary:
+	var desired_role := "intercept" if str(root_row.get("role", "")) == "dogfight" else "dogfight"
+	var candidates := EnemyPoolRegistry.eligible_rows(get_response_level(), remaining, _token_count_by_type)
+	var valid: Array[Dictionary] = []
+	var total_weight := 0.0
+	var now: float = float(mode.game_time) if mode else 0.0
+	for row in candidates:
+		var type_idx := int(row["type"])
+		if str(row.get("role", "")) != desired_role or bool(row.get("support_body", false)) \
+				or bool(row.get("escort_excluded", false)) or type_idx == int(root_row["type"]) \
+				or now < float(_type_next_spawn_time.get(type_idx, 0.0)) \
+				or not _row_can_spawn_count(row, required, remaining):
 			continue
+		valid.append(row)
+		total_weight += float(row.get("weight", 1.0))
+	if valid.is_empty():
+		return {}
+	var needle := randf() * total_weight
+	for row in valid:
+		needle -= float(row.get("weight", 1.0))
+		if needle <= 0.0:
+			return row
+	return valid.back()
 
-		# 具备独立硬编制的精英保留原规则；普通战斗机由玩家直属队规模决定单机/双机/flight 倾向。
-		var spawn_as_single := etype == EnemyType.MIG31 \
-				or etype == EnemyType.SU27 \
-				or etype == EnemyType.AF03 \
-				or (etype == EnemyType.INTERCEPTOR and not is_late_game)
 
-		if spawn_as_single:
-			# 单机精英 Lancer：一架一架地刷
-			_spawn_single(etype, intercept_wave)
-			_record_regular_spawn(etype, 1)
-			_token_used += cost
-			_token_count_by_type[int(etype)] = int(_token_count_by_type.get(int(etype), 0)) + 1
-			spawned += 1
-
-		elif etype == EnemyType.UAV_COMMANDER:
-			# Sentinel + 5 架 UAV 僚机组成小队（固定编成，绝不单独出现）
-			# 预算若不足以容纳完整小队则直接跳过本轮选型（_pick_enemy_type 已提前拦截，这里是兜底）
-			var uav_cost: int = int(SurvivorData.TOKEN_COST.get(int(EnemyType.UAV), 1))
-			var wingman_count: int = SurvivorData.COMMANDER_SQUAD_MAX
-			var full_cost := cost + uav_cost * wingman_count
-			if remaining < full_cost:
-				break
-			_spawn_commander_squad(wingman_count)
-			_record_regular_spawn(etype, 1)
-			_token_used += full_cost
-			_token_count_by_type[int(EnemyType.UAV_COMMANDER)] = int(_token_count_by_type.get(int(EnemyType.UAV_COMMANDER), 0)) + 1
-			_token_count_by_type[int(EnemyType.UAV)] = int(_token_count_by_type.get(int(EnemyType.UAV), 0)) + wingman_count
-			spawned += 1 + wingman_count
-
-		else:
-			# 普通战斗机按玩家直属小队规模抽单机/双机/flight；三项权重分别扰动，避免确定性镜像。
-			var pool_row: Dictionary = EnemyPoolRegistry.row_for_type(int(etype))
-			var formation_class: int = SurvivorData.pick_enemy_formation_class(
-				player_squad_size(), randf_range(0.85, 1.15), randf_range(0.85, 1.15),
-				randf_range(0.85, 1.15), randf())
-			var squad_size: int = formation_class
-			if formation_class == 3:
-				squad_size = SurvivorData.pick_enemy_flight_size(randf())
-			if not pool_row.is_empty():
-				squad_size = mini(squad_size, int(pool_row["spawn_max"]))
-				# 有身份的固定编成优先于单波 count 软目标；预算/实例上限仍是硬门。
-				squad_size = maxi(squad_size, int(pool_row.get("spawn_min", 1)))
-			else:
-				squad_size = mini(squad_size, count - spawned)
-			# Token 约束
-			squad_size = mini(squad_size, int(remaining / maxi(cost, 1)))
-			# 实例上限约束
-			var type_cap: int = int(SurvivorData.TOKEN_INSTANCE_CAP.get(int(etype), -1))
-			if type_cap > 0:
-				var type_cur: int = int(_token_count_by_type.get(int(etype), 0))
-				squad_size = mini(squad_size, type_cap - type_cur)
-
-			var spawn_min := int(pool_row.get("spawn_min", 1)) if not pool_row.is_empty() else 1
-			if squad_size < spawn_min:
-				break
-
-			if squad_size == 1:
-				_spawn_single(etype, intercept_wave)
-			else:
-				_spawn_squad(etype, squad_size, false, intercept_wave)
-			_record_regular_spawn(etype, squad_size)
-			_token_used += cost * squad_size
-			_token_count_by_type[int(etype)] = int(_token_count_by_type.get(int(etype), 0)) + squad_size
-			spawned += squad_size
+func _rollback_package(created: Array[Aircraft], squad_count_before: int) -> void:
+	for ac in created:
+		if is_instance_valid(ac):
+			ac.queue_free()
+	while _squads.size() > maxi(squad_count_before, 0):
+		_squads.pop_back()
 
 # ══════════════════════════════════════════════
 #  生成函数
@@ -1000,7 +1171,10 @@ func _pick_reinf_anchor(min_player_dist: float = 0.0) -> Vector2:
 	return cand
 
 func _anchor_clears_zones(p: Vector2) -> bool:
-	for z in ZoneData.ZONES:
+	var definitions: Array[Dictionary] = ZoneData.ZONES
+	if mode != null and "_zone_data" in mode and mode._zone_data != null:
+		definitions = mode._zone_data.get_zone_definitions()
+	for z in definitions:
 		var c: Vector2 = z["center"]
 		var r: float = float(z["radius"]) + SurvivorData.ANCHOR_ZONE_CLEARANCE_PX
 		if p.distance_to(c) < r:
@@ -1096,6 +1270,7 @@ func _flip_squad_onstation(leader: Aircraft, ai: AIController, anchor: Vector2) 
 	for m in members:
 		if m and is_instance_valid(m):
 			m.set_meta("reinf_phase", "onstation")
+			m.remove_meta("encounter_approaching")
 			m.set_meta("reinf_ring", ring)
 	_apply_patrol_ring(ai, leader, ring)
 	EventLogger.log_event("INGRESS", "Arrive",
@@ -1171,19 +1346,40 @@ func _spawn_opening_garrison() -> void:
 		var etype := etype_idx as EnemyType
 		# 驻防一律普通小队建制；roll 到单机精英/Sentinel 则降级为当级杂鱼小队
 		if etype == EnemyType.UAV_COMMANDER or etype == EnemyType.MIG31 \
-				or etype == EnemyType.SU27 or etype == EnemyType.AF03:
+				or etype == EnemyType.SU27 or etype == EnemyType.AF03 \
+				or etype == EnemyType.SNOWBLIND or etype == EnemyType.DEADAIR:
 			etype = EnemyType.UAV if survivor_player.level <= SurvivorData.UAV_RETIRE_LEVEL else EnemyType.F86
 		var cost: int = int(SurvivorData.TOKEN_COST.get(int(etype), 1))
 		if not _can_spawn_type(int(etype), budget - _token_used):
 			break
-		var size := randi_range(2, 3)
+		var size := EncounterDirectorScript.opening_garrison_size_for(
+			player_squad_size(), randi_range(2, 3))
 		size = mini(size, int(float(budget - _token_used) / maxf(float(cost), 1.0)))
 		if size < 2:
 			break
-		_spawn_squad(etype, size, true)
+		var pressure := EncounterDirectorScript.pressure_cost_from_token(cost) * size
+		if not _admit_global_package(pressure, size):
+			break
+		var package_id: StringName = encounter_director.next_package_id("opening_garrison") \
+			if encounter_director else &"opening_garrison"
+		var context := {
+			"encounter_id": &"global",
+			"package_id": package_id,
+			"element_id": "%s_e1" % String(package_id),
+			"theme": "OPENING_GARRISON",
+			"element_role": "FORMATION_ASSAULT",
+		}
+		var squad_count_before := _squads.size()
+		var created := _spawn_squad(etype, size, true, false, false, context)
+		if created.size() != size:
+			_rollback_package(created, squad_count_before)
+			_consume_package_denial("opening_atomic_failure")
+			break
 		_record_regular_spawn(etype, size)
 		_token_used += cost * size
 		_token_count_by_type[int(etype)] = int(_token_count_by_type.get(int(etype), 0)) + size
+		_commit_global_package(package_id, "OPENING_GARRISON", size)
+		break  # 开局只提交一个可读 Package；不叠第二支驻防队。
 
 ## 退场：token 饿着时，闲置驻空中队"像来时一样"物理飞离，全员出界后静默释放。
 ## 取代旧远距清理对增援的作用（增援已豁免 FAR_CLEANUP）；绝不在画面内消失，
@@ -1315,38 +1511,53 @@ func _nearest_exit_point(p: Vector2) -> Vector2:
 		return Vector2(sx * out, p.y)
 	return Vector2(p.x, sy * out)
 
+
+func _tag_encounter_member(ac: Aircraft, package_context: Dictionary) -> void:
+	if ac == null or package_context.is_empty():
+		return
+	ac.set_meta("encounter_id", package_context.get("encounter_id", &"global"))
+	ac.set_meta("encounter_package_id", package_context.get("package_id", &""))
+	ac.set_meta("encounter_element_id", package_context.get("element_id", &""))
+	ac.set_meta("encounter_element_role", package_context.get("element_role", "FORMATION_ASSAULT"))
+	ac.set_meta("encounter_theme", package_context.get("theme", "PATROL_LIGHT"))
+	ac.set_meta("encounter_approaching", true)
+
 ## 生成单架敌机（不含分队），用于单机精英孤狼（MiG-31/Su-27/AF-03/早期 J-7）
 ## 【硬规则】Sentinel 永远不允许单独登场 → 自动改走 _spawn_commander_squad
 ## 增援入场（spec reinforcement-ingress）：边缘生成 → TRANSIT 飞向中央锚点
 func _spawn_single(etype: EnemyType, intercept: bool = false,
-		debug_near_player: bool = false) -> void:
+		debug_near_player: bool = false, package_context: Dictionary = {}) -> Array[Aircraft]:
 	if _support_field_blocked(int(etype)):
 		push_warning("[Spawner] 场型支援机在场互斥，跳过 debug/special spawn: %s" % type_tag_of(etype))
-		return
+		return []
 	if etype == EnemyType.UAV_COMMANDER:
 		push_warning("[Spawner] _spawn_single(UAV_COMMANDER) 被拦截 → 改走 _spawn_commander_squad(5)")
-		_spawn_commander_squad(SurvivorData.COMMANDER_SQUAD_MAX, debug_near_player)
-		return
+		return _spawn_commander_squad(SurvivorData.COMMANDER_SQUAD_MAX, debug_near_player,
+			package_context)
 	if etype == EnemyType.SNOWBLIND:
 		var escorts := _pick_snowblind_escort_rows(99)
 		if escorts.size() == 2:
-			_spawn_snowblind_squad(escorts, intercept, debug_near_player)
-		return
+			return _spawn_snowblind_squad(escorts, intercept, debug_near_player, package_context)
+		return []
 	if etype == EnemyType.DEADAIR:
 		var escorts := _pick_snowblind_escort_rows(99)
 		if escorts.size() == 2:
-			_spawn_deadair_squad(escorts, intercept, debug_near_player)
-		return
+			return _spawn_deadair_squad(escorts, intercept, debug_near_player, package_context)
+		return []
 	# 拦截使命（spec battlefield-tempo-pass §3.2）：锚点 = 玩家当前位置（后续由 8s 航点
 	# tick 持续修正），入场点偏玩家前方扇区
-	var anchor := player_aircraft.global_position if intercept else _pick_reinf_anchor()
-	var spawn_pos := _debug_spawn_point() if debug_near_player else _ingress_spawn_point(anchor, intercept)
+	var anchor: Vector2 = package_context.get("anchor",
+		player_aircraft.global_position if intercept else _pick_reinf_anchor())
+	var spawn_pos: Vector2 = package_context.get("leader_pos",
+		_debug_spawn_point() if debug_near_player else _ingress_spawn_point(anchor, intercept))
 	if debug_near_player:
 		anchor = spawn_pos
-	var heading := _heading_deg_towards(spawn_pos, anchor)
+	var heading: float = float(package_context.get("heading",
+		_heading_deg_towards(spawn_pos, anchor)))
 	if debug_near_player:
 		heading = _heading_deg_towards(spawn_pos, player_aircraft.global_position)
 	var enemy := _create_enemy(etype, spawn_pos, heading)
+	_tag_encounter_member(enemy, package_context)
 	if debug_near_player:
 		_set_debug_patrol(enemy, spawn_pos)
 	else:
@@ -1355,37 +1566,42 @@ func _spawn_single(etype: EnemyType, intercept: bool = false,
 	EventLogger.log_event("INGRESS", "Intercept" if intercept else "Spawn",
 		"single %s %s=%s anchor=%s" % [enemy.callsign,
 			"debug_near" if debug_near_player else "edge", spawn_pos.round(), anchor.round()])
+	return [enemy]
 
 ## 以分队形式生成一组敌机；garrison=true 时直接在中央锚点以 ONSTATION 预置（开局驻防）
 ## 【硬规则】Sentinel 不走普通 Squad（同型编队），改走 _spawn_commander_squad（Sentinel + 5 UAV）
 ## 增援入场（spec reinforcement-ingress）：边缘成建制生成 → 整队 TRANSIT 飞向中央锚点
 func _spawn_squad(etype: EnemyType, squad_size: int, garrison: bool = false,
-		intercept: bool = false, debug_near_player: bool = false) -> void:
+		intercept: bool = false, debug_near_player: bool = false,
+		package_context: Dictionary = {}) -> Array[Aircraft]:
 	if _support_field_blocked(int(etype)):
 		push_warning("[Spawner] 场型支援机在场互斥，跳过 debug/special spawn: %s" % type_tag_of(etype))
-		return
+		return []
 	if etype == EnemyType.UAV_COMMANDER:
 		push_warning("[Spawner] _spawn_squad(UAV_COMMANDER) 被拦截 → 改走 _spawn_commander_squad(5)")
-		_spawn_commander_squad(SurvivorData.COMMANDER_SQUAD_MAX, debug_near_player)
-		return
+		return _spawn_commander_squad(SurvivorData.COMMANDER_SQUAD_MAX, debug_near_player,
+			package_context)
 	if etype == EnemyType.SNOWBLIND:
 		var escorts := _pick_snowblind_escort_rows(99)
 		if escorts.size() == 2:
-			_spawn_snowblind_squad(escorts, intercept, debug_near_player)
-		return
+			return _spawn_snowblind_squad(escorts, intercept, debug_near_player, package_context)
+		return []
 	if etype == EnemyType.DEADAIR:
 		var escorts := _pick_snowblind_escort_rows(99)
 		if escorts.size() == 2:
-			_spawn_deadair_squad(escorts, intercept, debug_near_player)
-		return
+			return _spawn_deadair_squad(escorts, intercept, debug_near_player, package_context)
+		return []
 	var sq := SquadFactory.create()
+	var spawned_members: Array[Aircraft] = []
 	# 普通杂鱼登场随机阵型（除 Trail 外）——视觉/站位多样化，行为仍走凝聚默认（spec squad-cohesion）。
 	# 精英/Boss 不走这里（各自建队时显式固定阵型）。
 	sq.formation = Squad.random_formation()
 
 	# 长机生成位置：边缘入场点（驻防则直接铺在锚点附近；拦截则锚点=玩家、入场偏前方扇区）
 	var anchor: Vector2
-	if debug_near_player:
+	if package_context.has("anchor"):
+		anchor = package_context["anchor"]
+	elif debug_near_player:
 		anchor = _debug_spawn_point()
 	elif intercept:
 		anchor = player_aircraft.global_position
@@ -1393,7 +1609,10 @@ func _spawn_squad(etype: EnemyType, squad_size: int, garrison: bool = false,
 		anchor = _pick_reinf_anchor(SurvivorData.INGRESS_MIN_PLAYER_DIST_PX if garrison else 0.0)
 	var leader_pos: Vector2
 	var heading: float
-	if debug_near_player:
+	if package_context.has("leader_pos"):
+		leader_pos = package_context["leader_pos"]
+		heading = float(package_context.get("heading", _heading_deg_towards(leader_pos, anchor)))
+	elif debug_near_player:
 		leader_pos = anchor
 		heading = _heading_deg_towards(leader_pos, player_aircraft.global_position)
 	elif garrison:
@@ -1416,6 +1635,8 @@ func _spawn_squad(etype: EnemyType, squad_size: int, garrison: bool = false,
 			spawn_pos = leader_pos + offset.rotated(heading_rad)
 
 		var enemy := _create_enemy(etype, spawn_pos, heading)
+		_tag_encounter_member(enemy, package_context)
+		spawned_members.append(enemy)
 		if not debug_near_player:
 			_tag_reinforcement(enemy, anchor, "transit", intercept)
 		if i == 0:
@@ -1440,6 +1661,7 @@ func _spawn_squad(etype: EnemyType, squad_size: int, garrison: bool = false,
 				leader_enemy.callsign, squad_size,
 				"debug_near" if debug_near_player else (
 					"garrison" if garrison else "edge=" + str(leader_pos.round())), anchor.round()])
+	return spawned_members
 
 
 func _pick_snowblind_escort_rows(remaining_budget: int) -> Array[Dictionary]:
@@ -1472,10 +1694,24 @@ func _pick_snowblind_escort_rows(remaining_budget: int) -> Array[Dictionary]:
 	return picked
 
 
+const EW_ESCORT_TETHER_PX := 1200.0
+
+func _bind_support_escort(core: Aircraft, escort: Aircraft, element_leader: bool) -> void:
+	if escort not in core.escort_guards:
+		core.escort_guards.append(escort)
+	if element_leader:
+		var ai := _get_ai(escort)
+		if ai:
+			# Element 长机围绕支援核心活动；另一架继续跟 Element 长机保持紧密双机。
+			ai.combat_zone_anchor = core
+			ai.combat_zone_radius = EW_ESCORT_TETHER_PX
+
+
 func _spawn_snowblind_squad(escort_rows: Array[Dictionary], intercept: bool = false,
-		debug_near_player: bool = false) -> void:
-	var sq := SquadFactory.create()
-	sq.formation = Squad.Formation.WEDGE
+		debug_near_player: bool = false, package_context: Dictionary = {}) -> Array[Aircraft]:
+	var escort_sq := SquadFactory.create(Squad.Formation.WEDGE, Squad.EngageMode.FOLLOW_LEADER)
+	escort_sq.escort_doctrine_enabled = true
+	var spawned_members: Array[Aircraft] = []
 	var anchor := player_aircraft.global_position if intercept else _pick_reinf_anchor()
 	var leader_pos := _debug_spawn_point() if debug_near_player else _ingress_spawn_point(anchor, intercept)
 	if debug_near_player:
@@ -1485,33 +1721,57 @@ func _spawn_snowblind_squad(escort_rows: Array[Dictionary], intercept: bool = fa
 		heading = _heading_deg_towards(leader_pos, player_aircraft.global_position)
 	var heading_rad := deg_to_rad(heading)
 	var leader := _create_enemy(EnemyType.SNOWBLIND, leader_pos, heading)
+	var core_context := package_context.duplicate()
+	core_context["element_id"] = str(package_context.get("package_id", "ew")) + "_core"
+	core_context["element_role"] = "SUPPORT_CORE"
+	_tag_encounter_member(leader, core_context)
+	spawned_members.append(leader)
 	if not debug_near_player:
 		_tag_reinforcement(leader, anchor, "transit", intercept)
-	SquadFactory.register_leader(sq, leader)
 	if debug_near_player:
 		_set_debug_patrol(leader, leader_pos)
 	else:
 		_set_leader_ingress_waypoints(leader, anchor)
+	var escort_leader: Aircraft = null
 	for i in range(escort_rows.size()):
 		var escort_type := int(escort_rows[i]["type"]) as EnemyType
-		var offset := sq.get_formation_offset(i + 1).rotated(heading_rad)
+		var offset := Vector2((-1.0 if i == 0 else 1.0) * 230.0, 260.0).rotated(heading_rad)
 		var escort := _create_enemy(escort_type, leader_pos + offset, heading)
+		var escort_context := package_context.duplicate()
+		escort_context["element_id"] = str(package_context.get("package_id", "ew")) + "_escort"
+		escort_context["element_role"] = "ESCORT_SCREEN"
+		_tag_encounter_member(escort, escort_context)
+		escort.set_meta("encounter_protectee_id", leader.get_instance_id())
+		spawned_members.append(escort)
 		if not debug_near_player:
 			_tag_reinforcement(escort, anchor, "transit", intercept)
-		SquadFactory.register_wingman(sq, escort, true)
-	_squads.append(sq)
+		if i == 0:
+			escort_leader = escort
+			SquadFactory.register_leader(escort_sq, escort)
+			_bind_support_escort(leader, escort, true)
+			if debug_near_player:
+				_set_debug_patrol(escort, escort.global_position)
+			else:
+				_set_leader_ingress_waypoints(escort, anchor)
+		else:
+			SquadFactory.register_wingman(escort_sq, escort, true)
+			_bind_support_escort(leader, escort, false)
+	if escort_leader != null:
+		_squads.append(escort_sq)
 	# F5/debug 与 bench 不经过旅途 Token 记账；编成完成后强制同帧隐藏三机。
 	if _snowblind_controller:
 		_snowblind_controller.refresh_now()
 	EventLogger.log_event("INGRESS", "Snowblind",
 		"%s + escorts %s/%s edge=%s" % [leader.callsign,
 			str(escort_rows[0]["id"]), str(escort_rows[1]["id"]), leader_pos.round()])
+	return spawned_members
 
 
 func _spawn_deadair_squad(escort_rows: Array[Dictionary], intercept: bool = false,
-		debug_near_player: bool = false) -> void:
-	var sq := SquadFactory.create()
-	sq.formation = Squad.Formation.WEDGE
+		debug_near_player: bool = false, package_context: Dictionary = {}) -> Array[Aircraft]:
+	var escort_sq := SquadFactory.create(Squad.Formation.WEDGE, Squad.EngageMode.FOLLOW_LEADER)
+	escort_sq.escort_doctrine_enabled = true
+	var spawned_members: Array[Aircraft] = []
 	var anchor := player_aircraft.global_position if intercept else _pick_reinf_anchor()
 	var leader_pos := _debug_spawn_point() if debug_near_player else _ingress_spawn_point(anchor, intercept)
 	if debug_near_player:
@@ -1521,30 +1781,55 @@ func _spawn_deadair_squad(escort_rows: Array[Dictionary], intercept: bool = fals
 		heading = _heading_deg_towards(leader_pos, player_aircraft.global_position)
 	var heading_rad := deg_to_rad(heading)
 	var leader := _create_enemy(EnemyType.DEADAIR, leader_pos, heading)
+	var core_context := package_context.duplicate()
+	core_context["element_id"] = str(package_context.get("package_id", "ew")) + "_core"
+	core_context["element_role"] = "SUPPORT_CORE"
+	_tag_encounter_member(leader, core_context)
+	spawned_members.append(leader)
 	if not debug_near_player:
 		_tag_reinforcement(leader, anchor, "transit", intercept)
-	SquadFactory.register_leader(sq, leader)
 	if debug_near_player:
 		_set_debug_patrol(leader, leader_pos)
 	else:
 		_set_leader_ingress_waypoints(leader, anchor)
+	var escort_leader: Aircraft = null
 	for i in range(escort_rows.size()):
 		var escort_type := int(escort_rows[i]["type"]) as EnemyType
-		var offset := sq.get_formation_offset(i + 1).rotated(heading_rad)
+		var offset := Vector2((-1.0 if i == 0 else 1.0) * 230.0, 260.0).rotated(heading_rad)
 		var escort := _create_enemy(escort_type, leader_pos + offset, heading)
+		var escort_context := package_context.duplicate()
+		escort_context["element_id"] = str(package_context.get("package_id", "ew")) + "_escort"
+		escort_context["element_role"] = "ESCORT_SCREEN"
+		_tag_encounter_member(escort, escort_context)
+		escort.set_meta("encounter_protectee_id", leader.get_instance_id())
+		spawned_members.append(escort)
 		if not debug_near_player:
 			_tag_reinforcement(escort, anchor, "transit", intercept)
-		SquadFactory.register_wingman(sq, escort, true)
-	_squads.append(sq)
+		if i == 0:
+			escort_leader = escort
+			SquadFactory.register_leader(escort_sq, escort)
+			_bind_support_escort(leader, escort, true)
+			if debug_near_player:
+				_set_debug_patrol(escort, escort.global_position)
+			else:
+				_set_leader_ingress_waypoints(escort, anchor)
+		else:
+			SquadFactory.register_wingman(escort_sq, escort, true)
+			_bind_support_escort(leader, escort, false)
+	if escort_leader != null:
+		_squads.append(escort_sq)
 	if _deadair_controller:
 		_deadair_controller.refresh_now()
 	EventLogger.log_event("INGRESS", "DEADAIR",
 		"%s + escorts %s/%s edge=%s" % [leader.callsign,
 			str(escort_rows[0]["id"]), str(escort_rows[1]["id"]), leader_pos.round()])
+	return spawned_members
 
 ## 生成指挥 UAV 及其自带小队
-func _spawn_commander_squad(wingman_count: int, debug_near_player: bool = false) -> void:
-	var sq := SquadFactory.create()
+func _spawn_commander_squad(wingman_count: int, debug_near_player: bool = false,
+		package_context: Dictionary = {}) -> Array[Aircraft]:
+	var sq := SquadFactory.create(Squad.Formation.WEDGE, Squad.EngageMode.FOLLOW_LEADER)
+	var spawned_members: Array[Aircraft] = []
 
 	# 指挥机生成位置：边缘入场（spec reinforcement-ingress）；Sentinel 是冻结豁免机型，
 	# TRANSIT 全程物理在跑，护卫 UAV 以 orbit_squad_leader 跟队入场
@@ -1558,6 +1843,11 @@ func _spawn_commander_squad(wingman_count: int, debug_near_player: bool = false)
 
 	# 生成指挥 UAV（leader）
 	var commander := _create_enemy(EnemyType.UAV_COMMANDER, leader_pos, heading)
+	var command_context := package_context.duplicate()
+	command_context["element_id"] = str(package_context.get("package_id", "sentinel")) + "_command"
+	command_context["element_role"] = "ORBIT_GUARD"
+	_tag_encounter_member(commander, command_context)
+	spawned_members.append(commander)
 	if not debug_near_player:
 		_tag_reinforcement(commander, anchor)
 	SquadFactory.register_leader(sq, commander)
@@ -1579,11 +1869,11 @@ func _spawn_commander_squad(wingman_count: int, debug_near_player: bool = false)
 
 	# 生成 UAV 僚机（保持 simple_ai + 绕长机飞行 + 自主扫描交战）
 	for i in range(wingman_count):
-		# 在指挥机附近随机散开生成（不用阵型偏移，简单即可）
-		var rand_angle := randf() * TAU
-		var rand_dist := randf_range(200.0, 400.0)
-		var spawn_pos := leader_pos + Vector2(cos(rand_angle), sin(rand_angle)) * rand_dist
+		# 初始编成使用确定槽位；入场后专属 ORBIT_GUARD 行为接管。
+		var spawn_pos := leader_pos + sq.get_formation_offset(i + 1).rotated(deg_to_rad(heading))
 		var wingman := _create_enemy(EnemyType.UAV, spawn_pos, heading)
+		_tag_encounter_member(wingman, command_context)
+		spawned_members.append(wingman)
 		if not debug_near_player:
 			_tag_reinforcement(wingman, anchor)
 		wingman.set_meta("sentinel_native_escort", true)
@@ -1606,18 +1896,22 @@ func _spawn_commander_squad(wingman_count: int, debug_near_player: bool = false)
 		var laser_angle := PI * 1.0  # 正后方站位
 		var laser_pos := leader_pos + Vector2(cos(laser_angle), sin(laser_angle)) * 320.0
 		var laser_uav := _create_enemy(EnemyType.UAV_LASER, laser_pos, heading)
+		_tag_encounter_member(laser_uav, command_context)
+		spawned_members.append(laser_uav)
 		if not debug_near_player:
 			_tag_reinforcement(laser_uav, anchor)
 		laser_uav.set_meta("sentinel_native_escort", true)
 		SquadFactory.register_wingman(sq, laser_uav, false)
 
 	_squads.append(sq)
+	return spawned_members
 
 ## 【Sentinel 护卫看门狗】：作为所有刷怪路径的最终兜底。
-## 1) 登场时护卫 < MIN_ESCORT 才紧急补刷一次（禁止反复补员变成 XP 农场）。
+## 1) 登场时必须精确补齐 5 架 MQ-109 + 1 架 Aegis（禁止反复补员变成 XP 农场）。
 ## 2) 原生护卫运行中脱离过远时强制召回；被击毁后不补，剩余机自然继续作战。
 const SENTINEL_ESCORT_WATCHDOG_INTERVAL := 1.0
 const SENTINEL_MIN_ESCORT := 5
+const SENTINEL_REQUIRED_AEGIS := 1
 const SENTINEL_ESCORT_RECALL_DISTANCE := 1800.0
 const SENTINEL_ESCORT_RECALL_CLEAR_DISTANCE := 900.0
 func _ensure_sentinels_escorted() -> void:
@@ -1640,34 +1934,42 @@ func _ensure_sentinels_escorted() -> void:
 				leader_ai = c
 				break
 		var sq: Squad = leader_ai.squad if leader_ai else null
-		var escorts: Array[Aircraft] = []
+		var uav_escorts: Array[Aircraft] = []
+		var aegis_escorts: Array[Aircraft] = []
 		if sq:
 			for m in sq.members:
 				if not is_instance_valid(m) or m == ac or m.is_destroyed:
 					continue
 				var tag := str(m.get_meta("enemy_type", ""))
-				if tag == "uav" or tag == "uav_laser":
-					escorts.append(m)
+				if tag == "uav":
+					uav_escorts.append(m)
 					_recall_detached_sentinel_escort(ac, sq, m)
-		var escort_count := escorts.size()
-		if escort_count >= SENTINEL_MIN_ESCORT:
+				elif tag == "uav_laser":
+					aegis_escorts.append(m)
+					_recall_detached_sentinel_escort(ac, sq, m)
+		var uav_count := uav_escorts.size()
+		var aegis_count := aegis_escorts.size()
+		if uav_count >= SENTINEL_MIN_ESCORT and aegis_count >= SENTINEL_REQUIRED_AEGIS:
 			# 初始编成已完整：之后只做凝聚修复，不因战损无限补员。
 			ac.set_meta("escort_watchdog_done", true)
 			continue
 		if ac.has_meta("escort_watchdog_done"):
 			continue
 		# 护卫不足 → 紧急补刷
-		var missing := SENTINEL_MIN_ESCORT - escort_count
-		push_warning("[Watchdog] Sentinel %s 护卫仅 %d 架，紧急补刷 %d 架 UAV" \
-				% [ac.callsign, escort_count, missing])
+		var missing_uav := maxi(SENTINEL_MIN_ESCORT - uav_count, 0)
+		var missing_aegis := maxi(SENTINEL_REQUIRED_AEGIS - aegis_count, 0)
+		push_warning("[Watchdog] Sentinel %s 编成不完整，紧急补刷 UAV=%d Aegis=%d" \
+				% [ac.callsign, missing_uav, missing_aegis])
 		EventLogger.log_event("SENTINEL", "EscortWatchdog",
-			"callsign=%s had=%d spawning=%d" % [ac.callsign, escort_count, missing])
+			"callsign=%s had_uav=%d had_aegis=%d spawning_uav=%d spawning_aegis=%d" \
+			% [ac.callsign, uav_count, aegis_count, missing_uav, missing_aegis])
 		# 若 Sentinel 没 Squad，临建一个
 		if not sq:
 			sq = SquadFactory.create()
 			SquadFactory.register_leader(sq, ac)
 			_squads.append(sq)
-		_spawn_sentinel_escort_uavs(ac, sq, missing)
+		_spawn_sentinel_escort_uavs(ac, sq, missing_uav)
+		_spawn_sentinel_aegis(ac, sq, missing_aegis)
 		ac.set_meta("escort_watchdog_done", true)
 
 ## 原生护卫必须和 Sentinel 一起出现、一起行动。只修复初始/补刷护卫；
@@ -1716,6 +2018,7 @@ func _spawn_sentinel_escort_uavs(commander: Aircraft, sq: Squad, count: int) -> 
 		if not wingman:
 			continue
 		wingman.set_meta("sentinel_native_escort", true)
+		_copy_sentinel_package_meta(commander, wingman)
 		SquadFactory.register_wingman(sq, wingman, false)
 		for c in wingman.get_children():
 			if c is AIController:
@@ -1727,6 +2030,24 @@ func _spawn_sentinel_escort_uavs(commander: Aircraft, sq: Squad, count: int) -> 
 				wai.aggression = randf_range(0.7, 0.95)
 				wai.waypoints = PackedVector2Array()
 				break
+
+## Sentinel 主题包的 Aegis 是强依赖角色；只在首次看门狗修复中补齐。
+func _spawn_sentinel_aegis(commander: Aircraft, sq: Squad, count: int) -> void:
+	var heading_deg := rad_to_deg(commander.heading)
+	for i in range(count):
+		var spawn_pos := commander.global_position + Vector2(-320.0 - 80.0 * i, 0.0).rotated(commander.heading)
+		var aegis := _create_enemy(EnemyType.UAV_LASER, spawn_pos, heading_deg)
+		if not aegis:
+			continue
+		aegis.set_meta("sentinel_native_escort", true)
+		_copy_sentinel_package_meta(commander, aegis)
+		SquadFactory.register_wingman(sq, aegis, false)
+
+func _copy_sentinel_package_meta(commander: Aircraft, escort: Aircraft) -> void:
+	for key in ["encounter_id", "package_id", "theme"]:
+		if commander.has_meta(key):
+			escort.set_meta(key, commander.get_meta(key))
+	escort.set_meta("element_role", "ORBIT_GUARD")
 
 # ══════════════════════════════════════════════
 #  Adds 族群系统（独立于 Token / 编队系统）
@@ -2367,6 +2688,9 @@ func _spawn_boss(encounter: BossEncounter, anchor: Vector2 = Vector2.INF, skip_b
 		var hyper_a = encounter
 		hyper_a.spawn(mode, _aircraft_scene, _create_enemy, player_aircraft,
 			bullet_manager, missile_manager, _squads, anchor)
+	elif encounter.has_method("spawn"):
+		# 地图专属复合/地面 BOSS 走精简上下文；避免继续扩大类型分支签名。
+		encounter.call("spawn", mode, player_aircraft, bullet_manager, missile_manager, anchor)
 	else:
 		push_error("_spawn_boss: unsupported encounter type %s" % encounter.get_class())
 		_boss = null
@@ -3742,13 +4066,16 @@ func _detect_kills() -> void:
 	var boss_phase_no_xp: bool = _is_boss_phase()
 	for child in mode.get_children():
 		# ── 飞机击杀检测 ──
-		if child is Aircraft and child.team == CombatUnit.TEAM_HOSTILE and child.is_destroyed:
+		if child is Aircraft and (child.team == CombatUnit.TEAM_HOSTILE \
+				or child.team >= CombatUnit.TEAM_FREE_FOR_ALL_BASE) and child.is_destroyed:
 			if not child.has_meta("xp_granted"):
 				child.set_meta("xp_granted", true)
 				# 第三方 ALLY（含战区临时支援）击落仍会销毁 TGT、推进任务，
 				# 但不应替玩家产出 XP、击杀计数、回血、连击或教程击杀进度。
-				var third_party_kill: bool = int(child.get_meta(
-					"kill_attacker_team", -1)) == CombatUnit.TEAM_ALLY
+				var attacker_team := int(child.get_meta("kill_attacker_team", -1))
+				var third_party_kill: bool = attacker_team == CombatUnit.TEAM_ALLY \
+					or (child.team >= CombatUnit.TEAM_FREE_FOR_ALL_BASE \
+					and attacker_team != CombatUnit.TEAM_PLAYER)
 				# 恐惧扩散：友方（玩家或僚机）击杀的任意敌机 → 给同小队成员挂 FEAR
 				var pl_ac: Aircraft = survivor_player.aircraft
 				if pl_ac and pl_ac.fear_squad_spread_duration > 0.0 \

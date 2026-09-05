@@ -13,6 +13,7 @@ func run() -> void:
 	_test_deterministic_and_looping()
 	_test_full_battlefield_coverage()
 	_test_zoom_and_rotation_envelope()
+	_test_hover_hitbox_is_screen_space()
 	_test_segment_transitions_are_continuous()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 
@@ -61,6 +62,17 @@ func _test_zoom_and_rotation_envelope() -> void:
 		and max_zoom <= Patrol.ZOOM_MAX)
 	_check("视角向两个方向旋转", min_rotation <= -13.5 and max_rotation >= 11.5)
 	_check("旋转幅度保持可读", min_rotation >= -14.01 and max_rotation <= 12.01)
+
+
+func _test_hover_hitbox_is_screen_space() -> void:
+	var normal_world_radius := CameraController.hover_radius_world_for_zoom(1.0)
+	var overview_world_radius := CameraController.hover_radius_world_for_zoom(
+		CameraController.ZOOM_MIN)
+	_check("总览缩放下 hover 命中半径仍保持 30 屏幕像素",
+		is_equal_approx(normal_world_radius, CameraController.HOVER_RADIUS)
+		and is_equal_approx(
+			overview_world_radius * CameraController.ZOOM_MIN,
+			CameraController.HOVER_RADIUS))
 
 
 func _test_segment_transitions_are_continuous() -> void:

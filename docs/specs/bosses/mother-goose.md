@@ -3,7 +3,7 @@ id: mother-goose
 kind: boss
 status: done
 schema_version: 1
-spec_version: 14
+spec_version: 15
 owner: design
 depends_on: [jam-status, vls-salvo, uav-swarm-roles, boss-clear-progression]
 reconstruction_complete: true
@@ -200,6 +200,8 @@ MQ-X 三路武器同时存在：点射激光和导弹负责攻击玩家，拦截
 | 拦截激光 | 只打导弹；2500 m；95→25 DPS；单目标；真实累计消耗 `intercept_hp` |
 | 拦截激光过热 | 上限 100；输出 +35/s；过热强制停火并 -25/s；降至 30% 恢复 |
 
+三发点射的机头闪光只由真实弹丸出膛刷新 0.06 s，不跟随持续火控意图常亮；该通用规则也适用于 IDO 的 MQ-X2。
+
 ## 3. 行为与公式（How）
 
 ### 3.1 攻坚流程（玩家解法 = 设计意图的几何实现）
@@ -333,3 +335,4 @@ BGM：循环歌单 `["boss_mothergoose_1", "boss_mothergoose_2"]`（优先于 bg
 | 2026-08-16 | 12 | 接入统一 BOSS 系统入侵横幅：镜头切母机前显示固定英文包装、英文主标题、空中无人机母舰角色类型与 GOOSE 呼号。 |
 | 2026-08-16 | 13 | VLS 改为 3000m 近身停火、累计飞行 8000m 后生成 800m/1.5s 定距 AOE；MQ-111 激光保留累计反导，并把热量参数和过热恢复门完全对齐玩家 X-02。 |
 | 2026-08-24 | 14 | 根治 MQ-X 近距离共速绕圈：改走可读 joust 攻击跑；点射收口为三发短梭并扩大火力窗，导弹强化，新增带过热的真实拦截激光，并启用 F-22 级传感器隐形。 |
+| 2026-09-05 | 15 | MQ-X 点射枪口闪光改为真实出弹后的 0.06s 短窗，不再跟随持续火控意图常亮；共享资源下同步覆盖 IDO 的 MQ-X2。 |

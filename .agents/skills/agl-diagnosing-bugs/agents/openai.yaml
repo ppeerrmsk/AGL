@@ -1,0 +1,6 @@
+interface:
+  display_name: "AGL Diagnosing Bugs"
+  short_description: "Trace AGL bugs to their real owner and evidence"
+  default_prompt: "Use $agl-diagnosing-bugs to diagnose this AGL failure without assuming a fix."
+policy:
+  allow_implicit_invocation: false

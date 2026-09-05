@@ -3,7 +3,7 @@ id: map-2-3-preview
 kind: map
 status: in-progress
 schema_version: 1
-spec_version: 20
+spec_version: 21
 owner: design
 depends_on: [map-system, map-editor, raster-basemap-streaming]
 reconstruction_complete: false
@@ -11,13 +11,13 @@ reconstruction_complete: false
 
 # 图 2 / 图 3 PNG 可飞行地图预览与共享瓦片迁移
 
-> 复用图一的高细度 PNG + TacView shader 管线，在两张空地图中自由飞行，确认地貌与未来战区布点，再接任务内容。
+> 复用图一的高细度 PNG + TacView shader 管线；沙漠输入已毕业为正式战区，本 spec 继续作为两图地图资产与海岛空图试飞的权威。
 
 ## 1. 设计意图（Why）
 
 - **体验目标**：图 2 一眼读成“沙漠铁路工业走廊”，图 3 一眼读成“开放海域与岛链”；玩家能用主视野与 Tab 地图寻找未来适合放置战区、舰队、地面冲突和机场的位置。
 - **Litmus 自检**：地图变化必须直接可见，并改变玩家对航线、陆海空间和地标的判断；不以隐藏数值或纯 UI 文案代替差异。
-- **反模式规避**：本轮不制作战区、任务、敌人、BOSS、奖励、地面冲突或跨局 Build；不改东京湾生产底图；不把两张地图合成同一种地貌。
+- **反模式规避**：地图资产层不重复定义正式战区玩法；沙漠关卡内容由 `desert-theater` / `armored-train` 定义，海岛仍不提前制作任务；不改东京湾生产底图；不把两张地图合成同一种地貌。
 
 > 三图正式串联、双队 build 继承与 BOSS 顺延由 [three-map-campaign-continuity](three-map-campaign-continuity.md) 单独定义。本 spec 仍只负责地图输入、渲染与空图试飞，不因总流程草案而提前加入关卡内容。
 
@@ -29,9 +29,9 @@ reconstruction_complete: false
 |---|---:|---|
 | 世界边长 | 60 km | 复用当前 `±15000 px` 世界边界 |
 | 比例 | 0.5 px/m | 与现有战斗坐标一致 |
-| 战区数 | 0 | 不构造 `ZoneData` / `ZoneMission` |
-| 敌对单位数 | 0 | 不推进 `SurvivorSpawner` |
-| 任务数 | 0 | 不生成任何战区内容 |
+| 海岛预览战区数 | 0 | 海岛仍不构造 `ZoneData` / `ZoneMission`；沙漠由正式关卡 spec 覆盖 |
+| 海岛预览敌对单位数 | 0 | 海岛不推进 `SurvivorSpawner` |
+| 海岛预览任务数 | 0 | 海岛不生成任何战区内容 |
 | 可用视图 | 主地图 + Tab | 两处读取同一份 MapDocument 地理 |
 | PNG 尺寸 | 8704×8704 px | 与图一正式底图一致；17×17 张 512px `@2x` 瓦片 |
 | 瓦片源 | CartoDB Voyager no-labels / OSM | 与图一同类无标注地图来源；保留归属信息 |

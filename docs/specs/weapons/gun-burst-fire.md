@@ -1,9 +1,9 @@
 ---
 id: gun-burst-fire
 kind: weapon
-status: done  # v3 全敌机一次机会一梭已落地；gun_burst 20/20
+status: done
 schema_version: 1
-spec_version: 3
+spec_version: 4
 owner: 用户（机制指令）+ Claude（数值细化）
 depends_on: []
 reconstruction_complete: true
@@ -88,13 +88,14 @@ gap           = max(burst_count × (base_interval − intra), 0)  # 梭间 CD
 | 当前目标被毁/失效 | 承诺对象已消失，禁止把剩余弹沿旧提前方向喷入空域 |
 | 飞机摧毁 | 上游不再 tick |
 
-### 3.3 敌方飞机“一次机会一梭”安全门
+### 3.3 敌方与剧本 FFA 飞机“一次机会一梭”安全门
 
-- **适用范围**：所有 `team == HOSTILE` 且挂载机炮的 `Aircraft`，不区分普通敌机、王牌、无人机、旋翼机或 AI 原型。CIWS / 地面炮仍不在本 spec 范围。
+- **适用范围**：所有 `team == HOSTILE` 或 `team >= TEAM_FREE_FOR_ALL_BASE` 且挂载机炮的 `Aircraft`，不区分普通敌机、王牌、无人机、旋翼机或 AI 原型。The Crucible 的自由混战队不能因为使用剧本 team 而绕过安全门；CIWS / 地面炮仍不在本 spec 范围。
 - **开火机会**：敌方飞机在无强制停火且火控请求开火时，只能启动 **1 个完整 `burst_count` 梭**。梭承诺保证第一发出膛后打完整梭，但同一次机会绝不能衔接第二梭。
 - **强制停火**：该梭结束（或被 JAM / 弹尽 / 装填 / 规避 / 目标被毁硬中止）后，进入 **3.0s** 强制停火；计时从梭结束/中止后的武器 tick 开始。计时结束且火控条件仍满足，才能启动下一梭。
 - **统一执行层兜底**：安全门由 `update_gun` 执行，不依赖某一种 AI 调用路径；即使战术规划、旧 combat tracking、自动扫描或旋翼机路径持续把 `is_firing` 置真，也不能绕过停火期。
 - **友方不受限**：玩家小队（PLAYER）与第三方友军（ALLY）不吃该敌方安全门，继续按 §2.3 的武器层平均射速循环梭射。
+- **枪口闪光**：只在 `_fire_gun_round` 确实生成弹丸时刷新 0.06 s；`is_firing` 只是持续火控意图，梭间等待或 FFA AI 持续瞄准时不得让闪光常亮。
 
 ### 3.4 保留语义（重排不改动）
 
@@ -131,6 +132,7 @@ gap           = max(burst_count × (base_interval − intra), 0)  # 梭间 CD
 - [x] 敌方飞机持续满足火控时，每次机会只打 1 个完整 `burst_count` 梭；首梭与次梭之间从上一梭末发起至少间隔 3.0s（`--bench=gun_burst`：3.03s）
 - [x] 敌方安全门在同帧被多个 AI 火控入口重复查询时不消耗/覆盖许可；武器执行层仍只能启动一梭（`--bench=gun_burst`）
 - [x] PLAYER / ALLY 不受敌方安全门影响，继续按武器层节奏循环梭射（`--bench=gun_burst`）
+- [x] 剧本 FFA 飞机与 HOSTILE 共用一次机会一梭安全门；枪口闪光只由真实出弹刷新，持续 `is_firing` 不会留下常亮机头特效（`--bench=gun_burst`）
 - [ ] 目视确认：低射速炮（UAV/AH-64）观感为"一串一停"，高射速炮近似连续弹链（需进引擎）
 - [ ] 性能：跑生存模式 Sentinel + Lv5+ 压测，FPS 掉幅 < 15（无新增每帧扫描；仅重排出弹时刻）
 - [x] 真命中才出火星：机炮闪避返回未结算，既不触发火星也不累计 `gun_hits`
@@ -150,8 +152,8 @@ gap           = max(burst_count × (base_interval − intra), 0)  # 梭间 CD
 - [x] 玩家梭级瞄准误差改挂梭起始
 
 ### 阶段 3 — 验证
-- [x] `--bench=gun_burst` 无头回归测试（14 断言：梭结构 / 守恒 / 铁律缩放 / 承诺 / 硬中止 / 真命中返回值 / 火星节流回收），入 `--bench=all` 回归门
-- [x] `--bench=all` 全量回归门 15 项 0 失败（weapon / gun_aim / weapon_doctrine 等均未受影响）
+- [x] `--bench=gun_burst` 无头回归测试（25 断言：梭结构 / 守恒 / 铁律缩放 / 承诺 / 硬中止 / FFA 敌机门 / 真实出弹闪光 / 悬停威胁圈 / 真命中返回值 / 火星节流回收），入 `--bench=all` 回归门
+- [x] `--bench=all` 全量回归门 91 项 0 失败（weapon / gun_aim / weapon_doctrine 等均未受影响）
 - [x] 同步 reference 索引（code-index 机炮段 + script-index aircraft_weapons 行）+ §7 锚点
 - [ ] 进引擎目视 + Sentinel Lv5+ 压测后 status: done
 
@@ -181,3 +183,4 @@ gap           = max(burst_count × (base_interval − intra), 0)  # 梭间 CD
 | 2026-07-05 | 1 | 初稿 + 实现（用户指令：机炮改梭射，射速同时缩短梭间 CD 与加快梭内频率） |
 | 2026-08-01 | 2 | 强化真命中反馈：闪避不计命中；火星按目标 110ms 节流、0.16s 短寿命、12 组封顶并批量绘制 |
 | 2026-08-02 | 3 | 敌方飞机全局改为“一次机会只打一梭，梭后强制停火 3.0s”；安全门下沉武器执行层，堵住不同 AI 路径连续多梭秒杀玩家 |
+| 2026-09-05 | 4 | The Crucible 的 team≥3 FFA 飞机纳入同一敌机梭射安全门；枪口闪光从持续火控意图解耦，只在真实出弹后短暂显示，修复 IDO MQ-X 点射结束后机头特效残留。 |

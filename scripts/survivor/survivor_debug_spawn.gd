@@ -33,7 +33,7 @@ const COORD_AXES_GRID_PX := 1000.0   ## 刻度间距：1000px ≈ 2km
 const COORD_AXES_HALF_EXTENT := 15500.0  ## 轴向单边长度（世界 ±15000，多画一点点）
 
 # ── 编队类型枚举（内部）──
-enum FormationType { SINGLE, SQUAD, COMMANDER_SQUAD, TU160_FLOCK, AH64_FLOCK, CH47_FLOCK, F47_SQUAD, CSG_BOSS, ACE_SUPPORT, ACE_VULTURE, ACE_2NDWAVE, ACE_GIMMICK, ACE_GOOFIGHTERS, ACE_ORION, ACE_WHITETEA }
+enum FormationType { SINGLE, SQUAD, COMMANDER_SQUAD, TU160_FLOCK, AH64_FLOCK, CH47_FLOCK, F47_SQUAD, CSG_BOSS, ACE_SUPPORT, ACE_VULTURE, ACE_2NDWAVE, ACE_GIMMICK, ACE_GOOFIGHTERS, ACE_ORION, ACE_WHITETEA, ACE_MOIRAI, ACE_LASH, ACE_IDO, ACE_UNDERTOW, ACE_CROUPIER, ACE_TALLYMAN, ACE_PALIMPSEST, ACE_QUORUM, ACE_DEADEYE, ACE_MIRROR, ACE_FUNERAL }
 
 const FORMATION_NAMES := {
 	FormationType.SINGLE: "单机",
@@ -51,6 +51,17 @@ const FORMATION_NAMES := {
 	FormationType.ACE_GOOFIGHTERS: "王牌中队 GOOFIGHTERS（Su-47×2）",
 	FormationType.ACE_ORION: "宿敌 ORION（Cre 单机，按生涯计数）",
 	FormationType.ACE_WHITETEA: "王牌中队 WhiteTea（F-CK-1×3 J-turn）",
+	FormationType.ACE_MOIRAI: "王牌中队 MOIRAI（三种隐身机命运分工）",
+	FormationType.ACE_LASH: "王牌中队 LASH（Su-57×4 接力突击）",
+	FormationType.ACE_IDO: "王牌中队 IDO（八节点无人机网络）",
+	FormationType.ACE_UNDERTOW: "王牌中队 UNDERTOW（Typhoon×3 高度链）",
+	FormationType.ACE_CROUPIER: "王牌中队 CROUPIER（F-15E/Su-34 发牌）",
+	FormationType.ACE_TALLYMAN: "王牌中队 TALLYMAN（Gripen E×4 点杀）",
+	FormationType.ACE_PALIMPSEST: "王牌中队 PALIMPSEST（四代战术叠写）",
+	FormationType.ACE_QUORUM: "王牌中队 QUORUM（三机表决）",
+	FormationType.ACE_DEADEYE: "王牌中队 DEADEYE（Viggen/Tornado 交叉火力）",
+	FormationType.ACE_MIRROR: "王牌中队 MIRROR（F-15 S/MTD×3 镜像）",
+	FormationType.ACE_FUNERAL: "王牌中队 FUNERAL（J-20×4 空位复仇）",
 }
 
 # ── 敌机类型标签（与 SurvivorSpawner.EnemyType 对应）──
@@ -507,6 +518,28 @@ func _on_spawn_pressed() -> void:
 					game_scene._event_director.start(OrionNemesisEvent.new())
 			FormationType.ACE_WHITETEA:
 				_start_ace_event("whitetea")
+			FormationType.ACE_MOIRAI:
+				_start_ace_event("moirai")
+			FormationType.ACE_LASH:
+				_start_ace_event("lash")
+			FormationType.ACE_IDO:
+				_start_ace_event("ido")
+			FormationType.ACE_UNDERTOW:
+				_start_ace_event("undertow")
+			FormationType.ACE_CROUPIER:
+				_start_ace_event("croupier")
+			FormationType.ACE_TALLYMAN:
+				_start_ace_event("tallyman")
+			FormationType.ACE_PALIMPSEST:
+				_start_ace_event("palimpsest")
+			FormationType.ACE_QUORUM:
+				_start_ace_event("quorum")
+			FormationType.ACE_DEADEYE:
+				_start_ace_event("deadeye")
+			FormationType.ACE_MIRROR:
+				_start_ace_event("mirror")
+			FormationType.ACE_FUNERAL:
+				_start_ace_event("funeral")
 
 	print("[DebugSpawn] spawned %d × %s [%s]" % [
 		repeats,

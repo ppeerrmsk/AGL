@@ -13,7 +13,7 @@ const ZOOM_MIN := 0.2       ## 最大缩小倍率（越小视野越大；0.2 ≈
 const START_ZOOM := 0.35    ## 开局镜头（比 ZOOM_MIN 略紧，避免开局飞机太小；玩家可滚轮拉到 ZOOM_MIN 看全场）
 const ZOOM_MAX := 5.0
 const ZOOM_STEP := 0.1
-const HOVER_RADIUS := 30.0  ## 鼠标悬停判定半径（像素）
+const HOVER_RADIUS := 30.0  ## 鼠标悬停判定半径（屏幕像素，不随镜头缩放缩水）
 
 # ── WASD 自由镜头参数（屏幕像素/秒，按 zoom 自动换算世界速度）──
 const WASD_SPEED_MIN := 450.0   ## 刚按下时的基础速度
@@ -246,6 +246,11 @@ func is_world_pos_visible(world_pos: Vector2, margin_px: float = 200.0) -> bool:
 	var rel := world_pos - camera.global_position
 	return absf(rel.x) <= half.x and absf(rel.y) <= half.y
 
+
+static func hover_radius_world_for_zoom(zoom: float) -> float:
+	return HOVER_RADIUS / maxf(absf(zoom), 0.01)
+
+
 ## hover 检测：遍历单位列表，标记距离最近的单位
 func update_hover(screen_pos: Vector2, units: Array) -> CombatUnit:
 	var world_pos := screen_to_world(screen_pos)
@@ -254,7 +259,8 @@ func update_hover(screen_pos: Vector2, units: Array) -> CombatUnit:
 		hovered_unit.is_hovered = false
 	hovered_unit = null
 
-	var best_dist := HOVER_RADIUS
+	var zoom := camera.zoom.x if camera != null else 1.0
+	var best_dist := hover_radius_world_for_zoom(zoom)
 	for child in units:
 		if child is CombatUnit:
 			# 跳过锁定代理节点（船上的挂点 MountTarget）—— 让 hover 落到整艘船上

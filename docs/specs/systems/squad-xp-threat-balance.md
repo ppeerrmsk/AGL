@@ -3,7 +3,7 @@ id: squad-xp-threat-balance
 kind: balance
 status: in-progress
 schema_version: 1
-spec_version: 2
+spec_version: 3
 owner: noelu
 depends_on: [survivor-loop, global-awareness-roe, squad-control-switching]
 reconstruction_complete: false
@@ -106,8 +106,8 @@ response_level = max(player_level, ceil(current_heat / 5))
 
 ### 2.6 敌方出击编成倾向
 
-敌方不会逐架镜像玩家，但**未来生成的常规战斗机出击批次**会根据当前直属编队规模 `N`
-调整单机、双机和飞行队的抽取权重。以下为第一版待 playtest 权重：
+敌方不会逐架镜像玩家，但**未来生成的常规战斗机 Encounter Package**会根据当前直属编队规模 `N`
+调整 Solo、双机 Element 和 Flight Package 的抽取权重。以下为第一版待 playtest 权重：
 
 | 玩家直属机数 N | 敌方单机 | 敌方双机 | 敌方飞行队（3–4机） |
 |---:|---:|---:|---:|
@@ -120,6 +120,8 @@ response_level = max(player_level, ceil(current_heat / 5))
 - 每次生成先把三档基础权重分别乘独立乱数 `randf_range(0.85, 1.15)`，再归一化后抽取；
   乱数只制造局间变化，不能推翻上表的整体趋势。
 - 抽到“飞行队”后，在机型允许且 Token 足够时按 `3机 65% / 4机 35%` 再抽实际数量。
+- Flight 描述的是 Package 总战斗机数，不强制等于一个 Squad：3 机默认一个三机 Element；4 机可由一个四机 Element，或在 Encounter Director 的主题/Heat/PR 条件满足时拆成两个双机 Element。无论怎样解析，本表只支付一次总规模概率，不为每个 Element 重抽、从而暗中放大大编队概率。
+- 多 Element Package 的每个 Squad 都有独立长机、阵型与重整状态；它们共享 Encounter 目标域和入场方向，但不能把四架飞机展平成四个独立 BFM 单机。
 - 机型自身的 `spawn_min/max`、Token 余量、实例上限、冷却和实体性能上限始终拥有最终否决权；
   删除无效规模后，对剩余权重重新归一化。只支持单机的特殊单位仍保持单机。
 - `N` 在生成当刻读取。僚机随后加入或阵亡不会拆分、增补或删除已经出场的敌方编队，只影响下一次出击。
@@ -174,7 +176,8 @@ Tab 战术图显示：
 ```
 
 特殊事件、BOSS、Adds、Snowblind 自身等拥有独立编成 spec 的单位不走本表；但 Snowblind 的动态护卫槽
-从常规战斗机池取机时，仍读取生成当刻的热度资格与每架 Token/上限。
+从常规战斗机池取机时，仍读取生成当刻的热度资格与每架 Token/上限。玩家规模响应与 Package/Element/Squad
+解析边界见 [encounter-director](encounter-director.md) §2.9；本表继续是概率唯一真源。
 
 ## 4. 结构与组成（Structure）
 
@@ -196,6 +199,8 @@ Tab 战术图显示：
 - [ ] 固定种子各生成 1000 批：N=1 的单机/双机/飞行队比例接近 60/30/10，N=9 接近 15/25/60；
       加入 ±15% 权重乱数后，误差落在统计容差内且趋势不反转。
 - [ ] 单机样本仍能偶遇敌方编队，九机样本仍能偶遇敌方独行机；任何 N 都不是确定性镜像。
+- [ ] Flight=4 的多 Element 样本只进行一次 Flight 抽取和一次四机 Token/PR reservation；实例化为两个双机 Squad 后仍是一个 Encounter Package，不重复计概率或奖励。
+- [ ] 两个双机 Element 各自保持 leader/squad_index/formation，接敌后不会退化成四架无编制独立追击。
 - [ ] 僚机阵亡后，已出场敌方编队不变，下一批生成规模倾向按新 N 下调。
 - [ ] 单机、3 机、6 机、9 机各跑完整 10 分钟：记录最终等级、XP/分钟、击杀/分钟、存活率和警戒时间分布；各规模 XP/分钟目标差异不超过 15%，若偏离优先调 `squad_xp_mult`，不改敌人 HP。
 - [ ] Tab 能明确看到警戒值、编队规模和经验效率，玩家能解释为何扩大编队后敌军响应增强。
@@ -223,6 +228,11 @@ Tab 战术图显示：
 - [ ] Tab 增加警戒/规模/效率；补三语。
 - [ ] 建 1/3/6/9 机可重复 bench，跑 §5 全部验收。
 
+### 阶段 5 — Encounter Package 集成
+- [ ] Encounter Director 直接复用 `pick_enemy_formation_class` / `pick_enemy_flight_size`，禁止复制本表权重。
+- [ ] 将 Flight 总规模解析成一个 3～4 机 Element 或两个双机 Element；同一生成请求只做一次预算、冷却、概率和奖励记账。
+- [ ] focused 验证 N 软响应统计不变，并覆盖多 Element 的 leader、换帅、减员、撤离与生命周期清理。
+
 ## 7. 索引锚点（Where —— 唯一允许放指针的地方）
 
 | 关注点 | 文件 |
@@ -240,3 +250,4 @@ Tab 战术图显示：
 |---|---:|---|
 | 2026-08-01 | 1 | 初稿：编队 XP 软稀释、等级+存活直属机热度地板、减员降压、响应 Token、公开警戒和多目标分配。 |
 | 2026-08-01 | 2 | 用户定调敌我出击编成存在软相关：玩家长期单机时敌方倾向单机，玩家大编队时敌方倾向成建制，但不绝对镜像。新增 N=1/2–3/4–6/7–9 的 60/30/10 → 15/25/60 单机/双机/飞行队概率表，每批权重独立乘 0.85–1.15 乱数；只作用后续生成，机型/Token/上限仍为硬门。 |
+| 2026-08-30 | 3 | 将既有 N 软响应明确为 Encounter Package 的编成等级真源：Flight 总规模可解析为单个 3～4 机 Element 或两个双机 Element，但只能抽取/预算/记账一次；多 Element 必须各自保持紧密 Squad，不得展平成独立散兵。 |

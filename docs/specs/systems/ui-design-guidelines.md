@@ -3,7 +3,7 @@ id: ui-design-guidelines
 kind: system
 status: done
 schema_version: 1
-spec_version: 35
+spec_version: 38
 owner: user
 depends_on: [systems/afterburner-mode, systems/squad-control-switching]
 reconstruction_complete: false
@@ -244,13 +244,15 @@ HUD 创建后立即执行第一次信息刷新，随后进入周期；动画时�
 - 飞机、无人机、普通地面单位、SAM、雷达站、舰船与以后新增的战斗单位，头顶/旁侧数据状态栏必须共用同一个屏幕空间矢量面板渲染器；兵种可以提供不同数据行，但不得复制面板几何、字体、描边、旋转或缩放算法。
 - 状态栏首行是跨语言一致的战术识别码：以后新增的战斗单位统一使用 locale-independent 英文战术名/型号，不得把 `tr()` 后的中文或日文名称写进世界标签；本地化全名继续用于任务简报、图鉴与菜单。
 - 状态栏只使用 Canvas 矢量绘制与项目字体，不使用预烘焙位图框板。统一字体为 `11 px`，行高 `14 px`，水平/垂直内边距为 `5/3 px`，外框为最终屏幕 `1 px`；背景和文字统一使用飞机状态栏的阵营语义色，当前操控机继续使用白底深色字。
-- 状态栏属于屏幕 UI，不属于单位模型：必须抵消单位自身、父节点、镜头与 Canvas 的完整旋转、缩放、斜切和非均匀变换，在最终画面中始终水平向右、等比且不随场景转动。禁止只写 `-rotation` 或只取单轴倒数作为近似补偿。若单位直接改变承载状态栏 draw command 的根 CanvasItem 旋转/缩放，必须同步 `queue_redraw()` 刷新缓存的屏幕空间逆矩阵。
+- `AircraftParams.icon_color` / `wing_color` 只是机体涂装，不是战术 UI 色。状态栏不得读取它们；普通 combat target 指令线对整个玩家小队统一使用玩家蓝，不因当前操控权改变，双击突击保留独立黄色。机体涂装变更不得传播到指令线或状态栏。
+- 状态栏属于屏幕 UI，不属于单位模型：最终屏幕坐标的 X/Y 轴必须分别保持 `(1, 0)` / `(0, 1)`，始终水平向右、等比且不随场景转动。单位自身、父节点、镜头与 Canvas 无论发生旋转、缩放、斜切或非均匀变换，都不得改变标签方向与比例；任何肉眼可见的倾斜、倒置、扭曲或随飞机转向摆动都属于发布阻断缺陷。
+- 禁止把状态栏 draw command 缓存在旋转的单位或其旋转父节点中，再依赖各条运动路径恰好调用 `queue_redraw()` 刷新逆矩阵。正式可玩场景必须由唯一的屏幕空间覆盖层持有并逐帧定位状态栏；单位只提交内容与锚点，不拥有标签的最终 Canvas 变换。不得使用 `-rotation`、单轴倒数或漏帧可失效的缓存逆变换作为终态实现。
 - 面板锚点按单位实际屏幕包围半径放在右侧，至少留 `8 px` 间距；最终面板原点对齐整数物理像素。单位高速移动、转弯、父节点变换或镜头平滑缩放时，不得出现字体发虚、边框抽动、任意拉伸或扭转。
 - 状态栏物理字号与面板尺寸不跟随镜头缩放。信息密度使用统一迟滞档位控制：相机缩到 `0.35` 及以下进入身份精简档，放大到 `0.40` 及以上恢复完整数据；中间保持上一档，避免临界缩放闪烁。按住 `Alt` 可临时查看完整数据，且不得重置迟滞状态。
 - 完整档的数据字段按单位真实能力提供，统一使用大写英文战术词与单位：`HDG 000–359`、`SPD … KT`（航空/舰船/导弹）、`SPD … KM/H`（地面）、`ALT … M`、`RNG … M/KM`、`HP current/max`。飞机显示数值高度，真实垂直速度超过阈值时追加 `CLIMB` / `DESCENT`，不得用 `ALT LOW/MID/HIGH` 档位冒充高度；角度量化后必须重新归一化，禁止出现 `HDG 360`。
 - 地面单位提供身份、HP、距离及真实存在的武器弹药；无 `GunParams` 的单位不得显示继承默认值形成的伪 `GUN`。SAM 使用导弹数替代机炮；雷达站提供 HP/跟踪/数据链；舰船使用唯一舰名、航向、航速和真实船体 HP，不重复显示已包含在舰名中的舰种；导弹也进入共享面板，提供武器型号、速度、对目标距离和 `GUIDED/UNGUIDED`。批处理的子弹、火箭、鱼雷不是独立状态栏实体，不得为了逐发标签新增节点或 draw 提交。
 - 所有状态栏内容（包括状态效果、武器装填行和资源 `display_name`）必须是 locale-independent ASCII English；禁止在状态栏调用 `tr()` / `TranslationServer.translate()`。非英文身份数据必须回退到兵种英文战术名，不得把中文、日文或本地化全名泄漏到世界面板。
-- buff/debuff 进度条与单位数据状态栏使用同一个屏幕空间变换和像素规则。所有实现继续留在既有实体 `_draw` 中，不为每个单位新增 Control 子节点、常驻进程或全场扫描。
+- buff/debuff 进度条与单位数据状态栏使用同一个屏幕空间覆盖层和像素规则。全局只允许一个覆盖层与一个统一刷新入口，不为每个单位新增 Control 子节点或常驻进程；覆盖层只能消费已登记标签，不得在 `_draw` 中遍历场景树或扫描全体战斗单位。
 
 #### 2.0.16 状态栏与 HUD 受伤反馈
 
@@ -525,7 +527,8 @@ other_ui_scale = 1.0
 - [x] 普通读数、输入事件、连续反馈和动画使用四种刷新层级；不得用高频普通轮询代替事件或动画时钟。
 - [x] 1920×1080 下底部常驻栏严格为 `1920 × 54 px`；三方向计数与经验条水平居中，上下各留 `8 px`，玩家 HUD 最低边与常驻栏上沿重合且不侵入栏内。
 - [x] 顶部紧急与底部临时通知可同时滑入；两者均为中央 `60% × 36 px` 框板、位移动画 `0.25 s`，顶部保持到明确撤回，底部计时后退出并始终停在常驻栏上方。
-- [x] 飞机、地面、SAM、雷达与舰船状态栏共用一个矢量面板渲染器；组合旋转/非均匀缩放后仍为屏幕单位矩阵，镜头放大显示完整数据，远景迟滞折叠且 `Alt` 可临时展开。
+- [x] 飞机、地面、SAM、雷达、舰船与导弹状态栏共用一个屏幕空间覆盖层；单位连续转向且单位自身不主动重绘时，标签最终屏幕轴仍严格为单位矩阵，不出现任何倾斜、倒置、扭曲或随单位摆动；镜头放大显示完整数据，远景迟滞折叠且 `Alt` 可临时展开。
+- [x] 非默认机体涂装（基准：紫色 EA-18G）在出生/进化/切控/阵营刷新后保色；当前操控机与玩家僚机的普通 combat target 线均为玩家蓝，状态栏仍为操控/阵营语义色，突击黄不变。
 - [x] 右侧各行允许不同宽度，但共享屏幕侧右边缘；数字扩宽和新增按键只向左增长。
 - [x] 右侧旧 TACTICS、旧玩家信息栏与旧僚机富文本框被新仪表替换；其它游戏内 HUD 像素位置、内容与交互不变。
 - [x] HP 独占首行并以空框填满右侧；SPD 左、G 右共用 `3u` 行；ALT 独占 `4u` 行并显示五格高度、HIGH/LOW 与半圆指针；Q/E/G/F/T 均作为对应行左侧的独立 `1q` 键框板。
@@ -721,7 +724,7 @@ other_ui_scale = 1.0
 | 热诱弹视觉 | `scripts/aircraft/aircraft_flares.gd` / `scripts/aircraft.gd` |
 | HUD 首次显现 | `scripts/ui/hud_first_reveal_sequencer.gd` / `scripts/ui/hud_board_visibility.gd` / `resources/shaders/hud_board_visibility.gdshader` |
 | 屏幕外圈反馈 | `scripts/survivor/damage_vignette.gd` / `scripts/tests/test_damage_vignette.gd` |
-| 世界单位矢量状态栏 | `scripts/aircraft_renderer.gd` / `scripts/ground_unit.gd` / `scripts/naval/naval_unit.gd` / `scripts/tests/unit_status_label_visual_qa_runner.gd` |
+| 世界单位矢量状态栏 | `scripts/ui/world_unit_status_overlay.gd` / `scripts/aircraft_renderer.gd` / `scripts/ground_unit.gd` / `scripts/naval/naval_unit.gd` / `scripts/tests/unit_status_label_visual_qa_runner.gd` |
 | 主菜单终端板 | `scripts/main_menu.gd` / `scripts/ui/main_menu_crt_shell.gd` / `scripts/ui/main_menu_crt_effect.gd` / `scripts/ui/main_menu_scope_display.gd` |
 | i18n | `i18n/interface.csv` / `i18n/gameplay.csv` / `i18n/skills.csv` / `i18n/meta.csv` / `i18n/radio.csv` |
 | reference 索引 | `docs/reference/script-index.md` / `docs/reference/code-index.md` |
@@ -732,6 +735,9 @@ other_ui_scale = 1.0
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-09-05 | 38 | 用户纠正玩家目标线语义：普通 combat target 线不区分当前操控机与僚机，整个玩家小队统一使用玩家蓝；突击黄和状态栏操控语义不变。 |
+| 2026-09-05 | 37 | 统一机体涂装与战术 UI 的配色边界：`icon_color/wing_color` 只影响机体；状态栏只读阵营/操控语义色；combat target 线使用操控机白、僚机蓝与独立突击黄。 |
+| 2026-09-02 | 36 | 用户把世界标签方向提升为绝对发布门：所有标签最终屏幕轴必须恒为单位矩阵，任何可见倾斜、倒置、扭曲或随单位转向摆动均禁止；正式场景改由唯一屏幕空间覆盖层持有最终变换，不再依赖旋转单位各运动路径主动刷新缓存逆矩阵。 |
 | 2026-08-29 | 35 | 全兵种状态栏数据契约重构：共享 HDG/SPD/ALT/RNG/HP 格式，修复 HDG 360、档位冒充高度、无炮伪弹药与舰种重复；导弹迁入共享面板并纳入 Visual QA；世界状态栏彻底禁止本地化/非英文文本。 |
 | 2026-08-24 | 32 | 用户确立新战斗单位命名规则：世界状态栏首行统一使用 locale-independent 英文战术名/型号；本地化全名只进入任务简报、图鉴与菜单。旋转单位改变根 CanvasItem 朝向时必须刷新缓存的屏幕空间矩阵。 |
 | 2026-08-08 | 1 | 用户逐项定稿并实现：模块化线框仪表、KT/双单位、HUD 色盘、E/G/F/T、十枚视觉热诱弹同步、加力/装填反色；Godot 渲染 QA 两轮，专项 30/30，33 机与 49 机 Visual 压测均为 121 FPS。 |

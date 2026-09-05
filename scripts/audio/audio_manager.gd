@@ -38,7 +38,11 @@ const MUSIC_FILES := {
 	"ace_battle_02": "res://audio/music/ace_battle_02.ogg",
 	"ace_battle_03": "res://audio/music/ace_battle_03.ogg",
 	"ace_battle_04": "res://audio/music/ace_battle_04.ogg",
+	# 沙漠专用 Ace 随机曲；只由 SurvivorMode 的沙漠池追加。
+	"ace_desert": "res://audio/music/ace_desert.ogg",
 	"boss": "res://audio/music/bossbattle.ogg",
+	"boss_round_table": "res://audio/music/round_table.ogg",
+	"boss_midnight_march": "res://audio/music/midnight_march.ogg",
 	# CarrierStrikeGroup BOSS 双阶段 BGM —— 层叠同步播放（两首等长 + Loop 导入开）
 	"boss_csg": "res://audio/music/boss2phase1.ogg",
 	"boss_csg_phase2": "res://audio/music/boss2phase2.ogg",

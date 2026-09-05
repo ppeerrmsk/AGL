@@ -17,9 +17,11 @@ var boss_id: String = ""                  ## BossRegistry.BOSS_DEFS 的 key；�
                                           ## 供按 BOSS 查表的下游系统用（无线电台词序列等）
 var display_name: String = "BOSS"         ## HUD 标题（可直接塞 tr key）
 var callsign_prefix: String = "BOSS"      ## 成员呼号前缀（HUD 阵亡显示 / EventLogger）
+var arrival_radio_enabled: bool = true     ## false = 主题型决战没有人格化说话者；演出/回退均不播 BOSS 无线电
 var bgm_track: String = "boss"            ## AudioManager music id；spawn 时切歌
 var bgm_layers: Array[String] = []        ## 非空 = 层叠 BGM 模式（多轨同步，按音量切层），忽略 bgm_track
 var bgm_playlist: Array[String] = []      ## 非空 = 顺序播放列表（首曲完接下一首，列表循环），优先级高于 layers/track
+var hud_style: StringName = &"boss"       ## &"ace_roster" = 顶部多中队条，不使用 BOSS 卡片
 var initial_heading_deg: float = 90.0     ## 出场朝向（度，0=北）；由 ZoneData.boss_heading_deg 决定
 ## 本 BOSS 在本局生成前已经被玩家击败的生涯累计次数。
 ## 只在 spawn 前注入；胜利写档不会让本场战斗中途跳层（spec boss-clear-progression）。
@@ -37,6 +39,13 @@ func configure_progression(defeat_count: int) -> void:
 ## encounter 是否已结束（胜利判定：曾 active → 变 inactive）
 func is_defeated() -> bool:
 	return not active
+
+## 可失败 BOSS（例如逃脱目标）的通用终态协议。默认 BOSS 永不走失败分支。
+func has_failed() -> bool:
+	return false
+
+func failure_reason() -> String:
+	return ""
 
 ## 每帧推进（active 期间由 SurvivorSpawner.update 调用）
 func update(_delta: float) -> void:

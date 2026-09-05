@@ -29,6 +29,10 @@ const SUPPORT_RANGE_SEGMENTS: int = 96
 ## 状态栏会反复测量同一批数字稳定化短文本；字体 shaping 结果只取决于字体、字号与文本。
 ## 有界缓存只省重复 CPU 工作，不改变标签内容、刷新频率或像素宽度。
 static var _status_text_width_cache: Dictionary = {}
+## 世界状态栏只在唯一屏幕空间覆盖层绘制。单位 `_draw` 仅更新这份登记表，
+## 因而单位后续旋转不会带动已经缓存的标签 draw command。
+static var _status_overlay_ref: WeakRef = null
+static var _status_panel_entries: Dictionary = {}
 
 ## 锁定框以现有尺寸为高空上限，地面与低空目标按真实高度连续缩小。
 const LOCK_BOX_ALTITUDE_SCALE_KEYS := [
@@ -162,6 +166,37 @@ static func screen_space_panel_transform(item: CanvasItem,
 		item.get_global_transform_with_canvas(), screen_offset_px)
 
 
+## 独立 CanvasLayer 中的标签只需要屏幕原点，不允许混入单位 basis。
+static func status_panel_overlay_transform_for(screen_origin_px: Vector2,
+		screen_offset_px: Vector2) -> Transform2D:
+	return Transform2D(0.0, (screen_origin_px + screen_offset_px).round())
+
+
+static func install_status_overlay(overlay: Node2D) -> void:
+	_status_panel_entries.clear()
+	_status_overlay_ref = weakref(overlay) if overlay != null else null
+
+
+static func uninstall_status_overlay(overlay: Node2D) -> void:
+	var active: Variant = _status_overlay_ref.get_ref() if _status_overlay_ref != null else null
+	if active == overlay:
+		_status_overlay_ref = null
+		_status_panel_entries.clear()
+
+
+static func has_status_overlay() -> bool:
+	if _status_overlay_ref == null:
+		return false
+	var active: Variant = _status_overlay_ref.get_ref()
+	return typeof(active) == TYPE_OBJECT and is_instance_valid(active) \
+		and active is Node2D and (active as Node2D).is_inside_tree()
+
+
+static func clear_unit_status_panel(item: Node2D) -> void:
+	if item != null:
+		_status_panel_entries.erase(item.get_instance_id())
+
+
 const STATUS_DAMAGE_FLASH_STEP_S := 0.12
 const STATUS_DAMAGE_FLASH_DURATION_S := STATUS_DAMAGE_FLASH_STEP_S * 8.0
 const STATUS_DAMAGE_STARTED_META := &"status_bar_damage_started_at"
@@ -199,6 +234,17 @@ static func status_damage_panel_colors(base_bg: Color, base_text: Color,
 	return [ThemeColors.UI_TERMINAL_WHITE, ThemeColors.UI_DAMAGE_FLASH_BLUE]
 
 
+## 世界状态栏只消费阵营/当前操控语义色，不读 AircraftParams.icon_color/wing_color。
+static func unit_status_panel_colors(team: int, controlled: bool,
+		palette: Array = []) -> Array[Color]:
+	var colors: Array = palette if palette.size() >= 2 \
+		else GameConstants.aircraft_label_colors(team)
+	if controlled:
+		return [GameConstants.PLAYER_CTRL_LABEL_BG,
+			GameConstants.PLAYER_CTRL_LABEL_TEXT]
+	return [colors[0], colors[1]]
+
+
 ## 飞机、地面单位与舰船共用的矢量状态栏。内容行可按兵种不同，但字体、
 ## 内边距、边框、阵营颜色、像素对齐和屏幕空间变换只有这一份实现。
 static func draw_unit_status_panel(item: Node2D, font: Font,
@@ -207,6 +253,103 @@ static func draw_unit_status_panel(item: Node2D, font: Font,
 		palette: Array = []) -> void:
 	if item == null or font == null or lines.is_empty():
 		return
+	if has_status_overlay():
+		_status_panel_entries[item.get_instance_id()] = {
+			"item": weakref(item),
+			"font": font,
+			"lines": lines.duplicate(),
+			"team": team,
+			"screen_offset_px": screen_offset_px,
+			"row_colors": row_colors.duplicate(),
+			"controlled": controlled,
+			"palette": palette.duplicate(),
+		}
+		return
+	_draw_status_panel_geometry(item, item, font, lines, team,
+		screen_space_panel_transform(item, screen_offset_px), row_colors,
+		controlled, palette)
+
+
+## 覆盖层每帧只遍历已登记标签，不扫描场景树或 CombatUnit 全表。
+static func draw_registered_status_panels(overlay: Node2D) -> void:
+	if overlay == null:
+		return
+	var stale_ids: Array[int] = []
+	for raw_id: Variant in _status_panel_entries:
+		var entry: Dictionary = _status_panel_entries[raw_id]
+		var item_ref: Variant = entry.get("item")
+		var item_value: Variant = item_ref.get_ref() if item_ref is WeakRef else null
+		if typeof(item_value) != TYPE_OBJECT or not is_instance_valid(item_value) \
+				or not item_value is Node2D:
+			stale_ids.append(int(raw_id))
+			continue
+		var item := item_value as Node2D
+		if not item.is_inside_tree() or not item.is_visible_in_tree():
+			continue
+		var font_value: Variant = entry.get("font")
+		if not font_value is Font:
+			continue
+		var screen_origin := item.get_global_transform_with_canvas().origin
+		var screen_offset: Vector2 = entry.get("screen_offset_px", Vector2.ZERO)
+		var transform := status_panel_overlay_transform_for(screen_origin, screen_offset)
+		_draw_status_panel_geometry(overlay, item, font_value as Font,
+			entry.get("lines", PackedStringArray()), int(entry.get("team", 0)),
+			transform, entry.get("row_colors", {}),
+			bool(entry.get("controlled", false)), entry.get("palette", []))
+	for stale_id in stale_ids:
+		_status_panel_entries.erase(stale_id)
+
+
+static func status_panel_entry_count() -> int:
+	return _status_panel_entries.size()
+
+
+static func status_panel_entry_ids() -> Array:
+	return _status_panel_entries.keys()
+
+
+static func status_panel_entry(entry_id: int) -> Dictionary:
+	return _status_panel_entries.get(entry_id, {})
+
+
+static func status_panel_item(entry: Dictionary) -> Node2D:
+	var item_ref: Variant = entry.get("item")
+	var item_value: Variant = item_ref.get_ref() if item_ref is WeakRef else null
+	if typeof(item_value) != TYPE_OBJECT or not is_instance_valid(item_value) \
+			or not item_value is Node2D:
+		return null
+	return item_value as Node2D
+
+
+static func status_panel_visual_signature(entry: Dictionary, item: Node2D) -> Array:
+	var font_value: Variant = entry.get("font")
+	var font_id: int = int(font_value.get_instance_id()) if font_value is Font else 0
+	return [
+		font_id,
+		entry.get("lines", PackedStringArray()),
+		int(entry.get("team", 0)),
+		entry.get("row_colors", {}),
+		bool(entry.get("controlled", false)),
+		entry.get("palette", []),
+		status_damage_flash_phase_for(item),
+	]
+
+
+static func draw_status_panel_entry(target: Node2D, entry: Dictionary) -> void:
+	var item := status_panel_item(entry)
+	var font_value: Variant = entry.get("font")
+	if item == null or not font_value is Font:
+		return
+	_draw_status_panel_geometry(target, item, font_value as Font,
+		entry.get("lines", PackedStringArray()), int(entry.get("team", 0)),
+		Transform2D.IDENTITY, entry.get("row_colors", {}),
+		bool(entry.get("controlled", false)), entry.get("palette", []))
+
+
+static func _draw_status_panel_geometry(target: Node2D, item: Node2D,
+		font: Font, lines: PackedStringArray, team: int, transform: Transform2D,
+		row_colors: Dictionary = {}, controlled: bool = false,
+		palette: Array = []) -> void:
 	var max_w := 0.0
 	for line in lines:
 		var stable_line := _digit_stable(line)
@@ -226,32 +369,27 @@ static func draw_unit_status_panel(item: Node2D, font: Font,
 	var box_w := max_w + UNIT_STATUS_PAD_X_PX * 2.0
 	var box_h := lines.size() * UNIT_STATUS_LINE_HEIGHT_PX \
 		+ UNIT_STATUS_PAD_Y_PX * 2.0
-	var colors := palette if palette.size() >= 2 \
-		else GameConstants.aircraft_label_colors(team)
+	var colors := unit_status_panel_colors(team, controlled, palette)
 	var bg_color: Color = colors[0]
 	var text_color: Color = colors[1]
-	if controlled:
-		bg_color = GameConstants.PLAYER_CTRL_LABEL_BG
-		text_color = GameConstants.PLAYER_CTRL_LABEL_TEXT
 	var damage_phase := status_damage_flash_phase_for(item)
 	var damage_colors := status_damage_panel_colors(bg_color, text_color, damage_phase)
 	bg_color = damage_colors[0]
 	text_color = damage_colors[1]
 
-	item.draw_set_transform_matrix(screen_space_panel_transform(
-		item, screen_offset_px))
+	target.draw_set_transform_matrix(transform)
 	var box := Rect2(Vector2.ZERO, Vector2(box_w, box_h))
-	item.draw_rect(box, bg_color, true)
-	item.draw_rect(box, text_color * Color(1.0, 1.0, 1.0, 0.4), false, 1.0)
+	target.draw_rect(box, bg_color, true)
+	target.draw_rect(box, text_color * Color(1.0, 1.0, 1.0, 0.4), false, 1.0)
 	for i in range(lines.size()):
 		var color: Color = text_color if damage_phase >= 0 else row_colors.get(i, text_color)
 		if damage_phase < 0 and controlled and color != text_color:
 			color = GameConstants.darken_for_light_bg(color)
-		item.draw_string(font, Vector2(UNIT_STATUS_PAD_X_PX,
+		target.draw_string(font, Vector2(UNIT_STATUS_PAD_X_PX,
 			UNIT_STATUS_PAD_Y_PX + 9.0 + i * UNIT_STATUS_LINE_HEIGHT_PX),
 			lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1,
 			UNIT_STATUS_FONT_SIZE, color)
-	item.draw_set_transform_matrix(Transform2D.IDENTITY)
+	target.draw_set_transform_matrix(Transform2D.IDENTITY)
 
 
 ## 世界状态栏的战术读数统一格式。所有角度先量化再归一化，避免 359.6° 被显示成
@@ -529,7 +667,7 @@ static func status_label_entries(ac: Aircraft,
 	if ac.is_afterburner_mode_active():
 		entries.append({
 			"id": &"afterburner",
-			"text": "AFTERBURNER",
+			"text": "AB",
 			"color": Color(0.20, 0.92, 1.0),
 		})
 	for sid in StatusEffects.DISPLAY_ORDER:
@@ -674,6 +812,13 @@ static func draw_radar_cone(ac: Aircraft) -> void:
 	for i in range(1, points.size() - 1):
 		ac.draw_line(points[i], points[i + 1], edge_color, 1.0, true)
 
+
+## 悬停范围是机体传感器参考，不以导弹/锁定武器挂载为前提。
+static func should_show_hover_radar_range(ac: Aircraft) -> bool:
+	return ac != null and ac.is_hovered and ac.params != null \
+		and ac.effective_radar_range_px() > 0.0
+
+
 ## 副导弹槽锁定锥（仅装备副弹的玩家 + hover 时可见）
 ## 完全独立于主雷达锥：橙色更暖、透明度低，画在主锥之上
 ## 仅 hover 显示：避免战斗中长期占据视觉，与主雷达锥同遵守 hover-only 规则
@@ -814,11 +959,11 @@ static func should_show_enemy_gun_threat(ac: Aircraft) -> bool:
 	return ac.get_meta(&"category", "") != "boss_mother_goose_uav"
 
 
-static func should_show_friendly_gun_reference(ac: Aircraft) -> bool:
-	if ac.team != 0:
-		return false
+static func should_show_gun_reference(ac: Aircraft) -> bool:
 	if ac.is_hovered:
 		return true
+	if ac.team != 0:
+		return false
 	var player := safe_player_ref()
 	return ac.hard_brake and player == ac
 
@@ -826,13 +971,14 @@ static func should_show_friendly_gun_reference(ac: Aircraft) -> bool:
 static func draw_gun_cone(ac: Aircraft) -> void:
 	if not ac.params or not ac.params.gun:
 		return
-	# 友方 hover 时显示参考锥；敌方对玩家提交机炮攻击 ≥0.3s 显示威胁锥（同为橙黄）
-	var show_friendly: bool = should_show_friendly_gun_reference(ac)
+	# 任意 hover 显示参考锥；敌方对玩家提交机炮攻击 ≥0.3s 显示威胁锥（同为橙黄）
+	var show_reference: bool = should_show_gun_reference(ac)
 	var show_enemy_threat: bool = should_show_enemy_gun_threat(ac)
-	if not show_friendly and not show_enemy_threat:
+	if not show_reference and not show_enemy_threat:
 		return
-	# 敌方锥开火期间淡出（见 Aircraft._update_gun_threat_indicator）；全透时直接跳过绘制
-	var fade: float = ac._gun_threat_fade if show_enemy_threat else 1.0
+	# hover 参考始终全亮；只有纯威胁锥随开火淡出。
+	var threat_only := show_enemy_threat and not show_reference
+	var fade: float = ac._gun_threat_fade if threat_only else 1.0
 	if fade <= 0.01:
 		return
 	var gun_r := ac.effective_gun_range_m() * Aircraft.PIXELS_PER_METER
@@ -850,7 +996,7 @@ static func draw_gun_cone(ac: Aircraft) -> void:
 
 	# 友方/敌方威胁同一橙黄色锥。敌方锥会同时挂在多架敌机上，太实会糊住战场 ——
 	# 2026-07-28 从 0.22 调淡到 0.12，再乘开火淡出系数
-	var cone_alpha: float = (0.12 * fade) if show_enemy_threat else 0.15
+	var cone_alpha: float = (0.12 * fade) if threat_only else 0.15
 	var cone_color := Color(0.9, 0.7, 0.2, cone_alpha)
 
 	var points := PackedVector2Array()
@@ -861,7 +1007,7 @@ static func draw_gun_cone(ac: Aircraft) -> void:
 
 	ac.draw_colored_polygon(points, cone_color)
 
-	var edge_color := Color(cone_color, (0.24 * fade) if show_enemy_threat else 0.4)
+	var edge_color := Color(cone_color, (0.24 * fade) if threat_only else 0.4)
 	ac.draw_line(Vector2.ZERO, points[1], edge_color, 1.0, true)
 	ac.draw_line(Vector2.ZERO, points[points.size() - 1], edge_color, 1.0, true)
 	for i in range(1, points.size() - 1):
@@ -979,6 +1125,10 @@ static func draw_muzzle_flash(ac: Aircraft) -> void:
 	ac.draw_circle(tip, 4.0 * s, flash_color)
 	var flash2 := Color(1.0, 0.6, 0.1, flash_alpha * 0.5)
 	ac.draw_circle(tip, 7.0 * s, flash2)
+
+
+static func should_draw_gun_muzzle_flash(ac: Aircraft) -> bool:
+	return ac != null and ac._gun_muzzle_flash_remaining_s > 0.0
 
 static func draw_afterburner_glow(ac: Aircraft) -> void:
 	var flicker := lerpf(0.7, 1.0, visual_noise01(ac, 23))
@@ -1153,6 +1303,12 @@ static func draw_destroyed_status_label(ac: Aircraft) -> void:
 
 static func draw_aircraft_icon(ac: Aircraft, bank_volume_enabled: bool = true,
 		presentation_scale: float = 1.0, presentation_alpha: float = 1.0) -> void:
+	# 隔离实时三维实验仅接管机体；锁定、尾迹、标签、火焰等仍走正式绘制。
+	if ac.has_meta(&"volume_3d_body") and not ac.is_destroyed:
+		if ac.selected:
+			var radius := 28.8 * altitude_base_scale(ac) * visual_model_scale(ac)
+			ac.draw_arc(Vector2.ZERO, radius, 0, TAU, 48, Color(0.5, 0.9, 1, 0.5), 1.5)
+		return
 	var color: Color = ac.params.icon_color if ac.params else Color.GREEN
 	color.a *= clampf(presentation_alpha, 0.0, 1.0)
 
@@ -2219,6 +2375,14 @@ static func draw_tactic_popup(ac: Aircraft) -> void:
 	ac.draw_string(ac._font, Vector2(0, 0), ac._tactic_popup_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
 	ac.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
+## combat target 线是阵营指令语义，不是机体涂装：玩家小队统一蓝、突击黄。
+static func combat_target_line_color(team: int, charge_attack: bool) -> Color:
+	if charge_attack:
+		return Color(1.0, 0.78, 0.2, 0.84)
+	var semantic_color := GameConstants.team_color(team)
+	return Color(semantic_color.r, semantic_color.g, semantic_color.b, 0.68)
+
+
 static func draw_target_line(ac: Aircraft) -> void:
 	if not ac.selected and ac.team != 0:
 		return
@@ -2233,9 +2397,8 @@ static func draw_target_line(ac: Aircraft) -> void:
 	if ac.combat_target and is_instance_valid(ac.combat_target) and not ac.combat_target.is_destroyed:
 		# 分段预测持有的是开工时快照；战斗结束后不得续算战前的半成品。
 		ac._predicted_path_build = null
-		# 普通线跟随当前操控机线框色；双击突击保留独立黄线语义。
-		var body_color: Color = ac.params.icon_color if ac.params else GameConstants.team_color(ac.team)
-		var ct_color := Color(1.0, 0.78, 0.2, 0.84) if ac.charge_attack else Color(body_color, 0.68)
+		# 普通线跟随指令语义色；机体紫/蓝/其它涂装不再污染线，突击仍是独立黄线。
+		var ct_color := combat_target_line_color(ac.team, ac.charge_attack)
 		var ct_width: float = 1.8 if ac.charge_attack else 1.5
 		var ct_local := ac.to_local(ac.combat_target.global_position)
 		# 单层中细线：兼顾地图上的可读性与轻量感，不恢复深色粗描边。

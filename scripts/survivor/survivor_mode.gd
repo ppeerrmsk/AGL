@@ -4,6 +4,8 @@ const HackedAllyForceScript = preload("res://scripts/survivor/hacked_ally_force.
 const BattlefieldAtmosphereExperimentScript = preload(
 	"res://scripts/survivor/battlefield_atmosphere_experiment.gd")
 const BenchCameraPatrolScript = preload("res://scripts/bench/bench_camera_patrol.gd")
+const EncounterDifficultyProbeScript = preload(
+	"res://scripts/bench/encounter_difficulty_probe.gd")
 const HyperABossScript = preload("res://scripts/survivor/hyper_a_boss.gd")
 const SensorStealthControllerScript = preload(
 	"res://scripts/survivor/sensor_stealth_controller.gd")
@@ -12,6 +14,8 @@ const SurvivorSkillCatalogScript = preload(
 const SurvivorSkillRuntimeScript = preload(
 	"res://scripts/survivor/survivor_skill_runtime.gd")
 const BattlefieldFlowScript = preload("res://scripts/survivor/battlefield_flow.gd")
+const DesertFrontControllerScript = preload(
+	"res://scripts/survivor/desert_front_controller.gd")
 const SurvivorRuntimeResetScript = preload(
 	"res://scripts/survivor/survivor_runtime_reset.gd")
 
@@ -127,13 +131,16 @@ const RADAR_LOCK_INTERVAL := 0.2
 ## 每个 shooter 看到的 step_delta 仍然是"完整间隔"（× stride 抵消频率），锁定累积速率不变。
 ## 副作用：目标离开雷达锥后的衰减最多滞后 0.6s（旧 0.2s），实测无感知。
 const RADAR_LOCK_STRIDE := 4
-var _radar_lock_phase: int = 0  ## 当前轮到的 stride 索引（0..RADAR_LOCK_STRIDE-1）
+## The Crucible 等高密度战场保留全部雷达/武器语义，但与飞机战术调度一样把发起方摊到
+## 更长的相位窗口；进度按实际 stride 补偿，避免 71 个 FFA 雷达在同一帧集中做全体配对。
+const DENSE_BATTLE_RADAR_STRIDE := RADAR_LOCK_STRIDE * 4
+var _radar_lock_phase: int = 0  ## 当前轮到的相位（高密度周期覆盖普通周期）
 var _radar_lock_accum: float = 0.0
 var _fire_control_saturation_state: Dictionary = {"cooldown": 0.0, "latched": false}
 var _all_combat_units_cache: Array[CombatUnit] = []   ## _update_aircraft_list 填充，_update_radar_locks 复用
 var _all_aircraft_cache: Array[Aircraft] = []         ## 同帧飞机视图，LOD/友军可见性复用，禁止重复扫场景树
-## 雷达候选按 ROE 二分：HOSTILE 只看非 HOSTILE，PLAYER/ALLY 只看 HOSTILE。
-## 避免每个 shooter 全扫同阵营单位；仍由 is_hostile_to 做最终防御性校验。
+## 雷达候选按传统双方预分桶；FFA team 3+ 同时进入两桶，确保 0/1/2 都能锁它。
+## 避免传统 shooter 全扫同阵营单位；仍由 is_hostile_to 做最终防御性校验。
 var _radar_hostile_units: Array[CombatUnit] = []
 var _radar_non_hostile_units: Array[CombatUnit] = []
 var _sensor_stealth = SensorStealthControllerScript.new()
@@ -177,6 +184,7 @@ var _pending_basemap_error_reason: String = ""
 var _radio: RadioChatter          ## 无线电通讯（spec radio-chatter）
 var _last_reward_target_radio_time := -INF
 var _zone_mission: ZoneMission
+var _desert_front: Node2D = null
 var _adbs: AdbsManager
 var _event_director: EventDirector
 var _hacked_ally_force = HackedAllyForceScript.new()
@@ -250,14 +258,37 @@ var _bench_camera_patrol_max_pos := Vector2(-INF, -INF)
 var _bench_camera_patrol_max_rotation_deg := 0.0
 var _bench_camera_patrol_state: Dictionary = {}
 var _bench_final_war_extra_stealth_spawned := 0
+var _bench_encounter_probe: Node = null
 var _growth_bench: EvolutionGrowthBenchmark = null
 var _growth_bench_config_ok: bool = false
+var _bench_crucible_full_members: Array[Aircraft] = []
+var _bench_crucible_diag_active := false
+var _bench_crucible_diag_stable_load := false
+var _bench_crucible_diag_elapsed := 0.0
+var _bench_crucible_diag_samples := 0
+var _bench_crucible_departed_destroyed := 0
+var _bench_crucible_unexpected_departures := 0
+var _bench_crucible_peak_live := 0
+var _bench_crucible_min_live := 0
+var _bench_crucible_peak_destroyed := 0
+var _bench_crucible_peak_missiles := 0
+var _bench_crucible_peak_bullets := 0
+var _bench_crucible_peak_without_target := 0
+var _bench_crucible_peak_outside_world := 0
+var _bench_crucible_peak_outside_reentry := 0
+var _bench_crucible_max_reentry_seconds := 0
+var _bench_crucible_outside_reentry_seconds: Dictionary = {}
+var _bench_crucible_reentry_failures: Dictionary = {}
+var _bench_crucible_max_distance_px := 0.0
+const BENCH_CRUCIBLE_REENTRY_DEADLINE_S := 20
 const MAP_BENCH_SCENARIOS := [
 	"map_vector_stress", "map_raster_stress", "map_raster_operational_stress",
 	"map_vector_detail_stress", "map_raster_detail_stress",
 	"map_raster_transition_stress",
 	"map_raster_tokyo", "map_raster_desert", "map_raster_ocean",
 	"map_boundary_crop_tokyo", "map_boundary_crop_desert", "map_boundary_crop_ocean",
+	"the_crucible_stress", "the_crucible_full_roster_stress",
+	"the_crucible_full_roster_attrition",
 ]
 const MAP_PREVIEW_BENCH_SCENARIOS := [
 	"map_raster_tokyo", "map_raster_desert", "map_raster_ocean",
@@ -271,6 +302,8 @@ const COMBAT_PERF_BENCH_SCENARIOS := [
 	"berserk_virus_baseline", "berserk_virus_stress",
 	"boss_wraith_stress", "boss_csg_stress", "boss_mother_goose", "boss_hyper_a_stress",
 	"zone_support_stress", "naval_zone_stress",
+	"the_crucible_stress", "the_crucible_full_roster_stress",
+	"the_crucible_full_roster_attrition",
 	"tier3_super_cannon", "tier3_super_cannon_d",
 	"tier3_siege_tank", "tier3_deadair", "tier3_long_range_vls",
 	"ace_support_stress",
@@ -383,8 +416,9 @@ func _ready() -> void:
 		else:
 			push_warning("[SurvivorMode] UGC 地图加载失败，回退官方图: %s" % ugc_path)
 
-	# 普通 Boss Debug 使用柔和空背景；FINAL WAR 实际加载海洋地图，不覆盖其海色。
-	if _boss_debug_mode and _boss_debug_scenario != BOSS_DEBUG_FINAL_WAR_SCENARIO:
+	# 普通 Boss Debug 使用柔和空背景；FINAL WAR 与列车均消费正式地图，不覆盖地图底色。
+	if _boss_debug_mode and _boss_debug_scenario != BOSS_DEBUG_FINAL_WAR_SCENARIO \
+			and _boss_debug_id not in ["ARMORED_TRAIN", "LAND_CARRIER", "THE_CRUCIBLE"]:
 		RenderingServer.set_default_clear_color(Color(0.10, 0.13, 0.16))
 
 	# 海岸线地图：两首战斗泛用 BGM 轮播（播完自动切下一首，周而复始）
@@ -394,12 +428,13 @@ func _ready() -> void:
 	_play_default_battle_music()
 
 	# 海岸线大地图：用固定几何数据替代原 TerrainRenderer 的噪声。
-	# 普通 Boss Debug 仍为空白；FINAL WAR 例外消费海洋正式底图与天气。
+	# 普通 Boss Debug 仍为空白；FINAL WAR 与装甲列车例外消费各自正式底图与天气。
 	var bench_map_render := _bench_mode and (
 		_bench_scenario in MAP_BENCH_SCENARIOS
 		or _bench_scenario in FINAL_WAR_BENCH_SCENARIOS)
-	var boss_debug_map_render := _boss_debug_mode \
-		and _boss_debug_scenario == BOSS_DEBUG_FINAL_WAR_SCENARIO
+	var boss_debug_map_render := _boss_debug_mode and (
+		_boss_debug_scenario == BOSS_DEBUG_FINAL_WAR_SCENARIO \
+		or _boss_debug_id in ["ARMORED_TRAIN", "LAND_CARRIER", "THE_CRUCIBLE"])
 	if (not _boss_debug_mode or boss_debug_map_render) and (not _bench_mode or bench_map_render):
 		_map_features = MapFeatureRenderer.new()
 		_map_features.show_behind_parent = true
@@ -489,6 +524,9 @@ func _ready() -> void:
 		profile.wingman_count = 4
 	# reversal 模式：玩家方为 4 机编队（长机 + 3 僚机）对抗敌方编队
 	elif _bench_scenario == "reversal":
+		profile = profile.duplicate()
+		profile.wingman_count = 3
+	elif _bench_scenario == "encounter_difficulty":
 		profile = profile.duplicate()
 		profile.wingman_count = 3
 	elif _bench_scenario in [
@@ -715,10 +753,16 @@ func _ready() -> void:
 		_tactical_map.nav_point_selected.connect(_on_nav_point_selected)
 		_tactical_map.nav_cleared.connect(_on_nav_cleared)
 		_tactical_map.vector_preview_toggle_requested.connect(_toggle_map_vector_preview)
-	if not _map_preview_only and not _boss_debug_mode and not _bench_mode:
+	if not _map_preview_only and not _boss_debug_mode \
+			and (not _bench_mode or _bench_scenario == "desert_theater"):
 		# 构造时注入奖励上下文：首批 A/B 开放时要保底各出一件武器与一项可用的次世代技能，
 		# 因此延迟到 60s/Lv3 的首 roll 也必须经过机型 / 学说 / 已持有装备过滤。
 		_zone_data = ZoneData.new(_build_reward_roll_context, true, true)
+		if _ugc_doc != null and not _ugc_doc.zones.is_empty():
+			_zone_data.apply_map_zone_overrides(_ugc_doc.zones)
+		# 沙漠全图为陆地：复用 E 槽位与中队任务，但永久移除其东京湾 naval 分支。
+		if _map_id == "desert_railway_preview":
+			_zone_data.set_mission_type(&"E", "squadron")
 		# BoundaryUI 需要 _zone_data 来检测 BOSS 阶段（切换警告文案 + 补给阻断由 _on_supply_confirmed 做）
 		if _boundary_ui:
 			_boundary_ui.zones = _zone_data
@@ -769,6 +813,11 @@ func _ready() -> void:
 		_zone_mission.tier3_threat_changed.connect(_on_tier3_threat_changed)
 		# 回注给 spawner：旅途刷怪需查询"玩家当前是否在战区任务里"
 		_spawner.set_zone_mission(_zone_mission)
+		if _map_id == "desert_railway_preview":
+			_desert_front = DesertFrontControllerScript.new()
+			_desert_front.name = "DesertFrontController"
+			add_child(_desert_front)
+			_desert_front.setup(self, _spawner)
 
 		# ── ADBS 随机事件系统（P4）──
 		_adbs = AdbsManager.new()
@@ -801,7 +850,8 @@ func _ready() -> void:
 	# ── Bench 场景化设置（headless 性能压测）──
 	# 玩家挂 AIController + boost 到 15 级（升级路径走 _on_player_leveled_up bench 分支）
 	# + 立即批量 spawn 敌机 + 启动 duration 倒计时
-	if _bench_mode and _bench_scenario not in FINAL_WAR_BENCH_SCENARIOS:
+	if _bench_mode and _bench_scenario not in FINAL_WAR_BENCH_SCENARIOS \
+			and _bench_scenario != "desert_theater":
 		call_deferred("_setup_bench_scenario")
 
 ## 正式底图失败时保留旧矢量地图保证战局可继续，但必须把降级状态明确展示给玩家。
@@ -1429,7 +1479,17 @@ func _setup_bench_scenario() -> void:
 	# 3. 一次性灌满 1→15 级所需经验 → SurvivorPlayer 的 _process 排空时连续 emit 14 次。
 	#    狂化病毒 A/B 对比例外：直接置 Lv15，避免技能关键词改变随机卡池后两边拿到不同 build，
 	#    让性能差值只包含狂化行为本身。
-	if _bench_scenario in ["berserk_virus_baseline", "berserk_virus_stress"]:
+	if _bench_scenario == "encounter_difficulty":
+		# 固定在中盘响应档；只让正式自然刷怪运行，不 force-spawn，供导演 A/B 对拍。
+		survivor_player.level = 12
+		survivor_player.process_mode = Node.PROCESS_MODE_DISABLED
+		game_time = 300.0
+		player_aircraft.invulnerable = true
+		_bench_encounter_probe = EncounterDifficultyProbeScript.new()
+		_bench_encounter_probe.name = "EncounterDifficultyProbe"
+		add_child(_bench_encounter_probe)
+		_bench_encounter_probe.setup(self)
+	elif _bench_scenario in ["berserk_virus_baseline", "berserk_virus_stress"]:
 		survivor_player.level = BENCH_PLAYER_LEVEL
 		survivor_player.process_mode = Node.PROCESS_MODE_DISABLED
 	else:
@@ -1466,6 +1526,12 @@ func _setup_bench_scenario() -> void:
 			_bench_force_spawn_boss_wraith_stress()
 		elif _bench_scenario == "boss_csg_stress":
 			_bench_force_spawn_boss_csg_stress()
+		elif _bench_scenario == "the_crucible_stress":
+			_bench_force_the_crucible_stress()
+		elif _bench_scenario == "the_crucible_full_roster_stress":
+			_bench_force_the_crucible_full_roster_stress(true)
+		elif _bench_scenario == "the_crucible_full_roster_attrition":
+			_bench_force_the_crucible_full_roster_stress(false)
 		elif _bench_scenario == "boss_hyper_a":
 			_bench_force_spawn_boss_hyper_a()
 		elif _bench_scenario == "boss_hyper_a_arrival":
@@ -1521,6 +1587,8 @@ func _setup_bench_scenario() -> void:
 		elif _bench_scenario == "ace_support_stress":
 			_bench_force_spawn_mixed(BENCH_INITIAL_ENEMY_COUNT)
 			_bench_force_ace_support()
+		elif _bench_scenario == "encounter_difficulty":
+			pass  # 保留自然刷怪与真实入场节拍，禁止 force-spawn 污染难度基线。
 		else:
 			_bench_force_spawn_mixed(BENCH_INITIAL_ENEMY_COUNT)
 
@@ -1699,6 +1767,306 @@ func _bench_force_battlefield_atmosphere(kind: String = "air") -> void:
 		push_error("[Bench] battlefield_atmosphere_%s failed to launch" % kind)
 		return
 	print("[Bench] battlefield_atmosphere_%s launched, AI damage 10%%" % kind)
+
+
+## The Crucible 正式终局上限：推进到最后三队并保留 Hound 双机，LOD0、真实武器与目标重算；
+## 存活者无敌只固定样本密度，不禁火、不删弹丸、不降低 AI/绘制。
+func _bench_force_the_crucible_stress() -> void:
+	_spawner._dynamic_enemy_cap = 0
+	player_aircraft.global_position = Vector2.ZERO
+	camera.global_position = Vector2.ZERO
+	_bench_set_camera_zoom(CameraController.ZOOM_MIN)
+	var player_ai := player_aircraft._get_ai_controller()
+	if player_ai:
+		player_ai.enable_combat = false
+		player_ai.release_target(AIController.TargetSource.TS_SCORED,
+			"The Crucible stress observer")
+	var crucible := BossRegistry.instantiate("THE_CRUCIBLE")
+	_spawner._spawn_boss(crucible, player_aircraft.global_position, true)
+	crucible.engage()
+	# 用正式“灭队 → 3 秒补队”路径推进到终局，确保压力样本真正覆盖 Hound。
+	while int(crucible.get("_spawned_profile_count")) < TheCrucibleEncounter.PROFILE_ORDER.size():
+		var active_squads: Array = crucible.get("_squads")
+		var eliminated_one := false
+		for squad_variant in active_squads:
+			var squad := squad_variant as AceSupportSquad
+			if squad == null or not squad.active:
+				continue
+			for member in squad.members:
+				if is_instance_valid(member):
+					member.is_destroyed = true
+			eliminated_one = true
+			break
+		if not eliminated_one:
+			push_error("[Bench] the_crucible_stress could not open a reinforcement slot")
+			break
+		crucible.update(TheCrucibleEncounter.REINFORCEMENT_DELAY_S)
+	crucible.update(0.6)
+	var members: Array = crucible.get_display_members()
+	var live_count := 0
+	var live_profiles: Dictionary = {}
+	var live_hounds := 0
+	for raw in members:
+		if not is_instance_valid(raw) or not (raw is Aircraft):
+			continue
+		var ac := raw as Aircraft
+		if ac.is_destroyed:
+			continue
+		live_count += 1
+		var profile_id := String(ac.get_meta("crucible_profile", ""))
+		live_profiles[profile_id] = true
+		if profile_id == "hound":
+			live_hounds += 1
+		ac.invulnerable = true
+		ac.set_meta("skip_far_cleanup", true)
+	if members.size() != 73 or live_profiles.size() != 3 or live_hounds != 2:
+		push_error("[Bench] the_crucible_stress expected 73 roster / 3 live squads / 2 Hounds, got %d / %d / %d"
+			% [members.size(), live_profiles.size(), live_hounds])
+	print("[Bench] the_crucible_stress: final 3 squads / %d live LOD0 aircraft / Hound x%d, weapons live"
+		% [live_count, live_hounds])
+
+
+## 诊断专用：绕过正式三队接力上限，把完整 18 队 73 架同时激活。
+## stable_load=true 时成员无敌以保持峰值负载；false 时允许真实互相击毁，覆盖退场与引用清理。
+func _bench_force_the_crucible_full_roster_stress(stable_load: bool) -> void:
+	_spawner._dynamic_enemy_cap = 0
+	player_aircraft.global_position = Vector2.ZERO
+	player_aircraft.invulnerable = true
+	# 固定观察者，避免自动升级后的玩家以 2000+ km/h 飞出样本中心，制造“敌机消失”假阳性。
+	player_aircraft.speed = 0.0
+	player_aircraft.target_speed_kmh = 0.0
+	player_aircraft.is_afterburner = false
+	player_aircraft.set_physics_process(false)
+	camera.global_position = Vector2.ZERO
+	_bench_set_camera_zoom(CameraController.ZOOM_MIN)
+	var player_ai := player_aircraft._get_ai_controller()
+	if player_ai:
+		player_ai.enable_combat = false
+		player_ai.set_physics_process(false)
+		player_ai.release_target(AIController.TargetSource.TS_SCORED,
+			"The Crucible full-roster observer")
+	var crucible := BossRegistry.instantiate("THE_CRUCIBLE") as TheCrucibleEncounter
+	_spawner._spawn_boss(crucible, player_aircraft.global_position, true)
+	crucible.engage()
+	while int(crucible.get("_spawned_profile_count")) < TheCrucibleEncounter.PROFILE_ORDER.size():
+		var squads_before: int = (crucible.get("_squads") as Array).size()
+		crucible._spawn_next_squad()
+		var squads: Array = crucible.get("_squads")
+		if squads.size() <= squads_before:
+			push_error("[Bench] full-roster Crucible failed to spawn squad %d" % squads_before)
+			break
+		crucible._activate_squad(squads.back() as AceSupportSquad)
+	crucible._retarget_all()
+
+	_bench_crucible_full_members.clear()
+	var teams: Dictionary = {}
+	var duplicate_ids: Dictionary = {}
+	for raw in crucible.get_display_members():
+		if not is_instance_valid(raw) or not (raw is Aircraft):
+			continue
+		var ac := raw as Aircraft
+		var instance_id := ac.get_instance_id()
+		if duplicate_ids.has(instance_id):
+			push_error("[Bench] full-roster Crucible duplicated aircraft id=%d" % instance_id)
+		duplicate_ids[instance_id] = true
+		_bench_crucible_full_members.append(ac)
+		teams[ac.team] = true
+		ac.invulnerable = stable_load
+		ac.set_meta("skip_far_cleanup", true)
+		ac.tree_exiting.connect(_bench_on_crucible_member_tree_exiting.bind(ac))
+	if _bench_crucible_full_members.size() != 73 or teams.size() != 18:
+		push_error("[Bench] full-roster Crucible expected 73 aircraft / 18 teams, got %d / %d"
+			% [_bench_crucible_full_members.size(), teams.size()])
+
+	_bench_crucible_diag_active = true
+	_bench_crucible_diag_stable_load = stable_load
+	_bench_crucible_diag_elapsed = 0.0
+	_bench_crucible_diag_samples = 0
+	_bench_crucible_departed_destroyed = 0
+	_bench_crucible_unexpected_departures = 0
+	_bench_crucible_peak_live = _bench_crucible_full_members.size()
+	_bench_crucible_min_live = _bench_crucible_full_members.size()
+	_bench_crucible_peak_destroyed = 0
+	_bench_crucible_peak_missiles = 0
+	_bench_crucible_peak_bullets = 0
+	_bench_crucible_peak_without_target = 0
+	_bench_crucible_peak_outside_world = 0
+	_bench_crucible_peak_outside_reentry = 0
+	_bench_crucible_max_reentry_seconds = 0
+	_bench_crucible_outside_reentry_seconds.clear()
+	_bench_crucible_reentry_failures.clear()
+	_bench_crucible_max_distance_px = 0.0
+	print("[Bench] %s: 18 squads / 73 live LOD0 aircraft / weapons live / invulnerable=%s"
+		% [_bench_scenario, str(stable_load)])
+
+
+func _bench_on_crucible_member_tree_exiting(ac: Aircraft) -> void:
+	if not _bench_crucible_diag_active or ac == null or not is_instance_valid(ac):
+		return
+	if ac.is_destroyed:
+		_bench_crucible_departed_destroyed += 1
+		return
+	_bench_crucible_unexpected_departures += 1
+	push_error("[Bench] full-roster Crucible member exited without destroyed state: %s" % ac.callsign)
+
+
+func _bench_update_crucible_full_roster_diagnostics(delta: float) -> void:
+	if not _bench_crucible_diag_active:
+		return
+	_bench_crucible_diag_elapsed += delta
+	if _bench_crucible_diag_elapsed < 1.0:
+		return
+	_bench_crucible_diag_elapsed = fmod(_bench_crucible_diag_elapsed, 1.0)
+	_bench_crucible_diag_samples += 1
+	var live := 0
+	var destroyed := 0
+	var without_target := 0
+	var invalid_target := 0
+	var outside_world := 0
+	var outside_reentry := 0
+	var max_distance_px := 0.0
+	var farthest_callsign := ""
+	var farthest_speed_kmh := 0.0
+	var farthest_target_speed_kmh := 0.0
+	var farthest_afterburner := false
+	var farthest_formation := false
+	var farthest_directive := false
+	var farthest_intent_sources := ""
+	var farthest_speed_cap_kmh := 0.0
+	var farthest_maneuver := "none"
+	var farthest_heading_dot := 0.0
+	var farthest_waypoint_range_px := 0.0
+	var farthest_bank_deg := 0.0
+	var farthest_heading_error_deg := 0.0
+	var farthest_turn_sign := 0.0
+	var farthest_target_name := "none"
+	var farthest_target_source := -1
+	for ac in _bench_crucible_full_members:
+		if not is_instance_valid(ac):
+			continue
+		if ac.is_destroyed:
+			destroyed += 1
+			continue
+		live += 1
+		var distance_px := ac.global_position.distance_to(player_aircraft.global_position)
+		if distance_px > max_distance_px:
+			max_distance_px = distance_px
+			farthest_callsign = ac.callsign
+			farthest_speed_kmh = ac.speed * 3.6
+			farthest_target_speed_kmh = ac.target_speed_kmh
+			farthest_afterburner = ac.is_afterburner
+			farthest_formation = ac.formation_mode
+			farthest_intent_sources = str(ac.get("_intent_slots").keys())
+			farthest_speed_cap_kmh = ac.orbit_speed_cap * 3.6
+			var cobra := ac.get_maneuver()
+			var herbst := ac.get_herbst()
+			if cobra != null and cobra.is_active:
+				farthest_maneuver = "cobra"
+			elif herbst != null and herbst.is_active:
+				farthest_maneuver = "herbst"
+			else:
+				farthest_maneuver = "none"
+			var to_player := (player_aircraft.global_position - ac.global_position).normalized()
+			var forward := Vector2(sin(ac.heading), -cos(ac.heading))
+			farthest_heading_dot = forward.dot(to_player)
+			farthest_waypoint_range_px = ac.target_position.distance_to(
+				player_aircraft.global_position) if ac.target_position != Vector2.INF else INF
+			farthest_bank_deg = rad_to_deg(ac.bank_angle)
+			farthest_heading_error_deg = rad_to_deg(Aircraft._angle_diff(
+				ac._cached_target_heading, ac.heading))
+			farthest_turn_sign = ac._committed_turn_sign
+			var farthest_ai := ac._get_ai_controller()
+			if farthest_ai != null:
+				farthest_directive = farthest_ai.get("_directive") != null
+				var farthest_target: Variant = farthest_ai.get("_current_target")
+				if typeof(farthest_target) == TYPE_OBJECT and is_instance_valid(farthest_target):
+					farthest_target_name = str((farthest_target as CombatUnit).callsign)
+				farthest_target_source = farthest_ai.get_target_source()
+		var instance_id := ac.get_instance_id()
+		if distance_px > TheCrucibleEncounter.REENTRY_RADIUS_PX:
+			outside_reentry += 1
+			var seconds_outside := int(_bench_crucible_outside_reentry_seconds.get(
+				instance_id, 0)) + 1
+			_bench_crucible_outside_reentry_seconds[instance_id] = seconds_outside
+			_bench_crucible_max_reentry_seconds = maxi(
+				_bench_crucible_max_reentry_seconds, seconds_outside)
+			if seconds_outside >= BENCH_CRUCIBLE_REENTRY_DEADLINE_S \
+					and not _bench_crucible_reentry_failures.has(instance_id):
+				_bench_crucible_reentry_failures[instance_id] = true
+				push_error("[Bench] full-roster Crucible member failed to reenter within %ds: %s range=%.1fkm"
+					% [BENCH_CRUCIBLE_REENTRY_DEADLINE_S, ac.callsign,
+						distance_px / 500.0])
+		else:
+			_bench_crucible_outside_reentry_seconds.erase(instance_id)
+		if not MapBoundary.is_safe_inside(ac.global_position,
+				TheCrucibleEncounter.WORLD_HARD_RAIL_MARGIN_PX):
+			outside_world += 1
+		var ai := ac._get_ai_controller()
+		if ai == null:
+			without_target += 1
+			continue
+		var target_raw: Variant = ai.get("_current_target")
+		if typeof(target_raw) != TYPE_OBJECT or target_raw == null:
+			without_target += 1
+		elif not is_instance_valid(target_raw):
+			invalid_target += 1
+	_bench_crucible_peak_live = maxi(_bench_crucible_peak_live, live)
+	_bench_crucible_min_live = mini(_bench_crucible_min_live, live)
+	_bench_crucible_peak_destroyed = maxi(_bench_crucible_peak_destroyed,
+		destroyed + _bench_crucible_departed_destroyed)
+	_bench_crucible_peak_without_target = maxi(_bench_crucible_peak_without_target, without_target)
+	_bench_crucible_peak_outside_world = maxi(_bench_crucible_peak_outside_world, outside_world)
+	_bench_crucible_peak_outside_reentry = maxi(
+		_bench_crucible_peak_outside_reentry, outside_reentry)
+	_bench_crucible_max_distance_px = maxf(_bench_crucible_max_distance_px, max_distance_px)
+	if missile_manager != null:
+		_bench_crucible_peak_missiles = maxi(_bench_crucible_peak_missiles,
+			missile_manager.get_child_count())
+	if bullet_manager != null:
+		_bench_crucible_peak_bullets = maxi(_bench_crucible_peak_bullets,
+			bullet_manager.total_bullet_count())
+	if invalid_target > 0:
+		push_error("[Bench] full-roster Crucible found %d invalid AI target reference(s)" % invalid_target)
+	if _bench_crucible_diag_stable_load and live != 73:
+		push_error("[Bench] stable full-roster Crucible lost members: live=%d destroyed=%d departed=%d"
+			% [live, destroyed, _bench_crucible_departed_destroyed])
+	if _bench_crucible_diag_samples % 10 == 0:
+		print("[Bench] full-roster sample=%d live=%d destroyed=%d departed=%d no_target=%d outside_reentry=%d outside_world=%d missiles=%d bullets=%d max_range=%.1fkm farthest=%s speed=%.0f/target=%.0f/cap=%.0fkmh ab=%s formation=%s directive=%s intents=%s maneuver=%s nose_dot=%.2f bank=%.1fdeg hdg_err=%.1fdeg turn=%+.0f waypoint_to_player=%.1fkm target=%s/source%d player_speed=%.0fkmh"
+			% [_bench_crucible_diag_samples, live, destroyed,
+				_bench_crucible_departed_destroyed, without_target, outside_reentry,
+				outside_world,
+				missile_manager.get_child_count() if missile_manager != null else 0,
+				bullet_manager.total_bullet_count() if bullet_manager != null else 0,
+				max_distance_px / 500.0, farthest_callsign, farthest_speed_kmh,
+				farthest_target_speed_kmh, farthest_speed_cap_kmh, str(farthest_afterburner),
+				str(farthest_formation), str(farthest_directive), farthest_intent_sources,
+				farthest_maneuver,
+				farthest_heading_dot, farthest_bank_deg, farthest_heading_error_deg,
+				farthest_turn_sign, farthest_waypoint_range_px / 500.0,
+				farthest_target_name, farthest_target_source, player_aircraft.speed * 3.6])
+
+
+func _bench_crucible_full_roster_summary() -> String:
+	_bench_crucible_diag_active = false
+	var live := 0
+	var destroyed_valid := 0
+	for ac in _bench_crucible_full_members:
+		if not is_instance_valid(ac):
+			continue
+		if ac.is_destroyed:
+			destroyed_valid += 1
+		else:
+			live += 1
+	return "crucible_full_roster mode=%s roster=73 samples=%d live=%d destroyed_valid=%d departed_destroyed=%d unexpected_departures=%d peak_live=%d min_live=%d peak_destroyed=%d peak_missiles=%d peak_bullets=%d peak_without_target=%d peak_outside_reentry=%d max_reentry_seconds=%d reentry_failures=%d peak_outside_world=%d max_distance_km=%.1f\n" % [
+		"stable" if _bench_crucible_diag_stable_load else "attrition",
+		_bench_crucible_diag_samples, live, destroyed_valid,
+		_bench_crucible_departed_destroyed, _bench_crucible_unexpected_departures,
+		_bench_crucible_peak_live, _bench_crucible_min_live,
+		_bench_crucible_peak_destroyed, _bench_crucible_peak_missiles,
+		_bench_crucible_peak_bullets, _bench_crucible_peak_without_target,
+		_bench_crucible_peak_outside_reentry, _bench_crucible_max_reentry_seconds,
+		_bench_crucible_reentry_failures.size(), _bench_crucible_peak_outside_world,
+		_bench_crucible_max_distance_px / 500.0]
 
 
 func _bench_force_battlefield_atmosphere_stress() -> void:
@@ -3450,7 +3818,8 @@ func _find_enemy_near(world_pos: Vector2) -> CombatUnit:
 	var ship_dist_sq := INF
 	var mother_goose_in_range: Aircraft = null
 	for child in get_children():
-		if child is CombatUnit and child.team == CombatUnit.TEAM_HOSTILE and not child.is_destroyed:
+		if child is CombatUnit and player_aircraft != null \
+				and player_aircraft.is_hostile_to(child) and not child.is_destroyed:
 			if child is Aircraft and (child as Aircraft).is_hidden_from_player_sensors():
 				continue
 			if child is NavalUnit:
@@ -3714,6 +4083,9 @@ func _physics_process(delta: float) -> void:
 		# 敌方王牌支援中队调度（spec events/ace-support-squadron）
 		_update_ace_support_event(delta)
 		_update_orion_event()
+	if _bench_scenario in ["the_crucible_full_roster_stress",
+			"the_crucible_full_roster_attrition"]:
+		_bench_update_crucible_full_roster_diagnostics(delta)
 
 	# 战区阶段倒计时检查（10 分钟到点 → 关闭其他战区 / 解锁 BOSS）
 	if not _map_preview_only and not _boss_debug_mode and not _bench_mode:
@@ -3786,11 +4158,21 @@ func _physics_process(delta: float) -> void:
 			print("[Bench] zone_atmosphere_formal player entered A at %.2fs" % _bench_elapsed)
 		if _bench_elapsed >= _bench_duration:
 			var summary: String
+			var bench_exit_code := 0
 			if _bench_scenario == "evolution_growth" and _growth_bench != null:
 				summary = _growth_bench.finish("duration")
+			elif _bench_scenario == "encounter_difficulty" \
+					and _bench_encounter_probe != null and is_instance_valid(_bench_encounter_probe):
+				summary = _bench_encounter_probe.finish()
 			else:
 				summary = "tick_at=%.2fs aircraft_alive=%d enemies_killed=%d\n" % [
 					_bench_elapsed, _count_aircraft_alive(), (_spawner.kill_count if _spawner else 0)]
+			if _bench_scenario in ["the_crucible_full_roster_stress",
+					"the_crucible_full_roster_attrition"]:
+				summary += _bench_crucible_full_roster_summary()
+				if not _bench_crucible_reentry_failures.is_empty() \
+						or _bench_crucible_unexpected_departures > 0:
+					bench_exit_code = 1
 			if _bench_tracks_render_performance():
 				var average_fps := float(_bench_render_frames) / maxf(_bench_render_delta_sum, 0.001)
 				var worst_fps := 1.0 / maxf(_bench_render_delta_max, 0.0001)
@@ -3882,7 +4264,7 @@ func _physics_process(delta: float) -> void:
 				var g1_weapon_stats := EventLogger.format_stats_summary()
 				if not g1_weapon_stats.is_empty():
 					summary += g1_weapon_stats + "\n"
-			_bench_finish_now(summary)
+			_bench_finish_now(summary, bench_exit_code)
 	# HUD 只消费权威时钟；自身按信息层节奏刷新显示。
 	hud.game_time = game_time
 	hud.kill_count = _spawner.kill_count
@@ -3971,7 +4353,7 @@ func _update_aircraft_list() -> void:
 	PerfBuckets.set_value("ai.cheap_div_at_base3",
 		int(ceil(3.0 * lerpf(1.0, AIController.CHEAP_MAX_MULT, crowd_t))))
 
-## 按 CombatUnit 的唯一 ROE 语义预分桶：HOSTILE 与其它阵营互为敌对，非 HOSTILE 之间友好。
+## 按 CombatUnit 的唯一 ROE 语义预分桶：FFA 同时是传统双方的敌人，故进入两桶。
 ## 每物理帧只做一次 O(N) 分类，雷达内层随后只遍历真正可能敌对的候选。
 func _rebuild_radar_target_buckets(all_units: Array[CombatUnit]) -> void:
 	_radar_hostile_units.clear()
@@ -3979,7 +4361,12 @@ func _rebuild_radar_target_buckets(all_units: Array[CombatUnit]) -> void:
 	for unit in all_units:
 		if not is_instance_valid(unit):
 			continue
-		if unit.team == CombatUnit.TEAM_HOSTILE:
+		if unit.team >= CombatUnit.TEAM_FREE_FOR_ALL_BASE:
+			# FFA 单位对 0/1/2 与其它 FFA team 都敌对；同时进入两侧桶，
+			# 具体同队过滤仍由 is_hostile_to 唯一 API 完成。
+			_radar_hostile_units.append(unit)
+			_radar_non_hostile_units.append(unit)
+		elif unit.team == CombatUnit.TEAM_HOSTILE:
 			_radar_hostile_units.append(unit)
 		else:
 			_radar_non_hostile_units.append(unit)
@@ -4016,18 +4403,21 @@ func _update_radar_locks(delta: float) -> void:
 		unit.locked_by.clear()
 		unit.incoming_lock_progress = 0.0
 
-	# 子集轮转：本 tick 只把 phase ≡ i % STRIDE 的 shooter 当雷达发起方扫一遍
-	# 累积速率 × STRIDE 抵消频率（保证 lock_time 体感不变）
+	# 子集轮转：普通单位维持 4 相；高密度高细节单位使用 16 相。
+	# 累积速率 × 各自 stride 抵消频率，保留锁定、发射与 ECM 语义。
 	var phase := _radar_lock_phase
-	_radar_lock_phase = (_radar_lock_phase + 1) % RADAR_LOCK_STRIDE
-	var per_shooter_delta := step_delta * float(RADAR_LOCK_STRIDE)
+	_radar_lock_phase = (_radar_lock_phase + 1) % DENSE_BATTLE_RADAR_STRIDE
 
 	for i in range(all_units.size()):
-		if i % RADAR_LOCK_STRIDE != phase:
-			continue
 		var unit: CombatUnit = all_units[i]
 		if not is_instance_valid(unit):
 			continue
+		var shooter_stride := RADAR_LOCK_STRIDE
+		if unit is Aircraft and int(unit.get_meta(&"dense_battle_sim_divisor", 1)) > 1:
+			shooter_stride = DENSE_BATTLE_RADAR_STRIDE
+		if i % shooter_stride != phase % shooter_stride:
+			continue
+		var per_shooter_delta := step_delta * float(shooter_stride)
 		# MountTarget 不当雷达发起方：它的 radar_targets 字典永远为空（挂点武器获取
 		# 走 weapon_mount.acquire_cooldown 自己的扫描），跑这一圈纯属浪费 N 次配对。
 		# 仍保留它作为 victim 让飞机能锁/打它（玩家锁船依赖此路径，不能动）。
@@ -4053,8 +4443,10 @@ func _update_radar_locks(delta: float) -> void:
 
 		# 按 ROE 预分桶：HOSTILE 只看 PLAYER/ALLY，非 HOSTILE 只看 HOSTILE。
 		# 不改变实际配对集合，只去掉旧循环必然被 is_hostile_to 跳过的同阵营迭代。
-		var radar_candidates: Array[CombatUnit] = _radar_non_hostile_units \
-			if unit.team == CombatUnit.TEAM_HOSTILE else _radar_hostile_units
+		var radar_candidates: Array[CombatUnit] = all_units if \
+			unit.team >= CombatUnit.TEAM_FREE_FOR_ALL_BASE else (
+			_radar_non_hostile_units if unit.team == CombatUnit.TEAM_HOSTILE \
+			else _radar_hostile_units)
 		for other in radar_candidates:
 			_perf_pairs += 1  # 现在只统计真正可能敌对的候选配对
 			if not is_instance_valid(other) or other == unit or not unit.is_hostile_to(other):
@@ -4361,7 +4753,8 @@ func _update_offscreen_lod() -> void:
 		if ac.is_destroyed:
 			continue
 		# 友方僚机由 _update_friendly_squad_lod 管；ALLY 第三方 LOD 由事件系统自管（阶段 5）
-		if ac.team != CombatUnit.TEAM_HOSTILE:
+		if ac.team != CombatUnit.TEAM_HOSTILE \
+				and ac.team < CombatUnit.TEAM_FREE_FOR_ALL_BASE:
 			continue
 
 		var rel := ac.global_position - cam_pos
@@ -4372,7 +4765,7 @@ func _update_offscreen_lod() -> void:
 		if offscreen:
 			# 离屏：走 Aircraft 自己的 LOD 2 机制（内部处理节流）+ 不画
 			# 详见 docs/changelogs/player-ai-log.md 2026-04-20 (8)
-			ac.lod_level = 2
+			ac.lod_level = 0 if bool(ac.get_meta("crucible_high_lod", false)) else 2
 			ac.visible = false
 			# 远距冻结（2026-05-04 加入）：屏幕外 + 距玩家 > FAR_FREEZE_DIST 的非关键敌人
 			# 完全停 _physics_process，AI/Aircraft 都不跑，零成本。回屏幕或靠近自动解冻。
@@ -5655,6 +6048,8 @@ func _on_tier3_threat_changed(zone_id: StringName, profile: StringName, active: 
 		_zone_hint.show_temp(tr("TIER3_THREAT_NEUTRALIZED_FMT") % [zone_label, profile_name], 4.0)
 
 func _on_zone_mission_completed(zone_id: StringName) -> void:
+	if _spawner:
+		_spawner.begin_encounter_recovery()
 	if not _zone_data:
 		return
 	# 机场解放战区（spec airfield-liberation-zones §3.1）：奖励＝机场本身，走独立解放路径
@@ -5663,6 +6058,7 @@ func _on_zone_mission_completed(zone_id: StringName) -> void:
 		_liberate_airfield(zone_id)
 		return
 	var mission_type := _zone_data.get_mission_type(zone_id)
+	var captured_center := _zone_data.get_zone_center(zone_id)
 	var bomber_xp_reward := 0
 	# §4 战区奖励降级：优先查 ZoneRewardRegistry（用户注册的专属奖励，模块化），
 	# 未注册时回退到旧 _zone_data.get_reward（目前因 evolved 字段已删 → 池为空 → 返回 {}）
@@ -5693,6 +6089,8 @@ func _on_zone_mission_completed(zone_id: StringName) -> void:
 		else:
 			_grant_reward_now(reward)
 	_zone_data.mark_cleared(zone_id)
+	if _desert_front != null and is_instance_valid(_desert_front):
+		_desert_front.on_zone_captured(zone_id, captured_center)
 	# 热度：攻克战区（spec global-awareness-roe §2.4）
 	if _spawner and _spawner._roe:
 		_spawner._roe.add_heat(RoeDirector.HEAT_ZONE_CAPTURED)
@@ -5746,6 +6144,8 @@ func _grant_bomber_escort_xp(zone_id: StringName) -> int:
 ## 可能失败的战区走独立结算：不发奖励、不回血、不加热度，也不计入攻克次数。
 ## ZoneData.mark_failed 会立刻清除选择态/动态圆心并补开替代战区；FAILED 本身在 Tab 完全隐藏。
 func _on_zone_mission_failed(zone_id: StringName, reason: String) -> void:
+	if _spawner:
+		_spawner.begin_encounter_recovery()
 	if not _zone_data:
 		return
 	var failed_mission_type := _zone_data.get_mission_type(zone_id)
@@ -6500,8 +6900,11 @@ func begin_ace_battle_music() -> bool:
 	if not _active_ace_music_id.is_empty() \
 			and AudioManager.current_music_id() == _active_ace_music_id:
 		return true
+	var music_pool: Array = ACE_BATTLE_MUSIC_IDS.duplicate()
+	if _map_id == "desert_railway_preview":
+		music_pool.append("ace_desert")
 	var available: Array[String] = []
-	for id_any in ACE_BATTLE_MUSIC_IDS:
+	for id_any in music_pool:
 		var id := String(id_any)
 		if AudioManager.has_music(id):
 			available.append(id)
@@ -6552,6 +6955,14 @@ func _is_in_boss_phase() -> bool:
 ## 常规刷怪 / 随机事件。旧闸门让整个 PRE_STAGE 段仍在刷杂鱼 + 触发城区直升机事件。
 func is_boss_phase() -> bool:
 	return _is_in_boss_phase()
+
+## Encounter Director 的 ACE 优先级适配器：ACE 活跃期间 Global Package 必须让位。
+func is_ace_encounter_active() -> bool:
+	return _event_director != null and _event_director.find_by_name("ace_support") != null
+
+func begin_encounter_recovery(seconds: float = 10.0) -> void:
+	if _spawner:
+		_spawner.begin_encounter_recovery(seconds)
 
 ## 战区奖励 roll 的玩家上下文快照（spec zone-reward-arsenal §3.1，注入给 ZoneData）
 func _build_reward_roll_context() -> Dictionary:
@@ -6691,7 +7102,8 @@ func on_boss_engaged(ev) -> void:
 	if archive_enabled() and ev != null and "encounter" in ev and ev.encounter != null:
 		CareerArchive.record_boss_encounter(String(ev.encounter.boss_id))
 	# 无线电：BOSS 进入交战的第二段挑衅（spec radio-chatter §3.3）
-	if _radio and ev != null and "encounter" in ev and ev.encounter != null:
+	if _radio and ev != null and "encounter" in ev and ev.encounter != null \
+			and ev.encounter.arrival_radio_enabled:
 		_radio.say_boss_sequence(ev.encounter.boss_id, "engage", ev.encounter.callsign_prefix)
 
 # ══════════════════════════════════════════════
@@ -6759,6 +7171,15 @@ func on_boss_victory(ev) -> void:
 	if archive_enabled() and not boss_id.is_empty():
 		CareerArchive.record_boss_defeat(boss_id)
 	_on_victory(boss_id)
+
+## 装甲列车越过东侧终点与玩家阵亡共用 KIA 终局结算，但保留独立失败原因日志/提示。
+func on_boss_failure(_ev, reason: String) -> void:
+	if is_game_over:
+		return
+	EventLogger.log_event("BOSS", "ObjectiveFailed", reason)
+	if _zone_hint != null:
+		_zone_hint.show_warning_banner(tr("DESERT_TRAIN_ESCAPED"))
+	_on_player_died()
 
 ## 事件结束（任何原因）—— HUD 自动随 encounter.active=false 隐藏，无需特别清理
 func on_boss_event_finished(_ev) -> void:

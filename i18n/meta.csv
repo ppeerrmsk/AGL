@@ -111,6 +111,8 @@ CODEX_SECTION_GROUND,── 地面防空单位 ──,── GROUND AIR DEFENSE 
 CODEX_SECTION_ACE,── 王牌中队 ──,── ACE SQUADRONS ──,── エース中隊 ──
 CODEX_SECTION_BOSS,── BOSS 目标 ──,── BOSS TARGETS ──,── BOSS 目標 ──
 CODEX_UAV_NAME,MQ-109,MQ-109,MQ-109
+CODEX_ARMORED_TRAIN_NAME,超级武器列车,Superweapon Train,超兵器列車
+CODEX_LAND_CARRIER_NAME,陆地航母,Land Carrier,陸上空母
 CODEX_UAV_DESC,轻型机炮无人机。通常以编队数量形成近距火力压力，机体防护较弱，命中后即被摧毁。,"Light gun drone. It typically uses formation strength to create short-range fire pressure. Its protection is limited, and one effective hit destroys it.",軽量機関砲ドローン。編隊数によって近距離火力圧力を形成する。防護は限定的で、有効命中 1 回で撃破される。
 CODEX_UCAV_NAME,MQ-110,MQ-110,MQ-110
 CODEX_UCAV_DESC,导弹攻击无人机。MQ-109 的挂弹衍生型，主要在中远距离实施导弹攻击。,"Missile attack drone. A missile-carrying derivative of the MQ-109, primarily used for medium- and long-range missile attacks.",ミサイル攻撃ドローン。MQ-109 のミサイル搭載派生型で、主に中・長距離からミサイル攻撃を行う。

@@ -566,6 +566,11 @@ func _test_ace_f15_spawn_factory() -> void:
 		event._ally_support.all(func(ac):
 			return is_equal_approx(ac.params.radar_range,
 				AceReinforcementEvent.ALLY_SUPPORT_RADAR_RANGE_M)))
+	_check("友军 Hound 不继承熔炉敌对版 Boss 强化",
+		event._ally_support.all(func(ac):
+			return ac.params.max_hp < AceTier.MAX_HP \
+				and not ac.has_meta(&"ace_boss_grade") \
+				and not ac.has_meta(&"crucible_profile")))
 	_check("王牌截击支援固定呼号 Hound-1/Hound-2",
 		event._ally_support[0].callsign == "Hound-1"
 		and event._ally_support[1].callsign == "Hound-2")

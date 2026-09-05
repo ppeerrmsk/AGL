@@ -101,6 +101,8 @@ func _start() -> void:
 	elif encounter is HyperABossScript:
 		_spawn_hyper_a()
 		_apply_pre_stage_directives_hyper_a()
+	elif encounter.has_method("spawn"):
+		_spawn_custom()
 	else:
 		push_error("BossEncounterEvent: unsupported encounter type %s" % encounter.get_class())
 		end()
@@ -125,7 +127,7 @@ func _start() -> void:
 	# 说话人呼号由 encounter 的 callsign_prefix 合成，不依赖机体 _ready() 是否已分配呼号。
 	var radio = director.mode.get("_radio") if director and director.mode else null
 	# Black Star 的两句台词绑定各自真实根机下降信号，不能在开场一次性提前播完。
-	if radio and not encounter is HyperABossScript:
+	if radio and encounter.arrival_radio_enabled and not encounter is HyperABossScript:
 		radio.say_boss_sequence(encounter.boss_id, "spawn", encounter.callsign_prefix)
 
 	EventLogger.log_event("EVENT", name,
@@ -233,6 +235,13 @@ func _update(delta: float) -> void:
 			pass
 		Phase.ENGAGED:
 			pass
+
+	# 逃脱/护送失败类 BOSS 必须先于 active true→false 的胜利检测分流。
+	if encounter.has_failed():
+		if director and director.mode and director.mode.has_method("on_boss_failure"):
+			director.mode.on_boss_failure(self, encounter.failure_reason())
+		end()
+		return
 
 	# 胜利检测：encounter.active true→false 沿
 	if _was_active and not encounter.active:
@@ -353,6 +362,9 @@ func _spawn_hyper_a() -> void:
 	if hyper_a.has_signal("root_descent_finished"):
 		hyper_a.connect("root_descent_finished", _on_hyper_a_root_descent_finished)
 	director.spawner._spawn_boss(hyper_a, anchor, true)  # skip_bgm
+
+func _spawn_custom() -> void:
+	director.spawner._spawn_boss(encounter, anchor, true)
 
 
 ## 根机无线电绑定真实下降开始，而不是身份横幅的固定时间点。

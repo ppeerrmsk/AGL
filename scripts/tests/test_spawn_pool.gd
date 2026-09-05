@@ -7,10 +7,14 @@ const SnowblindController = preload("res://scripts/survivor/snowblind_controller
 const SnowblindShroudVisual = preload("res://scripts/survivor/snowblind_shroud_visual.gd")
 
 class SentinelWatchdogProbe extends SurvivorSpawner:
-	var spawned_escort_count := 0
+	var spawned_uav_count := 0
+	var spawned_aegis_count := 0
 
 	func _spawn_sentinel_escort_uavs(_commander: Aircraft, _sq: Squad, count: int) -> void:
-		spawned_escort_count += count
+		spawned_uav_count += count
+
+	func _spawn_sentinel_aegis(_commander: Aircraft, _sq: Squad, count: int) -> void:
+		spawned_aegis_count += count
 
 
 class SpawnPickProbe extends SurvivorSpawner:
@@ -34,6 +38,20 @@ class MultilockSpawnerProbe extends RefCounted:
 
 	func _get_ai(_aircraft: Aircraft):
 		return null
+
+
+class PackageModeProbe extends Node2D:
+	var game_time: float = 300.0
+
+	func _squad_members_alive() -> Array[Aircraft]:
+		var result: Array[Aircraft] = []
+		for child in get_children():
+			if child is Aircraft and not (child as Aircraft).is_destroyed:
+				result.append(child)
+		return result
+
+	func is_boss_phase() -> bool:
+		return false
 
 ## 无头行为验收：刷怪池配置（2026-07-28 平衡批）
 ##
@@ -104,6 +122,7 @@ func run() -> void:
 	_test_adbs_escort_pool()
 	_test_sentinel_escort_cohesion()
 	_test_debug_near_spawn()
+	_test_theme_package_integrity()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
 
@@ -802,10 +821,11 @@ func _test_sentinel_escort_cohesion() -> void:
 	watchdog_mode.add_child(solo)
 	watchdog._ensure_sentinels_escorted()
 	watchdog._ensure_sentinels_escorted()
-	_check("已有空 Squad 的 Sentinel 也补足 5 架，且只补一次",
-		watchdog.spawned_escort_count == SurvivorSpawner.SENTINEL_MIN_ESCORT \
+	_check("已有空 Squad 的 Sentinel 精确补足 5 架 MQ-109 + 1 架 Aegis，且只补一次",
+		watchdog.spawned_uav_count == SurvivorSpawner.SENTINEL_MIN_ESCORT \
+			and watchdog.spawned_aegis_count == SurvivorSpawner.SENTINEL_REQUIRED_AEGIS \
 			and solo.has_meta("escort_watchdog_done"),
-		"spawned=%d" % watchdog.spawned_escort_count)
+		"uav=%d aegis=%d" % [watchdog.spawned_uav_count, watchdog.spawned_aegis_count])
 	watchdog_mode.free()
 	watchdog.free()
 
@@ -886,6 +906,73 @@ func _test_debug_near_spawn() -> void:
 			and debug_source.contains("_spawn_commander_squad(size, true)"), "")
 	player.free()
 	spawner.free()
+
+
+func _test_theme_package_integrity() -> void:
+	print("── M. 主题 Package：Snowblind 护卫与 Sentinel 固有编成原子完整 ──")
+	var mode := PackageModeProbe.new()
+	var player := Aircraft.new()
+	player.params = AircraftParams.new()
+	player.team = CombatUnit.TEAM_PLAYER
+	player.global_position = Vector2.ZERO
+	mode.add_child(player)
+	var survivor := SurvivorPlayer.new()
+	survivor.level = 12
+	survivor.aircraft = player
+	mode.add_child(survivor)
+	var bullets := BulletManager.new()
+	var missiles := MissileManager.new()
+	mode.add_child(bullets)
+	mode.add_child(missiles)
+	var spawner := SurvivorSpawner.new()
+	mode.add_child(spawner)
+	spawner.setup(mode, player, survivor, bullets, missiles)
+
+	var escort_row := EnemyPoolRegistry.row_for_type(int(SurvivorSpawner.EnemyType.F4E))
+	var snow_context := {
+		"encounter_id": &"global", "package_id": &"test_snowblind",
+		"element_id": "test_snowblind_core", "theme": "EW_ESCORT",
+		"element_role": "SUPPORT_CORE",
+	}
+	var snow_members := spawner._spawn_snowblind_squad(
+		[escort_row, escort_row], false, true, snow_context)
+	var snow_package_ok := snow_members.size() == 3
+	var escort_squad: Squad = null
+	if snow_package_ok:
+		var core_ai := snow_members[0]._get_ai_controller()
+		var escort_ai := snow_members[1]._get_ai_controller()
+		escort_squad = escort_ai.squad if escort_ai else null
+		snow_package_ok = core_ai != null and (core_ai.squad == null or core_ai.squad.leader != snow_members[0]) \
+			and escort_squad != null and escort_squad.leader == snow_members[1] \
+			and snow_members[2] in escort_squad.members \
+			and snow_members[1] in snow_members[0].escort_guards \
+			and snow_members[2] in snow_members[0].escort_guards \
+			and escort_ai.combat_zone_anchor == snow_members[0]
+		for member in snow_members:
+			snow_package_ok = snow_package_ok \
+				and member.get_meta("encounter_package_id", &"") == &"test_snowblind"
+	_check("Snowblind 本体不当战斗长机，两护卫组成独立 ESCORT_SCREEN", snow_package_ok, "")
+
+	var sentinel_context := {
+		"encounter_id": &"global", "package_id": &"test_sentinel",
+		"element_id": "test_sentinel_guard", "theme": "SENTINEL_COMMAND",
+		"element_role": "ORBIT_GUARD",
+	}
+	var sentinel_members := spawner._spawn_commander_squad(5, true, sentinel_context)
+	var type_counts := {"uav_commander": 0, "uav": 0, "uav_laser": 0}
+	var sentinel_ok := sentinel_members.size() == 7
+	for member in sentinel_members:
+		var tag := str(member.get_meta("enemy_type", ""))
+		if type_counts.has(tag):
+			type_counts[tag] = int(type_counts[tag]) + 1
+		sentinel_ok = sentinel_ok \
+			and member.get_meta("encounter_package_id", &"") == &"test_sentinel"
+	_check("Sentinel 固定为 1 指挥机 + 5 MQ-109 + 1 Aegis，且同包提交",
+		sentinel_ok and int(type_counts["uav_commander"]) == 1 \
+			and int(type_counts["uav"]) == 5 and int(type_counts["uav_laser"]) == 1,
+		str(type_counts))
+	spawner._exit_tree()
+	mode.free()
 
 
 func _check(label: String, ok: bool, detail: String) -> void:

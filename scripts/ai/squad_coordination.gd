@@ -77,8 +77,14 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 	# 防御性清除：确保编队中无残留战斗目标干扰。
 	# 例外：TIGHT 齐射窗口（volley_fire_active，spec formation-discipline）——窗口期僚机
 	# 在编队槽位里持目标开火（movement 仍归编队，武器链读 combat_target），不清。
-	if ai.aircraft.combat_target != null and not ai.aircraft.volley_fire_active:
+	var retaining_assault_target := ai.squad_engage_mode == AIController.SquadEngageMode.FOLLOW_LEADER \
+			and ai._squad_attacking_leader_target and leader.combat_target != null \
+			and is_instance_valid(leader.combat_target) and not leader.combat_target.is_destroyed \
+			and ai.aircraft.combat_target == leader.combat_target
+	if ai.aircraft.combat_target != null and not ai.aircraft.volley_fire_active \
+			and not retaining_assault_target:
 		ai.aircraft.clear_combat_target()
+		ai._squad_attacking_leader_target = false
 		ai.aircraft.ai_override_pursuit = false
 	ai._cover_target = null
 
@@ -194,17 +200,27 @@ static func process_squad_follow(ai: AIController, delta: float) -> void:
 					and leader.commanded_target == leader.combat_target
 			var acquire_reason := "follow player commanded target" if follows_player_command else "follow leader target"
 			if ai.acquire_target(leader.combat_target, AIController.TargetSource.TS_SCORED, acquire_reason):
-				ai.aircraft.clear_formation()  # formation_mode/leader/keep_arrival/lod=0/ai_override
-				ai.aircraft.ai_override_pursuit = true
-				ai._formation_blend = 0.0  # 下次回归编队时从 0 开始混合
-				ai.enter_engage_state()
-				ai._squad_attacking_leader_target = true
-				ai._squad_lateral_role = _role_for_squad_index(ai.squad_index)
-				ai._squad_free_engaging = false  # 协同攻击路径互斥
-				ai._leader_target_lost_timer = 0.0
-				ai.current_tactic_name = "TACTIC_TEAM_ATTACK"
+				if ai.squad_engage_mode == AIController.SquadEngageMode.FOLLOW_LEADER:
+					# 阵型攻击：共享目标只交给火控，movement authority 继续归 formation。
+					ai.aircraft.ai_override_pursuit = false
+					ai._squad_attacking_leader_target = true
+					ai._squad_lateral_role = _role_for_squad_index(ai.squad_index)
+					ai._squad_free_engaging = false
+					ai._leader_target_lost_timer = 0.0
+					ai.current_tactic_name = "TACTIC_FORMATION_ASSAULT"
+				else:
+					ai.aircraft.clear_formation()
+					ai.aircraft.ai_override_pursuit = true
+					ai._formation_blend = 0.0
+					ai.enter_engage_state()
+					ai._squad_attacking_leader_target = true
+					ai._squad_lateral_role = _role_for_squad_index(ai.squad_index)
+					ai._squad_free_engaging = false
+					ai._leader_target_lost_timer = 0.0
+					ai.current_tactic_name = "TACTIC_TEAM_ATTACK"
 	else:
 		ai._engage_delay = 0.0  # 长机无目标时重置延迟
+		ai._squad_attacking_leader_target = false
 
 # ══════════════════════════════════════════════
 #  生存层主动回防（spec battlefield-gravity §3.3，面 B）

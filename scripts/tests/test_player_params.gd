@@ -73,6 +73,25 @@ func run() -> void:
 	if p.size() != 50:
 		_finish()
 		return
+	_check("EA-18G 保留紫色机体涂装",
+		p["ea18g"].icon_color == Color(0.52, 0.24, 0.72, 1.0),
+		str(p["ea18g"].icon_color))
+	var livery_probe := Aircraft.new()
+	livery_probe.params = AircraftParams.new()
+	livery_probe.params.icon_color = Color(0.52, 0.24, 0.72, 1.0)
+	livery_probe.params.wing_color = Color(0.18, 0.10, 0.32, 1.0)
+	var expected_icon := livery_probe.params.icon_color
+	var expected_wing := livery_probe.params.wing_color
+	livery_probe.team = CombatUnit.TEAM_PLAYER
+	livery_probe.refresh_faction_visuals()
+	livery_probe.team = CombatUnit.TEAM_ALLY
+	livery_probe.refresh_faction_visuals()
+	_check("阵营刷新不覆写机体 icon/wing 涂装",
+		livery_probe.params.icon_color == expected_icon
+		and livery_probe.params.wing_color == expected_wing,
+		"icon=%s wing=%s" % [
+			str(livery_probe.params.icon_color), str(livery_probe.params.wing_color)])
+	livery_probe.free()
 	var start_ids: Array[String] = []
 	for entry in SurvivorSelectScript.PLAYABLE_LIST:
 		start_ids.append(str(entry.get("id", "")))

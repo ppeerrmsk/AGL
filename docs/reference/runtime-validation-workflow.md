@@ -32,7 +32,7 @@ signal 或总线路由断言，也不写入 `user://audio.cfg`；正常 F5 游�
 | 124 | 超时，进程树已回收 | 区分死循环、原生崩溃弹窗被抑制后的挂起和时限不足 |
 
 `WARNING` 不等于运行时错误。若确有稳定的引擎退出噪音，需要精确匹配单条文本后才能加入白名单；
-禁止跳过全部 `ERROR` 或关闭错误门。
+测试代码主动发出的精确 `ERROR: [Bench]` 也属于致命诊断；禁止跳过全部 `ERROR` 或关闭错误门。
 
 `RUNTIME ERROR` 块会保留完整 GDScript backtrace，不再固定截成四行。命中 `previously freed` / freed instance
 时，wrapper 会追加 `FREED_OBJECT_LIFECYCLE` 诊断：优先检查最深 GDScript 调用者持有的跨帧 Object 缓存，

@@ -138,6 +138,7 @@ func _test_document_roundtrip() -> void:
 			doc.editor_cells["land"][cy * MapDocument.GRID_W + cx] = 1
 	doc.mark_dirty_and_rebake("land")
 	doc.zones = [{"center": [0, 0], "radius": 1500.0, "type": "standard"}]
+	doc.railways = [{"id": "boss_main", "points": [[-1000, -500], [1000, 500]]}]
 	doc.spawn = {"pos": [0.0, 5000.0], "heading_deg": 0.0}
 	var path := "user://test_map_editor_core.json"
 	_check(doc.save_to(path), "保存失败")
@@ -157,6 +158,7 @@ func _test_document_roundtrip() -> void:
 				fails.append("多边形 %d 顶点数不等" % i)
 				break
 	_check(back.zones.size() == 1, "zones 丢失")
+	_check(back.railways == doc.railways, "railways 路线 SSOT 丢失")
 	_check(back.style["palette"]["sea"][0] == 0.16, "style 默认调色板丢失")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 

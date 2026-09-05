@@ -1,6 +1,8 @@
 class_name AircraftWeapons
 extends RefCounted
 
+const EncounterDirectorScript = preload("res://scripts/survivor/encounter_director.gd")
+
 ## 武器子系统（静态工具类）
 ## 从 aircraft.gd 提取的 _auto_gun_scan / _update_gun / _update_ciws /
 ## _update_rocket / _launch_rocket / _update_weapon_mode /
@@ -417,6 +419,49 @@ static func update_passive_gunship(ac: Aircraft, delta: float) -> void:
 	update_gun(ac, delta)
 
 
+## 编队托管提前返回路径的完整机会火控：movement 继续归 AircraftFormation，
+## 火控只消费共享 combat_target，不写 target_position / heading / bank。
+## 调用方固定 20Hz；不新增扫描，机炮只检查共享目标的 O(1) 几何。
+static func update_formation_opportunity_weapons(ac: Aircraft, delta: float) -> void:
+	if not ac.formation_mode:
+		return
+	if ac.gunship_mode_active and ac.is_player_squad():
+		update_passive_gunship(ac, delta)
+	else:
+		update_altitude_cycle_ammo(ac, delta)
+		_update_formation_opportunity_gun(ac, delta)
+	update_formation_passive_missile(ac, delta)
+
+
+static func _update_formation_opportunity_gun(ac: Aircraft, delta: float) -> void:
+	var target_value: Variant = ac.combat_target
+	if typeof(target_value) != TYPE_OBJECT or target_value == null \
+			or not is_instance_valid(target_value) or not (target_value is CombatUnit) \
+			or (target_value as CombatUnit).is_destroyed or not ac.is_hostile_to(target_value):
+		ac.is_firing = false
+		update_gun(ac, delta)
+		return
+	if ac.evasion_mode or ac.is_afterburner_mode_active() or ac.status_jam_active \
+			or ac.params == null or ac.params.gun == null or ac.ammo <= 0:
+		ac.is_firing = false
+		update_gun(ac, delta)
+		return
+	var target := target_value as CombatUnit
+	var range_px := ac.effective_gun_range_m() * CombatUnit.PIXELS_PER_METER
+	var dist_px := ac.global_position.distance_to(target.global_position)
+	if dist_px < 10.0 or dist_px > range_px \
+			or (target is Aircraft and not ac.flat_altitude \
+			and absf(ac.altitude - target.altitude) > 500.0):
+		ac.is_firing = false
+		update_gun(ac, delta)
+		return
+	var lead := lead_heading(ac, target, ac.params.gun.muzzle_velocity)
+	var off_axis := absf(ac._angle_diff(lead, ac.heading))
+	ac._gun_lead_heading = lead
+	ac.is_firing = off_axis <= deg_to_rad(ac.effective_gun_cone_half_angle_deg())
+	update_gun(ac, delta)
+
+
 static func _regen_gun_ammo(ac: Aircraft, delta: float, per_sec: float,
 		cap: int, accum_key: StringName) -> void:
 	if per_sec <= 0.0 or ac.ammo >= cap:
@@ -452,10 +497,10 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 		ac._fire_cooldown -= weapon_delta
 	else:
 		ac._fire_cooldown = maxf(ac._fire_cooldown - weapon_delta, 0.0)
-	# 敌机“一次机会一梭”：pause 从上一梭结束/硬中止后开始走；梭内冻结，保证完整
+	# 敌机/剧本 FFA“一次机会一梭”：pause 从上一梭结束/硬中止后开始走；梭内冻结，保证完整
 	# burst_count 出膛后再给玩家至少 3 秒挣脱窗口。计时只住武器执行层，避免 planner /
 	# tracking / scan 同帧多次查询 gate 导致重复扣时或覆盖许可。
-	if ac.team == CombatUnit.TEAM_HOSTILE and ac._gun_burst_rounds_left <= 0 \
+	if ac._uses_enemy_gun_burst_gate() and ac._gun_burst_rounds_left <= 0 \
 			and ac._ai_gun_pause_timer > 0.0:
 		ac._ai_gun_pause_timer = maxf(ac._ai_gun_pause_timer - delta, 0.0)
 	# §C 玩家技能"AB 时回机炮弹"：开 AB 时持续 regen（受 max_ammo 上限）
@@ -511,9 +556,9 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 		ac._gun_burst_rounds_left = 0
 		ac._gun_burst_target_id = 0
 		return
-	# 统一执行层兜底：即使某条 AI 路径绕过 _ai_gun_burst_allowed 持续置真，敌机也不能
+	# 统一执行层兜底：即使某条 AI 路径绕过 _ai_gun_burst_allowed 持续置真，敌机/FFA 也不能
 	# 在强制停火期启动第二梭。PLAYER / ALLY 不受影响。
-	if ac.team == CombatUnit.TEAM_HOSTILE and ac._gun_burst_rounds_left <= 0 \
+	if ac._uses_enemy_gun_burst_gate() and ac._gun_burst_rounds_left <= 0 \
 			and ac._ai_gun_pause_timer > 0.0:
 		ac.is_firing = false
 		return
@@ -548,6 +593,12 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 			ac._gun_burst_target_id = ac.combat_target.get_instance_id()
 		else:
 			ac._gun_burst_target_id = ac._auto_gun_target_id
+		var committed_target := _gun_target_from_id(ac._gun_burst_target_id)
+		if committed_target != null \
+				and not EncounterDirectorScript.request_lethal_attack(ac, committed_target, 1.0):
+			ac.is_firing = false
+			ac._gun_burst_target_id = 0
+			return
 		ac._gun_burst_rounds_left = maxi(gun.burst_count, 1)
 		if not _refresh_committed_gun_aim(ac, gun):
 			ac.is_firing = false
@@ -555,7 +606,7 @@ static func update_gun(ac: Aircraft, delta: float) -> void:
 			ac._gun_burst_target_id = 0
 			ac._gun_climb_frozen_target_id = 0
 			return
-		if ac.team == CombatUnit.TEAM_HOSTILE:
+		if ac._uses_enemy_gun_burst_gate():
 			ac._ai_gun_pause_timer = Aircraft.AI_GUN_PAUSE_DURATION
 		if ac.gun_aim_error_enabled:
 			var skill: float = clampf(ac.pilot_aim_skill, 0.0, 1.0)
@@ -651,6 +702,8 @@ static func _fire_gun_round(ac: Aircraft, gun: GunParams) -> void:
 			ac.bullet_manager.spawn_bullet(muzzle_pos - wing_off, dir_r2, gun.muzzle_velocity, ac, gun.bullet_damage, false, false, gun.lifetime)
 		else:
 			ac.bullet_manager.spawn_bullet(muzzle_pos, bullet_dir, gun.muzzle_velocity, ac, gun.bullet_damage, false, false, gun.lifetime)
+		# 枪口闪光只跟真实出弹事件走；is_firing 是持续火控意图，不能拿来画常亮喷口。
+		ac._gun_muzzle_flash_remaining_s = Aircraft.GUN_MUZZLE_FLASH_DURATION_S
 		# §C 玩家技能"机炮发射时减伤"：刷新窗口时间戳，下次受伤 _apply_damage 查
 		if ac.is_player_squad() and ac.gun_fire_dr_window > 0.0:
 			ac._gun_fire_recently_until = EventLogger.get_game_time() + ac.gun_fire_dr_window
@@ -991,10 +1044,10 @@ static func _update_weapon_mode_tactical(ac: Aircraft) -> void:
 			ac._gun_pass_committed = false
 
 
-## 编队跟随中的玩家方僚机只借用火控，不接管导航目标。
+## 编队跟随中的双方僚机只借用火控，不接管导航目标。
 ## 调用方固定 20Hz；所有锁定、包线、射界、稳定窗口和过杀闸门仍由 update_missile 统一判定。
 static func update_formation_passive_missile(ac: Aircraft, delta: float) -> void:
-	if not ac.is_player_squad() or not ac.formation_mode:
+	if not ac.formation_mode:
 		return
 	var previous_mode: int = ac.weapon_mode
 	var fire_allowed: bool = ac.missile_auto_fire \
@@ -1010,7 +1063,7 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 	ac._crank_timer = maxf(ac._crank_timer - delta, 0.0)
 	ac._msl_block_log_timer = maxf(ac._msl_block_log_timer - delta, 0.0)
 	ac._salvo_skip_log_timer = maxf(ac._salvo_skip_log_timer - delta, 0.0)
-	var formation_opportunity_fire: bool = ac.is_player_squad() and ac.formation_mode
+	var formation_opportunity_fire: bool = ac.formation_mode
 	var hyper_a_salvo: bool = ac.has_meta(META_HYPER_A_SATURATION_SALVO) \
 			and bool(ac.get_meta(META_HYPER_A_WEAPONS_ENABLED, false))
 	var hyper_a_g0_omnidirectional_salvo: bool = hyper_a_salvo \
@@ -1249,6 +1302,8 @@ static func _emit_missile(ac: Aircraft, target_unit: CombatUnit, msl: MissilePar
 		return false
 	# Snowblind 只拦截新交战/发射；已经离架的实体导弹仍按物理链飞行和命中。
 	if ac.is_sensor_engagement_obscured(target_unit):
+		return false
+	if not EncounterDirectorScript.request_lethal_attack(ac, target_unit, 1.0):
 		return false
 	var dist_m := ac.global_position.distance_to(target_unit.global_position) / CombatUnit.PIXELS_PER_METER
 	var remaining := (ac.secondary_missiles_remaining - 1) if is_secondary else (ac.missiles_remaining - 1)

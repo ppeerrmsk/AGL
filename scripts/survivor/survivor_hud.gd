@@ -15,6 +15,7 @@ const TerminalGridOverlayScript := preload("res://scripts/ui/terminal_grid_overl
 const TerminalTextScript := preload("res://scripts/ui/terminal_text.gd")
 const HudPreferencesScript := preload("res://scripts/ui/hud_preferences.gd")
 const BrakeSteeringOverlayScript := preload("res://scripts/survivor/brake_steering_overlay.gd")
+const AceBattleBarScript := preload("res://scripts/survivor/ace_battle_bar.gd")
 
 ## 生存模式 HUD：右下角状态面板 + 顶部时间/击杀 + 底部经验条
 
@@ -83,6 +84,8 @@ var _squad_weapon_pref: int = 0          # 0 = 导弹优先, 1 = 机炮优先 (A
 
 # ── BOSS 小队状态面板（F-47 等 BOSS 在场时显示）──
 var _boss_panel: PanelContainer
+var _crucible_ace_row: HBoxContainer
+var _crucible_ace_bars: Array = []
 
 # ── 雷达小地图 ──
 var _radar: Control
@@ -318,6 +321,11 @@ func _build_ui() -> void:
 
 	# ── BOSS 小队状态面板 ──
 	_build_boss_panel()
+	_crucible_ace_row = HBoxContainer.new()
+	_crucible_ace_row.visible = false
+	_crucible_ace_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	_crucible_ace_row.add_theme_constant_override("separation", 8)
+	_add_ui_child(_crucible_ace_row)
 
 	# ── 王牌中队交战血条（分段命条，spec ace-squadron-tier §2.8）──
 	_build_ace_panel()
@@ -451,7 +459,8 @@ func _setup_hud_first_reveal() -> void:
 	# 空 VBoxContainer 默认 visible=true；首条真实战况到来前必须保持未启用。
 	_hud_first_reveal.register_panel(HUD_REVEAL_KILL_FEED,
 		[_kill_feed_container], Vector2.ZERO, false)
-	_hud_first_reveal.register_panel(HUD_REVEAL_BOSS, [_boss_panel], Vector2.ZERO)
+	_hud_first_reveal.register_panel(HUD_REVEAL_BOSS,
+		[_boss_panel, _crucible_ace_row], Vector2.ZERO)
 	_hud_first_reveal.register_panel(HUD_REVEAL_ACE, [_ace_panel], Vector2.ZERO)
 	_hud_first_reveal.register_panel(HUD_REVEAL_RADAR, [_radar], Vector2.ZERO)
 	_hud_first_reveal.register_panel(HUD_REVEAL_XP,
@@ -656,7 +665,8 @@ func _sync_hud_first_reveal_targets() -> void:
 		HUD_REVEAL_TOP_STATUS, _time_panel.position)
 	_hud_first_reveal.set_panel_sort_position(
 		HUD_REVEAL_KILL_FEED, _kill_feed_container.position)
-	_hud_first_reveal.set_panel_sort_position(HUD_REVEAL_BOSS, _boss_panel.position)
+	_hud_first_reveal.set_panel_sort_position(HUD_REVEAL_BOSS,
+		_crucible_ace_row.position if _crucible_ace_row.visible else _boss_panel.position)
 	_hud_first_reveal.set_panel_sort_position(HUD_REVEAL_ACE, _ace_panel.position)
 	var viewport_size := get_viewport().get_visible_rect().size
 	var radar_sort_position := Vector2(
@@ -918,6 +928,10 @@ func _layout_ui() -> void:
 			vp.x * 0.5 - _boss_panel.size.x * 0.5,
 			TOP_ENCOUNTER_Y
 		)
+	if _crucible_ace_row and _crucible_ace_row.visible:
+		_crucible_ace_row.position = Vector2(
+			vp.x * 0.5 - _crucible_ace_row.size.x * 0.5,
+			TOP_ENCOUNTER_Y)
 	# 王牌中队血条：与 BOSS 面板同一锚位（两者互斥，BOSS 条优先，tier §2.8）
 	if _ace_panel and _ace_panel.visible:
 		_ace_panel.position = Vector2(
@@ -1013,6 +1027,8 @@ func _update_player_instrument() -> void:
 
 ## 收到击杀信号 → 战况栏顶部插入一条（友机击坠=绿 / 友机阵亡=红 / 中立=灰），超上限移除最旧
 func _on_kill_recorded(killer: String, victim: String, weapon_kind: String, killer_team: int, victim_team: int, _victim_voiced: bool) -> void:
+	# 事件态立即刷新：熔炉中队条同拍移除阵亡成员；常规读数仍维持 2 Hz。
+	_update_boss_panel()
 	if not _kill_feed_container:
 		return
 	var col: Color
@@ -1672,47 +1688,17 @@ var _ace_emblem: AceEmblemIcon
 var _ace_seg_box: HBoxContainer
 var _ace_segments: Array[Panel] = []
 
-const ACE_SEG_W := 26.0
-const ACE_SEG_H := 9.0
-const ACE_SEG_DEAD := Color(0.22, 0.20, 0.22)
+const ACE_SEG_W := AceBattleBarScript.SEGMENT_WIDTH
+const ACE_SEG_H := AceBattleBarScript.SEGMENT_HEIGHT
+const ACE_SEG_DEAD := AceBattleBarScript.DEAD_COLOR
 
 func _build_ace_panel() -> void:
-	_ace_panel = PanelContainer.new()
-	_ace_panel.visible = false
-	var style := StyleBoxFlat.new()
-	style.bg_color = ThemeColors.BOSS_PANEL_BG
-	style.border_color = ThemeColors.BOSS_PANEL_BORDER
-	style.set_border_width_all(1)
-	style.set_corner_radius_all(3)
-	style.content_margin_left = 10
-	style.content_margin_right = 10
-	style.content_margin_top = 3
-	style.content_margin_bottom = 5
-	_ace_panel.add_theme_stylebox_override("panel", style)
-
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 2)
-	_ace_panel.add_child(vbox)
-
-	# 代号行（徽章小图 + 代号，颜色随中队主色，_update 时设）
-	var title_row := HBoxContainer.new()
-	title_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	title_row.add_theme_constant_override("separation", 6)
-	vbox.add_child(title_row)
-	_ace_emblem = AceEmblemIcon.new("", Color.WHITE, 7.0)
-	_ace_emblem.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	title_row.add_child(_ace_emblem)
-	_ace_title_label = Label.new()
-	_ace_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_ace_title_label.add_theme_font_size_override("font_size", 11)
-	title_row.add_child(_ace_title_label)
-
-	# 分段条（段数随编成 2~8 变化，_update 时按需重建）
-	_ace_seg_box = HBoxContainer.new()
-	_ace_seg_box.add_theme_constant_override("separation", 3)
-	_ace_seg_box.alignment = BoxContainer.ALIGNMENT_CENTER
-	vbox.add_child(_ace_seg_box)
-
+	_ace_panel = AceBattleBarScript.new()
+	# 保留既有测试与调试面板读取的引用；视觉和更新逻辑由共享控件唯一拥有。
+	_ace_title_label = _ace_panel.title_label
+	_ace_emblem = _ace_panel.emblem
+	_ace_seg_box = _ace_panel.segment_box
+	_ace_segments = _ace_panel.segments
 	_add_ui_child(_ace_panel)
 
 func _update_ace_panel() -> void:
@@ -1720,45 +1706,60 @@ func _update_ace_panel() -> void:
 		return
 	var info: Dictionary = AceReinforcementEvent.battle_bar_info()
 	# BOSS 条优先（同屏窗口极小：BOSS 阶段王牌已撤离）
-	if info.is_empty() or (_boss_panel and _boss_panel.visible):
+	if info.is_empty() or (_boss_panel and _boss_panel.visible) \
+			or (_crucible_ace_row and _crucible_ace_row.visible):
 		_ace_panel.visible = false
 		return
-	_ace_panel.visible = true
-	var alive: Array = info.get("alive", [])
-	var col: Color = info.get("color", Color(1.0, 0.3, 0.3))
-	_ace_title_label.text = String(info.get("codename", ""))
-	_ace_title_label.add_theme_color_override("font_color", col.lightened(0.25))
-	_ace_emblem.set_emblem(String(info.get("id", "")), col.lightened(0.15))
-	# 段数变化（换队/首建）→ 重建
-	if _ace_segments.size() != alive.size():
-		for seg in _ace_segments:
-			seg.queue_free()
-		_ace_segments.clear()
-		for i in range(alive.size()):
-			var seg := Panel.new()
-			seg.custom_minimum_size = Vector2(ACE_SEG_W, ACE_SEG_H)
-			_ace_seg_box.add_child(seg)
-			_ace_segments.append(seg)
-	# 段状态：存活=主色 / 阵亡=暗；0 号段（长机）顶边亮色描边作三角位标
-	for i in range(_ace_segments.size()):
-		var sb := StyleBoxFlat.new()
-		sb.bg_color = col if bool(alive[i]) else ACE_SEG_DEAD
-		sb.set_corner_radius_all(1)
-		if i == 0:
-			sb.border_width_top = 2
-			sb.border_color = col.lightened(0.55) if bool(alive[i]) else Color(0.45, 0.42, 0.45)
-		_ace_segments[i].add_theme_stylebox_override("panel", sb)
+	_ace_panel.set_info(info)
+	_ace_segments = _ace_panel.segments
+
+
+func _set_crucible_ace_entries(entries: Array[Dictionary]) -> void:
+	if _crucible_ace_row == null:
+		return
+	if _crucible_ace_bars.size() != entries.size():
+		for bar in _crucible_ace_bars:
+			if is_instance_valid(bar):
+				bar.visible = false
+				if bar.get_parent() == _crucible_ace_row:
+					_crucible_ace_row.remove_child(bar)
+				bar.queue_free()
+		_crucible_ace_bars.clear()
+		for _i in range(entries.size()):
+			var bar = AceBattleBarScript.new()
+			_crucible_ace_row.add_child(bar)
+			_crucible_ace_bars.append(bar)
+	for i in range(entries.size()):
+		var entry := entries[i]
+		var members: Array = entry.get("members", [])
+		var alive: Array = []
+		alive.resize(members.size())
+		alive.fill(true)
+		_crucible_ace_bars[i].set_info({
+			"id": entry.get("id", ""),
+			"codename": entry.get("name", ""),
+			"color": entry.get("color", Color(1.0, 0.3, 0.3)),
+			"alive": alive,
+		})
+	_crucible_ace_row.visible = not entries.is_empty()
 
 func _update_boss_panel() -> void:
 	if _boss_panel == null:
 		return
 	if not game_scene or not game_scene._spawner:
 		_boss_panel.visible = false
+		_set_crucible_ace_entries([])
 		return
 	var boss: BossEncounter = game_scene._spawner.get_boss()
 	if boss == null or not boss.active or not boss.hud_visible:
 		_boss_panel.visible = false
+		_set_crucible_ace_entries([])
 		return
+	if boss.hud_style == &"ace_roster":
+		_boss_panel.visible = false
+		_set_crucible_ace_entries(boss.get_hud_entries())
+		return
+	_set_crucible_ace_entries([])
 
 	var all_members: Array = boss.get_display_members()
 	if all_members.is_empty():

@@ -4,8 +4,8 @@
 ## 主色 / 血条段数 / 留档 id=键名）与调度时段档全部单点登记在这里，
 ## 禁止散写进事件类 / squad 子类。
 ##
-## implemented=false 的行只作包装 / 生涯档案的数据源（档案页剪影等），
-## 调度器 pool_at() 不会选它 —— 各队实装批翻 true 即入轮换。
+## implemented=false 的行只作包装 / 生涯档案的数据源（档案页剪影等）；
+## implemented=true 仍可用 nemesis / crucible_only 显式排除普通轮换。
 ##
 ## 呼号铁律（tier §2.7）：固定呼号开局 reserve_permanent 打标（杂鱼抽不到）、
 ## **永不 recycle**（名字属于角色，不属于尸体）。本表呼号均不在 CALLSIGNS 800 池内；
@@ -177,11 +177,166 @@ const PROFILES: Dictionary = {
 		"balance": {"access_s": 40.0, "extra_units": 0.0}, # 8 DU → 80s
 		"implemented": true,
 	},
+	"moirai": {
+		"codename": "MOIRAI", "name_key": "ACE_SQUAD_MOIRAI_NAME",
+		"lore_key": "ACE_SQUAD_MOIRAI_LORE", "color": Color(0.78, 0.25, 0.72),
+		"pool_time": 210.0, "callsigns": ["Clotho", "Lachesis", "Atropos"],
+		"dodge": 0.20, "xp_per_kill": 120, "ai_level": 0.95,
+		"squad_size": 3, "tactics": "gladiator", "formation": "diamond", "flares": 1,
+		"theme": "fate_roles", "balance": {"access_s": 25.0, "extra_units": 3.0},
+		"elements": [
+			{"type": SurvivorSpawner.EnemyType.F22, "count": 1, "style": "schemer", "gun": "ace"},
+			{"type": SurvivorSpawner.EnemyType.F35, "count": 1, "style": "gladiator", "gun": "ace"},
+			{"type": SurvivorSpawner.EnemyType.YF23, "count": 1, "style": "schemer", "gun": "ace"},
+		], "implemented": true,
+	},
+	"lash": {
+		"codename": "LASH", "name_key": "ACE_SQUAD_LASH_NAME",
+		"lore_key": "ACE_SQUAD_LASH_LORE", "color": Color(0.93, 0.20, 0.38),
+		"pool_time": 210.0, "callsigns": ["Handle", "Crack", "Whipcrack", "Tip"],
+		"dodge": 0.20, "xp_per_kill": 110, "ai_level": 0.95,
+		"squad_size": 4, "enemy_type": SurvivorSpawner.EnemyType.SU57,
+		"tactics": "gladiator", "gun": "ace", "base_res": "res://resources/enemy_su57.tres",
+		"formation": "line", "line_spacing": 420.0, "flares": 1,
+		"theme": "whip_relay", "balance": {"access_s": 20.0, "extra_units": 2.0},
+		"implemented": true,
+	},
+	"ido": {
+		"codename": "IDO", "name_key": "ACE_SQUAD_IDO_NAME",
+		"lore_key": "ACE_SQUAD_IDO_LORE", "color": Color(0.42, 0.36, 0.95),
+		"pool_time": 210.0,
+		"callsigns": ["A639", "Node-09A", "Node-09B", "Node-10A", "Node-10B", "Node-11", "Node-12", "Rootnode"],
+		"dodge": 0.10, "xp_per_kill": 80, "ai_level": 0.94,
+		"squad_size": 8, "tactics": "gladiator", "formation": "diamond", "flares": 2,
+		"theme": "ido_network", "shared_flare_pool": 2,
+		"balance": {"access_s": 20.0, "extra_units": 0.0},
+		"elements": [
+			{"type": SurvivorSpawner.EnemyType.UAV_COMMANDER, "count": 1, "style": "schemer", "gun": "keep", "params_res": "res://resources/enemy_uav_commander.tres"},
+			{"type": SurvivorSpawner.EnemyType.UAV, "count": 2, "style": "gladiator", "gun": "keep", "params_res": "res://resources/enemy_uav.tres"},
+			{"type": SurvivorSpawner.EnemyType.UCAV, "count": 2, "style": "schemer", "gun": "none", "params_res": "res://resources/enemy_uav_missile.tres"},
+			{"type": SurvivorSpawner.EnemyType.UAV, "count": 1, "style": "gladiator", "gun": "keep", "params_res": "res://resources/enemy_uav_mg_laser.tres"},
+			{"type": SurvivorSpawner.EnemyType.UAV, "count": 1, "style": "schemer", "gun": "none", "params_res": "res://resources/enemy_uav_railgun.tres"},
+			{"type": SurvivorSpawner.EnemyType.CRE, "count": 1, "style": "gladiator", "gun": "keep", "params_res": "res://resources/enemy_uav_mqx.tres"},
+		], "implemented": true,
+	},
+	"undertow": {
+		"codename": "UNDERTOW", "name_key": "ACE_SQUAD_UNDERTOW_NAME",
+		"lore_key": "ACE_SQUAD_UNDERTOW_LORE", "color": Color(0.34, 0.28, 0.82),
+		"pool_time": 210.0, "callsigns": ["Wavecrest", "Current", "Trench"],
+		"dodge": 0.20, "xp_per_kill": 120, "ai_level": 0.94,
+		"squad_size": 3, "enemy_type": SurvivorSpawner.EnemyType.TYPHOON,
+		"tactics": "gladiator", "gun": "ace", "base_res": "res://resources/enemy_typhoon.tres",
+		"formation": "line", "line_spacing": 520.0, "flares": 1,
+		"theme": "altitude_chain", "balance": {"access_s": 25.0, "extra_units": 3.0},
+		"implemented": true,
+	},
+	"croupier": {
+		"codename": "CROUPIER", "name_key": "ACE_SQUAD_CROUPIER_NAME",
+		"lore_key": "ACE_SQUAD_CROUPIER_LORE", "color": Color(0.82, 0.18, 0.52),
+		"pool_time": 210.0, "callsigns": ["House", "Pitboss", "Blackcard", "Redcard"],
+		"dodge": 0.20, "xp_per_kill": 110, "ai_level": 0.94,
+		"squad_size": 4, "tactics": "gladiator", "formation": "diamond", "flares": 1,
+		"theme": "deal_targets", "balance": {"access_s": 30.0, "extra_units": 0.0},
+		"elements": [
+			{"type": SurvivorSpawner.EnemyType.F15E, "count": 2, "style": "schemer", "gun": "ace"},
+			{"type": SurvivorSpawner.EnemyType.SU34, "count": 2, "style": "gladiator", "gun": "ace"},
+		], "implemented": true,
+	},
+	"tallyman": {
+		"codename": "TALLYMAN", "name_key": "ACE_SQUAD_TALLYMAN_NAME",
+		"lore_key": "ACE_SQUAD_TALLYMAN_LORE", "color": Color(0.68, 0.22, 0.62),
+		"pool_time": 210.0, "callsigns": ["Ledger", "Debit", "Credit", "Balance"],
+		"dodge": 0.20, "xp_per_kill": 110, "ai_level": 0.95,
+		"squad_size": 4, "enemy_type": SurvivorSpawner.EnemyType.GRIPEN_E,
+		"tactics": "schemer", "gun": "ace", "base_res": "res://resources/enemy_gripen_e.tres",
+		"formation": "diamond", "flares": 1, "theme": "weakest_target",
+		"balance": {"access_s": 30.0, "extra_units": 0.0}, "implemented": true,
+	},
+	"palimpsest": {
+		"codename": "PALIMPSEST", "name_key": "ACE_SQUAD_PALIMPSEST_NAME",
+		"lore_key": "ACE_SQUAD_PALIMPSEST_LORE", "color": Color(0.58, 0.30, 0.76),
+		"pool_time": 210.0, "callsigns": ["Sabre", "Century", "DoubleUgly", "FourthGen"],
+		"dodge": 0.20, "xp_per_kill": 110, "ai_level": 0.94,
+		"squad_size": 4, "tactics": "gladiator", "formation": "line", "line_spacing": 480.0,
+		"flares": 1, "theme": "generations", "balance": {"access_s": 30.0, "extra_units": 0.0},
+		"elements": [
+			{"type": SurvivorSpawner.EnemyType.F86, "count": 1, "style": "gladiator", "gun": "ace"},
+			{"type": SurvivorSpawner.EnemyType.F104, "count": 1, "style": "lancer", "gun": "ace"},
+			{"type": SurvivorSpawner.EnemyType.F4E, "count": 1, "style": "schemer", "gun": "ace"},
+			{"type": SurvivorSpawner.EnemyType.F15C, "count": 1, "style": "gladiator", "gun": "ace"},
+		], "implemented": true,
+	},
+	"quorum": {
+		"codename": "QUORUM", "name_key": "ACE_SQUAD_QUORUM_NAME",
+		"lore_key": "ACE_SQUAD_QUORUM_LORE", "color": Color(0.72, 0.25, 0.65),
+		"pool_time": 210.0, "callsigns": ["Motion", "Second", "Veto"],
+		"dodge": 0.20, "xp_per_kill": 120, "ai_level": 0.96,
+		"squad_size": 3, "tactics": "gladiator", "formation": "diamond", "flares": 1,
+		"theme": "consensus", "balance": {"access_s": 25.0, "extra_units": 3.0},
+		"elements": [
+			{"type": SurvivorSpawner.EnemyType.RAFALE, "count": 1, "style": "gladiator", "gun": "ace"},
+			{"type": SurvivorSpawner.EnemyType.TYPHOON, "count": 1, "style": "lancer", "gun": "ace"},
+			{"type": SurvivorSpawner.EnemyType.GRIPEN_E, "count": 1, "style": "schemer", "gun": "ace"},
+		], "implemented": true,
+	},
+	"deadeye": {
+		"codename": "DEADEYE", "name_key": "ACE_SQUAD_DEADEYE_NAME",
+		"lore_key": "ACE_SQUAD_DEADEYE_LORE", "color": Color(0.88, 0.25, 0.46),
+		"pool_time": 210.0, "callsigns": ["Gunsight", "Deflection", "MilDot", "Fall"],
+		"dodge": 0.20, "xp_per_kill": 110, "ai_level": 0.96,
+		"squad_size": 4, "tactics": "schemer", "formation": "line", "line_spacing": 560.0,
+		"flares": 1, "theme": "crossfire", "balance": {"access_s": 30.0, "extra_units": 0.0},
+		"elements": [
+			{"type": SurvivorSpawner.EnemyType.VIGGEN, "count": 2, "style": "schemer", "gun": "ace"},
+			{"type": SurvivorSpawner.EnemyType.TORNADO, "count": 2, "style": "schemer", "gun": "ace"},
+		], "implemented": true,
+	},
+	"mirror": {
+		"codename": "MIRROR", "name_key": "ACE_SQUAD_MIRROR_NAME",
+		"lore_key": "ACE_SQUAD_MIRROR_LORE", "color": Color(0.48, 0.32, 0.86),
+		"pool_time": 210.0, "callsigns": ["LookingGlass", "Argent", "Replica"],
+		"dodge": 0.20, "xp_per_kill": 120, "ai_level": 0.96,
+		"squad_size": 3, "enemy_type": SurvivorSpawner.EnemyType.F15SMTD,
+		"tactics": "gladiator", "gun": "ace", "base_res": "res://resources/enemy_f15smtd.tres",
+		"formation": "diamond", "flares": 1, "theme": "mirror_player",
+		"balance": {"access_s": 25.0, "extra_units": 3.0}, "implemented": true,
+	},
+	"funeral": {
+		"codename": "FUNERAL", "name_key": "ACE_SQUAD_FUNERAL_NAME",
+		"lore_key": "ACE_SQUAD_FUNERAL_LORE", "color": Color(0.42, 0.16, 0.52),
+		"pool_time": 210.0, "callsigns": ["Bell", "Pall", "Grave", "Lament"],
+		"dodge": 0.20, "xp_per_kill": 110, "ai_level": 0.96,
+		"squad_size": 4, "enemy_type": SurvivorSpawner.EnemyType.J20,
+		"tactics": "gladiator", "gun": "ace", "base_res": "res://resources/enemy_j20.tres",
+		"formation": "diamond", "flares": 1, "theme": "empty_slot_revenge",
+		"balance": {"access_s": 20.0, "extra_units": 2.0}, "implemented": true,
+	},
+	"hound": {
+		"codename": "HOUND", "name_key": "ACE_SQUAD_HOUND_NAME",
+		"lore_key": "ACE_SQUAD_HOUND_LORE", "color": Color(0.95, 0.46, 0.22),
+		"pool_time": 0.0, "callsigns": ["Hound-1", "Hound-2"],
+		"dodge": 0.50, "xp_per_kill": 0, "ai_level": 1.0,
+		"squad_size": 2, "tactics": "gladiator", "formation": "line",
+		"line_spacing": 520.0, "flares": 3, "theme": "hound_betrayal",
+		"boss_grade": true, "crucible_only": true,
+		"balance": {"access_s": 30.0, "extra_units": 6.0},
+		"elements": [
+			{"type": SurvivorSpawner.EnemyType.F15, "count": 1, "style": "schemer",
+				"gun": "ace", "missile_count": 10, "flares": 3, "ai_level": 1.0,
+				"herbst": {"max_uses": 2, "requires_flares_empty": true}},
+			{"type": SurvivorSpawner.EnemyType.F15, "count": 1, "style": "gladiator",
+				"gun": "ace", "missile_count": 10, "flares": 3, "ai_level": 1.0,
+				"herbst": {"max_uses": 2, "requires_flares_empty": true}},
+		],
+		"implemented": true,
+	},
 }
 
 ## 代号词本身撞 CALLSIGNS 800 池的情况（"Vulture"/"Orion"/"Wraith" 均在池内）：
 ## 一并永久保留，防止杂鱼顶着中队代号乱入叙事
-const EXTRA_RESERVED: Array = ["Vulture", "Orion", "Wraith", "Marathon", "Gimmick"]
+const EXTRA_RESERVED: Array = ["Vulture", "Orion", "Wraith", "Marathon", "Gimmick",
+	"Moirai", "Lash", "Ido", "Undertow", "Croupier", "Tallyman", "Palimpsest",
+	"Quorum", "Deadeye", "Mirror", "Funeral"]
 
 static func get_profile(id: String) -> Dictionary:
 	return PROFILES.get(id, {})
@@ -202,6 +357,8 @@ static func pool_at(game_time: float) -> Array:
 			continue
 		if bool(p.get("nemesis", false)):
 			continue   # 宿敌走独立轨道（tier §2.9 / §3.8）
+		if bool(p.get("crucible_only", false)):
+			continue   # Hound 背叛版只属于 The Crucible，不污染常规王牌轮换
 		if game_time >= float(p.get("pool_time", FIRST_WAVE_TIME_S)):
 			out.append(id)
 	out.sort_custom(func(a, b):
@@ -248,7 +405,9 @@ static func defeat_units(id: String) -> float:
 	var default_flares := maxi(0, int(p.get("flares", 1)))
 	var units := 0.0
 	var elements: Array = p.get("elements", [])
-	if elements.is_empty():
+	if p.has("shared_flare_pool"):
+		units = float(int(p.get("squad_size", 0)) + maxi(0, int(p["shared_flare_pool"])))
+	elif elements.is_empty():
 		units = float(int(p.get("squad_size", 0)) * (1 + default_flares))
 	else:
 		for e_any in elements:
@@ -257,7 +416,8 @@ static func defeat_units(id: String) -> float:
 			var flares := maxi(0, int(e.get("flares", default_flares)))
 			units += float(count * (1 + flares))
 	var balance: Dictionary = p.get("balance", {})
-	units += maxf(0.0, float(balance.get("extra_units", 0.0)))
+	units += float(balance.get("extra_units", 0.0))
+	units = maxf(units, 0.0)
 	return units
 
 ## 从首次交火到全灭的标准化估值。access_s 含追击、回转、重获射击窗口等不可输出时间。

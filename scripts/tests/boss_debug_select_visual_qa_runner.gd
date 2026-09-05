@@ -139,4 +139,169 @@ func _ready() -> void:
 	final_war.queue_free()
 	for _frame in range(3):
 		await get_tree().process_frame
-	get_tree().quit(0 if base_ok and final_war_ok and final_err == OK else 1)
+
+	# 第五段：超级武器列车真实沙漠 Boss Debug，验收底图铁路、十四节超长编组与活动车钩。
+	get_tree().set_meta("boss_debug_mode", true)
+	get_tree().set_meta("boss_debug_id", "ARMORED_TRAIN")
+	get_tree().set_meta("boss_debug_scenario", "full")
+	get_tree().set_meta("survivor_map_id", "desert_railway_preview")
+	get_tree().set_meta("ugc_map_path", "res://resources/maps/desert_railway_preview.aglmap")
+	get_tree().set_meta("map_preview_only", false)
+	get_tree().set_meta("survivor_aircraft_resource", "res://resources/player/playable_f47.tres")
+	get_tree().set_meta("boss_debug_node_id", "f47")
+	get_tree().set_meta("boss_debug_level", 17)
+	var desert_train := SURVIVOR_MODE_SCENE.instantiate()
+	add_child(desert_train)
+	var arrival_state_ready := await _wait_for_train_arrival_state(desert_train, 5000)
+	var train_encounter: BossEncounter = desert_train._spawner.get_boss()
+	var train_members: Array = train_encounter.get_display_members() if train_encounter else []
+	var train_manager: Variant = train_encounter._train if train_encounter is ArmoredTrainBoss else null
+	await RenderingServer.frame_post_draw
+	var arrival_path := "res://bench/results/boss_debug_armored_train_arrival.png"
+	var arrival_err := get_viewport().get_texture().get_image().save_png(arrival_path)
+	var arrival_ingress: bool = typeof(train_manager) == TYPE_OBJECT \
+		and train_manager != null and is_instance_valid(train_manager) \
+		and bool(train_manager.arrival_ingress_active)
+	var safe_view := get_viewport().get_visible_rect().grow(-180.0)
+	var canvas_transform := get_viewport().get_canvas_transform()
+	var all_train_in_frame := train_members.size() == 14
+	var train_screen_bounds := Rect2()
+	for member in train_members:
+		var member_screen: Vector2 = canvas_transform * member.global_position
+		if train_screen_bounds.size == Vector2.ZERO:
+			train_screen_bounds = Rect2(member_screen, Vector2.ONE)
+		else:
+			train_screen_bounds = train_screen_bounds.expand(member_screen)
+		all_train_in_frame = all_train_in_frame \
+			and safe_view.has_point(member_screen)
+	var arrival_follow_ok: bool = arrival_state_ready and train_members.size() > 6 \
+		and desert_train._camera_ctrl.cine_target == train_members[6] \
+		and is_equal_approx(desert_train._camera_ctrl.target_zoom, 0.26) \
+		and arrival_ingress and all_train_in_frame
+	print("[boss_debug_select_visual] train_arrival_path=%s err=%d state_ready=%s follow_center=%s all_in_frame=%s zoom=%.2f ingress=%s screen_center=%s actor6=%s bounds=%s" % [
+		arrival_path, arrival_err, str(arrival_state_ready),
+		str(arrival_follow_ok), str(all_train_in_frame),
+		desert_train._camera_ctrl.target_zoom,
+		str(arrival_ingress), str(desert_train.camera.get_screen_center_position()),
+		str(train_members[6].global_position if train_members.size() > 6 else Vector2.INF),
+		str(train_screen_bounds)])
+	var train_ok: bool = desert_train._map_id == "desert_railway_preview" \
+		and desert_train._ugc_doc != null and desert_train._map_features != null \
+		and train_encounter != null and train_encounter.boss_id == "ARMORED_TRAIN" \
+		and train_encounter.active and train_members.size() == 14 \
+		and typeof(train_manager) == TYPE_OBJECT and train_manager != null \
+		and is_instance_valid(train_manager) and float(train_manager.route_progress) > 0.0 \
+		and arrival_err == OK and arrival_follow_ok
+	if typeof(train_manager) == TYPE_OBJECT and train_manager != null \
+			and is_instance_valid(train_manager) and not train_members.is_empty():
+		# Visual 定位到铁路中段弯道；十四节的前后转向架仍全部压在正式底图铁路上。
+		train_manager._traveled_px = train_manager._route_length_px * 0.45
+		train_manager._update_movement(0.0)
+		Presentation.clear_all()
+		desert_train._camera_ctrl.set_follow_target(train_members[-1])
+		desert_train._camera_ctrl.snap_to_follow()
+		desert_train.camera.global_position = train_members[-1].global_position
+		desert_train._camera_ctrl.target_zoom = 0.48
+		desert_train._camera_ctrl._base_zoom = 0.48
+		desert_train.camera.zoom = Vector2(0.48, 0.48)
+	PerfBuckets.configure_runtime_panel(true)
+	for _frame in range(240):
+		await get_tree().process_frame
+	var train_perf := PerfBuckets.runtime_frame_stats()
+	PerfBuckets.configure_runtime_panel(false)
+	train_ok = train_ok and int(train_perf.get("samples", 0)) == 120 \
+		and int(train_perf.get("below_60", 0)) == 0
+	await RenderingServer.frame_post_draw
+	var train_path := "res://bench/results/boss_debug_armored_train_desert.png"
+	var train_err := get_viewport().get_texture().get_image().save_png(train_path)
+	print("[boss_debug_select_visual] train_path=%s err=%d map=%s members=%d active=%s progress=%.3f train_pos=%s camera_pos=%s visible=%s perf=%s" % [
+		train_path, train_err, desert_train._map_id, train_members.size(),
+		str(train_encounter.active if train_encounter else false),
+		float(train_manager.route_progress) if typeof(train_manager) == TYPE_OBJECT \
+			and train_manager != null and is_instance_valid(train_manager) else -1.0,
+		str(train_members[-1].global_position) if not train_members.is_empty() else "none",
+		str(desert_train.camera.global_position),
+		str(train_members[0].visible) if not train_members.is_empty() else "none",
+		str(train_perf)])
+	Presentation.clear_all()
+	desert_train.queue_free()
+	for _frame in range(3):
+		await get_tree().process_frame
+
+	# 第六段：独立陆地航母。验收连续履带陆战平台与真实停机/起飞，明确不复用列车编组。
+	get_tree().set_meta("boss_debug_mode", true)
+	get_tree().set_meta("boss_debug_id", "LAND_CARRIER")
+	get_tree().set_meta("boss_debug_scenario", "full")
+	get_tree().set_meta("survivor_map_id", "desert_railway_preview")
+	get_tree().set_meta("ugc_map_path", "res://resources/maps/desert_railway_preview.aglmap")
+	get_tree().set_meta("map_preview_only", false)
+	get_tree().set_meta("survivor_aircraft_resource", "res://resources/player/playable_f47.tres")
+	get_tree().set_meta("boss_debug_node_id", "f47")
+	get_tree().set_meta("boss_debug_level", 17)
+	var desert_carrier := SURVIVOR_MODE_SCENE.instantiate()
+	add_child(desert_carrier)
+	for _frame in range(420):
+		await get_tree().process_frame
+	var carrier_encounter: BossEncounter = desert_carrier._spawner.get_boss()
+	var carrier_members: Array = carrier_encounter.get_display_members() if carrier_encounter else []
+	var carrier_ok: bool = desert_carrier._map_id == "desert_railway_preview" \
+		and desert_carrier._ugc_doc != null and desert_carrier._map_features != null \
+		and carrier_encounter != null and carrier_encounter.boss_id == "LAND_CARRIER" \
+		and carrier_encounter.active and carrier_members.size() == 1 \
+		and is_instance_valid(carrier_members[0]) \
+		and carrier_members[0].parked_aircraft_count() == 2 # 接战后首波两架已真实起飞
+	if not carrier_members.is_empty() and is_instance_valid(carrier_members[0]):
+		Presentation.clear_all()
+		desert_carrier._camera_ctrl.set_follow_target(carrier_members[0])
+		desert_carrier._camera_ctrl.snap_to_follow()
+		desert_carrier.camera.global_position = carrier_members[0].global_position
+		desert_carrier._camera_ctrl.target_zoom = 0.72
+		desert_carrier._camera_ctrl._base_zoom = 0.72
+		desert_carrier.camera.zoom = Vector2(0.72, 0.72)
+	for _frame in range(4):
+		await get_tree().process_frame
+	await RenderingServer.frame_post_draw
+	var carrier_path := "res://bench/results/boss_debug_land_carrier_desert.png"
+	var carrier_err := get_viewport().get_texture().get_image().save_png(carrier_path)
+	print("[boss_debug_select_visual] land_carrier_path=%s err=%d map=%s members=%d active=%s parked=%d pos=%s camera_pos=%s visible=%s" % [
+		carrier_path, carrier_err, desert_carrier._map_id, carrier_members.size(),
+		str(carrier_encounter.active if carrier_encounter else false),
+		carrier_members[0].parked_aircraft_count() if not carrier_members.is_empty() else -1,
+		str(carrier_members[0].global_position) if not carrier_members.is_empty() else "none",
+		str(desert_carrier.camera.global_position),
+		str(carrier_members[0].visible) if not carrier_members.is_empty() else "none"])
+	Presentation.clear_all()
+	desert_carrier.queue_free()
+	for _frame in range(3):
+		await get_tree().process_frame
+	get_tree().quit(0 if base_ok and final_war_ok and final_err == OK \
+		and train_ok and train_err == OK and carrier_ok and carrier_err == OK else 1)
+
+
+func _wait_for_train_arrival_state(mode: Variant, timeout_ms: int) -> bool:
+	var deadline := Time.get_ticks_msec() + maxi(timeout_ms, 1)
+	while Time.get_ticks_msec() < deadline:
+		if typeof(mode) != TYPE_OBJECT or mode == null or not is_instance_valid(mode):
+			return false
+		var spawner_raw: Variant = mode.get("_spawner")
+		if typeof(spawner_raw) != TYPE_OBJECT or spawner_raw == null \
+				or not is_instance_valid(spawner_raw):
+			await get_tree().process_frame
+			continue
+		var encounter: BossEncounter = spawner_raw.get_boss()
+		var members: Array = encounter.get_display_members() if encounter else []
+		var manager: Variant = encounter._train if encounter is ArmoredTrainBoss else null
+		var safe_view := get_viewport().get_visible_rect().grow(-180.0)
+		var canvas_transform := get_viewport().get_canvas_transform()
+		var all_in_frame := members.size() == 14
+		for member in members:
+			all_in_frame = all_in_frame and safe_view.has_point(
+				canvas_transform * member.global_position)
+		if members.size() > 6 and typeof(manager) == TYPE_OBJECT and manager != null \
+				and is_instance_valid(manager) and bool(manager.arrival_ingress_active) \
+				and mode._camera_ctrl.cine_target == members[6] \
+				and is_equal_approx(mode._camera_ctrl.target_zoom, 0.26) \
+				and is_equal_approx(mode.camera.zoom.x, 0.26) and all_in_frame:
+			return true
+		await get_tree().process_frame
+	return false

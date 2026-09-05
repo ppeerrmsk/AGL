@@ -14,6 +14,7 @@ extends AceSquad
 const SUPPORT_FLARE_RES := "res://resources/ace_support_flare.tres"
 const ACE_GUN_RES := "res://resources/ace_gun.tres"
 const SU35_BASE_RES := "res://resources/enemy_su35.tres"
+const ThemeControllerScript := preload("res://scripts/survivor/ace_squad_theme_controller.gd")
 
 ## 编成 profile（spec ace-squadron-tier §2.7/§4.3：编成/包装/装备/战术全部单点登记在
 ## AceSquadProfiles，本类只消费——加新队=表里加一行，不再写子类）
@@ -26,6 +27,8 @@ var _base_res := ""
 var _formation := "diamond"
 var _tactics := "gladiator"                ## 队级默认风格（elements 可逐段覆写）
 var _elements: Array = []                  ## 混编分段（tier §3.7 混编条款；空 = 全队同型同风格）
+var _theme := ""                           ## 队级主题 id；空值保持既有行为
+var _theme_controller: RefCounted = null
 
 func _init(pid: String = "marathon") -> void:
 	profile_id = pid
@@ -39,6 +42,7 @@ func _init(pid: String = "marathon") -> void:
 	_base_res = String(prof.get("base_res", SU35_BASE_RES))
 	_formation = String(prof.get("formation", "diamond"))
 	_tactics = String(prof.get("tactics", "gladiator"))
+	_theme = String(prof.get("theme", ""))
 	line_spacing = float(prof.get("line_spacing", 600.0))
 	_elements = prof.get("elements", [])
 	# 编成规模：混编 = elements 计数和；否则 squad_size 字段
@@ -109,15 +113,6 @@ func _configure_spawn(ac: Aircraft, i: int, _sq: Squad, _ai: AIController) -> vo
 	# 机炮闪避（tier §2.2 分档；注入既有 bullet_dodge_chance 骰）
 	ac.bullet_dodge_chance = float(prof.get("dodge", 0.20))
 
-	var p: AircraftParams = ac.params
-	if p == null:
-		return
-	# ── 一发死（2026-07-23 用户定：除 BOSS 外所有空中敌人一击必杀）──
-	# 不再 AceTier.apply_hp(100) —— HP cap 豁免是 BOSS 专属。支援中队 HP 落回
-	# _create_enemy 的一击必杀 cap（≤75），主导弹一发解决；防御全靠那 1 枚必定躲的 flare。
-	# ac.hp 同步到 cap 值（p.max_hp 此时已是 _create_enemy 缩放+cap 后的 ≤75）。
-	ac.hp = p.max_hp
-
 	# ── element 覆写（tier §3.7 混编条款）：无混编时回落 profile 级默认 ──
 	var e := _element_of(i)
 	var style := _style_of(i)
@@ -130,6 +125,24 @@ func _configure_spawn(ac: Aircraft, i: int, _sq: Squad, _ai: AIController) -> vo
 	var ai_level := float(e.get("ai_level", prof_d.get("ai_level", 0.0)))
 	var joust: Dictionary = e.get("joust", prof_d.get("joust", {}))
 	var herbst: Dictionary = e.get("herbst", prof_d.get("herbst", {}))
+	# IDO 等混合无人机允许 element 直接选择已有参数资源；依然走同一个生成器、
+	# 同一击必杀 cap 与统一 Ace 后处理，不复制一套专用 spawn 生命周期。
+	var params_res := String(e.get("params_res", ""))
+	if params_res != "":
+		base_res = params_res
+		var loaded := load(params_res) as AircraftParams
+		if loaded != null:
+			ac.params = _duplicate_aircraft_params(loaded)
+	var p: AircraftParams = ac.params
+	if p == null:
+		return
+	# ── 一发死（2026-07-23 用户定：除 BOSS 外所有空中敌人一击必杀）──
+	p.max_hp = minf(p.max_hp, SurvivorData.ENEMY_HP_MISSILE_CAP)
+	if bool(prof_d.get("boss_grade", false)):
+		# Hound 背叛版属于 Crucible 决战的显式 Boss 级例外，复用 AceTier 两发击破值。
+		p.max_hp = AceTier.MAX_HP
+		ac.set_meta(&"ace_boss_grade", true)
+	ac.hp = p.max_hp
 	# element 级机炮闪避覆写（tier §2.2 分档：Teacher 特高 0.50 等）
 	if e.has("dodge"):
 		ac.bullet_dodge_chance = float(e["dodge"])
@@ -180,7 +193,7 @@ func _configure_spawn(ac: Aircraft, i: int, _sq: Squad, _ai: AIController) -> vo
 		p.flare.max_flares = flares
 		ac.flares_remaining = p.flare.max_flares
 	ac.enable_flare_reload = false
-	# ── 机动规避个体（保留扩展口；当前六支非宿敌队无人声明 evade）：
+	# ── 机动规避个体（保留扩展口；当前轮换队无人声明 evade）：
 	#    ace_evader 让基类不打 boss_attacker，既有 beam/notch 行为链对其放行。──
 	if bool(e.get("evade", false)) and _ai:
 		ac.set_meta(&"ace_evader", true)
@@ -201,6 +214,21 @@ func _configure_spawn(ac: Aircraft, i: int, _sq: Squad, _ai: AIController) -> vo
 		ac.add_child(hm)
 	# ── 专属涂装：中队主色（727 包装批紫红系，金橙退役）──
 	p.icon_color = AceSquadProfiles.color(profile_id)
+	if i == 0 and _theme != "":
+		_theme_controller = ThemeControllerScript.new(self, _theme, _player)
+
+
+static func _duplicate_aircraft_params(source: AircraftParams) -> AircraftParams:
+	var p := source.duplicate(true) as AircraftParams
+	if p == null:
+		return null
+	if p.missile: p.missile = p.missile.duplicate()
+	if p.secondary_missile: p.secondary_missile = p.secondary_missile.duplicate()
+	if p.gun: p.gun = p.gun.duplicate()
+	if p.flare: p.flare = p.flare.duplicate()
+	if p.rocket: p.rocket = p.rocket.duplicate()
+	if p.combat: p.combat = p.combat.duplicate()
+	return p
 
 # ══════════════════════════════════════════════
 #  骑士（lancer）分支：角色 / 阵型 / PURSUIT / 战术钩子
@@ -239,14 +267,29 @@ func _get_formation_offsets(entry_dir: Vector2, lateral_axis: Vector2) -> Array[
 func _tactics_enter() -> void:
 	if _lancer:
 		_lancer.enter()
+	update_theme(0.0)
 
 func _tactics_update(delta: float) -> void:
 	if _lancer:
 		_lancer.update(delta)
+	update_theme(delta)
 
 func _tactics_exit() -> void:
 	if _lancer:
 		_lancer.exit()
+
+
+## The Crucible 关闭 AceSquad 的默认战斗态，但仍可低频推进各队可见主题；
+## allow_targeting=false 时目标所有权留给大混战统一仇恨导演。
+func update_theme(delta: float, allow_targeting: bool = true) -> void:
+	if _theme_controller:
+		_theme_controller.update(delta, allow_targeting)
+
+
+func set_player_ref(p: Aircraft) -> void:
+	super.set_player_ref(p)
+	if _theme_controller:
+		_theme_controller.set_player_ref(p)
 
 ## 弹尽（骑士语义；spec ace-lancer-mig31 §2.3）：**存活成员全是骑士且导弹全空** →
 ## 事件层转撤离（打完就走）。混编队（2NDWAVE）只要有非骑士成员在场就绝不撤——

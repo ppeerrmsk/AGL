@@ -698,6 +698,7 @@ func _draw() -> void:
 
 
 func _draw_impl() -> void:
+	AircraftRenderer.clear_unit_status_panel(self)
 	if params == null:
 		return
 

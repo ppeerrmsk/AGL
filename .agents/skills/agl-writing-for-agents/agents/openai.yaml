@@ -1,0 +1,6 @@
+interface:
+  display_name: "AGL Writing for Agents"
+  short_description: "Write AGL agent guidance without creating parallel SSOTs"
+  default_prompt: "Use $agl-writing-for-agents to improve this AGL agent-facing document."
+policy:
+  allow_implicit_invocation: false

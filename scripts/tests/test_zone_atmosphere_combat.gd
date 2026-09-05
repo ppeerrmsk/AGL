@@ -38,8 +38,10 @@ func _test_frequency_gate() -> void:
 			and atmosphere_source.contains("roll, 0.0, 1.0) < ORDINARY_ZONE_CHANCE"),
 		"普通地图气氛战区严格使用 30% 阈值")
 	_check(atmosphere_source.contains("&\"ocean_islands_preview\"") \
+			and atmosphere_source.contains("&\"desert_railway_preview\"") \
+			and ZoneAtmosphereCombat.is_decisive_map("desert_railway_preview") \
 			and mode_source.contains("ZoneAtmosphereCombat.is_decisive_map(_map_id)"),
-		"海洋群岛决战地图全覆盖，普通地图不强制")
+		"海洋群岛与沙漠正式图全覆盖，普通地图不强制")
 	_check(mission_source.contains("if _zone_atmosphere_enabled.has(zone_id):") \
 			and mission_source.contains("ZONE_ATMOSPHERE_SCRIPT.cached_enabled(") \
 			and mission_source.contains("if not _zone_atmosphere_enabled_for_zone(zone_id):"),

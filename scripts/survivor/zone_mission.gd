@@ -226,7 +226,7 @@ func _physics_process(delta: float) -> void:
 	# 2. 遍历所有"玩家可见"（AVAILABLE / SELECTED）的战区：
 	#    - 玩家进入过 → 记录 triggered（无需 Tab 选中）
 	#    - 已 triggered 且全灭 → 发完成信号
-	for z_any in ZoneData.ZONES:
+	for z_any in _zones.get_zone_definitions():
 		var z: Dictionary = z_any
 		var zid: StringName = z["id"]
 		var state := _zones.get_state(zid)
@@ -259,7 +259,7 @@ func _physics_process(delta: float) -> void:
 ## 对 AVAILABLE / SELECTED（即"玩家能看到在地图上的"）战区，
 ## 如果还没刷过地面单位，就刷一次。
 func _ensure_spawned_for_active_zones(delta: float = 0.0) -> void:
-	for z in ZoneData.ZONES:
+	for z in _zones.get_zone_definitions():
 		var zid: StringName = z["id"]
 		var state := _zones.get_state(zid)
 		# LOCKED/CLEARED 不生成；普通 AVAILABLE 还要通过下方玩家相关性激活门。
@@ -2258,7 +2258,7 @@ func is_player_in_active_mission() -> bool:
 func get_nearest_triggered_objective(from_pos: Vector2) -> Dictionary:
 	var best := {}
 	var best_d := INF
-	for z_any in ZoneData.ZONES:
+	for z_any in _zones.get_zone_definitions():
 		var z: Dictionary = z_any
 		var zid: StringName = z["id"]
 		if not _triggered_zones.has(zid) or _completed_zones.has(zid) or _failed_zones.has(zid):
@@ -2507,7 +2507,7 @@ func refresh_active_zones_for_level(except_id: StringName) -> Array[StringName]:
 	var refreshed: Array[StringName] = []
 	if not _zones:
 		return refreshed
-	for z in ZoneData.ZONES:
+	for z in _zones.get_zone_definitions():
 		var zid: StringName = z["id"]
 		if zid == except_id:
 			continue

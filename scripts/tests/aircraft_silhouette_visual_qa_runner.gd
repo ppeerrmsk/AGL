@@ -9,6 +9,7 @@ const SAMPLES: Array[Dictionary] = [
 	{"path": "res://resources/player/player_f15c.tres", "label": "F-15C / PLAYER", "color": Color("4d83e6")},
 	{"path": "res://resources/enemy_f15.tres", "label": "F-15 / ENEMY SAME PNG", "color": Color("e05245")},
 	{"path": "res://resources/player/player_f14.tres", "profile": "res://resources/playable_f14.tres", "label": "F-14 PLAYER / RUNTIME NAME", "color": Color("4d83e6")},
+	{"path": "res://resources/player/player_ea18g.tres", "profile": "res://resources/player/playable_ea18g.tres", "label": "EA-18G / PURPLE RESOURCE LIVERY", "resource_color": true},
 	{"path": "res://resources/enemy_f104.tres", "label": "F-104", "color": Color("4d83e6")},
 	{"path": "res://resources/player/player_f104c.tres", "label": "F-104C / SAME MODEL", "color": Color("4d83e6")},
 	{"path": "res://resources/player/player_f4e.tres", "label": "F-4E / EXISTING MODEL", "color": Color("4d83e6")},
@@ -70,8 +71,9 @@ func _ready() -> void:
 		var center := Vector2(160 + column * 320, 130 + row * 190)
 		var aircraft := PreviewAircraft.new()
 		aircraft.params = resource.duplicate(true)
-		aircraft.params.icon_color = sample.color
-		aircraft.params.wing_color = sample.color
+		if not bool(sample.get("resource_color", false)):
+			aircraft.params.icon_color = sample.color
+			aircraft.params.wing_color = sample.color
 		if sample.has("profile"):
 			var profile := load(String(sample.profile)) as PlayableAircraft
 			if profile == null:

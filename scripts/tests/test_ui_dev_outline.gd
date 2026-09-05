@@ -156,7 +156,7 @@ func _test_edge_bar_contract() -> void:
 	if encounter_layout_start >= 0 and encounter_layout_end > encounter_layout_start:
 		encounter_layout = hud_source.substr(
 			encounter_layout_start, encounter_layout_end - encounter_layout_start)
-	_check("顶部通知与 BOSS / 王牌共用锚位按固定通道依次堆叠",
+	_check("顶部通知与 BOSS / 熔炉多队条 / 王牌共用锚位按固定通道依次堆叠",
 		ZoneHintScript.NOTICE_HEIGHT == 36.0
 		and ZoneHintScript.NOTICE_ANCHOR_LEFT == 0.2
 		and ZoneHintScript.NOTICE_ANCHOR_RIGHT == 0.8
@@ -168,7 +168,7 @@ func _test_edge_bar_contract() -> void:
 				+ SurvivorHUDScript.TOP_ENCOUNTER_GAP
 		and SurvivorHUDScript.TOP_ENCOUNTER_Y == 114.0
 		and encounter_layout_start >= 0 and encounter_layout_end > encounter_layout_start
-		and encounter_layout.count("TOP_ENCOUNTER_Y") == 2
+		and encounter_layout.count("TOP_ENCOUNTER_Y") == 3
 		and ZoneHintScript.NOTIFICATION_LAYER
 			== SurvivorHUDScript.PERSISTENT_HUD_LAYER - 1
 		and ZoneHintScript.SLIDE_DURATION == 0.25

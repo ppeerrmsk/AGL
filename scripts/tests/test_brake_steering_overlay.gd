@@ -70,10 +70,10 @@ func _test_flight_data_and_gun_reference() -> void:
 	ac.hard_brake = true
 	AircraftRenderer.player_ref = ac
 	_check("当前操控机急刹时显示正式机炮射界",
-		AircraftRenderer.should_show_friendly_gun_reference(ac), "hard_brake player")
+		AircraftRenderer.should_show_gun_reference(ac), "hard_brake player")
 	ac.hard_brake = false
 	_check("非 hover 且未急刹时不常驻射界",
-		not AircraftRenderer.should_show_friendly_gun_reference(ac), "idle player")
+		not AircraftRenderer.should_show_gun_reference(ac), "idle player")
 	AircraftRenderer.player_ref = null
 	ac.free()
 

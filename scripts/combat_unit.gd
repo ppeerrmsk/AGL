@@ -69,6 +69,9 @@ const TIER_NAMES := {
 const TEAM_PLAYER: int = 0
 const TEAM_HOSTILE: int = 1
 const TEAM_ALLY: int = 2
+## 3 及以上只供显式剧本自由混战使用：同 team 友好，不同 team 彼此敌对且都敌对 0/1/2。
+## 未打标内容仍只使用 0/1/2，因此原三阵营语义逐字不变。
+const TEAM_FREE_FOR_ALL_BASE: int = 3
 
 ## 通用的友军设施归组元数据（写入方由具体模式负责；共享层只读，不依赖模式类）。
 const META_FRIENDLY_ASSET_GROUP: StringName = &"friendly_asset_group_id"
@@ -86,10 +89,14 @@ const META_FACTION_CONVERSION_LOCKED: StringName = &"faction_conversion_locked"
 
 ## 敌我判定唯一 API：HOSTILE 与其它一切阵营互为敌对；非 HOSTILE 阵营之间互为友好。
 func is_hostile_to(other: CombatUnit) -> bool:
-	return (team == TEAM_HOSTILE) != (other.team == TEAM_HOSTILE)
+	return teams_hostile(team, other.team)
 
 ## 整数 team 版（子弹/导弹只携带 source_team int 时用，语义与 is_hostile_to 一致）
 static func teams_hostile(team_a: int, team_b: int) -> bool:
+	if team_a == team_b:
+		return false
+	if team_a >= TEAM_FREE_FOR_ALL_BASE or team_b >= TEAM_FREE_FOR_ALL_BASE:
+		return true
 	return (team_a == TEAM_HOSTILE) != (team_b == TEAM_HOSTILE)
 
 ## 发射瞬间的气氛伤害倍率。轰炸任务可用 ambient_damage_lod_exempt 显式豁免。

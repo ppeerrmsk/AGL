@@ -6,6 +6,8 @@ extends Node2D
 const PreviewAircraft := preload("res://scripts/tests/aircraft_silhouette_preview.gd")
 const PlayableSetup := preload("res://scripts/survivor/survivor_playable_setup.gd")
 const Tier3SuperCannon := preload("res://scripts/survivor/tier3_super_cannon_part.gd")
+const WorldUnitStatusOverlayScript := preload(
+	"res://scripts/ui/world_unit_status_overlay.gd")
 
 
 func _ready() -> void:
@@ -17,6 +19,11 @@ func _ready() -> void:
 	camera.zoom = Vector2.ONE
 	add_child(camera)
 	camera.make_current()
+	var status_layer := CanvasLayer.new()
+	status_layer.layer = 1
+	add_child(status_layer)
+	var status_overlay := WorldUnitStatusOverlayScript.new()
+	status_layer.add_child(status_overlay)
 
 	var stage := Node2D.new()
 	stage.position = camera.position + Vector2(0.37, -0.43)
@@ -54,10 +61,17 @@ func _ready() -> void:
 	for frame in range(8):
 		for i in range(units.size()):
 			units[i].rotation += 0.035 * float(i + 1)
-			units[i].queue_redraw()
-		# 走生产炮管朝向入口；它必须同步刷新缓存的屏幕空间状态栏矩阵。
+		# 故意不刷新单位自身 `_draw`：覆盖层必须在缓存内容不变时仍保持标签水平。
 		cannon._set_body_heading(cannon.heading - 0.20)
 		await get_tree().process_frame
+	assert(AircraftRenderer.status_panel_entry_count() >= units.size(),
+		"动态旋转回归必须覆盖所有已登记单位标签")
+	# 旋转探针结束后才登记同一 combat target：本样张只验证“紫机体 +
+	# 玩家小队统一蓝线 + 白/蓝状态栏”的颜色解耦，不充当连线动态稳定性证据。
+	for ac in [aircraft, wingman]:
+		ac.combat_target = ground
+		ac.draw_combat_target_line = true
+		ac.queue_redraw()
 	_prime_damage_flash([aircraft, wingman])
 	await get_tree().process_frame
 	await RenderingServer.frame_post_draw
@@ -91,8 +105,9 @@ func _ready() -> void:
 func _spawn_aircraft(parent: Node2D, pos: Vector2, callsign: String,
 		controlled: bool) -> Aircraft:
 	var aircraft := PreviewAircraft.new()
-	var params := load("res://resources/player/player_f14.tres") as AircraftParams
-	var profile := load("res://resources/playable_f14.tres") as PlayableAircraft
+	# 用紫色 EA-18G 作为非默认涂装基准：机体色不得污染蓝色指令线或白/蓝状态栏。
+	var params := load("res://resources/player/player_ea18g.tres") as AircraftParams
+	var profile := load("res://resources/player/playable_ea18g.tres") as PlayableAircraft
 	aircraft.params = params.duplicate(true)
 	PlayableSetup.deep_dup_weapons(aircraft.params)
 	PlayableSetup.apply(aircraft, profile)

@@ -3,7 +3,7 @@ id: three-map-campaign-continuity
 kind: system
 status: draft
 schema_version: 1
-spec_version: 1
+spec_version: 2
 owner: design
 depends_on: [survivor-loop, map-2-3-preview, inrun-weapon-inventory, evolution-attribute-gates, bosses/mother-goose, bosses/hypersonic-splitter]
 reconstruction_complete: false
@@ -17,7 +17,7 @@ reconstruction_complete: false
 
 - **体验目标**：把原本彼此独立的三张地图串成一段有前后因果的完整远征。玩家先后经营两套彼此独立的局内 build，最终选择主力并看到另一支队伍以僚机支援形式回归，让前两图的成长都在决战中获得可见回报。
 - **Litmus 自检**：遵守设计哲学 3「信息察觉优先于数值」、7「战场氛围要热闹」、8「BOSS 战是真机制」与 9「局外成长要节制」。继承的价值必须通过不同队伍、武器、技能与决战阵容直接表现；本系统属于同一次战役内部的局内成长，不把 build 偷渡成永久局外数值。
-- **反模式规避**：不把两套 build 合并成一份平均值；不允许第一图队伍直接跳到第二图继续滚雪球；不让顺延 BOSS 替换已经固定的地图主 BOSS；不把尚未定稿的沙漠敌人、任务或海洋决战任务擅自补完。
+- **反模式规避**：不把两套 build 合并成一份平均值；第二图必须选择与第一图不同的起始机型；不让顺延 BOSS 替换已经固定的地图主 BOSS；不把尚未定稿的海洋决战任务擅自补完。
 
 ## 2. 数据定义（What —— 当前设计权威）
 
@@ -40,10 +40,10 @@ reconstruction_complete: false
 | 阶段 | 玩家称呼 | 当前地图输入 | 出战队伍 | 地图主 BOSS | 内容状态 |
 |---|---|---|---|---|---|
 | 1 | 港湾 | 当前东京湾正式地图 | `TEAM_A`：第一支初始队伍 | **Mother Goose 固定** | 既有生存模式内容为起点；串联适配待设计 |
-| 2 | 沙漠 | `desert_railway_preview` | `TEAM_B`：另一支初始队伍、另一架初始飞机 | **待定** | 敌人、战区任务与主 BOSS 均待后续填写 |
+| 2 | 沙漠 | `desert_railway_preview` | `TEAM_B`：另一支初始队伍、**不得与 TEAM_A 同起始机型** | **Armored Train 固定** | 沙漠正式战区由 `desert-theater` 定义 |
 | 3 | 海洋决战 | `ocean_islands_preview` | 玩家在 A/B 中选一支为 `PRIMARY`；另一支为 `SUPPORT` | **Black Star 固定为最终 BOSS** | 决战任务结构待后续填写 |
 
-`desert_railway_preview` 与 `ocean_islands_preview` 当前仍是可飞行预览输入；将其接入正式战役不自动批准任何敌人、任务、奖励或战区布点。
+`desert_railway_preview` 已作为正式单图关卡发布；`ocean_islands_preview` 仍是可飞行预览输入。三图战役的队伍快照、失败续玩和会师序列仍须在本 spec 定稿后实施。
 
 ### 2.3 两支队伍与 build 快照
 
