@@ -5,6 +5,10 @@
 
 所有 CSV 使用同一表头 `keys,zh,en,ja`，key 在全部分表之间必须唯一。
 
+旧的 `translations.csv` 已于 2026-08-10 拆分并删除；GitHub 历史提交中的该文件不再更新。
+查看当前文本请使用当前分支下的五张源表。最近一次完整性与 BOSS 文案盘点见
+[2026-09-07 本地化审计](../docs/audits/2026-09-07-localization-inventory.md)。
+
 | 文件 | 内容 | 路由规则 |
 |---|---|---|
 | `interface.csv` | 菜单、HUD、战术控件、暂停、编辑器与通用界面文本 | `MENU_*`、`HUD_*`、`TACTIC_*`、`TOOLTIP_*` 等界面前缀 |

@@ -268,12 +268,11 @@ BOSS_DEBUG_GOOSE_DESC,3000HP 巨型空中航母；UAV 蜂群 12-30 + 周期干�
 BOSS_DEBUG_BLACK_STAR_NAME,Black Star（Hyper-A 分裂体）,Black Star (Hyper-A Splitter),ブラックスター（Hyper-A分裂体）
 BOSS_DEBUG_BLACK_STAR_DESC,双根高空俯冲；三次二分至 16 个 G3；可直达代际与招式,Two high-altitude roots; split three times into 16 G3; direct phase tests,高高度から双根突入・三段分裂でG3×16・世代/技を直接テスト
 BOSS_DEBUG_ARMORED_TRAIN_NAME,超级武器列车（逃脱目标）,Superweapon Train (Escape Objective),超兵器列車（離脱目標）
-BOSS_DEBUG_ARMORED_TRAIN_DESC,1800HP 十五节装甲列车；8 个真实防空挂点，车尾驶离东侧即任务失败,1800HP fifteen-car armored train with 8 active AA mounts; the run ends when its tail clears the eastern boundary,1800HP・15両編成の装甲列車。実働対空マウント8基を備え、最後尾が東端を抜けると作戦失敗
+BOSS_DEBUG_ARMORED_TRAIN_DESC,1800HP 十四节装甲列车；从车尾向前逐节击破，每断一节加速 60km/h；配备 8 个防空挂点与侧舷电磁炮，逃脱即任务失败,1800HP fourteen-car armored train; destroy cars from rear to front; each loss adds 60km/h; eight AA mounts and a broadside railgun; escape means mission failure,1800HP・14両編成の装甲列車。最後尾から順に撃破し、1両失うごとに60km/h加速。対空マウント8基と側面レールガンを装備し、逃走すると作戦失敗
 BOSS_DEBUG_LAND_CARRIER_NAME,陆地航母（舰载机母舰）,Land Carrier (Airwing Host),陸上空母（航空隊母艦）
 BOSS_DEBUG_LAND_CARRIER_DESC,1800HP 独立履带航空母舰；甲板停放 4 架舰载机并分批放飞；配备 8 个真实防空挂点,1800HP independent tracked aircraft carrier; parks four deck aircraft; launches them in waves; mounts eight active AA systems,1800HPの独立履帯式航空母艦。甲板に4機を駐機し順次発艦。実働対空マウント8基を装備
 BOSS_DEBUG_THE_CRUCIBLE_NAME,The Crucible（王牌大混战）,The Crucible (Ace Furball),The Crucible（エース大乱戦）
-BOSS_DEBUG_THE_CRUCIBLE_DESC,六支 Ace 队共 27 架依次进入沙漠自由混战；活到最后并全歼敌机,Six Ace squadrons and 27 aircraft enter a desert free-for-all; survive and eliminate them all,6個エース隊・全27機が砂漠の乱戦へ順次突入。生き残り全機撃墜せよ
-CODEX_THE_CRUCIBLE_NAME,THE CRUCIBLE,THE CRUCIBLE,THE CRUCIBLE
+BOSS_DEBUG_THE_CRUCIBLE_DESC,17 支 Ace 队与 Hound 双机共 18 队 73 架接力参战；同时最多三队，灭队 3 秒后补入下一队；活到最后并全歼敌机,17 Ace squadrons and the Hound pair total 18 teams and 73 aircraft; up to three teams fight at once; the next team enters 3s after a team is wiped out; survive and eliminate them all,17個エース隊とHoundの2機、計18隊73機が順次参戦。同時交戦は最大3隊で、1隊全滅の3秒後に次隊が進入。生き残り全機撃墜せよ
 BOSS_BANNER_MOTTO,INVADERS MUST DIE,INVADERS MUST DIE,INVADERS MUST DIE
 BOSS_BANNER_WRAITH_MOTTO,NOTHING BUT THIEVES,NOTHING BUT THIEVES,NOTHING BUT THIEVES
 BOSS_BANNER_CSG_MOTTO,AN AWESOME WAVE,AN AWESOME WAVE,AN AWESOME WAVE
