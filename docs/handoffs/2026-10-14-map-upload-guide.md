@@ -1,8 +1,10 @@
 # 东京湾地图问题研究与接手索引
 
-更新：2026-10-14。请从这里接手：**目标是让全256块东京湾地图在正常拖拽、缩放和完整战斗中持续正确显示，并满足既有预算。** 当前已有真实局部楼体与GPU实验，尚未组成可交付的全图运行路径。最直接的反例是175号完整楼体候选比原生多937面；只优化屋顶还没有解决联合成本。
+更新：2026-10-14。请从这里接手：**目标是让全256块东京湾地图在正常拖拽、缩放和完整战斗中持续正确显示，并满足既有预算。** 当前M20地图可以安装运行，但仍有性能与覆盖问题；新的结构概括方案已有真实局部楼体与GPU实验，尚未组成通过验收的全图替代路径。最直接的反例是175号完整楼体候选比原生多937面；只优化屋顶还没有解决联合成本。
 
 本页是导航和证据目录，不另立设计规范。行为、保护规则和预算以[东京湾地图规格302](../specs/systems/tokyo-bay-volume-map.md)及最新用户授权为准；发现冲突先指出，不用历史实验数值覆盖现行约束。
+
+**复现正常游戏的整图性能问题：** 先按[当前完整运行地图下载与复现](2026-10-14-current-map-runtime-repro.md)安装新增的M20运行包（9个ZIP，约6.6GiB下载）。原175附件只复现局部结构实验，不能代替当前整图。
 
 ## 目录
 
@@ -23,11 +25,12 @@
 |---|---|---|
 | 1 | [当前技术瓶颈报告](../audits/2026-10-14-tokyo-map-technical-status.md) | 哪些成果已真实运行，哪些只是局部证明，当前卡在哪里？ |
 | 2 | [工程接手需求](2026-10-14-tokyo-map-engineering-requirements.md) | 不可改的条件、授权范围、交付物和验收门是什么？ |
-| 3 | [175候选图](map-evidence-20261014/175-candidate.png)、[同位原生控制](map-evidence-20261014/175-control.png)、[原始引擎报告](map-evidence-20261014/175-engine.json) | 当前实物长什么样，显示范围与统计口径有多窄？ |
-| 4 | [规格302](../specs/systems/tokyo-bay-volume-map.md) | 普通住宅如何概括、哪些对象必须保护、预算与连续显示怎么裁决？先读当前正文，再查对应历史条目。 |
-| 5 | [本页问题表](#3-从问题直接定位)和[代码路径](#4-三条路径与代码入口) | 自己准备解决的瓶颈落在哪一层？ |
-| 6 | [可点击证据目录](map-evidence-20261014/README.md) | 结论对应哪份原始记录，哪些数据可以直接下载核对？ |
-| 7 | [地图工程手册](../systems/map-volume-engineering.md)、[地图流水线](../reference/map-pipeline.md)、[实施计划](../planning/tokyo-resident-foundation-2026-10-01.md) | 已有生产工具和历史路线有哪些；哪些步骤依赖未上传产物？ |
+| 3 | [当前M20完整运行包与性能入口](2026-10-14-current-map-runtime-repro.md) | 怎样下载当前实际地图并复现整图卡顿、切档和跨区问题？ |
+| 4 | [175候选图](map-evidence-20261014/175-candidate.png)、[同位原生控制](map-evidence-20261014/175-control.png)、[原始引擎报告](map-evidence-20261014/175-engine.json) | 当前实物长什么样，显示范围与统计口径有多窄？ |
+| 5 | [规格302](../specs/systems/tokyo-bay-volume-map.md) | 普通住宅如何概括、哪些对象必须保护、预算与连续显示怎么裁决？先读当前正文，再查对应历史条目。 |
+| 6 | [本页问题表](#3-从问题直接定位)和[代码路径](#4-三条路径与代码入口) | 自己准备解决的瓶颈落在哪一层？ |
+| 7 | [可点击证据目录](map-evidence-20261014/README.md) | 结论对应哪份原始记录，哪些数据可以直接下载核对？ |
+| 8 | [地图工程手册](../systems/map-volume-engineering.md)、[地图流水线](../reference/map-pipeline.md)、[实施计划](../planning/tokyo-resident-foundation-2026-10-01.md) | 已有生产工具和历史路线有哪些；哪些步骤依赖未上传产物？ |
 
 首次不必顺读全部历史日志或整个巨大规格的变更表。查其他代码域时按[Reference Index](../reference/_INDEX.md) → [Script Index](../reference/script-index.md) → [Code Index](../reference/code-index.md)进入。工程全局约定见[AGENTS.md](../../AGENTS.md)，项目背景见[项目概述](../project-overview.md)。
 
@@ -38,7 +41,8 @@
 | 接手分支 | [`codex/map-handoff-2026-10-14`](https://github.com/ppeerrmsk/AGL/tree/codex/map-handoff-2026-10-14)；后续文档补充在此分支 |
 | 冻结源码基线 | [`1d58939bd5d7be4a00b12e844237fe213b684fc8`](https://github.com/ppeerrmsk/AGL/commit/1d58939bd5d7be4a00b12e844237fe213b684fc8)，包含交接时已保存的源码与必要文档 |
 | 冻结证据Release | [map-handoff-2026-10-14](https://github.com/ppeerrmsk/AGL/releases/tag/map-handoff-2026-10-14)，tag仍指向上述源码基线 |
-| ZIP | `tokyo-map-repro-175-20261014.zip`，10237248字节；另附`SHA256SUMS.txt` |
+| 当前整图运行包 | [M20安装与性能复现](2026-10-14-current-map-runtime-repro.md)：9个`tokyo-m20-runtime-20261014-part*.zip`，另有manifest与独立SHA256SUMS |
+| 局部实验ZIP | `tokyo-map-repro-175-20261014.zip`，10237248字节；另附`SHA256SUMS.txt` |
 | ZIP SHA256 | `38aa06107067cba061ab1fdddb0330422d7cea676991618c6138e1bf159c68fd` |
 | ZIP逐文件清单 | [archive-manifest.json](map-evidence-20261014/archive-manifest.json)；包内原件为`tmp/map-handoff-evidence-20261014/MANIFEST.json` |
 | 网页证据副本来源 | [provenance.json](map-evidence-20261014/provenance.json)，区分原样副本、大数组摘要和仅清理行尾空白的日志阅读副本 |
@@ -77,7 +81,7 @@
 | [manifest](../../scripts/rendering/tokyo_hlod_manifest.gd)、[coverage](../../scripts/rendering/tokyo_hlod_coverage.gd)、[native](../../scripts/rendering/tokyo_hlod_native.gd)、[cache policy](../../scripts/rendering/tokyo_hlod_cache_policy.gd) | 目录身份、覆盖资格、原生来源与缓存策略；与overlay、stream一起读 |
 | [raster_basemap_renderer.gd](../../scripts/survivor/raster_basemap_renderer.gd) | 2D地表瓦片的所有者；底图可见不能证明3D建筑或覆盖已经完整 |
 
-干净clone没有完整安装资产。bench默认不自动接正式安装包；需要明确包身份与有效资源，或按入口要求设置`AGL_TOKYO_INSTALLED_TEST=1`。不要通过随意开关历史环境变量凑出画面后称为正式路径通过。
+干净clone需要先按[当前运行包说明](2026-10-14-current-map-runtime-repro.md)安装M20资产。bench默认不自动接正式安装包；需要明确包身份与有效资源，或按入口要求设置`AGL_TOKYO_INSTALLED_TEST=1`。不要通过随意开关历史环境变量凑出画面后称为正式路径通过。
 
 ### B. 165/166压缩屋顶实验
 
@@ -123,7 +127,7 @@ bench/run.cmd tokyo_cells_lifecycle 1 180 Shadow Visual
 ```powershell
 git clone --branch codex/map-handoff-2026-10-14 https://github.com/ppeerrmsk/AGL.git
 Set-Location AGL
-gh release download map-handoff-2026-10-14 --repo ppeerrmsk/AGL --dir tmp/handoff-download
+gh release download map-handoff-2026-10-14 --repo ppeerrmsk/AGL --pattern 'tokyo-map-repro-175-20261014.zip' --pattern 'SHA256SUMS.txt' --dir tmp/handoff-download
 $handoffZip = 'tmp/handoff-download/tokyo-map-repro-175-20261014.zip'
 $handoffExpected = '38aa06107067cba061ab1fdddb0330422d7cea676991618c6138e1bf159c68fd'
 if ((Get-FileHash $handoffZip -Algorithm SHA256).Hash.ToLower() -ne $handoffExpected) {
@@ -157,19 +161,20 @@ finally {
 
 ## 7. 已提供什么，还缺什么
 
-只读研究可以直接使用[网页证据目录](map-evidence-20261014/README.md)，无需下载ZIP。重放175需要ZIP中的6份冻结输入。修改制作算法后重新生成175则需要更多直接输入，不能与重放混写。
+只读研究可以直接使用[网页证据目录](map-evidence-20261014/README.md)，无需下载ZIP。正常游戏整图复现现在已补齐[当前M20运行包](2026-10-14-current-map-runtime-repro.md)；完整运行依赖与完整离线制作链是两种不同交付。重放175需要ZIP中的6份冻结输入。修改制作算法后重新生成175则需要更多直接输入，不能与重放混写。
 
 | 工作 | 已提供 | 缺口与补齐入口 |
 |---|---|---|
+| 当前M20整图运行/性能问题复现 | [9个运行分包、manifest、安装和复现工具](2026-10-14-current-map-runtime-repro.md) | 资源逐项校验通过；另一台机器的导入/GL性能结果仍需按固定入口实测 |
 | 阅读、定位、重放175 | 完整源码；请求、6份输入、截图、报告、日志和重绑定工具 | 新机器Godot导入与GL重放尚待接手者验证 |
 | 重新生成175 | ZIP内`tmp/tokyo_joint_patch_173.py`、164/172完整JSON、[直接依赖清单](map-evidence-20261014/175-rebuild-inputs.json) | 14项直接依赖中12项未随包，合340990523字节（约325.2MiB）：统一来源、164数组、两块原生层manifest/attributes。清单含每项路径、大小、SHA；不是整图重建的传递依赖闭包 |
 | 复核全256块来源结构 | [scope](map-evidence-20261014/full-source-scope.json)、[spool manifest](map-evidence-20261014/full-source-spool.json)、[routes](map-evidence-20261014/full-source-routes.json)、权威瓦片目录 | 全体源分片、完整ownership对象、PBF及生成二进制未上传；这些元数据证明范围/绑定关系，不代替源对象实物 |
 | 重建原生三层 | [区域源制作器](../../scripts/tools/build_tokyo_volume_region.py)、[归档构建](../../scripts/tests/build_tokyo_region_archive.gd)、[原生构建](../../scripts/tests/build_tokyo_regional_native.gd) | 精确PBF、bbox、city/ground来源、关系/高度/海陆配方与逐步依赖，按工程手册确认目标路线 |
-| 生成/安装正式包 | [增量打包](../../scripts/tests/stage_tokyo_incremental_package.gd)、[安装工具](../../tools/install_tokyo_incremental.ps1) | 已验证资源、目录、覆盖凭据和SHA；安装器不是从空目录重建全地图的生产器 |
+| 生产新的候选安装包 | [增量打包](../../scripts/tests/stage_tokyo_incremental_package.gd)、[安装工具](../../tools/install_tokyo_incremental.ps1) | 已验证资源、目录、覆盖凭据和SHA；安装器不是从空目录重建全地图的生产器 |
 
 PBF原快照`tmp/full_map_detail/kanto-latest.osm.pbf`为483274002字节，SHA256为`4c6abf82e1ca793ef8c498830a103bdc9b209b4b4b65f25f913024de4bb0ecda`，来源记录见[archive manifest](map-evidence-20261014/archive-manifest.json)。重新下载的latest不保证同一数据；若摘要不同，要建立新来源版本，不能改期望摘要冒充原基线。
 
-需要生产某项候选时，先列出所需清单项及其上游，再按需补齐或重建。当前没有可承诺的一条命令完整重建；不要先下载全部历史生成资源，也不要批量执行ZIP内临时脚本。部分脚本文件名沿用旧编号，实际内容已指向新输出，例如`tokyo_joint_patch_173.py`实际生成175。
+需要生产某项候选时，先列出所需清单项及其上游，再按需补齐或重建。当前M20可以直接安装运行，但没有可承诺的一条命令从原始地理数据完整重建；不要先下载全部历史生成资源，也不要批量执行ZIP内临时脚本。部分脚本文件名沿用旧编号，实际内容已指向新输出，例如`tokyo_joint_patch_173.py`实际生成175。
 
 ## 8. 研究推进与验收入口
 
@@ -190,7 +195,7 @@ PBF原快照`tmp/full_map_detail/kanto-latest.osm.pbf`为483274002字节，SHA25
 | `battlefield_atmosphere_stress_36`与所需广域专项 | [性能守则](../reference/performance-guidelines.md)的代表性混合战场；地图专项不能替代完整战斗成本 |
 | 正常F5进入/退出、完整局 | 正式安装路径和玩家实际流程；隔离SubViewport成功不能代替 |
 
-连续/边缘路线可参考[route probe](../../scripts/tests/tokyo_hlod_route_probe.gd)和[edge audit](../../scripts/tests/tokyo_hlod_edge_audit.gd)，但需核查实际姿态推进方式与合法域，不能直接把旧路线日志当新表示的资格。性能采样与图像读回分开，保留VSync和2×MSAA；记录平均、最差、p1、`frames_below_60`、分辨率、GPU/驱动、实际战斗对象和后台活动。
+连续/边缘路线可参考[route probe](../../scripts/tests/tokyo_hlod_route_probe.gd)和[edge audit](../../scripts/tests/tokyo_hlod_edge_audit.gd)，但需核查实际姿态推进方式与合法域，不能直接把旧路线日志当新表示的资格。性能采样与图像读回分开，保留VSync；研究验收沿用约定的2×MSAA，当前M20原状复现则保留实际4×设置，详见[运行包说明](2026-10-14-current-map-runtime-repro.md#3-固定复现入口)。记录平均、最差、p1、`frames_below_60`、分辨率、GPU/驱动、实际战斗对象和后台活动。
 
 研究回报最少回答：**选哪种统一表示；完整联合费用是多少；任意合法相机输入如何保证覆盖；哪些结论是实物验证、哪些仍是假设；下一项失败会否决什么。** 失败记录与输出目录保留，避免继续堆积无法串成产品路径的独立探针。
 
@@ -216,9 +221,10 @@ PBF原快照`tmp/full_map_detail/kanto-latest.osm.pbf`为483274002字节，SHA25
 | GDScript、shader、场景、参数、制作/安装/校验工具、规格与索引 | 保留源码快照；研究者能沿调用链阅读和修改 |
 | 核心JSON、来源metadata、日志及两张代表图 | 在本页的证据目录直接浏览；大数组报告保留ZIP原件，网页摘要明确标明省略字段 |
 | 175请求、6份压缩输入、原始报告和临时研究脚本 | 冻结在Release ZIP，保留原tmp相对路径和逐文件SHA |
-| 约14.9GiB新增tokyo_playable/tokyo_volume_preview生成资产、其他新地图二进制、缓存、导出程序、PBF | 不上传；保留制作入口、来源与必要缺口清单 |
+| 当前M20完整运行依赖及必要3D入口归档 | 已补传Release：只选择当前引用，分包与逐文件SHA固定，不入Git历史 |
+| 其他安装版本、重复库、未引用预览资产、缓存、导出程序、PBF | 不上传；保留制作入口、来源与必要缺口清单 |
 | 本机配置、凭据、.godot、Python缓存、可生成.translation变化 | 不上传；翻译真源CSV保留 |
 
-175的6份压缩输入是固定问题现场所必需，避免对方先重生产整图；不是允许全量提交生成二进制。已有Git历史资源不重写；`.uid`保留稳定引用，`.import`只跟随实际包含的源文件。本轮索引补充仅增加文本证据，不再新增二进制。
+175的6份压缩输入是固定问题现场所必需，避免对方先重生产整图；不是允许全量提交生成二进制。已有Git历史资源不重写；`.uid`保留稳定引用，`.import`只跟随实际包含的源文件。首次索引补充只增加文本；后续按用户要求补传当前运行地图的必要二进制，详见[运行包说明](2026-10-14-current-map-runtime-repro.md)。
 
 交接检查包括文档链接、代码锚点、玩家引用登记、Git空白、证据来源与摘要、175准备工具及拒绝覆盖。全量/Visual/完整局/全图/性能的历史证据与当前资格分开；本次整理不改游戏运行时代码，也不把文档检查算作地图修复。后续代码变更仍须focused→all及相应Visual门。

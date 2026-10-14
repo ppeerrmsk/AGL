@@ -2973,3 +2973,10 @@ R31仅显式Visual诊断：`tests/tokyo_ground_review.gd:5 capture`输出原生�
 颜色表图集：`tests/tokyo_independent_mip_batch.gd:6 build`显式颜色表分支先解码后过滤。`tests/tokyo_envelope_visual_review.gd:104 _route`预先按SHA去重驻留全部路线索引，移动段不读索引文件；仅诊断。
 
 `tests/tokyo_shared_index_audit.gd:4 run`：显式shared_index_audit测试，六叶固定索引回放、64KiB内片段与解码耗时；不授予正式驻留/性能资格。
+
+## 地图交接安装与性能复现工具
+
+当前地图交接包校验/安全落盘 → `tools/install_tokyo_map_handoff.py` / `load_manifest` / `safe_path` / `inspect_existing` / `verify_archive` / `install`；只读模式为`--verify-only`。固定性能复现 → `tools/run_tokyo_map_handoff.ps1` → 原`bench/run.cmd`的Shadow Visual入口；不改渲染或战斗负载。
+下载与验收边界见[当前运行地图复现](../handoffs/2026-10-14-current-map-runtime-repro.md)。
+
+交接工具回归：`tools/test_map_handoff_delivery.py` / `DeliveryTests`，覆盖损坏包、路径逃逸、已有文件/锁保护、安装读回及模拟bench失败码与环境隔离；不需要实物地图或Godot。

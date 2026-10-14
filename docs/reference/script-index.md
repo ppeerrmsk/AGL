@@ -1787,3 +1787,11 @@ R96地表边界审查：`tests/tokyo_ground_boundary_review.gd` / `run` 在同�
 | `tests/full_war_runner.gd` | 真实SceneTree功能/容量/终态与开局/交战/Tab分阶段墙钟剖面；接默认all。 | `_process` `_ready` `_run` `run_checks` `_capacity_case` `_run_profile` `_capture` `_check` |
 
 建筑平移重绘误差门：`survivor/building_renderer.gd` / `consume_view_change`，默认维持旧门，仅全面战争装配启用屏幕误差预算；功能回归 `tests/full_war_runner.gd` / `run_checks`，默认全量接入 `tests/lifecycle_gauntlet_runner.gd` / `_run`。
+
+## 地图交接安装与性能复现工具
+
+- `tools/install_tokyo_map_handoff.py`：冻结M20 Release包的只读核验与拒绝覆盖安装；`digest`、`safe_path`、`load_manifest`、`inspect_existing`、`verify_archive`、`install`、`main`。
+- `tools/run_tokyo_map_handoff.ps1`：绑定M20身份、隔离调用者AGL环境并经既有bench运行C1/C2/Near/FastWest/FastNorth，保留wrapper结果。
+下载与验收边界见[当前运行地图复现](../handoffs/2026-10-14-current-map-runtime-repro.md)。
+
+交接工具回归：`tools/test_map_handoff_delivery.py` / `DeliveryTests`，覆盖损坏包、路径逃逸、已有文件/锁保护、安装读回及模拟bench失败码与环境隔离；不需要实物地图或Godot。

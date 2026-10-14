@@ -2,6 +2,8 @@
 
 核查日期：2026-10-14 20:49 JST。用途：交给外部工程师评估与接手；这是证据快照，不是验收通过声明。接手入口：[地图问题研究与接手索引](../handoffs/2026-10-14-map-upload-guide.md)；配套文件：[工程需求与交接书](../handoffs/2026-10-14-tokyo-map-engineering-requirements.md)。
 
+交接补充：当前实际运行的M20完整依赖已按[下载与性能复现说明](../handoffs/2026-10-14-current-map-runtime-repro.md)提供；它与175局部结构实验分开，不代表新的全图表示已通过验收。
+
 权威依据：[地图规格302](../specs/systems/tokyo-bay-volume-map.md)、[当前实施计划](../planning/tokyo-resident-foundation-2026-10-01.md)。本报告不修改预算、美术授权或正式相机行为。下文所有 `tmp/` 路径均相对于项目根目录。
 
 ## 一、结论
