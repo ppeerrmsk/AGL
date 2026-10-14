@@ -1,0 +1,3862 @@
+{
+  "schema": 1,
+  "grid": {
+    "origin": [
+      -16300.0,
+      -15700.0
+    ],
+    "tile_size": 2000.0,
+    "columns": 16,
+    "rows": 16
+  },
+  "source_sha256": "4c6abf82e1ca793ef8c498830a103bdc9b209b4b4b65f25f913024de4bb0ecda",
+  "grid_sha256": "9fddfbc1ef61728db3215b75bc0b4b01531ba50295de3f013a511208b0d2f741",
+  "extractor_sha256": "15294f9a8efc3850b3e93cc2f8f9d3d27b2508fdc2ab001892c54e739ed1daf5",
+  "shared_sha256": "218083af3481c0ef5cefccb5ac93feeaa84ce32a47bb304c6dfb7750783fcbda",
+  "tiles": [
+    {
+      "id": "detail_00_00",
+      "bounds": [
+        -16300.0,
+        -15700.0,
+        -14300.0,
+        -13700.0
+      ],
+      "file": "detail_00_00.jsonl.gz",
+      "sha256": "0558d628145aa847e77a1530be3583998668b7495238c47cc950aaf3de33b245",
+      "counts": {
+        "area": 5455,
+        "path": 4557
+      }
+    },
+    {
+      "id": "detail_01_00",
+      "bounds": [
+        -14300.0,
+        -15700.0,
+        -12300.0,
+        -13700.0
+      ],
+      "file": "detail_01_00.jsonl.gz",
+      "sha256": "2f9882230909812ff6c6fe6a4fd5894eea35ff863b2551b365302c3817430202",
+      "counts": {
+        "area": 28935,
+        "path": 5312
+      }
+    },
+    {
+      "id": "detail_02_00",
+      "bounds": [
+        -12300.0,
+        -15700.0,
+        -10300.0,
+        -13700.0
+      ],
+      "file": "detail_02_00.jsonl.gz",
+      "sha256": "ddc8e9c063fa4f085bc6a30463a989473917a19fd43874255eb42644abd8a632",
+      "counts": {
+        "area": 19103,
+        "path": 5544
+      }
+    },
+    {
+      "id": "detail_03_00",
+      "bounds": [
+        -10300.0,
+        -15700.0,
+        -8300.0,
+        -13700.0
+      ],
+      "file": "detail_03_00.jsonl.gz",
+      "sha256": "a4b23a80bc9d42380471628eb57872a3eb37f11e8d4256ff10f08ebcf1f5b338",
+      "counts": {
+        "area": 16771,
+        "path": 6588
+      }
+    },
+    {
+      "id": "detail_04_00",
+      "bounds": [
+        -8300.0,
+        -15700.0,
+        -6300.0,
+        -13700.0
+      ],
+      "file": "detail_04_00.jsonl.gz",
+      "sha256": "8eeb5eb6b477b89094432782075d71b9ddbf22ee036b043812756ca17ecad270",
+      "counts": {
+        "area": 40882,
+        "path": 6197
+      }
+    },
+    {
+      "id": "detail_05_00",
+      "bounds": [
+        -6300.0,
+        -15700.0,
+        -4300.0,
+        -13700.0
+      ],
+      "file": "detail_05_00.jsonl.gz",
+      "sha256": "4e60b1a5f20b00225fdee2bf215ca367d6ea0d3f58c0d797a93ab6bc2bb3c4e4",
+      "counts": {
+        "area": 72628,
+        "path": 8455
+      }
+    },
+    {
+      "id": "detail_06_00",
+      "bounds": [
+        -4300.0,
+        -15700.0,
+        -2300.0,
+        -13700.0
+      ],
+      "file": "detail_06_00.jsonl.gz",
+      "sha256": "9d275aa23e6059880035c0229e2e6837c134ef45b184c79fc01bb2cd5f597534",
+      "counts": {
+        "area": 56960,
+        "path": 10761
+      }
+    },
+    {
+      "id": "detail_07_00",
+      "bounds": [
+        -2300.0,
+        -15700.0,
+        -300.0,
+        -13700.0
+      ],
+      "file": "detail_07_00.jsonl.gz",
+      "sha256": "e6a2cc9a8395670eb5c319b812a68b06bcb9222dd7e8354f277255a6b0fd5a1e",
+      "counts": {
+        "area": 42926,
+        "path": 9127
+      }
+    },
+    {
+      "id": "detail_08_00",
+      "bounds": [
+        -300.0,
+        -15700.0,
+        1700.0,
+        -13700.0
+      ],
+      "file": "detail_08_00.jsonl.gz",
+      "sha256": "e1088ac7702fe99cc6f8cb2109d76701e4c417bb6870da411e2b7c6d6cbbc145",
+      "counts": {
+        "area": 51027,
+        "path": 15414
+      }
+    },
+    {
+      "id": "detail_09_00",
+      "bounds": [
+        1700.0,
+        -15700.0,
+        3700.0,
+        -13700.0
+      ],
+      "file": "detail_09_00.jsonl.gz",
+      "sha256": "d75f58778dd29075c8189ee37ccd053ee6a404980c4f4c531fa1ea019d774a01",
+      "counts": {
+        "area": 52671,
+        "path": 9104
+      }
+    },
+    {
+      "id": "detail_10_00",
+      "bounds": [
+        3700.0,
+        -15700.0,
+        5700.0,
+        -13700.0
+      ],
+      "file": "detail_10_00.jsonl.gz",
+      "sha256": "b6df32172ddcc9da6e333858197eae563ec1c538a7ffb77228ae3588f3f1471e",
+      "counts": {
+        "area": 7103,
+        "path": 5493
+      }
+    },
+    {
+      "id": "detail_11_00",
+      "bounds": [
+        5700.0,
+        -15700.0,
+        7700.0,
+        -13700.0
+      ],
+      "file": "detail_11_00.jsonl.gz",
+      "sha256": "90959ea474bf09493cec0b92d828b392b9ccefe2459f3a1368b4e9bf18eaa22e",
+      "counts": {
+        "area": 8967,
+        "path": 5271
+      }
+    },
+    {
+      "id": "detail_12_00",
+      "bounds": [
+        7700.0,
+        -15700.0,
+        9700.0,
+        -13700.0
+      ],
+      "file": "detail_12_00.jsonl.gz",
+      "sha256": "289c6d85bb3f990719a162c6d8142b9cd2992b36249ca40daf30a5c1e4c88f1c",
+      "counts": {
+        "area": 9369,
+        "path": 5209
+      }
+    },
+    {
+      "id": "detail_13_00",
+      "bounds": [
+        9700.0,
+        -15700.0,
+        11700.0,
+        -13700.0
+      ],
+      "file": "detail_13_00.jsonl.gz",
+      "sha256": "1d8acc3215457f999bdda32097e216b8ceb5e7bf3ab74b924521dbd97733fe25",
+      "counts": {
+        "area": 7231,
+        "path": 6124
+      }
+    },
+    {
+      "id": "detail_14_00",
+      "bounds": [
+        11700.0,
+        -15700.0,
+        13700.0,
+        -13700.0
+      ],
+      "file": "detail_14_00.jsonl.gz",
+      "sha256": "b6a8b6fa661c6e08bdcc23519a3f40ae2d143f0294921db4884c394d94b3ca68",
+      "counts": {
+        "area": 3810,
+        "path": 5294
+      }
+    },
+    {
+      "id": "detail_15_00",
+      "bounds": [
+        13700.0,
+        -15700.0,
+        15700.0,
+        -13700.0
+      ],
+      "file": "detail_15_00.jsonl.gz",
+      "sha256": "c4d03f2ea05f87dcc4e357efc9f9b40936ff57780f51dfa21f145b47272e1d15",
+      "counts": {
+        "area": 9996,
+        "path": 4877
+      }
+    },
+    {
+      "id": "detail_00_01",
+      "bounds": [
+        -16300.0,
+        -13700.0,
+        -14300.0,
+        -11700.0
+      ],
+      "file": "detail_00_01.jsonl.gz",
+      "sha256": "3ec0404fd815e86932dfa28615f28f58473a452d111e98093268df7218c730fc",
+      "counts": {
+        "area": 3072,
+        "path": 3789
+      }
+    },
+    {
+      "id": "detail_01_01",
+      "bounds": [
+        -14300.0,
+        -13700.0,
+        -12300.0,
+        -11700.0
+      ],
+      "file": "detail_01_01.jsonl.gz",
+      "sha256": "6db7e53751cfd1b0f5337b28d19b09d534ff8e533aedbcd2ace315402d1bde26",
+      "counts": {
+        "area": 10314,
+        "path": 4360
+      }
+    },
+    {
+      "id": "detail_02_01",
+      "bounds": [
+        -12300.0,
+        -13700.0,
+        -10300.0,
+        -11700.0
+      ],
+      "file": "detail_02_01.jsonl.gz",
+      "sha256": "ce7370407758883f74ea66fd229cb08d1689fdc207034991b4faff805958b992",
+      "counts": {
+        "area": 11855,
+        "path": 5905
+      }
+    },
+    {
+      "id": "detail_03_01",
+      "bounds": [
+        -10300.0,
+        -13700.0,
+        -8300.0,
+        -11700.0
+      ],
+      "file": "detail_03_01.jsonl.gz",
+      "sha256": "ede5361fe580678de4675ead5f80a491127b9a06d5580b87d4278c4aa367705c",
+      "counts": {
+        "area": 21371,
+        "path": 5641
+      }
+    },
+    {
+      "id": "detail_04_01",
+      "bounds": [
+        -8300.0,
+        -13700.0,
+        -6300.0,
+        -11700.0
+      ],
+      "file": "detail_04_01.jsonl.gz",
+      "sha256": "7ffcbeeeab7f1bca72ab5145c8b7acb2d229eb0818e477b467c2b67bdd93f822",
+      "counts": {
+        "area": 25604,
+        "path": 5892
+      }
+    },
+    {
+      "id": "detail_05_01",
+      "bounds": [
+        -6300.0,
+        -13700.0,
+        -4300.0,
+        -11700.0
+      ],
+      "file": "detail_05_01.jsonl.gz",
+      "sha256": "87e3d42820c134bb36a9dd87642c30c6239bdf7128d641a5cdacafd25dc61709",
+      "counts": {
+        "area": 61482,
+        "path": 7502
+      }
+    },
+    {
+      "id": "detail_06_01",
+      "bounds": [
+        -4300.0,
+        -13700.0,
+        -2300.0,
+        -11700.0
+      ],
+      "file": "detail_06_01.jsonl.gz",
+      "sha256": "1cea5c76261652772a7e8247e4d1908525a2b3abbcfee2da64b870aa07ee27d8",
+      "counts": {
+        "area": 44904,
+        "path": 8582
+      }
+    },
+    {
+      "id": "detail_07_01",
+      "bounds": [
+        -2300.0,
+        -13700.0,
+        -300.0,
+        -11700.0
+      ],
+      "file": "detail_07_01.jsonl.gz",
+      "sha256": "d7e07cb08987510c466bb4a206ef70785416723c9edf6a8f8115e5f32575bb9f",
+      "counts": {
+        "area": 23733,
+        "path": 9354
+      }
+    },
+    {
+      "id": "detail_08_01",
+      "bounds": [
+        -300.0,
+        -13700.0,
+        1700.0,
+        -11700.0
+      ],
+      "file": "detail_08_01.jsonl.gz",
+      "sha256": "0b094adca2ae956a78be3851b0e9ebf260380d563b132f1ee1913bde9aaf3c45",
+      "counts": {
+        "area": 20530,
+        "path": 12257
+      }
+    },
+    {
+      "id": "detail_09_01",
+      "bounds": [
+        1700.0,
+        -13700.0,
+        3700.0,
+        -11700.0
+      ],
+      "file": "detail_09_01.jsonl.gz",
+      "sha256": "91d61d14785b7040b2112caf636107850fe462df9e6e04a3405aa8f488ff21fc",
+      "counts": {
+        "area": 22180,
+        "path": 6511
+      }
+    },
+    {
+      "id": "detail_10_01",
+      "bounds": [
+        3700.0,
+        -13700.0,
+        5700.0,
+        -11700.0
+      ],
+      "file": "detail_10_01.jsonl.gz",
+      "sha256": "ff67098b3fa987f2e17475251b4cce1c037fd522df6460863b2507ed95b69e4d",
+      "counts": {
+        "area": 7991,
+        "path": 5465
+      }
+    },
+    {
+      "id": "detail_11_01",
+      "bounds": [
+        5700.0,
+        -13700.0,
+        7700.0,
+        -11700.0
+      ],
+      "file": "detail_11_01.jsonl.gz",
+      "sha256": "1d413217954e1b2f9318073f343a7f38127c7f1c61ad7bf7bd06b2517b50c8ad",
+      "counts": {
+        "area": 24544,
+        "path": 4382
+      }
+    },
+    {
+      "id": "detail_12_01",
+      "bounds": [
+        7700.0,
+        -13700.0,
+        9700.0,
+        -11700.0
+      ],
+      "file": "detail_12_01.jsonl.gz",
+      "sha256": "35e284856120c92e4fe84f4bbf05e86d1b104e7ef575ea8028d0473564479b2b",
+      "counts": {
+        "area": 1246,
+        "path": 413
+      }
+    },
+    {
+      "id": "detail_13_01",
+      "bounds": [
+        9700.0,
+        -13700.0,
+        11700.0,
+        -11700.0
+      ],
+      "file": "detail_13_01.jsonl.gz",
+      "sha256": "3a6786db54069c8fbdcae43f14ecbd92b2e249a6478f2874249d434951d018fd",
+      "counts": {
+        "area": 1542,
+        "path": 2157
+      }
+    },
+    {
+      "id": "detail_14_01",
+      "bounds": [
+        11700.0,
+        -13700.0,
+        13700.0,
+        -11700.0
+      ],
+      "file": "detail_14_01.jsonl.gz",
+      "sha256": "22cd239b999c29ac3ab6c24f8645b79bb6dbdb1cfc6c0b8c5f1ef8d6fed54519",
+      "counts": {
+        "area": 4452,
+        "path": 5375
+      }
+    },
+    {
+      "id": "detail_15_01",
+      "bounds": [
+        13700.0,
+        -13700.0,
+        15700.0,
+        -11700.0
+      ],
+      "file": "detail_15_01.jsonl.gz",
+      "sha256": "fdf3a4200a1ef6f63e12af9b03ffec3f644c893032b2d42c6d83ee80763047aa",
+      "counts": {
+        "area": 6284,
+        "path": 2714
+      }
+    },
+    {
+      "id": "detail_00_02",
+      "bounds": [
+        -16300.0,
+        -11700.0,
+        -14300.0,
+        -9700.0
+      ],
+      "file": "detail_00_02.jsonl.gz",
+      "sha256": "275be64547dd995f09462c232614190166b1fbb34bda9d9ea74edd28cb85e0e1",
+      "counts": {
+        "area": 8064,
+        "path": 5174
+      }
+    },
+    {
+      "id": "detail_01_02",
+      "bounds": [
+        -14300.0,
+        -11700.0,
+        -12300.0,
+        -9700.0
+      ],
+      "file": "detail_01_02.jsonl.gz",
+      "sha256": "84e4ea30a555c26f58a23315b9f14612786b8042026647581da023bec169bb84",
+      "counts": {
+        "area": 8436,
+        "path": 4200
+      }
+    },
+    {
+      "id": "detail_02_02",
+      "bounds": [
+        -12300.0,
+        -11700.0,
+        -10300.0,
+        -9700.0
+      ],
+      "file": "detail_02_02.jsonl.gz",
+      "sha256": "f1fa8a3ac898183d83b94b16c2b1deed61f9e18383afb51852a4310f1a497f7b",
+      "counts": {
+        "area": 19512,
+        "path": 5428
+      }
+    },
+    {
+      "id": "detail_03_02",
+      "bounds": [
+        -10300.0,
+        -11700.0,
+        -8300.0,
+        -9700.0
+      ],
+      "file": "detail_03_02.jsonl.gz",
+      "sha256": "aced70fdf917441ad81fa8ecee1528cbc40ea4395f74bc1bae434d0c7dee6e2e",
+      "counts": {
+        "area": 29336,
+        "path": 5626
+      }
+    },
+    {
+      "id": "detail_04_02",
+      "bounds": [
+        -8300.0,
+        -11700.0,
+        -6300.0,
+        -9700.0
+      ],
+      "file": "detail_04_02.jsonl.gz",
+      "sha256": "6037a2b389a515a808e444b85e5946a910375235b4580e5a3a30efb97981c590",
+      "counts": {
+        "area": 24581,
+        "path": 4887
+      }
+    },
+    {
+      "id": "detail_05_02",
+      "bounds": [
+        -6300.0,
+        -11700.0,
+        -4300.0,
+        -9700.0
+      ],
+      "file": "detail_05_02.jsonl.gz",
+      "sha256": "caee20bf8c17bc204c2d9de7bf6de1be6bd21f58e489eef84a88cf4a8e7b651f",
+      "counts": {
+        "area": 46655,
+        "path": 5695
+      }
+    },
+    {
+      "id": "detail_06_02",
+      "bounds": [
+        -4300.0,
+        -11700.0,
+        -2300.0,
+        -9700.0
+      ],
+      "file": "detail_06_02.jsonl.gz",
+      "sha256": "a51e55e50b4fdc9dfa81c50816c603e47b6a2723aa87ff219e5ca18912c15cc5",
+      "counts": {
+        "area": 62336,
+        "path": 7679
+      }
+    },
+    {
+      "id": "detail_07_02",
+      "bounds": [
+        -2300.0,
+        -11700.0,
+        -300.0,
+        -9700.0
+      ],
+      "file": "detail_07_02.jsonl.gz",
+      "sha256": "02be0ecad2c2386227edd75d71f5b02bc22368b0911f3067463ae57b7b28af6c",
+      "counts": {
+        "area": 31981,
+        "path": 8059
+      }
+    },
+    {
+      "id": "detail_08_02",
+      "bounds": [
+        -300.0,
+        -11700.0,
+        1700.0,
+        -9700.0
+      ],
+      "file": "detail_08_02.jsonl.gz",
+      "sha256": "15f43a34b092d720f97adbe9054908e73ff1c89cb495a88559a9e47dc62789be",
+      "counts": {
+        "area": 2111,
+        "path": 3171
+      }
+    },
+    {
+      "id": "detail_09_02",
+      "bounds": [
+        1700.0,
+        -11700.0,
+        3700.0,
+        -9700.0
+      ],
+      "file": "detail_09_02.jsonl.gz",
+      "sha256": "1da817a31a1038086cb63fdd92c1d806905d6abb865827a09afef9295d576f9e",
+      "counts": {
+        "area": 2440,
+        "path": 1806
+      }
+    },
+    {
+      "id": "detail_10_02",
+      "bounds": [
+        3700.0,
+        -11700.0,
+        5700.0,
+        -9700.0
+      ],
+      "file": "detail_10_02.jsonl.gz",
+      "sha256": "de0dc936bf2fdaaa1ffeb79c23bbcad1ea5f74913cf9c9f2a10d15bcf4f06888",
+      "counts": {
+        "area": 5519,
+        "path": 2952
+      }
+    },
+    {
+      "id": "detail_11_02",
+      "bounds": [
+        5700.0,
+        -11700.0,
+        7700.0,
+        -9700.0
+      ],
+      "file": "detail_11_02.jsonl.gz",
+      "sha256": "483d752db274034c133f3354c9cae55594906f273829bb40602a70cfe7cee8a3",
+      "counts": {
+        "area": 14363,
+        "path": 3204
+      }
+    },
+    {
+      "id": "detail_12_02",
+      "bounds": [
+        7700.0,
+        -11700.0,
+        9700.0,
+        -9700.0
+      ],
+      "file": "detail_12_02.jsonl.gz",
+      "sha256": "d76eafaaa1cbf1591c6d1a952c74053612efe5f4f4690a2723f6448bd6ffe36a",
+      "counts": {
+        "area": 639,
+        "path": 208
+      }
+    },
+    {
+      "id": "detail_13_02",
+      "bounds": [
+        9700.0,
+        -11700.0,
+        11700.0,
+        -9700.0
+      ],
+      "file": "detail_13_02.jsonl.gz",
+      "sha256": "60a22da899c88e6126ca13ed0b44c8dbe9e5b6d061913d80793f5b1502036ce8",
+      "counts": {
+        "area": 0,
+        "path": 3
+      }
+    },
+    {
+      "id": "detail_14_02",
+      "bounds": [
+        11700.0,
+        -11700.0,
+        13700.0,
+        -9700.0
+      ],
+      "file": "detail_14_02.jsonl.gz",
+      "sha256": "787eba09ed27045978141cfb4a4780ee73b62e4403983fd6e66144d2fb87c48b",
+      "counts": {
+        "area": 1796,
+        "path": 2377
+      }
+    },
+    {
+      "id": "detail_15_02",
+      "bounds": [
+        13700.0,
+        -11700.0,
+        15700.0,
+        -9700.0
+      ],
+      "file": "detail_15_02.jsonl.gz",
+      "sha256": "50100df266d2c7bee141bf899c36972f0de5e045eed63dff45395810ccaf9e9e",
+      "counts": {
+        "area": 6391,
+        "path": 4838
+      }
+    },
+    {
+      "id": "detail_00_03",
+      "bounds": [
+        -16300.0,
+        -9700.0,
+        -14300.0,
+        -7700.0
+      ],
+      "file": "detail_00_03.jsonl.gz",
+      "sha256": "305102ebedba9909f5025c29fce65fc0d064d30dd08a086785d430fd7ee531c2",
+      "counts": {
+        "area": 8011,
+        "path": 3044
+      }
+    },
+    {
+      "id": "detail_01_03",
+      "bounds": [
+        -14300.0,
+        -9700.0,
+        -12300.0,
+        -7700.0
+      ],
+      "file": "detail_01_03.jsonl.gz",
+      "sha256": "e8f86a7ef1f3a4f0b84662e949d14a4d289b5824c775d348d64fb12132b581cf",
+      "counts": {
+        "area": 18808,
+        "path": 4192
+      }
+    },
+    {
+      "id": "detail_02_03",
+      "bounds": [
+        -12300.0,
+        -9700.0,
+        -10300.0,
+        -7700.0
+      ],
+      "file": "detail_02_03.jsonl.gz",
+      "sha256": "cad09ef9f1e89e37e578b18ce6cfb008a4c5ac19c1c5d148c242e9ae232ff547",
+      "counts": {
+        "area": 34383,
+        "path": 6269
+      }
+    },
+    {
+      "id": "detail_03_03",
+      "bounds": [
+        -10300.0,
+        -9700.0,
+        -8300.0,
+        -7700.0
+      ],
+      "file": "detail_03_03.jsonl.gz",
+      "sha256": "15a2082ab9537a4fcb72778303bf662dfaa5da0b6e7905649d7fd7d6b7a91265",
+      "counts": {
+        "area": 27389,
+        "path": 5461
+      }
+    },
+    {
+      "id": "detail_04_03",
+      "bounds": [
+        -8300.0,
+        -9700.0,
+        -6300.0,
+        -7700.0
+      ],
+      "file": "detail_04_03.jsonl.gz",
+      "sha256": "e57dcdd86756b1494426f2661f6a2c465fe1ccb263748417561875990a3f189d",
+      "counts": {
+        "area": 33784,
+        "path": 6570
+      }
+    },
+    {
+      "id": "detail_05_03",
+      "bounds": [
+        -6300.0,
+        -9700.0,
+        -4300.0,
+        -7700.0
+      ],
+      "file": "detail_05_03.jsonl.gz",
+      "sha256": "8f96396e84009d8c58fa0e5b68c17a5a62076dd32ba67fb62b98b30535cc673c",
+      "counts": {
+        "area": 38571,
+        "path": 5526
+      }
+    },
+    {
+      "id": "detail_06_03",
+      "bounds": [
+        -4300.0,
+        -9700.0,
+        -2300.0,
+        -7700.0
+      ],
+      "file": "detail_06_03.jsonl.gz",
+      "sha256": "d95df7c7d21262e205645b4933bf0c4a19c1c3242744ed03f4eb5d655ed2d2e2",
+      "counts": {
+        "area": 62726,
+        "path": 6393
+      }
+    },
+    {
+      "id": "detail_07_03",
+      "bounds": [
+        -2300.0,
+        -9700.0,
+        -300.0,
+        -7700.0
+      ],
+      "file": "detail_07_03.jsonl.gz",
+      "sha256": "77453f986e4ccbd823974af343adb070aa5b258efa7eace6ced9c854902fd9e5",
+      "counts": {
+        "area": 52555,
+        "path": 8185
+      }
+    },
+    {
+      "id": "detail_08_03",
+      "bounds": [
+        -300.0,
+        -9700.0,
+        1700.0,
+        -7700.0
+      ],
+      "file": "detail_08_03.jsonl.gz",
+      "sha256": "8380753352dbbc4c90add01c6f84057d6aaf1dac32f98c7f46abc8239f0bc6d5",
+      "counts": {
+        "area": 804,
+        "path": 1589
+      }
+    },
+    {
+      "id": "detail_09_03",
+      "bounds": [
+        1700.0,
+        -9700.0,
+        3700.0,
+        -7700.0
+      ],
+      "file": "detail_09_03.jsonl.gz",
+      "sha256": "e14528c2d454ec489c8125a0db62ec4b977c147fd68c20742502f514b7fcd6bf",
+      "counts": {
+        "area": 186,
+        "path": 613
+      }
+    },
+    {
+      "id": "detail_10_03",
+      "bounds": [
+        3700.0,
+        -9700.0,
+        5700.0,
+        -7700.0
+      ],
+      "file": "detail_10_03.jsonl.gz",
+      "sha256": "77e13c4b421b6eddf13fbe84f900b74c43426d5cc7d3854639cd748c905a60dd",
+      "counts": {
+        "area": 1,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_11_03",
+      "bounds": [
+        5700.0,
+        -9700.0,
+        7700.0,
+        -7700.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_12_03",
+      "bounds": [
+        7700.0,
+        -9700.0,
+        9700.0,
+        -7700.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_13_03",
+      "bounds": [
+        9700.0,
+        -9700.0,
+        11700.0,
+        -7700.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_14_03",
+      "bounds": [
+        11700.0,
+        -9700.0,
+        13700.0,
+        -7700.0
+      ],
+      "file": "detail_14_03.jsonl.gz",
+      "sha256": "8784de8665581913dd3b46f5a272dbfdb2c35bfb601e14adddf7469fb260493e",
+      "counts": {
+        "area": 1,
+        "path": 3
+      }
+    },
+    {
+      "id": "detail_15_03",
+      "bounds": [
+        13700.0,
+        -9700.0,
+        15700.0,
+        -7700.0
+      ],
+      "file": "detail_15_03.jsonl.gz",
+      "sha256": "0a64ca1d4afa47ef57d0f851a27a5ad4906db2fc651cf07910910f8e5512dc57",
+      "counts": {
+        "area": 873,
+        "path": 479
+      }
+    },
+    {
+      "id": "detail_00_04",
+      "bounds": [
+        -16300.0,
+        -7700.0,
+        -14300.0,
+        -5700.0
+      ],
+      "file": "detail_00_04.jsonl.gz",
+      "sha256": "8d0571a49180fe0a066f48c3767156410a94eeacbd0e8b1c17d82389dcbd02a9",
+      "counts": {
+        "area": 33742,
+        "path": 6206
+      }
+    },
+    {
+      "id": "detail_01_04",
+      "bounds": [
+        -14300.0,
+        -7700.0,
+        -12300.0,
+        -5700.0
+      ],
+      "file": "detail_01_04.jsonl.gz",
+      "sha256": "c2bf46bb29e7950d3a36e0f23d24696e43c7a9c5a7c9de5628132d8f95702aec",
+      "counts": {
+        "area": 34207,
+        "path": 5322
+      }
+    },
+    {
+      "id": "detail_02_04",
+      "bounds": [
+        -12300.0,
+        -7700.0,
+        -10300.0,
+        -5700.0
+      ],
+      "file": "detail_02_04.jsonl.gz",
+      "sha256": "c6d3f7b2fee2078a24a7d59321bc65536eb6a3f59c7e0c241b7e48232f110a21",
+      "counts": {
+        "area": 24507,
+        "path": 3422
+      }
+    },
+    {
+      "id": "detail_03_04",
+      "bounds": [
+        -10300.0,
+        -7700.0,
+        -8300.0,
+        -5700.0
+      ],
+      "file": "detail_03_04.jsonl.gz",
+      "sha256": "eb76eaddf9b8107707a5e991dc4d5c303a568a71082a07cd51b5cd64063753be",
+      "counts": {
+        "area": 30176,
+        "path": 6295
+      }
+    },
+    {
+      "id": "detail_04_04",
+      "bounds": [
+        -8300.0,
+        -7700.0,
+        -6300.0,
+        -5700.0
+      ],
+      "file": "detail_04_04.jsonl.gz",
+      "sha256": "baef2e6436894ce0efe878b052bfc2c2a917ee8d438dcd60240f9a3889a050a5",
+      "counts": {
+        "area": 33587,
+        "path": 6028
+      }
+    },
+    {
+      "id": "detail_05_04",
+      "bounds": [
+        -6300.0,
+        -7700.0,
+        -4300.0,
+        -5700.0
+      ],
+      "file": "detail_05_04.jsonl.gz",
+      "sha256": "104bb5a3ef073ae7658e17be1635f3de2b3199d4ec712a41f409ac36e1eed230",
+      "counts": {
+        "area": 43464,
+        "path": 6883
+      }
+    },
+    {
+      "id": "detail_06_04",
+      "bounds": [
+        -4300.0,
+        -7700.0,
+        -2300.0,
+        -5700.0
+      ],
+      "file": "detail_06_04.jsonl.gz",
+      "sha256": "1ce702f10ffaef3b498feb23e00308520a28d218e0bfc98196b316d84f317f63",
+      "counts": {
+        "area": 49871,
+        "path": 5776
+      }
+    },
+    {
+      "id": "detail_07_04",
+      "bounds": [
+        -2300.0,
+        -7700.0,
+        -300.0,
+        -5700.0
+      ],
+      "file": "detail_07_04.jsonl.gz",
+      "sha256": "731f6d4a25e0fd798c769bf46a72eec5824a887c2053b69c3c7c5e31667d0287",
+      "counts": {
+        "area": 56534,
+        "path": 7700
+      }
+    },
+    {
+      "id": "detail_08_04",
+      "bounds": [
+        -300.0,
+        -7700.0,
+        1700.0,
+        -5700.0
+      ],
+      "file": "detail_08_04.jsonl.gz",
+      "sha256": "f7b5c502866e29752fb0ee0624da9267093ebf922cf9488b5fc5148265fe7512",
+      "counts": {
+        "area": 1028,
+        "path": 1328
+      }
+    },
+    {
+      "id": "detail_09_04",
+      "bounds": [
+        1700.0,
+        -7700.0,
+        3700.0,
+        -5700.0
+      ],
+      "file": "detail_09_04.jsonl.gz",
+      "sha256": "f48c5c178522150d3c715ea378fdf3cccbdeb9c3688374391af715b11ffc6797",
+      "counts": {
+        "area": 13,
+        "path": 10
+      }
+    },
+    {
+      "id": "detail_10_04",
+      "bounds": [
+        3700.0,
+        -7700.0,
+        5700.0,
+        -5700.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_11_04",
+      "bounds": [
+        5700.0,
+        -7700.0,
+        7700.0,
+        -5700.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_12_04",
+      "bounds": [
+        7700.0,
+        -7700.0,
+        9700.0,
+        -5700.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_13_04",
+      "bounds": [
+        9700.0,
+        -7700.0,
+        11700.0,
+        -5700.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_14_04",
+      "bounds": [
+        11700.0,
+        -7700.0,
+        13700.0,
+        -5700.0
+      ],
+      "file": "detail_14_04.jsonl.gz",
+      "sha256": "89f5dffd55c56cdc203d9d9dc29887c158d5b5f5597ada90d477cc3587e5b74c",
+      "counts": {
+        "area": 0,
+        "path": 1
+      }
+    },
+    {
+      "id": "detail_15_04",
+      "bounds": [
+        13700.0,
+        -7700.0,
+        15700.0,
+        -5700.0
+      ],
+      "file": "detail_15_04.jsonl.gz",
+      "sha256": "24385ce49bd68966c6943c6bbd7f929a5b5cea8df1e96ab76640f8f444d580e5",
+      "counts": {
+        "area": 705,
+        "path": 168
+      }
+    },
+    {
+      "id": "detail_00_05",
+      "bounds": [
+        -16300.0,
+        -5700.0,
+        -14300.0,
+        -3700.0
+      ],
+      "file": "detail_00_05.jsonl.gz",
+      "sha256": "bfe3b5afbf59d04e3e6e8b9c663f94c492e27cb0e76d87e5cdc4540cb15dee41",
+      "counts": {
+        "area": 37493,
+        "path": 5183
+      }
+    },
+    {
+      "id": "detail_01_05",
+      "bounds": [
+        -14300.0,
+        -5700.0,
+        -12300.0,
+        -3700.0
+      ],
+      "file": "detail_01_05.jsonl.gz",
+      "sha256": "c9adb3eabe92d8f248acbc6d96ccd8086badc05501c0483b0929a85684b53435",
+      "counts": {
+        "area": 36328,
+        "path": 5438
+      }
+    },
+    {
+      "id": "detail_02_05",
+      "bounds": [
+        -12300.0,
+        -5700.0,
+        -10300.0,
+        -3700.0
+      ],
+      "file": "detail_02_05.jsonl.gz",
+      "sha256": "a42d0383641b6cc0c320776ea64642b05b9801056aebc6ef1aa72cce4f6860c7",
+      "counts": {
+        "area": 24037,
+        "path": 3880
+      }
+    },
+    {
+      "id": "detail_03_05",
+      "bounds": [
+        -10300.0,
+        -5700.0,
+        -8300.0,
+        -3700.0
+      ],
+      "file": "detail_03_05.jsonl.gz",
+      "sha256": "2e395622f80b663163745f8a68cf211af2ccf77987f2e5397ea05922873f02b8",
+      "counts": {
+        "area": 24179,
+        "path": 4532
+      }
+    },
+    {
+      "id": "detail_04_05",
+      "bounds": [
+        -8300.0,
+        -5700.0,
+        -6300.0,
+        -3700.0
+      ],
+      "file": "detail_04_05.jsonl.gz",
+      "sha256": "07010621b3d9f7decbb3d0955c7501ad1d9b28bbfa5394cf06b39a0cf6bcf85a",
+      "counts": {
+        "area": 23048,
+        "path": 4489
+      }
+    },
+    {
+      "id": "detail_05_05",
+      "bounds": [
+        -6300.0,
+        -5700.0,
+        -4300.0,
+        -3700.0
+      ],
+      "file": "detail_05_05.jsonl.gz",
+      "sha256": "8a057fd4fb7ad65813441702d72b207be48c2e6533f4a4c13056e1564be16aa0",
+      "counts": {
+        "area": 43704,
+        "path": 4989
+      }
+    },
+    {
+      "id": "detail_06_05",
+      "bounds": [
+        -4300.0,
+        -5700.0,
+        -2300.0,
+        -3700.0
+      ],
+      "file": "detail_06_05.jsonl.gz",
+      "sha256": "274f6ec3b6ba198a57c4bfb0420f4315570f383500b512b83590d36a067fd33d",
+      "counts": {
+        "area": 44239,
+        "path": 7663
+      }
+    },
+    {
+      "id": "detail_07_05",
+      "bounds": [
+        -2300.0,
+        -5700.0,
+        -300.0,
+        -3700.0
+      ],
+      "file": "detail_07_05.jsonl.gz",
+      "sha256": "6ed4ef17ac20acb461a051b4d796481733965093dd5eb0d1cac164b569281f93",
+      "counts": {
+        "area": 27439,
+        "path": 6101
+      }
+    },
+    {
+      "id": "detail_08_05",
+      "bounds": [
+        -300.0,
+        -5700.0,
+        1700.0,
+        -3700.0
+      ],
+      "file": "detail_08_05.jsonl.gz",
+      "sha256": "638fad7d489985d8250645092e958216fcd23494aa5c744e9f520535cd9c4682",
+      "counts": {
+        "area": 1668,
+        "path": 922
+      }
+    },
+    {
+      "id": "detail_09_05",
+      "bounds": [
+        1700.0,
+        -5700.0,
+        3700.0,
+        -3700.0
+      ],
+      "file": "detail_09_05.jsonl.gz",
+      "sha256": "cb2308e9f8c785765d93e1ce19b3270e23deda005da25bd9279ace109cbc09fc",
+      "counts": {
+        "area": 61,
+        "path": 50
+      }
+    },
+    {
+      "id": "detail_10_05",
+      "bounds": [
+        3700.0,
+        -5700.0,
+        5700.0,
+        -3700.0
+      ],
+      "file": "detail_10_05.jsonl.gz",
+      "sha256": "7cd37970e19c8082ae23584a2e9e3260e3965a0715b3bf6a4cd78968467d5b8b",
+      "counts": {
+        "area": 0,
+        "path": 2
+      }
+    },
+    {
+      "id": "detail_11_05",
+      "bounds": [
+        5700.0,
+        -5700.0,
+        7700.0,
+        -3700.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_12_05",
+      "bounds": [
+        7700.0,
+        -5700.0,
+        9700.0,
+        -3700.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_13_05",
+      "bounds": [
+        9700.0,
+        -5700.0,
+        11700.0,
+        -3700.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_14_05",
+      "bounds": [
+        11700.0,
+        -5700.0,
+        13700.0,
+        -3700.0
+      ],
+      "file": "detail_14_05.jsonl.gz",
+      "sha256": "fac9d81de492afe50ef4d64fc1750140d705bcea6387332814c1ba642c667c01",
+      "counts": {
+        "area": 23,
+        "path": 374
+      }
+    },
+    {
+      "id": "detail_15_05",
+      "bounds": [
+        13700.0,
+        -5700.0,
+        15700.0,
+        -3700.0
+      ],
+      "file": "detail_15_05.jsonl.gz",
+      "sha256": "48043dc07fa472de77b0ae29362e8626eeafcad84b9c6afe084ecdb234782594",
+      "counts": {
+        "area": 561,
+        "path": 2304
+      }
+    },
+    {
+      "id": "detail_00_06",
+      "bounds": [
+        -16300.0,
+        -3700.0,
+        -14300.0,
+        -1700.0
+      ],
+      "file": "detail_00_06.jsonl.gz",
+      "sha256": "c2889e0c274e8c9d3b46b982ae0c7097bc3f985621a4e940b3e82359eb754496",
+      "counts": {
+        "area": 39463,
+        "path": 5268
+      }
+    },
+    {
+      "id": "detail_01_06",
+      "bounds": [
+        -14300.0,
+        -3700.0,
+        -12300.0,
+        -1700.0
+      ],
+      "file": "detail_01_06.jsonl.gz",
+      "sha256": "81684a118df614b3a4de0fd6847e03355b1a26f3948c4c83b3054f04e364076e",
+      "counts": {
+        "area": 30005,
+        "path": 4379
+      }
+    },
+    {
+      "id": "detail_02_06",
+      "bounds": [
+        -12300.0,
+        -3700.0,
+        -10300.0,
+        -1700.0
+      ],
+      "file": "detail_02_06.jsonl.gz",
+      "sha256": "48f2bd3921ee09cd512fdee60ed33ea1cd0bbd3a60e9a0a5eb0dd85d7288336e",
+      "counts": {
+        "area": 18727,
+        "path": 3418
+      }
+    },
+    {
+      "id": "detail_03_06",
+      "bounds": [
+        -10300.0,
+        -3700.0,
+        -8300.0,
+        -1700.0
+      ],
+      "file": "detail_03_06.jsonl.gz",
+      "sha256": "ee2579dc81046a1db44a5ab1895fc9791f94149194c053385b5224bfaa0f317f",
+      "counts": {
+        "area": 37571,
+        "path": 6201
+      }
+    },
+    {
+      "id": "detail_04_06",
+      "bounds": [
+        -8300.0,
+        -3700.0,
+        -6300.0,
+        -1700.0
+      ],
+      "file": "detail_04_06.jsonl.gz",
+      "sha256": "ed47dd2c27c762c0095773d8214bfb1b0881661660a527d6321712318c08219e",
+      "counts": {
+        "area": 33224,
+        "path": 4730
+      }
+    },
+    {
+      "id": "detail_05_06",
+      "bounds": [
+        -6300.0,
+        -3700.0,
+        -4300.0,
+        -1700.0
+      ],
+      "file": "detail_05_06.jsonl.gz",
+      "sha256": "4ba25e68e1157720b892f446a220be7c07632e0f17ad7566413900c59cb2f15d",
+      "counts": {
+        "area": 42939,
+        "path": 4885
+      }
+    },
+    {
+      "id": "detail_06_06",
+      "bounds": [
+        -4300.0,
+        -3700.0,
+        -2300.0,
+        -1700.0
+      ],
+      "file": "detail_06_06.jsonl.gz",
+      "sha256": "0e11f6450f31791ee6eda517bc92a52e722cebdef8c50a7db095c8f0ae9cb472",
+      "counts": {
+        "area": 14248,
+        "path": 2136
+      }
+    },
+    {
+      "id": "detail_07_06",
+      "bounds": [
+        -2300.0,
+        -3700.0,
+        -300.0,
+        -1700.0
+      ],
+      "file": "detail_07_06.jsonl.gz",
+      "sha256": "938fd3491c8743b9e34b8551aaa567fc9adbb1c924462d997af898c46b31a842",
+      "counts": {
+        "area": 667,
+        "path": 572
+      }
+    },
+    {
+      "id": "detail_08_06",
+      "bounds": [
+        -300.0,
+        -3700.0,
+        1700.0,
+        -1700.0
+      ],
+      "file": "detail_08_06.jsonl.gz",
+      "sha256": "1941d9a1d85d56c1d94cc2e1f8b42c7de9469325aa071838929ab4f18e9656af",
+      "counts": {
+        "area": 202,
+        "path": 153
+      }
+    },
+    {
+      "id": "detail_09_06",
+      "bounds": [
+        1700.0,
+        -3700.0,
+        3700.0,
+        -1700.0
+      ],
+      "file": "detail_09_06.jsonl.gz",
+      "sha256": "2970c2767583d2a6cdcd95fcdee67976e1492a7909490962ac9c4defb7b17d4e",
+      "counts": {
+        "area": 3,
+        "path": 2
+      }
+    },
+    {
+      "id": "detail_10_06",
+      "bounds": [
+        3700.0,
+        -3700.0,
+        5700.0,
+        -1700.0
+      ],
+      "file": "detail_10_06.jsonl.gz",
+      "sha256": "f189b8eccabd2dae0fe25813fb783c5496e6147c08d6d9b702843079a4fc7d6a",
+      "counts": {
+        "area": 0,
+        "path": 2
+      }
+    },
+    {
+      "id": "detail_11_06",
+      "bounds": [
+        5700.0,
+        -3700.0,
+        7700.0,
+        -1700.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_12_06",
+      "bounds": [
+        7700.0,
+        -3700.0,
+        9700.0,
+        -1700.0
+      ],
+      "file": "detail_12_06.jsonl.gz",
+      "sha256": "3f04776ce72392a987032a567ee912516c58d3e407ef1445b12d8382d08b6d2b",
+      "counts": {
+        "area": 2,
+        "path": 8
+      }
+    },
+    {
+      "id": "detail_13_06",
+      "bounds": [
+        9700.0,
+        -3700.0,
+        11700.0,
+        -1700.0
+      ],
+      "file": "detail_13_06.jsonl.gz",
+      "sha256": "2232177c266cd16248d7b0dce4789872bfa856e2b46bd9b4e63da1bd188865ce",
+      "counts": {
+        "area": 294,
+        "path": 82
+      }
+    },
+    {
+      "id": "detail_14_06",
+      "bounds": [
+        11700.0,
+        -3700.0,
+        13700.0,
+        -1700.0
+      ],
+      "file": "detail_14_06.jsonl.gz",
+      "sha256": "fecc1032a3e7e5ce304a91b157d3267afa88659b05ae8c648c86cd41134bbd21",
+      "counts": {
+        "area": 112,
+        "path": 2018
+      }
+    },
+    {
+      "id": "detail_15_06",
+      "bounds": [
+        13700.0,
+        -3700.0,
+        15700.0,
+        -1700.0
+      ],
+      "file": "detail_15_06.jsonl.gz",
+      "sha256": "738cac3c24227fc1dab12ff7679c23c88c61c50058bd912bd71f130cfbb47ad6",
+      "counts": {
+        "area": 55,
+        "path": 1649
+      }
+    },
+    {
+      "id": "detail_00_07",
+      "bounds": [
+        -16300.0,
+        -1700.0,
+        -14300.0,
+        300.0
+      ],
+      "file": "detail_00_07.jsonl.gz",
+      "sha256": "94ebe3c57692e5414cdf83ef39afaae2ea0200cebca5c1cf87deb2ec4e16a3dc",
+      "counts": {
+        "area": 33666,
+        "path": 6274
+      }
+    },
+    {
+      "id": "detail_01_07",
+      "bounds": [
+        -14300.0,
+        -1700.0,
+        -12300.0,
+        300.0
+      ],
+      "file": "detail_01_07.jsonl.gz",
+      "sha256": "fa4906f7258605ded9bbb5922eadcfa71fb17f03e7110bf1bdd3b70664f2e508",
+      "counts": {
+        "area": 29352,
+        "path": 4795
+      }
+    },
+    {
+      "id": "detail_02_07",
+      "bounds": [
+        -12300.0,
+        -1700.0,
+        -10300.0,
+        300.0
+      ],
+      "file": "detail_02_07.jsonl.gz",
+      "sha256": "75421d4485ec5492ae19389405558788d05122f26e5c8e3d42ac00cc041769b0",
+      "counts": {
+        "area": 38011,
+        "path": 5067
+      }
+    },
+    {
+      "id": "detail_03_07",
+      "bounds": [
+        -10300.0,
+        -1700.0,
+        -8300.0,
+        300.0
+      ],
+      "file": "detail_03_07.jsonl.gz",
+      "sha256": "ffca4044d92659eab8cd969b519693e652eb5ef1997b26f455278dac5b26fc53",
+      "counts": {
+        "area": 27669,
+        "path": 5918
+      }
+    },
+    {
+      "id": "detail_04_07",
+      "bounds": [
+        -8300.0,
+        -1700.0,
+        -6300.0,
+        300.0
+      ],
+      "file": "detail_04_07.jsonl.gz",
+      "sha256": "e53e254d5a4e482dd4f60137af573e799d22c50c664cb7ecf70e7a3c2aab57d7",
+      "counts": {
+        "area": 50431,
+        "path": 8666
+      }
+    },
+    {
+      "id": "detail_05_07",
+      "bounds": [
+        -6300.0,
+        -1700.0,
+        -4300.0,
+        300.0
+      ],
+      "file": "detail_05_07.jsonl.gz",
+      "sha256": "3879dbaeb20125f788ade060c9d6d0b533acf822aa34b8802ee0183542565fa3",
+      "counts": {
+        "area": 17883,
+        "path": 6412
+      }
+    },
+    {
+      "id": "detail_06_07",
+      "bounds": [
+        -4300.0,
+        -1700.0,
+        -2300.0,
+        300.0
+      ],
+      "file": "detail_06_07.jsonl.gz",
+      "sha256": "6047f3ab8407d66679c5135da9bd23ea1164c286bf8a3164999f2ab8cfbe7f46",
+      "counts": {
+        "area": 282,
+        "path": 245
+      }
+    },
+    {
+      "id": "detail_07_07",
+      "bounds": [
+        -2300.0,
+        -1700.0,
+        -300.0,
+        300.0
+      ],
+      "file": "detail_07_07.jsonl.gz",
+      "sha256": "9360f1ed1c3776f3838a4c7b4c1b951efd84a0eca3f2089f8a72fe6d96d860f5",
+      "counts": {
+        "area": 6,
+        "path": 34
+      }
+    },
+    {
+      "id": "detail_08_07",
+      "bounds": [
+        -300.0,
+        -1700.0,
+        1700.0,
+        300.0
+      ],
+      "file": "detail_08_07.jsonl.gz",
+      "sha256": "0ad4f6ff836fcf83fdc756abbf9b2f00a8843f018d3826fbb75956ebd520741a",
+      "counts": {
+        "area": 0,
+        "path": 2
+      }
+    },
+    {
+      "id": "detail_09_07",
+      "bounds": [
+        1700.0,
+        -1700.0,
+        3700.0,
+        300.0
+      ],
+      "file": "detail_09_07.jsonl.gz",
+      "sha256": "d21679ab53c75e6b832fb40bad9d7bece929c67d38085877c614b0a36d8fc354",
+      "counts": {
+        "area": 0,
+        "path": 2
+      }
+    },
+    {
+      "id": "detail_10_07",
+      "bounds": [
+        3700.0,
+        -1700.0,
+        5700.0,
+        300.0
+      ],
+      "file": "detail_10_07.jsonl.gz",
+      "sha256": "fce19d2531742ebaed07ec32b714aeb246665cf009413a4aee67b1b68b040e00",
+      "counts": {
+        "area": 18,
+        "path": 85
+      }
+    },
+    {
+      "id": "detail_11_07",
+      "bounds": [
+        5700.0,
+        -1700.0,
+        7700.0,
+        300.0
+      ],
+      "file": "detail_11_07.jsonl.gz",
+      "sha256": "0b2337be3b892a58a86eec1cae240aa5f1bfa5fb880ab299c76c6654831a1c2f",
+      "counts": {
+        "area": 43,
+        "path": 127
+      }
+    },
+    {
+      "id": "detail_12_07",
+      "bounds": [
+        7700.0,
+        -1700.0,
+        9700.0,
+        300.0
+      ],
+      "file": "detail_12_07.jsonl.gz",
+      "sha256": "d9a6b929dee314b5b94f164dc0fc8b91eeb8039eb224cb7ad43351b4999efcb3",
+      "counts": {
+        "area": 488,
+        "path": 468
+      }
+    },
+    {
+      "id": "detail_13_07",
+      "bounds": [
+        9700.0,
+        -1700.0,
+        11700.0,
+        300.0
+      ],
+      "file": "detail_13_07.jsonl.gz",
+      "sha256": "0153c119733d8cdf9bdbc22a75d6f63a1faa6c1d5b02f86ccef244f03df6b037",
+      "counts": {
+        "area": 606,
+        "path": 1154
+      }
+    },
+    {
+      "id": "detail_14_07",
+      "bounds": [
+        11700.0,
+        -1700.0,
+        13700.0,
+        300.0
+      ],
+      "file": "detail_14_07.jsonl.gz",
+      "sha256": "c99605c6b54a981f2721144d1408ea965d1b2df39992cf0dc702081d662f1109",
+      "counts": {
+        "area": 300,
+        "path": 1141
+      }
+    },
+    {
+      "id": "detail_15_07",
+      "bounds": [
+        13700.0,
+        -1700.0,
+        15700.0,
+        300.0
+      ],
+      "file": "detail_15_07.jsonl.gz",
+      "sha256": "ac6df357354c191408e29bd1c30f5230ee5fd55677b3343a3c44ea9ec2fe4123",
+      "counts": {
+        "area": 123,
+        "path": 672
+      }
+    },
+    {
+      "id": "detail_00_08",
+      "bounds": [
+        -16300.0,
+        300.0,
+        -14300.0,
+        2300.0
+      ],
+      "file": "detail_00_08.jsonl.gz",
+      "sha256": "f62bb7a16caef11e4e1f421ec7cb27eec8f59fbca8fc59079a7445518e7107d9",
+      "counts": {
+        "area": 17446,
+        "path": 3515
+      }
+    },
+    {
+      "id": "detail_01_08",
+      "bounds": [
+        -14300.0,
+        300.0,
+        -12300.0,
+        2300.0
+      ],
+      "file": "detail_01_08.jsonl.gz",
+      "sha256": "7bbb33261ade56e0e2674fb902bd2d6669d4a6b4d9846bb38465538fbad69989",
+      "counts": {
+        "area": 29802,
+        "path": 4198
+      }
+    },
+    {
+      "id": "detail_02_08",
+      "bounds": [
+        -12300.0,
+        300.0,
+        -10300.0,
+        2300.0
+      ],
+      "file": "detail_02_08.jsonl.gz",
+      "sha256": "2215f2bd06b90dd29765869935863acbccdd0177833c8ad687c02719d7df424c",
+      "counts": {
+        "area": 38602,
+        "path": 5269
+      }
+    },
+    {
+      "id": "detail_03_08",
+      "bounds": [
+        -10300.0,
+        300.0,
+        -8300.0,
+        2300.0
+      ],
+      "file": "detail_03_08.jsonl.gz",
+      "sha256": "db23513e1d252c62783f0791d4c0c26a74903b782d02ae9b7f0e99e20d25f2d7",
+      "counts": {
+        "area": 29368,
+        "path": 6405
+      }
+    },
+    {
+      "id": "detail_04_08",
+      "bounds": [
+        -8300.0,
+        300.0,
+        -6300.0,
+        2300.0
+      ],
+      "file": "detail_04_08.jsonl.gz",
+      "sha256": "c9d5346334990f371ee255c2ad04d0b09d3263e33eeeaa6599c6c77ffaf7847e",
+      "counts": {
+        "area": 33141,
+        "path": 6405
+      }
+    },
+    {
+      "id": "detail_05_08",
+      "bounds": [
+        -6300.0,
+        300.0,
+        -4300.0,
+        2300.0
+      ],
+      "file": "detail_05_08.jsonl.gz",
+      "sha256": "e0b125655f0cf05b22a73d5ba830774b7ead75006a0e46d083d3e02a2b9502d5",
+      "counts": {
+        "area": 27900,
+        "path": 4458
+      }
+    },
+    {
+      "id": "detail_06_08",
+      "bounds": [
+        -4300.0,
+        300.0,
+        -2300.0,
+        2300.0
+      ],
+      "file": "detail_06_08.jsonl.gz",
+      "sha256": "0ec136b72534f62ca09181f55fc573fb10042e8f32825f60377afe8fa6233cae",
+      "counts": {
+        "area": 2493,
+        "path": 653
+      }
+    },
+    {
+      "id": "detail_07_08",
+      "bounds": [
+        -2300.0,
+        300.0,
+        -300.0,
+        2300.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_08_08",
+      "bounds": [
+        -300.0,
+        300.0,
+        1700.0,
+        2300.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_09_08",
+      "bounds": [
+        1700.0,
+        300.0,
+        3700.0,
+        2300.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_10_08",
+      "bounds": [
+        3700.0,
+        300.0,
+        5700.0,
+        2300.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_11_08",
+      "bounds": [
+        5700.0,
+        300.0,
+        7700.0,
+        2300.0
+      ],
+      "file": "detail_11_08.jsonl.gz",
+      "sha256": "99e22ec10ab457e506e729010d655e72740510ff84918f9a28d542cab3c93c90",
+      "counts": {
+        "area": 1065,
+        "path": 1065
+      }
+    },
+    {
+      "id": "detail_12_08",
+      "bounds": [
+        7700.0,
+        300.0,
+        9700.0,
+        2300.0
+      ],
+      "file": "detail_12_08.jsonl.gz",
+      "sha256": "c09d85fa1fd30dc53849d87efaee85b46bba2400ba76c605b68397c0a731e554",
+      "counts": {
+        "area": 212,
+        "path": 1589
+      }
+    },
+    {
+      "id": "detail_13_08",
+      "bounds": [
+        9700.0,
+        300.0,
+        11700.0,
+        2300.0
+      ],
+      "file": "detail_13_08.jsonl.gz",
+      "sha256": "16448f88f364842759202d4c500cdcee19f1fc301e3c15b9eeb33821c1c54b11",
+      "counts": {
+        "area": 107,
+        "path": 436
+      }
+    },
+    {
+      "id": "detail_14_08",
+      "bounds": [
+        11700.0,
+        300.0,
+        13700.0,
+        2300.0
+      ],
+      "file": "detail_14_08.jsonl.gz",
+      "sha256": "9e5e2d02db1cba085a35b60c581d169d3f4340fb05dc39ce5a8d4802bbef8279",
+      "counts": {
+        "area": 188,
+        "path": 894
+      }
+    },
+    {
+      "id": "detail_15_08",
+      "bounds": [
+        13700.0,
+        300.0,
+        15700.0,
+        2300.0
+      ],
+      "file": "detail_15_08.jsonl.gz",
+      "sha256": "74c6953451d638966c0942e087f142cc8e63714ddec964da6f2a6702e8e51cb4",
+      "counts": {
+        "area": 61,
+        "path": 506
+      }
+    },
+    {
+      "id": "detail_00_09",
+      "bounds": [
+        -16300.0,
+        2300.0,
+        -14300.0,
+        4300.0
+      ],
+      "file": "detail_00_09.jsonl.gz",
+      "sha256": "2f63147aee11d2fee081e6f51f2db943dd72a85bc814f5d80b52043185714f2b",
+      "counts": {
+        "area": 16397,
+        "path": 2321
+      }
+    },
+    {
+      "id": "detail_01_09",
+      "bounds": [
+        -14300.0,
+        2300.0,
+        -12300.0,
+        4300.0
+      ],
+      "file": "detail_01_09.jsonl.gz",
+      "sha256": "88924663b3ed9b1f527a57b0c45025d15d0605e454d6e962bc354d8a013ae05e",
+      "counts": {
+        "area": 24877,
+        "path": 2871
+      }
+    },
+    {
+      "id": "detail_02_09",
+      "bounds": [
+        -12300.0,
+        2300.0,
+        -10300.0,
+        4300.0
+      ],
+      "file": "detail_02_09.jsonl.gz",
+      "sha256": "7425f4b29e344fada31319e4679cc079e05ad6b8755f0d109fd531bb05ab5e9e",
+      "counts": {
+        "area": 22113,
+        "path": 3562
+      }
+    },
+    {
+      "id": "detail_03_09",
+      "bounds": [
+        -10300.0,
+        2300.0,
+        -8300.0,
+        4300.0
+      ],
+      "file": "detail_03_09.jsonl.gz",
+      "sha256": "46cedec0b81a15fd04445e64550cd6739a0cf5c9239fb5c714e7050a4bc2b482",
+      "counts": {
+        "area": 28958,
+        "path": 4807
+      }
+    },
+    {
+      "id": "detail_04_09",
+      "bounds": [
+        -8300.0,
+        2300.0,
+        -6300.0,
+        4300.0
+      ],
+      "file": "detail_04_09.jsonl.gz",
+      "sha256": "1812dc9b382f4b072371628261dddea34dcc5befb8f5b80b9d5ef0e2d34a9584",
+      "counts": {
+        "area": 30176,
+        "path": 4933
+      }
+    },
+    {
+      "id": "detail_05_09",
+      "bounds": [
+        -6300.0,
+        2300.0,
+        -4300.0,
+        4300.0
+      ],
+      "file": "detail_05_09.jsonl.gz",
+      "sha256": "dbbd9435917d0453d8f40cd608baccfed5df774a33e05c5461716fb06b0c2342",
+      "counts": {
+        "area": 7279,
+        "path": 1396
+      }
+    },
+    {
+      "id": "detail_06_09",
+      "bounds": [
+        -4300.0,
+        2300.0,
+        -2300.0,
+        4300.0
+      ],
+      "file": "detail_06_09.jsonl.gz",
+      "sha256": "fac658ba998387e0ce2beec1173469e78129dc22e4e2a53abe222ef74f65c7ff",
+      "counts": {
+        "area": 0,
+        "path": 2
+      }
+    },
+    {
+      "id": "detail_07_09",
+      "bounds": [
+        -2300.0,
+        2300.0,
+        -300.0,
+        4300.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_08_09",
+      "bounds": [
+        -300.0,
+        2300.0,
+        1700.0,
+        4300.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_09_09",
+      "bounds": [
+        1700.0,
+        2300.0,
+        3700.0,
+        4300.0
+      ],
+      "file": "detail_09_09.jsonl.gz",
+      "sha256": "3aff81ff898ff39de7ac23da4c20eb00eee2bddad1740627eecb652331c90c18",
+      "counts": {
+        "area": 9,
+        "path": 5
+      }
+    },
+    {
+      "id": "detail_10_09",
+      "bounds": [
+        3700.0,
+        2300.0,
+        5700.0,
+        4300.0
+      ],
+      "file": "detail_10_09.jsonl.gz",
+      "sha256": "37ff99badd25bab92cacbab6ddc46fe096d2f322d5b16c827c645d588eb45f06",
+      "counts": {
+        "area": 207,
+        "path": 68
+      }
+    },
+    {
+      "id": "detail_11_09",
+      "bounds": [
+        5700.0,
+        2300.0,
+        7700.0,
+        4300.0
+      ],
+      "file": "detail_11_09.jsonl.gz",
+      "sha256": "9025e355500ba8c228efd2ef7501cb5f4386b526b22f957b112f7404ee52f4c5",
+      "counts": {
+        "area": 873,
+        "path": 1493
+      }
+    },
+    {
+      "id": "detail_12_09",
+      "bounds": [
+        7700.0,
+        2300.0,
+        9700.0,
+        4300.0
+      ],
+      "file": "detail_12_09.jsonl.gz",
+      "sha256": "cdfad8b72cb2e92fe4d9cd8ff98948f5c7da6f9b24c148ce5ac9fd77f729081a",
+      "counts": {
+        "area": 2001,
+        "path": 2333
+      }
+    },
+    {
+      "id": "detail_13_09",
+      "bounds": [
+        9700.0,
+        2300.0,
+        11700.0,
+        4300.0
+      ],
+      "file": "detail_13_09.jsonl.gz",
+      "sha256": "e2341f7b94b43c84572b83476d5ee5c1de51cae6675644fc31162cc9a5e770bc",
+      "counts": {
+        "area": 49,
+        "path": 634
+      }
+    },
+    {
+      "id": "detail_14_09",
+      "bounds": [
+        11700.0,
+        2300.0,
+        13700.0,
+        4300.0
+      ],
+      "file": "detail_14_09.jsonl.gz",
+      "sha256": "81092d1a58cb975422608f220297aa4e9a1d41b9b6da515820a3195a6fc479dd",
+      "counts": {
+        "area": 148,
+        "path": 861
+      }
+    },
+    {
+      "id": "detail_15_09",
+      "bounds": [
+        13700.0,
+        2300.0,
+        15700.0,
+        4300.0
+      ],
+      "file": "detail_15_09.jsonl.gz",
+      "sha256": "1b2edf74f8549390b76924cb65ce235b72b80f8e01abbe5ffb16d1fc2e07918a",
+      "counts": {
+        "area": 333,
+        "path": 363
+      }
+    },
+    {
+      "id": "detail_00_10",
+      "bounds": [
+        -16300.0,
+        4300.0,
+        -14300.0,
+        6300.0
+      ],
+      "file": "detail_00_10.jsonl.gz",
+      "sha256": "5e1dc65d36d388d8a9b871a781da80584642babffac1797ff6f3678489654f65",
+      "counts": {
+        "area": 41214,
+        "path": 5163
+      }
+    },
+    {
+      "id": "detail_01_10",
+      "bounds": [
+        -14300.0,
+        4300.0,
+        -12300.0,
+        6300.0
+      ],
+      "file": "detail_01_10.jsonl.gz",
+      "sha256": "f946bbc2f6b9d253217a214c6c63656d464b50e1268e10989f3dc96e6517ba50",
+      "counts": {
+        "area": 36488,
+        "path": 4694
+      }
+    },
+    {
+      "id": "detail_02_10",
+      "bounds": [
+        -12300.0,
+        4300.0,
+        -10300.0,
+        6300.0
+      ],
+      "file": "detail_02_10.jsonl.gz",
+      "sha256": "eefad4e1b35cae67a904a1bff5257e50d4712d3385162e4ae52a1a71b6a4af27",
+      "counts": {
+        "area": 28515,
+        "path": 4042
+      }
+    },
+    {
+      "id": "detail_03_10",
+      "bounds": [
+        -10300.0,
+        4300.0,
+        -8300.0,
+        6300.0
+      ],
+      "file": "detail_03_10.jsonl.gz",
+      "sha256": "b45e0a0188fadf7ea3f28c9ad674654d4c20cc531360abc0d8d2c327626afaeb",
+      "counts": {
+        "area": 24051,
+        "path": 4154
+      }
+    },
+    {
+      "id": "detail_04_10",
+      "bounds": [
+        -8300.0,
+        4300.0,
+        -6300.0,
+        6300.0
+      ],
+      "file": "detail_04_10.jsonl.gz",
+      "sha256": "32925f5b8bb91e02f92ec9fd0b03726a8515fdefd778e1bb8a7c5447d0a3ab8f",
+      "counts": {
+        "area": 21367,
+        "path": 3079
+      }
+    },
+    {
+      "id": "detail_05_10",
+      "bounds": [
+        -6300.0,
+        4300.0,
+        -4300.0,
+        6300.0
+      ],
+      "file": "detail_05_10.jsonl.gz",
+      "sha256": "d3420637418a3bdc221b7d8744bd768f049f663d0fe162525564039dda7e70c9",
+      "counts": {
+        "area": 14049,
+        "path": 2778
+      }
+    },
+    {
+      "id": "detail_06_10",
+      "bounds": [
+        -4300.0,
+        4300.0,
+        -2300.0,
+        6300.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_07_10",
+      "bounds": [
+        -2300.0,
+        4300.0,
+        -300.0,
+        6300.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_08_10",
+      "bounds": [
+        -300.0,
+        4300.0,
+        1700.0,
+        6300.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_09_10",
+      "bounds": [
+        1700.0,
+        4300.0,
+        3700.0,
+        6300.0
+      ],
+      "file": "detail_09_10.jsonl.gz",
+      "sha256": "b0398e6b350f43a0b94ff780507ee2050fb97e3aa11a12e034d5322223304b0b",
+      "counts": {
+        "area": 237,
+        "path": 179
+      }
+    },
+    {
+      "id": "detail_10_10",
+      "bounds": [
+        3700.0,
+        4300.0,
+        5700.0,
+        6300.0
+      ],
+      "file": "detail_10_10.jsonl.gz",
+      "sha256": "f1378c2526716e74b3aca6b3e1a2bd3167278cdedfd06dd539021f79c59c432d",
+      "counts": {
+        "area": 10809,
+        "path": 2062
+      }
+    },
+    {
+      "id": "detail_11_10",
+      "bounds": [
+        5700.0,
+        4300.0,
+        7700.0,
+        6300.0
+      ],
+      "file": "detail_11_10.jsonl.gz",
+      "sha256": "100590117ea0bfbccabe3e320a94d3ed5e35877ed3b602dede7524a0b43657b7",
+      "counts": {
+        "area": 14098,
+        "path": 2843
+      }
+    },
+    {
+      "id": "detail_12_10",
+      "bounds": [
+        7700.0,
+        4300.0,
+        9700.0,
+        6300.0
+      ],
+      "file": "detail_12_10.jsonl.gz",
+      "sha256": "f38d4e4878a59571b11451e7652112baa1861fa4b9148c3969ad4291d8aa48fa",
+      "counts": {
+        "area": 5313,
+        "path": 1656
+      }
+    },
+    {
+      "id": "detail_13_10",
+      "bounds": [
+        9700.0,
+        4300.0,
+        11700.0,
+        6300.0
+      ],
+      "file": "detail_13_10.jsonl.gz",
+      "sha256": "03104d8ddcd89e4d1f8a432c8dead15debf73658119967f03efafe1c2c527015",
+      "counts": {
+        "area": 322,
+        "path": 443
+      }
+    },
+    {
+      "id": "detail_14_10",
+      "bounds": [
+        11700.0,
+        4300.0,
+        13700.0,
+        6300.0
+      ],
+      "file": "detail_14_10.jsonl.gz",
+      "sha256": "76c553036798157a4ce2134b2eedb288ae4b42480f1a0cc03a98b54fb4ba3093",
+      "counts": {
+        "area": 2793,
+        "path": 618
+      }
+    },
+    {
+      "id": "detail_15_10",
+      "bounds": [
+        13700.0,
+        4300.0,
+        15700.0,
+        6300.0
+      ],
+      "file": "detail_15_10.jsonl.gz",
+      "sha256": "3250e64b44a7bf54d7e1d156fac5b6e2da96703acaa72ed21dd2ad9698c5ddcc",
+      "counts": {
+        "area": 519,
+        "path": 221
+      }
+    },
+    {
+      "id": "detail_00_11",
+      "bounds": [
+        -16300.0,
+        6300.0,
+        -14300.0,
+        8300.0
+      ],
+      "file": "detail_00_11.jsonl.gz",
+      "sha256": "eaf19e2e901d12c5108ebc4296e56656c0bddaf34894f8c2980e11bf2c31e286",
+      "counts": {
+        "area": 9944,
+        "path": 1297
+      }
+    },
+    {
+      "id": "detail_01_11",
+      "bounds": [
+        -14300.0,
+        6300.0,
+        -12300.0,
+        8300.0
+      ],
+      "file": "detail_01_11.jsonl.gz",
+      "sha256": "c90e4faf0390e5925a5109e1a31ce81da1dc5ea29f686306f7e3f18c606c29ac",
+      "counts": {
+        "area": 14746,
+        "path": 2093
+      }
+    },
+    {
+      "id": "detail_02_11",
+      "bounds": [
+        -12300.0,
+        6300.0,
+        -10300.0,
+        8300.0
+      ],
+      "file": "detail_02_11.jsonl.gz",
+      "sha256": "47fcc0c46d02efbaf4d3637475f8d7e9f8565e6262717ae8d8cfc342cf159ffd",
+      "counts": {
+        "area": 17339,
+        "path": 2174
+      }
+    },
+    {
+      "id": "detail_03_11",
+      "bounds": [
+        -10300.0,
+        6300.0,
+        -8300.0,
+        8300.0
+      ],
+      "file": "detail_03_11.jsonl.gz",
+      "sha256": "960079759b36fc9e0af95ec89aec5cf84e5a593992d54a5940841020ad32d6c5",
+      "counts": {
+        "area": 23269,
+        "path": 3949
+      }
+    },
+    {
+      "id": "detail_04_11",
+      "bounds": [
+        -8300.0,
+        6300.0,
+        -6300.0,
+        8300.0
+      ],
+      "file": "detail_04_11.jsonl.gz",
+      "sha256": "e45ce4d25c42e57c626a58499d11ac6de07a7b5206f59dee2884d06f640dac87",
+      "counts": {
+        "area": 21628,
+        "path": 3025
+      }
+    },
+    {
+      "id": "detail_05_11",
+      "bounds": [
+        -6300.0,
+        6300.0,
+        -4300.0,
+        8300.0
+      ],
+      "file": "detail_05_11.jsonl.gz",
+      "sha256": "bf58417830b34f5a1f48537193109dfe65ef3982f370e8991eb7ea7eb5b1068a",
+      "counts": {
+        "area": 10213,
+        "path": 1921
+      }
+    },
+    {
+      "id": "detail_06_11",
+      "bounds": [
+        -4300.0,
+        6300.0,
+        -2300.0,
+        8300.0
+      ],
+      "file": "detail_06_11.jsonl.gz",
+      "sha256": "9176f510f127a3c5824e62648d28b7a2ebcc56fa53a333f7364f86d300894e28",
+      "counts": {
+        "area": 504,
+        "path": 396
+      }
+    },
+    {
+      "id": "detail_07_11",
+      "bounds": [
+        -2300.0,
+        6300.0,
+        -300.0,
+        8300.0
+      ],
+      "file": "detail_07_11.jsonl.gz",
+      "sha256": "86eb30f9ce4b9cfea3c880ad9efaf58b7c0793643081ec465db9b65e0d2667af",
+      "counts": {
+        "area": 10,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_08_11",
+      "bounds": [
+        -300.0,
+        6300.0,
+        1700.0,
+        8300.0
+      ],
+      "file": "detail_08_11.jsonl.gz",
+      "sha256": "62c162b1634a983815fce0700bf24f6429d1a2cdc0938f0cecb025c797a1b6f1",
+      "counts": {
+        "area": 6,
+        "path": 5
+      }
+    },
+    {
+      "id": "detail_09_11",
+      "bounds": [
+        1700.0,
+        6300.0,
+        3700.0,
+        8300.0
+      ],
+      "file": "detail_09_11.jsonl.gz",
+      "sha256": "c5168e69f0668c6cd6e54acd964e92fe341136677377154199e47751971472a5",
+      "counts": {
+        "area": 5634,
+        "path": 725
+      }
+    },
+    {
+      "id": "detail_10_11",
+      "bounds": [
+        3700.0,
+        6300.0,
+        5700.0,
+        8300.0
+      ],
+      "file": "detail_10_11.jsonl.gz",
+      "sha256": "e6bbddfbf7af96f6cad686d3a5a0abfd77f66c8c10f15c7a07fd3436412bbce1",
+      "counts": {
+        "area": 9273,
+        "path": 1284
+      }
+    },
+    {
+      "id": "detail_11_11",
+      "bounds": [
+        5700.0,
+        6300.0,
+        7700.0,
+        8300.0
+      ],
+      "file": "detail_11_11.jsonl.gz",
+      "sha256": "593c86b2bc45f30ec4500a197b7e12c4939b567ca45e5058680f02d6e851b5f5",
+      "counts": {
+        "area": 9515,
+        "path": 1693
+      }
+    },
+    {
+      "id": "detail_12_11",
+      "bounds": [
+        7700.0,
+        6300.0,
+        9700.0,
+        8300.0
+      ],
+      "file": "detail_12_11.jsonl.gz",
+      "sha256": "ebca250ce527ae6fe5bab4a560d181ab9e55c27cdb0d9b3ac955f1887ed02f7a",
+      "counts": {
+        "area": 5305,
+        "path": 1224
+      }
+    },
+    {
+      "id": "detail_13_11",
+      "bounds": [
+        9700.0,
+        6300.0,
+        11700.0,
+        8300.0
+      ],
+      "file": "detail_13_11.jsonl.gz",
+      "sha256": "c89cfbcc51f6b9d008d3f147611577e231037befbc4d6df93a0d52bd08aad019",
+      "counts": {
+        "area": 1617,
+        "path": 402
+      }
+    },
+    {
+      "id": "detail_14_11",
+      "bounds": [
+        11700.0,
+        6300.0,
+        13700.0,
+        8300.0
+      ],
+      "file": "detail_14_11.jsonl.gz",
+      "sha256": "d5e0f91e11f0f2c32ce16b1fc76d5e1c6a37663d5497247037c55512835977f2",
+      "counts": {
+        "area": 2186,
+        "path": 339
+      }
+    },
+    {
+      "id": "detail_15_11",
+      "bounds": [
+        13700.0,
+        6300.0,
+        15700.0,
+        8300.0
+      ],
+      "file": "detail_15_11.jsonl.gz",
+      "sha256": "1e44cbe77b465864fea443aea45e9a646ad1dafc47aa92dc8bc97fda41aed390",
+      "counts": {
+        "area": 2704,
+        "path": 458
+      }
+    },
+    {
+      "id": "detail_00_12",
+      "bounds": [
+        -16300.0,
+        8300.0,
+        -14300.0,
+        10300.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_01_12",
+      "bounds": [
+        -14300.0,
+        8300.0,
+        -12300.0,
+        10300.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_02_12",
+      "bounds": [
+        -12300.0,
+        8300.0,
+        -10300.0,
+        10300.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_03_12",
+      "bounds": [
+        -10300.0,
+        8300.0,
+        -8300.0,
+        10300.0
+      ],
+      "file": "detail_03_12.jsonl.gz",
+      "sha256": "9bca6410e7dbb56cad588182fc7d82c9bc55626e3daa8b43aded1711a919b911",
+      "counts": {
+        "area": 2769,
+        "path": 303
+      }
+    },
+    {
+      "id": "detail_04_12",
+      "bounds": [
+        -8300.0,
+        8300.0,
+        -6300.0,
+        10300.0
+      ],
+      "file": "detail_04_12.jsonl.gz",
+      "sha256": "853020d62e263e5f8f6bf16cd4404a8bb1db6ec234a5ca7cc575c581f71e0683",
+      "counts": {
+        "area": 12136,
+        "path": 1501
+      }
+    },
+    {
+      "id": "detail_05_12",
+      "bounds": [
+        -6300.0,
+        8300.0,
+        -4300.0,
+        10300.0
+      ],
+      "file": "detail_05_12.jsonl.gz",
+      "sha256": "adfb32c2273bd92ea6f09589adc55654630b3d217f03960e8a5a90ec7505cc18",
+      "counts": {
+        "area": 8722,
+        "path": 3816
+      }
+    },
+    {
+      "id": "detail_06_12",
+      "bounds": [
+        -4300.0,
+        8300.0,
+        -2300.0,
+        10300.0
+      ],
+      "file": "detail_06_12.jsonl.gz",
+      "sha256": "36718ee6b77fd42af0bf4d2180427279869b2ae8db79b2797c69b90a4261e24b",
+      "counts": {
+        "area": 6396,
+        "path": 3460
+      }
+    },
+    {
+      "id": "detail_07_12",
+      "bounds": [
+        -2300.0,
+        8300.0,
+        -300.0,
+        10300.0
+      ],
+      "file": "detail_07_12.jsonl.gz",
+      "sha256": "a7f727b5048c37b247028696a40e2b68b312e407e935cefc4581807854b26aba",
+      "counts": {
+        "area": 2302,
+        "path": 685
+      }
+    },
+    {
+      "id": "detail_08_12",
+      "bounds": [
+        -300.0,
+        8300.0,
+        1700.0,
+        10300.0
+      ],
+      "file": "detail_08_12.jsonl.gz",
+      "sha256": "66302702a49f6db819c9d3420e80a47741481c4dc92678d7ea8b854014216687",
+      "counts": {
+        "area": 1,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_09_12",
+      "bounds": [
+        1700.0,
+        8300.0,
+        3700.0,
+        10300.0
+      ],
+      "file": "detail_09_12.jsonl.gz",
+      "sha256": "03ec512c091846ab7eb4dfd33514a24106f60b624237c3aaa548e203173122a1",
+      "counts": {
+        "area": 1,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_10_12",
+      "bounds": [
+        3700.0,
+        8300.0,
+        5700.0,
+        10300.0
+      ],
+      "file": "detail_10_12.jsonl.gz",
+      "sha256": "16957f2fa09c75eaafc31dee0a5d2390ceaddd5e7170bdcd83cacb2229866b28",
+      "counts": {
+        "area": 5184,
+        "path": 795
+      }
+    },
+    {
+      "id": "detail_11_12",
+      "bounds": [
+        5700.0,
+        8300.0,
+        7700.0,
+        10300.0
+      ],
+      "file": "detail_11_12.jsonl.gz",
+      "sha256": "74b2264c80403b3d0552fc434134e23c5ebac9aa50236ffd1baef63f7226009e",
+      "counts": {
+        "area": 2247,
+        "path": 513
+      }
+    },
+    {
+      "id": "detail_12_12",
+      "bounds": [
+        7700.0,
+        8300.0,
+        9700.0,
+        10300.0
+      ],
+      "file": "detail_12_12.jsonl.gz",
+      "sha256": "c4f14153559fa1e5128d2a5a443520f3f6650c4e49005c8b8ec78901131380ca",
+      "counts": {
+        "area": 870,
+        "path": 269
+      }
+    },
+    {
+      "id": "detail_13_12",
+      "bounds": [
+        9700.0,
+        8300.0,
+        11700.0,
+        10300.0
+      ],
+      "file": "detail_13_12.jsonl.gz",
+      "sha256": "68069304e04c1043e814d166fc0fc1851a7506053d1e3a5b4b0b5310ba89e597",
+      "counts": {
+        "area": 2037,
+        "path": 375
+      }
+    },
+    {
+      "id": "detail_14_12",
+      "bounds": [
+        11700.0,
+        8300.0,
+        13700.0,
+        10300.0
+      ],
+      "file": "detail_14_12.jsonl.gz",
+      "sha256": "fbf2077c4813185432b04caae570554d95de9db3ad1e1b607bedf32bfc8a41df",
+      "counts": {
+        "area": 1440,
+        "path": 309
+      }
+    },
+    {
+      "id": "detail_15_12",
+      "bounds": [
+        13700.0,
+        8300.0,
+        15700.0,
+        10300.0
+      ],
+      "file": "detail_15_12.jsonl.gz",
+      "sha256": "96254f5d4b4ce29ee8836b436d0bee9c3a6360251414be13906c2667dbe3ecdf",
+      "counts": {
+        "area": 1377,
+        "path": 297
+      }
+    },
+    {
+      "id": "detail_00_13",
+      "bounds": [
+        -16300.0,
+        10300.0,
+        -14300.0,
+        12300.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_01_13",
+      "bounds": [
+        -14300.0,
+        10300.0,
+        -12300.0,
+        12300.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_02_13",
+      "bounds": [
+        -12300.0,
+        10300.0,
+        -10300.0,
+        12300.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_03_13",
+      "bounds": [
+        -10300.0,
+        10300.0,
+        -8300.0,
+        12300.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_04_13",
+      "bounds": [
+        -8300.0,
+        10300.0,
+        -6300.0,
+        12300.0
+      ],
+      "file": "detail_04_13.jsonl.gz",
+      "sha256": "2910997e91d98e0b61d5eb948bc1b1cd753f3b14e0801eb55da017f02be23632",
+      "counts": {
+        "area": 255,
+        "path": 640
+      }
+    },
+    {
+      "id": "detail_05_13",
+      "bounds": [
+        -6300.0,
+        10300.0,
+        -4300.0,
+        12300.0
+      ],
+      "file": "detail_05_13.jsonl.gz",
+      "sha256": "9f8bcad838c5f307fae8bfbbe54d859e4918faf0adab7655ceeab13ffde3278c",
+      "counts": {
+        "area": 575,
+        "path": 1326
+      }
+    },
+    {
+      "id": "detail_06_13",
+      "bounds": [
+        -4300.0,
+        10300.0,
+        -2300.0,
+        12300.0
+      ],
+      "file": "detail_06_13.jsonl.gz",
+      "sha256": "0cca09c840927c169de1f2cbcf03b0524bec386a9610169d2ff040e44c001cd2",
+      "counts": {
+        "area": 16246,
+        "path": 3076
+      }
+    },
+    {
+      "id": "detail_07_13",
+      "bounds": [
+        -2300.0,
+        10300.0,
+        -300.0,
+        12300.0
+      ],
+      "file": "detail_07_13.jsonl.gz",
+      "sha256": "64fdf1ad09b3729352f590a9a9da68e10b8d747a3f1b19e8247564d8764629e1",
+      "counts": {
+        "area": 12306,
+        "path": 2080
+      }
+    },
+    {
+      "id": "detail_08_13",
+      "bounds": [
+        -300.0,
+        10300.0,
+        1700.0,
+        12300.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_09_13",
+      "bounds": [
+        1700.0,
+        10300.0,
+        3700.0,
+        12300.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_10_13",
+      "bounds": [
+        3700.0,
+        10300.0,
+        5700.0,
+        12300.0
+      ],
+      "file": "detail_10_13.jsonl.gz",
+      "sha256": "8488e8d79d90de671d7dc45eda208d11d551ec75083344e268ae2f8ed052cdef",
+      "counts": {
+        "area": 2307,
+        "path": 397
+      }
+    },
+    {
+      "id": "detail_11_13",
+      "bounds": [
+        5700.0,
+        10300.0,
+        7700.0,
+        12300.0
+      ],
+      "file": "detail_11_13.jsonl.gz",
+      "sha256": "595bda47228c85675ea6b785da1de78844b6b28680d7f3cfe07b7b999f2cb666",
+      "counts": {
+        "area": 1897,
+        "path": 308
+      }
+    },
+    {
+      "id": "detail_12_13",
+      "bounds": [
+        7700.0,
+        10300.0,
+        9700.0,
+        12300.0
+      ],
+      "file": "detail_12_13.jsonl.gz",
+      "sha256": "42b92d705745da0cf74acc835e18afb1eb56855f318b21507b28a8b35678624d",
+      "counts": {
+        "area": 851,
+        "path": 363
+      }
+    },
+    {
+      "id": "detail_13_13",
+      "bounds": [
+        9700.0,
+        10300.0,
+        11700.0,
+        12300.0
+      ],
+      "file": "detail_13_13.jsonl.gz",
+      "sha256": "17edf521a822d6b307fd3bf4c865b997c04878e2d9a2960a1cc58b4029d03382",
+      "counts": {
+        "area": 1310,
+        "path": 360
+      }
+    },
+    {
+      "id": "detail_14_13",
+      "bounds": [
+        11700.0,
+        10300.0,
+        13700.0,
+        12300.0
+      ],
+      "file": "detail_14_13.jsonl.gz",
+      "sha256": "3aff7d8151a86e144179a30c9ec1de714928486009c17e8f8ff3d7d6643134f0",
+      "counts": {
+        "area": 562,
+        "path": 191
+      }
+    },
+    {
+      "id": "detail_15_13",
+      "bounds": [
+        13700.0,
+        10300.0,
+        15700.0,
+        12300.0
+      ],
+      "file": "detail_15_13.jsonl.gz",
+      "sha256": "4c3c7dcb47cd0ca40b39b3be1f7283e55451ab9e9378e823cbff8c29969cc6e2",
+      "counts": {
+        "area": 1724,
+        "path": 459
+      }
+    },
+    {
+      "id": "detail_00_14",
+      "bounds": [
+        -16300.0,
+        12300.0,
+        -14300.0,
+        14300.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_01_14",
+      "bounds": [
+        -14300.0,
+        12300.0,
+        -12300.0,
+        14300.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_02_14",
+      "bounds": [
+        -12300.0,
+        12300.0,
+        -10300.0,
+        14300.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_03_14",
+      "bounds": [
+        -10300.0,
+        12300.0,
+        -8300.0,
+        14300.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_04_14",
+      "bounds": [
+        -8300.0,
+        12300.0,
+        -6300.0,
+        14300.0
+      ],
+      "file": "detail_04_14.jsonl.gz",
+      "sha256": "9110785a0a37a3c02f957d6e0f8538ce2d105b0e5b5723c79dda13dfcff02f02",
+      "counts": {
+        "area": 178,
+        "path": 368
+      }
+    },
+    {
+      "id": "detail_05_14",
+      "bounds": [
+        -6300.0,
+        12300.0,
+        -4300.0,
+        14300.0
+      ],
+      "file": "detail_05_14.jsonl.gz",
+      "sha256": "8713c1d3e1e24549f7a491918181e62c3ee902ed3269af4c41fa6b1442a4bd1f",
+      "counts": {
+        "area": 3732,
+        "path": 1424
+      }
+    },
+    {
+      "id": "detail_06_14",
+      "bounds": [
+        -4300.0,
+        12300.0,
+        -2300.0,
+        14300.0
+      ],
+      "file": "detail_06_14.jsonl.gz",
+      "sha256": "316c38fee7f41ac277a72e260f9d83a6b28e07018357971132ad8eb5cfa5450e",
+      "counts": {
+        "area": 3031,
+        "path": 1281
+      }
+    },
+    {
+      "id": "detail_07_14",
+      "bounds": [
+        -2300.0,
+        12300.0,
+        -300.0,
+        14300.0
+      ],
+      "file": "detail_07_14.jsonl.gz",
+      "sha256": "65c9190d57d52e135159845f3453a41d819ef80cbde2ac2c3a5b945db53f216c",
+      "counts": {
+        "area": 202,
+        "path": 71
+      }
+    },
+    {
+      "id": "detail_08_14",
+      "bounds": [
+        -300.0,
+        12300.0,
+        1700.0,
+        14300.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_09_14",
+      "bounds": [
+        1700.0,
+        12300.0,
+        3700.0,
+        14300.0
+      ],
+      "file": "detail_09_14.jsonl.gz",
+      "sha256": "bc92a666679e71f0b2916a7da46878c7c8baa82f91da9875dcd4912408b0f226",
+      "counts": {
+        "area": 817,
+        "path": 164
+      }
+    },
+    {
+      "id": "detail_10_14",
+      "bounds": [
+        3700.0,
+        12300.0,
+        5700.0,
+        14300.0
+      ],
+      "file": "detail_10_14.jsonl.gz",
+      "sha256": "d1d45c6e64dbb57bfa87b2b4236d6ff2879fcb3e39574a37f0a3cee741c67d5e",
+      "counts": {
+        "area": 3697,
+        "path": 462
+      }
+    },
+    {
+      "id": "detail_11_14",
+      "bounds": [
+        5700.0,
+        12300.0,
+        7700.0,
+        14300.0
+      ],
+      "file": "detail_11_14.jsonl.gz",
+      "sha256": "415e4e333b3de1266fb92737a3bef9ee62f86c117348e3b3bf1e6016fd268d23",
+      "counts": {
+        "area": 2302,
+        "path": 312
+      }
+    },
+    {
+      "id": "detail_12_14",
+      "bounds": [
+        7700.0,
+        12300.0,
+        9700.0,
+        14300.0
+      ],
+      "file": "detail_12_14.jsonl.gz",
+      "sha256": "68d4fa6c9c2e6e0c3ba13e3f8ddba61d3548e4ee59c67528a09baedcdcde1b40",
+      "counts": {
+        "area": 1187,
+        "path": 233
+      }
+    },
+    {
+      "id": "detail_13_14",
+      "bounds": [
+        9700.0,
+        12300.0,
+        11700.0,
+        14300.0
+      ],
+      "file": "detail_13_14.jsonl.gz",
+      "sha256": "76f3a26618102b29007e60c29c946e4b97ba174d192a8dd030f3e58c39d4cb7b",
+      "counts": {
+        "area": 302,
+        "path": 124
+      }
+    },
+    {
+      "id": "detail_14_14",
+      "bounds": [
+        11700.0,
+        12300.0,
+        13700.0,
+        14300.0
+      ],
+      "file": "detail_14_14.jsonl.gz",
+      "sha256": "70a6337516d20db25e43f466c15b5d4c23d840f4311cc14653800a0aef7959c3",
+      "counts": {
+        "area": 546,
+        "path": 197
+      }
+    },
+    {
+      "id": "detail_15_14",
+      "bounds": [
+        13700.0,
+        12300.0,
+        15700.0,
+        14300.0
+      ],
+      "file": "detail_15_14.jsonl.gz",
+      "sha256": "260d454b1bb4c75f32b74f265feb224e8cf5bdd0a9c19fa283d71cf97547f00e",
+      "counts": {
+        "area": 176,
+        "path": 128
+      }
+    },
+    {
+      "id": "detail_00_15",
+      "bounds": [
+        -16300.0,
+        14300.0,
+        -14300.0,
+        16300.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_01_15",
+      "bounds": [
+        -14300.0,
+        14300.0,
+        -12300.0,
+        16300.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_02_15",
+      "bounds": [
+        -12300.0,
+        14300.0,
+        -10300.0,
+        16300.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_03_15",
+      "bounds": [
+        -10300.0,
+        14300.0,
+        -8300.0,
+        16300.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_04_15",
+      "bounds": [
+        -8300.0,
+        14300.0,
+        -6300.0,
+        16300.0
+      ],
+      "file": "detail_04_15.jsonl.gz",
+      "sha256": "893707c38eb62db5b693cf051a23d0076e7d78b895c02e6c59a02da368d470f1",
+      "counts": {
+        "area": 1658,
+        "path": 201
+      }
+    },
+    {
+      "id": "detail_05_15",
+      "bounds": [
+        -6300.0,
+        14300.0,
+        -4300.0,
+        16300.0
+      ],
+      "file": "detail_05_15.jsonl.gz",
+      "sha256": "8c71993a9ab370bae54f26263cd7ecfd07944ec59d36434926e6264c8b98b96d",
+      "counts": {
+        "area": 9265,
+        "path": 1245
+      }
+    },
+    {
+      "id": "detail_06_15",
+      "bounds": [
+        -4300.0,
+        14300.0,
+        -2300.0,
+        16300.0
+      ],
+      "file": "detail_06_15.jsonl.gz",
+      "sha256": "704968532fcf4168a5d80c3c4ebc29d7a1dcaa9493ce1db854bbf3995102d088",
+      "counts": {
+        "area": 932,
+        "path": 88
+      }
+    },
+    {
+      "id": "detail_07_15",
+      "bounds": [
+        -2300.0,
+        14300.0,
+        -300.0,
+        16300.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_08_15",
+      "bounds": [
+        -300.0,
+        14300.0,
+        1700.0,
+        16300.0
+      ],
+      "file": null,
+      "sha256": null,
+      "counts": {
+        "area": 0,
+        "path": 0
+      }
+    },
+    {
+      "id": "detail_09_15",
+      "bounds": [
+        1700.0,
+        14300.0,
+        3700.0,
+        16300.0
+      ],
+      "file": "detail_09_15.jsonl.gz",
+      "sha256": "9d2ed4577f981f903ac071f139513807943d2f86bd53579c0dad9697c7fc6b02",
+      "counts": {
+        "area": 1650,
+        "path": 377
+      }
+    },
+    {
+      "id": "detail_10_15",
+      "bounds": [
+        3700.0,
+        14300.0,
+        5700.0,
+        16300.0
+      ],
+      "file": "detail_10_15.jsonl.gz",
+      "sha256": "f2a2150f15466fae52d6cf51349ea72262b35d391c62f74a1281f54bc8e176f7",
+      "counts": {
+        "area": 211,
+        "path": 96
+      }
+    },
+    {
+      "id": "detail_11_15",
+      "bounds": [
+        5700.0,
+        14300.0,
+        7700.0,
+        16300.0
+      ],
+      "file": "detail_11_15.jsonl.gz",
+      "sha256": "1171bfcdc4397e93502d731363cf098b57a50e947740eeebbb6dcf99cd73c1de",
+      "counts": {
+        "area": 485,
+        "path": 103
+      }
+    },
+    {
+      "id": "detail_12_15",
+      "bounds": [
+        7700.0,
+        14300.0,
+        9700.0,
+        16300.0
+      ],
+      "file": "detail_12_15.jsonl.gz",
+      "sha256": "bae39726ee56d55d8eeeac0fceef172f4b81bf803680041b04ae9e9db12294cf",
+      "counts": {
+        "area": 437,
+        "path": 112
+      }
+    },
+    {
+      "id": "detail_13_15",
+      "bounds": [
+        9700.0,
+        14300.0,
+        11700.0,
+        16300.0
+      ],
+      "file": "detail_13_15.jsonl.gz",
+      "sha256": "a7e07ebb1c75e66e07da90aac865b3c97b410583eca02c0d6eb04e2750257e8a",
+      "counts": {
+        "area": 205,
+        "path": 155
+      }
+    },
+    {
+      "id": "detail_14_15",
+      "bounds": [
+        11700.0,
+        14300.0,
+        13700.0,
+        16300.0
+      ],
+      "file": "detail_14_15.jsonl.gz",
+      "sha256": "7b53707888bb8188d1dfebbcddc093407e88af91e215e3f2772df23d812f04cc",
+      "counts": {
+        "area": 196,
+        "path": 83
+      }
+    },
+    {
+      "id": "detail_15_15",
+      "bounds": [
+        13700.0,
+        14300.0,
+        15700.0,
+        16300.0
+      ],
+      "file": "detail_15_15.jsonl.gz",
+      "sha256": "5786f596464b21110e5cda2c4bdd3362ed375eb7157df09e072e54a9c26f1ab1",
+      "counts": {
+        "area": 95,
+        "path": 65
+      }
+    }
+  ],
+  "scan_complete": true,
+  "source_replay_verified": false,
+  "native_ready": false,
+  "installed": false
+}

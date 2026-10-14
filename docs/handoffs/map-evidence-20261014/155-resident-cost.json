@@ -1,0 +1,23 @@
+{
+  "source_sha256": "f6954ebdf26e000d9ffc876d5ea1b0d288b2f41c24ca65d7048873d467d58cfb",
+  "vertices_lower_bound": 6792755,
+  "faces": 6827138,
+  "groups": 38578,
+  "vertex_bytes_lower_bound": 54342040,
+  "index_bytes_optimistic_all_u16": 40962828,
+  "table_bytes": 1234496,
+  "three_payload_copies_lower_bound": 289618092,
+  "budget_bytes": 201326592,
+  "excess_bytes": 88291500,
+  "minimum_additional_reduction_fraction": 0.30485491907736206,
+  "tile_preserving_u16_surfaces_lower_bound": 237,
+  "surface_count_is_not_simultaneous_visible_draw_count": true,
+  "assumptions": [
+    "141 cross-group vertex sharing retained although153 groups own vertices",
+    "all indices u16; no split duplicates",
+    "no table alignment or object/upload costs",
+    "excludes ground protected buildings walls and other map layers"
+  ],
+  "conclusion": "Stop expanding the unsimplified153 full-resident representation; this bound is not a lower bound for other codecs or authorized simplification.",
+  "formal_qualified": false
+}

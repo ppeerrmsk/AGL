@@ -1,0 +1,104 @@
+{
+  "scope": "Direct inputs only; not the transitive full-map rebuild closure",
+  "inputs": [
+    {
+      "path": "tmp/tokyo-global-unified-01/detail_04_00.json",
+      "bytes": 50456089,
+      "sha256": "2d39b86d82f42e628cb827e035ef6e74b1b27141466520ce4f0e0926979df15d",
+      "in_frozen_zip": false,
+      "role": "Direct input of frozen tmp/tokyo_joint_patch_173.py; output named joint-boundary-175"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/native-members-172/report.json",
+      "bytes": 4321071,
+      "sha256": "f1185e8722cb2b4d954e4c7e7addd45acc516601c9b2fa0bf1b6372f2e19f7ef",
+      "in_frozen_zip": true,
+      "role": "Direct input of frozen tmp/tokyo_joint_patch_173.py; output named joint-boundary-175"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/structural-tile-164/report.json",
+      "bytes": 22248264,
+      "sha256": "88c47140774d228d00fc2d31d387a4b1fa6e88ba7558cedde5b57eef23eb77a0",
+      "in_frozen_zip": true,
+      "role": "Direct input of frozen tmp/tokyo_joint_patch_173.py; output named joint-boundary-175"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/structural-tile-164/local.bin",
+      "bytes": 1602824,
+      "sha256": "5773eacb0dc7d0bd5cfdbabf58572a0ed58a99a352e8fcf1e2b1a624fb9f3895",
+      "in_frozen_zip": false,
+      "role": "Direct input of frozen tmp/tokyo_joint_patch_173.py; output named joint-boundary-175"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/structural-tile-164/indices.bin",
+      "bytes": 2447604,
+      "sha256": "76b98d3affe93b261ee6ee2ad0508be4d95961161e1092e44490a8f8c820a81e",
+      "in_frozen_zip": false,
+      "role": "Direct input of frozen tmp/tokyo_joint_patch_173.py; output named joint-boundary-175"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/structural-tile-164/table.bin",
+      "bytes": 65600,
+      "sha256": "bfe9549a819122afa9fdc7a90c862c9cda08943c810c5654d8a402ef013ab616",
+      "in_frozen_zip": false,
+      "role": "Direct input of frozen tmp/tokyo_joint_patch_173.py; output named joint-boundary-175"
+    },
+    {
+      "path": "tmp/tokyo-bay-volume/r400-detail_04_00-layers/manifest.json",
+      "bytes": 7083,
+      "sha256": "883acb25a0ff4106c8239a7383d15791a851458a3350a921f6371bb82af0a2d8",
+      "in_frozen_zip": false,
+      "role": "Direct input of frozen tmp/tokyo_joint_patch_173.py; output named joint-boundary-175"
+    },
+    {
+      "path": "tmp/tokyo-bay-volume/r400-detail_04_00-layers/layer_0.bin.attributes",
+      "bytes": 37213560,
+      "sha256": "7f4d36f84acdf3e50c06f52ff1410d3a9f8f0579b84e0d528e44e118bdca97d6",
+      "in_frozen_zip": false,
+      "role": "Direct input of frozen tmp/tokyo_joint_patch_173.py; output named joint-boundary-175"
+    },
+    {
+      "path": "tmp/tokyo-bay-volume/r400-detail_04_00-layers/layer_1.bin.attributes",
+      "bytes": 75938640,
+      "sha256": "54d314d2d6416b44904c4302a30376df6fda5056f2db9dc28dda41e7a69a4641",
+      "in_frozen_zip": false,
+      "role": "Direct input of frozen tmp/tokyo_joint_patch_173.py; output named joint-boundary-175"
+    },
+    {
+      "path": "tmp/tokyo-bay-volume/r400-detail_04_00-layers/layer_2.bin.attributes",
+      "bytes": 6177600,
+      "sha256": "32e1d8b4876136ceb902cb22b412ef24c7f7e15e75b374b48dbe3195cde59d39",
+      "in_frozen_zip": false,
+      "role": "Direct input of frozen tmp/tokyo_joint_patch_173.py; output named joint-boundary-175"
+    },
+    {
+      "path": "tmp/tokyo-bay-volume/r400-detail_05_00-layers/manifest.json",
+      "bytes": 7083,
+      "sha256": "cac152d5d9255115080f67ba22ad5bccc3551f44067a4012f774ae086b5d7c1a",
+      "in_frozen_zip": false,
+      "role": "Direct input of frozen tmp/tokyo_joint_patch_173.py; output named joint-boundary-175"
+    },
+    {
+      "path": "tmp/tokyo-bay-volume/r400-detail_05_00-layers/layer_0.bin.attributes",
+      "bytes": 113935800,
+      "sha256": "1328cad89fc504553dbbee9460478354e489122a868232b146b4ff95129eca3a",
+      "in_frozen_zip": false,
+      "role": "Direct input of frozen tmp/tokyo_joint_patch_173.py; output named joint-boundary-175"
+    },
+    {
+      "path": "tmp/tokyo-bay-volume/r400-detail_05_00-layers/layer_1.bin.attributes",
+      "bytes": 44054520,
+      "sha256": "bf075e695d787b25a3c027032f2bc4910317c43d9eef33f38e25bf2310082856",
+      "in_frozen_zip": false,
+      "role": "Direct input of frozen tmp/tokyo_joint_patch_173.py; output named joint-boundary-175"
+    },
+    {
+      "path": "tmp/tokyo-bay-volume/r400-detail_05_00-layers/layer_2.bin.attributes",
+      "bytes": 9084120,
+      "sha256": "016a9a1bff6fcfed66e7fadf02e20470d7ff5f68ea9d087e8a3c169912ac1cbc",
+      "in_frozen_zip": false,
+      "role": "Direct input of frozen tmp/tokyo_joint_patch_173.py; output named joint-boundary-175"
+    }
+  ],
+  "not_in_zip_bytes": 340990523
+}

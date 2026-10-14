@@ -1,0 +1,25 @@
+{
+  "source": {
+    "path": "C:\\Users\\noelu\\Documents\\AGL\\scripts\\camera_controller.gd",
+    "sha256": "095330152733ee7191ab12db4fe79ce22acfc8c373d8d1f84bf9c083a99740df"
+  },
+  "source_bounds": {
+    "path": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\neighbor-bounds-136.json",
+    "sha256": "e123039b4ebf4938d92c4506a34900eecfefbce86e91a63ab5e66d56e25f9132"
+  },
+  "start_x": 1408.0,
+  "zoom": 0.5,
+  "screen_drag_x": 32.5,
+  "target_x": 1343.0,
+  "current_certified_left": 1344,
+  "certified_envelope_exceeded": true,
+  "minimum_guaranteed_preparation_us": 0,
+  "scope": "no positive preparation interval can be derived from handle_drag; crossing certified envelope does not by itself prove a visible hole outside it",
+  "rejected_strategy": "rely only on async preparation completing within the current certified 64-unit margin",
+  "not_proven": [
+    "actual missing pixel at x1343",
+    "all resident representations infeasible",
+    "full-map readiness"
+  ],
+  "formal_qualified": false
+}

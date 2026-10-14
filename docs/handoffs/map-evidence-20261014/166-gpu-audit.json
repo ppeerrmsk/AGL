@@ -1,0 +1,70 @@
+{
+  "bindings": {
+    "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\tile-batches-165\\batch-00\\engine\\report.json": "a0c385a7eb59b613ccb0045c38feb1eb322cb0da3fc25ce3062a23a52552145e",
+    "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\tile-batches-165\\batch-01\\engine\\report.json": "ae9fb15573f9a48dea1c968bcc9a37aeb70cb0a9cf84d8b5768159560651b846",
+    "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\tile-batches-165\\batch-02\\engine\\report.json": "7f6e1b05164976852aeaed8b44cf39586cdd96b3fee23e8511a339a31f282f6c",
+    "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\tile-batches-165\\batch-03\\engine\\report.json": "8832b34854e975290b8e0d8f2ebf6b399bb28fafebbd5d864c7f6c35c03ee272"
+  },
+  "rows": [
+    {
+      "batch": 0,
+      "actual_payload": 945044,
+      "three_copies": 2835132,
+      "faces": 66758,
+      "vertices": 65522,
+      "pixel_differences": [
+        1023,
+        5826,
+        13042
+      ]
+    },
+    {
+      "batch": 1,
+      "actual_payload": 935926,
+      "three_copies": 2807778,
+      "faces": 66213,
+      "vertices": 64919,
+      "pixel_differences": [
+        823,
+        7567,
+        21104
+      ]
+    },
+    {
+      "batch": 2,
+      "actual_payload": 947322,
+      "three_copies": 2841966,
+      "faces": 66675,
+      "vertices": 65533,
+      "pixel_differences": [
+        862,
+        6003,
+        16134
+      ]
+    },
+    {
+      "batch": 3,
+      "actual_payload": 63934,
+      "three_copies": 191802,
+      "faces": 4321,
+      "vertices": 4379,
+      "pixel_differences": [
+        136,
+        842,
+        6769
+      ]
+    }
+  ],
+  "actual_payload_sum": 2892226,
+  "three_copy_sum": 8676678,
+  "faces": 203967,
+  "surfaces": 4,
+  "group_textures": 4,
+  "duplicate_vertices": 0,
+  "independent_batch_loads": true,
+  "combined_residency_tested": false,
+  "metadata_upload_peak_verified": false,
+  "ground_walls_protected_objects_included": false,
+  "full_map_accepted": false,
+  "performance_accepted": false
+}

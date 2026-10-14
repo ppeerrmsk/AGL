@@ -1,0 +1,65 @@
+{
+  "source_report_sha256": "f1185e8722cb2b4d954e4c7e7addd45acc516601c9b2fa0bf1b6372f2e19f7ef",
+  "neighbor_bindings": {
+    "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-bay-volume\\r400-detail_05_00-layers\\layer_0.bin.attributes": "1328cad89fc504553dbbee9460478354e489122a868232b146b4ff95129eca3a",
+    "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-bay-volume\\r400-detail_05_00-layers\\layer_1.bin.attributes": "bf075e695d787b25a3c027032f2bc4910317c43d9eef33f38e25bf2310082856",
+    "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-bay-volume\\r400-detail_05_00-layers\\layer_2.bin.attributes": "016a9a1bff6fcfed66e7fadf02e20470d7ff5f68ea9d087e8a3c169912ac1cbc"
+  },
+  "accepted_groups": 2048,
+  "blocked_source_ids": [
+    "w149982715",
+    "w149982724",
+    "w149982732",
+    "w149982734",
+    "w149982737",
+    "w412840776",
+    "w764510327"
+  ],
+  "native_layers": [
+    {
+      "layer": 0,
+      "original": 40782,
+      "retained": 24954
+    },
+    {
+      "layer": 1,
+      "original": 24374,
+      "retained": 10666
+    },
+    {
+      "layer": 2,
+      "original": 3699,
+      "retained": 3699
+    },
+    {
+      "tile": "detail_05_00",
+      "layer": 0,
+      "original": 62162,
+      "retained": 62162
+    },
+    {
+      "tile": "detail_05_00",
+      "layer": 1,
+      "original": 5193,
+      "retained": 5193
+    },
+    {
+      "tile": "detail_05_00",
+      "layer": 2,
+      "original": 3802,
+      "retained": 3802
+    }
+  ],
+  "candidate_roof_faces": 10215,
+  "candidate_wall_faces": 20258,
+  "control_faces": 140012,
+  "candidate_faces": 140949,
+  "center": [
+    -6300.0,
+    -14500.0
+  ],
+  "camera_half_extent": 64,
+  "minimum_scale": 2,
+  "source_scope": "two native tiles across x=-6300; left structural candidate/right native, no far-view qualification",
+  "full_map_qualified": false
+}
