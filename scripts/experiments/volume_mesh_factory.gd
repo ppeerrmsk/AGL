@@ -183,3 +183,36 @@ static func points_from(raw: Array) -> PackedVector2Array:
 	for point in raw:
 		result.append(Vector2(float(point[0]), float(point[1])))
 	return result
+
+
+## 开放路线与闭合岸线共用有界接头；闭合末边复用首点，避免单独封口。
+static func stroke_edges(points: PackedVector2Array, width: float, closed: bool = false) -> Array[PackedVector2Array]:
+	var clean := PackedVector2Array()
+	for point in points:
+		if clean.is_empty() or clean[-1].distance_squared_to(point) > 0.0001:
+			clean.append(point)
+	if closed and clean.size() > 1 and clean[0].distance_squared_to(clean[-1]) <= 0.0001:
+		clean.resize(clean.size() - 1)
+	if width <= 0.0 or clean.size() < (3 if closed else 2):
+		return []
+	var left := PackedVector2Array()
+	var right := PackedVector2Array()
+	for i in clean.size():
+		var before := (clean[i] - clean[(i - 1 + clean.size()) % clean.size() if closed else maxi(i - 1, 0)]).normalized()
+		var after := (clean[(i + 1) % clean.size() if closed else mini(i + 1, clean.size() - 1)] - clean[i]).normalized()
+		if not closed and i == 0:
+			before = after
+		if not closed and i == clean.size() - 1:
+			after = before
+		var tangent := (before + after).normalized()
+		if tangent.is_zero_approx():
+			tangent = after
+		var normal := Vector2(-tangent.y, tangent.x)
+		var side := Vector2(-after.y, after.x)
+		var length := minf(width * 2.0, width * 0.5 / maxf(0.25, normal.dot(side)))
+		left.append(clean[i] + normal * length)
+		right.append(clean[i] - normal * length)
+	if closed:
+		left.append(left[0])
+		right.append(right[0])
+	return [left, right]

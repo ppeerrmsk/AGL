@@ -84,6 +84,7 @@ var _time: float = 0.0
 var _redraw_accum: float = REDRAW_INTERVAL
 
 var _sprites: Array = []  ## Array[ImageTexture] — 烘焙好的云贴图
+var presentation_revision := 0
 
 ## 初始化：注入相机、生成噪声、烘焙贴图
 func setup(p_camera: Camera2D, deterministic_seed: int = 0) -> void:
@@ -101,6 +102,7 @@ func setup(p_camera: Camera2D, deterministic_seed: int = 0) -> void:
 	_bake_sprites()
 
 func _init_noise() -> void:
+	presentation_revision += 1
 	_noise = FastNoiseLite.new()
 	_noise.seed = cloud_seed
 	_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
@@ -124,6 +126,8 @@ func _init_noise() -> void:
 	_sandstorm_noise.fractal_gain = 0.52
 
 func _process(delta: float) -> void:
+	if get_tree().paused:
+		return
 	_time += delta
 	_redraw_accum += delta
 	if _redraw_accum >= REDRAW_INTERVAL:
@@ -352,6 +356,9 @@ func _bake_single(seed: int) -> ImageTexture:
 # ══════════════════════════════════════════════════════════
 
 func _draw() -> void:
+	var volume_owner: Variant = get_meta(&"weather_volume_owner") if has_meta(&"weather_volume_owner") else null
+	if volume_owner is WeakRef and is_instance_valid(volume_owner.get_ref()):
+		return
 	if not camera or _noise == null or _sprites.is_empty():
 		return
 

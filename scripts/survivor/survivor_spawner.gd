@@ -308,6 +308,7 @@ func update(delta: float) -> void:
 	# Adds 类敌人（Tu-160 / AH-64 / CH-47）不随机刷新——由未来的事件系统按需触发 spawn。
 	# 这里仅处理已刷出来单位的生命期超限清理（despawn_after meta）
 	_cleanup_expired_adds()
+	_update_retiring_aircraft(delta)
 
 	# BOSS encounter 更新（飞机 / 舰队 / 混合都走这个）
 	if _boss:
@@ -1504,7 +1505,7 @@ func _update_reinf_egress(delta: float) -> void:
 ## 最近边界向外的退场点（沿最近轴推到边界外 + 余量）
 func _nearest_exit_point(p: Vector2) -> Vector2:
 	var half := MapBoundary.world_half_px()
-	var out := half + SurvivorData.EGRESS_FREE_OUTSET_PX + 400.0
+	var out := half + UnitRetirement.EXIT_OUTSET_PX
 	var sx := 1.0 if p.x >= 0.0 else -1.0
 	var sy := 1.0 if p.y >= 0.0 else -1.0
 	if (half - absf(p.x)) < (half - absf(p.y)):
@@ -1912,8 +1913,8 @@ func _spawn_commander_squad(wingman_count: int, debug_near_player: bool = false,
 const SENTINEL_ESCORT_WATCHDOG_INTERVAL := 1.0
 const SENTINEL_MIN_ESCORT := 5
 const SENTINEL_REQUIRED_AEGIS := 1
-const SENTINEL_ESCORT_RECALL_DISTANCE := 1800.0
-const SENTINEL_ESCORT_RECALL_CLEAR_DISTANCE := 900.0
+const SENTINEL_ESCORT_RECALL_DISTANCE := 700.0
+const SENTINEL_ESCORT_RECALL_CLEAR_DISTANCE := 450.0
 func _ensure_sentinels_escorted() -> void:
 	if not mode:
 		return
@@ -1986,6 +1987,8 @@ func _recall_detached_sentinel_escort(commander: Aircraft, sq: Squad, escort: Ai
 		SquadFactory.register_wingman(sq, escort, false)
 	var dist := escort.global_position.distance_to(commander.global_position)
 	if dist <= SENTINEL_ESCORT_RECALL_CLEAR_DISTANCE:
+		if escort.has_meta("sentinel_recall_active"):
+			escort.is_afterburner = false
 		escort.remove_meta("sentinel_recall_active")
 		return
 	if dist <= SENTINEL_ESCORT_RECALL_DISTANCE:
@@ -2058,12 +2061,7 @@ func _copy_sentinel_package_meta(commander: Aircraft, escort: Aircraft) -> void:
 #   - 沿固定直线从 A 飞到 B
 # ══════════════════════════════════════════════
 
-## 超过 despawn_after 时间戳的 Adds 静默移除（不触发击杀/经验）
-##
-## **2026-05-09 修复**：到期时若单位仍在玩家视野内，不直接 free（避免凭空消失），
-## 而是把过期时间向后推 3 秒，等飞出屏后再静默清理。
-const ADDS_OFFSCREEN_GRACE_SEC := 3.0
-
+## Adds 到期只发物理撤离令，由统一队列在实际飞远后回收。
 func _cleanup_expired_adds() -> void:
 	for child in mode.get_children():
 		if child is Aircraft and child.team == CombatUnit.TEAM_HOSTILE and not child.is_destroyed:
@@ -2073,13 +2071,8 @@ func _cleanup_expired_adds() -> void:
 			var t: float = float(ac.get_meta("despawn_after"))
 			if mode.game_time < t:
 				continue
-			# 仍在玩家视野内 → 推迟 free，防止画面中央凭空消失
-			if mode.has_method("is_world_pos_visible") \
-					and mode.is_world_pos_visible(ac.global_position):
-				ac.set_meta("despawn_after", mode.game_time + ADDS_OFFSCREEN_GRACE_SEC)
-				continue
-			ac.set_meta("xp_granted", true)  # 防止 _detect_kills 当成击杀
-			ac.queue_free()
+			_queue_aircraft_retirement(ac)
+
 
 ## Adds 航线安全余量：起点 A 至少离边界这么远（保证玩家看得到生成过程）
 const ADDS_SPAWN_MARGIN_PX := 1500.0
@@ -3672,29 +3665,59 @@ func _update_far_cleanup(delta: float) -> void:
 		if child is Aircraft and child.team == CombatUnit.TEAM_HOSTILE and not child.is_destroyed:
 			var ac: Aircraft = child
 			# Adds 杂兵（Tu-160 等族群）不受远距清理影响，它们沿固定航线飞过战场
+			if bool(ac.get_meta(&"world_retiring", false)):
+				continue
 			if ac.has_meta("skip_far_cleanup") and ac.get_meta("skip_far_cleanup"):
 				continue
 			# 增援不受玩家距离清理：回收改走 EGRESS 物理飞离（spec reinforcement-ingress §3.5）
 			if str(ac.get_meta("category", "")) == "reinforcement":
 				continue
 			if ac.global_position.distance_squared_to(pp) > cleanup_d2:
-				# 防止 _detect_kills 在同帧误判为击杀
-				ac.set_meta("xp_granted", true)
-				ac.queue_free()
-				PerfBuckets.mark_frame_event("free_far_enemy")
+				_queue_aircraft_retirement(ac)
 				removed += 1
 
 	if removed > 0:
-		EventLogger.log_event("TOKEN", "FarCleanup", "despawned %d distant enemies" % removed)
+		EventLogger.log_event("TOKEN", "FarCleanup", "evacuating %d distant enemies" % removed)
 
-## BOSS 阶段清场：舞台只留 BOSS —— 全部残余敌机（含画面内的）撤离战场。
-## 铁则：不在玩家画面内消失。
-##   - 画面外 → 立即静默 free（释放 Token）
-##   - 画面内 → 转"撤离"：清 AI 目标 + PATROL + 最近出界点航线 + AB 全速拉出
-##     （与王牌支援中队 / 宿敌 Orion 的 withdraw 同一契约：物理飞出去，不瞬移不瞬消；
-##      玩家追打照样还手 —— 不做无敌逃兵），飘出画面后由本函数的画面外分支 free。
-## 不动的：BOSS 本体与 BOSS 自带单位（category 前缀 "boss"）、事件层自管撤离的王牌支援 /
-## 宿敌（ace_support / ace_nemesis）、**全部舰船与地面单位**（战区里的船原样保留，不是飞机不撤离）。
+## 普通远距、到期 Adds 与 BOSS 清场共用有预算的退役队列。
+const UnitRetirement = preload("res://scripts/survivor/unit_retirement.gd")
+var _retiring_aircraft: Array = []
+var _retirement_tick_s := 0.0
+
+## 清理来源只登记一次撤离；短暂离屏不会销毁单位。
+func _queue_aircraft_retirement(ac: Aircraft) -> void:
+	if bool(ac.get_meta(&"world_retiring", false)):
+		return
+	UnitRetirement.begin_aircraft_exit(ac, _nearest_exit_point(ac.global_position))
+	_retiring_aircraft.append(ac)
+
+## 只扫描已退役的有限队列，和战区队列一样以 5Hz/每 tick 四架摊平释放。
+func _update_retiring_aircraft(delta: float) -> void:
+	if _retiring_aircraft.is_empty():
+		_retirement_tick_s = 0.0
+		return
+	_retirement_tick_s += delta
+	if _retirement_tick_s < UnitRetirement.CHECK_INTERVAL_S:
+		return
+	var step := _retirement_tick_s
+	_retirement_tick_s = 0.0
+	var kept: Array = []
+	var budget := UnitRetirement.FREE_BUDGET
+	for value in _retiring_aircraft:
+		if typeof(value) != TYPE_OBJECT or not is_instance_valid(value) or not (value is Aircraft):
+			continue
+		var ac := value as Aircraft
+		if ac.is_destroyed or ac.is_queued_for_deletion():
+			continue
+		if not UnitRetirement.release_ready(ac, mode, player_aircraft, step) or budget <= 0:
+			kept.append(ac)
+			continue
+		UnitRetirement.free_aircraft(ac)
+		PerfBuckets.mark_frame_event("free_aircraft_retire")
+		budget -= 1
+	_retiring_aircraft = kept
+
+## BOSS / 事件自管王牌 / 甲板机豁免；地面、舰船保留。其余飞机无论画内画外都先撤离。
 const BOSS_PURGE_INTERVAL := 1.0
 func _update_boss_phase_purge(delta: float) -> void:
 	_boss_purge_timer -= delta
@@ -3704,7 +3727,6 @@ func _update_boss_phase_purge(delta: float) -> void:
 	if not mode or not player_aircraft or player_aircraft.is_destroyed:
 		return
 
-	var freed := 0
 	var started := 0
 	for child in mode.get_children():
 		if not (child is Aircraft):
@@ -3723,39 +3745,20 @@ func _update_boss_phase_purge(delta: float) -> void:
 		if ac.has_meta("parent_carrier"):
 			continue
 
-		# 画面外 → 立即静默 free（释放 Token；xp_granted 防 _detect_kills 同帧误判击杀）
-		if not mode.is_world_pos_visible(ac.global_position, 0.0):
-			ac.set_meta("xp_granted", true)
-			CombatUnit.release_target_refs(ac)
-			ac.queue_free()
-			PerfBuckets.mark_frame_event("free_boss_purge")
-			freed += 1
-			continue
-
-		# 画面内 → 物理撤离（每 tick 续写出界航线，防 PATROL 自己 roll 新航点绕回来）
+		# 画内画外都先物理撤离，统一队列在真正飞远后回收。
 		if _begin_boss_evacuation(ac):
 			started += 1
 
-	if freed > 0 or started > 0:
+	if started > 0:
 		EventLogger.log_event("BOSS", "PhaseEvacuation",
-			"offscreen_freed=%d evacuating=%d" % [freed, started])
+			"evacuating=%d" % started)
 
 ## 让一架残余敌机转入"撤离"：清目标 → PATROL → 最近出界点航线 → AB。
 ## 返回 true 表示这是它第一次被下撤离令（仅用于日志计数）。
 func _begin_boss_evacuation(ac: Aircraft) -> bool:
 	var first := not ac.has_meta("boss_evac")
 	ac.set_meta("boss_evac", true)
-	ac.is_mission_target = false      # 战区 TGT 标记随撤离一起摘掉
-	ac.is_afterburner = true
-	var ai := _get_ai(ac)
-	if ai == null:
-		return first
-	if first:
-		ai.release_target(AIController.TargetSource.TS_BOSS, "boss phase evacuation")
-		ai._state = AIController.AIState.PATROL
-		ac.ai_override_pursuit = false
-	ai.waypoints = PackedVector2Array([_nearest_exit_point(ac.global_position)])
-	ai.current_waypoint_index = 0
+	_queue_aircraft_retirement(ac)
 	return first
 
 ## 猎手系统：定期指派空闲敌机主动追击玩家
@@ -3787,6 +3790,11 @@ func _update_hunters(delta: float) -> void:
 		if child is Aircraft and child.team == CombatUnit.TEAM_HOSTILE and not child.is_destroyed:
 			var ai := _get_ai(child)
 			if ai == null:
+				continue
+			# Sentinel 原生 ORBIT_GUARD 永不进入全局猎手池；只有 CommanderAura 明确
+			# 标记的 sentinel_hunter 可以离轴出击。
+			if bool(child.get_meta("sentinel_native_escort", false)) \
+					and not bool(child.get_meta("sentinel_hunter", false)):
 				continue
 			if is_instance_valid(ai._current_target) and ai._current_target is Aircraft \
 					and player_target_ids.has(ai._current_target.get_instance_id()):
@@ -3916,7 +3924,7 @@ func _update_boundary_discipline(_delta: float) -> void:
 		if not has_live_player:
 			continue
 		# BOSS 阶段撤离中：飞出地图正是目的，边界纪律不得把它们拽回来
-		if ac.has_meta("boss_evac"):
+		if ac.has_meta("boss_evac") or bool(ac.get_meta(&"world_retiring", false)):
 			continue
 		# 增援 TRANSIT/EGRESS 跨线飞行是设计内行为，不得被边界纪律 hard clamp/强制转向
 		# 打断（spec reinforcement-ingress §3.4）；ONSTATION/交战照常受纪律约束
@@ -3977,6 +3985,8 @@ func _update_enemy_waypoints(delta: float) -> void:
 	for child in mode.get_children():
 		if child is Aircraft and child.team == CombatUnit.TEAM_HOSTILE and not child.is_destroyed:
 			# Adds 杂兵 / Boss / 王牌支援中队 有独立航点管理，不被绕玩家航点覆盖
+			if bool(child.get_meta(&"world_retiring", false)):
+				continue
 			var cat2: String = child.get_meta("category", "")
 			if cat2 == "zone_air":
 				_tick_zone_air_ingress(child)
@@ -4118,8 +4128,9 @@ func _detect_kills() -> void:
 				var xp_value: int = base_xp + survivor_player.level * 8
 				# 骑士心脏·历练（720 批）：对头击杀经验 ×1.5（先乘，再叠 xp_mult）
 				if int(mode.upgrade_stacks.get("headon_xp", 0)) > 0 \
-						and float(child.get_meta("kill_head_on_dot", 0.0)) >= HEAD_ON_DOT_THRESHOLD \
-						and float(child.get_meta("kill_attacker_aim", 0.0)) >= HEAD_ON_DOT_THRESHOLD:
+						and (bool(child.get_meta(SkillHooks.BLOODLUST_HEAD_ON_META, false)) \
+						or (float(child.get_meta("kill_head_on_dot", 0.0)) >= HEAD_ON_DOT_THRESHOLD \
+						and float(child.get_meta("kill_attacker_aim", 0.0)) >= HEAD_ON_DOT_THRESHOLD)):
 					xp_value = int(round(float(xp_value) * 1.5))
 				# xp_mult 升级（队级单实例：倍率在 SurvivorPlayer 层，切控不丢——720 T2）
 				# 智能鹰（722 sig_f16）第二乘区独立叠乘，不占 xp_mult 硬顶
@@ -4231,7 +4242,7 @@ func _find_aircraft_ai(ac: Aircraft) -> AIController:
 const HEAD_ON_KILL_HP_BONUS: float = 5.0
 const HEAD_ON_DOT_THRESHOLD: float = 0.6
 func _check_head_on_kill_bonus(victim: Node) -> void:
-	if not victim.has_meta("kill_head_on_dot"):
+	if not (victim is Aircraft) or bool(victim.get_meta("no_kill_reward", false)):
 		return
 	var pl_ac: Aircraft = survivor_player.aircraft
 	if pl_ac == null or not is_instance_valid(pl_ac) or pl_ac.params == null:
@@ -4240,7 +4251,8 @@ func _check_head_on_kill_bonus(victim: Node) -> void:
 		return
 	var head_on: float = victim.get_meta("kill_head_on_dot", 0.0)
 	var atk_aim: float = victim.get_meta("kill_attacker_aim", 0.0)
-	if head_on < HEAD_ON_DOT_THRESHOLD or atk_aim < HEAD_ON_DOT_THRESHOLD:
+	if not bool(victim.get_meta(SkillHooks.BLOODLUST_HEAD_ON_META, false)) \
+			and (head_on < HEAD_ON_DOT_THRESHOLD or atk_aim < HEAD_ON_DOT_THRESHOLD):
 		return
 	pl_ac.params.max_hp += HEAD_ON_KILL_HP_BONUS
 	pl_ac.hp = minf(pl_ac.hp + HEAD_ON_KILL_HP_BONUS, pl_ac.params.max_hp)

@@ -13,6 +13,55 @@ var _level_input: SpinBox
 var _skill_list: VBoxContainer
 var _add_option: OptionButton
 var _scroll: ScrollContainer
+var _fear_target_choice: OptionButton
+var _fear_source_choice: OptionButton
+
+## Debug 只跳过获得/冷却条件；来源必须真实，免疫与锥体照射条件仍走正式入口。
+func _build_fear_controls() -> void:
+	var row := HBoxContainer.new()
+	_content.add_child(row)
+	_fear_target_choice = OptionButton.new()
+	_fear_source_choice = OptionButton.new()
+	row.add_child(_fear_target_choice)
+	row.add_child(_fear_source_choice)
+	for label in ["FEAR 5s", "Clear FEAR", "Cast cone"]:
+		var button := Button.new()
+		button.text = label
+		row.add_child(button)
+		button.pressed.connect(_debug_fear_action.bind(label))
+
+func _refresh_fear_choices() -> void:
+	if _fear_target_choice == null:
+		return
+	_fear_target_choice.clear()
+	_fear_source_choice.clear()
+	for value: Variant in CombatUnit.all_units:
+		var ac := FearResponse.aircraft(value)
+		if ac == null or ac.is_destroyed:
+			continue
+		var choice := _fear_target_choice if ac.is_player_squad() else _fear_source_choice
+		choice.add_item(ac.callsign if ac.callsign != "" else ac.name)
+		choice.set_item_metadata(choice.item_count - 1, ac.get_instance_id())
+		if ac == AircraftRenderer.player_ref:
+			choice.select(choice.item_count - 1)
+
+func _debug_fear_action(action: String) -> void:
+	if action == "Cast cone":
+		for controller in SquadFearConeController.live_controllers():
+			controller.debug_cast()
+		return
+	if _fear_target_choice.selected < 0:
+		return
+	var ac := FearResponse.aircraft(instance_from_id(int(_fear_target_choice.get_selected_metadata())))
+	if ac == null:
+		return
+	if action == "Clear FEAR":
+		if ac.fear_response != null:
+			ac.fear_response.clear(ac)
+		return
+	if _fear_source_choice.selected >= 0:
+		var source: Variant = instance_from_id(int(_fear_source_choice.get_selected_metadata()))
+		FearResponse.apply(ac, source)
 
 ## 装备装载替换面板：每个槽位的 OptionButton 引用，便于 _refresh_loadout 同步选中项
 var _loadout_panel: PanelContainer       ## 屏幕左侧独立面板（与中央 F4 面板同步显隐）
@@ -105,6 +154,7 @@ func _build_ui() -> void:
 	title.add_theme_color_override("font_color", ThemeColors.TEXT_TITLE_GREEN)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_content.add_child(title)
+	_build_fear_controls()
 
 	# 等级控制
 	var level_row := HBoxContainer.new()
@@ -345,6 +395,7 @@ func _axis_color(axis: StringName) -> Color:
 	return SurvivorData.AXIS_COLORS.get(axis, Color.WHITE)
 
 func _refresh() -> void:
+	_refresh_fear_choices()
 	if not survivor_player or not game_scene:
 		return
 
@@ -533,6 +584,9 @@ func _status_label_for(sid: String) -> String:
 	return StatusEffects.short_label(sid)
 
 func _on_apply_status(sid: String) -> void:
+	if sid == StatusEffects.FEAR:
+		_debug_fear_action("FEAR 5s")
+		return
 	if survivor_player and survivor_player.aircraft:
 		survivor_player.aircraft.apply_status(sid, 8.0)
 

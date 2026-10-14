@@ -85,6 +85,7 @@ extends Resource
 @export var infinite_fuel: bool = true         ## 无限燃油
 @export var missile_damage_cap: float = 30.0   ## 收到的导弹伤害上限（0 = 不限）
 @export var bullet_damage_cap: float = 5.0     ## 收到的子弹伤害上限（0 = 不限）
+@export var bullet_damage_taken_mult: float = 0.6 ## 机炮承伤在单发封顶后统一降低 40%（含僚机）
 @export var bullet_dodge_chance: float = 0.10  ## 基础子弹闪避率
 
 # （自然成长 growth_curve export 已退役删除，2026-07-19：等级只做门槛，成长走三轴里程碑）

@@ -27,11 +27,11 @@ const RUNTIME_HOTSPOT_LIMIT: int = 10
 const FRAME_TRACE_ROOT_BUCKETS := [
 	"aircraft_phys", "ai_tick", "radar_locks", "ground_phys", "naval_phys",
 	"mount_target_phys", "bullet_phys", "missile_phys", "atmosphere_tick",
-	"aircraft_draw", "trail_draw", "ground_draw", "naval_draw", "bullet_draw",
+	"aircraft_draw", "trail_draw", "ground_draw", "naval_draw", "bullet_draw", "building_draw",
 	"missile_draw", "missile_trail_draw", "hud_process", "hud_player_draw",
 	"hud_grid_draw", "hud_radar_draw", "hud_threat_draw", "event_log",
 	"audio_sfx_play", "radio_play", "survivor_cache", "survivor_lod",
-	"survivor_spawner",
+	"survivor_spawner", "tokyo_map_process", "tokyo_map_stream",
 ]
 
 # ── 当前窗口累加 ──
@@ -766,14 +766,20 @@ func format_frame_trace_dump() -> String:
 			str(bool(window.get("complete", false))), frames.size()]
 		for context_frame in frames:
 			var context: Dictionary = context_frame
+			# 仅在输出报告时筛选；地图小桶不能被 top-4 战斗桶挤掉。
+			var map_buckets: Dictionary = {}
+			for bucket: String in context.get("buckets_us", {}):
+				if bucket.begins_with("tokyo_map_"):
+					map_buckets[bucket] = context.buckets_us[bucket]
 			var delta_ms := float(context.get("delta_ms", 0.0))
 			var marker := "!" if delta_ms > FRAME_BUDGET_S * 1000.0 else "."
-			s += "    %s f=%d dt=%.3f known=%.3f phys=%d buckets=[%s] events=[%s] engine=[%s]\n" % [
+			s += "    %s f=%d dt=%.3f known=%.3f phys=%d buckets=[%s] events=[%s] engine=[%s] map=[%s]\n" % [
 				marker, int(context.get("frame", 0)), delta_ms,
 				float(context.get("known_ms", 0.0)), int(context.get("physics_ticks", 0)),
 				_format_trace_map(context.get("buckets_us", {}), 4, "us"),
 				_format_trace_map(context.get("events", {}), 4),
-				_format_trace_map(context.get("engine", {}), 6)]
+				_format_trace_map(context.get("engine", {}), 6),
+				_format_trace_map(map_buckets, map_buckets.size(), "us")]
 	s += "=== END FRAME SPIKE TRACE ===\n"
 	return s
 

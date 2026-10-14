@@ -1,0 +1,10 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/tests/tokyo_cells_visual.gd" id="1"]
+
+[node name="TokyoCellsVisual" type="Node3D"]
+script = ExtResource("1")
+output_prefix = "res://bench/results/tokyo_r6_"
+preview_center = Vector2(300, -12730)
+close_center = Vector2(-30, -12550)
+overview_zoom = 0.65

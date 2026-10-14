@@ -1,0 +1,6 @@
+[gd_resource type="Resource" script_class="SquadFearConeConfig" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/survivor/squad_fear_cone_config.gd" id="1"]
+
+[resource]
+script = ExtResource("1")

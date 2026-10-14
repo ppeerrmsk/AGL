@@ -8,6 +8,8 @@ extends Control
 ## 撤回：survivor_select.gd 改回直接 change_scene_to_file 到 survivor_mode.tscn 即可
 
 const NEXT_SCENE := "res://scenes/survivor_mode.tscn"
+const VolumePreload := preload("res://scripts/rendering/tokyo_volume_preload.gd")
+const DesertPreload := preload("res://scripts/rendering/desert_map_preload.gd")
 const ITEMS_PER_FRAME := 30  # 每帧处理多少个街区（30 → ~7 帧完成 195 个）
 const MIN_DISPLAY_FRAMES := 6  # 最少展示 6 帧避免一闪而过
 const VectorPreviewRenderer = preload("res://scripts/survivor/map_vector_preview_renderer.gd")
@@ -28,9 +30,13 @@ var _prewarm_map := false
 var _map_lod_index := 0
 var _detail_cache_started := false
 var _detail_cache_done := false
+var _volume_ref: WeakRef
 
 
 func _ready() -> void:
+	_volume_ref = VolumePreload.start(self)
+	if _volume_ref == null:
+		_volume_ref = DesertPreload.start(self)
 	# 缓存可能因为 reset 没生效，强制重置以保证从头跑（对开发期反复测试更稳）
 	# 实际玩家进入只走一次，重置成本可忽略
 	if not BuildingRenderer.cache_is_ready():
@@ -39,6 +45,8 @@ func _ready() -> void:
 		_label.text = tr("PRELOAD_BUILDINGS_LABEL") if TranslationServer else "正在加载城市数据"
 	if _hint:
 		_hint.text = tr("PRELOAD_BUILDINGS_HINT") if TranslationServer else "横浜 / Yokohama"
+		if DesertPreload.eligible(get_tree()):
+			_hint.text = tr("MAP_DESERT_RAILWAY_NAME")
 	_prewarm_map = OS.is_debug_build() \
 		and not get_tree().has_meta("boss_debug_mode") \
 		and not get_tree().has_meta("ugc_map_path") \
@@ -79,9 +87,10 @@ func _process(_delta: float) -> void:
 	if _bar:
 		_bar.value = (building_progress * BUILDING_PROGRESS_WEIGHT \
 			+ map_progress * (1.0 - BUILDING_PROGRESS_WEIGHT)) * 100.0
+		_bar.value = _bar.value * 0.75 + _volume_progress() * 25.0
 	var map_ready := not _prewarm_map or (
 		_map_lod_index >= MAP_LODS.size() and _detail_cache_done)
-	if BuildingRenderer.cache_is_ready() and map_ready and _frames >= MIN_DISPLAY_FRAMES:
+	if BuildingRenderer.cache_is_ready() and map_ready and _volume_progress() >= 1.0 and _frames >= MIN_DISPLAY_FRAMES:
 		_finish()
 
 
@@ -102,5 +111,18 @@ func _prewarm_detail_cache() -> void:
 
 
 func _finish() -> void:
+	var session: Variant = _volume_ref.get_ref() if _volume_ref != null else null
+	if typeof(session) == TYPE_OBJECT and is_instance_valid(session) and session.status == "ready":
+		if not session.arm():
+			return
 	_done = true
-	get_tree().change_scene_to_file(NEXT_SCENE)
+	var error := get_tree().change_scene_to_file(NEXT_SCENE)
+	if error != OK and typeof(session) == TYPE_OBJECT and is_instance_valid(session):
+		session.cancel()
+
+
+func _volume_progress() -> float:
+	var session: Variant = _volume_ref.get_ref() if _volume_ref != null else null
+	if typeof(session) != TYPE_OBJECT or not is_instance_valid(session) or session.status == "cancelled":
+		return 1.0
+	return session.progress()

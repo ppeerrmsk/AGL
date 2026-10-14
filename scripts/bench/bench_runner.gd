@@ -34,6 +34,9 @@ const OUT_DIR_REL: String = "bench/results"
 ## turn_physics 已把跨零大坡反转与快速 G 峰谷接入 `_fail` 自动门。
 ## "bfm_intent" 特例：BfmIntentTest.run_all() 静态入口，返回 bool。
 const UNIT_TESTS: Dictionary = {
+	"volume_ground": "res://scripts/tests/test_volume_ground.gd",
+	"map_contact_ao": "res://scripts/tests/test_map_contact_ao.gd",
+	"ocean_volume": "res://scripts/tests/test_ocean_volume.gd",
 	"turn_physics": "res://scripts/tests/test_turn_physics.gd",
 	"flare": "res://scripts/tests/test_flare_timing.gd",
 	"rejoin": "res://scripts/tests/test_formation_rejoin.gd",
@@ -42,6 +45,11 @@ const UNIT_TESTS: Dictionary = {
 	"damage_vignette": "res://scripts/tests/test_damage_vignette.gd",
 	"aircraft_bank_volume": "res://scripts/tests/test_aircraft_bank_volume.gd",
 	"volume_world": "res://scripts/tests/test_volume_world.gd",
+	"volume_terrain_archive": "res://scripts/tests/test_volume_terrain_archive.gd",
+	"tokyo_volume_lod": "res://scripts/tests/test_tokyo_volume_lod.gd",
+	"tokyo_volume_rings": "res://scripts/tests/test_tokyo_volume_ring_geometry.gd",
+	"tokyo_cells": "res://scripts/tests/test_tokyo_cells.gd",
+	"tokyo_regional_native": "res://scripts/tests/test_tokyo_regional_native.gd",
 	"escort": "res://scripts/tests/test_escort_evasion.gd",
 	"target_sel": "res://scripts/tests/test_target_selection.gd",
 	"cmd_evade": "res://scripts/tests/test_commanded_evade.gd",
@@ -54,6 +62,7 @@ const UNIT_TESTS: Dictionary = {
 	"ciws_intercept": "res://scripts/tests/test_ciws_intercept.gd",
 	"gun_aim": "res://scripts/tests/test_gun_aim.gd",
 	"gun_burst": "res://scripts/tests/test_gun_burst.gd",
+	"gun_evasion": "res://scripts/tests/test_gun_evasion.gd",
 	"rendering_packets": "res://scripts/tests/test_rendering_packets.gd",
 	"weapon_doctrine": "res://scripts/tests/test_weapon_doctrine.gd",
 	"missile_env": "res://scripts/tests/test_missile_envelope.gd",
@@ -98,6 +107,7 @@ const UNIT_TESTS: Dictionary = {
 	"armored_train": "res://scripts/tests/test_armored_train.gd",
 	"land_carrier": "res://scripts/tests/test_land_carrier.gd",
 	"the_crucible": "res://scripts/tests/test_the_crucible.gd",
+	"orion_final_form": "res://scripts/tests/test_orion_final_form.gd",
 	"hyper_a": "res://scripts/tests/test_hyper_a_boss.gd",
 	"naval_formation": "res://scripts/tests/test_naval_formation.gd",
 	"naval_zone_water": "res://scripts/tests/test_naval_zone_water.gd",
@@ -130,6 +140,12 @@ const UNIT_TESTS: Dictionary = {
 
 ## 只显式调用、不会滚入 `all` 的构建任务。
 const BUILD_TASKS: Dictionary = {
+	"ocean_volume_build": "res://scripts/tests/build_ocean_volume.gd",
+	"map_contact_ao_build": "res://scripts/tests/build_map_contact_ao.gd",
+	"volume_terrain_build": "res://scripts/tests/build_volume_terrain.gd",
+	"tokyo_volume_build": "res://scripts/tests/build_tokyo_volume_archive.gd",
+	"tokyo_region_build": "res://scripts/tests/build_tokyo_region_archive.gd",
+	"tokyo_cells_build": "res://scripts/tests/build_tokyo_cells.gd",
 	"i18n_build": "res://scripts/tests/build_translations.gd",
 	"flare_impact_ab": "res://scripts/tests/test_flare_impact_ab.gd",
 }
@@ -137,15 +153,48 @@ const BUILD_TASKS: Dictionary = {
 ## 无需 RenderingServer、但必须真实跨帧处理 queue_free / SceneTree 信号顺序的集成测试场。
 ## `all` 在同步单测全绿后强制进入 lifecycle_gauntlet；不能被单项断言替代。
 const HEADLESS_TEST_SCENES: Dictionary = {
+	"full_war": "res://scenes/tests/full_war.tscn",
+	"fear_cone": "res://scenes/tests/fear_cone.tscn",
+	"ocean_volume_lifecycle": "res://scenes/tests/ocean_volume_lifecycle.tscn",
+	"bloodlust_head_on": "res://scenes/tests/bloodlust_head_on.tscn",
+	"desert_preload": "res://scenes/tests/desert_preload.tscn",
 	"lifecycle_gauntlet": "res://scenes/tests/lifecycle_gauntlet.tscn",
+	"orion_lifecycle": "res://scenes/tests/orion_lifecycle.tscn",
+	"gun_evasion_flight": "res://scenes/tests/gun_evasion.tscn",
+	"tokyo_volume_lifecycle": "res://scenes/tests/tokyo_volume_lifecycle.tscn",
+	"tokyo_cells_lifecycle": "res://scenes/tests/tokyo_cells_lifecycle.tscn",
 	"desert_theater": "res://scenes/tests/desert_theater_smoke.tscn",
+	"weather_volume_lifecycle": "res://scenes/tests/weather_volume_lifecycle.tscn",
 	"runtime_error_probe": "res://scenes/tests/runtime_error_probe.tscn",
 }
 
 ## 需要真实 RenderingServer 的固定画面采集；必须由 run.cmd 的 Visual 模式启动。
 const VISUAL_TEST_SCENES: Dictionary = {
+	"full_war_visual": "res://scenes/tests/full_war.tscn",
+	"full_war_baseline": "res://scenes/tests/full_war.tscn",
+	"weather_volume_visual": "res://scenes/tests/weather_volume_visual.tscn",
+	"map_contact_ao_visual": "res://scenes/tests/map_contact_ao_visual.tscn",
+	"volume_ground_runtime": "res://scenes/tests/volume_ground_runtime.tscn",
+	"ocean_volume_visual": "res://scenes/tests/ocean_volume_visual.tscn",
+	"unit_retirement_visual": "res://scenes/tests/unit_retirement_visual.tscn",
+	"zone_observation_visual": "res://scenes/tests/zone_observation_visual.tscn",
+	"desert_formal_entry": "res://scenes/tests/desert_formal_entry.tscn",
+	"volume_relief_stress": "res://scenes/tests/volume_relief_stress.tscn",
 	"volume_3d_lab": "res://scenes/tests/volume_3d_lab.tscn",
+	"volume_3d_tokyo_preview": "res://scenes/tests/volume_3d_tokyo_preview.tscn",
+	"tokyo_region_preview": "res://scenes/tests/tokyo_region_preview.tscn",
+	"tokyo_region_preview_b": "res://scenes/tests/tokyo_region_preview_b.tscn",
+	"tokyo_cells_visual": "res://scenes/tests/tokyo_cells_visual.tscn",
+	"tokyo_cells_runtime_visual": "res://scenes/tests/tokyo_cells_runtime_visual.tscn",
+	"tokyo_volume_visual": "res://scenes/tests/tokyo_volume_visual.tscn",
 	"volume_3d_combat": "res://scenes/tests/volume_3d_combat.tscn",
+	"volume_3d_desert": "res://scenes/tests/volume_3d_desert.tscn",
+	"volume_desert_route": "res://scenes/tests/volume_3d_desert.tscn",
+	"volume_aircraft_multiview": "res://scenes/tests/volume_aircraft_multiview_qa.tscn",
+	"volume_aircraft_lod_multiview": "res://scenes/tests/volume_aircraft_multiview_qa.tscn",
+	"volume_aircraft_lod2_multiview": "res://scenes/tests/volume_aircraft_multiview_qa.tscn",
+	"volume_aircraft_runtime": "res://scenes/tests/volume_aircraft_runtime_qa.tscn",
+	"volume_formal_quality": "res://scenes/tests/volume_formal_quality.tscn",
 	"main_menu_visual": "res://scenes/tests/main_menu_visual_qa.tscn",
 	"ui_iteration_visual": "res://scenes/tests/ui_iteration_visual_qa.tscn",
 	"player_hud_visual": "res://scenes/tests/player_hud_visual_qa.tscn",
@@ -194,7 +243,12 @@ var bench_duration: float = DEFAULT_DURATION
 var _out_path: String = ""
 
 ## 相同正式负载 + 相同三维地图，成对只切换机体显示；不会进入发布默认路径。
+const VOLUME_EXPERIMENT_META := &"external_volume_experiment"
 const VOLUME_SCENARIOS := {
+	"volume_map_2d_c1": "battlefield_atmosphere_stress_36",
+	"volume_map_3d_c1": "battlefield_atmosphere_stress_36",
+	"volume_map_2d_c2": "battlefield_atmosphere_stress_48_24km",
+	"volume_map_3d_c2": "battlefield_atmosphere_stress_48_24km",
 	"volume_3d_airframes_mother_goose": "boss_mother_goose",
 	"volume_3d_baseline_airframes_mother_goose": "boss_mother_goose",
 	"volume_3d_baseline_c1": "battlefield_atmosphere_stress_36",
@@ -208,6 +262,8 @@ const VOLUME_SCENARIOS := {
 	"volume_2d_mother_goose": "boss_mother_goose",
 }
 var _volume_probe_ref: WeakRef
+var _bloodlust_probe_ref: WeakRef
+var _fear_probe_ref: WeakRef
 
 func _ready() -> void:
 	# Godot 4 把 `--` 之后的用户参数放 get_cmdline_user_args() 而非 get_cmdline_args()
@@ -287,6 +343,14 @@ func _ready() -> void:
 	get_tree().set_meta("bench_mode", true)
 	get_tree().set_meta("bench_scenario", bench_scenario)
 	get_tree().set_meta("bench_duration", bench_duration)
+	if bench_scenario in ["bloodlust_head_on_c1", "bloodlust_head_on_c1_baseline"]:
+		if DisplayServer.get_name() == "headless":
+			push_error("Bloodlust C1 requires Shadow Visual")
+			get_tree().quit(1)
+			return
+		get_tree().set_meta("bench_scenario", "battlefield_atmosphere_stress_36")
+		call_deferred("_swap_to_bloodlust_c1")
+		return
 	if bench_scenario in FINAL_WAR_BENCH_SCENARIOS:
 		get_tree().set_meta("boss_debug_mode", true)
 		get_tree().set_meta("boss_debug_id", "BLACK_STAR")
@@ -307,13 +371,56 @@ func _ready() -> void:
 		get_tree().set_meta("ugc_map_path", "res://resources/maps/desert_railway_preview.aglmap")
 		get_tree().set_meta("survivor_map_id", "desert_railway_preview")
 		get_tree().set_meta("map_preview_only", false)
+	if bench_scenario == "boss_comparison":
+		call_deferred("_swap_to_test_scene", "res://scenes/tests/boss_comparison.tscn")
+		return
+	if bench_scenario == "orion_visual":
+		get_tree().set_meta("boss_debug_mode", true)
+		get_tree().set_meta("boss_debug_id", "THE_CRUCIBLE")
+		get_tree().set_meta("boss_debug_scenario", "orion")
+		get_tree().set_meta("boss_debug_node_id", "f47")
+		get_tree().set_meta("survivor_aircraft_resource", FINAL_WAR_BENCH_PROFILE_PATH)
+		get_tree().set_meta("survivor_map_id", "desert_railway_preview")
+		get_tree().set_meta("ugc_map_path", "res://resources/maps/desert_railway_preview.aglmap")
+		get_tree().set_meta("map_preview_only", false)
+		call_deferred("_swap_to_visual_test", "res://scenes/tests/orion_visual.tscn")
+		return
 	# demo 模式（--bench=demo）：渲染运行 + 不退出 + 持续补敌，供肉眼观察小队战斗/物理/表现。
 	# 用法（注意：不要加 --headless）：godot --path . -- --bench=demo
 	if bench_scenario == "demo" or bench_scenario == "weapon_demo":
 		get_tree().set_meta("bench_demo", true)
 
 	printerr("[Bench] scenario=%s duration=%.1fs out=%s" % [bench_scenario, bench_duration, _out_path])
+	if bench_scenario in FINAL_WAR_BENCH_SCENARIOS:
+		call_deferred("_swap_to_visual_test", "res://scenes/tests/final_war_frame_probe.tscn")
+		return
+	if bench_scenario in ["ocean_volume_c1", "ocean_volume_c1_baseline", "ocean_volume_c2"]:
+		if DisplayServer.get_name() == "headless":
+			push_error("Ocean performance scenarios require Shadow Visual")
+			get_tree().quit(1)
+			return
+		call_deferred("_swap_to_visual_test", "res://scenes/tests/ocean_volume_combat.tscn")
+		return
+	if bench_scenario == "desert_contact_ao_c1":
+		if DisplayServer.get_name() == "headless":
+			get_tree().quit(1)
+			return
+		call_deferred("_swap_to_visual_test", "res://scenes/tests/desert_contact_ao_combat.tscn")
+		return
+	if bench_scenario in ["tokyo_volume_c1", "tokyo_volume_c1_baseline",
+			"tokyo_volume_c2", "tokyo_volume_c2_baseline",
+			"tokyo_volume_near", "tokyo_volume_near_baseline",
+			"tokyo_cells_c1", "tokyo_cells_c1_baseline", "tokyo_cells_c2", "tokyo_cells_c2_baseline",
+			"tokyo_cells_near", "tokyo_cells_near_baseline"]:
+		if DisplayServer.get_name() == "headless":
+			push_error("Tokyo paired performance scenarios require Shadow Visual")
+			get_tree().quit(1)
+			return
+		call_deferred("_swap_to_visual_test", "res://scenes/tests/tokyo_volume_combat.tscn")
+		return
 	if VOLUME_SCENARIOS.has(bench_scenario):
+		if bench_scenario.begins_with("volume_map_"):
+			get_tree().set_meta("ugc_map_path", "res://resources/maps/desert_railway_preview.aglmap")
 		if DisplayServer.get_name() == "headless":
 			push_error("Volume paired performance scenarios require Shadow Visual")
 			get_tree().quit(1)
@@ -321,11 +428,18 @@ func _ready() -> void:
 		# 专项明确使用真实 F-47 档案，保证本批模型参与战斗；双方负载一致。
 		if bench_scenario.contains("_airframes_"):
 			get_tree().set_meta("survivor_aircraft_resource", "res://resources/player/playable_f47.tres")
+		# survivor 载入前保留“外部 Probe”身份；bench_scenario 随后会映射成真实战斗名，
+		# 不能再靠 volume_ 前缀阻止正式透明覆盖层重复创建第二套三维机体。
+		get_tree().set_meta(VOLUME_EXPERIMENT_META, true)
 		get_tree().set_meta("bench_scenario", VOLUME_SCENARIOS[bench_scenario])
 		call_deferred("_swap_to_volume_experiment")
 		return
 	# 切场景必须 deferred —— autoload _ready 早于主场景实例化，直接 change_scene 会撞到
 	# "current scene not yet ready" 的内部断言
+	if bench_scenario in ["boss_wraith_stress", "battlefield_atmosphere_stress_36"] \
+			and OS.has_environment("AGL_BENCH_FEAR_PROBE"):
+		call_deferred("_swap_to_fear_probe")
+		return
 	call_deferred("_swap_to_survivor")
 
 
@@ -366,11 +480,29 @@ func _swap_to_survivor() -> void:
 		get_tree().quit(1)
 
 
+func _swap_to_fear_probe() -> void:
+	_swap_to_survivor()
+	await get_tree().scene_changed
+	var probe: Node = load("res://scripts/tests/fear_cone_performance.gd").new()
+	get_tree().current_scene.add_child(probe)
+	_fear_probe_ref = weakref(probe)
+	probe.start(get_tree().current_scene, OS.get_environment("AGL_BENCH_FEAR_PROBE") != "baseline")
+
+func _swap_to_bloodlust_c1() -> void:
+	_swap_to_survivor()
+	await get_tree().scene_changed
+	var mode := get_tree().current_scene
+	var probe: Node = load("res://scripts/tests/bloodlust_head_on_performance.gd").new()
+	mode.add_child(probe)
+	_bloodlust_probe_ref = weakref(probe)
+	probe.start(mode, bench_scenario == "bloodlust_head_on_c1")
+
 func _swap_to_volume_experiment() -> void:
 	_swap_to_survivor()
 	await get_tree().scene_changed
 	var mode := get_tree().current_scene
-	var probe_script: GDScript = load("res://scripts/experiments/volume_world_probe.gd")
+	var probe_script: GDScript = load("res://scripts/tests/volume_map_performance.gd"
+		if bench_scenario.begins_with("volume_map_") else "res://scripts/experiments/volume_world_probe.gd")
 	if probe_script == null or not probe_script.can_instantiate():
 		get_tree().quit(1)
 		return
@@ -400,6 +532,15 @@ func _swap_to_test_scene(scene_path: String) -> void:
 func bench_finish(extra_summary: String = "", exit_code: int = 0) -> void:
 	if not bench_active:
 		return
+	if _fear_probe_ref != null:
+		var fear_probe: Variant = _fear_probe_ref.get_ref()
+		if typeof(fear_probe) == TYPE_OBJECT and is_instance_valid(fear_probe):
+			extra_summary += "\n" + fear_probe.summary()
+	if _bloodlust_probe_ref != null:
+		var bloodlust_probe: Variant = _bloodlust_probe_ref.get_ref()
+		if is_instance_valid(bloodlust_probe):
+			extra_summary += "\n" + bloodlust_probe.summary()
+			if not bloodlust_probe.coverage_ok(): exit_code = 1
 	if _volume_probe_ref != null:
 		var probe: Variant = _volume_probe_ref.get_ref()
 		if typeof(probe) == TYPE_OBJECT and is_instance_valid(probe):
@@ -408,6 +549,10 @@ func bench_finish(extra_summary: String = "", exit_code: int = 0) -> void:
 				exit_code = 1
 			if bench_scenario.ends_with("mother_goose") and probe.bodies_enabled \
 					and (not probe.goose_seen or probe.goose_visible_frames < 300):
+				exit_code = 1
+			if bench_scenario == "volume_3d_c2" and probe.bodies_enabled \
+					and (probe.lod1_submissions <= 0 or probe.lod2_submissions <= 0):
+				push_error("volume_3d_c2 did not exercise both aircraft body LOD1 and LOD2")
 				exit_code = 1
 			# 仅本实验把硬帧率门接进退出码；不改变既有其它 bench 的采样语义。
 			if int(get_tree().current_scene.get("_bench_render_frames_below_60")) > 0:
@@ -441,5 +586,12 @@ func bench_finish(extra_summary: String = "", exit_code: int = 0) -> void:
 		if typeof(capture_probe) == TYPE_OBJECT and is_instance_valid(capture_probe):
 			await capture_probe._capture(0)
 	# 给 print 一帧时间被 stdout 吐出
+	if _fear_probe_ref != null:
+		var fear_probe: Variant = _fear_probe_ref.get_ref()
+		if typeof(fear_probe) == TYPE_OBJECT and is_instance_valid(fear_probe):
+			await fear_probe.capture()
+	if _bloodlust_probe_ref != null:
+		var bloodlust_probe: Variant = _bloodlust_probe_ref.get_ref()
+		if is_instance_valid(bloodlust_probe): await bloodlust_probe.capture()
 	await get_tree().process_frame
 	get_tree().quit(exit_code)

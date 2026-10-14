@@ -18,6 +18,10 @@ const DesertFrontControllerScript = preload(
 	"res://scripts/survivor/desert_front_controller.gd")
 const SurvivorRuntimeResetScript = preload(
 	"res://scripts/survivor/survivor_runtime_reset.gd")
+const AircraftVolumeOverlayScript = preload(
+	"res://scripts/rendering/aircraft_volume_overlay.gd")
+const DesertVolumePresentationScript = preload(
+	"res://scripts/rendering/desert_volume_presentation.gd")
 
 const DEFAULT_BATTLE_MUSIC_IDS := ["battle_coast", "battle_coast_2"]
 const ACE_BATTLE_MUSIC_IDS := [
@@ -34,9 +38,14 @@ var _active_ace_music_id := ""
 var _map_features: MapFeatureRenderer
 var _building_renderer: BuildingRenderer
 var _ugc_doc: MapDocument = null  ## UGC 试飞中的地图文档（null = 官方图）
+var _ugc_source_path := ""
 var _map_preview_only := false     ## 图2/图3空地图试飞：只保留玩家、地图与Tab导航
 var _camera_ctrl: CameraController
 var _weather: WeatherSystem
+var _aircraft_volume_overlay: CanvasLayer
+var _desert_volume_renderer: Node3D
+## 专用旧/新 A/B 场景在 super._ready() 前关闭，避免与实验 Probe 重复提交同一批飞机。
+var _allow_formal_aircraft_volume := true
 
 # ── 场景/资源引用 ──
 @onready var camera: Camera2D = $Camera2D
@@ -335,6 +344,8 @@ func _notification(what: int) -> void:
 		_set_hard_brake(false)
 
 
+var _orion_prior_kills: int = 0
+
 func _ready() -> void:
 	# 确保 SurvivorMode 在所有子节点（含 AI 控制器）之前执行
 	# 这样 _f47_assign_roles 设置的 boss_attacker 等标志在 AI 运行时已经生效
@@ -391,6 +402,7 @@ func _ready() -> void:
 	# 生涯档案（spec career-archive）：正式局开局计数 + 成就解锁 toast 订阅。
 	# bench/boss debug 不入档（入档铁律 §3.5）；订阅无守卫——非正式局根本不会有解锁事件
 	if archive_enabled():
+		_orion_prior_kills = CareerArchive.get_orion_kills()
 		CareerArchive.record_run_started()
 	if not CareerArchive.achievement_unlocked.is_connected(_on_achievement_unlocked):
 		CareerArchive.achievement_unlocked.connect(_on_achievement_unlocked)
@@ -406,6 +418,7 @@ func _ready() -> void:
 		get_tree().remove_meta("ugc_map_path")
 		_ugc_doc = UgcLoader.load_map(ugc_path)
 		if _ugc_doc != null:
+			_ugc_source_path = ugc_path
 			UgcLoader.apply_geography(_ugc_doc)
 			UgcLoader.apply_buildings(_ugc_doc)
 			# 同步跑完建筑分帧预热（一次性 ~10-30ms），否则 BuildingRenderer.setup
@@ -431,6 +444,7 @@ func _ready() -> void:
 	# 普通 Boss Debug 仍为空白；FINAL WAR 与装甲列车例外消费各自正式底图与天气。
 	var bench_map_render := _bench_mode and (
 		_bench_scenario in MAP_BENCH_SCENARIOS
+		or _bench_scenario == "orion_visual"
 		or _bench_scenario in FINAL_WAR_BENCH_SCENARIOS)
 	var boss_debug_map_render := _boss_debug_mode and (
 		_boss_debug_scenario == BOSS_DEBUG_FINAL_WAR_SCENARIO \
@@ -485,6 +499,17 @@ func _ready() -> void:
 	# 表演导演接管镜头电影层（zoom 系数 / offset / shake）。退出时 clear_all 会 unbind
 	Presentation.clear_all()
 	Presentation.bind_camera(_camera_ctrl)
+	# 内置沙漠在正式入口接入同源三维地图；与透明飞机层互斥，保留所有正式玩法。
+	var external_volume := not _allow_formal_aircraft_volume \
+		or bool(get_tree().get_meta(BenchRunner.VOLUME_EXPERIMENT_META, false))
+	var use_formal_desert := DesertVolumePresentationScript.enabled_for(_ugc_source_path, external_volume,
+		OS.get_environment(DesertVolumePresentationScript.ENV_OVERRIDE))
+	# 正式沙漠必须等下方 MapFeatureRenderer.setup 完成，不能先走观察场备用 owner。
+	if not use_formal_desert and AircraftVolumeOverlayScript.default_enabled(external_volume):
+		_aircraft_volume_overlay = AircraftVolumeOverlayScript.new()
+		_aircraft_volume_overlay.name = "AircraftVolumeOverlay"
+		add_child(_aircraft_volume_overlay)
+		_aircraft_volume_overlay.setup(self)
 
 	_aircraft_scene = preload("res://scenes/aircraft.tscn")
 	_sam_scene = preload("res://scenes/sam_unit.tscn")
@@ -698,7 +723,19 @@ func _ready() -> void:
 	_camera_ctrl.set_world_bounds(_map_boundary.get_camera_bounds())
 	# 地图特征绘制现在有了世界矩形（Boss Debug 模式 _map_features 为 null，跳过）
 	if _map_features:
+		_map_features.volume_document_path = _ugc_source_path
 		_map_features.setup(camera, _map_boundary.get_world_rect())
+		if is_instance_valid(_map_features._tokyo_volume) and is_instance_valid(_building_renderer) \
+				and _map_features._tokyo_volume.has_method("bind_legacy"):
+			_map_features._tokyo_volume.bind_legacy(_building_renderer)
+		if is_instance_valid(_map_features._ocean_volume) and is_instance_valid(_building_renderer):
+			_building_renderer.hide()
+	if use_formal_desert:
+		_desert_volume_renderer = DesertVolumePresentationScript.new()
+		_desert_volume_renderer.name = "DesertVolumePresentation"
+		_desert_volume_renderer.process_mode = Node.PROCESS_MODE_ALWAYS
+		add_child(_desert_volume_renderer)
+		_desert_volume_renderer.setup_formal(self, AircraftVolumeOverlayScript.default_enabled())
 
 	_boundary_ui = BoundaryUI.new()
 	add_child(_boundary_ui)
@@ -1378,6 +1415,17 @@ const BENCH_BOSS_MG_FRIENDLY_RING_MAX_PX := 3500.0
 var _bench_death_stage := 0
 var _bench_death_original_id := 0
 var _bench_takeover_verified := false
+var _bench_sentinel_commander: WeakRef
+var _bench_sentinel_escorts: Array[WeakRef] = []
+var _bench_sentinel_recall_escort: WeakRef
+var _bench_sentinel_recall_injected := false
+var _bench_sentinel_recall_elapsed := -1.0
+var _bench_sentinel_steady_max_distance_px := 0.0
+var _bench_sentinel_post_recovery_max_distance_px := 0.0
+var _bench_sentinel_end_max_distance_px := 0.0
+const BENCH_SENTINEL_STEADY_SAMPLE_S := 6.0
+const BENCH_SENTINEL_RECALL_INJECT_DISTANCE_PX := 800.0
+const BENCH_SENTINEL_RECALL_DEADLINE_S := 10.0
 
 func _setup_bench_scenario() -> void:
 	if not _bench_mode:
@@ -1464,6 +1512,13 @@ func _setup_bench_scenario() -> void:
 	# 0. 固定 RNG seed → 同 scenario 多次跑得到相同 spawn 几何 / AI 抖动 / 战斗节拍
 	#    没这一步：33-144 fps 的 spread 完全淹没"优化前后对比"信号
 	seed(42)
+	if _bench_scenario == "orion_visual":
+		# 编成来自正式 Boss Debug，不混入通用压力场的额外随机杂兵。
+		player_aircraft.global_position = Vector2.ZERO
+		player_aircraft.clear_trail()
+		camera.global_position = Vector2.ZERO
+		_bench_attach_player_ai()
+		return
 
 	# 1. 玩家无敌（防止 duration 期间 KIA 中断压力）
 	player_aircraft.invulnerable = true
@@ -1509,6 +1564,8 @@ func _setup_bench_scenario() -> void:
 			_bench_force_berserk_virus_stress(false)
 		elif _bench_scenario == "berserk_virus_stress":
 			_bench_force_berserk_virus_stress(true)
+		elif _bench_scenario == "sentinel_escort_cohesion":
+			_bench_force_sentinel_escort_cohesion()
 		elif _bench_scenario == "deadair_stress":
 			_bench_force_deadair_stress()
 		elif _bench_scenario == "battlefield_atmosphere":
@@ -1709,6 +1766,103 @@ func _bench_verify_berserk_virus_lod() -> void:
 		push_error("[Bench] berserk_virus_stress: expected 8 LOD0 wingmen, got %d" % full_lod_wingmen)
 	else:
 		print("[Bench] berserk_virus_stress: friendly LOD owner pinned 8 active wingmen to LOD 0")
+
+
+## Sentinel 专项：正式生成完整包，先自然飞行，再把一架原生护卫推离并验证真实返航。
+func _bench_force_sentinel_escort_cohesion() -> void:
+	var player_ai := _get_ai(player_aircraft)
+	if player_ai:
+		player_ai.enable_combat = false
+	player_aircraft.global_position = Vector2(5000.0, 5000.0)
+	_spawner._dynamic_enemy_cap = 7
+	var members := _spawner._spawn_commander_squad(5, true)
+	if members.size() != 7:
+		push_error("[Bench] sentinel_escort_cohesion: expected 7 package members, got %d" % members.size())
+		return
+	var commander := members[0]
+	_bench_sentinel_commander = weakref(commander)
+	commander.global_position = Vector2(-1800.0, 0.0)
+	commander.heading = PI * 0.5
+	commander.invulnerable = true
+	commander.set_meta(&"skip_far_cleanup", true)
+	commander.set_meta(&"roe_posture", "orbit_guard")
+	_camera_ctrl.set_follow_target(commander)
+	_bench_set_camera_zoom(0.65)
+	var commander_ai := _get_ai(commander)
+	if commander_ai:
+		commander_ai.enable_combat = false
+		commander_ai.waypoints = PackedVector2Array([
+			Vector2(1800.0, 0.0), Vector2(-1800.0, 0.0)])
+		commander_ai.current_waypoint_index = 0
+	var sq: Squad = commander_ai.squad if commander_ai else null
+	for index in range(1, members.size()):
+		var escort := members[index]
+		var offset := sq.get_formation_offset(index) if sq else Vector2(index * 60.0, 0.0)
+		escort.global_position = commander.global_position + offset.rotated(commander.heading)
+		escort.heading = commander.heading
+		escort.invulnerable = true
+		escort.set_meta(&"skip_far_cleanup", true)
+		escort.set_meta(&"roe_posture", "orbit_guard")
+		var escort_ai := _get_ai(escort)
+		if escort_ai:
+			escort_ai.enable_combat = false
+		_bench_sentinel_escorts.append(weakref(escort))
+	_bench_sentinel_recall_escort = _bench_sentinel_escorts[0]
+	print("[Bench] sentinel_escort_cohesion: live 1+5+1 package; natural=%.1fs recall_deadline=%.1fs" % [
+		BENCH_SENTINEL_STEADY_SAMPLE_S, BENCH_SENTINEL_RECALL_DEADLINE_S])
+
+
+func _bench_update_sentinel_escort_cohesion(delta: float) -> void:
+	if _bench_sentinel_commander == null:
+		return
+	var commander_v: Variant = _bench_sentinel_commander.get_ref()
+	if typeof(commander_v) != TYPE_OBJECT or commander_v == null \
+			or not is_instance_valid(commander_v) or not commander_v is Aircraft:
+		return
+	var commander := commander_v as Aircraft
+	var current_max := 0.0
+	for escort_ref in _bench_sentinel_escorts:
+		var escort_v: Variant = escort_ref.get_ref()
+		if typeof(escort_v) != TYPE_OBJECT or escort_v == null \
+				or not is_instance_valid(escort_v) or not escort_v is Aircraft:
+			continue
+		current_max = maxf(current_max,
+			(escort_v as Aircraft).global_position.distance_to(commander.global_position))
+	if not _bench_sentinel_recall_injected and _bench_elapsed < BENCH_SENTINEL_STEADY_SAMPLE_S:
+		_bench_sentinel_steady_max_distance_px = maxf(
+			_bench_sentinel_steady_max_distance_px, current_max)
+	elif not _bench_sentinel_recall_injected:
+		var recall_v: Variant = _bench_sentinel_recall_escort.get_ref() \
+			if _bench_sentinel_recall_escort != null else null
+		if typeof(recall_v) == TYPE_OBJECT and recall_v != null \
+				and is_instance_valid(recall_v) and recall_v is Aircraft:
+			var recall_escort := recall_v as Aircraft
+			var leader_forward := Vector2(sin(commander.heading), -cos(commander.heading))
+			recall_escort.global_position = commander.global_position \
+				- leader_forward * BENCH_SENTINEL_RECALL_INJECT_DISTANCE_PX
+			recall_escort.heading = commander.heading
+			_spawner._recall_detached_sentinel_escort(
+				commander, _get_ai(commander).squad, recall_escort)
+			_bench_sentinel_recall_injected = true
+			_bench_sentinel_recall_elapsed = 0.0
+			print("[Bench] sentinel_escort_cohesion: injected native escort at %.0fpx" \
+				% BENCH_SENTINEL_RECALL_INJECT_DISTANCE_PX)
+	elif _bench_sentinel_recall_elapsed >= 0.0:
+		_bench_sentinel_recall_elapsed += delta
+		var recall_v: Variant = _bench_sentinel_recall_escort.get_ref() \
+			if _bench_sentinel_recall_escort != null else null
+		if typeof(recall_v) == TYPE_OBJECT and recall_v != null \
+				and is_instance_valid(recall_v) and recall_v is Aircraft:
+			var recall_distance := (recall_v as Aircraft).global_position.distance_to(
+				commander.global_position)
+			if recall_distance <= SurvivorSpawner.SENTINEL_ESCORT_RECALL_CLEAR_DISTANCE:
+				print("[Bench] sentinel_escort_cohesion: recall converged in %.2fs at %.0fpx" % [
+					_bench_sentinel_recall_elapsed, recall_distance])
+				_bench_sentinel_recall_elapsed = -2.0
+	else:
+		_bench_sentinel_post_recovery_max_distance_px = maxf(
+			_bench_sentinel_post_recovery_max_distance_px, current_max)
+	_bench_sentinel_end_max_distance_px = current_max
 
 
 ## DEADAIR 最坏常态样本：9 架直属友机全在圈内，特殊包 + 16 架额外敌机维持导弹/机炮压力。
@@ -2617,7 +2771,7 @@ func _bench_force_spawn_boss_wraith_stress() -> void:
 	if encounter == null or not (encounter is F47AceSquad):
 		push_error("[Bench] WRAITH registry entry missing or wrong type")
 		return
-	encounter.configure_progression(1)
+	encounter.configure_progression(3)  # 最坏正式层包含三败后解锁的恐惧模块。
 	_spawner._spawn_boss(encounter, player_aircraft.global_position + Vector2.UP * 2600.0, true)
 	encounter.hud_visible = true
 	encounter.engage()
@@ -3481,6 +3635,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	# F11：切换友方僚机的编队调试覆盖层
 	# R：统一手动机动（眼镜蛇 / J-Turn / 胆大妄为）；未持有或冷却中静默。
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_R:
+		if FearResponse.controlled(player_aircraft):
+			return
 		if player_aircraft and is_instance_valid(player_aircraft) and not is_paused_for_upgrade:
 			_cancel_afterburner_for_manual_control()
 			player_aircraft.try_manual_maneuver()
@@ -3489,7 +3645,13 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F11:
 		get_viewport().set_input_as_handled()
-		_toggle_wingman_formation_debug()
+		if event.shift_pressed and is_instance_valid(_desert_volume_renderer):
+			_desert_volume_renderer.set_bodies_enabled(not _desert_volume_renderer.bodies_enabled)
+		elif event.shift_pressed and is_instance_valid(_aircraft_volume_overlay):
+			var volume_enabled: bool = _aircraft_volume_overlay.toggle_volume()
+			print("[Aircraft volume] formal renderer %s" % ("ON" if volume_enabled else "OFF — PNG fallback"))
+		else:
+			_toggle_wingman_formation_debug()
 		return
 	# Shift+F12：打印玩家机运行时词条 base→final 与来源差分。
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F12 and event.shift_pressed:
@@ -3622,6 +3784,8 @@ func _handle_mouse_motion(event: InputEventMouseMotion) -> void:
 ## 左键按下：只做记录 + 交给轮盘手势仲裁（spec command-wheel §3.1）。
 ## 快速松开（< 呼出阈值）由 _on_left_release 按普通单击回放，参数以按下瞬间为准。
 func _on_left_press(screen_pos: Vector2) -> void:
+	if FearResponse.controlled(player_aircraft):
+		return
 	# 世界点击在按下沿立即终止加力并进入充能；松开后原移动/攻击命令照常执行。
 	_cancel_afterburner_for_manual_control()
 	# 任何左键操作都视为放弃急刹（防止右键 release 事件因 alt-tab 等丢失导致永久减速）
@@ -3649,6 +3813,8 @@ func _on_left_release() -> void:
 
 ## 既有单击语义（原 _on_left_click 的执行体，参数改为按下瞬间快照）
 func _execute_left_click(world_pos: Vector2, enemy: CombatUnit, is_double_click: bool) -> void:
+	if FearResponse.controlled(player_aircraft):
+		return
 	# focused/调试可直接调用本入口，不能依赖一定先经过 _on_left_press。
 	_cancel_afterburner_for_manual_control()
 	# 点名敌方单位 → 玩家点名攻击命令（铁律目标，逻辑在 SquadCommandController）
@@ -3747,9 +3913,13 @@ static func _wheel_command_steers_aircraft(slot_id: String) -> bool:
 
 
 func _cancel_afterburner_for_manual_control() -> bool:
+	if FearResponse.controlled(player_aircraft):
+		return false
 	return afterburner_charge != null and afterburner_charge.cancel_for_manual_command()
 
 func _on_right_click() -> void:
+	if FearResponse.controlled(player_aircraft):
+		return
 	_cancel_afterburner_for_manual_control()
 	if _squad_cmd:
 		_squad_cmd.cancel()
@@ -3761,6 +3931,8 @@ func _on_right_click() -> void:
 ## （高速段刹得动、低速段效率自然变差，低级机天然刹得肉）。验收：--bench=hard_brake。
 ## 持续到松开右键；不拖动时保持航向，左右拖动按各机真实 G/滚转/失速能力请求坡度。
 func _begin_hard_brake(screen_pos: Vector2) -> void:
+	if FearResponse.controlled(player_aircraft):
+		return
 	_brake_steer_active = true
 	_brake_steer_anchor_screen = screen_pos
 	_brake_steer_accumulated_dx = 0.0
@@ -3953,6 +4125,9 @@ func _process(delta: float) -> void:
 			_bench_map_transition_phase = transition_phase
 			var transition_zoom: float = MAP_TRANSITION_STRESS_ZOOMS[transition_phase]
 			camera.zoom = Vector2.ONE * transition_zoom
+	if is_instance_valid(_zone_mission) and _zone_mission.is_physics_processing():
+		camera.force_update_scroll()
+		_zone_mission.prepare_visible_zones()
 	var atmosphere_stress := _bench_scenario.begins_with("battlefield_atmosphere_stress_")
 	if frame_trace_scenario and _bench_elapsed >= 3.0:
 		_bench_render_frames += 1
@@ -4086,6 +4261,8 @@ func _physics_process(delta: float) -> void:
 	if _bench_scenario in ["the_crucible_full_roster_stress",
 			"the_crucible_full_roster_attrition"]:
 		_bench_update_crucible_full_roster_diagnostics(delta)
+	elif _bench_scenario == "sentinel_escort_cohesion":
+		_bench_update_sentinel_escort_cohesion(delta)
 
 	# 战区阶段倒计时检查（10 分钟到点 → 关闭其他战区 / 解锁 BOSS）
 	if not _map_preview_only and not _boss_debug_mode and not _bench_mode:
@@ -4130,9 +4307,13 @@ func _physics_process(delta: float) -> void:
 			bench_visual_capture_at = 4.8
 		elif _bench_scenario == "tier3_deadair" or _bench_scenario == "tier3_long_range_vls":
 			bench_visual_capture_at = 3.0
+		elif _bench_scenario == "sentinel_escort_cohesion":
+			bench_visual_capture_at = 12.0
 		var bench_capture_scenario := _bench_scenario.begins_with(
 			"battlefield_atmosphere_stress_") or _bench_scenario in [
+					"formal_aircraft_volume",
 					"performance_hud_visual",
+					"sentinel_escort_cohesion",
 					"map_raster_tokyo", "map_raster_desert", "map_raster_ocean",
 					"map_boundary_crop_tokyo", "map_boundary_crop_desert", "map_boundary_crop_ocean",
 					"boss_wraith_stress",
@@ -4143,8 +4324,9 @@ func _physics_process(delta: float) -> void:
 					"boss_hyper_a_lifecycle", "boss_hyper_a_stress",
 					"tier3_super_cannon", "tier3_super_cannon_d", "tier3_siege_tank",
 					"tier3_deadair", "tier3_long_range_vls"]
-		var bench_visual_duration_limit := 10.0 if _bench_scenario in [
-				"tier3_super_cannon", "tier3_super_cannon_d"] else 7.5
+		var bench_visual_duration_limit := 20.0 if _bench_scenario == "sentinel_escort_cohesion" \
+			else (10.0 if _bench_scenario in [
+				"tier3_super_cannon", "tier3_super_cannon_d"] else 7.5)
 		if not _bench_weather_capture_done and _bench_elapsed >= bench_visual_capture_at \
 				and bench_capture_scenario \
 				and _bench_duration <= bench_visual_duration_limit \
@@ -4167,6 +4349,29 @@ func _physics_process(delta: float) -> void:
 			else:
 				summary = "tick_at=%.2fs aircraft_alive=%d enemies_killed=%d\n" % [
 					_bench_elapsed, _count_aircraft_alive(), (_spawner.kill_count if _spawner else 0)]
+			if _bench_scenario == "sentinel_escort_cohesion":
+				var recall_ok := _bench_sentinel_recall_elapsed == -2.0
+				var steady_ok := _bench_sentinel_steady_max_distance_px \
+					<= SurvivorSpawner.SENTINEL_ESCORT_RECALL_DISTANCE
+				var end_ok := _bench_sentinel_end_max_distance_px \
+					<= SurvivorSpawner.SENTINEL_ESCORT_RECALL_DISTANCE
+				var post_recovery_ok := _bench_sentinel_post_recovery_max_distance_px \
+					<= SurvivorSpawner.SENTINEL_ESCORT_RECALL_DISTANCE
+				summary += "sentinel_cohesion steady_max_px=%.0f post_recovery_max_px=%.0f end_max_px=%.0f recall_converged=%s\n" % [
+					_bench_sentinel_steady_max_distance_px,
+					_bench_sentinel_post_recovery_max_distance_px,
+					_bench_sentinel_end_max_distance_px, str(recall_ok)]
+				if not steady_ok or not end_ok or not recall_ok \
+						or not post_recovery_ok \
+						or _bench_sentinel_recall_elapsed > BENCH_SENTINEL_RECALL_DEADLINE_S:
+					bench_exit_code = 1
+			if is_instance_valid(_desert_volume_renderer):
+				summary += "formal_desert_volume=true shared_native_viewport=1\n"
+				summary += _desert_volume_renderer.summary()
+			elif is_instance_valid(_aircraft_volume_overlay):
+				summary += _aircraft_volume_overlay.summary()
+			else:
+				summary += "formal_aircraft_volume=false transparent_shared_viewport=0\n"
 			if _bench_scenario in ["the_crucible_full_roster_stress",
 					"the_crucible_full_roster_attrition"]:
 				summary += _bench_crucible_full_roster_summary()
@@ -4421,7 +4626,8 @@ func _update_radar_locks(delta: float) -> void:
 		# MountTarget 不当雷达发起方：它的 radar_targets 字典永远为空（挂点武器获取
 		# 走 weapon_mount.acquire_cooldown 自己的扫描），跑这一圈纯属浪费 N 次配对。
 		# 仍保留它作为 victim 让飞机能锁/打它（玩家锁船依赖此路径，不能动）。
-		if unit is MountTarget:
+		if unit is MountTarget or bool(unit.get_meta(&"retired_in_place", false)) \
+				or bool(unit.get_meta(&"world_retiring", false)):
 			continue
 		# 无主雷达锁定武器的飞机不当 shooter；仍保留为 victim。
 		if unit is Aircraft:
@@ -4737,7 +4943,8 @@ const SIMPLE_AI_FULL_TICK_BUDGET := 6
 const FAR_FREEZE_DIST_SQ: float = 750.0 * 750.0
 
 func _update_offscreen_lod() -> void:
-	var cam_pos := camera.global_position
+	var cam_pos := camera.get_screen_center_position()
+	var cam_rotation := 0.0 if camera.ignore_rotation else camera.global_rotation
 	var vp_size := get_viewport_rect().size / camera.zoom
 	var half := vp_size / 2.0 + Vector2(OFFSCREEN_MARGIN, OFFSCREEN_MARGIN)
 	var player_pos := player_aircraft.global_position if player_aircraft and not player_aircraft.is_destroyed else cam_pos
@@ -4758,6 +4965,8 @@ func _update_offscreen_lod() -> void:
 			continue
 
 		var rel := ac.global_position - cam_pos
+		if not is_zero_approx(cam_rotation):
+			rel = rel.rotated(-cam_rotation)
 		var offscreen := absf(rel.x) > half.x or absf(rel.y) > half.y
 
 		var ai_node: AIController = ac._ai_ref
@@ -4781,6 +4990,10 @@ func _update_offscreen_lod() -> void:
 					or (ac.has_meta("category") and ac.get_meta("category") == "boss")
 			if not is_critical_off and ac.has_meta("enemy_type") and ac.get_meta("enemy_type") == "uav_commander":
 				is_critical_off = true
+			# Sentinel 原生护卫与长机是同一个不可拆分的运行时子群。长机已豁免，
+			# 护卫若冻结会稳定复现“Sentinel 单飞、UAV 留在身后”。
+			if not is_critical_off and bool(ac.get_meta("sentinel_native_escort", false)):
+				is_critical_off = true
 			if not is_critical_off and ac.has_meta("category") and ac.get_meta("category") == "adds":
 				is_critical_off = true
 			# 护送任务的敌机必须在镜头外也真实截击；只豁免“完全冻结”，
@@ -4790,6 +5003,9 @@ func _update_offscreen_lod() -> void:
 			# 战区空军从地图边界飞向任务巡逻环期间必须持续物理移动；抵达后由
 			# SurvivorSpawner 的既有 8s 航点 tick 清标，恢复普通 zone_air 冻结策略。
 			if not is_critical_off and ac.get_meta("zone_ingress", false):
+				is_critical_off = true
+			# 已经下达撤离令的飞机必须真实飞出，不能先冻结再按镜头回收。
+			if not is_critical_off and ac.get_meta(&"world_retiring", false):
 				is_critical_off = true
 			#   - 增援（spec reinforcement-ingress）：TRANSIT/EGRESS 是位移任务（同 adds 理由，
 			#     冻结就永远到不了锚点/飞不出边界）；ONSTATION 被点名交战（非 PATROL）也不能冻。
@@ -4822,7 +5038,7 @@ func _update_offscreen_lod() -> void:
 		# 王牌中队 / BOSS 之类关键目标强制全速，不参与预算排队（spec ace-squadron-tier §2.1）
 		var is_critical: bool = AceTier.is_ace(ac) \
 				or (ac.has_meta("category") and ac.get_meta("category") == "boss")
-		if is_critical or not (ai_node and ai_node.simple_ai):
+		if is_critical or bool(ac.get_meta(&"world_retiring", false)) or not (ai_node and ai_node.simple_ai):
 			ac.set_physics_process(true)
 			if ai_node:
 				ai_node.set_physics_process(true)
@@ -6097,8 +6313,7 @@ func _on_zone_mission_completed(zone_id: StringName) -> void:
 	# 清掉 zone_mission 内部对该战区的记录；下次该战区再进入 AVAILABLE 时会重新刷
 	if _zone_mission:
 		_zone_mission.reset_zone(zone_id)
-		## 2026-04-21：攻克后对其他仍空闲的战区做一次"按当前等级"的敌情升级
-		## 已进入交战的战区不会被刷新（避免打到一半敌人换型）
+		## 未生成战区自然采用最新等级；已有正式目标保持身份，不因其它战区攻克重刷。
 		var refreshed: Array[StringName] = _zone_mission.refresh_active_zones_for_level(zone_id)
 		if refreshed.size() > 0 and _zone_hint:
 			_zone_hint.show_temp(tr("ZONE_REFRESHED_AFTER_CLEAR"), 3.0)
@@ -7084,6 +7299,8 @@ func _update_boss_phase() -> void:
 	# 生涯档案 BOSS 轮换（spec career-archive §3.1）：正式局注入档案 history；
 	# 非正式局传空 → BossRegistry 保持旧纯随机行为
 	var boss_history: Dictionary = CareerArchive.build_boss_history() if archive_enabled() else {}
+	if archive_enabled():
+		boss_history["orion_kills"] = _orion_prior_kills
 	var ev := BossEncounterEvent.new(bz["center"], _zone_data.boss_heading_deg, _map_id,
 		debug_boss_id_override, boss_history)
 	_event_director.start(ev)
@@ -7340,7 +7557,7 @@ func _bench_wall_watchdog() -> void:
 		_bench_finish_now("terminal=game_over expected=%s\n%s\n" % [
 			str(expected), _bench_runtime_status()], 0 if expected else 1)
 		return
-	var expected_arrival_pause := (_bench_scenario == "boss_hyper_a_arrival" \
+	var expected_arrival_pause := (_bench_scenario in ["boss_hyper_a_arrival", "orion_visual"] \
 			or _bench_scenario in FINAL_WAR_BENCH_SCENARIOS) \
 		and Presentation.state == Presentation.State.PLAYING \
 		and Presentation.time.is_hard_paused()
@@ -7387,4 +7604,6 @@ func _bench_finish_now(summary: String, exit_code: int = 0) -> void:
 	_bench_finished = true
 	var br: Node = get_tree().root.get_node_or_null("/root/BenchRunner")
 	if br and br.has_method("bench_finish"):
+		if is_instance_valid(_map_features) and is_instance_valid(_map_features._ocean_volume):
+			summary += "ocean_map=" + str(_map_features._ocean_volume.debug_state()) + "\n"
 		br.call("bench_finish", summary, exit_code)

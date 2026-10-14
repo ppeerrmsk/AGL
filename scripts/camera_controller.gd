@@ -242,8 +242,9 @@ func is_world_pos_visible(world_pos: Vector2, margin_px: float = 200.0) -> bool:
 	if not camera:
 		return false
 	var vp_size := camera.get_viewport().get_visible_rect().size
-	var half := vp_size / (2.0 * camera.zoom.x) + Vector2(margin_px, margin_px)
-	var rel := world_pos - camera.global_position
+	var half := vp_size / (2.0 * camera.zoom) + Vector2(margin_px, margin_px)
+	var view_rotation := 0.0 if camera.ignore_rotation else camera.global_rotation
+	var rel := (world_pos - camera.get_screen_center_position()).rotated(-view_rotation)
 	return absf(rel.x) <= half.x and absf(rel.y) <= half.y
 
 

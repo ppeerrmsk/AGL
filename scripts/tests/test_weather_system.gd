@@ -21,7 +21,31 @@ func run() -> void:
 	_test_aircraft_runtime_effect()
 	_test_ocean_distribution()
 	_test_runtime_consumers()
+	_test_volume_geometry()
 	print("WeatherSystem: %s (%d fail)" % ["PASS" if _fail == 0 else "FAIL", _fail])
+
+
+func _test_volume_geometry() -> void:
+	var volume := preload("res://scripts/rendering/weather_volume_presentation.gd")
+	var weather := WeatherSystem.new()
+	weather.apply_ugc_config({"seed":271828,"coverage":0.05,"frequency":0.00024})
+	var vertex_count := 0
+	for key in [Vector2i.ZERO,Vector2i(-1,0),Vector2i(0,-1)]:
+		var first: ArrayMesh = volume.build_cloud(weather,key)
+		var second: ArrayMesh = volume.build_cloud(weather,key)
+		_check(first.get_surface_count() == second.get_surface_count(),"云块确定性")
+		if first.get_surface_count() == 0:
+			continue
+		var a: PackedVector3Array = first.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+		var b: PackedVector3Array = second.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+		_check(a == b and a.size() <= 4608,"云块几何确定且不超过1536面")
+		var finite := true
+		for p in a:
+			finite = finite and p.is_finite() and p.y >= 120.0 and p.y <= 680.01
+		_check(finite,"云高度有限且在预算内")
+		vertex_count += a.size()
+	_check(vertex_count > 0,"测试确实构造云面")
+	weather.free()
 
 
 func _test_deterministic_capture_seed() -> void:

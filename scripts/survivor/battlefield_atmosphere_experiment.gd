@@ -163,12 +163,12 @@ func launch_naval_battle() -> bool:
 
 
 ## Bench 专用：把空战、炮战和海战演员铺在同一个可控范围内，维持满编测容量。
-func launch_stress_battle(member_target: int, span_px: float) -> bool:
+func launch_stress_battle(member_target: int, span_px: float, center: Vector2 = Vector2.ZERO) -> bool:
 	if not _begin_sample("mixed"):
 		return false
 	_stress_member_target = member_target
 	_stress_span_px = clampf(span_px, 2000.0, MapBoundary.WORLD_HALF_PX * 1.6)
-	_battle_center = Vector2.ZERO
+	_battle_center = center
 	var axis := Vector2.RIGHT
 	var lateral := Vector2.DOWN
 	var config := _stress_composition(member_target)
@@ -1057,25 +1057,36 @@ func _nearest_opposing_ground(source: Aircraft) -> GroundUnit:
 	return best
 
 
-func _is_valid_fighter_target(source: Aircraft, target: Aircraft) -> bool:
-	return _is_live_aircraft(target) and source.is_hostile_to(target) \
-		and int(target.get_meta("ambient_engagement_id", -1)) == _run_id \
+func _is_valid_fighter_target(source: Aircraft, target_value: Variant) -> bool:
+	if not _is_live_aircraft(target_value):
+		return false
+	var target := target_value as Aircraft
+	return source.is_hostile_to(target) \
 		and str(target.get_meta("ambient_role", "")) == "fighter"
 
 
-func _is_valid_ground_target(source: Aircraft, target: GroundUnit) -> bool:
-	return is_instance_valid(target) and not target.is_destroyed and source.is_hostile_to(target) \
+func _is_valid_ground_target(source: Aircraft, target_value: Variant) -> bool:
+	if typeof(target_value) != TYPE_OBJECT or not is_instance_valid(target_value):
+		return false
+	var target := target_value as GroundUnit
+	return target != null and not target.is_destroyed and source.is_hostile_to(target) \
 		and int(target.get_meta("ambient_engagement_id", -1)) == _run_id \
 		and str(target.get_meta("ambient_role", "")) == "ground"
 
 
-func _is_live_aircraft(ac: Aircraft) -> bool:
-	return is_instance_valid(ac) and not ac.is_destroyed \
+func _is_live_aircraft(value: Variant) -> bool:
+	if typeof(value) != TYPE_OBJECT or not is_instance_valid(value):
+		return false
+	var ac := value as Aircraft
+	return ac != null and not ac.is_destroyed \
 		and int(ac.get_meta("ambient_engagement_id", -1)) == _run_id
 
 
-func _is_live_experiment_unit(unit: CombatUnit, role: String) -> bool:
-	return unit != null and is_instance_valid(unit) and not unit.is_destroyed \
+func _is_live_experiment_unit(value: Variant, role: String) -> bool:
+	if typeof(value) != TYPE_OBJECT or not is_instance_valid(value):
+		return false
+	var unit := value as CombatUnit
+	return unit != null and not unit.is_destroyed \
 		and int(unit.get_meta("ambient_engagement_id", -1)) == _run_id \
 		and str(unit.get_meta("ambient_role", "")) == role
 

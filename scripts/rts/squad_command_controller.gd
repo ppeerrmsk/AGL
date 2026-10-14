@@ -133,7 +133,7 @@ func _squad_members() -> Array:
 	if pa != null and pa._ai_ref != null:
 		var sq: Squad = pa._ai_ref.squad
 		if sq != null and not sq.members.is_empty():
-			return sq.members.duplicate()
+			return sq.members.filter(func(ac: Variant) -> bool: return not FearResponse.controlled(ac))
 	return _selected()
 
 ## 紧急集合：全队中断一切任务（含攻击命令），**全力加速**飞往集合点（spec §3.3）。
@@ -767,7 +767,7 @@ func _find_target(center: Vector2, radius: float) -> CombatUnit:
 func _selected() -> Array:
 	if _mode == null:
 		return []
-	return _mode.selected_aircraft
+	return _mode.selected_aircraft.filter(func(ac: Variant) -> bool: return not FearResponse.controlled(ac))
 
 func _leader() -> Aircraft:
 	var sel := _selected()

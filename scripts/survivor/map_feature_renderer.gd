@@ -4,6 +4,9 @@ extends Node2D
 const VectorPreviewRenderer = preload("res://scripts/survivor/map_vector_preview_renderer.gd")
 const DetailTileCache = preload("res://scripts/survivor/map_detail_tile_cache.gd")
 const RasterBasemapRendererScript = preload("res://scripts/survivor/raster_basemap_renderer.gd")
+const TokyoVolumeOverlay = preload("res://scripts/rendering/tokyo_volume_overlay.gd")
+const TokyoVolumePreload = preload("res://scripts/rendering/tokyo_volume_preload.gd")
+const OceanVolumeOverlay = preload("res://scripts/rendering/ocean_volume_overlay.gd")
 
 ## 正式地图底图加载失败时通知场景主控；UGC 纯矢量模式不会尝试加载，也不会发出此信号。
 signal basemap_load_failed(reason_key: String)
@@ -25,6 +28,9 @@ signal basemap_load_failed(reason_key: String)
 
 var _camera: Camera2D
 var _world_rect: Rect2
+var _tokyo_volume: Node2D
+var _ocean_volume: Node2D
+var volume_document_path := ""
 
 func setup(camera: Camera2D, world_rect: Rect2) -> void:
 	_camera = camera
@@ -35,6 +41,22 @@ func setup(camera: Camera2D, world_rect: Rect2) -> void:
 		_prepare_vector_preview()
 	if use_basemap:
 		_ensure_basemap_loaded()
+	if use_basemap and _tokyo_volume == null and TokyoVolumeOverlay.default_enabled(basemap_map_key, ugc_vector_only):
+		_tokyo_volume = TokyoVolumePreload.take(self, camera)
+		if _tokyo_volume == null:
+			_tokyo_volume = load(TokyoVolumePreload.script_path()).new()
+			_tokyo_volume.name = "TokyoVolumeMap"
+			add_child(_tokyo_volume)
+			if not _tokyo_volume.setup(self, camera):
+				_tokyo_volume.queue_free()
+				_tokyo_volume = null
+	if use_basemap and _raster_basemap != null and _ocean_volume == null and OceanVolumeOverlay.ocean_enabled(basemap_map_key, volume_document_path):
+		_ocean_volume = OceanVolumeOverlay.new()
+		_ocean_volume.name = "OceanVolumeMap"
+		add_child(_ocean_volume)
+		if not _ocean_volume.setup(self, camera):
+			_ocean_volume.queue_free()
+			_ocean_volume = null
 	queue_redraw()  # setup 后触发一次绘制；之后地图静态不需要再重绘
 
 func _ready() -> void:
@@ -240,6 +262,8 @@ func _prepare_raster_basemap() -> bool:
 	if map_key.is_empty():
 		return false
 	_raster_basemap = RasterBasemapRendererScript.new()
+	if map_key=="tokyo" and OS.get_environment("AGL_TOKYO_PROJECTED_SOURCE")=="1":
+		_raster_basemap.source_projection = preload("res://scripts/experiments/tokyo_raster_projection.gd").metadata()
 	_raster_basemap.name = "RasterBasemap"
 	_raster_basemap.z_index = -1
 	add_child(_raster_basemap)

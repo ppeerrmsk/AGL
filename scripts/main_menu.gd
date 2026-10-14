@@ -151,7 +151,7 @@ func _build_ui() -> void:
 	_add_mode_button(tr("MENU_MODE_EDITOR_NAME"), tr("MENU_MODE_EDITOR_DESC"), _on_editor_pressed)
 	_add_mode_button(tr("MENU_META_SHOP_NAME"), tr("MENU_META_SHOP_DESC"), _on_meta_shop_pressed)
 	_add_mode_button(tr("MENU_ARCHIVE_NAME"), tr("MENU_ARCHIVE_DESC"), _on_archive_pressed)
-	_add_mode_button(tr("MENU_MODE_MISSION_NAME"), tr("MENU_MODE_MISSION_DESC"), Callable(), true)
+	_add_mode_button(tr("WAR_MENU_NAME"), tr("WAR_MENU_DESC"), _on_full_war_pressed)
 	_mode_grid_overlay.move_to_front()
 	if not _mode_buttons.is_empty():
 		call_deferred("_focus_default_mode")
@@ -696,6 +696,9 @@ func _build_sandbox_corner_button(parent: Control) -> void:
 
 func _on_survivor_pressed() -> void:
 	get_tree().change_scene_to_file("res://scenes/survivor_map_select.tscn")
+
+func _on_full_war_pressed() -> void:
+	get_tree().change_scene_to_file("res://scenes/full_war_test.tscn")
 
 
 func _on_editor_pressed() -> void:

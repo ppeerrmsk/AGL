@@ -292,8 +292,9 @@ func _test_boss_transition_retirement() -> void:
 	cannon.configure(&"TEST")
 	cannon.set_meta(&"tier3_special_unit", true)
 	mission._retire_tier3_unit(cannon, true)
-	_check(not bool(cannon.get("_threat_enabled")) and cannon.is_queued_for_deletion(),
-		"BOSS 转场先停火并取消在途巨炮状态，再直接移除特殊来源")
+	_check(not bool(cannon.get("_threat_enabled")) and not cannon.is_queued_for_deletion()
+		and cannon.process_mode == Node.PROCESS_MODE_DISABLED,
+		"BOSS 转场先停火并取消在途巨炮状态，本体低成本留场")
 	cannon.free()
 	mission.free()
 

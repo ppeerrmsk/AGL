@@ -139,7 +139,8 @@ func _draw() -> void:
 		return
 	if is_hovered:
 		_draw_radar_circle()
-	_draw_sam_icon()
+	if not has_meta(&"volume_3d_ground"):
+		_draw_sam_icon()
 	_draw_lock_indicator()
 	AircraftRenderer.draw_target_bracket(self, is_mission_target)
 	AircraftRenderer.draw_status_icons(self)

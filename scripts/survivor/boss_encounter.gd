@@ -32,7 +32,7 @@ var active: bool = false                  ## false = encounter 结束（全灭�
 ## true 时 HUD BOSS 血条面板显示。预驻 / 巡逻阶段为 false，玩家真正进入战斗才亮血条
 var hud_visible: bool = false
 
-## 由 BossEncounterEvent 在 spawn 前统一注入。保留完整次数，当前各 BOSS 只消费 0 / >=1 两层。
+## 由 BossEncounterEvent 在 spawn 前统一注入。保留完整次数，各 BOSS 自行选择强化装配。
 func configure_progression(defeat_count: int) -> void:
 	prior_defeats = maxi(0, defeat_count)
 

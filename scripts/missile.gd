@@ -427,6 +427,9 @@ func _physics_process(delta: float) -> void:
 			has_guidance = false  # 光学隐形：SARH 导弹丢失
 		elif source == null or not is_instance_valid(source) or source.is_destroyed:
 			has_guidance = false
+		elif params.active_radar_guidance:
+			# 保留上方统一诱饵 / 目标 / 载机死亡守卫，仅豁免照射进度。
+			has_guidance = true
 		else:
 			var lock_progress: float = -1.0
 			if _mm and _mm.has_method("get_lock_progress"):
@@ -648,6 +651,13 @@ func _unit_name(unit) -> String:
 ## 每发齐射弹的 speed_multiplier 在 NavalWeapons._fire_one_vls_missile 随机设定，打散弹道观感
 func _update_vls_non_terminal(delta: float) -> void:
 	_vls_phase_timer += delta
+	var vertical_climb: bool = params.airborne_vertical_launch and vls_phase == 0
+	if vertical_climb:
+		altitude += 600.0 * delta
+	elif params.airborne_vertical_launch:
+		var target_unit := CombatUnit.safe_unit(target)
+		if target_unit != null:
+			altitude = move_toward(altitude, target_unit.altitude, 2400.0 * delta)
 
 	# 激光减速倍率（laser timer 已在 _physics_process 顶部倒数）
 	var _laser_speed_mult_vls: float = SkillHooks.LASER_MISSILE_SPEED_MULT if _laser_slow_timer > 0.0 else 1.0
@@ -686,6 +696,8 @@ func _update_vls_non_terminal(delta: float) -> void:
 	var fwd := Vector2(sin(heading), -cos(heading))
 	var actual_speed: float = speed * speed_multiplier
 	var vls_step := fwd * actual_speed * PIXELS_PER_METER * delta
+	if vertical_climb:
+		vls_step = Vector2.ZERO
 	global_position += vls_step
 	distance_traveled_px += vls_step.length()
 

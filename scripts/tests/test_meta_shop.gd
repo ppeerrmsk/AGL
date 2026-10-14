@@ -18,6 +18,8 @@ var _fail := 0
 
 
 func run() -> void:
+	# Shadow bench 刻意不复制 tmp/；测试必须自己建立隔离存档目录。
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://tmp"))
 	print("\n════════ 生涯商店测试 ════════")
 	_test_aircraft_unlock()
 	_test_item_listed()

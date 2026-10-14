@@ -88,6 +88,8 @@ var xp_per_kill: int = 100
 
 ## active 继承自 BossEncounter
 var members: Array[Aircraft] = []          ## 存活成员（每帧过滤）
+var fear_cone: SquadFearConeController = null
+var fear_cone_config: SquadFearConeConfig = null
 var all_members: Array[Aircraft] = []      ## 全部成员（含已击毁，HUD 用）
 
 ## 状态机
@@ -255,6 +257,8 @@ func spawn(scene_root: Node, aircraft_scene: PackedScene, create_enemy_func: Cal
 # ══════════════════════════════════════════════
 
 func update(delta: float) -> void:
+	if fear_cone != null:
+		fear_cone.update(delta)
 	if not active:
 		return
 
@@ -608,7 +612,7 @@ func _cloak_update(_delta: float) -> void:
 		else:
 			m._cloak_alpha = 0.0
 			m.is_cloaked = true
-		if m.counter_stealth_revealed:
+		if m.counter_stealth_revealed or m.has_meta(&"fear_cone_emitting"):
 			m._cloak_alpha = 1.0
 			m.is_cloaked = false
 		if m.is_cloaked and not was_cloaked:
@@ -660,6 +664,10 @@ func set_player_ref(p: Aircraft) -> void:
 ## 远端进场模式（PRE_STAGE）下，combat_phase_active=false；这里翻 true 启动状态机
 func engage() -> void:
 	combat_phase_active = true
+	if fear_cone_config != null and fear_cone == null:
+		fear_cone = SquadFearConeController.new()
+		if fear_cone.setup(fear_cone_config, self):
+			fear_cone.start()
 	# 状态机推进到 PURSUIT（_enter_state 会跑配置）
 	if squad_state != SquadState.PURSUIT:
 		_exit_state(squad_state)
@@ -716,6 +724,20 @@ static func role_of(ac: Aircraft) -> int:
 # ══════════════════════════════════════════════
 
 ## HUD 用：获取全部成员（含已击毁）
+## 通用小队能力适配器；配置由具体小队注入。
+func fear_enabled() -> bool:
+	return active and combat_phase_active and not members.is_empty()
+
+func fear_members() -> Array:
+	return members
+
+func fear_targets() -> Array:
+	var player := FearResponse.aircraft(_player)
+	if player == null or player.is_destroyed:
+		return []
+	var squad := player.squad_ref()
+	return squad.members if squad != null else [player]
+
 func get_display_members() -> Array:
 	return all_members
 

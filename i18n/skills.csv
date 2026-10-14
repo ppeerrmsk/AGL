@@ -1,4 +1,6 @@
 keys,zh,en,ja
+UPGRADE_BLOODLUST_HEAD_ON_NAME,血色骑士,Blood Knight,血染めの騎士
+UPGRADE_BLOODLUST_HEAD_ON_DESC,嗜血期间，本机击杀敌方飞机均视为对头击杀。,"While Bloodlust is active, all enemy aircraft kills by this aircraft count as head-on kills.",嗜血状態中、この機体による敵航空機の撃破をすべて正面撃破として扱う。
 UPGRADE_COUNTER_STEALTH_NAME,反隐身,Counter-Stealth,対ステルス
 UPGRADE_COUNTER_STEALTH_DESC,对隐形单位的侦测距离 +20%；隐形单位完整锁定任一队员时会向全队现形,Detection range against stealth units +20%; a stealth unit that fully locks any squad member is revealed to the whole squad,ステルス対象の探知距離 +20%。味方を完全ロックしたステルス機は全隊に露見する
 UPGRADE_GHOST_BUSTER_NAME,捉鬼者,Ghost Buster,ゴーストバスター

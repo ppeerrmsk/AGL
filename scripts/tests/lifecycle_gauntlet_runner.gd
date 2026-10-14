@@ -65,10 +65,18 @@ func _run() -> void:
 	_explosion_host.add_to_group("explosion_vfx")
 	add_child(_explosion_host)
 	await _test_bomber_cache_after_target_free()
+	_fail += await preload("res://scripts/tests/orion_lifecycle_case.gd").new().run(self)
+	_fail += await preload("res://scripts/tests/fear_cone_case.gd").new().run(self)
+	_fail += await preload("res://scripts/tests/debug_spawn_lifecycle_case.gd").run(self)
+	var bloodlust_case: RefCounted = load("res://scripts/tests/bloodlust_head_on_case.gd").new()
+	_fail += await bloodlust_case.run(self)
+	var gun_case: RefCounted = load("res://scripts/tests/gun_evasion_lifecycle_case.gd").new()
+	_fail += await gun_case.run(self)
 	await _test_bomber_cache_after_controller_free()
 	await _test_bomber_retire_with_freed_members()
 	await _test_zone_completion_after_deferred_free()
 	await _test_conquered_garrison_retire_after_offscreen_grace()
+	await _test_retired_ground_after_real_damage()
 	await _test_zone_failure_after_deferred_free()
 	await _test_super_cannon_destroy_after_deferred_free()
 	await _test_armored_train_segment_break_after_deferred_free()
@@ -80,6 +88,23 @@ func _run() -> void:
 	await _test_large_aircraft_structural_breakup()
 	var volume_case: RefCounted = load("res://scripts/tests/volume_world_lifecycle_case.gd").new()
 	_fail += await volume_case.run(self)
+	var desert_preload_case: RefCounted = load("res://scripts/tests/desert_preload_lifecycle_case.gd").new()
+	_fail += await desert_preload_case.run(self)
+	var tokyo_case: RefCounted = load("res://scripts/tests/tokyo_volume_lifecycle_case.gd").new()
+	var ocean_case: RefCounted = load("res://scripts/tests/ocean_volume_lifecycle_case.gd").new()
+	_fail += await ocean_case.run(self)
+	_fail += await tokyo_case.run(self)
+	var tokyo_cells_case: RefCounted = load("res://scripts/tests/tokyo_cells_lifecycle_case.gd").new()
+	_fail += await tokyo_cells_case.run(self)
+	_fail += await preload("res://scripts/tests/test_tokyo_tile_ground.gd").lifecycle(self)
+	_fail += await preload("res://scripts/tests/test_tokyo_low_walls.gd").lifecycle(self)
+	_fail += await preload("res://scripts/tests/raster_capacity_lifecycle_case.gd").run(self)
+	var war_case = load("res://scripts/tests/full_war_runner.gd").new()
+	war_case.auto_run = false
+	add_child(war_case)
+	_fail += await war_case.run_checks()
+	war_case.queue_free()
+	await get_tree().process_frame
 	print("[LifecycleGauntlet] result pass=%d fail=%d" % [_pass, _fail])
 	get_tree().quit(0 if _fail == 0 else 1)
 
@@ -219,6 +244,10 @@ func _test_conquered_garrison_retire_after_offscreen_grace() -> void:
 		and mission._pending_despawn == [garrison],
 		"真实完成判定同 tick 把幸存驻守敌机送入撤离队列")
 	mode.everything_visible = false
+	mission._flush_pending_despawn(30.0)
+	await get_tree().process_frame
+	_check(is_instance_valid(retained), "镜头离开不能删除尚在图内的撤离机")
+	garrison.global_position = Vector2(MapBoundary.world_half_px() + 1000.0, 0.0)
 	mission._flush_pending_despawn(ZoneMission.CONQUERED_RETIRE_OFFSCREEN_GRACE_S)
 	await get_tree().process_frame
 	_check(not is_instance_valid(retained),
@@ -227,6 +256,43 @@ func _test_conquered_garrison_retire_after_offscreen_grace() -> void:
 	_check(mission._pending_despawn.is_empty(),
 		"撤离释放后的下一缓存 tick 无待清理引用残留")
 	player.free()
+	mission.free()
+	mode.free()
+
+func _test_retired_ground_after_real_damage() -> void:
+	var mission := _new_zone_mission()
+	var mode := FakeZoneVisibilityMode.new()
+	add_child(mode)
+	mission.mode = mode
+	var ground := GroundUnit.new()
+	ground.params = AircraftParams.new()
+	ground.team = CombatUnit.TEAM_HOSTILE
+	mode.add_child(ground)
+	var retained: Variant = ground
+	var original_hp := ground.hp
+	mission._spawned_zones[&"A"] = [ground]
+	mission._triggered_zones[&"A"] = true
+	var failures: Array[String] = []
+	mission.mission_failed.connect(func(_zone: StringName, reason: String) -> void: failures.append(reason))
+	mission.fail_zone(&"A", "retirement_lifecycle")
+	mode.everything_visible = false
+	mission._flush_pending_despawn(30.0)
+	await get_tree().process_frame
+	_check(is_instance_valid(retained) and ground.hp == original_hp
+		and ground.process_mode == Node.PROCESS_MODE_DISABLED
+		and failures == ["retirement_lifecycle"] and mission._failed_zones.has(&"A")
+		and not mission._spawned_zones.has(&"A") and mission._pending_despawn.is_empty()
+		and mission._retained_ground == [ground],
+		"真实失败信号只解除任务所有权，地面原实体停止主动运算但不会随离屏删除")
+	ground.take_damage(99999.0, null, "gun")
+	_check(ground.is_destroyed and ground.process_mode == Node.PROCESS_MODE_INHERIT,
+		"留场地面目标经真实伤害进入损毁并恢复死亡处理")
+	ground._physics_process(2.1)
+	await get_tree().process_frame
+	mission._flush_pending_despawn(0.2)
+	mission._refresh_retained_ground_views()
+	_check(not is_instance_valid(retained) and mission._pending_despawn.is_empty() and mission._retained_ground.is_empty(),
+		"留场地面目标真实损毁后跨下一帧与回收 tick 无残留")
 	mission.free()
 	mode.free()
 

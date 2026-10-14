@@ -50,6 +50,7 @@ var boss_debug_scenario: String = "full" ## Black Star Debug 直达场景；正�
 ## 空 = 旧纯随机。事件层不直读 CareerArchive autoload，保持可测）
 var boss_history: Dictionary = {}
 var _was_active: bool = false
+var _engagement_announced: bool = false
 ## 上次推给 encounter 的玩家引用（换人检测，避免每帧重复下推）
 var _last_pushed_player: Aircraft = null
 ## Black Star 初次再入期间只隐藏玩家绘制，不改 is_cloaked / 雷达 / 受伤语义。
@@ -85,6 +86,10 @@ func _start() -> void:
 	var defeat_counts: Dictionary = boss_history.get("defeat_counts", {})
 	encounter.configure_progression(int(defeat_counts.get(encounter.boss_id, 0)))
 	encounter.initial_heading_deg = heading_deg
+	if encounter is TheCrucibleEncounter:
+		encounter.configure_orion(int(boss_history.get("orion_kills", 0)))
+		encounter.configure_debug_scenario(boss_debug_scenario)
+		encounter.orion_arrival_requested.connect(_on_orion_arrival_requested)
 	if encounter is HyperABossScript:
 		encounter.configure_debug_scenario(boss_debug_scenario)
 
@@ -143,6 +148,11 @@ func _start() -> void:
 ##    兜底 —— 绝不让导演自建第二套所有权（spec §3.3）
 func _try_play_arrival_cinematic() -> bool:
 	var seq_name: String = "%s_arrival" % encounter.boss_id.to_lower()
+	var banner := BossRegistry.banner_metadata_for(encounter.boss_id)
+	if encounter is TheCrucibleEncounter and encounter.orion_started:
+		seq_name = "orion_final_form_arrival"
+		banner = {"name_key": "BOSS_NAME_ORION_FINAL", "role_key": "BOSS_ROLE_ORION_FINAL",
+			"motto_key": "BOSS_MOTTO_ORION_FINAL", "palette": "terminal_green", "callsign": "ORION"}
 	# get_display_members 是 BossEncounter 的通用演员协议：Wraith=全中队，
 	# CSG=旗舰航母，Mother Goose=母机主体。简单镜头演出不要求演员一定是 Aircraft。
 	var members: Array = encounter.get_display_members()
@@ -177,7 +187,7 @@ func _try_play_arrival_cinematic() -> bool:
 		"inbound": inbound,
 		"extra_layers": extra,
 		"callsign_prefix": encounter.callsign_prefix,
-		"boss_banner": BossRegistry.banner_metadata_for(encounter.boss_id),
+		"boss_banner": banner,
 		"scatter_seed": inbound.angle(),
 		# BGM 快照：audio 通道在演出开场切 BOSS 曲（导演只拿字符串，不认识 encounter）
 		"bgm_layers": encounter.bgm_layers,
@@ -251,11 +261,22 @@ func _update(delta: float) -> void:
 
 func _finish() -> void:
 	_set_arrival_player_visual_hidden(false)
+	if encounter is TheCrucibleEncounter:
+		encounter.cleanup_orion()
 	# 通知 mode（survivor_mode 会做 hud / state 清理）
 	if director and director.mode and director.mode.has_method("on_boss_event_finished"):
 		director.mode.on_boss_event_finished(self)
 
 # ──────────────── 阶段切换 ────────────────
+
+func _on_orion_arrival_requested() -> void:
+	if not active or phase != Phase.ENGAGED:
+		return
+	if director and director.mode and director.mode.archive_enabled():
+		CareerArchive.record_ace_encounter("orion_final_form")
+	phase = Phase.PRE_STAGE
+	if not _try_play_arrival_cinematic():
+		_enter_engaged()
 
 ## ENGAGED：释放 directive → 单位回到正常 AI（CSG 开火、AceSquad 角色分配）
 func _enter_engaged() -> void:
@@ -275,12 +296,16 @@ func _enter_engaged() -> void:
 		else:
 			AudioManager.crossfade_music(encounter.bgm_track, 2.0)
 	# 进入 boss phase（mode 切 selected_id）
-	if director and director.mode and director.mode.has_method("on_boss_engaged"):
+	if not _engagement_announced and director and director.mode and director.mode.has_method("on_boss_engaged"):
+		_engagement_announced = true
 		director.mode.on_boss_engaged(self)
 	EventLogger.log_event("EVENT", name, "ENGAGED at %s" % anchor)
 
 func _on_victory() -> void:
 	_debug_break("BOSS victory: %s" % encounter.display_name)
+	if encounter is TheCrucibleEncounter and encounter.orion_started \
+			and director and director.mode and director.mode.archive_enabled():
+		CareerArchive.record_ace_defeat("orion_final_form")
 	if director and director.mode and director.mode.has_method("on_boss_victory"):
 		director.mode.on_boss_victory(self)
 	end()

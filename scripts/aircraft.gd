@@ -18,6 +18,7 @@ var altitude_action_enter_serial: int = 0      ## 每次动作切换递增，供
 var altitude_action_start_tier: int = AltitudeTier.MID ## 当前动作进入沿的高度档
 var _climb_counter_remaining_s: float = 0.0
 var _gun_tailed_until_ms: int = -1              ## 低频汇总缓存；正式判定仍在 AircraftWeapons
+var _gun_tailed_attacker_id: int = 0            ## 机炮自保上报只存 ID，来源释放后安全失效
 var bank_angle: float = 0.0         ## 弧度
 var _prev_bank_for_rate: float = 0.0  ## 上一帧 bank（用于发射稳定性检查计算 roll rate）
 var _bank_rate_rad_s: float = 0.0     ## 滚转率，rad/s（EMA 平滑，避免单帧噪声）
@@ -599,6 +600,7 @@ var _ciws_cooldown: float = 0.0          ## CIWS 射速冷却（独立于正常�
 var _ciws_fire_log_until: float = 0.0    ## 玩家方 CIWS_FIRE 诊断节流（区分普通机炮与反导弹道）
 var survivor_missile_damage_cap: float = 0.0  ## 生存模式：导弹伤害上限（0=不限制）
 var survivor_bullet_damage_cap: float = 0.0   ## 生存模式：机炮伤害上限（0=不限制）
+var bullet_damage_taken_mult: float = 1.0    ## 档案注入：机炮封顶后承伤倍率，共享层默认不减伤
 var hide_data_label: bool = false    ## 隐藏飞机旁的数据标签（HUD 替代显示）
 var _compact_data_label_active: bool = false  ## 远景战略标签迟滞状态（AircraftRenderer 维护）
 var is_drone: bool = false           ## 忠诚僚机无人机标记：跳过预测线 / 数据标签 / 高度文本，纯 2D 视觉
@@ -683,6 +685,9 @@ var _escort_flare_tried: Dictionary = {}
 ## 友军番队恒 false）。玩家世界指令会先从状态机对称退出，再执行原命令；退出不改写
 ## 当前速度或物理积分状态。
 var afterburner_window_active: bool = false
+var fear_response: FearResponse = null
+var _afterburner_manual_source := false
+var _afterburner_fear_source := false
 
 ## 肉鸽加力窗口唯一查询/生命周期边界。不得用 evasion_mode（规避几何）或
 ## is_afterburner（物理发动机）代判肉鸽技能、专属载荷与 HUD。
@@ -690,7 +695,12 @@ func is_afterburner_mode_active() -> bool:
 	return afterburner_window_active
 
 
-func set_afterburner_mode_active(enabled: bool) -> void:
+func set_afterburner_mode_active(enabled: bool, source: StringName = &"manual") -> void:
+	if source == &"fear":
+		_afterburner_fear_source = enabled
+	else:
+		_afterburner_manual_source = enabled
+	enabled = _afterburner_manual_source or _afterburner_fear_source
 	if afterburner_window_active == enabled:
 		return
 	afterburner_window_active = enabled
@@ -1005,6 +1015,8 @@ func _set_altitude_action(next_action: int) -> void:
 
 ## 玩家高度命令唯一写入口：只有 LOW/HIGH 真的发生变化才武装一次普通高度动作。
 func command_altitude_preference(next_preference: int) -> void:
+	if FearResponse.controlled(self):
+		return
 	var normalized := clampi(next_preference,
 		AltitudePreference.PREFER_CLIMB, AltitudePreference.PREFER_LOW)
 	if normalized == altitude_preference:
@@ -1040,6 +1052,8 @@ func gun_tailed_active() -> bool:
 
 ## 敌方低频威胁更新上报正式 GUN_TAILED 解；同时消费 4 秒爬升反制窗口。
 func report_gun_tailed(attacker: Aircraft) -> void:
+	if is_instance_valid(attacker):
+		_gun_tailed_attacker_id = attacker.get_instance_id()
 	_gun_tailed_until_ms = maxi(_gun_tailed_until_ms,
 		Time.get_ticks_msec() + GUN_TAILED_CACHE_MS)
 	if not climb_counter_window_active() or attacker == null or not is_instance_valid(attacker):
@@ -1203,6 +1217,10 @@ func _physics_process_impl(delta: float) -> void:
 	PerfBuckets.tick("ac_phys.misc.equipment", Time.get_ticks_usec() - _t_misc5)
 	var _t_misc6: int = Time.get_ticks_usec()
 	StatusEffects.update(self, delta)
+	if fear_response != null:
+		fear_response.update(self, delta)
+		if fear_response.active:
+			fear_response.enforce(self)
 	PerfBuckets.tick("ac_phys.misc.status_fx", Time.get_ticks_usec() - _t_misc6)
 	# 主动位移技能必须跨 LOD/切控继续推进；无动作时仅 O(1) 计时，AI 威胁扫描固定 10Hz。
 	_update_active_special_maneuver(delta)
@@ -1436,6 +1454,8 @@ func _physics_process_impl(delta: float) -> void:
 ## 旋翼机专用的轻量物理/武器路径。运动由 AircraftPhysics.update_rotorcraft 统一处理，
 ## 不进入固定翼的失速、G 力、能量管理和 BFM combat tracking。
 func _physics_process_rotorcraft(delta: float) -> void:
+	if FearResponse.controlled(self):
+		_resolve_intents(delta)
 	var _t_kine: int = Time.get_ticks_usec()
 	AircraftPhysics.update_rotorcraft(self, delta)
 	AircraftPhysics.update_fuel(self, delta)
@@ -1475,6 +1495,8 @@ func withdraw_intent(source: int) -> void:
 ## 未迁移的直写者（旧 BFM / _process_simple / EM / 编队 / BOSS）不受影响：
 ## 无槽位主张的字段 resolve 不碰，直写值照常生效。
 func _resolve_intents(delta: float) -> void:
+	if FearResponse.controlled(self):
+		fear_response.enforce(self)
 	_intent_log_cd = maxf(_intent_log_cd - delta, 0.0)
 	# 急刹桥接：事件式布尔旗 → BRAKE 槽。速度/AB 满优先级压一切；pursuit 用 25 特例
 	# （压 TACTIC、让位 EVADE 蛇形几何——与迁移前帧序行为精确等价）。
@@ -1535,6 +1557,7 @@ static func _intent_src_name(src: int) -> String:
 		ControlIntent.SOURCE_EVADE: return "EVADE"
 		ControlIntent.SOURCE_BRAKE: return "BRAKE"
 		ControlIntent.SOURCE_DIRECTIVE: return "DIRECTIVE"
+		ControlIntent.SOURCE_FEAR: return "FEAR"
 	return "none"
 
 
@@ -1769,6 +1792,8 @@ func _effective_max_g_instant() -> float:
 
 ## 设置目标高度档位（同步 target_altitude 到档位对应值）
 func set_target_tier(tier: int) -> void:
+	if FearResponse.controlled(self):
+		return
 	target_altitude_tier = clampi(tier, AltitudeTier.LOW, AltitudeTier.HIGH)
 	target_altitude = TIER_ALTITUDE[target_altitude_tier]
 
@@ -2656,6 +2681,8 @@ func _active_special_tail_threat() -> bool:
 	return _cobra_detect_tail_gun()
 
 func _update_active_special_maneuver(delta: float) -> void:
+	if FearResponse.controlled(self):
+		return
 	_tick_shared_maneuver_cooldown(delta)
 	if is_active_special_maneuver():
 		_advance_active_special_maneuver(delta)
@@ -2676,6 +2703,8 @@ func _update_active_special_maneuver(delta: float) -> void:
 ## R 键统一机动入口：正常卡池保证五项主动机动互斥。
 ## 固定优先级只处理旧档/debug 异常共存；失败时继续尝试下一项。
 func try_manual_maneuver() -> bool:
+	if FearResponse.controlled(self):
+		return false
 	if is_destroyed:
 		return false
 	if _shared_maneuver_cooldown() > 0.0 or _any_r_maneuver_active():
@@ -3315,6 +3344,7 @@ func take_bullet_damage(amount: float, attacker: Node = null,
 		return false  # 闪避成功，无视伤害，也不触发命中火星
 	if survivor_bullet_damage_cap > 0.0:
 		amount = minf(amount, survivor_bullet_damage_cap)
+	amount *= bullet_damage_taken_mult  # 封顶后缩放，避免高伤炮被 cap 抵消削弱
 	amount = _apply_armor(amount, 0.0)  # 机炮不穿甲，护甲全额生效
 	# 标记致死来源：survivor_spawner._detect_kills 据此触发"机炮击杀恐惧"AOE
 	if hp - amount <= 0.0:
@@ -3474,7 +3504,9 @@ func _kill_weapon_label(kind: String) -> String:
 func _record_kill_attribution() -> void:
 	if not has_meta("_pending_attacker"):
 		return
-	var attacker = get_meta("_pending_attacker")
+	var attacker: Node = CombatUnit.safe_attacker(get_meta("_pending_attacker"))
+	# 致死瞬间保存转换结果，早于日志信号与本次击杀的全部状态副作用。
+	set_meta(SkillHooks.BLOODLUST_HEAD_ON_META, SkillHooks.bloodlust_counts_as_head_on(attacker, self))
 	# ── 击杀归因日志（KILL）：致死瞬间打一行"谁用什么武器击坠了谁"──
 	# 低频（每次死亡一次）。attacker 可能是飞机 / 地面 / 舰船；武器种类取自 _last_damage_kind。
 	# DESTROY 行只写被击毁者，KILL 行补上凶手 + 武器，省去人工关联 fired→hit。
@@ -3497,7 +3529,7 @@ func _record_kill_attribution() -> void:
 		return
 	var atk: Aircraft = attacker
 	var delta_pos: Vector2 = global_position - atk.global_position
-	if delta_pos.length_squared() < 1.0:
+	if delta_pos.length_squared() < 1.0 and not bool(get_meta(SkillHooks.BLOODLUST_HEAD_ON_META, false)):
 		return
 	var to_victim: Vector2 = delta_pos.normalized()
 	var atk_fwd := Vector2(sin(atk.heading), -cos(atk.heading))
@@ -3556,6 +3588,8 @@ func _check_ground_crash() -> void:
 
 ## 坠毁系统委托给 AircraftDestruction（aircraft_destruction.gd）
 func _start_destroy() -> void:
+	if fear_response != null:
+		fear_response.clear(self, false)
 	# 合法死亡优先于主动机动；幂等清掉命中窗和表现偏移，不触发“完成机动”技能钩子。
 	_active_special = ActiveSpecialManeuver.NONE
 	_active_special_heading_offset = 0.0

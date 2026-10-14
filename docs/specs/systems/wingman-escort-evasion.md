@@ -119,6 +119,8 @@ reconstruction_complete: true
 
 ## 4. 结构与组成（Structure）
 
+机炮咬尾自保由 [wingman-gun-evasion](wingman-gun-evasion.md) 补齐：普通僚机无需特殊技能即可在有效火控咬尾时临时退出编队。它复用公共 EVADE 模态，真实迫近导弹仍优先接管；不改变本规范的护卫放焰条件。
+
 - **新增标志注入**：`Aircraft.escort_cover_active`（运行时 bool）。广播写入点在长机的 `_propagate_evasion_to_squad`（玩家按 E 时；僚机置 `escort_cover_active` 而非 `evasion_mode`）。
 - **状态决策改造**：`ai_controller` 的规避广播守卫（现"无条件 enter_evade"）改为 §3.1 三分支。
 - **护卫扫描**：`SquadCoordination.process_squad_follow` 内新增护卫焰检查（§3.2 前置门 + 选目标 + 调用）。

@@ -41,6 +41,12 @@ func _ready() -> void:
 	var naval := _spawn_naval(stage, Vector2(-130.0, 210.0))
 	var cannon := _spawn_super_cannon(stage, Vector2(260.0, 210.0))
 	var missile := _spawn_missile(stage, Vector2(610.0, 210.0), aircraft)
+	# 用正式状态入口覆盖旧条形 UI 的所有通用状态和原先漏显的雷达站。
+	for unit: CombatUnit in [ground, sam, radar, naval]:
+		unit.apply_status(StatusEffects.FEAR, 10.0)
+		unit.apply_status(StatusEffects.JAM, 10.0)
+		unit.apply_status(StatusEffects.SLOW, 10.0)
+		unit.queue_redraw()
 	var units: Array[Node2D] = [aircraft, wingman, ground, sam, drone, radar, naval, missile]
 
 	var overlay := CanvasLayer.new()
@@ -137,7 +143,7 @@ func _prime_damage_flash(aircraft: Array, phase: int = 0) -> void:
 
 
 func _spawn_ground(parent: Node2D, pos: Vector2) -> GroundUnit:
-	var unit := GroundUnit.new()
+	var unit := AAGunUnit.new()
 	unit.params = (load("res://resources/aa_gun_params.tres") as AircraftParams).duplicate(true)
 	unit.position = pos
 	parent.add_child(unit)

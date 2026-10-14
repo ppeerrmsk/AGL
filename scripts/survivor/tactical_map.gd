@@ -433,6 +433,15 @@ func _ensure_raster_basemap() -> bool:
 	if not use_basemap or basemap_map_key.is_empty() or basemap_meta_path.is_empty():
 		return false
 	var map_key := basemap_map_key
+	# 直接借用正式 owner；未 import 的开发候选不经过 ResourceLoader 缓存，重载会复制纹理。
+	var features: Variant = _game_scene.get("_map_features") if is_instance_valid(_game_scene) else null
+	if typeof(features) == TYPE_OBJECT and is_instance_valid(features):
+		var source: Variant = features.get("_raster_basemap")
+		if typeof(source) == TYPE_OBJECT and is_instance_valid(source) and source is RasterBasemapRenderer:
+			var shared: Texture2D = source.shared_strategic_texture(map_key)
+			if shared != null and _ensure_raster_world_rect():
+				_mm_raster_tex = shared
+				return true
 	var manifest := RasterBasemapRendererScript.load_manifest(map_key)
 	if manifest.is_empty() or not _ensure_raster_world_rect():
 		return false
@@ -442,9 +451,8 @@ func _ensure_raster_basemap() -> bool:
 	if tiles.is_empty():
 		return false
 	var record := tiles[0] as Dictionary
-	var texture_path := "%s/%s/%s" % [
-		RasterBasemapRendererScript.ROOT_PATH,
-		map_key,
+	var texture_path := "%s/%s" % [
+		RasterBasemapRendererScript.manifest_path_for(map_key).get_base_dir(),
 		String(record.get("path", "strategic.webp")),
 	]
 	var texture := RasterBasemapRendererScript.load_texture(texture_path)

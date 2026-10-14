@@ -75,6 +75,11 @@ const BOSS_LIST: Array[Dictionary] = [
 		"name": "BOSS_DEBUG_THE_CRUCIBLE_NAME",
 		"desc": "BOSS_DEBUG_THE_CRUCIBLE_DESC",
 		"tags": ["TAG_AIR", "TAG_TWO_PHASE"],
+		"scenarios": [
+			["CRUCIBLE // FULL", "full"],
+			["CRUCIBLE + ORION // FULL", "orion_eligible"],
+			["ORION // DIRECT", "orion"],
+		],
 	},
 ]
 

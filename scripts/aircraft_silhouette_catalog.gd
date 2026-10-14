@@ -83,7 +83,24 @@ const LEGACY_DISPLAY_NAMES: Array[String] = [
 	"Cre", "DEADAIR", "Snowblind", "Sentinel", "MQ-112",
 	"Aegis UAV", "MQ-X", "DRONE", "Probe", "Mother Goose",
 	"Hyper-A G0", "Hyper-A G1", "Hyper-A G2", "Hyper-A G3",
+	"ORION", "FANG", "FANG-1", "FANG-2",
 ]
+
+## 三维生产使用的稳定规范 key。这里不把 legacy 机型放进 PNG 白名单；
+## `key_for()` 仍只返回 DISPLAY_KEYS，保持二维回退与既有测试语义不变。
+const LEGACY_MODEL_KEYS: Dictionary = {
+	"X-02": "x02", "X-02 Wyvern": "x02", "X-09 Thunder Owl": "x09",
+	"X-13 Skyfalcon": "x13", "X-21 Longreach": "x21", "X-44 Anvil": "x44",
+	"X-77 Phantom Raven": "x77", "X-90 Skywhale": "x90",
+	"AX-00 Starweaver": "ax00", "AF-03": "af03", "Cre": "cre",
+	"DEADAIR": "deadair", "Snowblind": "snowblind", "Sentinel": "sentinel",
+	"MQ-112": "mq112", "Aegis UAV": "aegis_uav", "MQ-X": "mqx",
+	"DRONE": "loyal_wingman", "Probe": "probe", "Mother Goose": "mother_goose",
+	"Hyper-A G0": "hyper_a", "Hyper-A G1": "hyper_a",
+	"Hyper-A G2": "hyper_a", "Hyper-A G3": "hyper_a",
+	"ORION": "orion_final_form", "FANG": "orion_fang",
+	"FANG-1": "orion_fang", "FANG-2": "orion_fang",
+}
 
 const DRAW_SCALE: Dictionary = {
 	"ah64": 1.55, "ch47": 1.85, "b1b": 2.05, "tu160": 2.10,
@@ -111,6 +128,41 @@ static func key_for(ac: Aircraft) -> String:
 		if airframe_key != "":
 			return airframe_key
 	return ""
+
+
+## 全机型三维目录的规范身份：现实/已登记机沿用 DISPLAY_KEYS，原创/特种机走
+## LEGACY_MODEL_KEYS。同型号的玩家、僚机、敌人和显示名后缀必须返回同一 key。
+static func canonical_model_key_for(ac: Aircraft) -> String:
+	var mapped := key_for(ac)
+	if mapped != "":
+		return mapped
+	if ac.params != null:
+		var direct := String(LEGACY_MODEL_KEYS.get(ac.params.display_name, ""))
+		if direct != "":
+			return direct
+	var airframe_name := String(ac.get_meta("airframe_label", "")).strip_edges()
+	return String(LEGACY_MODEL_KEYS.get(airframe_name, ""))
+
+
+## 离线审计、模型画廊和非 Aircraft 载体使用；不接受呼号/品质后缀猜测。
+static func canonical_model_key_for_display_name(display_name: String) -> String:
+	var normalized := display_name.strip_edges()
+	var mapped := String(DISPLAY_KEYS.get(normalized, ""))
+	return mapped if mapped != "" else String(LEGACY_MODEL_KEYS.get(normalized, ""))
+
+
+static func canonical_model_keys() -> Array[String]:
+	var result: Array[String] = []
+	for raw: Variant in DISPLAY_KEYS.values():
+		var key := String(raw)
+		if key not in result:
+			result.append(key)
+	for raw: Variant in LEGACY_MODEL_KEYS.values():
+		var key := String(raw)
+		if key not in result:
+			result.append(key)
+	result.sort()
+	return result
 
 
 ## UI 等非 Aircraft 载体按基础机型名读取同一份正式轮廓，避免另建预览模型目录。

@@ -98,6 +98,8 @@ func _start() -> void:
 		end()
 		return
 	AllyForce.convert_aircraft(awacs)
+	# 事件显示名会改成 AWACS；先保留真实创建来源，避免二维/三维目录失去 Tu-160 身份。
+	awacs.set_meta("airframe_label", awacs.params.display_name)
 	awacs.params.display_name = "AWACS"
 	awacs.has_radio_voice = true   # 预警机是有人机组，进离场要能喊话
 	awacs.params.cruise_speed = CRUISE_KMH

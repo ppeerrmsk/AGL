@@ -3,7 +3,7 @@ id: boss-clear-progression
 kind: system
 status: done
 schema_version: 1
-spec_version: 4
+spec_version: 5
 owner: 用户（设计） / Codex（落地）
 depends_on: [career-archive, wraith-squadron, mother-goose]
 reconstruction_complete: true
@@ -28,7 +28,8 @@ reconstruction_complete: true
 |---:|---|---|
 | 0 | 初见层 | 使用下表的首次编成/机制 |
 | 1 | 强化层 1 | 使用下表的第一次通关后编成/机制 |
-| ≥2 | 强化层 1（暂存原始次数） | 第二强化层待设计；在定稿前不再追加改动 |
+| 2 | 强化层 1 | 保留原始次数，沿用首败后编成 |
+| ≥3 | 按 BOSS 独立装配 | Wraith 追加恐惧锥；其它 BOSS 沿用已有强化层 |
 
 判定时点为本局 BOSS 实例生成前；本局胜利写档发生在战斗结束后，因此本局不会中途跳层。
 正式局读取 `CareerArchive.boss.defeats[boss_id]`；bench / boss debug 未注入档案时按 0 次处理。
@@ -39,6 +40,9 @@ reconstruction_complete: true
 |---:|---|
 | 0 | 原四架 F-47，无额外单位 |
 | ≥1 | 接战瞬间追加 **2 架 YF-23 远距狙击支援机**；不参加登场演出 |
+| ≥3 | 原四架 F-47 装配通用恐惧锥；保留双 YF-23 支援，支援机不装配恐惧 |
+
+恐惧锥按本场生成前的历史快照判定：第三次击败后的下一场才出现，0/1/2 次时无配置、无控制器。独立 `wraith_progression_loadout` 负责选择配置，`F47AceSquad.configure_progression` 负责接线，通用恐惧模块不读取档案或识别 Wraith；详细效果见 [player-fear-wraith-cone](player-fear-wraith-cone.md)。
 
 YF-23 支援机规则：
 
@@ -103,7 +107,7 @@ MQ-111 专属激光：射程 2500 m、DPS 80→18、单目标；热量规则与�
 
 - 持久化来源：`CareerArchive` 既有 BOSS 击败字典。
 - 注入层：`BossEncounterEvent` → `BossEncounter.configure_progression()`。
-- 实例消费：`F47AceSquad`、`CarrierStrikeGroup`、`MotherGooseBoss/MotherGooseUAVSwarm`。
+- 实例消费：`F47AceSquad`（恐惧配置由独立 `wraith_progression_loadout` 选择）、`CarrierStrikeGroup`、`MotherGooseBoss/MotherGooseUAVSwarm`。
 - 新敌机资源：事件专属 `enemy_yf23.tres`；登记 EnemyType 但不进入普通随机池。
 - 激光累计拦截：复用 `LaserEquipment.intercepts_missiles_directly` 与导弹 `intercept_hp`，不新增每帧扫描。
 
@@ -115,7 +119,8 @@ MQ-111 专属激光：射程 2500 m、DPS 80→18、单目标；热量规则与�
 - [x] 玩家切控后，两架 YF-23 改追当前操控机，不保留旧玩家引用。
 - [x] MQ-111 光束命中导弹时同时减速与累计扣 `intercept_hp`，累计达到阈值后导弹被删除。
 - [x] MQ-111 连续照射会过热停火，强制散热到 30% 后才恢复；四项热量参数与玩家 X-02 一致。
-- [x] 历史击败次数 ≥2 时不崩溃，当前仍使用强化层 1，完整次数保留给未来层。
+- [x] 历史击败次数 2 时沿用原强化编成；Wraith 达到 3 次后装配恐惧锥，4 次及更高继续保留。完整次数不截断，其它 BOSS 规则不变。
+- [x] `boss_progression` 65/65：0/1/2 次不装配、3/4/12 次装配、负数/默认值、正式 engage、重复接战、实例配置隔离及其它小队独立装配均通过。
 - [ ] 性能：只增加既有实体与既有装备扫描，无新增 `_process/_physics_process/_draw`；跑生存模式 Sentinel + Lv5+ 压测，FPS 掉幅 < 15。
 - [x] 玩家引用持有者校验通过。
 - [ ] 全量索引锚点校验通过（共享工作区其它在途改动仍有历史外的新漂移；本功能引入的 CSG 锚点已修正）。
@@ -148,6 +153,7 @@ MQ-111 专属激光：射程 2500 m、DPS 80→18、单目标；热量规则与�
 
 | 日期 | spec_version | 改动 |
 |---|---:|---|
+| 2026-09-27 | 5 | 按用户要求，Wraith 恐惧锥仅历史击败 ≥3 次后装配；拆分强化装配策略与通用恐惧能力，原双 YF-23 支援不变。 |
 | 2026-08-21 | 4 | YF-23 支援开启传感器隐形；仍不设永久锁定免疫，玩家维持有效雷达接触时可按普通飞机规则锁定。 |
 | 2026-08-18 | 3 | 按实战反馈修正 Wraith 强化支援：YF-23 取消永久 `lock_immune_override`，改为普通可锁定目标；出生基准从“玩家机头前方”改为“Wraith 队形后方 1800 px，且离玩家至少 5000 px”，避免贴近玩家突然闪现。 |
 | 2026-08-01 | 1 | 用户定稿并完成首轮分层：Wraith 双 YF-23、CSG 护航编成、Goose 高级 UAV 门控；`boss_progression` 22/22 及受影响回归通过。第二次通关后的新机制暂缓。 |

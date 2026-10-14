@@ -55,6 +55,8 @@ func on_kill_charge() -> void:
 
 ## E 键统一开关。返回 true 只表示本次成功进入 ACTIVE。
 func toggle(leader: Aircraft) -> bool:
+	if FearResponse.controlled(leader):
+		return false
 	if is_active():
 		deactivate(&"toggle")
 		return false
@@ -62,6 +64,8 @@ func toggle(leader: Aircraft) -> bool:
 
 
 func activate(leader: Aircraft) -> bool:
+	if FearResponse.controlled(leader):
+		return false
 	if not is_available() or not _valid_aircraft(leader):
 		return false
 

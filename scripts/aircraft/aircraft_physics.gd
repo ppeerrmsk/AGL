@@ -1038,6 +1038,8 @@ static func update_fuel(ac: Aircraft, delta: float) -> void:
 
 ## 自动能量管理：战斗时加力+俯冲换速，巡航时蓄能爬升
 static func update_energy_management(ac: Aircraft) -> void:
+	if FearResponse.controlled(ac):
+		return
 	# P1：planner 已在帧顶写好 target_speed_kmh / is_afterburner / target_altitude，跳过旧能量管理
 	if ac.use_tactical_planner:
 		return

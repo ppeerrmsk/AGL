@@ -1,0 +1,26 @@
+shader_type spatial;
+render_mode ambient_light_disabled, specular_disabled;
+uniform bool facade_detail = false;
+varying vec3 world_position;
+varying vec3 world_normal;
+void vertex() {
+	world_position = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	world_normal = MODEL_NORMAL_MATRIX * NORMAL;
+}
+// 隔离样区：限制照明范围，防止 Compatibility 的强光把楼顶洗成白色。
+void fragment() {
+	vec3 base = COLOR.rgb;
+	if (facade_detail && abs(normalize(world_normal).y) < 0.50) {
+		float phase = world_position.y / 1.8;
+		float footprint = fwidth(phase);
+		float line = 1.0 - smoothstep(0.08, 0.08 + max(footprint, 0.04), abs(fract(phase) - 0.5));
+		base *= 1.0 - line * 0.22 * (1.0 - smoothstep(0.45, 1.0, footprint));
+	}
+	if (!OUTPUT_IS_SRGB) { base = pow(base, vec3(2.2)); }
+	ALBEDO = base;
+	EMISSION = base * 0.50;
+	ROUGHNESS = 1.0;
+}
+void light() {
+	DIFFUSE_LIGHT += ALBEDO * ATTENUATION * 0.50 * (0.60 + 0.40 * max(dot(NORMAL, LIGHT), 0.0));
+}

@@ -18,9 +18,11 @@
 
 | 资源 | 用途 |
 |---|---|
-| `resources/aircraft_silhouettes/*.png` | 40 张 128×128 白色 alpha 顶视蒙版，逐架从已审查来源直接提取；原创/虚构/未验证概念机保留旧绘制 |
+| `resources/aircraft_silhouettes/*.png` | 当前 44 张 128×128 白色 alpha 顶视蒙版，逐架从已审查来源直接提取；数量为审计快照，原创/虚构/未验证概念机保留旧绘制 |
 | `resources/aircraft_silhouettes/README.md` | 格式、直接提取流程、来源边界与禁止项 |
 | `resources/aircraft_silhouettes/reference_manifest.json` | 逐机审查状态、来源、许可/署名、处理边界与 alpha 哈希 |
+| `resources/aircraft_volume_models/reference_manifest.json` | 当前全部航空身份的规范三维 key、来源边界、逐型制作/四视图/运行时状态；数量由审计重算，不把历史 39/43 或当前快照冻结为上限 |
+| `resources/aircraft_volume_models/README.md` | 专属低模可重复生成源、PNG 回退与全量完成判定说明 |
 
 权威数值、复用映射与验收标准见 [aircraft-top-view-silhouettes](../specs/systems/aircraft-top-view-silhouettes.md)。
 
@@ -254,3 +256,13 @@
 | 武器 | HQ-7×4 | ZU-23 | 450m/s 三连发定时空爆 | 无 | 无 |
 | 特殊 | 圆形雷达 | 独立炮塔 | 220m/75 AOE + 组级误差 | 数据链共享 | 不可锁定，仅 bomber_bomb |
 | 颜色 | 红 | 橙 | 蓝白 | 青 | 土黄 |
+
+## 海洋三维地图
+
+| 资源 | 用途 |
+|---|---|
+| `resources/maps/ocean_volume_elevation.json` | 与原母图配准的高程米值、原始公开 URL 和 SHA256 |
+| `resources/maps/ocean_volume.res` | 海洋建筑、工程场地与各级地形裁片静态归档 |
+| `resources/shaders/ocean_volume_ground.gdshader` | 原 Raster 调色、共享纹理与连续地形法线 |
+
+构建入口：`scripts/tools/build_ocean_elevation.py` → `bench/run.cmd ocean_volume_build 1 120 Shadow Headless`。构建产物先留在 `bench/results/`，验证后复制到资源目录。

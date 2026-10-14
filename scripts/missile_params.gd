@@ -71,6 +71,10 @@ const TARGET_PRIO_DOGFIGHT_SIDE: int = 1     ## QMAAM：侧面（off-axis 大）
 @export var guidance_delay: float = 0.5
 ## 发射后不管模式（不需要持续照射，不受热诱弹干扰）
 @export var fire_and_forget: bool = false
+## 主动雷达制导：不要求载机持续照射，仍接受热诱弹、隐形与断制导。
+@export var active_radar_guidance: bool = false
+## 空射垂发：爬升使用虚拟高度，不沿地图北向平移；预末端禁用近炸。
+@export var airborne_vertical_launch: bool = false
 
 @export_group("装载")
 ## 挂载数量

@@ -95,7 +95,8 @@ func _draw() -> void:
 		return
 	if is_hovered:
 		_draw_radar_cone()
-	_draw_radar_icon()
+	if not has_meta(&"volume_3d_ground"):
+		_draw_radar_icon()
 	_draw_datalink_range()
 	_draw_data_label()
 

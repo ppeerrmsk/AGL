@@ -106,6 +106,7 @@ const ENTRIES: Array = [
 	{"id": "CARRIER_STRIKE_GROUP", "kind": Kind.BOSS},
 	{"id": "MOTHER_GOOSE", "kind": Kind.BOSS},
 	{"id": "BLACK_STAR", "kind": Kind.BOSS},
+	{"id": "ORION_FINAL_FORM", "kind": Kind.BOSS},
 ]
 
 ## BOSS 主色（王牌 tier §2.7：BOSS 统一精英红，不占紫红系队色）
@@ -135,6 +136,8 @@ static func desc_key(entry: Dictionary) -> String:
 ## 击败计数（AIR/ADDS = 击坠数 / GROUND = 摧毁数 / ACE = 全灭次数 / BOSS = 击败次数）
 static func defeat_count(entry: Dictionary) -> int:
 	var id := String(entry["id"])
+	if id == "ORION_FINAL_FORM":
+		return CareerArchive.get_ace_defeats("orion_final_form")
 	match int(entry["kind"]):
 		Kind.GROUND:
 			return CareerArchive.get_ground_kills_by_type(id)
@@ -148,6 +151,8 @@ static func defeat_count(entry: Dictionary) -> int:
 ## 遭遇计数（仅 ACE/BOSS 有意义——"打过照面但没赢"）；其余返回 0
 static func encounter_count(entry: Dictionary) -> int:
 	var id := String(entry["id"])
+	if id == "ORION_FINAL_FORM":
+		return CareerArchive.get_ace_encounters("orion_final_form")
 	match int(entry["kind"]):
 		Kind.ACE:
 			return CareerArchive.get_ace_encounters(id)

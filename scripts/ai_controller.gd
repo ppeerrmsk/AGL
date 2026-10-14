@@ -8,6 +8,7 @@ extends Node
 const EscortBehavior := preload("res://scripts/ai/escort_behavior.gd")
 const AIAltitudePolicy := preload("res://scripts/ai/ai_altitude_policy.gd")
 const PursuitGeometry := preload("res://scripts/ai/pursuit_geometry.gd")
+const GunEvasion := preload("res://scripts/ai/gun_evasion.gd")
 
 # Phase 2 状态正交化（2026-07-05，重构计划 §5 Phase 2）：
 # EVADE 不再是 _state 轴上的值 —— 它与 PATROL/ENGAGE/SQUAD_FOLLOW 正交，实现为
@@ -94,6 +95,8 @@ func set_event_directive(directive: AIDirective) -> void:
 			and _directive.is_owner_alive() and directive.priority < _directive.priority:
 		return
 	_directive = directive
+	if directive != null and _gun_evasion.active:
+		MissileEvasion.exit_evade(self, false)
 	_directive_state.clear()
 	if directive != null and aircraft:
 		# 接管时清护驾/蜂群轨道限速残留（2026-07-03）：directive 分支在轨道代码之前
@@ -177,7 +180,11 @@ var squad_index: int = -1            ## 在编队中的序号（0=长机，1+=�
 ## 让玩家点击接管导航。与现状"玩家机不挂 AI"体验一致。
 ## 武器自动开火在 Aircraft 层（不经 AIController），休眠不影响开火；导弹靠玩家走位躲。
 ## 切换操控时由 survivor_mode 在新/旧长机上翻转此标志。
-var manual_control: bool = false
+var manual_control: bool = false:
+	set(value):
+		if value and _gun_evasion != null and _gun_evasion.active:
+			MissileEvasion.exit_evade(self, false)
+		manual_control = value
 
 ## 降级过渡 grace（spec §3.4 "打完再归队"）：旧长机被卸下操控后唤醒 AI，
 ## 但此计时器>0 期间保持当前 combat_target/target_position、不强制归位编队。
@@ -260,14 +267,16 @@ var _shield_threat_dir: Vector2 = Vector2.ZERO ## 威胁方向（用于偏移轨
 
 # ── 绕长机飞行常量（orbit_squad_leader 模式）──
 ## 设计约束：
-## 1. 切向速度 (ORBIT_RADIUS × ORBIT_ANGULAR_SPEED) 必须 < UAV 实际速度，否则轨道点永远追不上
-## 2. UAV 物理转弯半径必须 ≤ ORBIT_RADIUS 才能在轨道上贴合飞行
+## 1. 移动轨道点的世界速度 = 长机平移 + 相对切向速度，二者不得重复花同一速度预算
+## 2. 角速度必须受硬上限约束，避免小半径轨道要求 UAV 做物理上不可能的急转
 ## 3. ORBIT_TETHER_RADIUS < AURA_RADIUS=600 保证僚机始终在增益圈内
 ## 多层轨道系统：每架 UAV 按 squad_index 分配不同轨道半径
 ## 内圈更密、外圈更疏，像行星系统一样分层环绕
 const ORBIT_INNERMOST := 60.0        ## 最内圈半径（像素，~120m）— squad_index 1
 const ORBIT_SPACING := 40.0          ## 每层轨道间距（像素，~80m）
-const ORBIT_MIN_SPEED_KMH := 400.0   ## 轨道最低速度（km/h）— 保持自然飞行感
+const ORBIT_MIN_SPEED_KMH := 300.0   ## 轨道最低速度（km/h）— 高于失速且允许贴近移动轨道点
+const ORBIT_MAX_ANGULAR_SPEED_RAD := 0.10  ## 约 63s/圈；保证高速移动长机旁仍可贴合
+const ORBIT_CATCHUP_SPEED_BONUS_KMH := 200.0  ## 轨道误差追赶余量，避免全极速扩大转弯半径
 const ORBIT_TETHER_RADIUS := 750.0   ## 护驾轨道半径：无人机绕长机的轨道距离上限（视觉/护盾拦截需要贴近）
 ## 护驾交战触发范围：与 CommanderAura.AURA_RADIUS=1500 对齐 —— 玩家踏进光环圈就该被打。
 ## 解耦原因：轨道半径决定无人机贴 boss 多近（小），交战范围决定它们追多远（大）。
@@ -349,7 +358,6 @@ const MISSILE_THREAT_RANGE := 3000.0       ## 护盾导弹威胁检测范围（�
 const MISSILE_HEADING_DOT := 0.5           ## 导弹朝向长机判定的点积阈值
 const MISSILE_INTERCEPT_DIST := 100.0      ## 触发自爆拦截的距离（像素）
 const SHIELD_THREAT_BIAS := 0.6            ## 护盾威胁偏移轨道中心比例
-const ORBIT_SPEED_MULT := 1.6             ## 轨道速度 ≥ 长机速度 × 此值
 const THREAT_HEADING_DOT := 0.3            ## 威胁朝向判定点积阈值
 
 # ── Flock 散队 jink ──
@@ -434,6 +442,7 @@ var _state: AIState = AIState.PATROL
 ## enter_evade/exit_evade 写**——与 aircraft.evasion_mode（planner 油门协作位）的
 ## 双真值源问题由"同一对进出函数写两者"解决。
 var _evading: bool = false
+var _gun_evasion := GunEvasion.new()
 var _engage_timer: float = 0.0           ## 当前交战已持续时间
 var _cooldown_timer: float = 0.0         ## 交战冷却剩余
 var _scan_timer: float = 0.0            ## 扫描计时器
@@ -569,6 +578,8 @@ func _physics_process(delta: float) -> void:
 
 
 func _physics_process_impl(delta: float) -> void:
+	if _gun_evasion.active and not _gun_evasion.eligible(self):
+		MissileEvasion.exit_evade(self, false)
 	if not aircraft or aircraft.is_destroyed:
 		# 飞机销毁时清掉自己在他人 engaging_me 里的 entry
 		if is_instance_valid(_prev_target_for_reverse_idx) and _prev_target_for_reverse_idx is Aircraft:
@@ -603,7 +614,7 @@ func _physics_process_impl(delta: float) -> void:
 	# 禁 AB 用 SLOW 同款写法（status_effects.gd:161），避免 FEAR 一过又全速冲出战场
 	# 放在节流门控之前：timer 即使在 throttle skip 帧也照样推进
 	var _fear_now: bool = aircraft.status_fear_active
-	if _fear_was_active and not _fear_now:
+	if _fear_was_active and not _fear_now and not aircraft.is_player_squad():
 		_post_fear_no_ab_timer = POST_FEAR_NO_AB_DURATION
 		reset_tactical_plan()
 		_target_eval_timer = 0.0
@@ -744,6 +755,9 @@ func _physics_process_impl(delta: float) -> void:
 	# 威胁消失 exit_evade 下一 tick 铁律无缝重接。
 	if _evading:
 		MissileEvasion.process_evade(self, delta)
+		return
+	# 有效机炮咬尾自保优先于命令/编队，命令所有权保留到脱险恢复。
+	if _gun_evasion.tick(self, delta):
 		return
 
 	# ── 玩家命令铁律（spec rts-command §3）──
@@ -1418,6 +1432,22 @@ func _process_simple(delta: float) -> void:
 	# survivor_mode._update_enemy_waypoints 会在 8 秒内为其补充新航点
 	if orbit_squad_leader and not EscortBehavior.is_active(self):
 		EscortBehavior.cleanup_after_leader_lost(self)
+	# Sentinel 原生护卫脱队后，返航状态持续拥有导航权，直到 1Hz 看门狗确认
+	# 已回到解除半径；放在索敌/护盾之前，避免任何战斗目标抢写返航目标。
+	if bool(aircraft.get_meta("sentinel_recall_active", false)) \
+			and EscortBehavior.is_active(self):
+		var recall_leader := squad.leader
+		aircraft.target_position = recall_leader.global_position
+		aircraft.ai_override_pursuit = true
+		aircraft.orbit_speed_cap = 0.0
+		aircraft.is_afterburner = true
+		if aircraft.params:
+			aircraft.target_speed_kmh = AircraftPhysics.effective_max_speed_kmh(aircraft)
+		if aircraft.flat_altitude:
+			aircraft.set_target_tier(recall_leader.get_altitude_tier())
+		else:
+			aircraft.target_altitude = recall_leader.altitude
+		return
 
 	# ── 护盾系统（shield_leader 模式，优先级高于一切）──
 	# 只在导弹来袭时介入，平时正常轨道飞行
@@ -1541,28 +1571,46 @@ func _process_simple(delta: float) -> void:
 			var slot := maxi(squad_index, 1)
 			var radius := ORBIT_INNERMOST + float(slot - 1) * ORBIT_SPACING
 
-			# 轨道速度：物理公式，但必须 > 长机速度才能真正绕圈
+			# 相对切向速度先按物理能力求上限，再受慢速轨道角速度约束。
 			var leader_speed_kmh := leader.speed * 3.6
-			var orbit_speed_kmh := ORBIT_MIN_SPEED_KMH
+			var effective_max_speed_kmh := leader_speed_kmh
+			var tangent_speed_kmh := 0.0
 			if aircraft.params:
+				effective_max_speed_kmh = AircraftPhysics.effective_max_speed_kmh(aircraft)
 				var radius_m := radius / Aircraft.PIXELS_PER_METER
 				var g_avail := AircraftPhysics.effective_max_g(aircraft) * 0.5
-				orbit_speed_kmh = maxf(sqrt(radius_m * 9.81 * g_avail) * 3.6, ORBIT_MIN_SPEED_KMH)
-			# 关键：轨道速度必须比长机快，否则只能跟在后面
-			orbit_speed_kmh = maxf(orbit_speed_kmh, leader_speed_kmh * ORBIT_SPEED_MULT)
-
-			# 角速度 = 线速度 / 半径
-			var orbit_speed_px := orbit_speed_kmh / 3.6 * Aircraft.PIXELS_PER_METER
-			var ang_speed := orbit_speed_px / maxf(radius, 1.0)
+				tangent_speed_kmh = minf(
+					sqrt(radius_m * 9.81 * g_avail) * 3.6,
+					maxf(effective_max_speed_kmh - leader_speed_kmh, 0.0))
+			var tangent_speed_px := tangent_speed_kmh / 3.6 * Aircraft.PIXELS_PER_METER
+			var ang_speed := minf(
+				tangent_speed_px / maxf(radius, 1.0), ORBIT_MAX_ANGULAR_SPEED_RAD)
 			# 按 squad_index 均匀错开相位
 			var members_count := maxi(squad.members.size() - 1, 1)
 			var phase := float(slot - 1) * (TAU / float(members_count))
 			var angle := Time.get_ticks_msec() / 1000.0 * ang_speed + phase
 
-			aircraft.target_position = center + Vector2(cos(angle), sin(angle)) * radius
+			var orbit_radial := Vector2(cos(angle), sin(angle))
+			aircraft.target_position = center + orbit_radial * radius
 			aircraft.ai_override_pursuit = true
-			aircraft.target_speed_kmh = orbit_speed_kmh
-			aircraft.orbit_speed_cap = orbit_speed_kmh / 3.6
+			# 精确匹配移动轨道点的世界速度；误差只增加有限追赶余量，避免贴近后仍以
+			# 长机 1.6 倍速度反复冲过目标点。
+			var leader_velocity_px := Vector2(sin(leader.heading), -cos(leader.heading)) \
+				* leader.speed * Aircraft.PIXELS_PER_METER
+			var tangent_velocity_px := Vector2(-orbit_radial.y, orbit_radial.x) \
+				* radius * ang_speed
+			var target_world_speed_kmh := (leader_velocity_px + tangent_velocity_px).length() \
+				/ Aircraft.PIXELS_PER_METER * 3.6
+			var orbit_speed_kmh := clampf(
+				maxf(target_world_speed_kmh, ORBIT_MIN_SPEED_KMH),
+				ORBIT_MIN_SPEED_KMH, effective_max_speed_kmh)
+			var slot_error := aircraft.global_position.distance_to(aircraft.target_position)
+			var catchup_t := clampf((slot_error - radius) / maxf(radius, 1.0), 0.0, 1.0)
+			var catchup_speed_kmh := minf(
+				effective_max_speed_kmh, orbit_speed_kmh + ORBIT_CATCHUP_SPEED_BONUS_KMH)
+			var commanded_speed_kmh := lerpf(orbit_speed_kmh, catchup_speed_kmh, catchup_t)
+			aircraft.target_speed_kmh = commanded_speed_kmh
+			aircraft.orbit_speed_cap = commanded_speed_kmh / 3.6
 			# 高度匹配长机
 			if aircraft.flat_altitude:
 				aircraft.set_target_tier(leader.get_altitude_tier())

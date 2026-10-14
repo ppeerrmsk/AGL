@@ -46,6 +46,7 @@ class StatusPanel extends Node2D:
 
 var _panels: Dictionary = {}
 var _content_sync_accum := 1.0
+var _fear_drawing := false
 const CONTENT_SYNC_INTERVAL_S := 0.05
 
 
@@ -60,6 +61,14 @@ func _exit_tree() -> void:
 
 func _process(delta: float) -> void:
 	var perf_t0 := Time.get_ticks_usec()
+	var fear_drawing := false
+	for controller in SquadFearConeController.live_controllers():
+		if controller.emitter() != null:
+			fear_drawing = true
+			break
+	if fear_drawing or _fear_drawing:
+		queue_redraw()
+	_fear_drawing = fear_drawing
 	_content_sync_accum += delta
 	if _content_sync_accum >= CONTENT_SYNC_INTERVAL_S:
 		_content_sync_accum = fmod(_content_sync_accum, CONTENT_SYNC_INTERVAL_S)
@@ -96,3 +105,29 @@ func _sync_registered_panels() -> void:
 		if typeof(stale_panel) == TYPE_OBJECT and is_instance_valid(stale_panel):
 			(stale_panel as Node).queue_free()
 		_panels.erase(entry_id)
+
+
+## 单一屏幕层批绘真实世界锥体，既兼容 2D 又不被正式 3D 地表盖住。
+func _draw() -> void:
+	for controller in SquadFearConeController.live_controllers():
+		var ac := controller.emitter()
+		if ac == null or ac.is_destroyed or not ac.is_inside_tree():
+			continue
+		var cfg := controller.config
+		var world_to_screen := ac.get_canvas_transform()
+		var polygon := PackedVector2Array([world_to_screen * ac.global_position])
+		for i in range(25):
+			var angle := ac.heading + deg_to_rad(cfg.angle_deg * (float(i) / 24.0 - 0.5))
+			polygon.append(world_to_screen * (ac.global_position + Vector2(sin(angle), -cos(angle)) * cfg.range_m * CombatUnit.PIXELS_PER_METER))
+		var fill := cfg.color
+		fill.a = 0.16 if controller.phase == SquadFearConeController.Phase.EMISSION else 0.05
+		draw_colored_polygon(polygon, fill)
+		polygon.append(polygon[0])
+		draw_polyline(polygon, cfg.color, 2.0, true)
+		for id: Variant in controller.exposure:
+			var target := FearResponse.aircraft(instance_from_id(int(id)))
+			if target == null or not target.is_inside_tree():
+				continue
+			var screen := target.get_global_transform_with_canvas().origin + Vector2(-20.0, -35.0)
+			draw_rect(Rect2(screen, Vector2(40, 5)), Color(0, 0, 0, 0.9))
+			draw_rect(Rect2(screen, Vector2(40.0 * float(controller.exposure[id]) / cfg.exposure_s, 5)), cfg.color)

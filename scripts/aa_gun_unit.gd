@@ -201,6 +201,8 @@ func _draw_attack_range() -> void:
 ## 猎豹式自行高炮外观（Gepard / Flakpanzer）：
 ## 坦克底盘 + 方形炮塔 + 双联装高炮 + 顶部搜索雷达
 func _draw_aa_icon() -> void:
+	if has_meta(&"volume_3d_ground"):
+		return
 	var color: Color = params.icon_color if params else Color.ORANGE
 	var outline := color.darkened(0.35)
 	var s := 10.0

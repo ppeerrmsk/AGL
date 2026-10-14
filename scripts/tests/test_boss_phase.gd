@@ -4,7 +4,7 @@ extends RefCounted
 ##
 ## A 闸门真源：survivor_mode.is_boss_phase()（BOSS 解锁即为真，不必等玩家选中 BOSS 圈）
 ## B 画面内残余敌机 → 物理撤离（清目标 + 出界航线 + AB），不瞬消
-## C 画面外残余敌机 → 立即静默 free
+## C 画面外也先真实飞出，远离玩家与镜头后才回收
 ## D 豁免名单：BOSS 本体/自带单位、事件层自管的王牌支援/宿敌、停在甲板上的舰载机
 ## E 舰船与地面单位一概不动（"战区里的船保留"）
 ##
@@ -13,7 +13,7 @@ extends RefCounted
 var _pass := 0
 var _fail := 0
 var _root: StubMode = null
-const EXPECTED_ASSERTIONS: int = 33
+const EXPECTED_ASSERTIONS: int = 39
 
 
 ## 最小 SurvivorMode 替身：撤离扫描用 get_children / is_world_pos_visible / is_boss_phase，
@@ -46,6 +46,7 @@ func run() -> void:
 	_test_gate_follows_unlock()
 	_test_visible_enemy_evacuates()
 	_test_offscreen_enemy_freed()
+	_test_far_cleanup_and_expired_adds()
 	_test_exemptions()
 	_test_ships_untouched()
 	_test_boss_uav_grants_no_reward()
@@ -168,7 +169,7 @@ func _test_visible_enemy_evacuates() -> void:
 # ══════════════════════════════════════════════
 
 func _test_offscreen_enemy_freed() -> void:
-	print("── C. 画面外残余敌机：立即静默 free（不给 XP） ──")
+	print("── C. 画面外残余敌机：真实撤离后静默释放（不给 XP） ──")
 	var spawner := _mk_env()
 	_root.boss_phase = true
 	_root.everything_visible = false
@@ -176,7 +177,12 @@ func _test_offscreen_enemy_freed() -> void:
 
 	spawner._update_boss_phase_purge(2.0)
 
-	_check("画面外即释放", enemy.is_queued_for_deletion())
+	_check("BOSS 转场也不能仅因画面外立即删除", not enemy.is_queued_for_deletion())
+	spawner._update_retiring_aircraft(30.0)
+	_check("BOSS 撤离机仍在图内时必须保留", not enemy.is_queued_for_deletion())
+	enemy.global_position = Vector2(MapBoundary.world_half_px() + 1000.0, 0.0)
+	spawner._update_retiring_aircraft(8.0)
+	_check("真实出界且持续远离玩家视野后释放", enemy.is_queued_for_deletion())
 	_check("标 xp_granted（不被 _detect_kills 误判为击杀）",
 		enemy.has_meta("xp_granted"))
 	spawner.free()
@@ -185,6 +191,26 @@ func _test_offscreen_enemy_freed() -> void:
 # ══════════════════════════════════════════════
 #  D. 豁免名单
 # ══════════════════════════════════════════════
+
+func _test_far_cleanup_and_expired_adds() -> void:
+	var spawner := _mk_env()
+	var distant := _mk_enemy(Vector2(8000.0, 0.0))
+	spawner._update_far_cleanup(5.0)
+	_check("普通远距清理先撤离而不删除可见飞机", not distant.is_queued_for_deletion()
+		and bool(distant.get_meta(&"world_retiring", false)))
+	var adds := _mk_enemy(Vector2(1500.0, 0.0), "adds")
+	adds.set_meta("despawn_after", 0.0)
+	_root.everything_visible = false
+	spawner._cleanup_expired_adds()
+	_check("Adds 到期且离屏也只登记物理撤离", not adds.is_queued_for_deletion()
+		and bool(adds.get_meta(&"world_retiring", false)))
+	spawner._cleanup_expired_adds()
+	_check("重复清理不重复入队", spawner._retiring_aircraft.size() == 2)
+	spawner._update_retiring_aircraft(30.0)
+	_check("普通清理和 Adds 仍在图内时长期离屏也保留",
+		not distant.is_queued_for_deletion() and not adds.is_queued_for_deletion())
+	spawner.free()
+
 
 func _test_exemptions() -> void:
 	print("── D. 豁免：BOSS 自带单位 / 事件自管中队 / 甲板停机 ──")

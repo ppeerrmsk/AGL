@@ -8,6 +8,7 @@ var volume_probe: Node3D
 
 func _ready() -> void:
 	var automated := String(get_tree().get_meta("bench_scenario", "")) == SMOKE_SCENARIO
+	_allow_formal_aircraft_volume = false
 	# 只在显式自动 smoke 时有结束计时；F6 和 F8 重开始终是用户操作的 Boss Debug。
 	for key in ["bench_mode", "bench_scenario", "bench_duration", "bench_demo", "ugc_map_path"]:
 		if get_tree().has_meta(key):

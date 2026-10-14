@@ -30,6 +30,13 @@
 
 ## 当前阶段：内容铺量
 
+| 地图独立生产 | kind | status | reconstruction_complete | 版本 |
+|---|---|---|---|---|
+| [沙漠三维地图生产](systems/desert-volume-map.md) | map | in-progress | ✗ | 2 |
+| [海洋群岛三维地图生产](systems/ocean-volume-map.md) | map | in-progress | ✗ | 2 |
+| [海洋与沙漠离线接触 AO 样板](systems/map-contact-ao.md) | system | done | ✗ | 1 |
+| [东京湾三维海岸线地图生产](systems/tokyo-bay-volume-map.md) | map | approved | ✗ | 302 |
+
 模板验证与核心垂直切片已经完成。当前生产顺序、WIP 上限、证据等级、地图七件套与发布完成线统一看
 [content-production-workflow](../planning/content-production-workflow.md)。旧 roadmap 和 evolution vertical slice
 只作历史记录，不再从那里派生任务。
@@ -50,19 +57,27 @@ Sentinel 只在功能确实涉及其光环、护卫或 LOD 豁免时保留。历
 
 `draft` 起草中 · `approved` 设计定稿待实现 · `in-progress` 实现中 · `done` 已落地并验收 · `superseded` 被取代
 
+## 新机制草案
+
+| spec | kind | status | reconstruction_complete | 说明 |
+|---|---|---|---|---|
+| [systems/player-fear-wraith-cone](systems/player-fear-wraith-cone.md) | system | in-progress | ✗ | 已批准试装：Wraith 历史击败 ≥3 次后才装配通用紫锥；5 秒远离实际来源、单机强制加力与状态遮蔽，电战预算免疫。强化解锁与通用能力分离；完整局平衡验收待续。 |
+
 ---
 
 ## 总表
 
 | Spec | kind | status | 重建完整 | 覆盖范围 |
 |---|---|---|---|---|
-| [systems/offscreen-world-simulation](systems/offscreen-world-simulation.md) | system | done | ✅ | **未关注战区最简模拟 + P0**：普通 1★/2★ AVAILABLE 战区只保留战略数据，玩家选择或进入后才一次性生成真实单位并保持到终态；3★全局威胁继续公开即投射。攻克后幸存驻守敌机物理撤离，连续离屏 2 秒后分批释放。玩家 360 步预测线移出 `_draw`，限制单帧推进并以 4:1 抽样显示。 |
+| [systems/ace-pilot-lore](systems/ace-pilot-lore.md) | system | draft | ✗ | 巨大模拟系统中的86 份具名王牌/无人节点档案；75 名人类个人故事、IDO/FANG 来源记录与 ORION 身份未明档案。每人两三句，按座机标注候选技术年代；阵营、机构、具体年份与历史专名留空。人物命运及阅读门槛待确认，仅 spec。 |
+| [systems/gun-altitude-engagement](systems/gun-altitude-engagement.md) | system | draft | ✗ | **机炮高度差命中计划**：保留 2D 武器，比较连续高度质量、散布与一次性命中资格；覆盖全部普通弹发射域、机炮/高度/防御强化、AI 高度权限、在途与贯穿生命周期、18 类边界及 focused/Visual/完整局验收。路线与数值待定，未改运行时。 |
+| [systems/offscreen-world-simulation](systems/offscreen-world-simulation.md) | system | in-progress | ✅ | **未关注战区最简模拟 + P0**：普通 1★/2★ AVAILABLE 战区只保留战略数据，镜头预加载、玩家选择或进入后一次性生成真实单位并保持到终态；观察不等广播，不随等级重刷；3★全局威胁继续公开即投射。地面终态停算留场；飞机实际出界、远离玩家及镜头并持续八秒后分批释放。玩家 360 步预测线移出 `_draw`，限制单帧推进并以 4:1 抽样显示。 |
 | [systems/flare-evasion-coupling](systems/flare-evasion-coupling.md) | system | done | ✅ | **热诱弹与敌机规避耦合**：敌我十枚视觉改为 0.90s 六波双侧抛射并延长粒子寿命；玩家自动投焰收紧到 TTI≤1.0s / 200m 兜底；敌机投焰后进入 1.25s 可命中 break 窗，只有真实转向/横移/增速/高度变化达门且通过 AI 等级概率才令导弹失导。玩家主动规避不变。 |
 | [skills/counter-stealth](skills/counter-stealth.md) | skill | done | ✅ | **反隐身 / 捉鬼者**：稳定策士全队技能将隐形目标侦测距离扩到 120%，并让完整锁定任一队员的隐形敌机现形；先进斗士全队技能保持当前 `combat_target` 暴露，击杀隐形单位令全队永久最大生命 +10，晚入队与换机补齐。两者均可压过 Wraith 光学 cloak，条件解除后原周期恢复。 |
 | [systems/runtime-validation-workflow](systems/runtime-validation-workflow.md) | system | done | ✅ | **自动运行时验证工作流**：所有 bench 统一静音 Master，并把 GDScript 红错与 freed-object 诊断改判为失败；`all` 在同步断言后自动进入真实 SceneTree 生命周期 gauntlet，覆盖击杀、任务完成/失败/取消、传感器目标缓存与释放后缓存 tick。错误门自检可把 Godot 退出 0 改判为 86，并保留完整 GDScript backtrace、输出 freed-object 生命周期归因。 |
 | [systems/enemy-sensor-stealth](systems/enemy-sensor-stealth.md) | system | done | ✅ | **敌机传感器隐形**：F-22/F-35/Su-57/J-20/YF-23 与 F-47/Wraith 启用；玩家小队雷达需持续照射，处于全部玩家机 1000px 外失联 5.0s 后 0.5s 渐隐，近距立即揭露。隐身只影响玩家可见性/火控接触，绝不改变敌机 AI、物理、机动或武器频率。同向渐变命令幂等，完全隐形非任务目标停止无效 redraw；逐机 Canvas/AC_TICK 错峰，EventLogger O(1) 过期。专项 63/63、Visual idempotent=true；FINAL WAR、C1、C2 各三次 Visual 均 `<60=0`。 |
 | [systems/aircraft-top-view-silhouettes](systems/aircraft-top-view-silhouettes.md) | system | done | ✅ | **飞机顶视轮廓资产 v8**：40 张 128×128 alpha PNG 逐架从可靠顶视/正投影或用户批准定型参考直接提取；同型号共享一图并运行时换色。滚转使用不增加纹理提交的“暗色壳层 + 顶面/机腹”体积投影，90° 正侧面不再归零；未批准原创/概念机保留旧绘制并复用不归零投影。 |
-| [systems/combat-entity-volume-prototype](systems/combat-entity-volume-prototype.md) | system | approved | ✗ | **战斗实体立体质感原型**：用户已认可效果并批准飞机/地图并行制作；批次 A 已接入 F-14/A-10/F-47 专属低模、Mother Goose 真挂点、沙漠静态样区及 GLB/F6/B 入口。focused 55/55、手动 Visual 26/26；120 秒候选仍有 3 帧低于 60，all 地图预热门仍失败，正式默认不切换。其余机型、航空多挂载/补弹、海陆单位/BOSS 与完整地图仍需分批制作验收。 |
+| [systems/combat-entity-volume-prototype](systems/combat-entity-volume-prototype.md) | system | approved | ✗ | **战斗实体立体质感与全机型生产**：2026-09-08 已完成地面模型窄接入正式目录（34 个机身/部件键、双档 LOD、阵营色、损毁与甲板/弱点表现）；地面 focused 181/181、Visual 46+25、all 退出 0，本批不新增 AO，独立全局性能门仍未完成。动态审计为 97 个 AircraftParams 显示名 / 71 个规范 key，71 个均有独立 LOD0/LOD1/LOD2 几何；中档 LOD1 保留主要结构，旧三角式轮廓只在 `<8 px` 的 LOD2 使用，画面 LOD 不按玩家/BOSS/Sentinel/旋翼机身份豁免。三档均已完成十页四视角人工 QA；主菜单 Survivor 的 原生像素 / 2× MSAA 单一透明共享视口已在正式检出默认接线，逐显示帧同拍同步，击坠保留原网格与涂装；新质量与性能门须重跑。以下为旧版本历史：正式 focused 162/162、真实 Aircraft Visual 314/314、默认 `all` 93/93、生命周期 20/20 + gauntlet 86/86；36 名与 48 名/24 km 单轮 Visual 均 `<60=0`、巡检 8/8，且 C2 真实覆盖 LOD1/LOD2。manifest 仍为 `formal_default_pending_validation`，C1/C2 三轮成对比较、S1/S2/S3、适用 BOSS/Adds 与完整局尚未完成。 |
 | [systems/map-2-3-preview](systems/map-2-3-preview.md) | map | in-progress | ✗ | **图 2 / 图 3 PNG 地图资产与海岛预览**：60×60 km 沙漠铁路与海洋群岛两份内置 MapDocument；沙漠输入已毕业为正式战区，海岛仍只生成玩家和地图。共享 lossless WebP 主图/Tab 精确映射各自 manifest。 |
 | [systems/desert-theater](systems/desert-theater.md) | map | in-progress | ✅ | **赤土铁路正式战区**：沿用海岸线 600 秒结构、全部支线不改倒计时；机场改为真实 Newman Airport + Western Ridge 作业机场 + Ophthalmia 前线机场，按 Pilbara 地形重新选址并避开铁路/建筑/山体，三座仍可独立解放为补给点；纯陆地、3v3 SPG 战线、据点产兵、AH-64 群与固定超级武器列车 BOSS。 |
 | [systems/three-map-campaign-continuity](systems/three-map-campaign-continuity.md) | system | draft | ✗ | **三图战役串联与双队会师**：港湾→沙漠→海洋决战；第二图起始机型必须不同于第一图；A/B 两套 build 独立，第三图二选一主力、另一队按自身 build 支援。Mother Goose / Armored Train / Black Star 分别固定为三图 BOSS。沙漠单图已正式化；战役快照、续玩和海洋决战任务仍待实施。 |
@@ -99,7 +114,7 @@ Sentinel 只在功能确实涉及其光环、护卫或 LOD 豁免时保留。历
 | [systems/squad-xp-threat-balance](systems/squad-xp-threat-balance.md) | balance | in-progress | ✗ | **编队经验稀释 + 敌方警戒响应**：共享 XP 乘区 `2/(N+1)`；热度地板 `min(100,min(75,5L)+6(N-1))`；每僚机 +3 Token 响应、减员即时降 6 热度、敌方目标分散到直属小队。敌方后续 Package 按玩家 N 软倾向：单机玩家约 60% 遇 Solo，九机玩家约 60% 遇 3–4 机 Flight；Flight 可解析为一个 Squad 或两个双机 Element，但概率/预算只记一次。公共规则已接线，Tab、多 Element 与规模 bench 待完成。 |
 | [systems/classified-card-pity](systems/classified-card-pity.md) | balance | done | ✅ | **4 级金色技能递增概率**：自然三轴三卡连续未见 `CLASSIFIED` 时，下轮金卡候选倍率按 `1 + 3.5×未出次数` 递增；普通三卡见金即清零，机场专属技能与奖励升级完全不参与。静态池标定 LV18 六轮期望约 2.00 次、LV21 七轮约 2.37 次；`attr_gates` 覆盖倍率/累计/清零/渠道隔离。 |
 | [systems/zone-air-support-naval-safety](systems/zone-air-support-naval-safety.md) | system | done | ✅ | **战区友军空中支援 + 对舰水域硬闸**：F-86/A-10 两项权益分别只响应每局首次合资格战区；绿色标签只移除 ALLY，机型名称后缀缩首字母、呼号完整保留；对舰为 1★ 4 FFG、2★ 2 DDG+3 FFG、3★ 1 CG+2 DDG+3 FFG，全舰 TGT 并继续执行 40px 全水硬闸。 |
-| [systems/boss-clear-progression](systems/boss-clear-progression.md) | system | done | ✅ | **按各 BOSS 历史击败次数切换编成/机制**：初见为教学层；首败后 Wraith 接战在队形后方追加 2 架启用传感器隐形、接触建立后正常可锁定的 YF-23 可选狙击支援，LADON 航母由 0CG+2DDG+6FFG 强化到 2CG+2DDG+8FFG，Mother Goose 解锁 MQ-111/112；MQ-111 激光保留减速并累计消耗导弹拦截 HP，过热循环与玩家 X-02 完全一致。历史次数 ≥2 暂沿用强化层 1。 |
+| [systems/boss-clear-progression](systems/boss-clear-progression.md) | system | done | ✅ | **按各 BOSS 历史击败次数切换编成/机制**：首败后 Wraith 追加 2 架 YF-23 可选狙击支援，第三次击败后为本体装配通用恐惧锥；LADON 强化护航编成，Mother Goose 解锁 MQ-111/112。MQ-111 累计反导及过热规则不变；其它 BOSS 高次数沿用已有层。 |
 | [systems/friendly-asset-aggro](systems/friendly-asset-aggro.md) | system | done | ✅ | **玩家触发的友方据点牵连交战**：已解放机场 2000px / 友军航母 2500px 内由当前操控机激活，退出圈 +500px 持续 8s 才解除；只从 6000px 内敌机按 `H<2→0 / 否则 min(3,max(1,floor(H/3)))` 限额分流，主 BOSS/队长/事件指令不拆，新增目标来源 `SCORED < BOSS < ASSET < DIRECTIVE < COMMANDED`。机场打 SAM+AA，航母打 CIWS 挂点→弱点；友军航母专属 300 hull，敌方航母 BOSS 保持 1200。用户裁定四 CIWS 可全数压住 5/8 枚正向齐射，符合航母 BOSS 身份；真实弹道审计 14/14。 |
 | [systems/doctrine-unlocks](systems/doctrine-unlocks.md) | system | done | ✗ | **战术学说解锁 + 槽位配件系统退役**（2026-07-27 用户拍板，07-28 落地）：整个"买配件加属性"的机库层下架——12 件数值件（机炮/导弹/雷达/电战 T1-T3）、`EquipmentPart` 资源类、槽位预算、随机货架、付费刷新、出击前机库场景（选机→直接出击）、`LoadoutLedger` autoload 全部删除；只留 **6 张 doctrine 词条解锁件**并搬进主菜单生涯商店（降级为 MetaShop 常量表，不再用 `.tres`；legacy loadout.cfg 一次性迁移，数值件按 D2 不退款丢弃）。局外成长收敛为单杠杆——**只买"这局能抽到什么牌"，不买"这局直接强多少"**。门控权威表：6 词覆盖当前技能表中的 **45 条**（stealth 11 / jam 9 / overload 8 / fear 7 / bloodlust 7 / chivalry 5，双词技 AND 语义；v3 playtest 修复：`headon_xp` 720 批漏标家族词 `chivalry` 无证进池，补标后骑士 700→800、全买 6500——**对头技双词惯例：head_on=触发词不门控，家族词才门控**）；渐进上架（嗜血+骑士买齐才放进阶 4 张）；定价 `100×门控技能数+300`（草案）。修复两处：①**战区奖励 NEXT_GEN 池补门控**（`evasion_stealth` / `fear_on_lock` 此前可无证获得）②**9 条 `sig_*` 签名技豁免二次门控**（保"每机一条专属"承诺）。**--bench=meta_shop 47 断言 + 回归门 40 项 PASS，差 playtest 定价校准** |
 | [systems/career-shop](systems/career-shop.md) | system | in-progress | ✅ | **八卡选机与生涯商店**：保留既有四卡及门控，新增四架各 1000 功勋采购 T0；F-86/A-10/F-15 空中支援、机场 SAM 与机体战术适配继续按独立永久授权运作。 |
@@ -113,6 +128,7 @@ Sentinel 只在功能确实涉及其光环、护卫或 LOD 豁免时保留。历
 | [bosses/hypersonic-splitter](bosses/hypersonic-splitter.md) | boss | done | ✅ | **Black Star / Hyper-A 高超音速分裂体 BOSS**：两架根机先后以 4 秒 `30,000m→5,500m` 状态栏 / AOE 预警再入，各自三次二分 `1→2→4→8`，整场 30 节点、16 个 G3。G0/G1/G2/G3 为 `400/200/100/70 HP`、`8/4/2/1` 锁、全代 4 发导弹弹匣且 0 flare；每棵树总 HP `1760`。四代导弹齐射独立于主武器模式，G0 独有 360° 全向锁定与离轴齐射，G1 恢复普通前向规则。G0 分裂出的 G1 首次生成先隐藏下降、撞击后显形；后续 G1/G2 再入放缓至每 `40–50s`，爬升后独立等待 `7–10s` 才俯冲，高空序列期间其它分裂体暂停倒数并至少再错峰 `12s`。G0/G1 冲刺左右各 5 火箭，G2 冲刺无火箭，G3 机炮狗斗无冲刺。G0–G2 的急刹扇区只在线满后显示，终点以同源预警 / 判定释放 `900m / 110° / 45` 冲击波，随后靠近当前操控机并自施标准 `SLOW 6s`。树 HUD、统一身份演出、十个 Debug 直达与专项验证链已落地；`FINAL WAR // OCEAN` 额外提供双 T5 满配玩家队、常规友军 / 敌军与 2v2 舰队的真实可减员海洋决战沙盒；全部节点及最终胜利 0 XP。 |
 | [bosses/armored-train](bosses/armored-train.md) | boss | in-progress | ✅ | **IRON SERPENT 十四节超尺度武装列车**：1800 HP 分属十四个 236×84px 重装车厢，整列 3538px；前后转向架双点采样贴合底图矿区铁路，18px 活动车钩逐节转向；身份横幅后用广角镜头追踪编组中部并保证首尾完整入画，完整入图才接战；接战后十四节全部可锁定，但只能从当前车尾向前打断；断节会惯性脱离、关闭对应功能并让剩余整车 +60km/h；侧舷电磁炮锁定后蓄力直线 AOE。当前仅待无外部图形负载的 v9 性能复验及并行 Crucible 全量门恢复。 |
 | [events/the-crucible](events/the-crucible.md) | event | done | ✅ | **THE CRUCIBLE 王牌大混战决战事件**：The Crucible 只是一场战斗及主题名，不是角色、中队或 BOSS；17 支 Ace 队与背叛的 Hound-1/2 共 18 队 73 架按固定名册接力参战，开场三队、同屏最多三队，灭队 3 秒后只补一队；Hound 为最终 Boss 级双机。新队从玩家至少 7.2km 且当前镜头外汇入，完成初次压入后才启用 7.2km 脱战回扑。 |
+| [bosses/orion-final-form](bosses/orion-final-form.md) | boss | in-progress | ✗ | ORION 完全体隐藏终局草案：累计 10 次 Cre 击落后沙漠固定 Crucible，提案第 16 队后乱入；600 HP 本体（强化基础滚转与小半径高 G 转弯，不追加行动）、两架 250 HP FANG、10–16 枚 ADMM、机头反导光剑与双电磁炮；单场双横幅、击破本体只结算一次。用户已批准实装；正在隔离编写，未完成运行时验收。 |
 | [events/ace-squadron-expansion-wave](events/ace-squadron-expansion-wave.md) | event | done | ✅ | **王牌中队扩编 11 队**：MOIRAI/LASH/IDO + UNDERTOW/CROUPIER/TALLYMAN/PALIMPSEST/QUORUM/DEADEYE/MIRROR/FUNERAL；统一 70s 估算 TTK、各有单一队级主题，接入常规轮换、F5、图鉴和 The Crucible。 |
 | [bosses/land-carrier](bosses/land-carrier.md) | boss | in-progress | ✅ | **BEHEMOTH 陆地航母**：参考用户草图的独立 620×280px 低矮履带陆战平台，不走铁路、禁止海船剪影；边界内出生并向中心推进，4 个嵌入式停机位真实停放/分批放飞 F/A-18；本体 4×CIWS+2×SAM+2×空爆炮。护卫草案为 1×陆基 AEGIS、2×CIWS 车、2×SAM 车、1×现有攻城坦克，待用户确认数值后实现。 |
 | [enemies/snowblind](enemies/snowblind.md) | enemy | in-progress | ✗ | **SNOWBLIND「雪幕」纯支援 Schemer**：Sentinel 固定基线、无武器/flare/等级缩放；携 2 架当前响应等级动态护卫。4000m 单 mesh 实体风雪层在圆心显示不可交互本体轮廓；4500m/2s 复隐滞回与跨边界双向停火已落地。批准与 DEADAIR 同场独立运行，待移除互斥门、Tab 表现、坍塌演出与人工 playtest。 |
@@ -145,11 +161,13 @@ Sentinel 只在功能确实涉及其光环、护卫或 LOD 豁免时保留。历
 | [enemies/f-4e](enemies/f-4e.md) | enemy | done | ✅ | F-4E 前期导弹杂鱼（有人机，2026-07-26 用户）：Lv1 起单机 35%/2-3 机小队，只带导弹无机炮，HP 45 一发死；定位="第一种有人敌机"，与 MQ-109/MQ-110 无人机杂鱼混编（v2：不顶替任何生态位），与 Lv6 的 F-4 Phantom（导弹卡车）共存分档。**代码落地，差 playtest** |
 | [enemies/af-03](enemies/af-03.md) | enemy | done | ✅ | AF-03 电磁炮狙击无人机（Schemer）：railgun AT_FIRE_TIME 预测狙击 + BVR 5-8km 打带跑。**v2（2026-07-28）出场率整治**：解锁 8→7 / 每级 0.05→0.06 / 上限 0.18→0.26 + **新进战区池**（权重 0.5，unlock 7/peak 10/不淘汰），实例上限仍 1；高度档改**偏高空**（取射界）；§3.2 补电磁炮对舰**按母舰归并、一发一舰只结算一次**。理由=旧配置实测整局遇不到一次 |
 | [skills/close-range-lock](skills/close-range-lock.md) | skill | done | ✅ | **近距捕获**：先进级斗士全队技能；主雷达锁定速率随距离线性加快，雷达边缘 ×1、半程 ×1.5、贴身最高 ×2；合并“副武器”，机炮装填期发射导弹不耗弹。 |
+| [skills/bloodlust-head-on](skills/bloodlust-head-on.md) | skill | in-progress | ✅ | **血色骑士**：先进级单层全队技能；嗜血敌机击杀视为对头，仅限飞机；致死快照连接基础成长、骑士心脏、历练与寒颤号令。focused 202/0、all 与三组 C1 Visual 对照通过；完整局平衡待实玩。 |
 | [skills/bloodlust](skills/bloodlust.md) | skill | done | ✅ | BLOODLUST 嗜血家族：击杀/受伤触发 8s buff，基础回血 + 血怒护甲修饰卡（减伤/拉G/加速，经 SEAM-001 注入） |
 | [skills/berserk-virus](skills/berserk-virus.md) | skill | done | ✅ | **狂化病毒**：实验级斗士普通池全队技能；僚机不可主动接管并锁定 FREE，仍服从其它命令；常驻机动与 weapon/flare CD 强化，击杀进入标准 BLOODLUST。 |
 | [systems/airfield-sam-network](systems/airfield-sam-network.md) | system | in-progress | ✅ | **机场防空网授权**：从局内技能池移除，改为生涯商店“战场支援”页 3000 功勋永久商品；购入后每局每座解放机场在基础 AA×2 后追加一次性 SAM×1，战损不重生；差 Godot 定向回归。 |
 | [weapons/qmaam](weapons/qmaam.md) | weapon | done | ✅ | QMAAM 副武器槽近距格斗弹：宽锁定锥 70° + HOBS + 60G 发射后不管，自动补刀狗斗侧面目标；副槽机制完整 |
-| [weapons/gun-burst-fire](weapons/gun-burst-fire.md) | weapon | done | ✅ | 飞机机炮改梭射：burst_count=10/梭，梭内 3.3× 密度；友方平均射速守恒；所有敌方 Aircraft 一次机会只打一梭、末发后停火 3.0s，堵连续多梭秒杀；--bench=gun_burst 20/20 |
+| [weapons/gun-burst-fire](weapons/gun-burst-fire.md) | weapon | done | ✅ | 飞机机炮改梭射：burst_count=10/梭，梭内 3.3× 密度；友方平均射速守恒；所有敌方 Aircraft 一次机会只打一梭、末发后停火 3.0s；玩家与僚机机炮承伤在单发 cap 后统一 ×0.6；回归 --bench=gun_burst。 |
+| [systems/wingman-gun-evasion](systems/wingman-gun-evasion.md) | system | done | ✅ | 普通僚机有效机炮咬尾自保：复用火控上报，短暂固定侧向 break，保留原命令；导弹/切控/directive 优先。 |
 | [weapons/rocket-ripple-trajectory](weapons/rocket-ripple-trajectory.md) | weapon | done | ✅ | 敌我飞机火箭改为左右挂点逐发交替：每枚出膛地速=资源初速+发射机当帧前向速度；先平行直飞 180m，再于 320m 内 smoothstep 展开到原散布半角。伤害、引信、射程与最终扇面不变。 |
 | [systems/survivor-loop](systems/survivor-loop.md) | system | done | ✗ | 生存模式核心循环：10 分钟战区→BOSS 阶段、Token 经济、加权刷怪、XP/升级、出界时间税；★含扩展接入图。v7 将净时间轴、阶段关闭事务、王牌固定槽/无放回与 ORION 门收口到 BattlefieldFlow，并统一新局/退局 static reset；玩法数值不变。 |
 | [systems/first-run-tutorial](systems/first-run-tutorial.md) | system | in-progress | ✅ | 新存档基础教程补 **E 加力用途/禁攻代价** 与 **双击敌机突击**；首次拥有僚机时按实际固定号机提示数字键接管，只有成功切到另一架飞机才永久消失。代码与静态回归落地，差三语实机视觉验收。 |
@@ -163,12 +181,13 @@ Sentinel 只在功能确实涉及其光环、护卫或 LOD 豁免时保留。历
 | [aircraft/jaguar-gr1a](aircraft/jaguar-gr1a.md) | aircraft | done | ✅ | LV4 低位 T1 策士攻击机；低空、机炮与低失速；专属槽仅占位。 |
 | [systems/event-system](systems/event-system.md) | system | done | ✅ | 剧本系统：GameEvent + EventDirector + AIDirective（6 verb）；BOSS 事件三相；★含扩展接入图。**v4（2026-08-20）ADBS 城区直升机**：每窗 25% 概率、整局最多 2 次且禁止并存；从距玩家 ≥12km、距边界 ≥8km 的全图城区生成，玩家从战术地图主动寻找；护卫反应 / 受击散开 / 全歼 3 架 → 作战时间 +20s 保持不变。 |
 | [systems/map-system](systems/map-system.md) | map | done | ✗ | 地图系统：边界 + 手画地理 + OSM 烘焙 + 底图三层；含港池水面排除与 50px 连续陆地净空的正式地面部署 API；★含加新地图接入图 |
-| [systems/raster-basemap-streaming](systems/raster-basemap-streaming.md) | map | done | ✅ | **三地图正式分级栅格底图**：东京湾/沙漠/海洋按 `tile_map_key` 直接消费 Strategic + Operational + Detail lossless WebP；主图 12 张 LRU、Tab 复用 Strategic、0.40s LOD 淡变与 `0.014` 世界颗粒保持。用户已确认瓦片版，五张旧/正式地图 PNG、`Shift+F8` A/B 和切换对拍 Debug 页已退役；正式资源缺失走父层/矢量 fallback，外部 UGC 自带 PNG 兼容保留。当前性能毕业仍按 C1 + S3 代表性负载复核。 |
+| [systems/raster-basemap-streaming](systems/raster-basemap-streaming.md) | map | approved | ✗ | **三地图正式分级栅格底图**：已有lossless WebP三档、LRU、Tab复用和0.40s淡变保持；R189因东京急转发现18瓦片超过16硬上限，重新打开预算验收，修复请求预约与过渡释放，不改用户认可的瓦片造型。当前性能毕业仍按C1与S3代表性负载复核。 |
 | [skills/buff_duration_rebalance](skills/buff_duration_rebalance.md) | balance | done | ✗ | 自身 buff 时长统一拉到 8s（INVUL/OVERLOAD/FRENZY）；回顾型记录，未达到完整重建级别。 |
 | [systems/squad-control-switching](systems/squad-control-switching.md) | system | done | ✗ | 操控切换：数字键 1–9 接管稳定 `squad_slot` + set_leader 换帅 + manual_control 休眠 AI + 打完再归队 + 白底/击落接管。**代码全落地，差 §5 playtest** |
 | [systems/squad-cohesion](systems/squad-cohesion.md) | system | in-progress | ✗ | 小队凝聚学说（友+敌）：默认 FOLLOW 以阵型形成攻击几何并从槽位机会开火，获得目标不再自动全员解队；只有规避/安全/显式战术才短时 break，结束后先重整。多方向互掩优先交给 Package 的多个 Element。**阶段 1-4 旧主体与 v3 FORMATION_ASSAULT/多 Element 已落地并通过 focused；完整局 Visual 实玩仍待阶段 5。** |
 | [systems/squad-ai-escort](systems/squad-ai-escort.md) | system | draft | ✗ | 僚机护卫：反杀咬长机者（engaging_me 定向扩展）+ 近长机评分加权。**仅阶段 1-2；守后半球由 squad-cohesion GUARD_REAR 覆盖，escort 自身阶段 3-5 未做** |
 | [systems/battlefield-gravity](systems/battlefield-gravity.md) | system | done | ✗ | **战场引力——友军目标优先级三带**：由 log 20260724_222238（①僚机放弃包抄回编队）+ 20260724_222827（②BOSS 战跑去打 10~17km 外低慢直升机）驱动。核心=目标评分补一个"以当前主战场为中心"的空间锚，统一两病根。三带（加在可命中性 base 上，严格隔离）：①生存 `+100×threat01`（候选正在咬**当前操控机**，只对空）②任务 `+40`（BossEncounter 成员表实例判定 / 最近 triggered 战区，单槽 BOSS 优先）③顺手 `base×gravity_mult`（离锚 2000→6000px 衰减到 0.1）。引力锚=BOSS 存活质心/战区 center/兜底操控机，**隐形也可读**故 cloak 窗不破功。v2 复审三件套：**`ENGAGE_MIN_SCORE=0.15` 交战地板**（无地板则 argmax 仍选唯一远杂鱼，引力形同虚设）+ **leash 可行性门**（评分即拒追不到的候选，根治 45 次 engage↔rejoin 循环）+ **SURVIVAL_STICKY=8** 带内防横跳。两整合面：A 评分治② + B 泛化 scan_leader_rear（锚操控机·常开·≤2 机回防）治①。**阶段 1+2 已落地**（ObjectiveContext+面A三件套 / 面B `try_defend_protectee` 常开回防≤2机 / `leash_anchor_and_limit` 三态松绑）：target_sel 35/35 + fire_discipline 10/10 + rejoin 指标一致 + stress_40 开销在噪声地板 + 双校验 ✓；**余：物理步进 sim 断言（playtest 前）+ 可选 BOSS 期杂兵刷新收敛 + playtest 调参** |
+| [systems/full-war-prototype](systems/full-war-prototype.md) | system | in-progress | ✗ | 东京湾测试：14单位开局、主动派遣与双队接管；32项聚焦与全量功能通过，严格60FPS及退出资源清理未完成。 |
 | [systems/rts-command](systems/rts-command.md) | system | done | ✅ | RTS 指挥（独立模块 SquadCommandController + 参数 Resource）：战术地图航点/战区边缘巡航 + 到点自动交战 + **玩家命令逐机持久铁律**（commanded_target 跨 1–9 切控、AI 不得覆盖；跟打僚机继承命令优先级，普通归队不得覆盖）+ 右侧开关；自由僚机切目标细则归 target-engageability-selection |
 | [systems/brake-steering](systems/brake-steering.md) | system | in-progress | ✅ | **急刹拖拽转向**：战场内按住右键继续急刹，以按下点为中位左右拖拽；轻拖微调机头、保持侧向持续盘旋。屏幕虚拟摇杆同步显示减速、真实左右舵量、即时速度、明确标名的机炮剩余/最大弹药、有效射程及失速转向锁定；当前操控机前同步绘制真实机炮扇形或炮艇射程环。转向复用持续 G、滚转率、减速率、失速软地板与协调转弯公式；普通机炮、机炮吊舱与炮艇独立自动火控在拖拽期间继续工作，机场面板接管前强制恢复鼠标。 |
 | [systems/waypoint-fire-control](systems/waypoint-fire-control.md) | system | in-progress | ✅ | 航点移动机会火控（2026-07-31 用户确认分阶段）：阶段 1 已让亲控机/玩家编队僚机在不写 `combat_target`、不改变航线时复用现有严格导弹齐射过滤；锁定/包络/坡度/滚转/离轴/超杀门全部不动，`waypoint_fire` 27/27 + 相关行为回归 + Lv15 编队压力样本已通过。阶段 2 放宽数值未批准；余 Sentinel 有渲染手动验收。 |
@@ -225,6 +244,7 @@ Sentinel 只在功能确实涉及其光环、护卫或 LOD 豁免时保留。历
 | [systems/slow-air-target-pass](systems/slow-air-target-pass.md) | system | done | ✅ | 慢速空中目标（直升机）交战 pass：与 surface-attack-pass 共用同一台相位机，只换包络常量与终端瞄准点。根治用户报的"绕好多圈打不中 / 锁定上了却不发射"——四层叠加根因（几何极限环 / LOW 档 4.3s 锁定被出锥 0.3s 清零 / 满锁被 off-axis 发射门拒发 / **锁定即压坡到 35% 导致再也转不进发射锥的通用死锁**）。分流置于优先级 4.5（必须早于 overshoot/boom-zoom 等只对快机成立的能量学规则）。**`--bench=slow_air_pass` 14/14 + all 全绿，差生存 playtest** |
 | [systems/map-expansion](systems/map-expansion.md) | system | done | ✗ | 地图扩展 + 战区重排：60×60km 核心与战区布局保留，三图共同 overscan 再提供四边各 2km 外缘空域（真边界 64×64km）；进入外缘连续 2.5s 后才触发补给/调头/撤退，相机严格裁切，AI 认新边界。无头回归覆盖几何、倒计时与 AI 边界。**仍差 ≥3 战区/局节奏 playtest** |
 | [systems/weather-clouds-and-sandstorm](systems/weather-clouds-and-sandstorm.md) | system | done | ✅ | 图2/3 普通云改为 0.00024 大片低频云系，海岛以第二噪声 0.70 填补分布空洞；沙漠局时 45% 起从西向东卷过 60s 黄色沙尘暴，只在 LOW 复用普通云的导弹失误/制导衰减/锁定延长；F6 可跳半局直看风暴中段。**自动回归已建，差性能与人工视觉验收**。 |
+| [systems/weather-volume-presentation](systems/weather-volume-presentation.md) | system | in-progress | ✗ | GPU 优先云壳、沙尘锋面与飞沙样板；显式开启，Visual 与严格性能待验。 |
 | [systems/ugc-editor](systems/ugc-editor.md) | system | draft | ✗ | 游戏内 UGC 编辑器 + 创意工坊：飞机/地图/编队可行性高（params 纯数据、JSON+user:// 惯例现成）；安全红线只收 JSON+数值围栏；P0 数据化→P1 地图编辑器（兼扩图工具）→P2 飞机→P3 编队→P4 本地分享→工坊（GodotSteam/mod.io） |
 | [systems/map-editor](systems/map-editor.md) | system | approved | ✗ | 地图编辑器（UGC P1 细化）：格子笔刷前端 + 矢量多边形后端；调色板 + 官方 gameplay 图层直通转换；UGC 试飞保持 vector-only。**正式东京湾主地图与 Tab 保留 PNG + shader**，转换器不得删除或覆盖；v19 同步自主视觉 QA、真实道路/机场/港区与静态性能门。**已定稿，待按 §6 五阶段实装** |
 | [systems/pure-vector-map-preview](systems/pure-vector-map-preview.md) | system | superseded | ✅ | **V45 决策归档**：V1–V44 debug `Shift+F10` 全东京湾候选完成结构、覆盖与性能研究，但用户最终整图视觉验收未通过。正式东京湾主地图与 Tab 保留 8704×8704 PNG + shader；候选 renderer/数据/QA 仅冻结作 debug 研究材料，不再作为当前生产迁移或 PNG 退役路径。未来重启须另立 approved spec。 |

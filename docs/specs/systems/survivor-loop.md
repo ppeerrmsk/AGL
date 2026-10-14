@@ -79,10 +79,9 @@ reconstruction_complete: false
 
 **全场撤离**（`survivor_spawner._update_boss_phase_purge`，1 Hz）——舞台只留 BOSS：
 
-- 残余敌机 **画面外** → 立即静默 free（标 `xp_granted`，不算击杀不给 XP）
-- 残余敌机 **画面内** → 转撤离：清 AI 目标 + 回 PATROL + 航线改最近出界点 + 开加力，
-  **物理飞出去**（铁则：不在玩家画面内瞬消；玩家追打照样还手，不做无敌逃兵）；
-  撤离中的机体豁免边界纪律（`boss_evac` meta），飘出画面后由画面外分支释放
+- 残余敌机无论画内画外都先清目标、脱编队、开加力并按高优先撤离指令真实飞出；保留受击和坠毁。
+- 撤离机豁免边界纪律与完全冻结。真正飞出地图、远离玩家并持续离开镜头缓冲区后，按统一
+  [单位退役合同](offscreen-world-simulation.md) 分批释放；转镜头本身不触发删除，也不算击杀/XP。
 - **不动的**：BOSS 本体与 BOSS 自带单位（category 前缀 `boss`）、事件层自管撤离的
   `ace_support` / `ace_nemesis`、停在甲板上的舰载机（`parent_carrier` meta）
 - **舰船与地面单位一概保留**：撤离只针对飞机，战区里的船 / SAM / AA 原样留在场上
@@ -281,7 +280,7 @@ BOSS 阶段补给禁用，只能调头或撤退。
 
 - [x] game_time 在 BOSS 阶段冻结；600s 一次性过渡（不重复触发）
 - [x] BOSS **解锁**（不是"玩家选中 BOSS 圈"）即停摆刷怪 / 猎手 / 随机奖励事件 / 战区任务（§3.1）
-- [x] BOSS 阶段全场撤离：画面外敌机静默释放、画面内物理飞出图外；舰船与地面单位保留
+- [x] BOSS 阶段全场撤离：画内画外敌机都真实飞出后谨慎回收；舰船与地面单位保留
 - [x] BOSS 阶段不产出（§3.2）：Goose 蜂群 / MQ-X / CSG F/A-18 击杀 0 XP、不入档、不给永久 +max_hp；
       CSG F/A-18 整场累计上限 8 架（无头回归 `--bench=boss_phase`，26 断言）
 - [x] Token 预算 = 8 + int(level×1.8) + bonus，封顶 55（60km 密度调优后的值，见 §4.1）

@@ -51,27 +51,29 @@ func _start_destroy() -> void:
 
 func _draw() -> void:
 	if is_destroyed:
-		_draw_destroyed()
+		if not has_meta(&"volume_3d_ground"):
+			_draw_destroyed()
 		return
 	var color: Color = params.icon_color if params else Color(0.75, 0.65, 0.35)
 	var outline := color.darkened(0.45)
-	match target_kind:
-		TargetKind.BUNKER:
-			draw_colored_polygon(PackedVector2Array([
-				Vector2(-24, 12), Vector2(-18, -10), Vector2(-8, -18),
-				Vector2(8, -18), Vector2(18, -10), Vector2(24, 12)]), color.darkened(0.25))
-			draw_arc(Vector2.ZERO, 18.0, PI, TAU, 20, outline, 2.0)
-			draw_rect(Rect2(-5, -4, 10, 16), outline)
-		TargetKind.WAREHOUSE:
-			draw_rect(Rect2(-34, -20, 68, 40), color.darkened(0.3))
-			draw_polyline(PackedVector2Array([Vector2(-34, -20), Vector2(0, -31), Vector2(34, -20)]), outline, 2.0)
-			for x in [-20.0, 0.0, 20.0]:
-				draw_line(Vector2(x, -18), Vector2(x, 18), outline, 1.0)
-		TargetKind.MISSILE_SILO:
-			draw_circle(Vector2.ZERO, 24.0, color.darkened(0.35))
-			draw_arc(Vector2.ZERO, 24.0, 0, TAU, 32, outline, 2.0)
-			draw_line(Vector2(-17, -17), Vector2(17, 17), outline, 2.0)
-			draw_line(Vector2(17, -17), Vector2(-17, 17), outline, 2.0)
+	if not has_meta(&"volume_3d_ground"):
+		match target_kind:
+			TargetKind.BUNKER:
+				draw_colored_polygon(PackedVector2Array([
+					Vector2(-24, 12), Vector2(-18, -10), Vector2(-8, -18),
+					Vector2(8, -18), Vector2(18, -10), Vector2(24, 12)]), color.darkened(0.25))
+				draw_arc(Vector2.ZERO, 18.0, PI, TAU, 20, outline, 2.0)
+				draw_rect(Rect2(-5, -4, 10, 16), outline)
+			TargetKind.WAREHOUSE:
+				draw_rect(Rect2(-34, -20, 68, 40), color.darkened(0.3))
+				draw_polyline(PackedVector2Array([Vector2(-34, -20), Vector2(0, -31), Vector2(34, -20)]), outline, 2.0)
+				for x in [-20.0, 0.0, 20.0]:
+					draw_line(Vector2(x, -18), Vector2(x, 18), outline, 1.0)
+			TargetKind.MISSILE_SILO:
+				draw_circle(Vector2.ZERO, 24.0, color.darkened(0.35))
+				draw_arc(Vector2.ZERO, 24.0, 0, TAU, 32, outline, 2.0)
+				draw_line(Vector2(-17, -17), Vector2(17, 17), outline, 2.0)
+				draw_line(Vector2(17, -17), Vector2(-17, 17), outline, 2.0)
 	# 无锁定框，只保留任务目标括号和血量刻度。
 	AircraftRenderer.draw_target_bracket(self, is_mission_target)
 	AircraftRenderer.draw_status_icons(self)

@@ -59,6 +59,7 @@ NON_HOLDERS = {
     'AOEBroadcast':          '静态范围结算（apply_status_in_radius），source 参数不落库',
     'radar_targets':         '字典 .get() 查表，player_aircraft 是 key 不是被持有的引用',
     'AircraftPhysics':       '静态物理 accessor（effective_max_speed_kmh 等）传参算 float 即返回，不存引用',
+    'FearResponse':          'controlled/obscure 为静态即时查询，不缓存玩家；实例由受害机持有，仅弱持有施放来源',
     'SkillHooks':            '静态技能事件函数（try_fire_control_saturation 等）传参即用，不存引用',
     'SurvivorSkillCatalogScript': '纯技能投影函数，Aircraft/身份仅作当次规则输入，不存 Object 引用',
     'ModifierTrace':         '静态调试差分（print_report / explain）传参即用并恢复状态，不存引用',

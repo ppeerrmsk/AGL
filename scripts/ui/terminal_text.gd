@@ -30,6 +30,11 @@ const MAX_INK_BOUNDS_CACHE_ENTRIES := 2048
 # TextServer 的 glyph contour 查询远重于真正的 draw_string。终端 HUD 会反复以
 # 相同字体/字号绘制有限的数字与短标签，因此在通用文字入口缓存可见轮廓。
 static var _ink_bounds_cache: Dictionary = {}
+const MAX_GLYPH_BOUNDS_CACHE_ENTRIES := 2048
+static var _glyph_bounds_cache: Dictionary = {}
+static var _glyph_bounds_keys: Array[String] = []
+static var _glyph_bounds_cursor := 0
+static var _glyph_contour_queries := 0
 
 var text: String = "":
 	set(value):
@@ -224,6 +229,7 @@ static func measure_ink_bounds(font: Font, value: String, font_size: int) -> Vec
 	var cache_key := "%d:%d:%s" % [font.get_instance_id(), font_size, value]
 	if _ink_bounds_cache.has(cache_key):
 		return _ink_bounds_cache[cache_key] as Vector2
+	var profile_start := Time.get_ticks_usec() if PerfBuckets.detail_capture_enabled() else 0
 
 	var text_server := TextServerManager.get_primary_interface()
 	var shaped := text_server.create_shaped_text()
@@ -246,36 +252,50 @@ static func measure_ink_bounds(font: Font, value: String, font_size: int) -> Vec
 			continue
 		var glyph_font_size := int(glyph.get("font_size", font_size))
 		var glyph_index := int(glyph.get("index", 0))
-		var contour_data := text_server.font_get_glyph_contours(
-			glyph_font,
-			glyph_font_size,
-			glyph_index
-		)
-		var contour_points: PackedVector3Array = contour_data.get(
-			"points",
-			PackedVector3Array()
-		)
-		if contour_points.is_empty():
+		var outline := _glyph_ink_bounds(text_server, glyph_font, glyph_font_size, glyph_index)
+		if not is_finite(outline.x):
 			continue
-		var outline_min_y := INF
-		var outline_max_y := -INF
-		for point in contour_points:
-			outline_min_y = minf(outline_min_y, point.y)
-			outline_max_y = maxf(outline_max_y, point.y)
 		var shaped_offset: Vector2 = glyph.get("offset", Vector2.ZERO)
 		# TextServer contour Y coordinates already match canvas baseline space:
 		# visible points above the baseline are negative, descenders are positive.
-		var glyph_top := shaped_offset.y + outline_min_y
-		var glyph_bottom := shaped_offset.y + outline_max_y
+		var glyph_top := shaped_offset.y + outline.x
+		var glyph_bottom := shaped_offset.y + outline.y
 		top = minf(top, glyph_top)
 		bottom = maxf(bottom, glyph_bottom)
 
 	text_server.free_rid(shaped)
 	var result := Vector2(top, bottom)
 	if _ink_bounds_cache.size() >= MAX_INK_BOUNDS_CACHE_ENTRIES:
+		PerfBuckets.mark_frame_event("hud_ink_cache_clear")
 		_ink_bounds_cache.clear()
 	_ink_bounds_cache[cache_key] = result
+	if profile_start > 0:
+		PerfBuckets.tick("hud_text.ink_miss", Time.get_ticks_usec() - profile_start)
+		PerfBuckets.count("hud_ink_cache_miss")
 	return result
+
+
+## 仍完整塑形；仅复用最终字体RID/字号/glyph相同的轮廓。保留塑形offset、连字及回退字体。
+## 固定环形淘汰一个条目，不在缓存满时清空整库，也不永久持有Font资源。
+static func _glyph_ink_bounds(server: TextServer, font_rid: RID, font_size: int, glyph: int) -> Vector2:
+	var key := "%d:%d:%d" % [font_rid.get_id(), font_size, glyph]
+	if _glyph_bounds_cache.has(key):
+		return _glyph_bounds_cache[key] as Vector2
+	var contours := server.font_get_glyph_contours(font_rid, font_size, glyph)
+	_glyph_contour_queries += 1
+	var points: PackedVector3Array = contours.get("points", PackedVector3Array())
+	var bounds := Vector2(INF, -INF)
+	for point in points:
+		bounds.x = minf(bounds.x, point.y)
+		bounds.y = maxf(bounds.y, point.y)
+	if _glyph_bounds_keys.size() < MAX_GLYPH_BOUNDS_CACHE_ENTRIES:
+		_glyph_bounds_keys.append(key)
+	else:
+		_glyph_bounds_cache.erase(_glyph_bounds_keys[_glyph_bounds_cursor])
+		_glyph_bounds_keys[_glyph_bounds_cursor] = key
+		_glyph_bounds_cursor = (_glyph_bounds_cursor + 1) % MAX_GLYPH_BOUNDS_CACHE_ENTRIES
+	_glyph_bounds_cache[key] = bounds
+	return bounds
 
 
 static func has_visible_ink(bounds: Vector2) -> bool:

@@ -34,6 +34,8 @@ func take_missile_damage(_amount: float) -> void:
 	pass
 
 func _draw() -> void:
+	if has_meta(&"volume_3d_ground"):
+		return
 	var color := Color(1.0, 0.30, 0.14)
 	draw_rect(Rect2(-7.0, -9.0, 14.0, 18.0), color.darkened(0.45), true)
 	draw_line(Vector2(-5.0, -8.0), Vector2(-5.0, -17.0), color, 2.5)

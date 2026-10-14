@@ -242,6 +242,40 @@ func run() -> void:
 			"不访问 freed combat_target，timer=%.2f" % stale_threat._gun_threat_timer)
 	_free(stale_threat)
 
+	# ── 11. 正式档案注入 + 真实承伤：封顶前后都削弱 40%，长僚机一致 ──
+	var profile := PlayableAircraft.new()
+	profile.bullet_dodge_chance = 0.0
+	for wingman in [false, true]:
+		var victim := Aircraft.new()
+		victim.team = CombatUnit.TEAM_PLAYER
+		victim.params = AircraftParams.new()
+		SurvivorPlayableSetup.apply(victim, profile, wingman)
+		victim.altitude = 5500.0
+		for raw_damage in [4.0, 4.8, 5.7, 6.7, 8.0, 9.5, 11.5, 13.5, 15.0, 0.8]:
+			victim.hp = 100.0
+			victim.params.armor = 0.0
+			var expected: float = minf(raw_damage, 5.0) * 0.6
+			var accepted := victim.take_bullet_damage(raw_damage)
+			_check("长僚机各炮型含远端承伤降低40%% [%s/%.1f]" % [str(wingman), raw_damage],
+				accepted and is_equal_approx(victim.hp, 100.0 - expected), "hp=%.2f" % victim.hp)
+		victim.hp = 100.0
+		victim.params.armor = 100.0
+		victim.take_bullet_damage(15.0)
+		_check("护甲继续独立叠乘 [%s]" % str(wingman), is_equal_approx(victim.hp, 98.5), "hp=%.2f" % victim.hp)
+		victim.params.armor = 0.0
+		victim.hp = 100.0
+		victim.take_damage(75.0, null, "missile")
+		_check("导弹承伤不受机炮倍率影响 [%s]" % str(wingman), is_equal_approx(victim.hp, 70.0), "hp=%.2f" % victim.hp)
+		victim.free()
+	var ordinary_enemy := Aircraft.new()
+	ordinary_enemy.params = AircraftParams.new()
+	ordinary_enemy.team = CombatUnit.TEAM_HOSTILE
+	ordinary_enemy.altitude = 5500.0
+	ordinary_enemy.hp = 100.0
+	ordinary_enemy.take_bullet_damage(15.0)
+	_check("无玩家档案的敌机承伤不变", is_equal_approx(ordinary_enemy.hp, 85.0), "hp=%.2f" % ordinary_enemy.hp)
+	ordinary_enemy.free()
+
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
 

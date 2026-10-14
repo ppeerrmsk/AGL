@@ -30,6 +30,14 @@ const AIAltitudePolicy := preload("res://scripts/ai/ai_altitude_policy.gd")
 # 僚机仅在"自己真被导弹咬住"时走下方 process_evade 的垂直规避机动逃命。
 
 static func process_evade(ai: AIController, delta: float) -> void:
+	if ai._gun_evasion.active:
+		if ai.evade_missiles and should_enter_evade(ai):
+			# 迫近导弹接管同一 EVADE 槽，不短暂回到进攻/编队。
+			ai._gun_evasion.clear(ai)
+			ai._evade_committed_dir = Vector2.ZERO
+		else:
+			ai._gun_evasion.process(ai, delta)
+			return
 	# 躲弹 leash 已上收到 AIController._apply_constraints 约束层（Phase 2）——
 	# 分发前统一执行，交战/躲弹一视同仁，本函数不再持有拷贝（SEAM-010 根治）。
 
@@ -133,15 +141,20 @@ static func _forward_point(ai: AIController, dist: float) -> Vector2:
 	return ai.aircraft.global_position + fwd * dist
 
 
-static func exit_evade(ai: AIController) -> void:
-	EventLogger.log_event("EVADE", ai._log_name(), "exiting missile evasion")
+static func exit_evade(ai: AIController, resume: bool = true) -> void:
+	ai._gun_evasion.clear(ai)
 	# Phase 2：_evading 的唯一 false 写入点（与 enter_evade 对称）
 	ai._evading = false
+	if not is_instance_valid(ai.aircraft):
+		return
+	EventLogger.log_event("EVADE", ai._log_name(), "exiting evasion")
 	# Phase 1：撤销规避几何主张（sticky 槽生命周期与 EVADE 模态对称）
 	ai.aircraft.withdraw_intent(ControlIntent.SOURCE_EVADE)
 	# P4：清 evasion_mode 让 planner 回到正常 intent 路径（走入口，同 enter 对称）
 	if ai.aircraft.use_tactical_planner:
 		ai.aircraft.set_evasion_mode(false)
+	if not resume:
+		return
 	# 三路重定：躲弹期间目标/长机可能已亡，按当下上下文重选背景状态。
 	# 字段清单收口到 AIController 的过渡函数（Phase 2），本处只补各路特有字段。
 	# is_lock_immune()（光学隐形 / 锁定免疫）视同目标已失效 → 落到编队/巡逻分支，

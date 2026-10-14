@@ -268,6 +268,22 @@ static var afterburner: AfterburnerCharge = null
 static var ghost_buster_team_hp_gained: float = 0.0
 
 
+const BLOODLUST_HEAD_ON_META := &"kill_bloodlust_head_on"
+
+## 血色骑士：在本次击杀授予/刷新嗜血之前取值，只转换敌方飞机击杀。
+static func bloodlust_counts_as_head_on(killer_raw: Variant, victim_raw: Variant) -> bool:
+	if typeof(killer_raw) != TYPE_OBJECT or not is_instance_valid(killer_raw) \
+			or typeof(victim_raw) != TYPE_OBJECT or not is_instance_valid(victim_raw):
+		return false
+	if not (killer_raw is Aircraft) or not (victim_raw is Aircraft):
+		return false
+	var killer := killer_raw as Aircraft
+	var victim := victim_raw as Aircraft
+	return not killer.is_destroyed and killer.is_player_squad() \
+		and CombatUnit.teams_hostile(killer.team, victim.team) \
+		and float(killer.status_effects.get(StatusEffects.BLOODLUST, 0.0)) > 0.0 \
+		and int(_get_upgrade_stacks(killer).get("bloodlust_head_on", 0)) > 0
+
 ## ── 击杀钩子分发入口 ──
 ## 由 StatusEffects.on_kill 调用。在 BLOODLUST 已处理之后追加跑技能链。
 ##   killer: Aircraft（团队 0 = 玩家系；nil-safe 检查在 caller 已做）
@@ -299,6 +315,7 @@ static func dispatch_on_kill(killer: Aircraft, victim: Aircraft) -> void:
 	var is_head_on: bool = head_on_dot > HEAD_ON_DOT_THRESHOLD \
 			and aim_dot > HEAD_ON_DOT_THRESHOLD \
 			and dist_sq <= HEAD_ON_RANGE_PX * HEAD_ON_RANGE_PX
+	is_head_on = is_head_on or bool(victim.get_meta(BLOODLUST_HEAD_ON_META, false))
 
 	# ── 钩子：机炮击杀施加大范围 FEAR ──
 	if kind == "gun" and stacks.get(SKILL_GUN_KILL_FEAR, 0) > 0:
@@ -341,7 +358,8 @@ static func dispatch_on_kill(killer: Aircraft, victim: Aircraft) -> void:
 		killer.hp = minf(killer.hp + heal_amount, max_hp)
 
 	# ── 钩子：对头击杀 +5 max_hp + +5 hp（永久局内） ──
-	if is_head_on and stacks.get(SKILL_HEAD_ON_PERMA_HP, 0) > 0:
+	if is_head_on and stacks.get(SKILL_HEAD_ON_PERMA_HP, 0) > 0 \
+			and not bool(victim.get_meta("no_kill_reward", false)):
 		if killer.params:
 			var earned: float = float(killer.get_meta("head_on_perma_hp_gained", 0.0))
 			killer.set_meta("head_on_perma_hp_gained", earned + HEAD_ON_PERMA_HP_BONUS)

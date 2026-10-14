@@ -110,6 +110,7 @@ static func apply(aircraft: Node, profile: PlayableAircraft, is_wingman: bool = 
 	aircraft.infinite_fuel = profile.infinite_fuel
 	aircraft.survivor_missile_damage_cap = profile.missile_damage_cap
 	aircraft.survivor_bullet_damage_cap = profile.bullet_damage_cap
+	aircraft.bullet_damage_taken_mult = profile.bullet_damage_taken_mult
 	aircraft.bullet_dodge_chance = profile.bullet_dodge_chance
 
 

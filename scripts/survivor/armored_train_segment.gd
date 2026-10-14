@@ -182,21 +182,41 @@ func _draw_ground_icon() -> void:
 	draw_line(Vector2(0.0, half_l), Vector2(0.0, half_l + 8.0),
 		Color(0.08, 0.09, 0.10), 5.0)
 	_draw_theme(segment_index, hostile)
+	_draw_armor_markers()
+
+
+func _draw_impl() -> void:
+	super._draw_impl()
+	if has_meta(&"volume_3d_ground") and not is_destroyed:
+		_draw_armor_markers()
+
+
+func _draw_armor_markers() -> void:
+	var hostile := GameConstants.team_color(team)
+	var points := armor_marker_lines()
+	if not points.is_empty():
+		draw_multiline(points, hostile.lightened(.35) if damageable else Color(hostile, .34),
+			3.0 if damageable else 2.0)
+
+
+func armor_marker_lines() -> PackedVector2Array:
+	var points := PackedVector2Array()
+	var half_w := SEGMENT_WIDTH_PX * .5
+	var half_l := SEGMENT_LENGTH_PX * .5
 	if not targetable:
 		# 进场阶段的深色交叉装甲梁；接战后全车都移除遮挡。
-		draw_line(Vector2(-half_w + 5.0, -half_l + 8.0),
-			Vector2(half_w - 5.0, half_l - 8.0), Color(hostile, 0.34), 2.0)
-		draw_line(Vector2(half_w - 5.0, -half_l + 8.0),
-			Vector2(-half_w + 5.0, half_l - 8.0), Color(hostile, 0.34), 2.0)
+		points.append_array(PackedVector2Array([Vector2(-half_w + 5.0, -half_l + 8.0),
+			Vector2(half_w - 5.0, half_l - 8.0), Vector2(half_w - 5.0, -half_l + 8.0),
+			Vector2(-half_w + 5.0, half_l - 8.0)]))
 	elif damageable:
 		# 尾节是唯一可打断段，用四角弱点标记区别于其他可锁定车厢。
-		var bracket := hostile.lightened(0.35)
 		for x in [-half_w - 6.0, half_w + 6.0]:
 			var inward := 12.0 if x < 0.0 else -12.0
 			for y in [-half_l - 6.0, half_l + 6.0]:
 				var inward_y := 18.0 if y < 0.0 else -18.0
-				draw_line(Vector2(x, y), Vector2(x + inward, y), bracket, 3.0)
-				draw_line(Vector2(x, y), Vector2(x, y + inward_y), bracket, 3.0)
+				points.append_array(PackedVector2Array([Vector2(x, y), Vector2(x + inward, y),
+					Vector2(x, y), Vector2(x, y + inward_y)]))
+	return points
 
 
 func _draw_theme(index: int, color: Color) -> void:

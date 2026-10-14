@@ -3,13 +3,15 @@ id: combat-entity-volume-prototype
 kind: system
 status: approved
 schema_version: 1
-spec_version: 4
+spec_version: 20
 owner: AGL
 depends_on: [systems/aircraft-top-view-silhouettes, systems/battlefield-visual-scale, systems/inrun-weapon-inventory, systems/ui-design-guidelines, systems/runtime-validation-workflow]
 reconstruction_complete: false
 ---
 
 # 战斗实体立体质感原型
+
+2026-09-14首次淡出长帧修复：正式prewarm_catalog除缓存网格，还复用既有32×32、两帧独立材质暖绘，在真实MultiMesh颜色/custom_data格式下绘制不透明机身、透明淡出机身及淡出挂载三种实际材质实例；使用正式Environment、2×MSAA继承、关闭无用动态阴影，不显示到主画面。每帧实际draw数至少覆盖三样本才计提交；Headless只报告跳过，退出断开frame_post_draw且释放。此为初始化渲染准备，不更改淡出时序、伤害/单位/挂载权威，不以关闭淡出或战斗来规避长帧。
 
 > 游戏仍是俯视 2D，但飞机、实际挂载和战斗实体看起来有体积；先在真实混战中比较效果与成本，再决定渲染路线和铺量。
 
@@ -26,6 +28,8 @@ reconstruction_complete: false
 
 用户于 2026-09-05 亲自试玩后明确满意，并批准飞机专属三维模型与地图并行制作。本文件的 `approved` 现包括该表现路线的分批内容制作，**不表示长时性能过门或正式默认全量迁移获批**。未完成资产与性能验收仍保持 `reconstruction_complete: false`。
 
+用户随后明确授权把**当前全部飞机专属三维模型制作完成并接入真实可玩版本**，范围包含玩家、敌人、友军、特种航空单位、运行时别名和空中 BOSS。该授权允许在全部验收通过后把选定三维后端切为正式默认；它不把三架批次 A、技术代理或模型画廊提前视为完成，也不授权改写飞行、AI、武器、伤害与虚拟高度玩法。
+
 ### 1.2 设计自检与不做事项
 
 继承 [设计哲学](../../DESIGN_PHILOSOPHY.md) 的信息察觉、武器抽象、60 FPS、变强可见性要求：立体结构应让姿态和装备更容易看懂，不能只在极近截图里有区别；不引入现实挂点兼容性作为新玩法门槛；不改变自动开火节奏。
@@ -34,7 +38,7 @@ reconstruction_complete: false
 
 ### 1.3 与现有权威的关系
 
-- [飞机顶视轮廓](aircraft-top-view-silhouettes.md) 继续约束默认正式路径，包括机型辨识、原始轮廓、机体配色与现有二维绘制。它的“不引入 3D 节点”不被本文件全局删除：**只有显式启用本原型的实验路径**允许比较不同后端。
+- [飞机顶视轮廓](aircraft-top-view-silhouettes.md) 继续约束机型辨识、原始轮廓、机体配色与二维安全回退。本文件经用户追加批准后，仅对正式 Survivor 的飞机表现边界作窄覆写：允许一个共享透明 3D 合成层；地图、玩法和其它二维实体不随之迁移，实验场之外仍不得任意新增逐机 3D 节点。
 - [战场视觉尺度](battlefield-visual-scale.md) 继续拥有尺寸、世界单位和高度缩放规则；原型不通过放大全体飞机或改变地图尺度制造效果。
 - [局内武器库](inrun-weapon-inventory.md) 与各武器 spec 继续拥有装备合法性、归属、弹药和冷却；本文件只增加只读表现契约。
 - [UI 设计规范](ui-design-guidelines.md) 继续拥有标签与提示的通用规则，本文件不建立第二份 UI 规范。
@@ -46,18 +50,18 @@ reconstruction_complete: false
 
 | 项目 | 本原型规定 |
 |---|---|
-| 默认启用 | 否；关闭原型时沿用正式渲染路径 |
+| 默认启用 | 正式 Survivor 当前候选默认启用；Shift+F11 可在同一局回退 PNG，`AGL_AIRCRAFT_VOLUME=off` 启动时完全不创建三维视口。manifest 在最终性能与完整局前仍标待验证，不等于已发布毕业 |
 | 玩法参数变化 | 0；不改速度、G、射程、伤害、发射许可、弹药、补弹时间或装备合法性 |
 | 世界与高度 | 沿用现有权威；局部模型厚度不等于新增物理高度 |
-| 机体配色 | 沿用机型的 `icon_color` / `wing_color`；不能因换帅、切控或阵营变化把机身自动重染成 UI 阵营色 |
+| 机体配色 | 沿用机型的 `icon_color` / `wing_color`；机翼掩码与每实例副色比值在同一 surface/material/MultiMesh 内恢复双配色，不能因换帅、切控或阵营变化把机身自动重染成 UI 阵营色 |
 | 敌我识别 | 沿用现有阵营标记、锁定和状态栏；模型着色不取代战术识别 |
 | 稳态性能底线 | `frames_below_60 == 0`，`p1_fps >= 60`，`worst_frame_fps >= 60` |
 | 同条件三次中位回退上限 | `avg_fps` 不超过 5%；`p1_fps` 不超过 10%；继承性能守则，不放宽门槛 |
-| 普通单位视觉档位 | 近景完整体积、中景简化体积、极远景清晰轮廓；具体像素阈值和迟滞待测 |
-| 关键单位 | 玩家、BOSS、Sentinel 保留既有豁免；不能因拥挤度降级。屏幕很小时仍须保持身份和关键反馈，不强行堆不可见细节 |
-| 资产预算 | 三角面数、材质数、图集尺寸、角度采样、缓存容量和上传预算均待测，不能先写成已验证常量 |
-| 实时渲染预算 | 视口数量、分辨率、合成面积、实例数和更新频率均待测；禁止未经测量的一实体一独立视口铺量 |
-| 预估工期 | 尚不报全量承诺；原型记录实际制作、接线、适配与验证耗时，再估算扩展成本 |
+| 所有航空单位视觉档位 | 三级专属机身 LOD 与独立挂载按实际输出跨度裁决：LOD0 完整体积在 `>=22 px` 进入、低于 `18 px` 退出；LOD1 保留机身/翼面/尾翼等主要连通结构；LOD2 极远轮廓仅在 LOD1 `<8 px` 时进入、到 `>=11 px` 才退出。独立挂载仍按 `22/18 px` 迟滞显示；玩家、友军、敌军、BOSS、Sentinel、旋翼机都使用同一画面门，不以运行时身份豁免；PNG 只用于显式关闭、渐隐/隐形或未知 UGC 安全回退 |
+| 关键单位 | 玩家、BOSS、王牌、Sentinel 的物理、AI、伤害、武器和世界模拟豁免保持不变；这些属于性能/逻辑 LOD。屏幕很小时机身几何仍可降级，但身份、状态栏、目标线、危险提示、弹道与爆炸等关键反馈不得随模型 LOD 关闭 |
+| 资产预算 | 每个规范 LOD0 机体最多 600 三角、LOD1 最多 320 三角、LOD2 最多 128 三角，均为 1 surface / 1 material；当前 71 个完整机体、71 个中档机体、71 个极远机体与 12 个挂载网格首帧前预热为共享只读路由，运行时不逐实体造网格 |
+| 实时渲染预算 | 正式飞机层固定 1 个原生输出像素尺寸的透明 SubViewport、2× MSAA，逐显示帧在相机之后同步；批次节点按实际类型惰性创建，每批初始 128 实例并对异常溢出报错 |
+| 预估工期 | 资产生产与正式接线已经落地；剩余工期只按最终性能、BOSS 专项与完整局验收记录，不再用批次 A 外推全量模型数 |
 
 待测字段必须在候选方案记录中写出实际取值、测量场景和结果；选型后回填可重建的参数。不能用“低多边形”替代明确的提交、显存和 CPU/GPU 成本记录。
 
@@ -83,7 +87,7 @@ reconstruction_complete: false
 - 世界映射为 `(x, visual_height, y)`，1 个 3D 单位 = 1 个现有世界像素。高度仅决定显示层次，不作真实飞行高度；正俯视中不移动点击中心。
 - Camera3D 从真实 viewport canvas transform 反算中心、旋转和正交尺寸；逐帧记录投影中心误差，验收最大误差不超过 0.1 屏幕像素。缩放、抖动、旋转保持同源。
 - 技术低模由可复建几何代码生成：有分层厚度、机身曲面/折面、薄翼、座舱、尾翼。属于技术代理，不声称逐机型美术完成，也不声称已完成 Blender 生产流水线。
-- 静态网格只构建一次；共用顶点色材质与定向光，无 GI、后处理和局部多灯。阴影单独开关，需记录开关状态。
+- 静态网格只构建一次；共用顶点色材质与定向光，无 GI、后处理和局部多灯。机翼顶点 alpha 只作不透明着色掩码，`MultiMesh` custom data 传 `wing_color / icon_color`，不拆第二个 surface 或 draw call；阴影单独开关，需记录开关状态。
 - 普通机体按结构族共用网格、MultiMesh 批提交；只读一次缓存实体列表，0.1 秒刷新成员，逐帧只同步现有变换；离屏普通机不提交。玩家/BOSS不因拥挤或数量丢失。
 - Mother Goose 独立机体；部件位置消费 `WeaponMount.world_position()`，消失消费 `destroyed`。不把老图里装饰发动机数量当成可伤害部件数量，不新增随机伤害或假冷却。
 - 光学隐形、传感器渐隐、销毁残骸及未适配特殊机型必须安全回退原显示并计数；不能泄露原本不可见的单位。
@@ -113,6 +117,32 @@ reconstruction_complete: false
 - 继续按 Boss Debug 排除生涯入档；模型样区只用于显示，不承诺正式地图碰撞已迁移。未知机型和隐形状态仍按 §2.2.1 回退。
 - 自动 smoke 必须清除 wrapper 的 bench 路由后进入与 F6 相同的非 bench 玩法，验证实际命令、镜头、暂停/Tab、重开及三维接线；自动退出仅存在于显式 smoke 调用中。
 - 本次主要是一次性入口接线与按键事件，不新增逐实体节点或渲染批次；手动场景复用现有显示循环并允许暂停期运行，另补一个舞台透明度判断。跑 focused、实际 Visual smoke、C1 三维候选复查和默认 all；未改变全场扫描/LOD，豁免重复 C2。用户手动试玩与这次复查不构成性能优化或 60 FPS 毕业，上一轮长测失败保留。
+
+### 2.2.3 全机型专属三维生产合同（v5）
+
+2026-09-05 当前资源快照包含 97 个实际 `AircraftParams.display_name`。按已经批准的同型号复用关系归并后，二维目录提供 51 个现实/已登记规范 key，24 个 legacy 显示名再归并为 20 个原创/特种规范 key，共 **71 个去重三维几何组**。这是可复算快照而非冻结总数；新增玩家机、敌机、友军、航空 Adds、特种单位或 BOSS 航空器时，审计必须自动把新身份加入完成门。
+
+- 稳定身份由规范机型 key 持有，不用会被 `Warhound`、呼号、品质或事件改名污染的完整显示名。玩家、僚机、敌人和 BOSS 成员只要属于同一机型就共享几何；运行时 `AWACS` 继续使用其真实创建来源 Tu-160 的 `tu160` key，改名不能使它回退通用战斗机。
+- 现实机首先消费 `resources/aircraft_silhouettes/reference_manifest.json` 的已审顶视轮廓与同一来源三视图；模型必须保留实际长宽比、机鼻、主翼、平尾/垂尾、发动机/进气与座舱/无人结构。F-104 额外验完整细长机鼻、短主翼、尾翼和机头朝前；F-15 不得复用曾被否决的通用双垂尾尖角模板。
+- 原创、虚构、未定型与概念机消费项目现有 PNG、special renderer、批准设计和 BOSS spec，并在来源记录中标明 `project concept`；没有现实资料时不得把臆造三视图写成考据，也不得因此漏掉该机型。
+- 同一生成器可以复用网格算法，但每个规范 key 必须有自己的轮廓/剖面/结构数据或明确批准的同型共享记录。禁止用一个通用模型只改尺寸、加尖角或把单张 PNG 等厚挤出后冒充不同飞机。
+- 每型保留可编辑且可重复生成的制作源、来源/许可、三角面/材质预算和导出记录；运行时加载共享只读网格，不逐实体生成。PNG 保留为来源与安全回退，三维接入不删除二维资产。
+- 每型完成状态必须同时有顶、侧、前、正常游戏斜俯视四类 QA；单独 GLB、转台、focused 或 headless 不能标记完成。覆盖矩阵由三维 manifest 与审计生成，并逐项列出玩家/敌人/友军/BOSS/别名命中。
+- 空中 BOSS 至少覆盖 Wraith F-47/YF-23、CSG 后继 F-14、Mother Goose 本体及 MQ 系、Black Star/Hyper-A 各代、The Crucible 的全部实际 Ace 机型；其它航空 BOSS/特种航空单位按运行时扫描自动纳入。普通飞机通过不能替代 BOSS 阶段、隐形、分裂、Adds、挂点与终态验收。
+
+2026-09-06 本任务当前检查点：审计仍从 97 个 AircraftParams 显示名重算出 71 个规范 key；**71 个均已有独立几何制作源并完成 LOD0/LOD1/LOD2 顶、侧、前、游戏斜俯视人工逐页验图**。真实 Aircraft Visual 314/314。LOD1 由各机型完整源的连通结构构成，108–320 面、平均 205.2 面；旧 24–56 面极简轮廓降为 LOD2，仅在投影跨度小于 8 px 时使用。当前 focused 141/141；C1 36 机和 C2 48 机/24 km 单轮均为 `frames_below_60=0`、相机巡检 8/8，且 C2 真实提交 LOD1/LOD2。正式共享视口生命周期、默认 `all`、三轮二维/三维成对矩阵、S1/S2/S3 与完整局仍以本节后续最新证据为准；旧 CSG 失败记录不被本次样本抹去。最终证据齐全前，manifest 继续只标 `formal_default_pending_validation`。
+
+#### 全量运行时候选接线（v6）
+
+- 正式候选在首个渲染帧前建立目录内全部机型的 LOD0/LOD1/LOD2 与挂载共享只读网格路由，当前动态审计为 71 个 LOD0 机体 + 71 个 LOD1 机体 + 71 个 LOD2 机体 + 12 个挂载类型；`MultiMeshInstance3D` 批次节点只在对应类型/档位第一次有真实实例提交时惰性创建，离场后回到 `visible_instance_count=0` 并隐藏。该方案避免首次切档建网格尖峰和空批次常驻 3D 剔除，不生成战斗实体、不改变火力，也不靠隐藏单位通过性能门；数量始终由目录动态重算，不把当前路由数冻结为永久合同。
+- 正式飞机层使用一个透明 SubViewport，只渲染三维飞机/挂载；内部尺寸匹配主窗口实际输出像素（包含窗口拉伸），使用与 F6 相同的 2× MSAA；合成采用线性采样，不再低分辨率放大，原地图、天气、目标线、状态栏与 HUD 始终以原生二维分辨率绘制。机身以逐顶点受光保留低模折面；同一批次用机翼顶点 alpha 掩码和每实例 custom data 恢复 `wing_color`，没有副色时比值为 1、保持原 `icon_color` 路径；挂载/旋翼以无光照顶点色保证小尺寸可读。正式飞机层不开三维地表和阴影。
+- 正式透明层每显示帧在相机更新之后消费当前 Aircraft 权威姿态，固定 `UPDATE_ALWAYS`；不再使用 60 Hz 提交节流、physics 错相或压力切换，避免飞机与二维场景错帧。物理/AI 更新频率保持不变，不伪称增加了物理插值。
+- 真实击坠后继续使用死亡前的同一机体/涂装/最后一档 LOD；消费正式坠毁姿态、缩放与透明度直到释放。渐隐只切换共享透明材质，复用原 ArrayMesh；完全透明也不闪回 PNG。普通挂载与旋翼跟随机体缩放/淡出，传感器与隐身的保密条件保持不变。
+- AH-64 / CH-47 的四视图源网格保留完整静态桨叶；LOD0 真实演员路径使用无桨叶机身，并将 AH-64 主/尾旋翼、CH-47 前/后旋翼提交到一个共享动态旋翼批次。进入 LOD1/LOD2 后改为由完整制作源提取、包含桨盘跨度的单一静态轮廓，不再提交动态旋翼；转速只驱动 LOD0 显示 transform，不成为飞行或命中状态。
+- 共享挂载目录为机炮、主/副导弹、火箭、热诱弹盒、漂浮雷、忠诚僚机舱、电磁炮、激光、ESM 与其它已登记外露模块预留互不重叠的规范槽位。挂件只读 `AircraftParams`、正式库存、装填、释放 CD、充能、光束与过热状态；弹体耗尽时消失，硬件本体保留并以局部状态色反馈，不改变机身涂装或阵营识别色。
+- Mother Goose 继续消费正式 `mg_mounts` / `WeaponMount.world_position()` 与 `destroyed`，不与普通飞机的装饰挂载槽合并；其本体使用独立 `mother_goose` 几何，不能回退为通用飞翼后算覆盖。
+- 所有 71 个航空身份使用三级专属三维几何。LOD0 与挂载继续按 `22/18 px` 迟滞；LOD1 从各机型完整制作源保留主要连通组件的轮廓、局部厚度、机翼配色与左右对称，最多 320 面，不得退化成单一支撑三角；LOD2 才使用最多 128 面的极远支撑轮廓，并按 `<8 px` 进入、`>=11 px` 退出。画面判定不读取玩家、友军、敌军、BOSS、无人指挥机、Sentinel、王牌或旋翼机身份；Mother Goose 真挂点和普通挂载/动态旋翼在非 LOD0 时停止几何提交，但潜在挂载工作量计数保持不变，不能靠视觉隐藏阻止压力调度。
+- 全机型四视图与真实演员分页已经完成；共享透明视口已作为正式 Survivor 默认接线，并保留 Shift+F11 同实体回退 A/B 与 `AGL_AIRCRAFT_VOLUME=off` 自动基线入口。旧 0.45× 结果只作历史；原生采样/同帧同步/同机体坠毁必须重跑正式质量、生命周期与性能门；最终正式 Visual、C1/C2/S1/S2/S3 与完整局未过前，不得把 manifest 从 `formal_default_pending_validation` 提升为 `formal_default`。
 
 ### 2.3 表现数据合同
 
@@ -172,9 +202,10 @@ reconstruction_complete: false
 
 ### 3.4 视觉 LOD 与关键反馈
 
-- 普通单位按实际屏幕占用尺寸选择完整体积、简化体积或轮廓；阈值以正常开局、总览、近景三种实测尺寸校准，不能只按世界距离。
+- 所有航空单位按实际屏幕占用尺寸选择完整体积、简化体积或轮廓；阈值以正常开局、总览、近景三种实测尺寸校准，不能只按世界距离，也不能按玩家/BOSS等身份跳过。
 - 切档设置迟滞并保持中心、方向、颜色和主要轮廓连续。不得出现跳位、尺寸突变、导弹重新长出、尾迹断头或模型与图标重影。具体混合方法及阈值在候选记录中定稿。
-- 玩家、BOSS、Sentinel 不进入普通拥挤度降级；对玩家有直接威胁的弹体、被选中/锁定单位的必要辨识也必须保留。
+- 玩家、BOSS、王牌、Sentinel 不进入普通拥挤度的逻辑/模拟降级；这项豁免不传播到机身画面几何。对玩家有直接威胁的弹体、被选中/锁定单位的必要 HUD 辨识仍须保留。
+- 当前正式候选对所有 71 个航空身份使用三级机身几何：LOD0 在 `>=22 px` 进入、低于 `18 px` 退出；LOD1 覆盖中远景并保留机身、翼面、尾翼/旋翼盘等可辨结构；只有 LOD1 低于 `8 px` 才进入 LOD2，LOD2 到 `>=11 px` 回到 LOD1。独立挂载仍在低于 `18 px` 后省略。阈值读取实际输出像素，包含机型原生尺寸、虚拟高度/视觉缩放、Camera2D canvas 与窗口 stretch，不直接读取裸 `Camera2D.zoom`，也不读取玩家/BOSS/Sentinel 等身份。Mother Goose 本体同样服从机身像素门，真挂点服从挂载像素门。
 - 仅简化不可辨认的几何与表现计算；不以模型不可见为由停物理、少发导弹、少刷敌人或删火力反馈。现有世界模拟/激活边界不在本轮改写。
 - 机体可能使用低成本远景轮廓，HUD、危险提示、目标线、弹道和爆炸仍按各自正式规则绘制；这些不能随模型 LOD 一起关闭。
 
@@ -217,13 +248,17 @@ reconstruction_complete: false
 - [ ] E0：范围矩阵、全部正式装备到展示模块的映射、现有互斥和待适配项可审计；新文档登记且链接有效。
 - [ ] E1：布局确定性；多装备无互斥占位；发射不改变装备槽位归属；主/副库存、齐射、零库存、真实装填、补给、容量变化、无耗弹、暂停/JAM、LOD 重入均走实际权威入口。
 - [ ] E1：死亡/部件损毁/切控/换帅/换型/阵营转换/场景退出后，至少跨过一个 SceneTree 帧和下一消费者 tick，断言信号、权威状态、缓存清理以及测试执行到末尾。
-- [ ] E2：最窄 focused 通过后运行默认 `all`，包含 `lifecycle_gauntlet`；新增终态分支入门。wrapper 退出 86 即失败。
+- [x] E2：最窄 focused 通过后运行默认 `all`，包含 `lifecycle_gauntlet`；新增终态分支入门。wrapper 退出 86 即失败。
 - [ ] E3：在真实 Survivor 渲染链提供旧/新切换，保留同一批正式实体；正常俯视、近景、远景均可比较，不只展示模型转台或低角度相机。
 - [ ] E3：样本覆盖轻装、多装备、不同合法互斥分支；连续展示转向/滚转、离架、空架和实际补满；覆盖地面炮塔、舰船挂点及在飞弹体。
 - [ ] E3：机型可辨、体积清晰、挂载不乱串；切档无明显跳变；状态栏、目标线、敌我识别、隐形和危险反馈保持正确。
 - [x] E3：2026-09-05 用户亲自试玩后明确满意，批准飞机与地图并行制作；此为初版路线认可，不替代新批次与性能验收。
 - [ ] 技术边界：SEAM-019 玩家引用、SEAM-035 视觉 RNG、SEAM-036 屏幕 UI/世界连线均有对应检查；新路径不反向写玩法。
 - [ ] 新增玩家可见文字走 i18n；既有世界身份/战术读数的英文规范保持。Debug 不伪造实际触发条件。
+- [ ] 全量覆盖门：审计时发现的每个规范机型 key 都有来源、许可边界、独立/批准共享几何、可重复生成源、三角/材质预算及顶/侧/前/游戏视角 QA；任何 `planned`、技术代理、通用 fighter 回退或未解释 identity 都使全量完成失败。
+- [x] LOD1 / LOD2 视觉门：全部可降级 key 的中档 LOD1 与极远 LOD2 均逐页完成顶/侧/前/游戏斜俯视人工 QA，并保留逐型 GLB/面数 manifest；自动渲染成功、LOD0 已验或几何 focused 均不能替代。
+- [ ] 运行时身份门：玩家档案后缀、僚机、敌人 type tag、事件改名、阵营转换与 BOSS 阶段均命中同一规范机型；未知 UGC 安全回退，但正式资源不得靠回退通过。
+- [x] 正式实装门：主菜单进入的真实 Survivor 默认显示三维机体，二维 PNG 仍可作为兼容/不可见状态回退；模型画廊或 F6 实验入口不算正式实装。
 
 ### 5.2 性能负载合同
 
@@ -233,7 +268,7 @@ reconstruction_complete: false
 |---|---|
 | 基线 | 当前正式二维绘制，而不是假定“只有一张 PNG”的旧版本；同机、同 Godot、GL Compatibility、地图、seed、build、相机轨迹、时长、窗口/分辨率、UI 与缓存条件 |
 | C1 | `battlefield_atmosphere_stress_36`，30 秒，36 名 / 8 km 混合全可见负载，`Shadow Visual` |
-| C2 | `battlefield_atmosphere_stress_48_24km`，30 秒，48 名 / 24 km 多战线及 LOD，`Shadow Visual` |
+| C2 | `battlefield_atmosphere_stress_48_24km`，30 秒，48 名 / 24 km 多战线及 LOD，`Shadow Visual`；三维候选结果须有 `body_lod1_submissions > 0`，否则未覆盖本次机身 LOD |
 | S1 | `naval_zone_stress` 或正式武器专项，必须真正激活多挂载、导弹、火箭/炸弹和对应火力热点 |
 | S2 | 接入 BOSS / 超级单位候选后跑对应最坏阶段及 Adds 专项；未跑不得宣称覆盖 BOSS |
 | S3 | 新渲染目标/图集预热、冷启动、缩放/LOD/隐形切换与 UI 合成的同条件 A/B |
@@ -252,17 +287,17 @@ reconstruction_complete: false
 | 等级 | 本版状态 | 结论边界 |
 |---|---|---|
 | E0 | 2026-09-05：`verify_docs.ps1` 通过；本 spec 无行号锚点，定向锚点检查扫描 0 项；玩家引用持有者审计漏登记 0 | 只证明现有文档/登记健康，不证明候选实现或运行 |
-| E1 / E2 | 批次 A focused 55/55（含三机几何与地图 19/19）；最新 all 的 92 项中 1 项失败：地图首次预热 1650 ms 超过 1600 ms 门槛，wrapper 退出 1；另行生命周期原案例 86/86、新增案例 5/5，退出 0 | 不把历史通过覆盖最新失败；几何/投影/铁路与释放回退证据不等于全量装备与终局覆盖 |
-| E3 | 用户已认可初版效果；本批三机/地图已有观察图与 GLB；手动 Visual 26/26；C1 三轮与 C2 单轮候选未破 60，但 C1/C2 没有首批专属机型。另做真实 F-47 + Mother Goose 120 秒，候选 3 帧低于 60、最慢 30 FPS，旧原型同档案 0 帧低于 60 | 仅资产/实验接线完成，性能门仍失败；不推广。详见 [批次 A 报告](../../planning/volume-batch-a-results.md)；自然战斗终态不同，不把差异直接归因为模型或地图 |
+| E1 / E2 | 正式检出 `volume_world` 162/162；71 个机型的 LOD1/LOD2 全部通过降面、各自 320/128 面预算、长宽轮廓、对称、法线和双通道涂装门，并验证三级像素迟滞、旋翼机/Mother Goose 分档网格与两档四视图入口；真实 Aircraft 运行时 QA 314/314，覆盖稳定别名、动态旋翼、三档 route、释放后缓存和二维回退；先前独立沙漠入口 smoke 34/34；默认 `all` 93/93，正式共享视口生命周期 20/20、`lifecycle_gauntlet` 86/86，wrapper 退出 0 | 三级几何、身份、真实演员路由和正式视口终态已通过；Headless 不证明全部 draw/GPU 成本或各 BOSS 专项与完整局 |
+| E3 | 用户指出旧远档在普通游戏距离明显呈三角形后，新增 71 型结构化 LOD1，并把原极简轮廓下移为 LOD2。LOD1/LOD2 各完成 10 页×4 视角人工检查；LOD1 为 108–320 面、平均 205.2 面，LOD2 为 24–56 面、平均 48.3 面。真实 Aircraft Visual 314/314。正式默认三维 C1 单轮平均 119.82 FPS、P1 110.00、最慢 60.07、`<60=0`；通用 C2 单轮平均 119.41 FPS、P1 110.00、最慢 69.41、`<60=0`；带正式地形/光照的 C2 专项最终平均 117.91 FPS、P1 90.00、最慢 66.59、`<60=0`，均巡检 8/8，专项实际提交 LOD1 21,405 次、LOD2 35,483 次 | 新中档视觉与 8/11 px 极远切换已在真实渲染链覆盖；规定的三轮二维/三维成对比较、S1/S2/S3 和完整局仍未完成，不能用单轮样本抹去旧红项。详见 [批次 A 报告](../../planning/volume-batch-a-results.md) |
 | E4 | 未开始 | 尚未完成全局迁移或完整局验收 |
 
 候选结果需要并列记录效果、CPU/GPU/资源成本、首次加载/切换、挂载适配难度、资产制作与维护时间。最终决策可为选中一路、继续迭代或保留当前二维方案；不预设一定上线。
 
 ## 6. 实现计划（Task Pipeline）
 
-### 本次交付边界与 BOSS 覆盖计划
+### 当前全量交付边界与 BOSS 覆盖计划
 
-本次实现隔离显示层和可看的技术资产，不把 §6 后续生产任务自动标记完成。正式入口保持不变。
+本轮从隔离原型进入全机型生产与正式接入，但只有覆盖、身份、视觉、生命周期和性能门全部通过后才切正式默认并把 `reconstruction_complete` 改为 true。任何中间批次都继续保留明确回退与未完成清单，不能因已经具备可玩实验入口而宣称玩家当前正式版本已更新。
 
 ### 并行制作批次 A（用户已批准开始制作）
 
@@ -282,6 +317,8 @@ reconstruction_complete: false
 | Armored Train | 铁路几何已与正式 route 同源；列车模型未替换 | 各车厢、真实连接与转弯、武器分件、尾节断裂、终点失败条件及铁路视觉对齐 |
 | Behemoth Land Carrier | 已列入，未替换 | 陆舰本体、移动底盘、炮塔/防空/机库、甲板驻机与起飞、模块死亡与完整 BOSS 流程 |
 | Sentinel / 其它超级单位 | 不因不在 BossRegistry 而漏掉；目前回退或技术代理，不算完成 | 独立结构、光环/护卫/数据链、关键单位细节豁免、单位切换后的身份 |
+
+当前飞机线先建立 71-key 可复算覆盖矩阵与稳定 identity accessor，再以三视图/批准概念轮廓为输入扩充专属网格；批次 A 的 F-14/A-10/F-47 必须重新进入同一多视角 QA，不享受历史豁免。共享 `volume_world_probe`、相机投影和地图接线由地图线冻结后再窄合并，避免并行覆盖。
 
 下一轮先拆分地图/阴影/机体与共享战斗的长时尖峰来源，解决 60 FPS 门；在用户认可本次实际画面后，资产优先做 **Mother Goose 美术修订 + 一架玩家机真实多挂载/弹药 CD 恢复**。再接旋翼、地面/舰船/在飞武器，最后按上表逐 BOSS 推广。地图另补分块/裁剪、完整地理、建筑碰撞 SSOT、实际列车与最低目标配置测试。不先宣布全游戏重构完成。
 
@@ -317,9 +354,10 @@ reconstruction_complete: false
 | 关注点 | 文件与符号 |
 |---|---|
 | 正式飞机绘制与姿态 | `scripts/aircraft_renderer.gd`：`draw_aircraft_icon`、`bank_volume_projection_for` |
-| 本次三维候选 | `scripts/experiments/volume_world_probe.gd`：`setup`、`_sync_camera`、`_sync_goose_mounts`、`summary`、`_exit_tree`；`volume_mesh_factory.gd`：`aircraft`、`map_mesh` |
-| 首批资产制作 | `scripts/experiments/volume_aircraft_catalog.gd`：`supported_keys`、`build`、`metadata_for`；`volume_map_factory.gd`：`build`、`stroke_edges`、`sleeper_poses`、`airport_polygon` |
-| 观察 / 导出 / 验证 | `scenes/tests/volume_3d_lab.tscn`；`scripts/bench/bench_runner.gd`：`VOLUME_SCENARIOS`、`_swap_to_volume_experiment`；`test_volume_world.gd`、`volume_world_lifecycle_case.gd` |
+| 正式三维飞机合成 | `scripts/rendering/aircraft_volume_overlay.gd`：`setup`、`_process`、`_sync_viewport_update_mode`、`continuous_viewport_mode_for`、`set_volume_enabled` |
+| 本次三维候选 | `scripts/experiments/volume_world_probe.gd`：`setup`、`_sync_camera`、`mount_detail_mode_for`、`body_lod_level_for`、`_sync_aircraft_mounts`、`_sync_goose_mounts`、`summary`、`_exit_tree`；`volume_mesh_factory.gd`：`aircraft`、`map_mesh` |
+| 全量资产制作 | `scripts/experiments/volume_aircraft_catalog.gd`：`supported_keys`、`build`、`build_runtime`、`build_runtime_lod`、`_build_medium_body_lod`、`_build_far_body_lod`、`metadata_for`；`volume_aircraft_mount_catalog.gd`：`supported_kinds`、`visible_count`、`local_slots`、`state_color`；`volume_map_factory.gd`：`build`、`stroke_edges`、`sleeper_poses`、`airport_polygon` |
+| 观察 / 导出 / 验证 | `scenes/tests/volume_3d_lab.tscn`；`scenes/tests/volume_aircraft_multiview_qa.tscn` + `volume_aircraft_multiview_qa_runner.gd`：`volume_aircraft_multiview` / `volume_aircraft_lod_multiview` / `volume_aircraft_lod2_multiview`；`scripts/bench/bench_runner.gd`：`VOLUME_SCENARIOS`、`_swap_to_volume_experiment`、`bench_finish`；`test_volume_world.gd`、`volume_world_lifecycle_case.gd` |
 | 手动实验战斗 | `scenes/tests/volume_3d_combat.tscn` → `scripts/experiments/volume_3d_combat.gd`：`_ready`；`scripts/tests/volume_combat_smoke.gd`：`run` |
 | 机型轮廓与别名 | `scripts/aircraft_silhouette_catalog.gd`：`key_for`、`draw_icon` |
 | 主/副弹发射及装填 | `scripts/aircraft/aircraft_weapons.gd`：`update_missile`、`update_secondary_missile`、`_emit_missile`、`_finish_main_missile_cycle`；还须审计调用之外的特殊发射/补给路径 |
@@ -334,8 +372,30 @@ reconstruction_complete: false
 
 ## 8. 变更记录
 
+### 2026-09-08 地面完成项正式接入与 AO 裁决
+
+- 用户批准将已完成地面模型接入正式目录：火炮、AA/空爆 AA、SAM、雷达、攻城坦克及其附属武器、陆地航母、装甲列车 14 种分段、巨炮、碉堡、仓库与导弹井。34 个机身/部件键各有 full/simple 网格，画面 LOD 以实际像素跨度在 26 px 进入细节、低于 20 px 退出，带迟滞；不改变模拟 LOD、战斗人口、火控或命中规则。
+- 使用现有单一共享视口与 MultiMesh；正式默认启用，`AGL_GROUND_VOLUME=off` 可隔离回退。阵营色、活动炮塔/雷达/挂点、甲板驻机、弱点前景与同模型损毁均读取真实单位状态。未适配单位保留二维，不将海上航母、弹丸与特效候选夹带进入本批。
+- 本批不新增实时 SSAO 或全量 AO 纹理。现有顶点色暗部是人工结构明暗，不冒称预烘焙 AO。仅当正常游戏尺度 A/B 能证明固定接缝、履带/甲板下缘需要额外接触暗部时，再评估浅层物体空间 AO；活动炮塔单独烘焙，不将其固定朝向投影烘到车身上。不得用 AO 掩盖挂点悬空、穿模或牺牲阵营可读性。
+- 验收分开记录：目录几何、真实生命周期、正式合成 Visual、混合战场性能与完整局；前三项不代替后两项。
+
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-09-08 | 19 | 按用户授权独立接入已完成地面三维模型与两档 LOD，保留同期正式地图改动；本批不增加 AO 后处理或额外视口，不修改海上航母拦截。 |
+| 2026-09-06 | 18 | 用户要求正式效果不得低于 F6：恢复原生像素与 2× MSAA，去掉提交节流/physics 错相，逐显示帧消费同拍相机；真实击坠保留原网格/涂装/LOD，通过共享透明材质完成原坠毁缩小与淡出。新增正式/F6 对照和真实伤害 Visual 门，旧低分辨率性能结果不得作为新版本验收。 |
+| 2026-09-06 | 17 | 正式 C2 复验首轮出现 1 个 33 ms 物理追帧并按硬门失败；第二轮进一步暴露气氛战场 typed 数组把已释放飞机传入强类型 helper，触发运行时错误门并卡到 210 秒。清理与目标有效性边界改为 `Variant → TYPE_OBJECT → is_instance_valid → cast`，新增真实 queue_free 后清理并跨下一指派 tick 的生命周期案例；正式生命周期 20/20、gauntlet 86/86，随后 C2 专项以最慢 66.59 FPS、`<60=0`、LOD1/LOD2 均真实提交通过。 |
+| 2026-09-06 | 16 | 用户指出普通远景直接呈三角形且与场景细节不匹配：新增 71 型结构化 LOD1（108–320 面、平均 205.2），保留主要连通组件、局部厚度与双通道涂装；原 24–56 面轮廓下移为 LOD2，仅在 `<8 px` 进入、`>=11 px` 退出。两档各完成十页四视角人工 QA；正式 focused 162/162、真实 Aircraft Visual 314/314、默认 `all` 93/93、生命周期 19/19 + gauntlet 86/86；C1 与 C2 单轮均 `<60=0`、巡检 8/8，C2 真实覆盖 LOD1/LOD2。完整成对矩阵、S1/S2/S3 与完整局仍待完成。 |
+| 2026-09-06 | 15 | 将全机型三维飞机线合并到用户运行的正式检出，并保留同期地图 v26 改动；主菜单 Survivor 默认创建单一透明共享视口，Shift+F11/环境变量仍可回退二维；旧沙漠实验入口则显式抑制正式层，避免与自身 Probe 重复提交，smoke 34/34。正式检出通过 `volume_world` 159/159、默认 `all` 93/93、视口生命周期 19/19、gauntlet 86/86 与真实 Aircraft Visual 314/314；71 型 LOD1 十页四视角已人工检查。36 名混合战场单轮 `frames_below_60=0` 且真实覆盖两档；完整成对性能矩阵、S1/S2/S3、各适用 BOSS/Adds 与完整局仍待完成，manifest 保持待最终验证。 |
+| 2026-09-06 | 14 | 用户纠正视觉/性能 LOD 概念混用：删除玩家、友军、敌军、BOSS、无人指挥机、Sentinel、王牌与旋翼机的画面几何豁免，71 型统一按 `22/18 px` 实际输出跨度切换；AH-64/CH-47 LOD1 合并为含桨盘跨度的单网格，Mother Goose 本体与真挂点也按像素门降级。逻辑/模拟 LOD 的关键单位豁免保持不变，潜在挂载工作量不因视觉隐藏而下降。 |
+| 2026-09-06 | 13 | 补齐 LOD1 自身的完成证据入口：同一四视图 runner 新增 68 型 LOD1 顶/侧/前/游戏斜俯视分页、逐型 GLB 与真实面数 manifest；C1/C2 summary 新增 LOD0/LOD1 当前、峰值、累计提交与切换计数，`volume_3d_c2` 若未实际提交 LOD1 则 fail closed。入口尚待 GPU 空闲后执行与人工验图。 |
+| 2026-09-06 | 12 | 用户追加机身按缩放程度区分高低模型：普通固定翼改为 `22/18 px` 实际输出跨度迟滞的两级专属网格，LOD1 从各机型自身制作源提取对称远景轮廓并保留双通道涂装，最多 128 面；玩家、BOSS、无人指挥机、Sentinel 编成与旋翼机保持 LOD0。新增档位/切换计数，最终 C1/C2/S3 Visual A/B 仍待无外部 GPU 争用时验收。 |
+| 2026-09-06 | 11 | 补齐正式三维路径的 `icon_color` / `wing_color` 双通道：机翼顶点 alpha 只作不透明掩码，每实例 custom data 传副色/主色比值，同一 surface/material/MultiMesh 内恢复副色，不增加批次或 draw call；focused 更新为 132/132。最终 Visual/FPS 仍待无外部 GPU 争用时复验。 |
+| 2026-09-06 | 10 | 正式飞机 SubViewport 内部尺寸调为 0.45；登记 60 Hz 权威快照与一次性/连续渲染目标的压力迟滞。普通飞机只按实际输出跨度 `22/18 px` 迟滞省略不可辨认挂载，机体与玩家/BOSS/Sentinel/旋翼不降级；工作量计数不因 LOD 隐藏而减少。最终性能与完整局证据仍未完成前继续保留正式待验证状态。 |
+| 2026-09-06 | 9 | 正式飞机层改为 0.50 内部尺寸、最近邻 2× 合成、低模逐顶点受光和小挂载无光照；71+12 个只读网格仍在首帧前预热，但空 MultiMesh 批次节点改为真实使用时惰性创建。60 Hz 提交在高刷新显示器上与 physics 重帧错相；补 focused 相位合同与纯视觉弹单次线性压紧回归。CSG 三轮仍有两轮各 5 个低于 60 FPS 的帧，故保留正式待验证状态。 |
+| 2026-09-06 | 8 | C2 发现首次可见机型/挂载建批导致偶发低帧后，正式入口改为首帧前预热全部共享路由、实际演员才提交可见实例；focused、生命周期、默认 all、正式 Visual 与 Mother Goose smoke 已通过，C2 当前后端连续三轮无低于 60 帧。C1、S1、其余空中 BOSS 与完整局仍保留为完成门。 |
+| 2026-09-06 | 6 | 71/71 规范机型独立几何制作源已写入目录；候选运行时先实现按可见机型懒建批次，AH-64/CH-47 拆分共享动态旋翼，并以正式装备、库存、装填、释放 CD、充能与过热状态驱动互不冲突的三维挂载。后续 v8 以预热共享路由替代懒建。 |
+| 2026-09-06 | 7 | 71 型完成 10 页四视角人工 QA，70 个真实 AircraftParams 路由 244/244；新增正式 Survivor 单一透明 SubViewport，只合成三维飞机并保留原地图、玩法、HUD 与 PNG 回退。接线暂标待验证，BOSS、生命周期、all 与性能门通过后才可提升为正式完成。 |
+| 2026-09-05 | 5 | 用户授权完成并实装全部飞机专属三维模型；登记当前 97 显示名 / 71 去重几何组快照、稳定机型 key、现实/概念来源边界、四视角 QA、空中 BOSS 和正式 Survivor 完成门。 |
 | 2026-09-05 | 4 | 用户满意实战效果并授权并行制作专属飞机模型与地图；首批 F-14/A-10/F-47 和沙漠静态样区，严格保持玩法权威、原型隔离和性能门。 |
 | 2026-09-05 | 3 | 用户要求在实验场景亲自战斗：新增 F6 手动 Mother Goose 实验战入口和观察场 B 键；复用非 bench 的正式操控、Boss Debug 构筑/终态/重开，不强制相机或自动退出；不改变长时性能未通过的裁决。 |
 | 2026-09-05 | 2 | 用户批准实施可行性测试，并追加地图三维候选与 Mother Goose 首批模型。保留二维模拟；明确单共享视图、同源投影与铁路、真实挂点及成对性能边界；未批准全面上线。 |

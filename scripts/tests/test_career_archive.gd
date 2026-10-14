@@ -194,7 +194,7 @@ func _test_codex_alignment() -> void:
 				if AceSquadProfiles.get_profile(id).is_empty():
 					bad_air.append(id)
 			EnemyCodex.Kind.BOSS:
-				if not BossRegistry.BOSS_DEFS.has(id):
+				if not BossRegistry.BOSS_DEFS.has(id) and not id in BossRegistry.SUBPHASE_IDS:
 					bad_air.append(id)
 	_expect_bool("全部条目 id 对齐真实系统", bad_air.is_empty(), true)
 	if not bad_air.is_empty():

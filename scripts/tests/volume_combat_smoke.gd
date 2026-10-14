@@ -38,7 +38,7 @@ func run(mode: Node) -> void:
 	_check(mode.volume_probe.bodies_enabled and mode.volume_probe.max_body_count > 0,
 		"3D bodies attached to actual combat actors")
 	_check(mode.volume_probe.max_dedicated_bodies > 0 and mode.volume_probe.dedicated_visible_frames > 0,
-		"batch A dedicated aircraft actually visible in manual battle")
+		"dedicated F-47 aircraft actually visible in manual battle")
 	_check(mode.volume_probe.goose_seen, "actual Goose rendered through 3D adapter")
 	_check(mode.volume_probe.goose_visible_frames > 0, "3D Goose visible during paused arrival camera")
 	_check(mode.volume_probe._scenario == "volume_3d_manual", "no forced benchmark Boss camera")

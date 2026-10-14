@@ -67,6 +67,25 @@ const SFX_FILES := {
 	"engine_f16_04": "res://audio/sfx/F-16_Fighting Falcon_ Medium_distance_04.wav",
 }
 
+## 常用命中音效随AutoLoad加载并持有；不在首次命中/播放器池覆盖后重新同步读盘。
+## 仅四份既有素材（源WAV合计约4.84MiB），不预载整套音乐/语音库。
+const IMPACT_SFX := {
+	"bomb_distant": preload("res://audio/sfx/Bomb_Distant_01.wav"),
+	"bomb_distant_02": preload("res://audio/sfx/Bomb_Distant_02.wav"),
+	"bomb_distant_03": preload("res://audio/sfx/Bomb_Distant_03.wav"),
+	"bomb_distant_04": preload("res://audio/sfx/Bomb_Distant_04.wav"),
+}
+
+## 高频武器音随AutoLoad预载；约4.9MiB源WAV，不在第一次开火或池轮换后同步读盘。
+const WEAPON_SFX := {
+	"gun_fire": preload("res://audio/sfx/Mini_Gun_Burst.wav"),
+	"gun_long": preload("res://audio/sfx/Vulcan_Mini_Gun_Long_Burst_Medium_Distance.wav"),
+	"missile_launch": preload("res://audio/sfx/Missile_Launch_01.wav"),
+	"missile_launch_alt": preload("res://audio/sfx/Missile_Launch_02.wav"),
+	"missile_pass": preload("res://audio/sfx/Missile_Pass_By_01.wav"),
+	"missile_pass_alt": preload("res://audio/sfx/Missile_Pass_By_02.wav"),
+}
+
 const UI_FILES := {}
 
 ## 无线电通讯音效（spec radio-chatter §2.7）。挂 Radio 总线（频带切割 + 轻失真）。
@@ -604,6 +623,8 @@ func play_sfx_2d(id: String, world_pos: Vector2, volume_db: float = 0.0) -> void
 	if not _is_on_screen(world_pos):
 		return
 	var stream := _get_sfx(id)
+	if perf_t0 > 0:
+		PerfBuckets.tick("audio_sfx.load",Time.get_ticks_usec()-perf_t0)
 	if stream == null:
 		return
 	var p := _sfx_pool[_sfx_pool_idx]
@@ -613,8 +634,10 @@ func play_sfx_2d(id: String, world_pos: Vector2, volume_db: float = 0.0) -> void
 	p.global_position = world_pos
 	p.volume_db = volume_db
 	p.pitch_scale = randf_range(0.95, 1.05)
+	var start_t0: int = Time.get_ticks_usec() if perf_t0>0 else 0
 	p.play()
 	if perf_t0 > 0:
+		PerfBuckets.tick("audio_sfx.start",Time.get_ticks_usec()-start_t0)
 		PerfBuckets.tick("audio_sfx_play", Time.get_ticks_usec() - perf_t0)
 		PerfBuckets.mark_frame_event("audio_sfx")
 
@@ -801,6 +824,10 @@ func _get_music(id: String) -> AudioStream:
 	return null
 
 func _get_sfx(id: String) -> AudioStream:
+	if WEAPON_SFX.has(id):
+		return WEAPON_SFX[id] as AudioStream
+	if IMPACT_SFX.has(id):
+		return IMPACT_SFX[id] as AudioStream
 	var path: String = SFX_FILES.get(id, "")
 	if path.is_empty():
 		push_warning("AudioManager: unknown sfx id '%s'" % id)
