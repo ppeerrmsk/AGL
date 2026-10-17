@@ -1,5 +1,7 @@
 # Handoffs
 
+- [2026-10-17性能诊断与C#迁移待办](2026-10-17-performance-diagnosis.md)：卡顿三类根因、实测数据、逐项修法，以及迁移到 C# 后哪些会自然解决、哪些仍需改逻辑（暂停中）。
+
 返回 [文档入口](../README.md)；要把交接稿里的代码发现固化为长期导航，更新
 [Reference Index](../reference/_INDEX.md) 及对应专项索引。
 
