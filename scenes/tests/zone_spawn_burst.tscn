@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/tests/zone_spawn_burst_runner.gd" id="1"]
+
+[node name="ZoneSpawnBurst" type="Node"]
+script = ExtResource("1")

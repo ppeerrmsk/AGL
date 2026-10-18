@@ -157,6 +157,7 @@ const BUILD_TASKS: Dictionary = {
 const HEADLESS_TEST_SCENES: Dictionary = {
 	"tokyo_map_planning": "res://scenes/tests/tokyo_map_planning.tscn",
 	"visual_redraw_queue": "res://scenes/tests/visual_redraw_queue.tscn",
+	"zone_spawn_burst": "res://scenes/tests/zone_spawn_burst.tscn",
 	"full_war": "res://scenes/tests/full_war.tscn",
 	"fear_cone": "res://scenes/tests/fear_cone.tscn",
 	"ocean_volume_lifecycle": "res://scenes/tests/ocean_volume_lifecycle.tscn",
