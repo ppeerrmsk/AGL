@@ -96,6 +96,16 @@ var _plan_submit_usec := 0
 var _plan_admission_usec := 0
 var _plan_mode := "unconfigured"
 var _plan_readiness := false
+## 主线程地图重活错峰：交接（清旧+绑定）、规划准入与规划提交同一帧只做一件，
+## 并优先落到无物理步的帧。每类最多连续让出 MAP_HEAVY_MAX_DEFER 帧；当前画面不合格或
+## 不覆盖视野时交接不让（不产生缺图/未覆盖帧）。正式地图由 MapFeatureRenderer 开启，
+## 单测直接驱动 overlay 时保持即时语义。
+const MAP_HEAVY_MAX_DEFER := 2
+var map_frame_balance := false
+var heavy_deferrals := 0
+var heavy_deferrals_by_kind: Dictionary={}
+var _heavy_frame := -1
+var _heavy_runs: Dictionary={}
 
 class Layout extends Resource:
 	var bounds := Rect2(-16300,-15700,32000,32000)
@@ -1048,6 +1058,28 @@ func _cut_covers_current_view(cut: Dictionary, catalog: int, margin_px: float = 
 	return covered_native
 
 
+## 本帧该类重活是否处于争用（不改状态）：本帧已做过一件重活，或本帧含物理步（暂停不算），
+## 且同类连续让出未达上限。
+func _heavy_contested(kind: StringName) -> bool:
+	if not map_frame_balance: return false
+	var stepped := PerfBuckets.frame_has_physics_step() and is_inside_tree() and not get_tree().paused
+	return (_heavy_frame==Engine.get_process_frames() or stepped) and int(_heavy_runs.get(kind,0))<MAP_HEAVY_MAX_DEFER
+
+
+## 本帧能否执行一件主线程重活；争用且可让时记一次让出，否则执行并占用本帧。
+## 调用方声明不可让（画面安全依赖它）时照常执行。
+func _heavy_slot(kind: StringName, deferrable: bool = true) -> bool:
+	if deferrable and _heavy_contested(kind):
+		_heavy_runs[kind]=int(_heavy_runs.get(kind,0))+1
+		heavy_deferrals+=1
+		heavy_deferrals_by_kind[kind]=int(heavy_deferrals_by_kind.get(kind,0))+1
+		return false
+	var frame := Engine.get_process_frames()
+	_heavy_runs[kind]=0
+	_heavy_frame=frame
+	return true
+
+
 func _commit_ready_target(scale_value: float) -> bool:
 	if _target.is_empty() or _target_committed(): return false
 	# 所有目标都必须重新证明此刻覆盖；异步期间相机可能已离开请求时的视野。
@@ -1063,6 +1095,11 @@ func _commit_ready_target(scale_value: float) -> bool:
 		if not Handoff.native_qualified(_target,scale_value): return false
 	elif _target_catalog<0 or not Handoff.qualified(_catalogs[_target_catalog],_target,scale_value): return false
 	if not _resources_ready(_target,_target_catalog): return false
+	# 错峰：旧切面仍合格且覆盖当前视野时，交接可有界让给后续帧，让出期间旧画面完整可见。
+	# 覆盖核验有成本，只在本帧确实争用时才算；旧切面完整才让出。
+	var display_safe := _heavy_contested(&"commit") and not _committed.is_empty() \
+		and _committed_qualified(scale_value) and _cut_covers_current_view(_committed_cut,_committed_catalog)
+	if not _heavy_slot(&"commit",display_safe): return false
 	# 新地表租约先到手才释放旧画面；预约失败必须保持旧节点、可见性和旧租约。
 	var next_ground: RefCounted
 	if _target_catalog!=-2 or int(_target.get("charges",{}).get("ground_bytes",0))>0:
@@ -1349,6 +1386,7 @@ func debug_state() -> Dictionary:
 		"staged_switches":staged_switches,"max_transition_triangles":max_transition_triangles,
 		"handoff_reason":_handoff_reason,"native_page_limit":Contract.native_page_limit(),
 		"prefetch_pages":_prefetch_pages,
+		"map_frame_balance":map_frame_balance,"heavy_deferrals":heavy_deferrals,"heavy_deferrals_by_kind":heavy_deferrals_by_kind.duplicate(),
 		"map_planning":{"mode":_plan_mode,"worker":_map_worker.summary() if _map_worker!=null else {},
 			"prepare_usec":_plan_prepare_usec,"submit_usec":_plan_submit_usec,"admission_usec":_plan_admission_usec,
 			"applied":_plan_applied,"rejected":_plan_rejected,"pending_frames":_plan_pending_frames,"stats":_plan_stats},
@@ -1447,9 +1485,13 @@ func _planning_request(scale_value: float, zooming_out: bool) -> Dictionary:
 func _step_prepared_selection(scale_value: float, zooming_out: bool, reversing_in: bool, rapid_zoom: bool, current_covered: bool, changed: bool) -> bool:
 	var due := _selection_due(current_covered,scale_value,reversing_in,rapid_zoom)
 	if due and (_last_selected_canvas!=_last_canvas or _last_selected_size!=_last_size): _plan_dirty=true
-	if _map_worker.ready():
+	# 只在当前画面完整（覆盖视野且合格）时允许让出；画面不安全时规划必须尽快推进。
+	var display_safe := map_frame_balance and current_covered and _committed_qualified(scale_value)
+	# 已完成的规划结果在 worker 中等待领取（占用唯一槽位），让出不会丢结果或重复提交。
+	if _map_worker.ready() and _heavy_slot(&"plan_admit",display_safe):
 		var started := Time.get_ticks_usec()
 		var envelope: Dictionary=_map_worker.take(_plan_generation)
+		if PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_map_plan_take",Time.get_ticks_usec()-started)
 		if not envelope.is_empty():
 			var plan: Dictionary=envelope.plan
 			_plan_stats=plan.stats
@@ -1462,9 +1504,11 @@ func _step_prepared_selection(scale_value: float, zooming_out: bool, reversing_i
 		if PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_map_plan_admit",Time.get_ticks_usec()-started)
 	if _map_worker.busy():
 		_plan_pending_frames+=1
-	elif _plan_dirty:
+	elif _plan_dirty and _heavy_slot(&"plan_submit",display_safe):
 		var started := Time.get_ticks_usec()
-		if _map_worker.submit(_planning_request(scale_value,zooming_out)):
+		var request := _planning_request(scale_value,zooming_out)
+		if PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_map_plan_request",Time.get_ticks_usec()-started)
+		if _map_worker.submit(request):
 			_plan_dirty=false
 			_lod_clock=0.05
 			_last_selected_canvas=_last_canvas;_last_selected_size=_last_size

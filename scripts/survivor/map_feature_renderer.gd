@@ -50,6 +50,9 @@ func setup(camera: Camera2D, world_rect: Rect2) -> void:
 			if not _tokyo_volume.setup(self, camera):
 				_tokyo_volume.queue_free()
 				_tokyo_volume = null
+		# 正式地图：主线程地图重活（交接/规划/上传）错峰到不同帧、优先无物理步帧（仅 HLOD 路由有此开关）。
+		if _tokyo_volume != null:
+			_tokyo_volume.set(&"map_frame_balance", true)
 	if use_basemap and _raster_basemap != null and _ocean_volume == null and OceanVolumeOverlay.ocean_enabled(basemap_map_key, volume_document_path):
 		_ocean_volume = OceanVolumeOverlay.new()
 		_ocean_volume.name = "OceanVolumeMap"
