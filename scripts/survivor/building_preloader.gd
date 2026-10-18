@@ -14,6 +14,7 @@ const ITEMS_PER_FRAME := 30  # 每帧处理多少个街区（30 → ~7 帧完成
 const MIN_DISPLAY_FRAMES := 6  # 最少展示 6 帧避免一闪而过
 const VectorPreviewRenderer = preload("res://scripts/survivor/map_vector_preview_renderer.gd")
 const DetailTileCache = preload("res://scripts/survivor/map_detail_tile_cache.gd")
+const RuntimePrewarmScript = preload("res://scripts/survivor/survivor_runtime_prewarm.gd")
 const MAP_LODS := [
 	VectorPreviewRenderer.LOD_OPERATIONAL,
 	VectorPreviewRenderer.LOD_TAB,
@@ -31,10 +32,15 @@ var _map_lod_index := 0
 var _detail_cache_started := false
 var _detail_cache_done := false
 var _volume_ref: WeakRef
+## 正式局事件首次触发的同步工作（音乐/战区陆地/模板/轮廓/升级弹窗字形）在此提前完成
+var _runtime_prewarm: Node
 
 
 func _ready() -> void:
 	_volume_ref = VolumePreload.start(self)
+	_runtime_prewarm = RuntimePrewarmScript.new()
+	_runtime_prewarm.name = "SurvivorRuntimePrewarm"
+	add_child(_runtime_prewarm)
 	if _volume_ref == null:
 		_volume_ref = DesertPreload.start(self)
 	# 缓存可能因为 reset 没生效，强制重置以保证从头跑（对开发期反复测试更稳）
@@ -90,7 +96,11 @@ func _process(_delta: float) -> void:
 		_bar.value = _bar.value * 0.75 + _volume_progress() * 25.0
 	var map_ready := not _prewarm_map or (
 		_map_lod_index >= MAP_LODS.size() and _detail_cache_done)
-	if BuildingRenderer.cache_is_ready() and map_ready and _volume_progress() >= 1.0 and _frames >= MIN_DISPLAY_FRAMES:
+	var base_ready := BuildingRenderer.cache_is_ready() and map_ready and _volume_progress() >= 1.0
+	# 运行时预热排在自身预载之后：不与东京地图预载（15s 超时）争主线程与加载线程。
+	if base_ready:
+		_runtime_prewarm.begin()
+	if base_ready and _runtime_prewarm.is_done() and _frames >= MIN_DISPLAY_FRAMES:
 		_finish()
 
 

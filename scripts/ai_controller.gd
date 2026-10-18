@@ -61,7 +61,8 @@ var _scaling_class_cached: int = -1   ## -1 = 未计算（_physics_process 首�
 ## AI 决策节流：_physics_process 每 ai_tick_divisor 帧才跑一次，降低 CPU 消耗
 ## simple_ai 在 _ready 里自动设为 3（UAV/Adds 人海时大幅省运算），全功能 AI 保持 1
 var ai_tick_divisor: int = 1
-var _tick_phase: int = 0   ## 0..ai_tick_divisor-1，随机错开各 AI 的决策帧
+var _tick_phase: int = 0   ## 决策帧相位，(physics_frames + phase) % 有效 divisor 选帧
+const TICK_PHASE_SPAN := 60  ## 相位展开范围：2/3/4/5/6 的公倍数，任意运行时 divisor 都均匀
 @export var bvr_only: bool = false            ## BVR 狙击模式：只用导弹，不进近距战，被接近则撤退
 ## bvr_only 距离阈值的 per-AI 覆盖（0 = 用全局 BVR_STANDOFF_MIN/FLEE_DISTANCE 默认）
 ## 例：AF-03 用 standoff=2500 / flee=4000 → 维持 5-8km 远距站位（电磁炮甜点）
@@ -509,6 +510,12 @@ func _ready() -> void:
 	if simple_ai:
 		ai_tick_divisor = 3
 		_tick_phase = randi() % ai_tick_divisor
+	# 错峰：拥挤降频会把 divisor=1 的 NORMAL/CHEAP 放大到 2、simple_ai 远端改到 6；
+	# 相位若只覆盖 0..divisor-1（或全为 0）就会集中在同一批物理帧决策。按实例 ID 展开到
+	# 0..TICK_PHASE_SPAN-1（不改 simple_ai 原 %3 相位、不额外消耗全局 RNG）。
+	var base_divisor := maxi(ai_tick_divisor, 1)
+	var phase_slots := maxi(1, floori(float(TICK_PHASE_SPAN) / float(base_divisor)))
+	_tick_phase += base_divisor * posmod(get_instance_id(), phase_slots)
 
 ## 从 aircraft 标记派生 AI 拥挤降频分级（在 _physics_process 首次调用时缓存）
 ##   - 玩家方（team 0）→ IMMUNE

@@ -36,6 +36,16 @@ var _request_limit := MAX_REQUESTS
 var _completion_frame := -1
 var _frame_collected := 0
 var _collection_usec := 0
+## 负载均衡：含物理步的帧主线程已付出整步脚本物理（~5ms），无步帧尚有余量。
+## 完成件领取（网格校验）与 GPU 纹理上传优先落到无物理步帧；最多连续延后
+## LIGHT_FRAME_MAX_DEFER 帧，满载（每帧都有物理步）时照常推进，关闭排空不延后。
+## 默认关闭（单测逐帧断言领取结果）；正式 HLOD overlay 创建流时开启。
+const LIGHT_FRAME_MAX_DEFER := 3
+var light_frame_balance := false
+var light_frame_deferrals := 0
+var _light_defer_frame := -1
+var _light_defer_result := false
+var _light_defer_run := 0
 
 
 func configure(owner_node: Node, descriptors: Dictionary) -> void:
@@ -111,6 +121,28 @@ func _process(_delta: float) -> void:
 		PerfBuckets.tick("tokyo_map_stream", Time.get_ticks_usec() - start)
 
 
+## 本帧是否把主线程重活让给后续无物理步帧；同帧多次询问结果一致，只在真有待办时调用。
+func defer_to_light_frame() -> bool:
+	var frame := Engine.get_process_frames()
+	if frame == _light_defer_frame:
+		return _light_defer_result
+	_light_defer_frame = frame
+	_light_defer_result = light_frame_balance and not _closed \
+		and is_inside_tree() and not get_tree().paused \
+		and PerfBuckets.frame_has_physics_step() and _light_defer_run < LIGHT_FRAME_MAX_DEFER
+	if _light_defer_result:
+		_light_defer_run += 1
+		light_frame_deferrals += 1
+	else:
+		_light_defer_run = 0
+	return _light_defer_result
+
+
+## 子类声明哪些路径属于当前可见切面、不参与负载均衡延后（基类无可见集合）。
+func _light_defer_exempt(_path: String) -> bool:
+	return false
+
+
 func _collect_completed() -> void:
 	# 正常更新与交接前末次领取共用帧预算，不能靠多次调用突破上限。
 	var frame := Engine.get_process_frames()
@@ -124,6 +156,9 @@ func _collect_completed() -> void:
 	for path: String in _pending.keys():
 		var status := _load_status(path)
 		if status == ResourceLoader.THREAD_LOAD_IN_PROGRESS:
+			continue
+		# 当前视野所需件照常领取，只把预取/驻留件让给无物理步帧，不拖慢可见切面交接。
+		if not _light_defer_exempt(path) and defer_to_light_frame():
 			continue
 		PerfBuckets.mark_frame_event("tokyo_cell_take")
 		var reserve: int = _pending[path]
@@ -276,6 +311,7 @@ func summary() -> Dictionary:
 		"pending": _pending.size(), "peak_pending": peak_pending, "cached": _cache.size(),
 		"started": started, "completed": completed, "discarded": discarded, "closed": _closed,
 		"failures": _failures.duplicate(), "max_take_usec": max_take_usec,
+		"light_frame_deferrals": light_frame_deferrals,
 		"path_audit_enabled": _audit_paths, "path_requests": _audit_requests.duplicate(),
 		"retain_unused": _retain_unused, "retained_completions": retained_completions,
 		"path_evictions": _audit_evictions.duplicate(),

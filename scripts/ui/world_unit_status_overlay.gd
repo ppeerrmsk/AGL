@@ -5,6 +5,9 @@ extends Node2D
 ## 因此单位与相机如何旋转都不会改变标签的屏幕方向。唯一 `_process`
 ## 只移动已缓存的面板 CanvasItem；文字内容或闪烁相位变化时才重建 draw command。
 
+const DisplayPacing := preload("res://scripts/util/display_pacing.gd")
+
+
 class StatusPanel extends Node2D:
 	var entry: Dictionary = {}
 	var visual_signature: Array = []
@@ -33,7 +36,8 @@ class StatusPanel extends Node2D:
 			visible = false
 			return true
 		visible = true
-		var screen_origin := item.get_global_transform_with_canvas().origin
+		# 物理插值显示态：标签与插值后的机体同相位，不在 tick 间相对机体抖动。
+		var screen_origin := DisplayPacing.display_screen_origin(item)
 		transform = AircraftRenderer.status_panel_overlay_transform_for(
 			screen_origin, screen_offset_px)
 		var alpha := clampf(item.modulate.a * item.self_modulate.a, 0.0, 1.0)
@@ -121,10 +125,13 @@ func _draw() -> void:
 			continue
 		var cfg := controller.config
 		var world_to_screen := ac.get_canvas_transform()
-		var polygon := PackedVector2Array([world_to_screen * ac.global_position])
+		var ac_display := DisplayPacing.display_global_transform(ac)
+		var ac_origin := ac_display.origin
+		var ac_heading := ac.heading + DisplayPacing.rotation_offset_from(ac, ac_display)
+		var polygon := PackedVector2Array([world_to_screen * ac_origin])
 		for i in range(25):
-			var angle := ac.heading + deg_to_rad(cfg.angle_deg * (float(i) / 24.0 - 0.5))
-			polygon.append(world_to_screen * (ac.global_position + Vector2(sin(angle), -cos(angle)) * cfg.range_m * CombatUnit.PIXELS_PER_METER))
+			var angle := ac_heading + deg_to_rad(cfg.angle_deg * (float(i) / 24.0 - 0.5))
+			polygon.append(world_to_screen * (ac_origin + Vector2(sin(angle), -cos(angle)) * cfg.range_m * CombatUnit.PIXELS_PER_METER))
 		var fill := cfg.color
 		fill.a = 0.16 if controller.phase == SquadFearConeController.Phase.EMISSION else 0.05
 		draw_colored_polygon(polygon, fill)
@@ -134,7 +141,7 @@ func _draw() -> void:
 			var target := FearResponse.aircraft(instance_from_id(int(id)))
 			if target == null or not target.is_inside_tree():
 				continue
-			var screen := target.get_global_transform_with_canvas().origin + Vector2(-20.0, -35.0)
+			var screen := DisplayPacing.display_screen_origin(target) + Vector2(-20.0, -35.0)
 			draw_rect(Rect2(screen, Vector2(40, 5)), Color(0, 0, 0, 0.9))
 			draw_rect(Rect2(screen, Vector2(40.0 * float(controller.exposure[id]) / cfg.exposure_s, 5)), cfg.color)
 	if started > 0:

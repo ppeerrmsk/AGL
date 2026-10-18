@@ -825,10 +825,20 @@ const TACTIC_POPUP_DURATION: float = 2.0  ## 提示显示时长（秒）
 
 var _trail_ribbon: TrailRibbon
 
+## 物理插值显示态：本 tick 开始时的本地变换（= 引擎插值 prev），见 DisplayPacing
+var interp_prev_xform := Transform2D.IDENTITY
+var interp_prev_tick: int = -1
+## 显示态全局变换的每渲染帧缓存（镜头/状态栏/尾迹/三维合成层共用，键 = 渲染帧号 + 物理帧号）
+var interp_cache_xform := Transform2D.IDENTITY
+var interp_cache_proc: int = -1
+var interp_cache_tick: int = -1
+
 ## 清空飞行轨迹（传送/瞬移时调用，避免丝带跨越穿帮）
+## 同时是传送收口：重置物理插值，防止引擎把旧位置→新位置画成一帧拖影
 func clear_trail() -> void:
 	if _trail_ribbon:
 		_trail_ribbon.clear_trail()
+	reset_physics_interpolation()
 
 ## 两种隐形各管自己的状态，但尾迹只在两者都显形时恢复。
 func sync_stealth_trail_emission() -> void:
@@ -935,6 +945,10 @@ func _ready() -> void:
 	_trail_ribbon.show_behind_parent = true
 	_trail_ribbon.ribbon_color = GameConstants.team_trail_color(team)
 	add_child(_trail_ribbon)
+	# 物理插值白名单：机体只在 _physics_process 移动；出生位置可能在 add_child 后才写入，
+	# 延迟到本帧刷新时重置，避免从原点/旧位置插值过来
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_ON
+	reset_physics_interpolation.call_deferred()
 
 ## 装备模块化迁移期兼容层（commit 2/13 起逐步扩展）
 ## 把 params.equipment 数组里的装备配置发布到对应的传统 params 字段，
@@ -1082,7 +1096,11 @@ func try_climb_counter_missile(missile: Missile) -> bool:
 
 ## 获取挂载的战术机动模块（如有）
 func get_maneuver() -> CobraManeuver:
-	_refresh_maneuver_cache()
+	# 快路径内联失效判定：每机每物理步被物理/AI/武器查询十余次，省一层脚本调用。
+	if _maneuver_cache_child_count != get_child_count() \
+			or (_cobra_maneuver_ref != null and not is_instance_valid(_cobra_maneuver_ref)) \
+			or (_herbst_maneuver_ref != null and not is_instance_valid(_herbst_maneuver_ref)):
+		_refresh_maneuver_cache()
 	return _cobra_maneuver_ref
 
 func _get_ai_controller() -> AIController:
@@ -1132,7 +1150,10 @@ func clear_formation() -> void:
 	target_position = Vector2.INF
 
 func get_herbst() -> HerbstManeuver:
-	_refresh_maneuver_cache()
+	if _maneuver_cache_child_count != get_child_count() \
+			or (_cobra_maneuver_ref != null and not is_instance_valid(_cobra_maneuver_ref)) \
+			or (_herbst_maneuver_ref != null and not is_instance_valid(_herbst_maneuver_ref)):
+		_refresh_maneuver_cache()
 	return _herbst_maneuver_ref
 
 
@@ -1158,13 +1179,26 @@ func _refresh_maneuver_cache() -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_CHILD_ORDER_CHANGED:
 		_maneuver_cache_child_count = -1
+	elif what == NOTIFICATION_RESET_PHYSICS_INTERPOLATION:
+		interp_prev_xform = transform
+		interp_cache_proc = -1
 
 func _physics_process(delta: float) -> void:
+	# 物理插值显示态起点（引擎在本 tick 开头已把 prev←curr）；2 次赋值，不计入 aircraft_phys
+	interp_prev_xform = transform
+	interp_prev_tick = Engine.get_physics_frames()
 	# Perf 包装：整个飞机物理 / 武器 / 战斗追踪 / 装备 / 状态效果聚合到 aircraft_phys 桶
 	# 这是 LOD 0 主要工作，按 N 架 × 60Hz 缩放，疑似 CSG/Phase2 掉帧主因
 	var _perf_t0: int = Time.get_ticks_usec()
 	_physics_process_impl(delta)
 	PerfBuckets.tick("aircraft_phys", Time.get_ticks_usec() - _perf_t0)
+
+
+## 细分桶计时圈：把 [t0, now) 记入 name 并返回 now 供下一段续接；仅细分采样帧调用。
+static func _perf_lap(name: String, t0: int) -> int:
+	var now := Time.get_ticks_usec()
+	PerfBuckets.tick(name, now - t0)
+	return now
 
 
 func _physics_process_impl(delta: float) -> void:
@@ -1201,28 +1235,26 @@ func _physics_process_impl(delta: float) -> void:
 		delta *= float(dense_sim_divisor)
 	# Perf 子桶 ac_phys.misc.* —— 拆 6 段精确定位 misc 膨胀来源
 	# 全 LOD 共用，每段单独埋点，misc 总和仍由 PerfBuckets 自然累加（看 sum 即可）
-	var _t_misc1: int = Time.get_ticks_usec()
+	# 细分桶只在细分采样帧计时（F3 面板 / bench frame trace 采样帧，同 aircraft_draw.*）；
+	# 普通游玩每机每步省 ~15 次字符串键字典累加 + ~30 次时钟读取。aircraft_phys 根桶恒计时。
+	var trace := PerfBuckets.detail_capture_enabled()
+	var perf_t: int = Time.get_ticks_usec() if trace else 0
 	_update_cloud_state(delta)
-	PerfBuckets.tick("ac_phys.misc.cloud", Time.get_ticks_usec() - _t_misc1)
-	var _t_misc2: int = Time.get_ticks_usec()
+	if trace: perf_t = _perf_lap("ac_phys.misc.cloud", perf_t)
 	_update_in_building(delta)
-	PerfBuckets.tick("ac_phys.misc.building", Time.get_ticks_usec() - _t_misc2)
-	var _t_misc3: int = Time.get_ticks_usec()
+	if trace: perf_t = _perf_lap("ac_phys.misc.building", perf_t)
 	_update_gun_threat_indicator(delta)
-	PerfBuckets.tick("ac_phys.misc.gun_threat", Time.get_ticks_usec() - _t_misc3)
-	var _t_misc4: int = Time.get_ticks_usec()
+	if trace: perf_t = _perf_lap("ac_phys.misc.gun_threat", perf_t)
 	update_lock_line_state(delta)
-	PerfBuckets.tick("ac_phys.misc.lock_line", Time.get_ticks_usec() - _t_misc4)
-	var _t_misc5: int = Time.get_ticks_usec()
+	if trace: perf_t = _perf_lap("ac_phys.misc.lock_line", perf_t)
 	_update_equipment(delta)
-	PerfBuckets.tick("ac_phys.misc.equipment", Time.get_ticks_usec() - _t_misc5)
-	var _t_misc6: int = Time.get_ticks_usec()
+	if trace: perf_t = _perf_lap("ac_phys.misc.equipment", perf_t)
 	StatusEffects.update(self, delta)
 	if fear_response != null:
 		fear_response.update(self, delta)
 		if fear_response.active:
 			fear_response.enforce(self)
-	PerfBuckets.tick("ac_phys.misc.status_fx", Time.get_ticks_usec() - _t_misc6)
+	if trace: perf_t = _perf_lap("ac_phys.misc.status_fx", perf_t)
 	# 主动位移技能必须跨 LOD/切控继续推进；无动作时仅 O(1) 计时，AI 威胁扫描固定 10Hz。
 	_update_active_special_maneuver(delta)
 	_tick_climb_counter_window(delta)
@@ -1386,21 +1418,18 @@ func _physics_process_impl(delta: float) -> void:
 	# planner 调 BfmIntent + Situation.from_aircraft（涉及全场态势抽样）
 	# combat_tracking 调 BFM lead 计算 + 武器锁定 + 雷达扫描
 	# weapon_mode + evasion 通常很轻
-	var _t_planner: int = Time.get_ticks_usec()
+	if trace: perf_t = Time.get_ticks_usec()
 	_run_tactical_planner_if_enabled()
-	PerfBuckets.tick("ac_phys.combat.planner", Time.get_ticks_usec() - _t_planner)
-	var _t_wmode: int = Time.get_ticks_usec()
+	if trace: perf_t = _perf_lap("ac_phys.combat.planner", perf_t)
 	AircraftWeapons.update_weapon_mode(self)
-	PerfBuckets.tick("ac_phys.combat.wmode", Time.get_ticks_usec() - _t_wmode)
-	var _t_evade1: int = Time.get_ticks_usec()
+	if trace: perf_t = _perf_lap("ac_phys.combat.wmode", perf_t)
 	_update_evasion(delta)
-	PerfBuckets.tick("ac_phys.combat.evasion", Time.get_ticks_usec() - _t_evade1)
-	var _t_track: int = Time.get_ticks_usec()
+	if trace: perf_t = _perf_lap("ac_phys.combat.evasion", perf_t)
 	AircraftCombatTracking.update_combat(self, delta)
-	PerfBuckets.tick("ac_phys.combat.track", Time.get_ticks_usec() - _t_track)
+	if trace: perf_t = _perf_lap("ac_phys.combat.track", perf_t)
 	_resolve_intents(delta)  # Phase 1：决策系统全部跑完 → 仲裁契约字段 → 物理消费
 
-	var _t_kine: int = Time.get_ticks_usec()
+	if trace: perf_t = Time.get_ticks_usec()
 	AircraftPhysics.update_energy_management(self)
 	AircraftPhysics.update_target_heading(self)
 	AircraftPhysics.update_bank(self, delta)
@@ -1413,9 +1442,8 @@ func _physics_process_impl(delta: float) -> void:
 	_check_ground_crash()
 	AircraftPhysics.update_g_load(self)
 	AircraftPhysics.apply_movement(self, delta)
-	PerfBuckets.tick("ac_phys.kine", Time.get_ticks_usec() - _t_kine)
+	if trace: perf_t = _perf_lap("ac_phys.kine", perf_t)
 
-	var _t_wpn: int = Time.get_ticks_usec()
 	AircraftWeapons.auto_gun_scan(self)
 	AircraftWeapons.update_gun(self, delta)
 	AircraftWeapons.update_ciws(self, delta)
@@ -1426,9 +1454,8 @@ func _physics_process_impl(delta: float) -> void:
 	# 副导弹槽（独立子系统，不走 update_missile 的统一池路径）
 	AircraftWeapons.update_secondary_radar(self, delta)
 	AircraftWeapons.update_secondary_missile(self, delta)
-	PerfBuckets.tick("ac_phys.wpn", Time.get_ticks_usec() - _t_wpn)
+	if trace: perf_t = _perf_lap("ac_phys.wpn", perf_t)
 
-	var _t_evade: int = Time.get_ticks_usec()
 	# 眼镜蛇技能必须在 AircraftFlares.update 之前 —— 一旦激活，flare 会因机动 active 而跳过
 	_update_cobra_skill(delta)
 	# 危机赫尔贝特：与眼镜蛇共用触发条件（来袭导弹 / 后方机炮追尾），二选一
@@ -1438,12 +1465,11 @@ func _physics_process_impl(delta: float) -> void:
 	# 722 批签名技能杂项 tick（CD 计时 + VIFFing/近太空冲刺/三发推力条件判定）
 	_update_sig_skills(delta)
 	AircraftFlares.update(self, delta)
-	PerfBuckets.tick("ac_phys.evade", Time.get_ticks_usec() - _t_evade)
+	if trace: perf_t = _perf_lap("ac_phys.evade", perf_t)
 
-	var _t_visual: int = Time.get_ticks_usec()
 	_update_visuals()
 	_log_ac_tick(delta)
-	PerfBuckets.tick("ac_phys.visual", Time.get_ticks_usec() - _t_visual)
+	if trace: _perf_lap("ac_phys.visual", perf_t)
 	# LOD 0 非玩家非悬停：每 2 帧重绘一次，减半 _draw 开销
 	if (not is_hidden_from_player_sensors() \
 			or _sensor_contact_visual_alpha > 0.001 or is_mission_target) \
@@ -1457,16 +1483,16 @@ func _physics_process_impl(delta: float) -> void:
 func _physics_process_rotorcraft(delta: float) -> void:
 	if FearResponse.controlled(self):
 		_resolve_intents(delta)
-	var _t_kine: int = Time.get_ticks_usec()
+	var trace := PerfBuckets.detail_capture_enabled()
+	var perf_t: int = Time.get_ticks_usec() if trace else 0
 	AircraftPhysics.update_rotorcraft(self, delta)
 	AircraftPhysics.update_fuel(self, delta)
-	PerfBuckets.tick("ac_phys.kine.rotor", Time.get_ticks_usec() - _t_kine)
+	if trace: perf_t = _perf_lap("ac_phys.kine.rotor", perf_t)
 
-	var _t_wpn: int = Time.get_ticks_usec()
 	weapon_mode = WeaponMode.GUN
 	AircraftWeapons.update_gun(self, delta)
 	AircraftWeapons.update_rocket(self, delta)
-	PerfBuckets.tick("ac_phys.wpn.rotor", Time.get_ticks_usec() - _t_wpn)
+	if trace: _perf_lap("ac_phys.wpn.rotor", perf_t)
 
 	AircraftFlares.update(self, delta)
 	_update_visuals()
@@ -2409,6 +2435,9 @@ const BERSERK_VIRUS_FLARE_CD_RATE: float = 1.50
 
 ## 狂化病毒的动态身份门：技能旗标跟全队，效果只落当前非亲控直属僚机。
 func is_berserk_virus_wingman() -> bool:
+	# 旗标先短路：AI/CD/武器等处每机每步高频查询，绝大多数飞机无此技能，免去取玩家引用。
+	if not berserk_virus_active:
+		return false
 	var current_player := AircraftRenderer.safe_player_ref()
 	return berserk_virus_active and is_player_squad() and self != current_player \
 		and _ai_ref != null and is_instance_valid(_ai_ref) and not _ai_ref.manual_control

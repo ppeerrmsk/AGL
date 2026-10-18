@@ -50,6 +50,7 @@ const TEXTURE_PATHS: Dictionary = {
 }
 
 static var _texture_cache: Dictionary = {}
+static var _prewarm_failed: Dictionary = {}
 
 const DISPLAY_KEYS: Dictionary = {
 	"A-6E Intruder": "a6e", "A-7": "a7", "A-10": "a10", "A-10 Thunderbolt II": "a10",
@@ -190,6 +191,25 @@ static func volume_thickness_for(ac: Aircraft) -> float:
 		"mother_goose", "hyper_a":
 			return 0.14
 	return DEFAULT_VOLUME_THICKNESS
+
+
+## Loading 预热：按 TEXTURE_PATHS 顺序解码尚未缓存的轮廓。budget_usec>0 时本次调用
+## 超出预算即返回，留待下一帧继续；返回 true 表示全部 key 已进缓存（或读取失败已告警）。
+## 刷怪帧首次出现新机型时不再读盘解码 PNG（每机型 1~2ms）。
+static func prewarm_textures(budget_usec: int = 0) -> bool:
+	var start := Time.get_ticks_usec()
+	for key: String in TEXTURE_PATHS:
+		if _texture_cache.has(key) or _prewarm_failed.has(key):
+			continue
+		if _texture_for(key) == null:
+			_prewarm_failed[key] = true
+		if budget_usec > 0 and Time.get_ticks_usec() - start >= budget_usec:
+			return _prewarm_done()
+	return _prewarm_done()
+
+
+static func _prewarm_done() -> bool:
+	return _texture_cache.size() + _prewarm_failed.size() >= TEXTURE_PATHS.size()
 
 
 static func _texture_for(key: String) -> Texture2D:

@@ -124,6 +124,14 @@ var _playlist_active: bool = false
 var _playlist_crossfade: float = 2.0
 var _playlist_advance_armed: bool = false  ## 当前曲未到尾段（防重复触发预交叉淡化）
 var _music_interrupt_checkpoint: Dictionary = {} ## 临时插入曲打断前的歌单、曲目与播放位置
+## 运行时取用过/预载过的音乐与非常驻 SFX（path → AudioStream）常驻持有：
+## 2~8.6MB 的 OGG / 6.7MB 引擎 WAV 无人持有时会被释放，下次切歌又在主线程同步解析。
+var _stream_cache: Dictionary = {}
+## 已发出 ResourceLoader.load_threaded_request、尚未取回的路径（path → true）
+var _stream_pending: Dictionary = {}
+## 待发起的预载路径：每帧最多发起一个线程请求，避免一次性压满 ResourceLoader 线程、
+## 与地图预载或场景加载争抢。
+var _prefetch_queue: PackedStringArray = PackedStringArray()
 const MUFFLE_CUTOFF_OPEN := 20000.0  # 直通（听起来无效果）
 const MUFFLE_CUTOFF_MENU := 600.0    # 模糊状态，像隔了层雾
 
@@ -671,6 +679,12 @@ func stop_player_engine() -> void:
 func _process(_delta: float) -> void:
 	_update_engine_volume()
 	_check_playlist_early_crossfade()
+	if not _prefetch_queue.is_empty():
+		var next_path := _prefetch_queue[0]
+		_prefetch_queue.remove_at(0)
+		_request_stream(next_path)
+	if not _stream_pending.is_empty():
+		_poll_stream_prefetch()
 
 ## 播放列表"预先交叉淡化"：在当前曲距结尾还有 _playlist_crossfade 秒时主动触发下一首，
 ## 让上一首的尾巴 (outro/最后小节) 与下一首的开头 (intro/起拍) 真实重叠播出，
@@ -817,7 +831,7 @@ func _get_music(id: String) -> AudioStream:
 		push_warning("AudioManager: unknown music id '%s'" % id)
 		return null
 	if ResourceLoader.exists(path):
-		return load(path) as AudioStream
+		return _resident_stream(path)
 	# 新收件 OGG 在编辑器首次导入前还没有 .import；正式运行仍可直接从原始 Vorbis 读取。
 	if path.get_extension().to_lower() == "ogg" and FileAccess.file_exists(path):
 		return AudioStreamOggVorbis.load_from_file(path)
@@ -832,7 +846,73 @@ func _get_sfx(id: String) -> AudioStream:
 	if path.is_empty():
 		push_warning("AudioManager: unknown sfx id '%s'" % id)
 		return null
-	return load(path) as AudioStream
+	return _resident_stream(path)
+
+## 后台线程预载音乐（Loading / BOSS 选定后调用）；未知、已常驻或在途的 id 直接跳过。
+func prefetch_music(ids: Array) -> void:
+	for id_any in ids:
+		_prefetch_stream(String(MUSIC_FILES.get(String(id_any), "")))
+
+## 后台线程预载非常驻 SFX（如 6.7MB 引擎循环）；WEAPON/IMPACT 已随 AutoLoad 预载。
+func prefetch_sfx(ids: Array) -> void:
+	for id_any in ids:
+		var id := String(id_any)
+		if WEAPON_SFX.has(id) or IMPACT_SFX.has(id):
+			continue
+		_prefetch_stream(String(SFX_FILES.get(id, "")))
+
+## 预载是否全部完成（测试/诊断用；Loading 不等待它，线程加载跨场景继续）。
+func is_stream_prefetch_idle() -> bool:
+	return _stream_pending.is_empty() and _prefetch_queue.is_empty()
+
+func is_stream_resident(path: String) -> bool:
+	return _stream_cache.has(path)
+
+## 只入队；_process 每帧最多发起一个线程请求。
+func _prefetch_stream(path: String) -> void:
+	if path.is_empty() or _stream_cache.has(path) or _stream_pending.has(path) \
+			or _prefetch_queue.has(path):
+		return
+	if not ResourceLoader.exists(path):
+		return
+	_prefetch_queue.append(path)
+
+func _request_stream(path: String) -> void:
+	if _stream_cache.has(path) or _stream_pending.has(path):
+		return
+	if ResourceLoader.load_threaded_request(path) == OK:
+		_stream_pending[path] = true
+
+func _poll_stream_prefetch() -> void:
+	for path: String in _stream_pending.keys():
+		var status := ResourceLoader.load_threaded_get_status(path)
+		if status == ResourceLoader.THREAD_LOAD_IN_PROGRESS:
+			continue
+		_stream_pending.erase(path)
+		if status == ResourceLoader.THREAD_LOAD_LOADED:
+			var stream := ResourceLoader.load_threaded_get(path) as AudioStream
+			if stream != null:
+				_stream_cache[path] = stream
+
+## 常驻取流：已缓存直接返回；预载在途则等待该线程任务（不重复解析）；否则同步加载一次后常驻。
+## 每个播放入口都会先 _apply_loop，再交给播放器，常驻共享实例不改变循环语义。
+func _resident_stream(path: String) -> AudioStream:
+	var cached: Variant = _stream_cache.get(path)
+	if cached != null:
+		return cached as AudioStream
+	var stream: AudioStream
+	if _stream_pending.has(path):
+		_stream_pending.erase(path)
+		stream = ResourceLoader.load_threaded_get(path) as AudioStream
+	else:
+		# 还在队列里未发起：直接按原路径同步加载一次（与改动前同成本），并移出队列。
+		var queued := _prefetch_queue.find(path)
+		if queued >= 0:
+			_prefetch_queue.remove_at(queued)
+		stream = load(path) as AudioStream
+	if stream != null:
+		_stream_cache[path] = stream
+	return stream
 
 func _get_ui(id: String) -> AudioStream:
 	var path: String = UI_FILES.get(id, "")

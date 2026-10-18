@@ -2,6 +2,7 @@ class_name TrailRibbon
 extends Node2D
 
 const TrianglePacket = preload("res://scripts/rendering/canvas_triangle_packet.gd")
+const DisplayPacing := preload("res://scripts/util/display_pacing.gd")
 
 ## 飞行轨迹丝带效果
 ## 作为子节点挂载到 Aircraft 或 Missile 上
@@ -48,6 +49,8 @@ func _ready() -> void:
 	_sample_phase_offset = sample_interval * float(_sample_phase_slot) / float(SAMPLE_PHASE_SLOTS)
 	_next_sample_phase_slot += 1
 	_sample_timer = _sample_phase_offset
+	# 本节点每渲染帧在 _process 里抵消父机变换，不能按 tick 插值（父机在物理插值白名单内）
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	global_transform = Transform2D.IDENTITY
 
 
@@ -111,7 +114,14 @@ func _process(delta: float) -> void:
 func _process_trail_untraced(delta: float) -> void:
 	# 尾迹点本来就是世界坐标；抵消父机变换后，缓存网格可跨帧复用且仍留在原世界位置。
 	# show_behind_parent / modulate 等 CanvasItem 继承语义不变。
-	global_transform = Transform2D.IDENTITY
+	# 父机按物理插值渲染时，必须抵消其【显示态】变换，否则整条丝带随插值相位前后抖动；
+	# 不插值时 display_global_transform 即父机全局变换，与原 global_transform=IDENTITY 等价。
+	# 导弹批次尾迹的自身 Canvas 不出图（几何交给 MissileTrailBatch），无需逐帧抵消。
+	var parent_2d := get_parent() as Node2D
+	if parent_2d == null:
+		global_transform = Transform2D.IDENTITY
+	elif _missile_batch_canvas == null:
+		transform = DisplayPacing.display_global_transform(parent_2d).affine_inverse()
 	_sample_timer += delta
 	if _sample_timer >= sample_interval:
 		_sample_timer -= sample_interval
@@ -119,7 +129,10 @@ func _process_trail_untraced(delta: float) -> void:
 		if parent:
 			var bank: float = parent.bank_angle if "bank_angle" in parent else 0.0
 			var hdg: float = parent.heading if "heading" in parent else parent.rotation
-			add_point(parent.global_position, hdg, bank)
+			# 采显示态位置：丝带头永远落在已呈现的航迹上，不会冒到机头前方。
+			var sample_pos: Vector2 = DisplayPacing.display_origin(parent_2d) \
+				if parent_2d != null else parent.global_position
+			add_point(sample_pos, hdg, bank)
 
 	# CanvasItem 会保留上次 draw command；几何未变化时无需每帧清空并重提 triangle array。
 	# 屏外状态变化时才清除/恢复，切回期间仍逐帧淡入；常态仅由 20Hz add_point 重画。

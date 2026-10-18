@@ -411,6 +411,11 @@ func visible_dispatch_ready() -> bool:
 	return false
 
 
+## 当前可见切面网格不参与物理步帧负载均衡延后（visible_meshes 由 overlay 在开启时填充）。
+func _light_defer_exempt(path: String) -> bool:
+	return path in visible_meshes
+
+
 static func defer_speculative_upload(needed: bool, visible: bool, mesh_ready: bool) -> bool:
 	return needed and not visible and mesh_ready
 
@@ -490,7 +495,8 @@ func _step_textures() -> void:
 			if dispatch_ready and not mesh_ready: visible_dispatch_deferrals+=1
 			if not from_decoded: _detach_speculative(path)
 			continue
-		if needed and not can_upload_texture(frame_uploads,frame_upload_usec,frame_upload_bytes,int(_texture_descriptors[path].mip_bytes)): continue
+		# 负载均衡只延后非当前可见纹理；可见切面纹理照常按原单帧上传预算推进。
+		if needed and ((path not in visible_images and defer_to_light_frame()) or not can_upload_texture(frame_uploads,frame_upload_usec,frame_upload_bytes,int(_texture_descriptors[path].mip_bytes))): continue
 		var result: Dictionary
 		if from_decoded:
 			result=job.result

@@ -2,6 +2,7 @@ class_name AircraftRenderer
 extends RefCounted
 
 const AircraftSilhouetteCatalog = preload("res://scripts/aircraft_silhouette_catalog.gd")
+const DisplayPacing := preload("res://scripts/util/display_pacing.gd")
 
 ## 玩家飞机全局引用（由 main.gd / survivor_mode.gd 在玩家生成/销毁时维护）
 ## draw_data_label 里每帧为每架飞机算 RNG 用，避免在 _draw 里 O(N) 扫 parent.get_children()
@@ -55,11 +56,12 @@ static func safe_aircraft_ref(value: Variant) -> Aircraft:
 
 ## 安全读 player_ref：自动清理 freed 引用。所有消费者必须走此 getter。
 static func safe_player_ref() -> Aircraft:
-	var candidate: Variant = player_ref
-	var safe_ref: Aircraft = safe_aircraft_ref(candidate)
-	if safe_ref == null:
-		player_ref = null
-	return safe_ref
+	# 热路径（每物理步数百次）：player_ref 已是强类型 Aircraft 槽，有效即无需再经
+	# safe_aircraft_ref 做 Variant 收窄；is_instance_valid 同样识别已释放对象。
+	if is_instance_valid(player_ref):
+		return player_ref
+	player_ref = null
+	return null
 
 
 ## 纯视觉确定性噪声：不得在 _draw 路径消费全局 randf，否则渲染帧数会改变战斗 RNG 序列。
@@ -294,7 +296,7 @@ static func draw_registered_status_panels(overlay: Node2D) -> void:
 		var font_value: Variant = entry.get("font")
 		if not font_value is Font:
 			continue
-		var screen_origin := item.get_global_transform_with_canvas().origin
+		var screen_origin := DisplayPacing.display_screen_origin(item)
 		var screen_offset: Vector2 = entry.get("screen_offset_px", Vector2.ZERO)
 		var transform := status_panel_overlay_transform_for(screen_origin, screen_offset)
 		_draw_status_panel_geometry(overlay, item, font_value as Font,

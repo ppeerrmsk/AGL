@@ -81,6 +81,12 @@ func _start() -> void:
 		push_error("BossEncounterEvent: BossRegistry returned null for map '%s'" % map_id)
 		end()
 		return
+	# BOSS 曲要到登场演出 / ENGAGED 才切入；选定即后台预载，切歌帧不再同步解析 OGG。
+	var boss_music: Array = []
+	boss_music.append_array(encounter.bgm_playlist)
+	boss_music.append_array(encounter.bgm_layers)
+	boss_music.append(encounter.bgm_track)
+	AudioManager.prefetch_music(boss_music)
 	# 通关强化层必须在任何实体生成前注入；本局胜利写档发生在 encounter 结束后，
 	# 因此不会出现战斗中途换编成（spec boss-clear-progression §3.1）。
 	var defeat_counts: Dictionary = boss_history.get("defeat_counts", {})

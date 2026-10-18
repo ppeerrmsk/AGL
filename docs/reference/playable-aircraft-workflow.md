@@ -244,7 +244,7 @@ const PLAYABLE_LIST: Array[Dictionary] = [
 
 这条**已经原生支持**，不需要任何额外代码：
 
-- **基本转弯/能量管理**：`aircraft.gd:1161 _physics_process` 调度物理子模块，基础机动仍由机体参数决定
+- **基本转弯/能量管理**：`aircraft.gd:1186 _physics_process` 调度物理子模块，基础机动仍由机体参数决定
 - **战术决策（BFM）**：`scripts/ai/tactical/situation.gd` 建态势快照，`scripts/ai/tactical/tactical_planner.gd:76 plan` 选择 intent，`scripts/ai/tactical/bfm_intent.gd` 生成纯计划
 - **武器射程/竞选**：`scripts/ai/tactical/weapon_selector.gd` 与 `Situation` 从当前挂载读取包络，无 gun 时不会竞选机炮
 - **导弹发射时机**：`aircraft/aircraft_weapons.gd:1004 update_missile` 统一判定射程、最小距离、射界与锁定；导弹换型主要通过 `.tres`

@@ -70,6 +70,13 @@ var _prev_los_angle: float = 0.0  ## 上一帧 LOS 角（有限差分算角速�
 var _prev_heading: float = 0.0   ## 上一帧航向（用于计算模拟 bank）
 var bank_angle: float = 0.0      ## 模拟 bank（由航向变化率推算）
 var _trail_ribbon: TrailRibbon
+## 物理插值显示态：本 tick 开始时的本地变换（= 引擎插值 prev），见 DisplayPacing
+var interp_prev_xform := Transform2D.IDENTITY
+var interp_prev_tick: int = -1
+## 显示态全局变换的每渲染帧缓存（键 = 渲染帧号 + 物理帧号），见 DisplayPacing
+var interp_cache_xform := Transform2D.IDENTITY
+var interp_cache_proc: int = -1
+var interp_cache_tick: int = -1
 var _deadair_base_trail_color: Color = Color.WHITE
 var deadair_exposure_ratio: float = 0.0
 var _font: Font
@@ -155,9 +162,18 @@ func _ready() -> void:
 	# 从 params 读取拦截抗性（不同型号可以配置不同的抗 CIWS 能力）
 	if params:
 		intercept_hp = params.intercept_hp
+	# 物理插值白名单：弹体只在 _physics_process 移动；挂点发射等会在 add_child 后改出生点，
+	# 延迟到本帧刷新时重置，避免从发射机原点插值过来
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_ON
+	reset_physics_interpolation.call_deferred()
 
 func _exit_tree() -> void:
 	active_missiles.erase(self)
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_RESET_PHYSICS_INTERPOLATION:
+		interp_prev_xform = transform
+		interp_cache_proc = -1
 
 func set_deadair_exposure_ratio(value: float) -> void:
 	deadair_exposure_ratio = clampf(value, 0.0, 1.0)
@@ -263,6 +279,9 @@ func update_enemy_flare_break(delta: float) -> void:
 				ac._log_name(), ENEMY_FLARE_BREAK_WINDOW_S])
 
 func _physics_process(delta: float) -> void:
+	# 物理插值显示态起点（引擎在本 tick 开头已把 prev←curr）
+	interp_prev_xform = transform
+	interp_prev_tick = Engine.get_physics_frames()
 	if not PerfBuckets.extended_cpu_trace_enabled:
 		_physics_process_missile_untraced(delta)
 		return

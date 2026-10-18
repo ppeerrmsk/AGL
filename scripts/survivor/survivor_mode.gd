@@ -4,6 +4,7 @@ const HackedAllyForceScript = preload("res://scripts/survivor/hacked_ally_force.
 const BattlefieldAtmosphereExperimentScript = preload(
 	"res://scripts/survivor/battlefield_atmosphere_experiment.gd")
 const BenchCameraPatrolScript = preload("res://scripts/bench/bench_camera_patrol.gd")
+const DisplayPacing := preload("res://scripts/util/display_pacing.gd")
 const EncounterDifficultyProbeScript = preload(
 	"res://scripts/bench/encounter_difficulty_probe.gd")
 const HyperABossScript = preload("res://scripts/survivor/hyper_a_boss.gd")
@@ -145,6 +146,13 @@ const RADAR_LOCK_STRIDE := 4
 const DENSE_BATTLE_RADAR_STRIDE := RADAR_LOCK_STRIDE * 4
 var _radar_lock_phase: int = 0  ## 当前轮到的相位（高密度周期覆盖普通周期）
 var _radar_lock_accum: float = 0.0
+## 错峰：一个 RADAR_LOCK_INTERVAL 窗口内把本相位 shooter 配对拆成 RADAR_LOCK_SLICES 片，
+## 分别在窗口内不同物理步执行（60Hz 下第 2/5/8/11 步），窗口末步只做 O(N) 收束与锁定汇总。
+## 每片自带时钟，per_shooter_delta = 本片距上次执行的真实间隔 × stride，锁定累积速率不变。
+const RADAR_LOCK_SLICES := 4
+var _radar_slices_done: int = 0
+var _radar_clock: float = 0.0
+var _radar_slice_last_clock := PackedFloat64Array([-1.0, -1.0, -1.0, -1.0])
 var _fire_control_saturation_state: Dictionary = {"cooldown": 0.0, "latched": false}
 var _all_combat_units_cache: Array[CombatUnit] = []   ## _update_aircraft_list 填充，_update_radar_locks 复用
 var _all_aircraft_cache: Array[Aircraft] = []         ## 同帧飞机视图，LOD/友军可见性复用，禁止重复扫场景树
@@ -2859,7 +2867,9 @@ func _bench_update_camera_patrol() -> void:
 	if _bench_camera_patrol_span_px <= 0.0:
 		return
 	# 3 秒预热结束后从轨迹原点起跑，使全部记录的巡检段都落在性能采样窗口内。
-	var patrol_elapsed := maxf(_bench_elapsed - 3.0, 0.0)
+	# _bench_elapsed 按物理步累加；物理插值开启时按显示时刻采样，镜头与插值后的单位同相位，
+	# 不再按 tick 阶梯跳（未插值时 lag=0，与原行为一致）。
+	var patrol_elapsed := maxf(_bench_elapsed - 3.0 - DisplayPacing.display_time_lag(), 0.0)
 	BenchCameraPatrolScript.sample_into(_bench_camera_patrol_state, patrol_elapsed,
 		_bench_camera_patrol_span_px, _bench_camera_patrol_base_zoom)
 	var state := _bench_camera_patrol_state
@@ -4639,39 +4649,49 @@ func _rebuild_radar_target_buckets(all_units: Array[CombatUnit]) -> void:
 func _update_radar_locks(delta: float) -> void:
 	# 节流：每 RADAR_LOCK_INTERVAL 秒处理一次雷达候选
 	# 锁定时间 2-4s，0.2s 粒度对玩家不可感知，却把这段最重的循环从 60Hz 降到 5Hz
+	var accum_before := _radar_lock_accum
 	_radar_lock_accum += delta
+	_radar_clock += delta
+	# 外部（测试/重置）把窗口进度清零时按 accum 重新对齐已完成片数；片时钟保证重跑不重复累积。
+	_radar_slices_done = mini(_radar_slices_done, _radar_slices_due(accum_before))
+	var due := _radar_slices_due(_radar_lock_accum)
+	while _radar_slices_done < due:
+		_run_radar_slice(_radar_slices_done)
+		_radar_slices_done += 1
 	if _radar_lock_accum < RADAR_LOCK_INTERVAL:
 		return
-	PerfBuckets.mark_frame_event("radar_tick")
+	_finish_radar_window()
+
+
+## 窗口进度 accum 下应已执行的配对片数：片 k 在 accum ≥ INTERVAL×(k+0.5)/SLICES 时到期。
+func _radar_slices_due(accum: float) -> int:
+	if accum >= RADAR_LOCK_INTERVAL:
+		return RADAR_LOCK_SLICES
+	return clampi(int(floor(accum / RADAR_LOCK_INTERVAL * float(RADAR_LOCK_SLICES) + 0.5)),
+		0, RADAR_LOCK_SLICES)
+
+
+## 本窗口相位 shooter 的第 slice 片配对：shooter 序号按 (i / stride) % SLICES 轮转分片。
+func _run_radar_slice(slice: int) -> void:
+	PerfBuckets.mark_frame_event("radar_slice")
 	var _perf_t0: int = Time.get_ticks_usec()
 	var _perf_pairs: int = 0
-	var step_delta := _radar_lock_accum
-	_radar_lock_accum = 0.0
+	if slice == 0:
+		_sensor_stealth.begin_radar_tick()
+	var last_clock: float = _radar_slice_last_clock[slice]
+	var step_delta: float = RADAR_LOCK_INTERVAL if last_clock < 0.0 else _radar_clock - last_clock
+	_radar_slice_last_clock[slice] = _radar_clock
 	# 防御：单次累积超过 2× 周期视为异常大 delta（窗口失焦 / 物理帧暂停后恢复）。
 	# 不 clamp 会让 per_shooter_delta = step_delta×STRIDE 灌入数秒锁定进度。
 	# 阈值取 RADAR_LOCK_INTERVAL × 2 = 0.4s（正常 60Hz 下永远不到 0.2s+1 帧）
-	var max_step: float = RADAR_LOCK_INTERVAL * 2.0
-	if step_delta > max_step:
-		EventLogger.log_event("RADAR_TICK", "survivor",
-			"step_delta=%.2fs clamped to %.2fs（疑似失焦/暂停恢复）" % [step_delta, max_step])
-		step_delta = max_step
+	step_delta = minf(step_delta, RADAR_LOCK_INTERVAL * 2.0)
 
 	# 复用 _update_aircraft_list 已经构建的列表
 	var all_units := _all_combat_units_cache
-	_sensor_stealth.begin_radar_tick()
-
-	for unit in all_units:
-		# 守卫：cache 跨帧静态，单位可能在 _update_aircraft_list 之后被 queue_free
-		if not is_instance_valid(unit):
-			continue
-		unit.is_locked = false
-		unit.locked_by.clear()
-		unit.incoming_lock_progress = 0.0
 
 	# 子集轮转：普通单位维持 4 相；高密度高细节单位使用 16 相。
 	# 累积速率 × 各自 stride 抵消频率，保留锁定、发射与 ECM 语义。
 	var phase := _radar_lock_phase
-	_radar_lock_phase = (_radar_lock_phase + 1) % DENSE_BATTLE_RADAR_STRIDE
 
 	for i in range(all_units.size()):
 		var unit: CombatUnit = all_units[i]
@@ -4680,7 +4700,8 @@ func _update_radar_locks(delta: float) -> void:
 		var shooter_stride := RADAR_LOCK_STRIDE
 		if unit is Aircraft and int(unit.get_meta(&"dense_battle_sim_divisor", 1)) > 1:
 			shooter_stride = DENSE_BATTLE_RADAR_STRIDE
-		if i % shooter_stride != phase % shooter_stride:
+		if i % shooter_stride != phase % shooter_stride \
+				or floori(float(i) / float(shooter_stride)) % RADAR_LOCK_SLICES != slice:
 			continue
 		var per_shooter_delta := step_delta * float(shooter_stride)
 		# MountTarget 不当雷达发起方：它的 radar_targets 字典永远为空（挂点武器获取
@@ -4855,6 +4876,26 @@ func _update_radar_locks(delta: float) -> void:
 						and other is Aircraft:
 					unit._locked_target_seconds.erase(other.get_instance_id())
 
+	_enforce_player_missile_cap()
+	PerfBuckets.tick("radar_locks", Time.get_ticks_usec() - _perf_t0)
+	PerfBuckets.count("radar_pairs", _perf_pairs)
+
+
+## 窗口末步：失联收束、数据链/火控/围猎与玩家可见锁定状态汇总，均为 O(N)。
+func _finish_radar_window() -> void:
+	PerfBuckets.mark_frame_event("radar_tick")
+	var _perf_t0: int = Time.get_ticks_usec()
+	var step_delta := _radar_lock_accum
+	_radar_lock_accum = 0.0
+	_radar_slices_done = 0
+	_radar_lock_phase = (_radar_lock_phase + 1) % DENSE_BATTLE_RADAR_STRIDE
+	var max_step: float = RADAR_LOCK_INTERVAL * 2.0
+	if step_delta > max_step:
+		EventLogger.log_event("RADAR_TICK", "survivor",
+			"step_delta=%.2fs clamped to %.2fs（疑似失焦/暂停恢复）" % [step_delta, max_step])
+		step_delta = max_step
+	var all_units := _all_combat_units_cache
+
 	# tick 尾做一次 O(N) 失联收束；先于数据链合并，避免刚隐形的旧锁被重新传播。
 	_sensor_stealth.finish_radar_tick(step_delta, all_units)
 
@@ -4930,6 +4971,15 @@ func _update_radar_locks(delta: float) -> void:
 					if int(upgrade_stacks.get("sig_ea18g", 0)) > 0:
 						the_target.apply_status(StatusEffects.JAM, 3.0)
 
+	# 玩家可见锁定状态整体重建：清零紧贴汇总（配对片与上方收束均不读这三项），
+	# 窗口内其余物理步始终看到上一窗口的完整结果，不会出现中途清零的空窗。
+	for unit in all_units:
+		# 守卫：cache 跨帧静态，单位可能在 _update_aircraft_list 之后被 queue_free
+		if not is_instance_valid(unit):
+			continue
+		unit.is_locked = false
+		unit.locked_by.clear()
+		unit.incoming_lock_progress = 0.0
 	for unit in all_units:
 		if not is_instance_valid(unit):
 			continue
@@ -4951,7 +5001,15 @@ func _update_radar_locks(delta: float) -> void:
 			t.accumulate_player_lock_state(unit, progress,
 				unit.radar_targets[target] >= lock_time_val)
 
-	# 限制同时飞向玩家的导弹数量（最多 SurvivorSpawner.MAX_MISSILES_TARGETING_PLAYER）
+	_enforce_player_missile_cap()
+
+	# Perf 收尾：窗口收束耗时（配对片各自计入 radar_locks / radar_pairs）
+	PerfBuckets.tick("radar_locks", Time.get_ticks_usec() - _perf_t0)
+
+
+## 限制同时飞向玩家的导弹数量（最多 SurvivorSpawner.MAX_MISSILES_TARGETING_PLAYER）。
+## 每个配对片结束即执行：锁定越过阈值的同一物理步就被压回，武器不会在窗口末之前越限开火。
+func _enforce_player_missile_cap() -> void:
 	if player_aircraft and missile_manager:
 		var missiles_at_player := _count_missiles_targeting_player()
 		if missiles_at_player >= SurvivorSpawner.MAX_MISSILES_TARGETING_PLAYER:
@@ -4963,10 +5021,6 @@ func _update_radar_locks(delta: float) -> void:
 				if lock_val >= lock_time_val:
 					# 将锁定进度压回刚好低于锁定阈值，阻止发射但保持追踪
 					ac.radar_targets[player_aircraft] = lock_time_val - 0.5
-
-	# Perf 收尾：本 tick 总耗时 + 总评估对数（O(N²)/STRIDE 验证用）
-	PerfBuckets.tick("radar_locks", Time.get_ticks_usec() - _perf_t0)
-	PerfBuckets.count("radar_pairs", _perf_pairs)
 
 ## 云层采样缓存（0.3s 有效期 + 位置 >200px 自动失效）
 ## 雷达锁定循环对每个 HIGH 目标都会查云，节流后仍是 10+ 次/tick，缓存消除噪声采样开销

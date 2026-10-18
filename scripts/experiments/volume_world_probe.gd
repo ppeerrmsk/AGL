@@ -1,6 +1,7 @@
 extends Node3D
 ## 只读表现适配器；正式单位继续拥有物理、AI、伤害、装备与终态。
 const Factory := preload("res://scripts/experiments/volume_mesh_factory.gd")
+const DisplayPacing := preload("res://scripts/util/display_pacing.gd")
 const Airframes := preload("res://scripts/experiments/volume_aircraft_catalog.gd")
 const Mounts := preload("res://scripts/experiments/volume_aircraft_mount_catalog.gd")
 const GroundCatalog := preload("res://scripts/experiments/volume_ground_catalog.gd")
@@ -404,7 +405,11 @@ func _process(delta: float) -> void:
 		var opaque := ac.is_visible_in_tree() and not ac.sensor_hidden \
 			and ac._cloak_alpha >= 0.999 and ac._sensor_contact_visual_alpha >= 0.999 \
 			and ac.self_modulate.a >= 0.999 and ac.modulate.a >= 0.999 and not ac.is_hidden_from_player_sensors()
-		var screen_point := ac.get_global_transform_with_canvas().origin
+		# 三维机体按物理插值显示态摆放（与二维图标、镜头、标签同一相位）；每机只插值一次。
+		var display_xform := DisplayPacing.display_global_transform(ac)
+		var display_pos := display_xform.origin
+		var display_heading := ac.heading + DisplayPacing.rotation_offset_from(ac, display_xform)
+		var screen_point := ac.get_canvas_transform() * display_pos
 		# 画面剔除同样不读运行时身份；视口外单位保留正式逻辑和 HUD 权威，
 		# 但不为玩家/BOSS/指挥机额外提交看不见的三维几何。
 		var active := bodies_enabled and supported and opaque and view.has_point(screen_point)
@@ -447,9 +452,9 @@ func _process(delta: float) -> void:
 					kind = BODY_LOD2_ROUTE_PREFIX + airframe_key
 					last_lod2_bodies += 1
 		var bank := ac.bank_angle + ac._evade_roll_phase + ac._active_special_roll_visual
-		var basis := Basis(Vector3.UP, -ac.heading) * Basis(Vector3.FORWARD, bank)
+		var basis := Basis(Vector3.UP, -display_heading) * Basis(Vector3.FORWARD, bank)
 		basis = basis.scaled(Vector3.ONE * scale_value)
-		var transform := Transform3D(basis, world_point(ac.global_position, AIR_HEIGHT))
+		var transform := Transform3D(basis, world_point(display_pos, AIR_HEIGHT))
 		var anchor_height := AIR_HEIGHT
 		var carrier: Variant = ac.get_meta(&"parent_carrier") if ac.has_meta(&"parent_carrier") else null
 		if _ground_enabled and typeof(carrier) == TYPE_OBJECT and is_instance_valid(carrier) and carrier is LandCarrierUnit:
@@ -584,6 +589,10 @@ static func livery_ratio_for(body_color: Color, wing_color: Color) -> Color:
 
 func _sync_goose_mounts(ac: Aircraft, color: Color, include_detail: bool = true) -> void:
 	var mounts: Array = ac.get_meta(&"mg_mounts", [])
+	# 挂点与机体同用物理插值显示态，不在 tick 间与母机脱节；每机只插值一次。
+	var display_xform := DisplayPacing.display_global_transform(ac)
+	var display_pos := display_xform.origin
+	var display_heading := ac.heading + DisplayPacing.rotation_offset_from(ac, display_xform)
 	for i in mounts.size():
 		var raw: Variant = mounts[i]
 		if typeof(raw) != TYPE_OBJECT or not is_instance_valid(raw) or not (raw is WeaponMount):
@@ -596,12 +605,12 @@ func _sync_goose_mounts(ac: Aircraft, color: Color, include_detail: bool = true)
 		if not include_detail:
 			continue
 		var kind := "prop" if i < 8 else "vls"
-		var basis := Basis(Vector3.UP, -ac.heading)
-		var point := mount.world_position(ac.global_position, ac.heading)
+		var basis := Basis(Vector3.UP, -display_heading)
+		var point := mount.world_position(display_pos, display_heading)
 		var opacity := 1.0
 		if ac.is_destroyed:
 			basis = basis.scaled(Vector3.ONE * ac._destroy_visual_scale)
-			point = ac.global_position + (point - ac.global_position) * ac._destroy_visual_scale
+			point = display_pos + (point - display_pos) * ac._destroy_visual_scale
 			opacity = ac._destroy_visual_alpha
 		var transform := Transform3D(basis, world_point(point, AIR_HEIGHT + 8.0))
 		_submit(kind, transform, color, Color.TRANSPARENT, opacity)

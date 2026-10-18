@@ -8,9 +8,18 @@ extends Node
 ## 每 3 级的升级卡按真实点击路径选第 1 张；到时 quit，由 FrameProbe 写结果。
 ## 可选：AGL_FRAME_PROBE_AIRCRAFT=<PlayableAircraft 资源路径>，AGL_FRAME_PROBE_MORTAL=1（玩家可阵亡）。
 ## 注意：正式局会写 user:// 生涯档案；调用方负责在运行前后备份/还原 user 目录。
+## 可选：AGL_FRAME_PROBE_SHOTS=<每组帧数> 在 SHOT_TIMES_S 各拉近到 SHOT_ZOOMS 并连续抓取实际呈现帧
+## （frame_post_draw 读视口纹理，裁剪玩家机周边）到 res://tmp/map_visual_qa/frame_probe_shots/，
+## 供肉眼检查尾迹/标签/连线与插值后的机体是否脱节；抓帧会造成数十毫秒停顿，勿与帧时统计混用。
 
+const DisplayPacing := preload("res://scripts/util/display_pacing.gd")
 const DEFAULT_AIRCRAFT := "res://resources/playable_f15.tres"
 const UPGRADE_PICK_DELAY_MS := 700
+const SHOT_DIR := "res://tmp/map_visual_qa/frame_probe_shots"
+const SHOT_TIMES_S := [40.0, 80.0, 120.0]
+const SHOT_ZOOMS := [2.5, 1.2, 0.5]
+const SHOT_ZOOM_LEAD_S := 2.5
+const SHOT_CROP := Vector2i(960, 720)
 
 var play_seconds: float = 180.0
 var _phase := "menu"
@@ -26,11 +35,17 @@ var _evo_ready_ms: int = 0
 var _evo_closes := 0
 var _paused_since_ms: int = 0
 var _stuck_reported := false
+var _shot_count := 0
+var _shot_burst := -1
+var _shot_frames_left := 0
+var _shot_saved_zoom := -1.0
+var _shot_mode: WeakRef = null
 
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	play_seconds = maxf(10.0, float(OS.get_environment("AGL_FRAME_PROBE_AUTOPLAY")))
+	_shot_count = maxi(0, int(OS.get_environment("AGL_FRAME_PROBE_SHOTS")))
 	_phase_started_ms = Time.get_ticks_msec()
 	# 首局教程会等待玩家操作；自动游玩不演示教程（user:// 由调用方备份还原）。
 	SurvivorTutorial.mark_done()
@@ -127,6 +142,8 @@ func _drive(mode: Node, now: int) -> void:
 			_boundary_ready_ms = 0
 	else:
 		_boundary_ready_ms = 0
+	if _shot_count > 0:
+		_drive_shots(mode, (now - _play_started_ms) / 1000.0)
 	if now - _last_heartbeat_ms >= 10000:
 		_last_heartbeat_ms = now
 		var pp: Vector2 = (player as Node2D).global_position if player != null and is_instance_valid(player) else Vector2.ZERO
@@ -139,6 +156,64 @@ func _drive(mode: Node, now: int) -> void:
 		_set_phase("done")
 		EventLogger.dump_to_file()
 		get_tree().quit(0)
+
+
+## 截帧调度：提前 SHOT_ZOOM_LEAD_S 秒把镜头拉到目标缩放，到点后连续 _shot_count 个呈现帧截图。
+func _drive_shots(mode: Node, play_s: float) -> void:
+	if _shot_frames_left > 0:
+		return
+	var next := _shot_burst + 1
+	if next >= SHOT_TIMES_S.size():
+		return
+	var cam_ctrl: Variant = mode.get("_camera_ctrl")
+	if cam_ctrl == null or not is_instance_valid(cam_ctrl):
+		return
+	if play_s >= float(SHOT_TIMES_S[next]) - SHOT_ZOOM_LEAD_S and _shot_saved_zoom < 0.0:
+		_shot_saved_zoom = float(cam_ctrl.get("target_zoom"))
+		cam_ctrl.set("target_zoom", float(SHOT_ZOOMS[next]))
+	if play_s >= float(SHOT_TIMES_S[next]) and not get_tree().paused:
+		_shot_burst = next
+		_shot_frames_left = _shot_count
+		_shot_mode = weakref(mode)
+		if not RenderingServer.frame_post_draw.is_connected(_on_shot_post_draw):
+			RenderingServer.frame_post_draw.connect(_on_shot_post_draw)
+
+
+func _on_shot_post_draw() -> void:
+	var mode: Variant = _shot_mode.get_ref() if _shot_mode != null else null
+	if _shot_frames_left <= 0 or typeof(mode) != TYPE_OBJECT or not is_instance_valid(mode):
+		_finish_shot_burst(mode)
+		return
+	var player: Variant = mode.get("player_aircraft")
+	var viewport := get_viewport()
+	var image := viewport.get_texture().get_image()
+	if image != null and typeof(player) == TYPE_OBJECT and is_instance_valid(player):
+		var player_screen := DisplayPacing.display_screen_origin(player as Node2D)
+		var screen: Vector2 = viewport.get_final_transform() * player_screen
+		var crop := Rect2i(Vector2i(screen) - SHOT_CROP / 2, SHOT_CROP).intersection(
+			Rect2i(Vector2i.ZERO, image.get_size()))
+		if crop.has_area():
+			image = image.get_region(crop)
+		DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(SHOT_DIR))
+		var tag := "on" if DisplayPacing.interpolation_enabled() else "off"
+		var index := _shot_count - _shot_frames_left
+		image.save_png("%s/interp_%s_b%d_z%.1f_f%d_frac%.2f.png" % [SHOT_DIR, tag, _shot_burst,
+			float(SHOT_ZOOMS[_shot_burst]), index, Engine.get_physics_interpolation_fraction()])
+	_shot_frames_left -= 1
+	if _shot_frames_left <= 0:
+		_finish_shot_burst(mode)
+
+
+func _finish_shot_burst(mode: Variant) -> void:
+	_shot_frames_left = 0
+	if RenderingServer.frame_post_draw.is_connected(_on_shot_post_draw):
+		RenderingServer.frame_post_draw.disconnect(_on_shot_post_draw)
+	if typeof(mode) == TYPE_OBJECT and is_instance_valid(mode) and _shot_saved_zoom > 0.0:
+		var cam_ctrl: Variant = mode.get("_camera_ctrl")
+		if cam_ctrl != null and is_instance_valid(cam_ctrl):
+			cam_ctrl.set("target_zoom", _shot_saved_zoom)
+	_shot_saved_zoom = -1.0
+	printerr("[Autoplay] shot burst %d saved" % _shot_burst)
 
 
 func _set_phase(next: String) -> void:

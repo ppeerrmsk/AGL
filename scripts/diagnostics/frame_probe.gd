@@ -16,6 +16,7 @@ extends Node
 ## 慢帧另存明细：新增节点类别、PerfBuckets 本帧增量、计数器增量。
 ## 退出时写 res://bench/results/frame_probe_<tag>_<utc>.csv 与 .hitches.jsonl。
 
+const DisplayPacing := preload("res://scripts/util/display_pacing.gd")
 const EDGE_PRIORITY := 1_000_000_000
 const DETAIL_THRESHOLD_US := 16_700
 const MAX_DETAIL_FRAMES := 600
@@ -54,7 +55,10 @@ var _pb_frames_in_window: int = 0
 var _counters_base: PackedFloat64Array = PackedFloat64Array()
 
 # ── 显示态（post_draw 时采样，即本帧实际呈现的值）──
+## ply_wx/wy/sx/sy 是玩家机【物理插值后的显示位置】（未插值时等于 global_position）；
+## 物理位置另记在行尾 ply_px/ply_py，连同插值分数 interp_f 与开关 interp_on。
 var _disp := PackedFloat64Array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+var _disp_phys := PackedFloat64Array([0, 0, 0, 0])
 
 # ── 逐帧列（结束时写 CSV）──
 var _rows: Array[PackedFloat64Array] = []
@@ -75,7 +79,8 @@ const COUNTER_NAMES := ["objects", "resources", "nodes", "orphans", "mem_static"
 const CSV_HEADER := "frame,t_ms,total_ms,steps,phys_script,phys_engine,proc_script,pre_render,render,post," \
 	+ "added,removed,objects,resources,nodes,orphans,mem_static_mb,tex_mb,buf_mb,vid_mb," \
 	+ "canvas_draws,canvas_items,draws3d,prims3d,vp_cpu,vp_gpu,sub_cpu,sub_gpu," \
-	+ "cam_x,cam_y,zoom,ply_wx,ply_wy,ply_sx,ply_sy,frame_setup,paused,phys_signal,proc_signal"
+	+ "cam_x,cam_y,zoom,ply_wx,ply_wy,ply_sx,ply_sy,frame_setup,paused,phys_signal,proc_signal," \
+	+ "ply_px,ply_py,interp_f,interp_on"
 
 
 func _ready() -> void:
@@ -228,6 +233,7 @@ func _finish_frame(t: int) -> void:
 	row.append(1.0 if get_tree().paused else 0.0)
 	row.append(_acc[Gap.PHYS_SIGNAL] / 1000.0)
 	row.append(_acc[Gap.PROC_SIGNAL] / 1000.0)
+	row.append_array(_disp_phys)
 	_rows.append(row)
 	if total >= DETAIL_THRESHOLD_US and _details.size() < MAX_DETAIL_FRAMES:
 		var counter_delta := {}
@@ -310,18 +316,28 @@ func _sample_display() -> void:
 	var wy := 0.0
 	var sx := 0.0
 	var sy := 0.0
+	var px := 0.0
+	var py := 0.0
 	if player != null:
-		var wp: Vector2 = (player as Node2D).global_position
+		# 本帧实际呈现的是插值显示态；post_draw 仍处于同一引擎迭代，插值分数未变。
+		var wp: Vector2 = DisplayPacing.display_origin(player as Node2D)
 		var sp: Vector2 = ct * wp
+		var phys: Vector2 = (player as Node2D).global_position
 		wx = wp.x
 		wy = wp.y
 		sx = sp.x
 		sy = sp.y
+		px = phys.x
+		py = phys.y
 	_disp[11] = wx
 	_disp[12] = wy
 	_disp[13] = sx
 	_disp[14] = sy
 	_disp[15] = RenderingServer.get_frame_setup_time_cpu()
+	_disp_phys[0] = px
+	_disp_phys[1] = py
+	_disp_phys[2] = Engine.get_physics_interpolation_fraction()
+	_disp_phys[3] = 1.0 if DisplayPacing.interpolation_enabled() else 0.0
 
 
 func _scene_name() -> String:
@@ -379,6 +395,8 @@ func dump() -> void:
 			"refresh_hz": DisplayServer.screen_get_refresh_rate(),
 			"max_fps": Engine.max_fps, "physics_tps": Engine.physics_ticks_per_second,
 			"max_physics_steps": Engine.max_physics_steps_per_frame,
+			"physics_interpolation": DisplayPacing.interpolation_enabled(),
+			"physics_jitter_fix": Engine.physics_jitter_fix,
 			"window": DisplayServer.window_get_size(), "frames": _rows.size(),
 		}))
 		for d in _details:

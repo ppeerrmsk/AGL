@@ -3,7 +3,7 @@ id: combat-entity-volume-prototype
 kind: system
 status: approved
 schema_version: 1
-spec_version: 20
+spec_version: 21
 owner: AGL
 depends_on: [systems/aircraft-top-view-silhouettes, systems/battlefield-visual-scale, systems/inrun-weapon-inventory, systems/ui-design-guidelines, systems/runtime-validation-workflow]
 reconstruction_complete: false
@@ -136,7 +136,7 @@ reconstruction_complete: false
 
 - 正式候选在首个渲染帧前建立目录内全部机型的 LOD0/LOD1/LOD2 与挂载共享只读网格路由，当前动态审计为 71 个 LOD0 机体 + 71 个 LOD1 机体 + 71 个 LOD2 机体 + 12 个挂载类型；`MultiMeshInstance3D` 批次节点只在对应类型/档位第一次有真实实例提交时惰性创建，离场后回到 `visible_instance_count=0` 并隐藏。该方案避免首次切档建网格尖峰和空批次常驻 3D 剔除，不生成战斗实体、不改变火力，也不靠隐藏单位通过性能门；数量始终由目录动态重算，不把当前路由数冻结为永久合同。
 - 正式飞机层使用一个透明 SubViewport，只渲染三维飞机/挂载；内部尺寸匹配主窗口实际输出像素（包含窗口拉伸），使用与 F6 相同的 2× MSAA；合成采用线性采样，不再低分辨率放大，原地图、天气、目标线、状态栏与 HUD 始终以原生二维分辨率绘制。机身以逐顶点受光保留低模折面；同一批次用机翼顶点 alpha 掩码和每实例 custom data 恢复 `wing_color`，没有副色时比值为 1、保持原 `icon_color` 路径；挂载/旋翼以无光照顶点色保证小尺寸可读。正式飞机层不开三维地表和阴影。
-- 正式透明层每显示帧在相机更新之后消费当前 Aircraft 权威姿态，固定 `UPDATE_ALWAYS`；不再使用 60 Hz 提交节流、physics 错相或压力切换，避免飞机与二维场景错帧。物理/AI 更新频率保持不变，不伪称增加了物理插值。
+- 正式透明层每显示帧在相机更新之后消费 Aircraft 的物理插值显示态（位置与航向，见 [display-pacing](display-pacing.md)），固定 `UPDATE_ALWAYS`；不再使用 60 Hz 提交节流、physics 错相或压力切换，避免飞机与二维场景、镜头和状态栏错帧。物理/AI 仍为 60 Hz；插值只作用于呈现，滚转角仍按物理步更新。
 - 真实击坠后继续使用死亡前的同一机体/涂装/最后一档 LOD；消费正式坠毁姿态、缩放与透明度直到释放。渐隐只切换共享透明材质，复用原 ArrayMesh；完全透明也不闪回 PNG。普通挂载与旋翼跟随机体缩放/淡出，传感器与隐身的保密条件保持不变。
 - AH-64 / CH-47 的四视图源网格保留完整静态桨叶；LOD0 真实演员路径使用无桨叶机身，并将 AH-64 主/尾旋翼、CH-47 前/后旋翼提交到一个共享动态旋翼批次。进入 LOD1/LOD2 后改为由完整制作源提取、包含桨盘跨度的单一静态轮廓，不再提交动态旋翼；转速只驱动 LOD0 显示 transform，不成为飞行或命中状态。
 - 共享挂载目录为机炮、主/副导弹、火箭、热诱弹盒、漂浮雷、忠诚僚机舱、电磁炮、激光、ESM 与其它已登记外露模块预留互不重叠的规范槽位。挂件只读 `AircraftParams`、正式库存、装填、释放 CD、充能、光束与过热状态；弹体耗尽时消失，硬件本体保留并以局部状态色反馈，不改变机身涂装或阵营识别色。
@@ -381,6 +381,7 @@ reconstruction_complete: false
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-10-18 | 21 | 正式透明层改为消费物理插值显示态（位置 + 航向偏移、母鹅挂点同源），与二维插值机体、镜头跟随、状态栏同相位；物理/AI 频率与滚转角更新频率不变。 |
 | 2026-09-08 | 19 | 按用户授权独立接入已完成地面三维模型与两档 LOD，保留同期正式地图改动；本批不增加 AO 后处理或额外视口，不修改海上航母拦截。 |
 | 2026-09-06 | 18 | 用户要求正式效果不得低于 F6：恢复原生像素与 2× MSAA，去掉提交节流/physics 错相，逐显示帧消费同拍相机；真实击坠保留原网格/涂装/LOD，通过共享透明材质完成原坠毁缩小与淡出。新增正式/F6 对照和真实伤害 Visual 门，旧低分辨率性能结果不得作为新版本验收。 |
 | 2026-09-06 | 17 | 正式 C2 复验首轮出现 1 个 33 ms 物理追帧并按硬门失败；第二轮进一步暴露气氛战场 typed 数组把已释放飞机传入强类型 helper，触发运行时错误门并卡到 210 秒。清理与目标有效性边界改为 `Variant → TYPE_OBJECT → is_instance_valid → cast`，新增真实 queue_free 后清理并跨下一指派 tick 的生命周期案例；正式生命周期 20/20、gauntlet 86/86，随后 C2 专项以最慢 66.59 FPS、`<60=0`、LOD1/LOD2 均真实提交通过。 |

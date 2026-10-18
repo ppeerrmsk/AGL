@@ -29,6 +29,9 @@ var _tactics := "gladiator"                ## 队级默认风格（elements 可�
 var _elements: Array = []                  ## 混编分段（tier §3.7 混编条款；空 = 全队同型同风格）
 var _theme := ""                           ## 队级主题 id；空值保持既有行为
 var _theme_controller: RefCounted = null
+## 编成参数模板（base/params/gun/flare .tres）常驻：模板只读、生成时照旧 duplicate；
+## 无人持有时 load() 每架都会重新解析整份 .tres（刷怪帧 3~5ms/架）。
+static var _template_cache: Dictionary = {}
 
 func _init(pid: String = "marathon") -> void:
 	profile_id = pid
@@ -130,7 +133,7 @@ func _configure_spawn(ac: Aircraft, i: int, _sq: Squad, _ai: AIController) -> vo
 	var params_res := String(e.get("params_res", ""))
 	if params_res != "":
 		base_res = params_res
-		var loaded := load(params_res) as AircraftParams
+		var loaded := _template(params_res) as AircraftParams
 		if loaded != null:
 			ac.params = _duplicate_aircraft_params(loaded)
 	var p: AircraftParams = ac.params
@@ -168,7 +171,7 @@ func _configure_spawn(ac: Aircraft, i: int, _sq: Squad, _ai: AIController) -> vo
 			p.missile.max_count = mcount
 			ac.enable_missile_reload = false
 		else:
-			var base_p: AircraftParams = load(base_res)
+			var base_p: AircraftParams = _template(base_res)
 			if base_p != null and base_p.missile != null:
 				p.missile.max_count = base_p.missile.max_count
 		ac.missiles_remaining = p.missile.max_count
@@ -176,7 +179,7 @@ func _configure_spawn(ac: Aircraft, i: int, _sq: Squad, _ai: AIController) -> vo
 	#    骑士无炮豁免（纯导弹，火力表达在齐射节奏）──
 	match gun_mode:
 		"ace":
-			p.gun = load(gun_res).duplicate(true)
+			p.gun = _template(gun_res).duplicate(true)
 			ac.ammo = p.gun.max_ammo
 		"none":
 			p.gun = null
@@ -189,7 +192,7 @@ func _configure_spawn(ac: Aircraft, i: int, _sq: Squad, _ai: AIController) -> vo
 		p.flare = null
 		ac.flares_remaining = 0
 	else:
-		p.flare = load(SUPPORT_FLARE_RES).duplicate(true)
+		p.flare = _template(SUPPORT_FLARE_RES).duplicate(true)
 		p.flare.max_flares = flares
 		ac.flares_remaining = p.flare.max_flares
 	ac.enable_flare_reload = false
@@ -216,6 +219,38 @@ func _configure_spawn(ac: Aircraft, i: int, _sq: Squad, _ai: AIController) -> vo
 	p.icon_color = AceSquadProfiles.color(profile_id)
 	if i == 0 and _theme != "":
 		_theme_controller = ThemeControllerScript.new(self, _theme, _player)
+
+
+## 常驻只读模板；路径为空或加载失败返回 null（与原 load() 语义一致，不缓存失败）。
+static func _template(path: String) -> Resource:
+	var cached: Variant = _template_cache.get(path)
+	if cached != null:
+		return cached as Resource
+	if path.is_empty():
+		return null
+	var res := load(path)
+	if res != null:
+		_template_cache[path] = res
+	return res
+
+
+## Loading 预热：全部王牌支援 profile（含混编 element）引用的模板一次性加载并常驻。
+static func prewarm_templates() -> int:
+	var paths: Array[String] = [SUPPORT_FLARE_RES, ACE_GUN_RES, SU35_BASE_RES]
+	for pid: String in AceSquadProfiles.PROFILES:
+		var prof: Dictionary = AceSquadProfiles.get_profile(pid)
+		for field in ["base_res", "gun_res"]:
+			var path := String(prof.get(field, ""))
+			if path != "" and path not in paths:
+				paths.append(path)
+		for e: Dictionary in prof.get("elements", []):
+			for field in ["base_res", "gun_res", "params_res"]:
+				var path := String(e.get(field, ""))
+				if path != "" and path not in paths:
+					paths.append(path)
+	for path in paths:
+		_template(path)
+	return paths.size()
 
 
 static func _duplicate_aircraft_params(source: AircraftParams) -> AircraftParams:

@@ -70,6 +70,10 @@ var _last_window_seconds: float = 1.0
 ## 全局开关：关掉之后 tick/count 立即 return，开销可忽略
 var enabled: bool = true
 
+## 本渲染帧已执行的物理步数（_process 起点结算；见 frame_has_physics_step）
+var physics_steps_this_frame: int = 0
+var _physics_frames_mark: int = 0
+
 # ── F3 运行时性能面板 ──
 # 只在面板打开时记录固定长度帧历史，并启用昂贵的细分埋点；关闭后不分配、不排序。
 var runtime_panel_enabled: bool = false
@@ -466,8 +470,19 @@ func _trace_load_snapshot() -> Dictionary:
 	}
 
 
+## 本渲染帧是否含物理步（物理步帧主线程已付出整步脚本物理，无步帧尚有余量）。
+## 可延后的主线程重活（地图完成件领取/纹理上传等）据此择帧；仅在 _process 阶段有意义。
+## 暂停时本节点不处理、值会停留，调用方须自行排除暂停帧。
+func frame_has_physics_step() -> bool:
+	return physics_steps_this_frame > 0
+
+
 ## 每帧推进窗口；满 1 秒把累加值快照
 func _process(delta: float) -> void:
+	# AutoLoad 先于场景节点处理：本帧场景 _process 读到的是本迭代已执行的物理步数。
+	var physics_frames := Engine.get_physics_frames()
+	physics_steps_this_frame = physics_frames - _physics_frames_mark
+	_physics_frames_mark = physics_frames
 	_window_elapsed += delta
 	_frames_in_window += 1
 	if _window_elapsed >= WINDOW_S:

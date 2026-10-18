@@ -221,14 +221,14 @@ BOSS 只识别 JAM，其它状态仅对 Aircraft 生效"。但 NavalUnit 实现�
 三处：`max_climb` / `gain` / `smooth_rate`。其中 `max_climb` 被放大到 500+ m/s 后，PE↔KE
 公式 `gravity_effect = GRAVITY · vs / spd · PE_KE_BOOST(2.5)` 反向抽 spd，每秒 ≈ 110 m/s
 速度损失，加力推力（≈ 17 m/s²）完全顶不住。
-[scripts/aircraft/aircraft_physics.gd:437 update_altitude](../../scripts/aircraft/aircraft_physics.gd:336)
-× [scripts/aircraft/aircraft_physics.gd:430 gravity_effect](../../scripts/aircraft/aircraft_physics.gd:328)
+[scripts/aircraft/aircraft_physics.gd:448 update_altitude](../../scripts/aircraft/aircraft_physics.gd:336)
+× [scripts/aircraft/aircraft_physics.gd:441 gravity_effect](../../scripts/aircraft/aircraft_physics.gd:328)
 两段都涉及 vs，缺一个出血点。
 
 **踩到次数**：2（这次 + 用户记忆中至少一次同样症状）
 
 **解法**（2026-05-12）：在 [aircraft_physics.gd:322](../../scripts/aircraft/aircraft_physics.gd:322)
-和 [aircraft_physics.gd:1553 step_altitude](../../scripts/aircraft/aircraft_physics.gd:1318)
+和 [aircraft_physics.gd:1570 step_altitude](../../scripts/aircraft/aircraft_physics.gd:1318)
 两处把 `max_climb` 改为 `base_climb * minf(alt_mult, 1.3)`。`gain` / `smooth_rate` 仍由
 `alt_mult` 全幅放大（响应度保留），物理顶速最多 +30%（PE↔KE 损耗回到可承受档）。
 
@@ -1256,6 +1256,21 @@ R115在派生地表层保留准备峰和其快照，更新和外部源退役只�
 **解法状态**：保留31片有效产物与错误历史声明，新增以权威grid/spool/routes/ownership交集和摘要绑定为前提的完整256格清单。明确区分已制作31片、待补173个有建筑片区和52个真实空格；旧边缘工具不得再输出full_source_inventory=true。最终来源闭合必须核准确的256格身份集合，不能只比较已有文件数量、目录命名或本批次自身首尾一致。新的完整保护审计已闭合，补制及实际引擎验收仍在进行，未宣称全图交付。见[当前推进记录](../planning/tokyo-resident-foundation-2026-10-01.md)。
 
 **踩到次数**：1（本次确定性范围反例，历史用户报告不重复计数）。
+
+## SEAM-053 · 物理插值的“移动回调”与“插值根”契约不由节点自己声明
+
+**症状与根因**：2026-10-18 开启 2D 物理插值（白名单）时，`volume_world` 的瓦片可见性两项只在插值开启时失败：
+子视口内的 Camera2D 被引擎改走物理插值路径（打印 `Camera2D overridden to physics process mode`），
+`force_update_scroll` 不再立即刷新画布变换。Godot 4.7 的 SubViewport/Window 是独立插值根，不继承根节点 `OFF`；
+三维合成层的 Node3D 同样会被 FTI 插值。另一类陷阱是“在 `_process` 改变换”的节点（镜头、尾迹、UI、VFX）
+一旦继承插值就会按 tick 错误插值，而节点本身没有任何声明告诉你它在哪个回调里移动。
+
+**解法状态**：`util/display_pacing.gd` 采用白名单——根节点与每个入树 Viewport 强制 `OFF`，只有确认只在
+`_physics_process` 移动的 Aircraft/Missile 显式 `ON`；在 `_process` 读位置的消费方改读显示态。新增需要平滑的移动
+单位时，必须同时确认其移动回调、加入白名单并检查其子节点是否在 `_process` 改变换。见
+[display-pacing](../specs/systems/display-pacing.md)。
+
+**踩到次数**：1（2026-10-18 focused A/B 反例）。
 
 ## 维护约定
 

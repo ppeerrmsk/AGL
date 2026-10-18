@@ -165,6 +165,8 @@ func _setup_geometry() -> void:
 	_native_surface=Shader.new()
 	_native_surface.code=preload("res://scripts/rendering/tokyo_hlod_surface.gd").native_code()
 	_stream=Stream.new()
+	# 正式地图流：完成件领取/纹理上传优先落到无物理步帧（有界延后，见 TokyoCellStream）。
+	_stream.light_frame_balance=true
 	if _native is GridNative:
 		_native.subset_stream=weakref(_stream)
 		_native.subset_geometry=_geometry
@@ -1155,7 +1157,7 @@ func _request_target(keep_current: bool) -> void:
 	var priority_meshes := meshes.duplicate()
 	var prefetch_meshes := PackedStringArray()
 	_stream.touch_display_resources(meshes,textures)
-	if _stream.visible_io_first or _stream.fair_image_slot or _stream.visible_finalize_first:
+	if _stream.visible_io_first or _stream.fair_image_slot or _stream.visible_finalize_first or _stream.light_frame_balance:
 		_stream.visible_meshes=_stream._paths(meshes)
 		_stream.visible_images=textures.duplicate()
 	# 载入与战场始终同一池/同一固定集，不能进入游戏后立即淘汰预载资源。

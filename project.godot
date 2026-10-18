@@ -50,7 +50,8 @@ locale/fallback="zh"
 
 [physics]
 
-common/max_physics_steps_per_frame=3
+common/physics_interpolation=true
+common/max_physics_steps_per_frame=2
 3d/physics_engine="Jolt Physics"
 
 [rendering]
