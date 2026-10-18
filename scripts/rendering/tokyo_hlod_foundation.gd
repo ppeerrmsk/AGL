@@ -54,7 +54,7 @@ static func catalog_at(plan_value: Dictionary, scale: float, requested: int = -1
 	return -1
 
 
-static func select(catalog: Dictionary, entries: Array[Dictionary], center: Vector2, scale: float, angle: float, size: Vector2, budget: int) -> Dictionary:
+static func select(catalog: Dictionary, entries: Array[Dictionary], center: Vector2, scale: float, angle: float, size: Vector2, budget: int, work: Variant = null) -> Dictionary:
 	if not is_finite(scale) or scale<LOWER or scale>float(catalog.max_scale) or not is_finite(angle) \
 		or not center.is_finite() or not size.is_finite() or size.x<=0 or size.y<=0 or budget<=0: return {}
 	var started := Time.get_ticks_usec()
@@ -80,7 +80,7 @@ static func select(catalog: Dictionary, entries: Array[Dictionary], center: Vect
 		selected_faces+=int(catalog.rows[entry.key].faces)
 		# 后续只能增加页数/面数；已必然超原门时无需扫描其余固定页。
 		if keys.size()>16 or selected_faces>240000: return {}
-	var charged := Contract.charges(catalog,keys)
+	var charged := Contract.charges(catalog,keys,work)
 	if keys.is_empty() or charged.is_empty() or not charged.within_budget or charged.total_bytes>budget \
 		or not Handoff.covers_view(catalog,{"keys":keys},view.intersection(catalog.bounds)): return {}
 	return {"entries":selected,"keys":keys,"charges":charged,"triangles":charged.faces,

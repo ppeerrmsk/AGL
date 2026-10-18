@@ -52,10 +52,10 @@ func _physics_process(delta: float) -> void:
 			_detach_velocity_px_s *= exp(-1.2 * delta)
 			_detach_spin_rad_s *= exp(-0.8 * delta)
 		_update_destroy(delta)
-		queue_redraw()
+		FrameRedraw.request(self)
 		return
 	StatusEffects.tick(self, delta)
-	queue_redraw()
+	FrameRedraw.request(self)
 
 
 func set_train_pose(world_position: Vector2, world_heading: float,
@@ -67,7 +67,7 @@ func set_train_pose(world_position: Vector2, world_heading: float,
 	rotation = world_heading
 	speed = world_speed
 	_bogie_half_span_px = bogie_half_span_px
-	queue_redraw()
+	FrameRedraw.request(self)
 
 
 func set_targetable(value: bool) -> void:
@@ -76,12 +76,12 @@ func set_targetable(value: bool) -> void:
 	if not targetable:
 		is_locked = false
 		incoming_lock_progress = 0.0
-	queue_redraw()
+	FrameRedraw.request(self)
 
 
 func set_damageable(value: bool) -> void:
 	damageable = value and targetable and not is_destroyed
-	queue_redraw()
+	FrameRedraw.request(self)
 
 
 func can_accept_new_hit(_kind: String) -> bool:
@@ -118,7 +118,7 @@ func _deflect_hit() -> void:
 	_last_deflect_msec = now
 	EventLogger.log_event("BOSS", "ArmoredTrainArmorDeflect",
 		"segment=%d active_tail=%d" % [segment_index + 1, _manager_active_tail() + 1])
-	queue_redraw()
+	FrameRedraw.request(self)
 
 
 func _start_destroy() -> void:

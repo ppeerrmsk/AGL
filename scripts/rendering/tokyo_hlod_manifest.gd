@@ -6,11 +6,31 @@ static func resolve_native_page_limit(bench: bool, candidate: String) -> int:
 	# 仅隔离测试可扩大原生切面；环境变量不能改变F5正式合同。
 	return 32 if bench and candidate=="32" else 16
 
-static func native_page_limit() -> int:
+static func native_page_limit(work: Variant = null) -> int:
+	if background_selection(work):
+		var limit: Variant=work.get("native_page_limit",16)
+		return int(limit) if typeof(limit)==TYPE_INT and limit in [16,32] else 0
 	var bench := false
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--bench="): bench=true
 	return resolve_native_page_limit(bench,OS.get_environment("AGL_TOKYO_NATIVE_PAGE_LIMIT"))
+
+
+static func background_selection(work: Variant) -> bool:
+	return work is Dictionary and work.get("background",false)==true
+
+
+static func display_limit(work: Variant = null) -> int:
+	# 后台使用加载期确定的预算，不读取环境或触碰进程级容量缓存。
+	if background_selection(work):
+		var limit: Variant=work.get("display_limit",-1)
+		return int(limit) if typeof(limit)==TYPE_INT and limit>0 and limit<=192*1024*1024 else -1
+	return preload("res://scripts/rendering/tokyo_hlod_cache_policy.gd").display_limit()
+
+
+static func selection_context_valid(work: Dictionary) -> bool:
+	return background_selection(work) and typeof(work.get("epoch"))==TYPE_INT and int(work.epoch)>=0 \
+		and display_limit(work)>0 and native_page_limit(work)>0
 
 ## HLOD的新身份/预算适配；只读纯值，不借规范目录coverage，不同步载入全部贴图。
 const ORIGIN := Vector2(-16300,-15700)
@@ -18,6 +38,7 @@ const SOURCE_COUNT := 189
 const Boundary := preload("res://scripts/rendering/tokyo_boundary_extent.gd")
 const Cut := preload("res://scripts/experiments/tokyo_spatial_cut.gd")
 const MapProjection := preload("res://scripts/experiments/volume_projection.gd")
+const PreparedCatalog := preload("res://scripts/rendering/tokyo_prepared_catalog.gd")
 
 
 static func integer(value: Variant, low: int = 0, high: int = 1099511627776) -> bool:
@@ -193,12 +214,18 @@ static func tree(rows: Dictionary, depth: int, id_value: int) -> Dictionary:
 		"bytes":int(row.native_geometry.bytes)+int(row.native_texture.three_copy_charge)+288}
 	if not row.children.is_empty():
 		var children: Array[Dictionary] = []
-		for child in row.children: children.append(tree(rows,depth+1,int(child)))
+		for child in row.children:
+			var branch := tree(rows,depth+1,int(child))
+			children.append(branch)
+			box_value=box_value.merge(branch.coverage_box)
 		result["children"]=children
+	# 覆盖检查的父包络包含所有子档楼高；不能用简化父网格剔除更高的可见子楼。
+	# 选择/绘制仍消费原boxes，资源、细节和费用完全不变。
+	result["coverage_box"]=box_value
 	return result
 
 
-static func charges(catalog: Dictionary, keys: PackedStringArray) -> Dictionary:
+static func charges(catalog: Dictionary, keys: PackedStringArray, work: Variant = null) -> Dictionary:
 	if keys.size()>16 or not catalog.get("rows") is Dictionary: return {}
 	var meshes: Dictionary = {}
 	var images: Dictionary = {}
@@ -224,13 +251,14 @@ static func charges(catalog: Dictionary, keys: PackedStringArray) -> Dictionary:
 	var ground_bytes := keys.size()*288
 	return {"geometry_bytes":mesh_bytes,"texture_charge":texture_bytes,"ground_bytes":ground_bytes,
 		"total_bytes":mesh_bytes+texture_bytes+ground_bytes,"faces":faces,"pages":keys.size(),
-		"within_budget":faces<=240000 and mesh_bytes+texture_bytes+ground_bytes<=preload("res://scripts/rendering/tokyo_hlod_cache_policy.gd").display_limit(),"coverage_verified":false}
+		"within_budget":faces<=240000 and mesh_bytes+texture_bytes+ground_bytes<=display_limit(work),"coverage_verified":false}
 
 
 static func select(catalog: Dictionary, center: Vector2, scale: float, rotation: float, size: Vector2 = Vector2(1600,900), allow_finer: bool = false, byte_budget: int = 96*1024*1024, work: Variant = null, small_uploads: bool = false) -> Dictionary:
 	if not catalog.get("roots") is Array or not is_finite(scale) or not is_finite(rotation) \
 		or not center.is_finite() or not size.is_finite() or size.x<=0 or size.y<=0 \
-		or byte_budget<0 or byte_budget>preload("res://scripts/rendering/tokyo_hlod_cache_policy.gd").display_limit() or scale<=0 or (not allow_finer and scale<float(catalog.get("min_scale",INF))) or scale>float(catalog.get("max_scale",-INF)): return {}
+		or byte_budget<0 or byte_budget>display_limit(work) or scale<=0 or (not allow_finer and scale<float(catalog.get("min_scale",INF))) or scale>float(catalog.get("max_scale",-INF)): return {}
+	var background := background_selection(work)
 	var canvas := Transform2D(rotation,Vector2.ZERO).scaled(Vector2.ONE*scale)
 	canvas.origin=size*0.5-canvas*center
 	var inverse := canvas.affine_inverse()
@@ -245,9 +273,10 @@ static func select(catalog: Dictionary, center: Vector2, scale: float, rotation:
 	var key: Array = [identity.get("path",""),identity.get("sha256",""),center,scale,rotation,size,allow_finer]
 	# 半池失败后会穿插多个保护带，再回到同一个全池查询；单槽缓存会重复求树。
 	# 只保留本帧最多16份纯值候选，预算仍逐次pick，绝不跨帧复用可见性。
-	if cacheable and work.get("frame",-1)!=Engine.get_process_frames():
+	var epoch := int(work.get("epoch",-1)) if background else Engine.get_process_frames()
+	if cacheable and work.get("frame",-1)!=epoch:
 		work["solutions"]={}
-		work["frame"]=Engine.get_process_frames()
+		work["frame"]=epoch
 	var solutions: Dictionary=work.get("solutions",{}) if cacheable else {}
 	var reused: bool = cacheable and solutions.has(key)
 	var solved: Dictionary
@@ -260,8 +289,8 @@ static func select(catalog: Dictionary, center: Vector2, scale: float, rotation:
 		if catalog.get("mixed_scales",false):
 			var qualification_scale := minf(scale/PREFETCH_RATIO,float(catalog.max_scale)) if allow_finer else scale
 			roots=qualified_roots(catalog,qualification_scale,work)
-		solved=Cut.solve(roots,view,canvas,size,roof,Vector2.ZERO,16)
-		if PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_solver.hlod",int(solved.solver_usec))
+		solved=Cut.solve(roots,view,canvas,size,roof,Vector2.ZERO,16,not background)
+		if not background and PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_solver.hlod",int(solved.solver_usec))
 		if cacheable:
 			if solutions.size()>=FRAME_SOLUTIONS: solutions.erase(solutions.keys()[0])
 			solutions[key]=solved
@@ -273,7 +302,7 @@ static func select(catalog: Dictionary, center: Vector2, scale: float, rotation:
 		result=split_large_uploads(result,catalog,view,canvas,size,roof,byte_budget)
 	var keys := PackedStringArray()
 	for entry: Dictionary in result.entries: keys.append(entry.key)
-	var charged := charges(catalog,keys)
+	var charged := charges(catalog,keys,work)
 	if charged.is_empty() or charged.faces!=result.triangles or charged.total_bytes>result.bytes: return {}
 	result["charges"]=charged
 	result["keys"]=keys
@@ -282,9 +311,59 @@ static func select(catalog: Dictionary, center: Vector2, scale: float, rotation:
 
 
 
-static func visible_subset(catalog: Dictionary, cut: Dictionary, center: Vector2, scale: float, rotation: float, size: Vector2) -> Dictionary:
-	# 只从原切面的最多16页中剔除投影不可见项；禁止展开子页或重新选择资源。
-	if not cut.get("entries") is Array or cut.entries.is_empty(): return {}
+static func select_handoff(catalog: Dictionary, center: Vector2, scale: float, rotation: float, size: Vector2, budget: int, costs: Dictionary, work: Variant = null, allow_finer: bool = false, qualification_scale: float = 0.0, prepared_roots: Array[Dictionary] = []) -> Dictionary:
+	# 求解的是旧页继续显示期间的新增物理费用；清晰度、16页和24万面仍照常。
+	if costs.is_empty() or budget<0 or budget>display_limit(work) \
+		or (not allow_finer and scale<float(catalog.min_scale)) or scale>float(catalog.max_scale): return {}
+	var canvas := Transform2D(rotation,Vector2.ZERO).scaled(Vector2.ONE*scale)
+	canvas.origin=size*0.5-canvas*center
+	var inverse := canvas.affine_inverse()
+	var view := Rect2(inverse*Vector2.ZERO,Vector2.ZERO)
+	for point: Vector2 in [Vector2(size.x,0),size,Vector2(0,size.y)]: view=view.expand(inverse*point)
+	var ray := MapProjection.ground_basis(canvas,deg_to_rad(38)).inverse()*MapProjection.camera_basis(canvas,deg_to_rad(38)).z
+	var roof := -Vector2(ray.x,ray.z)/ray.y
+	var roots := prepared_roots if not prepared_roots.is_empty() else handoff_roots(catalog,maxf(scale,qualification_scale),costs,work)
+	var background := background_selection(work)
+	var result := Cut.pick(Cut.solve(roots,view,canvas,size,roof,Vector2.ZERO,16,not background),budget)
+	if not background and PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_solver.handoff",int(result.solver_usec))
+	if not result.within_budget: return {}
+	var keys := PackedStringArray()
+	for entry: Dictionary in result.entries:
+		keys.append(entry.key)
+		var row: Dictionary=catalog.rows[entry.key]
+		# 显示/流送下游仍看到完整费用，折扣只用于此次交接求解。
+		entry.bytes=int(row.native_geometry.bytes)+int(row.native_texture.three_copy_charge)+288
+	var charged := charges(catalog,keys,work)
+	if charged.is_empty() or not charged.within_budget or charged.faces!=result.triangles: return {}
+	result["handoff_incremental_bytes"]=result.bytes
+	result["bytes"]=charged.total_bytes
+	result["charges"]=charged
+	result["keys"]=keys
+	return result
+
+
+static func handoff_roots(catalog: Dictionary, scale: float, costs: Dictionary, work: Variant = null) -> Array[Dictionary]:
+	# 同一次交接查询的四档保护带共享只读费用树；跨查询不缓存资源驻留状态。
+	var roots: Array[Dictionary]=[]
+	var source: Array=qualified_roots(catalog,scale,work) if catalog.get("mixed_scales",false) else catalog.roots
+	for entry: Dictionary in source: roots.append(incremental_tree(entry,costs))
+	return roots
+
+
+static func incremental_tree(entry: Dictionary, costs: Dictionary) -> Dictionary:
+	var result := entry.duplicate()
+	# qualified_tree的失格哨兵不能因资源已在内存中而获得资格。
+	if int(entry.bytes)<=192*1024*1024: result.bytes=int(costs.get(entry.key,entry.bytes))
+	if entry.has("children"):
+		var children: Array[Dictionary]=[]
+		for child: Dictionary in entry.children: children.append(incremental_tree(child,costs))
+		result.children=children
+	return result
+
+
+static func visible_subset(catalog: Dictionary, cut: Dictionary, center: Vector2, scale: float, rotation: float, size: Vector2, work: Variant = null, lead: Vector2 = Vector2.ZERO) -> Dictionary:
+	# 只从原切面的最多16页中裁掉当前/前进视野联合区之外的页，不展开子页。
+	if not lead.is_finite() or not cut.get("entries") is Array or cut.entries.is_empty(): return {}
 	var subset := catalog.duplicate()
 	var roots: Array[Dictionary]=[]
 	for entry: Dictionary in cut.entries:
@@ -293,7 +372,14 @@ static func visible_subset(catalog: Dictionary, cut: Dictionary, center: Vector2
 		roots.append(leaf)
 	subset["roots"]=roots
 	subset["min_scale"]=minf(float(catalog.min_scale),scale)
-	return select(subset,center,scale,rotation,size,false,preload("res://scripts/rendering/tokyo_hlod_cache_policy.gd").display_limit())
+	# 旧切面子集不是原目录的完整树，不能命中同身份的完整树缓存。
+	subset.erase("identity")
+	var query_center := center+lead*0.5
+	var query_size := size+(Transform2D(rotation,Vector2.ZERO).basis_xform(lead)*scale).abs()
+	var result := select(subset,query_center,scale,rotation,query_size,false,display_limit(work),work)
+	# 子集求解仅证明所留页的费用；调用方仍须向完整目录核验联合区覆盖。
+	if not result.is_empty(): result["trim_lead_world"]=lead
+	return result
 
 
 static func split_large_uploads(original: Dictionary, catalog: Dictionary, view: Rect2, canvas: Transform2D, size: Vector2, roof: Vector2, byte_budget: int) -> Dictionary:
@@ -327,15 +413,25 @@ static func split_large_uploads(original: Dictionary, catalog: Dictionary, view:
 
 
 static func qualified_roots(catalog: Dictionary, scale: float, work: Variant = null) -> Array[Dictionary]:
-	# 只复用静态资格树；视野、投影及预算仍由每次select重新求解，不跨帧缓存可见切面。
+	# 静态资格与视野无关；相邻目录/当前及提前尺度交错时保留有限的精确资格区间。
+	# 每个可见切面仍逐帧投影求解，绝不把旧相机的选页结果当作当前覆盖证明。
 	var identity: Dictionary=catalog.get("identity",{})
+	if work is Dictionary and work.get("prepared_catalogs") is Dictionary \
+		and work.prepared_catalogs.has(identity.get("path","")):
+		var prepared: Variant=work.prepared_catalogs[identity.get("path","")]
+		var ready: Array[Dictionary]=[]
+		if prepared is Dictionary: ready=PreparedCatalog.roots_at(prepared,scale)
+		work["prepared_reuses"]=int(work.get("prepared_reuses",0))+1
+		# Loading已逐来源校验；后台命中却无有效根时报告无解，不在游戏期间补做树构建。
+		if not ready.is_empty() or background_selection(work): return ready
 	var cacheable := work is Dictionary and not identity.is_empty()
 	var key: Array=[identity.get("path",""),identity.get("sha256","")]
-	var cached: Dictionary=work.get("qualification",{}) if cacheable else {}
-	# qualified_tree使用严格大于；区间必须左开右闭，反向滚动落在阈值也须重建。
-	if cached.get("key")==key and scale>float(cached.get("lower",INF)) and scale<=float(cached.get("upper",-INF)):
-		work["qualification_reuses"]=int(work.get("qualification_reuses",0))+1
-		return cached.roots
+	var cache: Array=work.get("qualifications",[]) if cacheable else []
+	for cached: Dictionary in cache:
+		# qualified_tree使用严格大于；阈值等号必须留在左侧区间。
+		if cached.key==key and scale>float(cached.lower) and scale<=float(cached.upper):
+			work["qualification_reuses"]=int(work.get("qualification_reuses",0))+1
+			return cached.roots
 	var roots: Array[Dictionary]=[]
 	for entry: Dictionary in catalog.roots: roots.append(qualified_tree(entry,scale))
 	if cacheable:
@@ -345,7 +441,9 @@ static func qualified_roots(catalog: Dictionary, scale: float, work: Variant = n
 			var limit := float(row.max_scale)
 			if scale>limit: lower=maxf(lower,limit)
 			else: upper=minf(upper,limit)
-		work["qualification"]={"key":key,"lower":lower,"upper":upper,"roots":roots}
+		if cache.size()>=FRAME_SOLUTIONS: cache.pop_front()
+		cache.append({"key":key,"lower":lower,"upper":upper,"roots":roots})
+		work["qualifications"]=cache
 		work["qualification_builds"]=int(work.get("qualification_builds",0))+1
 	return roots
 
@@ -368,12 +466,12 @@ static func read(path: String, expected_sha: String) -> Dictionary:
 	return result
 
 
-static func retained(catalog: Dictionary, cut: Dictionary, required: Dictionary, scale: float, allow_finer: bool = false) -> bool:
+static func retained(catalog: Dictionary, cut: Dictionary, required: Dictionary, scale: float, allow_finer: bool = false, work: Variant = null) -> bool:
 	if not is_finite(scale) or scale<=0 or (not allow_finer and scale<float(catalog.get("min_scale",INF))) \
 		or scale>float(catalog.get("max_scale",-INF)) or not cut.get("keys") is PackedStringArray \
 		or not required.get("keys") is PackedStringArray or cut.keys.is_empty() or required.keys.is_empty(): return false
-	var charged := charges(catalog,cut.keys)
-	if charged.is_empty() or not charged.within_budget or charges(catalog,required.keys).is_empty(): return false
+	var charged := charges(catalog,cut.keys,work)
+	if charged.is_empty() or not charged.within_budget or charges(catalog,required.keys,work).is_empty(): return false
 	# 与select提前细化使用同一尺度，禁止空间覆盖优化撤销清晰度预取。
 	var qualification_scale := minf(scale/PREFETCH_RATIO,float(catalog.max_scale)) if allow_finer else scale
 	for key in cut.keys:

@@ -18,11 +18,16 @@ var _wall_below60 := 0
 var _wall_intervals := PackedInt64Array()
 var _wall_trace := false
 var _wall_slow: Array[Dictionary] = []
+var _frame_timeline: Array[Dictionary] = []
 var _hlod_samples := 0
 var _hlod_ground_frames := 0
 var _hlod_hidden_frames := 0
 var _hlod_waiting_frames := 0
 var _hlod_budget_frames := 0
+var _hlod_unqualified_frames := 0
+var _hlod_expired_frames := 0
+var _hlod_uncovered_frames := 0
+var _hlod_quality_failures: Array[Dictionary] = []
 var _hlod_gaps: Array[Dictionary] = []
 var _hlod_gap_active := false
 const WALL_SAMPLE_LIMIT := 120000
@@ -150,6 +155,7 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	# 所有东京性能入口都保留实际时钟硬门，不让delta摘要漏报卡顿。
 	var now := Time.get_ticks_usec()
+	var diagnostic_capture := PerfBuckets.extended_cpu_trace_enabled
 	if _bench_elapsed >= 3.0:
 		if _wall_previous_usec > 0:
 			var interval := now - _wall_previous_usec
@@ -165,6 +171,20 @@ func _process(delta: float) -> void:
 					"events":PerfBuckets._trace_frame_events.duplicate()})
 			if _wall_intervals.size() < WALL_SAMPLE_LIMIT:
 				_wall_intervals.append(interval)
+			# 显式诊断逐帧留存；运行中不打印、不读回图像，结束后一次导出。
+			if _wall_trace and _frame_timeline.size()<12000:
+				var row := {"frame":PerfBuckets._trace_frame_index,"engine_frame":Engine.get_process_frames(),
+					"begin_ticks_usec":_wall_previous_usec,"next_ticks_usec":now,
+					"elapsed":_bench_elapsed,"wall_us":interval,"position":camera.global_position,"zoom":camera.zoom,
+					"physics_ticks":PerfBuckets._trace_physics_ticks,"cpu_buckets_us":PerfBuckets._trace_frame_us.duplicate(),
+					"events":PerfBuckets._trace_frame_events.duplicate(),"counts":PerfBuckets._trace_frame_counts.duplicate()}
+				var overlay: Variant=_map_features._tokyo_volume if is_instance_valid(_map_features) else null
+				if is_instance_valid(overlay) and overlay.has_method("_target_committed"):
+					row["map"]={"visible":overlay._screen.visible,"catalog":overlay._committed_catalog,"target_catalog":overlay._target_catalog,
+						"current":overlay._committed.duplicate(),"target":overlay._target.get("keys",[]).duplicate(),"committed":overlay._target_committed(),
+						"reason":overlay._handoff_reason,"fallback":overlay._fallback,"scale":overlay.output_scale,
+						"qualified":overlay.display_qualified,"covered":overlay.display_covered,"grace":overlay._display_grace}
+				_frame_timeline.append(row)
 		_wall_previous_usec = now
 		if is_instance_valid(_map_features):
 			var map: Variant = _map_features._tokyo_volume
@@ -172,6 +192,12 @@ func _process(delta: float) -> void:
 				_hlod_samples+=1
 				_hlod_ground_frames+=int(not map._committed_cut.get("ground_images",PackedStringArray()).is_empty())
 				_hlod_hidden_frames+=int(not map._screen.visible)
+				_hlod_unqualified_frames+=int(map._screen.visible and not map.display_qualified)
+				_hlod_expired_frames+=int(map._screen.visible and not map.display_qualified and not map._display_grace)
+				_hlod_uncovered_frames+=int(map._screen.visible and not map.display_covered)
+				if map._screen.visible and (not map.display_covered or (not map.display_qualified and not map._display_grace)) and _hlod_quality_failures.size()<32:
+					_hlod_quality_failures.append({"elapsed":_bench_elapsed,"scale":map.output_scale,"catalog":map._committed_catalog,
+						"qualified":map.display_qualified,"covered":map.display_covered,"grace":map._display_grace,"reason":map._handoff_reason})
 				_hlod_waiting_frames+=int(not map._target_committed())
 				_hlod_budget_frames+=int(map._fallback=="cut budget" or int(map._committed_cut.get("bytes",0))>map.display_budget \
 					or int(map._committed_cut.get("triangles",0))>240000 or map._committed.size()>16)
@@ -187,9 +213,15 @@ func _process(delta: float) -> void:
 				else: _hlod_gap_active=false
 	else:
 		_wall_previous_usec = 0
+	var diagnostic_before_render_trace_usec := Time.get_ticks_usec() if diagnostic_capture else 0
 	if _render_trace != null:
 		_render_trace.begin_frame(delta, now)
+	var diagnostic_before_super_usec := Time.get_ticks_usec() if diagnostic_capture else 0
 	super._process(delta)
+	# 父类会清空帧桶；局部值跨过重置后记入从 now 开始的新帧，不重复计父类。
+	if diagnostic_capture:
+		PerfBuckets.tick("diagnostic.runner_own_before_render_trace", diagnostic_before_render_trace_usec - now)
+		PerfBuckets.tick("diagnostic.render_trace_begin", diagnostic_before_super_usec - diagnostic_before_render_trace_usec)
 
 
 func _bench_force_battlefield_atmosphere_stress() -> void:
@@ -257,8 +289,10 @@ static func cell_peak_within_budget(state: Dictionary) -> bool:
 func _bench_finish_now(summary: String, exit_code: int = 0) -> void:
 	if _hlod_samples>0 or not OS.get_environment("AGL_TOKYO_HLOD_PACKAGE").is_empty():
 		summary+="\ntokyo_hlod_visibility="+JSON.stringify({"samples":_hlod_samples,"hidden_frames":_hlod_hidden_frames,
-			"native_ground_frames":_hlod_ground_frames,"waiting_frames":_hlod_waiting_frames,"budget_frames":_hlod_budget_frames,"gaps":_hlod_gaps})+"\n"
-		if _hlod_samples==0 or _hlod_hidden_frames>0 or _hlod_budget_frames>0: exit_code=1
+			"native_ground_frames":_hlod_ground_frames,"waiting_frames":_hlod_waiting_frames,"budget_frames":_hlod_budget_frames,"gaps":_hlod_gaps,
+			"unqualified_frames":_hlod_unqualified_frames,"expired_frames":_hlod_expired_frames,"uncovered_frames":_hlod_uncovered_frames,
+			"quality_failures":_hlod_quality_failures})+"\n"
+		if _hlod_samples==0 or _hlod_hidden_frames>0 or _hlod_budget_frames>0 or _hlod_expired_frames>0 or _hlod_uncovered_frames>0: exit_code=1
 	if OS.get_environment("AGL_TOKYO_BENCH_LEGACY") == "1":
 		summary += "\ntokyo_legacy=" + JSON.stringify({"present": is_instance_valid(_building_renderer),
 			"visible": _building_renderer.is_visible_in_tree() if is_instance_valid(_building_renderer) else false,
@@ -290,6 +324,8 @@ func _bench_finish_now(summary: String, exit_code: int = 0) -> void:
 		summary += "\ntokyo_wall_trace=" + JSON.stringify({"diagnostic_only":true,
 			"render_signal_hooks":false,"slow_records":_wall_slow,"considered":_wall_below60,
 			"omitted":maxi(0,_wall_below60-_wall_slow.size())}) + "\n"
+		summary+="\ntokyo_frame_timeline="+JSON.stringify({"diagnostic_only":true,"frames":_frame_timeline,
+			"omitted":maxi(0,_wall_samples-_frame_timeline.size()),"sampling":"previous frame CPU/state at the next process boundary"})+"\n"
 	if _render_trace != null:
 		_render_trace.close()
 		summary += "\n" + _render_trace.summary() + "\n"
@@ -303,6 +339,11 @@ func _bench_finish_now(summary: String, exit_code: int = 0) -> void:
 	_capture_city()
 	var overlay: Variant = _map_features._tokyo_volume if is_instance_valid(_map_features) else null
 	var map_state: Dictionary = overlay.debug_state() if is_instance_valid(overlay) else {}
+	summary+="\ntokyo_map_planning="+JSON.stringify({"pipeline":map_state.get("map_planning",{}),
+		"main_hlod_builds":map_state.get("hlod_solver_builds",0),"main_native_builds":map_state.get("native_solver_builds",0),
+		"main_qualification_builds":map_state.get("qualification_builds",0)})+"\n"
+	if is_instance_valid(overlay) and overlay.has_method("_pending_hlod_covers") and not overlay._selection_trace.is_empty():
+		summary+="\ntokyo_selection_trace="+JSON.stringify({"diagnostic_only":true,"selections":overlay._selection_trace})+"\n"
 	if _baked_ao != null:
 		var total := int(map_state.stream.peak_bytes) + int(_baked_ao.stats.conservative_bytes)
 		summary += "\ntokyo_baked_ao=" + JSON.stringify(_baked_ao.stats) + "\nao_geometry_peak_bytes=" + str(total) + "\n"

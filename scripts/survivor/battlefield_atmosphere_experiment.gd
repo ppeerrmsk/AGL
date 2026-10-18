@@ -1,5 +1,6 @@
 class_name BattlefieldAtmosphereExperiment
 extends Node2D
+const FrameRedraw := preload("res://scripts/rendering/visual_redraw_queue.gd")
 
 ## 生存模式内的空中 / 陆地 / 海上战场气氛实验。
 ## 只管理自己生成的 Debug 演员；目标和表演武器火控集中在 2Hz。
@@ -585,7 +586,7 @@ func _spawn_hardened_target(team: int, pos: Vector2, kind: int, callsign: String
 	target.callsign = callsign
 	target.is_mission_target = true
 	_mark_actor(target, "hardened_target")
-	target.queue_redraw()
+	FrameRedraw.request(target)
 
 
 func _spawn_bomber_pair(axis: Vector2, lateral: Vector2, ally_ground_center: Vector2,
@@ -1157,6 +1158,16 @@ func _emit_status() -> void:
 
 
 func _draw() -> void:
+	if not PerfBuckets.extended_cpu_trace_enabled:
+		_draw_atmosphere_untraced()
+		return
+	var started := Time.get_ticks_usec()
+	var shared := PerfBuckets.extended_cpu_shared_usec
+	_draw_atmosphere_untraced()
+	PerfBuckets.finish_extended_cpu("atmosphere_draw", started, shared)
+
+
+func _draw_atmosphere_untraced() -> void:
 	for shell in _ballistic_shells:
 		var t := clampf(float(shell["age"]) / maxf(float(shell["duration"]), 0.01), 0.0, 1.0)
 		var pos: Vector2 = Vector2(shell["start"]).lerp(Vector2(shell["end"]), t)

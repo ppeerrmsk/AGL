@@ -1,5 +1,6 @@
 class_name AircraftFormation
 extends RefCounted
+const FrameRedraw := preload("res://scripts/rendering/visual_redraw_queue.gd")
 
 ## 编队托管子系统（静态工具类）
 ## 从 aircraft.gd 提取的 LOD 1 编队托管三段式逻辑。
@@ -497,4 +498,4 @@ static func _periodic_and_visuals(ac: Aircraft, ctx: Dictionary, delta: float) -
 		AircraftPhysics.update_g_load(ac)
 	ac._update_visuals()
 	if ac.selected or ac.is_hovered or ctx["every3"]:
-		ac.queue_redraw()
+		FrameRedraw.request(ac)

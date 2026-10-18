@@ -1,5 +1,6 @@
 class_name Aircraft
 extends CombatUnit
+const FrameRedraw := preload("res://scripts/rendering/visual_redraw_queue.gd")
 
 const META_PRESENTATION_FORCE_HIDDEN_VISUAL: StringName = &"presentation_force_hidden_visual"
 
@@ -857,7 +858,7 @@ func set_sensor_contact_hidden(hidden: bool, fade_s: float = SENSOR_CONTACT_FADE
 	sensor_contact_hidden = hidden
 	# 逻辑沿只重建一次绘制命令；渐变本身走 CanvasItem self_modulate，
 	# 不再按渲染帧重复清空整架飞机的 draw command cache。
-	queue_redraw()
+	FrameRedraw.request(self)
 	if not hidden:
 		sync_stealth_trail_emission()
 	if fade_s <= 0.0 or not is_inside_tree():
@@ -885,14 +886,14 @@ func _set_sensor_contact_visual_alpha(value: float) -> void:
 	# 渐隐终点再清一次缓存，随后完全隐形的非任务目标不再参与常规重绘。
 	if not was_fully_hidden and is_hidden_from_player_sensors() \
 			and _sensor_contact_visual_alpha <= 0.001:
-		queue_redraw()
+		FrameRedraw.request(self)
 
 ## 阵营切换后的单次视觉刷新；不进入每帧路径。机体 icon/wing 是机型涂装，
 ## 不是阵营语义色；阵营变更只更新尾迹，状态栏/指令线由各自的语义色入口决定。
 func refresh_faction_visuals() -> void:
 	if _trail_ribbon:
 		_trail_ribbon.ribbon_color = GameConstants.team_trail_color(team)
-	queue_redraw()
+	FrameRedraw.request(self)
 
 func _ready() -> void:
 	var perf_phase_slot := _next_perf_phase_slot
@@ -1173,14 +1174,14 @@ func _physics_process_impl(delta: float) -> void:
 		_gun_muzzle_flash_remaining_s = maxf(_gun_muzzle_flash_remaining_s - delta, 0.0)
 	# 玩家与僚机受伤后的短窗内强制刷新飞机旁状态栏；仅持续 0.96s。
 	if AircraftRenderer.status_damage_flash_phase_for(self) >= 0:
-		queue_redraw()
+		FrameRedraw.request(self)
 	if _tactic_popup_timer > 0.0:
 		_tactic_popup_timer -= delta
 	if aa_fire_timer > 0.0:
 		aa_fire_timer -= delta
 	if is_destroyed:
 		_update_destroy(delta)
-		queue_redraw()
+		FrameRedraw.request(self)
 		return
 	# AI 是子节点、执行顺序晚于 Aircraft；先镜像独占 directive，确保本帧物理不会
 	# 继续消费上一帧 TACTIC intent。无 directive 时仅一次空判断。
@@ -1259,7 +1260,7 @@ func _physics_process_impl(delta: float) -> void:
 			rotation = heading
 			# 玩家飞机即使屏幕外也要画锁定线
 			if selected and combat_target != null:
-				queue_redraw()
+				FrameRedraw.request(self)
 			return
 		# 每3帧做一次完整更新：用 lod_delta = delta*3 补偿跳过的 2 帧
 		# 之前用 delta 直接调会让 heading/bank/speed 以 1/3 真实速率更新，导致
@@ -1297,7 +1298,7 @@ func _physics_process_impl(delta: float) -> void:
 		_update_visuals()  # rotation = heading；上一轮 LOD 2 fix 漏掉这行导致图标/label 冻结在过时朝向
 		# 玩家飞机即使屏幕外也要画锁定线
 		if selected and combat_target != null:
-			queue_redraw()
+			FrameRedraw.request(self)
 		return
 
 	# LOD 1（编队僚机巡航）
@@ -1354,7 +1355,7 @@ func _physics_process_impl(delta: float) -> void:
 		if (not is_hidden_from_player_sensors() \
 				or _sensor_contact_visual_alpha > 0.001 or is_mission_target) \
 				and (selected or is_hovered or visual_every3):
-			queue_redraw()
+			FrameRedraw.request(self)
 		return
 
 	# LOD 0 编队跟随（2026-06-07 修）：与 LOD1/2 一致，formation_mode 时走 update_follow。
@@ -1449,7 +1450,7 @@ func _physics_process_impl(delta: float) -> void:
 			and (selected or is_hovered \
 				or dense_sim_divisor > 1 \
 				or (_lod_frame + _visual_redraw_phase) % 2 == 0):
-		queue_redraw()
+		FrameRedraw.request(self)
 
 ## 旋翼机专用的轻量物理/武器路径。运动由 AircraftPhysics.update_rotorcraft 统一处理，
 ## 不进入固定翼的失速、G 力、能量管理和 BFM combat tracking。
@@ -1473,7 +1474,7 @@ func _physics_process_rotorcraft(delta: float) -> void:
 			or _sensor_contact_visual_alpha > 0.001 or is_mission_target) \
 			and (selected or is_hovered \
 				or (_lod_frame + _visual_redraw_phase) % 2 == 0):
-		queue_redraw()
+		FrameRedraw.request(self)
 
 # ══════════════════════════════════════════════
 #  控制意图仲裁（Phase 1 Step 1）
@@ -3413,7 +3414,7 @@ func _apply_damage(amount: float) -> void:
 				>= AircraftRenderer.STATUS_DAMAGE_FLASH_DURATION_S:
 			set_meta(AircraftRenderer.STATUS_DAMAGE_STARTED_META, damage_now)
 		set_meta(AircraftRenderer.STATUS_DAMAGE_LAST_META, damage_now)
-		queue_redraw()
+		FrameRedraw.request(self)
 	# 受击钩子链（玩家系技能：受伤进嗜血 / 被导弹击中无敌 / 周围 JAM 等）
 	# early-return：only Aircraft 玩家小队 + has upgrade_stacks → 不命中开销 ≈ 1 dict.has
 	if hp > 0.0 and is_player_squad():
@@ -3867,7 +3868,7 @@ func set_counter_stealth_revealed(revealed: bool) -> void:
 		is_cloaked = false
 		_cloak_alpha = 1.0
 		sync_stealth_trail_emission()
-		queue_redraw()
+		FrameRedraw.request(self)
 
 ## HUD 用：热诱弹冷却比例（委托 AircraftFlares）
 func get_flare_cooldown_ratio() -> float:

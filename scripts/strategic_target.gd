@@ -16,7 +16,7 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	if is_destroyed:
 		_update_destroy(delta)
-		queue_redraw()
+		FrameRedraw.request(self)
 
 func is_lock_immune() -> bool:
 	return true
@@ -25,7 +25,7 @@ func is_lock_immune() -> bool:
 func set_bomber_escort_objective(active: bool) -> void:
 	bomber_escort_objective = active
 	is_mission_target = active
-	queue_redraw()
+	FrameRedraw.request(self)
 
 ## 常规伤害入口只允许“仍有效且阵营敌对”的轰炸机炸弹；释放者已销毁时走下方显式 team API。
 func take_damage(amount: float, attacker: Node = null, kind: String = "") -> void:
@@ -47,7 +47,7 @@ func take_bomber_damage(amount: float, source_team: int, attacker: Node = null) 
 func _start_destroy() -> void:
 	super._start_destroy()
 	set_physics_process(true)
-	queue_redraw()
+	FrameRedraw.request(self)
 
 func _draw() -> void:
 	if is_destroyed:

@@ -64,6 +64,8 @@ func _run() -> void:
 	_explosion_host = FakeExplosionHost.new()
 	_explosion_host.add_to_group("explosion_vfx")
 	add_child(_explosion_host)
+	_fail += await preload("res://scripts/tests/visual_redraw_queue_case.gd").run(self)
+	_fail += await preload("res://scripts/tests/tokyo_map_planning_case.gd").run(self)
 	await _test_bomber_cache_after_target_free()
 	_fail += await preload("res://scripts/tests/orion_lifecycle_case.gd").new().run(self)
 	_fail += await preload("res://scripts/tests/fear_cone_case.gd").new().run(self)

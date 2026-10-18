@@ -356,6 +356,16 @@ func _bake_single(seed: int) -> ImageTexture:
 # ══════════════════════════════════════════════════════════
 
 func _draw() -> void:
+	if not PerfBuckets.extended_cpu_trace_enabled:
+		_draw_weather_untraced()
+		return
+	var started := Time.get_ticks_usec()
+	var shared := PerfBuckets.extended_cpu_shared_usec
+	_draw_weather_untraced()
+	PerfBuckets.finish_extended_cpu("weather_draw", started, shared)
+
+
+func _draw_weather_untraced() -> void:
 	var volume_owner: Variant = get_meta(&"weather_volume_owner") if has_meta(&"weather_volume_owner") else null
 	if volume_owner is WeakRef and is_instance_valid(volume_owner.get_ref()):
 		return

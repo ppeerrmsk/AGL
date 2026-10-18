@@ -66,10 +66,14 @@ func setup(mode: Node) -> void:
 func _process(delta: float) -> void:
 	if not _enabled or not is_instance_valid(_probe):
 		return
+	var started := Time.get_ticks_usec() if PerfBuckets.extended_cpu_trace_enabled else 0
+	var shared := PerfBuckets.extended_cpu_shared_usec
 	# 权威物理仍为 60 Hz；显示相机与真实姿态每显示帧同拍消费，不跨帧保存旧投影。
 	_probe._process(delta)
 	_ground_foreground.sync(_probe._ground_presenter)
 	_display_updates += 1
+	if started > 0:
+		PerfBuckets.finish_extended_cpu("volume_overlay", started, shared)
 
 
 func set_volume_enabled(enabled: bool) -> void:

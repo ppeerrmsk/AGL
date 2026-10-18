@@ -1,5 +1,6 @@
 class_name Missile
 extends Node2D
+const FrameRedraw := preload("res://scripts/rendering/visual_redraw_queue.gd")
 
 ## DEADAIR 5Hz 控制器使用的维护式注册表，避免每 tick 扫 MissileManager 子节点。
 static var active_missiles: Array[Missile] = []
@@ -262,6 +263,16 @@ func update_enemy_flare_break(delta: float) -> void:
 				ac._log_name(), ENEMY_FLARE_BREAK_WINDOW_S])
 
 func _physics_process(delta: float) -> void:
+	if not PerfBuckets.extended_cpu_trace_enabled:
+		_physics_process_missile_untraced(delta)
+		return
+	var started_usec := Time.get_ticks_usec()
+	var shared_before_usec := PerfBuckets.extended_cpu_shared_usec
+	_physics_process_missile_untraced(delta)
+	PerfBuckets.finish_extended_cpu("missile_phys", started_usec, shared_before_usec)
+
+
+func _physics_process_missile_untraced(delta: float) -> void:
 	if not is_active:
 		return
 
@@ -290,7 +301,7 @@ func _physics_process(delta: float) -> void:
 		var fade_step := fwd_f * speed * PIXELS_PER_METER * delta
 		global_position += fade_step
 		distance_traveled_px += fade_step.length()
-		queue_redraw()
+		FrameRedraw.request(self)
 		return
 
 	# VLS 齐射弹：前两段完全接管物理（第三段 TERMINAL 走标准 PN 路径下沉到 params.nav_constant 决定）
@@ -518,7 +529,7 @@ func _physics_process(delta: float) -> void:
 	bank_angle = clampf(turn_rate_now * 0.5, -1.0, 1.0)  # 轻微扭转
 	_prev_heading = heading
 
-	queue_redraw()
+	FrameRedraw.request(self)
 
 
 ## 记录穿透弹已经伤害过的目标；连锁弹头优先转向时也必须记住，防止之后穿回同一目标。
@@ -707,7 +718,7 @@ func _update_vls_non_terminal(delta: float) -> void:
 	bank_angle = clampf(turn_rate_now * 0.5, -1.0, 1.0)
 	_prev_heading = heading
 
-	queue_redraw()
+	FrameRedraw.request(self)
 
 func _draw() -> void:
 	var perf_detail := PerfBuckets.detail_capture_enabled()

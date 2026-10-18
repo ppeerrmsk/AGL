@@ -171,7 +171,7 @@ func cease_tier3_threat() -> void:
 		if mount != null and is_instance_valid(mount):
 			mount.queue_free()
 	_mounts.clear()
-	queue_redraw()
+	FrameRedraw.request(self)
 
 
 func _start_destroy() -> void:

@@ -2578,6 +2578,7 @@ static func draw_predicted_path(ac: Aircraft, _local_target: Vector2, base_color
 	var target_healths: PackedFloat32Array = ac._predicted_path_healths
 	if target_world.size() < 2:
 		return
+	var started := Time.get_ticks_usec() if PerfBuckets.extended_cpu_trace_enabled else 0
 
 	# ── 时间平滑（解决分段预测缓存原子换入时的跳变）──
 	# 平滑视图每帧 lerp 向抽样后的 target。target_position 大变或数组长度改变时
@@ -2699,6 +2700,8 @@ static func draw_predicted_path(ac: Aircraft, _local_target: Vector2, base_color
 			head_base - side * barb_w,
 	])
 	ac.draw_colored_polygon(head_core, core_col)
+	if started > 0:
+		PerfBuckets.tick("function.predicted_path_draw", Time.get_ticks_usec() - started)
 
 ## ─────────── 电磁炮 telegraph 扇形（commit 8/13） ───────────
 ## 攻击者机头出发，向充能目标方向，扇形从 INITIAL_HALF_ANGLE 收缩为 0°

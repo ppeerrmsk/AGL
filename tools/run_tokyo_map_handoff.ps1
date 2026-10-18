@@ -1,7 +1,14 @@
 ﻿param(
     [ValidateSet('C1','C2','Near','FastWest','FastNorth')][string]$Scenario='C1',
     [ValidateRange(10,120)][int]$Duration=36,
-    [string]$Godot=''
+    [string]$Godot='',
+    [switch]$Interactive,
+    [switch]$Trace,
+    [switch]$DeepTrace,
+    [switch]$ExtendedCpuTrace,
+    [ValidateRange(0,65535)][int]$RemoteProfilePort=0,
+    [switch]$SynchronousSelectionControl,
+    [switch]$Counterfactual
 )
 $ErrorActionPreference='Stop'
 $projectRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -37,6 +44,26 @@ try {
     Get-ChildItem Env: | Where-Object { $_.Name.StartsWith('AGL_') } | ForEach-Object { Remove-Item -LiteralPath ('Env:'+ $_.Name) }
     if ($Godot -ne '') { $env:GODOT=$Godot }
     $env:AGL_TOKYO_INSTALLED_TEST='1'
+    if ($Interactive) { $env:AGL_BENCH_INTERACTIVE='1' }
+    if ($RemoteProfilePort -ne 0) {
+        if ($RemoteProfilePort -lt 1024) { throw 'RemoteProfilePort must be 1024..65535, or 0 to disable.' }
+        $env:AGL_BENCH_REMOTE_PROFILE_PORT=[string]$RemoteProfilePort
+    }
+    if ($SynchronousSelectionControl) { $env:AGL_TOKYO_SYNC_SELECTION='1' }
+    if ($DeepTrace) { $Trace=$true; $env:AGL_TOKYO_RENDER_TIMELINE='1'; $env:AGL_BENCH_FRAME_TRACE_MODE='full' }
+    if ($ExtendedCpuTrace) {
+        if (-not $DeepTrace) { throw 'ExtendedCpuTrace requires -DeepTrace for complete leaf accounting.' }
+        $env:AGL_BENCH_EXTENDED_CPU_TRACE='1'
+    }
+    if ($Trace) {
+        $env:AGL_TOKYO_WALL_TRACE='1'
+        $env:AGL_TOKYO_RENDER_TRACE='backend'
+        $env:AGL_TOKYO_SELECTION_TRACE='1'
+    }
+    if ($Counterfactual) {
+        if (-not $Trace) { throw 'Counterfactual requires -Trace; it performs extra diagnostic selections and is not a performance baseline.' }
+        $env:AGL_TOKYO_HANDOFF_COUNTERFACTUAL='1'
+    }
     $env:AGL_TOKYO_HLOD_PACKAGE='res://resources/maps/tokyo_playable/m20/package.json'
     $env:AGL_TOKYO_HLOD_PACKAGE_SHA=$expected
     $bench=@{C1='tokyo_volume_c1';C2='tokyo_volume_c2';Near='tokyo_volume_near'}[$Scenario]

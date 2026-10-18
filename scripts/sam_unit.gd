@@ -12,9 +12,19 @@ func _ready() -> void:
 		missiles_remaining = params.missile.max_count
 
 func _physics_process(delta: float) -> void:
+	if not PerfBuckets.extended_cpu_trace_enabled:
+		_physics_process_sam_untraced(delta)
+		return
+	var started_usec := Time.get_ticks_usec()
+	var shared_before_usec := PerfBuckets.extended_cpu_shared_usec
+	_physics_process_sam_untraced(delta)
+	PerfBuckets.finish_extended_cpu("sam_phys", started_usec, shared_before_usec)
+
+
+func _physics_process_sam_untraced(delta: float) -> void:
 	if is_destroyed:
 		_update_destroy(delta)
-		queue_redraw()
+		FrameRedraw.request(self)
 		return
 
 	StatusEffects.tick(self, delta)
@@ -22,7 +32,7 @@ func _physics_process(delta: float) -> void:
 	_update_target_selection()
 	_update_sam_missile(delta)
 	update_lock_line_state(delta)
-	queue_redraw()
+	FrameRedraw.request(self)
 
 ## SAM 只锁敌方飞机；覆盖 GroundUnit 的通用选敌，防止地面单位进入 radar_targets 后被选中。
 func _update_target_selection() -> void:
@@ -134,8 +144,12 @@ func _update_gun(_delta: float) -> void:
 # ========== 绘制 ==========
 
 func _draw() -> void:
+	var diagnostic_started_usec := Time.get_ticks_usec() if PerfBuckets.extended_cpu_trace_enabled else 0
+	var diagnostic_shared_usec := PerfBuckets.extended_cpu_shared_usec
 	if is_destroyed:
 		_draw_destroyed()
+		if diagnostic_started_usec > 0:
+			PerfBuckets.finish_extended_cpu("sam_draw", diagnostic_started_usec, diagnostic_shared_usec)
 		return
 	if is_hovered:
 		_draw_radar_circle()
@@ -145,6 +159,8 @@ func _draw() -> void:
 	AircraftRenderer.draw_target_bracket(self, is_mission_target)
 	AircraftRenderer.draw_status_icons(self)
 	_draw_data_label()
+	if diagnostic_started_usec > 0:
+		PerfBuckets.finish_extended_cpu("sam_draw", diagnostic_started_usec, diagnostic_shared_usec)
 
 ## 圆形雷达范围（替代扇形）
 func _draw_radar_circle() -> void:

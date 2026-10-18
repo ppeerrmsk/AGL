@@ -77,11 +77,18 @@ static func checks() -> bool:
 		var expected: Array[Dictionary]=[]
 		for root: Dictionary in fine_catalog.roots: expected.append(Contract.qualified_tree(root,scale_value))
 		if Contract.qualified_roots(fine_catalog,scale_value,qualification_work)!=expected: return false
-	if qualification_work.qualification_builds!=4 or qualification_work.qualification_reuses!=4: return false
+	if qualification_work.qualification_builds!=2 or qualification_work.qualification_reuses!=6: return false
 	if var_to_bytes(fine_catalog)!=source_snapshot: return false
 	fine_catalog.identity.sha256="b".repeat(64)
 	Contract.qualified_roots(fine_catalog,0.1,qualification_work)
-	if qualification_work.qualification_builds!=5: return false
+	if qualification_work.qualification_builds!=3: return false
+	# 多身份交错的缓存有界；失效后重建仍与无缓存资格树逐节点一致。
+	for n in 20:
+		fine_catalog.identity.path="res://qualification-test-%d"%n
+		var fresh_roots: Array[Dictionary]=[]
+		for root: Dictionary in fine_catalog.roots: fresh_roots.append(Contract.qualified_tree(root,0.08))
+		if Contract.qualified_roots(fine_catalog,0.08,qualification_work)!=fresh_roots: return false
+		if qualification_work.qualifications.size()>Contract.FRAME_SOLUTIONS: return false
 	# 相机/预算变化仍逐次求切面，缓存不得改变选页内容和顺序。
 	for center: Vector2 in [Vector2.ZERO,Vector2(7000,-4000),Vector2(-14000,8000)]:
 		for scale_value: float in [0.055,0.06,0.08]:

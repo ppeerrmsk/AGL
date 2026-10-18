@@ -24,6 +24,15 @@ var _phase_total := PackedInt64Array([0, 0, 0])
 var _backend_total: Dictionary = {}
 var _backend_peaks: Dictionary = {}
 var _clock_anchor: Dictionary = {}
+var _clock_end_anchor: Dictionary = {}
+var _timeline_enabled := OS.get_environment("AGL_TOKYO_RENDER_TIMELINE")=="1"
+var _phase_frames: Array[Dictionary] = []
+var _engine_frame := 0
+var _tree: WeakRef
+var _physics_begin := 0
+var _physics_end := 0
+var _physics_steps := 0
+var _physics_spans: Array[Dictionary] = []
 var _capture_path := ""
 var _capture_status := "disabled"
 const BACKEND_KEYS := ["root_cpu_ms", "root_gpu_ms", "map_cpu_ms", "map_gpu_ms", "aircraft_cpu_ms", "aircraft_gpu_ms", "setup_cpu_ms"]
@@ -57,6 +66,10 @@ func setup(root: Viewport, map_view: Viewport, backend: bool, aircraft_view: Var
 			RenderingServer.viewport_set_measure_render_time(view.get_viewport_rid(), true)
 	RenderingServer.frame_pre_draw.connect(_before_draw)
 	RenderingServer.frame_post_draw.connect(_after_draw)
+	if _timeline_enabled and root.is_inside_tree():
+		_tree=weakref(root.get_tree())
+		root.get_tree().physics_frame.connect(_physics_frame)
+		root.get_tree().process_frame.connect(_process_frame)
 
 
 func begin_frame(delta: float, now_usec: int = -1) -> void:
@@ -82,6 +95,12 @@ func begin_frame(delta: float, now_usec: int = -1) -> void:
 			PerfBuckets.tick("tokyo_map_wall_after_draw", phases[2])
 			PerfBuckets.tick("tokyo_map_wall_total", phases[3])
 			_below += int(not Clock.frame_within_budget(phases[3]))
+			if _timeline_enabled and _phase_frames.size()<12000:
+				_phase_frames.append({"frame":_frame,"engine_frame":_engine_frame,
+					"begin_ticks_usec":_begin,"pre_ticks_usec":_pre,"post_ticks_usec":_post,"next_ticks_usec":now,
+					"before_draw_us":phases[0],"draw_us":phases[1],"after_draw_us":phases[2],"wall_us":phases[3],
+					"physics_begin_ticks_usec":_physics_begin,"physics_end_ticks_usec":_physics_end,"physics_steps":_physics_steps,"physics_spans":_physics_spans.duplicate(),
+					"backend_readback_sample":_backend_samples,"backend_not_same_frame_proof":_latest.duplicate()})
 			if not Clock.frame_within_budget(phases[3]) or delta > 1.0 / 60.0:
 				_slow_considered += 1
 				Clock.retain_slowest(_slow, {"frame": _frame, "engine_delta_ms": delta * 1000.0,
@@ -91,10 +110,32 @@ func begin_frame(delta: float, now_usec: int = -1) -> void:
 					"cpu_buckets_us":PerfBuckets._trace_frame_us.duplicate(),
 					"events":PerfBuckets._trace_frame_events.duplicate()})
 				_capture_draw_spike(phases,now)
+	_physics_begin=0
+	_physics_end=0
+	_physics_steps=0
+	_physics_spans.clear()
 	_begin = now
 	_pre = 0
 	_post = 0
 	_frame = PerfBuckets._trace_frame_index + 1
+	_engine_frame = Engine.get_process_frames()
+
+
+func _physics_frame() -> void:
+	if _closed or not PerfBuckets.frame_trace_enabled: return
+	if _physics_begin==0: _physics_begin=Time.get_ticks_usec()
+	_physics_steps+=1
+	# 物理帧信号先入延迟队列，在节点随后请求的Canvas重绘之前记下物理回调末端。
+	_physics_tail.call_deferred(Time.get_ticks_usec(),Engine.get_physics_frames())
+
+
+func _physics_tail(started: int, step: int) -> void:
+	if not _closed and _physics_spans.size()<32:
+		_physics_spans.append({"begin_ticks_usec":started,"end_ticks_usec":Time.get_ticks_usec(),"physics_frame":step})
+
+
+func _process_frame() -> void:
+	if not _closed and _physics_begin>0: _physics_end=Time.get_ticks_usec()
 
 
 func _capture_draw_spike(phases: PackedInt64Array, now: int) -> void:
@@ -126,11 +167,15 @@ func _after_draw() -> void:
 		_post_intervals.append(_post-_previous_post)
 	_previous_post=_post
 	if not _backend:
+		if PerfBuckets.extended_cpu_trace_enabled:
+			PerfBuckets.tick("diagnostic.render_trace_post_to_return", Time.get_ticks_usec() - _post)
 		return
 	for index in _views.size():
 		var view: Variant = _views[index].get_ref()
 		if typeof(view) != TYPE_OBJECT or not is_instance_valid(view):
 			close()
+			if PerfBuckets.extended_cpu_trace_enabled:
+				PerfBuckets.tick("diagnostic.render_trace_post_to_return", Time.get_ticks_usec() - _post)
 			return
 		var rid: RID = view.get_viewport_rid()
 		var cpu := RenderingServer.viewport_get_measured_render_time_cpu(rid)
@@ -144,6 +189,9 @@ func _after_draw() -> void:
 		_backend_total[key] = float(_backend_total.get(key, 0.0)) + float(_latest[key])
 	_backend_samples += 1
 	retain_backend_peaks(_backend_peaks, _latest, _backend_samples, _frame)
+
+	if PerfBuckets.extended_cpu_trace_enabled:
+		PerfBuckets.tick("diagnostic.render_trace_post_to_return", Time.get_ticks_usec() - _post)
 
 
 static func retain_backend_peaks(peaks: Dictionary, values: Dictionary, sample: int, frame: int) -> void:
@@ -159,7 +207,15 @@ static func retain_backend_peaks(peaks: Dictionary, values: Dictionary, sample: 
 func close() -> void:
 	if _closed:
 		return
+	var end_before := Time.get_ticks_usec()
+	var end_utc := roundi(Time.get_unix_time_from_system()*1000000.0)
+	_clock_end_anchor={"utc_usec":end_utc,"ticks_before_usec":end_before,"ticks_after_usec":Time.get_ticks_usec()}
 	_closed = true
+	var tree: Variant=_tree.get_ref() if _tree!=null else null
+	if typeof(tree)==TYPE_OBJECT and is_instance_valid(tree):
+		if tree.physics_frame.is_connected(_physics_frame): tree.physics_frame.disconnect(_physics_frame)
+		if tree.process_frame.is_connected(_process_frame): tree.process_frame.disconnect(_process_frame)
+	_tree=null
 	if RenderingServer.frame_pre_draw.is_connected(_before_draw):
 		RenderingServer.frame_pre_draw.disconnect(_before_draw)
 	if RenderingServer.frame_post_draw.is_connected(_after_draw):
@@ -178,6 +234,8 @@ func summary() -> String:
 		backend_means[key] = float(_backend_total[key]) / maxi(1, _backend_samples)
 	return "tokyo_render_trace=" + JSON.stringify({"diagnostic_only": true, "backend": _backend,
 		"clock_anchor":_clock_anchor,
+		"clock_end_anchor":_clock_end_anchor,"phase_frames":_phase_frames,
+		"phase_frames_omitted":maxi(0,_samples-_phase_frames.size()) if _timeline_enabled else 0,
 		"draw_capture_status":_capture_status,
 		"samples": _samples, "invalid_phases": _invalid, "wall_below60": _below,
 		"wall_avg_ms": float(_wall_total) / maxf(_samples, 1) / 1000.0,

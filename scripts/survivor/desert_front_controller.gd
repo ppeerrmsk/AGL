@@ -1,5 +1,6 @@
 class_name DesertFrontController
 extends Node2D
+const FrameRedraw := preload("res://scripts/rendering/visual_redraw_queue.gd")
 
 const ARTILLERY_SCRIPT := preload("res://scripts/survivor/atmosphere_artillery_unit.gd")
 const BASE_PARAMS: AircraftParams = preload("res://resources/aa_gun_params.tres")
@@ -72,7 +73,7 @@ func _physics_process(delta: float) -> void:
 		_fire_accum = fmod(_fire_accum, FIRE_TICK_S)
 		_update_artillery_fire(step)
 	if not _shells.is_empty():
-		queue_redraw()
+		FrameRedraw.request(self)
 
 
 func _update_production(delta: float) -> void:
@@ -169,7 +170,7 @@ func _update_source(source: GroundUnit, targets: Array[GroundUnit], delta: float
 	(source as AtmosphereArtilleryUnit).barrel_heading = atan2(
 		(target.global_position - source.global_position).x,
 		-(target.global_position - source.global_position).y)
-	source.queue_redraw()
+	FrameRedraw.request(source)
 	if remaining > 0.0:
 		return
 	_fire_ready[key] = FIRE_INTERVAL_S

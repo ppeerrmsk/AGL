@@ -193,7 +193,7 @@ static func native_resident_tree_checks() -> int:
 	return failures
 
 class LoadingOverlay extends CommitOverlay:
-	func _select_native(_center: Vector2, _scale: float, _angle: float, _size: Vector2, _configuration: String = "", _budget: int = -1, _retain: bool = true) -> Dictionary:
+	func _select_native(_center: Vector2, _scale: float, _angle: float, _size: Vector2, _configuration: String = "", _budget: int = -1, _retain: bool = true, _include_zoom_footprint: bool = true) -> Dictionary:
 		return {"within_budget":true,"keys":PackedStringArray(["warm_mesh"]),"ground_images":PackedStringArray(["warm_image"])}
 
 static func foundation_checks() -> int:
@@ -934,8 +934,623 @@ class PipelineFixture extends Stream:
 
 
 
+class MotionPlanProbe extends "res://scripts/rendering/tokyo_map_planner.gd":
+	func _predict_prefetch(_center: Vector2, _scale: float, _angle: float, _size: Vector2) -> Dictionary: return {}
+
+
+class ZoomGuardPool extends Node:
+	var residency_limit := Stream.BUDGET
+	var residency_bytes := 0
+	var residency_meshes := PackedStringArray()
+	var residency_images := PackedStringArray()
+
+
+class ZoomForecastPlanner extends "res://scripts/rendering/tokyo_map_planner.gd":
+	var forecast_queries: Array[bool]=[]
+	func _select_hlod(_catalog: Dictionary, _center: Vector2, _scale: float, _angle: float, _size: Vector2, _finer: bool = false, budget: int = -1, include_zoom_footprint: bool = true) -> Dictionary:
+		forecast_queries.append(include_zoom_footprint)
+		return {"keys":PackedStringArray(["0:0"]),"within_budget":budget!=Stream.BUDGET/2}
+
+
+class ZoomForecastOverlay extends "res://scripts/rendering/tokyo_hlod_overlay.gd":
+	var forecast_queries: Array[bool]=[]
+	func _select_hlod(_catalog: Dictionary, _center: Vector2, _scale: float, _angle: float, _size: Vector2, _finer: bool = false, budget: int = -1, include_zoom_footprint: bool = true) -> Dictionary:
+		forecast_queries.append(include_zoom_footprint)
+		return {"keys":PackedStringArray(["0:0"]),"within_budget":budget!=Stream.BUDGET/2}
+
+
+static func zoom_guard_source(old_mib: int) -> Dictionary:
+	var roots: Array[Dictionary]=[]
+	var rows := {}
+	var geometry := {}
+	var textures := {}
+	for index in 4:
+		var key := "0:%d"%index
+		var x: float=[10000.0,0.0,1250.0,1700.0][index]
+		var cost: int=[old_mib,20,35,45][index]*1024*1024
+		roots.append({"key":key,"path":key,"bytes":cost+288,"max_scale":1.0,"triangles":[12,0,0],
+			"boxes":[AABB(Vector3(x-5.0,0.0,-10.0),Vector3(10.0,0.0,20.0)),AABB(),AABB()],"children":[]})
+		rows[key]={"depth":0,"parent":-1,"faces":12,"children":[],"max_scale":1.0,"bounds":[x-5.0,-10.0,x+5.0,10.0],
+			"native_geometry":{"path":key,"bytes":cost},"native_texture":{"path":key+".image","three_copy_charge":0}}
+		geometry[key]={"bytes":cost};textures[key+".image"]={"charge":0}
+	return {"catalog":{"roots":roots,"rows":rows,"min_scale":0.1,"max_scale":1.0,"range":[0.1,1.0],
+		"bounds":Rect2(-2000,-1000,13000,2000)},"geometry":geometry,"textures":textures}
+
+
+static func zoom_footprint_checks() -> int:
+	var handoff := preload("res://scripts/rendering/tokyo_hlod_handoff.gd")
+	var contract := preload("res://scripts/rendering/tokyo_hlod_manifest.gd")
+	var planner_script := preload("res://scripts/rendering/tokyo_map_planner.gd")
+	var size := Vector2(1600,900)
+	var padding: Vector2=handoff.zoom_out_padding(-2.0,size)
+	var failures := int(not padding.is_equal_approx(size*(exp(0.5)-1.0)))
+	for rate: float in [0.0,2.0,INF,NAN]: failures+=int(handoff.zoom_out_padding(rate,size)!=Vector2.ZERO)
+	failures+=int(handoff.zoom_out_padding(-2.0,Vector2.ZERO)!=Vector2.ZERO \
+		or handoff.zoom_out_padding(-2.0,size,-1.0)!=Vector2.ZERO \
+		or not handoff.zoom_out_padding(-100.0,size).is_equal_approx(size*(exp(0.7)-1.0)))
+	for old_mib: int in [20,50]:
+		var fixture := zoom_guard_source(old_mib)
+		var catalog: Dictionary=fixture.catalog
+		var planner: RefCounted=planner_script.new()
+		var synchronous := preload("res://scripts/rendering/tokyo_hlod_overlay.gd").new()
+		var pool := ZoomGuardPool.new()
+		var viewport := SubViewport.new()
+		viewport.size=Vector2i(size)
+		viewport.disable_3d=true
+		viewport.render_target_update_mode=SubViewport.UPDATE_DISABLED
+		var source := Node2D.new()
+		viewport.add_child(source)
+		(Engine.get_main_loop() as SceneTree).root.add_child(viewport)
+		var layout := preload("res://scripts/rendering/tokyo_hlod_overlay.gd").Layout.new()
+		layout.bounds=catalog.bounds
+		synchronous._archive=layout;synchronous._source_ref=weakref(source)
+		planner._bounds=catalog.bounds;planner._logical=size
+		planner._catalogs.append(catalog);synchronous._catalogs.append(catalog.duplicate(true))
+		planner._geometry=fixture.geometry;planner._textures=fixture.textures
+		synchronous._geometry=fixture.geometry;synchronous._textures=fixture.textures
+		planner._selection_work={"background":true,"epoch":1,"display_limit":Stream.BUDGET,"native_page_limit":16}
+		synchronous._selection_work={};synchronous._stream=pool
+		planner._stream={"residency_limit":Stream.BUDGET,"residency_bytes":0,
+			"residency_meshes":PackedStringArray(),"residency_images":PackedStringArray()}
+		var old_keys := PackedStringArray(["0:0"])
+		var old_charge := contract.charges(catalog,old_keys,planner._selection_work)
+		var old := {"keys":old_keys,"entries":[catalog.roots[0]],"charges":old_charge,"bytes":old_charge.total_bytes,"triangles":12,"within_budget":true}
+		for probe: Variant in [planner,synchronous]:
+			probe.display_budget=Stream.BUDGET
+			probe._committed_catalog=0;probe._committed=old_keys;probe._committed_cut=old
+			probe._zoom_rate=-2.0;probe._pan_velocity=Vector2.ZERO
+			probe._last_size=size
+			probe._last_canvas=Transform2D(0.0,size*0.5)
+		var actual: Dictionary=planner._select_hlod(catalog,Vector2.ZERO,1.0,0.0,size,false,Stream.BUDGET/2)
+		var sync: Dictionary=synchronous._select_hlod(synchronous._catalogs[0],Vector2.ZERO,1.0,0.0,size,false,Stream.BUDGET/2)
+		var expected := PackedStringArray(["0:1","0:2"]) if old_mib==20 else PackedStringArray(["0:1"])
+		failures+=int(actual.get("keys")!=expected or not actual.get("within_budget",false) \
+			or planner._handoff_bytes(actual,0)>Stream.BUDGET or not handoff.qualified(catalog,actual,1.0))
+		var compared: Dictionary=planner_script.compact_cut(actual)
+		var compared_sync: Dictionary=planner_script.compact_cut(sync)
+		compared.erase("solver_usec");compared_sync.erase("solver_usec")
+		failures+=int(compared!=compared_sync)
+		var bridge: Dictionary=planner._select_handoff_hlod(0,Vector2.ZERO,1.0,0.0,size,Stream.BUDGET)
+		var sync_bridge: Dictionary=synchronous._select_handoff_hlod(0,Vector2.ZERO,1.0,0.0,size,Stream.BUDGET)
+		failures+=int(bridge.get("keys")!=expected or sync_bridge.get("keys")!=expected \
+			or planner._handoff_bytes(bridge,0)>Stream.BUDGET)
+		# 同一真实scale下准备缩远后必需页；75MiB联合可用，105MiB联合必须收窄。
+		var ordinary: Dictionary=planner._select_hlod(catalog,Vector2.ZERO,1.0,0.0,size,false,Stream.BUDGET/2,false)
+		failures+=int(ordinary.get("keys")!=PackedStringArray(["0:1"]))
+		if old_mib==20:
+			failures+=int(contract.retained(catalog,ordinary,actual,1.0,false,planner._selection_work) \
+				or not handoff.covers_motion_view(catalog,actual,Vector2.ZERO,exp(-0.5),0.0,size) \
+				or handoff.covers_motion_view(catalog,ordinary,Vector2.ZERO,exp(-0.5),0.0,size))
+		planner._zoom_rate=2.0
+		var zoom_in: Dictionary=planner._select_hlod(catalog,Vector2.ZERO,1.0,0.0,size,false,Stream.BUDGET/2)
+		failures+=int(zoom_in.get("keys")!=ordinary.get("keys"))
+		pool.free();synchronous.free();viewport.free()
+	# 真实_predict_prefetch主相邻档与far extra、半池与全池重试均只预测一次。
+	var catalogs: Array[Dictionary]=[]
+	for interval: Array in [[0.4,1.0],[0.3,0.4],[0.1,0.3]]:
+		catalogs.append({"range":interval,"rows":{"0:0":{"native_geometry":{"path":"mesh"},"native_texture":{"path":"image"}}}})
+	var forecast_planner := ZoomForecastPlanner.new()
+	var forecast_sync := ZoomForecastOverlay.new()
+	for probe: Variant in [forecast_planner,forecast_sync]:
+		probe._catalogs=catalogs;probe._zoom_rate=-4.0
+		var predicted: Dictionary=probe._predict_prefetch(Vector2.ZERO,0.5,0.0,size)
+		failures+=int(predicted.get("catalog")!=1 or predicted.get("extra",[]).size()!=1 \
+			or probe.forecast_queries!=[false,false,false,false])
+	forecast_sync.free()
+	print("[Tokyo HLOD] zoom_footprint fail=",failures)
+	return failures
+
+
+static func zoom_trace_covered(catalog: Dictionary, cut: Dictionary, canvas: Transform2D, bounds: Rect2) -> bool:
+	var logical := Vector2(1920,1080)
+	var inverse := canvas.affine_inverse()
+	var view := Rect2(inverse*Vector2.ZERO,Vector2.ZERO)
+	for point: Vector2 in [Vector2(logical.x,0),logical,Vector2(0,logical.y)]: view=view.expand(inverse*point)
+	return preload("res://scripts/rendering/tokyo_hlod_handoff.gd").covers_projection(catalog,cut,view.intersection(bounds),canvas,logical)
+
+
+static func shared_zoom_source() -> Dictionary:
+	# 普通50MiB父页比55MiB子页少面，但父页与旧50MiB不共享；子页复用旧25MiB纹理。
+	var mib := 1024*1024
+	var geometry := {"old.mesh":{"bytes":25*mib},"parent.mesh":{"bytes":50*mib},
+		"near.mesh":{"bytes":10*mib},"ahead.mesh":{"bytes":20*mib},"far.mesh":{"bytes":60*mib}}
+	var textures := {"shared.image":{"charge":25*mib},"parent.image":{"charge":0},
+		"ahead.image":{"charge":0},"far.image":{"charge":0}}
+	var old_row := {"depth":0,"parent":-1,"children":[],"faces":100,"max_scale":1.0,
+		"bounds":[-800,-100,1015,100],"native_geometry":{"path":"old.mesh","bytes":25*mib},
+		"native_texture":{"path":"shared.image","three_copy_charge":25*mib}}
+	var rows := {}
+	var children: Array[Dictionary]=[]
+	for index in 2:
+		var key := "1:%d"%index
+		var mesh: String=["near.mesh","ahead.mesh"][index]
+		var texture: String=["shared.image","ahead.image"][index]
+		var x: float=[0.0,1010.0][index]
+		var charge: int=int(geometry[mesh].bytes)+int(textures[texture].charge)
+		rows[key]={"depth":1,"parent":0,"children":[],"faces":80,"max_scale":1.0,
+			"bounds":[x-5.0,-10.0,x+5.0,10.0],"native_geometry":{"path":mesh,"bytes":geometry[mesh].bytes},
+			"native_texture":{"path":texture,"three_copy_charge":textures[texture].charge}}
+		children.append({"key":key,"path":mesh,"texture_path":texture,"bytes":charge+288,"max_scale":1.0,
+			"triangles":[80,0,0],"boxes":[AABB(Vector3(x-5.0,0,-10),Vector3(10,0,20)),AABB(),AABB()],"children":[]})
+	rows["0:0"]={"depth":0,"parent":-1,"children":[0,1],"faces":100,"max_scale":1.0,
+		"bounds":[-5,-10,1015,10],"native_geometry":{"path":"parent.mesh","bytes":50*mib},
+		"native_texture":{"path":"parent.image","three_copy_charge":0}}
+	rows["0:1"]={"depth":0,"parent":-1,"children":[],"faces":100,"max_scale":1.0,
+		"bounds":[1145,-10,1155,10],"native_geometry":{"path":"far.mesh","bytes":60*mib},
+		"native_texture":{"path":"far.image","three_copy_charge":0}}
+	var roots: Array[Dictionary]=[
+		{"key":"0:0","path":"parent.mesh","texture_path":"parent.image","bytes":50*mib+288,"max_scale":1.0,
+			"triangles":[100,0,0],"boxes":[AABB(Vector3(-5,0,-10),Vector3(1020,0,20)),AABB(),AABB()],"children":children},
+		{"key":"0:1","path":"far.mesh","texture_path":"far.image","bytes":60*mib+288,"max_scale":1.0,
+			"triangles":[100,0,0],"boxes":[AABB(Vector3(1145,0,-10),Vector3(10,0,20)),AABB(),AABB()],"children":[]}]
+	var catalogs: Array[Dictionary]=[
+		{"rows":{"0:0":old_row},"min_scale":0.1,"max_scale":1.0,"range":[0.1,1.0]},
+		{"roots":roots,"rows":rows,"min_scale":0.1,"max_scale":1.0,"range":[0.1,1.0],"bounds":Rect2(-1200,-600,2600,1200)}]
+	return {"catalogs":catalogs,"geometry":geometry,"textures":textures}
+
+
+static func shared_zoom_guard_checks() -> int:
+	var fixture := shared_zoom_source()
+	var contract := preload("res://scripts/rendering/tokyo_hlod_manifest.gd")
+	var handoff := preload("res://scripts/rendering/tokyo_hlod_handoff.gd")
+	var planner := preload("res://scripts/rendering/tokyo_map_planner.gd").new()
+	var synchronous := preload("res://scripts/rendering/tokyo_hlod_overlay.gd").new()
+	var pool := ZoomGuardPool.new()
+	var viewport := SubViewport.new()
+	viewport.size=Vector2i(1600,900);viewport.disable_3d=true
+	viewport.render_target_update_mode=SubViewport.UPDATE_DISABLED
+	var source := Node2D.new();viewport.add_child(source)
+	(Engine.get_main_loop() as SceneTree).root.add_child(viewport)
+	var size := Vector2(1600,900)
+	var catalog: Dictionary=fixture.catalogs[1]
+	var layout := preload("res://scripts/rendering/tokyo_hlod_overlay.gd").Layout.new()
+	layout.bounds=catalog.bounds;synchronous._archive=layout;synchronous._source_ref=weakref(source)
+	planner._bounds=catalog.bounds;planner._logical=size
+	planner._selection_work={"background":true,"epoch":1,"display_limit":Stream.BUDGET,"native_page_limit":16}
+	planner._stream={"residency_limit":Stream.BUDGET,"residency_bytes":0,
+		"residency_meshes":PackedStringArray(),"residency_images":PackedStringArray()}
+	synchronous._stream=pool
+	var old_keys := PackedStringArray(["0:0"])
+	var old_charge: Dictionary=contract.charges(fixture.catalogs[0],old_keys,planner._selection_work)
+	var old := {"keys":old_keys,"charges":old_charge,"bytes":old_charge.total_bytes,"triangles":100,"within_budget":true}
+	for probe: Variant in [planner,synchronous]:
+		probe._catalogs.assign(fixture.catalogs)
+		probe._geometry=fixture.geometry;probe._textures=fixture.textures
+		probe.display_budget=Stream.BUDGET;probe._zoom_rate=-1.0
+		probe._committed_catalog=0;probe._committed=old_keys;probe._committed_cut=old
+		probe._last_size=size;probe._last_canvas=Transform2D(0.0,size*0.5)
+	var padding: Vector2=Vector2(384,384)+handoff.zoom_out_padding(-1.0,size)
+	var ordinary_full: Dictionary=contract.select(catalog,Vector2.ZERO,1.0,0.0,size+padding*0.5,true,Stream.BUDGET,planner._selection_work)
+	var old_narrow: Dictionary=contract.select(catalog,Vector2.ZERO,1.0,0.0,size+padding*0.25,true,Stream.BUDGET/2,planner._selection_work)
+	var failures := int(ordinary_full.get("keys")!=PackedStringArray(["0:0"]) \
+		or not ordinary_full.get("within_budget",false) or planner._handoff_bytes(ordinary_full,1)<=Stream.BUDGET \
+		or old_narrow.get("keys")!=PackedStringArray(["1:0"]) or not old_narrow.get("within_budget",false))
+	var expected := PackedStringArray(["1:0","1:1"])
+	for probe: Variant in [planner,synchronous]:
+		var chosen: Dictionary=probe._select_hlod(catalog,Vector2.ZERO,1.0,0.0,size,true,Stream.BUDGET/2)
+		failures+=int(chosen.get("keys")!=expected or chosen.get("spatial_guard_px")!=96.0 \
+			or chosen.get("selection_stage")!="hlod_guard_shared" or chosen.get("bytes")!=55*1024*1024+576 \
+			or probe._handoff_bytes(chosen,1)!=80*1024*1024+864 \
+			or not handoff.covers_motion_view(catalog,chosen,Vector2.ZERO,exp(-0.25),0.0,size))
+		# 192档无解时，不得把更窄的96/48档提前当作192档成功。
+		failures+=int(not probe._select_handoff_hlod(1,Vector2.ZERO,1.0,0.0,size,Stream.BUDGET,Stream.BUDGET,192.0).is_empty())
+		var same: Dictionary=probe._select_handoff_hlod(1,Vector2.ZERO,1.0,0.0,size,Stream.BUDGET,Stream.BUDGET,96.0)
+		failures+=int(same.get("keys")!=expected or same.get("spatial_guard_px")!=96.0)
+		failures+=int(not probe._select_handoff_hlod(1,Vector2.ZERO,1.0,0.0,size,Stream.BUDGET,Stream.BUDGET,NAN).is_empty())
+	failures+=int(handoff.covers_motion_view(catalog,old_narrow,Vector2.ZERO,exp(-0.25),0.0,size))
+	# 已预测的query仍透传关闭额外缩远外推；这里无需假造生产开关。
+	var predicted: Dictionary=planner._select_handoff_hlod(1,Vector2.ZERO,1.0,0.0,size,Stream.BUDGET,Stream.BUDGET,192.0,false)
+	failures+=int(predicted.get("keys")!=PackedStringArray(["1:0"]) or predicted.get("spatial_guard_px")!=192.0)
+	synchronous.free();pool.free();viewport.free()
+	print("[Tokyo HLOD] shared_zoom_guard fail=",failures)
+	return failures
+
+
+static func zoom_trace_result(planner: RefCounted, cut: Dictionary, pose: Dictionary, label: String) -> Dictionary:
+	var catalog: Dictionary=planner._catalogs[6]
+	var handoff := preload("res://scripts/rendering/tokyo_hlod_handoff.gd")
+	var combined: int=-1 if cut.is_empty() else planner._handoff_bytes(cut,6)
+	var result := {"label":label,"keys":cut.get("keys",PackedStringArray()),"bytes":cut.get("bytes",0),
+		"faces":cut.get("triangles",0),"guard":cut.get("spatial_guard_px",0),"union":combined,
+		"within_budget":cut.get("within_budget",false),"qualified":handoff.qualified(catalog,cut,pose.scale),
+		"current_covered":zoom_trace_covered(catalog,cut,pose.canvas,planner._bounds),
+		"loss_covered":zoom_trace_covered(catalog,cut,pose.loss_canvas,planner._bounds)}
+	print("[Tokyo zoom handoff diagnostic] ",JSON.stringify(result))
+	return result
+
+
+static func installed_zoom_handoff_diagnostic() -> int:
+	# FastNorth motion-v7 f405：保存的请求canvas/速度为文本精度；不冒称二进制原请求。
+	# f405的request_revision与领取revision均为59，旧图/目标均为catalog5，可直接重建费用快照。
+	var pose := {"scale":0.23449569940567,"zoom_rate":-1.93914163890583,
+		"canvas":Transform2D(Vector2(0.281395,0),Vector2(0,0.281395),Vector2(2667.133,1416.868)),
+		"velocity":Vector2(-580.3162,333.1802),"loss_scale":0.185754261910915,
+		"loss_canvas":Transform2D(Vector2(0.222905,0),Vector2(0,0.222905),Vector2(2331.761,1209.418))}
+	var installed := preload("res://scripts/rendering/tokyo_installed_map.gd")
+	if not installed.package_path().ends_with("/m20/package.json"):
+		print("[Tokyo zoom handoff diagnostic] requires installed M20")
+		return 1
+	# 走正式package、coverage及来源摘要门；这里只查询原目录，不加载GPU资源或改生产策略。
+	var loader := preload("res://scripts/rendering/tokyo_hlod_overlay.gd").new()
+	var archive: Resource=loader._load_archive()
+	if archive==null or loader._catalogs.size()!=7:
+		if loader._future_predictor!=null: loader._future_predictor.close()
+		loader.free()
+		print("[Tokyo zoom handoff diagnostic] authenticated source unavailable")
+		return 1
+	var planner := preload("res://scripts/rendering/tokyo_map_planner.gd").new()
+	planner._catalogs.assign(loader._catalogs)
+	planner._geometry=loader._geometry;planner._textures=loader._textures
+	planner._bounds=archive.bounds;planner._logical=Vector2(1920,1080)
+	planner._last_size=Vector2(1600,900);planner._last_canvas=pose.canvas
+	planner._pan_velocity=pose.velocity;planner._zoom_rate=pose.zoom_rate
+	planner.display_budget=Stream.BUDGET
+	planner._selection_work={"background":true,"epoch":1,"display_limit":Stream.BUDGET,"native_page_limit":16}
+	planner._stream={"residency_limit":Stream.BUDGET,"residency_bytes":0,
+		"residency_meshes":PackedStringArray(),"residency_images":PackedStringArray()}
+	var contract := preload("res://scripts/rendering/tokyo_hlod_manifest.gd")
+	var handoff := preload("res://scripts/rendering/tokyo_hlod_handoff.gd")
+	var old_keys := PackedStringArray(["2:83","2:99","2:115","2:84","2:85","2:86","2:87","1:26","1:27"])
+	var old_charge: Dictionary=contract.charges(planner._catalogs[5],old_keys,planner._selection_work)
+	planner._committed_catalog=5;planner._committed=old_keys
+	planner._committed_cut={"keys":old_keys,"charges":old_charge,"bytes":old_charge.total_bytes,"triangles":old_charge.faces,"within_budget":true}
+	var catalog: Dictionary=planner._catalogs[6]
+	var center: Vector2=pose.canvas.affine_inverse()*(planner._logical*0.5)
+	var selected: Dictionary=planner._select_hlod(catalog,center,pose.scale,0.0,planner._last_size,true,Stream.BUDGET/2)
+	var selected_info := zoom_trace_result(planner,selected,pose,"production_shared_guard")
+	var bridge: Dictionary=planner._select_handoff_hlod(6,center,pose.scale,0.0,planner._last_size,Stream.BUDGET)
+	var bridge_info := zoom_trace_result(planner,bridge,pose,"production_weighted_bridge")
+	var expected := PackedStringArray(["2:66","2:67","2:82","2:83","2:98","2:99","2:114","2:115","0:5"])
+	var failures := int(old_charge.total_bytes!=45814704)
+	failures+=int(selected.get("keys")!=expected or selected.get("bytes")!=59706588 \
+		or selected.get("spatial_guard_px")!=96.0 or selected.get("selection_stage")!="hlod_guard_shared" \
+		or selected.get("triangles")!=82741 or selected_info.union!=99345804 \
+		or not selected_info.current_covered or not selected_info.loss_covered)
+	failures+=int(bridge.get("keys")!=expected or bridge.get("bytes")!=59706588 \
+		or bridge.get("triangles")!=82741 or bridge.get("spatial_guard_px")!=96.0 \
+		or bridge_info.union!=99345804 or not bridge_info.within_budget or not bridge_info.qualified \
+		or not bridge_info.current_covered or not bridge_info.loss_covered or bridge_info.union>Stream.BUDGET)
+	var current_bytes: int=planner._handoff_bytes({"keys":PackedStringArray()},6)
+	var incremental: Dictionary=planner._handoff_incremental_costs(6)
+	var roots: Array[Dictionary]=contract.handoff_roots(catalog,pose.scale,incremental,planner._selection_work)
+	var lead: Vector2=handoff.pan_lead(pose.velocity,pose.scale,0.35,planner._last_size)
+	var spatial_padding: Vector2=(lead*pose.scale).abs()+Vector2(384,384)
+	var zoom_padding: Vector2=handoff.zoom_out_padding(pose.zoom_rate,planner._last_size)
+	# 原48px半池切面由同一Contract直接重建，作为负对照，不增加生产策略开关。
+	var ordinary: Dictionary=contract.select(catalog,center+lead*0.125,pose.scale,0.0,
+		planner._last_size+(spatial_padding+zoom_padding)*0.25,true,Stream.BUDGET/2,planner._selection_work)
+	var ordinary_info := zoom_trace_result(planner,ordinary,pose,"previous_narrow_negative_control")
+	failures+=int(ordinary.get("keys")!=old_keys or ordinary.get("bytes")!=37324720 \
+		or not ordinary_info.current_covered or ordinary_info.loss_covered)
+	# 新目标就绪前仍显示原catalog5；记录其到漏边姿态的覆盖，不据此延长任何显示资格。
+	print("[Tokyo zoom handoff diagnostic] ",JSON.stringify({"label":"old_catalog5_while_loading", \
+		"current_covered":zoom_trace_covered(planner._catalogs[5],planner._committed_cut,pose.canvas,archive.bounds), \
+		"loss_covered":zoom_trace_covered(planner._catalogs[5],planner._committed_cut,pose.loss_canvas,archive.bounds), \
+		"loss_qualified":handoff.qualified(planner._catalogs[5],planner._committed_cut,pose.loss_scale)}))
+	# 每档保留完整缩远包络的对照；此阶段只诊断，不更改正式_select_hlod。
+	for ratio: float in [1.0,0.5,0.25,0.0]:
+		var query_center: Vector2=center+lead*0.5*ratio
+		var query_size: Vector2=planner._last_size+spatial_padding*ratio+zoom_padding
+		var full: Dictionary=contract.select(catalog,query_center,pose.scale,0.0,query_size,true,Stream.BUDGET,planner._selection_work)
+		var weighted: Dictionary=contract.select_handoff(catalog,query_center,pose.scale,0.0,query_size,
+			Stream.BUDGET-current_bytes,incremental,planner._selection_work,false,pose.scale,roots)
+		var full_info := zoom_trace_result(planner,full,pose,"independent_zoom_full_"+str(ratio))
+		var weighted_info := zoom_trace_result(planner,weighted,pose,"independent_zoom_weighted_"+str(ratio))
+		if ratio==0.25:
+			failures+=int(weighted.get("keys")!=expected or weighted_info.union!=99345804 \
+				or not weighted_info.current_covered or not weighted_info.loss_covered or not weighted_info.qualified)
+		if ratio==0.0:
+			failures+=int(full.get("keys")!=PackedStringArray(["1:17","1:25","0:5"]) \
+				or full_info.union!=105225988 or full_info.union<=Stream.BUDGET)
+	# 不能因共享资源而穿透硬池；缺必需父页仍须被真实未来视野覆盖门拒绝。
+	failures+=int(not planner._select_handoff_hlod(6,center,pose.scale,0.0,planner._last_size,current_bytes).is_empty())
+	var incomplete: Dictionary=bridge.duplicate(true)
+	var incomplete_keys := PackedStringArray(incomplete.get("keys",[]))
+	var missing_index := incomplete_keys.find("0:5")
+	if missing_index>=0: incomplete_keys.remove_at(missing_index)
+	else: failures+=1
+	incomplete["keys"]=incomplete_keys
+	failures+=int(zoom_trace_covered(catalog,incomplete,pose.loss_canvas,archive.bounds))
+	if loader._future_predictor!=null: loader._future_predictor.close()
+	loader.free()
+	print("[Tokyo zoom handoff diagnostic] fail=",failures)
+	return failures
+
+
+static func motion_handoff_checks() -> int:
+	var contract := preload("res://scripts/rendering/tokyo_hlod_manifest.gd")
+	var handoff := preload("res://scripts/rendering/tokyo_hlod_handoff.gd")
+	var probe := MotionPlanProbe.new()
+	var parent := {"key":"0:0","path":"parent","texture_path":"parent","max_scale":1.0,
+		"bytes":80*1024*1024+288,"triangles":[1000,0,0],
+		"boxes":[AABB(Vector3(-1000,0,-600),Vector3(2000,0,1200)),AABB(),AABB()]}
+	var rows := {"0:0":{"depth":0,"parent":-1,"children":[0,1],"faces":1000,"max_scale":1.0,
+		"bounds":[-1000,-600,1000,600],"native_geometry":{"path":"parent","bytes":80*1024*1024},
+		"native_texture":{"path":"parent","three_copy_charge":0}}}
+	var children: Array[Dictionary]=[]
+	probe._geometry={"parent":{"bytes":80*1024*1024}};probe._textures={"parent":{"charge":0}}
+	for n in 2:
+		var key := "1:%d"%n
+		var cost: int=[55,2][n]*1024*1024
+		var bounds: Rect2=[Rect2(-1000,-600,1800,1200),Rect2(800,-600,200,1200)][n]
+		children.append({"key":key,"path":key,"texture_path":key,"max_scale":1.0,"bytes":cost+288,
+			"triangles":[2000,0,0],"boxes":[AABB(Vector3(bounds.position.x,0,bounds.position.y),Vector3(bounds.size.x,0,bounds.size.y)),AABB(),AABB()]})
+		rows[key]={"depth":1,"parent":0,"children":[],"faces":2000,"max_scale":1.0,
+			"bounds":[bounds.position.x,bounds.position.y,bounds.end.x,bounds.end.y],
+			"native_geometry":{"path":key,"bytes":cost},"native_texture":{"path":key,"three_copy_charge":0}}
+		probe._geometry[key]={"bytes":cost};probe._textures[key]={"charge":0}
+	parent["children"]=children
+	var catalog := {"roots":[parent],"rows":rows,"min_scale":0.0,"max_scale":1.0,"range":[0.0,1.0],"bounds":Rect2(-1000,-600,2000,1200)}
+	probe._catalogs=[catalog];probe._bounds=catalog.bounds
+	probe._selection_work={"background":true,"epoch":0,"display_limit":Stream.BUDGET,"native_page_limit":16}
+	var old_keys := PackedStringArray(["1:0"])
+	var old_charge := contract.charges(catalog,old_keys,probe._selection_work)
+	var old := {"keys":old_keys,"entries":[children[0]],"bytes":old_charge.total_bytes,"charges":old_charge,"triangles":2000,"within_budget":true}
+	var center := Vector2(-10,0)
+	var size := Vector2(1600,900)
+	var lead := Vector2(200,0)
+	var failures := int(not handoff.covers_motion_view(catalog,old,center,1.0,0.0,size))
+	failures+=int(handoff.covers_motion_view(catalog,old,center,1.0,0.0,size,lead))
+	# 子集求解成功并不证明原树的前方页齐全；调用方的完整目录门必须拒绝它。
+	var incomplete := contract.visible_subset(catalog,old,center,1.0,0.0,size,probe._selection_work,lead)
+	failures+=int(not incomplete.get("within_budget",false) or handoff.covers_motion_view(catalog,incomplete,center,1.0,0.0,size,lead))
+	var request := {"canvas":Transform2D(0.0,size*0.5-center),"size":size,"logical":size,"scale":1.0,
+		"pan_velocity":Vector2(800,0),"zoom_rate":0.0,"zooming_out":false,"sequence":1,
+		"committed_catalog":0,"committed":old,"target_catalog":0,"target":old,
+		"stream":{"residency_limit":Stream.BUDGET,"residency_bytes":0,"residency_meshes":PackedStringArray(),"residency_images":PackedStringArray(),
+			"_cache":{"1:0":true},"_textures":{"1:0":true}}}
+	# 当前55MiB完整，80MiB父页的交接超池；增加2MiB前方子页应保留192px保护带。
+	# 真实plan应在基础选择时复用旧资源，先保留宽保护带，不等退为裸视野再桥接。
+	var planned: Dictionary=probe.plan(request)
+	var bridge: Dictionary=planned.cut
+	failures+=int(bridge.get("keys")!=PackedStringArray(["1:0","1:1"]) or bridge.get("selection_stage")!="hlod_guard_shared" \
+		or bridge.get("spatial_guard_px")!=192.0 or int(bridge.get("bytes",0))<=int(old.bytes) \
+		or probe._handoff_bytes(bridge,0)>Stream.BUDGET)
+	failures+=int(not handoff.covers_motion_view(catalog,bridge,center,1.0,0.0,size,lead))
+	# 前方页成为屏内必需页后，56MiB真实联合预算仍不能接受57MiB切面。
+	failures+=int(not probe._select_handoff_hlod(0,center+lead,1.0,0.0,size,56*1024*1024,Stream.BUDGET).is_empty())
+	probe._zoom_rate=1.0
+	failures+=int(not probe._select_handoff_hlod(0,center,1.0,0.0,size,Stream.BUDGET,Stream.BUDGET).is_empty())
+	failures+=int(handoff.covers_motion_view(catalog,bridge,center,0.0,0.0,size,lead) \
+		or handoff.covers_motion_view(catalog,bridge,center,1.0,NAN,size,lead) \
+		or handoff.covers_motion_view(catalog,bridge,center,1.0,0.0,size,Vector2(INF,0)))
+	return failures
+
+
+static func handoff_bridge_checks() -> int:
+	var probe := CommitOverlay.new()
+	var contract := preload("res://scripts/rendering/tokyo_hlod_manifest.gd")
+	var roots: Array[Dictionary]=[]
+	var rows := {}
+	# 旧30MiB + 必需55MiB可同池交接；192px保护带再加25MiB则超限。
+	# 必需页超过半池，不能误判成当前尺度无解。
+	for n in 3:
+		var key := "0:%d"%n
+		var cost: int=[30,55,25][n]*1024*1024
+		var bounds: Rect2=[Rect2(10000,10000,100,100),Rect2(-800,-450,1600,900),Rect2(925,-100,50,200)][n]
+		rows[key]={"depth":0,"parent":-1,"faces":1000,"max_scale":1.0,
+			"native_geometry":{"path":key,"bytes":cost},"native_texture":{"path":key,"three_copy_charge":0}}
+		roots.append({"key":key,"path":key,"texture_path":key,"bytes":cost+288,"triangles":[1000,0,0],
+			"boxes":[AABB(Vector3(bounds.position.x,0,bounds.position.y),Vector3(bounds.size.x,0,bounds.size.y)),AABB(),AABB()]})
+		probe._geometry[key]={"bytes":cost}
+		probe._textures[key]={"charge":0}
+	probe._catalogs=[{"roots":roots,"rows":rows,"min_scale":0.0,"max_scale":1.0}]
+	probe._committed_catalog=0
+	probe._committed=PackedStringArray(["0:0"])
+	probe._committed_cut={"keys":probe._committed,"charges":{"ground_bytes":288}}
+	var expanded := contract.select(probe._catalogs[0],Vector2.ZERO,1.0,0.0,Vector2(1984,1284))
+	var failures := int(not expanded.get("within_budget",false) or probe._handoff_bytes(expanded,0)<=Stream.BUDGET)
+	var bridge: Dictionary=probe._select_handoff_hlod(0,Vector2.ZERO,1.0,0.0,Vector2(1600,900),Stream.BUDGET)
+	failures+=int(bridge.get("keys")!=PackedStringArray(["0:1"]) or bridge.get("spatial_guard_px")!=96.0 or bridge.get("bytes",0)<=Stream.BUDGET/2)
+	failures+=int(not probe._select_handoff_hlod(0,Vector2.ZERO,1.0,0.0,Vector2(1600,900),Stream.BUDGET,50*1024*1024).is_empty())
+	failures+=int(probe._select_handoff_hlod(0,Vector2.ZERO,1.0,0.0,Vector2(1600,900),Stream.BUDGET,60*1024*1024).is_empty())
+	failures+=int(not probe._select_handoff_hlod(0,Vector2.ZERO,1.0,0.0,Vector2(1600,900),80*1024*1024).is_empty())
+	probe.committed_view_covered=false
+	failures+=int(not probe._select_handoff_hlod(0,Vector2.ZERO,1.0,0.0,Vector2(1600,900),Stream.BUDGET).is_empty())
+	probe.committed_view_covered=true
+	rows["0:1"].max_scale=0.9
+	failures+=int(not probe._select_handoff_hlod(0,Vector2.ZERO,1.0,0.0,Vector2(1600,900),Stream.BUDGET).is_empty())
+	# 低面数父页虽单独能装下，和旧子页并存却超限；同一完整子切面应获共享资源抵扣。
+	var parent := {"key":"0:0","path":"0:0","texture_path":"0:0","max_scale":1.0,"bytes":80*1024*1024+288,
+		"triangles":[1000,0,0],"boxes":[AABB(Vector3(-800,0,-450),Vector3(1600,0,900)),AABB(),AABB()]}
+	var children: Array[Dictionary]=[]
+	rows={"0:0":{"depth":0,"parent":-1,"faces":1000,"max_scale":1.0,"native_geometry":{"path":"0:0","bytes":80*1024*1024},"native_texture":{"path":"0:0","three_copy_charge":0}}}
+	probe._geometry={"0:0":{"bytes":80*1024*1024}}
+	probe._textures={"0:0":{"charge":0}}
+	for n in 2:
+		var key := "1:%d"%n
+		var cost: int=[55,20][n]*1024*1024
+		children.append({"key":key,"path":key,"texture_path":key,"max_scale":1.0,"bytes":cost+288,"triangles":[2000,0,0],
+			"boxes":[AABB(Vector3(-800+800*n,0,-450),Vector3(800,0,900)),AABB(),AABB()]})
+		rows[key]={"depth":1,"parent":0,"faces":2000,"max_scale":1.0,"native_geometry":{"path":key,"bytes":cost},"native_texture":{"path":key,"three_copy_charge":0}}
+		probe._geometry[key]={"bytes":cost};probe._textures[key]={"charge":0}
+	parent["children"]=children
+	probe._catalogs=[{"roots":[parent],"rows":rows,"min_scale":0.5,"max_scale":1.0}]
+	probe._committed=PackedStringArray(["1:0"])
+	probe._committed_cut={"keys":probe._committed,"charges":{"ground_bytes":288}}
+	var root_before := var_to_bytes(parent)
+	bridge=probe._select_handoff_hlod(0,Vector2.ZERO,1.0,0.0,Vector2(1600,900),Stream.BUDGET)
+	failures+=int(bridge.get("keys")!=PackedStringArray(["1:0","1:1"]) or bridge.get("bytes")!=75*1024*1024+576 or probe._handoff_bytes(bridge,0)>Stream.BUDGET)
+	failures+=int(var_to_bytes(parent)!=root_before or int(bridge.entries[0].bytes)!=55*1024*1024+288)
+	# 已显示的更细档允许继续清晰显示；只豁免名义下限，绝不豁免上限。
+	bridge=probe._select_handoff_hlod(0,Vector2.ZERO,0.4,0.0,Vector2(1600,900),Stream.BUDGET)
+	failures+=int(bridge.is_empty())
+	probe._catalogs[0]["mixed_scales"]=true
+	parent.max_scale=0.5
+	rows["0:0"].max_scale=0.5
+	var qualified := contract.select_handoff(probe._catalogs[0],Vector2.ZERO,1.0,0.0,Vector2(1600,900),41*1024*1024,{"0:0":0,"1:0":288,"1:1":20*1024*1024+288})
+	failures+=int(qualified.get("keys")!=PackedStringArray(["1:0","1:1"]))
+	qualified=contract.select_handoff(probe._catalogs[0],Vector2.ZERO,0.4,0.0,Vector2(1600,900),41*1024*1024,{"0:0":0,"1:0":288,"1:1":20*1024*1024+288},null,true,0.6)
+	failures+=int(qualified.get("keys")!=PackedStringArray(["1:0","1:1"]))
+	# 同次保护带复用费用树：保持完整结果/顺序，预算及未来资格仍独立验收。
+	var costs := {"0:0":0,"1:0":288,"1:1":20*1024*1024+288}
+	var prepared := contract.handoff_roots(probe._catalogs[0],1.0,costs)
+	var prepared_snapshot := var_to_bytes(prepared)
+	for size: Vector2 in [Vector2(1984,1284),Vector2(1792,1092),Vector2(1696,996),Vector2(1600,900)]:
+		for amount: int in [0,8*1024*1024,41*1024*1024,Stream.BUDGET]:
+			var fresh := contract.select_handoff(probe._catalogs[0],Vector2.ZERO,1.0,0.1,size,amount,costs)
+			var reused := contract.select_handoff(probe._catalogs[0],Vector2.ZERO,1.0,0.1,size,amount,costs,null,false,1.0,prepared)
+			fresh.erase("solver_usec");reused.erase("solver_usec")
+			failures+=int(fresh!=reused)
+			failures+=int(var_to_bytes(prepared)!=prepared_snapshot)
+	probe.free()
+	return failures
+
+
+static func pending_hlod_expiry_checks() -> int:
+	var handoff := preload("res://scripts/rendering/tokyo_hlod_handoff.gd")
+	var planner := preload("res://scripts/rendering/tokyo_map_planner.gd").new()
+	var synchronous := preload("res://scripts/rendering/tokyo_hlod_overlay.gd").new()
+	var size := Vector2(1600,900)
+	var bounds := Rect2(-10000,-10000,20000,20000)
+	var viewport := SubViewport.new()
+	viewport.size=Vector2i(size);viewport.disable_3d=true
+	viewport.render_target_update_mode=SubViewport.UPDATE_DISABLED
+	var source := Node2D.new()
+	viewport.add_child(source)
+	(Engine.get_main_loop() as SceneTree).root.add_child(viewport)
+	var layout := preload("res://scripts/rendering/tokyo_hlod_overlay.gd").Layout.new()
+	layout.bounds=bounds;synchronous._archive=layout;synchronous._source_ref=weakref(source)
+	planner._bounds=bounds;planner._logical=size
+	var catalog := {"range":[0.183,0.24],"max_scale":0.25,"bounds":bounds,
+		"rows":{"0:0":{"bounds":[-10000,-10000,10000,10000],"max_scale":0.25}},
+		"roots":[{"key":"0:0","boxes":[AABB(Vector3(-10000,0,-10000),Vector3(20000,0,20000))],"children":[]}]}
+	var pending := {"keys":PackedStringArray(["0:0"]),"selection_stage":"hlod_guard_retry","spatial_guard_px":192.0}
+	var failures := 0
+	for probe: Variant in [planner,synchronous]:
+		probe._catalogs.append(catalog.duplicate(true))
+		probe._catalogs.append({"range":[0.24,0.625],"max_scale":0.625})
+		probe._target_catalog=0;probe._target=pending.duplicate(true);probe._last_size=size
+		# guard-v8 FastNorth f1641：当前仍合格，0.25秒后已越过0.25上限；应让已选细档开始加载。
+		for sample: Array in [[0.191785494486491,1.42952468645132,false,false],
+			[0.178784281015396,1.08617177457068,false,true],
+			[0.191785494486491,0.0,false,true],[0.191785494486491,-1.42952468645132,true,true]]:
+			var scale: float=sample[0]
+			probe._zoom_rate=sample[1]
+			probe._last_canvas=Transform2D(Vector2(scale,0),Vector2(0,scale),size*0.5)
+			failures+=int(not handoff.qualified(catalog,pending,scale) or not probe._target_covers_current_view(96.0))
+			failures+=int(probe._pending_hlod_covers(scale,sample[2])!=sample[3])
+		failures+=int(handoff.catalog_index(probe._catalogs,0.191785494486491,true)!=1)
+		# 页自身先于目录到期也必须拒绝，不能只验目录总上限。
+		probe._catalogs[0].rows["0:0"].max_scale=0.22
+		probe._zoom_rate=0.5
+		failures+=int(probe._pending_hlod_covers(0.2,false))
+	synchronous.free();viewport.free()
+	print("[Tokyo HLOD] pending_hlod_expiry fail=",failures)
+	return failures
+
+
 static func projection_equivalence_checks() -> int:
+	if not preload("res://scripts/tests/test_tokyo_hlod_manifest.gd").checks(): return 1
+	var bridge_checks := PackedInt32Array([handoff_bridge_checks(),motion_handoff_checks(),zoom_footprint_checks(),shared_zoom_guard_checks(),pending_hlod_expiry_checks()])
+	var bridge_failures := 0
+	for count: int in bridge_checks: bridge_failures+=count
+	if bridge_failures>0: print("[Tokyo HLOD] bridge checks=",bridge_checks)
+	if OS.get_environment("AGL_TOKYO_ZOOM_HANDOFF_DIAGNOSTIC")=="1": bridge_failures+=installed_zoom_handoff_diagnostic()
+	if bridge_failures!=0: return bridge_failures
 	var overlay := preload("res://scripts/rendering/tokyo_cells_overlay.gd")
+	var handoff := preload("res://scripts/rendering/tokyo_hlod_handoff.gd")
+	# 45度镜头：四个AABB角落在屏外。原矩形覆盖会误拒，实际缺中心页仍必须失败。
+	var roots: Array[Dictionary]=[]
+	var rows := {}
+	var keys := PackedStringArray()
+	for y in 4:
+		for x in 4:
+			var key := "%d:%d"%[x,y]
+			var position := Vector2(-100+x*50,-100+y*50)
+			rows[key]={"bounds":[position.x,position.y,position.x+50,position.y+50]}
+			roots.append({"key":key,"boxes":[AABB(Vector3(position.x,0,position.y),Vector3(50,0,50))],"children":[]})
+			if not (x in [0,3] and y in [0,3]): keys.append(key)
+	var catalog := {"roots":roots,"rows":rows}
+	var coverage_canvas := Transform2D(PI/4,Vector2(50,50))
+	var coverage_inverse := coverage_canvas.affine_inverse()
+	var coverage_view := Rect2(coverage_inverse*Vector2.ZERO,Vector2.ZERO)
+	for corner: Vector2 in [Vector2(100,0),Vector2(100,100),Vector2(0,100)]: coverage_view=coverage_view.expand(coverage_inverse*corner)
+	var cut := {"keys":keys}
+	if handoff.covers_view(catalog,cut,coverage_view) or not handoff.covers_projection(catalog,cut,coverage_view,coverage_canvas,Vector2(100,100)): return 1
+	keys.remove_at(keys.find("1:1"))
+	if handoff.covers_projection(catalog,{"keys":keys},coverage_view,coverage_canvas,Vector2(100,100)): return 1
+	keys.append("1:1")
+	# 屏外地块不能豁免投影入屏的高楼；至少一个角落的楼体投影必须被拒。
+	var roof_rejections := 0
+	for index in [0,3,12,15]:
+		var original_box: AABB=roots[index].boxes[0]
+		roots[index].boxes[0]=AABB(original_box.position,Vector3(50,500,50))
+		roof_rejections+=int(not handoff.covers_projection(catalog,{"keys":keys},coverage_view,coverage_canvas,Vector2(100,100)))
+		roots[index].boxes[0]=original_box
+	if roof_rejections==0: return 1
+	# 父档自身包络在屏外，不代表较高/较宽的子档也在屏外。
+	var outside_parent := {"key":"outside_parent","boxes":[AABB(Vector3(10000,0,10000),Vector3(1,1,1))],"children":[roots[5]]}
+	if handoff.covers_projection({"roots":[outside_parent]},{"keys":PackedStringArray(["other"])},coverage_view,coverage_canvas,Vector2(100,100)): return 1
+	# 在途结果复用只提前原有判断：缺覆盖、过期、已提交、未来窄视野均不能跳过选页。
+	var pending := CommitOverlay.new()
+	pending._catalogs=[{"max_scale":0.25,"rows":{"pending":{"max_scale":0.25}}}]
+	pending._target_catalog=0
+	pending._target={"keys":PackedStringArray(["pending"])}
+	pending.coverage_margin=0.0
+	var pending_failures := int(not pending._pending_hlod_covers(0.2,false) or pending._pending_hlod_covers(0.2,true))
+	pending.coverage_margin=96.0
+	pending_failures+=int(not pending._pending_hlod_covers(0.2,true) or pending._pending_hlod_covers(0.251,false))
+	pending._target["handoff_bridge"]=true
+	pending._zoom_rate=1.0
+	pending_failures+=int(pending._pending_hlod_covers(0.2,false) or pending._handoff_bridge_qualified(0,pending._target,0.2))
+	pending._zoom_rate=-1.0
+	pending_failures+=int(not pending._pending_hlod_covers(0.2,false))
+	pending._target.erase("handoff_bridge")
+	pending._zoom_rate=1.0
+	pending_failures+=int(pending._pending_hlod_covers(0.2,false))
+	pending._zoom_rate=0.0
+	pending._target["anticipated_scale"]=0.24
+	pending_failures+=int(pending._pending_hlod_covers(0.2,false))
+	pending._target.erase("anticipated_scale")
+	pending.current_view_covered=false
+	pending_failures+=int(pending._pending_hlod_covers(0.2,false))
+	pending.current_view_covered=true
+	pending._committed=pending._target.keys;pending._committed_cut=pending._target;pending._committed_catalog=0
+	pending_failures+=int(pending._pending_hlod_covers(0.2,false))
+	pending.free()
+	if pending_failures!=0: return pending_failures
+	var fallback := CommitOverlay.new()
+	var fallback_source := NativeSelectionProbe.new()
+	fallback._native=fallback_source
+	fallback_source.response={"within_budget":false,"keys":PackedStringArray(["over_budget"]),"bytes":Stream.BUDGET+1}
+	var rejected: Dictionary=fallback._select_native_fallback(Vector2.ZERO,0.2,0,Vector2(1600,900),true)
+	var fallback_failures := int(rejected.within_budget or fallback_source.calls!=1 or fallback_source.budgets!=[Stream.BUDGET])
+	fallback_source.calls=0;fallback_source.budgets.clear()
+	fallback_source.response={"within_budget":true,"keys":PackedStringArray(["valid"]),"bytes":1}
+	var accepted: Dictionary=fallback._select_native_fallback(Vector2.ZERO,0.2,0,Vector2(1600,900),true)
+	fallback_failures+=int(not accepted.within_budget or accepted.spatial_guard_px!=192 or fallback_source.calls!=2 or fallback_source.budgets!=[Stream.BUDGET,Stream.BUDGET/2])
+	fallback_source.calls=0;fallback_source.budgets.clear()
+	accepted=fallback._select_native_fallback(Vector2.ZERO,0.2,0,Vector2(1600,900),false)
+	fallback_failures+=int(not accepted.within_budget or fallback_source.calls!=1 or fallback_source.budgets!=[Stream.BUDGET/2])
+	fallback_source.calls=0
+	fallback_source.response={"within_budget":false,"keys":PackedStringArray(["default_rejected"]),"bytes":Stream.BUDGET+1}
+	fallback._target_catalog=-2
+	fallback._target={"within_budget":true,"keys":PackedStringArray(["retained_other_lod"]),"configuration":"lod4_full","bytes":1}
+	accepted=fallback._select_native_fallback(Vector2.ZERO,0.2,0,Vector2(1600,900),true)
+	fallback_failures+=int(not accepted.within_budget or accepted.keys!=fallback._target.keys or fallback_source.calls!=0)
+	fallback.free()
+	if fallback_failures!=0: return fallback_failures
 	var rng := RandomNumberGenerator.new()
 	rng.seed=20261001
 	var failures := 0
@@ -1695,6 +2310,10 @@ static func handoff_budget_probe() -> int:
 
 
 static func run(parent: Node) -> int:
+	if OS.get_environment("AGL_TOKYO_PROJECTED_COVERAGE_TEST")=="1":
+		var failures := projection_equivalence_checks()
+		print("[HLOD projected coverage] fail=",failures)
+		return failures
 	var worker_failures := await preload("res://scripts/tests/test_tokyo_cut_worker.gd").run(parent)
 	if OS.get_environment("AGL_TOKYO_HANDOFF_BUDGET_PROBE")=="1": return handoff_budget_probe()
 	if not refinement_source_checks(): return 1

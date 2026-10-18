@@ -1,5 +1,6 @@
 class_name ZoneMission
 extends Node
+const FrameRedraw := preload("res://scripts/rendering/visual_redraw_queue.gd")
 
 const ZONE_ATMOSPHERE_SCRIPT := preload("res://scripts/survivor/zone_atmosphere_combat.gd")
 const TIER3_SUPER_CANNON_SCRIPT := preload("res://scripts/survivor/tier3_super_cannon_part.gd")
@@ -2327,7 +2328,7 @@ func cancel_all_zone_missions() -> void:
 					_retire_tier3_unit(u, true)
 					continue
 				u.is_mission_target = false
-				u.queue_redraw()
+				FrameRedraw.request(u)
 		_end_tier3_zone(StringName(zid))
 		canceled_count += 1
 	_spawned_zones.clear()
@@ -2369,7 +2370,7 @@ func fail_zone(zone_id: StringName, reason: String) -> void:
 		if is_instance_valid(unit) and unit is CombatUnit:
 			_retire_tier3_unit(unit, false)
 			unit.is_mission_target = false
-			unit.queue_redraw()
+			FrameRedraw.request(unit)
 			_schedule_despawn(unit)
 	_spawned_zones.erase(zone_id)
 	_spawn_lead_timers.erase(zone_id)
@@ -2552,7 +2553,7 @@ func _mark_as_target(units: Array) -> void:
 	for u in units:
 		if u is CombatUnit:
 			u.is_mission_target = true
-			u.queue_redraw()
+			FrameRedraw.request(u)
 
 ## 在战区内找一个满足 3 条规则的位置：
 ##   1. 安全部署判定（全图 OSM 陆地 - 港池水面，周围 50px 仍连续为陆地）
@@ -2705,7 +2706,7 @@ func _refresh_retained_ground_views() -> void:
 		kept.append(ground)
 		if is_instance_valid(mode) and mode.has_method("is_world_pos_visible") \
 				and mode.is_world_pos_visible(ground.global_position, 200.0):
-			ground.queue_redraw()
+			FrameRedraw.request(ground)
 	_retained_ground = kept
 
 func _retire_bomber_run(zone_id: StringName) -> void:

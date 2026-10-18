@@ -153,6 +153,8 @@ const BUILD_TASKS: Dictionary = {
 ## 无需 RenderingServer、但必须真实跨帧处理 queue_free / SceneTree 信号顺序的集成测试场。
 ## `all` 在同步单测全绿后强制进入 lifecycle_gauntlet；不能被单项断言替代。
 const HEADLESS_TEST_SCENES: Dictionary = {
+	"tokyo_map_planning": "res://scenes/tests/tokyo_map_planning.tscn",
+	"visual_redraw_queue": "res://scenes/tests/visual_redraw_queue.tscn",
 	"full_war": "res://scenes/tests/full_war.tscn",
 	"fear_cone": "res://scenes/tests/fear_cone.tscn",
 	"ocean_volume_lifecycle": "res://scenes/tests/ocean_volume_lifecycle.tscn",
@@ -266,6 +268,11 @@ var _bloodlust_probe_ref: WeakRef
 var _fear_probe_ref: WeakRef
 
 func _ready() -> void:
+	# 诊断专用卡顿飞行记录器：仅显式环境变量启用，bench 与正常游玩都可挂载。
+	if OS.has_environment("AGL_FRAME_PROBE"):
+		var probe_script: GDScript = load("res://scripts/diagnostics/frame_probe.gd")
+		if probe_script != null:
+			add_child(probe_script.new())
 	# Godot 4 把 `--` 之后的用户参数放 get_cmdline_user_args() 而非 get_cmdline_args()
 	# 两个都读一遍，兼容 `godot ... -- --bench=X` 和 `godot ... --bench=X` 两种调用
 	var args: PackedStringArray = PackedStringArray()
@@ -286,6 +293,11 @@ func _ready() -> void:
 	if master_bus_idx >= 0:
 		AudioServer.set_bus_mute(master_bus_idx, true)
 		printerr("[Bench] Master bus muted for automated test")
+	# 诊断：经 run.cmd 守护启动、但不进入任何 bench 分支，按正常游戏流程运行
+	# （由 FrameProbe 自动驾驶进入正式局；结果由 FrameProbe 写出）。
+	if bench_scenario == "probe_play":
+		bench_scenario = ""
+		return
 	if VISUAL_TEST_SCENES.has(bench_scenario):
 		if DisplayServer.get_name() == "headless":
 			printerr("[Bench] %s requires: bench/run.cmd %s 1 180 Shadow Visual" % [

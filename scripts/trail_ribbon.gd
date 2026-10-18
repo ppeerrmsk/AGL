@@ -99,6 +99,16 @@ func set_emission_enabled(enabled: bool) -> void:
 		_visibility_fade_in = 0.0
 
 func _process(delta: float) -> void:
+	if not PerfBuckets.extended_cpu_trace_enabled:
+		_process_trail_untraced(delta)
+		return
+	var started_usec := Time.get_ticks_usec()
+	var shared_before_usec := PerfBuckets.extended_cpu_shared_usec
+	_process_trail_untraced(delta)
+	PerfBuckets.finish_extended_cpu("trail_process", started_usec, shared_before_usec)
+
+
+func _process_trail_untraced(delta: float) -> void:
 	# 尾迹点本来就是世界坐标；抵消父机变换后，缓存网格可跨帧复用且仍留在原世界位置。
 	# show_behind_parent / modulate 等 CanvasItem 继承语义不变。
 	global_transform = Transform2D.IDENTITY
@@ -234,6 +244,7 @@ func append_to_missile_batch(verts: PackedVector2Array, colors: PackedColorArray
 
 
 func _rebuild_cached_geometry() -> void:
+	var started := Time.get_ticks_usec() if PerfBuckets.extended_cpu_trace_enabled else 0
 	var count := _trail_data.size()
 	if count < 2:
 		_cached_verts.clear()
@@ -304,3 +315,5 @@ func _rebuild_cached_geometry() -> void:
 	_cached_color = ribbon_color
 	_cached_width = ribbon_width
 	_geometry_dirty = false
+	if started > 0:
+		PerfBuckets.tick("function.trail_rebuild", Time.get_ticks_usec() - started)

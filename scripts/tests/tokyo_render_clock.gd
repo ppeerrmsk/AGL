@@ -31,6 +31,16 @@ static func percentiles_usec(samples: PackedInt64Array) -> Dictionary:
 	for percentile in [50, 95, 99]:
 		var index := maxi(0, ceili(sorted.size() * percentile / 100.0) - 1)
 		result["p%d_ms" % percentile] = sorted[index] / 1000.0
+	result["p999_ms"]=sorted[maxi(0,ceili(sorted.size()*0.999)-1)]/1000.0
+	result["low_method"]="reciprocal_mean_slowest_ceil_fraction"
+	for fraction: float in [0.01,0.001]:
+		var count := maxi(1,ceili(sorted.size()*fraction))
+		var total := 0
+		for index in range(sorted.size()-count,sorted.size()): total+=sorted[index]
+		result["low1_fps" if fraction==0.01 else "low01_fps"]=1000000.0*count/total
+	var over30 := 0
+	for value: int in sorted: over30+=int(value>1000000.0/30.0)
+	result["over30"]=over30
 	return result
 
 

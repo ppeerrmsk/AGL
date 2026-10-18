@@ -21,7 +21,7 @@ static func candidate_catalogs(catalogs: Array[Dictionary], preferred: int, prev
 
 
 static func select(catalog: Dictionary, center: Vector2, scale: float, angle: float, size: Vector2,
-		geometry: Dictionary, meshes: Dictionary, textures: Dictionary) -> Dictionary:
+		geometry: Dictionary, meshes: Dictionary, textures: Dictionary, work: Variant = null) -> Dictionary:
 	if not is_finite(scale) or scale<=0.0 or scale>float(catalog.max_scale) or not is_finite(angle) \
 		or not center.is_finite() or not size.is_finite() or size.x<=0.0 or size.y<=0.0: return {}
 	var canvas := Transform2D(angle,Vector2.ZERO).scaled(Vector2.ONE*scale)
@@ -34,12 +34,14 @@ static func select(catalog: Dictionary, center: Vector2, scale: float, angle: fl
 	var context := {"view":view,"canvas":canvas,"size":size,"roof":-Vector2(ray.x,ray.z)/ray.y,
 		"geometry":geometry,"meshes":meshes,"textures":textures}
 	var roots: Array[Dictionary]=[]
-	for entry: Dictionary in Contract.qualified_roots(catalog,scale): roots.append(_resident_tree(entry,context))
+	for entry: Dictionary in Contract.qualified_roots(catalog,scale,work): roots.append(_resident_tree(entry,context))
 	var resident := catalog.duplicate()
 	resident["roots"]=roots
 	resident["min_scale"]=minf(float(catalog.min_scale),scale)
+	# roots已按本次精确scale完成资格校验；费用树保留失格哨兵，无须再复制整树。
+	resident["mixed_scales"]=false
 	resident.erase("identity")
-	var result := Contract.select(resident,center,scale,angle,size,false,preload("res://scripts/rendering/tokyo_hlod_cache_policy.gd").display_limit())
+	var result := Contract.select(resident,center,scale,angle,size,false,Contract.display_limit(work),work)
 	return result if not result.is_empty() and result.within_budget and not result.keys.is_empty() else {}
 
 

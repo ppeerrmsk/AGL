@@ -41,7 +41,11 @@ class StatusPanel extends Node2D:
 		return true
 
 	func _draw() -> void:
+		var started := Time.get_ticks_usec() if PerfBuckets.extended_cpu_trace_enabled else 0
+		var shared := PerfBuckets.extended_cpu_shared_usec
 		AircraftRenderer.draw_status_panel_entry(self, entry)
+		if started > 0:
+			PerfBuckets.finish_extended_cpu("status_panel_draw", started, shared)
 
 
 var _panels: Dictionary = {}
@@ -109,6 +113,8 @@ func _sync_registered_panels() -> void:
 
 ## 单一屏幕层批绘真实世界锥体，既兼容 2D 又不被正式 3D 地表盖住。
 func _draw() -> void:
+	var started := Time.get_ticks_usec() if PerfBuckets.extended_cpu_trace_enabled else 0
+	var shared := PerfBuckets.extended_cpu_shared_usec
 	for controller in SquadFearConeController.live_controllers():
 		var ac := controller.emitter()
 		if ac == null or ac.is_destroyed or not ac.is_inside_tree():
@@ -131,3 +137,5 @@ func _draw() -> void:
 			var screen := target.get_global_transform_with_canvas().origin + Vector2(-20.0, -35.0)
 			draw_rect(Rect2(screen, Vector2(40, 5)), Color(0, 0, 0, 0.9))
 			draw_rect(Rect2(screen, Vector2(40.0 * float(controller.exposure[id]) / cfg.exposure_s, 5)), cfg.color)
+	if started > 0:
+		PerfBuckets.finish_extended_cpu("status_mask_draw", started, shared)

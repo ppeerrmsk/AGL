@@ -69,6 +69,16 @@ func setup(aircraft_list: Array[Aircraft], routes: Array, target_pos: Vector2,
 	_update_live_center()
 
 func _physics_process(delta: float) -> void:
+	if not PerfBuckets.extended_cpu_trace_enabled:
+		_physics_process_bomber_mission_untraced(delta)
+		return
+	var started_usec := Time.get_ticks_usec()
+	var shared_before_usec := PerfBuckets.extended_cpu_shared_usec
+	_physics_process_bomber_mission_untraced(delta)
+	PerfBuckets.finish_extended_cpu("bomber_mission_phys", started_usec, shared_before_usec)
+
+
+func _physics_process_bomber_mission_untraced(delta: float) -> void:
 	_lifetime += delta
 	_tick_accum += delta
 	if _tick_accum < TICK_S:

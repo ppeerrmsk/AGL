@@ -20,9 +20,12 @@ var solver_reuses := 0
 var solver_peak: Dictionary={}
 var ground: Dictionary={}
 var _ground_roots: Dictionary={}
+var selection_context: Dictionary={}
+var _selection_configurations: Dictionary={}
 
 
 func read(value: Variant) -> bool:
+	selection_context={};_selection_configurations={}
 	_partition_roots.clear()
 	_partition_pages.clear()
 	_selection_frame=-1
@@ -69,6 +72,68 @@ func read(value: Variant) -> bool:
 	return true
 
 
+func selection_snapshot() -> Dictionary:
+	# 只在加载/换源时复制；不把目录Resource、覆盖认证或完整组件元数据带进任务。
+	var configurations := _configurations()
+	if configurations.is_empty(): return {}
+	var selection_pages := {}
+	for path: String in pages:
+		var row: Dictionary=pages[path]
+		var parts := {}
+		for physical: String in row.get("components",{path:row}):
+			parts[physical]=true
+		selection_pages[path]={"components":parts}
+	var snapshot := {"schema":1,"catalog_sha":catalog_sha,"configurations":configurations,
+		"partition_roots":_partition_roots,"ground_roots":_ground_roots,
+		"ground_limits":ground.get("limits",{}),"pages":selection_pages}
+	return snapshot.duplicate(true) if _selection_value_is_pure(snapshot) else {}
+
+
+func configure_selection_snapshot(snapshot: Dictionary, context: Dictionary) -> bool:
+	# 此实例只属于单个后台规划器；原实例与调用方的来源容器之后都不能改变它。
+	if snapshot.get("schema")!=1 or not Contract.selection_context_valid(context) \
+		or not _selection_value_is_pure(snapshot) or not _selection_value_is_pure(context): return false
+	for field: String in ["configurations","partition_roots","ground_roots","ground_limits","pages"]:
+		if not snapshot.get(field) is Dictionary: return false
+	if snapshot.configurations.is_empty(): return false
+	for field: String in ["configurations","partition_roots","ground_roots"]:
+		for key: Variant in snapshot[field]:
+			if not key is String or not snapshot[field][key] is Array or snapshot[field][key].is_empty(): return false
+	for configuration: String in snapshot.ground_roots:
+		if not snapshot.configurations.has(configuration) or not snapshot.ground_limits.has(configuration): return false
+		var limit: Variant=snapshot.ground_limits[configuration]
+		if typeof(limit) not in [TYPE_FLOAT,TYPE_INT] or not is_finite(float(limit)) or float(limit)<=0.0: return false
+	var source := snapshot.duplicate(true)
+	catalog=null
+	catalog_sha=String(source.get("catalog_sha",""))
+	_selection_configurations=source.configurations
+	_partition_roots=source.partition_roots
+	_ground_roots=source.ground_roots
+	ground={"limits":source.ground_limits} if not source.ground_limits.is_empty() else {}
+	pages=source.pages
+	coverage={};_partition_pages={}
+	selection_context=context.duplicate(true)
+	_selection_frame=-1;_selection_solutions={}
+	solver_builds=0;solver_reuses=0;solver_peak={}
+	return true
+
+
+func _configurations() -> Dictionary:
+	if not _selection_configurations.is_empty(): return _selection_configurations
+	return catalog.configurations if catalog!=null else {}
+
+
+static func _selection_value_is_pure(value: Variant, depth: int = 0) -> bool:
+	if depth>32 or typeof(value) in [TYPE_OBJECT,TYPE_CALLABLE,TYPE_SIGNAL,TYPE_RID]: return false
+	if value is Dictionary:
+		for key: Variant in value:
+			if not _selection_value_is_pure(key,depth+1) or not _selection_value_is_pure(value[key],depth+1): return false
+	elif value is Array:
+		for item: Variant in value:
+			if not _selection_value_is_pure(item,depth+1): return false
+	return true
+
+
 func ground_configuration(scale_value: float) -> String:
 	# 远景已有合格表示；不要为看不清的近景地面反复求树、上传纹理。
 	if not is_finite(scale_value) or scale_value<=float(Archive.SCALES[2]): return ""
@@ -80,7 +145,8 @@ func ground_configuration(scale_value: float) -> String:
 
 func select(center: Vector2, scale_value: float, rotation_value: float, size: Vector2, configuration_override: String = "", byte_budget: int = 96*1024*1024, resident: Dictionary = {}) -> Dictionary:
 	var configuration := "lod%d_full" % Archive.choose_level(-1,scale_value) if configuration_override.is_empty() else configuration_override
-	if not catalog.configurations.has(configuration): return {}
+	var configurations := _configurations()
+	if not configurations.has(configuration): return {}
 	var canvas := Transform2D(rotation_value,Vector2.ZERO).scaled(Vector2.ONE*scale_value)
 	canvas.origin=size*0.5-canvas*center
 	var inverse := canvas.affine_inverse()
@@ -89,7 +155,7 @@ func select(center: Vector2, scale_value: float, rotation_value: float, size: Ve
 	var ground := MapProjection.ground_basis(canvas,deg_to_rad(38))
 	var ray := ground.inverse()*MapProjection.camera_basis(canvas,deg_to_rad(38)).z
 	var roots: Array[Dictionary] = []
-	roots.assign(_partition_roots.get(configuration,catalog.configurations[configuration]))
+	roots.assign(_partition_roots.get(configuration,configurations[configuration]))
 	var hybrid := _ground_roots.has(configuration) and scale_value<=float(self.ground.limits[configuration])
 	if hybrid: roots.assign(_ground_roots[configuration])
 	if not resident.is_empty():
@@ -98,9 +164,11 @@ func select(center: Vector2, scale_value: float, rotation_value: float, size: Ve
 		for index in roots.size(): roots[index]=preload("res://scripts/rendering/tokyo_hlod_cached_cut.gd").native_tree(roots[index],context)
 	# 半池/全池只改变最终筛选；同帧同视野不重复求整棵候选树。
 	# 同帧允许保护带查询穿插；不缓存画面或Resource，跨帧整批失效。
-	var page_limit := Contract.native_page_limit()
+	var background := Contract.background_selection(selection_context)
+	var page_limit := Contract.native_page_limit(selection_context)
+	if page_limit<=0: return {}
 	var key: Array = [configuration,center,scale_value,rotation_value,size,hybrid,page_limit]
-	var frame := Engine.get_process_frames()
+	var frame := int(selection_context.get("epoch",-1)) if background else Engine.get_process_frames()
 	if frame!=_selection_frame:
 		_selection_solutions.clear()
 		_selection_frame=frame
@@ -108,11 +176,11 @@ func select(center: Vector2, scale_value: float, rotation_value: float, size: Ve
 	var reused := resident.is_empty() and _selection_solutions.has(key)
 	var solution: Dictionary={}
 	if not reused:
-		solution=Cut.solve(roots,view,canvas,size,-Vector2(ray.x,ray.z)/ray.y,Vector2.ZERO,page_limit)
+		solution=Cut.solve(roots,view,canvas,size,-Vector2(ray.x,ray.z)/ray.y,Vector2.ZERO,page_limit,not background)
 		if resident.is_empty():
 			if _selection_solutions.size()>=Contract.FRAME_SOLUTIONS: _selection_solutions.erase(_selection_solutions.keys()[0])
 			_selection_solutions[key]=solution
-		if PerfBuckets.frame_trace_enabled:
+		if not background and PerfBuckets.frame_trace_enabled:
 			var solved: Dictionary=solution
 			PerfBuckets.tick("tokyo_solver.native",int(solved.solver_usec))
 			PerfBuckets.mark_frame_event("tokyo_native_solve")
@@ -158,10 +226,11 @@ func covers_visible_layers(cut: Dictionary, view: Rect2, canvas: Transform2D, lo
 func _covers_layers(cut: Dictionary, view: Rect2, canvas: Transform2D, logical: Vector2, required: int) -> bool:
 	if not view.has_area(): return true
 	var configuration: String=cut.get("configuration","")
+	var configurations := _configurations()
 	var roots: Array=[]
 	if cut.get("ground_tree",false) and _ground_roots.has(configuration): roots=_ground_roots[configuration]
 	elif _partition_roots.has(configuration): roots=_partition_roots[configuration]
-	elif catalog!=null and catalog.configurations.has(configuration): roots=catalog.configurations[configuration]
+	elif configurations.has(configuration): roots=configurations[configuration]
 	if roots.is_empty(): return false
 	var selected: Dictionary={}
 	for entry: Dictionary in cut.get("entries",[]):

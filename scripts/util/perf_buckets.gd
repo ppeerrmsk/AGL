@@ -34,6 +34,23 @@ const FRAME_TRACE_ROOT_BUCKETS := [
 	"survivor_spawner", "tokyo_map_process", "tokyo_map_stream",
 ]
 
+
+# 扩展诊断默认关闭；只有互斥耗时进入新增根桶。
+const EXTENDED_CPU_TRACE_ROOT_BUCKETS := [
+	"extended.missile_phys.exclusive", "extended.aa_phys.exclusive",
+	"extended.sam_phys.exclusive", "extended.airburst_aa_phys.exclusive",
+	"extended.radar_station_phys.exclusive", "extended.bomber_mission_phys.exclusive",
+	"extended.survivor_phys.exclusive", "extended.prediction_prepare.exclusive",
+	"extended.trail_process.exclusive",
+	"unit_status_overlay", "extended.status_panel_draw.exclusive",
+	"extended.status_mask_draw.exclusive", "extended.volume_overlay.exclusive",
+	"extended.weather_draw.exclusive", "extended.atmosphere_draw.exclusive",
+	"extended.aa_draw.exclusive", "extended.sam_draw.exclusive",
+]
+const EXTENDED_CPU_SHARED_ROOTS := ["event_log", "audio_sfx_play", "radio_play"]
+var extended_cpu_trace_enabled: bool = false
+var extended_cpu_shared_usec: int = 0
+
 # ── 当前窗口累加 ──
 var _window_us: Dictionary = {}     ## bucket_name -> int µs 总和
 var _window_calls: Dictionary = {}  ## bucket_name -> int 调用次数
@@ -93,6 +110,8 @@ var _trace_active_context: Dictionary = {}
 func tick(name: String, us: int) -> void:
 	if not enabled:
 		return
+	if extended_cpu_trace_enabled and name in EXTENDED_CPU_SHARED_ROOTS:
+		extended_cpu_shared_usec += us
 	_window_us[name] = int(_window_us.get(name, 0)) + us
 	_window_calls[name] = int(_window_calls.get(name, 0)) + 1
 	if frame_trace_enabled:
@@ -129,6 +148,31 @@ func configure_runtime_panel(active: bool) -> void:
 		_runtime_frame_history.clear()
 
 
+## 作用域同步运行于主线程，不跨 await、worker 或延迟 draw。
+## total/covered/shared 仅诊断；只有 exclusive 进入新增根桶。
+func finish_extended_cpu(scope: String, started_usec: int, shared_before_usec: int,
+		covered_usec: int = 0, covered_shared_usec: int = 0) -> void:
+	if not extended_cpu_trace_enabled:
+		return
+	var total_usec := Time.get_ticks_usec() - started_usec
+	var shared_usec := extended_cpu_shared_usec - shared_before_usec - covered_shared_usec
+	var exclusive_usec := total_usec - covered_usec - shared_usec
+	var prefix := "extended." + scope
+	tick(prefix + ".total", total_usec)
+	tick(prefix + ".covered", covered_usec)
+	tick(prefix + ".shared", shared_usec)
+	if shared_usec < 0 or covered_usec < 0 or exclusive_usec < 0:
+		count("extended_cpu_invalid_scope")
+		mark_frame_event("extended_cpu_invalid_scope")
+		tick(prefix + ".invalid", exclusive_usec)
+		return
+	tick(prefix + ".exclusive", exclusive_usec)
+
+
+func extended_cpu_root_usec(root_name: String) -> int:
+	return int(_trace_frame_us.get(root_name, 0))
+
+
 func detail_capture_enabled() -> bool:
 	return runtime_panel_enabled or (frame_trace_enabled and _trace_detail_this_frame)
 
@@ -137,6 +181,9 @@ func detail_capture_enabled() -> bool:
 func configure_frame_trace(active: bool) -> void:
 	var requested_mode := OS.get_environment("AGL_BENCH_FRAME_TRACE_MODE").strip_edges().to_lower()
 	frame_trace_enabled = active and requested_mode != "off"
+	extended_cpu_trace_enabled = enabled and frame_trace_enabled \
+		and OS.get_environment("AGL_BENCH_EXTENDED_CPU_TRACE").strip_edges() == "1"
+	extended_cpu_shared_usec = 0
 	# G0 默认用 1/4 细分采样控制观察者效应；根桶、慢帧 delta、事件和引擎快照仍逐帧。
 	# 复现单个尖峰需要全部子桶时显式设 AGL_BENCH_FRAME_TRACE_MODE=full。
 	_trace_detail_stride = 1 if requested_mode == "full" else 4
@@ -163,6 +210,10 @@ func configure_frame_trace(active: bool) -> void:
 	for root_name in FRAME_TRACE_ROOT_BUCKETS:
 		_trace_root_total_us[root_name] = 0
 		_trace_root_active_frames[root_name] = 0
+	if extended_cpu_trace_enabled:
+		for root_name in EXTENDED_CPU_TRACE_ROOT_BUCKETS:
+			_trace_root_total_us[root_name] = 0
+			_trace_root_active_frames[root_name] = 0
 	_trace_total_known_us = 0
 	_trace_total_frame_us = 0
 	_trace_completed_frames = 0
@@ -173,6 +224,7 @@ func configure_frame_trace(active: bool) -> void:
 
 ## SurvivorMode 在渲染帧开头调用：结算上一帧并开始收集当前帧。
 func begin_render_frame(delta: float) -> void:
+	var diagnostic_started_usec := Time.get_ticks_usec() if extended_cpu_trace_enabled else 0
 	if runtime_panel_enabled:
 		_record_runtime_frame(delta)
 	if not frame_trace_enabled:
@@ -193,6 +245,9 @@ func begin_render_frame(delta: float) -> void:
 	_trace_frame_us.clear()
 	_trace_frame_counts.clear()
 	_trace_frame_events.clear()
+	# 上一帧结算实际发生在新帧墙钟区间内，清空后记入新帧，避免丢失或错帧。
+	if diagnostic_started_usec > 0:
+		tick("diagnostic.perf_begin_render_frame", Time.get_ticks_usec() - diagnostic_started_usec)
 
 
 func _record_runtime_frame(delta: float) -> void:
@@ -349,6 +404,9 @@ func _trace_known_root_us() -> int:
 	var total := 0
 	for bucket_name in FRAME_TRACE_ROOT_BUCKETS:
 		total += int(_trace_frame_us.get(bucket_name, 0))
+	if extended_cpu_trace_enabled:
+		for bucket_name in EXTENDED_CPU_TRACE_ROOT_BUCKETS:
+			total += int(_trace_frame_us.get(bucket_name, 0))
 	return total
 
 
@@ -714,7 +772,7 @@ func format_frame_trace_dump() -> String:
 		})
 	root_entries.sort_custom(_sort_trace_entry_desc)
 	var root_parts := PackedStringArray()
-	for root_index in range(mini(root_entries.size(), FRAME_TRACE_ROOT_BUCKETS.size())):
+	for root_index in range(root_entries.size()):
 		var root_entry: Dictionary = root_entries[root_index]
 		var root_name := String(root_entry["name"])
 		var root_avg_ms := float(root_entry["value"]) \

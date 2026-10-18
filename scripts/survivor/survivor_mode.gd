@@ -4157,7 +4157,14 @@ func _process(delta: float) -> void:
 				brake_ac.infinite_ammo or brake_ac.bloodlust_gun_ammo_free())
 	# 玩家预测线是单实例、预算化的渲染准备工作；_draw 只消费已发布缓存。
 	if player_aircraft != null and is_instance_valid(player_aircraft):
-		AircraftRenderer.update_predicted_path_cache(player_aircraft)
+		if PerfBuckets.extended_cpu_trace_enabled:
+			var prediction_started_usec := Time.get_ticks_usec()
+			var prediction_shared_before_usec := PerfBuckets.extended_cpu_shared_usec
+			AircraftRenderer.update_predicted_path_cache(player_aircraft)
+			PerfBuckets.finish_extended_cpu("prediction_prepare", prediction_started_usec,
+				prediction_shared_before_usec)
+		else:
+			AircraftRenderer.update_predicted_path_cache(player_aircraft)
 	if _bench_mode and not _bench_finished:
 		_bench_wall_watchdog()
 	# MapFeatureRenderer 自己维护静态 canvas；主循环禁止触发地图重绘。
@@ -4167,7 +4174,34 @@ func _process(delta: float) -> void:
 	#   倍率 → 一次 tick 灌进 4s 的锁定时间，玩家看到"切出画面后导弹瞬间发射"。
 	#   _physics_process 固定 60Hz 不受焦点影响，是正确的累积时基。
 
+var _extended_survivor_covered_usec: int = 0
+var _extended_survivor_covered_shared_usec: int = 0
+
+
 func _physics_process(delta: float) -> void:
+	if not PerfBuckets.extended_cpu_trace_enabled:
+		_physics_process_survivor_untraced(delta)
+		return
+	_extended_survivor_covered_usec = 0
+	_extended_survivor_covered_shared_usec = 0
+	var started_usec := Time.get_ticks_usec()
+	var shared_before_usec := PerfBuckets.extended_cpu_shared_usec
+	_physics_process_survivor_untraced(delta)
+	PerfBuckets.finish_extended_cpu("survivor_phys", started_usec, shared_before_usec,
+		_extended_survivor_covered_usec, _extended_survivor_covered_shared_usec)
+
+
+## 只扣指定的既有父桶；父桶内的共享叶计时不能重复扣除。
+func _extended_survivor_cover_root(root_name: String, root_before_usec: int,
+		shared_before_usec: int) -> void:
+	var covered_usec := PerfBuckets.extended_cpu_root_usec(root_name) - root_before_usec
+	if covered_usec > 0:
+		_extended_survivor_covered_usec += covered_usec
+		_extended_survivor_covered_shared_usec += (
+			PerfBuckets.extended_cpu_shared_usec - shared_before_usec)
+
+
+func _physics_process_survivor_untraced(delta: float) -> void:
 	PerfBuckets.mark_physics_tick()
 	if is_game_over or is_paused_for_upgrade:
 		return
@@ -4207,12 +4241,26 @@ func _physics_process(delta: float) -> void:
 	var perf_root_capture := PerfBuckets.enabled \
 		and (PerfBuckets.frame_trace_enabled or PerfBuckets.runtime_panel_enabled)
 	var perf_section_t0 := Time.get_ticks_usec() if perf_root_capture else 0
+	var extended_capture := PerfBuckets.extended_cpu_trace_enabled
+	var extended_root_before_usec := 0
+	var extended_shared_before_usec := 0
+	if extended_capture:
+		extended_root_before_usec = PerfBuckets.extended_cpu_root_usec("survivor_cache")
+		extended_shared_before_usec = PerfBuckets.extended_cpu_shared_usec
 	_update_aircraft_list()
 	# 友军据点仇恨固定 1 Hz；复用刚生成的全单位缓存，不另做场景树扫描。
 	_friendly_asset_aggro.tick(delta, player_aircraft, _all_combat_units_cache)
 	if perf_root_capture:
 		PerfBuckets.tick("survivor_cache", Time.get_ticks_usec() - perf_section_t0)
+	if extended_capture:
+		_extended_survivor_cover_root("survivor_cache", extended_root_before_usec,
+			extended_shared_before_usec)
+		extended_root_before_usec = PerfBuckets.extended_cpu_root_usec("radar_locks")
+		extended_shared_before_usec = PerfBuckets.extended_cpu_shared_usec
 	_update_radar_locks(delta)
+	if extended_capture:
+		_extended_survivor_cover_root("radar_locks", extended_root_before_usec,
+			extended_shared_before_usec)
 	# RTS 自动交战：到点/空闲时长机自动锁最近敌机（僚机经 SquadCoordination 跟打）
 	if _squad_cmd:
 		_squad_cmd.tick(delta)
@@ -4221,6 +4269,9 @@ func _physics_process(delta: float) -> void:
 	_update_objective_context(delta)
 
 	# 动态性能控制
+	if extended_capture:
+		extended_root_before_usec = PerfBuckets.extended_cpu_root_usec("survivor_lod")
+		extended_shared_before_usec = PerfBuckets.extended_cpu_shared_usec
 	if perf_root_capture:
 		perf_section_t0 = Time.get_ticks_usec()
 	_spawner.update_fps_sampling(delta)
@@ -4228,6 +4279,9 @@ func _physics_process(delta: float) -> void:
 	_update_friendly_squad_lod()
 	if perf_root_capture:
 		PerfBuckets.tick("survivor_lod", Time.get_ticks_usec() - perf_section_t0)
+	if extended_capture:
+		_extended_survivor_cover_root("survivor_lod", extended_root_before_usec,
+			extended_shared_before_usec)
 
 	# 战区结算改停靠制（spec zone-reward-docking §2.2）：攻克后不再自动弹结算面板——
 	# _evolution_pending 仅作"有新结算内容"标记；面板由停靠点 docked → _on_dock_docked 打开。
@@ -4244,11 +4298,17 @@ func _physics_process(delta: float) -> void:
 	# 刷怪系统（击杀检测/刷怪/猎手/航点/远距清理/分队清理 全部委托给 spawner）
 	# Boss Debug 模式跳过：不刷杂兵 / 不分配猎手 / 不重写敌机航点（仅 boss 在场）
 	if not _map_preview_only and not _boss_debug_mode and not _bench_map_prewarming:
+		if extended_capture:
+			extended_root_before_usec = PerfBuckets.extended_cpu_root_usec("survivor_spawner")
+			extended_shared_before_usec = PerfBuckets.extended_cpu_shared_usec
 		if perf_root_capture:
 			perf_section_t0 = Time.get_ticks_usec()
 		_spawner.update(delta)
 		if perf_root_capture:
 			PerfBuckets.tick("survivor_spawner", Time.get_ticks_usec() - perf_section_t0)
+		if extended_capture:
+			_extended_survivor_cover_root("survivor_spawner", extended_root_before_usec,
+				extended_shared_before_usec)
 		if _bench_scenario == "boss_hyper_a_lifecycle":
 			_bench_update_hyper_a_lifecycle(delta)
 		if _bench_scenario == "evolution_growth" and _growth_bench != null:

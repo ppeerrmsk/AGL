@@ -387,6 +387,15 @@ try {
     if ($env:AGL_BENCH_VERBOSE -eq '1') {
         $godotArguments = '--verbose ' + $godotArguments
     }
+    # Explicit diagnostics only: never accept arbitrary debugger hosts or arguments.
+    if ($env:AGL_BENCH_REMOTE_PROFILE_PORT) {
+        $profilePort = 0
+        if (-not [int]::TryParse($env:AGL_BENCH_REMOTE_PROFILE_PORT, [ref]$profilePort) -or
+            $profilePort -lt 1024 -or $profilePort -gt 65535) {
+            throw 'AGL_BENCH_REMOTE_PROFILE_PORT must be an integer in 1024..65535'
+        }
+        $godotArguments = "--remote-debug tcp://127.0.0.1:$profilePort " + $godotArguments
+    }
     if ($ProcDumpExe -ne '') {
         $dumpDir = Join-Path $ProjectDir 'tmp\crash-dumps'
         New-Item -ItemType Directory -Path $dumpDir -Force | Out-Null

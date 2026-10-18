@@ -14,8 +14,10 @@ func run() -> void:
 	_test_slow_frame_captures_buckets_events_and_load()
 	_test_slow_frame_keeps_pre_and_post_context()
 	_test_trace_reports_full_run_root_averages()
+	_test_extended_cpu_trace()
 	_test_map_root_and_context()
 	_test_render_partition()
+	_test_render_timeline()
 	_test_backend_peaks()
 	_test_draw_capture()
 	_test_runtime_panel_history_and_hotspots()
@@ -168,6 +170,124 @@ func _test_trace_reports_full_run_root_averages() -> void:
 	tracker.free()
 
 
+func _test_extended_cpu_trace() -> void:
+	# 测试自行保存环境；不把专项开关泄漏到后面的采样契约测试。
+	var environment: Dictionary = {}
+	for key in ["AGL_BENCH_EXTENDED_CPU_TRACE", "AGL_BENCH_FRAME_TRACE_MODE"]:
+		environment[key] = {"present": OS.has_environment(key), "value": OS.get_environment(key)}
+	OS.unset_environment("AGL_BENCH_EXTENDED_CPU_TRACE")
+	OS.set_environment("AGL_BENCH_FRAME_TRACE_MODE", "sampled")
+	var tracker := PerfBucketsScript.new()
+	_check("扩展诊断创建时默认关闭", not tracker.extended_cpu_trace_enabled)
+	tracker.configure_frame_trace(true)
+	tracker.begin_render_frame(0.010)
+	tracker.finish_extended_cpu("missile_phys", Time.get_ticks_usec() - 2000, 0)
+	_check("未显式启用不产生额外计时或注册新根", tracker._trace_frame_us.is_empty()
+		and not tracker._trace_root_total_us.has("extended.missile_phys.exclusive"))
+	OS.set_environment("AGL_BENCH_EXTENDED_CPU_TRACE", "1")
+	_check("环境变化只在配置入口生效", not tracker.extended_cpu_trace_enabled)
+	tracker.configure_frame_trace(true)
+	tracker.begin_render_frame(0.010)
+	var all_registered := true
+	for root_name in tracker.EXTENDED_CPU_TRACE_ROOT_BUCKETS:
+		all_registered = all_registered and tracker._trace_root_total_us.has(root_name)
+	_check("显式启用注册全部独立扩展根", tracker.extended_cpu_trace_enabled and all_registered)
+
+	# 构造同一作用域中的三个共享叶；音效内部子项不能再次扣除。
+	tracker.tick("event_log", 120)
+	tracker.tick("audio_sfx_play", 80)
+	tracker.tick("radio_play", 20)
+	tracker.tick("audio_sfx.load", 30)
+	_check("共享计数仅记录已有叶根", tracker.extended_cpu_shared_usec == 220)
+	var started_usec := Time.get_ticks_usec() - 2000
+	tracker.finish_extended_cpu("missile_phys", started_usec, 0)
+	var ended_usec := Time.get_ticks_usec()
+	var total_usec := int(tracker._trace_frame_us.get("extended.missile_phys.total", -1))
+	var exclusive_usec := int(tracker._trace_frame_us.get("extended.missile_phys.exclusive", -1))
+	_check("真实时钟只要求落在调用夹逼区间", total_usec >= 2000
+		and total_usec <= ended_usec - started_usec)
+	_check("共享叶只扣一次且诊断总量不重复计根", exclusive_usec == total_usec - 220
+		and int(tracker._trace_frame_us.get("extended.missile_phys.shared", -1)) == 220
+		and tracker._trace_known_root_us() == total_usec)
+
+	# 父根内部 event_log 已由父根覆盖；新增余量只能再扣父根外的音效。
+	tracker.configure_frame_trace(true)
+	tracker.begin_render_frame(0.010)
+	tracker.tick("event_log", 80)
+	tracker.tick("survivor_cache", 600)
+	tracker.tick("audio_sfx_play", 120)
+	var existing_roots_usec: int = tracker._trace_known_root_us()
+	tracker.finish_extended_cpu("survivor_phys", Time.get_ticks_usec() - 2000, 0, 600, 80)
+	total_usec = int(tracker._trace_frame_us.get("extended.survivor_phys.total", -1))
+	exclusive_usec = int(tracker._trace_frame_us.get("extended.survivor_phys.exclusive", -1))
+	_check("覆盖父根内的共享叶不会二次扣减", exclusive_usec == total_usec - 600 - 120
+		and int(tracker._trace_frame_us.get("extended.survivor_phys.covered", -1)) == 600
+		and int(tracker._trace_frame_us.get("extended.survivor_phys.shared", -1)) == 120)
+	_check("新增根仅添加净余量并保留原有根口径", tracker._trace_known_root_us()
+		== existing_roots_usec + exclusive_usec)
+
+	# 缺少共享叶计时的 sampled 帧，应把该工作保留在净余量而不是凭空扣除。
+	tracker.configure_frame_trace(true)
+	tracker.begin_render_frame(0.010)
+	tracker.finish_extended_cpu("prediction_prepare", Time.get_ticks_usec() - 1000, 0)
+	_check("没有已计父项时整段进入新增根", tracker._trace_frame_us.get(
+		"extended.prediction_prepare.exclusive") == tracker._trace_frame_us.get(
+		"extended.prediction_prepare.total"))
+	tracker.configure_frame_trace(true)
+	tracker.begin_render_frame(0.010)
+	tracker.finish_extended_cpu("missile_phys", Time.get_ticks_usec() - 1000, 1)
+	tracker.finish_extended_cpu("sam_phys", Time.get_ticks_usec() - 1000, 0, 1 << 60)
+	_check("负共享量与过度覆盖均显式拒绝归因", int(tracker._trace_frame_counts.get(
+		"extended_cpu_invalid_scope", 0)) == 2 and int(tracker._trace_frame_events.get(
+		"extended_cpu_invalid_scope", 0)) == 2
+		and not tracker._trace_frame_us.has("extended.missile_phys.exclusive")
+		and not tracker._trace_frame_us.has("extended.sam_phys.exclusive")
+		and int(tracker._trace_frame_us.get("extended.sam_phys.invalid", 0)) < 0
+		and tracker._trace_known_root_us() == 0)
+
+	# 用已知常量验证结算与输出，不让时钟调度噪声决定全程均值。
+	tracker.configure_frame_trace(true)
+	tracker.begin_render_frame(0.010)
+	tracker.tick("aircraft_phys", 500)
+	tracker.tick("extended.missile_phys.exclusive", 1000)
+	tracker.tick("extended.trail_process.exclusive", 200)
+	tracker.tick("extended.missile_phys.total", 900000)
+	tracker.tick("extended.missile_phys.shared", 800000)
+	tracker.begin_render_frame(0.010)
+	tracker.tick("extended.missile_phys.exclusive", 3000)
+	tracker.tick("extended.prediction_prepare.exclusive", 400)
+	tracker.tick("extended.survivor_phys.covered", 700000)
+	tracker.begin_render_frame(0.010)
+	var dump: String = tracker.format_frame_trace_dump()
+	_check("新根逐帧累加并保存各自活跃帧数", tracker._trace_total_known_us == 5100
+		and tracker._trace_root_total_us.get("extended.missile_phys.exclusive") == 4000
+		and tracker._trace_root_active_frames.get("extended.missile_phys.exclusive") == 2
+		and tracker._trace_root_total_us.get("extended.trail_process.exclusive") == 200
+		and tracker._trace_root_active_frames.get("extended.trail_process.exclusive") == 1)
+	_check("全程输出只把扩展净值加入均值", dump.contains("trace_roots frames=2 known_avg=2.550ms")
+		and dump.contains("extended.missile_phys.exclusive=2.000ms@2/2")
+		and dump.contains("extended.trail_process.exclusive=0.100ms@1/2")
+		and dump.contains("extended.prediction_prepare.exclusive=0.200ms@1/2"), dump)
+	tracker.configure_frame_trace(false)
+	_check("关闭配置清空扩展根及共享计数", not tracker.extended_cpu_trace_enabled
+		and tracker.extended_cpu_shared_usec == 0
+		and not tracker._trace_root_total_us.has("extended.missile_phys.exclusive"))
+	OS.set_environment("AGL_BENCH_FRAME_TRACE_MODE", "off")
+	tracker.configure_frame_trace(true)
+	_check("追踪总开关关闭时扩展请求不越权开启", not tracker.frame_trace_enabled
+		and not tracker.extended_cpu_trace_enabled)
+	OS.set_environment("AGL_BENCH_FRAME_TRACE_MODE", "sampled")
+	tracker.enabled = false
+	tracker.configure_frame_trace(true)
+	_check("性能采集关闭时扩展请求不启动", not tracker.extended_cpu_trace_enabled)
+	tracker.free()
+	for key in environment:
+		if bool(environment[key].present):
+			OS.set_environment(key, String(environment[key].value))
+		else:
+			OS.unset_environment(key)
+
+
 func _test_map_root_and_context() -> void:
 	var tracker := PerfBucketsScript.new()
 	tracker.configure_frame_trace(true)
@@ -209,6 +329,8 @@ func _test_render_partition() -> void:
 	var measured: Dictionary = trace.percentiles_usec(samples)
 	_check("墙钟分位数使用最近秩且不改输入", measured.p50_ms == 2.0 and measured.p95_ms == 30.0
 		and measured.p99_ms == 30.0 and measured.samples == 4 and samples[0] == 30000)
+	_check("尾部帧率取最慢样本均值倒数", measured.p999_ms==30.0 and measured.over30==0
+		and is_equal_approx(measured.low1_fps,1000.0/30.0) and is_equal_approx(measured.low01_fps,1000.0/30.0))
 	_check("缺失或无效墙钟样本不伪造零耗时", trace.percentiles_usec(PackedInt64Array()).is_empty()
 		and trace.percentiles_usec(PackedInt64Array([0])).is_empty())
 	var slow: Array[Dictionary] = []
@@ -241,6 +363,30 @@ func _test_render_partition() -> void:
 	tracker.begin_render_frame(0.02)
 	_check("渲染墙钟段不计作脚本CPU根桶", tracker.format_frame_trace_dump().contains("known=0.100ms"))
 	tracker.free()
+
+
+func _test_render_timeline() -> void:
+	var observer: RefCounted=load("res://scripts/tests/tokyo_render_trace.gd").new()
+	var previous := PerfBuckets.frame_trace_enabled
+	PerfBuckets.frame_trace_enabled=true
+	observer._closed=false
+	observer._timeline_enabled=true
+	observer._begin=10000;observer._pre=15000;observer._post=18000
+	observer._engine_frame=123;observer._frame=456
+	observer._latest={"map_gpu_ms":1.25};observer._backend_samples=9
+	observer.begin_frame(0.02,30000)
+	var row: Dictionary=observer._phase_frames[0] if not observer._phase_frames.is_empty() else {}
+	observer._latest.map_gpu_ms=2.0
+	_check("全帧分段保持同一原始时钟与引擎帧身份",row.get("begin_ticks_usec")==10000 and row.get("next_ticks_usec")==30000
+		and row.get("engine_frame")==123 and row.get("wall_us")==20000 and row.get("before_draw_us",0)+row.get("draw_us",0)+row.get("after_draw_us",0)==20000)
+	_check("后端快照解耦且明确不是同帧GPU证明",row.get("backend_not_same_frame_proof",{}).get("map_gpu_ms")==1.25 and row.get("backend_readback_sample")==9)
+	observer._timeline_enabled=false
+	observer._pre=35000;observer._post=38000
+	observer.begin_frame(0.02,50000)
+	_check("关闭详细诊断不追加全帧分段",observer._phase_frames.size()==1)
+	observer.close()
+	_check("结束锚点保留时钟夹逼范围",observer._clock_end_anchor.get("ticks_after_usec",0)>=observer._clock_end_anchor.get("ticks_before_usec",1))
+	PerfBuckets.frame_trace_enabled=previous
 
 
 func _test_runtime_panel_history_and_hotspots() -> void:

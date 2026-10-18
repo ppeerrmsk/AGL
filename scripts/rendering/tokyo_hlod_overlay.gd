@@ -50,6 +50,8 @@ var zoom_prediction_reversals := 0
 var _zooming_in := false
 var _last_zoom_direction := 0
 var _display_grace := false
+var display_qualified := false
+var display_covered := false
 var _grace_started := -1
 var _grace_age_ms := 0
 var lod_grace_frames := 0
@@ -72,6 +74,28 @@ var _future_predictor: RefCounted
 var _ground_candidate_state: Dictionary={}
 var _loading_residency_base: Dictionary={}
 var loading_neighborhood_on_setup := false
+var _selection_trace: Array[Dictionary]=[]
+var _trace_selection := OS.get_environment("AGL_TOKYO_SELECTION_TRACE")=="1"
+var _trace_counterfactual := OS.get_environment("AGL_TOKYO_HANDOFF_COUNTERFACTUAL")=="1"
+var pending_selection_reuses := 0
+var native_screen_rejections := 0
+const MapPlanner := preload("res://scripts/rendering/tokyo_map_planner.gd")
+const MapWorker := preload("res://scripts/rendering/tokyo_map_plan_worker.gd")
+const PreparedCatalog := preload("res://scripts/rendering/tokyo_prepared_catalog.gd")
+var _map_worker: RefCounted
+var _plan_generation := 1
+var _plan_sequence := 0
+var _plan_revision := 0
+var _plan_dirty := true
+var _plan_stats: Dictionary={}
+var _plan_applied := 0
+var _plan_rejected := 0
+var _plan_pending_frames := 0
+var _plan_prepare_usec := 0
+var _plan_submit_usec := 0
+var _plan_admission_usec := 0
+var _plan_mode := "unconfigured"
+var _plan_readiness := false
 
 class Layout extends Resource:
 	var bounds := Rect2(-16300,-15700,32000,32000)
@@ -117,7 +141,7 @@ func _load_archive() -> Resource:
 			if _geometry.has(physical): return null
 			_geometry[physical]=_native.pages[physical]
 		preload_max_scale=5.0
-		if OS.get_environment("AGL_TOKYO_ASYNC_PREFETCH")=="1" and not package.native.has("grid_candidate"):
+		if OS.get_environment("AGL_TOKYO_ASYNC_PREFETCH")=="1" and OS.get_environment("AGL_TOKYO_SYNC_SELECTION")=="1" and not package.native.has("grid_candidate"):
 			_future_predictor=preload("res://scripts/rendering/tokyo_native_predictor.gd").new()
 			if not _future_predictor.prepare(_native):
 				_future_predictor.close()
@@ -176,6 +200,9 @@ func _setup_geometry() -> void:
 		var camera: Variant=_camera_ref.get_ref()
 		if typeof(source)==TYPE_OBJECT and is_instance_valid(source) and typeof(camera)==TYPE_OBJECT and is_instance_valid(camera):
 			prepare_loading_neighborhood(camera.position,clampf(camera.zoom.x,0.0973,preload_max_scale),source.get_viewport().get_visible_rect().size)
+	if _enabled and not _prepare_map_planner():
+		_enabled=false
+		_fallback="invalid prepared planning source"
 
 
 func prepare_loading_neighborhood(center: Vector2, scale_value: float, output: Vector2) -> void:
@@ -228,6 +255,12 @@ func release_loading_neighborhood() -> void:
 	_last_selected_size=Vector2.ZERO
 
 
+func _selection_phase(label: String, started: int) -> int:
+	var now := Time.get_ticks_usec()
+	PerfBuckets.tick("tokyo_select."+label,now-started)
+	return now
+
+
 func _step_geometry(view_bounds: Rect2, scale_value: float, _delta: float) -> bool:
 	if not is_instance_valid(_stream): return false
 	if _native!=null and _native.has_method("retire_subsets"):
@@ -236,264 +269,370 @@ func _step_geometry(view_bounds: Rect2, scale_value: float, _delta: float) -> bo
 		protected.append_array(_stream.residency_meshes)
 		_native.retire_subsets(protected)
 	var handoff_budget: int=_stream.residency_limit-_stream.residency_bytes
+	# 相机方向必须逐帧观察；后台请求可能仍在较早的倍率，不能用请求姿态判断反转。
+	var observed_direction := Handoff.zoom_direction(output_scale,scale_value)
+	var previous_zoom_rate := _zoom_rate
 	if output_scale>0.0 and _delta>0.0:
 		var ratio := scale_value/output_scale
 		var next_rate := Handoff.prediction_zoom_rate(_zoom_rate,ratio,_delta)
-		zoom_prediction_reversals+=int(_zoom_rate*next_rate<0.0)
 		_zoom_rate=next_rate
 	output_scale=scale_value
 	var motion_source: Node = _source_ref.get_ref()
 	var motion_center := _last_canvas.affine_inverse()*(motion_source.get_viewport().get_visible_rect().size*0.5)
 	if _motion_center.is_finite() and _delta>0.0:
 		var displacement := motion_center-_motion_center
-		# 瞬切另走冷进入，不把瞬移距离作为无限预取带。
-		var velocity := displacement/_delta if displacement.length()*scale_value<160.0 else Vector2.ZERO
-		# 候选预取按时间平滑：物理60Hz/呈现120Hz的零位移交替不能放大为预测摆动。
-		_pan_velocity=_future_predictor.smooth_pan(_pan_velocity,velocity,_delta) if _future_predictor!=null else _pan_velocity.lerp(velocity,0.4)
+		if displacement.length()*scale_value>=160.0:
+			# 冷进入的位移与尺度差都不是连续运动；旧历史会膨胀首个切面并占满交接空间。
+			_pan_velocity=Vector2.ZERO;_zoom_rate=0.0
+			observed_direction=0;_last_zoom_direction=0
+		else:
+			# 候选预取按时间平滑：物理60Hz/呈现120Hz的零位移交替不能放大为预测摆动。
+			_pan_velocity=preload("res://scripts/rendering/tokyo_native_predictor.gd").smooth_pan(_pan_velocity,displacement/_delta,_delta)
+	zoom_prediction_reversals+=int(previous_zoom_rate*_zoom_rate<0.0)
 	_motion_center=motion_center
 	var previous_scale := _last_selected_canvas.x.length()
-	var direction := Handoff.zoom_direction(previous_scale,_last_canvas.x.length())
+	var direction := observed_direction
 	var zooming_out := direction<0
 	var reversing_in := direction>0 and _last_zoom_direction<0
 	if direction!=0: _last_zoom_direction=direction
 	_zooming_in=direction>0
+	# 反转撤销旧降档事务；下一呈现帧可能没有新物理位移，不能让旧目标借停镜提交。
+	# 恢复当前保护并使在途结果过期，静止时仍会重采最新需求，不永久锁住方向。
+	if reversing_in and not _target_committed() and _target_catalog>=0 and _committed_catalog>=0 \
+		and _committed_qualified(scale_value) and _cut_covers_current_view(_committed_cut,_committed_catalog) \
+		and Handoff.scale_limit(_catalogs[_target_catalog],_target)<Handoff.scale_limit(_catalogs[_committed_catalog],_committed_cut):
+		_target=_committed_cut.duplicate(true);_target_catalog=_committed_catalog
+		_plan_revision+=1;_plan_dirty=true;_last_selected_size=Vector2.ZERO
+		_request_target(false)
 	# 已就绪的合格中间档先交接；方向反转后不提交更快过期的降档事务。
 	var changed := _commit_ready_target(scale_value)
 	_update_display_grace(view_bounds.intersection(_archive.bounds),scale_value)
 	var rapid_zoom := previous_scale>0.0 and absf(_last_canvas.x.length()/previous_scale-1.0)>0.025
-	var visible_ground := view_bounds.intersection(_archive.bounds)
-	var current_covered := _cut_covers_current_view(_committed_cut,-2) if _committed_catalog==-2 else \
-		(_committed_catalog>=0 and Handoff.covers_view(_catalogs[_committed_catalog],_committed_cut,visible_ground))
-	if _selection_due(current_covered,scale_value,reversing_in,rapid_zoom) and (_last_selected_canvas!=_last_canvas or _last_selected_size!=_last_size):
-		_lod_clock=0.05
-		_last_selected_canvas=_last_canvas
-		_last_selected_size=_last_size
-		var selected := Handoff.catalog_index(_catalogs,scale_value,not zooming_out)
-		var foundation_catalog := preload("res://scripts/rendering/tokyo_hlod_foundation.gd").catalog_at(_foundation,scale_value,selected)
-		# 新中景本身是完整合格显示表示；相邻细档另由预测I/O准备，不提前替换画面。
-		if foundation_catalog<0:
-			var actual_foundation := preload("res://scripts/rendering/tokyo_hlod_foundation.gd").catalog_at(_foundation,scale_value)
-			if actual_foundation>=0 and _catalogs[actual_foundation].has("middle_massing_recipe"): foundation_catalog=actual_foundation
-		if foundation_catalog>=0: selected=foundation_catalog
-		var next: Dictionary = {}
-		if selected<0 and _native!=null and scale_value>0.1944: selected=-2
-		if selected>=0 or selected==-2:
-			var selection_start := Time.get_ticks_usec()
-			var source: Variant = _source_ref.get_ref()
-			var logical: Vector2 = source.get_viewport().get_visible_rect().size
-			var center := _last_canvas.affine_inverse()*(logical*0.5)
-			# 常驻页不必为重新加载同一资源预留半池；仍守原96MiB显示门。
-			if foundation_catalog>=0:
-				next=preload("res://scripts/rendering/tokyo_hlod_foundation.gd").select(_catalogs[selected],_foundation.layers[selected].entries,center,scale_value,_last_canvas.get_rotation(),_last_size,display_budget)
-			if next.is_empty():
-				next=_select_native(center,scale_value,_last_canvas.get_rotation(),_last_size,"",Stream.BUDGET/2) if selected==-2 else _select_hlod(_catalogs[selected],center,scale_value,_last_canvas.get_rotation(),_last_size,true,Stream.BUDGET/2)
-			# 稳态优先留出一份交接空间；只有完整清晰切面确实放不下时才使用全预算。
-			if selected>=0 and not next.is_empty() and not next.within_budget:
-				next=_select_hlod(_catalogs[selected],center,scale_value,_last_canvas.get_rotation(),_last_size,true)
-			elif selected==-2 and (next.is_empty() or not next.within_budget):
-				next=_select_native(center,scale_value,_last_canvas.get_rotation(),_last_size)
-			# 双向缩放均先完成仍完整合格的在途桥接档，缩远还须保留96px余量。
-			# 不能让下一目录的提前偏好取消它，导致旧档已过期而两批新页都未完成。
-			if _target_catalog>=0 and not _target_committed() and not _target.has("anticipated_scale") \
-				and Handoff.qualified(_catalogs[_target_catalog],_target,scale_value) and _target_covers_current_view(96.0 if zooming_out else 0.0):
-				# 同目录平移也要先完成完整在途页；不能只保护跨LOD交接。
-				selected=_target_catalog
-				next=_target
-			# 原生是细节偏好，不得取消仍完整合格的HLOD在途事务；提交后再升级。
-			var finishing_hlod := selected>=0 and selected==_target_catalog and not _target_committed() \
-				and not next.is_empty() and Contract.retained(_catalogs[selected],_target,next,scale_value,true)
-			if _native!=null and not _native.ground.is_empty(): _ground_candidate_state={"deferred":finishing_hlod}
-			if not finishing_hlod and (next.is_empty() or not next.within_budget):
-				var current_foundation := preload("res://scripts/rendering/tokyo_hlod_foundation.gd").catalog_at(_foundation,scale_value)
-				if current_foundation>=0:
-					var fixed := preload("res://scripts/rendering/tokyo_hlod_foundation.gd").select(_catalogs[current_foundation],_foundation.layers[current_foundation].entries,center,scale_value,_last_canvas.get_rotation(),_last_size,display_budget)
-					# 提前细档无解时仍有完整常驻切面，不能转求昂贵原生树；预测预取另走原路径。
-					if not fixed.is_empty(): next=fixed;selected=current_foundation
-			if OS.get_environment("AGL_TOKYO_ACTUAL_BEFORE_NATIVE")=="1" and not finishing_hlod:
-				var actual_index := Handoff.actual_fallback(_catalogs,selected,scale_value,not next.is_empty() and next.within_budget)
-				if actual_index>=0:
-					var actual_cut := _select_hlod(_catalogs[actual_index],center,scale_value,_last_canvas.get_rotation(),_last_size,false,Stream.BUDGET/2)
-					if not actual_cut.is_empty() and not actual_cut.within_budget:
-						actual_cut=_select_hlod(_catalogs[actual_index],center,scale_value,_last_canvas.get_rotation(),_last_size,false)
-					if not actual_cut.is_empty() and actual_cut.within_budget:
-						next=actual_cut;selected=actual_index
-			# 近景预算允许时保留原生高楼细节；超限密集区才使用已合格HLOD，绝不强降原生档。
-			# 原生偏好是显示选择，不是预取资格；乘提前比例会在合格HLOD仍足够时过早切回重地表。
-			if not finishing_hlod and selected>=0 and _native!=null and not _native.ground.is_empty():
-				var ground_configuration: String=_native.ground_configuration(scale_value)
-				if not ground_configuration.is_empty():
-					var hybrid: Dictionary=_select_native(center,scale_value,_last_canvas.get_rotation(),_last_size,ground_configuration,display_budget)
-					var hybrid_union := 0 if _committed.is_empty() else _handoff_bytes(hybrid,-2)
-					_ground_candidate_state={"deferred":false,"configuration":ground_configuration,"faces":hybrid.get("triangles",0),"bytes":hybrid.get("bytes",0),"images":hybrid.get("ground_images",[]).size(),"guard":hybrid.get("spatial_guard_px",0),"within_budget":hybrid.get("within_budget",false),"handoff_bytes":hybrid_union,"handoff_budget":handoff_budget}
-					if not hybrid.get("ground_images",PackedStringArray()).is_empty() and Handoff.native_preference_qualified(hybrid,scale_value,_zoom_rate) and Handoff.native_preference(hybrid,hybrid_union,handoff_budget) and float(hybrid.get("spatial_guard_px",0))>0:
-						next=hybrid;selected=-2
-			if not finishing_hlod and selected>=0 and _native!=null and scale_value>0.1944 and (next.is_empty() or not next.within_budget or (not zooming_out and scale_value>float(_catalogs[selected].get("prefer_native_above",INF)))):
-				var native_cut: Dictionary = _select_native(center,scale_value,_last_canvas.get_rotation(),_last_size,"",Stream.BUDGET/2)
-				if native_cut.is_empty() or not native_cut.within_budget: native_cut=_select_native(center,scale_value,_last_canvas.get_rotation(),_last_size)
-				var native_union := -1 if native_cut.is_empty() else (0 if _committed.is_empty() else _handoff_bytes(native_cut,-2))
-				if Handoff.native_preference_qualified(native_cut,scale_value,_zoom_rate) and Handoff.native_preference(native_cut,native_union,handoff_budget) and (next.is_empty() or not next.within_budget or float(native_cut.get("spatial_guard_px",0))>0.0):
-					# 原生档若足以接替整段HLOD资格，也属于提前交接；不只标记原生内部升档。
-					native_cut["prefetched_native"]=Handoff.native_qualified(native_cut,float(_catalogs[selected].max_scale))
-					selected=-2
-					next=native_cut
-			if not finishing_hlod and _native!=null and (next.is_empty() or not next.within_budget):
-				var current_ground := _select_current_ground(center,scale_value,_last_canvas.get_rotation(),_last_size,display_budget)
-				if not current_ground.is_empty(): next=current_ground;selected=-2
-			if selected==-2 and not next.is_empty() and next.get("ground_images",PackedStringArray()).is_empty():
-				var archive := preload("res://scripts/rendering/tokyo_volume_archive.gd")
-				var early_configuration := "lod%d_full" % archive.choose_level(-1,scale_value*0.90/Contract.PREFETCH_RATIO)
-				if _target_catalog==-2 and not _target_committed():
-					early_configuration=Handoff.loading_configuration(_target,scale_value,early_configuration)
-				if early_configuration!=next.configuration:
-					var early: Dictionary=_select_native(center,scale_value,_last_canvas.get_rotation(),_last_size,early_configuration,Stream.BUDGET/2)
-					if early.is_empty() or not early.within_budget: early=_select_native(center,scale_value,_last_canvas.get_rotation(),_last_size,early_configuration)
-					var early_bytes := -1 if early.is_empty() else (0 if _committed.is_empty() else _handoff_bytes(early,-2))
-					if not early.is_empty() and early.within_budget and early_bytes>=0 and early_bytes<=handoff_budget:
-						early["prefetched_native"]=true
-						next=early
-			if selected>=0 and selected==_target_catalog and not next.is_empty() and (not _target_committed() or int(_target.get("bytes",display_budget))<=maxi(Stream.BUDGET/2,int(next.bytes))) and Contract.retained(_catalogs[selected],_target,next,scale_value,true):
-				next=_target
-				retained_cuts+=1
-			# 先原样裁掉已离屏的旧页；不加载替代桥接页，给新档让出真实预算。
-			if selected>=0 and not next.is_empty() and _committed_catalog>=0 and _committed_qualified(scale_value) \
-				and _handoff_bytes(next,selected)>handoff_budget \
-				and Handoff.covers_view(_catalogs[_committed_catalog],_committed_cut,view_bounds.intersection(_archive.bounds)):
-				var visible_old := Contract.visible_subset(_catalogs[_committed_catalog],_committed_cut,center,scale_value,_last_canvas.get_rotation(),_last_size)
-				if not visible_old.is_empty() and visible_old.within_budget and visible_old.keys.size()<_committed.size():
-					next=visible_old;selected=_committed_catalog
-					# 裁页不需I/O；下一帧继续原换档事务，即使相机已停止也不能搁置。
-					_lod_clock=0.0
-					_last_selected_size=Vector2.ZERO
-			# 不只按稳态最低面数选页：交接需给仍在显示的旧切面留足物理内存。
-			if selected>=0 and not next.is_empty() and not _committed.is_empty() and _handoff_bytes(next,selected)>handoff_budget:
-				var current_bytes := _handoff_bytes({"keys":PackedStringArray()},selected)
-				var remaining := clampi(handoff_budget-current_bytes,0,display_budget) if current_bytes>=0 else 0
-				var compact := _select_hlod(_catalogs[selected],center,scale_value,_last_canvas.get_rotation(),_last_size,true,remaining)
-				if not compact.is_empty() and compact.within_budget:
-					var compact_bytes := _handoff_bytes(compact,selected)
-					if compact_bytes>=0 and compact_bytes<=handoff_budget: next=compact
-				# 先预取新档的到期尺度切面，避免旧档再分块的I/O吃掉新档加载窗口；提交另验真实覆盖。
-				if _handoff_bytes(next,selected)>handoff_budget and _committed_catalog>=0 and _committed_qualified(scale_value):
-					var future_scale := Handoff.anticipation_scale(_catalogs[_committed_catalog],_committed_cut,view_bounds.intersection(_archive.bounds))
-					if future_scale>scale_value:
-						var anticipated := _select_hlod(_catalogs[selected],center,future_scale,_last_canvas.get_rotation(),_last_size,true,Stream.BUDGET/2)
-						if not anticipated.is_empty() and not anticipated.within_budget:
-							anticipated=_select_hlod(_catalogs[selected],center,future_scale,_last_canvas.get_rotation(),_last_size,true)
-						if not anticipated.is_empty() and anticipated.within_budget:
-							var anticipated_bytes := _handoff_bytes(anticipated,selected)
-							if anticipated_bytes>=0 and anticipated_bytes<=handoff_budget:
-								anticipated["anticipated_scale"]=future_scale
-								next=anticipated
-				# 新档提前切面仍放不下，才缩减旧档桥接；空间前提和联合预算均不放宽。
-				if _handoff_bytes(next,selected)>handoff_budget and _committed_catalog>=0 and _committed_qualified(scale_value):
-					var bridge := _select_hlod(_catalogs[_committed_catalog],center,scale_value,_last_canvas.get_rotation(),_last_size,true,Stream.BUDGET/2)
-					if not bridge.is_empty() and bridge.within_budget and int(bridge.charges.total_bytes)<current_bytes:
-						var bridge_bytes := _handoff_bytes(bridge,_committed_catalog)
-						if bridge_bytes>=0 and bridge_bytes<=handoff_budget:
-								next=bridge;selected=_committed_catalog
-			# 提前档超预算不等于当前尺度无解；先退回实际尺度合格的完整切面，不能直接清屏。
-			if next.is_empty() or not next.within_budget:
-				for n in _catalogs.size():
-					var catalog: Dictionary=_catalogs[n]
-					if scale_value<float(catalog.min_scale) or scale_value>float(catalog.max_scale): continue
-					var current_cut := _select_hlod(catalog,center,scale_value,_last_canvas.get_rotation(),_last_size,false,Stream.BUDGET/2)
-					if not current_cut.is_empty() and not current_cut.within_budget:
-						current_cut=_select_hlod(catalog,center,scale_value,_last_canvas.get_rotation(),_last_size)
-					if not current_cut.is_empty() and current_cut.within_budget:
-						next=current_cut;selected=n
-						break
-			if not next.is_empty() and next.within_budget:
-				var predict_started := Time.get_ticks_usec() if PerfBuckets.frame_trace_enabled else 0
-				var predicted := _predict_prefetch(center,scale_value,_last_canvas.get_rotation(),_last_size)
-				if PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_map_predict_plan",Time.get_ticks_usec()-predict_started)
-				if not predicted.is_empty():
-					# next可能与在途目标共享Dictionary；先复制，才能正确检测预取身份变化。
-					next=next.duplicate()
-					next["prefetch_catalog"]=predicted.catalog
-					next["prefetch_keys"]=predicted.keys
-					next["prefetch_extra"]=predicted.extra
-				# 显式对照：旧页已缺边时，优先用缓存内完整合格切面接住；原目标继续预取。
-				if OS.get_environment("AGL_TOKYO_CACHED_CUT")=="1" and (not current_covered or not _committed_qualified(scale_value)) and not _committed.is_empty() and not _resources_ready(next,selected):
-					var bridge_started := Time.get_ticks_usec()
-					_cached_cut_attempts+=1
-					var cached := preload("res://scripts/rendering/tokyo_hlod_cached_cut.gd")
-					var native_bridge: Dictionary={}
-					if selected==-2 and OS.get_environment("AGL_TOKYO_NATIVE_SCREEN_BRIDGE")=="1":
-						native_bridge=_native_screen_bridge(next,center,scale_value,_last_canvas.get_rotation(),_last_size,handoff_budget)
-					if not native_bridge.is_empty(): next=native_bridge
-					for cached_index: int in cached.candidate_catalogs(_catalogs,selected,_committed_catalog,scale_value) if native_bridge.is_empty() else PackedInt32Array():
-						var ready_cut: Dictionary={}
-						if _foundation.get("layers",{}).has(cached_index):
-							ready_cut=preload("res://scripts/rendering/tokyo_hlod_foundation.gd").select(_catalogs[cached_index],_foundation.layers[cached_index].entries,center,scale_value,_last_canvas.get_rotation(),_last_size,display_budget)
-							if not _resources_ready(ready_cut,cached_index): ready_cut={}
-						if ready_cut.is_empty():
-							ready_cut=cached.select(_catalogs[cached_index],center,scale_value,_last_canvas.get_rotation(),_last_size,_geometry,_stream._cache,_stream._textures)
-						var ready_union := -1 if ready_cut.is_empty() else _handoff_bytes(ready_cut,cached_index)
-						if ready_cut.is_empty() or (cached_index==selected and ready_cut.keys==next.keys) or ready_union<0 or ready_union>handoff_budget: continue
-						var extras := Handoff.prefetch_requests(_catalogs,next,selected)
-						for key: String in next.keys:
-							extras.append({"mesh":key if selected==-2 else _catalogs[selected].rows[key].native_geometry.path,
-								"image":"" if selected==-2 else _catalogs[selected].rows[key].native_texture.path})
-						ready_cut["prefetch_extra"]=extras
-						ready_cut["cache_bridge"]=true
-						next=ready_cut;selected=cached_index
-						break
-					if PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_map_cache_bridge",Time.get_ticks_usec()-bridge_started)
-			selection_usec+=Time.get_ticks_usec()-selection_start
-		# 候选无解与当前显示失效是两件事；仍合格且覆盖完整时沿用已绑定切面。
-		if (next.is_empty() or not next.within_budget) and Handoff.retain_display(_committed_cut,_committed_qualified(scale_value),current_covered,display_budget,Contract.native_page_limit() if _committed_catalog==-2 else 16):
-			next=_committed_cut;selected=_committed_catalog
-		if next.is_empty() or not next.within_budget:
-			_clear_current()
-			_target={};_target_catalog=-1
-			_stream.request_residency_only()
-			_fallback="unsupported scale" if selected==-1 else "cut budget"
-		elif selected!=_target_catalog or _target.get("keys")!=next.keys or _target.get("anticipated_scale",0.0)!=next.get("anticipated_scale",0.0) or (selected==-2 and (_target.get("masks")!=next.masks or _target.get("grid_pieces",{})!=next.get("grid_pieces",{}) or _target.get("ground_images",PackedStringArray())!=next.get("ground_images",PackedStringArray()))) or Handoff.prefetch_changed(_target,next,selected):
-			var staging := false
-			_handoff_reason="native_or_initial"
-			if not _committed.is_empty() and (_committed_qualified(scale_value) or _display_grace):
-				var combined := _handoff_bytes(next,selected)
-				staging=combined>=0 and combined<=handoff_budget
-				_handoff_reason="retained" if staging else "union_budget"
-			elif not _committed.is_empty():
-				_handoff_reason="old_scale"
-			# 提前预取超联合预算时，旧页仍合格就等视野收窄；不能主动闪回后再加载。
-			if not staging and not _committed.is_empty() and (_committed_qualified(scale_value) or _display_grace):
-				if _committed_catalog>=0 and not Handoff.covers_view(_catalogs[_committed_catalog],_committed_cut,view_bounds.intersection(_archive.bounds)):
-					_handoff_reason="old_view"
-					_clear_current()
+	var current_covered := _committed_catalog!=-1 and _cut_covers_current_view(_committed_cut,_committed_catalog)
+	var display_revision := _plan_revision
+	if _map_worker!=null:
+		var plan_started := Time.get_ticks_usec() if PerfBuckets.frame_trace_enabled else 0
+		changed=_step_prepared_selection(scale_value,zooming_out,reversing_in,rapid_zoom,current_covered,changed) or changed
+		if PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_map_plan_main",Time.get_ticks_usec()-plan_started)
+	else:
+		if _selection_due(current_covered,scale_value,reversing_in,rapid_zoom) and (_last_selected_canvas!=_last_canvas or _last_selected_size!=_last_size):
+			_lod_clock=0.05
+			_last_selected_canvas=_last_canvas
+			_last_selected_size=_last_size
+			var selected := Handoff.catalog_index(_catalogs,scale_value,not zooming_out)
+			var foundation_catalog := preload("res://scripts/rendering/tokyo_hlod_foundation.gd").catalog_at(_foundation,scale_value,selected)
+			# 新中景本身是完整合格显示表示；相邻细档另由预测I/O准备，不提前替换画面。
+			if foundation_catalog<0:
+				var actual_foundation := preload("res://scripts/rendering/tokyo_hlod_foundation.gd").catalog_at(_foundation,scale_value)
+				if actual_foundation>=0 and _catalogs[actual_foundation].has("middle_massing_recipe"): foundation_catalog=actual_foundation
+			if foundation_catalog>=0: selected=foundation_catalog
+			var next: Dictionary = {}
+			if selected<0 and _native!=null and scale_value>0.1944: selected=-2
+			if selected>=0 or selected==-2:
+				var selection_start := Time.get_ticks_usec()
+				var phase_started := selection_start
+				var source: Variant = _source_ref.get_ref()
+				var logical: Vector2 = source.get_viewport().get_visible_rect().size
+				var center := _last_canvas.affine_inverse()*(logical*0.5)
+				# 双向缩放均先完成仍完整合格的在途桥接档，缩远还须保留96px余量。
+				# 在求树前判断：原先先重算半池/全池再无条件覆盖结果，等待I/O时每帧白算。
+				if _pending_hlod_covers(scale_value,zooming_out):
+					selected=_target_catalog
+					next=_target
+					pending_selection_reuses+=1
 				else:
-					_handoff_reason="wait_union_budget"
-					_fallback="waiting prefetch budget"
-					_record_display_grace(scale_value)
-					return changed
-			if not staging: _clear_current()
-			else: staged_switches+=1
-			_target=next;_target_catalog=selected
-			_request_target(staging)
-			_fallback="staging cut" if staging else "loading cut"
-			changed=true
+					# 常驻页不必为重新加载同一资源预留半池；仍守原96MiB显示门。
+					if foundation_catalog>=0:
+						next=preload("res://scripts/rendering/tokyo_hlod_foundation.gd").select(_catalogs[selected],_foundation.layers[selected].entries,center,scale_value,_last_canvas.get_rotation(),_last_size,display_budget)
+					if next.is_empty():
+						next=_select_native(center,scale_value,_last_canvas.get_rotation(),_last_size,"",Stream.BUDGET/2) if selected==-2 else _select_hlod(_catalogs[selected],center,scale_value,_last_canvas.get_rotation(),_last_size,true,Stream.BUDGET/2)
+					# 稳态优先留出一份交接空间；完整清晰切面确实放不下才使用全预算。
+					if selected>=0 and not next.is_empty() and not next.within_budget:
+						next=_select_hlod(_catalogs[selected],center,scale_value,_last_canvas.get_rotation(),_last_size,true)
+					elif selected==-2 and (next.is_empty() or not next.within_budget):
+						next=_select_native(center,scale_value,_last_canvas.get_rotation(),_last_size)
+				if PerfBuckets.frame_trace_enabled: phase_started=_selection_phase("base",phase_started)
+				# 原生是细节偏好，不得取消仍完整合格的HLOD在途事务；提交后再升级。
+				var finishing_hlod := selected>=0 and selected==_target_catalog and not _target_committed() \
+					and not next.is_empty() and Contract.retained(_catalogs[selected],_target,next,scale_value,true)
+				if _native!=null and not _native.ground.is_empty(): _ground_candidate_state={"deferred":finishing_hlod}
+				if not finishing_hlod and (next.is_empty() or not next.within_budget):
+					var current_foundation := preload("res://scripts/rendering/tokyo_hlod_foundation.gd").catalog_at(_foundation,scale_value)
+					if current_foundation>=0:
+						var fixed := preload("res://scripts/rendering/tokyo_hlod_foundation.gd").select(_catalogs[current_foundation],_foundation.layers[current_foundation].entries,center,scale_value,_last_canvas.get_rotation(),_last_size,display_budget)
+						# 提前细档无解时仍有完整常驻切面，不能转求昂贵原生树；预测预取另走原路径。
+						if not fixed.is_empty(): next=fixed;selected=current_foundation
+				if OS.get_environment("AGL_TOKYO_ACTUAL_BEFORE_NATIVE")=="1" and not finishing_hlod:
+					var actual_index := Handoff.actual_fallback(_catalogs,selected,scale_value,not next.is_empty() and next.within_budget)
+					if actual_index>=0:
+						var actual_cut := _select_hlod(_catalogs[actual_index],center,scale_value,_last_canvas.get_rotation(),_last_size,false,Stream.BUDGET/2)
+						if not actual_cut.is_empty() and not actual_cut.within_budget:
+							actual_cut=_select_hlod(_catalogs[actual_index],center,scale_value,_last_canvas.get_rotation(),_last_size,false)
+						if not actual_cut.is_empty() and actual_cut.within_budget:
+							next=actual_cut;selected=actual_index
+				# 近景预算允许时保留原生高楼细节；超限密集区才使用已合格HLOD，绝不强降原生档。
+				# 原生偏好是显示选择，不是预取资格；乘提前比例会在合格HLOD仍足够时过早切回重地表。
+				if not finishing_hlod and selected>=0 and _native!=null and not _native.ground.is_empty():
+					var ground_configuration: String=_native.ground_configuration(scale_value)
+					if not ground_configuration.is_empty():
+						var hybrid: Dictionary=_select_native(center,scale_value,_last_canvas.get_rotation(),_last_size,ground_configuration,display_budget)
+						var hybrid_union := 0 if _committed.is_empty() else _handoff_bytes(hybrid,-2)
+						_ground_candidate_state={"deferred":false,"configuration":ground_configuration,"faces":hybrid.get("triangles",0),"bytes":hybrid.get("bytes",0),"images":hybrid.get("ground_images",[]).size(),"guard":hybrid.get("spatial_guard_px",0),"within_budget":hybrid.get("within_budget",false),"handoff_bytes":hybrid_union,"handoff_budget":handoff_budget}
+						if not hybrid.get("ground_images",PackedStringArray()).is_empty() and Handoff.native_preference_qualified(hybrid,scale_value,_zoom_rate) and Handoff.native_preference(hybrid,hybrid_union,handoff_budget) and float(hybrid.get("spatial_guard_px",0))>0:
+							next=hybrid;selected=-2
+				if not finishing_hlod and selected>=0 and _native!=null and scale_value>0.1944 and (next.is_empty() or not next.within_budget or (not zooming_out and scale_value>float(_catalogs[selected].get("prefer_native_above",INF)))):
+					var native_cut := _select_native_fallback(center,scale_value,_last_canvas.get_rotation(),_last_size,next.is_empty() or not next.within_budget)
+					var native_union := -1 if native_cut.is_empty() else (0 if _committed.is_empty() else _handoff_bytes(native_cut,-2))
+					if Handoff.native_preference_qualified(native_cut,scale_value,_zoom_rate) and Handoff.native_preference(native_cut,native_union,handoff_budget) and (next.is_empty() or not next.within_budget or float(native_cut.get("spatial_guard_px",0))>0.0):
+						# 原生档若足以接替整段HLOD资格，也属于提前交接；不只标记原生内部升档。
+						native_cut["prefetched_native"]=Handoff.native_qualified(native_cut,float(_catalogs[selected].max_scale))
+						selected=-2
+						next=native_cut
+				if not finishing_hlod and _native!=null and (next.is_empty() or not next.within_budget):
+					var current_ground := _select_current_ground(center,scale_value,_last_canvas.get_rotation(),_last_size,display_budget)
+					if not current_ground.is_empty(): next=current_ground;selected=-2
+				if selected==-2 and not next.is_empty() and next.get("ground_images",PackedStringArray()).is_empty():
+					var archive := preload("res://scripts/rendering/tokyo_volume_archive.gd")
+					var early_configuration := "lod%d_full" % archive.choose_level(-1,scale_value*0.90/Contract.PREFETCH_RATIO)
+					if _target_catalog==-2 and not _target_committed():
+						early_configuration=Handoff.loading_configuration(_target,scale_value,early_configuration)
+					if early_configuration!=next.configuration:
+						var early: Dictionary=_select_native(center,scale_value,_last_canvas.get_rotation(),_last_size,early_configuration,Stream.BUDGET/2)
+						if early.is_empty() or not early.within_budget: early=_select_native(center,scale_value,_last_canvas.get_rotation(),_last_size,early_configuration)
+						var early_bytes := -1 if early.is_empty() else (0 if _committed.is_empty() else _handoff_bytes(early,-2))
+						if not early.is_empty() and early.within_budget and early_bytes>=0 and early_bytes<=handoff_budget:
+							early["prefetched_native"]=true
+							next=early
+				if PerfBuckets.frame_trace_enabled: phase_started=_selection_phase("native",phase_started)
+				if selected>=0 and selected==_target_catalog and not next.is_empty() and (not _target_committed() or int(_target.get("bytes",display_budget))<=maxi(Stream.BUDGET/2,int(next.bytes))) and Contract.retained(_catalogs[selected],_target,next,scale_value,true):
+					next=_target
+					retained_cuts+=1
+				# 提前细档的联合费用过高时，先尝试当前清晰度的完整桥接。
+				# 半池只是首选；同池重叠允许超过半池的切面，保护带也必须逐档验联合费用。
+				if selected>=0 and not _committed.is_empty() and _committed_qualified(scale_value) \
+					and (next.is_empty() or not next.within_budget or _handoff_bytes(next,selected)>handoff_budget):
+					var actual_catalog := Handoff.catalog_index(_catalogs,scale_value,false)
+					var bridge_catalogs: Array[int]=[]
+					if _committed_catalog>=0: bridge_catalogs.append(_committed_catalog)
+					if actual_catalog>=0 and actual_catalog!=_committed_catalog: bridge_catalogs.append(actual_catalog)
+					for bridge_catalog: int in bridge_catalogs:
+						var handoff_cut := _select_handoff_hlod(bridge_catalog,center,scale_value,_last_canvas.get_rotation(),_last_size,handoff_budget,display_budget)
+						if not handoff_cut.is_empty():
+							next=handoff_cut;selected=bridge_catalog
+							break
+				if PerfBuckets.frame_trace_enabled: phase_started=_selection_phase("bridge",phase_started)
+				# 只裁掉当前和短期前探都不需要的旧页；运动包络仍由完整目录证明。
+				if selected>=0 and not next.is_empty() and _committed_catalog>=0 and _committed_qualified(scale_value) \
+					and _handoff_bytes(next,selected)>handoff_budget \
+					and current_covered:
+					var trim_lead := Handoff.pan_lead(_pan_velocity,scale_value,0.25,_last_size)
+					var visible_old := Contract.visible_subset(_catalogs[_committed_catalog],_committed_cut,center,scale_value,_last_canvas.get_rotation(),_last_size,_selection_work,trim_lead)
+					if not visible_old.is_empty() and visible_old.within_budget and visible_old.keys.size()<_committed.size() \
+						and Handoff.covers_motion_view(_catalogs[_committed_catalog],visible_old,center,scale_value,_last_canvas.get_rotation(),_last_size,trim_lead):
+						visible_old["selection_stage"]="trim"
+						next=visible_old;selected=_committed_catalog
+						# 裁页不需I/O；下一帧继续原换档事务，即使相机已停止也不能搁置。
+						_lod_clock=0.0
+						_last_selected_size=Vector2.ZERO
+				if PerfBuckets.frame_trace_enabled: phase_started=_selection_phase("trim",phase_started)
+				# 不只按稳态最低面数选页：交接需给仍在显示的旧切面留足物理内存。
+				if selected>=0 and not next.is_empty() and not _committed.is_empty() and _handoff_bytes(next,selected)>handoff_budget:
+					var current_bytes := _handoff_bytes({"keys":PackedStringArray()},selected)
+					var remaining := clampi(handoff_budget-current_bytes,0,display_budget) if current_bytes>=0 else 0
+					var compact := _select_hlod(_catalogs[selected],center,scale_value,_last_canvas.get_rotation(),_last_size,true,remaining)
+					if not compact.is_empty() and compact.within_budget:
+						var compact_bytes := _handoff_bytes(compact,selected)
+						if compact_bytes>=0 and compact_bytes<=handoff_budget:
+							compact["selection_stage"]="compact"
+							next=compact
+					# 先预取新档的到期尺度切面，避免旧档再分块的I/O吃掉新档加载窗口；提交另验真实覆盖。
+					if _handoff_bytes(next,selected)>handoff_budget and _committed_catalog>=0 and _committed_qualified(scale_value):
+						var future_scale := Handoff.scale_limit(_catalogs[_committed_catalog],_committed_cut) if current_covered else 0.0
+						if future_scale>scale_value:
+							var anticipated := _select_hlod(_catalogs[selected],center,future_scale,_last_canvas.get_rotation(),_last_size,true,Stream.BUDGET/2)
+							if not anticipated.is_empty() and not anticipated.within_budget:
+								anticipated=_select_hlod(_catalogs[selected],center,future_scale,_last_canvas.get_rotation(),_last_size,true)
+							if not anticipated.is_empty() and anticipated.within_budget:
+								var anticipated_bytes := _handoff_bytes(anticipated,selected)
+								if anticipated_bytes>=0 and anticipated_bytes<=handoff_budget:
+									anticipated["anticipated_scale"]=future_scale
+									anticipated["selection_stage"]="anticipated"
+									next=anticipated
+					# 新档提前切面仍放不下，才缩减旧档桥接；空间前提和联合预算均不放宽。
+					if _handoff_bytes(next,selected)>handoff_budget and _committed_catalog>=0 and _committed_qualified(scale_value):
+						var bridge := _select_hlod(_catalogs[_committed_catalog],center,scale_value,_last_canvas.get_rotation(),_last_size,true,Stream.BUDGET/2)
+						if not bridge.is_empty() and bridge.within_budget and int(bridge.charges.total_bytes)<current_bytes:
+							var bridge_bytes := _handoff_bytes(bridge,_committed_catalog)
+							if bridge_bytes>=0 and bridge_bytes<=handoff_budget:
+									bridge["selection_stage"]="compact_bridge"
+									next=bridge;selected=_committed_catalog
+				if PerfBuckets.frame_trace_enabled: phase_started=_selection_phase("compact",phase_started)
+				# 提前档超预算不等于当前尺度无解；先退回实际尺度合格的完整切面，不能直接清屏。
+				if next.is_empty() or not next.within_budget:
+					for n in _catalogs.size():
+						var catalog: Dictionary=_catalogs[n]
+						if scale_value<float(catalog.min_scale) or scale_value>float(catalog.max_scale): continue
+						var current_cut := _select_hlod(catalog,center,scale_value,_last_canvas.get_rotation(),_last_size,false,Stream.BUDGET/2)
+						if not current_cut.is_empty() and not current_cut.within_budget:
+							current_cut=_select_hlod(catalog,center,scale_value,_last_canvas.get_rotation(),_last_size)
+						if not current_cut.is_empty() and current_cut.within_budget:
+							next=current_cut;selected=n
+							break
+				if PerfBuckets.frame_trace_enabled: phase_started=_selection_phase("actual",phase_started)
+				if not next.is_empty() and next.within_budget:
+					var predict_started := Time.get_ticks_usec() if PerfBuckets.frame_trace_enabled else 0
+					var predicted := _predict_prefetch(center,scale_value,_last_canvas.get_rotation(),_last_size)
+					if PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_map_predict_plan",Time.get_ticks_usec()-predict_started)
+					if not predicted.is_empty():
+						# next可能与在途目标共享Dictionary；先复制，才能正确检测预取身份变化。
+						next=next.duplicate()
+						next["prefetch_catalog"]=predicted.catalog
+						next["prefetch_keys"]=predicted.keys
+						next["prefetch_extra"]=predicted.extra
+					# 显式对照：旧页已缺边时，优先用缓存内完整合格切面接住；原目标继续预取。
+					if OS.get_environment("AGL_TOKYO_CACHED_CUT")=="1" and (not current_covered or not _committed_qualified(scale_value)) and not _committed.is_empty() and not _resources_ready(next,selected):
+						var bridge_started := Time.get_ticks_usec()
+						_cached_cut_attempts+=1
+						var cached := preload("res://scripts/rendering/tokyo_hlod_cached_cut.gd")
+						var native_bridge: Dictionary={}
+						if selected==-2 and OS.get_environment("AGL_TOKYO_NATIVE_SCREEN_BRIDGE")=="1":
+							native_bridge=_native_screen_bridge(next,center,scale_value,_last_canvas.get_rotation(),_last_size,handoff_budget)
+						if not native_bridge.is_empty(): next=native_bridge
+						for cached_index: int in cached.candidate_catalogs(_catalogs,selected,_committed_catalog,scale_value) if native_bridge.is_empty() else PackedInt32Array():
+							var ready_cut: Dictionary={}
+							if _foundation.get("layers",{}).has(cached_index):
+								ready_cut=preload("res://scripts/rendering/tokyo_hlod_foundation.gd").select(_catalogs[cached_index],_foundation.layers[cached_index].entries,center,scale_value,_last_canvas.get_rotation(),_last_size,display_budget)
+								if not _resources_ready(ready_cut,cached_index): ready_cut={}
+							if ready_cut.is_empty():
+								ready_cut=cached.select(_catalogs[cached_index],center,scale_value,_last_canvas.get_rotation(),_last_size,_geometry,_stream._cache,_stream._textures)
+							var ready_union := -1 if ready_cut.is_empty() else _handoff_bytes(ready_cut,cached_index)
+							if ready_cut.is_empty() or (cached_index==selected and ready_cut.keys==next.keys) or ready_union<0 or ready_union>handoff_budget: continue
+							var extras := Handoff.prefetch_requests(_catalogs,next,selected)
+							for key: String in next.keys:
+								extras.append({"mesh":key if selected==-2 else _catalogs[selected].rows[key].native_geometry.path,
+									"image":"" if selected==-2 else _catalogs[selected].rows[key].native_texture.path})
+							ready_cut["prefetch_extra"]=extras
+							ready_cut["cache_bridge"]=true
+							next=ready_cut;selected=cached_index
+							break
+						if PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_map_cache_bridge",Time.get_ticks_usec()-bridge_started)
+				if PerfBuckets.frame_trace_enabled: phase_started=_selection_phase("predict",phase_started)
+				selection_usec+=Time.get_ticks_usec()-selection_start
+			if _trace_selection and _selection_trace.size()<2048:
+				var bridge_probe: Array[Dictionary]=[]
+				var actual_index := Handoff.catalog_index(_catalogs,scale_value,false)
+				if _trace_counterfactual and selected>=0 and actual_index>=0 and selected!=actual_index and not next.is_empty() and not _committed.is_empty() and _handoff_bytes(next,selected)>handoff_budget:
+					var probe_size: Vector2=motion_source.get_viewport().get_visible_rect().size
+					var probe_center := _last_canvas.affine_inverse()*(probe_size*0.5)
+					for probe_budget: int in [Stream.BUDGET/2,display_budget]:
+						var probe := _select_hlod(_catalogs[actual_index],probe_center,scale_value,_last_canvas.get_rotation(),_last_size,false,probe_budget)
+						bridge_probe.append({"catalog":actual_index,"budget":probe_budget,"bytes":probe.get("bytes",0),"valid":probe.get("within_budget",false),
+							"keys":probe.get("keys",[]).duplicate(),"guard":probe.get("spatial_guard_px",0),"union":_handoff_bytes(probe,actual_index) if not probe.is_empty() else -1,
+							"ready":_resources_ready(probe,actual_index),"covered":_cut_covers_current_view(probe,actual_index) if not probe.is_empty() else false})
+					var probe_lead := Handoff.pan_lead(_pan_velocity,scale_value,0.35,_last_size)
+					var probe_padding := (Transform2D(_last_canvas.get_rotation(),Vector2.ZERO).basis_xform(probe_lead)*scale_value).abs()+Vector2(384,384)
+					for probe_ratio: float in [1.0,0.5,0.25,0.0]:
+						var candidate := Contract.select(_catalogs[actual_index],probe_center+probe_lead*0.5*probe_ratio,scale_value,_last_canvas.get_rotation(),_last_size+probe_padding*probe_ratio,false,display_budget,_selection_work,_small_uploads)
+						bridge_probe.append({"catalog":actual_index,"budget":display_budget,"direct_ratio":probe_ratio,"bytes":candidate.get("bytes",0),"triangles":candidate.get("triangles",0),
+							"valid":candidate.get("within_budget",false),"qualified":Handoff.qualified(_catalogs[actual_index],candidate,scale_value),"keys":candidate.get("keys",[]).duplicate(),
+							"union":_handoff_bytes(candidate,actual_index) if not candidate.is_empty() else -1,"ready":_resources_ready(candidate,actual_index),
+							"covered":_cut_covers_current_view(candidate,actual_index) if not candidate.is_empty() else false})
+				_selection_trace.append({"frame":Engine.get_process_frames(),"ticks_msec":Time.get_ticks_msec(),"zoom_rate":_zoom_rate,"scale":scale_value,"center":motion_center,"canvas":_last_canvas,
+					"current_qualified":_committed_qualified(scale_value),"current_limit":Handoff.scale_limit(_catalogs[_committed_catalog],_committed_cut) if _committed_catalog>=0 else 0.0,
+					"current_catalog":_committed_catalog,"current":_committed.duplicate(),"current_bytes":_committed_cut.get("bytes",0),"covered":current_covered,
+					"target_catalog":_target_catalog,"target":_target.get("keys",[]).duplicate(),"next_catalog":selected,"next":next.get("keys",[]).duplicate(),
+					"next_bytes":next.get("bytes",0),"next_guard":next.get("spatial_guard_px",0),"next_budget":next.get("within_budget",false),
+					"next_bridge":next.get("handoff_bridge",false),"next_incremental_bytes":next.get("handoff_incremental_bytes",-1),
+					"next_stage":next.get("selection_stage",""),"next_trim_lead":next.get("trim_lead_world",Vector2.ZERO),
+					"union":_handoff_bytes(next,selected) if not next.is_empty() and not _committed.is_empty() else -1,"ready":_resources_ready(next,selected),
+					"next_covered":_cut_covers_current_view(next,selected) if selected!=-1 and not next.is_empty() else false,
+					"native_builds":_native.solver_builds if _native!=null else 0,"pending_reuses":pending_selection_reuses,
+					"reason":_handoff_reason,"fallback":_fallback,"stream":_stream.summary(),"actual_bridge_probe":bridge_probe})
+			# 候选无解与当前显示失效是两件事；仍合格且覆盖完整时沿用已绑定切面。
+			if (next.is_empty() or not next.within_budget) and Handoff.retain_display(_committed_cut,_committed_qualified(scale_value),current_covered,display_budget,Contract.native_page_limit() if _committed_catalog==-2 else 16):
+				next=_committed_cut;selected=_committed_catalog
+			if not next.is_empty() and next.within_budget: _refresh_native_guard_metadata(next,selected)
+			if next.is_empty() or not next.within_budget:
+				_clear_current()
+				_target={};_target_catalog=-1
+				_stream.request_residency_only()
+				_fallback="unsupported scale" if selected==-1 else "cut budget"
+			elif selected!=_target_catalog or _target.get("keys")!=next.keys or _target.get("anticipated_scale",0.0)!=next.get("anticipated_scale",0.0) or (selected==-2 and (_target.get("masks")!=next.masks or _target.get("grid_pieces",{})!=next.get("grid_pieces",{}) or _target.get("ground_images",PackedStringArray())!=next.get("ground_images",PackedStringArray()))) or Handoff.prefetch_changed(_target,next,selected):
+				var staging := false
+				_handoff_reason="native_or_initial"
+				if not _committed.is_empty() and (_committed_qualified(scale_value) or _display_grace):
+					var combined := _handoff_bytes(next,selected)
+					staging=combined>=0 and combined<=handoff_budget
+					_handoff_reason="retained" if staging else "union_budget"
+				elif not _committed.is_empty():
+					_handoff_reason="old_scale"
+				# 提前预取超联合预算时，旧页仍合格就等视野收窄；不能主动闪回后再加载。
+				if not staging and not _committed.is_empty() and (_committed_qualified(scale_value) or _display_grace):
+					if _committed_catalog>=0 and not current_covered:
+						_handoff_reason="old_view"
+						_clear_current()
+					else:
+						_handoff_reason="wait_union_budget"
+						_fallback="waiting prefetch budget"
+						return _finish_display_step(scale_value,changed,current_covered,display_revision)
+				if not staging: _clear_current()
+				else: staged_switches+=1
+				_target=next;_target_catalog=selected
+				_request_target(staging)
+				_fallback="staging cut" if staging else "loading cut"
+				changed=true
 	# 相机继续放大时旧切面可能失去清晰度资格，不能为避免回退继续显示。
 	if not _target.is_empty() and not _target_committed() \
 		and (_committed.is_empty() or not _committed_qualified(scale_value) or not current_covered):
 		_stream.collect_ready_meshes()
-	if not _target.is_empty() and not _target_committed() and not _committed.is_empty() \
-		and not _committed_qualified(scale_value) and not _display_grace:
-		_handoff_reason="old_scale"
-		_clear_current()
-		_request_target(false)
-		_fallback="loading cut"
+	return _finish_display_step(scale_value,changed,current_covered,display_revision)
+
+
+func _finish_display_step(scale_value: float, changed: bool, covered: bool, checked_revision: int) -> bool:
+	# 先让已经就绪且满足此刻视野的目标接替，不能为清理旧显示制造一次空白。
 	changed=_commit_ready_target(scale_value) or changed
+	var has_display := not _committed.is_empty()
+	if not has_display: covered=false
+	elif checked_revision!=_plan_revision:
+		covered=_cut_covers_current_view(_committed_cut,_committed_catalog)
+	var qualified := has_display and _committed_qualified(scale_value)
+	# pending不是继续显示缺边/过期切面的凭据；target恰好等于committed时也须执行。
+	# 常驻资源只是可用输入，不等于已经绑定且覆盖此刻视野的显示基底。
+	if has_display and (not covered or (not qualified and not _display_grace)):
+		_trace_prepared_state("display_lost")
+		_handoff_reason="old_view" if not covered else "old_scale"
+		_clear_current()
+		changed=true
+		_plan_dirty=true
+		if _map_worker==null: _last_selected_size=Vector2.ZERO
+		if not _target.is_empty(): _request_target(false)
+		else: _stream.request_residency_only()
+		_fallback="loading cut"
+		qualified=false;covered=false
 	_record_display_grace(scale_value)
 	_screen.visible=_active and not _committed.is_empty()
+	display_qualified=_screen.visible and qualified
+	display_covered=_screen.visible and covered
 	_sync_legacy()
 	return changed
 
 
+func _pending_hlod_covers(scale_value: float, zooming_out: bool) -> bool:
+	# 普通保护带事务也可能即将到期；沿用桥接的0.25秒资格，不能占住下一细档的加载窗口。
+	return _target_catalog>=0 and not _target_committed() and not _target.has("anticipated_scale") \
+		and Handoff.qualified(_catalogs[_target_catalog],_target,scale_value) \
+		and _handoff_bridge_qualified(_target_catalog,_target,scale_value) \
+		and _target_covers_current_view(96.0 if zooming_out else 0.0)
+
+
 func _selection_due(current_covered: bool, scale_value: float, reversing_in: bool, rapid_zoom: bool) -> bool:
 	# 覆盖完整不代表清晰度仍合格；跨地表上限时必须当帧换目标，不能先清屏再等20Hz选页。
+	# 方向包络没有全向保护；转弯时沿快速缩放的节拍重采，仍由调用方合并停镜和在途需求。
+	var narrow_native: bool=_committed_catalog==-2 and not _committed.is_empty() \
+		and _committed_cut.get("selection_stage","") in ["native_motion_guard","native_actual","native_retained"] \
+		and float(_committed_cut.get("spatial_guard_px",-1))==0.0
 	return _lod_clock<=0.0 or reversing_in or not current_covered or not _committed_qualified(scale_value) \
-		or (rapid_zoom and _lod_clock<=0.05-1.0/60.0)
+		or ((rapid_zoom or narrow_native) and _lod_clock<=0.05-1.0/60.0)
 
 
 func _update_display_grace(view: Rect2, scale_value: float) -> void:
@@ -515,11 +654,11 @@ func _record_display_grace(scale_value: float) -> void:
 	max_lod_grace_ratio=maxf(max_lod_grace_ratio,scale_value/Handoff.scale_limit(_catalogs[_committed_catalog],_committed_cut))
 
 
-func _select_hlod(catalog: Dictionary, center: Vector2, scale: float, angle: float, size: Vector2, finer: bool = false, budget: int = -1) -> Dictionary:
+func _select_hlod(catalog: Dictionary, center: Vector2, scale: float, angle: float, size: Vector2, finer: bool = false, budget: int = -1, include_zoom_footprint: bool = true) -> Dictionary:
 	if budget==-1:
 		# 扩大硬上限不能把原48/96MiB首选一起抬高；原切面可用时保持原资源身份。
 		if display_budget>Stream.BUDGET:
-			var original := _select_hlod(catalog,center,scale,angle,size,finer,Stream.BUDGET)
+			var original := _select_hlod(catalog,center,scale,angle,size,finer,Stream.BUDGET,include_zoom_footprint)
 			if not original.is_empty() and original.within_budget: return original
 		budget=display_budget
 	var foundation_probe_started := Time.get_ticks_usec() if PerfBuckets.frame_trace_enabled else 0
@@ -533,30 +672,124 @@ func _select_hlod(catalog: Dictionary, center: Vector2, scale: float, angle: flo
 	# 空间提前量与缩放提前量独立；保持真实像素尺度，不能用降低scale冒充扩区。
 	var lead := Handoff.pan_lead(_pan_velocity,scale,0.35,size)
 	var padding := (Transform2D(angle,Vector2.ZERO).basis_xform(lead)*scale).abs()+Vector2(384,384)
+	if include_zoom_footprint: padding+=Handoff.zoom_out_padding(_zoom_rate,size)
 	var expanded := Contract.select(catalog,center+lead*0.5,scale,angle,size+padding,finer,budget,_selection_work,_small_uploads)
-	if not expanded.is_empty() and not expanded.within_budget and budget==Stream.BUDGET/2:
-		var full := Contract.select(catalog,center+lead*0.5,scale,angle,size+padding,finer,Stream.BUDGET,_selection_work,_small_uploads)
+	var expanded_retry := false
+	if (expanded.is_empty() or not expanded.within_budget) and budget<display_budget:
+		var full := Contract.select(catalog,center+lead*0.5,scale,angle,size+padding,finer,display_budget,_selection_work,_small_uploads)
 		var lookup_started := Time.get_ticks_usec() if PerfBuckets.frame_trace_enabled else 0
 		var index := _catalogs.find(catalog)
 		if PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_map_hlod_catalog_lookup",Time.get_ticks_usec()-lookup_started)
-		if not full.is_empty() and full.within_budget and ( _committed.is_empty() or (index>=0 and _handoff_bytes(full,index)<=_stream.residency_limit-_stream.residency_bytes)):
-			expanded=full
+		if not full.is_empty() and full.within_budget:
+			var combined := 0 if _committed.is_empty() else (_handoff_bytes(full,index) if index>=0 else -1)
+			if combined>=0 and (_committed.is_empty() or combined<=_stream.residency_limit-_stream.residency_bytes):
+				expanded=full;expanded_retry=true
+			elif index>=0 and combined>_stream.residency_limit-_stream.residency_bytes:
+				# 同档完整切面因旧页占池失败时，先求共享资源前沿，不能直接丢掉保护带。
+				var shared := _select_handoff_hlod(index,center,scale,angle,size,
+					_stream.residency_limit-_stream.residency_bytes,display_budget,192.0,include_zoom_footprint)
+				if not shared.is_empty():
+					shared["selection_stage"]="hlod_guard_shared"
+					return shared
 	if not expanded.is_empty() and expanded.within_budget:
 		expanded["spatial_guard_px"]=192
+		expanded["selection_stage"]="hlod_guard_retry" if expanded_retry else "hlod_guard"
 		return expanded
-	# 大保护带放不下时逐级收窄，不能一步退到零余量。
+	# 每档保护带都先验首选预算，再验显示上限与同一真实联合预算，最后才收窄。
 	for ratio: float in [0.5,0.25]:
 		var reduced := Contract.select(catalog,center+lead*0.5*ratio,scale,angle,size+padding*ratio,finer,budget,_selection_work,_small_uploads)
+		var reduced_retry := false
+		if (reduced.is_empty() or not reduced.within_budget) and budget<display_budget:
+			var full := Contract.select(catalog,center+lead*0.5*ratio,scale,angle,size+padding*ratio,finer,display_budget,_selection_work,_small_uploads)
+			var lookup_started := Time.get_ticks_usec() if PerfBuckets.frame_trace_enabled else 0
+			var index := _catalogs.find(catalog)
+			if PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_map_hlod_catalog_lookup",Time.get_ticks_usec()-lookup_started)
+			if not full.is_empty() and full.within_budget:
+				var combined := 0 if _committed.is_empty() else (_handoff_bytes(full,index) if index>=0 else -1)
+				if combined>=0 and (_committed.is_empty() or combined<=_stream.residency_limit-_stream.residency_bytes):
+					reduced=full;reduced_retry=true
+				elif index>=0 and combined>_stream.residency_limit-_stream.residency_bytes:
+					var shared := _select_handoff_hlod(index,center,scale,angle,size,
+						_stream.residency_limit-_stream.residency_bytes,display_budget,192.0*ratio,include_zoom_footprint)
+					if not shared.is_empty():
+						shared["selection_stage"]="hlod_guard_shared"
+						return shared
 		if not reduced.is_empty() and reduced.within_budget:
 			reduced["spatial_guard_px"]=192*ratio
+			reduced["selection_stage"]="hlod_guard_retry" if reduced_retry else "hlod_guard"
 			return reduced
 	var actual := Contract.select(catalog,center,scale,angle,size,finer,budget,_selection_work,_small_uploads)
 	if actual.is_empty(): return {}
 	actual["spatial_guard_px"]=0
+	actual["selection_stage"]="hlod_actual"
 	actual["guard_rejection"]={"faces":expanded.get("triangles",0),"bytes":expanded.get("bytes",0),"budget":budget,"kind":"hlod"}
 	# 超显示面数/字节的扩区只能作为未绑定预取集，绝不作为合格显示切面提交。
 	actual["guard_prefetch_keys"]=expanded.get("keys",PackedStringArray())
 	return actual
+
+
+func _handoff_bridge_qualified(index: int, cut: Dictionary, scale: float) -> bool:
+	# 与既有预测I/O共用0.25秒视窗；快速放大时不能靠低档桥接拖延即将到期的换档。
+	var future_scale := scale*exp(clampf(_zoom_rate*0.25,0.0,0.7))
+	return Handoff.qualified(_catalogs[index],cut,future_scale)
+
+
+func _select_handoff_hlod(index: int, center: Vector2, scale: float, angle: float, size: Vector2, budget: int, max_display_bytes: int = -1, min_guard_px: float = 0.0, include_zoom_footprint: bool = true) -> Dictionary:
+	if not is_finite(min_guard_px) or min_guard_px<0.0: return {}
+	var future_scale := scale*exp(clampf(_zoom_rate*0.25,0.0,0.7))
+	if future_scale>float(_catalogs[index].max_scale): return {}
+	var lead := Handoff.pan_lead(_pan_velocity,scale,0.35,size)
+	var padding := (Transform2D(angle,Vector2.ZERO).basis_xform(lead)*scale).abs()+Vector2(384,384)
+	if include_zoom_footprint: padding+=Handoff.zoom_out_padding(_zoom_rate,size)
+	var current_bytes := _handoff_bytes({"keys":PackedStringArray()},index)
+	if current_bytes<0 or current_bytes>=budget: return {}
+	var costs_started := Time.get_ticks_usec() if PerfBuckets.frame_trace_enabled else 0
+	var costs := _handoff_incremental_costs(index)
+	if PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_bridge.costs",Time.get_ticks_usec()-costs_started)
+	var roots_started := Time.get_ticks_usec() if PerfBuckets.frame_trace_enabled else 0
+	var roots := Contract.handoff_roots(_catalogs[index],maxf(scale,future_scale),costs,_selection_work)
+	if PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_bridge.roots",Time.get_ticks_usec()-roots_started)
+	for ratio: float in [1.0,0.5,0.25,0.0]:
+		if 192.0*ratio<min_guard_px: continue
+		var choose_started := Time.get_ticks_usec() if PerfBuckets.frame_trace_enabled else 0
+		var candidate := Contract.select_handoff(_catalogs[index],center+lead*0.5*ratio,scale,angle,size+padding*ratio,budget-current_bytes,costs,_selection_work,index==_committed_catalog,future_scale,roots)
+		if PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_bridge.choose",Time.get_ticks_usec()-choose_started)
+		if candidate.is_empty() or not candidate.within_budget or not _handoff_bridge_qualified(index,candidate,scale): continue
+		# 少量新增前方页可维持覆盖；显示上限和真实联合费用共同约束，不强制逐次缩费。
+		if int(candidate.bytes)>mini(display_budget,max_display_bytes if max_display_bytes>=0 else display_budget): continue
+		var combined := _handoff_bytes(candidate,index)
+		if combined<0 or combined>budget: continue
+		if not _cut_covers_current_view(candidate,index): continue
+		candidate["spatial_guard_px"]=192*ratio
+		candidate["handoff_bridge"]=true
+		candidate["selection_stage"]="handoff"
+		return candidate
+	return {}
+
+
+func _handoff_incremental_costs(index: int) -> Dictionary:
+	var meshes := PackedStringArray()
+	var images := PackedStringArray(_committed_cut.get("ground_images",[]))
+	for key: String in _committed:
+		if _committed_catalog==-2: meshes.append(key)
+		else:
+			var old: Dictionary=_catalogs[_committed_catalog].rows[key]
+			meshes.append(old.native_geometry.path);images.append(old.native_texture.path)
+	if is_instance_valid(_stream):
+		meshes.append_array(_stream.residency_meshes);images.append_array(_stream.residency_images)
+	var ledger := {"bytes":0,"meshes":{},"images":{}}
+	if not Handoff.append_streaming_bundle(ledger,_geometry,_textures,meshes,images,display_budget+Stream.BUDGET): return {}
+	var costs := {}
+	for key: String in _catalogs[index].rows:
+		var row: Dictionary=_catalogs[index].rows[key]
+		var path: String=row.native_geometry.path
+		var parts: Dictionary=_geometry[path].get("components",{path:_geometry[path]})
+		var amount := 288
+		for physical: String in parts:
+			if not ledger.meshes.has(physical): amount+=int(parts[physical].bytes)
+		if not ledger.images.has(row.native_texture.path): amount+=int(row.native_texture.three_copy_charge)
+		costs[key]=amount
+	return costs
 
 
 func _select_current_ground(center: Vector2, scale: float, angle: float, size: Vector2, budget: int) -> Dictionary:
@@ -571,7 +804,21 @@ func _select_current_ground(center: Vector2, scale: float, angle: float, size: V
 	return cut
 
 
-func _select_native(center: Vector2, scale: float, angle: float, size: Vector2, configuration: String = "", budget: int = -1, retain_current: bool = true) -> Dictionary:
+func _select_native_fallback(center: Vector2, scale: float, angle: float, size: Vector2, check_screen: bool) -> Dictionary:
+	if check_screen and _target_catalog!=-2:
+		# 失败回退先验最小视野的全预算下界。连裸视野都无解，包含它的三个
+		# 保护带更不可能有解；正常近景/原生细节偏好仍走原顺序，不增加成功路径查询。
+		# 已有原生目标可能属于另一合法配置，必须先沿原路径保留，不能用默认档否决它。
+		var screen: Dictionary=_native.select(center,scale,angle,size,"",display_budget)
+		if screen.is_empty() or not screen.within_budget:
+			native_screen_rejections+=1
+			return screen
+	var cut := _select_native(center,scale,angle,size,"",Stream.BUDGET/2)
+	if cut.is_empty() or not cut.within_budget: cut=_select_native(center,scale,angle,size)
+	return cut
+
+
+func _select_native(center: Vector2, scale: float, angle: float, size: Vector2, configuration: String = "", budget: int = -1, retain_current: bool = true, include_zoom_footprint: bool = true) -> Dictionary:
 	# 原生与HLOD共用已批准显示档；默认96MiB不变，不能把192MiB候选重试锁回旧档。
 	if budget==-1: budget=display_budget
 	# 96/48px保护带不能用固定192px复用门，否则缓慢巡检也每次重求树。
@@ -588,24 +835,67 @@ func _select_native(center: Vector2, scale: float, angle: float, size: Vector2, 
 	var query_started := Time.get_ticks_usec() if PerfBuckets.frame_trace_enabled else 0
 	var expanded: Dictionary = _native.select(center+lead*0.5,scale,angle,size+padding,configuration,budget)
 	if PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_native_query.expanded",Time.get_ticks_usec()-query_started)
-	if (expanded.is_empty() or not expanded.within_budget) and budget==Stream.BUDGET/2:
+	var expanded_retry := false
+	if (expanded.is_empty() or not expanded.within_budget) and budget<display_budget:
 		var full: Dictionary = _native.select(center+lead*0.5,scale,angle,size+padding,configuration,display_budget)
-		if not full.is_empty() and full.within_budget and (_committed.is_empty() or _handoff_bytes(full,-2)<=_stream.residency_limit-_stream.residency_bytes): expanded=full
+		if not full.is_empty() and full.within_budget:
+			var combined := 0 if _committed.is_empty() else _handoff_bytes(full,-2)
+			if combined>=0 and (_committed.is_empty() or combined<=_stream.residency_limit-_stream.residency_bytes):
+				expanded=full;expanded_retry=true
 	if not expanded.is_empty() and expanded.within_budget:
 		expanded["spatial_guard_px"]=192
+		expanded["selection_stage"]="native_guard_retry" if expanded_retry else "native_guard"
 		return expanded
 	for ratio: float in [0.5,0.25]:
 		query_started=Time.get_ticks_usec() if PerfBuckets.frame_trace_enabled else 0
 		var reduced: Dictionary=_native.select(center+lead*0.5*ratio,scale,angle,size+padding*ratio,configuration,budget)
 		if PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_native_query.half" if ratio==0.5 else "tokyo_native_query.quarter",Time.get_ticks_usec()-query_started)
+		var reduced_retry := false
+		if (reduced.is_empty() or not reduced.within_budget) and budget<display_budget:
+			var full: Dictionary=_native.select(center+lead*0.5*ratio,scale,angle,size+padding*ratio,configuration,display_budget)
+			if not full.is_empty() and full.within_budget:
+				var combined := 0 if _committed.is_empty() else _handoff_bytes(full,-2)
+				if combined>=0 and (_committed.is_empty() or combined<=_stream.residency_limit-_stream.residency_bytes):
+					reduced=full;reduced_retry=true
 		if not reduced.is_empty() and reduced.within_budget:
 			reduced["spatial_guard_px"]=192*ratio
+			reduced["selection_stage"]="native_guard_retry" if reduced_retry else "native_guard"
 			return reduced
+	# 对称保护带可能只因侧后方可见面数超限；在退回裸视野前保留同档的方向性前探。
+	# 逐级缩短现有预测距离，不改变清晰度、页数、面数或物理联合预算。
+	for ratio: float in [1.0,0.5,0.25]:
+		var motion_lead := lead*ratio
+		if motion_lead.length()*scale<1.0: continue
+		var motion_query := Handoff.native_motion_query(center,scale,angle,size,motion_lead,0.35*ratio,_zoom_rate if include_zoom_footprint else 0.0)
+		if motion_query.is_empty(): continue
+		query_started=Time.get_ticks_usec() if PerfBuckets.frame_trace_enabled else 0
+		var motion: Dictionary=_native.select(motion_query.center,scale,angle,motion_query.size,configuration,budget)
+		if PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_native_query.motion",Time.get_ticks_usec()-query_started)
+		if (motion.is_empty() or not motion.within_budget) and budget<display_budget:
+			var full: Dictionary=_native.select(motion_query.center,scale,angle,motion_query.size,configuration,display_budget)
+			if not full.is_empty() and full.within_budget:
+				var combined := 0 if _committed.is_empty() else _handoff_bytes(full,-2)
+				if combined>=0 and (_committed.is_empty() or combined<=_stream.residency_limit-_stream.residency_bytes): motion=full
+		if not motion.is_empty() and motion.within_budget:
+			motion["spatial_guard_px"]=0
+			motion["selection_stage"]="native_motion_guard"
+			motion["motion_lead_world"]=motion_lead
+			motion["motion_horizon"]=0.35*ratio
+			return motion
+	# 所有保护候选都失败时，不主动裁掉仍完整合格的已提交保护层。
+	# 只复用现有绑定；未来预取的retain_current=false仍必须求自己的视野。
+	if retain_current and _target_catalog==-2 and _target_committed() \
+		and (configuration.is_empty() or configuration==_target.get("configuration","")) \
+		and Handoff.retain_display(_target,Handoff.native_qualified(_target,scale),_target_covers_current_view(),budget,Contract.native_page_limit()):
+		var retained: Dictionary=_target.duplicate()
+		retained["selection_stage"]="native_retained";retained["spatial_guard_px"]=0
+		return retained
 	query_started=Time.get_ticks_usec() if PerfBuckets.frame_trace_enabled else 0
 	var actual: Dictionary = _native.select(center,scale,angle,size,configuration,budget)
 	if PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_native_query.bare",Time.get_ticks_usec()-query_started)
 	if actual.is_empty(): return {}
 	actual["spatial_guard_px"]=0
+	actual["selection_stage"]="native_actual"
 	actual["guard_prefetch_keys"]=expanded.get("keys",PackedStringArray())
 	actual["guard_rejection"]={"faces":expanded.get("triangles",0),"bytes":expanded.get("bytes",0),"budget":budget,"kind":"native"}
 	actual["prefetch_keys"]=expanded.get("keys",PackedStringArray())
@@ -659,14 +949,16 @@ func _predict_prefetch(center: Vector2, scale_value: float, angle: float, size: 
 		if _future_predictor!=null:
 			cut=_future_predictor.request(future_center,future_scale,angle,size,configuration,_pan_velocity,1 if _zoom_rate>0.02 else (-1 if _zoom_rate< -0.02 else 0),display_budget,_async_full_prefetch_allowed,_zoom_rate)
 		if cut.is_empty():
-			cut=_select_native(future_center,future_scale,angle,size,configuration,Stream.BUDGET/2,false)
-			if cut.is_empty() or not cut.within_budget: cut=_select_native(future_center,future_scale,angle,size,configuration,display_budget,false)
+			# future_scale已计入缩放，保护带只保留原纯平移包络，不再外推一次倍率。
+			cut=_select_native(future_center,future_scale,angle,size,configuration,Stream.BUDGET/2,false,false)
+			if cut.is_empty() or not cut.within_budget: cut=_select_native(future_center,future_scale,angle,size,configuration,display_budget,false,false)
 		if _future_predictor!=null: _future_predictor.dispatch()
 	else:
 		# 必须与实际选页使用同样的保护带；仅预测裸视野会选出另一套父子页。
-		cut=_select_hlod(_catalogs[index],future_center,future_scale,angle,size,true,Stream.BUDGET/2)
+		# future_scale已包含缩远，不得再外推一次视口增长。
+		cut=_select_hlod(_catalogs[index],future_center,future_scale,angle,size,true,Stream.BUDGET/2,false)
 		if not cut.is_empty() and not cut.within_budget:
-			cut=_select_hlod(_catalogs[index],future_center,future_scale,angle,size,true)
+			cut=_select_hlod(_catalogs[index],future_center,future_scale,angle,size,true,-1,false)
 	if cut.is_empty(): return {}
 	var extra: Array[Dictionary]=[]
 	if index==-2:
@@ -680,9 +972,9 @@ func _predict_prefetch(center: Vector2, scale_value: float, angle: float, size: 
 	var far_index := Handoff.catalog_index(_catalogs,far_scale,false)
 	if _zoom_rate < -0.02 and far_index>=0 and far_index!=index:
 		var far_center := center+Handoff.pan_lead(_pan_velocity,far_scale,0.25,size)
-		var far_cut := _select_hlod(_catalogs[far_index],far_center,far_scale,angle,size,true,Stream.BUDGET/2)
+		var far_cut := _select_hlod(_catalogs[far_index],far_center,far_scale,angle,size,true,Stream.BUDGET/2,false)
 		if not far_cut.is_empty() and not far_cut.within_budget:
-			far_cut=_select_hlod(_catalogs[far_index],far_center,far_scale,angle,size,true)
+			far_cut=_select_hlod(_catalogs[far_index],far_center,far_scale,angle,size,true,-1,false)
 		if not far_cut.is_empty() and far_cut.within_budget:
 			for key: String in far_cut.keys:
 				var row: Dictionary=_catalogs[far_index].rows[key]
@@ -736,19 +1028,20 @@ func _cut_covers_current_view(cut: Dictionary, catalog: int, margin_px: float = 
 	var source: Variant = _source_ref.get_ref() if _source_ref!=null else null
 	if typeof(source)!=TYPE_OBJECT or not is_instance_valid(source): return false
 	var logical: Vector2 = source.get_viewport().get_visible_rect().size
-	var inverse := _last_canvas.affine_inverse()
-	var view := Rect2(inverse*Vector2.ZERO,Vector2.ZERO)
-	for point: Vector2 in [Vector2(logical.x,0),logical,Vector2(0,logical.y)]: view=view.expand(inverse*point)
-	view=view.grow(margin_px/maxf(output_scale,0.001)).intersection(_archive.bounds)
-	if catalog>=0:
-		var covered_hlod := Handoff.covers_view(_catalogs[catalog],cut,view)
-		if PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_map_coverage",Time.get_ticks_usec()-coverage_started)
-		return covered_hlod
-	if _native==null: return false
 	var margin_logical := Vector2.ONE*margin_px*logical/_last_size
 	var expanded_canvas := _last_canvas
 	expanded_canvas.origin+=margin_logical
-	var covered_native: bool=_native.covers_visible_layers(cut,view,expanded_canvas,logical+2.0*margin_logical)
+	var expanded_size := logical+2.0*margin_logical
+	var inverse := expanded_canvas.affine_inverse()
+	var view := Rect2(inverse*Vector2.ZERO,Vector2.ZERO)
+	for point: Vector2 in [Vector2(expanded_size.x,0),expanded_size,Vector2(0,expanded_size.y)]: view=view.expand(inverse*point)
+	view=view.intersection(_archive.bounds)
+	if catalog>=0:
+		var covered_hlod := Handoff.covers_projection(_catalogs[catalog],cut,view,expanded_canvas,expanded_size)
+		if PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_map_coverage",Time.get_ticks_usec()-coverage_started)
+		return covered_hlod
+	if _native==null: return false
+	var covered_native: bool=_native.covers_visible_layers(cut,view,expanded_canvas,expanded_size)
 	if PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_map_coverage",Time.get_ticks_usec()-coverage_started)
 	return covered_native
 
@@ -763,12 +1056,7 @@ func _commit_ready_target(scale_value: float) -> bool:
 		return false
 	if _target.has("anticipated_scale"):
 		if scale_value<float(_target.anticipated_scale): return false
-		var source: Variant=_source_ref.get_ref() if _source_ref!=null else null
-		if typeof(source)!=TYPE_OBJECT or not is_instance_valid(source): return false
-		var logical: Vector2=source.get_viewport().get_visible_rect().size
-		var center := _last_canvas.affine_inverse()*(logical*0.5)
-		var required := _select_hlod(_catalogs[_target_catalog],center,scale_value,_last_canvas.get_rotation(),_last_size,true)
-		if required.is_empty() or not required.within_budget or not Contract.retained(_catalogs[_target_catalog],_target,required,scale_value,true): return false
+
 	if _target_catalog==-2:
 		if not Handoff.native_qualified(_target,scale_value): return false
 	elif _target_catalog<0 or not Handoff.qualified(_catalogs[_target_catalog],_target,scale_value): return false
@@ -831,7 +1119,7 @@ func _handoff_bytes(next: Dictionary, selected: int) -> int:
 		var cut: Dictionary=pair[1]
 		ground+=int(cut.get("charges",{}).get("ground_bytes",0))
 		textures.append_array(PackedStringArray(cut.get("ground_images",[])))
-		for key: String in cut.keys:
+		for key: String in cut.get("keys",PackedStringArray()):
 			if index==-2: meshes.append(key)
 			else:
 				var row: Dictionary=_catalogs[index].rows[key]
@@ -1002,6 +1290,8 @@ func _bind_ground_surface(replacement: Dictionary) -> void:
 
 
 func _clear_current() -> void:
+	_plan_revision+=1
+	display_qualified=false;display_covered=false
 	var clear_started := Time.get_ticks_usec() if PerfBuckets.frame_trace_enabled else 0
 	_display_grace=false;_grace_started=-1;_grace_age_ms=0
 	for node in _nodes:
@@ -1040,10 +1330,12 @@ func _sync_legacy() -> void:
 
 func _deactivate() -> void:
 	super._deactivate()
+	display_qualified=false;display_covered=false
 	_sync_legacy()
 
 
 func _exit_tree() -> void:
+	if _map_worker!=null: _map_worker.close()
 	if _future_predictor!=null: _future_predictor.close()
 	_clear_current()
 	if is_instance_valid(_stream): _stream.close()
@@ -1055,6 +1347,9 @@ func debug_state() -> Dictionary:
 		"staged_switches":staged_switches,"max_transition_triangles":max_transition_triangles,
 		"handoff_reason":_handoff_reason,"native_page_limit":Contract.native_page_limit(),
 		"prefetch_pages":_prefetch_pages,
+		"map_planning":{"mode":_plan_mode,"worker":_map_worker.summary() if _map_worker!=null else {},
+			"prepare_usec":_plan_prepare_usec,"submit_usec":_plan_submit_usec,"admission_usec":_plan_admission_usec,
+			"applied":_plan_applied,"rejected":_plan_rejected,"pending_frames":_plan_pending_frames,"stats":_plan_stats},
 		"loading_neighborhood_bytes":loading_neighborhood_bytes,"loading_neighborhood_pinned":loading_neighborhood,
 		"resident_foundation":resident_foundation,"foundation_cut":_committed_cut.get("foundation",false),
 		"foundation_prefetch_skips":foundation_prefetch_skips,
@@ -1064,8 +1359,11 @@ func debug_state() -> Dictionary:
 		"native_screen_bridge_commits":_native_screen_bridge_commits,
 		"native_screen_bridge_state":_native_screen_bridge_state.duplicate(),
 		"committed_catalog":_committed_catalog,"display_budget":display_budget,"display_bytes":int(_committed_cut.get("bytes",0)),
+		"display_qualified":display_qualified,"display_covered":display_covered,
 		"lod_grace_active":_display_grace,"lod_grace_frames":lod_grace_frames,"max_lod_grace_ms":max_lod_grace_ms,"max_lod_grace_ratio":max_lod_grace_ratio,
 		"retained_cuts":retained_cuts,
+		"pending_selection_reuses":pending_selection_reuses,
+		"native_screen_rejections":native_screen_rejections,
 		"zoom_rate":_zoom_rate,"zoom_prediction_reversals":zoom_prediction_reversals,
 		"hlod_solver_builds":_selection_work.get("builds",0),"hlod_solver_reuses":_selection_work.get("reuses",0),
 		"qualification_builds":_selection_work.get("qualification_builds",0),"qualification_reuses":_selection_work.get("qualification_reuses",0),
@@ -1084,3 +1382,192 @@ func debug_state() -> Dictionary:
 		"stream":_stream.summary() if is_instance_valid(_stream) else {},"hidden_legacy_sources":_hidden_sources,
 		"output_size":_viewport.size if is_instance_valid(_viewport) else Vector2i.ZERO,
 		"triangles":int(_committed_cut.get("triangles",0)) if ready>0 else 0,"redraws":redraws,"lod_switches":lod_switches}
+
+
+func _prepare_map_planner() -> bool:
+	if _native is GridNative or OS.get_environment("AGL_TOKYO_SYNC_SELECTION")=="1":
+		_plan_mode="legacy_grid" if _native is GridNative else "explicit_sync_control"
+		return true
+	var started := Time.get_ticks_usec()
+	_plan_readiness=OS.get_environment("AGL_TOKYO_CACHED_CUT")=="1"
+	var prepared := {}
+	for catalog: Dictionary in _catalogs:
+		var artifact := PreparedCatalog.load_or_build(catalog)
+		if artifact.is_empty(): return false
+		prepared[catalog.identity.path]=artifact
+	# Physical identity was verified during package loading. Keep costs and dependency keys,
+	# never duplicate vertex/UV/index arrays into the planner.
+	var geometry := {}
+	var physical_rows := {}
+	for path: String in _geometry:
+		var row: Dictionary=_geometry[path]
+		var parts := {}
+		for physical: String in row.get("components",{path:row}):
+			var item: Dictionary=row.get("components",{path:row})[physical]
+			if physical_rows.has(physical) and physical_rows[physical]!=item: return false
+			physical_rows[physical]=item
+			parts[physical]={"bytes":int(item.bytes),"physical_identity":physical}
+		geometry[path]={"components":parts}
+	var textures := {}
+	for path: String in _textures: textures[path]={"charge":int(_textures[path].charge)}
+	var source := {"catalogs":_catalogs,"prepared_catalogs":prepared,"geometry":geometry,"textures":textures,
+		"foundation":_foundation,"bounds":_archive.bounds,"native":_native.selection_snapshot() if _native!=null else {},
+		"context":{"background":true,"epoch":0,"display_limit":display_budget,"native_page_limit":Contract.native_page_limit()},
+		"flags":{"small_uploads":_small_uploads,"actual_before_native":OS.get_environment("AGL_TOKYO_ACTUAL_BEFORE_NATIVE")=="1",
+			"cached_cut":OS.get_environment("AGL_TOKYO_CACHED_CUT")=="1","native_screen_bridge":OS.get_environment("AGL_TOKYO_NATIVE_SCREEN_BRIDGE")=="1"}}
+	_map_worker=MapWorker.new()
+	if not _map_worker.configure(source,_plan_generation):
+		_map_worker=null
+		return false
+	_plan_prepare_usec=Time.get_ticks_usec()-started
+	_plan_mode="prepared_background"
+	return true
+
+
+func _planning_request(scale_value: float, zooming_out: bool) -> Dictionary:
+	var source: Variant=_source_ref.get_ref()
+	var ready_meshes := {}
+	var ready_images := {}
+	# Snapshot only key sets. Actual resources and their reference counts stay on the main thread.
+	if _plan_readiness:
+		for key: String in _stream._cache: ready_meshes[key]=true
+		for key: String in _stream._textures: ready_images[key]=true
+	_plan_sequence+=1
+	return {"sequence":_plan_sequence,"revision":_plan_revision,"canvas":_last_canvas,"size":_last_size,
+		"logical":source.get_viewport().get_visible_rect().size,"scale":scale_value,"zooming_out":zooming_out,
+		"pan_velocity":_pan_velocity,"zoom_rate":_zoom_rate,"committed_catalog":_committed_catalog,
+		"committed":MapPlanner.compact_cut(_committed_cut),"target_catalog":_target_catalog,"target":MapPlanner.compact_cut(_target),
+		"stream":{"residency_limit":_stream.residency_limit,"residency_bytes":_stream.residency_bytes,
+			"residency_meshes":_stream.residency_meshes.duplicate(),"residency_images":_stream.residency_images.duplicate(),
+			"_cache":ready_meshes,"_textures":ready_images}}
+
+
+func _step_prepared_selection(scale_value: float, zooming_out: bool, reversing_in: bool, rapid_zoom: bool, current_covered: bool, changed: bool) -> bool:
+	var due := _selection_due(current_covered,scale_value,reversing_in,rapid_zoom)
+	if due and (_last_selected_canvas!=_last_canvas or _last_selected_size!=_last_size): _plan_dirty=true
+	if _map_worker.ready():
+		var started := Time.get_ticks_usec()
+		var envelope: Dictionary=_map_worker.take(_plan_generation)
+		if not envelope.is_empty():
+			var plan: Dictionary=envelope.plan
+			_plan_stats=plan.stats
+			_trace_prepared_state("prepared_result",plan.cut,int(plan.catalog),envelope.request)
+			if int(envelope.request.revision)==_plan_revision:
+				changed=_admit_prepared_plan(plan,envelope.request,scale_value,current_covered,changed) or changed
+			else:
+				_plan_rejected+=1;_plan_dirty=true
+		_plan_admission_usec+=Time.get_ticks_usec()-started
+		if PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_map_plan_admit",Time.get_ticks_usec()-started)
+	if _map_worker.busy():
+		_plan_pending_frames+=1
+	elif _plan_dirty:
+		var started := Time.get_ticks_usec()
+		if _map_worker.submit(_planning_request(scale_value,zooming_out)):
+			_plan_dirty=false
+			_lod_clock=0.05
+			_last_selected_canvas=_last_canvas;_last_selected_size=_last_size
+		else:
+			_fallback="planning request rejected"
+		_plan_submit_usec+=Time.get_ticks_usec()-started
+		if PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_map_plan_submit",Time.get_ticks_usec()-started)
+	return changed
+
+
+func _trace_prepared_state(kind: String, next: Dictionary = {}, selected: int = -1, request: Dictionary = {}) -> void:
+	if not _trace_selection or _selection_trace.size()>=2048: return
+	_selection_trace.append({"kind":kind,"frame":Engine.get_process_frames(),"ticks_msec":Time.get_ticks_msec(),
+		"scale":output_scale,"center":_motion_center,"canvas":_last_canvas,"zoom_rate":_zoom_rate,"pan_velocity":_pan_velocity,
+		"revision":_plan_revision,"request_revision":request.get("revision",-1),"request_canvas":request.get("canvas",Transform2D.IDENTITY),
+		"request_pan_velocity":request.get("pan_velocity",Vector2.ZERO),"request_scale":request.get("scale",0.0),"request_zoom_rate":request.get("zoom_rate",0.0),
+		"current_catalog":_committed_catalog,"current":_committed.duplicate(),"current_bytes":_committed_cut.get("bytes",0),
+		"current_guard":_committed_cut.get("spatial_guard_px",0),"current_qualified":_committed_qualified(output_scale),
+		"current_stage":_committed_cut.get("selection_stage",""),"current_trim_lead":_committed_cut.get("trim_lead_world",Vector2.ZERO),
+		"current_motion_lead":_committed_cut.get("motion_lead_world",Vector2.ZERO),"current_motion_horizon":_committed_cut.get("motion_horizon",0.0),
+		"current_configuration":_committed_cut.get("configuration",""),"current_triangles":_committed_cut.get("triangles",0),
+		"current_guard_rejection":_committed_cut.get("guard_rejection",{}),"current_prefetched_native":_committed_cut.get("prefetched_native",false),
+		"current_covered":_cut_covers_current_view(_committed_cut,_committed_catalog) if not _committed.is_empty() else false,
+		"target_catalog":_target_catalog,"target":_target.get("keys",[]).duplicate(),"target_bytes":_target.get("bytes",0),
+		"target_guard":_target.get("spatial_guard_px",0),"target_anticipated":_target.get("anticipated_scale",0),
+		"target_stage":_target.get("selection_stage",""),"target_trim_lead":_target.get("trim_lead_world",Vector2.ZERO),
+		"target_configuration":_target.get("configuration",""),"target_triangles":_target.get("triangles",0),
+		"target_guard_rejection":_target.get("guard_rejection",{}),"target_prefetched_native":_target.get("prefetched_native",false),
+		"target_covered":_target_covers_current_view() if not _target.is_empty() else false,
+		"target_ready":_resources_ready(_target,_target_catalog) if not _target.is_empty() else false,
+		"target_union":_handoff_bytes(_target,_target_catalog) if not _target.is_empty() else -1,
+		"next_catalog":selected,"next":next.get("keys",[]).duplicate(),"next_bytes":next.get("bytes",0),
+		"next_guard":next.get("spatial_guard_px",0),"next_anticipated":next.get("anticipated_scale",0),
+		"next_stage":next.get("selection_stage",""),"next_bridge":next.get("handoff_bridge",false),"next_trim_lead":next.get("trim_lead_world",Vector2.ZERO),
+		"next_motion_lead":next.get("motion_lead_world",Vector2.ZERO),"next_motion_horizon":next.get("motion_horizon",0.0),
+		"next_configuration":next.get("configuration",""),"next_triangles":next.get("triangles",0),
+		"next_guard_rejection":next.get("guard_rejection",{}),"next_prefetched_native":next.get("prefetched_native",false),
+		"next_covered":_cut_covers_current_view(next,selected) if not next.is_empty() else false,
+		"next_ready":_resources_ready(next,selected) if not next.is_empty() else false,
+		"next_union":_handoff_bytes(next,selected) if not next.is_empty() else -1,
+		"reason":_handoff_reason,"fallback":_fallback,"stream":_stream.summary()})
+
+
+func _admit_prepared_plan(plan: Dictionary, request: Dictionary, scale_value: float, current_covered: bool, changed: bool) -> bool:
+	var next: Dictionary=plan.cut
+	var selected: int=plan.catalog
+	var handoff_budget: int=_stream.residency_limit-_stream.residency_bytes
+	if plan.status=="no_solution":
+		# An old failed query is not evidence about the current view. Pending is never failure.
+		if request.canvas!=_last_canvas or request.size!=_last_size:
+			_plan_rejected+=1;_plan_dirty=true
+			return changed
+		if Handoff.retain_display(_committed_cut,_committed_qualified(scale_value),current_covered,display_budget,Contract.native_page_limit() if _committed_catalog==-2 else 16): return changed
+		_clear_current()
+		_target={};_target_catalog=-1
+		_stream.request_residency_only()
+		_fallback="unsupported scale" if selected==-1 else "cut budget"
+		return true
+	var qualified := Handoff.native_qualified(next,scale_value) if selected==-2 else selected>=0 and Handoff.qualified(_catalogs[selected],next,scale_value)
+	var covered := qualified and _cut_covers_current_view(next,selected)
+	var anticipated := next.has("anticipated_scale") and _committed_qualified(scale_value) and current_covered
+	if not next.get("within_budget",false) or not qualified or (not covered and not anticipated):
+		_plan_rejected+=1;_plan_dirty=true
+		return changed
+	if selected>=0 and next.get("handoff_bridge",false) and not _handoff_bridge_qualified(selected,next,scale_value):
+		_plan_rejected+=1;_plan_dirty=true
+		return changed
+	_ground_candidate_state=plan.ground_candidate
+	_native_screen_bridge_state=plan.native_screen_bridge
+	if plan.force_replan: _plan_dirty=true
+	_plan_applied+=1
+	_refresh_native_guard_metadata(next,selected)
+	if selected==_target_catalog and _target.get("keys")==next.keys and _target.get("anticipated_scale",0.0)==next.get("anticipated_scale",0.0) \
+		and (selected!=-2 or (_target.get("masks")==next.masks and _target.get("ground_images",PackedStringArray())==next.get("ground_images",PackedStringArray()))) \
+		and not Handoff.prefetch_changed(_target,next,selected): return changed
+	var staging := false
+	_handoff_reason="native_or_initial"
+	if not _committed.is_empty() and (_committed_qualified(scale_value) or _display_grace):
+		var combined := _handoff_bytes(next,selected)
+		staging=combined>=0 and combined<=handoff_budget
+		_handoff_reason="retained" if staging else "union_budget"
+	if not staging and not _committed.is_empty() and (_committed_qualified(scale_value) or _display_grace):
+		if _committed_catalog>=0 and not current_covered:
+			_handoff_reason="old_view";_clear_current()
+		else:
+			_handoff_reason="wait_union_budget";_fallback="waiting prefetch budget"
+			return changed
+	if not staging: _clear_current()
+	else: staged_switches+=1
+	_target=next;_target_catalog=selected;_plan_revision+=1
+	_request_target(staging)
+	_fallback="staging cut" if staging else "loading cut"
+	return true
+
+
+func _refresh_native_guard_metadata(next: Dictionary, selected: int) -> void:
+	# 相同资源不需重新绑定，但新查询的保护范围必须及时替换旧标签，包括只改变预取的路径。
+	if selected!=-2 or _target_catalog!=-2 or next.get("keys",PackedStringArray()).is_empty() \
+		or _target.get("keys")!=next.get("keys") or _target.get("masks")!=next.get("masks") \
+		or _target.get("configuration","")!=next.get("configuration","") \
+		or _target.get("grid_pieces",{})!=next.get("grid_pieces",{}) \
+		or _target.get("ground_images",PackedStringArray())!=next.get("ground_images",PackedStringArray()) \
+		or _target.get("anticipated_scale",0.0)!=next.get("anticipated_scale",0.0): return
+	var refresh: Array[Dictionary]=[_target]
+	if _target_committed(): refresh.append(_committed_cut)
+	for cut: Dictionary in refresh:
+		cut["selection_stage"]=next.get("selection_stage","")
+		cut["spatial_guard_px"]=next.get("spatial_guard_px",-1.0)

@@ -26,16 +26,26 @@ var _burst_id := 0
 var _desired_fire_heading := 0.0
 
 func _physics_process(delta: float) -> void:
+	if not PerfBuckets.extended_cpu_trace_enabled:
+		_physics_process_airburst_untraced(delta)
+		return
+	var started_usec := Time.get_ticks_usec()
+	var shared_before_usec := PerfBuckets.extended_cpu_shared_usec
+	_physics_process_airburst_untraced(delta)
+	PerfBuckets.finish_extended_cpu("airburst_aa_phys", started_usec, shared_before_usec)
+
+
+func _physics_process_airburst_untraced(delta: float) -> void:
 	if is_destroyed:
 		_update_destroy(delta)
-		queue_redraw()
+		FrameRedraw.request(self)
 		return
 	StatusEffects.tick(self, delta)
 	_update_movement(delta)
 	_update_aa_target_selection(delta)
 	_update_turret(delta)
 	_update_airburst_weapon(delta)
-	queue_redraw()
+	FrameRedraw.request(self)
 
 func _update_aa_target_selection(delta: float) -> void:
 	if combat_target and is_instance_valid(combat_target) and not combat_target.is_destroyed:

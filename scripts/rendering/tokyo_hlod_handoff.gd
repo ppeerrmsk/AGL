@@ -70,6 +70,29 @@ static func pan_lead(velocity: Vector2, scale: float, horizon: float, size: Vect
 	return (velocity*horizon).limit_length(minf(size.x,size.y)/scale)
 
 
+static func zoom_out_padding(zoom_rate: float, size: Vector2, horizon: float = 0.25) -> Vector2:
+	if not is_finite(zoom_rate) or not size.is_finite() or minf(size.x,size.y)<=0.0 \
+		or not is_finite(horizon) or horizon<0.0: return Vector2.ZERO
+	# 只扩张空间查询，LOD仍使用此刻真实scale；放大不扩大视野，缩远最多前探同一0.7对数范围。
+	return size*(exp(clampf(-zoom_rate*horizon,0.0,0.7))-1.0)
+
+
+static func native_motion_query(center: Vector2, scale: float, rotation: float, size: Vector2,
+		lead: Vector2, horizon: float, zoom_rate: float = 0.0) -> Dictionary:
+	if not center.is_finite() or not lead.is_finite() or not size.is_finite() or minf(size.x,size.y)<=0.0 \
+		or not is_finite(scale) or scale<=0.0 or not is_finite(rotation) or not is_finite(horizon) or horizon<0.0 \
+		or not is_finite(zoom_rate): return {}
+	var basis := Transform2D(rotation,Vector2.ZERO)
+	var offset := basis.basis_xform(lead)*scale
+	# 零缩放率保留原纯平移查询；已在未来scale上的预取显式走这一路，避免重复外推。
+	if zoom_rate==0.0: return {"center":center+lead*0.5,"size":size+offset.abs()}
+	# 与预测预取共用指数和尺度范围，但仅改变空间包络；目录资格仍使用当前scale。
+	var future_scale := clampf(scale*exp(clampf(zoom_rate*horizon,-0.7,0.7)),0.0973,5.0)
+	var future_size := size*(scale/future_scale)
+	var swept := Rect2(-size*0.5,size).merge(Rect2(offset-future_size*0.5,future_size))
+	return {"center":center+basis.basis_xform_inv(swept.get_center()/scale),"size":swept.size}
+
+
 static func actual_fallback(catalogs: Array[Dictionary], selected: int, scale: float, within_budget: bool) -> int:
 	# 提前细档失败，不代表当前距离无合格HLOD；不要先求昂贵的原生近景切面。
 	if within_budget or selected<0: return -1
@@ -109,6 +132,47 @@ static func display_grace(catalog: Dictionary, cut: Dictionary, scale: float, el
 
 static func covers_view(catalog: Dictionary, cut: Dictionary, view: Rect2) -> bool:
 	return uncovered_view(catalog,cut,view).is_empty()
+
+
+static func covers_motion_view(catalog: Dictionary, cut: Dictionary, center: Vector2, scale: float, rotation: float, size: Vector2, lead: Vector2 = Vector2.ZERO) -> bool:
+	# 当前和前探视口的屏幕矩形包络；必须对完整目录证明，旧切面子集自身不能证明完整性。
+	if not center.is_finite() or not lead.is_finite() or not size.is_finite() or minf(size.x,size.y)<=0.0 \
+		or not is_finite(scale) or scale<=0.0 or not is_finite(rotation): return false
+	var expanded := size+(Transform2D(rotation,Vector2.ZERO).basis_xform(lead)*scale).abs()
+	var canvas := Transform2D(rotation,Vector2.ZERO).scaled(Vector2.ONE*scale)
+	canvas.origin=expanded*0.5-canvas*(center+lead*0.5)
+	var inverse := canvas.affine_inverse()
+	var view := Rect2(inverse*Vector2.ZERO,Vector2.ZERO)
+	for point: Vector2 in [Vector2(expanded.x,0),expanded,Vector2(0,expanded.y)]: view=view.expand(inverse*point)
+	if typeof(catalog.get("bounds"))==TYPE_RECT2: view=view.intersection(catalog.bounds)
+	return covers_projection(catalog,cut,view,canvas,expanded)
+
+
+static func covers_projection(catalog: Dictionary, cut: Dictionary, view: Rect2, canvas: Transform2D, logical: Vector2) -> bool:
+	# 与选页共用真实屏幕和楼体高度投影。旋转视野的AABB角落并不在屏幕内，
+	# 不能因此拒绝已完整就绪的切面；屏外地面上的楼顶若投影入屏仍必须覆盖。
+	if not catalog.get("roots") is Array or catalog.roots.is_empty() or not cut.get("keys") is PackedStringArray or cut.keys.is_empty(): return false
+	var selected := {}
+	for key: String in cut.keys: selected[key]=true
+	var projection := preload("res://scripts/experiments/volume_projection.gd")
+	var ray := projection.ground_basis(canvas,deg_to_rad(38)).inverse()*projection.camera_basis(canvas,deg_to_rad(38)).z
+	var roof := -Vector2(ray.x,ray.z)/ray.y
+	for root: Dictionary in catalog.roots:
+		if not _covers_projected_entry(root,selected,view,canvas,logical,roof): return false
+	return true
+
+
+static func _covers_projected_entry(entry: Dictionary, selected: Dictionary, view: Rect2, canvas: Transform2D, logical: Vector2, roof: Vector2) -> bool:
+	if selected.has(entry.key): return true
+	var projection := preload("res://scripts/rendering/tokyo_cells_overlay.gd")
+	# 正式树在加载期合并了各档包络；旧夹具没有该证明时只能递归，不能猜父界。
+	if entry.has("coverage_box") or entry.get("children",[]).is_empty():
+		var bounds := projection.projected_layer_bounds(entry.get("coverage_box",entry.boxes[0]),roof,Vector2.ZERO)
+		if not projection.intersects_view(bounds,view,canvas,logical): return true
+	if entry.get("children",[]).is_empty(): return false
+	for child: Dictionary in entry.children:
+		if not _covers_projected_entry(child,selected,view,canvas,logical,roof): return false
+	return true
 
 
 static func uncovered_view(catalog: Dictionary, cut: Dictionary, view: Rect2) -> Array[Rect2]:

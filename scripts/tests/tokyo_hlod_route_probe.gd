@@ -32,7 +32,12 @@ func run() -> void:
 			tree.quit(1);return
 	var through_menu := OS.get_environment("AGL_TOKYO_HLOD_START_MENU")=="1"
 	record["started_at_main_menu"]=through_menu
+	var replay_entry := play_seconds>0 and OS.get_environment("AGL_TOKYO_HLOD_INPUT_REPLAY")=="1" and OS.get_environment("AGL_TOKYO_WASD_AUDIT")!="1"
+	var entry_hook := _prepare_replay_entry.bind(_replay_entry_position(_replay_input_anchor()))
+	# 诊断镜头从正式Loading就预热实际起点，Survivor接管前保持同一位置。
+	if replay_entry: tree.node_added.connect(entry_hook)
 	if tree.change_scene_to_file("res://scenes/main_menu.tscn" if through_menu else "res://scenes/building_preloader.tscn")!=OK:
+		if replay_entry: tree.node_added.disconnect(entry_hook)
 		tree.quit(1);return
 	var prepared_id := 0
 	var loading_started_at := Time.get_ticks_msec()
@@ -50,6 +55,9 @@ func run() -> void:
 				record["loading_state"]=session.overlay.debug_state()
 				record["warm_draws"]=session.rendered_frames
 				record["preload_status"]=session.status
+				if replay_entry:
+					record["replay_preload_position"]=str(session.entry_position)
+					record["replay_preload_zoom"]=session.entry_zoom
 		if Time.get_ticks_msec()>=next_progress:
 			next_progress=Time.get_ticks_msec()+5000
 			var progress := FileAccess.open(output.path_join("loading_progress.json"),FileAccess.WRITE)
@@ -57,6 +65,7 @@ func run() -> void:
 		if tree.current_scene!=null and tree.current_scene.scene_file_path=="res://scenes/survivor_mode.tscn":
 			battle=tree.current_scene;break
 		await tree.process_frame
+	if replay_entry: tree.node_added.disconnect(entry_hook)
 	record["loading_route_ms"]=Time.get_ticks_msec()-loading_started_at
 	record["resident_middle_candidate"]=OS.get_environment("AGL_TOKYO_RESIDENT_MIDDLE")=="1"
 	record["resident_pool_only"]=OS.get_environment("AGL_TOKYO_RESIDENCY_POOL_ONLY")=="1"
@@ -206,6 +215,39 @@ func run() -> void:
 	tree.quit(0 if record.fail==0 else 1)
 
 
+func _replay_input_anchor() -> Vector2:
+	match OS.get_environment("AGL_TOKYO_HLOD_INPUT_REGION"):
+		"highrise": return Vector2(330,-13420)
+		"west": return Vector2(-7000,-2200)
+		"north_edge": return Vector2(0,-16000)
+		"east_edge": return Vector2(16000,0)
+		"northeast_edge": return Vector2(16000,-16000)
+	return Vector2(-5600,-2900)
+
+
+func _replay_entry_position(anchor: Vector2) -> Vector2:
+	# 与CameraController的真实起始视口钳制一致，边界测试也不能预热图外镜头。
+	var half_view := get_viewport().get_visible_rect().size/(2.0*CameraController.START_ZOOM)
+	var extent := Vector2.ONE*(MapBoundary.WORLD_HALF_PX-MapBoundary.CAMERA_CONTENT_INSET_PX)
+	var limit := (extent-half_view).max(Vector2.ZERO)
+	return anchor.clamp(-limit,limit)
+
+
+func _prepare_replay_entry(node: Node, position: Vector2) -> void:
+	if node.get_script()==Session:
+		# start()先加入根节点、下一帧才_begin；此时尚未构造预热相机或求图。
+		node.entry_position=position
+		node.entry_zoom=CameraController.START_ZOOM
+	elif node is MapBoundary:
+		var battle := node.get_parent()
+		if battle==null or battle.scene_file_path!="res://scenes/survivor_mode.tscn": return
+		# Survivor在边界节点入树之后才claim预热地图，之前镜头已完成创建。
+		battle._camera_ctrl.follow_enabled=false
+		battle._camera_ctrl.set_world_bounds(node.get_camera_bounds())
+		battle._camera_ctrl.cine_cut_to(position,CameraController.START_ZOOM)
+		battle.camera.force_update_scroll()
+
+
 func play_session(battle: Node, map: Node, record: Dictionary, stream_ref: WeakRef, output: String, seconds: int) -> void:
 	var tree := get_tree()
 	# 只用于输入诊断：高帧率会掩盖按帧限额的流送吞吐，不能代替正常性能样本。
@@ -217,15 +259,21 @@ func play_session(battle: Node, map: Node, record: Dictionary, stream_ref: WeakR
 	record["manual_input_verified"]=false
 	record["full_run_verified"]=false
 	record["requested_seconds"]=seconds
-	var input_anchor := Vector2(-5600,-2900)
-	match OS.get_environment("AGL_TOKYO_HLOD_INPUT_REGION"):
-		"highrise": input_anchor=Vector2(330,-13420)
-		"west": input_anchor=Vector2(-7000,-2200)
-		"north_edge": input_anchor=Vector2(0,-16000)
-		"east_edge": input_anchor=Vector2(16000,0)
-		"northeast_edge": input_anchor=Vector2(16000,-16000)
+	var input_anchor := _replay_input_anchor()
 	record["input_region"]=OS.get_environment("AGL_TOKYO_HLOD_INPUT_REGION")
 	record["input_anchor"]=str(input_anchor)
+	var replay := OS.get_environment("AGL_TOKYO_HLOD_INPUT_REPLAY")=="1"
+	if replay:
+		var startup_at := Time.get_ticks_msec()
+		var startup_deadline := startup_at+15000
+		while (not Session.state_ready(map.debug_state()) or not map.display_qualified or not map.display_covered) and Time.get_ticks_msec()<startup_deadline:
+			await tree.process_frame
+		record["replay_startup_wait_ms"]=Time.get_ticks_msec()-startup_at
+		record["replay_start_position"]=str(battle.camera.global_position)
+		record["replay_start_zoom"]=battle.camera.zoom.x
+		record.fail+=int(not Session.state_ready(map.debug_state()) or not map.display_qualified or not map.display_covered \
+			or battle.camera.global_position.distance_to(_replay_entry_position(input_anchor))>0.1 \
+			or not is_equal_approx(battle.camera.zoom.x,CameraController.START_ZOOM))
 	var combat_fixture: Variant = null
 	var shell_peak := 0
 	var impact_peak := 0
@@ -246,12 +294,17 @@ func play_session(battle: Node, map: Node, record: Dictionary, stream_ref: WeakR
 	await RenderingServer.frame_post_draw
 	record.fail+=int(get_viewport().get_texture().get_image().save_png(output.path_join("play_start.png"))!=OK)
 	var started := Time.get_ticks_msec()
+	if OS.get_environment("AGL_TOKYO_SELECTION_TRACE")=="1": record["selection_trace_started_msec"]=started
 	var next_log := 0
 	var previous := started
 	var active_msec := 0
 	var display_samples := 0
 	var hidden_frames := 0
 	var budget_frames := 0
+	var unqualified_frames := 0
+	var expired_frames := 0
+	var uncovered_frames := 0
+	var quality_failures: Array[Dictionary]=[]
 	var gaps: Array[Dictionary]=[]
 	var gap_active := false
 	var gap_index := -1
@@ -262,7 +315,6 @@ func play_session(battle: Node, map: Node, record: Dictionary, stream_ref: WeakR
 	var input_interval := 50 if OS.get_environment("AGL_TOKYO_HLOD_FAST_INPUT")=="1" else 100
 	var handoff_trace: Array[Dictionary]=[]
 	var trace_at := maxi(0,OS.get_environment("AGL_TOKYO_HLOD_TRACE_START_MS").to_int())
-	var replay := OS.get_environment("AGL_TOKYO_HLOD_INPUT_REPLAY")=="1"
 	record["scripted_camera_input"]=replay
 	# 真实Loading接管之后计时；截屏在测量前后，循环内不读回GPU。
 	var clock := preload("res://scripts/tests/tokyo_render_clock.gd")
@@ -270,6 +322,7 @@ func play_session(battle: Node, map: Node, record: Dictionary, stream_ref: WeakR
 	var wall_total := 0
 	var wall_max := 0
 	var wall_samples := 0
+	var wall_intervals := PackedInt64Array()
 	var wall_slow := 0
 	var wall_spikes: Array[Dictionary]=[]
 	var render_trace: RefCounted
@@ -281,8 +334,6 @@ func play_session(battle: Node, map: Node, record: Dictionary, stream_ref: WeakR
 	record["preloaded_residency_ready"]=map._stream.residency_ready()
 	record["textures_at_play_start"]=map._stream.texture_completed
 	record.fail+=int(not record.preloaded_residency_ready)
-	if replay:
-		battle._camera_ctrl.handle_drag((battle.camera.global_position-input_anchor)*battle.camera.zoom.x)
 	while Time.get_ticks_msec()-started<seconds*1000 and is_instance_valid(battle) and tree.current_scene==battle:
 		var wall_now := Time.get_ticks_usec()
 		# process_frame信号恢复先于Survivor._process清算上一帧，复用原同帧采样时序。
@@ -290,6 +341,7 @@ func play_session(battle: Node, map: Node, record: Dictionary, stream_ref: WeakR
 		if wall_previous>0:
 			var interval := wall_now-wall_previous
 			wall_total+=interval;wall_max=maxi(wall_max,interval);wall_samples+=1
+			if wall_intervals.size()<12000: wall_intervals.append(interval)
 			wall_slow+=int(not clock.frame_within_budget(interval))
 			if not clock.frame_within_budget(interval):
 				clock.retain_slowest(wall_spikes,{"wall_us":interval,"elapsed_ms":Time.get_ticks_msec()-started,
@@ -327,6 +379,12 @@ func play_session(battle: Node, map: Node, record: Dictionary, stream_ref: WeakR
 			max_input_scale=maxf(max_input_scale,map.output_scale)
 			display_samples+=1
 			hidden_frames+=int(not map._screen.visible)
+			unqualified_frames+=int(map._screen.visible and not map.display_qualified)
+			expired_frames+=int(map._screen.visible and not map.display_qualified and not map._display_grace)
+			uncovered_frames+=int(map._screen.visible and not map.display_covered)
+			if map._screen.visible and (not map.display_covered or (not map.display_qualified and not map._display_grace)) and quality_failures.size()<32:
+				quality_failures.append({"elapsed_ms":now-started,"scale":map.output_scale,"catalog":map._committed_catalog,
+					"qualified":map.display_qualified,"covered":map.display_covered,"grace":map._display_grace,"reason":map._handoff_reason})
 			budget_frames+=int(map._fallback=="cut budget" or map._stream._bytes+map._stream._reserved>map._stream.geometry_budget())
 			if not map._screen.visible:
 				if not gap_active:
@@ -358,6 +416,8 @@ func play_session(battle: Node, map: Node, record: Dictionary, stream_ref: WeakR
 		"avg_fps":wall_samples*1000000.0/maxi(1,wall_total),"vsync":DisplayServer.window_get_vsync_mode(),
 		"scope":"post-loading scripted/normal play; not full-run or all-edge proof"}
 	record["play_wall_spikes"]=wall_spikes
+	record["play_wall_percentiles"]=clock.percentiles_usec(wall_intervals)
+	record.play_wall_percentiles["complete"]=wall_intervals.size()==wall_samples
 	record.fail+=int(wall_samples==0 or wall_slow>0)
 	if record.has("combat_fixture"):
 		record.combat_fixture["shell_peak"]=shell_peak
@@ -367,19 +427,22 @@ func play_session(battle: Node, map: Node, record: Dictionary, stream_ref: WeakR
 	record["input_coverage"]={"interval_ms":input_interval,"events":input_count,"min_scale":min_input_scale,"max_scale":max_input_scale}
 	record["handoff_trace"]=handoff_trace
 	if replay: record.fail+=int(input_count<int(seconds*1000/input_interval)*0.95 or max_input_scale<3.5 or min_input_scale>0.2)
-	record["live_display"]={"samples":display_samples,"hidden_frames":hidden_frames,"budget_frames":budget_frames,"gaps":gaps}
+	record["live_display"]={"samples":display_samples,"hidden_frames":hidden_frames,"budget_frames":budget_frames,"gaps":gaps,
+		"unqualified_frames":unqualified_frames,"expired_frames":expired_frames,"uncovered_frames":uncovered_frames,"quality_failures":quality_failures}
 	var display_state: Dictionary=map.debug_state()
 	record.live_display["lod_grace_frames"]=display_state.get("lod_grace_frames",0)
 	record.live_display["max_lod_grace_ms"]=display_state.get("max_lod_grace_ms",0)
 	record.live_display["max_lod_grace_ratio"]=display_state.get("max_lod_grace_ratio",1.0)
 	record.fail+=int(record.live_display.max_lod_grace_ms>100 or record.live_display.max_lod_grace_ratio>1.10)
-	record.fail+=int(display_samples==0 or hidden_frames>0 or budget_frames>0)
+	record.fail+=int(display_samples==0 or hidden_frames>0 or budget_frames>0 or expired_frames>0 or uncovered_frames>0)
 	if is_instance_valid(battle):
 		var player: Variant = battle.player_aircraft
 		if typeof(player)==TYPE_OBJECT and is_instance_valid(player) and player is Aircraft:
 			record["player_displacement"]=player.global_position.distance_to(start_position)
 			record.fail+=int(float(record.player_displacement)<1.0)
-	if is_instance_valid(map): record["final_map"]=map.debug_state()
+	if is_instance_valid(map):
+		record["final_map"]=map.debug_state()
+		if OS.get_environment("AGL_TOKYO_SELECTION_TRACE")=="1": record["selection_trace"]=map._selection_trace.duplicate(true)
 	await RenderingServer.frame_post_draw
 	record.fail+=int(get_viewport().get_texture().get_image().save_png(output.path_join("play_end.png"))!=OK)
 	if OS.get_environment("AGL_TOKYO_HLOD_SETTLED_CAPTURE")=="1":

@@ -1,5 +1,6 @@
 class_name GroundUnit
 extends CombatUnit
+const FrameRedraw := preload("res://scripts/rendering/visual_redraw_queue.gd")
 
 ## 地面单位基类：SAM、AA、雷达站、车辆等
 ## 高度固定为 0（GROUND 档），可缓慢地面移动，拥有雷达和机炮
@@ -69,7 +70,7 @@ func _physics_process(delta: float) -> void:
 func _physics_process_impl(delta: float) -> void:
 	if is_destroyed:
 		_update_destroy(delta)
-		queue_redraw()
+		FrameRedraw.request(self)
 		return
 
 	StatusEffects.tick(self, delta)
@@ -77,7 +78,7 @@ func _physics_process_impl(delta: float) -> void:
 	_update_target_selection()
 	_update_combat(delta)
 	_update_gun(delta)
-	queue_redraw()
+	FrameRedraw.request(self)
 
 # ========== 移动 ==========
 
@@ -259,7 +260,7 @@ func retire_in_place() -> void:
 	radar_targets.clear()
 	speed = 0.0
 	process_mode = Node.PROCESS_MODE_DISABLED
-	queue_redraw()
+	FrameRedraw.request(self)
 
 func take_damage(amount: float, attacker: Node = null, kind: String = "") -> void:
 	if is_destroyed:
@@ -269,7 +270,7 @@ func take_damage(amount: float, attacker: Node = null, kind: String = "") -> voi
 	if kind != "":
 		set_meta("_last_damage_kind", kind)
 	hp -= amount
-	queue_redraw()
+	FrameRedraw.request(self)
 	if hp <= 0.0:
 		hp = 0.0
 		_start_destroy()
