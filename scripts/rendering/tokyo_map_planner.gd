@@ -36,6 +36,7 @@ var retained_cuts := 0
 var _cached_cut_attempts := 0
 var foundation_prefetch_skips := 0
 var speculative_plan_reuses := 0
+var motion_actual_cuts := 0
 var selection_usec := 0
 
 
@@ -46,7 +47,7 @@ func configure(source: Dictionary) -> bool:
 	_speculative_cache={}
 	_ground_candidate_state={};_native_screen_bridge_state={}
 	pending_selection_reuses=0;native_screen_rejections=0;retained_cuts=0
-	_cached_cut_attempts=0;foundation_prefetch_skips=0;speculative_plan_reuses=0;selection_usec=0
+	_cached_cut_attempts=0;foundation_prefetch_skips=0;speculative_plan_reuses=0;motion_actual_cuts=0;selection_usec=0
 	_catalogs.assign(source.catalogs)
 	_geometry=source.geometry;_textures=source.textures
 	_foundation=source.get("foundation",{});_bounds=source.bounds
@@ -103,6 +104,10 @@ func plan(request: Dictionary) -> Dictionary:
 				next=_select_hlod(_catalogs[selected],center,scale_value,_last_canvas.get_rotation(),_last_size,true)
 			elif selected==-2 and (next.is_empty() or not next.within_budget):
 				next=_select_native(center,scale_value,_last_canvas.get_rotation(),_last_size)
+		# 运动中提前细档只剩撑不过0.25秒平移的保护带时，显示改用实际档的带保护完整切面。
+		if selected>=0 and not next.is_empty() and next.within_budget:
+			var guarded := _motion_guarded_actual(selected,next,center,scale_value,_last_canvas.get_rotation(),_last_size,handoff_budget)
+			if not guarded.is_empty(): next=guarded;selected=Handoff.catalog_index(_catalogs,scale_value,false);motion_actual_cuts+=1
 		# 原生是细节偏好，不得取消仍完整合格的HLOD在途事务；提交后再升级。
 		var finishing_hlod := selected>=0 and selected==_target_catalog and not _target_committed() \
 			and not next.is_empty() and Contract.retained(_catalogs[selected],_target,next,scale_value,true,_selection_work)
@@ -263,7 +268,7 @@ func plan(request: Dictionary) -> Dictionary:
 		"ground_candidate":_ground_candidate_state.duplicate(true),"native_screen_bridge":_native_screen_bridge_state.duplicate(true),
 		"stats":{"selection_usec":selection_usec,"retained_cuts":retained_cuts,"pending_reuses":pending_selection_reuses,
 			"native_screen_rejections":native_screen_rejections,"cached_cut_attempts":_cached_cut_attempts,
-			"foundation_prefetch_skips":foundation_prefetch_skips,"speculative_plan_reuses":speculative_plan_reuses,
+			"foundation_prefetch_skips":foundation_prefetch_skips,"speculative_plan_reuses":speculative_plan_reuses,"motion_actual_cuts":motion_actual_cuts,
 			"hlod_builds":_selection_work.get("builds",0),"hlod_reuses":_selection_work.get("reuses",0),
 			"qualification_builds":_selection_work.get("qualification_builds",0),"prepared_reuses":_selection_work.get("prepared_reuses",0),
 			"native_builds":_native.solver_builds if _native!=null else 0,"native_reuses":_native.solver_reuses if _native!=null else 0}}
@@ -410,6 +415,25 @@ func _handoff_bridge_qualified(index: int, cut: Dictionary, scale: float) -> boo
 	# 与既有预测I/O共用0.25秒视窗；快速放大时不能靠低档桥接拖延即将到期的换档。
 	var future_scale := scale*exp(clampf(_zoom_rate*0.25,0.0,0.7))
 	return Handoff.qualified(_catalogs[index],cut,future_scale)
+
+
+func _motion_guarded_actual(selected: int, next: Dictionary, center: Vector2, scale: float, angle: float, size: Vector2, handoff_budget: int) -> Dictionary:
+	# 提前细档受16页/面数/预算所限常只剩裸视野；运动中这类切面一两帧即失去覆盖。
+	# 实际档须在换档前探窗内合格、保护带更宽且可同池交接；细档仍由预测预取准备。
+	var guard := float(next.get("spatial_guard_px",0.0))
+	var need := Handoff.motion_guard_need(_pan_velocity,scale,size)
+	if guard>=need or _foundation.get("layers",{}).has(selected): return {}
+	var actual := Handoff.catalog_index(_catalogs,scale,false)
+	if actual<0 or actual==selected: return {}
+	var cut := _select_hlod(_catalogs[actual],center,scale,angle,size,false,Stream.BUDGET/2)
+	if not cut.is_empty() and not cut.within_budget: cut=_select_hlod(_catalogs[actual],center,scale,angle,size)
+	if cut.is_empty() or not cut.within_budget or float(cut.get("spatial_guard_px",0.0))<=guard \
+		or not Handoff.motion_actual_qualified(_catalogs[actual],cut,scale,_zoom_rate): return {}
+	if not _committed.is_empty():
+		var union := _handoff_bytes(cut,actual)
+		if union<0 or union>handoff_budget: return {}
+	cut["motion_guard_need_px"]=need
+	return cut
 
 
 func _select_handoff_hlod(index: int, center: Vector2, scale: float, angle: float, size: Vector2, budget: int, max_display_bytes: int = -1, min_guard_px: float = 0.0, include_zoom_footprint: bool = true) -> Dictionary:

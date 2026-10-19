@@ -70,6 +70,19 @@ static func pan_lead(velocity: Vector2, scale: float, horizon: float, size: Vect
 	return (velocity*horizon).limit_length(minf(size.x,size.y)/scale)
 
 
+static func motion_guard_need(velocity: Vector2, scale: float, size: Vector2) -> float:
+	# 显示切面应能撑过0.25秒平移（与裁页同一前探视窗）；静止为0，上限为最宽192px保护带。
+	return minf(192.0,pan_lead(velocity,scale,0.25,size).length()*scale)
+
+
+## 运动中改用实际档时，实际档到期前须留出换回细档的裁页与装载时间。
+const MOTION_ACTUAL_HORIZON := 0.6
+
+static func motion_actual_qualified(catalog: Dictionary, cut: Dictionary, scale: float, zoom_rate: float) -> bool:
+	# 只按放大方向外推；缩远不会使实际档提前失格。
+	return is_finite(zoom_rate) and qualified(catalog,cut,scale*exp(clampf(zoom_rate*MOTION_ACTUAL_HORIZON,0.0,0.7)))
+
+
 static func zoom_out_padding(zoom_rate: float, size: Vector2, horizon: float = 0.25) -> Vector2:
 	if not is_finite(zoom_rate) or not size.is_finite() or minf(size.x,size.y)<=0.0 \
 		or not is_finite(horizon) or horizon<0.0: return Vector2.ZERO

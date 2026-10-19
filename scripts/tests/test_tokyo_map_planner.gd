@@ -335,6 +335,92 @@ static func guard_budget_retry_checks() -> int:
 	return failures
 
 
+static func motion_guard_source(side_mib: int) -> Dictionary:
+	# 实际档(0.5,2]一页40MiB覆盖全图；提前细档(2,4]中心10MiB，左右各一页在裸视野外、48px保护带内。
+	var bounds := Rect2(-1000,-1000,2000,2000)
+	var geometry := {}
+	var textures := {}
+	var catalogs: Array[Dictionary]=[]
+	for level in 2:
+		var prefix: String=["coarse","finer"][level]
+		var roots: Array[Dictionary]=[]
+		var rows := {}
+		var layout: Array=[[0.0,40,900.0]] if level==0 else [[0.0,10,5.0],[60.0,side_mib,5.0],[-60.0,side_mib,5.0]]
+		for index in layout.size():
+			var key := "0:%d"%index
+			var path := "%s/%s"%[prefix,key]
+			var x: float=layout[index][0]
+			var half: float=layout[index][2]
+			var cost: int=int(layout[index][1])*1024*1024
+			roots.append({"key":key,"path":path,"bytes":cost+288,"triangles":[12,0,0],
+				"boxes":[AABB(Vector3(x-half,0.0,-half if level==0 else -10.0),Vector3(half*2.0,0.0,half*2.0 if level==0 else 20.0)),AABB(),AABB()],"children":[]})
+			rows[key]={"depth":0,"parent":-1,"faces":12,"children":[],"max_scale":[2.0,4.0][level],
+				"native_geometry":{"path":path,"bytes":cost},"native_texture":{"path":path+".image","three_copy_charge":0}}
+			geometry[path]={"bytes":cost}
+			textures[path+".image"]={"charge":0}
+		catalogs.append({"roots":roots,"rows":rows,"min_scale":[0.5,2.0][level],"max_scale":[2.0,4.0][level],
+			"range":[[0.5,2.0],[2.0,4.0]][level],"bounds":bounds})
+	return {"catalogs":catalogs,"prepared_catalogs":{},"geometry":geometry,"textures":textures,
+		"foundation":{},"bounds":bounds,"native":{},"flags":{},
+		"context":{"background":true,"epoch":0,"display_limit":BUDGET,"native_page_limit":16}}
+
+
+static func motion_guard_actual_checks() -> int:
+	var failures := 0
+	var size := Vector2(100,70)
+	# 场景：[侧页MiB, 平移速度, 缩放率, 已提交细档切面, 期望目录, 期望保护带]
+	for scenario: Array in [[50,Vector2.ZERO,0.0,false,1,0.0],[50,Vector2(400,0),0.0,false,0,192.0],
+			[50,Vector2(-400,0),0.0,false,0,192.0],[10,Vector2(400,0),0.0,false,1,192.0],
+			[50,Vector2(400,0),2.5,false,1,0.0],[50,Vector2(400,0),0.0,true,1,0.0]]:
+		var source := motion_guard_source(int(scenario[0]))
+		var original := var_to_bytes(source)
+		var planner := Planner.new()
+		if not planner.configure(source):
+			failures+=1
+			continue
+		var request := request_fixture(Vector2.ZERO,1.2,0.0,size)
+		request.pan_velocity=scenario[1];request.zoom_rate=scenario[2]
+		if scenario[3]:
+			# 旧细档中心+右页60MiB；实际档40MiB保护切面与其联合100MiB超池，必须保持原裸切面。
+			var old := Contract.select(source.catalogs[1],Vector2(20,0),1.2,0.0,size,true,BUDGET,source.context)
+			request.committed_catalog=1;request.committed=Planner.compact_cut(old)
+			failures+=int(old.get("keys")!=PackedStringArray(["0:0","0:1"]))
+		var request_original := var_to_bytes(request)
+		var result := planner.plan(request)
+		var expected_catalog: int=scenario[4]
+		var moving: bool=scenario[1]!=Vector2.ZERO
+		var okay: bool=result.status=="candidate" and result.catalog==expected_catalog \
+			and is_equal_approx(float(result.cut.get("spatial_guard_px",-1)),float(scenario[5])) \
+			and int(result.stats.motion_actual_cuts)==int(expected_catalog==0)
+		if expected_catalog==0:
+			# 实际档只替换显示；细档资源仍由预测预取准备，需求按0.25秒平移计算。
+			okay=okay and int(result.cut.get("prefetch_catalog",-1))==1 and not result.cut.get("prefetch_keys",PackedStringArray()).is_empty() \
+				and is_equal_approx(float(result.cut.get("motion_guard_need_px",0)),Handoff.motion_guard_need(scenario[1],1.2,size)) \
+				and Handoff.qualified(source.catalogs[0],result.cut,1.2)
+		elif not moving or int(scenario[0])==10:
+			okay=okay and not result.cut.has("motion_guard_need_px")
+		if not okay: print("[Tokyo planner] motion_guard mismatch scenario=",scenario," catalog=",result.catalog," guard=",result.cut.get("spatial_guard_px")," stats=",result.stats.motion_actual_cuts)
+		failures+=int(not okay or not Worker.pure(result) or var_to_bytes(source)!=original or var_to_bytes(request)!=request_original)
+		# 同步兼容路径同一规则、同一结果。
+		var legacy := Overlay.new()
+		legacy._catalogs.assign(source.catalogs)
+		legacy._geometry=source.geometry;legacy._textures=source.textures
+		legacy._selection_work=source.context.duplicate(true);legacy.display_budget=BUDGET
+		legacy._stream=GuardPool.new()
+		legacy._pan_velocity=scenario[1];legacy._zoom_rate=scenario[2]
+		planner._pan_velocity=scenario[1];planner._zoom_rate=scenario[2]
+		if scenario[3]:
+			legacy._committed_catalog=1;legacy._committed_cut=request.committed;legacy._committed=PackedStringArray(request.committed.keys)
+		var bare: Dictionary=planner._select_hlod(source.catalogs[1],Vector2.ZERO,1.2,0.0,size,true,BUDGET/2)
+		if not bare.is_empty() and not bare.within_budget: bare=planner._select_hlod(source.catalogs[1],Vector2.ZERO,1.2,0.0,size,true)
+		var planned: Dictionary=planner._motion_guarded_actual(1,bare,Vector2.ZERO,1.2,0.0,size,BUDGET)
+		var synchronous: Dictionary=legacy._motion_guarded_actual(1,bare,Vector2.ZERO,1.2,0.0,size,BUDGET)
+		failures+=int(comparable_cut(planned)!=comparable_cut(synchronous) or planned.is_empty()!=(expected_catalog==1))
+		legacy._stream.free();legacy.free()
+	print("[Tokyo planner] motion_guard_actual fail=",failures)
+	return failures
+
+
 static func native_motion_source(direction: float, ahead_faces: int, old_mib: int) -> Dictionary:
 	var source := source_fixture()
 	var roots: Array[Dictionary]=[]
@@ -1045,7 +1131,7 @@ static func installed_c1_compact_diagnostic() -> int:
 
 
 static func run() -> int:
-	var failures := differential_checks() + native_bridge_checks() + mixed_cached_hlod_checks() + directional_trim_checks() + guard_budget_retry_checks() + native_motion_guard_checks() + native_motion_retention_checks() + native_motion_query_checks() + native_motion_prefetch_checks()
+	var failures := differential_checks() + native_bridge_checks() + mixed_cached_hlod_checks() + directional_trim_checks() + guard_budget_retry_checks() + motion_guard_actual_checks() + native_motion_guard_checks() + native_motion_retention_checks() + native_motion_query_checks() + native_motion_prefetch_checks()
 	if OS.get_environment("AGL_TOKYO_NATIVE_MOTION_DIAGNOSTIC")=="1": failures+=installed_native_motion_diagnostic()
 	if OS.get_environment("AGL_TOKYO_C1_COMPACT_DIAGNOSTIC")=="1": failures+=installed_c1_compact_diagnostic()
 	print("[Tokyo planner] fail=", failures)
