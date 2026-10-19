@@ -228,6 +228,7 @@ call bench\run.cmd tokyo_volume_c2 36 420 Shadow Visual
 - **导出**：在不含 M20 的工作树副本里执行 `set "AGL_BENCH_EXPORT_RELEASE=<项目外绝对路径>\AGL.exe"`，再 `call <副本>\bench\run.cmd export_release 1 5400 Shadow Visual`。然后在导出目录建 `resources\maps\tokyo_playable` 与 `resources\aircraft_silhouettes` 两个 junction。
 - **统计**：`python tools/frame_probe_phys_step.py --group tools=bench/results/frame_probe_tokyo_volume_c2_*tools*.csv --group rel=bench/results/frame_probe_tokyo_volume_c2_*rel*.csv`。单位数、墙钟分位和快照在同轮 `bench/results/tokyo_volume_c2_*.txt` 的 `tokyo_unit_census_*`、`tokyo_wall_*` 与 `PERF SNAPSHOT` 段。
 - 东京 runner 的严格门（`below60=0`）在 C2 本来就不过，所以每轮退出码都是 1，属预期；全部轮次没有 86（运行时错误门）和 124（超时）。
+- 回归：在同一 worktree 里，改动前后各跑一次 `bench\run.cmd all 1 1500 Shadow Headless`。两次都是 104 项失败 15、运行时错误块 43，逐测试失败行与错误块集合完全一致；失败都来自新 worktree 没有的未入库资产（体积地图等），与主检出记录的 14 项相差的正是这部分。`tools/test_bench_shader_gate.ps1`、`tools/test_bench_rid_gate.ps1` 通过。
 
 ## 9. 产物与清理
 
