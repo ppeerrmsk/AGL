@@ -100,7 +100,10 @@ func _ready() -> void:
 	for _frame in range(6):
 		await get_tree().process_frame
 	await RenderingServer.frame_post_draw
-	var output := "res://bench/results/aircraft_silhouette_visual.png"
+	# 导出包里 res:// 只读，改写 user://（launcher 跑完搬回 bench/results，同东京 runner 口径）
+	var out_dir := "res://bench/results/" if OS.has_feature("editor") else "user://bench/results/"
+	DirAccess.make_dir_recursive_absolute(out_dir)
+	var output := out_dir + "aircraft_silhouette_visual.png"
 	var error := get_viewport().get_texture().get_image().save_png(output)
 	print("[aircraft_silhouette_visual] screenshot=%s err=%d samples=%d ea6b_symmetry=%.3f" % [
 		output, error, SAMPLES.size(), ea6b_error])
@@ -108,11 +111,11 @@ func _ready() -> void:
 
 
 ## 防止三视图裁切再次把半边识别图当成正式轮廓；0=完全对称，1=单侧缺失。
+## 与运行时同走导入纹理（无损，与原图逐像素一致），导出包里也能检查。
 func _ea6b_symmetry_error() -> float:
-	var image := Image.new()
-	var png_bytes := FileAccess.get_file_as_bytes(
-		"res://resources/aircraft_silhouettes/ea6b_detail.png")
-	if png_bytes.is_empty() or image.load_png_from_buffer(png_bytes) != OK:
+	var texture := load("res://resources/aircraft_silhouettes/ea6b_detail.png") as Texture2D
+	var image := texture.get_image() if texture != null else null
+	if image == null:
 		return -1.0
 	var difference := 0.0
 	var occupied := 0.0
