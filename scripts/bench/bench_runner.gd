@@ -50,6 +50,7 @@ const UNIT_TESTS: Dictionary = {
 	"tokyo_volume_rings": "res://scripts/tests/test_tokyo_volume_ring_geometry.gd",
 	"tokyo_cells": "res://scripts/tests/test_tokyo_cells.gd",
 	"tokyo_regional_native": "res://scripts/tests/test_tokyo_regional_native.gd",
+	"map_packs": "res://scripts/tests/test_map_packs.gd",
 	"escort": "res://scripts/tests/test_escort_evasion.gd",
 	"target_sel": "res://scripts/tests/test_target_selection.gd",
 	"cmd_evade": "res://scripts/tests/test_commanded_evade.gd",
@@ -148,6 +149,7 @@ const BUILD_TASKS: Dictionary = {
 	"tokyo_volume_build": "res://scripts/tests/build_tokyo_volume_archive.gd",
 	"tokyo_region_build": "res://scripts/tests/build_tokyo_region_archive.gd",
 	"tokyo_cells_build": "res://scripts/tests/build_tokyo_cells.gd",
+	"tokyo_map_pack": "res://scripts/tests/build_tokyo_map_pack.gd",
 	"i18n_build": "res://scripts/tests/build_translations.gd",
 	"flare_impact_ab": "res://scripts/tests/test_flare_impact_ab.gd",
 }

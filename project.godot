@@ -17,6 +17,7 @@ config/icon="res://icon.svg"
 
 [autoload]
 
+MapPacks="*res://scripts/map_packs.gd"
 EventLogger="*res://scripts/event_logger.gd"
 LocaleManager="*res://scripts/locale_manager.gd"
 AudioManager="*res://scripts/audio/audio_manager.gd"
@@ -60,3 +61,4 @@ rendering_device/driver.windows="d3d12"
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
 tokyo_map/installed_package="res://resources/maps/tokyo_playable/m20/package.json"
+tokyo_map/installed_packs=PackedStringArray("maps/tokyo_playable_m20.pck")

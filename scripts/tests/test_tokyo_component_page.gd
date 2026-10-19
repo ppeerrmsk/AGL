@@ -165,10 +165,12 @@ static func partition_checks() -> bool:
 	return Assembly.assemble(row,absent)==null
 
 
+## 地图二进制随独立地图包分发（规格 systems/tokyo-map-distribution）：主包导出必须排除它们，
+## 由 tokyo_map_pack 按版本目录整包打入 PCK，不再依赖主包 include_filter。
 static func export_filter_checks() -> bool:
 	var config := ConfigFile.new()
 	if config.load("res://export_presets.cfg")!=OK: return false
-	var filters := String(config.get_value("preset.0","include_filter","")).split(",")
+	var filters := String(config.get_value("preset.0","exclude_filter","")).split(",")
 	for path: String in ["resources/maps/tokyo_playable/native/components.bin",
 		"resources/maps/tokyo_playable/m20/native/components.bin",
 		"resources/maps/tokyo_playable/resident_candidate_01/partition_00.bin"]:

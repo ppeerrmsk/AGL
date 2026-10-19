@@ -62,7 +62,7 @@
 
 ## AutoLoads（初始化顺序）
 
-以 `project.godot [autoload]` 的顺序为准：EventLogger → LocaleManager → AudioManager →
+以 `project.godot [autoload]` 的顺序为准：MapPacks（导出包挂载地图 PCK，必须第一）→ EventLogger → LocaleManager → AudioManager →
 Presentation → MeritLedger → CareerArchive → MetaShop → PerfBuckets → BenchRunner → RuntimeTuner。
 `CallsignDB` 是 `class_name` 静态服务，不是 AutoLoad。职责说明见 [AGENTS.md](../AGENTS.md)。
 

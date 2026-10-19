@@ -377,10 +377,14 @@ try {
     #   AGL_BENCH_EXPORT_RELEASE=<absolute X.exe outside the project> exports a release
     #     build from the Shadow copy with GodotExe (preset: AGL_BENCH_EXPORT_PRESET);
     #   AGL_BENCH_EXPORTED_EXE=<exported X.exe next to X.pck> runs the same bench scenario
-    #     on that exported build instead of the editor binary.
+    #     on that exported build instead of the editor binary;
+    #   AGL_BENCH_EXPORTED_CWD=<existing absolute directory outside the project> starts that
+    #     exported build from another working directory (shortcut / launcher start), so
+    #     packs must be found from the executable path rather than the working directory.
     # Both keep the same bench lock, job object, watchdog and runtime-error gate.
     $exportRelease = ''
     $exportedExe = ''
+    $exportedCwd = ''
     $exportPreset = if ($env:AGL_BENCH_EXPORT_PRESET) { $env:AGL_BENCH_EXPORT_PRESET } else { 'Windows Desktop' }
     if ($env:AGL_BENCH_EXPORT_RELEASE -and $env:AGL_BENCH_EXPORTED_EXE) {
         throw 'AGL_BENCH_EXPORT_RELEASE and AGL_BENCH_EXPORTED_EXE are mutually exclusive'
@@ -400,6 +404,20 @@ try {
         $exportedPck = [System.IO.Path]::ChangeExtension($exportedExe, '.pck')
         if (-not (Test-Path -LiteralPath $exportedExe -PathType Leaf) -or -not (Test-Path -LiteralPath $exportedPck -PathType Leaf)) {
             throw "exported executable or its .pck is missing: $exportedExe"
+        }
+    }
+    if ($env:AGL_BENCH_EXPORTED_CWD) {
+        if ($exportedExe -eq '') {
+            throw 'AGL_BENCH_EXPORTED_CWD requires AGL_BENCH_EXPORTED_EXE'
+        }
+        if (-not [System.IO.Path]::IsPathRooted($env:AGL_BENCH_EXPORTED_CWD) -or
+            -not (Test-Path -LiteralPath $env:AGL_BENCH_EXPORTED_CWD -PathType Container)) {
+            throw "AGL_BENCH_EXPORTED_CWD must be an existing absolute directory: $env:AGL_BENCH_EXPORTED_CWD"
+        }
+        $exportedCwd = [System.IO.Path]::GetFullPath($env:AGL_BENCH_EXPORTED_CWD).TrimEnd('\')
+        $projectPrefix = [System.IO.Path]::GetFullPath($ProjectDir).TrimEnd('\') + '\'
+        if (($exportedCwd + '\').StartsWith($projectPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "AGL_BENCH_EXPORTED_CWD must be outside the project directory: $exportedCwd"
         }
     }
     Acquire-BenchLock
@@ -488,7 +506,7 @@ try {
         $psi.FileName = $launchExe
         $psi.Arguments = $godotArguments
     }
-    $psi.WorkingDirectory = $runProjectDir
+    $psi.WorkingDirectory = if ($exportedCwd -ne '') { $exportedCwd } else { $runProjectDir }
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow = $true
     $psi.WindowStyle = if ($interactiveVisual) { [System.Diagnostics.ProcessWindowStyle]::Normal } else { [System.Diagnostics.ProcessWindowStyle]::Hidden }
@@ -507,6 +525,9 @@ try {
         Write-Host "[bench] exported build file=$($exportedVersion.FileVersion) product=$($exportedVersion.ProductVersion) userdata=$(Join-Path $env:APPDATA 'Godot\app_userdata\AGL')"
     }
     Write-Host "[bench] mode=$RunMode display=$DisplayMode project=$runProjectDir"
+    if ($exportedCwd -ne '') {
+        Write-Host "[bench] exported build working directory=$exportedCwd"
+    }
     if ($fixedFpsOption -ne '') {
         Write-Host "[bench] deterministic fixed-fps=$fixedFps (wall-clock sync disabled)"
     }
