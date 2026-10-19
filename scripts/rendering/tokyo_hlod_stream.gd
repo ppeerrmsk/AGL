@@ -40,6 +40,9 @@ var visible_finalize_first := OS.get_environment("AGL_TOKYO_VISIBLE_FINALIZE_FIR
 var speculative_upload_deferrals := 0
 var visible_dispatch_yield := OS.get_environment("AGL_TOKYO_VISIBLE_DISPATCH_YIELD")=="1"
 var visible_dispatch_deferrals := 0
+## 正式位置证明核验结果（path -> "文件SHA|位置SHA"），只存字符串，不持有资源。
+var _formal_verified: Dictionary = {}
+var formal_verify_reuses := 0
 var _mesh_checks: Dictionary = {}
 var _mesh_hashes: Dictionary = {}
 var mesh_checks_started := 0
@@ -301,7 +304,17 @@ func _matches(item: Resource, path: String) -> bool:
 		if PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_map_stream.digest",digest_elapsed)
 		if not matches: return false
 	if not descriptor.has("formal_positions_sha256"): return true
-	return item.meshes.size()==2 and Coverage.matches(item.meshes[1],descriptor)
+	# 本次领取已核对文件 SHA 时，同一路径+同一文件 SHA+同一位置证明本会话已核验过即复用：
+	# 文件字节相同则载入网格位置相同；省去主线程回读、逐索引展开与哈希（每次 0.5–1ms）。
+	var proof_key := "%s|%s" % [descriptor.sha256,descriptor.formal_positions_sha256] if descriptor.has("sha256") else ""
+	if not proof_key.is_empty() and String(_formal_verified.get(path,""))==proof_key:
+		formal_verify_reuses+=1
+		return item.meshes.size()==2
+	var verify_started := Time.get_ticks_usec() if PerfBuckets.frame_trace_enabled else 0
+	var verified: bool = item.meshes.size()==2 and Coverage.matches(item.meshes[1],descriptor)
+	if PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_map_stream.coverage_verify",Time.get_ticks_usec()-verify_started)
+	if verified and not proof_key.is_empty(): _formal_verified[path]=proof_key
+	return verified
 
 
 static func checksum_file(path: String) -> String:
@@ -320,12 +333,18 @@ static func checksum_after_load(path: String) -> String:
 func _request_load(path: String) -> Error:
 	# 上次加载可能已完成但被相机取消，未经过_matches；旧摘要不能使新请求提前ready。
 	_mesh_hashes.erase(path)
+	var trace := PerfBuckets.frame_trace_enabled
+	var phase_started := Time.get_ticks_usec() if trace else 0
 	var result := super._request_load(path)
+	if trace:
+		PerfBuckets.tick("tokyo_map_stream.request_load",Time.get_ticks_usec()-phase_started)
+		phase_started=Time.get_ticks_usec()
 	if result==OK and not _main_thread_meshes and _descriptors[path].has("sha256"):
 		var worker := Thread.new()
 		if worker.start(checksum_after_load.bind(path))==OK:
 			_mesh_checks[path]=worker
 			mesh_checks_started+=1
+		if trace: PerfBuckets.tick("tokyo_map_stream.checksum_start",Time.get_ticks_usec()-phase_started)
 		# 启动失败时沿_load_status原路径重试，不跳过摘要验证。
 	return result
 
@@ -584,7 +603,9 @@ func _process_stream() -> void:
 	if typeof(owner_node)!=TYPE_OBJECT or not is_instance_valid(owner_node): close()
 	var completed_before := texture_completed
 	var uploaded_before := texture_upload_usec
+	var textures_started := Time.get_ticks_usec() if PerfBuckets.frame_trace_enabled else 0
 	_step_textures()
+	if PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_map_stream.textures",Time.get_ticks_usec()-textures_started)
 	# 重上传帧不叠加原生网格领取/摘要验证；保留原预算/请求，下一帧继续，关闭时不延迟清理。
 	if should_defer_mesh_finalize(_closed,completed_before,texture_completed,texture_upload_usec-uploaded_before):
 		mesh_finalize_deferred_frames+=1
@@ -641,6 +662,7 @@ func summary() -> Dictionary:
 	result["visible_io_first"]=visible_io_first
 	result["visible_finalize_first"]=visible_finalize_first
 	result["speculative_upload_deferrals"]=speculative_upload_deferrals
+	result["formal_verify_reuses"]=formal_verify_reuses
 	result["visible_dispatch_yield"]=visible_dispatch_yield
 	result["visible_dispatch_deferrals"]=visible_dispatch_deferrals
 	result["speculative_image_deferrals"]=speculative_image_deferrals

@@ -5,7 +5,7 @@ class MeasuredMission extends ZoneMission:
 	func _spawn_ground_garrison(zone_id: StringName, zone: Dictionary) -> void:
 		var started := Time.get_ticks_usec()
 		super._spawn_ground_garrison(zone_id, zone)
-		print("[ZoneObservation] ground_ms=%.3f" % ((Time.get_ticks_usec() - started) / 1000.0))
+		print("[ZoneObservation] ground_ms=%.3f sampling_ms=%.3f" % [(Time.get_ticks_usec() - started) / 1000.0, sampling_us / 1000.0])
 	func _register_zone_atmosphere(zone_id: StringName, mission_type: String, zone: Dictionary) -> void:
 		var started := Time.get_ticks_usec()
 		super._register_zone_atmosphere(zone_id, mission_type, zone)
@@ -15,10 +15,6 @@ class MeasuredMission extends ZoneMission:
 		var result := super._find_valid_spawn_pos(center, scatter, placed, polys)
 		sampling_us += Time.get_ticks_usec() - started
 		return result
-	func _spawn_zone_defenders(zone_id: StringName, zone: Dictionary, mission_type: String = "ground") -> void:
-		var started := Time.get_ticks_usec()
-		super._spawn_zone_defenders(zone_id, zone, mission_type)
-		print("[ZoneObservation] sampling_ms=%.3f defenders_ms=%.3f" % [sampling_us / 1000.0, (Time.get_ticks_usec() - started) / 1000.0])
 
 ## 正式 Survivor 镜头 → ZoneMission → 地面工厂 → 真实绘制；不在测试中直接调用预加载。
 var _observation_ready := false

@@ -3,6 +3,8 @@ extends Node
 const BUDGET := 96 * 1024 * 1024
 const MAX_REQUESTS := 2
 static var _busy: Dictionary = {}
+## 已确认存在的资源路径（只存字符串）；跨流实例共享，避免重复查询文件系统。
+static var _known_resources: Dictionary = {}
 var _owner_ref: WeakRef
 var _descriptors: Dictionary = {}
 var _wanted := PackedStringArray()
@@ -199,7 +201,12 @@ func _process_stream() -> void:
 	var owner_node: Variant = _owner_ref.get_ref() if _owner_ref != null else null
 	if typeof(owner_node) != TYPE_OBJECT or not is_instance_valid(owner_node):
 		close()
+	var trace := PerfBuckets.frame_trace_enabled
+	var phase_started := Time.get_ticks_usec() if trace else 0
 	_collect_completed()
+	if trace:
+		PerfBuckets.tick("tokyo_map_stream.collect", Time.get_ticks_usec() - phase_started)
+		phase_started = Time.get_ticks_usec()
 	if _closed:
 		if _pending.is_empty() and _auxiliary.is_empty():
 			set_process(false)
@@ -222,7 +229,15 @@ func _process_stream() -> void:
 			_prune(amount)
 		if _bytes + _reserved + amount > geometry_budget():
 			break
-		if not ResourceLoader.exists(path):
+		var exists_started := Time.get_ticks_usec() if trace else 0
+		# 已确认存在的路径会话内复用（每次 exists 要查文件系统，实测 0.5–2.6ms/帧）；
+		# 未确认的路径照常检查，缺失仍记失败。
+		var exists := _known_resources.has(path) or ResourceLoader.exists(path)
+		if exists:
+			_known_resources[path] = true
+		if trace:
+			PerfBuckets.tick("tokyo_map_stream.exists", Time.get_ticks_usec() - exists_started)
+		if not exists:
 			_failures[path] = "missing resource"
 			continue
 		PerfBuckets.mark_frame_event("tokyo_cell_request")
@@ -238,6 +253,8 @@ func _process_stream() -> void:
 		if _audit_paths:
 			_audit_requests[path] = int(_audit_requests.get(path, 0)) + 1
 		if requested>=_pipeline_width: break
+	if trace:
+		PerfBuckets.tick("tokyo_map_stream.request", Time.get_ticks_usec() - phase_started)
 	peak_pending = maxi(peak_pending, _pending.size())
 	peak_bytes = maxi(peak_bytes, _bytes + _reserved)
 	peak_total_bytes = maxi(peak_total_bytes, _bytes + _reserved + _auxiliary_bytes)

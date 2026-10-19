@@ -3,7 +3,7 @@ id: zone-atmosphere-combat
 kind: system
 status: done
 schema_version: 1
-spec_version: 13
+spec_version: 14
 owner: 用户 + Codex
 depends_on: [battlefield-atmosphere-experiment, zone-air-support-naval-safety, rotorcraft-combat, global-awareness-roe]
 reconstruction_complete: true
@@ -102,6 +102,8 @@ zone_spawn_finished(zone_id):
     if naval: spawn allied DDG+FFG, degrade to DDG or none until full orbit is water
 ```
 
+正式首刷的登记属于 ZoneMission 分帧续段：两组 SPG 的种子与直升机构图骰仍按原顺序在登记调用内抽取，直升机同步生成；SPG 阵位搜索（3→2→1 数量档 × 4 圈 × 16 候选 × 每门 16 个椭圆采样点）改为可中断状态机，每帧在续段预算内推进，先完成友军组并以其实际位置为对向中心再搜敌方组，局部 RNG 抽取顺序与一次性穷举逐值相同；两组完成后补齐伤害状态与登记日志。其它调用方（Debug、专项）仍一次登记完毕。
+
 同一个战区只允许一条登记记录。普通地图的抽取结果按 `zone_id` 缓存在当前 `ZoneMission` 生命周期内：同一战区后续调试重刷、等级刷新或任务类型安全降级都沿用第一次结果，不因刷新而突然出现或消失。决战地图跳过随机门，所有合资格战区直接登记。调试重刷、等级刷新、战区完成、失败、阶段取消时先注销旧记录，恢复既有敌军的普通伤害/目标选择，再按“视线内不凭空消失”规则撤走新增友军。
 
 ### 3.2 伤害 LOD
@@ -191,6 +193,7 @@ new_allied_launch_multiplier = 0.10 if live else 0.0
 
 | 日期 | spec_version | 改动 |
 |---|---:|---|
+| 2026-10-19 | 14 | 正式首刷的 SPG 阵位搜索改为可分片状态机（沿岸战区穷举最坏 130 ms 是地面任务刷怪卡顿主因），在 ZoneMission 续段预算内逐帧推进；方案、阵型、轨道与全局随机流与原实现逐值相同（`test_zone_atmosphere_combat` 对照原穷举副本）。 |
 | 2026-08-23 | 13 | 按用户新的世界模拟裁决，普通 1★/2★气氛战斗只在战区选择/进入并生成后登记；未关注战区不再用画外零伤害弹丸维持“全图战争”。已激活战线短暂离镜仍保持连续，3★全局威胁继续走专属例外。 |
 | 2026-08-22 | 12 | 跟随三级巨炮一体化裁决更新气氛目标语义：整座巨炮现在只有一个 GroundUnit/TGT，友军气氛火力仍只能把它压到 1 HP，不能替玩家完成任务。 |
 | 2026-08-21 | 11 | 实装地面气氛 AH-64：四种等权构图，每边至多一架；复用旋翼 GroundUnit-only AI；弹丸再以 `ground_targets_only` 拒绝 Aircraft；正式 TGT 非致死、气氛 GroundUnit 可击毁；敌对实例保留 50 XP 资格，友军关闭奖励，双方 Token=0。攻城坦克主炮例外同步转为已实装。 |

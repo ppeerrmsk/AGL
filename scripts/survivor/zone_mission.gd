@@ -105,6 +105,12 @@ const _RADAR_PARAMS := preload("res://resources/radar_station_params.tres")
 const _AIRBURST_AA_SCENE := preload("res://scenes/airburst_aa_unit.tscn")
 const _AIRBURST_AA_PARAMS := preload("res://resources/airburst_aa_params.tres")
 const _TIER3_GROUND_BASE_PARAMS := preload("res://resources/aa_gun_params.tres")
+const ZoneSpawnJobScript := preload("res://scripts/survivor/zone_spawn_job.gd")
+
+## 战区首刷分帧：地面目标同步生成；驻守机 / 3★ 内容 / 气氛层按原顺序每帧推进，
+## 每帧最多花这么久、最多生成这么多实体（实体首帧绘制与 AI 初始化也随之摊开）。
+const SPAWN_SLICE_BUDGET_USEC := 2500
+const SPAWN_SLICE_MAX_UNITS := 4
 
 const TIER3_DESERT_MAP_ID := "desert_railway_preview"
 const TIER3_VLS_RANGE_M := 40000.0
@@ -129,6 +135,13 @@ var _missile_manager: Node2D
 var _spawner: SurvivorSpawner  ## 用于创建空战中队敌机（复用 _create_enemy 工厂）
 ## preload 实例，避免全局 class cache 尚未刷新时依赖 class_name 解析。
 var _zone_atmosphere: Node2D
+## zone_id → ZoneSpawnJob（首刷续段：驻守机 / 3★ / 气氛层）
+var _spawn_jobs: Dictionary = {}
+var _spawn_slice_frame := -1
+## 新续段登记后的第一次推进让出：触发帧只承担任务主分支
+var _spawn_slice_hold := false
+## ZoneSpawnJob 登记气氛层时置 true：地面炮兵阵位搜索与生成转入分片（签名保持不变供测试覆盖）
+var _atmosphere_register_deferred := false
 
 ## zone_id → Array[Node]（任务目标：SAM/AA 或 空战中队，攻克判定依据）
 var _spawned_zones: Dictionary = {}
@@ -203,6 +216,7 @@ func setup(p_mode: Node, zones: ZoneData, player: Aircraft,
 	_zone_atmosphere.name = "ZoneAtmosphereCombat"
 	add_child(_zone_atmosphere)
 	_zone_atmosphere.setup(mode, spawner)
+	set_process(false)
 
 func _physics_process(delta: float) -> void:
 	if not _zones or not _player:
@@ -265,8 +279,8 @@ func _physics_process(delta: float) -> void:
 					_start_bomber_escort(zid)
 				_start_air_support_if_needed(zid, z)
 				mission_triggered.emit(zid)
-		# 已触发 → 查完成
-		if _triggered_zones.has(zid):
+		# 已触发 → 查完成（首刷续段未完成时 3★ 等目标尚未入册，不判完成）
+		if _triggered_zones.has(zid) and not _spawn_jobs.has(zid):
 			if _all_zone_units_destroyed(zid):
 				_completed_zones[zid] = true
 				_begin_conquered_garrison_egress(zid)
@@ -293,7 +307,7 @@ func _ensure_spawned_for_active_zones(delta: float = 0.0, view_only: bool = fals
 		# → 奖励不发，紧接着又刷了一队让玩家以为"任务重复了"。
 		# 现在改成：战区重开的残留清理由 reset_zone() 在 mark_cleared 之后主动调用，
 		# 这里只负责"没刷过就刷一次"。
-		if _spawned_zones.has(zid):
+		if _spawned_zones.has(zid) or _spawn_jobs.has(zid):
 			_spawn_lead_timers.erase(zid)
 			continue
 		# 观察也是关注：完整散布范围进入相机缓冲即准备，不等飞机进入战区。
@@ -395,13 +409,73 @@ func _spawn_zone_units(zone_id: StringName, zone: Dictionary) -> void:
 			_spawn_airfield_ground(zone_id, zone)
 		_:
 			_spawn_ground_garrison(zone_id, zone)
-	# 所有战区：按难度刷驻守敌机（守卫者，非 TGT，攻克后撤离）
-	# naval 任务不加空中驻守（玩家专心打船）
-	if mission_type != "naval":
-		_spawn_zone_defenders(zone_id, zone, mission_type)
-	if _zones != null and _zones.get_difficulty(zone_id) == ZoneData.DIFFICULTY_MAX:
-		_spawn_tier3_profile(zone_id, mission_type, zone)
-	_register_zone_atmosphere(zone_id, mission_type, zone)
+	# 其后按原顺序：驻守敌机（守卫者，非 TGT，攻克后撤离；naval 不加）→ 3★ 内容 → 气氛层，
+	# 转入分帧续段。触发帧只生成任务主分支（首个镜头帧已有地面目标），续段从下一次推进开始。
+	var job = ZoneSpawnJobScript.new(self, zone_id, zone, mission_type)
+	_spawn_jobs[zone_id] = job
+	_spawn_slice_hold = true
+	set_process(true)
+
+
+func _process(_delta: float) -> void:
+	_advance_spawn_jobs()
+
+
+## 每个渲染帧至多推进一片：先跑各战区续段，再推进气氛层炮兵搜索；全部完成后停 process。
+func _advance_spawn_jobs() -> void:
+	var atmosphere_pending: bool = _zone_atmosphere != null and _zone_atmosphere.has_pending()
+	if _spawn_jobs.is_empty() and not atmosphere_pending:
+		set_process(false)
+		return
+	var frame := Engine.get_process_frames()
+	if frame == _spawn_slice_frame:
+		return
+	_spawn_slice_frame = frame
+	if _spawn_slice_hold:
+		_spawn_slice_hold = false
+		return
+	var deadline := Time.get_ticks_usec() + SPAWN_SLICE_BUDGET_USEC
+	var units := 0
+	for zone_value in _spawn_jobs.keys():
+		var zone_id := StringName(zone_value)
+		var job = _spawn_jobs[zone_id]
+		while not job.finished and units < SPAWN_SLICE_MAX_UNITS \
+				and Time.get_ticks_usec() < deadline:
+			units += job.run_piece()
+		if job.finished:
+			_spawn_jobs.erase(zone_id)
+			_on_spawn_job_finished(zone_id)
+		if units >= SPAWN_SLICE_MAX_UNITS or Time.get_ticks_usec() >= deadline:
+			return
+	if _zone_atmosphere != null:
+		_zone_atmosphere.advance_pending(deadline, SPAWN_SLICE_MAX_UNITS - units)
+
+
+## Debug / 专项入口：把某战区的首刷续段与气氛层炮兵一次跑完（保持"调用即生成完毕"的语义）。
+func _finish_spawn_job(zone_id: StringName) -> void:
+	var job = _spawn_jobs.get(zone_id)
+	if job != null:
+		job.run_all()
+		_spawn_jobs.erase(zone_id)
+		_on_spawn_job_finished(zone_id)
+	if _zone_atmosphere != null:
+		_zone_atmosphere.finish_pending(zone_id)
+
+
+## 续段期间已触发的战区：3★ 等后到目标补打 TGT（与触发当帧标记全部目标同义，重复标记幂等）。
+func _on_spawn_job_finished(zone_id: StringName) -> void:
+	if _triggered_zones.has(zone_id):
+		_mark_as_target(_spawned_zones.get(zone_id, []))
+
+
+## 撤销 / 失败 / 重置 / Debug 重刷前调用：续段已生成的驻守机按原语义落账，
+## 交给既有清理流程统一撤离；未执行的后续阶段直接作废。
+func _cancel_spawn_job(zone_id: StringName) -> void:
+	var job = _spawn_jobs.get(zone_id)
+	if job == null:
+		return
+	job.commit_partial()
+	_spawn_jobs.erase(zone_id)
 
 ## 地理条件不随相机或等级变化；正式 setup 预热，脱树测试/动态新增槽位按需求值。
 func _zone_supports_ground(zone_id: StringName) -> bool:
@@ -423,7 +497,10 @@ func _register_zone_atmosphere(zone_id: StringName, mission_type: String,
 	for value in _garrison_zones.get(zone_id, []):
 		if is_instance_valid(value) and not hostiles.has(value):
 			hostiles.append(value)
-	_zone_atmosphere.register_zone(zone_id, mission_type, zone, hostiles, _player)
+	_zone_atmosphere.register_zone(zone_id, mission_type, zone, hostiles, _player,
+		_atmosphere_register_deferred)
+	if _atmosphere_register_deferred:
+		set_process(true)
 
 func _zone_atmosphere_enabled_for_zone(zone_id: StringName) -> bool:
 	if _force_all_zone_atmosphere:
@@ -1439,105 +1516,9 @@ static func _squad_size_for_cost(cost: int) -> int:
 	return 2      ## Su-27/MiG-31：2 架精英对（受 INSTANCE_CAP 天然限制）
 
 func _spawn_zone_defenders(zone_id: StringName, zone: Dictionary, mission_type: String = "ground") -> void:
-	if not _spawner or not _zones:
-		return
-	var difficulty: int = _zones.get_difficulty(zone_id)
-	var lvl: int = _player_level()
-	## 驻守虚拟等级：★★/★★★ 提升护卫池子等级，避免低级玩家满屏 MQ-109/MQ-110/F-4E
-	var g_vlvl: int = SurvivorData.zone_virtual_level(difficulty, lvl, "garrison")
-	var budget: int = SurvivorData.zone_defender_budget(difficulty, lvl)  ## 预算仍按真实等级（让强敌自然减量）
-	var exclude_sentinel: bool = true  ## 驻守池硬规则：Sentinel 永不单刷
-
-	## Sentinel 战区驻守障碍（spec early-game-uav-rework §2.4B）：elite 任务移除后，
-	## Sentinel 偶尔以"驻守障碍"形式带 MQ-109 小队出现——非 TGT，可绕可打。
-	## 唯一性：场上已有 Sentinel（含随机刷新的）就不出；出现时驻守预算减半防双倍叠加。
-	if mission_type != "naval" and mission_type != "airfield" \
-			and randf() < SENTINEL_GARRISON_CHANCE \
-			and _count_type_in_scene(int(SurvivorSpawner.EnemyType.UAV_COMMANDER)) == 0:
-		_spawn_sentinel_garrison(zone_id, zone)
-		budget = int(budget * 0.5)
-
-	var center: Vector2 = zone["center"]
-	## 驻守环随战区半径撑开（战区 3500 时 ≈2520，填满扩大后的圈）
-	var garrison_r: float = maxf(GARRISON_ORBIT_RADIUS, float(zone["radius"]) * GARRISON_ORBIT_RADIUS_FRAC)
-	var units: Array[Aircraft] = []
-	var guard := 12  ## 死循环保险（每循环刷一整队）
-
-	while budget > 0 and guard > 0:
-		guard -= 1
-		## 等级加权池，优先中队友好（排除 MiG-31 这种强制单机）
-		var pool := SurvivorData.get_zone_enemy_pool(g_vlvl, exclude_sentinel, true)
-		if pool.is_empty():
-			break
-		var pick := SurvivorData.pick_zone_enemy(pool, budget, g_vlvl)
-		if pick.is_empty():
-			break
-		var etype: int = int(pick["type"])
-		var cost: int = int(pick["cost"])
-		## 中队规模：按 cost 决定，再用预算夹一次（至少 1）
-		var want_size: int = _squad_size_for_cost(cost)
-		var affordable: int = int(floor(float(budget) / float(cost)))
-		var squad_size: int = mini(want_size, maxi(affordable, 1))
-		## 实例上限：若剩余允许不足 2，就只刷 1 架（避免组不成队又硬塞）
-		var type_cap: int = int(SurvivorData.TOKEN_INSTANCE_CAP.get(etype, -1))
-		if type_cap > 0:
-			var room: int = type_cap - _count_type_in_scene(etype)
-			if room <= 0:
-				## 占满了就换下一种（把这种从后续抽取里排掉需重跑池子；简单起见直接跳本轮）
-				continue
-			squad_size = mini(squad_size, room)
-
-		var leader_pos := _zone_air_spawn_origin(center)
-		var heading_deg := _zone_air_heading_deg(leader_pos, center)
-		var heading_rad := deg_to_rad(heading_deg)
-
-		## 预生成盘旋航点（绕战区中心）—— 全队共用
-		var wp := PackedVector2Array()
-		var n_wp := 4
-		for k in range(n_wp):
-			var wa := float(k) / float(n_wp) * TAU
-			wp.append(center + Vector2(cos(wa), sin(wa)) * garrison_r)
-		var start_wp_idx := _zone_patrol_entry_index(leader_pos, center, n_wp)
-
-		var sq := SquadFactory.create()
-		sq.formation = Squad.random_formation()  # 杂鱼随机阵型（凝聚已由 FOLLOW_LEADER 默认继承）
-		var spawned_in_squad := 0
-		for i in range(squad_size):
-			if cost > budget:
-				break  ## 预算吃空
-			var spawn_pos: Vector2
-			if i == 0:
-				spawn_pos = leader_pos
-			else:
-				var offset: Vector2 = sq.get_formation_offset(i)
-				spawn_pos = leader_pos + offset.rotated(heading_rad)
-			var ac: Aircraft = _spawner._create_enemy(etype, spawn_pos, heading_deg)
-			if not ac:
-				## 实例上限击中 → 放弃该队剩余槽位
-				break
-			_tag_zone_air_ingress(ac, center,
-				garrison_r + ZONE_AIR_INGRESS_ARRIVE_BAND_PX)
-			ac.set_meta("zone_garrison", zone_id)
-			if i == 0:
-				SquadFactory.register_leader(sq, ac)
-			else:
-				SquadFactory.register_wingman(sq, ac, true)  # Step 4：显式进 SQUAD_FOLLOW
-			var ai := _get_ai_of(ac)
-			if ai:
-				## 长机走航点盘旋；僚机由 SQUAD_FOLLOW 跟随；长机阵亡后僚机自然转 PATROL
-				ai.waypoints = wp
-				ai.current_waypoint_index = (start_wp_idx + i) % n_wp
-			units.append(ac)
-			budget -= cost
-			spawned_in_squad += 1
-		## 如果这一队一架都没刷出来（通常是 cap 击中且 room=0），guard 会逐步耗尽
-		if spawned_in_squad == 0:
-			continue
-
-	_garrison_zones[zone_id] = units
-	EventLogger.log_event("ZONE", "Garrison",
-		"id=%s diff=%d lvl=%d mission=%s defenders=%d edge_ingress=%d budget_left=%d"
-		% [zone_id, difficulty, lvl, mission_type, units.size(), units.size(), budget])
+	## 同步版本：与正式首刷续段共用 ZoneSpawnJob 的驻守状态机（等级加权池、中队规模、
+	## 实例上限、边缘入场、盘旋航点与 Sentinel 驻守障碍逻辑只有这一份实现）。
+	ZoneSpawnJobScript.new(self, zone_id, zone, mission_type, true).run_all()
 
 ## 场景中某类型当前活着的敌机数（给 instance cap 检查用）
 func _count_type_in_scene(etype: int) -> int:
@@ -2313,6 +2294,8 @@ func _retire_tier3_unit(value: Variant, immediate: bool) -> void:
 ##
 ## 注意：本函数只清记录 + TGT 标记，不 despawn 单位。units 由 spawner 击杀流自然回收。
 func cancel_all_zone_missions() -> void:
+	for zid in _spawn_jobs.keys():
+		_cancel_spawn_job(StringName(zid))
 	_begin_all_air_support_egress("all missions cancelled")
 	_retire_all_zone_atmosphere()
 	for zid in _bomber_escort_runs.keys().duplicate():
@@ -2343,6 +2326,7 @@ func cancel_all_zone_missions() -> void:
 ## 清掉该战区的 spawn/trigger/completion 记录，让下一次该战区重新 AVAILABLE
 ## 时能干净地重刷一批单位。
 func reset_zone(zone_id: StringName) -> void:
+	_cancel_spawn_job(zone_id)
 	_begin_air_support_egress(zone_id, "zone reset")
 	_end_tier3_zone(zone_id)
 	_retire_zone_atmosphere(zone_id)
@@ -2362,6 +2346,7 @@ func fail_zone(zone_id: StringName, reason: String) -> void:
 	if _completed_zones.has(zone_id) or _failed_zones.has(zone_id):
 		return
 	_failed_zones[zone_id] = reason
+	_cancel_spawn_job(zone_id)
 	_end_tier3_zone(zone_id)
 	_begin_air_support_egress(zone_id, "mission failed")
 	_retire_zone_atmosphere(zone_id)
@@ -2384,6 +2369,7 @@ func fail_zone(zone_id: StringName, reason: String) -> void:
 
 ## Debug: 注销战区旧编成；同样遵守地面留场与飞机实际撤远后的回收门。
 func debug_purge_zone(zone_id: StringName) -> void:
+	_cancel_spawn_job(zone_id)
 	_begin_air_support_egress(zone_id, "debug purge")
 	_end_tier3_zone(zone_id)
 	_retire_zone_atmosphere(zone_id)
@@ -2412,7 +2398,8 @@ func debug_purge_zone(zone_id: StringName) -> void:
 ## 强制重刷某战区内容：撤走旧单位 + 按当前 mission_type 重 spawn
 ## 与 refresh_active_zones_for_level 的区别：无视 _triggered_zones（玩家正在打也强换）
 ## 前提：战区已处于 AVAILABLE / SELECTED（LOCKED 的先调 debug_force_unlock_zone）
-func debug_force_respawn_zone(id: StringName) -> void:
+## finish_now=false 时与正式首刷相同走分帧续段（专项实测用），默认调用即生成完毕。
+func debug_force_respawn_zone(id: StringName, finish_now: bool = true) -> void:
 	if not _zones:
 		return
 	var z := _zones.get_zone_by_id(id)
@@ -2424,6 +2411,7 @@ func debug_force_respawn_zone(id: StringName) -> void:
 		return
 
 	# 撤走旧驻守 + 旧 TGT（视线内的延迟 free）
+	_cancel_spawn_job(id)
 	_begin_air_support_egress(id, "debug respawn")
 	_end_tier3_zone(id)
 	_retire_zone_atmosphere(id)
@@ -2440,6 +2428,8 @@ func debug_force_respawn_zone(id: StringName) -> void:
 
 	# 重刷
 	_spawn_zone_units(id, z)
+	if finish_now:
+		_finish_spawn_job(id)
 	EventLogger.log_event("ZONE", "DebugRespawn",
 		"id=%s new_mt=%s" % [id, _zones.get_mission_type(id)])
 
@@ -2489,6 +2479,7 @@ func debug_force_unlock_zone(id: StringName) -> void:
 	if z.is_empty():
 		return
 	# 先清旧
+	_cancel_spawn_job(id)
 	_begin_air_support_egress(id, "debug unlock")
 	_end_tier3_zone(id)
 	_retire_zone_atmosphere(id)
@@ -2508,6 +2499,7 @@ func debug_force_unlock_zone(id: StringName) -> void:
 
 	# 刷新内容
 	_spawn_zone_units(id, z)
+	_finish_spawn_job(id)
 	EventLogger.log_event("ZONE", "DebugUnlock",
 		"id=%s mt=%s" % [id, _zones.get_mission_type(id)])
 
@@ -2527,7 +2519,7 @@ func refresh_active_zones_for_level(except_id: StringName) -> Array[StringName]:
 		if state != ZoneData.State.AVAILABLE and state != ZoneData.State.SELECTED:
 			continue
 		## 已进入交战的战区不改（否则玩家正在打的敌人会突然换型，体验差）
-		if _triggered_zones.has(zid):
+		if _triggered_zones.has(zid) or _spawn_jobs.has(zid):
 			continue
 		# 看见过的正式编成保持身份；不能在别处升级后撤走旧目标再在眼前补一批。
 		if _spawned_zones.has(zid):

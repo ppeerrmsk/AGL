@@ -76,6 +76,8 @@ var _weapon_ready: Dictionary = {}
 var _ballistic_shells: Array[Dictionary] = []
 var _impact_flashes: Array[Dictionary] = []
 var _tick_accum: float = 0.0
+## 正式首刷的地面炮兵分片任务：zone_id → {stage, search, hostile_seed}
+var _artillery_jobs: Dictionary = {}
 
 
 func setup(mode: Node, spawner: SurvivorSpawner) -> void:
@@ -85,8 +87,11 @@ func setup(mode: Node, spawner: SurvivorSpawner) -> void:
 
 
 ## 返回本次新增的气氛演员，便于 ZoneMission 做诊断与可见性安全撤离。
+## deferred=true（正式首刷）：地面战区的友/敌炮兵阵位搜索与生成转入分片任务，由
+## advance_pending 按帧预算推进；全局随机数（两组炮兵种子、直升机两侧骰）与直升机生成
+## 仍在本调用内按原顺序完成，最终编成与一次性登记逐值相同。返回值只含已生成的演员。
 func register_zone(zone_id: StringName, mission_type: String, zone: Dictionary,
-		existing_hostiles: Array, player: Aircraft) -> Array[CombatUnit]:
+		existing_hostiles: Array, player: Aircraft, deferred: bool = false) -> Array[CombatUnit]:
 	if _engagements.has(zone_id):
 		return []
 	if mission_type == "bomber_escort":
@@ -114,12 +119,13 @@ func register_zone(zone_id: StringName, mission_type: String, zone: Dictionary,
 	_engagements[zone_id] = entry
 	var allies: Array[CombatUnit] = []
 	var opposition: Array[CombatUnit] = []
+	var artillery_job: Dictionary = {}
 	match kind:
 		"ground":
-			allies = _spawn_artillery_group(zone_id, center, radius,
-				_average_position(hostiles, center), CombatUnit.TEAM_ALLY, "ALLY")
-			opposition = _spawn_artillery_group(zone_id, center, radius,
-				_average_position(allies, center), CombatUnit.TEAM_HOSTILE, "HOSTILE")
+			# 原顺序的全局随机：友军炮兵种子 → 敌方炮兵种子 → 直升机两侧骰 → 直升机生成。
+			# 炮兵阵位只用各自的局部 RNG，搜索与生成可以安全地后移/分片。
+			var ally_seed := _artillery_seed(zone_id, "ALLY", CombatUnit.TEAM_ALLY)
+			var hostile_seed := _artillery_seed(zone_id, "HOSTILE", CombatUnit.TEAM_HOSTILE)
 			var heli_sides := helicopter_sides_for_roll(randf())
 			if bool(heli_sides["ally"]):
 				var ally_heli := _spawn_atmosphere_helicopter(zone_id, center, radius,
@@ -131,22 +137,117 @@ func register_zone(zone_id: StringName, mission_type: String, zone: Dictionary,
 					CombatUnit.TEAM_HOSTILE, 1.0)
 				if hostile_heli != null:
 					opposition.append(hostile_heli)
+			artillery_job = {
+				"stage": "ally",
+				"search": ArtilleryPlanSearch.new(center, radius,
+					_average_position(hostiles, center), ally_seed),
+				"hostile_seed": hostile_seed,
+			}
 		"naval":
 			allies = _spawn_allied_naval(zone_id, center, radius, hostiles)
 	entry["allies"] = allies
 	entry["opposition"] = opposition
 	_engagements[zone_id] = entry
 	_apply_damage_state(zone_id, entry, damage_live)
+	if not artillery_job.is_empty():
+		_artillery_jobs[zone_id] = artillery_job
+		if not deferred:
+			_finish_artillery_job(zone_id)
+		return _actors_of(_engagements.get(zone_id, {}))
+	_log_register(zone_id, entry)
+	return _actors_of(entry)
+
+
+func _actors_of(entry: Dictionary) -> Array[CombatUnit]:
+	var actors: Array[CombatUnit] = []
+	for value in entry.get("allies", []):
+		actors.append(value)
+	for value in entry.get("opposition", []):
+		actors.append(value)
+	return actors
+
+
+func _log_register(zone_id: StringName, entry: Dictionary) -> void:
 	EventLogger.log_event("ZONE_ATMOSPHERE", "Register",
 		"zone=%s kind=%s hostiles=%d allies=%d opposition=%d live=%s" % [
-			zone_id, kind, hostiles.size(), allies.size(), opposition.size(), str(damage_live)])
-	var actors := allies.duplicate()
-	actors.append_array(opposition)
-	return actors
+			zone_id, String(entry.get("kind", "")), (entry.get("hostiles", []) as Array).size(),
+			(entry.get("allies", []) as Array).size(), (entry.get("opposition", []) as Array).size(),
+			str(bool(entry.get("damage_live", false)))])
+
+
+## 正式首刷的炮兵分片任务是否仍在进行。
+func has_pending(zone_id: StringName = &"") -> bool:
+	if zone_id == &"":
+		return not _artillery_jobs.is_empty()
+	return _artillery_jobs.has(zone_id)
+
+
+## 在截止时刻前推进炮兵分片任务；返回本次新生成的单位数。unit_budget 用尽后不再生成。
+func advance_pending(deadline_usec: int, unit_budget: int) -> int:
+	var spawned := 0
+	for zone_value in _artillery_jobs.keys().duplicate():
+		if Time.get_ticks_usec() >= deadline_usec or spawned >= unit_budget:
+			break
+		spawned += _step_artillery_job(StringName(zone_value), deadline_usec)
+	return spawned
+
+
+## Debug / 专项入口：把某战区（或全部）未完成的炮兵任务一次跑完。
+func finish_pending(zone_id: StringName = &"") -> void:
+	for zone_value in _artillery_jobs.keys().duplicate():
+		if zone_id == &"" or StringName(zone_value) == zone_id:
+			_finish_artillery_job(StringName(zone_value))
+
+
+func _finish_artillery_job(zone_id: StringName) -> void:
+	while _artillery_jobs.has(zone_id):
+		_step_artillery_job(zone_id, -1)
+
+
+## 推进一个战区的炮兵任务：先搜友军阵位并生成，再以友军实际位置为对向中心搜敌方阵位。
+## 返回本步新生成的单位数；两组都结束后合并进登记并补齐伤害状态。
+func _step_artillery_job(zone_id: StringName, deadline_usec: int) -> int:
+	var job: Dictionary = _artillery_jobs.get(zone_id, {})
+	if job.is_empty() or not _engagements.has(zone_id):
+		_artillery_jobs.erase(zone_id)
+		return 0
+	var search: ArtilleryPlanSearch = job["search"]
+	if not search.step(deadline_usec):
+		return 0
+	var entry: Dictionary = _engagements[zone_id]
+	var center: Vector2 = entry["center"]
+	var spawned := 0
+	if String(job["stage"]) == "ally":
+		var ally_artillery := _spawn_artillery_units(zone_id, search.plan, center,
+			search.hostile_center, CombatUnit.TEAM_ALLY, "ALLY")
+		spawned = ally_artillery.size()
+		var allies: Array[CombatUnit] = ally_artillery.duplicate()
+		for value in entry.get("allies", []):
+			allies.append(value)
+		entry["allies"] = allies
+		job["stage"] = "hostile"
+		job["search"] = ArtilleryPlanSearch.new(center, float(entry["radius"]),
+			_average_position(ally_artillery, center), int(job["hostile_seed"]))
+		_artillery_jobs[zone_id] = job
+	else:
+		var hostile_artillery := _spawn_artillery_units(zone_id, search.plan, center,
+			search.hostile_center, CombatUnit.TEAM_HOSTILE, "HOSTILE")
+		spawned = hostile_artillery.size()
+		var opposition: Array[CombatUnit] = hostile_artillery.duplicate()
+		for value in entry.get("opposition", []):
+			opposition.append(value)
+		entry["opposition"] = opposition
+		_artillery_jobs.erase(zone_id)
+		_apply_damage_state(zone_id, entry, bool(entry.get("damage_live", false)))
+		_log_register(zone_id, entry)
+	_engagements[zone_id] = entry
+	return spawned
 
 
 ## 注销只拆控制权并返回新增演员；是否立即 free 由 ZoneMission 的可见性撤离铁律裁决。
 func retire_zone(zone_id: StringName) -> Array[CombatUnit]:
+	# 未完成的炮兵分片任务随注销一起作废；已生成的演员照常交回撤离队列。
+	_artillery_jobs.erase(zone_id)
 	if not _engagements.has(zone_id):
 		return []
 	var entry: Dictionary = _engagements[zone_id]
@@ -372,46 +473,46 @@ func _clear_player_priority(unit: CombatUnit) -> void:
 		unit.remove_meta(&"zone_atmosphere_player_target_id")
 
 
-func _spawn_artillery_group(zone_id: StringName, center: Vector2, radius: float,
+## 炮兵阵位种子：与原实现相同，消耗一次全局 randi()。
+static func _artillery_seed(zone_id: StringName, side_label: String, team: int) -> int:
+	return int(randi()) ^ int(hash("%s:%s:%d" % [zone_id, side_label, team]))
+
+
+func _spawn_artillery_units(zone_id: StringName, plan: Dictionary, center: Vector2,
 		opposing_center: Vector2, team: int, side_label: String) -> Array[CombatUnit]:
-	var rng := RandomNumberGenerator.new()
-	rng.seed = int(randi()) ^ int(hash("%s:%s:%d" % [zone_id, side_label, team]))
-	for count in range(ARTILLERY_COUNT, 0, -1):
-		var plan := _find_land_artillery_plan(center, radius, opposing_center, count, rng)
-		if plan.is_empty():
-			continue
-		var out: Array[CombatUnit] = []
-		var tracks: Array = plan["tracks"]
-		var formation: StringName = plan["formation"]
-		var enemy_direction := (opposing_center - center).normalized()
-		if enemy_direction.length_squared() < 0.5:
-			enemy_direction = Vector2.UP
-		for i in range(tracks.size()):
-			var track: Dictionary = tracks[i]
-			var unit: GroundUnit = ARTILLERY_SCRIPT.new()
-			var params := AA_PARAMS.duplicate(true) as AircraftParams
-			params.display_name = "SPG"
-			params.max_hp = ARTILLERY_HP
-			params.radar_range = 0.0
-			params.gun = null
-			unit.params = params
-			unit.team = team
-			unit.callsign = "ZONE-%s-%s-SPG-%02d" % [zone_id, side_label, i + 1]
-			unit.initial_heading_deg = rad_to_deg(atan2(enemy_direction.x, -enemy_direction.y))
-			unit.max_ground_speed = 3.0
-			unit.call("configure_ellipse", track["center"], track["axis"],
-				track["half_length"], track["half_width"], track["phase"])
-			unit.set_meta(&"ambient_slot", i)
-			unit.set_meta(&"ambient_formation", formation)
-			_mark_actor(unit, zone_id, "artillery")
-			_mode.add_child(unit)
-			unit.bullet_manager = _spawner.bullet_manager
-			unit.missile_manager = _spawner.missile_manager
-			out.append(unit)
-			_weapon_ready[_weapon_key(zone_id, "artillery", unit)] = 0.8 + float(i) * 0.7 \
-				+ (0.35 if team == CombatUnit.TEAM_HOSTILE else 0.0)
+	var out: Array[CombatUnit] = []
+	if plan.is_empty():
 		return out
-	return []
+	var tracks: Array = plan["tracks"]
+	var formation: StringName = plan["formation"]
+	var enemy_direction := (opposing_center - center).normalized()
+	if enemy_direction.length_squared() < 0.5:
+		enemy_direction = Vector2.UP
+	for i in range(tracks.size()):
+		var track: Dictionary = tracks[i]
+		var unit: GroundUnit = ARTILLERY_SCRIPT.new()
+		var params := AA_PARAMS.duplicate(true) as AircraftParams
+		params.display_name = "SPG"
+		params.max_hp = ARTILLERY_HP
+		params.radar_range = 0.0
+		params.gun = null
+		unit.params = params
+		unit.team = team
+		unit.callsign = "ZONE-%s-%s-SPG-%02d" % [zone_id, side_label, i + 1]
+		unit.initial_heading_deg = rad_to_deg(atan2(enemy_direction.x, -enemy_direction.y))
+		unit.max_ground_speed = 3.0
+		unit.call("configure_ellipse", track["center"], track["axis"],
+			track["half_length"], track["half_width"], track["phase"])
+		unit.set_meta(&"ambient_slot", i)
+		unit.set_meta(&"ambient_formation", formation)
+		_mark_actor(unit, zone_id, "artillery")
+		_mode.add_child(unit)
+		unit.bullet_manager = _spawner.bullet_manager
+		unit.missile_manager = _spawner.missile_manager
+		out.append(unit)
+		_weapon_ready[_weapon_key(zone_id, "artillery", unit)] = 0.8 + float(i) * 0.7 \
+			+ (0.35 if team == CombatUnit.TEAM_HOSTILE else 0.0)
+	return out
 
 
 func _spawn_atmosphere_helicopter(zone_id: StringName, center: Vector2, radius: float,
@@ -430,60 +531,151 @@ func _spawn_atmosphere_helicopter(zone_id: StringName, center: Vector2, radius: 
 	return heli
 
 
-func _find_land_artillery_plan(center: Vector2, radius: float, hostile_center: Vector2,
-		count: int, rng: RandomNumberGenerator) -> Dictionary:
-	var away := (center - hostile_center).normalized()
-	if away.length_squared() < 0.5:
-		away = Vector2.RIGHT
-	var base_angle := away.angle() + rng.randf_range(-ARTILLERY_ROUTE_ANGLE_JITTER_RAD,
-		ARTILLERY_ROUTE_ANGLE_JITTER_RAD)
-	var offset_radius := minf(radius * rng.randf_range(0.23, 0.34), 760.0)
-	var start_step := rng.randi_range(0, 15)
-	for ring_mult in [1.0, 0.65, 0.35, 0.0]:
-		for candidate in range(16):
-			var step := (start_step + candidate) % 16
-			var direction := Vector2.from_angle(base_angle + float(step) * TAU / 16.0)
-			var route_axis := Vector2(-direction.y, direction.x)
-			var lateral := Vector2(-route_axis.y, route_axis.x)
-			var base := center + direction * offset_radius * float(ring_mult)
-			var formation: StringName = ARTILLERY_FORMATIONS[
-				rng.randi_range(0, ARTILLERY_FORMATIONS.size() - 1)]
-			var spacing := rng.randf_range(ARTILLERY_SLOT_MIN_PX, ARTILLERY_SLOT_MAX_PX)
-			var depth := rng.randf_range(ARTILLERY_DEPTH_MIN_PX, ARTILLERY_DEPTH_MAX_PX)
-			var offsets := artillery_formation_offsets(formation, count, spacing, depth)
-			var group_phase := rng.randf_range(0.0, TAU)
-			var tracks: Array[Dictionary] = []
-			var starts: Array[Vector2] = []
-			var valid := true
-			for i in range(count):
-				var offset: Vector2 = offsets[i]
-				var track_center := base + route_axis * offset.x + lateral * offset.y \
-					+ route_axis * rng.randf_range(-ARTILLERY_JITTER_PX, ARTILLERY_JITTER_PX) \
-					+ lateral * rng.randf_range(-ARTILLERY_JITTER_PX, ARTILLERY_JITTER_PX)
-				var half_length := rng.randf_range(ARTILLERY_ROUTE_HALF_MIN_PX,
-					ARTILLERY_ROUTE_HALF_MAX_PX)
-				var half_width := rng.randf_range(ARTILLERY_ROUTE_WIDTH_MIN_PX,
-					ARTILLERY_ROUTE_WIDTH_MAX_PX)
-				var phase := fposmod(group_phase + float(i) * TAU / maxf(float(count), 1.0) \
-					+ rng.randf_range(-ARTILLERY_PHASE_JITTER_RAD, ARTILLERY_PHASE_JITTER_RAD), TAU)
-				var start := track_center + route_axis * cos(phase) * half_length \
-					+ lateral * sin(phase) * half_width
-				if not _land_ellipse_valid(track_center, route_axis, center, radius,
-						half_length, half_width) or not _point_clear_of_all(start, starts,
-						ARTILLERY_INITIAL_CLEARANCE_PX):
-					valid = false
-					break
-				starts.append(start)
-				tracks.append({
-					"center": track_center,
-					"axis": route_axis,
-					"half_length": half_length,
-					"half_width": half_width,
-					"phase": phase,
-				})
-			if valid:
-				return {"tracks": tracks, "formation": formation}
-	return {}
+## 炮兵阵位搜索的可分片版本：逐个椭圆采样点推进，局部 RNG 的抽取顺序与一次性穷举完全相同
+## （test_zone_atmosphere_combat 对照原实现逐值验证）。step(deadline_usec) 到点即返回，
+## deadline_usec < 0 表示一次跑完；finished 后 plan 为 {tracks, formation}，全部数量档无解时为空。
+class ArtilleryPlanSearch extends RefCounted:
+	const RING_MULTS: Array[float] = [1.0, 0.65, 0.35, 0.0]
+	const CANDIDATES := 16
+	const ELLIPSE_SAMPLES := 16
+
+	var center: Vector2
+	var radius: float
+	var hostile_center: Vector2
+	var rng := RandomNumberGenerator.new()
+	var count := ZoneAtmosphereCombat.ARTILLERY_COUNT
+	var finished := false
+	var plan: Dictionary = {}
+	var _count_ready := false
+	var _base_angle := 0.0
+	var _offset_radius := 0.0
+	var _start_step := 0
+	var _ring := 0
+	var _candidate := 0
+	var _candidate_ready := false
+	var _route_axis := Vector2.ZERO
+	var _lateral := Vector2.ZERO
+	var _base := Vector2.ZERO
+	var _formation: StringName = &""
+	var _offsets: Array[Vector2] = []
+	var _group_phase := 0.0
+	var _tracks: Array[Dictionary] = []
+	var _starts: Array[Vector2] = []
+	var _track_ready := false
+	var _track: Dictionary = {}
+	var _start := Vector2.ZERO
+	var _point := 0
+
+	func _init(p_center: Vector2, p_radius: float, p_hostile_center: Vector2, seed_value: int) -> void:
+		center = p_center
+		radius = p_radius
+		hostile_center = p_hostile_center
+		rng.seed = seed_value
+
+	func step(deadline_usec: int) -> bool:
+		while not finished:
+			_advance()
+			if deadline_usec >= 0 and Time.get_ticks_usec() >= deadline_usec:
+				break
+		return finished
+
+	func _advance() -> void:
+		if count < 1:
+			finished = true
+			return
+		if not _count_ready:
+			var away := (center - hostile_center).normalized()
+			if away.length_squared() < 0.5:
+				away = Vector2.RIGHT
+			_base_angle = away.angle() + rng.randf_range(
+				-ZoneAtmosphereCombat.ARTILLERY_ROUTE_ANGLE_JITTER_RAD,
+				ZoneAtmosphereCombat.ARTILLERY_ROUTE_ANGLE_JITTER_RAD)
+			_offset_radius = minf(radius * rng.randf_range(0.23, 0.34), 760.0)
+			_start_step = rng.randi_range(0, 15)
+			_ring = 0
+			_candidate = 0
+			_candidate_ready = false
+			_count_ready = true
+			return
+		if _ring >= RING_MULTS.size():
+			count -= 1
+			_count_ready = false
+			return
+		if not _candidate_ready:
+			var step_index := (_start_step + _candidate) % CANDIDATES
+			var direction := Vector2.from_angle(_base_angle + float(step_index) * TAU / 16.0)
+			_route_axis = Vector2(-direction.y, direction.x)
+			_lateral = Vector2(-_route_axis.y, _route_axis.x)
+			_base = center + direction * _offset_radius * float(RING_MULTS[_ring])
+			_formation = ZoneAtmosphereCombat.ARTILLERY_FORMATIONS[
+				rng.randi_range(0, ZoneAtmosphereCombat.ARTILLERY_FORMATIONS.size() - 1)]
+			var spacing := rng.randf_range(ZoneAtmosphereCombat.ARTILLERY_SLOT_MIN_PX,
+				ZoneAtmosphereCombat.ARTILLERY_SLOT_MAX_PX)
+			var depth := rng.randf_range(ZoneAtmosphereCombat.ARTILLERY_DEPTH_MIN_PX,
+				ZoneAtmosphereCombat.ARTILLERY_DEPTH_MAX_PX)
+			_offsets = ZoneAtmosphereCombat.artillery_formation_offsets(_formation, count, spacing, depth)
+			_group_phase = rng.randf_range(0.0, TAU)
+			_tracks = []
+			_starts = []
+			_track_ready = false
+			_candidate_ready = true
+			return
+		if _tracks.size() >= count:
+			plan = {"tracks": _tracks, "formation": _formation}
+			finished = true
+			return
+		if not _track_ready:
+			var i := _tracks.size()
+			var offset: Vector2 = _offsets[i]
+			var track_center := _base + _route_axis * offset.x + _lateral * offset.y \
+				+ _route_axis * rng.randf_range(-ZoneAtmosphereCombat.ARTILLERY_JITTER_PX,
+					ZoneAtmosphereCombat.ARTILLERY_JITTER_PX) \
+				+ _lateral * rng.randf_range(-ZoneAtmosphereCombat.ARTILLERY_JITTER_PX,
+					ZoneAtmosphereCombat.ARTILLERY_JITTER_PX)
+			var half_length := rng.randf_range(ZoneAtmosphereCombat.ARTILLERY_ROUTE_HALF_MIN_PX,
+				ZoneAtmosphereCombat.ARTILLERY_ROUTE_HALF_MAX_PX)
+			var half_width := rng.randf_range(ZoneAtmosphereCombat.ARTILLERY_ROUTE_WIDTH_MIN_PX,
+				ZoneAtmosphereCombat.ARTILLERY_ROUTE_WIDTH_MAX_PX)
+			var phase := fposmod(_group_phase + float(i) * TAU / maxf(float(count), 1.0) \
+				+ rng.randf_range(-ZoneAtmosphereCombat.ARTILLERY_PHASE_JITTER_RAD,
+					ZoneAtmosphereCombat.ARTILLERY_PHASE_JITTER_RAD), TAU)
+			_start = track_center + _route_axis * cos(phase) * half_length \
+				+ _lateral * sin(phase) * half_width
+			_track = {
+				"center": track_center,
+				"axis": _route_axis,
+				"half_length": half_length,
+				"half_width": half_width,
+				"phase": phase,
+			}
+			_point = 0
+			_track_ready = true
+			return
+		if _point < ELLIPSE_SAMPLES:
+			# 与原 _land_ellipse_valid 同一判定：轨道椭圆 16 个相位逐点验陆地与战区内圈。
+			var sample_phase := float(_point) * TAU / 16.0
+			var track_center: Vector2 = _track["center"]
+			var pos := track_center + _route_axis * cos(sample_phase) * float(_track["half_length"]) \
+				+ _lateral * sin(sample_phase) * float(_track["half_width"])
+			if pos.distance_to(center) > radius * 0.9 or not MapGeography.is_ground_spawn_safe(pos):
+				_next_candidate()
+			else:
+				_point += 1
+			return
+		if not ZoneAtmosphereCombat._point_clear_of_all(_start, _starts,
+				ZoneAtmosphereCombat.ARTILLERY_INITIAL_CLEARANCE_PX):
+			_next_candidate()
+			return
+		_starts.append(_start)
+		_tracks.append(_track)
+		_track_ready = false
+
+	func _next_candidate() -> void:
+		_candidate += 1
+		_candidate_ready = false
+		if _candidate >= CANDIDATES:
+			_candidate = 0
+			_ring += 1
 
 
 ## 返回局部编队偏移：x=轨道长轴纵深，y=轨道横向。只在生成时计算一次。
@@ -513,20 +705,6 @@ static func artillery_formation_offsets(formation: StringName, count: int, spaci
 static func _point_clear_of_all(point: Vector2, others: Array[Vector2], clearance: float) -> bool:
 	for other in others:
 		if point.distance_to(other) < clearance:
-			return false
-	return true
-
-
-func _land_ellipse_valid(origin: Vector2, route_axis: Vector2, zone_center: Vector2,
-		zone_radius: float, half_length: float = 350.0, half_width: float = 45.0) -> bool:
-	var lateral := Vector2(-route_axis.y, route_axis.x)
-	# 出生点加 16 个椭圆相位；不仅检查端点，避免轨道中段穿水。
-	for i in range(16):
-		var phase := float(i) * TAU / 16.0
-		var pos := origin + route_axis * cos(phase) * half_length \
-			+ lateral * sin(phase) * half_width
-		if pos.distance_to(zone_center) > zone_radius * 0.9 \
-				or not MapGeography.is_ground_spawn_safe(pos):
 			return false
 	return true
 

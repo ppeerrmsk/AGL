@@ -46,9 +46,14 @@ static func matches(mesh: ArrayMesh, descriptor: Dictionary) -> bool:
 		or not Contract.integer(descriptor.get("formal_faces")): return false
 	var points := PackedVector3Array()
 	if mesh.get_surface_count()>1: return false
+	var trace := PerfBuckets.frame_trace_enabled
+	var phase_started := Time.get_ticks_usec() if trace else 0
 	if mesh.get_surface_count()==1:
 		if mesh.surface_get_primitive_type(0)!=Mesh.PRIMITIVE_TRIANGLES: return false
 		var arrays := mesh.surface_get_arrays(0)
+		if trace:
+			PerfBuckets.tick("tokyo_map_stream.coverage_arrays",Time.get_ticks_usec()-phase_started)
+			phase_started=Time.get_ticks_usec()
 		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 		var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
 		if indices.is_empty():
@@ -58,8 +63,13 @@ static func matches(mesh: ArrayMesh, descriptor: Dictionary) -> bool:
 			for n in indices.size():
 				if indices[n]<0 or indices[n]>=vertices.size(): return false
 				points[n]=vertices[indices[n]]
+		if trace:
+			PerfBuckets.tick("tokyo_map_stream.coverage_expand",Time.get_ticks_usec()-phase_started)
+			phase_started=Time.get_ticks_usec()
 	if points.size()!=int(descriptor.formal_faces)*3: return false
 	var context := HashingContext.new()
 	context.start(HashingContext.HASH_SHA256)
 	if not points.is_empty(): context.update(points.to_byte_array())
-	return context.finish().hex_encode()==descriptor.formal_positions_sha256
+	var verified: bool = context.finish().hex_encode()==descriptor.formal_positions_sha256
+	if trace: PerfBuckets.tick("tokyo_map_stream.coverage_hash",Time.get_ticks_usec()-phase_started)
+	return verified
