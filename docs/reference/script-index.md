@@ -482,14 +482,14 @@ HLOD纯色几何诊断：`rendering/tokyo_hlod_surface.gd` / `textured_code`仅�
 
 预取身份与缺口形状：`rendering/tokyo_hlod_handoff.gd` `prefetch_changed` / `uncovered_view`（归一化数组身份；保留真实缺口矩形以区分共边浮点误差）。
 
-预测资源身份：`rendering/tokyo_hlod_overlay.gd:920 _predict_prefetch`（仅未绑定缓存候选，不放宽显示资格）。
+预测资源身份：`rendering/tokyo_hlod_overlay.gd:940 _predict_prefetch`（仅未绑定缓存候选，不放宽显示资格）。
 
 | 文件 | 职责与入口 |
 |---|---|
 | `tests/tokyo_wasd_audit.gd:65 run` | 正式入口的真实 WASD/滚轮回放、逐绘制帧 alpha/几何覆盖、相机时序与预取命中诊断；读回样本不是性能验收 |
-| `rendering/tokyo_hlod_handoff.gd:224 native_covers_view` | 第三层固定地表覆盖证明，不以低楼包络替代 |
-| `rendering/tokyo_hlod_overlay.gd:672 _select_hlod` / `rendering/tokyo_hlod_overlay.gd:821 _select_native` | 移动提前范围与在途切面复用 |
-| `rendering/tokyo_hlod_overlay.gd:1037 _target_covers_current_view` / `rendering/tokyo_hlod_overlay.gd:1177 _request_target` | 提交前重新证明空间覆盖；未绑定预取与显示切面分开计费 |
+| `rendering/tokyo_hlod_handoff.gd:237 native_covers_view` | 第三层固定地表覆盖证明，不以低楼包络替代 |
+| `rendering/tokyo_hlod_overlay.gd:672 _select_hlod` / `rendering/tokyo_hlod_overlay.gd:856 _select_native` | 移动提前范围与在途切面复用 |
+| `rendering/tokyo_hlod_overlay.gd:1057 _target_covers_current_view` / `rendering/tokyo_hlod_overlay.gd:1200 _request_target` | 提交前重新证明空间覆盖；未绑定预取与显示切面分开计费 |
 
 ## 小队恐惧锥与受害者控制
 
@@ -1809,15 +1809,15 @@ R96地表边界审查：`tests/tokyo_ground_boundary_review.gd` / `run` 在同�
 
 ## M20投影覆盖与逐帧交接诊断
 
-旋转视野覆盖与屏外高楼保护：`rendering/tokyo_hlod_handoff.gd:151 covers_projection` / `rendering/tokyo_hlod_handoff.gd:165 _covers_projected_entry`；父子保守包络在 `rendering/tokyo_hlod_manifest.gd:203 tree` 加载期生成，原选页/绘制包络不变。
+旋转视野覆盖与屏外高楼保护：`rendering/tokyo_hlod_handoff.gd:164 covers_projection` / `rendering/tokyo_hlod_handoff.gd:178 _covers_projected_entry`；父子保守包络在 `rendering/tokyo_hlod_manifest.gd:203 tree` 加载期生成，原选页/绘制包络不变。
 
-求解前的在途HLOD快速复用：`rendering/tokyo_map_planner.gd:334 _pending_hlod_covers` / `rendering/tokyo_hlod_overlay.gd:635 _pending_hlod_covers`；普通候选和桥接候选都按既有0.25秒预测检查目录及行级清晰度上限。无解原生回退的最小视野检查：`rendering/tokyo_hlod_overlay.gd:822 _select_native_fallback`，已有原生目标仍走原复用路径。回归：`tests/test_tokyo_hlod_stream.gd:1420 pending_hlod_expiry_checks`、`tests/test_tokyo_hlod_stream.gd:1463 projection_equivalence_checks`，经 `HLOD_STREAM_TEST` + `PROJECTED_COVERAGE_TEST` 聚焦入口，亦接既有all。
+求解前的在途HLOD快速复用：`rendering/tokyo_map_planner.gd:339 _pending_hlod_covers` / `rendering/tokyo_hlod_overlay.gd:635 _pending_hlod_covers`；普通候选和桥接候选都按既有0.25秒预测检查目录及行级清晰度上限。无解原生回退的最小视野检查：`rendering/tokyo_hlod_overlay.gd:842 _select_native_fallback`，已有原生目标仍走原复用路径。回归：`tests/test_tokyo_hlod_stream.gd:1420 pending_hlod_expiry_checks`、`tests/test_tokyo_hlod_stream.gd:1463 projection_equivalence_checks`，经 `HLOD_STREAM_TEST` + `PROJECTED_COVERAGE_TEST` 聚焦入口，亦接既有all。
 
 逐帧时序：`tests/tokyo_volume_combat_runner.gd:155 _process` / `tests/tokyo_volume_combat_runner.gd:289 _bench_finish_now`；选择状态由 `rendering/tokyo_hlod_overlay.gd:276 _step_geometry` 有界采集。`tools/run_tokyo_map_handoff.ps1 -Trace -Interactive` 显式开启；`-Counterfactual` 额外求解替代方案，不是性能基线。用法见[当前地图复现](../handoffs/2026-10-14-current-map-runtime-repro.md#逐帧诊断)。
 
 ## M20联合预算桥接
 
-同池已有资源抵扣与保护带逐档核验：`rendering/tokyo_hlod_overlay.gd:785 _handoff_incremental_costs` / `rendering/tokyo_hlod_overlay.gd:752 _select_handoff_hlod`；完整树按新增物理费用求解：`rendering/tokyo_hlod_manifest.gd:314 select_handoff` / `rendering/tokyo_hlod_manifest.gd:353 incremental_tree`。显示费用和真实联合费用仍独立复核；失格哨兵不可因资源已在内存而降价。
+同池已有资源抵扣与保护带逐档核验：`rendering/tokyo_hlod_overlay.gd:785 _handoff_incremental_costs` / `rendering/tokyo_hlod_overlay.gd:772 _select_handoff_hlod`；完整树按新增物理费用求解：`rendering/tokyo_hlod_manifest.gd:314 select_handoff` / `rendering/tokyo_hlod_manifest.gd:353 incremental_tree`。显示费用和真实联合费用仍独立复核；失格哨兵不可因资源已在内存而降价。
 
 共享父子页、半池以上可行切面、完整费用恢复与过期页反例：`tests/test_tokyo_hlod_stream.gd:1340 handoff_bridge_checks`；经既有投影覆盖 focused 与 all 入口。
 
@@ -1832,15 +1832,15 @@ R96地表边界审查：`tests/tokyo_ground_boundary_review.gd` / `run` 在同�
 | 文件 | 职责 | 入口 |
 |---|---|---|
 | `rendering/tokyo_prepared_catalog.gd` | Loading/离线生成并验证来源、格式与算法身份绑定的资格区间；游戏帧只查精确区间，不从缺失缓存重建。 | `build` `validate` `roots_at` `cache_path` `load_or_build` `read` `write` |
-| `rendering/tokyo_map_planner.gd` | 独占纯值来源与选择缓存，统一当前切面、原生回退、联合预算桥接和预测；在途HLOD快速复用先验未来资格，各保护带收窄前尝试共享资源加权，原生保护候选失败后保留仍完整合格的已提交切面，未来预取避免重复外推。 | `configure` `plan` `compact_cut` `_pending_hlod_covers` `_select_hlod` `_select_handoff_hlod` `_handoff_incremental_costs` `_select_native` `_predict_prefetch` |
+| `rendering/tokyo_map_planner.gd` | 独占纯值来源与选择缓存，统一当前切面、原生回退、联合预算桥接和预测；在途HLOD快速复用先验未来资格，各保护带收窄前尝试共享资源加权，原生保护候选失败后保留仍完整合格的已提交切面，未来预取避免重复外推；运动中提前细档保护带不足0.25秒平移时改显示实际档带保护切面。 | `configure` `plan` `compact_cut` `_pending_hlod_covers` `_select_hlod` `_motion_guarded_actual` `_select_handoff_hlod` `_handoff_incremental_costs` `_select_native` `_predict_prefetch` |
 | `rendering/tokyo_map_plan_worker.gd` | 一个后台任务槽；来源/请求隔离，未完成领取立即返回，完成结果按来源代次领取；退出/换源才等待。 | `configure` `busy` `ready` `submit` `take` `close` `summary` `_run` `pure` |
-| `rendering/tokyo_hlod_overlay.gd` | Loading装配准备目录与规划器，空闲时重新采样最新请求；主线程重验revision、当前投影视野、清晰度、联合预算和资源就绪。逐帧运动采样在瞬切时清除平移/缩放历史；相同原生资源同步刷新保护元数据，零保护带采用更短重采样间隔；等待后台时先接替已就绪目标，再清理失格旧切面。正式地图（`map_frame_balance`）下交接/规划准入/规划提交同帧互斥并优先落到无物理步帧，仅当前切面合格且覆盖视野时可让。 | `_step_geometry` `_selection_due` `_prepare_map_planner` `_planning_request` `_step_prepared_selection` `_admit_prepared_plan` `_refresh_native_guard_metadata` `_heavy_contested` `_heavy_slot` `_commit_ready_target` `_finish_display_step` `_exit_tree` `debug_state` |
+| `rendering/tokyo_hlod_overlay.gd` | Loading装配准备目录与规划器，空闲时重新采样最新请求；主线程重验revision、当前投影视野、清晰度、联合预算和资源就绪。逐帧运动采样在瞬切时清除平移/缩放历史；相同原生资源同步刷新保护元数据，零保护带采用更短重采样间隔；等待后台时先接替已就绪目标，再清理失格旧切面。正式地图（`map_frame_balance`）下交接/规划准入/规划提交同帧互斥并优先落到无物理步帧，仅当前切面合格且覆盖视野时可让。同步兼容路径与规划器共用运动中提前细档保护带门。 | `_step_geometry` `_selection_due` `_motion_guarded_actual` `_prepare_map_planner` `_planning_request` `_step_prepared_selection` `_admit_prepared_plan` `_refresh_native_guard_metadata` `_heavy_contested` `_heavy_slot` `_commit_ready_target` `_finish_display_step` `_exit_tree` `debug_state` |
 | `rendering/tokyo_hlod_manifest.gd` / `rendering/tokyo_hlod_native.gd` | 显式后台上下文传入预算/epoch并复用准备树；原生选择快照仅含值，后台缓存不读取主线程帧状态。 | `background_selection` `selection_context_valid` `qualified_roots` / `selection_snapshot` `configure_selection_snapshot` `select` |
-| `rendering/tokyo_hlod_handoff.gd` | 共享资源物理费用、当前/前探视野覆盖、清晰度与缩放方向的纯值判定；原生移动查询包含当前视野与预测倍率下的未来视野。 | `append_streaming_bundle` `streaming_bytes` `covers_motion_view` `covers_projection` `prediction_zoom_rate` `pan_lead` `zoom_out_padding` `native_motion_query` |
+| `rendering/tokyo_hlod_handoff.gd` | 共享资源物理费用、当前/前探视野覆盖、清晰度与缩放方向的纯值判定；原生移动查询包含当前视野与预测倍率下的未来视野；运动保护需求取0.25秒平移前探屏幕长度（上限192px），运动中改用的实际档须按0.6秒放大外推仍合格。 | `append_streaming_bundle` `streaming_bytes` `covers_motion_view` `covers_projection` `prediction_zoom_rate` `pan_lead` `motion_guard_need` `motion_actual_qualified` `zoom_out_padding` `native_motion_query` |
 | `rendering/tokyo_native_predictor.gd` | 原生候选未来预取；`smooth_pan`按经过时间平滑逐帧速度，供默认后台规划入口和既有预测路径共用。 | `smooth_pan` `prepare` `request` `dispatch` `close` |
 | `rendering/visual_redraw_queue.gd` | 合并同一呈现前的物理步重绘请求，保留最终状态；WeakRef排除已释放/退出节点，非物理请求保持立即排队。 | `request` `_flush` |
 | `tests/test_tokyo_prepared_catalog.gd` | 准备区间与旧资格树差分，来源/格式/摘要/损坏缓存拒绝及只读失效行为。 | `checks` `cache_checks` `run` |
-| `tests/test_tokyo_map_planner.gd` | 纯规划/同步差分、原生桥接、混合资格缓存、方向裁页和半池到全池重试；真实原生选择器验证移动/旋转覆盖、已有切面保留、资格/面数/物理预算拒绝、零缩放等价和预取不重复外推。可选安装M20诊断重放Near与C1请求，核对两视野共同切面、瞬切历史对照及物理资源去重后的联合费用。 | `GuardPool` `NativeRetentionOverlay` `differential_checks` `native_bridge_checks` `mixed_cached_hlod_checks` `directional_trim_checks` `guard_budget_retry_checks` `native_motion_guard_checks` `native_motion_retention_checks` `native_motion_query_checks` `native_motion_prefetch_checks` `native_joint_cut` `installed_native_gap_diagnostic` `installed_native_retention_diagnostic` `installed_native_motion_diagnostic` `c1_compact_trace_poses` `c1_compact_pair_bytes` `c1_compact_metrics` `installed_c1_compact_diagnostic` `run` |
+| `tests/test_tokyo_map_planner.gd` | 纯规划/同步差分、原生桥接、混合资格缓存、方向裁页、半池到全池重试和运动中细档裸切面改取实际档保护切面（静止/细档已足/实际档将到期/联合超池保持原选择）；真实原生选择器验证移动/旋转覆盖、已有切面保留、资格/面数/物理预算拒绝、零缩放等价和预取不重复外推。可选安装M20诊断重放Near与C1请求，核对两视野共同切面、瞬切历史对照及物理资源去重后的联合费用。 | `GuardPool` `NativeRetentionOverlay` `differential_checks` `native_bridge_checks` `mixed_cached_hlod_checks` `directional_trim_checks` `guard_budget_retry_checks` `motion_guard_source` `motion_guard_actual_checks` `native_motion_guard_checks` `native_motion_retention_checks` `native_motion_query_checks` `native_motion_prefetch_checks` `native_joint_cut` `installed_native_gap_diagnostic` `installed_native_retention_diagnostic` `installed_native_motion_diagnostic` `c1_compact_trace_poses` `c1_compact_pair_bytes` `c1_compact_metrics` `installed_c1_compact_diagnostic` `run` |
 | `tests/test_tokyo_selection_context.gd` | 显式上下文预算、缓存epoch、快照隔离、准备目录复用及真实后台调用。 | `manifest_checks` `native_checks` `prepared_checks` `run` |
 | `tests/test_tokyo_hlod_stream.gd` | 共享物理资源交接、方向保护、缩远视口增长与预测入口等价；每档保护带收窄前验证共享费用解，普通在途HLOD同样受预测资格门约束。可选安装M20诊断核对FastNorth原请求、联合费用和后续实际覆盖。 | `MotionPlanProbe` `ZoomGuardPool` `ZoomForecastPlanner` `ZoomForecastOverlay` `motion_handoff_checks` `zoom_footprint_checks` `shared_zoom_source` `shared_zoom_guard_checks` `zoom_trace_covered` `zoom_trace_result` `installed_zoom_handoff_diagnostic` `handoff_bridge_checks` `pending_hlod_expiry_checks` `projection_equivalence_checks` |
 | `tests/tokyo_map_plan_worker_case.gd` | 真实任务阻塞时非等待领取、单槽、错代次、延迟领取、非法值拒绝和退出/换源生命周期。 | `wait_ready` `run` |

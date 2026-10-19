@@ -78,6 +78,7 @@ var _selection_trace: Array[Dictionary]=[]
 var _trace_selection := OS.get_environment("AGL_TOKYO_SELECTION_TRACE")=="1"
 var _trace_counterfactual := OS.get_environment("AGL_TOKYO_HANDOFF_COUNTERFACTUAL")=="1"
 var pending_selection_reuses := 0
+var motion_actual_cuts := 0
 var native_screen_rejections := 0
 const MapPlanner := preload("res://scripts/rendering/tokyo_map_planner.gd")
 const MapWorker := preload("res://scripts/rendering/tokyo_map_plan_worker.gd")
@@ -363,6 +364,10 @@ func _step_geometry(view_bounds: Rect2, scale_value: float, _delta: float) -> bo
 						next=_select_hlod(_catalogs[selected],center,scale_value,_last_canvas.get_rotation(),_last_size,true)
 					elif selected==-2 and (next.is_empty() or not next.within_budget):
 						next=_select_native(center,scale_value,_last_canvas.get_rotation(),_last_size)
+				# 运动中提前细档只剩撑不过0.25秒平移的保护带时，显示改用实际档的带保护完整切面。
+				if selected>=0 and not next.is_empty() and next.within_budget:
+					var guarded := _motion_guarded_actual(selected,next,center,scale_value,_last_canvas.get_rotation(),_last_size,handoff_budget)
+					if not guarded.is_empty(): next=guarded;selected=Handoff.catalog_index(_catalogs,scale_value,false);motion_actual_cuts+=1
 				if PerfBuckets.frame_trace_enabled: phase_started=_selection_phase("base",phase_started)
 				# 原生是细节偏好，不得取消仍完整合格的HLOD在途事务；提交后再升级。
 				var finishing_hlod := selected>=0 and selected==_target_catalog and not _target_committed() \
@@ -555,7 +560,7 @@ func _step_geometry(view_bounds: Rect2, scale_value: float, _delta: float) -> bo
 					"target_catalog":_target_catalog,"target":_target.get("keys",[]).duplicate(),"next_catalog":selected,"next":next.get("keys",[]).duplicate(),
 					"next_bytes":next.get("bytes",0),"next_guard":next.get("spatial_guard_px",0),"next_budget":next.get("within_budget",false),
 					"next_bridge":next.get("handoff_bridge",false),"next_incremental_bytes":next.get("handoff_incremental_bytes",-1),
-					"next_stage":next.get("selection_stage",""),"next_trim_lead":next.get("trim_lead_world",Vector2.ZERO),
+					"next_stage":next.get("selection_stage",""),"next_trim_lead":next.get("trim_lead_world",Vector2.ZERO),"next_motion_need":next.get("motion_guard_need_px",0.0),
 					"union":_handoff_bytes(next,selected) if not next.is_empty() and not _committed.is_empty() else -1,"ready":_resources_ready(next,selected),
 					"next_covered":_cut_covers_current_view(next,selected) if selected!=-1 and not next.is_empty() else false,
 					"native_builds":_native.solver_builds if _native!=null else 0,"pending_reuses":pending_selection_reuses,
@@ -744,6 +749,24 @@ func _handoff_bridge_qualified(index: int, cut: Dictionary, scale: float) -> boo
 	# 与既有预测I/O共用0.25秒视窗；快速放大时不能靠低档桥接拖延即将到期的换档。
 	var future_scale := scale*exp(clampf(_zoom_rate*0.25,0.0,0.7))
 	return Handoff.qualified(_catalogs[index],cut,future_scale)
+
+
+func _motion_guarded_actual(selected: int, next: Dictionary, center: Vector2, scale: float, angle: float, size: Vector2, handoff_budget: int) -> Dictionary:
+	# 同步兼容路径与 MapPlanner 同一规则：运动中细档裸切面改取实际档保护切面。
+	var guard := float(next.get("spatial_guard_px",0.0))
+	var need := Handoff.motion_guard_need(_pan_velocity,scale,size)
+	if guard>=need or _foundation.get("layers",{}).has(selected): return {}
+	var actual := Handoff.catalog_index(_catalogs,scale,false)
+	if actual<0 or actual==selected: return {}
+	var cut := _select_hlod(_catalogs[actual],center,scale,angle,size,false,Stream.BUDGET/2)
+	if not cut.is_empty() and not cut.within_budget: cut=_select_hlod(_catalogs[actual],center,scale,angle,size)
+	if cut.is_empty() or not cut.within_budget or float(cut.get("spatial_guard_px",0.0))<=guard \
+		or not Handoff.motion_actual_qualified(_catalogs[actual],cut,scale,_zoom_rate): return {}
+	if not _committed.is_empty():
+		var union := _handoff_bytes(cut,actual)
+		if union<0 or union>handoff_budget: return {}
+	cut["motion_guard_need_px"]=need
+	return cut
 
 
 func _select_handoff_hlod(index: int, center: Vector2, scale: float, angle: float, size: Vector2, budget: int, max_display_bytes: int = -1, min_guard_px: float = 0.0, include_zoom_footprint: bool = true) -> Dictionary:
@@ -1402,7 +1425,7 @@ func debug_state() -> Dictionary:
 		"display_qualified":display_qualified,"display_covered":display_covered,
 		"lod_grace_active":_display_grace,"lod_grace_frames":lod_grace_frames,"max_lod_grace_ms":max_lod_grace_ms,"max_lod_grace_ratio":max_lod_grace_ratio,
 		"retained_cuts":retained_cuts,
-		"pending_selection_reuses":pending_selection_reuses,
+		"pending_selection_reuses":pending_selection_reuses,"motion_actual_cuts":motion_actual_cuts,
 		"native_screen_rejections":native_screen_rejections,
 		"zoom_rate":_zoom_rate,"zoom_prediction_reversals":zoom_prediction_reversals,
 		"hlod_solver_builds":_selection_work.get("builds",0),"hlod_solver_reuses":_selection_work.get("reuses",0),
@@ -1543,6 +1566,7 @@ func _trace_prepared_state(kind: String, next: Dictionary = {}, selected: int = 
 		"next_catalog":selected,"next":next.get("keys",[]).duplicate(),"next_bytes":next.get("bytes",0),
 		"next_guard":next.get("spatial_guard_px",0),"next_anticipated":next.get("anticipated_scale",0),
 		"next_stage":next.get("selection_stage",""),"next_bridge":next.get("handoff_bridge",false),"next_trim_lead":next.get("trim_lead_world",Vector2.ZERO),
+		"next_motion_need":next.get("motion_guard_need_px",0.0),
 		"next_motion_lead":next.get("motion_lead_world",Vector2.ZERO),"next_motion_horizon":next.get("motion_horizon",0.0),
 		"next_configuration":next.get("configuration",""),"next_triangles":next.get("triangles",0),
 		"next_guard_rejection":next.get("guard_rejection",{}),"next_prefetched_native":next.get("prefetched_native",false),
