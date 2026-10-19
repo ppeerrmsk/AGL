@@ -243,9 +243,14 @@ static func prewarm_lod(lod: int, world_rect: Rect2) -> Dictionary:
 	var cache_key := _packet_cache_key(lod, world_rect)
 	var cache_hit := _packet_cache.has(cache_key)
 	var t0 := Time.get_ticks_msec()
+	var geography_ms := 0
+	var packet_ms := 0
 	if not cache_hit:
 		MapGeography.ensure_ready()
+		geography_ms = Time.get_ticks_msec() - t0
+		var packet_started := Time.get_ticks_msec()
 		var definitions := _build_packet_definitions(lod, world_rect)
+		packet_ms = Time.get_ticks_msec() - packet_started
 		if definitions.is_empty():
 			return {"ok": false, "error": "LOD%d produced no packets" % lod}
 		_packet_cache[cache_key] = definitions
@@ -260,6 +265,8 @@ static func prewarm_lod(lod: int, world_rect: Rect2) -> Dictionary:
 		"draw_calls": packets.size(),
 		"triangles": triangles,
 		"build_ms": Time.get_ticks_msec() - t0,
+		"geography_ms": geography_ms,
+		"packet_ms": packet_ms,
 	}
 
 
@@ -443,14 +450,17 @@ static func _build_packet_definitions(lod: int, world_rect: Rect2) -> Array:
 		var poly := _unpack_flat(entry.get("points", []), true)
 		if poly.size() < 3:
 			continue
+		var prepared_triangles: Dictionary = {}
 		if lod != LOD_DETAIL:
 			# 早期 water ring 来自像素轮廓；单轮柔化在 0.20 倍中景仍会露出阶梯。
 			# 两轮 Chaikin 保持闭合拓扑，同时把港湾转角变成与批准金样一致的软边。
 			var softened := _soften_closed_polygon(poly, 2)
-			if not (_triangulate_polygon(softened).indices as PackedInt32Array).is_empty():
+			var softened_triangles := _triangulate_polygon(softened)
+			if not (softened_triangles.indices as PackedInt32Array).is_empty():
 				poly = softened
+				prepared_triangles = softened_triangles
 		_add_polygon(layers, "water" if role == "water" else "land_inlay", poly,
-			sea_color if role == "water" else land_color)
+			sea_color if role == "water" else land_color, prepared_triangles)
 		var mask_entry := _make_mask_entry(poly)
 		if role == "water":
 			water_masks.append(mask_entry)
@@ -1314,10 +1324,11 @@ static func _add_rect(layers: Dictionary, name: String, rect: Rect2, color: Colo
 
 
 static func _add_polygon(layers: Dictionary, name: String, poly: PackedVector2Array,
-		color: Color) -> void:
+		color: Color, prepared: Dictionary = {}) -> void:
 	if poly.size() < 3:
 		return
-	var triangulation := _triangulate_polygon(poly)
+	# 海岸柔化的合法性检查已经得到同一三角化结果，无需重复ear clipping/拓扑整理。
+	var triangulation := _triangulate_polygon(poly) if prepared.is_empty() else prepared
 	var vertices: PackedVector2Array = triangulation.vertices
 	var triangles: PackedInt32Array = triangulation.indices
 	TrianglePacket.append_indexed(_packet(layers, name), vertices, triangles, color)

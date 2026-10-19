@@ -9,6 +9,7 @@ extends Node
 ##   cam_ctrl.setup(camera)
 ##   cam_ctrl.set_world_bounds(Rect2(...))  # 可选：开启相机位置钳制
 
+const DisplayPacing := preload("res://scripts/util/display_pacing.gd")
 const ZOOM_MIN := 0.2       ## 最大缩小倍率（越小视野越大；0.2 ≈ 1920 屏宽下可视 9600 px / 19.2 km，可俯瞰大半张图）
 const START_ZOOM := 0.35    ## 开局镜头（比 ZOOM_MIN 略紧，避免开局飞机太小；玩家可滚轮拉到 ZOOM_MIN 看全场）
 const ZOOM_MAX := 5.0
@@ -111,7 +112,8 @@ func cine_follow_tick(delta: float) -> void:
 	if camera == null or cine_target == null or not is_instance_valid(cine_target):
 		return
 	var lt: float = clampf(delta * cine_follow_lerp, 0.0, 1.0)
-	camera.global_position = camera.global_position.lerp(cine_target.global_position, lt)
+	camera.global_position = camera.global_position.lerp(
+		DisplayPacing.display_origin(cine_target), lt)
 	_clamp_camera_position()
 
 ## 演出收尾：还原玩家 zoom 与跟随。t 为 0..1 进度，用于平滑过渡回去
@@ -187,16 +189,19 @@ func _update_wasd(delta: float) -> void:
 		camera.global_position += _wasd_velocity * delta / zoom_x
 		_clamp_camera_position()
 
+## 跟随目标取【物理插值显示态】而非 global_position：后者每 tick 才跳一次，
+## 镜头在渲染帧里追一个阶梯目标会让屏幕滚动忽快忽慢、机体相对屏幕抖动。
 func _update_follow(delta: float) -> void:
 	# 演出接管：cine_target 非空时优先跟它（无视 follow_enabled，演出期间玩家没有输入权）
 	if cine_target != null and is_instance_valid(cine_target):
 		var lt: float = clampf(delta * cine_follow_lerp, 0.0, 1.0)
-		camera.global_position = camera.global_position.lerp(cine_target.global_position, lt)
+		camera.global_position = camera.global_position.lerp(
+			DisplayPacing.display_origin(cine_target), lt)
 		_clamp_camera_position()
 		return
 	if not follow_enabled or follow_target == null or not is_instance_valid(follow_target):
 		return
-	var target_pos: Vector2 = follow_target.global_position
+	var target_pos: Vector2 = DisplayPacing.display_origin(follow_target)
 	var lerp_t: float = clampf(delta * FOLLOW_LERP, 0.0, 1.0)
 	camera.global_position = camera.global_position.lerp(target_pos, lerp_t)
 	_clamp_camera_position()
@@ -242,8 +247,9 @@ func is_world_pos_visible(world_pos: Vector2, margin_px: float = 200.0) -> bool:
 	if not camera:
 		return false
 	var vp_size := camera.get_viewport().get_visible_rect().size
-	var half := vp_size / (2.0 * camera.zoom.x) + Vector2(margin_px, margin_px)
-	var rel := world_pos - camera.global_position
+	var half := vp_size / (2.0 * camera.zoom) + Vector2(margin_px, margin_px)
+	var view_rotation := 0.0 if camera.ignore_rotation else camera.global_rotation
+	var rel := (world_pos - camera.get_screen_center_position()).rotated(-view_rotation)
 	return absf(rel.x) <= half.x and absf(rel.y) <= half.y
 
 

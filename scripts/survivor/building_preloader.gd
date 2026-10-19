@@ -8,10 +8,13 @@ extends Control
 ## 撤回：survivor_select.gd 改回直接 change_scene_to_file 到 survivor_mode.tscn 即可
 
 const NEXT_SCENE := "res://scenes/survivor_mode.tscn"
+const VolumePreload := preload("res://scripts/rendering/tokyo_volume_preload.gd")
+const DesertPreload := preload("res://scripts/rendering/desert_map_preload.gd")
 const ITEMS_PER_FRAME := 30  # 每帧处理多少个街区（30 → ~7 帧完成 195 个）
 const MIN_DISPLAY_FRAMES := 6  # 最少展示 6 帧避免一闪而过
 const VectorPreviewRenderer = preload("res://scripts/survivor/map_vector_preview_renderer.gd")
 const DetailTileCache = preload("res://scripts/survivor/map_detail_tile_cache.gd")
+const RuntimePrewarmScript = preload("res://scripts/survivor/survivor_runtime_prewarm.gd")
 const MAP_LODS := [
 	VectorPreviewRenderer.LOD_OPERATIONAL,
 	VectorPreviewRenderer.LOD_TAB,
@@ -28,9 +31,18 @@ var _prewarm_map := false
 var _map_lod_index := 0
 var _detail_cache_started := false
 var _detail_cache_done := false
+var _volume_ref: WeakRef
+## 正式局事件首次触发的同步工作（音乐/战区陆地/模板/轮廓/升级弹窗字形）在此提前完成
+var _runtime_prewarm: Node
 
 
 func _ready() -> void:
+	_volume_ref = VolumePreload.start(self)
+	_runtime_prewarm = RuntimePrewarmScript.new()
+	_runtime_prewarm.name = "SurvivorRuntimePrewarm"
+	add_child(_runtime_prewarm)
+	if _volume_ref == null:
+		_volume_ref = DesertPreload.start(self)
 	# 缓存可能因为 reset 没生效，强制重置以保证从头跑（对开发期反复测试更稳）
 	# 实际玩家进入只走一次，重置成本可忽略
 	if not BuildingRenderer.cache_is_ready():
@@ -39,6 +51,8 @@ func _ready() -> void:
 		_label.text = tr("PRELOAD_BUILDINGS_LABEL") if TranslationServer else "正在加载城市数据"
 	if _hint:
 		_hint.text = tr("PRELOAD_BUILDINGS_HINT") if TranslationServer else "横浜 / Yokohama"
+		if DesertPreload.eligible(get_tree()):
+			_hint.text = tr("MAP_DESERT_RAILWAY_NAME")
 	_prewarm_map = OS.is_debug_build() \
 		and not get_tree().has_meta("boss_debug_mode") \
 		and not get_tree().has_meta("ugc_map_path") \
@@ -79,9 +93,14 @@ func _process(_delta: float) -> void:
 	if _bar:
 		_bar.value = (building_progress * BUILDING_PROGRESS_WEIGHT \
 			+ map_progress * (1.0 - BUILDING_PROGRESS_WEIGHT)) * 100.0
+		_bar.value = _bar.value * 0.75 + _volume_progress() * 25.0
 	var map_ready := not _prewarm_map or (
 		_map_lod_index >= MAP_LODS.size() and _detail_cache_done)
-	if BuildingRenderer.cache_is_ready() and map_ready and _frames >= MIN_DISPLAY_FRAMES:
+	var base_ready := BuildingRenderer.cache_is_ready() and map_ready and _volume_progress() >= 1.0
+	# 运行时预热排在自身预载之后：不与东京地图预载（15s 超时）争主线程与加载线程。
+	if base_ready:
+		_runtime_prewarm.begin()
+	if base_ready and _runtime_prewarm.is_done() and _frames >= MIN_DISPLAY_FRAMES:
 		_finish()
 
 
@@ -102,5 +121,18 @@ func _prewarm_detail_cache() -> void:
 
 
 func _finish() -> void:
+	var session: Variant = _volume_ref.get_ref() if _volume_ref != null else null
+	if typeof(session) == TYPE_OBJECT and is_instance_valid(session) and session.status == "ready":
+		if not session.arm():
+			return
 	_done = true
-	get_tree().change_scene_to_file(NEXT_SCENE)
+	var error := get_tree().change_scene_to_file(NEXT_SCENE)
+	if error != OK and typeof(session) == TYPE_OBJECT and is_instance_valid(session):
+		session.cancel()
+
+
+func _volume_progress() -> float:
+	var session: Variant = _volume_ref.get_ref() if _volume_ref != null else null
+	if typeof(session) != TYPE_OBJECT or not is_instance_valid(session) or session.status == "cancelled":
+		return 1.0
+	return session.progress()

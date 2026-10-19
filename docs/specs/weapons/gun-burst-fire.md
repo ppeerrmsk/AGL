@@ -3,7 +3,7 @@ id: gun-burst-fire
 kind: weapon
 status: done
 schema_version: 1
-spec_version: 4
+spec_version: 5
 owner: 用户（机制指令）+ Claude（数值细化）
 depends_on: []
 reconstruction_complete: true
@@ -115,6 +115,15 @@ gap           = max(burst_count × (base_interval − intra), 0)  # 梭间 CD
 - 同一目标的火星独立 CD 为 **110ms**，一梭密集弹流不会逐发重复播放；不同目标互不压制。
 - 火星寿命 **0.16s**，同屏最多 **12 组**。全部状态住 `BulletManager` 的轻量数组，亮芯/橙边分别合并成一次线段批量提交；禁止为每次命中创建 Node/粒子节点。
 
+### 3.6 玩家小队机炮承伤平衡（2026-09-06 用户批准）
+
+- 生存模式玩家与僚机由 `PlayableAircraft.bullet_damage_taken_mult = 0.6` 注入统一机炮承伤倍率；共享 Aircraft 默认值为 1.0。
+- 结算顺序：弹丸飞行衰减 → 命中资格与闪避 → 单发承伤 cap → ×0.6 → 护甲与既有技能减伤。不得在 cap 之前乘本倍率，否则高伤炮仍触顶，不能兑现统一削弱 40%。
+- 所有进入玩家小队机炮受伤入口的真弹均适用，包括普通敌机、王牌、BOSS、FFA、地面 AA 与舰载 CIWS；无来源的在途弹仍按受击机档案结算。纯视觉弹不产生伤害。
+- 无护甲、无其它减伤且全部有效命中时，V1 的十发梭从 40 降至 24；触及单发 cap 的十发梭从 50 降至 30；WhiteTea 四发梭从 20 降至 12。
+- 不改玩家对敌火力、敌机互相承伤、导弹/火箭伤害、射速、弹数、散布、射程和敌机梭后 3 秒停火。
+- 验收：`gun_burst` 通过正式档案 apply 分别配置长机/僚机，再调用真实受伤入口，覆盖 V1–V8/ACE/远端低伤、护甲叠乘、导弹隔离与普通敌机无减伤；实战体感仍需玩家验收。
+
 ## 4. 结构与组成（Structure）
 
 - 参数：`GunParams.burst_count`（Resource 字段，全炮默认 10）
@@ -123,6 +132,7 @@ gap           = max(burst_count × (base_interval − intra), 0)  # 梭间 CD
 
 ## 5. 验收标准（Acceptance / Litmus）
 
+- [x] 玩家全队封顶后机炮承伤统一 ×0.6：`gun_burst` 50/50，覆盖长僚机正式档案注入、各档单发、远端低伤、护甲与导弹隔离；不替代完整局体感验收。
 - [x] 梭射节奏成立（`--bench=gun_burst`）：600/分 首梭 10 发跨时 0.28s（旧匀速点射 0.90s）+ 梭间 CD 0.70s
 - [x] 敌机火控窗口短暂打开时，射出的是完整一梭而非 1~2 发孤弹（梭承诺，`--bench=gun_burst`：窗口开 1 帧仍出 10 发）
 - [x] 规避模式进入瞬间梭立即掐断，无残梭盲射（`--bench=gun_burst`）
@@ -175,11 +185,13 @@ gap           = max(burst_count × (base_interval − intra), 0)  # 梭间 CD
 | 机炮命中火星 | `scripts/bullet_manager.gd`（_emit_hit_spark / _update_hit_sparks / _draw） |
 | 敌方一梭安全门 | `scripts/aircraft.gd`（_ai_gun_burst_allowed / _ai_gun_pause_timer）+ `scripts/aircraft/aircraft_weapons.gd`（update_gun） |
 | reference 索引行 | code-index.md「武器系统 — 机炮」段 |
+| 玩家小队承伤倍率 | `scripts/playable_aircraft.gd` → `scripts/survivor/survivor_playable_setup.gd`（apply）→ `scripts/aircraft.gd`（take_bullet_damage） |
 
 ## 8. 变更记录
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-09-06 | 5 | 用户批准机炮总体削弱约 40%；由玩家全队档案注入 ×0.6 承伤，在单发 cap 后结算，保持弹幕与玩家火力。 |
 | 2026-07-05 | 1 | 初稿 + 实现（用户指令：机炮改梭射，射速同时缩短梭间 CD 与加快梭内频率） |
 | 2026-08-01 | 2 | 强化真命中反馈：闪避不计命中；火星按目标 110ms 节流、0.16s 短寿命、12 组封顶并批量绘制 |
 | 2026-08-02 | 3 | 敌方飞机全局改为“一次机会只打一梭，梭后强制停火 3.0s”；安全门下沉武器执行层，堵住不同 AI 路径连续多梭秒杀玩家 |

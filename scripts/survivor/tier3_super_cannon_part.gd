@@ -62,18 +62,18 @@ static func point_distance_to_segment(point: Vector2, a: Vector2, b: Vector2) ->
 func _physics_process_impl(delta: float) -> void:
 	if is_destroyed:
 		_update_destroy(delta)
-		queue_redraw()
+		FrameRedraw.request(self)
 		return
 	StatusEffects.tick(self, delta)
 	if not _threat_enabled:
 		if is_hovered or is_locked or incoming_lock_progress > 0.0:
-			queue_redraw()
+			FrameRedraw.request(self)
 		return
 	_update_body_fire(delta)
 	# 固定基盘不旋转；heading 变化只重提炮架几何。预警/弹迹和锁框持续刷新动画。
 	if _fire_state != FireState.IDLE or is_hovered or is_locked \
 			or incoming_lock_progress > 0.0:
-		queue_redraw()
+		FrameRedraw.request(self)
 
 
 func _update_body_fire(delta: float) -> void:
@@ -110,7 +110,7 @@ func _set_body_heading(value: float) -> void:
 		return
 	heading = value
 	# 根 CanvasItem 与基盘保持固定，只有 `_draw_rotating_turret` 消费 heading。
-	queue_redraw()
+	FrameRedraw.request(self)
 
 
 static func warning_elapsed_s(remaining_s: float) -> float:
@@ -194,7 +194,7 @@ func _begin_warning(target_snapshot: Vector2, target_callsign: String = "") -> v
 	_warning_s = WARNING_S
 	_fire_state = FireState.WARNING
 	_aim_target_id = 0
-	queue_redraw()
+	FrameRedraw.request(self)
 	EventLogger.log_event("TIER3", "SuperCannonWarning",
 		"group=%s target=%s length=%.0f width=%.0f" % [
 			cannon_group_id, target_callsign, shot_length, AOE_RADIUS_PX])
@@ -239,13 +239,13 @@ func _finish_shot() -> void:
 	_warning_s = 0.0
 	_shot_progress_px = 0.0
 	_aim_target_id = 0
-	queue_redraw()
+	FrameRedraw.request(self)
 
 
 func cease_tier3_threat() -> void:
 	_threat_enabled = false
 	_finish_shot()
-	queue_redraw()
+	FrameRedraw.request(self)
 
 
 func _start_destroy() -> void:

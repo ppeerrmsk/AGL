@@ -1,0 +1,41 @@
+{
+  "source_sha256": "2d39b86d82f42e628cb827e035ef6e74b1b27141466520ce4f0e0926979df15d",
+  "vertices": 200353,
+  "faces": 203967,
+  "old_faces": 304220,
+  "expected_unsplit_gpu_payload": 4116028,
+  "optimistic_split_u16_payload": 2892226,
+  "files": {
+    "local_vertices": {
+      "path": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\structural-tile-164\\local.bin",
+      "sha256": "5773eacb0dc7d0bd5cfdbabf58572a0ed58a99a352e8fcf1e2b1a624fb9f3895"
+    },
+    "indices": {
+      "path": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\structural-tile-164\\indices.bin",
+      "sha256": "76b98d3affe93b261ee6ee2ad0508be4d95961161e1092e44490a8f8c820a81e"
+    },
+    "group_table": {
+      "path": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\structural-tile-164\\table.bin",
+      "sha256": "bfe9549a819122afa9fdc7a90c862c9cda08943c810c5654d8a402ef013ab616"
+    }
+  },
+  "engine_request_created": false,
+  "degenerate_obstacle_count": 843,
+  "protection_bindings": {
+    "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-bay-volume\\r400-detail_04_00-layers\\manifest.json": "883acb25a0ff4106c8239a7383d15791a851458a3350a921f6371bb82af0a2d8",
+    "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-bay-volume\\r400-detail_04_00-layers\\layer_2.bin": "f604d0ca0b966f61f8a288b819fb9e5f4e053a154c5e769f283c7246616774e7",
+    "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-bay-volume\\r400-detail_04_00-source\\city.json": "5202cc4e63ef3ab4cc36ac9e7433df0f8ef3d910761d3e790bcb1e336fc4b25a",
+    "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-bay-volume\\r358-gameplay-protection-a.json": "b51357313726f6e4e472e9dfb3fc0b3b8896c697628dddb14392c4c89217953b"
+  },
+  "independent_added_region_protection_audit": true,
+  "formal_qualified": false,
+  "summary_provenance": {
+    "original": "tmp/tokyo-complete-production-02/structural-tile-164/report.json",
+    "sha256": "88c47140774d228d00fc2d31d387a4b1fa6e88ba7558cedde5b57eef23eb77a0",
+    "omitted_arrays": [
+      "rows"
+    ],
+    "original_in_frozen_zip": true
+  },
+  "original_row_count": 2050
+}

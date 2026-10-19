@@ -1,6 +1,12 @@
 class_name RasterBasemapRenderer
 extends Node2D
 
+## 借用者必须同步释放，之后源才能改动/退役；无订阅者时不改变原流水线。
+signal presentation_changing
+## 精确退役通知供共享纹理桥接释放单个借用；不要求重建全部驻留页。
+signal presentation_tile_retiring(instance_id: int)
+var presentation_revision := 0
+
 ## 共享栅格金字塔 renderer：主地图按视口只驻留当前 LOD 的少量无损瓦片；
 ## Strategic 永远作为父层兜底。静止时仅以 10Hz 检查相机状态，不触发地图重绘。
 
@@ -38,7 +44,9 @@ var _layers: Dictionary = {}
 var _sprites: Dictionary = {}
 var _pending: Dictionary = {}
 var _lru: Array[String] = []
-var _strategic_sprite: Sprite2D = null
+var _strategic_sprite: Variant = null
+var source_projection: Dictionary = {}
+const PROJECTED_GEOMETRY_RESERVE := 128 * 1024
 var _current_lod: StringName = LOD_STRATEGIC
 var _target_lod: StringName = LOD_STRATEGIC
 var _tick_accum := 0.0
@@ -47,11 +55,19 @@ var _transitioning := false
 var _transition_from_lod: StringName = LOD_STRATEGIC
 var _setup_elapsed_ms := 0
 var _peak_resident_tiles := 0
+var _peak_committed_tiles := 0
+var _capacity_deferrals := 0
 var _grain_texture: Texture2D = null
 
 
+static func map_root_for(map_key: String, source_selection: String = "") -> String:
+	# 只选择固定内置候选目录，不能把其他地图或任意外部路径一起替换。
+	var folder := "desert_satellite" if map_key == "desert" and source_selection == "sentinel" else map_key
+	return "%s/%s" % [ROOT_PATH, folder]
+
+
 static func manifest_path_for(map_key: String) -> String:
-	return "%s/%s/manifest.json" % [ROOT_PATH, map_key]
+	return map_root_for(map_key, OS.get_environment("AGL_DESERT_BASEMAP")) + "/manifest.json"
 
 
 static func load_manifest(map_key: String) -> Dictionary:
@@ -149,11 +165,17 @@ func setup(camera: Camera2D, world_rect: Rect2, map_key: String) -> bool:
 	var setup_started := Time.get_ticks_msec()
 	_camera = camera
 	_world_rect = world_rect
+	if not source_projection.is_empty() and not preload("res://scripts/experiments/tokyo_raster_projection.gd").valid_for(source_projection,world_rect):
+		return false
 	_map_key = map_key
-	_map_root = "%s/%s" % [ROOT_PATH, map_key]
+	_map_root = manifest_path_for(map_key).get_base_dir()
 	_manifest = load_manifest(map_key)
 	if _camera == null or _world_rect.size.x <= 0.0 or _manifest.is_empty():
 		return false
+	if not source_projection.is_empty():
+		if _manifest.get("volume_profile",{}).get("source_kind","carto")!="carto":
+			return false
+		source_projection = source_projection.duplicate(true)
 	_profile = _manifest.get("style_profile", {}) as Dictionary
 	if _profile.is_empty():
 		return false
@@ -167,6 +189,9 @@ func setup(camera: Camera2D, world_rect: Rect2, map_key: String) -> bool:
 		_sprites[lod] = {}
 	if not _load_strategic():
 		return false
+	# 初次同步选格也使用已生效的相机投影，不等下一帧才补载出生视口。
+	if _camera.is_inside_tree() and _camera.is_current():
+		_camera.force_update_scroll()
 	_current_lod = _initial_lod(_camera.zoom.x)
 	if _current_lod != LOD_STRATEGIC \
 			and _visible_keys(_current_lod).size() > MAX_REQUIRED_TILES_PER_LOD:
@@ -183,6 +208,8 @@ func setup(camera: Camera2D, world_rect: Rect2, map_key: String) -> bool:
 
 
 func set_active(active: bool) -> void:
+	if active != _active:
+		presentation_changing.emit()
 	_active = active
 	visible = active
 	set_process(active)
@@ -201,15 +228,15 @@ func estimated_texture_bytes() -> int:
 	var total := 0
 	if _grain_texture != null:
 		total += GRAIN_TEXTURE_ESTIMATED_BYTES
-	if _strategic_sprite != null and _strategic_sprite.texture != null:
-		var strategic_size := _strategic_sprite.texture.get_size()
+	if typeof(_strategic_sprite)==TYPE_OBJECT and is_instance_valid(_strategic_sprite) and _strategic_sprite.texture != null:
+		var strategic_size: Vector2 = _strategic_sprite.texture.get_size()
 		total += int(strategic_size.x * strategic_size.y * 4.0)
 	for lod in _sprites:
 		for sprite_any in (_sprites[lod] as Dictionary).values():
-			var sprite := sprite_any as Sprite2D
-			if sprite == null or sprite.texture == null:
+			var sprite: Variant = sprite_any
+			if typeof(sprite)!=TYPE_OBJECT or not is_instance_valid(sprite) or sprite.texture == null:
 				continue
-			var texture_size := sprite.texture.get_size()
+			var texture_size: Vector2 = sprite.texture.get_size()
 			total += int(texture_size.x * texture_size.y * 4.0)
 	return total
 
@@ -235,12 +262,20 @@ func debug_state() -> Dictionary:
 			"sprite_count": (_sprites.get(lod, {}) as Dictionary).size(),
 		}
 	return {
+		"map_root": _map_root,
+		"projected_source": not source_projection.is_empty(),
+		"projected_geometry_bytes": projected_geometry_bytes(),
+		"source_kind": _manifest.get("volume_profile", {}).get("source_kind", "carto"),
 		"current_lod": String(_current_lod),
 		"target_lod": String(_target_lod),
 		"transitioning": _transitioning,
 		"pending_count": _pending.size(),
+		"resource_load_backend": "main_deferred" if DisplayServer.get_name()=="headless" else "threaded",
 		"resident_tiles": resident_tile_count(),
 		"peak_resident_tiles": _peak_resident_tiles,
+		"committed_tiles": resident_tile_count()+_pending.size(),
+		"peak_committed_tiles": _peak_committed_tiles,
+		"capacity_deferrals": _capacity_deferrals,
 		"estimated_texture_bytes": estimated_texture_bytes(),
 		"setup_elapsed_ms": _setup_elapsed_ms,
 		"required_keys": required,
@@ -248,9 +283,32 @@ func debug_state() -> Dictionary:
 		"operational_visible_tile_count": _visible_keys(LOD_OPERATIONAL).size(),
 		"detail_visible_tile_count": _visible_keys(LOD_DETAIL).size(),
 		"missing_keys": missing,
-		"strategic_visible": _strategic_sprite != null and _strategic_sprite.visible,
+		"strategic_visible": typeof(_strategic_sprite)==TYPE_OBJECT and is_instance_valid(_strategic_sprite) and _strategic_sprite.visible,
 		"layers": layer_state,
 	}
+
+
+## 只读表现投影：共享已驻留纹理，不让三维地图建立第二套流送或地理。
+func presentation_profile() -> Dictionary:
+	return (_manifest.get("volume_profile", {}) as Dictionary).duplicate(true)
+
+
+func shared_strategic_texture(map_key: String) -> Texture2D:
+	if map_key != _map_key or not is_instance_valid(_strategic_sprite):
+		return null
+	return _strategic_sprite.texture
+
+
+func presentation_tiles() -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	if typeof(_strategic_sprite)==TYPE_OBJECT and is_instance_valid(_strategic_sprite):
+		result.append({"sprite": weakref(_strategic_sprite), "layer": null, "lod": LOD_STRATEGIC, "projected": not source_projection.is_empty()})
+	for lod in _sprites:
+		var layer: Node2D = _layers[lod]
+		for sprite: Variant in _sprites[lod].values():
+			if typeof(sprite)==TYPE_OBJECT and is_instance_valid(sprite):
+				result.append({"sprite": weakref(sprite), "layer": weakref(layer), "lod": lod, "projected": not source_projection.is_empty()})
+	return result
 
 
 func _build_record_index() -> void:
@@ -277,7 +335,7 @@ func _load_strategic() -> bool:
 	var texture := load_texture(path)
 	if texture == null:
 		return false
-	_strategic_sprite = Sprite2D.new()
+	_strategic_sprite = _new_tile_node()
 	_strategic_sprite.name = "StrategicBasemap"
 	_strategic_sprite.texture = texture
 	_strategic_sprite.centered = false
@@ -296,8 +354,13 @@ func _load_strategic() -> bool:
 	_strategic_sprite.material = make_material(
 		_profile, level_size, Vector2.ZERO,
 		Vector2(texture.get_size()), LOD_STRATEGIC)
+	if not _prepare_tile_node(_strategic_sprite):
+		_strategic_sprite.free()
+		_strategic_sprite = null
+		return false
 	add_child(_strategic_sprite)
 	move_child(_strategic_sprite, 0)
+	presentation_revision += 1
 	return true
 
 
@@ -374,16 +437,28 @@ func _request_target_tiles() -> void:
 		var resident_key := _resident_key(_target_lod, key)
 		if _pending.has(resident_key):
 			continue
+		# 请求成功即占一个槽；旧层过渡仍可见时不能依靠事后LRU回收来守上限。
+		if resident_tile_count()+_pending.size() >= HARD_RESIDENT_TILES:
+			_capacity_deferrals += 1
+			break
 		var record: Dictionary = (_records[_target_lod] as Dictionary).get(key, {}) as Dictionary
 		if record.is_empty():
 			continue
 		var path := _tile_path(_target_lod, record)
 		var request := {"lod": _target_lod, "key": key, "record": record, "path": path}
 		if ResourceLoader.exists(path):
+			# Dummy纹理RID分配器同样不支持后台构造竞争；GL异步不变。
+			if DisplayServer.get_name()=="headless":
+				request["kind"]="main_resource"
+				request["ready_frame"]=Engine.get_process_frames()+1
+				_pending[resident_key]=request
+				_peak_committed_tiles=maxi(_peak_committed_tiles,resident_tile_count()+_pending.size())
+				continue
 			var error := ResourceLoader.load_threaded_request(path, "Texture2D", true)
 			if error == OK:
 				request["kind"] = "resource"
 				_pending[resident_key] = request
+				_peak_committed_tiles = maxi(_peak_committed_tiles,resident_tile_count()+_pending.size())
 		elif FileAccess.file_exists(path):
 			var thread := Thread.new()
 			var error := thread.start(_load_image_thread.bind(path))
@@ -391,6 +466,7 @@ func _request_target_tiles() -> void:
 				request["kind"] = "image"
 				request["thread"] = thread
 				_pending[resident_key] = request
+				_peak_committed_tiles = maxi(_peak_committed_tiles,resident_tile_count()+_pending.size())
 
 
 func _poll_pending() -> void:
@@ -401,7 +477,15 @@ func _poll_pending() -> void:
 		var request: Dictionary = _pending[resident_key] as Dictionary
 		var path := String(request.get("path", ""))
 		var kind := String(request.get("kind", ""))
-		if kind == "resource":
+		if kind == "main_resource":
+			if Engine.get_process_frames()<int(request.ready_frame):
+				continue
+			_pending.erase(resident_key)
+			var texture := ResourceLoader.load(path,"Texture2D") as Texture2D
+			if texture!=null:
+				_add_tile(request.lod,request.key,request.record,texture,true)
+			bound+=1
+		elif kind == "resource":
 			var status := ResourceLoader.load_threaded_get_status(path)
 			if status == ResourceLoader.THREAD_LOAD_LOADED:
 				var texture := ResourceLoader.load_threaded_get(path) as Texture2D
@@ -428,6 +512,7 @@ func _load_image_thread(path: String) -> Image:
 
 
 func _exit_tree() -> void:
+	presentation_changing.emit()
 	for request_any in _pending.values():
 		var request := request_any as Dictionary
 		var kind := String(request.get("kind", ""))
@@ -442,12 +527,12 @@ func _exit_tree() -> void:
 	_pending.clear()
 	# ShaderMaterial 会持有共享 ImageTexture；退出时主动断开，避免快速 bench quit
 	# 把仍待销毁的材质/纹理误报为资源泄漏。
-	if _strategic_sprite != null:
+	if typeof(_strategic_sprite)==TYPE_OBJECT and is_instance_valid(_strategic_sprite):
 		_strategic_sprite.material = null
 	for lod in _sprites:
 		for sprite_any in (_sprites[lod] as Dictionary).values():
-			var sprite := sprite_any as Sprite2D
-			if sprite != null:
+			var sprite: Variant = sprite_any
+			if typeof(sprite)==TYPE_OBJECT and is_instance_valid(sprite):
 				sprite.material = null
 	_grain_texture = null
 
@@ -471,6 +556,7 @@ func _add_tile(
 	var by_key := _sprites[lod] as Dictionary
 	if by_key.has(key):
 		return
+	presentation_changing.emit()
 	var levels: Dictionary = _manifest.get("levels", {}) as Dictionary
 	var level: Dictionary = levels.get(lod, {}) as Dictionary
 	var size_values: Array = level.get("size", [8704, 8704]) as Array
@@ -478,7 +564,7 @@ func _add_tile(
 	var content_rect_values: Array = record.get("content_rect", [0, 0, CONTENT_SIZE, CONTENT_SIZE]) as Array
 	var content_pos := Vector2(float(content_rect_values[0]), float(content_rect_values[1]))
 	var content_size := Vector2(float(content_rect_values[2]), float(content_rect_values[3]))
-	var sprite := Sprite2D.new()
+	var sprite: Variant = _new_tile_node()
 	sprite.name = "%s_%s" % [String(lod), key]
 	sprite.texture = texture
 	sprite.centered = false
@@ -493,17 +579,22 @@ func _add_tile(
 	var tile_origin := content_pos - Vector2(GUTTER, GUTTER)
 	sprite.material = make_material(
 		_profile, level_size, tile_origin, Vector2(texture.get_size()), lod)
+	if not _prepare_tile_node(sprite):
+		sprite.free()
+		return
 	var layer := _layers[lod] as Node2D
 	layer.add_child(sprite)
 	by_key[key] = sprite
+	presentation_revision += 1
 	_peak_resident_tiles = maxi(_peak_resident_tiles, resident_tile_count())
+	_peak_committed_tiles = maxi(_peak_committed_tiles,resident_tile_count()+_pending.size())
 	_touch_lru(_resident_key(lod, key))
 	if fade_in:
 		PerfBuckets.mark_frame_event("raster_tile_bind")
 		PerfBuckets.count("raster_tile_binds")
 	if fade_in and lod == _current_lod and layer.visible:
 		sprite.modulate.a = 0.0
-		var tween := sprite.create_tween()
+		var tween: Tween = sprite.create_tween()
 		tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 		tween.tween_property(sprite, "modulate:a", 1.0, TRANSITION_S)
 
@@ -520,6 +611,7 @@ func _try_begin_transition() -> void:
 
 
 func _begin_transition(next_lod: StringName) -> void:
+	presentation_changing.emit()
 	_transitioning = true
 	PerfBuckets.mark_frame_event("raster_lod_transition")
 	var old_lod := _current_lod
@@ -584,26 +676,73 @@ func _tile_candidates(lod: StringName, include_prefetch_ring: bool) -> Array[Dic
 	var level_size := Vector2(float(size_values[0]), float(size_values[1]))
 	var rows := int(level.get("rows", 1))
 	var columns := int(level.get("columns", 1))
-	var viewport_size := get_viewport_rect().size / _camera.zoom
-	var view := Rect2(_camera.global_position - viewport_size * 0.5, viewport_size)
-	var view_px := Rect2(
-		(view.position - _world_rect.position) / _world_rect.size * level_size,
-		view.size / _world_rect.size * level_size)
+	# 使用最终 Canvas 投影，覆盖镜头旋转、offset/平滑和父变换；不是相机位置的未旋转矩形。
+	var viewport_size := get_viewport_rect().size
+	var inverse := get_global_transform_with_canvas().affine_inverse()
+	if not _camera.is_current():
+		# 离屏三维观察场给的是逻辑 Camera2D；它不接管屏幕 Canvas，仍以传入相机选格。
+		var angle := 0.0 if _camera.ignore_rotation else _camera.global_rotation
+		inverse = Transform2D(angle, _camera.global_position + _camera.offset).scaled_local(Vector2.ONE / _camera.zoom)
+		inverse = inverse.translated_local(-viewport_size * 0.5)
+		inverse = global_transform.affine_inverse() * inverse
+	var view_polygon := PackedVector2Array([Vector2.ZERO, Vector2(viewport_size.x, 0),
+		viewport_size, Vector2(0, viewport_size.y)])
+	for index in 4:
+		view_polygon[index] = (inverse * view_polygon[index] - _world_rect.position) / _world_rect.size * level_size
+	var view_px := Rect2(view_polygon[0], Vector2.ZERO)
+	for index in range(1, 4):
+		view_px = view_px.expand(view_polygon[index])
+	if not view_px.intersects(Rect2(Vector2.ZERO, level_size), true):
+		return candidates
+	# 凸四边形与轴对齐瓦片的 SAT：世界 X/Y 已由包围盒筛选，另检查视口两组边法线。
+	var axes := PackedVector2Array([(view_polygon[1] - view_polygon[0]).orthogonal().normalized(),
+		(view_polygon[3] - view_polygon[0]).orthogonal().normalized()])
+	var intervals := PackedVector2Array()
+	for axis in axes:
+		var interval := Vector2(axis.dot(view_polygon[0]), axis.dot(view_polygon[0]))
+		for index in range(1, 4):
+			var projection := axis.dot(view_polygon[index])
+			interval.x = minf(interval.x, projection)
+			interval.y = maxf(interval.y, projection)
+		intervals.append(interval)
+	var source_view := view_px
+	if not source_projection.is_empty():
+		var geo := preload("res://scripts/experiments/tokyo_raster_projection.gd")
+		var raw_top := geo.raw_y(_world_rect.position.y+view_px.position.y/level_size.y*_world_rect.size.y,source_projection)
+		var raw_bottom := geo.raw_y(_world_rect.position.y+view_px.end.y/level_size.y*_world_rect.size.y,source_projection)
+		source_view.position.y = (raw_top-_world_rect.position.y)/_world_rect.size.y*level_size.y
+		source_view.size.y = (raw_bottom-raw_top)/_world_rect.size.y*level_size.y
 	var visible_min_col := clampi(int(floor(view_px.position.x / CONTENT_SIZE)), 0, columns - 1)
 	var visible_max_col := clampi(int(floor(view_px.end.x / CONTENT_SIZE)), 0, columns - 1)
-	var visible_min_row := clampi(int(floor(view_px.position.y / CONTENT_SIZE)), 0, rows - 1)
-	var visible_max_row := clampi(int(floor(view_px.end.y / CONTENT_SIZE)), 0, rows - 1)
+	var visible_min_row := clampi(int(floor(source_view.position.y / CONTENT_SIZE)), 0, rows - 1)
+	var visible_max_row := clampi(int(floor(source_view.end.y / CONTENT_SIZE)), 0, rows - 1)
 	var ring := 1 if include_prefetch_ring else 0
 	var min_col := maxi(0, visible_min_col - ring)
 	var max_col := mini(columns - 1, visible_max_col + ring)
 	var min_row := maxi(0, visible_min_row - ring)
 	var max_row := mini(rows - 1, visible_max_row + ring)
-	var center_px := (view.get_center() - _world_rect.position) / _world_rect.size * level_size
+	var center_px := (view_polygon[0] + view_polygon[2]) * 0.5
 	for row in range(min_row, max_row + 1):
+		var row_top := float(row*CONTENT_SIZE)
+		var row_bottom := float((row+1)*CONTENT_SIZE)
+		if not source_projection.is_empty():
+			var geo := preload("res://scripts/experiments/tokyo_raster_projection.gd")
+			row_top = (geo.world_y(_world_rect.position.y+row_top/level_size.y*_world_rect.size.y,source_projection)-_world_rect.position.y)/_world_rect.size.y*level_size.y
+			row_bottom = (geo.world_y(_world_rect.position.y+row_bottom/level_size.y*_world_rect.size.y,source_projection)-_world_rect.position.y)/_world_rect.size.y*level_size.y
 		for column in range(min_col, max_col + 1):
 			var visible_tile := column >= visible_min_col and column <= visible_max_col \
 				and row >= visible_min_row and row <= visible_max_row
-			var tile_center := Vector2(column + 0.5, row + 0.5) * CONTENT_SIZE
+			var tile_center := Vector2((column + 0.5)*CONTENT_SIZE,(row_top+row_bottom)*0.5)
+			if visible_tile:
+				for axis_index in 2:
+					var axis: Vector2 = axes[axis_index]
+					var midpoint := axis.dot(tile_center)
+					var radius := (absf(axis.x)*CONTENT_SIZE + absf(axis.y)*(row_bottom-row_top))*0.5
+					if midpoint + radius < intervals[axis_index].x or midpoint - radius > intervals[axis_index].y:
+						visible_tile = false
+						break
+			if not include_prefetch_ring and not visible_tile:
+				continue
 			candidates.append({
 				"key": _tile_key(row, column),
 				"visible": visible_tile,
@@ -680,10 +819,20 @@ func _remove_resident(resident_key: String) -> void:
 	var lod := StringName(parts[0])
 	var key := parts[1]
 	var by_key := _sprites.get(lod, {}) as Dictionary
-	var sprite := by_key.get(key) as Sprite2D
-	if sprite != null:
+	var sprite: Variant = by_key.get(key)
+	if typeof(sprite)==TYPE_OBJECT and is_instance_valid(sprite):
+		presentation_tile_retiring.emit(sprite.get_instance_id())
+		presentation_changing.emit()
+		# 先让借用者同步退役，再断开纹理；不能把排队释放的纹理提前当空槽重新分配。
+		sprite.texture = null
+		sprite.material = null
+		# 同帧重入同一瓦片时必须先归还节点名；queue_free延后会令新节点自动改名，
+		# 破坏以稳定瓦片名读取预建几何的桥接。
+		if sprite.get_parent() != null:
+			sprite.get_parent().remove_child(sprite)
 		sprite.queue_free()
 	by_key.erase(key)
+	presentation_revision += 1
 	_lru.erase(resident_key)
 
 
@@ -702,3 +851,29 @@ func _tile_key(row: int, column: int) -> String:
 
 func _resident_key(lod: StringName, key: String) -> String:
 	return "%s:%s" % [String(lod), key]
+
+
+func _new_tile_node() -> Node2D:
+	return Sprite2D.new() if source_projection.is_empty() else preload("res://scripts/rendering/projected_raster_tile.gd").new()
+
+
+func _prepare_tile_node(node: Variant) -> bool:
+	if source_projection.is_empty():
+		return true
+	node.configure(source_projection)
+	var total := projected_geometry_bytes()+int(node.geometry_bytes if node!=_strategic_sprite else 0)
+	if total>PROJECTED_GEOMETRY_RESERVE:
+		push_error("Projected raster geometry exceeded reserved budget")
+		return false
+	return true
+
+
+func projected_geometry_bytes() -> int:
+	if source_projection.is_empty():
+		return 0
+	var total := int(_strategic_sprite.geometry_bytes) if typeof(_strategic_sprite)==TYPE_OBJECT and is_instance_valid(_strategic_sprite) else 0
+	for lod in _sprites:
+		for node: Variant in _sprites[lod].values():
+			if typeof(node)==TYPE_OBJECT and is_instance_valid(node):
+				total += int(node.geometry_bytes)
+	return total

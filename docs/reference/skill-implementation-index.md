@@ -15,7 +15,7 @@
 
 | 你想知道的 | 去哪 |
 |---|---|
-| 某技能的数值 / 层数 / 稀有度 / 归属 / 轴 / +1 进度 | [skill-table.md](skill-table.md)（自动生成，158 条，`python tools/dump_skill_table.py` 重刷） |
+| 某技能的数值 / 层数 / 稀有度 / 归属 / 轴 / +1 进度 | [skill-table.md](skill-table.md)（自动生成，`python tools/dump_skill_table.py` 重刷） |
 | 某技能的**效果代码在哪** | 本文 **§4**（先在 skill-table 查到它的 stat / id，再来查消费点） |
 | UPGRADES 条目某字段什么意思 | 本文 **§1** |
 | 技能从抽卡到生效的整条链路 | 本文 **§2** |
@@ -252,10 +252,11 @@ is_upgrade_available_for → pick_card_for_axis →  upgrade_stacks[id]+=1
 
 **特殊武器/装备（M8 全组）**：railgun_charge/range/double → `equipment/railgun_equipment.gd`；laser_cooldown/range → `equipment/laser_equipment.gd`（cooldown 同时扩散热与阈值，range 同时扩射程与分束）；torpedo_extra/tracking_boost → torpedo params；qmaam_boost → secondary_missile params + `skill_hooks.dispatch_on_kill` 嗜血触发；wingman_extra/armed → loyal_wingman params（extra 经 `survivor_mode._dispatch_regular_oneshot` 即时部署，再由 `aircraft_weapons.update_loyal_wingman` 维护）；sig_wyvern → M7 dispatch + railgun 参数。
 
-### 4.2 skill_flag 73 条（apply 无操作，按消费点分组）
+### 4.2 skill_flag（apply 无操作，按消费点分组）
 
 **SkillHooks 击杀/受击/状态钩子**（`survivor/skill_hooks.gd`，入口 `dispatch_on_kill` / `dispatch_on_hit` / `on_player_jam_landed` / `on_evade_missile` / `on_flare_release`）：
 skill_kill_bloodlust · skill_damaged_bloodlust · skill_head_on_perma_hp · skill_head_on_aoe_fear ·
+bloodlust_head_on（`SkillHooks.bloodlust_counts_as_head_on` 致死快照；飞机归因写 meta，击杀钩子/Spawner 经验与基础对头成长消费）·
 skill_missile_hit_invul · skill_gun_kill_fear · skill_kill_status_heal ·
 skill_flare_aoe_jam · skill_gun_kill_flare_drop · skill_missile_hit_aoe_jam · skill_laser_damage · skill_laser_hack ·
 skill_torpedo_aoe_jam · skill_rocket_homing · skill_evade_missile_overload · skill_flare_overload ·

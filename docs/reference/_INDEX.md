@@ -62,6 +62,7 @@
 - [skill-implementation-index.md](skill-implementation-index.md) / [skill-table.md](skill-table.md)：技能实现模式 / 自动生成现状表。
 - [playable-aircraft-workflow.md](playable-aircraft-workflow.md)：新增玩家机流程。
 - [map-pipeline.md](map-pipeline.md) / [manual-map-editing.md](manual-map-editing.md) / [vector-map-production-playbook.md](vector-map-production-playbook.md)：地图生产路径。
+- [三地图3D工程手册](../systems/map-volume-engineering.md)：工序复用、GL技术依据、实验留档与否决路线；不替代各图spec。
 - [i18n.md](i18n.md)：本地化 key、分表与构建流程。
 - [cinematic-authoring.md](cinematic-authoring.md)：表演与登场演出的编排方法。
 - [performance-guidelines.md](performance-guidelines.md)：热路径硬规则与验证剖面。
@@ -90,3 +91,7 @@
 
 提交前运行 `tools/verify_doc_anchors.py`、`tools/verify_docs.ps1`；索引锚点要写成
 `path:line symbol`，不要只写裸行号，也不要在入口文档冻结会快速过期的文件数、行数或锚点总数。
+
+## 海洋三维地图
+
+第三张图的源数据、离线高程和分区验收见 [海洋三维规格](../specs/systems/ocean-volume-map.md)；代码定位见 [Script Index](script-index.md#海洋三维地图) 与 [Code Index](code-index.md#海洋三维地图)。

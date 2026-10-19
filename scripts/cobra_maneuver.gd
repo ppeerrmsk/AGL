@@ -35,6 +35,8 @@ func _ready() -> void:
 
 ## 触发眼镜蛇机动（每架飞机仅一次）
 func activate() -> bool:
+	if FearResponse.controlled(_aircraft):
+		return false
 	if is_used or phase != Phase.NONE:
 		return false
 	if not _aircraft:

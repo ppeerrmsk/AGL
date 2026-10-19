@@ -3,7 +3,7 @@ id: runtime-validation-workflow
 kind: system
 status: done
 schema_version: 1
-spec_version: 5
+spec_version: 6
 owner: AGL
 depends_on: [systems/survivor-loop, systems/event-system]
 reconstruction_complete: true
@@ -47,6 +47,7 @@ reconstruction_complete: true
 以下任一出现即失败，不受 Godot 进程退出码影响：
 
 - `SCRIPT ERROR`；
+- 原生RID错误：wrong RID、already initialized RID、uninitialized RID、free uninitialized/invalid RID，以及renderer scene cull的unimplemented base；这些不是普通退出泄漏警告；
 - 对 freed / previously freed 实例的转换、赋值、类型判断、参数检查或调用；
 - `Invalid call`、`Invalid access`、函数参数 `Invalid type`；
 - null value 调用、TypedArray 非法 erase、stack overflow；
@@ -193,6 +194,7 @@ freed-object 类型边界，Godot 主动退出 0 时 wrapper 仍改判 86。
 
 | 日期 | spec_version | 改动 |
 |---|---:|---|
+| 2026-09-08 | 6 | R53原生竞争复现暴露错误门漏判；补5类精确RID致命诊断。旧R52日志命中3个去重块，独立故意失败原生复现改判86；普通退出泄漏仍单独记录，不用宽泛ERROR模式。 |
 | 2026-09-03 | 5 | 把测试代码主动发出的 `ERROR: [Bench]` 纳入精确致命模式，避免压力场只写红错但进程退出 0 的假绿灯；环境级普通 `ERROR` 仍保持非致命并单独审计。 |
 | 2026-08-26 | 4 | 修复传感器批清理的三个已释放目标缓存；gauntlet 固化跨帧抗体；错误门保留完整调用栈并输出 freed-object 生命周期归因。 |
 | 2026-08-22 | 3 | gauntlet 增加一体化巨炮的正式伤害、跨帧释放、来源缓存清除与无底座残留案例；同步当前 20/20 与全量 80 项证据。 |

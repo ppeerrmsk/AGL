@@ -42,6 +42,8 @@ AI 或新维护者先读 [Reference Index](reference/_INDEX.md)：它把仓库�
 | 交付音效/音乐/美术素材并做表现批 | [planning/audio-visual-production-workflow.md](planning/audio-visual-production-workflow.md) |
 | 量化难度、玩家上限、敌压、新鲜度、时长与内容缺口 | [planning/quantitative-content-balance-model.md](planning/quantitative-content-balance-model.md) |
 | 选性能核心门/专项剖面并判定结果 | [reference/performance-guidelines.md](reference/performance-guidelines.md) |
+| 复用三张地图的3D工序、查否决路线与技术依据 | [systems/map-volume-engineering.md](systems/map-volume-engineering.md) |
+| 东京湾整图交付纠偏、里程碑与验收包 | [planning/tokyo-bay-delivery-recovery-2026-09-13.md](planning/tokyo-bay-delivery-recovery-2026-09-13.md) |
 | 跑自动回归并处理 Godot 红错/生命周期终态 | [reference/runtime-validation-workflow.md](reference/runtime-validation-workflow.md) |
 
 当前阶段不再读 2026-04 roadmap 排期；`roadmap*` 与 `evolution-vertical-slice` 仅保留历史判断过程。
@@ -91,6 +93,7 @@ AI 或新维护者先读 [Reference Index](reference/_INDEX.md)：它把仓库�
 | 飞机实体子模块 | `scripts/aircraft/` |
 | 事件 | `scripts/events/` |
 | 表演与镜头 | `scripts/presentation/` |
+| 高频渲染适配与批绘 presenter | `scripts/rendering/` |
 | 主界面、HUD 与通用 UI 表现 | `scripts/ui/`；生存模式专属 HUD 逻辑仍放 `scripts/survivor/` |
 | 舰船 | `scripts/naval/` |
 | 战区 / UGC / 音频 / 局外层 | `scripts/zones/` / `scripts/ugc/` / `scripts/audio/` / `scripts/meta/` |

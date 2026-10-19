@@ -20,6 +20,9 @@ var _boss_phase := false
 var _display_font: Font
 var _localized_font: Font
 var _grid_overlay
+## 每格字号基准只依赖字体/基准文本/格子尺寸；重绘只查表，不再逐字号试探。
+var _text_layout_cache: Dictionary = {}
+var _text_layout_resolutions := 0
 
 
 func _init() -> void:
@@ -76,8 +79,7 @@ func _draw_text(text: String, rect: Rect2, color: Color, layout_text: String,
 	if font == null or text.is_empty():
 		return
 	var fixed_size := 0 if use_display_font else 15
-	var layout := TerminalTextScript.resolve_font_layout(
-		font, layout_text, rect.size, fixed_size)
+	var layout := _cached_text_layout(font, layout_text, rect.size, fixed_size)
 	var font_size := int(layout.x)
 	var ink := TerminalTextScript.measure_ink_bounds(font, text, font_size)
 	var ink_top := ink.x if TerminalTextScript.has_visible_ink(ink) else layout.y
@@ -86,6 +88,21 @@ func _draw_text(text: String, rect: Rect2, color: Color, layout_text: String,
 		+ (rect.size.y - (ink_bottom - ink_top)) * 0.5 - ink_top
 	draw_string(font, Vector2(rect.position.x, baseline_y), text,
 		HORIZONTAL_ALIGNMENT_CENTER, rect.size.x, font_size, color)
+
+
+## 字体身份与精确尺寸参与 key；本地化标签变化只新增一项，条目数有上限。
+func _cached_text_layout(font: Font, layout_text: String, bounds: Vector2,
+		fixed_size: int) -> Vector3:
+	var key := [font.get_instance_id(), layout_text, bounds, fixed_size]
+	var cached: Variant = _text_layout_cache.get(key)
+	if cached != null:
+		return cached as Vector3
+	var result := TerminalTextScript.resolve_font_layout(font, layout_text, bounds, fixed_size)
+	_text_layout_resolutions += 1
+	if _text_layout_cache.size() >= 32:
+		_text_layout_cache.clear()
+	_text_layout_cache[key] = result
+	return result
 
 
 func localized_remaining_label() -> String:

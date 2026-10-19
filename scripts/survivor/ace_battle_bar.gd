@@ -70,9 +70,13 @@ func set_info(info: Dictionary) -> void:
 	for i in range(segments.size()):
 		var segment_style := StyleBoxFlat.new()
 		segment_style.bg_color = color if bool(alive[i]) else DEAD_COLOR
+		if FearResponse.obscure(null):
+			segment_style.bg_color = FearResponse.COLOR
 		segment_style.set_corner_radius_all(1)
 		if i == 0:
 			segment_style.border_width_top = 2
 			segment_style.border_color = color.lightened(0.55) if bool(alive[i]) \
 				else Color(0.45, 0.42, 0.45)
+			if FearResponse.obscure(null):
+				segment_style.border_color = FearResponse.COLOR
 		segments[i].add_theme_stylebox_override("panel", segment_style)

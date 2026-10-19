@@ -378,6 +378,8 @@ func _update_stray_recall(delta: float) -> void:
 	if _recall_timer < RECALL_INTERVAL:
 		return
 	_recall_timer = 0.0
+	var perf_t0 := Time.get_ticks_usec()
+	PerfBuckets.mark_frame_event("mother_goose_recall")
 
 	var bp: Vector2 = boss_unit.global_position
 	var leash_sq: float = RECALL_LEASH_PX * RECALL_LEASH_PX
@@ -422,9 +424,14 @@ func _update_stray_recall(delta: float) -> void:
 	if recalled > 0:
 		EventLogger.log_event("BOSS", "MOTHER GOOSE",
 			"recalled %d stray UAVs to boss" % recalled)
+	PerfBuckets.tick("mother_goose_recall", Time.get_ticks_usec() - perf_t0)
 
 
 func _find_uav_ai(uav: Aircraft) -> AIController:
+	var cached: Variant = uav._ai_ref
+	if typeof(cached) == TYPE_OBJECT and is_instance_valid(cached) and cached is AIController:
+		return cached as AIController
+	# 兼容尚未完成 _ready 回写的单帧窗口；常态召回 tick 不再重复扫描子节点。
 	for child in uav.get_children():
 		if child is AIController:
 			return child

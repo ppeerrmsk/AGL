@@ -5,6 +5,8 @@
 
 ## 默认命令
 
+需要追查退出孤立节点时可显式设置 `AGL_BENCH_VERBOSE=1`；wrapper 只向同一隔离 Godot 追加 `--verbose`，不改变锁、超时、静音或错误门。正式菜单海洋测试比较进入前后的 orphan ID，新增孤立节点会判失败；不能只看主场景弱引用已释放。FINAL WAR 海洋基线/压力测试同时记录引擎帧率与独立墙钟，任一出现低于 60 FPS 的帧即返回失败；GPU/阶段采样仅用 `AGL_MAP_GPU_TRACE=1` 显式开启，诊断轮不能替代无探针性能轮。
+
 ```powershell
 # 改动所属的最窄专项，先快速定位
 bench\run.cmd <focused-key> 1 180 Shadow Headless
@@ -20,7 +22,10 @@ bench\run.cmd all 1 300 Shadow Headless
 以及未来新增的子总线均不会从系统扬声器出声。这里只切断最终输出，不跳过 `play_*` 调用、播放器状态、
 signal 或总线路由断言，也不写入 `user://audio.cfg`；正常 F5 游戏和用户音频设置不受影响。
 
+用户要求实际操作验收时，可在 `Shadow Visual` 前显式设置 `AGL_BENCH_INTERACTIVE=1`，把本次窗口显示在屏幕内。默认仍是屏外窗口；锁、超时、错误门和自动测试静音不变。交互截图与操作会扰动帧时，不能把该会话当标准性能样本；结束后清除此进程环境开关，再跑标准C1/C2。
+
 ## 结果口径
+
 
 | 退出码 | 含义 | Agent 下一步 |
 |---:|---|---|
@@ -33,6 +38,12 @@ signal 或总线路由断言，也不写入 `user://audio.cfg`；正常 F5 游�
 
 `WARNING` 不等于运行时错误。若确有稳定的引擎退出噪音，需要精确匹配单条文本后才能加入白名单；
 测试代码主动发出的精确 `ERROR: [Bench]` 也属于致命诊断；禁止跳过全部 `ERROR` 或关闭错误门。
+
+`SHADER ERROR:` 与 `ERROR: Shader compilation failed` 同样属于致命诊断，即使Godot退出0也改判86。`tools/test_bench_shader_gate.ps1`提取实际wrapper函数，覆盖stdout/stderr、回溯分块、非致命warning负对照及已有真实shader失败日志回放；失败shader的截图和像素摘要不能作为渲染通过证据。
+
+wrong/uninitialized/already-initialized RID、free uninitialized/invalid RID及renderer scene cull的unimplemented base属于原生致命诊断，同样改判86；不能与普通退出RID计数警告混淆。`tools/test_bench_rid_gate.ps1`只读提取实际错误门函数验证5类模式及噪音/回溯保留，不启动引擎。
+
+东京Stream在headless后端使用主线程延后领取原生资源，规避本机Godot 4.7.2 Dummy网格分配器的线程安全缺陷；窗口GL仍后台加载。无头生命周期不能据此宣称后台I/O或GPU性能已验收；线程路径用Shadow Visual核验。根因与边界见[SEAM-043](../architecture/known-seams.md#seam-043--dummy网格rid分配器与后台资源构造竞争)。
 
 `RUNTIME ERROR` 块会保留完整 GDScript backtrace，不再固定截成四行。命中 `previously freed` / freed instance
 时，wrapper 会追加 `FREED_OBJECT_LIFECYCLE` 诊断：优先检查最深 GDScript 调用者持有的跨帧 Object 缓存，

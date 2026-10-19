@@ -1,5 +1,6 @@
 class_name WingmanInstrumentPanel
 extends Control
+const FearReadoutMask := preload("res://scripts/ui/fear_readout_mask.gd")
 
 const HudPreferencesScript := preload("res://scripts/ui/hud_preferences.gd")
 const PlayerInstrumentPanelScript := preload("res://scripts/survivor/player_instrument_panel.gd")
@@ -153,6 +154,12 @@ func _draw() -> void:
 
 func _draw_row(row: Dictionary, row_y: float, base_accent: Color, blink_on: bool,
 		now_ms: int) -> void:
+	var ref: WeakRef = row.get("aircraft_ref")
+	var ac: Variant = ref.get_ref() if ref != null else null
+	if FearResponse.obscure(ac):
+		FearReadoutMask.draw(self, Rect2(0, row_y, PANEL_WIDTH, ROW_BODY_HEIGHT),
+			"%s %s" % [str(row.get("slot", "")), str(row.get("callsign", ""))], FearResponse.seconds(ac))
+		return
 	var damage_active := damage_flash_active_for_slot(int(row.get("slot", 0)), now_ms)
 	var damage_blue_on := damage_shared_phase(now_ms) == 0
 	var hp_value_color := PlayerInstrumentPanelScript.damage_hp_color(

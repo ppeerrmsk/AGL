@@ -29,7 +29,26 @@ const MAX_INK_BOUNDS_CACHE_ENTRIES := 2048
 
 # TextServer 的 glyph contour 查询远重于真正的 draw_string。终端 HUD 会反复以
 # 相同字体/字号绘制有限的数字与短标签，因此在通用文字入口缓存可见轮廓。
+# 满容量时环形淘汰一项，不整库清空——整库清空会让下一帧所有 HUD 文字同时重测（卡顿尖峰）。
 static var _ink_bounds_cache: Dictionary = {}
+static var _ink_bounds_keys: Array[String] = []
+static var _ink_bounds_cursor := 0
+# resolve_font_layout 结果与 get_string_size 宽度都是 (字体, 字号/区域, 文本) 的纯函数；
+# 计时面板/仪表每次重绘都会求解，缓存后同一布局只做一次逐字号试探。
+const MAX_LAYOUT_CACHE_ENTRIES := 1024
+static var _layout_cache: Dictionary = {}
+static var _layout_keys: Array = []
+static var _layout_cursor := 0
+static var _layout_resolutions := 0
+const MAX_STRING_WIDTH_CACHE_ENTRIES := 4096
+static var _string_width_cache: Dictionary = {}
+static var _string_width_keys: Array[String] = []
+static var _string_width_cursor := 0
+const MAX_GLYPH_BOUNDS_CACHE_ENTRIES := 2048
+static var _glyph_bounds_cache: Dictionary = {}
+static var _glyph_bounds_keys: Array[String] = []
+static var _glyph_bounds_cursor := 0
+static var _glyph_contour_queries := 0
 
 var text: String = "":
 	set(value):
@@ -161,8 +180,30 @@ func _resolve_ink_layout(font: Font, sizing_text: String, bounds: Vector2) -> vo
 	resolved_ink_height = _resolved_ink_bounds.y - _resolved_ink_bounds.x
 	_layout_valid = true
 
+## 结果按 (字体身份, 基准文本, 精确区域尺寸, 固定字号) 缓存；与逐字号试探逐值相同。
 static func resolve_font_layout(font: Font, value: String, bounds: Vector2,
 		fixed_font_size: int = 0) -> Vector3:
+	var key := [font.get_instance_id(), value, bounds, fixed_font_size]
+	var cached: Variant = _layout_cache.get(key)
+	if cached != null:
+		return cached as Vector3
+	var result := _resolve_font_layout_uncached(font, value, bounds, fixed_font_size)
+	_layout_resolutions += 1
+	if _layout_keys.size() < MAX_LAYOUT_CACHE_ENTRIES:
+		_layout_keys.append(key)
+	else:
+		_layout_cache.erase(_layout_keys[_layout_cursor])
+		_layout_keys[_layout_cursor] = key
+		_layout_cursor = (_layout_cursor + 1) % MAX_LAYOUT_CACHE_ENTRIES
+	_layout_cache[key] = result
+	return result
+
+
+## 逐字号试探语义保持不变（hinting 下字形高度对字号非单调，二分不能保证逐值相同）：
+## 先自上而下找首个可容纳字号，再向上爬到首个不可容纳字号之前。
+## 每步先比宽度（缓存）再测轮廓：宽度已超时不再塑形取轮廓，布尔结果与 layout_fits 相同。
+static func _resolve_font_layout_uncached(font: Font, value: String, bounds: Vector2,
+		fixed_font_size: int) -> Vector3:
 	var candidate := fixed_font_size
 	if candidate <= 0:
 		var reference_size := maxi(roundi(bounds.y), 1)
@@ -175,22 +216,25 @@ static func resolve_font_layout(font: Font, value: String, bounds: Vector2,
 		candidate = mini(candidate,
 			maxi(int(ceil(bounds.y * MAX_INK_FONT_SIZE_MULTIPLIER)), 1))
 
-	var ink := measure_ink_bounds(font, value, candidate)
 	if fixed_font_size <= 0:
-		while candidate > 1 and not layout_fits(font, value, candidate, ink, bounds):
+		while candidate > 1 and not _layout_fits_size(font, value, candidate, bounds):
 			candidate -= 1
-			ink = measure_ink_bounds(font, value, candidate)
 		var maximum := maxi(int(ceil(bounds.y * MAX_INK_FONT_SIZE_MULTIPLIER)), 1)
-		while candidate < maximum:
-			var next_ink := measure_ink_bounds(font, value, candidate + 1)
-			if not layout_fits(font, value, candidate + 1, next_ink, bounds):
-				break
+		while candidate < maximum and _layout_fits_size(font, value, candidate + 1, bounds):
 			candidate += 1
-			ink = next_ink
 
+	var ink := measure_ink_bounds(font, value, candidate)
 	if not has_visible_ink(ink):
 		ink = Vector2(-font.get_ascent(candidate), font.get_descent(candidate))
 	return Vector3(float(candidate), ink.x, ink.y)
+
+
+static func _layout_fits_size(font: Font, value: String, font_size: int,
+		bounds: Vector2) -> bool:
+	if cached_string_width(font, value, font_size) > bounds.x:
+		return false
+	var ink := measure_ink_bounds(font, value, font_size)
+	return has_visible_ink(ink) and ink.y - ink.x <= bounds.y
 
 
 ## Resolve a visible-ink size from height alone. Width is deliberately ignored so
@@ -216,14 +260,44 @@ static func layout_fits(font: Font, value: String, font_size: int, ink: Vector2,
 		bounds: Vector2) -> bool:
 	if not has_visible_ink(ink) or ink.y - ink.x > bounds.y:
 		return false
-	return font.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1.0, font_size).x \
-		<= bounds.x
+	return cached_string_width(font, value, font_size) <= bounds.x
+
+
+## 单行无宽度限制的 get_string_size().x；同字体/字号/文本恒定，环形有界缓存。
+static func cached_string_width(font: Font, value: String, font_size: int) -> float:
+	var key := "%d:%d:%s" % [font.get_instance_id(), font_size, value]
+	var cached: Variant = _string_width_cache.get(key)
+	if cached != null:
+		return float(cached)
+	var width := font.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1.0, font_size).x
+	if _string_width_keys.size() < MAX_STRING_WIDTH_CACHE_ENTRIES:
+		_string_width_keys.append(key)
+	else:
+		_string_width_cache.erase(_string_width_keys[_string_width_cursor])
+		_string_width_keys[_string_width_cursor] = key
+		_string_width_cursor = (_string_width_cursor + 1) % MAX_STRING_WIDTH_CACHE_ENTRIES
+	_string_width_cache[key] = width
+	return width
+
+
+## 测试/诊断入口：清空本类全部静态测量缓存（含环形淘汰游标）。
+static func reset_measure_caches() -> void:
+	_ink_bounds_cache.clear()
+	_ink_bounds_keys.clear()
+	_ink_bounds_cursor = 0
+	_layout_cache.clear()
+	_layout_keys.clear()
+	_layout_cursor = 0
+	_string_width_cache.clear()
+	_string_width_keys.clear()
+	_string_width_cursor = 0
 
 
 static func measure_ink_bounds(font: Font, value: String, font_size: int) -> Vector2:
 	var cache_key := "%d:%d:%s" % [font.get_instance_id(), font_size, value]
 	if _ink_bounds_cache.has(cache_key):
 		return _ink_bounds_cache[cache_key] as Vector2
+	var profile_start := Time.get_ticks_usec() if PerfBuckets.detail_capture_enabled() else 0
 
 	var text_server := TextServerManager.get_primary_interface()
 	var shaped := text_server.create_shaped_text()
@@ -246,36 +320,54 @@ static func measure_ink_bounds(font: Font, value: String, font_size: int) -> Vec
 			continue
 		var glyph_font_size := int(glyph.get("font_size", font_size))
 		var glyph_index := int(glyph.get("index", 0))
-		var contour_data := text_server.font_get_glyph_contours(
-			glyph_font,
-			glyph_font_size,
-			glyph_index
-		)
-		var contour_points: PackedVector3Array = contour_data.get(
-			"points",
-			PackedVector3Array()
-		)
-		if contour_points.is_empty():
+		var outline := _glyph_ink_bounds(text_server, glyph_font, glyph_font_size, glyph_index)
+		if not is_finite(outline.x):
 			continue
-		var outline_min_y := INF
-		var outline_max_y := -INF
-		for point in contour_points:
-			outline_min_y = minf(outline_min_y, point.y)
-			outline_max_y = maxf(outline_max_y, point.y)
 		var shaped_offset: Vector2 = glyph.get("offset", Vector2.ZERO)
 		# TextServer contour Y coordinates already match canvas baseline space:
 		# visible points above the baseline are negative, descenders are positive.
-		var glyph_top := shaped_offset.y + outline_min_y
-		var glyph_bottom := shaped_offset.y + outline_max_y
+		var glyph_top := shaped_offset.y + outline.x
+		var glyph_bottom := shaped_offset.y + outline.y
 		top = minf(top, glyph_top)
 		bottom = maxf(bottom, glyph_bottom)
 
 	text_server.free_rid(shaped)
 	var result := Vector2(top, bottom)
-	if _ink_bounds_cache.size() >= MAX_INK_BOUNDS_CACHE_ENTRIES:
-		_ink_bounds_cache.clear()
+	if _ink_bounds_keys.size() < MAX_INK_BOUNDS_CACHE_ENTRIES:
+		_ink_bounds_keys.append(cache_key)
+	else:
+		PerfBuckets.mark_frame_event("hud_ink_cache_evict")
+		_ink_bounds_cache.erase(_ink_bounds_keys[_ink_bounds_cursor])
+		_ink_bounds_keys[_ink_bounds_cursor] = cache_key
+		_ink_bounds_cursor = (_ink_bounds_cursor + 1) % MAX_INK_BOUNDS_CACHE_ENTRIES
 	_ink_bounds_cache[cache_key] = result
+	if profile_start > 0:
+		PerfBuckets.tick("hud_text.ink_miss", Time.get_ticks_usec() - profile_start)
+		PerfBuckets.count("hud_ink_cache_miss")
 	return result
+
+
+## 仍完整塑形；仅复用最终字体RID/字号/glyph相同的轮廓。保留塑形offset、连字及回退字体。
+## 固定环形淘汰一个条目，不在缓存满时清空整库，也不永久持有Font资源。
+static func _glyph_ink_bounds(server: TextServer, font_rid: RID, font_size: int, glyph: int) -> Vector2:
+	var key := "%d:%d:%d" % [font_rid.get_id(), font_size, glyph]
+	if _glyph_bounds_cache.has(key):
+		return _glyph_bounds_cache[key] as Vector2
+	var contours := server.font_get_glyph_contours(font_rid, font_size, glyph)
+	_glyph_contour_queries += 1
+	var points: PackedVector3Array = contours.get("points", PackedVector3Array())
+	var bounds := Vector2(INF, -INF)
+	for point in points:
+		bounds.x = minf(bounds.x, point.y)
+		bounds.y = maxf(bounds.y, point.y)
+	if _glyph_bounds_keys.size() < MAX_GLYPH_BOUNDS_CACHE_ENTRIES:
+		_glyph_bounds_keys.append(key)
+	else:
+		_glyph_bounds_cache.erase(_glyph_bounds_keys[_glyph_bounds_cursor])
+		_glyph_bounds_keys[_glyph_bounds_cursor] = key
+		_glyph_bounds_cursor = (_glyph_bounds_cursor + 1) % MAX_GLYPH_BOUNDS_CACHE_ENTRIES
+	_glyph_bounds_cache[key] = bounds
+	return bounds
 
 
 static func has_visible_ink(bounds: Vector2) -> bool:

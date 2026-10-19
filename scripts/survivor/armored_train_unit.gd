@@ -1,5 +1,6 @@
 class_name ArmoredTrainUnit
 extends Node2D
+const FrameRedraw := preload("res://scripts/rendering/visual_redraw_queue.gd")
 
 signal route_finished
 
@@ -343,7 +344,7 @@ func _physics_process(delta: float) -> void:
 	_update_movement(delta)
 	if not arrival_ingress_active:
 		_update_railgun(delta)
-	queue_redraw()
+	FrameRedraw.request(self)
 
 
 func _update_movement(delta: float) -> void:
@@ -449,7 +450,7 @@ func on_segment_broken(index: int, broken_segment: GroundUnit) -> void:
 		is_destroyed = true
 		speed = 0.0
 		_cleanup_s = 2.1
-	queue_redraw()
+	FrameRedraw.request(self)
 
 
 func _set_exposed_segment(index: int) -> void:
@@ -545,7 +546,7 @@ func _update_railgun(delta: float) -> void:
 				RAILGUN_TURN_RATE_RAD_S * delta)
 			var railgun_segment := segment_at(RAILGUN_INDEX)
 			if railgun_segment != null:
-				railgun_segment.queue_redraw()
+				FrameRedraw.request(railgun_segment)
 			if _railgun_cooldown_s <= 0.0 and absf(angle_difference(
 					_railgun_heading, target_heading)) <= RAILGUN_ALIGN_TOLERANCE_RAD:
 				_begin_railgun_lock(target)
@@ -709,7 +710,7 @@ func _reset_railgun() -> void:
 	_railgun_shot_progress_px = 0.0
 	_railgun_target_id = 0
 	_railgun_target_scan_s = 0.0
-	queue_redraw()
+	FrameRedraw.request(self)
 
 
 static func point_distance_to_segment(point: Vector2, a: Vector2, b: Vector2) -> float:

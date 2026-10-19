@@ -1,0 +1,1842 @@
+{
+  "schema": 1,
+  "purpose": "Frozen minimal Tokyo 175 repro and supporting research evidence; not a full map build",
+  "files": [
+    {
+      "path": "tmp/analyze_tokyo_handoff_components.py",
+      "bytes": 3941,
+      "sha256": "d69aa9a9a40361140feda6e683b788895dbb8b5591c5a3325e41f4d1d150d7c5"
+    },
+    {
+      "path": "tmp/analyze_tokyo_handoff_first_demand.py",
+      "bytes": 2080,
+      "sha256": "a7f9aae4754a3f25be407467b3e0774ded4acfd59d8f870670dc391741e15a9f"
+    },
+    {
+      "path": "tmp/analyze_tokyo_loaded_phases.py",
+      "bytes": 1539,
+      "sha256": "3ec0c6c469f6b8251c83f008113453e260dbad30af31290daa0c619f0453eb8a"
+    },
+    {
+      "path": "tmp/analyze_tokyo_page_overdraw.py",
+      "bytes": 3428,
+      "sha256": "ff458ef889678200fb545f325c05b9bb56ead80d36057e34f14301820cda757c"
+    },
+    {
+      "path": "tmp/analyze_tokyo_upload_audit.py",
+      "bytes": 2065,
+      "sha256": "6ebee5e1a7110852af854f43e965b611c8faa4f5c8ab2a1edf3ecf580ed376ad"
+    },
+    {
+      "path": "tmp/audit_tokyo_changed_ground_trees.py",
+      "bytes": 3053,
+      "sha256": "9eff8c5476baa4be1f830ab2904b7be9f1f70319d7be6562087b3520c9bb061e"
+    },
+    {
+      "path": "tmp/audit_tokyo_current_grid_batches.py",
+      "bytes": 2654,
+      "sha256": "896bffb277b0d27eb1aca68ef4416c4601c9b708e5e06bface1d109843b56e17"
+    },
+    {
+      "path": "tmp/audit_tokyo_grid_ground_bindings.py",
+      "bytes": 2199,
+      "sha256": "edf60dad1186f47def789c120c38f826647458919f30e2834aa7f380b081ecee"
+    },
+    {
+      "path": "tmp/audit_tokyo_grid_storage.py",
+      "bytes": 1908,
+      "sha256": "38cb31f98f65de46651384a33718416317ec2ce82caff785fdbfbca1d3b23436"
+    },
+    {
+      "path": "tmp/audit_tokyo_ground_residency.py",
+      "bytes": 2881,
+      "sha256": "ef18329d2e4c64f1eb926e532b3d0bd0a9c8746acd1bdf707445b8f56be2cc4c"
+    },
+    {
+      "path": "tmp/audit_tokyo_handoff_failure_states.py",
+      "bytes": 1615,
+      "sha256": "dc814428d2ed2c4f8450502dac69e4fba424d77e0e66d14f9ca684518235f98c"
+    },
+    {
+      "path": "tmp/audit_tokyo_joined_grid.py",
+      "bytes": 2353,
+      "sha256": "98cf7e2efdb3176dab408a79b7367ea73d902e35aea5e6ff0cf5033bd0bc768e"
+    },
+    {
+      "path": "tmp/audit_tokyo_low_layer_simplification.py",
+      "bytes": 3783,
+      "sha256": "b76c1db518b2279ab61a353ec64682fcdddf663003b5af2965b6ef4a5e851893"
+    },
+    {
+      "path": "tmp/audit_tokyo_massing_source_coverage.py",
+      "bytes": 3031,
+      "sha256": "a1e4dbadd9de4b13437c6f685688a1782e262a3cd5324598a11042259cb525a5"
+    },
+    {
+      "path": "tmp/audit_tokyo_native32_readiness.py",
+      "bytes": 3423,
+      "sha256": "421dff93f8c6a73f93cc88ca412f0fed4de3421991610e43a73766c09a6b4f05"
+    },
+    {
+      "path": "tmp/audit_tokyo_north_prisms.py",
+      "bytes": 4106,
+      "sha256": "c250fd6a5f7fefe380dbc560ade016d07044408e0ae4c4e79bc81f9deb386b02"
+    },
+    {
+      "path": "tmp/audit_tokyo_north_representation.py",
+      "bytes": 2545,
+      "sha256": "409aa237036c2bacc31b5e2f40fedb6877fdc895aaa744e44006c9498451738a"
+    },
+    {
+      "path": "tmp/audit_tokyo_projected_faces.py",
+      "bytes": 2127,
+      "sha256": "5767d63157d3de45e53b4d97bd9e2ccdbc8218a9fe6f65b10d1df2a312a4ddc5"
+    },
+    {
+      "path": "tmp/audit_tokyo_selected_overdraw.py",
+      "bytes": 1958,
+      "sha256": "da7283b6d5bf7d50cf4bd4733896d5637367d115e7c42f360e455d6f670e2b86"
+    },
+    {
+      "path": "tmp/build_tokyo_grid_provenance.py",
+      "bytes": 3391,
+      "sha256": "fbbaaf21a9ef18f9e88cb8f4d2e0b15845e4c6ad0f5484eb8cd6e1b5d34c98dc"
+    },
+    {
+      "path": "tmp/build_tokyo_source_massing_batch.py",
+      "bytes": 2746,
+      "sha256": "811dec998ae24d839e328cb6cd197e041b6892e89c5a65350939f72f5f6e243e"
+    },
+    {
+      "path": "tmp/capture_tokyo_cpu_gpu_20261004.ps1",
+      "bytes": 7056,
+      "sha256": "fb359a62b47babe69109310c7d07c6eb1d739906982960e4b8bd64d7c6c49230"
+    },
+    {
+      "path": "tmp/capture_tokyo_draw_trigger.ps1",
+      "bytes": 5571,
+      "sha256": "cf1540de5fd79ef7fa3692850df295cd98acc8fd83e7eb78ccc8a12b0e30b6d6"
+    },
+    {
+      "path": "tmp/check_tokyo_same_lod_prefetch_gap.ps1",
+      "bytes": 2014,
+      "sha256": "3879e6c300504de1af6398b2a39ea1af58e7a81dbf257fe50d9fa5064429ee3d"
+    },
+    {
+      "path": "tmp/cleanup_tokyo_owned_trace04.ps1",
+      "bytes": 1095,
+      "sha256": "58f28ae6c40a5fbada99ab8b9a1afd4924ab1998f86a29eeed2938c5e2b4e627"
+    },
+    {
+      "path": "tmp/compare_tokyo_batched_peak.py",
+      "bytes": 1117,
+      "sha256": "0285a03c4091adaa745fc39e40e7b9a7a562f5bd263c91b0a571710e4b60ca99"
+    },
+    {
+      "path": "tmp/compress_tokyo_intermediates.py",
+      "bytes": 4000,
+      "sha256": "dc3623e084d7e33318ed19b34454352efebb7715f1a5a12a45dbaa20c1c4d7b2"
+    },
+    {
+      "path": "tmp/filter_tokyo_whole_ground_sources.py",
+      "bytes": 1177,
+      "sha256": "0fd34ef07059a17f92ea51ef4bae268fbb7a81184889a304f179569a55150083"
+    },
+    {
+      "path": "tmp/full_map_detail/build_manifest.json",
+      "bytes": 70922,
+      "sha256": "0d822a979bf6b056dc9d589fb16ba5b9446cb8c3c603eb9f2c18c16cda7b9902"
+    },
+    {
+      "path": "tmp/inspect_tokyo_pe_exports.py",
+      "bytes": 3285,
+      "sha256": "e27973243b9f37ccdbf3659fe28dc8b4fc7844874a07901d6987190c45ffc311"
+    },
+    {
+      "path": "tmp/join_tokyo_export_attributes.py",
+      "bytes": 1265,
+      "sha256": "aeed09b8ad0cdaed1491e524554f5df77231192d6e0bb30adcfd1abec7d921bf"
+    },
+    {
+      "path": "tmp/merge_tokyo_massing_batches.py",
+      "bytes": 2059,
+      "sha256": "f176fba1e34a39df643c2c9c9a9cb858baf7f584d8d54a695cdcafd8e79c7a54"
+    },
+    {
+      "path": "tmp/merge_tokyo_north_massing_diagnostics.py",
+      "bytes": 4537,
+      "sha256": "5e53c2211359ed12137201100e44e551807d528d85a430a7463e09c763217680"
+    },
+    {
+      "path": "tmp/merge_tokyo_two_whole_sources.py",
+      "bytes": 3552,
+      "sha256": "fb92acfcbb0100d234627576c10da12952c51af57cba729a009148ac7bfeddd4"
+    },
+    {
+      "path": "tmp/observe_tokyo_window.ps1",
+      "bytes": 2816,
+      "sha256": "c9e760fdc265d4eae39a53dd97938127356ddb200d9756be3c57279d9903018b"
+    },
+    {
+      "path": "tmp/plan_tokyo_remaining_grid.py",
+      "bytes": 2250,
+      "sha256": "b329da0765d14e19a675022dcc01c89b7398a3c015d8164686cfb3041ac5c952"
+    },
+    {
+      "path": "tmp/prepare_tokyo_all_ground.py",
+      "bytes": 3127,
+      "sha256": "8bd3fa6efd8eef561feb4bab65f8943b394b84a7f59d9678791b5ecbff5495c0"
+    },
+    {
+      "path": "tmp/prepare_tokyo_all_ground_bound.ps1",
+      "bytes": 395,
+      "sha256": "8af997cd95d7a3b658bd5644daf95b52a350a69c2eab85630979f9a9ef5e0a39"
+    },
+    {
+      "path": "tmp/prepare_tokyo_band_reaudit.py",
+      "bytes": 1254,
+      "sha256": "b725f57f2a060b5613c163cbb30fa978daed6ecec93d2049c9c6dc15105b0547"
+    },
+    {
+      "path": "tmp/prepare_tokyo_band_remaining_probe.py",
+      "bytes": 405,
+      "sha256": "35e7467ac2b6b656e086900414b22bea59b4fb3a44813cb59f15d38d6a397655"
+    },
+    {
+      "path": "tmp/prepare_tokyo_band_stage.py",
+      "bytes": 713,
+      "sha256": "5b0a1316195973a7cc47e9ffe0d3a74d2e09ccfaccde03cba043df8b37a9340f"
+    },
+    {
+      "path": "tmp/prepare_tokyo_cell640_candidate.py",
+      "bytes": 1189,
+      "sha256": "7565a5d24881b7a8940cde8d7209c10f532af7683fc18ae1a880f67bc89fb4a6"
+    },
+    {
+      "path": "tmp/prepare_tokyo_cell640_source.py",
+      "bytes": 2623,
+      "sha256": "4b5a2a0d2c28738fa768fd9178be8d177353431bd1a6bcd396a29a0dce2e9290"
+    },
+    {
+      "path": "tmp/prepare_tokyo_complete_scope.py",
+      "bytes": 2685,
+      "sha256": "d3b1557a61c1928738045cce9881201fee6d306cad8025c32d2e3eba35da585f"
+    },
+    {
+      "path": "tmp/prepare_tokyo_continuous.py",
+      "bytes": 630,
+      "sha256": "9f02e44b82a46efac846b97cdf7f99fbf121029172fd841d01c1a4eb80965387"
+    },
+    {
+      "path": "tmp/prepare_tokyo_contoured_low_plan.py",
+      "bytes": 1127,
+      "sha256": "964bf8a6b5b96c20bc9f53391b7456aa07236abdcc6bf60b3a176a9308d7a5b2"
+    },
+    {
+      "path": "tmp/prepare_tokyo_current_area_massing.py",
+      "bytes": 2076,
+      "sha256": "94abfca196b671799a8ad1de50ea54f3bfa797de3070e6cb758412222ce2f5bd"
+    },
+    {
+      "path": "tmp/prepare_tokyo_current_capacity.py",
+      "bytes": 404,
+      "sha256": "8b992cb484eb7769906acb656a3c695bb8ee695da956ce866114f20935274884"
+    },
+    {
+      "path": "tmp/prepare_tokyo_edge_lower_bound.ps1",
+      "bytes": 394,
+      "sha256": "dd215811dfa4df84ec503d334ace2db3f9db0b352b7156558764cad031037e6b"
+    },
+    {
+      "path": "tmp/prepare_tokyo_edge_refinement_02.ps1",
+      "bytes": 379,
+      "sha256": "387d193761eaffff7dd2e695786baa38886903dd7e6ad64456a997b65fca5c6f"
+    },
+    {
+      "path": "tmp/prepare_tokyo_expiry_gap_probe.py",
+      "bytes": 1091,
+      "sha256": "d7164adc679e9569c72d312cda2fe9133c567ff663db3227e72dca5f4f38912b"
+    },
+    {
+      "path": "tmp/prepare_tokyo_fixed_capacity_matrix.py",
+      "bytes": 1859,
+      "sha256": "d3928afdceb66ddf97a7ec3e303212941c9e4fb84c4448d28da6ac5408266136"
+    },
+    {
+      "path": "tmp/prepare_tokyo_four_gap_selection.py",
+      "bytes": 439,
+      "sha256": "2e8807c48af3e80c080f81f1e151999ed72018efacb3d12e7e5f06602142c427"
+    },
+    {
+      "path": "tmp/prepare_tokyo_global_scope.py",
+      "bytes": 869,
+      "sha256": "ff9939240aaf2b1ab406365eee211d06199ebf91c93407d2a1dd1f1d360947d0"
+    },
+    {
+      "path": "tmp/prepare_tokyo_grid_ground.py",
+      "bytes": 4982,
+      "sha256": "01a5e106d103d5e9f3c005459bef7a3f0f266a32de89260bd6001c7c38880b06"
+    },
+    {
+      "path": "tmp/prepare_tokyo_ground_export_negative.py",
+      "bytes": 630,
+      "sha256": "535c7c865650c58d27595d39717de3b84303179abe00fb38d53581db3e50d57f"
+    },
+    {
+      "path": "tmp/prepare_tokyo_ground_guard_bound.ps1",
+      "bytes": 401,
+      "sha256": "3832cde371aefd54b2be051f3004f6c43662903d23c0e1aadab5696f4b20b470"
+    },
+    {
+      "path": "tmp/prepare_tokyo_lossless_area_plan.py",
+      "bytes": 1225,
+      "sha256": "b6a46f7dff1c3b07ae208695d1eaecbd728a8ec6c510c49797b467aec99aa107"
+    },
+    {
+      "path": "tmp/prepare_tokyo_mixed_ready_counterfactual.ps1",
+      "bytes": 943,
+      "sha256": "b151ca83b8b327a240979ced83d163a21266491fabbf37a1d2c109486b734943"
+    },
+    {
+      "path": "tmp/prepare_tokyo_mixed_replay.ps1",
+      "bytes": 811,
+      "sha256": "fd45884a957ec4c84d3d49a30f5b7f31ab8f664270bc1f4a0ad888c10d25ba62"
+    },
+    {
+      "path": "tmp/prepare_tokyo_new_north_ground_export.py",
+      "bytes": 706,
+      "sha256": "506f37e0050114e8c017dd10f4d01d681a47776a197ae7fb6a40bbe9b45e93a8"
+    },
+    {
+      "path": "tmp/prepare_tokyo_new_north_stage.py",
+      "bytes": 861,
+      "sha256": "999416cab609fa3590dbad851ee9ed60142df12b8f86e6e467acff4c2ce5c8b4"
+    },
+    {
+      "path": "tmp/prepare_tokyo_north_band_audit.py",
+      "bytes": 751,
+      "sha256": "ca736803f182e5006e574257031b5d02db72c22ae2b3232adb77ed8a374c991f"
+    },
+    {
+      "path": "tmp/prepare_tokyo_north_combined_diagnostic.py",
+      "bytes": 864,
+      "sha256": "da47d009c29c32ba9871df24fc1cea7ff2c8a958e2feb6c8922eeca8bf1a55c6"
+    },
+    {
+      "path": "tmp/prepare_tokyo_north_ground_candidate.py",
+      "bytes": 1943,
+      "sha256": "7c9b84927c7908089ec8dc8b0a70a78781e911a8bd5fec8b9e6ad3994589904d"
+    },
+    {
+      "path": "tmp/prepare_tokyo_north_ground_selection.py",
+      "bytes": 585,
+      "sha256": "6682f6bcf19760da5d923d690d48295c5a42c5c511398a1fadb8c7e95211354c"
+    },
+    {
+      "path": "tmp/prepare_tokyo_north_massing_diagnostic.py",
+      "bytes": 1008,
+      "sha256": "41088a9a45193121fbf0869f7da2a6fd2e064ee36d9ee712e706f438e96b58a0"
+    },
+    {
+      "path": "tmp/prepare_tokyo_north_massing_package.py",
+      "bytes": 1188,
+      "sha256": "f03d8260785d8d250288bc6e3ca0b1c909e6f6f30488692b62206f60c71faa40"
+    },
+    {
+      "path": "tmp/prepare_tokyo_north_matrix.py",
+      "bytes": 958,
+      "sha256": "3b98be671a1456657c3ca6cecf7fda5ab8ce0d4d0dad157994ca0a9d82bc108b"
+    },
+    {
+      "path": "tmp/prepare_tokyo_north_whole_source.py",
+      "bytes": 807,
+      "sha256": "c5f6a349fb36f6542d2a48d7e4b5789f1c84e8f9ae6dd8974018db20dede822d"
+    },
+    {
+      "path": "tmp/prepare_tokyo_page_cost_probe.py",
+      "bytes": 343,
+      "sha256": "fd3b4df7b551c62a3b6cd465b1d8ac5e9ba3a0995ed7ab9ef9c8e6f6beaff1d2"
+    },
+    {
+      "path": "tmp/prepare_tokyo_raw_bridge_probe.ps1",
+      "bytes": 1525,
+      "sha256": "2ff56fd976ce12315eb0a45b060124f6216a9e40c6a59b2fd14c777e59fe30e9"
+    },
+    {
+      "path": "tmp/prepare_tokyo_rejected_cost.py",
+      "bytes": 1269,
+      "sha256": "3c6710f5b42ea44e48d169d9dd5867a9b3caa2c68bb735c6d1ccdb10cd1ddf59"
+    },
+    {
+      "path": "tmp/prepare_tokyo_resident_replay.ps1",
+      "bytes": 2169,
+      "sha256": "5ca0e8a1e9427b83af010b87215d5f6ef553630856da0df30fa27d0c1a28b8d2"
+    },
+    {
+      "path": "tmp/prepare_tokyo_retained_low_shell.py",
+      "bytes": 7542,
+      "sha256": "f07a7ff0c29f57bedc8d9bdc0b06658a8c97afa0249d7123af0762883741f381"
+    },
+    {
+      "path": "tmp/prepare_tokyo_south_multilod_cost.py",
+      "bytes": 569,
+      "sha256": "7b72a75e162f01dbc39a7bcd0f30bdaa6e95b9eefa5e196da8c899bc427b2b78"
+    },
+    {
+      "path": "tmp/prepare_tokyo_south_tree_ground.py",
+      "bytes": 851,
+      "sha256": "e5cfe2f5c971c54068d11ca310b90ff7a3c4a90e180567e74e5be79daa324dd5"
+    },
+    {
+      "path": "tmp/prepare_tokyo_south_tree_stage.py",
+      "bytes": 3242,
+      "sha256": "b3201580cf3cf021d15e774f386cdc741832f0fc6a02268c45c3b2e3057162ce"
+    },
+    {
+      "path": "tmp/prepare_tokyo_south_whole_source.py",
+      "bytes": 2640,
+      "sha256": "563f1835bee411c9cb83bb2200beeb2bac0dc7f72b3e182565e9246d32fd6832"
+    },
+    {
+      "path": "tmp/prepare_tokyo_tree_ground_audit.py",
+      "bytes": 778,
+      "sha256": "833113a5dc458d5c920b528b32d84ac13cb1d687ffb83dc9b8c0e763146c3270"
+    },
+    {
+      "path": "tmp/prepare_tokyo_two_whole_layer_audit.py",
+      "bytes": 446,
+      "sha256": "e4fe541fb3496476ce5037536fee9770013864f508094277ac0a6418ec0a92e2"
+    },
+    {
+      "path": "tmp/prepare_tokyo_wall_grid.py",
+      "bytes": 4235,
+      "sha256": "47b4c406ee3d8d085e4fc9eee4ac0fa6bdd58306c134b1084aa7089c22f8eef0"
+    },
+    {
+      "path": "tmp/prepare_tokyo_whole_gap_probe.py",
+      "bytes": 1005,
+      "sha256": "e3df01e6d41151a74779125bc11b1c3437162a4c6cf2615bd8bc8974070cd731"
+    },
+    {
+      "path": "tmp/prepare_tokyo_whole_ground_export.py",
+      "bytes": 677,
+      "sha256": "229d6b16919efab22dc1f8f3e6a31fc31c5ac66d66bbd80a12c0365863da76ae"
+    },
+    {
+      "path": "tmp/prepare_tokyo_whole_ground_stage.py",
+      "bytes": 3148,
+      "sha256": "ac0126e8a109aa8c854640ff3709516f39dd49ea3c400e2c34bf762156c27664"
+    },
+    {
+      "path": "tmp/probe_tokyo_area_partition.py",
+      "bytes": 5540,
+      "sha256": "4c454febf992a41de3b606bf977b3e8eab99817a8b0684f287843db5293d5514"
+    },
+    {
+      "path": "tmp/probe_tokyo_coplanar_faces.py",
+      "bytes": 3705,
+      "sha256": "69d8db32f4f6b818c01ea9e657f7f3c6c2476fa0010b673b3af97d74954f0046"
+    },
+    {
+      "path": "tmp/probe_tokyo_north_depth_cost.py",
+      "bytes": 3427,
+      "sha256": "060148e9b65c72a1d8d5ae30e6d80a31e85f5daa6ccf7fb846aba7f49040fc60"
+    },
+    {
+      "path": "tmp/probe_tokyo_projected_partition.py",
+      "bytes": 5641,
+      "sha256": "9fcfb833c73ab503c64de86214f71342f7f56a95a8c4ce5e34706ef08be1dfa7"
+    },
+    {
+      "path": "tmp/resolve_tokyo_wait_symbols.py",
+      "bytes": 4757,
+      "sha256": "eb0c06196c193f558481cfab013fc9552881697a76675595b31cc1288a037284"
+    },
+    {
+      "path": "tmp/reuse_tokyo_cell640_ground.py",
+      "bytes": 2620,
+      "sha256": "9f716df07d258b724179e57b58366ba20417371d1ef0010577f94051f05aa1f0"
+    },
+    {
+      "path": "tmp/run_tokyo_candidate_combat.ps1",
+      "bytes": 1501,
+      "sha256": "4a4f4e4c74e2e26953171f7ee539d4dee728ef9dcc0ed6a331bf7dbcdc83079d"
+    },
+    {
+      "path": "tmp/run_tokyo_complete_offline.py",
+      "bytes": 2879,
+      "sha256": "72d5e3a5c9e690fe3df88f384b77758d71a2be6de1b983ba26cda19cbcd33d49"
+    },
+    {
+      "path": "tmp/run_tokyo_complete_offline_03.py",
+      "bytes": 2316,
+      "sha256": "40a6b111f7fcb76d43ad3accd31efe42b7dde650d8ac644a2eb4724d5d3ce5d8"
+    },
+    {
+      "path": "tmp/run_tokyo_current_edges.ps1",
+      "bytes": 2204,
+      "sha256": "2fd798fca6347907b9a80d84a2e595a43191627b01640af4909b84e23a561be7"
+    },
+    {
+      "path": "tmp/run_tokyo_fair_slot.ps1",
+      "bytes": 1734,
+      "sha256": "878425083dfdc6a80c4d61b1e29a382eaddc48addd4152dd43478166783ade66"
+    },
+    {
+      "path": "tmp/run_tokyo_installed_edges.ps1",
+      "bytes": 2551,
+      "sha256": "236cae7f2fc18216269249b44e37744431453acad4555c74ffc0ca9e6ed2c215"
+    },
+    {
+      "path": "tmp/run_tokyo_loaded_wall.ps1",
+      "bytes": 1829,
+      "sha256": "5852dcd2bd67f2a933b766429730a7cfedd005921b162c52a141394f9c8c1f45"
+    },
+    {
+      "path": "tmp/run_tokyo_native_page_candidate.ps1",
+      "bytes": 1346,
+      "sha256": "7f91d65cad039f8e02fc575ca24cbcd06ca05080e82d6e72aa1b7a12446599ca"
+    },
+    {
+      "path": "tmp/run_tokyo_whole_north_edge.ps1",
+      "bytes": 1908,
+      "sha256": "8fb7092278558b29b88725fae2253cc1b77e36b265002785784c25c18890422b"
+    },
+    {
+      "path": "tmp/select_tokyo_export_branches.py",
+      "bytes": 1272,
+      "sha256": "d98e46991e008aac6e3f22589d7b575ae970e329138e1a72aca5d3d7d350c7fe"
+    },
+    {
+      "path": "tmp/smoke_tokyo_bounded_trace.ps1",
+      "bytes": 2268,
+      "sha256": "6a35962ab1bd9e1c7ac0b84a4a35e34bd88397d14599aff1fe957ccdba9ae207"
+    },
+    {
+      "path": "tmp/summarize_tokyo_current_edges.py",
+      "bytes": 2368,
+      "sha256": "d5f2f1ea4e337264ca7c6977ab20a1423ba8c6dbfb13f921af5c59211c133279"
+    },
+    {
+      "path": "tmp/summarize_tokyo_fixed_capacity_matrix.py",
+      "bytes": 1457,
+      "sha256": "a71b3a688c6a7da164200dbbde4f339dad7c7187c1b2d3b6f526b378b2bd00c1"
+    },
+    {
+      "path": "tmp/summarize_tokyo_whole_leaf_cost.py",
+      "bytes": 1593,
+      "sha256": "a3eeed250eb1e03264b4b968df0ea4c348efd095eae1d3f1856e061935edfd0a"
+    },
+    {
+      "path": "tmp/tokyo-bundle-edge-batch.ps1",
+      "bytes": 1439,
+      "sha256": "d8c433b4763710126b63356e5f17223208ca491e10afa967181fa0b825673f39"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/camera-deadline-138.json",
+      "bytes": 1051,
+      "sha256": "d5e8c524d0852753cd01d83e8fc81930c7d76c1cde5acadbd8296de39a5eb843"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/gpu-roof-bound-155.json",
+      "bytes": 1039,
+      "sha256": "3e2488c53c2e9ff60a15232929b6af5711c9e4aedf6eae3f405f73791680bc76"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/joint-boundary-175/bench.log",
+      "bytes": 784,
+      "sha256": "37820f38c039e7977d371d39922090b8030a6702be50ec25bbf83a42b6d42415"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/joint-boundary-175/candidate-indices.gz",
+      "bytes": 696303,
+      "sha256": "cc02f5400f81ae7f176dcbbf533b93b551a92f0abda76cbcfad31b93bf337ef6"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/joint-boundary-175/candidate-mask.gz",
+      "bytes": 52,
+      "sha256": "4b32d469d317a8ae044be60a3484f0742c158a9dfd180be3ce4d2f062b014c65"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/joint-boundary-175/candidate-vertices.gz",
+      "bytes": 1766795,
+      "sha256": "9d788ed60104106877cce8de58f5f33102d7f2f1b034e33db3da56179f042c75"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/joint-boundary-175/control-indices.gz",
+      "bytes": 700374,
+      "sha256": "5e1b5987a77ec64aeafacfa0ea0df0f4ba4952863b2e975db94e723baf3c2cfa"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/joint-boundary-175/control-mask.gz",
+      "bytes": 51,
+      "sha256": "b6ae90ca330f5c3a708585e1c7a0bce926e449b0fb43f2c451bb0004ee71442e"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/joint-boundary-175/control-vertices.gz",
+      "bytes": 1955774,
+      "sha256": "1d53f5a3855bcbe897774147910a97112ee390fa9194d999531b9534e3916e0d"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/joint-boundary-175/engine/joint_0_candidate.png",
+      "bytes": 346455,
+      "sha256": "9b97086ea547194980d4cec42fa798ece21fef0f7c59608310b76d5a9416fd13"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/joint-boundary-175/engine/joint_12_candidate.png",
+      "bytes": 368823,
+      "sha256": "1383bdb0e3335455da762e75abe0f3856226371ecbe28eb6a4fd8f76db1d879b"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/joint-boundary-175/engine/joint_18_candidate.png",
+      "bytes": 355458,
+      "sha256": "4e322a2df320a8d72826c71ecb3499b2aa38996da25d4f5a7effb9b0a004ee46"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/joint-boundary-175/engine/joint_6_candidate.png",
+      "bytes": 391970,
+      "sha256": "6d979316319cfb615b3cb35032f9d580b5faa96812218790a6739a815026ebee"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/joint-boundary-175/engine/last_candidate.png",
+      "bytes": 432151,
+      "sha256": "acba01afb02a82949dc1e8604a9fd7f1afda17469cd3af1fec3416e8040ef203"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/joint-boundary-175/engine/last_control.png",
+      "bytes": 482480,
+      "sha256": "87718c154a8b0bd5268bf6e3022628ade18c75c3cf2134d9a5291af24dc7ad4e"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/joint-boundary-175/engine/report.json",
+      "bytes": 6123,
+      "sha256": "62aea9c3a3adc6de3d675fa03691165a40a5b68405524790ee9eaa291e410e44"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/joint-boundary-175/report.json",
+      "bytes": 1872,
+      "sha256": "d7b8243308f4edd8b2a42612caa6e3aa7e50a815d5f6bafe58c7b16efcc5372f"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/joint-boundary-175/request.json",
+      "bytes": 3976,
+      "sha256": "9e2d5e5635cb9b07b29a8a7469ad0bb625d2bf9a66268fb8dcea57f978027158"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/joint-patch-174/all.log",
+      "bytes": 758402,
+      "sha256": "39e40d688851b978827cc6e8044a67b8ca0bdb61ebd3b5c879fb2cebbe3521fd"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/joint-patch-174/engine/report.json",
+      "bytes": 6262,
+      "sha256": "41faf6821d46524eba63ec8efe3e033b696423f286dd95e300c078b729163852"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/joint-patch-174/report.json",
+      "bytes": 929,
+      "sha256": "c4fcf05cb346e976e9c23b5b291917310c4dc5eb75c30b256ab26e75ae0167d2"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/native-members-172/report.json",
+      "bytes": 4321071,
+      "sha256": "f1185e8722cb2b4d954e4c7e7addd45acc516601c9b2fa0bf1b6372f2e19f7ef"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/resident-dedup-140.json",
+      "bytes": 100378,
+      "sha256": "538e9cc30514e3caed3f5e3deb243b48261ea44db52a64ad55353a940364838f"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/structural-tile-164/report.json",
+      "bytes": 22248264,
+      "sha256": "88c47140774d228d00fc2d31d387a4b1fa6e88ba7558cedde5b57eef23eb77a0"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/tile-batches-165/batch-00/engine/report.json",
+      "bytes": 1638,
+      "sha256": "a0c385a7eb59b613ccb0045c38feb1eb322cb0da3fc25ce3062a23a52552145e"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/tile-batches-165/batch-01/engine/report.json",
+      "bytes": 1651,
+      "sha256": "ae9fb15573f9a48dea1c968bcc9a37aeb70cb0a9cf84d8b5768159560651b846"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/tile-batches-165/batch-02/engine/report.json",
+      "bytes": 1649,
+      "sha256": "7f6e1b05164976852aeaed8b44cf39586cdd96b3fee23e8511a339a31f282f6c"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/tile-batches-165/batch-03/engine/report.json",
+      "bytes": 1640,
+      "sha256": "8832b34854e975290b8e0d8f2ebf6b399bb28fafebbd5d864c7f6c35c03ee272"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/tile-batches-165/gpu-audit-166.json",
+      "bytes": 2124,
+      "sha256": "8f46898342b0b02d4aa0df228b36620c60db179cdf6cae9c429fd31d1432a8bb"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/tile-batches-165/report.json",
+      "bytes": 2942,
+      "sha256": "920bdd3c6c0ec3d3602d063155631a1c15aba2288f04738aee01400a4358a7d7"
+    },
+    {
+      "path": "tmp/tokyo-complete-production-02/triangle-spatial-169/report.json",
+      "bytes": 46643,
+      "sha256": "5ebdf3403e30981e837c8dd2ac6b6451afa1e569d2dcf334c1007f51d08563db"
+    },
+    {
+      "path": "tmp/tokyo-ground-r5-edge-batch.ps1",
+      "bytes": 1618,
+      "sha256": "73f5270eb7d5b2ee10e892bb358d5a8aa96911488d35dd772e2df89ca3dbb920"
+    },
+    {
+      "path": "tmp/tokyo-installer-guard-probe.ps1",
+      "bytes": 436,
+      "sha256": "9bbddbe991b530c22595e5105ba62ba9942adc4af439ec6e9d8d24bc06372959"
+    },
+    {
+      "path": "tmp/tokyo-layer-mask-audit.ps1",
+      "bytes": 1934,
+      "sha256": "20e44f71144499146c1b13ba7c297d2cbe4ee801c570b3a5c97f714a8f562551"
+    },
+    {
+      "path": "tmp/tokyo-lossless-full-edge-batch.ps1",
+      "bytes": 1912,
+      "sha256": "39e29a57becf8ac889f37d5b7d8f19c4525c3f2a022eff9e5709fdb1118d75cf"
+    },
+    {
+      "path": "tmp/tokyo-north-current-run.ps1",
+      "bytes": 1000,
+      "sha256": "8f7513fc024cfb74fff3d661790c6beaf995100ca03556678fea7b6a86a4aae8"
+    },
+    {
+      "path": "tmp/tokyo-static-formal-run.ps1",
+      "bytes": 892,
+      "sha256": "d9a2b77dc6dbb9a3a2bb712f39907783414487f0a3d87f32e890a5e10796f7a1"
+    },
+    {
+      "path": "tmp/tokyo_adjacent_coverage_audit.py",
+      "bytes": 3663,
+      "sha256": "0ed5a41ceab27375d8c235926805a03e3d32db21f6538f397266cb2bb5364792"
+    },
+    {
+      "path": "tmp/tokyo_adjacent_states_80.py",
+      "bytes": 5782,
+      "sha256": "373b4c9cabc376bcae5461fad79bacd704eae46cf22e72562de132d8c59591ba"
+    },
+    {
+      "path": "tmp/tokyo_bake_current_roofs.py",
+      "bytes": 4329,
+      "sha256": "7961e6dd0871fef619d51b67c2ecae30a405762451f33fa1c001567fec9dc7d4"
+    },
+    {
+      "path": "tmp/tokyo_bake_whole_view_layers.py",
+      "bytes": 6611,
+      "sha256": "85e4bae684ce9c0867391dfdf365053f2ab73578871d6bba31deca142fb64289"
+    },
+    {
+      "path": "tmp/tokyo_bitpacked_gl_request.py",
+      "bytes": 1188,
+      "sha256": "525bc174628da8f337839c0493a6f1c4df768a60d6efd369f5272a9181119e21"
+    },
+    {
+      "path": "tmp/tokyo_bitpacked_mip_candidate.py",
+      "bytes": 1745,
+      "sha256": "25fc1b033b52656be181f86abffa8a16de3342f1f48d5153886b329f073b410f"
+    },
+    {
+      "path": "tmp/tokyo_bitpacked_retry_request.py",
+      "bytes": 318,
+      "sha256": "8c69d304f6e95d554c6a6664a04f8f5b0e978eeb2982df76cf2e21a734152a7b"
+    },
+    {
+      "path": "tmp/tokyo_bitpacked_saved_probe.py",
+      "bytes": 4223,
+      "sha256": "1edcb61b29a2dc8123f37d928233debb2a22182b21beae01d8a921f0f81c1c88"
+    },
+    {
+      "path": "tmp/tokyo_build_block_sample.py",
+      "bytes": 1718,
+      "sha256": "859872efe35f78d622166daea5e5f5e1cdcb18441f5b6d065ebd6618e6c28a7f"
+    },
+    {
+      "path": "tmp/tokyo_build_certified_packet.py",
+      "bytes": 2983,
+      "sha256": "ca935832afb102bcd6acb76fd253e9f2c004f5fc83a7c93eb2437f7430bf8420"
+    },
+    {
+      "path": "tmp/tokyo_build_current_blocks.py",
+      "bytes": 5094,
+      "sha256": "f30ce73c3f1d7cc14e805bad63c45981d7b2f43d6b4ead3bb23b23ff2ff2327d"
+    },
+    {
+      "path": "tmp/tokyo_build_envelope_packet.py",
+      "bytes": 3010,
+      "sha256": "1c83a946582042fb3d17f0ef4e720d5b4da88157bd493ee02ebb35afe109f7c6"
+    },
+    {
+      "path": "tmp/tokyo_build_index_hybrid.py",
+      "bytes": 3014,
+      "sha256": "e851c2b43360dd7366859dc7a834fc36a2c7b02da89494667977e7e2205e13b4"
+    },
+    {
+      "path": "tmp/tokyo_build_native_index_cut.py",
+      "bytes": 2614,
+      "sha256": "2554178776beee7eeb404f0225bcef473b3ff63f732474dc1ac20cd107f7814f"
+    },
+    {
+      "path": "tmp/tokyo_build_shared_index_packet.py",
+      "bytes": 3630,
+      "sha256": "bcc0faa0d8c178b4b0cfa61507423fe5aad7f698838ee22bbd63a1c3719bc123"
+    },
+    {
+      "path": "tmp/tokyo_check_layered_roof_edges.py",
+      "bytes": 1962,
+      "sha256": "3812f1502e48e68d8088eb920b1ccaa7bf8851c01b07e41632efed584a094652"
+    },
+    {
+      "path": "tmp/tokyo_combined_roof_156.py",
+      "bytes": 3917,
+      "sha256": "0efe666f328439d16e43b468573330a8ec1b2db4854c53cb7673da50cd2f7ab9"
+    },
+    {
+      "path": "tmp/tokyo_compact_neighbor_125.py",
+      "bytes": 3811,
+      "sha256": "6928b86a367a5a898aba9824c3ab20606a15b6a4e40ee79dcfa2cfee9c6af01e"
+    },
+    {
+      "path": "tmp/tokyo_compare_current_blocks.py",
+      "bytes": 1977,
+      "sha256": "603e37c0a39011b5ecb4bdf7648a9a2ac8673c82bb31ff91f0d5b961904d31ae"
+    },
+    {
+      "path": "tmp/tokyo_complete_zoom_geometry_cost.py",
+      "bytes": 4311,
+      "sha256": "6c3ac37c6750640e3b5f7a1769b9c4be6d59f0117722f86749ee5521d875238d"
+    },
+    {
+      "path": "tmp/tokyo_continuous_capacity_certificate.py",
+      "bytes": 3693,
+      "sha256": "4d1d58e73bc8d55b8a20ea677bfa19fcc08e0462acc2fc77342b5aa60930f07c"
+    },
+    {
+      "path": "tmp/tokyo_coplanar_merge_audit.py",
+      "bytes": 4964,
+      "sha256": "d5f3c602a0a5a00a89b5753114aa9cd4a5a7b466e16008546d7a1048f82a9380"
+    },
+    {
+      "path": "tmp/tokyo_coplanar_plane_cost.py",
+      "bytes": 1520,
+      "sha256": "f1d7a53debc81eca3f42312227fda02e8191b40807c1f412c406ac2ce7c6f559"
+    },
+    {
+      "path": "tmp/tokyo_deadline_counterexample_138.py",
+      "bytes": 1288,
+      "sha256": "1a4395ad56eee7891a198c63163f82965473669f8802970c2df6862c3377954f"
+    },
+    {
+      "path": "tmp/tokyo_deduplicate_envelope_vertices.py",
+      "bytes": 1628,
+      "sha256": "15444e6a4fd3daefbf7cc92969bfd14f2abb6fd4b13240dc3fd55144ea532a20"
+    },
+    {
+      "path": "tmp/tokyo_delta_schedule_85.py",
+      "bytes": 2041,
+      "sha256": "9a055ebc0aaf8cc3068a7f63d2619b5dbf7b78eb7fc63e2758757a6bedb6292f"
+    },
+    {
+      "path": "tmp/tokyo_domain_texture_saved.py",
+      "bytes": 5902,
+      "sha256": "e40033755697e615915e841dd194f10145cafff00e8d3bdafa4c4c4d0cb902ff"
+    },
+    {
+      "path": "tmp/tokyo_eligible_wall_cost.py",
+      "bytes": 3117,
+      "sha256": "8cba849c5b6a29cf3fc375f5adf0638fe2fffe2e1b5275a6259c7cd0182cec95"
+    },
+    {
+      "path": "tmp/tokyo_envelope_pixel_audit.py",
+      "bytes": 1167,
+      "sha256": "1abba1d559180be0867a6534db493ed56100fbdb55b6b632e252bf27b4e8bfc5"
+    },
+    {
+      "path": "tmp/tokyo_envelope_reachable_cost.py",
+      "bytes": 3696,
+      "sha256": "48ca2711c5693c943e1fa09653c96ccf2d86e681355cc63188fd69ed4c8f9278"
+    },
+    {
+      "path": "tmp/tokyo_envelope_review_163.py",
+      "bytes": 1410,
+      "sha256": "bfc0518bcbf6c30e11468b33817147b1be6f16f32705eb9097830c5309eae191"
+    },
+    {
+      "path": "tmp/tokyo_exact_roof_joint_probe.py",
+      "bytes": 7544,
+      "sha256": "02dd8b348de614a5a2c433432f012f4a0874d82f067bb1efa8d0a6918d487192"
+    },
+    {
+      "path": "tmp/tokyo_existing_block_membership.py",
+      "bytes": 2375,
+      "sha256": "276fa94ec46d9f084ae75c145102cf276e53ad64440516c18ee29ddd466d674d"
+    },
+    {
+      "path": "tmp/tokyo_existing_lod_cost.py",
+      "bytes": 1684,
+      "sha256": "d4af301d107e993f1da0f698e29614eab127e7148746522cb368dd83a03caba9"
+    },
+    {
+      "path": "tmp/tokyo_existing_texture_cost.py",
+      "bytes": 6775,
+      "sha256": "fa4192e9ce92c1d4ba83c79185329c6d0cb14a55b38dbe92b96b71af22bc1b1d"
+    },
+    {
+      "path": "tmp/tokyo_expanded_attribution.py",
+      "bytes": 3064,
+      "sha256": "91f3a9fb84ee26353e4110e9a3c918ff4357694e137658e843531b4cbe919899"
+    },
+    {
+      "path": "tmp/tokyo_expanded_coverage.py",
+      "bytes": 3043,
+      "sha256": "d8d83cb64d6c249a9fbc705d22cc23ab561dc0297e6b1ef3d4016d9689373163"
+    },
+    {
+      "path": "tmp/tokyo_expanded_geometry_joint_cost.py",
+      "bytes": 3667,
+      "sha256": "07be325c545bf3db8902fa4cc8d460726e091d209728cc12d1eaa9f7018c399a"
+    },
+    {
+      "path": "tmp/tokyo_expanded_gl_request.py",
+      "bytes": 3492,
+      "sha256": "4ac3418cdf1903d160a3c8b1bea70228601c06556f5f2e292680b7bfa26c0bf6"
+    },
+    {
+      "path": "tmp/tokyo_expanded_joint_texture_cost.py",
+      "bytes": 5638,
+      "sha256": "83779b0b9fac6b8072079882cbfde1939ba27a8b09f085e033dc2b8cc19b50ce"
+    },
+    {
+      "path": "tmp/tokyo_expanded_mesh_request.py",
+      "bytes": 3048,
+      "sha256": "198676926d26a624c2021e9a7d7c6d3bfcf3ec73fd77d2aa10cc0238d2c16d68"
+    },
+    {
+      "path": "tmp/tokyo_expanded_native_saved.py",
+      "bytes": 1689,
+      "sha256": "10be8cbc5256c2654f87770c90d9daaf170d79c00953590c3f028c46ed11f614"
+    },
+    {
+      "path": "tmp/tokyo_expanded_plane_inventory.py",
+      "bytes": 3136,
+      "sha256": "2290d9a3770b7c806051a70b786147a652852682e267e02a90dd264cc4fdda2d"
+    },
+    {
+      "path": "tmp/tokyo_expanded_planes_saved.py",
+      "bytes": 4724,
+      "sha256": "7052d584052090280779e120e855e11f821d42cf4eaec0e001debebb5d6ddb8c"
+    },
+    {
+      "path": "tmp/tokyo_expanded_source_cost.py",
+      "bytes": 1890,
+      "sha256": "495d691b70d51e5bd0a3e2634949116bf1f7b0ae52454755f37dc06fa37cf73b"
+    },
+    {
+      "path": "tmp/tokyo_expanded_texture_delta.py",
+      "bytes": 6586,
+      "sha256": "c150f3f1bd099f7bc8adf6e5f0e4cd1d9df8f6db9395edbfbcbd3866c7adce20"
+    },
+    {
+      "path": "tmp/tokyo_expanded_textures_saved.py",
+      "bytes": 7159,
+      "sha256": "5e060686cf7ba4757681f543d7d6b7f00f708de23de4ccd8026e9636ffa3259f"
+    },
+    {
+      "path": "tmp/tokyo_expansion_geometry_bound.py",
+      "bytes": 2088,
+      "sha256": "bf57baf7c817950099a859df27e1559de300e0d5198c374361053b73803a3ac1"
+    },
+    {
+      "path": "tmp/tokyo_extract_current_roofs.py",
+      "bytes": 2922,
+      "sha256": "fd961e76809591f73d783952c69d5e149992d014d374d0e9905279a7f5b08172"
+    },
+    {
+      "path": "tmp/tokyo_fixed_inputs_88.py",
+      "bytes": 3016,
+      "sha256": "381d9a730ba3966357cff28a699d7f02a8bae146bb85182e0321054463790813"
+    },
+    {
+      "path": "tmp/tokyo_full_ground_blocks.py",
+      "bytes": 5014,
+      "sha256": "5fe917811459309312d2e86821752013e707b5c199c138044c8f8190ef4e0e87"
+    },
+    {
+      "path": "tmp/tokyo_full_ground_catalog.py",
+      "bytes": 1903,
+      "sha256": "8406943ad19e19417be3832abe30f669146f5831cba9fec17d15c4bf04337361"
+    },
+    {
+      "path": "tmp/tokyo_full_ground_continue.py",
+      "bytes": 3238,
+      "sha256": "c423c37a4bc47c19df061ae13e4304cd317a85292aebfd7f3569e9712a78c787"
+    },
+    {
+      "path": "tmp/tokyo_full_roof_blocks.py",
+      "bytes": 4936,
+      "sha256": "46cfc03489a9943ce03eedbf8fa6490ab81e46802623bd4da8f5086fd1b6732e"
+    },
+    {
+      "path": "tmp/tokyo_full_roof_catalog.py",
+      "bytes": 2413,
+      "sha256": "92ae27bb127071a884250b4c774c7fff927a15da6278ae56c038874709b1abb4"
+    },
+    {
+      "path": "tmp/tokyo_full_roof_saved.py",
+      "bytes": 8830,
+      "sha256": "72dfd906f1be2b4233819d97c07f60e9779a0edce728bcca4f9ae1a9421e47fb"
+    },
+    {
+      "path": "tmp/tokyo_geometry_engine_request.py",
+      "bytes": 3193,
+      "sha256": "088b09715cd80c4457d1df067953d505533a4998e47b04ac7c0c11b297d6808d"
+    },
+    {
+      "path": "tmp/tokyo_gl_counter_audit.py",
+      "bytes": 2373,
+      "sha256": "7e7c8cc4c34224e7bee96d87eb17732b39e03c05f98fc536f17c5b5be5a41194"
+    },
+    {
+      "path": "tmp/tokyo_global_attribute_union.py",
+      "bytes": 1881,
+      "sha256": "891eff05b6a69ebb5a71d9435daf91b64e5a302ed8d079695c5226ed8415228d"
+    },
+    {
+      "path": "tmp/tokyo_global_extension_inventory.py",
+      "bytes": 2146,
+      "sha256": "dbe102b3830930079abb58de85585c819c63a518743e8e711d36598a59078389"
+    },
+    {
+      "path": "tmp/tokyo_global_failed_view.py",
+      "bytes": 6057,
+      "sha256": "5f0f5a11f1b876c7f3cd67ff5362410783121b878efe64d0af8ded96903c71e2"
+    },
+    {
+      "path": "tmp/tokyo_global_fallback_budget.py",
+      "bytes": 2440,
+      "sha256": "0ef4f93a3be34c9acd464a6d456a6c2403b87beb67d618f5746a4d513f0a9416"
+    },
+    {
+      "path": "tmp/tokyo_global_finalize_membership.py",
+      "bytes": 3943,
+      "sha256": "cf8bb31a80f0a21e3da4b190570555b0db86c14461e6dc95d97569c70a7e06a1"
+    },
+    {
+      "path": "tmp/tokyo_global_membership.py",
+      "bytes": 6084,
+      "sha256": "10d0c258647cc4e24e5116e84ef3279f503b74d1b4c8d96f2c36411eef1222ca"
+    },
+    {
+      "path": "tmp/tokyo_global_mid_cost.py",
+      "bytes": 11655,
+      "sha256": "7ae65c2c85649f74310660d7f2313b79247cc928883f69b5494dc000a9af062b"
+    },
+    {
+      "path": "tmp/tokyo_global_progress.py",
+      "bytes": 1696,
+      "sha256": "333a2361a9b7e156724f23fd956ac6e758a542e14a86554266e62e58631e1929"
+    },
+    {
+      "path": "tmp/tokyo_global_saved_shape_audit.py",
+      "bytes": 3125,
+      "sha256": "0efd5d8a9e0a93940e870e21dd44ec402909f895b3731d0bc39995043c8c4be0"
+    },
+    {
+      "path": "tmp/tokyo_global_seam_audit.py",
+      "bytes": 5382,
+      "sha256": "1054f5b8bd5d5945037e36d308c76b9ffcc51ae26d08d8b3133942ccdaa89338"
+    },
+    {
+      "path": "tmp/tokyo_global_wall_budget.py",
+      "bytes": 4060,
+      "sha256": "1ae60a18fe4f15e94aef82c5db76b627cef80718fabfe035462b455a0a54589c"
+    },
+    {
+      "path": "tmp/tokyo_gpu_roof_bound_155.py",
+      "bytes": 1690,
+      "sha256": "6bca8c50e57f1be206bb8aec8b50c64a3262d204dd53c3d7f358b1308ddeddbf"
+    },
+    {
+      "path": "tmp/tokyo_ground_exact_sample.py",
+      "bytes": 2548,
+      "sha256": "c55e1158b33871b3d3af00f84e0f987de3705074da6c3d8f13da683bf84b366d"
+    },
+    {
+      "path": "tmp/tokyo_high_horizontal_inventory.py",
+      "bytes": 2954,
+      "sha256": "614b6165417031ac7d29076b7b0c685a770db6e1d6f3a54c2f58e12bdfa8db16"
+    },
+    {
+      "path": "tmp/tokyo_high_roof_bake_cost.py",
+      "bytes": 1712,
+      "sha256": "b10d6846f85df2e2c63ffa597453e0137e5b5d70d892c933c30e042ac16a7a39"
+    },
+    {
+      "path": "tmp/tokyo_independent_mip_layout.py",
+      "bytes": 2085,
+      "sha256": "f123fdf9e73fee09d9dfd37d25d8f732d06870d1700175843574bcee3d58968b"
+    },
+    {
+      "path": "tmp/tokyo_index_neighborhood_cost.py",
+      "bytes": 3732,
+      "sha256": "eaddd6b4abb40ab71c478a00188da21d25505d590c133d2335d0eb558f4b100b"
+    },
+    {
+      "path": "tmp/tokyo_index_recipes.py",
+      "bytes": 3665,
+      "sha256": "559e2042a73cf163f057ad66bc8655807522aecf19b8c776e2f3776448d1defe"
+    },
+    {
+      "path": "tmp/tokyo_index_residency_audit.py",
+      "bytes": 2523,
+      "sha256": "2a889219bffca110b01f24f9267ecfd17e84d8a16d9673e21ffa021bd423653e"
+    },
+    {
+      "path": "tmp/tokyo_installed_palette_scope_audit.py",
+      "bytes": 4954,
+      "sha256": "13e6ce85d44127680aa969966c74519cab5ce3ee25b8376bc682230ba59150f0"
+    },
+    {
+      "path": "tmp/tokyo_inward_roof_144.py",
+      "bytes": 3924,
+      "sha256": "1e2388e087842768407331266ad84e29efe23245522431fc0a9f6559d6f33dc9"
+    },
+    {
+      "path": "tmp/tokyo_joint_envelope_selection.py",
+      "bytes": 6118,
+      "sha256": "38f8f55ff09b83c86c946d9187aef77904cb0a93269640fa817ccdee37ad4646"
+    },
+    {
+      "path": "tmp/tokyo_joint_geometry_packet.py",
+      "bytes": 7275,
+      "sha256": "d3c12775c6933b874dd86024c3f54631462f309115d8e88970b64435f734be9a"
+    },
+    {
+      "path": "tmp/tokyo_joint_index_cost.py",
+      "bytes": 3378,
+      "sha256": "55e8a835308d13012400a4278650f58b096f2555659b1f66b516aa742b678fe0"
+    },
+    {
+      "path": "tmp/tokyo_joint_lifecycle_audit.py",
+      "bytes": 3120,
+      "sha256": "0a9e0fc42fcad1aec3f961fbf81c3b03fa650cd3c3306adcf45733b361983880"
+    },
+    {
+      "path": "tmp/tokyo_joint_patch_173.py",
+      "bytes": 6330,
+      "sha256": "7a0aea0a3f81db8a054c161a3216aa08334cd8aedc9584474d870da088a90ad6"
+    },
+    {
+      "path": "tmp/tokyo_joint_shared_indices.py",
+      "bytes": 2710,
+      "sha256": "8be2aac8d4741fdeb747b3e17973bfbb9a98c3cb5093600bd66b155b1cb0079e"
+    },
+    {
+      "path": "tmp/tokyo_joint_triangle_cost.py",
+      "bytes": 3950,
+      "sha256": "7e87b7683094fd439d499ec597ac37e5e13ec8ecedfac779048bd61fb71676fb"
+    },
+    {
+      "path": "tmp/tokyo_joint_view_inventory.py",
+      "bytes": 2745,
+      "sha256": "d7f0e9ea827f07799a0901f733a5bc8c099c677277e7a9b337190eb4dd1e9e43"
+    },
+    {
+      "path": "tmp/tokyo_layer_request_129.py",
+      "bytes": 870,
+      "sha256": "f7289f56b0db2fa9b5c81df21b67ed138f0166849b5d28beaccee19ae5bd48c9"
+    },
+    {
+      "path": "tmp/tokyo_layered_contract_132.py",
+      "bytes": 1030,
+      "sha256": "2765b09555baf6bbb9c742b4af350af1476219116c0397cf8d82dd0b15f3ad14"
+    },
+    {
+      "path": "tmp/tokyo_layered_retry_133.py",
+      "bytes": 351,
+      "sha256": "bf394fa96932ce3d7548a112f3376d27b3afc6200aa5509977cec968fc5a7f51"
+    },
+    {
+      "path": "tmp/tokyo_loading_contract_81.py",
+      "bytes": 2543,
+      "sha256": "127f6cc9108cdf2564cfc1ba1541debdd5db86973f2f79eef2538e38efe2480c"
+    },
+    {
+      "path": "tmp/tokyo_loading_ownership_audit.py",
+      "bytes": 2761,
+      "sha256": "3be703e3102a45314a94c423f9d9de291ee54587e07edfdec1c2ec2e13593b67"
+    },
+    {
+      "path": "tmp/tokyo_local_gpu_153.py",
+      "bytes": 2161,
+      "sha256": "7e45247a6baca027a3b281ec1b7819f94697e89882f32338580cac7c8fe3c577"
+    },
+    {
+      "path": "tmp/tokyo_local_gpu_wide_154.py",
+      "bytes": 750,
+      "sha256": "777b9adb507df20c5c68bb4dfbe9ec08f08318bf427cfa7283310739d9d6fc10"
+    },
+    {
+      "path": "tmp/tokyo_match_current_walls.py",
+      "bytes": 3243,
+      "sha256": "2169fd99e1bde44fd3636e0d3174bfd6a9d2ceb6fdd48888f42bdb8bcfd5a1f1"
+    },
+    {
+      "path": "tmp/tokyo_materialize_index_hybrid.py",
+      "bytes": 3052,
+      "sha256": "021ad931a7407f6622490a2a541387159c49d9c3ab218a7ac8f566358fd5ca03"
+    },
+    {
+      "path": "tmp/tokyo_merge_high_roofs.py",
+      "bytes": 4571,
+      "sha256": "cb89a7e20f092d3697d911e714e2ae0a31ba05d30931f4eb4191cc9b938ba67e"
+    },
+    {
+      "path": "tmp/tokyo_mesh_inputs_89.py",
+      "bytes": 2355,
+      "sha256": "edecd9a629b068f4ff82d357d403247c79ca4c09aebf2a4661c769c9428a8b5e"
+    },
+    {
+      "path": "tmp/tokyo_mesh_reader_audit_98.py",
+      "bytes": 1519,
+      "sha256": "cf99e028067543dff70824ffe7c747d01920ecb597a82b7a3fb7190a6b9d4b49"
+    },
+    {
+      "path": "tmp/tokyo_missing_block_cost.py",
+      "bytes": 3070,
+      "sha256": "a16e5c0d8a2c9ff52fd6a68f71ce9fe712d43d776cf051ff10320cbce59a2fb2"
+    },
+    {
+      "path": "tmp/tokyo_missing_fixture_96.py",
+      "bytes": 1443,
+      "sha256": "33c0bc791bd0813e0b5b30be4567001256beb007627b34dca134c89ec3020f24"
+    },
+    {
+      "path": "tmp/tokyo_moving_updates_137.py",
+      "bytes": 978,
+      "sha256": "5b9b013254604fa37cff5a2271d682c9b7649c42ab350a11f54d2b5f5eeb7c07"
+    },
+    {
+      "path": "tmp/tokyo_native_identity_170.py",
+      "bytes": 2990,
+      "sha256": "81ec3ae5028c273684b9a19ec5f477505214a73afc5f152d132f0839a77b610c"
+    },
+    {
+      "path": "tmp/tokyo_native_members_171.py",
+      "bytes": 3500,
+      "sha256": "d5eb0598ac1e869dae15fdbe379c95ca277251009a8df847b1fe11283b9ba994"
+    },
+    {
+      "path": "tmp/tokyo_neighbor_bounds_136.py",
+      "bytes": 2233,
+      "sha256": "cfd33ac29f8015b4032576fc00162f05e9b83ea426278d1f09aea0fa9556c5ac"
+    },
+    {
+      "path": "tmp/tokyo_neighbor_difference_shape.py",
+      "bytes": 2138,
+      "sha256": "0d9812e68b96ea11365f920db32cf245632d1e6518194ce5902ce4c76a31f7b0"
+    },
+    {
+      "path": "tmp/tokyo_neighbor_geometry_134.py",
+      "bytes": 5109,
+      "sha256": "3f0c9210a414e5986aace635a6280fe74f1ccb8396f17b11abc11c4b1cc2ac20"
+    },
+    {
+      "path": "tmp/tokyo_neighbor_palette_cost.py",
+      "bytes": 1240,
+      "sha256": "3caa116d0ad6a38db8296809bc63d4356af09549dc0f19f3a6722a91213741c4"
+    },
+    {
+      "path": "tmp/tokyo_neighbor_required_124.py",
+      "bytes": 1597,
+      "sha256": "8a7a35e595ad8fac0525512c4c1c62980e9c72dfa6fa3684226a88111528add7"
+    },
+    {
+      "path": "tmp/tokyo_neighbor_route_135.py",
+      "bytes": 1707,
+      "sha256": "93b31c528c3194d3eb6dbb5825af9d94552b8bbb852217b46d3580afc20539e7"
+    },
+    {
+      "path": "tmp/tokyo_neighbor_slots_119.py",
+      "bytes": 3506,
+      "sha256": "192c9cdf05ade6269c76c8b532c434fe251f048e73d1d59702abc0131ac9a391"
+    },
+    {
+      "path": "tmp/tokyo_neighbor_texture_patch_120.py",
+      "bytes": 1321,
+      "sha256": "23d155eb2a6bcb202605e3e304b5ade2b6a58923ffd1d6b31ee9ab403c2f6511"
+    },
+    {
+      "path": "tmp/tokyo_nine_domain_bridge.py",
+      "bytes": 5447,
+      "sha256": "decfc25aa591306736681bec2c18b21e54ea4628f19db1a556334c4c06e87386"
+    },
+    {
+      "path": "tmp/tokyo_pack_independent_mips.py",
+      "bytes": 3178,
+      "sha256": "de069ecfff9ae7fdb7ef7e2721e640c4ee917ceb18b60f33989a681218f5991e"
+    },
+    {
+      "path": "tmp/tokyo_pack_palette_atlas.py",
+      "bytes": 3795,
+      "sha256": "c1378946622f34434ace8e41078269e904583b70a1057bd1e4bfff5ad7bad94d"
+    },
+    {
+      "path": "tmp/tokyo_packet_union_77.py",
+      "bytes": 2868,
+      "sha256": "0ea08254a8506c5cd7fd2d5a2ea5b8e487b6501d1503761103645feb8b0eb581"
+    },
+    {
+      "path": "tmp/tokyo_palette_cost_audit.py",
+      "bytes": 2061,
+      "sha256": "6b8f0a7a3793d7f1eb3128f7fd6957eb455586c5f64c8b8c95a88542d88652a9"
+    },
+    {
+      "path": "tmp/tokyo_plane_indices_saved.py",
+      "bytes": 2854,
+      "sha256": "f7f72ccabe3a254e1a1631a1286ded098c5eeb9782939abf6383e70808a4cce8"
+    },
+    {
+      "path": "tmp/tokyo_plane_recipes.py",
+      "bytes": 3731,
+      "sha256": "3c43d5a15305159d2bcf67a37eab6b6c99dd5105f7bdf6452e14fad26b4215e6"
+    },
+    {
+      "path": "tmp/tokyo_pool_provenance_94.py",
+      "bytes": 2962,
+      "sha256": "4ec09074c2eaffedf407711ac9787fa367957414fa413153b53bdfab57921c41"
+    },
+    {
+      "path": "tmp/tokyo_prepare_high_roof_bake.py",
+      "bytes": 1110,
+      "sha256": "8e420b9f596dcdc4bfa03a919c26515cca1ba92fd9dd8650cc013e02d9d8c106"
+    },
+    {
+      "path": "tmp/tokyo_prepare_neighbor_budget.py",
+      "bytes": 3171,
+      "sha256": "8116df06cabccd7d6931a85a730b3c71182b36a195be09164433437181c2f3d7"
+    },
+    {
+      "path": "tmp/tokyo_prepare_selected_roof_mips.py",
+      "bytes": 1073,
+      "sha256": "7a72ec99da96f7e3180e747ca7741bffd2ae081164f7fbb257f0cb2360c08766"
+    },
+    {
+      "path": "tmp/tokyo_prepare_view_mips.py",
+      "bytes": 2284,
+      "sha256": "5c69d244de2bff1c3f9382fdcac1d43f4bd15024b58d9c30ecb0866f72f009a1"
+    },
+    {
+      "path": "tmp/tokyo_prepare_zoom_high.py",
+      "bytes": 610,
+      "sha256": "417967faf00f08c00b74c5a18ac608bc7bd970847b32be466c34517812e34ff9"
+    },
+    {
+      "path": "tmp/tokyo_ready_coverage_audit.py",
+      "bytes": 3244,
+      "sha256": "a9425a5e4c5d357c21465b7effabc9c0feeccb2ea0db474819faa0da9b77d960"
+    },
+    {
+      "path": "tmp/tokyo_recipe_request.py",
+      "bytes": 836,
+      "sha256": "b41d2a5d27c0992e87c849873ced2c3a17b9a39d607c4c6c50c14ea32a6ef70c"
+    },
+    {
+      "path": "tmp/tokyo_reject_unsafe_groups.py",
+      "bytes": 1759,
+      "sha256": "996a6a96a0dc9e3ba7862aab04889245d34c6f5c3ca5c7d717a653fd32ca6cc1"
+    },
+    {
+      "path": "tmp/tokyo_relocate_neighbor_121.py",
+      "bytes": 8165,
+      "sha256": "5f4296c26bb26be8298f8ba4f012f46e38016ecba8f87dbc29bf7705f4bc1e58"
+    },
+    {
+      "path": "tmp/tokyo_repack_block_library.py",
+      "bytes": 6277,
+      "sha256": "fc4994b85f25d5efca78fe95a6ce08f92ce14952b995a31ceb5464c8bb7135cd"
+    },
+    {
+      "path": "tmp/tokyo_repacked_charge.py",
+      "bytes": 2536,
+      "sha256": "61acc026bff32f91c5d916f0389c53940a39b1d499c44a6e7f28640f4f76410a"
+    },
+    {
+      "path": "tmp/tokyo_repacked_geometry_saved.py",
+      "bytes": 4640,
+      "sha256": "38f8f2aa8409400fcf25a3016d61d354c6da1ecc33dc111e76662acdebb39bb5"
+    },
+    {
+      "path": "tmp/tokyo_repacked_joint_cost.py",
+      "bytes": 6463,
+      "sha256": "84c1ec9e346b98b8d802582bd658d6f2b08e95b9f7d2d468fd6e854c79a4da3d"
+    },
+    {
+      "path": "tmp/tokyo_resident_dedup_140.py",
+      "bytes": 3026,
+      "sha256": "ca2ed10b54283f8b747609cb23e7b20dae218163d3ca2c7f8ebbc45b76f9cf11"
+    },
+    {
+      "path": "tmp/tokyo_resident_inventory_139.py",
+      "bytes": 1353,
+      "sha256": "5f3976b07f77418ec49ec15457d089917e795ae010ae3e22f07976b7a34c5cb3"
+    },
+    {
+      "path": "tmp/tokyo_residential_blocks.py",
+      "bytes": 6009,
+      "sha256": "71ab52aab797bbf919452f0bc10bcd483f6918852d0cc4864e3ffebb139d7fed"
+    },
+    {
+      "path": "tmp/tokyo_residential_blocks_audit.py",
+      "bytes": 2927,
+      "sha256": "1e3047fb4445863194e550721252c190e5a8752277aabbeb4ecf1f27819ff5f4"
+    },
+    {
+      "path": "tmp/tokyo_residential_coverage_audit.py",
+      "bytes": 3845,
+      "sha256": "70569f8abee048751a002702e9f2a801f525435187e9fc8858e8264633c9e31f"
+    },
+    {
+      "path": "tmp/tokyo_residential_face_membership.py",
+      "bytes": 4147,
+      "sha256": "50bf77c11aec9c79014e15d6178dee49ebbe7bdcead7cb8cbf3d37ac3ec046c1"
+    },
+    {
+      "path": "tmp/tokyo_residential_packet_audit.py",
+      "bytes": 2650,
+      "sha256": "9a61de21ea29f44c849cbdbdeb263cbb9753c52b09f662f55605561e61dabad6"
+    },
+    {
+      "path": "tmp/tokyo_residential_protection.py",
+      "bytes": 5639,
+      "sha256": "8d5ac373b80602c397c39af33cd703dfc527d4f544fcf4c7295a0e279f0bbe7e"
+    },
+    {
+      "path": "tmp/tokyo_residential_scope.py",
+      "bytes": 4261,
+      "sha256": "de13f080ada2b514ce2e1830338c5f667b7ef69767fbec96bf44970e500d0d34"
+    },
+    {
+      "path": "tmp/tokyo_residential_source_geometry.py",
+      "bytes": 1559,
+      "sha256": "555d6e7b33857f4c30ad7e781dd01f67791ec22a307e3fb0823047724b3aa1ea"
+    },
+    {
+      "path": "tmp/tokyo_residential_texture_contract.py",
+      "bytes": 3389,
+      "sha256": "db5d858ba317e47b0f83bf506be4dec312284abe15fb1cfdefc4780ce5e3c8f2"
+    },
+    {
+      "path": "tmp/tokyo_residential_theory.py",
+      "bytes": 3921,
+      "sha256": "2ce543c8fa6442d4a12b2b17aeda51234e7a7c5c4692d529eac94b852cb4610f"
+    },
+    {
+      "path": "tmp/tokyo_residential_unified_bake.py",
+      "bytes": 10807,
+      "sha256": "dd5354d04a607c1e22b1411f331f66992fca682a089355f7bdfb71a190c68c5a"
+    },
+    {
+      "path": "tmp/tokyo_residential_unified_bake_audit.py",
+      "bytes": 5855,
+      "sha256": "07d980b2441a21da4020aed542213e290f4e28e9047660c8e14a712a24de0089"
+    },
+    {
+      "path": "tmp/tokyo_residential_unified_blocks.py",
+      "bytes": 16364,
+      "sha256": "b69417978e936ee10f6aa6d5ed90313df01c776d2c36bd157f1ca16ee377cd8d"
+    },
+    {
+      "path": "tmp/tokyo_residential_unified_membership.py",
+      "bytes": 5739,
+      "sha256": "9b744f48458efa8f9ce5d1485ee2248afc0708e61626bc6bcf98221e856baa4c"
+    },
+    {
+      "path": "tmp/tokyo_residential_view_cost.py",
+      "bytes": 17163,
+      "sha256": "6b3e3dad64471afbe0c2fefbbe763401829c4d4de499df43f88e264edecb0e7a"
+    },
+    {
+      "path": "tmp/tokyo_restore_ground_height_108.py",
+      "bytes": 5213,
+      "sha256": "3ebf54b38bafcf7884dc5e2f55fad0d000fd440047b66f5691d11ded556b6ce7"
+    },
+    {
+      "path": "tmp/tokyo_retained_identity_audit.py",
+      "bytes": 2989,
+      "sha256": "24c6cbd7b77fcb2d16dd297f0029b343c0b3c1f04f3eac506321c6badb52993a"
+    },
+    {
+      "path": "tmp/tokyo_retired_vertex_cost.py",
+      "bytes": 1903,
+      "sha256": "516787f729c7c0bc47fed7fc0a8a2a6226ae1b451fb521245b8af5d1ae86162f"
+    },
+    {
+      "path": "tmp/tokyo_roof_conflict_audit.py",
+      "bytes": 1954,
+      "sha256": "542166e3519b1f854ae659008213f2f5384f153591bb982fc1553d61ca8983bd"
+    },
+    {
+      "path": "tmp/tokyo_roof_cost_151.py",
+      "bytes": 2383,
+      "sha256": "31fd59e6fa075b98d3cebbaff12333f9c3d06c567dae33abb717152c1fa9c482"
+    },
+    {
+      "path": "tmp/tokyo_roof_local_152.py",
+      "bytes": 3017,
+      "sha256": "77885abb619f6deeca4557e63a30a25fef5c10a8030f283e32401aad9f33d7f8"
+    },
+    {
+      "path": "tmp/tokyo_roof_winding_149.py",
+      "bytes": 1856,
+      "sha256": "4125d6d7ca27d3e174f29627a92978719060076a81151b4bb0fbe290b57c3df5"
+    },
+    {
+      "path": "tmp/tokyo_roof_winding_retry_149.py",
+      "bytes": 344,
+      "sha256": "681979abc5838f876677a38ccab551ed9a5074f8258af35aa1dcfbde3a42238f"
+    },
+    {
+      "path": "tmp/tokyo_row_runs_cost.py",
+      "bytes": 8009,
+      "sha256": "6e081d4c49a3e2ea320bfe228b2f0fe4faaa5e8c6005466f764408a0296a04fb"
+    },
+    {
+      "path": "tmp/tokyo_row_runs_mip_fixture.py",
+      "bytes": 4457,
+      "sha256": "a80190e602b507e492c8c490a93c96dc7e9b0df65e09d05866bd4a930533c441"
+    },
+    {
+      "path": "tmp/tokyo_row_runs_verify.py",
+      "bytes": 4044,
+      "sha256": "6c8e6164ff71aa9cd63032d719b12df3155d92552a17f32968c1eb7f902617e7"
+    },
+    {
+      "path": "tmp/tokyo_runtime_contract_97.py",
+      "bytes": 2813,
+      "sha256": "3818f4d98c78474e8e9932dd3caf614dedd52a9873a564224a0828e688ef1bd7"
+    },
+    {
+      "path": "tmp/tokyo_saved_joint_charge.py",
+      "bytes": 1769,
+      "sha256": "f976226d09834d6e9fac1082231a8fe045909c0ba7157284489a7e431dcdd8f9"
+    },
+    {
+      "path": "tmp/tokyo_saved_layout_projection.py",
+      "bytes": 1920,
+      "sha256": "058eb0839f1253e99a1c9567d91c246743b138981945fc96e80c17d10667f548"
+    },
+    {
+      "path": "tmp/tokyo_select_high_roof_components.py",
+      "bytes": 3517,
+      "sha256": "31775bcc399af01d51e52fa0720409138dd9611d2361e8d674b67a7862d7b0ea"
+    },
+    {
+      "path": "tmp/tokyo_selectable_geometry_saved.py",
+      "bytes": 6566,
+      "sha256": "fa826b193c36f737f65c6c665331c079fb1275fa10ec8e785bf9719c4dd98dbb"
+    },
+    {
+      "path": "tmp/tokyo_selective_layer_budget.py",
+      "bytes": 6078,
+      "sha256": "9557e9c7193ea0c5f448e7095489aff091177f76ef4ba72818670653d70bde0a"
+    },
+    {
+      "path": "tmp/tokyo_shader_request_131.py",
+      "bytes": 386,
+      "sha256": "b868e2503f857e9022e3e7b7cb94d5f82f9d5135635c4be6d32a765a03f5e853"
+    },
+    {
+      "path": "tmp/tokyo_shared_index_prototype.py",
+      "bytes": 4633,
+      "sha256": "9487ac490629053f9c1d4a07206e59a1ca35ee9ec3f8df1ec24fd7d25269f53a"
+    },
+    {
+      "path": "tmp/tokyo_shared_palette_cases.py",
+      "bytes": 3604,
+      "sha256": "d36a3b6f79f43a000f4e66e9e5f338a8488ea6a8078fd541dac37d86154f2c8d"
+    },
+    {
+      "path": "tmp/tokyo_shared_palette_cost.py",
+      "bytes": 3563,
+      "sha256": "8f2d09269cd8b9ca900b25164649695d1d36e9e475fdd9f4528556c262605bd4"
+    },
+    {
+      "path": "tmp/tokyo_shared_palette_inline.py",
+      "bytes": 3197,
+      "sha256": "ad4062167268d546c019aeb0884514445790a3608c1b3cfedd7e19d925689f6e"
+    },
+    {
+      "path": "tmp/tokyo_shared_palette_mips.py",
+      "bytes": 4012,
+      "sha256": "5eea02cb7722d7f9593a039d1b190935a07773a3704ba00966503d584584f7c8"
+    },
+    {
+      "path": "tmp/tokyo_shared_palette_saved.py",
+      "bytes": 5368,
+      "sha256": "64bed50fc6413f16ae673ea411a03558afd9318e14b7aa76a263c08b1bec0c3e"
+    },
+    {
+      "path": "tmp/tokyo_source_body_159.py",
+      "bytes": 5453,
+      "sha256": "1bdda19daeb4debd3d132e238d2e59595fabaf7c543b8b9ece4a602b44d7f261"
+    },
+    {
+      "path": "tmp/tokyo_source_body_160.py",
+      "bytes": 5690,
+      "sha256": "19e1ac583ac22280fa61ad999553e1399bfdc79efcb93e35a3aa240d65fb90d7"
+    },
+    {
+      "path": "tmp/tokyo_source_bounds_117.py",
+      "bytes": 2438,
+      "sha256": "2a36007c6b947a01ee627b459da34bd0d934190a2aa7d69ca3b2db82e04c0c26"
+    },
+    {
+      "path": "tmp/tokyo_source_height_inventory.py",
+      "bytes": 1482,
+      "sha256": "f0024947b5b9ae058de91f052f970fdc40e4908dd9c3f0618d839c704e6244f8"
+    },
+    {
+      "path": "tmp/tokyo_sparse_mip_cost.py",
+      "bytes": 2214,
+      "sha256": "0d5e58049e1c41e7295c9af2338d8d4c6893e83434972d8bbd9285e88cd60d91"
+    },
+    {
+      "path": "tmp/tokyo_sparse_pool_90.py",
+      "bytes": 10057,
+      "sha256": "4cb3aaa5343c0da8a33cc9e0a757d0dbd57f3fb286c551b376bf3d068c998e46"
+    },
+    {
+      "path": "tmp/tokyo_spatial_batches_168.py",
+      "bytes": 5303,
+      "sha256": "2daf511965ec7ddab99492bace74c4596b8e8db9c64ec3e7f70f6a503d1f3f7c"
+    },
+    {
+      "path": "tmp/tokyo_spatial_submission_cost.py",
+      "bytes": 9325,
+      "sha256": "8c8b275214153319bfb2b903e80b07304890635fe06488a96d00a9c79cdb5f3b"
+    },
+    {
+      "path": "tmp/tokyo_stable_capacity_126.py",
+      "bytes": 1089,
+      "sha256": "89f4877c71900d1c2c9cd813e31b721c74f43376904ab057f267b2fac8e09d2c"
+    },
+    {
+      "path": "tmp/tokyo_staged_manifest.py",
+      "bytes": 2946,
+      "sha256": "e176097bccbe126b115dca1673ff66136a94009f45a7f43c49a0dce4e71a78ad"
+    },
+    {
+      "path": "tmp/tokyo_staged_ownership_audit.py",
+      "bytes": 3304,
+      "sha256": "57122291be062d6bee390d738caeb592ef7c8b58466bc0df4934a6c8d78d165b"
+    },
+    {
+      "path": "tmp/tokyo_state_delta_82.py",
+      "bytes": 3875,
+      "sha256": "c8d278fe572108b9174e4cb9be1f075d81657f14bc6b3be584db26cad7900acd"
+    },
+    {
+      "path": "tmp/tokyo_strict_occlusion_inventory.py",
+      "bytes": 4023,
+      "sha256": "1f97c884fe37159cb9ef78c7bbdebe610fe1fe6553c87c050297de27d82b4552"
+    },
+    {
+      "path": "tmp/tokyo_structural_envelope_161.py",
+      "bytes": 8178,
+      "sha256": "d04e2b6602f0ca4c618ec9e92c77baa358eb8efeb8047591a4dc5e4e74d27747"
+    },
+    {
+      "path": "tmp/tokyo_structural_envelope_162.py",
+      "bytes": 8379,
+      "sha256": "fa3e1171214aaddddab010fbccdfff7053e7150d6a83ba43cc368843397b1865"
+    },
+    {
+      "path": "tmp/tokyo_structural_gpu_158.py",
+      "bytes": 5330,
+      "sha256": "4e5ae985ed83dc1d46af736fe4568322d82f16c63cdf18cf3723e92cf4152307"
+    },
+    {
+      "path": "tmp/tokyo_structural_roof_157.py",
+      "bytes": 2691,
+      "sha256": "1db10698381cf354cd9a955f215660b3df5c416110d4275179b03d1e05996967"
+    },
+    {
+      "path": "tmp/tokyo_structural_tile_164.py",
+      "bytes": 9543,
+      "sha256": "96e03942855addb895f410ff693b2de35875ddca7320d346db02eabb249076a7"
+    },
+    {
+      "path": "tmp/tokyo_subresource_union_78.py",
+      "bytes": 3697,
+      "sha256": "16c224a2a6279c85cf371d042c196f1fa97e6548921c48053037675408eab330"
+    },
+    {
+      "path": "tmp/tokyo_texture_array_cost.py",
+      "bytes": 1065,
+      "sha256": "16c0c0820a8d7fd560242f62ab40a56901067da1486c2df34da8ad358033ab8e"
+    },
+    {
+      "path": "tmp/tokyo_texture_updates_127.py",
+      "bytes": 2394,
+      "sha256": "1d7e3f055039592cf6c60fea56d7e113cc55d228c79ae954bbd041cfbec6000f"
+    },
+    {
+      "path": "tmp/tokyo_tile_batches_165.py",
+      "bytes": 4697,
+      "sha256": "23650d9d2d2a80e3c99c8d7d66a66a18ac0ac4883ef152e997da010bd8ac1220"
+    },
+    {
+      "path": "tmp/tokyo_tile_gpu_audit_166.py",
+      "bytes": 1716,
+      "sha256": "b02f7c2ea6a94f2b58fdf288c9472ff8b8c11759167098e3b0fefb7960cc065a"
+    },
+    {
+      "path": "tmp/tokyo_tile_joint_167.py",
+      "bytes": 3459,
+      "sha256": "d1e7cb15090aaccf29b0424047d4c56083debb45489822d626c3cb9b544088c7"
+    },
+    {
+      "path": "tmp/tokyo_triangle_spatial_169.py",
+      "bytes": 4910,
+      "sha256": "0612e6fe0eca3d8761ad76eb071b7634d38f21bbaa28dbbb1c053a437cb41007"
+    },
+    {
+      "path": "tmp/tokyo_unified_compact_indices.py",
+      "bytes": 2516,
+      "sha256": "3914fdadc5522016836e2245a59e0a70c10a606524a6d68feaef65268fc00489"
+    },
+    {
+      "path": "tmp/tokyo_unified_contract.py",
+      "bytes": 5729,
+      "sha256": "dd37c595fa2bdcbf3d7e642a52dc00e9f159a09eb098bd3f7cd45ba729518b04"
+    },
+    {
+      "path": "tmp/tokyo_unified_dedup.py",
+      "bytes": 4650,
+      "sha256": "fcc1d332a175afd9444825b4c1d75ccd5457ef753cd2a5a28cab2522d094f975"
+    },
+    {
+      "path": "tmp/tokyo_unified_pack_textures.py",
+      "bytes": 3576,
+      "sha256": "2d578ac059a2941c94ecaf39d6e45a68ebad9f6914029e36489cb419d5f30e36"
+    },
+    {
+      "path": "tmp/tokyo_unified_preview_compare.py",
+      "bytes": 987,
+      "sha256": "5710b9f288b88bd5125b976ba690d136cda80054e9f40e5cce1c6a55dd0c20cb"
+    },
+    {
+      "path": "tmp/tokyo_unified_table_cost_79.py",
+      "bytes": 3589,
+      "sha256": "2410914aaeb7a1dfccef90717cd6fb299214ff48d5efc8d5a3c163eb1d2c4e74"
+    },
+    {
+      "path": "tmp/tokyo_vector_compare_146.py",
+      "bytes": 1127,
+      "sha256": "1d3243a55f3377130163afc05edaa11081582127218a0fce9ab172e05a319d6e"
+    },
+    {
+      "path": "tmp/tokyo_vector_compare_147.py",
+      "bytes": 339,
+      "sha256": "22312c111b50f36d0091cfbe840991140ccdd3029c42f39648ebc9842709ebc3"
+    },
+    {
+      "path": "tmp/tokyo_vector_compare_148.py",
+      "bytes": 462,
+      "sha256": "ea35fcd71b49e1281c1a0e6a84c1d585ac78e0e5ee57beaa4894859599f65dc8"
+    },
+    {
+      "path": "tmp/tokyo_vector_compare_150.py",
+      "bytes": 552,
+      "sha256": "e19fdc3dcc8281129cadc136e19f6bb76e98f3684bb0d1bf85b04ff1b2f0ad6d"
+    },
+    {
+      "path": "tmp/tokyo_vector_mesh_145.py",
+      "bytes": 1251,
+      "sha256": "e050b50c360f80828d412e9021d4ab58e8e9ea762626694fca54d6ec1bb52e10"
+    },
+    {
+      "path": "tmp/tokyo_vector_roof_sample_142.py",
+      "bytes": 2418,
+      "sha256": "ec926ff86301eeb993efa26f3ee28859bc82b3d3e00d49946359a5e993106943"
+    },
+    {
+      "path": "tmp/tokyo_vector_roofs_141.py",
+      "bytes": 2550,
+      "sha256": "a47f5af566b9f15dd99037d1d08858c01ec5ca93f21ddf99119076a6ed22e8e8"
+    },
+    {
+      "path": "tmp/tokyo_verify_installed_repairs.py",
+      "bytes": 1873,
+      "sha256": "cafa43a838233370f7b46530b3472043816de64e28096e84ccc2db106241e6c5"
+    },
+    {
+      "path": "tmp/tokyo_view_palette_cost.py",
+      "bytes": 1717,
+      "sha256": "e0b66c5fc96c44ecfd08138ce90a0b31749f571461d405c879b9aea6ff64f1b5"
+    },
+    {
+      "path": "tmp/tokyo_wall_band_inventory.py",
+      "bytes": 2557,
+      "sha256": "7cd95ace6d0fe20a83f7f6d3dc9180ac24321e487974c7a7945d8c4a1b905791"
+    },
+    {
+      "path": "tmp/tokyo_wall_engine_request.py",
+      "bytes": 1160,
+      "sha256": "4bf2aedaa3db90580c9bf1d463a979f1dbd205292759573aa54dbc87e6183e10"
+    },
+    {
+      "path": "tmp/tokyo_wall_index_candidate.py",
+      "bytes": 2645,
+      "sha256": "68a042c3e2e51d09f5cd1b1b3df0cea2f1bab1024192cff4bccc1a981e601815"
+    },
+    {
+      "path": "tmp/tokyo_wall_preview_request.py",
+      "bytes": 2453,
+      "sha256": "af7d4b3351350fca4b0ff424f0fd9a9c9b54d45e589c47a3fb9c4be5f32db392"
+    },
+    {
+      "path": "tmp/tokyo_whole_view_orientation_cost.py",
+      "bytes": 2984,
+      "sha256": "fa5205794039ab6421bfbbfa73af95413628b3e720b579faeeef84e93ffa2285"
+    },
+    {
+      "path": "tmp/tokyo_zoom_geometry_lower_bound.py",
+      "bytes": 2356,
+      "sha256": "0d3d9d59e6365d2df13e827d9270195040cd258156ebba6e8de2aa0919730047"
+    },
+    {
+      "path": "tmp/tokyo_zoom_restore_contract.py",
+      "bytes": 2463,
+      "sha256": "2650dc3f5c7ac38e0e2b85089a1804d708b19fd23e4e58e77a74b36846718255"
+    },
+    {
+      "path": "tmp/verify_tokyo_building_grid.py",
+      "bytes": 1541,
+      "sha256": "8b0b120db040fcc69ed2585836f79f703503a846b60b4b9e8347635c14e82f20"
+    },
+    {
+      "path": "tmp/verify_tokyo_ground_fragments.py",
+      "bytes": 2728,
+      "sha256": "b77e32e863049821f972d01539bedadf72fac6a516917fbf34990a6ca8c65cc8"
+    }
+  ],
+  "excluded_source": {
+    "path": "tmp/full_map_detail/kanto-latest.osm.pbf",
+    "bytes": 483274002,
+    "sha256": "4c6abf82e1ca793ef8c498830a103bdc9b209b4b4b65f25f913024de4bb0ecda",
+    "note": "Original PBF not included. A current download is not guaranteed to reproduce this historical digest."
+  }
+}

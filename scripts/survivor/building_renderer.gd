@@ -17,6 +17,16 @@ const DATA_PATH := "res://resources/maps/yokohama_buildings.json"
 
 ## parallax 强度
 @export_range(0.0, 0.3, 0.005) var perspective_k: float = 0.10
+## R220 显式候选；完成实景/帧时验证后才推广默认。
+var bounded_roof_projection := false
+var cache_shadow_geometry := false
+## 按楼顶屏幕位移控制重绘，0保持旧4世界像素门；不改几何/碰撞。
+var redraw_roof_error_px := 0.0
+var shadow_cache_builds := 0
+var _shadow_packet: Dictionary = {}
+var _shadow_sources := PackedInt32Array()
+var _shadow_offset := Vector2.ZERO
+var _shadow_tint := Color.TRANSPARENT
 
 ## 视觉高度 = max_real_h(米) × 这个系数（像素）
 @export_range(0.3, 2.0, 0.05) var district_h_scale: float = 0.6
@@ -55,11 +65,48 @@ static var _cache_max_h_global: float = 0.0
 
 var _camera: Camera2D = null
 var _last_camera_pos := Vector2(INF, INF)
+var _last_camera_zoom := Vector2.ZERO
+var _last_view_extent := Vector2.ZERO
 
 ## 每个街区: { footprint, tri_indices, center, edge_normals, h_visual,
 ##             shadow_poly, shadow_tri }
 var _districts: Array = []
 var _loaded := false
+var _volume_sources := PackedInt32Array()
+var _volume_hidden: Dictionary = {}
+var _volume_owner: WeakRef
+var _volume_owner_id := 0
+
+
+func set_volume_coverage(owner: Node, sources: PackedInt32Array) -> bool:
+	var prior: Variant = _volume_owner.get_ref() if _volume_owner != null else null
+	if typeof(prior) == TYPE_OBJECT and is_instance_valid(prior) and prior != owner:
+		return false
+	for source: int in sources:
+		if source < 0 or source >= _districts.size():
+			return false
+	if _volume_owner_id != owner.get_instance_id():
+		_volume_owner = weakref(owner)
+		_volume_owner_id = owner.get_instance_id()
+		owner.tree_exiting.connect(_clear_volume_coverage.bind(_volume_owner_id), CONNECT_ONE_SHOT)
+	if sources == _volume_sources:
+		return true
+	_volume_sources = sources.duplicate()
+	_volume_hidden.clear()
+	for source: int in sources:
+		_volume_hidden[source] = true
+	queue_redraw()
+	return true
+
+
+func _clear_volume_coverage(owner_id: int) -> void:
+	if owner_id != _volume_owner_id:
+		return
+	_volume_owner = null
+	_volume_owner_id = 0
+	_volume_sources.clear()
+	_volume_hidden.clear()
+	queue_redraw()
 
 
 # ══════════════════════════════════════════════
@@ -156,6 +203,10 @@ static func _cache_load_json() -> void:
 
 
 func setup(camera: Camera2D) -> void:
+	_shadow_packet.clear()
+	_last_camera_pos=Vector2(INF,INF)
+	_last_camera_zoom=Vector2.ZERO
+	_last_view_extent=Vector2.ZERO
 	_camera = camera
 	queue_redraw()
 
@@ -168,13 +219,28 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	if _camera == null:
 		return
-	var pos := _camera.global_position
-	if pos.distance_to(_last_camera_pos) >= REDRAW_DIST_THRESHOLD:
-		_last_camera_pos = pos
+	if consume_view_change(_camera.global_position,_camera.zoom,get_viewport_rect().size):
 		queue_redraw()
 
 
+## 视口不变不重绘；缩放影响裁剪半径，不能只检查位置。
+func consume_view_change(pos: Vector2, zoom: Vector2, extent: Vector2) -> bool:
+	# 线性及有界径向投影的相机导数均不超过 perspective_k。
+	# 64px上界小于裁剪余量，避免远景误差预算推迟视口入场。
+	var roof_scale := maxf(absf(zoom.x), absf(zoom.y)) * absf(perspective_k)
+	var threshold := REDRAW_DIST_THRESHOLD
+	if redraw_roof_error_px > 0.0:
+		threshold = minf(64.0, redraw_roof_error_px / maxf(roof_scale, 0.0001))
+	if pos.distance_to(_last_camera_pos)<threshold and zoom==_last_camera_zoom and extent==_last_view_extent:
+		return false
+	_last_camera_pos=pos
+	_last_camera_zoom=zoom
+	_last_view_extent=extent
+	return true
+
+
 func _load_data() -> void:
+	_shadow_packet.clear()
 	if _loaded:
 		return
 	_loaded = true
@@ -334,6 +400,14 @@ static func is_position_blocked_at_altitude(pos: Vector2, altitude_m: float) -> 
 
 
 func _draw() -> void:
+	var trace := PerfBuckets.frame_trace_enabled
+	var started := Time.get_ticks_usec() if trace else 0
+	_draw_visible_districts()
+	if trace:
+		PerfBuckets.tick("building_draw", Time.get_ticks_usec() - started)
+
+
+func _draw_visible_districts() -> void:
 	if _camera == null or _districts.is_empty():
 		return
 
@@ -344,15 +418,35 @@ func _draw() -> void:
 	var ci := get_canvas_item()
 
 	var visible: Array = []
-	for d in _districts:
+	var visible_sources := PackedInt32Array()
+	for source in _districts.size():
+		if _volume_hidden.has(source):
+			continue
+		var d: Dictionary = _districts[source]
 		var center: Vector2 = d["center"]
 		var d_sq := center.distance_squared_to(cam_pos)
 		if d_sq > cull_radius_sq:
 			continue
 		visible.append({"d": d, "d_sq": d_sq})
+		visible_sources.append(source)
 
 	# Pass 1: 所有阴影合并到 1 个 submit（不需排序，画在最底；半透明叠加由 GPU blend 处理）
+	var packet := shadow_packet(visible, visible_sources)
+	if not packet.indices.is_empty():
+		TrianglePacket.submit_arrays(ci, packet.indices, packet.vertices, packet.colors)
+
+	# Pass 2: 伪 3D 街区（远 → 近排序）
+	visible.sort_custom(func(x, y): return x["d_sq"] > y["d_sq"])
+	for entry in visible:
+		_draw_one(ci, entry["d"], cam_pos)
+
+
+## 单槽实例缓存，源几何加载后不可变；样式/可见集变化失效。
+func shadow_packet(visible: Array, sources: PackedInt32Array) -> Dictionary:
 	var shadow_screen_offset := -light_dir * shadow_offset_px
+	if cache_shadow_geometry and not _shadow_packet.is_empty() and sources == _shadow_sources \
+			and shadow_screen_offset == _shadow_offset and shadow_color == _shadow_tint:
+		return _shadow_packet
 	var sh_verts := PackedVector2Array()
 	var sh_colors := PackedColorArray()
 	var sh_indices := PackedInt32Array()
@@ -368,13 +462,16 @@ func _draw() -> void:
 			sh_colors.append(shadow_color)
 		for idx in st:
 			sh_indices.append(idx + base)
-	if not sh_indices.is_empty():
-		TrianglePacket.submit_arrays(ci, sh_indices, sh_verts, sh_colors)
-
-	# Pass 2: 伪 3D 街区（远 → 近排序）
-	visible.sort_custom(func(x, y): return x["d_sq"] > y["d_sq"])
-	for entry in visible:
-		_draw_one(ci, entry["d"], cam_pos)
+	shadow_cache_builds += 1
+	var result := {"indices": sh_indices, "vertices": sh_verts, "colors": sh_colors}
+	if cache_shadow_geometry:
+		_shadow_sources = sources.duplicate()
+		_shadow_offset = shadow_screen_offset
+		_shadow_tint = shadow_color
+		_shadow_packet = result
+	else:
+		_shadow_packet.clear()
+	return result
 
 
 ## 单街区渲染：把所有墙 + 楼顶合并到 1 个 triangle_array submit，描边用 1 个 polyline
@@ -387,6 +484,8 @@ func _draw_one(ci: RID, d: Dictionary, cam_pos: Vector2) -> void:
 	var h_visual: float = d["h_visual"]
 
 	var roof_offset := (center - cam_pos) * perspective_k + Vector2(0, -h_visual * 0.25)
+	if bounded_roof_projection:
+		roof_offset = bounded_roof_offset(center - cam_pos, h_visual, perspective_k)
 	var n_pts := fp.size()
 	var roof_pts := PackedVector2Array()
 	roof_pts.resize(n_pts)
@@ -433,3 +532,13 @@ func _draw_one(ci: RID, d: Dictionary, cam_pos: Vector2) -> void:
 		outline[i] = roof_pts[i]
 	outline[n_pts] = roof_pts[0]
 	draw_polyline(outline, roof_outline_color, 1.0, true)
+
+
+## 仅改变表现投影；连续饱和防止远景侧墙无限拉长，不写源高度/碰撞。
+static func bounded_roof_offset(delta: Vector2, visual_height: float, strength: float) -> Vector2:
+	var height := maxf(visual_height, 0.0)
+	if height == 0.0:
+		return Vector2.ZERO
+	var radial := delta * strength
+	var cap := height * 0.5
+	return radial / sqrt(1.0 + radial.length_squared() / (cap * cap)) + Vector2(0, -height * 0.25)

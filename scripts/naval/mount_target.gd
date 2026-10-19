@@ -1,5 +1,6 @@
 class_name MountTarget
 extends CombatUnit
+const FrameRedraw := preload("res://scripts/rendering/visual_redraw_queue.gd")
 
 ## 挂点锁定代理 —— 让船上的每个挂点 / 弱点成为雷达锁定系统里的独立目标
 ##
@@ -100,7 +101,7 @@ func _physics_process_impl(_delta: float) -> void:
 	if not is_equal_approx(p, _last_lock_progress) or is_locked != _last_is_locked or zoom_changed:
 		_last_lock_progress = p
 		_last_is_locked = is_locked
-		queue_redraw()
+		FrameRedraw.request(self)
 
 
 ## 标记为 destroyed + 主动通知所有飞机清空 combat_target 引用 + queue_free

@@ -40,6 +40,7 @@ func run() -> void:
 	_test_axis_count_scaling()
 	_test_t5_mechanisms()
 	_test_berserk_virus()
+	_test_berserk_virus_reference_lifecycle()
 	_test_altitude_actions_and_cycle()
 	_test_overload_axis_and_terminals()
 	_test_requires_skill_chain()
@@ -1230,6 +1231,37 @@ func _test_berserk_virus() -> void:
 	sp.free()
 	victim.free()
 	controlled.free()
+	wing.free()
+
+
+# 狂化谓词只负责身份判断；关闭技能时允许跳过全局引用读取。
+# 显式 getter 仍负责失效引用清理，开启技能则保留同次调用内的清理语义。
+func _test_berserk_virus_reference_lifecycle() -> void:
+	var previous_player: Variant = AircraftRenderer.player_ref
+	var wing := _make_test_aircraft()
+	wing.team = CombatUnit.TEAM_PLAYER
+	wing.squad_slot = 2
+	var ai := AIController.new()
+	ai.aircraft = wing
+	ai.manual_control = false
+	wing.add_child(ai)
+	wing._ai_ref = ai
+
+	var inactive_player := _make_test_aircraft()
+	AircraftRenderer.player_ref = inactive_player
+	inactive_player.free()
+	_check("狂化病毒：关闭技能遇到已释放玩家仍返回 false",
+		not wing.is_berserk_virus_wingman(), "")
+	_check("狂化病毒：关闭技能后显式安全读取仍清理全局引用",
+		AircraftRenderer.safe_player_ref() == null and AircraftRenderer.player_ref == null, "")
+
+	var active_player := _make_test_aircraft()
+	AircraftRenderer.player_ref = active_player
+	active_player.free()
+	wing.berserk_virus_active = true
+	_check("狂化病毒：开启技能遇到已释放玩家仍走身份门并当次清理",
+		wing.is_berserk_virus_wingman() and AircraftRenderer.player_ref == null, "")
+	AircraftRenderer.player_ref = AircraftRenderer.safe_aircraft_ref(previous_player)
 	wing.free()
 
 

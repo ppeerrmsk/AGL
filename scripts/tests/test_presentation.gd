@@ -686,6 +686,8 @@ func _test_arrival_seq_names_match_registry() -> void:
 	var valid_names: Array[String] = []
 	for boss_id in BossRegistry.BOSS_DEFS.keys():
 		valid_names.append("%s_arrival" % String(boss_id).to_lower())
+	for phase_id in BossRegistry.SUBPHASE_IDS:
+		valid_names.append("%s_arrival" % phase_id.to_lower())
 
 	var found_any := false
 	for seq_name in defs.keys():
@@ -910,6 +912,37 @@ func _test_presentation_label_refinements() -> void:
 	_assert_true("compact_status.includes_remaining_percent",
 		status_entries[1]["text"] == "FRENZY 50%")
 	status_ac.free()
+	# 覆盖真实非飞机信息牌登记入口，防止只修 FEAR 或漏掉子类/折叠档。
+	var status_overlay := Node2D.new()
+	BenchRunner.add_child(status_overlay)
+	AircraftRenderer.install_status_overlay(status_overlay)
+	for unit: CombatUnit in [GroundUnit.new(), AAGunUnit.new(), SAMUnit.new(),
+			RadarStation.new(), AirburstAAUnit.new(), StrategicTarget.new()]:
+		for sid: String in StatusEffects.DISPLAY_ORDER:
+			unit.apply_status(sid, 10.0)
+			unit.status_effects[sid] = 5.0
+		for compact: bool in [false, true]:
+			var base_lines: PackedStringArray = unit._status_label_lines(compact)
+			AircraftRenderer.draw_unit_status_panel(unit, ThemeDB.fallback_font,
+				base_lines, unit.team, Vector2.ZERO)
+			var registered := AircraftRenderer.status_panel_entry(unit.get_instance_id())
+			var rendered: PackedStringArray = registered["lines"]
+			_assert_true("ground_status.all_states_once_%s_%s" % [unit.get_class(), compact],
+				rendered.size() == base_lines.size() + StatusEffects.DISPLAY_ORDER.size())
+			for sid: String in StatusEffects.DISPLAY_ORDER:
+				_assert_true("ground_status.english_%s_%s" % [sid, compact],
+					rendered.has(StatusEffects.english_label(sid) + " 50%"))
+		for sid: String in StatusEffects.DISPLAY_ORDER:
+			unit.remove_status(sid)
+		AircraftRenderer.draw_unit_status_panel(unit, ThemeDB.fallback_font,
+			PackedStringArray(["GROUND"]), unit.team, Vector2.ZERO)
+		_assert_true("ground_status.removal_clears_registered_lines",
+			AircraftRenderer.status_panel_entry(unit.get_instance_id())["lines"]
+			== PackedStringArray(["GROUND"]))
+		AircraftRenderer.clear_unit_status_panel(unit)
+		unit.free()
+	AircraftRenderer.uninstall_status_overlay(status_overlay)
+	status_overlay.free()
 
 	_assert_true("label_name.已有尾部代号不重复",
 		SurvivorPlayableSetup.display_name_with_codename("F-15 Eagle", "Eagle") == "F-15 Eagle")

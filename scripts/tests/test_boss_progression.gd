@@ -19,6 +19,7 @@ class LaserHost:
 func run() -> void:
 	print("\n════════ BOSS 通关强化测试 ════════")
 	_test_progression_counts()
+	_test_wraith_fear_loadout()
 	_test_wraith_support_deployment()
 	_test_carrier_composition()
 	_test_goose_variant_gate()
@@ -36,6 +37,40 @@ func _test_progression_counts() -> void:
 	_check("Wraith 初见无支援", F47AceSquad.support_count_for_progression(0) == 0, "")
 	_check("Wraith 首败后双支援", F47AceSquad.support_count_for_progression(1) == 2, "")
 	_check("Wraith 二败暂沿用双支援", F47AceSquad.support_count_for_progression(2) == 2, "")
+
+func _test_wraith_fear_loadout() -> void:
+	var fresh := F47AceSquad.new()
+	_check("Wraith 未注入历史默认不装恐惧", fresh.fear_cone_config == null, "")
+	for count: int in [-1, 0, 1, 2, 3, 4, 12]:
+		var encounter := F47AceSquad.new()
+		encounter.configure_progression(count)
+		var unlocked := count >= 3
+		_check("历史 %d 次的恐惧配置门" % count,
+			(encounter.fear_cone_config != null) == unlocked, "")
+		# 正式 engage 入口装配控制器；空测试编成跳过专属战术和支援生成。
+		encounter.squad_state = AceSquad.SquadState.PURSUIT
+		encounter.engage()
+		_check("历史 %d 次接战才装控制器" % count,
+			(encounter.fear_cone != null) == unlocked, "")
+		if encounter.fear_cone != null:
+			var first := encounter.fear_cone
+			encounter.engage()
+			_check("重复接战不重复装配", encounter.fear_cone == first, "")
+			encounter.fear_cone.dispose()
+	var upgraded := F47AceSquad.new()
+	upgraded.configure_progression(3)
+	var other := F47AceSquad.new()
+	other.configure_progression(3)
+	upgraded.fear_cone_config.range_m = 999.0
+	_check("强化装配配置独立", other.fear_cone_config.range_m == 3000.0, "")
+	upgraded.configure_progression(2)
+	_check("生成前改回低历史不会残留配置", upgraded.fear_cone_config == null, "")
+	var generic := AceSquad.new()
+	generic.fear_cone_config = SquadFearConeConfig.new()
+	generic.squad_state = AceSquad.SquadState.PURSUIT
+	generic.engage()
+	_check("其它小队显式装配不受 Wraith 三败门约束", generic.fear_cone != null, "")
+	generic.fear_cone.dispose()
 
 func _test_wraith_support_deployment() -> void:
 	var player_pos := Vector2.ZERO

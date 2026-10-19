@@ -275,6 +275,10 @@ function Get-BenchRuntimeErrorBlocks([string]$stdoutText, [string]$stderrText) {
     $lines = @($combined -split "`r?`n")
     $fatalPatterns = @(
         '^\s*SCRIPT ERROR:',
+        '^\s*SHADER ERROR:',
+        '^\s*ERROR:\s+Shader compilation failed',
+        '^\s*ERROR:\s+(?:Attempting to initialize the wrong RID|Initializing already initialized RID|Attempting to use an uninitialized RID|Attempted to free an uninitialized or invalid RID)',
+        '^\s*ERROR:\s+unimplemented base type encountered in renderer scene cull',
         'Trying to (?:cast|assign).*freed',
         'previously freed',
         'freed instance',
@@ -302,7 +306,7 @@ function Get-BenchRuntimeErrorBlocks([string]$stdoutText, [string]$stderrText) {
         $end = $i
         for ($j = $i + 1; $j -lt $lines.Count; $j++) {
             $candidate = $lines[$j]
-            if ($candidate -match '^\s*(?:SCRIPT ERROR|ERROR|WARNING):') {
+            if ($candidate -match '^\s*(?:SCRIPT ERROR|SHADER ERROR|ERROR|WARNING):') {
                 break
             }
             if ($candidate -eq '') {
@@ -369,14 +373,28 @@ try {
         # synchronizing to wall clock. Growth benches still simulate every 60 Hz tick.
         $fixedFpsOption = "--fixed-fps $fixedFps "
     }
+    $interactiveVisual = $DisplayMode -eq 'Visual' -and $env:AGL_BENCH_INTERACTIVE -eq '1'
     if ($DisplayMode -eq 'Visual') {
         # Keep the real GL Compatibility renderer while placing the transient test
         # window off-screen. The process remains owned by the same watchdog/job.
-        $godotArguments = '{0}--path "{1}" --rendering-method gl_compatibility --windowed --resolution 1600x900 --position 32000,32000 -- --bench={2} --duration={3}' -f `
-            $fixedFpsOption, $runProjectDir.Replace('"', '\"'), $Scenario, $DurationSeconds
+        $benchWindowPosition = if ($interactiveVisual) { '80,80' } else { '32000,32000' }
+        $godotArguments = '{0}--path "{1}" --rendering-method gl_compatibility --windowed --resolution 1600x900 --position {4} -- --bench={2} --duration={3}' -f `
+            $fixedFpsOption, $runProjectDir.Replace('"', '\"'), $Scenario, $DurationSeconds, $benchWindowPosition
     } else {
         $godotArguments = '{0}--headless --path "{1}" -- --bench={2} --duration={3}' -f `
             $fixedFpsOption, $runProjectDir.Replace('"', '\"'), $Scenario, $DurationSeconds
+    }
+    if ($env:AGL_BENCH_VERBOSE -eq '1') {
+        $godotArguments = '--verbose ' + $godotArguments
+    }
+    # Explicit diagnostics only: never accept arbitrary debugger hosts or arguments.
+    if ($env:AGL_BENCH_REMOTE_PROFILE_PORT) {
+        $profilePort = 0
+        if (-not [int]::TryParse($env:AGL_BENCH_REMOTE_PROFILE_PORT, [ref]$profilePort) -or
+            $profilePort -lt 1024 -or $profilePort -gt 65535) {
+            throw 'AGL_BENCH_REMOTE_PROFILE_PORT must be an integer in 1024..65535'
+        }
+        $godotArguments = "--remote-debug tcp://127.0.0.1:$profilePort " + $godotArguments
     }
     if ($ProcDumpExe -ne '') {
         $dumpDir = Join-Path $ProjectDir 'tmp\crash-dumps'
@@ -392,7 +410,7 @@ try {
     $psi.WorkingDirectory = $runProjectDir
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow = $true
-    $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+    $psi.WindowStyle = if ($interactiveVisual) { [System.Diagnostics.ProcessWindowStyle]::Normal } else { [System.Diagnostics.ProcessWindowStyle]::Hidden }
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
 

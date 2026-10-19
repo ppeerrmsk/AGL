@@ -70,3 +70,33 @@ Windows / Godot 4.7.2 Steam / GL Compatibility / RTX 3080，真实 Visual。旧�
 ## 下一批边界
 
 飞机专属模型和地图可以继续在隔离制作线上准备；正式推广前先拆分地图/阴影/机体、分析长时尖峰并补同状态压力对照。随后补 F-14/A-10 实战负载、一架真实多挂载/CD 恢复、Mother Goose 艺术修订，以及地图分块/详细来源。不能把当前三架和 15 个建筑写成全机型、全地图迁移完成。
+
+## 全机型飞机线补充（2026-09-06）
+
+本节记录批次 A 之后的飞机线，不回写或抹去上面的历史性能失败。当前实际资源扫描为 97 个 `AircraftParams.display_name`，经批准的同型号/别名关系归并为 71 个规范机体 key；71 个均有独立轮廓、剖面和结构参数或明确的同型共享关系，单表面、单材质且不超过 600 三角形。可重复生成源在 `scripts/experiments/volume_aircraft_catalog.gd`，来源/许可与完成状态在 `resources/aircraft_volume_models/reference_manifest.json`。
+
+- 71 型均导出独立 GLB，并按每页最多 8 架生成 10 页顶/侧/前/正常游戏斜俯视，共 40 张 QA 图；四组均已逐页人工检查。F-104 复验完整机鼻、短翼、尾翼与朝向，F-14 保持稳定规范身份，不受 `Warhound` 后缀污染。
+- 70 个非 Mother Goose key 另用真实 `AircraftParams` 分 9 页生成演员图，验证玩家/敌人/友军/特种/别名路由、PNG 回退、AH-64/CH-47 四组动态旋翼和释放后缓存；Mother Goose 继续走其正式本体与真实可伤害挂点。
+- 12 类共享挂载只读正式装备、库存、装填、释放 CD、充能/光束与过热状态；没有第二套武器逻辑。全部航空身份都按实际输出跨度在三级专属机身网格间切换：LOD0/LOD1 使用 `22/18 px` 迟滞，LOD1/LOD2 使用 `8/11 px` 迟滞；独立挂载仍按 `22/18 px` 省略。AH-64/CH-47 在非 LOD0 时以包含桨盘跨度的单网格代替动态旋翼。玩家、友军、敌军、BOSS 与 Sentinel 没有画面 LOD 豁免，逻辑/模拟豁免仍保持不变。
+- 有 `wing_color` 的现役资源已补上三维双通道涂装：机翼顶点 alpha 只作不透明掩码，每实例 custom data 传副色/主色比值，在同一 surface、材质与 MultiMesh 批次里恢复副色；无副色机型保持原 `icon_color` 路径，不用混色或阵营重染冒充。
+- 主菜单 Survivor 已默认建立一个 0.45× 透明飞机专用 SubViewport；地图、天气、Camera2D、物理、AI、命中/伤害、目标线、状态栏与 HUD 仍走原正式二维链。Shift+F11 在同一批真实实体上回退 PNG，`AGL_AIRCRAFT_VOLUME=off` 提供完全不创建该 SubViewport 的自动基线。
+- 加入双通道涂装阶段的资产审计通过：97 个显示名、71 个规范 key、71 个机体网格、12 个挂载网格、71 份四视图、15 个双配色资源。最新正式检出与验收状态见下方 LOD1 检查点；manifest 仍保持 `formal_default_pending_validation`，只有剩余 C1/C2/S1/S2/S3 成对矩阵和完整局证据齐全后才提升状态。
+
+性能复测必须在同机、同 Godot、同显示/窗口状态且无外部 GPU 争用时完成。2026-09-06 的一组后期样本遇到用户运行其它 3D 游戏（GPU 约 84%～98%）；连纯二维基线也跌到平均 34 FPS，因此该段采样只作环境诊断，不进入候选验收或回退计算。
+
+## 三级机身 LOD 修订与检查点（2026-09-06）
+
+用户指出旧最低档在正常游戏远景中一眼呈三角形、与地图和场景细节度不匹配。当前动态目录因此改为 71 个 LOD0 完整体积、71 个结构化 LOD1、71 个极远 LOD2 与 12 个共享挂载；正式首帧前预热 225 条只读网格路由，空 MultiMesh 批次仍按真实提交惰性建立。新 LOD1 从各机型完整制作源按连通组件保留机身、翼面、尾翼/发动机/座舱等主要结构及局部厚度，预算不超过 320 面；实际为 108–320 面、平均 205.2 面。旧支撑轮廓保留为 LOD2，实际为 24–56 面、平均 48.3 面，不再承担普通远景显示。
+
+运行时按机体在最终输出中的实际投影跨度切档：`>=22 px` 进入 LOD0，当前 LOD0 低于 `18 px` 后进入 LOD1；LOD1 只有低于 `8 px` 才进入 LOD2，LOD2 到 `>=11 px` 才返回 LOD1。独立挂载按原 `22/18 px` 迟滞显示。计算包含机型原生尺寸、虚拟高度/视觉缩放、Camera2D canvas 变换与窗口 stretch，不等同于裸 `Camera2D.zoom`。玩家、友军、敌军、BOSS、无人指挥机、Sentinel 编成和旋翼机使用完全相同的画面像素门；AH-64/CH-47 在非 LOD0 时由含桨盘跨度的单网格代替动态旋翼，Mother Goose 真挂点也随挂载门停止提交。物理、AI、伤害、武器和关键反馈不随画面 LOD 改变，性能调度的潜在挂载工作量计数也不因隐藏远景几何而减少。
+
+- 合并后正式工程 `volume_world 1 180 Shadow Headless`：162/162；覆盖 71 型 LOD1/LOD2 降面、各自预算、长宽轮廓、对称、法线、涂装、复杂度顺序、三级像素迟滞，并保留同期地形/瓦片测试。
+- 正式工程最终 `all 1 300 Shadow Headless`：93/93；正式透明视口/大气战场生命周期 20/20、`lifecycle_gauntlet` 86/86，wrapper 退出 0。该结果来自逐 hunk 合并后的正式工程，不沿用隔离工作树或旧版本数字。
+- `volume_aircraft_lod_multiview 1 180 Shadow Visual` 与 `volume_aircraft_lod2_multiview 1 180 Shadow Visual` 均完成：每档 10 页、40 张顶/侧/前/游戏斜俯视 PNG、71 份逐型 GLB 与实际面数 manifest；两档全部游戏视角逐页人工检查，无空白、漏型、翻转或明显破面。LOD1 可辨识结构明显高于 LOD2，旧三角轮廓只保留在极远档。
+- `volume_aircraft_runtime 1 180 Shadow Visual` 通过 314/314：真实 Aircraft 演员、正式共享视口、AH-64/CH-47 旋翼与 MQ-109 实际 LOD1 路由均在当前后端显示；测试期间发现并修正了 QA 对 LOD1 route 的查找兼容问题。
+- `volume_3d_desert 1 120 Shadow Visual` 通过 34/34：独立沙漠实验入口在首次进入和 F8 重建后均显式抑制正式飞机层，只保留自身 Probe；点击映射、Tab、11 个相机点与退出生命周期保持正常。
+- `battlefield_atmosphere_stress_36 30 210 Shadow Visual` 在正式默认三维后端通过：3235 帧平均 119.82 FPS，P1 110.00 FPS，最慢帧 60.07 FPS，`frames_below_60=0`，相机巡检 8/8；实际提交 LOD0 1899 次、LOD1 22319 次、LOD2 7473 次。
+- `battlefield_atmosphere_stress_48_24km 30 210 Shadow Visual` 通过：3224 帧平均 119.41 FPS，P1 110.00 FPS，最慢帧 69.41 FPS，`frames_below_60=0`，巡检 8/8；实际提交 LOD0 284 次、LOD1 10934 次、LOD2 18106 次。带正式地形、MSAA 与阴影的 `volume_3d_c2` 最终同样通过：3183 帧平均 117.91 FPS、P1 90.00、最慢 66.59、`<60=0`，实际提交 LOD0 570 次、LOD1 21405 次、LOD2 35483 次。C2 现在只有 LOD1/LOD2 都真实提交过才可通过，避免“登记了新档却从未切入”的假绿。
+- C2 专项复验首轮有 1 个 33 ms 物理追帧并按硬门失败；下一轮暴露大气战场已释放飞机仍进入强类型 helper 的生命周期错误并由 wrapper 判为超时失败。修复为先在 `Variant` 边界拒绝无效 Object，并新增真实释放后跨清理/下一指派 tick 的 gauntlet 案例；生命周期 20/20 通过后才取得上述最终绿色 C2 样本。未放宽 60 FPS 门，也未减少飞机、火力、伤害或反馈。
+
+最终发布矩阵仍须在同机、同 Godot、同显示/窗口状态且无外部 GPU 争用时串行完成：对 `volume_2d_c1` / `volume_3d_c1` 与 `volume_2d_c2` / `volume_3d_c2` 各跑三轮成对比较；随后覆盖 S1 正式弹幕/海战、S2 各适用 BOSS/Adds、S3 冷启动与反复跨阈值切档，最后进行完整 Survivor 局。所有性能样本继续要求 8/8 巡检、`frames_below_60=0`，不得以减少飞机、火力、伤害或反馈换取通过。在这些剩余性能与完整局证据齐全前，manifest 保持 `formal_default_pending_validation`，本节不宣称正式发布完成。

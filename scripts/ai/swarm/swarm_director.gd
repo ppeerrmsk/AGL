@@ -82,8 +82,11 @@ func update(delta: float) -> void:
 
 ## 1Hz 战略：分配角色 + lane
 func _tick() -> void:
+	var perf_t0 := Time.get_ticks_usec()
+	PerfBuckets.mark_frame_event("mother_goose_director")
 	var uavs: Array = _gather_uavs()
 	if uavs.is_empty():
+		PerfBuckets.tick("mother_goose_director", Time.get_ticks_usec() - perf_t0)
 		return
 
 	## 1. 按型号分类：
@@ -106,6 +109,7 @@ func _tick() -> void:
 			continue
 		assignable.append(uav)
 	if assignable.is_empty():
+		PerfBuckets.tick("mother_goose_director", Time.get_ticks_usec() - perf_t0)
 		return
 
 	## 2. 算目标配额（按 DESIGNATION 调整）。分母只算 MQ-109 池（assignable）
@@ -153,6 +157,7 @@ func _tick() -> void:
 		_assign(d, Role.DECOY, player_heading + PI * 0.5)
 	for g in guards:
 		_assign(g, Role.GUARD, 0.0)
+	PerfBuckets.tick("mother_goose_director", Time.get_ticks_usec() - perf_t0)
 
 
 ## 写入 AIController 的 swarm_role_override / swarm_lane_world_angle
@@ -353,6 +358,10 @@ func _gather_uavs() -> Array:
 func _find_ai(uav: Aircraft) -> AIController:
 	if uav == null or not is_instance_valid(uav):
 		return null
+	var cached: Variant = uav._ai_ref
+	if typeof(cached) == TYPE_OBJECT and is_instance_valid(cached) and cached is AIController:
+		return cached as AIController
+	# 只给出生首帧保留兼容回退；1 Hz 战略分配不重复遍历每架 UAV 的子节点。
 	for child in uav.get_children():
 		if child is AIController:
 			return child

@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+[ext_resource type="PackedScene" path="res://scenes/tests/tokyo_region_preview.tscn" id="1"]
+[node name="TokyoRegionPreviewB" instance=ExtResource("1")]
+region_archive_path = "res://resources/maps/tokyo_volume_preview/region_r5b.res"
+output_prefix = "res://bench/results/tokyo_volume_r5b_"
+close_center = Vector2(-30, -12550)

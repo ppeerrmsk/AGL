@@ -57,6 +57,55 @@ var _engaged := false
 var _reinforcement_elapsed_s := 0.0
 var _retarget_elapsed_s := 0.0
 var _opening_melee_remaining_s := 0.0
+signal orion_arrival_requested
+const OrionRules = preload("res://scripts/survivor/orion_fire_control.gd")
+const OrionFinalForm = preload("res://scripts/survivor/orion_final_form.gd")
+var orion_enabled := false
+var orion_started := false
+var orion: RefCounted = null
+var _orion_arrival_elapsed := 0.0
+var _orion_debug_direct := false
+var _orion_debug_solo := false
+
+
+func configure_debug_scenario(scenario: String) -> void:
+	if scenario in ["orion", "orion_eligible", "orion_solo"]:
+		orion_enabled = true
+	_orion_debug_direct = scenario == "orion"
+	_orion_debug_solo = scenario == "orion_solo"
+
+
+func configure_orion(prior_cre_kills: int) -> void:
+	orion_enabled = OrionRules.eligible(prior_cre_kills)
+
+
+func cleanup_orion() -> void:
+	if orion != null:
+		orion.cleanup(true)
+	_cleanup_targets()
+
+
+func _begin_orion() -> void:
+	var player := CombatUnit.safe_unit(_player) as Aircraft
+	if player == null or player.is_destroyed:
+		return
+	var candidate := OrionFinalForm.new()
+	var offsets: Array[Vector2] = [Vector2.ZERO, Vector2(-220, 180), Vector2(220, 180)]
+	var entry := _anchor if _orion_debug_solo else _entry_spawn_position_for(
+		player.global_position, player.heading, 1, null, offsets, 1200.0)
+	if entry == Vector2.INF:
+		return
+	var direction := player.global_position - entry
+	if not candidate.spawn(Callable(_spawner, "_create_enemy"), player,
+			_spawner.missile_manager, entry, atan2(direction.x, -direction.y)):
+		return
+	orion = candidate
+	orion_started = true
+	_engaged = false
+	hud_visible = false
+	hud_style = &"boss"
+	display_name = "ORION"
+	orion_arrival_requested.emit()
 
 
 func _init() -> void:
@@ -79,15 +128,32 @@ func spawn(scene_root: Node, player: Aircraft, _bullet_mgr: BulletManager,
 		return
 	_spawner = raw_spawner as SurvivorSpawner
 	active = true
+	if _orion_debug_solo:
+		# 独立实战评估：只生成本体与双 FANG；封住后续王牌接力，不改正式乱入路径。
+		_spawned_profile_count = PROFILE_ORDER.size()
+		_begin_orion()
+		active = orion_started
+		return
 	# 前三队必须在 PRE_STAGE 已有真实演员，分镜依次切真实长机；此时全部禁火。
 	for _i in range(CINEMATIC_SQUAD_COUNT):
 		_spawn_next_squad()
 	if _all_members.is_empty():
 		active = false
+	elif _orion_debug_direct:
+		# Debug 直达只保留开场三队并跳过中间队列；正式资格路径仍逐队接力。
+		_spawned_profile_count = OrionRules.FIRST_WAVE
+		for squad in _squads:
+			_activate_squad(squad)
+		_begin_orion()
 
 
 func engage() -> void:
 	if not active:
+		return
+	if orion_started:
+		_engaged = true
+		orion.engage()
+		_retarget_all(true)
 		return
 	_engaged = true
 	_opening_melee_remaining_s = OPENING_MELEE_DURATION_S
@@ -109,6 +175,19 @@ func update(delta: float) -> void:
 			squad.update_theme(delta, false)
 	if not _engaged:
 		return
+	if orion_started:
+		orion.update(delta)
+		if orion.defeated:
+			_cleanup_targets()
+			active = false
+			return
+	elif orion_enabled and _spawned_profile_count >= OrionRules.FIRST_WAVE:
+		_orion_arrival_elapsed += delta
+		if OrionRules.should_arrive(orion_enabled, orion_started, _spawned_profile_count,
+				_orion_arrival_elapsed, _live_members().size()):
+			_begin_orion()
+			if orion_started:
+				return
 	var opening_melee_ended := false
 	if _opening_melee_remaining_s > 0.0:
 		_opening_melee_remaining_s = maxf(0.0, _opening_melee_remaining_s - delta)
@@ -139,7 +218,7 @@ func update(delta: float) -> void:
 		_retarget_elapsed_s = fmod(_retarget_elapsed_s, RETARGET_INTERVAL_S)
 		_retarget_all(not is_opening_melee_active())
 
-	if _spawned_profile_count >= PROFILE_ORDER.size() and _live_members().is_empty():
+	if not orion_enabled and _spawned_profile_count >= PROFILE_ORDER.size() and _live_members().is_empty():
 		_cleanup_targets()
 		active = false
 		EventLogger.log_event("EVENT", display_name, "all ace squadrons eliminated")
@@ -149,17 +228,23 @@ func set_player_ref(p: Aircraft) -> void:
 	if p == null or not is_instance_valid(p):
 		return
 	_player = p
+	if orion != null:
+		orion.set_player_ref(p)
 	for squad in _squads:
 		if squad != null:
 			squad.set_player_ref(p)
 
 
 func get_display_members() -> Array:
+	if orion_started:
+		return orion.get_members()
 	return _all_members
 
 
 func get_hud_entries() -> Array[Dictionary]:
 	var entries: Array[Dictionary] = []
+	if orion_started:
+		return entries
 	for i in range(_squads.size()):
 		var profile_id := PROFILE_ORDER[i]
 		var members: Array[Dictionary] = []
@@ -232,7 +317,8 @@ static func entry_position_for(center: Vector2, player_heading: float,
 ## 才以 15° 步进搜索相邻可用方位。正式出生位必须让整个编队（不只是长机）
 ## 同时位于安全边界内且不在当前镜头内。
 func _entry_spawn_position_for(center: Vector2, player_heading: float,
-		profile_index: int, squad: AceSupportSquad = null) -> Vector2:
+		profile_index: int, squad: AceSupportSquad = null,
+		local_offsets: Array[Vector2] = [], clearance_px: float = 0.0) -> Vector2:
 	var preferred_relative := entry_relative_bearing_deg_for(profile_index)
 	var bearing_offsets: Array[float] = [0.0]
 	for step in range(1, ENTRY_BEARING_SEARCH_STEPS + 1):
@@ -253,8 +339,15 @@ func _entry_spawn_position_for(center: Vector2, player_heading: float,
 				+ float(distance_step) * ENTRY_DISTANCE_STEP_PX
 			var candidate := center + direction * distance_px
 			var lateral_axis := direction.rotated(PI / 2.0)
-			var formation_offsets: Array[Vector2] = [Vector2.ZERO] \
-				if squad == null else squad._get_formation_offsets(direction, lateral_axis)
+			var formation_offsets: Array[Vector2] = []
+			if squad == null:
+				formation_offsets.append(Vector2.ZERO)
+			else:
+				formation_offsets.assign(squad._get_formation_offsets(direction, lateral_axis))
+			if not local_offsets.is_empty():
+				formation_offsets.clear()
+				for offset in local_offsets:
+					formation_offsets.append(offset.rotated(bearing + PI))
 			var formation_safe := true
 			var formation_offscreen := true
 			for offset in formation_offsets:
@@ -262,6 +355,11 @@ func _entry_spawn_position_for(center: Vector2, player_heading: float,
 				if not MapBoundary.is_safe_inside(member_pos, 1200.0):
 					formation_safe = false
 					break
+				if clearance_px > 0.0:
+					for other in _live_members():
+						if member_pos.distance_to(other.global_position) < clearance_px:
+							formation_safe = false
+							break
 				if _mode != null and _mode.has_method("is_world_pos_visible") \
 						and bool(_mode.call("is_world_pos_visible", member_pos)):
 					formation_offscreen = false
@@ -365,6 +463,33 @@ func _retarget_all(include_player: bool = true) -> void:
 			shooters.append(shooter)
 	if shooters.is_empty():
 		return
+	if orion_started and orion.active:
+		var target: Aircraft = orion.body()
+		var fallback_shooters: Array[Aircraft] = []
+		for shooter in shooters:
+			shooter.set_meta("crucible_player_hunter", false)
+			var choice: Aircraft = null
+			var nearest := INF
+			for raw: Variant in orion.get_members():
+				if typeof(raw) != TYPE_OBJECT or not is_instance_valid(raw) or not raw is Aircraft:
+					continue
+				var candidate := raw as Aircraft
+				var distance := shooter.global_position.distance_to(candidate.global_position)
+				if candidate.is_destroyed or candidate.is_lock_immune() \
+						or distance > shooter.effective_radar_range_px():
+					continue
+				if candidate == target:
+					choice = candidate
+					break
+				if distance < nearest:
+					nearest = distance
+					choice = candidate
+			if choice != null:
+				_acquire_target(shooter, choice, "crucible against ORION")
+			else:
+				fallback_shooters.append(shooter)
+		shooters = fallback_shooters
+		include_player = false
 	_assign_player_hunters(shooters)
 	var candidates := _target_candidates(include_player)
 	if candidates.is_empty():

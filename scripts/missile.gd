@@ -1,5 +1,6 @@
 class_name Missile
 extends Node2D
+const FrameRedraw := preload("res://scripts/rendering/visual_redraw_queue.gd")
 
 ## DEADAIR 5Hz 控制器使用的维护式注册表，避免每 tick 扫 MissileManager 子节点。
 static var active_missiles: Array[Missile] = []
@@ -69,6 +70,13 @@ var _prev_los_angle: float = 0.0  ## 上一帧 LOS 角（有限差分算角速�
 var _prev_heading: float = 0.0   ## 上一帧航向（用于计算模拟 bank）
 var bank_angle: float = 0.0      ## 模拟 bank（由航向变化率推算）
 var _trail_ribbon: TrailRibbon
+## 物理插值显示态：本 tick 开始时的本地变换（= 引擎插值 prev），见 DisplayPacing
+var interp_prev_xform := Transform2D.IDENTITY
+var interp_prev_tick: int = -1
+## 显示态全局变换的每渲染帧缓存（键 = 渲染帧号 + 物理帧号），见 DisplayPacing
+var interp_cache_xform := Transform2D.IDENTITY
+var interp_cache_proc: int = -1
+var interp_cache_tick: int = -1
 var _deadair_base_trail_color: Color = Color.WHITE
 var deadair_exposure_ratio: float = 0.0
 var _font: Font
@@ -154,9 +162,18 @@ func _ready() -> void:
 	# 从 params 读取拦截抗性（不同型号可以配置不同的抗 CIWS 能力）
 	if params:
 		intercept_hp = params.intercept_hp
+	# 物理插值白名单：弹体只在 _physics_process 移动；挂点发射等会在 add_child 后改出生点，
+	# 延迟到本帧刷新时重置，避免从发射机原点插值过来
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_ON
+	reset_physics_interpolation.call_deferred()
 
 func _exit_tree() -> void:
 	active_missiles.erase(self)
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_RESET_PHYSICS_INTERPOLATION:
+		interp_prev_xform = transform
+		interp_cache_proc = -1
 
 func set_deadair_exposure_ratio(value: float) -> void:
 	deadair_exposure_ratio = clampf(value, 0.0, 1.0)
@@ -262,6 +279,19 @@ func update_enemy_flare_break(delta: float) -> void:
 				ac._log_name(), ENEMY_FLARE_BREAK_WINDOW_S])
 
 func _physics_process(delta: float) -> void:
+	# 物理插值显示态起点（引擎在本 tick 开头已把 prev←curr）
+	interp_prev_xform = transform
+	interp_prev_tick = Engine.get_physics_frames()
+	if not PerfBuckets.extended_cpu_trace_enabled:
+		_physics_process_missile_untraced(delta)
+		return
+	var started_usec := Time.get_ticks_usec()
+	var shared_before_usec := PerfBuckets.extended_cpu_shared_usec
+	_physics_process_missile_untraced(delta)
+	PerfBuckets.finish_extended_cpu("missile_phys", started_usec, shared_before_usec)
+
+
+func _physics_process_missile_untraced(delta: float) -> void:
 	if not is_active:
 		return
 
@@ -290,7 +320,7 @@ func _physics_process(delta: float) -> void:
 		var fade_step := fwd_f * speed * PIXELS_PER_METER * delta
 		global_position += fade_step
 		distance_traveled_px += fade_step.length()
-		queue_redraw()
+		FrameRedraw.request(self)
 		return
 
 	# VLS 齐射弹：前两段完全接管物理（第三段 TERMINAL 走标准 PN 路径下沉到 params.nav_constant 决定）
@@ -427,6 +457,9 @@ func _physics_process(delta: float) -> void:
 			has_guidance = false  # 光学隐形：SARH 导弹丢失
 		elif source == null or not is_instance_valid(source) or source.is_destroyed:
 			has_guidance = false
+		elif params.active_radar_guidance:
+			# 保留上方统一诱饵 / 目标 / 载机死亡守卫，仅豁免照射进度。
+			has_guidance = true
 		else:
 			var lock_progress: float = -1.0
 			if _mm and _mm.has_method("get_lock_progress"):
@@ -515,7 +548,7 @@ func _physics_process(delta: float) -> void:
 	bank_angle = clampf(turn_rate_now * 0.5, -1.0, 1.0)  # 轻微扭转
 	_prev_heading = heading
 
-	queue_redraw()
+	FrameRedraw.request(self)
 
 
 ## 记录穿透弹已经伤害过的目标；连锁弹头优先转向时也必须记住，防止之后穿回同一目标。
@@ -648,6 +681,13 @@ func _unit_name(unit) -> String:
 ## 每发齐射弹的 speed_multiplier 在 NavalWeapons._fire_one_vls_missile 随机设定，打散弹道观感
 func _update_vls_non_terminal(delta: float) -> void:
 	_vls_phase_timer += delta
+	var vertical_climb: bool = params.airborne_vertical_launch and vls_phase == 0
+	if vertical_climb:
+		altitude += 600.0 * delta
+	elif params.airborne_vertical_launch:
+		var target_unit := CombatUnit.safe_unit(target)
+		if target_unit != null:
+			altitude = move_toward(altitude, target_unit.altitude, 2400.0 * delta)
 
 	# 激光减速倍率（laser timer 已在 _physics_process 顶部倒数）
 	var _laser_speed_mult_vls: float = SkillHooks.LASER_MISSILE_SPEED_MULT if _laser_slow_timer > 0.0 else 1.0
@@ -686,6 +726,8 @@ func _update_vls_non_terminal(delta: float) -> void:
 	var fwd := Vector2(sin(heading), -cos(heading))
 	var actual_speed: float = speed * speed_multiplier
 	var vls_step := fwd * actual_speed * PIXELS_PER_METER * delta
+	if vertical_climb:
+		vls_step = Vector2.ZERO
 	global_position += vls_step
 	distance_traveled_px += vls_step.length()
 
@@ -695,7 +737,7 @@ func _update_vls_non_terminal(delta: float) -> void:
 	bank_angle = clampf(turn_rate_now * 0.5, -1.0, 1.0)
 	_prev_heading = heading
 
-	queue_redraw()
+	FrameRedraw.request(self)
 
 func _draw() -> void:
 	var perf_detail := PerfBuckets.detail_capture_enabled()

@@ -221,20 +221,60 @@ func _player_in_any_zone() -> bool:
 func _pick_city_center() -> Vector2:
 	var pp := _player.global_position
 	var candidates: Array[Vector2] = []
-	for poly_any in MapGeography.URBAN_DISTRICTS:
-		var poly: PackedVector2Array = poly_any
-		if poly.is_empty():
-			continue
-		var c := _polygon_centroid(poly)
+	## 每次调用只快照一次活跃战区圆（原逐城区重扫战区表 + get_state，718×~9 次）。
+	var active_zones := _active_zone_circles()
+	for c in _city_centroids():
 		## 铁则：远离玩家、保留截击时间，且不污染战区任务空域。
-		if not city_heli_spawn_candidate_allowed(pp, c, _pos_in_any_zone(c)):
+		if not city_heli_spawn_candidate_allowed(pp, c, _pos_in_zone_circles(c, active_zones)):
 			continue
 		candidates.append(c)
 	if candidates.is_empty():
 		return Vector2.INF
 	return candidates[randi() % candidates.size()]
 
-func _polygon_centroid(poly: PackedVector2Array) -> Vector2:
+## 城区质心按 URBAN_DISTRICTS 顺序缓存（跳过空多边形）；城区数组被替换（UGC/换图）即重算。
+static var _city_centroid_cache := PackedVector2Array()
+static var _city_centroid_source: Array = []
+
+static func _city_centroids() -> PackedVector2Array:
+	if not is_same(_city_centroid_source, MapGeography.URBAN_DISTRICTS):
+		_city_centroid_source = MapGeography.URBAN_DISTRICTS
+		_city_centroid_cache = PackedVector2Array()
+		for poly_any in MapGeography.URBAN_DISTRICTS:
+			var poly: PackedVector2Array = poly_any
+			if poly.is_empty():
+				continue
+			_city_centroid_cache.append(_polygon_centroid(poly))
+	return _city_centroid_cache
+
+## 当前 AVAILABLE / SELECTED 战区圆快照：[PackedVector2Array 圆心, PackedFloat64Array 半径]，
+## 顺序同战区定义。
+func _active_zone_circles() -> Array:
+	var centers := PackedVector2Array()
+	var radii := PackedFloat64Array()
+	var zones: ZoneData = null
+	if mode:
+		zones = mode.get("_zone_data") if "_zone_data" in mode else null
+	if zones:
+		for z_any in zones.get_zone_definitions():
+			var z: Dictionary = z_any
+			var state := zones.get_state(z["id"])
+			if state != ZoneData.State.AVAILABLE and state != ZoneData.State.SELECTED:
+				continue
+			centers.append(z["center"])
+			radii.append(float(z["radius"]))
+	return [centers, radii]
+
+## 与 _pos_in_any_zone 同一判定（pos.distance_to(center) <= radius），只是读快照。
+static func _pos_in_zone_circles(pos: Vector2, circles: Array) -> bool:
+	var centers: PackedVector2Array = circles[0]
+	var radii: PackedFloat64Array = circles[1]
+	for i in centers.size():
+		if pos.distance_to(centers[i]) <= radii[i]:
+			return true
+	return false
+
+static func _polygon_centroid(poly: PackedVector2Array) -> Vector2:
 	var s := Vector2.ZERO
 	for p in poly:
 		s += p

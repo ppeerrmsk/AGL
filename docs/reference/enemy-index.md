@@ -139,6 +139,8 @@
 
 ## F-47 BOSS 王牌狙击小队
 
+恐惧锥强化装配入口：`F47AceSquad.configure_progression` → `wraith_progression_loadout.gd` `fear_cone_for_progression` 选择 `resources/wraith_fear_cone.tres`；`AceSquad.engage` / `fear_members` / `fear_targets` 接通通用控制器。解锁、节拍、来源逃逸与免疫合同见 [player-fear-wraith-cone](../specs/systems/player-fear-wraith-cone.md)。YF-23 支援不接此模块。
+
 BVR 远距协同齐射 BOSS，事件触发：
 
 > 设计权威源：[docs/specs/systems/ace-squadron-tier.md](../specs/systems/ace-squadron-tier.md)（王牌中队分层标准）。
@@ -159,7 +161,7 @@ BVR 远距协同齐射 BOSS，事件触发：
 ## 沙漠专属 BOSS
 
 - **超级武器列车 `ARMORED_TRAIN`**：不占 `EnemyType`；`ArmoredTrainBoss` 生成十四个真实 `ArmoredTrainSegment`，按正式底图矿区 railway 弧长与活动车钩贴轨，只允许从车尾逐节打断；断节关闭该节功能并加速，电磁炮车投射海岸巨炮同款直线 AOE，当前车尾逃脱触发 Game Over。权威规格见 [bosses/armored-train](../specs/bosses/armored-train.md)。
-- **王牌熔炉 `THE_CRUCIBLE`**：这是战斗主题/决战事件，不是同名 BOSS、中队或单位，故不占 `EnemyType`；`TheCrucibleEncounter` 依次激活/生成全部 17 支已实装非 BOSS Ace 队，共 71 架；前三队预生成供真实长机切镜，主题本身无无线电。各队使用独立 FFA team 真实互打；每四架固定三架主攻玩家、一架维持队际混战，高击坠敌 Ace 可抢走仇恨，未激活队不会提前成为射手或目标；所有成员保持视觉 LOD0 与 60Hz 位移，完整模拟均匀错分四相。权威规格见 [events/the-crucible](../specs/events/the-crucible.md) 与 [events/ace-squadron-expansion-wave](../specs/events/ace-squadron-expansion-wave.md)。
+- **王牌熔炉 `THE_CRUCIBLE`**：这是战斗主题/决战事件，不是同名 BOSS、中队或单位，故不占 `EnemyType`；`TheCrucibleEncounter` 依次激活/生成全部 17 支已实装非 BOSS Ace 队，共 71 架；前三队预生成供真实长机切镜，主题本身无无线电。各队使用独立 FFA team 真实互打；每四架固定三架主攻玩家、一架维持队际混战，高击坠敌 Ace 可抢走仇恨，未激活队不会提前成为射手或目标；所有成员保持逻辑/AI LOD 豁免与 60Hz 位移，完整模拟均匀错分四相，但三维机身画面几何仍按实际输出像素切换 LOD0/LOD1。权威规格见 [events/the-crucible](../specs/events/the-crucible.md) 与 [events/ace-squadron-expansion-wave](../specs/events/ace-squadron-expansion-wave.md)。
 - **陆地航母 `LAND_CARRIER`**：不占 `EnemyType`；`LandCarrierBoss` 生成单体 `LandCarrierUnit`，不走铁路，甲板驻留 4 架标准 F/A-18，接战/周期从甲板真实放飞，8 个防空挂点。权威规格见 [bosses/land-carrier](../specs/bosses/land-carrier.md)。
 - 三者均通过 `BossRegistry` → `BossEncounterEvent` → `SurvivorSpawner._spawn_boss` 的 custom spawn 分支接入；这是复用既有决战生命周期的内部技术路径，不把 The Crucible 定义成 BOSS。Debug 可分别直达；正式沙漠决战池在列车与 The Crucible 间等权随机，陆地航母已注册但不进入该池。
 
@@ -201,9 +203,9 @@ Black Star 不占 `EnemyType`，也不进入常规 Token 池；四代飞机均�
 3. **`survivor_spawner.gd:42` 起声明 `_<name>_params_base: AircraftParams` 成员**
 4. **`survivor_spawner.gd:119` 起 `preload(...)` 加载资源**
 5. **`survivor_data.gd:1554` 起加解锁/概率常量**（`<NAME>_UNLOCK_LEVEL` / `_CHANCE_PER_LEVEL` / `_CHANCE_MAX`）
-6. **`survivor_data.gd:3477` `TOKEN_COST` 和 `survivor_data.gd:3584` `TOKEN_INSTANCE_CAP` 表补新枚举值**
+6. **`survivor_data.gd:3495` `TOKEN_COST` 和 `survivor_data.gd:3602` `TOKEN_INSTANCE_CAP` 表补新枚举值**
 7. **`survivor_spawner.gd:477` `_pick_enemy_type` 按威胁等级插入概率判定分支**
-8. **`survivor_spawner.gd:2792` `_create_enemy` 的各 match 全部补新 case**：
+8. **`survivor_spawner.gd:2785` `_create_enemy` 的各 match 全部补新 case**：
    - `match etype` 选基础参数（`:1577`）
    - `enemy_scale_for_level` 适用判定（`:1646` 起）
    - 热诱弹配置纪律 match（`:1689`）—— 越低级配置值越高，实际不投概率由 flare-evasion-coupling 统一缩放
@@ -222,3 +224,11 @@ Black Star 不占 `EnemyType`，也不进入常规 Token 池；四代飞机均�
     `python tools/verify_doc_anchors.py` 确认没写错行号
 
 操作时用 Read 的 offset/limit 精确定位，不要通读整个 survivor_mode.gd（1450 行）。每一步改完就 commit 或至少 git diff 看一眼，防止漏 case 导致 NullRef 崩溃。
+
+## ORION 完全体实装入口
+
+| 单位 | 行为权威 | 生成与控制 | 身份与外观 |
+|---|---|---|---|
+| ORION 完全体 / FANG 双机 | [orion-final-form](../specs/bosses/orion-final-form.md)（in-progress） | `scripts/survivor/the_crucible_boss.gd` → `scripts/survivor/orion_final_form.gd` | `orion_final_form` / `orion_fang`；二维轮廓与三维目录均已接线 |
+
+属于 THE_CRUCIBLE 的子阶段；不加入普通敌机池、独立 BOSS 池或普通 CRE 成长计数。验证进度看 spec。

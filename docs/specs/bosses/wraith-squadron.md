@@ -3,7 +3,7 @@ id: wraith-squadron
 kind: boss
 status: done
 schema_version: 1
-spec_version: 8
+spec_version: 10
 owner: 用户（设计） / Claude（落地）
 depends_on: [ace-squadron-tier, circle-cut-entry, boss-clear-progression, enemy-sensor-stealth]
 reconstruction_complete: false
@@ -15,6 +15,8 @@ reconstruction_complete: false
 > 你会一直觉得"再有一点点就赢了"，然后发现自己已经掉到 3000 米以下、没有能量、被两个方向夹住。
 
 ## 1. 设计意图（Why）
+
+**2026-09-27 已批准试装扩展**：玩家历史上击败 Wraith 三次后，从下一场起四架本体装配通用小队恐惧锥；0/1/2 次不装配，YF-23 支援不装配。独立强化装配层选择配置，正式接战后启动调度，释放者预警及照射期间保持可见，不改变 KNIGHT/SNIPER 角色与四相战术。范围、节拍、控制权、免疫和验收以 [玩家恐惧与可装配的小队恐惧锥](../systems/player-fear-wraith-cone.md) 为权威；这是独立招式扩展，不属于原执行失误调参。
 
 ### 1.1 目标：本作最强敌人之一
 
@@ -131,7 +133,7 @@ tier 级铁律（`aggression ≥ 0.90`、`self_preservation ≤ 0.25`）直接�
 YF-23 `BLACKWIDOW-01/02` 远距支援：在 Wraith 队形后方成对潜伏、保持 4–6 km 距离带；不具备永久免锁，
 但启用传感器隐形，只有维持有效雷达接触时才可按普通飞机规则锁定；不进入 Wraith
 `members/all_members`、不进入 BOSS 血条且不阻塞胜利。完整机体数值、出生几何与结算边界由
-[boss-clear-progression §2.2](../systems/boss-clear-progression.md) 定义；第二强化层暂不追加机制。
+[boss-clear-progression §2.2](../systems/boss-clear-progression.md) 定义。历史击败次数为 2 时沿用该编成；达到 3 次后额外为本体装配恐惧锥。
 
 ### 2.7 双层隐形与目标释放
 
@@ -311,6 +313,8 @@ YF-23 `BLACKWIDOW-01/02` 远距支援：在 Wraith 队形后方成对潜伏、�
 
 | 日期 | spec_version | 改动 |
 |---|---|---|
+| 2026-09-27 | 10 | 用户将恐惧锥移至第三次击败后的下一场解锁；强化装配策略独立于通用能力，双 YF-23 支援规则不变。 |
+| 2026-09-27 | 9 | 用户批准试装可装配的小队恐惧锥；原四机在正式接战时启用，释放者保持可见，支援不装配。行为与试装验收以 player-fear-wraith-cone 为权威。 |
 | 2026-08-22 | 8 | 实战可读性削弱：Wraith cloak 改为可重复但每次结束后严格 60s CD（首次也等 60s，取消紧急提前触发），1000px 内禁止/打断光学隐身，光学渐变 1.0s；传感器隐形改为 5s 失联并同样近距揭露；左下雷达保留匿名提示，目标写入权威堵住隐身中 combat_target 重挂。 |
 | 2026-08-21 | 7 | 用户追加 YF-23 隐形并反馈隐形沿顿卡：YF-23 开启传感器隐形但不恢复永久免锁；F-47 四机同步光学隐形改为一次批量清理玩家观察者，登场导演演员由虚拟环境所有权隔离。 |
 | 2026-08-21 | 6 | F-47/Wraith 纳入敌机传感器隐形首批；保留原周期光学隐身。两层任一隐形沿立即释放全体玩家机 `combat_target` 与雷达锁；光学短窗保留点名供显形重接，传感器硬失联清点名；YF-23 支援保持普通可锁定。 |

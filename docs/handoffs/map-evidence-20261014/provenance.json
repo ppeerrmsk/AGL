@@ -1,0 +1,104 @@
+[
+  {
+    "file": "175-engine.json",
+    "original": "tmp/tokyo-complete-production-02/joint-boundary-175/engine/report.json",
+    "bytes": 6123,
+    "sha256": "62aea9c3a3adc6de3d675fa03691165a40a5b68405524790ee9eaa291e410e44",
+    "in_frozen_zip": true,
+    "transformation": "byte-identical copy"
+  },
+  {
+    "file": "175-build.json",
+    "original": "tmp/tokyo-complete-production-02/joint-boundary-175/report.json",
+    "bytes": 1872,
+    "sha256": "d7b8243308f4edd8b2a42612caa6e3aa7e50a815d5f6bafe58c7b16efcc5372f",
+    "in_frozen_zip": true,
+    "transformation": "byte-identical copy"
+  },
+  {
+    "file": "166-gpu-audit.json",
+    "original": "tmp/tokyo-complete-production-02/tile-batches-165/gpu-audit-166.json",
+    "bytes": 2124,
+    "sha256": "8f46898342b0b02d4aa0df228b36620c60db179cdf6cae9c429fd31d1432a8bb",
+    "in_frozen_zip": true,
+    "transformation": "byte-identical copy"
+  },
+  {
+    "file": "169-spatial.json",
+    "original": "tmp/tokyo-complete-production-02/triangle-spatial-169/report.json",
+    "bytes": 46643,
+    "sha256": "5ebdf3403e30981e837c8dd2ac6b6451afa1e569d2dcf334c1007f51d08563db",
+    "in_frozen_zip": true,
+    "transformation": "byte-identical copy"
+  },
+  {
+    "file": "155-resident-cost.json",
+    "original": "tmp/tokyo-complete-production-02/gpu-roof-bound-155.json",
+    "bytes": 1039,
+    "sha256": "3e2488c53c2e9ff60a15232929b6af5711c9e4aedf6eae3f405f73791680bc76",
+    "in_frozen_zip": true,
+    "transformation": "byte-identical copy"
+  },
+  {
+    "file": "138-camera-deadline.json",
+    "original": "tmp/tokyo-complete-production-02/camera-deadline-138.json",
+    "bytes": 1051,
+    "sha256": "d5e8c524d0852753cd01d83e8fc81930c7d76c1cde5acadbd8296de39a5eb843",
+    "in_frozen_zip": true,
+    "transformation": "byte-identical copy"
+  },
+  {
+    "file": "140-texture-residency.json",
+    "original": "tmp/tokyo-complete-production-02/resident-dedup-140.json",
+    "bytes": 100378,
+    "sha256": "538e9cc30514e3caed3f5e3deb243b48261ea44db52a64ad55353a940364838f",
+    "in_frozen_zip": true,
+    "transformation": "byte-identical copy"
+  },
+  {
+    "file": "174-all.log",
+    "original": "tmp/tokyo-complete-production-02/joint-patch-174/all.log",
+    "bytes": 745128,
+    "sha256": "5c25d693fe55927f96390af825b58bdcbe9d1474d9c15110e2d15cc1c4b42bb7",
+    "in_frozen_zip": true,
+    "transformation": "reading copy; trim trailing line whitespace and final blank lines; original preserved in frozen ZIP",
+    "original_sha256": "39e40d688851b978827cc6e8044a67b8ca0bdb61ebd3b5c879fb2cebbe3521fd",
+    "original_bytes": 758402
+  },
+  {
+    "file": "full-source-scope.json",
+    "original": "tmp/tokyo-complete-source-scope-02.json",
+    "bytes": 228403,
+    "sha256": "62fca8ef6ff32ec6d1564465f3c3d1811a10a3da2a1f0d3a941b0a42f8a13b5a",
+    "in_frozen_zip": false,
+    "transformation": "byte-identical copy"
+  },
+  {
+    "file": "full-source-spool.json",
+    "original": "tmp/tokyo-bay-volume/r343-full-source-spool-a/manifest.json",
+    "bytes": 84375,
+    "sha256": "51f9558e4c37f61a51a3427ae67dc14b31f54ea3615e9fdaa4ff8b9d7a8dca41",
+    "in_frozen_zip": false,
+    "transformation": "byte-identical copy"
+  },
+  {
+    "file": "full-source-routes.json",
+    "original": "tmp/tokyo-bay-volume/r351-full-routes-a.json",
+    "bytes": 75393,
+    "sha256": "e2a09161bfb93f5d39b705579a62e8ca5f4feef912d7a0847f484e821c211d6c",
+    "in_frozen_zip": false,
+    "transformation": "byte-identical copy"
+  },
+  {
+    "file": "164-summary.json",
+    "original": "tmp/tokyo-complete-production-02/structural-tile-164/report.json",
+    "original_sha256": "88c47140774d228d00fc2d31d387a4b1fa6e88ba7558cedde5b57eef23eb77a0",
+    "transformation": "field projection; omitted large arrays explicitly identified"
+  },
+  {
+    "file": "172-summary.json",
+    "original": "tmp/tokyo-complete-production-02/native-members-172/report.json",
+    "original_sha256": "f1185e8722cb2b4d954e4c7e7addd45acc516601c9b2fa0bf1b6372f2e19f7ef",
+    "transformation": "field projection; omitted large arrays explicitly identified"
+  }
+]

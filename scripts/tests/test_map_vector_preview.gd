@@ -10,6 +10,12 @@ const DetailTileCache = preload("res://scripts/survivor/map_detail_tile_cache.gd
 
 
 func run() -> void:
+	for polygon: PackedVector2Array in [PackedVector2Array([Vector2.ZERO,Vector2(8,0),Vector2(8,8),Vector2(4,3),Vector2(0,8)]),PackedVector2Array([Vector2.ZERO,Vector2(8,8),Vector2(0,8),Vector2(8,0)])]:
+		var ordinary: Dictionary = {}
+		var prepared: Dictionary = {}
+		Renderer._add_polygon(ordinary,"water",polygon,Color.WHITE)
+		Renderer._add_polygon(prepared,"water",polygon,Color.WHITE,Renderer._triangulate_polygon(polygon))
+		_check(var_to_bytes(ordinary)==var_to_bytes(prepared),"prepared water triangulation preserves exact packet arrays")
 	var density_colors := [
 		Renderer.DENSITY_URBAN,
 		Renderer.DENSITY_VEGETATION,
@@ -41,11 +47,14 @@ func run() -> void:
 
 	var world_rect := Rect2(Vector2(-15000.0, -15000.0), Vector2(30000.0, 30000.0))
 	var first_prewarm: Dictionary = Renderer.prewarm_lod(Renderer.LOD_OPERATIONAL, world_rect)
+	print("[Map prewarm phases] total_ms=%d geography_ms=%d packet_ms=%d cache_hit=%s static_bytes=%d" % [
+		int(first_prewarm.get("build_ms", -1)), int(first_prewarm.get("geography_ms", -1)),
+		int(first_prewarm.get("packet_ms", -1)), first_prewarm.get("cache_hit", false), OS.get_static_memory_usage()])
 	var cached_prewarm: Dictionary = Renderer.prewarm_lod(Renderer.LOD_OPERATIONAL, world_rect)
 	_check(bool(first_prewarm.get("ok", false)),
 		"loading-stage Operational prewarm succeeds in %dms" % int(first_prewarm.get("build_ms", -1)))
 	_check(int(first_prewarm.get("build_ms", 99999)) <= 1600,
-		"Operational loading prewarm stays within the local 1.60s target")
+		"Operational loading prewarm stays within the local 1.60s target (got %dms)" % int(first_prewarm.get("build_ms", -1)))
 	_check(bool(cached_prewarm.get("cache_hit", false)),
 		"second Operational request reuses cached packet definitions")
 	_check(bool(Renderer.prewarm_lod(Renderer.LOD_TAB, world_rect).get("ok", false)),

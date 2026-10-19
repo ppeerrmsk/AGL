@@ -1,0 +1,338 @@
+{
+	"candidate_faces": 140949.0,
+	"candidate_packed_bytes": 7730244,
+	"capture_success": true,
+	"control_faces": 140012.0,
+	"full_map_qualified": false,
+	"last_control_difference": {
+		"changed_pixels": 208657,
+		"delta_over_8": 141502,
+		"max_channel_delta": 85
+	},
+	"msaa": "2x",
+	"negative_control": {
+		"changed_pixels": 1440000,
+		"delta_over_8": 1440000,
+		"max_channel_delta": 143
+	},
+	"peak_qualified": false,
+	"performance_qualified": false,
+	"remaining_resources": 0,
+	"rows": [
+		{
+			"immediate_stable": {
+				"changed_pixels": 0,
+				"delta_over_8": 0,
+				"max_channel_delta": 0
+			},
+			"pose": {
+				"name": "joint_0",
+				"scale": 3.5,
+				"x": -6300.0,
+				"z": -14436.0
+			}
+		},
+		{
+			"immediate_stable": {
+				"changed_pixels": 0,
+				"delta_over_8": 0,
+				"max_channel_delta": 0
+			},
+			"pose": {
+				"name": "joint_1",
+				"scale": 4.25,
+				"x": -6283.43558111344,
+				"z": -14438.1807471175
+			}
+		},
+		{
+			"immediate_stable": {
+				"changed_pixels": 0,
+				"delta_over_8": 0,
+				"max_channel_delta": 0
+			},
+			"pose": {
+				"name": "joint_2",
+				"scale": 4.79903810567666,
+				"x": -6268.0,
+				"z": -14444.5743741578
+			}
+		},
+		{
+			"immediate_stable": {
+				"changed_pixels": 0,
+				"delta_over_8": 0,
+				"max_channel_delta": 0
+			},
+			"pose": {
+				"name": "joint_3",
+				"scale": 5.0,
+				"x": -6254.74516600406,
+				"z": -14454.7451660041
+			}
+		},
+		{
+			"immediate_stable": {
+				"changed_pixels": 0,
+				"delta_over_8": 0,
+				"max_channel_delta": 0
+			},
+			"pose": {
+				"name": "joint_4",
+				"scale": 4.79903810567666,
+				"x": -6244.5743741578,
+				"z": -14468.0
+			}
+		},
+		{
+			"immediate_stable": {
+				"changed_pixels": 0,
+				"delta_over_8": 0,
+				"max_channel_delta": 0
+			},
+			"pose": {
+				"name": "joint_5",
+				"scale": 4.25,
+				"x": -6238.1807471175,
+				"z": -14483.4355811134
+			}
+		},
+		{
+			"immediate_stable": {
+				"changed_pixels": 0,
+				"delta_over_8": 0,
+				"max_channel_delta": 0
+			},
+			"pose": {
+				"name": "joint_6",
+				"scale": 3.5,
+				"x": -6236.0,
+				"z": -14500.0
+			}
+		},
+		{
+			"immediate_stable": {
+				"changed_pixels": 0,
+				"delta_over_8": 0,
+				"max_channel_delta": 0
+			},
+			"pose": {
+				"name": "joint_7",
+				"scale": 2.75,
+				"x": -6238.1807471175,
+				"z": -14516.5644188866
+			}
+		},
+		{
+			"immediate_stable": {
+				"changed_pixels": 0,
+				"delta_over_8": 0,
+				"max_channel_delta": 0
+			},
+			"pose": {
+				"name": "joint_8",
+				"scale": 2.20096189432334,
+				"x": -6244.5743741578,
+				"z": -14532.0
+			}
+		},
+		{
+			"immediate_stable": {
+				"changed_pixels": 0,
+				"delta_over_8": 0,
+				"max_channel_delta": 0
+			},
+			"pose": {
+				"name": "joint_9",
+				"scale": 2.0,
+				"x": -6254.74516600406,
+				"z": -14545.2548339959
+			}
+		},
+		{
+			"immediate_stable": {
+				"changed_pixels": 0,
+				"delta_over_8": 0,
+				"max_channel_delta": 0
+			},
+			"pose": {
+				"name": "joint_10",
+				"scale": 2.20096189432334,
+				"x": -6268.0,
+				"z": -14555.4256258422
+			}
+		},
+		{
+			"immediate_stable": {
+				"changed_pixels": 0,
+				"delta_over_8": 0,
+				"max_channel_delta": 0
+			},
+			"pose": {
+				"name": "joint_11",
+				"scale": 2.75,
+				"x": -6283.43558111344,
+				"z": -14561.8192528825
+			}
+		},
+		{
+			"immediate_stable": {
+				"changed_pixels": 0,
+				"delta_over_8": 0,
+				"max_channel_delta": 0
+			},
+			"pose": {
+				"name": "joint_12",
+				"scale": 3.5,
+				"x": -6300.0,
+				"z": -14564.0
+			}
+		},
+		{
+			"immediate_stable": {
+				"changed_pixels": 0,
+				"delta_over_8": 0,
+				"max_channel_delta": 0
+			},
+			"pose": {
+				"name": "joint_13",
+				"scale": 4.25,
+				"x": -6316.56441888656,
+				"z": -14561.8192528825
+			}
+		},
+		{
+			"immediate_stable": {
+				"changed_pixels": 0,
+				"delta_over_8": 0,
+				"max_channel_delta": 0
+			},
+			"pose": {
+				"name": "joint_14",
+				"scale": 4.79903810567666,
+				"x": -6332.0,
+				"z": -14555.4256258422
+			}
+		},
+		{
+			"immediate_stable": {
+				"changed_pixels": 0,
+				"delta_over_8": 0,
+				"max_channel_delta": 0
+			},
+			"pose": {
+				"name": "joint_15",
+				"scale": 5.0,
+				"x": -6345.25483399594,
+				"z": -14545.2548339959
+			}
+		},
+		{
+			"immediate_stable": {
+				"changed_pixels": 0,
+				"delta_over_8": 0,
+				"max_channel_delta": 0
+			},
+			"pose": {
+				"name": "joint_16",
+				"scale": 4.79903810567666,
+				"x": -6355.4256258422,
+				"z": -14532.0
+			}
+		},
+		{
+			"immediate_stable": {
+				"changed_pixels": 0,
+				"delta_over_8": 0,
+				"max_channel_delta": 0
+			},
+			"pose": {
+				"name": "joint_17",
+				"scale": 4.25,
+				"x": -6361.8192528825,
+				"z": -14516.5644188866
+			}
+		},
+		{
+			"immediate_stable": {
+				"changed_pixels": 0,
+				"delta_over_8": 0,
+				"max_channel_delta": 0
+			},
+			"pose": {
+				"name": "joint_18",
+				"scale": 3.5,
+				"x": -6364.0,
+				"z": -14500.0
+			}
+		},
+		{
+			"immediate_stable": {
+				"changed_pixels": 0,
+				"delta_over_8": 0,
+				"max_channel_delta": 0
+			},
+			"pose": {
+				"name": "joint_19",
+				"scale": 2.75,
+				"x": -6361.8192528825,
+				"z": -14483.4355811134
+			}
+		},
+		{
+			"immediate_stable": {
+				"changed_pixels": 0,
+				"delta_over_8": 0,
+				"max_channel_delta": 0
+			},
+			"pose": {
+				"name": "joint_20",
+				"scale": 2.20096189432334,
+				"x": -6355.4256258422,
+				"z": -14468.0
+			}
+		},
+		{
+			"immediate_stable": {
+				"changed_pixels": 0,
+				"delta_over_8": 0,
+				"max_channel_delta": 0
+			},
+			"pose": {
+				"name": "joint_21",
+				"scale": 2.0,
+				"x": -6345.25483399594,
+				"z": -14454.7451660041
+			}
+		},
+		{
+			"immediate_stable": {
+				"changed_pixels": 0,
+				"delta_over_8": 0,
+				"max_channel_delta": 0
+			},
+			"pose": {
+				"name": "joint_22",
+				"scale": 2.20096189432334,
+				"x": -6332.0,
+				"z": -14444.5743741578
+			}
+		},
+		{
+			"immediate_stable": {
+				"changed_pixels": 0,
+				"delta_over_8": 0,
+				"max_channel_delta": 0
+			},
+			"pose": {
+				"name": "joint_23",
+				"scale": 2.75,
+				"x": -6316.56441888656,
+				"z": -14438.1807471175
+			}
+		}
+	],
+	"source_scope": "two-tile real boundary x=-6300, left structural/right native; camera +/-64 scale2..5; not on-demand streaming",
+	"three_copies": 23190732,
+	"vsync": 1
+}

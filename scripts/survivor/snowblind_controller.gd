@@ -1,5 +1,6 @@
 class_name SnowblindController
 extends RefCounted
+const FrameRedraw := preload("res://scripts/rendering/visual_redraw_queue.gd")
 
 ## Snowblind 的唯一运行时控制器。由 Spawner 持有并 tick；常态 5Hz，禁止逐机节点扫描。
 
@@ -200,7 +201,7 @@ func _conceal_one(ac: Aircraft, shroud_id: int, host: Aircraft) -> void:
 	else:
 		_saved_modulate[ac] = ac.modulate
 		ac.modulate = Color(ac.modulate, 0.0)
-	ac.queue_redraw()
+	FrameRedraw.request(ac)
 	_concealed.append(ac)
 
 
@@ -225,7 +226,7 @@ func _clear_one(ac: Aircraft) -> void:
 		_saved_modulate.erase(ac)
 	elif ac._trail_ribbon:
 		ac._trail_ribbon.visible = true
-	ac.queue_redraw()
+	FrameRedraw.request(ac)
 
 
 func _release_cross_boundary_targets() -> void:

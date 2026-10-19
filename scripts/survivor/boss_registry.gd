@@ -108,6 +108,8 @@ static func name_key_for(boss_id: String) -> String:
 	return String(def.get("name_key", ""))
 
 ## BOSS 登场横幅的纯显示快照；UI 不直接认识 boss id。
+const SUBPHASE_IDS: Array[String] = ["ORION_FINAL_FORM"]
+
 static func banner_metadata_for(boss_id: String) -> Dictionary:
 	var def: Dictionary = BOSS_DEFS.get(boss_id, {})
 	return {
@@ -140,6 +142,8 @@ const ROTATION_ADVANCE_CHANCE := 0.5
 ## 轮换只消费前两项，完整次数由 BossEncounterEvent 注入通关强化层；空 = 旧纯随机（bench/debug 兼容）
 static func pick_for_map(map_id: String, spawn_pos: Vector2 = Vector2.INF,
 		history: Dictionary = {}) -> BossEncounter:
+	if map_id == "desert_railway_preview" and int(history.get("orion_kills", 0)) >= 10:
+		return instantiate("THE_CRUCIBLE")
 	var pool: Array = MAP_POOLS.get(map_id, [])
 	if pool.is_empty():
 		pool = MAP_POOLS.get("default", [])

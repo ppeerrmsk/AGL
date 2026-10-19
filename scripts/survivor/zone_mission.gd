@@ -1,5 +1,6 @@
 class_name ZoneMission
 extends Node
+const FrameRedraw := preload("res://scripts/rendering/visual_redraw_queue.gd")
 
 const ZONE_ATMOSPHERE_SCRIPT := preload("res://scripts/survivor/zone_atmosphere_combat.gd")
 const TIER3_SUPER_CANNON_SCRIPT := preload("res://scripts/survivor/tier3_super_cannon_part.gd")
@@ -8,8 +9,8 @@ const TIER3_SIEGE_TANK_SCRIPT := preload("res://scripts/survivor/tier3_siege_tan
 ## 战区任务执行器
 ##
 ## 职责拆分：
-##   1. **按需刷怪**：已受玩家关注的奖励/护送战区先广播并等待 6 秒，再把
-##      TGT + 驻守单位刷出来；未关注普通战区保持战略层 0 实体。
+##   1. **按需刷怪**：镜头预加载带内的正式目标在绘制前准备；画外选中任务保留广播。
+##      未观察、未选择且未进入的普通战区保持战略层 0 实体。
 ##   2. **任务触发（双通道）**：满足任一条件即激活任务
 ##        - A. 玩家进入战区圆
 ##        - B. 玩家在圈外就击中了 TGT —— 既然能打到，就算玩家正在做这个
@@ -33,16 +34,15 @@ const SCATTER_RADIUS_SCALE := 0.85      ## 散布半径 = zone.radius × 此值
 const MIN_UNIT_SEPARATION_PX := 650.0   ## 地面单位最小间距（≈1.3km）
 const MIN_ROAD_DISTANCE_PX := 180.0     ## 距道路/高速的最小距离（≈360m）
 const MAX_SAMPLE_ATTEMPTS := 80         ## 每个单位最多尝试 N 次随机位置
+const SPAWN_ROAD_CELL_PX := 512.0       ## 只加速原道路净空判定，不改变距离规则
 const MISSION_SPAWN_RADIO_LEAD_S := 6.0
 ## 战区攻克后，幸存驻守敌机先真实撤离；持续离开玩家视野后才静默释放。
 ## 5Hz 检查 + 每 tick 释放预算避免整支编队同帧 queue_free 制造终态 spike。
-const CONQUERED_RETIRE_OFFSCREEN_GRACE_S := 2.0
-const RETIRE_VISIBILITY_CHECK_INTERVAL_S := 0.2
-const RETIRE_FREE_BUDGET_PER_TICK := 4
-const RETIRE_DIRECTIVE_PRIORITY := 100
-## 玩家已按 Tab 选中任务并抵达战区边缘时，不能让“生成区碰到视野”安全门永久
-## 卡住实体。空中敌人统一从地图边界外入场；地面/舰船静态目标保持既有可达性语义。
-const VISIBLE_SPAWN_RECOVERY_APPROACH_PX := 400.0
+const UnitRetirement = preload("res://scripts/survivor/unit_retirement.gd")
+const CONQUERED_RETIRE_OFFSCREEN_GRACE_S := UnitRetirement.OFFSCREEN_GRACE_S
+const RETIRE_VISIBILITY_CHECK_INTERVAL_S := UnitRetirement.CHECK_INTERVAL_S
+const RETIRE_FREE_BUDGET_PER_TICK := UnitRetirement.FREE_BUDGET
+const RETIRE_DIRECTIVE_PRIORITY := UnitRetirement.DIRECTIVE_PRIORITY
 ## 战区空军进入巡逻环外沿后结束 ingress 冻结豁免；之后恢复普通 zone_air LOD。
 const ZONE_AIR_INGRESS_ARRIVE_BAND_PX := 320.0
 const BOMBER_ESCORT_COUNT := 3
@@ -90,7 +90,7 @@ const SUPPORT_SPAWN_VISUAL_REACH_PX := 600.0
 const SUPPORT_ORBIT_MIN_RADIUS_PX := 1200.0
 const SUPPORT_ORBIT_RADIUS_FRAC := 0.48
 const SUPPORT_ZONE_LEASH_EXTRA_PX := 1500.0
-const SUPPORT_EXIT_OUTSET_PX := 1200.0
+const SUPPORT_EXIT_OUTSET_PX := UnitRetirement.EXIT_OUTSET_PX
 const SUPPORT_FREE_OUTSET_PX := 800.0
 const SUPPORT_WITHDRAW_REENGAGE_S := 4.0
 const SUPPORT_FIGHTER_TYPE := SurvivorSpawner.EnemyType.F86
@@ -148,6 +148,8 @@ var _bomber_escort_runs: Dictionary = {}
 ## 由 _despawn_garrison / refresh_active_zones_for_level 等共用
 ## （BOSS 阶段清场已改由 survivor_spawner._update_boss_phase_purge 统一负责，不再走本队列）
 var _pending_despawn: Array = []
+var _retained_ground: Array = []
+var _retained_ground_tick_s := 0.0
 var _pending_despawn_tick_s: float = 0.0
 ## 支援飞行队生命周期。允许旧队 EGRESS 时同战区重开并生成新队，故用 generation id
 ## 区分，而不是只存 zone_id → members。
@@ -167,6 +169,10 @@ var _debug_tier3_profile_by_zone: Dictionary = {}
 var _resolved_tier3_profile_by_zone: Dictionary = {}
 var _tier3_sources_by_zone: Dictionary = {} ## zone_id → {profile, sources, active}
 var _tier3_source_tick_s := 0.0
+var _spawn_road_cells: Dictionary = {} ## Vector2i → 成对线段端点；仅保存数值
+var _spawn_road_index_ready := false
+var _zone_ground_support: Dictionary = {} ## 本张地图的静态地面任务适用性
+var _zone_spawn_view_reach: Dictionary = {} ## 含手画部署多边形的完整生成范围
 
 func setup(p_mode: Node, zones: ZoneData, player: Aircraft,
 		sam_scene: PackedScene, sam_params: Resource,
@@ -183,6 +189,15 @@ func setup(p_mode: Node, zones: ZoneData, player: Aircraft,
 	_bullet_manager = bullet_mgr
 	_missile_manager = missile_mgr
 	_spawner = spawner
+	# 在场景建立期载入地理索引，避免首次转镜头时才解析地图并采样部署点。
+	MapGeography.ensure_ready()
+	if not MapGeography.ugc_mode:
+		MapGeography._ensure_visual_water_masks()
+	_build_spawn_road_index()
+	_zone_ground_support.clear()
+	_zone_spawn_view_reach.clear()
+	for zone in _zones.get_zone_definitions():
+		_zone_supports_ground(zone["id"])
 	_force_all_zone_atmosphere = force_all_zone_atmosphere
 	_zone_atmosphere = ZONE_ATMOSPHERE_SCRIPT.new()
 	_zone_atmosphere.name = "ZoneAtmosphereCombat"
@@ -196,6 +211,12 @@ func _physics_process(delta: float) -> void:
 		_zone_atmosphere.update(delta, _player)
 	_update_tier3_source_states(delta)
 
+	# 原地单位停算后仍需刷新相机缩放/距离读数；只由持有人 2Hz 刷新可见者。
+	if not _retained_ground.is_empty():
+		_retained_ground_tick_s += delta
+		if _retained_ground_tick_s >= 0.5:
+			_retained_ground_tick_s = fmod(_retained_ground_tick_s, 0.5)
+			_refresh_retained_ground_views()
 	# 低频处理待撤离队列；攻克终态带离屏宽限并限制单 tick 释放数，避免终态尖峰。
 	if not _pending_despawn.is_empty():
 		_pending_despawn_tick_s += delta
@@ -258,7 +279,7 @@ func _physics_process(delta: float) -> void:
 
 ## 对 AVAILABLE / SELECTED（即"玩家能看到在地图上的"）战区，
 ## 如果还没刷过地面单位，就刷一次。
-func _ensure_spawned_for_active_zones(delta: float = 0.0) -> void:
+func _ensure_spawned_for_active_zones(delta: float = 0.0, view_only: bool = false) -> void:
 	for z in _zones.get_zone_definitions():
 		var zid: StringName = z["id"]
 		var state := _zones.get_state(zid)
@@ -275,16 +296,18 @@ func _ensure_spawned_for_active_zones(delta: float = 0.0) -> void:
 		if _spawned_zones.has(zid):
 			_spawn_lead_timers.erase(zid)
 			continue
-		# 未关注普通战区只保留 ZoneData 战略信息，不创建任何战斗实体。
-		# 选择/进入是一次性 LIVE 门；3★有真实全局投射，公开即属于玩家当前威胁。
+		# 观察也是关注：完整散布范围进入相机缓冲即准备，不等飞机进入战区。
+		var observed := _zone_overlaps_view(zid, z)
+		if view_only and not observed:
+			continue
 		var player_distance := _player.global_position.distance_to(
 			_zones.get_zone_center(zid))
 		if not zone_simulation_should_activate(
-				state, _zones.get_difficulty(zid), player_distance, float(z["radius"])):
+				state, _zones.get_difficulty(zid), player_distance, float(z["radius"]), observed):
 			_spawn_lead_timers.erase(zid)
 			continue
 		var mission_type := _zones.get_mission_type(zid)
-		if _requires_spawn_announcement(zid, mission_type):
+		if not observed and _requires_spawn_announcement(zid, mission_type):
 			if not _spawn_lead_timers.has(zid):
 				_spawn_lead_timers[zid] = MISSION_SPAWN_RADIO_LEAD_S
 				mission_spawn_announced.emit(zid, mission_type)
@@ -293,34 +316,44 @@ func _ensure_spawned_for_active_zones(delta: float = 0.0) -> void:
 			_spawn_lead_timers[zid] = remaining
 			if remaining > 0.0:
 				continue
-		# 铁则：战区**生成半径**与玩家视野有重叠时推迟刷新（下帧再试）
-		# 只测中心点远远不够 —— 空中中队生成环离中心 720px、陆基单位散布到 radius×0.85，
-		# 所以只要战区可能刷出的任何单位会落在屏幕里就往后推
-		if mode and mode.has_method("is_world_pos_visible"):
-			var spawn_reach: float = float(z["radius"]) * SCATTER_RADIUS_SCALE
-			var zone_center := _zones.get_zone_center(zid)
-			if mode.is_world_pos_visible(zone_center, spawn_reach):
-				var visible_player_distance := _player.global_position.distance_to(zone_center)
-				var entered_zone := visible_player_distance <= float(z["radius"])
-				var selected_at_edge := state == ZoneData.State.SELECTED \
-						and visible_player_distance <= float(z["radius"]) \
-							+ VISIBLE_SPAWN_RECOVERY_APPROACH_PX
-				if not entered_zone and not selected_at_edge:
-					continue
-				# 所有空中敌机都从地图边界外进场；静态目标沿用既有死锁恢复语义。
-				EventLogger.log_event("ZONE", "VisibleSpawnRecovery",
-					"id=%s state=%d mission=%s distance=%.0f radius=%.0f air_ingress=edge" % [
-						zid, state, mission_type, visible_player_distance, float(z["radius"])])
-		# 倒计时归零后若仍被可见性门挡住，保留 0 秒计时器，避免每帧重开 6 秒并重复播报。
+		# 目标在首个可见帧前存在；空军工厂仍从地图边缘入场，静态单位仍走地理安全门。
 		_spawn_lead_timers.erase(zid)
 		_spawn_zone_units(zid, z)
 
+## 镜头平移/缩放之后、绘制之前调用；不推进任务、广播时钟或奖励结算。
+func prepare_visible_zones() -> void:
+	if _zones == null or not is_instance_valid(_player) or _player.is_destroyed or _is_boss_phase():
+		return
+	_ensure_spawned_for_active_zones(0.0, true)
+
+func _zone_overlaps_view(zone_id: StringName, zone: Dictionary) -> bool:
+	if mode == null or not mode.has_method("is_world_pos_visible"):
+		return false
+	# 护送地面目标不在任务槽位圆心；用固定航线锚点 + 最大陆地吸附范围预加载。
+	# 这里只读目录，不在渲染帧重复跑地理采样和航线求解。
+	if _zones.get_mission_type(zone_id) == "bomber_escort":
+		var slot := BOMBER_ESCORT_ROUTE_SLOT_IDS.find(zone_id)
+		if slot < 0:
+			slot = absi(String(zone_id).hash()) % BOMBER_ESCORT_ROUTE_CATALOG.size()
+		var anchor: Vector2 = BOMBER_ESCORT_ROUTE_CATALOG[slot % BOMBER_ESCORT_ROUTE_CATALOG.size()]["target"]
+		if mode.is_world_pos_visible(anchor, 5000.0):
+			return true
+	if not _zone_spawn_view_reach.has(zone_id):
+		var reach := float(zone["radius"]) * SCATTER_RADIUS_SCALE
+		var center: Vector2 = zone["center"]
+		for polygon in zone.get("ground_spawn_polygons", []):
+			for point: Vector2 in polygon:
+				reach = maxf(reach, center.distance_to(point))
+		_zone_spawn_view_reach[zone_id] = reach
+	return mode.is_world_pos_visible(_zones.get_zone_center(zone_id),
+		float(_zone_spawn_view_reach[zone_id]))
+
 ## 普通战区的战略层 → 实体层单向激活门。纯值函数供专项回归与 100+ 潜在编成审计复用。
 static func zone_simulation_should_activate(state: int, difficulty: int,
-		player_distance: float, zone_radius: float) -> bool:
+		player_distance: float, zone_radius: float, observed: bool = false) -> bool:
 	if state != ZoneData.State.AVAILABLE and state != ZoneData.State.SELECTED:
 		return false
-	if difficulty >= 3:
+	if observed or difficulty >= 3:
 		return true
 	if state == ZoneData.State.SELECTED:
 		return true
@@ -336,7 +369,7 @@ func _spawn_zone_units(zone_id: StringName, zone: Dictionary) -> void:
 	var mission_type: String = _zones.get_mission_type(zone_id) if _zones else zone.get("mission_type", "ground")
 	# 最后一道防线：若 mission_type 是 ground 但战区几乎没有陆地（可能是旧存档、
 	# 基础定义改成"海上"战区、或采样抖动），改为空战中队，避免 SAM/AA 刷到海面
-	if mission_type == "ground" and _zones and not ZoneData.zone_has_land(zone_id):
+	if mission_type == "ground" and _zones and not _zone_supports_ground(zone_id):
 		mission_type = "squadron"
 		_zones.set_mission_type(zone_id, "squadron")
 		EventLogger.log_event("ZONE", "OverrideGroundToAir",
@@ -369,6 +402,12 @@ func _spawn_zone_units(zone_id: StringName, zone: Dictionary) -> void:
 	if _zones != null and _zones.get_difficulty(zone_id) == ZoneData.DIFFICULTY_MAX:
 		_spawn_tier3_profile(zone_id, mission_type, zone)
 	_register_zone_atmosphere(zone_id, mission_type, zone)
+
+## 地理条件不随相机或等级变化；正式 setup 预热，脱树测试/动态新增槽位按需求值。
+func _zone_supports_ground(zone_id: StringName) -> bool:
+	if not _zone_ground_support.has(zone_id):
+		_zone_ground_support[zone_id] = ZoneData.zone_has_land(zone_id)
+	return bool(_zone_ground_support[zone_id])
 
 ## 正式气氛层只复用本战区已经生成的敌军名单，不做全场扫描，也不重复生成敌方。
 func _register_zone_atmosphere(zone_id: StringName, mission_type: String,
@@ -1846,7 +1885,7 @@ func _inject_ship_managers(ship: NavalUnit) -> void:
 		ship.missile_manager = mode.missile_manager
 
 ## 攻克战区后让幸存驻守敌机真实撤离。
-## 可见时沿最近边界物理飞出；持续离屏 2 秒后才静默释放，短暂裁剪会重置计时。
+## 可见时沿最近边界物理飞出；真实出界并持续远离玩家及镜头后才释放，转镜头本身不能触发删除。
 func _begin_conquered_garrison_egress(zone_id: StringName) -> void:
 	var units: Array = _garrison_zones.get(zone_id, [])
 	var retiring := 0
@@ -1866,33 +1905,9 @@ func _begin_conquered_garrison_egress(zone_id: StringName) -> void:
 
 func _command_conquered_enemy_exit(ac: Aircraft) -> void:
 	ac.set_meta(&"zone_retiring", true)
-	ac.remove_meta(&"zone_ingress")
-	ac.remove_meta(&"zone_ingress_center")
-	ac.remove_meta(&"zone_ingress_arrive_radius")
-	ac.is_mission_target = false
-	ac.is_firing = false
-	ac.clear_formation()
-	ac.clear_combat_target()
-	ac.is_afterburner = true
-	if ac.params:
-		ac.target_speed_kmh = AircraftPhysics.effective_max_speed_kmh(ac)
-	var exit_point := _support_exit_point(ac.global_position)
-	var ai := _get_ai_of(ac)
-	if ai == null:
-		ac.target_position = exit_point
-		return
-	ai.release_target(AIController.TargetSource.TS_COMMANDED,
-		"zone conquered evacuation")
-	ai.combat_zone_anchor = null
-	ai.combat_zone_radius = 0.0
-	ai.enable_combat = false
-	ai.enter_patrol_state(false)
-	var directive := AIDirective.fly_to(
-		exit_point, AIDirective.OnArrival.HOLD, 300.0)
-	directive.priority = RETIRE_DIRECTIVE_PRIORITY
-	ai.set_event_directive(directive)
+	UnitRetirement.begin_aircraft_exit(ac, _support_exit_point(ac.global_position))
 
-## 失败、Debug 与等级刷新沿用既有延迟清理，不改变它们的终态语义。
+## 失败、Debug 与等级刷新复用统一留场/物理撤离，保留既有任务结果。
 func _despawn_garrison(zone_id: StringName) -> void:
 	var units: Array = _garrison_zones.get(zone_id, [])
 	for u in units:
@@ -2206,7 +2221,7 @@ func _tick_air_support_egress(flight: Dictionary, delta: float) -> bool:
 	var survivors := 0
 	for m in live:
 		var ac: Aircraft = m
-		if MapBoundary.distance_to_edge(ac.global_position) <= -SUPPORT_FREE_OUTSET_PX:
+		if UnitRetirement.release_ready(ac, mode, _player, delta):
 			ac.set_meta("xp_granted", true)
 			CombatUnit.release_target_refs(ac)
 			ac.queue_free()
@@ -2274,7 +2289,7 @@ func get_nearest_triggered_objective(from_pos: Vector2) -> Dictionary:
 	return best
 
 
-## 普通失败/Debug 撤离先停火再等画外回收；BOSS 转场按已批准契约直接移除来源组件。
+## 普通失败/Debug 与 BOSS 转场都先解除来源效果，再按单位类型留场或真实撤离。
 func _retire_tier3_unit(value: Variant, immediate: bool) -> void:
 	if typeof(value) != TYPE_OBJECT or value == null or not is_instance_valid(value) \
 			or not (value is CombatUnit):
@@ -2290,8 +2305,7 @@ func _retire_tier3_unit(value: Variant, immediate: bool) -> void:
 			and _spawner != null:
 		_spawner.retire_deadair_source(unit as Aircraft)
 	if immediate:
-		CombatUnit.release_target_refs(unit)
-		unit.queue_free()
+		_schedule_despawn(unit)
 
 ## 8 分钟战区阶段结束时调用（由 survivor_mode._check_warzone_phase_timeout）：
 ## 取消所有战区任务 —— 已刷的 TGT 单位继续存活、可击杀给 XP，但不再发完成信号、
@@ -2314,7 +2328,7 @@ func cancel_all_zone_missions() -> void:
 					_retire_tier3_unit(u, true)
 					continue
 				u.is_mission_target = false
-				u.queue_redraw()
+				FrameRedraw.request(u)
 		_end_tier3_zone(StringName(zid))
 		canceled_count += 1
 	_spawned_zones.clear()
@@ -2356,7 +2370,7 @@ func fail_zone(zone_id: StringName, reason: String) -> void:
 		if is_instance_valid(unit) and unit is CombatUnit:
 			_retire_tier3_unit(unit, false)
 			unit.is_mission_target = false
-			unit.queue_redraw()
+			FrameRedraw.request(unit)
 			_schedule_despawn(unit)
 	_spawned_zones.erase(zone_id)
 	_spawn_lead_timers.erase(zone_id)
@@ -2368,8 +2382,7 @@ func fail_zone(zone_id: StringName, reason: String) -> void:
 	EventLogger.log_event("ZONE", "MissionFailed", "id=%s reason=%s" % [zone_id, reason])
 	mission_failed.emit(zone_id, reason)
 
-## Debug: 彻底把一个战区的敌人从世界里擦掉（不只是改 state，是真的 queue_free 单位）
-## 走"视线外延迟 free"队列，铁则依然遵守
+## Debug: 注销战区旧编成；同样遵守地面留场与飞机实际撤远后的回收门。
 func debug_purge_zone(zone_id: StringName) -> void:
 	_begin_air_support_egress(zone_id, "debug purge")
 	_end_tier3_zone(zone_id)
@@ -2498,9 +2511,8 @@ func debug_force_unlock_zone(id: StringName) -> void:
 	EventLogger.log_event("ZONE", "DebugUnlock",
 		"id=%s mt=%s" % [id, _zones.get_mission_type(id)])
 
-## 2026-04-21：攻克一个战区后，对所有其他仍处于 AVAILABLE 状态的战区做一次"敌情升级"
-## —— 把旧驻守机撤走 + 清 spawn 记录，下一帧 _ensure_spawned_for_active_zones 会按当前
-## 玩家等级重刷一套新的敌人池（已触发 TGT 交战的战区跳过，避免打到一半敌人突然换型）。
+## 攻克后的兼容刷新口：已建立目标名单的战区保持身份与 HP/弹药。
+## 仅清理没有正式目标名单的旧驻守残留；未生成战区将自然采用最新等级。
 ##   except_id: 刚攻克的那个战区，不参与升级
 ## 返回被刷新的战区 id 列表（survivor_mode 可以据此发提示）
 func refresh_active_zones_for_level(except_id: StringName) -> Array[StringName]:
@@ -2516,6 +2528,9 @@ func refresh_active_zones_for_level(except_id: StringName) -> Array[StringName]:
 			continue
 		## 已进入交战的战区不改（否则玩家正在打的敌人会突然换型，体验差）
 		if _triggered_zones.has(zid):
+			continue
+		# 看见过的正式编成保持身份；不能在别处升级后撤走旧目标再在眼前补一批。
+		if _spawned_zones.has(zid):
 			continue
 		## 没刷过就不用刷新（等 _ensure_spawned_for_active_zones 首次刷即可拿到当前等级）
 		if not _spawned_zones.has(zid) and not _garrison_zones.has(zid):
@@ -2538,7 +2553,7 @@ func _mark_as_target(units: Array) -> void:
 	for u in units:
 		if u is CombatUnit:
 			u.is_mission_target = true
-			u.queue_redraw()
+			FrameRedraw.request(u)
 
 ## 在战区内找一个满足 3 条规则的位置：
 ##   1. 安全部署判定（全图 OSM 陆地 - 港池水面，周围 50px 仍连续为陆地）
@@ -2555,16 +2570,16 @@ func _find_valid_spawn_pos(center: Vector2, scatter: float, placed: Array[Vector
 		var p := _random_pos_in_polygons(polys) if use_polys else _random_pos_in_circle(center, scatter)
 		if p == Vector2.INF:
 			continue
-		if MapGeography.is_ground_spawn_safe(p) \
-				and _far_from_placed(p, placed) \
-				and _far_from_roads(p):
+		# 先做便宜的距离/道路网格排除，避免为必定拒绝的候选重复跑多边形净空。
+		if _far_from_placed(p, placed) and _far_from_roads(p) \
+				and MapGeography.is_ground_spawn_safe(p):
 			return p
 	# Pass 2: 放弃道路距离
 	for i in range(MAX_SAMPLE_ATTEMPTS):
 		var p := _random_pos_in_polygons(polys) if use_polys else _random_pos_in_circle(center, scatter)
 		if p == Vector2.INF:
 			continue
-		if MapGeography.is_ground_spawn_safe(p) and _far_from_placed(p, placed):
+		if _far_from_placed(p, placed) and MapGeography.is_ground_spawn_safe(p):
 			return p
 	# Pass 3: 放弃间距限制（挤在一起好过刷到海里）
 	for i in range(MAX_SAMPLE_ATTEMPTS):
@@ -2583,19 +2598,38 @@ func _far_from_placed(p: Vector2, placed: Array[Vector2]) -> bool:
 	return true
 
 func _far_from_roads(p: Vector2) -> bool:
-	# 高速公路
-	for hw_any in MapGeography.HIGHWAYS:
-		var hw: Dictionary = hw_any
-		var pts: PackedVector2Array = hw.get("pts", PackedVector2Array())
-		for i in range(pts.size() - 1):
-			if _point_segment_distance(p, pts[i], pts[i + 1]) < MIN_ROAD_DISTANCE_PX:
-				return false
-	# 跨湾通道（尽管多半在海上）
-	var aq: PackedVector2Array = MapGeography.AQUALINE_PATH
-	for i in range(aq.size() - 1):
-		if _point_segment_distance(p, aq[i], aq[i + 1]) < MIN_ROAD_DISTANCE_PX:
+	if not _spawn_road_index_ready:
+		_build_spawn_road_index()
+	var cell := Vector2i(floori(p.x / SPAWN_ROAD_CELL_PX), floori(p.y / SPAWN_ROAD_CELL_PX))
+	var segments: PackedVector2Array = _spawn_road_cells.get(cell, PackedVector2Array())
+	for i in range(0, segments.size(), 2):
+		if _point_segment_distance(p, segments[i], segments[i + 1]) < MIN_ROAD_DISTANCE_PX:
 			return false
 	return true
+
+## 建立一次道路宽相位索引；每条线段把原 180px 净空扩展后覆盖的网格全部登记。
+func _build_spawn_road_index() -> void:
+	_spawn_road_cells.clear()
+	for hw_any in MapGeography.HIGHWAYS:
+		var hw: Dictionary = hw_any
+		_index_spawn_road_path(hw.get("pts", PackedVector2Array()))
+	_index_spawn_road_path(MapGeography.AQUALINE_PATH)
+	_spawn_road_index_ready = true
+
+func _index_spawn_road_path(points: PackedVector2Array) -> void:
+	var padding := Vector2.ONE * MIN_ROAD_DISTANCE_PX
+	for i in range(points.size() - 1):
+		var a := points[i]
+		var b := points[i + 1]
+		var low := (a.min(b) - padding) / SPAWN_ROAD_CELL_PX
+		var high := (a.max(b) + padding) / SPAWN_ROAD_CELL_PX
+		for x in range(floori(low.x), floori(high.x) + 1):
+			for y in range(floori(low.y), floori(high.y) + 1):
+				var cell := Vector2i(x, y)
+				var segments: PackedVector2Array = _spawn_road_cells.get(cell, PackedVector2Array())
+				segments.append(a)
+				segments.append(b)
+				_spawn_road_cells[cell] = segments
 
 ## 点到线段最短距离
 func _point_segment_distance(p: Vector2, a: Vector2, b: Vector2) -> float:
@@ -2635,8 +2669,7 @@ func _is_boss_phase() -> bool:
 		return bool(mode.is_boss_phase())
 	return _zones != null and _zones.is_boss_phase()
 
-## 加入待撤离队列。普通清理保持 offscreen 立即 free；攻克撤离可指定持续离屏宽限。
-## 【铁则】敌人不允许在玩家画面内凭空消失。
+## 地面原地低成本留场，舰船继续保留；飞机统一真实撤离，镜头离开不能代替位移。
 func _schedule_despawn(value: Variant, offscreen_grace_s: float = 0.0) -> void:
 	if typeof(value) != TYPE_OBJECT or value == null or not is_instance_valid(value):
 		return
@@ -2645,17 +2678,36 @@ func _schedule_despawn(value: Variant, offscreen_grace_s: float = 0.0) -> void:
 		return
 	if "is_destroyed" in u and u.is_destroyed:
 		return
-	if mode and mode.has_method("is_world_pos_visible") \
-			and not mode.is_world_pos_visible(u.global_position, 0.0) \
-			and offscreen_grace_s <= 0.0:
-		_free_retired_unit(u)
+	if u is GroundUnit:
+		(u as GroundUnit).retire_in_place()
+		if not _retained_ground.has(u):
+			_retained_ground.append(u)
 		return
-	u.set_meta(&"retire_offscreen_s", 0.0)
+	if not (u is Aircraft):
+		if u is CombatUnit:
+			(u as CombatUnit).is_mission_target = false
+		return
+	_command_conquered_enemy_exit(u as Aircraft)
 	u.set_meta(&"retire_offscreen_grace_s", maxf(
 		float(u.get_meta(&"retire_offscreen_grace_s", 0.0)), offscreen_grace_s))
 	if _pending_despawn.has(u):
 		return
 	_pending_despawn.append(u)
+
+## 场景拥有实体；此表只负责低频可见读数刷新，并清理真实死亡后的缓存。
+func _refresh_retained_ground_views() -> void:
+	var kept: Array = []
+	for value: Variant in _retained_ground:
+		if typeof(value) != TYPE_OBJECT or not is_instance_valid(value) or not (value is GroundUnit):
+			continue
+		var ground := value as GroundUnit
+		if ground.is_destroyed or ground.is_queued_for_deletion():
+			continue
+		kept.append(ground)
+		if is_instance_valid(mode) and mode.has_method("is_world_pos_visible") \
+				and mode.is_world_pos_visible(ground.global_position, 200.0):
+			FrameRedraw.request(ground)
+	_retained_ground = kept
 
 func _retire_bomber_run(zone_id: StringName) -> void:
 	if not _bomber_escort_runs.has(zone_id):
@@ -2680,7 +2732,7 @@ func _retire_bomber_run(zone_id: StringName) -> void:
 		_schedule_despawn(interceptor)
 	_bomber_escort_runs.erase(zone_id)
 
-## 5Hz 扫描待撤离队列；可见会清零离屏计时，持续离屏达到宽限才释放。
+## 5Hz 扫描待撤离队列；真实出界、远离玩家且持续不可见才释放。
 ## 每次最多释放固定数量，防止整支编队同帧析构造成 spike。
 func _flush_pending_despawn(delta: float) -> void:
 	if not mode or not mode.has_method("is_world_pos_visible"):
@@ -2695,14 +2747,9 @@ func _flush_pending_despawn(delta: float) -> void:
 			continue
 		if "is_destroyed" in u and u.is_destroyed:
 			continue
-		if mode.is_world_pos_visible(u.global_position, 0.0):
-			u.set_meta(&"retire_offscreen_s", 0.0)
-			kept.append(u)
+		if not (u is Aircraft):
 			continue
-		var offscreen_s := float(u.get_meta(&"retire_offscreen_s", 0.0)) + delta
-		u.set_meta(&"retire_offscreen_s", offscreen_s)
-		var grace_s := float(u.get_meta(&"retire_offscreen_grace_s", 0.0))
-		if offscreen_s + 0.0001 < grace_s or free_budget <= 0:
+		if not UnitRetirement.release_ready(u as Aircraft, mode, _player, delta) or free_budget <= 0:
 			kept.append(u)
 			continue
 		_free_retired_unit(u)

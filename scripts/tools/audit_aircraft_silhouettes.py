@@ -41,9 +41,18 @@ def main() -> None:
     texture_pairs = dict(TEXTURE_RE.findall(source))
     display_block = source.split("const DISPLAY_KEYS", 1)[1].split("const LEGACY_DISPLAY_NAMES", 1)[0]
     display_pairs = dict(DISPLAY_RE.findall(display_block))
-    legacy_block = source.split("const LEGACY_DISPLAY_NAMES", 1)[1].split("const DRAW_SCALE", 1)[0]
+    legacy_block = source.split("const LEGACY_DISPLAY_NAMES", 1)[1].split("const LEGACY_MODEL_KEYS", 1)[0]
     legacy_names = set(re.findall(r'"([^\"]+)"', legacy_block))
+    legacy_model_block = source.split("const LEGACY_MODEL_KEYS", 1)[1].split("const DRAW_SCALE", 1)[0]
+    legacy_model_pairs = dict(DISPLAY_RE.findall(legacy_model_block))
     errors: list[str] = []
+
+    if set(legacy_model_pairs) != legacy_names:
+        errors.append(
+            "legacy 3D identity mapping must cover exactly the 2D fallback names: "
+            f"missing={sorted(legacy_names - set(legacy_model_pairs))} "
+            f"extra={sorted(set(legacy_model_pairs) - legacy_names)}"
+        )
 
     missing_manifest_keys = sorted(set(display_pairs.values()) - set(manifest))
     if missing_manifest_keys:

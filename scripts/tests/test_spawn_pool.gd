@@ -831,7 +831,8 @@ func _test_sentinel_escort_cohesion() -> void:
 
 	var spawner := SurvivorSpawner.new()
 	var commander := _sentinel_probe_aircraft("uav_commander", Vector2.ZERO)
-	var escort := _sentinel_probe_aircraft("uav", Vector2(2000.0, 0.0))
+	var escort := _sentinel_probe_aircraft("uav",
+		Vector2(SurvivorSpawner.SENTINEL_ESCORT_RECALL_DISTANCE + 100.0, 0.0))
 	var sq := SquadFactory.create()
 	SquadFactory.register_leader(sq, commander)
 	SquadFactory.register_wingman(sq, escort, false)
@@ -842,9 +843,15 @@ func _test_sentinel_escort_cohesion() -> void:
 	escort_ai.combat_zone_anchor = commander
 	escort_ai.combat_zone_radius = 2500.0
 	spawner._recall_detached_sentinel_escort(commander, sq, escort)
-	_check("原生 MQ-109 超过 1800px 后恢复贴身护驾并清掉 hunter 锚",
+	_check("原生 MQ-109 超过 700px 后进入持续返航并清掉 hunter 锚",
 		escort_ai.orbit_squad_leader and escort_ai.shield_leader \
 			and escort_ai.combat_zone_anchor == null and escort.has_meta("sentinel_recall_active"), "")
+	escort.global_position = Vector2(
+		SurvivorSpawner.SENTINEL_ESCORT_RECALL_CLEAR_DISTANCE - 10.0, 0.0)
+	escort.is_afterburner = true
+	spawner._recall_detached_sentinel_escort(commander, sq, escort)
+	_check("原生护卫回到 450px 内解除返航并关闭返航加力",
+		not escort.has_meta("sentinel_recall_active") and not escort.is_afterburner, "")
 
 	var hunter := _sentinel_probe_aircraft("uav", Vector2(2200.0, 0.0))
 	SquadFactory.register_wingman(sq, hunter, false)

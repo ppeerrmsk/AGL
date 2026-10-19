@@ -126,6 +126,13 @@ func _ready() -> void:
 	_build_coord_hud()
 	visibility_changed.connect(_on_panel_visibility_changed)
 
+func _exit_tree() -> void:
+	# 坐标轴首次打开 F5 才挂到世界；未打开时也由本面板负责释放。
+	# 已挂世界时同样回收，避免单独关闭/销毁面板留下失去绘制回调的兄弟节点。
+	if is_instance_valid(_coord_axes):
+		_coord_axes.queue_free()
+	_coord_axes = null
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F5:
 		visible = not visible

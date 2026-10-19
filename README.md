@@ -5,6 +5,8 @@ AGL 是一个使用 Godot 4.7 开发的俯视 2D 战斗机生存沙盒。正式�
 
 ## 从哪里开始
 
+地图工程接手先读[2026-10-14地图问题研究与接手索引](docs/handoffs/2026-10-14-map-upload-guide.md)，按瓶颈定位代码与原始证据，并列出最小复现、来源范围、重建缺口及验收顺序。
+
 | 目的 | 第一入口 |
 |---|---|
 | AI / 维护者第一次进入仓库 | [AGENTS.md](AGENTS.md) → [Reference Index](docs/reference/_INDEX.md) |

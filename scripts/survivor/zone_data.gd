@@ -1240,6 +1240,36 @@ static func zone_has_land(id: StringName) -> bool:
 	var polys: Array = z.get("ground_spawn_polygons", [])
 	if not polys.is_empty():
 		return true
+	# 结果只取决于常量 ZONES 与当前地图地理（官方/UGC 陆地层）；同一地理下按 id 记忆。
+	# 战区解锁时 _roll_mission_type 不再现场做 49×9 次多边形判定。
+	MapGeography.ensure_ready()
+	if not _zone_land_memo_valid():
+		_zone_land_memo.clear()
+		_zone_land_memo_source = MapGeographyData.LAND_MASK_POLYGONS
+		_zone_land_memo_ugc = MapGeography.ugc_mode
+		_zone_land_memo_even_odd = MapGeography.ugc_land_even_odd
+	if _zone_land_memo.has(id):
+		return bool(_zone_land_memo[id])
+	var has_land := _zone_land_fraction_ok(z)
+	_zone_land_memo[id] = has_land
+	return has_land
+
+static var _zone_land_memo: Dictionary = {}
+static var _zone_land_memo_source: Array = []
+static var _zone_land_memo_ugc := false
+static var _zone_land_memo_even_odd := true
+
+static func _zone_land_memo_valid() -> bool:
+	return is_same(_zone_land_memo_source, MapGeographyData.LAND_MASK_POLYGONS) \
+		and _zone_land_memo_ugc == MapGeography.ugc_mode \
+		and _zone_land_memo_even_odd == MapGeography.ugc_land_even_odd
+
+## Loading 预热：为全部常量战区算好陆地可用性（结果与现场计算一致，只是提前）。
+static func prewarm_zone_land() -> void:
+	for z in ZONES:
+		zone_has_land(z["id"])
+
+static func _zone_land_fraction_ok(z: Dictionary) -> bool:
 	var center: Vector2 = z["center"]
 	var radius: float = float(z["radius"]) * 0.85
 	var land_hits := 0

@@ -52,7 +52,34 @@ func _test_display_is_mouse_transparent() -> void:
 	var panel = PlayerInstrumentPanelScript.new()
 	panel._ready()
 	_check("仪表鼠标穿透", panel.mouse_filter == Control.MOUSE_FILTER_IGNORE)
+	var expected: Vector3 = TerminalTextScript.resolve_font_layout(panel._display_font,
+		"100%", Vector2(80, 36), 0)
+	var before: int = panel._text_layout_resolutions
+	for _repeat in 100:
+		_check("布局缓存保持精确字号与轮廓", panel._cached_text_layout(
+			panel._display_font, "100%", Vector2(80, 36), 0) == expected)
+	_check("重复基准只求解一次", panel._text_layout_resolutions == before + 1)
+	_check("改变尺寸不能复用旧字号", panel._cached_text_layout(
+		panel._display_font, "100%", Vector2(40, 18), 0) ==
+		TerminalTextScript.resolve_font_layout(panel._display_font, "100%", Vector2(40, 18), 0))
+	_check("改变基准不能复用旧布局", panel._cached_text_layout(
+		panel._display_font, "9999", Vector2(80, 36), 15) ==
+		TerminalTextScript.resolve_font_layout(panel._display_font, "9999", Vector2(80, 36), 15))
+	panel._configure_layout()
+	_check("重建布局失效缓存", panel._text_layout_cache.is_empty())
+	for n in 270:
+		panel._cached_text_layout(panel._info_font, str(n), Vector2(80, 36), 15)
+	_check("动态说明缓存有界", panel._text_layout_cache.size() <= 256)
 	_check("仪表不可获焦", panel.focus_mode == Control.FOCUS_NONE)
+	var numeric_queries: int = TerminalTextScript._glyph_contour_queries
+	var reload_size := int(TerminalTextScript.resolve_font_layout(panel._display_font,
+		PlayerInstrumentPanelScript.PROGRESS_PERCENT_LAYOUT_TEXT,
+		PlayerInstrumentPanelScript.WEAPON_RELOAD_VALUE_SIZE).x)
+	TerminalTextScript.measure_ink_bounds(panel._display_font, "89%", reload_size)
+	TerminalTextScript.measure_ink_bounds(panel._display_font, "7s", reload_size)
+	_check("真实MSDF HUD初始化预热装填数字，首次装填无需再提取轮廓",
+		panel._display_font.multichannel_signed_distance_field
+		and TerminalTextScript._glyph_contour_queries == numeric_queries)
 	_check("中文本地化明确使用当前主题默认字体",
 		PlayerInstrumentPanelScript.uses_theme_font_for_locale("zh_CN")
 		and not PlayerInstrumentPanelScript.uses_theme_font_for_locale("en")

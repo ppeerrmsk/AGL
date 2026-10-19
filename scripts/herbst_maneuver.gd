@@ -67,6 +67,8 @@ func _ready() -> void:
 
 ## 触发赫尔贝特轮（可重复使用，有冷却）
 func activate(turn_dir: float = 0.0) -> bool:
+	if FearResponse.controlled(_aircraft):
+		return false
 	if not can_activate:
 		return false
 	if not _aircraft:

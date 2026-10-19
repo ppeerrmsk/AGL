@@ -11,6 +11,8 @@
 class_name F47AceSquad
 extends AceSquad
 
+const ProgressionLoadout := preload("res://scripts/survivor/wraith_progression_loadout.gd")
+
 ## 队级战术状态机（PURSUIT 之内运转；tier 层只管是否交战/是否隐形）
 var tactics: WraithTactics = null
 
@@ -46,6 +48,11 @@ func _init() -> void:
 	# 距离
 	standoff_radius_min = SurvivorData.F47_STANDOFF_RADIUS_MIN
 	standoff_radius_max = SurvivorData.F47_STANDOFF_RADIUS_MAX
+
+## 生成前按本场历史快照装配；不在战斗 tick 中读取或追随生涯变化。
+func configure_progression(defeat_count: int) -> void:
+	super.configure_progression(defeat_count)
+	fear_cone_config = ProgressionLoadout.fear_cone_for_progression(prior_defeats)
 
 ## 保存工厂与 squad 容器；四架 BOSS 本体仍完全走 AceSquad 原生成路径。
 func spawn(scene_root: Node, aircraft_scene: PackedScene, create_enemy_func: Callable,

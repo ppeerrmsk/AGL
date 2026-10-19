@@ -27,12 +27,29 @@ const RUNTIME_HOTSPOT_LIMIT: int = 10
 const FRAME_TRACE_ROOT_BUCKETS := [
 	"aircraft_phys", "ai_tick", "radar_locks", "ground_phys", "naval_phys",
 	"mount_target_phys", "bullet_phys", "missile_phys", "atmosphere_tick",
-	"aircraft_draw", "trail_draw", "ground_draw", "naval_draw", "bullet_draw",
+	"aircraft_draw", "trail_draw", "ground_draw", "naval_draw", "bullet_draw", "building_draw",
 	"missile_draw", "missile_trail_draw", "hud_process", "hud_player_draw",
 	"hud_grid_draw", "hud_radar_draw", "hud_threat_draw", "event_log",
 	"audio_sfx_play", "radio_play", "survivor_cache", "survivor_lod",
-	"survivor_spawner",
+	"survivor_spawner", "tokyo_map_process", "tokyo_map_stream",
 ]
+
+
+# 扩展诊断默认关闭；只有互斥耗时进入新增根桶。
+const EXTENDED_CPU_TRACE_ROOT_BUCKETS := [
+	"extended.missile_phys.exclusive", "extended.aa_phys.exclusive",
+	"extended.sam_phys.exclusive", "extended.airburst_aa_phys.exclusive",
+	"extended.radar_station_phys.exclusive", "extended.bomber_mission_phys.exclusive",
+	"extended.survivor_phys.exclusive", "extended.prediction_prepare.exclusive",
+	"extended.trail_process.exclusive",
+	"unit_status_overlay", "extended.status_panel_draw.exclusive",
+	"extended.status_mask_draw.exclusive", "extended.volume_overlay.exclusive",
+	"extended.weather_draw.exclusive", "extended.atmosphere_draw.exclusive",
+	"extended.aa_draw.exclusive", "extended.sam_draw.exclusive",
+]
+const EXTENDED_CPU_SHARED_ROOTS := ["event_log", "audio_sfx_play", "radio_play"]
+var extended_cpu_trace_enabled: bool = false
+var extended_cpu_shared_usec: int = 0
 
 # ── 当前窗口累加 ──
 var _window_us: Dictionary = {}     ## bucket_name -> int µs 总和
@@ -52,6 +69,10 @@ var _last_window_seconds: float = 1.0
 
 ## 全局开关：关掉之后 tick/count 立即 return，开销可忽略
 var enabled: bool = true
+
+## 本渲染帧已执行的物理步数（_process 起点结算；见 frame_has_physics_step）
+var physics_steps_this_frame: int = 0
+var _physics_frames_mark: int = 0
 
 # ── F3 运行时性能面板 ──
 # 只在面板打开时记录固定长度帧历史，并启用昂贵的细分埋点；关闭后不分配、不排序。
@@ -93,6 +114,8 @@ var _trace_active_context: Dictionary = {}
 func tick(name: String, us: int) -> void:
 	if not enabled:
 		return
+	if extended_cpu_trace_enabled and name in EXTENDED_CPU_SHARED_ROOTS:
+		extended_cpu_shared_usec += us
 	_window_us[name] = int(_window_us.get(name, 0)) + us
 	_window_calls[name] = int(_window_calls.get(name, 0)) + 1
 	if frame_trace_enabled:
@@ -129,6 +152,31 @@ func configure_runtime_panel(active: bool) -> void:
 		_runtime_frame_history.clear()
 
 
+## 作用域同步运行于主线程，不跨 await、worker 或延迟 draw。
+## total/covered/shared 仅诊断；只有 exclusive 进入新增根桶。
+func finish_extended_cpu(scope: String, started_usec: int, shared_before_usec: int,
+		covered_usec: int = 0, covered_shared_usec: int = 0) -> void:
+	if not extended_cpu_trace_enabled:
+		return
+	var total_usec := Time.get_ticks_usec() - started_usec
+	var shared_usec := extended_cpu_shared_usec - shared_before_usec - covered_shared_usec
+	var exclusive_usec := total_usec - covered_usec - shared_usec
+	var prefix := "extended." + scope
+	tick(prefix + ".total", total_usec)
+	tick(prefix + ".covered", covered_usec)
+	tick(prefix + ".shared", shared_usec)
+	if shared_usec < 0 or covered_usec < 0 or exclusive_usec < 0:
+		count("extended_cpu_invalid_scope")
+		mark_frame_event("extended_cpu_invalid_scope")
+		tick(prefix + ".invalid", exclusive_usec)
+		return
+	tick(prefix + ".exclusive", exclusive_usec)
+
+
+func extended_cpu_root_usec(root_name: String) -> int:
+	return int(_trace_frame_us.get(root_name, 0))
+
+
 func detail_capture_enabled() -> bool:
 	return runtime_panel_enabled or (frame_trace_enabled and _trace_detail_this_frame)
 
@@ -137,6 +185,9 @@ func detail_capture_enabled() -> bool:
 func configure_frame_trace(active: bool) -> void:
 	var requested_mode := OS.get_environment("AGL_BENCH_FRAME_TRACE_MODE").strip_edges().to_lower()
 	frame_trace_enabled = active and requested_mode != "off"
+	extended_cpu_trace_enabled = enabled and frame_trace_enabled \
+		and OS.get_environment("AGL_BENCH_EXTENDED_CPU_TRACE").strip_edges() == "1"
+	extended_cpu_shared_usec = 0
 	# G0 默认用 1/4 细分采样控制观察者效应；根桶、慢帧 delta、事件和引擎快照仍逐帧。
 	# 复现单个尖峰需要全部子桶时显式设 AGL_BENCH_FRAME_TRACE_MODE=full。
 	_trace_detail_stride = 1 if requested_mode == "full" else 4
@@ -163,6 +214,10 @@ func configure_frame_trace(active: bool) -> void:
 	for root_name in FRAME_TRACE_ROOT_BUCKETS:
 		_trace_root_total_us[root_name] = 0
 		_trace_root_active_frames[root_name] = 0
+	if extended_cpu_trace_enabled:
+		for root_name in EXTENDED_CPU_TRACE_ROOT_BUCKETS:
+			_trace_root_total_us[root_name] = 0
+			_trace_root_active_frames[root_name] = 0
 	_trace_total_known_us = 0
 	_trace_total_frame_us = 0
 	_trace_completed_frames = 0
@@ -173,6 +228,7 @@ func configure_frame_trace(active: bool) -> void:
 
 ## SurvivorMode 在渲染帧开头调用：结算上一帧并开始收集当前帧。
 func begin_render_frame(delta: float) -> void:
+	var diagnostic_started_usec := Time.get_ticks_usec() if extended_cpu_trace_enabled else 0
 	if runtime_panel_enabled:
 		_record_runtime_frame(delta)
 	if not frame_trace_enabled:
@@ -193,6 +249,9 @@ func begin_render_frame(delta: float) -> void:
 	_trace_frame_us.clear()
 	_trace_frame_counts.clear()
 	_trace_frame_events.clear()
+	# 上一帧结算实际发生在新帧墙钟区间内，清空后记入新帧，避免丢失或错帧。
+	if diagnostic_started_usec > 0:
+		tick("diagnostic.perf_begin_render_frame", Time.get_ticks_usec() - diagnostic_started_usec)
 
 
 func _record_runtime_frame(delta: float) -> void:
@@ -349,6 +408,9 @@ func _trace_known_root_us() -> int:
 	var total := 0
 	for bucket_name in FRAME_TRACE_ROOT_BUCKETS:
 		total += int(_trace_frame_us.get(bucket_name, 0))
+	if extended_cpu_trace_enabled:
+		for bucket_name in EXTENDED_CPU_TRACE_ROOT_BUCKETS:
+			total += int(_trace_frame_us.get(bucket_name, 0))
 	return total
 
 
@@ -408,8 +470,19 @@ func _trace_load_snapshot() -> Dictionary:
 	}
 
 
+## 本渲染帧是否含物理步（物理步帧主线程已付出整步脚本物理，无步帧尚有余量）。
+## 可延后的主线程重活（地图完成件领取/纹理上传等）据此择帧；仅在 _process 阶段有意义。
+## 暂停时本节点不处理、值会停留，调用方须自行排除暂停帧。
+func frame_has_physics_step() -> bool:
+	return physics_steps_this_frame > 0
+
+
 ## 每帧推进窗口；满 1 秒把累加值快照
 func _process(delta: float) -> void:
+	# AutoLoad 先于场景节点处理：本帧场景 _process 读到的是本迭代已执行的物理步数。
+	var physics_frames := Engine.get_physics_frames()
+	physics_steps_this_frame = physics_frames - _physics_frames_mark
+	_physics_frames_mark = physics_frames
 	_window_elapsed += delta
 	_frames_in_window += 1
 	if _window_elapsed >= WINDOW_S:
@@ -714,7 +787,7 @@ func format_frame_trace_dump() -> String:
 		})
 	root_entries.sort_custom(_sort_trace_entry_desc)
 	var root_parts := PackedStringArray()
-	for root_index in range(mini(root_entries.size(), FRAME_TRACE_ROOT_BUCKETS.size())):
+	for root_index in range(root_entries.size()):
 		var root_entry: Dictionary = root_entries[root_index]
 		var root_name := String(root_entry["name"])
 		var root_avg_ms := float(root_entry["value"]) \
@@ -766,14 +839,20 @@ func format_frame_trace_dump() -> String:
 			str(bool(window.get("complete", false))), frames.size()]
 		for context_frame in frames:
 			var context: Dictionary = context_frame
+			# 仅在输出报告时筛选；地图小桶不能被 top-4 战斗桶挤掉。
+			var map_buckets: Dictionary = {}
+			for bucket: String in context.get("buckets_us", {}):
+				if bucket.begins_with("tokyo_map_"):
+					map_buckets[bucket] = context.buckets_us[bucket]
 			var delta_ms := float(context.get("delta_ms", 0.0))
 			var marker := "!" if delta_ms > FRAME_BUDGET_S * 1000.0 else "."
-			s += "    %s f=%d dt=%.3f known=%.3f phys=%d buckets=[%s] events=[%s] engine=[%s]\n" % [
+			s += "    %s f=%d dt=%.3f known=%.3f phys=%d buckets=[%s] events=[%s] engine=[%s] map=[%s]\n" % [
 				marker, int(context.get("frame", 0)), delta_ms,
 				float(context.get("known_ms", 0.0)), int(context.get("physics_ticks", 0)),
 				_format_trace_map(context.get("buckets_us", {}), 4, "us"),
 				_format_trace_map(context.get("events", {}), 4),
-				_format_trace_map(context.get("engine", {}), 6)]
+				_format_trace_map(context.get("engine", {}), 6),
+				_format_trace_map(map_buckets, map_buckets.size(), "us")]
 	s += "=== END FRAME SPIKE TRACE ===\n"
 	return s
 

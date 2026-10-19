@@ -1,0 +1,184 @@
+{
+  "source_commit": "cf5d2a86341300e5138028ccc3b527b96bfba479",
+  "release": "https://github.com/ppeerrmsk/AGL/releases/tag/map-handoff-2026-10-14",
+  "package": "resources/maps/tokyo_playable/m20/package.json",
+  "package_sha256": "424e4aa1db195308389ffcce30ff672bc5b23851810801847199b4d9d572d858",
+  "manifest_sha256": "67b3983211c200698452b0165fd39f7f441803e538641a6c0a3a2f8790226ca4",
+  "stats": {
+    "files": 107108,
+    "release_files": 106811,
+    "git_files": 297,
+    "raw_release_bytes": 7724179951,
+    "unique_payload_bytes": 7724179951,
+    "unique_payloads": 106811,
+    "duplicate_payloads": 0,
+    "download_bytes": 7077209021,
+    "raster_tiles": 146
+  },
+  "archives": [
+    {
+      "name": "tokyo-m20-runtime-20261014-part01.zip",
+      "bytes": 887183627,
+      "sha256": "324b04c6a71f7d33b1825dc08c7519de57c206b8929518572c6aafd64820fd6c",
+      "payloads": 13166,
+      "uncompressed_bytes": 943639208
+    },
+    {
+      "name": "tokyo-m20-runtime-20261014-part02.zip",
+      "bytes": 877662239,
+      "sha256": "47dcc11ac4a0018e9378de2d69aefab3515a79648849f27ecf48fb2d567888a9",
+      "payloads": 14180,
+      "uncompressed_bytes": 943213735
+    },
+    {
+      "name": "tokyo-m20-runtime-20261014-part03.zip",
+      "bytes": 709650643,
+      "sha256": "aa2a18ac9274ead1eeef8644effc4382b27a902e63b2fe81b14eebf38915afa8",
+      "payloads": 10014,
+      "uncompressed_bytes": 942919436
+    },
+    {
+      "name": "tokyo-m20-runtime-20261014-part04.zip",
+      "bytes": 880547843,
+      "sha256": "5fe979790773928eaf4f842989dd8ef9b43e37eb935305555b19d2ca154e1a0e",
+      "payloads": 12502,
+      "uncompressed_bytes": 942671978
+    },
+    {
+      "name": "tokyo-m20-runtime-20261014-part05.zip",
+      "bytes": 886510738,
+      "sha256": "9b95212ae0ca58af2ff80a63f15d99ca32b6cc753282d1b395e843127719f572",
+      "payloads": 12660,
+      "uncompressed_bytes": 943161756
+    },
+    {
+      "name": "tokyo-m20-runtime-20261014-part06.zip",
+      "bytes": 882609281,
+      "sha256": "9059195ca00b60958903cffe884e68a00fe03d0260ded9c2476f98b1f69220d3",
+      "payloads": 13933,
+      "uncompressed_bytes": 943716329
+    },
+    {
+      "name": "tokyo-m20-runtime-20261014-part07.zip",
+      "bytes": 880027467,
+      "sha256": "1c1ab4cc0ae93e4d7d165addcee23066b17fcec9e08a5a10a851daca37fbb4dd",
+      "payloads": 14655,
+      "uncompressed_bytes": 928074480
+    },
+    {
+      "name": "tokyo-m20-runtime-20261014-part08.zip",
+      "bytes": 889172727,
+      "sha256": "2f352af664354d2add22a52eb57a7f99d19ca79cd7ddcd9a6c362deaac386615",
+      "payloads": 12933,
+      "uncompressed_bytes": 942609201
+    },
+    {
+      "name": "tokyo-m20-runtime-20261014-part09.zip",
+      "bytes": 183844456,
+      "sha256": "faa677a79b8d079f0c0154a4d823a321868e9ddcbd7538d1fb574d968ac2348a",
+      "payloads": 2768,
+      "uncompressed_bytes": 194173828
+    }
+  ],
+  "github_assets": [
+    {
+      "id": 640568328,
+      "name": "tokyo-m20-runtime-20261014-manifest.json",
+      "size": 30081720,
+      "digest": "sha256:67b3983211c200698452b0165fd39f7f441803e538641a6c0a3a2f8790226ca4",
+      "browser_download_url": "https://github.com/ppeerrmsk/AGL/releases/download/map-handoff-2026-10-14/tokyo-m20-runtime-20261014-manifest.json"
+    },
+    {
+      "id": 640568338,
+      "name": "tokyo-m20-runtime-20261014-part01.zip",
+      "size": 887183627,
+      "digest": "sha256:324b04c6a71f7d33b1825dc08c7519de57c206b8929518572c6aafd64820fd6c",
+      "browser_download_url": "https://github.com/ppeerrmsk/AGL/releases/download/map-handoff-2026-10-14/tokyo-m20-runtime-20261014-part01.zip"
+    },
+    {
+      "id": 640568548,
+      "name": "tokyo-m20-runtime-20261014-part02.zip",
+      "size": 877662239,
+      "digest": "sha256:47dcc11ac4a0018e9378de2d69aefab3515a79648849f27ecf48fb2d567888a9",
+      "browser_download_url": "https://github.com/ppeerrmsk/AGL/releases/download/map-handoff-2026-10-14/tokyo-m20-runtime-20261014-part02.zip"
+    },
+    {
+      "id": 640571622,
+      "name": "tokyo-m20-runtime-20261014-part03.zip",
+      "size": 709650643,
+      "digest": "sha256:aa2a18ac9274ead1eeef8644effc4382b27a902e63b2fe81b14eebf38915afa8",
+      "browser_download_url": "https://github.com/ppeerrmsk/AGL/releases/download/map-handoff-2026-10-14/tokyo-m20-runtime-20261014-part03.zip"
+    },
+    {
+      "id": 640572366,
+      "name": "tokyo-m20-runtime-20261014-part04.zip",
+      "size": 880547843,
+      "digest": "sha256:5fe979790773928eaf4f842989dd8ef9b43e37eb935305555b19d2ca154e1a0e",
+      "browser_download_url": "https://github.com/ppeerrmsk/AGL/releases/download/map-handoff-2026-10-14/tokyo-m20-runtime-20261014-part04.zip"
+    },
+    {
+      "id": 640573756,
+      "name": "tokyo-m20-runtime-20261014-part05.zip",
+      "size": 886510738,
+      "digest": "sha256:9b95212ae0ca58af2ff80a63f15d99ca32b6cc753282d1b395e843127719f572",
+      "browser_download_url": "https://github.com/ppeerrmsk/AGL/releases/download/map-handoff-2026-10-14/tokyo-m20-runtime-20261014-part05.zip"
+    },
+    {
+      "id": 640576259,
+      "name": "tokyo-m20-runtime-20261014-part06.zip",
+      "size": 882609281,
+      "digest": "sha256:9059195ca00b60958903cffe884e68a00fe03d0260ded9c2476f98b1f69220d3",
+      "browser_download_url": "https://github.com/ppeerrmsk/AGL/releases/download/map-handoff-2026-10-14/tokyo-m20-runtime-20261014-part06.zip"
+    },
+    {
+      "id": 640577206,
+      "name": "tokyo-m20-runtime-20261014-part07.zip",
+      "size": 880027467,
+      "digest": "sha256:1c1ab4cc0ae93e4d7d165addcee23066b17fcec9e08a5a10a851daca37fbb4dd",
+      "browser_download_url": "https://github.com/ppeerrmsk/AGL/releases/download/map-handoff-2026-10-14/tokyo-m20-runtime-20261014-part07.zip"
+    },
+    {
+      "id": 640578813,
+      "name": "tokyo-m20-runtime-20261014-part08.zip",
+      "size": 889172727,
+      "digest": "sha256:2f352af664354d2add22a52eb57a7f99d19ca79cd7ddcd9a6c362deaac386615",
+      "browser_download_url": "https://github.com/ppeerrmsk/AGL/releases/download/map-handoff-2026-10-14/tokyo-m20-runtime-20261014-part08.zip"
+    },
+    {
+      "id": 640579336,
+      "name": "tokyo-m20-runtime-20261014-part09.zip",
+      "size": 183844456,
+      "digest": "sha256:faa677a79b8d079f0c0154a4d823a321868e9ddcbd7538d1fb574d968ac2348a",
+      "browser_download_url": "https://github.com/ppeerrmsk/AGL/releases/download/map-handoff-2026-10-14/tokyo-m20-runtime-20261014-part09.zip"
+    },
+    {
+      "id": 640580243,
+      "name": "tokyo-m20-runtime-20261014-SHA256SUMS.txt",
+      "size": 1053,
+      "digest": "sha256:1f0a2d6bf613942a2c51844731d6d1c05a455aca9de6384f21676734fb5b8d77",
+      "browser_download_url": "https://github.com/ppeerrmsk/AGL/releases/download/map-handoff-2026-10-14/tokyo-m20-runtime-20261014-SHA256SUMS.txt"
+    }
+  ],
+  "validation": {
+    "all_server_digests_verified": true,
+    "local_full_bundle_and_installed_files_verified": true,
+    "runtime_source_files_compared": 1036,
+    "runtime_source_drift": 0,
+    "new_engine_run": false,
+    "visual_performance_accepted": false
+  },
+  "excluded": [
+    "other installed versions",
+    "unreferenced preview assets",
+    "duplicate top-level assets/native libraries",
+    "resident candidates",
+    "OSM/PBF and offline production inputs",
+    "Godot import/shader caches",
+    "exports and machine configuration"
+  ],
+  "notes": [
+    "Current installed M20 runtime dependency closure; not a completed 256-tile replacement representation.",
+    "Git prerequisites are checked, not duplicated in Release payloads.",
+    "Use install_tokyo_map_handoff.py; ZIP blob entries are not project paths."
+  ]
+}

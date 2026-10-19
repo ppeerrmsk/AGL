@@ -50,6 +50,7 @@ const TEXTURE_PATHS: Dictionary = {
 }
 
 static var _texture_cache: Dictionary = {}
+static var _prewarm_failed: Dictionary = {}
 
 const DISPLAY_KEYS: Dictionary = {
 	"A-6E Intruder": "a6e", "A-7": "a7", "A-10": "a10", "A-10 Thunderbolt II": "a10",
@@ -83,7 +84,24 @@ const LEGACY_DISPLAY_NAMES: Array[String] = [
 	"Cre", "DEADAIR", "Snowblind", "Sentinel", "MQ-112",
 	"Aegis UAV", "MQ-X", "DRONE", "Probe", "Mother Goose",
 	"Hyper-A G0", "Hyper-A G1", "Hyper-A G2", "Hyper-A G3",
+	"ORION", "FANG", "FANG-1", "FANG-2",
 ]
+
+## 三维生产使用的稳定规范 key。这里不把 legacy 机型放进 PNG 白名单；
+## `key_for()` 仍只返回 DISPLAY_KEYS，保持二维回退与既有测试语义不变。
+const LEGACY_MODEL_KEYS: Dictionary = {
+	"X-02": "x02", "X-02 Wyvern": "x02", "X-09 Thunder Owl": "x09",
+	"X-13 Skyfalcon": "x13", "X-21 Longreach": "x21", "X-44 Anvil": "x44",
+	"X-77 Phantom Raven": "x77", "X-90 Skywhale": "x90",
+	"AX-00 Starweaver": "ax00", "AF-03": "af03", "Cre": "cre",
+	"DEADAIR": "deadair", "Snowblind": "snowblind", "Sentinel": "sentinel",
+	"MQ-112": "mq112", "Aegis UAV": "aegis_uav", "MQ-X": "mqx",
+	"DRONE": "loyal_wingman", "Probe": "probe", "Mother Goose": "mother_goose",
+	"Hyper-A G0": "hyper_a", "Hyper-A G1": "hyper_a",
+	"Hyper-A G2": "hyper_a", "Hyper-A G3": "hyper_a",
+	"ORION": "orion_final_form", "FANG": "orion_fang",
+	"FANG-1": "orion_fang", "FANG-2": "orion_fang",
+}
 
 const DRAW_SCALE: Dictionary = {
 	"ah64": 1.55, "ch47": 1.85, "b1b": 2.05, "tu160": 2.10,
@@ -113,6 +131,41 @@ static func key_for(ac: Aircraft) -> String:
 	return ""
 
 
+## 全机型三维目录的规范身份：现实/已登记机沿用 DISPLAY_KEYS，原创/特种机走
+## LEGACY_MODEL_KEYS。同型号的玩家、僚机、敌人和显示名后缀必须返回同一 key。
+static func canonical_model_key_for(ac: Aircraft) -> String:
+	var mapped := key_for(ac)
+	if mapped != "":
+		return mapped
+	if ac.params != null:
+		var direct := String(LEGACY_MODEL_KEYS.get(ac.params.display_name, ""))
+		if direct != "":
+			return direct
+	var airframe_name := String(ac.get_meta("airframe_label", "")).strip_edges()
+	return String(LEGACY_MODEL_KEYS.get(airframe_name, ""))
+
+
+## 离线审计、模型画廊和非 Aircraft 载体使用；不接受呼号/品质后缀猜测。
+static func canonical_model_key_for_display_name(display_name: String) -> String:
+	var normalized := display_name.strip_edges()
+	var mapped := String(DISPLAY_KEYS.get(normalized, ""))
+	return mapped if mapped != "" else String(LEGACY_MODEL_KEYS.get(normalized, ""))
+
+
+static func canonical_model_keys() -> Array[String]:
+	var result: Array[String] = []
+	for raw: Variant in DISPLAY_KEYS.values():
+		var key := String(raw)
+		if key not in result:
+			result.append(key)
+	for raw: Variant in LEGACY_MODEL_KEYS.values():
+		var key := String(raw)
+		if key not in result:
+			result.append(key)
+	result.sort()
+	return result
+
+
 ## UI 等非 Aircraft 载体按基础机型名读取同一份正式轮廓，避免另建预览模型目录。
 static func texture_for_display_name(display_name: String) -> Texture2D:
 	var key := String(DISPLAY_KEYS.get(display_name.strip_edges(), ""))
@@ -138,6 +191,25 @@ static func volume_thickness_for(ac: Aircraft) -> float:
 		"mother_goose", "hyper_a":
 			return 0.14
 	return DEFAULT_VOLUME_THICKNESS
+
+
+## Loading 预热：按 TEXTURE_PATHS 顺序解码尚未缓存的轮廓。budget_usec>0 时本次调用
+## 超出预算即返回，留待下一帧继续；返回 true 表示全部 key 已进缓存（或读取失败已告警）。
+## 刷怪帧首次出现新机型时不再读盘解码 PNG（每机型 1~2ms）。
+static func prewarm_textures(budget_usec: int = 0) -> bool:
+	var start := Time.get_ticks_usec()
+	for key: String in TEXTURE_PATHS:
+		if _texture_cache.has(key) or _prewarm_failed.has(key):
+			continue
+		if _texture_for(key) == null:
+			_prewarm_failed[key] = true
+		if budget_usec > 0 and Time.get_ticks_usec() - start >= budget_usec:
+			return _prewarm_done()
+	return _prewarm_done()
+
+
+static func _prewarm_done() -> bool:
+	return _texture_cache.size() + _prewarm_failed.size() >= TEXTURE_PATHS.size()
 
 
 static func _texture_for(key: String) -> Texture2D:

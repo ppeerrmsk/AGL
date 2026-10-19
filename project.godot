@@ -39,6 +39,10 @@ window/size/viewport_height=1080
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/volume_terrain_export/plugin.cfg")
+
 [internationalization]
 
 locale/translations=PackedStringArray("res://i18n/interface.zh.translation", "res://i18n/interface.en.translation", "res://i18n/interface.ja.translation", "res://i18n/gameplay.zh.translation", "res://i18n/gameplay.en.translation", "res://i18n/gameplay.ja.translation", "res://i18n/skills.zh.translation", "res://i18n/skills.en.translation", "res://i18n/skills.ja.translation", "res://i18n/meta.zh.translation", "res://i18n/meta.en.translation", "res://i18n/meta.ja.translation", "res://i18n/radio.zh.translation", "res://i18n/radio.en.translation", "res://i18n/radio.ja.translation")
@@ -46,7 +50,8 @@ locale/fallback="zh"
 
 [physics]
 
-common/max_physics_steps_per_frame=3
+common/physics_interpolation=true
+common/max_physics_steps_per_frame=2
 3d/physics_engine="Jolt Physics"
 
 [rendering]
@@ -54,3 +59,4 @@ common/max_physics_steps_per_frame=3
 rendering_device/driver.windows="d3d12"
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
+tokyo_map/installed_package="res://resources/maps/tokyo_playable/m20/package.json"

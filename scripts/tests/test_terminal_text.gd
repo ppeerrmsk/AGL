@@ -13,6 +13,7 @@ func run() -> void:
 	_check_visible_fill("Chakra 105 / 2u", "105", TerminalText.FontFace.CHAKRA_PETCH_BOLD, 36.0)
 	_check_one_u_fixed_15("Silkscreen SPD / 1u", "SPD", 18.0)
 	_check_ink_bounds_cache()
+	_check_dynamic_glyph_cache()
 	_check_layout_reference_controls_width()
 	_check_height_first_q_expansion()
 	_check_horizontal_alignment_rule()
@@ -70,6 +71,52 @@ func _check_ink_bounds_cache() -> void:
 			and TerminalText._ink_bounds_cache.size() == entries_after_first,
 		"entries=%d bounds=%s" % [TerminalText._ink_bounds_cache.size(), first]
 	)
+
+func _check_dynamic_glyph_cache() -> void:
+	var font: Font = TerminalText.CHAKRA_PETCH_BOLD
+	TerminalText.measure_ink_bounds(font, "0123456789%s", 36)
+	var queries := TerminalText._glyph_contour_queries
+	var values: Array[String] = []
+	for n in range(101):
+		values.append(str(n) + "%")
+		values.append(str(n) + "s")
+	var start := Time.get_ticks_usec()
+	for value in values:
+		TerminalText.measure_ink_bounds(font, value, 36)
+	var elapsed := Time.get_ticks_usec() - start
+	_check("动态百分比/秒数完整塑形但不重复提取已预热字形轮廓",
+		TerminalText._glyph_contour_queries == queries)
+	print("[Terminal numeric cache] strings=202 us=", elapsed,
+		" contour_queries=", TerminalText._glyph_contour_queries - queries)
+	for face: Font in [font, TerminalText.CHAKRA_PETCH_LIGHT, TerminalText.SILKSCREEN_FONT_SOURCE]:
+		for value: String in ["19%", "8s", "105", "ffi", "A g", ""]:
+			_check("塑形轮廓与直接TextServer一致 " + value,
+				TerminalText.measure_ink_bounds(face, value, 36) == _direct_ink_bounds(face, value, 36))
+	# 通过真实查询越过容量：每次仅淘汰一项，不清空已热条目。
+	var server := TextServerManager.get_primary_interface()
+	var rid: RID = font.get_rids()[0]
+	for size in range(1, TerminalText.MAX_GLYPH_BOUNDS_CACHE_ENTRIES + 2):
+		TerminalText._glyph_ink_bounds(server, rid, size, 0)
+	_check("字形缓存保持固定容量", TerminalText._glyph_bounds_cache.size() == TerminalText.MAX_GLYPH_BOUNDS_CACHE_ENTRIES)
+
+
+func _direct_ink_bounds(font: Font, value: String, font_size: int) -> Vector2:
+	var server := TextServerManager.get_primary_interface()
+	var shaped := server.create_shaped_text()
+	server.shaped_text_add_string(shaped, value, font.get_rids(), font_size)
+	var bounds := Vector2(INF, -INF)
+	for glyph: Dictionary in server.shaped_text_get_glyphs(shaped):
+		var rid: RID = glyph.get("font_rid", RID())
+		if not rid.is_valid():
+			continue
+		var contours := server.font_get_glyph_contours(rid, int(glyph.get("font_size", font_size)), int(glyph.get("index", 0)))
+		var offset: Vector2 = glyph.get("offset", Vector2.ZERO)
+		for point: Vector3 in contours.get("points", PackedVector3Array()):
+			bounds.x = minf(bounds.x, point.y + offset.y)
+			bounds.y = maxf(bounds.y, point.y + offset.y)
+	server.free_rid(shaped)
+	return bounds
+
 
 func _check_one_u_fixed_15(label: String, value: String, height: float) -> void:
 	var terminal_text := TerminalText.new()

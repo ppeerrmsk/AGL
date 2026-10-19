@@ -1181,6 +1181,24 @@ const UPGRADES: Array[Dictionary] = [
 		"milestone_plus": "gladiator",  ## 720 批：噬血共振 斗士+1
 	},
 	{
+		"id": "bloodlust_head_on",
+		"name": "UPGRADE_BLOODLUST_HEAD_ON_NAME",
+		"desc": "UPGRADE_BLOODLUST_HEAD_ON_DESC",
+		"stat": "skill_flag",
+		"value": 1,
+		"max_stacks": 1,
+		"category": "survival",
+		"axis": "knight",
+		"rarity": Rarity.ADVANCED,
+		"keywords": ["bloodlust", "head_on", "chivalry"],
+		"build_role": "bridge",
+		"terminal_for": ["bloodlust"],
+		"requires_skill": [
+			"skill_kill_bloodlust", "skill_damaged_bloodlust", "overload_to_bloodlust",
+			"qmaam_boost", "squad_revenge", "berserk_virus",
+		],
+	},
+	{
 		"id": "bloodlust_armor_mobility",
 		"name": "UPGRADE_BLOODLUST_ARMOR_MOBILITY_NAME",
 		"desc": "UPGRADE_BLOODLUST_ARMOR_MOBILITY_DESC",

@@ -52,6 +52,7 @@ var _milestone_axis_counter: Control
 var _status_panel: PanelContainer
 var _status_label: RichTextLabel
 var _player_instrument: Control
+var _fear_visible_last := false
 var _wingman_instrument: Control
 
 # ── 右侧战术面板 ──
@@ -622,6 +623,10 @@ func set_performance_panel_visible(active: bool) -> void:
 		_update_debug_panel()
 
 func _process(delta: float) -> void:
+	var fear_now := FearResponse.controlled(_safe_player_aircraft())
+	if fear_now != _fear_visible_last:
+		_fear_visible_last = fear_now
+		_hud_data_refresh_timer = 0.0
 	var perf_detail := PerfBuckets.detail_capture_enabled()
 	var perf_t0 := Time.get_ticks_usec() if perf_detail else 0
 	_layout_ui()
@@ -1768,6 +1773,12 @@ func _update_boss_panel() -> void:
 	_boss_panel.visible = true
 	if _boss_title_label:
 		_boss_title_label.text = boss.display_name
+	if FearResponse.controlled(_safe_player_aircraft()):
+		_boss_custom_label.visible = false
+		for i in range(_boss_card_labels.size()):
+			_boss_card_labels[i].visible = i < all_members.size()
+			_boss_card_labels[i].text = "[color=#b05cff]%s-%02d\n???[/color]" % [boss.callsign_prefix, i + 1]
+		return
 	var custom_entries: Array[Dictionary] = boss.get_hud_entries()
 	if not custom_entries.is_empty():
 		_boss_custom_label.visible = true
@@ -2045,6 +2056,7 @@ func _update_squad_panel() -> void:
 			flr_text = "%d%%" % int(wm.flare_reload_progress * 100.0) if flr_busy \
 				else str(wm.flares_remaining)
 		rows.append({
+			"aircraft_ref": weakref(wm),
 			"slot": wm.squad_slot,
 			"callsign": wm.callsign,
 			"is_heir": wm == heir,

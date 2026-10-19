@@ -25,6 +25,8 @@ var _target_grid_buf: Array = []
 var _target_order_by_id: Dictionary = {}
 var _missile_trail_batches: Array[Node2D] = []
 var _missile_trail_batch_root: Node2D = null
+## 仅性能追踪时累积五个命中阶段；保存首次/峰值，避免1秒窗口覆盖冷命中证据。
+var hit_cost_us: Dictionary = {}
 
 ## 活跃的 AOE 区域列表
 var _aoe_zones: Array = []  # [{pos, altitude, radius_px, time_left, max_time, damage, team, hit_set}]
@@ -124,6 +126,7 @@ func _ordered_target_candidates(position: Vector2) -> Array:
 	return _target_grid_buf
 
 func spawn_missile(source: CombatUnit, target: CombatUnit, missile_params: MissileParams, is_secondary: bool = false) -> Missile:
+	PerfBuckets.mark_frame_event("missile_spawn")
 	var missile: Missile = _missile_scene.instantiate()
 	missile.params = missile_params
 	missile.source = source
@@ -438,7 +441,11 @@ func _update_visual_only_ambient_missile(missile: Missile, fuse_radius_px: float
 
 func _physics_process(delta: float) -> void:
 	var _t0 := Time.get_ticks_usec()
+	var detail := PerfBuckets.detail_capture_enabled()
 	_rebuild_target_grid()
+	var phase_start := Time.get_ticks_usec() if detail else 0
+	if detail:
+		PerfBuckets.tick("missile_phys.grid", phase_start - _t0)
 	var broadphase_queries := 0
 	var broadphase_candidates := 0
 	# ── 导弹命中检测 ──
@@ -462,6 +469,8 @@ func _physics_process(delta: float) -> void:
 
 		# 引信武装时间检查
 		if missile.age < missile.params.guidance_delay:
+			continue
+		if missile.params.airborne_vertical_launch and missile.vls_phase < 2:
 			continue
 
 		# 建筑遮挡（按 source 高度档位查表的单次进入 roll）
@@ -525,6 +534,7 @@ func _physics_process(delta: float) -> void:
 				if nu.params:
 					effective_fuse = maxf(fuse_radius_px, nu.params.hull_length * 0.5)
 			if dist_2d < effective_fuse and alt_ok:
+				PerfBuckets.mark_frame_event("missile_hit")
 				# ACTIVE 窗口内不建立接触/近炸命中；导弹保留目标并继续飞行。
 				var direct_kind := "qmaam" if missile.is_secondary_weapon else "missile"
 				if not WeaponHitResolverScript.can_accept_unit_hit(unit, direct_kind):
@@ -552,6 +562,9 @@ func _physics_process(delta: float) -> void:
 							"rolled off %s" % msl_name)
 						continue
 				var hit_unit: CombatUnit = unit as CombatUnit
+				# 命中是稀疏事件，追踪期间不按1/4帧抽样，以免漏掉首次命中尖峰。
+				var hit_trace := PerfBuckets.frame_trace_enabled or detail
+				var hit_phase := Time.get_ticks_usec() if hit_trace else 0
 				var tgt_name: String = hit_unit.callsign if hit_unit.callsign != "" else hit_unit.name
 				if unit is Aircraft and unit.params:
 					var side := "Friend" if unit.team == 0 else "Enemy"
@@ -567,6 +580,8 @@ func _physics_process(delta: float) -> void:
 					var _sn: String = _shooter._log_name() if _shooter.has_method("_log_name") \
 							else (_shooter.callsign if ("callsign" in _shooter and _shooter.callsign != "") else String(_shooter.name))
 					EventLogger.tally(_sn, "msl_hit")
+				if hit_trace:
+					hit_phase=_record_hit_cost("log",hit_phase)
 				var hit_heading: float = unit.heading if "heading" in unit else 0.0
 				var incoming_velocity := Vector2(sin(missile.heading), -cos(missile.heading)) \
 					* missile.speed
@@ -576,9 +591,13 @@ func _physics_process(delta: float) -> void:
 						unit as Aircraft, missile.global_position, incoming_velocity)
 				# 命中只播放一次普通方框，并贴合真实机体分区而不是永远落在中心。
 				ExplosionVFXScript.emit(get_tree(), impact_pos, hit_heading, 1.0)
+				if hit_trace:
+					hit_phase=_record_hit_cost("visual",hit_phase)
 				# 爆炸音效：4 种 bomb_distant 随机选一种
 				var bomb_ids := ["bomb_distant", "bomb_distant_02", "bomb_distant_03", "bomb_distant_04"]
 				AudioManager.play_sfx_2d(bomb_ids[randi() % 4], unit.global_position, 9.0)
+				if hit_trace:
+					hit_phase=_record_hit_cost("audio",hit_phase)
 				var sig_msl_dmg: float = effective_damage
 				# 722 sig_f15e·对地特化：对地面/舰船单位导弹伤害 ×1.3（发射者持有技能时）
 				if is_instance_valid(missile.source) and missile.source is Aircraft \
@@ -590,11 +609,15 @@ func _physics_process(delta: float) -> void:
 						unit, resolved_damage, missile.source, direct_kind,
 						missile.global_position, incoming_velocity)
 				# 近炸引信：在爆炸点产生 AOE 区域
+				if hit_trace:
+					hit_phase=_record_hit_cost("damage",hit_phase)
 				if missile.proximity_aoe and effective_damage > 0.0:
 					var aoe_source: Node = CombatUnit.safe_attacker(missile.source)
 					_spawn_aoe(missile.global_position, missile.altitude,
 						effective_damage, missile.team, unit, aoe_source)
 				# 连锁弹头逐目标去重。
+				if hit_trace:
+					_record_hit_cost("aoe",hit_phase)
 				if missile.penetrates_after_hit:
 					missile.remember_penetration_hit(hit_unit)
 				# 连锁弹头：不追踪新目标，严格沿命中瞬间的原航向继续。
@@ -608,17 +631,36 @@ func _physics_process(delta: float) -> void:
 				break
 
 	# ── AOE 区域更新 ──
+	if detail:
+		PerfBuckets.tick("missile_phys.collision", Time.get_ticks_usec() - phase_start)
+		phase_start = Time.get_ticks_usec()
 	PerfBuckets.count("missile_target_full_pairs", broadphase_queries * target_list.size())
 	PerfBuckets.count("missile_target_candidates", broadphase_candidates)
 	_update_aoe_zones(delta)
 	# ── 命中闪光更新 ──
 	_update_hit_flashes(delta)
+	if detail:
+		PerfBuckets.tick("missile_phys.effects", Time.get_ticks_usec() - phase_start)
+		phase_start = Time.get_ticks_usec()
 	# ── 帧级共享快照构建（放在命中检测之后；保证击杀已结算的目标 is_destroyed=true 写入快照，
 	#    供同帧后运行的 Missile._physics_process 读取，与改动前直接读 target.is_destroyed 一致）──
 	_build_frame_snapshot()
+	if detail:
+		PerfBuckets.tick("missile_phys.snapshot", Time.get_ticks_usec() - phase_start)
 	# 性能埋点（此前 MissileManager 全无 PerfBuckets 覆盖）：命中检测 + AOE + 命中闪光 + 快照
 	PerfBuckets.tick("missile_phys", Time.get_ticks_usec() - _t0)
 	PerfBuckets.set_value("missile_count", get_child_count())
+
+func _record_hit_cost(phase: String, started_usec: int) -> int:
+	var elapsed := maxi(0,Time.get_ticks_usec()-started_usec)
+	PerfBuckets.tick("missile_phys.hit."+phase,elapsed)
+	var row: Dictionary = hit_cost_us.get(phase,{"count":0,"first":elapsed,"max":0,"total":0})
+	row.count+=1
+	row.max=maxi(int(row.max),elapsed)
+	row.total+=elapsed
+	hit_cost_us[phase]=row
+	return Time.get_ticks_usec()
+
 
 ## 定距空爆纯规则：用实际累计路径判定，避免弯曲 VLS 用出生点位移提前引爆。
 static func distance_airburst_ready(missile: Missile) -> bool:
@@ -630,6 +672,7 @@ static func distance_airburst_ready(missile: Missile) -> bool:
 
 
 func _detonate_distance_airburst(missile: Missile) -> void:
+	PerfBuckets.mark_frame_event("missile_airburst")
 	var p: MissileParams = missile.params
 	var msl_name: String = p.display_name if p != null else "MSL"
 	ExplosionVFXScript.emit(get_tree(), missile.global_position, missile.heading, 1.4)

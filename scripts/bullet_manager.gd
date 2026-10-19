@@ -78,25 +78,29 @@ func total_bullet_count() -> int:
 	return _bullets.size() + visual_bullet_count()
 
 
-func _remove_visual_bullet_at(index: int) -> void:
-	var last := _visual_bullet_positions.size() - 1
-	if index != last:
-		_visual_bullet_positions[index] = _visual_bullet_positions[last]
-		_visual_bullet_velocities[index] = _visual_bullet_velocities[last]
-		_visual_bullet_lifetimes[index] = _visual_bullet_lifetimes[last]
-	_visual_bullet_positions.resize(last)
-	_visual_bullet_velocities.resize(last)
-	_visual_bullet_lifetimes.resize(last)
-
-
 func _update_visual_bullets(delta: float) -> void:
-	var i := _visual_bullet_positions.size() - 1
-	while i >= 0:
-		_visual_bullet_positions[i] += _visual_bullet_velocities[i] * delta
-		_visual_bullet_lifetimes[i] -= delta
-		if _visual_bullet_lifetimes[i] <= 0.0:
-			_remove_visual_bullet_at(i)
-		i -= 1
+	# CIWS 会同帧生成/到期成百发装饰弹；逐弹 swap-remove 会对三个 PackedArray
+	# 反复 resize。单次线性压紧保持逐帧运动与原寿命，只在末尾各缩容一次。
+	var count := _visual_bullet_positions.size()
+	var write_index := 0
+	for read_index in count:
+		var life := _visual_bullet_lifetimes[read_index] - delta
+		if life <= 0.0:
+			continue
+		var position := _visual_bullet_positions[read_index] \
+			+ _visual_bullet_velocities[read_index] * delta
+		if write_index != read_index:
+			_visual_bullet_positions[write_index] = position
+			_visual_bullet_velocities[write_index] = _visual_bullet_velocities[read_index]
+			_visual_bullet_lifetimes[write_index] = life
+		else:
+			_visual_bullet_positions[write_index] = position
+			_visual_bullet_lifetimes[write_index] = life
+		write_index += 1
+	if write_index < count:
+		_visual_bullet_positions.resize(write_index)
+		_visual_bullet_velocities.resize(write_index)
+		_visual_bullet_lifetimes.resize(write_index)
 
 
 ## 建筑拦截概率查表（与 missile_manager._building_block_prob_for_tier 一致）
@@ -637,12 +641,17 @@ func _explode_rocket(b: Dictionary, world_pos: Vector2, exclude_unit: CombatUnit
 ## 继续走正常伤害。发射时快照，射手中途被释放也不改变弹丸权限。
 func _apply_projectile_damage(unit: CombatUnit, amount: float, projectile: Dictionary,
 		kind: String, naval_hull_damage_mult: float = 1.0) -> bool:
-	return WeaponHitResolverScript.resolve_unit_hit(
+	var started := Time.get_ticks_usec() if PerfBuckets.detail_capture_enabled() else 0
+	var applied := WeaponHitResolverScript.resolve_unit_hit(
 		unit, amount, projectile.get("source", null), kind,
 		Vector2(projectile.get("pos", unit.global_position)),
 		Vector2(projectile.get("vel", Vector2.ZERO)),
 		naval_hull_damage_mult, true,
 		bool(projectile.get("ambient_tgt_nonlethal", false)))
+	if started > 0:
+		PerfBuckets.tick("bullet_phys.damage", Time.get_ticks_usec() - started)
+		PerfBuckets.mark_frame_event("bullet_damage_" + kind)
+	return applied
 
 
 static func projectile_allows_target(projectile: Dictionary, unit: CombatUnit) -> bool:
@@ -738,8 +747,12 @@ func _explode_airburst_shell(shell: Dictionary) -> void:
 
 func _physics_process(delta: float) -> void:
 	var _t0 := Time.get_ticks_usec()
+	var detail := PerfBuckets.detail_capture_enabled()
 	_update_hit_sparks(delta)
 	_update_visual_bullets(delta)
+	var phase_start := Time.get_ticks_usec() if detail else 0
+	if detail:
+		PerfBuckets.tick("bullet_phys.visual", phase_start - _t0)
 	# ── 帧级缓存：每帧重建一次，所有子弹共用 ──
 	_frame_cache_filled = false
 	if SurvivorData.ENABLE_BULLET_FRAME_CACHE:
@@ -749,10 +762,16 @@ func _physics_process(delta: float) -> void:
 	# 小单位入格 / 大单位（NavalUnit）进 large_units 线性表。命中循环只查邻格 + 大单位。
 	_unit_grid.rebuild(combat_unit_list, GRID_CELL_SIZE)
 	_rebuild_large_target_buckets()
+	if detail:
+		PerfBuckets.tick("bullet_phys.cache_grid", Time.get_ticks_usec() - phase_start)
+		phase_start = Time.get_ticks_usec()
 	_update_special_projectiles(delta)
 
 	# ── 空中鱼雷（独立循环，不污染子弹热路径）──
 	_update_torpedoes(delta)
+	if detail:
+		PerfBuckets.tick("bullet_phys.special", Time.get_ticks_usec() - phase_start)
+		phase_start = Time.get_ticks_usec()
 
 	var i := _bullets.size() - 1
 	while i >= 0:
@@ -1046,6 +1065,8 @@ func _physics_process(delta: float) -> void:
 
 	queue_redraw()
 	# 性能埋点（此前 BulletManager 全无 PerfBuckets 覆盖 → 帧时间盲区）：
+	if detail:
+		PerfBuckets.tick("bullet_phys.collision", Time.get_ticks_usec() - phase_start)
 	# 物理+命中循环耗时 + 当前子弹总数（CIWS 弹幕高峰用于诊断）
 	PerfBuckets.tick("bullet_phys", Time.get_ticks_usec() - _t0)
 	PerfBuckets.set_value("bullet_count", total_bullet_count())

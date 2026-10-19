@@ -336,6 +336,18 @@ func _reset_transition_state() -> void:
 ## points_capped：三轴点数已封顶（spec evolution-attribute-gates §2.2 v9）——
 ## 选卡仍得技能但不再加点，徽章去掉"+1"避免撒谎
 func populate(choices: Array[Dictionary], points_capped: bool = false) -> void:
+	_fill_cards(choices, points_capped)
+	_schedule_input_unlock()
+
+
+## Loading 预热专用（SurvivorRuntimePrewarm）：用真实卡片控件——同字体、字号、换行宽度、
+## 同视口缩放——排一批升级文本，交由调用方让整层透明绘制一帧，使系统回退中文字体查找、
+## 字形栅格化与字形纹理上传在 Loading 完成。不调度输入解锁、不发信号。
+func prewarm_render_batch(choices: Array[Dictionary]) -> void:
+	_fill_cards(choices, false)
+
+
+func _fill_cards(choices: Array[Dictionary], points_capped: bool) -> void:
 	_populate_generation += 1
 	_choices.clear()
 	for choice in choices:
@@ -381,10 +393,11 @@ func populate(choices: Array[Dictionary], points_capped: bool = false) -> void:
 			var primary_text := Color(0.055, 0.06, 0.075) if light_label else Color(0.94, 0.96, 1.0)
 			var secondary_text := Color(0.11, 0.12, 0.15, 0.96) if light_label else Color(0.73, 0.79, 0.88)
 			_name_labels[i].text = tr(str(choice.get("name", "")))
-			_name_labels[i].add_theme_color_override("font_color", primary_text)
+			_set_font_color(_name_labels[i], primary_text)
 			_description_labels[i].text = _description_bbcode(choice, secondary_text)
 			if i < _axis_badges.size():
 				var ab := _axis_badges[i]
+				ab.begin_bulk_theme_override()
 				var axis_name := tr(str(SurvivorData.AXIS_I18N_KEY.get(axis, "")))
 				ab.text = axis_name if points_capped else "%s +1" % axis_name
 				var axis_display := axis_color
@@ -397,15 +410,18 @@ func populate(choices: Array[Dictionary], points_capped: bool = false) -> void:
 					ab_bg.border_color = badge_color
 					ab_bg.border_width_left = 4
 					ab_bg.bg_color = Color(badge_color.r, badge_color.g, badge_color.b, 0.12)
+				ab.end_bulk_theme_override()
 				ab.visible = true
 			if i < _source_badges.size():
 				var source_badge := _source_badges[i]
+				source_badge.begin_bulk_theme_override()
 				var is_airframe_bonus := bool(choice.get("airframe_bonus_offer", false))
 				source_badge.text = "◆ %s" % tr("AIRFRAME_AFFINITY_CARD_BADGE")
 				source_badge.add_theme_color_override("font_color", axis_color.lightened(0.18))
 				var source_style := source_badge.get_theme_stylebox("normal") as StyleBoxFlat
 				source_style.border_color = Color(axis_color, 0.88)
 				source_style.bg_color = Color(0.01, 0.02, 0.025, 0.94)
+				source_badge.end_bulk_theme_override()
 				source_badge.visible = is_airframe_bonus
 
 			var rarity_label: String = ""
@@ -413,6 +429,7 @@ func populate(choices: Array[Dictionary], points_capped: bool = false) -> void:
 				rarity_label = tr(SurvivorData.RARITY_LABEL_KEYS[rarity])
 			if i < _rarity_badges.size():
 				var badge := _rarity_badges[i]
+				badge.begin_bulk_theme_override()
 				badge.text = rarity_label
 				var badge_style := badge.get_theme_stylebox("normal") as StyleBoxFlat
 				if light_label:
@@ -426,6 +443,7 @@ func populate(choices: Array[Dictionary], points_capped: bool = false) -> void:
 					badge_style.border_color = Color(rarity_color, 0.52)
 					badge_style.set_border_width_all(1)
 					badge.add_theme_color_override("font_color", rarity_color.lightened(0.10))
+				badge.end_bulk_theme_override()
 				badge.visible = rarity_label != ""
 
 			# 归属角标（skills-720 §1.2）：通用◈全队 / 品类=系名+轴色 / 王牌金色 / 队级单件
@@ -455,7 +473,7 @@ func populate(choices: Array[Dictionary], points_capped: bool = false) -> void:
 				if mp != &"":
 					parts.append(tr("UPGRADE_MILESTONE_PLUS_FMT") % tr(str(SurvivorData.AXIS_I18N_KEY.get(mp, ""))))
 				sb.text = " · ".join(PackedStringArray(parts))
-				sb.add_theme_color_override("font_color", sb_color.darkened(0.42) if light_label else sb_color)
+				_set_font_color(sb, sb_color.darkened(0.42) if light_label else sb_color)
 				sb.visible = true
 
 			# 状态词条解释：先填内容，默认隐藏；hover / focus 再浮现。
@@ -471,7 +489,9 @@ func populate(choices: Array[Dictionary], points_capped: bool = false) -> void:
 				_note_panels[i].modulate.a = 0.0
 				_note_panels[i].position = Vector2.ZERO
 				var note_style := _note_panels[i].get_theme_stylebox("panel") as StyleBoxFlat
-				note_style.border_color = Color(frame_color, 0.86)
+				var note_border := Color(frame_color, 0.86)
+				if note_style.border_color != note_border:
+					note_style.border_color = note_border
 
 			if i < _flash_frames.size():
 				_flash_frames[i].visible = false
@@ -496,7 +516,6 @@ func populate(choices: Array[Dictionary], points_capped: bool = false) -> void:
 				_source_badges[i].visible = false
 		if i < _cards.size():
 			_cards[i].visible = i < choices.size()
-	_schedule_input_unlock()
 
 
 ## pause-process timer 让保护时间在游戏硬暂停期间仍正常流逝；generation 防旧弹窗回调串场。
@@ -562,6 +581,15 @@ func _warning_prefix_length(text: String, sentence_count: int) -> int:
 			return text.length()
 		cursor = boundary + advance
 	return cursor
+
+
+## 字色未变化时不重写覆盖：在树控件每次写主题覆盖都会同步重建主题缓存（每次约 0.1~0.3ms），
+## 弹窗一次填卡的十几次重建正是 populate 的主要同步耗时。最终覆盖值与直接写入相同。
+static func _set_font_color(control: Control, color: Color) -> void:
+	if control.has_theme_color_override("font_color") \
+			and control.get_theme_color("font_color") == color:
+		return
+	control.add_theme_color_override("font_color", color)
 
 
 func _escape_bbcode(text: String) -> String:

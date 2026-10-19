@@ -12,6 +12,20 @@ func run() -> Dictionary:
 	_test_nearby_superset_and_far_cull()
 	_test_naval_always_present()
 	_test_target_order_preserved()
+	var cost_manager := MissileManager.new()
+	cost_manager._record_hit_cost("audio",Time.get_ticks_usec()-1000)
+	var first_cost: int = cost_manager.hit_cost_us.audio.first
+	cost_manager._record_hit_cost("audio",Time.get_ticks_usec())
+	_check(cost_manager.hit_cost_us.audio.count==2 and cost_manager.hit_cost_us.audio.first==first_cost and cost_manager.hit_cost_us.audio.max>=first_cost and first_cost>=1000,"命中阶段保留首样本与峰值，不被后续热样本覆盖")
+	cost_manager.free()
+	_check(AudioManager.IMPACT_SFX.size()==4,"只提前持有四种既有命中音效")
+	_check(AudioManager.WEAPON_SFX.size()==6,"提前持有六种既有武器音效，不预载音乐或引擎音库")
+	for id: String in AudioManager.WEAPON_SFX:
+		var stream := AudioManager._get_sfx(id)
+		_check(stream!=null and stream==AudioManager.WEAPON_SFX[id] and stream.resource_path==AudioManager.SFX_FILES[id] and stream==AudioManager._get_sfx(id),"武器音效来源与重复读取身份不变："+id)
+	for id: String in AudioManager.IMPACT_SFX:
+		var stream := AudioManager._get_sfx(id)
+		_check(stream!=null and stream==AudioManager.IMPACT_SFX[id] and stream.resource_path==AudioManager.SFX_FILES[id] and stream==AudioManager._get_sfx(id),"命中音效路径与重复读取身份不变："+id)
 	_cleanup()
 	print("──────── 结果：%d 通过 / %d 失败 ────────\n" % [_passed, _failed])
 	return {"passed": _passed, "failed": _failed}

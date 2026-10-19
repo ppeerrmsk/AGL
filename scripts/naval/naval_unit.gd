@@ -1,5 +1,6 @@
 class_name NavalUnit
 extends CombatUnit
+const FrameRedraw := preload("res://scripts/rendering/visual_redraw_queue.gd")
 
 const MOUNT_DETAIL_MIN_VIEW_SCALE: float = 0.26
 
@@ -188,7 +189,7 @@ func _physics_process(delta: float) -> void:
 func _physics_process_impl(delta: float) -> void:
 	if is_destroyed:
 		_update_destroy(delta)
-		queue_redraw()
+		FrameRedraw.request(self)
 		return
 
 	# 状态效果倒计时（船只识别 JAM；其它状态被 apply_status 覆写直接丢弃，不会进字典）
@@ -206,7 +207,7 @@ func _physics_process_impl(delta: float) -> void:
 	var zoom_q := int(get_viewport_transform().get_scale().x * 100.0)
 	if zoom_q != _last_zoom_quant:
 		_last_zoom_quant = zoom_q
-		queue_redraw()
+		FrameRedraw.request(self)
 
 	# LOD 判定：玩家远 → 节流武器 + 绘制
 	_lod_frame += 1
@@ -224,7 +225,7 @@ func _physics_process_impl(delta: float) -> void:
 		_weak_pulse_time += sub_delta
 
 	if _should_redraw():
-		queue_redraw()
+		FrameRedraw.request(self)
 
 ## 判断本帧是否需要 _draw 重新提交：连续动画状态 + 状态变化事件 + 标签整数级变化
 ## 注意：连续动画分支返回 true 之前必须把"会触发状态机的"缓存字段同步好，
@@ -571,7 +572,7 @@ func take_atmosphere_damage_at(amount: float, _hit_pos: Vector2) -> void:
 	if is_destroyed or hull_hp_max <= 0.0 or hull_hp <= 1.0:
 		return
 	hull_hp = maxf(hull_hp - maxf(amount, 0.0), 1.0)
-	queue_redraw()
+	FrameRedraw.request(self)
 
 ## 船只识别 JAM（武器禁射）。其它状态（SLOW/FEAR/BLOODLUST/OVERLOAD/STEALTH/INVINCIBLE）
 ## 对船没有任何作用通路 —— 不写进 status_effects，避免字典里堆积永不衰减的死条目

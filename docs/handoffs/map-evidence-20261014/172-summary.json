@@ -1,0 +1,31 @@
+{
+  "bindings": {
+    "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-global-unified-01\\detail_04_00.json": "2d39b86d82f42e628cb827e035ef6e74b1b27141466520ce4f0e0926979df15d",
+    "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-bay-volume\\r400-detail_04_00-source\\city.json": "5202cc4e63ef3ab4cc36ac9e7433df0f8ef3d910761d3e790bcb1e336fc4b25a",
+    "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-bay-volume\\r400-detail_04_00-layers\\manifest.json": "883acb25a0ff4106c8239a7383d15791a851458a3350a921f6371bb82af0a2d8"
+  },
+  "source_buildings": 23592,
+  "matched_buildings": 23592,
+  "failures": [],
+  "complete_groups": 2049,
+  "unique_removed_faces": 388080,
+  "layer_semantics": [
+    "fallback_height_buildings",
+    "tagged_height_buildings",
+    "fixed_ground"
+  ],
+  "layers_coexist": true,
+  "runtime_integrated": false,
+  "summary_provenance": {
+    "original": "tmp/tokyo-complete-production-02/native-members-172/report.json",
+    "sha256": "f1185e8722cb2b4d954e4c7e7addd45acc516601c9b2fa0bf1b6372f2e19f7ef",
+    "omitted_arrays": [
+      "groups"
+    ],
+    "original_in_frozen_zip": true
+  },
+  "original_group_count": 2050,
+  "incomplete_group_ids": [
+    2031
+  ]
+}

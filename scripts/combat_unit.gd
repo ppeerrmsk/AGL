@@ -165,7 +165,7 @@ func set_deadair_exposure_ratio(value: float) -> void:
 	var old_segment := ceili(deadair_exposure_ratio * 8.0)
 	deadair_exposure_ratio = clampf(value, 0.0, 1.0)
 	if ceili(deadair_exposure_ratio * 8.0) != old_segment:
-		queue_redraw()
+		preload("res://scripts/rendering/visual_redraw_queue.gd").request(self)
 
 ## 施加状态。
 ## mode 语义：

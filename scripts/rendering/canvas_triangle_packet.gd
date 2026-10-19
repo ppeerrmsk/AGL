@@ -91,7 +91,10 @@ static func submit_arrays(canvas_item: RID, indices: PackedInt32Array,
 	if not canvas_item.is_valid() or points.is_empty() or indices.is_empty() \
 			or colors.size() != points.size() or indices.size() % 3 != 0:
 		return false
+	var started := Time.get_ticks_usec() if PerfBuckets.extended_cpu_trace_enabled else 0
 	RenderingServer.canvas_item_add_triangle_array(canvas_item, indices, points, colors)
+	if started > 0:
+		PerfBuckets.tick("function.canvas_triangle_submit", Time.get_ticks_usec() - started)
 	return true
 
 

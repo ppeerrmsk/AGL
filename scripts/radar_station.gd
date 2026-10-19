@@ -15,15 +15,25 @@ func _ready() -> void:
 	_dish_rotation = randf() * TAU  # 随机初始角度
 
 func _physics_process(delta: float) -> void:
+	if not PerfBuckets.extended_cpu_trace_enabled:
+		_physics_process_radar_station_untraced(delta)
+		return
+	var started_usec := Time.get_ticks_usec()
+	var shared_before_usec := PerfBuckets.extended_cpu_shared_usec
+	_physics_process_radar_station_untraced(delta)
+	PerfBuckets.finish_extended_cpu("radar_station_phys", started_usec, shared_before_usec)
+
+
+func _physics_process_radar_station_untraced(delta: float) -> void:
 	if is_destroyed:
 		_update_destroy(delta)
-		queue_redraw()
+		FrameRedraw.request(self)
 		return
 
 	_update_movement(delta)
 	_update_dish(delta)
 	_update_datalink(delta)
-	queue_redraw()
+	FrameRedraw.request(self)
 
 ## 雷达盘持续旋转
 func _update_dish(delta: float) -> void:
@@ -95,7 +105,8 @@ func _draw() -> void:
 		return
 	if is_hovered:
 		_draw_radar_cone()
-	_draw_radar_icon()
+	if not has_meta(&"volume_3d_ground"):
+		_draw_radar_icon()
 	_draw_datalink_range()
 	_draw_data_label()
 

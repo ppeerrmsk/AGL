@@ -1,0 +1,1435 @@
+{
+  "schema_version": 1,
+  "inventory_snapshot": {
+    "date": "2026-09-06",
+    "aircraft_params_display_names": 97,
+    "canonical_airframe_keys": 71,
+    "note": "快照只记录本次起点；审计从实际 AircraftParams、显示名映射和特种映射重算，不把数量冻结为上限。"
+  },
+  "policy": {
+    "identity": "运行时以 canonical airframe key 识别；显示名、呼号、品质和档案后缀不得改变模型命中。",
+    "real_aircraft": "继承已审 PNG manifest 的顶视来源，并用同一可信三视图补足侧/前结构。",
+    "concepts": "只按项目现有轮廓和批准 spec 制作并明确标为 project concept；不把臆造三视图当现实资料。",
+    "completion": "每个正式 key 必须有可重复生成源、来源/许可边界、专属或批准共享几何、顶/侧/前/游戏视角 QA 与真实运行时接入。",
+    "fallback": "PNG 保留；正式资源未完成时显式回退，不能以通用 fighter 代理冒充完成。"
+  },
+  "runtime_aliases": {
+    "AWACS": {
+      "canonical_key": "tu160",
+      "source_path": "res://scripts/events/awacs_support_event.gd",
+      "reason": "事件从正式 Tu-160 资源创建后改显示名；改名只影响玩家可见身份，不改变机体几何。"
+    }
+  },
+  "budgets": {
+    "default_triangle_max": 600,
+    "lod1_triangle_max": 320,
+    "lod2_triangle_max": 128,
+    "surface_max": 1,
+    "material_max": 1,
+    "runtime_generation": "prewarm_once_shared_read_only_mesh",
+    "visual_lod_contract": "LOD0 为完整模型；LOD1 保留主要连通结构与局部高度，仅在 18px 以下使用；LOD2 为极远轮廓，仅在 8px 以下进入并在 11px 以上退出。",
+    "note": "预算是单机制作上限，不替代整场性能门；BOSS 超限须在对应记录中显式批准。"
+  },
+  "airframes": {
+    "a10": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "a10",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "A",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "a12": {
+      "reference": {
+        "kind": "project_concept",
+        "aliases": [
+          "A-12 Avenger II"
+        ],
+        "source_path": "res://resources/aircraft_silhouettes/reference_manifest.json",
+        "source_symbol": "aircraft.a12",
+        "license": "AGL project-authored",
+        "fidelity": "取消的纸面方案缺少确定最终三视图；只以公开平面方案为边界制作项目解释，不声明工程写实"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "H",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "a6e": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "a6e",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "F",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "a7": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "a7",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "F",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "aegis_uav": {
+      "reference": {
+        "kind": "project_concept",
+        "aliases": [
+          "Aegis UAV"
+        ],
+        "source_path": "res://scripts/aircraft_renderer.gd",
+        "source_symbol": "draw_aircraft_icon",
+        "license": "AGL project-authored",
+        "fidelity": "以项目既有轮廓、参数与已批准 spec 为设计依据；不声明现实三视图考据"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::LEGACY_MODEL_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "I",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "af03": {
+      "reference": {
+        "kind": "project_concept",
+        "aliases": [
+          "AF-03"
+        ],
+        "source_path": "res://scripts/aircraft_renderer.gd",
+        "source_symbol": "draw_aircraft_icon",
+        "license": "AGL project-authored",
+        "fidelity": "以项目既有轮廓、参数与已批准 spec 为设计依据；不声明现实三视图考据"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::LEGACY_MODEL_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "J",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "ah64": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "ah64",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "I",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "ax00": {
+      "reference": {
+        "kind": "project_concept",
+        "aliases": [
+          "AX-00 Starweaver"
+        ],
+        "source_path": "res://scripts/aircraft_renderer.gd",
+        "source_symbol": "draw_aircraft_icon",
+        "license": "AGL project-authored",
+        "fidelity": "以项目既有轮廓、参数与已批准 spec 为设计依据；不声明现实三视图考据"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::LEGACY_MODEL_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "J",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "b1b": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "b1b",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "D",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "ch47": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "ch47",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "I",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "cre": {
+      "reference": {
+        "kind": "project_concept",
+        "aliases": [
+          "Cre"
+        ],
+        "source_path": "res://scripts/aircraft_renderer.gd",
+        "source_symbol": "draw_aircraft_icon",
+        "license": "AGL project-authored",
+        "fidelity": "以项目既有轮廓、参数与已批准 spec 为设计依据；不声明现实三视图考据"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::LEGACY_MODEL_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "J",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "deadair": {
+      "reference": {
+        "kind": "project_concept",
+        "aliases": [
+          "DEADAIR"
+        ],
+        "source_path": "res://scripts/aircraft_renderer.gd",
+        "source_symbol": "draw_aircraft_icon deadair branch",
+        "license": "AGL project-authored",
+        "fidelity": "以项目既有轮廓、参数与已批准 spec 为设计依据；不声明现实三视图考据"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::LEGACY_MODEL_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "K",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "ea6b": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "ea6b",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "F",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "f100": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "f100",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "E",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "f104": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "f104",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "B",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "f14": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "f14",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "A",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "f15": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "f15",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "B",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "f15smtd": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "f15smtd",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "F",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "f16": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "f16",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "C",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "f22": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "f22",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "C",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "f35": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "f35",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "C",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "f4": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "f4",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "E",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "f47": {
+      "reference": {
+        "kind": "project_concept",
+        "source_manifest_key": "f47",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json",
+        "source_path": "res://scripts/aircraft_renderer.gd",
+        "source_symbol": "draw_aircraft_icon legacy stealth geometry",
+        "license": "AGL project-authored",
+        "fidelity": "沿用项目已批准 F-47/Wraith 轮廓语汇；不声明现实 F-47 三视图考据"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "A",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "f86": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "f86",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "E",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "fa18": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "fa18",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "E",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "fa18e": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "fa18e",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "F",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "faxx": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "faxx",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "J",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "fcas": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "fcas",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "J",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "fck1": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "fck1",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "F",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "gcap": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "gcap",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "J",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "gripen": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "gripen",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "F",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "harrier": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "harrier",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "F",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "hyper_a": {
+      "reference": {
+        "kind": "project_concept",
+        "aliases": [
+          "Hyper-A G0",
+          "Hyper-A G1",
+          "Hyper-A G2",
+          "Hyper-A G3"
+        ],
+        "source_path": "res://scripts/aircraft_renderer.gd",
+        "source_symbol": "draw_hyper_a_icon",
+        "license": "AGL project-authored",
+        "fidelity": "以项目既有轮廓、参数与已批准 spec 为设计依据；不声明现实三视图考据"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::LEGACY_MODEL_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "K",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "j20": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "j20",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "G",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "j35f": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "j35f",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "G",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "j36": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "j36",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "J",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "j7": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "j7",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "G",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "jaguar": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "jaguar",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "G",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "loyal_wingman": {
+      "reference": {
+        "kind": "project_concept",
+        "aliases": [
+          "DRONE"
+        ],
+        "source_path": "res://scripts/aircraft_renderer.gd",
+        "source_symbol": "draw_drone_icon",
+        "license": "AGL project-authored",
+        "fidelity": "以项目既有轮廓、参数与已批准 spec 为设计依据；不声明现实三视图考据"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::LEGACY_MODEL_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "I",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "mig21f13": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "mig21f13",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "G",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "mig23": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "mig23",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "G",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "mig29": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "mig29",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "E",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "mig31": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "mig31",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "G",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "mig41": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "mig41",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "J",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "mirage2000": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "mirage2000",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "H",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "mirage3": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "mirage3",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "G",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "mother_goose": {
+      "reference": {
+        "kind": "project_concept",
+        "aliases": [
+          "Mother Goose"
+        ],
+        "source_path": "res://scripts/experiments/volume_mesh_factory.gd",
+        "source_symbol": "aircraft(mother_goose)",
+        "license": "AGL project-authored",
+        "fidelity": "以项目既有轮廓、参数与已批准 spec 为设计依据；不声明现实三视图考据"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::LEGACY_MODEL_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "K",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "mq109_family": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "mq109_family",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "I",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "mq112": {
+      "reference": {
+        "kind": "project_concept",
+        "aliases": [
+          "MQ-112"
+        ],
+        "source_path": "res://scripts/aircraft_renderer.gd",
+        "source_symbol": "draw_aircraft_icon",
+        "license": "AGL project-authored",
+        "fidelity": "以项目既有轮廓、参数与已批准 spec 为设计依据；不声明现实三视图考据"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::LEGACY_MODEL_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "I",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "mqx": {
+      "reference": {
+        "kind": "project_concept",
+        "aliases": [
+          "MQ-X"
+        ],
+        "source_path": "res://scripts/aircraft_renderer.gd",
+        "source_symbol": "draw_drone_icon",
+        "license": "AGL project-authored",
+        "fidelity": "以项目既有轮廓、参数与已批准 spec 为设计依据；不声明现实三视图考据"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::LEGACY_MODEL_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "I",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "probe": {
+      "reference": {
+        "kind": "project_concept",
+        "aliases": [
+          "Probe"
+        ],
+        "source_path": "res://scripts/aircraft_renderer.gd",
+        "source_symbol": "draw_aircraft_icon",
+        "license": "AGL project-authored",
+        "fidelity": "以项目既有轮廓、参数与已批准 spec 为设计依据；不声明现实三视图考据"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::LEGACY_MODEL_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "I",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "q5": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "q5",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "H",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "rafale": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "rafale",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "E",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "sentinel": {
+      "reference": {
+        "kind": "project_concept",
+        "aliases": [
+          "Sentinel"
+        ],
+        "source_path": "res://scripts/aircraft_renderer.gd",
+        "source_symbol": "draw_commander_icon",
+        "license": "AGL project-authored",
+        "fidelity": "以项目既有轮廓、参数与已批准 spec 为设计依据；不声明现实三视图考据"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::LEGACY_MODEL_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "K",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "snowblind": {
+      "reference": {
+        "kind": "project_concept",
+        "aliases": [
+          "Snowblind"
+        ],
+        "source_path": "res://scripts/aircraft_renderer.gd",
+        "source_symbol": "draw_aircraft_icon",
+        "license": "AGL project-authored",
+        "fidelity": "以项目既有轮廓、参数与已批准 spec 为设计依据；不声明现实三视图考据"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::LEGACY_MODEL_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "K",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "su27": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "su27",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "E",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "su34": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "su34",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "H",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "su47": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "su47",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "H",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "su57": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "su57",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "H",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "tornado": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "tornado",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "H",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "tu160": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "tu160",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "D",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "typhoon": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "typhoon",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "E",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "viggen": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "viggen",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "H",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "x02": {
+      "reference": {
+        "kind": "project_concept",
+        "aliases": [
+          "X-02",
+          "X-02 Wyvern"
+        ],
+        "source_path": "res://scripts/aircraft_renderer.gd",
+        "source_symbol": "draw_aircraft_icon",
+        "license": "AGL project-authored",
+        "fidelity": "以项目既有轮廓、参数与已批准 spec 为设计依据；不声明现实三视图考据"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::LEGACY_MODEL_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "K",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "x09": {
+      "reference": {
+        "kind": "project_concept",
+        "aliases": [
+          "X-09 Thunder Owl"
+        ],
+        "source_path": "res://scripts/aircraft_renderer.gd",
+        "source_symbol": "draw_aircraft_icon",
+        "license": "AGL project-authored",
+        "fidelity": "以项目既有轮廓、参数与已批准 spec 为设计依据；不声明现实三视图考据"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::LEGACY_MODEL_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "K",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "x13": {
+      "reference": {
+        "kind": "project_concept",
+        "aliases": [
+          "X-13 Skyfalcon"
+        ],
+        "source_path": "res://scripts/aircraft_renderer.gd",
+        "source_symbol": "draw_aircraft_icon",
+        "license": "AGL project-authored",
+        "fidelity": "以项目既有轮廓、参数与已批准 spec 为设计依据；不声明现实三视图考据"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::LEGACY_MODEL_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "K",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "x21": {
+      "reference": {
+        "kind": "project_concept",
+        "aliases": [
+          "X-21 Longreach"
+        ],
+        "source_path": "res://scripts/aircraft_renderer.gd",
+        "source_symbol": "draw_aircraft_icon",
+        "license": "AGL project-authored",
+        "fidelity": "以项目既有轮廓、参数与已批准 spec 为设计依据；不声明现实三视图考据"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::LEGACY_MODEL_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "L",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "x44": {
+      "reference": {
+        "kind": "project_concept",
+        "aliases": [
+          "X-44 Anvil"
+        ],
+        "source_path": "res://scripts/aircraft_renderer.gd",
+        "source_symbol": "draw_aircraft_icon",
+        "license": "AGL project-authored",
+        "fidelity": "以项目既有轮廓、参数与已批准 spec 为设计依据；不声明现实三视图考据"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::LEGACY_MODEL_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "L",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "x77": {
+      "reference": {
+        "kind": "project_concept",
+        "aliases": [
+          "X-77 Phantom Raven"
+        ],
+        "source_path": "res://scripts/aircraft_renderer.gd",
+        "source_symbol": "draw_aircraft_icon",
+        "license": "AGL project-authored",
+        "fidelity": "以项目既有轮廓、参数与已批准 spec 为设计依据；不声明现实三视图考据"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::LEGACY_MODEL_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "L",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "x90": {
+      "reference": {
+        "kind": "project_concept",
+        "aliases": [
+          "X-90 Skywhale"
+        ],
+        "source_path": "res://scripts/aircraft_renderer.gd",
+        "source_symbol": "draw_aircraft_icon",
+        "license": "AGL project-authored",
+        "fidelity": "以项目既有轮廓、参数与已批准 spec 为设计依据；不声明现实三视图考据"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::LEGACY_MODEL_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "L",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    },
+    "yf23": {
+      "reference": {
+        "kind": "silhouette_manifest",
+        "key": "yf23",
+        "path": "res://resources/aircraft_silhouettes/reference_manifest.json"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::DISPLAY_KEYS",
+      "production_status": "multiview_runtime_qa_complete_formal_pending",
+      "production_batch": "D",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation"
+    }
+  },
+  "qa_evidence": {
+    "date": "2026-09-06",
+    "multiview_command": "bench\\run.cmd volume_aircraft_multiview 1 300 Shadow Visual",
+    "multiview_captures": "res://bench/results/volume_aircraft_multiview_page_01..10_{top,side,front,gameplay}.png",
+    "multiview_review": "71/71 canonical airframes manually reviewed in top, side, front and gameplay views; Mother Goose uses dedicated framing.",
+    "runtime_command": "bench\\run.cmd volume_aircraft_runtime 1 300 Shadow Visual",
+    "runtime_result": "244/244 real Aircraft routing, stable aliases, animated rotors, release cleanup and PNG fallback passed.",
+    "runtime_captures": "res://bench/results/volume_aircraft_runtime_qa_page_01..09.png"
+  }
+}

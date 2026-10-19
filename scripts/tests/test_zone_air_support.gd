@@ -55,6 +55,8 @@ func run() -> void:
 	_test_visible_spawn_deadlock_recovery()
 	_test_hostile_zone_edge_ingress()
 	_test_conquered_garrison_egress()
+	_test_camera_away_retirement()
+	_test_retirement_distance_and_budget()
 	_test_support_count()
 	_test_activation_gate_and_once()
 	_test_ally_label_identity()
@@ -71,78 +73,38 @@ func run() -> void:
 
 func _test_visible_spawn_deadlock_recovery() -> void:
 	var zones := ZoneData.new(Callable(), false, true)
-	for zone in ZoneData.ZONES:
+	for zone in zones.get_zone_definitions():
 		zones.set_state(zone["id"], ZoneData.State.LOCKED)
-	var zone_e := zones.get_zone_by_id(&"E")
-	var center: Vector2 = zone_e["center"]
-	var radius: float = float(zone_e["radius"])
-	var mode := VisibleSpawnMode.new()
-	zones.set_mission_type(&"E", "air")
-
-	# 截图回归：任务已选中，玩家停在 E 圈边外约 300m；旧代码会被可见性门永久拦住。
-	var selected_player := Aircraft.new()
-	selected_player.position = center + Vector2(radius + 150.0, 0.0)
 	zones.set_state(&"E", ZoneData.State.AVAILABLE)
-	zones.select_zone(&"E")
+	zones._difficulties[&"E"] = 2
 	zones._rewards[&"E"] = {"id": "spawn_lead_probe"}
-	var selected_mission := SpawnProbeMission.new()
-	selected_mission.mode = mode
-	selected_mission._zones = zones
-	selected_mission._player = selected_player
-	selected_mission._ensure_spawned_for_active_zones()
-	_check("高价值任务先完整等待 6 秒广播前置",
-		selected_mission.spawn_calls.is_empty()
-		and selected_mission._spawn_lead_timers.has(&"E"))
-	selected_mission._ensure_spawned_for_active_zones(ZoneMission.MISSION_SPAWN_RADIO_LEAD_S)
-	_check("已选中纯空战并抵达圈边时改走边缘入场，不被可见性门锁死",
-		selected_mission.spawn_calls == [&"E"])
-
-	# 一旦进入 LIVE，同生命周期内取消选择也不能把战斗暂停或重抽。
-	zones.set_state(&"E", ZoneData.State.AVAILABLE)
-	zones.selected_id = &""
-	selected_player.position = center + Vector2(radius + 5000.0, 0.0)
-	selected_mission._ensure_spawned_for_active_zones()
-	_check("已生成战区取消选择后仍保持同一批 LIVE 内容",
-		selected_mission.spawn_calls == [&"E"]
-		and selected_mission._spawned_zones.has(&"E"))
-
-	# 仍在远处的任务继续守住“不在玩家画面内刷新”铁则。
-	selected_mission._spawned_zones.clear()
-	selected_mission.spawn_calls.clear()
+	var mode := ToggleVisibilityMode.new()
+	mode.everything_visible = false
+	var player := Aircraft.new()
+	player.position = zones.get_zone_center(&"E") + Vector2(30000.0, 0.0)
+	var mission := SpawnProbeMission.new()
+	mission.mode = mode
+	mission._zones = zones
+	mission._player = player
 	zones.select_zone(&"E")
-	selected_player.position = center + Vector2(radius
-		+ ZoneMission.VISIBLE_SPAWN_RECOVERY_APPROACH_PX + 1.0, 0.0)
-	selected_mission._ensure_spawned_for_active_zones()
-	selected_mission._ensure_spawned_for_active_zones(ZoneMission.MISSION_SPAWN_RADIO_LEAD_S)
-	_check("已选中但尚未抵达时仍禁止画面内生成",
-		selected_mission.spawn_calls.is_empty())
-	_check("可见性阻塞时保留归零计时器且不重复广播",
-		selected_mission._spawn_lead_timers.has(&"E")
-		and is_zero_approx(float(selected_mission._spawn_lead_timers[&"E"])))
-
-	# 玩家手动飞入未选中战区也必须能开始任务，不能形成空圈。
-	zones.set_state(&"E", ZoneData.State.AVAILABLE)
-	zones.selected_id = &""
-	selected_player.position = center
-	selected_mission._ensure_spawned_for_active_zones()
-	_check("手动进入未选中战区时恢复实体生成",
-		selected_mission.spawn_calls == [&"E"])
-
-	# 静态任务仍保留原有死锁恢复；本次只改变其中空中驻守队的出生路径。
-	selected_mission._spawned_zones.clear()
-	selected_mission.spawn_calls.clear()
-	selected_mission._spawn_lead_timers.clear()
-	zones.set_mission_type(&"E", "ground")
-	selected_player.position = center
-	selected_mission._ensure_spawned_for_active_zones()
-	selected_mission._ensure_spawned_for_active_zones(ZoneMission.MISSION_SPAWN_RADIO_LEAD_S)
-	_check("地面/舰船类任务保留既有可见性死锁恢复",
-		selected_mission.spawn_calls == [&"E"])
-
-	selected_mission.free()
-	selected_player.free()
+	mission._ensure_spawned_for_active_zones()
+	_check("画外选中任务仍先广播", mission.spawn_calls.is_empty() and mission._spawn_lead_timers.has(&"E"))
+	mode.everything_visible = true
+	mission.prepare_visible_zones()
+	_check("广播中把镜头移向任务时，首个绘制帧前立即准备", mission.spawn_calls == [&"E"] and mission._spawn_lead_timers.is_empty())
+	mission.prepare_visible_zones()
+	_check("观察预加载保持目标身份", mission.spawn_calls == [&"E"])
+	for mission_type in ["ground", "naval", "air", "bomber_escort", "airfield"]:
+		mission._spawned_zones.clear()
+		mission.spawn_calls.clear()
+		zones.set_state(&"E", ZoneData.State.AVAILABLE)
+		zones.selected_id = &""
+		zones.set_mission_type(&"E", mission_type)
+		mission.prepare_visible_zones()
+		_check("远距未选中 %s 首帧准备" % mission_type, mission.spawn_calls == [&"E"])
+	mission.free()
+	player.free()
 	mode.free()
-
 
 func _test_hostile_zone_edge_ingress() -> void:
 	var mode := StubMode.new()
@@ -196,6 +158,8 @@ func _test_conquered_garrison_egress() -> void:
 	var mode := ToggleVisibilityMode.new()
 	var mission := ZoneMission.new()
 	mission.mode = mode
+	var player := Aircraft.new()
+	mission._player = player
 	var enemy := _make_aircraft(CombatUnit.TEAM_HOSTILE, Vector2(1200.0, 800.0))
 	enemy.params = AircraftParams.new()
 	enemy.params.max_speed = 1400.0
@@ -226,15 +190,78 @@ func _test_conquered_garrison_egress() -> void:
 	mode.everything_visible = true
 	mission._flush_pending_despawn(ZoneMission.RETIRE_VISIBILITY_CHECK_INTERVAL_S)
 	mode.everything_visible = false
-	mission._flush_pending_despawn(1.8)
+	mission._flush_pending_despawn(30.0)
+	_check("仍在地图内的撤离机离屏三十秒也不会被删除", not enemy.is_queued_for_deletion())
+	enemy.global_position = Vector2(MapBoundary.world_half_px() + 1000.0, 0.0)
+	mission._flush_pending_despawn(7.8)
+	mode.everything_visible = true
+	mission._flush_pending_despawn(0.2)
+	mode.everything_visible = false
+	mission._flush_pending_despawn(7.8)
 	_check("重新进入视野会重置离屏宽限", not enemy.is_queued_for_deletion())
 	mission._flush_pending_despawn(0.2)
-	_check("持续离屏两秒后静默关闭实体",
+	_check("实际出界且远离玩家、持续离屏八秒后静默关闭实体",
 		enemy.is_queued_for_deletion()
 		and bool(enemy.get_meta("xp_granted", false))
 		and mission._pending_despawn.is_empty())
 
 	mission.free()
+	player.free()
+	mode.free()
+
+
+func _test_camera_away_retirement() -> void:
+	var mode := ToggleVisibilityMode.new()
+	var mission := ZoneMission.new()
+	mission.mode = mode
+	var player := Aircraft.new()
+	mission._player = player
+	var ground := GroundUnit.new()
+	mode.add_child(ground)
+	var enemy := _make_aircraft(CombatUnit.TEAM_HOSTILE, Vector2(1200.0, 800.0))
+	mode.add_child(enemy)
+	mode.everything_visible = false
+	mission._schedule_despawn(ground)
+	mission._schedule_despawn(enemy)
+	mission._flush_pending_despawn(30.0)
+	mode.everything_visible = true
+	_check("移开镜头三十秒后地面单位仍是原实体", not ground.is_queued_for_deletion())
+	_check("移开镜头不能删除尚未真正飞走的飞机", not enemy.is_queued_for_deletion())
+	mission.free()
+	player.free()
+	mode.free()
+
+
+func _test_retirement_distance_and_budget() -> void:
+	var mode := ToggleVisibilityMode.new()
+	mode.everything_visible = false
+	var mission := ZoneMission.new()
+	mission.mode = mode
+	var player := Aircraft.new()
+	mission._player = player
+	var planes: Array[Aircraft] = []
+	for i in range(9):
+		var plane := _make_aircraft(CombatUnit.TEAM_HOSTILE,
+			Vector2(MapBoundary.world_half_px() + 1000.0, float(i * 10)))
+		mode.add_child(plane)
+		planes.append(plane)
+		mission._schedule_despawn(plane)
+	player.global_position = planes[0].global_position - Vector2(1000.0, 0.0)
+	mission._flush_pending_despawn(30.0)
+	_check("图外飞机仍靠近玩家时不得回收", mission._pending_despawn.size() == 9)
+	player.global_position = Vector2.ZERO
+	mission._flush_pending_despawn(8.0)
+	var queued := 0
+	for plane in planes:
+		if plane.is_queued_for_deletion():
+			queued += 1
+	_check("整群符合释放条件时首 tick 最多回收四架", queued == 4 and mission._pending_despawn.size() == 5)
+	mission._flush_pending_despawn(0.2)
+	_check("剩余成熟队列继续分批释放", mission._pending_despawn.size() == 1)
+	mission._flush_pending_despawn(0.2)
+	_check("分批释放最终清空队列", mission._pending_despawn.is_empty())
+	mission.free()
+	player.free()
 	mode.free()
 
 
@@ -432,6 +459,10 @@ func _test_merged_weakness_ground_heal() -> void:
 
 func _test_egress_lifecycle() -> void:
 	var mission := ZoneMission.new()
+	var mode := StubMode.new()
+	var player := Aircraft.new()
+	mission.mode = mode
+	mission._player = player
 	var support := _make_aircraft(CombatUnit.TEAM_ALLY, Vector2(1000.0, 2000.0))
 	support.params = AircraftParams.new()
 	support.params.max_speed = 1200.0
@@ -462,11 +493,13 @@ func _test_egress_lifecycle() -> void:
 		support.is_afterburner and is_equal_approx(support.target_speed_kmh, 1200.0))
 
 	support.global_position = Vector2(MapBoundary.world_half_px() + 801.0, 0.0)
-	_check("飞出边界 800px 后结束生命周期",
-		mission._tick_air_support_egress(active, 0.5))
+	_check("支援飞出边界且持续离屏八秒后结束生命周期",
+		mission._tick_air_support_egress(active, 8.0))
 	_check("静默释放前标记不结算 XP", bool(support.get_meta("xp_granted", false)))
 
 	mission.free()
+	mode.free()
+	player.free()
 	if is_instance_valid(anchor) and not anchor.is_queued_for_deletion():
 		anchor.free()
 	if is_instance_valid(support) and not support.is_queued_for_deletion():

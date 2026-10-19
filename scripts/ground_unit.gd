@@ -1,5 +1,6 @@
 class_name GroundUnit
 extends CombatUnit
+const FrameRedraw := preload("res://scripts/rendering/visual_redraw_queue.gd")
 
 ## 地面单位基类：SAM、AA、雷达站、车辆等
 ## 高度固定为 0（GROUND 档），可缓慢地面移动，拥有雷达和机炮
@@ -69,7 +70,7 @@ func _physics_process(delta: float) -> void:
 func _physics_process_impl(delta: float) -> void:
 	if is_destroyed:
 		_update_destroy(delta)
-		queue_redraw()
+		FrameRedraw.request(self)
 		return
 
 	StatusEffects.tick(self, delta)
@@ -77,7 +78,7 @@ func _physics_process_impl(delta: float) -> void:
 	_update_target_selection()
 	_update_combat(delta)
 	_update_gun(delta)
-	queue_redraw()
+	FrameRedraw.request(self)
 
 # ========== 移动 ==========
 
@@ -250,6 +251,17 @@ func _update_gun(delta: float) -> void:
 
 # ========== 伤害 ==========
 
+## 任务退役只停主动运算；实体、HP、碰撞与缓存绘图留到本场景结束或真实损毁。
+func retire_in_place() -> void:
+	set_meta(&"retired_in_place", true)
+	is_mission_target = false
+	is_firing = false
+	combat_target = null
+	radar_targets.clear()
+	speed = 0.0
+	process_mode = Node.PROCESS_MODE_DISABLED
+	FrameRedraw.request(self)
+
 func take_damage(amount: float, attacker: Node = null, kind: String = "") -> void:
 	if is_destroyed:
 		return
@@ -258,6 +270,7 @@ func take_damage(amount: float, attacker: Node = null, kind: String = "") -> voi
 	if kind != "":
 		set_meta("_last_damage_kind", kind)
 	hp -= amount
+	FrameRedraw.request(self)
 	if hp <= 0.0:
 		hp = 0.0
 		_start_destroy()
@@ -273,6 +286,10 @@ func take_missile_damage(_amount: float) -> void:
 	_start_destroy()
 
 func _start_destroy() -> void:
+	# 留场单位仍走正常伤害/死亡链，不能因停算而永远停留在死亡第一帧。
+	if bool(get_meta(&"retired_in_place", false)):
+		process_mode = Node.PROCESS_MODE_INHERIT
+		set_physics_process(true)
 	# 与飞机击杀归因保持同一语义：只有有效攻击者才写入 team；自然销毁不伪装成玩家击杀。
 	var attacker: Node = null
 	if has_meta("_pending_attacker"):
@@ -330,7 +347,8 @@ func _draw_impl() -> void:
 	_draw_cloud_shadow()
 	if is_hovered:
 		_draw_radar_cone()
-	_draw_ground_icon()
+	if not has_meta(&"volume_3d_ground"):
+		_draw_ground_icon()
 	_draw_lock_indicator()
 	AircraftRenderer.draw_target_bracket(self, is_mission_target)
 	AircraftRenderer.draw_status_icons(self)
@@ -401,6 +419,8 @@ func _draw_lock_indicator() -> void:
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 func _draw_destroyed() -> void:
+	if has_meta(&"volume_3d_ground"):
+		return
 	var color := Color(0.5, 0.5, 0.5, 0.5)
 	var size := 8.0
 	draw_line(Vector2(-size, -size), Vector2(size, size), color, 2.0)

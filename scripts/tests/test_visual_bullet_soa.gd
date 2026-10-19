@@ -19,7 +19,18 @@ func run() -> Dictionary:
 	_check(manager._visual_bullet_positions[0].is_equal_approx(Vector2(0, -125)),
 		"视觉弹按原速度和 0.5px/m 比例移动")
 	manager._update_visual_bullets(1.6)
-	_check(manager.visual_bullet_count() == 0, "寿命结束使用 swap-remove 回收")
+	_check(manager.visual_bullet_count() == 0, "寿命结束由批量压紧回收")
+	manager._visual_bullet_positions = PackedVector2Array([
+		Vector2.ZERO, Vector2(10, 0), Vector2(20, 0)])
+	manager._visual_bullet_velocities = PackedVector2Array([
+		Vector2.ONE, Vector2(2, 0), Vector2(3, 0)])
+	manager._visual_bullet_lifetimes = PackedFloat32Array([0.1, 1.0, 0.1])
+	manager._update_visual_bullets(0.2)
+	_check(manager.visual_bullet_count() == 1 \
+		and manager._visual_bullet_positions[0].is_equal_approx(Vector2(10.4, 0)) \
+		and is_equal_approx(manager._visual_bullet_lifetimes[0], 0.8),
+		"同帧批量过期只保留并推进存活弹")
+	manager._update_visual_bullets(1.0)
 
 	manager.spawn_bullet(Vector2.ZERO, 0.0, 500.0, source, 10.0)
 	_check(manager._bullets.size() == 1 and manager.visual_bullet_count() == 0,

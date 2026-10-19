@@ -53,7 +53,7 @@ func _physics_process(delta: float) -> void:
 		_update_turret(delta)
 		_update_combat(delta)
 		_update_gun(delta)
-	queue_redraw()
+	FrameRedraw.request(self)
 
 
 func _nearest_incoming_missile() -> Missile:

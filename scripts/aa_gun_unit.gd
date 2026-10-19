@@ -14,9 +14,19 @@ func _ready() -> void:
 	turret_heading = heading
 
 func _physics_process(delta: float) -> void:
+	if not PerfBuckets.extended_cpu_trace_enabled:
+		_physics_process_aa_untraced(delta)
+		return
+	var started_usec := Time.get_ticks_usec()
+	var shared_before_usec := PerfBuckets.extended_cpu_shared_usec
+	_physics_process_aa_untraced(delta)
+	PerfBuckets.finish_extended_cpu("aa_phys", started_usec, shared_before_usec)
+
+
+func _physics_process_aa_untraced(delta: float) -> void:
 	if is_destroyed:
 		_update_destroy(delta)
-		queue_redraw()
+		FrameRedraw.request(self)
 		return
 
 	StatusEffects.tick(self, delta)
@@ -25,7 +35,7 @@ func _physics_process(delta: float) -> void:
 	_update_turret(delta)
 	_update_combat(delta)
 	_update_gun(delta)
-	queue_redraw()
+	FrameRedraw.request(self)
 
 ## AA 无雷达，只扫描射程内最近的敌方飞机；绝不参与地面炮战。
 func _update_aa_target_selection(delta: float) -> void:
@@ -165,8 +175,12 @@ func _update_gun(delta: float) -> void:
 # ========== 绘制 ==========
 
 func _draw() -> void:
+	var diagnostic_started_usec := Time.get_ticks_usec() if PerfBuckets.extended_cpu_trace_enabled else 0
+	var diagnostic_shared_usec := PerfBuckets.extended_cpu_shared_usec
 	if is_destroyed:
 		_draw_destroyed()
+		if diagnostic_started_usec > 0:
+			PerfBuckets.finish_extended_cpu("aa_draw", diagnostic_started_usec, diagnostic_shared_usec)
 		return
 	if is_hovered:
 		_draw_attack_range()
@@ -175,6 +189,8 @@ func _draw() -> void:
 	AircraftRenderer.draw_target_bracket(self, is_mission_target)
 	AircraftRenderer.draw_status_icons(self)
 	_draw_data_label()
+	if diagnostic_started_usec > 0:
+		PerfBuckets.finish_extended_cpu("aa_draw", diagnostic_started_usec, diagnostic_shared_usec)
 
 ## 绘制攻击范围圆（不是雷达锥）
 func _draw_attack_range() -> void:
@@ -201,6 +217,8 @@ func _draw_attack_range() -> void:
 ## 猎豹式自行高炮外观（Gepard / Flakpanzer）：
 ## 坦克底盘 + 方形炮塔 + 双联装高炮 + 顶部搜索雷达
 func _draw_aa_icon() -> void:
+	if has_meta(&"volume_3d_ground"):
+		return
 	var color: Color = params.icon_color if params else Color.ORANGE
 	var outline := color.darkened(0.35)
 	var s := 10.0

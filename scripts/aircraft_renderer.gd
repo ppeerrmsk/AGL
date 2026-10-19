@@ -2,6 +2,7 @@ class_name AircraftRenderer
 extends RefCounted
 
 const AircraftSilhouetteCatalog = preload("res://scripts/aircraft_silhouette_catalog.gd")
+const DisplayPacing := preload("res://scripts/util/display_pacing.gd")
 
 ## 玩家飞机全局引用（由 main.gd / survivor_mode.gd 在玩家生成/销毁时维护）
 ## draw_data_label 里每帧为每架飞机算 RNG 用，避免在 _draw 里 O(N) 扫 parent.get_children()
@@ -55,11 +56,12 @@ static func safe_aircraft_ref(value: Variant) -> Aircraft:
 
 ## 安全读 player_ref：自动清理 freed 引用。所有消费者必须走此 getter。
 static func safe_player_ref() -> Aircraft:
-	var candidate: Variant = player_ref
-	var safe_ref: Aircraft = safe_aircraft_ref(candidate)
-	if safe_ref == null:
-		player_ref = null
-	return safe_ref
+	# 热路径（每物理步数百次）：player_ref 已是强类型 Aircraft 槽，有效即无需再经
+	# safe_aircraft_ref 做 Variant 收窄；is_instance_valid 同样识别已释放对象。
+	if is_instance_valid(player_ref):
+		return player_ref
+	player_ref = null
+	return null
 
 
 ## 纯视觉确定性噪声：不得在 _draw 路径消费全局 randf，否则渲染帧数会改变战斗 RNG 序列。
@@ -253,6 +255,11 @@ static func draw_unit_status_panel(item: Node2D, font: Font,
 		palette: Array = []) -> void:
 	if item == null or font == null or lines.is_empty():
 		return
+	# 非飞机也把状态并入正式信息牌，所有密度档共用；不再另绘头顶进度条。
+	if item is CombatUnit and not item is Aircraft and not item.is_destroyed:
+		lines = lines.duplicate()
+		row_colors = row_colors.duplicate()
+		_append_status_label_lines(item as CombatUnit, lines, row_colors)
 	if has_status_overlay():
 		_status_panel_entries[item.get_instance_id()] = {
 			"item": weakref(item),
@@ -289,7 +296,7 @@ static func draw_registered_status_panels(overlay: Node2D) -> void:
 		var font_value: Variant = entry.get("font")
 		if not font_value is Font:
 			continue
-		var screen_origin := item.get_global_transform_with_canvas().origin
+		var screen_origin := DisplayPacing.display_screen_origin(item)
 		var screen_offset: Vector2 = entry.get("screen_offset_px", Vector2.ZERO)
 		var transform := status_panel_overlay_transform_for(screen_origin, screen_offset)
 		_draw_status_panel_geometry(overlay, item, font_value as Font,
@@ -332,6 +339,8 @@ static func status_panel_visual_signature(entry: Dictionary, item: Node2D) -> Ar
 		bool(entry.get("controlled", false)),
 		entry.get("palette", []),
 		status_damage_flash_phase_for(item),
+		FearResponse.obscure(item),
+		int(FearResponse.seconds(item) * 10.0),
 	]
 
 
@@ -385,9 +394,18 @@ static func _draw_status_panel_geometry(target: Node2D, item: Node2D,
 		var color: Color = text_color if damage_phase >= 0 else row_colors.get(i, text_color)
 		if damage_phase < 0 and controlled and color != text_color:
 			color = GameConstants.darken_for_light_bg(color)
+		var line_text := lines[i]
+		if i > 0 and FearResponse.obscure(item):
+			line_text = "???"
+			if FearResponse.controlled(item):
+				if i == 1: line_text = "FEAR %.1f" % FearResponse.seconds(item)
+				elif i == 2: line_text = "AB"
+			color = FearResponse.COLOR
+			target.draw_rect(Rect2(2.0, UNIT_STATUS_PAD_Y_PX + i * UNIT_STATUS_LINE_HEIGHT_PX,
+				box_w - 4.0, UNIT_STATUS_LINE_HEIGHT_PX), Color(0.13, 0.03, 0.2, 1.0))
 		target.draw_string(font, Vector2(UNIT_STATUS_PAD_X_PX,
 			UNIT_STATUS_PAD_Y_PX + 9.0 + i * UNIT_STATUS_LINE_HEIGHT_PX),
-			lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1,
+			line_text, HORIZONTAL_ALIGNMENT_LEFT, -1,
 			UNIT_STATUS_FONT_SIZE, color)
 	target.draw_set_transform_matrix(Transform2D.IDENTITY)
 
@@ -637,10 +655,15 @@ static func weapon_label_color(tag: String, is_controlled: bool,
 	return _wpn_color(tag, ctx)
 
 
-static func _status_effect_is_active(ac: Aircraft, sid: String, timed: bool,
+static func _status_effect_is_active(unit: CombatUnit, sid: String, timed: bool,
 		include_direct_invulnerable: bool) -> bool:
 	if timed:
 		return true
+	if sid == StatusEffects.JAM and unit.status_jam_active:
+		return true
+	if not unit is Aircraft:
+		return false
+	var ac := unit as Aircraft
 	match sid:
 		StatusEffects.INVINCIBLE:
 			return ac.status_invincible_active or (include_direct_invulnerable and ac.invulnerable)
@@ -661,10 +684,10 @@ static func _status_effect_is_active(ac: Aircraft, sid: String, timed: bool,
 
 ## 完整、精简与折叠标签共用同一状态快照，避免缩放 LOD 后漏掉 buff/debuff。
 ## 高度动作属于详细档 ALT 行，不在这里生成独立状态行，也不进入战略简略档。
-static func status_label_entries(ac: Aircraft,
+static func status_label_entries(ac: CombatUnit,
 		include_direct_invulnerable: bool = false) -> Array[Dictionary]:
 	var entries: Array[Dictionary] = []
-	if ac.is_afterburner_mode_active():
+	if ac is Aircraft and ac.is_afterburner_mode_active():
 		entries.append({
 			"id": &"afterburner",
 			"text": "AB",
@@ -685,7 +708,7 @@ static func status_label_entries(ac: Aircraft,
 			"text": label,
 			"color": StatusEffects.icon_color(sid),
 		})
-	if ac.gun_tailed_active():
+	if ac is Aircraft and ac.gun_tailed_active():
 		entries.append({
 			"id": &"gun_tailed",
 			"text": "GUN TAILED",
@@ -694,7 +717,7 @@ static func status_label_entries(ac: Aircraft,
 	return entries
 
 
-static func _append_status_label_lines(ac: Aircraft, lines: PackedStringArray,
+static func _append_status_label_lines(ac: CombatUnit, lines: PackedStringArray,
 		color_indices: Dictionary, include_direct_invulnerable: bool = false) -> void:
 	for entry in status_label_entries(ac, include_direct_invulnerable):
 		color_indices[lines.size()] = entry["color"]
@@ -1206,72 +1229,9 @@ static func draw_deadair_exposure(ac: CombatUnit) -> void:
 	ac.draw_set_transform_matrix(Transform2D.IDENTITY)
 
 
-## 状态效果条：单位正上方一摞水平进度条（buff 在前 / debuff 在后）
-## 每条 = 半透明背景 + 按 remaining/initial 比例缩减的彩色填充 + 中文标签
-## 抵消飞机 rotation → 始终水平 / 抵消摄像机 zoom → 大小固定不随缩放
-## 接受任何 CombatUnit（飞机 / 地面单位 / 船等），地面单位通常只显示 JAM
+## 兼容旧调用点：只保留 DEADAIR 暴露环；状态统一进入屏幕空间信息牌。
 static func draw_status_icons(ac: CombatUnit) -> void:
 	draw_deadair_exposure(ac)
-	if ac.is_destroyed or ac.status_effects.is_empty():
-		return
-	var active_ids: Array[String] = []
-	for id in StatusEffects.DISPLAY_ORDER:
-		if ac.status_effects.has(id):
-			active_ids.append(id)
-	if active_ids.is_empty():
-		return
-
-	# 共享屏幕空间变换一次抵消单位、父节点与相机的全部旋转/缩放。
-	var w := StatusEffects.BAR_WIDTH
-	var h := StatusEffects.BAR_HEIGHT
-	var gap := StatusEffects.BAR_GAP
-	var step := h + gap
-	ac.draw_set_transform_matrix(screen_space_panel_transform(ac, Vector2.ZERO))
-
-	var font := ThemeDB.fallback_font
-	var font_size := StatusEffects.BAR_FONT_SIZE
-	var x0 := -w * 0.5
-	var n := active_ids.size()
-
-	for i in n:
-		var id: String = active_ids[i]
-		var col: Color = StatusEffects.icon_color(id)
-		# 第 0 条最靠近飞机，第 n-1 条最靠上
-		var y := StatusEffects.BAR_OFFSET_Y - step * float(i)
-		var bg_rect := Rect2(x0, y, w, h)
-
-		# 背景（半透明黑）
-		ac.draw_rect(bg_rect, Color(0.05, 0.05, 0.05, 0.75), true)
-
-		# 进度填充（按 remaining/initial 比例从左往右铺，右侧空出表示已消耗）
-		var remaining: float = float(ac.status_effects[id])
-		var initial: float = float(ac.status_initial_durations.get(id, remaining))
-		var ratio: float = clampf(remaining / maxf(initial, 0.001), 0.0, 1.0)
-		if ratio > 0.0:
-			var fill_w: float = w * ratio
-			var fill_col := Color(col.r, col.g, col.b, 0.85)
-			ac.draw_rect(Rect2(x0, y, fill_w, h), fill_col, true)
-
-		# 边框（buff 金 / debuff 红）
-		var border_col: Color = Color(1.0, 0.85, 0.2, 0.9) if StatusEffects.is_buff(id) else Color(0.95, 0.2, 0.2, 0.9)
-		ac.draw_rect(bg_rect, border_col, false, 1.0)
-
-		# 标签：黑底色高亮，居中显示中文短标签
-		var label := StatusEffects.short_label(id)
-		var text_w := font.get_string_size(label,
-			HORIZONTAL_ALIGNMENT_CENTER, -1, font_size).x
-		var text_pos := Vector2(x0 + (w - text_w) * 0.5, y + h - h * 0.22)
-		# 描边（黑色 1px 偏移 4 方向）
-		var outline := Color(0, 0, 0, 0.9)
-		var off: float = 1.0
-		for dx in [-off, off]:
-			for dy in [-off, off]:
-				ac.draw_string(font, text_pos + Vector2(dx, dy), label,
-					HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, outline)
-		ac.draw_string(font, text_pos, label,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.WHITE)
-
-	ac.draw_set_transform_matrix(Transform2D.IDENTITY)
 
 
 static func draw_aircraft_icon_destroyed(ac: Aircraft) -> void:
@@ -1303,9 +1263,9 @@ static func draw_destroyed_status_label(ac: Aircraft) -> void:
 
 static func draw_aircraft_icon(ac: Aircraft, bank_volume_enabled: bool = true,
 		presentation_scale: float = 1.0, presentation_alpha: float = 1.0) -> void:
-	# 隔离实时三维实验仅接管机体；锁定、尾迹、标签、火焰等仍走正式绘制。
-	if ac.has_meta(&"volume_3d_body") and not ac.is_destroyed:
-		if ac.selected:
+	# 三维表现后端仅接管机体；锁定、尾迹、标签、火焰等仍走正式二维绘制。
+	if ac.has_meta(&"volume_3d_body"):
+		if ac.selected and not ac.is_destroyed:
 			var radius := 28.8 * altitude_base_scale(ac) * visual_model_scale(ac)
 			ac.draw_arc(Vector2.ZERO, radius, 0, TAU, 48, Color(0.5, 0.9, 1, 0.5), 1.5)
 		return
@@ -1458,6 +1418,21 @@ static func draw_aircraft_icon(ac: Aircraft, bank_volume_enabled: bool = true,
 
 	# 常规科技树敌版只替换既有 5 个多边形的顶点；不增加 CanvasItem/draw 次数或逐帧扫描。
 	match silhouette:
+		"orion_final_form", "orion_fang":
+			var forward_sweep := silhouette == "orion_final_form"
+			var tip_y := -0.50 if forward_sweep else -0.30
+			body = PackedVector2Array([Vector2(0, -size), Vector2(size * .18, -size * .4), Vector2(size * .24, size * .4), Vector2(size * .13, size), Vector2(-size * .13, size), Vector2(-size * .24, size * .4), Vector2(-size * .18, -size * .4)])
+			wing_r = PackedVector2Array([Vector2(size * .18, 0), Vector2(size * 1.22, size * tip_y), Vector2(size * 1.1, size * (tip_y + .28)), Vector2(size * .28, size * .45)])
+			wing_l = PackedVector2Array([Vector2(-size * .18, 0), Vector2(-size * 1.22, size * tip_y), Vector2(-size * 1.1, size * (tip_y + .28)), Vector2(-size * .28, size * .45)])
+			if not forward_sweep:
+				body = PackedVector2Array([Vector2(0, -size), Vector2(size * .42, 0), Vector2(size * .3, size * .58), Vector2(0, size), Vector2(-size * .3, size * .58), Vector2(-size * .42, 0)])
+				wing_r = PackedVector2Array([Vector2(size * .17, -size * .57), Vector2(size * 1.28, size * .14), Vector2(size * 1.24, size * .43), Vector2(size * .71, size * .47), Vector2(size * .44, size * .78), Vector2(size * .17, size * .43)])
+				wing_l = PackedVector2Array()
+				for point in wing_r:
+					wing_l.append(Vector2(-point.x, point.y))
+				# 两块原尾翼绘制槽收回翼根，保留无尾飞翼的外轮廓。
+				tail_r = PackedVector2Array([Vector2(size * .12, size * .2), Vector2(size * .25, size * .3), Vector2(size * .22, size * .6)])
+				tail_l = PackedVector2Array([Vector2(-size * .12, size * .2), Vector2(-size * .25, size * .3), Vector2(-size * .22, size * .6)])
 		"deadair":
 			# 双菱形 EW 核心：短机身、宽后掠翼，和 Snowblind/普通战机在轮廓上可区分。
 			body = PackedVector2Array([Vector2(0, -size * 0.85), Vector2(size * 0.34, -size * 0.18), Vector2(size * 0.26, size * 0.72), Vector2(0, size), Vector2(-size * 0.26, size * 0.72), Vector2(-size * 0.34, -size * 0.18)])
@@ -2605,6 +2580,7 @@ static func draw_predicted_path(ac: Aircraft, _local_target: Vector2, base_color
 	var target_healths: PackedFloat32Array = ac._predicted_path_healths
 	if target_world.size() < 2:
 		return
+	var started := Time.get_ticks_usec() if PerfBuckets.extended_cpu_trace_enabled else 0
 
 	# ── 时间平滑（解决分段预测缓存原子换入时的跳变）──
 	# 平滑视图每帧 lerp 向抽样后的 target。target_position 大变或数组长度改变时
@@ -2726,6 +2702,8 @@ static func draw_predicted_path(ac: Aircraft, _local_target: Vector2, base_color
 			head_base - side * barb_w,
 	])
 	ac.draw_colored_polygon(head_core, core_col)
+	if started > 0:
+		PerfBuckets.tick("function.predicted_path_draw", Time.get_ticks_usec() - started)
 
 ## ─────────── 电磁炮 telegraph 扇形（commit 8/13） ───────────
 ## 攻击者机头出发，向充能目标方向，扇形从 INITIAL_HALF_ANGLE 收缩为 0°

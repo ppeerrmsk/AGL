@@ -149,9 +149,10 @@ static func _bank_limit_rad(
 
 ## 低速操纵权限、高空滚转增益与 J-36 突击增益的唯一计算点。
 static func _bank_roll_rate_rad_s(
-		ac: Aircraft, speed: float, g_load: float, altitude: float, stall_base_kmh: float
-		) -> float:
-	var rate := base_roll_rate(ac)
+		ac: Aircraft, speed: float, g_load: float, altitude: float, stall_base_kmh: float,
+		base_rate: float = NAN) -> float:
+	# base_rate：调用方同帧已取的 base_roll_rate(ac)，省一次重复 accessor 链。
+	var rate := base_roll_rate(ac) if is_nan(base_rate) else base_rate
 	var stall_at_g_ms := stall_base_kmh * pow(maxf(g_load, 1.0), 0.4) / 3.6
 	if speed < stall_at_g_ms:
 		rate *= clampf(speed / maxf(stall_at_g_ms, 1.0), 0.1, 1.0)
@@ -287,9 +288,12 @@ static func update_bank(ac: Aircraft, delta: float) -> void:
 		ff_los = ac._los_rate_filt
 
 	var in_combat := ac.combat_target != null
+	# 本函数内 buff 输入不变：持续/瞬时 G 共享一次 _g_buff_mult，急刹坡度复用同一持续 G。
+	var g_mult := _g_buff_mult(ac)
+	var max_g_sustained := effective_max_g(ac, g_mult)
 	var max_bank := _bank_limit_rad(
-		ac, ac.speed, stall_base_kmh / 3.6, effective_max_g(ac),
-		effective_max_g_instant(ac), _dynamic_safe_margin(ac), heading_diff)
+		ac, ac.speed, stall_base_kmh / 3.6, max_g_sustained,
+		effective_max_g_instant(ac, g_mult), _dynamic_safe_margin(ac), heading_diff)
 
 	# PD 增益：Kp 受战斗激进度缩放；Kd 随 roll_rate 反比（维持临界阻尼，慢滚机阻尼更大）
 	var roll_rate_base: float = base_roll_rate(ac)
@@ -305,13 +309,15 @@ static func update_bank(ac: Aircraft, delta: float) -> void:
 			ac.use_tactical_preference, ac.weapon_mode, msl_phase_now,
 			ac.formation_mode and not ac._formation_full_bank, ac._proximity_damping, deadzone, kp, kd)
 	var brake_target_bank := _brake_steer_target_bank(
-		ac, effective_max_g(ac), ac.is_stalled, ac._stall_recovery_timer)
+		ac, max_g_sustained,
+		ac.is_stalled, ac._stall_recovery_timer)
 	if not is_nan(brake_target_bank):
 		target_bank = brake_target_bank
 
 	target_bank = _apply_bank_recovery(target_bank, ac.is_stalled, ac._stall_recovery_timer)
 	var roll_rate_val := _bank_roll_rate_rad_s(
-		ac, ac.speed, ac.g_load, ac.altitude, stall_base_kmh)
+		ac, ac.speed, ac.g_load, ac.altitude, stall_base_kmh,
+		roll_rate_base)
 	var next_bank := _integrate_bank_state(
 		ac.bank_angle, target_bank, roll_rate_val,
 		ac._bank_rate_rad_s, ac._prev_bank_for_rate, delta)
@@ -369,12 +375,14 @@ static func _speed_target_ms(
 
 	var t_kmh := target_speed_kmh
 	var afterburner_speed_mult: float = 1.0
-	if ac.is_afterburner_mode_active():
+	var ab_window := ac.is_afterburner_mode_active()
+	var ab_max_kmh := 0.0
+	if ab_window:
 		afterburner_speed_mult = float(
 			ac.evasion_modifiers.get("cruise_speed_mult", 1.0))
 		t_kmh *= afterburner_speed_mult
-	if ac.is_afterburner_mode_active():
-		t_kmh = maxf(t_kmh, effective_max_speed_kmh(ac))
+		ab_max_kmh = effective_max_speed_kmh(ac)
+		t_kmh = maxf(t_kmh, ab_max_kmh)
 	if ac.status_slow_active:
 		t_kmh = minf(t_kmh, StatusEffects.SLOW_SPEED_CAP_KMH)
 	var laser_stall_pressure := ac.laser_stall_pressure_active()
@@ -390,8 +398,8 @@ static func _speed_target_ms(
 
 	if afterburner_speed_mult > 1.0:
 		max_speed_alt_ms *= afterburner_speed_mult
-	if ac.is_afterburner_mode_active():
-		max_speed_alt_ms = maxf(max_speed_alt_ms, effective_max_speed_kmh(ac) / 3.6)
+	if ab_window:
+		max_speed_alt_ms = maxf(max_speed_alt_ms, ab_max_kmh / 3.6)
 	target_ms = minf(target_ms, max_speed_alt_ms)
 
 	if not laser_stall_pressure:
@@ -419,12 +427,15 @@ static func _integrate_speed_ms(
 	var alt_drag_mult := 1.0 - clampf(altitude / 15000.0, 0.0, 1.0) * 0.30
 	var g_drag := (ac.params.g_drag_factor if ac.params else 3.0) * G_DRAG_GLOBAL_MULT * alt_drag_mult
 	var base_loss := maxf(g_load - 1.0, 0.0) * g_drag
-	var over_g := maxf(g_load - effective_max_g(ac), 0.0)
+	# 持续 G 本函数内只取一次，角点速度复用（buff 输入在纯积分内不变）。
+	var max_g_sustained := effective_max_g(ac)
+	var over_g := maxf(g_load - max_g_sustained, 0.0)
 	var struct_loss := 0.0 if ac.formation_mode else over_g * STRUCT_BLEED_FACTOR * alt_drag_mult
 	var g_loss_total := base_loss + struct_loss
 	if ac.hunter_assault_active:
 		g_loss_total *= 0.7
-	var allowed_g_loss := maxf(speed - corner_speed_kmh(ac) / 3.6, 0.0)
+	var allowed_g_loss := maxf(
+		speed - corner_speed_kmh(ac, max_g_sustained) / 3.6, 0.0)
 	speed = maxf(speed - minf(g_loss_total * delta, allowed_g_loss), 0.0)
 
 	var gravity_effect := CombatUnit.GRAVITY * vertical_speed / maxf(speed, 10.0) * PE_KE_BOOST
@@ -603,20 +614,22 @@ static func _g_buff_mult(ac: Aircraft) -> float:
 	# §C 玩家技能"被锁时 +G"：is_locked 时按 lock_panic_g_mult 加成
 	if ac.is_locked and ac.lock_panic_g_mult != 1.0:
 		m *= ac.lock_panic_g_mult
-	# 玩家技能"血怒护甲"：BLOODLUST 期间 max_g ×1.2
-	if ac.is_player_squad() and ac.status_bloodlust_active and ac.has_meta("upgrade_stacks"):
+	# 玩家技能"血怒护甲"：BLOODLUST 期间 max_g ×1.2（廉价旗标先短路，再查阵营）
+	if ac.status_bloodlust_active and ac.is_player_squad() and ac.has_meta("upgrade_stacks"):
 		var stacks: Dictionary = ac.get_meta("upgrade_stacks")
 		if int(stacks.get(SkillHooks.SKILL_BLOODLUST_ARMOR_MOBILITY, 0)) > 0:
 			m *= SkillHooks.BLOODLUST_G_MULT
 	# 玩家技能"保卫阵地"：防守圈内回转强化（720 批；squad_cmd 维护 flag）
 	if ac.guard_zone_buff_active:
 		m *= GUARD_ZONE_G_MULT
-	if ac.is_berserk_virus_wingman():
+	if ac.berserk_virus_active and ac.is_berserk_virus_wingman():
 		m *= BERSERK_VIRUS_MANEUVER_MULT
 	return m
 
 
-static func effective_max_g(ac: Aircraft) -> float:
+## g_buff_mult：同一函数内已取的 _g_buff_mult(ac)（buff 输入未变时复用，省重复 accessor 链）；
+## 缺省 NAN = 现场计算。buff 注入点仍只在 _g_buff_mult，语义不变。
+static func effective_max_g(ac: Aircraft, g_buff_mult: float = NAN) -> float:
 	## 持续 G（可长期维持）：稳态转弯 / AI 战术规划 / corner speed / 稳态 bank cap 的依据
 	var g := (ac.params.max_g if ac.params else 9.0) + ac.aura_max_g_add
 	# 722 sig_j36·三发推力：突击 buff 期间 +2G（加法先于乘 buff，AI 经本 accessor 自动感知）
@@ -624,10 +637,10 @@ static func effective_max_g(ac: Aircraft) -> float:
 		g += 2.0
 	if ac.hunter_assault_active:
 		g += 2.0
-	return g * _g_buff_mult(ac)
+	return g * (_g_buff_mult(ac) if is_nan(g_buff_mult) else g_buff_mult)
 
 
-static func effective_max_g_instant(ac: Aircraft) -> float:
+static func effective_max_g_instant(ac: Aircraft, g_buff_mult: float = NAN) -> float:
 	## 瞬时结构 G（猛拉入弯短暂可达）：仅 max_bank_angle 物理瞬时上限消费；
 	## 能量自限（update_speed struct_loss）会靠掉速把速度拽回持续 G 对应的稳态转弯
 	var g := (ac.params.max_g_structural if ac.params else 12.0) + ac.aura_g_structural_add
@@ -636,7 +649,7 @@ static func effective_max_g_instant(ac: Aircraft) -> float:
 		g += 2.0
 	if ac.hunter_assault_active:
 		g += 2.0
-	return g * _g_buff_mult(ac)
+	return g * (_g_buff_mult(ac) if is_nan(g_buff_mult) else g_buff_mult)
 
 
 ## params 保持永久基线；临时光环只从这些 helper 注入，实飞与预测共用。
@@ -648,7 +661,7 @@ const BERSERK_VIRUS_MANEUVER_MULT: float = 1.25
 
 static func base_roll_rate(ac: Aircraft) -> float:
 	var rate := (ac.params.roll_rate if ac.params else 4.0) * ac.aura_roll_rate_mult
-	if ac.is_berserk_virus_wingman():
+	if ac.berserk_virus_active and ac.is_berserk_virus_wingman():
 		rate *= BERSERK_VIRUS_MANEUVER_MULT
 	return rate
 
@@ -672,7 +685,7 @@ static func effective_accel_mult(ac: Aircraft, is_ab: bool) -> float:
 		mult *= StatusEffects.OVERLOAD_ACCEL_MULT
 	if ac.is_afterburner_mode_active():
 		mult *= AB_WINDOW_ACCEL_MULT
-	if ac.is_player_squad() and ac.status_bloodlust_active and ac.has_meta("upgrade_stacks") \
+	if ac.status_bloodlust_active and ac.is_player_squad() and ac.has_meta("upgrade_stacks") \
 			and int((ac.get_meta("upgrade_stacks") as Dictionary).get(
 				SkillHooks.SKILL_BLOODLUST_ARMOR_MOBILITY, 0)) > 0:
 		mult *= SkillHooks.BLOODLUST_ACCEL_MULT
@@ -680,7 +693,7 @@ static func effective_accel_mult(ac: Aircraft, is_ab: bool) -> float:
 		mult *= 1.4
 	if ac.hunter_assault_active:
 		mult *= 1.2
-	if ac.is_berserk_virus_wingman():
+	if ac.berserk_virus_active and ac.is_berserk_virus_wingman():
 		mult *= BERSERK_VIRUS_MANEUVER_MULT
 	if ac._sig_mig41_dive_timer > 0.0:
 		mult *= 1.5
@@ -692,7 +705,7 @@ static func effective_accel_mult(ac: Aircraft, is_ab: bool) -> float:
 ## 减速能力乘数栈；OVERLOAD 已由 _executioner_decel_mult 汇入。
 static func effective_decel_mult(ac: Aircraft) -> float:
 	var mult: float = ac._executioner_decel_mult()
-	if ac.is_player_squad() and ac.status_bloodlust_active and ac.has_meta("upgrade_stacks") \
+	if ac.status_bloodlust_active and ac.is_player_squad() and ac.has_meta("upgrade_stacks") \
 			and int((ac.get_meta("upgrade_stacks") as Dictionary).get(
 				SkillHooks.SKILL_BLOODLUST_ARMOR_MOBILITY, 0)) > 0:
 		mult *= SkillHooks.BLOODLUST_ACCEL_MULT
@@ -700,7 +713,7 @@ static func effective_decel_mult(ac: Aircraft) -> float:
 		mult *= 1.4
 	if ac.hunter_assault_active:
 		mult *= 1.2
-	if ac.is_berserk_virus_wingman():
+	if ac.berserk_virus_active and ac.is_berserk_virus_wingman():
 		mult *= BERSERK_VIRUS_MANEUVER_MULT
 	return mult
 
@@ -708,8 +721,9 @@ static func effective_decel_mult(ac: Aircraft) -> float:
 ## 角点速度（km/h）：能承受当前 G 极限而不被 max_bank_angle 速度限制卡住的最低速度
 ## V_corner = V_stall_base × safe_margin × sqrt(G_effective)
 ## 大 G 转弯时应维持此速度以获得最小转弯半径（不过分减速导致 G 被速度钳制）
-static func corner_speed_kmh(ac: Aircraft) -> float:
-	var g_target := effective_max_g(ac)
+## max_g_sustained：调用方同函数内已取的 effective_max_g(ac)；缺省 NAN = 现场计算。
+static func corner_speed_kmh(ac: Aircraft, max_g_sustained: float = NAN) -> float:
+	var g_target := effective_max_g(ac) if is_nan(max_g_sustained) else max_g_sustained
 	var stall_base_kmh := base_stall_kmh(ac)
 	# safe_margin 与 max_bank_angle 保持一致（1.2）
 	return stall_base_kmh * 1.2 * sqrt(maxf(g_target, 1.0))
@@ -924,7 +938,8 @@ static func compute_target_bank(
 ## 让低速也能拉满 G 加成（min_safe_ms × 1.05 已在 update_speed 守底，5% 余量保证不立即失速抽搐）
 ## ⚠ 物理 max_bank_angle 与预测线 max_bank_angle_at_speed 必须用同一个值，否则预测路径撕裂
 static func _dynamic_safe_margin(ac: Aircraft) -> float:
-	if ac.is_player_squad():
+	# 两个降余量条件都要求 BLOODLUST 或被锁；先查廉价旗标再查阵营。
+	if (ac.status_bloodlust_active or ac.is_locked) and ac.is_player_squad():
 		if ac.status_bloodlust_active and ac.has_meta("upgrade_stacks"):
 			var stacks: Dictionary = ac.get_meta("upgrade_stacks")
 			if int(stacks.get(SkillHooks.SKILL_BLOODLUST_ARMOR_MOBILITY, 0)) > 0:
@@ -1038,6 +1053,8 @@ static func update_fuel(ac: Aircraft, delta: float) -> void:
 
 ## 自动能量管理：战斗时加力+俯冲换速，巡航时蓄能爬升
 static func update_energy_management(ac: Aircraft) -> void:
+	if FearResponse.controlled(ac):
+		return
 	# P1：planner 已在帧顶写好 target_speed_kmh / is_afterburner / target_altitude，跳过旧能量管理
 	if ac.use_tactical_planner:
 		return

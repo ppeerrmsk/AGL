@@ -11,6 +11,8 @@ extends Node
 ## ⚠ 时序：process_mode = ALWAYS，保证 hard_pause 期间仍收到 _process；
 ##        且一律用 unscaled delta 推进（§3.2），否则时间缩到 0.05 后转场会慢 20 倍。
 
+const DisplayPacing := preload("res://scripts/util/display_pacing.gd")
+
 signal sequence_finished(seq_name: String)
 
 const SEQ_PATH := "res://resources/presentation/sequences.json"
@@ -65,6 +67,8 @@ var _fx_from: float = 0.0
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	time = TimeAuthority.new(get_tree())
+	# 显示节拍（物理插值白名单 + 帧上限）随统一时间控制一起在启动时安装
+	DisplayPacing.install(get_tree())
 	_player = SequencePlayer.new()
 	stage = StageIsolator.new()
 	cast = CinematicCast.new()

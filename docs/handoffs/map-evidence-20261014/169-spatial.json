@@ -1,0 +1,1837 @@
+{
+  "rows": [
+    {
+      "batch": 0,
+      "cell": [
+        -33,
+        -64
+      ],
+      "vertices": 1123,
+      "faces": 1127,
+      "bounds": [
+        -8289.67578125,
+        -16291.354461013965,
+        -8190.181640625,
+        -16124.850554763965
+      ],
+      "payload_bytes": 16258,
+      "groups": 16,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-000\\request.json"
+    },
+    {
+      "batch": 1,
+      "cell": [
+        -33,
+        -63
+      ],
+      "vertices": 2982,
+      "faces": 3043,
+      "bounds": [
+        -8286.40625,
+        -16132.653289138965,
+        -8187.39453125,
+        -15864.493132888965
+      ],
+      "payload_bytes": 42722,
+      "groups": 19,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-001\\request.json"
+    },
+    {
+      "batch": 2,
+      "cell": [
+        -33,
+        -62
+      ],
+      "vertices": 2380,
+      "faces": 2415,
+      "bounds": [
+        -8289.53125,
+        -15876.075164138965,
+        -8189.033203125,
+        -15612.895476638965
+      ],
+      "payload_bytes": 34266,
+      "groups": 23,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-002\\request.json"
+    },
+    {
+      "batch": 3,
+      "cell": [
+        -33,
+        -61
+      ],
+      "vertices": 2197,
+      "faces": 2229,
+      "bounds": [
+        -8289.296875,
+        -15620.327117263965,
+        -8189.375,
+        -15358.196257888965
+      ],
+      "payload_bytes": 31782,
+      "groups": 26,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-003\\request.json"
+    },
+    {
+      "batch": 4,
+      "cell": [
+        -33,
+        -59
+      ],
+      "vertices": 27,
+      "faces": 19,
+      "bounds": [
+        -8285.544921875,
+        -14920.670867263965,
+        -8183.83203125,
+        -14822.799773513965
+      ],
+      "payload_bytes": 458,
+      "groups": 4,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-004\\request.json"
+    },
+    {
+      "batch": 5,
+      "cell": [
+        -33,
+        -58
+      ],
+      "vertices": 26,
+      "faces": 22,
+      "bounds": [
+        -8282.6640625,
+        -14861.202117263965,
+        -8190.380859375,
+        -14731.069304763965
+      ],
+      "payload_bytes": 404,
+      "groups": 2,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-005\\request.json"
+    },
+    {
+      "batch": 6,
+      "cell": [
+        -33,
+        -57
+      ],
+      "vertices": 90,
+      "faces": 88,
+      "bounds": [
+        -8269.63671875,
+        -14544.887664138965,
+        -8188.8359375,
+        -14440.944304763965
+      ],
+      "payload_bytes": 1344,
+      "groups": 3,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-006\\request.json"
+    },
+    {
+      "batch": 7,
+      "cell": [
+        -33,
+        -56
+      ],
+      "vertices": 40,
+      "faces": 31,
+      "bounds": [
+        -8295.259765625,
+        -14324.889617263965,
+        -8178.83984375,
+        -14120.317351638965
+      ],
+      "payload_bytes": 634,
+      "groups": 4,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-007\\request.json"
+    },
+    {
+      "batch": 8,
+      "cell": [
+        -33,
+        -55
+      ],
+      "vertices": 151,
+      "faces": 143,
+      "bounds": [
+        -8287.8515625,
+        -14070.241179763965,
+        -8183.6328125,
+        -13822.581023513965
+      ],
+      "payload_bytes": 2258,
+      "groups": 6,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-008\\request.json"
+    },
+    {
+      "batch": 9,
+      "cell": [
+        -33,
+        -54
+      ],
+      "vertices": 317,
+      "faces": 323,
+      "bounds": [
+        -8290.63671875,
+        -13825.014617263965,
+        -8186.974609375,
+        -13715.420867263965
+      ],
+      "payload_bytes": 4602,
+      "groups": 4,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-009\\request.json"
+    },
+    {
+      "batch": 10,
+      "cell": [
+        -32,
+        -64
+      ],
+      "vertices": 3010,
+      "faces": 3075,
+      "bounds": [
+        -8194.498046875,
+        -16292.752898513965,
+        -7935.27734375,
+        -16124.643523513965
+      ],
+      "payload_bytes": 43266,
+      "groups": 23,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-010\\request.json"
+    },
+    {
+      "batch": 11,
+      "cell": [
+        -32,
+        -63
+      ],
+      "vertices": 6714,
+      "faces": 6855,
+      "bounds": [
+        -8195.5078125,
+        -16131.299773513965,
+        -7933.419921875,
+        -15867.016570388965
+      ],
+      "payload_bytes": 96634,
+      "groups": 56,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-011\\request.json"
+    },
+    {
+      "batch": 12,
+      "cell": [
+        -32,
+        -62
+      ],
+      "vertices": 9036,
+      "faces": 9241,
+      "bounds": [
+        -8195.564453125,
+        -15876.284148513965,
+        -7933.07421875,
+        -15614.229461013965
+      ],
+      "payload_bytes": 129494,
+      "groups": 55,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-012\\request.json"
+    },
+    {
+      "batch": 13,
+      "cell": [
+        -32,
+        -61
+      ],
+      "vertices": 7831,
+      "faces": 8019,
+      "bounds": [
+        -8194.42578125,
+        -15623.764617263965,
+        -7933.017578125,
+        -15358.045867263965
+      ],
+      "payload_bytes": 112330,
+      "groups": 49,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-013\\request.json"
+    },
+    {
+      "batch": 14,
+      "cell": [
+        -32,
+        -60
+      ],
+      "vertices": 315,
+      "faces": 307,
+      "bounds": [
+        -8180.873046875,
+        -15364.553679763965,
+        -7975.5390625,
+        -15112.045867263965
+      ],
+      "payload_bytes": 4682,
+      "groups": 10,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-014\\request.json"
+    },
+    {
+      "batch": 15,
+      "cell": [
+        -32,
+        -59
+      ],
+      "vertices": 557,
+      "faces": 551,
+      "bounds": [
+        -8149.611328125,
+        -15075.516570388965,
+        -7936.548828125,
+        -14846.456023513965
+      ],
+      "payload_bytes": 8210,
+      "groups": 14,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-015\\request.json"
+    },
+    {
+      "batch": 16,
+      "cell": [
+        -32,
+        -58
+      ],
+      "vertices": 467,
+      "faces": 457,
+      "bounds": [
+        -8190.80078125,
+        -14847.727507888965,
+        -7932.7890625,
+        -14630.725554763965
+      ],
+      "payload_bytes": 6862,
+      "groups": 12,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-016\\request.json"
+    },
+    {
+      "batch": 17,
+      "cell": [
+        -32,
+        -57
+      ],
+      "vertices": 484,
+      "faces": 485,
+      "bounds": [
+        -8193.63671875,
+        -14519.696257888965,
+        -7934.60546875,
+        -14326.915007888965
+      ],
+      "payload_bytes": 7070,
+      "groups": 9,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-017\\request.json"
+    },
+    {
+      "batch": 18,
+      "cell": [
+        -32,
+        -56
+      ],
+      "vertices": 668,
+      "faces": 642,
+      "bounds": [
+        -8207.076171875,
+        -14341.538054763965,
+        -7931.111328125,
+        -14073.092742263965
+      ],
+      "payload_bytes": 9868,
+      "groups": 21,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-018\\request.json"
+    },
+    {
+      "batch": 19,
+      "cell": [
+        -32,
+        -55
+      ],
+      "vertices": 540,
+      "faces": 519,
+      "bounds": [
+        -8204.078125,
+        -14086.448211013965,
+        -7934.01171875,
+        -13811.608367263965
+      ],
+      "payload_bytes": 8010,
+      "groups": 18,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-019\\request.json"
+    },
+    {
+      "batch": 20,
+      "cell": [
+        -32,
+        -54
+      ],
+      "vertices": 322,
+      "faces": 318,
+      "bounds": [
+        -8195.2734375,
+        -13829.756804763965,
+        -7935.671875,
+        -13713.178679763965
+      ],
+      "payload_bytes": 4740,
+      "groups": 8,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-020\\request.json"
+    },
+    {
+      "batch": 21,
+      "cell": [
+        -31,
+        -64
+      ],
+      "vertices": 1548,
+      "faces": 1558,
+      "bounds": [
+        -7939.505859375,
+        -16292.602507888965,
+        -7683.38671875,
+        -16129.288054763965
+      ],
+      "payload_bytes": 22436,
+      "groups": 22,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-021\\request.json"
+    },
+    {
+      "batch": 22,
+      "cell": [
+        -31,
+        -63
+      ],
+      "vertices": 2527,
+      "faces": 2552,
+      "bounds": [
+        -7938.1171875,
+        -16120.602507888965,
+        -7678.810546875,
+        -15870.192351638965
+      ],
+      "payload_bytes": 36584,
+      "groups": 33,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-022\\request.json"
+    },
+    {
+      "batch": 23,
+      "cell": [
+        -31,
+        -62
+      ],
+      "vertices": 7436,
+      "faces": 7623,
+      "bounds": [
+        -7937.990234375,
+        -15875.067351638965,
+        -7677.51953125,
+        -15613.760711013965
+      ],
+      "payload_bytes": 106922,
+      "groups": 53,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-023\\request.json"
+    },
+    {
+      "batch": 24,
+      "cell": [
+        -31,
+        -61
+      ],
+      "vertices": 5430,
+      "faces": 5547,
+      "bounds": [
+        -7941.552734375,
+        -15620.375945388965,
+        -7675.3671875,
+        -15358.305632888965
+      ],
+      "payload_bytes": 78194,
+      "groups": 46,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-024\\request.json"
+    },
+    {
+      "batch": 25,
+      "cell": [
+        -31,
+        -60
+      ],
+      "vertices": 1522,
+      "faces": 1543,
+      "bounds": [
+        -7929.060546875,
+        -15363.686492263965,
+        -7794.146484375,
+        -15102.426726638965
+      ],
+      "payload_bytes": 22010,
+      "groups": 18,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-025\\request.json"
+    },
+    {
+      "batch": 26,
+      "cell": [
+        -31,
+        -59
+      ],
+      "vertices": 145,
+      "faces": 125,
+      "bounds": [
+        -7929.421875,
+        -15103.686492263965,
+        -7679.416015625,
+        -14873.971648513965
+      ],
+      "payload_bytes": 2294,
+      "groups": 12,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-026\\request.json"
+    },
+    {
+      "batch": 27,
+      "cell": [
+        -31,
+        -58
+      ],
+      "vertices": 114,
+      "faces": 100,
+      "bounds": [
+        -7935.634765625,
+        -14823.762664138965,
+        -7670.0390625,
+        -14586.340789138965
+      ],
+      "payload_bytes": 1768,
+      "groups": 8,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-027\\request.json"
+    },
+    {
+      "batch": 28,
+      "cell": [
+        -31,
+        -57
+      ],
+      "vertices": 47,
+      "faces": 34,
+      "bounds": [
+        -7925.134765625,
+        -14596.418914138965,
+        -7688.017578125,
+        -14370.061492263965
+      ],
+      "payload_bytes": 772,
+      "groups": 6,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-028\\request.json"
+    },
+    {
+      "batch": 29,
+      "cell": [
+        -31,
+        -56
+      ],
+      "vertices": 326,
+      "faces": 300,
+      "bounds": [
+        -7938.609375,
+        -14335.844695388965,
+        -7678.76953125,
+        -14074.579070388965
+      ],
+      "payload_bytes": 4888,
+      "groups": 15,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-029\\request.json"
+    },
+    {
+      "batch": 30,
+      "cell": [
+        -31,
+        -55
+      ],
+      "vertices": 1815,
+      "faces": 1837,
+      "bounds": [
+        -7938.06640625,
+        -14087.965789138965,
+        -7675.486328125,
+        -13821.377898513965
+      ],
+      "payload_bytes": 26246,
+      "groups": 22,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-030\\request.json"
+    },
+    {
+      "batch": 31,
+      "cell": [
+        -31,
+        -54
+      ],
+      "vertices": 961,
+      "faces": 961,
+      "bounds": [
+        -7936.240234375,
+        -13827.649382888965,
+        -7677.796875,
+        -13710.903289138965
+      ],
+      "payload_bytes": 14062,
+      "groups": 19,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-031\\request.json"
+    },
+    {
+      "batch": 32,
+      "cell": [
+        -30,
+        -64
+      ],
+      "vertices": 1721,
+      "faces": 1720,
+      "bounds": [
+        -7675.15625,
+        -16292.258757888965,
+        -7421.818359375,
+        -16124.297820388965
+      ],
+      "payload_bytes": 25048,
+      "groups": 30,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-032\\request.json"
+    },
+    {
+      "batch": 33,
+      "cell": [
+        -30,
+        -63
+      ],
+      "vertices": 8230,
+      "faces": 8404,
+      "bounds": [
+        -7682.201171875,
+        -16131.875945388965,
+        -7420.986328125,
+        -15870.970367212989
+      ],
+      "payload_bytes": 118184,
+      "groups": 60,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-033\\request.json"
+    },
+    {
+      "batch": 34,
+      "cell": [
+        -30,
+        -62
+      ],
+      "vertices": 5160,
+      "faces": 5276,
+      "bounds": [
+        -7681.908203125,
+        -15868.471648513965,
+        -7421.2265625,
+        -15612.461882888965
+      ],
+      "payload_bytes": 74024,
+      "groups": 34,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-034\\request.json"
+    },
+    {
+      "batch": 35,
+      "cell": [
+        -30,
+        -61
+      ],
+      "vertices": 6687,
+      "faces": 6828,
+      "bounds": [
+        -7683.01953125,
+        -15622.280242263965,
+        -7417.509765625,
+        -15358.567351638965
+      ],
+      "payload_bytes": 96032,
+      "groups": 49,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-035\\request.json"
+    },
+    {
+      "batch": 36,
+      "cell": [
+        -30,
+        -60
+      ],
+      "vertices": 12,
+      "faces": 8,
+      "bounds": [
+        -7667.880859375,
+        -15361.872039138965,
+        -7608.787109375,
+        -15355.450164138965
+      ],
+      "payload_bytes": 208,
+      "groups": 2,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-036\\request.json"
+    },
+    {
+      "batch": 37,
+      "cell": [
+        -30,
+        -59
+      ],
+      "vertices": 337,
+      "faces": 327,
+      "bounds": [
+        -7681.38671875,
+        -15013.821257888965,
+        -7419.001953125,
+        -14877.782195388965
+      ],
+      "payload_bytes": 5042,
+      "groups": 12,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-037\\request.json"
+    },
+    {
+      "batch": 38,
+      "cell": [
+        -30,
+        -58
+      ],
+      "vertices": 993,
+      "faces": 989,
+      "bounds": [
+        -7689.044921875,
+        -14830.110320388965,
+        -7421.23828125,
+        -14569.395476638965
+      ],
+      "payload_bytes": 14390,
+      "groups": 16,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-038\\request.json"
+    },
+    {
+      "batch": 39,
+      "cell": [
+        -30,
+        -57
+      ],
+      "vertices": 306,
+      "faces": 306,
+      "bounds": [
+        -7676.703125,
+        -14626.694304763965,
+        -7424.10546875,
+        -14340.612273513965
+      ],
+      "payload_bytes": 4444,
+      "groups": 5,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-039\\request.json"
+    },
+    {
+      "batch": 40,
+      "cell": [
+        -30,
+        -56
+      ],
+      "vertices": 1438,
+      "faces": 1447,
+      "bounds": [
+        -7681.1796875,
+        -14321.393523513965,
+        -7422.150390625,
+        -14075.631804763965
+      ],
+      "payload_bytes": 20954,
+      "groups": 24,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-040\\request.json"
+    },
+    {
+      "batch": 41,
+      "cell": [
+        -30,
+        -55
+      ],
+      "vertices": 2916,
+      "faces": 2936,
+      "bounds": [
+        -7688.5390625,
+        -14085.047820388965,
+        -7420.8515625,
+        -13810.379851638965
+      ],
+      "payload_bytes": 42448,
+      "groups": 47,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-041\\request.json"
+    },
+    {
+      "batch": 42,
+      "cell": [
+        -30,
+        -54
+      ],
+      "vertices": 801,
+      "faces": 779,
+      "bounds": [
+        -7680.494140625,
+        -13830.848601638965,
+        -7420.533203125,
+        -13712.930632888965
+      ],
+      "payload_bytes": 11690,
+      "groups": 19,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-042\\request.json"
+    },
+    {
+      "batch": 43,
+      "cell": [
+        -29,
+        -64
+      ],
+      "vertices": 4171,
+      "faces": 4214,
+      "bounds": [
+        -7426.802734375,
+        -16292.620086013965,
+        -7165.587890625,
+        -16120.893523513965
+      ],
+      "payload_bytes": 60092,
+      "groups": 45,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-043\\request.json"
+    },
+    {
+      "batch": 44,
+      "cell": [
+        -29,
+        -63
+      ],
+      "vertices": 5315,
+      "faces": 5400,
+      "bounds": [
+        -7427.08203125,
+        -16131.612273513965,
+        -7164.08984375,
+        -15864.520476638965
+      ],
+      "payload_bytes": 76584,
+      "groups": 52,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-044\\request.json"
+    },
+    {
+      "batch": 45,
+      "cell": [
+        -29,
+        -62
+      ],
+      "vertices": 4191,
+      "faces": 4268,
+      "bounds": [
+        -7426.634765625,
+        -15876.702117263965,
+        -7166.123046875,
+        -15612.707976638965
+      ],
+      "payload_bytes": 60448,
+      "groups": 41,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-045\\request.json"
+    },
+    {
+      "batch": 46,
+      "cell": [
+        -29,
+        -61
+      ],
+      "vertices": 3012,
+      "faces": 3028,
+      "bounds": [
+        -7430.48828125,
+        -15620.782195388965,
+        -7165.779296875,
+        -15360.530242263965
+      ],
+      "payload_bytes": 43768,
+      "groups": 47,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-046\\request.json"
+    },
+    {
+      "batch": 47,
+      "cell": [
+        -29,
+        -60
+      ],
+      "vertices": 416,
+      "faces": 412,
+      "bounds": [
+        -7345.40234375,
+        -15361.684539138965,
+        -7189.7265625,
+        -15103.565398513965
+      ],
+      "payload_bytes": 6120,
+      "groups": 10,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-047\\request.json"
+    },
+    {
+      "batch": 48,
+      "cell": [
+        -29,
+        -59
+      ],
+      "vertices": 927,
+      "faces": 895,
+      "bounds": [
+        -7425.322265625,
+        -15108.040007888965,
+        -7165.072265625,
+        -14843.387664138965
+      ],
+      "payload_bytes": 13586,
+      "groups": 25,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-048\\request.json"
+    },
+    {
+      "batch": 49,
+      "cell": [
+        -29,
+        -58
+      ],
+      "vertices": 2926,
+      "faces": 2953,
+      "bounds": [
+        -7430.197265625,
+        -14851.848601638965,
+        -7161.134765625,
+        -14609.194304763965
+      ],
+      "payload_bytes": 42246,
+      "groups": 35,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-049\\request.json"
+    },
+    {
+      "batch": 50,
+      "cell": [
+        -29,
+        -57
+      ],
+      "vertices": 14,
+      "faces": 12,
+      "bounds": [
+        -7257.203125,
+        -14588.909148513965,
+        -7235.400390625,
+        -14549.291961013965
+      ],
+      "payload_bytes": 216,
+      "groups": 1,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-050\\request.json"
+    },
+    {
+      "batch": 51,
+      "cell": [
+        -29,
+        -56
+      ],
+      "vertices": 946,
+      "faces": 932,
+      "bounds": [
+        -7426.986328125,
+        -14310.457976638965,
+        -7175.68359375,
+        -14073.043914138965
+      ],
+      "payload_bytes": 13832,
+      "groups": 21,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-051\\request.json"
+    },
+    {
+      "batch": 52,
+      "cell": [
+        -29,
+        -55
+      ],
+      "vertices": 2973,
+      "faces": 2968,
+      "bounds": [
+        -7426.185546875,
+        -14083.725554763965,
+        -7163.984375,
+        -13819.967742263965
+      ],
+      "payload_bytes": 42936,
+      "groups": 42,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-052\\request.json"
+    },
+    {
+      "batch": 53,
+      "cell": [
+        -29,
+        -54
+      ],
+      "vertices": 1015,
+      "faces": 1037,
+      "bounds": [
+        -7428.87890625,
+        -13829.045867263965,
+        -7166.396484375,
+        -13714.372039138965
+      ],
+      "payload_bytes": 14694,
+      "groups": 11,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-053\\request.json"
+    },
+    {
+      "batch": 54,
+      "cell": [
+        -28,
+        -64
+      ],
+      "vertices": 3146,
+      "faces": 3125,
+      "bounds": [
+        -7169.93359375,
+        -16292.719695388965,
+        -6908.083984375,
+        -16121.256804763965
+      ],
+      "payload_bytes": 45646,
+      "groups": 54,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-054\\request.json"
+    },
+    {
+      "batch": 55,
+      "cell": [
+        -28,
+        -63
+      ],
+      "vertices": 6277,
+      "faces": 6398,
+      "bounds": [
+        -7170.25,
+        -16133.280242263965,
+        -6910.146484375,
+        -15866.020476638965
+      ],
+      "payload_bytes": 90012,
+      "groups": 44,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-055\\request.json"
+    },
+    {
+      "batch": 56,
+      "cell": [
+        -28,
+        -62
+      ],
+      "vertices": 7244,
+      "faces": 7443,
+      "bounds": [
+        -7170.49609375,
+        -15875.616179763965,
+        -6902.349609375,
+        -15613.143523513965
+      ],
+      "payload_bytes": 104178,
+      "groups": 49,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-056\\request.json"
+    },
+    {
+      "batch": 57,
+      "cell": [
+        -28,
+        -61
+      ],
+      "vertices": 4057,
+      "faces": 4139,
+      "bounds": [
+        -7169.90625,
+        -15618.590789138965,
+        -6909.67578125,
+        -15358.610320388965
+      ],
+      "payload_bytes": 58506,
+      "groups": 38,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-057\\request.json"
+    },
+    {
+      "batch": 58,
+      "cell": [
+        -28,
+        -60
+      ],
+      "vertices": 45,
+      "faces": 31,
+      "bounds": [
+        -7165.1484375,
+        -15363.051726638965,
+        -6903.68359375,
+        -15304.897429763965
+      ],
+      "payload_bytes": 770,
+      "groups": 7,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-058\\request.json"
+    },
+    {
+      "batch": 59,
+      "cell": [
+        -28,
+        -59
+      ],
+      "vertices": 595,
+      "faces": 578,
+      "bounds": [
+        -7171.232421875,
+        -15097.862273513965,
+        -6908.802734375,
+        -14841.483367263965
+      ],
+      "payload_bytes": 8772,
+      "groups": 17,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-059\\request.json"
+    },
+    {
+      "batch": 60,
+      "cell": [
+        -28,
+        -58
+      ],
+      "vertices": 1150,
+      "faces": 1139,
+      "bounds": [
+        -7172.54296875,
+        -14853.807586013965,
+        -6910.24609375,
+        -14585.153289138965
+      ],
+      "payload_bytes": 16802,
+      "groups": 24,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-060\\request.json"
+    },
+    {
+      "batch": 61,
+      "cell": [
+        -28,
+        -57
+      ],
+      "vertices": 972,
+      "faces": 963,
+      "bounds": [
+        -7152.642578125,
+        -14598.788054763965,
+        -6963.408203125,
+        -14337.631804763965
+      ],
+      "payload_bytes": 14162,
+      "groups": 19,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-061\\request.json"
+    },
+    {
+      "batch": 62,
+      "cell": [
+        -28,
+        -56
+      ],
+      "vertices": 41,
+      "faces": 33,
+      "bounds": [
+        -7021.265625,
+        -14237.550445337989,
+        -6903.927734375,
+        -14078.243132888965
+      ],
+      "payload_bytes": 622,
+      "groups": 3,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-062\\request.json"
+    },
+    {
+      "batch": 63,
+      "cell": [
+        -28,
+        -55
+      ],
+      "vertices": 2105,
+      "faces": 2113,
+      "bounds": [
+        -7170.748046875,
+        -14082.565398513965,
+        -6904.87890625,
+        -13799.247039138965
+      ],
+      "payload_bytes": 30638,
+      "groups": 35,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-063\\request.json"
+    },
+    {
+      "batch": 64,
+      "cell": [
+        -28,
+        -54
+      ],
+      "vertices": 524,
+      "faces": 492,
+      "bounds": [
+        -7169.916015625,
+        -13869.247039138965,
+        -6905.404296875,
+        -13713.735320388965
+      ],
+      "payload_bytes": 7688,
+      "groups": 17,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-064\\request.json"
+    },
+    {
+      "batch": 65,
+      "cell": [
+        -27,
+        -64
+      ],
+      "vertices": 2453,
+      "faces": 2450,
+      "bounds": [
+        -6917.0625,
+        -16294.286101638965,
+        -6664.833984375,
+        -16125.495086013965
+      ],
+      "payload_bytes": 35572,
+      "groups": 39,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-065\\request.json"
+    },
+    {
+      "batch": 66,
+      "cell": [
+        -27,
+        -63
+      ],
+      "vertices": 3546,
+      "faces": 3558,
+      "bounds": [
+        -6913.91796875,
+        -16131.321257888965,
+        -6664.76171875,
+        -15869.633757888965
+      ],
+      "payload_bytes": 51252,
+      "groups": 48,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-066\\request.json"
+    },
+    {
+      "batch": 67,
+      "cell": [
+        -27,
+        -62
+      ],
+      "vertices": 7702,
+      "faces": 7890,
+      "bounds": [
+        -6922.974609375,
+        -15874.815398513965,
+        -6642.1484375,
+        -15610.309539138965
+      ],
+      "payload_bytes": 110812,
+      "groups": 58,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-067\\request.json"
+    },
+    {
+      "batch": 68,
+      "cell": [
+        -27,
+        -61
+      ],
+      "vertices": 5170,
+      "faces": 5293,
+      "bounds": [
+        -6914.90234375,
+        -15619.737273513965,
+        -6669.794921875,
+        -15357.188445388965
+      ],
+      "payload_bytes": 74430,
+      "groups": 41,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-068\\request.json"
+    },
+    {
+      "batch": 69,
+      "cell": [
+        -27,
+        -60
+      ],
+      "vertices": 562,
+      "faces": 536,
+      "bounds": [
+        -6919.314453125,
+        -15361.668914138965,
+        -6667.10546875,
+        -15102.764617263965
+      ],
+      "payload_bytes": 8320,
+      "groups": 19,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-069\\request.json"
+    },
+    {
+      "batch": 70,
+      "cell": [
+        -27,
+        -59
+      ],
+      "vertices": 3660,
+      "faces": 3742,
+      "bounds": [
+        -6912.51953125,
+        -15105.963836013965,
+        -6644.375,
+        -14841.907195388965
+      ],
+      "payload_bytes": 52980,
+      "groups": 39,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-070\\request.json"
+    },
+    {
+      "batch": 71,
+      "cell": [
+        -27,
+        -58
+      ],
+      "vertices": 3002,
+      "faces": 3011,
+      "bounds": [
+        -6917.505859375,
+        -14852.690398513965,
+        -6651.29296875,
+        -14582.028289138965
+      ],
+      "payload_bytes": 43394,
+      "groups": 41,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-071\\request.json"
+    },
+    {
+      "batch": 72,
+      "cell": [
+        -27,
+        -57
+      ],
+      "vertices": 2570,
+      "faces": 2523,
+      "bounds": [
+        -6880.068359375,
+        -14597.637664138965,
+        -6650.072265625,
+        -14331.032195388965
+      ],
+      "payload_bytes": 37586,
+      "groups": 59,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-072\\request.json"
+    },
+    {
+      "batch": 73,
+      "cell": [
+        -27,
+        -56
+      ],
+      "vertices": 2984,
+      "faces": 2990,
+      "bounds": [
+        -6919.7109375,
+        -14340.329070388965,
+        -6652.77734375,
+        -14076.780242263965
+      ],
+      "payload_bytes": 43348,
+      "groups": 48,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-073\\request.json"
+    },
+    {
+      "batch": 74,
+      "cell": [
+        -27,
+        -55
+      ],
+      "vertices": 2657,
+      "faces": 2652,
+      "bounds": [
+        -6917.240234375,
+        -14083.879851638965,
+        -6651.78125,
+        -13818.782195388965
+      ],
+      "payload_bytes": 38608,
+      "groups": 45,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-074\\request.json"
+    },
+    {
+      "batch": 75,
+      "cell": [
+        -27,
+        -54
+      ],
+      "vertices": 773,
+      "faces": 767,
+      "bounds": [
+        -6916.16796875,
+        -13828.645476638965,
+        -6653.681640625,
+        -13722.008757888965
+      ],
+      "payload_bytes": 11298,
+      "groups": 16,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-075\\request.json"
+    },
+    {
+      "batch": 76,
+      "cell": [
+        -26,
+        -64
+      ],
+      "vertices": 3321,
+      "faces": 3401,
+      "bounds": [
+        -6643.55078125,
+        -16291.116179763965,
+        -6404.189453125,
+        -16122.149382888965
+      ],
+      "payload_bytes": 47774,
+      "groups": 25,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-076\\request.json"
+    },
+    {
+      "batch": 77,
+      "cell": [
+        -26,
+        -63
+      ],
+      "vertices": 3097,
+      "faces": 3141,
+      "bounds": [
+        -6634.42578125,
+        -16134.012664138965,
+        -6398.49609375,
+        -15869.071257888965
+      ],
+      "payload_bytes": 44870,
+      "groups": 39,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-077\\request.json"
+    },
+    {
+      "batch": 78,
+      "cell": [
+        -26,
+        -62
+      ],
+      "vertices": 2156,
+      "faces": 2184,
+      "bounds": [
+        -6671.08984375,
+        -15877.241179763965,
+        -6396.369140625,
+        -15627.514617263965
+      ],
+      "payload_bytes": 31120,
+      "groups": 24,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-078\\request.json"
+    },
+    {
+      "batch": 79,
+      "cell": [
+        -26,
+        -61
+      ],
+      "vertices": 220,
+      "faces": 218,
+      "bounds": [
+        -6632.544921875,
+        -15622.924773513965,
+        -6442.421875,
+        -15432.510711013965
+      ],
+      "payload_bytes": 3228,
+      "groups": 5,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-079\\request.json"
+    },
+    {
+      "batch": 80,
+      "cell": [
+        -26,
+        -60
+      ],
+      "vertices": 66,
+      "faces": 64,
+      "bounds": [
+        -6581.916015625,
+        -15364.174773513965,
+        -6464.908203125,
+        -15244.895476638965
+      ],
+      "payload_bytes": 976,
+      "groups": 2,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-080\\request.json"
+    },
+    {
+      "batch": 81,
+      "cell": [
+        -26,
+        -59
+      ],
+      "vertices": 2140,
+      "faces": 2179,
+      "bounds": [
+        -6667.7578125,
+        -15059.936492263965,
+        -6397.69140625,
+        -14845.668914138965
+      ],
+      "payload_bytes": 30898,
+      "groups": 22,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-081\\request.json"
+    },
+    {
+      "batch": 82,
+      "cell": [
+        -26,
+        -58
+      ],
+      "vertices": 1641,
+      "faces": 1643,
+      "bounds": [
+        -6663.12109375,
+        -14840.207976638965,
+        -6398.19921875,
+        -14587.778289138965
+      ],
+      "payload_bytes": 23850,
+      "groups": 27,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-082\\request.json"
+    },
+    {
+      "batch": 83,
+      "cell": [
+        -26,
+        -57
+      ],
+      "vertices": 2394,
+      "faces": 2367,
+      "bounds": [
+        -6662.048828125,
+        -14596.329070388965,
+        -6388.95703125,
+        -14327.416961013965
+      ],
+      "payload_bytes": 34890,
+      "groups": 48,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-083\\request.json"
+    },
+    {
+      "batch": 84,
+      "cell": [
+        -26,
+        -56
+      ],
+      "vertices": 3298,
+      "faces": 3303,
+      "bounds": [
+        -6657.689453125,
+        -14342.858367263965,
+        -6403.318359375,
+        -14076.504851638965
+      ],
+      "payload_bytes": 47802,
+      "groups": 50,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-084\\request.json"
+    },
+    {
+      "batch": 85,
+      "cell": [
+        -26,
+        -55
+      ],
+      "vertices": 2381,
+      "faces": 2412,
+      "bounds": [
+        -6663.98046875,
+        -14084.008757888965,
+        -6396.3671875,
+        -13830.016570388965
+      ],
+      "payload_bytes": 34128,
+      "groups": 19,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-085\\request.json"
+    },
+    {
+      "batch": 86,
+      "cell": [
+        -26,
+        -54
+      ],
+      "vertices": 164,
+      "faces": 156,
+      "bounds": [
+        -6658.26171875,
+        -13818.799773513965,
+        -6399.166015625,
+        -13714.145476638965
+      ],
+      "payload_bytes": 2472,
+      "groups": 7,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-086\\request.json"
+    },
+    {
+      "batch": 87,
+      "cell": [
+        -25,
+        -64
+      ],
+      "vertices": 493,
+      "faces": 491,
+      "bounds": [
+        -6399.857421875,
+        -16292.053679763965,
+        -6311.087890625,
+        -16130.010711013965
+      ],
+      "payload_bytes": 7210,
+      "groups": 10,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-087\\request.json"
+    },
+    {
+      "batch": 88,
+      "cell": [
+        -25,
+        -63
+      ],
+      "vertices": 682,
+      "faces": 663,
+      "bounds": [
+        -6401.615234375,
+        -16132.647429763965,
+        -6310.81640625,
+        -15869.666961013965
+      ],
+      "payload_bytes": 10074,
+      "groups": 20,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-088\\request.json"
+    },
+    {
+      "batch": 89,
+      "cell": [
+        -25,
+        -62
+      ],
+      "vertices": 200,
+      "faces": 193,
+      "bounds": [
+        -6403.71484375,
+        -15877.241179763965,
+        -6310.923828125,
+        -15627.293914138965
+      ],
+      "payload_bytes": 2950,
+      "groups": 6,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-089\\request.json"
+    },
+    {
+      "batch": 90,
+      "cell": [
+        -25,
+        -61
+      ],
+      "vertices": 41,
+      "faces": 35,
+      "bounds": [
+        -6376.826171875,
+        -15565.840789138965,
+        -6311.61328125,
+        -15379.733367263965
+      ],
+      "payload_bytes": 634,
+      "groups": 3,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-090\\request.json"
+    },
+    {
+      "batch": 91,
+      "cell": [
+        -25,
+        -60
+      ],
+      "vertices": 379,
+      "faces": 382,
+      "bounds": [
+        -6399.697265625,
+        -15332.457976638965,
+        -6315.08203125,
+        -15097.651336013965
+      ],
+      "payload_bytes": 5452,
+      "groups": 4,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-091\\request.json"
+    },
+    {
+      "batch": 92,
+      "cell": [
+        -25,
+        -59
+      ],
+      "vertices": 633,
+      "faces": 599,
+      "bounds": [
+        -6406.408203125,
+        -15107.832976638965,
+        -6309.27734375,
+        -14845.819304763965
+      ],
+      "payload_bytes": 9458,
+      "groups": 25,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-092\\request.json"
+    },
+    {
+      "batch": 93,
+      "cell": [
+        -25,
+        -58
+      ],
+      "vertices": 214,
+      "faces": 204,
+      "bounds": [
+        -6402.37109375,
+        -14850.997039138965,
+        -6309.357421875,
+        -14629.916961013965
+      ],
+      "payload_bytes": 3160,
+      "groups": 7,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-093\\request.json"
+    },
+    {
+      "batch": 94,
+      "cell": [
+        -25,
+        -57
+      ],
+      "vertices": 79,
+      "faces": 73,
+      "bounds": [
+        -6404.158203125,
+        -14446.549773513965,
+        -6325.439453125,
+        -14371.231414138965
+      ],
+      "payload_bytes": 1198,
+      "groups": 4,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-094\\request.json"
+    },
+    {
+      "batch": 95,
+      "cell": [
+        -25,
+        -56
+      ],
+      "vertices": 151,
+      "faces": 137,
+      "bounds": [
+        -6405.255859375,
+        -14268.715789138965,
+        -6314.681640625,
+        -14073.653289138965
+      ],
+      "payload_bytes": 2286,
+      "groups": 8,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-095\\request.json"
+    },
+    {
+      "batch": 96,
+      "cell": [
+        -25,
+        -55
+      ],
+      "vertices": 973,
+      "faces": 974,
+      "bounds": [
+        -6402.255859375,
+        -14086.010711013965,
+        -6310.13671875,
+        -13823.831023513965
+      ],
+      "payload_bytes": 13884,
+      "groups": 8,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-096\\request.json"
+    },
+    {
+      "batch": 97,
+      "cell": [
+        -25,
+        -54
+      ],
+      "vertices": 62,
+      "faces": 54,
+      "bounds": [
+        -6399.599609375,
+        -13828.297820388965,
+        -6312.525390625,
+        -13746.540007888965
+      ],
+      "payload_bytes": 948,
+      "groups": 4,
+      "request": "C:\\Users\\noelu\\Documents\\AGL\\tmp\\tokyo-complete-production-02\\triangle-spatial-169\\batch-097\\request.json"
+    }
+  ],
+  "source_report_sha256": "88c47140774d228d00fc2d31d387a4b1fa6e88ba7558cedde5b57eef23eb77a0",
+  "faces": 203967,
+  "vertices": 201675,
+  "payload_bytes": 2913714,
+  "surfaces": 98,
+  "group_textures": 98,
+  "geometry_and_height_unchanged": true,
+  "duplicate_vertices": 1322,
+  "samples": [
+    {
+      "scale": 0.4,
+      "peak": {
+        "center": [
+          -8192.0,
+          -15104.0
+        ],
+        "roof_faces": 199080,
+        "fixed_faces": 43132,
+        "roof_plus_fixed_faces": 242212,
+        "roof_surface_hits": 89
+      },
+      "max_roof_surface_hits": 89
+    },
+    {
+      "scale": 0.625,
+      "peak": {
+        "center": [
+          -7552.0,
+          -15488.0
+        ],
+        "roof_faces": 165860,
+        "fixed_faces": 28461,
+        "roof_plus_fixed_faces": 194321,
+        "roof_surface_hits": 62
+      },
+      "max_roof_surface_hits": 62
+    },
+    {
+      "scale": 1,
+      "peak": {
+        "center": [
+          -7424.0,
+          -15744.0
+        ],
+        "roof_faces": 144499,
+        "fixed_faces": 14956,
+        "roof_plus_fixed_faces": 159455,
+        "roof_surface_hits": 38
+      },
+      "max_roof_surface_hits": 40
+    },
+    {
+      "scale": 5,
+      "peak": {
+        "center": [
+          -7808.0,
+          -15616.0
+        ],
+        "roof_faces": 42534,
+        "fixed_faces": 827,
+        "roof_plus_fixed_faces": 43361,
+        "roof_surface_hits": 6
+      },
+      "max_roof_surface_hits": 6
+    }
+  ],
+  "actual_gpu_verified": false,
+  "missing_native_and_walls": true,
+  "formal_qualified": false
+}

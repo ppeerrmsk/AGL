@@ -1,5 +1,6 @@
 class_name PlayerInstrumentPanel
 extends Control
+const FearReadoutMask := preload("res://scripts/ui/fear_readout_mask.gd")
 
 const HudPreferencesScript := preload("res://scripts/ui/hud_preferences.gd")
 const TerminalGridOverlayScript := preload("res://scripts/ui/terminal_grid_overlay.gd")
@@ -188,6 +189,8 @@ var _damage_flash_started_ms := -DAMAGE_FLASH_DURATION_MS
 var _damage_flash_until_ms := -DAMAGE_FLASH_DURATION_MS
 var _last_damage_draw_phase := -2
 var damage_animation_time_override_ms := -1
+var _text_layout_cache: Dictionary = {}
+var _text_layout_resolutions := 0
 
 
 func _ready() -> void:
@@ -369,6 +372,7 @@ func hp_damage_regions() -> Array[Rect2]:
 
 
 func _configure_layout() -> void:
+	_text_layout_cache.clear()
 	var previous_size := size
 	var preserve_screen_side_anchor := is_inside_tree() and previous_size.x > 0.0 \
 		and previous_size.y > 0.0
@@ -561,6 +565,14 @@ func _configure_layout() -> void:
 	if _altimeter_needle_layer != null:
 		_altimeter_needle_layer.size = size
 
+	# 装填读数第一次出现可能在交火后：先以真实MSDF字体/字号塑形数字，
+	# 避免第一次绘制百分比/秒数才触发字体冷路径；不改变字号、字形或刷新频率。
+	var reload_font_size := int(TerminalTextScript.resolve_font_layout(
+		_display_font, PROGRESS_PERCENT_LAYOUT_TEXT, WEAPON_RELOAD_VALUE_SIZE).x)
+	for numeric_size: int in [primary_value_font_size, spd_digit_font_size,
+			g_fraction_font_size, secondary_value_font_size, reload_font_size]:
+		TerminalTextScript.measure_ink_bounds(_display_font, "0123456789%s", numeric_size)
+
 
 func _expanded_value_width(reference_text: String, font_size: int,
 		base_width: float) -> float:
@@ -606,6 +618,19 @@ func _draw_impl() -> void:
 	var maneuver_rect := active_maneuver_rect(maneuver_visible, manual_flare_visible)
 	var engage_row_rect := active_engage_rect(manual_flare_visible)
 	var fire_row_rect := active_fire_rect(manual_flare_visible)
+	if has_aircraft and FearResponse.obscure(aircraft):
+		_grid_overlay.line_color = FearResponse.COLOR
+		_grid_overlay.regions = grid_regions(maneuver_visible, manual_flare_visible)
+		var empty_regions: Array[Rect2] = []
+		_grid_overlay.override_regions = empty_regions
+		for rect: Rect2 in [hp_rect, spd_rect, alt_rect, ab_rect,
+			active_autopilot_rect(manual_flare_visible), flare_rect, maneuver_rect,
+			weapon_row_rect(0), weapon_row_rect(1)]:
+			FearReadoutMask.draw(self, rect, "???")
+		for row_index in range(_special_weapon_rows.size()):
+			FearReadoutMask.draw(self, special_weapon_row_rect(row_index), "???")
+		FearReadoutMask.draw(self, status_rect, aircraft.callsign, FearResponse.seconds(aircraft))
+		return
 	_grid_overlay.line_color = base_accent
 	_grid_overlay.regions = grid_regions(maneuver_visible, manual_flare_visible)
 	var hp_override_regions: Array[Rect2] = []
@@ -1147,6 +1172,8 @@ func _draw_altimeter_gauge(accent: Color) -> void:
 
 
 func _draw_altimeter_needle(canvas: CanvasItem) -> void:
+	if FearResponse.obscure(aircraft):
+		return
 	if aircraft == null or not is_instance_valid(aircraft) or aircraft.is_destroyed:
 		return
 	var pivot := Vector2(alt_gauge_rect.get_center().x, alt_gauge_rect.end.y - 5.0)
@@ -1768,15 +1795,43 @@ func _draw_font_text_in_rect(font: Font, text: String, rect: Rect2, fixed_font_s
 		color: Color, alignment: HorizontalAlignment, layout_text: String) -> void:
 	if text.is_empty() or rect.size.x <= 0.0 or rect.size.y <= 0.0:
 		return
-	var layout := TerminalTextScript.resolve_font_layout(
+	var trace_text := PerfBuckets.detail_capture_enabled()
+	var phase_start := Time.get_ticks_usec() if trace_text else 0
+	var layout := _cached_text_layout(
 		font, layout_text, rect.size, fixed_font_size)
+	if trace_text:
+		PerfBuckets.tick("hud_text.layout", Time.get_ticks_usec() - phase_start)
+		phase_start = Time.get_ticks_usec()
 	var font_size := int(layout.x)
 	var actual_ink := TerminalTextScript.measure_ink_bounds(font, text, font_size)
 	var ink_top := actual_ink.x if TerminalTextScript.has_visible_ink(actual_ink) else layout.y
 	var ink_bottom := actual_ink.y if TerminalTextScript.has_visible_ink(actual_ink) else layout.z
 	var baseline_y := rect.position.y + (rect.size.y - (ink_bottom - ink_top)) * 0.5 - ink_top
+	if trace_text:
+		PerfBuckets.tick("hud_text.baseline", Time.get_ticks_usec() - phase_start)
+		phase_start = Time.get_ticks_usec()
 	draw_string(font, Vector2(rect.position.x, baseline_y), text,
 		alignment, rect.size.x, font_size, color)
+	if trace_text:
+		var draw_us := Time.get_ticks_usec() - phase_start
+		PerfBuckets.tick("hud_text.draw_string", draw_us)
+		if draw_us > 1000:
+			PerfBuckets.mark_frame_event("hud_text_slow:" + text)
+
+
+## 只缓存字号基准，不缓存当前数字或位置；布局重建时清空，字体身份和精确尺寸参与key。
+func _cached_text_layout(font: Font, reference: String, bounds: Vector2,
+		fixed_size: int) -> Vector3:
+	var key := [font.get_instance_id(), reference, bounds, fixed_size]
+	if _text_layout_cache.has(key):
+		return _text_layout_cache[key] as Vector3
+	var result := TerminalTextScript.resolve_font_layout(font, reference, bounds, fixed_size)
+	_text_layout_resolutions += 1
+	# 特殊武器说明可能动态变化；不允许随整局字符串数量无界增长。
+	if _text_layout_cache.size() >= 256:
+		_text_layout_cache.clear()
+	_text_layout_cache[key] = result
+	return result
 
 func _draw_text(text: String, baseline: Vector2, font_size: int, color: Color,
 		alignment: HorizontalAlignment = HORIZONTAL_ALIGNMENT_LEFT, width: float = -1.0,

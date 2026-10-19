@@ -77,7 +77,7 @@ func finish_radar_tick(step_delta: float, all_units: Array[CombatUnit]) -> void:
 		stealth.set_counter_stealth_revealed(counter_revealed)
 		if _observed_ids.has(stealth.get_instance_id()) \
 				or _has_close_player_contact(stealth, player_observers) \
-				or counter_revealed:
+				or counter_revealed or stealth.has_meta(&"fear_cone_emitting"):
 			stealth.sensor_contact_lost_s = 0.0
 			stealth.set_sensor_contact_hidden(false, CONTACT_FADE_S)
 			continue
