@@ -1,6 +1,7 @@
 extends RefCounted
 
-## 顶视轮廓 PNG 目录。原始 PNG 通过 export include_filter 随包携带，运行时只在每个 key 首次出现时解码一次。
+## 顶视轮廓 PNG 目录。运行时经 ResourceLoader 读 Godot 导入产物（.ctex），编辑器与导出包同一路径；
+## 原图 PNG 不进 PCK。每个 key 只加载一次，失败也只记一次（负缓存），之后直接走旧绘制。
 ## 只有完成逐机型“来源 + 顶视裁切 + 叠图检查”的轮廓才能进入正式映射。
 const TEXTURE_PATHS: Dictionary = {
 	"a6e": "res://resources/aircraft_silhouettes/a6e_detail.png",
@@ -50,7 +51,8 @@ const TEXTURE_PATHS: Dictionary = {
 }
 
 static var _texture_cache: Dictionary = {}
-static var _prewarm_failed: Dictionary = {}
+## 加载失败的 key：draw_icon 每帧都会问，不记下来就会每次重试并刷告警。
+static var _texture_failed: Dictionary = {}
 
 const DISPLAY_KEYS: Dictionary = {
 	"A-6E Intruder": "a6e", "A-7": "a7", "A-10": "a10", "A-10 Thunderbolt II": "a10",
@@ -193,42 +195,45 @@ static func volume_thickness_for(ac: Aircraft) -> float:
 	return DEFAULT_VOLUME_THICKNESS
 
 
-## Loading 预热：按 TEXTURE_PATHS 顺序解码尚未缓存的轮廓。budget_usec>0 时本次调用
-## 超出预算即返回，留待下一帧继续；返回 true 表示全部 key 已进缓存（或读取失败已告警）。
-## 刷怪帧首次出现新机型时不再读盘解码 PNG（每机型 1~2ms）。
+## Loading 预热：按 TEXTURE_PATHS 顺序加载尚未缓存的轮廓。budget_usec>0 时本次调用
+## 超出预算即返回，留待下一帧继续；返回 true 表示全部 key 已进缓存（或加载失败已告警）。
+## 刷怪帧首次出现新机型时不再读盘解码（每机型 1~2ms）。
 static func prewarm_textures(budget_usec: int = 0) -> bool:
 	var start := Time.get_ticks_usec()
 	for key: String in TEXTURE_PATHS:
-		if _texture_cache.has(key) or _prewarm_failed.has(key):
+		if _texture_cache.has(key) or _texture_failed.has(key):
 			continue
-		if _texture_for(key) == null:
-			_prewarm_failed[key] = true
+		_texture_for(key)
 		if budget_usec > 0 and Time.get_ticks_usec() - start >= budget_usec:
 			return _prewarm_done()
 	return _prewarm_done()
 
 
 static func _prewarm_done() -> bool:
-	return _texture_cache.size() + _prewarm_failed.size() >= TEXTURE_PATHS.size()
+	return _texture_cache.size() + _texture_failed.size() >= TEXTURE_PATHS.size()
 
 
 static func _texture_for(key: String) -> Texture2D:
 	var cached: Variant = _texture_cache.get(key, null)
 	if cached is Texture2D:
 		return cached as Texture2D
+	if _texture_failed.has(key):
+		return null
 	var path := String(TEXTURE_PATHS.get(key, ""))
 	if path == "":
 		return null
-	var png_bytes := FileAccess.get_file_as_bytes(path)
-	if png_bytes.is_empty():
-		push_warning("Aircraft silhouette PNG could not be read: %s" % path)
+	return _load_texture(key, path)
+
+
+## 导入设置为无损、无 mipmap，且 PNG 全部像素 RGB 为白，导入纹理与原图逐像素一致。
+static func _load_texture(key: String, path: String) -> Texture2D:
+	var texture: Texture2D = null
+	if ResourceLoader.exists(path, "Texture2D"):
+		texture = ResourceLoader.load(path, "Texture2D") as Texture2D
+	if texture == null:
+		_texture_failed[key] = true
+		push_warning("Aircraft silhouette texture could not be loaded: %s" % path)
 		return null
-	var image := Image.new()
-	var error := image.load_png_from_buffer(png_bytes)
-	if error != OK:
-		push_warning("Aircraft silhouette PNG could not be decoded: %s (err=%d)" % [path, error])
-		return null
-	var texture := ImageTexture.create_from_image(image)
 	_texture_cache[key] = texture
 	return texture
 

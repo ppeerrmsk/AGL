@@ -3,7 +3,7 @@ id: aircraft-top-view-silhouettes
 kind: system
 status: done
 schema_version: 1
-spec_version: 11
+spec_version: 12
 owner: AGL
 depends_on: [systems/battlefield-visual-scale]
 reconstruction_complete: true
@@ -84,11 +84,12 @@ MiG-21F-13、J 35F Draken、EA-6B Prowler 与 Jaguar GR.1A 各用独立 reviewed
 
 1. `AircraftParams.display_name` 经目录映射到规范 key。
    生存模式玩家机若已拼接档案代号，则优先用 `SurvivorPlayableSetup` 保存的纯机型 `airframe_label` 映射；呼号与运行时全名不参与轮廓识别。
-2. 目录首次命中时从原始 PNG 解码并缓存 `ImageTexture`。
+2. 目录首次命中时经 `ResourceLoader` 加载 Godot 导入后的纹理并缓存。导入设置为无损、无 mipmap；PNG 全部像素（含全透明像素）RGB 为白，`fix_alpha_border` 不改变像素，导入纹理与原图逐像素一致。
+   加载失败的 key 记入负缓存，只告警一次；此后该机型直接走旧绘制，绘制路径不再重试。
 3. 渲染器用同一 alpha 蒙版先画深色偏移边，再画运行时纯色填充。
 4. 滚转时，深色偏移边扩展为壳层，纯色填充保持顶面/机腹投影；正侧面仍有厚度而不会归零。
 5. 未审查、原创、虚构或未知 UGC 名称返回未命中，继续调用原有绘制路径，并至少应用不归零的壳层倍率。
-6. 原始 PNG 由导出预设显式包含，不依赖开发机的 `.ctex` 缓存。
+6. 编辑器与导出包走同一条导入资源路径。导出包只携带导入产物（`.ctex` 与重映射），原图 PNG 不进 PCK；导出预设的 `include_filter` 对带 `.import` 的文件不起作用，所以不列入这批 PNG。编辑器和 bench 与其他导入资源一样依赖项目 `.godot/imported`。
 
 本功能不新增节点、不做场景树扫描、不增加逐帧资源解码；缓存粒度为每个规范机型首次一次。PNG 图标每次重绘最多保持原有两次纹理提交，正侧面隐藏表面层时降为一次；滚转体积不得新增第三次逐机绘制提交。
 
@@ -106,6 +107,7 @@ MiG-21F-13、J 35F Draken、EA-6B Prowler 与 Jaguar GR.1A 各用独立 reviewed
 - [x] 0° / 30° / 60° / 80° / 90° / 120° / 180° 滚转样张覆盖现实 PNG、轰炸机、无人机与 legacy 轮廓；90° 壳层宽度大于零。
 - [x] PNG 图标滚转前后都不超过原有两次纹理提交；不新增 Aircraft 子节点、process、场景树扫描或纹理解码。
 - [x] `stress_40` 改前/改后同场压力测试记录 `aircraft_draw`，60 FPS 红线保持。
+- [x] 导出 release 包里 44 张轮廓全部从导入纹理加载，飞机显示剪影，剪影加载告警为 0；加载失败按 key 负缓存，只告警一次。
 - [x] 文档与锚点校验通过。
 
 2026-08-17 Godot 4.7.1 Shadow 验证：角度矩阵以 5 类机体 × 7 角度、每格旧/新并排生成 `aircraft_bank_volume_visual.png`；3150 次强制重绘微基准中，单图标 CPU 构建由 8.861 µs 增至 10.196 µs（+1.335 µs），两组调用数相同。32 架 Headless `stress_40` 的 `aircraft_draw` 由 133 µs/帧变为 138 µs/帧（+0.005 ms/帧），采样帧率同为 146 FPS；改后 Shadow Visual 同场为 523 FPS。
@@ -116,6 +118,7 @@ MiG-21F-13、J 35F Draken、EA-6B Prowler 与 Jaguar GR.1A 各用独立 reviewed
 - `scripts/aircraft_renderer.gd`
 - `scripts/tests/test_aircraft_bank_volume.gd`
 - `scripts/tests/aircraft_bank_volume_visual_qa_runner.gd`
+- `scripts/tests/test_event_hitch_prewarm.gd`（轮廓预热与加载失败负缓存）
 - `scripts/tools/trace_orthographic_outline.py`
 - `scripts/tools/normalize_aircraft_reference.py`
 - `scripts/tools/audit_aircraft_silhouettes.py`
@@ -134,6 +137,7 @@ MiG-21F-13、J 35F Draken、EA-6B Prowler 与 Jaguar GR.1A 各用独立 reviewed
 - **2026-08-28 / v9**：为 T0 / 低位 T1 扩谱补齐七架现实机运行时模型：F-104C、F-4E、MiG-23 复用已审同型号 key；MiG-21F-13、J 35F、EA-6B、Jaguar 从公共领域三视图新增独立蒙版。并把逐机参考、manifest、静态审计与 Godot Visual 写入主角飞机新增 / 更新流程硬门。
 - **2026-09-05 / v10**：确立机体涂装与战术 UI 的硬边界：`icon_color/wing_color` 在出生、进化、切控与阵营切换中保值，不再污染 combat target 线或状态栏。
 - **2026-09-05 / v11**：按用户纠正确认普通玩家 combat target 线统一使用玩家蓝，不再用当前操控权区分白/蓝；机体涂装和突击黄保持独立。
+- **2026-10-19 / v12**：修复导出包读不到轮廓。原实现用 `FileAccess` 直读原图 PNG，但带 `.import` 的文件导出时只打包导入产物，导出包每次绘制都读取失败、重试并告警（C2 一局 8,583 次），飞机退回旧多边形。改为经 `ResourceLoader` 加载导入纹理（逐像素一致），失败按 key 负缓存只告警一次；同时从导出预设删掉对导入文件无效的 `include_filter` 项。
 
 ## 7. 代表性来源
 

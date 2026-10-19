@@ -7,7 +7,7 @@ extends RefCounted
 ##      注：未做陆地网格/包围盒加速——Godot is_point_in_polygon 的 float32 射线擦顶点毛刺
 ##      （远离岸线的点 ±0.05px 内结果翻转，抽样约 1/13000）使任何空间加速都无法逐值一致。
 ##   D. ADBS 城区候选：质心缓存 + 战区快照 vs 原逐城区扫描（同种子同结果）
-##   E. AudioManager 预载常驻 / 王牌支援模板常驻 / 轮廓预热 / 升级弹窗预热批次不调度解锁
+##   E. AudioManager 预载常驻 / 王牌支援模板常驻 / 轮廓预热（含加载失败负缓存） / 升级弹窗预热批次不调度解锁
 ##   F. 3★ 威胁通知字形预热：文案构成与 SurvivorMode 同源 key、覆盖全部 profile 与战区标签，
 ##      离屏透明真实 ZoneHint 走正式 show_warning_banner / show_temp，沉淀后释放
 
@@ -375,6 +375,20 @@ func _test_silhouette_prewarm() -> void:
 	_check("全部 %d 个轮廓已解码进缓存（%.1fms）" % [
 		AircraftSilhouetteCatalog.TEXTURE_PATHS.size(), cold_ms], done and cached)
 	_check("再次预热零成本返回完成", AircraftSilhouetteCatalog.prewarm_textures(1))
+	# 导出包缺导入产物时：失败 key 负缓存，绘制不再重试/刷告警，预热照常收尾。
+	var probe_key := "f16"
+	var saved: Variant = AircraftSilhouetteCatalog._texture_cache.get(probe_key, null)
+	AircraftSilhouetteCatalog._texture_cache.erase(probe_key)
+	var missing := AircraftSilhouetteCatalog._load_texture(probe_key,
+		"res://resources/aircraft_silhouettes/__missing_probe_detail.png")
+	var retried := AircraftSilhouetteCatalog._texture_for(probe_key) != null
+	var done_with_failure := AircraftSilhouetteCatalog.prewarm_textures(0)
+	_check("加载失败负缓存：同 key 不再重试，预热照常完成",
+		missing == null and not retried and done_with_failure
+		and AircraftSilhouetteCatalog._texture_failed.has(probe_key))
+	AircraftSilhouetteCatalog._texture_failed.erase(probe_key)
+	if saved != null:
+		AircraftSilhouetteCatalog._texture_cache[probe_key] = saved
 
 
 func _test_upgrade_prewarm_batch() -> void:
