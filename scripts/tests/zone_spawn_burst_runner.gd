@@ -4,20 +4,25 @@ extends Node
 ## 正式 SurvivorMode 里对有陆地的常规战区按 1~3 星强制刷出地面任务，报告：
 ##   trigger  触发调用（debug_force_respawn_zone，与正式首刷同一入口）本身的同步墙钟；
 ##   frames   之后 SETTLE_FRAMES 帧的最大/合计墙钟（分帧生成时工作摊在这些帧里）；
-##   units    地面目标 / 驻守敌机 / 战区气氛单位最终数量。
+##   units    地面目标 / 驻守敌机 / 战区气氛单位最终数量；
+##   banner   3★ 威胁横幅（tier3_threat_changed 激活）出现在触发后第几帧（-1 = 本次未登记 3★ 源）。
 ## AGL_SPAWN_BURST_MODE=sliced：走正式首刷的分帧续段（debug_force_respawn_zone(id, false)），
 ##   另报 done_frames（续段与炮兵分片全部完成所用帧数）；
 ## 默认 sync：调用即生成完毕，并输出 sig（同种子下全部新单位的类型/呼号/位置/航点与全局随机流摘要），
 ##   用于对照改动前后的一次性生成逐值相同。
+## AGL_SPAWN_BURST_PREWARM=notice：本场景不经 BuildingPreloader，进场前先跑一遍 Loading 的
+##   3★ 威胁通知字形预热（SurvivorRuntimePrewarm notice 段），对照 3★ 横幅首帧；默认不跑。
 ## 运行：bench/run.cmd zone_spawn_burst 1 300 Shadow Headless（Visual 同样可用）
 
 const SURVIVOR_MODE_SCENE := preload("res://scenes/survivor_mode.tscn")
+const RuntimePrewarmScript := preload("res://scripts/survivor/survivor_runtime_prewarm.gd")
 const TRIALS_PER_STAR := 3
 const BASELINE_FRAMES := 10
 const SETTLE_FRAMES := 45
 
 var _rows: Array[String] = []
 var _sliced := OS.get_environment("AGL_SPAWN_BURST_MODE") == "sliced"
+var _banner_frame := -1
 
 
 func _ready() -> void:
@@ -29,6 +34,14 @@ func _ready() -> void:
 	get_tree().set_meta("survivor_map_id", "default")
 	get_tree().set_meta("map_preview_only", false)
 	get_tree().set_meta("survivor_aircraft_resource", "res://resources/playable_f15.tres")
+	if OS.get_environment("AGL_SPAWN_BURST_PREWARM") == "notice":
+		var prewarm = RuntimePrewarmScript.new()
+		add_child(prewarm)
+		var t_prewarm := Time.get_ticks_usec()
+		while not prewarm._step_notice_text():
+			await get_tree().process_frame
+		print("[ZoneSpawnBurst] notice prewarm done (%.1fms wall)" % ((Time.get_ticks_usec() - t_prewarm) / 1000.0))
+		prewarm.queue_free()
 	var mode = SURVIVOR_MODE_SCENE.instantiate()
 	add_child(mode)
 	for _frame in range(10):
@@ -52,6 +65,7 @@ func _ready() -> void:
 		get_tree().quit(1)
 		return
 	print("[ZoneSpawnBurst] candidates=%s mode=%s" % [candidates, "sliced" if _sliced else "sync"])
+	zm.tier3_threat_changed.connect(_on_tier3_threat_changed)
 	var worst_frame_ms := 0.0
 	for star in [1, 2, 3]:
 		for k in range(TRIALS_PER_STAR):
@@ -66,6 +80,7 @@ func _ready() -> void:
 			# 触发前一刻播种：基线帧里 AI 会消耗全局随机数，提前播种会让签名随帧时序漂移。
 			seed(7919 * star + k)
 			var trigger_frame := Engine.get_process_frames()
+			_banner_frame = -1
 			var t0 := Time.get_ticks_usec()
 			if _sliced:
 				zm.call("debug_force_respawn_zone", zid, false)
@@ -81,15 +96,21 @@ func _ready() -> void:
 				atmosphere = int(zm._zone_atmosphere.call("actor_count", zid))
 			var frame_peak := maxf(trigger_ms + settle["first_ms"], settle["max_ms"])
 			worst_frame_ms = maxf(worst_frame_ms, frame_peak)
-			var row := "f=%d star=%d zone=%s trigger=%.1fms first_frame=%.1fms max_frame=%.1fms settle_sum=%.1fms baseline_max=%.1fms done_frames=%d ground=%d garrison=%d atmosphere=%d sig=%s" % [
+			var banner := _banner_frame - trigger_frame if _banner_frame >= 0 else -1
+			var row := "f=%d star=%d zone=%s trigger=%.1fms first_frame=%.1fms max_frame=%.1fms settle_sum=%.1fms baseline_max=%.1fms done_frames=%d ground=%d garrison=%d atmosphere=%d banner=%d sig=%s" % [
 				trigger_frame, star, zid, trigger_ms, settle["first_ms"], settle["max_ms"], settle["sum_ms"],
-				base["max_ms"], settle["done_frames"], ground, garrison, atmosphere, sig]
+				base["max_ms"], settle["done_frames"], ground, garrison, atmosphere, banner, sig]
 			_rows.append(row)
 			print("[ZoneSpawnBurst] " + row)
 	print("[ZoneSpawnBurst] worst spawn frame (trigger+first frame or later frame) = %.1fms" % worst_frame_ms)
 	mode.queue_free()
 	await get_tree().process_frame
 	get_tree().quit(0)
+
+
+func _on_tier3_threat_changed(_zone_id: StringName, _profile: StringName, active: bool) -> void:
+	if active and _banner_frame < 0:
+		_banner_frame = Engine.get_process_frames()
 
 
 ## 逐帧墙钟：first_ms 为触发后第一帧，max/sum 覆盖全部测量帧；done_frames 为续段完成所用帧数。

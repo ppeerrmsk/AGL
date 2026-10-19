@@ -8,6 +8,8 @@ extends RefCounted
 ##      （远离岸线的点 ±0.05px 内结果翻转，抽样约 1/13000）使任何空间加速都无法逐值一致。
 ##   D. ADBS 城区候选：质心缓存 + 战区快照 vs 原逐城区扫描（同种子同结果）
 ##   E. AudioManager 预载常驻 / 王牌支援模板常驻 / 轮廓预热（含加载失败负缓存） / 升级弹窗预热批次不调度解锁
+##   F. 3★ 威胁通知字形预热：文案构成与 SurvivorMode 同源 key、覆盖全部 profile 与战区标签，
+##      离屏透明真实 ZoneHint 走正式 show_warning_banner / show_temp，沉淀后释放
 
 const WarzoneTimePanelScript := preload("res://scripts/survivor/warzone_time_panel.gd")
 const AircraftSilhouetteCatalog := preload("res://scripts/aircraft_silhouette_catalog.gd")
@@ -30,6 +32,7 @@ func run() -> void:
 	_test_ace_templates()
 	_test_silhouette_prewarm()
 	_test_upgrade_prewarm_batch()
+	_test_notice_prewarm()
 	for obj in _free_after:
 		if is_instance_valid(obj):
 			obj.free()
@@ -443,3 +446,77 @@ func _card_style_matches(ui: SurvivorUpgradeUI, i: int, choice: Dictionary) -> b
 		and rb_style.border_color == Color(rarity_color, 0.82 if light else 0.52) \
 		and (ui._note_panels[i].get_theme_stylebox("panel") as StyleBoxFlat).border_color \
 			== Color(SurvivorData.RARITY_COLORS[rarity] if rarity < SurvivorData.RARITY_COLORS.size() else Color.WHITE, 0.86)
+
+
+# ───────────────────────── F. 3★ 威胁通知 ─────────────────────────
+
+func _test_notice_prewarm() -> void:
+	print("── F. 3★ 威胁通知字形预热 ──")
+	# profile 名 key 必须覆盖 i18n 里全部 TIER3_PROFILE_*（新增 profile 时同步预热清单）
+	var csv := FileAccess.get_file_as_string("res://i18n/gameplay.csv")
+	var i18n_keys: Array[String] = []
+	for line in csv.split("\n"):
+		if line.begins_with("TIER3_PROFILE_"):
+			i18n_keys.append(line.get_slice(",", 0))
+	var keys: Array[String] = RuntimePrewarmScript.TIER3_PROFILE_NAME_KEYS
+	var covers := not i18n_keys.is_empty() and i18n_keys.size() == keys.size()
+	for key in i18n_keys:
+		covers = covers and keys.has(key)
+	_check("预热 profile 名覆盖 i18n 全部 TIER3_PROFILE_*（%d 项）" % i18n_keys.size(), covers)
+	# 文案模板与 profile 名 key 与 SurvivorMode 横幅/解除提示处理函数同源
+	var source := FileAccess.get_file_as_string("res://scripts/survivor/survivor_mode.gd")
+	var name_fn := _function_source(source, "_tier3_profile_name")
+	var handler := _function_source(source, "_on_tier3_threat_changed")
+	var same_keys := name_fn.count("tr(\"TIER3_PROFILE_") == keys.size()
+	for key in keys:
+		same_keys = same_keys and name_fn.contains("tr(\"%s\")" % key)
+	_check("profile 名 key 与 SurvivorMode._tier3_profile_name 分支一一对应", same_keys)
+	_check("横幅 / 解除提示模板与 SurvivorMode._on_tier3_threat_changed 相同",
+		handler.contains("tr(\"%s\") %% [zone_label, profile_name]" % RuntimePrewarmScript.TIER3_ACTIVE_FMT_KEY)
+			and handler.contains("tr(\"%s\") %% [zone_label, profile_name]" % RuntimePrewarmScript.TIER3_NEUTRALIZED_FMT_KEY))
+	var texts: Array[PackedStringArray] = RuntimePrewarmScript.tier3_notice_texts()
+	var labels_ok := texts.size() == keys.size()
+	for i in texts.size():
+		var profile_name := String(TranslationServer.translate(keys[i]))
+		labels_ok = labels_ok and texts[i].size() == 2 and texts[i][0].contains(profile_name) \
+			and texts[i][1].contains(profile_name)
+		for z: Dictionary in ZoneData.ZONES:
+			if not bool(z.get("airfield", false)):
+				labels_ok = labels_ok and texts[i][0].contains(String(z["label"])) \
+					and texts[i][1].contains(String(z["label"]))
+	_check("每个 profile 一组横幅/解除文案，含全部常规战区标签与本地化 profile 名", labels_ok)
+
+	# 树外构造（同步测试期间 root 正在挂子节点，add_child 会失败）；ZoneHint 图层由其自身 _ready 设置，此处不验
+	var prewarm: Node = RuntimePrewarmScript.new()
+	_free_after.append(prewarm)
+	var first_done: bool = prewarm._step_notice_text()
+	var hints: Array = prewarm._notice_hints.duplicate()
+	var shown := not first_done and hints.size() == texts.size()
+	for i in hints.size():
+		var hint: ZoneHint = hints[i]
+		var banner := NotificationTerminalBar.split_graphic_prefix(texts[i][0], "⚠")
+		var toast := NotificationTerminalBar.split_graphic_prefix(texts[i][1], "✓")
+		shown = shown and hint.offset == RuntimePrewarmScript.UPGRADE_LAYER_OFFSET \
+			and hint._warn_bg.visible and hint._warn_bg._icon == banner[0] and hint._warn_bg._body == banner[1] \
+			and hint._warn_bg._accent == ZoneHint.WARNING_ACCENT_COLOR \
+			and hint._temp_bg.visible and hint._temp_bg._icon == toast[0] and hint._temp_bg._body == toast[1]
+		for child in hint.get_children():
+			shown = shown and (child as CanvasItem).modulate.a == 0.0
+	_check("首帧每组文案一个离屏透明真实 ZoneHint（正式横幅/提示配置）", shown)
+	var settle_ok := true
+	for _i in RuntimePrewarmScript.NOTICE_SETTLE_FRAMES:
+		settle_ok = settle_ok and not prewarm._step_notice_text()
+	var released: bool = prewarm._step_notice_text()
+	for hint in hints:
+		released = released and (hint as Node).is_queued_for_deletion()
+	_check("沉淀 %d 帧后完成并释放全部预热 ZoneHint" % RuntimePrewarmScript.NOTICE_SETTLE_FRAMES,
+		settle_ok and released and prewarm._notice_hints.is_empty())
+
+
+## 取 GDScript 源码中顶层函数 name 的函数体（到下一个顶层 func 为止）。
+static func _function_source(source: String, name: String) -> String:
+	var start := source.find("\nfunc %s(" % name)
+	if start < 0:
+		return ""
+	var stop := source.find("\nfunc ", start + 1)
+	return source.substr(start, (stop if stop >= 0 else source.length()) - start)
