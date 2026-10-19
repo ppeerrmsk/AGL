@@ -5,6 +5,7 @@
 - [2026-10-14东京湾工程接手需求](2026-10-14-tokyo-map-engineering-requirements.md)：目标、约束和验收矩阵。
 - [2026-10-17性能诊断与C#迁移待办](2026-10-17-performance-diagnosis.md)：卡顿三类根因、实测数据、逐项修法与 2026-10-18 在 GDScript 中的实施结果。
 - [2026-10-19物理步成本：release包对照与单位数扩展曲线](2026-10-19-physics-step-scaling.md)：release 比 tools 快多少、每架飞机每物理步的成本、60 帧能撑多少架，以及 M20 打不进 PCK、导出包剪影缺失等发现。
+- [2026-10-20错相降频：非玩家飞机完整逻辑按N步轮转](2026-10-20-sim-divisor-stagger.md)：C2 六档 × divisor 1/2/3 交错测量、保真度对照、现有 dense 分频的副作用与编队位移重复积分，以及进正式局的分档建议（spec 草案）。
 
 返回 [文档入口](../README.md)；要把交接稿里的代码发现固化为长期导航，更新
 [Reference Index](../reference/_INDEX.md) 及对应专项索引。

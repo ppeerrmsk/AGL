@@ -35,6 +35,25 @@ const WALL_SAMPLE_LIMIT := 120000
 const COMPOSITION_ENV := "AGL_TOKYO_BENCH_COMPOSITION"
 var _composition_override: Dictionary = {}
 var _census_start := ""
+## 错相降频诊断：AGL_TOKYO_BENCH_SIM_DIVISOR=2..4 给玩家以外的固定翼飞机写 dense_battle_sim_divisor
+## 与轮转相位，只用于 C2。AGL_TOKYO_BENCH_SIM_PATH=full 时命中相位走完整 LOD0 路径并保留常规雷达分片；
+## 默认 subset 即 The Crucible / 撤离机现用的精简分支（含 16 相雷达）。旋翼机跳帧位移会与
+## update_rotorcraft 的速度积分重复，排除并计数。见 docs/handoffs/2026-10-20-sim-divisor-stagger.md。
+const SIM_DIVISOR_ENV := "AGL_TOKYO_BENCH_SIM_DIVISOR"
+const SIM_PATH_ENV := "AGL_TOKYO_BENCH_SIM_PATH"
+var _sim_divisor := 1
+var _sim_full_path := false
+var _sim_next_phase := 0
+var _sim_assigned := 0
+var _sim_skipped_rotor := 0
+## 交战活跃度（采样窗内）：来袭规避次数、新导弹按发射源分类、活跃子弹均值；只用于 divisor 档间对比。
+var _activity_evasions := 0
+var _activity_seen_missiles: Dictionary = {}
+var _activity_air_missiles := 0
+var _activity_other_missiles := 0
+var _activity_bullet_sum := 0
+var _activity_samples := 0
+var _activity_clock := 0.0
 
 
 func _ready() -> void:
@@ -192,6 +211,10 @@ func _process(delta: float) -> void:
 		_wall_previous_usec = now
 		if _census_start.is_empty():
 			_census_start = _unit_census()
+		_activity_clock += delta
+		if _activity_clock >= 0.25:
+			_activity_clock -= 0.25
+			_sample_activity()
 		if is_instance_valid(_map_features):
 			var map: Variant = _map_features._tokyo_volume
 			if is_instance_valid(map) and map.has_method("_target_committed"):
@@ -272,6 +295,65 @@ func _bench_force_battlefield_atmosphere_stress() -> void:
 		if ai != null:
 			ai.enable_combat = false
 			ai.release_target(AIController.TargetSource.TS_SCORED, "Tokyo map fixed baseline")
+	if not _configure_sim_divisor(wide):
+		_bench_finish_now("terminal=tokyo_sim_divisor_rejected\n", 1)
+		return
+	EventLogger.evasion_started.connect(func(_callsign: String, _team: int) -> void:
+		_activity_evasions += int(_bench_elapsed >= 3.0))
+
+
+func _configure_sim_divisor(wide: bool) -> bool:
+	var divisor_text := OS.get_environment(SIM_DIVISOR_ENV)
+	var path_text := OS.get_environment(SIM_PATH_ENV)
+	if divisor_text.is_empty() and path_text.is_empty():
+		return true
+	if not wide or not divisor_text.is_valid_int() or int(divisor_text) < 1 or int(divisor_text) > 4 \
+			or not path_text in ["", "subset", "full"]:
+		return false
+	_sim_divisor = int(divisor_text)
+	_sim_full_path = path_text == "full"
+	if _sim_divisor == 1:
+		return true
+	# 飞机由 SurvivorSpawner 直接挂到本节点；CombatUnit.all_units 要到下一帧才重建，不能用它。
+	for child in get_children():
+		if child is Aircraft:
+			_assign_sim_divisor(child)
+	# 之后入树的飞机（补位/增援）在配置完成后的同帧末尾补登记。
+	child_entered_tree.connect(func(node: Node) -> void:
+		if node is Aircraft:
+			_assign_sim_divisor.call_deferred(node))
+	return true
+
+
+func _assign_sim_divisor(ac: Aircraft) -> void:
+	if not is_instance_valid(ac) or ac == player_aircraft or ac.has_meta(&"dense_battle_sim_divisor"):
+		return
+	if ac.params != null and ac.params.flight_model == AircraftParams.FlightModel.ROTORCRAFT:
+		_sim_skipped_rotor += 1
+		return
+	ac.set_meta(&"dense_battle_sim_divisor", _sim_divisor)
+	ac.set_meta(&"dense_battle_sim_phase", _sim_next_phase % _sim_divisor)
+	if _sim_full_path:
+		ac.set_meta(&"dense_battle_sim_full_path", true)
+	_sim_next_phase += 1
+	_sim_assigned += 1
+
+
+func _sample_activity() -> void:
+	for missile in Missile.active_missiles:
+		if not is_instance_valid(missile):
+			continue
+		var id := missile.get_instance_id()
+		if _activity_seen_missiles.has(id):
+			continue
+		_activity_seen_missiles[id] = true
+		if is_instance_valid(missile.source) and missile.source is Aircraft:
+			_activity_air_missiles += 1
+		else:
+			_activity_other_missiles += 1
+	if is_instance_valid(bullet_manager):
+		_activity_bullet_sum += bullet_manager.total_bullet_count()
+	_activity_samples += 1
 
 
 static func parse_composition(text: String) -> Dictionary:
@@ -295,6 +377,8 @@ func _unit_census() -> String:
 	var ground := 0
 	var naval := 0
 	var other := 0
+	var divided := 0
+	var divided_formation := 0
 	for unit in CombatUnit.all_units:
 		if not is_instance_valid(unit) or unit.is_destroyed:
 			continue
@@ -302,6 +386,9 @@ func _unit_census() -> String:
 			aircraft += 1
 			processing += int(unit.is_physics_processing())
 			lod[clampi((unit as Aircraft).lod_level, 0, 2)] += 1
+			var is_divided := int(unit.get_meta(&"dense_battle_sim_divisor", 1)) > 1
+			divided += int(is_divided)
+			divided_formation += int(is_divided and (unit as Aircraft).formation_mode)
 		elif unit is GroundUnit:
 			ground += 1
 		elif unit is NavalUnit:
@@ -310,7 +397,8 @@ func _unit_census() -> String:
 			other += 1
 	return JSON.stringify({"elapsed": _bench_elapsed, "aircraft": aircraft, "aircraft_processing": processing,
 		"lod0": lod[0], "lod1": lod[1], "lod2": lod[2], "ground": ground, "naval": naval, "other": other,
-		"composition": _composition_override})
+		"composition": _composition_override, "sim_divided": divided,
+		"sim_divided_formation": divided_formation})
 
 
 func _bench_update_camera_patrol() -> void:
@@ -362,6 +450,13 @@ func _bench_finish_now(summary: String, exit_code: int = 0) -> void:
 	if _static_shadow != null:
 		summary += "\ntokyo_static_shadow=" + JSON.stringify(_static_shadow.stats) + "\n"
 	summary += "\ntokyo_unit_census_start=" + _census_start + "\ntokyo_unit_census_end=" + _unit_census() + "\n"
+	summary += "tokyo_sim_divisor=" + JSON.stringify({"requested": OS.get_environment(SIM_DIVISOR_ENV),
+		"divisor": _sim_divisor, "path": "full" if _sim_full_path else "subset",
+		"assigned": _sim_assigned, "skipped_rotorcraft": _sim_skipped_rotor}) + "\n"
+	summary += "tokyo_activity=" + JSON.stringify({"evasions": _activity_evasions,
+		"air_missiles": _activity_air_missiles, "other_missiles": _activity_other_missiles,
+		"bullets_mean": float(_activity_bullet_sum) / maxf(1.0, float(_activity_samples)),
+		"samples": _activity_samples}) + "\n"
 	var quantiles := RenderClock.percentiles_usec(_wall_intervals)
 	quantiles["complete"] = _wall_intervals.size() == _wall_samples
 	summary += "\ntokyo_wall_percentiles=" + JSON.stringify(quantiles) + "\n"

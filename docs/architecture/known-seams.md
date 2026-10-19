@@ -1288,6 +1288,26 @@ R115在派生地表层保留准备峰和其快照，更新和外部源退役只�
 
 **踩到次数**：1（C2 隐藏帧任务的 60 Hz 对照）。
 
+## SEAM-055 · 错相补偿步长 `delta×N` 与各分支自带的节流 / 位移互相叠加
+
+**症状**：`dense_battle_sim_divisor` 让完整帧用 `delta×N`、跳帧只做 60 Hz 位移。凡是完整帧路径里自己也做位移或自己再按
+`_lod_frame` 节流的代码，都会和这层门叠加出错。2026-10-20 错相降频评估（`sim_divisor_fidelity` S5）实测：
+- 编队跟随机：完整帧 `AircraftFormation.update_follow` → `_update_position` 按 `delta×N` 位移，跳帧又各位移一次，
+  位移比 = (2N−1)/N（N=2 为 1.50，N=3 为 1.67，The Crucible 用的 N=4 为 1.75）。
+- `update_follow` 的速度/高度按 `_lod_frame % 3` 节流：N=3 且相位≠0 时永不更新，相位 0 时步长 9 帧。
+- LOD2 分支的编队机会武器按 `_lod_frame % N == 0` 二次门控，相位≠0 的成员永不触发（the-crucible §3.2.1 明令禁止二次门控）。
+- 旋翼机：跳帧按航向×速度位移，完整帧在 `update_rotorcraft` 里再按速度向量积分 `delta×N`（撤离机已排除旋翼机）。
+- LOD0 / LOD1 路径原用 `delta` 做 `apply_movement`，同样会重复积分；2026-10-20 已改为未放大的 `movement_delta`（未分频时等价）。
+
+**根因**：补偿语义（"本次更新代表过去 N 帧"）只由门控处约定，下游函数既不知道自己被分频，也无法区分"推进物理状态的 dt"
+与"推进位置的 dt"；各分支早年各自加的 `_lod_frame % 3` 节流也默认自己是唯一节流者。
+
+**解法状态（部分）**：LOD0 / LOD1 位移已修。编队、旋翼机、二次门控未修（会改变 The Crucible 正式表现，需按
+[systems/aircraft-sim-stagger](../specs/systems/aircraft-sim-stagger.md) 草案阶段 0 走 spec）。修法方向：门控处给出
+"状态 dt（累计）+ 位移 dt（本帧）"两个量，下游节流改读同一个分频相位，而不是各自取 `_lod_frame` 余数。
+
+**踩到次数**：1（错相降频评估；The Crucible 编队态成员是否已有可见超速未经玩家报告确认）。
+
 ## 维护约定
 
 

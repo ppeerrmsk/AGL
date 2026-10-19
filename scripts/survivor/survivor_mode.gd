@@ -4698,7 +4698,9 @@ func _run_radar_slice(slice: int) -> void:
 		if not is_instance_valid(unit):
 			continue
 		var shooter_stride := RADAR_LOCK_STRIDE
-		if unit is Aircraft and int(unit.get_meta(&"dense_battle_sim_divisor", 1)) > 1:
+		# bench 诊断 dense_battle_sim_full_path 只降物理频率，雷达保持常规 4 相（正式局从不设置）。
+		if unit is Aircraft and int(unit.get_meta(&"dense_battle_sim_divisor", 1)) > 1 \
+				and not bool(unit.get_meta(&"dense_battle_sim_full_path", false)):
 			shooter_stride = DENSE_BATTLE_RADAR_STRIDE
 		if i % shooter_stride != phase % shooter_stride \
 				or floori(float(i) / float(shooter_stride)) % RADAR_LOCK_SLICES != slice:
