@@ -63,6 +63,8 @@ var _active := false
 var _sample_kind := "air"
 var _stress_member_target := 0
 var _stress_span_px := 0.0
+## Bench 单位数扩展专用：非空时替代 _stress_composition 的每侧编成（fighters/helis/artillery/ships）。
+var stress_composition_override: Dictionary = {}
 var _damage_live := true
 
 
@@ -172,7 +174,8 @@ func launch_stress_battle(member_target: int, span_px: float, center: Vector2 = 
 	_battle_center = center
 	var axis := Vector2.RIGHT
 	var lateral := Vector2.DOWN
-	var config := _stress_composition(member_target)
+	var config := stress_composition_override if not stress_composition_override.is_empty() \
+		else _stress_composition(member_target)
 	var ground_offset := minf(_stress_span_px * 0.18, 900.0)
 	var ally_ground_center := _battle_center - axis * ground_offset
 	var hostile_ground_center := _battle_center + axis * ground_offset

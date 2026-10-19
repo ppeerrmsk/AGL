@@ -14,7 +14,9 @@ extends Node
 ##   post         frame_post_draw → 下一迭代首个回调（音频、_input 事件、OS 消息、帧延迟）
 ## 另记节点增删、对象/资源/显存、绘制调用、视口 GPU 时间与玩家屏幕位置（顿挫度量）。
 ## 慢帧另存明细：新增节点类别、PerfBuckets 本帧增量、计数器增量。
-## 退出时写 res://bench/results/frame_probe_<tag>_<utc>.csv 与 .hitches.jsonl。
+## 退出时写 res://bench/results/frame_probe_<tag>_<utc>.csv 与 .hitches.jsonl；导出包里 res:// 只读，
+## 改写 user://bench/results/（与 EventLogger 的 editor/导出包路径切换同一口径）。
+## 末列 bench_t 是当前场景的 _bench_elapsed（bench 物理时钟，无该属性时 -1），用来截取 bench 采样窗口。
 
 const DisplayPacing := preload("res://scripts/util/display_pacing.gd")
 const EDGE_PRIORITY := 1_000_000_000
@@ -80,7 +82,7 @@ const CSV_HEADER := "frame,t_ms,total_ms,steps,phys_script,phys_engine,proc_scri
 	+ "added,removed,objects,resources,nodes,orphans,mem_static_mb,tex_mb,buf_mb,vid_mb," \
 	+ "canvas_draws,canvas_items,draws3d,prims3d,vp_cpu,vp_gpu,sub_cpu,sub_gpu," \
 	+ "cam_x,cam_y,zoom,ply_wx,ply_wy,ply_sx,ply_sy,frame_setup,paused,phys_signal,proc_signal," \
-	+ "ply_px,ply_py,interp_f,interp_on"
+	+ "ply_px,ply_py,interp_f,interp_on,bench_t"
 
 
 func _ready() -> void:
@@ -234,6 +236,7 @@ func _finish_frame(t: int) -> void:
 	row.append(_acc[Gap.PHYS_SIGNAL] / 1000.0)
 	row.append(_acc[Gap.PROC_SIGNAL] / 1000.0)
 	row.append_array(_disp_phys)
+	row.append(_bench_time())
 	_rows.append(row)
 	if total >= DETAIL_THRESHOLD_US and _details.size() < MAX_DETAIL_FRAMES:
 		var counter_delta := {}
@@ -340,6 +343,14 @@ func _sample_display() -> void:
 	_disp_phys[3] = 1.0 if DisplayPacing.interpolation_enabled() else 0.0
 
 
+func _bench_time() -> float:
+	var scene := get_tree().current_scene
+	if scene == null:
+		return -1.0
+	var value: Variant = scene.get("_bench_elapsed")
+	return float(value) if value is float else -1.0
+
+
 func _scene_name() -> String:
 	var scene := get_tree().current_scene
 	return String(scene.name) if scene != null else ""
@@ -372,7 +383,7 @@ func dump() -> void:
 	if OS.has_environment("AGL_FRAME_PROBE_TAG"):
 		tag += "_" + OS.get_environment("AGL_FRAME_PROBE_TAG").validate_filename()
 	var ts := Time.get_datetime_string_from_system(true).replace(":", "").replace("-", "").replace("T", "_")
-	var dir := "res://bench/results"
+	var dir := "res://bench/results" if OS.has_feature("editor") else "user://bench/results"
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(dir))
 	var base := "%s/frame_probe_%s_%s" % [dir, tag, ts]
 	var csv := FileAccess.open(base + ".csv", FileAccess.WRITE)

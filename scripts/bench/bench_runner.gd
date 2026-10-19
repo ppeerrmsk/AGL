@@ -350,9 +350,10 @@ func _ready() -> void:
 
 	# 输出路径：bench/results/<scenario>_<UTC YYYYMMDD_HHMMSS>.txt
 	var ts: String = Time.get_datetime_string_from_system(true).replace(":", "").replace("-", "").replace("T", "_")
-	_out_path = "res://%s/%s_%s.txt" % [OUT_DIR_REL, bench_scenario, ts]
-	# 确保输出目录存在（编辑器 / dev 模式下 res:// = 项目根）
-	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://%s" % OUT_DIR_REL))
+	# 编辑器 / dev 模式下 res:// = 项目根；导出包里 res:// 只读，改写 user://（同 EventLogger 口径）
+	var out_root := "res://" if OS.has_feature("editor") else "user://"
+	_out_path = "%s%s/%s_%s.txt" % [out_root, OUT_DIR_REL, bench_scenario, ts]
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(out_root + OUT_DIR_REL))
 
 	# 把开关写到 SceneTree.meta，survivor_mode._ready 读这些 meta 进入 bench 分支
 	get_tree().set_meta("bench_mode", true)

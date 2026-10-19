@@ -31,6 +31,10 @@ var _hlod_quality_failures: Array[Dictionary] = []
 var _hlod_gaps: Array[Dictionary] = []
 var _hlod_gap_active := false
 const WALL_SAMPLE_LIMIT := 120000
+## 单位数扩展诊断：AGL_TOKYO_BENCH_COMPOSITION="战斗机:直升机:火炮:舰船"（每侧），只用于 C2。
+const COMPOSITION_ENV := "AGL_TOKYO_BENCH_COMPOSITION"
+var _composition_override: Dictionary = {}
+var _census_start := ""
 
 
 func _ready() -> void:
@@ -186,6 +190,8 @@ func _process(delta: float) -> void:
 						"qualified":overlay.display_qualified,"covered":overlay.display_covered,"grace":overlay._display_grace}
 				_frame_timeline.append(row)
 		_wall_previous_usec = now
+		if _census_start.is_empty():
+			_census_start = _unit_census()
 		if is_instance_valid(_map_features):
 			var map: Variant = _map_features._tokyo_volume
 			if is_instance_valid(map) and map.has_method("_target_committed"):
@@ -225,8 +231,17 @@ func _process(delta: float) -> void:
 
 
 func _bench_force_battlefield_atmosphere_stress() -> void:
-	var members := 48 if _tokyo_profile.contains("_c2") else 36
-	var span := 12000.0 if members == 48 else 4000.0
+	var wide := _tokyo_profile.contains("_c2")
+	var members := 48 if wide else 36
+	var span := 12000.0 if wide else 4000.0
+	if wide and not OS.get_environment(COMPOSITION_ENV).is_empty():
+		_composition_override = parse_composition(OS.get_environment(COMPOSITION_ENV))
+		if _composition_override.is_empty():
+			_bench_finish_now("terminal=tokyo_composition_rejected\n", 1)
+			return
+		# 每侧四类演员 + 固定两组防空锚点（各 AA+SAM）+ 一对轰炸机。
+		members = 2 * (int(_composition_override.fighters) + int(_composition_override.helis)
+			+ int(_composition_override.artillery) + int(_composition_override.ships)) + 6
 	var zoom_value := _near_base_zoom if _tokyo_profile.contains("_near") else 1050.0 / span
 	print("[Tokyo combat] constructing ", members, "-actor city fixture")
 	player_aircraft.global_position = _city_center
@@ -242,6 +257,7 @@ func _bench_force_battlefield_atmosphere_stress() -> void:
 	_bench_atmosphere_experiment = BattlefieldAtmosphereExperimentScript.new()
 	add_child(_bench_atmosphere_experiment)
 	_bench_atmosphere_experiment.setup(self, _spawner)
+	_bench_atmosphere_experiment.stress_composition_override = _composition_override
 	var launched: bool = _bench_atmosphere_experiment.launch_stress_battle(members, span, _city_center)
 	if not launched:
 		_bench_finish_now("terminal=tokyo_fixture_launch_failed\n", 1)
@@ -256,6 +272,45 @@ func _bench_force_battlefield_atmosphere_stress() -> void:
 		if ai != null:
 			ai.enable_combat = false
 			ai.release_target(AIController.TargetSource.TS_SCORED, "Tokyo map fixed baseline")
+
+
+static func parse_composition(text: String) -> Dictionary:
+	var parts := text.split(":")
+	if parts.size() != 4:
+		return {}
+	for part in parts:
+		if not part.is_valid_int() or int(part) < 1 or int(part) > 120:
+			return {}
+	# 直升机按双机编组生成，奇数会被向上补齐；这里显式拒绝，避免报告单位数与实际不符。
+	if int(parts[1]) % 2 != 0:
+		return {}
+	return {"fighters": int(parts[0]), "helis": int(parts[1]), "artillery": int(parts[2]), "ships": int(parts[3])}
+
+
+## 单位普查：飞机 / 地面 / 舰船数量与飞机 LOD、物理处理状态；mixed 样本全员无敌，数量全程不变。
+func _unit_census() -> String:
+	var aircraft := 0
+	var processing := 0
+	var lod := [0, 0, 0]
+	var ground := 0
+	var naval := 0
+	var other := 0
+	for unit in CombatUnit.all_units:
+		if not is_instance_valid(unit) or unit.is_destroyed:
+			continue
+		if unit is Aircraft:
+			aircraft += 1
+			processing += int(unit.is_physics_processing())
+			lod[clampi((unit as Aircraft).lod_level, 0, 2)] += 1
+		elif unit is GroundUnit:
+			ground += 1
+		elif unit is NavalUnit:
+			naval += 1
+		else:
+			other += 1
+	return JSON.stringify({"elapsed": _bench_elapsed, "aircraft": aircraft, "aircraft_processing": processing,
+		"lod0": lod[0], "lod1": lod[1], "lod2": lod[2], "ground": ground, "naval": naval, "other": other,
+		"composition": _composition_override})
 
 
 func _bench_update_camera_patrol() -> void:
@@ -277,7 +332,8 @@ func _bench_update_camera_patrol() -> void:
 func _capture_city() -> void:
 	var overlay: Variant = _map_features._tokyo_volume
 	print("[Tokyo combat] live map=", overlay.debug_state() if is_instance_valid(overlay) else "2d baseline")
-	get_viewport().get_texture().get_image().save_png("res://bench/results/" + _tokyo_profile + ".png")
+	var out_dir := "res://bench/results/" if OS.has_feature("editor") else "user://bench/results/"
+	get_viewport().get_texture().get_image().save_png(out_dir + _tokyo_profile + ".png")
 
 
 static func cell_peak_within_budget(state: Dictionary) -> bool:
@@ -305,6 +361,7 @@ func _bench_finish_now(summary: String, exit_code: int = 0) -> void:
 			exit_code = 1
 	if _static_shadow != null:
 		summary += "\ntokyo_static_shadow=" + JSON.stringify(_static_shadow.stats) + "\n"
+	summary += "\ntokyo_unit_census_start=" + _census_start + "\ntokyo_unit_census_end=" + _unit_census() + "\n"
 	var quantiles := RenderClock.percentiles_usec(_wall_intervals)
 	quantiles["complete"] = _wall_intervals.size() == _wall_samples
 	summary += "\ntokyo_wall_percentiles=" + JSON.stringify(quantiles) + "\n"
