@@ -4,6 +4,7 @@
 - [2026-10-14当前完整运行地图与性能复现](2026-10-14-current-map-runtime-repro.md)：M20分包下载、完整性校验、安装与固定性能入口。
 - [2026-10-14东京湾工程接手需求](2026-10-14-tokyo-map-engineering-requirements.md)：目标、约束和验收矩阵。
 - [2026-10-17性能诊断与C#迁移待办](2026-10-17-performance-diagnosis.md)：卡顿三类根因、实测数据、逐项修法与 2026-10-18 在 GDScript 中的实施结果。
+- [2026-10-19物理步成本：release包对照与单位数扩展曲线](2026-10-19-physics-step-scaling.md)：release 比 tools 快多少、每架飞机每物理步的成本、60 帧能撑多少架，以及 M20 打不进 PCK、导出包剪影缺失等发现。
 
 返回 [文档入口](../README.md)；要把交接稿里的代码发现固化为长期导航，更新
 [Reference Index](../reference/_INDEX.md) 及对应专项索引。

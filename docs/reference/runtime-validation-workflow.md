@@ -24,6 +24,8 @@ signal 或总线路由断言，也不写入 `user://audio.cfg`；正常 F5 游�
 
 用户要求实际操作验收时，可在 `Shadow Visual` 前显式设置 `AGL_BENCH_INTERACTIVE=1`，把本次窗口显示在屏幕内。默认仍是屏外窗口；锁、超时、错误门和自动测试静音不变。交互截图与操作会扰动帧时，不能把该会话当标准性能样本；结束后清除此进程环境开关，再跑标准C1/C2。
 
+对比 release 包时同样只经 wrapper：`AGL_BENCH_EXPORT_RELEASE=<项目外绝对路径\X.exe>` 在 Shadow 副本里用当前编辑器导出（预设名可用 `AGL_BENCH_EXPORT_PRESET` 改），`AGL_BENCH_EXPORTED_EXE=<X.exe>` 用导出包（同名 `.pck`）跑同一场景；导出包把结果写到 `user://bench/results/`，wrapper 结束后搬回 `bench/results/`。两者互斥，锁、超时、作业对象与错误门不变。M20 东京地图包不能整体打进 PCK，做法见[物理步扩展测量](../handoffs/2026-10-19-physics-step-scaling.md)。
+
 ## 结果口径
 
 

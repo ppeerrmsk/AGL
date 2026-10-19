@@ -89,7 +89,7 @@ GDScript 到 C# 的收益只落在"脚本自身的执行开销"上（解释执�
 
 ## 5. 未完成 / 待确认
 
-- **release 与 debug 差距未测**：已安装 4.7.2 标准导出模板（`%APPDATA%\Godot\export_templates\4.7.2.stable`，SHA-512 与官方一致），对比测试在开始前暂停。迁移后应直接比较 C# release 包与当前 GDScript release 包。
+- **release 与 debug 差距未测**：已安装 4.7.2 标准导出模板（`%APPDATA%\Godot\export_templates\4.7.2.stable`，SHA-512 与官方一致），对比测试在开始前暂停。迁移后应直接比较 C# release 包与当前 GDScript release 包。（2026-10-19 已测，见 [物理步扩展测量](2026-10-19-physics-step-scaling.md)：C2 物理步脚本 release 快约 17.5%。）
 - `scripts/survivor/building_preloader.gd` 的矢量地图预热只在 debug 构建执行，release 包的加载流程与地图层会不同，验收时要分别看。
 - 13 分钟局里 1 个 31.6ms 的渲染端原生尖峰未定位（需要原生剖析）。
 - 382ms 的冷启动冻结只在第一次遇到某事件时出现，剖析复跑未复现，按 A2/A3 的预载原则处理。

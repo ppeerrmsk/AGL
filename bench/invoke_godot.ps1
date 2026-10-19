@@ -223,6 +223,42 @@ function Copy-ShadowOutputs([string]$sourceShadow, [string]$destinationProject) 
     }
 }
 
+function Assert-ExportPath([string]$path, [string]$label) {
+    # Export outputs and exported programs must be absolute .exe paths outside the
+    # project, so nothing lands in a directory the Godot editor scans.
+    if (-not [System.IO.Path]::IsPathRooted($path) -or -not $path.EndsWith('.exe', [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "$label must be an absolute .exe path: $path"
+    }
+    $resolvedPath = [System.IO.Path]::GetFullPath($path)
+    $projectPrefix = [System.IO.Path]::GetFullPath($ProjectDir).TrimEnd('\') + '\'
+    if ($resolvedPath.StartsWith($projectPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "$label must be outside the project directory: $resolvedPath"
+    }
+    return $resolvedPath
+}
+
+function Move-ExportedRunOutputs([datetime]$since, [string]$destinationProject) {
+    # res:// is read-only in an exported build, so BenchRunner / FrameProbe / EventLogger
+    # write user:// instead. Move only files written after this launch back to
+    # bench\results and logs, matching what Copy-ShadowOutputs does for Shadow runs.
+    $userDir = Join-Path $env:APPDATA 'Godot\app_userdata\AGL'
+    $moves = @(
+        @{ From = (Join-Path $userDir 'bench\results'); Filter = '*'; To = (Join-Path $destinationProject 'bench\results') },
+        @{ From = $userDir; Filter = 'combat_log_*.txt'; To = (Join-Path $destinationProject 'logs') }
+    )
+    foreach ($move in $moves) {
+        if (-not (Test-Path -LiteralPath $move.From -PathType Container)) {
+            continue
+        }
+        New-Item -ItemType Directory -Path $move.To -Force | Out-Null
+        Get-ChildItem -LiteralPath $move.From -Filter $move.Filter -File -Force | Where-Object {
+            $_.LastWriteTime -ge $since
+        } | ForEach-Object {
+            Move-Item -LiteralPath $_.FullName -Destination (Join-Path $move.To $_.Name) -Force
+        }
+    }
+}
+
 function Acquire-BenchLock {
     New-Item -ItemType Directory -Path (Split-Path -Parent $lockDir) -Force | Out-Null
     try {
@@ -337,9 +373,41 @@ try {
     if ($ProcDumpExe -ne '' -and -not (Test-Path -LiteralPath $ProcDumpExe -PathType Leaf)) {
         throw "ProcDump does not exist: $ProcDumpExe"
     }
+    # Release-build measurement (explicit opt-in, mutually exclusive):
+    #   AGL_BENCH_EXPORT_RELEASE=<absolute X.exe outside the project> exports a release
+    #     build from the Shadow copy with GodotExe (preset: AGL_BENCH_EXPORT_PRESET);
+    #   AGL_BENCH_EXPORTED_EXE=<exported X.exe next to X.pck> runs the same bench scenario
+    #     on that exported build instead of the editor binary.
+    # Both keep the same bench lock, job object, watchdog and runtime-error gate.
+    $exportRelease = ''
+    $exportedExe = ''
+    $exportPreset = if ($env:AGL_BENCH_EXPORT_PRESET) { $env:AGL_BENCH_EXPORT_PRESET } else { 'Windows Desktop' }
+    if ($env:AGL_BENCH_EXPORT_RELEASE -and $env:AGL_BENCH_EXPORTED_EXE) {
+        throw 'AGL_BENCH_EXPORT_RELEASE and AGL_BENCH_EXPORTED_EXE are mutually exclusive'
+    }
+    if ($env:AGL_BENCH_EXPORT_RELEASE) {
+        $exportRelease = Assert-ExportPath $env:AGL_BENCH_EXPORT_RELEASE 'AGL_BENCH_EXPORT_RELEASE'
+        if ($RunMode -ne 'Shadow') {
+            throw 'release export only runs in Shadow mode (the editor import cache must stay isolated)'
+        }
+        if ($exportPreset -notmatch '^[A-Za-z0-9 _-]+$') {
+            throw "unsupported export preset name: $exportPreset"
+        }
+        New-Item -ItemType Directory -Path (Split-Path -Parent $exportRelease) -Force | Out-Null
+    }
+    if ($env:AGL_BENCH_EXPORTED_EXE) {
+        $exportedExe = Assert-ExportPath $env:AGL_BENCH_EXPORTED_EXE 'AGL_BENCH_EXPORTED_EXE'
+        $exportedPck = [System.IO.Path]::ChangeExtension($exportedExe, '.pck')
+        if (-not (Test-Path -LiteralPath $exportedExe -PathType Leaf) -or -not (Test-Path -LiteralPath $exportedPck -PathType Leaf)) {
+            throw "exported executable or its .pck is missing: $exportedExe"
+        }
+    }
     Acquire-BenchLock
 
-    if ($RunMode -eq 'InPlace') {
+    if ($exportedExe -ne '') {
+        # The exported build carries its own PCK; no project copy is read.
+        $runProjectDir = Split-Path -Parent $exportedExe
+    } elseif ($RunMode -eq 'InPlace') {
         if (Get-RunningGodotProcess) {
             [Console]::Error.WriteLine('[bench] ERROR: InPlace mode requires all Godot processes to be closed.')
             exit 3
@@ -374,7 +442,20 @@ try {
         $fixedFpsOption = "--fixed-fps $fixedFps "
     }
     $interactiveVisual = $DisplayMode -eq 'Visual' -and $env:AGL_BENCH_INTERACTIVE -eq '1'
-    if ($DisplayMode -eq 'Visual') {
+    $launchExe = $GodotExe
+    if ($exportRelease -ne '') {
+        $godotArguments = '--headless --path "{0}" --export-release "{1}" "{2}"' -f `
+            $runProjectDir.Replace('"', '\"'), $exportPreset, $exportRelease
+    } elseif ($exportedExe -ne '') {
+        $launchExe = $exportedExe
+        $benchWindowPosition = if ($interactiveVisual) { '80,80' } else { '32000,32000' }
+        if ($DisplayMode -eq 'Visual') {
+            $godotArguments = '{0}--rendering-method gl_compatibility --windowed --resolution 1600x900 --position {3} -- --bench={1} --duration={2}' -f `
+                $fixedFpsOption, $Scenario, $DurationSeconds, $benchWindowPosition
+        } else {
+            $godotArguments = '{0}--headless -- --bench={1} --duration={2}' -f $fixedFpsOption, $Scenario, $DurationSeconds
+        }
+    } elseif ($DisplayMode -eq 'Visual') {
         # Keep the real GL Compatibility renderer while placing the transient test
         # window off-screen. The process remains owned by the same watchdog/job.
         $benchWindowPosition = if ($interactiveVisual) { '80,80' } else { '32000,32000' }
@@ -401,10 +482,10 @@ try {
         New-Item -ItemType Directory -Path $dumpDir -Force | Out-Null
         $psi.FileName = $ProcDumpExe
         $psi.Arguments = '-accepteula -ma -e -x "{0}" "{1}" {2}' -f `
-            $dumpDir.Replace('"', '\"'), $GodotExe.Replace('"', '\"'), $godotArguments
+            $dumpDir.Replace('"', '\"'), $launchExe.Replace('"', '\"'), $godotArguments
         Write-Host "[bench] procdump=$ProcDumpExe"
     } else {
-        $psi.FileName = $GodotExe
+        $psi.FileName = $launchExe
         $psi.Arguments = $godotArguments
     }
     $psi.WorkingDirectory = $runProjectDir
@@ -417,13 +498,21 @@ try {
     $child = New-Object System.Diagnostics.Process
     $child.StartInfo = $psi
 
-    Write-Host "[bench] godot=$GodotExe"
+    Write-Host "[bench] godot=$launchExe"
+    if ($exportRelease -ne '') {
+        Write-Host "[bench] export-release preset=$exportPreset output=$exportRelease"
+    }
+    if ($exportedExe -ne '') {
+        $exportedVersion = (Get-Item -LiteralPath $exportedExe).VersionInfo
+        Write-Host "[bench] exported build file=$($exportedVersion.FileVersion) product=$($exportedVersion.ProductVersion) userdata=$(Join-Path $env:APPDATA 'Godot\app_userdata\AGL')"
+    }
     Write-Host "[bench] mode=$RunMode display=$DisplayMode project=$runProjectDir"
     if ($fixedFpsOption -ne '') {
         Write-Host "[bench] deterministic fixed-fps=$fixedFps (wall-clock sync disabled)"
     }
     Write-Host "[bench] scenario=$Scenario duration=${DurationSeconds}s timeout=${TimeoutSeconds}s"
     Write-Host '[bench] launching...'
+    $launchStartedAt = (Get-Date).AddSeconds(-1)
     if (-not $child.Start()) {
         throw 'Godot process failed to start.'
     }
@@ -496,6 +585,9 @@ try {
         [AglBenchNative]::CloseHandle($jobHandle) | Out-Null
     }
     Copy-ShadowOutputs $shadowProjectDir $ProjectDir
+    if ($exportedExe -ne '' -and $childStarted) {
+        Move-ExportedRunOutputs $launchStartedAt $ProjectDir
+    }
     if ($ownsLock -and (Test-Path -LiteralPath $lockDir)) {
         Remove-Item -LiteralPath $lockDir -Recurse -Force
     }
