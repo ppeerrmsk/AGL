@@ -37,6 +37,7 @@
 | [海洋与沙漠离线接触 AO 样板](systems/map-contact-ao.md) | system | done | ✗ | 1 |
 | [东京湾三维海岸线地图生产](systems/tokyo-bay-volume-map.md) | map | approved | ✗ | 302 |
 | [东京地图预计算与后台规划](systems/tokyo-prepared-streaming.md) | system | in-progress | ✗ | 3 |
+| [东京地图安装包的发行打包](systems/tokyo-map-distribution.md) | system | in-progress | ✗ | 1 |
 
 模板验证与核心垂直切片已经完成。当前生产顺序、WIP 上限、证据等级、地图七件套与发布完成线统一看
 [content-production-workflow](../planning/content-production-workflow.md)。旧 roadmap 和 evolution vertical slice

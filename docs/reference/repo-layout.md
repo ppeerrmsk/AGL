@@ -59,6 +59,7 @@ AGL/
 │   │   playable_aircraft.gd       # 主角档案（UI + 生存调味注入）
 │   │
 │   ├── ── 全局服务 ──
+│   │   map_packs.gd                                                # AutoLoad（第一个；导出包挂载地图 PCK）
 │   │   event_logger.gd / locale_manager.gd                         # AutoLoad
 │   │   audio/audio_manager.gd / presentation/presentation_director.gd
 │   │   meta/merit_ledger.gd / meta/career_archive.gd / meta/meta_shop.gd

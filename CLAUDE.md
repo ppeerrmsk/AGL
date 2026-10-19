@@ -28,10 +28,11 @@
 
 以 `project.godot [autoload]` 的登记顺序为准：
 
-1. **EventLogger / LocaleManager / AudioManager** — 日志、本地化与音频；
-2. **Presentation** — 表演导演与统一时间控制；
-3. **MeritLedger / CareerArchive / MetaShop** — 功勋、生涯档案与局外商店；
-4. **PerfBuckets / BenchRunner / RuntimeTuner** — 性能分桶、bench 调度与运行时调参。
+1. **MapPacks** — 导出包启动最早挂载随包分发的地图 PCK（必须排第一，见 [tokyo-map-distribution](docs/specs/systems/tokyo-map-distribution.md)）；
+2. **EventLogger / LocaleManager / AudioManager** — 日志、本地化与音频；
+3. **Presentation** — 表演导演与统一时间控制；
+4. **MeritLedger / CareerArchive / MetaShop** — 功勋、生涯档案与局外商店；
+5. **PerfBuckets / BenchRunner / RuntimeTuner** — 性能分桶、bench 调度与运行时调参。
 
 `CallsignDB` 是 `class_name` 静态服务，**不是 AutoLoad**。新增 AutoLoad 时同步本节、
 [project-overview.md](docs/project-overview.md) 与 [repo-layout.md](docs/reference/repo-layout.md)。

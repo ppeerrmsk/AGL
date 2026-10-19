@@ -390,7 +390,7 @@ Loading接管后墙钟 → `tests/tokyo_hlod_route_probe.gd` / `play_session`；
 
 过渡档XZ纹理/方格代理诊断 → `rendering/tokyo_hlod_surface.gd` / `textured_code`、`rendering/tokyo_hlod_overlay.gd` / `_bind_target`、`tests/tokyo_hlod_route_probe.gd` / `run`（六视野WALL_REVIEW同几何前后对照，纯色方案未通过）；原生三层成本核算 → `tests/tokyo_native_massing_cost.gd` / `run`，经`tests/tokyo_partition_stream_probe.gd` / `run`显式分派，资格与预算分别记录。
 
-版本化地图二进制导出过滤回归 → `tests/test_tokyo_component_page.gd` / `export_filter_checks`；读取实际 `export_presets.cfg` 并使用引擎路径匹配。
+版本化地图二进制导出过滤回归 → `tests/test_tokyo_component_page.gd` / `export_filter_checks`；读取实际 `export_presets.cfg` 并使用引擎路径匹配，断言主包 exclude_filter 排除这些路径（随地图包分发，见 tokyo-map-distribution）。
 
 增量资产复制与回读 → `tools/install_tokyo_incremental.ps1`（inventory SHA、限定tmp来源/全新版本路径、共享owner PID锁、逐文件摘要、默认不切换）。
 
@@ -571,7 +571,7 @@ HLOD的2/8槽领取/取消终态 → `tests/test_tokyo_hlod_stream.gd` / `pipeli
 
 东京无渲染信号慢帧诊断 → `tests/tokyo_volume_combat_runner.gd` / `_process` / `_bench_finish_now`，WALL_TRACE仅保存既有墙钟及CPU快照；流送子桶 → `rendering/tokyo_hlod_stream.gd` / `_step_textures` / `_matches`与`rendering/tokyo_cell_stream.gd` / `_process_stream`，上传/摘要/领取不重复累加根桶。
 
-正常东京湾安装入口 → `rendering/tokyo_installed_map.gd:5 package_path` / `rendering/tokyo_installed_map.gd:15 package_sha`；路由优先级回归 → `tests/test_tokyo_hlod_stream.gd:2035 installed_route_checks`；真实加载/操作记录 → `tests/tokyo_hlod_route_probe.gd:7 run` / `tests/tokyo_hlod_route_probe.gd:251 play_session`。用户直接启动脚本为 `play_installed.cmd`。
+正常东京湾安装入口 → `rendering/tokyo_installed_map.gd:5 package_path` / `rendering/tokyo_installed_map.gd:15 package_sha`；路由优先级回归 → `tests/test_tokyo_hlod_stream.gd:2035 installed_route_checks`；真实加载/操作记录 → `tests/tokyo_hlod_route_probe.gd:7 run` / `tests/tokyo_hlod_route_probe.gd:251 play_session`。用户直接启动脚本为 `play_installed.cmd`。发行打包：导出包挂载 → `map_packs.gd` / `_init`；M20 打成独立 PCK → `tests/build_tokyo_map_pack.gd` / `_build`（bench 构建任务 `tokyo_map_pack`）；主包导出过滤排除 `resources/maps/tokyo_playable/*`（`export_presets.cfg`）；静态守卫 → `tests/test_map_packs.gd` / `run`。
 
 现存低楼网格整块替换 → `tests/tokyo_solid_native_mesh.gd:27 merge_mesh` / `tests/tokyo_solid_native_mesh.gd:11 checks`；真实目录再打包 → `tests/build_tokyo_solid_native.gd:29 run` / `tests/build_tokyo_solid_native.gd:17 refresh` / `tests/build_tokyo_solid_native.gd:114 collect`（`bind`、`write_values` 保存绑定）。生产迁址 → `tests/package_tokyo_installed.gd:11 run` / `tests/package_tokyo_installed.gd:8 binding`；离线复制 → `tools/install_tokyo_playable.py` 的 `add` / `relocate` / `json_output` 与 CLI。均复用既有组件和覆盖协议，不新增常驻渲染所有者。
 

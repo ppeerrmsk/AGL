@@ -120,7 +120,9 @@
 
 Shader错误门回归：`tools/test_bench_shader_gate.ps1`提取`bench/invoke_godot.ps1`的`Get-BenchRuntimeErrorBlocks`，验证shader编译失败不会漏判成功。
 
-release 包测量：`bench/invoke_godot.ps1` / `Assert-ExportPath` / `Move-ExportedRunOutputs`，显式 `AGL_BENCH_EXPORT_RELEASE` 在 Shadow 副本里导出、`AGL_BENCH_EXPORTED_EXE` 用导出包跑同一 bench 场景，锁、作业对象、看门狗和错误门不变；用法与 M20 不进 PCK 的原因见[物理步扩展测量](../handoffs/2026-10-19-physics-step-scaling.md)。
+release 包测量：`bench/invoke_godot.ps1` / `Assert-ExportPath` / `Move-ExportedRunOutputs`，显式 `AGL_BENCH_EXPORT_RELEASE` 在 Shadow 副本里导出、`AGL_BENCH_EXPORTED_EXE` 用导出包跑同一 bench 场景，锁、作业对象、看门狗和错误门不变；用法与 M20 不进 PCK 的原因见[物理步扩展测量](../handoffs/2026-10-19-physics-step-scaling.md)；`AGL_BENCH_EXPORTED_CWD` 让导出包从项目外任意目录启动，验证与工作目录无关。
+
+东京地图发行打包（[规格](../specs/systems/tokyo-map-distribution.md)）：`map_packs.gd` / `_init`（AutoLoad `MapPacks`，第一个）在导出包里按 `rendering/tokyo_map/installed_packs` 相对可执行文件目录挂载 `maps/tokyo_playable_m20.pck`；`tests/build_tokyo_map_pack.gd` / `run` / `_build` / `_collect` / `_check_bindings`（bench 构建任务 `tokyo_map_pack`）用 PCKPacker 逐文件打包、核摘要并挂载回读，收据写 `bench/results/`；`tests/test_map_packs.gd` / `run`（单测 `map_packs`，进 `all`）守 MapPacks 第一个 AutoLoad、`installed_packs` 含当前版本包、导出预设排除地图包目录。
 
 独立mip合批候选：`tests/tokyo_independent_mip_batch.gd` / `build`，四页无硬件mip图集、逐级夹紧和统一平面网格，仅显式GPU对照使用。
 
@@ -400,7 +402,7 @@ release 包测量：`bench/invoke_godot.ps1` / `Assert-ExportPath` / `Move-Expor
 
 HLOD纯色几何诊断：`rendering/tokyo_hlod_surface.gd` / `textured_code`仅显式wall_solid_color与ordinary_building同时开启时使用旧色板屋顶/墙色，地表采样与alpha门不变；`tokyo_hlod_overlay.gd` / `_setup_geometry` / `_bind_target`接材质。`tests/tokyo_hlod_route_probe.gd` / `run`的WALL_REVIEW输出六同几何前后图及原生不变对照；诊断暴露方格代理过粗，不签美术通过。`tests/tokyo_native_massing_cost.gd` / `run`读取实际原生切面的三层成本与现有清晰度资格，经`tokyo_partition_stream_probe`显式输入分派，不放宽资格或安装混合表示。
 
-地图二进制导出包含门：`tests/test_tokyo_component_page.gd` / `export_filter_checks`核实际export_presets的旧根目录、M20与版本化分区路径，以引擎String.matchn规则匹配，防止编辑器可读而导出漏文件。
+地图二进制导出排除门：`tests/test_tokyo_component_page.gd` / `export_filter_checks`核实际export_presets的旧根目录、M20与版本化分区路径都被主包exclude_filter排除（以引擎String.matchn规则匹配）；这些文件改随独立地图包分发（[规格](../specs/systems/tokyo-map-distribution.md)），由`tests/build_tokyo_map_pack.gd`整目录打包。
 
 候选资源安全复制：`tools/install_tokyo_incremental.ps1`校验inventory摘要、tmp来源与全新版本目标，共用owner PID测试锁，隔离编辑器扫描后逐文件复制/回读；拒绝覆盖或抢锁，只解除自己创建的临时隔离标记，不改默认包。
 
