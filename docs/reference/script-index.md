@@ -599,6 +599,7 @@ M8正常滚轮交接：`rendering/tokyo_hlod_manifest.gd` / `PREFETCH_RATIO` / `
 首次飞机淡出暖绘：`experiments/volume_material_warmup.gd` / `configure_instanced`复用原32×32两帧暖绘，提交真实MultiMesh/custom_data三材质；`experiments/volume_world_probe.gd` / `setup`接prewarm_catalog，`_on_material_warmup_finished`保存纯值结果。无新增常驻tick，Headless跳过和取消释放沿原生命周期。
 
 HLOD/原生同池暂留：`rendering/tokyo_hlod_handoff.gd` / `catalog_index` / `native_qualified` / `streaming_bytes` / `combined_bytes` / `qualified`逐物理身份去重计费、提前选细目录及素材资格；`rendering/tokyo_hlod_overlay.gd` / `_committed_qualified` / `_handoff_bytes` / `_target_committed` / `_request_target`在新资源就绪前pins旧显示，完整目标ready与旧画面显示分开。`tests/tokyo_volume_combat_runner.gd` / `_process` / `_bench_finish_now`记录实际HLOD隐藏/等待/超预算帧，`max_transition_triangles`只统计真实提交网格。`rendering/tokyo_hlod_manifest.gd` / `select`显式allow_finer同时提前内部混合精度页；`tests/tokyo_hlod_route_probe.gd` / `patrol`总览及最近尺度巡航均进入报告硬门。
+地图换档跳变截图：`tests/tokyo_volume_combat_runner.gd` / `_lod_sweep_camera` / `_lod_sweep_capture`在显式`AGL_TOKYO_LOD_SWEEP=<秒>`下关闭巡检、从最远指数放大到最近，并在每次换档时保存前后两帧PNG与`tokyo_lod_sweep`摘要；默认关闭，正式局与既有bench不变。
 
 中景与合并街坊颜色同源：`tests/export_tokyo_massing_color.gd` / `run`只读导出真实catalog的16根两槽，复用`tokyo_residential_preview.gd` / `export_attributes`；`tests/tokyo_cells_lifecycle_runner.gd` / `_ready`显式MASSING_COLOR_SOURCE入口。逐页分辨率资格：`rendering/tokyo_hlod_manifest.gd` / `qualified_tree` / `select` / `retained`，低精父页不借更细目录资格；`tests/test_tokyo_hlod_manifest.gd` / `checks`覆盖父页禁止、完整叶切面、非法资格。`tests/build_tokyo_hlod_native_pages.gd` / `run`在geometry reuse时可核对复用父图，叶纹理重打包。
 
@@ -1818,7 +1819,7 @@ R96地表边界审查：`tests/tokyo_ground_boundary_review.gd` / `run` 在同�
 
 求解前的在途HLOD快速复用：`rendering/tokyo_map_planner.gd:339 _pending_hlod_covers` / `rendering/tokyo_hlod_overlay.gd:635 _pending_hlod_covers`；普通候选和桥接候选都按既有0.25秒预测检查目录及行级清晰度上限。无解原生回退的最小视野检查：`rendering/tokyo_hlod_overlay.gd:842 _select_native_fallback`，已有原生目标仍走原复用路径。回归：`tests/test_tokyo_hlod_stream.gd:1420 pending_hlod_expiry_checks`、`tests/test_tokyo_hlod_stream.gd:1463 projection_equivalence_checks`，经 `HLOD_STREAM_TEST` + `PROJECTED_COVERAGE_TEST` 聚焦入口，亦接既有all。
 
-逐帧时序：`tests/tokyo_volume_combat_runner.gd:178 _process` / `tests/tokyo_volume_combat_runner.gd:433 _bench_finish_now`；选择状态由 `rendering/tokyo_hlod_overlay.gd:276 _step_geometry` 有界采集。`tools/run_tokyo_map_handoff.ps1 -Trace -Interactive` 显式开启；`-Counterfactual` 额外求解替代方案，不是性能基线。用法见[当前地图复现](../handoffs/2026-10-14-current-map-runtime-repro.md#逐帧诊断)。
+逐帧时序：`tests/tokyo_volume_combat_runner.gd:188 _process` / `tests/tokyo_volume_combat_runner.gd:478 _bench_finish_now`；选择状态由 `rendering/tokyo_hlod_overlay.gd:276 _step_geometry` 有界采集。`tools/run_tokyo_map_handoff.ps1 -Trace -Interactive` 显式开启；`-Counterfactual` 额外求解替代方案，不是性能基线。用法见[当前地图复现](../handoffs/2026-10-14-current-map-runtime-repro.md#逐帧诊断)。
 
 ## M20联合预算桥接
 
