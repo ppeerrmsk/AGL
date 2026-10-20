@@ -54,6 +54,15 @@ var _activity_other_missiles := 0
 var _activity_bullet_sum := 0
 var _activity_samples := 0
 var _activity_clock := 0.0
+## LOD 跳变诊断：AGL_TOKYO_LOD_SWEEP=<秒> 时关闭巡检，镜头固定在锚点，从 ZOOM_MIN 指数放大到 ZOOM_MAX；
+## 地图每次换档（HLOD 目录或原生配置变化）存换档前、后两帧 PNG，供目视对照。只用于显式诊断，不进性能口径。
+const LOD_SWEEP_ENV := "AGL_TOKYO_LOD_SWEEP"
+const LOD_SWEEP_PAIR_LIMIT := 24
+var _lod_sweep_seconds := 0.0
+var _lod_sweep_prev_image: Image
+var _lod_sweep_prev_state := ""
+var _lod_sweep_prev_zoom := 0.0
+var _lod_sweep_pairs: Array[Dictionary] = []
 
 
 func _ready() -> void:
@@ -61,6 +70,7 @@ func _ready() -> void:
 	if OS.get_environment("AGL_TOKYO_DIAGNOSTIC_VSYNC")=="off":
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	_wall_trace = OS.get_environment("AGL_TOKYO_WALL_TRACE") == "1"
+	_lod_sweep_seconds = maxf(OS.get_environment(LOD_SWEEP_ENV).to_float(), 0.0)
 	_tokyo_profile = String(get_tree().get_meta("bench_scenario", "tokyo_volume_c1"))
 	if OS.get_environment("AGL_TOKYO_BENCH_MID") == "1":
 		_near_base_zoom = 0.9
@@ -179,6 +189,8 @@ func _process(delta: float) -> void:
 	# 所有东京性能入口都保留实际时钟硬门，不让delta摘要漏报卡顿。
 	var now := Time.get_ticks_usec()
 	var diagnostic_capture := PerfBuckets.extended_cpu_trace_enabled
+	if _lod_sweep_seconds > 0.0 and _bench_elapsed >= 3.0:
+		_lod_sweep_capture()
 	if _bench_elapsed >= 3.0:
 		if _wall_previous_usec > 0:
 			var interval := now - _wall_previous_usec
@@ -402,6 +414,9 @@ func _unit_census() -> String:
 
 
 func _bench_update_camera_patrol() -> void:
+	if _lod_sweep_seconds > 0.0:
+		_lod_sweep_camera()
+		return
 	var previous_min := _bench_camera_patrol_min_zoom
 	var previous_max := _bench_camera_patrol_max_zoom
 	super._bench_update_camera_patrol()
@@ -415,6 +430,36 @@ func _bench_update_camera_patrol() -> void:
 	if _bench_elapsed >= 3.0:
 		_bench_camera_patrol_min_zoom = minf(previous_min, near_zoom)
 		_bench_camera_patrol_max_zoom = maxf(previous_max, near_zoom)
+
+
+func _lod_sweep_camera() -> void:
+	var t := clampf((_bench_elapsed - 3.0) / _lod_sweep_seconds, 0.0, 1.0)
+	_camera_ctrl.follow_enabled = false
+	camera.rotation = 0.0
+	camera.global_position = _city_center
+	_bench_set_camera_zoom(CameraController.ZOOM_MIN * pow(CameraController.ZOOM_MAX / CameraController.ZOOM_MIN, t))
+
+
+func _lod_sweep_capture() -> void:
+	var map: Variant = _map_features._tokyo_volume if is_instance_valid(_map_features) else null
+	if not is_instance_valid(map) or not map.has_method("_target_committed"):
+		return
+	# 本节点（priority -10）先于地图处理：此刻读到的档位，正是视口纹理里上一帧画出来的档位。
+	var state := "%d:%s" % [map._committed_catalog, String(map._committed_cut.get("configuration", ""))]
+	var image := get_viewport().get_texture().get_image()
+	if not _lod_sweep_prev_state.is_empty() and state != _lod_sweep_prev_state \
+			and _lod_sweep_prev_image != null and _lod_sweep_pairs.size() < LOD_SWEEP_PAIR_LIMIT:
+		var index := _lod_sweep_pairs.size()
+		var stem := "%slod_sweep_%02d_" % ["res://bench/results/" if OS.has_feature("editor") else "user://bench/results/", index]
+		_lod_sweep_prev_image.save_png(stem + "a.png")
+		image.save_png(stem + "b.png")
+		_lod_sweep_pairs.append({"index":index,"elapsed":snappedf(_bench_elapsed, 0.01),
+			"zoom_before":snappedf(_lod_sweep_prev_zoom, 0.0001),"zoom_after":snappedf(camera.zoom.x, 0.0001),
+			"scale":snappedf(float(map.output_scale), 0.0001),"from":_lod_sweep_prev_state,"to":state,
+			"pages":map._committed.size(),"triangles":int(map._committed_cut.get("triangles", 0))})
+	_lod_sweep_prev_state = state
+	_lod_sweep_prev_image = image
+	_lod_sweep_prev_zoom = camera.zoom.x
 
 
 func _capture_city() -> void:
@@ -488,6 +533,8 @@ func _bench_finish_now(summary: String, exit_code: int = 0) -> void:
 		summary += "\ntokyo_draw_geometry_probe="+JSON.stringify(draw_state)+"\n"
 		if int(draw_state.underreported_frames)>0:
 			exit_code=1
+	if _lod_sweep_seconds > 0.0:
+		summary += "\ntokyo_lod_sweep=" + JSON.stringify(_lod_sweep_pairs) + "\n"
 	_capture_city()
 	var overlay: Variant = _map_features._tokyo_volume if is_instance_valid(_map_features) else null
 	var map_state: Dictionary = overlay.debug_state() if is_instance_valid(overlay) else {}
