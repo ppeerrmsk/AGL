@@ -152,6 +152,7 @@ const BUILD_TASKS: Dictionary = {
 	"tokyo_map_pack": "res://scripts/tests/build_tokyo_map_pack.gd",
 	"i18n_build": "res://scripts/tests/build_translations.gd",
 	"flare_impact_ab": "res://scripts/tests/test_flare_impact_ab.gd",
+	"sim_divisor_fidelity": "res://scripts/tests/test_sim_divisor_fidelity.gd",
 }
 
 ## 无需 RenderingServer、但必须真实跨帧处理 queue_free / SceneTree 信号顺序的集成测试场。

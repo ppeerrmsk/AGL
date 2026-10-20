@@ -1224,8 +1224,14 @@ func _physics_process_impl(delta: float) -> void:
 	# 超密集决战成员保持 LOD0/完整绘制，但把完整逻辑按稳定相位错开；跳帧仍 60Hz 位移。
 	# 在 misc/status 之前返回，避免 71 架在同一帧重复跑不需要 60Hz 的装备与状态扫描。
 	var dense_sim_divisor := maxi(1, int(get_meta(&"dense_battle_sim_divisor", 1)))
-	var dense_sim_phase := posmod(int(get_meta(&"dense_battle_sim_phase", 0)), dense_sim_divisor)
+	var dense_full_path := false
 	if dense_sim_divisor > 1:
+		# 离屏 LOD2 本身按 1/3 完整更新；错相不得比它更频繁（正式用户均 ≥3 或钉 LOD0，不受影响）。
+		if lod_level >= 2:
+			dense_sim_divisor = maxi(dense_sim_divisor, 3)
+		var dense_sim_phase := posmod(int(get_meta(&"dense_battle_sim_phase", 0)), dense_sim_divisor)
+		# bench 诊断（AGL_TOKYO_BENCH_SIM_PATH=full）：命中相位时走完整 LOD0 路径而非下方精简分支；正式局从不设置。
+		dense_full_path = bool(get_meta(&"dense_battle_sim_full_path", false))
 		if (_lod_frame + dense_sim_phase) % dense_sim_divisor != 0:
 			AircraftPhysics.apply_movement(self, movement_delta)
 			AircraftWeapons.update_passive_gunship(self, movement_delta)
@@ -1267,7 +1273,7 @@ func _physics_process_impl(delta: float) -> void:
 	# LOD 2（屏幕外）或超密集决战错帧：完整战术/武器按 divisor 更新，其余帧仍 60Hz 位移。
 	# dense_battle_sim_divisor 不改变 lod_level/visible/_draw，专供 The Crucible 保留高细节绘制；
 	# 只是把 71 架重复的战术规划错开，不删单位、不停火，delta 放大保持计时与射速语义。
-	if lod_level >= 2 or dense_sim_divisor > 1:
+	if lod_level >= 2 or (dense_sim_divisor > 1 and not dense_full_path):
 		# dense 分频已在上方按成员 phase 完成门控并把 delta 放大；这里不得再用
 		# `_lod_frame % sim_divisor` 二次门控，否则 phase!=0 的成员永远没有完整更新帧。
 		var dense_already_gated := dense_sim_divisor > 1
@@ -1368,7 +1374,7 @@ func _physics_process_impl(delta: float) -> void:
 			AircraftPhysics.update_fuel(self, every3_delta)
 			_check_ground_crash()
 			AircraftPhysics.update_g_load(self)
-		AircraftPhysics.apply_movement(self, delta)
+		AircraftPhysics.apply_movement(self, movement_delta)  # 错相跳帧已各自位移；未分频时与 delta 相同
 		if combat_target != null or (gunship_mode_active and is_player_squad()):
 			AircraftWeapons.auto_gun_scan(self)
 			AircraftWeapons.update_gun(self, delta)
@@ -1441,7 +1447,7 @@ func _physics_process_impl(delta: float) -> void:
 	AircraftPhysics.update_shock_absorb(self, delta)
 	_check_ground_crash()
 	AircraftPhysics.update_g_load(self)
-	AircraftPhysics.apply_movement(self, delta)
+	AircraftPhysics.apply_movement(self, movement_delta)  # 错相跳帧已各自位移；未分频时与 delta 相同
 	if trace: perf_t = _perf_lap("ac_phys.kine", perf_t)
 
 	AircraftWeapons.auto_gun_scan(self)

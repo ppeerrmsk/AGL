@@ -64,6 +64,7 @@ Sentinel 只在功能确实涉及其光环、护卫或 LOD 豁免时保留。历
 | spec | kind | status | reconstruction_complete | 说明 |
 |---|---|---|---|---|
 | [systems/player-fear-wraith-cone](systems/player-fear-wraith-cone.md) | system | in-progress | ✗ | 已批准试装：Wraith 历史击败 ≥3 次后才装配通用紫锥；5 秒远离实际来源、单机强制加力与状态遮蔽，电战预算免疫。强化解锁与通用能力分离；完整局平衡验收待续。 |
+| [systems/aircraft-sim-stagger](systems/aircraft-sim-stagger.md) | system | draft | ✗ | **非玩家飞机错相降频（草案，待确认）**：未与当前操控机直接交手的固定翼按完整 LOD0 路径屏内 1/2、屏外 1/3 轮转更新，位置逐步推进；前置修复现有 dense 分频的编队位移重复积分与二次门控（SEAM-055）、累计补偿步长、机炮补发回推；雷达分片解耦。依据 [2026-10-20 错相降频评估](../handoffs/2026-10-20-sim-divisor-stagger.md)：C2 均值拐点约 52 → 58/62 架。 |
 
 ---
 
